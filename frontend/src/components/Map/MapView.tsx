@@ -1277,85 +1277,39 @@ function applyRoadMaterialTrackOffsets(
   });
 }
 
-// 指定路線（外部静的データソース T51、KSJ N10/N12）。車ストレスと同じく
-// 路面と同じベクタソースを再利用する独立レイヤー。designationプロパティは該当区間のみ
-// 値を持つ（未該当はプロパティ欠落、DESIGNATION_COLOR_EXPRESSIONのcoalesceで灰色に倒す）。
-function ensureDesignationLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getLayer(DESIGNATION_LAYER_ID)) return;
-    map.addLayer({
-      id: DESIGNATION_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": DESIGNATION_COLOR_EXPRESSION as any,
-        "line-width": 3,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-opacity": DESIGNATION_OPACITY_EXPRESSION as any,
-        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
-        "line-offset": 0,
-      },
-      layout: { visibility: "none" },
-    });
+// 改善計画T465: designation（指定路線）・tunnel・oneway（いずれも一次属性、路面と同じ
+// ベクタソースを再利用する独立レイヤー）が、レイヤーID・色/不透明度式以外まったく同一の
+// ensure関数として3つコピペされていた（ゼロベース網羅レビュー指摘）ため、
+// makeEnsureAxisRampLayer/makeEnsureDedicatedWayValueLayerと同じ「1ファクトリ+N呼び出し」
+// パターンへ統一した。プロパティは該当区間のみ値を持ち、未該当はプロパティ欠落として
+// 各色式のcoalesce/case式が灰色（designation）・中立色（tunnel/oneway）に倒す。
+function makeEnsureAttributeLineLayer(
+  layerId: string,
+  colorExpression: unknown[],
+  opacityExpression: unknown[]
+): (map: MapLibreMap) => void {
+  return (map: MapLibreMap) => {
+    const applyData = () => {
+      if (map.getLayer(layerId)) return;
+      map.addLayer({
+        id: layerId,
+        type: "line",
+        source: ROAD_TILE_SOURCE_ID,
+        "source-layer": ROAD_TILE_SOURCE_LAYER,
+        paint: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "line-color": colorExpression as any,
+          "line-width": 3,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "line-opacity": opacityExpression as any,
+          // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
+          "line-offset": 0,
+        },
+        layout: { visibility: "none" },
+      });
+    };
+    runWhenStyleReady(map, applyData);
   };
-  runWhenStyleReady(map, applyData);
-}
-
-// トンネル（一次属性、OSMのtunnelタグ。改善計画: 地図上に描画可能な状態で保持している要素の
-// 洗い出しで判明した「観測配下にレイヤーが無いまま」を解消）。designationと同じく路面と
-// 同じベクタソースを再利用する独立レイヤー。tunnelプロパティは該当区間のみ値を持つ
-// （未該当はプロパティ欠落、TUNNEL_COLOR_EXPRESSIONのcase式で灰色に倒す）。
-function ensureTunnelLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getLayer(TUNNEL_LAYER_ID)) return;
-    map.addLayer({
-      id: TUNNEL_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": TUNNEL_COLOR_EXPRESSION as any,
-        "line-width": 3,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-opacity": TUNNEL_OPACITY_EXPRESSION as any,
-        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
-        "line-offset": 0,
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 一方通行（一次属性、OSM onewayタグ。改善計画T289）。tunnelと同じく路面と同じベクタ
-// ソースを再利用する独立レイヤー。onewayプロパティは該当区間のみ値を持つ
-// （双方向はプロパティ欠落、ONEWAY_COLOR_EXPRESSIONのcase式で灰色に倒す）。評価軸には
-// 組み込まないため、色は評価軸の危険色（AXIS_RAMP_COLORS）と混同しない中立色を使う
-// （staticAttributeLayers.ts: ONEWAY_COLOR参照）。
-function ensureOnewayLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getLayer(ONEWAY_LAYER_ID)) return;
-    map.addLayer({
-      id: ONEWAY_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-color": ONEWAY_COLOR_EXPRESSION as any,
-        "line-width": 3,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-opacity": ONEWAY_OPACITY_EXPRESSION as any,
-        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
-        "line-offset": 0,
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
 }
 
 // 事故レイヤー（外部静的データソース T50）。road_surfaceとは独立のベクタソース・タイル
@@ -1465,8 +1419,8 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 // 二次軸の汎用rampレイヤー（改善計画T145b）。axis-catalog.json（backendレジストリ生成物）の
 // kind="ramp"軸ごとに、road_surfaceタイルへ焼き込み済みの事実プロパティ（per-km密度）を
 // カタログ宣言のしきい値で色分けする線レイヤーを自動生成する。ensure関数は他の静的
-// レイヤー（ensureDesignationLayer等）と同じ「初期化時に一度だけ追加、以降はvisibility
-// 切替のみ」パターン。
+// レイヤー（makeEnsureAttributeLineLayer等）と同じ「初期化時に一度だけ追加、以降は
+// visibility切替のみ」パターン。
 function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     runWhenStyleReady(map, () => {
@@ -1524,9 +1478,9 @@ export function buildStaticOverlayLayers(
     // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
     // 吸収されたため、以前ここにあった専用エントリ（ensureCarStressLayer）は不要になった。
     ...axisOverlayLayers,
-    { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: ensureDesignationLayer },
-    { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: ensureTunnelLayer },
-    { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
+    { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION) },
+    { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION) },
+    { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION) },
     // 改善計画T405/T440: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。windは現状display_thresholds_overrideの編集経路を持たないため
@@ -1853,24 +1807,16 @@ function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
   return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}</div>`;
 }
 
-// 改善計画T54: 停止要因POIのクリックポップアップ用プロパティ。
-interface StopPoiPopupProperties {
+// 改善計画T54/T101（T465で統合）: 停止要因POI・補給休憩POIのクリックポップアップ用
+// プロパティは同じ形（{kind}）で、ラベル辞書とprefix文言が違うだけの2組がほぼ同一の
+// まま別々定義されていた（ゼロベース網羅レビュー指摘）。1つの関数へ統合する。
+interface PoiPopupProperties {
   kind?: string | null;
 }
 
-function buildStopPoiPopupHtml(properties: StopPoiPopupProperties): string {
-  const label = properties.kind ? (STOP_POI_LABELS[properties.kind] ?? properties.kind) : "不明";
-  return `<div style="${POPUP_BODY_STYLE}">停止要因: ${label}</div>`;
-}
-
-// 改善計画T101: 補給・休憩ポイントPOIのクリックポップアップ用プロパティ（StopPoiPopupPropertiesと同じ形）。
-interface SupplyPoiPopupProperties {
-  kind?: string | null;
-}
-
-function buildSupplyPoiPopupHtml(properties: SupplyPoiPopupProperties): string {
-  const label = properties.kind ? (SUPPLY_POI_LABELS[properties.kind] ?? properties.kind) : "不明";
-  return `<div style="${POPUP_BODY_STYLE}">補給・休憩: ${label}</div>`;
+function buildPoiPopupHtml(prefix: string, labels: Record<string, string>, properties: PoiPopupProperties): string {
+  const label = properties.kind ? (labels[properties.kind] ?? properties.kind) : "不明";
+  return `<div style="${POPUP_BODY_STYLE}">${prefix}: ${label}</div>`;
 }
 
 interface MapViewProps {
@@ -2104,6 +2050,13 @@ export default function MapView({
   // 無言で空白のまま永久に止まる問題があった。スタイルが一度もreadyにならないまま
   // errorが起きた場合はユーザーへ可視のメッセージを出す。
   const [styleLoadFailed, setStyleLoadFailed] = useState(false);
+  // 改善計画T465: 「変わらないデータを更新」によるmap.setStyle()呼び出し中（新スタイルの
+  // "style.load"がまだ来ていない間）はtrue。__rcStyleReadyは一度trueになったら永久に
+  // trueのまま（runWhenStyleReadyが頼る"load"は地図の生涯で一度しか発火しないため
+  // リセットできない）ため、handleMapErrorのisFatal判定はこのrefも別途参照する
+  // （初回ロード成功後にsetStyle()が失敗してもstyleLoadFailedバナーが出なかった
+  // バグの修正、ゼロベース網羅レビュー指摘）。
+  const styleReloadPendingRef = useRef(false);
   // 初期表示直後は基礎地図タイルの取得が終わるまで数秒間ほぼ白紙のまま何も見えず、
   // 初めて開いたユーザーには「壊れている」ように映りかねなかった。最初のidle
   // （表示中のタイル取得が一通り落ち着いたタイミング）までスケルトンを重ねて示す。
@@ -2578,9 +2531,9 @@ export default function MapView({
         feature.layer.id === ACCIDENT_LAYER_ID
           ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
           : feature.layer.id === STOP_POI_LAYER_ID
-            ? buildStopPoiPopupHtml(feature.properties as unknown as StopPoiPopupProperties)
+            ? buildPoiPopupHtml("停止要因", STOP_POI_LABELS, feature.properties as unknown as PoiPopupProperties)
             : feature.layer.id === SUPPLY_POI_LAYER_ID
-              ? buildSupplyPoiPopupHtml(feature.properties as unknown as SupplyPoiPopupProperties)
+              ? buildPoiPopupHtml("補給・休憩", SUPPLY_POI_LABELS, feature.properties as unknown as PoiPopupProperties)
               : buildRoadSurfacePopupHtml(roadSurfaceProperties);
 
       popupRef.current?.remove();
@@ -2677,7 +2630,11 @@ export default function MapView({
       // 頼るmap.once("load", ...)がこの後発火しないままdrawBaseRoutes等の描画コールバックが
       // 永久にスキップされる）。デバッグモードに関わらずユーザーへ気づけるようにする。
       const tagged = map as unknown as { __rcStyleReady?: boolean };
-      const isFatal = !tagged.__rcStyleReady;
+      // 改善計画T465: __rcStyleReadyは初回ロード成功後は永久にtrueのままのため、
+      // 「変わらないデータを更新」によるsetStyle()が失敗したケースを見逃していた
+      // （styleReloadPendingRef宣言のコメント参照）。両方のフラグのいずれかが
+      // 「まだ有効なスタイルが無い」ことを示していればfatal扱いにする。
+      const isFatal = !tagged.__rcStyleReady || styleReloadPendingRef.current;
       // 改善計画T441: スタイル読み込み後に起きるerrorは、大半が個別タイル1枚の一過性の
       // 取得失敗（パン/ズーム中のキャンセル・瞬断等、次の取得サイクルで自然に解消する）
       // であり、上記の致命的ケースと同列の"error"にすると常時ノイズになる。
@@ -3136,16 +3093,29 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || refreshToken === 0) return;
+    // 改善計画T465: refreshTokenが短時間に連続変化した場合（連打）、複数の
+    // refreshBasemapCache→setStyle呼び出しが重なることへのガード（ゼロベース網羅
+    // レビュー指摘）。MapLibreは新しいsetStyle呼び出しで前のスタイル読み込みを
+    // 打ち切りうるため、1回目のstyle.loadリスナーが発火せずredrawAllLayersが一度も
+    // 呼ばれない可能性があった。既に進行中（style.load未確定）ならこの呼び出しは
+    // スキップする——非同期の待ち合わせに入る前、この同期区間のうちにフラグを立てる
+    // ことで、rapidに連続発火したeffect同士が両方ともガードを素通りする窓を閉じる。
+    if (styleReloadPendingRef.current) return;
+    styleReloadPendingRef.current = true;
 
     (async () => {
       try {
         await refreshBasemapCache();
-        map.once("style.load", () => redrawAllLayers(map));
+        map.once("style.load", () => {
+          styleReloadPendingRef.current = false;
+          redrawAllLayers(map);
+        });
         map.setStyle(`${MAP_STYLE}?t=${Date.now()}`);
       } catch (error) {
         // refreshBasemapCacheは以前例外を投げない実装だったため、ここでのcatchが無くても
         // 問題なかったが、失敗を呼び出し元へ伝えるよう修正した結果、未処理のPromise
         // rejectionになるのを防ぐ必要がある。
+        styleReloadPendingRef.current = false; // 失敗時も解放し、次のrefreshTokenで再試行できるようにする
         debugLog(
           "map:error",
           `basemap refresh failed: ${error instanceof Error ? error.message : String(error)}`,
