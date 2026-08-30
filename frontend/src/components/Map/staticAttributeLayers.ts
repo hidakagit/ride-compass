@@ -32,16 +32,16 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { MapLayerId } from "./mapLayers";
-import { AXIS_RAMP_COLORS, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
+import { AXIS_RAMP_COLORS, COLOR_UNKNOWN, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
 import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 
-const COLOR_UNKNOWN = "#9ca3af";
+// 改善計画T466: COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（設計原則2「定数の
+// 片側import」）。以前はこのファイルも独立定義を持っていた（ゼロベース網羅レビュー指摘）。
 
 // 改善計画（1次/2次の地図上表現の統一、竹→1次の点要素の順序付け）: このファイルの
 // カテゴリ色は、対象によって2種類に分かれる。判定基準は「backendの2次軸の計算式が
-// 実際にこのカテゴリを重み付けの材料として使っているか」（mapLayers.ts:
-// panelHintDetail、または各domain/*.pyの集計ロジックで確認できる）で、UIの見た目だけで
-// 決めない。
+// 実際にこのカテゴリを重み付けの材料として使っているか」（各domain/*.pyの集計ロジックで
+// 確認できる）で、UIの見た目だけで決めない。
 //
 // (A) 純粋な分類（順序を持たない）: 停止要因POIの種別（信号/横断歩道/一時停止/徐行/踏切）は
 // backend/app/infrastructure/road_graph_repository.pyのstop_per_km集計が全種別を等しく

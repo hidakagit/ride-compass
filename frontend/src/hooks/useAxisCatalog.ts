@@ -114,6 +114,7 @@ function buildCatalog(
       label: entry.label,
       description: entry.description,
       dedicatedWayValueLayer: entry.dedicated_way_value_layer,
+      displayThresholdsOverride: entry.display_thresholds_override ?? undefined,
     };
   });
   const catalogAxes = entries.map(toCatalogAxis);

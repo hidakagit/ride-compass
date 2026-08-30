@@ -1097,6 +1097,14 @@ export default function Home() {
     () => axisCatalog.secondaryAxes.find((axis) => axis.axisId === "gradient")?.displayThresholdsOverride,
     [axisCatalog.secondaryAxes]
   );
+  // 改善計画T466: 軸スタジオのwind軸display_thresholds_overrideをMapViewへ配線する
+  // （gradientBoundariesと同型）。windはdedicated_way_value_layer軸のためsecondaryAxes
+  // （kind="ramp"/"none"の地図表示カタログ）には含まれず、axisCatalog.axes
+  // （useAxisCatalog: PreferenceAxisDef一覧、全公開軸を列挙）から引く。
+  const windBoundaries = useMemo(
+    () => axisCatalog.axes.find((axis) => axis.axisId === "wind")?.displayThresholdsOverride,
+    [axisCatalog.axes]
+  );
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
@@ -1607,6 +1615,7 @@ export default function Home() {
             showOneway={layerVisibility.oneway}
             showWindAxis={showWindAxis}
             windAxisPenalties={windAxisPenalties}
+            windBoundaries={windBoundaries}
             showGradientAxis={showGradientAxis}
             gradientAxisValues={gradientAxisValues}
             gradientBoundaries={gradientBoundaries}

@@ -128,4 +128,17 @@ describe("buildAxisDifficultyRadarSvg", () => {
     expect(svg).toContain(rampColorForValue(100));
     expect(svg).toContain(rampColorForValue(50));
   });
+
+  // 改善計画T466: 呼び出し側（buildRouteSegmentChartPopupHtml）の`entries.length >= 3`判定を
+  // 経由しない直接呼び出しでも、3軸未満（0軸含む）で例外・破綻せず空文字を返すことを確認する。
+  it("3軸未満（多角形として破綻する軸数）は空文字を返す", () => {
+    expect(buildAxisDifficultyRadarSvg([])).toBe("");
+    expect(buildAxisDifficultyRadarSvg([{ axisId: "a", label: "A", value: 50 }])).toBe("");
+    expect(
+      buildAxisDifficultyRadarSvg([
+        { axisId: "a", label: "A", value: 0 },
+        { axisId: "b", label: "B", value: 100 },
+      ])
+    ).toBe("");
+  });
 });

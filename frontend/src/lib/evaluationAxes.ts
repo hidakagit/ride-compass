@@ -60,6 +60,11 @@ export interface PreferenceAxisDef {
    * RouteSettingsPanel.tsx（mapColorLayerIdFor）が、axis_idのハードコード比較
    * （wind/gradientのみ）ではなくこのフィールドで判定する。 */
   dedicatedWayValueLayer: boolean;
+  /** 改善計画T466: 軸スタジオのdisplay_thresholds_override（未設定時はundefined）。
+   * dedicatedWayValueLayer軸（現状windのみ）の評価軸グループ色分けしきい値に使う
+   * （windAxisLayer.ts: windAxisColorExpression、gradientのgradientBoundaries[T443]と同型）。
+   * SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない（常にundefined）。 */
+  displayThresholdsOverride?: readonly number[] | null;
 }
 
 // axis_idごとの説明文（1〜2文の要約）。ラベル自体は下記PREFERENCE_AXESが

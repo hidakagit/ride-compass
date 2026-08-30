@@ -36,6 +36,7 @@
 // 追加する軸は必ず「他の軸と独立して決まる事実」であること（例のような粒度違いの再掲は
 // 避ける）。
 
+import { COLOR_UNKNOWN } from "./axisLayers";
 import type { LegendEntry } from "./legendFilter";
 
 export type RoadFilterAxisId = "surface" | "highway";
@@ -72,7 +73,9 @@ export interface RoadFilterAxis {
 // AXIS_RAMP_COLORSの緑〜赤の評価配色）と色相が重なり、1次（観測された事実）と2次
 // （推定された評価）が地図上で混同されるという実機フィードバックを受け、評価色（緑・
 // アンバー・オレンジ・赤の系統）を避けた中立色へ差し替えた（COLOR_SLATE/COLOR_KHAKI）。
-const COLOR_UNKNOWN = "#9ca3af";
+// 改善計画T466: COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（windAxisLayer.tsと同じく
+// そちらからimportする、設計原則2「定数の片側import」）。以前はこのファイルも独立定義を
+// 持っていた（ゼロベース網羅レビュー指摘）。
 
 // 改善計画（1次要素の複数同時表示、対象外区間の低不透明度化）: 1次の複数レイヤーを
 // 同時にONにしても、視覚的な重なりが何を意味するか読み取れないという実機フィードバックを

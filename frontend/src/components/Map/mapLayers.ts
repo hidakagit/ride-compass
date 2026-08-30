@@ -268,11 +268,6 @@ export interface MapLayerDescriptor {
    * switch文へレイヤーごとハードコードされておりカタログ集約の方針（設計原則8）から
    * 外れていた。未指定のレイヤー（道路情報・ルート等）はパネル側が独自の特殊なJSXを持つ。 */
   panelHint?: string;
-  /** panelHintの下に箇条書きで出す判定根拠の内訳（改善計画T89）。「車ストレスの判定基準が
-   * 分かりにくい」という実機フィードバックを受け、1〜2文の要約（panelHint）だけでは
-   * 「何がどう加点/減点されるか」まで伝わらなかった箇所を補う。backend/app/domain/traffic.py:
-   * car_stress_levelの補正ロジックと1:1対応させ、ロジックが変わったらここも追従する。 */
-  panelHintDetail?: readonly string[];
 }
 
 // ramp軸のpanelHint（改善計画: 地図の見え方パネルの推定指標説明を簡略化）。以前は
@@ -425,8 +420,7 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
   // 新しい軸はbackendのレジストリ登録＋タイルへの事実焼き込みだけでここへ現れる
   // （このファイルの編集は不要）。凡例（段階・色・絞り込み）はSTATIC_FILTER_AXES
   // （staticAttributeLayers.ts、axisLayers.ts: buildAxisRampLegend由来）が
-  // 他の静的レイヤーと同じ仕組みで提供するため、panelHintDetail（文字のみの内訳）は持たない
-  // （改善計画: 停止密度・事故密度の凡例追加）。
+  // 他の静的レイヤーと同じ仕組みで提供する（改善計画: 停止密度・事故密度の凡例追加）。
   ...rampAxes.map(
     (axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),

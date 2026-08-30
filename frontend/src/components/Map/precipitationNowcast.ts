@@ -22,7 +22,12 @@
 // （precipitationFrames）が担い、表示層（page.tsx/MapView.tsx）へはdynamicWeather.tsの
 // 共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
 
-import { gridCellRing, type DynamicWeatherFrame, type DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
+import {
+  gridCellRing,
+  gridToFeatureCollection,
+  type DynamicWeatherFrame,
+  type DynamicWeatherRenderPayload,
+} from "@/components/Map/dynamicWeather";
 import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 import { parseJstTime } from "@/components/Map/windLayer";
@@ -235,17 +240,15 @@ function precipitationGridToCellFeatureCollection(
   frameIndex: number,
   spacingDeg: number
 ): GeoJSON.FeatureCollection<GeoJSON.Polygon, PrecipitationGridCellProperties> {
-  const features: GeoJSON.Feature<GeoJSON.Polygon, PrecipitationGridCellProperties>[] = [];
-  for (const point of grid) {
-    const mmPerHour = point.precipitation_mm[frameIndex];
-    if (mmPerHour == null) continue;
-    features.push({
+  return gridToFeatureCollection(
+    grid,
+    (point) => point.precipitation_mm[frameIndex] ?? null,
+    (point, mmPerHour) => ({
       type: "Feature",
       geometry: { type: "Polygon", coordinates: [gridCellRing(point.latitude, point.longitude, spacingDeg)] },
       properties: { mmPerHour },
-    });
-  }
-  return { type: "FeatureCollection", features };
+    })
+  );
 }
 
 /** 降水フレームの内部参照。sourceが"nowcast"なら気象庁ナウキャスト（実況〜60分先、

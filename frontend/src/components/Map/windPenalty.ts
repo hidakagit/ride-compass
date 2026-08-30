@@ -13,7 +13,7 @@
 // 踏襲する。
 
 import type { WindGridPoint } from "@/types/weather";
-import { gridCellRing } from "./dynamicWeather";
+import { gridCellRing, gridToFeatureCollection } from "./dynamicWeather";
 import { buildWindPenaltyColorExpression } from "./windAxisLayer";
 
 /** 走行方位と風向風速から、走行への風の影響（ペナルティ）を計算する。backend/app/domain/
@@ -40,18 +40,19 @@ export function windPenaltyGridToCellFeatureCollection(
   bearingDeg: number,
   spacingDeg: number
 ): GeoJSON.FeatureCollection<GeoJSON.Polygon, WindPenaltyGridCellProperties> {
-  const features: GeoJSON.Feature<GeoJSON.Polygon, WindPenaltyGridCellProperties>[] = [];
-  for (const point of grid) {
-    const speed = point.wind_speed_ms[frameIndex];
-    const direction = point.wind_direction_deg[frameIndex];
-    if (speed == null || direction == null) continue;
-    features.push({
+  return gridToFeatureCollection(
+    grid,
+    (point) => {
+      const speed = point.wind_speed_ms[frameIndex];
+      const direction = point.wind_direction_deg[frameIndex];
+      return speed == null || direction == null ? null : ({ speed, direction } as const);
+    },
+    (point, { speed, direction }) => ({
       type: "Feature",
       geometry: { type: "Polygon", coordinates: [gridCellRing(point.latitude, point.longitude, spacingDeg)] },
       properties: { windPenalty: windPenalty(speed, direction, bearingDeg) },
-    });
-  }
-  return { type: "FeatureCollection", features };
+    })
+  );
 }
 
 /** wind_penalty（["get","windPenalty"]）を色へ変換するMapLibre fill-color式。評価軸グループ

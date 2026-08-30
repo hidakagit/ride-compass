@@ -181,6 +181,27 @@ export function frameIndexForTime(frames: readonly { time: Date }[], target: Dat
   );
 }
 
+/** 格子点配列を1件ずつ辿り、extractが値を取れた点だけをFeatureへ変換してFeatureCollection
+ * へ積む共通ループ（改善計画T466: precipitationNowcast.ts・windPenalty.ts・windLayer.tsの
+ * 3ファイルが「格子点配列→frameIndex/refぶんの値を抜く→欠損はスキップ→Feature push」という
+ * ほぼ同型のfor文を独立実装していたのを統合）。extractがnullを返した点（値未取得・欠損）は
+ * スキップする（1点の欠損で全体を落とさない、という3ファイル共通の方針）。ジオメトリ形状
+ * （Point/Polygon）・プロパティの中身は呼び出し側のbuildFeatureに委ねるため、格子種別ごとの
+ * 意味的な違いはこのファイルへ持ち込まない。 */
+export function gridToFeatureCollection<TPoint, TValue, TGeometry extends GeoJSON.Geometry, TProps>(
+  grid: readonly TPoint[],
+  extract: (point: TPoint) => TValue | null,
+  buildFeature: (point: TPoint, value: TValue) => GeoJSON.Feature<TGeometry, TProps>
+): GeoJSON.FeatureCollection<TGeometry, TProps> {
+  const features: GeoJSON.Feature<TGeometry, TProps>[] = [];
+  for (const point of grid) {
+    const value = extract(point);
+    if (value == null) continue;
+    features.push(buildFeature(point, value));
+  }
+  return { type: "FeatureCollection", features };
+}
+
 /** 格子点(lat, lon)を中心とする1辺spacingDegの正方形セル（閉じたリング）。gridFill表現
  * （格子を指定色で塗る）のジオメトリ生成に使う。 */
 export function gridCellRing(latitude: number, longitude: number, spacingDeg: number): GeoJSON.Position[] {

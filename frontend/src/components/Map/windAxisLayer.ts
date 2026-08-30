@@ -22,31 +22,36 @@ export { tilesCoveringViewport, mergeDynamicWayValues } from "./dynamicWayValues
 export const WIND_AXIS_FEATURE_STATE_KEY = "windPenalty";
 
 // wind_penalty（m/s、正=向かい風・負=追い風、backend/app/domain/wind.py: WindCalculator.
-// wind_penalty参照）の色分けしきい値。5段階（RAMP_COLOR_ANCHORSの4色をrampColorForBandで
+// wind_penalty参照）の色分けしきい値の既定値。5段階（RAMP_COLOR_ANCHORSの4色をrampColorForBandで
 // 線形補間、axisLayers.ts参照）。±2m/sは体感し始める目安、±6m/sは強風域
-// （windLayer.ts: WIND_SPEED_COLOR_STOPSのBf4上限相当）を大まかに踏襲した暫定値——他のramp軸
-// と違い軸スタジオ・axis-catalogが持つthresholdsではない（このレイヤー自体が軸スタジオの
-// 管理対象外の暫定チップという位置づけ、T405.mdのスコープはRedis配信層とsetFeatureState
-// 連携の基盤でありUI・しきい値の作り込みはT406[パネル構成再編]以降の課題）。
+// （windLayer.ts: WIND_SPEED_COLOR_STOPSのBf4上限相当）を大まかに踏襲した暫定値。改善計画T466:
+// gradientはT443でaxis_definitions.display_thresholds_overrideを配線済みだが、windは
+// dedicated_way_value_layer軸のため軸カタログのSECONDARY_AXES経由では取得できず
+// evaluationAxes.ts: PreferenceAxisDef.displayThresholdsOverride経由で渡る
+// （page.tsx→MapView.tsx: windBoundariesプロパティ）。未設定時はこの既定値へフォールバックする。
 export const WIND_AXIS_THRESHOLDS: readonly number[] = [-6, -2, 2, 6];
 
-/** wind_penalty値（WIND_AXIS_THRESHOLDSのしきい値・配色）を色へ変換するMapLibre expressionを
+/** wind_penalty値（boundariesのしきい値・配色）を色へ変換するMapLibre expressionを
  * 組み立てる共通ロジック。値の取得元（feature-state or geojsonプロパティ）だけが呼び出し側で
  * 異なる——評価軸グループ（windAxisColorExpression、feature-state経由）と環境グループの
  * gridFill（windPenalty.ts: windPenaltyFillColorExpression、["get",...]経由）が同じ配色・
  * しきい値を共有するという契約（T400.md「2.」節）をコード上でも1箇所に集約する。値が無い地物
  * （まだフェッチしていない等）はCOLOR_UNKNOWN（灰色、他のramp軸の「不明」表示と同じ色）にする。 */
-export function buildWindPenaltyColorExpression(valueExpression: unknown[]): unknown[] {
-  const bandCount = WIND_AXIS_THRESHOLDS.length + 1;
+export function buildWindPenaltyColorExpression(
+  valueExpression: unknown[],
+  boundaries: readonly number[] = WIND_AXIS_THRESHOLDS
+): unknown[] {
+  const bandCount = boundaries.length + 1;
   const stepExpression: unknown[] = ["step", valueExpression, rampColorForBand(0, bandCount)];
-  WIND_AXIS_THRESHOLDS.forEach((threshold, index) => {
+  boundaries.forEach((threshold, index) => {
     stepExpression.push(threshold, rampColorForBand(index + 1, bandCount));
   });
   return ["case", ["==", valueExpression, null], COLOR_UNKNOWN, stepExpression];
 }
 
 /** wind_penaltyのfeature-state値を色へ変換するMapLibre expression。["feature-state", key]は
- * 該当キーが未設定のfeatureに対しnullを返す（MapLibreの仕様）。 */
-export function windAxisColorExpression(): unknown[] {
-  return buildWindPenaltyColorExpression(["feature-state", WIND_AXIS_FEATURE_STATE_KEY]);
+ * 該当キーが未設定のfeatureに対しnullを返す（MapLibreの仕様）。boundariesは省略時
+ * WIND_AXIS_THRESHOLDS（改善計画T466、buildWindPenaltyColorExpression参照）。 */
+export function windAxisColorExpression(boundaries?: readonly number[]): unknown[] {
+  return buildWindPenaltyColorExpression(["feature-state", WIND_AXIS_FEATURE_STATE_KEY], boundaries);
 }

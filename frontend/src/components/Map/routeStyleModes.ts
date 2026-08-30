@@ -8,6 +8,7 @@
 // - ルート未選択時はレイヤー自体が使えない（UI側で非活性）
 // 将来、トラフィック等「ルート沿いに出す有向・時間変化データ」もここへモードを足す。
 
+import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
 import type { AxisShape, CatalogAxis } from "./axisLayers";
 import type { RoutePreferenceWeights } from "@/types/route";
@@ -305,5 +306,17 @@ export function isRouteStyleModeId(
 }
 
 export function getRouteStyleMode(modes: readonly RouteStyleMode[], id: RouteStyleModeId): RouteStyleMode {
-  return modes.find((mode) => mode.id === id) ?? modes[0];
+  const found = modes.find((mode) => mode.id === id);
+  if (found) return found;
+  // 改善計画T466: 指定idが見つからない場合modes[0]へ無警告フォールバックしていた
+  // （軸のunpublish等でidが指すモード自体が消えた場合に、選択中の色分けモードが
+  // 静かに別のものへ切り替わる。ゼロベース網羅レビュー指摘）。実害を防ぐフォールバック
+  // 自体は妥当な設計のため維持しつつ、原因調査ができるよう警告ログだけ追加する。
+  debugLog(
+    "map:route-style-mode",
+    `route style mode "${id}" not found, falling back to "${modes[0]?.id ?? "(no modes)"}"`,
+    { requestedId: id, availableIds: modes.map((mode) => mode.id) },
+    "warn"
+  );
+  return modes[0];
 }

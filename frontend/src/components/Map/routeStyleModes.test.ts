@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as debugLogModule from "@/lib/debugLog";
 import { buildLegendFilterExpression } from "./legendFilter";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
@@ -45,6 +46,32 @@ describe("routeStyleModes", () => {
 
     const gradient = getRouteStyleMode(ROUTE_STYLE_MODES, "gradient");
     expect(gradient.colorExpression[1]).toEqual(["==", ["get", "gradient_percent"], null]);
+  });
+
+  // 改善計画T466: id未検出時のmodes[0]無警告フォールバックへ警告ログを追加した回帰テスト。
+  it("指定idが見つからない場合はmodes[0]へフォールバックしつつ警告を出す", () => {
+    const debugLogSpy = vi.spyOn(debugLogModule, "debugLog").mockImplementation(() => {});
+
+    const fallback = getRouteStyleMode(ROUTE_STYLE_MODES, "not-a-real-mode-id" as never);
+
+    expect(fallback.id).toBe(ROUTE_STYLE_MODES[0].id);
+    expect(debugLogSpy).toHaveBeenCalledWith(
+      "map:route-style-mode",
+      expect.stringContaining("not-a-real-mode-id"),
+      expect.objectContaining({ requestedId: "not-a-real-mode-id" }),
+      "warn"
+    );
+
+    debugLogSpy.mockRestore();
+  });
+
+  it("指定idが見つかった場合は警告を出さない", () => {
+    const debugLogSpy = vi.spyOn(debugLogModule, "debugLog").mockImplementation(() => {});
+
+    getRouteStyleMode(ROUTE_STYLE_MODES, "wind");
+
+    expect(debugLogSpy).not.toHaveBeenCalled();
+    debugLogSpy.mockRestore();
   });
 
   it("改善計画T440: gradient(shape.preprocess==='abs')はgradient_percentを符号付きのまま直接読む——軸idのハードコード分岐ではなくshapeの属性で判定する", () => {

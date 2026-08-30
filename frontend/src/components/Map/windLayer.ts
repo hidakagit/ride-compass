@@ -18,7 +18,11 @@
 // を組み立てる薄いラッパーのみを持つ（実際のGeoJSON構築・色/サイズの式化はwindFrames/
 // windRenderPayload、MapView.tsx側）。
 
-import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
+import {
+  gridToFeatureCollection,
+  type DynamicWeatherFrame,
+  type DynamicWeatherRenderPayload,
+} from "@/components/Map/dynamicWeather";
 import type { WindGridPoint } from "@/types/weather";
 import windGridConfig from "@/types/generated/wind-grid-config.json";
 
@@ -148,18 +152,19 @@ function windGridToFeatureCollection(
   grid: readonly WindGridPoint[],
   frameIndex: number
 ): GeoJSON.FeatureCollection<GeoJSON.Point, WindPointFeatureProperties> {
-  const features: GeoJSON.Feature<GeoJSON.Point, WindPointFeatureProperties>[] = [];
-  for (const point of grid) {
-    const speed = point.wind_speed_ms[frameIndex];
-    const direction = point.wind_direction_deg[frameIndex];
-    if (speed == null || direction == null) continue;
-    features.push({
+  return gridToFeatureCollection(
+    grid,
+    (point) => {
+      const speed = point.wind_speed_ms[frameIndex];
+      const direction = point.wind_direction_deg[frameIndex];
+      return speed == null || direction == null ? null : ({ speed, direction } as const);
+    },
+    (point, { speed, direction }) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
       properties: { speed, bearing: (direction + 180) % 360 },
-    });
-  }
-  return { type: "FeatureCollection", features };
+    })
+  );
 }
 
 /** grid[0]の時刻配列を、動的気象レイヤー共通のフレーム列（dynamicWeather.ts参照）へ変換する。

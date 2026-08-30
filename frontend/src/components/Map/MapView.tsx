@@ -1471,7 +1471,12 @@ export function buildStaticOverlayLayers(
   // 改善計画T443: 軸スタジオのgradient軸display_thresholds_override（page.tsx:
   // axisCatalog.secondaryAxes経由）。未設定時はgradientAxisColorExpression/
   // gradientFillColorExpressionのビルド時既定値（GRADIENT_BOUNDARIES）へフォールバックする。
-  gradientBoundaries?: readonly number[] | null
+  gradientBoundaries?: readonly number[] | null,
+  // 改善計画T466: 軸スタジオのwind軸display_thresholds_override（page.tsx:
+  // axisCatalog.axes経由、windはdedicated_way_value_layer軸のためsecondaryAxesには
+  // 含まれない）。未設定時はwindAxisColorExpressionのビルド時既定値（WIND_AXIS_THRESHOLDS）
+  // へフォールバックする。
+  windBoundaries?: readonly number[] | null
 ): readonly OverlayLayerEntry[] {
   return [
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
@@ -1481,11 +1486,10 @@ export function buildStaticOverlayLayers(
     { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION) },
     { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION) },
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION) },
-    // 改善計画T405/T440: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
+    // 改善計画T405/T440/T466: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
-    // source）を先に呼ぶ。windは現状display_thresholds_overrideの編集経路を持たないため
-    // 常に既定値。
-    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, windAxisColorExpression()) },
+    // source）を先に呼ぶ。
+    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, windAxisColorExpression(windBoundaries ?? undefined)) },
     // 改善計画T423/T440/T443: way_id→勾配配信層（評価軸グループとしての勾配）。
     { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, gradientAxisColorExpression(gradientBoundaries ?? undefined)) },
     // 改善計画T423/T443: 環境グループの勾配gridFill（タイル境界セル）。
@@ -1865,6 +1869,11 @@ interface MapViewProps {
    * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
    * setFeatureStateで路面タイルの地物へ差し込む（applyAxisFeatureStateValues参照）。 */
   windAxisPenalties: ReadonlyMap<number, number>;
+  /** 改善計画T466: 軸スタジオのwind軸display_thresholds_override（page.tsx:
+   * axisCatalog.axes経由、windはdedicated_way_value_layer軸のためsecondaryAxesには
+   * 含まれない）。未設定時はwindAxisColorExpressionのビルド時既定値
+   * （WIND_AXIS_THRESHOLDS）へフォールバックする。 */
+  windBoundaries?: readonly number[] | null;
   /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxis/windAxisPenaltiesと
    * 同型——「評価軸」グループとしての勾配。hooks/useDynamicWayValues.tsが現在のビューポート
    * に対して取得したway_id→effective_gradient（%、正=登り・負=下り）。 */
@@ -1978,6 +1987,7 @@ export default function MapView({
   showOneway,
   showWindAxis,
   windAxisPenalties,
+  windBoundaries,
   showGradientAxis,
   gradientAxisValues,
   gradientBoundaries,
@@ -2025,8 +2035,8 @@ export default function MapView({
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
   const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
   const staticOverlayLayers = useMemo(
-    () => buildStaticOverlayLayers(axisOverlayLayers, gradientBoundaries),
-    [axisOverlayLayers, gradientBoundaries]
+    () => buildStaticOverlayLayers(axisOverlayLayers, gradientBoundaries, windBoundaries),
+    [axisOverlayLayers, gradientBoundaries, windBoundaries]
   );
   const interactiveLayerIds = useMemo(
     () => buildInteractiveLayerIds(staticOverlayLayers),

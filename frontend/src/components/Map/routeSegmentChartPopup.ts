@@ -83,8 +83,12 @@ function polygonPoints(points: readonly (readonly [number, number])[]): string {
 /** entries（軸id・ラベル・0-100難易度）からレーダーチャートのSVG文字列を組み立てる。
  * 3軸未満は多角形として意味を持たない（線・点に潰れる）ため、呼び出し側
  * （buildRouteSegmentChartPopupHtml）でその場合はこの関数を使わず凡例リストのみへ
- * フォールバックする。 */
+ * フォールバックする。改善計画T466: exportされた公開関数のため、呼び出し側の判定漏れ・
+ * 直接呼び出しでも同じ不変条件（3軸以上）を自前で守るガードをここにも持つ
+ * （n=0だとangleStep=2π/0=Infinityになり得点が全て原点へ潰れる、n<3だと多角形として
+ * 破綻する）。 */
 export function buildAxisDifficultyRadarSvg(entries: readonly RadarEntry[]): string {
+  if (entries.length < 3) return "";
   const n = entries.length;
   const angleStep = (2 * Math.PI) / n;
   const angleAt = (i: number) => -Math.PI / 2 + i * angleStep;
