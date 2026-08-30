@@ -94,7 +94,7 @@ listAxisDefinitions() ──→ definitions（全軸）
   組み合わせで編集する。スライダーの範囲は材料ごとに大きく異なる値の目安にすぎず、
   範囲外の値は数値入力欄から直接指定できる。
 
-### categorical材料の値入力（改善計画T322/T340）
+### categorical材料の値入力
 
 選択した材料のdtypeで表示を切り替える:
 - `dtype="boolean"`: 従来どおり該当時(true)/非該当時(false)の2スコア入力。
@@ -104,7 +104,7 @@ listAxisDefinitions() ──→ definitions（全軸）
   「静かに一致しない行」として残る落とし穴を防ぐため）になる。候補一覧が空の材料
   （bicycle_infra等、動的値一覧に未対応）だけ自由テキスト入力のまま。
 
-## 材料が0件のときの防御（改善計画T424）
+## 材料が0件のときの防御
 
 `useMaterialCatalog()`は取得成功かつ0件のとき、静的フォールバックへは留まらず空配列を
 そのまま返す仕様（後述）。この場合`AxisComposer`はウィザード自体を表示せず、「材料
@@ -148,8 +148,7 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 - このフォームに編集欄を持たないフィールド（`priority_overrides`・
   `display_thresholds_override`の生JSON相当・`time_scope`・`supports_route_coloring`・
   `dedicated_way_value_layer`）も、既存軸の値をdraftへ素通しして保存時に再送する
-  （未送信だとサーバー側の既定値で上書きされ、既存軸の値が静かに失われるバグの再発防止、
-  コードコメントに修正実績あり）。
+  （未送信だとサーバー側の既定値で上書きされ、既存軸の値が失われるため）。
 - 軸スタジオが作る軸の`category`は常に`"推定"`固定（観測/動的は材料側の性質であり、
   材料を組み合わせて判定式を作る軸スタジオの仕組みからは生み出せないというユーザー判断）。
 

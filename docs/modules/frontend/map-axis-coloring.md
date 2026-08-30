@@ -170,5 +170,5 @@ RENDERERS`側の管理下にあり`STATIC_OVERLAY_LAYERS`に含まれないた�
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う`DYNAMIC_WEATHER_RENDERERS`汎用機構
 （風の矢印・降水ナウキャスト等）とは異なり、windAxis/gradientAxisは`mapLayers.ts:
 isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）・サイドバー
-（`MapLayersPanel.tsx`）のどちらにも一切現れない（改善計画T418でルート設定パネルへ
-起動導線を移設済み）。
+（`MapLayersPanel.tsx`）のどちらにも一切現れない。表示ON/OFFの起動導線は
+[ルート設定・結果パネル](route-settings-and-results.md)の`RouteSettingsPanel`が持つ。

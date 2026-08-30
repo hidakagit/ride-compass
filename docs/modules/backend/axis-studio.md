@@ -160,13 +160,13 @@ axis_admin API経由の変更後にこのダンプを忘れると、以後のfre
 評価側（`evaluate_axis_scalar`）は軸全体を「評価不能（None）」にするが、フロント側の
 自動導出expression（`buildAxisRampValueExpression`）はタイルプロパティ欠損を寄与0
 （coalesce）として扱う——本来「評価不能」な区間が地図上では「評価済みで良好（緑）」に
-誤表示されうる。T308時点で意図的に許容されテスト化済みの制約であり、実務上は稀
-（way単位の事前集計は欠損時0埋めが基本）だが、新規軸でrequired=True材料が実際に
-タグ欠損しやすい場合はこの不整合が顕在化しうる。
+誤表示されうる。テストで検証済みの許容された制約であり、実務上は稀（way単位の
+事前集計は欠損時0埋めが基本）だが、新規軸でrequired=True材料が実際にタグ欠損
+しやすい場合はこの不整合が顕在化しうる。
 
 ## 一次属性・二次軸レジストリ（`domain/registry.py`・`registry_defaults.py`、別系統）
 
-**`AXIS_DEFINITIONS`とは別の、並行するレジストリ機構**（T137由来）。`register_axis()`/
+**`AXIS_DEFINITIONS`とは別の、並行するレジストリ機構**。`register_axis()`/
 `register_primary_attribute()`が`_AXES`/`_PRIMARY_ATTRIBUTES`（モジュールレベルdict、
 `AXIS_DEFINITIONS`とは別オブジェクト）へ登録し、独自の排他制約チェック
 （`AxisInputConflictError`、`AXIS_DEFINITIONS`側の`check_material_exclusivity`/
@@ -191,7 +191,7 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 古い静的値のまま表示される）。
 
 `_register_axes()`（`registry_defaults.py`）は`AXIS_DEFINITIONS`を走査して公開軸のみを
-登録する（特定のaxis_idを名指しした条件分岐は持たない、T320で一本化済み）。`inputs`・
+登録する（特定のaxis_idを名指しした条件分岐は持たない）。`inputs`・
 `display`は`primary_attribute_ids_for()`・`axis_display_for()`（実行時APIと同一の純粋
 関数）から導出するため、ビルド時静的生成物と実行時APIの計算ロジック自体は分岐しない
 （分岐するのは「いつのAXIS_DEFINITIONSを見るか」というタイミングのみ）。

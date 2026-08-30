@@ -87,10 +87,8 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 2箇所マウントする。
 
 `cardinalLabel(bearingDeg)`（0〜360度→8方位の日本語ラベル）は`backend/app/domain/geo.py:
-compass_label`のラベル配列・丸めアルゴリズムの二重実装であり、`WindBearingSlider.test.ts`が
-既知の入出力ペアでドリフト検知する。表示専用の変換であり評価式そのものではないが、
-design-principles.md構造仕様1「軸固有の判断ロジック・計算式をfrontend側に持たない」と
-同種の性質を持つ二重実装である。
+compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側に持つ。
+`WindBearingSlider.test.ts`が既知の入出力ペアでbackendとの一致を検証する。
 
 ## RouteAxisProfile.tsx（選択中ルートの軸別内訳）
 

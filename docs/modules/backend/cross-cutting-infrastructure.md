@@ -86,10 +86,10 @@ FastAPI(lifespan=lifespan)
 | `get_session_factory()` | 20秒 | タイル配信（路面/POI/事故）・軸スタジオCRUD等、通常のリクエスト |
 | `get_route_generation_session_factory()` | 180秒 | ルート生成専用（`get_graph_service`・`get_elevation_attribute_service`が使う） |
 
-ルート生成（特にコールド時のRoad Graph再構築）は数十秒〜最大316秒かかりうる重い処理
-のため、タイル配信保護用の短いタイムアウト（20秒）を共有すると途中でキャンセルされる
-実測不具合があった。接続プールも分離しているため、ルート生成とタイル配信は接続を
-取り合わない（プール合計は最大30接続、本番PostgreSQLの`max_connections=100`に余裕）。
+ルート生成（特にコールド時のRoad Graph再構築）は数十秒〜最大300秒超かかりうる重い処理
+のため、タイル配信保護用の短いタイムアウト（20秒）を共有すると途中でキャンセルされる。
+接続プールも分離しているため、ルート生成とタイル配信は接続を取り合わない（プール合計は
+最大30接続、本番PostgreSQLの`max_connections=100`に余裕）。
 
 ## レート制限の集約（`api/dependencies.py: enforce_rate_limit`）
 
@@ -116,8 +116,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 | `GET /api/debug/db-status` | 不要（読み取り専用診断） | pending migrations・主要テーブルの直近import run状況・行数。DB障害時も500にせずWARNINGログ＋`reachable=false`を返す |
 
 `db-status`は「本番DBがコード上の期待に追いついているか」を1リクエストで確認する診断
-エンドポイント（過去の本番migration未適用事故2件の反省）。`road_graph_use_repository=
-false`のときは接続を試みずその旨だけ返す。
+エンドポイント。`road_graph_use_repository=false`のときは接続を試みずその旨だけ返す。
 
 ## `debug_admin.py`（`debug_mode`のランタイム切替）
 
@@ -195,7 +194,7 @@ push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed
   だけ抑制できる（エラー集計自体は正しく計上され続ける）。
 - 成功はDEBUG（`debug_mode`時のみ実質出力）。
 - 集計（`/api/debug/stats`）にはカテゴリ単位で呼び出し数・エラー数・キャッシュhit/miss・
-  平均/最大所要時間に加え、`retried_calls`/`retry_attempts_total`（再試行回数、
-  T92夜間502調査で追加）・`stale_fallback_used`（`fields["fallback"]`が
-  `"stale_cache"`で始まる場合、古いキャッシュで代用した回数）・直近のエラー種別/時刻も
+  平均/最大所要時間に加え、`retried_calls`/`retry_attempts_total`（再試行回数）・
+  `stale_fallback_used`（`fields["fallback"]`が`"stale_cache"`で始まる場合、古い
+  キャッシュで代用した回数）・直近のエラー種別/時刻も
   含む。

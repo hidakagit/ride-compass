@@ -141,7 +141,7 @@ localStorageへの保存・復元を1箇所に集約する。
 
 ## `MapView`（`Map/MapView.tsx`）との境界
 
-`page.tsx`は`MapView`へ約35個のpropsを渡す（表示フラグ・色分けデータ・コールバック）。
+`page.tsx`は`MapView`へ多数のprops（表示フラグ・色分けデータ・コールバック）を渡す。
 `MapView`自身はレイヤー固有の判断ロジックを持たず、渡された値をそのままMapLibreの
 source/layer操作へ変換する「汎用描画係」という位置づけを保っている
 （[静的レイヤー・道路表示](static-map-layers.md)・[動的気象レイヤー](dynamic-weather-layers.md)参照）。
