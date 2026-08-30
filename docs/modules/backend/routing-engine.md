@@ -194,8 +194,8 @@ gather開始前のprepare段階で逐次呼ばれるため対象外）。同一`
 ### `domain/route.py`
 
 - `Coordinates`・`RouteSegment`・`RouteSegmentDetail`（**gradient_percentは符号付きが
-  正準契約**——絶対値ではない。両エンジンがこれを守り、frontend`routeStyleModes.ts`が
-  この契約に依存する）・`RouteScoreComponent`・`RouteCandidate`。
+  正準契約**——絶対値ではない。frontend`routeStyleModes.ts`がこの契約に依存する）・
+  `RouteScoreComponent`・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `_merge_segment_bin`。
 
