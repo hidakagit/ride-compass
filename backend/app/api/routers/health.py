@@ -8,6 +8,7 @@ from app.config import settings
 from app.infrastructure.database import get_engine
 from app.infrastructure.debug_log import get_stats
 from app.infrastructure.migrate import list_pending_migrations
+from app.services.road_graph_engine import RoadGraphEngine
 from app.version import STARTED_AT
 
 logger = logging.getLogger("ridecompass.health")
@@ -65,9 +66,10 @@ def debug_stats() -> dict:
     return {
         "commit": settings.git_commit,
         "started_at": STARTED_AT.isoformat(),
-        # ルート生成エンジンは常にroad_graph（他エンジンは撤去済み）。SystemStatusPanel.tsxが
-        # 表示するためキー自体は残す。
-        "engine": "road_graph",
+        # ルート生成エンジンは常にRoadGraphEngine（他エンジンは撤去済み）。SystemStatusPanel.tsxが
+        # 表示するためキー自体は残す。RoadGraphEngine.engine_nameを正本として参照し、
+        # routes.py側（RouteGenerateResponse.engine）とのリテラル重複による将来の乖離を避ける。
+        "engine": RoadGraphEngine.engine_name,
         "debug_mode": settings.debug_mode,
         **get_stats(),
     }

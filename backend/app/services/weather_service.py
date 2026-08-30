@@ -14,8 +14,10 @@ class WeatherService:
 
     `get_conditions`は常に現在の気象を返す（呼び出し元は天気APIエンドポイント・
     RoadGraphEngineの起点判定のみで、いずれも過去/未来時刻を渡さない）。
-    ルート上の各点＋推定到達時刻（未来時刻）に対する天候は`get_conditions_many`
-    （WindService用、複数地点・複数時刻をまとめて解決）が担当する。
+    複数地点・複数時刻をまとめて解決する`get_conditions_many`/`prefetch`は
+    openrouteserviceエンジン専用のWindServiceが唯一の呼び出し元だったため、
+    改善計画T462でWindServiceを削除した結果、現在は呼び出し元が無い
+    （削除は別タスクへ切り出し済み）。
     """
 
     def __init__(self, client: WeatherClient, http_client: httpx.AsyncClient):
@@ -31,18 +33,19 @@ class WeatherService:
     async def prefetch(self, points: list[Coordinates]) -> None:
         """複数地点の予報をまとめて1回のOpen-Meteo呼び出しでキャッシュへ先読みする（結果は使わない）。
 
-        WindServiceが候補（方位）ごとに`get_conditions_many`を並列呼び出しすると、
-        候補数ぶん（最大8本）のOpen-Meteoリクエストがほぼ同時に発火してしまう
-        （本番のOpen-Meteo 429常態化の一因）。呼び出し元が候補間で点を合流させてこれを
-        先に呼んでおけば、`get_forecast_many`のTTLキャッシュが温まり、後続の候補ごとの
-        呼び出しはキャッシュヒットしてHTTPを発生させない。
+        候補（方位）ごとに`get_conditions_many`を並列呼び出しすると、候補数ぶん
+        （最大8本）のOpen-Meteoリクエストがほぼ同時に発火してしまう（本番のOpen-Meteo
+        429常態化の一因）。呼び出し元が候補間で点を合流させてこれを先に呼んでおけば、
+        `get_forecast_many`のTTLキャッシュが温まり、後続の候補ごとの呼び出しはキャッシュ
+        ヒットしてHTTPを発生させない（現在は呼び出し元が無い、クラスdocstring参照）。
         """
         await self._client.get_forecast_many(self._http_client, points)
 
     async def get_conditions_many(
         self, points: list[Coordinates], times: list[datetime | None]
     ) -> list[WeatherConditions | None]:
-        """複数地点の天候を、可能な限り1回のOpen-Meteo呼び出しでまとめて取得する（WindService用）。
+        """複数地点の天候を、可能な限り1回のOpen-Meteo呼び出しでまとめて取得する
+        （現在は呼び出し元が無い、クラスdocstring参照）。
 
         地点ごとの時刻（times[i]）が異なっていても、予報自体は地点ごとにforecast_days分の
         hourly系列をまとめて取得しているため、取得後にそれぞれ最も近い時刻を選ぶだけでよい

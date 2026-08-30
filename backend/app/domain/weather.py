@@ -44,7 +44,7 @@ class WeatherConditions(BaseModel):
     # 改善計画T385: 「今日の見通し」パネル向けの日次見通し4項目。current/hourlyの瞬間値と
     # 違い1日1個の値（Open-Meteoのdailyパラメータ、weather_client.py参照）のため、
     # get_conditions（現在地点の実況、`at is None`）のときだけ埋まる。
-    # get_conditions_many（ルート上の各点・未来時刻向け、WindService用）はdailyを
+    # get_conditions_many（ルート上の各点・未来時刻向け）はdailyを
     # 取得していないため常にNoneになる（今日の見通しはルート評価には使わない情報のため）。
     sunset: str | None
     # 改善計画T385フォローアップ2（ユーザー要望「夜明け前なら夜明け時間、日没前なら

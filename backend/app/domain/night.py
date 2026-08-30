@@ -22,7 +22,7 @@
 改善計画T320: スカラー版の互換ラッパ`night_difficulty`（`evaluate_axis_scalar(
 AXIS_DEFINITIONS["night"], night_materials(tags))`を1行呼ぶだけの薄い関数）は、
 実行時経路のどこからも呼ばれておらずテストのみが参照していたため削除した
-（両エンジンとも`evaluate_axis_difficulties`/`compute_edge_axis_scores`を通じて
+（実行時経路は`evaluate_axis_difficulties`/`compute_edge_axis_scores`を通じて
 `night_materials`の結果を直接評価する経路を使っており、この関数を経由していなかった）。
 """
 

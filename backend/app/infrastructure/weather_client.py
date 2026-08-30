@@ -35,7 +35,7 @@ WIND_GRID_CACHE_TTL_SECONDS = 3 * 60 * 60
 WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
 
 # get_forecast（単一地点、/api/weatherの現在地パネル用）はcurrent/hourly全変数を表示に使うが、
-# get_forecast_many（WindServiceの区間風評価・風/降水延長予報の格子点マップ）は消費側を
+# get_forecast_many（風/降水延長予報の格子点マップ用、get_wind_gridが呼ぶ）は消費側を
 # 辿ると実際に使っているのはhourlyのwind_speed_10m/wind_direction_10m/precipitationのみ
 # （T182で他5変数は取得しているだけで捨てられていると判明し除外済み。T183でprecipitationを
 # 追加したが、無料プランのクォータ按分は1地点あたり10変数超で増える仕組み・現状3変数のため
@@ -235,8 +235,8 @@ class WeatherClient:
                 # 1日1個の値のため別枠のdailyパラメータで取る。forecast_days=2・
                 # timezone=Asia/Tokyoは既存のcurrent/hourlyと共用のため、daily[0]が
                 # タイムゾーン基準の「今日」に一致する（get_forecast_many/
-                # WIND_GRID_VARIABLESには含めない。WindServiceは地点数十件を並列取得
-                # するため、1地点あたりの取得項目を増やすとクォータ消費への影響が大きく、
+                # WIND_GRID_VARIABLESには含めない。get_forecast_manyは地点数十〜数百件を
+                # 並列取得するため、1地点あたりの取得項目を増やすとクォータ消費への影響が大きく、
                 # 日次見通しはget_forecast（単一地点、この関数）でしか使わないため不要）。
                 # uv_index_max（改善計画T385フォローアップ、ユーザー指摘「UV指数は
                 # スマホからだとどこから見えるのか」）: 現在値のuv_indexはWeatherPanelの
@@ -268,7 +268,7 @@ class WeatherClient:
     ) -> dict[tuple[float, float], dict | None]:
         """複数地点の予報を、可能な限り1回のOpen-Meteo呼び出しにまとめて取得する。
 
-        WindServiceはルート1本につき区間数ぶん（最大数十件）weatherを個別リクエストしており、
+        風グリッド等の呼び出し元がまとめて数十〜数百地点ぶんweatherを個別リクエストすると、
         本番（Render、共有の送信元IP）ではこれだけで429が常態化し天候取得が全滅する事態が
         起きていた（原因調査ログ参照）。Open-Meteoは緯度経度をカンマ区切りで渡すと地点ごとの
         予報配列を1リクエストで返せるため、これを使ってリクエスト数自体を減らす。
@@ -280,7 +280,8 @@ class WeatherClient:
         414 Request-URI Too Largeになることが実機で判明した（624地点で再現、288地点では
         未発生）。そのためPOST（フォームボディ）で送る（_fetch_json参照）。
 
-        呼び出し元（WeatherService.get_conditions_many→WindService、get_wind_grid）が
+        呼び出し元（`WeatherService.get_wind_grid`。`get_conditions_many`は改善計画T462で
+        唯一の呼び出し元だったWindServiceを削除した結果、現在は呼び出し元が無い）が
         実際に使うのはhourlyのwind_speed_10m/wind_direction_10m/precipitationのみのため、
         get_forecast（単一地点、全変数）とは別にWIND_GRID_VARIABLESへ絞る。数百地点規模に
         なるこの経路の変数を絞ることが、Open-Meteo側クォータ消費削減の効果が最も大きい

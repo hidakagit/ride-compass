@@ -71,7 +71,7 @@ class TracedLoop:
 
 
 def candidate_identity(bearing: int | None) -> dict[str, str]:
-    """方位から候補のid・方位ラベルを導出する（両エンジンで共通の命名規則）。
+    """方位から候補のid・方位ラベルを導出する（エンジン非依存の共通命名規則）。
     改善計画T364: bearing=None（経由地指定ルート）は固定のid・ラベルを返す。"""
     if bearing is None:
         return {"id": "route-waypoints", "direction_label": "経由地ルート"}
@@ -316,7 +316,7 @@ class RouteGenerator:
     @staticmethod
     def _with_overall_difficulty(candidate: RouteCandidate) -> RouteCandidate:
         """segmentsの区間difficultyから距離加重平均のルート単位絶対基準集約値を付与する
-        （研究インターフェース改善 §10-7、両エンジン共通のためengine実装側には持たせない）。"""
+        （研究インターフェース改善 §10-7、エンジン非依存のためengine実装側には持たせない）。"""
         if not candidate.segments:
             return candidate
         overall = distance_weighted_difficulty(

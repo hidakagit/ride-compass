@@ -9,7 +9,7 @@
 # road_difficulty/stop_difficulty/accident_difficulty）というスカラー版の外部シグネチャ
 # 互換ラッパ（Noneガード・負値ガードを担うだけで、変換自体は軸定義へ委譲する薄い関数）を
 # ここに残していたが、実行時経路のどこからも呼ばれておらずテストのみが参照していたため
-# 削除した（両エンジンとも`evaluate_axis_difficulties`/`compute_edge_axis_scores`が
+# 削除した（実行時経路は`evaluate_axis_difficulties`/`compute_edge_axis_scores`が
 # 材料辞書を直接渡す経路を使っており、軸ごとの個別関数を経由していなかった）。配列版
 # （旧`*_difficulty_array`）は`evaluate_axis_array`（同一定義から導出）へ置き換えたため
 # 既に削除済み。

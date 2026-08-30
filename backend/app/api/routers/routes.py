@@ -158,11 +158,10 @@ class RouteGenerateRequest(BaseModel):
     # （従来どおり最悪でも距離2倍。domain/evaluation.py: compute_cost_from_axis_scores参照）。
     penalty_strength: float = Field(ge=0, default=1.0)
     # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
-    # 除外なし）。road_graphエンジンのみに効く（domain/evaluation.py: is_edge_allowed参照）。
+    # 除外なし。domain/evaluation.py: is_edge_allowed参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)
     # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
-    # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。road_graphエンジンの
-    # みに効く。
+    # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。
     hard_filters: HardFilterOverride | None = None
     # 改善計画T364: ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で
     # 通過する単一経路を生成する）。指定時は8方位探索を行わない。bboxが際限なく
@@ -170,7 +169,7 @@ class RouteGenerateRequest(BaseModel):
     # ルーティング自体の成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
     # 改善計画T365: 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの
-    # 場合は従来通り起点で終わる周回）。waypoints同様road_graphエンジンのみ対応。
+    # 場合は従来通り起点で終わる周回）。
     destination: Coordinates | None = None
 
     @model_validator(mode="after")

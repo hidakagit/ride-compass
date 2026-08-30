@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.infrastructure.debug_log import log_external_call, record_rate_limit_rejection, reset_stats
 from app.main import app
+from app.services.road_graph_engine import RoadGraphEngine
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +29,7 @@ def test_debug_stats_returns_snapshot():
     # 構成スナップショット(どのコミット・エンジン設定での集計かを判別できる)
     assert "commit" in body
     assert "started_at" in body
-    assert body["engine"] == "road_graph"
+    assert body["engine"] == RoadGraphEngine.engine_name
     assert isinstance(body["debug_mode"], bool)
 
     stats = body["external"]["test:api"]
