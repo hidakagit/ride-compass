@@ -3005,31 +3005,32 @@ export default function MapView({
     runWhenStyleReady(map, () => applyAxisFeatureStateValues(map, WIND_AXIS_FEATURE_STATE_KEY, windAxisPenalties));
   }, [windAxisPenalties]);
 
-  // 改善計画T414: showWindAxisがfalseへ切り替わった瞬間（ルート確定・手動OFFいずれも含む）
-  // に、それまでの全道路ぶんのfeature-stateを明示的にクリアする（clearRoadTileFeatureState
-  // 参照）。マウント直後（showWindAxisの初期値がfalse）にも走るが、その時点ではまだ
-  // setFeatureStateが1件も呼ばれていないため無害（空振り）。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || showWindAxis) return;
-    runWhenStyleReady(map, () => clearRoadTileFeatureState(map));
-  }, [showWindAxis]);
-
-  // way_id→勾配（effective_gradient）配信層（改善計画T423）。上のwindAxisPenalties/
-  // clearRoadTileFeatureState effectと同型（同じ理由・同じ分離方針）。改善計画T432:
-  // 環境グループの風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ統合したため、
-  // 専用effectは撤去し下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収された。
+  // way_id→勾配（effective_gradient）配信層（改善計画T423）。上のwindAxisPenalties effectと
+  // 同型（同じ理由・同じ分離方針）。改善計画T432: 環境グループの風penalty gridFillは
+  // DYNAMIC_WEATHER_RENDERERS汎用機構へ統合したため、専用effectは撤去し下の
+  // DYNAMIC_WEATHER_LAYER_IDSループへ吸収された。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     runWhenStyleReady(map, () => applyAxisFeatureStateValues(map, GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisValues));
   }, [gradientAxisValues]);
 
+  // 改善計画T414/T423/T444: showWindAxis・showGradientAxisが両方falseへ揃った瞬間
+  // （ルート確定・手動OFFいずれも含む）に、それまでの全道路ぶんのfeature-stateを明示的に
+  // クリアする（clearRoadTileFeatureState参照）。`map.removeFeatureState({source,
+  // sourceLayer})`はMapLibreの仕様上キー単位の選択的削除ができずソース丸ごと消える
+  // ため、風・勾配が同時ON（T414設計、排他ドメインではない）の状態で片方だけをOFFにした
+  // 瞬間にこの関数を呼ぶと、まだONのままのもう片方の色分けまで巻き添えで消えてしまう
+  // （統合レビュー第2回で発覚した実バグ、修正前はshowWindAxis/showGradientAxisそれぞれ
+  // 独立したeffectから無条件に呼んでいた）。両方falseになるまでクリアを遅らせることで、
+  // 「まだONの軸を巻き添えにしない」かつ「最後の1つがOFFになったら必ずクリアされる」を
+  // 両立する。マウント直後（両フラグの初期値がfalse）にも走るが、その時点ではまだ
+  // setFeatureStateが1件も呼ばれていないため無害（空振り）。
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || showGradientAxis) return;
+    if (!map || showWindAxis || showGradientAxis) return;
     runWhenStyleReady(map, () => clearRoadTileFeatureState(map));
-  }, [showGradientAxis]);
+  }, [showWindAxis, showGradientAxis]);
 
   useEffect(() => {
     const map = mapRef.current;
