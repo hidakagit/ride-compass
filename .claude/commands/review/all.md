@@ -24,6 +24,14 @@ history/ と docs/ の過去レビュー指摘の一覧を整理する。ここ�
 - コンテキストが逼迫する場合はPhase単位で区切り、完了したPhaseの中間結果を
   `history/YYYY-MM-DD_all.md` へ先に保存してから続きを実施してよい
   （中間保存したことをファイル冒頭に記す。全Phase完了時に統合する）
+- **省力化のためPhase 2〜5のレンズ構造（overall/complexity/consistency/ui）を、
+  ドメイン構造（backend/frontend等）へ置き換えてはならない**。対象が
+  `principles.md`の分割閾値を超える場合、分割は各Phase（レンズ）が自分自身の担当範囲内で
+  行う（分割可否・分割単位はレンズごとに異なる。詳細はprinciples.md「共通実行手順」4d・
+  complexity.md冒頭参照）。2026-08-30、この禁止を明記する前に統合レビュー第2回で実際に
+  レンズ構造をドメイン構造へ置き換えてしまい、complexityレンズ固有の出力
+  （規模ウォッチ表・変更コスト表・Keep List照合）が丸ごと欠落する事態が発生した
+  （経緯は[_history.md](_history.md)参照）
 
 ### Phase 2: 全体最適レビュー
 [overall.md](overall.md) の観点で実施。
