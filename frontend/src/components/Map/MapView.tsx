@@ -2134,6 +2134,7 @@ export default function MapView({
     axisLabels,
     windAxisPenalties,
     gradientAxisValues,
+    gradientFillGeojson,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -2211,6 +2212,7 @@ export default function MapView({
       axisLabels,
       windAxisPenalties,
       gradientAxisValues,
+      gradientFillGeojson,
     };
   }, [
     routes,
@@ -2244,6 +2246,7 @@ export default function MapView({
     axisLabels,
     windAxisPenalties,
     gradientAxisValues,
+    gradientFillGeojson,
   ]);
 
   // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
@@ -2284,6 +2287,7 @@ export default function MapView({
       roadSurfaceSharedLayerIds,
       windAxisPenalties,
       gradientAxisValues,
+      gradientFillGeojson,
     } = redrawPropsRef.current;
     setStaticOverlayVisibility(
       map,
@@ -2306,13 +2310,15 @@ export default function MapView({
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
       applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
-    // 改善計画T425（ゼロベース網羅レビュー指摘）: WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID
-    // （評価軸グループの風・勾配）はプロパティではなくsetFeatureStateで色付けするため、
-    // map.setStyle()でレイヤー自体が作り直された後は明示的に再適用しないと無色のまま
-    // 残ってしまう（windAxisPenalties/gradientAxisValues自体の値は変わっていないため、
-    // 通常の[windAxisPenalties]依存effectは再実行されない）。
+    // 改善計画T425（ゼロベース網羅レビュー指摘）+T457（gradientFillGeojson分）:
+    // WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID（評価軸グループの風・勾配）は
+    // プロパティではなくsetFeatureStateで色付けするため、map.setStyle()でレイヤー自体が
+    // 作り直された後は明示的に再適用しないと無色のまま残ってしまう（値自体は変わって
+    // いないため、通常の依存effectは再実行されない）。gradientFillGeojson
+    // （環境グループの勾配面塗り、geojson source）も同じ理由で再適用が必要。
     applyAxisFeatureStateValues(map, WIND_AXIS_FEATURE_STATE_KEY, windAxisPenalties);
     applyAxisFeatureStateValues(map, GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisValues);
+    applyGradientFillGeojson(map, gradientFillGeojson);
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     applyRoadMaterialTrackOffsets(map, {
