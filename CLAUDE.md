@@ -80,6 +80,17 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   docs/architecture.md追従を既定で含める**（同型再発が繰り返し検出されたことを受け
   統合レビュー2026-08-22 T197でルール化）。docs（「現状」記述）はコード変更と
   同一コミットで更新する。
+- **既存の仕組みと技術的に別方式の新しい配信・レンダリング機構（例: タイル焼き込み済み
+  ramp軸に対する`dedicated_way_value_layer`のようなRedis経由way_id配信）を新設するときは、
+  着手前に`docs/complexity-review-2026-08-16.md`末尾の設計原則（特に原則1・13、
+  「材料はPython個別実装で構わないが、軸は軸スタジオを唯一の正として動作する」）が
+  この新しい機構にも適用されるかを点検し、適用されるなら軸ごとのファイル・関数・定数・
+  propを新設しない汎用設計にする**（2026-08-31、`dedicated_way_value_layer`機構
+  [T405/T423]がこの点検を経ずに実装され、windの実装（feature-stateキー・color
+  expression・redraw再適用・interactiveLayerIds所属・環境グループのgridFill計算が
+  すべて軸ごとの手書き）をgradientがそのまま複製する形で原則1違反が再発した実績を
+  受けて追加。既存のramp軸機構[`RAMP_AXES`/`buildAxisOverlayLayers`]は原則1どおり
+  汎用化されており、新しい種類の機構を作る時にだけ点検が漏れる構造的な穴だった）。
 - **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
   定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
   上げる（T70・T93で対上げ漏れが2回発生）。
