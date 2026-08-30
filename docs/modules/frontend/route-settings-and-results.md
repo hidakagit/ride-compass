@@ -7,15 +7,20 @@
 
 **対象ファイル**
 
-| ファイル | 行数 | 責務 |
-|---|---|---|
-| `components/RouteForm/RouteForm.tsx` | 166 | 距離入力・生成ボタン。周回/目的地モード切替 |
-| `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 295 | 一般向け軸重み設定・除外道路・地図色分けトグル |
-| `components/WeightPanel/WeightPanel.tsx` | 118 | 研究モード向けのscoring_weights（distance/difficulty）編集 |
-| `components/WindBearingSlider/WindBearingSlider.tsx` | 82 | 走行方位の指定スライダー |
-| `components/RouteList/RouteList.tsx` | 67 | 生成候補の一覧表示 |
-| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 65 | 選択中ルートの軸別difficulty横棒グラフ |
-| `components/ComparisonPanel/ComparisonPanel.tsx` | 158 | 研究モードの実験スロット比較表 |
+| ファイル | 責務 |
+|---|---|
+| `components/RouteForm/RouteForm.tsx` | 距離入力・生成ボタン。周回/目的地モード切替 |
+| `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
+| `components/WeightPanel/WeightPanel.tsx` | 研究モード向けのscoring_weights（distance/difficulty）編集 |
+| `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパススライダー（風・勾配で再利用） |
+| `components/RouteList/RouteList.tsx` | 生成候補の一覧表示 |
+| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 選択中ルートの軸別difficulty横棒グラフ |
+| `components/ComparisonPanel/ComparisonPanel.tsx` | 研究モードの実験スロット比較表 |
+| `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
+| `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
+| `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`SCORING_AXES`（distance/difficulty） |
+| `lib/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
+| `components/Map/recipeControls.tsx`（`FieldLabel`・`withAutoEnable`・`RecipePanelSection`） | 上書き有効化・情報アイコン付きラベルの共有UI部品 |
 
 ## RouteSettingsPanel.tsx（一般向けメイン設定面）
 
@@ -33,24 +38,59 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - カテゴリ（観測/推定/動的）によるグルーピング表示は行わない（軸スタジオが常に
   `category="推定"`固定で軸を作るようになったため、フラットな1本のリストにした）。
 - `mapColorLayerIdFor(axisId)`: 軸id→地図色分けレイヤーIDの解決。
-  (1) `catalog.secondaryAxes`（ramp表示を持つ軸）にあればそのレイヤーID、
-  (2) 無ければ`axis.dedicatedWayValueLayer`を見て`${axisId}Axis`という命名規則から
-  機械的に導出（[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。どちらも無ければ
-  地図表示非対応。
+  (1) `catalog.secondaryAxes`（`components/Map/secondaryAxes.ts`由来、ramp表示を持つ軸）に
+  あればそのレイヤーID、(2) 無ければ`axis.dedicatedWayValueLayer`
+  （`AxisDefinition.dedicated_way_value_layer`）を見て`${axisId}Axis`という命名規則から
+  `isDedicatedWayValueLayerId`型ガードで機械的に導出する（[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。どちらも無ければ地図表示非対応（「地図表示なし」の案内のみ）。
+  **`secondaryAxes.ts`はこのモジュールの対象ファイル表に無いが、`useAxisCatalog`の
+  `secondaryAxes`フィールドを介してこのパネルの地図色分けトグル解決ロジックに
+  直接組み込まれている**（本来の所有元は[地図: 静的レイヤー・道路表示](../frontend/static-map-layers.md)系のモジュール）。
 - ルート確定後（`hasDetail=true`）は、専用way_id配信レイヤーを持つ軸（風・勾配）の
   トグルを「地図表示なし」（案内文つき）へ切り替える——ルート確定後はこれらの軸が
   「生成したルートの色分け」側の役割になるため。
 - `routePreference`（送信対象）とカタログのキー集合を`syncRoutePreferenceKeys`で
   双方向同期する（軸の追加/unpublishに追従。backendは「上書きするなら既知の全axis_id
   キー一致」を要求するため、ズレるとルート生成が422になる）。
+- 除外する道路（0次フィルタ）は`Disclosure`で折りたたみ表示。既定値のまま変えていない
+  利用者が大半のため既定で閉じるが、既に変更済みの場合（`hardFilterCustomized`）は
+  「変更していることに気づかず開けない」事故を避けるため既定で開く。
+- `resetButton`（既定値に戻す）は`routePreference`・`hardFilters`の両方を一括で初期状態へ戻す。
+
+**暗黙の前提**: `useAxisCatalog()`は`page.tsx`と`RouteSettingsPanel.tsx`から同時に呼ばれうる
+（`page.tsx`がマウントした時点で子の`RouteSettingsPanel`も同時マウントされるため）。
+モジュールレベル変数`inFlightCatalogFetch`で同時フェッチを重複排除するが、解決/失敗したら
+即座にクリアし結果を永続キャッシュしない（軸スタジオでの公開操作を再デプロイなしに
+反映するという設計を保つため、後続の別マウント[モバイルのBottomSheetを開き直す等]では
+改めて最新を取得する）。
+
+**暗黙の前提（`loaded`フラグの意味）**: `AxisCatalog.loaded`は「取得成功し他フィールドが
+実際のDB由来の値であること」を表す。`loaded=false`（未取得/失敗）の間は他フィールドが
+ビルド時静的フォールバックの可能性があるため、「軸スタジオの現在の公開軸集合と一致して
+いなければならない」処理（`route_preference`のキー整合等）ではこのフラグで未確定状態を
+区別しなければならない。取得成功時に軸が0件（全軸非公開）であっても`loaded=true`になる
+（0件も確定した実際の状態のため）。
 
 ## WeightPanel.tsx（研究モード）
 
-RouteSettingsPanelとは別の入口（研究モード向け）。`ScoringWeights`
+`RouteSettingsPanel`とは別の入口（研究モード向け）。`ScoringWeights`
 （`distance_weight`/`difficulty_weight`の2指標）を編集する。`route_preference`
-（軸ごとの重み）自体を編集するUIはもう持たない（過去に撤去済み）が、初期値の定数
-export（`DEFAULT_ROUTE_PREFERENCE`、`axis-catalog.json`の`preference_defaults`由来）は
-`page.tsx`・admin側が引き続き参照する。
+（軸ごとの重み）自体を編集するUIは持たない（`RouteSettingsPanel`側が担う）。初期値の
+定数export（`DEFAULT_ROUTE_PREFERENCE`、`axis-catalog.json`の`preference_defaults`由来）は
+`page.tsx`・admin側が参照する。
+
+## WindBearingSlider.tsx（走行方位スライダー、風・勾配で再利用）
+
+`@fseehawer/react-circular-slider`（TypeScript対応・依存無し・MIT）を使ったコンパス型UI。
+`value`/`onChange`/`ariaLabel`のみを扱う汎用コンポーネントで、時刻には一切関与しない
+（時刻は別の共有タイムライン`DynamicLayerTimeSlider`が担当）。風・勾配の両方で
+`page.tsx`が`windBearingDeg`/`gradientBearingDeg`という独立したstateで本コンポーネントを
+2箇所マウントする。
+
+`cardinalLabel(bearingDeg)`（0〜360度→8方位の日本語ラベル）は`backend/app/domain/geo.py:
+compass_label`のラベル配列・丸めアルゴリズムの二重実装であり、`WindBearingSlider.test.ts`が
+既知の入出力ペアでドリフト検知する。表示専用の変換であり評価式そのものではないが、
+design-principles.md構造仕様1「軸固有の判断ロジック・計算式をfrontend側に持たない」と
+同種の性質を持つ二重実装である。
 
 ## RouteAxisProfile.tsx（選択中ルートの軸別内訳）
 
@@ -61,15 +101,19 @@ export（`DEFAULT_ROUTE_PREFERENCE`、`axis-catalog.json`の`preference_defaults
 
 ## RouteList.tsx / ComparisonPanel.tsx
 
-- `RouteList.tsx`: 候補一覧のラベルを評価軸カタログから動的生成する（軸を増やしても
-  このファイルを直接編集する必要が無い）。
-- `ComparisonPanel.tsx`: 研究モードの実験スロット比較表。物理量（距離・獲得標高等）の
-  静的行に加え、`axisLabels`（axis_id→表示名）・`axes`（カタログ由来の並び順）を
-  `page.tsx`から受け取り、軸別のdifficulty行を動的生成する。`total_score`（同一
-  generate呼び出し内でのみ比較可能な相対値）は実験間比較表には出さない。
+- `RouteList.tsx`: 候補一覧のラベルを評価軸カタログ（`SCORING_AXES`）から動的生成する
+  （軸を増やしてもこのファイルを直接編集する必要が無い）。`total_score`は同一generate
+  呼び出し内でのみ比較可能な相対値であることを明記する説明文を先頭に添える。
+- `ComparisonPanel.tsx`: 研究モードの実験スロット比較表。表示順は
+  (1) 生の物理量（距離・獲得標高・風スコア・舗装率、旧scoring.yaml時代のレガシー
+  フィールドだが単位・意味がaxis_difficultiesと異なるためそのまま残す）→
+  (2) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
+  `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
+  (3) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。`total_score`は実験間
+  比較表には出さない（相対評価の誤用防止をUIで強制する設計）。
 
-## RouteForm.tsx / WindBearingSlider.tsx
+## RouteForm.tsx
 
-- `RouteForm.tsx`: 距離入力・生成ボタン。`RouteMode`（"loop"|"destination"）で周回/
-  目的地モードを切り替える。モバイル上部バー向けの`compact`表示を持つ。
-- `WindBearingSlider.tsx`: 走行方位（bearing_deg）の指定スライダー。
+距離入力・生成ボタン。`RouteMode`（"loop"|"destination"）で周回/目的地モードを切り替える。
+モバイル上部バー向けの`compact`表示を持つ。目的地モードでは距離を入力させず、経由地・
+目的地のいずれも未指定のまま生成しようとするとサイレント失敗せずエラー文言を出す。

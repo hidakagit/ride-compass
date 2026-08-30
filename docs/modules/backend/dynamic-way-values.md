@@ -3,8 +3,8 @@
 ## 責務
 
 風・勾配のような「動的（時々刻々変わりうる）＋向きに依存する」材料について、ルート
-未確定時に視界内の全道路（way）へ値を配信する。ルート確定後は使わない（確定後は
-ルート自身の実進行方向・実到達時刻から計算済みの`axis_difficulties`を使う）。
+未確定時に視界内の全道路（way）へ値を配信する。ルート確定後の風の評価は、実際には
+ルーティングエンジンにより計算方法が異なる（後述「風の評価が2つの経路で非対称」）。
 
 **対象ファイル**
 
@@ -13,7 +13,11 @@
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`dynamic_way_values.py` |
 | services | `wind_service.py`・`wind_way_service.py`・`gradient_way_service.py` |
 | infrastructure | `dynamic_way_value_cache.py`・`wind_forecast_cache.py` |
-| api | `region.py`（`GET /api/region/dynamic-way-values/{material_id}/...`） |
+| api | `region.py`（`GET /api/region/dynamic-way-values/{material_id}/...`）・`dependencies.py`（`get_dynamic_way_value_service`） |
+
+勾配材料の入力（`elevation_attributes.average_grade`・`road_edges.bearing_deg`）を
+DBから取り出す`infrastructure/road_graph_repository.py: get_way_gradient_inputs_in_tile`・
+`get_way_ids_in_tile`は[routing-engine.md](routing-engine.md)が主管するファイルに属する。
 
 ## 材料登録（`domain/dynamic_way_values.py`）
 
@@ -29,52 +33,126 @@ DYNAMIC_WAY_VALUE_MATERIALS: dict[str, DynamicWayValueMaterial] = {
 - `needs_bearing`: 向き（`bearing_deg`クエリパラメータ）に依存するか。風・勾配とも
   Yes（向きの*出所*が異なるだけで、パラメータとしては両方ともユーザー指定の走行方位を
   必要とする）。
-- **この辞書は`AxisDefinition.dedicated_way_value_layer`（[軸スタジオ](axis-studio.md)の
-  DB管理フィールド）とは独立したハードコードで、軸スタジオの設定だけでは新規材料を
-  追加できない**（[T458](../../tasks/T458.md)として起票済み）。
+- この辞書は`AxisDefinition.dedicated_way_value_layer`（[軸スタジオ](axis-studio.md)の
+  DB管理フィールド）とは独立したハードコード。
+
+`api/dependencies.py: get_dynamic_way_value_service`内の`_build`は
+`if material_id == "wind": ... else: ...`という2分岐でサービス（`WindWayService`/
+`GradientWayService`）を組み立てる。
 
 ## API（`api/routers/region.py`）
 
 `GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}?bearing_deg=&at=`
 
 ```
-material_id（パスパラメータ）
-        │
-        ▼
-  DYNAMIC_WAY_VALUE_MATERIALS.get(material_id)
-        │  無ければ404
-        ▼
-  needs_bearing かつ bearing_deg 省略 → 422
-        │
-        ▼
-  get_dynamic_way_value_service(material_id) が material_id を見て
-  WindWayService または GradientWayService を組み立てる
-  （DBセッションを1つだけ開く単一の注入点、router側で両方Dependsしない）
-        │
-        ▼
-  service.get_way_values(z, x, y, at, bearing_deg)
-        │
-        ▼
-  {way_id: 値} の辞書（JSON）
+material_id → DYNAMIC_WAY_VALUE_MATERIALS.get(material_id)（無ければ404）
+            → needs_bearing かつ bearing_deg 省略 → 422
+            → get_dynamic_way_value_service(material_id) が WindWayService/GradientWayService を組み立て
+            → service.get_way_values(z, x, y, at, bearing_deg)
+            → {way_id: 値} の辞書（JSON）
 ```
 
 - ルート確定後は呼ばれない専用エンドポイント（フロントは`axis_difficulties`を使う）。
 - 静的な路面タイル（`/api/region/road-surface-tiles`、MVT）とは別経路——フロントは
-  同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で合成する。
-- 路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する。
+  同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で合成する
+  （[map-axis-coloring.md](../frontend/map-axis-coloring.md)参照）。
+- 路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphore
+  （`_region_tile_semaphore`、`config.py: road_tile_max_concurrent`）を共有する。
 
 ## キャッシュ（`infrastructure/dynamic_way_value_cache.py`）
 
 タイル単位の値を地図表示専用のRedisキャッシュへ格納する。キーは
 `_key(material_id, z, x, y, hour_bucket, bearing_deg)` — `bearing_bucket(bearing_deg)`が
-向きを離散バケット化するため、パン・ズームで同じタイルが再び視界に入っても、同じ
-時刻バケット・向きバケットの範囲内では風グリッド・DBへの再問い合わせは発生しない。
+向きを`BEARING_BUCKET_DEG`（5度）刻みで離散バケット化するため、パン・ズームで同じ
+タイルが再び視界に入っても、同じ時刻バケット・向きバケットの範囲内では風グリッド・
+DBへの再問い合わせは発生しない。
+
+値は`{way_id: 値}`のJSONオブジェクトで、風のように「タイル内全wayが同値」の場合も
+勾配のように「way単位で異なる値」の場合も同じ表現で吸収する。TTLは呼び出し元が渡す
+（風=`WIND_GRID_CACHE_TTL_SECONDS`＝3時間、勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`＝
+24時間）。正本を持たないキャッシュで、Redis障害時はfail-open（未キャッシュとして
+扱い実計算へ進む）。
 
 ## サービス実装
 
-- `WindWayService`（`wind_way_service.py`）: `_hour_bucket`・`_tile_center`・
-  `_nearest_time_index`等のヘルパーを持つ。風グリッド由来の値を計算する。
-- `GradientWayService`（`gradient_way_service.py`）: 道路自身の向きが本質的に必要な
-  材料（`domain/gradient.py`参照）。
-- 両サービスとも`get_way_values(z, x, y, at, bearing_deg)`という同じシグネチャで
-  `region.py`から呼ばれる。
+### `WindWayService`（`wind_way_service.py`）
+
+走行方位（`bearing_deg`）は**ユーザーがコンパススライダーで指定した単一の値**（全道路
+共通）を使う。道路自身のOSM格納方向は使わない。同じタイル内の全wayは常に同じ
+`wind_penalty`値を持つ（風グリッドもタイル中心1点で代表させる近似のため）。
+
+```
+get_way_values(z, x, y, at, bearing_deg)
+  ├─ repository未接続 → {}
+  ├─ get_way_ids_in_tile → way_id一覧（カバレッジ外はNone→{}、DB障害も{}）
+  ├─ hour_bucket = at.strftime("%Y-%m-%dT%H")
+  ├─ キャッシュhit → 値を1個取り出す（下記「暗黙の前提」参照）
+  └─ キャッシュmiss →
+       nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
+       → _nearest_time_index（範囲外はNone→{}）
+       → WindCalculator.wind_penalty(speed, direction, bearing_deg)
+       → 全way_idへbroadcastしてキャッシュ書き込み
+  └─ 戻り値は常に dict.fromkeys(way_ids, penalty)
+```
+
+**暗黙の前提**: キャッシュhit時は`next(iter(cached.values()), 0.0)`で代表値を取り出す。
+「タイル内の全way_idが同値」という前提の上に成り立つ最適化で、この前提が崩れる実装変更
+（way単位に風向きを変える等）が入ると、無警告で不正確な代表値を返す。
+
+### `GradientWayService`（`gradient_way_service.py`）
+
+風と異なり、`gradient_percent`自体が道路の始点→終点方向を基準にした符号付き値のため
+**道路自身の向きが本質的に必要**。風はタイル単位のスカラー値1個へ縮小できるが、勾配は
+way_idごとに異なる値を返す。
+
+入力は`RoadGraphRepository.get_way_gradient_inputs_in_tile`が返す`(gradient_percent,
+road_bearing_deg)`のway単位dict（`elevation_attributes.average_grade`と
+`road_edges.bearing_deg`をJOINしたSQL）。
+
+**暗黙の前提（モジュール間の隠れた依存）**: このJOINは`ea.average_grade IS NOT NULL
+AND re.bearing_deg IS NOT NULL`を要求するため、[elevation.md](elevation.md)の
+`precompute_elevation_attributes.py`バッチが該当Edgeに対してまだ実行されていない
+（または失敗した）場合、そのway_idは勾配タイルの結果から静かに除外される——エラーには
+ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。
+
+```python
+values = {
+    way_id: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
+    for way_id, (gradient_percent, road_bearing_deg) in inputs.items()
+}
+```
+
+`at`引数はrouterとのインターフェース統一のためだけに受け取り、計算には使わない。
+
+両サービスとも`get_way_values(z, x, y, at, bearing_deg) -> dict[int, float]`という
+同じシグネチャで`region.py`から材料非依存に呼ばれる。
+
+## 純粋計算ロジック（domain層）
+
+| 関数 | 意味 | 符号 |
+|---|---|---|
+| `WindCalculator.wind_penalty`（`wind.py`） | 走行方位と風向風速から向かい風/追い風の影響 | 正=向かい風、負=追い風、0付近=横風 |
+| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り、0付近=道路をほぼ横切るだけ |
+
+両者とも「`cos(道路/風の基準方向 − 走行方位)`を係数として物理量へ掛ける」という同型の
+連続補正モデルを踏襲している。同じ道路の逆方向（forward/backward）の`road_edges`行を
+使っても勾配の結果は変わらない（cosの偶関数性と符号の二重反転が相殺するため、
+`test_gradient.py: test_forward_and_backward_edge_agree`で検証済み）。
+
+## 風の評価が2つの経路で非対称
+
+`settings.routing_engine`（既定`road_graph`）によって、ルート確定後の風の扱いが異なる。
+
+| エンジン | 風の方向 | 風の時刻 | 実装 |
+|---|---|---|---|
+| `road_graph`（既定） | Edge自身の`bearing_deg`（directed edgeのためルート実走行方向と一致） | 出発時点1点のみをルート全体へ一様適用（探索中は累積到達時刻が未確定なための簡略化） | `domain/evaluation.py: compute_wind_penalty` |
+| `openrouteservice` | 区間ごとの実走行方位（`bearing_between`） | 区間ごとの推定到達時刻（累積距離÷`ASSUMED_SPEED_KMH`） | `services/wind_service.py: WindService.get_wind_profile` |
+
+方向についてはroad_graphエンジンも正しい（Directed Edgeは経路上のそのEdgeインスタンスの
+実走行方向そのものを表す）。時刻についてはroad_graphエンジンは「出発時点の風をルート
+全体に一様適用」という簡略化を持つ。レスポンスの`engine`フィールドでフロントがどちらの
+値かを識別できる（詳細は[routing-engine.md](routing-engine.md)参照）。
+
+`ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度20km/h）はこの到達時刻概算に両エンジンで
+共有される定数だが、`road_graph_engine.py`の区間所要時間表示にも使われており、風専用の
+定数ではない。
