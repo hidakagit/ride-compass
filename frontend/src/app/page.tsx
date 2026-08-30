@@ -362,6 +362,14 @@ export default function Home() {
     // conditionsDirtyの距離比較はloopモードで生成したときだけ行う。
     routeMode: RouteMode;
   } | null>(null);
+  // 改善計画T440: 表示中のルートを実際に生成した瞬間のroute_preference（重み）。
+  // routePreference自体はルート設定パネルが常時編集するライブなstateのため、生成後に
+  // 再生成せず重みだけ変更すると、表示中のルートが実際に評価された時の重みと
+  // 「生成したルートの色分け」メニューがズレる（ユーザー指摘）。バックエンドは
+  // 生成に実際に適用したroute_preferenceを`conditions.route_preference`として既に
+  // エコーバックしている（`GenerationConditions`、backend/app/api/routers/routes.py）ため、
+  // 生成成功時にここへ複製するだけでよい（バックエンド変更不要）。
+  const [generatedRoutePreference, setGeneratedRoutePreference] = useState<RoutePreferenceWeights | null>(null);
 
   // 改善計画T365: 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。
   // 経由地・目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。
@@ -369,6 +377,7 @@ export default function Home() {
     setRoutes([]);
     setSelectedRouteId(null);
     setGeneratedConditions(null);
+    setGeneratedRoutePreference(null);
   }, []);
 
   // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
@@ -495,13 +504,15 @@ export default function Home() {
     DEFAULT_ROUTE_STYLE_MODE_ID,
     { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null) },
   );
-  // 改善計画T434: 「評価で有効にした軸」（route_preferenceの重み>0）だけを選択肢として
-  // 動的に見せる。gradient/road/difficulty（routeStyleModes.ts: STATIC_MODES）は固定と
-  // いう理由だけで無条件に残していたが、これはgradientのように対応する軸を持つモードが
-  // 重み0でも選べてしまう不具合だった（ユーザー指摘）。
+  // 改善計画T434/T440: 「評価で有効にした軸」（route_preferenceの重み>0）だけを選択肢として
+  // 動的に見せる。判定には生成済みルートを実際に評価した瞬間の重み
+  // （generatedRoutePreference、上記）を使う——ライブなroutePreferenceをそのまま使うと、
+  // 生成後に重みだけ変更（再生成せず）した場合に表示中のルートの実際の評価内容と
+  // メニューがズレる（T440、ユーザー指摘）。ルート未生成（null）の間はライブな
+  // routePreferenceをプレビュー用フォールバックとして使う。
   const filteredRouteStyleModes = useMemo(
-    () => filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, routePreference),
-    [axisCatalog.routeStyleModes, routePreference],
+    () => filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, generatedRoutePreference ?? routePreference),
+    [axisCatalog.routeStyleModes, generatedRoutePreference, routePreference],
   );
   useEffect(() => {
     if (filteredRouteStyleModes.some((mode) => mode.id === routeStyleModeId)) return;
@@ -1161,6 +1172,7 @@ export default function Home() {
         weightsKey: currentWeightsKey,
         routeMode,
       });
+      setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
         setErrorMessage("条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
       } else if (researchEnabled) {
