@@ -92,13 +92,17 @@ import type {
   ScoringWeights,
 } from "@/types/route";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
 
-// backend/app/api/routers/routes.pyのRouteGenerateRequest.distance_km（Field(gt=0, le=100)）と
-// 一致させる（目的地モードの自動算出値もこの上限でクランプする、handleGenerate参照）。
-const MAX_DISTANCE_KM = 100;
+// backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
+// le=MAX_ROUTE_DISTANCE_KM)）と一致させる（目的地モードの自動算出値もこの上限で
+// クランプする、handleGenerate参照）。改善計画T471: 以前はここへ「100」を独立に
+// ハードコードしていた（RouteForm.tsxにも同じ値の別定義があった）ため、backend側の
+// 唯一の情報源（export_openapi.py: ROUTE_GENERATE_CONFIG_PATH）から導出するよう変更した。
+const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 
 // 改善計画T365-2: 目的地モードでは距離をユーザーに入力させず、地図上の経由地・目的地から
 // 自動算出する（backend/app/domain/geo.py: haversine_distance_kmと同じ球面距離の簡易実装。

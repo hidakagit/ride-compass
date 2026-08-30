@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
@@ -173,6 +173,28 @@ export default function RouteSettingsPanel({
   const [lastWeights, setLastWeights] = useState<Record<string, number>>(() => ({
     ...catalog.defaultWeights,
   }));
+  // 改善計画T471: 上記の初期値は「マウント時点のcatalog.defaultWeights」（軸カタログの
+  // 実行時フェッチ完了前は静的フォールバック値）のスナップショットで固定されており、
+  // フェッチ完了後にcatalog.defaultWeightsが実際の値へ更新されても、ユーザーがまだ
+  // 触っていない軸のlastWeightsは古いフォールバック値のまま残り続けていた（チェックを
+  // 一度外して戻すと、実際の既定重みではなく古い値へ復元される不具合）。
+  // catalog.defaultWeightsが変わるたびに、「前回の既定値のまま変更されていない」軸だけを
+  // 新しい既定値へ追従させる（handleWeightChangeで実際にユーザーが変更した値は保持する）。
+  const previousDefaultWeightsRef = useRef(catalog.defaultWeights);
+  useEffect(() => {
+    const previousDefaults = previousDefaultWeightsRef.current;
+    previousDefaultWeightsRef.current = catalog.defaultWeights;
+    if (previousDefaults === catalog.defaultWeights) return;
+    setLastWeights((prev) => {
+      const next = { ...prev };
+      for (const [axisId, defaultWeight] of Object.entries(catalog.defaultWeights)) {
+        if (!(axisId in prev) || prev[axisId] === previousDefaults[axisId]) {
+          next[axisId] = defaultWeight;
+        }
+      }
+      return next;
+    });
+  }, [catalog.defaultWeights]);
 
   function handleToggle(axisId: string, checked: boolean) {
     const restored = checked ? lastWeights[axisId] || catalog.defaultWeights[axisId] || 0.1 : 0;

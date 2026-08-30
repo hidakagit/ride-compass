@@ -42,19 +42,28 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
 
   const fetchAll = useCallback(() => {
     setLoading(true);
-    getDebugStats()
+    // 改善計画T471: 以前はsetLoading(false)がgetFrontendVersion()側の.finally()にしか
+    // 紐付いておらず、getDebugStats()（バックエンド、ネットワーク往復を伴い所要時間が
+    // 読めない）より先にgetFrontendVersion()（フロント自身のモジュール評価時刻、実質即時）
+    // が解決すると、バックエンド側がまだ取得中でも「更新」ボタンが押せる状態へ戻り
+    // loading表示が消えてしまっていた。両方が完了するまでloadingを維持するよう
+    // Promise.allSettledでまとめる。
+    const backendFetch = getDebugStats()
       .then((data) => {
         setBackend(data);
         setBackendError(null);
       })
       .catch((error) => setBackendError(error instanceof Error ? error.message : String(error)));
-    getFrontendVersion()
+    const frontendFetch = getFrontendVersion()
       .then((data) => {
         setFrontend(data);
         setFrontendError(null);
       })
-      .catch((error) => setFrontendError(error instanceof Error ? error.message : String(error)))
-      .finally(() => setLoading(false));
+      .catch((error) => setFrontendError(error instanceof Error ? error.message : String(error)));
+    // backendFetch/frontendFetchはいずれも自前で.catch()済みで拒否しないため、
+    // Promise.allで両方の完了を待てば十分（片方が失敗しても他方の完了を待たずに
+    // loadingが解除される事故を防げる）。
+    Promise.all([backendFetch, frontendFetch]).then(() => setLoading(false));
   }, []);
 
   // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する

@@ -80,6 +80,29 @@ describe("SystemStatusPanel", () => {
     await waitFor(() => expect(screen.getByText("取得失敗: boom")).toBeInTheDocument());
   });
 
+  // 改善計画T471: 以前はloading解除がgetFrontendVersion()側の.finally()にしか紐付いて
+  // おらず、getDebugStats()（バックエンド）がまだ取得中でもgetFrontendVersion()
+  // （フロント自身、実質即時）が先に解決すると「更新中…」表示が消えていた。両方の完了を
+  // 待ってから解除されることを確認する。
+  it("frontendの取得が先に完了しても、backendが完了するまで「更新中…」表示を維持する", async () => {
+    mockedGetFrontendVersion.mockResolvedValue(FRONTEND_VERSION);
+    let resolveBackend: (value: DebugStats) => void = () => {};
+    mockedGetDebugStats.mockReturnValue(
+      new Promise((resolve) => {
+        resolveBackend = resolve;
+      }),
+    );
+
+    render(<SystemStatusPanel open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText("def5678")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "更新中…" })).toBeInTheDocument();
+
+    resolveBackend(BACKEND_STATS);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "更新" })).toBeInTheDocument());
+  });
+
   it("閉じるボタンでonCloseが呼ばれる", async () => {
     mockedGetDebugStats.mockResolvedValue(BACKEND_STATS);
     mockedGetFrontendVersion.mockResolvedValue(FRONTEND_VERSION);

@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { AxisCatalogResponse } from "@/types/route";
+import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
 import type { MapLayerId, MapLayerVisibility } from "@/components/Map/mapLayers";
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "./RouteSettingsPanel";
 
@@ -174,6 +175,51 @@ describe("RouteSettingsPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(onRoutePreferenceChange).not.toHaveBeenCalled();
+  });
+
+  // 改善計画T471: lastWeights（チェックを外した軸の重みを覚えておく内部state）は
+  // マウント時点のcatalog.defaultWeights（フェッチ完了前は静的フォールバック値）で
+  // 初期化される。以前はフェッチ完了後にcatalog.defaultWeightsが実際の値へ更新されても
+  // 追従せず、一度チェックを外して戻すと古いフォールバック値へ復元されていた。
+  it("フェッチ完了で既定重みが変わった場合、チェックを外して戻すと新しい既定値へ復元される（古いフォールバック値ではない）", async () => {
+    const user = userEvent.setup();
+    // 静的フォールバック（axis-catalog.json: preference_defaults.gradient）とは異なる値を
+    // 実行時フェッチの応答として返し、フェッチ前後で既定重みが変わる状況を再現する。
+    const response = catalogResponse(["gradient"]);
+    response.axes[0].default_weight = 0.42;
+    vi.mocked(getAxisCatalog).mockResolvedValue(response);
+    const onRoutePreferenceChange = vi.fn();
+
+    function Wrapper() {
+      const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>({ gradient: 0.5 });
+      return (
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={routePreference}
+          onRoutePreferenceChange={(next) => {
+            onRoutePreferenceChange(next);
+            setRoutePreference(next);
+          }}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+          {...baseNewProps()}
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    // フェッチ完了（default_weight=0.42への追従）を待つ。
+    await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const checkbox = screen.getByRole("checkbox", { name: "ラベル[gradient]" });
+    await user.click(checkbox); // チェックを外す(weight=0)
+    await user.click(checkbox); // 再度チェックする(lastWeightsから復元)
+
+    const restored = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
+    expect(restored.gradient).toBe(0.42);
   });
 
   // 改善計画T418: 軸ごとの「この条件で地図を色分け」トグル（renderMapColorToggle）。

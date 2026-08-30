@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactElement,
+} from "react";
 import { createPortal } from "react-dom";
 import { useStoredState } from "@/hooks/useStoredState";
 import {
@@ -16,6 +23,7 @@ import {
   type MapOverlayGroup,
 } from "@/components/Map/mapLayers";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
+import WidthSwatch from "@/components/MapLayersPanel/WidthSwatch";
 import {
   AccidentIcon,
   AxisRampIcon,
@@ -215,23 +223,15 @@ interface PanelRect {
 // entry.colorで塗る（改善計画: 「道路種別が支配的な場合、色がすべて灰色で違和感がある」
 // への対応で道路の種類も濃淡パレット（COLOR_HIGHWAY_*）を持つようになったため、凡例と
 // 地図の見た目を一致させる。路面の種類等widthを持たないカテゴリは従来どおり色ドット）。
+// 改善計画T471: 以前はここでWidthSwatch.tsx（MapLayersPanel）とほぼ同じ太さバーの
+// 描画を独立に再実装しており、拡大率（WidthSwatch.tsx: DISPLAY_SCALE=1.8）が
+// 適用されていなかったため、同じentry.widthでも2箇所で見た目の太さが食い違っていた。
+// WidthSwatchをそのまま使うことで実装の重複と縮尺の食い違いを両方解消する。
 function renderLegendSwatch(entry: LegendEntry) {
   if (entry.width === undefined) {
     return <span className={styles.detailSwatchDot} style={{ background: entry.color }} />;
   }
-  const height = `${Math.max(2, entry.width)}px`;
-  if (entry.dashed) {
-    return (
-      <span
-        className={`${styles.detailSwatchBar} ${styles.detailSwatchBarDashed}`}
-        style={{
-          height,
-          backgroundImage: `repeating-linear-gradient(to right, ${entry.color} 0, ${entry.color} 2px, transparent 2px, transparent 4px)`,
-        }}
-      />
-    );
-  }
-  return <span className={styles.detailSwatchBar} style={{ height, background: entry.color }} />;
+  return <WidthSwatch width={entry.width} dashed={entry.dashed} color={entry.color} />;
 }
 
 // ▶を開いたときの内訳パネル。軸に属する全カテゴリを表示中/非表示の別なく並べ、
@@ -289,7 +289,7 @@ function usePagedOverflow(axis: "x" | "y") {
   const [offset, setOffset] = useState(0);
   const [maxOffset, setMaxOffset] = useState(0);
 
-  const measure = () => {
+  const measure = useCallback(() => {
     const viewport = viewportRef.current;
     const track = trackRef.current;
     if (!viewport || !track) return;
@@ -298,14 +298,14 @@ function usePagedOverflow(axis: "x" | "y") {
     const nextMax = Math.max(0, trackSize - viewportSize);
     setMaxOffset(nextMax);
     setOffset((prev) => Math.min(prev, nextMax));
-  };
+  }, [axis]);
 
   // viewport（表示領域）・track（実コンテンツ）はコールバックrefのため、どちらが先に
   // アタッチされるか（マウント順）に依存せず、両方揃った時点でResizeObserverを張り直す
   // （どちらかがアンマウントされたら破棄する）。ResizeObserverを使うことで、軸の増減・
   // 展開/収納・フィルタ設定・画面回転等、はみ出し量に影響しうる変化を網羅的に検知する
   // （個々の変化のたびに手動でmeasure()を呼ぶ箇所を列挙する保守コストを避ける）。
-  const rewireObserver = () => {
+  const rewireObserver = useCallback(() => {
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
     const viewport = viewportRef.current;
@@ -316,16 +316,26 @@ function usePagedOverflow(axis: "x" | "y") {
     observer.observe(track);
     resizeObserverRef.current = observer;
     measure();
-  };
+  }, [measure]);
 
-  const registerViewport = (el: HTMLDivElement | null) => {
-    viewportRef.current = el;
-    rewireObserver();
-  };
-  const registerTrack = (el: HTMLDivElement | null) => {
-    trackRef.current = el;
-    rewireObserver();
-  };
+  // 改善計画T471: registerViewport/registerTrackはコールバックrefとしてJSXへ渡すため、
+  // useCallbackで参照を安定させないと親コンポーネントが再レンダーするたびに新しい関数が
+  // 渡り、Reactがref変更とみなして毎回detach（null呼び出し）→reattachし、
+  // rewireObserver（ResizeObserverの破棄・再構築）が無関係な再レンダーのたびに走っていた。
+  const registerViewport = useCallback(
+    (el: HTMLDivElement | null) => {
+      viewportRef.current = el;
+      rewireObserver();
+    },
+    [rewireObserver],
+  );
+  const registerTrack = useCallback(
+    (el: HTMLDivElement | null) => {
+      trackRef.current = el;
+      rewireObserver();
+    },
+    [rewireObserver],
+  );
 
   const pageForward = () => setOffset((prev) => Math.min(maxOffset, prev + PAGE_STEP_PX));
   const pageBackward = () => setOffset((prev) => Math.max(0, prev - PAGE_STEP_PX));

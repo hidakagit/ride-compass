@@ -565,23 +565,6 @@
   flex-shrink: 0;
 }
 
-.detailSwatchBar {
-  width: 14px;
-  border-radius: 1px;
-  background: var(--color-muted-strong);
-  flex-shrink: 0;
-}
-
-.detailSwatchBarDashed {
-  background-image: repeating-linear-gradient(
-    to right,
-    var(--color-muted-strong) 0,
-    var(--color-muted-strong) 2px,
-    transparent 2px,
-    transparent 4px
-  );
-}
-
 /* 改善計画T374: はみ出した分のページ送りボタン（▲▼、MapOverlayControls.tsx参照）。
    改善計画T418で評価軸グループ（横並び展開、◀▶送り・.estimatedFlatRow*・
    .chipRowItemAxis）を撤去したのに伴い、縦送り（▲▼）だけが残っている。

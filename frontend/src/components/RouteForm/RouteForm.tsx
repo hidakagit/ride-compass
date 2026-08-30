@@ -4,6 +4,7 @@ import { useState } from "react";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { Input } from "@/components/ui/Input/Input";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import styles from "./RouteForm.module.css";
 
 export type RouteMode = "loop" | "destination";
@@ -32,8 +33,11 @@ interface RouteFormProps {
   onDestinationButtonClick: () => void;
 }
 
-// backend/app/api/routes.pyのRouteGenerateRequest.distance_km（Field(gt=0, le=100)）と一致させる。
-const MAX_DISTANCE_KM = 100;
+// backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
+// le=MAX_ROUTE_DISTANCE_KM)）と一致させる。改善計画T471: 以前はここへ「100」を独立に
+// ハードコードしていた（page.tsxにも同じ値の別定義があった）ため、backend側の唯一の
+// 情報源（export_openapi.py: ROUTE_GENERATE_CONFIG_PATH）から導出するよう変更した。
+const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 
 export default function RouteForm({
   distance,

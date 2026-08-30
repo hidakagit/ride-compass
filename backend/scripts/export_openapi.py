@@ -33,6 +33,7 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
+from app.api.routers.routes import MAX_ROUTE_DISTANCE_KM  # noqa: E402
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
 from app.infrastructure.database import get_session_factory  # noqa: E402
 from app.infrastructure.vector_tile import (  # noqa: E402
@@ -51,6 +52,7 @@ SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
+ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
 
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
@@ -204,6 +206,9 @@ def main() -> None:
             "detail_max_points": WIND_GRID_DETAIL_MAX_POINTS,
         },
     )
+    # ルート生成距離の上限（改善計画T471、api/routers/routes.py: MAX_ROUTE_DISTANCE_KMの
+    # コメント参照）。以前はfrontend側の複数ファイルが「100」を独立にハードコードしていた。
+    _write_json(ROUTE_GENERATE_CONFIG_PATH, {"max_distance_km": MAX_ROUTE_DISTANCE_KM})
 
 
 if __name__ == "__main__":

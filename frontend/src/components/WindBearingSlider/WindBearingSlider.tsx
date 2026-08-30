@@ -64,7 +64,15 @@ export default function WindBearingSlider({ value, onChange, ariaLabel }: WindBe
           direction={1}
           knobPosition="top"
           value={value}
-          onChange={(next) => onChange(typeof next === "number" ? next : Number(next))}
+          // 改善計画T471: ライブラリのonChangeはnumber以外（string等）を渡すことがあり、
+          // Number(next)がNaNになりうる経路にガードが無かった。NaNをそのまま親へ伝えると
+          // cardinalLabel(NaN)がCARDINAL_LABELS[NaN]=undefinedを返して表示が壊れ、
+          // 以後のbearing_degを使う評価（wind_way_service.py等）にもNaNが伝播しうるため、
+          // 変換に失敗した場合はonChangeを呼ばず既存の値を保つ（フェイルソフト）。
+          onChange={(next) => {
+            const parsed = typeof next === "number" ? next : Number(next);
+            if (!Number.isNaN(parsed)) onChange(parsed);
+          }}
           hideLabelValue
           knobSize={18}
           progressSize={6}

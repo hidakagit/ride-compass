@@ -26,6 +26,14 @@ from app.services.route_generator import JST
 router = APIRouter()
 logger = logging.getLogger("ridecompass.generate")
 
+# ルート生成距離の上限（km）。上限が無いとbboxが際限なく広がりタイル問い合わせが長時間
+# ハングしうる。既存の実機検証は30kmまでのため、余裕を見つつも無制限は避ける値として
+# 100kmとする。改善計画T471: 以前はfrontend/src/components/RouteForm/RouteForm.tsx・
+# frontend/src/app/page.tsxが「100」をそれぞれ独立にハードコードしていた
+# （設計原則1「OpenAPI生成物からの導出」違反）ため、この値をOpenAPI生成物経由で
+# フロントへ渡す唯一の情報源にする（export_openapi.py: ROUTE_GENERATE_CONFIG_PATH参照）。
+MAX_ROUTE_DISTANCE_KM = 100
+
 # ルート生成の同時実行上限（settings.generate_max_concurrent、config.pyのコメント参照）。
 # 上限を超えた分は待たせず429で即座に返し、ブラウザのリトライや連打で外部サービスへの
 # 負荷が積み上がることを防ぐ。
@@ -137,9 +145,7 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    # 上限が無いとbboxが際限なく広がりタイル問い合わせが長時間ハングしうる。
-    # 既存の実機検証は30kmまでのため、余裕を見つつも無制限は避ける値として100kmとする。
-    distance_km: float = Field(gt=0, le=100)
+    distance_km: float = Field(gt=0, le=MAX_ROUTE_DISTANCE_KM)
     distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用、docs/research-interface-review-2026-08-15.md
