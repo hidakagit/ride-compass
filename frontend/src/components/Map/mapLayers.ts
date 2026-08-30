@@ -511,9 +511,15 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     // MapLibreのsetFeatureStateで道路線そのものを色分けする。改善計画T418で地図上チップ
     // としては撤去し、ルート設定パネル（RouteSettingsPanel.tsx）の「風」行から起動する形へ
     // 移設した——label/chipLabel/descriptionはisAxisStudioLayerによりMapOverlayControls/
-    // MapLayersPanelには出ないが、RouteSettingsPanel側がこのMapLayerDescriptor自体は
-    // 引き続き参照する（buildRoadSurfaceSharedLayerIds経由のズーム範囲外判定、および
-    // panelHintのツールチップ文言としての再利用）。
+    // MapLayersPanelの表示対象からは除外される。
+    // 改善計画T446（コード実態と食い違っていた旧コメントの訂正）: RouteSettingsPanel.tsx
+    // 自体はこのMapLayerDescriptorを直接参照しない（`mapColorLayerIdFor`経由で
+    // layerVisibility[layerId]のON/OFFだけを扱う、tooltip文言も自前のハードコード文字列）。
+    // このエントリが実際に使われているのは、(1) MapLayerId型の定義そのものと、(2)
+    // road_surfaceタイル（promoteId付きway_id）を共有するレイヤーとして
+    // buildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
+    // （MapView.tsx: isRoadSurfaceGroupVisible→updateRoadZoomHint、「表示範囲が広すぎます」
+    // バナー）の対象にすることの2点のみ。
     id: "windAxis",
     label: "風（評価軸）",
     chipLabel: "風軸",
@@ -552,6 +558,8 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     // 要素…の二重表現」節）。上のgradientFill（タイル単位の面表示、探索用の「環境」表現）
     // とは独立した評価軸としての表現——windAxisと同型（改善計画T418で地図上チップとしては
     // 撤去し、ルート設定パネル[RouteSettingsPanel.tsx]の「勾配」行から起動する形へ移設）。
+    // windAxis同様buildRoadSurfaceSharedLayerIds（下記）にも含める——実際の用途はwindAxisの
+    // コメント参照（改善計画T446、以前はwindAxisのみ含みここが非対称のまま残っていた）。
     id: "gradientAxis",
     label: "勾配（評価軸）",
     chipLabel: "勾配軸",
@@ -651,14 +659,16 @@ export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): r
     "designation",
     "tunnel",
     "oneway",
-    // 改善計画T405: way_id→wind_penalty配信層（評価軸としての風）も同じroad_surfaceタイル
-    // （ソース）を再利用する独立レイヤーのため、ズーム範囲外判定（regionZoomTooWide）は
-    // ここに含める。ただしデータ自体（wind_penalty値）はタイルのプロパティではなく別経路の
-    // fetchで来るため、T87のloading/empty/error状態表示（useLayerDataStatus）の対象には
-    // 含めていない（MapView.tsx: getLayerVisibility参照。改善計画T418で地図上チップは
-    // 撤去しルート設定パネルへ移設したが、この対象外の判断自体は変更不要と判断しそのまま
-    // 維持した）。
+    // 改善計画T405/T423/T446: way_id→wind_penalty/勾配配信層（評価軸としての風・勾配）も
+    // 同じroad_surfaceタイル（ソース）を再利用する独立レイヤーのため、ズーム範囲外判定
+    // （regionZoomTooWide）はここに含める。ただしデータ自体（wind_penalty/勾配値）はタイルの
+    // プロパティではなく別経路のfetchで来るため、T87のloading/empty/error状態表示
+    // （useLayerDataStatus）の対象には含めていない（MapView.tsx: getLayerVisibility参照。
+    // 改善計画T418で地図上チップは撤去しルート設定パネルへ移設したが、この対象外の判断
+    // 自体は変更不要と判断しそのまま維持した）。勾配は改善計画T423で風と対称の機構として
+    // 追加されたが、このリストへの追加が漏れたまま非対称になっていた（改善計画T446で解消）。
     "windAxis",
+    "gradientAxis",
     // 二次軸rampレイヤー（T145b）も同じroad_surfaceタイルへ焼き込まれたプロパティを読む
     // （改善計画T292: car_stressもここに含まれるようになった）。
     ...rampAxes.map((axis) => axisMapLayerId(axis.axisId)),
