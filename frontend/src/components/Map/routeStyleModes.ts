@@ -10,6 +10,7 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { CatalogAxis } from "./axisLayers";
+import type { RoutePreferenceWeights } from "@/types/route";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 改善計画T352: 以前は"wind"も固定文字列unionの一員だったが、supports_route_coloring
@@ -184,13 +185,38 @@ export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): Ro
   return [...dynamicModes, ...STATIC_MODES];
 }
 
+// 改善計画T434: routeStyleModesFromCatalogAxes（公開軸カタログ由来）はroutePreferenceの
+// 重みを知らないため、ユーザーがルート設定パネルでチェックを外した（重み0にした）軸の
+// モードも選択肢に残り続けてしまう（「勾配は常にあるからハードコードでいいという話では
+// ない」という指摘、2026-08-30）。dynamicModes（wind等、routeColorableModeFromAxisが
+// id=axis.axis_idで生成）と、STATIC_MODESのうちgradient（AxisDefinition.supports_route_
+// coloringのdocstring参照、意図的にaxis_id文字列"gradient"をmode.idとして共有）は
+// route_preferenceの重み>0のときだけ残す。road/difficultyはどのaxis_idとも一致しない
+// （road_surface_goodは軸に紐づかない別系統、difficultyは全軸の合成のため単一の
+// enabled/disabled概念を持たない）ため、常に残す。
+export function filterRouteStyleModesByPreference(
+  modes: readonly RouteStyleMode[],
+  routePreference: RoutePreferenceWeights
+): RouteStyleMode[] {
+  return modes.filter((mode) => !(mode.id in routePreference) || (routePreference[mode.id] ?? 0) > 0);
+}
+
 // ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと
 // 同じ位置付け）。useAxisCatalogがGET /api/axis-catalog取得完了までの間・失敗時に使う。
 export const ROUTE_STYLE_MODES: readonly RouteStyleMode[] = routeStyleModesFromCatalogAxes(
   axisCatalog.axes as CatalogAxis[]
 );
 
-export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = "wind";
+// 改善計画T433: 以前は"wind"を固定文字列でハードコードしており、axis-catalog由来の
+// dynamicModes（現状はwindのみ）が偶然modes[0]と一致することに暗黙に依存していた
+// （バックエンド側でwindのsupports_route_coloringをfalseにする、または軸自体をunpublish
+// すると、この定数だけが古い値のまま残り、getRouteStyleModeの「見つからなければmodes[0]」
+// フォールバックで実際の初期選択（gradient等）と定数の値が静かに食い違う——ゼロベース
+// レビュー2026-08-30 §4で指摘）。ROUTE_STYLE_MODES[0]から導出することで、この一致を
+// コード上で強制する（STATIC_MODESが常に非空のためROUTE_STYLE_MODESが空になることはなく、
+// [0]は必ず存在する）。dynamicModesが1件も無くなればgradient（STATIC_MODESの先頭）へ
+// 自動的にフォールバックする。
+export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = ROUTE_STYLE_MODES[0].id;
 
 export function isRouteStyleModeId(
   modes: readonly RouteStyleMode[],

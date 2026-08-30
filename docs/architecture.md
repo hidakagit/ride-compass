@@ -2574,6 +2574,15 @@ value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う
 性質による意図的な非対称（`domain/axis_definitions.py: AxisDefinition.
 supports_route_coloring`のdocstring参照）。
 
+**T434（route_preferenceの重みによる選択肢の絞り込み）**: `STATIC_MODES`
+（gradient/road/difficulty）・`routeStyleModesFromCatalogAxes`由来のモード（wind等）は、
+いずれも「その軸が公開されているか」だけで選択肢の有無が決まり、ユーザーがルート設定
+パネルで軸の重みを0にした（＝評価から外した）状態を反映しなかった。`page.tsx`側で
+`filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, routePreference)`を
+かけた結果を実際に画面へ出す一覧として使う形に変更し、`mode.id`がroutePreferenceの
+キーと一致するモード（gradient/wind等）だけ重み>0を要求する。road/difficultyはどの
+axis_idとも一致しないため対象外（常に選択肢に残る）。
+
 ### 地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）と一次/二次命名（改善計画T163〜T169）
 
 > 経緯・教訓（T167の自動ON連動導入→T181/T214での撤去、T215のタッチスクロール不具合対応等）は

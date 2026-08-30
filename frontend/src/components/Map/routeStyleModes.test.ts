@@ -4,6 +4,7 @@ import { buildLegendFilterExpression } from "./legendFilter";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   ROUTE_STYLE_MODES,
+  filterRouteStyleModesByPreference,
   getRouteStyleMode,
   isRouteStyleModeId,
 } from "./routeStyleModes";
@@ -12,6 +13,10 @@ describe("routeStyleModes", () => {
   it("4つのモード（風の影響・勾配・路面・総合難易度）を定義し、デフォルトは風", () => {
     expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual(["wind", "gradient", "road", "difficulty"]);
     expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe("wind");
+  });
+
+  it("改善計画T433: デフォルトはハードコードではなくROUTE_STYLE_MODES[0]から導出される（axis-catalogの構成が変わっても静かに食い違わない）", () => {
+    expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe(ROUTE_STYLE_MODES[0].id);
   });
 
   it("各モードは凡例と色式を持ち、凡例の色・キーに重複がなく、データなしカテゴリを含む", () => {
@@ -94,6 +99,16 @@ describe("routeStyleModes", () => {
       [">=", ["to-number", ["get", "difficulty"]], 33],
       ["<", ["to-number", ["get", "difficulty"]], 66],
     ]);
+  });
+
+  it("改善計画T434: filterRouteStyleModesByPreferenceは重み0の軸（gradient/wind）を除外し、対応する軸を持たないroad/difficultyは常に残す", () => {
+    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0.26 });
+    expect(filtered.map((m) => m.id)).toEqual(["wind", "road", "difficulty"]);
+  });
+
+  it("改善計画T434: 全軸の重みが0でもroad/difficultyは残るため一覧が空にならない", () => {
+    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0 });
+    expect(filtered.map((m) => m.id)).toEqual(["road", "difficulty"]);
   });
 
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {
