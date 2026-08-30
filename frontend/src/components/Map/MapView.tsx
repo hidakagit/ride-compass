@@ -206,6 +206,9 @@ const GRADIENT_AXIS_LAYER_ID = "region-gradient-axis-line";
 // 由来の別系統フック）まで作り直す統合コストが今回のスコープを超えるため、bespokeな
 // ensure/apply関数のまま据え置く（風との実装パターンの一致は崩れた——追従は将来の
 // フォローアップ課題とする）。
+// 改善計画T452（DEFERトリガー明記）: トリガーは「gradientFillのensure/apply関数自体へ
+// 次回手を入れる判断をした時点」または「同種のbespoke実装（way_id依存の動的面塗り）が
+// 3例目として追加される時点」のいずれか。現時点でこのトリガーに向けた着手は不要。
 const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
 const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
