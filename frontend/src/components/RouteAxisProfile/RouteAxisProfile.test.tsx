@@ -36,4 +36,16 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
   });
+
+  it("難易度バーがdisplay:blockで描画される（review:ui F-2の再発防止。trackもbarも<span>のため、" +
+    "displayを明示しない既定のinlineのままだとwidthスタイルがCSS仕様上無視され、バーが幅0で" +
+    "描画されなくなる）", () => {
+    const { container } = render(
+      <RouteAxisProfile axes={AXES} axisDifficulties={{ car_stress: 72.4 }} />,
+    );
+
+    const bar = container.querySelector('[class*="bar"]');
+    expect(bar).not.toBeNull();
+    expect(getComputedStyle(bar as Element).display).toBe("block");
+  });
 });

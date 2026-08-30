@@ -25,6 +25,7 @@
 }
 
 .track {
+  display: block;
   background: var(--color-surface-2);
   border-radius: var(--radius-sm);
   height: 0.85rem;
@@ -32,6 +33,7 @@
 }
 
 .bar {
+  display: block;
   height: 100%;
   border-radius: var(--radius-sm);
 }
