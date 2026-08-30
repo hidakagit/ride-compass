@@ -40,7 +40,7 @@ export default function RouteAxisProfile({ axes, axisDifficulties }: RouteAxisPr
 
   return (
     <div>
-      <p className={styles.hint}>各軸の難易度[0-100、絶対基準・軸スタジオの重みで自動追従]</p>
+      <p className={styles.hint}>各軸の難易度[0-100、絶対基準・軸の重み付け設定に応じて自動的に更新されます]</p>
       <ul className={styles.list}>
         {rows.map((axis) => {
           const value = axisDifficulties[axis.axisId];

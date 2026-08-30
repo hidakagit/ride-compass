@@ -34,7 +34,7 @@ export interface ScoringAxisDef {
 // 2指標へ単純化した。
 const SCORING_AXIS_META: Record<keyof ScoringWeights, Omit<ScoringAxisDef, "id" | "weightKey">> = {
   distance_weight: { label: "距離の合わせ込み", description: "指定距離との差の小ささ" },
-  difficulty_weight: { label: "総合難易度", description: "軸スタジオの重みで合成した総合難易度が小さいほど高評価" },
+  difficulty_weight: { label: "総合難易度", description: "各軸の重み付け設定で合成した総合難易度が小さいほど高評価" },
 };
 
 export const SCORING_AXES: readonly ScoringAxisDef[] = (

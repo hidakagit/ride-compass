@@ -103,7 +103,15 @@ describe("RouteList", () => {
       render(<RouteList routes={routes} selectedRouteId={null} onSelect={vi.fn()} />);
 
       expect(screen.getByText(/指定距離との差の小ささ/)).toBeInTheDocument();
-      expect(screen.getByText(/軸スタジオの重みで合成した総合難易度/)).toBeInTheDocument();
+      expect(screen.getByText(/各軸の重み付け設定で合成した総合難易度/)).toBeInTheDocument();
+    });
+
+    it("一般ユーザー向け画面のため、Basic認証必須の管理画面限定機能名「軸スタジオ」を含まない" +
+      "（review:ui 2026-08-30 F-4の再発防止）", () => {
+      const routes = [makeRoute({ id: "a" })];
+      const { container } = render(<RouteList routes={routes} selectedRouteId={null} onSelect={vi.fn()} />);
+
+      expect(container.textContent).not.toContain("軸スタジオ");
     });
   });
 });

@@ -48,4 +48,13 @@ describe("RouteAxisProfile", () => {
     expect(bar).not.toBeNull();
     expect(getComputedStyle(bar as Element).display).toBe("block");
   });
+
+  it("一般ユーザー向け画面のため、Basic認証必須の管理画面限定機能名「軸スタジオ」を含まない" +
+    "（review:ui 2026-08-30 F-4の再発防止）", () => {
+    const { container } = render(
+      <RouteAxisProfile axes={AXES} axisDifficulties={{ car_stress: 72.4 }} />,
+    );
+
+    expect(container.textContent).not.toContain("軸スタジオ");
+  });
 });
