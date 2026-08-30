@@ -592,3 +592,7 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 - [ ] [T459](tasks/T459.md). car_stress_display_level()がAXIS_DEFINITIONS["car_stress"]を直接ハードコードしている 規模S〜M（2026-08-31起票）
 - [ ] [T460](tasks/T460.md). get_dynamic_way_value_serviceのサービス組み立てがmaterial_idのハードコードif/else分岐になっている 規模S（2026-08-31起票）
 - [x] [T461](tasks/T461.md). GRADIENT_FILL_LAYER_IDにWIND_PENALTY_FILL_LAYER_IDと同型のクリックガードが無い 規模S（2026-08-31起票・完了）
+
+## openrouteserviceエンジンの完全削除（2026-08-31・ユーザー指示）
+
+- [ ] [T462](tasks/T462.md). openrouteserviceエンジンを完全削除しroad_graphへ一本化する 規模L（2026-08-31起票）
