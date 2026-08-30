@@ -11,7 +11,7 @@ car_stress_breakdown/car_stress_level）を改善計画T292で廃止し、AXIS_D
 改善計画T347: 旧`classify_bicycle_infrastructure`（優先順位付き分類、SQL CASE式との
 2箇所手書き複製が「生データの分類ロジックをPythonに持たせない」方針に反するという
 ユーザー指摘を受け削除）は、正規化フラグ材料4種（`domain/recipe.py: bicycle_infra_flags`）
-の組み合わせへ置き換えた。`is_dedicated_bicycle_infra`はこのフラグ辞書を直接受け取る。
+の組み合わせへ置き換えた（domain/evaluation.pyの軸材料合成が直接参照する）。
 """
 
 from typing import Literal
@@ -93,71 +93,3 @@ def classify_supply_poi(tags: dict[str, str]) -> SupplyPoiKind | None:
         return "convenience"
     amenity = (tags.get("amenity") or "").strip().lower()
     return _AMENITY_SUPPLY_KINDS.get(amenity)
-
-
-def _density_per_km(segments: list[tuple[float, int | None]]) -> float | None:
-    """(区間distance_km, 区間内のcount)のリストから「合計count÷合計distance_km」を求める
-    （密度は加算的な量の比であり、区間ごとに既に正規化された値の平均ではないため、
-    domain/difficulty.pyのdistance_weighted_*とは異なる集約になる）。
-
-    countがNoneの区間は「データ未取得（例: repository未注入）」を表し、0（実測で対象無し）
-    とは区別して集計から除外する。除外後に1区間も残らない、または距離の合計が0以下ならNone。
-    """
-    available = [(distance, count) for distance, count in segments if count is not None]
-    if not available:
-        return None
-    distance_sum = sum(distance for distance, _ in available)
-    if distance_sum <= 0:
-        return None
-    count_sum = sum(count for _, count in available)
-    return round(count_sum / distance_sum, 2)
-
-
-def distance_weighted_stop_density(segments: list[tuple[float, int | None]]) -> float | None:
-    """(区間distance_km, 区間内の停止要因count)のリストから、ルート全体の停止密度
-    （回/km）を求める（静的道路属性P1）。"""
-    return _density_per_km(segments)
-
-
-def distance_weighted_intersection_density(segments: list[tuple[float, int | None]]) -> float | None:
-    """(区間distance_km, 区間内の交差点count)のリストから、ルート全体の交差点密度
-    （回/km）を求める（静的道路属性P1残り、intersectionDensity）。集約方法は
-    distance_weighted_stop_densityと同じ（stop_countsに無いEdge/サンプル点はNone扱いで
-    「データ未取得」と「実測0件」を区別する、road_score等と同じ方針）。"""
-    return _density_per_km(segments)
-
-
-def is_dedicated_bicycle_infra(flags: dict[str, bool] | None) -> bool | None:
-    """正規化フラグ（`domain/recipe.py: bicycle_infra_flags`の戻り値）が「専用インフラ
-    （分離自転車道・自転車レーン）」を示すかどうかを3値で返す（不明はNone。
-    road.py: classify_osm_surfaceの3値判定と同じ考え方）。
-
-    改善計画T347: 旧`classify_bicycle_infrastructure`の優先順位付き分類（separated/lane/
-    shared_busway等の7値）を廃止し、cycleway/highway由来の判定のみを担う正規化フラグ4種
-    （highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）から
-    直接判定する。「専用」＝旧separated相当(highway_is_cycleway or cycleway_has_track)
-    または旧lane相当(cycleway_has_lane)。cycleway_has_shared（旧shared_busway相当）は
-    専用インフラに含めない（旧分類と同じ扱い）。
-
-    `flags`がNone（way_tagsの空間マッチに失敗した区間、データ欠損）の場合はNoneを返す。
-    これを怠ると、データ欠損区間が「専用インフラではないと確認された区間」として
-    distance_weighted_bicycle_infra_scoreの分母に混入してしまう。
-    """
-    if flags is None:
-        return None
-    return flags.get("highway_is_cycleway", False) or flags.get("cycleway_has_track", False) or flags.get(
-        "cycleway_has_lane", False
-    )
-
-
-def distance_weighted_bicycle_infra_score(pairs: list[tuple[float, bool | None]]) -> float | None:
-    """(区間の距離, 専用の自転車インフラか)のペア列から、距離加重の専用インフラ率(%)を
-    算出する（domain/road.py: distance_weighted_road_scoreと同じ集約方法。不明区間は
-    分母から除外し、判定できる区間が1つも無ければNone）。"""
-    known = sum(distance for distance, is_dedicated in pairs if is_dedicated is not None)
-    if known <= 0:
-        return None
-    dedicated = sum(distance for distance, is_dedicated in pairs if is_dedicated)
-    return round(dedicated / known * 100, 1)
-
-

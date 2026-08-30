@@ -1188,28 +1188,20 @@ export interface components {
          *     **異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。
          *     segments欠損時・全区間difficulty欠損時はNone。
          *
-         *     `stop_density`: ルート全体の信号・横断歩道・一時停止・踏切の合計密度（回/km、
-         *     静的道路属性P1）。domain/traffic.py: distance_weighted_stop_density（合計count÷
-         *     合計distance_kmの単純比、road_score等の「率の加重平均」とは集約方法が異なる）。
-         *
-         *     `car_stress_score`: ルート全体の車ストレス（1-5）の距離加重平均
-         *     （domain/difficulty.py: distance_weighted_difficulty、道路情報の集計と同じ加重平均方式）。
-         *     `bicycle_infra_score`: ルート全体の専用自転車インフラ（分離・レーン）区間の距離加重率(%)
-         *     （domain/traffic.py: distance_weighted_bicycle_infra_score、road_scoreと同じ集約方法）。
-         *     `intersection_density`: ルート全体の交差点密度（回/km、stop_densityと同じ集約方法）。
-         *     いずれも静的道路属性P1残り。
-         *
-         *     `accident_density`: ルート全体の事故密度（件/(km・年)、外部静的データソース T50残作業）。
-         *     domain/accident.py: distance_weighted_accident_density（stop_densityと同じ「合計count÷
-         *     合計distance_km」に収録年数での正規化を加えた集約）。
-         *
          *     `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ
          *     axis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの
          *     （改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位
-         *     ではなく候補全体へ適用）。`car_stress_score`等の個別フィールド群は旧来の軸1対1固定
-         *     設計の名残（改善計画T400節4参照）で、軸スタジオでの軸増減に追従しない。新規の消費
-         *     （BottomSheetのルート全体プロファイル等）はこちらを使うこと。評価できなかった軸は
-         *     キー自体を含めない（segments欠損時は空dict）。
+         *     ではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート
+         *     全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は
+         *     空dict）。
+         *
+         *     改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・
+         *     `intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の
+         *     名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で
+         *     フロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ
+         *     移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.py・
+         *     openrouteservice_engine.pyの集約計算）もこのフィールドへ値を渡すためだけの
+         *     処理だったため、併せて撤去済み。
          */
         RouteCandidate: {
             /** Id */
@@ -1234,16 +1226,6 @@ export interface components {
             wind_score?: number | null;
             /** Road Score */
             road_score?: number | null;
-            /** Stop Density */
-            stop_density?: number | null;
-            /** Car Stress Score */
-            car_stress_score?: number | null;
-            /** Bicycle Infra Score */
-            bicycle_infra_score?: number | null;
-            /** Intersection Density */
-            intersection_density?: number | null;
-            /** Accident Density */
-            accident_density?: number | null;
             /** Total Score */
             total_score?: number | null;
             /** Score Breakdown */

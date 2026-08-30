@@ -463,39 +463,36 @@ async def test_candidate_aggregates_stop_density_from_path_edges():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = next(c for c in candidates if c.id == "route-000")
 
-    assert candidate.stop_density is not None
-    assert candidate.stop_density > 0.0
     segment_with_stops = next(s for s in candidate.segments if s.axis_difficulties.get("stop_density", 0) > 0)
     assert segment_with_stops.difficulty is not None
 
 
-async def test_candidate_stop_density_is_zero_without_any_stop_pois():
+async def test_candidate_stop_density_axis_is_zero_without_any_stop_pois():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph)  # stop_counts未指定（=repository注入済み・実測0件）
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = next(c for c in candidates if c.id == "route-000")
 
-    assert candidate.stop_density == 0.0
+    assert all(s.axis_difficulties.get("stop_density") == 0.0 for s in candidate.segments)
 
 
-async def test_candidate_stop_density_is_none_when_data_unavailable():
-    # repository未注入等でstop_poiデータ自体を取得できない場合は「実測0件」とは区別してNone
+async def test_candidate_stop_density_axis_is_absent_when_data_unavailable():
+    # repository未注入等でstop_poiデータ自体を取得できない場合は「実測0件」とは区別して
+    # axis_difficulties自体にキーを持たない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph, stop_data_available=False)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = next(c for c in candidates if c.id == "route-000")
 
-    assert candidate.stop_density is None
     assert all("stop_density" not in s.axis_difficulties for s in candidate.segments)
 
 
 async def test_candidate_reflects_bicycle_infra_from_way_tags():
-    # 静的道路属性P1残り。way_tagsが取得できた区間は自転車インフラの生値・ルート集約値
-    # （bicycle_infra_score、一次属性由来の表示用統計）が反映される（このテストの
-    # build_loop_graphはEdge.highwayを持たないため、highway必須の車ストレスはNoneのまま。
-    # highway非依存のbicycle_infraだけ検証する）。改善計画T138で自転車インフラの
+    # 静的道路属性P1残り。way_tagsが取得できた区間は自転車インフラが評価軸へ反映される
+    # （このテストのbuild_loop_graphはEdge.highwayを持たないため、highway必須の車ストレスは
+    # Noneのまま。highway非依存のbicycle_infraだけ検証する）。改善計画T138で自転車インフラの
     # 独立難易度軸（infra_difficulty）は廃止し車ストレス側へ統合済みのため、ここでは検証しない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
@@ -505,7 +502,6 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = next(c for c in candidates if c.id == "route-000")
 
-    assert candidate.bicycle_infra_score is not None
     # 改善計画T347: RouteSegmentDetail.bicycle_infra（生値の分類文字列）は削除済みのため、
     # cycleway=track区間が正しく認識されたことは評価軸bicycle_infra_quality（分離自転車道は
     # 最良値0.0）で確認する。
@@ -522,8 +518,6 @@ async def test_candidate_aggregates_intersection_density_from_path_edges():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = next(c for c in candidates if c.id == "route-000")
 
-    assert candidate.intersection_density is not None
-    assert candidate.intersection_density > 0.0
     # 改善計画T149: 交差点密度は独立軸を持たずstop_density側へ低い重みで吸収される
     # （旧intersection_difficultyは廃止）。
     segment_with_intersections = next(
@@ -543,16 +537,15 @@ async def test_candidate_aggregates_accident_density_from_path_edges():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = next(c for c in candidates if c.id == "route-000")
 
-    assert candidate.accident_density is not None
-    assert candidate.accident_density > 0.0
     segment_with_accidents = next(
         s for s in candidate.segments if s.axis_difficulties.get("accident", 0) > 0
     )
     assert segment_with_accidents.difficulty is not None
 
 
-async def test_candidate_accident_density_is_none_when_years_covered_is_zero():
-    # accident_years_covered=0（事故データ未取込）は、件数があっても密度を算出できないためNone。
+async def test_candidate_accident_axis_is_absent_when_years_covered_is_zero():
+    # accident_years_covered=0（事故データ未取込）は、件数があっても密度を算出できないため
+    # axis_difficulties自体にaccidentキーを持たない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
     accident_counts = {edge_ids[0]: 2}
@@ -561,7 +554,7 @@ async def test_candidate_accident_density_is_none_when_years_covered_is_zero():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = next(c for c in candidates if c.id == "route-000")
 
-    assert candidate.accident_density is None
+    assert all("accident" not in s.axis_difficulties for s in candidate.segments)
 
 
 async def test_candidate_aggregates_wind_score_when_weather_available():
@@ -930,11 +923,8 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     day_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=False)
     night_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=True)
 
-    # 改善計画T347: _build_segment_detailsはbicycle_infra_score集計用の並列リスト
-    # （list[bool | None]）も返すタプルになった（RouteSegmentDetail.bicycle_infra
-    # フィールド削除に伴う付け替え）。
-    day_segments, _ = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc))
-    night_segments, _ = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc))
+    day_segments = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc))
+    night_segments = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc))
 
     # night_weight=1.0のみ有効な本ケースでは、日中はcompositeを合成できる重みが1つも
     # 無くなり（他の軸は重み0）Noneに、夜間はnight_difficulty(50.0)そのものになる。

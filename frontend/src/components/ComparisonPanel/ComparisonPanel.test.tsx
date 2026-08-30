@@ -17,11 +17,6 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     max_gradient_percent: null,
     wind_score: null,
     road_score: null,
-    stop_density: null,
-    car_stress_score: null,
-    bicycle_infra_score: null,
-    intersection_density: null,
-    accident_density: null,
     total_score: 88,
     score_breakdown: null,
     segments: null,
@@ -149,30 +144,6 @@ describe("ComparisonPanel", () => {
     expect(screen.getByText("12.4")).toBeInTheDocument();
     expect(screen.getByText("事故密度")).toBeInTheDocument();
     expect(screen.getByText("8.1")).toBeInTheDocument();
-  });
-
-  it("旧RouteCandidateレガシーフィールド(stop_density等)へ値を入れてもaxis_difficultiesが空なら個別軸行は出ない(直接参照の撤去を確認する回帰テスト)", () => {
-    const slots = [
-      makeSlot({
-        id: "a",
-        topCandidate: makeCandidate({
-          stop_density: 1.5,
-          car_stress_score: 2.3,
-          bicycle_infra_score: 12.4,
-          intersection_density: 3.1,
-          accident_density: 0.15,
-          axis_difficulties: {},
-        }),
-      }),
-      makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
-    ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
-
-    expect(screen.queryByText("停止密度")).not.toBeInTheDocument();
-    expect(screen.queryByText("車の圧迫感")).not.toBeInTheDocument();
-    expect(screen.queryByText("自転車インフラ")).not.toBeInTheDocument();
-    expect(screen.queryByText("交差点密度")).not.toBeInTheDocument();
-    expect(screen.queryByText("事故密度")).not.toBeInTheDocument();
   });
 
   it("個別軸行は軸カタログ(axes)の並び順で表示する(改善計画T421、RouteAxisProfileと同じ規約)", () => {

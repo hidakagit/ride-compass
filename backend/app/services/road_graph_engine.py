@@ -36,7 +36,6 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from app.domain.accident import distance_weighted_accident_density
 from app.domain.attributes import ElevationAttribute
 from app.domain.axis_definitions import car_stress_display_level
 from app.domain.difficulty import distance_weighted_difficulty
@@ -49,7 +48,6 @@ from app.domain.evaluation import (
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
-from app.domain.recipe import bicycle_infra_flags_or_none
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import (
@@ -60,12 +58,6 @@ from app.domain.route import (
     aggregate_segments_into_bins,
 )
 from app.domain.twilight import is_night
-from app.domain.traffic import (
-    distance_weighted_bicycle_infra_score,
-    distance_weighted_intersection_density,
-    distance_weighted_stop_density,
-    is_dedicated_bicycle_infra,
-)
 from app.domain.routing import (
     NodeSpatialIndex,
     SparseRoadGraph,
@@ -491,23 +483,7 @@ class RoadGraphEngine:
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         road_score = _aggregate_road_score(edges_in_path, context.surface_attributes)
         wind_score = _aggregate_wind_score(edges_in_path, context.wind)
-        stop_density = _aggregate_stop_density(edges_in_path, context.stop_counts)
-        intersection_density = _aggregate_intersection_density(edges_in_path, context.intersection_counts)
-        accident_density = _aggregate_accident_density(
-            edges_in_path, context.accident_counts, context.accident_years_covered
-        )
-        segments, bicycle_infra_dedicated = self._build_segment_details(
-            edges_in_path, elevation_attributes, context, start_time
-        )
-        # ルート全体の集約値（car_stress_score等）はビン化前のEdge単位segmentsから計算する
-        # （ビン単位のcar_stress自体が既に丸め済みのため、ビン後の値を使うと丸め誤差が
-        # 二重に乗ってしまう。改善計画T11）。
-        car_stress_score = distance_weighted_difficulty(
-            [(s.car_stress, s.distance_km) for s in segments]
-        )
-        bicycle_infra_score = distance_weighted_bicycle_infra_score(
-            [(s.distance_km, dedicated) for s, dedicated in zip(segments, bicycle_infra_dedicated)]
-        )
+        segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
         # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
         # 集約する（Edge単位のままだと30km級で150〜230件になりペイロード・フロント
         # 描画コストが嵩む）。
@@ -519,11 +495,6 @@ class RoadGraphEngine:
             geometry=geometry,
             wind_score=wind_score,
             road_score=road_score,
-            stop_density=stop_density,
-            car_stress_score=car_stress_score,
-            bicycle_infra_score=bicycle_infra_score,
-            intersection_density=intersection_density,
-            accident_density=accident_density,
             segments=segments,
             **elevation_stats,
         )
@@ -534,7 +505,7 @@ class RoadGraphEngine:
         elevation_attributes: dict,
         context: _RoadGraphContext,
         start_time: datetime,
-    ) -> tuple[list[RouteSegmentDetail], list[bool | None]]:
+    ) -> list[RouteSegmentDetail]:
         # 改善計画T79: 以前は11個の位置引数を取り、うち8個はcontextフィールドの単純展開
         # だった（同型dict[str, int]が3つ並び、順序取り違えが検知されない構造）。
         # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
@@ -547,10 +518,6 @@ class RoadGraphEngine:
         active_scopes = frozenset({"night_only"}) if context.night_active else frozenset()
         preference = self._route_preference.with_time_scope(active_scopes)
         segments = []
-        # 改善計画T347: 旧classify_bicycle_infrastructureの削除に伴い、bicycle_infra_score
-        # （RouteCandidate、専用インフラ区間の距離加重率%）算出用の判定を、
-        # RouteSegmentDetailのフィールドではなくこの並行リストで保持する。
-        bicycle_infra_dedicated: list[bool | None] = []
         cumulative_km = 0.0
 
         for edge in edges:
@@ -566,9 +533,6 @@ class RoadGraphEngine:
             wind_penalty = compute_wind_penalty(edge, context.wind)
             road_surface_good = classify_osm_surface(surface_type)
             is_designated = edge.edge_id in context.designated_edge_ids
-            bicycle_infra_dedicated.append(
-                is_dedicated_bicycle_infra(bicycle_infra_flags_or_none(edge_way_tags, edge.highway))
-            )
 
             # 改善計画T143: 区間表示の軸別スコアは、コスト計算（compute_edge_cost、
             # EvaluationService.evaluate_graph経由）と同じcompute_edge_axis_scores（T142）を
@@ -631,7 +595,7 @@ class RoadGraphEngine:
             )
             cumulative_km += distance_km
 
-        return segments, bicycle_infra_dedicated
+        return segments
 
 
 def _build_node_pair_index(graph: RoadGraphLike) -> dict[tuple[str, str], EdgeLike]:
@@ -817,38 +781,6 @@ def _aggregate_road_score(edges: list[EdgeLike], surface_attributes: dict[str, s
     """
     return distance_weighted_road_score(
         [(edge.distance_m, classify_osm_surface(surface_attributes.get(edge.edge_id))) for edge in edges]
-    )
-
-
-def _aggregate_stop_density(edges: list[EdgeLike], stop_counts: dict[str, int]) -> float | None:
-    """経路全体の信号・横断歩道・一時停止・踏切の合計密度(回/km)。Edge単位のカウントを
-    domain/traffic.py: distance_weighted_stop_density（両エンジン共通の集約定義、
-    静的道路属性P1）へ渡す薄いラッパー。stop_countsに無いEdge（repository未注入等で
-    データ自体を取得していない）はNone扱いとし、distance_weighted_stop_density側で
-    「実測0件」と区別して除外される（road_score等の「不明はNone」と同じ方針）。
-    """
-    return distance_weighted_stop_density(
-        [(edge.distance_m / 1000, stop_counts.get(edge.edge_id)) for edge in edges]
-    )
-
-
-def _aggregate_intersection_density(edges: list[EdgeLike], intersection_counts: dict[str, int]) -> float | None:
-    """経路全体の交差点（次数3以上のNode）の合計密度(回/km)。_aggregate_stop_densityと
-    同じ薄いラッパー（静的道路属性P1残り、intersectionDensity）。
-    """
-    return distance_weighted_intersection_density(
-        [(edge.distance_m / 1000, intersection_counts.get(edge.edge_id)) for edge in edges]
-    )
-
-
-def _aggregate_accident_density(
-    edges: list[EdgeLike], accident_counts: dict[str, int], accident_years_covered: int
-) -> float | None:
-    """経路全体の事故密度(件/(km・年))。_aggregate_stop_density/_aggregate_intersection_density
-    と同じ薄いラッパー（外部静的データソース T50残作業、8軸目）。
-    """
-    return distance_weighted_accident_density(
-        [(edge.distance_m / 1000, accident_counts.get(edge.edge_id)) for edge in edges], accident_years_covered
     )
 
 
