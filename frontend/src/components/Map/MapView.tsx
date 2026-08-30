@@ -2535,6 +2535,20 @@ export default function MapView({
       ) {
         return;
       }
+      // 改善計画T461（モジュール設計書再検証で発見）: 環境グループの勾配gridFill
+      // （GRADIENT_FILL_LAYER_ID）は上のWIND_PENALTY_FILL_LAYER_IDと異なり
+      // STATIC_OVERLAY_LAYERS経由でinteractiveLayerIdsに含まれてしまう
+      // （buildInteractiveLayerIdsは"elevation"と"axis:"prefixしか除外しない）ため、
+      // 同じガードが無いままだと下の汎用ディスパッチャへ流れ込み、道路属性を持たない
+      // GradientGridCellProperties（{gradientValue}のみ）がbuildRoadSurfacePopupHtmlへ
+      // 渡って「路面: 不明」という実態と無関係なポップアップが出ていた。専用ポップアップを
+      // 持たない点も含めWIND_PENALTY_FILL_LAYER_IDと同型のため、同じ早期returnで防ぐ。
+      if (
+        map.getLayer(GRADIENT_FILL_LAYER_ID) &&
+        map.queryRenderedFeatures(e.point, { layers: [GRADIENT_FILL_LAYER_ID] }).length > 0
+      ) {
+        return;
+      }
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         if (pinPlacementEnabledRef.current) {
