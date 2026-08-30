@@ -524,7 +524,7 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [x] [T424](tasks/T424.md). 材料カタログ0件時にAxisComposer（軸スタジオ）がクラッシュする不具合を修正 規模S（P0・唯一の重大指摘）
 - [x] [T425](tasks/T425.md). ゼロベース網羅レビューのP1指摘13件の対応検討 規模M（2026-08-31完了、13件全対応。うち1件[循環参照検出]は調査の結果実装済みと判明し修正不要）
 - [ ] [T426](tasks/T426.md). ゼロベース網羅レビューのP2/P3指摘72件の棚卸し 規模M〜L
-- [ ] [T427](tasks/T427.md). architecture.mdの記述整合（サイドバー4分類・軸スタジオテンプレート数） 規模S（`/review:all`第9回、2026-08-30起票）
+- [x] [T427](tasks/T427.md). architecture.mdの記述整合（サイドバー4分類・軸スタジオテンプレート数） 規模S（`/review:all`第9回、2026-08-30起票・2026-08-31完了、T448/T449で解消）
 - [ ] [T428](tasks/T428.md). architecture.mdの経緯記述をdecisions/へ抽出（第3弾） 規模M（`/review:all`第9回、2026-08-30起票）
 - [x] [T429](tasks/T429.md). `pytest -m "not postgis"`が実は何もフィルタしていない問題を修正 規模S（`/review:all`第9回、2026-08-30起票、2026-08-31完了）
 - [ ] [T430](tasks/T430.md). MapView.tsxのKeep List閾値更新 規模S（`/review:all`第9回、2026-08-30起票）
@@ -557,7 +557,7 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 - [x] [T446](tasks/T446.md). buildRoadSurfaceSharedLayerIdsがgradientAxisを含まない非対称＋古いコメントの訂正〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [x] [T447](tasks/T447.md). secondaryAxes.tsのコメントがwindのcategory/show_map_icon除外機構を逆に説明している〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [x] [T448](tasks/T448.md). T427.mdのFinding 1が結果的に解消済みなのに未更新のまま半陳腐化〔P2〕規模S（2026-08-30起票・2026-08-31完了）
-- [ ] [T449](tasks/T449.md). architecture.mdが軸スタジオのshape kind数について自己矛盾している〔P2〕規模S（2026-08-30起票）
+- [x] [T449](tasks/T449.md). architecture.mdが軸スタジオのshape kind数について自己矛盾している〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [ ] [T450](tasks/T450.md). needs_bearing=False分岐が未テストのまま宣言されている〔P3〕規模S（2026-08-30起票）
 - [ ] [T451](tasks/T451.md). MapView.tsxにT432で削除済みの関数を参照する古いコメントが残る〔P3〕規模S（2026-08-30起票）
 - [ ] [T452](tasks/T452.md). gradientFillの独自実装統一DEFERにトリガー条件が明記されていない〔P3〕規模S（2026-08-30起票）
