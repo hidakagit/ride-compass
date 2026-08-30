@@ -282,6 +282,13 @@ export default function Home() {
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // 改善計画T439: モバイルで軸調整→再生成した直後、「ルート結果」タブへの視覚的な誘導が
+  // 無かった問題への対応（review:ui 2026-08-30 F-5）。conditionsDirtyの通知ドットは
+  // 「生成前に条件が変わった」ことを知らせる目的で、生成完了と同時に消える仕様のため、
+  // 「新しい結果が用意できた」ことを知らせる別の目的には使えなかった。この状態は
+  // 生成成功時にtrue、「ルート結果」タブを開いたらfalseにする（handleGenerate/
+  // handleMobileTabClick参照）。
+  const [hasUnseenResults, setHasUnseenResults] = useState(false);
   const [loading, setLoading] = useState(false);
   // 改善計画T265: ルート生成のバックグラウンドジョブ化に伴う進捗表示。生成中(loading)の
   // 間だけ意味を持ち、待ち(queued)/実行中(running)の別と経過時間をボタン文言へ反映する
@@ -954,6 +961,8 @@ export default function Home() {
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
   const handleMobileTabClick = useCallback((sheet: "routeSettings" | "routeOutcome" | "map") => {
     setMobileSheet((prev) => (prev === sheet ? null : sheet));
+    // 改善計画T439: 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
+    if (sheet === "routeOutcome") setHasUnseenResults(false);
   }, []);
 
   // 下部シートの高さ変更。ドラッグ中/キー操作中は見た目の即時反映のみ（onHeightChange）、
@@ -1140,6 +1149,9 @@ export default function Home() {
       }, setGenerationProgress);
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
+      // 改善計画T439: 新しい候補が用意できたことを「ルート結果」タブへ知らせる
+      // （モバイルのみ表示に使うが、状態自体はプラットフォーム非依存で立てる）。
+      setHasUnseenResults(candidates.length > 0);
       // dirty判定の基準は「いま表示している候補を作った条件」。エラー時は既存候補が
       // 残るため更新しない（tryの成功パスでのみ更新する）
       setGeneratedConditions({
@@ -1735,7 +1747,11 @@ export default function Home() {
             >
               <RouteIcon />
               <span className={styles.tabLabel}>ルート結果</span>
-              {conditionsDirty && (
+              {/* 改善計画T439: conditionsDirty（生成前に条件が変わった）とhasUnseenResults
+                  （生成が完了し新しい結果が用意できた）の両方をこのドットで知らせる。
+                  前者は生成完了と同時に消える一方後者は生成完了時に立つため、生成の
+                  前後を通じて「ルート結果タブを見るべきタイミング」の合図が途切れない。 */}
+              {(conditionsDirty || hasUnseenResults) && (
                 <span
                   aria-hidden="true"
                   className="absolute right-[0.6rem] top-[0.35rem] h-[0.5rem] w-[0.5rem] rounded-full bg-[var(--color-warning-strong)]"
