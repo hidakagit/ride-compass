@@ -19,6 +19,8 @@
 | `hooks/useDebugLog.ts`・`lib/debugLog.ts` | デバッグモードON/OFF状態・ログエントリのシングルストア（`useSyncExternalStore`） | |
 | `hooks/useResearchMode.ts`・`lib/researchMode.ts` | 研究モードON/OFF状態の同型シングルストア | |
 | `services/debugStatsApi.ts`・`services/versionApi.ts` | `SystemStatusPanel`が使うAPIクライアント | |
+| `services/healthApi.ts` | `BackendStatus.tsx`が使う`GET /api/health`クライアント | |
+| `app/api/version/route.ts` | `versionApi.ts`が読むフロントエンドのビルドバージョンを返すNext.js route handler | |
 
 ## `/admin`とpage.tsx（`/`）の境界
 

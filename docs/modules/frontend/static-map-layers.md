@@ -17,6 +17,8 @@
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位3グループ（道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定 |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
 | `Map/routeArrowIcon.ts`・`routeSegmentChartPopup.ts`・`icons.tsx` | ルート矢印・区間クリックポップアップ・アイコン集（下記「本モジュールとの関係」参照） |
+| `Map/axisInspectorPopup.ts` | 区間インスペクタ（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）のポップアップHTML組み立て |
+| `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI） |
 | `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |

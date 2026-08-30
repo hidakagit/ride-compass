@@ -5,7 +5,27 @@
 `app/page.tsx`がアプリのコンポジションルート兼状態ハブ。地図（`MapView`）・ルート設定/
 結果パネル（`RouteSettingsPanel`・`RouteForm`・`RouteList`・`RouteAxisProfile`）・地図
 オーバーレイ制御（`MapOverlayControls`・`MapLayersPanel`）・研究モードの比較表
-（`ComparisonPanel`）を1つのReactツリーへ束ね、状態を集約する。
+（`ComparisonPanel`）を1つのReactツリーへ束ね、状態を集約する。Next.jsのApp Router
+フレームワークファイル（レイアウト・エラーバウンダリ）と、特定の機能モジュールに
+属さない横断的なlib/hooks/UI基盤もここで扱う。
+
+**対象ファイル**
+
+| レイヤー | ファイル |
+|---|---|
+| app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
+| services | `routeApi.ts`（ルート生成・プレビューAPI） |
+| hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts` |
+| types | `route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
+| components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
+| components/ui | `Button`・`Card`・`Checkbox`・`Dialog`・`Input`・`ErrorText`（汎用UI基盤、全モジュール共通） |
+
+`apiBaseUrl.ts`/`backendInternalUrl.ts`はブラウザからのfetch先（`NEXT_PUBLIC_API_BASE_
+URL`）とNext.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
+ネットワークのURLになりうるため別変数）。`fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`
+クライアントが共有するfetchラッパーとエラー正規化。`useLocation.ts`はブラウザの
+Geolocation APIを扱うhookで、起点座標の取得に使う。
 
 ## 主な構成要素（import元）
 

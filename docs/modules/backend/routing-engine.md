@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `routing.py`・`graph.py`・`route.py` |
+| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`openrouteservice_engine.py`・`routing_service.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`ors_client.py` |
 | api | `routes.py` |
@@ -229,6 +229,20 @@ gather開始前のprepare段階で逐次呼ばれるため対象外）。同一`
   この契約に依存する）・`RouteScoreComponent`・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `_merge_segment_bin`。
+
+### `domain/geo.py`・`domain/errors.py`
+
+`geo.py`は球面三角法の地理計算（`haversine_distance_km`・`bearing_between`・
+`destination_point`・`compass_label`）と、`OpenRouteServiceEngine`のサンプリング
+（`sample_indices`・`sample_line_points`）を持つ。`LatLon`（`Protocol`）・
+`LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
+せずに緯度経度を扱うための軽量な構造的型で、`build_road_graph`・最近傍ノード探索のような
+ホットパスがバリデーションコストを避けるために使う。`destination_point`は経度を
+[-180, 180)へ正規化する（球面三角法の計算結果がこの範囲を超えうるため、正規化しないと
+`Coordinates`のバリデーションが8方位分のwaypoint計算中に同期的に失敗する）。
+
+`errors.py`は`RoutingError`（単一の例外クラス）のみを持つ。両エンジン・
+`RoutingService`・`RouteGenerator`が経路探索の失敗を表すのに共通で使う。
 
 ## infrastructure層
 
