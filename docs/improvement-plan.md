@@ -613,7 +613,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 総合スコア29/100）の全指摘（P1×2・P2×5[まとめ含む]・P3×2[まとめ含む]・DEFER×2）を
 ユーザー承認により起票する。
 
-- [ ] [T472](tasks/T472.md). jma_amedas_service.pyのRedis呼び出しをfail-open契約へ統一〔P1〕規模S（2026-08-31起票）
+- [x] [T472](tasks/T472.md). jma_amedas_service.pyのRedis呼び出しをfail-open契約へ統一〔P1〕規模S（2026-08-31起票・完了）
 - [ ] [T473](tasks/T473.md). windBoundaries/gradientBoundariesの軸専用propを汎用機構へ統合し環境グループの配線漏れを解消〔P1〕規模S〜M（2026-08-31起票）
 - [ ] [T474](tasks/T474.md). モジュール設計書・architecture.md・タスクファイルのドキュメントドリフト一括修正（10箇所）〔P2〕規模M（2026-08-31起票）
 - [ ] [T475](tasks/T475.md). 軸スタジオAPI経由のDB変更に「本番DB反映」を完了条件として明記するCLAUDE.md追記提案〔P2〕規模S（2026-08-31起票）

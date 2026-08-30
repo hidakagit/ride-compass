@@ -42,7 +42,7 @@ from app.domain.twilight import sunrise_sunset_jst
 from app.infrastructure import jma_amedas_client
 from app.infrastructure.debug_log import log_throttled_warning
 from app.infrastructure.redis_client import (
-    get_redis_client,
+    get_redis_client_or_none,
     record_redis_failure,
     record_redis_success,
     redis_available,
@@ -112,7 +112,9 @@ class JmaAmedasService:
     async def _get_from_redis(self, station_id: str) -> AmedasObservation | None:
         if not redis_available():
             return None
-        client = get_redis_client()
+        client = get_redis_client_or_none()
+        if client is None:
+            return None
         try:
             fields = await client.hgetall(_redis_key(station_id))
         except Exception as exc:  # noqa: BLE001 Redis障害は「観測値なし」にfail-open
@@ -205,7 +207,9 @@ class JmaAmedasService:
     async def _save_all_to_redis(self, observations: list[AmedasObservation]) -> None:
         if not observations or not redis_available():
             return
-        client = get_redis_client()
+        client = get_redis_client_or_none()
+        if client is None:
+            return
         try:
             pipe = client.pipeline(transaction=False)
             for observation in observations:

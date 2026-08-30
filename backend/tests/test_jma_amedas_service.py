@@ -85,7 +85,7 @@ def _patch_client(monkeypatch, redis=None):
         jma_amedas_client, "fetch_observation_map", lambda http_client, timestamp: _async_return(OBSERVATION_MAP)
     )
     fake_redis = redis if redis is not None else FakeRedis()
-    monkeypatch.setattr(jma_amedas_service, "get_redis_client", lambda: fake_redis)
+    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: fake_redis)
     return fake_redis
 
 
@@ -182,3 +182,30 @@ async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypa
     result = await service.get_nearest_observation(POINT)
 
     assert result is None
+
+
+async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(monkeypatch):
+    # 改善計画T472: settings.redis_urlの設定ミス等でredis.from_url()自体が同期的に例外を
+    # 送出する場合、get_redis_client_or_none()はNoneを返す（redis_client.py参照）。
+    # 以前はget_redis_client()を直接呼んでおりこの例外がtry/exceptの外へ伝播していた。
+    _patch_client(monkeypatch)
+    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
+    service = JmaAmedasService(http_client=None)
+
+    result = await service.get_nearest_observation(POINT)
+
+    assert result is None
+
+
+async def test_refresh_all_stations_fails_open_when_redis_client_unavailable(monkeypatch, caplog):
+    # 改善計画T472: _save_all_to_redis側も同じfail-open契約を守る（クライアント生成自体の
+    # 例外時は書き込みをスキップし、バッチ全体は例外を送出せず完了する）。
+    _patch_client(monkeypatch)
+    monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
+    service = JmaAmedasService(http_client=None)
+
+    count = await service.refresh_all_stations()
+
+    # 観測値マップ自体の取得（JMA API側）は成功しているためcountは通常どおり返る。
+    # Redisへの書き込みだけがスキップされる。
+    assert count == 2
