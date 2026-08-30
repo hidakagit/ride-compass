@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_preview_builder, get_routing_service
+from app.api.dependencies import get_preview_builder
 from app.config import settings
 from app.domain.attributes import SearchMaterials
 from app.domain.errors import RoutingError
@@ -30,28 +30,19 @@ def clear_rate_limiter():
     rate_limiter._hits.clear()
 
 
-class FakeRoutingService:
-    def __init__(self, segment=None, error=None):
-        self._segment = segment
-        self._error = error
-
-    async def get_route(self, waypoints):
-        if self._error:
-            raise self._error
-        return self._segment
-
-
-def test_preview_route_returns_segment_on_success(monkeypatch):
-    # `get_preview_builder`はsettings.routing_engineで分岐する（改善計画T237）。
-    # このテストはORS委譲経路（get_routing_serviceのフェイク差し替え）を検証するため、
-    # 既定値がroad_graphへ変わった後（改善計画T247）も明示的にopenrouteserviceへ固定する。
-    monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
+def test_preview_route_returns_segment_on_success():
+    # `get_preview_builder`自体を丸ごとフェイクへ差し替える（実DBアクセスを避けつつ、
+    # ルータが返すレスポンス整形を検証する）。
     segment = RouteSegment(
         distance_km=5.0,
         duration_minutes=10.0,
         geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.71]]},
     )
-    app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService(segment=segment)
+
+    async def fake_preview(origin, destination):
+        return segment
+
+    app.dependency_overrides[get_preview_builder] = lambda: fake_preview
 
     try:
         response = client.post("/api/routes/preview", json=REQUEST_BODY)
@@ -64,12 +55,11 @@ def test_preview_route_returns_segment_on_success(monkeypatch):
     assert body["duration_minutes"] == 10.0
 
 
-def test_preview_route_returns_502_on_routing_error(monkeypatch):
-    # 上記test_preview_route_returns_segment_on_successと同じ理由でORS経路へ固定する。
-    monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
-    app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService(
-        error=RoutingError("openrouteservice unavailable")
-    )
+def test_preview_route_returns_502_on_routing_error():
+    async def fake_preview(origin, destination):
+        raise RoutingError("road_graph: no path found between origin and destination")
+
+    app.dependency_overrides[get_preview_builder] = lambda: fake_preview
 
     try:
         response = client.post("/api/routes/preview", json=REQUEST_BODY)
@@ -89,25 +79,22 @@ def test_preview_route_returns_502_on_routing_error(monkeypatch):
     ],
 )
 def test_preview_route_rejects_out_of_range_coordinates(body):
-    app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService()
-
-    try:
-        response = client.post("/api/routes/preview", json=body)
-    finally:
-        app.dependency_overrides.clear()
+    response = client.post("/api/routes/preview", json=body)
 
     assert response.status_code == 422
 
 
-def test_preview_route_is_rate_limited_per_client(monkeypatch):
-    # 上記2テストと同じ理由でORS経路へ固定する（road_graphは実DBアクセスが必要なため）。
-    monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
+def test_preview_route_is_rate_limited_per_client():
     segment = RouteSegment(
         distance_km=5.0,
         duration_minutes=10.0,
         geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.71]]},
     )
-    app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService(segment=segment)
+
+    async def fake_preview(origin, destination):
+        return segment
+
+    app.dependency_overrides[get_preview_builder] = lambda: fake_preview
 
     try:
         for _ in range(settings.preview_rate_limit_per_minute - 1):
@@ -118,9 +105,6 @@ def test_preview_route_is_rate_limited_per_client(monkeypatch):
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
-
-
-# --- 改善計画T237: get_preview_builderのroad_graphエンジン対応 ---
 
 
 def test_preview_route_uses_preview_builder_and_returns_road_graph_result():
@@ -190,12 +174,9 @@ class _FakeWeatherServiceForPreview:
         return None
 
 
-async def test_get_preview_builder_road_graph_branch_calls_preview_segment(monkeypatch):
-    """`get_preview_builder`自体（`settings.routing_engine=="road_graph"`分岐）を、
-    HTTP経由ではなく直接呼んで検証する（router越しのオーバーライドでは配線ロジック
-    自体のバグを検知できないため）。"""
-    monkeypatch.setattr(settings, "routing_engine", "road_graph")
-
+async def test_get_preview_builder_calls_preview_segment():
+    """`get_preview_builder`自体を、HTTP経由ではなく直接呼んで検証する（router越しの
+    オーバーライドでは配線ロジック自体のバグを検知できないため）。"""
     node_a = Node(node_id="a", latitude=35.0, longitude=139.0)
     node_b = Node(node_id="b", latitude=35.01, longitude=139.0)
     edge = DirectedEdge(
@@ -205,7 +186,6 @@ async def test_get_preview_builder_road_graph_branch_calls_preview_segment(monke
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
 
     build = get_preview_builder(
-        routing_service=None,
         graph_service=_FakeGraphServiceForPreview(graph),
         elevation_attribute_service=None,
         weather_service=_FakeWeatherServiceForPreview(),
@@ -219,11 +199,8 @@ async def test_get_preview_builder_road_graph_branch_calls_preview_segment(monke
     assert segment.duration_minutes > 0
 
 
-async def test_get_preview_builder_road_graph_branch_raises_routing_error_when_unreachable(monkeypatch):
-    monkeypatch.setattr(settings, "routing_engine", "road_graph")
-
+async def test_get_preview_builder_raises_routing_error_when_unreachable():
     build = get_preview_builder(
-        routing_service=None,
         graph_service=_FakeGraphServiceForPreview(None),
         elevation_attribute_service=None,
         weather_service=_FakeWeatherServiceForPreview(),

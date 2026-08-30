@@ -2,49 +2,36 @@
 
 ## 責務
 
-国土地理院DEMタイルから標高を取得し、(1) ルート単位のサンプリング評価と
-(2) Road GraphのEdge単位属性（勾配計算の入力）の2用途へ供給する。
+国土地理院DEMタイルから標高を取得し、Road GraphのEdge単位属性（勾配計算の入力）へ
+供給する。
 
 **対象ファイル**
 
 | レイヤー | ファイル |
 |---|---|
 | domain | `attributes.py`（`ElevationAttribute`・`compute_elevation_attribute`） |
-| services | `elevation_service.py`・`elevation_aggregation.py`・`elevation_attribute_service.py` |
+| services | `elevation_aggregation.py`・`elevation_attribute_service.py` |
 | infrastructure | `elevation_client.py` |
 | batch | `precompute_elevation_attributes.py` |
 
-`api/dependencies.py`の`get_elevation_service`/`get_elevation_attribute_service`、
+`api/dependencies.py`の`get_elevation_attribute_service`、
 `infrastructure/road_graph_repository.py: AttributeRepository.get_elevation_attributes`/
 `save_elevation_attributes`は[routing-engine.md](routing-engine.md)が主管するファイルに
 属するため対象表には加えず参照のみ行う。
 
-## 2つの評価経路
+## ElevationAttributeService（`elevation_attribute_service.py`）
 
-| サービス | 用途 | 対象 | 標高値の算出方法 |
-|---|---|---|---|
-| `ElevationService`（`elevation_service.py`） | ルート単位のサンプリング標高評価 | `routing_engine=="openrouteservice"`のとき`OpenRouteServiceEngine`が使う | サービス層に直接実装（`get_profile`内、gain/max_gradientを都度計算） |
-| `ElevationAttributeService`（`elevation_attribute_service.py`） | Road GraphのDirected Edgeへ標高属性（`ElevationAttribute`）を紐付ける | Edgeの形状点（geometry）を国土地理院APIへ問い合わせる | domain層に委譲（`compute_elevation_attribute`） |
+Road GraphのDirected Edgeへ標高属性（`ElevationAttribute`）を紐付ける。Edgeの形状点
+（geometry）を国土地理院APIへ問い合わせ、計算ロジック自体はdomain層（`domain/
+attributes.py: compute_elevation_attribute`）に委譲する。`MAX_CONCURRENT_REQUESTS = 5`
+で`ElevationClient`への同時リクエスト数を制限する。
 
-両者は同じ`ElevationClient`実装を再利用する（緯度経度キャッシュを共有するため、同じ
-地点への問い合わせはキャッシュヒットする）。`MAX_CONCURRENT_REQUESTS = 5`は両サービスが
-同名の値を別々に持つ独立した定数（共有はされていない）。
-
-`ElevationService`自体はサンプル点数を決めない（呼び出し元が渡した`points`をそのまま
-評価する）。実際にサンプル点数を決めているのは`openrouteservice_engine.py`
-（[routing-engine.md](routing-engine.md)参照）の`sample_count_for_distance`で、ルート
-距離に応じて約1km間隔・下限12点・上限32点の可変密度になる。
-
-`ElevationService.get_profile`が返す標高プロファイル（`elevation_gain_m`・
+`ElevationAttributeService.get_attributes_for_graph`が返す標高属性（`elevation_gain_m`・
 `min_elevation_m`・`max_elevation_m`・`max_gradient_percent`）の最終集約（合計/最小/最大・
 空ならNone・小数1桁丸め）は`elevation_aggregation.py`（`sum_or_none`・`min_or_none`・
-`max_or_none`）を`RoadGraphEngine._aggregate_elevation`と共有する。この共有は末尾の
-集約パターンのみで、「点列を歩いてgain/gradientを積算する」コアロジック自体は
-`ElevationService.get_profile`（サービス層に直書き）と`domain/attributes.py:
-compute_elevation_attribute`（domain層）とで別々に実装されている——前者はバッチ事前計算
-されない任意の点列をリクエスト単位で扱う必要があり、後者はリクエスト単位のレイテンシへ
-外部API呼び出しを持ち込まない設計上バッチ事前計算済みの値のみを読む、という別々の制約に
-沿ったものであり意図的な分離。
+`max_or_none`）に集約されており、`RoadGraphEngine._aggregate_elevation`
+（[routing-engine.md](routing-engine.md)）がEdge単位の標高属性をルート単位へ集約する
+際にこれを使う。
 
 ## DEMタイル方式（`infrastructure/elevation_client.py`）
 
@@ -102,15 +89,7 @@ Attributeを確認し（`get_elevation_attributes`）、既に永続化済みな
 ## データフロー図
 
 ```
-[openrouteserviceエンジン経路]
-RouteGenerator → OpenRouteServiceEngine
-  → sample_count_for_distance(distance_km) で12〜32点を決定
-  → ElevationService.get_profile(points)
-       → asyncio.gather + semaphore(5) で ElevationClient.get_elevation を並列呼び出し
-       → gain/max_gradientをサービス層内で直接計算
-       → elevation_aggregation.sum_or_none/min_or_none/max_or_noneで最終整形
-
-[road_graphエンジン経路（バッチ事前計算＋探索時参照）]
+[バッチ事前計算＋探索時参照]
 precompute_elevation_attributes.py（オフライン、CHUNK_SIZE=2000）
   → RoadGraphRepository.get_edges_with_geometry
   → ElevationAttributeService.get_attributes_for_graph
@@ -124,7 +103,7 @@ precompute_elevation_attributes.py（オフライン、CHUNK_SIZE=2000）
        └─→ dynamic-way-values.md: GradientWayService が average_grade + road_edges.bearing_deg
             をJOINして勾配材料を配信（未計算Edgeは静かに除外）
 
-[ElevationClientの内部、両経路で共通]
+[ElevationClientの内部]
 get_elevation(point) → DEM_TYPE_PRIORITY順にタイル取得
   → tile_cache（ファイル、無期限）→ ミス時GSI DEMタイルHTTP取得
   → _tile_grid_cache（プロセス内メモリ、恒久キャッシュは404[_CoverageGap]のみ）

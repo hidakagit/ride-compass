@@ -3,8 +3,7 @@ docs/external-data-sources-review-2026-08-16.md §4.3）。
 
 線データ（KSJ N10/N12等）をroad_edgesへ対応付ける際のバッファ幅・閾値をここへ集約する。
 `app/batch/match_designations.py`（マッチング計算）と評価組み込み側（car_stress_level
-呼び出し元）の両方がこの定数を参照する（domain/road.py: SURFACE_MATCH_MAX_DISTANCE_Mと
-同じ「片側import」原則、改善計画T44）。
+呼び出し元）の両方がこの定数を参照する（改善計画T44と同じ「片側import」原則）。
 """
 
 # Edgeジオメトリをこの幅（メートル）でバッファした範囲との交差長比でマッチ判定する。

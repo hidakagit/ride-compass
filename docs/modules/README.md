@@ -51,7 +51,7 @@
 | モジュール | 内容 |
 |---|---|
 | [軸スタジオ・評価軸定義](backend/axis-studio.md) | `axis_definitions`テーブル・評価式・API |
-| [ルート生成エンジン・経路探索](backend/routing-engine.md) | road_graph/openrouteserviceエンジン、周回生成戦略 |
+| [ルート生成エンジン・経路探索](backend/routing-engine.md) | road_graphエンジン、周回生成戦略 |
 | [評価・スコアリング](backend/evaluation-scoring.md) | 0次フィルタ・軸別difficulty合成・材料カタログ |
 | [動的材料・way_id値配信](backend/dynamic-way-values.md) | 風・勾配のRedis配信層 |
 | [静的道路属性・タイル配信](backend/static-road-attributes.md) | OSM取込・MVTタイル配信 |

@@ -29,15 +29,16 @@
 - **DB**: PostgreSQL + PostGIS。生OSM層（osm_raw_*）と派生グラフ（road_nodes/road_edges）を分離。
   migrationは `backend/migrations/` の番号付きSQLのみ（create_tablesへのALTER追記禁止）。
   本番はOracle Cloud自前ホスト（関東本土7都県投入済み）、devはネイティブPG18+PostGIS。
-- **外部サービス**: openrouteservice（経路）・GSI標高API/色別標高図・Open-Meteo（天候）・
-  OpenFreeMap（地図タイル、バックエンドプロキシ＋キャッシュ経由）。
+- **外部サービス**: GSI標高API/色別標高図・Open-Meteo（天候）・
+  OpenFreeMap（地図タイル、バックエンドプロキシ＋キャッシュ経由）。経路計算自体は外部APIに
+  依存しない（自前Road Graph、改善計画T462でopenrouteservice委譲を撤去）。
 
 ## 重要なデータフロー
 
 1. **ルート生成** `/api/routes/generate`: `RouteGenerator`（周回戦略・単一実装）が
    `LoopRoutingEngine` ポート（`prepare` / `trace_loop` / `evaluate_loops` の3段階）経由で
-   `OpenRouteServiceEngine`（既定）か `RoadGraphEngine`（自前Dijkstra、発展途上）へ委譲。
-   評価は距離フィルタ通過後の候補のみ（外部APIクォータ節約を戦略側で保証）。
+   `RoadGraphEngine`（自前Road Graph + Dijkstra、唯一のエンジン実装）へ委譲。
+   評価は距離フィルタ通過後の候補のみ（棄却済み候補への無駄な標高取得等を避ける）。
 2. **評価の2系統**（混同注意）: `scoring.yaml` = 候補集合内の**相対**評価（total_score、
    リクエスト間比較不可）／ `route_preference.yaml` = 区間・Edgeの**絶対**評価
    （difficulty・探索コスト）。研究UIの実験間比較にtotal_scoreを出さないのは意図的。
@@ -130,9 +131,8 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
 
 ## 現在の開発フェーズと今後想定される主要な変更（2026-08-16時点の要約。正は improvement-plan.md）
 
-- 既定エンジンは`backend/app/config.py`の`routing_engine`設定値を都度確認する
-  （2026-08-23のT247で`road_graph`へ切替済み。以後も切替が起こりうるため、本ファイルには
-  固定の既定値を書かない）。openrouteserviceは非既定でも引き続き選択可能な並存エンジン。
+- ルート生成エンジンはroad_graph一本（2026-08-31のT462でopenrouteserviceエンジンを完全撤去、
+  `routing_engine`設定自体が無くなった）。
 - 進行中/未着手タスクの一覧はimprovement-plan.mdを都度参照する（本ファイルには転記しない）。
 - トリガー待ちDEFER: T10（DEMタイル化）・T11（segmentsビン化）・T12（Road Graphスケール設計ADR）。
 - UIは「研究モード」（localStorage `ridecompass:research-enabled`、WeightPanel・ComparisonPanel等）と

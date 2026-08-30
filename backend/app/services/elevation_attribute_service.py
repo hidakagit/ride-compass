@@ -15,12 +15,9 @@ DATA_SOURCE = "gsi-dem"
 class ElevationAttributeService:
     """Road GraphのDirected Edgeへ標高属性（ElevationAttribute）を紐付ける（仕様書13-15章、Phase 3）。
 
-    ルート単位・12点サンプリングの標高評価（`ElevationService`、
-    `services/elevation_service.py`。`routing_engine=="openrouteservice"`のときは今も
-    `OpenRouteServiceEngine`が使う）とは別に、Edgeの形状点
-    （geometry、交差点間のシェイプポイントをそのまま使う）を国土地理院APIへ問い合わせる。
-    使用する`ElevationClient`は同じ実装を再利用する（緯度経度キャッシュを共有するため、
-    同じ地点への問い合わせはキャッシュヒットする）。
+    Edgeの形状点（geometry、交差点間のシェイプポイントをそのまま使う）を国土地理院APIへ
+    問い合わせる。使用する`ElevationClient`はキャッシュを共有する（緯度経度キャッシュを
+    共有するため、同じ地点への問い合わせはキャッシュヒットする）。
 
     既知の制約: 広いbboxのRoad Graphは形状点数が多く、初回はGSIへの問い合わせ数が
     比例して増える（`MAX_CONCURRENT_REQUESTS`で同時実行数を抑えるのみ）。

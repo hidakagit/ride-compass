@@ -132,8 +132,8 @@ MaterialSpec]`が単一ソース。
 ## タグ正規化（`domain/recipe.py`）
 
 OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`parse_maxspeed`・
-`cycleway_values`・`tag_value_is`）。`domain/evaluation.py`・`domain/traffic.py`・
-`services/openrouteservice_engine.py`が同じ実装を参照する正準1箇所。
+`cycleway_values`・`tag_value_is`）。`domain/evaluation.py`・`domain/traffic.py`が
+同じ実装を参照する正準1箇所。
 
 `bicycle_infra_flags(tags, highway)`/`bicycle_infra_flags_or_none(tags, highway)`は
 自転車インフラの4正規化フラグ（`highway_is_cycleway`・`cycleway_has_track`・

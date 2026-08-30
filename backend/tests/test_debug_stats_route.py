@@ -28,7 +28,7 @@ def test_debug_stats_returns_snapshot():
     # 構成スナップショット(どのコミット・エンジン設定での集計かを判別できる)
     assert "commit" in body
     assert "started_at" in body
-    assert body["engine"] in ("openrouteservice", "road_graph")
+    assert body["engine"] == "road_graph"
     assert isinstance(body["debug_mode"], bool)
 
     stats = body["external"]["test:api"]

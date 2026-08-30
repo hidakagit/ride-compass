@@ -17,17 +17,14 @@ car_stress_breakdown/car_stress_level）を改善計画T292で廃止し、AXIS_D
 from typing import Literal
 
 # 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1、改善計画T44）。
-# openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数、
-# GraphService.get_stop_poi_countsはこのデフォルトを暗黙使用）の両方がこの定数をimportして
-# 参照する。domain/road.py: SURFACE_MATCH_MAX_DISTANCE_Mと同じ理由で「コメントで揃える」
-# 手動同期にしない（設計原則2）。
+# AttributeRepository.get_stop_poi_counts（デフォルト引数、GraphService.get_stop_poi_counts
+# はこのデフォルトを暗黙使用）がこの定数をimportして参照する。
 STOP_POI_MATCH_MAX_DISTANCE_M = 15.0
 
 # 交差点（次数3以上のroad_node）の空間マッチ用半径（静的道路属性P1残り、intersectionDensity）。
-# road_nodeは信号等のPOIと違い必ずEdgeの端点に位置するため、Edge単位（road_graphエンジン、
-# 端点そのもの）ではSTOP_POI_MATCH_MAX_DISTANCE_M相当でも十分だが、ORSエンジンのサンプル点は
-# ルートgeometry上の等間隔点でありグラフのNodeに一致するとは限らないため、路面評価
-# （domain/road.py: SURFACE_MATCH_MAX_DISTANCE_M=30m）と同じ「物理的な道路網特徴への
+# road_nodeは信号等のPOIと違い必ずEdgeの端点に位置するが、Edge単位（LATERAL join）で
+# Edge geometry全体に対して距離判定するため、端点ちょうどではなくEdge沿いに近接する
+# 交差点も拾えるよう、STOP_POI_MATCH_MAX_DISTANCE_Mより大きめの「物理的な道路網特徴への
 # スナップ許容量」を採用する。
 INTERSECTION_MATCH_MAX_DISTANCE_M = 30.0
 

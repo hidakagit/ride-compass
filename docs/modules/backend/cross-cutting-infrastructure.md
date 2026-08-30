@@ -57,8 +57,7 @@ FastAPI(lifespan=lifespan)
 
 | 設定 | 既定値 | 影響範囲 |
 |---|---|---|
-| `routing_engine` | `"road_graph"` | [ルート生成エンジン](routing-engine.md)のエンジン切替 |
-| `database_url` | localhost | PostGIS接続文字列 |
+| `database_url` | localhost | PostGIS接続文字列（[ルート生成エンジン](routing-engine.md)は常にこの接続を必須とする） |
 | `road_graph_use_repository` | `True` | 下記「暗黙の前提」参照 |
 | `admin_basic_auth_username`/`password` | 空文字（常に拒否） | 軸スタジオ・`debug_admin.py`の認可 |
 | `redis_url` | localhost | Redis接続文字列 |
@@ -67,14 +66,13 @@ FastAPI(lifespan=lifespan)
 
 **暗黙の前提（`road_graph_use_repository`、複数サービスが個別に分岐する横断フラグ）**:
 このフラグは「Road Graphの永続化（PostGIS）をランタイムのread-throughキャッシュとして
-使うか」を制御する。`GraphService`（[ルート生成エンジン](routing-engine.md)、
-`routing_engine=road_graph`のルート生成が使う）は**このフラグに関わらず常にrepository
-必須**（DB接続必須、フラグFalseのまま`routing_engine=road_graph`を選ぶと壊れる、
-非推奨の組み合わせ）。一方`get_region_service`・`get_accident_service`・
-`get_dynamic_way_value_service`・`get_elevation_attribute_service`・
-`get_surface_match_repository`（いずれも`api/dependencies.py`）は、このフラグを
+使うか」を制御する。`GraphService`（[ルート生成エンジン](routing-engine.md)が使う）は
+**このフラグに関わらず常にrepository必須**（DB接続必須。ルート生成エンジンは
+road_graph一本のため、DATABASE_URLへの実接続なしで動く構成は存在しない）。一方
+`get_region_service`・`get_accident_service`・`get_dynamic_way_value_service`・
+`get_elevation_attribute_service`（いずれも`api/dependencies.py`）は、このフラグを
 **個別に見て**Falseならrepository自体を注入せず、空タイル・空dict等のグレースフル
-デグレードへ倒す（`else: yield None`/`yield RegionService()`のパターンが5箇所以上に
+デグレードへ倒す（`else: yield None`/`yield RegionService()`のパターンが複数箇所に
 散在する。1つの設定値が複数のDI関数へ同じ判断ロジックとして繰り返し登場している）。
 
 ## DB接続プールの分離（`api/dependencies.py`・`database.py`）

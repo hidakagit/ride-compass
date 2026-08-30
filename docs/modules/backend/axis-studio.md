@@ -5,9 +5,9 @@
 「評価軸」（道路のEdge/区間ごとに0-100のdifficultyスコアを出す単位、例: 勾配・車の
 圧迫感・事故密度）を、`axis_definitions`DBテーブルを唯一の正本として定義・評価・配信する。
 
-評価軸の値は`road_graph_engine.py`・`openrouteservice_engine.py`の両方から呼ばれる
-（`domain/evaluation.py: compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回
-ルート生成専用ではない。
+評価軸の値は`road_graph_engine.py`から呼ばれる（`domain/evaluation.py:
+compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回ルート生成専用ではない
+（地図表示等、他の消費者からも参照される設計）。
 
 **対象ファイル**
 
@@ -104,7 +104,7 @@
         ▼
   AXIS_DEFINITIONS（モジュールレベルdict）
         │
-        ├──→ road_graph_engine.py / openrouteservice_engine.py
+        ├──→ road_graph_engine.py
         └──→ axis_catalog.py（GET /api/axis-catalog、実行時・即座に反映）
 ```
 

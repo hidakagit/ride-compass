@@ -6,18 +6,16 @@
 直接取得して確認したもの（2_koudohyou_todouhukenkoudo.csv・31_koudohyou_toujisyasyuetu.csv）。
 """
 
-# サンプル点/Edgeから事故地点へ空間マッチする際のスナップ半径（外部静的データソース T50残作業）。
+# Edgeから事故地点へ空間マッチする際のスナップ半径（外部静的データソース T50残作業）。
 # 事故地点の緯度経度は本票の度分秒表記からの変換値で、信号等のOSM node（STOP_POI_MATCH_MAX_
 # DISTANCE_M=15m、domain/traffic.py）よりジオコーディング精度が粗い可能性があるため、
-# domain/road.py: SURFACE_MATCH_MAX_DISTANCE_M（30m）と同じ側に揃える。
-# openrouteservice_engine.py（明示引数）とAttributeRepository各メソッド（デフォルト引数）の
-# 両方がこの定数をimportして参照する（改善計画T44と同じ「片側import」原則）。
+# 道路網特徴へのスナップとしては大きめの30m側に揃える。
 ACCIDENT_MATCH_MAX_DISTANCE_M = 30.0
 
 # 死亡事故の重み（改善計画: 事故密度の精度改善）。件数を単純にCOUNTすると軽傷の物損に近い
 # 事故と死亡事故が同じ1件として扱われ、最も避けたい重大事故のリスクが薄まる。死亡事故は
-# `ACCIDENT_FATAL_WEIGHT`件分として積算する（road_graph_repository.py: _ACCIDENT_COUNTS_SQL/
-# _NEAREST_ACCIDENT_COUNTS_SQLがSUM(CASE WHEN fatal THEN :fatal_weight ELSE 1 END)で適用）。
+# `ACCIDENT_FATAL_WEIGHT`件分として積算する（road_graph_repository.py: _ACCIDENT_COUNTS_SQLが
+# SUM(CASE WHEN fatal THEN :fatal_weight ELSE 1 END)で適用）。
 # 3.0は「死亡事故は軽傷事故の3件分のリスクとみなす」という暫定値（本格チューニングはP2据え置き、
 # 他の閾値・補正値と同じ方針）。
 ACCIDENT_FATAL_WEIGHT = 3.0

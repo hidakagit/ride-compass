@@ -31,10 +31,9 @@ class EvaluationService:
 
     I/Oは行わない。属性の取得自体はPhase 3の`ElevationAttributeService`・
     `GraphService.get_or_build_graph_with_attributes`が担当し、ここでは
-    既に取得済みのRoadGraph・属性からEdge Costを算出するのみ。2026-08-23からの既定
-    エンジンroad_graphでは`RouteGenerator`→`RoadGraphEngine.prepare`→本クラスの
-    `evaluate_graph`が既定のホットパス（探索コストの算出）である
-    （RoutingService/OpenRouteServiceEngine側はEvaluation Engineを経由しない別実装）。
+    既に取得済みのRoadGraph・属性からEdge Costを算出するのみ。
+    `RouteGenerator`→`RoadGraphEngine.prepare`→本クラスの`evaluate_graph`が
+    探索コスト算出のホットパスである。
     """
 
     def __init__(self, preference: RoutePreference):

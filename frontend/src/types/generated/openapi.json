@@ -2800,7 +2800,7 @@
           "geometry"
         ],
         "title": "RouteCandidate",
-        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位\nではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート\n全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は\n空dict）。\n\n改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・\n`intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の\n名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で\nフロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ\n移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.py・\nopenrouteservice_engine.pyの集約計算）もこのフィールドへ値を渡すためだけの\n処理だったため、併せて撤去済み。"
+        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位\nではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート\n全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は\n空dict）。\n\n改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・\n`intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の\n名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で\nフロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ\n移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.pyの\n集約計算）もこのフィールドへ値を渡すためだけの処理だったため、併せて撤去済み。"
       },
       "RouteGenerateJobCreatedResponse": {
         "properties": {
@@ -3218,7 +3218,7 @@
           "distance_km"
         ],
         "title": "RouteSegmentDetail",
-        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\ngradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負）。\n両エンジン共通（openrouteservice: 区間標高差から算出 / road_graph:\nElevationAttribute.average_grade）。フロントの勾配色分け（routeStyleModes.ts）は\nこの符号を前提に「下り」カテゴリを持つため、絶対値で返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
+        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\ngradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負、\nElevationAttribute.average_gradeから算出）。フロントの勾配色分け\n（routeStyleModes.ts）はこの符号を前提に「下り」カテゴリを持つため、絶対値で\n返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
       },
       "ScoringWeights": {
         "properties": {

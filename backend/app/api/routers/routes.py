@@ -137,8 +137,7 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
 class RouteGenerateRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    # 上限が無いと1リクエストで外部API無料枠（openrouteservice: 日次2000）を枯渇させたり、
-    # road_graphエンジンでbboxが際限なく広がりタイル問い合わせが長時間ハングしうる。
+    # 上限が無いとbboxが際限なく広がりタイル問い合わせが長時間ハングしうる。
     # 既存の実機検証は30kmまでのため、余裕を見つつも無制限は避ける値として100kmとする。
     distance_km: float = Field(gt=0, le=100)
     distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
@@ -150,9 +149,7 @@ class RouteGenerateRequest(BaseModel):
     scoring_weights: ScoringWeights | None = None
     route_preference: RoutePreferenceWeights | None = None
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。省略時は既定1.0
-    # （従来どおり最悪でも距離2倍）。road_graphエンジンのみに効く
-    # （domain/evaluation.py: compute_cost_from_axis_scores参照。openrouteservice
-    # エンジンは経路確定後の評価表示のみのためコスト自体には影響しない）。
+    # （従来どおり最悪でも距離2倍。domain/evaluation.py: compute_cost_from_axis_scores参照）。
     penalty_strength: float = Field(ge=0, default=1.0)
     # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
     # 除外なし）。road_graphエンジンのみに効く（domain/evaluation.py: is_edge_allowed参照）。
@@ -162,10 +159,9 @@ class RouteGenerateRequest(BaseModel):
     # みに効く。
     hard_filters: HardFilterOverride | None = None
     # 改善計画T364: ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で
-    # 通過する単一経路を生成する）。指定時は8方位探索を行わずroad_graphエンジンのみで
-    # 対応する（openrouteservice_engine.py参照）。bboxが際限なく広がらないよう、
-    # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
-    # 成否に委ねる）。
+    # 通過する単一経路を生成する）。指定時は8方位探索を行わない。bboxが際限なく
+    # 広がらないよう、起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性は
+    # ルーティング自体の成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
     # 改善計画T365: 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの
     # 場合は従来通り起点で終わる周回）。waypoints同様road_graphエンジンのみ対応。
@@ -213,9 +209,8 @@ class GenerationConditions(BaseModel):
 
 class RouteGenerateResponse(BaseModel):
     routes: list[RouteCandidate]
-    # どちらのルーティングエンジンが生成した候補かの識別子（"openrouteservice" | "road_graph"）。
-    # wind_score等はエンジンによって算出の意味が異なる（openrouteservice_engine.py参照）ため、
-    # 評価値の精査・比較時にどちらの定義の数値かを判別できるようにする。
+    # ルート生成に使ったエンジンの識別子。現状は常に"road_graph"（`RouteGenerator.
+    # engine_name`がroad_graph_engine.pyのクラス属性から決まる）。
     engine: str
     conditions: GenerationConditions
     # 改善計画T441: routesが空のとき、原因の要約（RouteGenerator.last_no_candidates_reason、
@@ -246,17 +241,6 @@ class RouteGenerateJobStatusResponse(BaseModel):
 @router.post("/api/routes/generate", response_model=RouteGenerateJobCreatedResponse, status_code=202)
 async def generate_routes(request: RouteGenerateRequest, http_request: Request, background_tasks: BackgroundTasks) -> RouteGenerateJobCreatedResponse:
     enforce_rate_limit(http_request, "generate", settings.generate_rate_limit_per_minute)
-
-    # 改善計画T364/T365: 経由地・目的地指定はroad_graphエンジンのみ対応
-    # （openrouteservice_engine.pyはget_route(waypoints)の任意長リスト対応自体は
-    # あるが、今回未検証のため明示的に拒否する）。改善計画T265: 以前はRouteGenerationSetup
-    # を組み立ててからengine_nameを見ていたが、engine_nameはsettings.routing_engineから
-    # 一意に決まる（road_graph_engine.py/openrouteservice_engine.pyのクラス属性参照）ため、
-    # 投稿時点でジョブを作らず即座に判定できる。
-    if (request.waypoints or request.destination) and settings.routing_engine != "road_graph":
-        raise HTTPException(
-            status_code=400, detail="waypoints/destinationはroad_graphエンジンでのみ利用できます。"
-        )
 
     # 同時実行数の上限に達している場合は待たせず即座に429を返す（外部サービスへの負荷が
     # 積み上がるのを防ぐ）。改善計画T386（T265コードレビュー指摘1件目、CONFIRMED）:
@@ -354,13 +338,11 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             )
         job_registry.set_done(job_id, response)
     except Exception:  # noqa: BLE001 バックグラウンドジョブの例外はここで必ず捕捉し記録する
-        # 改善計画T386（T265コードレビュー指摘3件目、CONFIRMED）: 以前は`str(exc)`を
-        # そのままjob_registryへ記録しクライアントへ公開していたが、`ors_client.py`の
-        # `RoutingError`は外部API（openrouteservice）の生レスポンス本文を例外メッセージに
-        # 含むため、内部詳細の公開範囲が意図せず拡大していた。詳細はログ（logger.exception、
-        # トレースバック込み）にのみ残し、クライアントへは汎用メッセージのみ返す
-        # （job_idはクライアントが既にポーリング先として知っているため、サーバーログとの
-        # 突き合わせにはrequest_log.pyのリクエストID同様job_idを使える）。
+        # `str(exc)`をそのままjob_registryへ記録しクライアントへ公開しない。`RoutingError`は
+        # PostGIS/内部処理のエラー詳細を例外メッセージに含みうるため、詳細はログ
+        # （logger.exception、トレースバック込み）にのみ残し、クライアントへは汎用
+        # メッセージのみ返す（job_idはクライアントが既にポーリング先として知っているため、
+        # サーバーログとの突き合わせにはrequest_log.pyのリクエストID同様job_idを使える）。
         logger.exception("ルート生成ジョブが失敗 job_id=%s", job_id)
         job_registry.set_failed(job_id, "ルート生成に失敗しました。時間をおいて再度お試しください。")
     finally:

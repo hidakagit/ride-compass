@@ -310,9 +310,7 @@ def compute_wind_penalty(edge: EdgeLike, wind: WeatherConditions | None) -> floa
     この関数もgeometryへ依存しない形にしている。
 
     既知の簡略化: 本来は出発時刻とEdgeまでの推定累積走行時間から「そのEdgeを実際に
-    通過するであろう時刻」の風を使うべきだが（ルート単位評価の`WindService`
-    （`services/wind_service.py`、`routing_engine=="openrouteservice"`のときは今も
-    `OpenRouteServiceEngine`が使う）はこの方式）、経路探索中（Dijkstra探索の途中）は
+    通過するであろう時刻」の風を使うべきだが、経路探索中（Dijkstra探索の途中）は
     まだ累積走行時間が確定していないため、探索対象領域全体で単一の風（出発時点・
     起点付近の風）を一様に適用する簡略化を採用している。将来、時間展開グラフ等で
     より精密化する余地がある（docs/architecture.md参照）。

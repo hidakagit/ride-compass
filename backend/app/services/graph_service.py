@@ -49,7 +49,7 @@ async def _warm_tile_cache_background(x: int, y: int) -> None:
 class GraphService:
     """指定bboxのRoad Graph（Node/Directed Edge）をPostGIS（`repository`）経由で取得する。
 
-    既存のルート探索（RoutingService/RouteGenerator）から使われる。地図表示（RegionService）も
+    既存のルート探索（RouteGenerator）から使われる。地図表示（RegionService）も
     タイル配信のバックグラウンドで`get_or_build_graph_with_attributes`を呼ぶ（改善計画T59:
     ルート生成した地点でしか道路グラフが構築されず、地図を眺めるだけの利用では
     road_nodes/road_edgesが永遠に空のままだった問題への対応。region_service.py参照）。

@@ -11,18 +11,14 @@ from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.route import RouteCandidate
 from app.infrastructure import job_registry, rate_limiter
 from app.infrastructure.elevation_client import ElevationClient
-from app.infrastructure.ors_client import ORSClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
 from app.main import app
 from app.services.elevation_attribute_service import ElevationAttributeService
-from app.services.elevation_service import ElevationService
 from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.route_scorer import load_scoring_weights
-from app.services.routing_service import RoutingService
 from app.services.weather_service import WeatherService
-from app.services.wind_service import WindService
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
 # スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
@@ -325,7 +321,7 @@ def test_generate_job_status_returns_failed_with_generic_error_message(monkeypat
     # 改善計画T265: バックグラウンドジョブ内の例外はレスポンスへ伝播できないため、
     # job_registryへ記録してポーリング側がstatus=="failed"として観測できることを確認する。
     # 改善計画T386（T265コードレビュー指摘3件目、CONFIRMED）: 例外の生メッセージ
-    # （openrouteserviceの生レスポンス本文等を含みうる）はクライアントへ公開せず、
+    # （PostGIS/内部処理のエラー詳細を含みうる）はクライアントへ公開せず、
     # 汎用メッセージのみを返す。詳細はlogger.exceptionでサーバーログにのみ残す。
     @asynccontextmanager
     async def _raise_setup(*args, **kwargs):
@@ -371,17 +367,12 @@ def test_generate_job_failure_releases_concurrency_semaphore(monkeypatch):
 def _lightweight_route_generation_setup(preference_override=None, scoring_weights_override=None):
     # _assemble_route_generation_setupはFastAPIのDependsで解決される前提の依存を
     # 直接渡して呼べる純粋関数（改善計画T265でget_route_generation_builderのクロージャから
-    # 抽出）。「settings.routing_engineに応じたエンジン選択」と重みの既定値/上書きの反映
-    # だけを検証する。いずれの依存もコンストラクタではI/Oを行わないため、http_client・
-    # session（RoadGraphRepository）はNoneでよい。
+    # 抽出）。重みの既定値/上書きの反映だけを検証する。いずれの依存もコンストラクタでは
+    # I/Oを行わないため、http_client・session（RoadGraphRepository）はNoneでよい。
     return _assemble_route_generation_setup(
-        routing_service=RoutingService(ORSClient("test-key", http_client=None)),
-        elevation_service=ElevationService(ElevationClient(), http_client=None),
-        wind_service=WindService(WeatherService(WeatherClient(), http_client=None)),
         graph_service=GraphService(repository=RoadGraphRepository(session=None)),
         elevation_attribute_service=ElevationAttributeService(ElevationClient(), http_client=None),
         weather_service=WeatherService(WeatherClient(), http_client=None),
-        surface_match_repository=None,
         preference_override=preference_override,
         scoring_weights_override=scoring_weights_override,
     )
@@ -411,14 +402,6 @@ def test_generate_routes_rejects_invalid_request_body(overrides):
     response = client.post("/api/routes/generate", json={**REQUEST_BODY, **overrides})
 
     assert response.status_code == 422
-
-
-def test_generation_setup_selects_engine_from_settings(monkeypatch):
-    monkeypatch.setattr(settings, "routing_engine", "openrouteservice")
-    assert _lightweight_route_generation_setup().generator.engine_name == "openrouteservice"
-
-    monkeypatch.setattr(settings, "routing_engine", "road_graph")
-    assert _lightweight_route_generation_setup().generator.engine_name == "road_graph"
 
 
 def test_generation_setup_uses_yaml_defaults_when_no_override():

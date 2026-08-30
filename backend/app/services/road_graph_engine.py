@@ -2,9 +2,7 @@
 
 `RouteGenerator`（services/route_generator.py）の`LoopRoutingEngine`契約を実装する。
 Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って経由地点間の
-経路を自前で計算する。2026-08-23以降、`config.py`の`routing_engine`設定の既定値は
-本エンジン（road_graph）であり、openrouteservice委譲（openrouteservice_engine.py）は
-非既定の代替経路として切り替えて使う。
+経路を自前で計算する。ルート生成の唯一のエンジン実装。
 
 設計上の重要な決定（実機検証で判明した問題への対応）:
 - **Overpassへの問い合わせは1回だけ**: 8方位が個別にbboxを計算して並列問い合わせすると
@@ -22,9 +20,8 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   向けとして引き続き別に行う（`elevation_attributes`テーブルを両者が共有するキャッシュ層として
   参照する構図。事前計算が漏れているEdgeは探索コスト側でgradient軸のみ「データ無し」扱いに
   なるが、他の軸で評価は継続する）。
-- 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため。
-  OpenRouteServiceEngineの「区間ごとの推定到達時刻の風」とは意味が異なる点に注意。
-  レスポンスの`engine`フィールドで識別できる）。
+- 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため、
+  区間ごとの推定到達時刻の風は使わない）。
 - `SparseRoadGraph`（domain/routing.py: build_sparse_graph）は同一ノード間の並行Edgeを
   1本しか保持しない（cost最小のEdgeを採用。改善計画T363: 以前は「後から登場した
   Edgeで上書き」で、DBクエリの返却行順（ORDER BY無し・Parallel Scan）に依存する
@@ -548,7 +545,7 @@ class RoadGraphEngine:
             # 改善計画T292: car_stress（1-5の生値、将来の色分けモード等での利用に備えて
             # domain/route.py: RouteSegmentDetailが保持するdisplayフィールド）は、専用
             # レシピ（旧car_stress_level）廃止後、公開軸car_stressのdifficulty(0-100)を
-            # car_stress_display_levelで逆変換して求める（openrouteservice_engine.pyと共通）。
+            # car_stress_display_levelで逆変換して求める。
             car_stress_difficulty = axis_scores.get("car_stress")
             car_stress = car_stress_display_level(car_stress_difficulty)
             weights = preference.weights
@@ -765,8 +762,7 @@ def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> d
     grades = [abs(a.max_grade) for a in valid if a.max_grade is not None]
     grades += [abs(a.min_grade) for a in valid if a.min_grade is not None]
 
-    # 最終集約（sum/min/max・空ならNone・小数1桁丸め）はElevationService.get_profileと
-    # 共有する（elevation_aggregation.pyのdocstring参照。標高値自体の算出方法は別実装のまま）。
+    # 最終集約（sum/min/max・空ならNone・小数1桁丸め）はelevation_aggregation.pyへ集約する。
     return {
         "elevation_gain_m": sum_or_none(gains),
         "min_elevation_m": min_or_none(elevations),
@@ -777,7 +773,7 @@ def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> d
 
 def _aggregate_road_score(edges: list[EdgeLike], surface_attributes: dict[str, str | None]) -> float | None:
     """経路の総距離に対する「走行しやすい舗装路面」の割合(%)を算出する。Edge単位のsurfaceタグを
-    domain/road.py: distance_weighted_road_score（両エンジン共通の集約定義、改善計画T21）へ渡す薄いラッパー。
+    domain/road.py: distance_weighted_road_scoreへ渡す薄いラッパー。
     """
     return distance_weighted_road_score(
         [(edge.distance_m, classify_osm_surface(surface_attributes.get(edge.edge_id))) for edge in edges]
@@ -786,8 +782,7 @@ def _aggregate_road_score(edges: list[EdgeLike], surface_attributes: dict[str, s
 
 def _aggregate_wind_score(edges: list[EdgeLike], wind: WeatherConditions | None) -> float | None:
     """経路全体の距離加重平均wind_penalty（符号付きm/s、正=正味向かい風）。
-    OpenRouteServiceEngine（WindService）と同じ加重平均の考え方だが、風は区間ごとの
-    推定到達時刻ではなく出発時点の値をルート全体に一様適用する
+    風は区間ごとの推定到達時刻ではなく出発時点の値をルート全体に一様適用する
     （domain/evaluation.py: compute_wind_penalty参照）。
     """
     weighted_total = 0.0

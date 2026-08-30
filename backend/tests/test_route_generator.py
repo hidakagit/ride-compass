@@ -1,9 +1,8 @@
 """RouteGenerator（周回生成戦略、エンジン非依存）の単体テスト。
 
-エンジンの中身（openrouteservice/Road Graph）は各エンジンのテスト
-（test_openrouteservice_engine.py / test_road_graph_engine.py）で検証し、
-ここでは戦略側の責務（経由地点の計算・距離許容範囲フィルタ・失敗方位のスキップ・
-評価が生存候補だけに行われること・total_scoreソート）をFakeエンジンで検証する。
+エンジンの中身はtest_road_graph_engine.pyで検証し、ここでは戦略側の責務
+（経由地点の計算・距離許容範囲フィルタ・失敗方位のスキップ・評価が生存候補だけに
+行われること・total_scoreソート）をFakeエンジンで検証する。
 """
 
 from app.domain.errors import RoutingError

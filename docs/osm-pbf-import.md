@@ -2,7 +2,7 @@
 
 ステータス: Phase 4（関東圏への拡大・highwayフィルタリング）・**Phase 5（Oracle Cloud移行）完了**（2026-08-15）に続き、**改善計画T22でOverpassフォールバックをコードごと撤去完了**（2026-08-16）。本番DBはOracle Cloud上の自前ホストPostGISで稼働中（11章）。実装・検証の詳細記録は [decisions/road-graph-migration.md](decisions/road-graph-migration.md)（旧architecture.md 9章）の「実PostGISでの動作検証（Phase 0）」「OSM PBF取込バッチ（Phase 1）」「RegionServiceのPostGIS化（Phase 2）」「Supabase取込とOverpass停止（Phase 3）」、撤去の経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)決定2改定を参照。
 
-**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`。PostGIS（Oracle Cloud、11章）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（`overpass_fallback_enabled`設定・フォールバックのコード自体をT22で削除済みのため、切り戻しは実装の復元が必要。取込範囲外は空タイル/Noneを返す安全側動作のみ残る）。**`road_graph_use_repository=false`にしてもGraphServiceはOverpassへ戻らない**（改善計画T222でGraphServiceのDBなし構成＝Overpassから都度構築する経路自体を撤去し、repository必須へ一本化済み。`road_graph_use_repository=false`のとき効果があるのは地域路面レイヤー等repositoryを任意注入する経路のみで、そちらは常に空タイルを返す。DBなし構成で動かせるのは`ROUTING_ENGINE=openrouteservice`のときだけ）。**取込済み範囲は関東本土7都県（bbox 34.85,138.35-37.20,140.95、離島除く。12章で2026-08-15に拡大済み）**。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
+**現在の運用姿勢**: `.env`で`ROAD_GRAPH_USE_REPOSITORY=true`。PostGIS（Oracle Cloud、11章）が唯一のOSMデータソースで、**Overpassへの問い合わせは発生しない**（`overpass_fallback_enabled`設定・フォールバックのコード自体をT22で削除済みのため、切り戻しは実装の復元が必要。取込範囲外は空タイル/Noneを返す安全側動作のみ残る）。**`road_graph_use_repository=false`にしてもGraphServiceはOverpassへ戻らない**（改善計画T222でGraphServiceのDBなし構成＝Overpassから都度構築する経路自体を撤去し、repository必須へ一本化済み。`road_graph_use_repository=false`のとき効果があるのは地域路面レイヤー等repositoryを任意注入する経路のみで、そちらは常に空タイルを返す。改善計画T462でopenrouteserviceエンジンを撤去しroad_graphへ一本化したため、DBなしで動かせる構成は存在しない）。**取込済み範囲は関東本土7都県（bbox 34.85,138.35-37.20,140.95、離島除く。12章で2026-08-15に拡大済み）**。範囲外は路面タイル＝空・Road Graph＝None（いずれも常時WARNINGログ）。
 
 **取込プロファイル（2026-08-15更新）**: `import_profile.yaml`のhighwayマッチを`"*"`から自転車で通行しうる種別（trunk/primary/secondary/tertiary/unclassified/residential/living_street/cycleway/track、および各`_link`）のみへ限定。都心の実データでは全highway種別の73%がfootway/service/steps/path/pedestrian等（自転車ルーティングに使われない）で占められており、除外により生データ量を概算1/3に圧縮できる（副次効果としてルート探索候補から「階段」等も消える）。既存データのクリーンアップ（除外種別の行を`osm_raw_ways`/`osm_raw_nodes`及び派生テーブルから削除）も実施済み。
 
@@ -182,7 +182,7 @@ DIは`RegionService(overpass_client, http_client, repository=None, overpass_fall
 
 **2026-08-16追記（改善計画T22でコード自体を撤去）**: 上記は「設定で無効化・コードは併存」という当初方針の記録。個人プロトタイプ運用で低利用規模のため、`overpass_fallback_enabled=false`のまま2週間実測を待つ当初の撤去条件（decisions/pre-static-attributes-gate.md 決定2）は検証として機能しないと判断し撤廃、条件1（関東圏PBF取込完了）のみで撤去可能とした。`overpass_fallback_enabled`設定・`RegionService.get_roads`呼び出し・Python側MVTエンコーダ（`encode_road_surface_tile`）等を削除済み。`repository`未注入（DBなし構成）でのRoad Graph構築のみ、`OverpassClient.get_ways_and_nodes`を引き続き使う（地域路面レイヤーは対象外、常に空タイル）。切り戻す場合はこのバージョン以前のコードへ戻す必要がある（設定1行では戻せない）。
 
-**さらに追記（改善計画T222でDBなし構成自体を撤去）**: 上記「`repository`未注入でのRoad Graph構築のみOverpassを使う」という経路自体をT222で撤去し、GraphServiceはrepository必須（DATABASE_URLへの実接続必須）へ一本化した。以降、`road_graph_use_repository=false`にしてもGraphServiceのRoad Graph構築がOverpassへ戻ることはない（冒頭「現在の運用姿勢」参照）。DBなし構成で動作するのは`ROUTING_ENGINE=openrouteservice`のときのみ。
+**さらに追記（改善計画T222でDBなし構成自体を撤去）**: 上記「`repository`未注入でのRoad Graph構築のみOverpassを使う」という経路自体をT222で撤去し、GraphServiceはrepository必須（DATABASE_URLへの実接続必須）へ一本化した。以降、`road_graph_use_repository=false`にしてもGraphServiceのRoad Graph構築がOverpassへ戻ることはない（冒頭「現在の運用姿勢」参照）。**2026-08-31追記（改善計画T462でopenrouteserviceエンジンを撤去）**: 上記時点でDBなし構成の唯一の逃げ道だった`ROUTING_ENGINE=openrouteservice`自体が撤去され、DBなしで動作する構成は存在しなくなった。
 
 ## 8. 更新運用（OSMデータの鮮度）
 
@@ -319,8 +319,13 @@ dry-runで検証:
 TRUNCATE〜再取込み完了までの間（見積もり20〜70分）、`RegionService`の路面タイル配信
 （`osm_raw_ways`を直接読む、本番で実際に使われている経路）が**現行25km圏で一時的に
 空タイルになる**（Overpassフォールバックは撤去済みのためエラーにはならないが、
-ユーザー体験としては劣化する）。`routing_engine`既定は`openrouteservice`のため
-ルート生成自体への影響は無い。
+ユーザー体験としては劣化する）。**改善計画T462でopenrouteserviceエンジンを撤去し
+road_graphが唯一のエンジンになったため、この記述時点（2026-08-15）の前提だった
+「ルート生成自体への影響は無い」はもはや成立しない**——このウィンドウ中に
+`is_split_up_to_date`のstale判定やタイル未取込によって`GraphService`が
+`osm_raw_ways`からの再構築を試みた対象範囲は、データが空のため「データ未整備」扱いに
+なりルート生成が候補0件を返しうる。この操作を再度実行する場合は影響範囲を
+再評価すること。
 
 軽減策の選択肢:
 1. そのまま許容する（バッチはUPSERT性質上、失敗時は同じコマンドの再実行で復旧できる。

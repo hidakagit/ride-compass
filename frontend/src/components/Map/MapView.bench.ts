@@ -6,8 +6,8 @@
 //
 // 対象: routesToFeatureCollection/segmentsToFeatureCollection/computeRouteBounds。
 // いずれもMapViewが候補ルート・選択状態が変わるたびに（`useEffect`経由で）呼ぶ純粋関数。
-// 8方位分の候補、かつ各候補のgeometryはRoad Graph/openrouteserviceいずれの実装でも
-// OSMの形状点をそのまま連結するため、長い周回ルートでは数百〜数千点になりうる
+// 8方位分の候補、かつ各候補のgeometryはOSMの形状点をそのまま連結するため、
+// 長い周回ルートでは数百〜数千点になりうる
 // （`road_graph_engine.py: _concat_edge_geometries`参照）。ここでは30km周回を想定した
 // 点数でベンチマークする。
 
