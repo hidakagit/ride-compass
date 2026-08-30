@@ -320,3 +320,17 @@ T21以降、`road_graph_use_repository=false`ではORSエンジンでも路面�
     「緊急輸送 かつ 重要物流道路」のように末尾の共有語へ寄せる）。パネル・ポップアップ・
     凡例のいずれも、地図そのものの視界を削ってまで情報量を増やさない
     （T104: 地図上の凡例内訳ポップアップでの文言見切れ修正、ユーザー指摘を機に明文化）
+13. **原則1（評価軸の追加は1本道のみ）は、`dedicated_way_value_layer`軸
+    （wind/gradient等、専用のway_id→値配信レイヤーを持つ軸、T405/T423由来）にも同様に
+    適用する。フロント側に軸固有のファイル・関数・定数・propを新設してはならない**——
+    feature-stateキー・color expression（しきい値・配色）・redraw再適用・
+    interactiveLayerIds所属・環境グループのgridFill計算は、いずれも軸スタジオのデータ
+    （`dedicated_way_value_layer=true`の軸id一覧・`shape`・`display_thresholds_override`）
+    から導出する汎用機構1つが持ち、軸ごとの手書き複製を作らない。物理量の計算式
+    （wind_penalty等）はbackendのみが持ち、フロントで再実装しない。**新しい軸を追加する
+    ときフロントのコード変更が一切不要（軸スタジオでの登録のみ）であることを完了条件と
+    する。**（2026-08-31、windAxisPenalties/gradientAxisValuesという軸ごとに別名のprop・
+    `windPenalty.ts`のbackend式JS移植・`WIND_AXIS_THRESHOLDS`という軸スタジオから独立した
+    ハードコード定数、という3つの症状が同一の原因（軸ごとに専用実装を作り込む設計）で
+    あるとユーザーが繰り返し指摘し明文化。個別修正ではなくこの原則自体の欠落が根本原因
+    だったため、原則1の対象を拡張する形でここへ追加した）
