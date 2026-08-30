@@ -590,3 +590,4 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 
 - [ ] [T458](tasks/T458.md). DYNAMIC_WAY_VALUE_MATERIALSが軸スタジオのdedicated_way_value_layerと独立したハードコード辞書になっている 規模M（2026-08-31起票）
 - [ ] [T459](tasks/T459.md). car_stress_display_level()がAXIS_DEFINITIONS["car_stress"]を直接ハードコードしている 規模S〜M（2026-08-31起票）
+- [ ] [T460](tasks/T460.md). get_dynamic_way_value_serviceのサービス組み立てがmaterial_idのハードコードif/else分岐になっている 規模S（2026-08-31起票）
