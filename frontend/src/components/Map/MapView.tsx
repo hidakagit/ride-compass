@@ -2511,18 +2511,6 @@ export default function MapView({
       ) {
         return;
       }
-      // 改善計画T425追記（複雑度平衡性レビューF-1、並行セッション指摘）: 勾配gridFill
-      // （GRADIENT_FILL_LAYER_ID）はwindPenaltyFillと逆にSTATIC_OVERLAY_LAYERS経由で
-      // interactiveLayerIdsに含まれているが、専用のポップアップ分岐を持たないため下の
-      // features[0]判定で「road_surface用」のデフォルト分岐へ落ち、gradientFillの
-      // GeoJSONプロパティを路面プロパティとして誤解釈した実質空のポップアップが出ていた。
-      // 同じ早期returnガードで防ぐ。
-      if (
-        map.getLayer(GRADIENT_FILL_LAYER_ID) &&
-        map.queryRenderedFeatures(e.point, { layers: [GRADIENT_FILL_LAYER_ID] }).length > 0
-      ) {
-        return;
-      }
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) {
         if (pinPlacementEnabledRef.current) {
