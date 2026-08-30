@@ -584,4 +584,4 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 
 - [ ] [T455](tasks/T455.md). T423・T440・T442が更新した軸定義フィールドの本番DB反映が実装記録から確認できない〔P1〕規模S〜M（2026-08-31起票）
 - [ ] [T456](tasks/T456.md). AxisComposer.tsxのKeep List閾値文言「5つ目のshape種到達」がT396/T397後のモデルと不整合〔P3〕規模S（2026-08-31起票）
-- [ ] [T457](tasks/T457.md). T425項目3・4と同じバグ（風のredraw未再適用・interactiveLayerIds除外漏れ）がgradientにも複製されている〔P2〕規模S（2026-08-31起票。当初T425へ追記していたが、T425が実装完了直前だったため独立タスクへ切り出し）
+- [x] [T457](tasks/T457.md). T425項目3・4と同じバグ（風のredraw未再適用・interactiveLayerIds除外漏れ）がgradientにも複製されている〔P2〕規模S（2026-08-31完了。windの再適用漏れはT425が先行対応済みと判明、残るgradientFillGeojson分のみ修正。interactiveLayerIds除外漏れはgradientでは再現せず対応不要と判明）

@@ -8,9 +8,10 @@
 2026-08-27よりタスク単位のファイル分割済み: improvement-plan.md自体はチェックボックス付き
 リンクの一覧（インデックス）のみを持ち、各タスクの背景・対応方針・実装メモ・検証結果は
 docs/tasks/Txxx.md（タスク番号1件=1ファイル）にある。
-設計原則10箇条は docs/design-review-2026-08-15.md 末尾を参照。複雑度平衡の追加原則
-（評価軸追加の1本道・定数の片側import・UI語彙のカタログ集約等）は
-docs/complexity-review-2026-08-16.md 末尾の改訂版が最新。
+設計原則（RideCompass固有の仕様）は docs/design-principles.md が唯一の正本（常に最新）。
+新しい仕組みを作る前は必ず読むこと。判断原則・進め方は
+.claude/commands/review/principles.md「判断原則」節、機能単位の設計は今後
+docs/modules/（整備予定）を参照。
 タスクの一生（着手前〜実装〜完了〜周期レビュー）を通しで見たい場合は docs/workflow.md 参照
 （個々のルールの本文はそちらに複製せず、どの段階で何を参照するかだけを示す）。
 

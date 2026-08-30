@@ -72,8 +72,11 @@
 
 ## 設計原則（正）
 
-- 最新の設計原則10箇条: **docs/complexity-review-2026-08-16.md 末尾の改訂版**
-  （初版は docs/design-review-2026-08-15.md 末尾）。レビュー時は最新版を必ず読む。
+- 設計原則（RideCompass固有の仕様）: **docs/design-principles.md**（唯一の正本、常に最新。
+  レビュー時は必ず読む）。判断原則・進め方は本principles.mdの「判断原則」節、一般的な
+  実装規約はoverall.md/complexity.mdの各確認観点に集約されている（2026-08-31、
+  design-review-2026-08-15.md・complexity-review-2026-08-16.md末尾に分散していた原則を
+  仕様/判断/一般規約の3種へ整理・統合）。
 - ログ方針: docs/logging.md（エラーは常時WARNING以上、外部I/Oは log_external_call、
   高コスト処理は1行INFOサマリ、座標2桁丸め）。
 
@@ -119,7 +122,8 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
   - docs/design-review-2026-08-15.md（全体設計・第1回）
   - docs/complexity-review-2026-08-15.md（複雑度平衡・第2回）
   - docs/research-interface-review-2026-08-15.md（研究IF・第3回）
-  - docs/complexity-review-2026-08-16.md（複雑度平衡・第4回、Keep List・設計原則最新版）
+  - docs/complexity-review-2026-08-16.md（複雑度平衡・第4回、Keep List。設計原則は
+    docs/design-principles.mdへ移設済み）
   - docs/ui-review-2026-08-16.md（UI操作・一般ユーザー目線）
   - docs/external-data-sources-review-2026-08-16.md（外部データ源調査）
 - **本基盤構築後のレビュー結果**: `.claude/commands/review/history/` に保存。
