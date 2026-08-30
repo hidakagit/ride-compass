@@ -56,6 +56,21 @@
    （`docs/design-review-2026-08-15.md`原則5参照）
 7. **トランザクション境界はサービス層。Repositoryはcommitしない構造とする。**
    （`docs/design-review-2026-08-15.md`原則4参照）
+8. **拡張可能なレジストリは常に1本道の追加点を持つ**（原則3「評価軸の追加は1本道のみ」の
+   一般化）。評価軸に限らず、材料カタログ（`material_catalog.py`へ1件追加するだけで
+   軸スタジオの選択肢へ反映）・動的気象要素（`wind_grid.py`の値フィールド追加→データ層
+   モジュール新設→`DYNAMIC_WEATHER_RENDERERS`へ1エントリ→地図チップ登録、という定められた
+   4段階）等、「種類が増えうるもの」はすべて、追加時に消費側の既存コードへ手を入れず
+   1箇所（レジストリ・カタログ・宣言テーブル）への追加だけで下流の全消費者へ伝播する構造に
+   する（`docs/modules/backend/axis-studio.md`・`evaluation-scoring.md`・
+   `docs/modules/frontend/dynamic-weather-layers.md`参照）。
+9. **軸カタログはbackendからfrontendへの片側importのみで流れる**。`axis-catalog.json`
+   （`export_openapi.py`がビルド時にDBから書き出す静的生成物）は、frontend側で
+   (a) 実行時API（`GET /api/axis-catalog`）フェッチ完了までの一時的なフォールバック、
+   (b) ビルド時にしか導出できない定数（`DEDICATED_WAY_VALUE_LAYER_IDS`等）の生成源、
+   の2用途にのみ使う。frontendからbackend側の生成物へ書き戻す経路は持たない
+   （`docs/modules/frontend/axis-studio.md`・`map-axis-coloring.md`・
+   `static-map-layers.md`参照）。
 
 一般的なソフトウェア工学の慣習（数値定数の片側import・スキーマ変更はmigrations/のみ・
 フォールバック経路へ新機能を実装しない・空間JOINのGiST索引利用・UIの語彙表カタログ集約等）は

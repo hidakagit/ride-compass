@@ -10,8 +10,9 @@
 docs/tasks/Txxx.md（タスク番号1件=1ファイル）にある。
 設計原則（RideCompass固有の仕様）は docs/design-principles.md が唯一の正本（常に最新）。
 新しい仕組みを作る前は必ず読むこと。判断原則・進め方は
-.claude/commands/review/principles.md「判断原則」節、機能単位の設計は今後
-docs/modules/（整備予定）を参照。
+.claude/commands/review/principles.md「判断原則」節、機能単位の設計は
+docs/modules/README.md（backend8・frontend7の全15モジュール、実コードのみを根拠に記述）
+を参照。
 タスクの一生（着手前〜実装〜完了〜周期レビュー）を通しで見たい場合は docs/workflow.md 参照
 （個々のルールの本文はそちらに複製せず、どの段階で何を参照するかだけを示す）。
 
