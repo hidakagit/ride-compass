@@ -37,7 +37,7 @@ import httpx
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
-from app.batch._common import asyncpg_dsn, download_to_path
+from app.batch._common import asyncpg_dsn, download_to_path, reap_stale_running_import_runs, status_count
 from app.domain.accident import (
     build_accident_id,
     involves_bicycle,
@@ -102,13 +102,6 @@ def parse_years(text: str) -> list[int]:
         else:
             years.append(int(part))
     return years
-
-
-def _status_count(status: str) -> int:
-    try:
-        return int(status.split()[-1])
-    except (ValueError, IndexError):
-        return 0
 
 
 async def _download_year(client: httpx.AsyncClient, year: int) -> Path | None:
@@ -208,6 +201,13 @@ async def run_import(years: list[int], database_url: str | None, dry_run: bool) 
     total_matched = 0
     total_upserted = 0
     try:
+        # 改善計画T467: 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか
+        # 確認し、あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
+        reaped = await reap_stale_running_import_runs(conn, "accident_import_runs")
+        if reaped:
+            logger.warning(
+                "クラッシュで取り残されたrunning状態のaccident_import_runsを%d件failedへ遷移しました", reaped
+            )
         for year, path in sorted(csv_paths.items()):
             run_started_at = datetime.now(timezone.utc)
             run_id = await conn.fetchval(
@@ -224,7 +224,7 @@ async def run_import(years: list[int], database_url: str | None, dry_run: bool) 
                     columns=["accident_id", "occurred_year", "fatal", "involves_bicycle", "lon", "lat"],
                 )
                 merge_status = await conn.execute(_MERGE_SQL, run_started_at)
-                upserted = _status_count(merge_status)
+                upserted = status_count(merge_status)
                 total_matched += len(records)
                 total_upserted += upserted
                 await conn.execute(

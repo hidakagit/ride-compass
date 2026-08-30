@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     # 最大30接続で、本番PostgreSQLのmax_connections=100に対し余裕がある）。
     road_tile_rate_limit_per_minute: int = 120
     road_tile_max_concurrent: int = 6
+    # 改善計画T467: 区間インスペクタ（region.py: region_axis_inspector、地図クリックで
+    # 1件のosm_way_idを引くAPI）は座標を持たない単発リクエストで、パン/ズームのたびに
+    # 多数のz/x/yタイルを連続要求するroad_tileとは負荷特性が異なる。以前は
+    # road_tile_rate_limit_per_minuteを`_check_tile_rate_limit`経由でそのまま流用していたため、
+    # road_tile側の値をタイル配信の事情で調整するたびに無関係なaxis-inspectorの上限も
+    # 意図せず変わってしまう結合があった。現状の挙動は変えず（同じ120/分）、設定を分離する。
+    axis_inspector_rate_limit_per_minute: int = 120
     # 事故タイル（外部静的データソース T50）。road_tileと同じ理由（PostGIS問い合わせ・
     # ディスクキャッシュ書き込みを伴う）で同種の歯止めを持つが、accident_pointsは
     # road_edgesよりテーブルが小さく1タイルあたりのクエリコストも低いため、road_tileより

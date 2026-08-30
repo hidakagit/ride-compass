@@ -1,8 +1,9 @@
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
+from app.api.admin_auth import require_admin_basic_auth
 from app.config import settings
 from app.infrastructure.database import get_engine
 from app.infrastructure.debug_log import get_stats
@@ -100,7 +101,7 @@ async def _latest_import_run(conn, table: str) -> dict | None:
     }
 
 
-@router.get("/api/debug/db-status")
+@router.get("/api/debug/db-status", dependencies=[Depends(require_admin_basic_auth)])
 async def db_status() -> dict:
     """本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）
     に追いついているかを1回のリクエストで確認できる診断エンドポイント（改善計画T74）。
@@ -109,6 +110,11 @@ async def db_status() -> dict:
     DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
     （docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
     診断用途のため、DB障害時にHTTP 500にする必要はない）。
+
+    改善計画T467: テーブル行数・migration適用状況・import run履歴という運用上機微な情報を
+    返すにも関わらず従来は無認証だったため、axis_admin.py/debug_admin.pyと同じ管理API
+    認可境界（require_admin_basic_auth）を追加した。`/health`・`/api/debug/stats`
+    （集計値のみで機微情報を含まない）は引き続き無認証のまま維持する。
     """
     if not settings.road_graph_use_repository:
         return {"commit": settings.git_commit, "database_configured": False}

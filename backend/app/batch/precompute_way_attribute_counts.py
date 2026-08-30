@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.batch._common import chunked
 from app.config import settings
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -57,10 +58,6 @@ _LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
 _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
 
 
-def _chunked(items: list[int], size: int) -> list[list[int]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
-
-
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
     engine = create_async_engine(database_url or settings.database_url)
@@ -73,13 +70,8 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 .where(OsmRawWayRow.highway.is_not(None))
             )
             way_ids = [row[0] for row in result.all()]
-            source_accident_run_id = (await session.execute(_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL)).scalar_one()
-            source_osm_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
 
-        logger.info(
-            "対象way数: %d件（chunk_size=%d） source_accident_run_id=%s source_osm_run_id=%s",
-            len(way_ids), CHUNK_SIZE, source_accident_run_id, source_osm_run_id,
-        )
+        logger.info("対象way数: %d件（chunk_size=%d）", len(way_ids), CHUNK_SIZE)
         if dry_run:
             logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
@@ -99,10 +91,15 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
         now = datetime.now(timezone.utc)
         total_written = 0
-        chunks = _chunked(way_ids, CHUNK_SIZE)
+        chunks = chunked(way_ids, CHUNK_SIZE)
         for chunk_index, chunk in enumerate(chunks):
             chunk_started = time.perf_counter()
             async with session_factory() as session:
+                # 改善計画T467: precompute_edge_attribute_counts.pyと同種の修正（同ファイルの
+                # コメント参照）。run id取得をチャンクごとの直前へ移し、各チャンクが実際に読んだ
+                # accident_points/osm_raw_waysとの対応がズレないようにする。
+                source_accident_run_id = (await session.execute(_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL)).scalar_one()
+                source_osm_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
                 repository = RoadGraphRepository(session)
                 await repository.recompute_way_attribute_counts(
                     chunk, now, source_accident_run_id, source_osm_run_id, ALGORITHM_VERSION
@@ -110,8 +107,9 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 await session.commit()
             total_written += len(chunk)
             logger.info(
-                "chunk %d/%d 完了: %d件 elapsed=%.1fs",
-                chunk_index + 1, len(chunks), len(chunk), time.perf_counter() - chunk_started,
+                "chunk %d/%d 完了: %d件 source_accident_run_id=%s source_osm_run_id=%s elapsed=%.1fs",
+                chunk_index + 1, len(chunks), len(chunk), source_accident_run_id, source_osm_run_id,
+                time.perf_counter() - chunk_started,
             )
 
         logger.info(

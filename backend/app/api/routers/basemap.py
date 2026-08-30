@@ -26,9 +26,15 @@ async def basemap_proxy(
 @router.post("/api/basemap/refresh")
 def basemap_refresh(request: Request) -> dict[str, str]:
     # 基礎地図タイルと路面ベクタタイル（Step10）は同じファイルキャッシュを共有しているため、
-    # この一括クリアで両方とも消える。認証が無いため、連打でキャッシュが常に温まらず
-    # 外部サービス（Overpass/OpenFreeMap）への実問い合わせが発生し続けることを防ぐため
-    # 他のエンドポイントよりも厳しいレート制限をかける（config.py参照）。
+    # この一括クリアで両方とも消える。改善計画T467で検討: axis_admin.py/debug_admin.pyと同じ
+    # 管理API認可境界（require_admin_basic_auth）の追加を検討したが、このエンドポイントは
+    # 一般ユーザー向け地図UIの「変わらないデータを更新」ボタン（MapView.tsx:
+    # refreshBasemapCache）から直接叩かれる——本アプリにはユーザーアカウント自体が無く
+    # （画面はRouteSettingsPanel等の一般公開UIのみ、/adminは別surface）、管理者専用の認証を
+    # 付けると一般利用者のボタンが401になり機能そのものが壊れる。認証が無いこと自体は
+    # 他の公開API（road-surface-tiles等）と同じ位置づけであり、対応は「連打でキャッシュが
+    # 常に温まらず外部サービスへの実問い合わせが発生し続ける」リスクへの厳しめのレート制限
+    # （既存のbasemap_refresh_rate_limit_per_minute）に留める。
     enforce_rate_limit(request, "basemap-refresh", settings.basemap_refresh_rate_limit_per_minute)
     tile_cache.clear_all()
     return {"status": "ok"}

@@ -54,6 +54,11 @@ export interface paths {
          *     DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
          *     （docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
          *     診断用途のため、DB障害時にHTTP 500にする必要はない）。
+         *
+         *     改善計画T467: テーブル行数・migration適用状況・import run履歴という運用上機微な情報を
+         *     返すにも関わらず従来は無認証だったため、axis_admin.py/debug_admin.pyと同じ管理API
+         *     認可境界（require_admin_basic_auth）を追加した。`/health`・`/api/debug/stats`
+         *     （集計値のみで機微情報を含まない）は引き続き無認証のまま維持する。
          */
         get: operations["db_status_api_debug_db_status_get"];
         put?: never;
@@ -629,6 +634,12 @@ export interface paths {
          *     `contains`で部分一致フィルタ（例: T318調査の`distance filter rejected`）、
          *     `limit`でフィルタ後の末尾N件に絞り込める。debug_modeがOFFの間はDEBUGレベルの
          *     行自体がそもそも記録されない点に注意（先に`POST /mode`で有効化すること）。
+         *
+         *     改善計画T467: `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が
+         *     Pythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう
+         *     （例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は
+         *     リングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても
+         *     保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。
          */
         get: operations["read_recent_logs_api_admin_debug_logs_get"];
         put?: never;

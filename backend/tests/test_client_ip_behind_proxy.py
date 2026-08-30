@@ -16,6 +16,9 @@ basemapタイルのレート制限をデプロイ先の全アクセスが共有�
 _client_idが返す値の違いを確認する。
 """
 
+import logging
+
+from fastapi import Request
 from fastapi.testclient import TestClient
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -65,3 +68,17 @@ def test_forwarded_for_is_honored_with_trusted_proxy_config():
     # プロキシ経由のみのため、この設定で正しくX-Forwarded-Forの先頭（実際の訪問者IP）が
     # request.client.host（＝_client_idの戻り値）へ反映される。
     assert _client_id_seen_by(trusted_hosts="*") == FORWARDED_CLIENT_IP
+
+
+def test_client_id_falls_back_to_unknown_and_warns_when_request_client_is_none(caplog):
+    # 改善計画T467: request.clientがNone（ASGI呼び出し元がclient情報を渡さない場合）に、
+    # 固定文字列"unknown"へ落ちること自体は既存挙動（複数クライアントが1つのレート制限
+    # バケットへ相乗りするリスクがある）だが、運用側が検知できるようWARNINGログを追加した。
+    scope = {"type": "http", "client": None, "headers": []}
+    request = Request(scope)
+
+    with caplog.at_level(logging.WARNING, logger="ridecompass.dependencies"):
+        result = dependencies_module.client_id(request)
+
+    assert result == "unknown"
+    assert any("unknown" in record.message for record in caplog.records)

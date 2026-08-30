@@ -31,6 +31,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.batch._common import chunked
 from app.config import settings
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -72,10 +73,6 @@ async def _fetch_source_run_ids(session: AsyncSession) -> tuple[int | None, int 
     return accident_run_id, osm_run_id
 
 
-def _chunked(items: list[str], size: int) -> list[list[str]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
-
-
 async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
     if not rows:
         return
@@ -103,12 +100,8 @@ async def run(database_url: str | None, dry_run: bool) -> int:
     try:
         async with session_factory() as session:
             edge_ids = await _fetch_all_edge_ids(session)
-            source_accident_run_id, source_osm_run_id = await _fetch_source_run_ids(session)
 
-        logger.info(
-            "対象edge数: %d件（chunk_size=%d） source_accident_run_id=%s source_osm_run_id=%s",
-            len(edge_ids), CHUNK_SIZE, source_accident_run_id, source_osm_run_id,
-        )
+        logger.info("対象edge数: %d件（chunk_size=%d）", len(edge_ids), CHUNK_SIZE)
         if dry_run:
             logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
@@ -129,10 +122,17 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         # **本バッチの実行前にprecompute_road_node_degrees.pyの実行が必須**
         # （road_nodes.degreeが未計算＝全行0のままだとintersection_countも全件0になる）。
         total_written = 0
-        chunks = _chunked(edge_ids, CHUNK_SIZE)
+        chunks = chunked(edge_ids, CHUNK_SIZE)
         for chunk_index, chunk in enumerate(chunks):
             chunk_started = time.perf_counter()
             async with session_factory() as session:
+                # 改善計画T467: 以前はrun id取得をチャンク処理開始前に1回だけ行い、全チャンクへ
+                # 同じ値を書き込んでいた。edge_ids全体の処理に長時間かかる場合、途中で別プロセスの
+                # import_accidents.py/import_pbf.pyが完了してしまうと、後半のチャンクは実際には
+                # 新しいaccident_points/osm_raw_waysを読んでいるのに、古いrun idが記録される
+                # 不整合が生じうる。チャンクごとに直前で取得することで、各チャンクが実際に読んだ
+                # データとの対応を保つ（match_designations.pyの同種修正と同じ狙い）。
+                source_accident_run_id, source_osm_run_id = await _fetch_source_run_ids(session)
                 repository = RoadGraphRepository(session)
                 stop_counts = await repository.get_stop_poi_counts(chunk)
                 accident_counts = await repository.get_accident_counts(chunk)
@@ -154,8 +154,9 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 await _upsert_chunk(session, rows)
             total_written += len(rows)
             logger.info(
-                "chunk %d/%d 完了: %d件 elapsed=%.1fs",
-                chunk_index + 1, len(chunks), len(rows), time.perf_counter() - chunk_started,
+                "chunk %d/%d 完了: %d件 source_accident_run_id=%s source_osm_run_id=%s elapsed=%.1fs",
+                chunk_index + 1, len(chunks), len(rows), source_accident_run_id, source_osm_run_id,
+                time.perf_counter() - chunk_started,
             )
 
         logger.info(

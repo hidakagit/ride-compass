@@ -171,5 +171,8 @@ async def region_axis_inspector(
     レシピ上書きパラメータ（旧car_stress_recipe等）も、専用Pythonレシピの廃止に伴い
     廃止した。
     """
-    _check_tile_rate_limit(http_request, "axis-inspector")
+    # 改善計画T467: 座標なしの単発リクエストのためタイル向け_check_tile_rate_limit
+    # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
+    # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照。値自体は変更なし）。
+    enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
     return await region_service.get_axis_inspector(body.osm_way_id)

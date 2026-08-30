@@ -5,6 +5,7 @@
 すべてここに集約し、ルータはエンドポイントの入出力とレート制限だけを持つ。
 """
 
+import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable
@@ -44,6 +45,8 @@ from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
 from app.services.wind_way_service import WindWayService
 
+logger = logging.getLogger("ridecompass.dependencies")
+
 
 def client_id(request: Request) -> str:
     """per-IPレート制限のキーに使うクライアント識別子。
@@ -51,8 +54,18 @@ def client_id(request: Request) -> str:
     Renderのようなリバースプロキシ配下では、uvicornの--proxy-headers＋
     --forwarded-allow-ips設定（backend/Dockerfile）が正しくないと全アクセスが
     プロキシの単一IPに潰れる点に注意（tests/test_client_ip_behind_proxy.py参照）。
+
+    改善計画T467: request.clientがNone（ASGI呼び出し元がclient情報を渡さない場合、
+    または想定外のプロキシ構成）のときは全リクエストが固定文字列"unknown"の1つの
+    レート制限バケットへ相乗りし、無関係な複数クライアントの通信量が合算されてしまう
+    （本来より早く429になる、または逆に個々のクライアントに対する制限が実質緩くなる）。
+    根本原因（プロキシ構成等）の調査に使えるようWARNINGで記録する
+    （docs/logging.md: エラー・429拒否は常時WARNING以上で出す方針に準拠）。
     """
-    return request.client.host if request.client else "unknown"
+    if request.client is None:
+        logger.warning("request.client is None; rate-limit key falls back to shared 'unknown' bucket")
+        return "unknown"
+    return request.client.host
 
 
 def enforce_rate_limit(request: Request, prefix: str, limit_per_minute: int) -> None:

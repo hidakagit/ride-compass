@@ -1,19 +1,15 @@
-"""app/batch/precompute_elevation_attributes.pyの純粋ロジック（チャンク分割）の検証
-（改善計画T331残り5項目、兄弟モジュールprecompute_way_attribute_counts.py/
-precompute_edge_attribute_counts.pyのtest_chunked相当）。DB接続・外部HTTP呼び出し
-自体は実DB/実APIが要るため対象外（他のbatchスクリプトのテストと同じ切り分け方針）。
+"""app/batch/precompute_elevation_attributes.pyの純粋ロジック検証（改善計画T331残り5項目）。
+
+チャンク分割自体の実装・テストは改善計画T467でapp/batch/_common.py: chunked（tests/
+test_batch_common.py）へ統合済み。ここでは、このバッチが自前実装を持たず共通実装を
+そのままimportして使っていること（同期ペアの片側だけ更新して実体がズレる事故の再発防止）
+のみを確認する。DB接続・外部HTTP呼び出し自体は実DB/実APIが要るため対象外
+（他のbatchスクリプトのテストと同じ切り分け方針）。
 """
 
-from app.batch.precompute_elevation_attributes import _chunked
+from app.batch._common import chunked as common_chunked
+from app.batch.precompute_elevation_attributes import chunked
 
 
-def test_chunked_splits_into_fixed_size_groups():
-    assert _chunked(["a", "b", "c", "d", "e"], 2) == [["a", "b"], ["c", "d"], ["e"]]
-
-
-def test_chunked_single_chunk_when_smaller_than_size():
-    assert _chunked(["a", "b"], 10) == [["a", "b"]]
-
-
-def test_chunked_empty_list_returns_empty():
-    assert _chunked([], 5) == []
+def test_chunked_is_the_shared_common_implementation():
+    assert chunked is common_chunked

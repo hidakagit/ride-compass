@@ -38,7 +38,7 @@ import asyncpg
 from shapely.geometry import LineString
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.batch._common import asyncpg_dsn
+from app.batch._common import asyncpg_dsn, reap_stale_running_import_runs, status_count
 from app.batch.profile import ImportProfile, load_profile, matching_rule
 from app.config import settings
 from app.domain.graph import WaySpec
@@ -174,14 +174,6 @@ def _parse_pbf_timestamp(raw: str | None) -> datetime | None:
         return None
 
 
-def _status_count(status: str) -> int:
-    # asyncpgのexecuteは"INSERT 0 123"のようなコマンドステータス文字列を返す
-    try:
-        return int(status.split()[-1])
-    except (ValueError, IndexError):
-        return 0
-
-
 class _Producer:
     """osmiumのストリーム読み取り（ブロッキング）を別スレッドで回し、チャンクをキューへ送る。"""
 
@@ -273,7 +265,7 @@ async def _flush_chunk(conn: asyncpg.Connection, chunk: Chunk, updated_at: datet
     node_status = await conn.execute(_MERGE_NODES_SQL, updated_at)
     way_status = await conn.execute(_MERGE_WAYS_SQL, updated_at)
     poi_status = await conn.execute(_MERGE_POIS_SQL, updated_at)
-    return _status_count(way_status), _status_count(node_status), _status_count(poi_status)
+    return status_count(way_status), status_count(node_status), status_count(poi_status)
 
 
 async def _mark_tiles(conn: asyncpg.Connection, bbox: BoundingBox, fetched_at: datetime) -> int:
@@ -369,6 +361,11 @@ async def run_import(
             await engine.dispose()
 
         conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
+        # 改善計画T467: 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか
+        # 確認し、あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
+        reaped = await reap_stale_running_import_runs(conn, "osm_import_runs")
+        if reaped:
+            logger.warning("クラッシュで取り残されたrunning状態のosm_import_runsを%d件failedへ遷移しました", reaped)
         run_id = None
         # 初回（空テーブル）取込時のみ、osm_raw_ways.geomのGiSTを取込完了後まで遅延して
         # 構築する（改善計画T28）。蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers

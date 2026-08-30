@@ -33,6 +33,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.batch._common import chunked
 from app.config import settings
 from app.domain.graph import RoadGraph
 from app.infrastructure.elevation_client import ElevationClient
@@ -52,10 +53,6 @@ async def _fetch_all_edge_ids(session: AsyncSession) -> list[str]:
     return [row[0] for row in result.all()]
 
 
-def _chunked(items: list[str], size: int) -> list[list[str]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
-
-
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
     engine = create_async_engine(database_url or settings.database_url)
@@ -73,7 +70,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             return 0
 
         client = ElevationClient()
-        chunks = _chunked(edge_ids, CHUNK_SIZE)
+        chunks = chunked(edge_ids, CHUNK_SIZE)
         total_computed = 0
         # ElevationClient本体はコネクションを内部で持たないため、AttributeErrorのT10と
         # 同じ理由（TLSハンドシェイク再確立の回避）でこのバッチ全体を通して1本のみ生成する。

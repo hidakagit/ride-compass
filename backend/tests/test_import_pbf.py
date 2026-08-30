@@ -18,7 +18,6 @@ from shapely import wkb as shapely_wkb
 from app.batch import import_pbf, pbf_source
 from app.batch._common import asyncpg_dsn
 from app.batch.import_pbf import (
-    _status_count,
     build_poi_record,
     build_way_record,
     parse_bbox,
@@ -127,11 +126,6 @@ class TestBuildPoiRecord:
         spec = POISpec(osm_node_id=200, kind="stop", latitude=35.0, longitude=139.0)
         record = build_poi_record(spec)
         assert record[2] == "{}"
-
-
-def test_status_count_parses_asyncpg_command_status():
-    assert _status_count("INSERT 0 123") == 123
-    assert _status_count("TRUNCATE TABLE") == 0
 
 
 @pytest_asyncio.fixture

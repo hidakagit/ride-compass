@@ -6,7 +6,7 @@ T318の本番調査で「本番debug_modeの一時有効化に毎回SSHが必要
 含まれうるため、`/api/debug/stats`（集計値のみ、認可不要）とは異なり認可を要求する。
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -40,11 +40,19 @@ def read_debug_mode() -> DebugModeResponse:
 
 
 @router.get("/logs")
-def read_recent_logs(limit: int | None = None, contains: str | None = None) -> list[str]:
+def read_recent_logs(
+    limit: int | None = Query(default=None, gt=0), contains: str | None = None
+) -> list[str]:
     """直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。
 
     `contains`で部分一致フィルタ（例: T318調査の`distance filter rejected`）、
     `limit`でフィルタ後の末尾N件に絞り込める。debug_modeがOFFの間はDEBUGレベルの
     行自体がそもそも記録されない点に注意（先に`POST /mode`で有効化すること）。
+
+    改善計画T467: `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が
+    Pythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう
+    （例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は
+    リングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても
+    保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。
     """
     return get_recent_logs(limit=limit, contains=contains)

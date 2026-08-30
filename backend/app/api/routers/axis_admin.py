@@ -278,25 +278,12 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         手書きコピーしてAxisDefinition(...)を組み立てており、`AxisDefinitionFields`へ
         フィールドを追加するたびに2箇所を同時に直す必要があった（今回のT310でicon_id等
         5フィールドが両方に追加された、CLAUDE.mdが警告する「同期ペアの片側更新漏れ」と
-        同型のリスク）。フィールド一覧をこの1箇所へ集約する。"""
-        return AxisDefinition(
-            axis_id=self.axis_id,
-            shape=self.shape,
-            default_weight=self.default_weight,
-            label=self.label,
-            description=self.description,
-            category=self.category,
-            is_published=self.is_published,
-            priority_overrides=self.priority_overrides,
-            icon_id=self.icon_id,
-            chip_label=self.chip_label,
-            panel_hint=self.panel_hint,
-            show_map_icon=self.show_map_icon,
-            time_scope=self.time_scope,
-            supports_route_coloring=self.supports_route_coloring,
-            display_thresholds_override=self.display_thresholds_override,
-            dedicated_way_value_layer=self.dedicated_way_value_layer,
-        )
+        同型のリスク）。改善計画T467: `AxisDefinitionPayload`は`AxisDefinitionFields`へ
+        バリデータのみを足す（フィールドは追加しない）ため、フィールド名の集合は
+        `AxisDefinition`（domain/axis_definitions.py）と完全に一致する。手書きの
+        16フィールド列挙（片側更新漏れの温床）をmodel_dump()経由の展開へ置き換え、
+        フィールド一覧そのものを両クラスの宣言（1箇所ずつ）だけに保つ。"""
+        return AxisDefinition(**self.model_dump())
 
 
 class AxisDefinitionResponse(AxisDefinitionFields):
@@ -315,25 +302,11 @@ class AxisDefinitionResponse(AxisDefinitionFields):
 
 
 def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
-    return AxisDefinitionResponse(
-        axis_id=definition.axis_id,
-        shape=definition.shape,
-        default_weight=definition.default_weight,
-        label=definition.label,
-        description=definition.description,
-        category=definition.category,
-        is_published=definition.is_published,
-        priority_overrides=definition.priority_overrides,
-        icon_id=definition.icon_id,
-        chip_label=definition.chip_label,
-        panel_hint=definition.panel_hint,
-        show_map_icon=definition.show_map_icon,
-        time_scope=definition.time_scope,
-        supports_route_coloring=definition.supports_route_coloring,
-        display_thresholds_override=definition.display_thresholds_override,
-        dedicated_way_value_layer=definition.dedicated_way_value_layer,
-        display=axis_display_for(definition),
-    )
+    """改善計画T467: to_definition()と対になる同期ペア。`AxisDefinitionResponse`は
+    `AxisDefinitionFields`へ`display`を1つ足すのみ（フィールドは追加しない）ため、
+    16フィールドの手書き列挙をmodel_dump()経由の展開へ置き換える（to_definition()の
+    docstring参照）。"""
+    return AxisDefinitionResponse(**definition.model_dump(), display=axis_display_for(definition))
 
 
 @router.get("", dependencies=[Depends(require_admin_basic_auth)])
@@ -414,5 +387,10 @@ async def unpublish_axis_definition(
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません") from exc
     definition = await _guard_db_errors(service.get(axis_id))
-    assert definition is not None  # unpublishが例外なく返った直後のため必ず存在する
+    if definition is None:
+        # 改善計画T467: assert文は`python -O`実行時に取り除かれる（本番起動コマンドが-Oを
+        # 使っていない現状でも、将来変更されると不変条件チェックごと消える不安定な保護に
+        # なる）。unpublishが例外なく返った直後のため通常は必ず存在するが、その不変条件を
+        # 常に有効な形で守る。
+        raise RuntimeError(f"axis_id={axis_id} のunpublish直後にgetが空を返しました（不変条件違反）")
     return _to_response(definition)

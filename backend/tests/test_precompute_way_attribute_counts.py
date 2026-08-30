@@ -1,6 +1,7 @@
-"""app/batch/precompute_way_attribute_counts.pyの純粋ロジック（チャンク分割）の検証
-（改善計画T331、兄弟モジュールprecompute_edge_attribute_counts.pyのtest_chunked相当）。
-DB接続自体は実DBが要るため対象外（他のbatchスクリプトのテストと同じ切り分け方針）。
+"""app/batch/precompute_way_attribute_counts.pyのrun()結合検証（改善計画T331）。
+チャンク分割自体の純粋ロジック検証はtests/test_batch_common.py（改善計画T467、
+_chunked実装統合に伴いテストも集約）。DB接続自体は実DBが要るため対象外
+（他のbatchスクリプトのテストと同じ切り分け方針）。
 
 TestSourceTracking（改善計画T351）は派生データの系譜追跡カラムの書き込みを検証する
 結合テストで、ridecompass_test DB（conftest.pyのroad_graph_session/road_graph_repository
@@ -10,23 +11,10 @@ TestSourceTracking（改善計画T351）は派生データの系譜追跡カラ�
 import pytest
 from sqlalchemy import select, text
 
-from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION, _chunked, run
+from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION, run
 from app.domain.graph import WaySpec
 from app.infrastructure.road_graph_models import WayAttributeCountsRow
 from tests.conftest import TEST_DATABASE_URL
-
-
-def test_chunked_splits_into_fixed_size_groups():
-    assert _chunked([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]]
-
-
-def test_chunked_single_chunk_when_smaller_than_size():
-    assert _chunked([1, 2], 10) == [[1, 2]]
-
-
-def test_chunked_empty_list_returns_empty():
-    assert _chunked([], 5) == []
-
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)

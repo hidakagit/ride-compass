@@ -140,6 +140,15 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
     conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
     try:
         logger.info("マッチング開始: buffer_width_m=%.1f kinds=%s", DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))
+        # 派生データの系譜追跡（改善計画T351）: このマッチングが実際に読むosm_raw_waysの
+        # データに対応するosm_import_runsの最新成功run id（高水位マーク、migration 0024の
+        # コメント参照）。改善計画T467: 以前は_MATCH_SQL実行「後」に取得しており、その間に
+        # 別プロセスのimport_pbf.pyが完了してosm_import_runsの最新成功runが進んだ場合、
+        # 実際にマッチに使ったosm_raw_waysより新しいrun idが記録されうる不整合があった。
+        # _MATCH_SQL直前で取得することで、記録されるrun idと実際に読んだデータの対応がずれる
+        # 窓を狭める（precompute_edge_attribute_counts.py: _get_latest_run_idsと同じ
+        # 「読み取り直前に取得する」パターン）。dry-runでは書き込まないため取得しない。
+        source_osm_import_run_id = None if dry_run else await conn.fetchval(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)
         rows = await conn.fetch(_MATCH_SQL, DESIGNATION_BUFFER_WIDTH_M, list(_KINDS))
         candidates = [
             (r["osm_way_id"], r["kind"], r["ratio"], r["route_designation_ids"])
@@ -157,10 +166,6 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
                 kind_matched = [c for c in matched if c[1] == kind]
                 logger.info("dry-run kind=%s: matched=%d", kind, len(kind_matched))
             return 0
-
-        # 派生データの系譜追跡（改善計画T351）: このマッチング実行時点でのosm_import_runsの
-        # 最新成功run id（高水位マーク、migration 0024のコメント参照）。
-        source_osm_import_run_id = await conn.fetchval(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)
 
         data_version = f"buffer{DESIGNATION_BUFFER_WIDTH_M:.0f}m"
         insert_elapsed = await _write_matches(conn, candidates, matched, data_version, source_osm_import_run_id)

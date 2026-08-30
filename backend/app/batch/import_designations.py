@@ -42,7 +42,7 @@ import httpx
 from shapely.geometry import LineString
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.batch._common import asyncpg_dsn, download_to_path
+from app.batch._common import asyncpg_dsn, download_to_path, reap_stale_running_import_runs
 from app.config import settings
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへモデル登録するためのimport
@@ -281,6 +281,13 @@ async def run_import(database_url: str | None, dry_run: bool) -> int:
     conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
     total_inserted = 0
     try:
+        # 改善計画T467: 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか
+        # 確認し、あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
+        reaped = await reap_stale_running_import_runs(conn, "designation_import_runs")
+        if reaped:
+            logger.warning(
+                "クラッシュで取り残されたrunning状態のdesignation_import_runsを%d件failedへ遷移しました", reaped
+            )
         for (kind, pref), path in sorted(zip_paths.items()):
             run_started_at = datetime.now(timezone.utc)
             source = _KIND_SPECS[kind].source

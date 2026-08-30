@@ -1,6 +1,6 @@
-"""app/batch/precompute_edge_attribute_counts.pyの純粋ロジック（チャンク分割）の検証
-（改善計画T144）。DB接続自体は実DBが要るため対象外（他のbatchスクリプトのテストと同じ
-切り分け方針）。
+"""app/batch/precompute_edge_attribute_counts.pyのrun()結合検証（改善計画T144）。
+チャンク分割自体の純粋ロジック検証はtests/test_batch_common.py（改善計画T467、
+_chunked実装統合に伴いテストも集約）。
 
 TestRunOrchestration（改善計画T331残り5項目）はrun()本体・UPSERTの結合検証で、
 ridecompass_test DB（conftest.pyのroad_graph_session/road_graph_repositoryフィクスチャ）への
@@ -10,23 +10,10 @@ ridecompass_test DB（conftest.pyのroad_graph_session/road_graph_repositoryフ�
 import pytest
 from sqlalchemy import select, text
 
-from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION, _chunked, run
+from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION, run
 from app.domain.graph import WaySpec, build_road_graph
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow
 from tests.conftest import TEST_DATABASE_URL
-
-
-def test_chunked_splits_into_fixed_size_groups():
-    assert _chunked(["a", "b", "c", "d", "e"], 2) == [["a", "b"], ["c", "d"], ["e"]]
-
-
-def test_chunked_single_chunk_when_smaller_than_size():
-    assert _chunked(["a", "b"], 10) == [["a", "b"]]
-
-
-def test_chunked_empty_list_returns_empty():
-    assert _chunked([], 5) == []
-
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
@@ -42,7 +29,7 @@ async def _seed_one_way(road_graph_repository, road_graph_session) -> None:
 class TestRunOrchestration:
     """run()本体（edge一覧取得→3種のcount取得→UPSERT）の結合検証（改善計画T331残り5項目）。
 
-    これまで_chunkedの純粋ロジックのみがテストされ、run()のオーケストレーション本体自体は
+    以前は_chunkedの純粋ロジックのみがテストされ、run()のオーケストレーション本体自体は
     CI未検証だった（手動E2Eスクリプトのみ、precompute_way_attribute_counts.pyと同型の
     カバレッジ欠落）。road_edgesを1way分だけ実DBへ用意し、run()を通しでUPSERT結果を確認する。
 
@@ -50,8 +37,7 @@ class TestRunOrchestration:
     ファイル単位で1本のエンジン・イベントループを使い回す設計。run()自体は別のエンジンで
     動くが（settings.database_url/引数のdatabase_urlから毎回新規作成）、テスト側の書き込みを
     run()から見えるようにするためroad_graph_session.commit()で明示的にコミットする
-    （test_match_designations.pyと同じ手法）。クラス限定のpytestmarkで、上の同期テスト
-    （_chunked系）へasyncio markが誤って付与されるのを避ける。
+    （test_match_designations.pyと同じ手法）。
     """
 
     pytestmark = [
