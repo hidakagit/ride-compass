@@ -568,3 +568,19 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 
 - [x] [T441](tasks/T441.md). ルート候補0件の原因をGUI（デバッグログ）まで届ける+debugLogの重大度監査 規模M（2026-08-30完了）
 - [x] [T442](tasks/T442.md). axis_definitions_snapshot.jsonがT440の軸変更に追従しておらず、fresh bootstrapと乖離している 規模S（T441のOpenAPI再生成時に発見、2026-08-30完了）
+
+## 統合レビュー第2回のシャーディング不具合修正後の再実施（2026-08-31、ユーザー承認済み）
+
+統合レビュー第2回（`history/2026-08-30_all_2.md`）は、対象規模が大きくシャーディング要と
+判定した際、4レンズ構造（overall/complexity/consistency/ui）をドメイン構造
+（backend/frontend/Map/frontend其他/docs/ui）へ誤って置き換えてしまい、complexityレンズ
+固有の出力（規模ウォッチ表・変更コスト表・Keep List照合）が丸ごと欠落していた（ユーザー
+指摘により発覚）。レビュー基盤（principles.md/complexity.md/all.md）を修正した上で、
+正しい設計（単独Agent・ドメイン分割なし）でcomplexity・overall（局所最適の連鎖検出）を
+再実施した（[history/2026-08-31_complexity.md](../.claude/commands/review/history/2026-08-31_complexity.md)
+スコア96/100、[history/2026-08-31_overall.md](../.claude/commands/review/history/2026-08-31_overall.md)
+スコア90/100）。新規P1×1・P3×1を起票し、既存[T425](tasks/T425.md)・[T444](tasks/T444.md)・
+[T428](tasks/T428.md)へ追記した（起票不要な情報のため新規タスク化せず）。
+
+- [ ] [T455](tasks/T455.md). T423・T440・T442が更新した軸定義フィールドの本番DB反映が実装記録から確認できない〔P1〕規模S〜M（2026-08-31起票）
+- [ ] [T456](tasks/T456.md). AxisComposer.tsxのKeep List閾値文言「5つ目のshape種到達」がT396/T397後のモデルと不整合〔P3〕規模S（2026-08-31起票）
