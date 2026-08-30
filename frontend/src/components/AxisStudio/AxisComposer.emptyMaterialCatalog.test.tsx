@@ -33,6 +33,7 @@ function baseDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDe
     show_map_icon: true,
     time_scope: "always",
     supports_route_coloring: false,
+    dedicated_way_value_layer: false,
     shape: {
       kind: "breakpoint_linear",
       terms: [{ material: "gradient_percent", weight: 1.0, required: true }],

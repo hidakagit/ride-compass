@@ -1777,6 +1777,10 @@
               }
             ],
             "title": "Display Thresholds Override"
+          },
+          "dedicated_way_value_layer": {
+            "type": "boolean",
+            "title": "Dedicated Way Value Layer"
           }
         },
         "type": "object",
@@ -1794,7 +1798,8 @@
           "supports_route_coloring",
           "primary_attribute_ids",
           "shape",
-          "display_thresholds_override"
+          "display_thresholds_override",
+          "dedicated_way_value_layer"
         ],
         "title": "AxisCatalogEntry"
       },
@@ -1940,6 +1945,11 @@
               }
             ],
             "title": "Display Thresholds Override"
+          },
+          "dedicated_way_value_layer": {
+            "type": "boolean",
+            "title": "Dedicated Way Value Layer",
+            "default": false
           }
         },
         "type": "object",
@@ -2070,6 +2080,11 @@
               }
             ],
             "title": "Display Thresholds Override"
+          },
+          "dedicated_way_value_layer": {
+            "type": "boolean",
+            "title": "Dedicated Way Value Layer",
+            "default": false
           },
           "display": {
             "$ref": "#/components/schemas/AxisDisplaySpec"

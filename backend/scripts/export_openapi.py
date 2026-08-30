@@ -169,6 +169,7 @@ def main() -> None:
                     # 決められること全部返す」方針を静的フォールバックにも揃える。
                     "shape": AXIS_DEFINITIONS[axis.axis_id].shape.model_dump(),
                     "display_thresholds_override": AXIS_DEFINITIONS[axis.axis_id].display_thresholds_override,
+                    "dedicated_way_value_layer": AXIS_DEFINITIONS[axis.axis_id].dedicated_way_value_layer,
                 }
                 for axis in all_axes()
             ],

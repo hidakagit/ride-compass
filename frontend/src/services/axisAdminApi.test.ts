@@ -35,6 +35,7 @@ const axisResponse: AxisDefinitionResponse = {
   show_map_icon: true,
   time_scope: "always",
   supports_route_coloring: false,
+  dedicated_way_value_layer: false,
   // 改善計画T404: displayはAxisDefinitionResponseの必須フィールド（axis_display_for()の
   // 計算結果）。本テストは実際のderive_ramp_inputsの挙動を検証する対象ではないため
   // kind="none"の適当な値を置く。

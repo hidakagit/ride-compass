@@ -89,7 +89,7 @@ describe("routeStyleModes", () => {
   });
 
   it("surface_q（shape.kind==='categorical'）も通常の絶対値差難易度経路を使い、ラベルは他の動的モードと同じ汎用形式になる（roadという専用名は無い）", () => {
-    expect(surfaceQAxis.shape.kind).toBe("categorical");
+    expect(surfaceQAxis.shape?.kind).toBe("categorical");
     const surfaceQ = routeColorableModeFromAxis(surfaceQAxis);
     expect(surfaceQ.id).toBe("surface_q");
     expect(surfaceQ.label).toBe(`${surfaceQAxis.label}の影響`);

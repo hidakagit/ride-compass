@@ -159,6 +159,31 @@ async def test_upsert_then_list_all_round_trips_display_fields_when_unset(road_g
     assert loaded.show_map_icon is True
 
 
+async def test_upsert_then_list_all_round_trips_dedicated_way_value_layer(road_graph_session):
+    # 改善計画T440フォローアップ: dedicated_way_value_layer=True（非既定値）がDB往復で
+    # 失われないことの回帰テスト。UPSERT文のvalues()にこのフィールドを渡し忘れていても
+    # ON CONFLICT SET句のexcluded参照だけでは値が反映されず、常に既定のFalseへ静かに
+    # 戻ってしまう不具合が実際にあった（axis_admin API経由での手動確認で発覚、
+    # test_axis_admin_routes.pyの往復テストはoverride_service[実DBを使わないフェイク]
+    # 経由のためこの種の不具合を検出できなかった）。
+    definition = AxisDefinition(
+        axis_id="dedicated_way_value_layer_axis",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
+        default_weight=0.1,
+        label="テスト軸[dedicated_way_value_layer_axis]",
+        description="",
+        category="推定",
+        dedicated_way_value_layer=True,
+    )
+    repository = AxisDefinitionRepository(road_graph_session)
+
+    await repository.upsert(definition, sort_order=0)
+    await repository.commit()
+
+    result = await repository.list_all()
+    assert result["dedicated_way_value_layer_axis"].dedicated_way_value_layer is True
+
+
 async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("z_axis"), sort_order=0)

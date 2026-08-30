@@ -9,15 +9,6 @@ import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMaterialValues } from "@/hooks/useMaterialValues";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
-
-// dedicated_way_value_layer（この軸が専用のway_id→値配信レイヤーを持つかの宣言、
-// domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）はbackend側
-// 追加時点でまだOpenAPI生成物（frontend/src/types/generated/）へ反映していない
-// （複数タスクの変更をまとめてから最後に1回だけnpm run generate:apiを実行する運用、
-// CLAUDE.md「コミット時の同期ルール」）。生成型が追いつくまでの暫定的な拡張で、
-// 再生成後はこの拡張自体が不要になる（Schemas側に同名フィールドが現れるため無害）。
-type AxisDefinitionResponseWithDedicatedLayer = AxisDefinitionResponse & { dedicated_way_value_layer?: boolean };
-type AxisDefinitionPayloadWithDedicatedLayer = AxisDefinitionPayload & { dedicated_way_value_layer: boolean };
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
 import styles from "./AxisStudio.module.css";
 // 情報アイコン(ⓘ)ポップオーバーのCSS（.infoButton/.infoTooltip）はrecipeControls.tsxの
@@ -380,7 +371,7 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     displayThresholdsOverride: def.display_thresholds_override ?? null,
     timeScope: def.time_scope,
     supportsRouteColoring: def.supports_route_coloring,
-    dedicatedWayValueLayer: (def as AxisDefinitionResponseWithDedicatedLayer).dedicated_way_value_layer ?? false,
+    dedicatedWayValueLayer: def.dedicated_way_value_layer ?? false,
   };
   // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
@@ -631,7 +622,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
         return;
       }
     }
-    const payload: AxisDefinitionPayloadWithDedicatedLayer = {
+    const payload: AxisDefinitionPayload = {
       axis_id: draft.axisId,
       label: draft.label.trim(),
       description: draft.description,

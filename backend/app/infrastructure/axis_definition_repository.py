@@ -112,6 +112,7 @@ class AxisDefinitionRepository:
             time_scope=definition.time_scope,
             supports_route_coloring=definition.supports_route_coloring,
             display_thresholds_override=definition.display_thresholds_override,
+            dedicated_way_value_layer=definition.dedicated_way_value_layer,
             updated_at=datetime.now(timezone.utc),
         )
         stmt = stmt.on_conflict_do_update(
