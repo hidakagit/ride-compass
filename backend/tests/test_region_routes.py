@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_dynamic_way_value_service, get_region_service
+from app.domain.dynamic_way_values import DYNAMIC_WAY_VALUE_MATERIALS, DynamicWayValueMaterial
 from app.config import settings
 from app.domain.evaluation import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
@@ -278,6 +279,28 @@ def test_region_dynamic_way_values_requires_bearing_deg_query_param(material_id)
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
+
+
+# 改善計画T450: needs_bearing=Falseの材料は現状（wind/gradientともTrue）存在しないため、
+# この分岐（bearing_deg省略でも422にならない）が未テストのまま宣言されていた。
+# DYNAMIC_WAY_VALUE_MATERIALSはregion.pyが`from ... import`で束縛した同一dictオブジェクトの
+# ため、monkeypatch.setitemでダミー材料を差し込めばregion.py側からも見える。
+def test_region_dynamic_way_values_needs_bearing_false_does_not_require_bearing_deg(monkeypatch):
+    monkeypatch.setitem(
+        DYNAMIC_WAY_VALUE_MATERIALS,
+        "dummy_no_bearing",
+        DynamicWayValueMaterial(material_id="dummy_no_bearing", label="ダミー", needs_time=False, needs_bearing=False),
+    )
+    fake = FakeDynamicWayValueService(values={1: 1.0})
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/dynamic-way-values/dummy_no_bearing/14/14551/6447")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert fake.last_request == (14, 14551, 6447, None, None)
 
 
 def test_region_dynamic_way_values_unknown_material_id_returns_404():
