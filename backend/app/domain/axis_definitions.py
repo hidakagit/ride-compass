@@ -25,8 +25,12 @@
   14軸全ての唯一の正本になった。起動時（`app/services/axis_registry_service.py:
   refresh_axis_definitions`）にDBから読み込みこのモジュールレベルdictへpushするまでは
   空のまま。本モジュールが持つのは型定義（`AxisDefinition`等）と評価用の純粋関数
-  （`evaluate_axis_scalar`等）のみで、実データは持たない。新規軸の追加・既存軸の変更は
-  他のスキーマ変更と同じく手書きのmigration SQL（`backend/migrations/`）で行う。
+  （`evaluate_axis_scalar`等）のみで、実データは持たない。**行データ（軸の新規追加・
+  既存軸の値変更）は`api/routers/axis_admin.py`経由（create/update/unpublish→再publish）
+  で行い、`backend/migrations/`の手書きSQLでは行わない**（2026-08-31訂正、最新の
+  `0027_axis_definitions_dedicated_way_value_layer.sql`自身が「行データはaxis_admin API
+  経由、本migrationはテーブル構造[DDL]のみ」と明記している。migrationは`axis_definitions`
+  テーブルの**構造**変更のみに使う）。
 
 欠損値の表現はスカラー経路がNone、配列経路がNaN（従来の`*_difficulty`関数・
 `*_difficulty_array`関数と同じ規約）。丸めは区分線形補間系のみ小数1桁

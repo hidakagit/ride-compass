@@ -61,10 +61,13 @@ class AxisDefinitionSyncError(RuntimeError):
 # 性質ベースの宣言的フィールドへ汎用化したことで、axis_idの直接ハードコードが
 # コードから消えた（削除しても対応するコードが黙って「この性質を持つ軸が無い」として
 # 動作するだけで、KeyError等では落ちない）。`gradient`は対象外のまま据え置く——
-# frontend routeStyleModes.tsのgradient色分けモードは`axis_difficulties.gradient`
-# ではなく生材料`gradient_percent`を直接読む特殊実装のままのため
-# （domain/axis_definitions.py: AxisDefinition.supports_route_coloringのdocstring参照）、
-# 汎用フラグでは代替できていない。
+# `domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を
+# 辞書キーとして直接ハードコード宣言しており、この軸を削除してもこの辞書エントリは
+# 連動して消えない（実行時にこのキーへ到達すれば`AXIS_DEFINITIONS["gradient"]`相当の
+# 参照が失敗しうる）。frontend routeStyleModes.tsのgradient色分け
+# （`isSignedAbsShape`によるshape属性判定）は2026-08-30時点で既にaxis_idハードコードを
+# 持たない汎用経路のため、code coupledの理由には該当しない（2026-08-31訂正、
+# 旧コメントの記述は古い実装を指していた）。
 _CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"car_stress", "gradient"})
 
 
