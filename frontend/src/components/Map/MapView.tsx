@@ -1144,23 +1144,29 @@ function clearRoadTileFeatureState(map: MapLibreMap) {
 }
 
 // 環境グループの勾配gridFill（改善計画T423）。ensureWindPenaltyFillLayerと同型。
-function ensureGradientFillLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (map.getLayer(GRADIENT_FILL_LAYER_ID)) return;
-    map.addSource(GRADIENT_FILL_SOURCE_ID, { type: "geojson", data: EMPTY_FEATURE_COLLECTION });
-    map.addLayer({
-      id: GRADIENT_FILL_LAYER_ID,
-      type: "fill",
-      source: GRADIENT_FILL_SOURCE_ID,
-      layout: { visibility: "none" },
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "fill-color": gradientFillColorExpression() as any,
-        "fill-opacity": 0.4,
-      },
-    });
+// 改善計画T443: makeEnsureDedicatedWayValueLayer呼び出し（windAxis/gradientAxis）と同じく
+// ファクトリ化し、軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で
+// 受け取れるようにした（以前はboundaries引数を渡す経路が無く、常にビルド時既定値
+// GRADIENT_BOUNDARIESへフォールバックしていた）。
+function makeEnsureGradientFillLayer(boundaries?: readonly number[] | null) {
+  return (map: MapLibreMap) => {
+    const applyData = () => {
+      if (map.getLayer(GRADIENT_FILL_LAYER_ID)) return;
+      map.addSource(GRADIENT_FILL_SOURCE_ID, { type: "geojson", data: EMPTY_FEATURE_COLLECTION });
+      map.addLayer({
+        id: GRADIENT_FILL_LAYER_ID,
+        type: "fill",
+        source: GRADIENT_FILL_SOURCE_ID,
+        layout: { visibility: "none" },
+        paint: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "fill-color": gradientFillColorExpression(boundaries ?? undefined) as any,
+          "fill-opacity": 0.4,
+        },
+      });
+    };
+    runWhenStyleReady(map, applyData);
   };
-  runWhenStyleReady(map, applyData);
 }
 
 /** hooks/useDynamicWayValues.ts由来のgradientFillPayload（GeoJSON、gradientGridFill.ts:
@@ -1498,7 +1504,13 @@ export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly 
 // 上書き）をその上に置く。
 // 以前はramp軸が配列末尾（最前面）だったため、材料の連動ON（T167）で観測データと推定を
 // 同時に表示しても、後から追加された推定側が観測データを塗り潰して見えなくなっていた。
-export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
+export function buildStaticOverlayLayers(
+  axisOverlayLayers: readonly OverlayLayerEntry[],
+  // 改善計画T443: 軸スタジオのgradient軸display_thresholds_override（page.tsx:
+  // axisCatalog.secondaryAxes経由）。未設定時はgradientAxisColorExpression/
+  // gradientFillColorExpressionのビルド時既定値（GRADIENT_BOUNDARIES）へフォールバックする。
+  gradientBoundaries?: readonly number[] | null
+): readonly OverlayLayerEntry[] {
   return [
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
     // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
@@ -1509,12 +1521,13 @@ export function buildStaticOverlayLayers(axisOverlayLayers: readonly OverlayLaye
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: ensureOnewayLayer },
     // 改善計画T405/T440: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
-    // source）を先に呼ぶ。
+    // source）を先に呼ぶ。windは現状display_thresholds_overrideの編集経路を持たないため
+    // 常に既定値。
     { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, windAxisColorExpression()) },
-    // 改善計画T423/T440: way_id→勾配配信層（評価軸グループとしての勾配）。
-    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, gradientAxisColorExpression()) },
-    // 改善計画T423: 環境グループの勾配gridFill（タイル境界セル）。
-    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: ensureGradientFillLayer },
+    // 改善計画T423/T440/T443: way_id→勾配配信層（評価軸グループとしての勾配）。
+    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, gradientAxisColorExpression(gradientBoundaries ?? undefined)) },
+    // 改善計画T423/T443: 環境グループの勾配gridFill（タイル境界セル）。
+    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientBoundaries) },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -1903,6 +1916,10 @@ interface MapViewProps {
    * に対して取得したway_id→effective_gradient（%、正=登り・負=下り）。 */
   showGradientAxis: boolean;
   gradientAxisValues: ReadonlyMap<number, number>;
+  /** 改善計画T443: 軸スタジオのgradient軸display_thresholds_override
+   * （page.tsx: axisCatalog.secondaryAxes経由）。未設定時はgradientAxisColorExpression/
+   * gradientFillColorExpressionのビルド時既定値（GRADIENT_BOUNDARIES）へフォールバックする。 */
+  gradientBoundaries?: readonly number[] | null;
   /** 改善計画T423: 環境グループの勾配gridFill（windPenaltyFillと同型）。showGradientFillは
    * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
    * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDynamicWayValues.ts:
@@ -2009,6 +2026,7 @@ export default function MapView({
   windAxisPenalties,
   showGradientAxis,
   gradientAxisValues,
+  gradientBoundaries,
   showGradientFill,
   gradientFillGeojson,
   showAccidents,
@@ -2053,8 +2071,8 @@ export default function MapView({
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
   const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
   const staticOverlayLayers = useMemo(
-    () => buildStaticOverlayLayers(axisOverlayLayers),
-    [axisOverlayLayers]
+    () => buildStaticOverlayLayers(axisOverlayLayers, gradientBoundaries),
+    [axisOverlayLayers, gradientBoundaries]
   );
   const interactiveLayerIds = useMemo(
     () => buildInteractiveLayerIds(staticOverlayLayers),

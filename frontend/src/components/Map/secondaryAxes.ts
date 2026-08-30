@@ -46,6 +46,12 @@ export interface SecondaryAxisSummary {
    * 説明文。軸自身のデータ（AXIS_DEFINITIONS.panel_hint）をそのまま反映する。未設定なら
    * 情報アイコン自体を出さない。 */
   panelHint?: string;
+  /** 改善計画T443: プレルート表示（評価軸ライン・環境グループ塗り）の色分けしきい値。
+   * 軸自身のデータ（AXIS_DEFINITIONS.display_thresholds_override）をそのまま反映する。
+   * 現状はgradient（Map/gradientAxisLayer.ts・gradientGridFill.tsのboundaries引数）が
+   * 唯一の消費者。未設定はkind="none"軸の各実装が持つビルド時既定値（例:
+   * GRADIENT_BOUNDARIES）へのフォールバックに委ねる。 */
+  displayThresholdsOverride?: readonly number[] | null;
 }
 
 // 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
@@ -98,6 +104,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       primaryAttributeIds: axis.primary_attribute_ids ?? [],
       iconId: axis.icon_id ?? undefined,
       panelHint: axis.panel_hint ?? undefined,
+      displayThresholdsOverride: axis.display_thresholds_override ?? undefined,
     }));
 }
 

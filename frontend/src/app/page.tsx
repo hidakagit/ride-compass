@@ -1089,6 +1089,14 @@ export default function Home() {
     () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
     [showGradientFill, gradientAxisData.byTile]
   );
+  // 改善計画T443: 軸スタジオのgradient軸display_thresholds_overrideをMapViewへ配線する
+  // （T440.mdが既知の未了項目として据え置いていた分）。axisCatalog.secondaryAxesはkind="none"
+  // 軸（gradientを含む）も列挙する一覧のため、ここから引く（未取得・未設定時はundefinedのまま
+  // MapView側のビルド時既定値[GRADIENT_BOUNDARIES]へフォールバックする）。
+  const gradientBoundaries = useMemo(
+    () => axisCatalog.secondaryAxes.find((axis) => axis.axisId === "gradient")?.displayThresholdsOverride,
+    [axisCatalog.secondaryAxes]
+  );
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
@@ -1601,6 +1609,7 @@ export default function Home() {
             windAxisPenalties={windAxisPenalties}
             showGradientAxis={showGradientAxis}
             gradientAxisValues={gradientAxisValues}
+            gradientBoundaries={gradientBoundaries}
             showGradientFill={showGradientFill}
             gradientFillGeojson={gradientFillPayload}
             showStopPoi={layerVisibility.stopPoi}
