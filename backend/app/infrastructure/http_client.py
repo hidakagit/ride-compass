@@ -15,3 +15,15 @@ def get_http_client(timeout: float) -> httpx.AsyncClient:
     if timeout not in _clients:
         _clients[timeout] = httpx.AsyncClient(timeout=timeout)
     return _clients[timeout]
+
+
+async def close_all_http_clients() -> None:
+    """プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ（改善計画T463）。
+
+    通常運用ではプロセス終了自体がソケットを回収するため実害は小さいが、テスト・
+    スクリプト等でこのモジュールを繰り返しimportして使う場合にコネクションが溜まる
+    可能性がある（database.py: get_session_factoryのエンジンも同様に明示closeを持たない
+    設計だが、こちらはlifespanに既存のシャットダウン段があるため対で揃えた）。"""
+    for client in _clients.values():
+        await client.aclose()
+    _clients.clear()

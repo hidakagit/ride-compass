@@ -39,7 +39,7 @@ class FakeRedis:
 @pytest.fixture(autouse=True)
 def use_fake_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 

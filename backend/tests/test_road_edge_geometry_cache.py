@@ -75,7 +75,7 @@ class BrokenRedis:
 @pytest.fixture(autouse=True)
 def _reset_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 
@@ -118,26 +118,26 @@ async def test_invalidate_edges_on_never_cached_edge_is_noop():
 
 
 async def test_get_cached_edges_fails_open_on_redis_error(monkeypatch):
-    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     result = await road_edge_geometry_cache.get_cached_edges(["way-1-seg0-fwd"])
     assert result == {}
 
 
 async def test_cache_edges_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     edge = _edge("way-1-seg0-fwd")
     await road_edge_geometry_cache.cache_edges({edge.edge_id: edge})
 
 
 async def test_invalidate_edges_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_edge_geometry_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     await road_edge_geometry_cache.invalidate_edges(["way-1-seg0-fwd"])
 
 
 async def test_get_cached_edges_ignores_malformed_cached_value():
     # スキーマ変更等で旧形式の値が残っていた場合はパース失敗を握りつぶし、
     # 呼び出し元がPostGISへフォールバックできるようにする。
-    client = road_edge_geometry_cache.get_redis_client()
+    client = road_edge_geometry_cache.get_redis_client_or_none()
     await client.set(road_edge_geometry_cache._key("way-1-seg0-fwd"), "not-json", ex=60)
 
     result = await road_edge_geometry_cache.get_cached_edges(["way-1-seg0-fwd"])

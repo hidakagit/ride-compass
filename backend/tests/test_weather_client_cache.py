@@ -176,7 +176,7 @@ def fake_wind_forecast_redis(monkeypatch):
     test_road_graph_tile_cache.pyと同じ方針でフェイクRedisへ差し替える（実Redisへは
     繋がず、テスト間で状態が漏れないようテストごとに新規インスタンスにする）。"""
     fake = FakeRedis()
-    monkeypatch.setattr(wind_forecast_cache, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(wind_forecast_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 

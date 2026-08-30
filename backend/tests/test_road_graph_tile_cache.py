@@ -60,7 +60,7 @@ class BrokenRedis:
 @pytest.fixture(autouse=True)
 def _reset_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 
@@ -75,13 +75,13 @@ async def test_mark_then_get_roundtrip():
 
 
 async def test_get_cached_subset_fails_open_on_redis_error(monkeypatch):
-    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     result = await road_graph_tile_cache.get_cached_subset(12, [(1, 2)])
     assert result == set()
 
 
 async def test_mark_fetched_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     # 例外を送出せず静かに失敗することだけを確認する（PostGIS側の正本には影響しない設計）。
     await road_graph_tile_cache.mark_fetched(12, [(1, 2)])
 
@@ -123,16 +123,16 @@ async def test_invalidate_split_fresh_on_never_marked_tile_is_noop():
 
 
 async def test_get_split_fresh_subset_fails_open_on_redis_error(monkeypatch):
-    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     result = await road_graph_tile_cache.get_split_fresh_subset(12, [(1, 2)])
     assert result == set()
 
 
 async def test_mark_split_fresh_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     await road_graph_tile_cache.mark_split_fresh(12, [(1, 2)])
 
 
 async def test_invalidate_split_fresh_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(road_graph_tile_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     await road_graph_tile_cache.invalidate_split_fresh(12, [(1, 2)])

@@ -11,8 +11,8 @@ from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
-from app.infrastructure.http_client import get_http_client
-from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware
+from app.infrastructure.http_client import close_all_http_clients, get_http_client
+from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware, unhandled_exception_handler
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
 
@@ -111,6 +111,8 @@ async def lifespan(app: FastAPI):
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
+    # 改善計画T463: httpx.AsyncClientの明示close（http_client.pyのdocstring参照）。
+    await close_all_http_clients()
 
 
 app = FastAPI(title="RideCompass API", lifespan=lifespan)
@@ -128,5 +130,8 @@ app.add_middleware(
 # 後から登録したミドルウェアが外側になる(リクエストIDの付与・アクセスログはCORS処理も
 # 含めた全体を計測・記録したいため、CORSより外側に置く)。
 app.middleware("http")(request_log_middleware)
+# 改善計画T463: 未処理例外(500)発生時もX-Request-IDヘッダを付けるための
+# Exceptionハンドラ(request_log.pyのモジュールdocstring参照)。
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.include_router(api_router)

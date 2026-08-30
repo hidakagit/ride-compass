@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.main import app as main_app
-from app.infrastructure.request_log import request_log_middleware
+from app.infrastructure.request_log import request_log_middleware, unhandled_exception_handler
 
 
 def test_response_has_generated_request_id():
@@ -90,3 +90,25 @@ def test_unhandled_exception_logged_as_error_with_traceback(caplog):
     assert len(errors) == 1
     assert "GET /boom -> unhandled exception" in errors[0].getMessage()
     assert errors[0].exc_info is not None
+
+
+# 改善計画T463: 未処理例外(500)発生時もX-Request-IDヘッダが付くことの回帰テスト。
+# request_log_middlewareは例外を再送出するだけで実際の500レスポンスを持たないため
+# （StarletteのServerErrorMiddlewareが外側で生成する）、unhandled_exception_handlerを
+# FastAPIのExceptionハンドラとして登録することでヘッダを付与する（main.py参照）。
+# TestClientはデフォルトでraise_server_exceptions=Trueのため、実際のHTTPレスポンスを
+# 得るにはFalseを指定する必要がある。
+def test_unhandled_exception_response_has_request_id_header():
+    test_app = FastAPI()
+    test_app.middleware("http")(request_log_middleware)
+    test_app.add_exception_handler(Exception, unhandled_exception_handler)
+
+    @test_app.get("/boom")
+    def boom():
+        raise RuntimeError("kaboom")
+
+    client = TestClient(test_app, raise_server_exceptions=False)
+    response = client.get("/boom", headers={"X-Request-ID": "req-for-500-1"})
+
+    assert response.status_code == 500
+    assert response.headers["X-Request-ID"] == "req-for-500-1"

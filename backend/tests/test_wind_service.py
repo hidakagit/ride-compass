@@ -47,7 +47,7 @@ def use_fake_wind_forecast_redis(monkeypatch):
     # get_forecast_manyがwind_forecast_cache（Redis、L2、改善計画T398）へ書き込むように
     # なったため、実Redisへ繋がずテストごとに使い捨てのフェイクへ差し替える
     # （test_weather_client_cache.pyと同じ既存パターン）。
-    monkeypatch.setattr(wind_forecast_cache, "get_redis_client", lambda: _FakeRedis())
+    monkeypatch.setattr(wind_forecast_cache, "get_redis_client_or_none", lambda: _FakeRedis())
 
 
 def northbound_points() -> list[Coordinates]:

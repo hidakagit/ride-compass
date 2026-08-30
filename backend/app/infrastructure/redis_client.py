@@ -56,6 +56,25 @@ def get_redis_client() -> redis.Redis:
     return _client
 
 
+def get_redis_client_or_none() -> redis.Redis | None:
+    """`get_redis_client()`のfail-open版（改善計画T463）。
+
+    `redis.from_url()`はURLスキーム不正（`settings.redis_url`の設定ミス）等で同期的に
+    例外を送出しうる。この関数の呼び出し元（各cache-asideモジュール）は`client =
+    get_redis_client()`の直後にある`try/except`で実際のRedisコマンド呼び出しの障害は
+    fail-openにできているが、クライアント生成自体の例外はそのtry/exceptの外で起きるため
+    捕捉されず、モジュールdocstringが謳う「Redis自体の障害はfail-fastさせない」契約を
+    破ってルート生成・タイル配信自体を落としうる。ここで先んじて捕捉し、通常のRedis
+    コマンド障害と同じ`record_redis_failure()`を記録した上でNoneを返す——呼び出し元は
+    Noneを見て通常のfail-open（PostGIS等の正本へフォールバック）経路へ進めばよい。
+    """
+    try:
+        return get_redis_client()
+    except Exception:
+        record_redis_failure()
+        return None
+
+
 def redis_available() -> bool:
     """直近のRedis障害からクールダウン期間を過ぎているか（＝呼び出す価値があるか）を返す。"""
     if _last_failure_at is None:

@@ -48,7 +48,7 @@ class BrokenRedis:
 @pytest.fixture(autouse=True)
 def _reset_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(wind_forecast_cache, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(wind_forecast_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 
@@ -87,13 +87,13 @@ async def test_set_wind_forecast_many_overwrites_existing_entry():
 
 
 async def test_get_wind_forecast_many_fails_open_on_redis_error(monkeypatch):
-    monkeypatch.setattr(wind_forecast_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(wind_forecast_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     result = await wind_forecast_cache.get_wind_forecast_many([(1.0, 2.0)])
     assert result == {}
 
 
 async def test_set_wind_forecast_many_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(wind_forecast_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(wind_forecast_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     # 例外を送出せず静かに失敗することだけを確認する。
     await wind_forecast_cache.set_wind_forecast_many({(1.0, 2.0): (1.0, {"tag": "x"})})
 

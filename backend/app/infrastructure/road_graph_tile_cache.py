@@ -23,7 +23,7 @@ import logging
 
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.redis_client import (
-    get_redis_client,
+    get_redis_client_or_none,
     record_redis_failure,
     record_redis_success,
     redis_available,
@@ -52,7 +52,9 @@ async def get_cached_subset(zoom: int, tiles: list[tuple[int, int]]) -> set[tupl
     """
     if not tiles or not redis_available():
         return set()
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return set()
     keys = [_key(zoom, x, y) for x, y in tiles]
     with log_external_call("cache:road-tile-redis", tile_count=len(tiles)) as fields:
         try:
@@ -78,7 +80,9 @@ async def mark_fetched(zoom: int, tiles: list[tuple[int, int]]) -> None:
     """
     if not tiles or not redis_available():
         return
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return
     with log_external_call("cache:road-tile-redis", tile_count=len(tiles)) as fields:
         try:
             pipe = client.pipeline(transaction=False)
@@ -119,7 +123,9 @@ async def get_split_fresh_subset(zoom: int, tiles: list[tuple[int, int]]) -> set
     """
     if not tiles or not redis_available():
         return set()
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return set()
     keys = [_split_fresh_key(zoom, x, y) for x, y in tiles]
     with log_external_call("cache:road-tile-redis", op="split-fresh-read", tile_count=len(tiles)) as fields:
         try:
@@ -144,7 +150,9 @@ async def mark_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> None:
     """
     if not tiles or not redis_available():
         return
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return
     with log_external_call("cache:road-tile-redis", op="split-fresh-write", tile_count=len(tiles)) as fields:
         try:
             pipe = client.pipeline(transaction=False)
@@ -169,7 +177,9 @@ async def invalidate_split_fresh(zoom: int, tiles: list[tuple[int, int]]) -> Non
     """
     if not tiles or not redis_available():
         return
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return
     with log_external_call("cache:road-tile-redis", op="split-fresh-invalidate", tile_count=len(tiles)) as fields:
         try:
             await client.delete(*(_split_fresh_key(zoom, x, y) for x, y in tiles))

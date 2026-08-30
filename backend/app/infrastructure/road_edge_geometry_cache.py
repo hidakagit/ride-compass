@@ -25,7 +25,7 @@ import logging
 from app.domain.graph import DirectedEdge
 from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
 from app.infrastructure.redis_client import (
-    get_redis_client,
+    get_redis_client_or_none,
     record_redis_failure,
     record_redis_success,
     redis_available,
@@ -52,7 +52,9 @@ async def get_cached_edges(edge_ids: list[str]) -> dict[str, DirectedEdge]:
     """
     if not edge_ids or not redis_available():
         return {}
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return {}
     keys = [_key(edge_id) for edge_id in edge_ids]
     with log_external_call("cache:edge-geometry-redis", edge_count=len(edge_ids)) as fields:
         try:
@@ -86,7 +88,9 @@ async def cache_edges(edges: dict[str, DirectedEdge]) -> None:
     """PostGISから取得したDirectedEdgeをRedisへ書き戻す。"""
     if not edges or not redis_available():
         return
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return
     with log_external_call("cache:edge-geometry-redis", edge_count=len(edges)) as fields:
         try:
             pipe = client.pipeline(transaction=False)
@@ -111,7 +115,9 @@ async def invalidate_edges(edge_ids: list[str]) -> None:
     """
     if not edge_ids or not redis_available():
         return
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return
     with log_external_call("cache:edge-geometry-redis", edge_count=len(edge_ids)) as fields:
         try:
             await client.delete(*(_key(edge_id) for edge_id in edge_ids))

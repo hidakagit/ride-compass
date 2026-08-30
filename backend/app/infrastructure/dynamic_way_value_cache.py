@@ -27,10 +27,11 @@ TTLは呼び出し元（各材料のサービス）が渡す——風は気象�
 """
 
 import json
+import math
 
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.redis_client import (
-    get_redis_client,
+    get_redis_client_or_none,
     record_redis_failure,
     record_redis_success,
     redis_available,
@@ -46,9 +47,11 @@ def bearing_bucket(bearing_deg: float) -> int:
     """向き（0〜360度、範囲外は正規化）をBEARING_BUCKET_DEG刻みのバケット番号（int）へ
     丸める。360度は0度と同じバケットに正規化する（`% 360`をBEARING_BUCKET_DEG丸めの後に
     適用するため、359度台の値がBEARING_BUCKET_DEG刻み数で割り切れずズレたバケットへ
-    分類されることはない）。"""
+    分類されることはない）。改善計画T463: 組み込み`round()`は偶数への銀行丸め
+    （非対称、境界のバケット幅が理論値からずれる）のため、`math.floor(x+0.5)`
+    （四捨五入、0.5は常に切り上げ）を使い境界幅を均一にする。"""
     normalized = bearing_deg % 360
-    return round(normalized / BEARING_BUCKET_DEG) % (360 // BEARING_BUCKET_DEG)
+    return math.floor(normalized / BEARING_BUCKET_DEG + 0.5) % (360 // BEARING_BUCKET_DEG)
 
 
 def _key(material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None) -> str:
@@ -64,7 +67,9 @@ async def get_tile_values(
     実計算へ進む）。"""
     if not redis_available():
         return None
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return None
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg)
     with log_external_call(f"cache:dynway-{material_id}-redis") as fields:
         try:
@@ -108,7 +113,9 @@ async def set_tile_values(
     だけに留める）。"""
     if not redis_available():
         return
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg)
     payload = json.dumps({str(way_id): value for way_id, value in values.items()})
     with log_external_call(f"cache:dynway-{material_id}-redis") as fields:

@@ -24,7 +24,7 @@ import json
 
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.redis_client import (
-    get_redis_client,
+    get_redis_client_or_none,
     record_redis_failure,
     record_redis_success,
     redis_available,
@@ -46,7 +46,9 @@ async def get_wind_forecast_many(
     （fail-open、呼び出し元は実フェッチへ進む）。"""
     if not keys or not redis_available():
         return {}
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return {}
     redis_keys = [_key(lat, lon) for lat, lon in keys]
     with log_external_call("cache:wind-forecast-redis", key_count=len(keys)) as fields:
         try:
@@ -80,7 +82,9 @@ async def set_wind_forecast_many(entries: dict[tuple[float, float], tuple[float,
     だけに留める）。"""
     if not entries or not redis_available():
         return
-    client = get_redis_client()
+    client = get_redis_client_or_none()
+    if client is None:
+        return
     with log_external_call("cache:wind-forecast-redis", entry_count=len(entries)) as fields:
         try:
             pipe = client.pipeline(transaction=False)

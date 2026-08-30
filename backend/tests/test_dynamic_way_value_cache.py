@@ -37,7 +37,7 @@ class BrokenRedis:
 @pytest.fixture(autouse=True)
 def _reset_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 
@@ -137,13 +137,13 @@ async def test_set_tile_values_overwrites_existing_entry():
 
 
 async def test_get_tile_values_fails_open_on_redis_error(monkeypatch):
-    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0)
     assert result is None
 
 
 async def test_set_tile_values_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client", lambda: BrokenRedis())
+    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client_or_none", lambda: BrokenRedis())
     # 例外を送出せず静かに失敗することだけを確認する。
     await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {1: 1.0}, TTL)
 
