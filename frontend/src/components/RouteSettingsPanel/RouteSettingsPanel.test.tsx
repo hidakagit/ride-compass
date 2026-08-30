@@ -229,23 +229,24 @@ describe("RouteSettingsPanel", () => {
 
     it("風（wind）はsecondaryAxesに現れない特殊軸だが、windAxisレイヤーへの色分けトグルとして機能する", async () => {
       const user = userEvent.setup();
-      // windはbackendのAXIS_DEFINITIONS上category="推定"・show_map_icon=falseで
-      // 公開される（secondaryAxes.tsがcategoryではなくshow_map_iconで除外する、
-      // axis_definitions_snapshot.json参照）。
+      // 改善計画T447（2026-08-31訂正）: windはbackendのAXIS_DEFINITIONS上
+      // category="動的"・show_map_icon=trueで公開される（secondaryAxes.tsが
+      // show_map_iconではなくcategoryで除外する、axis_definitions_snapshot.json参照。
+      // 旧コメントは主張が逆だった——詳細はsecondaryAxes.tsのコメント参照）。
       vi.mocked(getAxisCatalog).mockResolvedValue({
         axes: [
           {
             axis_id: "wind",
             label: "風",
             description: "向かい風が弱いほど易しい",
-            category: "推定",
+            category: "動的",
             default_weight: 0.26,
             display: { kind: "none", label: "風", category: "weather", tile_inputs: [], thresholds: [], unit: "", note: "" },
             primary_attribute_ids: [],
             icon_id: null,
             chip_label: null,
             panel_hint: null,
-            show_map_icon: false,
+            show_map_icon: true,
             supports_route_coloring: true,
             shape: { kind: "breakpoint_linear", terms: [{ material: "wind_penalty", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
             display_thresholds_override: null,

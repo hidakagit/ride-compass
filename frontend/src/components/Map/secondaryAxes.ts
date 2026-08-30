@@ -83,18 +83,21 @@ function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
  * windのような専用の動的気象UIを別に持つ軸（推定指標チップグループには元々出す意図が無い）
  * を除外できなくなっていた（以前は静的axis-catalog.jsonの生成元registry.pyにwindが
  * 登録されておらず、display自体がundefinedだったため結果的に除外されていた）。
- * `category !== "動的"`は当時この目的で追加した条件だが、**2026-08-30訂正**:
- * DBスナップショット（`backend/fixtures/axis_definitions_snapshot.json`）を確認した
- * ところwindの`category`は既に"推定"へ変わっており、この条件は現在wind含めどの軸も
- * 除外していない（死んだフィルタ）。windの実際の除外は下記`show_map_icon !== false`
- * のみで成立している。`category !== "動的"`自体は将来また"動的"軸が現れた場合の保険として
- * 残置する（削除しても現状のフィルタ結果は変わらない）。 */
+ * `category !== "動的"`は当時この目的で追加した条件。**2026-08-31訂正（改善計画T447）**:
+ * 「windの`category`は"推定"へ変わっておりこの条件は死んだフィルタ、実際の除外は
+ * `show_map_icon`のみ」という2026-08-30時点の旧コメント（下記の直前の版）は誤りだった。
+ * `backend/fixtures/axis_definitions_snapshot.json`を実際に確認すると、windの
+ * `category`は`"動的"`のまま（`show_map_icon`は`true`）——つまり**逆**で、windを
+ * 推定指標チップグループから除外しているのは`category !== "動的"`の方であり、
+ * `show_map_icon !== false`はwindを除外する側には寄与していない。`category !== "動的"`は
+ * 生きた現役のフィルタのため削除しないこと（このコメントの正確性に依存せず済むよう、
+ * 除外挙動そのものはsecondaryAxes.test.tsの回帰テストで直接検証している）。 */
 export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
   return axes
     // 改善計画T318: show_map_icon===falseの軸は地図上チップ・地図の見え方パネルの
     // 両方から丸ごと除外する（専用レイヤーの有無=display.kindに関わらず一律に効く、
-    // 軸スタジオ側のON/OFF1つで両画面が揃って更新される）。windはこの条件で除外される
-    // （2026-08-30時点、category条件はもう寄与していない。上記コメント参照）。
+    // 軸スタジオ側のON/OFF1つで両画面が揃って更新される）。windは現状category条件
+    // （上記コメント参照）で除外されており、この条件は寄与していない。
     .filter((axis) => axis.display !== null && axis.category !== "動的" && axis.show_map_icon !== false)
     .map((axis) => ({
       axisId: axis.axis_id,
