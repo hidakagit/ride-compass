@@ -98,6 +98,13 @@ def sample_indices(point_count: int, sample_count: int) -> list[int]:
     """point_count個の点から、始点・終点を含む均等間隔でsample_count個のインデックスを選ぶ。"""
     if point_count <= sample_count:
         return list(range(point_count))
+    # 改善計画T463: sample_count<=1だと`sample_count - 1`が0になりZeroDivisionError。
+    # 唯一の呼び出し元（sample_line_points経由）はMIN_SAMPLE_COUNT=12で下限を設けており
+    # 現状は到達しないが、公開ヘルパーとして将来別の呼び出し元がsample_count=1を渡す
+    # ケースに備えガードする。始点・終点を両方含む前提は1点では満たせないため、最初の
+    # 点だけを返す（point_count<=sample_countの分岐と同じ「要求より少なく返す」規約）。
+    if sample_count <= 1:
+        return [0]
 
     step = (point_count - 1) / (sample_count - 1)
     return sorted({round(i * step) for i in range(sample_count)})

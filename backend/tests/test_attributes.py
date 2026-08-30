@@ -5,6 +5,7 @@ from app.domain.route import Coordinates
 P1 = Coordinates(latitude=35.700, longitude=139.700)
 P2 = Coordinates(latitude=35.701, longitude=139.700)
 P3 = Coordinates(latitude=35.702, longitude=139.700)
+P4 = Coordinates(latitude=35.703, longitude=139.700)
 
 
 def test_compute_elevation_attribute_uphill():
@@ -44,10 +45,33 @@ def test_compute_elevation_attribute_mixed_gain_and_loss():
 def test_compute_elevation_attribute_ignores_none_values():
     attr = compute_elevation_attribute("edge-1", [P1, P2, P3], [10.0, None, 20.0], data_source="test")
 
-    # Noneの点は除外され、有効な2点（10.0→20.0）だけで評価される
+    # 改善計画T463: P1(10.0)→P3(20.0)は元の点列で隣接していない（間のP2が欠損）ため、
+    # start/end_elevationはvalid点から算出するが、gain/loss/gradeへは寄与しない
+    # （欠損区間の実際の起伏を「一律10m上昇」と均してしまうバグの回帰テスト）。
     assert attr.start_elevation_m == 10.0
     assert attr.end_elevation_m == 20.0
+    assert attr.elevation_gain_m == 0.0
+    assert attr.elevation_loss_m == 0.0
+    assert attr.max_grade is None
+    assert attr.min_grade is None
+    # average_gradeは開始・終了標高とtotal_distance_mから算出するため、欠損の有無に
+    # 関わらず引き続き算出される（gain/loss/gradeとは独立した扱い）。
+    assert attr.average_grade is not None and attr.average_grade > 0
+
+
+def test_compute_elevation_attribute_only_counts_truly_adjacent_pairs_for_gain():
+    # P1(10)→P2(20)は元の点列で隣接（gain 10に寄与）。P2(20)→P4(30)は間のP3が欠損して
+    # おり隣接していないためgainに寄与しない。合計gainは20ではなく10になるはず
+    # （改善計画T463の回帰テスト）。
+    attr = compute_elevation_attribute("edge-1", [P1, P2, P3, P4], [10.0, 20.0, None, 30.0], data_source="test")
+
+    assert attr.start_elevation_m == 10.0
+    assert attr.end_elevation_m == 30.0
     assert attr.elevation_gain_m == 10.0
+    assert attr.elevation_loss_m == 0.0
+    # max/min_gradeはP1→P2ペアのみから算出される（P2→P4は欠損を挟むため寄与しない）。
+    assert attr.max_grade is not None and attr.max_grade > 0
+    assert attr.min_grade is not None and attr.min_grade > 0
 
 
 def test_compute_elevation_attribute_returns_all_none_when_fewer_than_two_valid_points():

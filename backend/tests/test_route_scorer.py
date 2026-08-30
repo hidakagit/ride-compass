@@ -41,10 +41,11 @@ def test_missing_metric_is_excluded_and_weights_renormalized():
     scored = RouteScorer(WEIGHTS).score([with_difficulty, without_difficulty], target_distance_km=30.0)
 
     by_id = {c.id: c for c in scored}
-    # 距離は2候補とも同値（中立100点）。difficultyはwith_difficultyのみ存在し、1候補だけなのでmin=max=中立100点。
-    # つまりどちらの候補も全指標が中立100点相当になり、total_scoreは等しくなるはず。
-    assert by_id["with-difficulty"].total_score == 100.0
-    assert by_id["without-difficulty"].total_score == 100.0
+    # 距離は2候補とも同値（中立50点、改善計画T463）。difficultyはwith_difficultyのみ存在し、
+    # 1候補だけなのでmin=max=中立50点。つまりどちらの候補も全指標が中立50点相当になり、
+    # total_scoreは等しくなるはず。
+    assert by_id["with-difficulty"].total_score == 50.0
+    assert by_id["without-difficulty"].total_score == 50.0
 
 
 def test_candidates_with_identical_metrics_get_equal_scores():
@@ -53,7 +54,8 @@ def test_candidates_with_identical_metrics_get_equal_scores():
 
     scored = RouteScorer(WEIGHTS).score([a, b], target_distance_km=30.0)
 
-    assert scored[0].total_score == scored[1].total_score == 100.0
+    # 改善計画T463: normalize_min_maxの同値ケースは中立50点（以前は100点）。
+    assert scored[0].total_score == scored[1].total_score == 50.0
 
 
 def test_score_breakdown_contributions_sum_to_total_score():

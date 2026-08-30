@@ -94,8 +94,13 @@ def compute_elevation_attribute(
     """Edgeの形状点列とそれぞれの標高値からElevationAttributeを算出する。
 
     標高が取得できなかった点（None）は除外して評価する（Road Graph移行前のルート単位評価と同じ方針）。
+    改善計画T463: 除外後に隣り合う2点（`valid`上で連続）でも、元の点列では間に欠損点を
+    挟んでいる場合がある。そのまま隣接扱いすると、欠損区間内の実際の起伏（急な上り下り）が
+    均された平均勾配として計算に混入する。distance_m（座標は両点とも既知のため常に正確）と
+    gain/loss/grade（欠損を挟むと信頼できない）を分離し、元の点列でも真に隣接していた
+    ペアのみgain/loss/gradeへ寄与させる。
     """
-    valid = [(p, e) for p, e in zip(points, elevations) if e is not None]
+    valid = [(i, p, e) for i, (p, e) in enumerate(zip(points, elevations)) if e is not None]
     if len(valid) < 2:
         return ElevationAttribute(edge_id=edge_id, data_source=data_source, calculated_at=_now_iso())
 
@@ -105,22 +110,26 @@ def compute_elevation_attribute(
     min_grade: float | None = None
     total_distance_m = 0.0
 
-    for (p1, e1), (p2, e2) in zip(valid, valid[1:]):
+    for (idx1, p1, e1), (idx2, p2, e2) in zip(valid, valid[1:]):
+        distance_m = haversine_distance_km(p1, p2) * 1000
+        total_distance_m += distance_m
+
+        if idx2 - idx1 != 1:
+            continue  # 間に欠損点を挟むペアはgain/loss/gradeへ寄与させない
+
         diff = e2 - e1
         if diff > 0:
             gain += diff
         else:
             loss += -diff
 
-        distance_m = haversine_distance_km(p1, p2) * 1000
-        total_distance_m += distance_m
         if distance_m > 0:
             grade = diff / distance_m * 100
             max_grade = grade if max_grade is None else max(max_grade, grade)
             min_grade = grade if min_grade is None else min(min_grade, grade)
 
-    start_elevation = valid[0][1]
-    end_elevation = valid[-1][1]
+    start_elevation = valid[0][2]
+    end_elevation = valid[-1][2]
     average_grade = (end_elevation - start_elevation) / total_distance_m * 100 if total_distance_m > 0 else None
 
     return ElevationAttribute(

@@ -1,3 +1,5 @@
+import math
+
 from pydantic import BaseModel, Field
 
 from app.domain.difficulty import distance_weighted_difficulty
@@ -233,7 +235,10 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         road_surface_good=_weighted_mode([(s.road_surface_good, s.distance_km) for s in segments]),
         # car_stressは1-5の順序尺度だが、distance_weighted_difficultyで連続値として
         # 加重平均し最近傍の整数へ丸める（axis_difficultiesの各軸集約と同じ方式）。
-        car_stress=round(car_stress_avg) if car_stress_avg is not None else None,
+        # 改善計画T463: 組み込みround()は偶数への銀行丸め（非対称）のため、
+        # car_stress_display_level（axis_definitions.py）と同じmath.floor(x+0.5)
+        # （四捨五入、0.5は常に切り上げ）へ揃えた。
+        car_stress=math.floor(car_stress_avg + 0.5) if car_stress_avg is not None else None,
         axis_difficulties=merge_axis_difficulties(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )

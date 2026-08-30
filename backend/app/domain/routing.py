@@ -214,16 +214,21 @@ def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> st
 
     グリッドバケットを中心セルから外側へリング状に広げながら探索し、既知の最近傍距離が
     「まだ調べていない外側リングのどの点までの距離よりも近い」と保証できた時点で打ち切る
-    （標準的なグリッド最近傍探索の安全な停止条件）。安全マージンには緯度方向（cos補正なし、
-    どの緯度でも経度方向より短くならない）の1度あたり距離を使うため、経度方向のセルが
-    実際にはより狭い（高緯度ほど顕著）場合でも打ち切りが早すぎることはない。
+    （標準的なグリッド最近傍探索の安全な停止条件）。安全マージンには経度方向（cos補正込み、
+    高緯度ほど1度あたりの物理距離が短くなる）の1度あたり距離を使う——経度方向のセルは
+    緯度方向より常に狭い（赤道上でのみ等しい）ため、緯度方向の距離をそのまま安全マージンに
+    使うと、実際にはまだ調べていない経度方向のセルの方が近い可能性があるのに打ち切って
+    しまう（改善計画T463で訂正。訂正前のdocstringは逆の主張をしていた）。
     """
     if not index.graph.nodes:
         return None
 
     cell_lat = math.floor(point.latitude / index.cell_size_deg)
     cell_lon = math.floor(point.longitude / index.cell_size_deg)
-    cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE
+    # 経度方向1度あたりの物理距離（cos補正込み）を安全マージンに使う——2方向のうち
+    # 常に短い（＝より保守的な）方でなければ、リング内に未探索の近い点が残りうる。
+    longitude_cos_factor = math.cos(math.radians(point.latitude))
+    cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE * longitude_cos_factor
 
     nearest_node_id: str | None = None
     nearest_distance: float | None = None

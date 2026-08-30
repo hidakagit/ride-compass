@@ -50,3 +50,32 @@ def test_resolve_area_returns_none_on_broken_parent_chain():
         "class10s": {},
     }
     assert resolve_area("13101", broken) is None
+
+
+# 改善計画T463: 想定外の形式の外部データ（"parent"/"name"キー欠如）に対し、
+# KeyErrorを伝播させずNoneへ倒すことの回帰テスト（他の外部データ処理関数と同じ流儀）。
+def test_resolve_area_returns_none_when_class20_missing_parent_key():
+    malformed = {
+        "class20s": {"1310100": {"name": "千代田区"}},  # "parent"キーが無い
+        "class15s": {},
+        "class10s": {},
+    }
+    assert resolve_area("13101", malformed) is None
+
+
+def test_resolve_area_returns_none_when_class15_missing_parent_key():
+    malformed = {
+        "class20s": {"1310100": {"name": "千代田区", "parent": "130011"}},
+        "class15s": {"130011": {"name": "２３区西部"}},  # "parent"キーが無い
+        "class10s": {},
+    }
+    assert resolve_area("13101", malformed) is None
+
+
+def test_resolve_area_returns_none_when_class10_missing_name_or_parent_key():
+    malformed = {
+        "class20s": {"1310100": {"name": "千代田区", "parent": "130010"}},
+        "class15s": {},
+        "class10s": {"130010": {"name": "東京地方"}},  # "parent"キーが無い
+    }
+    assert resolve_area("13101", malformed) is None

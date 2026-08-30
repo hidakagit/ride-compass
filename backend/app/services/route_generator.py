@@ -277,8 +277,9 @@ class RouteGenerator:
                 for c in candidates
             ]
         # 改善計画T364: 候補は常に1件のため、RouteScorer（候補集合内でのmin-max正規化）は
-        # 呼ばない。domain/scoring.py: normalize_min_maxはlo==hiのとき常に中立100点を返す
-        # ため、候補1件に対して呼ぶと「常に満点」という誤解を招く数値になってしまう。
+        # 呼ばない。domain/scoring.py: normalize_min_maxはlo==hiのとき常に中立50点を返す
+        # （改善計画T463、以前は100点だった）ため、候補1件に対して呼ぶと差の無い定数を
+        # 意味ありげなスコアとして表示してしまう。
         # total_scoreはRouteCandidateで元々None許容であり、frontend側（RouteList.tsx）は
         # 既にtotal_score != nullで無表示に倒す分岐を持つ。
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)

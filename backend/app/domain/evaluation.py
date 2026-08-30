@@ -709,8 +709,18 @@ def compute_edge_costs_bulk(
         valid = ~np.isnan(arr)
         score_terms.append(np.where(valid, arr * weight, 0.0))
         weight_terms.append(np.where(valid, weight, 0.0))
-    weighted_scores = _neumaier_accumulate(score_terms)
-    weighted_weight_sums = _neumaier_accumulate(weight_terms)
+    # 改善計画T463: 公開軸が1つも無い場合（AXIS_DEFINITIONSがDB読み込み前、または
+    # 軸スタジオで全軸を非公開化した状態）はaxis_arraysが空になりscore_terms/
+    # weight_termsも空リストのまま_neumaier_accumulate([terms[0]...])へ渡ると
+    # IndexErrorで/api/routes/generate全体が500になっていた。空のときはn件ぶんの
+    # ゼロ配列を直接使う（下のweighted_weight_sums==0判定が既にNaN合成へ倒す設計の
+    # ため、この分岐を通しても後続処理は変更不要）。
+    if score_terms:
+        weighted_scores = _neumaier_accumulate(score_terms)
+        weighted_weight_sums = _neumaier_accumulate(weight_terms)
+    else:
+        weighted_scores = np.zeros(n)
+        weighted_weight_sums = np.zeros(n)
     with np.errstate(invalid="ignore", divide="ignore"):
         composite = weighted_scores / weighted_weight_sums
     composite = np.where(weighted_weight_sums == 0, np.nan, composite)

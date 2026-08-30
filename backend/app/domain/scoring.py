@@ -4,7 +4,10 @@ def normalize_min_max(values: list[float | None], higher_is_better: bool) -> lis
     絶対的なしきい値を決め打ちできる実データが無いため、同じ`generate_loops`呼び出し内の
     候補同士を相対比較するためのスコアとして設計している（異なるリクエスト間では比較不可）。
     `None`はそのまま`None`を返す（そのメトリクスが取得できなかった候補は合成時に除外するため）。
-    全候補が同値の場合は差をつけられないため中立の100点を返す。
+    全候補が同値の場合は差をつけられないため中立の50点を返す（改善計画T463で100点から
+    訂正——候補間の相対順位には影響しない[全員へ同じ定数が加わるだけ]が、「全候補とも
+    劣悪な値で差が無い」場合まで一律100点になると、ユーザー向けスコア内訳がその指標を
+    「完璧だった」と見せてしまっていた）。
     """
     present = [v for v in values if v is not None]
     if not present:
@@ -16,7 +19,7 @@ def normalize_min_max(values: list[float | None], higher_is_better: bool) -> lis
         if value is None:
             return None
         if lo == hi:
-            return 100.0
+            return 50.0
         ratio = (value - lo) / (hi - lo)
         if not higher_is_better:
             ratio = 1 - ratio

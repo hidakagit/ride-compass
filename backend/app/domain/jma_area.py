@@ -44,13 +44,21 @@ def resolve_area(muni_cd: str, area_data: dict) -> ResolvedArea | None:
 
     # class15→class10まで親を辿る。区域によってはclass20の親が既にclass10自身になっている
     # （細分がそれ以上分かれない）ため、class10sに見つかるまでループする。
-    code = class20["parent"]
+    # 改善計画T463: area.jsonは気象庁が公開する外部データのため、想定外の形式のエントリ
+    # （"parent"/"name"キー欠如）が来てもKeyErrorを伝播させず、この関数自身のNone契約
+    # （関数docstring「データ不整合の場合はNoneを返す」）どおりに倒す（他の外部データ
+    # 処理関数と同じ.get()ベースの流儀へ揃えた）。
+    code = class20.get("parent")
+    if code is None:
+        return None
     seen = {code}
     while code not in class10s:
         parent_entry = class15s.get(code)
         if parent_entry is None:
             return None
-        parent = parent_entry["parent"]
+        parent = parent_entry.get("parent")
+        if parent is None:
+            return None
         if parent in seen:
             # 循環参照は本来あり得ないが、外部データを無限ループさせないための安全弁。
             return None
@@ -58,9 +66,13 @@ def resolve_area(muni_cd: str, area_data: dict) -> ResolvedArea | None:
         code = parent
 
     class10 = class10s[code]
+    office_code = class10.get("parent")
+    class10_name = class10.get("name")
+    if office_code is None or class10_name is None:
+        return None
     return ResolvedArea(
         class20_code=class20_code,
         class10_code=code,
-        office_code=class10["parent"],
-        class10_name=class10["name"],
+        office_code=office_code,
+        class10_name=class10_name,
     )

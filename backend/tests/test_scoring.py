@@ -13,10 +13,12 @@ def test_lower_is_better_inverts_the_mapping():
     assert scores == [100.0, 50.0, 0.0]
 
 
+# 改善計画T463: テスト名どおり「中立」の値(50.0)を期待するよう訂正。以前は100.0
+# （最良点）を期待しており、テスト名の主張と実装の挙動が矛盾していた。
 def test_all_equal_values_get_neutral_score():
     scores = normalize_min_max([5.0, 5.0, 5.0], higher_is_better=True)
 
-    assert scores == [100.0, 100.0, 100.0]
+    assert scores == [50.0, 50.0, 50.0]
 
 
 def test_none_values_pass_through_unchanged():
