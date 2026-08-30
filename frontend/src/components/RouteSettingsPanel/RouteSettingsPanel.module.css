@@ -87,43 +87,66 @@
   gap: var(--space-1);
 }
 
+/* 改善計画T435: 以前は1行のflexで「チェックボックス・ラベル(6.5rem固定)・スライダー
+   (flex:1;min-width:0)・重み値(2.6rem固定)・色分けトグル(flex-shrink:0)」を横並びに
+   していたが、固定幅要素の合計がデスクトップサイドバー(280px)の内幅を超えるため、
+   本来可変であるべきスライダーがmin-width:0によって幅0まで潰れ、操作・視認とも
+   不可能になっていた（review:ui F-2026-08-30 F-1、実機のgetBoundingClientRect()で
+   sliderの幅が常に0になることを確認済み）。固定幅要素の合計値をレイアウト崩れの
+   閾値ごとに計算し続けるのは脆いため、1行→2段のCSS Gridへ変更し、スライダー用の列を
+   「残りいっぱい(1fr)」で確保することで、サイドバー幅に関わらずスライダーの実幅が
+   0にならないことを構造的に保証する（上段: チェックボックス+ラベル+重み値、
+   下段: チェックボックス(2段分)+スライダー+色分けトグル）。 */
 .row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "checkbox label value"
+    "checkbox slider toggle";
   align-items: center;
-  gap: var(--space-2);
+  column-gap: var(--space-2);
+  row-gap: 0.15rem;
+}
+
+.checkboxCell {
+  grid-area: checkbox;
+  align-self: start;
+  display: flex;
+  padding-top: 0.15rem;
 }
 
 .rowLabel {
-  width: 6.5rem;
-  flex-shrink: 0;
+  grid-area: label;
+  min-width: 0;
   font-size: var(--font-size-md);
 }
 
 .slider {
-  flex: 1;
+  grid-area: slider;
+  width: 100%;
   min-width: 0;
 }
 
 .weightValue {
-  flex-shrink: 0;
+  grid-area: value;
   width: 2.6rem;
   text-align: right;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
-/* 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）。行の末尾に
-   固定幅で置き、風の重み値の桁数変化等で位置がぶれないようweightValueと同じく
-   flex-shrink: 0にする。 */
+/* 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）。 */
 .mapColorToggle {
-  flex-shrink: 0;
+  grid-area: toggle;
+  justify-self: end;
 }
 
 /* 専用の地図表示レイヤーを持たない軸（勾配等、kind="none"）、またはルート確定後の風
    （既に「生成したルートの色分け」へ役割を譲っている）向けの、押せない案内表示。
    LayerChipと視覚的な占有幅を揃えるため同程度のpaddingを持たせる。 */
 .mapColorUnavailable {
-  flex-shrink: 0;
+  grid-area: toggle;
+  justify-self: end;
   color: var(--color-muted);
   font-size: var(--font-size-sm);
   padding: 0.2rem 0.5rem;

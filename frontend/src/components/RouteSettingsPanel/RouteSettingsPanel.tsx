@@ -253,11 +253,13 @@ export default function RouteSettingsPanel({
                   checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
                   押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
                   同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
-              <Checkbox
-                checked={checked}
-                onCheckedChange={(next) => handleToggle(axis.axisId, next)}
-                aria-label={axis.label}
-              />
+              <span className={styles.checkboxCell}>
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(next) => handleToggle(axis.axisId, next)}
+                  aria-label={axis.label}
+                />
+              </span>
               <span className={styles.rowLabel}>
                 <FieldLabel label={axis.label} description={axis.description} />
               </span>

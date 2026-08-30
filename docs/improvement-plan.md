@@ -536,7 +536,7 @@ T221エントリへの追記として実施済み（新番号なし）。
 対象範囲は目的地指定→ルート生成→ルート軸調整→軸の反映内容確認→ルート再生成→ルート比較の
 一連の操作フロー。詳細は[history/2026-08-30_ui.md](../.claude/commands/review/history/2026-08-30_ui.md)参照。
 
-- [ ] [T435](tasks/T435.md). RouteSettingsPanelの重みスライダーがデスクトップサイドバーで幅0pxに潰れる不具合を修正 規模S〜M（P0、review:ui F-1）
+- [x] [T435](tasks/T435.md). RouteSettingsPanelの重みスライダーがデスクトップサイドバーで幅0pxに潰れる不具合を修正 規模S〜M（P0、review:ui F-1、2026-08-30完了）
 - [x] [T436](tasks/T436.md). RouteAxisProfileの難易度バーが未描画になる不具合を修正 規模S（P0、review:ui F-2、2026-08-30完了）
 - [ ] [T437](tasks/T437.md). 目的地モードの空状態案内文をルート生成モードに応じて出し分ける 規模S（P1、review:ui F-3）
 - [ ] [T438](tasks/T438.md). 一般ユーザー向け画面の文言から「軸スタジオ」の露出を除去する 規模S（P1、review:ui F-4）
