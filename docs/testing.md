@@ -59,10 +59,17 @@ test_match_designations.py（designation_conn）, test_accident_repository.py
 **xdist_group="postgis"（改善計画T233フォローアップ、pytest-xdist導入後は必須）**:
 CIは`-n auto --dist loadgroup`でDB以外のテストを並列化している。road_graph_session系
 フィクスチャを使うテスト（ファイルまたは個別テスト関数）には必ず
-`pytest.mark.xdist_group(name="postgis")`を付け、`pytestmark`が既にリストでなければ
-`pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]`
-の形にする。これを付けないと、同じridecompass_test DBへ複数workerが同時接続し、
-他ファイルのTRUNCATEでテストデータが消える形のflakyな失敗を起こしうる。
+`pytest.mark.xdist_group(name="postgis")`と`pytest.mark.postgis`（`pytest.ini`の`markers`に
+登録済み。`pytest -m "not postgis"`で実際にdeselectされる唯一の仕組み——ローカルDB未接続時の
+実スキップは各fixtureの`try/except pytest.skip()`が別途担う）の両方を付け、`pytestmark`が
+既にリストでなければ
+`pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]`
+の形にする。xdist_groupを付けないと、同じridecompass_test DBへ複数workerが同時接続し、
+他ファイルのTRUNCATEでテストデータが消える形のflakyな失敗を起こしうる（postgisマーカーの
+付け忘れは`pytest -m "not postgis"`が該当テストを除外し損ねるだけで実行結果自体は壊れないため、
+気づかれにくい。改善計画T429で発覚: マーカー未登録のままこの説明だけが独り歩きし、
+実態は12ファイル全てfixtureレベルの`try/except pytest.skip()`のみで`-m "not postgis"`は
+1件もdeselectしていなかった）。
 
 ## パターン3: フロントエンドのテスト環境 → DOM不要ならnode環境
 

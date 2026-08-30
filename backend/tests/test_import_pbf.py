@@ -34,7 +34,7 @@ from tests.conftest import TEST_DATABASE_URL
 # xdist_group="postgis": pbf_import_connは同じridecompass_test DBのosm_raw_ways等を
 # 無条件DELETEで初期化する。他のpostgis系テストと別workerで並走すると互いのDELETEで
 # 相手のseed行が消えるflaky失敗を起こすため固定する（docs/testing.md参照）。
-pytestmark = pytest.mark.xdist_group(name="postgis")
+pytestmark = [pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
 
 DEFAULT_PROFILE_PATH = Path(__file__).resolve().parents[1] / "app" / "batch" / "import_profile.yaml"
 

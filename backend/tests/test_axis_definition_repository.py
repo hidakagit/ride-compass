@@ -11,7 +11,11 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 
 # road_graph_session（conftest.py）はファイル単位でエンジン・イベントループを共有する設計
 # のため、docs/testing.mdのパターン2どおりloop_scope="module"・xdist_group="postgis"が必須。
-pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
+pytestmark = [
+    pytest.mark.asyncio(loop_scope="module"),
+    pytest.mark.xdist_group(name="postgis"),
+    pytest.mark.postgis,
+]
 
 
 def _definition(axis_id: str = "test_axis", default_weight: float = 0.1) -> AxisDefinition:

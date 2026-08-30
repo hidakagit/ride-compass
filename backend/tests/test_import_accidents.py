@@ -14,7 +14,7 @@ from tests.conftest import TEST_DATABASE_URL
 # accident_import_runsテーブルを無条件DELETEで初期化する。他のpostgis系テストと別workerで
 # 並走すると互いのDELETEで相手のseed行が消えるflaky失敗を起こすため固定する
 # （docs/testing.md、test_import_designations.pyのdesignation_connと同じ理由）。
-pytestmark = pytest.mark.xdist_group(name="postgis")
+pytestmark = [pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
 
 # honhyo_2023.csv実データ（2026-08-16取得）の列数・列位置に合わせたテスト行を作る。
 # COL_PREFECTURE_CODE=1, COL_POLICE_STATION_CODE=2, COL_HONHYO_NUMBER=3, COL_DEATH_COUNT=5,

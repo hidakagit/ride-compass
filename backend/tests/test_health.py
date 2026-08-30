@@ -103,6 +103,7 @@ async def db_status_test_engine(road_graph_session):
 # xdist_group="postgis": 改善計画T233フォローアップ。同じridecompass_test DBを使う
 # 全PostGIS統合テストファイルを同一workerへ固定し直列実行させる（docs/testing.mdパターン2）。
 @pytest.mark.xdist_group(name="postgis")
+@pytest.mark.postgis
 async def test_db_status_returns_table_row_counts_and_import_run_status_for_empty_test_db(
     db_status_test_engine, monkeypatch
 ):

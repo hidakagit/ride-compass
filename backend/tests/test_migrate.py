@@ -21,7 +21,7 @@ from tests.conftest import TEST_DATABASE_URL
 # 別workerで並走すると、IF NOT EXISTSのチェックと作成がPostgres側で並行実行時に
 # 完全にはアトミックでないため、pg_type カタログのユニーク制約違反で失敗しうる
 # （docs/testing.md参照）。
-pytestmark = pytest.mark.xdist_group(name="postgis")
+pytestmark = [pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
 
 
 def test_split_statements_ignores_blank_and_trailing_semicolon():

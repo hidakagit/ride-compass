@@ -26,7 +26,11 @@ from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, OsmRawP
 # xdist_group="postgis": 改善計画T233フォローアップ。pytest-xdist（-n auto）導入時、
 # 同じridecompass_test DBへ接続する全PostGIS統合テストファイルを同一workerへ固定し
 # 直列実行させる（別workerで同時にTRUNCATEされるレースを防ぐ。docs/testing.mdパターン2）。
-pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
+pytestmark = [
+    pytest.mark.asyncio(loop_scope="module"),
+    pytest.mark.xdist_group(name="postgis"),
+    pytest.mark.postgis,
+]
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)

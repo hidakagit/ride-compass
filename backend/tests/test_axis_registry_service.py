@@ -21,7 +21,11 @@ from app.services.axis_registry_service import (
 )
 from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
-pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
+pytestmark = [
+    pytest.mark.asyncio(loop_scope="module"),
+    pytest.mark.xdist_group(name="postgis"),
+    pytest.mark.postgis,
+]
 
 
 @pytest.fixture(autouse=True)

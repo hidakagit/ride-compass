@@ -26,7 +26,7 @@ from tests.conftest import TEST_DATABASE_URL
 # route_designationsテーブルを無条件DELETEで初期化する。他のpostgis系テスト
 # （test_match_designations.py等）と別workerで並走すると、互いのDELETEで
 # 相手のseed行が消えるflaky失敗を起こすため固定する（docs/testing.md参照）。
-pytestmark = pytest.mark.xdist_group(name="postgis")
+pytestmark = [pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
 
 
 class TestKindSpecs:

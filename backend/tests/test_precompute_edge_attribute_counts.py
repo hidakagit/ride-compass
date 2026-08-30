@@ -54,7 +54,11 @@ class TestRunOrchestration:
     （_chunked系）へasyncio markが誤って付与されるのを避ける。
     """
 
-    pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
+    pytestmark = [
+        pytest.mark.asyncio(loop_scope="module"),
+        pytest.mark.xdist_group(name="postgis"),
+        pytest.mark.postgis,
+    ]
 
     async def test_writes_zero_counts_when_no_related_data_seeded(self, road_graph_repository, road_graph_session):
         await _seed_one_way(road_graph_repository, road_graph_session)

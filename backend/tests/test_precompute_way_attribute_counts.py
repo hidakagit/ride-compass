@@ -39,7 +39,11 @@ class TestSourceTracking:
     （test_precompute_edge_attribute_counts.py: test_source_run_ids_reflect_latest_succeeded_runs）
     と同じ観点。"""
 
-    pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis")]
+    pytestmark = [
+        pytest.mark.asyncio(loop_scope="module"),
+        pytest.mark.xdist_group(name="postgis"),
+        pytest.mark.postgis,
+    ]
 
     async def test_source_run_ids_and_algorithm_version_are_written(
         self, road_graph_repository, road_graph_session
