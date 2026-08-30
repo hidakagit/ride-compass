@@ -282,6 +282,27 @@ async def get_region_service():
         yield RegionService()
 
 
+# 改善計画T460: material_id→サービスファクトリの登録テーブル。以前はget_dynamic_way_value_
+# service内の_buildがif material_id == "wind"というハードコード分岐でサービスを組み立てて
+# おり、domain/dynamic_way_values.pyのモジュールdocstringが謳う「新しい動的＋向きあり材料は
+# ここへ1エントリ足すだけで反映される」という1本道の主張に反していた（設計原則8違反）。
+# WindWayService/GradientWayServiceはコンストラクタ依存が異なる（前者だけweather_service を
+# 追加で要求）ため、ファクトリはrepository・weather_serviceの両方を受け取り、必要な方だけ
+# 使う統一シグネチャにする。3つ目の動的材料を追加する際は、このdictへ1エントリ足すだけでよい
+# （T458: DYNAMIC_WAY_VALUE_MATERIALS自体の拡張とは別軸・別タイミングで進められる）。
+# 注意: このdictのキー集合はDYNAMIC_WAY_VALUE_MATERIALS（domain/dynamic_way_values.py）の
+# キー集合の部分集合である必要がある（後者に無いmaterial_idは下の
+# `if material_id not in DYNAMIC_WAY_VALUE_MATERIALS`で先に弾かれる）。新しい材料を追加する
+# 際は両方へ登録すること——片方だけ更新すると`_build`がKeyErrorで即座に失敗する
+# （fail-fast、無音の分岐漏れより検知しやすい設計）。
+_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES: dict[
+    str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
+] = {
+    "wind": lambda repository, weather_service: WindWayService(repository=repository, weather_service=weather_service),
+    "gradient": lambda repository, weather_service: GradientWayService(repository=repository),
+}
+
+
 async def get_dynamic_way_value_service(
     material_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
@@ -301,9 +322,7 @@ async def get_dynamic_way_value_service(
         return
 
     def _build(repository: RoadGraphRepository | None):
-        if material_id == "wind":
-            return WindWayService(repository=repository, weather_service=weather_service)
-        return GradientWayService(repository=repository)
+        return _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES[material_id](repository, weather_service)
 
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
