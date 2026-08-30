@@ -651,49 +651,6 @@ async def test_get_surface_attributes_is_none_when_raw_way_not_found(road_graph_
     assert result[edge_id] is None
 
 
-async def test_get_nearest_surface_tags_returns_empty_list_for_empty_input(road_graph_repository):
-    assert await road_graph_repository.get_nearest_surface_tags([]) == []
-
-
-async def test_get_nearest_surface_tags_matches_nearby_edge_and_returns_its_surface(road_graph_repository):
-    """改善計画T21: openrouteserviceエンジンのサンプル点を自前DBのEdgeへ空間マッチする経路。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-
-    result = await road_graph_repository.get_nearest_surface_tags([NODE1], max_distance_m=30.0)
-
-    assert result == ["asphalt"]
-
-
-async def test_get_nearest_surface_tags_returns_none_beyond_max_distance_m(road_graph_repository):
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-
-    result = await road_graph_repository.get_nearest_surface_tags([(35.9, 140.0)], max_distance_m=30.0)
-
-    assert result == [None]
-
-
-async def test_get_nearest_surface_tags_preserves_input_order_for_multiple_points(road_graph_repository):
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="gravel")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-
-    result = await road_graph_repository.get_nearest_surface_tags(
-        [(35.9, 140.0), NODE1, NODE2, (35.9, 140.0)], max_distance_m=30.0
-    )
-
-    assert result == [None, "gravel", "gravel", None]
-
-
 # --- 静的道路属性P1（信号・横断歩道・一時停止・踏切のnode取込・停止密度評価） ---
 # osm_raw_poisへの書き込みメソッドはRoadGraphRepositoryに無い（PBF取込バッチが直接asyncpg
 # COPYで書くため、ADR決定によりOverpassフォールバック側にも実装していない）。統合テストでは
@@ -779,40 +736,13 @@ async def test_get_stop_poi_counts_excludes_supply_poi_kinds(road_graph_reposito
     assert result[edge_id] == 1
 
 
-async def test_get_nearest_stop_poi_counts_excludes_supply_poi_kinds(road_graph_repository, road_graph_session):
-    """get_stop_poi_countsと対称のkindフィルタ回帰テスト（ORSエンジン経路）。"""
-    await _insert_poi(road_graph_session, 900, "stop", *NODE1)
-    await _insert_poi(road_graph_session, 901, "toilets", *NODE1)
-    await road_graph_session.commit()
-
-    result = await road_graph_repository.get_nearest_stop_poi_counts([NODE1], max_distance_m=30.0)
-
-    assert result == [1]
-
-
-async def test_get_nearest_stop_poi_counts_returns_empty_list_for_empty_input(road_graph_repository):
-    assert await road_graph_repository.get_nearest_stop_poi_counts([]) == []
-
-
-async def test_get_nearest_stop_poi_counts_counts_pois_near_each_point(road_graph_repository, road_graph_session):
-    await _insert_poi(road_graph_session, 900, "stop", *NODE1)
-    await _insert_poi(road_graph_session, 901, "give_way", *NODE1)
-    await road_graph_session.commit()
-
-    result = await road_graph_repository.get_nearest_stop_poi_counts(
-        [NODE1, NODE3], max_distance_m=30.0
-    )
-
-    assert result == [2, 0]
-
-
 # --- 静的道路属性P1残り（車ストレス・自転車インフラ・交差点密度の評価組み込み） ---
 
 
 async def test_get_way_tags_by_osm_way_id_returns_highway_tags_and_is_designated(
     road_graph_repository, road_graph_session
 ):
-    """改善計画T90: 区間クリック時の車ストレス内訳表示。get_nearest_way_tagsの空間マッチ
+    """改善計画T90: 区間クリック時の車ストレス内訳表示。空間マッチ
     （交差点付近で別の道路を拾いうる、実機確認で判明）を避け、osm_way_id完全一致で引く。"""
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"})
     nodes = {1: NODE1, 2: NODE2}
@@ -857,34 +787,6 @@ async def test_get_way_attribute_counts_returns_none_when_row_missing(road_graph
     await road_graph_session.commit()
 
     assert await road_graph_repository.get_way_attribute_counts(100) is None
-
-
-async def test_get_nearest_way_tags_returns_empty_list_for_empty_input(road_graph_repository):
-    assert await road_graph_repository.get_nearest_way_tags([]) == []
-
-
-async def test_get_nearest_way_tags_matches_nearby_edge_and_returns_highway_and_tags(road_graph_repository):
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"})
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-
-    result = await road_graph_repository.get_nearest_way_tags([NODE1], max_distance_m=30.0)
-
-    assert result == [("primary", {"maxspeed": "60"}, False)]
-
-
-async def test_get_nearest_way_tags_returns_none_highway_and_empty_tags_beyond_max_distance_m(road_graph_repository):
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"})
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-
-    result = await road_graph_repository.get_nearest_way_tags([(35.9, 140.0)], max_distance_m=30.0)
-
-    assert result == [(None, {}, False)]
 
 
 async def test_get_intersection_counts_returns_empty_dict_for_empty_input(road_graph_repository):
@@ -971,26 +873,6 @@ async def test_get_intersection_counts_is_independent_of_edge_id_order_and_subse
     single_edge_id = edge_ids[:1]
     partial_result = await road_graph_repository.get_intersection_counts(single_edge_id, max_distance_m=30.0)
     assert partial_result[single_edge_id[0]] == forward[single_edge_id[0]]
-
-
-async def test_get_nearest_intersection_counts_returns_empty_list_for_empty_input(road_graph_repository):
-    assert await road_graph_repository.get_nearest_intersection_counts([]) == []
-
-
-async def test_get_nearest_intersection_counts_counts_intersections_near_each_point(road_graph_repository):
-    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
-    way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
-    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    graph = build_road_graph([way_a, way_b, way_c], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-    await road_graph_repository.recompute_node_degrees()
-
-    result = await road_graph_repository.get_nearest_intersection_counts(
-        [NODE2, NODE1], max_distance_m=30.0
-    )
-
-    assert result == [1, 0]
 
 
 # --- 外部静的データソース T50残作業（事故密度の評価組み込み、8軸目） ---
@@ -1106,24 +988,6 @@ async def test_get_accident_counts_ignores_accidents_beyond_max_distance_m(road_
     result = await road_graph_repository.get_accident_counts([edge_id], max_distance_m=30.0)
 
     assert result[edge_id] == 0
-
-
-async def test_get_nearest_accident_counts_returns_empty_list_for_empty_input(road_graph_repository):
-    assert await road_graph_repository.get_nearest_accident_counts([]) == []
-
-
-async def test_get_nearest_accident_counts_counts_accidents_near_each_point(road_graph_repository, road_graph_session):
-    await _insert_accident(road_graph_session, "2023-1", 2023, *NODE1)
-    await _insert_accident(road_graph_session, "2023-2", 2023, *NODE1)
-    await road_graph_session.commit()
-
-    # bicycle_only既定値はTrue（改善計画: 事故密度の精度改善）。ここでの検証観点は距離ベースの
-    # カウント自体（_insert_accidentは既定でinvolves_bicycle=False）のためFalseを明示する。
-    result = await road_graph_repository.get_nearest_accident_counts(
-        [NODE1, NODE3], bicycle_only=False, max_distance_m=30.0
-    )
-
-    assert result == [2, 0]
 
 
 async def test_get_accident_years_covered_counts_distinct_succeeded_years(road_graph_repository, road_graph_session):
@@ -1302,23 +1166,6 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
 
     # designationはosm_way_id単位のためfwd・bwd両方。
     assert batch.designated_edge_ids == {fwd_edge_id, bwd_edge_id}
-
-
-async def test_get_nearest_way_tags_is_designated_true_near_designated_edge(road_graph_repository, road_graph_session):
-    """改善計画T76の回帰テスト: is_designatedは以前get_nearest_designated_flagsという
-    専用メソッドだったが、同一サンプル点集合に対する3本目の独立KNNだったため
-    get_nearest_way_tagsへ統合した。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-    await _insert_designation_attribute(road_graph_session, 100, "critical_logistics")
-    await road_graph_session.commit()
-
-    result = await road_graph_repository.get_nearest_way_tags([NODE1, NODE3], max_distance_m=30.0)
-
-    assert [is_designated for _, _, is_designated in result] == [True, False]
 
 
 async def _mark_tile_cached(session, zoom: int, x: int, y: int) -> None:

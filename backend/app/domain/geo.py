@@ -93,33 +93,3 @@ def haversine_distance_km(a: LatLon, b: LatLon) -> float:
     h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(h))
 
-
-def sample_indices(point_count: int, sample_count: int) -> list[int]:
-    """point_count個の点から、始点・終点を含む均等間隔でsample_count個のインデックスを選ぶ。"""
-    if point_count <= sample_count:
-        return list(range(point_count))
-    # 改善計画T463: sample_count<=1だと`sample_count - 1`が0になりZeroDivisionError。
-    # 唯一の呼び出し元（sample_line_points経由）はMIN_SAMPLE_COUNT=12で下限を設けており
-    # 現状は到達しないが、公開ヘルパーとして将来別の呼び出し元がsample_count=1を渡す
-    # ケースに備えガードする。始点・終点を両方含む前提は1点では満たせないため、最初の
-    # 点だけを返す（point_count<=sample_countの分岐と同じ「要求より少なく返す」規約）。
-    if sample_count <= 1:
-        return [0]
-
-    step = (point_count - 1) / (sample_count - 1)
-    return sorted({round(i * step) for i in range(sample_count)})
-
-
-def sample_line_points(geometry: dict, sample_count: int) -> list[tuple[int, Coordinates]]:
-    """GeoJSON LineStringのgeometryから、始点・終点を含む均等間隔でsample_count点を、
-    元のgeometry内でのインデックスと組でサンプリングする。
-
-    標高・風・路面をそれぞれ同じ点集合で評価し、区間ごとに1つの配列として整合させるために使う
-    （路面種別はopenrouteserviceのインデックス範囲で返るため、インデックスの共有が必要）。
-    OpenRouteServiceEngine専用（Road Graphエンジンは経路上のEdgeを直接走査するため
-    使わない）。
-    """
-    raw_points = geometry["coordinates"]
-    indices = sample_indices(len(raw_points), sample_count)
-    return [(i, Coordinates(latitude=raw_points[i][1], longitude=raw_points[i][0])) for i in indices]
-

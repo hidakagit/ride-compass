@@ -64,7 +64,9 @@ def debug_stats() -> dict:
     return {
         "commit": settings.git_commit,
         "started_at": STARTED_AT.isoformat(),
-        "engine": settings.routing_engine,
+        # ルート生成エンジンは常にroad_graph（他エンジンは撤去済み）。SystemStatusPanel.tsxが
+        # 表示するためキー自体は残す。
+        "engine": "road_graph",
         "debug_mode": settings.debug_mode,
         **get_stats(),
     }

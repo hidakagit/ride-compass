@@ -5,7 +5,7 @@ night軸（`domain/night.py`、街灯・トンネル由来の走りにくさ）�
 時刻を知らないまま据え置き、呼び出し元が本モジュールの`is_night`で「今、この地点は
 市民薄明の外（夜間）か」を判定し、night_weightをその真偽で0/1に切り替えることで動的化する
 （domain/night.py・difficulty.pyの変更は不要。呼び出し元がweightを掛け替えるだけで済む
-設計、詳細はopenrouteservice_engine.py/road_graph_engine.pyの利用箇所参照）。
+設計、詳細はroad_graph_engine.pyの利用箇所参照）。
 
 市民薄明（太陽高度-6度、日没後も屋外の視認性が残る時間帯）の終わりを「夜」の境界に使う
 （日の入り時刻そのものではなく、薄明が終わるまではまだ十分明るいため。改善計画の

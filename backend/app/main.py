@@ -37,28 +37,24 @@ install_ring_buffer_handler()
 # 常時出るhttpxのINFOはタイルプロキシ等でログを埋めるだけなのでWARNING以上に抑える。
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# 起動時の構成スナップショット。ログだけで「どのコミット・どのエンジン設定で
-# 動いていたか」を後から確認できるようにする(/healthと同じ情報のログ版)。
+# 起動時の構成スナップショット。ログだけで「どのコミットで動いていたか」を
+# 後から確認できるようにする(/healthと同じ情報のログ版)。
 logging.getLogger("ridecompass.startup").info(
-    "starting commit=%s engine=%s debug_mode=%s",
+    "starting commit=%s debug_mode=%s",
     settings.git_commit,
-    settings.routing_engine,
     settings.debug_mode,
 )
 
-# 改善計画T249: 既定エンジンがroad_graph(T247)になったため、DATABASE_URLへ実際に
-# 接続できない環境(.env未作成のDBなし構成等)では/api/routes/generateが常に失敗する
-# (GraphServiceは改善計画T222でrepository必須へ一本化済み)。起動自体は妨げず、
-# 「起動するが全リクエスト失敗」という分かりにくい状態を早期に説明するWARNINGを出す。
-# 接続確認はイベントループ起動前のためここでは行わず、設定の組み合わせだけで判定する
-# (実際に接続不可かはリクエスト時のエラーで判明する。ここはその読み解きの補助)。
-if settings.routing_engine == "road_graph":
-    logging.getLogger("ridecompass.startup").info(
-        "routing_engine=road_graphはDATABASE_URL(%s)への実接続が必須です。"
-        "接続できない環境では/api/routes/generateが失敗します"
-        "(DBなしで動かす場合はROUTING_ENGINE=openrouteserviceを指定してください)",
-        settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
-    )
+# DATABASE_URLへ実際に接続できない環境(.env未作成のDBなし構成等)では
+# /api/routes/generate・/api/routes/previewが常に失敗する(GraphServiceは改善計画T222で
+# repository必須へ一本化済み)。起動自体は妨げず、「起動するが全リクエスト失敗」という
+# 分かりにくい状態を早期に説明するWARNINGを出す。接続確認はイベントループ起動前のため
+# ここでは行わず、設定値をそのままログへ出すだけに留める(実際に接続不可かはリクエスト時
+# のエラーで判明する。ここはその読み解きの補助)。
+logging.getLogger("ridecompass.startup").info(
+    "ルート生成・プレビューにはDATABASE_URL(%s)への実接続が必須です。",
+    settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
+)
 
 _scheduler = AsyncIOScheduler()
 

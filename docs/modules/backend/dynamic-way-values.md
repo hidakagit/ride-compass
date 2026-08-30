@@ -139,20 +139,12 @@ values = {
 使っても勾配の結果は変わらない（cosの偶関数性と符号の二重反転が相殺するため、
 `test_gradient.py: test_forward_and_backward_edge_agree`で検証済み）。
 
-## 風の評価が2つの経路で非対称
+## ルート確定後の風の評価
 
-`settings.routing_engine`（既定`road_graph`）によって、ルート確定後の風の扱いが異なる。
+風の方向はEdge自身の`bearing_deg`（directed edgeのためルート実走行方向と一致）を使う。
+風の時刻は出発時点1点のみをルート全体へ一様適用する（探索中は累積到達時刻が未確定な
+ための簡略化。区間ごとの推定到達時刻は使わない）。実装は`domain/evaluation.py:
+compute_wind_penalty`（詳細は[routing-engine.md](routing-engine.md)参照）。
 
-| エンジン | 風の方向 | 風の時刻 | 実装 |
-|---|---|---|---|
-| `road_graph`（既定） | Edge自身の`bearing_deg`（directed edgeのためルート実走行方向と一致） | 出発時点1点のみをルート全体へ一様適用（探索中は累積到達時刻が未確定なための簡略化） | `domain/evaluation.py: compute_wind_penalty` |
-| `openrouteservice` | 区間ごとの実走行方位（`bearing_between`） | 区間ごとの推定到達時刻（累積距離÷`ASSUMED_SPEED_KMH`） | `services/wind_service.py: WindService.get_wind_profile` |
-
-方向についてはroad_graphエンジンも正しい（Directed Edgeは経路上のそのEdgeインスタンスの
-実走行方向そのものを表す）。時刻についてはroad_graphエンジンは「出発時点の風をルート
-全体に一様適用」という簡略化を持つ。レスポンスの`engine`フィールドでフロントがどちらの
-値かを識別できる（詳細は[routing-engine.md](routing-engine.md)参照）。
-
-`ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度20km/h）はこの到達時刻概算に両エンジンで
-共有される定数だが、`road_graph_engine.py`の区間所要時間表示にも使われており、風専用の
-定数ではない。
+`ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度20km/h）は`road_graph_engine.py`の
+区間所要時間表示に使われる定数。

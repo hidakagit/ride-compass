@@ -219,14 +219,12 @@ class AxisDefinition(BaseModel):
     （ユーザー判断2026-08-25、改善計画T318）。"""
     time_scope: Literal["always", "night_only"] = "always"
     """改善計画T352: この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
-    従来は`road_graph_engine.py`/`openrouteservice_engine.py`のT173ロジックが
-    `"night"`というaxis_idを直接分岐条件にしていた（市民薄明の外なら重みそのまま、
-    日中なら0倍）。両エンジンは「`time_scope != "always"`な軸のうち、現在の
-    `active_scopes`に含まれないものの重みを0倍にする」という汎用ロジックへ置き換わり、
-    このフィールドが唯一の分岐条件になった（`RoutePreference.with_time_scope`、
-    `domain/axis_definitions.py: time_scoped_weights`参照）。将来、別の時間帯依存軸
-    （例: 通勤ラッシュ限定）を追加する場合も、このフィールドへ新しい値
-    （例: "commute_only"）を1つ増やすだけでよく、エンジン側のコード変更は不要。"""
+    「`time_scope != "always"`な軸のうち、現在の`active_scopes`に含まれないものの
+    重みを0倍にする」という汎用ロジック（`RoutePreference.with_time_scope`、
+    `domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
+    見て判定する。将来、別の時間帯依存軸（例: 通勤ラッシュ限定）を追加する場合も、
+    このフィールドへ新しい値（例: "commute_only"）を1つ増やすだけでよく、エンジン側の
+    コード変更は不要。"""
     supports_route_coloring: bool = False
     """改善計画T352: この軸のdifficulty（0-100）を、ルート地図の色分けモード
     （frontend/src/components/Map/routeStyleModes.ts）の選択肢として使えるかの宣言。
@@ -517,11 +515,10 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
     `active_scopes`に含まれない軸の重みを0.0にした新しい辞書を返す（改善計画T352、
     元のT173 night動的化ロジックの汎用化。`weights`自体は変更しない）。
 
-    従来は`road_graph_engine.py`/`openrouteservice_engine.py`が`"night"`という
-    axis_idを直接分岐条件にしていたが、`AxisDefinition.time_scope`という性質ベースの
-    宣言的フィールドを持つことで、エンジン側は「この性質を持つ軸を探して掛け替える」
-    という汎用ロジックだけを持てばよくなった。将来別の時間帯依存軸を追加する際も、
-    その軸のtime_scopeを設定するだけでよく、エンジン側のコード変更は不要。
+    `AxisDefinition.time_scope`という性質ベースの宣言的フィールドを持つことで、
+    エンジン側は「この性質を持つ軸を探して掛け替える」という汎用ロジックだけを持てば
+    よい。将来別の時間帯依存軸を追加する際も、その軸のtime_scopeを設定するだけでよく、
+    エンジン側のコード変更は不要。
 
     `weights`に無いaxis_id（内部軸への重み・非公開化された軸等）は無視する
     （`RoutePreference.with_weight`の「対象軸が存在しなければ無変更」という既定動作、
@@ -538,9 +535,7 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
 
 def car_stress_display_level(difficulty: float | None) -> int | None:
     """car_stress軸のdifficulty(0-100)を表示用の1-5生値へ逆変換する
-    （RouteSegmentDetail.car_stress、road_graph_engine.py/openrouteservice_engine.pyが
-    共通で使う。改善計画T292のコードレビュー指摘の修正: 逆変換式が両エンジンへ
-    (level-1)/4*100の逆算として重複ハードコードされていたのを1箇所へ集約）。
+    （RouteSegmentDetail.car_stress、road_graph_engine.pyが使う）。
 
     breakpointsをここへ再度ハードコードせず`AXIS_DEFINITIONS["car_stress"]`から動的に
     読むため、旧clamp_level(.,1,5)相当のこの軸のbreakpointsが将来変わっても追従不要。

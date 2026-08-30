@@ -2,8 +2,7 @@
 
 タグの値パース（`parse_lanes`/`parse_maxspeed`）・cycleway系タグの集約（`cycleway_values`）・
 タグ値の真偽判定（`tag_value_is`）を「材料タグの正規化」としてここを正準1箇所にしている。
-複数のevaluationパイプライン（domain/evaluation.py・domain/traffic.py・
-services/openrouteservice_engine.py）が同じ関数を参照する。
+複数のevaluationパイプライン（domain/evaluation.py・domain/traffic.py）が同じ関数を参照する。
 
 改善計画T292: 旧`RoadSuitabilityRecipe`・`MotorVehicleDensityRecipe`・`car_closeness`・
 `road_suitability`・`cycleway_adjustment`・`threshold_adjustment`・`clamp_level`・
@@ -57,10 +56,10 @@ def tag_value_is(tags: dict[str, str], key: str, expected: str) -> bool:
 def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, bool]:
     """改善計画T336: `domain/material_catalog.py`のhighway_is_cycleway/cycleway_has_track/
     cycleway_has_lane/cycleway_has_shared材料（正規化フラグ材料id→真偽値）と同じキーを
-    まとめて返す。`domain/evaluation.py: axis_inspector_breakdown`/`compute_edge_axis_scores`・
-    `services/openrouteservice_engine.py`が手組みするmaterials辞書へそのまま
-    `**bicycle_infra_flags(tags, highway)`で混ぜ込める（bicycle_infra[classify_
-    bicycle_infrastructure]と同じ材料抽出を1箇所にまとめ、3箇所への手書き複製を避ける）。
+    まとめて返す。`domain/evaluation.py: axis_inspector_breakdown`/`compute_edge_axis_scores`が
+    手組みするmaterials辞書へそのまま`**bicycle_infra_flags(tags, highway)`で混ぜ込める
+    （bicycle_infra[classify_bicycle_infrastructure]と同じ材料抽出を1箇所にまとめ、
+    複数箇所への手書き複製を避ける）。
 
     改善計画T359: `shared_pedestrian_path`は、河川敷サイクリングロード等
     「highway=footway/pathかつbicycle=yes/designated（自転車通行可の歩行者道）」という
@@ -80,10 +79,9 @@ def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, 
 def bicycle_infra_flags_or_none(tags: dict[str, str] | None, highway: str | None) -> dict[str, bool] | None:
     """改善計画T347フォローアップ: `bicycle_infra_flags`を「データ欠損はNone」の規約に
     倒すラッパー。呼び出し元（material_catalog.pyのextractor・evaluation.py:
-    compute_edge_axis_scores・openrouteservice_engine.py/road_graph_engine.pyの
-    _build_segment_details）が同じガード条件を4箇所で手書きしていたため、旧
-    classify_bicycle_infrastructureが実際に持っていた「unknown」判定条件をここへ
-    1箇所へ集約する（設計原則1: 正準定義は1箇所）。
+    compute_edge_axis_scores・road_graph_engine.pyの_build_segment_details）が
+    同じガード条件を複数箇所で手書きしていたため、旧classify_bicycle_infrastructureが
+    実際に持っていた「unknown」判定条件をここへ1箇所へ集約する（設計原則1: 正準定義は1箇所）。
 
     `tags is None`（タグ自体が未取得）はNone。`bicycle_infra_flags`自体はhighway=Noneでも
     例外を投げず具体的なbool値を返してしまうが、素朴に`highway is None`だけをNoneへ倒すと、

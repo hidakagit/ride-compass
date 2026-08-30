@@ -406,10 +406,10 @@ async def test_delete_rejects_code_coupled_axis_id_after_unpublish(road_graph_se
 @pytest.mark.parametrize("axis_id", ["night", "wind"])
 async def test_delete_allows_axis_id_after_t352_generalization(road_graph_session, axis_id):
     # 改善計画T352: night（time_scope="night_only"）・wind（supports_route_coloring=True）は
-    # 以前`_CODE_COUPLED_AXIS_IDS`に含まれ削除禁止だったが、road_graph_engine.py/
-    # openrouteservice_engine.pyのT173ロジック・frontend routeStyleModes.tsの
-    # ハードコードをそれぞれ宣言的フィールドへ汎用化したことで、axis_idの直接
-    # ハードコードが解消された。削除できる（コード結合が無いことの回帰テスト）。
+    # 以前`_CODE_COUPLED_AXIS_IDS`に含まれ削除禁止だったが、road_graph_engine.pyの
+    # T173ロジック・frontend routeStyleModes.tsのハードコードをそれぞれ宣言的フィールドへ
+    # 汎用化したことで、axis_idの直接ハードコードが解消された。削除できる
+    # （コード結合が無いことの回帰テスト）。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition(axis_id, is_published=False))

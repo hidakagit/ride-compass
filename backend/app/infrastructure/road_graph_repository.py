@@ -90,7 +90,7 @@ from app.domain.graph import (
 from app.domain.region import BoundingBox
 from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
-from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS, SURFACE_MATCH_MAX_DISTANCE_M
+from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     INTERSECTION_MATCH_MAX_DISTANCE_M,
@@ -269,10 +269,10 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                         ) AS geom,
                         -- クリック時の車ストレス内訳表示（改善計画T90）が、ポップアップに
-                        -- 出た値と同じ行を曖昧さ無く引き直すための識別子。get_nearest_way_tags
-                        -- の空間マッチ(半径内最近傍)だと交差点付近で別の道路を拾いうる
-                        -- （実機確認で判明）ため、フィーチャーが指す行そのものをosm_way_id
-                        -- 完全一致で引く（get_way_tags_by_osm_way_id）。
+                        -- 出た値と同じ行を曖昧さ無く引き直すための識別子。空間マッチ
+                        -- (半径内最近傍)だと交差点付近で別の道路を拾いうる（実機確認で判明）
+                        -- ため、フィーチャーが指す行そのものをosm_way_id完全一致で引く
+                        -- （get_way_tags_by_osm_way_id）。
                         w.osm_way_id AS osm_way_id,
                         CASE
                             WHEN lower(btrim(w.surface)) = ANY(:good_tags) THEN true
@@ -525,50 +525,10 @@ _POI_TILE_MVT_SQL = text(
 )
 
 
-# 座標点列→最近傍road_edgeのsurfaceタグ取得（改善計画T21、評価のエンジン非依存化）。
-# ORS産geometryのサンプル点を自前DBのEdgeへ空間マッチする用途。
-#
-# LATERAL側は`ORDER BY e.geom <-> pts.geom LIMIT 1`のみ（WHERE句を持たない）でGiST索引の
-# 純粋なKNNスキャンにする。最大距離の足切り（`ST_DWithin(..., ::geography, :max_distance_m)`）は
-# 選ばれた1行に対して外側のCASEで行う。当初はLATERAL内に`WHERE ST_DWithin(...)`を直接書いていたが、
-# `ORDER BY <-> LIMIT`にWHERE句を同居させると、範囲内に候補が無い点ではプランナが
-# 「フィルタに合う1行が見つかるまでKNN順に全行を舐める」実行計画になり、関東本土全域規模の
-# road_edges（134万行）で1点あたり数秒級に悪化することを実測で確認した（EXPLAIN ANALYZEで
-# `Rows Removed by Filter`が全行分出る。ローカルPostGIS実データ22,164行でも1点3.4秒）。
-# WHERE句を外側へ追い出すとLATERALは常にO(log n)のKNN索引スキャン1回で終わり、
-# 同条件で1点あたり数ミリ秒（12点合計38ms）まで改善した。
-_NEAREST_SURFACE_SQL = text(
-    """
-    WITH pts AS (
-        SELECT
-            ord,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
-        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
-    )
-    SELECT pts.ord,
-           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.surface END AS surface
-    FROM pts
-    LEFT JOIN LATERAL (
-        SELECT e.osm_way_id, e.geom
-        FROM road_edges e
-        ORDER BY e.geom <-> pts.geom
-        LIMIT 1
-    ) nearest ON true
-    LEFT JOIN osm_raw_ways w ON w.osm_way_id = nearest.osm_way_id
-    ORDER BY pts.ord
-    """
-).bindparams(
-    bindparam("lats", type_=ARRAY(Float())),
-    bindparam("lons", type_=ARRAY(Float())),
-)
-
 # 静的道路属性P1（信号・横断歩道・一時停止・踏切のnode取込・停止密度評価）。
-# _NEAREST_SURFACE_SQLと違い「最近傍1件」ではなく「距離内の件数」を求める単純な
-# LEFT JOIN + COUNTのため、ORDER BY <-> LIMITは使わない（T21コメントにある
-# 「WHEREをKNNと同居させる」アンチパターンには該当せず、GiST索引で素直に
-# index nested loopになる）。edge_idはWHEREで先に絞るため、LEFT JOINでも
-# 指定edge_id全件が0件を含めて1行ずつ返る。
+# 「最近傍1件」ではなく「距離内の件数」を求める単純なLEFT JOIN + COUNTのため、
+# ORDER BY <-> LIMITは使わない（GiST索引で素直にindex nested loopになる）。
+# edge_idはWHEREで先に絞るため、LEFT JOINでも指定edge_id全件が0件を含めて1行ずつ返る。
 # 改善計画T64: JOIN条件がST_DWithin(geography)単体だとGiST索引を使わずJoin Filter
 # （全組み合わせ評価）に落ちる（_INTERSECTION_COUNTS_SQLのコメント・T64実測参照）。
 # `&&`（geometry型のバウンディングボックス演算子）を前置してGiST索引を先に使わせてから
@@ -589,34 +549,6 @@ _STOP_POI_COUNTS_SQL = text(
     GROUP BY e.edge_id
     """
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
-
-# ORSエンジン用（サンプル点ごとの近傍件数）。_NEAREST_SURFACE_SQLと同じUNNEST WITH
-# ORDINALITY構造だが、単純な件数JOINのため_NEAREST_SURFACE_SQLの回避策（WHEREを
-# LATERAL外へ出す）は元々不要。kindフィルタは_STOP_POI_COUNTS_SQLのコメント参照
-# （T145b実装中に発見したバグの修正、両クエリで対称に適用）。
-_NEAREST_STOP_POI_COUNTS_SQL = text(
-    """
-    WITH pts AS (
-        SELECT
-            ord,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
-        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
-    )
-    SELECT pts.ord, COUNT(p.osm_node_id) AS stop_count
-    FROM pts
-    LEFT JOIN osm_raw_pois p
-        ON p.geom && ST_Expand(pts.geom, :max_distance_deg)
-       AND ST_DWithin(p.geom::geography, pts.geog, :max_distance_m)
-       AND p.kind = ANY(:stop_kinds)
-    GROUP BY pts.ord
-    ORDER BY pts.ord
-    """
-).bindparams(
-    bindparam("lats", type_=ARRAY(Float())),
-    bindparam("lons", type_=ARRAY(Float())),
-    bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())),
-)
 
 # 外部静的データソース T50残作業（事故密度の評価組み込み）。_STOP_POI_COUNTS_SQLと同じ
 # 「edge_idそれぞれの距離内件数」パターンだが、対象テーブルがaccident_pointsで
@@ -644,38 +576,8 @@ _ACCIDENT_COUNTS_SQL = text(
     bindparam("fatal_weight", value=ACCIDENT_FATAL_WEIGHT, type_=Float()),
 )
 
-# ORSエンジン用（サンプル点ごとの近傍件数）。_NEAREST_STOP_POI_COUNTS_SQLと同じ構造。
-_NEAREST_ACCIDENT_COUNTS_SQL = text(
-    """
-    WITH pts AS (
-        SELECT
-            ord,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
-        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
-    )
-    SELECT pts.ord,
-           SUM(CASE WHEN a.accident_id IS NULL THEN 0 WHEN a.fatal THEN :fatal_weight ELSE 1 END) AS accident_count
-    FROM pts
-    LEFT JOIN accident_points a
-        ON a.geom && ST_Expand(pts.geom, :max_distance_deg)
-       AND ST_DWithin(a.geom::geography, pts.geog, :max_distance_m)
-       AND (:bicycle_only = false OR a.involves_bicycle)
-    GROUP BY pts.ord
-    ORDER BY pts.ord
-    """
-).bindparams(
-    bindparam("lats", type_=ARRAY(Float())),
-    bindparam("lons", type_=ARRAY(Float())),
-    bindparam("bicycle_only", type_=Boolean()),
-    bindparam("fatal_weight", value=ACCIDENT_FATAL_WEIGHT, type_=Float()),
-)
-
 # 指定路線コンフレーション機構（外部静的データソース T51）。designation_attributesは
 # match_designations.pyの事前計算バッチが埋める（クエリ時にはバッファ交差計算をしない）。
-# サンプル点版は改善計画T76で_NEAREST_WAY_TAGS_SQLへ統合し、専用クエリは廃止した
-# （同一サンプル点集合に対する3本目の独立KNNラウンドトリップだったため。詳細は
-# _NEAREST_WAY_TAGS_SQLのコメント参照）。
 #
 # 改善計画T74: designation_attributesはosm_way_idキーへ変更したが、呼び出し元
 # （get_designated_edge_ids）は構築済みgraph（graph.edges.keys()、road_graph_engine.py）の
@@ -711,7 +613,7 @@ _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
 )
 
 # 車ストレスの区間別判定内訳表示（改善計画T90）。get_way_tags_by_osm_way_idが使う。
-# _NEAREST_WAY_TAGS_SQLと違い空間マッチをしない完全一致1行取得のため、KNNより単純。
+# 空間マッチをしない完全一致1行取得。
 _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
     """
     SELECT
@@ -725,69 +627,6 @@ _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
     WHERE w.osm_way_id = :osm_way_id
     """
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
-
-# 静的道路属性P1残り（車ストレス・自転車インフラの評価組み込み）。_NEAREST_SURFACE_SQLと
-# 同じ「最近傍1件」パターンだが、surfaceに加えhighway・tags(jsonb)も返す
-# （domain/axis_definitions.pyのcar_stress軸/domain/recipe.py: bicycle_infra_flagsの入力）。
-# 改善計画T76: is_designated（外部静的データソース T51、KSJ N10/N12該当）もここへ統合する。
-# 以前はget_nearest_designated_flagsが同一サンプル点集合に対して独立のLATERAL KNN
-# （WITH pts〜LEFT JOIN LATERAL road_edgesの骨格ごとコピー）を3本目のラウンドトリップとして
-# 実行しており、並行道路付近でhighway/tagsとis_designatedが別のedge由来になる不整合の
-# 可能性もあった。nearest.osm_way_idを1回のKNNで求め、designation_attributesへのEXISTSを
-# 同じCASE式（ST_DWithinゲート）に同居させることでクエリ・ラウンドトリップとも1本化する。
-# 改善計画T74: designation_attributesがosm_way_idキーになったため、EXISTS判定も
-# nearest.osm_way_id（既にKNNで取得済み、道路種別tags取得のosm_raw_ways JOINと同じキー）で
-# 直接判定する。edge_idを経由する必要が無くなった。
-_NEAREST_WAY_TAGS_SQL = text(
-    """
-    WITH pts AS (
-        SELECT
-            ord,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
-        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
-    )
-    SELECT pts.ord,
-           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.highway END AS highway,
-           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m) THEN w.tags END AS tags,
-           CASE WHEN ST_DWithin(nearest.geom::geography, pts.geog, :max_distance_m)
-                THEN EXISTS(
-                    SELECT 1 FROM designation_attributes da
-                    WHERE da.osm_way_id = nearest.osm_way_id AND da.kind = ANY(:kinds)
-                )
-                ELSE false
-           END AS is_designated
-    FROM pts
-    LEFT JOIN LATERAL (
-        SELECT e.osm_way_id, e.geom
-        FROM road_edges e
-        ORDER BY e.geom <-> pts.geom
-        LIMIT 1
-    ) nearest ON true
-    LEFT JOIN osm_raw_ways w ON w.osm_way_id = nearest.osm_way_id
-    ORDER BY pts.ord
-    """
-).bindparams(
-    bindparam("lats", type_=ARRAY(Float())),
-    bindparam("lons", type_=ARRAY(Float())),
-    bindparam("kinds", type_=ARRAY(Text())),
-)
-
-def _restore_ordinality_order(rows, count: int, default, value_fn=lambda row: row[1]):
-    """`UNNEST(...) WITH ORDINALITY`で1始まりのord列を振ったSQL結果を、元の入力順・
-    入力件数のリストへ復元する（改善計画T81）。
-
-    「ordは1始まり・欠落（該当0件/範囲外）は既定値」という暗黙規約が、
-    get_nearest_surface_tags等6メソッドへ同型の`by_ord = {...}; return [by_ord.get(i+1,
-    default) for ...]`イディオムとして分散していた。SQL側変更時のオフバイワン
-    （全属性が隣のサンプル点の値になる）を防ぐため1箇所へ集約する。
-
-    `rows`の各行は先頭要素がord、`value_fn`がその行から値を組み立てる（既定は2列目を
-    そのまま使う。3列以上をタプルへ束ねる場合はvalue_fnを渡す）。
-    """
-    by_ord = {row[0]: value_fn(row) for row in rows}
-    return [by_ord.get(i + 1, default) for i in range(count)]
-
 
 def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
     """`&&`によるバウンディングボックス事前フィルタ用に、距離(m)を安全側の緯度経度差(度)へ
@@ -817,9 +656,9 @@ def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
 # 精密に絞り込む。`geom::geography`へキャストしたST_DWithinは本環境の実測でGiST索引を
 # 使わない全件Seq Scan + Nested Loopになり（road_nodes 25,608件で単純な1点問い合わせが
 # 132msかかることをEXPLAIN ANALYZEで確認）、複数点をまとめて処理すると数秒〜数十秒に
-# 劣化する。`&&`はgeometry型の演算子で確実にインデックスを使うため（_NEAREST_SURFACE_SQL等の
-# 既存クエリも`ORDER BY geom <-> geom`のKNN索引か`geom && bbox`のいずれかで索引を使わせており、
-# ST_DWithin(geography)単体には頼っていない）、まずこれで候補を数件程度まで絞ってから
+# 劣化する。`&&`はgeometry型の演算子で確実にインデックスを使うため（本ファイルの既存クエリも
+# `geom && bbox`で索引を使わせており、ST_DWithin(geography)単体には頼っていない）、
+# まずこれで候補を数件程度まで絞ってから
 # ST_DWithinで正確な距離判定をする。
 _INTERSECTION_COUNTS_SQL = text(
     """
@@ -930,33 +769,6 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
         algorithm_version = EXCLUDED.algorithm_version
     """
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
-
-# ORSエンジン用（サンプル点ごとの近傍交差点件数）。_INTERSECTION_COUNTS_SQLと同様、T151で
-# `road_nodes.degree`参照へ簡略化した（以前はcandidate_nodesに接続するroad_edgesを
-# 都度集計していたが、事前計算済み列を読むだけで同じ結果になるため不要になった）。
-_NEAREST_INTERSECTION_COUNTS_SQL = text(
-    """
-    WITH pts AS (
-        SELECT
-            ord,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom,
-            ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
-        FROM unnest(CAST(:lats AS float8[]), CAST(:lons AS float8[])) WITH ORDINALITY AS t(lat, lon, ord)
-    )
-    SELECT pts.ord, COUNT(rn.node_id) AS intersection_count
-    FROM pts
-    JOIN road_nodes rn
-        ON rn.geom && ST_Expand(pts.geom, :max_distance_deg)
-        AND ST_DWithin(rn.geom::geography, pts.geog, :max_distance_m)
-        AND rn.degree >= :degree_threshold
-    GROUP BY pts.ord
-    ORDER BY pts.ord
-    """
-).bindparams(
-    bindparam("lats", type_=ARRAY(Float())),
-    bindparam("lons", type_=ARRAY(Float())),
-)
-
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -> RoadGraph:
     """`get_graph_in_bbox`用。Edgeが数万〜十数万行になる規模のため、1行ずつ
@@ -2047,27 +1859,6 @@ class AttributeRepository(_SessionRepository):
                 result[edge_id] = surface
         return result
 
-    async def get_nearest_surface_tags(
-        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[str | None]:
-        """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeの
-        surfaceタグを返す（入力と同じ順序・同じ長さ。該当Edgeが無い/surfaceタグ無しはNone）。
-
-        改善計画T21（評価のエンジン非依存化）: openrouteserviceエンジンがgeometry上の
-        サンプル点をこのメソッドで自前DBのEdgeへ空間マッチし、road_graphエンジンと
-        同じOSMタグ語彙（domain/road.py: classify_osm_surface）で評価できるようにする。
-        1回のSQLで全点をまとめて処理する（_NEAREST_SURFACE_SQL参照、点数分のラウンド
-        トリップを避ける）。
-        """
-        if not points:
-            return []
-        lats = [p[0] for p in points]
-        lons = [p[1] for p in points]
-        result = await self._session.execute(
-            _NEAREST_SURFACE_SQL, {"lats": lats, "lons": lons, "max_distance_m": max_distance_m}
-        )
-        return _restore_ordinality_order(result.all(), len(points), None)
-
     async def get_stop_poi_counts(
         self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
     ) -> dict[str, int]:
@@ -2091,36 +1882,13 @@ class AttributeRepository(_SessionRepository):
                 result[edge_id] = stop_count
         return result
 
-    async def get_nearest_stop_poi_counts(
-        self, points: list[tuple[float, float]], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
-    ) -> list[int]:
-        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある信号・横断歩道・
-        一時停止・踏切（osm_raw_pois）の件数を返す（入力と同じ順序・同じ長さ、静的道路属性P1）。
-
-        改善計画T21のget_nearest_surface_tagsと同じ考え方（openrouteserviceエンジンが
-        geometry上のサンプル点をこのメソッドで自前DBへ空間マッチする）。1回のSQLで
-        全点をまとめて処理する。
-        """
-        if not points:
-            return []
-        lats = [p[0] for p in points]
-        lons = [p[1] for p in points]
-        result = await self._session.execute(
-            _NEAREST_STOP_POI_COUNTS_SQL,
-            {
-                "lats": lats, "lons": lons, "max_distance_m": max_distance_m,
-                "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
-            },
-        )
-        return _restore_ordinality_order(result.all(), len(points), 0)
-
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         """osm_way_id完全一致で(highway, tags, is_designated)を返す（改善計画T90）。
 
-        `get_nearest_way_tags`の空間マッチ（半径内最近傍）は、交差点付近など複数の道路が
-        近接する場所で、実際にクリックされたMVTフィーチャー（`_ROAD_SURFACE_TILE_MVT_SQL`が
-        同じosm_way_idをプロパティとして焼き込み済み）とは別の道路を拾いうることが実機確認で
-        判明した（ポップアップの`car_stress`表示値と、内訳ボタンで計算した値が食い違う）。
+        空間マッチ（半径内最近傍）は、交差点付近など複数の道路が近接する場所で、実際に
+        クリックされたMVTフィーチャー（`_ROAD_SURFACE_TILE_MVT_SQL`が同じosm_way_idを
+        プロパティとして焼き込み済み）とは別の道路を拾いうることが実機確認で判明した
+        （ポップアップの`car_stress`表示値と、内訳ボタンで計算した値が食い違う）。
         フィーチャーが指す行そのものをosm_way_idで引き直すことで、この不整合を構造的に防ぐ。
 
         該当way自体が存在しない（極端な状況、タイル生成後の再取込等）場合はNone。
@@ -2148,35 +1916,6 @@ class AttributeRepository(_SessionRepository):
         if row is None:
             return None
         return (row.length_m, row.accident_count, row.stop_count, row.intersection_count)
-
-    async def get_nearest_way_tags(
-        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[tuple[str | None, dict[str, str], bool]]:
-        """(lat, lon)点列それぞれについて、`max_distance_m`以内の最近傍road_edgeが
-        参照するosm_raw_waysの(highway, tags, is_designated)を返す（入力と同じ順序・同じ長さ、
-        静的道路属性P1残り＋外部静的データソースT51）。get_nearest_surface_tagsと同じ
-        空間マッチ方式で、openrouteserviceエンジンの車ストレス・自転車インフラ・
-        指定路線該当（carStress補正）評価の入力になる。
-
-        is_designatedは以前get_nearest_designated_flagsという専用メソッド・専用SQLだったが、
-        同一サンプル点集合に対する3本目の独立KNNだったため改善計画T76でここへ統合した
-        （_NEAREST_WAY_TAGS_SQLのコメント参照）。
-        """
-        if not points:
-            return []
-        lats = [p[0] for p in points]
-        lons = [p[1] for p in points]
-        result = await self._session.execute(
-            _NEAREST_WAY_TAGS_SQL,
-            {
-                "lats": lats, "lons": lons, "max_distance_m": max_distance_m,
-                "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
-            },
-        )
-        return _restore_ordinality_order(
-            result.all(), len(points), (None, {}, False),
-            value_fn=lambda row: (row[1], row[2] or {}, row[3]),
-        )
 
     async def get_intersection_counts(
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
@@ -2210,31 +1949,6 @@ class AttributeRepository(_SessionRepository):
                 result[edge_id] = intersection_count
         return result
 
-    async def get_nearest_intersection_counts(
-        self, points: list[tuple[float, float]], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
-    ) -> list[int]:
-        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある交差点（次数
-        `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（入力と同じ順序・
-        同じ長さ、静的道路属性P1残り）。get_nearest_stop_poi_countsと同じ考え方で、
-        点ごとの近傍road_node候補をGiST索引で求め、事前計算済みの`road_nodes.degree`
-        （改善計画T151）と比較する（_NEAREST_INTERSECTION_COUNTS_SQL参照）。
-        """
-        if not points:
-            return []
-        lats = [p[0] for p in points]
-        lons = [p[1] for p in points]
-        result = await self._session.execute(
-            _NEAREST_INTERSECTION_COUNTS_SQL,
-            {
-                "lats": lats,
-                "lons": lons,
-                "max_distance_m": max_distance_m,
-                "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
-                "degree_threshold": INTERSECTION_DEGREE_THRESHOLD,
-            },
-        )
-        return _restore_ordinality_order(result.all(), len(points), 0)
-
     async def get_accident_counts(
         self, edge_ids: list[str], bicycle_only: bool = True, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
     ) -> dict[str, float]:
@@ -2261,31 +1975,6 @@ class AttributeRepository(_SessionRepository):
             for edge_id, accident_count in rows.all():
                 result[edge_id] = float(accident_count)
         return result
-
-    async def get_nearest_accident_counts(
-        self,
-        points: list[tuple[float, float]],
-        bicycle_only: bool = True,
-        max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M,
-    ) -> list[float]:
-        """(lat, lon)点列それぞれについて、`max_distance_m`以内にある事故の件数
-        （死亡事故重み付け）を返す（入力と同じ順序・同じ長さ、外部静的データソース T50残作業）。
-        get_nearest_stop_poi_countsと同じ考え方（openrouteserviceエンジンがgeometry上の
-        サンプル点をこのメソッドで自前DBへ空間マッチする）。`bicycle_only`既定値は
-        get_accident_countsと同じ理由でTrue。
-        """
-        if not points:
-            return []
-        lats = [p[0] for p in points]
-        lons = [p[1] for p in points]
-        result = await self._session.execute(
-            _NEAREST_ACCIDENT_COUNTS_SQL,
-            {
-                "lats": lats, "lons": lons, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m,
-                "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
-            },
-        )
-        return _restore_ordinality_order(result.all(), len(points), 0.0)
 
     async def get_accident_years_covered(self) -> int:
         """事故データの収録年数（accident_import_runsの成功run、年重複なし）を返す。
@@ -2550,20 +2239,10 @@ class RoadGraphRepository:
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         return await self.attributes.get_surface_attributes(edge_ids)
 
-    async def get_nearest_surface_tags(
-        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[str | None]:
-        return await self.attributes.get_nearest_surface_tags(points, max_distance_m=max_distance_m)
-
     async def get_stop_poi_counts(
         self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
     ) -> dict[str, int]:
         return await self.attributes.get_stop_poi_counts(edge_ids, max_distance_m=max_distance_m)
-
-    async def get_nearest_stop_poi_counts(
-        self, points: list[tuple[float, float]], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
-    ) -> list[int]:
-        return await self.attributes.get_nearest_stop_poi_counts(points, max_distance_m=max_distance_m)
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)
@@ -2571,35 +2250,15 @@ class RoadGraphRepository:
     async def get_way_attribute_counts(self, osm_way_id: int) -> tuple[float, float, int, int] | None:
         return await self.attributes.get_way_attribute_counts(osm_way_id)
 
-    async def get_nearest_way_tags(
-        self, points: list[tuple[float, float]], max_distance_m: float = SURFACE_MATCH_MAX_DISTANCE_M
-    ) -> list[tuple[str | None, dict[str, str], bool]]:
-        return await self.attributes.get_nearest_way_tags(points, max_distance_m=max_distance_m)
-
     async def get_intersection_counts(
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
     ) -> dict[str, int]:
         return await self.attributes.get_intersection_counts(edge_ids, max_distance_m=max_distance_m)
 
-    async def get_nearest_intersection_counts(
-        self, points: list[tuple[float, float]], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
-    ) -> list[int]:
-        return await self.attributes.get_nearest_intersection_counts(points, max_distance_m=max_distance_m)
-
     async def get_accident_counts(
         self, edge_ids: list[str], bicycle_only: bool = True, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
     ) -> dict[str, float]:
         return await self.attributes.get_accident_counts(edge_ids, bicycle_only=bicycle_only, max_distance_m=max_distance_m)
-
-    async def get_nearest_accident_counts(
-        self,
-        points: list[tuple[float, float]],
-        bicycle_only: bool = True,
-        max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M,
-    ) -> list[float]:
-        return await self.attributes.get_nearest_accident_counts(
-            points, bicycle_only=bicycle_only, max_distance_m=max_distance_m
-        )
 
     async def get_accident_years_covered(self) -> int:
         return await self.attributes.get_accident_years_covered()

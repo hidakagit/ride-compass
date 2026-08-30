@@ -19,10 +19,10 @@ class RouteSegment(BaseModel):
 class RouteSegmentDetail(BaseModel):
     """周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
 
-    gradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負）。
-    両エンジン共通（openrouteservice: 区間標高差から算出 / road_graph:
-    ElevationAttribute.average_grade）。フロントの勾配色分け（routeStyleModes.ts）は
-    この符号を前提に「下り」カテゴリを持つため、絶対値で返してはならない。
+    gradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負、
+    ElevationAttribute.average_gradeから算出）。フロントの勾配色分け
+    （routeStyleModes.ts）はこの符号を前提に「下り」カテゴリを持つため、絶対値で
+    返してはならない。
 
     geometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの
     部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を
@@ -95,9 +95,8 @@ class RouteCandidate(BaseModel):
     `intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の
     名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で
     フロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ
-    移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.py・
-    openrouteservice_engine.pyの集約計算）もこのフィールドへ値を渡すためだけの
-    処理だったため、併せて撤去済み。
+    移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.pyの
+    集約計算）もこのフィールドへ値を渡すためだけの処理だったため、併せて撤去済み。
     """
 
     id: str

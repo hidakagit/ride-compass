@@ -11,7 +11,6 @@ from app.api.dependencies import (
     get_elevation_attribute_service,
     get_graph_service,
     get_region_service,
-    get_surface_match_repository,
 )
 from app.config import settings
 from app.infrastructure.accident_repository import AccidentTileQuery
@@ -69,30 +68,6 @@ class TestGetElevationAttributeService:
             service = await agen.__anext__()
             assert isinstance(service, ElevationAttributeService)
             assert service._repository is None
-        finally:
-            await agen.aclose()
-
-
-class TestGetSurfaceMatchRepository:
-    async def test_yields_repository_when_enabled(self, monkeypatch):
-        monkeypatch.setattr(settings, "road_graph_use_repository", True)
-
-        agen = get_surface_match_repository()
-        try:
-            repository = await agen.__anext__()
-            assert isinstance(repository, RoadGraphRepository)
-        finally:
-            await agen.aclose()
-
-    async def test_yields_none_when_disabled(self, monkeypatch):
-        # openrouteserviceエンジン専用の「DBなし構成」で今も現役の分岐（dependencies.pyの
-        # get_surface_match_repositoryのdocstring参照）。
-        monkeypatch.setattr(settings, "road_graph_use_repository", False)
-
-        agen = get_surface_match_repository()
-        try:
-            repository = await agen.__anext__()
-            assert repository is None
         finally:
             await agen.aclose()
 

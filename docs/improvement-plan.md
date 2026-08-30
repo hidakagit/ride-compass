@@ -604,4 +604,4 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 
 ## openrouteserviceエンジンの完全削除（2026-08-31・ユーザー指示）
 
-- [ ] [T462](tasks/T462.md). openrouteserviceエンジンを完全削除しroad_graphへ一本化する 規模L（2026-08-31起票）
+- [x] [T462](tasks/T462.md). openrouteserviceエンジンを完全削除しroad_graphへ一本化する 規模L（2026-08-31完了）

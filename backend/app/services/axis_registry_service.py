@@ -55,8 +55,8 @@ class AxisDefinitionSyncError(RuntimeError):
 # 可否）とは独立の制約で、下書きへ戻した後（unpublish→delete）でも削除できない
 # ようにする。将来、axis_idをハードコード参照するコードが増えた場合はここへ追加する。
 #
-# 改善計画T352: 以前は`night`（road_graph_engine.py/openrouteservice_engine.pyの
-# T173ロジック）・`wind`（frontend routeStyleModes.tsのRouteStyleModeId）もここに
+# 改善計画T352: 以前は`night`（road_graph_engine.pyのT173ロジック）・
+# `wind`（frontend routeStyleModes.tsのRouteStyleModeId）もここに
 # 含めていたが、それぞれ`AxisDefinition.time_scope`・`supports_route_coloring`という
 # 性質ベースの宣言的フィールドへ汎用化したことで、axis_idの直接ハードコードが
 # コードから消えた（削除しても対応するコードが黙って「この性質を持つ軸が無い」として

@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,28 +13,17 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     cors_allowed_origins: str = "http://localhost:3000"
-    openrouteservice_api_key: str = ""
-    # /api/routes/generateのルーティングエンジン切り替え。"road_graph"（自前Road Graph+
-    # scipy.sparse.csgraph Dijkstra、外部APIキー不要。road_graph_engine.py）と
-    # "openrouteservice"（外部APIキー方式、Road Graph移行前の実装。openrouteservice_engine.py）
-    # のどちらを使うかを選べる。改善計画T236（経路品質比較、致命的な差異なし）・T241
-    # （道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・
-    # DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て、既定値を
-    # road_graphへ切り替えた（2026-08-23、ユーザー判断）。road_graphを使うには
-    # `DATABASE_URL`への実接続が必須（改善計画T222でDBなし構成を撤去済みのため）。
-    routing_engine: Literal["road_graph", "openrouteservice"] = "road_graph"
     # Road Graph/Road Attributeの永続化先（PostGIS）。docker-compose.ymlのpostgresサービスに
     # 対応する。ElevationAttributeServiceへrepositoryを明示的に注入した場合にのみ使われる
     # （infrastructure/database.py, road_graph_repository.py）。GraphServiceは改善計画T222で
     # repository必須（このURLへの接続必須）へ一本化済み。
     database_url: str = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
     # Road Graphの永続化（PostGIS）をランタイムのread-throughキャッシュとして使うかどうか。
-    # ElevationAttributeService・地図表示系（RegionService/AccidentService、
-    # ORSエンジンの路面評価用surface_match_repository）へRoadGraphRepositoryを注入するかを
-    # 切り替える。database_urlのDBへ実際に接続できない環境ではFalseにすること（これらは
-    # DBなしで動作する）。GraphService（get_or_build_graph_with_attributes等、
-    # routing_engine=road_graphのルート生成が使う）はこの設定に関わらず常にrepositoryを
-    # 必要とする（改善計画T222でDBなし構成を撤去済みのため、Falseのままroad_graphエンジンを
+    # ElevationAttributeService・地図表示系（RegionService/AccidentService）へ
+    # RoadGraphRepositoryを注入するかを切り替える。database_urlのDBへ実際に接続できない
+    # 環境ではFalseにすること（これらはDBなしで動作する）。GraphService
+    # （get_or_build_graph_with_attributes等、ルート生成が使う）はこの設定に関わらず
+    # 常にrepositoryを必要とする（改善計画T222でDBなし構成を撤去済みのため、Falseのまま
     # 使うとGraphService経由のDBアクセスが失敗する）。
     # 改善計画T283: 既定はTrue（DB接続ありを前提）。以前はFalseが既定だったため、新環境
     # 構築時にこの設定を明示し忘れると「ルート生成は動くのに地図レイヤーがすべて空」という
@@ -69,8 +57,8 @@ class Settings(BaseSettings):
     # 元はapi/routes.pyのモジュール定数だったが、環境（Render無料枠/ローカル/負荷試験）で
     # 調整したい運用値のため.envで上書き可能にした（改善計画T5）。各値の根拠は以下の通り。
     #
-    # /preview・/weatherは/generateほど高コストではないが、いずれも外部APIの無料枠を
-    # 消費する（openrouteservice: 日次2000リクエストをgenerateと共有 / Open-Meteo）。
+    # /preview・/weatherは/generateほど高コストではないが、/weatherは外部API
+    # （Open-Meteo）の無料枠を消費する。
     preview_rate_limit_per_minute: int = 20
     weather_rate_limit_per_minute: int = 60
     # 風の格子点マップ（改善計画T178フォローアップ）は1回で関東本土全域（約624地点、
@@ -101,9 +89,9 @@ class Settings(BaseSettings):
     # 起点で呼ばれる想定。観測値自体はRedis Hash（TTL 15分）でキャッシュされるため、
     # 実際のJMA呼び出しは大半がキャッシュヒットになる。
     weather_amedas_rate_limit_per_minute: int = 30
-    # ルート生成は最も高コストなエンドポイント（openrouteserviceエンジン: 8方位分のORS呼び出し＋
-    # 標高・天候の外部API / road_graphエンジン: Overpass・GSIへの大量問い合わせでコールド時
-    # 40〜70秒）のため、per-IPレート制限に加えプロセス全体の同時実行数も制限する。
+    # ルート生成は最も高コストなエンドポイント（PostGISへの大量問い合わせ・コールド時の
+    # Road Graph再構築で数十秒〜最大300秒超）のため、per-IPレート制限に加えプロセス全体の
+    # 同時実行数も制限する。
     # 上限超過は待たせず429で即座に返す（ブラウザのリトライや連打で外部サービスへの負荷が
     # 積み上がることを防ぐ）。
     generate_rate_limit_per_minute: int = 10

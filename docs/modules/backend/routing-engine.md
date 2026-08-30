@@ -3,37 +3,36 @@
 ## 責務
 
 出発地点（＋任意で経由地・目的地）から、周回または経由地ルートの候補を複数生成し、
-距離・難易度でスコアリングして返す。実際の経路計算・軸評価は2つの差し替え可能な
-エンジン（road_graph・openrouteservice）へ委譲する。Road Graph自体（ノード・Edge・
-交差点分割・空間索引）の構築・永続化・キャッシュもこのモジュールが担う。
+距離・難易度でスコアリングして返す。実際の経路計算・軸評価はroad_graphエンジン
+（自前Road Graph + scipy Dijkstra）が担う（改善計画T462でopenrouteserviceエンジンを
+撤去し一本化）。Road Graph自体（ノード・Edge・交差点分割・空間索引）の構築・永続化・
+キャッシュもこのモジュールが担う。
 
 **対象ファイル**
 
 | レイヤー | ファイル |
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
-| services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`openrouteservice_engine.py`・`routing_service.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`ors_client.py` |
+| services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`graph_service.py` |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py` |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py` |
 
-## エンジンの切り替え（`config.py: routing_engine`）
+road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `scipy.sparse.csgraph`の
+Dijkstraで経路計算する。標高（勾配）は事前計算済み`elevation_attributes`をキー参照
+するだけで組み込み済み（探索中にGSI API呼び出しは発生しない）。風は出発時点の起点
+付近の風をルート全体へ一様適用する（探索中は到達時刻が未確定のため）。
 
-`Literal["road_graph", "openrouteservice"]`（既定`"road_graph"`）で切り替える。
-
-| エンジン | 実装 | 特徴 |
-|---|---|---|
-| `road_graph`（既定） | `road_graph_engine.py`。自前Road Graph（DB由来のノード/Edge）+ `scipy.sparse.csgraph`のDijkstra | 標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで組み込み済み（探索中にGSI API呼び出しは発生しない）。風は出発時点の起点付近の風をルート全体へ一様適用 |
-| `openrouteservice` | `openrouteservice_engine.py`。外部ORS Directions APIへ経路計算を委譲し、評価だけ自前で行う | 区間ごとの推定到達時刻の風を使う（road_graphとは風の扱いが異なる。レスポンスの`engine`フィールドで識別可能）。路面判定はサンプル点を自前DBのEdgeへ空間マッチして行う（domain語彙はroad_graphと統一済み） |
-
-`RouteGenerateRequest.waypoints`/`destination`（経由地・目的地指定）は**road_graph
-エンジンのみ対応**（`api/routers/routes.py: generate_routes`が投稿時点で判定し、
-openrouteservice選択時は400を返す）。
+`RouteGenerateRequest.waypoints`/`destination`（経由地・目的地指定）にも対応する
+（`api/routers/routes.py: generate_routes`）。
 
 ## 戦略層（`route_generator.py: RouteGenerator`）
 
-エンジン非依存の周回生成戦略を1箇所に持つ。`LoopRoutingEngine`という3メソッドの契約
-（Protocol、`prepare`/`trace_loop`/`evaluate_loops`）を両エンジンが実装する。
+`LoopRoutingEngine`という3メソッドの契約（Protocol、`prepare`/`trace_loop`/
+`evaluate_loops`）を挟むことで、`RouteGenerator`自体は探索エンジンの内部実装を
+知らない設計になっている（改善計画T462でopenrouteserviceエンジンを撤去した後も、
+将来別方式のエンジンを差し込める余地としてこのProtocol自体は残してある）。
+現在の実装は`RoadGraphEngine`のみ。
 
 ```
 RouteGenerator.generate_loops()
@@ -128,37 +127,7 @@ get_edges_with_geometry`で実ジオメトリを後付けする。`evaluate_loop
 区間の推定到達時刻（風評価と同じ`arrival_time`、追加の到達時刻計算は行わない）が
 その地点の市民薄明の外（`domain/twilight.is_night`）なら夜間軸の重みをそのまま、
 日中なら0倍にして合成する（`domain/axis_definitions.py: time_scoped_weights`が
-`AxisDefinition.time_scope="night_only"`を持つ軸を汎用的に判定する）。このロジックは
-OpenRouteServiceEngineとroad_graph_engine.pyの両方が同じ`time_scoped_weights`関数を
-呼ぶ形で共有されている。
-
-## OpenRouteServiceEngine（`openrouteservice_engine.py`）
-
-`RoutingService`（`ORSClient`への薄いラッパー）へ経路計算そのものを委譲し、評価
-（標高・風・路面・車ストレス等）だけを自前で行う。
-
-- **サンプリング密度**: `sample_count_for_distance(distance_km)`が距離に応じて
-  約1km間隔（`SAMPLE_INTERVAL_KM=1.0`）になる点数を決め、`MIN_SAMPLE_COUNT=12`〜
-  `MAX_SAMPLE_COUNT=32`でクランプする。上限32は外部API呼び出しの安全弁（標高は
-  1点=GSI 1リクエストのため最悪8候補×32点=256リクエスト/生成）。
-- **`_PointAttributes`（dataclass）**: surface_tag/stop_count/highway/tags/
-  is_designated/intersection_count/accident_countの7属性を1つのdataclassへ束ね、
-  offset簿記を`_split_by_counts`（共通ヘルパー）へ1箇所化している。`repository`
-  未注入時（DBなし構成）は全属性がデフォルト値（`highway=None, tags=None`）になり
-  評価自体をスキップする（`tags=None`と`tags={}`は「repository自体が無い」と
-  「repositoryはあるが空間マッチが範囲外」を意図的に区別する）。
-- **全候補まとめて1回のDB問い合わせ**: 路面・停止密度・車ストレス材料・交差点密度・
-  事故密度のいずれも、候補ごとに分けず全候補分のサンプル点をフラット化して1回で
-  `RoadGraphRepository`へ問い合わせる（`_split_by_counts`で候補単位へ復元）。
-- **風のprefetch**: `gather`の前に`WindService.prefetch`で全候補分の点をまとめて
-  1回先読みしキャッシュを温めておくことで、後続の候補ごとの呼び出しをキャッシュヒット
-  させる（候補ごとに個別発火するとOpen-Meteoへの同時リクエストが増える）。
-- **勾配は符号付き**（進行方向基準、登り=正/下り=負）。`RoadGraphEngine`の
-  `ElevationAttribute.average_grade`と意味を統一する（`domain/route.py:
-  RouteSegmentDetail`の正準定義）。
-- **car_stress**は`car_stress_display_level(axis_difficulties.axes.get("car_stress"))`で
-  公開軸`car_stress`のdifficulty(0-100)から1-5の生値へ逆変換する（road_graph_engine.pyと
-  共通の関数）。
+`AxisDefinition.time_scope="night_only"`を持つ軸を汎用的に判定する）。
 
 ## GraphService（`services/graph_service.py`）
 
@@ -233,16 +202,15 @@ gather開始前のprepare段階で逐次呼ばれるため対象外）。同一`
 ### `domain/geo.py`・`domain/errors.py`
 
 `geo.py`は球面三角法の地理計算（`haversine_distance_km`・`bearing_between`・
-`destination_point`・`compass_label`）と、`OpenRouteServiceEngine`のサンプリング
-（`sample_indices`・`sample_line_points`）を持つ。`LatLon`（`Protocol`）・
+`destination_point`・`compass_label`）を持つ。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
 せずに緯度経度を扱うための軽量な構造的型で、`build_road_graph`・最近傍ノード探索のような
 ホットパスがバリデーションコストを避けるために使う。`destination_point`は経度を
 [-180, 180)へ正規化する（球面三角法の計算結果がこの範囲を超えうるため、正規化しないと
 `Coordinates`のバリデーションが8方位分のwaypoint計算中に同期的に失敗する）。
 
-`errors.py`は`RoutingError`（単一の例外クラス）のみを持つ。両エンジン・
-`RoutingService`・`RouteGenerator`が経路探索の失敗を表すのに共通で使う。
+`errors.py`は`RoutingError`（単一の例外クラス）のみを持つ。`RoadGraphEngine`・
+`RouteGenerator`が経路探索の失敗を表すのに共通で使う。
 
 ## infrastructure層
 
@@ -334,16 +302,11 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
 手段が無い）——このためRedisを正本にできず、書き込みは常にPostGISが担いRedisは読み取り
 高速化の派生キャッシュに留める設計になっている。
 
-### `ors_client.py`
-
-`httpx.AsyncClient`をコンストラクタ注入で共有する（呼び出しごとに新規生成しない）。
-`x-ratelimit-remaining`ヘッダ（日次2000リクエストの無料枠残量）をログへ記録する。
-
 ## API（`api/routers/routes.py`）
 
 | エンドポイント | 内容 |
 |---|---|
-| `POST /api/routes/preview` | 2点間の単純なルート取得（`RoutingService`経由の薄いラッパー。`RouteGenerator`の周回戦略は使わない） |
+| `POST /api/routes/preview` | 2点間の単純なルート取得（`get_preview_builder`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない） |
 | `POST /api/routes/generate` | 202を即座に返す非同期ジョブ投稿。`BackgroundTasks`でジョブ本体（`_run_generate_job`）を実行 |
 | `GET /api/routes/generate/{job_id}` | ジョブの状態・結果を取得（`job_registry`、サーバー再起動で失われる） |
 
@@ -354,9 +317,9 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
 - **`RoutePreferenceWeights`/`HardFilterOverride`は「上書きするなら全項目を明示する」
   方針**（`model_validator`でキー集合の完全一致を強制）。`RoutePreferenceWeights`の
   対象は`AXIS_DEFINITIONS`の公開軸のみ（内部軸は含まない）。
-- ジョブ失敗時、クライアントへは汎用メッセージのみ返す: `ors_client.py`の
-  `RoutingError`は外部APIの生レスポンス本文を例外メッセージに含むため、詳細は
-  `logger.exception`でサーバーログにのみ残す。
+- ジョブ失敗時、クライアントへは汎用メッセージのみ返す: 例外の生メッセージ
+  （PostGIS/内部処理のエラー詳細を含みうる）は`logger.exception`でサーバーログに
+  のみ残す。
 
 ## batch: `precompute_road_node_degrees.py`
 
@@ -368,12 +331,9 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
 
 ## 暗黙の前提のまとめ
 
-- **road_graphとopenrouteserviceで風・夜間の評価タイミングが異なる**: road_graphは
-  出発時点1点の風/昼夜判定をルート全体へ一様適用（探索中は到達時刻が未確定という制約）。
-  openrouteserviceは区間ごとの推定到達時刻を使う。レスポンスの`engine`フィールドで
-  どちらの定義かを判別できる。
-- **`car_stress_display_level`は両エンジンが共有する**（`AXIS_DEFINITIONS["car_stress"]`を
-  直接参照する関数）。
+- **風・夜間の評価は出発時点1点で決まる**: 探索中は到達時刻が未確定という制約のため、
+  出発時点の起点付近の風/昼夜判定をルート全体へ一様適用する（区間ごとの推定到達時刻は
+  使わない）。
 - **`GraphService`の`_repository_lock`は`get_edges_with_geometry`のみを保護する**
   ——他のメソッドは常にgather開始前の逐次実行段階でしか呼ばれないためロック不要という
   前提に立っている。新しいメソッドを`trace_loop`のgather内から呼ぶ場合はこの前提が

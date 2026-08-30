@@ -1,4 +1,4 @@
-"""Phase 1 E2E検証: PBF取込済みのPostGISだけを使い、routing_engine=road_graph相当の
+"""Phase 1 E2E検証: PBF取込済みのPostGISだけを使い、road_graphエンジンでの
 ルート生成が完走することを確認する。
 
 前提: app/batch/import_pbf.pyで対象範囲（東京駅周辺を含むbbox）を取込済みであること。

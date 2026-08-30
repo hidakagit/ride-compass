@@ -32,12 +32,12 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定 | `wbgt_service.py` |
 | `wbgt_points.py` | 緯度経度→最寄りWBGT情報提供地点（約840地点の総当たり最近傍探索） | `wbgt_service.py` |
 | `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出 | `flood_service.py` |
-| `twilight.py` | 市民薄明による夜間判定（`is_night`）・日の出日没計算（`sunrise_sunset_jst`） | `jma_amedas_service.py`（表示用）・[routing-engine.md](routing-engine.md)の両エンジン（night軸の動的化） |
-| `night.py` | way_tagsからnight軸材料フラグ（`no_lit`・`has_tunnel`）を解決 | 両ルーティングエンジン |
+| `twilight.py` | 市民薄明による夜間判定（`is_night`）・日の出日没計算（`sunrise_sunset_jst`） | `jma_amedas_service.py`（表示用）・[routing-engine.md](routing-engine.md)のroad_graphエンジン（night軸の動的化） |
+| `night.py` | way_tagsからnight軸材料フラグ（`no_lit`・`has_tunnel`）を解決 | road_graphエンジン |
 
 `twilight.py`・`night.py`の2ファイルは外部APIに依存しないローカルの天文計算のみで、
-実際の主消費者は[routing-engine.md](routing-engine.md)が主管する`road_graph_engine.py`/
-`openrouteservice_engine.py`である。
+実際の主消費者は[routing-engine.md](routing-engine.md)が主管する`road_graph_engine.py`
+である。
 
 ## API（`api/routers/weather.py`）
 
@@ -70,14 +70,17 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 | `targetTimes*.json`（パス末尾判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 |
 | ラスタタイル本体 | `tile_cache`（ファイルキャッシュ、`basemap_client.py`と共有） | 無期限（basetime/validtime/z/x/y確定後は内容不変のため） |
 
-## 天候取得の2つの経路（`weather_service.py: WeatherService`）
+## 天候取得（`weather_service.py: WeatherService`）
 
 | メソッド | 用途 | 時刻 | daily/weather_code |
 |---|---|---|---|
 | `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 常に現在時刻 | 埋まる |
-| `get_conditions_many(...)` | `WindService`向け、複数地点・複数時刻をまとめて解決 | ルート上の各点＋推定到達時刻（未来時刻） | 常にNone/空リスト |
 | `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 全hourly時系列（約48時間） | 対象外 |
-| `prefetch(points)` | `WindService`が候補間でOpen-Meteo呼び出しを1回へ集約するための先読み | - | - |
+
+`get_conditions_many(...)`・`prefetch(points)`（複数地点・複数時刻をまとめて解決する
+経路）はopenrouteserviceエンジン専用の`WindService`（区間ごとの推定到達時刻の風評価）が
+唯一の呼び出し元だった。改善計画T462でWindServiceを削除した結果、本番コードからの
+呼び出し元が無くなっている（死コード。除去は別タスクで対応予定）。
 
 ## その他のサービス
 

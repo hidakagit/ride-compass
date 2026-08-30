@@ -309,10 +309,9 @@ def _extract_highway(ctx: MaterialExtractionContext) -> str | None:
 # highway×bicycleのAND条件）は正規化フラグの線形結合では近似できないと実データ検証済み
 # のため意図的に対象外（軸定義側の車ストレス補正では「roadway」扱いへ丸められる、
 # 実データでのズレ0.0127%は許容）。抽出ロジック自体は`domain/recipe.py: bicycle_infra_flags`
-# へ集約し（evaluation.py/openrouteservice_engine.pyの3つのスカラー評価経路が同じ材料を
-# 手組みするmaterials辞書へ`**bicycle_infra_flags(...)`で混ぜ込む、bicycle_infra材料と
-# 同じ構成）、ここではbulk抽出フェーズ（MaterialExtractionContext）向けの薄いラッパのみ
-# 持つ。
+# へ集約し（evaluation.pyの各スカラー評価経路が同じ材料を手組みするmaterials辞書へ
+# `**bicycle_infra_flags(...)`で混ぜ込む、bicycle_infra材料と同じ構成）、ここでは
+# bulk抽出フェーズ（MaterialExtractionContext）向けの薄いラッパのみ持つ。
 def _extract_highway_is_cycleway(ctx: MaterialExtractionContext) -> bool | None:
     flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
     return None if flags is None else flags["highway_is_cycleway"]
