@@ -27,5 +27,15 @@ describe("gradientAxisLayer（改善計画T423）", () => {
       const expression = buildGradientColorExpression(["get", "gradientValue"]);
       expect(expression[1]).toEqual(["==", ["get", "gradientValue"], null]);
     });
+
+    it("改善計画T440: boundariesを省略時はGRADIENT_BOUNDARIES、明示時は軸スタジオ由来のしきい値の個数に段階数が追従する", () => {
+      const defaultExpr = buildGradientColorExpression(["get", "gradientValue"]);
+      const stepDefault = defaultExpr[3] as unknown[];
+      expect(stepDefault).toHaveLength(3 + GRADIENT_BOUNDARIES.length * 2);
+
+      const customExpr = buildGradientColorExpression(["get", "gradientValue"], [0, 5]);
+      const stepCustom = customExpr[3] as unknown[];
+      expect(stepCustom).toHaveLength(3 + 2 * 2);
+    });
   });
 });

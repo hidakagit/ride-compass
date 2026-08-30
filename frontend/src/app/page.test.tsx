@@ -107,6 +107,8 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         panel_hint: null,
         show_map_icon: true,
         supports_route_coloring: false,
+        shape: { kind: "breakpoint_linear", terms: [{ material: "lanes_count", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
+        display_thresholds_override: null,
       },
     ],
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド

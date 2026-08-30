@@ -737,6 +737,10 @@ export interface components {
             supports_route_coloring: boolean;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
+            /** Shape */
+            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+            /** Display Thresholds Override */
+            display_thresholds_override: number[] | null;
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {

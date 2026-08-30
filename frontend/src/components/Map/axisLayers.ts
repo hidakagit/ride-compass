@@ -23,7 +23,12 @@
 // 寄与値を直接指定する（weightは無視。domain/axis_display.py: derive_ramp_inputs参照）。
 
 import type { LegendEntry } from "./legendFilter";
+import type { components } from "@/types/generated/api";
 import axisCatalog from "@/types/generated/axis-catalog.json";
+
+// 改善計画T440: AxisDefinition.shapeのフロント側型（GET /api/axis-catalog:
+// AxisCatalogEntry.shapeと同じ、OpenAPI生成物由来）。
+export type AxisShape = components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
 
 export interface AxisTileInput {
   property: string;
@@ -136,6 +141,17 @@ export interface CatalogAxis {
   // （routeStyleModes.ts: routeColorableModesFromCatalogAxes）の選択肢として動的に
   // 使えるかの宣言。未設定はfalse相当（対象外）として扱う。
   supports_route_coloring?: boolean;
+  // 改善計画T440: 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
+  // フィールド）をまとめて返す方針（ユーザー指摘「axis-catalogは、軸スタジオで決められる
+  // こと全部返すほうがいい」）で追加。routeStyleModes.tsが、axis_idのハードコード分岐では
+  // なくこのデータから「符号付き値を直接読むべきか」「その場合どの材料id
+  // （≒RouteSegmentDetailのフィールド名）を読むか」を判定する
+  // （isSignedAbsShape・buildRangeSteppedMode参照）。
+  shape?: AxisShape;
+  // 改善計画T440: 地図タイルramp表示（display.thresholds、kind="ramp"の軸のみ）経由では
+  // なく、生の上書き値をそのまま返す。ルート結果の色分けのしきい値
+  // （routeStyleModes.ts: buildRangeSteppedMode）の唯一の正として使う。
+  display_thresholds_override?: number[] | null;
 }
 
 // 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、

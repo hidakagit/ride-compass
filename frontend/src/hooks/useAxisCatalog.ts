@@ -96,6 +96,8 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     panel_hint: entry.panel_hint,
     show_map_icon: entry.show_map_icon,
     supports_route_coloring: entry.supports_route_coloring,
+    shape: entry.shape,
+    display_thresholds_override: entry.display_thresholds_override,
   };
 }
 

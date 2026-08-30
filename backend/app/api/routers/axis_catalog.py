@@ -37,7 +37,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.api.dependencies import get_region_service
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisShape
 from app.domain.axis_display import axis_display_for, primary_attribute_ids_for
 from app.domain.registry import AxisDisplaySpec
 from app.services.region_service import RegionService
@@ -76,6 +76,22 @@ class AxisCatalogEntry(BaseModel):
     # axis-catalog.jsonのregistry.py: AxisSpec.inputsをそのまま使っており、GUI作成軸を
     # 含まなかった）。
     primary_attribute_ids: list[str]
+    # 改善計画T440: 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
+    # フィールド）を個別に選んでフィールド追加するのではなく、まとめて返す方針にした
+    # （ユーザー指摘「axis-catalogは、軸スタジオで決められること全部返すほうがいい。
+    # 連動されるためには」）。shapeはルート結果の色分け（frontend routeStyleModes.ts）が、
+    # 「符号付き値を直接読むべきか（shape.kind==="breakpoint_linear" &&
+    # shape.preprocess==="abs"）」「その場合どの材料id（≒RouteSegmentDetailのフィールド名）
+    # を読むか（shape.terms[0].material）」を、axis_idのハードコード分岐ではなく軸データ
+    # から導出するために必要（gradientの実データ: kind="breakpoint_linear"、
+    # preprocess="abs"、terms=[{material:"gradient_percent"}]）。
+    shape: AxisShape
+    # 改善計画T352で新設済みのフィールドだが、今まで`display`（axis_display_for()が
+    # kind="ramp"軸向けに導出した値、kind="none"の軸[gradient等]では常に空配列）経由でしか
+    # 露出しておらず、生の上書き値を読み取れなかった。ルート結果の色分けのしきい値
+    # （frontend routeStyleModes.ts: buildRangeSteppedMode）の唯一の正として使うため、
+    # 生の値をそのまま返す。
+    display_thresholds_override: list[float] | None
 
 
 class AxisCatalogResponse(BaseModel):
@@ -126,6 +142,8 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 show_map_icon=definition.show_map_icon,
                 supports_route_coloring=definition.supports_route_coloring,
                 primary_attribute_ids=primary_attribute_ids_for(definition),
+                shape=definition.shape,
+                display_thresholds_override=definition.display_thresholds_override,
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published

@@ -1752,6 +1752,31 @@
             },
             "type": "array",
             "title": "Primary Attribute Ids"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreakpointLinearShape"
+              },
+              {
+                "$ref": "#/components/schemas/CategoricalShape"
+              }
+            ],
+            "title": "Shape"
+          },
+          "display_thresholds_override": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Thresholds Override"
           }
         },
         "type": "object",
@@ -1767,7 +1792,9 @@
           "panel_hint",
           "show_map_icon",
           "supports_route_coloring",
-          "primary_attribute_ids"
+          "primary_attribute_ids",
+          "shape",
+          "display_thresholds_override"
         ],
         "title": "AxisCatalogEntry"
       },

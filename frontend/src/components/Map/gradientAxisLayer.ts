@@ -11,11 +11,9 @@
 import {
   COLOR_DOWNHILL,
   COLOR_NO_DATA,
-  COLOR_UP_MILD,
-  COLOR_UP_STEEP,
   GRADIENT_BOUNDARIES,
-  GRADIENT_COLOR_FLAT,
   GRADIENT_COLOR_HARD,
+  interpolateColors,
 } from "./routeStyleModes";
 
 /** setFeatureStateで差し込む状態キー（MapView.tsx側もこの値を使う、片側import）。 */
@@ -26,21 +24,27 @@ export const GRADIENT_AXIS_FEATURE_STATE_KEY = "gradientValue";
  * 異なる——評価軸グループ（gradientAxisColorExpression、feature-state経由）と環境グループの
  * gridFill（gradientGridFill.ts、["get",...]経由）が同じ配色・しきい値を共有するという契約
  * （T400.md「2.」節）をコード上でも1箇所に集約する。ルート確定後の色分け
- * （routeStyleModes.ts: STATIC_MODESの"gradient"）とも同じ配色・しきい値
- * （GRADIENT_BOUNDARIES）を共有し、ルートの有無によらず同じ色の意味で見比べられるようにする
- * （routeStyleModes.tsのGRADIENT_BOUNDARIESコメント参照）。値が無い地物（まだフェッチして
- * いない等）はCOLOR_NO_DATA（灰色）にする。 */
-export function buildGradientColorExpression(valueExpression: unknown[]): unknown[] {
-  const colorExpression: unknown[] = ["step", valueExpression, COLOR_DOWNHILL];
-  const colors = [GRADIENT_COLOR_FLAT, COLOR_UP_MILD, COLOR_UP_STEEP, GRADIENT_COLOR_HARD];
-  GRADIENT_BOUNDARIES.forEach((boundary, index) => {
-    colorExpression.push(boundary, colors[index]);
+ * （routeStyleModes.ts: routeColorableModeFromAxisの符号付き経路）とも同じ配色・しきい値を
+ * 共有し、ルートの有無によらず同じ色の意味で見比べられるようにする。改善計画T440:
+ * boundariesは軸スタジオのdisplay_thresholds_override由来（未指定時はGRADIENT_BOUNDARIES）
+ * で、要素数に関わらず動作する（interpolateColorsが段階数ぶんの色を自動生成するため、
+ * 固定4色の配列を持たない）。値が無い地物（まだフェッチしていない等）はCOLOR_NO_DATA
+ * （灰色）にする。 */
+export function buildGradientColorExpression(
+  valueExpression: unknown[],
+  boundaries: readonly number[] = GRADIENT_BOUNDARIES
+): unknown[] {
+  const colors = interpolateColors(COLOR_DOWNHILL, GRADIENT_COLOR_HARD, boundaries.length + 1);
+  const colorExpression: unknown[] = ["step", valueExpression, colors[0]];
+  boundaries.forEach((boundary, index) => {
+    colorExpression.push(boundary, colors[index + 1]);
   });
   return ["case", ["==", valueExpression, null], COLOR_NO_DATA, colorExpression];
 }
 
 /** gradient値のfeature-state値を色へ変換するMapLibre expression。["feature-state", key]は
- * 該当キーが未設定のfeatureに対しnullを返す（MapLibreの仕様）。 */
-export function gradientAxisColorExpression(): unknown[] {
-  return buildGradientColorExpression(["feature-state", GRADIENT_AXIS_FEATURE_STATE_KEY]);
+ * 該当キーが未設定のfeatureに対しnullを返す（MapLibreの仕様）。boundariesは省略時
+ * GRADIENT_BOUNDARIES（改善計画T440、buildGradientColorExpression参照）。 */
+export function gradientAxisColorExpression(boundaries?: readonly number[]): unknown[] {
+  return buildGradientColorExpression(["feature-state", GRADIENT_AXIS_FEATURE_STATE_KEY], boundaries);
 }

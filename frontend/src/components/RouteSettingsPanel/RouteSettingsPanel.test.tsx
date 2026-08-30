@@ -53,6 +53,8 @@ function catalogResponse(
         panel_hint: null,
         show_map_icon: true,
         supports_route_coloring: false,
+        shape: { kind: "breakpoint_linear", terms: [{ material: "gradient_percent", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
+        display_thresholds_override: null,
       };
     }),
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
@@ -240,6 +242,8 @@ describe("RouteSettingsPanel", () => {
             panel_hint: null,
             show_map_icon: false,
             supports_route_coloring: true,
+            shape: { kind: "breakpoint_linear", terms: [{ material: "wind_penalty", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
+            display_thresholds_override: null,
           },
         ],
         material_runtime_scales: {},
@@ -280,6 +284,8 @@ describe("RouteSettingsPanel", () => {
             panel_hint: null,
             show_map_icon: false,
             supports_route_coloring: true,
+            shape: { kind: "breakpoint_linear", terms: [{ material: "wind_penalty", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
+            display_thresholds_override: null,
           },
         ],
         material_runtime_scales: {},

@@ -165,6 +165,10 @@ def main() -> None:
                     "panel_hint": AXIS_DEFINITIONS[axis.axis_id].panel_hint,
                     "show_map_icon": AXIS_DEFINITIONS[axis.axis_id].show_map_icon,
                     "display": axis.display.model_dump() if axis.display is not None else None,
+                    # 改善計画T440: GET /api/axis-catalog（AxisCatalogEntry）と同じ「軸スタジオで
+                    # 決められること全部返す」方針を静的フォールバックにも揃える。
+                    "shape": AXIS_DEFINITIONS[axis.axis_id].shape.model_dump(),
+                    "display_thresholds_override": AXIS_DEFINITIONS[axis.axis_id].display_thresholds_override,
                 }
                 for axis in all_axes()
             ],

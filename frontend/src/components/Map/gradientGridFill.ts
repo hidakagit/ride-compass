@@ -62,6 +62,6 @@ export function gradientGridCellsFromTileResponses(
  * （面）・評価軸（線）は同じ[向き]入力を共有するという契約（T400.md「2.」節）に加え、色の
  * 意味も揃えることで両者を見比べやすくする。feature-state版と異なり、こちらはgeojson
  * sourceのプロパティを直接["get",...]で読む。 */
-export function gradientFillColorExpression(): unknown[] {
-  return buildGradientColorExpression(["get", "gradientValue"]);
+export function gradientFillColorExpression(boundaries?: readonly number[]): unknown[] {
+  return buildGradientColorExpression(["get", "gradientValue"], boundaries);
 }

@@ -3,7 +3,7 @@
     {
       "axis_id": "gradient",
       "label": "勾配",
-      "supports_route_coloring": false,
+      "supports_route_coloring": true,
       "category": "観測",
       "primary_attribute_ids": [
         "elevation"
@@ -20,7 +20,46 @@
         "thresholds": [],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "gradient_percent",
+            "weight": 1.0,
+            "required": true
+          }
+        ],
+        "preprocess": "abs",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            3.0,
+            25.0
+          ],
+          [
+            6.0,
+            50.0
+          ],
+          [
+            9.0,
+            75.0
+          ],
+          [
+            15.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": [
+        -2.0,
+        2.0,
+        6.0,
+        10.0
+      ]
     },
     {
       "axis_id": "wind",
@@ -40,12 +79,34 @@
         "thresholds": [],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "wind_penalty",
+            "weight": 1.0,
+            "required": true
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            8.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": null
     },
     {
       "axis_id": "surface_q",
       "label": "舗装質",
-      "supports_route_coloring": false,
+      "supports_route_coloring": true,
       "category": "観測",
       "primary_attribute_ids": [
         "surface"
@@ -77,7 +138,16 @@
         ],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "categorical",
+        "material": "surface_good",
+        "mapping": {
+          "true": 0.0,
+          "false": 80.0
+        }
+      },
+      "display_thresholds_override": null
     },
     {
       "axis_id": "stop_density",
@@ -129,7 +199,38 @@
         ],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "stop_count_per_km",
+            "weight": 1.0,
+            "required": true
+          },
+          {
+            "material": "intersection_count_per_km",
+            "weight": 0.3,
+            "required": false
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            4.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": [
+        1.0,
+        2.0,
+        4.0
+      ]
     },
     {
       "axis_id": "car_stress",
@@ -290,7 +391,53 @@
         ],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "car_stress_highway_base",
+            "weight": 1.0,
+            "required": true
+          },
+          {
+            "material": "car_stress_maxspeed_adjustment",
+            "weight": 1.0,
+            "required": false
+          },
+          {
+            "material": "car_stress_lanes_adjustment",
+            "weight": 1.0,
+            "required": false
+          },
+          {
+            "material": "car_stress_designation_adjustment",
+            "weight": 1.0,
+            "required": false
+          },
+          {
+            "material": "car_stress_motor_vehicle_no_adjustment",
+            "weight": 1.0,
+            "required": false
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            4.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": [
+        2.0,
+        3.0,
+        4.0
+      ]
     },
     {
       "axis_id": "accident",
@@ -329,7 +476,33 @@
         ],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "accident_count_per_km_year",
+            "weight": 1.0,
+            "required": true
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.5,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": [
+        0.133,
+        0.267,
+        0.5
+      ]
     },
     {
       "axis_id": "night",
@@ -380,7 +553,34 @@
         ],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "no_lit",
+            "weight": 50.0,
+            "required": true
+          },
+          {
+            "material": "has_tunnel",
+            "weight": 50.0,
+            "required": true
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            100.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": null
     },
     {
       "axis_id": "bicycle_infra_quality",
@@ -479,7 +679,57 @@
         ],
         "unit": "",
         "note": ""
-      }
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "highway_is_cycleway",
+            "weight": -4.0,
+            "required": true
+          },
+          {
+            "material": "cycleway_has_track",
+            "weight": -4.0,
+            "required": true
+          },
+          {
+            "material": "cycleway_has_lane",
+            "weight": -2.0,
+            "required": true
+          },
+          {
+            "material": "cycleway_has_shared",
+            "weight": -1.0,
+            "required": true
+          },
+          {
+            "material": "shared_pedestrian_path",
+            "weight": -4.0,
+            "required": true
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            -4.0,
+            0.0
+          ],
+          [
+            -2.0,
+            33.3
+          ],
+          [
+            -1.0,
+            66.7
+          ],
+          [
+            0.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": null
     }
   ],
   "primary_attributes": [
