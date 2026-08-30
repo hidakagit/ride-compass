@@ -15,10 +15,16 @@
 | `Map/windAxisLayer.ts`・`gradientAxisLayer.ts` | ルート確定前の評価軸グループ線の色式 |
 | `Map/windPenalty.ts`・`gradientGridFill.ts` | ルート確定前の環境グループ面（gridFill）の値計算・色式 |
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
-| `Map/axisLayers.ts` | ramp軸（`RAMP_AXES`）の生成、色補間ヘルパー |
+| `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（共有色ヘルパー、windAxisLayer/gradientAxisLayerが使う）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `Map/mapLayers.ts` | `isDedicatedWayValueLayerId`・`isAxisStudioLayer`（レイヤーID判定） |
+| `Map/MapView.tsx`（windAxis/gradientAxis/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
 | `hooks/useDynamicWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得） |
-| `services/axisAdminApi.ts`・`regionApi.ts` | backend APIラッパー |
+| `services/axisAdminApi.ts`・`regionApi.ts`（`fetchDynamicWayValues`のみ） | backend APIラッパー |
+
+**`MapView.tsx`は路面タイル・動的気象（降水/風の矢印/雷/竜巻）・POI等のロジックも持つ
+ファイルで、それらは[地図: 静的レイヤー・道路表示](static-map-layers.md)・
+[地図: 動的気象レイヤー](dynamic-weather-layers.md)の管轄。本ドキュメントはwindAxis/
+gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に関わる箇所のみを扱う。**
 
 ## ルート確定前後で異なる値source（3つの表示、共通しきい値）
 
@@ -55,6 +61,22 @@
   補間する（固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する）。
 - `DIFFICULTY_MODE`（総合難易度）だけがフロントの固定モード——特定のaxis_idに紐づかず
   全軸の重み付き合成コストそのものを表示するため、軸スタジオと同期する対象にならない。
+- `filterRouteStyleModesByPreference`: `routePreference`で重み0にした軸のモードを
+  選択肢から除外する（`page.tsx`側で使用）。
+- `DEFAULT_ROUTE_STYLE_MODE_ID`は`ROUTE_STYLE_MODES[0].id`から導出する。
+
+## windAxisLayer.ts / gradientAxisLayer.ts（ルート確定前の評価軸グループ線）
+
+- `windAxisLayer.ts`: `WIND_AXIS_FEATURE_STATE_KEY = "windPenalty"`。
+  `WIND_AXIS_THRESHOLDS = [-6, -2, 2, 6]`はフロント側の固定定数。
+- `gradientAxisLayer.ts`: `GRADIENT_AXIS_FEATURE_STATE_KEY = "gradientValue"`。
+  境界値は`routeStyleModes.ts: GRADIENT_BOUNDARIES`（軸スタジオの
+  `display_thresholds_override`由来、未設定時のデフォルト）を共有し、windと異なり
+  軸スタジオ非依存のハードコードではない。
+- 両者とも`buildXxxColorExpression(valueExpression, boundaries?)`という「値の取得元
+  （feature-state or geojsonプロパティ）だけが呼び出し側で異なる」共通ロジックを持ち、
+  評価軸グループ（feature-state経由）と環境グループのgridFill（`["get",...]`経由）が
+  同じ配色・しきい値を共有する契約をコード上でも1箇所に集約する。
 
 ## windPenalty.ts / gradientGridFill.ts（環境グループの面表示、計算方法が異なる）
 
@@ -64,10 +86,16 @@
 | 計算方法 | `windPenalty()`——backend `WindCalculator.wind_penalty`のJS移植（物理式） | フェッチ元のタイル境界を1セルとして平均集計（追加のAPI呼び出し無し） |
 | セルの単位 | 格子点を中心とする正方形（`gridCellRing`） | タイル境界そのもの（`tileRing`） |
 
+`windPenalty()`は`WindCalculator.wind_penalty`（backend）と同一計算をfrontendで実装した
+もの。`windPenalty.test.ts`が既知入出力ペアでbackendとの一致を検証する。
+
 ## useDynamicWayValues.ts（フェッチ・状態管理）
 
 viewportをデバウンス（500ms）してから、表示中のタイル範囲ぶんをまとめて1回の
 リクエストで取得する（パン・ズームのたびに個別way_idを都度問い合わせない）。
+**`bearingDeg`（走行方位）もviewportと同じ500msでデバウンスする**——コンパススライダー
+（`WindBearingSlider`）はドラッグ中`onChange`を連続発火するため、素の値を依存配列に
+入れるとドラッグ1回で「可視タイル数×連続イベント数」ぶんのfetchが発生してしまうため。
 `enabled=false`の間はfetchせず結果も空へ戻す。
 
 戻り値は2種類:
@@ -77,3 +105,70 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 - `byTile: TileDynamicWayValues[]`（タイルごとの生応答）——勾配の環境グループgridFill
   （タイル境界セル）が使う。風のgridFillは別経路（風グリッド由来の格子点）のため
   `byTile`は使わない。
+
+`materialId`（"wind"/"gradient"）ごとに呼び出し側（`page.tsx`）が別々にこのフックを
+インスタンス化する。連続する呼び出しの間に古いリクエストが後から解決しても新しい結果を
+上書きしないよう、リクエストの世代（`seq`、複数タイルの`Promise.all`をまたぐカウンタ）で
+最新のものだけを反映する。
+
+## MapView.tsx側の配線
+
+`windAxisLayer.ts`/`gradientAxisLayer.ts`が組み立てる色式（純粋なMapLibre expression）は、
+それ自体では地図に何も描かない。実際の地図反映は`MapView.tsx`側の以下の機構が担う。
+
+```
+page.tsx
+  ├─ useDynamicWayValues("wind", showWindAxis, viewport, windBearingDeg, targetTime)
+  │     → windAxisPenalties (ReadonlyMap<wayId, value>)
+  ├─ useDynamicWayValues("gradient", showGradientAxis||showGradientFill, viewport, gradientBearingDeg, undefined)
+  │     → gradientAxisValues / gradientFillPayload(gradientGridCellsFromTileResponses経由)
+  ▼
+<MapView windAxisPenalties={...} gradientAxisValues={...} gradientFillGeojson={...} .../>
+  ├─ makeEnsureDedicatedWayValueLayer(layerId, colorExpression)
+  │     → windAxis/gradientAxisレイヤーをroad_surfaceタイルの独立レイヤーとして初回のみ追加
+  │       （ensureRoadSurfaceTileLayerが先にpromoteId付きsourceを用意している前提）
+  ├─ applyAxisFeatureStateValues(map, featureStateKey, values)
+  │     → map.setFeatureState({source, sourceLayer, id: wayId}, {[key]: value}) を全way分実行
+  └─ clearRoadTileFeatureState(map)
+        → showWindAxis・showGradientAxisが両方falseへ揃った瞬間、setFeatureStateした
+          全道路ぶんの値を明示的にクリアする1つのeffectに統合されている
+          （`map.removeFeatureState`はsource/sourceLayer単位で全キーを一括で消す
+          MapLibre仕様のため、風・勾配のどちらか一方だけがOFFになった時点でクリアすると
+          もう片方の色分けまで巻き添えで消える。両方falseになるまで待つガードで防ぐ）
+```
+
+- `promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" }`（`ensureRoadSurfaceTileLayer`）が
+  MVTフィーチャーへ安定したidを持たせる前提条件——これが無いと`setFeatureState`が使えない。
+- `windAxis`/`gradientAxis`のensure関数は`ROAD_TILE_LAYER_ID`（路面本体）と同じ
+  `ROAD_TILE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を共有する独立レイヤーとして追加される
+  （`designation`/`tunnel`/`oneway`と同型の構成）。
+- `windAxisPenalties`/`gradientAxisValues`はパン・ズームのたびに変わりうる値のため、
+  「表示ON/OFF」を担う一括effect（`STATIC_OVERLAY_LAYERS`ループ）とは別の専用effectで
+  反映する（無関係な再実行を避けるため）。
+- **`map.setStyle()`（「変わらないデータを更新」ボタン経由の基礎地図キャッシュクリア）は
+  カスタムレイヤーを全て消すため、`redrawAllLayers`が全レイヤーを再構築する。この際
+  `windAxisPenalties`/`gradientAxisValues`の値自体は変わっていないため通常の依存effectは
+  再実行されないが、`redrawAllLayers`が`applyAxisFeatureStateValues`を明示的に再呼び出しする
+  ことで、setStyle直後に評価軸レイヤーが無色のまま残る事故を防いでいる**（暗黙の前提:
+  この明示的な再適用を忘れると、setStyle後は視覚的にレイヤー自体は存在するが完全に無色の
+  ままになる）。
+
+**暗黙の前提**: `windAxisPenalties`/`gradientAxisValues`という命名は`MapViewProps`上
+軸ごとの別名propのまま（汎用的な`Record<materialId, ReadonlyMap<wayId,value>>`のような
+形にはなっていない）。
+
+`WIND_PENALTY_FILL_LAYER_ID`（環境グループの風penalty gridFill）は`DYNAMIC_WEATHER_
+RENDERERS`側の管理下にあり`STATIC_OVERLAY_LAYERS`に含まれないため、そのままでは
+`interactiveLayerIds`（クリック判定対象）に入らない。専用のポップアップ内容を持たないため、
+`handleClick`冒頭で「ヒットしたら何もしない」早期returnガードを持つ。
+
+## 動的気象レイヤーとの関係
+
+`windAxisLayer.ts`/`gradientAxisLayer.ts`が扱う「評価軸グループ」（道路そのものを線で塗る）は、
+`windVector`（矢印・面表示、環境グループの探索用表現）とは完全に独立した見せ方であり、
+同じ`[時刻/向き]`入力を共有するだけで、レイヤー・ソース・フェッチ経路はすべて別individual。
+[地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う`DYNAMIC_WEATHER_RENDERERS`汎用機構
+（風の矢印・降水ナウキャスト等）とは異なり、windAxis/gradientAxisは`mapLayers.ts:
+isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）・サイドバー
+（`MapLayersPanel.tsx`）のどちらにも一切現れない（改善計画T418でルート設定パネルへ
+起動導線を移設済み）。

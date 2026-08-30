@@ -244,7 +244,6 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 安全弁。
 
 - `car_stress`: `car_stress_display_level()`（`axis_definitions.py`）が
-  `AXIS_DEFINITIONS["car_stress"]`を直接ハードコード参照（[T459](../../tasks/T459.md)
-  として起票済み）。
+  `AXIS_DEFINITIONS["car_stress"]`を直接参照する。
 - `gradient`: `domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を
-  辞書キーとして直接ハードコード宣言（[T458](../../tasks/T458.md)として起票済み）。
+  辞書キーとして直接宣言する。
