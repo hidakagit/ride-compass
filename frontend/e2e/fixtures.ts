@@ -68,6 +68,7 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
   return {
     routes: [makeRouteCandidate("route-1", "北", 20.3), makeRouteCandidate("route-2", "南", 19.8)],
     engine: "openrouteservice",
+    no_candidates_reason: null,
     conditions: {
       latitude: 35.7597,
       longitude: 139.7387,

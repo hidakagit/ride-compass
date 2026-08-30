@@ -225,6 +225,26 @@ describe("routeApi", () => {
       expect(result).toEqual({ routes, engine: "road_graph", conditions });
     });
 
+    it("改善計画T441: routesが空でno_candidates_reasonがある場合、noCandidatesReasonとして返し" +
+      "warnレベルでdebugLogに記録する（SSHでサーバーログを見ずに原因が分かるようにする対応）", async () => {
+      stubFetchForJob([
+        {
+          status: "done",
+          result: { routes: [], engine: "road_graph", conditions, no_candidates_reason: "8方位すべてで経路探索に失敗しました" },
+        },
+      ]);
+
+      const result = await generateRoutes(request);
+
+      expect(result.noCandidatesReason).toBe("8方位すべてで経路探索に失敗しました");
+      expect(debugLog).toHaveBeenCalledWith(
+        "api:route",
+        "8方位すべてで経路探索に失敗しました",
+        expect.anything(),
+        "warn",
+      );
+    });
+
     it("queued→runningの間はonProgressへ経過時間つきで通知し、doneで結果を返す", async () => {
       vi.useFakeTimers();
       stubFetchForJob([

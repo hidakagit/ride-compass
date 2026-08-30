@@ -222,6 +222,11 @@ class RouteGenerateResponse(BaseModel):
     # 評価値の精査・比較時にどちらの定義の数値かを判別できるようにする。
     engine: str
     conditions: GenerationConditions
+    # 改善計画T441: routesが空のとき、原因の要約（RouteGenerator.last_no_candidates_reason、
+    # route_generator.pyのlogger.warning行と同じ情報源）。ユーザーが原因を推測できず
+    # SSHでサーバーログを見る以外に切り分け手段が無かった問題への対応（実インシデントを
+    # 受けて追加）。routesが1件以上あるときは常にNone。
+    no_candidates_reason: str | None = None
 
 
 class RouteGenerateJobCreatedResponse(BaseModel):
@@ -339,6 +344,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             response = RouteGenerateResponse(
                 routes=candidates,
                 engine=setup.generator.engine_name,
+                no_candidates_reason=setup.generator.last_no_candidates_reason if not candidates else None,
                 conditions=GenerationConditions(
                     latitude=request.latitude,
                     longitude=request.longitude,

@@ -2592,13 +2592,18 @@ export default function MapView({
     }
     function handleMapError(e: MapLibreErrorEvent) {
       const sourceId = (e as unknown as { sourceId?: string }).sourceId;
-      debugLog("map:error", e.error?.message ?? "unknown error", { sourceId }, "error");
       // スタイル自体がまだ一度もreadyになっていない状態でのerrorは、個別タイルの一過性の
       // 失敗ではなくスタイル取得そのものの失敗である可能性が高い（runWhenStyleReadyが
       // 頼るmap.once("load", ...)がこの後発火しないままdrawBaseRoutes等の描画コールバックが
       // 永久にスキップされる）。デバッグモードに関わらずユーザーへ気づけるようにする。
       const tagged = map as unknown as { __rcStyleReady?: boolean };
-      if (!tagged.__rcStyleReady) {
+      const isFatal = !tagged.__rcStyleReady;
+      // 改善計画T441: スタイル読み込み後に起きるerrorは、大半が個別タイル1枚の一過性の
+      // 取得失敗（パン/ズーム中のキャンセル・瞬断等、次の取得サイクルで自然に解消する）
+      // であり、上記の致命的ケースと同列の"error"にすると常時ノイズになる。
+      // 致命的か一過性かで"error"/"warn"を出し分ける。
+      debugLog("map:error", e.error?.message ?? "unknown error", { sourceId }, isFatal ? "error" : "warn");
+      if (isFatal) {
         setStyleLoadFailed(true);
         setInitialTilesLoading(false);
       }

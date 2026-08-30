@@ -55,14 +55,19 @@ def clear_rate_limiter():
 class FakeRouteGenerator:
     engine_name = "fake-engine"
 
-    def __init__(self, candidates: list[RouteCandidate]):
+    def __init__(self, candidates: list[RouteCandidate], no_candidates_reason: str | None = None):
         self._candidates = candidates
+        # 改善計画T441: 実際のRouteGeneratorが持つ属性（routes.py: _run_generate_jobが
+        # candidatesが空のときだけ読む）。フェイクも同じ属性を持たせて実インターフェースに揃える。
+        self.last_no_candidates_reason = no_candidates_reason
 
     async def generate_loops(self, origin, distance_km, distance_tolerance_km):
         return self._candidates
 
 
-def fake_open_route_generation_setup(candidates: list[RouteCandidate], captured: dict | None = None):
+def fake_open_route_generation_setup(
+    candidates: list[RouteCandidate], captured: dict | None = None, no_candidates_reason: str | None = None
+):
     """`open_route_generation_setup`（改善計画T265、バックグラウンドジョブが使う
     非同期コンテキストマネージャ）のフェイク版。`captured`を渡すと、ジョブへ渡された
     重み上書き（無ければNone）を記録する。"""
@@ -82,7 +87,7 @@ def fake_open_route_generation_setup(candidates: list[RouteCandidate], captured:
             captured["max_average_grade_percent"] = max_average_grade_percent
             captured["hard_filters"] = hard_filters_override
         yield RouteGenerationSetup(
-            generator=FakeRouteGenerator(candidates),
+            generator=FakeRouteGenerator(candidates, no_candidates_reason),
             scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
             route_preference=preference_override or RoutePreference(),
             penalty_strength=penalty_strength,
@@ -134,6 +139,47 @@ def test_generate_routes_returns_empty_list_when_no_candidates_match(monkeypatch
 
     assert result["routes"] == []
     assert result["engine"] == "fake-engine"
+    assert result["no_candidates_reason"] is None
+
+
+def test_generate_routes_echoes_no_candidates_reason(monkeypatch):
+    # 改善計画T441: 候補0件の原因（RouteGenerator.last_no_candidates_reason）が
+    # レスポンスのno_candidates_reasonへそのまま転記されることを確認する
+    # （SSHでサーバーログを見なくてもGUIから原因が分かるようにする対応）。
+    monkeypatch.setattr(
+        routes_module,
+        "open_route_generation_setup",
+        fake_open_route_generation_setup([], no_candidates_reason="道路データが未整備です"),
+    )
+
+    result = submit_and_await_done(REQUEST_BODY)
+
+    assert result["routes"] == []
+    assert result["no_candidates_reason"] == "道路データが未整備です"
+
+
+def test_generate_routes_no_candidates_reason_is_none_when_candidates_present(monkeypatch):
+    # 改善計画T441: 候補が1件でもあれば、（フェイクが理由をセットしていても）
+    # レスポンスのno_candidates_reasonは常にNoneになること（_run_generate_jobの
+    # `if not candidates else None`分岐）。
+    candidates = [
+        RouteCandidate(
+            id="route-000",
+            direction_label="北",
+            distance_km=29.8,
+            geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]},
+        )
+    ]
+    monkeypatch.setattr(
+        routes_module,
+        "open_route_generation_setup",
+        fake_open_route_generation_setup(candidates, no_candidates_reason="無視されるはずの値"),
+    )
+
+    result = submit_and_await_done(REQUEST_BODY)
+
+    assert len(result["routes"]) == 1
+    assert result["no_candidates_reason"] is None
 
 
 def test_generate_routes_echoes_applied_conditions(monkeypatch):

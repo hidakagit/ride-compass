@@ -1140,7 +1140,7 @@ export default function Home() {
         routeMode === "destination"
           ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
           : distanceKm;
-      const { routes: candidates, conditions, engine } = await generateRoutes({
+      const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
         distance_km: effectiveDistanceKm,
@@ -1174,7 +1174,9 @@ export default function Home() {
       });
       setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
-        setErrorMessage("条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
+        // 改善計画T441: バックエンドが原因を特定できた場合はそれを表示する
+        // （routeApi.ts: generateRoutes参照）。特定できない場合のみ従来の汎用文言。
+        setErrorMessage(noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
       } else if (researchEnabled) {
         // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
         // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立、改善計画T29）。

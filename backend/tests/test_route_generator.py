@@ -74,6 +74,8 @@ async def test_generates_one_candidate_per_direction_when_all_within_tolerance()
 
     assert len(candidates) == len(DIRECTIONS_DEG)
     assert {c.id for c in candidates} == {f"route-{b:03d}" for b in DIRECTIONS_DEG}
+    # 改善計画T441: 候補が得られたときはlast_no_candidates_reasonがNoneのままであること。
+    assert generator.last_no_candidates_reason is None
 
 
 async def test_filters_out_candidates_outside_tolerance():
@@ -108,6 +110,10 @@ async def test_returns_empty_list_when_prepare_returns_none():
 
     assert candidates == []
     assert engine.evaluated_traced is None  # 評価まで進まない
+    # 改善計画T441: 候補0件の原因がRouteGenerateResponse.no_candidates_reason経由でGUIへ
+    # 届くよう、人間可読な理由をlast_no_candidates_reasonへ残す。
+    assert generator.last_no_candidates_reason is not None
+    assert "道路データ" in generator.last_no_candidates_reason
 
 
 async def test_evaluate_receives_only_survivors_sorted_by_distance_closeness():
@@ -130,6 +136,21 @@ async def test_evaluate_is_skipped_when_no_candidates_survive():
 
     assert candidates == []
     assert engine.evaluated_traced is None
+    # 改善計画T441: 全方位が距離フィルタで落ちたケースの理由を確認する
+    # （trace自体は成功しているため「経路探索に失敗」ではなく距離条件の文言になること）。
+    assert generator.last_no_candidates_reason is not None
+    assert "距離" in generator.last_no_candidates_reason
+    assert "経路探索に失敗" not in generator.last_no_candidates_reason
+
+
+async def test_no_candidates_reason_mentions_trace_failures_when_all_directions_fail():
+    generator, _ = make_generator({b: RoutingError("no route") for b in DIRECTIONS_DEG})
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert candidates == []
+    assert generator.last_no_candidates_reason is not None
+    assert "経路探索に失敗" in generator.last_no_candidates_reason
 
 
 async def test_waypoints_form_a_loop_starting_and_ending_at_origin():
@@ -275,6 +296,9 @@ async def test_generate_via_waypoints_returns_empty_when_prepare_returns_none():
 
     assert candidates == []
     assert engine.evaluated_traced is None
+    # 改善計画T441
+    assert generator.last_no_candidates_reason is not None
+    assert "道路データ" in generator.last_no_candidates_reason
 
 
 async def test_generate_via_waypoints_returns_empty_when_trace_fails():
@@ -283,6 +307,9 @@ async def test_generate_via_waypoints_returns_empty_when_trace_fails():
     candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
 
     assert candidates == []
+    # 改善計画T441
+    assert generator.last_no_candidates_reason is not None
+    assert "経由地" in generator.last_no_candidates_reason
 
 
 async def test_generate_via_waypoints_does_not_call_route_scorer():

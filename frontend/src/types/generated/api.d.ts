@@ -1321,6 +1321,8 @@ export interface components {
             /** Engine */
             engine: string;
             conditions: components["schemas"]["GenerationConditions"];
+            /** No Candidates Reason */
+            no_candidates_reason?: string | null;
         };
         /**
          * RoutePreferenceWeights

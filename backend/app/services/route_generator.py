@@ -102,6 +102,15 @@ class RouteGenerator:
     def __init__(self, engine: LoopRoutingEngine, route_scorer: RouteScorer):
         self._engine = engine
         self._route_scorer = route_scorer
+        # 改善計画T441: candidatesが空になったときの原因（人間可読な要約、下記の
+        # logger.warning行と同じ情報源）。呼び出し側（routes.py: _run_generate_job）が
+        # RouteGenerateResponse.no_candidates_reasonへそのまま転記し、GUI（デバッグログ・
+        # 候補0件時のメッセージ）から確認できるようにする——実際に本番で「候補0件」が
+        # 発生した際、原因を切り分ける手段がサーバーログのSSH閲覧しか無かった実インシデント
+        # を受けて追加した。インスタンスは`api/dependencies.py: _build_route_generation_setup`
+        # がリクエストごとに新規生成するため、インスタンス属性として持っても並行リクエスト間で
+        # 競合しない。
+        self.last_no_candidates_reason: str | None = None
 
     @property
     def engine_name(self) -> str:
@@ -117,6 +126,7 @@ class RouteGenerator:
         started = time.monotonic()
         # 常時出るサマリログ用に座標を2桁(≈1km)へ丸める(debug_log.pyの方針と同じ)。
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
+        self.last_no_candidates_reason = None
 
         context = await self._engine.prepare(origin, radius_km)
         prepare_ms = round((time.monotonic() - started) * 1000)
@@ -124,6 +134,10 @@ class RouteGenerator:
             logger.warning(
                 "generate engine=%s origin=%s target_km=%.1f -> no context (road data unavailable) prepare_ms=%d",
                 self.engine_name, origin_label, distance_km, prepare_ms,
+            )
+            self.last_no_candidates_reason = (
+                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
+                "対応エリア外の可能性があります。"
             )
             return []
 
@@ -172,6 +186,9 @@ class RouteGenerator:
                 len(traced_all), len(DIRECTIONS_DEG), failed_bearings, filtered_out,
                 prepare_ms, trace_ms,
             )
+            self.last_no_candidates_reason = self._describe_no_traced_reason(
+                distance_km, distance_tolerance_km, failed_bearings, filtered_out,
+            )
             return []
 
         evaluate_started = time.monotonic()
@@ -215,6 +232,7 @@ class RouteGenerator:
         radius_km = distance_km * RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
+        self.last_no_candidates_reason = None
         end_point = destination if destination is not None else origin
         full_waypoints = [origin, *waypoints, end_point]
         # 改善計画T365: bboxが目的地もカバーするよう、prepareへ渡す点集合に含める
@@ -228,6 +246,10 @@ class RouteGenerator:
                 "generate(via_waypoints) engine=%s origin=%s waypoints=%d destination=%s -> no context prepare_ms=%d",
                 self.engine_name, origin_label, len(waypoints), destination is not None, prepare_ms,
             )
+            self.last_no_candidates_reason = (
+                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
+                "対応エリア外の可能性があります。"
+            )
             return []
 
         trace_started = time.monotonic()
@@ -237,6 +259,9 @@ class RouteGenerator:
             logger.warning(
                 "generate(via_waypoints) engine=%s origin=%s waypoints=%d destination=%s -> trace failed: %s",
                 self.engine_name, origin_label, len(waypoints), destination is not None, exc,
+            )
+            self.last_no_candidates_reason = (
+                "指定した経由地・目的地を通る経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
             )
             return []
         trace_ms = round((time.monotonic() - trace_started) * 1000)
@@ -266,6 +291,28 @@ class RouteGenerator:
             prepare_ms, trace_ms, evaluate_ms, total_ms,
         )
         return candidates
+
+    @staticmethod
+    def _describe_no_traced_reason(
+        distance_km: float,
+        distance_tolerance_km: float,
+        failed_bearings: list[int],
+        filtered_out: int,
+    ) -> str:
+        """改善計画T441: generate_loopsが`traced`空で候補0件になったときの人間可読な要約を
+        組み立てる（logger.warningと同じ情報源から、RouteGenerateResponse.
+        no_candidates_reason用に生成する）。"""
+        parts = []
+        if failed_bearings:
+            parts.append(f"{len(failed_bearings)}方位で経路探索に失敗しました（除外設定をご確認ください）")
+        if filtered_out:
+            parts.append(
+                f"{filtered_out}方位は指定距離（{distance_km:.1f}km±{distance_tolerance_km:.1f}km）から外れました"
+            )
+        if not parts:
+            # trace_ok==0かつfailed_bearingsも空という理論上到達しないはずの状態への保険。
+            parts.append("8方位すべてで経路候補が得られませんでした")
+        return "、".join(parts) + "。距離や除外する道路の設定を変えてお試しください。"
 
     @staticmethod
     def _with_overall_difficulty(candidate: RouteCandidate) -> RouteCandidate:

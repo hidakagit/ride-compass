@@ -158,7 +158,9 @@ export function useDynamicWeatherLayers({
       } catch (error: unknown) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "降水ナウキャストの取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "降水ナウキャストの読み込みに失敗", { error: message }, "error");
+        // 改善計画T441: この後もwindow.setIntervalで定期的に再取得するフェイルソフト設計
+        // （下の各fetch同様）のため、単発の取得失敗は"error"ではなく"warn"とする。
+        debugLog("api:jma-nowcast-times", "降水ナウキャストの読み込みに失敗", { error: message }, "warn");
         setNowcastError(message);
       } finally {
         if (!cancelled && isFirstLoad) setNowcastLoading(false);
@@ -189,7 +191,7 @@ export function useDynamicWeatherLayers({
       } catch (error: unknown) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "降水短時間予報の取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "降水短時間予報の読み込みに失敗", { error: message }, "error");
+        debugLog("api:jma-nowcast-times", "降水短時間予報の読み込みに失敗", { error: message }, "warn");
       }
     };
     Promise.resolve().then(load);
@@ -218,7 +220,7 @@ export function useDynamicWeatherLayers({
       } catch (error: unknown) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "雷ナウキャストの取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "雷・竜巻ナウキャストの読み込みに失敗", { error: message }, "error");
+        debugLog("api:jma-nowcast-times", "雷・竜巻ナウキャストの読み込みに失敗", { error: message }, "warn");
         setThunderNowcastError(message);
       } finally {
         if (!cancelled && isFirstLoad) setThunderNowcastLoading(false);
@@ -249,7 +251,7 @@ export function useDynamicWeatherLayers({
       } catch (error: unknown) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "危険度分布（キキクル）の取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "キキクルの読み込みに失敗", { error: message }, "error");
+        debugLog("api:jma-nowcast-times", "キキクルの読み込みに失敗", { error: message }, "warn");
       }
     };
     Promise.resolve().then(load);
@@ -275,7 +277,7 @@ export function useDynamicWeatherLayers({
       } catch (error: unknown) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : "線状降水帯予測マップの取得に失敗しました";
-        debugLog("api:jma-nowcast-times", "線状降水帯予測マップの読み込みに失敗", { error: message }, "error");
+        debugLog("api:jma-nowcast-times", "線状降水帯予測マップの読み込みに失敗", { error: message }, "warn");
       }
     };
     Promise.resolve().then(load);

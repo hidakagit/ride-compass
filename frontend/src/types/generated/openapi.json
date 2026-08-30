@@ -3041,6 +3041,17 @@
           },
           "conditions": {
             "$ref": "#/components/schemas/GenerationConditions"
+          },
+          "no_candidates_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Candidates Reason"
           }
         },
         "type": "object",
