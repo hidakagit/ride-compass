@@ -163,7 +163,7 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
   1. `route-candidates-line`（既存）: 全候補のベース表示（amber未選択/blue選択）。`staticLayer==="none"`のときのみ表示。
   2. `route-static-segments-line`（新規）: **全候補**のセグメントを`elevation_difficulty`/`road_difficulty`で色分け。選択に関わらず常時利用可能（`MapOverlayControls`のチェックボックスでON/OFF）。
   3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする。
-  4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`: 風の影響=`wind_difficulty`／勾配=`gradient_percent`／路面=`road_surface_good`／総合難易度=`difficulty`。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加した）。
+  4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`。改善計画T440時点では軸スタジオの`supports_route_coloring`軸から動的生成される各モード＋固定の総合難易度[`difficulty`]。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加、T440でモード集合自体が動的化された）。
   - ①②は`visibility`レイアウトプロパティで排他的に切り替え、③は常時、④は最前面。クリック/ホバーの`queryRenderedFeatures`は②④の両方を対象にし、②のポップアップには所属候補が分かるよう`direction_label`を付与している。
 - **静的レイヤーのON/OFF**: 「標高図」「路面」はそれぞれ独立にON/OFFできる。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。ON/OFFの操作UIはその後のUI再構成（第2段、後述）で地図上のチップ＋サイドバーのスイッチに変わったが、「独立して同時表示可」という性質は変わっていない。
 - **`isStyleLoaded()`起因の描画スキップ**: 実装時、地図初期化直後や候補選択直後にレイヤーが表示されない不具合が実機確認（Playwright）で見つかった。原因は、各描画関数が使っていた「`map.isStyleLoaded()`がfalseなら`map.once("load", ...)`で待つ」というガード。`isStyleLoaded()`は初期スタイル読み込み後もタイル読み込み中は一時的にfalseを返すが、MapLibreの`load`イベントは初回読み込み時に一度しか発火しない。そのため、候補選択でカメラが動いてタイル読み込み中に描画関数が呼ばれると、`isStyleLoaded()===false`と判定されて`once("load", ...)`を登録するが、その`load`はもう二度と来ず、描画が永久にスキップされていた。スタイルが一度でも読み込まれたかどうかをmapインスタンス自身にフラグとして記録する`runWhenStyleReady`ヘルパーに置き換えて解消した。
@@ -1402,9 +1402,10 @@ MaterialSpec.extractor`宣言駆動化済みのため、抽出方法がタグ判
 書き足さない。区間詳細表示（`RouteSegmentDetail.axis_difficulties`、改善計画T309で
 axis_id→difficultyの汎用dictへ置換済み）も両エンジンの区間ビルダーからaxis_scores/
 axis_difficultiesをそのまま渡すだけで自動反映され、軸ごとの手書き追記は不要
-（フロント`routeStyleModes.ts`の色分けモード自体は風/勾配/路面/総合難易度の4種を
-維持する意図的なキュレーションだが、参照する値式は`buildSteppedMode`の
-`valueExpression`引数へ一般化済みのため新規軸を式に含めるのも1行の追加で済む）。
+（フロント`routeStyleModes.ts`の色分けモードは改善計画T440で`supports_route_coloring`
+軸から動的に生成する形へ一本化したため、新規軸を軸スタジオで公開し`supports_route_
+coloring`をtrueにするだけでコード変更なしにモードが増える。固定で残るのは`difficulty`
+[総合難易度、対応する軸を持たない唯一の例外]のみ）。
 **この1本道はコスト計算
 （ルーティング・研究モードの重みパネル）の配線経路であり、地図表示（レイヤーパネル・凡例）への
 反映は別経路（下記「一次属性レジストリ・二次軸レジストリ」参照）** — 両者は現状レジストリ
@@ -1937,20 +1938,26 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   `active_scopes`へ変換して渡すだけになった。openrouteservice_engine.pyも同じ関数を
   区間ごとに呼ぶ形へ置き換えた。将来別の時間帯依存軸（例: 通勤ラッシュ限定）を追加する
   場合も、このフィールドへ新しい値を1つ増やすだけでよく、エンジン側のコード変更は不要。
-- **`supports_route_coloring: bool`（既定`false`）**: この軸のdifficulty（0-100）を、
-  ルート地図の色分けモード（`routeStyleModes.ts`）の選択肢として使えるかの宣言。
-  `GET /api/axis-catalog`（`AxisCatalogEntry.supports_route_coloring`）経由でフロントへ
-  渡り、`routeStyleModesFromCatalogAxes()`が該当軸から`axis_difficulties[axis_id]`を
-  値sourceとする汎用の3段階（易しい/普通/難しい）色分けモードを動的に組み立てる
+- **`supports_route_coloring: bool`（既定`false`）**: この軸のdifficulty（0-100、または
+  改善計画T440で追加した符号付き経路）を、ルート地図の色分けモード（`routeStyleModes.ts`）
+  の選択肢として使えるかの宣言。`GET /api/axis-catalog`
+  （`AxisCatalogEntry.supports_route_coloring`）経由でフロントへ渡り、
+  `routeStyleModesFromCatalogAxes()`が該当軸から色分けモードを動的に組み立てる
   （`useAxisCatalog`の`routeStyleModes`フィールド、フェッチ完了までは静的axis-catalog.json
-  由来のフォールバック）。windはこの汎用パターンに素直に乗るため対象とした。
-  **`gradient`はこの機構の対象外のまま固定エントリで残る**——向き（登り/下り）を
-  区別するため、difficulty（前処理でabsを取った絶対値）ではなく符号付きの生材料
-  `gradient_percent`を直接読む特殊実装のままであり、単純な「difficultyを3段階で塗る」
-  という本フラグの汎用機構では表現できない。`road`（`road_surface_good`由来）・
-  `difficulty`（全軸の重み付き合成コスト）も同じ理由で固定のまま
-  （`RouteStyleModeId`型は`"gradient" | "road" | "difficulty" | (string & {})`
-  という「固定3種＋任意の軸id」の形に変わった）。
+  由来のフォールバック）。**T440（2026-08-30）でgradient/surface_qも
+  `supports_route_coloring=true`へ変更した**——当初`gradient`は「向き（登り/下り）を
+  区別するため符号付きの生材料`gradient_percent`を直接読む必要があり、単純な
+  `axis_difficulties[axis_id]`（abs差難易度）を3段階で塗るという本フラグの汎用機構では
+  表現できない」という理由でこの機構の対象外として固定エントリのまま据え置かれていたが、
+  この非対称自体がaxis_idのハードコード分岐（`if (axis.axis_id === "gradient")`）を
+  招いていた。現在は`routeColorableModeFromAxis`が軸データ（`shape.kind===
+  "breakpoint_linear" && shape.preprocess==="abs"`）を見て符号付き経路へ自動的に
+  振り分けるため、gradientも`supports_route_coloring`経由の同じ動的機構に完全に乗る。
+  `road`という名前のモードも無くなり、`surface_q`（`road_surface_good`と同一材料由来）が
+  同じ機構で現れる。固定のまま残るのは`difficulty`（全軸の重み付き合成コスト、単一軸に
+  紐づかないため軸スタジオと同期する対象にならない）のみ
+  （`RouteStyleModeId`型は`"difficulty" | (string & {})`という「固定1種＋任意の軸id」の
+  形になった）。
 - **削除禁止ガードの縮小**: `services/axis_registry_service.py: _CODE_COUPLED_AXIS_IDS`
   から`night`/`wind`を除いた（`car_stress`/`gradient`はそれぞれ別の理由で対象外のまま
   残る）。上記の汎用化により、これらのaxis_idを削除してもハードコード参照によるcrashが
@@ -2477,8 +2484,10 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 **ルート確定後**: パラメータ指定UI（コンパススライダー・上記windAxisの一律色分け）は終了する
 （`page.tsx`が`hasDetail`で`showWindAxis`/`showWindPenaltyFill`をfalseへ倒し、
 `RouteSettingsPanel.tsx: renderMapColorToggle`が風の色分けトグルを「地図表示なし」の
-案内表示へ切り替える[改善計画T418]。`MapView.tsx: clearWindAxisFeatureState`が
-`map.removeFeatureState`でそれまでの全道路ぶんのfeature-stateを明示的にクリアする）。
+案内表示へ切り替える[改善計画T418]。`MapView.tsx: clearRoadTileFeatureState`
+（改善計画T440で`clearWindAxisFeatureState`/`clearGradientAxisFeatureState`という
+重複した2関数を統合したもの）が`map.removeFeatureState`でそれまでの全道路ぶんの
+feature-stateを明示的にクリアする）。
 代わりに、既に実装済みだった`RouteSegmentDetail.axis_difficulties.wind`（ルート生成時点で
 区間ごとの実進行方向・実到達時刻を使って計算済み、`routeStyleModesFromCatalogAxes`が
 axis-catalogの`wind`軸の`supports_route_coloring`フラグから自動生成する`routeStyleModes`の
@@ -2566,41 +2575,59 @@ value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う
 決着しており、そもそもramp（MVTタイル焼き込み）を必要としない。詳細は
 [domain/axis_display.py](../backend/app/domain/axis_display.py)のモジュールdocstring参照。
 
-**ルート確定後**（勾配）: `routeStyleModes.ts`の`STATIC_MODES`が持つ`"gradient"`モード
-（`gradient_percent`という符号付き生材料を直接読み、登り/下りを区別する専用実装、T352起票時
-から存在）が既にこの役割を担っており、T423で新規に実装したものではない——風の`"wind"`
-モード（`supports_route_coloring`経由の汎用難易度色分け）とは異なる仕組みだが、これは
-勾配が「向きを区別する必要があり難易度[0-100]という抽象化では表現できない」という固有の
-性質による意図的な非対称（`domain/axis_definitions.py: AxisDefinition.
-supports_route_coloring`のdocstring参照）。
+**ルート確定後**（勾配）: T423時点では`routeStyleModes.ts`の`STATIC_MODES`が持つ固定の
+`"gradient"`モードだったが、**改善計画T440（2026-08-30）でこの`STATIC_MODES`という
+仕組み自体を撤去した**。以下、T440時点の設計を記す。
 
-**T434（route_preferenceの重み・軸スタジオの公開状態による選択肢の絞り込み）**:
-`STATIC_MODES`（gradient/road/difficulty）・`routeStyleModesFromCatalogAxes`由来の
-モード（wind等）は、いずれも「その軸が公開されているか」「重みが0でないか」を見ずに
-選択肢の有無が決まっていた。`routeStyleModes.ts`の`STATIC_MODE_AXIS_IDS`を、各
-STATIC_MODESエントリが実際に読む材料の由来元となる軸id（route_preferenceのキーと
-一致）を登記するレジストリとして新設した:
-```ts
-const STATIC_MODE_AXIS_IDS: Readonly<Record<string, string>> = {
-  gradient: "gradient",
-  road: "surface_q",
-};
-```
-`gradient`はmode.idと軸idの文字列が偶然一致しているだけ（対応関係自体はこのレジストリが
-明示的に保証する）。`road`はmode.idと軸idが一致しない例——`road_surface_good`
-（route_generator側が表示する真偽値）と`surface_q`軸が読む材料`surface_good`
-（`material_catalog.py: _extract_surface_good`）は、どちらも`classify_osm_surface()`
-由来の同一材料であり、mode.idの文字列だけでは対応関係を検出できない（このレジストリを
-新設する前は、mode.idがroutePreferenceのキーと一致するかだけで判定しており、road自身が
-実は軸に対応していたことを見落としていた）。`difficulty`は単一軸ではなく全軸の重み付き
-合成コストのため、このレジストリに含まれず常に選択肢に残る。
-- `routeStyleModesFromCatalogAxes(axes)`: レジストリに登記された軸（gradient/surface_q）が
-  `axes`（軸スタジオの現在の公開軸集合）に存在しない場合、対応するSTATIC_MODESエントリを
-  一覧から除外する——dynamicModes（wind等）が`supports_route_coloring`でaxesから
-  自動的に絞られるのと同じ扱いになる。
-- `filterRouteStyleModesByPreference(modes, routePreference)`（`page.tsx`側で
-  `axisCatalog.routeStyleModes`へ適用し、実際に画面へ出す一覧として使う）: レジストリの
-  軸idの重みが0のモードを除外する。
+**T440（軸スタジオのデータを唯一の正としてルート結果の色分けを完全に駆動する）**:
+T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成される一方、
+"gradient"/"road"/"difficulty"は`STATIC_MODES`という固定配列としてフロントに直書き
+されたままだった（表示する/しないの判定・しきい値・ラベル・色のいずれも軸スタジオの
+データを見ていなかった）。T440はこれを解消し、以下の設計へ全面的に作り直した:
+
+- `AxisDefinition.shape`（`kind`/`preprocess`/`terms`、軸スタジオで軸を定義する時点で
+  既に選ぶ既存データ）から、`isSignedAbsShape(shape)`（`shape.kind===
+  "breakpoint_linear" && shape.preprocess==="abs" && shape.terms.length===1`）が
+  「符号付き値を直接読むべきか」を判定する。`axis.axis_id==="gradient"`という文字列
+  比較は使わない——gradientの実データがたまたまこの条件を満たすだけで、条件を満たす軸が
+  将来増えてもコード変更なしに同じ経路へ乗る。真の場合は`shape.terms[0].material`
+  （gradientの場合`"gradient_percent"`、`RouteSegmentDetail`のフィールド名と一致する
+  文字列）を直接読む。偽の場合（wind・surface_q等）は従来どおり
+  `axis_difficulties[axis_id]`（abs差難易度0-100）を読む。
+- `buildRangeSteppedMode`: 境界値配列（軸スタジオの`display_thresholds_override`、
+  未設定時は経路ごとの既定値）の**長さがそのまま段階数を決める**汎用関数。ラベルは
+  境界値の実際の数字から機械的に生成する（「易しい/普通/難しい」「下り/上り」のような
+  固定語彙は使わない）。色は`interpolateColors(colorLow, colorHigh, count)`
+  （2色の間をHSL色空間で均等補間、新設）で生成するため、固定の色配列を持たない。
+- `AxisCatalogEntry`（`GET /api/axis-catalog`）へ`shape`・`display_thresholds_override`を
+  追加した——「個別フィールドを都度追加するのではなく、軸スタジオで決められること全部を
+  まとめて返す」方針（ユーザー指摘を受けた設計判断）。
+- `road`という名前の専用モードは無くなり、`surface_q`が他の動的モードと同じ
+  `${axis.label}の影響`という汎用ラベルで現れる。`road_surface_good`
+  （route_generator側が表示する真偽値）と`surface_q`軸が読む材料`surface_good`
+  （`material_catalog.py: _extract_surface_good`）は、どちらも`classify_osm_surface()`
+  由来の同一材料で、`surface_q`軸の`true_value=0.0/false_value=80.0`という材料設計
+  により、汎用の絶対値差難易度経路（abs差3段階相当）へそのまま乗せても実質2値
+  （0か80）にしかならず表示は壊れない。
+- `difficulty`（総合難易度）だけは、単一軸ではなく全軸の重み付き合成コスト（評価
+  エンジンが出す合成スコアそのもの）を表示するモードで、特定のaxis_idに紐づかない
+  ため軸スタジオと同期する対象にならない——ルート結果の色分けメニューにフロント側の
+  固定要素として残る唯一の例外。
+- `filterRouteStyleModesByPreference(modes, routePreference)`: `mode.id`が
+  `routePreference`のキーと一致するモード（gradient/wind/surface_q等）は重み>0の
+  ときだけ残す。`routePreference`にはルート**生成時**の値（`conditions.route_preference`、
+  バックエンドが元々レスポンスへ含めていた値）を使う——ルート設定パネルの生きた
+  （ライブな）重みをそのまま使うと、生成後に重みだけ変更（再生成せず）した場合に、
+  表示中のルートの実際の評価内容とメニューがズレるため（`page.tsx`:
+  `generatedRoutePreference`）。
+- プレルート側（ルート設定パネルの「地図で色分け」トグル・地図上チップグルーピング）の
+  同種のaxis_idハードコード分岐（`RouteSettingsPanel.tsx: mapColorLayerIdFor`・
+  `mapLayers.ts: isAxisStudioLayer`）も、新設した`AxisDefinition.
+  dedicated_way_value_layer`（この軸が専用のway_id→値配信レイヤーを持つかの宣言）で
+  判定するよう置き換えた。`isAxisStudioLayer`は`mapOverlayGroupFor`という広く呼ばれる
+  純粋関数の内部で使われるため、ライブなaxis-catalogを動的注入する設計は見送り、
+  `RAMP_AXES`/`AXIS_LABELS`と同じ「ビルド時静的axis-catalog.jsonからの片側import」
+  パターン（`DEDICATED_WAY_VALUE_LAYER_IDS`）に揃えた。
 
 ### 地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）と一次/二次命名（改善計画T163〜T169）
 
