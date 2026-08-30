@@ -152,6 +152,11 @@ export interface CatalogAxis {
   // なく、生の上書き値をそのまま返す。ルート結果の色分けのしきい値
   // （routeStyleModes.ts: buildRangeSteppedMode）の唯一の正として使う。
   display_thresholds_override?: number[] | null;
+  // 改善計画T440: この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
+  // （domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）。
+  // mapLayers.ts（isAxisStudioLayer）・RouteSettingsPanel.tsx（mapColorLayerIdFor）が、
+  // axis_idのハードコード比較（wind/gradientのみ）ではなくこのデータを使う。
+  dedicated_way_value_layer?: boolean;
 }
 
 // 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、

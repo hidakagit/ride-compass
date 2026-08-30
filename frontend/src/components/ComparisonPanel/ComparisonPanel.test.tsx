@@ -75,14 +75,14 @@ const SAMPLE_AXIS_LABELS: Record<string, string> = {
 // 改善計画T421: axesは呼び出し側（page.tsx）がuseAxisCatalog().axesを渡す実行時カタログ
 // （axisId・label・並び順の正本）。RouteAxisProfile.test.tsxと同じ形の固定フィクスチャ。
 const SAMPLE_AXES: readonly PreferenceAxisDef[] = [
-  { axisId: "gradient", label: "勾配", description: "" },
-  { axisId: "surface_q", label: "舗装質", description: "" },
-  { axisId: "wind", label: "風", description: "" },
-  { axisId: "stop_density", label: "停止密度", description: "" },
-  { axisId: "car_stress", label: "車の圧迫感", description: "" },
-  { axisId: "accident", label: "事故密度", description: "" },
-  { axisId: "night", label: "夜間", description: "" },
-  { axisId: "bicycle_infra_quality", label: "自転車インフラ", description: "" },
+  { axisId: "gradient", label: "勾配", description: "", dedicatedWayValueLayer: true },
+  { axisId: "surface_q", label: "舗装質", description: "", dedicatedWayValueLayer: false },
+  { axisId: "wind", label: "風", description: "", dedicatedWayValueLayer: true },
+  { axisId: "stop_density", label: "停止密度", description: "", dedicatedWayValueLayer: false },
+  { axisId: "car_stress", label: "車の圧迫感", description: "", dedicatedWayValueLayer: false },
+  { axisId: "accident", label: "事故密度", description: "", dedicatedWayValueLayer: false },
+  { axisId: "night", label: "夜間", description: "", dedicatedWayValueLayer: false },
+  { axisId: "bicycle_infra_quality", label: "自転車インフラ", description: "", dedicatedWayValueLayer: false },
 ];
 
 describe("ComparisonPanel", () => {

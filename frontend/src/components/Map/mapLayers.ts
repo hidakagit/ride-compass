@@ -28,8 +28,10 @@
 import {
   axisMapLayerId,
   type AxisMapLayerId,
+  type CatalogAxis,
   type RampAxis,
 } from "./axisLayers";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 
 export type MapLayerId =
   | "elevation"
@@ -176,16 +178,37 @@ const MAP_OVERLAY_EXCLUSIVE_DOMAIN: Record<MapOverlayGroup, MapOverlayExclusiveD
   spot: "point",
 };
 
+// 改善計画T440: 専用のway_id→動的値配信層を持つ軸（軸データのdedicated_way_value_layer、
+// domain/axis_definitions.py参照）のMapLayerIdを、axis_idのハードコード比較ではなく
+// ビルド時静的axis-catalog.json（RAMP_AXES/AXIS_LABELS等と同じ「片側import」の
+// 静的フォールバック生成物、useAxisCatalog.tsが実行時APIを取得完了するまでの間・
+// 軸スタジオ非対応の純粋関数から使う値）から導出する。レイヤーIDの命名規約
+// （`${axis_id}Axis`、windAxis/gradientAxisの実例で確認済み）に従い文字列を組み立て、
+// 実際にMapLayerIdとして配線済みのものだけを残す（未配線のIDが混入しても無視される）。
+const DEDICATED_WAY_VALUE_LAYER_IDS: ReadonlySet<string> = new Set(
+  (axisCatalog.axes as CatalogAxis[])
+    .filter((axis) => axis.dedicated_way_value_layer)
+    .map((axis) => `${axis.axis_id}Axis`)
+);
+
+/** 改善計画T440: 与えられた文字列が、専用way_id→動的値配信層を持つ軸のMapLayerIdとして
+ * 実際に配線済みかを判定する型ガード。RouteSettingsPanel.tsx（mapColorLayerIdFor・
+ * renderMapColorToggle）が、axis_idのハードコード比較（wind/gradientのみ）ではなく
+ * これを使う。 */
+export function isDedicatedWayValueLayerId(id: string): id is MapLayerId {
+  return DEDICATED_WAY_VALUE_LAYER_IDS.has(id);
+}
+
 /** 軸スタジオ由来のレイヤーか（改善計画T418、T423でgradientAxisを追加）。ramp軸
- * （dataNature==="composite"）・way_id→動的値配信層（id==="windAxis"|"gradientAxis"）は
- * いずれも、T406時点は地図上チップの「評価軸」グループへ束ねられていたが、T418でそのチップ
- * 自体を撤去しルート設定パネルへ移設した。地図上チップ（MapOverlayControls.tsx）・
- * サイドバー（MapLayersPanel.tsx）の両方が、この判定を使ってこれらのレイヤーを描画対象から
- * 除外する（mapOverlayGroupForが返すundefinedは「route等、単独チップとして出す」ものと
- * 「軸スタジオ由来のため地図UIには一切出さない」ものの2種類が混在するため、区別に使う
- * 専用の判定）。 */
+ * （dataNature==="composite"）・専用way_id→動的値配信層を持つ軸
+ * （DEDICATED_WAY_VALUE_LAYER_IDS、上記）はいずれも、T406時点は地図上チップの
+ * 「評価軸」グループへ束ねられていたが、T418でそのチップ自体を撤去しルート設定パネルへ
+ * 移設した。地図上チップ（MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）の
+ * 両方が、この判定を使ってこれらのレイヤーを描画対象から除外する（mapOverlayGroupForが
+ * 返すundefinedは「route等、単独チップとして出す」ものと「軸スタジオ由来のため地図UIには
+ * 一切出さない」ものの2種類が混在するため、区別に使う専用の判定）。 */
 export function isAxisStudioLayer(layer: { id: MapLayerId; dataNature?: MapLayerDataNature }): boolean {
-  return layer.id === "windAxis" || layer.id === "gradientAxis" || layer.dataNature === "composite";
+  return DEDICATED_WAY_VALUE_LAYER_IDS.has(layer.id) || layer.dataNature === "composite";
 }
 
 /** レイヤー1件が属するMapOverlayGroupを判定する（改善計画T406/T418）。category/

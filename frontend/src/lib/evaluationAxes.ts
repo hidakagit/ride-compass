@@ -54,6 +54,12 @@ export interface PreferenceAxisDef {
   /** 区間の色分け・WeightPanelの入力欄ラベルに共通で使う表示名 */
   label: string;
   description: string;
+  /** 改善計画T440: この軸が専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
+   * 地図上で視界内の全道路を線色分け表示できる）を持つかの宣言（domain/
+   * axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）。
+   * RouteSettingsPanel.tsx（mapColorLayerIdFor）が、axis_idのハードコード比較
+   * （wind/gradientのみ）ではなくこのフィールドで判定する。 */
+  dedicatedWayValueLayer: boolean;
 }
 
 // axis_idごとの説明文（1〜2文の要約）。ラベル自体は下記PREFERENCE_AXESが
@@ -87,9 +93,13 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
       axisId: axis.axisId,
       label: axis.label,
       description: PREFERENCE_AXIS_DESCRIPTIONS[axis.axisId] ?? "",
+      // SECONDARY_AXESはkind="ramp"軸（MVTタイル焼き込み経由の地図表示）のみを含み、
+      // 専用way_id配信層（dedicated_way_value_layer）とは構造上排他的なレンダリング
+      // 経路のため、この一覧に含まれる軸は常にfalseになる。
+      dedicatedWayValueLayer: false,
     })
   ),
-  { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind },
+  { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind, dedicatedWayValueLayer: true },
 ];
 
 // 軸の分類（観測/推定/動的、改善計画T267で確定・目論見書3章）は、一般向けルート設定画面

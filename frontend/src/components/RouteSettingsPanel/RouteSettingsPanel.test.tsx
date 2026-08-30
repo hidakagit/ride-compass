@@ -19,9 +19,13 @@ import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 
 // 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）検証用に、
 // display.kindを呼び出し側で選べるよう拡張した（従来は全軸kind="none"固定だった）。
+// 改善計画T440: dedicatedWayValueLayerByAxisIdも同様に呼び出し側で選べるようにした
+// （専用way_id配信層を持つ軸[wind/gradient]のテストが、この軸データを直接指定できる
+// ようにするため——axis_idのハードコード比較ではなく軸データで判定する設計に合わせた）。
 function catalogResponse(
   axisIds: string[],
   kindByAxisId: Record<string, "none" | "ramp"> = {},
+  dedicatedWayValueLayerByAxisId: Record<string, boolean> = {},
 ): AxisCatalogResponse {
   return {
     axes: axisIds.map((axisId) => {
@@ -55,7 +59,7 @@ function catalogResponse(
         supports_route_coloring: false,
         shape: { kind: "breakpoint_linear", terms: [{ material: "gradient_percent", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
         display_thresholds_override: null,
-        dedicated_way_value_layer: false,
+        dedicated_way_value_layer: dedicatedWayValueLayerByAxisId[axisId] ?? false,
       };
     }),
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
@@ -313,7 +317,9 @@ describe("RouteSettingsPanel", () => {
 
     it("勾配（gradient）はsecondaryAxesに現れない特殊軸だが、gradientAxisレイヤーへの色分けトグルとして機能する（改善計画T423）", async () => {
       const user = userEvent.setup();
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient"], { gradient: "none" }));
+      vi.mocked(getAxisCatalog).mockResolvedValue(
+        catalogResponse(["gradient"], { gradient: "none" }, { gradient: true }),
+      );
       const onLayerToggle = vi.fn();
 
       render(
@@ -335,7 +341,9 @@ describe("RouteSettingsPanel", () => {
     });
 
     it("ルート確定後（hasDetail=true）は勾配の色分けトグルが非対応の案内に切り替わる（改善計画T423）", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient"], { gradient: "none" }));
+      vi.mocked(getAxisCatalog).mockResolvedValue(
+        catalogResponse(["gradient"], { gradient: "none" }, { gradient: true }),
+      );
 
       render(
         <RouteSettingsPanel
@@ -352,9 +360,11 @@ describe("RouteSettingsPanel", () => {
 
       await waitFor(() => expect(screen.getByText("地図表示なし")).toBeInTheDocument());
       expect(screen.queryByRole("button", { name: "ラベル[gradient]で地図を色分け表示" })).not.toBeInTheDocument();
+      // 改善計画T440: 案内文のラベルはハードコードした「勾配」ではなく、軸データ自身の
+      // labelをそのまま使う（catalogResponseのテスト用ラベル「ラベル[gradient]」）。
       expect(screen.getByText("地図表示なし")).toHaveAttribute(
         "title",
-        'ルート確定後は「生成したルートの色分け」の「勾配」で確認できます',
+        'ルート確定後は「生成したルートの色分け」の「ラベル[gradient]」で確認できます',
       );
     });
   });

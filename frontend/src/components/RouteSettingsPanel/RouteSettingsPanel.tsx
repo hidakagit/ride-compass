@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import type { MapLayerId, MapLayerVisibility } from "@/components/Map/mapLayers";
+import { isDedicatedWayValueLayerId, type MapLayerId, type MapLayerVisibility } from "@/components/Map/mapLayers";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
@@ -100,22 +100,21 @@ export default function RouteSettingsPanel({
   const catalog = useAxisCatalog();
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
 
-  // 改善計画T418: 軸id→地図表示レイヤーIDの解決。専用の表示レイヤーを持つ軸
+  // 改善計画T418/T440: 軸id→地図表示レイヤーIDの解決。専用の表示レイヤーを持つ軸
   // （kind="ramp"、catalog.secondaryAxesのlayerId）はそのままレイヤーIDを返す。
-  // 風（wind）はcatalog.secondaryAxesには現れない特殊軸だが、除外理由は
-  // `show_map_icon=false`のみ（category自体は他の軸と同じ"推定"——旧コメントは
-  // category="動的"のためと誤って説明していたが、2026-08-30にDBスナップショット
-  // [backend/fixtures/axis_definitions_snapshot.json]で確認し訂正した）。
-  // way_id→wind_penalty配信層「windAxis」という専用レイヤーを持つためaxisIdで直接
-  // 判定する。改善計画T423: 勾配（gradient）も同じ理由でwindと同様の特殊軸——way_id→
-  // 勾配配信層「gradientAxis」を専用レイヤーとして持つためaxisIdで直接判定する
-  // （T400.md「7. kind=noneが残る範囲」節が「まだ地図表示用のデータ取得経路が無いだけ」
-  // としていた説明どおり、T423の実装でこの軸もkind=noneから外れた）。どちらにも該当
+  // 専用のway_id→値配信レイヤー（Redis経由、風・勾配が該当）を持つ軸は、axis_idの
+  // ハードコード比較ではなく軸データ（axis.dedicatedWayValueLayer、domain/
+  // axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）で判定する。
+  // レイヤーIDは命名規約（`${axisId}Axis`、windAxis/gradientAxisの実例）から機械的に
+  // 導出し、実際に配線済みのMapLayerIdであることを型ガードで確認する。どちらにも該当
   // しない軸はundefined（地図表示非対応）。
   function mapColorLayerIdFor(axisId: string): MapLayerId | undefined {
-    if (axisId === "wind") return "windAxis";
-    if (axisId === "gradient") return "gradientAxis";
-    return catalog.secondaryAxes.find((a) => a.axisId === axisId)?.layerId;
+    const secondaryLayerId = catalog.secondaryAxes.find((a) => a.axisId === axisId)?.layerId;
+    if (secondaryLayerId) return secondaryLayerId;
+    const axis = catalog.axes.find((a) => a.axisId === axisId);
+    if (!axis?.dedicatedWayValueLayer) return undefined;
+    const candidateLayerId = `${axisId}Axis`;
+    return isDedicatedWayValueLayerId(candidateLayerId) ? candidateLayerId : undefined;
   }
 
   // 改善計画T418: 軸1件ぶんの「地図で色分け」トグル。専用レイヤーが無い軸・ルート確定後の
@@ -132,10 +131,9 @@ export default function RouteSettingsPanel({
         </span>
       );
     }
-    if ((layerId === "windAxis" || layerId === "gradientAxis") && hasDetail) {
-      const label = layerId === "windAxis" ? "風" : "勾配";
+    if (isDedicatedWayValueLayerId(layerId) && hasDetail) {
       return (
-        <span className={styles.mapColorUnavailable} title={`ルート確定後は「生成したルートの色分け」の「${label}」で確認できます`}>
+        <span className={styles.mapColorUnavailable} title={`ルート確定後は「生成したルートの色分け」の「${axis.label}」で確認できます`}>
           地図表示なし
         </span>
       );

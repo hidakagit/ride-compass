@@ -4,9 +4,9 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import RouteAxisProfile from "./RouteAxisProfile";
 
 const AXES: PreferenceAxisDef[] = [
-  { axisId: "car_stress", label: "車の圧迫感", description: "" },
-  { axisId: "wind", label: "風", description: "" },
-  { axisId: "night", label: "夜間", description: "" },
+  { axisId: "car_stress", label: "車の圧迫感", description: "", dedicatedWayValueLayer: false },
+  { axisId: "wind", label: "風", description: "", dedicatedWayValueLayer: true },
+  { axisId: "night", label: "夜間", description: "", dedicatedWayValueLayer: false },
 ];
 
 describe("RouteAxisProfile", () => {
