@@ -46,7 +46,7 @@ class GradientWayService:
         self._repository = repository
 
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None
     ) -> dict[int, float]:
         """指定タイル内のway_idごとの実効勾配（`GradientCalculator.effective_gradient`、
         正=登り・負=下り）を返す。repository未接続・取込範囲外・DB障害等はいずれも空dictへ
@@ -59,7 +59,12 @@ class GradientWayService:
         bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
         時計回り）。全道路共通の値として使うが、道路自身の向き（road_bearing_deg）との
         cos補正込みでway単位に異なる値になる（風とは異なる性質、モジュールdocstring参照）。
+        改善計画T445: 型を`float | None`にしているのはrouter側インターフェースと揃える
+        ためで、`at`と同じ理由（wind_way_service.pyのbearing_deg docstring参照）。勾配は
+        常にbearing_degを必須とする材料のため、Noneのまま到達したら即座に失敗させる。
         """
+        if bearing_deg is None:
+            raise ValueError("GradientWayService.get_way_valuesにはbearing_degが必須です")
         if self._repository is None:
             return {}
         bbox = tile_bounds_lonlat(z, x, y)

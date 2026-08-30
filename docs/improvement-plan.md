@@ -553,7 +553,7 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 
 - [x] [T443](tasks/T443.md). gradientの境界値がルート確定前の表示（評価軸ライン・環境グループ塗り）に未配線〔P1〕規模S（2026-08-30起票・2026-08-31完了）
 - [x] [T444](tasks/T444.md). 風・勾配のfeature-stateクリアが共有され、同時ON時に片方OFFで両方消える〔P1〕規模S〜M（2026-08-30起票・2026-08-31完了。2effectを1つへ統合し「両方OFFになるまでクリアを遅らせる」ガードで解消）
-- [ ] [T445](tasks/T445.md). WindWayService/GradientWayServiceのbearing_deg型シグネチャがルーター層とOptional不一致〔P2〕規模S（2026-08-30起票）
+- [x] [T445](tasks/T445.md). WindWayService/GradientWayServiceのbearing_deg型シグネチャがルーター層とOptional不一致〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [x] [T446](tasks/T446.md). buildRoadSurfaceSharedLayerIdsがgradientAxisを含まない非対称＋古いコメントの訂正〔P2〕規模S（2026-08-30起票・2026-08-31完了）
 - [ ] [T447](tasks/T447.md). secondaryAxes.tsのコメントがwindのcategory/show_map_icon除外機構を逆に説明している〔P2〕規模S（2026-08-30起票）
 - [ ] [T448](tasks/T448.md). T427.mdのFinding 1が結果的に解消済みなのに未更新のまま半陳腐化〔P2〕規模S（2026-08-30起票）

@@ -82,7 +82,7 @@ class WindWayService:
         self._weather_service = weather_service
 
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None
     ) -> dict[int, float]:
         """指定タイル内のway_idごとのwind_penaltyを返す（T414の訂正後契約では、同じタイル内の
         全wayは同じ値を持つ——モジュールdocstring参照）。repository未接続・取込範囲外・
@@ -91,8 +91,15 @@ class WindWayService:
         同じグレースフルデグレード方針）。
 
         bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
-        時計回り）。全道路共通の値として使う。
+        時計回り）。全道路共通の値として使う。改善計画T445: 型を`at`と揃え
+        `float | None`にしている（router側`api/routers/region.py`の材料非依存な呼び出し
+        インターフェースと一致させるため）が、風は常にbearing_degを必須とする材料
+        （`domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS["wind"].needs_bearing`
+        =True）のため、Noneのまま到達したら即座に失敗させる（router側の422検証を
+        すり抜けて呼ばれた場合の防御、無音でNoneを計算に渡さない）。
         """
+        if bearing_deg is None:
+            raise ValueError("WindWayService.get_way_valuesにはbearing_degが必須です")
         if self._repository is None:
             return {}
         target = at or datetime.now(JST)

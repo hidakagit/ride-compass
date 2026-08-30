@@ -93,6 +93,16 @@ async def test_repository_none_returns_empty_dict():
     assert result == {}
 
 
+# 改善計画T445: bearing_deg=Noneで呼ばれたら即座に失敗する（router側422検証をすり抜けて
+# 呼ばれた場合の防御。router/service間の型シグネチャをfloat | Noneへ揃えた副作用として、
+# 型チェッカーが通してしまうNone到達を実行時ガードで塞ぐ）。
+async def test_bearing_deg_none_raises_value_error():
+    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
+
+    with pytest.raises(ValueError, match="bearing_deg"):
+        await service.get_way_values(Z, X, Y, AT, None)
+
+
 async def test_uncovered_tile_returns_empty_dict_without_calling_weather():
     repository = FakeWayIdsRepository(way_ids=None)
     weather_service = FakeWeatherService(TIMES, make_grid_point(TIMES, [5.0, 5.0, 5.0], [0.0, 0.0, 0.0]))

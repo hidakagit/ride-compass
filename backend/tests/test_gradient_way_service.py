@@ -52,6 +52,15 @@ async def test_repository_none_returns_empty_dict():
     assert result == {}
 
 
+# 改善計画T445: bearing_deg=Noneで呼ばれたら即座に失敗する（wind_way_service.pyと同じ理由、
+# test_wind_way_service.py: test_bearing_deg_none_raises_value_error参照）。
+async def test_bearing_deg_none_raises_value_error():
+    service = GradientWayService(repository=None)
+
+    with pytest.raises(ValueError, match="bearing_deg"):
+        await service.get_way_values(Z, X, Y, None, None)
+
+
 async def test_uncovered_tile_returns_empty_dict():
     repository = FakeGradientInputsRepository(inputs=None)
     service = GradientWayService(repository=repository)
