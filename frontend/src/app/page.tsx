@@ -361,6 +361,11 @@ export default function Home() {
     // 自動算出値になり、distanceInput（RouteFormが表示しない値）とは無関係になるため、
     // conditionsDirtyの距離比較はloopモードで生成したときだけ行う。
     routeMode: RouteMode;
+    // 改善計画T468: 目的地モードで生成した経由地・目的地のスナップショット
+    // （JSON文字列化して比較、weightsKeyと同じ方式）。以前は保持しておらず、
+    // 生成後に経由地を追加・削除・移動してもconditionsDirtyが検知できなかった
+    // （routeMode/緯度経度/重みしか比較していなかったため）。
+    waypointsKey: string;
   } | null>(null);
   // 改善計画T440: 表示中のルートを実際に生成した瞬間のroute_preference（重み）。
   // routePreference自体はルート設定パネルが常時編集するライブなstateのため、生成後に
@@ -667,23 +672,25 @@ export default function Home() {
     },
     [setHiddenLegendKeysByMode],
   );
-  // 道路情報の「すべて表示/すべて隠す」一括操作（1軸分の非表示キー全体の置き換え）。
-  // 個別チェックはtoggleHiddenLegendKeyをそのまま使う（絞り込みは即時反映、T31。
-  // レイヤーの自動ONはMapLayersPanel側が担う）。
-  const handleRoadAxisSetHidden = useCallback(
-    (axisId: RoadFilterAxisId, hiddenKeys: string[]) => {
+  // 道路情報・道路情報以外の絞り込み可能レイヤーの「すべて表示/すべて隠す」一括操作
+  // （1軸分の非表示キー全体の置き換え）。個別チェックはtoggleHiddenLegendKeyをそのまま使う
+  // （絞り込みは即時反映、T31。レイヤーの自動ONはMapLayersPanel側が担う）。
+  // 改善計画T468: 実装（setHiddenLegendKeysByModeの更新ロジック）自体はこの1箇所へまとめ、
+  // 呼び出し側の型（RoadFilterAxisId/StaticFilterAxisId）だけを分けたラッパーを2つ持つことで、
+  // 実装の重複を無くしつつ誤った軸idの取り違えを防ぐ型安全性は維持する。
+  const setHiddenLegendKeysForAxis = useCallback(
+    (axisId: string, hiddenKeys: string[]) => {
       setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
     },
     [setHiddenLegendKeysByMode],
   );
-  // 道路情報以外の絞り込み可能レイヤーの「すべて表示/すべて隠す」一括操作。
-  // handleRoadAxisSetHiddenと同じ実装（軸idをキーに非表示配列を丸ごと差し替えるだけ）だが、
-  // 呼び出し側の型（StaticFilterAxisId）を分けて誤った軸idの取り違えを防ぐ。
+  const handleRoadAxisSetHidden = useCallback(
+    (axisId: RoadFilterAxisId, hiddenKeys: string[]) => setHiddenLegendKeysForAxis(axisId, hiddenKeys),
+    [setHiddenLegendKeysForAxis],
+  );
   const handleStaticFilterAxisSetHidden = useCallback(
-    (axisId: StaticFilterAxisId, hiddenKeys: string[]) => {
-      setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
-    },
-    [setHiddenLegendKeysByMode],
+    (axisId: StaticFilterAxisId, hiddenKeys: string[]) => setHiddenLegendKeysForAxis(axisId, hiddenKeys),
+    [setHiddenLegendKeysForAxis],
   );
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
@@ -870,9 +877,25 @@ export default function Home() {
 
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
-  const overlayLayers = useMemo<OverlayLayerChip[]>(
-    () =>
-      mapLayers.map((layer) => {
+  const overlayLayers = useMemo<OverlayLayerChip[]>(() => {
+    // 改善計画T468: summary/legendDetailsの組み立てが、5〜8段ネストした三項演算子
+    // チェーンでlayer.idを1つずつ比較していたのを、layer.id→値のルックアップへ置き換えた
+    // （可読性向上、フォールバック[staticFilterSummaries]は従来どおり最後に見る）。
+    const summaryByLayerId: Partial<Record<MapLayerId, string | null>> = {
+      roadSurface: roadSurfaceSummary,
+      roadType: roadTypeSummary,
+      route: routeSummary,
+    };
+    const legendDetailsByLayerId: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {
+      roadSurface: roadSurfaceLegendDetails,
+      roadType: roadTypeLegendDetails,
+      route: routeLegendDetails,
+      precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
+      windVector: WIND_LEGEND_DETAILS,
+      thunderNowcast: THUNDER_LEGEND_DETAILS,
+      tornadoNowcast: TORNADO_LEGEND_DETAILS,
+    };
+    return mapLayers.map((layer) => {
         // 改善計画T418: windAxis（way_id→wind_penalty配信層）・ramp軸（axis:${string}）は
         // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
         // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
@@ -885,30 +908,11 @@ export default function Home() {
         // disabled/titleの両方に反映される）。
         const disabledReason = layer.id === "route" && !hasDetail ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
-        const summary =
-          layer.id === "roadSurface"
-            ? roadSurfaceSummary
-            : layer.id === "roadType"
-              ? roadTypeSummary
-              : layer.id === "route"
-                ? routeSummary
-                : (staticFilterSummaries[layer.id]?.summary ?? null);
+        const summary = layer.id in summaryByLayerId
+          ? (summaryByLayerId[layer.id] ?? null)
+          : (staticFilterSummaries[layer.id]?.summary ?? null);
         const legendDetails =
-          layer.id === "roadSurface"
-            ? roadSurfaceLegendDetails
-            : layer.id === "roadType"
-              ? roadTypeLegendDetails
-              : layer.id === "route"
-                ? routeLegendDetails
-                : layer.id === "precipitationNowcast"
-                  ? PRECIPITATION_LEGEND_DETAILS
-                  : layer.id === "windVector"
-                    ? WIND_LEGEND_DETAILS
-                    : layer.id === "thunderNowcast"
-                      ? THUNDER_LEGEND_DETAILS
-                      : layer.id === "tornadoNowcast"
-                        ? TORNADO_LEGEND_DETAILS
-                        : staticFilterSummaries[layer.id]?.legendDetails;
+          legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails;
         // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
         // 絞り込み機能を持たないため「地図の見え方」パネルの行自体を撤去した
         // （MapLayersPanel.tsx参照）。地図上チップの▶パネル本体へ説明文を常時表示する
@@ -918,11 +922,13 @@ export default function Home() {
         // 情報アイコンを置き、押したメンバーだけ説明文を表示する形で復活させた
         // （panelHintは推定/観測/動的の全メンバーへ渡す。同時に常時表示にはしないため
         // 上記のT317同日追記の判断とは矛盾しない）。
-        const isDynamicGroupLayer =
-          layer.id === "precipitationNowcast" ||
-          layer.id === "windVector" ||
-          layer.id === "thunderNowcast" ||
-          layer.id === "tornadoNowcast";
+        // 改善計画T468: 以前はlayer.idのハードコード列挙で「動的グループ」を再判定しており、
+        // mapLayers.ts側の単一ソースdataNature==="dynamic"（本来の判定基準）とズレていた
+        // （windAxis/gradientAxis[isAxisStudioLayerで別途チップ非表示のため実害無し]に加え、
+        // gradientFillが列挙漏れで「[設定はサイドバー]」を誤って付与されていた——gradientFillは
+        // 環境グループの実チップとして表示されるため実害あり）。dataNature自体を見る形へ
+        // 修正し、今後dataNature="dynamic"の新規レイヤーが増えても追従する。
+        const isDynamicGroupLayer = layer.dataNature === "dynamic";
         return {
           id: layer.id,
           label: layer.label,
@@ -941,20 +947,19 @@ export default function Home() {
           // 改善計画T334: 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
           panelHint: layer.panelHint,
         };
-      }),
-    [
-      hasDetail,
-      layerVisibility,
-      roadSurfaceLegendDetails,
-      roadSurfaceSummary,
-      roadTypeLegendDetails,
-      roadTypeSummary,
-      routeLegendDetails,
-      routeSummary,
-      staticFilterSummaries,
-      mapLayers,
-    ],
-  );
+      });
+  }, [
+    hasDetail,
+    layerVisibility,
+    roadSurfaceLegendDetails,
+    roadSurfaceSummary,
+    roadTypeLegendDetails,
+    roadTypeSummary,
+    routeLegendDetails,
+    routeSummary,
+    staticFilterSummaries,
+    mapLayers,
+  ]);
 
   // 全レイヤー一括OFF（ユーザー要望「一次・二次・動的まとめて1ボタンでクリアしたい」「ルート等も
   // 含めて全チップをOffにするのがシンプル」）。以前はMapOverlayControls.tsxが自前で
@@ -1125,6 +1130,8 @@ export default function Home() {
       location.longitude !== generatedConditions.longitude ||
       routeMode !== generatedConditions.routeMode ||
       (generatedConditions.routeMode === "loop" && Number(distanceInput) !== generatedConditions.distanceKm) ||
+      (generatedConditions.routeMode === "destination" &&
+        JSON.stringify({ waypoints, destination }) !== generatedConditions.waypointsKey) ||
       currentWeightsKey !== generatedConditions.weightsKey);
 
   async function handleGenerate(distanceKm: number) {
@@ -1187,6 +1194,7 @@ export default function Home() {
         distanceKm: effectiveDistanceKm,
         weightsKey: currentWeightsKey,
         routeMode,
+        waypointsKey: JSON.stringify({ waypoints, destination }),
       });
       setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
