@@ -1098,22 +1098,24 @@ export default function Home() {
     () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
     [showGradientFill, gradientAxisData.byTile]
   );
-  // 改善計画T443: 軸スタジオのgradient軸display_thresholds_overrideをMapViewへ配線する
-  // （T440.mdが既知の未了項目として据え置いていた分）。axisCatalog.secondaryAxesはkind="none"
-  // 軸（gradientを含む）も列挙する一覧のため、ここから引く（未取得・未設定時はundefinedのまま
-  // MapView側のビルド時既定値[GRADIENT_BOUNDARIES]へフォールバックする）。
-  const gradientBoundaries = useMemo(
-    () => axisCatalog.secondaryAxes.find((axis) => axis.axisId === "gradient")?.displayThresholdsOverride,
-    [axisCatalog.secondaryAxes]
-  );
-  // 改善計画T466: 軸スタジオのwind軸display_thresholds_overrideをMapViewへ配線する
-  // （gradientBoundariesと同型）。windはdedicated_way_value_layer軸のためsecondaryAxes
-  // （kind="ramp"/"none"の地図表示カタログ）には含まれず、axisCatalog.axes
-  // （useAxisCatalog: PreferenceAxisDef一覧、全公開軸を列挙）から引く。
-  const windBoundaries = useMemo(
-    () => axisCatalog.axes.find((axis) => axis.axisId === "wind")?.displayThresholdsOverride,
-    [axisCatalog.axes]
-  );
+  // 改善計画T473: `dedicated_way_value_layer`軸（wind/gradient）の軸スタジオ
+  // display_thresholds_overrideをMapViewへ配線する。以前はgradientBoundaries（T443）・
+  // windBoundaries（T466）という軸ごとに別名のuseMemo・propだったが、design-principles.md
+  // 構造仕様3（軸ごとにpropを新設しない）に違反していたため、axisCatalog.axesから
+  // dedicatedWayValueLayer===trueの軸を横断的に抽出し、axisId→しきい値配列の汎用Mapへ
+  // 統合した（3件目の動的材料が増えてもこのuseMemo自体の変更は不要）。gradientの
+  // dedicatedWayValueLayerフラグはaxisCatalog.axes側（GET /api/axis-catalog由来）で
+  // 正しくtrueになる（evaluationAxes.tsのビルド時静的フォールバックが誤ってfalse固定
+  // していた問題もあわせて修正済み、evaluationAxes.ts参照）。
+  const dedicatedWayValueBoundaries = useMemo(() => {
+    const map = new Map<string, readonly number[]>();
+    for (const axis of axisCatalog.axes) {
+      if (axis.dedicatedWayValueLayer && axis.displayThresholdsOverride) {
+        map.set(axis.axisId, axis.displayThresholdsOverride);
+      }
+    }
+    return map;
+  }, [axisCatalog.axes]);
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
@@ -1627,10 +1629,9 @@ export default function Home() {
             showOneway={layerVisibility.oneway}
             showWindAxis={showWindAxis}
             windAxisPenalties={windAxisPenalties}
-            windBoundaries={windBoundaries}
             showGradientAxis={showGradientAxis}
             gradientAxisValues={gradientAxisValues}
-            gradientBoundaries={gradientBoundaries}
+            dedicatedWayValueBoundaries={dedicatedWayValueBoundaries}
             showGradientFill={showGradientFill}
             gradientFillGeojson={gradientFillPayload}
             showStopPoi={layerVisibility.stopPoi}

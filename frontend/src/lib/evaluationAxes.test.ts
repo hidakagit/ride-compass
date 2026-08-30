@@ -79,4 +79,31 @@ describe("evaluationAxes", () => {
     const missing = PREFERENCE_AXES.filter((axis) => axis.description === "").map((axis) => axis.axisId);
     expect(missing, `説明文が無い軸: ${missing.join(", ")}`).toEqual([]);
   });
+
+  // 回帰テスト（改善計画T473）: 以前はSECONDARY_AXES由来の全軸のdedicatedWayValueLayerを
+  // 「kind='ramp'軸のみを含むため常にfalse」という誤った前提で一律falseに固定していたが、
+  // gradientはkind="none"（材料がタイル非依存）でありながらdedicated_way_value_layer=true
+  // という組み合わせが実在するため、axis-catalog.json（backend由来）の値と食い違っていた。
+  // page.tsx（dedicatedWayValueBoundaries）がPREFERENCE_AXESのこのフィールドを軸カタログ
+  // 取得完了前のフォールバック値として使うため、静的生成物の値と一致していないと
+  // gradientの評価軸グループ色分けしきい値配線が取得完了前だけ欠落する。
+  it("PREFERENCE_AXESのdedicatedWayValueLayerはaxis-catalog.jsonのdedicated_way_value_layerと一致する", () => {
+    const catalogAxesById = new Map(
+      (axisCatalog.axes as { axis_id: string; dedicated_way_value_layer?: boolean }[]).map((axis) => [
+        axis.axis_id,
+        axis.dedicated_way_value_layer ?? false,
+      ])
+    );
+    for (const axis of PREFERENCE_AXES) {
+      // windはaxis-catalog.json（表示カタログ）に対応軸を持たないため対象外
+      // （PreferenceAxisDef側の個別追加エントリで直接true指定している）。
+      if (AXES_WITHOUT_MAP_LAYER.includes(axis.axisId)) continue;
+      expect(
+        axis.dedicatedWayValueLayer,
+        `axisId(${axis.axisId})のdedicatedWayValueLayerが一致しない`
+      ).toBe(catalogAxesById.get(axis.axisId));
+    }
+    // gradientは実際にdedicated_way_value_layer=trueを持つ代表例（回帰の直接検知）。
+    expect(PREFERENCE_AXES.find((axis) => axis.axisId === "gradient")?.dedicatedWayValueLayer).toBe(true);
+  });
 });

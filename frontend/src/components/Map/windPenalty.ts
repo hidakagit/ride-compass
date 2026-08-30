@@ -60,7 +60,11 @@ export function windPenaltyGridToCellFeatureCollection(
  * 組み立てロジック（buildWindPenaltyColorExpression）を共有する——環境（面）・評価軸（線）は
  * 同じ[時刻,向き]入力を共有するという契約（T400.md「2.」節）に加え、色の意味も揃えることで
  * 両者を見比べやすくする。feature-state版と異なり、こちらはgeojson sourceのプロパティを
- * 直接["get",...]で読む。 */
-export function windPenaltyFillColorExpression(): unknown[] {
-  return buildWindPenaltyColorExpression(["get", "windPenalty"]);
+ * 直接["get",...]で読む。boundariesは省略時ビルド時既定値（WIND_AXIS_THRESHOLDS、
+ * buildWindPenaltyColorExpression参照）——改善計画T473で評価軸グループ側
+ * （windAxisColorExpression）と同じく軸スタジオのdisplay_thresholds_overrideを受け取れる
+ * ようにし、「評価軸・環境グループで色の意味を揃える」契約を実際に満たすようにした
+ * （以前はこの関数を引数無しで呼んでおり、環境グループだけ配線から取り残されていた）。 */
+export function windPenaltyFillColorExpression(boundaries?: readonly number[]): unknown[] {
+  return buildWindPenaltyColorExpression(["get", "windPenalty"], boundaries);
 }

@@ -98,10 +98,13 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
       axisId: axis.axisId,
       label: axis.label,
       description: PREFERENCE_AXIS_DESCRIPTIONS[axis.axisId] ?? "",
-      // SECONDARY_AXESはkind="ramp"軸（MVTタイル焼き込み経由の地図表示）のみを含み、
-      // 専用way_id配信層（dedicated_way_value_layer）とは構造上排他的なレンダリング
-      // 経路のため、この一覧に含まれる軸は常にfalseになる。
-      dedicatedWayValueLayer: false,
+      // 改善計画T473訂正: 以前は「SECONDARY_AXESはkind='ramp'軸のみを含み、専用way_id配信層
+      // （dedicated_way_value_layer）とは構造上排他的」という理由で常にfalse固定していたが、
+      // 誤りだった。gradientはkind="none"（材料がタイル非依存）でありながら
+      // dedicated_way_value_layer=trueという組み合わせが実在する（軸自身のデータをそのまま
+      // 反映する、SECONDARY_AXES側のdedicatedWayValueLayerフィールド参照）。
+      dedicatedWayValueLayer: axis.dedicatedWayValueLayer ?? false,
+      displayThresholdsOverride: axis.displayThresholdsOverride,
     })
   ),
   { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind, dedicatedWayValueLayer: true },

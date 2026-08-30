@@ -24,11 +24,11 @@ export const WIND_AXIS_FEATURE_STATE_KEY = "windPenalty";
 // wind_penalty（m/s、正=向かい風・負=追い風、backend/app/domain/wind.py: WindCalculator.
 // wind_penalty参照）の色分けしきい値の既定値。5段階（RAMP_COLOR_ANCHORSの4色をrampColorForBandで
 // 線形補間、axisLayers.ts参照）。±2m/sは体感し始める目安、±6m/sは強風域
-// （windLayer.ts: WIND_SPEED_COLOR_STOPSのBf4上限相当）を大まかに踏襲した暫定値。改善計画T466:
-// gradientはT443でaxis_definitions.display_thresholds_overrideを配線済みだが、windは
-// dedicated_way_value_layer軸のため軸カタログのSECONDARY_AXES経由では取得できず
-// evaluationAxes.ts: PreferenceAxisDef.displayThresholdsOverride経由で渡る
-// （page.tsx→MapView.tsx: windBoundariesプロパティ）。未設定時はこの既定値へフォールバックする。
+// （windLayer.ts: WIND_SPEED_COLOR_STOPSのBf4上限相当）を大まかに踏襲した暫定値。改善計画T473:
+// 軸スタジオのaxis_definitions.display_thresholds_overrideは、wind/gradientいずれも
+// page.tsx: dedicatedWayValueBoundaries（axisCatalog.axesから`dedicated_way_value_layer=true`
+// の軸を横断的に抽出した汎用Map）経由でMapView.tsxへ渡る（以前はwindBoundaries/
+// gradientBoundariesという軸ごとの別名propだった）。未設定時はこの既定値へフォールバックする。
 export const WIND_AXIS_THRESHOLDS: readonly number[] = [-6, -2, 2, 6];
 
 /** wind_penalty値（boundariesのしきい値・配色）を色へ変換するMapLibre expressionを

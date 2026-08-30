@@ -92,4 +92,7 @@ RideCompass固有の仕様ではないため、このファイルには置かな
 - `windPenalty.ts`がbackendの物理式をJS移植・`WIND_AXIS_THRESHOLDS`が軸スタジオから
   独立したハードコード定数・`windAxisPenalties`/`gradientAxisValues`という軸ごとの
   別名propという3つの症状が、いずれも構造仕様1〜3の違反として同一原因だった
-  （2026-08-31、ユーザー指摘。詳細調査は別途タスク化予定）。
+  （2026-08-31、ユーザー指摘）。うち`WIND_AXIS_THRESHOLDS`のハードコードは
+  [T473](tasks/T473.md)で解消済み。残る2症状（`windPenalty.ts`の物理式JS移植・
+  `windAxisPenalties`/`gradientAxisValues`の軸ごとの別名prop）は
+  [T481](tasks/T481.md)として起票済み。

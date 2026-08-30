@@ -1468,16 +1468,13 @@ export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly 
 // 同時に表示しても、後から追加された推定側が観測データを塗り潰して見えなくなっていた。
 export function buildStaticOverlayLayers(
   axisOverlayLayers: readonly OverlayLayerEntry[],
-  // 改善計画T443: 軸スタジオのgradient軸display_thresholds_override（page.tsx:
-  // axisCatalog.secondaryAxes経由）。未設定時はgradientAxisColorExpression/
-  // gradientFillColorExpressionのビルド時既定値（GRADIENT_BOUNDARIES）へフォールバックする。
-  gradientBoundaries?: readonly number[] | null,
-  // 改善計画T466: 軸スタジオのwind軸display_thresholds_override（page.tsx:
-  // axisCatalog.axes経由、windはdedicated_way_value_layer軸のためsecondaryAxesには
-  // 含まれない）。未設定時はwindAxisColorExpressionのビルド時既定値（WIND_AXIS_THRESHOLDS）
-  // へフォールバックする。
-  windBoundaries?: readonly number[] | null
+  // 改善計画T473: `dedicated_way_value_layer`軸（wind/gradient）のdisplay_thresholds_override
+  // を軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueBoundaries
+  // 参照、以前はgradientBoundaries/windBoundariesという軸ごとの別名引数だった）。
+  dedicatedWayValueBoundaries?: ReadonlyMap<string, readonly number[]>
 ): readonly OverlayLayerEntry[] {
+  const gradientBoundaries = dedicatedWayValueBoundaries?.get("gradient");
+  const windBoundaries = dedicatedWayValueBoundaries?.get("wind");
   return [
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
     // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
@@ -1869,20 +1866,21 @@ interface MapViewProps {
    * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
    * setFeatureStateで路面タイルの地物へ差し込む（applyAxisFeatureStateValues参照）。 */
   windAxisPenalties: ReadonlyMap<number, number>;
-  /** 改善計画T466: 軸スタジオのwind軸display_thresholds_override（page.tsx:
-   * axisCatalog.axes経由、windはdedicated_way_value_layer軸のためsecondaryAxesには
-   * 含まれない）。未設定時はwindAxisColorExpressionのビルド時既定値
-   * （WIND_AXIS_THRESHOLDS）へフォールバックする。 */
-  windBoundaries?: readonly number[] | null;
   /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxis/windAxisPenaltiesと
    * 同型——「評価軸」グループとしての勾配。hooks/useDynamicWayValues.tsが現在のビューポート
    * に対して取得したway_id→effective_gradient（%、正=登り・負=下り）。 */
   showGradientAxis: boolean;
   gradientAxisValues: ReadonlyMap<number, number>;
-  /** 改善計画T443: 軸スタジオのgradient軸display_thresholds_override
-   * （page.tsx: axisCatalog.secondaryAxes経由）。未設定時はgradientAxisColorExpression/
-   * gradientFillColorExpressionのビルド時既定値（GRADIENT_BOUNDARIES）へフォールバックする。 */
-  gradientBoundaries?: readonly number[] | null;
+  /** 改善計画T473: `dedicated_way_value_layer`軸（現状wind/gradient）の
+   * display_thresholds_override（軸スタジオ由来）を、axisId→しきい値配列の汎用Mapとして
+   * まとめて受け取る（page.tsx: axisCatalog.axesから`dedicatedWayValueLayer===true`の軸を
+   * 横断的に抽出して構築。T443/T466が軸ごとに別名prop[gradientBoundaries/windBoundaries]を
+   * 新設していたのを統合し、design-principles.md構造仕様3[軸ごとにpropを新設しない]に
+   * 適合させた）。評価軸グループ（windAxisColorExpression/gradientAxisColorExpression）・
+   * 環境グループのgridFill（makeEnsureGradientFillLayer・windPenaltyFillColorExpression）の
+   * 両方がこの1つのMapから該当軸idのしきい値を引く。未設定の軸idは各実装のビルド時
+   * 既定値（WIND_AXIS_THRESHOLDS・GRADIENT_BOUNDARIES）へフォールバックする。 */
+  dedicatedWayValueBoundaries?: ReadonlyMap<string, readonly number[]>;
   /** 改善計画T423: 環境グループの勾配gridFill（windPenaltyFillと同型）。showGradientFillは
    * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
    * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDynamicWayValues.ts:
@@ -1987,10 +1985,9 @@ export default function MapView({
   showOneway,
   showWindAxis,
   windAxisPenalties,
-  windBoundaries,
   showGradientAxis,
   gradientAxisValues,
-  gradientBoundaries,
+  dedicatedWayValueBoundaries,
   showGradientFill,
   gradientFillGeojson,
   showAccidents,
@@ -2035,9 +2032,32 @@ export default function MapView({
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
   const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
   const staticOverlayLayers = useMemo(
-    () => buildStaticOverlayLayers(axisOverlayLayers, gradientBoundaries, windBoundaries),
-    [axisOverlayLayers, gradientBoundaries, windBoundaries]
+    () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedWayValueBoundaries),
+    [axisOverlayLayers, dedicatedWayValueBoundaries]
   );
+  // 改善計画T473: 環境グループの風penalty gridFill（windVector.penaltyFill）も評価軸グループ
+  // （windAxisColorExpression）と同じdedicatedWayValueBoundariesから配色しきい値を引く
+  // ようにし、「評価軸・環境グループで色の意味を揃える」契約（windPenalty.tsのdocstring）を
+  // 実際に満たす（以前はwindPenaltyFillColorExpression()を引数無しで呼んでおり、環境
+  // グループだけこの配線から取り残されていた）。DYNAMIC_WEATHER_RENDERERS自体は他の
+  // レイヤー（降水・雷・竜巻等）を含む大きな静的スペックのため丸ごと動的化はせず、
+  // windVector.penaltyFillのgridFill.colorExpressionだけを浅く上書きする。
+  const dynamicWeatherRenderers = useMemo<Record<DynamicWeatherLayerId, DynamicWeatherGroupSpec>>(() => {
+    const windPenaltyBoundaries = dedicatedWayValueBoundaries?.get("wind");
+    return {
+      ...DYNAMIC_WEATHER_RENDERERS,
+      windVector: {
+        ...DYNAMIC_WEATHER_RENDERERS.windVector,
+        penaltyFill: {
+          gridFill: {
+            ...DYNAMIC_WEATHER_RENDERERS.windVector.penaltyFill!.gridFill!,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            colorExpression: windPenaltyFillColorExpression(windPenaltyBoundaries) as any,
+          },
+        },
+      },
+    };
+  }, [dedicatedWayValueBoundaries]);
   const interactiveLayerIds = useMemo(
     () => buildInteractiveLayerIds(staticOverlayLayers),
     [staticOverlayLayers]
@@ -2100,6 +2120,7 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     dynamicWeather,
+    dynamicWeatherRenderers,
     showRoadType,
     showRoadSurface,
     showDesignation,
@@ -2178,6 +2199,7 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       dynamicWeather,
+      dynamicWeatherRenderers,
       showRoadType,
       showRoadSurface,
       showDesignation,
@@ -2212,6 +2234,7 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     dynamicWeather,
+    dynamicWeatherRenderers,
     showRoadType,
     showRoadSurface,
     showDesignation,
@@ -2254,6 +2277,7 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       dynamicWeather,
+      dynamicWeatherRenderers,
       showRoadType,
       showRoadSurface,
       showDesignation,
@@ -2297,7 +2321,7 @@ export default function MapView({
     );
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
+      applyDynamicWeatherState(map, id, dynamicWeatherRenderers[id], dynamicWeather[id]);
     }
     // 改善計画T425（ゼロベース網羅レビュー指摘）+T457（gradientFillGeojson分）:
     // WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID（評価軸グループの風・勾配）は
@@ -3036,10 +3060,10 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
+      applyDynamicWeatherState(map, id, dynamicWeatherRenderers[id], dynamicWeather[id]);
     }
     recomputeLayerDataStatus();
-  }, [dynamicWeather, recomputeLayerDataStatus]);
+  }, [dynamicWeather, dynamicWeatherRenderers, recomputeLayerDataStatus]);
 
   // 自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・事故（当事者/重大度）・
   // 車の圧迫感を含むramp軸（改善計画T292でここへ合流）の絞り込み（改善計画T63）。

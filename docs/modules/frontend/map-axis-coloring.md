@@ -68,11 +68,14 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 ## windAxisLayer.ts / gradientAxisLayer.ts（ルート確定前の評価軸グループ線）
 
 - `windAxisLayer.ts`: `WIND_AXIS_FEATURE_STATE_KEY = "windPenalty"`。
-  `WIND_AXIS_THRESHOLDS = [-6, -2, 2, 6]`はフロント側の固定定数。
+  `WIND_AXIS_THRESHOLDS = [-6, -2, 2, 6]`は未設定時のフォールバック既定値。
 - `gradientAxisLayer.ts`: `GRADIENT_AXIS_FEATURE_STATE_KEY = "gradientValue"`。
-  境界値は`routeStyleModes.ts: GRADIENT_BOUNDARIES`（軸スタジオの
-  `display_thresholds_override`由来、未設定時のデフォルト）を共有し、windと異なり
-  軸スタジオ非依存のハードコードではない。
+  境界値は`routeStyleModes.ts: GRADIENT_BOUNDARIES`を未設定時のフォールバックとして持つ。
+- wind/gradientいずれも、軸スタジオの`display_thresholds_override`は
+  `page.tsx: dedicatedWayValueBoundaries`（`axisCatalog.axes`から
+  `dedicated_way_value_layer===true`の軸を横断的に抽出した`ReadonlyMap<axisId,
+  readonly number[]>`、`MapViewProps.dedicatedWayValueBoundaries`経由）から取得する
+  汎用機構1つにまとまっている。未設定の軸idは上記のビルド時既定値へフォールバックする。
 - 両者とも`buildXxxColorExpression(valueExpression, boundaries?)`という「値の取得元
   （feature-state or geojsonプロパティ）だけが呼び出し側で異なる」共通ロジックを持ち、
   評価軸グループ（feature-state経由）と環境グループのgridFill（`["get",...]`経由）が
@@ -88,6 +91,11 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 
 `windPenalty()`は`WindCalculator.wind_penalty`（backend）と同一計算をfrontendで実装した
 もの。`windPenalty.test.ts`が既知入出力ペアでbackendとの一致を検証する。
+
+`windPenaltyFillColorExpression(boundaries?)`は評価軸グループ（`windAxisColorExpression`）と
+同じ`dedicatedWayValueBoundaries`（`.get("wind")`）を`MapView.tsx`側で受け取り、両者が
+同じ配色・しきい値を共有する。`gradientGridFill.ts`側（`makeEnsureGradientFillLayer`）も
+同じMapを経由する。
 
 ## useDynamicWayValues.ts（フェッチ・状態管理）
 
