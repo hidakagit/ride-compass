@@ -10,6 +10,7 @@
 
 import type { LegendEntry } from "./legendFilter";
 import type { CatalogAxis } from "./axisLayers";
+import type { RoutePreferenceWeights } from "@/types/route";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 改善計画T352: 以前は"wind"も固定文字列unionの一員だったが、supports_route_coloring
@@ -182,6 +183,22 @@ const STATIC_MODES: RouteStyleMode[] = [
 export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): RouteStyleMode[] {
   const dynamicModes = axes.filter((axis) => axis.supports_route_coloring).map(routeColorableModeFromAxis);
   return [...dynamicModes, ...STATIC_MODES];
+}
+
+// 改善計画T434: routeStyleModesFromCatalogAxes（公開軸カタログ由来）はroutePreferenceの
+// 重みを知らないため、ユーザーがルート設定パネルでチェックを外した（重み0にした）軸の
+// モードも選択肢に残り続けてしまう（「勾配は常にあるからハードコードでいいという話では
+// ない」という指摘、2026-08-30）。dynamicModes（wind等、routeColorableModeFromAxisが
+// id=axis.axis_idで生成）と、STATIC_MODESのうちgradient（AxisDefinition.supports_route_
+// coloringのdocstring参照、意図的にaxis_id文字列"gradient"をmode.idとして共有）は
+// route_preferenceの重み>0のときだけ残す。road/difficultyはどのaxis_idとも一致しない
+// （road_surface_goodは軸に紐づかない別系統、difficultyは全軸の合成のため単一の
+// enabled/disabled概念を持たない）ため、常に残す。
+export function filterRouteStyleModesByPreference(
+  modes: readonly RouteStyleMode[],
+  routePreference: RoutePreferenceWeights
+): RouteStyleMode[] {
+  return modes.filter((mode) => !(mode.id in routePreference) || (routePreference[mode.id] ?? 0) > 0);
 }
 
 // ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと

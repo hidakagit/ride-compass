@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
@@ -39,6 +39,7 @@ import {
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
+  filterRouteStyleModesByPreference,
   getRouteStyleMode,
   isRouteStyleModeId,
   type RouteStyleModeId,
@@ -487,6 +488,18 @@ export default function Home() {
     DEFAULT_ROUTE_STYLE_MODE_ID,
     { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null) },
   );
+  // 改善計画T434: 「評価で有効にした軸」（route_preferenceの重み>0）だけを選択肢として
+  // 動的に見せる。gradient/road/difficulty（routeStyleModes.ts: STATIC_MODES）は固定と
+  // いう理由だけで無条件に残していたが、これはgradientのように対応する軸を持つモードが
+  // 重み0でも選べてしまう不具合だった（ユーザー指摘）。
+  const filteredRouteStyleModes = useMemo(
+    () => filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, routePreference),
+    [axisCatalog.routeStyleModes, routePreference],
+  );
+  useEffect(() => {
+    if (filteredRouteStyleModes.some((mode) => mode.id === routeStyleModeId)) return;
+    setRouteStyleModeId(filteredRouteStyleModes[0].id);
+  }, [filteredRouteStyleModes, routeStyleModeId, setRouteStyleModeId]);
   // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
   // 両系統を管理できる。「文字列の配列」の形のエントリだけ復元時に採用する。
@@ -793,7 +806,7 @@ export default function Home() {
   );
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
-    ? `色分け: ${getRouteStyleMode(axisCatalog.routeStyleModes, routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
+    ? `色分け: ${getRouteStyleMode(filteredRouteStyleModes, routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
     : null;
   const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
@@ -801,12 +814,12 @@ export default function Home() {
         ? [
             {
               label: "",
-              legend: getRouteStyleMode(axisCatalog.routeStyleModes, routeStyleModeId).legend,
+              legend: getRouteStyleMode(filteredRouteStyleModes, routeStyleModeId).legend,
               hiddenKeys: hiddenRouteLegendKeys,
             },
           ]
         : [],
-    [hasDetail, routeStyleModeId, hiddenRouteLegendKeys, axisCatalog.routeStyleModes],
+    [hasDetail, routeStyleModeId, hiddenRouteLegendKeys, filteredRouteStyleModes],
   );
 
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
@@ -1309,7 +1322,7 @@ export default function Home() {
   // ルート未生成時の案内は、以前は「地図の見え方」から「ルートを作る」への誘導リンクを
   // 持っていたが、この移設によりリンク自体が不要になった（既にこのパネルの中にいるため）。
   function renderRouteColorSectionBody() {
-    const routeStyleMode = getRouteStyleMode(axisCatalog.routeStyleModes, routeStyleModeId);
+    const routeStyleMode = getRouteStyleMode(filteredRouteStyleModes, routeStyleModeId);
     function handleRouteModeSelect(id: RouteStyleModeId) {
       setRouteStyleModeId(id);
       if (!layerVisibility.route) handleLayerToggle("route", true);
@@ -1337,7 +1350,7 @@ export default function Home() {
               value={routeStyleModeId}
               onValueChange={(id) => handleRouteModeSelect(id as RouteStyleModeId)}
             >
-              {axisCatalog.routeStyleModes.map((mode) => (
+              {filteredRouteStyleModes.map((mode) => (
                 <RadioGroup.Item
                   key={mode.id}
                   value={mode.id}
@@ -1567,7 +1580,7 @@ export default function Home() {
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
             routeLayerOn={layerVisibility.route}
-            routeStyleModes={axisCatalog.routeStyleModes}
+            routeStyleModes={filteredRouteStyleModes}
             routeStyleModeId={routeStyleModeId}
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}
             onRegionZoomHintChange={setRegionZoomTooWide}
