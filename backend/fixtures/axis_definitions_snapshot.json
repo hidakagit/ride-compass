@@ -5,9 +5,15 @@
         "axis_id": "gradient",
         "category": "観測",
         "chip_label": "勾配",
+        "dedicated_way_value_layer": true,
         "default_weight": 0.15,
         "description": "登り坂の急さが小さいほど易しい",
-        "display_thresholds_override": null,
+        "display_thresholds_override": [
+          -2.0,
+          2.0,
+          6.0,
+          10.0
+        ],
         "icon_id": "incline",
         "is_published": true,
         "label": "勾配",
@@ -47,7 +53,7 @@
           ]
         },
         "show_map_icon": true,
-        "supports_route_coloring": false,
+        "supports_route_coloring": true,
         "time_scope": "always"
       },
       "sort_order": 0
@@ -57,6 +63,7 @@
         "axis_id": "wind",
         "category": "動的",
         "chip_label": null,
+        "dedicated_way_value_layer": true,
         "default_weight": 0.26,
         "description": "向かい風が弱いほど易しい",
         "display_thresholds_override": null,
@@ -97,6 +104,7 @@
         "axis_id": "surface_q",
         "category": "観測",
         "chip_label": "舗装",
+        "dedicated_way_value_layer": false,
         "default_weight": 0.19,
         "description": "舗装路であるほど易しい",
         "display_thresholds_override": null,
@@ -114,7 +122,7 @@
           "material": "surface_good"
         },
         "show_map_icon": true,
-        "supports_route_coloring": false,
+        "supports_route_coloring": true,
         "time_scope": "always"
       },
       "sort_order": 2
@@ -124,6 +132,7 @@
         "axis_id": "stop_density",
         "category": "観測",
         "chip_label": "停止密度",
+        "dedicated_way_value_layer": false,
         "default_weight": 0.2,
         "description": "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
         "display_thresholds_override": [
@@ -173,6 +182,7 @@
         "axis_id": "car_stress",
         "category": "推定",
         "chip_label": "圧迫感",
+        "dedicated_way_value_layer": false,
         "default_weight": 0.2,
         "description": "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
         "display_thresholds_override": [
@@ -237,6 +247,7 @@
         "axis_id": "accident",
         "category": "推定",
         "chip_label": "事故密度",
+        "dedicated_way_value_layer": false,
         "default_weight": 0.08,
         "description": "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
         "display_thresholds_override": [
@@ -281,6 +292,7 @@
         "axis_id": "night",
         "category": "観測",
         "chip_label": "夜間",
+        "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
         "display_thresholds_override": null,
@@ -326,6 +338,7 @@
         "axis_id": "car_stress_highway_base",
         "category": "推定",
         "chip_label": "道路基準",
+        "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "highway種別による車の圧迫感の基準値(1-4、非公開)",
         "display_thresholds_override": null,
@@ -366,6 +379,7 @@
         "axis_id": "car_stress_maxspeed_adjustment",
         "category": "推定",
         "chip_label": null,
+        "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "制限速度による補正(非公開)",
         "display_thresholds_override": null,
@@ -422,6 +436,7 @@
         "axis_id": "car_stress_lanes_adjustment",
         "category": "推定",
         "chip_label": null,
+        "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "車線数による補正(非公開)",
         "display_thresholds_override": null,
@@ -478,6 +493,7 @@
         "axis_id": "car_stress_designation_adjustment",
         "category": "推定",
         "chip_label": null,
+        "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "指定路線(緊急輸送道路・重要物流道路)該当による補正(非公開)",
         "display_thresholds_override": null,
@@ -505,6 +521,7 @@
         "axis_id": "car_stress_motor_vehicle_no_adjustment",
         "category": "推定",
         "chip_label": null,
+        "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "motor_vehicle=noの区間を最良値へ強制する内部軸(非公開)",
         "display_thresholds_override": null,
@@ -532,6 +549,7 @@
         "axis_id": "bicycle_infra_quality",
         "category": "推定",
         "chip_label": "自転車道",
+        "dedicated_way_value_layer": false,
         "default_weight": 0.15,
         "description": "専用の自転車インフラ（分離自転車道・自転車レーン等、河川敷サイクリングロード等の自転車通行可の歩行者道を含む）が整備されているほど易しい。",
         "display_thresholds_override": null,
@@ -596,5 +614,5 @@
       "sort_order": 13
     }
   ],
-  "revision": 22
+  "revision": 28
 }

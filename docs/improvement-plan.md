@@ -542,3 +542,29 @@ T221エントリへの追記として実施済み（新番号なし）。
 - [x] [T438](tasks/T438.md). 一般ユーザー向け画面の文言から「軸スタジオ」の露出を除去する 規模S（P1、review:ui F-4、2026-08-30完了）
 - [x] [T439](tasks/T439.md). モバイルでルート生成完了時に「ルート結果」タブへ視覚的に誘導する 規模S〜M（P1、review:ui F-5、2026-08-30完了）
 - [x] [T440](tasks/T440.md). ルート結果・ルート設定パネルの色分けを軸スタジオへ完全同期する 規模L（2026-08-30完了。T433/T434の再指摘を受けた設計やり直し）
+
+## 統合レビュー第2回の起票（2026-08-30、review:all、ユーザー承認済み「P1だけでなく指摘全て起票して」）
+
+T414自己是正〜T440（51コミット）を対象とした2回目の統合レビュー
+（[history/2026-08-30_all_2.md](../.claude/commands/review/history/2026-08-30_all_2.md)、
+総合スコア50/100）の全指摘（P1×3・P2×5・P3×5）をユーザー承認により起票する。うちP1-1
+（axis_definitions_snapshot.jsonの陳腐化）は、起票作業と並行して別セッションが
+[T442](tasks/T442.md)として既に起票・完了させていたため重複起票しない。
+
+- [ ] [T443](tasks/T443.md). gradientの境界値がルート確定前の表示（評価軸ライン・環境グループ塗り）に未配線〔P1〕規模S（2026-08-30起票）
+- [ ] [T444](tasks/T444.md). 風・勾配のfeature-stateクリアが共有され、同時ON時に片方OFFで両方消える〔P1〕規模S〜M（2026-08-30起票）
+- [ ] [T445](tasks/T445.md). WindWayService/GradientWayServiceのbearing_deg型シグネチャがルーター層とOptional不一致〔P2〕規模S（2026-08-30起票）
+- [ ] [T446](tasks/T446.md). buildRoadSurfaceSharedLayerIdsがgradientAxisを含まない非対称＋古いコメントの訂正〔P2〕規模S（2026-08-30起票）
+- [ ] [T447](tasks/T447.md). secondaryAxes.tsのコメントがwindのcategory/show_map_icon除外機構を逆に説明している〔P2〕規模S（2026-08-30起票）
+- [ ] [T448](tasks/T448.md). T427.mdのFinding 1が結果的に解消済みなのに未更新のまま半陳腐化〔P2〕規模S（2026-08-30起票）
+- [ ] [T449](tasks/T449.md). architecture.mdが軸スタジオのshape kind数について自己矛盾している〔P2〕規模S（2026-08-30起票）
+- [ ] [T450](tasks/T450.md). needs_bearing=False分岐が未テストのまま宣言されている〔P3〕規模S（2026-08-30起票）
+- [ ] [T451](tasks/T451.md). MapView.tsxにT432で削除済みの関数を参照する古いコメントが残る〔P3〕規模S（2026-08-30起票）
+- [ ] [T452](tasks/T452.md). gradientFillの独自実装統一DEFERにトリガー条件が明記されていない〔P3〕規模S（2026-08-30起票）
+- [ ] [T453](tasks/T453.md). history/scores.mdのuiセクション、同日2行の「前回差分」列書式が不統一〔P3〕規模S（2026-08-30起票）
+- [ ] [T454](tasks/T454.md). task/README.mdのディレクトリ図が_history.mdに触れておらずreview/README.mdと非対称〔P3〕規模S（2026-08-30起票）
+
+## 本番インシデント対応（2026-08-30・ルート生成候補0件の原因調査から）
+
+- [x] [T441](tasks/T441.md). ルート候補0件の原因をGUI（デバッグログ）まで届ける+debugLogの重大度監査 規模M（2026-08-30完了）
+- [x] [T442](tasks/T442.md). axis_definitions_snapshot.jsonがT440の軸変更に追従しておらず、fresh bootstrapと乖離している 規模S（T441のOpenAPI再生成時に発見、2026-08-30完了）

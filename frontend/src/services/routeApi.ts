@@ -84,6 +84,10 @@ export interface GenerateRoutesResult {
   routes: RouteCandidate[];
   conditions: GenerationConditions;
   engine: string;
+  /** 改善計画T441: routesが空のときの原因（backend: RouteGenerator.
+   * last_no_candidates_reason）。SSHでサーバーログを見ないと原因が分からなかった
+   * 実インシデントを受け、GUI（呼び出し側のエラーメッセージ・デバッグログ）まで届ける。 */
+  noCandidatesReason?: string;
 }
 
 /** ルート生成の進捗（改善計画T265）。プロパティの粒度は「待ち/実行中」＋フロント側で
@@ -158,12 +162,16 @@ export async function generateRoutes(
     } catch (error) {
       consecutivePollFailures += 1;
       // 改善計画T386（T265コードレビュー指摘2件目、CONFIRMED）: 1回の一時的な失敗では
-      // 生成全体を落とさず、次のポーリングでリトライする。
+      // 生成全体を落とさず、次のポーリングでリトライする。改善計画T441:
+      // この時点ではまだ「失敗が確定」していない（リトライで回復する可能性が高い、
+      // 実際に本番でtimeoutの直後に成功した実績がある）ため"error"ではなく"warn"にする。
+      // 5回連続で失敗し諦める場合は、この関数の呼び出し元（page.tsx）が例外を
+      // catchした時点で別途"error"として記録される。
       debugLog(
         "api:route",
         `ポーリング失敗、リトライします (${consecutivePollFailures}/${MAX_CONSECUTIVE_POLL_FAILURES})`,
         { jobId, error: error instanceof Error ? error.message : String(error) },
-        "error",
+        "warn",
       );
       if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
         throw error instanceof Error ? error : new Error("ルート生成の状態取得に失敗しました");
@@ -185,8 +193,18 @@ export async function generateRoutes(
       }
       const result = status.result;
       debugLog("api:route", `ルーティングエンジン: ${result.engine}`, { count: result.routes.length });
+      // 改善計画T441: 候補0件の原因をwarnレベルで残す（デバッグモードでSSHを使わず
+      // 確認できるようにする）。1件以上あれば`no_candidates_reason`は常にnull。
+      if (result.routes.length === 0 && result.no_candidates_reason) {
+        debugLog("api:route", result.no_candidates_reason, { jobId }, "warn");
+      }
       // conditionsは実験スロット（比較・再現用、研究インターフェース改善 §10-3/6）の入力になる。
-      return { routes: result.routes, conditions: result.conditions, engine: result.engine };
+      return {
+        routes: result.routes,
+        conditions: result.conditions,
+        engine: result.engine,
+        noCandidatesReason: result.no_candidates_reason ?? undefined,
+      };
     }
     if (status.status === "failed") {
       throw new Error(status.error ?? "ルート生成に失敗しました");

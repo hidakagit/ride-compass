@@ -515,6 +515,26 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.getByRole("button", { name: "ルート生成" })).not.toBeDisabled();
   });
 
+  it("改善計画T441: バックエンドがno_candidates_reasonを返した場合、汎用文言ではなくそちらを表示する", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [],
+      conditions: makeConditions(),
+      engine: "road_graph",
+      noCandidatesReason: "8方位すべてで経路探索に失敗しました。除外設定をご確認ください。",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "8方位すべてで経路探索に失敗しました。除外設定をご確認ください。",
+      );
+    });
+  });
+
   it("改善計画T365: 「ルートをクリア」ボタンで生成済みの候補一覧をリセットできる", async () => {
     // RouteList自体はこのファイル全体でモック済み（21行目のvi.mock、内容表示は
     // RouteList.test.tsxが別途検証済み）のため、ここではpage.tsx側の状態
