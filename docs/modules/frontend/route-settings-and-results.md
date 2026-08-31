@@ -138,12 +138,31 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 （`RouteSettingsPanel.test.tsx`の帯グラフ境界ドラッグと同じ制約）、Browserペインでの
 実機確認で別途検証する。
 
-## RouteAxisProfile.tsx（選択中ルートの軸別内訳）
+## RouteAxisProfile.tsx（選択中ルートの地図色分け＋軸別内訳）
 
-`RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重平均）を、
-`useAxisCatalog().axes`の並び順で横棒グラフ表示する。評価できなかった軸（キー自体が
-無い）は表示しない。色は`axisLayers.ts: rampColorForBand`（地図の段階配色と同じ配色系統）
-を`bandCount=101`で流用し、0-100の連続値をそのまま色へ変換する。
+`RouteList`の直後（「ルート選択」タブ内、選択中候補があるときだけ）に表示する。以前は
+「全体プロファイル」という別タブに独立して存在したが、`RouteList`で選んだ候補の詳細と
+いう以外の独立した情報を持たなかったため、地図の色分け選択・凡例設定ごと「ルート選択」
+タブへ統合した。呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ絞り込んで
+渡す。
+
+- **地図の色分けチップ**: 「総合難易度」＋渡された各軸を、`RouteSettingsPanel.module.css`の
+  `legendChip`/`legendDot`クラスをそのままimportして流用したチップ列で表示する（色ドット＋
+  ラベル、クリックで選択）。選択状態は`routeStyleModeId`（`Map/routeStyleModes.ts`）で
+  page.tsx側が管理し、地図上の色分け式を切り替える。チップ選択時、地図上の「ルート」
+  チップ（`layerVisibility.route`）がまだOFFなら自動でONにする。
+- **おすすめ度／総合難易度**: `RouteCandidate.total_score`（候補間の相対スコア、`RouteList`
+  と同じ値・同じ表記）と`overall_difficulty`（絶対基準の軸重み付き合成値）を別指標として
+  両方併記する。総合難易度は下記内訳の合計そのものであり、内訳の1項目としては扱わない。
+- **軸別内訳**: `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重
+  平均、評価できなかった軸はキー自体が無く非表示）を、`domain/difficulty.py:
+  composite_difficulty`と同じ考え方（`raw*weight/weightSum`）でルート設定の重みを反映した
+  「寄与度」に変換してからバー長にする——重みが低い軸は生の難易度が高くてもバーが短くなり、
+  「おすすめ度が高いのに内訳の見た目が悪くて混乱する」ことを避ける。バーの色は生の
+  `axis_difficulties`値（`axisLayers.ts: rampColorForBand`を`bandCount=101`で流用、
+  地図の段階配色と同じ配色系統）——バー長（影響度）とバー色（深刻度）を意図的に分離する。
+- **凡例の表示設定**: `stackBarLegendTrigger`パターン（見出し脇の(i)アイコン→ポップオーバー
+  でチェックボックス一覧）で、選択中モードの凡例カテゴリを地図上で表示/非表示できる。
 
 ## RouteList.tsx / ComparisonPanel.tsx
 
@@ -156,7 +175,12 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
   (2) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
   `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
   (3) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。`total_score`は実験間
-  比較表には出さない（相対評価の誤用防止をUIで強制する設計）。
+  比較表には出さない（相対評価の誤用防止をUIで強制する設計）。page.tsxが渡す`axes`は
+  ルート設定（`routePreference`）で重み>0の軸のみに絞り込み済み——`RouteAxisProfile`と
+  表示ルールを統一するため（改善計画T518）。生成時点ではなく比較を開いた時点の
+  `routePreference`を使う（複数の実験スロットを横断比較する画面のため、スロットごとの
+  生成時点の重み=`generatedRoutePreference`ではなく、画面を見ている「今」の設定基準で
+  揃える）。
 
 ## RouteForm.tsx
 

@@ -153,15 +153,17 @@ export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
 export const STOP_POI_SOURCE_LAYER = "stop_poi";
 
 const ROUTES_SOURCE_ID = "route-candidates";
-const ROUTES_LAYER_ID = "route-candidates-line";
+// 改善計画T518: 「ルート」チップOFF時の完全非表示検証（MapView.layerOps.test.ts）向けに
+// export。
+export const ROUTES_LAYER_ID = "route-candidates-line";
 const OUTLINE_SOURCE_ID = "route-selected-outline";
-const OUTLINE_LAYER_ID = "route-selected-outline-line";
+export const OUTLINE_LAYER_ID = "route-selected-outline-line";
 // 周回ルートの採用向き（順回り/逆回り）を示す矢印（改善計画T293）。8候補すべてに出すと
 // 輻輳するため専用sourceは持たず、選択中1候補のgeometryだけを保持するOUTLINE_SOURCE_IDを
 // そのまま流用する（drawSelectedOutline参照）。
 const ROUTE_ARROW_ICON_ID = "route-arrow-icon";
-const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
-const ROUTE_ARROW_LAYER_ID = "route-arrow";
+export const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
+export const ROUTE_ARROW_LAYER_ID = "route-arrow";
 const DETAIL_SOURCE_ID = "route-detail-segments";
 const DETAIL_LAYER_ID = "route-detail-segments-line";
 const SLOTS_SOURCE_ID = "experiment-slots";
@@ -372,42 +374,51 @@ function runWhenStyleReady(map: MapLibreMap, fn: () => void) {
   });
 }
 
-function drawBaseRoutes(map: MapLibreMap, routes: RouteCandidate[], selectedRouteId: string | null) {
+// 改善計画T518: MapView.routes.test.tsの「ルート」チップ表示切替テスト向けにexport。
+export function drawBaseRoutes(map: MapLibreMap, routes: RouteCandidate[], selectedRouteId: string | null) {
   const data = routesToFeatureCollection(routes, selectedRouteId);
 
   const applyData = () => {
     const source = map.getSource(ROUTES_SOURCE_ID) as GeoJSONSource | undefined;
     if (source) {
       source.setData(data);
-      return;
+    } else {
+      map.addSource(ROUTES_SOURCE_ID, { type: "geojson", data });
+      map.addLayer({
+        id: ROUTES_LAYER_ID,
+        type: "line",
+        source: ROUTES_SOURCE_ID,
+        paint: {
+          // 未選択の候補は「背景の参考線」として見えればよく、選択中候補
+          // （特にroute-detail-segments-lineの路面/難易度色分け）を主役として引き立てる
+          // 脇役にする（以前はアンバー・幅3・不透明度0.85で選択中候補と競合し輻輳して
+          // 見づらかった。ユーザーFB「区間が荒すぎて実態がよくわからない」の後続改善）。
+          // 色はアンバーだとOpenFreeMapベースマップの主要道路（暖色系のオレンジ〜ベージュ）に
+          // 溶け込んで見分けが付きにくかったため、ベースマップに存在しない寒色（スレート）へ
+          // 変更した。8候補比較（地図上での見比べ）自体は維持したいため、消えるほど薄くは
+          // せず（実機確認で不透明度0.45は背景に埋没して見えなくなることを確認済み）、
+          // 「はっきり見えるが選択中候補ほどは目立たない」不透明度に調整している。
+          "line-color": ["case", ["get", "selected"], "#2563eb", "#64748b"],
+          "line-width": ["case", ["get", "selected"], 5, 2.5],
+          "line-opacity": ["case", ["get", "selected"], 1, 0.65],
+        },
+      });
     }
-    map.addSource(ROUTES_SOURCE_ID, { type: "geojson", data });
-    map.addLayer({
-      id: ROUTES_LAYER_ID,
-      type: "line",
-      source: ROUTES_SOURCE_ID,
-      paint: {
-        // 未選択の候補は「背景の参考線」として見えればよく、選択中候補
-        // （特にroute-detail-segments-lineの路面/難易度色分け）を主役として引き立てる
-        // 脇役にする（以前はアンバー・幅3・不透明度0.85で選択中候補と競合し輻輳して
-        // 見づらかった。ユーザーFB「区間が荒すぎて実態がよくわからない」の後続改善）。
-        // 色はアンバーだとOpenFreeMapベースマップの主要道路（暖色系のオレンジ〜ベージュ）に
-        // 溶け込んで見分けが付きにくかったため、ベースマップに存在しない寒色（スレート）へ
-        // 変更した。8候補比較（地図上での見比べ）自体は維持したいため、消えるほど薄くは
-        // せず（実機確認で不透明度0.45は背景に埋没して見えなくなることを確認済み）、
-        // 「はっきり見えるが選択中候補ほどは目立たない」不透明度に調整している。
-        "line-color": ["case", ["get", "selected"], "#2563eb", "#64748b"],
-        "line-width": ["case", ["get", "selected"], 5, 2.5],
-        "line-opacity": ["case", ["get", "selected"], 1, 0.65],
-      },
-    });
+    // 改善計画T518: 「ルート」チップOFFで隠した後、再度ONにしたときに再表示されるよう、
+    // 更新のたびにvisibility="visible"を明示する（addLayer直後は既定でvisibleだが、
+    // hideBaseRoutesでnoneにした後の再表示はこの明示が無いと戻らない）。
+    setLayerVisibility(map, ROUTES_LAYER_ID, true);
   };
 
   runWhenStyleReady(map, applyData);
 }
 
+export function hideBaseRoutes(map: MapLibreMap) {
+  runWhenStyleReady(map, () => setLayerVisibility(map, ROUTES_LAYER_ID, false));
+}
+
 // 選択中候補を常時識別できるよう、色分けレイヤーの下に薄いハローを敷く
-function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], selectedRouteId: string | null) {
+export function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], selectedRouteId: string | null) {
   const selected = routes.find((r) => r.id === selectedRouteId);
   const data: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
     type: "FeatureCollection",
@@ -418,22 +429,35 @@ function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], selecte
     const source = map.getSource(OUTLINE_SOURCE_ID) as GeoJSONSource | undefined;
     if (source) {
       source.setData(data);
-      return;
+    } else {
+      map.addSource(OUTLINE_SOURCE_ID, { type: "geojson", data });
+      map.addLayer(
+        {
+          id: OUTLINE_LAYER_ID,
+          type: "line",
+          source: OUTLINE_SOURCE_ID,
+          paint: { "line-color": "#1e3a8a", "line-width": 10, "line-opacity": 0.25 },
+        },
+        map.getLayer(ROUTES_LAYER_ID) ? ROUTES_LAYER_ID : undefined
+      );
+      ensureRouteArrowLayer(map);
     }
-    map.addSource(OUTLINE_SOURCE_ID, { type: "geojson", data });
-    map.addLayer(
-      {
-        id: OUTLINE_LAYER_ID,
-        type: "line",
-        source: OUTLINE_SOURCE_ID,
-        paint: { "line-color": "#1e3a8a", "line-width": 10, "line-opacity": 0.25 },
-      },
-      map.getLayer(ROUTES_LAYER_ID) ? ROUTES_LAYER_ID : undefined
-    );
-    ensureRouteArrowLayer(map);
+    // 改善計画T518: hideSelectedOutlineでnoneにした後の再表示のため明示する
+    // （drawBaseRoutesと同じ理由）。矢印レイヤーもハロー・線と同じ表示状態に揃える。
+    setLayerVisibility(map, OUTLINE_LAYER_ID, true);
+    setLayerVisibility(map, ROUTE_ARROW_HALO_LAYER_ID, true);
+    setLayerVisibility(map, ROUTE_ARROW_LAYER_ID, true);
   };
 
   runWhenStyleReady(map, applyData);
+}
+
+export function hideSelectedOutline(map: MapLibreMap) {
+  runWhenStyleReady(map, () => {
+    setLayerVisibility(map, OUTLINE_LAYER_ID, false);
+    setLayerVisibility(map, ROUTE_ARROW_HALO_LAYER_ID, false);
+    setLayerVisibility(map, ROUTE_ARROW_LAYER_ID, false);
+  });
 }
 
 // 周回ルートの採用向き（順回り/逆回り）を矢印で明示する（改善計画T293）。
@@ -3119,13 +3143,19 @@ export default function MapView({
     runWhenStyleReady(map, applyDestinationMarker);
   }, [destination]);
 
-  // ルート候補のベース表示を更新（選択状態が変わったら選択色にも反映する）
+  // ルート候補のベース表示を更新（選択状態が変わったら選択色にも反映する）。改善計画T518:
+  // 以前はrouteLayerOn（地図上「ルート」チップ）を見ておらず、OFFにしても候補線が消えない
+  // 不整合があった（ユーザー指摘「一般的にルートをOFFにしたら線すら出ないとイメージする」）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    drawBaseRoutes(map, routes, selectedRouteId);
-  }, [routes, selectedRouteId]);
+    if (routeLayerOn) {
+      drawBaseRoutes(map, routes, selectedRouteId);
+    } else {
+      hideBaseRoutes(map);
+    }
+  }, [routes, selectedRouteId, routeLayerOn]);
 
   // 表示範囲のフィットは「候補一覧が変わったとき」だけに限定する。
   // selectedRouteIdを依存に含めると、候補選択の切り替えのたびに（fitBoundsToRoutesは
@@ -3140,12 +3170,18 @@ export default function MapView({
     }
   }, [routes]);
 
-  // 選択中候補のハロー表示（レイヤーモードに関わらず常時）
+  // 選択中候補のハロー表示。改善計画T518より前は「色分けレイヤーモードに関わらず常時」
+  // 表示だったが、drawBaseRoutesと同じ理由でrouteLayerOnに連動させる（「ルート」チップ
+  // OFFで基本線・ハロー・方向矢印のすべてが消え、完全非表示に到達できるようにする）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    drawSelectedOutline(map, routes, selectedRouteId);
-  }, [routes, selectedRouteId]);
+    if (routeLayerOn) {
+      drawSelectedOutline(map, routes, selectedRouteId);
+    } else {
+      hideSelectedOutline(map);
+    }
+  }, [routes, selectedRouteId, routeLayerOn]);
 
   // 実験スロットの重ね描き（研究インターフェース改善 §10-3）。デバッグモードOFF時は
   // 呼び出し側（page.tsx）が空配列を渡すため、レイヤーは作られるが常に空になる。

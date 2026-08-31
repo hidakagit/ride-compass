@@ -1,7 +1,95 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
 .hint {
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 0 0 var(--space-2);
+}
+
+/* RouteSettingsPanel.module.cssの.legendToggleと同じ見た目（レイアウト・余白・
+   フォントサイズ）を踏襲する。ただしクラス自体は共有せず独自定義にする——
+   RouteSettingsPanel側の.legendToggleは「重みON/OFF」用にaria-pressedへ状態を出して
+   おり（weight>0でtrue、ほぼ常時true）、ここへ「選択中/非選択中」用の
+   [aria-pressed="true"]スタイルを追加すると、同じCSS Modulesファイルを経由して
+   RouteSettingsPanel側の見た目まで意図せず変わってしまうため。 */
+.axisToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  padding: 0.3rem 0.5rem 0.3rem 0.65rem;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 999px;
+}
+
+/* 選択中（＝現在この軸で地図を色分けしている）はRouteSettingsPanel.module.cssの
+   .legendMapColorButton[aria-pressed="true"]と同じ塗りつぶし処理を踏襲する。 */
+.axisToggle[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+/* 地図の色分けに対応しない軸（supports_route_coloring===false）向け。.axisToggleと同じ
+   見た目を保ちつつ、クリック不可であることをカーソルで示す。 */
+.axisLabel {
+  cursor: default;
+  color: var(--color-muted);
+}
+
+.totalRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 4px;
+}
+
+.scores {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4, 1rem);
+  margin: 6px 2px var(--space-1);
+}
+
+.scoreItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.scoreValue {
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.scoreLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.scoreHint {
+  margin: 0 2px var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.breakdown {
+  border-top: 1px solid var(--color-border-muted);
+  padding-top: var(--space-2);
 }
 
 .list {
@@ -12,16 +100,9 @@
 
 .row {
   display: grid;
-  grid-template-columns: 6.5rem 1fr 2.5rem;
+  grid-template-columns: 9rem 1fr 2.5rem;
   align-items: center;
   gap: var(--space-2);
-}
-
-.label {
-  font-size: var(--font-size-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .track {

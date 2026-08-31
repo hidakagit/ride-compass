@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
-import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { Button } from "@/components/ui/Button/Button";
 import MapView from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
@@ -48,16 +46,18 @@ import {
   isRouteStyleModeId,
   type RouteStyleModeId,
 } from "@/components/Map/routeStyleModes";
-import LayerChip from "@/components/Map/LayerChip";
-// 「生成したルートの色分け」セクション（改善計画: 地図の見え方パネルのグルーピングを
-// 地図上チップと統一）で使うモード選択・凡例チェックボックスの見た目は、MapLayersPanel側の
-// 既存スタイルをそのまま再利用する（CSS Modulesはクラス名の対訳表を返すだけのため、
-// 別コンポーネントからのimportでも問題なく使える。同じ見た目のUIをここだけのために
-// 複製しない）。
+// 「ルート設定」見出し（renderRouteSectionBody）の見た目に、MapLayersPanel側の既存
+// スタイルをそのまま再利用する（CSS Modulesはクラス名の対訳表を返すだけのため、別
+// コンポーネントからのimportでも問題なく使える。同じ見た目のUIをここだけのために複製
+// しない）。改善計画T518でルート結果パネル側の同種の再利用（旧renderRouteColorSectionBody）
+// は撤去済み——現在の唯一の用途は「ルート設定」見出し。
 import layerPanelStyles from "@/components/MapLayersPanel/MapLayersPanel.module.css";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type DestinationButtonState, type RouteMode } from "@/components/RouteForm/RouteForm";
-import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
+import RouteSettingsPanel, {
+  DEFAULT_HARD_FILTERS,
+  stackBarColorForIndex,
+} from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteList from "@/components/RouteList/RouteList";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
@@ -696,6 +696,17 @@ export default function Home() {
     (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
     [routeStyleModeId, toggleHiddenLegendKey],
   );
+  // 改善計画T518: RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップ
+  // と同じ色にする（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
+  // stackBarColorForIndexは表示順index・軸総数（catalog.axes.length）から色相環を
+  // 等分するため、両パネルとも同じaxisCatalog.axesの並び順・件数を渡す必要がある。
+  const axisChipColors = useMemo(() => {
+    const colors: Record<string, string> = {};
+    axisCatalog.axes.forEach((axis, index) => {
+      colors[axis.axisId] = stackBarColorForIndex(index, axisCatalog.axes.length);
+    });
+    return colors;
+  }, [axisCatalog.axes]);
   // 「絞り込みを一括クリア」（ゆる～と等の地図ポータルの「消去」ボタンを参考に追加）。
   // 軸ごとの「すべて表示」を1つずつ押させず、道路情報・車ストレス等の全軸＋ルート凡例の
   // 非表示キーを一度に空へ戻す。レイヤーのON/OFF（layerVisibility）は「絞り込み」とは別の
@@ -777,6 +788,19 @@ export default function Home() {
       });
     },
     [setLayerVisibility, mapLayers],
+  );
+
+  // 改善計画T518: 以前はrenderRouteColorSectionBody内のローカル関数だったが、
+  // RouteAxisProfile（「ルート選択」タブへ統合済み）から直接propsとして渡すため
+  // page.tsxのトップレベルへ引き上げた。ルートの色分けモードを選ぶと、地図上の
+  // 「ルート」チップ（layerVisibility.route）がOFFなら自動でONにする（選んだのに
+  // 見えないままだと気づきにくいための配慮、以前からの挙動を維持）。
+  const handleRouteModeSelect = useCallback(
+    (id: RouteStyleModeId) => {
+      setRouteStyleModeId(id);
+      if (!layerVisibility.route) handleLayerToggle("route", true);
+    },
+    [layerVisibility.route, handleLayerToggle, setRouteStyleModeId],
   );
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。改善計画T165で
@@ -1399,6 +1423,12 @@ export default function Home() {
 
     const showComparisonTab = researchEnabled;
 
+    // 改善計画T518: 「全体プロファイル」タブを廃止し「ルート選択」タブへ統合した
+    // （ユーザー指摘「ルート選択で選んだものが出てくるなら、同じ画面でよくない？」）。
+    // 全体プロファイルはhasDetail（＝ルート選択で何か選んでいる）が無いと出せず、独立した
+    // 情報を持たないタブだった——タブを跨がずRouteList直後に続けて表示することで、
+    // タブ切替なしに候補選択→詳細確認が完結する。旧`renderRouteColorSectionBody`
+    // （Tabs.Rootの外の独立ブロック、色分け選択+凡例設定）もRouteAxisProfileへ統合済み。
     return (
       <>
         {conditionsDirty && (
@@ -1409,12 +1439,6 @@ export default function Home() {
             <Tabs.List className={styles.outcomeTabList}>
               <Tabs.Trigger className={styles.outcomeTabTrigger} value="routes">
                 ルート選択
-              </Tabs.Trigger>
-              {/* 全体プロファイルはaxis_difficulties（選択中ルートのsegments集約値）が
-                  無いと出せないため、hasDetailになるまで無効化する（RouteAxisProfile側の
-                  空状態文言を出す代わりに、そもそも選べなくする）。 */}
-              <Tabs.Trigger className={styles.outcomeTabTrigger} value="profile" disabled={!hasDetail}>
-                全体プロファイル
               </Tabs.Trigger>
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
                   スロット2件未満の間は中身を持たない自己ガードを持つ（旧実装から変更なし、
@@ -1435,17 +1459,31 @@ export default function Home() {
           </div>
           <Tabs.Content className={styles.outcomeTabPanel} value="routes">
             <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
-          </Tabs.Content>
-          <Tabs.Content className={styles.outcomeTabPanel} value="profile">
             {/* ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
                 プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが
                 「見たくない」と選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は
                 重み0の軸も評価済みで持っているため、絞り込みはaxesの側で行う
-                （RouteAxisProfile内部のaxisDifficulties!=nullフィルタとは独立）。 */}
+                （RouteAxisProfile内部のaxisDifficulties!=nullフィルタとは独立）。
+                重みの参照元はfilteredRouteStyleModesと同じ「生成時点の重み」
+                （generatedRoutePreference、未生成時のみライブなroutePreferenceへ
+                フォールバック）に揃える——内訳の寄与度計算（weights prop）もこれと
+                同じ値を使うため、表示するかどうかの判定と計算が同じ重みでなければ
+                ズレが生じる。 */}
             {selectedCandidate && (
               <RouteAxisProfile
-                axes={axisCatalog.axes.filter((axis) => (routePreference[axis.axisId] ?? 0) > 0)}
+                axes={axisCatalog.axes.filter(
+                  (axis) => ((generatedRoutePreference ?? routePreference)[axis.axisId] ?? 0) > 0
+                )}
                 axisDifficulties={selectedCandidate.axis_difficulties}
+                overallDifficulty={selectedCandidate.overall_difficulty}
+                totalScore={selectedCandidate.total_score}
+                weights={generatedRoutePreference ?? routePreference}
+                axisColors={axisChipColors}
+                routeStyleModes={filteredRouteStyleModes}
+                routeStyleModeId={routeStyleModeId}
+                onRouteStyleModeChange={handleRouteModeSelect}
+                hiddenLegendKeys={hiddenRouteLegendKeys}
+                onToggleLegendKey={handleRouteLegendToggle}
               />
             )}
           </Tabs.Content>
@@ -1455,113 +1493,20 @@ export default function Home() {
             // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブ時の非表示は
             // page.module.cssの[data-state="inactive"]セレクタで行う）。
             <Tabs.Content className={styles.outcomeTabPanel} value="comparison" forceMount>
-              <ComparisonPanel slots={experimentSlots} axisLabels={axisCatalog.axisLabels} axes={axisCatalog.axes} />
+              {/* 改善計画T518: 比較タブも全体プロファイルと同じ基準（ルート設定でOFFにした
+                  軸を除外）へ揃える。以前は未フィルタでOFF軸の生値も表示されており不一致
+                  だった。複数の実験スロットを横断比較するビューのため、単一の
+                  generatedRoutePreferenceではなく現在のライブなroutePreference
+                  （RouteSettingsPanelで今まさにON/OFFになっている状態）を基準にする。 */}
+              <ComparisonPanel
+                slots={experimentSlots}
+                axisLabels={axisCatalog.axisLabels}
+                axes={axisCatalog.axes.filter((axis) => (routePreference[axis.axisId] ?? 0) > 0)}
+              />
             </Tabs.Content>
           )}
         </Tabs.Root>
-        {renderRouteColorSectionBody()}
       </>
-    );
-  }
-
-  // 「生成したルートの色分け」セクション（改善計画: 地図の見え方パネルのグルーピングを
-  // 地図上チップと統一）。以前はMapLayersPanel（地図の見え方）内の独立見出しだったが、
-  // 「ルートを作る＝ルートに関する制御、地図の見え方＝地図自体の制御」という役割分担
-  // （実機フィードバック）に沿って、選択中ルート自体の色分け設定はこちらへ移設した。
-  // 見た目はMapLayersPanel.module.cssのクラスをそのまま再利用する（上記import参照）。
-  // ユーザー指示（省スペース化）: ルートを生成・選択するまでこのセクション自体を
-  // 出さない（以前は見出し＋「ルートを生成・選択すると使えます。」という案内文を常時
-  // 出していたが、生成前の画面をほぼ何も無い状態にするため見出しごと消す）。
-  function renderRouteColorSectionBody() {
-    if (!hasDetail) return null;
-    const routeStyleMode = getRouteStyleMode(filteredRouteStyleModes, routeStyleModeId);
-    function handleRouteModeSelect(id: RouteStyleModeId) {
-      setRouteStyleModeId(id);
-      if (!layerVisibility.route) handleLayerToggle("route", true);
-    }
-    // ユーザー指示: 選択肢をN個の軸から「①総合難易度／②地図で選択中の軸」の2択へ簡素化する
-    // （省スペース化）。②の実体は、地図アイコン（LayerChip「表示」の隣、`filteredRouteStyleModes`
-    // から選べていた軸のいずれか）に対応する非difficultyモード。現在選択中がすでに非difficulty
-    // モードならそれを、そうでなければ候補の先頭を「地図で選択中の軸」として扱う——ルート設定
-    // パネルでチェックを外した（重み0にした）軸はfilteredRouteStyleModesの時点で既に除外
-    // されているため、ここで一覧の全件を出す必要は無い。候補が1つも無い（対応軸の重みが
-    // すべて0）場合は②のボタン自体を出さず①のみにする。
-    const nonDifficultyModes = filteredRouteStyleModes.filter((mode) => mode.id !== "difficulty");
-    const axisMode = nonDifficultyModes.find((mode) => mode.id === routeStyleModeId) ?? nonDifficultyModes[0] ?? null;
-    const effectiveModeId = routeStyleModeId === "difficulty" ? "difficulty" : (axisMode?.id ?? "difficulty");
-    return (
-      <div className={layerPanelStyles.group}>
-        <h2 className={layerPanelStyles.groupTitle}>生成したルートの色分け</h2>
-        <LayerChip
-          label="表示"
-          ariaLabel="ルートレイヤーを表示"
-          on={layerVisibility.route}
-          onClick={() => handleLayerToggle("route", !layerVisibility.route)}
-        />
-        {/* 単一選択のため矢印キーでの移動が期待される構成。以前は
-            role="radiogroup"/role="radio"を手書きしていたが、roving tabindex（矢印キー
-            移動）までは自前実装していなかったため、Radix RadioGroupへ置き換えて標準で
-            備わるようにした（T253併用導入）。 */}
-        <RadioGroup.Root
-          aria-label="ルートの色分け"
-          className={layerPanelStyles.modeGroup}
-          value={effectiveModeId}
-          onValueChange={(id) => handleRouteModeSelect(id as RouteStyleModeId)}
-        >
-          <RadioGroup.Item
-            value="difficulty"
-            className={
-              effectiveModeId === "difficulty"
-                ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
-                : layerPanelStyles.modeItem
-            }
-          >
-            総合難易度
-          </RadioGroup.Item>
-          {axisMode && (
-            <RadioGroup.Item
-              value={axisMode.id}
-              className={
-                effectiveModeId === axisMode.id
-                  ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
-                  : layerPanelStyles.modeItem
-              }
-            >
-              {axisMode.label}
-            </RadioGroup.Item>
-          )}
-        </RadioGroup.Root>
-        {/* 凡例の個別カテゴリ非表示は使用頻度が低い詳細設定のため、既定で折りたたむ
-            （RouteSettingsPanelの「除外する道路」T419と同じ省スペース方針）。 */}
-        <Disclosure
-          className={layerPanelStyles.layerSection}
-          headerClassName={layerPanelStyles.layerHeader}
-          triggerClassName={layerPanelStyles.layerTitle}
-          bodyClassName={layerPanelStyles.layerBody}
-          summary={
-            <>
-              <span aria-hidden="true" className={layerPanelStyles.chevron} />
-              凡例の表示設定
-            </>
-          }
-        >
-          <div className={layerPanelStyles.legendCheckboxList}>
-            {routeStyleMode.legend.map((entry) => {
-              const visible = !hiddenRouteLegendKeys.includes(entry.key);
-              const rowClassName = entry.isFallback
-                ? `${layerPanelStyles.legendCheckboxRow} ${layerPanelStyles.legendCheckboxRowFallback}`
-                : layerPanelStyles.legendCheckboxRow;
-              return (
-                <label key={entry.key} className={rowClassName}>
-                  <Checkbox checked={visible} onCheckedChange={() => handleRouteLegendToggle(entry.key)} aria-label={entry.label} />
-                  <span className={layerPanelStyles.swatch} style={{ background: entry.color }} />
-                  {entry.label}
-                </label>
-              );
-            })}
-          </div>
-        </Disclosure>
-      </div>
     );
   }
 

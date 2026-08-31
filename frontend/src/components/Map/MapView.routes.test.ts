@@ -1,7 +1,18 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { RouteCandidate } from "@/types/route";
-import { computeRouteBounds, routesToFeatureCollection } from "./MapView";
+import {
+  OUTLINE_LAYER_ID,
+  ROUTE_ARROW_HALO_LAYER_ID,
+  ROUTE_ARROW_LAYER_ID,
+  ROUTES_LAYER_ID,
+  computeRouteBounds,
+  drawBaseRoutes,
+  drawSelectedOutline,
+  hideBaseRoutes,
+  hideSelectedOutline,
+  routesToFeatureCollection,
+} from "./MapView";
 
 function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
   return {
@@ -106,5 +117,137 @@ describe("computeRouteBounds", () => {
     const bounds = computeRouteBounds([]);
 
     expect(bounds.isEmpty()).toBe(true);
+  });
+});
+
+// 改善計画T518: 地図上の「ルート」チップ（layerVisibility.route）をOFFにしたとき、
+// 候補線（route-candidates-line）・選択中候補のハロー（route-selected-outline-line）・
+// 方向矢印（route-arrow-halo/route-arrow）の3レイヤーグループすべてが非表示になることの
+// 検証。__rcStyleReady=trueでrunWhenStyleReadyの即時実行分岐を通す
+// （MapView.layerOps.test.tsと同じfakeMapパターン、setLayoutPropertyの呼び出しを追加）。
+function fakeMap() {
+  const layers = new Set<string>();
+  const sources = new Set<string>();
+  const layoutCalls: { layerId: string; name: string; value: unknown }[] = [];
+  const setDataCalls: unknown[] = [];
+  return {
+    __rcStyleReady: true,
+    layers,
+    sources,
+    layoutCalls,
+    setDataCalls,
+    getLayer: (id: string) => (layers.has(id) ? {} : undefined),
+    addLayer: (spec: { id: string }) => layers.add(spec.id),
+    getSource: (id: string) =>
+      sources.has(id) ? { setData: (data: unknown) => setDataCalls.push(data) } : undefined,
+    addSource: (id: string) => sources.add(id),
+    // ensureRouteArrowLayerが矢印アイコンの新規作成（document.createElement("canvas")、
+    // node環境のこのテストファイルではDOM APIが無い）に入らないよう、常時「登録済み」を
+    // 返して分岐をスキップさせる（アイコン画像自体の生成ロジックはこのテストの検証対象外）。
+    hasImage: () => true,
+    addImage: () => {},
+    setLayoutProperty: (layerId: string, name: string, value: unknown) => layoutCalls.push({ layerId, name, value }),
+  };
+}
+
+function layoutValue(map: ReturnType<typeof fakeMap>, layerId: string, name: string): unknown {
+  const call = [...map.layoutCalls].reverse().find((c) => c.layerId === layerId && c.name === name);
+  return call?.value;
+}
+
+function makeRoute(id: string): RouteCandidate {
+  return {
+    id,
+    direction_label: "0度",
+    distance_km: 15,
+    geometry: {
+      type: "LineString",
+      coordinates: [
+        [139.7, 35.7],
+        [139.71, 35.71],
+      ],
+    },
+    elevation_gain_m: 100,
+    min_elevation_m: 0,
+    max_elevation_m: 50,
+    max_gradient_percent: 5,
+    wind_score: 1,
+    road_score: 80,
+    total_score: 70,
+    score_breakdown: null,
+    segments: null,
+    overall_difficulty: 40,
+    axis_difficulties: {},
+  };
+}
+
+describe("drawBaseRoutes/hideBaseRoutes（「ルート」チップの表示切替、改善計画T518）", () => {
+  it("新規作成時にROUTES_LAYER_IDをvisibleにする", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+
+    drawBaseRoutes(map as unknown as Parameters<typeof drawBaseRoutes>[0], routes, "a");
+
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
+  });
+
+  it("hideBaseRoutesはROUTES_LAYER_IDをnoneにする", () => {
+    const map = fakeMap();
+    map.addLayer({ id: ROUTES_LAYER_ID });
+
+    hideBaseRoutes(map as unknown as Parameters<typeof hideBaseRoutes>[0]);
+
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("none");
+  });
+
+  it("既存sourceがある状態（2回目以降の描画）でもvisibility=visibleを明示する" +
+    "（hideBaseRoutesでnoneにした後、再度ONにしたときに再表示されるようにするため）", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+    drawBaseRoutes(map as unknown as Parameters<typeof drawBaseRoutes>[0], routes, "a");
+    map.layoutCalls.length = 0; // 初回描画分をクリアして2回目のみ検証する
+
+    drawBaseRoutes(map as unknown as Parameters<typeof drawBaseRoutes>[0], routes, "a");
+
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
+  });
+});
+
+describe("drawSelectedOutline/hideSelectedOutline（「ルート」チップの表示切替、改善計画T518）", () => {
+  it("新規作成時にハロー・矢印ハロー・矢印の3レイヤーをすべてvisibleにする", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+
+    drawSelectedOutline(map as unknown as Parameters<typeof drawSelectedOutline>[0], routes, "a");
+
+    expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, ROUTE_ARROW_HALO_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("visible");
+  });
+
+  it("hideSelectedOutlineは3レイヤーすべてをnoneにする", () => {
+    const map = fakeMap();
+    map.addLayer({ id: OUTLINE_LAYER_ID });
+    map.addLayer({ id: ROUTE_ARROW_HALO_LAYER_ID });
+    map.addLayer({ id: ROUTE_ARROW_LAYER_ID });
+
+    hideSelectedOutline(map as unknown as Parameters<typeof hideSelectedOutline>[0]);
+
+    expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("none");
+    expect(layoutValue(map, ROUTE_ARROW_HALO_LAYER_ID, "visibility")).toBe("none");
+    expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("none");
+  });
+
+  it("既存source（2回目以降の描画）でも3レイヤーすべてへvisibility=visibleを明示する", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+    drawSelectedOutline(map as unknown as Parameters<typeof drawSelectedOutline>[0], routes, "a");
+    map.layoutCalls.length = 0;
+
+    drawSelectedOutline(map as unknown as Parameters<typeof drawSelectedOutline>[0], routes, "a");
+
+    expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, ROUTE_ARROW_HALO_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("visible");
   });
 });

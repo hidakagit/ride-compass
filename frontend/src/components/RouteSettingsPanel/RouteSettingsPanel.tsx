@@ -56,7 +56,10 @@ export const DEFAULT_HARD_FILTERS: HardFilterOverride = { no_bicycle: true, moto
 // 軸数がいくつであっても衝突しないようにする。indexは常にcatalog.axesの表示順
 // （フルリスト内の位置）を使う——チェックを外した軸があっても、他の軸の色は動かない
 // （表示順が変わらない限り、ある軸の色は常に同じという安定性を保つ）。
-function stackBarColorForIndex(index: number, axisCount: number): string {
+// 改善計画T518: RouteAxisProfile.tsx（ルート選択タブへ統合した軸チップ）が、同じ軸なら
+// ここと同じ色ドットになるよう、この関数をそのまま再利用する（パネルをまたいでも同じ軸は
+// 同じ色、という視覚的な一貫性のためexport）。
+export function stackBarColorForIndex(index: number, axisCount: number): string {
   if (axisCount <= 0) return "#94a3b8";
   const hue = (index * (360 / axisCount)) % 360;
   return `hsl(${hue}, 62%, 55%)`;

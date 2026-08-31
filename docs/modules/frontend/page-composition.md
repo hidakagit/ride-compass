@@ -150,18 +150,27 @@ localStorageへの保存・復元を1箇所に集約する。
 モバイル「ルート結果」タブ共通）
 
 `routes.length === 0`の間は何も描画しない（生成前は空）。1件以上生成された後は、
-Radix Tabs（`@radix-ui/react-tabs`）で「ルート選択」（`RouteList`）・「全体プロファイル」
-（`RouteAxisProfile`、`selectedCandidate.axis_difficulties`から横棒グラフ生成。
-`selectedCandidate`が無い間・`hasDetail`が立つまではトリガーを`disabled`にする）・
-「比較」（`ComparisonPanel`、`researchEnabled`の間だけ表示。実験スロット2件未満の
-自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
-`forceMount`でマウントし続け、`[data-state="inactive"]`のCSSで非表示にする）の
-最大3タブに切り替える。「ルートをクリア」（`handleRoutesClear`）はタブと同じ行に置くが
-Tabs.Listの外の独立したボタンで、選択状態を持たず押した瞬間に実行する。
+Radix Tabs（`@radix-ui/react-tabs`）で「ルート選択」・「比較」（`ComparisonPanel`、
+`researchEnabled`の間だけ表示。実験スロット2件未満の自己ガードは`ComparisonPanel`自身が
+持つため、非アクティブ中も状態更新を止めないよう`forceMount`でマウントし続け、
+`[data-state="inactive"]`のCSSで非表示にする）の最大2タブに切り替える。「ルートを
+クリア」（`handleRoutesClear`）はタブと同じ行に置くがTabs.Listの外の独立したボタンで、
+選択状態を持たず押した瞬間に実行する。
 
-タブ列の下（Tabs.Rootの外）に「生成したルートの色分け」（`renderRouteColorSectionBody`）を
-続けて描画する。`hasDetail`（選択中候補に`segments`がある）が立つまではこの関数自体が
-`null`を返す。
+「ルート選択」タブは`RouteList`（候補一覧、おすすめ度=`total_score`の表示はここのみ）に
+続けて、`selectedCandidate`があるときだけ`RouteAxisProfile`を同じタブ内に表示する
+（タブ切替不要。以前は「全体プロファイル」という別タブだったが、`RouteList`で選んだ候補の
+詳細という以外の独立した情報を持たなかったため統合した）。`RouteAxisProfile`は
+「地図の色分け」チップ列（総合難易度＋`route_preference`の重み>0の軸のみ、
+`RouteSettingsPanel`の凡例チップと同じ見た目）・おすすめ度/総合難易度の並記・
+軸別内訳（`domain/difficulty.py: composite_difficulty`と同じ考え方で軸の重みを反映した
+寄与度をバー長に、生の`axis_difficulties`値をバー色に使う）・凡例の表示/非表示設定
+（`stackBarLegendTrigger`パターン）をまとめて持つ。チップ選択は地図側の色分けモード
+（`routeStyleModeId`）を切り替え、選択中モードがまだOFFなら「ルート」チップ
+（`layerVisibility.route`）も自動でONにする。
+
+`ComparisonPanel`へ渡す`axes`は、`RouteAxisProfile`と同じくルート設定で重み>0の軸のみに
+絞り込む（表示ルールをパネル間で統一する）。
 
 ## `MapView`（`Map/MapView.tsx`）との境界
 
