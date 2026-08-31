@@ -297,6 +297,39 @@ def is_edge_allowed(
     return True
 
 
+def compute_routable_node_ids(
+    graph: RoadGraphLike,
+    way_tags: dict[str, dict[str, str]] | None = None,
+    elevation_attributes: dict[str, ElevationAttribute] | None = None,
+    hard_filters: frozenset[str] | None = None,
+    max_average_grade_percent: float | None = None,
+) -> set[str]:
+    """`is_edge_allowed`（0次ハードフィルタ）を通過するEdgeが1本以上あるNode ID集合を
+    返す（改善計画T256の主旨をlazy評価向けに移植したもの、`docs/tasks/T529.md`）。
+
+    `domain/routing.py: routable_node_ids`はEdgeコストを事前計算済みの`SparseRoadGraph`
+    から算出するが、lazy評価（`shortest_path_node_ids_lazy`）はコストを探索中にしか
+    計算しないため、同じ判定を得るにはHard Constraintだけを別途・軽量に評価する必要が
+    ある。`is_edge_allowed`は材料抽出（`compute_edge_axis_scores`）を伴わない単純な
+    タグ判定のみのため、bbox全体（数十万Edge）に対しても`compute_edge_costs_bulk`の
+    抽出フェーズほど重くならない。
+    """
+    way_tags = way_tags or {}
+    elevation_attributes = elevation_attributes or {}
+    routable: set[str] = set()
+    for edge in graph.edges.values():
+        if is_edge_allowed(
+            edge,
+            way_tags.get(edge.edge_id),
+            hard_filters=hard_filters,
+            elevation_attribute=elevation_attributes.get(edge.edge_id),
+            max_average_grade_percent=max_average_grade_percent,
+        ):
+            routable.add(edge.from_node_id)
+            routable.add(edge.to_node_id)
+    return routable
+
+
 def compute_wind_penalty(edge: EdgeLike, wind: WeatherConditions | None) -> float | None:
     """Edgeの進行方向（from_node→to_node）と風向風速からwind_penaltyを算出する
     （Dynamic Data対応、仕様書20・44章：Edge + Travel Direction + Timeから評価する）。

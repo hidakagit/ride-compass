@@ -9,6 +9,46 @@
 
 ---
 
+## 2026-08-31: metrics.md（定量メトリクス計測）を新設し、allのPhase構成へ組み込み
+
+**変更箇所**: `metrics.md`新設、`all.md`（Phase番号を1つずつ繰り下げ、新Phase2として追加）、
+`README.md`（ディレクトリ構成・役割表）、`history/README.md`（review-type一覧）、
+`history/metrics.md`新設（トレンド専用ファイル）
+
+**経緯**: ユーザーからプロジェクトの実装規模（総行数・総ファイル数）を尋ねられ`cloc`で
+計測して回答したところ、続けて「一般的なプロジェクト監査で見るメトリック指標」を
+洗い出すよう依頼された。洗い出した指標（規模・複雑度・churn・テスト・依存関係・
+品質・ドキュメント整合性・セキュリティ・性能）のうち、複雑度は`/review:complexity`が
+「規模ウォッチ」で個別ファイルの肥大化を既に定性的に扱っており、ドキュメント整合性は
+`/review:consistency`が、性能・重複検出は`/review:overall`が担当済み。セキュリティは
+README.md「観点の分担」により本基盤の対象外（`/security-review`が担当）と明記済み。
+残る「規模・churn・テスト規模・静的検査・依存関係」の5項目は、既存4レンズのどこも
+機械的・定期的なトレンドとして記録していなかった。ユーザーからは「毎回`/review:all`実行時に
+自動計測・記録したい」という明示要望があった。
+
+**対応方針の判断**: 既存4レンズ（overall/complexity/consistency/ui）はFindings
+（P0-P3の質的判断）を出すのに対し、規模・churn等は「数値を機械的に測るだけ」で性質が
+異なる。標準フォーマット（principles.md）のスコアサマリはFindings件数から算出する
+機械式のため、Findingsを持たない計測ロールには適用できない。このため`metrics.md`は
+principles.mdの標準フォーマットの対象外とし、「Evidence（実測値）のみ・Inference/
+Recommendationを書かない」という原則だけを継承した専用の軽量フォーマットにした。
+判断（この数値が過大か等）はoverall/complexityへ委ね、metrics自身では判定しない
+——本基盤の「観点の分担」原則（重複指摘の防止）をそのまま計測ロールにも適用した形。
+
+**計測項目の選定**: 複雑度平衡性レビュー（regenerating radon/pytest-cov/pip-audit等）は
+現状未導入のツールが多く、毎回インストールするとレビュー自体のコストが増大するため、
+「今すぐ追加インストール無しで測れるもの」（cloc・git log・tsc・eslint・npm audit）に
+限定し、未導入ツールが要る項目（backendのlint・pip-audit・カバレッジ%）は
+DEFER（トリガー: 該当ツールが導入された時点）とした。README.md「注意事項」の
+「この基盤自体を複雑化させない（スクリプト・JSON設定・自動生成を足さない）」を
+踏まえ、専用スクリプトは作らずMarkdown内にbashコマンドを書く形に留めた。
+
+**副産物**: 初回計測（2026-08-31）の過程で、cloc集計に`.claude/worktrees/`配下の
+残存worktree（17件、うち15件は正規登録・2件は破損した孤立ディレクトリ）が
+誤って含まれ、実装規模の数値が約2.6倍に水増しされていたことが判明した（詳細は
+`history/2026-08-31_metrics.md`参照）。cloc実行時は`--exclude-dir`へ`worktrees`を
+必ず含めることをmetrics.md本文へ明記した。
+
 ## 2026-08-31: consistency.mdとCLAUDE.mdへ「docs/modules/*.mdのフォーマット準拠」チェックを追加
 
 **変更箇所**: consistency.md「設計 ↔ 実装」節、CLAUDE.md「どのタスクを完了扱いにする前にも」節

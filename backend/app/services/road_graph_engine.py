@@ -1,4 +1,4 @@
-"""Road Graph + scipy.sparse.csgraph（Dijkstra）の自前ルーティングエンジン。
+"""Road Graph + rustworkx（A*/Dijkstra、lazy評価）の自前ルーティングエンジン。
 
 `RouteGenerator`（services/route_generator.py）の`LoopRoutingEngine`契約を実装する。
 Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って経由地点間の
@@ -12,26 +12,37 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
 - **標高（勾配）は改善計画T218a（T12 Stage 0.5）で探索コストへ組み込み済み**:
   当初はRoad Graph全体（数万Edge）への標高取得（GSI API逐次呼び出し）が非現実的に遅く、
   経路探索は標高を使わないCostで行い`evaluate_loops`（距離フィルタ通過後）でのみ標高取得
-  していた。T218a以降、`prepare`は事前計算済みの`elevation_attributes`
+  していた。T218a以降、探索コストは事前計算済みの`elevation_attributes`
   （`app.batch.precompute_elevation_attributes`、T10のDEMタイル方式で一括計算済み）を
-  単純なキー参照で読み、`search_edge_costs`のgradient軸へ組み込む（その場でのGSI問い合わせは
-  発生しない）。`evaluate_loops`側の標高取得（`ElevationAttributeService`経由、こちらは
-  未計算Edgeがあればその場で取得しrepositoryへ永続化する）は、経路確定後の表示・スコアリング
-  向けとして引き続き別に行う（`elevation_attributes`テーブルを両者が共有するキャッシュ層として
+  単純なキー参照で読み、gradient軸へ組み込む（その場でのGSI問い合わせは発生しない）。
+  `evaluate_loops`側の標高取得（`ElevationAttributeService`経由、こちらは未計算Edgeが
+  あればその場で取得しrepositoryへ永続化する）は、経路確定後の表示・スコアリング向けとして
+  引き続き別に行う（`elevation_attributes`テーブルを両者が共有するキャッシュ層として
   参照する構図。事前計算が漏れているEdgeは探索コスト側でgradient軸のみ「データ無し」扱いに
   なるが、他の軸で評価は継続する）。
 - 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため、
   区間ごとの推定到達時刻の風は使わない）。
-- `SparseRoadGraph`（domain/routing.py: build_sparse_graph）は同一ノード間の並行Edgeを
-  1本しか保持しない（cost最小のEdgeを採用。改善計画T363: 以前は「後から登場した
-  Edgeで上書き」で、DBクエリの返却行順（ORDER BY無し・Parallel Scan）に依存する
-  非決定的な選択だったため改めた）。
+- **改善計画T529（`docs/tasks/T529.md`）: Edgeコストはlazy評価**。以前は探索前に
+  bbox全体（数十万Edge）のコストを`compute_edge_costs_bulk`で一括計算してから
+  `scipy.sparse.csgraph.dijkstra`へ渡していたが、この事前計算自体が`prepare_ms`の
+  支配的コストだった（T522実測、王子30km周回でcost_ms=18,105ms）。実際にA*/Dijkstraが
+  訪れるEdgeはbbox全体のごく一部（PoC実測で2.79%）のため、`rustworkx`の
+  `edge_cost_fn`コールバック（訪れたEdgeに対してのみ都度呼ばれる）へ
+  スカラー版`compute_edge_cost`をラップして渡す設計へ変更した
+  （`domain/routing.py: LazyRoadGraph`/`shortest_path_node_ids_lazy`参照）。
+  1リクエスト内（最大24回＝8方位×3レグ）でEdgeコストの再計算を避けるため、
+  `_RoadGraphContext.cost_cache`で結果を使い回す。
+- `LazyRoadGraph`（domain/routing.py: build_lazy_road_graph）は同一ノード間の並行Edgeを
+  1本しか保持しない。ただしコストを事前計算しないため「cost最小のEdgeを採用」はできず、
+  edge_idの昇順で先頭を採用する決定的な選択に留める（改善計画T363の非決定性解消という
+  目的は維持しつつ、lazy評価の制約に合わせた簡略化）。
 """
 
 import asyncio
 import logging
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -42,9 +53,11 @@ from app.domain.evaluation import (
     RoutePreference,
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
+    compute_edge_cost,
+    compute_routable_node_ids,
     compute_wind_penalty,
 )
-from app.domain.geo import KM_PER_DEGREE_LATITUDE
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
@@ -57,21 +70,19 @@ from app.domain.route import (
 )
 from app.domain.twilight import is_night
 from app.domain.routing import (
+    LazyRoadGraph,
     NodeSpatialIndex,
-    SparseRoadGraph,
+    build_lazy_road_graph,
     build_node_spatial_index,
-    build_sparse_graph,
     concat_node_paths,
     find_nearest_node_indexed,
-    path_to_edge_ids_sparse,
-    routable_node_ids,
-    shortest_path_node_ids_sparse,
+    path_to_edge_ids_lazy,
+    shortest_path_node_ids_lazy,
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
-from app.services.evaluation_service import EvaluationService
 from app.services.graph_service import GraphService
 from app.services.route_generator import TracedLoop, candidate_identity
 from app.services.weather_service import WeatherService
@@ -96,6 +107,7 @@ class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
     graph: RoadGraphLike
+    elevation_attributes: dict[str, ElevationAttribute]
     surface_attributes: dict[str, str | None]
     stop_counts: dict[str, int]
     way_tags: dict[str, dict[str, str]]
@@ -108,11 +120,16 @@ class _RoadGraphContext:
     # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
     # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
     node_index: NodeSpatialIndex
-    # 改善計画T220（T12 Stage 2）: trace_loopが実際のDijkstraに使うscipy版グラフ。探索本体は
-    # 常にこちらを使う（road_graph_engine.pyモジュールdocstring参照）。旧nx_graphフィールドは
-    # ランタイムで誰にも読まれていなかったため改善計画T226で削除済み（domain/routing.pyの
-    # NetworkX系関数自体はsparse版の回帰テストオラクルとして引き続き存在する）。
-    sparse_graph: SparseRoadGraph
+    # 改善計画T529: trace_loopが実際のA*/Dijkstra探索に使うrustworkxベースの探索用
+    # グラフ（トポロジのみ、Edgeコストは持たない）。旧scipy版`sparse_graph`（Edgeコストを
+    # 事前に一括計算してから構築）から置き換えた——bbox全体のコストを毎回計算する設計
+    # 自体がprepare_msの支配的コストだったため（docs/tasks/T522.md・T529.md参照）。
+    lazy_graph: LazyRoadGraph
+    # 改善計画T529: 探索中に実際に訪れたEdgeのコストだけを都度計算し、1リクエスト内
+    # （最大24回＝8方位×3レグ）で使い回すキャッシュ。リクエストを跨いで共有しない
+    # （風・夜間判定等の動的要素がリクエストごとに変わるため、`prepare`が
+    # `_RoadGraphContext`を構築するたびに空の辞書で初期化する）。
+    cost_cache: dict[str, float]
     # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
@@ -122,7 +139,7 @@ class _RoadGraphContext:
     # 追加のDB問い合わせなしに判定するために使う。bboxの全Edge（探索対象の両方向）から
     # 1リクエストにつき1回だけ構築し、全方位のevaluate_loopsで使い回す。同じNode対を
     # 複数のEdgeが結ぶ稀なケース（多重辺）は後勝ちで曖昧になりうるが、
-    # build_sparse_graph（並行Edgeを1本しか保持しない）と同種の簡略化として許容する。
+    # build_lazy_road_graph（並行Edgeを1本しか保持しない）と同種の簡略化として許容する。
     node_pair_index: dict[tuple[str, str], EdgeLike]
 
 
@@ -134,7 +151,8 @@ class _SearchGraph:
     """
 
     graph: RoadGraphLike
-    sparse_graph: SparseRoadGraph
+    lazy_graph: LazyRoadGraph
+    elevation_attributes: dict[str, ElevationAttribute]
     surface_attributes: dict[str, str | None]
     stop_counts: dict[str, int]
     way_tags: dict[str, dict[str, str]]
@@ -153,7 +171,6 @@ class RoadGraphEngine:
         self,
         graph_service: GraphService,
         elevation_attribute_service: ElevationAttributeService,
-        evaluation_service: EvaluationService,
         weather_service: WeatherService,
         route_preference: RoutePreference,
         penalty_strength: float = 1.0,
@@ -162,7 +179,11 @@ class RoadGraphEngine:
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
-        self._evaluation_service = evaluation_service
+        # 改善計画T529: EvaluationService（compute_edge_costs_bulkのbbox全体一括評価）は
+        # lazy評価化により本エンジンから不要になった（探索コストはtrace_loopが直接
+        # compute_edge_cost[スカラー版]をedge_cost_fnとして使う）。EvaluationService
+        # クラス自体・compute_edge_costs_bulkは、フォールバック案（抽出フェーズの
+        # ベクトル化、docs/tasks/T529.md参照）用の回帰テストオラクルとして残置。
         self._weather_service = weather_service
         self._route_preference = route_preference
         # 改善計画T218・T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
@@ -175,22 +196,76 @@ class RoadGraphEngine:
         # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
         self._hard_filters = hard_filters
 
+    def _build_edge_cost_fn(
+        self, search: "_SearchGraph | _RoadGraphContext", cost_cache: dict[str, float]
+    ) -> Callable[[str], float]:
+        """`shortest_path_node_ids_lazy`へ渡す`edge_cost_fn`を組み立てる（改善計画T529）。
+
+        探索が実際に訪れたEdge（edge_id）に対してのみ都度呼ばれ、スカラー版
+        `compute_edge_cost`（`domain/evaluation.py`、bulk版`compute_edge_costs_bulk`の
+        回帰テストオラクルとして現役）をそのまま使う。Hard Constraintで除外される
+        Edge（`allowed=False`）・コスト算出不能なEdgeは`math.inf`を返し、rustworkxの
+        探索から実質的に除外する（`LazyRoadGraph`はグラフ構築時にHard Constraintを
+        知らないため、コストが分かるここで表現する。`domain/routing.py:
+        shortest_path_node_ids_lazy`のdocstring参照）。
+
+        `cost_cache`は呼び出し元（`prepare`/`preview_segment`）が`_RoadGraphContext`に
+        持たせる1リクエスト内共有の辞書。1リクエストにつき最大24回（8方位×3レグ）の
+        探索間で同じEdgeのコストを再計算しない。
+        """
+        active_scopes = frozenset({"night_only"}) if search.night_active else frozenset()
+        preference = self._route_preference.with_time_scope(active_scopes)
+        weights = preference.weights
+        graph = search.graph
+        elevation_attributes = search.elevation_attributes
+        surface_attributes = search.surface_attributes
+        stop_counts = search.stop_counts
+        way_tags = search.way_tags
+        intersection_counts = search.intersection_counts
+        accident_counts = search.accident_counts
+        accident_years_covered = search.accident_years_covered
+        designated_edge_ids = search.designated_edge_ids
+        wind = search.wind
+        penalty_strength = self._penalty_strength
+        max_average_grade_percent = self._max_average_grade_percent
+        hard_filters = self._hard_filters
+
+        def cost_fn(edge_id: str) -> float:
+            cached = cost_cache.get(edge_id)
+            if cached is not None:
+                return cached
+            edge = graph.edges[edge_id]
+            result = compute_edge_cost(
+                edge, elevation_attributes.get(edge_id), surface_attributes.get(edge_id), preference,
+                wind=wind, stop_count=stop_counts.get(edge_id), way_tags=way_tags.get(edge_id),
+                intersection_count=intersection_counts.get(edge_id), accident_count=accident_counts.get(edge_id),
+                accident_years_covered=accident_years_covered, is_designated=edge_id in designated_edge_ids,
+                penalty_strength=penalty_strength, max_average_grade_percent=max_average_grade_percent,
+                weights=weights, hard_filters=hard_filters,
+            )
+            cost = result.cost if (result.allowed and result.cost is not None) else math.inf
+            cost_cache[edge_id] = cost
+            return cost
+
+        return cost_fn
+
     async def _build_search_graph(
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
     ) -> _SearchGraph | None:
-        """bboxに対する探索用グラフ（sparse_graph）＋材料一式を構築する（改善計画T237、
+        """bboxに対する探索用グラフ（lazy_graph）＋材料一式を構築する（改善計画T237、
         `prepare`・`preview_segment`共通）。wind/night軸の判定は`wind_and_night_origin`
         （周回ならその起点、区間確認なら起点側の座標）を基準にする——探索中は到達時刻が
         未確定のため出発時刻の近似として使う簡略化はどちらの用途でも変わらない
         （モジュールdocstring参照）。
+
+        改善計画T529: Edgeコストは事前に一括計算しない（lazy評価、モジュールdocstring
+        参照）。ここで構築するのはトポロジのみの`LazyRoadGraph`と、後段の
+        cost_fnクロージャ（`_build_edge_cost_fn`）が参照する材料一式のみ。
         """
         # 改善計画T522: prepare_msが総時間の8〜9割を占める事象（中心部東京30km実測で
-        # 251〜355秒）の調査で、materials取得（DB/タイルキャッシュ）の後段
-        # （evaluate_graph・build_sparse_graph・prepareの索引構築）が無計測のまま
-        # 数秒〜十数秒を占めていることが判明した（docs/tasks/T522.md参照）。これらは
-        # いずれも同期関数でasyncio.to_thread保護が無く、実行中イベントループを
-        # 塞ぐ（get_or_build_graph_with_attributesのbuild_road_graphが同種の理由で
-        # to_thread化済みなのと対照的）。原因特定のためステージ別に計測する。
+        # 251〜355秒）の調査で、materials取得（DB/タイルキャッシュ）の後段が無計測のまま
+        # 数秒〜十数秒を占めていることが判明した（docs/tasks/T522.md参照）。原因特定の
+        # ためステージ別に計測する。
         stage_started = time.monotonic()
 
         # 改善計画T219（T12 Stage 1）: トポロジ＋材料（surface/edge_attribute_counts/
@@ -206,7 +281,7 @@ class RoadGraphEngine:
         surface_attributes = materials.surface_attributes
         # 静的道路属性P1（信号・横断歩道・一時停止・踏切・交差点密度）＋外部静的データ
         # ソースT50（事故密度）。事前集計済みのedge_attribute_counts（改善計画T144）が
-        # 3種の値をまとめて持つため、evaluate_graph等の呼び出し先シグネチャ（従来どおり
+        # 3種の値をまとめて持つため、compute_edge_cost等の呼び出し先シグネチャ（従来どおり
         # 3つの個別dictを受け取る）に合わせてここで分解する。
         stop_counts = {edge_id: c.stop_count for edge_id, c in materials.edge_attribute_counts.items()}
         intersection_counts = {
@@ -236,38 +311,24 @@ class RoadGraphEngine:
         # AxisDefinition.time_scopeによる汎用ロジックへ置き換えた
         # （RoutePreference.with_time_scope参照）。
         night_active = is_night(wind_and_night_origin, now)
-        active_scopes = frozenset({"night_only"}) if night_active else frozenset()
-        search_preference = self._route_preference.with_time_scope(active_scopes)
-        # 改善計画T218a: 探索用Costへ事前計算済みgradientを組み込む（モジュールdocstring参照）。
-        # 改善計画T522: evaluate_graph（numpyベクトル化済みだがEdge数十万件規模では
-        # 依然として数秒〜十数秒かかりうる、docs/tasks/T522.md参照）はget_or_build_
-        # graph_with_attributesのbuild_road_graphと同じ理由でasyncio.to_threadへ逃がす
-        # （同期CPU処理を直接awaitせず呼ぶとイベントループを丸ごと塞ぎ、その間他の
-        # 同時接続リクエスト・ヘルスチェックにも応答できなくなる）。
-        cost_started = time.monotonic()
-        search_edge_costs = await asyncio.to_thread(
-            self._evaluation_service.evaluate_graph,
-            graph, elevation_attributes, surface_attributes, wind=wind, stop_counts=stop_counts,
-            way_tags=way_tags, intersection_counts=intersection_counts,
-            accident_counts=accident_counts, accident_years_covered=accident_years_covered,
-            designated_edge_ids=designated_edge_ids, preference=search_preference,
-            penalty_strength=self._penalty_strength,
-            max_average_grade_percent=self._max_average_grade_percent,
-            hard_filters=self._hard_filters,
-        )
-        cost_ms = round((time.monotonic() - cost_started) * 1000)
-        sparse_started = time.monotonic()
-        sparse_graph = await asyncio.to_thread(build_sparse_graph, graph, search_edge_costs)
-        sparse_ms = round((time.monotonic() - sparse_started) * 1000)
+
+        # 改善計画T529: LazyRoadGraph（トポロジのみ）の構築はEdge数十万件規模でも
+        # 数百ms〜1秒台に収まる想定だが（PoC実測、docs/tasks/T529.md参照）、念のため
+        # get_or_build_graph_with_attributesのbuild_road_graphと同じ理由で
+        # asyncio.to_threadへ逃がす。
+        graph_started = time.monotonic()
+        lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph)
+        graph_ms = round((time.monotonic() - graph_started) * 1000)
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
-            "_build_search_graph edges=%d nodes=%d materials_ms=%d wind_ms=%d cost_ms=%d sparse_ms=%d total_ms=%d",
-            len(graph.edges), len(graph.nodes), materials_ms, wind_ms, cost_ms, sparse_ms, total_ms,
+            "_build_search_graph edges=%d nodes=%d materials_ms=%d wind_ms=%d graph_ms=%d total_ms=%d",
+            len(graph.edges), len(graph.nodes), materials_ms, wind_ms, graph_ms, total_ms,
         )
 
         return _SearchGraph(
             graph=graph,
-            sparse_graph=sparse_graph,
+            lazy_graph=lazy_graph,
+            elevation_attributes=elevation_attributes,
             surface_attributes=surface_attributes,
             stop_counts=stop_counts,
             way_tags=way_tags,
@@ -305,17 +366,25 @@ class RoadGraphEngine:
 
         # 改善計画T219: このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
         # 経由地スナップ（1リクエストで最大17回）すべてで使い回す。
-        # 改善計画T256: 索引の候補はsparse_graph上で実際に経路探索可能な（Hard
-        # Constraint通過後も次数1以上の）Nodeのみに絞る。絞らないと、幹線道路
-        # （highway=trunk等）にしか接続していない地理的最近傍Node（新宿駅・渋谷駅等、
-        # 駅前が国道の交差点に直接面する場所で実機確認）が選ばれ、そこがHard Constraint
-        # 除外後のグラフ上では孤立点になるため、8方位すべてのDijkstra探索が
-        # "no path found"で失敗してしまう。
-        # 改善計画T522: 索引構築（KDTree構築・Edge数十万件規模の辞書構築）もevaluate_graph
-        # と同じ理由でasyncio.to_threadへ逃がす（docs/tasks/T522.md参照）。find_nearest_node_
-        # indexedは既存索引への単発クエリでコストが軽いためメインコルーチンのまま呼ぶ。
+        # 改善計画T256: 索引の候補は実際に経路探索可能な（Hard Constraint通過後も
+        # 次数1以上の）Nodeのみに絞る。絞らないと、幹線道路（highway=trunk等）にしか
+        # 接続していない地理的最近傍Node（新宿駅・渋谷駅等、駅前が国道の交差点に直接
+        # 面する場所で実機確認）が選ばれ、そこがHard Constraint除外後のグラフ上では
+        # 孤立点になるため、8方位すべてのDijkstra探索が"no path found"で失敗してしまう。
+        # 改善計画T529: lazy評価ではEdgeコストを事前計算しないため、旧`routable_node_ids`
+        # （sparse_graphから算出）は使えない——0次ハードフィルタだけを軽量に評価する
+        # `compute_routable_node_ids`（domain/evaluation.py）へ置き換えた
+        # （docs/tasks/T529.md参照）。
+        # 改善計画T522: 索引構築（KDTree構築・Edge数十万件規模の辞書構築）もget_or_build_
+        # graph_with_attributesのbuild_road_graphと同じ理由でasyncio.to_threadへ逃がす
+        # （docs/tasks/T522.md参照）。find_nearest_node_indexedは既存索引への単発クエリで
+        # コストが軽いためメインコルーチンのまま呼ぶ。
         index_started = time.monotonic()
-        routable_ids = await asyncio.to_thread(routable_node_ids, search.sparse_graph)
+        routable_ids = await asyncio.to_thread(
+            compute_routable_node_ids,
+            search.graph, search.way_tags, search.elevation_attributes,
+            self._hard_filters, self._max_average_grade_percent,
+        )
         node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
         origin_node = find_nearest_node_indexed(node_index, origin)
         if origin_node is None:
@@ -326,7 +395,7 @@ class RoadGraphEngine:
 
         return _RoadGraphContext(
             graph=search.graph,
-            sparse_graph=search.sparse_graph,
+            elevation_attributes=search.elevation_attributes,
             surface_attributes=search.surface_attributes,
             stop_counts=search.stop_counts,
             way_tags=search.way_tags,
@@ -337,6 +406,8 @@ class RoadGraphEngine:
             wind=search.wind,
             origin_node=origin_node,
             node_index=node_index,
+            lazy_graph=search.lazy_graph,
+            cost_cache={},
             night_active=search.night_active,
             node_pair_index=node_pair_index,
         )
@@ -359,20 +430,34 @@ class RoadGraphEngine:
         if search is None:
             return None
 
-        # 改善計画T256: prepareと同じ理由で、索引の候補をsparse_graph上で経路探索可能な
-        # Nodeのみに絞る（幹線道路にしか接続していない孤立Nodeを除外）。
+        # 改善計画T256: prepareと同じ理由で、索引の候補を実際に経路探索可能なNodeのみに
+        # 絞る（幹線道路にしか接続していない孤立Nodeを除外）。改善計画T529:
+        # 旧`routable_node_ids`（sparse_graph算出）から`compute_routable_node_ids`
+        # （0次ハードフィルタのみの軽量版）へ置き換えた（docs/tasks/T529.md参照）。
         # 改善計画T522: prepareと同じ理由でasyncio.to_threadへ逃がす（docs/tasks/T522.md参照）。
-        routable_ids = await asyncio.to_thread(routable_node_ids, search.sparse_graph)
+        routable_ids = await asyncio.to_thread(
+            compute_routable_node_ids,
+            search.graph, search.way_tags, search.elevation_attributes,
+            self._hard_filters, self._max_average_grade_percent,
+        )
         node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
         origin_node = find_nearest_node_indexed(node_index, origin)
         destination_node = find_nearest_node_indexed(node_index, destination)
         if origin_node is None or destination_node is None:
             return None
 
-        path = shortest_path_node_ids_sparse(search.sparse_graph, origin_node, destination_node)
+        # 改善計画T529: lazy評価（rustworkxのA*、モジュールdocstring参照）。cost_cacheは
+        # このpreview_segment呼び出し1回限りのローカル辞書（trace_loopのような複数回の
+        # 探索間での再利用は無いため、prepare()のcontext.cost_cacheとは異なりここでは
+        # 使い捨てでよい）。
+        cost_fn = self._build_edge_cost_fn(search, {})
+        estimate_fn = _build_estimate_cost_fn(search.graph, destination_node)
+        path = await asyncio.to_thread(
+            shortest_path_node_ids_lazy, search.lazy_graph, origin_node, destination_node, cost_fn, estimate_fn
+        )
         if path is None:
             return None
-        edge_ids = path_to_edge_ids_sparse(search.sparse_graph, path)
+        edge_ids = path_to_edge_ids_lazy(search.lazy_graph, path)
         if not edge_ids:
             return None
 
@@ -417,18 +502,33 @@ class RoadGraphEngine:
                 raise RoutingError(f"direction {bearing}: could not snap destination to road graph")
         node_sequence = [context.origin_node, *interior_nodes, end_node]
 
-        # 改善計画T220（T12 Stage 2）: Dijkstra本体はNetworkX（Python実装）ではなく
-        # scipy.sparse.csgraph（C実装）で行う（1リクエストにつき最大24回、実測で
-        # ボトルネックと判明。モジュールdocstring参照）。context.sparse_graphを使う。
-        segment_paths = []
-        for from_node, to_node in zip(node_sequence, node_sequence[1:]):
-            segment_path = shortest_path_node_ids_sparse(context.sparse_graph, from_node, to_node)
-            if segment_path is None:
-                raise RoutingError(f"direction {bearing}: no path found between waypoints")
-            segment_paths.append(segment_path)
+        # 改善計画T529: A*/Dijkstra本体はscipy（bbox全体のコストを事前に一括計算してから
+        # 構築するeager評価）ではなく、rustworkx（訪れたEdgeのみ都度コストを計算する
+        # lazy評価）で行う（1リクエストにつき最大24回、モジュールdocstring参照）。
+        # cost_fnは`context.cost_cache`（8方位×3レグで共有）経由でEdgeの重複計算を避ける。
+        # estimate_fn（A*ヒューリスティック）はレグごとに目的地（to_node）が変わるため
+        # レグごとに組み立て直す。同期関数（rustworkxの探索本体）を直接awaitせず呼ぶと
+        # イベントループを塞ぐため、asyncio.to_threadへ逃がす（T522と同じ理由）。
+        cost_fn = self._build_edge_cost_fn(context, context.cost_cache)
+
+        def _trace_segments() -> list[list[str]] | None:
+            segment_paths = []
+            for from_node, to_node in zip(node_sequence, node_sequence[1:]):
+                estimate_fn = _build_estimate_cost_fn(context.graph, to_node)
+                segment_path = shortest_path_node_ids_lazy(
+                    context.lazy_graph, from_node, to_node, cost_fn, estimate_fn
+                )
+                if segment_path is None:
+                    return None
+                segment_paths.append(segment_path)
+            return segment_paths
+
+        segment_paths = await asyncio.to_thread(_trace_segments)
+        if segment_paths is None:
+            raise RoutingError(f"direction {bearing}: no path found between waypoints")
 
         full_path = concat_node_paths(segment_paths)
-        edge_ids = path_to_edge_ids_sparse(context.sparse_graph, full_path)
+        edge_ids = path_to_edge_ids_lazy(context.lazy_graph, full_path)
         if not edge_ids:
             raise RoutingError(f"direction {bearing}: resulting path has no edges")
         # 改善計画T218（T12 Stage 0）: prepareが読み込んだcontext.graph（LeanRoadGraph）の
@@ -626,6 +726,27 @@ class RoadGraphEngine:
             cumulative_km += distance_km
 
         return segments
+
+
+def _build_estimate_cost_fn(graph: RoadGraphLike, target_node_id: str) -> Callable[[str], float]:
+    """`shortest_path_node_ids_lazy`へ渡すA*のestimate_cost_fn（改善計画T529）を、
+    目的地ノード`target_node_id`への直線距離（m）として組み立てる。
+
+    Edge Costは常に`cost >= distance_m`を満たす（`docs/decisions/t12-routing-scale.md`
+    原則1「不変条件1」、ペナルティ倍率は常に1以上）ため、直線距離は実際のコストを
+    過大評価しない下界＝admissibleなヒューリスティックになる。この不変条件は
+    「将来のA*ヒューリスティック admissibility保存のため」と当時のADRが明記して
+    意図的に維持してきたものであり、本タスクがその意図どおり利用する形になる。
+    """
+    target_node = graph.nodes[target_node_id]
+    target_coord = Coordinates(latitude=target_node.latitude, longitude=target_node.longitude)
+
+    def estimate_fn(node_id: str) -> float:
+        node = graph.nodes[node_id]
+        node_coord = Coordinates(latitude=node.latitude, longitude=node.longitude)
+        return haversine_distance_km(node_coord, target_coord) * 1000
+
+    return estimate_fn
 
 
 def _build_node_pair_index(graph: RoadGraphLike) -> dict[tuple[str, str], EdgeLike]:

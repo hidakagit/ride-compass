@@ -1,11 +1,12 @@
-"""RoadGraphEngine（Road Graph + scipy.sparse.csgraph Dijkstraエンジン）のテスト。
+"""RoadGraphEngine（Road Graph + rustworkx A*/Dijkstraエンジン、改善計画T529）のテスト。
 
 RouteGenerator（戦略層）を通したエンドツーエンドで、エンジン固有の責務
-（Road Graph取得が1回のみ・Dijkstra経路・標高がパス上のEdgeだけに絞られること・
+（Road Graph取得が1回のみ・A*/Dijkstra経路・標高がパス上のEdgeだけに絞られること・
 Edge単位の集計とsegments構築）を検証する。戦略側の責務（距離フィルタ・失敗スキップ等）は
 test_route_generator.pyで検証済み。
 """
 
+import math
 from datetime import datetime, timezone
 
 import pytest
@@ -18,7 +19,6 @@ from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
 from app.services import road_graph_engine
-from app.services.evaluation_service import EvaluationService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
 from app.services.route_scorer import RouteScorer
@@ -37,20 +37,34 @@ def make_route_scorer() -> RouteScorer:
     return RouteScorer(SCORING_WEIGHTS)
 
 
-def _sparse_edge_weight(sparse_graph, from_node_id: str, to_node_id: str) -> float:
-    # 改善計画T226: context.nx_graph削除後、sparse_graph（実際に探索本体が使うグラフ）
-    # から直接Edgeの重みを読む。
-    i = sparse_graph.node_id_to_index[from_node_id]
-    j = sparse_graph.node_id_to_index[to_node_id]
-    return sparse_graph.matrix[i, j]
+def _lazy_edge_cost(engine, context, from_node_id: str, to_node_id: str) -> float:
+    """改善計画T529: 旧`_sparse_edge_weight`（scipy版、事前計算済みcostを行列から直接読む）
+    の置き換え。lazy評価では探索前にコストが存在しないため、実際に探索本体が使う
+    `_build_edge_cost_fn`を呼んで計算する（cost_cacheは検証用の使い捨て辞書でよい）。
+    """
+    i = context.lazy_graph.node_id_to_index[from_node_id]
+    j = context.lazy_graph.node_id_to_index[to_node_id]
+    edge_id = context.lazy_graph.edge_id_by_index_pair[(i, j)]
+    cost_fn = engine._build_edge_cost_fn(context, {})
+    return cost_fn(edge_id)
 
 
-def _sparse_has_edge(sparse_graph, from_node_id: str, to_node_id: str) -> bool:
-    i = sparse_graph.node_id_to_index.get(from_node_id)
-    j = sparse_graph.node_id_to_index.get(to_node_id)
+def _lazy_edge_is_allowed(engine, context, from_node_id: str, to_node_id: str) -> bool:
+    """改善計画T529: 旧`_sparse_has_edge`（scipy版、Hard Constraint除外Edgeはグラフ構造
+    自体から除外されていた）の置き換え。lazy評価の`LazyRoadGraph`はトポロジのみで
+    Hard Constraintを知らないため全Edgeを含む——除外は`edge_cost_fn`が`math.inf`を
+    返すことで表現される（`domain/routing.py: shortest_path_node_ids_lazy`docstring参照）。
+    そのため「Edgeが存在し、かつコストが有限」を「除外されていない」の判定条件にする。
+    """
+    i = context.lazy_graph.node_id_to_index.get(from_node_id)
+    j = context.lazy_graph.node_id_to_index.get(to_node_id)
     if i is None or j is None:
         return False
-    return (i, j) in sparse_graph.edge_id_by_index_pair
+    edge_id = context.lazy_graph.edge_id_by_index_pair.get((i, j))
+    if edge_id is None:
+        return False
+    cost_fn = engine._build_edge_cost_fn(context, {})
+    return math.isfinite(cost_fn(edge_id))
 
 
 def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_coord: Coordinates, **overrides) -> DirectedEdge:
@@ -271,7 +285,6 @@ def make_generator(
     engine = RoadGraphEngine(
         graph_service=graph_service,
         elevation_attribute_service=elevation_service,
-        evaluation_service=EvaluationService(preference),
         weather_service=FakeWeatherService(wind),
         route_preference=preference,
         penalty_strength=penalty_strength,
@@ -735,8 +748,8 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
     assert day_context.night_active is False
     assert night_context.night_active is True
 
-    day_cost = _sparse_edge_weight(day_context.sparse_graph, "a", "b")
-    night_cost = _sparse_edge_weight(night_context.sparse_graph, "a", "b")
+    day_cost = _lazy_edge_cost(engine, day_context, "a", "b")
+    night_cost = _lazy_edge_cost(engine, night_context, "a", "b")
     # 日中はnight_weightが0倍されるため、他の軸の重みも全て0の本ケースではdistance_mそのもの
     # （難易度による割増なし）になるはず。夜間はnight_difficulty分の割増が乗る。
     assert night_cost > day_cost
@@ -797,8 +810,8 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
     flat_context = await flat_generator._engine.prepare(ORIGIN, radius_km=1.0)
     steep_context = await steep_generator._engine.prepare(ORIGIN, radius_km=1.0)
 
-    flat_cost = _sparse_edge_weight(flat_context.sparse_graph, "a", "b")
-    steep_cost = _sparse_edge_weight(steep_context.sparse_graph, "a", "b")
+    flat_cost = _lazy_edge_cost(flat_generator._engine, flat_context, "a", "b")
+    steep_cost = _lazy_edge_cost(steep_generator._engine, steep_context, "a", "b")
     # 事前計算データが無い（{}のまま=バッチ未実行を模す）場合はgradient軸がデータ無し扱いで
     # 割増が乗らない。事前計算済みの急勾配が渡されるとgradient軸の割増がコストへ反映される。
     assert flat_cost == pytest.approx(edge.distance_m, abs=0.1)
@@ -833,8 +846,8 @@ async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_se
 
     context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
 
-    assert not _sparse_has_edge(context.sparse_graph, "a", "b")
-    assert _sparse_has_edge(context.sparse_graph, "a", "c")
+    assert not _lazy_edge_is_allowed(generator._engine, context, "a", "b")
+    assert _lazy_edge_is_allowed(generator._engine, context, "a", "c")
 
 
 async def test_prepare_hard_filters_override_restricts_exclusion_to_specified_filters():
@@ -864,8 +877,10 @@ async def test_prepare_hard_filters_override_restricts_exclusion_to_specified_fi
 
     context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
 
-    assert not _sparse_has_edge(context.sparse_graph, "a", "b")  # motorwayはhard_filtersに含む＝除外
-    assert _sparse_has_edge(context.sparse_graph, "a", "c")  # trunkはhard_filtersに含めていない＝除外されない
+    # motorwayはhard_filtersに含む＝除外
+    assert not _lazy_edge_is_allowed(generator._engine, context, "a", "b")
+    # trunkはhard_filtersに含めていない＝除外されない
+    assert _lazy_edge_is_allowed(generator._engine, context, "a", "c")
 
 
 async def test_prepare_snaps_origin_away_from_node_isolated_by_hard_constraint():
@@ -914,10 +929,11 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     base_graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
     base_kwargs = dict(
         graph=base_graph,
-        sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags=way_tags,
+        elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags=way_tags,
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),
+        lazy_graph=None, cost_cache={},
         node_pair_index={},
     )
     day_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=False)
@@ -1181,15 +1197,15 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
     engine = RoadGraphEngine(
         graph_service=None,
         elevation_attribute_service=FakeElevationAttributeService({}),
-        evaluation_service=EvaluationService(preference),
         weather_service=FakeWeatherService(wind),
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags={},
+        graph=graph, elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags={},
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=wind, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
+        lazy_graph=None, cost_cache={},
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
     )
     traced = road_graph_engine.TracedLoop(
@@ -1221,15 +1237,15 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
     engine = RoadGraphEngine(
         graph_service=None,
         elevation_attribute_service=FakeElevationAttributeService({}),
-        evaluation_service=EvaluationService(preference),
         weather_service=FakeWeatherService(None),
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags={},
+        graph=graph, elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags={},
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=None, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
+        lazy_graph=None, cost_cache={},
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
     )
     traced = road_graph_engine.TracedLoop(
@@ -1390,15 +1406,15 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
     engine = RoadGraphEngine(
         graph_service=None,
         elevation_attribute_service=FakeElevationAttributeService({}),
-        evaluation_service=EvaluationService(preference),
         weather_service=FakeWeatherService(wind),
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, sparse_graph=None, surface_attributes={}, stop_counts={}, way_tags={},
+        graph=graph, elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags={},
         intersection_counts={}, accident_counts={}, accident_years_covered=0,
         designated_edge_ids=set(), wind=wind, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
+        lazy_graph=None, cost_cache={},
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
     )
     traced = road_graph_engine.TracedLoop(

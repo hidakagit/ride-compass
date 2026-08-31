@@ -631,9 +631,12 @@ export interface paths {
          * Read Recent Logs
          * @description 直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。
          *
-         *     `contains`で部分一致フィルタ（例: T318調査の`distance filter rejected`）、
-         *     `limit`でフィルタ後の末尾N件に絞り込める。debug_modeがOFFの間はDEBUGレベルの
-         *     行自体がそもそも記録されない点に注意（先に`POST /mode`で有効化すること）。
+         *     `min_level`で「このレベル以上」に絞り込める（例: `WARNING`を渡すとWARNING/ERROR/
+         *     CRITICALだけになる、改善計画T517）。`contains`で部分一致フィルタ（例: T318調査の
+         *     `distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に
+         *     絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意
+         *     （先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、
+         *     docs/logging.md参照）。
          *
          *     改善計画T467: `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が
          *     Pythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう
@@ -2705,6 +2708,7 @@ export interface operations {
             query?: {
                 limit?: number | null;
                 contains?: string | null;
+                min_level?: ("DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL") | null;
             };
             header?: never;
             path?: never;

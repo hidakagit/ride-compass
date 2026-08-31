@@ -10,11 +10,15 @@ YYYY-MM-DD_<review-type>.md
 ```
 
 - review-type: `overall` / `complexity` / `consistency` / `ui` / `all` / `improve` /
-  `codereview` / `codereview-self`（2026-08-30追加、README.md「定期的なレビュー」節参照）。
+  `codereview` / `codereview-self`（2026-08-30追加、README.md「定期的なレビュー」節参照）/
+  `metrics`（2026-08-31追加）。
   `codereview`はユーザーがターミナルで起動した本物の`/code-review`（`ultra`含む、複数
   エージェント・クラウド実行）の結果。`codereview-self`はセッション自身が`ReportFindings`
   ツールで行った簡易な自己レビューの結果——**品質・カバレッジが本物より劣ることを
-  history内でも明記すること**、2つを混同しない
+  history内でも明記すること**、2つを混同しない。
+  `metrics`は[metrics.md](../metrics.md)の定量計測結果——Findings（P0-P3）を持たない
+  唯一の種別のため、principles.mdの標準フォーマット・`scores.md`への追記対象外
+  （代わりに`metrics.md`という専用のトレンドファイルへ追記する、下記「スコア推移」節参照）
 - 例: `2026-08-16_overall.md`、`2026-08-16_all.md`
 - 同日に同種を複数回実行した場合は `_2` 等の連番を付ける
 
@@ -30,6 +34,10 @@ docs/ から history/ への移動はしない（improvement-plan.md 等から�
 （[principles.md](../principles.md)「スコアサマリ」節参照）。個別レビュー実施時は、
 そのレビューの`history/YYYY-MM-DD_<type>.md`本体に加えて、`scores.md`の対応する
 種別テーブルへも1行追記すること。
+
+`metrics`種別のみ`scores.md`ではなく専用の`metrics.md`（同ディレクトリ）へ追記する
+（Findingsのスコア化ではなく実測値そのものの推移のため、表の列構成が`scores.md`と異なる。
+[../metrics.md](../metrics.md)「出力」節参照）。
 
 ## 各履歴ファイルに最低限含める項目
 

@@ -1390,7 +1390,7 @@
           "debug-admin"
         ],
         "summary": "Read Recent Logs",
-        "description": "直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。\n\n`contains`で部分一致フィルタ（例: T318調査の`distance filter rejected`）、\n`limit`でフィルタ後の末尾N件に絞り込める。debug_modeがOFFの間はDEBUGレベルの\n行自体がそもそも記録されない点に注意（先に`POST /mode`で有効化すること）。\n\n改善計画T467: `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が\nPythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう\n（例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は\nリングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても\n保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。",
+        "description": "直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。\n\n`min_level`で「このレベル以上」に絞り込める（例: `WARNING`を渡すとWARNING/ERROR/\nCRITICALだけになる、改善計画T517）。`contains`で部分一致フィルタ（例: T318調査の\n`distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に\n絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意\n（先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、\ndocs/logging.md参照）。\n\n改善計画T467: `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が\nPythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう\n（例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は\nリングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても\n保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。",
         "operationId": "read_recent_logs_api_admin_debug_logs_get",
         "security": [
           {
@@ -1429,6 +1429,29 @@
                 }
               ],
               "title": "Contains"
+            }
+          },
+          {
+            "name": "min_level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "DEBUG",
+                    "INFO",
+                    "WARNING",
+                    "ERROR",
+                    "CRITICAL"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Level"
             }
           }
         ],

@@ -31,7 +31,7 @@ from app.infrastructure.weather_client import WeatherClient
 from app.services.accident_service import AccidentService
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.elevation_attribute_service import ElevationAttributeService
-from app.services.evaluation_service import EvaluationService, load_route_preference
+from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.region_service import RegionService
 from app.services.road_graph_engine import RoadGraphEngine
@@ -181,7 +181,6 @@ def _assemble_route_generation_setup(
     engine = RoadGraphEngine(
         graph_service,
         elevation_attribute_service,
-        EvaluationService(preference),
         weather_service,
         preference,
         penalty_strength,
@@ -252,7 +251,6 @@ def get_preview_builder(
         engine = RoadGraphEngine(
             graph_service,
             elevation_attribute_service,
-            EvaluationService(preference),
             weather_service,
             preference,
         )
