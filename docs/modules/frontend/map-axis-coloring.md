@@ -17,7 +17,7 @@
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（共有色ヘルパー、windAxisLayer/gradientAxisLayerが使う）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。windAxisLayer/gradientAxisLayerの`*Legend`関数が使う |
-| `components/MapColorLegend/MapColorLegend.tsx` | 上記の凡例データを地図左下に表示するUI部品（`page.tsx`が組み立てる） |
+| `components/MapColorLegend/MapColorLegend.tsx` | 上記の凡例データを地図上部中央に表示するUI部品（`page.tsx`が組み立てる、配置の理由は下記参照） |
 | `Map/mapLayers.ts` | `isDedicatedWayValueLayerId`・`isAxisStudioLayer`（レイヤーID判定） |
 | `Map/MapView.tsx`（windAxis/gradientAxis/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
 | `hooks/useDynamicWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得） |
@@ -84,6 +84,13 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
   同じ配色・しきい値を共有する契約をコード上でも1箇所に集約する。
 - `windAxisLegend(boundaries?)`/`gradientAxisLegend(boundaries?)`は、同じ配色・しきい値
   から地図上の凡例（色→値の対応、`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。
+  `windAxisLegend`は`boundaries.length+1`が既定の段階数（5、`WIND_AXIS_THRESHOLDS`）と
+  一致する間、数値レンジの前に体感ラベル（`WIND_PENALTY_FEEL_LABELS`、「強い向かい風」等）を
+  添える（`mapColorLegend.ts: buildRangeLegendBands`の`labels`引数、色は指定せず既存の
+  `rampColorForBand`自動生成のまま）。段階数が既定と異なる（軸スタジオの
+  `display_thresholds_override`で境界値を増減した）場合は、固定ラベルとの対応が崩れるため
+  数値レンジのみへフォールバックする。`gradientAxisLegend`にはこの体感ラベルは無い
+  （未対応、必要になれば同じ仕組みを追加できる）。
   `page.tsx`が`showWindAxis || showWindPenaltyFill`/`showGradientAxis || showGradientFill`
   （評価軸の線・環境グループのgridFillのどちらか一方でもONの間）・ramp軸（`axisVisibility`、
   `axisLayers.ts: buildAxisRampLegend`）を横断して集め、`MapColorLegend`

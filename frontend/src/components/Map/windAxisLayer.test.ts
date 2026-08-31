@@ -51,5 +51,32 @@ describe("windAxisLayer", () => {
       expect(legend[1].color).toBe(rampColorForBand(1, 3));
       expect(legend[2].color).toBe(rampColorForBand(2, 3));
     });
+
+    // ユーザー要望（2026-08-31「風も降水のように体感で分かる凡例ラベルにしたい
+    // （色の指定は不要）」）: 段階数が既定のWIND_AXIS_THRESHOLDS（5段階）と一致する間は、
+    // 数値レンジの前に体感ラベル（強い向かい風/軽い向かい風等）を添える。
+    it("段階数が既定(5段階)と一致する場合、数値レンジの前に体感ラベルが付く", () => {
+      const legend = windAxisLegend();
+      expect(legend).toHaveLength(5);
+      expect(legend[0].label).toBe("強い追い風（-6m/s未満）");
+      expect(legend[1].label).toBe("軽い追い風（-6〜-2m/s）");
+      expect(legend[2].label).toBe("風の影響は小さい（-2〜2m/s）");
+      expect(legend[3].label).toBe("軽い向かい風（2〜6m/s）");
+      expect(legend[4].label).toBe("強い向かい風（6m/s以上）");
+    });
+
+    it("軸スタジオのdisplay_thresholds_overrideで境界値だけ調整しても段階数が5のままなら体感ラベルは付く", () => {
+      const legend = windAxisLegend([-8, -3, 3, 8]);
+      expect(legend).toHaveLength(5);
+      expect(legend[0].label).toBe("強い追い風（-8m/s未満）");
+      expect(legend[4].label).toBe("強い向かい風（8m/s以上）");
+    });
+
+    it("段階数が既定(5段階)と異なる場合は体感ラベルを付けず数値レンジのみになる", () => {
+      const legend = windAxisLegend([-2, 2]);
+      expect(legend[0].label).toBe("-2m/s未満");
+      expect(legend[1].label).toBe("-2〜2m/s");
+      expect(legend[2].label).toBe("2m/s以上");
+    });
   });
 });

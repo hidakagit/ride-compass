@@ -27,15 +27,25 @@ export function rangeStepLabel(lower: number | null, upper: number | null, unit:
 /** boundaries（昇順のしきい値配列、要素数=段階数-1）とcolors（段階数ぶん）から、
  * rangeStepLabelでラベル付けした凡例段階を組み立てる共通ロジック。gradientAxisLayer.ts・
  * windAxisLayer.tsの両方が同じ「しきい値配列→段階ラベル+色」変換を必要とするため
- * ここへ集約する（設計原則2: 定数・変換ロジックの片側import）。 */
+ * ここへ集約する（設計原則2: 定数・変換ロジックの片側import）。
+ *
+ * ユーザー要望（2026-08-31「降水のように体感で分かる凡例ラベルを付けたい（色の指定は不要）」）:
+ * `labels`（省略可、colors.length件）を渡すと、数値レンジ表記の前に体感ラベルを添える
+ * （例:「強い向かい風（2〜6m/s）」）。渡さない場合は従来どおり数値レンジ表記のみ。
+ * `windLayer.ts: WIND_SPEED_LEGEND_LEVELS`・`precipitationNowcast.ts:
+ * PRECIPITATION_INTENSITY_LEVELS`と違い色は手打ちにしない（呼び出し側が既存の
+ * rampColorForBand自動生成をそのまま使う）——ユーザー指示により色指定機能は追加しない。 */
 export function buildRangeLegendBands(
   boundaries: readonly number[],
   colors: readonly string[],
-  unit: string
+  unit: string,
+  labels?: readonly string[]
 ): MapColorLegendBand[] {
   return colors.map((color, index) => {
     const lower = index === 0 ? null : boundaries[index - 1];
     const upper = index === boundaries.length ? null : boundaries[index];
-    return { label: rangeStepLabel(lower, upper, unit), color };
+    const rangeLabel = rangeStepLabel(lower, upper, unit);
+    const label = labels ? `${labels[index]}（${rangeLabel}）` : rangeLabel;
+    return { label, color };
   });
 }
