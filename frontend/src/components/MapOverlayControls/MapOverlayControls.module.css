@@ -256,21 +256,24 @@
    背景・枠線・文字色をこの3ルールだけで完結させ、「OFF＝枠線だけそのグループ色、
    ON＝そのグループ色で塗りつぶし」という単純な二値に統一する（青が出てくるのは
    グループを持たない単独チップだけ）。コンパウンドセレクタ（2クラス、詳細度0,2,0）で
-   .iconChipActive単体（0,1,0）より優先させる。 */
+   .iconChipActive単体（0,1,0）より優先させる。文字色は--color-group-on-text
+   （globals.css、既定は白・ダークモードは黒系）を使う——ダークモードでは-onトークン自体が
+   OFF用トークンと同じ明るい色になるため、白文字だとコントラストが足りなくなる
+   （実機フィードバック2026-08-31「風の背景色が凡例と合ってない」）。 */
 .iconChipGroupRoad.iconChipActive {
   background: var(--color-group-road-on);
   border-color: var(--color-group-road-on);
-  color: #ffffff;
+  color: var(--color-group-on-text);
 }
 .iconChipGroupEnvironment.iconChipActive {
   background: var(--color-group-environment-on);
   border-color: var(--color-group-environment-on);
-  color: #ffffff;
+  color: var(--color-group-on-text);
 }
 .iconChipGroupSpot.iconChipActive {
   background: var(--color-group-spot-on);
   border-color: var(--color-group-spot-on);
-  color: #ffffff;
+  color: var(--color-group-on-text);
 }
 
 /* グループ見出し（道路/環境/スポット、ChipButtonのexpandViaSelf=trueだけに付く
