@@ -33,7 +33,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 
 - 下書きタブが既定表示（新規作成した軸はまず下書きから始まるため）。
 - 公開済みタブに削除ボタンは出さない（backendの`AxisPublishedImmutableError`と対応。
-  削除は先に「非公開に戻す」という導線）。改善計画T501: 「表示だけ編集」ボタンは
+  削除は先に「非公開に戻す」という導線）。「表示だけ編集」ボタンは
   `AxisComposer`を制限モード（`editing.is_published`を見て自動判定、材料・計算式・
   重みのステップを一切出さず表示専用フィールドのみ編集できる1画面フォーム）で開く。
   材料・計算式・重みを変えたい場合は引き続き「複製して新規作成」に導線を残す。
@@ -69,7 +69,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 `display_publish`はchip_labelの4文字制限・display_thresholds_overrideの昇順）、
 最終保存直前にも全ステップを再検証する（戻って値を空にしたまま進んだ場合の安全網）。
 
-**改善計画T501（制限モード）**: `editing`が公開済み軸（`editing.is_published`）の場合、
+**制限モード**: `editing`が公開済み軸（`editing.is_published`）の場合、
 `restrictedDisplayOnly`が`true`になり通常の4ステップ構成を迂回する——`stepIndex`の
 初期値を`display_publish`へ固定し、ステッパー・戻る/次へボタンを描画せず
 `renderDisplayPublishStep()`（表示専用フィールドのみ）を単独の1画面フォームとして表示する。
@@ -163,11 +163,10 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
   `supports_route_coloring`・`dedicated_way_value_layer`・
   `dynamic_way_value_needs_time`・`dynamic_way_value_needs_bearing`）も、既存軸の値を
   draftへ素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
-  値が失われるため）。`display_thresholds_override`はT404で専用の編集UI（`display_publish`
-  ステップの数値配列エディタ）を持ったため、このリストには含まない
-  （ドキュメントドリフト是正、改善計画T501着手時に発見）。
+  値が失われるため）。`display_thresholds_override`は専用の編集UI（`display_publish`
+  ステップの数値配列エディタ）を持つため、このリストには含まない。
 - 軸スタジオが作る軸の`category`は常に`"推定"`固定（観測/動的は材料側の性質であり、
-  材料を組み合わせて判定式を作る軸スタジオの仕組みからは生み出せないというユーザー判断）。
+  材料を組み合わせて判定式を作る軸スタジオの仕組みからは生み出せないため）。
 
 ## backend側との対応
 

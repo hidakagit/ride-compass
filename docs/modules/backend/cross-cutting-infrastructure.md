@@ -47,7 +47,7 @@ FastAPI(lifespan=lifespan)
       yield（アプリ稼働中）
         ▼
   シャットダウン: (1) APSchedulerを停止（`wait=False`）→
-                 (2) httpxクライアントを明示close（`close_all_http_clients`、T464）
+                 (2) httpxクライアントを明示close（`close_all_http_clients`）
 ```
 
 - ログレベルは`debug_mode`の値でINFO/DEBUGを切り替える（`main.py`のlogging.basicConfig）。
@@ -56,7 +56,7 @@ FastAPI(lifespan=lifespan)
 - `httpx`ロガー自体はWARNING以上に抑制する（1リクエストごとのINFOでログが埋まるため。
   外部呼び出しの記録は`debug_log.py: log_external_call`が別途担う）。
 - 未処理例外（500）発生時も`unhandled_exception_handler`（`request_log.py`）経由で
-  `X-Request-ID`ヘッダを付けて返す（T464、通常レスポンスと同じ追跡性を保つ）。
+  `X-Request-ID`ヘッダを付けて返す（通常レスポンスと同じ追跡性を保つ）。
 
 ## 設定（`config.py: Settings`）
 
@@ -123,7 +123,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 `db-status`は「本番DBがコード上の期待に追いついているか」を1リクエストで確認する診断
 エンドポイント。`road_graph_use_repository=false`のときは接続を試みずその旨だけ返す。
 テーブル行数・migration適用状況・import run履歴という運用上機微な情報を返すため、
-`axis_admin.py`/`debug_admin.py`と同じ管理API認可境界を持つ（T467、従来は無認証だった）。
+`axis_admin.py`/`debug_admin.py`と同じ管理API認可境界を持つ。
 `/health`・`/api/debug/stats`（集計値のみで機微情報を含まない）は引き続き無認証。
 
 ## `debug_admin.py`（`debug_mode`のランタイム切替）
@@ -143,7 +143,7 @@ DEBUGレベルの行自体が記録されない。
 
 JMA気象データの短命キャッシュ・`road_graph_tile_cache.py`のcache-aside層が使う共有
 接続。**接続/ソケットタイムアウトを明示的に0.2秒へ短縮**している（既定タイムアウトの
-ままだと疎通不能環境で1回の接続試行に数秒かかることが判明したため——ルート生成の
+ままだと疎通不能環境で1回の接続試行に数秒かかりうるため。ルート生成の
 ホットパスに乗ると「PostGIS往復を減らす」という本来の目的に反する遅延になる）。
 
 **サーキットブレーカー**: `redis_available()`が直近の失敗（`record_redis_failure()`）から

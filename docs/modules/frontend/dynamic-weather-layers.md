@@ -17,7 +17,7 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
 | `Map/riskMap.ts` | キキクル・線状降水帯予測マップ（未来フレームを持たない特殊系） |
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ |
-| `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という同型フェッチ骨格の共通化（T470）。`useDynamicWeatherLayers.ts`内の5箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・キキクル・線状降水帯予測マップ）が個別独立実装だったものをここへ統合した |
+| `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の5箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・キキクル・線状降水帯予測マップ）が共有するフェッチ骨格の共通実装 |
 | `components/WeatherPanel/`（`amedasWeatherIcon.ts`含む）・`TodayOutlook/`・`WarningBadge/`・`DynamicLayerTimeSlider/` | UI |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
@@ -93,9 +93,8 @@ windVector`内で`penaltyFillCoarse`を`penaltyFill`より前に定義してお�
 Layer`がgroupSpecのキー順=`addLayer`呼び出し順で描画するため、粗い格子が背面・詳細格子が
 前面になる。`windPenalty.ts: coarseGridPointsOutsideDetailBounds`が、粗い格子の点のうち
 詳細格子の点集合のバウンディングボックス（詳細格子の間隔ぶん外側へ余裕を持たせたもの）に
-入るものを除いてからセル化する——除かずに両方を同じ場所へ重ねて描画すると、半透明の
-fill-opacityが二重に重なって詳細格子の範囲だけ不自然に濃くなる（実機報告2026-08-31
-「境界に色の段差が見える」）。
+入るものを除いてからセル化する（両方を同じ場所へ重ねて描画すると、半透明のfill-opacityが
+二重に重なって詳細格子の範囲だけ不自然に濃くなるため）。
 
 ## 新しい動的要素を追加する1本道
 

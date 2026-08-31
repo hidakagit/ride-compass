@@ -128,15 +128,13 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない、または機械アクセスへの
 配慮のためTTLキャッシュで呼び出し頻度自体を抑える設計）。これらが共有する
 「`TTLCache`参照→ミス時のみfetch→エラー処理→キャッシュ書き戻し」という骨格を
-`cached_fetch(cache, key, category, fetch, *, catch=..., **log_fields)`へ集約した
-（改善計画T488、以前は各クライアントに8〜10行の定型文がほぼ一字一句同じ形で
-計約10箇所複製されていた）。呼び出し元は`fetch`（実際のhttpx呼び出し＋パース＋
-必要ならフォーマット検証）だけを渡す。フォーマット不正（配列であるべきなのに
-そうでない等）は`UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から
-送出すると、常に固定文字列`error_type="unexpected_shape"`として記録される。
-呼び出し元ごとに元々の例外捕捉範囲が異なっていた（例:
-`fetch_municipality_code`だけ`AttributeError`も捕捉）ため、`catch`引数で
-既存の挙動を個別に維持できる。`weather_client.py`（tenacity再試行・2段キャッシュ）・
+`cached_fetch(cache, key, category, fetch, *, catch=..., **log_fields)`が1箇所へ
+まとめている。呼び出し元は`fetch`（実際のhttpx呼び出し＋パース＋必要ならフォーマット
+検証）だけを渡す。フォーマット不正（配列であるべきなのにそうでない等）は
+`UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、常に
+固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
+捕捉すべき例外の範囲が異なる（例: `fetch_municipality_code`は`AttributeError`も対象に
+含める）ため、`catch`引数で個別に指定できる。`weather_client.py`（tenacity再試行・2段キャッシュ）・
 `jma_tile_client.py`/`elevation_client.py`/`basemap_client.py`（TTLCache以外の
 キャッシュバックエンド）は対象外のまま各自の実装を維持する。
 
@@ -154,15 +152,13 @@ tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない�
    `WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS`（24時間）以内のキャッシュがあれば代用する。
 5. **変数を絞る**: `get_forecast_many`は`WIND_GRID_VARIABLES`（風速・風向・降水量のみ）に
    限定する。`get_forecast`（単発、`/api/weather`用）は表示項目のため全変数を維持する。
-6. **応答エントリの対応付けは座標ベース**: Open-Meteoの複数地点応答が常にリクエストと
-   同じ件数・同じ順序を保つとは限らない（実機報告2026-08-31「風の面塗りが毎回同じ場所で
-   切れる」の調査で判明）。応答件数がリクエストより少ない場合、位置（index）だけで
-   対応付けると1件の省略で以降の全地点がズレて誤った地点の天気を割り当ててしまうため、
-   各エントリ自身が返す`latitude`/`longitude`（Open-Meteoの複数地点応答の標準フィールド）で
-   対応するリクエスト地点を引き直す。座標を持たない/一致しないエントリ（テストフィクスチャ等）
-   は位置対応（従来方式）へフォールバックする。対応付けできなかった地点は`results[key] = None`
-   になり、`fields["result"] = "error"`でWARNINGログへ記録される（`missing_locations`件数付き、
-   `log_external_call`参照）。
+6. **応答エントリの対応付けは座標ベース**: Open-Meteoの複数地点応答は件数・順序がリクエストと
+   一致する保証が無い。位置（index）だけで対応付けると1件の省略だけで以降の全地点がズレて
+   誤った地点の天気を割り当ててしまうため、各エントリ自身が返す`latitude`/`longitude`
+   （Open-Meteoの複数地点応答の標準フィールド）で対応するリクエスト地点を引き直す。座標を
+   持たない/一致しないエントリ（テストフィクスチャ等）は位置対応へフォールバックする。
+   対応付けできなかった地点は`results[key] = None`になり、`fields["result"] = "error"`で
+   WARNINGログへ記録される（`missing_locations`件数付き、`log_external_call`参照）。
 
 `open_meteo_base_url`は本番では自前ホスト（Oracle Cloud VM）上のnginxリレープロキシへ
 向けられており、Render→Open-Meteo直叩きによる送信元IP共有問題を回避している。

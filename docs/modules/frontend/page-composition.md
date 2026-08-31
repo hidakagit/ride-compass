@@ -57,9 +57,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 `page.tsx`は風・勾配それぞれについて「環境グループ（面塗り、探索用）」と「評価軸グループ
 （線、視界内の全道路へ一律色分け）」の2表現を同時に配線する。両者は`[時刻, 向き]`のうち
 「時刻」の扱いが異なる（風のみ時刻依存）が、「向き」は単一の共有state
-`travelBearingDeg`を風・勾配の両方が使う（ユーザー指摘2026-08-31「軸毎やレイヤ毎に
-走行方位が決められるけれど、1つでいい」を受けて統合。以前は`windBearingDeg`/
-`gradientBearingDeg`という独立した2つのstateだった）:
+`travelBearingDeg`を風・勾配の両方が使う（走行方位という1つの概念を表す単一state）:
 
 ```
 travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）

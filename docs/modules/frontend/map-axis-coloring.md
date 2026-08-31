@@ -159,8 +159,8 @@ page.tsx
           （`map.removeFeatureState`はsource/sourceLayer単位で全キーを一括で消す
           MapLibre仕様のため、風・勾配のどちらか一方だけがOFFになった時点でクリアすると
           もう片方の色分けまで巻き添えで消える。両方falseになるまで待つガードで防ぐ。
-          判定条件自体は`shouldClearDedicatedWayValueFeatureState`という純粋関数へ
-          切り出し済み、改善計画T490）
+          判定条件自体は`shouldClearDedicatedWayValueFeatureState`という
+          純粋関数が持つ）
 ```
 
 - `promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" }`（`ensureRoadSurfaceTileLayer`）が
@@ -179,15 +179,14 @@ page.tsx
   この明示的な再適用を忘れると、setStyle後は視覚的にレイヤー自体は存在するが完全に無色の
   ままになる）。
 
-**改善計画T483で解消**: 以前は`windAxisPenalties`/`gradientAxisValues`という
-`MapViewProps`上軸ごとの別名propだったが、`dedicatedWayValueBoundaries`
-（改善計画T473）と同じ理由（design-principles.md構造仕様3: 軸ごとにpropを新設しない）で
-`dedicatedWayValues: ReadonlyMap<axisId, ReadonlyMap<wayId,value>>`という1つの汎用propへ
-統合した。`useDynamicWayValues`自体はmaterialIdごとに個別インスタンス化する設計
-（デバウンス・レース対策がaxis間で独立している必要があるため）のまま変更していない
-——統合するのはpage.tsxがMapViewへ渡す直前のprop形状だけ。MapView.tsx内部の
-`DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS`（axisId→featureStateKeyの小さなRecord）が
-`windAxisLayer.ts`/`gradientAxisLayer.ts`それぞれの`*_FEATURE_STATE_KEY`定数を束ねる。
+`dedicatedWayValues`は`MapViewProps`上、`ReadonlyMap<axisId, ReadonlyMap<wayId, value>>`
+という1つの汎用propにまとまっている（`dedicatedWayValueBoundaries`と同じく、
+design-principles.md構造仕様3「軸ごとにpropを新設しない」に沿う）。`useDynamicWayValues`
+自体はmaterialIdごとに個別インスタンス化する設計（デバウンス・レース対策がaxis間で
+独立している必要があるため）で、汎用propへまとまっているのはpage.tsxがMapViewへ渡す
+直前の形状だけである。MapView.tsx内部の`DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS`
+（axisId→featureStateKeyの小さなRecord）が`windAxisLayer.ts`/`gradientAxisLayer.ts`
+それぞれの`*_FEATURE_STATE_KEY`定数を束ねる。
 
 `WIND_PENALTY_FILL_LAYER_ID`（環境グループの風penalty gridFill）は`DYNAMIC_WEATHER_
 RENDERERS`側の管理下にあり`STATIC_OVERLAY_LAYERS`に含まれないため、そのままでは
