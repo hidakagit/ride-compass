@@ -18,12 +18,27 @@ interface TravelBearingControlProps {
 // （地図右上、既定でmap.addControlされる）のすぐ下に置く——ユーザーが名指しした
 // 「色＋−方角アイコン」（ズーム+/−・地図の回転/方位アイコン）と同じ並びに置くことで
 // 「地図の向き」と「走行方位（風・勾配の評価に使う向き）」という別概念を並べて示す。
+// ユーザー指摘（2026-08-31、「アイコンが非常に見にくい。丸形の中にすごく小さく矢印。
+// これを、コンパス設定画面をそのまま縮小したみたいにはできない？」）: 従来は現在値を
+// 反映しない固定の矢印アイコン（常に北向きのまま回転しない）だったため、(1)向きの
+// プレビューとして機能していない、(2)アイコン自体が小さく視認しづらい、の2点を指摘された。
+// WindBearingSlider.module.cssの`.dial`/`.arrow`と同じ配色・比率（矢印サイズ/ダイヤル直径
+// ≒0.65）を踏襲した「開く前のダイヤルのミニチュア」として再設計し、`value`に応じて
+// 矢印自体を回転させることで開く前から現在の走行方位が一目でわかるようにした。
+const TRIGGER_ARROW_SIZE_PX = 26;
+
 export default function TravelBearingControl({ value, onChange }: TravelBearingControlProps) {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
         <button type="button" className={styles.trigger} aria-label="走行方位を設定">
-          <WindDirectionArrowIcon size={18} />
+          <span
+            aria-hidden="true"
+            className={styles.triggerArrow}
+            style={{ transform: `rotate(${value}deg)` }}
+          >
+            <WindDirectionArrowIcon size={TRIGGER_ARROW_SIZE_PX} />
+          </span>
         </button>
       </Popover.Trigger>
       <Popover.Portal>
