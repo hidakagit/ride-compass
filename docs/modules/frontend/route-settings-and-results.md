@@ -123,6 +123,11 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側に持つ。
 `WindBearingSlider.test.ts`が既知の入出力ペアでbackendとの一致を検証する。
 
+`trackDraggable`を明示的に有効化している。ライブラリの既定（未指定）では、ドラッグの
+開始点として拾えるのは18px四方のノブ自身だけで、ノブは値が変わるたびにリング上の別の
+位置へ移動するため、タッチでは狙って掴み直すのが難しい。`trackDraggable`を立てると、
+リング（トラック）全周のどこを触ってもドラッグを開始できるようになる。
+
 ## RouteAxisProfile.tsx（選択中ルートの軸別内訳）
 
 `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重平均）を、

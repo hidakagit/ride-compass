@@ -74,6 +74,13 @@ export default function WindBearingSlider({ value, onChange, ariaLabel }: WindBe
             if (!Number.isNaN(parsed)) onChange(parsed);
           }}
           hideLabelValue
+          // ユーザー指摘（2026-08-31、「スマホだと円形の軸のタッチ判定が細かくて使いにくい」）:
+          // 既定（未指定）はfalseで、ドラッグ開始点として拾えるのは18px四方のノブ自身だけ
+          // だった。ノブは値が変わるたびにリング上の別の位置へ移動するため、モバイルでは
+          // 狙って掴み直すのが難しい。trackDraggable={true}にすると、リング（トラック）上の
+          // どこを触ってもドラッグを開始できるようになり、実質的な当たり判定がノブの
+          // 18px四方からリング全周（円周）へ大きく広がる。
+          trackDraggable
           knobSize={18}
           progressSize={6}
           trackSize={6}
