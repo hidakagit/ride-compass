@@ -50,10 +50,17 @@ export const DEFAULT_HARD_FILTERS: HardFilterOverride = { no_bicycle: true, moto
 // 軸スタジオで新規公開した軸は対応するセレクタが無いため無色（透明な帯）になっていた
 // （色自体に意味は持たせない識別用のため、固定パレットで足りるという前提自体は変えず、
 // axis_idではなく表示順indexで引く方式へ変更し、軸の増減にコード変更無しで追従させる）。
-const STACK_BAR_COLORS = ["#7f77dd", "#1d9e75", "#d85a30", "#d4537e", "#378add", "#ef9f27", "#639922"];
-
-function stackBarColorForIndex(index: number): string {
-  return STACK_BAR_COLORS[index % STACK_BAR_COLORS.length];
+// ユーザー指摘（2026-08-31、「帯ごとに色を変えるのはできる？」）: 上記の固定7色パレットを
+// index % 7で循環させていたため、軸が7件を超える（既定でも8件）と8件目以降の帯が既に
+// 使われた色と衝突していた（軸スタジオが軸数を増やせる設計である以上、固定の色数上限を
+// 持つこと自体が破綻の元）。HSL色相環を実際の軸数で等分して割り当てる方式へ変更し、
+// 軸数がいくつであっても衝突しないようにする。indexは常にcatalog.axesの表示順
+// （フルリスト内の位置）を使う——チェックを外した軸があっても、他の軸の色は動かない
+// （表示順が変わらない限り、ある軸の色は常に同じという安定性を保つ）。
+function stackBarColorForIndex(index: number, axisCount: number): string {
+  if (axisCount <= 0) return "#94a3b8";
+  const hue = (index * (360 / axisCount)) % 360;
+  return `hsl(${hue}, 62%, 55%)`;
 }
 
 function totalWeight(weights: RoutePreferenceWeights): number {
@@ -416,7 +423,7 @@ export default function RouteSettingsPanel({
                 <div
                   key={axisId}
                   className={styles.stackSegment}
-                  style={{ width: `${pct}%`, background: stackBarColorForIndex(index) }}
+                  style={{ width: `${pct}%`, background: stackBarColorForIndex(index, catalog.axes.length) }}
                   title={`${label} ${Math.round(pct)}%`}
                 />
               );

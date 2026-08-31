@@ -82,8 +82,8 @@
 
 .stackSegment {
   height: 100%;
-  /* 改善計画T320: 色自体はRouteSettingsPanel.tsx側でindex基準の固定パレット
-     （STACK_BAR_COLORS）からインラインstyleとして与える（軸id固定のCSSセレクタでは
+  /* 改善計画T320: 色自体はRouteSettingsPanel.tsx側（stackBarColorForIndex、実際の軸数で
+     色相環を等分するHSL式）からインラインstyleとして与える（軸id固定のCSSセレクタでは
      軸スタジオで増減する軸に追従できないため）。 */
 }
 
