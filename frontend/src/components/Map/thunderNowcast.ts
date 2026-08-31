@@ -20,10 +20,15 @@ export type ThunderNowcastFrame = JmaNowcastFrame;
 
 const TARGET_TIMES_N3_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N3.json`;
 
-/** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。 */
+/** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。改善計画T514フォローアップ:
+ * targetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻(thns/trns)自体は10分おきにしか
+ * 更新されない——5分ズレたエントリは"elements": ["liden"]（雷放電位置データのみ）しか
+ * 持たず、thns/trnsのタイルが存在しない。elementsに"thns"（"trns"も常に同じエントリへ
+ * 同居するため代表して"thns"だけ見ればよい）を含むエントリだけへ絞り込んでから使う。 */
 export async function fetchThunderNowcastFrames(): Promise<ThunderNowcastFrame[]> {
   const raw = await fetchJmaTargetTimes(TARGET_TIMES_N3_URL, "雷ナウキャスト");
-  const frames: ThunderNowcastFrame[] = raw.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
+  const withThunderData = raw.filter((t) => t.elements?.includes("thns"));
+  const frames: ThunderNowcastFrame[] = withThunderData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));
   return frames;
 }

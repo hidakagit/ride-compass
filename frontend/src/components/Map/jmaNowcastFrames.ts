@@ -28,6 +28,14 @@ export interface JmaNowcastFrame {
 export interface RawJmaTargetTime {
   basetime: string;
   validtime: string;
+  /** このエントリが実際にカバーする要素id（例: "thns"=雷ナウキャスト、"trns"=竜巻発生確度
+   * ナウキャスト、"liden"=雷放電位置データ）。降水ナウキャスト（N1/N2）は1エントリ1要素
+   * 固定のため使わないが、雷・竜巻（N3）は5分おきのエントリの一部が"liden"のみ（雷放電
+   * 位置データのみ、雷ナウキャスト自体は10分おきにしか更新されないため）で、その回だけ
+   * thns/trnsのタイルが存在しない（改善計画T514フォローアップ、実機のbackendログで
+   * 5分ズレのbasetimeを使った雷ナウキャストタイルが404になることを確認済み）。
+   * thunderNowcast.ts側で、この配列にthns/trnsが含まれるエントリだけへ絞り込むために使う。 */
+  elements?: string[];
 }
 
 /** 気象庁の時刻一覧JSON（targetTimes_*.json）を取得する。labelはエラーメッセージに使う

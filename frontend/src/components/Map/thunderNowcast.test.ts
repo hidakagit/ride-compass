@@ -8,6 +8,7 @@ import {
   THUNDER_ACTIVITY_LEVELS,
   TORNADO_POTENTIAL_LEVELS,
 } from "./thunderNowcast";
+import { trimToCurrentAndFuture } from "./jmaNowcastFrames";
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body, headers: new Headers() };
@@ -49,6 +50,33 @@ describe("thunderNowcast（改善計画T204）", () => {
       "20260822091000",
     ]);
     expect(frames.map((f) => f.isForecast)).toEqual([false, false, false, true, true]);
+  });
+
+  // 実機のtargetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻(thns/trns)自体は
+  // 10分おきにしか更新されない。5分ズレた奇数番目のエントリは"elements": ["liden"]
+  // （雷放電位置データのみ）しか持たず、thns/trnsのタイルは存在しない（改善計画T514
+  // フォローアップ、実機のbackendログでbasetime=16:25/16:35[いずれも5分ズレ]を使った
+  // 雷ナウキャストタイルがhttp_404になることを確認済み）。
+  const N3_WITH_LIDEN_ONLY_GAP = [
+    { basetime: "20260831165000", validtime: "20260831165000", elements: ["thns", "thns_nd", "trns", "trns_nd"] },
+    { basetime: "20260831165500", validtime: "20260831165500", elements: ["liden"] },
+  ];
+
+  it("targetTimes_N3.jsonの最新エントリがliden-only（thns/trnsを持たない5分ズレ）でも、直近のthns/trnsを持つエントリまで遡って『現在』フレームとして使う（改善計画T514フォローアップ）", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(N3_WITH_LIDEN_ONLY_GAP))));
+
+    const frames = await fetchThunderNowcastFrames();
+    const trimmed = trimToCurrentAndFuture(frames);
+
+    // 最新のliden-onlyエントリ(16:55)ではなく、直前のthns/trns有りエントリ(16:50)が
+    // 「現在」として使われるべき——そうでないと、雷ナウキャストのタイルURLが
+    // thns/trnsを持たないbasetimeで組み立てられ、常に404になる。
+    expect(trimmed[0].basetime).toBe("20260831165000");
+    const payload = thunderRenderPayload(trimmed, 0);
+    expect(payload).toEqual({
+      kind: "rasterTile",
+      tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260831165000/none/20260831165000/surf/thns/{z}/{x}/{y}.png",
+    });
   });
 
   it("取得に失敗した場合は例外を投げる", async () => {

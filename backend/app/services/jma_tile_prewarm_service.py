@@ -77,12 +77,16 @@ _LAYERS: tuple[_PrewarmLayer, ...] = (
 def _pick_current_entry(raw: list[dict], element_id: str | None) -> dict | None:
     """targetTimes.jsonのエントリ群から「現在」を表す1件を選ぶ。
 
-    risk/rasrf: `elements`配列に対象のelement_idを含むエントリへ絞り込み、basetime降順の
-    先頭を返す（`riskMap.ts: latestEntry`と同じロジック——全エントリがvalidtime===basetime
-    の単一時点データのため）。
-    nowc: `elements`配列を持たない共通の時刻一覧のため絞り込まず、直近の実況フレーム
-    （validtime===basetime）のうちbasetime最大のものを返す（`jmaNowcastFrames.ts:
-    latestObservedFrameIndex`と同じ「最新の実況」の考え方）。
+    `element_id`が指定されていれば、`elements`配列にそれを含むエントリへ先に絞り込む
+    （risk/rasrf/nowcいずれのグループも共通、改善計画T514フォローアップでnowcを他グループと
+    同じ扱いへ揃えた——nowc、特に雷・竜巻[thns/trns]のtargetTimes_N3.jsonは5分おきに
+    エントリを持つが、雷・竜巻自体は10分おきにしか更新されず、5分ズレたエントリは
+    `elements: ["liden"]`[雷放電位置データのみ]しか持たない。絞り込まずに最新basetimeを
+    採用すると、約半分の確率でこのliden-onlyのbasetimeを掴み、存在しないタイルを要求し
+    続けて404になっていた）。絞り込んだ（または`element_id=None`なら絞り込まない）
+    候補の中から、直近の実況フレーム（validtime===basetime）のうちbasetime最大のものを
+    返す（`jmaNowcastFrames.ts: latestObservedFrameIndex`と同じ「最新の実況」の考え方。
+    観測フレームが1件も無ければ予測フレームを含む全候補の中から最大basetimeを返す）。
     """
     candidates = raw
     if element_id is not None:
@@ -135,8 +139,14 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
         if not raw_entries:
             skipped_labels.append(layer.label)
             continue
-        element_id = layer.element_id if layer.group != "nowc" else None
-        entry = _pick_current_entry(raw_entries, element_id)
+        # 改善計画T514フォローアップ: 以前はnowcグループだけelement_id=None（絞り込み無し）に
+        # していたが誤りだった。targetTimes_N3.jsonは5分おきにエントリを持つが雷・竜巻
+        # (thns/trns)自体は10分おきにしか更新されず、5分ズレたエントリは"elements":
+        # ["liden"]（雷放電位置データのみ）しか持たない。絞り込まずに最新basetimeを採用すると
+        # 約半分の確率でこのliden-onlyのbasetimeを掴み、存在しないタイルを要求し続けて
+        # 404になる（実機のbackendログで確認）。全グループで一律にlayer.element_idへ
+        # 揃える。
+        entry = _pick_current_entry(raw_entries, layer.element_id)
         if entry is None:
             skipped_labels.append(layer.label)
             continue
