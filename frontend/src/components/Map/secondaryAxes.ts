@@ -52,6 +52,9 @@ export interface SecondaryAxisSummary {
    * 唯一の消費者。未設定はkind="none"軸の各実装が持つビルド時既定値（例:
    * GRADIENT_BOUNDARIES）へのフォールバックに委ねる。 */
   displayThresholdsOverride?: readonly number[] | null;
+  /** 改善計画T513: displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
+   * 上書き（AXIS_DEFINITIONS.display_band_labels_overrideをそのまま反映）。 */
+  displayBandLabelsOverride?: readonly string[] | null;
   /** 改善計画T473: 軸自身のデータ（AXIS_DEFINITIONS.dedicated_way_value_layer）をそのまま
    * 反映する。以前はこのフィールド自体を持たず、evaluationAxes.ts側がSECONDARY_AXES由来の
    * 軸を一律falseとして扱っていたが、gradientのように「kind='none'（材料がタイル非依存）
@@ -114,6 +117,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       iconId: axis.icon_id ?? undefined,
       panelHint: axis.panel_hint ?? undefined,
       displayThresholdsOverride: axis.display_thresholds_override ?? undefined,
+      displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
       dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
     }));
 }

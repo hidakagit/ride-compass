@@ -53,8 +53,14 @@ export function gradientAxisColorExpression(boundaries?: readonly number[]): unk
 /** 地図上の色分け凡例（ユーザー要望2026-08-31、mapColorLegend.ts冒頭コメント参照）。
  * buildGradientColorExpressionと同じ配色・しきい値（COLOR_DOWNHILL→GRADIENT_COLOR_HARD、
  * 未指定時GRADIENT_BOUNDARIES）から段階ラベル付きの凡例を組み立てる。値がgradient_percent
- * （符号付き%）のため単位は"%"。 */
-export function gradientAxisLegend(boundaries: readonly number[] = GRADIENT_BOUNDARIES): MapColorLegendBand[] {
+ * （符号付き%）のため単位は"%"。改善計画T513: windAxisLegendと同じく、段階ごとの体感
+ * ラベルは軸スタジオのdisplay_band_labels_override（page.tsx経由）から任意で渡せる。
+ * labelsの要素数がboundaries.length+1と一致する間だけ数値レンジの前に添える。 */
+export function gradientAxisLegend(
+  boundaries: readonly number[] = GRADIENT_BOUNDARIES,
+  labels?: readonly string[]
+): MapColorLegendBand[] {
   const colors = interpolateColors(COLOR_DOWNHILL, GRADIENT_COLOR_HARD, boundaries.length + 1);
-  return buildRangeLegendBands(boundaries, colors, "%");
+  const bandCount = boundaries.length + 1;
+  return buildRangeLegendBands(boundaries, colors, "%", labels && labels.length === bandCount ? labels : undefined);
 }

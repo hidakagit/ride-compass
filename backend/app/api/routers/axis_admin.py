@@ -116,6 +116,12 @@ class AxisDefinitionFields(BaseModel):
     # （バリデーションは下のAxisDefinitionPayload._check_display_thresholds_override_
     # is_ascending参照）。
     display_thresholds_override: list[float] | None = None
+    # 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
+    # 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_overrideの
+    # docstring参照）。設定する場合はdisplay_thresholds_overrideも設定済みで要素数が
+    # 段階数と一致すること（バリデーションは下のAxisDefinitionPayload._check_display_
+    # band_labels_override参照）。
+    display_band_labels_override: list[str] | None = None
     # この軸が専用のway_id→値配信レイヤー（Redis経由、domain/axis_definitions.py:
     # AxisDefinition.dedicated_way_value_layerのdocstring参照）を持つかの宣言。
     # time_scope/supports_route_coloringと同じ理由でAxisComposer.tsx（GUIフォーム）は
@@ -180,6 +186,29 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         if any(b <= a for a, b in zip(value, value[1:])):
             raise ValueError(f"display_thresholds_override must be strictly ascending, got {value!r}")
         return value
+
+    @model_validator(mode="after")
+    def _check_display_band_labels_override(self) -> "AxisDefinitionPayload":
+        """改善計画T513: 段階ラベルはdisplay_thresholds_overrideが決める段階数
+        （`len(display_thresholds_override)+1`）と1:1対応する必要がある。しきい値の
+        方が未設定（自動導出任せ）のまま段階数だけラベルで決め打ちすると、実際に
+        表示される段階数（自動導出の結果次第で変わりうる）とラベルの対応が保証
+        できないため、しきい値も明示済みであることを必須にする。"""
+        if self.display_band_labels_override is None:
+            return self
+        if self.display_thresholds_override is None:
+            raise ValueError(
+                "display_band_labels_override requires display_thresholds_override to be set "
+                "(band count must be known and fixed)"
+            )
+        expected_band_count = len(self.display_thresholds_override) + 1
+        if len(self.display_band_labels_override) != expected_band_count:
+            raise ValueError(
+                f"display_band_labels_override must have {expected_band_count} entries "
+                f"(display_thresholds_override has {len(self.display_thresholds_override)} thresholds), "
+                f"got {len(self.display_band_labels_override)}"
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_materials_are_known(self) -> "AxisDefinitionPayload":

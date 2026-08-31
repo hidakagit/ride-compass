@@ -311,6 +311,7 @@ def test_is_cosmetic_only_update_true_for_display_fields_only():
             "panel_hint": "ヒント",
             "show_map_icon": False,
             "display_thresholds_override": [1.0, 2.0],
+            "display_band_labels_override": ["低い", "中くらい", "高い"],
         }
     )
 

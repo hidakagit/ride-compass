@@ -29,6 +29,7 @@ function catalogResponse(): AxisCatalogResponse {
         supports_route_coloring: false,
         shape: { kind: "categorical", material: "surface_good", mapping: { true: 0, false: 80 } },
         display_thresholds_override: null,
+        display_band_labels_override: null,
         dedicated_way_value_layer: false,
       },
       // 軸スタジオで公開されたばかりの新規GUI軸（複数材料の重み付き結合、kind=ramp）。
@@ -67,6 +68,7 @@ function catalogResponse(): AxisCatalogResponse {
         supports_route_coloring: false,
         shape: { kind: "breakpoint_linear", terms: [{ material: "lanes_count", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
         display_thresholds_override: null,
+        display_band_labels_override: null,
         dedicated_way_value_layer: false,
       },
     ],

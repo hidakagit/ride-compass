@@ -72,6 +72,11 @@ class AxisDefinitionRow(Base):
     # 0025 migrationでNULL許容の追加カラムとして導入（未設定はderive_ramp_inputsが
     # 計算したしきい値をそのまま使うため、既存行への追加自体は現在の地図表示に影響しない）。
     display_thresholds_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
+    # 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_overrideの
+    # docstring参照）。新規migrationで追加するNULL許容カラム（未設定は数値レンジ表記のみの
+    # 凡例のため、既存行への追加自体は現在の地図表示に影響しない）。
+    display_band_labels_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # 専用のway_id→値配信レイヤー（Redis経由、app/infrastructure/dynamic_way_value_cache.py）
     # を持つかの宣言（domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layerの
     # docstring参照）。新規migrationで追加するNOT NULL DEFAULTの追加カラム（既存全軸は

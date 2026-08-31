@@ -60,6 +60,7 @@
         6.0,
         10.0
       ],
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": true
     },
     {
@@ -103,6 +104,7 @@
         ]
       },
       "display_thresholds_override": null,
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": true
     },
     {
@@ -150,6 +152,7 @@
         }
       },
       "display_thresholds_override": null,
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": false
     },
     {
@@ -234,6 +237,7 @@
         2.0,
         4.0
       ],
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": false
     },
     {
@@ -442,6 +446,7 @@
         3.0,
         4.0
       ],
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": false
     },
     {
@@ -508,6 +513,7 @@
         0.267,
         0.5
       ],
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": false
     },
     {
@@ -587,6 +593,7 @@
         ]
       },
       "display_thresholds_override": null,
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": false
     },
     {
@@ -737,6 +744,7 @@
         ]
       },
       "display_thresholds_override": null,
+      "display_band_labels_override": null,
       "dedicated_way_value_layer": false
     }
   ],

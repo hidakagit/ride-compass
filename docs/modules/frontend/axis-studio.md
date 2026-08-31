@@ -163,8 +163,15 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
   `supports_route_coloring`・`dedicated_way_value_layer`・
   `dynamic_way_value_needs_time`・`dynamic_way_value_needs_bearing`）も、既存軸の値を
   draftへ素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
-  値が失われるため）。`display_thresholds_override`は専用の編集UI（`display_publish`
-  ステップの数値配列エディタ）を持つため、このリストには含まない。
+  値が失われるため）。`display_thresholds_override`/`display_band_labels_override`は
+  専用の編集UI（`display_publish`ステップの数値配列/文字列配列エディタ）を持つため、
+  このリストには含まない。`display_band_labels_override`の編集欄は
+  `display_thresholds_override`が有効（null以外）の間だけ現れ、段階数
+  （`displayThresholdsOverride.length+1`）と要素数を常に一致させる——しきい値を
+  追加/削除するとラベルの入力欄も連動して増減し（`addThresholdOverrideValue`/
+  `removeThresholdOverrideValue`参照）、しきい値の上書きを解除する（自動計算に戻す）と
+  ラベルの上書きも一緒にnullへ解除する（backend側のバリデーション「ラベルはしきい値の
+  上書きが設定済みでなければならない」との不整合を防ぐ）。
 - 軸スタジオが作る軸の`category`は常に`"推定"`固定（観測/動的は材料側の性質であり、
   材料を組み合わせて判定式を作る軸スタジオの仕組みからは生み出せないため）。
 

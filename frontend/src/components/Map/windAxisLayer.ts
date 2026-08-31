@@ -57,32 +57,22 @@ export function windAxisColorExpression(boundaries?: readonly number[]): unknown
   return buildWindPenaltyColorExpression(["feature-state", WIND_AXIS_FEATURE_STATE_KEY], boundaries);
 }
 
-// 体感ラベル（ユーザー要望2026-08-31「風も降水のように体感で分かる凡例にしたい（色の指定は
-// 不要）」）。WIND_AXIS_THRESHOLDS（既定4しきい値=5段階）と1:1対応する。windLayer.ts:
-// WIND_SPEED_LEGEND_LEVELS（矢印＝風速そのものの体感、無風〜強風の7段階）とは別の観点——
-// こちらはwind_penalty（走行方位に対する向かい風/追い風、符号付き）の体感を表すため、
-// 「向かい風/追い風」を軸にした表現にする。軸スタジオのdisplay_thresholds_overrideで
-// 段階数（配列長）自体が変わった場合は、この固定ラベルと数が合わなくなり体感の対応が
-// 崩れるため、windAxisLegend側でboundaries.length+1と一致する場合だけ使う
-// （不一致時は数値レンジ表記のみへフォールバック）。
-const WIND_PENALTY_FEEL_LABELS: readonly string[] = [
-  "強い追い風",
-  "軽い追い風",
-  "風の影響は小さい",
-  "軽い向かい風",
-  "強い向かい風",
-];
-
 /** 地図上の色分け凡例（ユーザー要望2026-08-31、mapColorLegend.ts冒頭コメント参照）。
  * buildWindPenaltyColorExpressionと同じ配色（rampColorForBand、ramp軸と共通の緑→赤系統）・
  * しきい値（未指定時WIND_AXIS_THRESHOLDS）から段階ラベル付きの凡例を組み立てる。値が
- * wind_penalty（符号付きm/s、正=向かい風・負=追い風）のため単位は"m/s"。段階数が
- * WIND_PENALTY_FEEL_LABELSと一致する（＝既定のWIND_AXIS_THRESHOLDSのまま、または軸スタジオの
- * display_thresholds_overrideで境界値だけ調整され段階数は変えていない）場合、数値レンジの
- * 前に体感ラベルを添える。 */
-export function windAxisLegend(boundaries: readonly number[] = WIND_AXIS_THRESHOLDS): MapColorLegendBand[] {
+ * wind_penalty（符号付きm/s、正=向かい風・負=追い風）のため単位は"m/s"。
+ * 改善計画T513: 段階ごとの体感ラベル（例:「強い向かい風」）は軸スタジオの
+ * display_band_labels_override（AxisDefinition側、page.tsx経由でここへ渡る）が唯一の
+ * ソースで、このファイル自身は固定ラベルを持たない——以前（改善計画T512）は風専用の
+ * ハードコード配列を持っていたが、display_thresholds_overrideと対になる概念のため
+ * 軸スタジオ設定可能な汎用フィールドへ置き換えた（ユーザー指摘「軸スタジオで設定できる
+ * ものをベタで書かないで」）。labelsの要素数がboundaries.length+1と一致する間だけ
+ * 数値レンジの前に添える（不一致時は数値レンジ表記のみへフォールバック）。 */
+export function windAxisLegend(
+  boundaries: readonly number[] = WIND_AXIS_THRESHOLDS,
+  labels?: readonly string[]
+): MapColorLegendBand[] {
   const bandCount = boundaries.length + 1;
   const colors = Array.from({ length: bandCount }, (_, index) => rampColorForBand(index, bandCount));
-  const labels = bandCount === WIND_PENALTY_FEEL_LABELS.length ? WIND_PENALTY_FEEL_LABELS : undefined;
-  return buildRangeLegendBands(boundaries, colors, "m/s", labels);
+  return buildRangeLegendBands(boundaries, colors, "m/s", labels && labels.length === bandCount ? labels : undefined);
 }

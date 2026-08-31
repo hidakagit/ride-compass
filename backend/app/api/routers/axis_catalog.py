@@ -92,6 +92,9 @@ class AxisCatalogEntry(BaseModel):
     # （frontend routeStyleModes.ts: buildRangeSteppedMode）の唯一の正として使うため、
     # 生の値をそのまま返す。
     display_thresholds_override: list[float] | None
+    # 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
+    # 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_override参照）。
+    display_band_labels_override: list[str] | None
     # 改善計画T440 Part D: 「専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
     # 地図上で視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
     # axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring参照）。
@@ -150,6 +153,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 primary_attribute_ids=primary_attribute_ids_for(definition),
                 shape=definition.shape,
                 display_thresholds_override=definition.display_thresholds_override,
+                display_band_labels_override=definition.display_band_labels_override,
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
             )
             for definition in AXIS_DEFINITIONS.values()

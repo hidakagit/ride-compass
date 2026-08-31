@@ -98,6 +98,7 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     supports_route_coloring: entry.supports_route_coloring,
     shape: entry.shape,
     display_thresholds_override: entry.display_thresholds_override,
+    display_band_labels_override: entry.display_band_labels_override,
     dedicated_way_value_layer: entry.dedicated_way_value_layer,
   };
 }
@@ -115,6 +116,7 @@ function buildCatalog(
       description: entry.description,
       dedicatedWayValueLayer: entry.dedicated_way_value_layer,
       displayThresholdsOverride: entry.display_thresholds_override ?? undefined,
+      displayBandLabelsOverride: entry.display_band_labels_override ?? undefined,
     };
   });
   const catalogAxes = entries.map(toCatalogAxis);

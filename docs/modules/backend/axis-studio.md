@@ -35,6 +35,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `time_scope` | "always"\|"night_only" | 特定時間帯のみ重みを持つか |
 | `supports_route_coloring` | bool | ルート結果色分けの選択肢に使えるか |
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
+| `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
 | `dedicated_way_value_layer` | bool | 専用way_id→値配信レイヤーを持つか |
 | `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/dynamic-way-values/...`の`at`/`bearing_deg`クエリパラメータ必須判定（[dynamic-way-values.md](dynamic-way-values.md)参照） |
 
@@ -203,7 +204,7 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 |---|---|---|
 | `GET /api/admin/axis-definitions`・`/{axis_id}` | Basic認証必須 | 一覧・単体取得。レスポンスは`display`（`axis_display_for()`の計算結果）も含む——下書き軸の自己診断（地図表示データがまだ用意されていないか）のため |
 | `POST /api/admin/axis-definitions` | Basic認証必須 | 作成 |
-| `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは原則拒否。ただし表示専用フィールド[`icon_id`/`chip_label`/`panel_hint`/`show_map_icon`/`display_thresholds_override`]のみの差分は例外的に許可） |
+| `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは原則拒否。ただし表示専用フィールド[`icon_id`/`chip_label`/`panel_hint`/`show_map_icon`/`display_thresholds_override`/`display_band_labels_override`]のみの差分は例外的に許可） |
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
@@ -216,6 +217,8 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 - `chip_label`は4文字以下（未設定時は`label`自体が4文字以下であることを要求）——
   地図チップが固定サイズのタイルのため。
 - `display_thresholds_override`は設定する場合、空でなく厳密な昇順。
+- `display_band_labels_override`は設定する場合、`display_thresholds_override`も
+  設定済みで、要素数が段階数（`len(display_thresholds_override)+1`）と一致すること。
 - `shape.breakpoints`はx昇順（`evaluate_breakpoint_linear`の`np.interp`が前提とする
   不変条件）。
 - shapeが参照する材料・軸参照が既知であること、材料のdtype（numeric/boolean/

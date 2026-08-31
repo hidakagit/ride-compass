@@ -60,6 +60,7 @@ function catalogResponse(
         supports_route_coloring: false,
         shape: { kind: "breakpoint_linear", terms: [{ material: "gradient_percent", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
         display_thresholds_override: null,
+        display_band_labels_override: null,
         dedicated_way_value_layer: dedicatedWayValueLayerByAxisId[axisId] ?? false,
       };
     }),
@@ -307,6 +308,7 @@ describe("RouteSettingsPanel", () => {
             supports_route_coloring: true,
             shape: { kind: "breakpoint_linear", terms: [{ material: "wind_penalty", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
             display_thresholds_override: null,
+            display_band_labels_override: null,
             dedicated_way_value_layer: true,
           },
         ],
@@ -350,6 +352,7 @@ describe("RouteSettingsPanel", () => {
             supports_route_coloring: true,
             shape: { kind: "breakpoint_linear", terms: [{ material: "wind_penalty", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
             display_thresholds_override: null,
+            display_band_labels_override: null,
             dedicated_way_value_layer: true,
           },
         ],

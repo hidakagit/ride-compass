@@ -752,6 +752,8 @@ export interface components {
             shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
             /** Display Thresholds Override */
             display_thresholds_override: number[] | null;
+            /** Display Band Labels Override */
+            display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
             dedicated_way_value_layer: boolean;
         };
@@ -825,6 +827,8 @@ export interface components {
             supports_route_coloring: boolean;
             /** Display Thresholds Override */
             display_thresholds_override?: number[] | null;
+            /** Display Band Labels Override */
+            display_band_labels_override?: string[] | null;
             /**
              * Dedicated Way Value Layer
              * @default false
@@ -905,6 +909,8 @@ export interface components {
             supports_route_coloring: boolean;
             /** Display Thresholds Override */
             display_thresholds_override?: number[] | null;
+            /** Display Band Labels Override */
+            display_band_labels_override?: string[] | null;
             /**
              * Dedicated Way Value Layer
              * @default false

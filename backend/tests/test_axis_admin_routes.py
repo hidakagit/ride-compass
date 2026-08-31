@@ -484,6 +484,54 @@ def test_create_rejects_empty_display_thresholds_override(override_service):
     assert response.status_code == 422
 
 
+def test_create_persists_and_returns_display_band_labels_override(override_service):
+    # 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
+    # 上書き（display_band_labels_override）が管理API経由で設定・参照できること。
+    payload = {
+        **_PAYLOAD,
+        "display_thresholds_override": [1.0, 2.0],
+        "display_band_labels_override": ["低い", "中くらい", "高い"],
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["display_band_labels_override"] == ["低い", "中くらい", "高い"]
+    assert override_service._definitions["test_axis"].display_band_labels_override == ["低い", "中くらい", "高い"]
+
+
+def test_create_leaves_display_band_labels_override_none_when_omitted(override_service):
+    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    assert response.json()["display_band_labels_override"] is None
+
+
+def test_create_rejects_display_band_labels_override_without_thresholds_override(override_service):
+    # 改善計画T513: 段階ラベルはdisplay_thresholds_overrideが決める段階数と1:1対応する
+    # ため、しきい値が未設定のまま段階ラベルだけ設定することは許可しない
+    # （axis_admin.py: AxisDefinitionPayload._check_display_band_labels_override）。
+    payload = {**_PAYLOAD, "display_band_labels_override": ["低い", "高い"]}
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+
+
+def test_create_rejects_display_band_labels_override_length_mismatch(override_service):
+    # しきい値2件(段階数3)に対し、ラベルが2件しか無い不一致を拒否する。
+    payload = {
+        **_PAYLOAD,
+        "display_thresholds_override": [1.0, 2.0],
+        "display_band_labels_override": ["低い", "高い"],
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+
+
 def test_get_returns_display_field_computed_from_derive_ramp_inputs(override_service):
     # 改善計画T404: displayフィールド（axis_display_for()の計算結果）が単体取得
     # レスポンスにも含まれ、kind="none"の軸で軸スタジオが注記を出せるようにする

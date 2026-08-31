@@ -82,15 +82,21 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
   （feature-state or geojsonプロパティ）だけが呼び出し側で異なる」共通ロジックを持ち、
   評価軸グループ（feature-state経由）と環境グループのgridFill（`["get",...]`経由）が
   同じ配色・しきい値を共有する契約をコード上でも1箇所に集約する。
-- `windAxisLegend(boundaries?)`/`gradientAxisLegend(boundaries?)`は、同じ配色・しきい値
-  から地図上の凡例（色→値の対応、`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。
-  `windAxisLegend`は`boundaries.length+1`が既定の段階数（5、`WIND_AXIS_THRESHOLDS`）と
-  一致する間、数値レンジの前に体感ラベル（`WIND_PENALTY_FEEL_LABELS`、「強い向かい風」等）を
-  添える（`mapColorLegend.ts: buildRangeLegendBands`の`labels`引数、色は指定せず既存の
-  `rampColorForBand`自動生成のまま）。段階数が既定と異なる（軸スタジオの
-  `display_thresholds_override`で境界値を増減した）場合は、固定ラベルとの対応が崩れるため
-  数値レンジのみへフォールバックする。`gradientAxisLegend`にはこの体感ラベルは無い
-  （未対応、必要になれば同じ仕組みを追加できる）。
+- `windAxisLegend(boundaries?, labels?)`/`gradientAxisLegend(boundaries?, labels?)`は、
+  同じ配色・しきい値から地図上の凡例（色→値の対応、`mapColorLegend.ts:
+  MapColorLegendBand[]`）を組み立てる。任意の`labels`（段階ごとの体感ラベル、例:
+  「強い向かい風」）を渡すと数値レンジの前に添える（`mapColorLegend.ts:
+  buildRangeLegendBands`の`labels`引数、色は指定せず既存の`rampColorForBand`/
+  `interpolateColors`自動生成のまま）。`labels`は`boundaries.length+1`（段階数）と
+  要素数が一致する間だけ使い、不一致時は数値レンジのみへフォールバックする（不整合な
+  保存データへの防御）。`labels`自体はこのファイルに固定値を持たず、軸スタジオの
+  `display_band_labels_override`（`AxisDefinition`、`display_thresholds_override`と
+  対になるフィールド、[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)参照）
+  が唯一のソース——`page.tsx`が`dedicatedWayValueBoundaries`と同じパターンで
+  `axisCatalog.axes`から`dedicatedWayValueBandLabels`（軸id→ラベル配列のMap）を組み立てて
+  渡す。通常のramp軸（`buildAxisRampLegend`）も同じ`display_band_labels_override`
+  （`RampAxis.bandLabelsOverride`経由）を読み、同じ「段階数一致時のみ適用」規則で
+  体感ラベルを表示できる。
   `page.tsx`が`showWindAxis || showWindPenaltyFill`/`showGradientAxis || showGradientFill`
   （評価軸の線・環境グループのgridFillのどちらか一方でもONの間）・ramp軸（`axisVisibility`、
   `axisLayers.ts: buildAxisRampLegend`）を横断して集め、`MapColorLegend`

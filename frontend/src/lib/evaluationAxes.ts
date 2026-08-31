@@ -65,6 +65,10 @@ export interface PreferenceAxisDef {
    * （windAxisLayer.ts: windAxisColorExpression、gradientのgradientBoundaries[T443]と同型）。
    * SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない（常にundefined）。 */
   displayThresholdsOverride?: readonly number[] | null;
+  /** 改善計画T513: displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
+   * 上書き。SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない
+   * （常にundefined、windAxisLegend/gradientAxisLegendの消費者のみが対象）。 */
+  displayBandLabelsOverride?: readonly string[] | null;
 }
 
 // axis_idごとの説明文（1〜2文の要約）。ラベル自体は下記PREFERENCE_AXESが
@@ -105,6 +109,7 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
       // 反映する、SECONDARY_AXES側のdedicatedWayValueLayerフィールド参照）。
       dedicatedWayValueLayer: axis.dedicatedWayValueLayer ?? false,
       displayThresholdsOverride: axis.displayThresholdsOverride,
+      displayBandLabelsOverride: axis.displayBandLabelsOverride,
     })
   ),
   { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind, dedicatedWayValueLayer: true },

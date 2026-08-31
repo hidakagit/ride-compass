@@ -261,6 +261,19 @@ class AxisDefinition(BaseModel):
     （`tile_property_needs_runtime_scale`な材料を含む軸でも、実行時スケール変換後の
     スケール——年数等の変換係数が変わっても値を書き直す必要が無い）。`derive_ramp_inputs`
     自体が失敗する軸（kind="none"）には効果が無い（`axis_display_for()`の優先順位参照）。"""
+    display_band_labels_override: list[str] | None = None
+    """地図の色分け段階に添える体感ラベル（改善計画T513、docs/tasks/T513.md）。未設定は
+    段階の数値レンジ表記（例:「2〜6」）のみを凡例に出す。設定する場合は
+    `display_thresholds_override`も設定済みで、かつ要素数が段階数
+    （`len(display_thresholds_override)+1`）と一致していなければならない
+    （`axis_admin.py: AxisDefinitionPayload._check_display_band_labels_override`参照）。
+
+    改善計画T512で風の評価軸凡例へ体感ラベル（「強い向かい風」等）を追加する際、
+    最初は風専用のハードコード配列（frontend）として実装してしまったが、
+    `display_thresholds_override`と対になる概念（どちらも「地図の色分け段階の見せ方」の
+    軸ごとの好み）であるにもかかわらず軸スタジオを経由しない特別扱いだったため、
+    ユーザー指摘を受けこのフィールドへ汎用化した——風・勾配のdedicated_way_value_layer軸
+    だけでなく、通常のramp軸（`buildAxisRampLegend`）の凡例にも同じ仕組みで使える。"""
     dedicated_way_value_layer: bool = False
     """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
     dynamic_way_value_cache.py`）を持つかの宣言。従来`RouteSettingsPanel.tsx`・
@@ -369,9 +382,18 @@ class AxisPublishedImmutableError(ValueError):
 # 改善計画T501: 評価ロジック（shape・default_weight・priority_overrides等）に一切影響しない
 # 表示専用フィールドのみ、公開済み軸でも直接更新を許可する（unpublish→update→republishの
 # 手順を経由しなくてよい）。値を変えてもaxis_idキーで再現される他ユーザーの保存重み設定・
-# ルート計算結果は変わらないため、T271が防ごうとしている問題を再発させない。
+# ルート計算結果は変わらないため、T271が防ごうとしている問題を再発させない。改善計画T513:
+# display_band_labels_overrideもdisplay_thresholds_overrideと同じ「地図の色分け段階の
+# 見せ方」の表示専用フィールドのためここへ加える。
 _COSMETIC_ONLY_FIELDS = frozenset(
-    {"icon_id", "chip_label", "panel_hint", "show_map_icon", "display_thresholds_override"}
+    {
+        "icon_id",
+        "chip_label",
+        "panel_hint",
+        "show_map_icon",
+        "display_thresholds_override",
+        "display_band_labels_override",
+    }
 )
 
 

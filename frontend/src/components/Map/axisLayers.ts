@@ -77,6 +77,11 @@ export interface RampAxis {
    * 観測アイコングループのようなサイズにして、他と同じく4文字略字までアイコン含めたい」で
    * 発覚、2026-08-27）。 */
   chipLabel?: string;
+  /** 改善計画T513: 段階ごとの体感ラベル（軸自身のデータ、AXIS_DEFINITIONS.
+   * display_band_labels_override由来）。要素数がthresholds.length+1と一致する間だけ
+   * buildAxisRampLegendが数値レンジの前に添える（mapColorLegend.ts:
+   * buildRangeLegendBands参照）。 */
+  bandLabelsOverride?: readonly string[];
 }
 
 interface CatalogTileInput {
@@ -152,6 +157,9 @@ export interface CatalogAxis {
   // なく、生の上書き値をそのまま返す。ルート結果の色分けのしきい値
   // （routeStyleModes.ts: buildRangeSteppedMode）の唯一の正として使う。
   display_thresholds_override?: number[] | null;
+  // 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
+  // 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_override参照）。
+  display_band_labels_override?: string[] | null;
   // 改善計画T440: この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
   // （domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）。
   // mapLayers.ts（isAxisStudioLayer）・RouteSettingsPanel.tsx（mapColorLayerIdFor）が、
@@ -218,6 +226,7 @@ export function rampAxesFromCatalogAxes(
       panelHint: axis.panel_hint ?? undefined,
       iconId: axis.icon_id ?? undefined,
       chipLabel: axis.chip_label ?? undefined,
+      bandLabelsOverride: axis.display_band_labels_override ?? undefined,
     }));
 }
 
@@ -407,11 +416,16 @@ function axisRampBand(thresholds: readonly number[], index: number): { lower: nu
   };
 }
 
-/** 段階ラベル（例: 「1回/km未満」「1〜2回/km」「4回/km以上」）。thresholds.length+1件。 */
-function axisRampBandLabel(axis: RampAxis, lower: number | null, upper: number | null): string {
-  if (lower === null) return `${upper}${axis.unit}未満`;
-  if (upper === null) return `${lower}${axis.unit}以上`;
-  return `${lower}〜${upper}${axis.unit}`;
+/** 段階ラベル（例: 「1回/km未満」「1〜2回/km」「4回/km以上」）。thresholds.length+1件。
+ * 改善計画T513: `axis.bandLabelsOverride`の要素数が段階数と一致する間は、数値レンジの
+ * 前に体感ラベルを添える（`mapColorLegend.ts: buildRangeLegendBands`と同じ考え方）。 */
+function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, upper: number | null): string {
+  const bandCount = axis.thresholds.length + 1;
+  const rangeLabel = lower === null ? `${upper}${axis.unit}未満` : upper === null ? `${lower}${axis.unit}以上` : `${lower}〜${upper}${axis.unit}`;
+  if (axis.bandLabelsOverride && axis.bandLabelsOverride.length === bandCount) {
+    return `${axis.bandLabelsOverride[index]}（${rangeLabel}）`;
+  }
+  return rangeLabel;
 }
 
 /** ramp軸の凡例（改善計画: 地図アイコンチップのグルーピング・研究タブ整理・停止/事故密度の
@@ -438,7 +452,7 @@ export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
     if (upper !== null) filterParts.push(["<", valueExpression, upper]);
     return {
       key: `${axis.axisId}-${index}`,
-      label: axisRampBandLabel(axis, lower, upper),
+      label: axisRampBandLabel(axis, index, lower, upper),
       color: rampColorForBand(index, bandCount),
       filter: filterParts,
     };

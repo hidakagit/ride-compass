@@ -305,6 +305,11 @@ interface Draft {
    * 持てなかったが、改善計画T409でフィールド自体を削除した。domain/axis_definitions.py:
    * AxisDefinition.display_thresholds_overrideのdocstring参照）。 */
   displayThresholdsOverride: number[] | null;
+  /** 改善計画T513: displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
+   * 上書き。displayThresholdsOverrideがnullの間は編集欄自体を出さない（段階数が
+   * 決まらないと対応が取れないため、backend側のバリデーションと同じ制約をGUIでも
+   * 先回りする）。要素数はdisplayThresholdsOverride.length+1と常に一致させる。 */
+  displayBandLabelsOverride: string[] | null;
   /** 改善計画T352: time_scope/supports_route_coloringも同じ理由（このフォームに編集欄を
    * 持たないが、既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
    * AxisDefinition.time_scope/supports_route_coloringのdocstring参照。 */
@@ -353,6 +358,7 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     showMapIcon: true,
     priorityOverrides: [],
     displayThresholdsOverride: null,
+    displayBandLabelsOverride: null,
     timeScope: "always",
     supportsRouteColoring: false,
     dedicatedWayValueLayer: false,
@@ -377,6 +383,7 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     showMapIcon: def.show_map_icon,
     priorityOverrides: def.priority_overrides,
     displayThresholdsOverride: def.display_thresholds_override ?? null,
+    displayBandLabelsOverride: def.display_band_labels_override ?? null,
     timeScope: def.time_scope,
     supportsRouteColoring: def.supports_route_coloring,
     dedicatedWayValueLayer: def.dedicated_way_value_layer ?? false,
@@ -436,13 +443,16 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
  * 始める——複製元が公開済みでも複製先まで公開扱いを引き継がない。displayThresholdsOverride
  * も複製元の手動設定値を引き継がずnullへリセットする——複製先は変化点(breakpoints)を
  * 独自に調整しうるため、複製元のしきい値をそのまま持ち越すと自動計算(breakpointsの
- * x値から導出、backend domain/axis_display.py: derive_ramp_inputs参照)が働かなくなる。 */
+ * x値から導出、backend domain/axis_display.py: derive_ramp_inputs参照)が働かなくなる。
+ * displayBandLabelsOverride（改善計画T513）も同じ理由でnullへリセットする——
+ * displayThresholdsOverrideが無いままでは段階数が決まらず対応が取れない。 */
 function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readonly AxisMaterialOption[]): Draft {
   return {
     ...draftFromExisting(def, materialOptions),
     axisId: generateAxisId(),
     isPublished: false,
     displayThresholdsOverride: null,
+    displayBandLabelsOverride: null,
   };
 }
 
@@ -683,6 +693,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       // 値が消えるのを防ぐ）。
       priority_overrides: draft.priorityOverrides,
       display_thresholds_override: draft.displayThresholdsOverride,
+      display_band_labels_override: draft.displayBandLabelsOverride,
       time_scope: draft.timeScope,
       supports_route_coloring: draft.supportsRouteColoring,
       dedicated_way_value_layer: draft.dedicatedWayValueLayer,
@@ -742,7 +753,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     setDraft((d) => {
       const current = d.displayThresholdsOverride ?? [];
       const next = current.length > 0 ? current[current.length - 1] + 1 : 1;
-      return { ...d, displayThresholdsOverride: [...current, next] };
+      return {
+        ...d,
+        displayThresholdsOverride: [...current, next],
+        // 改善計画T513: 体感ラベルは段階数(=しきい値数+1)と1:1対応するため、しきい値を
+        // 増やすときも末尾へ空欄を1件足して段階数を追従させる（設定中でなければ触らない）。
+        displayBandLabelsOverride: d.displayBandLabelsOverride && [...d.displayBandLabelsOverride, ""],
+      };
     });
   }
 
@@ -750,7 +767,35 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     setDraft((d) => ({
       ...d,
       displayThresholdsOverride: (d.displayThresholdsOverride ?? []).filter((_, i) => i !== index),
+      // 改善計画T513: しきい値を1件減らすと段階数も1件減るため、対応する体感ラベルも
+      // 同じindexで1件減らして数を揃える（境界を1件消すと前後2段階が1段階へ統合される
+      // ため、厳密にどちらのラベルを残すべきかは決められないが、消したしきい値と同じ
+      // indexのラベルを削るのがもっとも直感的な対応——例: 3段目の境界を消すと4段階目
+      // だったラベルが3段階目に繰り上がる）。
+      displayBandLabelsOverride: d.displayBandLabelsOverride && d.displayBandLabelsOverride.filter((_, i) => i !== index),
     }));
+  }
+
+  // 改善計画T513: 体感ラベル（display_band_labels_override）編集用ヘルパー。
+  // display_thresholds_overrideが決める段階数（thresholds.length+1）と要素数を
+  // 常に一致させる（backend側のバリデーションと同じ制約、AxisDefinition.
+  // display_band_labels_overrideのdocstring参照）。
+  function updateBandLabelOverrideValue(index: number, value: string) {
+    setDraft((d) => ({
+      ...d,
+      displayBandLabelsOverride: (d.displayBandLabelsOverride ?? []).map((v, i) => (i === index ? value : v)),
+    }));
+  }
+
+  function enableBandLabelsOverride() {
+    setDraft((d) => {
+      const bandCount = (d.displayThresholdsOverride ?? []).length + 1;
+      return { ...d, displayBandLabelsOverride: Array.from({ length: bandCount }, () => "") };
+    });
+  }
+
+  function disableBandLabelsOverride() {
+    setDraft((d) => ({ ...d, displayBandLabelsOverride: null }));
   }
 
   /** 改善計画T345: 既定重みの絶対値だけでは効果が分からないという指摘への対応。
@@ -1290,7 +1335,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDraft((d) => ({ ...d, displayThresholdsOverride: null }))}
+                  onClick={() =>
+                    // 改善計画T513: 体感ラベルはしきい値が決める段階数と対応するため、
+                    // しきい値の上書き自体をやめるときは体感ラベルの上書きも一緒に解除する
+                    // （残すとbackend側のバリデーション「体感ラベルはしきい値の上書きが
+                    // 設定済みでなければならない」に反する）。
+                    setDraft((d) => ({ ...d, displayThresholdsOverride: null, displayBandLabelsOverride: null }))
+                  }
                 >
                   自動計算に戻す
                 </button>
@@ -1298,6 +1349,36 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
             </>
           )}
         </div>
+
+        {draft.displayThresholdsOverride !== null && (
+          <div className={styles.shapeGroup}>
+            <SectionLabel
+              label="地図の色分け体感ラベル(任意)"
+              description="未設定のままなら数値レンジ（例:「2〜6」）だけの凡例になります。段階ごとに「強い向かい風」のような体感で分かる短い言葉を添えたい場合だけ入力してください。しきい値の上書きを解除する（自動計算に戻す）と、体感ラベルの上書きも一緒に解除されます。"
+            />
+            {draft.displayBandLabelsOverride === null ? (
+              <button type="button" className={styles.addButton} onClick={enableBandLabelsOverride}>
+                + 体感ラベルを設定する
+              </button>
+            ) : (
+              <>
+                {draft.displayBandLabelsOverride.map((value, i) => (
+                  <div key={i} className={styles.termRow}>
+                    <input
+                      type="text"
+                      value={value}
+                      aria-label={`体感ラベル${i + 1}`}
+                      onChange={(e) => updateBandLabelOverrideValue(i, e.target.value)}
+                    />
+                  </div>
+                ))}
+                <button type="button" onClick={disableBandLabelsOverride}>
+                  体感ラベルの設定をやめる
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         <div className={styles.shapeGroup}>
           <SectionLabel

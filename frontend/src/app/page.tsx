@@ -1123,6 +1123,18 @@ export default function Home() {
     }
     return map;
   }, [axisCatalog.axes]);
+  // 改善計画T513: dedicatedWayValueBoundariesと対になる、段階ごとの体感ラベルの汎用Map。
+  // 色分けのしきい値自体（MapViewへ渡す配色式用）には影響しないため、MapViewProps側は
+  // 変更せずMapColorLegend向けのmapColorLegendGroups組み立てだけで使う。
+  const dedicatedWayValueBandLabels = useMemo(() => {
+    const map = new Map<string, readonly string[]>();
+    for (const axis of axisCatalog.axes) {
+      if (axis.dedicatedWayValueLayer && axis.displayBandLabelsOverride) {
+        map.set(axis.axisId, axis.displayBandLabelsOverride);
+      }
+    }
+    return map;
+  }, [axisCatalog.axes]);
 
   // ユーザー要望（2026-08-31、「地図上の色付の凡例が欲しい。例えば、勾配ONにした時に
   // 青くなる道路は何なのか、その度合いが分かればいい」）: 「地図で色分け」がONの軸ぶんだけ、
@@ -1157,14 +1169,17 @@ export default function Home() {
       groups.push({
         axisId: "wind",
         label: axisCatalog.axisLabels.wind ?? "風",
-        bands: windAxisLegend(dedicatedWayValueBoundaries.get("wind")),
+        bands: windAxisLegend(dedicatedWayValueBoundaries.get("wind"), dedicatedWayValueBandLabels.get("wind")),
       });
     }
     if (showGradientAxis || showGradientFill) {
       groups.push({
         axisId: "gradient",
         label: axisCatalog.axisLabels.gradient ?? "勾配",
-        bands: gradientAxisLegend(dedicatedWayValueBoundaries.get("gradient")),
+        bands: gradientAxisLegend(
+          dedicatedWayValueBoundaries.get("gradient"),
+          dedicatedWayValueBandLabels.get("gradient")
+        ),
       });
     }
     return groups;
@@ -1177,6 +1192,7 @@ export default function Home() {
     showGradientAxis,
     showGradientFill,
     dedicatedWayValueBoundaries,
+    dedicatedWayValueBandLabels,
   ]);
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。

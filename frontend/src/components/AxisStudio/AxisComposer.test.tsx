@@ -467,6 +467,111 @@ describe("AxisComposer", () => {
       expect(payload.display_thresholds_override).toBeNull();
     });
 
+    // 改善計画T513: 段階ごとの体感ラベル（display_band_labels_override）は
+    // display_thresholds_overrideと対になる軸スタジオ設定可能なフィールド。しきい値の
+    // 上書きが無効の間は編集欄自体を出さない（段階数が決まらないため）。
+    it("しきい値の上書きが無効の間は体感ラベルの編集欄自体が出ない", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      expect(screen.queryByRole("button", { name: "+ 体感ラベルを設定する" })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("体感ラベル1")).not.toBeInTheDocument();
+    });
+
+    it("しきい値の上書きを設定すると体感ラベルの編集欄が使え、段階数ぶんの入力欄が現れ保存される", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
+      // この時点でしきい値2件(段階数3)。
+      await user.click(screen.getByRole("button", { name: "+ 体感ラベルを設定する" }));
+      expect(screen.getByLabelText("体感ラベル1")).toHaveValue("");
+      expect(screen.getByLabelText("体感ラベル2")).toHaveValue("");
+      expect(screen.getByLabelText("体感ラベル3")).toHaveValue("");
+
+      await user.type(screen.getByLabelText("体感ラベル1"), "強い追い風");
+
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      expect(payload.display_band_labels_override).toEqual(["強い追い風", "", ""]);
+    });
+
+    it("しきい値を1件追加すると体感ラベルの入力欄も1件増え、「自動計算に戻す」で体感ラベルも一緒にnullへ戻る", async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸H");
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      // 「+ しきい値を自分で設定する」の時点でしきい値1件(段階数2)のため、体感ラベルを
+      // 有効化すると最初から2件の入力欄（体感ラベル1・2）が現れる。
+      await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      await user.click(screen.getByRole("button", { name: "+ 体感ラベルを設定する" }));
+      expect(screen.getByLabelText("体感ラベル1")).toBeInTheDocument();
+      expect(screen.getByLabelText("体感ラベル2")).toBeInTheDocument();
+      expect(screen.queryByLabelText("体感ラベル3")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
+      expect(screen.getByLabelText("体感ラベル3")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "自動計算に戻す" }));
+      expect(screen.queryByLabelText("体感ラベル1")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "+ 体感ラベルを設定する" })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      expect(payload.display_band_labels_override).toBeNull();
+    });
+
+    it("既存軸のdisplay_band_labels_overrideが編集フォームへ初期反映される", async () => {
+      const editing = baseDefinition({
+        display_thresholds_override: [2],
+        display_band_labels_override: ["低い", "高い"],
+      });
+      const user = userEvent.setup();
+      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      expect(screen.getByLabelText("体感ラベル1")).toHaveValue("低い");
+      expect(screen.getByLabelText("体感ラベル2")).toHaveValue("高い");
+    });
+
+    it("改善計画T513回帰テスト: 複製元のdisplay_band_labels_overrideは複製先へ引き継がずnullへリセットされる", async () => {
+      const source = baseDefinition({
+        display_thresholds_override: [2],
+        display_band_labels_override: ["低い", "高い"],
+      });
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={source} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      // しきい値自体も複製時にリセットされる（既存の回帰テスト参照）ため、体感ラベルの
+      // 編集欄はそもそも出ない（しきい値の上書きが無効のため）。
+      expect(screen.queryByRole("button", { name: "+ 体感ラベルを設定する" })).not.toBeInTheDocument();
+    });
+
     it("しきい値が降順・同値だと保存直前の検証でエラーになりステップが進まない", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();

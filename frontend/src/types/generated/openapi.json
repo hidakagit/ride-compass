@@ -1782,6 +1782,20 @@
             ],
             "title": "Display Thresholds Override"
           },
+          "display_band_labels_override": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Band Labels Override"
+          },
           "dedicated_way_value_layer": {
             "type": "boolean",
             "title": "Dedicated Way Value Layer"
@@ -1803,6 +1817,7 @@
           "primary_attribute_ids",
           "shape",
           "display_thresholds_override",
+          "display_band_labels_override",
           "dedicated_way_value_layer"
         ],
         "title": "AxisCatalogEntry"
@@ -1950,6 +1965,20 @@
             ],
             "title": "Display Thresholds Override"
           },
+          "display_band_labels_override": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Band Labels Override"
+          },
           "dedicated_way_value_layer": {
             "type": "boolean",
             "title": "Dedicated Way Value Layer",
@@ -2094,6 +2123,20 @@
               }
             ],
             "title": "Display Thresholds Override"
+          },
+          "display_band_labels_override": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Band Labels Override"
           },
           "dedicated_way_value_layer": {
             "type": "boolean",
