@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import WindBearingSlider from "@/components/WindBearingSlider/WindBearingSlider";
@@ -87,10 +88,11 @@ interface RouteSettingsPanelProps {
   hasDetail: boolean;
   /** ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
    * 隠れて実質操作できない）を受け、評価軸としての風・勾配（windAxis/gradientAxis）向けの
-   * 向き指定コンパスを地図上からこのパネル内（該当軸の「色分け」トグル直下）へ移設した。
-   * 「環境」グループ（windVector/gradientFill）向けのコンパスは、MapOverlayControls経由の
-   * 起動でBottomSheetを開く必要が無いため、引き続き地図上に残る（page.tsx参照）。値
-   * （windBearingDeg/gradientBearingDeg）はどちらのコンパスも同じ状態を共有する。 */
+   * 向き指定コンパスを地図上からこのパネル内（該当軸の重み詳細ポップオーバーの中、
+   * renderBearingControl参照）へ移設した。「環境」グループ（windVector/gradientFill）向けの
+   * コンパスは、MapOverlayControls経由の起動でBottomSheetを開く必要が無いため、引き続き
+   * 地図上に残る（page.tsx参照）。値（windBearingDeg/gradientBearingDeg）はどちらの
+   * コンパスも同じ状態を共有する。 */
   windBearingDeg: number;
   onWindBearingDegChange: (bearingDeg: number) => void;
   gradientBearingDeg: number;
@@ -188,8 +190,8 @@ export default function RouteSettingsPanel({
   // ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
   // 隠れて実質操作できない）: 評価軸としての風・勾配（windAxis/gradientAxis、上の
   // renderMapColorToggleの「色分け」トグルで起動する方）向けの向き指定コンパスを、
-  // トグルがONの間だけこの軸の行の下に表示する。トグルOFF中・非対象軸では高さを
-  // 一切消費しない（他の軸の行の高さに影響しない）。
+  // トグルがONの間だけ重み詳細ポップオーバー（下のrenderWeightDetailPopover参照）の中に
+  // 表示する。トグルOFF中・非対象軸ではpopoverの中身に一切現れない。
   function renderBearingControl(axis: PreferenceAxisDef) {
     if (hasDetail) return null;
     const layerId = mapColorLayerIdFor(axis.axisId);
@@ -281,6 +283,87 @@ export default function RouteSettingsPanel({
 
   return (
     <div className="flex flex-col gap-3">
+      <div className={styles.stackBarWrap}>
+        <p className={styles.sectionLabel}>重み配分</p>
+        <div className={styles.stackBar}>
+          {catalog.axes.map(({ axisId, label }, index) => {
+            const weight = routePreference[axisId] ?? 0;
+            if (weight <= 0 || total <= 0) return null;
+            const pct = (weight / total) * 100;
+            return (
+              <div
+                key={axisId}
+                className={styles.stackSegment}
+                style={{ width: `${pct}%`, background: stackBarColorForIndex(index) }}
+                title={`${label} ${Math.round(pct)}%`}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={styles.group}>
+        {catalog.axes.map((axis) => {
+          const weight = routePreference[axis.axisId] ?? 0;
+          const checked = weight > 0;
+          return (
+            <div key={axis.axisId} className={styles.row}>
+              {/* FieldLabelは説明ポップオーバーのボタンを内包するため、<label>で
+                  checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
+                  押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
+                  同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
+              <span className={styles.checkboxCell}>
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(next) => handleToggle(axis.axisId, next)}
+                  aria-label={axis.label}
+                />
+              </span>
+              <span className={styles.rowLabel}>
+                <FieldLabel label={axis.label} description={axis.description} />
+              </span>
+              {/* ユーザー指摘（2026-08-31、「重み配分、スライドバーじゃなくてもう少し
+                  スマートに各要素設定できない？やっぱりスクロールが気になる」「スクロールが
+                  しにくくなった。コンパス部分のエリアはすべてコンパスが移動してしまう」）:
+                  重みスライダー・向きコンパス（いずれもドラッグ操作でtouch-action:none相当の
+                  領域を持つ）を常時表示のリスト行から追い出し、タップで開くRadix Popover
+                  （Portalでdocument.body直下へ描画、FieldLabelの説明ポップオーバーと同じ
+                  パターン）の中へ格納した。通常時のリストは「チェックボックス・ラベル・
+                  現在値・色分けチップ」だけの1行になり、ドラッグ系UIが常設されないため
+                  リストのスクロールを妨げない。 */}
+              <Popover.Root>
+                <Popover.Trigger asChild>
+                  <button
+                    type="button"
+                    className={styles.weightValueTrigger}
+                    aria-label={`${axis.label}の重みを詳細設定[現在${weight.toFixed(2)}]`}
+                  >
+                    {weight.toFixed(2)}
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content className={styles.weightDetailPopover} side="bottom" align="end" sideOffset={6}>
+                    <input
+                      type="range"
+                      min="0"
+                      max="0.6"
+                      step="0.01"
+                      value={weight}
+                      disabled={!checked}
+                      aria-label={`${axis.label}の重み`}
+                      onChange={(e) => handleWeightChange(axis.axisId, Number(e.target.value))}
+                      className={styles.detailSlider}
+                    />
+                    {renderBearingControl(axis)}
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+              {renderMapColorToggle(axis)}
+            </div>
+          );
+        })}
+      </div>
+
       <Disclosure
         className={styles.hardFilters}
         triggerClassName={styles.hardFiltersTrigger}
@@ -306,66 +389,6 @@ export default function RouteSettingsPanel({
           ))}
         </div>
       </Disclosure>
-
-      <div className={styles.stackBarWrap}>
-        <p className={styles.sectionLabel}>重み配分</p>
-        <div className={styles.stackBar}>
-          {catalog.axes.map(({ axisId, label }, index) => {
-            const weight = routePreference[axisId] ?? 0;
-            if (weight <= 0 || total <= 0) return null;
-            const pct = (weight / total) * 100;
-            return (
-              <div
-                key={axisId}
-                className={styles.stackSegment}
-                style={{ width: `${pct}%`, background: stackBarColorForIndex(index) }}
-                title={`${label} ${Math.round(pct)}%`}
-              />
-            );
-          })}
-        </div>
-      </div>
-
-      <div className={styles.group}>
-        {catalog.axes.map((axis) => {
-          const weight = routePreference[axis.axisId] ?? 0;
-          const checked = weight > 0;
-          return (
-            <div key={axis.axisId}>
-              <div className={styles.row}>
-                {/* FieldLabelは説明ポップオーバーのボタンを内包するため、<label>で
-                    checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
-                    押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
-                    同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
-                <span className={styles.checkboxCell}>
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={(next) => handleToggle(axis.axisId, next)}
-                    aria-label={axis.label}
-                  />
-                </span>
-                <span className={styles.rowLabel}>
-                  <FieldLabel label={axis.label} description={axis.description} />
-                </span>
-                <input
-                  type="range"
-                  min="0"
-                  max="0.6"
-                  step="0.01"
-                  value={weight}
-                  disabled={!checked}
-                  aria-label={`${axis.label}の重み`}
-                  onChange={(e) => handleWeightChange(axis.axisId, Number(e.target.value))}
-                  className={styles.slider}
-                />
-                <span className={styles.weightValue}>{weight.toFixed(2)}</span>
-                {renderMapColorToggle(axis)}
-              </div>
-              {renderBearingControl(axis)}
-            </div>
-          );
-        })}
-      </div>
 
       <button
         type="button"

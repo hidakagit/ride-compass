@@ -96,66 +96,77 @@
   gap: var(--space-1);
 }
 
-/* 改善計画T435: 以前は1行のflexで「チェックボックス・ラベル(6.5rem固定)・スライダー
-   (flex:1;min-width:0)・重み値(2.6rem固定)・色分けトグル(flex-shrink:0)」を横並びに
-   していたが、固定幅要素の合計がデスクトップサイドバー(280px)の内幅を超えるため、
-   本来可変であるべきスライダーがmin-width:0によって幅0まで潰れ、操作・視認とも
-   不可能になっていた（review:ui F-2026-08-30 F-1、実機のgetBoundingClientRect()で
-   sliderの幅が常に0になることを確認済み）。固定幅要素の合計値をレイアウト崩れの
-   閾値ごとに計算し続けるのは脆いため、1行→2段のCSS Gridへ変更し、スライダー用の列を
-   「残りいっぱい(1fr)」で確保することで、サイドバー幅に関わらずスライダーの実幅が
-   0にならないことを構造的に保証する（上段: チェックボックス+ラベル+重み値、
-   下段: チェックボックス(2段分)+スライダー+色分けトグル）。 */
+/* ユーザー指摘（2026-08-31、「重み配分、スライドバーじゃなくてもう少しスマートに各要素
+   設定できない？やっぱりスクロールが気になる」）: 改善計画T435では重みスライダーを常時
+   行内に表示する前提で「固定幅要素の合計がスライダー列を圧迫する」問題への対応として
+   1行→2段のCSS Gridへ変更していたが、スライダー・向きコンパスをタップで開く詳細
+   ポップオーバー（weightValueTrigger/weightDetailPopover）へ格納したことで、行自体は
+   常に「チェックボックス・ラベル・現在値ボタン・色分けチップ」だけの単純な1行になった。
+   可変幅の列（スライダー）を確保する必要が無くなったため、Gridではなく素直なflexへ戻す。 */
 .row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas:
-    "checkbox label value"
-    "checkbox slider toggle";
+  display: flex;
   align-items: center;
-  column-gap: var(--space-2);
-  row-gap: 0.15rem;
+  gap: var(--space-2);
 }
 
 .checkboxCell {
-  grid-area: checkbox;
-  align-self: start;
   display: flex;
-  padding-top: 0.15rem;
 }
 
 .rowLabel {
-  grid-area: label;
+  flex: 1 1 auto;
   min-width: 0;
   font-size: var(--font-size-md);
 }
 
-.slider {
-  grid-area: slider;
-  width: 100%;
-  min-width: 0;
+/* 重みの現在値を表示しつつ、タップで詳細ポップオーバー（スライダー・向きコンパス）を
+   開くトリガー。常時表示のリスト行にドラッグ系UIを置かないための入り口。 */
+.weightValueTrigger {
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  color: var(--foreground);
+  padding: 0.15rem 0.5rem;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
 }
 
-.weightValue {
-  grid-area: value;
-  width: 2.6rem;
-  text-align: right;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
+.weightValueTrigger[data-state="open"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent-strong);
+}
+
+/* Popover.Content（Portalでdocument.body直下）。FieldLabelのinfoTooltip
+   （Map/recipeControls.module.css）と同じ考え方——BottomSheet/Dialogより確実に前面へ
+   浮かせるためz-indexを揃える。 */
+.weightDetailPopover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 14rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-3);
+  z-index: 60;
+}
+
+.detailSlider {
+  width: 100%;
 }
 
 /* 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）。 */
 .mapColorToggle {
-  grid-area: toggle;
-  justify-self: end;
+  flex-shrink: 0;
 }
 
 /* 専用の地図表示レイヤーを持たない軸（勾配等、kind="none"）、またはルート確定後の風
    （既に「生成したルートの色分け」へ役割を譲っている）向けの、押せない案内表示。
    LayerChipと視覚的な占有幅を揃えるため同程度のpaddingを持たせる。 */
 .mapColorUnavailable {
-  grid-area: toggle;
-  justify-self: end;
+  flex-shrink: 0;
   color: var(--color-muted);
   font-size: var(--font-size-sm);
   padding: 0.2rem 0.5rem;
@@ -163,14 +174,15 @@
 }
 
 /* ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
-   隠れて実質操作できない）: 評価軸としての風・勾配向けコンパスをこの軸の行の下に埋め込む
-   （renderBearingControl参照）。「色分け」トグルがONの間だけ出る、通常時は高さ0の
-   付加要素のため、他の軸の行の高さには影響しない。 */
+   隠れて実質操作できない）: 評価軸としての風・勾配向けコンパスを重み詳細ポップオーバー
+   （weightDetailPopover）の中に埋め込む（renderBearingControl参照）。「色分け」トグルが
+   ONの間だけ出る。ポップオーバー内のため行のインデントに揃える必要は無い。 */
 .bearingRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0.3rem 0 0.3rem 1.6rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid var(--color-border-muted);
 }
 
 .bearingLabel {
@@ -178,45 +190,17 @@
   color: var(--color-muted);
 }
 
-/* ユーザー指摘（2026-08-31、実機スクリーンショット「スマホ画面があまり改善されていない」）:
-   T435の2段グリッドは280px幅のデスクトップサイドバー向けの対策だが、モバイルBottomSheetは
-   画面ほぼ全幅（実機で優に320pxを超える）を使えるため、同じ制約を持たない。モバイルでは
-   1行レイアウトへ戻し、1軸あたりの高さをほぼ半分にする（スライダー列はflex:1で確保する
-   ため、T435と同じ「固定幅要素の合計で潰れる」構造上のリスクは無い——ラベル自体を
-   固定幅+省略記号にしている点が唯一の違いだが、既定7軸の最長ラベルでも実機375px幅で
-   スライダーが視認・操作可能な幅を保つことを確認済み）。 */
 @media (max-width: 640px) {
   .row {
-    display: flex;
-    align-items: center;
     gap: var(--space-1);
-    flex-wrap: nowrap;
   }
 
-  .checkboxCell {
-    padding-top: 0;
-  }
-
-  /* ユーザー指摘（2026-08-31、「スライドバーの起点、終点の位置（長さ）は揃えて」）:
-     max-widthだと短いラベル（「風」1文字等）ほど列自体が狭くなり、スライダーの開始位置が
-     行ごとにバラついていた。widthで固定し、最長ラベル（「自転車インフラ」）でも収まる
-     幅を全行で共有することで、スライダーの開始・終了位置（＝長さ）を揃える。 */
   .rowLabel {
-    flex: 0 0 auto;
-    width: 4.4rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     font-size: var(--font-size-sm);
   }
 
-  .slider {
-    flex: 1 1 auto;
-    width: auto;
-  }
-
-  .weightValue {
-    width: 1.8rem;
+  .weightValueTrigger {
+    padding: 0.15rem 0.4rem;
   }
 
   .mapColorUnavailable {
