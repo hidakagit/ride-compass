@@ -29,9 +29,9 @@ attributes.py: compute_elevation_attribute`）に委譲する。`MAX_CONCURRENT_
 `ElevationAttributeService.get_attributes_for_graph`が返す標高属性（`elevation_gain_m`・
 `min_elevation_m`・`max_elevation_m`・`max_gradient_percent`）の最終集約（合計/最小/最大・
 空ならNone・小数1桁丸め）は`elevation_aggregation.py`（`sum_or_none`・`min_or_none`・
-`max_or_none`）に集約されており、`RoadGraphEngine._aggregate_elevation`
-（[routing-engine.md](routing-engine.md)）がEdge単位の標高属性をルート単位へ集約する
-際にこれを使う。
+`max_or_none`）に集約されており、`road_graph_engine.py: _aggregate_elevation`
+（モジュールレベル関数、`RoadGraphEngine`のメソッドではない。[routing-engine.md]
+(routing-engine.md)）がEdge単位の標高属性をルート単位へ集約する際にこれを使う。
 
 ## DEMタイル方式（`infrastructure/elevation_client.py`）
 

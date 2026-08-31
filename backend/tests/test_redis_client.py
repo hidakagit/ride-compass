@@ -17,7 +17,7 @@ def test_get_redis_client_or_none_returns_none_and_records_failure_on_exception(
         raise ValueError("invalid URL scheme")
 
     monkeypatch.setattr(redis_client, "get_redis_client", _raise)
-    monkeypatch.setattr(redis_client, "_last_failure_at", None)
+    redis_client.reset_circuit_breaker()
 
     result = redis_client.get_redis_client_or_none()
 

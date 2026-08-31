@@ -34,11 +34,18 @@ vi.mock("@/components/RouteSettingsPanel/RouteSettingsPanel", async (importOrigi
 // handleLayerToggle側にあるため、そのハンドラをテストから直接クリックで駆動できるよう
 // レイヤーごとの切り替えボタンも描画する（onToggle(id, !on)を呼ぶだけの薄いスタブ）。
 vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
-  default: (props: { layers: Array<{ id: string; on: boolean }>; onToggle: (id: string, on: boolean) => void }) => (
+  default: (props: {
+    layers: Array<{ id: string; on: boolean; title?: string }>;
+    onToggle: (id: string, on: boolean) => void;
+  }) => (
     <>
       {/* JSON文字列の要素自体はbutton群を子に含めない（既存テストがtextContentを丸ごと
           JSON.parseするため、button群を同じ要素の子にするとテキストが混ざって壊れる）。 */}
       <div data-testid="overlay-layers">{JSON.stringify(props.layers.map((l) => [l.id, l.on]))}</div>
+      {/* titleは既存の"overlay-layers"（[id, on]の2要素固定を前提にした既存の
+          exact-substring/new Map()アサーションが複数ある）とは別の独立したtestidへ出す
+          （改善計画T478、T468のisDynamicGroupLayer回帰テスト用）。 */}
+      <div data-testid="overlay-layer-titles">{JSON.stringify(props.layers.map((l) => [l.id, l.title]))}</div>
       {props.layers.map((l) => (
         <button key={l.id} type="button" onClick={() => props.onToggle(l.id, !l.on)}>
           {`toggle:${l.id}`}
@@ -274,6 +281,48 @@ describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T4
     const afterBothToggled = overlayLayersOnMap();
     // route自体はどちらの操作の影響も受けずONのまま
     expect(afterBothToggled.get("route")).toBe(true);
+  });
+});
+
+// 改善計画T468回帰テスト（2026-08-31 T478で追加）: overlayLayers組み立ての
+// isDynamicGroupLayer判定が、以前はlayer.idのハードコード列挙で「動的グループ」を
+// 再判定しており、mapLayers.ts側の単一ソースdataNature==="dynamic"とズレていた
+// （gradientFillが列挙漏れで「[設定はサイドバー]」が誤って付与される実害があった）。
+// dataNature自体を見る形へ修正済みであることを、titleの実際の値で確認する。
+describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: dataNature単一ソース化）", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.mocked(getAxisCatalog).mockReset();
+  });
+
+  function overlayLayerTitles(): Map<string, string | undefined> {
+    const text = screen.getByTestId("overlay-layer-titles").textContent ?? "[]";
+    const layers = JSON.parse(text) as Array<[string, string | undefined]>;
+    return new Map(layers);
+  }
+
+  it("dataNature=dynamicのgradientFillは「[設定はサイドバー]」を付けずlayer.descriptionそのままをtitleにする", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
+    render(<Home />);
+
+    await screen.findByTestId("overlay-layer-titles");
+    const title = overlayLayerTitles().get("gradientFill");
+    expect(title).toBe(
+      "指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示"
+    );
+    expect(title).not.toMatch(/\[設定はサイドバー\]/);
+  });
+
+  it("dataNature=static（既定）のroadTypeは「[設定はサイドバー]」付きのtitleになる", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
+    render(<Home />);
+
+    await screen.findByTestId("overlay-layer-titles");
+    const title = overlayLayerTitles().get("roadType");
+    expect(title).toMatch(/\[設定はサイドバー\]$/);
   });
 });
 

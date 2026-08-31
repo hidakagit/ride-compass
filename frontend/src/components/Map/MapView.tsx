@@ -177,12 +177,13 @@ function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSour
   return { sourceId: base, layerId: `${base}-main`, haloLayerId: `${base}-halo`, iconId: `${base}-icon` };
 }
 // 環境グループの風penalty gridFill（改善計画T414、T432でDYNAMIC_WEATHER_RENDERERS汎用機構へ
-// 統合）のlayer id。GRADIENT_FILL_LAYER_ID（STATIC_OVERLAY_LAYERS経由でinteractiveLayerIdsに
-// 含まれる）と異なり、こちらはDYNAMIC_WEATHER_RENDERERS側の管理下にありSTATIC_OVERLAY_LAYERS
-// に無いため、そのままではinteractiveLayerIdsに含まれずクリック判定の対象外——ただし専用の
-// ポップアップ内容を持たないため、単に対象に加えるのではなくDETAIL_LAYER_IDと同じ「ヒットした
-// ら何もしない」早期returnガードで、下に重なるroad_surfaceの誤ったポップアップを防ぐ
-// （改善計画T425、ゼロベース網羅レビュー指摘）。
+// 統合）のlayer id。GRADIENT_FILL_LAYER_IDと同型——こちらはDYNAMIC_WEATHER_RENDERERS側の
+// 管理下にありSTATIC_OVERLAY_LAYERSに無いため、そのままではinteractiveLayerIdsに含まれず
+// クリック判定の対象外（GRADIENT_FILL_LAYER_IDはbuildInteractiveLayerIds側の明示的な
+// 除外条件で同じ扱いに揃えている、改善計画T478）——ただし専用のポップアップ内容を持たない
+// ため、単に対象に加えるのではなくDETAIL_LAYER_IDと同じ「ヒットしたら何もしない」早期return
+// ガードで、下に重なるroad_surfaceの誤ったポップアップを防ぐ（改善計画T425、ゼロベース
+// 網羅レビュー指摘）。
 const WIND_PENALTY_FILL_LAYER_ID = dynamicWeatherIds("windVector", "penaltyFill", "fill").layerId;
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -210,7 +211,8 @@ const GRADIENT_AXIS_LAYER_ID = "region-gradient-axis-line";
 // 次回手を入れる判断をした時点」または「同種のbespoke実装（way_id依存の動的面塗り）が
 // 3例目として追加される時点」のいずれか。現時点でこのトリガーに向けた着手は不要。
 const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
-const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
+// exportはテスト専用（MapView.overlayFilters.test.ts、改善計画T478の回帰テスト）。
+export const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
 const TUNNEL_LAYER_ID = "region-tunnel-line";
 const ONEWAY_LAYER_ID = "region-oneway-line";
@@ -1623,12 +1625,21 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
 // 二次軸rampレイヤー（T145b）はクリック時の内訳ポップアップ（recipeBreakdownPopup等）に
 // 対応する専用表示を持たないため、elevationと同様にクリック判定から除外する
 // （一次属性→軸スコアを遡る汎用インスペクタは改善計画T146のスコープ）。
-function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
+// exportはテスト専用（MapView.overlayFilters.test.ts、改善計画T478の回帰テスト）。
+export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
   return [
     DETAIL_LAYER_ID,
     ROAD_TILE_LAYER_ID,
     ...staticOverlayLayers.filter(
-      (layer) => layer.key !== "elevation" && !layer.key.startsWith("axis:"),
+      // 改善計画T478（統合レビュー第3回§9指摘の再確認）: "gradientFill"（環境グループの
+      // 勾配gridFill）はWIND_PENALTY_FILL_LAYER_IDと同型——専用ポップアップを持たず
+      // クリック時は下記handleClickの早期returnガードで「何もしない」設計のため、ここでも
+      // 除外する。除外しないままだとhandleMouseMoveのカーソル判定（同じ
+      // interactiveLayerIdsを参照）がこのレイヤー上でpointerカーソルを出し、
+      // 「カーソルはクリック可能を示すのに実際は何も起きない」という不整合になっていた
+      // （T461はクリック時の誤ポップアップだけを早期returnガードで対症療法的に修正しており、
+      // このinteractiveLayerIds自体の除外漏れは未着手のまま残っていた）。
+      (layer) => layer.key !== "elevation" && layer.key !== "gradientFill" && !layer.key.startsWith("axis:"),
     ).map((layer) => layer.layerId),
   ];
 }
@@ -2538,13 +2549,17 @@ export default function MapView({
         return;
       }
       // 改善計画T461（モジュール設計書再検証で発見）: 環境グループの勾配gridFill
-      // （GRADIENT_FILL_LAYER_ID）は上のWIND_PENALTY_FILL_LAYER_IDと異なり
-      // STATIC_OVERLAY_LAYERS経由でinteractiveLayerIdsに含まれてしまう
-      // （buildInteractiveLayerIdsは"elevation"と"axis:"prefixしか除外しない）ため、
-      // 同じガードが無いままだと下の汎用ディスパッチャへ流れ込み、道路属性を持たない
-      // GradientGridCellProperties（{gradientValue}のみ）がbuildRoadSurfacePopupHtmlへ
-      // 渡って「路面: 不明」という実態と無関係なポップアップが出ていた。専用ポップアップを
-      // 持たない点も含めWIND_PENALTY_FILL_LAYER_IDと同型のため、同じ早期returnで防ぐ。
+      // （GRADIENT_FILL_LAYER_ID）は当時STATIC_OVERLAY_LAYERS経由でinteractiveLayerIdsに
+      // 含まれてしまっており、ガードが無いままだと下の汎用ディスパッチャへ流れ込み、道路
+      // 属性を持たないGradientGridCellProperties（{gradientValue}のみ）が
+      // buildRoadSurfacePopupHtmlへ渡って「路面: 不明」という実態と無関係なポップアップが
+      // 出ていた。専用ポップアップを持たない点も含めWIND_PENALTY_FILL_LAYER_IDと同型のため、
+      // 同じ早期returnで防ぐ。改善計画T478でbuildInteractiveLayerIds自体からも
+      // "gradientFill"を除外し（カーソルだけhoverでpointerになる不整合の解消）、
+      // interactiveLayerIdsに含まれない点でもWIND_PENALTY_FILL_LAYER_IDと同型になった
+      // ——ここでの明示的な早期returnガードは、除外後もqueryRenderedFeaturesがこの
+      // レイヤー自体を直接対象にできるよう引き続き必要（WIND_PENALTY_FILL_LAYER_IDの
+      // ガードと同じ理由）。
       if (
         map.getLayer(GRADIENT_FILL_LAYER_ID) &&
         map.queryRenderedFeatures(e.point, { layers: [GRADIENT_FILL_LAYER_ID] }).length > 0
@@ -2611,8 +2626,21 @@ export default function MapView({
       const feature = e.features?.[0];
       if (!feature) return;
       popupRef.current?.remove();
+      const rawProperties = feature.properties as unknown as RouteSegmentProperties;
+      // MapLibreはGeoJSONソースのfeature.propertiesをvector tile相当の内部表現へ変換する際、
+      // オブジェクト値（axis_difficulties、唯一のオブジェクト型フィールド）をJSON文字列へ
+      // 自動的にシリアライズする（プリミティブ型[string/number/boolean]しか保持できない
+      // vector tile仕様の制約）。segmentsToFeatureCollectionが渡す時点では素のオブジェクト
+      // だが、クリック時にqueryRenderedFeatures経由で読み戻すと文字列化されているため、
+      // ここでパースし直す必要がある（さもないとbuildRouteSegmentChartPopupHtml内の
+      // Object.entries(axis_difficulties)が文字列を文字単位でイテレートしてしまい、
+      // 各文字を数値として扱おうとして例外になる）。
+      const axisDifficulties =
+        typeof rawProperties.axis_difficulties === "string"
+          ? (JSON.parse(rawProperties.axis_difficulties) as Record<string, number>)
+          : rawProperties.axis_difficulties;
       const html = buildRouteSegmentChartPopupHtml(
-        feature.properties as unknown as RouteSegmentProperties,
+        { ...rawProperties, axis_difficulties: axisDifficulties },
         redrawPropsRef.current.axisLabels
       );
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);

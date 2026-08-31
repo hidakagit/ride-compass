@@ -6,9 +6,11 @@ import { describe, expect, it } from "vitest";
 import { RAMP_AXES, axisLineLayerId } from "@/components/Map/axisLayers";
 import {
   DESIGNATION_LAYER_ID,
+  GRADIENT_FILL_LAYER_ID,
   STOP_POI_LAYER_ID,
   SUPPLY_POI_LAYER_ID,
   buildAxisOverlayLayers,
+  buildInteractiveLayerIds,
   buildStaticOverlayLayers,
   setStaticOverlayFilters,
 } from "./MapView";
@@ -110,5 +112,22 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
 
     expect(evaluateFilter(supplyFilter, { kind: "traffic_signals" })).toBe(false);
     expect(evaluateFilter(supplyFilter, { kind: "convenience" })).toBe(true);
+  });
+});
+
+// 改善計画T478（統合レビュー第3回§9指摘の再確認）: buildInteractiveLayerIdsが
+// "gradientFill"（GRADIENT_FILL_LAYER_ID、専用ポップアップを持たずクリック時は
+// handleClickの早期returnガードで「何もしない」設計）を除外できていないと、
+// handleMouseMove（同じinteractiveLayerIdsを参照）がこのレイヤー上でpointerカーソルを
+// 出してしまい、「カーソルはクリック可能を示すのに実際は何も起きない」という不整合になる。
+describe("buildInteractiveLayerIds（改善計画T478）", () => {
+  it("gradientFillはinteractiveLayerIdsから除外される（クリックしても何も起きないため、hoverでpointerカーソルも出してはいけない）", () => {
+    const ids = buildInteractiveLayerIds(STATIC_OVERLAY_LAYERS);
+    expect(ids).not.toContain(GRADIENT_FILL_LAYER_ID);
+  });
+
+  it("designation等の通常の道路属性レイヤーは引き続きinteractiveLayerIdsに含まれる（road_surfaceと同じ道路属性を持つため専用ポップアップが機能する）", () => {
+    const ids = buildInteractiveLayerIds(STATIC_OVERLAY_LAYERS);
+    expect(ids).toContain(DESIGNATION_LAYER_ID);
   });
 });

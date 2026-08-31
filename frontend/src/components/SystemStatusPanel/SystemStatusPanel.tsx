@@ -47,7 +47,7 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
     // 読めない）より先にgetFrontendVersion()（フロント自身のモジュール評価時刻、実質即時）
     // が解決すると、バックエンド側がまだ取得中でも「更新」ボタンが押せる状態へ戻り
     // loading表示が消えてしまっていた。両方が完了するまでloadingを維持するよう
-    // Promise.allSettledでまとめる。
+    // Promise.allでまとめる（下記の理由により失敗ケースも含めPromise.allで足りる）。
     const backendFetch = getDebugStats()
       .then((data) => {
         setBackend(data);
