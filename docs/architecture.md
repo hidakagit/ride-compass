@@ -2513,7 +2513,8 @@ effective_gradient`）。道路の向きと指定方向のなす角度に応じ�
   固定パスを`GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}`
   （[region.py](../backend/app/api/routers/region.py): `region_dynamic_way_values`）へ
   一本化した。`material_id`は[domain/dynamic_way_values.py](../backend/app/domain/dynamic_way_values.py):
-  `DYNAMIC_WAY_VALUE_MATERIALS`（材料ごとの`needs_time`/`needs_bearing`宣言、勾配は
+  `dynamic_way_value_materials()`（`AXIS_DEFINITIONS`の`dedicated_way_value_layer=True`
+  な軸から`needs_time`/`needs_bearing`を導出する関数、改善計画T458。勾配は
   `needs_time=False`）で検証し、未知のidは404・向き依存の材料でbearing_deg省略は422。
   DI（`api/dependencies.py: get_dynamic_way_value_service`）は`material_id`パスパラメータを
   直接受け取り、材料に応じたサービス（`WindWayService`/`GradientWayService`）をDBセッション

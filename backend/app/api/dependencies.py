@@ -13,7 +13,7 @@ from typing import AsyncIterator, Awaitable, Callable
 from fastapi import Depends, HTTPException, Request
 
 from app.config import settings
-from app.domain.dynamic_way_values import DYNAMIC_WAY_VALUE_MATERIALS
+from app.domain.dynamic_way_values import dynamic_way_value_materials
 from app.domain.errors import RoutingError
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.route import Coordinates, RouteSegment
@@ -289,12 +289,15 @@ async def get_region_service():
 # WindWayService/GradientWayServiceはコンストラクタ依存が異なる（前者だけweather_service を
 # 追加で要求）ため、ファクトリはrepository・weather_serviceの両方を受け取り、必要な方だけ
 # 使う統一シグネチャにする。3つ目の動的材料を追加する際は、このdictへ1エントリ足すだけでよい
-# （T458: DYNAMIC_WAY_VALUE_MATERIALS自体の拡張とは別軸・別タイミングで進められる）。
-# 注意: このdictのキー集合はDYNAMIC_WAY_VALUE_MATERIALS（domain/dynamic_way_values.py）の
-# キー集合の部分集合である必要がある（後者に無いmaterial_idは下の
-# `if material_id not in DYNAMIC_WAY_VALUE_MATERIALS`で先に弾かれる）。新しい材料を追加する
-# 際は両方へ登録すること——片方だけ更新すると`_build`がKeyErrorで即座に失敗する
-# （fail-fast、無音の分岐漏れより検知しやすい設計）。
+# （T458: dynamic_way_value_materials()自体の拡張[軸スタジオでの宣言のみで完結]とは
+# 別軸・別タイミングで進められる。こちらはPython実装本体の登録のため常にコード変更を伴う）。
+# 注意: このdictのキー集合はdynamic_way_value_materials()（domain/dynamic_way_values.py、
+# 改善計画T458でAXIS_DEFINITIONS由来の動的導出へ変更）のキー集合の部分集合である必要が
+# ある（後者に無いmaterial_idは下の`if material_id not in dynamic_way_value_materials()`で
+# 先に弾かれる）。新しい材料を追加する際は、軸スタジオでの登録（dedicated_way_value_layer・
+# needs_time/needs_bearing）に加えてこのdictへも1エントリ登録すること——片方だけ更新すると
+# `_build`がKeyErrorで即座に失敗する（fail-fast、無音の分岐漏れより検知しやすい設計。
+# こちらはPythonの実装本体[コンストラクタ]の登録なので宣言だけでは代替できない）。
 _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES: dict[
     str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
 ] = {
@@ -317,7 +320,7 @@ async def get_dynamic_way_value_service(
     get_region_serviceと同じ「road_graph_use_repository無効時はrepository自体を注入しない」
     パターン（DBなし構成では常に空dictを返す。到達可能性の説明もget_region_service参照）。
     """
-    if material_id not in DYNAMIC_WAY_VALUE_MATERIALS:
+    if material_id not in dynamic_way_value_materials():
         yield None
         return
 

@@ -433,6 +433,37 @@ def test_create_leaves_dedicated_way_value_layer_false_when_omitted(override_ser
     assert response.json()["dedicated_way_value_layer"] is False
 
 
+def test_create_persists_and_returns_dynamic_way_value_needs(override_service):
+    # 改善計画T458: dedicated_way_value_layer=trueの軸のGET /api/region/dynamic-way-values/
+    # {material_id}/...がat/bearing_degクエリパラメータを必須とするかの宣言
+    # （dynamic_way_value_needs_time/dynamic_way_value_needs_bearing）が管理API経由で
+    # 設定・参照できること。dedicated_way_value_layerと同じ配線パターン。
+    payload = {
+        **_PAYLOAD,
+        "dedicated_way_value_layer": True,
+        "dynamic_way_value_needs_time": True,
+        "dynamic_way_value_needs_bearing": True,
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["dynamic_way_value_needs_time"] is True
+    assert body["dynamic_way_value_needs_bearing"] is True
+    assert override_service._definitions["test_axis"].dynamic_way_value_needs_time is True
+    assert override_service._definitions["test_axis"].dynamic_way_value_needs_bearing is True
+
+
+def test_create_leaves_dynamic_way_value_needs_false_when_omitted(override_service):
+    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["dynamic_way_value_needs_time"] is False
+    assert body["dynamic_way_value_needs_bearing"] is False
+
+
 def test_create_rejects_non_ascending_display_thresholds_override(override_service):
     # 改善計画T404: axis_admin.py: AxisDefinitionPayload._check_display_thresholds_
     # override_is_ascendingの検証（色分けの段階境界値は昇順でなければ意味を持たない）。

@@ -22,30 +22,45 @@ DBから取り出す`infrastructure/road_graph_repository.py: get_way_gradient_i
 ## 材料登録（`domain/dynamic_way_values.py`）
 
 ```python
-DYNAMIC_WAY_VALUE_MATERIALS: dict[str, DynamicWayValueMaterial] = {
-    "wind":     DynamicWayValueMaterial(needs_time=True,  needs_bearing=True),
-    "gradient": DynamicWayValueMaterial(needs_time=False, needs_bearing=True),
-}
+def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
+    return {
+        axis_id: DynamicWayValueMaterial(
+            material_id=axis_id, label=definition.label,
+            needs_time=definition.dynamic_way_value_needs_time,
+            needs_bearing=definition.dynamic_way_value_needs_bearing,
+        )
+        for axis_id, definition in AXIS_DEFINITIONS.items()
+        if definition.dedicated_way_value_layer
+    }
 ```
+
+`AXIS_DEFINITIONS`（[軸スタジオ](axis-studio.md)のDB管理データ）から
+`dedicated_way_value_layer=True`の軸を抽出して呼び出しの都度導出する関数（改善計画T458、
+モジュール定数ではない）。`needs_time`/`needs_bearing`も軸自身のDBフィールド
+（`AxisDefinition.dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`）を
+そのまま使う——以前は独立したPython辞書へハードコードしており、3件目の材料を追加するには
+軸スタジオでの登録に加えてコード変更・再デプロイが必要だった（設計原則8違反、T458で解消）。
 
 - `needs_time`: 時刻（`at`クエリパラメータ）に依存するか。風=Yes（気象予報）、
   勾配=No（標高・道路の向きは時刻で変わらない）。
 - `needs_bearing`: 向き（`bearing_deg`クエリパラメータ）に依存するか。風・勾配とも
   Yes（向きの*出所*が異なるだけで、パラメータとしては両方ともユーザー指定の走行方位を
   必要とする）。
-- この辞書は`AxisDefinition.dedicated_way_value_layer`（[軸スタジオ](axis-studio.md)の
-  DB管理フィールド）とは独立したハードコード。
+- `dedicated_way_value_layer=True`の軸は現状wind/gradientの2軸のみ（軸スタジオAPI経由で
+  backfill済み）。
 
-`api/dependencies.py: get_dynamic_way_value_service`内の`_build`は
-`if material_id == "wind": ... else: ...`という2分岐でサービス（`WindWayService`/
-`GradientWayService`）を組み立てる。
+`api/dependencies.py: get_dynamic_way_value_service`内の`_DYNAMIC_WAY_VALUE_SERVICE_
+FACTORIES`（改善計画T460）は、material_id→サービス実装本体（`WindWayService`/
+`GradientWayService`）の組み立てを担う別のdict。こちらはPython実装本体の登録のため
+宣言だけでは代替できず、3件目の材料を追加する際も引き続きコード変更が必要
+（`dynamic_way_value_materials()`側の拡張とは別軸・別タイミングで進められる）。
 
 ## API（`api/routers/region.py`）
 
 `GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}?bearing_deg=&at=`
 
 ```
-material_id → DYNAMIC_WAY_VALUE_MATERIALS.get(material_id)（無ければ404）
+material_id → dynamic_way_value_materials().get(material_id)（無ければ404）
             → needs_bearing かつ bearing_deg 省略 → 422
             → get_dynamic_way_value_service(material_id) が WindWayService/GradientWayService を組み立て
             → service.get_way_values(z, x, y, at, bearing_deg)

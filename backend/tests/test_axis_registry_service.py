@@ -14,6 +14,7 @@ from app.domain.axis_definitions import (
 )
 from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
+from app.services import axis_registry_service
 from app.services.axis_registry_service import (
     AxisDefinitionSyncError,
     AxisRegistryAdminService,
@@ -368,49 +369,51 @@ async def test_delete_raises_key_error_for_unknown_axis_id(road_graph_session):
         await service.delete("unknown")
 
 
-@pytest.mark.parametrize("axis_id", ["gradient"])
-async def test_delete_rejects_code_coupled_axis_id_even_when_draft(road_graph_session, axis_id):
-    # 改善計画T350: gradientはdomain/dynamic_way_values.pyがaxis_idを直接
-    # ハードコード参照しているため、is_published=False（下書き）でも削除できない。
-    # 改善計画T358（統合レビュー第8回consistency F-2）: `_CODE_COUPLED_AXIS_IDS`の同じ
-    # 1行の分岐を通る全件をparametrize化した。改善計画T352: 当時はnight/windも、
-    # 改善計画T459: 当時はcar_stressも、このリストに含めていたが、いずれも宣言的
-    # フィールドへの汎用化・ハードコード撤去に伴いコード結合が解消されたため対象から
-    # 外した（下記test_delete_allows_axis_id_after_t352_generalization参照）。
+async def test_delete_rejects_axis_id_in_code_coupled_set_even_when_draft(road_graph_session, monkeypatch):
+    # 改善計画T350: `_CODE_COUPLED_AXIS_IDS`に含まれるaxis_idは、is_published=False
+    # （下書き）でも削除できない。改善計画T458で最後の実在該当軸（gradient）が
+    # 宣言的フィールドへの汎用化により対象から外れ現在は空集合のため（下記
+    # test_delete_allows_axis_id_after_t352_generalization参照）、安全弁の機構自体を
+    # 実在しない架空のaxis_idでmonkeypatchして検証する（改善計画T358の「全件
+    # parametrize」の後継、実在軸に依存しない回帰テスト）。
+    monkeypatch.setattr(axis_registry_service, "_CODE_COUPLED_AXIS_IDS", frozenset({"fake_coupled_axis"}))
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(_definition(axis_id, is_published=False))
+    await service.create(_definition("fake_coupled_axis", is_published=False))
     await service.create(_definition("other_axis", material="wind_penalty"))
 
-    with pytest.raises(ValueError, match=axis_id):
-        await service.delete(axis_id)
+    with pytest.raises(ValueError, match="fake_coupled_axis"):
+        await service.delete("fake_coupled_axis")
 
-    assert axis_id in AXIS_DEFINITIONS
+    assert "fake_coupled_axis" in AXIS_DEFINITIONS
 
 
-async def test_delete_rejects_code_coupled_axis_id_after_unpublish(road_graph_session):
+async def test_delete_rejects_axis_id_in_code_coupled_set_after_unpublish(road_graph_session, monkeypatch):
     # 改善計画T350: unpublish→deleteの2段階（T302で正式フローとして許容された経路）でも
     # コード結合axis_idは削除できない。
+    monkeypatch.setattr(axis_registry_service, "_CODE_COUPLED_AXIS_IDS", frozenset({"fake_coupled_axis"}))
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(_definition("gradient", is_published=True))
+    await service.create(_definition("fake_coupled_axis", is_published=True))
     await service.create(_definition("other_axis", material="wind_penalty"))
-    await service.unpublish("gradient")
+    await service.unpublish("fake_coupled_axis")
 
-    with pytest.raises(ValueError, match="gradient"):
-        await service.delete("gradient")
+    with pytest.raises(ValueError, match="fake_coupled_axis"):
+        await service.delete("fake_coupled_axis")
 
-    assert "gradient" in AXIS_DEFINITIONS
+    assert "fake_coupled_axis" in AXIS_DEFINITIONS
 
 
-@pytest.mark.parametrize("axis_id", ["night", "wind", "car_stress"])
+@pytest.mark.parametrize("axis_id", ["night", "wind", "car_stress", "gradient"])
 async def test_delete_allows_axis_id_after_t352_generalization(road_graph_session, axis_id):
     # 改善計画T352: night（time_scope="night_only"）・wind（supports_route_coloring=True）は
     # 以前`_CODE_COUPLED_AXIS_IDS`に含まれ削除禁止だったが、road_graph_engine.pyの
     # T173ロジック・frontend routeStyleModes.tsのハードコードをそれぞれ宣言的フィールドへ
     # 汎用化したことで、axis_idの直接ハードコードが解消された。改善計画T459: car_stressも
     # 同様に、`car_stress_display_level()`（末端消費者ゼロの生値フィールド専用だった）を
-    # 撤去したことでハードコードが解消された。削除できる（コード結合が無いことの回帰テスト）。
+    # 撤去したことでハードコードが解消された。改善計画T458: gradientも同様に、
+    # `DYNAMIC_WAY_VALUE_MATERIALS`ハードコード辞書を`AXIS_DEFINITIONS`由来の動的導出へ
+    # 置き換えたことでハードコードが解消された。削除できる（コード結合が無いことの回帰テスト）。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition(axis_id, is_published=False))

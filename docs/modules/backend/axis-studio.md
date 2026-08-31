@@ -36,6 +36,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `supports_route_coloring` | bool | ルート結果色分けの選択肢に使えるか |
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `dedicated_way_value_layer` | bool | 専用way_id→値配信レイヤーを持つか |
+| `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/dynamic-way-values/...`の`at`/`bearing_deg`クエリパラメータ必須判定（[dynamic-way-values.md](dynamic-way-values.md)参照） |
 
 ### `AxisShape`（評価式、2プリミティブ）
 

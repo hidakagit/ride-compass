@@ -106,6 +106,8 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         is_published=True,
         icon_id="incline",
         chip_label="勾配",
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_bearing=True,
     ),
     "wind": AxisDefinition(
         axis_id="wind",
@@ -119,6 +121,9 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         category="動的",
         is_published=True,
         supports_route_coloring=True,
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_time=True,
+        dynamic_way_value_needs_bearing=True,
     ),
     "surface_q": AxisDefinition(
         axis_id="surface_q",

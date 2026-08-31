@@ -120,6 +120,11 @@ class AxisDefinitionFields(BaseModel):
     # time_scope/supports_route_coloringと同じ理由でAxisComposer.tsx（GUIフォーム）は
     # 現時点で編集UIを持たない（管理API経由の直接編集のみ対応）。
     dedicated_way_value_layer: bool = False
+    # 改善計画T458: dedicated_way_value_layer=trueの軸のみ意味を持つ（domain/
+    # axis_definitions.py: AxisDefinition.dynamic_way_value_needs_time/
+    # dynamic_way_value_needs_bearingのdocstring参照）。同じくGUI編集UIは現時点で未対応。
+    dynamic_way_value_needs_time: bool = False
+    dynamic_way_value_needs_bearing: bool = False
 
 
 class AxisDefinitionPayload(AxisDefinitionFields):

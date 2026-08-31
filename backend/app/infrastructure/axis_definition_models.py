@@ -78,6 +78,15 @@ class AxisDefinitionRow(Base):
     # falseが移行時点の実際の挙動と一致する。wind/gradientのbackfillはCLAUDE.md
     # 「コミット時の同期ルール」によりmigrationではなくaxis_admin API経由で行う）。
     dedicated_way_value_layer: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # 改善計画T458: dedicated_way_value_layer=trueの軸のみ意味を持つ、GET /api/region/
+    # dynamic-way-values/{material_id}/...のat/bearing_degクエリパラメータ必須判定
+    # （domain/axis_definitions.py: AxisDefinition.dynamic_way_value_needs_time/
+    # dynamic_way_value_needs_bearingのdocstring参照）。新規migrationで追加するNOT NULL
+    # DEFAULTの追加カラム（既存全軸はfalseが移行時点の実際の挙動と一致する。wind/gradientの
+    # backfillはCLAUDE.md「コミット時の同期ルール」によりmigrationではなくaxis_admin API
+    # 経由で行う）。
+    dynamic_way_value_needs_time: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    dynamic_way_value_needs_bearing: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # 改善計画T330: create_tables()（Base.metadata.create_all）が先に走る「まっさらなDBから
     # のブートストラップ」経路では、DB側のserver_defaultが無いと0014 migrationのINSERT
     # （updated_atを指定しない）がNOT NULL制約違反になる。他の全カラムはこのため

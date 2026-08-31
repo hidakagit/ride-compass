@@ -315,6 +315,12 @@ interface Draft {
    * payloadへ素通しして保持する）で追加。domain/axis_definitions.py:
    * AxisDefinition.dedicated_way_value_layerのdocstring参照。 */
   dedicatedWayValueLayer: boolean;
+  /** 改善計画T458: dedicatedWayValueLayerと同じ理由（このフォームに編集欄を持たないが、
+   * 既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
+   * AxisDefinition.dynamic_way_value_needs_time/dynamic_way_value_needs_bearingの
+   * docstring参照。 */
+  dynamicWayValueNeedsTime: boolean;
+  dynamicWayValueNeedsBearing: boolean;
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -350,6 +356,8 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     timeScope: "always",
     supportsRouteColoring: false,
     dedicatedWayValueLayer: false,
+    dynamicWayValueNeedsTime: false,
+    dynamicWayValueNeedsBearing: false,
   };
 }
 
@@ -372,6 +380,8 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     timeScope: def.time_scope,
     supportsRouteColoring: def.supports_route_coloring,
     dedicatedWayValueLayer: def.dedicated_way_value_layer ?? false,
+    dynamicWayValueNeedsTime: def.dynamic_way_value_needs_time ?? false,
+    dynamicWayValueNeedsBearing: def.dynamic_way_value_needs_bearing ?? false,
   };
   // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
@@ -660,6 +670,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       time_scope: draft.timeScope,
       supports_route_coloring: draft.supportsRouteColoring,
       dedicated_way_value_layer: draft.dedicatedWayValueLayer,
+      dynamic_way_value_needs_time: draft.dynamicWayValueNeedsTime,
+      dynamic_way_value_needs_bearing: draft.dynamicWayValueNeedsBearing,
     };
     setSaving(true);
     try {

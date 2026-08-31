@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.api.dependencies import enforce_rate_limit, get_dynamic_way_value_service, get_region_service
 from app.api.routers._tile_validation import validate_tile_coords
 from app.config import settings
-from app.domain.dynamic_way_values import DYNAMIC_WAY_VALUE_MATERIALS
+from app.domain.dynamic_way_values import dynamic_way_value_materials
 from app.domain.evaluation import AxisInspectorResult
 from app.services.region_service import RegionService
 
@@ -120,8 +120,8 @@ async def region_dynamic_way_values(
     呼ばない。
 
     `material_id`はパスパラメータ（改善計画T411の実施: `wind`専用の固定パスをT423で
-    材料id駆動へ一本化した）。`domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`に
-    無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
+    材料id駆動へ一本化した）。`domain/dynamic_way_values.py: dynamic_way_value_materials()`
+    に無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
     その材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
     を使う、勾配は時刻に依存しないため渡しても無視される）。
@@ -137,7 +137,7 @@ async def region_dynamic_way_values(
     （`region_service.py`の`_region_tile_semaphore`のコメント参照——MVTエンコードは
     伴わないが同じPostGISコネクションプールを取り合うため）。
     """
-    material = DYNAMIC_WAY_VALUE_MATERIALS.get(material_id)
+    material = dynamic_way_value_materials().get(material_id)
     if material is None or service is None:
         raise HTTPException(status_code=404, detail="未知のmaterial_idです。")
     if material.needs_bearing and bearing_deg is None:

@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_dynamic_way_value_service, get_region_service
-from app.domain.dynamic_way_values import DYNAMIC_WAY_VALUE_MATERIALS, DynamicWayValueMaterial
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.config import settings
 from app.domain.evaluation import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
@@ -282,15 +282,21 @@ def test_region_dynamic_way_values_requires_bearing_deg_query_param(material_id)
 
 
 # 改善計画T450: needs_bearing=Falseの材料は現状（wind/gradientともTrue）存在しないため、
-# この分岐（bearing_deg省略でも422にならない）が未テストのまま宣言されていた。
-# DYNAMIC_WAY_VALUE_MATERIALSはregion.pyが`from ... import`で束縛した同一dictオブジェクトの
-# ため、monkeypatch.setitemでダミー材料を差し込めばregion.py側からも見える。
+# この分岐（bearing_deg省略でも422にならない）が未テストのまま宣言されていた。改善計画
+# T458: dynamic_way_value_materials()はAXIS_DEFINITIONSから毎回導出する関数になった
+# （固定dictではないためmonkeypatch.setitemで直接差し込めない）ため、region.py側が
+# 読むAXIS_DEFINITIONS自体へダミー軸をmonkeypatchで差し込む。
 def test_region_dynamic_way_values_needs_bearing_false_does_not_require_bearing_deg(monkeypatch):
-    monkeypatch.setitem(
-        DYNAMIC_WAY_VALUE_MATERIALS,
-        "dummy_no_bearing",
-        DynamicWayValueMaterial(material_id="dummy_no_bearing", label="ダミー", needs_time=False, needs_bearing=False),
+    dummy_axis = AxisDefinition(
+        axis_id="dummy_no_bearing",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material="gradient_percent")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
+        default_weight=0.1,
+        label="ダミー",
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_time=False,
+        dynamic_way_value_needs_bearing=False,
     )
+    monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_no_bearing", dummy_axis)
     fake = FakeDynamicWayValueService(values={1: 1.0})
     app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
 

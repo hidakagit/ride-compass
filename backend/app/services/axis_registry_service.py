@@ -62,14 +62,15 @@ class AxisDefinitionSyncError(RuntimeError):
 # 動作するだけで、KeyError等では落ちない）。`car_stress`も改善計画T459で
 # `car_stress_display_level()`（axis_definitions.py、`RouteSegmentDetail.car_stress`
 # という末端消費者ゼロの生値フィールド専用だった）を撤去し、同様に対象から外れた。
-# `gradient`は対象外のまま据え置く——`domain/dynamic_way_values.py:
-# DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を辞書キーとして直接ハードコード宣言しており、
-# この軸を削除してもこの辞書エントリは連動して消えない（実行時にこのキーへ到達すれば
-# `AXIS_DEFINITIONS["gradient"]`相当の参照が失敗しうる）。frontend routeStyleModes.tsの
-# gradient色分け（`isSignedAbsShape`によるshape属性判定）は2026-08-30時点で既に
-# axis_idハードコードを持たない汎用経路のため、code coupledの理由には該当しない
-# （2026-08-31訂正、旧コメントの記述は古い実装を指していた）。
-_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"gradient"})
+# `gradient`も改善計画T458で対象から外れた——以前は`domain/dynamic_way_values.py:
+# DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を辞書キーとして直接ハードコード宣言して
+# いたが、`AxisDefinition.dedicated_way_value_layer`/`dynamic_way_value_needs_time`/
+# `dynamic_way_value_needs_bearing`という宣言的フィールドへ汎用化し、
+# `dynamic_way_value_materials()`が`AXIS_DEFINITIONS`から動的に導出するようになった
+# ため、この軸を削除しても対応するコードが黙って「この性質を持つ軸が無い」として
+# 動作するだけになった。現時点で該当する軸は無いが、将来axis_idをハードコード参照する
+# コードが増えた場合に備え、仕組み自体は残す。
+_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset()
 
 
 def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str, list[str]]:

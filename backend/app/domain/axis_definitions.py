@@ -277,6 +277,22 @@ class AxisDefinition(BaseModel):
     同様に明示的に持たせ、軸スタジオの編集画面（管理API）からも設定できるようにする。
     既定Falseは、この専用レイヤーを持たない大多数の軸の実際の状態と一致する
     （現状trueなのは`wind`・`gradient`の2軸のみ）。"""
+    dynamic_way_value_needs_time: bool = False
+    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/
+    dynamic-way-values/{material_id}/...`（`api/routers/region.py`）の`at`クエリ
+    パラメータにこの軸の値が依存するかの宣言（風=True、気象予報が時々刻々変わる。
+    勾配=False、標高・道路の向きは時刻で変わらない）。改善計画T458: 従来
+    `domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`が軸スタジオ
+    （`dedicated_way_value_layer`）とは独立したPython辞書へこの値をハードコードしており、
+    3件目の動的材料を追加するには軸スタジオでの登録に加えてコード変更・再デプロイが
+    必要だった。`dedicated_way_value_layer`と同様、この値自体は軸の評価ロジック
+    （shape）から自動導出できない工学的事実のため、明示的なフィールドとして持たせる。"""
+    dynamic_way_value_needs_bearing: bool = False
+    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。同エンドポイントの
+    `bearing_deg`クエリパラメータにこの軸の値が依存するかの宣言（風・勾配どちらもTrue——
+    向きの*出所*（外部データ/道路自身に内在）が異なるだけで、パラメータとしては両方とも
+    ユーザー指定の走行方位を必要とする）。改善計画T458、`dynamic_way_value_needs_time`と
+    同じ理由で明示的なフィールドとして持たせる。"""
 
     @property
     def materials(self) -> list[str]:

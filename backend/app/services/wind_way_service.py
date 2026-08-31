@@ -94,7 +94,7 @@ class WindWayService:
         時計回り）。全道路共通の値として使う。改善計画T445: 型を`at`と揃え
         `float | None`にしている（router側`api/routers/region.py`の材料非依存な呼び出し
         インターフェースと一致させるため）が、風は常にbearing_degを必須とする材料
-        （`domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS["wind"].needs_bearing`
+        （`domain/dynamic_way_values.py: dynamic_way_value_materials()["wind"].needs_bearing`
         =True）のため、Noneのまま到達したら即座に失敗させる（router側の422検証を
         すり抜けて呼ばれた場合の防御、無音でNoneを計算に渡さない）。
         """

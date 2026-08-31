@@ -353,8 +353,8 @@ export interface paths {
          *     呼ばない。
          *
          *     `material_id`はパスパラメータ（改善計画T411の実施: `wind`専用の固定パスをT423で
-         *     材料id駆動へ一本化した）。`domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`に
-         *     無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
+         *     材料id駆動へ一本化した）。`domain/dynamic_way_values.py: dynamic_way_value_materials()`
+         *     に無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
          *     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
          *     その材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
          *     を使う、勾配は時刻に依存しないため渡しても無視される）。
@@ -830,6 +830,16 @@ export interface components {
              * @default false
              */
             dedicated_way_value_layer: boolean;
+            /**
+             * Dynamic Way Value Needs Time
+             * @default false
+             */
+            dynamic_way_value_needs_time: boolean;
+            /**
+             * Dynamic Way Value Needs Bearing
+             * @default false
+             */
+            dynamic_way_value_needs_bearing: boolean;
         };
         /**
          * AxisDefinitionResponse
@@ -900,6 +910,16 @@ export interface components {
              * @default false
              */
             dedicated_way_value_layer: boolean;
+            /**
+             * Dynamic Way Value Needs Time
+             * @default false
+             */
+            dynamic_way_value_needs_time: boolean;
+            /**
+             * Dynamic Way Value Needs Bearing
+             * @default false
+             */
+            dynamic_way_value_needs_bearing: boolean;
             display: components["schemas"]["AxisDisplaySpec"];
         };
         /**

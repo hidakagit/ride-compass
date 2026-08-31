@@ -213,6 +213,31 @@ async def test_upsert_then_list_all_round_trips_dedicated_way_value_layer(road_g
     assert result["dedicated_way_value_layer_axis"].dedicated_way_value_layer is True
 
 
+async def test_upsert_then_list_all_round_trips_dynamic_way_value_needs(road_graph_session):
+    # 改善計画T458: dynamic_way_value_needs_time/dynamic_way_value_needs_bearing
+    # （非既定値）がDB往復で失われないことの回帰テスト（dedicated_way_value_layerの
+    # 上記回帰テストと同型）。
+    definition = AxisDefinition(
+        axis_id="dynamic_way_value_needs_axis",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
+        default_weight=0.1,
+        label="テスト軸[dynamic_way_value_needs_axis]",
+        description="",
+        category="推定",
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_time=True,
+        dynamic_way_value_needs_bearing=True,
+    )
+    repository = AxisDefinitionRepository(road_graph_session)
+
+    await repository.upsert(definition, sort_order=0)
+    await repository.commit()
+
+    result = await repository.list_all()
+    assert result["dynamic_way_value_needs_axis"].dynamic_way_value_needs_time is True
+    assert result["dynamic_way_value_needs_axis"].dynamic_way_value_needs_bearing is True
+
+
 async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("z_axis"), sort_order=0)
