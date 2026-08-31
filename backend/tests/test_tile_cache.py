@@ -46,7 +46,7 @@ def test_clear_all_removes_cached_entries():
     assert tile_cache.get("planet/1/2/3.pbf") is None
 
 
-# 改善計画T463: set()の後、キャッシュディレクトリに.tmp-*の一時ファイルが残っていない
+# 改善計画T464: set()の後、キャッシュディレクトリに.tmp-*の一時ファイルが残っていない
 # ことを確認する（os.replaceによるアトミック差し替えが正しく完了していることの回帰）。
 def test_set_leaves_no_temp_files_behind():
     tile_cache.set("styles/liberty", b'{"version":8}', "application/json")
@@ -55,7 +55,7 @@ def test_set_leaves_no_temp_files_behind():
     assert leftover_tmp_files == []
 
 
-# 改善計画T463: .metaを.binより先に書くため、.binが見えた時点で.metaは必ず既に
+# 改善計画T464: .metaを.binより先に書くため、.binが見えた時点で.metaは必ず既に
 # 完全に書き終わっている（get()が誤ったContent-Typeへフォールバックする窓が無い）。
 def test_set_writes_meta_before_bin_so_get_never_sees_default_content_type():
     tile_cache.set("styles/liberty", b'{"version":8}', "application/json")

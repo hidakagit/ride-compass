@@ -49,7 +49,7 @@ def get(path: str) -> tuple[bytes, str] | None:
 def _write_atomic(final_path: Path, write: Callable[[Path], None]) -> None:
     """同じディレクトリへ一意な一時ファイルを書き、`os.replace`で最終パスへ差し替える。
 
-    改善計画T463: 最終パスへ直接write_bytes/write_textすると、書き込み中の`get()`が
+    改善計画T464: 最終パスへ直接write_bytes/write_textすると、書き込み中の`get()`が
     「存在するが未完了」のファイルを読んでしまう（部分書き込みの混入）。`os.replace`は
     同一ファイルシステム内であればPOSIX/Windowsどちらでもアトミックなため、読み手は
     常に「無い」か「完全に書き終わった内容」のどちらかしか見えなくなる。
@@ -68,7 +68,7 @@ def set(path: str, content: bytes, content_type: str) -> None:
     try:
         key = _cache_key(path)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        # 改善計画T463: get()は`.bin`の存在を「キャッシュ済みか」の判定に使う
+        # 改善計画T464: get()は`.bin`の存在を「キャッシュ済みか」の判定に使う
         # （下記get()参照）ため、`.meta`を先に書き終えてから`.bin`を書く。これにより
         # `.bin`が見えた時点で`.meta`は必ず既に完全に書き終わっている（存在＝完了、を
         # os.replaceのアトミック性と合わせて保証する）。

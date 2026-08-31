@@ -1,4 +1,4 @@
-"""redis_client.py（改善計画T463: get_redis_client_or_noneのfail-open挙動）のテスト。"""
+"""redis_client.py（改善計画T464: get_redis_client_or_noneのfail-open挙動）のテスト。"""
 
 from app.infrastructure import redis_client
 
@@ -10,7 +10,7 @@ def test_get_redis_client_or_none_returns_client_on_success(monkeypatch):
     assert redis_client.get_redis_client_or_none() is sentinel
 
 
-# 改善計画T463: redis.from_url()自体が同期的に例外を送出しうるケース（settings.redis_url
+# 改善計画T464: redis.from_url()自体が同期的に例外を送出しうるケース（settings.redis_url
 # 設定ミス等）に備え、get_redis_client()内部の例外をfail-openで捕捉することの回帰テスト。
 def test_get_redis_client_or_none_returns_none_and_records_failure_on_exception(monkeypatch):
     def _raise():

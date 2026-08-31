@@ -57,7 +57,7 @@ def get_redis_client() -> redis.Redis:
 
 
 def get_redis_client_or_none() -> redis.Redis | None:
-    """`get_redis_client()`のfail-open版（改善計画T463）。
+    """`get_redis_client()`のfail-open版（改善計画T464）。
 
     `redis.from_url()`はURLスキーム不正（`settings.redis_url`の設定ミス）等で同期的に
     例外を送出しうる。この関数の呼び出し元（各cache-asideモジュール）は`client =

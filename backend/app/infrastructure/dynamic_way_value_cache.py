@@ -47,7 +47,7 @@ def bearing_bucket(bearing_deg: float) -> int:
     """向き（0〜360度、範囲外は正規化）をBEARING_BUCKET_DEG刻みのバケット番号（int）へ
     丸める。360度は0度と同じバケットに正規化する（`% 360`をBEARING_BUCKET_DEG丸めの後に
     適用するため、359度台の値がBEARING_BUCKET_DEG刻み数で割り切れずズレたバケットへ
-    分類されることはない）。改善計画T463: 組み込み`round()`は偶数への銀行丸め
+    分類されることはない）。改善計画T464: 組み込み`round()`は偶数への銀行丸め
     （非対称、境界のバケット幅が理論値からずれる）のため、`math.floor(x+0.5)`
     （四捨五入、0.5は常に切り上げ）を使い境界幅を均一にする。"""
     normalized = bearing_deg % 360

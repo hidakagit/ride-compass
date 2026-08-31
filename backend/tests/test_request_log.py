@@ -92,7 +92,7 @@ def test_unhandled_exception_logged_as_error_with_traceback(caplog):
     assert errors[0].exc_info is not None
 
 
-# 改善計画T463: 未処理例外(500)発生時もX-Request-IDヘッダが付くことの回帰テスト。
+# 改善計画T464: 未処理例外(500)発生時もX-Request-IDヘッダが付くことの回帰テスト。
 # request_log_middlewareは例外を再送出するだけで実際の500レスポンスを持たないため
 # （StarletteのServerErrorMiddlewareが外側で生成する）、unhandled_exception_handlerを
 # FastAPIのExceptionハンドラとして登録することでヘッダを付与する（main.py参照）。

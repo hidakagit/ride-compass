@@ -18,7 +18,7 @@ def get_http_client(timeout: float) -> httpx.AsyncClient:
 
 
 async def close_all_http_clients() -> None:
-    """プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ（改善計画T463）。
+    """プロセス終了時にmain.pyのlifespanシャットダウン段から呼ぶ（改善計画T464）。
 
     通常運用ではプロセス終了自体がソケットを回収するため実害は小さいが、テスト・
     スクリプト等でこのモジュールを繰り返しimportして使う場合にコネクションが溜まる
