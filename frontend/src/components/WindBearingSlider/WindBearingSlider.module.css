@@ -6,30 +6,58 @@
 
 .panel {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  gap: 0.2rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 0.4rem;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   pointer-events: auto;
-  /* 地図の上/近くに置く前提のため、パン・ズームジェスチャーとの競合を避ける
-     （WindBearingSlider.tsxコメント参照、実機での最終確認は別途要）。 */
+}
+
+/* 中心から伸びる矢印（WindDirectionArrowIcon）を直接つかんで回すダイヤル。当たり判定は
+   円全体（旧CircularSlider版の細い円環1本より大幅に広い）。地図の上/近くに置く前提のため、
+   BottomSheet等と同じくパン・ズームジェスチャーとの競合を避ける必要があり、
+   touch-action: noneをこのダイヤル自身（矢印の余白を含む円全体）だけに絞る
+   （帯グラフの境界ハンドル[T495]と同じ配慮——ドラッグ系UIのtouch-action: noneを
+   必要最小限の範囲に留める）。 */
+.dial {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-muted);
+  cursor: grab;
   touch-action: none;
 }
 
-.centerValue {
-  display: block;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--foreground);
-  text-align: center;
+.dial:active {
+  cursor: grabbing;
 }
 
-.centerCardinal {
-  display: block;
-  font-size: 0.65rem;
+.dial:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* 矢印自体は北=真上を指す向きで描画されており（WindDirectionArrowIcon）、valueをそのまま
+   transform: rotateへ渡すだけで「北=0・時計回り」という値の定義と視覚表現が一致する。 */
+.arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent-strong);
+  transition: transform 0.05s linear;
+}
+
+.readout {
+  margin: 0;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
-  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

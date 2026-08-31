@@ -1,23 +1,22 @@
-/* 地図左下に常時浮かべる凡例（ユーザー要望2026-08-31）。.locateButton/.locateError
-   （page.module.css、地図右下）と同じ間隔・見た目の慣習（position: absolute、
-   MapLibreの帰属表示と重ならないよう2.5rem空ける、box-shadow: var(--shadow-float)）に
-   揃える。 */
+/* ユーザー指摘（2026-08-31、「スマホだと凡例がルート設定下部パネルを開くと隠れて
+   見えない」）: 当初は地図左下（.locateButton/.locateErrorと同じ間隔・見た目の慣習）に
+   置いていたが、モバイルのBottomSheet（20〜80vh、globals.css/BottomSheet.module.css）は
+   画面下側の大部分を覆うことがあり、タブバーの高さぶんだけ底上げする従来の対策
+   （.bottomControlRow等と同じ手法）では足りなかった。BottomSheetは画面下側からしか
+   せり上がらないため、地図上部（MapOverlayControls[左上]・MapLibreズームコントロール
+   [右上]のどちらとも重ならない上部中央）へ移設し、シートの高さに関わらず隠れないように
+   した。 */
 .wrap {
   position: absolute;
-  left: var(--space-3);
-  bottom: 2.5rem;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 20;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   max-width: 11rem;
   pointer-events: none;
-}
-
-@media (max-width: 640px) {
-  .wrap {
-    bottom: calc(5rem + var(--mobile-tabbar-height));
-  }
 }
 
 .group {

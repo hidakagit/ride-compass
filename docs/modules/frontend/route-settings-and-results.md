@@ -111,22 +111,30 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 定数export（`DEFAULT_ROUTE_PREFERENCE`、`axis-catalog.json`の`preference_defaults`由来）は
 `page.tsx`・admin側が参照する。
 
-## WindBearingSlider.tsx（走行方位スライダー、風・勾配で再利用）
+## WindBearingSlider.tsx（走行方位ダイヤル、風・勾配で再利用）
 
-`@fseehawer/react-circular-slider`（TypeScript対応・依存無し・MIT）を使ったコンパス型UI。
-`value`/`onChange`/`ariaLabel`のみを扱う汎用コンポーネントで、時刻には一切関与しない
-（時刻は別の共有タイムライン`DynamicLayerTimeSlider`が担当）。風・勾配の両方で
-`page.tsx`が`windBearingDeg`/`gradientBearingDeg`という独立したstateで本コンポーネントを
-2箇所マウントする。
+外部ライブラリを使わない自前実装のコンパス型UI。中心から伸びる矢印
+（`Map/icons.tsx: WindDirectionArrowIcon`）を直接つかんで回すダイヤルで、矢印自体が
+指す向きがそのまま値になる。`value`/`onChange`/`ariaLabel`のみを扱う汎用コンポーネントで、
+時刻には一切関与しない（時刻は別の共有タイムライン`DynamicLayerTimeSlider`が担当）。
+風・勾配の両方で`page.tsx`が`windBearingDeg`/`gradientBearingDeg`という独立したstateで
+本コンポーネントを2箇所マウントする。
 
 `cardinalLabel(bearingDeg)`（0〜360度→8方位の日本語ラベル）は`backend/app/domain/geo.py:
 compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側に持つ。
 `WindBearingSlider.test.ts`が既知の入出力ペアでbackendとの一致を検証する。
 
-`trackDraggable`を明示的に有効化している。ライブラリの既定（未指定）では、ドラッグの
-開始点として拾えるのは18px四方のノブ自身だけで、ノブは値が変わるたびにリング上の別の
-位置へ移動するため、タッチでは狙って掴み直すのが難しい。`trackDraggable`を立てると、
-リング（トラック）全周のどこを触ってもドラッグを開始できるようになる。
+角度計算・ドラッグ処理は`RouteSettingsPanel.tsx: startBoundaryDrag`（帯グラフの境界
+ドラッグ）と同じ「pointerdown起点でwindowへ直接pointermove/upを登録する」パターンを
+踏襲する（pointer captureが環境によって確実に効くとは限らないため使わない、という同じ
+理由）。ダイヤル自体（矢印の余白を含む円全体）が当たり判定になり、円のどこを触っても
+ドラッグを開始できる——特定の小さなノブや細いリングを狙う必要が無い。矢印のタップ位置を
+即座に値へ反映する（tap-to-set）ため、ドラッグ開始の初動から値が動く。矢印キー
+（`KEY_STEP_DEG`単位）でのキーボード操作にも対応する。`WindBearingSlider.component.test.tsx`
+（happy-dom）がキーボード操作・aria属性を検証する——ポインタドラッグの角度計算は
+`getBoundingClientRect()`に依存しhappy-domでは実寸を返さないため単体テストで再現できず
+（`RouteSettingsPanel.test.tsx`の帯グラフ境界ドラッグと同じ制約）、Browserペインでの
+実機確認で別途検証する。
 
 ## RouteAxisProfile.tsx（選択中ルートの軸別内訳）
 
