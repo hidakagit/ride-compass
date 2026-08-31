@@ -11,7 +11,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`dynamic_way_values.py` |
-| services | `wind_service.py`・`wind_way_service.py`・`gradient_way_service.py` |
+| services | `wind_way_service.py`・`gradient_way_service.py` |
 | infrastructure | `dynamic_way_value_cache.py`・`wind_forecast_cache.py` |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{material_id}/...`）・`dependencies.py`（`get_dynamic_way_value_service`） |
 
