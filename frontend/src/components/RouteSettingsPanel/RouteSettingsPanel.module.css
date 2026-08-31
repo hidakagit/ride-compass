@@ -78,11 +78,15 @@
      軸スタジオで増減する軸に追従できないため）。 */
 }
 
-/* ユーザー指示（省スペース化）: 軸数（軸スタジオで増減しうる）に比例してパネルの高さが
-   際限なく伸び、地図を覆ってしまうのを防ぐため、内部スクロールで高さの上限を設ける
-   （BottomSheet自体の高さはユーザーがドラッグで調整できるが、パネルの自然な高さが
-   軸数に依存しないようにすることで、地図を見ながら下部で設定するというレイアウトを
-   崩さない）。40dvh程度あれば主要な軸を数件スクロール無しで見渡せる目安値。 */
+/* ユーザー指摘（2026-08-31、「重み配分エリアが独自でスクロールして全体スクロール
+   できないことがある」）: 当初はここへmax-height+overflow-y:autoを持たせていたが、
+   呼び出し元（デスクトップ.app-sidebar・モバイル.app-bottom-sheet .body、いずれも
+   globals.css/BottomSheet.module.cssで既にoverflow-y:autoを持つ）と二重の
+   スクロール領域になり、タッチスクロールがこの内側の領域で止まってしまう
+   （ネストしたスクロールコンテナのアンチパターン）。「軸数に比例してパネルが際限なく
+   伸びる」問題自体は外側のスクロール（サイドバーは高さがビューポートに収まる、
+   BottomSheetはheightVhで高さ固定）で既に解決済みのため、内側の高さ上限は不要と判断し
+   撤去した。 */
 .group {
   border: 1px solid var(--color-border-muted);
   border-radius: var(--radius-sm);
@@ -90,8 +94,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  max-height: 40dvh;
-  overflow-y: auto;
 }
 
 /* 改善計画T435: 以前は1行のflexで「チェックボックス・ラベル(6.5rem固定)・スライダー
@@ -179,9 +181,13 @@
     padding-top: 0;
   }
 
+  /* ユーザー指摘（2026-08-31、「スライドバーの起点、終点の位置（長さ）は揃えて」）:
+     max-widthだと短いラベル（「風」1文字等）ほど列自体が狭くなり、スライダーの開始位置が
+     行ごとにバラついていた。widthで固定し、最長ラベル（「自転車インフラ」）でも収まる
+     幅を全行で共有することで、スライダーの開始・終了位置（＝長さ）を揃える。 */
   .rowLabel {
     flex: 0 0 auto;
-    max-width: 4.4rem;
+    width: 4.4rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -200,6 +206,25 @@
   .mapColorUnavailable {
     padding: 0.2rem 0.3rem;
     white-space: nowrap;
+  }
+
+  /* ユーザー指摘（2026-08-31、「モバイルだと全体的にボタンはじめ部品がやや大きい印象」）:
+     チェックボックスはglobals.cssのモバイル一律ルール（.app-bottom-sheet [role="checkbox"]、
+     1.4rem角、行全体をタップ領域にする<label>構成向けの意図）を、ここでは<label>で
+     包まない構成（コンポーネント側コメント参照）のため打ち消し、素の1.1rem角へ戻す
+     （globals.cssの規則と同じ詳細度[クラス1つ+属性セレクタ]のままだと後勝ちに依存して
+     しまうため、`.group`を挟んで詳細度を1段上げて確実に上書きする）。「色分け」チップ
+     （LayerChip、共通部品のため.chip自体は変更せずここから子孫セレクタでのみ縮小）も
+     同様に縮める。 */
+  .group .checkboxCell [role="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+  }
+
+  .mapColorToggle button {
+    min-height: 28px;
+    padding: 0.2rem 0.6rem;
+    font-size: var(--font-size-sm);
   }
 }
 
