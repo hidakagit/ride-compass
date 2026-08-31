@@ -136,9 +136,9 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 
 ```
 page.tsx
-  ├─ useDynamicWayValues("wind", showWindAxis, viewport, windBearingDeg, targetTime)
+  ├─ useDynamicWayValues("wind", showWindAxis, viewport, travelBearingDeg, targetTime)
   │     → windAxisData.values (ReadonlyMap<wayId, value>)
-  ├─ useDynamicWayValues("gradient", showGradientAxis||showGradientFill, viewport, gradientBearingDeg, undefined)
+  ├─ useDynamicWayValues("gradient", showGradientAxis||showGradientFill, viewport, travelBearingDeg, undefined)
   │     → gradientAxisData.values / gradientFillPayload(gradientGridCellsFromTileResponses経由)
   ├─ dedicatedWayValues = Map(["wind", windAxisData.values], ["gradient", gradientAxisData.values])
   ▼

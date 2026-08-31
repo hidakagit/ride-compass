@@ -1,0 +1,37 @@
+/* MapLibreのズーム+/−・回転コントロール（地図右上、既定で3ボタン=29px×3+枠+余白 約99px）の
+   すぐ下に置く単一の走行方位アイコン。.locateButton（page.module.css、地図右下の円形
+   アイコンボタン）と同じ見た目の慣習（円形・box-shadow）に揃える。 */
+.trigger {
+  position: absolute;
+  top: 6.5rem;
+  right: var(--space-3);
+  z-index: 20;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.trigger[data-state="open"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent-strong);
+}
+
+/* Popover.Content（Portalでdocument.body直下）。RouteSettingsPanel.module.cssの
+   weightDetailPopoverと同じ浮遊カードの見た目。 */
+.popoverContent {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-2);
+  z-index: 60;
+}

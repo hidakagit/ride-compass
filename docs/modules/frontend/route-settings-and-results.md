@@ -12,7 +12,7 @@
 | `components/RouteForm/RouteForm.tsx` | 距離入力・生成ボタン。周回/目的地モード切替 |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
 | `components/WeightPanel/WeightPanel.tsx` | 研究モード向けのscoring_weights（distance/difficulty）編集 |
-| `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパススライダー（風・勾配で再利用） |
+| `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteList/RouteList.tsx` | 生成候補の一覧表示 |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 選択中ルートの軸別difficulty横棒グラフ |
 | `components/ComparisonPanel/ComparisonPanel.tsx` | 研究モードの実験スロット比較表 |
@@ -35,10 +35,6 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
         │                                   地図色分けアイコン（対応軸のみ）
         │                                          │
         └──────────────┬───────────────────────────┘
-                        ▼
-        走行方位設定ポップオーバー（風・勾配のうち色分けONの
-        軸が1件以上あるときだけ現れるボタン）
-                        │
                         ▼
               除外する道路（Disclosure折りたたみ）
 ```
@@ -76,11 +72,10 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - ルート確定後（`hasDetail=true`）は、専用way_id配信レイヤーを持つ軸（風・勾配）の
   色分けアイコンを、案内文（title/aria-label）つきの無効化アイコンへ切り替える——
   ルート確定後はこれらの軸が「生成したルートの色分け」側の役割になるため。
-- 向きコンパス（`WindBearingSlider`、`renderBearingControl`）は、風・勾配の色分けが
-  ONになっている間だけ現れる「走行方位を設定」ボタン（`activeBearingAxes`が1件以上
-  返すときのみ表示）から開くRadix Popoverの中にまとめて表示される。凡例チップ自体には
-  埋め込まない（コンパスのドラッグ操作がtouch-action: noneの領域を持つため、常時
-  表示のチップ列に置くとスクロールを妨げる）。
+- 向きコンパス（`WindBearingSlider`）はこのパネルには存在しない。風・勾配の走行方位は
+  `page.tsx`の単一共有state（`travelBearingDeg`）を地図上の`TravelBearingControl`
+  1箇所からのみ設定する（[ページ全体構成・状態管理](page-composition.md)「動的材料
+  （風・勾配）の状態別表現契約」参照）。
 - `routePreference`（送信対象）とカタログのキー集合を`syncRoutePreferenceKeys`で
   双方向同期する（軸の追加/unpublishに追従。backendは「上書きするなら既知の全axis_id
   キー一致」を要求するため、ズレるとルート生成が422になる）。
@@ -111,14 +106,21 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 定数export（`DEFAULT_ROUTE_PREFERENCE`、`axis-catalog.json`の`preference_defaults`由来）は
 `page.tsx`・admin側が参照する。
 
-## WindBearingSlider.tsx（走行方位ダイヤル、風・勾配で再利用）
+## WindBearingSlider.tsx（走行方位ダイヤル）／TravelBearingControl.tsx（地図上の入口）
 
 外部ライブラリを使わない自前実装のコンパス型UI。中心から伸びる矢印
 （`Map/icons.tsx: WindDirectionArrowIcon`）を直接つかんで回すダイヤルで、矢印自体が
 指す向きがそのまま値になる。`value`/`onChange`/`ariaLabel`のみを扱う汎用コンポーネントで、
 時刻には一切関与しない（時刻は別の共有タイムライン`DynamicLayerTimeSlider`が担当）。
-風・勾配の両方で`page.tsx`が`windBearingDeg`/`gradientBearingDeg`という独立したstateで
-本コンポーネントを2箇所マウントする。
+
+`WindBearingSlider`自体は本コンポーネント表に無い`components/TravelBearingControl/
+TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置かれるアイコンボタン）
+1箇所だけからマウントされる。`page.tsx`の単一共有state`travelBearingDeg`（風・勾配で
+共有、[ページ全体構成・状態管理](page-composition.md)「動的材料（風・勾配）の状態別
+表現契約」参照）を`TravelBearingControl`が受け取り、地図右上（MapLibreのズーム+/−・
+回転コントロールの直下）のアイコンボタンをトリガーにしたRadix Popoverの中で
+`WindBearingSlider`を開閉する。表示条件は風・勾配いずれかの環境/評価軸表示が1件でも
+ONかつ`!hasDetail`（同ファイルのコメント参照）。
 
 `cardinalLabel(bearingDeg)`（0〜360度→8方位の日本語ラベル）は`backend/app/domain/geo.py:
 compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側に持つ。

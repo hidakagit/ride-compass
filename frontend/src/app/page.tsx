@@ -64,7 +64,7 @@ import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
 import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
-import WindBearingSlider from "@/components/WindBearingSlider/WindBearingSlider";
+import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
@@ -1019,15 +1019,16 @@ export default function Home() {
   // 進行方向・到達時刻を使うrouteStyleModes「風」モードへ委ねる）。useDynamicWeatherLayers
   // 呼び出しより前に計算する必要がある（改善計画T432でオプションとして渡すため）。
   const showWindPenaltyFill = showWindVector && !hasDetail;
-  // 動的材料の状態別表現契約（改善計画T414、docs/tasks/T400.md「2.」節）の[時刻,向き]のうち
-  // 「向き」。「環境」グループ（風penalty gridFill）・評価軸としての風（windAxis、T418で
-  // ルート設定パネルから起動する形へ移設）が同じ1つの入力を共有する（[時刻]の共有は
-  // dynamicLayerTargetTime、下記）。この入力共有の関係性自体はT418でも変更していない
-  // （windAxisの起動場所がルート設定パネルへ移っても、向きの指定元は環境グループの
-  // コンパススライダーのまま、docs/tasks/T418.md「T414完了を踏まえた補足」節）。
-  // ルート確定中はパラメータ指定UI自体を出さないため実質未使用になるが、値そのものは
-  // 保持しておき、ルート未確定へ戻ったときに直前の指定を引き継ぐ。
-  const [windBearingDeg, setWindBearingDeg] = useState(0);
+  // ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、1つでいい」）:
+  // 動的材料の状態別表現契約（docs/tasks/T400.md「2.」節）の[時刻,向き]のうち「向き」を、
+  // 風・勾配それぞれ独立したstate（旧windBearingDeg/gradientBearingDeg）から、実際の
+  // 進行方向という単一の概念を表す1つの共有state（travelBearingDeg）へ統合した。
+  // 「環境」グループ（風penalty gridFill・勾配gridFill）・評価軸としての風/勾配
+  // （windAxis/gradientAxis）のいずれもこの1つの値を共有する。設定UIは地図上の
+  // TravelBearingControl（`components/TravelBearingControl/`）1箇所へ集約し、
+  // RouteSettingsPanel内の「走行方位を設定」ボタン・地図下部の個別コンパス
+  // （bottomControlRow）は撤去した。
+  const [travelBearingDeg, setTravelBearingDeg] = useState(0);
   const {
     dynamicWeather,
     sliderFrames,
@@ -1040,7 +1041,7 @@ export default function Home() {
     dynamicLayerTargetTime,
   } = useDynamicWeatherLayers({
     showWindVector,
-    windBearingDeg,
+    windBearingDeg: travelBearingDeg,
     showWindPenaltyFill,
     showPrecipitationNowcast,
     showThunderNowcast,
@@ -1060,16 +1061,13 @@ export default function Home() {
   // ルート設定パネルへ移ったため、hasDetail時のdisabled化は
   // `RouteSettingsPanel.tsx: renderMapColorToggle`が担う）。
   const showWindAxis = layerVisibility.windAxis && !hasDetail;
-  const windAxisData = useDynamicWayValues("wind", showWindAxis, mapViewport, windBearingDeg, dynamicLayerTargetTime);
+  const windAxisData = useDynamicWayValues("wind", showWindAxis, mapViewport, travelBearingDeg, dynamicLayerTargetTime);
 
   // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型だが、勾配は
-  // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有せず、
-  // 向き（gradientBearingDeg）だけ独立したstateとして持つ——`WindBearingSlider`は
-  // 「新規コンポーネントは作らない」方針どおり同じコンポーネントを再利用するが、値そのもの
-  // は風とは独立（docs/tasks/T423.md「確定済みの設計判断」3.）。「環境」グループ
+  // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有しない。
+  // 向き（travelBearingDeg）は風と共有する（上記の統合コメント参照）。「環境」グループ
   // （gradientFill、gridFill面表示）・評価軸としての勾配（gradientAxis）が同じ1つの入力
   // （向き）を共有する（T400.md「2.」節と同じ構造）。表示のON/OFF自体は別チップのまま。
-  const [gradientBearingDeg, setGradientBearingDeg] = useState(0);
   const showGradientFill = layerVisibility.gradientFill && !hasDetail;
   const showGradientAxis = layerVisibility.gradientAxis && !hasDetail;
   // 環境（面）・評価軸（線）どちらかがONの間だけフェッチする（表示中のものだけ叩く方針）。
@@ -1080,7 +1078,7 @@ export default function Home() {
     "gradient",
     showGradientAxis || showGradientFill,
     mapViewport,
-    gradientBearingDeg,
+    travelBearingDeg,
     undefined
   );
   const gradientFillPayload = useMemo(
@@ -1344,10 +1342,6 @@ export default function Home() {
           layerVisibility={layerVisibility}
           onLayerToggle={handleLayerToggle}
           hasDetail={hasDetail}
-          windBearingDeg={windBearingDeg}
-          onWindBearingDegChange={setWindBearingDeg}
-          gradientBearingDeg={gradientBearingDeg}
-          onGradientBearingDegChange={setGradientBearingDeg}
         />
       </div>
     );
@@ -1789,28 +1783,17 @@ export default function Home() {
                 />
               </div>
             )}
-            {/* 改善計画T414: 風の必要パラメータ（時刻＋向き）のうち「向き」を指定する
-                コンパススライダー。地図上（この位置）は「環境」グループ（風penalty
-                gridFill、MapOverlayControls起動）専用。評価軸としての風（windAxis）向けの
-                コンパスは、ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は
-                このコンパスが隠れて実質操作不能）を受けRouteSettingsPanel側（軸の
-                「色分け」トグルのすぐ下）へ移設した——パネルを開いている間しか意味を
-                持たない設定のため、パネルの外（地図上）に置く必然性が無かった。値
-                （windBearingDeg）自体は変わらず共有する。ルート確定後（hasDetail）は
-                パラメータ指定UI自体を消す。 */}
-            {showWindVector && !hasDetail && (
-              <WindBearingSlider value={windBearingDeg} onChange={setWindBearingDeg} ariaLabel="風の走行方位" />
-            )}
-            {/* 改善計画T423: 勾配の必要パラメータ（向きのみ、時刻非依存）を指定する
-                コンパススライダー。風と同じWindBearingSliderを再利用する（新規コンポーネント
-                は作らない、docs/tasks/T423.md「確定済みの設計判断」3.）。地図上（この位置）は
-                「環境」グループ（gradientFill）専用——評価軸としての勾配（gradientAxis）向けは
-                風と同じ理由でRouteSettingsPanel側へ移設済み。値（gradientBearingDeg）は
-                風（windBearingDeg）とは独立。 */}
-            {layerVisibility.gradientFill && !hasDetail && (
-              <WindBearingSlider value={gradientBearingDeg} onChange={setGradientBearingDeg} ariaLabel="勾配の走行方位" />
-            )}
           </div>
+
+          {/* ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、
+              1つでいい」）: 風・勾配それぞれ個別に持っていたコンパス（環境グループの
+              bottomControlRow・RouteSettingsPanel内の「走行方位を設定」）を撤去し、地図上の
+              単一のアイコン（MapLibreのズーム/回転コントロールの下）1箇所へ集約した。
+              「環境」グループ（風penalty gridFill・勾配gridFill）・評価軸（windAxis/
+              gradientAxis）のいずれかが表示中の間だけ現れる。 */}
+          {(showWindVector || showGradientFill || showWindAxis || showGradientAxis) && !hasDetail && (
+            <TravelBearingControl value={travelBearingDeg} onChange={setTravelBearingDeg} />
+          )}
 
           <button
             type="button"

@@ -32,7 +32,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | 種別 | コンポーネント |
 |---|---|
 | 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
-| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー） |
+| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図上アイコン） |
 | ルート設定 | `RouteForm`（モード切替/距離/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
 | ルート結果 | `RouteList`（候補一覧）・`RouteAxisProfile`（選択ルート全体の軸別難易度） |
 | 研究モード | `ComparisonPanel`（実験スロット比較表）。`WeightPanel`自体は`/admin`側 |
@@ -50,35 +50,44 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | レイヤー表示 | `layerVisibility`・`routeStyleModeId`・`hiddenLegendKeysByMode` | localStorage |
 | パネル開閉 | `generateOpen`・`sidebarCollapsed`・`mobileSheet`・`mobileSheetHeightVh` | 一部localStorage |
 | 地図状態 | `regionZoomTooWide`・`layerDataStatus`・`refreshToken`・`debugConsoleOpen` | なし |
-| 動的パラメータ | `windBearingDeg`・`gradientBearingDeg` | なし |
+| 動的パラメータ | `travelBearingDeg` | なし |
 
 ## 動的材料（風・勾配）の状態別表現契約
 
 `page.tsx`は風・勾配それぞれについて「環境グループ（面塗り、探索用）」と「評価軸グループ
 （線、視界内の全道路へ一律色分け）」の2表現を同時に配線する。両者は`[時刻, 向き]`のうち
-共有する入力が異なる:
+「時刻」の扱いが異なる（風のみ時刻依存）が、「向き」は単一の共有state
+`travelBearingDeg`を風・勾配の両方が使う（ユーザー指摘2026-08-31「軸毎やレイヤ毎に
+走行方位が決められるけれど、1つでいい」を受けて統合。以前は`windBearingDeg`/
+`gradientBearingDeg`という独立した2つのstateだった）:
 
 ```
-風:   [時刻]dynamicLayerTargetTime（useDynamicWeatherLayers由来）
-      [向き]windBearingDeg（page.tsxのuseState、WindBearingSliderで操作）
-        │                              │
-        ├─→ 環境（面）: showWindPenaltyFill = showWindVector && !hasDetail
-        │     useDynamicWeatherLayers内でwindPenaltyPayload計算
-        └─→ 評価軸（線）: showWindAxis = layerVisibility.windAxis && !hasDetail
-              useDynamicWayValues("wind", showWindAxis, mapViewport,
-                                  windBearingDeg, dynamicLayerTargetTime)
-
-勾配: [向き]gradientBearingDeg（page.tsxの別のuseState、時刻非依存）
-        │                              │
-        ├─→ 環境（面）: showGradientFill = layerVisibility.gradientFill && !hasDetail
-        │     gradientGridCellsFromTileResponses(gradientAxisData.byTile)
-        └─→ 評価軸（線）: showGradientAxis = layerVisibility.gradientAxis && !hasDetail
-              useDynamicWayValues("gradient", showGradientAxis || showGradientFill,
-                                  mapViewport, gradientBearingDeg, undefined)
+travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）
+  │
+  ├─→ 風:   [時刻]dynamicLayerTargetTime（useDynamicWeatherLayers由来）
+  │           │                              │
+  │           ├─→ 環境（面）: showWindPenaltyFill = showWindVector && !hasDetail
+  │           │     useDynamicWeatherLayers内でwindPenaltyPayload計算
+  │           └─→ 評価軸（線）: showWindAxis = layerVisibility.windAxis && !hasDetail
+  │                 useDynamicWayValues("wind", showWindAxis, mapViewport,
+  │                                     travelBearingDeg, dynamicLayerTargetTime)
+  │
+  └─→ 勾配: （時刻非依存）
+              │                              │
+              ├─→ 環境（面）: showGradientFill = layerVisibility.gradientFill && !hasDetail
+              │     gradientGridCellsFromTileResponses(gradientAxisData.byTile)
+              └─→ 評価軸（線）: showGradientAxis = layerVisibility.gradientAxis && !hasDetail
+                    useDynamicWayValues("gradient", showGradientAxis || showGradientFill,
+                                        mapViewport, travelBearingDeg, undefined)
 ```
 
 いずれも**ルート確定後（`hasDetail`）は環境・評価軸どちらの一律表現も終了**し、「生成した
-ルートの色分け」（`routeStyleModes.ts`由来のモード選択）へ委ねる契約になっている。
+ルートの色分け」（`routeStyleModes.ts`由来のモード選択）へ委ねる契約になっている。設定UIは
+`TravelBearingControl`（地図右上、MapLibreのズーム+/−・回転コントロールの直下に置く
+アイコンボタン）1箇所へ集約されており、風・勾配いずれかの環境/評価軸表示が1つでもONの
+間だけ表示される（`showWindVector || showGradientFill || showWindAxis || showGradientAxis`、
+かつ`!hasDetail`）。中身は`RouteSettingsPanel`と同じ`WindBearingSlider`ダイヤルを
+Radix Popoverで開く。
 
 **暗黙の前提**: `windAxisPenalties`・`gradientAxisValues`・`gradientFillGeojson`（way_id/
 タイル単位の実データ本体）は`MapView.tsx`の`MapViewProps`上で軸ごとに個別に型付けされた
@@ -121,8 +130,8 @@ localStorageへの保存・復元を1箇所に集約する。
   `buildRoadSurfaceSharedLayerIds`経由でレイヤー構成を組み立てる。
 - `axisCatalog.secondaryAxes`（`primaryAttributeIds`）→ `secondaryAxisCasingLayerIds`
   （二次軸の下敷き表現、[静的レイヤー・道路表示](static-map-layers.md)参照）。
-- `windBearingDeg`/`gradientBearingDeg`/`dynamicLayerTargetTime` → 環境/評価軸の
-  風・勾配表現が共有する入力（上記「動的材料の状態別表現契約」参照）。
+- `travelBearingDeg`/`dynamicLayerTargetTime` → 環境/評価軸の風・勾配表現が共有する入力
+  （上記「動的材料の状態別表現契約」参照）。
 
 ## モバイル/デスクトップのレイアウト分岐
 

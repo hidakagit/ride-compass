@@ -2523,8 +2523,10 @@ tileBoundsLonLat`、`domain/region.py: tile_bounds_lonlat`のJS移植）。
 **向き指定UI**: `WindBearingSlider`をそのまま再利用した（新規コンポーネント無し）——
 value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う汎用的な形（時刻は
 コンポーネントの外[`DynamicLayerTimeSlider`]で完結）だったため、コード変更は不要だった。
-`page.tsx`は風（`windBearingDeg`）・勾配（`gradientBearingDeg`）で独立したstateを持ち、
-それぞれ`WindBearingSlider`を独立してマウントする。
+`page.tsx`は風・勾配で単一の共有state`travelBearingDeg`を持ち、地図上の
+`TravelBearingControl`1箇所からのみ`WindBearingSlider`をマウントする
+（詳細は[docs/modules/frontend/page-composition.md](modules/frontend/page-composition.md)
+「動的材料（風・勾配）の状態別表現契約」参照）。
 
 **preprocess="abs"対応（改善計画T404の先送り分）**: T423での調査の結果、実装しないことを
 最終決定した——absを使う軸は`gradient`のみで、`gradient`が参照する材料`gradient_percent`は
