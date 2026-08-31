@@ -18,7 +18,10 @@ import {
   type RasrfFrame,
 } from "@/components/Map/precipitationNowcast";
 import { windFrames, windRenderPayload, WIND_GRID_SPACING_DEG, type MapViewport } from "@/components/Map/windLayer";
-import { windPenaltyGridToCellFeatureCollection } from "@/components/Map/windPenalty";
+import {
+  coarseGridPointsOutsideDetailBounds,
+  windPenaltyGridToCellFeatureCollection,
+} from "@/components/Map/windPenalty";
 import {
   fetchThunderNowcastFrames,
   thunderFrames,
@@ -222,6 +225,7 @@ export function useDynamicWeatherLayers({
   // どちらか一方でもONならenabledにすることで両方ONのときも1本のフェッチで済む。
   const {
     grid: windGrid,
+    detailGrid: windDetailGrid,
     effectiveGrid: effectiveWindGrid,
     effectiveGridSpacingDeg,
     loading: windLoading,
@@ -344,20 +348,24 @@ export function useDynamicWeatherLayers({
   // カバーしないことがあるため、常に関東本土全域をカバーするwindGrid（粗い格子、
   // useWeatherGrid.ts参照）から同じ配色ロジックでセルを作る。frameIndexは同じ
   // windFramesList（windGrid由来）を使うため、windPayload/windPenaltyPayloadと常に
-  // 同じ時刻を指す。
+  // 同じ時刻を指す。coarseGridPointsOutsideDetailBoundsで詳細格子がカバー済みの点を
+  // 除いてから作る（実機報告2026-08-31「境界に色の段差が見える」——詳細格子と粗い格子の
+  // セルを同じ場所へ両方重ねると半透明が二重に重なって不自然に濃くなる、windPenalty.ts
+  // 側コメント参照）。
   const windPenaltyCoarsePayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
     if (index == null || windGrid.length === 0) return undefined;
+    const coarsePoints = coarseGridPointsOutsideDetailBounds(windGrid, windDetailGrid, effectiveGridSpacingDeg);
     return {
       kind: "gridFill",
       geojson: windPenaltyGridToCellFeatureCollection(
-        windGrid,
+        coarsePoints,
         windFramesList[index].ref,
         debouncedWindBearingDeg,
         WIND_GRID_SPACING_DEG
       ),
     };
-  }, [windFramesList, dynamicLayerTargetTime, windGrid, debouncedWindBearingDeg]);
+  }, [windFramesList, dynamicLayerTargetTime, windGrid, windDetailGrid, effectiveGridSpacingDeg, debouncedWindBearingDeg]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;

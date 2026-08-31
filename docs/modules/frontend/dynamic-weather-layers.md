@@ -91,7 +91,11 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 セルを作る。可視条件（`showWindPenaltyFill`）は`penaltyFill`と同じ。`DYNAMIC_WEATHER_RENDERERS.
 windVector`内で`penaltyFillCoarse`を`penaltyFill`より前に定義しており、`ensureDynamicWeather
 Layer`がgroupSpecのキー順=`addLayer`呼び出し順で描画するため、粗い格子が背面・詳細格子が
-前面になる。
+前面になる。`windPenalty.ts: coarseGridPointsOutsideDetailBounds`が、粗い格子の点のうち
+詳細格子の点集合のバウンディングボックス（詳細格子の間隔ぶん外側へ余裕を持たせたもの）に
+入るものを除いてからセル化する——除かずに両方を同じ場所へ重ねて描画すると、半透明の
+fill-opacityが二重に重なって詳細格子の範囲だけ不自然に濃くなる（実機報告2026-08-31
+「境界に色の段差が見える」）。
 
 ## 新しい動的要素を追加する1本道
 

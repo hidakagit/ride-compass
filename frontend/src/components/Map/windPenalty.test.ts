@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { windPenalty, windPenaltyGridToCellFeatureCollection } from "./windPenalty";
+import { coarseGridPointsOutsideDetailBounds, windPenalty, windPenaltyGridToCellFeatureCollection } from "./windPenalty";
 import type { WindGridPoint } from "@/types/weather";
 
 describe("windPenalty", () => {
@@ -41,5 +41,28 @@ describe("windPenaltyGridToCellFeatureCollection", () => {
   it("skips points with missing values at the given frame index", () => {
     const fc = windPenaltyGridToCellFeatureCollection(grid, 5, 0, 0.1);
     expect(fc.features).toHaveLength(0);
+  });
+});
+
+describe("coarseGridPointsOutsideDetailBounds", () => {
+  function makePoint(latitude: number, longitude: number): WindGridPoint {
+    return { latitude, longitude, wind_speed_ms: [4], wind_direction_deg: [90], precipitation_mm: [0], times: ["2026-08-30T08:00"] };
+  }
+
+  it("returns all coarse points unfiltered when the detail grid is empty", () => {
+    const coarse = [makePoint(35.7, 139.7), makePoint(35.9, 139.9)];
+    expect(coarseGridPointsOutsideDetailBounds(coarse, [], 0.01)).toEqual(coarse);
+  });
+
+  it("excludes coarse points inside the detail grid's bounding box (plus half spacing padding)", () => {
+    const coarse = [
+      makePoint(35.7, 139.7), // 詳細格子の範囲内 → 除外される
+      makePoint(35.9, 139.9), // 詳細格子の範囲外 → 残る
+    ];
+    const detail = [makePoint(35.69, 139.69), makePoint(35.71, 139.71)];
+    // detailの範囲: lat[35.69,35.71] lon[139.69,139.71] を spacingDeg/2=0.005 だけ広げる
+    // → lat[35.685,35.715] lon[139.685,139.715]。(35.7,139.7)はこの中に入るため除外される。
+    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.01);
+    expect(result).toEqual([makePoint(35.9, 139.9)]);
   });
 });

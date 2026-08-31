@@ -84,12 +84,16 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
   同じ配色・しきい値を共有する契約をコード上でも1箇所に集約する。
 - `windAxisLegend(boundaries?)`/`gradientAxisLegend(boundaries?)`は、同じ配色・しきい値
   から地図上の凡例（色→値の対応、`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。
-  `page.tsx`が`showWindAxis`/`showGradientAxis`（ONの間だけ）・ramp軸（`axisVisibility`、
+  `page.tsx`が`showWindAxis || showWindPenaltyFill`/`showGradientAxis || showGradientFill`
+  （評価軸の線・環境グループのgridFillのどちらか一方でもONの間）・ramp軸（`axisVisibility`、
   `axisLayers.ts: buildAxisRampLegend`）を横断して集め、`MapColorLegend`
-  （`components/MapColorLegend/`）が地図左下に常時表示する。ramp軸の凡例は
+  （`components/MapColorLegend/`）が地図上部中央に常時表示する（モバイルのBottomSheetが
+  画面下側を覆っても隠れないための配置、コンポーネント側コメント参照）。ramp軸の凡例は
   絞り込みフィルタと共有する`LegendEntry`（`filter`必須）を返すが、windAxis/gradientAxisには
   絞り込み機構自体が無いため、意味の無い`filter`を捏造せずに済む`MapColorLegendBand`
-  （`{label, color}`のみ）という軽量な専用型を使う。
+  （`{label, color}`のみ）という軽量な専用型を使う。環境グループのgridFillも評価軸グループの
+  線と同じ`windAxisLegend`/`gradientAxisLegend`をそのまま使う（同じ配色・しきい値を
+  共有する契約のため、凡例データ自体は変わらず表示条件だけを広げている）。
 
 ## windPenalty.ts / gradientGridFill.ts（環境グループの面表示、計算方法が異なる）
 

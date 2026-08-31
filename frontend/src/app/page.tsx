@@ -222,9 +222,14 @@ const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
+// ユーザー指摘（2026-08-31「矢印の色と背景色が全然違うのは直ってない。凡例に従っていない」）:
+// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、面塗り（windPenalty、
+// 走行方位に対する向かい風/追い風、mapColorLegendGroups参照）とは別の配色系統。以前は
+// label=""で無題のまま出しており、「地図の色の凡例」だと誤認しやすかったため、
+// 「矢印（風速）」と明示する。
 const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
-    label: "",
+    label: "矢印（風速）",
     legend: WIND_SPEED_LEGEND_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
@@ -1138,14 +1143,24 @@ export default function Home() {
         });
       }
     }
-    if (showWindAxis) {
+    // ユーザー指摘（2026-08-31「矢印の色と背景色が全然違うのは直ってない。凡例に従って
+    // いない」）: 評価軸（線、showWindAxis/showGradientAxis）だけでなく環境グループの
+    // gridFill（showWindPenaltyFill/showGradientFill、MapOverlayControlsの「環境」チップ
+    // から一番先に触る導線）も同じ配色・しきい値（windPenaltyFillColorExpression/
+    // windAxisLegendが共有する契約、windPenalty.ts冒頭コメント参照）を使うため、この凡例で
+    // 説明できる。以前はshowWindAxis/showGradientAxis（RouteSettingsPanel側の「地図で色分け」
+    // トグル）単独でしか出しておらず、「環境」チップだけをONにした状態（矢印+面塗り）では
+    // 面塗りの色を説明する凡例がどこにも出ない穴になっていた（矢印自体は風速ベースの別配色
+    // [WIND_SPEED_LEGEND_LEVELS]の専用ポップオーバーを持つため、それを「背景色の凡例」と
+    // 誤認しやすかった）。
+    if (showWindAxis || showWindPenaltyFill) {
       groups.push({
         axisId: "wind",
         label: axisCatalog.axisLabels.wind ?? "風",
         bands: windAxisLegend(dedicatedWayValueBoundaries.get("wind")),
       });
     }
-    if (showGradientAxis) {
+    if (showGradientAxis || showGradientFill) {
       groups.push({
         axisId: "gradient",
         label: axisCatalog.axisLabels.gradient ?? "勾配",
@@ -1153,7 +1168,16 @@ export default function Home() {
       });
     }
     return groups;
-  }, [axisCatalog.rampAxes, axisCatalog.axisLabels, axisVisibility, showWindAxis, showGradientAxis, dedicatedWayValueBoundaries]);
+  }, [
+    axisCatalog.rampAxes,
+    axisCatalog.axisLabels,
+    axisVisibility,
+    showWindAxis,
+    showWindPenaltyFill,
+    showGradientAxis,
+    showGradientFill,
+    dedicatedWayValueBoundaries,
+  ]);
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
