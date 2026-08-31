@@ -568,6 +568,58 @@ describe("AxisComposer", () => {
       expect(screen.getByLabelText("しきい値2")).toHaveValue(2);
       expect(screen.getByLabelText("しきい値3")).toHaveValue(4);
     });
+
+    it("改善計画T501回帰テスト: 複製元のdisplay_thresholds_overrideは複製先へ引き継がず自動計算(null)へリセットされる", async () => {
+      const source = baseDefinition({ axis_id: "gradient", display_thresholds_override: [-2, 2, 6, 10] });
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={source} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await clickNext(user);
+      await clickNext(user);
+      await clickNext(user);
+
+      expect(screen.queryByLabelText("しきい値1")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "+ しきい値を自分で設定する" })).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================
+  // 改善計画T501: 公開済み軸を編集対象に開いた場合の制限モード
+  // （表示専用フィールドのみ編集、材料・計算式・重みのステップは出さない）
+  // ============================================================
+  describe("公開済み軸の表示専用フィールド編集(制限モード)", () => {
+    it("ステッパー・戻る/次へボタンを出さず、表示専用フィールドの編集画面のみを表示する", async () => {
+      const editing = baseDefinition({ is_published: true });
+      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      expect(screen.getByLabelText("地図チップの略称(chip_label)")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "次へ" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "戻る" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: "公開する" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "更新する" })).toBeInTheDocument();
+    });
+
+    it("表示専用フィールドだけを変更して保存すると、材料・計算式・重み・is_publishedは既存のまま送信される", async () => {
+      const editing = baseDefinition({
+        is_published: true,
+        default_weight: 0.42,
+        icon_id: "old_icon",
+      });
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByLabelText("地図チップの略称(chip_label)"), "新称");
+      await user.click(screen.getByRole("button", { name: "更新する" }));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalled());
+      const [payload, isNew] = onSave.mock.calls[0];
+      expect(isNew).toBe(false);
+      expect(payload.chip_label).toBe("新称");
+      expect(payload.is_published).toBe(true);
+      expect(payload.default_weight).toBe(0.42);
+      expect(payload.shape).toEqual(editing.shape);
+    });
   });
 
   // ============================================================

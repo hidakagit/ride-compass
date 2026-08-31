@@ -203,7 +203,7 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 |---|---|---|
 | `GET /api/admin/axis-definitions`・`/{axis_id}` | Basic認証必須 | 一覧・単体取得。レスポンスは`display`（`axis_display_for()`の計算結果）も含む——下書き軸の自己診断（地図表示データがまだ用意されていないか）のため |
 | `POST /api/admin/axis-definitions` | Basic認証必須 | 作成 |
-| `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは拒否） |
+| `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは原則拒否。改善計画T501: 表示専用フィールド[`icon_id`/`chip_label`/`panel_hint`/`show_map_icon`/`display_thresholds_override`]のみの差分は例外的に許可） |
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
@@ -231,7 +231,7 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 | 操作 | ガード |
 |---|---|
 | create | axis_idが既存材料idと衝突していないか（衝突すると評価時に材料値を黙って上書きする）。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
-| update | 公開済みは拒否（`check_publish_immutability`）。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
+| update | 公開済みは原則拒否（`check_publish_immutability`）。ただし改善計画T501: `candidate`引数を渡すと、表示専用フィールドのみの差分（`is_cosmetic_only_update`）なら公開済みでも許可する。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
 | delete | 最後の1軸は削除不可。`_CODE_COUPLED_AXIS_ID`（下記）に該当する軸は削除不可。公開済みは拒否 |
 | unpublish | `is_published`のみを変更する専用操作（`update()`は使えない、公開済みは拒否されるため） |
 

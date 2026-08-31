@@ -477,8 +477,11 @@ function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]
 }
 
 interface AxisComposerProps {
-  /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。公開済み軸は
-   * 呼び出し側（AxisStudio）が編集ボタン自体を無効化するため、ここへは渡らない想定。 */
+  /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。改善計画T501:
+   * 公開済み軸も渡りうる——その場合は材料・計算式・重み等の編集UIを一切出さず、
+   * 表示専用フィールド（icon_id・chip_label・panel_hint・show_map_icon・
+   * display_thresholds_override）だけを編集する制限モードへ自動的に切り替わる
+   * （下記`restrictedDisplayOnly`参照）。 */
   editing: AxisDefinitionResponse | null;
   /** 複製元（改善計画T271）。editingがnullのとき、この軸の内容（axis_id/is_published除く）
    * で新規作成フォームを初期化する。 */
@@ -517,7 +520,12 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const categoricalMaterialValues = useMaterialValues(
     selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null,
   );
-  const [stepIndex, setStepIndex] = useState(0);
+  // 改善計画T501: 公開済み軸を編集対象に開いた場合、材料・計算式・重み等の
+  // ステップ（1〜3）を一切見せず、常に最終ステップ（表示専用フィールドのみ）から
+  // 動かさない。goNext/goBackはこのモードでは呼ばれない（対応するボタンを描画しない）ため
+  // stepIndexが動く余地はない。
+  const restrictedDisplayOnly = editing !== null && editing.is_published;
+  const [stepIndex, setStepIndex] = useState(() => (restrictedDisplayOnly ? STEPS.indexOf("display_publish") : 0));
   const step = STEPS[stepIndex];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1349,15 +1357,47 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           </label>
         </div>
 
-        <label className={styles.inlineCheckbox}>
-          <Checkbox
-            checked={draft.isPublished}
-            onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
-            aria-label="公開する"
-          />
-          公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
-        </label>
+        {/* 改善計画T501: 制限モード（公開済み軸を表示専用フィールドだけ編集）では
+            is_publishedを変更させない（変更するとcheck_publish_immutability/
+            is_cosmetic_only_updateの表示専用フィールドのみという前提から外れ、backend側で
+            拒否される）。公開状態の切り替えは「非公開に戻す」専用ボタン（AxisStudio.tsx）
+            に導線を一本化済み。 */}
+        {!restrictedDisplayOnly && (
+          <label className={styles.inlineCheckbox}>
+            <Checkbox
+              checked={draft.isPublished}
+              onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
+              aria-label="公開する"
+            />
+            公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
+          </label>
+        )}
       </>
+    );
+  }
+
+  // 改善計画T501: 公開済み軸は材料・計算式・重みのステップ自体を出さず、表示専用
+  // フィールドの編集画面のみを1画面で完結させる（ステッパー・戻る/次へボタンは不要）。
+  if (restrictedDisplayOnly) {
+    return (
+      <form onSubmit={handleSubmit} className={styles.composer}>
+        <p className={styles.hint}>
+          公開済みの軸のため、地図表示に関わる項目のみ編集できます（材料・計算式・重みを変えたい場合は「複製して新規作成」してください）。
+        </p>
+
+        {renderDisplayPublishStep()}
+
+        {error && <p className={styles.errorText}>{error}</p>}
+
+        <div className={styles.row}>
+          <button type="submit" disabled={saving} className={styles.saveButton}>
+            {saving ? "保存中..." : "更新する"}
+          </button>
+          <button type="button" onClick={onCancelEdit} disabled={saving}>
+            編集をやめる
+          </button>
+        </div>
+      </form>
     );
   }
 

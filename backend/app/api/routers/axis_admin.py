@@ -82,7 +82,8 @@ class AxisDefinitionFields(BaseModel):
     # 改善計画T271: 公開状態（一般向けGET /api/axis-catalogへ出るか）。既定Falseは
     # 「新規作成した軸はまず下書き」という安全側の初期値。公開済み軸への更新・削除は
     # AxisRegistryAdminServiceが拒否する（このPayload自体はis_published=falseで送っても
-    # 既存が公開済みなら通らない、サービス層のcheck_publish_immutability参照）。
+    # 既存が公開済みなら通らない。ただし改善計画T501: 表示専用フィールドのみの差分は
+    # 例外的に許可する、サービス層のcheck_publish_immutability/is_cosmetic_only_update参照）。
     is_published: bool = False
     # 改善計画T292: 0次条件（探索除外のハードフィルタとは別の、評価を優先確定する条件。
     # domain/axis_definitions.py: PriorityCondition参照）。レビュー指摘の修正:

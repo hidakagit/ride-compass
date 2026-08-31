@@ -343,9 +343,12 @@ describe("AxisStudio", () => {
   });
 
   // 改善計画T397フォローアップ（ユーザー指摘: 公開済み/未公開をタブで分けたい）:
-  // 「非公開に戻す」は公開済みタブにのみ現れ、下書きタブには編集・削除ボタンが現れる
-  // （公開済みタブは編集・削除ボタン自体を出さない設計、AxisStudio.tsx参照）。
-  it("下書きタブには編集・削除ボタンが、公開済みタブには非公開に戻すボタンが現れる", async () => {
+  // 「非公開に戻す」は公開済みタブにのみ現れ、下書きタブには編集・削除ボタンが現れる。
+  // 削除ボタンは公開済みタブに出さない設計のまま（AxisStudio.tsx参照）だが、
+  // 改善計画T501で公開済みタブにも「表示だけ編集」（材料・計算式・重みを一切
+  // 変更できない制限モードでAxisComposerを開く）ボタンを追加した——「編集」とは
+  // 別のアクセシブルネームのため、下記の「編集」ボタン不在の確認とは独立に共存する。
+  it("下書きタブには編集・削除ボタンが、公開済みタブには表示だけ編集・非公開に戻すボタンが現れる", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
       definition({ axis_id: "gradient", is_published: true }),
       definition({ axis_id: "draft_axis", label: "下書き軸", is_published: false }),
@@ -361,7 +364,24 @@ describe("AxisStudio", () => {
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "非公開に戻す" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "表示だけ編集" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "編集" })).not.toBeInTheDocument();
+  });
+
+  it("改善計画T501: 公開済み軸の「表示だけ編集」を押すと、その軸の内容で制限モードの編集モーダルが即座に開く", async () => {
+    vi.mocked(listAxisDefinitions).mockResolvedValue([
+      definition({ axis_id: "gradient", label: "勾配", is_published: true }),
+    ]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
+    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "表示だけ編集" }));
+
+    expect(screen.getByRole("dialog", { name: "表示専用フィールドを編集: 勾配" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "更新する" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "次へ" })).not.toBeInTheDocument();
   });
 
   // 改善計画T331残り5項目: AxisStudio.tsxのCRUD実行系（複製・削除・非公開化・保存）の

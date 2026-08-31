@@ -28,12 +28,15 @@ listAxisDefinitions() ──→ definitions（全軸）
               ┌───────────────┼────────────────┐
               ▼                                ▼
       下書きタブ（is_published=false）   公開済みタブ（is_published=true）
-      編集・複製・削除ボタン             複製・非公開化ボタンのみ
+      編集・複製・削除ボタン             表示だけ編集・複製・非公開化ボタン
 ```
 
 - 下書きタブが既定表示（新規作成した軸はまず下書きから始まるため）。
-- 公開済みタブは編集・削除ボタン自体を出さない（backendの`AxisPublishedImmutableError`と
-  対応。改良は「複製して新規作成」、削除は先に「非公開に戻す」という導線）。
+- 公開済みタブに削除ボタンは出さない（backendの`AxisPublishedImmutableError`と対応。
+  削除は先に「非公開に戻す」という導線）。改善計画T501: 「表示だけ編集」ボタンは
+  `AxisComposer`を制限モード（`editing.is_published`を見て自動判定、材料・計算式・
+  重みのステップを一切出さず表示専用フィールドのみ編集できる1画面フォーム）で開く。
+  材料・計算式・重みを変えたい場合は引き続き「複製して新規作成」に導線を残す。
 - 削除前チェック: `axesReferencing(axisId, definitions)`が、削除しようとしている軸を
   他の軸が材料として参照していないか調べ、参照があれば確認ダイアログ（`window.confirm`）で
   警告する（一律拒否はしない、最終判断はユーザーに委ねる）。
@@ -65,6 +68,17 @@ listAxisDefinitions() ──→ definitions（全軸）
 表示名必須、`shape_params`は折れ点のx昇順・categorical材料のスコア行1件以上、
 `display_publish`はchip_labelの4文字制限・display_thresholds_overrideの昇順）、
 最終保存直前にも全ステップを再検証する（戻って値を空にしたまま進んだ場合の安全網）。
+
+**改善計画T501（制限モード）**: `editing`が公開済み軸（`editing.is_published`）の場合、
+`restrictedDisplayOnly`が`true`になり通常の4ステップ構成を迂回する——`stepIndex`の
+初期値を`display_publish`へ固定し、ステッパー・戻る/次へボタンを描画せず
+`renderDisplayPublishStep()`（表示専用フィールドのみ）を単独の1画面フォームとして表示する。
+このステップ内の`公開する`チェックボックスもこのモードでは非表示にする（is_published自体は
+変更させない。切替は`AxisStudio.tsx`の「非公開に戻す」ボタンへ導線を一本化）。他ステップの
+入力欄が無いぶん、`draft`の該当フィールド（label・shape・default_weight等）は
+`draftFromExisting`が読み込んだ既存値のまま素通しで保存される。backend側は
+`is_cosmetic_only_update`でこの差分が表示専用フィールドのみであることを再検証する
+（[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)参照）。
 
 ### `shape_kind`ステップの3カード（フロントUI専用の分類）
 
@@ -145,10 +159,13 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 - `axis_id`はユーザー入力欄を持たない。新規作成/複製時は`generateAxisId()`が
   `crypto.randomUUID()`（利用不可な非セキュアコンテキストでは`Math.random()`ベースの
   フォールバック）で自動採番する。編集時は既存の`axis_id`をそのまま使う。
-- このフォームに編集欄を持たないフィールド（`priority_overrides`・
-  `display_thresholds_override`の生JSON相当・`time_scope`・`supports_route_coloring`・
-  `dedicated_way_value_layer`）も、既存軸の値をdraftへ素通しして保存時に再送する
-  （未送信だとサーバー側の既定値で上書きされ、既存軸の値が失われるため）。
+- このフォームに編集欄を持たないフィールド（`priority_overrides`・`time_scope`・
+  `supports_route_coloring`・`dedicated_way_value_layer`・
+  `dynamic_way_value_needs_time`・`dynamic_way_value_needs_bearing`）も、既存軸の値を
+  draftへ素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
+  値が失われるため）。`display_thresholds_override`はT404で専用の編集UI（`display_publish`
+  ステップの数値配列エディタ）を持ったため、このリストには含まない
+  （ドキュメントドリフト是正、改善計画T501着手時に発見）。
 - 軸スタジオが作る軸の`category`は常に`"推定"`固定（観測/動的は材料側の性質であり、
   材料を組み合わせて判定式を作る軸スタジオの仕組みからは生み出せないというユーザー判断）。
 

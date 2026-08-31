@@ -60,7 +60,9 @@ class FakeAxisRegistryAdminService:
     async def update(self, axis_id: str, definition: AxisDefinition) -> None:
         if axis_id not in self._definitions:
             raise KeyError(axis_id)
-        check_publish_immutability(self._definitions[axis_id], "updated")
+        # 改善計画T501: candidateを渡すことで表示専用フィールドのみの差分を例外的に許可する
+        # （実サービスaxis_registry_service.py: update()と同じ呼び出し方に揃える）。
+        check_publish_immutability(self._definitions[axis_id], "updated", definition)
         self._definitions[axis_id] = definition
 
     async def delete(self, axis_id: str) -> None:
@@ -622,6 +624,19 @@ def test_update_returns_409_for_published_axis(override_service):
 
     assert response.status_code == 409
     assert override_service._definitions["test_axis"].default_weight == 0.1
+
+
+def test_update_returns_200_for_published_axis_cosmetic_only_change(override_service):
+    # 改善計画T501: 表示専用フィールド（icon_id等）のみの差分なら、公開済み軸でも
+    # unpublishを経由せず直接更新できる。
+    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
+    updated_payload = {**_PAYLOAD, "is_published": True, "icon_id": "new_icon", "chip_label": "新略称"}
+
+    response = client.put("/api/admin/axis-definitions/test_axis", json=updated_payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    assert override_service._definitions["test_axis"].icon_id == "new_icon"
+    assert override_service._definitions["test_axis"].is_published is True
 
 
 def test_delete_returns_404_for_unknown_axis_id(override_service):

@@ -350,6 +350,11 @@ class AxisPublishedImmutableError(ValueError):
     再現されるため、公開後の破壊的変更・削除は他ユーザーの設定を黙って壊す。
     改良したい場合は複製（新しいaxis_idの下書き軸として作成）してから公開する導線を
     UI側に用意する（この関数は変更を一切拒否するのみで、複製自体は関与しない）。
+
+    改善計画T501: ただし更新（`action="updated"`）については、`_COSMETIC_ONLY_FIELDS`
+    のみの差分（評価ロジック・重みに一切影響しない見た目専用の変更）なら例外的に許可する
+    （`check_publish_immutability`の`candidate`引数参照）。T271の原則自体
+    （評価結果に影響しうる変更・削除は不変）は変えない。
     """
 
     def __init__(self, axis_id: str, action: str) -> None:
@@ -361,10 +366,31 @@ class AxisPublishedImmutableError(ValueError):
         )
 
 
-def check_publish_immutability(existing: AxisDefinition, action: str) -> None:
+# 改善計画T501: 評価ロジック（shape・default_weight・priority_overrides等）に一切影響しない
+# 表示専用フィールドのみ、公開済み軸でも直接更新を許可する（unpublish→update→republishの
+# 手順を経由しなくてよい）。値を変えてもaxis_idキーで再現される他ユーザーの保存重み設定・
+# ルート計算結果は変わらないため、T271が防ごうとしている問題を再発させない。
+_COSMETIC_ONLY_FIELDS = frozenset(
+    {"icon_id", "chip_label", "panel_hint", "show_map_icon", "display_thresholds_override"}
+)
+
+
+def is_cosmetic_only_update(existing: AxisDefinition, candidate: AxisDefinition) -> bool:
+    """`existing`から`candidate`への差分が`_COSMETIC_ONLY_FIELDS`だけかどうかを判定する
+    （改善計画T501）。`existing`へ`candidate`側の表示専用フィールドだけを重ねた結果が
+    `candidate`と完全一致すれば、それ以外のフィールドは変わっていないと分かる。"""
+    patched = existing.model_copy(update={field: getattr(candidate, field) for field in _COSMETIC_ONLY_FIELDS})
+    return patched == candidate
+
+
+def check_publish_immutability(existing: AxisDefinition, action: str, candidate: AxisDefinition | None = None) -> None:
     """`existing`が公開済みなら`AxisPublishedImmutableError`を送出する（更新・削除の
-    どちらの直前でも呼べる汎用関数、`action`はエラーメッセージ用の英語動詞句）。"""
-    if existing.is_published:
+    どちらの直前でも呼べる汎用関数、`action`はエラーメッセージ用の英語動詞句）。
+
+    改善計画T501: `candidate`（更新後の内容）が渡され、かつその差分が表示専用
+    フィールドのみ（`is_cosmetic_only_update`）の場合は例外的に許可する。`delete()`のように
+    `candidate`が無い呼び出しは従来どおり一律拒否のまま。"""
+    if existing.is_published and not (candidate is not None and is_cosmetic_only_update(existing, candidate)):
         raise AxisPublishedImmutableError(existing.axis_id, action)
 
 

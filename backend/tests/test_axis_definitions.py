@@ -14,6 +14,7 @@ from app.domain.axis_definitions import (
     check_internal_axis_not_published,
     check_material_exclusivity,
     check_publish_immutability,
+    is_cosmetic_only_update,
     evaluate_axis_scalar,
 )
 from app.domain.recipe import bicycle_infra_flags, cycleway_values
@@ -280,6 +281,47 @@ def test_check_publish_immutability_rejects_published():
 
     assert exc_info.value.axis_id == "published_axis"
     assert exc_info.value.action == "deleted"
+
+
+def test_check_publish_immutability_rejects_published_semantic_change():
+    # 改善計画T501: candidateを渡しても、表示専用フィールド以外（ここではdefault_weight）
+    # が変わっていれば従来どおり拒否する。
+    published = _definition("published_axis", "material_a", is_published=True)
+    candidate = published.model_copy(update={"default_weight": 0.9})
+
+    with pytest.raises(AxisPublishedImmutableError):
+        check_publish_immutability(published, "updated", candidate)
+
+
+def test_check_publish_immutability_allows_published_cosmetic_only_change():
+    # 改善計画T501: 表示専用フィールド（icon_id等）だけの差分ならcandidateを渡すことで
+    # 公開済み軸への更新を例外的に許可する。
+    published = _definition("published_axis", "material_a", is_published=True)
+    candidate = published.model_copy(update={"icon_id": "new_icon", "chip_label": "新略称"})
+
+    check_publish_immutability(published, "updated", candidate)  # 例外が出ないことを確認
+
+
+def test_is_cosmetic_only_update_true_for_display_fields_only():
+    existing = _definition("axis_a", "material_a", is_published=True)
+    candidate = existing.model_copy(
+        update={
+            "icon_id": "x",
+            "chip_label": "略称",
+            "panel_hint": "ヒント",
+            "show_map_icon": False,
+            "display_thresholds_override": [1.0, 2.0],
+        }
+    )
+
+    assert is_cosmetic_only_update(existing, candidate) is True
+
+
+def test_is_cosmetic_only_update_false_when_shape_changes():
+    existing = _definition("axis_a", "material_a", is_published=True)
+    candidate = existing.model_copy(update={"default_weight": existing.default_weight + 0.1})
+
+    assert is_cosmetic_only_update(existing, candidate) is False
 
 
 # --- check_internal_axis_not_published（T311フォローアップ回帰テスト） ---

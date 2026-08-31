@@ -149,7 +149,9 @@ export default function AxisStudio() {
 
   const editingDefinition = definitions?.find((d) => d.axis_id === editingAxisId) ?? null;
   const composerTitle = editingDefinition
-    ? `軸を編集: ${editingDefinition.label}`
+    ? editingDefinition.is_published
+      ? `表示専用フィールドを編集: ${editingDefinition.label}`
+      : `軸を編集: ${editingDefinition.label}`
     : duplicateFrom
       ? `「${duplicateFrom.label}」を複製して新しい軸を作る`
       : "新しい軸を作る";
@@ -181,10 +183,12 @@ export default function AxisStudio() {
 
       {/* 改善計画T397フォローアップ（ユーザー指摘: 公開済みと未公開をタブで分けたい）。
           下書きタブを既定にする——新規作成した軸はまず下書きから始まり、実際の編集・
-          削除操作もほぼ下書きに対して行うため。公開済みタブは編集・削除ボタン自体を
-          出さない（常に無効化されているだけの状態を見せるより、そもそも出さない方が
-          シンプル。改良は「複製して新規作成」、削除は先に「非公開に戻す」という導線は
-          複製・非公開に戻すボタンの隣に残す）。 */}
+          削除操作もほぼ下書きに対して行うため。公開済みタブに削除ボタンは出さない
+          （常に無効化されているだけの状態を見せるより、そもそも出さない方がシンプル。
+          削除は先に「非公開に戻す」という導線を残す）。編集ボタンは改善計画T501により
+          「表示だけ編集」として復活させた——AxisComposerが編集対象の公開状態を見て
+          自動的に表示専用フィールドのみの制限モードへ切り替わるため、材料・計算式・
+          重みを変えたい場合は引き続き「複製して新規作成」に導線を残す。 */}
       <Tabs.Root className={styles.tabs} defaultValue="draft">
         <Tabs.List className={styles.tabList}>
           <Tabs.Trigger className={styles.tabTrigger} value="draft">
@@ -227,6 +231,13 @@ export default function AxisStudio() {
             <div key={def.axis_id} className={styles.listRow}>
               {renderRowMain(def)}
               <div className={styles.listRowActions}>
+                <button
+                  type="button"
+                  onClick={() => setEditingAxisId(def.axis_id)}
+                  title="材料・計算式・重みは変更できません。地図チップ・色分けしきい値等の表示専用フィールドのみ編集できます"
+                >
+                  表示だけ編集
+                </button>
                 <button type="button" onClick={() => handleDuplicate(def)}>
                   複製して新規作成
                 </button>

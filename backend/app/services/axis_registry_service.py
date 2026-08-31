@@ -200,7 +200,9 @@ class AxisRegistryAdminService:
         # 改善計画T271: 公開済み軸は不変（複製して新しい下書き軸として改良する導線を
         # UI側に用意する）。既存の公開状態を見て判定するため、payload側のis_published
         # 値には関わらず拒否する（公開済みを装って未公開のふりをして更新を通す抜け道を防ぐ）。
-        check_publish_immutability(existing_definition, "updated")
+        # 改善計画T501: ただしdefinition（更新後の内容）を渡すことで、表示専用フィールド
+        # のみの差分なら例外的に許可する（check_publish_immutability/is_cosmetic_only_update参照）。
+        check_publish_immutability(existing_definition, "updated", definition)
         # 改善計画T268: 自分自身（axis_id）は比較対象から除外される
         # （check_material_exclusivityが同一キーをスキップする）ため、材料構成を
         # 変えない・変える更新のどちらも自己衝突しない。
@@ -250,11 +252,11 @@ class AxisRegistryAdminService:
         """公開済み軸を下書き（is_published=False）へ戻す（改善計画T302）。
 
         `update()`は`check_publish_immutability`で公開済み軸への変更を一律拒否するため、
-        「公開フラグの反転だけを許す」専用操作として独立させた。他フィールドの変更は
-        引き続きupdate()経由では拒否されたままで、「公開済みは編集不可」という
-        T271の原則自体は変えない。下書きへ戻った後は通常のupdate()経路で自由に
-        再編集・再公開できる（複製ではなく同一axis_idのまま行き来する、データは
-        失われない）。
+        「公開フラグの反転だけを許す」専用操作として独立させた。評価ロジックに影響する
+        フィールドの変更は引き続きupdate()経由では拒否されたままで（改善計画T501で
+        表示専用フィールドのみ例外を追加したが、この原則自体は変えない）、下書きへ
+        戻った後は通常のupdate()経路で自由に再編集・再公開できる（複製ではなく
+        同一axis_idのまま行き来する、データは失われない）。
 
         呼び出し側（api/routers/axis_admin.py）は、この呼び出しが成功した直後の
         レスポンスで一般ユーザーに`is_published=False`を伝える。フロント側
