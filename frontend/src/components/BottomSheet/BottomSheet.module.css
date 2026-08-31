@@ -54,7 +54,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: 0.1rem var(--space-3) var(--space-1);
+  padding: 0 var(--space-3);
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-border);
 }
@@ -69,13 +69,22 @@
   outline: none;
 }
 
+/* ユーザー指摘（2026-08-31、「パネルの上部エリア（タイトルのみ）が冗長」）: 従来の
+   min-height:44px（一般的なタップ領域目安）が.header行全体の高さを押し上げ、タイトルだけの
+   帯にしては厚みが目立っていた。.handle（高さ変更ハンドル）も同種の理由でT419にて
+   44px目安から縮小した実績があり（同コメント参照）、それに揃える形で見た目を優先し縮小する。
+   タップ領域自体はpaddingで24px角のボタンへ確保する（44pxよりは小さいが、閉じるボタン1つ
+   だけの単発操作のため誤操作リスクは低いと判断）。 */
 .closeButton {
   flex-shrink: 0;
-  min-width: 44px;
-  min-height: 44px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: var(--foreground);
   cursor: pointer;
 }

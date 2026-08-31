@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { RouteCandidate } from "@/types/route";
@@ -25,6 +25,14 @@ function makeRoute(overrides: Partial<RouteCandidate>): RouteCandidate {
   };
 }
 
+// 改善計画（ルート結果パネル省スペース化）: RouteList自体が「おすすめ度について」の
+// 情報アイコンボタンを持つようになったため、screen.getByRole("button")のような全体
+// クエリはこのボタンも拾ってしまう。候補ボタン一覧はul(role="list")配下に限定して
+// 取得する。
+function getRouteItemButtons() {
+  return within(screen.getByRole("list")).getAllByRole("button");
+}
+
 describe("RouteList", () => {
   it("候補が無い場合は何も表示しない", () => {
     const { container } = render(<RouteList routes={[]} selectedRouteId={null} onSelect={vi.fn()} />);
@@ -46,7 +54,7 @@ describe("RouteList", () => {
     const onSelect = vi.fn();
     render(<RouteList routes={routes} selectedRouteId="a" onSelect={onSelect} />);
 
-    await user.click(screen.getAllByRole("button")[1]);
+    await user.click(getRouteItemButtons()[1]);
 
     expect(onSelect).toHaveBeenCalledWith("b");
   });
@@ -57,7 +65,7 @@ describe("RouteList", () => {
       const routes = [makeRoute({ id: "a" }), makeRoute({ id: "b" })];
       render(<RouteList routes={routes} selectedRouteId="a" onSelect={vi.fn()} />);
 
-      const [buttonA, buttonB] = screen.getAllByRole("button");
+      const [buttonA, buttonB] = getRouteItemButtons();
       expect(buttonA.className).toMatch(/itemSelected/);
       expect(buttonB.className).not.toMatch(/itemSelected/);
     });
@@ -70,7 +78,7 @@ describe("RouteList", () => {
       render(<RouteList routes={routes} selectedRouteId={null} onSelect={vi.fn()} />);
 
       expect(screen.getByText(/おすすめ度 88点/)).toBeInTheDocument();
-      const buttons = screen.getAllByRole("button");
+      const buttons = getRouteItemButtons();
       expect(buttons[1].textContent).not.toMatch(/おすすめ度/);
     });
   });
@@ -85,7 +93,7 @@ describe("RouteList", () => {
       ];
       render(<RouteList routes={routes} selectedRouteId={null} onSelect={vi.fn()} />);
 
-      const button = screen.getByRole("button");
+      const [button] = getRouteItemButtons();
       expect(button.textContent).not.toMatch(/獲得標高/);
       expect(button.textContent).not.toMatch(/向かい風|追い風/);
       expect(button.textContent).not.toMatch(/舗装率/);
@@ -93,9 +101,17 @@ describe("RouteList", () => {
   });
 
   describe("おすすめ度説明文（改善計画T421）", () => {
-    it("説明文が距離側・軸重みづけ側それぞれの説明（description）を含む", () => {
+    // ユーザー指示（省スペース化）により、説明文は常時表示ではなく情報アイコンの
+    // ポップオーバー（FieldLabel）へ収納した。開くまでは非表示、開くと見えることを確認する
+    // （WeightPanel.test.tsxの同種テストと同じパターン）。
+    it("情報アイコンを開くと距離側・軸重みづけ側それぞれの説明（description）が見える", async () => {
+      const user = userEvent.setup();
       const routes = [makeRoute({ id: "a" })];
       render(<RouteList routes={routes} selectedRouteId={null} onSelect={vi.fn()} />);
+
+      expect(screen.queryByText(/指定距離との差の小ささ/)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "おすすめ度についての説明を表示" }));
 
       expect(screen.getByText(/指定距離との差の小ささ/)).toBeInTheDocument();
       expect(screen.getByText(/各軸の重み付け設定で合成した総合難易度/)).toBeInTheDocument();

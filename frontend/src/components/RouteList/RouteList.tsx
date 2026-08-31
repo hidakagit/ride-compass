@@ -1,5 +1,6 @@
 "use client";
 
+import { FieldLabel } from "@/components/Map/recipeControls";
 import { SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RouteCandidate } from "@/types/route";
 import styles from "./RouteList.module.css";
@@ -26,18 +27,16 @@ export default function RouteList({ routes, selectedRouteId, onSelect }: RouteLi
 
   return (
     <>
-      {/* total_scoreは何点満点かや算出根拠が画面から分からなかったため、一覧の先頭に
-          簡潔な説明を添える（backend/app/scoring.yamlの重み付けに対応。この一覧内の
-          候補同士でのみ比較できる相対評価であり、他のリクエストの結果とは比較できない）。
-          表示名は「総合スコア」から「おすすめ度」へ変更（T30）: ルート色分けの「総合難易度」と
-          極性が逆（スコア=高いほど良い/難易度=高いほど悪い）なのに両方「総合」で紛らわしかった。
-          改善計画T421: サマリ行は「距離」と「軸による重みづけ（おすすめ度=total_score、
-          T401でdistance_weight+difficulty_weightの2指標へ単純化済み）」の2つへ単純化する
-          確定仕様に合わせ、旧scoring.yaml時代の個別フィールド（獲得標高・風・舗装率）は
-          撤去した（値自体は引き続きRouteCandidateに残るが、候補順位付け・このサマリ行の
-          どちらからも参照しない）。軸ごとの内訳を見たい場合はレーダーチャート
-          （区間クリック、T403）・ルート全体プロファイル（BottomSheet、T402）を使う。 */}
-      <p className={styles.scoreHint}>{SCORE_HINT}</p>
+      {/* total_scoreは何点満点かや算出根拠が画面から分からなかったため、説明を用意している
+          （backend/app/scoring.yamlの重み付けに対応。この一覧内の候補同士でのみ比較できる
+          相対評価であり、他のリクエストの結果とは比較できない）。表示名は「総合スコア」から
+          「おすすめ度」へ変更（T30）: ルート色分けの「総合難易度」と極性が逆
+          （スコア=高いほど良い/難易度=高いほど悪い）なのに両方「総合」で紛らわしかった。
+          ユーザー指示（省スペース化）: 常時表示の説明文だと縦幅を取るため、情報アイコンの
+          ポップオーバー（FieldLabel、他パネルの軸説明と同じ部品）へ収納する。 */}
+      <span className={styles.scoreHintTrigger}>
+        <FieldLabel label="おすすめ度について" description={SCORE_HINT} />
+      </span>
       <ul className={styles.list}>
         {routes.map((route) => {
           const selected = route.id === selectedRouteId;

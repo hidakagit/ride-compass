@@ -78,6 +78,11 @@
      軸スタジオで増減する軸に追従できないため）。 */
 }
 
+/* ユーザー指示（省スペース化）: 軸数（軸スタジオで増減しうる）に比例してパネルの高さが
+   際限なく伸び、地図を覆ってしまうのを防ぐため、内部スクロールで高さの上限を設ける
+   （BottomSheet自体の高さはユーザーがドラッグで調整できるが、パネルの自然な高さが
+   軸数に依存しないようにすることで、地図を見ながら下部で設定するというレイアウトを
+   崩さない）。40dvh程度あれば主要な軸を数件スクロール無しで見渡せる目安値。 */
 .group {
   border: 1px solid var(--color-border-muted);
   border-radius: var(--radius-sm);
@@ -85,6 +90,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  max-height: 40dvh;
+  overflow-y: auto;
 }
 
 /* 改善計画T435: 以前は1行のflexで「チェックボックス・ラベル(6.5rem固定)・スライダー

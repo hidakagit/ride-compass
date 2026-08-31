@@ -1360,7 +1360,15 @@ export default function Home() {
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            <RouteAxisProfile axes={axisCatalog.axes} axisDifficulties={selectedCandidate.axis_difficulties} />
+            {/* ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
+                プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが
+                「見たくない」と選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は
+                重み0の軸も評価済みで持っているため、絞り込みはaxesの側で行う
+                （RouteAxisProfile内部のaxisDifficulties!=nullフィルタとは独立）。 */}
+            <RouteAxisProfile
+              axes={axisCatalog.axes.filter((axis) => (routePreference[axis.axisId] ?? 0) > 0)}
+              axisDifficulties={selectedCandidate.axis_difficulties}
+            />
           </BottomSheet>
         )}
         {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
@@ -1388,6 +1396,16 @@ export default function Home() {
       setRouteStyleModeId(id);
       if (!layerVisibility.route) handleLayerToggle("route", true);
     }
+    // ユーザー指示: 選択肢をN個の軸から「①総合難易度／②地図で選択中の軸」の2択へ簡素化する
+    // （省スペース化）。②の実体は、地図アイコン（LayerChip「表示」の隣、`filteredRouteStyleModes`
+    // から選べていた軸のいずれか）に対応する非difficultyモード。現在選択中がすでに非difficulty
+    // モードならそれを、そうでなければ候補の先頭を「地図で選択中の軸」として扱う——ルート設定
+    // パネルでチェックを外した（重み0にした）軸はfilteredRouteStyleModesの時点で既に除外
+    // されているため、ここで一覧の全件を出す必要は無い。候補が1つも無い（対応軸の重みが
+    // すべて0）場合は②のボタン自体を出さず①のみにする。
+    const nonDifficultyModes = filteredRouteStyleModes.filter((mode) => mode.id !== "difficulty");
+    const axisMode = nonDifficultyModes.find((mode) => mode.id === routeStyleModeId) ?? nonDifficultyModes[0] ?? null;
+    const effectiveModeId = routeStyleModeId === "difficulty" ? "difficulty" : (axisMode?.id ?? "difficulty");
     return (
       <div className={layerPanelStyles.group}>
         <h2 className={layerPanelStyles.groupTitle}>生成したルートの色分け</h2>
@@ -1408,38 +1426,62 @@ export default function Home() {
             <RadioGroup.Root
               aria-label="ルートの色分け"
               className={layerPanelStyles.modeGroup}
-              value={routeStyleModeId}
+              value={effectiveModeId}
               onValueChange={(id) => handleRouteModeSelect(id as RouteStyleModeId)}
             >
-              {filteredRouteStyleModes.map((mode) => (
+              <RadioGroup.Item
+                value="difficulty"
+                className={
+                  effectiveModeId === "difficulty"
+                    ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
+                    : layerPanelStyles.modeItem
+                }
+              >
+                総合難易度
+              </RadioGroup.Item>
+              {axisMode && (
                 <RadioGroup.Item
-                  key={mode.id}
-                  value={mode.id}
+                  value={axisMode.id}
                   className={
-                    mode.id === routeStyleModeId
+                    effectiveModeId === axisMode.id
                       ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
                       : layerPanelStyles.modeItem
                   }
                 >
-                  {mode.label}
+                  {axisMode.label}
                 </RadioGroup.Item>
-              ))}
+              )}
             </RadioGroup.Root>
-            <div className={layerPanelStyles.legendCheckboxList}>
-              {routeStyleMode.legend.map((entry) => {
-                const visible = !hiddenRouteLegendKeys.includes(entry.key);
-                const rowClassName = entry.isFallback
-                  ? `${layerPanelStyles.legendCheckboxRow} ${layerPanelStyles.legendCheckboxRowFallback}`
-                  : layerPanelStyles.legendCheckboxRow;
-                return (
-                  <label key={entry.key} className={rowClassName}>
-                    <Checkbox checked={visible} onCheckedChange={() => handleRouteLegendToggle(entry.key)} aria-label={entry.label} />
-                    <span className={layerPanelStyles.swatch} style={{ background: entry.color }} />
-                    {entry.label}
-                  </label>
-                );
-              })}
-            </div>
+            {/* 凡例の個別カテゴリ非表示は使用頻度が低い詳細設定のため、既定で折りたたむ
+                （RouteSettingsPanelの「除外する道路」T419と同じ省スペース方針）。 */}
+            <Disclosure
+              className={layerPanelStyles.layerSection}
+              headerClassName={layerPanelStyles.layerHeader}
+              triggerClassName={layerPanelStyles.layerTitle}
+              bodyClassName={layerPanelStyles.layerBody}
+              summary={
+                <>
+                  <span aria-hidden="true" className={layerPanelStyles.chevron} />
+                  凡例の表示設定
+                </>
+              }
+            >
+              <div className={layerPanelStyles.legendCheckboxList}>
+                {routeStyleMode.legend.map((entry) => {
+                  const visible = !hiddenRouteLegendKeys.includes(entry.key);
+                  const rowClassName = entry.isFallback
+                    ? `${layerPanelStyles.legendCheckboxRow} ${layerPanelStyles.legendCheckboxRowFallback}`
+                    : layerPanelStyles.legendCheckboxRow;
+                  return (
+                    <label key={entry.key} className={rowClassName}>
+                      <Checkbox checked={visible} onCheckedChange={() => handleRouteLegendToggle(entry.key)} aria-label={entry.label} />
+                      <span className={layerPanelStyles.swatch} style={{ background: entry.color }} />
+                      {entry.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </Disclosure>
           </>
         )}
       </div>

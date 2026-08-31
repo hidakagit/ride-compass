@@ -1,7 +1,8 @@
-.scoreHint {
+.scoreHintTrigger {
+  display: inline-flex;
+  margin: 0.5rem 0 0;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
-  margin: 0.75rem 0 0;
 }
 
 .list {
