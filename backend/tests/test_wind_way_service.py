@@ -12,7 +12,7 @@ wind_penaltyを持つ（風グリッドをタイル中心1点で代表させる�
 ため）。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -203,12 +203,22 @@ async def test_repository_error_returns_empty_dict():
 async def test_at_none_defaults_to_now_without_raising():
     # WindWayServiceの既定時刻はdatetime.now(JST)（route_generator.pyのJSTと同じ簡易近似、
     # Open-MeteoのhourlyがnaiveなJST文字列を返すことに整合させるため）。テストのwide_timesも
-    # 同じ基準（JST）で「今日1日分の全時間帯」を用意し、テスト実行環境のタイムゾーンに
-    # 依存せず必ず範囲内に収まるようにする。
+    # 同じ基準（JST）で用意し、テスト実行環境のタイムゾーンに依存せず必ず範囲内に収まる
+    # ようにする。
+    #
+    # 「今日1日分（0〜23時）」だけを用意する実装は誤りだった: _nearest_time_indexの範囲外
+    # 判定は「配列内の最後の時刻文字列（23:00ちょうど）」を上限とする厳密な大小比較のため、
+    # テスト実行時刻がJSTの23時台（例: 23:45）だと`23:45 > 23:00`でout_of_range扱いになり
+    # 毎回失敗していた（2026-08-31、T510調査中に発覚。本番のOpen-Meteo応答は実際には
+    # forecast_days=2分＝約48時間先まで届く[wind_grid.pyのWindGridPointのdocstring参照]
+    # ため本番では発生しない、テストのフィクスチャだけが持つ不具合）。実際の応答形状に
+    # 合わせ、今日0時から翌日23時までの48時間分を用意することで、実行時刻が何時であっても
+    # 必ず範囲内に収まるようにする。
     repository = FakeWayIdsRepository(way_ids=[1])
     now_jst = datetime.now(JST)
-    wide_times = [f"{now_jst.year:04d}-{now_jst.month:02d}-{now_jst.day:02d}T{h:02d}:00" for h in range(24)]
-    grid_point = make_grid_point(wide_times, [3.0] * 24, [45.0] * 24)
+    today_start = now_jst.replace(hour=0, minute=0, second=0, microsecond=0)
+    wide_times = [(today_start + timedelta(hours=h)).strftime("%Y-%m-%dT%H:00") for h in range(48)]
+    grid_point = make_grid_point(wide_times, [3.0] * 48, [45.0] * 48)
     weather_service = FakeWeatherService(wide_times, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
