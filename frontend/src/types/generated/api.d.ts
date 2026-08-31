@@ -1642,7 +1642,7 @@ export interface components {
          * @description 格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、
          *     forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
          *     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
-         *     切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。
+         *     切り替えられるようにするため。
          *
          *     `times`自体はここには持たない（`WindGridResponse`参照、改善計画T203）。全地点が同じ
          *     forecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため

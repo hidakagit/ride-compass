@@ -95,4 +95,4 @@ RideCompass固有の仕様ではないため、このファイルには置かな
   （2026-08-31、ユーザー指摘）。うち`WIND_AXIS_THRESHOLDS`のハードコードは
   [T473](tasks/T473.md)で解消済み。残る2症状（`windPenalty.ts`の物理式JS移植・
   `windAxisPenalties`/`gradientAxisValues`の軸ごとの別名prop）は
-  [T482](tasks/T482.md)として起票済み。
+  [T483](tasks/T483.md)として起票済み。

@@ -3763,7 +3763,7 @@
           "precipitation_mm"
         ],
         "title": "WindGridPoint",
-        "description": "格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、\nforecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため（WeatherService.get_conditions_manyとの違い）。\n\n`times`自体はここには持たない（`WindGridResponse`参照、改善計画T203）。全地点が同じ\nforecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため\nhourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（実測約9割）を\n時刻文字列の重複が占めていた。\n\nprecipitation_mm（降水量、mm/h相当）はT183で追加。風の矢印と降水ナウキャストの延長\n予報（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている\n（モジュール冒頭のdocstring参照）。"
+        "description": "格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、\nforecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため。\n\n`times`自体はここには持たない（`WindGridResponse`参照、改善計画T203）。全地点が同じ\nforecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため\nhourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（実測約9割）を\n時刻文字列の重複が占めていた。\n\nprecipitation_mm（降水量、mm/h相当）はT183で追加。風の矢印と降水ナウキャストの延長\n予報（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている\n（モジュール冒頭のdocstring参照）。"
       },
       "WindGridResponse": {
         "properties": {

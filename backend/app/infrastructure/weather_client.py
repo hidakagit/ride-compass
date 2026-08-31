@@ -280,9 +280,8 @@ class WeatherClient:
         414 Request-URI Too Largeになることが実機で判明した（624地点で再現、288地点では
         未発生）。そのためPOST（フォームボディ）で送る（_fetch_json参照）。
 
-        呼び出し元（`WeatherService.get_wind_grid`。`get_conditions_many`は改善計画T462で
-        唯一の呼び出し元だったWindServiceを削除した結果、現在は呼び出し元が無い）が
-        実際に使うのはhourlyのwind_speed_10m/wind_direction_10m/precipitationのみのため、
+        呼び出し元（`WeatherService.get_wind_grid`）が実際に使うのは
+        hourlyのwind_speed_10m/wind_direction_10m/precipitationのみのため、
         get_forecast（単一地点、全変数）とは別にWIND_GRID_VARIABLESへ絞る。数百地点規模に
         なるこの経路の変数を絞ることが、Open-Meteo側クォータ消費削減の効果が最も大きい
         （get_forecastは単発呼び出しのため変数を絞っても効果が小さく、/api/weatherパネルの

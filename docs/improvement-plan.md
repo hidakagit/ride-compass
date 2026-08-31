@@ -623,4 +623,8 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 - [ ] [T479](tasks/T479.md). region_service.py/graph_service.pyのクールダウン付きバックグラウンドトリガー共通化〔DEFER〕規模S（2026-08-31起票、トリガー=3箇所目発生時）
 - [ ] [T480](tasks/T480.md). 動的材料のクリックガード（WIND_PENALTY_FILL_LAYER_ID等）の汎用化〔DEFER〕規模S（2026-08-31起票、トリガー=3件目の動的材料追加時）
 - [ ] [T481](tasks/T481.md). debugStatsApi.tsの手書き型をbackend側Pydanticモデル化してOpenAPI生成物経由へ統一する〔P3〕規模S〜M（2026-08-31起票、T470項目7からの切り出し）
-- [ ] [T482](tasks/T482.md). windPenalty.tsの物理式JS移植とwindAxisPenalties/gradientAxisValuesの軸別prop構造の要否検討 規模未見積もり（2026-08-31起票、T473実施中の派生発見。T481との番号衝突によりT482へ振り直し）
+
+## CI調査（2026-08-31）
+
+- [ ] [T482](tasks/T482.md). GitHub Actions CIの`e2e`ジョブが直近複数コミット連続で失敗している原因を調査する 規模S〜M（2026-08-31起票）
+- [ ] [T483](tasks/T483.md). windPenalty.tsの物理式JS移植とwindAxisPenalties/gradientAxisValuesの軸別prop構造の要否検討 規模未見積もり（2026-08-31起票、T473実施中の派生発見。並行セッションとの番号衝突によりT481→T482→T483と2回振り直し）

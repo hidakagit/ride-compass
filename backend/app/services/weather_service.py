@@ -14,10 +14,6 @@ class WeatherService:
 
     `get_conditions`は常に現在の気象を返す（呼び出し元は天気APIエンドポイント・
     RoadGraphEngineの起点判定のみで、いずれも過去/未来時刻を渡さない）。
-    複数地点・複数時刻をまとめて解決する`get_conditions_many`/`prefetch`は
-    openrouteserviceエンジン専用のWindServiceが唯一の呼び出し元だったため、
-    改善計画T462でWindServiceを削除した結果、現在は呼び出し元が無い
-    （削除は別タスクへ切り出し済み）。
     """
 
     def __init__(self, client: WeatherClient, http_client: httpx.AsyncClient):
@@ -28,41 +24,12 @@ class WeatherService:
         data = await self._client.get_forecast(self._http_client, point)
         if data is None:
             return None
-        return self._conditions_from_data(data, None)
-
-    async def prefetch(self, points: list[Coordinates]) -> None:
-        """複数地点の予報をまとめて1回のOpen-Meteo呼び出しでキャッシュへ先読みする（結果は使わない）。
-
-        候補（方位）ごとに`get_conditions_many`を並列呼び出しすると、候補数ぶん
-        （最大8本）のOpen-Meteoリクエストがほぼ同時に発火してしまう（本番のOpen-Meteo
-        429常態化の一因）。呼び出し元が候補間で点を合流させてこれを先に呼んでおけば、
-        `get_forecast_many`のTTLキャッシュが温まり、後続の候補ごとの呼び出しはキャッシュ
-        ヒットしてHTTPを発生させない（現在は呼び出し元が無い、クラスdocstring参照）。
-        """
-        await self._client.get_forecast_many(self._http_client, points)
-
-    async def get_conditions_many(
-        self, points: list[Coordinates], times: list[datetime | None]
-    ) -> list[WeatherConditions | None]:
-        """複数地点の天候を、可能な限り1回のOpen-Meteo呼び出しでまとめて取得する
-        （現在は呼び出し元が無い、クラスdocstring参照）。
-
-        地点ごとの時刻（times[i]）が異なっていても、予報自体は地点ごとにforecast_days分の
-        hourly系列をまとめて取得しているため、取得後にそれぞれ最も近い時刻を選ぶだけでよい
-        （get_conditionsと同じ選択ロジックを_conditions_from_dataへ切り出して共有する）。
-        """
-        forecasts = await self._client.get_forecast_many(self._http_client, points)
-        results = []
-        for point, at in zip(points, times):
-            data = forecasts.get(self._client.cache_key(point))
-            results.append(None if data is None else self._conditions_from_data(data, at))
-        return results
+        return self._conditions_from_data(data)
 
     async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
         """複数地点の時間別風向・風速・降水量をまとめて取得する（改善計画T178フォローアップ、
-        T183で降水（+60分以降の延長予報）を追加）。get_conditions_manyと違い特定時刻1点へ
-        収束させず、hourly配列全体（forecast_days=2分）をそのまま返す（domain/wind_grid.py:
-        WindGridPointのdocstring参照）。
+        T183で降水（+60分以降の延長予報）を追加）。特定時刻1点へ収束させず、hourly配列全体
+        （forecast_days=2分）をそのまま返す（domain/wind_grid.py: WindGridPointのdocstring参照）。
 
         時刻配列は全地点で共通のため（同じforecast_days・timezoneで一括取得、
         WindGridResponseのdocstring参照）、戻り値の先頭要素として1本だけ返す
@@ -109,9 +76,13 @@ class WeatherService:
             precipitation_mm=precipitation,
         )
 
-    def _conditions_from_data(self, data: dict, at: datetime | None) -> WeatherConditions | None:
+    def _conditions_from_data(self, data: dict) -> WeatherConditions | None:
         hourly = data.get("hourly")
         if not hourly or not hourly.get("time"):
+            return None
+
+        current = data.get("current")
+        if not current:
             return None
 
         # Open-Meteoが200を返してもJSON形状が期待と食い違う（一時的なAPI障害・スキーマ変更等）
@@ -120,72 +91,34 @@ class WeatherService:
         # 8方位分の候補が確定済みでも1件の異常レスポンスでルート生成全体が500になってしまう
         # （route_generator.pyのgatherはtrace_loopのみreturn_exceptions=True保護対象）。
         try:
-            if at is None:
-                current = data.get("current")
-                if not current:
-                    return None
-                observed_at = current["time"]
-                temperature = current["temperature_2m"]
-                wind_speed = current["wind_speed_10m"]
-                wind_direction = current["wind_direction_10m"]
-                # 突風・体感温度・UV指数・降水量は「current」自体に含めて取得済み（改善計画T172、
-                # weather_client.py参照）のため、precipitation_probabilityと違いhourlyへの
-                # 近傍探索は不要。current側に無い場合（プロパティ欠落）はNoneへ倒す。
-                apparent_temperature = current.get("apparent_temperature")
-                wind_gusts = current.get("wind_gusts_10m")
-                precipitation = current.get("precipitation")
-                uv_index = current.get("uv_index")
-                weather_code = current.get("weather_code")
-                is_day = current.get("is_day")
-                precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
-                # 改善計画T385: 「今日の見通し」（daily、forecast_days=2のindex0=今日）。
-                # get_conditions（この分岐）でのみ取得する（下のelse分岐＝
-                # get_conditions_manyはdailyを取得していないため常にNone）。
-                daily = data.get("daily") or {}
-                sunrise = self._daily_index_value(daily, "sunrise", 0)
-                sunset = self._daily_index_value(daily, "sunset", 0)
-                precipitation_probability_max = self._daily_index_value(daily, "precipitation_probability_max", 0)
-                wind_speed_max = self._daily_index_value(daily, "wind_speed_10m_max", 0)
-                temperature_max = self._daily_index_value(daily, "temperature_2m_max", 0)
-                temperature_min = self._daily_index_value(daily, "temperature_2m_min", 0)
-                uv_index_max = self._daily_index_value(daily, "uv_index_max", 0)
-                # 改善計画T385フォローアップ（ユーザー要望「今日の日中の大まかな天気の
-                # 流れが分かるものも欲しい」）: dailyの日次集約値だけでは「日中いつ頃
-                # 崩れるか」が分からないため、hourlyから2時間おき8コマの代表時刻を抜き出す
-                # （_period_outlooks参照）。
-                today_periods = self._period_outlooks(hourly, observed_at)
-            else:
-                target = at.strftime("%Y-%m-%dT%H:%M")
-                if not self._within_hourly_range(hourly["time"], target):
-                    # 取得済みhourly（forecast_days=2分）の範囲外。範囲内の最も近い時刻を
-                    # 代用すると「遠い未来/過去の天候」として誤って提示することになるため、
-                    # 範囲外は素直にNoneを返す（他の欠損時と同じ方針）。
-                    return None
-                index = self._nearest_hourly_index(hourly["time"], target)
-                if index is None:
-                    return None
-                observed_at = hourly["time"][index]
-                temperature = hourly["temperature_2m"][index]
-                wind_speed = hourly["wind_speed_10m"][index]
-                wind_direction = hourly["wind_direction_10m"][index]
-                precipitation_probability = hourly["precipitation_probability"][index]
-                apparent_temperature = self._hourly_index_value(hourly, "apparent_temperature", index)
-                wind_gusts = self._hourly_index_value(hourly, "wind_gusts_10m", index)
-                precipitation = self._hourly_index_value(hourly, "precipitation", index)
-                uv_index = self._hourly_index_value(hourly, "uv_index", index)
-                # 改善計画T385: この分岐（get_conditions_many、ルート上の各点・未来時刻）は
-                # weather_code/is_day・dailyのいずれも取得していないため常にNoneにする
-                # （天気アイコン・今日の見通しはルート評価には使わない表示専用の情報）。
-                weather_code = None
-                is_day = None
-                sunrise = None
-                sunset = None
-                precipitation_probability_max = None
-                wind_speed_max = None
-                temperature_max = None
-                temperature_min = None
-                uv_index_max = None
-                today_periods = []
+            observed_at = current["time"]
+            temperature = current["temperature_2m"]
+            wind_speed = current["wind_speed_10m"]
+            wind_direction = current["wind_direction_10m"]
+            # 突風・体感温度・UV指数・降水量は「current」自体に含めて取得済み（改善計画T172、
+            # weather_client.py参照）のため、precipitation_probabilityと違いhourlyへの
+            # 近傍探索は不要。current側に無い場合（プロパティ欠落）はNoneへ倒す。
+            apparent_temperature = current.get("apparent_temperature")
+            wind_gusts = current.get("wind_gusts_10m")
+            precipitation = current.get("precipitation")
+            uv_index = current.get("uv_index")
+            weather_code = current.get("weather_code")
+            is_day = current.get("is_day")
+            precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
+            # 改善計画T385: 「今日の見通し」（daily、forecast_days=2のindex0=今日）。
+            daily = data.get("daily") or {}
+            sunrise = self._daily_index_value(daily, "sunrise", 0)
+            sunset = self._daily_index_value(daily, "sunset", 0)
+            precipitation_probability_max = self._daily_index_value(daily, "precipitation_probability_max", 0)
+            wind_speed_max = self._daily_index_value(daily, "wind_speed_10m_max", 0)
+            temperature_max = self._daily_index_value(daily, "temperature_2m_max", 0)
+            temperature_min = self._daily_index_value(daily, "temperature_2m_min", 0)
+            uv_index_max = self._daily_index_value(daily, "uv_index_max", 0)
+            # 改善計画T385フォローアップ（ユーザー要望「今日の日中の大まかな天気の
+            # 流れが分かるものも欲しい」）: dailyの日次集約値だけでは「日中いつ頃
+            # 崩れるか」が分からないため、hourlyから2時間おき8コマの代表時刻を抜き出す
+            # （_period_outlooks参照）。
+            today_periods = self._period_outlooks(hourly, observed_at)
         except (KeyError, IndexError, TypeError):
             return None
 
@@ -238,11 +171,11 @@ class WeatherService:
 
     @staticmethod
     def _hourly_index_value(hourly: dict, field: str, index: int):
-        """hourly配列から既知のindexで値を引く（改善計画T172）。突風・体感温度・UV指数・
-        降水量はatが指す時刻のindexが既にprecipitation_probabilityの取得で確定しているため、
-        _hourly_value_nearのように改めて最近傍時刻を探し直す必要がない。フィールド自体が
-        存在しない/配列が短い場合はNoneへ倒す（新規追加パラメータのため既存キャッシュ済み
-        レスポンスに含まれないケースを想定）。"""
+        """hourly配列から既知のindexで値を引く（改善計画T172、_period_outlooksが使う）。
+        対象時刻のindexが呼び出し元で既に確定しているため、_hourly_value_nearのように
+        改めて最近傍時刻を探し直す必要がない。フィールド自体が存在しない/配列が短い場合は
+        Noneへ倒す（新規追加パラメータのため既存キャッシュ済みレスポンスに含まれない
+        ケースを想定）。"""
         values = hourly.get(field)
         if not values or index >= len(values):
             return None
