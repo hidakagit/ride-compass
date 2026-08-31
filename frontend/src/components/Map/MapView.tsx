@@ -188,8 +188,9 @@ function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSour
 const WIND_PENALTY_FILL_LAYER_ID = dynamicWeatherIds("windVector", "penaltyFill", "fill").layerId;
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
-const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
+export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
 // SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと
 // 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
@@ -215,8 +216,9 @@ const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
 // exportはテスト専用（MapView.overlayFilters.test.ts、改善計画T478の回帰テスト）。
 export const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
-const TUNNEL_LAYER_ID = "region-tunnel-line";
-const ONEWAY_LAYER_ID = "region-oneway-line";
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export const TUNNEL_LAYER_ID = "region-tunnel-line";
+export const ONEWAY_LAYER_ID = "region-oneway-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
 const ACCIDENT_LAYER_ID = "region-accidents-circle";
 const POI_TILE_SOURCE_ID = "region-poi-tiles";
@@ -226,7 +228,8 @@ export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
 // 必ず設定されている。実行時に万一欠けていた場合、および「道路の種類」レイヤーがOFFの間の
 // フォールバック（均一な太さ・実線）に使う。
-const DEFAULT_ROAD_LINE_WIDTH = 3;
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export const DEFAULT_ROAD_LINE_WIDTH = 3;
 const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
 // ROAD_TILE_LAYER_IDの初期化直後の仮の不透明度、および路面の種類・道路の種類のどちらも
 // opacityExpressionを持たない万一のフォールバック（実運用では両軸とも持つため通らない、
@@ -245,8 +248,9 @@ const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // 全体の帯が「地図の線が太すぎる」という実機フィードバックを受け、隣接トラックが
 // line-widthの半分弱ずつ重なる値へ縮めた（重なりは色の切り替わりとして視認できる範囲に
 // 収まり、完全な塗り潰しにはならない）。
-const MATERIAL_TRACK_OFFSET_STEP = 2;
-const ROAD_MATERIAL_TRACK_LAYER_IDS = [
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export const MATERIAL_TRACK_OFFSET_STEP = 2;
+export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
   ROAD_TILE_LAYER_ID,
   DESIGNATION_LAYER_ID,
   TUNNEL_LAYER_ID,
@@ -269,9 +273,10 @@ const ROAD_MATERIAL_TRACK_LAYER_IDS = [
 // カーシングの幅は重ねる線が3本から変わっても揃うようにして」「なるべくベタで書かず、揃える
 // 制約があるものは連動させて欲しい」への対応）。この式にすることで、以後は上記2定数の変更に
 // 自動で追従する。
-const SECONDARY_AXIS_CASING_WIDTH =
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export const SECONDARY_AXIS_CASING_WIDTH =
   (ROAD_MATERIAL_TRACK_LAYER_IDS.length - 1) * MATERIAL_TRACK_OFFSET_STEP + DEFAULT_ROAD_LINE_WIDTH;
-const SECONDARY_AXIS_CASING_OPACITY = 0.45;
+export const SECONDARY_AXIS_CASING_OPACITY = 0.45;
 // ROAD_TILE_LAYER_IDの初期化直後の仮の色（applyRoadLayerStateが呼び出し直後に必ず実際の
 // 値へ上書きする、placeholder的な役割のみ）。実際に「路面の種類OFF・道路の種類ON」時の
 // 色分けはroadFilterAxes.tsのHIGHWAY_GROUPS（濃淡パレット、COLOR_HIGHWAY_*）を使う
@@ -1239,7 +1244,8 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
 // 値そのものはbackend側のRedis TTLの範囲でしか新鮮さを保証しないため、古い値が長時間
 // 残り続けることはない）。featureStateKeyだけが軸ごとに異なる（WIND_AXIS_FEATURE_STATE_
 // KEY/GRADIENT_AXIS_FEATURE_STATE_KEY）。
-function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: string, values: ReadonlyMap<number, number>) {
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: string, values: ReadonlyMap<number, number>) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
   values.forEach((value, wayId) => {
     map.setFeatureState(
@@ -1260,9 +1266,17 @@ function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: string, 
  * ちらつくのを防ぐ副次効果もある）。removeFeatureStateはsource/sourceLayer単位で
  * 全キーをまとめて消す（MapLibreの仕様）ため、風・勾配どちらの終了判定からでも同じこの
  * 1関数を呼べばよい（feature-stateキーごとの個別クリアは元々できない）。 */
-function clearRoadTileFeatureState(map: MapLibreMap) {
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export function clearRoadTileFeatureState(map: MapLibreMap) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
   map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
+}
+
+/** 改善計画T490: 上記clearRoadTileFeatureStateを呼ぶべきかどうかの判定条件（風・勾配が
+ * 両方OFFになったか）を、下のuseEffect内のif文から純粋関数として切り出したもの
+ * （単体テスト化のため。呼び出し元・挙動は変更しない）。 */
+export function shouldClearDedicatedWayValueFeatureState(showWindAxis: boolean, showGradientAxis: boolean): boolean {
+  return !showWindAxis && !showGradientAxis;
 }
 
 // 環境グループの勾配gridFill（改善計画T423）。
@@ -1374,7 +1388,8 @@ function applyRoadLayerState(
 // 対称に割り付ける（1件→0、2件→±1.5、3件→-3/0/+3）ため、どれかをOFFにすると残りが
 // 自動で中央（実際の道路の位置）へ寄り直す。OFF中のレイヤーもoffsetを0へ戻しておき、
 // 次にONにしたときに古いオフセット値が一瞬残らないようにする。
-function applyRoadMaterialTrackOffsets(
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
   visible: { road: boolean; designation: boolean; tunnel: boolean; oneway: boolean }
 ) {
@@ -1626,7 +1641,8 @@ export function buildStaticOverlayLayers(
 // レイヤー固有の材料関係を知らない汎用描画係のまま、という方針を保つ）。axisOverlayLayers
 // （改善計画T308）は「2次（ramp軸）のうち下敷きの対象」そのもの——STATIC_OVERLAY_LAYERSの
 // ramp軸部分と同一集合のため、呼び出し側がbuildAxisOverlayLayers(rampAxes)の結果を渡す。
-function applySecondaryAxisCasingStyles(
+// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+export function applySecondaryAxisCasingStyles(
   map: MapLibreMap,
   casingLayerKeys: ReadonlySet<string>,
   axisOverlayLayers: readonly OverlayLayerEntry[]
@@ -3186,7 +3202,7 @@ export default function MapView({
   // setFeatureStateが1件も呼ばれていないため無害（空振り）。
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || showWindAxis || showGradientAxis) return;
+    if (!map || !shouldClearDedicatedWayValueFeatureState(showWindAxis, showGradientAxis)) return;
     runWhenStyleReady(map, () => clearRoadTileFeatureState(map));
   }, [showWindAxis, showGradientAxis]);
 
