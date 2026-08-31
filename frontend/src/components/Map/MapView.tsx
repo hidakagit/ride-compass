@@ -904,10 +904,14 @@ function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, 
               "fill-color": spec.gridFill.colorExpression,
               "fill-opacity": spec.gridFill.opacity,
             },
-            filter:
-              spec.gridFill.minValueToShow != null
-                ? [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow]
-                : undefined,
+            // filterキー自体を「値がundefinedのまま持たせる」と、MapLibreのstyle検証が
+            // 「filterには配列が必要」というエラーを出す（キーの有無ではなく値の型で
+            // 判定するため）。minValueToShowが無い場合はキーごと省略する。
+            ...(spec.gridFill.minValueToShow != null
+              ? {
+                  filter: [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow] as maplibregl.ExpressionSpecification,
+                }
+              : {}),
           });
         }
       }
@@ -950,8 +954,10 @@ function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, 
               "icon-color": "#1f2937",
               "icon-opacity": 0.85,
             },
-            filter:
-              mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
+            // gridFillと同じ理由（下記参照）でminValueToShow未設定時はfilterキー自体を省略する。
+            ...(mark.minValueToShow != null
+              ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
+              : {}),
           });
           map.addLayer({
             id: layerId,
@@ -978,8 +984,9 @@ function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, 
               "icon-color": mark.colorExpression,
               "icon-opacity": 1,
             },
-            filter:
-              mark.minValueToShow != null ? [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] : undefined,
+            ...(mark.minValueToShow != null
+              ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
+              : {}),
           });
         }
       }
