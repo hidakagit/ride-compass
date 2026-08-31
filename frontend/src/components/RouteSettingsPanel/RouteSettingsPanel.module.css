@@ -63,6 +63,15 @@
   flex-direction: column;
 }
 
+/* ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
+   できるUIはないか」）: 境界ハンドル（.stackBarHandle）を帯グラフの外側に絶対配置するための
+   位置基準コンテナ。ハンドルを.stackBar（overflow:hidden）の子にすると、帯の両端に近い
+   境界でハンドルの当たり判定がoverflow:hiddenに切り取られてしまうため、
+   overflow:hiddenを持たないこの外側コンテナへ分離した。 */
+.stackBarOuter {
+  position: relative;
+}
+
 .stackBar {
   display: flex;
   height: 10px;
@@ -76,6 +85,43 @@
   /* 改善計画T320: 色自体はRouteSettingsPanel.tsx側でindex基準の固定パレット
      （STACK_BAR_COLORS）からインラインstyleとして与える（軸id固定のCSSセレクタでは
      軸スタジオで増減する軸に追従できないため）。 */
+}
+
+/* 隣り合う2区間の境界をドラッグして配分し直すハンドル。実際の当たり判定（幅16px・
+   帯の上下に張り出す高さ）は、視覚的に細い境界線（::after）よりずっと広くタッチしやすい。
+   ユーザー指摘（2026-08-31、コンパスのtouch-action:noneが帯全体を覆いスクロールを
+   奪っていた反省）を踏まえ、touch-action:noneはこの16px幅のハンドル自身だけに絞り、
+   帯グラフの他の部分（セグメント本体）はスクロールジェスチャーを妨げない。 */
+.stackBarHandle {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.stackBarHandle::after {
+  content: "";
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-border-strong);
+}
+
+.stackBarHandle:hover::after,
+.stackBarHandle:focus-visible::after {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.stackBarHandle:focus-visible {
+  outline: none;
 }
 
 /* ユーザー指摘（2026-08-31、「重み配分エリアが独自でスクロールして全体スクロール

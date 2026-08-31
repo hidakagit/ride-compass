@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
@@ -420,6 +420,93 @@ describe("RouteSettingsPanel", () => {
         "title",
         'ルート確定後は「生成したルートの色分け」の「ラベル[gradient]」で確認できます',
       );
+    });
+  });
+
+  // ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
+  // できるUIはないか」）: 重み配分バー（帯グラフ）の境界を操作すると、隣接する2軸間でだけ
+  // 重みが移動し、合計（2軸ぶんの和）は変わらないことの回帰テスト。実際のポインタドラッグは
+  // happy-domがレイアウト（getBoundingClientRect）を計算しないため単体テストで再現できず、
+  // Browserペインでの実機確認で検証済み（docs/tasks/T495.md参照）。ここでは
+  // getBoundingClientRectに依存しないキーボード操作（矢印キー）経路で、隣接軸ペアの
+  // 重み移動ロジック（clampBoundaryDrag）自体を検証する。
+  describe("重み配分バー（帯グラフ）の境界操作", () => {
+    it("境界をArrowRightキーで操作すると隣接する2軸の重みだけがWEIGHT_STEP分移動し、2軸の合計は変わらない", async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
+      const onRoutePreferenceChange = vi.fn();
+
+      render(
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={{ gradient: 0.5, surface_q: 0.3 }}
+          onRoutePreferenceChange={onRoutePreferenceChange}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+          {...baseNewProps()}
+        />,
+      );
+
+      const handle = await screen.findByRole("slider", { name: "ラベル[gradient]とラベル[surface_q]の配分" });
+      fireEvent.keyDown(handle, { key: "ArrowRight" });
+
+      const updated = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
+      expect(updated.gradient).toBeCloseTo(0.51);
+      expect(updated.surface_q).toBeCloseTo(0.29);
+    });
+
+    it("境界をArrowLeftキーで操作すると逆方向に移動する", async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
+      const onRoutePreferenceChange = vi.fn();
+
+      render(
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={{ gradient: 0.5, surface_q: 0.3 }}
+          onRoutePreferenceChange={onRoutePreferenceChange}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+          {...baseNewProps()}
+        />,
+      );
+
+      const handle = await screen.findByRole("slider", { name: "ラベル[gradient]とラベル[surface_q]の配分" });
+      fireEvent.keyDown(handle, { key: "ArrowLeft" });
+
+      const updated = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
+      expect(updated.gradient).toBeCloseTo(0.49);
+      expect(updated.surface_q).toBeCloseTo(0.31);
+    });
+
+    it("上限(0.6)に達している軸へさらに寄せようとしても超えない", async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
+      const onRoutePreferenceChange = vi.fn();
+
+      render(
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={{ gradient: 0.6, surface_q: 0.2 }}
+          onRoutePreferenceChange={onRoutePreferenceChange}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+          {...baseNewProps()}
+        />,
+      );
+
+      const handle = await screen.findByRole("slider", { name: "ラベル[gradient]とラベル[surface_q]の配分" });
+      // フェッチ完了前は静的フォールバックカタログ（axis-catalog.json）が一瞬使われ、
+      // routePreferenceに無いキーを補うsyncRoutePreferenceKeys由来の1回がここで既に
+      // 呼ばれている（「フェッチ完了で既定重みが変わった場合…」テストの前提と同じ）。
+      // その呼び出し回数を基準にし、キー操作の結果「新規呼び出しが増えないこと」を見る。
+      await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const callCountBeforeKeyDown = onRoutePreferenceChange.mock.calls.length;
+
+      fireEvent.keyDown(handle, { key: "ArrowRight" });
+
+      expect(onRoutePreferenceChange).toHaveBeenCalledTimes(callCountBeforeKeyDown);
     });
   });
 });

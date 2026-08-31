@@ -60,6 +60,39 @@ function totalWeight(weights: RoutePreferenceWeights): number {
   return Object.values(weights).reduce((sum, w) => sum + (w > 0 ? w : 0), 0);
 }
 
+// 重み配分バー（帯グラフ）の境界ドラッグで動かせる重みの範囲。既存の詳細ポップオーバー内
+// スライダー（min="0" max="0.6" step="0.01"）のmax/stepと揃える。下限は0ではなく
+// WEIGHT_STEPにする——0まで下げるとその軸がチェックOFF相当（weight>0判定）に化け、
+// ドラッグ中に帯の区間数が変わってしまうため、ドラッグでは「チェックを外す」操作を
+// 兼ねさせない（0まで下げたい場合は詳細ポップオーバーかチェックボックス自体を使う）。
+const WEIGHT_STEP = 0.01;
+const STACK_BAR_MIN_WEIGHT = WEIGHT_STEP;
+const STACK_BAR_MAX_WEIGHT = 0.6;
+
+function roundToStep(value: number): number {
+  return Number(value.toFixed(2));
+}
+
+/** 帯グラフの境界（隣り合う2軸の重み合計を変えずに一方から他方へ移す）ドラッグで、
+ * 生の移動量（重み単位）を両軸の[STACK_BAR_MIN_WEIGHT, STACK_BAR_MAX_WEIGHT]範囲内へ
+ * 収まるようクランプし、STEP単位へ丸めた最終的な2軸ぶんの新しい重みを返す。
+ * 合計（weightA+weightB）は常に変わらない——丸め後もdeltaを共有するため浮動小数点誤差で
+ * ずれない。 */
+function clampBoundaryDrag(
+  weightA: number,
+  weightB: number,
+  rawDelta: number
+): { weightA: number; weightB: number } {
+  const lowerBound = Math.max(STACK_BAR_MIN_WEIGHT - weightA, weightB - STACK_BAR_MAX_WEIGHT);
+  const upperBound = Math.min(STACK_BAR_MAX_WEIGHT - weightA, weightB - STACK_BAR_MIN_WEIGHT);
+  const clamped = Math.min(Math.max(rawDelta, lowerBound), upperBound);
+  const steppedDelta = Math.round(clamped / WEIGHT_STEP) * WEIGHT_STEP;
+  return {
+    weightA: roundToStep(weightA + steppedDelta),
+    weightB: roundToStep(weightB - steppedDelta),
+  };
+}
+
 interface RouteSettingsPanelProps {
   hardFilters: HardFilterOverride;
   onHardFiltersChange: (next: HardFilterOverride) => void;
@@ -271,7 +304,95 @@ export default function RouteSettingsPanel({
     handlePreferenceChange({ ...routePreference, [axisId]: value });
   }
 
+  // 帯グラフの境界ドラッグ用。隣り合う2軸ぶんを1回のstate更新へまとめる
+  // （handleWeightChangeを2回呼ぶとReactのバッチングに乗っても中間状態が生まれうるため）。
+  function handlePairWeightChange(axisIdA: string, valueA: number, axisIdB: string, valueB: number) {
+    setLastWeights((prev) => ({ ...prev, [axisIdA]: valueA, [axisIdB]: valueB }));
+    handlePreferenceChange({ ...routePreference, [axisIdA]: valueA, [axisIdB]: valueB });
+  }
+
   const total = totalWeight(routePreference);
+
+  // ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
+  // できるUIはないか」）: 既存の重み配分バー（帯グラフ、以前は表示専用）を、隣り合う2要素の
+  // 境界をドラッグして配分し直せるようにする。帯グラフはすでに「複数要素が合算されて全体に
+  // なる」様子をひと目で示していたため、そこへ直接ドラッグ操作を足すのが最も直感的かつ
+  // 省スペース（新規UI領域を追加しない）という判断（AskUserQuestionでユーザーが選択）。
+  // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は変わらない）。
+  // 細かい数値調整（0.01刻みでの単独設定・0への変更＝実質チェックOFF相当）は従来の
+  // 詳細ポップオーバー（renderWeightDetailPopover）を引き続き使う。
+  const stackBarRef = useRef<HTMLDivElement>(null);
+  // ドラッグ中の起点情報。境界ハンドルは16px幅しかなく、ドラッグ中にポインタが実際の
+  // ハンドル要素の外へ出るのが常態のため、React要素スコープのonPointerMove（要素の外に
+  // 出ると届かない）ではなくwindowへ直接pointermove/upを登録する（pointer captureは
+  // 環境によって確実に効くとは限らないため使わない）。ハンドル自身の
+  // onPointerDown（16px幅、touch-action:noneはこのハンドルだけに絞ってある——T493で
+  // コンパスのtouch-action:noneが帯全体を覆っていた反省と同じ配慮）だけがReact要素側で、
+  // 以降はwindow側のリスナーで完結する。
+  const boundaryDragRef = useRef<{
+    axisIdA: string;
+    startWeightA: number;
+    axisIdB: string;
+    startWeightB: number;
+    startClientX: number;
+    pixelsPerUnit: number;
+  } | null>(null);
+
+  function startBoundaryDrag(
+    e: React.PointerEvent<HTMLDivElement>,
+    axisIdA: string,
+    startWeightA: number,
+    axisIdB: string,
+    startWeightB: number
+  ) {
+    const bar = stackBarRef.current;
+    if (!bar || total <= 0) return;
+    const barWidthPx = bar.getBoundingClientRect().width;
+    if (barWidthPx <= 0) return;
+    boundaryDragRef.current = {
+      axisIdA,
+      startWeightA,
+      axisIdB,
+      startWeightB,
+      startClientX: e.clientX,
+      pixelsPerUnit: barWidthPx / total,
+    };
+    const handleWindowPointerMove = (moveEvent: PointerEvent) => {
+      const drag = boundaryDragRef.current;
+      if (!drag) return;
+      const rawDelta = (moveEvent.clientX - drag.startClientX) / drag.pixelsPerUnit;
+      const { weightA, weightB } = clampBoundaryDrag(drag.startWeightA, drag.startWeightB, rawDelta);
+      handlePairWeightChange(drag.axisIdA, weightA, drag.axisIdB, weightB);
+    };
+    const handleWindowPointerUp = () => {
+      boundaryDragRef.current = null;
+      window.removeEventListener("pointermove", handleWindowPointerMove);
+      window.removeEventListener("pointerup", handleWindowPointerUp);
+      window.removeEventListener("pointercancel", handleWindowPointerUp);
+    };
+    window.addEventListener("pointermove", handleWindowPointerMove);
+    window.addEventListener("pointerup", handleWindowPointerUp);
+    window.addEventListener("pointercancel", handleWindowPointerUp);
+  }
+
+  // キーボード操作（矢印キーでWEIGHT_STEPずつ配分し直す）。ドラッグと同じclampBoundaryDrag
+  // を使い、境界のrole="slider"としての最小限のアクセシビリティを確保する。
+  function handleBoundaryKeyDown(
+    e: React.KeyboardEvent<HTMLDivElement>,
+    axisIdA: string,
+    weightA: number,
+    axisIdB: string,
+    weightB: number
+  ) {
+    let rawDelta = 0;
+    if (e.key === "ArrowLeft" || e.key === "ArrowDown") rawDelta = -WEIGHT_STEP;
+    else if (e.key === "ArrowRight" || e.key === "ArrowUp") rawDelta = WEIGHT_STEP;
+    else return;
+    e.preventDefault();
+    const next = clampBoundaryDrag(weightA, weightB, rawDelta);
+    if (next.weightA === weightA && next.weightB === weightB) return;
+    handlePairWeightChange(axisIdA, next.weightA, axisIdB, next.weightB);
+  }
 
   // 改善計画T419: 既定でON（除外）の3項目が常に展開表示でスペースを取りすぎるという
   // 実機フィードバックを受け、MapLayersPanel（.layerSection/.layerHeader/.chevron相当）と
@@ -284,21 +405,48 @@ export default function RouteSettingsPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className={styles.stackBarWrap}>
-        <p className={styles.sectionLabel}>重み配分</p>
-        <div className={styles.stackBar}>
-          {catalog.axes.map(({ axisId, label }, index) => {
-            const weight = routePreference[axisId] ?? 0;
-            if (weight <= 0 || total <= 0) return null;
-            const pct = (weight / total) * 100;
-            return (
-              <div
-                key={axisId}
-                className={styles.stackSegment}
-                style={{ width: `${pct}%`, background: stackBarColorForIndex(index) }}
-                title={`${label} ${Math.round(pct)}%`}
-              />
-            );
-          })}
+        <p className={styles.sectionLabel}>重み配分[帯の境界をドラッグして配分を調整できます]</p>
+        <div className={styles.stackBarOuter} ref={stackBarRef}>
+          <div className={styles.stackBar}>
+            {catalog.axes.map(({ axisId, label }, index) => {
+              const weight = routePreference[axisId] ?? 0;
+              if (weight <= 0 || total <= 0) return null;
+              const pct = (weight / total) * 100;
+              return (
+                <div
+                  key={axisId}
+                  className={styles.stackSegment}
+                  style={{ width: `${pct}%`, background: stackBarColorForIndex(index) }}
+                  title={`${label} ${Math.round(pct)}%`}
+                />
+              );
+            })}
+          </div>
+          {(() => {
+            const visible = catalog.axes
+              .map((axis, index) => ({ axis, index, weight: routePreference[axis.axisId] ?? 0 }))
+              .filter(({ weight }) => weight > 0 && total > 0);
+            let cumulativePct = 0;
+            return visible.slice(0, -1).map(({ axis: left, weight: leftWeight }, i) => {
+              cumulativePct += (leftWeight / total) * 100;
+              const right = visible[i + 1];
+              return (
+                <div
+                  key={`boundary-${left.axisId}-${right.axis.axisId}`}
+                  className={styles.stackBarHandle}
+                  style={{ left: `${cumulativePct}%` }}
+                  role="slider"
+                  aria-label={`${left.label}と${right.axis.label}の配分`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(cumulativePct)}
+                  tabIndex={0}
+                  onPointerDown={(e) => startBoundaryDrag(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
+                  onKeyDown={(e) => handleBoundaryKeyDown(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
+                />
+              );
+            });
+          })()}
         </div>
       </div>
 
