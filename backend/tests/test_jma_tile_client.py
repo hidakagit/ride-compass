@@ -28,6 +28,24 @@ def use_fake_redis(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_real_upstream_rate_limit_wait(monkeypatch):
+    """改善計画T514: fetch()が実フェッチ前に待つレート制限（_wait_for_upstream_rate_limit、
+    モジュールレベルの_last_fetch_atで前回時刻を記録）は、テスト間で状態が漏れる
+    （前のテストの最終フェッチ時刻が残ったまま次のテストの初回フェッチが待たされる）ため
+    毎回リセットし、asyncio.sleepも実待機せず即座に返すようにする（待機時間自体は多くの
+    テストの対象ではないため、実測不要。ペーシングそのものを検証するテスト
+    [test_fetch_paces_requests_to_the_configured_upstream_rate]だけがこのフィクスチャの
+    sleepパッチを上書きする）。"""
+    monkeypatch.setattr(jma_tile_client, "_last_fetch_at", None)
+
+    async def instant_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(jma_tile_client.asyncio, "sleep", instant_sleep)
+    yield
+
+
 class FakeResponse:
     def __init__(self, content: bytes, content_type: str):
         self.content = content
@@ -146,3 +164,33 @@ async def test_fetch_always_hits_upstream_even_if_cached():
     await client.fetch(path)
 
     assert len(http_client.requested_urls) == 2
+
+
+async def test_fetch_paces_requests_to_the_configured_upstream_rate(monkeypatch):
+    """改善計画T514: 実フェッチの間隔がsettings.jma_tile_upstream_max_requests_per_second
+    を守るよう待機することを検証する。実時間を待たず、time.monotonic/asyncio.sleepを
+    差し替えて呼び出し引数だけを見る（no_real_upstream_rate_limit_waitフィクスチャの
+    instant_sleepパッチをこのテストの中でだけ上書きする）。"""
+    fake_now = [1000.0]
+
+    def fake_monotonic():
+        return fake_now[0]
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        fake_now[0] += seconds
+
+    monkeypatch.setattr(jma_tile_client.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(jma_tile_client.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 5.0)
+
+    http_client = FakeHttpClient(b"tile-bytes", "image/png")
+    client = JmaTileClient(http_client)
+
+    await client.fetch("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
+    assert sleep_calls == []  # 初回（直前フェッチが無い）は待たない
+
+    await client.fetch("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/806.png")
+    assert sleep_calls == [pytest.approx(0.2)]  # 秒5回=0.2秒間隔を守るぶんだけ待つ

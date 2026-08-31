@@ -141,6 +141,15 @@ class Settings(BaseSettings):
     # jma_tile_client.pyのコメント参照）に合わせ、アメダス（AMEDAS_REFRESH_INTERVAL_MINUTES）
     # と同じ10分にした。
     jma_tile_prewarm_interval_minutes: int = 10
+    # 改善計画T514: JMA非公式APIへの実際の秒間リクエスト数の上限。プリウォーム本体の
+    # 同時実行数制御（jma_tile_prewarm_service.py: _MAX_CONCURRENCY=8）だけでは、
+    # 各リクエストの応答が速いと総スループット（秒間リクエスト数）自体は青天井になる
+    # ——本番投入後、これが原因と見られる大量のエラー（`http_4xx`、JMA側のレート制限と
+    # 推測）を観測した。jma_tile_client.py: fetchの実フェッチ直前でこの秒間上限を守る
+    # よう待機する（キャッシュヒットは対象外、プリウォーム・オンデマンド双方の実フェッチ
+    # 経路を共有する）。1983タイル/回・10分間隔の定期プリウォームに対し、この値でも
+    # 十分に間隔内へ収まる（1983/5≒397秒 < 600秒）よう控えめに設定した。
+    jma_tile_upstream_max_requests_per_second: float = 5.0
     # Open-Meteo Forecast APIの呼び出し先。既定は本家直叩き（ローカル開発用）。
     # 本番（Render）はOpen-Meteo側が送信元IP単位でレート制限しており、Renderの共有
     # アウトバウンドIPだと他テナントの分も巻き添えで429が常態化する不具合が確認された

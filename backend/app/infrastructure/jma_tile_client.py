@@ -1,8 +1,11 @@
+import asyncio
 import re
+import time
 
 import httpx
 from cachetools import TTLCache
 
+from app.config import settings
 from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
@@ -30,6 +33,31 @@ _target_times_cache: TTLCache = TTLCache(maxsize=16, ttl=_TARGET_TIMES_TTL_SECON
 # targetTimes_N1.json / targetTimes_N2.json / targetTimes_N3.json / targetTimes.json のいずれも
 # 末尾がtargetTimes*.jsonという共通パターンを持つ。
 _TARGET_TIMES_PATTERN = re.compile(r"targetTimes[^/]*\.json$")
+
+# 改善計画T514: JMA非公式APIへの実フェッチ（fetch）を秒間settings.jma_tile_upstream_
+# max_requests_per_second回までに抑える。`JmaTileClient`はリクエストごとに使い捨てで
+# インスタンス化される（api/dependencies.py: get_jma_tile_client、
+# _prewarm_jma_tile_job）ため、プロセス全体で共有する状態はモジュールレベルで持つ
+# （_target_times_cacheと同じ理由）。backendはuvicornをワーカー数指定無し＝単一プロセスで
+# 起動する構成（Dockerfile参照）のため、プロセス内の状態だけで実際の総リクエスト数を
+# 正しく制御できる。
+_rate_limit_lock = asyncio.Lock()
+_last_fetch_at: float | None = None
+
+
+async def _wait_for_upstream_rate_limit() -> None:
+    """直前の実フェッチから`1/jma_tile_upstream_max_requests_per_second`秒未満しか
+    経っていなければ、その差分だけ待つ。キャッシュヒット（get_cached）はこの待機の
+    対象外——実際にJMAへ問い合わせる直前（fetch）でのみ呼ぶ。"""
+    global _last_fetch_at
+    min_interval = 1.0 / settings.jma_tile_upstream_max_requests_per_second
+    async with _rate_limit_lock:
+        now = time.monotonic()
+        if _last_fetch_at is not None:
+            wait_seconds = _last_fetch_at + min_interval - now
+            if wait_seconds > 0:
+                await asyncio.sleep(wait_seconds)
+        _last_fetch_at = time.monotonic()
 
 
 class JmaTileClient:
@@ -60,7 +88,13 @@ class JmaTileClient:
 
     async def fetch(self, path: str) -> tuple[bytes, str] | None:
         """キャッシュを一切参照せず外部フェッチのみ行い、結果をキャッシュへ書き戻す。
-        呼び出し元（`jma_tile.py`）はレート制限を適用済みである前提。"""
+        呼び出し元（`jma_tile.py`）はレート制限を適用済みである前提。改善計画T514:
+        実際にJMAへ問い合わせる直前で`_wait_for_upstream_rate_limit`を待つ（プリウォーム
+        バッチ・オンデマンドのfetch双方が経由するこの関数1箇所に置くことで、呼び出し元を
+        問わずJMAへの総リクエスト数を一律に抑える）。待機自体は「実フェッチ」の所要時間
+        ではないため、`log_external_call`の計測（elapsed_ms）に含めないよう、
+        `with`ブロックへ入る前に済ませる。"""
+        await _wait_for_upstream_rate_limit()
         is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
         with log_external_call("weather:jma-tile", path=path, cache="miss") as fields:
             try:
