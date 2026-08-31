@@ -3184,17 +3184,6 @@
             ],
             "title": "Road Surface Good"
           },
-          "car_stress": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Car Stress"
-          },
           "axis_difficulties": {
             "additionalProperties": {
               "type": "number"

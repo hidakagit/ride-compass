@@ -46,7 +46,6 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       gradient_percent: (i % 10) - 5,
       wind_penalty: (i % 7) - 3,
       road_surface_good: i % 2 === 0,
-      car_stress: (i % 4) + 1,
       axis_difficulties: {
         gradient: (i * 7) % 100,
         wind: (i * 13) % 100,

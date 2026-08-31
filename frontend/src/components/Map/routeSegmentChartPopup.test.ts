@@ -32,7 +32,6 @@ function makeSegment(overrides: Partial<RouteSegmentChartSegment> = {}): RouteSe
     gradient_percent: 4.5,
     wind_penalty: 1.2,
     road_surface_good: true,
-    car_stress: 2,
     axis_difficulties: {
       car_stress: 25.0,
       stop_density: 50.0,

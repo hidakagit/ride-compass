@@ -11,7 +11,6 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     CategoricalShape,
     MaterialTerm,
-    car_stress_display_level,
     check_internal_axis_not_published,
     check_material_exclusivity,
     check_publish_immutability,
@@ -391,44 +390,3 @@ def test_car_stress_motor_vehicle_no_adjustment_dominates_other_internal_axes():
 
     assert guard_value < 0
     assert abs(guard_value) > max_other_total
-
-
-# --- car_stress_display_level（改善計画T292のコードレビュー指摘の修正、finding #9/#10） ---
-
-
-def test_car_stress_display_level_returns_none_for_none():
-    assert car_stress_display_level(None) is None
-
-
-def test_car_stress_display_level_endpoints_match_breakpoints():
-    # car_stress軸のbreakpoints((0.0, 0.0), (4.0, 100.0))の逆変換であることの確認
-    # （改善計画T353: 自転車インフラ調整の排除に伴い(1.0, 0.0), (5.0, 100.0)から変更）。
-    assert car_stress_display_level(0.0) == 0
-    assert car_stress_display_level(100.0) == 4
-
-
-def test_car_stress_display_level_rounds_half_up_not_banker_rounding():
-    # コードレビュー指摘の修正確認: 組み込みround()は偶数丸め(banker's rounding)のため、
-    # 四捨五入(0.5は常に切り上げ)であることを、level側が.5になる境界で確認する。
-    assert car_stress_display_level(37.5) == 2  # level=1.5
-    assert car_stress_display_level(62.5) == 3  # level=2.5
-
-
-def test_car_stress_display_level_clamps_out_of_range_difficulty():
-    assert car_stress_display_level(-10.0) == 0
-    assert car_stress_display_level(110.0) == 4
-
-
-def test_car_stress_display_level_returns_none_when_shape_is_not_breakpoint_linear(monkeypatch):
-    """改善計画T320: 以前は`AXIS_DEFINITIONS["car_stress"].shape`が
-    BreakpointLinearShapeであることをassertで前提しており、運用者が軸スタジオで
-    car_stressの評価式をcategorical等へ作り替えるとAssertionErrorがルート生成の
-    たびに500として表面化していた。逆変換が意味を持たない形状へ変わった場合は
-    Noneへ安全側に倒すことを確認する。"""
-    non_linear_shape = CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0})
-    monkeypatch.setitem(
-        AXIS_DEFINITIONS, "car_stress",
-        AXIS_DEFINITIONS["car_stress"].model_copy(update={"shape": non_linear_shape}),
-    )
-
-    assert car_stress_display_level(50.0) is None

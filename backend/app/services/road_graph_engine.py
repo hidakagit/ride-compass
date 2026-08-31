@@ -34,7 +34,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.axis_definitions import car_stress_display_level
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
@@ -542,12 +541,6 @@ class RoadGraphEngine:
                 intersection_count=intersection_count, accident_count=accident_count,
                 accident_years_covered=context.accident_years_covered, is_designated=is_designated,
             )
-            # 改善計画T292: car_stress（1-5の生値、将来の色分けモード等での利用に備えて
-            # domain/route.py: RouteSegmentDetailが保持するdisplayフィールド）は、専用
-            # レシピ（旧car_stress_level）廃止後、公開軸car_stressのdifficulty(0-100)を
-            # car_stress_display_levelで逆変換して求める。
-            car_stress_difficulty = axis_scores.get("car_stress")
-            car_stress = car_stress_display_level(car_stress_difficulty)
             weights = preference.weights
             _, composite_difficulty_value = compute_cost_from_axis_scores(
                 edge.distance_m, axis_scores, weights, self._penalty_strength
@@ -582,7 +575,6 @@ class RoadGraphEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=round(wind_penalty, 2) if wind_penalty is not None else None,
                     road_surface_good=road_surface_good,
-                    car_stress=car_stress,
                     # 改善計画T309: axis_scores（compute_edge_axis_scores）は既にaxis_id→
                     # difficultyの汎用dict（データ無しの軸はキー自体を持たない）のため、
                     # そのままRouteSegmentDetail.axis_difficultiesへ渡せる。

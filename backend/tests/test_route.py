@@ -125,17 +125,6 @@ def test_aggregate_segments_into_bins_returns_none_when_all_values_in_bin_are_no
     assert bins[0].difficulty is None
 
 
-def test_aggregate_segments_into_bins_car_stress_rounds_weighted_average():
-    segments = [
-        _segment(0, distance_km=0.1, car_stress=1),
-        _segment(1, distance_km=0.3, car_stress=4),  # (1*0.1+4*0.3)/0.4=3.25 -> round to 3
-    ]
-
-    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
-
-    assert bins[0].car_stress == 3
-
-
 def test_aggregate_segments_into_bins_road_surface_good_picks_majority_by_distance():
     segments = [
         _segment(0, distance_km=0.1, road_surface_good=False),

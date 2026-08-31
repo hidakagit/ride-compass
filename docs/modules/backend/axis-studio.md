@@ -239,11 +239,9 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 
 ## 既知の軸idハードコード（`_CODE_COUPLED_AXIS_IDS`）
 
-`services/axis_registry_service.py`の`frozenset[str] = frozenset({"car_stress", "gradient"})`。
+`services/axis_registry_service.py`の`frozenset[str] = frozenset({"gradient"})`。
 削除すると壊れるコードが存在する軸のリストで、`is_published`の状態に関わらず削除を拒否する
 安全弁。
 
-- `car_stress`: `car_stress_display_level()`（`axis_definitions.py`）が
-  `AXIS_DEFINITIONS["car_stress"]`を直接参照する。
 - `gradient`: `domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を
   辞書キーとして直接宣言する。

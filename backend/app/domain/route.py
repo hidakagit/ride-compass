@@ -1,5 +1,3 @@
-import math
-
 from pydantic import BaseModel, Field
 
 from app.domain.difficulty import distance_weighted_difficulty
@@ -42,10 +40,6 @@ class RouteSegmentDetail(BaseModel):
     gradient_percent: float | None = None
     wind_penalty: float | None = None
     road_surface_good: bool | None = None
-    # 車ストレス(1-5、domain/traffic.py: car_stress_level)の生値。road_surface_goodと
-    # 同じく、難易度（axis_difficulties["car_stress"]）とは別に、将来の色分けモード等での
-    # 利用に備えて生値も保持する（静的道路属性P1残り）。
-    car_stress: int | None = None
     # 改善計画T309: 以前はelevation_difficulty/wind_difficulty/road_difficulty/
     # stop_difficulty/car_stress_difficulty/accident_difficulty/night_difficultyという
     # 既存7軸1対1の固定フィールドだったが、軸スタジオで公開軸を自由に増減できる設計
@@ -129,7 +123,7 @@ def aggregate_segments_into_bins(
     グルーピングし、1ビン1件の`RouteSegmentDetail`へ集約する（改善計画T11）。
 
     集約方法（フィールドの性質ごと）:
-    - 距離加重平均: gradient_percent/wind_penalty/car_stress/各difficulty系
+    - 距離加重平均: gradient_percent/wind_penalty/各difficulty系
       （domain/difficulty.py: distance_weighted_difficulty、Noneの区間は除外し
       残りの距離で再正規化。ルート全体の集約と同じ考え方）
     - 距離加重多数決: road_surface_good（カテゴリ値のため平均ではなく、
@@ -213,9 +207,6 @@ def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, flo
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
     first, last = segments[0], segments[-1]
-    car_stress_avg = distance_weighted_difficulty(
-        [(s.car_stress, s.distance_km) for s in segments]
-    )
     return RouteSegmentDetail(
         geometry=_concat_segment_geometries(segments),
         start_latitude=first.start_latitude,
@@ -232,12 +223,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
             [(s.wind_penalty, s.distance_km) for s in segments]
         ),
         road_surface_good=_weighted_mode([(s.road_surface_good, s.distance_km) for s in segments]),
-        # car_stressは1-5の順序尺度だが、distance_weighted_difficultyで連続値として
-        # 加重平均し最近傍の整数へ丸める（axis_difficultiesの各軸集約と同じ方式）。
-        # 改善計画T463: 組み込みround()は偶数への銀行丸め（非対称）のため、
-        # car_stress_display_level（axis_definitions.py）と同じmath.floor(x+0.5)
-        # （四捨五入、0.5は常に切り上げ）へ揃えた。
-        car_stress=math.floor(car_stress_avg + 0.5) if car_stress_avg is not None else None,
         axis_difficulties=merge_axis_difficulties(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )

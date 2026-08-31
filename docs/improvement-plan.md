@@ -598,7 +598,7 @@ T414自己是正〜T440（51コミット）を対象とした2回目の統合レ
 ## モジュール別設計書作成中の発見（2026-08-31、実コード確認のみで作成、発見即起票）
 
 - [ ] [T458](tasks/T458.md). DYNAMIC_WAY_VALUE_MATERIALSが軸スタジオのdedicated_way_value_layerと独立したハードコード辞書になっている 規模M（2026-08-31起票）
-- [ ] [T459](tasks/T459.md). car_stress_display_level()がAXIS_DEFINITIONS["car_stress"]を直接ハードコードしている 規模S〜M（2026-08-31起票）
+- [x] [T459](tasks/T459.md). car_stress_display_level()がAXIS_DEFINITIONS["car_stress"]を直接ハードコードしている 規模S〜M（2026-08-31完了。末端消費者ゼロと確認しRouteSegmentDetail.car_stress専用フィールド自体を撤去）
 - [x] [T460](tasks/T460.md). get_dynamic_way_value_serviceのサービス組み立てがmaterial_idのハードコードif/else分岐になっている 規模S（2026-08-31起票・完了）
 - [x] [T461](tasks/T461.md). GRADIENT_FILL_LAYER_IDにWIND_PENALTY_FILL_LAYER_IDと同型のクリックガードが無い 規模S（2026-08-31起票・完了）
 

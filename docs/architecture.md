@@ -2136,9 +2136,10 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   公開軸`car_stress`（`BreakpointLinearShape`、breakpoints `[0,0]-[4,100]`、T353で
   `(1,0)-(5,100)`から再較正。自転車インフラ非該当の道路では旧来と評価が完全一致）は
   この5軸を加重合成し、highway基準値（`required=True`）が未登録ならNone（未評価）になる。
-  未知highwayは評価対象外。表示用の0-4生値（`RouteSegmentDetail.car_stress`）は公開軸
-  `car_stress`のdifficulty(0-100)を`domain/axis_definitions.py: car_stress_display_level`
-  で逆変換して求める（breakpointsを動的に読むため0-4スケールへ自動追従、UIに単位表記は無い）。
+  未知highwayは評価対象外。表示用の0-4生値専用フィールド（`RouteSegmentDetail.car_stress`・
+  `domain/axis_definitions.py: car_stress_display_level`）は末端消費者ゼロと確認の上
+  改善計画T459（2026-08-31）で撤去済み。表示・集計は汎用の`axis_difficulties["car_stress"]`
+  （difficulty 0-100、他の公開軸と同じ経路）に一本化されている。
   地図表示は最終値をタイルへ焼き込まず、内部軸の材料5つ（highway/maxspeed_kmh/
   lanes_count/designation/motor_vehicle_no、T290でMVTへ焼き込み済み）を
   フロント側（`components/Map/axisLayers.ts`のramp汎用機構、下記「レジストリ駆動の

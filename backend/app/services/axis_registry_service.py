@@ -49,26 +49,27 @@ class AxisDefinitionSyncError(RuntimeError):
 
 
 # 改善計画T350: `AXIS_DEFINITIONS`以外のコードがaxis_idを文字列として直接ハードコード
-# 参照している軸。削除されると、is_publishedの状態に関わらずアプリが壊れる
-# （例: car_stress削除でaxis_difficulties.axes.get("car_stress")がNoneになり
-# 地図表示のcar_stress_display_levelが常にNone）。is_published（T271、GUI編集の
-# 可否）とは独立の制約で、下書きへ戻した後（unpublish→delete）でも削除できない
-# ようにする。将来、axis_idをハードコード参照するコードが増えた場合はここへ追加する。
+# 参照している軸。削除されると、is_publishedの状態に関わらずアプリが壊れる。
+# is_published（T271、GUI編集の可否）とは独立の制約で、下書きへ戻した後
+# （unpublish→delete）でも削除できないようにする。将来、axis_idをハードコード参照する
+# コードが増えた場合はここへ追加する。
 #
 # 改善計画T352: 以前は`night`（road_graph_engine.pyのT173ロジック）・
 # `wind`（frontend routeStyleModes.tsのRouteStyleModeId）もここに
 # 含めていたが、それぞれ`AxisDefinition.time_scope`・`supports_route_coloring`という
 # 性質ベースの宣言的フィールドへ汎用化したことで、axis_idの直接ハードコードが
 # コードから消えた（削除しても対応するコードが黙って「この性質を持つ軸が無い」として
-# 動作するだけで、KeyError等では落ちない）。`gradient`は対象外のまま据え置く——
-# `domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を
-# 辞書キーとして直接ハードコード宣言しており、この軸を削除してもこの辞書エントリは
-# 連動して消えない（実行時にこのキーへ到達すれば`AXIS_DEFINITIONS["gradient"]`相当の
-# 参照が失敗しうる）。frontend routeStyleModes.tsのgradient色分け
-# （`isSignedAbsShape`によるshape属性判定）は2026-08-30時点で既にaxis_idハードコードを
-# 持たない汎用経路のため、code coupledの理由には該当しない（2026-08-31訂正、
-# 旧コメントの記述は古い実装を指していた）。
-_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"car_stress", "gradient"})
+# 動作するだけで、KeyError等では落ちない）。`car_stress`も改善計画T459で
+# `car_stress_display_level()`（axis_definitions.py、`RouteSegmentDetail.car_stress`
+# という末端消費者ゼロの生値フィールド専用だった）を撤去し、同様に対象から外れた。
+# `gradient`は対象外のまま据え置く——`domain/dynamic_way_values.py:
+# DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を辞書キーとして直接ハードコード宣言しており、
+# この軸を削除してもこの辞書エントリは連動して消えない（実行時にこのキーへ到達すれば
+# `AXIS_DEFINITIONS["gradient"]`相当の参照が失敗しうる）。frontend routeStyleModes.tsの
+# gradient色分け（`isSignedAbsShape`によるshape属性判定）は2026-08-30時点で既に
+# axis_idハードコードを持たない汎用経路のため、code coupledの理由には該当しない
+# （2026-08-31訂正、旧コメントの記述は古い実装を指していた）。
+_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset({"gradient"})
 
 
 def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str, list[str]]:

@@ -38,7 +38,6 @@
 実データでの安全性確認はdomain/difficulty.pyの配列版コメント（T240）参照）。
 """
 
-import math
 from typing import Annotated, Literal, Mapping, Union
 
 import numpy as np
@@ -531,35 +530,6 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
     if not overrides:
         return dict(weights)
     return {**weights, **overrides}
-
-
-def car_stress_display_level(difficulty: float | None) -> int | None:
-    """car_stress軸のdifficulty(0-100)を表示用の1-5生値へ逆変換する
-    （RouteSegmentDetail.car_stress、road_graph_engine.pyが使う）。
-
-    breakpointsをここへ再度ハードコードせず`AXIS_DEFINITIONS["car_stress"]`から動的に
-    読むため、旧clamp_level(.,1,5)相当のこの軸のbreakpointsが将来変わっても追従不要。
-    Python組み込みround()は偶数への銀行丸め（例: difficulty=37.5だとlevel=2.5→2に丸まり、
-    difficulty=62.5だとlevel=3.5→4に丸まるという非対称な挙動）のため、四捨五入
-    （0.5は常に切り上げ）で境界を一貫させるmath.floor(x+0.5)を使う。
-
-    改善計画T320: 「1-5の順序尺度への逆変換」はBreakpointLinearShape（連続値の折れ点補間）
-    という形状を前提にしている。以前は`AXIS_DEFINITIONS["car_stress"]`の`shape`がこの型で
-    あることをassertで前提していたため、運用者が軸スタジオでcar_stressの評価式を
-    BreakpointLinearShape以外（categorical等）へ作り替えると、逆変換の前提自体が崩れ
-    AssertionErrorがルート生成のたびに500として表面化していた。この逆変換が意味を
-    持たない形状へ変わった場合は「表示用の生値を算出できない」というNone（データ無し）
-    として安全側に倒す（他のdifficulty系関数と同じ「算出不能はNone」の規約）。
-    """
-    if difficulty is None:
-        return None
-    shape = AXIS_DEFINITIONS["car_stress"].shape
-    if not isinstance(shape, BreakpointLinearShape):
-        return None
-    (x0, y0), (x1, y1) = shape.breakpoints[0], shape.breakpoints[-1]
-    clamped = min(max(difficulty, y0), y1)
-    level = x0 + (clamped - y0) / (y1 - y0) * (x1 - x0)
-    return math.floor(level + 0.5)
 
 
 def _priority_override_matches_scalar(value: object, equals: str) -> bool:

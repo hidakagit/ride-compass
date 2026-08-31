@@ -1407,8 +1407,6 @@ export interface components {
             wind_penalty?: number | null;
             /** Road Surface Good */
             road_surface_good?: boolean | null;
-            /** Car Stress */
-            car_stress?: number | null;
             /** Axis Difficulties */
             axis_difficulties?: {
                 [key: string]: number;

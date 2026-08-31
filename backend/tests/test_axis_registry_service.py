@@ -368,15 +368,15 @@ async def test_delete_raises_key_error_for_unknown_axis_id(road_graph_session):
         await service.delete("unknown")
 
 
-@pytest.mark.parametrize("axis_id", ["car_stress", "gradient"])
+@pytest.mark.parametrize("axis_id", ["gradient"])
 async def test_delete_rejects_code_coupled_axis_id_even_when_draft(road_graph_session, axis_id):
-    # 改善計画T350: car_stress/gradientはroad_graph_engine.py等がaxis_idを直接
+    # 改善計画T350: gradientはdomain/dynamic_way_values.pyがaxis_idを直接
     # ハードコード参照しているため、is_published=False（下書き）でも削除できない。
     # 改善計画T358（統合レビュー第8回consistency F-2）: `_CODE_COUPLED_AXIS_IDS`の同じ
-    # 1行の分岐を通る全件をparametrize化した。改善計画T352: 当時はnight/windも
-    # このリストに含めていたが、time_scope/supports_route_coloringという宣言的
-    # フィールドへの汎用化に伴いコード結合が解消されたため対象から外した
-    # （下記test_delete_allows_axis_id_after_t352_generalization参照）。
+    # 1行の分岐を通る全件をparametrize化した。改善計画T352: 当時はnight/windも、
+    # 改善計画T459: 当時はcar_stressも、このリストに含めていたが、いずれも宣言的
+    # フィールドへの汎用化・ハードコード撤去に伴いコード結合が解消されたため対象から
+    # 外した（下記test_delete_allows_axis_id_after_t352_generalization参照）。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition(axis_id, is_published=False))
@@ -403,13 +403,14 @@ async def test_delete_rejects_code_coupled_axis_id_after_unpublish(road_graph_se
     assert "gradient" in AXIS_DEFINITIONS
 
 
-@pytest.mark.parametrize("axis_id", ["night", "wind"])
+@pytest.mark.parametrize("axis_id", ["night", "wind", "car_stress"])
 async def test_delete_allows_axis_id_after_t352_generalization(road_graph_session, axis_id):
     # 改善計画T352: night（time_scope="night_only"）・wind（supports_route_coloring=True）は
     # 以前`_CODE_COUPLED_AXIS_IDS`に含まれ削除禁止だったが、road_graph_engine.pyの
     # T173ロジック・frontend routeStyleModes.tsのハードコードをそれぞれ宣言的フィールドへ
-    # 汎用化したことで、axis_idの直接ハードコードが解消された。削除できる
-    # （コード結合が無いことの回帰テスト）。
+    # 汎用化したことで、axis_idの直接ハードコードが解消された。改善計画T459: car_stressも
+    # 同様に、`car_stress_display_level()`（末端消費者ゼロの生値フィールド専用だった）を
+    # 撤去したことでハードコードが解消された。削除できる（コード結合が無いことの回帰テスト）。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition(axis_id, is_published=False))
