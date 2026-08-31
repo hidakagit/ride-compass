@@ -124,68 +124,116 @@
   outline: none;
 }
 
-/* ユーザー指摘（2026-08-31、「重み配分エリアが独自でスクロールして全体スクロール
-   できないことがある」）: 当初はここへmax-height+overflow-y:autoを持たせていたが、
-   呼び出し元（デスクトップ.app-sidebar・モバイル.app-bottom-sheet .body、いずれも
-   globals.css/BottomSheet.module.cssで既にoverflow-y:autoを持つ）と二重の
-   スクロール領域になり、タッチスクロールがこの内側の領域で止まってしまう
-   （ネストしたスクロールコンテナのアンチパターン）。「軸数に比例してパネルが際限なく
-   伸びる」問題自体は外側のスクロール（サイドバーは高さがビューポートに収まる、
-   BottomSheetはheightVhで高さ固定）で既に解決済みのため、内側の高さ上限は不要と判断し
-   撤去した。 */
-.group {
-  border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
+/* ユーザー要望（2026-08-31、「下の各軸毎の有効無効、スライドバーはなくしたい。どの軸が
+   どの色なのか凡例をつけて、そのエリアで有効無効や説明文を巻き取れる？」）: チェックボックス
+   +スライダーの縦積みリスト（旧.group/.row、以前はここへmax-height+overflow-y:autoを
+   持たせて二重スクロールになった反省[ネストしたスクロールコンテナのアンチパターン]も
+   経験した領域）を、色ドット+ラベルの凡例チップが折り返して並ぶ1エリアへ置き換えた。
+   行が縦に積み上がらずchipRowと同じ横並び折り返しになったため、独自スクロールを持たせる
+   動機自体が無くなった。 */
+.legendRow {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-/* ユーザー指摘（2026-08-31、「重み配分、スライドバーじゃなくてもう少しスマートに各要素
-   設定できない？やっぱりスクロールが気になる」）: 改善計画T435では重みスライダーを常時
-   行内に表示する前提で「固定幅要素の合計がスライダー列を圧迫する」問題への対応として
-   1行→2段のCSS Gridへ変更していたが、スライダー・向きコンパスをタップで開く詳細
-   ポップオーバー（weightValueTrigger/weightDetailPopover）へ格納したことで、行自体は
-   常に「チェックボックス・ラベル・現在値ボタン・色分けチップ」だけの単純な1行になった。
-   可変幅の列（スライダー）を確保する必要が無くなったため、Gridではなく素直なflexへ戻す。 */
-.row {
-  display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-.checkboxCell {
-  display: flex;
+/* 凡例チップ1件＝「色ドット+ラベル（タップで有効/無効）」「(i)説明文」
+   「地図で色分けアイコン（対応軸のみ）」を1つの枠に収めた複合ボタン群。外枠1つを共有し、
+   内部はborder-leftで区切ることでLayerChipのpill形状を踏襲しつつ複数の押下領域を持たせる。 */
+.legendChip {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  overflow: hidden;
 }
 
-.rowLabel {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: var(--font-size-md);
+/* 無効（重み0）の軸は輪郭を弱めて一覧内での優先度を下げる。ドットの色自体は
+   帯グラフと同じ色を保つ（再度有効にしたときにどの帯になるか予測できるように）。 */
+.legendChip[data-checked="false"] {
+  opacity: 0.55;
 }
 
-/* 重みの現在値を表示しつつ、タップで詳細ポップオーバー（スライダー・向きコンパス）を
-   開くトリガー。常時表示のリスト行にドラッグ系UIを置かないための入り口。 */
-.weightValueTrigger {
-  flex-shrink: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2);
+.legendToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
   color: var(--foreground);
-  padding: 0.15rem 0.5rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.65rem;
   font-size: var(--font-size-sm);
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.weightValueTrigger[data-state="open"] {
-  border-color: var(--color-accent);
+.legendDot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legendInfoButton,
+.legendMapColorButton,
+.legendMapColorUnavailable {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  border: none;
+  border-left: 1px solid var(--color-border-muted);
+  background: transparent;
+  color: var(--color-muted);
+  padding: 0;
+  cursor: pointer;
+}
+
+.legendMapColorUnavailable {
+  cursor: default;
+}
+
+.legendMapColorButton[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.legendInfoButton[aria-expanded="true"] {
   color: var(--color-accent-strong);
 }
 
 /* Popover.Content（Portalでdocument.body直下）。FieldLabelのinfoTooltip
    （Map/recipeControls.module.css）と同じ考え方——BottomSheet/Dialogより確実に前面へ
    浮かせるためz-indexを揃える。 */
+.legendInfoPopover {
+  max-width: 16rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.4;
+  z-index: 60;
+}
+
+/* 走行方位設定ポップオーバー（activeBearingAxes参照）の開閉トリガー。風・勾配のうち
+   「地図で色分け」がONになっている軸が1件以上あるときだけ現れる。 */
+.bearingTrigger {
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-strong);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+
+/* 走行方位設定ポップオーバーの中身（Popover.Content）。weightDetailPopoverと同じ
+   浮遊カードの見た目を再利用する。 */
 .weightDetailPopover {
   display: flex;
   flex-direction: column;
@@ -199,34 +247,13 @@
   z-index: 60;
 }
 
-.detailSlider {
-  width: 100%;
-}
-
-/* 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）。 */
-.mapColorToggle {
-  flex-shrink: 0;
-}
-
-/* 専用の地図表示レイヤーを持たない軸（勾配等、kind="none"）、またはルート確定後の風
-   （既に「生成したルートの色分け」へ役割を譲っている）向けの、押せない案内表示。
-   LayerChipと視覚的な占有幅を揃えるため同程度のpaddingを持たせる。 */
-.mapColorUnavailable {
-  flex-shrink: 0;
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
-  padding: 0.2rem 0.5rem;
-  cursor: default;
-}
-
-/* ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
-   隠れて実質操作できない）: 評価軸としての風・勾配向けコンパスを重み詳細ポップオーバー
-   （weightDetailPopover）の中に埋め込む（renderBearingControl参照）。「色分け」トグルが
-   ONの間だけ出る。ポップオーバー内のため行のインデントに揃える必要は無い。 */
 .bearingRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.bearingRow + .bearingRow {
   padding-top: 0.3rem;
   border-top: 1px solid var(--color-border-muted);
 }
@@ -237,40 +264,14 @@
 }
 
 @media (max-width: 640px) {
-  .row {
-    gap: var(--space-1);
+  .legendToggle {
+    padding: 0.25rem 0.4rem 0.25rem 0.55rem;
   }
 
-  .rowLabel {
-    font-size: var(--font-size-sm);
-  }
-
-  .weightValueTrigger {
-    padding: 0.15rem 0.4rem;
-  }
-
-  .mapColorUnavailable {
-    padding: 0.2rem 0.3rem;
-    white-space: nowrap;
-  }
-
-  /* ユーザー指摘（2026-08-31、「モバイルだと全体的にボタンはじめ部品がやや大きい印象」）:
-     チェックボックスはglobals.cssのモバイル一律ルール（.app-bottom-sheet [role="checkbox"]、
-     1.4rem角、行全体をタップ領域にする<label>構成向けの意図）を、ここでは<label>で
-     包まない構成（コンポーネント側コメント参照）のため打ち消し、素の1.1rem角へ戻す
-     （globals.cssの規則と同じ詳細度[クラス1つ+属性セレクタ]のままだと後勝ちに依存して
-     しまうため、`.group`を挟んで詳細度を1段上げて確実に上書きする）。「色分け」チップ
-     （LayerChip、共通部品のため.chip自体は変更せずここから子孫セレクタでのみ縮小）も
-     同様に縮める。 */
-  .group .checkboxCell [role="checkbox"] {
-    width: 1.1rem;
-    height: 1.1rem;
-  }
-
-  .mapColorToggle button {
-    min-height: 28px;
-    padding: 0.2rem 0.6rem;
-    font-size: var(--font-size-sm);
+  .legendInfoButton,
+  .legendMapColorButton,
+  .legendMapColorUnavailable {
+    width: 1.5rem;
   }
 }
 

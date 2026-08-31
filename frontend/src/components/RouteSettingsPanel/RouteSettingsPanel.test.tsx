@@ -221,9 +221,11 @@ describe("RouteSettingsPanel", () => {
     await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const checkbox = screen.getByRole("checkbox", { name: "ラベル[gradient]" });
-    await user.click(checkbox); // チェックを外す(weight=0)
-    await user.click(checkbox); // 再度チェックする(lastWeightsから復元)
+    // ユーザー要望（2026-08-31、凡例チップへの集約）でチェックボックスは廃止され、
+    // 凡例チップのトグルボタン（色ドット+ラベル、aria-labelに有効/無効の状態を含む）に
+    // 置き換わった。状態が変わるとaria-labelも変わるため、クリックのたびに再取得する。
+    await user.click(screen.getByRole("button", { name: "ラベル[gradient]を無効にする" })); // チェックを外す(weight=0)
+    await user.click(screen.getByRole("button", { name: "ラベル[gradient]を有効にする" })); // 再度チェックする(lastWeightsから復元)
 
     const restored = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
     expect(restored.gradient).toBe(0.42);
@@ -258,10 +260,12 @@ describe("RouteSettingsPanel", () => {
       expect(onLayerToggle).toHaveBeenCalledWith("axis:car_stress", true);
     });
 
-    it("専用の表示レイヤーを持たない軸（kind=none、風・勾配以外の未対応軸）は色分けトグルの代わりに非対応の案内が出る", async () => {
+    it("専用の表示レイヤーを持たない軸（kind=none、風・勾配以外の未対応軸）は凡例チップに地図色分けアイコンが付かない", async () => {
       // 改善計画T423: 勾配（gradient）はgradientAxisという専用レイヤーを持つようになった
       // ため、この「地図表示非対応」ケースの例としては使えなくなった。wind/gradient
       // どちらでもない、まだ地図表示用のデータ取得経路が無い軸の例として架空のaxisIdを使う。
+      // ユーザー要望（2026-08-31、凡例チップへの集約）で「地図表示なし」という文言表示は
+      // 廃止し、非対応の軸はアイコンごと出さない方式へ変更した（凡例を圧迫しないため）。
       vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["no_map_layer_axis"], { no_map_layer_axis: "none" }));
 
       render(
@@ -276,8 +280,15 @@ describe("RouteSettingsPanel", () => {
         />,
       );
 
-      await waitFor(() => expect(screen.getByText("地図表示なし")).toBeInTheDocument());
-      expect(screen.queryByRole("button", { name: /で地図を色分け表示/ })).not.toBeInTheDocument();
+      // findByRoleでモック済みカタログ（axis 1件のみ）が反映されるまで待つ
+      // （フェッチ完了前は静的フォールバックカタログ[複数軸、地図色分け対応軸を含む]が
+      // 一瞬使われ、absenceの確認をこのタイミングより前に行うと誤検知する）。
+      // 凡例チップ1件が持つボタンは「トグル(色ドット+ラベル)」「(i)説明文」の2つだけ
+      // （地図色分けアイコンが付かない）ことを確認する。
+      const infoButton = await screen.findByRole("button", { name: "ラベル[no_map_layer_axis]の説明を表示" });
+      const chip = infoButton.closest("span");
+      expect(chip?.querySelectorAll("button")).toHaveLength(2);
+      expect(chip?.querySelector('[aria-label*="で地図を色分け表示"]')).not.toBeInTheDocument();
     });
 
     it("風（wind）はsecondaryAxesに現れない特殊軸だが、windAxisレイヤーへの色分けトグルとして機能する", async () => {
@@ -365,7 +376,13 @@ describe("RouteSettingsPanel", () => {
         />,
       );
 
-      await waitFor(() => expect(screen.getByText("地図表示なし")).toBeInTheDocument());
+      // ユーザー要望（2026-08-31、凡例チップへの集約）で「地図表示なし」の文言表示は
+      // 廃止し、案内文はtitle/aria-label付きの無効化アイコンへ置き換わった。
+      await waitFor(() =>
+        expect(
+          screen.getByTitle('ルート確定後は「生成したルートの色分け」の「風」で確認できます'),
+        ).toBeInTheDocument(),
+      );
       expect(screen.queryByRole("button", { name: "風で地図を色分け表示" })).not.toBeInTheDocument();
     });
 
@@ -412,14 +429,16 @@ describe("RouteSettingsPanel", () => {
         />,
       );
 
-      await waitFor(() => expect(screen.getByText("地図表示なし")).toBeInTheDocument());
-      expect(screen.queryByRole("button", { name: "ラベル[gradient]で地図を色分け表示" })).not.toBeInTheDocument();
+      // ユーザー要望（2026-08-31、凡例チップへの集約）で「地図表示なし」の文言表示は
+      // 廃止し、案内文はtitle/aria-label付きの無効化アイコンへ置き換わった。
       // 改善計画T440: 案内文のラベルはハードコードした「勾配」ではなく、軸データ自身の
       // labelをそのまま使う（catalogResponseのテスト用ラベル「ラベル[gradient]」）。
-      expect(screen.getByText("地図表示なし")).toHaveAttribute(
-        "title",
-        'ルート確定後は「生成したルートの色分け」の「ラベル[gradient]」で確認できます',
+      await waitFor(() =>
+        expect(
+          screen.getByTitle('ルート確定後は「生成したルートの色分け」の「ラベル[gradient]」で確認できます'),
+        ).toBeInTheDocument(),
       );
+      expect(screen.queryByRole("button", { name: "ラベル[gradient]で地図を色分け表示" })).not.toBeInTheDocument();
     });
   });
 

@@ -5,8 +5,8 @@ import * as Popover from "@radix-ui/react-popover";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import WindBearingSlider from "@/components/WindBearingSlider/WindBearingSlider";
-import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
+import { InfoIcon, MapAppearanceIcon } from "@/components/Map/icons";
+import { withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { isDedicatedWayValueLayerId, type MapLayerId, type MapLayerVisibility } from "@/components/Map/mapLayers";
@@ -16,8 +16,8 @@ import styles from "./RouteSettingsPanel.module.css";
 
 // 一般ユーザー向けルート設定画面（改善計画T267、目論見書4章「①一般ユーザ向け
 // ルーティング設定」）。研究モード（WeightPanel）とは別の導線で、常に表示される
-// メインの操作面に置く。0次(除外)→軸選択+重み→重み配分の可視化、という並びは
-// 提示済みのモックアップをそのまま実装したもの。
+// メインの操作面に置く。重み配分バー（帯グラフ、ドラッグで調整）→軸の凡例チップ
+// （有効/無効・説明文・地図色分け）→除外する道路、という並び。
 //
 // プリセット（「バランス」「自転車専用道を優先」等のボタン）は撤去した（2026-08-27
 // ユーザー判断: 重み配分の根拠が不明瞭なため）。既存7軸を名指しした固定の重み値
@@ -128,11 +128,11 @@ interface RouteSettingsPanelProps {
   hasDetail: boolean;
   /** ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
    * 隠れて実質操作できない）を受け、評価軸としての風・勾配（windAxis/gradientAxis）向けの
-   * 向き指定コンパスを地図上からこのパネル内（該当軸の重み詳細ポップオーバーの中、
-   * renderBearingControl参照）へ移設した。「環境」グループ（windVector/gradientFill）向けの
-   * コンパスは、MapOverlayControls経由の起動でBottomSheetを開く必要が無いため、引き続き
-   * 地図上に残る（page.tsx参照）。値（windBearingDeg/gradientBearingDeg）はどちらの
-   * コンパスも同じ状態を共有する。 */
+   * 向き指定コンパスを地図上からこのパネル内（「色分け」ONの間だけ現れる走行方位設定
+   * ポップオーバー、activeBearingAxes/renderBearingControl参照）へ移設した。「環境」グループ
+   * （windVector/gradientFill）向けのコンパスは、MapOverlayControls経由の起動でBottomSheetを
+   * 開く必要が無いため、引き続き地図上に残る（page.tsx参照）。値（windBearingDeg/
+   * gradientBearingDeg）はどちらのコンパスも同じ状態を共有する。 */
   windBearingDeg: number;
   onWindBearingDegChange: (bearingDeg: number) => void;
   gradientBearingDeg: number;
@@ -193,45 +193,47 @@ export default function RouteSettingsPanel({
     return isDedicatedWayValueLayerId(candidateLayerId) ? candidateLayerId : undefined;
   }
 
-  // 改善計画T418: 軸1件ぶんの「地図で色分け」トグル。専用レイヤーが無い軸・ルート確定後の
-  // 風・勾配はどちらも押せない案内表示にする（上記hasDetailのコメント参照）。トグル自体は
-  // 既存のramp軸描画ロジック（axisVisibility、MapView.tsx）・windAxis/gradientAxis配信層
-  // （useDynamicWayValues）をそのまま流用し、layerVisibility[layerId]のON/OFFを
-  // 切り替えるだけ——このコンポーネントは地図描画そのものには関与しない。
-  function renderMapColorToggle(axis: PreferenceAxisDef) {
+  // ユーザー要望（2026-08-31、「下の各軸毎の有効無効、スライドバーはなくしたい。どの軸が
+  // どの色なのか凡例をつけて、そのエリアで有効無効や説明文を巻き取れる？」）を受け、
+  // 軸1件ぶんの「地図で色分け」はチェックボックス・スライダーと同じ行から、凡例チップ
+  // （renderLegendChip）内の小さいアイコンボタンへ圧縮した。地図表示に対応しない軸は
+  // アイコンごと出さない（凡例を圧迫しないため。以前の「地図表示なし」という文言表示は
+  // 廃止——対応する軸だけアイコンが付くこと自体で非対応が分かる）。ルート確定後に
+  // 押せなくなる風・勾配（下記hasDetailのコメント参照）だけは、理由が分かるよう
+  // 案内文つきの無効化アイコンを残す。トグル自体は既存のramp軸描画ロジック
+  // （axisVisibility、MapView.tsx）・windAxis/gradientAxis配信層（useDynamicWayValues）を
+  // そのまま流用し、layerVisibility[layerId]のON/OFFを切り替えるだけ——このコンポーネントは
+  // 地図描画そのものには関与しない。
+  function renderLegendMapColorToggle(axis: PreferenceAxisDef) {
     const layerId = mapColorLayerIdFor(axis.axisId);
-    if (!layerId) {
-      return (
-        <span className={styles.mapColorUnavailable} title="この軸はまだ地図表示用のデータ取得経路が用意されていません[ルート探索のコストには反映されます]">
-          地図表示なし
-        </span>
-      );
-    }
+    if (!layerId) return null;
     if (isDedicatedWayValueLayerId(layerId) && hasDetail) {
+      const unavailableReason = `ルート確定後は「生成したルートの色分け」の「${axis.label}」で確認できます`;
       return (
-        <span className={styles.mapColorUnavailable} title={`ルート確定後は「生成したルートの色分け」の「${axis.label}」で確認できます`}>
-          地図表示なし
+        <span className={styles.legendMapColorUnavailable} title={unavailableReason} aria-label={unavailableReason}>
+          <MapAppearanceIcon size={13} />
         </span>
       );
     }
     const on = layerVisibility[layerId] ?? false;
     return (
-      <span className={styles.mapColorToggle}>
-        <LayerChip
-          label="色分け"
-          on={on}
-          ariaLabel={`${axis.label}で地図を色分け表示`}
-          onClick={() => onLayerToggle(layerId, !on)}
-        />
-      </span>
+      <button
+        type="button"
+        className={styles.legendMapColorButton}
+        aria-pressed={on}
+        aria-label={`${axis.label}で地図を色分け表示`}
+        onClick={() => onLayerToggle(layerId, !on)}
+      >
+        <MapAppearanceIcon size={13} />
+      </button>
     );
   }
 
   // ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
   // 隠れて実質操作できない）: 評価軸としての風・勾配（windAxis/gradientAxis、上の
-  // renderMapColorToggleの「色分け」トグルで起動する方）向けの向き指定コンパスを、
-  // トグルがONの間だけ重み詳細ポップオーバー（下のrenderWeightDetailPopover参照）の中に
-  // 表示する。トグルOFF中・非対象軸ではpopoverの中身に一切現れない。
+  // renderLegendMapColorToggleの色分けアイコンで起動する方）向けの向き指定コンパス。
+  // 「色分け」がONの間だけ、下のrenderBearingPopoverTrigger（凡例チップの外、走行方位
+  // 設定ボタンから開くポップオーバー）の中に表示する。OFF中・非対象軸では現れない。
   function renderBearingControl(axis: PreferenceAxisDef) {
     if (hasDetail) return null;
     const layerId = mapColorLayerIdFor(axis.axisId);
@@ -245,7 +247,7 @@ export default function RouteSettingsPanel({
     );
     if (!bearing) return null;
     return (
-      <div className={styles.bearingRow}>
+      <div key={axis.axisId} className={styles.bearingRow}>
         <span className={styles.bearingLabel}>{axis.label}の走行方位</span>
         <WindBearingSlider
           value={bearing.value}
@@ -253,6 +255,62 @@ export default function RouteSettingsPanel({
           ariaLabel={`${axis.label}の走行方位`}
         />
       </div>
+    );
+  }
+
+  // 「色分け」がONになっている、向き指定が必要な軸（風・勾配）の一覧。走行方位設定
+  // ボタン（凡例チップの並びの直下）を出すかどうか・ポップオーバーの中身の両方で使う。
+  function activeBearingAxes(): PreferenceAxisDef[] {
+    if (hasDetail) return [];
+    return catalog.axes.filter((axis) => {
+      const layerId = mapColorLayerIdFor(axis.axisId);
+      if (!layerId || !isDedicatedWayValueLayerId(layerId)) return false;
+      if (!(layerVisibility[layerId] ?? false)) return false;
+      return !!bearingControlFor(
+        axis.axisId,
+        windBearingDeg,
+        onWindBearingDegChange,
+        gradientBearingDeg,
+        onGradientBearingDegChange
+      );
+    });
+  }
+
+  // ユーザー要望（2026-08-31、凡例チップへの機能集約）: 各軸のチップは「色ドット+ラベル
+  // （タップで有効/無効切替）」「(i)説明文ポップオーバー」「地図で色分けアイコン（対応軸のみ）」
+  // の3要素だけの1行に圧縮した。重みの数値・スライダーはチップから完全に撤去し、重み配分
+  // バー（帯グラフ）のドラッグ・矢印キー操作（T495）だけで調整する——1軸だけを狙って
+  // 0.01刻みで細かく調整する手段は失うが、ユーザー判断で「帯グラフのみに一本化」を選択した。
+  function renderLegendChip(axis: PreferenceAxisDef, index: number) {
+    const weight = routePreference[axis.axisId] ?? 0;
+    const checked = weight > 0;
+    const color = stackBarColorForIndex(index, catalog.axes.length);
+    return (
+      <span key={axis.axisId} className={styles.legendChip} data-checked={checked}>
+        <button
+          type="button"
+          className={styles.legendToggle}
+          aria-pressed={checked}
+          aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
+          onClick={() => handleToggle(axis.axisId, !checked)}
+        >
+          <span aria-hidden="true" className={styles.legendDot} style={{ background: color }} />
+          <span className={styles.legendLabel}>{axis.label}</span>
+        </button>
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <button type="button" className={styles.legendInfoButton} aria-label={`${axis.label}の説明を表示`}>
+              <InfoIcon />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content className={styles.legendInfoPopover} side="bottom" align="start" sideOffset={6}>
+              {axis.description}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+        {renderLegendMapColorToggle(axis)}
+      </span>
     );
   }
 
@@ -306,11 +364,6 @@ export default function RouteSettingsPanel({
     handlePreferenceChange({ ...routePreference, [axisId]: restored });
   }
 
-  function handleWeightChange(axisId: string, value: number) {
-    setLastWeights((prev) => ({ ...prev, [axisId]: value }));
-    handlePreferenceChange({ ...routePreference, [axisId]: value });
-  }
-
   // 帯グラフの境界ドラッグ用。隣り合う2軸ぶんを1回のstate更新へまとめる
   // （handleWeightChangeを2回呼ぶとReactのバッチングに乗っても中間状態が生まれうるため）。
   function handlePairWeightChange(axisIdA: string, valueA: number, axisIdB: string, valueB: number) {
@@ -326,8 +379,9 @@ export default function RouteSettingsPanel({
   // なる」様子をひと目で示していたため、そこへ直接ドラッグ操作を足すのが最も直感的かつ
   // 省スペース（新規UI領域を追加しない）という判断（AskUserQuestionでユーザーが選択）。
   // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は変わらない）。
-  // 細かい数値調整（0.01刻みでの単独設定・0への変更＝実質チェックOFF相当）は従来の
-  // 詳細ポップオーバー（renderWeightDetailPopover）を引き続き使う。
+  // 続くユーザー要望（同日、「各軸毎の…スライドバーはなくしたい」）で、0.01刻みの
+  // 単独重み調整ポップオーバー自体を廃止した——重みの調整手段はこの帯グラフのドラッグ・
+  // 矢印キー操作のみになった（renderLegendChip参照）。
   const stackBarRef = useRef<HTMLDivElement>(null);
   // ドラッグ中の起点情報。境界ハンドルは16px幅しかなく、ドラッグ中にポインタが実際の
   // ハンドル要素の外へ出るのが常態のため、React要素スコープのonPointerMove（要素の外に
@@ -433,9 +487,16 @@ export default function RouteSettingsPanel({
             const visible = catalog.axes
               .map((axis, index) => ({ axis, index, weight: routePreference[axis.axisId] ?? 0 }))
               .filter(({ weight }) => weight > 0 && total > 0);
-            let cumulativePct = 0;
+            // 各区切りの累積%を先に純粋な配列として計算してから描画する（レンダー中に外側の
+            // 変数を書き換えるとreact-hooks/immutability違反になるため、mapのコールバック内で
+            // インデックスから逆算する）。
+            const cumulativePcts = visible.reduce<number[]>((acc, { weight }) => {
+              const previous = acc.at(-1) ?? 0;
+              acc.push(previous + (weight / total) * 100);
+              return acc;
+            }, []);
             return visible.slice(0, -1).map(({ axis: left, weight: leftWeight }, i) => {
-              cumulativePct += (leftWeight / total) * 100;
+              const cumulativePct = cumulativePcts[i];
               const right = visible[i + 1];
               return (
                 <div
@@ -457,67 +518,26 @@ export default function RouteSettingsPanel({
         </div>
       </div>
 
-      <div className={styles.group}>
-        {catalog.axes.map((axis) => {
-          const weight = routePreference[axis.axisId] ?? 0;
-          const checked = weight > 0;
-          return (
-            <div key={axis.axisId} className={styles.row}>
-              {/* FieldLabelは説明ポップオーバーのボタンを内包するため、<label>で
-                  checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
-                  押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
-                  同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
-              <span className={styles.checkboxCell}>
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={(next) => handleToggle(axis.axisId, next)}
-                  aria-label={axis.label}
-                />
-              </span>
-              <span className={styles.rowLabel}>
-                <FieldLabel label={axis.label} description={axis.description} />
-              </span>
-              {/* ユーザー指摘（2026-08-31、「重み配分、スライドバーじゃなくてもう少し
-                  スマートに各要素設定できない？やっぱりスクロールが気になる」「スクロールが
-                  しにくくなった。コンパス部分のエリアはすべてコンパスが移動してしまう」）:
-                  重みスライダー・向きコンパス（いずれもドラッグ操作でtouch-action:none相当の
-                  領域を持つ）を常時表示のリスト行から追い出し、タップで開くRadix Popover
-                  （Portalでdocument.body直下へ描画、FieldLabelの説明ポップオーバーと同じ
-                  パターン）の中へ格納した。通常時のリストは「チェックボックス・ラベル・
-                  現在値・色分けチップ」だけの1行になり、ドラッグ系UIが常設されないため
-                  リストのスクロールを妨げない。 */}
-              <Popover.Root>
-                <Popover.Trigger asChild>
-                  <button
-                    type="button"
-                    className={styles.weightValueTrigger}
-                    aria-label={`${axis.label}の重みを詳細設定[現在${weight.toFixed(2)}]`}
-                  >
-                    {weight.toFixed(2)}
-                  </button>
-                </Popover.Trigger>
-                <Popover.Portal>
-                  <Popover.Content className={styles.weightDetailPopover} side="bottom" align="end" sideOffset={6}>
-                    <input
-                      type="range"
-                      min="0"
-                      max="0.6"
-                      step="0.01"
-                      value={weight}
-                      disabled={!checked}
-                      aria-label={`${axis.label}の重み`}
-                      onChange={(e) => handleWeightChange(axis.axisId, Number(e.target.value))}
-                      className={styles.detailSlider}
-                    />
-                    {renderBearingControl(axis)}
-                  </Popover.Content>
-                </Popover.Portal>
-              </Popover.Root>
-              {renderMapColorToggle(axis)}
-            </div>
-          );
-        })}
-      </div>
+      <div className={styles.legendRow}>{catalog.axes.map((axis, index) => renderLegendChip(axis, index))}</div>
+
+      {(() => {
+        const axes = activeBearingAxes();
+        if (axes.length === 0) return null;
+        return (
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button type="button" className={styles.bearingTrigger}>
+                走行方位を設定{axes.length > 1 ? `（${axes.length}軸）` : ""}
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content className={styles.weightDetailPopover} side="top" align="start" sideOffset={6}>
+                {axes.map((axis) => renderBearingControl(axis))}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        );
+      })()}
 
       <Disclosure
         className={styles.hardFilters}
