@@ -5,6 +5,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { Card } from "@/components/ui/Card/Card";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
+import BackendLogsPanel from "@/components/BackendLogsPanel/BackendLogsPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import WeightPanel, { DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
@@ -106,6 +107,7 @@ export default function AdminPage() {
             <p className={styles.hint}>デバッグログの表示はトップページ（/）のヘッダーアイコンで行えます。</p>
           )}
           <SystemStatusPanel open={systemStatusOpen} onClose={() => setSystemStatusOpen(false)} />
+          <BackendLogsPanel />
         </Tabs.Content>
       </Tabs.Root>
     </div>

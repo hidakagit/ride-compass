@@ -28,16 +28,19 @@ _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [req:%(request_id)s]: %(mess
 
 
 class _LogRingBufferHandler(logging.Handler):
-    """直近`_RING_BUFFER_MAX_SIZE`件の整形済みログ行をメモリ上に保持するハンドラ。"""
+    """直近`_RING_BUFFER_MAX_SIZE`件の整形済みログ行を、レベル（`record.levelno`）と
+    セットでメモリ上に保持するハンドラ。改善計画T517: `get_recent_logs`の`min_level`
+    フィルタが整形済み文字列を`[WARNING]`のような部分文字列でパースせずに済むよう、
+    数値のログレベルを別途保持する。"""
 
     def __init__(self, maxlen: int) -> None:
         super().__init__()
-        self._buffer: deque[str] = deque(maxlen=maxlen)
+        self._buffer: deque[tuple[int, str]] = deque(maxlen=maxlen)
 
     def emit(self, record: logging.LogRecord) -> None:
-        self._buffer.append(self.format(record))
+        self._buffer.append((record.levelno, self.format(record)))
 
-    def snapshot(self) -> list[str]:
+    def snapshot(self) -> list[tuple[int, str]]:
         return list(self._buffer)
 
 
@@ -69,14 +72,20 @@ def set_debug_mode(enabled: bool) -> bool:
     return settings.debug_mode
 
 
-def get_recent_logs(limit: int | None = None, contains: str | None = None) -> list[str]:
+def get_recent_logs(limit: int | None = None, contains: str | None = None, min_level: int | None = None) -> list[str]:
     """リングバッファから直近ログを取得する。
 
-    `contains`を指定すると部分一致でフィルタしてから`limit`を適用する（T318の
-    ユースケース: `distance filter rejected`だけを抜き出す等）。`limit`は「フィルタ後の
-    末尾N件」を返す（古い順のまま、末尾が最新）。
+    `min_level`を指定すると、Python標準の`logging`と同じ「このレベル以上」の意味で
+    フィルタする（改善計画T517、例: `logging.WARNING`を渡すとWARNING/ERROR/CRITICALだけに
+    絞れる）。`contains`を指定すると部分一致でさらにフィルタする（T318のユースケース:
+    `distance filter rejected`だけを抜き出す等）。両方指定した場合はAND条件（レベルで
+    絞った上でさらに文字列一致も要求）。`limit`は「フィルタ後の末尾N件」を返す
+    （古い順のまま、末尾が最新）。
     """
-    lines = _ring_buffer_handler.snapshot()
+    entries = _ring_buffer_handler.snapshot()
+    if min_level is not None:
+        entries = [(levelno, line) for levelno, line in entries if levelno >= min_level]
+    lines = [line for _levelno, line in entries]
     if contains:
         lines = [line for line in lines if contains in line]
     if limit is not None:

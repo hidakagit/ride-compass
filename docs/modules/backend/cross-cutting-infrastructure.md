@@ -136,13 +136,18 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 `POST /api/admin/debug/mode`でdebug_modeをランタイム切替（`.env`は書き換えない、
 再起動不要。再起動・再デプロイのたびに環境変数の既定値へ自動的に戻る設計）。
 `GET /api/admin/debug/logs`でプロセス内メモリのリングバッファ（既定最大1000件）から
-直近ログを取得（`contains`部分一致・`limit`件数で絞り込み）。debug_modeがOFFの間は
-DEBUGレベルの行自体が記録されない。
+直近ログを取得（`min_level`で「このレベル以上」に絞り込み・`contains`部分一致・`limit`
+件数、いずれも併用可でAND条件）。debug_modeがOFFの間はDEBUGレベルの行自体が記録
+されない（WARNING以上は常時記録される）。フロントの「開発者」タブ
+（`BackendLogsPanel.tsx`、[軸スタジオ・評価軸定義](axis-studio.md)の
+`proxyToBackendAdmin`と同じBasic認証セッション再利用）がこのエンドポイントを叩く。
 
 `install_ring_buffer_handler()`（`debug_control.py`、`main.py`起動時に1回）が
 `_LogRingBufferHandler`（`deque(maxlen=1000)`）をルートロガーへ追加する。既存の
 標準出力ハンドラ（Dockerのjson-fileドライバへ渡る）はそのまま残るため、既存の
-常時ログ出力には影響しない。
+常時ログ出力には影響しない。`_LogRingBufferHandler`は各行を`(levelno, 整形済み文字列)`
+のタプルで保持し、`min_level`フィルタは整形済み文字列を`[LEVELNAME]`のような
+部分文字列でパースせずこの数値で判定する。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 

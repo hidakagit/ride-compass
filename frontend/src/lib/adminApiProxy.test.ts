@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { proxyToAxisAdmin } from "./adminApiProxy";
+import { proxyToBackendAdmin } from "./adminApiProxy";
 
-// 軸CRUD管理APIのサーバー側プロキシ（改善計画T305）。AxisStudio.test.tsxがaxisAdminApi.ts
-// モジュール全体をモックするため、その先で実際にbackendへ転送するこのモジュールの
-// 実装コードは一度も実行されていなかった（改善計画T331）。lib/fetchJson.test.tsと同じ粒度で
-// Basic認証ヘッダの組み立て・転送・エラーハンドリングを検証する。
+// backendのadmin API群（軸CRUD・ログ取得等）へのサーバー側プロキシ（改善計画T305、
+// T517で汎用化）。AxisStudio.test.tsxがaxisAdminApi.tsモジュール全体をモックするため、
+// その先で実際にbackendへ転送するこのモジュールの実装コードは一度も実行されていなかった
+// （改善計画T331）。lib/fetchJson.test.tsと同じ粒度でBasic認証ヘッダの組み立て・転送・
+// エラーハンドリングを検証する。
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -24,7 +25,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("proxyToAxisAdmin", () => {
+describe("proxyToBackendAdmin", () => {
   describe("サーバー側資格情報が未設定", () => {
     beforeEach(() => resetEnv());
 
@@ -32,7 +33,7 @@ describe("proxyToAxisAdmin", () => {
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);
 
-      const response = await proxyToAxisAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
+      const response = await proxyToBackendAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
 
       expect(response.status).toBe(500);
       const body = await response.json();
@@ -42,7 +43,7 @@ describe("proxyToAxisAdmin", () => {
 
     it("USERNAMEのみ設定（PASSWORD未設定）でも500を返す", async () => {
       process.env.ADMIN_BASIC_AUTH_USERNAME = "admin";
-      const response = await proxyToAxisAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
+      const response = await proxyToBackendAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
       expect(response.status).toBe(500);
     });
   });
@@ -61,7 +62,7 @@ describe("proxyToAxisAdmin", () => {
       const fetchMock = vi.fn().mockResolvedValue(backendResponse);
       vi.stubGlobal("fetch", fetchMock);
 
-      const response = await proxyToAxisAdmin(
+      const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions", { method: "GET" }),
         "/api/admin/axis-definitions",
       );
@@ -77,6 +78,23 @@ describe("proxyToAxisAdmin", () => {
       expect(init.body).toBeUndefined();
     });
 
+    it("T517: リクエストのクエリ文字列をbackendPathへそのまま付け足して転送する", async () => {
+      const backendResponse = new Response(JSON.stringify(["line1", "line2"]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+      const fetchMock = vi.fn().mockResolvedValue(backendResponse);
+      vi.stubGlobal("fetch", fetchMock);
+
+      await proxyToBackendAdmin(
+        new Request("https://example.test/admin/api/debug/logs?limit=200&contains=jma-tile", { method: "GET" }),
+        "/api/admin/debug/logs",
+      );
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://localhost:8000/api/admin/debug/logs?limit=200&contains=jma-tile");
+    });
+
     it("POSTはリクエストボディをそのまま転送しContent-Typeを付与する", async () => {
       const backendResponse = new Response(JSON.stringify({ axis_id: "surface_q" }), {
         status: 201,
@@ -86,7 +104,7 @@ describe("proxyToAxisAdmin", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       const payload = { axis_id: "surface_q", default_weight: 1 };
-      const response = await proxyToAxisAdmin(
+      const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions", {
           method: "POST",
           body: JSON.stringify(payload),
@@ -105,7 +123,7 @@ describe("proxyToAxisAdmin", () => {
       const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
       vi.stubGlobal("fetch", fetchMock);
 
-      await proxyToAxisAdmin(
+      await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions/surface_q", {
           method: "PUT",
           body: JSON.stringify({ label: "路面品質" }),
@@ -122,7 +140,7 @@ describe("proxyToAxisAdmin", () => {
       const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
       vi.stubGlobal("fetch", fetchMock);
 
-      const response = await proxyToAxisAdmin(
+      const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions/surface_q", { method: "DELETE" }),
         "/api/admin/axis-definitions/surface_q",
       );
@@ -138,7 +156,7 @@ describe("proxyToAxisAdmin", () => {
       const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
       vi.stubGlobal("fetch", fetchMock);
 
-      const response = await proxyToAxisAdmin(
+      const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions/surface_q", { method: "DELETE" }),
         "/api/admin/axis-definitions/surface_q",
       );
@@ -157,7 +175,7 @@ describe("proxyToAxisAdmin", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const response = await proxyToAxisAdmin(
+      const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions", { method: "GET" }),
         "/api/admin/axis-definitions",
       );
@@ -174,7 +192,7 @@ describe("proxyToAxisAdmin", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      const response = await proxyToAxisAdmin(
+      const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions/surface_q", {
           method: "PUT",
           body: JSON.stringify({}),
@@ -189,7 +207,7 @@ describe("proxyToAxisAdmin", () => {
     it("fetch()自体が失敗した場合（通信エラー）は502とエラー詳細を返す", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
 
-      const response = await proxyToAxisAdmin(
+      const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions", { method: "GET" }),
         "/api/admin/axis-definitions",
       );

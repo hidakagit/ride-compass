@@ -118,6 +118,33 @@ def test_read_logs_filters_by_contains_and_limit():
     assert f"bearing=1 marker={marker}" in lines[0]
 
 
+def test_read_logs_filters_by_min_level():
+    """改善計画T517: min_level=WARNINGを渡すとWARNING以上だけが返り、
+    DEBUG/INFOは除外される。debug_modeをONにしてDEBUG行も記録させた上で検証する。"""
+    client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
+    marker = uuid.uuid4().hex
+    logger = logging.getLogger("test.t517")
+    logger.debug("debug line marker=%s", marker)
+    logger.info("info line marker=%s", marker)
+    logger.warning("warning line marker=%s", marker)
+    logger.error("error line marker=%s", marker)
+
+    response = client.get(
+        "/api/admin/debug/logs", params={"contains": marker, "min_level": "WARNING"}, headers=AUTH_HEADERS
+    )
+
+    assert response.status_code == 200
+    lines = response.json()
+    assert len(lines) == 2
+    assert all("[WARNING]" in line or "[ERROR]" in line for line in lines)
+
+
+def test_read_logs_rejects_unknown_min_level():
+    response = client.get("/api/admin/debug/logs", params={"min_level": "TRACE"}, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+
+
 def test_read_logs_returns_nothing_while_debug_mode_disabled():
     client.post("/api/admin/debug/mode", json={"enabled": False}, headers=AUTH_HEADERS)
     marker = uuid.uuid4().hex

@@ -50,9 +50,11 @@ listAxisDefinitions() ──→ definitions（全軸）
   （`<AxisComposer key={...}>`でkeyを切り替え、対象を変えるたびに再マウントする方式）。
 - `/admin`ページ自体が既にBasic認証（`frontend/src/proxy.ts`）で保護されているため、
   この画面はユーザー名/パスワード入力欄を持たない。CRUD APIは同一オリジンのNext.js
-  route handler（`app/admin/api/axis-definitions/`配下、`lib/adminApiProxy.ts`）経由で、
-  ブラウザの認証キャッシュがそのまま転送される。backend宛の資格情報はサーバー側
-  route handlerがサーバー環境変数から組み立てるため、ブラウザには一切露出しない。
+  route handler（`app/admin/api/axis-definitions/`配下、`lib/adminApiProxy.ts:
+  proxyToBackendAdmin`）経由で、ブラウザの認証キャッシュがそのまま転送される。backend宛の
+  資格情報はサーバー側route handlerがサーバー環境変数から組み立てるため、ブラウザには
+  一切露出しない。`proxyToBackendAdmin`は軸CRUD専用ではなく、「開発者」タブの
+  バックエンドログ表示パネル（`app/admin/api/debug/logs/`）とも共有する汎用プロキシ。
 
 ## AxisComposer.tsx（4ステップウィザード）
 

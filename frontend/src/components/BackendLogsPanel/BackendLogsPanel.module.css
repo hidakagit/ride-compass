@@ -1,0 +1,81 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.heading {
+  font-weight: 700;
+  font-size: var(--font-size-md);
+}
+
+.hint {
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.levelSelect {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--foreground);
+  padding: 0.35rem 0.5rem;
+  font-size: var(--font-size-sm);
+}
+
+.containsInput {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.limitInput {
+  width: 6rem;
+}
+
+.logBody {
+  max-height: 24rem;
+  overflow: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+/* DebugConsole.module.css（フロントのログ画面）と同じ配色でレベルを区別する
+ * （改善計画T517、ユーザー指摘「フロントのログ画面と統一して、色で区別でもOK」）。 */
+.logLine {
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-left: 2px solid transparent;
+  padding: 0.05rem 0.3rem;
+}
+
+.logLine[data-level="ERROR"],
+.logLine[data-level="CRITICAL"] {
+  border-left-color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  color: #f87171;
+  font-weight: 600;
+}
+
+.logLine[data-level="WARNING"] {
+  border-left-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+}
