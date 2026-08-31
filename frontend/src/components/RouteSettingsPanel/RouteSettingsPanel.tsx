@@ -398,6 +398,13 @@ export default function RouteSettingsPanel({
     startClientX: number;
     pixelsPerUnit: number;
   } | null>(null);
+  // ユーザー要望（2026-08-31、「バーをドラッグ中に数字が出てほしい」）: ドラッグ中の
+  // 境界だけ、その両隣2軸の%を示すフロートバッジを出す（stackBarDragBadge参照）。
+  // ドラッグ中かどうかの判定にしか使わないためrouteWeightsそのものではなくaxisIdの
+  // ペアだけを持つ——実際のパーセント値はrender時にroutePreferenceから毎回計算する
+  // （ドラッグ中はhandlePairWeightChange経由でroutePreferenceが更新されるたびに
+  // 再レンダーされるため、この値は常に最新を指す）。
+  const [draggingBoundary, setDraggingBoundary] = useState<{ axisIdA: string; axisIdB: string } | null>(null);
 
   function startBoundaryDrag(
     e: React.PointerEvent<HTMLDivElement>,
@@ -418,6 +425,7 @@ export default function RouteSettingsPanel({
       startClientX: e.clientX,
       pixelsPerUnit: barWidthPx / total,
     };
+    setDraggingBoundary({ axisIdA, axisIdB });
     const handleWindowPointerMove = (moveEvent: PointerEvent) => {
       const drag = boundaryDragRef.current;
       if (!drag) return;
@@ -427,6 +435,7 @@ export default function RouteSettingsPanel({
     };
     const handleWindowPointerUp = () => {
       boundaryDragRef.current = null;
+      setDraggingBoundary(null);
       window.removeEventListener("pointermove", handleWindowPointerMove);
       window.removeEventListener("pointerup", handleWindowPointerUp);
       window.removeEventListener("pointercancel", handleWindowPointerUp);
@@ -466,7 +475,41 @@ export default function RouteSettingsPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className={styles.stackBarWrap}>
-        <p className={styles.sectionLabel}>重み配分[帯の境界をドラッグして配分を調整できます]</p>
+        <div className={styles.stackBarHeader}>
+          <p className={styles.sectionLabel}>重み配分[帯の境界をドラッグして配分を調整できます]</p>
+          {/* ユーザー要望（2026-08-31、「情報アイコンを押すと、そのなかに凡例出してほしい」）:
+              帯グラフの色と軸の対応を、見出し脇の情報アイコンから一覧できるようにする
+              （凡例チップ側にも色ドットはあるが、折り返して並ぶため一覧性は弱い）。 */}
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button type="button" className={styles.stackBarLegendTrigger} aria-label="重み配分の凡例を表示">
+                <InfoIcon />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content className={styles.legendInfoPopover} side="bottom" align="start" sideOffset={6}>
+                <ul className={styles.stackBarLegendList}>
+                  {catalog.axes.map((axis, index) => {
+                    const weight = routePreference[axis.axisId] ?? 0;
+                    if (weight <= 0 || total <= 0) return null;
+                    const pct = Math.round((weight / total) * 100);
+                    return (
+                      <li key={axis.axisId} className={styles.stackBarLegendItem}>
+                        <span
+                          aria-hidden="true"
+                          className={styles.legendDot}
+                          style={{ background: stackBarColorForIndex(index, catalog.axes.length) }}
+                        />
+                        <span className={styles.stackBarLegendLabel}>{axis.label}</span>
+                        <span className={styles.stackBarLegendValue}>{pct}%</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        </div>
         <div className={styles.stackBarOuter} ref={stackBarRef}>
           <div className={styles.stackBar}>
             {catalog.axes.map(({ axisId, label }, index) => {
@@ -498,6 +541,8 @@ export default function RouteSettingsPanel({
             return visible.slice(0, -1).map(({ axis: left, weight: leftWeight }, i) => {
               const cumulativePct = cumulativePcts[i];
               const right = visible[i + 1];
+              const isDragging =
+                draggingBoundary?.axisIdA === left.axisId && draggingBoundary?.axisIdB === right.axis.axisId;
               return (
                 <div
                   key={`boundary-${left.axisId}-${right.axis.axisId}`}
@@ -511,7 +556,16 @@ export default function RouteSettingsPanel({
                   tabIndex={0}
                   onPointerDown={(e) => startBoundaryDrag(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
                   onKeyDown={(e) => handleBoundaryKeyDown(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
-                />
+                >
+                  {/* ユーザー要望（2026-08-31、「バーをドラッグ中に数字が出てほしい」）:
+                      ドラッグ中だけ、両隣の%をフロートバッジで表示する（native title
+                      ツールチップはホバー限定でモバイルでは事実上見えないため）。 */}
+                  {isDragging && (
+                    <span className={styles.stackBarDragBadge} aria-hidden="true">
+                      {Math.round((leftWeight / total) * 100)}% / {Math.round((right.weight / total) * 100)}%
+                    </span>
+                  )}
+                </div>
               );
             });
           })()}

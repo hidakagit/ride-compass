@@ -63,6 +63,61 @@
   flex-direction: column;
 }
 
+.stackBarHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.stackBarHeader .sectionLabel {
+  margin: 0;
+}
+
+/* 見出し脇の凡例ポップオーバー開閉トリガー。.legendInfoButtonと違い凡例チップ内の
+   他要素と枠を共有しないため、border-leftを持たない単独のアイコンボタンにする。 */
+.stackBarLegendTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  padding: 0;
+  cursor: pointer;
+}
+
+.stackBarLegendTrigger[aria-expanded="true"] {
+  color: var(--color-accent-strong);
+}
+
+/* 「重み配分」見出し脇の凡例ポップオーバー（ユーザー要望2026-08-31）の中身。
+   帯グラフの色（stackBarColorForIndex）と同じ色ドット・軸ラベル・現在の%を並べる。 */
+.stackBarLegendList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stackBarLegendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stackBarLegendLabel {
+  flex: 1 1 auto;
+  color: var(--foreground);
+}
+
+.stackBarLegendValue {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
    できるUIはないか」）: 境界ハンドル（.stackBarHandle）を帯グラフの外側に絶対配置するための
    位置基準コンテナ。ハンドルを.stackBar（overflow:hidden）の子にすると、帯の両端に近い
@@ -122,6 +177,28 @@
 
 .stackBarHandle:focus-visible {
   outline: none;
+}
+
+/* ドラッグ中だけ出るフロートバッジ（ユーザー要望2026-08-31、「バーをドラッグ中に
+   数字が出てほしい」）。ハンドルの真上に浮かせる。pointer-events:noneで
+   ドラッグ中のポインタ操作を妨げない。 */
+.stackBarDragBadge {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+  padding: 0.15rem 0.4rem;
+  font-size: var(--font-size-sm);
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 10;
 }
 
 /* ユーザー要望（2026-08-31、「下の各軸毎の有効無効、スライドバーはなくしたい。どの軸が
