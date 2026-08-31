@@ -11,7 +11,7 @@
 .hardFilters {
   background: var(--color-surface-2);
   border-radius: var(--radius-sm);
-  padding: 0.3rem var(--space-3);
+  padding: var(--space-1) var(--space-3);
 }
 
 .hardFiltersTrigger {

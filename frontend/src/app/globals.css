@@ -148,6 +148,25 @@
   }
 }
 
+/* 改善計画T505: モバイル（640px以下）は共通トークンの余白・フォントサイズを全体的に圧縮する
+   （実機フィードバック「ボタンの大きさ・余白が全体的に大きい、省スペースに統一したい」への
+   対応）。タップ領域確保（components/ui/Checkbox.tsxの1.4rem・.tabButton/.layerTitle等の
+   44px）・iOS自動ズーム防止（.app-bottom-sheet input文字サイズ16px、下記@media参照）は
+   いずれもこのトークンを参照しないハードコードされたリテラル値のため、ここを縮めても
+   影響しない（各コンポーネントの該当コメント参照）。このブレークポイント（640px）は
+   frontend/src/hooks/useIsMobile.tsのMOBILE_BREAKPOINT_PXと一致させること。 */
+@media (max-width: 640px) {
+  :root {
+    --space-1: 0.2rem;
+    --space-2: 0.4rem;
+    --space-3: 0.55rem;
+    --space-4: 0.75rem;
+
+    --font-size-sm: 0.75rem;
+    --font-size-md: 0.8rem;
+  }
+}
+
 /* Tailwindの@layer utilities（併用導入、T252）は、レイヤー指定なし（unlayered）のCSSに対し
    詳細度に関係なく常に負ける（CSS Cascade Layersの仕様上、unlayeredなルールは名前付き/匿名の
    どのレイヤーよりも優先度が高い）。この汎用リセット群（*・html・body・a・button・input）は
@@ -193,7 +212,10 @@
 
   /* ボタン・入力欄の既定見た目。個々のCSS Module側のクラスセレクタ（.chip等）は
      unlayeredのため本レイヤーより優先度が高く、意図的にスタイル済みの要素（地図上のチップ等）を
-     上書きしてしまう心配は無い。ここでは「未指定なら最低限これくらいは揃える」土台を敷く。 */
+     上書きしてしまう心配は無い。ここでは「未指定なら最低限これくらいは揃える」土台を敷く。
+     改善計画T505: paddingは以前0.5rem 0.9remの固定値だったが、共通トークン（--space-2/
+     --space-3）へ置き換えた——モバイル向けの個別上書きを別途増やさなくても、トークン側の
+     モバイル圧縮（上記@media (max-width: 640px)の:root再定義）に自動で追従する。 */
   button {
     font-family: inherit;
     font-size: var(--font-size-md);
@@ -201,7 +223,7 @@
     border: 1px solid var(--color-border-strong);
     background: var(--color-surface);
     color: var(--foreground);
-    padding: 0.5rem 0.9rem;
+    padding: var(--space-2) var(--space-3);
     cursor: pointer;
     transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
   }
@@ -235,6 +257,10 @@
     border-color: var(--color-accent-strong);
   }
 
+  /* 改善計画T505: こちらも固定値0.4rem 0.6remからトークン（--space-1/--space-2）へ置き換え、
+     モバイル圧縮に自動追従させる。.app-bottom-sheet内はglobals.css下部の別ルール
+     （min-height: 44px・font-size: 16px、iOS自動ズーム防止）がこのfont-sizeを上書きするため、
+     ここでの--font-size-md圧縮はbottom-sheet外の入力欄にのみ影響する。 */
   input[type="text"],
   input[type="number"] {
     font-family: inherit;
@@ -243,7 +269,7 @@
     border: 1px solid var(--color-border-strong);
     background: var(--color-surface);
     color: var(--foreground);
-    padding: 0.4rem 0.6rem;
+    padding: var(--space-1) var(--space-2);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -330,10 +356,10 @@
   z-index: 25;
 }
 
-/* closeボタンはbutton要素のため、上のグローバルbutton既定（padding:0.5rem 0.9rem等、
-   フォーム用に大きめ）がここにも継承される。地図ポップアップの×には過大で、縮めた
-   本文padding（var(--space-2) var(--space-3)）と並ぶと不釣り合いに大きく間延びして見えた
-   ため、専用に詰める。セレクタの詳細度の理由は.maplibregl-popup-content側の
+/* closeボタンはbutton要素のため、上のグローバルbutton既定（padding: var(--space-2)
+   var(--space-3)、フォーム用に大きめ）がここにも継承される。地図ポップアップの×には過大で、
+   縮めた本文padding（同じvar(--space-2) var(--space-3)）と並ぶと不釣り合いに大きく
+   間延びして見えたため、専用に詰める。セレクタの詳細度の理由は.maplibregl-popup-content側の
    コメントと同じ（maplibre-gl.css既定との詳細度同点によるビルド順依存を避ける）。 */
 .maplibregl-popup > .maplibregl-popup-close-button {
   color: var(--foreground);
