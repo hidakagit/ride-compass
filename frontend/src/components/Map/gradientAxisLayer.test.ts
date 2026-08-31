@@ -2,7 +2,12 @@
 // DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
 // （docs/testing.mdパターン3、windAxisLayer.test.tsと同型）。
 import { describe, expect, it } from "vitest";
-import { gradientAxisColorExpression, GRADIENT_AXIS_FEATURE_STATE_KEY, buildGradientColorExpression } from "./gradientAxisLayer";
+import {
+  gradientAxisColorExpression,
+  GRADIENT_AXIS_FEATURE_STATE_KEY,
+  buildGradientColorExpression,
+  gradientAxisLegend,
+} from "./gradientAxisLayer";
 import { GRADIENT_BOUNDARIES } from "./routeStyleModes";
 
 describe("gradientAxisLayer（改善計画T423）", () => {
@@ -36,6 +41,30 @@ describe("gradientAxisLayer（改善計画T423）", () => {
       const customExpr = buildGradientColorExpression(["get", "gradientValue"], [0, 5]);
       const stepCustom = customExpr[3] as unknown[];
       expect(stepCustom).toHaveLength(3 + 2 * 2);
+    });
+  });
+
+  // ユーザー要望（2026-08-31、「地図上の色付の凡例が欲しい」）: 地図の色分けが実際に塗る
+  // 段階（buildGradientColorExpressionと同じ配色・しきい値）と、凡例に出す段階のラベル・色が
+  // 一致することを検証する。
+  describe("gradientAxisLegend", () => {
+    it("段階数はboundaries.length+1で、境界値からラベルを機械的に組み立てる", () => {
+      const legend = gradientAxisLegend([0, 5]);
+      expect(legend).toHaveLength(3);
+      expect(legend[0].label).toBe("0%未満");
+      expect(legend[1].label).toBe("0〜5%");
+      expect(legend[2].label).toBe("5%以上");
+    });
+
+    it("省略時はGRADIENT_BOUNDARIESを使う", () => {
+      const legend = gradientAxisLegend();
+      expect(legend).toHaveLength(GRADIENT_BOUNDARIES.length + 1);
+    });
+
+    it("両端の色はCOLOR_DOWNHILL/GRADIENT_COLOR_HARDと一致する（buildGradientColorExpressionと同じ配色）", () => {
+      const legend = gradientAxisLegend([0, 5]);
+      expect(legend[0].color).toBe("#0284c7"); // COLOR_DOWNHILL
+      expect(legend[legend.length - 1].color).toBe("#dc2626"); // GRADIENT_COLOR_HARD
     });
   });
 });

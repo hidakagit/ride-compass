@@ -1,0 +1,63 @@
+/* 地図左下に常時浮かべる凡例（ユーザー要望2026-08-31）。.locateButton/.locateError
+   （page.module.css、地図右下）と同じ間隔・見た目の慣習（position: absolute、
+   MapLibreの帰属表示と重ならないよう2.5rem空ける、box-shadow: var(--shadow-float)）に
+   揃える。 */
+.wrap {
+  position: absolute;
+  left: var(--space-3);
+  bottom: 2.5rem;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 11rem;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .wrap {
+    bottom: calc(5rem + var(--mobile-tabbar-height));
+  }
+}
+
+.group {
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+  padding: 0.3rem 0.5rem;
+}
+
+.groupLabel {
+  margin: 0 0 0.15rem;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.bandList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bandRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.swatch {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.bandLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}

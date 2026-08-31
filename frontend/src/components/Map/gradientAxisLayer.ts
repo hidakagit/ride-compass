@@ -15,6 +15,7 @@ import {
   GRADIENT_COLOR_HARD,
   interpolateColors,
 } from "./routeStyleModes";
+import { buildRangeLegendBands, type MapColorLegendBand } from "./mapColorLegend";
 
 /** setFeatureStateで差し込む状態キー（MapView.tsx側もこの値を使う、片側import）。 */
 export const GRADIENT_AXIS_FEATURE_STATE_KEY = "gradientValue";
@@ -47,4 +48,13 @@ export function buildGradientColorExpression(
  * GRADIENT_BOUNDARIES（改善計画T440、buildGradientColorExpression参照）。 */
 export function gradientAxisColorExpression(boundaries?: readonly number[]): unknown[] {
   return buildGradientColorExpression(["feature-state", GRADIENT_AXIS_FEATURE_STATE_KEY], boundaries);
+}
+
+/** 地図上の色分け凡例（ユーザー要望2026-08-31、mapColorLegend.ts冒頭コメント参照）。
+ * buildGradientColorExpressionと同じ配色・しきい値（COLOR_DOWNHILL→GRADIENT_COLOR_HARD、
+ * 未指定時GRADIENT_BOUNDARIES）から段階ラベル付きの凡例を組み立てる。値がgradient_percent
+ * （符号付き%）のため単位は"%"。 */
+export function gradientAxisLegend(boundaries: readonly number[] = GRADIENT_BOUNDARIES): MapColorLegendBand[] {
+  const colors = interpolateColors(COLOR_DOWNHILL, GRADIENT_COLOR_HARD, boundaries.length + 1);
+  return buildRangeLegendBands(boundaries, colors, "%");
 }

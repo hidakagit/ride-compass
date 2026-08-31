@@ -26,7 +26,10 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import { RAMP_AXES, axisMapLayerId } from "@/components/Map/axisLayers";
+import { RAMP_AXES, axisMapLayerId, buildAxisRampLegend } from "@/components/Map/axisLayers";
+import { gradientAxisLegend } from "@/components/Map/gradientAxisLayer";
+import { windAxisLegend } from "@/components/Map/windAxisLayer";
+import MapColorLegend, { type MapColorLegendGroup } from "@/components/MapColorLegend/MapColorLegend";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
@@ -1130,6 +1133,42 @@ export default function Home() {
     return map;
   }, [axisCatalog.axes]);
 
+  // ユーザー要望（2026-08-31、「地図上の色付の凡例が欲しい。例えば、勾配ONにした時に
+  // 青くなる道路は何なのか、その度合いが分かればいい」）: 「地図で色分け」がONの軸ぶんだけ、
+  // 地図左下に色→値の凡例を出す（MapColorLegend参照）。ramp軸（axisVisibility）・
+  // windAxis/gradientAxis（showWindAxis/showGradientAxis、専用way_id配信層）の3系統を
+  // 横断して集める——RouteSettingsPanel.tsx: mapColorLayerIdForが軸id→レイヤーIDを
+  // 解決するのと同じ2分岐（secondaryAxes由来のramp／dedicatedWayValueLayer）だが、
+  // ここでは「今ONになっているものの凡例」を集めるのが目的のため判定の向きが逆
+  // （レイヤーID→軸ではなく、既知の3系統それぞれについてON状態を直接見る）。
+  const mapColorLegendGroups = useMemo<MapColorLegendGroup[]>(() => {
+    const groups: MapColorLegendGroup[] = [];
+    for (const axis of axisCatalog.rampAxes) {
+      if (axisVisibility[axisMapLayerId(axis.axisId)]) {
+        groups.push({
+          axisId: axis.axisId,
+          label: axis.label,
+          bands: buildAxisRampLegend(axis).map((entry) => ({ label: entry.label, color: entry.color })),
+        });
+      }
+    }
+    if (showWindAxis) {
+      groups.push({
+        axisId: "wind",
+        label: axisCatalog.axisLabels.wind ?? "風",
+        bands: windAxisLegend(dedicatedWayValueBoundaries.get("wind")),
+      });
+    }
+    if (showGradientAxis) {
+      groups.push({
+        axisId: "gradient",
+        label: axisCatalog.axisLabels.gradient ?? "勾配",
+        bands: gradientAxisLegend(dedicatedWayValueBoundaries.get("gradient")),
+      });
+    }
+    return groups;
+  }, [axisCatalog.rampAxes, axisCatalog.axisLabels, axisVisibility, showWindAxis, showGradientAxis, dedicatedWayValueBoundaries]);
+
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
   // 廃止に伴い比較対象から削除した。
@@ -1723,6 +1762,8 @@ export default function Home() {
             pinPlacementEnabled={routeMode === "destination"}
             onOriginSet={setManualLocation}
           />
+
+          <MapColorLegend groups={mapColorLegendGroups} />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
 

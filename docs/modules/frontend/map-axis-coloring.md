@@ -16,6 +16,8 @@
 | `Map/windPenalty.ts`・`gradientGridFill.ts` | ルート確定前の環境グループ面（gridFill）の値計算・色式 |
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（共有色ヘルパー、windAxisLayer/gradientAxisLayerが使う）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
+| `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。windAxisLayer/gradientAxisLayerの`*Legend`関数が使う |
+| `components/MapColorLegend/MapColorLegend.tsx` | 上記の凡例データを地図左下に表示するUI部品（`page.tsx`が組み立てる） |
 | `Map/mapLayers.ts` | `isDedicatedWayValueLayerId`・`isAxisStudioLayer`（レイヤーID判定） |
 | `Map/MapView.tsx`（windAxis/gradientAxis/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
 | `hooks/useDynamicWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得） |
@@ -80,6 +82,14 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
   （feature-state or geojsonプロパティ）だけが呼び出し側で異なる」共通ロジックを持ち、
   評価軸グループ（feature-state経由）と環境グループのgridFill（`["get",...]`経由）が
   同じ配色・しきい値を共有する契約をコード上でも1箇所に集約する。
+- `windAxisLegend(boundaries?)`/`gradientAxisLegend(boundaries?)`は、同じ配色・しきい値
+  から地図上の凡例（色→値の対応、`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。
+  `page.tsx`が`showWindAxis`/`showGradientAxis`（ONの間だけ）・ramp軸（`axisVisibility`、
+  `axisLayers.ts: buildAxisRampLegend`）を横断して集め、`MapColorLegend`
+  （`components/MapColorLegend/`）が地図左下に常時表示する。ramp軸の凡例は
+  絞り込みフィルタと共有する`LegendEntry`（`filter`必須）を返すが、windAxis/gradientAxisには
+  絞り込み機構自体が無いため、意味の無い`filter`を捏造せずに済む`MapColorLegendBand`
+  （`{label, color}`のみ）という軽量な専用型を使う。
 
 ## windPenalty.ts / gradientGridFill.ts（環境グループの面表示、計算方法が異なる）
 

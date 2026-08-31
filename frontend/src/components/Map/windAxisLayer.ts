@@ -14,6 +14,7 @@
 // 風固有の配色・しきい値・feature-stateキーだけが残る。
 
 import { COLOR_UNKNOWN, rampColorForBand } from "./axisLayers";
+import { buildRangeLegendBands, type MapColorLegendBand } from "./mapColorLegend";
 
 export type { TileXY } from "./dynamicWayValues";
 export { tilesCoveringViewport, mergeDynamicWayValues } from "./dynamicWayValues";
@@ -54,4 +55,14 @@ export function buildWindPenaltyColorExpression(
  * WIND_AXIS_THRESHOLDS（改善計画T466、buildWindPenaltyColorExpression参照）。 */
 export function windAxisColorExpression(boundaries?: readonly number[]): unknown[] {
   return buildWindPenaltyColorExpression(["feature-state", WIND_AXIS_FEATURE_STATE_KEY], boundaries);
+}
+
+/** 地図上の色分け凡例（ユーザー要望2026-08-31、mapColorLegend.ts冒頭コメント参照）。
+ * buildWindPenaltyColorExpressionと同じ配色（rampColorForBand、ramp軸と共通の緑→赤系統）・
+ * しきい値（未指定時WIND_AXIS_THRESHOLDS）から段階ラベル付きの凡例を組み立てる。値が
+ * wind_penalty（符号付きm/s、正=向かい風・負=追い風）のため単位は"m/s"。 */
+export function windAxisLegend(boundaries: readonly number[] = WIND_AXIS_THRESHOLDS): MapColorLegendBand[] {
+  const bandCount = boundaries.length + 1;
+  const colors = Array.from({ length: bandCount }, (_, index) => rampColorForBand(index, bandCount));
+  return buildRangeLegendBands(boundaries, colors, "m/s");
 }
