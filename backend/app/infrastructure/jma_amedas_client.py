@@ -10,6 +10,7 @@ import httpx
 from cachetools import TTLCache
 
 from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 # 2026-08-29、実機（curl）で全エンドポイントを検証した結果2件が誤り（存在しないURLで
 # 常時404、実装時は机上のURL推測のまま未検証だった）と判明し修正:
@@ -42,24 +43,13 @@ async def fetch_station_table(client: httpx.AsyncClient) -> dict | None:
     JMAのlat/lonは[度, 分]の配列で表現される独特の形式（呼び出し元
     jma_amedas_service.pyで10進度へ変換する）。
     """
-    with log_external_call("weather:jma-amedas-stations") as fields:
-        cached = _station_table_cache.get(_STATION_TABLE_CACHE_KEY)
-        if cached is not None:
-            fields["cache"] = "hit"
-            return cached
-        fields["cache"] = "miss"
-        try:
-            response = await client.get(AMEDAS_STATION_TABLE_URL, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
-        fields["result"] = "ok"
-        _station_table_cache[_STATION_TABLE_CACHE_KEY] = data
-        return data
+
+    async def fetch() -> dict:
+        response = await client.get(AMEDAS_STATION_TABLE_URL, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+
+    return await cached_fetch(_station_table_cache, _STATION_TABLE_CACHE_KEY, "weather:jma-amedas-stations", fetch)
 
 
 async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None:
@@ -68,28 +58,20 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None
     レスポンスはJSON配列ではなく、ISO時刻文字列1個だけのプレーンテキスト
     （例: "2026-08-29T17:00:00+09:00"、実機確認済み）。
     """
-    with log_external_call("weather:jma-amedas-latest-time") as fields:
-        cached = _latest_time_cache.get(_LATEST_TIME_CACHE_KEY)
-        if cached is not None:
-            fields["cache"] = "hit"
-            return cached
-        fields["cache"] = "miss"
-        try:
-            response = await client.get(AMEDAS_LATEST_TIME_URL, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            latest = response.text.strip()
-        except httpx.HTTPError as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
+
+    async def fetch() -> str:
+        response = await client.get(AMEDAS_LATEST_TIME_URL, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        latest = response.text.strip()
         if not latest:
-            fields["result"] = "error"
-            fields["error_type"] = "unexpected_shape"
-            return None
-        fields["result"] = "ok"
-        _latest_time_cache[_LATEST_TIME_CACHE_KEY] = latest
+            raise UnexpectedShapeError("latest observation time is empty")
         return latest
+
+    # 元々`.json()`を呼ばないためValueErrorの発生源が無く、httpx.HTTPErrorのみを
+    # 捕捉していた（UnexpectedShapeErrorはcatchに関わらず専用の分岐で捕捉される）。
+    return await cached_fetch(
+        _latest_time_cache, _LATEST_TIME_CACHE_KEY, "weather:jma-amedas-latest-time", fetch, catch=(httpx.HTTPError,)
+    )
 
 
 async def fetch_observation_map(client: httpx.AsyncClient, timestamp: str) -> dict | None:

@@ -18,7 +18,7 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 |---|---|
 | domain | `weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py` |
-| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py` |
+| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py` |
 
 ## domain層: 2つの異なる役割
@@ -121,6 +121,24 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 （`domain/wind_grid.py: generate_wind_grid_detail_points`）により大半はOpen-Meteoへの
 新規リクエストを伴わない。警報・WBGT・洪水予報・アメダス（いずれも30/分）は「地点変更時
 デバウンス起点で呼ばれる」という共通の呼び出しパターンを前提に揃えられている。
+
+## シンプルな外部APIクライアントの共通ヘルパー（`simple_api_client.py`）
+
+`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`は
+tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない、または機械アクセスへの
+配慮のためTTLキャッシュで呼び出し頻度自体を抑える設計）。これらが共有する
+「`TTLCache`参照→ミス時のみfetch→エラー処理→キャッシュ書き戻し」という骨格を
+`cached_fetch(cache, key, category, fetch, *, catch=..., **log_fields)`へ集約した
+（改善計画T488、以前は各クライアントに8〜10行の定型文がほぼ一字一句同じ形で
+計約10箇所複製されていた）。呼び出し元は`fetch`（実際のhttpx呼び出し＋パース＋
+必要ならフォーマット検証）だけを渡す。フォーマット不正（配列であるべきなのに
+そうでない等）は`UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から
+送出すると、常に固定文字列`error_type="unexpected_shape"`として記録される。
+呼び出し元ごとに元々の例外捕捉範囲が異なっていた（例:
+`fetch_municipality_code`だけ`AttributeError`も捕捉）ため、`catch`引数で
+既存の挙動を個別に維持できる。`weather_client.py`（tenacity再試行・2段キャッシュ）・
+`jma_tile_client.py`/`elevation_client.py`/`basemap_client.py`（TTLCache以外の
+キャッシュバックエンド）は対象外のまま各自の実装を維持する。
 
 ## Open-Meteo呼び出しの信頼性対策（`weather_client.py`）
 

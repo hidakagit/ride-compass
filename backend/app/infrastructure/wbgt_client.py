@@ -15,7 +15,7 @@ import httpx
 from cachetools import TTLCache
 
 from app.domain.wbgt_points import WbgtPoint
-from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 # ファイル名に更新日が埋め込まれた命名規則（環境省サイト側の運用）のため、地点構成が
 # 変わった際はURLごと差し替えが必要になる（自動追従の仕組みは無い。年1回程度の更新
@@ -42,24 +42,13 @@ _forecast_cache: TTLCache = TTLCache(maxsize=2048, ttl=_FORECAST_CACHE_TTL_SECON
 async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | None:
     """情報提供地点マスタ（全国約840地点）を取得する。運用終了済み地点
     （End Year-End Month-End Dayが"9999-99-99"以外）は除外する。"""
-    with log_external_call("weather:wbgt-point-master") as fields:
-        cached = _point_master_cache.get(_POINT_MASTER_CACHE_KEY)
-        if cached is not None:
-            fields["cache"] = "hit"
-            return cached
-        fields["cache"] = "miss"
-        try:
-            response = await client.get(WBGT_POINT_MASTER_URL, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            points = _parse_point_master(response.text)
-        except (httpx.HTTPError, ValueError) as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
-        fields["result"] = "ok"
-        _point_master_cache[_POINT_MASTER_CACHE_KEY] = points
-        return points
+
+    async def fetch() -> list[WbgtPoint]:
+        response = await client.get(WBGT_POINT_MASTER_URL, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return _parse_point_master(response.text)
+
+    return await cached_fetch(_point_master_cache, _POINT_MASTER_CACHE_KEY, "weather:wbgt-point-master", fetch)
 
 
 def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
@@ -97,33 +86,20 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
     レスポンスの`forecast_val`は暑さ指数を10倍した整数文字列（実機確認、2026-08-22:
     東京地点でforecast_val="280"→暑さ指数28.0）のため、呼び出し元で10で割ること。
     """
-    with log_external_call("weather:wbgt-forecast", wbgt_no=wbgt_no) as fields:
-        cached = _forecast_cache.get(wbgt_no)
-        if cached is not None:
-            fields["cache"] = "hit"
-            return cached
-        fields["cache"] = "miss"
-        params = {
-            "location_type": 1,
-            "date_search_type": 1,
-            "wbgt_nos": wbgt_no,
-            "range_date_from": range_from,
-            "range_date_to": range_to,
-        }
-        try:
-            response = await client.get(WBGT_FORECAST_API_URL, params=params, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            body = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
+    params = {
+        "location_type": 1,
+        "date_search_type": 1,
+        "wbgt_nos": wbgt_no,
+        "range_date_from": range_from,
+        "range_date_to": range_to,
+    }
+
+    async def fetch() -> list[dict]:
+        response = await client.get(WBGT_FORECAST_API_URL, params=params, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        body = response.json()
         if body.get("status") != "success" or not isinstance(body.get("data"), list):
-            fields["result"] = "error"
-            fields["error_type"] = "unexpected_shape"
-            return None
-        fields["result"] = "ok"
-        data = body["data"]
-        _forecast_cache[wbgt_no] = data
-        return data
+            raise UnexpectedShapeError("wbgt forecast response is not successful or not a list")
+        return body["data"]
+
+    return await cached_fetch(_forecast_cache, wbgt_no, "weather:wbgt-forecast", fetch, wbgt_no=wbgt_no)

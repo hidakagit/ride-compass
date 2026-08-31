@@ -9,7 +9,7 @@ T205のjma_warning_client.pyと同じ理由（更新頻度がOpen-Meteoほど高
 import httpx
 from cachetools import TTLCache
 
-from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 FLOOD_API_URL = "https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json"
 
@@ -27,25 +27,13 @@ async def fetch_flood_documents(client: httpx.AsyncClient) -> list | None:
     """全国の指定河川洪水予報の電文一覧を取得する。1エントリ=1河川の最新状態
     （発表・継続・解除のいずれか）で、河川ごとに配列内で更新される
     （実機確認、2026-08-22: 解除された河川はcode=10のまま配列に残り続ける）。"""
-    with log_external_call("weather:jma-flood") as fields:
-        cached = _flood_cache.get(_FLOOD_CACHE_KEY)
-        if cached is not None:
-            fields["cache"] = "hit"
-            return cached
-        fields["cache"] = "miss"
-        try:
-            response = await client.get(FLOOD_API_URL, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
+
+    async def fetch() -> list:
+        response = await client.get(FLOOD_API_URL, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
         if not isinstance(data, list):
-            fields["result"] = "error"
-            fields["error_type"] = "unexpected_shape"
-            return None
-        fields["result"] = "ok"
-        _flood_cache[_FLOOD_CACHE_KEY] = data
+            raise UnexpectedShapeError("flood documents response is not a list")
         return data
+
+    return await cached_fetch(_flood_cache, _FLOOD_CACHE_KEY, "weather:jma-flood", fetch)
