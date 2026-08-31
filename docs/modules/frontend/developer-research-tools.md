@@ -14,11 +14,13 @@
 | `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル | `page.tsx`（`/`）のヘッダー直下 |
 | `components/SystemStatusPanel/SystemStatusPanel.tsx` | backend `/api/debug/stats`の集計・フロントバージョンを表示するフローティングパネル | `/admin`「開発者」タブ |
 | `components/BackendStatus.tsx` | バックエンドの死活確認の簡易表示 | `/admin`「開発者」タブ |
+| `components/BackendLogsPanel/BackendLogsPanel.tsx` | backend `GET /api/admin/debug/logs`の直近ログをレベル（DEBUG〜CRITICAL）・部分一致で絞り込んで表示するパネル。取得は「取得」ボタン押下時のみ（ポーリングなし） | `/admin`「開発者」タブ |
 | `components/ResearchPanel/ResearchPanel.tsx` | 研究モードのトグル | `/admin`「研究」タブ |
 | `components/FloatingPanel/FloatingPanel.tsx` | `DebugConsole`/`SystemStatusPanel`が共有するドラッグ可能な浮動パネルの共通シェル（`react-rnd`ベース） | 両パネルの実装基盤 |
 | `hooks/useDebugLog.ts`・`lib/debugLog.ts` | デバッグモードON/OFF状態・ログエントリのシングルストア（`useSyncExternalStore`） | |
 | `hooks/useResearchMode.ts`・`lib/researchMode.ts` | 研究モードON/OFF状態の同型シングルストア | |
 | `services/debugStatsApi.ts`・`services/versionApi.ts` | `SystemStatusPanel`が使うAPIクライアント | |
+| `services/debugAdminApi.ts` | `BackendLogsPanel`が使うAPIクライアント（`app/admin/api/debug/logs/`経由、生成型を経由しない手書き型） | |
 | `services/healthApi.ts` | `BackendStatus.tsx`が使う`GET /api/health`クライアント | |
 | `app/api/version/route.ts` | `versionApi.ts`が読むフロントエンドのビルドバージョンを返すNext.js route handler | |
 
@@ -28,7 +30,7 @@
 app/admin/page.tsx（独立URL、Basic認証保護下）
   ├─ タブ「軸スタジオ」: AxisStudio（本モジュール対象外）
   ├─ タブ「研究」　　　: ResearchPanel + （researchEnabled時のみ）WeightPanel
-  └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel
+  └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 
 app/page.tsx（メインページ、地図を持つ）
   └─ header直下: DebugConsole（debugEnabled時のみボタン表示）
