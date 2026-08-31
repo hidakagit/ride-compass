@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
 import Disclosure from "@/components/Disclosure/Disclosure";
+import WindBearingSlider from "@/components/WindBearingSlider/WindBearingSlider";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel, withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
@@ -84,6 +85,35 @@ interface RouteSettingsPanelProps {
    * （car_stress等）は動的パラメータを持たないためルート確定後も一律色分けを続けられ、
    * この対象外のまま変更していない。 */
   hasDetail: boolean;
+  /** ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
+   * 隠れて実質操作できない）を受け、評価軸としての風・勾配（windAxis/gradientAxis）向けの
+   * 向き指定コンパスを地図上からこのパネル内（該当軸の「色分け」トグル直下）へ移設した。
+   * 「環境」グループ（windVector/gradientFill）向けのコンパスは、MapOverlayControls経由の
+   * 起動でBottomSheetを開く必要が無いため、引き続き地図上に残る（page.tsx参照）。値
+   * （windBearingDeg/gradientBearingDeg）はどちらのコンパスも同じ状態を共有する。 */
+  windBearingDeg: number;
+  onWindBearingDegChange: (bearingDeg: number) => void;
+  gradientBearingDeg: number;
+  onGradientBearingDegChange: (bearingDeg: number) => void;
+}
+
+// 改善計画: 向き（bearing）を必要とする軸のaxis_id→対応する状態・setterの対訳。
+// dedicated_way_value_layer=trueの軸は現状すべて向きが必須（backend/app/domain/
+// dynamic_way_values.pyのneeds_bearing、wind/gradientとも常にtrue）だが、この値自体は
+// backend内部専用でaxis-catalogには出てこない（改善計画T458）ため、フロント側は
+// 既存のwindBearingDeg/gradientBearingDegという2つの独立したstate（page.tsx、T483で
+// 汎用化を検討中の既知の技術的負債）にaxis_idで対応付けるほかない。3件目の対象軸が
+// 増える場合はこの対訳表への追加に加え、page.tsx側のstate追加も必要になる。
+function bearingControlFor(
+  axisId: string,
+  windBearingDeg: number,
+  onWindBearingDegChange: (bearingDeg: number) => void,
+  gradientBearingDeg: number,
+  onGradientBearingDegChange: (bearingDeg: number) => void
+): { value: number; onChange: (bearingDeg: number) => void } | undefined {
+  if (axisId === "wind") return { value: windBearingDeg, onChange: onWindBearingDegChange };
+  if (axisId === "gradient") return { value: gradientBearingDeg, onChange: onGradientBearingDegChange };
+  return undefined;
 }
 
 export default function RouteSettingsPanel({
@@ -96,6 +126,10 @@ export default function RouteSettingsPanel({
   layerVisibility,
   onLayerToggle,
   hasDetail,
+  windBearingDeg,
+  onWindBearingDegChange,
+  gradientBearingDeg,
+  onGradientBearingDegChange,
 }: RouteSettingsPanelProps) {
   const catalog = useAxisCatalog();
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
@@ -148,6 +182,35 @@ export default function RouteSettingsPanel({
           onClick={() => onLayerToggle(layerId, !on)}
         />
       </span>
+    );
+  }
+
+  // ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
+  // 隠れて実質操作できない）: 評価軸としての風・勾配（windAxis/gradientAxis、上の
+  // renderMapColorToggleの「色分け」トグルで起動する方）向けの向き指定コンパスを、
+  // トグルがONの間だけこの軸の行の下に表示する。トグルOFF中・非対象軸では高さを
+  // 一切消費しない（他の軸の行の高さに影響しない）。
+  function renderBearingControl(axis: PreferenceAxisDef) {
+    if (hasDetail) return null;
+    const layerId = mapColorLayerIdFor(axis.axisId);
+    if (!layerId || !isDedicatedWayValueLayerId(layerId) || !(layerVisibility[layerId] ?? false)) return null;
+    const bearing = bearingControlFor(
+      axis.axisId,
+      windBearingDeg,
+      onWindBearingDegChange,
+      gradientBearingDeg,
+      onGradientBearingDegChange
+    );
+    if (!bearing) return null;
+    return (
+      <div className={styles.bearingRow}>
+        <span className={styles.bearingLabel}>{axis.label}の走行方位</span>
+        <WindBearingSlider
+          value={bearing.value}
+          onChange={bearing.onChange}
+          ariaLabel={`${axis.label}の走行方位`}
+        />
+      </div>
     );
   }
 
@@ -268,34 +331,37 @@ export default function RouteSettingsPanel({
           const weight = routePreference[axis.axisId] ?? 0;
           const checked = weight > 0;
           return (
-            <div key={axis.axisId} className={styles.row}>
-              {/* FieldLabelは説明ポップオーバーのボタンを内包するため、<label>で
-                  checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
-                  押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
-                  同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
-              <span className={styles.checkboxCell}>
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={(next) => handleToggle(axis.axisId, next)}
-                  aria-label={axis.label}
+            <div key={axis.axisId}>
+              <div className={styles.row}>
+                {/* FieldLabelは説明ポップオーバーのボタンを内包するため、<label>で
+                    checkboxと一緒に包まない（ネイティブlabelのクリック委譲でinfoボタン
+                    押下時にもcheckboxがトグルされてしまう、WeightPanel.tsxのWeightInputと
+                    同じ理由で兄弟要素として配置しaria-labelで関連付ける）。 */}
+                <span className={styles.checkboxCell}>
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(next) => handleToggle(axis.axisId, next)}
+                    aria-label={axis.label}
+                  />
+                </span>
+                <span className={styles.rowLabel}>
+                  <FieldLabel label={axis.label} description={axis.description} />
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.6"
+                  step="0.01"
+                  value={weight}
+                  disabled={!checked}
+                  aria-label={`${axis.label}の重み`}
+                  onChange={(e) => handleWeightChange(axis.axisId, Number(e.target.value))}
+                  className={styles.slider}
                 />
-              </span>
-              <span className={styles.rowLabel}>
-                <FieldLabel label={axis.label} description={axis.description} />
-              </span>
-              <input
-                type="range"
-                min="0"
-                max="0.6"
-                step="0.01"
-                value={weight}
-                disabled={!checked}
-                aria-label={`${axis.label}の重み`}
-                onChange={(e) => handleWeightChange(axis.axisId, Number(e.target.value))}
-                className={styles.slider}
-              />
-              <span className={styles.weightValue}>{weight.toFixed(2)}</span>
-              {renderMapColorToggle(axis)}
+                <span className={styles.weightValue}>{weight.toFixed(2)}</span>
+                {renderMapColorToggle(axis)}
+              </div>
+              {renderBearingControl(axis)}
             </div>
           );
         })}

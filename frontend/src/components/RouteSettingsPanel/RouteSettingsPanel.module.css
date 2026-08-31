@@ -162,6 +162,22 @@
   cursor: default;
 }
 
+/* ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
+   隠れて実質操作できない）: 評価軸としての風・勾配向けコンパスをこの軸の行の下に埋め込む
+   （renderBearingControl参照）。「色分け」トグルがONの間だけ出る、通常時は高さ0の
+   付加要素のため、他の軸の行の高さには影響しない。 */
+.bearingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.3rem 0 0.3rem 1.6rem;
+}
+
+.bearingLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
 /* ユーザー指摘（2026-08-31、実機スクリーンショット「スマホ画面があまり改善されていない」）:
    T435の2段グリッドは280px幅のデスクトップサイドバー向けの対策だが、モバイルBottomSheetは
    画面ほぼ全幅（実機で優に320pxを超える）を使えるため、同じ制約を持たない。モバイルでは

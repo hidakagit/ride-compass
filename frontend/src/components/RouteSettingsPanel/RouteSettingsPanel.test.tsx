@@ -98,6 +98,13 @@ function baseNewProps() {
     layerVisibility: baseLayerVisibility(),
     onLayerToggle: vi.fn() as (id: MapLayerId, on: boolean) => void,
     hasDetail: false,
+    // 改善計画（2026-08-31、モバイルでBottomSheet展開中は地図上のコンパススライダーが
+    // 隠れて実質操作できない対応）: 評価軸としての風・勾配向けコンパスをパネル内へ
+    // 埋め込んだことに伴う新規必須props。
+    windBearingDeg: 0,
+    onWindBearingDegChange: vi.fn() as (bearingDeg: number) => void,
+    gradientBearingDeg: 0,
+    onGradientBearingDegChange: vi.fn() as (bearingDeg: number) => void,
   };
 }
 

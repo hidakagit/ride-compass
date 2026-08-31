@@ -1304,6 +1304,10 @@ export default function Home() {
           layerVisibility={layerVisibility}
           onLayerToggle={handleLayerToggle}
           hasDetail={hasDetail}
+          windBearingDeg={windBearingDeg}
+          onWindBearingDegChange={setWindBearingDeg}
+          gradientBearingDeg={gradientBearingDeg}
+          onGradientBearingDegChange={setGradientBearingDeg}
         />
       </div>
     );
@@ -1746,24 +1750,24 @@ export default function Home() {
               </div>
             )}
             {/* 改善計画T414: 風の必要パラメータ（時刻＋向き）のうち「向き」を指定する
-                コンパススライダー。「環境」（風penalty gridFill）・評価軸としての風
-                （windAxis、T418でルート設定パネルから起動する形へ移設）が同じ入力を
-                共有する（T400.md「2.」節。このコンパススライダー自体の位置は変えて
-                いない——向きの指定元は環境グループ側のままでよい、というT418の判断）。
-                ルート確定後（hasDetail）はパラメータ指定UI自体を消す（windAxisの起動側は
-                ルート設定パネル側でも既にdisabledになるが、windVectorはルート確定後も
-                矢印表示のためON/OFFできるままなので、コンパス自体はshowWindVectorだけで
-                なくhasDetailも見て出し分ける）。 */}
-            {(showWindVector || layerVisibility.windAxis) && !hasDetail && (
+                コンパススライダー。地図上（この位置）は「環境」グループ（風penalty
+                gridFill、MapOverlayControls起動）専用。評価軸としての風（windAxis）向けの
+                コンパスは、ユーザー指摘（2026-08-31、モバイルでBottomSheet展開中は
+                このコンパスが隠れて実質操作不能）を受けRouteSettingsPanel側（軸の
+                「色分け」トグルのすぐ下）へ移設した——パネルを開いている間しか意味を
+                持たない設定のため、パネルの外（地図上）に置く必然性が無かった。値
+                （windBearingDeg）自体は変わらず共有する。ルート確定後（hasDetail）は
+                パラメータ指定UI自体を消す。 */}
+            {showWindVector && !hasDetail && (
               <WindBearingSlider value={windBearingDeg} onChange={setWindBearingDeg} ariaLabel="風の走行方位" />
             )}
             {/* 改善計画T423: 勾配の必要パラメータ（向きのみ、時刻非依存）を指定する
                 コンパススライダー。風と同じWindBearingSliderを再利用する（新規コンポーネント
-                は作らない、docs/tasks/T423.md「確定済みの設計判断」3.）。「環境」
-                （gradientFill、gridFill面表示）・評価軸としての勾配（gradientAxis）が同じ
-                入力を共有する（T400.md「2.」節と同じ構造）。値そのもの（gradientBearingDeg）
-                は風（windBearingDeg）とは独立。 */}
-            {(layerVisibility.gradientFill || layerVisibility.gradientAxis) && !hasDetail && (
+                は作らない、docs/tasks/T423.md「確定済みの設計判断」3.）。地図上（この位置）は
+                「環境」グループ（gradientFill）専用——評価軸としての勾配（gradientAxis）向けは
+                風と同じ理由でRouteSettingsPanel側へ移設済み。値（gradientBearingDeg）は
+                風（windBearingDeg）とは独立。 */}
+            {layerVisibility.gradientFill && !hasDetail && (
               <WindBearingSlider value={gradientBearingDeg} onChange={setGradientBearingDeg} ariaLabel="勾配の走行方位" />
             )}
           </div>
