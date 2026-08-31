@@ -509,7 +509,17 @@ class RoadGraphEngine:
         # estimate_fn（A*ヒューリスティック）はレグごとに目的地（to_node）が変わるため
         # レグごとに組み立て直す。同期関数（rustworkxの探索本体）を直接awaitせず呼ぶと
         # イベントループを塞ぐため、asyncio.to_threadへ逃がす（T522と同じ理由）。
-        cost_fn = self._build_edge_cost_fn(context, context.cost_cache)
+        raw_cost_fn = self._build_edge_cost_fn(context, context.cost_cache)
+        # 改善計画T529フォローアップ調査: 本番実測でtrace_ms（lazy評価が実際に走る場所）が
+        # 旧実装より悪化する事象が判明した（docs/tasks/T529.md参照）。原因切り分けのため、
+        # 方位ごとにedge_cost_fn呼び出し回数（cache hit/miss問わず）・壁時計時間・
+        # cost_cacheの純増分（このリクエスト内で他方位と共有できた分）を計測する。
+        call_count = 0
+
+        def cost_fn(edge_id: str) -> float:
+            nonlocal call_count
+            call_count += 1
+            return raw_cost_fn(edge_id)
 
         def _trace_segments() -> list[list[str]] | None:
             segment_paths = []
@@ -523,7 +533,16 @@ class RoadGraphEngine:
                 segment_paths.append(segment_path)
             return segment_paths
 
+        trace_started = time.monotonic()
+        cache_size_before = len(context.cost_cache)
         segment_paths = await asyncio.to_thread(_trace_segments)
+        trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
+        cache_size_after = len(context.cost_cache)
+        logger.info(
+            "trace_loop direction=%s wall_ms=%d cost_fn_calls=%d cache_before=%d cache_after=%d cache_added=%d",
+            bearing, trace_wall_ms, call_count, cache_size_before, cache_size_after,
+            cache_size_after - cache_size_before,
+        )
         if segment_paths is None:
             raise RoutingError(f"direction {bearing}: no path found between waypoints")
 
