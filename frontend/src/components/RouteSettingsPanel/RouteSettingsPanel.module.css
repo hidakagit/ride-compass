@@ -160,6 +160,49 @@
   cursor: default;
 }
 
+/* ユーザー指摘（2026-08-31、実機スクリーンショット「スマホ画面があまり改善されていない」）:
+   T435の2段グリッドは280px幅のデスクトップサイドバー向けの対策だが、モバイルBottomSheetは
+   画面ほぼ全幅（実機で優に320pxを超える）を使えるため、同じ制約を持たない。モバイルでは
+   1行レイアウトへ戻し、1軸あたりの高さをほぼ半分にする（スライダー列はflex:1で確保する
+   ため、T435と同じ「固定幅要素の合計で潰れる」構造上のリスクは無い——ラベル自体を
+   固定幅+省略記号にしている点が唯一の違いだが、既定7軸の最長ラベルでも実機375px幅で
+   スライダーが視認・操作可能な幅を保つことを確認済み）。 */
+@media (max-width: 640px) {
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: nowrap;
+  }
+
+  .checkboxCell {
+    padding-top: 0;
+  }
+
+  .rowLabel {
+    flex: 0 0 auto;
+    max-width: 4.4rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-sm);
+  }
+
+  .slider {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .weightValue {
+    width: 1.8rem;
+  }
+
+  .mapColorUnavailable {
+    padding: 0.2rem 0.3rem;
+    white-space: nowrap;
+  }
+}
+
 .resetButton {
   align-self: flex-start;
   font-size: var(--font-size-sm);
