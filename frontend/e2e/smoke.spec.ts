@@ -25,12 +25,15 @@ test("地図レイヤーのON/OFF切替", async ({ page }) => {
   await page.goto("/");
 
   // 地図上のレイヤーチップ（MapOverlayControls）。「道路情報」は改善計画T165で
-  // 「道路種別」「路面」の2チップへ論理分割され、さらにT166で「観測」グループの
-  // 折りたたみ配下へ格納された。まずグループ見出しを展開してから、道路種別チップを
-  // 1回押して押下状態（aria-pressed）が反転することを確認する。サイドバー
-  // （MapLayersPanel）側にも同名のチップ（aria-label="道路の種類レイヤーを表示"）が
-  // あるため、完全一致で地図上のチップだけに絞り込む。
-  await page.getByRole("button", { name: "観測", exact: true }).click();
+  // 「道路種別」「路面」の2チップへ論理分割され、当初はT166で「観測」グループの
+  // 折りたたみ配下へ格納されたが、T406/T418のグループ再編で「観測/推定/動的」の
+  // 3グループは「道路/環境/スポット」の3グループへ置き換わった（`MapOverlayGroup`型、
+  // frontend/src/components/Map/mapLayers.ts参照）。「道路種別」は「道路」グループ配下
+  // のため、まず「道路」グループ見出しを展開してから、道路種別チップを1回押して
+  // 押下状態（aria-pressed）が反転することを確認する。サイドバー（MapLayersPanel）側にも
+  // 同名のチップ（aria-label="道路の種類レイヤーを表示"）があるため、完全一致で
+  // 地図上のチップだけに絞り込む。
+  await page.getByRole("button", { name: "道路", exact: true }).click();
 
   const roadTypeChip = page.getByRole("button", { name: "道路種別", exact: true });
   await expect(roadTypeChip).toBeVisible();
