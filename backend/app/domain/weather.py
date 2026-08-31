@@ -34,18 +34,13 @@ class WeatherConditions(BaseModel):
     precipitation_mm: float | None
     uv_index: float | None
     observed_at: str
-    # 改善計画T385: 天気アイコン化用（WMO天気コード・昼夜フラグ）。get_conditionsのみ
-    # 埋まる（get_conditions_manyはルート評価用でアイコン表示に使わないためNone、
-    # weather_service.py参照）。weather_codeの値の意味・アイコンへの変換は
-    # frontend/src/components/WeatherPanel/weatherCode.tsに集約する
-    # （バックエンドは生のコードを素通しするだけで判定ロジックを持たない）。
+    # 改善計画T385: 天気アイコン化用（WMO天気コード・昼夜フラグ）。weather_codeの値の
+    # 意味・アイコンへの変換はfrontend/src/components/WeatherPanel/weatherCode.tsに
+    # 集約する（バックエンドは生のコードを素通しするだけで判定ロジックを持たない）。
     weather_code: int | None
     is_day: int | None
     # 改善計画T385: 「今日の見通し」パネル向けの日次見通し4項目。current/hourlyの瞬間値と
-    # 違い1日1個の値（Open-Meteoのdailyパラメータ、weather_client.py参照）のため、
-    # get_conditions（現在地点の実況、`at is None`）のときだけ埋まる。
-    # get_conditions_many（ルート上の各点・未来時刻向け）はdailyを
-    # 取得していないため常にNoneになる（今日の見通しはルート評価には使わない情報のため）。
+    # 違い1日1個の値（Open-Meteoのdailyパラメータ、weather_client.py参照）。
     sunset: str | None
     # 改善計画T385フォローアップ2（ユーザー要望「夜明け前なら夜明け時間、日没前なら
     # 日没時間をそれぞれ出して」）: 早朝（夜明け前）は遠い日没時刻より近い夜明け時刻の
@@ -59,14 +54,11 @@ class WeatherConditions(BaseModel):
     # 改善計画T385フォローアップ（ユーザー指摘「UV指数はスマホからだとどこから見えるのか」）:
     # 現在値のuv_index（WeatherConditions.uv_index）はWeatherPanelの天気アイコンのtitle
     # 属性に格下げしたが、title属性はスマホのタップでは実質見えない。今日のUV最大値を
-    # 今日の見通しパネル（タップで確実に開く）へ追加して可視性を確保する。sunset等と同じく
-    # get_conditionsのみ埋まる。
+    # 今日の見通しパネル（タップで確実に開く）へ追加して可視性を確保する。
     uv_index_max: float | None
     # 改善計画T385フォローアップ（ユーザー要望「今日の日中の大まかな天気の流れが
     # 分かるものも欲しい」、さらに後続フォローアップで「現在時刻を含む時間帯から2時間毎」
     # へ変更）: 現在時刻を2時間グリッドへ切り下げた時刻を起点に2時間おき8コマの天気アイコン・
-    # 気温・降水確率の並びで「今日の見通し」パネルへ表示する。dailyではなくhourlyの
-    # weather_code/is_day/temperature_2m/precipitation_probabilityから作るため、
-    # get_conditionsでのみ埋まり、get_conditions_manyでは常に空リスト（Noneではなく
-    # リストなので、フロント側はnullチェック無しで.filter/.mapできる）。
+    # 気温・降水確率の並びで「今日の見通し」パネルへ表示する。取得失敗時もNoneではなく
+    # 空リストになる（フロント側はnullチェック無しで.filter/.mapできる）。
     today_periods: list[WeatherPeriodOutlook]

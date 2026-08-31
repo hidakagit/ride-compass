@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherPeriodOutlook
 from app.infrastructure.weather_client import WeatherClient
@@ -94,13 +92,11 @@ SAMPLE_DATA_WITHOUT_T172_FIELDS = {
 class FakeWeatherClient:
     def __init__(self, data):
         self._data = data
-        self.get_forecast_many_calls: list[list[Coordinates]] = []
 
     async def get_forecast(self, http_client, point):
         return self._data
 
     async def get_forecast_many(self, http_client, points):
-        self.get_forecast_many_calls.append(points)
         return {WeatherClient.cache_key(point): self._data for point in points}
 
     cache_key = staticmethod(WeatherClient.cache_key)
@@ -149,48 +145,6 @@ async def test_get_conditions_returns_current_when_at_is_none():
         WeatherPeriodOutlook(period="08:00", weather_code=1, temperature_c=24.5, precipitation_probability_percent=20),
         WeatherPeriodOutlook(period="10:00", weather_code=1, temperature_c=27.0, precipitation_probability_percent=15),
     ]
-
-
-async def test_conditions_from_data_returns_nearest_hourly_for_future_time():
-    # get_conditionsはatを取らなくなった（呼び出し元は常にNoneのため引数を削除、
-    # 改善計画のデッドコード監査）。未来時刻の近傍hourly選択ロジック自体は
-    # get_conditions_manyが使う_conditions_from_dataで健在なため、直接テストする。
-    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
-
-    conditions = service._conditions_from_data(SAMPLE_DATA, at=datetime(2026, 8, 13, 22, 10))
-
-    # 22:10に最も近いのは22:00
-    assert conditions.observed_at == "2026-08-13T22:00"
-    assert conditions.temperature_c == 24.0
-    assert conditions.precipitation_probability_percent == 70
-    # 改善計画T172: hourly側は_hourly_index_value経由（同じindex=2を再利用）
-    assert conditions.apparent_temperature_c == 26.6
-    assert conditions.wind_gusts_ms == 4.2
-    assert conditions.precipitation_mm == 0.1
-    assert conditions.uv_index == 0.0
-    # 改善計画T385: get_conditions_many経路（at指定あり）はweather_code/is_day・dailyの
-    # いずれも取得しないため常にNone
-    assert conditions.weather_code is None
-    assert conditions.is_day is None
-    assert conditions.sunrise is None
-    assert conditions.sunset is None
-    assert conditions.precipitation_probability_max_percent is None
-    assert conditions.wind_speed_max_ms is None
-    assert conditions.temperature_max_c is None
-    assert conditions.temperature_min_c is None
-    # 改善計画T385フォローアップ: get_conditions_many経路は今日の見通し系も取得しない
-    assert conditions.uv_index_max is None
-    assert conditions.today_periods == []
-
-
-async def test_conditions_from_data_returns_none_when_at_is_outside_hourly_range():
-    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
-
-    # hourlyは2026-08-13T06:00〜2026-08-14T10:00のみ（改善計画T385フォローアップ2で
-    # 天気の流れの日またぎ検証用に拡張）。それより先は範囲外。
-    conditions = service._conditions_from_data(SAMPLE_DATA, at=datetime(2026, 8, 15, 10, 0))
-
-    assert conditions is None
 
 
 async def test_get_conditions_falls_back_to_none_when_t172_fields_are_missing():
@@ -279,41 +233,6 @@ async def test_get_conditions_returns_none_when_forecast_unavailable():
     conditions = await service.get_conditions(POINT)
 
     assert conditions is None
-
-
-async def test_get_conditions_many_returns_conditions_per_point():
-    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
-
-    results = await service.get_conditions_many(
-        [POINT, OTHER_POINT],
-        [None, datetime(2026, 8, 13, 22, 10)],
-    )
-
-    assert len(results) == 2
-    assert results[0].observed_at == "2026-08-13T21:15"
-    assert results[1].observed_at == "2026-08-13T22:00"
-
-
-async def test_prefetch_delegates_to_client_get_forecast_many():
-    client = FakeWeatherClient(SAMPLE_DATA)
-    service = WeatherService(client, http_client=None)
-
-    await service.prefetch([POINT, OTHER_POINT])
-
-    assert client.get_forecast_many_calls == [[POINT, OTHER_POINT]]
-
-
-async def test_get_conditions_many_returns_none_for_points_without_forecast():
-    class MissingSomeForecastsClient(FakeWeatherClient):
-        async def get_forecast_many(self, http_client, points):
-            return {WeatherClient.cache_key(points[0]): None, WeatherClient.cache_key(points[1]): SAMPLE_DATA}
-
-    service = WeatherService(MissingSomeForecastsClient(SAMPLE_DATA), http_client=None)
-
-    results = await service.get_conditions_many([POINT, OTHER_POINT], [None, None])
-
-    assert results[0] is None
-    assert results[1] is not None
 
 
 async def test_get_wind_grid_returns_hourly_arrays_per_point():

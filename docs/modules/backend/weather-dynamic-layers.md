@@ -77,11 +77,6 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 | `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 常に現在時刻 | 埋まる |
 | `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 全hourly時系列（約48時間） | 対象外 |
 
-`get_conditions_many(...)`・`prefetch(points)`（複数地点・複数時刻をまとめて解決する
-経路）はopenrouteserviceエンジン専用の`WindService`（区間ごとの推定到達時刻の風評価）が
-唯一の呼び出し元だった。改善計画T462でWindServiceを削除した結果、本番コードからの
-呼び出し元が無くなっている（死コード。除去は別タスクで対応予定）。
-
 ## その他のサービス
 
 - **`JmaAmedasService`（取得と配信の分離）**: `get_nearest_observation`は**Redis読み取り
