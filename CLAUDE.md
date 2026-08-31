@@ -130,6 +130,8 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   まっさらなDBへ全migration適用→スナップショット読み込みまでの一連の流れを検証する
   （DB接続が要るため`pytest -m "not postgis"`実行時はスキップされる。ローカル
   PostgreSQLを起動して`pytest tests/test_migrate.py`を実行し確認すること）。
+- **axis_admin API経由のDB行データ変更を完了扱いにする条件は[docs/deployment-sync.md]
+  (docs/deployment-sync.md)参照**（開発DBのみの反映で完了扱いにしない）。
 - **既存DBの行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）を
   含む`backend/**`の変更は、本番DBのデータ移行を完了させてからpushする**。
   `.github/workflows/deploy-backend.yml`は`push`かつ`backend/**`パスの変更を検知すると

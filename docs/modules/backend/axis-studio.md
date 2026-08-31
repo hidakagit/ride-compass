@@ -135,12 +135,6 @@ axis_definitions_snapshot.json`（`dump_axis_definitions_snapshot.py`で現在�
 axis_admin API経由の変更後にこのダンプを忘れると、以後のfresh bootstrap環境（CI・
 新規開発環境・disaster recovery）が古い軸定義で構築される。
 
-**タスク完了条件への反映（T475、2026-08-31）**: axis_admin API経由でDB行データを変更する
-タスクは、開発DBのみの変更で完了扱いにしない——本番DBへの反映（必要ならスナップショットの
-再ダンプも）を完了条件として明記する。開発DBのみで完了扱いにした結果、本番だけ古い軸定義の
-まま取り残される同型の反映漏れがT294・T353・T360・T396・T440系列（T455で発覚・修正）と
-5回発生している。
-
 ## 地図表示ルールの自動導出（`domain/axis_display.py`）
 
 軸が参照する材料が全てMVTタイルへ焼き込み済みであれば、地図ramp表示
