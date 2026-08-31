@@ -1,4 +1,7 @@
-// @vitest-environment node
+// ユーザー報告（2026-08-31）を受けた修正でtileUrlTemplate（pbf分岐）が
+// window.location.originを参照するようになったため、既定のDOM環境（happy-dom）で
+// 実行する（regionApi.test.tsのroadSurfaceTileUrl等と同じ理由でnode環境docblockを
+// 外した）。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchCurrentRiskFrames,
@@ -126,10 +129,15 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
 
     // 改善計画T416: 洪水キキクルは他3種と異なりkind="vectorTile"・拡張子.pbf
     // （実機確認: risk.properties.xmlのimageType id="flood" type="pbf"）。
-    it("floodRenderPayloadはkind=vectorTile・拡張子.pbfで要素コードfloodを使う", () => {
+    // ユーザー報告（2026-08-31、"Failed to construct 'Request'"でマップ全体が表示されなく
+    // なった）: ベクタタイルはMapLibreがWeb Worker内で取得するため、相対パスのままだと
+    // URL解決に失敗する（regionApi.ts: roadSurfaceTileUrl等と同じ理由）。pbfのみ
+    // window.location.originを付与した絶対URLを返すよう修正した（他3種のラスタタイルは
+    // メインスレッドのImage読み込みのため相対のままで問題ない）。
+    it("floodRenderPayloadはkind=vectorTile・拡張子.pbfで要素コードfloodを使い、URLは絶対パス（window.location.origin付き）", () => {
       expect(floodRenderPayload(ref)).toEqual({
         kind: "vectorTile",
-        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/flood/{z}/{x}/{y}.pbf",
+        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/flood/{z}/{x}/{y}.pbf`,
       });
     });
 

@@ -935,8 +935,17 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGro
   floodRisk: {
     main: {
       vector: {
+        // ユーザー報告（2026-08-31、「地図が出なくなった」"Failed to construct 'Request':
+        // Failed to parse URL from /api/jma-tile/..."）: ベクタタイルはMapLibreがWeb
+        // Worker内で取得するため相対パスのままだと解決に失敗する（regionApi.ts:
+        // roadSurfaceTileUrl等と同じ理由、riskMap.ts: tileUrlTemplateのpbf分岐参照）。
+        // DYNAMIC_WEATHER_RENDERERSはモジュール読み込み時に評価される定数のため、
+        // 純ロジックのみをnode環境（windowを持たない）でテストするMapView.routes.test.ts等
+        // からも本ファイルがimportされる。windowが無い環境ではこのプレースホルダURLの
+        // 値自体は使われないため、その場合だけ絶対URL化を諦め従来の相対URLへ戻す
+        // （実ブラウザでは常にwindowが存在し、必ず絶対URL化される）。
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/flood/{z}/{x}/{y}.pbf`,
+          `${typeof window !== "undefined" ? window.location.origin : ""}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/flood/{z}/{x}/{y}.pbf`,
         sourceLayer: "flood",
         colorExpression: FLOOD_RISK_LINE_COLOR_EXPRESSION,
         lineWidthExpression: FLOOD_RISK_LINE_WIDTH_EXPRESSION,

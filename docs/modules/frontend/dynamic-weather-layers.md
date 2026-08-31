@@ -27,10 +27,12 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
    `windLayer.ts: WIND_GRID_SPACING_DEG`/`WIND_GRID_DETAIL_SPACING_DEG`）を共有する。
    フェッチも共有（`hooks/useWeatherGrid.ts`、風の矢印と降水延長予報のどちらか一方でも
    ONなら1回のフェッチで両方をカバーする）。
-2. **表現は2パターンのみ**: 格子中央にマークを出す（`gridMark`、風の矢印）または
-   格子/タイル境界を指定色で塗る（`gridFill`、降水延長予報・風penaltyの面塗り）。
-   例外は配信元が描画済みの画像を重ねる`rasterTile`（気象庁ナウキャスト・降水短時間
-   予報・雷・竜巻・キキクル・線状降水帯予測マップ）。
+2. **表現は3パターン**: 格子中央にマークを出す（`gridMark`、風の矢印）、格子/タイル境界を
+   指定色で塗る（`gridFill`、降水延長予報・風penaltyの面塗り）、配信元が描画済みの画像を
+   重ねる`rasterTile`（気象庁ナウキャスト・降水短時間予報・雷・竜巻・キキクルの土砂/大雨/
+   浸水・線状降水帯予測マップ）。加えて洪水キキクルのみ、配信元のMapbox Vector Tile
+   （.pbf）をMapLibre標準のvectorソース+lineレイヤーでそのまま描画する`vectorTile`
+   （feature-state・GeoJSON変換は不要、`riskMap.ts`冒頭コメント参照）。
 3. **時間経過はスライダー1本**: ONの全レイヤーのフレーム時刻を統合した1本のタイムライン
    （`mergeFrameTimes`）を`DynamicLayerTimeSlider`へ渡す。各レイヤーは
    `frameIndexForTime`で選択時刻に対応する自分のフレームを求め、選択時刻が自分の
@@ -75,6 +77,7 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 | `thunderNowcast` | `main` | raster | `thunderNowcast.ts` |
 | `tornadoNowcast` | `main` | raster | `thunderNowcast.ts`（同じフレーム列を共有、プロダクトコードのみ相違） |
 | `landslideRisk`/`heavyRainRisk`/`inundationRisk` | `main` | raster | `riskMap.ts: fetchCurrentRiskFrames` |
+| `floodRisk` | `main` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |
 
 `windVector`の`penaltyFill`は`arrow`と同じフレーム時刻を使うが表示ON/OFFは独立している
 （`showWindPenaltyFill = showWindVector && !hasDetail`。矢印自体はルート確定後も表示され
@@ -142,3 +145,9 @@ Open-MeteoのWMOコードを分類）は**Open-Meteo予報**（今日の降水�
   `MapView.tsx`内に`ensureGradientFillLayer`/`applyGradientFillGeojson`という独立実装を
   持つ。このモジュールの対象範囲は風・降水・雷・竜巻・キキクル・線状降水帯予測マップの
   みであり、勾配は含まない（勾配は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。
+- `vectorTile`（洪水キキクル）のタイルURLは`window.location.origin`で絶対URL化する必要が
+  ある。MapLibreはベクタタイルをWeb Worker内で取得するため、相対パスのままだと
+  `new Request(url)`がWorkerのbase URLに対して解決できず例外になる。`rasterTile`（`<img>`
+  要素・メインスレッド読み込み）はこの制約を受けないため相対パスのままでよい
+  （`riskMap.ts: tileUrlTemplate`のpbf分岐、`services/regionApi.ts`の
+  `roadSurfaceTileUrl`等も同じ理由で絶対URL化している）。

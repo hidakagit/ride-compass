@@ -125,7 +125,14 @@ function tileUrlTemplate(
   // （改善計画T416）。他はすべてラスタタイル（.png）。
   extension: "png" | "pbf" = "png"
 ): string {
-  return `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.${extension}`;
+  const path = `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.${extension}`;
+  // ユーザー報告（2026-08-31、「地図が出なくなった」"Failed to construct 'Request': Failed
+  // to parse URL from /api/jma-tile/..."）: ベクタタイル（.pbf）はMapLibreがWeb Worker内で
+  // 取得するため、相対パスのままだと解決に失敗する。regionApi.ts: roadSurfaceTileUrl等
+  // （既存のvector sourceタイルURL、同じ理由でwindow.location.originを付与済み）と同じ
+  // 対処。ラスタタイル（.png）はImage要素・メインスレッド読み込みのため相対のままで
+  // 問題なく動いている（実機確認済み）ので、拡張子で分岐しpbfのみ絶対URL化する。
+  return extension === "pbf" ? `${window.location.origin}${path}` : path;
 }
 
 export function landRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
