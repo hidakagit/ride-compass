@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -14,6 +15,43 @@ from app.version import STARTED_AT
 logger = logging.getLogger("ridecompass.health")
 
 router = APIRouter()
+
+
+# 改善計画T481: 従来`debug_stats()`は`-> dict`という型無しの戻り値注釈のままで、
+# OpenAPI生成物でもこのエンドポイントのレスポンススキーマが完全に無型
+# （`additionalProperties: true`）になっていた。frontend側`debugStatsApi.ts`が
+# 手書きTypeScript interfaceで型を代替する二重管理になっていたため、
+# `infrastructure/debug_log.py: get_stats()`が組み立てるdictの実際の構造に対応する
+# Pydanticモデルを定義しOpenAPI経由の生成型へ統一する。
+class ExternalCallStatsResponse(BaseModel):
+    calls: int
+    errors: int
+    cache_hits: int
+    cache_misses: int
+    total_ms: int
+    max_ms: int
+    avg_ms: int
+    cache_hit_rate: float | None
+    # 失敗の主な理由を推測するための追加集計（改善計画T92夜間502調査）。error_typesは
+    # HTTPステータス（"http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・座標は含まない。
+    error_types: dict[str, int]
+    last_error_type: str | None
+    last_error_at: str | None
+    last_success_at: str | None
+    retried_calls: int
+    retry_attempts_total: int
+    stale_fallback_used: int
+
+
+class DebugStatsResponse(BaseModel):
+    commit: str | None
+    started_at: str
+    engine: str
+    debug_mode: bool
+    # カテゴリはinfrastructure/debug_log.pyのlog_external_call呼び出し元
+    # （weather:open-meteo・basemap:openfreemap・region:road-surface-tile等）に対応する。
+    external: dict[str, ExternalCallStatsResponse]
+    rate_limit_rejections: dict[str, int]
 
 # 改善計画T74「本番DBが置き去りになる」対策A: dev DBだけ整備されて本番が未適用のまま
 # 気づかれない事故（T54: osm_raw_pois/accident_points未migration、T74:
@@ -56,23 +94,23 @@ def health() -> dict[str, str | None]:
     }
 
 
-@router.get("/api/debug/stats")
-def debug_stats() -> dict:
+@router.get("/api/debug/stats", response_model=DebugStatsResponse)
+def debug_stats() -> DebugStatsResponse:
     # 外部API呼び出し・キャッシュの集計(カテゴリ別の呼び出し数/エラー数/ヒット率/所要時間)と
     # 429拒否数のプロセス内スナップショット(infrastructure/debug_log.py)。ログを目視で数えずに
     # キャッシュヒット率等を確認するための運用エンドポイント。集計値のみで秘匿情報や個別の
     # 座標を含まないため、debug_modeに関わらず/healthと同様に常時公開する。
     # プロセス再起動でリセットされる点に注意(started_atで起点を判別できる)。
-    return {
-        "commit": settings.git_commit,
-        "started_at": STARTED_AT.isoformat(),
+    return DebugStatsResponse(
+        commit=settings.git_commit,
+        started_at=STARTED_AT.isoformat(),
         # ルート生成エンジンは常にRoadGraphEngine（他エンジンは撤去済み）。SystemStatusPanel.tsxが
         # 表示するためキー自体は残す。RoadGraphEngine.engine_nameを正本として参照し、
         # routes.py側（RouteGenerateResponse.engine）とのリテラル重複による将来の乖離を避ける。
-        "engine": RoadGraphEngine.engine_name,
-        "debug_mode": settings.debug_mode,
+        engine=RoadGraphEngine.engine_name,
+        debug_mode=settings.debug_mode,
         **get_stats(),
-    }
+    )
 
 
 async def _table_row_count(conn, table: str) -> int | None:

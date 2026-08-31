@@ -44,9 +44,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Debug Stats Api Debug Stats Get"
+                  "$ref": "#/components/schemas/DebugStatsResponse"
                 }
               }
             }
@@ -2417,6 +2415,171 @@
           "debug_mode"
         ],
         "title": "DebugModeResponse"
+      },
+      "DebugStatsResponse": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "started_at": {
+            "type": "string",
+            "title": "Started At"
+          },
+          "engine": {
+            "type": "string",
+            "title": "Engine"
+          },
+          "debug_mode": {
+            "type": "boolean",
+            "title": "Debug Mode"
+          },
+          "external": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExternalCallStatsResponse"
+            },
+            "type": "object",
+            "title": "External"
+          },
+          "rate_limit_rejections": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Rate Limit Rejections"
+          }
+        },
+        "type": "object",
+        "required": [
+          "commit",
+          "started_at",
+          "engine",
+          "debug_mode",
+          "external",
+          "rate_limit_rejections"
+        ],
+        "title": "DebugStatsResponse"
+      },
+      "ExternalCallStatsResponse": {
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors"
+          },
+          "cache_hits": {
+            "type": "integer",
+            "title": "Cache Hits"
+          },
+          "cache_misses": {
+            "type": "integer",
+            "title": "Cache Misses"
+          },
+          "total_ms": {
+            "type": "integer",
+            "title": "Total Ms"
+          },
+          "max_ms": {
+            "type": "integer",
+            "title": "Max Ms"
+          },
+          "avg_ms": {
+            "type": "integer",
+            "title": "Avg Ms"
+          },
+          "cache_hit_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Hit Rate"
+          },
+          "error_types": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Error Types"
+          },
+          "last_error_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Type"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "retried_calls": {
+            "type": "integer",
+            "title": "Retried Calls"
+          },
+          "retry_attempts_total": {
+            "type": "integer",
+            "title": "Retry Attempts Total"
+          },
+          "stale_fallback_used": {
+            "type": "integer",
+            "title": "Stale Fallback Used"
+          }
+        },
+        "type": "object",
+        "required": [
+          "calls",
+          "errors",
+          "cache_hits",
+          "cache_misses",
+          "total_ms",
+          "max_ms",
+          "avg_ms",
+          "cache_hit_rate",
+          "error_types",
+          "last_error_type",
+          "last_error_at",
+          "last_success_at",
+          "retried_calls",
+          "retry_attempts_total",
+          "stale_fallback_used"
+        ],
+        "title": "ExternalCallStatsResponse"
       },
       "FloodForecasts": {
         "properties": {

@@ -1083,6 +1083,60 @@ export interface components {
             /** Debug Mode */
             debug_mode: boolean;
         };
+        /** DebugStatsResponse */
+        DebugStatsResponse: {
+            /** Commit */
+            commit: string | null;
+            /** Started At */
+            started_at: string;
+            /** Engine */
+            engine: string;
+            /** Debug Mode */
+            debug_mode: boolean;
+            /** External */
+            external: {
+                [key: string]: components["schemas"]["ExternalCallStatsResponse"];
+            };
+            /** Rate Limit Rejections */
+            rate_limit_rejections: {
+                [key: string]: number;
+            };
+        };
+        /** ExternalCallStatsResponse */
+        ExternalCallStatsResponse: {
+            /** Calls */
+            calls: number;
+            /** Errors */
+            errors: number;
+            /** Cache Hits */
+            cache_hits: number;
+            /** Cache Misses */
+            cache_misses: number;
+            /** Total Ms */
+            total_ms: number;
+            /** Max Ms */
+            max_ms: number;
+            /** Avg Ms */
+            avg_ms: number;
+            /** Cache Hit Rate */
+            cache_hit_rate: number | null;
+            /** Error Types */
+            error_types: {
+                [key: string]: number;
+            };
+            /** Last Error Type */
+            last_error_type: string | null;
+            /** Last Error At */
+            last_error_at: string | null;
+            /** Last Success At */
+            last_success_at: string | null;
+            /** Retried Calls */
+            retried_calls: number;
+            /** Retry Attempts Total */
+            retry_attempts_total: number;
+            /** Stale Fallback Used */
+            stale_fallback_used: number;
+        };
         /** FloodForecasts */
         FloodForecasts: {
             /** Forecasts */
@@ -1743,9 +1797,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["DebugStatsResponse"];
                 };
             };
         };
