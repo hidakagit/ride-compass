@@ -25,7 +25,18 @@ interface TravelBearingControlProps {
 // WindBearingSlider.module.cssの`.dial`/`.arrow`と同じ配色・比率（矢印サイズ/ダイヤル直径
 // ≒0.65）を踏襲した「開く前のダイヤルのミニチュア」として再設計し、`value`に応じて
 // 矢印自体を回転させることで開く前から現在の走行方位が一目でわかるようにした。
-const TRIGGER_ARROW_SIZE_PX = 26;
+//
+// ユーザー指摘（2026-08-31、「アイコンの矢印が北向き（上）固定に見えてるけど、これスマホの
+// 向いている方角と連動させたってこと？」）: この矢印は実機の向き（ジャイロ/磁気センサー）
+// とは一切連動しない、ユーザーがドラッグして手動設定する値の表示専用（ユーザー選定:
+// 実機連動はせず手動設定のまま）。ポップオーバーに説明文を添える対応を一度試みたが、
+// 「説明文言は邪魔」という指摘で撤回した——誤解防止より前に、まず操作を妨げない
+// ことを優先する。再度この種の説明文を足す前に本コメントを参照すること。
+//
+// ユーザー指摘（2026-08-31、「アイコンのデザインを補正。他ボタン、＋、−等と同じ感じに
+// できない？」）を受け、MapLibreのズーム+/−コントロールと同じ29px四方に合わせた
+// （TravelBearingControl.module.css参照）。矢印サイズもその中に収まる比率へ縮小した。
+const TRIGGER_ARROW_SIZE_PX = 18;
 
 export default function TravelBearingControl({ value, onChange }: TravelBearingControlProps) {
   return (
