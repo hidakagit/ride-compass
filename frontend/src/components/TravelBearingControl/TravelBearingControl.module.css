@@ -1,19 +1,22 @@
 /* MapLibreのズーム+/−・回転コントロール（地図右上、既定で3ボタン=29px×3+枠+余白 約99px）の
-   すぐ下に置く単一の走行方位アイコン。WindBearingSlider.module.cssの.dialと同じ配色
-   （背景色・枠線）を踏襲し、「開く前のダイヤルのミニチュア」として視認できるようにする
-   （ユーザー指摘2026-08-31「アイコンが非常に見にくい」、以前は.locateButtonと同じ配色の
-   汎用アイコンボタンだった）。 */
+   すぐ下に置く単一の走行方位アイコン。ユーザー指摘（2026-08-31、「アイコンのデザインを
+   補正。他ボタン、＋、−等と同じ感じにできない？」）を受け、アプリ独自の配色トークンでは
+   なく、MapLibreの.maplibregl-ctrl-group自体の見た目（白背景・角丸4px・薄いリング状の
+   box-shadow・ボタン29px四方・アイコンはダークグレー）へ寸分たがわず揃えた——この
+   コントロールは「ズーム+/−・回転コントロールのすぐ下に連続して見える1個の追加ボタン」
+   という位置付けのため、アプリの他の浮動UI（現在地ボタン等のcolor-surfaceトークン）
+   ではなくMapLibre自身の（テーマに追従しない）固定色を意図的にそのまま使う。 */
 .trigger {
   position: absolute;
   top: 6.5rem;
   right: var(--space-3);
   z-index: 20;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border-muted);
-  background: var(--color-surface-2);
-  box-shadow: var(--shadow-float);
+  width: 29px;
+  height: 29px;
+  border-radius: 4px;
+  border: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -22,17 +25,18 @@
 }
 
 .trigger[data-state="open"] {
-  border-color: var(--color-accent);
+  box-shadow: 0 0 2px 2px #0096ff;
 }
 
 /* 矢印自体は北=真上を指す向きで描画されている（WindDirectionArrowIcon）ため、valueを
    そのままtransform: rotateへ渡すだけで「北=0・時計回り」という値の定義と視覚表現が
-   一致する（WindBearingSlider.module.cssの.arrowと同じ考え方）。 */
+   一致する（WindBearingSlider.module.cssの.arrowと同じ考え方）。色は#333（MapLibreの
+   ズーム+/−アイコンと同じダークグレー、上記.triggerと同じ理由で固定色）。 */
 .triggerArrow {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-accent-strong);
+  color: #333;
   transition: transform 0.05s linear;
 }
 
