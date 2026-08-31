@@ -847,6 +847,22 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGro
         minValueToShow: WIND_CALM_THRESHOLD_MS,
       },
     },
+    // 環境グループの風penalty gridFillの下敷き（実機報告2026-08-31「画面の右端にだけ面塗り
+    // されない」）。詳細格子（useWeatherGrid.ts: detailGrid、画面中心付近だけをカバーする
+    // clampWindDetailBbox基準の狭いbbox）だけだと、ビューポートがその範囲より広いとき
+    // 画面端に格子点自体が無く塗れない隙間ができる。関東本土全域を常時カバーする粗い格子
+    // （useWeatherGrid.tsのgrid、WIND_GRID_SPACING_DEG）を先に敷いておくことで、詳細格子が
+    // 届かない範囲でも粗い解像度でフォールバック表示する。groupSpecのキー順=addLayer順=
+    // 描画の重なり順（ensureDynamicWeatherLayer参照）のため、下記penaltyFillより前に
+    // 置くことで背面に敷かれる。
+    penaltyFillCoarse: {
+      gridFill: {
+        valueProperty: "windPenalty",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        colorExpression: windPenaltyFillColorExpression() as any,
+        opacity: 0.4,
+      },
+    },
     // 環境グループの風penalty gridFill（改善計画T414、T432で汎用機構へ統合）。矢印（gridMark）
     // と同時に表示するための独立ソース。
     penaltyFill: {
@@ -2215,6 +2231,15 @@ export default function MapView({
       ...DYNAMIC_WEATHER_RENDERERS,
       windVector: {
         ...DYNAMIC_WEATHER_RENDERERS.windVector,
+        // penaltyFillCoarse（下敷き）とpenaltyFill（詳細格子）は同じ配色しきい値を
+        // 使う契約のため、両方へ同じboundariesを適用する。
+        penaltyFillCoarse: {
+          gridFill: {
+            ...DYNAMIC_WEATHER_RENDERERS.windVector.penaltyFillCoarse!.gridFill!,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            colorExpression: windPenaltyFillColorExpression(windPenaltyBoundaries) as any,
+          },
+        },
         penaltyFill: {
           gridFill: {
             ...DYNAMIC_WEATHER_RENDERERS.windVector.penaltyFill!.gridFill!,

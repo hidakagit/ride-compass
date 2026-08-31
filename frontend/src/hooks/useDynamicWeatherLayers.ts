@@ -17,7 +17,7 @@ import {
   type NowcastFrame,
   type RasrfFrame,
 } from "@/components/Map/precipitationNowcast";
-import { windFrames, windRenderPayload, type MapViewport } from "@/components/Map/windLayer";
+import { windFrames, windRenderPayload, WIND_GRID_SPACING_DEG, type MapViewport } from "@/components/Map/windLayer";
 import { windPenaltyGridToCellFeatureCollection } from "@/components/Map/windPenalty";
 import {
   fetchThunderNowcastFrames,
@@ -339,6 +339,25 @@ export function useDynamicWeatherLayers({
       ),
     };
   }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid, debouncedWindBearingDeg, effectiveGridSpacingDeg]);
+  // penaltyFillの下敷き（実機報告2026-08-31「画面の右端にだけ面塗りされない」）。
+  // effectiveWindGrid（detailGridがあればそちら優先）は画面中心付近の狭いbboxしか
+  // カバーしないことがあるため、常に関東本土全域をカバーするwindGrid（粗い格子、
+  // useWeatherGrid.ts参照）から同じ配色ロジックでセルを作る。frameIndexは同じ
+  // windFramesList（windGrid由来）を使うため、windPayload/windPenaltyPayloadと常に
+  // 同じ時刻を指す。
+  const windPenaltyCoarsePayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
+    const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
+    if (index == null || windGrid.length === 0) return undefined;
+    return {
+      kind: "gridFill",
+      geojson: windPenaltyGridToCellFeatureCollection(
+        windGrid,
+        windFramesList[index].ref,
+        debouncedWindBearingDeg,
+        WIND_GRID_SPACING_DEG
+      ),
+    };
+  }, [windFramesList, dynamicLayerTargetTime, windGrid, debouncedWindBearingDeg]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;
@@ -409,6 +428,7 @@ export function useDynamicWeatherLayers({
     () => ({
       windVector: {
         arrow: { visible: showWindVector, payload: windPayload },
+        penaltyFillCoarse: { visible: showWindPenaltyFill, payload: windPenaltyCoarsePayload },
         penaltyFill: { visible: showWindPenaltyFill, payload: windPenaltyPayload },
       },
       precipitationNowcast: {
@@ -427,6 +447,7 @@ export function useDynamicWeatherLayers({
       windPayload,
       showWindPenaltyFill,
       windPenaltyPayload,
+      windPenaltyCoarsePayload,
       showPrecipitationNowcast,
       precipitationPayload,
       linearRainbandPayload,

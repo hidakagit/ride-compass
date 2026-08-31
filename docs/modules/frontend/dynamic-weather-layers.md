@@ -73,7 +73,8 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 | `precipitationNowcast` | `main` | raster（60分以内）→raster（〜15時間）→gridFill（延長予報） | `precipitationNowcast.ts` |
 | `precipitationNowcast` | `linearRainband` | raster（sjfcstmap） | `riskMap.ts: fetchLinearRainbandFrames` |
 | `windVector` | `arrow` | gridMark | `windLayer.ts` |
-| `windVector` | `penaltyFill` | gridFill | `windPenalty.ts: windPenaltyGridToCellFeatureCollection` |
+| `windVector` | `penaltyFillCoarse` | gridFill | `windPenalty.ts: windPenaltyGridToCellFeatureCollection`（粗い格子=`useWeatherGrid.ts`の`grid`） |
+| `windVector` | `penaltyFill` | gridFill | `windPenalty.ts: windPenaltyGridToCellFeatureCollection`（詳細格子=`effectiveGrid`） |
 | `thunderNowcast` | `main` | raster | `thunderNowcast.ts` |
 | `tornadoNowcast` | `main` | raster | `thunderNowcast.ts`（同じフレーム列を共有、プロダクトコードのみ相違） |
 | `landslideRisk`/`heavyRainRisk`/`inundationRisk` | `main` | raster | `riskMap.ts: fetchCurrentRiskFrames` |
@@ -82,6 +83,15 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 `windVector`の`penaltyFill`は`arrow`と同じフレーム時刻を使うが表示ON/OFFは独立している
 （`showWindPenaltyFill = showWindVector && !hasDetail`。矢印自体はルート確定後も表示され
 続ける）。
+
+`penaltyFillCoarse`は`penaltyFill`（詳細格子、`useWeatherGrid.ts`の`detailGrid`が画面中心
+付近の狭いbbox[`windLayer.ts: clampWindDetailBbox`]しかカバーしないことがある）の下敷きとして、
+関東本土全域を常時カバーする粗い格子（`grid`、`WIND_GRID_SPACING_DEG`）から同じ配色ロジック
+（`windPenaltyFillColorExpression`、`dedicatedWayValueBoundaries`由来のしきい値も共有）で
+セルを作る。可視条件（`showWindPenaltyFill`）は`penaltyFill`と同じ。`DYNAMIC_WEATHER_RENDERERS.
+windVector`内で`penaltyFillCoarse`を`penaltyFill`より前に定義しており、`ensureDynamicWeather
+Layer`がgroupSpecのキー順=`addLayer`呼び出し順で描画するため、粗い格子が背面・詳細格子が
+前面になる。
 
 ## 新しい動的要素を追加する1本道
 
