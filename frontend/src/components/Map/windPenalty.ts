@@ -55,43 +55,97 @@ export function windPenaltyGridToCellFeatureCollection(
   );
 }
 
-/** 粗い格子（`windGrid`、関東本土全域を常時カバー）のうち、セル全体（1辺`coarseSpacingDeg`の
- * 正方形）が詳細格子（`detailGrid`）の実際のカバー範囲にすっぽり収まっている点だけを除いた
- * 配列を返す。粗い格子セルと詳細格子セルを同じ場所へ両方重ねて描画すると、半透明の
- * fill-opacityが二重に重なって詳細格子の範囲だけ不自然に濃くなるため、重複描画を避けたい。
- *
- * 詳細格子のカバー範囲は、実際に返ってきた点群の外接矩形を`detailSpacingDeg`半分ぶん
- * 外側へ広げたもの（各詳細格子点自身のセルぶんの余白）として求める。判定は粗い格子点の
- * 中心1点への近傍判定ではなく、セル全体（4隅すべて）がこの範囲へ収まっているかで行う——
- * 粗い格子1セル（`coarseSpacingDeg`）は詳細格子のカバー範囲（ズームインしたときの狭い
- * bbox、`clampWindDetailBbox`参照）よりずっと大きいことが多く、中心点だけを見る近傍判定
- * だと「中心が詳細格子のすぐ近くにある」というだけで、詳細格子が実際には覆っていない
- * セルの残り部分まで丸ごと除外してしまい、粗い・詳細のどちらも描画されない穴ができる
- * （実測: 詳細格子30点に対し粗い格子624点中623点が除外され、画面の大半が未カバーになる
- * 事例を確認）。セル全体の包含を見ることで、詳細格子のカバー範囲より大きい粗いセルは
- * 除外されず残る。`detailGrid`が空（詳細格子未取得・ズームアウト時）ならフィルタせず
- * 全点を返す。 */
-export function coarseGridPointsOutsideDetailBounds(
+export interface Rectangle {
+  minLon: number;
+  maxLon: number;
+  minLat: number;
+  maxLat: number;
+}
+
+function cellRectangle(latitude: number, longitude: number, spacingDeg: number): Rectangle {
+  const half = spacingDeg / 2;
+  return { minLon: longitude - half, maxLon: longitude + half, minLat: latitude - half, maxLat: latitude + half };
+}
+
+function rectangleRing(rect: Rectangle): GeoJSON.Position[] {
+  return [
+    [rect.minLon, rect.minLat],
+    [rect.maxLon, rect.minLat],
+    [rect.maxLon, rect.maxLat],
+    [rect.minLon, rect.maxLat],
+    [rect.minLon, rect.minLat],
+  ];
+}
+
+/** 矩形`cell`から矩形`hole`と重なる部分を取り除いた残りを、重ならない矩形の配列として返す
+ * （軸に平行な矩形どうしの「引き算」を、外部ライブラリなしで最大4枚の帯[左右+中央上下]へ
+ * 分解する標準的な手法）。`hole`が`cell`と全く重ならなければ`[cell]`を、`cell`を完全に
+ * 覆っていれば`[]`を返す。`hole`は`cell`より大きくても小さくてもよい（重なった部分だけを
+ * 引く）。 */
+export function subtractRectangle(cell: Rectangle, hole: Rectangle): Rectangle[] {
+  const ixMin = Math.max(cell.minLon, hole.minLon);
+  const ixMax = Math.min(cell.maxLon, hole.maxLon);
+  const iyMin = Math.max(cell.minLat, hole.minLat);
+  const iyMax = Math.min(cell.maxLat, hole.maxLat);
+  if (ixMin >= ixMax || iyMin >= iyMax) return [cell];
+  const pieces: Rectangle[] = [];
+  if (ixMin > cell.minLon) pieces.push({ minLon: cell.minLon, maxLon: ixMin, minLat: cell.minLat, maxLat: cell.maxLat });
+  if (ixMax < cell.maxLon) pieces.push({ minLon: ixMax, maxLon: cell.maxLon, minLat: cell.minLat, maxLat: cell.maxLat });
+  if (iyMax < cell.maxLat) pieces.push({ minLon: ixMin, maxLon: ixMax, minLat: iyMax, maxLat: cell.maxLat });
+  if (iyMin > cell.minLat) pieces.push({ minLon: ixMin, maxLon: ixMax, minLat: cell.minLat, maxLat: iyMin });
+  return pieces;
+}
+
+/** 詳細格子（`detailGrid`）の実際のカバー範囲を、返ってきた点群の外接矩形を
+ * `detailSpacingDeg`半分ぶん外側へ広げた矩形（各詳細格子点自身のセルぶんの余白）として
+ * 求める。`detailGrid`が空（詳細格子未取得・ズームアウト時）なら`null`を返す。 */
+function detailCoverageBounds(detailGrid: readonly WindGridPoint[], detailSpacingDeg: number): Rectangle | null {
+  if (detailGrid.length === 0) return null;
+  const half = detailSpacingDeg / 2;
+  return {
+    minLat: Math.min(...detailGrid.map((p) => p.latitude)) - half,
+    maxLat: Math.max(...detailGrid.map((p) => p.latitude)) + half,
+    minLon: Math.min(...detailGrid.map((p) => p.longitude)) - half,
+    maxLon: Math.max(...detailGrid.map((p) => p.longitude)) + half,
+  };
+}
+
+/** 粗い格子（`windGrid`、関東本土全域を常時カバー）から、詳細格子（`detailGrid`）と
+ * 重なるgridFillセルを作る（改善計画T515）。粗い格子セルと詳細格子セルを同じ場所へ両方
+ * 重ねて描画すると、半透明のfill-opacityが二重に重なって色が不自然に濃くなり、凡例の色と
+ * 対応が取れなくなる（ユーザー報告「色が二重に重なると、他の凡例と色の区別がつきにくく
+ * なり、ユーザー体験としても違和感がある。割と致命的」）ため、点単位の除外ではなく
+ * **幾何学的に重なった部分だけを切り取る**（`subtractRectangle`）。1つの粗いセルが
+ * 詳細格子のカバー範囲と部分的にしか重ならない場合、残った部分（最大4枚の矩形）を別々の
+ * Featureとして描画するため、1粗格子点が0〜4個のFeatureに対応することがある（全部が
+ * 重なりの外なら1個そのまま、全部が重なりの内なら0個）。判定に格子点の中心座標だけを
+ * 使う近傍判定ではなくセル自体の矩形差分を使うため、詳細格子のカバー範囲が粗いセルより
+ * ずっと小さくても、粗いセルのうち実際にカバーされていない部分だけが正しく残る
+ * （詳細格子の取得範囲自体はズームに応じた間隔のまま変更しないため、ズームインしたときの
+ * 細かい表現[T185]はそのまま維持される）。`detailGrid`が空ならフィルタせず全セルを
+ * そのまま返す。 */
+export function windPenaltyCoarseGridToClippedFeatureCollection(
   coarseGrid: readonly WindGridPoint[],
   detailGrid: readonly WindGridPoint[],
+  frameIndex: number,
+  bearingDeg: number,
   coarseSpacingDeg: number,
   detailSpacingDeg: number
-): WindGridPoint[] {
-  if (detailGrid.length === 0) return coarseGrid.slice();
-  const detailHalf = detailSpacingDeg / 2;
-  const detailMinLat = Math.min(...detailGrid.map((p) => p.latitude)) - detailHalf;
-  const detailMaxLat = Math.max(...detailGrid.map((p) => p.latitude)) + detailHalf;
-  const detailMinLon = Math.min(...detailGrid.map((p) => p.longitude)) - detailHalf;
-  const detailMaxLon = Math.max(...detailGrid.map((p) => p.longitude)) + detailHalf;
-  const coarseHalf = coarseSpacingDeg / 2;
-  return coarseGrid.filter((coarsePoint) => {
-    const fullyCovered =
-      coarsePoint.latitude - coarseHalf >= detailMinLat &&
-      coarsePoint.latitude + coarseHalf <= detailMaxLat &&
-      coarsePoint.longitude - coarseHalf >= detailMinLon &&
-      coarsePoint.longitude + coarseHalf <= detailMaxLon;
-    return !fullyCovered;
-  });
+): GeoJSON.FeatureCollection<GeoJSON.Polygon, WindPenaltyGridCellProperties> {
+  const detailBounds = detailCoverageBounds(detailGrid, detailSpacingDeg);
+  const features: GeoJSON.Feature<GeoJSON.Polygon, WindPenaltyGridCellProperties>[] = [];
+  for (const point of coarseGrid) {
+    const speed = point.wind_speed_ms[frameIndex];
+    const direction = point.wind_direction_deg[frameIndex];
+    if (speed == null || direction == null) continue;
+    const cell = cellRectangle(point.latitude, point.longitude, coarseSpacingDeg);
+    const pieces = detailBounds ? subtractRectangle(cell, detailBounds) : [cell];
+    const properties: WindPenaltyGridCellProperties = { windPenalty: windPenalty(speed, direction, bearingDeg) };
+    for (const piece of pieces) {
+      features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [rectangleRing(piece)] }, properties });
+    }
+  }
+  return { type: "FeatureCollection", features };
 }
 
 /** wind_penalty（["get","windPenalty"]）を色へ変換するMapLibre fill-color式。評価軸グループ

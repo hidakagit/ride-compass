@@ -19,7 +19,7 @@ import {
 } from "@/components/Map/precipitationNowcast";
 import { windFrames, windRenderPayload, WIND_GRID_SPACING_DEG, type MapViewport } from "@/components/Map/windLayer";
 import {
-  coarseGridPointsOutsideDetailBounds,
+  windPenaltyCoarseGridToClippedFeatureCollection,
   windPenaltyGridToCellFeatureCollection,
 } from "@/components/Map/windPenalty";
 import {
@@ -57,7 +57,6 @@ import type { DynamicLayerTimeSliderFrame } from "@/components/DynamicLayerTimeS
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
-import { debugLog } from "@/lib/debugLog";
 
 // 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
 // 雷は10分毎更新のため5分より長くても足りるが、実装を単純にするため揃えている）。
@@ -348,34 +347,22 @@ export function useDynamicWeatherLayers({
   // 狭いbboxしかカバーしないことがあるため、常に関東本土全域をカバーするwindGrid（粗い格子、
   // useWeatherGrid.ts参照）から同じ配色ロジックでセルを作る。frameIndexは同じ
   // windFramesList（windGrid由来）を使うため、windPayload/windPenaltyPayloadと常に
-  // 同じ時刻を指す。coarseGridPointsOutsideDetailBoundsで、セル全体が詳細格子の実際の
-  // カバー範囲にすっぽり収まる粗い格子点だけを除いてから作る（windPenalty.ts側コメント
-  // 参照。detailGridが空のときはdetailSpacingDeg自体使われないため、effectiveGridSpacingDeg
-  // をそのまま渡してよい）。
+  // 同じ時刻を指す。windPenaltyCoarseGridToClippedFeatureCollectionが、詳細格子と重なる
+  // 部分を幾何学的に切り取ってから粗いセルを作る（windPenalty.ts側コメント参照。
+  // detailGridが空のときはdetailSpacingDeg自体使われないため、effectiveGridSpacingDegを
+  // そのまま渡してよい）。
   const windPenaltyCoarsePayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
     if (index == null || windGrid.length === 0) return undefined;
-    const coarsePoints = coarseGridPointsOutsideDetailBounds(
-      windGrid,
-      windDetailGrid,
-      WIND_GRID_SPACING_DEG,
-      effectiveGridSpacingDeg
-    );
-    // 調査用の一時ログ（風の環境グループ面塗りが画面右端で欠ける不具合の原因調査）。
-    // windGrid（粗い格子、常に関東本土全域624点前後）に対しcoarsePoints（除外後、実際に
-    // このレイヤーへ描画する点数）がどれだけ減っているかを見る。
-    debugLog("windGrid:penalty-coarse", "粗い格子ペイロード", {
-      windGridCount: windGrid.length,
-      windDetailGridCount: windDetailGrid.length,
-      coarsePointsCount: coarsePoints.length,
-    });
     return {
       kind: "gridFill",
-      geojson: windPenaltyGridToCellFeatureCollection(
-        coarsePoints,
+      geojson: windPenaltyCoarseGridToClippedFeatureCollection(
+        windGrid,
+        windDetailGrid,
         windFramesList[index].ref,
         debouncedWindBearingDeg,
-        WIND_GRID_SPACING_DEG
+        WIND_GRID_SPACING_DEG,
+        effectiveGridSpacingDeg
       ),
     };
   }, [windFramesList, dynamicLayerTargetTime, windGrid, windDetailGrid, debouncedWindBearingDeg, effectiveGridSpacingDeg]);

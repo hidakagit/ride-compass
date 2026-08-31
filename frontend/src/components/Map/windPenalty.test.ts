@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { coarseGridPointsOutsideDetailBounds, windPenalty, windPenaltyGridToCellFeatureCollection } from "./windPenalty";
+import {
+  subtractRectangle,
+  windPenalty,
+  windPenaltyCoarseGridToClippedFeatureCollection,
+  windPenaltyGridToCellFeatureCollection,
+  type Rectangle,
+} from "./windPenalty";
 import type { WindGridPoint } from "@/types/weather";
 
 describe("windPenalty", () => {
@@ -44,38 +50,82 @@ describe("windPenaltyGridToCellFeatureCollection", () => {
   });
 });
 
-describe("coarseGridPointsOutsideDetailBounds", () => {
+describe("subtractRectangle", () => {
+  const cell: Rectangle = { minLon: 0, maxLon: 10, minLat: 0, maxLat: 10 };
+
+  it("returns the cell unchanged when hole does not overlap it", () => {
+    const hole: Rectangle = { minLon: 20, maxLon: 30, minLat: 0, maxLat: 10 };
+    expect(subtractRectangle(cell, hole)).toEqual([cell]);
+  });
+
+  it("returns nothing when hole fully covers the cell", () => {
+    const hole: Rectangle = { minLon: -5, maxLon: 15, minLat: -5, maxLat: 15 };
+    expect(subtractRectangle(cell, hole)).toEqual([]);
+  });
+
+  it("returns a single strip when hole overlaps only one edge", () => {
+    const hole: Rectangle = { minLon: 6, maxLon: 20, minLat: -5, maxLat: 15 };
+    expect(subtractRectangle(cell, hole)).toEqual([{ minLon: 0, maxLon: 6, minLat: 0, maxLat: 10 }]);
+  });
+
+  it("splits into 4 strips when hole sits entirely inside the cell (a donut)", () => {
+    const hole: Rectangle = { minLon: 3, maxLon: 7, minLat: 3, maxLat: 7 };
+    expect(subtractRectangle(cell, hole)).toEqual([
+      { minLon: 0, maxLon: 3, minLat: 0, maxLat: 10 },
+      { minLon: 7, maxLon: 10, minLat: 0, maxLat: 10 },
+      { minLon: 3, maxLon: 7, minLat: 7, maxLat: 10 },
+      { minLon: 3, maxLon: 7, minLat: 0, maxLat: 3 },
+    ]);
+  });
+});
+
+describe("windPenaltyCoarseGridToClippedFeatureCollection", () => {
   function makePoint(latitude: number, longitude: number): WindGridPoint {
     return { latitude, longitude, wind_speed_ms: [4], wind_direction_deg: [90], precipitation_mm: [0], times: ["2026-08-30T08:00"] };
   }
 
-  it("returns all coarse points unfiltered when the detail grid is empty", () => {
+  it("returns one full-cell feature per coarse point when the detail grid is empty", () => {
     const coarse = [makePoint(35.7, 139.7), makePoint(35.9, 139.9)];
-    expect(coarseGridPointsOutsideDetailBounds(coarse, [], 0.1, 0.02)).toEqual(coarse);
-  });
-
-  it("excludes a coarse point only when its entire cell is covered by the detail grid's extent", () => {
-    const coarse = [
-      makePoint(35.7, 139.7), // セル[35.65-35.75, 139.65-139.75]が、詳細格子の実カバー範囲
-      // （点35.6/35.8・spacing0.02の半分ぶん外側へ拡張した[35.59-35.81, 139.59-139.81]）に
-      // 余裕を持って収まる → 除外される。
-      makePoint(35.9, 139.9), // 詳細格子のカバー範囲から大きく外れる → 残る
+    const fc = windPenaltyCoarseGridToClippedFeatureCollection(coarse, [], 0, 90, 0.1, 0.02);
+    expect(fc.features).toHaveLength(2);
+    const ring = fc.features[0].geometry.coordinates[0];
+    const expectedRing = [
+      [139.65, 35.65],
+      [139.75, 35.65],
+      [139.75, 35.75],
+      [139.65, 35.75],
+      [139.65, 35.65],
     ];
-    const detail = [makePoint(35.6, 139.6), makePoint(35.8, 139.8)];
-    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1, 0.02);
-    expect(result).toEqual([makePoint(35.9, 139.9)]);
+    ring.forEach(([lon, lat], i) => {
+      expect(lon).toBeCloseTo(expectedRing[i][0], 6);
+      expect(lat).toBeCloseTo(expectedRing[i][1], 6);
+    });
+    expect(fc.features[0].properties.windPenalty).toBeCloseTo(windPenalty(4, 90, 90), 6);
   });
 
-  it("does not exclude a coarse point whose cell extends beyond the detail grid's actual (small) coverage", () => {
-    // 粗い格子1セル(coarseSpacingDeg=0.1、約11km四方)は、ズームインしたときの詳細格子の
-    // 実際のカバー範囲（狭いbboxに絞られる、clampWindDetailBbox参照）よりずっと大きいことが
-    // ある。この場合、粗い格子点の中心が詳細格子のすぐ近くにあっても、詳細格子は
-    // セルの一部分（下記では[35.795-35.825, 139.795-139.825]という数百m四方）しか
-    // 覆っていないため、セル全体は除外してはならない（除外すると、詳細格子が実際には
-    // 覆っていない残りの部分が粗い格子でも詳細格子でも塗られない穴になる）。
-    const coarse = [makePoint(35.8, 139.8)]; // セル[35.75-35.85, 139.75-139.85]
-    const detail = [makePoint(35.8, 139.8), makePoint(35.82, 139.82)];
-    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1, 0.01);
-    expect(result).toEqual(coarse);
+  it("skips points with missing values at the given frame index", () => {
+    const fc = windPenaltyCoarseGridToClippedFeatureCollection([makePoint(35.7, 139.7)], [], 5, 90, 0.1, 0.02);
+    expect(fc.features).toHaveLength(0);
+  });
+
+  it("clips a coarse cell into 4 pieces when the detail grid's coverage sits entirely inside it (does not double-render the overlap)", () => {
+    // ユーザー報告「粗い格子と詳細格子が重なると色が二重に濃くなり凡例と対応しなくなる」
+    // への対応（改善計画T515）。coarse点のセル[139.65-139.75, 35.65-35.75]の内側に、
+    // detail点1点ぶんのカバー範囲[139.71-139.73, 35.69-35.71]（spacing0.02）が
+    // すっぽり収まる（4隅すべてに余白がある）ため、重なった部分を除いた4枚の帯へ分解される。
+    const coarse = [makePoint(35.7, 139.7)];
+    const detail = [makePoint(35.7, 139.72)];
+    const fc = windPenaltyCoarseGridToClippedFeatureCollection(coarse, detail, 0, 90, 0.1, 0.02);
+    expect(fc.features).toHaveLength(4);
+    for (const feature of fc.features) {
+      expect(feature.properties.windPenalty).toBeCloseTo(windPenalty(4, 90, 90), 6);
+    }
+  });
+
+  it("does not clip a coarse cell that the detail grid's coverage does not overlap at all", () => {
+    const coarse = [makePoint(35.7, 139.7)];
+    const detail = [makePoint(37.0, 141.0)]; // 遠く離れておりカバー範囲が重ならない
+    const fc = windPenaltyCoarseGridToClippedFeatureCollection(coarse, detail, 0, 90, 0.1, 0.02);
+    expect(fc.features).toHaveLength(1);
   });
 });
