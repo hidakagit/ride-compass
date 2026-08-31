@@ -146,18 +146,85 @@
   gap: var(--space-2);
 }
 
-/* 生成前の空状態ガイド（初見ユーザー向けの「まず何をするか」） */
-.emptyHint {
-  color: var(--color-neutral);
-  font-size: var(--font-size-sm);
-  margin: 0;
-}
-
 /* 「表示中の候補の生成条件と現在のフォーム値がずれている」ヒント（T31） */
 .dirtyHint {
   color: var(--color-warning-strong);
   font-size: var(--font-size-sm);
   margin: 0;
+}
+
+/* ルート結果パネルの内側タブ（ルート選択/全体プロファイル/比較）。省スペース化のため、
+   候補一覧・全体プロファイル・比較表を縦積みではなくタブ切り替えで1画面に収める。
+   見た目はadmin.module.cssの.tabs系（下線インジケータ方式）と揃える。 */
+.outcomeTabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.outcomeTabBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.outcomeTabList {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.outcomeTabTrigger {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-muted);
+  padding: 0.4rem 0.5rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.outcomeTabTrigger[data-state="active"] {
+  color: var(--color-accent-strong);
+  border-bottom-color: var(--color-accent-strong);
+}
+
+.outcomeTabTrigger:disabled {
+  color: var(--color-border);
+  cursor: not-allowed;
+}
+
+/* ルートのクリア: タブ列と同じ行に置くが、タブとして選択状態を持たず押した瞬間に
+   実行する即実行アクション（ユーザー指示）。clearRoutesButton/routeProfileButtonの
+   控えめなテキストリンク見た目を踏襲する。 */
+.outcomeTabAction {
+  align-self: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  background: transparent;
+  border: none;
+  padding: 0.3rem 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.outcomeTabAction:hover {
+  color: var(--foreground);
+}
+
+.outcomeTabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* 比較タブはforceMountで非アクティブ中もマウントし続ける（実験スロットの記録を
+   タブの開閉に関わらず継続させるため、page.tsx側コメント参照）。表示自体は
+   data-stateで切り替える。 */
+.outcomeTabPanel[data-state="inactive"] {
+  display: none;
 }
 
 .refreshButton {
@@ -176,42 +243,6 @@
 .refreshButton:hover:not(:disabled) {
   color: var(--foreground);
   border-color: transparent;
-}
-
-/* 改善計画T365: 生成済みルートのクリア。refreshButtonと同じ控えめなテキストリンク見た目
-   （地図データ再読み込みと同種の「たまに使う運用ボタン」）。 */
-.clearRoutesButton {
-  align-self: flex-start;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  background: transparent;
-  border: none;
-  padding: 0.3rem 0;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-
-.clearRoutesButton:hover {
-  color: var(--foreground);
-}
-
-/* 改善計画T402: ルート全体プロファイル（BottomSheet）を開く導線。clearRoutesButtonと
-   同じ控えめなテキストリンク見た目（「たまに開く詳細画面への導線」という性質が近いため）。 */
-.routeProfileButton {
-  align-self: flex-start;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  background: transparent;
-  border: none;
-  padding: 0.3rem 0;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-
-.routeProfileButton:hover {
-  color: var(--foreground);
 }
 
 .mapPane {
