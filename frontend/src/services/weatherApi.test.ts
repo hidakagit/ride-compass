@@ -59,44 +59,10 @@ describe("getCurrentWeather", () => {
     expect(String(url)).toContain("longitude=139.5678");
   });
 
-  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
-    const headers = new Headers({ "x-request-id": "req-456" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({
-          ok: false,
-          status: 500,
-          json: async () => ({ detail: "天候取得エラー" }),
-          headers,
-        }),
-      ),
-    );
-
-    await expect(getCurrentWeather({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
-      "天候取得エラー[req: req-456]",
-    );
-  });
-
-  it("errorBodyのjson parseが失敗した場合はフォールバックメッセージになる", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({
-          ok: false,
-          status: 503,
-          json: async () => {
-            throw new Error("parse failed");
-          },
-          headers: new Headers(),
-        }),
-      ),
-    );
-
-    await expect(getCurrentWeather({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
-      "天候情報の取得に失敗しました[HTTP 503]",
-    );
-  });
+  // ok:false時のエラーメッセージ組み立て（detail+x-request-id、json parse失敗時のフォールバック）は
+  // 全関数が共通で委譲するfetchJson側のロジックのため、lib/fetchJson.test.tsで一括検証済み。
+  // 各関数固有のエンドポイント疎通確認はgetWindGridDetailのテスト（バックエンド固有のエラー文言を
+  // 実際に使う）に代表させ、残りの重複は削除した（改善計画、テスト有効性監査2026-08-31）。
 });
 
 describe("getWeatherWarnings", () => {
@@ -120,20 +86,6 @@ describe("getWeatherWarnings", () => {
     expect(String(url)).toContain("/api/weather/warnings");
     expect(String(url)).toContain("latitude=35.6812");
     expect(String(url)).toContain("longitude=139.7671");
-  });
-
-  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
-    const headers = new Headers({ "x-request-id": "req-321" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
-      ),
-    );
-
-    await expect(getWeatherWarnings({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
-      "リクエストが多すぎます[req: req-321]",
-    );
   });
 });
 
@@ -159,20 +111,6 @@ describe("getWbgtStatus", () => {
     expect(String(url)).toContain("/api/weather/wbgt");
     expect(String(url)).toContain("latitude=35.6812");
     expect(String(url)).toContain("longitude=139.7671");
-  });
-
-  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
-    const headers = new Headers({ "x-request-id": "req-654" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
-      ),
-    );
-
-    await expect(getWbgtStatus({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
-      "リクエストが多すぎます[req: req-654]",
-    );
   });
 });
 
@@ -206,20 +144,6 @@ describe("getFloodForecasts", () => {
     expect(String(url)).toContain("latitude=35.6812");
     expect(String(url)).toContain("longitude=139.7671");
   });
-
-  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
-    const headers = new Headers({ "x-request-id": "req-852" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
-      ),
-    );
-
-    await expect(getFloodForecasts({ latitude: 35.0, longitude: 139.0 })).rejects.toThrow(
-      "リクエストが多すぎます[req: req-852]",
-    );
-  });
 });
 
 describe("getWindGrid", () => {
@@ -252,18 +176,6 @@ describe("getWindGrid", () => {
     expect(result).toEqual(expected);
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/weather/wind-grid");
-  });
-
-  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
-    const headers = new Headers({ "x-request-id": "req-789" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({ ok: false, status: 429, json: async () => ({ detail: "リクエストが多すぎます" }), headers }),
-      ),
-    );
-
-    await expect(getWindGrid()).rejects.toThrow("リクエストが多すぎます[req: req-789]");
   });
 });
 

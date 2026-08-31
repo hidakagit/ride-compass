@@ -11,7 +11,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { LayerDataStatusByLayer, MapLayerId } from "@/components/Map/mapLayers";
 import {
   clearStaleTrackedSourceErrors,
-  computeLayerDataStatus,
   type DataStatusMapLike,
   type LayerDataSourceEntry,
   useLayerDataStatus,
@@ -59,22 +58,9 @@ const ALL_SHARED_KEYS_VISIBLE: Partial<Record<MapLayerId, boolean>> = {
 };
 
 describe("computeLayerDataStatus のメモ化", () => {
-  it("同一の(source, source-layer)を参照する5レイヤーが同時に見えていても、querySourceFeaturesは1回しか呼ばれない", () => {
-    const calls: { sourceId: string; sourceLayer: string }[] = [];
-    const map = fakeMap({
-      addedSourceIds: [SHARED_SOURCE_ID],
-      querySourceFeaturesCalls: calls,
-    });
-
-    const status = computeLayerDataStatus(map, new Set(), ALL_SHARED_KEYS_VISIBLE, SHARED_LAYER_DATA_SOURCES);
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual({ sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER });
-    // 呼び出し回数だけでなく、算出結果自体も5レイヤー全てに反映されていることを確認する
-    // （メモ化がキャッシュのキー取り違え等で一部のレイヤーだけ結果を落としていないか）。
-    expect(status).toEqual({});
-  });
-
+  // computeLayerDataStatus自体（純粋関数）の同一(source, source-layer)メモ化検証は
+  // MapView.dataStatus.test.tsに既にある（ファイル冒頭コメント参照）。ここではフック経由でも
+  // 同じメモ化が効くこと（配線側の検証）のみを持つ（テスト有効性監査2026-08-31、重複削除）。
   it("useLayerDataStatusフック経由でも、1回のrecomputeにつきquerySourceFeaturesは1回しか呼ばれない", () => {
     const calls: { sourceId: string; sourceLayer: string }[] = [];
     const map = fakeMap({
