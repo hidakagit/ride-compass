@@ -405,6 +405,19 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   ヘルパーは完全に重複・未使用だったため削除、(2) MSMはGRIB2解析が
   [T389](tasks/T389.md)（JMBSCとの有償契約が前提、保留中）に切り出されており実体を伴わない
   スケルトンのままだったため削除した。
+- **JMA動的タイル本体のRedis cache-aside（`app/infrastructure/jma_tile_redis_cache.py`、
+  改善計画T510）**: 上記「降水ナウキャスト・MSMのRedis化は見送り済み」とは別物——あちらは
+  「タイムスタンプ解決ヘルパー・GRIB2解析スケルトン」という新規機構の話で、こちらは
+  既存の`jma_tile_client.py`（プロキシ＋キャッシュ、T412）が使っていたタイル本体の
+  キャッシュ先を、ファイル永続キャッシュ（`tile_cache.py`、有効期限なし）からRedis
+  cache-aside（TTL20分）へ差し替えただけ。動機は「キャッシュヒットでも
+  `jma_tile.py`のレート制限を消費していたため、既に見た範囲を往復パンするだけで429に
+  なっていた」という報告への対応で、(1)キャッシュ参照をレート制限より先に行う構成へ
+  入れ替え、(2)アメダスと同じAPScheduler定期バッチ（`jma_tile_prewarm_service.py`）で
+  実運用範囲（`WIND_GRID_BBOX`）ぶんを事前に温める、の2点をあわせて行った
+  （[動的気象レイヤー](modules/backend/weather-dynamic-layers.md)「JMAタイル系の
+  共通プロキシ」節参照）。正本を持たないcache-aside（JMAへ再フェッチ可能）で
+  road_graph_tilesとは異なる。
 - **Open-Meteo全面代替の可否**: ルート評価（`WindService`、区間ごと・将来時刻の風速
   風向）と風の格子点マップは、任意地点×任意時刻の予報が必要なためアメダス（観測専用）・
   ナウキャスト（降水のみ・60分先まで）では代替できず、MSM実装後に改めて検証する
@@ -580,7 +593,8 @@ RideCompass/
         wind_forecast_cache.py       ✅ 気象グリッド（風・降水延長予報）のRedis永続キャッシュ（改善計画T398。標高キャッシュ・路面セルキャッシュは無関係、それぞれtile_cache.py・DEMタイル化[T10]参照。旧SQLite実装cache_db.pyはこの移行で削除済み）
         tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10。T398でDATA_DIR定数の定義元になった）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
-        jma_tile_client.py           ✅ 改善計画T412: JMA動的タイル系（降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップ）のプロキシ。basemap_client.pyと同じpath丸ごとプロキシ方式だが、ラスタタイル本体はtile_cache.py（永続）・targetTimes*.jsonはTTLCache（2分）とキャッシュ戦略を分岐する
+        jma_tile_client.py           ✅ 改善計画T412: JMA動的タイル系（降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップ）のプロキシ。basemap_client.pyと同じpath丸ごとプロキシ方式だが、タイル本体はjma_tile_redis_cache.py（Redis cache-aside、T510でtile_cache.pyから移行）・targetTimes*.jsonはTTLCache（2分）とキャッシュ戦略を分岐する。get_cached（キャッシュのみ参照）/fetch（外部フェッチのみ）/get（両方の一括呼び出し）の3メソッドへ分割し、jma_tile.py側がget_cachedのヒット判定をレート制限より先に行えるようにした（T510、429の直接原因への対応）
+        jma_tile_redis_cache.py      ✅ 改善計画T510: JMAタイル本体（ラスタPNG・洪水キキクルのベクタPBF）のRedis cache-aside。wind_forecast_cache.pyと同じfail-open設計、TTL20分、値はbase64化してJSON文字列としてRedisへ保存する（redis_client.pyがdecode_responses=Trueのため生バイト列を直接保存できない）
         rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
         debug_log.py                  ✅ `log_external_call`（contextmanager）。外部API呼び出し・タイルキャッシュアクセスの開始/完了/失敗をカテゴリ単位でDEBUGログに出力する。`settings.debug_mode`（`main.py`のlogging設定）がFalseの間は実質無出力
         debug_control.py             ✅ 改善計画T379。`set_debug_mode`（`settings.debug_mode`とルートロガーのレベルをランタイムで切替、`.env`は書き換えず再起動不要）と、ルートロガーへ追加するリングバッファ`logging.Handler`（直近最大1000件を保持、`get_recent_logs`で`limit`/`contains`絞り込み取得）。`api/routers/debug_admin.py`から呼ばれる。本番でSSHせずにdebug_modeの一時有効化・DEBUGログ取得を行うための運用機構（T318の調査で判明した運用上のボトルネックへの対応）
@@ -632,8 +646,10 @@ RideCompass/
       test_wind_forecast_cache.py ✅ 気象グリッドのRedis永続キャッシュ読み書きの検証（改善計画T398。フェイクRedis使用、実I/Oなし。旧SQLite版test_cache_db.pyはこの移行で削除）
       test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
       test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）。basemap/refreshのper-IPレート制限（6回/分）の429検証を追加
-      test_jma_tile_client.py ✅ 改善計画T412: JmaTileClientのプロキシ・キャッシュ戦略の分岐（ラスタタイル=永続tile_cache／targetTimes*.json=TTLCache）の検証
-      test_jma_tile_routes.py ✅ 改善計画T412: /api/jma-tile/{path}のDIモックテスト。502エラー・per-IPレート制限（300回/分）の429検証
+      test_jma_tile_client.py ✅ 改善計画T412: JmaTileClientのプロキシ・キャッシュ戦略の分岐（タイル本体=Redis cache-aside／targetTimes*.json=TTLCache）の検証。T510でget_cached/fetch/getの3メソッド分割の検証を追加
+      test_jma_tile_redis_cache.py ✅ 改善計画T510: jma_tile_redis_cacheのget/set往復・fail-open（Redis障害/未接続/壊れたエントリ）の検証。フェイクRedis使用、実I/Oなし
+      test_jma_tile_prewarm_service.py ✅ 改善計画T510: targetTimes.jsonからの現在エントリ選定（risk/rasrf=element絞り込み、nowc=直近実況優先）・タイル列挙・プリウォーム本体の重複フェッチ回避の検証
+      test_jma_tile_routes.py ✅ 改善計画T412: /api/jma-tile/{path}のDIモックテスト。502エラー・per-IPレート制限（300回/分）の429検証。T510でキャッシュヒットがレート制限を消費しないことの検証を追加
       test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
       test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証。_sweep（アクセス途絶クライアントの定期削除、メモリリーク対策）の検証を追加
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）

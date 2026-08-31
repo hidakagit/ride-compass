@@ -17,8 +17,8 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 | レイヤー | ファイル |
 |---|---|
 | domain | `weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
-| services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py` |
-| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
+| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py` |
 
 ## domain層: 2つの異なる役割
@@ -62,13 +62,29 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 
 `GET /api/jma-tile/{path:path}`が降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・
 キキクル・線状降水帯予測マップなど、気象庁のタイル系データを1つの汎用プロキシで中継する
-（`path`をそのまま気象庁側へ引き渡す）。レート制限のみ（300/分）を課し、認証は無し。
-`JmaTileClient`はキャッシュ戦略を2種類に分ける:
+（`path`をそのまま気象庁側へ引き渡す）。認証は無し。`JmaTileClient`はキャッシュ戦略を
+2種類に分ける:
 
 | 対象 | キャッシュ方式 | TTL |
 |---|---|---|
 | `targetTimes*.json`（パス末尾判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 |
-| ラスタタイル本体 | `tile_cache`（ファイルキャッシュ、`basemap_client.py`と共有） | 無期限（basetime/validtime/z/x/y確定後は内容不変のため） |
+| タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 |
+
+**レート制限（300/分）の適用順序**: `jma_tile.py`は`JmaTileClient.get_cached(path)`で
+まずキャッシュのみを参照し、ヒットすればレート制限を一切経由せず返す。ミスのときだけ
+`enforce_rate_limit`→`JmaTileClient.fetch(path)`（外部フェッチ＋キャッシュ書き戻し）を
+呼ぶ。`JmaTileClient.get(path)`（`get_cached`→ミスなら`fetch`の一括呼び出し）はレート
+制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向けに残している。
+
+**定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
+（アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、
+`next_run_time=datetime.now()`で起動直後にも即時実行）が、アプリの実運用範囲
+（`domain/wind_grid.py: WIND_GRID_BBOX`）ぶんのタイルをあらかじめ`JmaTileClient.get()`
+経由でRedisへ温める。対象ズームは各レイヤー自身の`maxzoom`（frontend:
+`MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）をそのまま使う——超過ズームはMapLibreが
+クライアント側で拡大表示するだけで追加の通信が発生しないため。雷/竜巻ナウキャストは
+未来方向の予報フレームを複数持つが、プリウォームは直近の実況フレーム（1件）のみを
+対象にする（キキクル・線状降水帯予測マップは元々未来フレームを持たないため対象外）。
 
 ## 天候取得（`weather_service.py: WeatherService`）
 

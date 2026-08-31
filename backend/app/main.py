@@ -12,9 +12,11 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import close_all_http_clients, get_http_client
+from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware, unhandled_exception_handler
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
+from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
 # ログレベルの方針(詳細は docs/logging.md):
 # - INFO以上(アクセスサマリ・ルート生成サマリ・外部APIエラーWARNING等)は常時出力し、
@@ -74,6 +76,18 @@ async def _refresh_amedas_job() -> None:
         logging.getLogger("ridecompass.jma_amedas_scheduler").warning("アメダス定期更新に失敗しました", exc_info=True)
 
 
+async def _prewarm_jma_tile_job() -> None:
+    """定期バッチ本体（改善計画T510）。JMA動的タイル（キキクル・線状降水帯予測マップ・
+    雷/竜巻ナウキャスト）をアプリの実運用範囲ぶんあらかじめRedisへ温める
+    （jma_tile_prewarm_service.pyのdocstring参照）。ジョブ内の例外はAPSchedulerがログするが、
+    このプロジェクトの命名規約（ridecompass.*）に揃えたWARNINGも残す。
+    """
+    try:
+        await prewarm_jma_tiles(JmaTileClient(get_http_client(15.0)))
+    except Exception:
+        logging.getLogger("ridecompass.jma_tile_prewarm_scheduler").warning("JMAタイルの定期プリウォームに失敗しました", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # httpx.AsyncClientのウォームアップ（デプロイ直後の天候API失敗調査より）:
@@ -103,6 +117,15 @@ async def lifespan(app: FastAPI):
         minutes=AMEDAS_REFRESH_INTERVAL_MINUTES,
         next_run_time=datetime.now(),
         id="refresh_amedas",
+    )
+    # 改善計画T510: JMA動的タイルの定期プリウォーム。アメダスと同じくnext_run_time=nowで
+    # 起動直後にも1回即時実行し、次の定期実行を待たずにRedisを温める。
+    _scheduler.add_job(
+        _prewarm_jma_tile_job,
+        trigger="interval",
+        minutes=settings.jma_tile_prewarm_interval_minutes,
+        next_run_time=datetime.now(),
+        id="prewarm_jma_tile",
     )
     _scheduler.start()
     yield

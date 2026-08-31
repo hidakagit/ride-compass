@@ -17,15 +17,28 @@ def clear_rate_limiter():
 
 
 class FakeJmaTileClient:
-    def __init__(self, result):
-        self._result = result
+    """改善計画T510: ルーターがレート制限より先にキャッシュを参照する構成
+    （`get_cached`→ミスなら`enforce_rate_limit`→`fetch`）に合わせ、2つのメソッドを
+    個別に差し替えられるフェイク。"""
 
-    async def get(self, path):
-        return self._result
+    def __init__(self, cached_result=None, fetch_result=None):
+        self._cached_result = cached_result
+        self._fetch_result = fetch_result
+        self.get_cached_calls = 0
+        self.fetch_calls = 0
+
+    async def get_cached(self, path):
+        self.get_cached_calls += 1
+        return self._cached_result
+
+    async def fetch(self, path):
+        self.fetch_calls += 1
+        return self._fetch_result
 
 
 def test_jma_tile_proxy_returns_cached_content_with_correct_media_type():
-    app.dependency_overrides[get_jma_tile_client] = lambda: FakeJmaTileClient((b"\x89PNG", "image/png"))
+    fake = FakeJmaTileClient(cached_result=(b"\x89PNG", "image/png"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
 
     try:
         response = client.get(
@@ -37,10 +50,12 @@ def test_jma_tile_proxy_returns_cached_content_with_correct_media_type():
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     assert response.content == b"\x89PNG"
+    assert fake.fetch_calls == 0
 
 
 def test_jma_tile_proxy_returns_502_on_upstream_failure():
-    app.dependency_overrides[get_jma_tile_client] = lambda: FakeJmaTileClient(None)
+    fake = FakeJmaTileClient(cached_result=None, fetch_result=None)
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
 
     try:
         response = client.get("/api/jma-tile/bosai/jmatile/data/risk/targetTimes.json")
@@ -50,8 +65,9 @@ def test_jma_tile_proxy_returns_502_on_upstream_failure():
     assert response.status_code == 502
 
 
-def test_jma_tile_proxy_is_rate_limited_per_client():
-    app.dependency_overrides[get_jma_tile_client] = lambda: FakeJmaTileClient((b"{}", "application/json"))
+def test_jma_tile_proxy_is_rate_limited_per_client_on_cache_miss():
+    fake = FakeJmaTileClient(cached_result=None, fetch_result=(b"{}", "application/json"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
 
     try:
         for _ in range(settings.jma_tile_rate_limit_per_minute - 1):
@@ -62,3 +78,28 @@ def test_jma_tile_proxy_is_rate_limited_per_client():
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
+
+
+def test_jma_tile_proxy_cache_hit_does_not_consume_rate_limit():
+    """改善計画T510: キャッシュヒットはレート制限を一切消費しない（以前は
+    enforce_rate_limitがキャッシュ参照より先に呼ばれており、既にキャッシュ済みの
+    タイルへの往復パンだけで429になっていた——ユーザー報告の直接原因）。"""
+    fake = FakeJmaTileClient(cached_result=(b"\x89PNG", "image/png"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        # レート制限の残り枠を1つだけ残した状態を直接作る（境界値テストは
+        # rate_limiter.check_rate_limitを直接呼んで埋める方針、docs/testing.md参照）。
+        for _ in range(settings.jma_tile_rate_limit_per_minute - 1):
+            rate_limiter.check_rate_limit("jma-tile:testclient", settings.jma_tile_rate_limit_per_minute)
+        path = "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
+        # 残り枠1つの状態でキャッシュヒットのリクエストを2回行っても、どちらも枠を
+        # 消費しないため両方とも200になる（消費していれば2回目が429になるはず）。
+        first = client.get(path)
+        second = client.get(path)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert fake.fetch_calls == 0

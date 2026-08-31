@@ -39,6 +39,10 @@ FastAPI(lifespan=lifespan)
         │       失敗するとAxisDefinitionSyncErrorがここで捕捉されず起動自体が失敗する
         ├─ (3) APSchedulerでJMAアメダス定期更新ジョブを登録（interval分ごと＋
         │       next_run_time=nowで起動直後にも1回即時実行、コールドスタート対策）
+        ├─ (4) 同じくAPSchedulerでJMA動的タイルの定期プリウォームジョブを登録
+        │       （interval=jma_tile_prewarm_interval_minutes分＋next_run_time=nowで
+        │       同様に起動直後にも即時実行、[動的気象レイヤー](weather-dynamic-layers.md)
+        │       「定期プリウォーム」節参照）
         ▼
   CORSMiddleware → request_log_middleware（リクエストID付与・アクセスログ、CORSより外側）
         ▼
@@ -70,6 +74,7 @@ FastAPI(lifespan=lifespan)
 | `redis_url` | localhost | Redis接続文字列 |
 | `git_commit` | None（ローカル） | `/health`が返すデプロイ確認用コミットSHA |
 | 各種`*_rate_limit_per_minute`/`*_max_concurrent` | エンドポイントごとに個別 | per-IPレート制限・同時実行数上限 |
+| `jma_tile_prewarm_interval_minutes` | `10` | JMA動的タイル定期プリウォームの実行間隔（[動的気象レイヤー](weather-dynamic-layers.md)「定期プリウォーム」節） |
 
 **暗黙の前提（`road_graph_use_repository`、複数サービスが個別に分岐する横断フラグ）**:
 このフラグは「Road Graphの永続化（PostGIS）をランタイムのread-throughキャッシュとして

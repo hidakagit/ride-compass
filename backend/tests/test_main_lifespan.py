@@ -9,9 +9,9 @@ test_main.py・test_health.py等の既存テストは`TestClient(app)`をcontext
 `refresh_axis_definitions`は実DBへ接続するため、いずれのテストもmonkeypatchで差し替え、
 実DB接続を必要としない（docs/testing.mdの一般方針どおり、DB接続を要するテストは
 postgisマーカー付きの別ファイルへ隔離する）。`app.main._scheduler`はモジュールレベルの
-シングルトンで、同じjob id（"refresh_amedas"）を複数回`add_job`するとAPSchedulerが
-`ConflictingIdError`を送出するため、テストごとに新しい`AsyncIOScheduler`へ差し替えて
-分離する。
+シングルトンで、同じjob id（"refresh_amedas"・"prewarm_jma_tile"）を複数回`add_job`すると
+APSchedulerが`ConflictingIdError`を送出するため、テストごとに新しい`AsyncIOScheduler`へ
+差し替えて分離する。
 """
 
 from datetime import datetime
@@ -21,6 +21,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi.testclient import TestClient
 
 from app import main as main_module
+from app.config import settings
 from app.main import app
 from app.services.axis_registry_service import AxisDefinitionSyncError
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES
@@ -34,6 +35,10 @@ async def _noop_refresh_amedas_job() -> None:
     return None
 
 
+async def _noop_prewarm_jma_tile_job() -> None:
+    return None
+
+
 @pytest.fixture(autouse=True)
 def _isolated_scheduler(monkeypatch):
     """実行中の共有_schedulerへテストごとに同じjob idをadd_jobするとAPSchedulerの
@@ -41,14 +46,17 @@ def _isolated_scheduler(monkeypatch):
     lifespan()は`_scheduler`をモジュールグローバルとして参照するため、モジュール属性を
     差し替えるだけで呼び出し先へ反映される。
 
-    `_refresh_amedas_job`も無害化する: `next_run_time=datetime.now()`（起動直後にも
-    即時実行、改善計画T387）のため、TestClientのcontext manager内でイベントループが
-    回っている間に実際にジョブが発火しうる（実測で確認済み）。本物のジョブはJMAへの
-    実HTTP問い合わせを行うため、lifespanの結線自体を検証する本ファイルの目的に対しては
-    不要かつ望ましくない副作用（外部依存・フレークの原因）になる。"""
+    `_refresh_amedas_job`・`_prewarm_jma_tile_job`（改善計画T510）も無害化する:
+    `next_run_time=datetime.now()`（起動直後にも即時実行）のため、TestClientの
+    context manager内でイベントループが回っている間に実際にジョブが発火しうる
+    （実測で確認済み）。本物のジョブはJMAへの実HTTP問い合わせを行うため、lifespanの
+    結線自体を検証する本ファイルの目的に対しては不要かつ望ましくない副作用
+    （外部依存・フレークの原因、無効化を忘れて後続テストへ実HTTP呼び出しが漏れ込んだ
+    実績あり）になる。"""
     fresh_scheduler = AsyncIOScheduler()
     monkeypatch.setattr(main_module, "_scheduler", fresh_scheduler)
     monkeypatch.setattr(main_module, "_refresh_amedas_job", _noop_refresh_amedas_job)
+    monkeypatch.setattr(main_module, "_prewarm_jma_tile_job", _noop_prewarm_jma_tile_job)
     yield fresh_scheduler
     if fresh_scheduler.running:
         fresh_scheduler.shutdown(wait=False)
@@ -77,14 +85,15 @@ def test_lifespan_registers_amedas_job_with_immediate_next_run_time(monkeypatch,
     `add_job`呼び出し自体をspyして引数を直接検証する（イベントループ稼働中は
     next_run_time=now指定のジョブがTestClient退出前に実際に発火し得るため、
     起動後にscheduler.get_job()で状態を読み戻す方式だと「既に1回実行され次のinterval分
-    先へ進んでいる」という実測済みのレースに引っかかる）。"""
+    先へ進んでいる」という実測済みのレースに引っかかる）。改善計画T510でJMAタイル
+    プリウォームジョブも登録されるようになった（`add_job`が2回呼ばれる）ため、
+    呼び出しごとにkwargsを蓄積し、id="refresh_amedas"の回だけを拾う。"""
     monkeypatch.setattr(main_module, "refresh_axis_definitions", _noop_refresh_axis_definitions)
-    captured: dict[str, object] = {}
+    captured_calls: list[dict[str, object]] = []
     original_add_job = _isolated_scheduler.add_job
 
     def _spy_add_job(func, trigger=None, **kwargs):
-        captured["trigger"] = trigger
-        captured.update(kwargs)
+        captured_calls.append({"trigger": trigger, **kwargs})
         return original_add_job(func, trigger=trigger, **kwargs)
 
     monkeypatch.setattr(_isolated_scheduler, "add_job", _spy_add_job)
@@ -93,9 +102,33 @@ def test_lifespan_registers_amedas_job_with_immediate_next_run_time(monkeypatch,
     with TestClient(app):
         pass
 
+    captured = next(call for call in captured_calls if call["id"] == "refresh_amedas")
     assert captured["trigger"] == "interval"
     assert captured["minutes"] == AMEDAS_REFRESH_INTERVAL_MINUTES
-    assert captured["id"] == "refresh_amedas"
+    assert abs((captured["next_run_time"] - before).total_seconds()) < 5
+
+
+def test_lifespan_registers_jma_tile_prewarm_job_with_immediate_next_run_time(monkeypatch, _isolated_scheduler):
+    """改善計画T510: JMA動的タイルの定期プリウォームジョブが
+    interval=settings.jma_tile_prewarm_interval_minutes分・next_run_time=起動直後で
+    登録されることを確認する（アメダスジョブの回帰テストと同じ検証パターン）。"""
+    monkeypatch.setattr(main_module, "refresh_axis_definitions", _noop_refresh_axis_definitions)
+    captured_calls: list[dict[str, object]] = []
+    original_add_job = _isolated_scheduler.add_job
+
+    def _spy_add_job(func, trigger=None, **kwargs):
+        captured_calls.append({"trigger": trigger, **kwargs})
+        return original_add_job(func, trigger=trigger, **kwargs)
+
+    monkeypatch.setattr(_isolated_scheduler, "add_job", _spy_add_job)
+    before = datetime.now()
+
+    with TestClient(app):
+        pass
+
+    captured = next(call for call in captured_calls if call["id"] == "prewarm_jma_tile")
+    assert captured["trigger"] == "interval"
+    assert captured["minutes"] == settings.jma_tile_prewarm_interval_minutes
     assert abs((captured["next_run_time"] - before).total_seconds()) < 5
 
 

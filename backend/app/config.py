@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     # 雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップの各タイル・時刻一覧をまとめて
     # 経由するため、basemapと同水準の上限にする。
     jma_tile_rate_limit_per_minute: int = 300
+    # 改善計画T510: JMA動的タイルの定期プリウォーム間隔。JMA側の実更新間隔（5〜10分おき、
+    # jma_tile_client.pyのコメント参照）に合わせ、アメダス（AMEDAS_REFRESH_INTERVAL_MINUTES）
+    # と同じ10分にした。
+    jma_tile_prewarm_interval_minutes: int = 10
     # Open-Meteo Forecast APIの呼び出し先。既定は本家直叩き（ローカル開発用）。
     # 本番（Render）はOpen-Meteo側が送信元IP単位でレート制限しており、Renderの共有
     # アウトバウンドIPだと他テナントの分も巻き添えで429が常態化する不具合が確認された

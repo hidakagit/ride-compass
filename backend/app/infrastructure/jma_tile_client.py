@@ -1,10 +1,9 @@
-import asyncio
 import re
 
 import httpx
 from cachetools import TTLCache
 
-from app.infrastructure import tile_cache
+from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
 # JMA bosai タイル/時刻一覧API（降水ナウキャスト・降水短時間予報・雷/竜巻ナウキャスト・
@@ -12,8 +11,12 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 # プロキシする（改善計画T412）。basemap_client.pyと同じ「path丸ごとプロキシ」方式だが、
 # targetTimes.json（数分〜数十分単位で更新される時刻一覧）とラスタタイル本体
 # （basetime/validtime/z/x/yが確定した時点で内容が不変、OpenFreeMapタイルと同じ性質）で
-# キャッシュ戦略を分ける必要がある。basemap_client.pyのtile_cache（永続ファイルキャッシュ）を
-# そのままtargetTimes.jsonへ使うと、更新後も古い時刻一覧を無期限に返し続けてしまう。
+# キャッシュ戦略を分ける必要がある。改善計画T510: タイル本体はファイル永続キャッシュ
+# （tile_cache.py、有効期限なし）からRedis cache-aside（jma_tile_redis_cache.py、TTL付き）へ
+# 移した——キャッシュヒットでも`jma_tile.py`のレート制限を消費していた問題（429の直接原因）
+# を、キャッシュ参照をレート制限より先に行う構成へ入れ替えるにあたり、無期限に肥大化する
+# ファイルキャッシュより定期プリウォーム（jma_tile_prewarm_service.py）と相性の良いTTL付き
+# キャッシュへ揃える判断をした。
 UPSTREAM_HOST = "https://www.jma.go.jp"
 
 # targetTimes*.jsonは実況・ナウキャスト系で5〜10分おき、キキクル系でも10分おきに更新される
@@ -40,20 +43,26 @@ class JmaTileClient:
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
-    async def get(self, path: str) -> tuple[bytes, str] | None:
+    async def get_cached(self, path: str) -> tuple[bytes, str] | None:
+        """キャッシュのみを参照する（外部フェッチはしない）。改善計画T510:
+        `jma_tile.py`がレート制限を適用する前にこれを呼び、ヒットすればレート制限を
+        一切経由せず即座に返せるようにする（キャッシュヒットでもレート制限を消費して
+        いた429の直接原因への対応）。"""
         is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
         with log_external_call("weather:jma-tile", path=path) as fields:
             if is_target_times:
                 cached = _target_times_cache.get(path)
             else:
-                # tile_cacheの読み書きは同期的なディスクI/O（basemap_client.pyと同じ理由で
-                # asyncio.to_threadへ逃がす）。
-                cached = await asyncio.to_thread(tile_cache.get, path)
-            if cached is not None:
-                fields["cache"] = "hit"
-                return cached
-            fields["cache"] = "miss"
+                cached = await jma_tile_redis_cache.get(path)
+            fields["result"] = "ok"
+            fields["cache"] = "hit" if cached is not None else "miss"
+            return cached
 
+    async def fetch(self, path: str) -> tuple[bytes, str] | None:
+        """キャッシュを一切参照せず外部フェッチのみ行い、結果をキャッシュへ書き戻す。
+        呼び出し元（`jma_tile.py`）はレート制限を適用済みである前提。"""
+        is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
+        with log_external_call("weather:jma-tile", path=path, cache="miss") as fields:
             try:
                 response = await self._http_client.get(f"{UPSTREAM_HOST}/{path}")
                 response.raise_for_status()
@@ -71,5 +80,13 @@ class JmaTileClient:
             if is_target_times:
                 _target_times_cache[path] = result
             else:
-                await asyncio.to_thread(tile_cache.set, path, content, content_type)
+                await jma_tile_redis_cache.set(path, content, content_type)
             return result
+
+    async def get(self, path: str) -> tuple[bytes, str] | None:
+        """キャッシュ参照→ミスなら外部フェッチ、という従来通りの一括呼び出し。
+        レート制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向け。"""
+        cached = await self.get_cached(path)
+        if cached is not None:
+            return cached
+        return await self.fetch(path)

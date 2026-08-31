@@ -945,9 +945,10 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGro
   },
   // 洪水キキクル（改善計画T416）。他3種と異なり配信元がMapbox Vector Tile（.pbf）のため
   // vector kind（riskMap.ts冒頭コメント参照）。source-layer名"flood"・プロパティ"level"
-  // （1〜4）は実機確認済み（risk.properties.xml: vectorTileLayerStyles.flood）。zoom範囲は
-  // land/heavyRain/inundと異なりmaxZoom=14まで配信される（properties.xml: imageType
-  // id="flood"のminZoom/maxZoom）。
+  // （1〜4）は実機確認済み（risk.properties.xml: vectorTileLayerStyles.flood）。配信元は
+  // maxZoom=14まで持つ（properties.xml: imageType id="flood"のminZoom/maxZoom）が、
+  // このアプリでのフェッチ上限は他レイヤーと揃えて11にしている（下記maxzoomのコメント
+  // 参照、改善計画T510）。
   floodRisk: {
     main: {
       vector: {
@@ -971,7 +972,14 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGro
         // gridMarkと共通のパターン）をそのまま流用する。
         minValueToShow: 0,
         minzoom: 4,
-        maxzoom: 14,
+        // 改善計画T510: 配信元(JMA properties.xml)はmaxZoom=14まで持つが、他のJMA動的
+        // タイル系レイヤー（キキクル3種・線状降水帯予測マップ・雷/竜巻ナウキャスト、
+        // いずれもmaxzoom10〜11）と揃えて11へ下げた。ベクタタイルのためz11超過分は
+        // MapLibreがz11時点のジオメトリをクライアント側で拡大表示するだけで済み
+        // （ラスタと異なりボケない）、ユーザー了承済みのトレードオフ
+        // （backend/app/services/jma_tile_prewarm_service.pyが定期的にRedisへ温める対象
+        // ズーム範囲を全レイヤーで揃えられる、docs/tasks/T510.md参照）。
+        maxzoom: 11,
         attribution: "気象庁",
       },
     },

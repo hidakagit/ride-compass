@@ -15,7 +15,7 @@ CACHE_DIR = DATA_DIR / "tile_cache"
 logger = logging.getLogger("app.infrastructure.tile_cache")
 
 
-def _cache_key(path: str) -> str:
+def cache_key(path: str) -> str:
     """`path`をフラットなファイル名にハッシュ化する。
 
     OpenFreeMapのURL構造には`planet`（TileJSON本体）と`planet/<version>/{z}/{x}/{y}.pbf`
@@ -24,13 +24,16 @@ def _cache_key(path: str) -> str:
     「同名のファイルがあるためディレクトリを作成できない」というエラーで実際にクラッシュした
     （実機確認で発見）。ハッシュ化してフラットに保存することでこの衝突を構造的に避ける。
     ディレクトリトラバーサル（`..`等）も、パスがファイル名に使われないため問題にならない。
+
+    改善計画T510: `jma_tile_redis_cache.py`もこのハッシュ方式を踏襲するため公開関数にした
+    （ファイルキャッシュとRedisキャッシュで同じpathから異なるキー体系にならないように）。
     """
     return hashlib.sha256(path.encode("utf-8")).hexdigest()
 
 
 def get(path: str) -> tuple[bytes, str] | None:
     """キャッシュ済みなら(内容, Content-Type)を返す。未キャッシュならNone。"""
-    key = _cache_key(path)
+    key = cache_key(path)
     content_file = CACHE_DIR / f"{key}.bin"
     try:
         if not content_file.is_file():
@@ -66,7 +69,7 @@ def set(path: str, content: bytes, content_type: str) -> None:
     # 天候キャッシュ（wind_forecast_cache.py）と同じ「キャッシュ書き込み失敗は握りつぶす」
     # 方針に合わせ、警告ログのみでno-opにフォールバックする。
     try:
-        key = _cache_key(path)
+        key = cache_key(path)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         # 改善計画T464: get()は`.bin`の存在を「キャッシュ済みか」の判定に使う
         # （下記get()参照）ため、`.meta`を先に書き終えてから`.bin`を書く。これにより
