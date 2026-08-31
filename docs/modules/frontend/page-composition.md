@@ -48,7 +48,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | 実験スロット | `experimentSlots` | なし |
 | 地図ビューポート | `mapViewport` | なし |
 | レイヤー表示 | `layerVisibility`・`routeStyleModeId`・`hiddenLegendKeysByMode` | localStorage |
-| パネル開閉 | `generateOpen`・`sidebarCollapsed`・`mobileSheet`・`mobileSheetHeightVh`・`routeProfileOpen` | 一部localStorage |
+| パネル開閉 | `generateOpen`・`sidebarCollapsed`・`mobileSheet`・`mobileSheetHeightVh` | 一部localStorage |
 | 地図状態 | `regionZoomTooWide`・`layerDataStatus`・`refreshToken`・`debugConsoleOpen` | なし |
 | 動的パラメータ | `windBearingDeg`・`gradientBearingDeg` | なし |
 
@@ -139,10 +139,22 @@ localStorageへの保存・復元を1箇所に集約する。
 できる）。ドラッグ中は`onHeightChange`のみ（見た目の即時反映）、確定時に
 `onHeightCommit`（永続化）を呼ぶ2段階のコールバック構成を持つ。
 
-選択中ルートの全体プロファイル（`RouteAxisProfile`、`axisCatalog.axes`と
-`axis_difficulties`から横棒グラフ生成）は、`mobileSheet`の3タブとは独立した
-`routeProfileOpen`という別のBottomSheetで、デスクトップの「ルートを作る」ブロック内・
-モバイルの「ルート結果」タブの両方から同じ`renderRouteOutcomeSectionBody`関数経由で開ける。
+## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルートを作る」ブロック後半・
+モバイル「ルート結果」タブ共通）
+
+`routes.length === 0`の間は何も描画しない（生成前は空）。1件以上生成された後は、
+Radix Tabs（`@radix-ui/react-tabs`）で「ルート選択」（`RouteList`）・「全体プロファイル」
+（`RouteAxisProfile`、`selectedCandidate.axis_difficulties`から横棒グラフ生成。
+`selectedCandidate`が無い間・`hasDetail`が立つまではトリガーを`disabled`にする）・
+「比較」（`ComparisonPanel`、`researchEnabled`の間だけ表示。実験スロット2件未満の
+自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
+`forceMount`でマウントし続け、`[data-state="inactive"]`のCSSで非表示にする）の
+最大3タブに切り替える。「ルートをクリア」（`handleRoutesClear`）はタブと同じ行に置くが
+Tabs.Listの外の独立したボタンで、選択状態を持たず押した瞬間に実行する。
+
+タブ列の下（Tabs.Rootの外）に「生成したルートの色分け」（`renderRouteColorSectionBody`）を
+続けて描画する。`hasDetail`（選択中候補に`segments`がある）が立つまではこの関数自体が
+`null`を返す。
 
 ## `MapView`（`Map/MapView.tsx`）との境界
 

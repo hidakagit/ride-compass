@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
+import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
@@ -262,13 +263,6 @@ const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
 // それぞれ移設した）。
 const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
 const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
-// 選択中ルートの全体プロファイル（改善計画T402）のシート見出しのDOM id。
-// 上の3つと違い、mobileSheetの3タブとは独立した排他ドメイン外の開閉状態
-// （routeProfileOpen、下記）で開閉する。デスクトップの「ルートを作る」ブロック・
-// モバイルの「ルート結果」タブのどちらからも、候補ルートを選択した状態で開ける
-// （renderRouteOutcomeSectionBody参照。両方から呼ばれる共通関数のため導線を1箇所で
-// 一元化できる）。
-const ROUTE_PROFILE_SHEET_TITLE_ID = "route-profile-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | "map" | null;
 
@@ -590,12 +584,6 @@ export default function Home() {
       },
     },
   );
-  // 選択中ルートの全体プロファイル（axis_difficulties、改善計画T402）シートの開閉。
-  // mobileSheetの3タブ（ルート設定/ルート結果/地図の見え方）とは独立の排他ドメイン
-  // （デスクトップでも開けるため、isMobile限定のmobileSheetとは別状態にする）。
-  // 高さはmobileSheetHeightVh/handleMobileSheetHeightChange/commitMobileSheetHeightを
-  // 他の3シートと共有する（1つの値を共有する既存方針、BottomSheet.tsx冒頭コメント参照）。
-  const [routeProfileOpen, setRouteProfileOpen] = useState(false);
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   // レイヤーごとのデータ取得状態（改善計画T87）。MapViewが実際のタイル取得結果
   // （sourcedata/sourcedataloading/errorイベント）から算出し、サイドバー（MapLayersPanel）へ
@@ -1365,75 +1353,78 @@ export default function Home() {
     );
   }
 
-  // 生成結果に関する表示（設定変更の警告・空状態ガイド・候補一覧・比較表・色分け設定、
+  // 生成結果に関する表示（設定変更の警告・候補一覧・全体プロファイル・比較表・色分け設定、
   // ルート設定は含まない）。モバイルの「ルート結果」タブ、デスクトップの「ルートを作る」
   // ブロック後半から呼ぶ（改善計画T300、旧renderRouteResultsBodyの後半を分離）。
+  // ユーザー指示（省スペース化）: 生成前はほぼ何も出さず、生成後は候補一覧・全体
+  // プロファイル・比較表を「タブで区切って」1画面に収める。ルートのクリアは表示切替を
+  // 伴わない即実行アクションのため、他の3つとは別にタブ列の脇へ置く（タブとして
+  // 選択状態を持たせない）。
   function renderRouteOutcomeSectionBody() {
+    if (routes.length === 0) return null;
+
+    const showComparisonTab = researchEnabled;
+
     return (
       <>
         {conditionsDirty && (
           <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
         )}
-        {/* 生成前の空状態には「まず何をするか」のガイドを出す（初見ユーザー向け、T30）。
-            改善計画T437: 「目的地」モードには距離入力欄が無いため、周回モード専用の
-            「距離を入れて」という文言をそのまま出すと実際の画面と矛盾する
-            （review:ui 2026-08-30 F-3）。routeModeに応じて出し分ける。 */}
-        {routes.length === 0 && !loading && !errorMessage && (
-          <p className={styles.emptyHint}>
-            {routeMode === "destination"
-              ? "地図をタップして経由地・目的地を指定し「ルート生成」を押すと、ルート候補が地図に表示されます"
-              : "距離を入れて「ルート生成」を押すと、周回ルートの候補が地図に表示されます"}
-          </p>
-        )}
-        {/* 改善計画T365: 生成済みの候補一覧・地図描画・選択状態だけをリセットする
-            （経由地・目的地のピンは対象外、別々のクリア操作として使い分ける）。 */}
-        {routes.length > 0 && (
-          <button type="button" className={styles.clearRoutesButton} onClick={handleRoutesClear}>
-            ルートをクリア
-          </button>
-        )}
-        <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
-        {/* ルート全体プロファイル（改善計画T400節4・T402）。選択中ルートのaxis_difficulties
-            （軸ごとの難易度、軸スタジオの軸増減に自動追従）を横棒グラフ一覧で見せる導線。
-            候補一覧のすぐ下＝「選択したルートについてもっと詳しく見る」操作として自然な位置に
-            置いた（デスクトップの「ルートを作る」ブロック・モバイルの「ルート結果」タブの
-            どちらもこの関数を経由するため、両方に同じ導線が一度に付く）。 */}
-        {hasDetail && (
-          <button type="button" className={styles.routeProfileButton} onClick={() => setRouteProfileOpen(true)}>
-            ルート全体プロファイルを見る
-          </button>
-        )}
-        {/* BottomSheetはposition: fixedのオーバーレイのため、DOM上どこに置いても見た目は
-            変わらない。mobileSheetの3タブとは独立に開閉するため、isMobile分岐の外側
-            （この関数自体がデスクトップ・モバイル両方から呼ばれる）に置ける。 */}
-        {selectedCandidate && (
-          <BottomSheet
-            open={routeProfileOpen}
-            onClose={() => setRouteProfileOpen(false)}
-            title="ルート全体プロファイル"
-            titleId={ROUTE_PROFILE_SHEET_TITLE_ID}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={commitMobileSheetHeight}
-          >
+        <Tabs.Root className={styles.outcomeTabs} defaultValue="routes">
+          <div className={styles.outcomeTabBar}>
+            <Tabs.List className={styles.outcomeTabList}>
+              <Tabs.Trigger className={styles.outcomeTabTrigger} value="routes">
+                ルート選択
+              </Tabs.Trigger>
+              {/* 全体プロファイルはaxis_difficulties（選択中ルートのsegments集約値）が
+                  無いと出せないため、hasDetailになるまで無効化する（RouteAxisProfile側の
+                  空状態文言を出す代わりに、そもそも選べなくする）。 */}
+              <Tabs.Trigger className={styles.outcomeTabTrigger} value="profile" disabled={!hasDetail}>
+                全体プロファイル
+              </Tabs.Trigger>
+              {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
+                  スロット2件未満の間は中身を持たない自己ガードを持つ（旧実装から変更なし、
+                  ComparisonPanel.tsx参照）ため、ここでスロット件数を重複判定しない。 */}
+              {showComparisonTab && (
+                <Tabs.Trigger className={styles.outcomeTabTrigger} value="comparison">
+                  比較
+                </Tabs.Trigger>
+              )}
+            </Tabs.List>
+            {/* 改善計画T365: 生成済みの候補一覧・地図描画・選択状態だけをリセットする
+                （経由地・目的地のピンは対象外、別々のクリア操作として使い分ける）。
+                ユーザー指示: タブと同じ並びに置くが、押した瞬間に実行する
+                （タブの選択状態は持たない）。 */}
+            <button type="button" className={styles.outcomeTabAction} onClick={handleRoutesClear}>
+              ルートをクリア
+            </button>
+          </div>
+          <Tabs.Content className={styles.outcomeTabPanel} value="routes">
+            <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
+          </Tabs.Content>
+          <Tabs.Content className={styles.outcomeTabPanel} value="profile">
             {/* ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
                 プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが
                 「見たくない」と選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は
                 重み0の軸も評価済みで持っているため、絞り込みはaxesの側で行う
                 （RouteAxisProfile内部のaxisDifficulties!=nullフィルタとは独立）。 */}
-            <RouteAxisProfile
-              axes={axisCatalog.axes.filter((axis) => (routePreference[axis.axisId] ?? 0) > 0)}
-              axisDifficulties={selectedCandidate.axis_difficulties}
-            />
-          </BottomSheet>
-        )}
-        {/* 実験スロット比較表（研究インターフェース改善 §10-3）。研究モード中の生成が
-            2件以上たまったときだけ表示する。生成結果の一覧という性質上、入力パラメータ
-            （評価重み・車ストレスレシピ、renderResearchSectionBody参照）とは分け、
-            RouteListの並びであるこのブロックに残す。 */}
-        {researchEnabled && (
-          <ComparisonPanel slots={experimentSlots} axisLabels={axisCatalog.axisLabels} axes={axisCatalog.axes} />
-        )}
+            {selectedCandidate && (
+              <RouteAxisProfile
+                axes={axisCatalog.axes.filter((axis) => (routePreference[axis.axisId] ?? 0) > 0)}
+                axisDifficulties={selectedCandidate.axis_difficulties}
+              />
+            )}
+          </Tabs.Content>
+          {showComparisonTab && (
+            // forceMount: 比較タブを開いていない間もComparisonPanelをマウントし続ける
+            // （実験スロットは生成のたびにpage.tsxのstateへ積まれ続けるため、タブが
+            // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブ時の非表示は
+            // page.module.cssの[data-state="inactive"]セレクタで行う）。
+            <Tabs.Content className={styles.outcomeTabPanel} value="comparison" forceMount>
+              <ComparisonPanel slots={experimentSlots} axisLabels={axisCatalog.axisLabels} axes={axisCatalog.axes} />
+            </Tabs.Content>
+          )}
+        </Tabs.Root>
         {renderRouteColorSectionBody()}
       </>
     );
@@ -1444,9 +1435,11 @@ export default function Home() {
   // 「ルートを作る＝ルートに関する制御、地図の見え方＝地図自体の制御」という役割分担
   // （実機フィードバック）に沿って、選択中ルート自体の色分け設定はこちらへ移設した。
   // 見た目はMapLayersPanel.module.cssのクラスをそのまま再利用する（上記import参照）。
-  // ルート未生成時の案内は、以前は「地図の見え方」から「ルートを作る」への誘導リンクを
-  // 持っていたが、この移設によりリンク自体が不要になった（既にこのパネルの中にいるため）。
+  // ユーザー指示（省スペース化）: ルートを生成・選択するまでこのセクション自体を
+  // 出さない（以前は見出し＋「ルートを生成・選択すると使えます。」という案内文を常時
+  // 出していたが、生成前の画面をほぼ何も無い状態にするため見出しごと消す）。
   function renderRouteColorSectionBody() {
+    if (!hasDetail) return null;
     const routeStyleMode = getRouteStyleMode(filteredRouteStyleModes, routeStyleModeId);
     function handleRouteModeSelect(id: RouteStyleModeId) {
       setRouteStyleModeId(id);
@@ -1465,81 +1458,75 @@ export default function Home() {
     return (
       <div className={layerPanelStyles.group}>
         <h2 className={layerPanelStyles.groupTitle}>生成したルートの色分け</h2>
-        {!hasDetail ? (
-          <p className={layerPanelStyles.mutedHint}>ルートを生成・選択すると使えます。</p>
-        ) : (
-          <>
-            <LayerChip
-              label="表示"
-              ariaLabel="ルートレイヤーを表示"
-              on={layerVisibility.route}
-              onClick={() => handleLayerToggle("route", !layerVisibility.route)}
-            />
-            {/* 単一選択のため矢印キーでの移動が期待される構成。以前は
-                role="radiogroup"/role="radio"を手書きしていたが、roving tabindex（矢印キー
-                移動）までは自前実装していなかったため、Radix RadioGroupへ置き換えて標準で
-                備わるようにした（T253併用導入）。 */}
-            <RadioGroup.Root
-              aria-label="ルートの色分け"
-              className={layerPanelStyles.modeGroup}
-              value={effectiveModeId}
-              onValueChange={(id) => handleRouteModeSelect(id as RouteStyleModeId)}
-            >
-              <RadioGroup.Item
-                value="difficulty"
-                className={
-                  effectiveModeId === "difficulty"
-                    ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
-                    : layerPanelStyles.modeItem
-                }
-              >
-                総合難易度
-              </RadioGroup.Item>
-              {axisMode && (
-                <RadioGroup.Item
-                  value={axisMode.id}
-                  className={
-                    effectiveModeId === axisMode.id
-                      ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
-                      : layerPanelStyles.modeItem
-                  }
-                >
-                  {axisMode.label}
-                </RadioGroup.Item>
-              )}
-            </RadioGroup.Root>
-            {/* 凡例の個別カテゴリ非表示は使用頻度が低い詳細設定のため、既定で折りたたむ
-                （RouteSettingsPanelの「除外する道路」T419と同じ省スペース方針）。 */}
-            <Disclosure
-              className={layerPanelStyles.layerSection}
-              headerClassName={layerPanelStyles.layerHeader}
-              triggerClassName={layerPanelStyles.layerTitle}
-              bodyClassName={layerPanelStyles.layerBody}
-              summary={
-                <>
-                  <span aria-hidden="true" className={layerPanelStyles.chevron} />
-                  凡例の表示設定
-                </>
+        <LayerChip
+          label="表示"
+          ariaLabel="ルートレイヤーを表示"
+          on={layerVisibility.route}
+          onClick={() => handleLayerToggle("route", !layerVisibility.route)}
+        />
+        {/* 単一選択のため矢印キーでの移動が期待される構成。以前は
+            role="radiogroup"/role="radio"を手書きしていたが、roving tabindex（矢印キー
+            移動）までは自前実装していなかったため、Radix RadioGroupへ置き換えて標準で
+            備わるようにした（T253併用導入）。 */}
+        <RadioGroup.Root
+          aria-label="ルートの色分け"
+          className={layerPanelStyles.modeGroup}
+          value={effectiveModeId}
+          onValueChange={(id) => handleRouteModeSelect(id as RouteStyleModeId)}
+        >
+          <RadioGroup.Item
+            value="difficulty"
+            className={
+              effectiveModeId === "difficulty"
+                ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
+                : layerPanelStyles.modeItem
+            }
+          >
+            総合難易度
+          </RadioGroup.Item>
+          {axisMode && (
+            <RadioGroup.Item
+              value={axisMode.id}
+              className={
+                effectiveModeId === axisMode.id
+                  ? `${layerPanelStyles.modeItem} ${layerPanelStyles.modeItemActive}`
+                  : layerPanelStyles.modeItem
               }
             >
-              <div className={layerPanelStyles.legendCheckboxList}>
-                {routeStyleMode.legend.map((entry) => {
-                  const visible = !hiddenRouteLegendKeys.includes(entry.key);
-                  const rowClassName = entry.isFallback
-                    ? `${layerPanelStyles.legendCheckboxRow} ${layerPanelStyles.legendCheckboxRowFallback}`
-                    : layerPanelStyles.legendCheckboxRow;
-                  return (
-                    <label key={entry.key} className={rowClassName}>
-                      <Checkbox checked={visible} onCheckedChange={() => handleRouteLegendToggle(entry.key)} aria-label={entry.label} />
-                      <span className={layerPanelStyles.swatch} style={{ background: entry.color }} />
-                      {entry.label}
-                    </label>
-                  );
-                })}
-              </div>
-            </Disclosure>
-          </>
-        )}
+              {axisMode.label}
+            </RadioGroup.Item>
+          )}
+        </RadioGroup.Root>
+        {/* 凡例の個別カテゴリ非表示は使用頻度が低い詳細設定のため、既定で折りたたむ
+            （RouteSettingsPanelの「除外する道路」T419と同じ省スペース方針）。 */}
+        <Disclosure
+          className={layerPanelStyles.layerSection}
+          headerClassName={layerPanelStyles.layerHeader}
+          triggerClassName={layerPanelStyles.layerTitle}
+          bodyClassName={layerPanelStyles.layerBody}
+          summary={
+            <>
+              <span aria-hidden="true" className={layerPanelStyles.chevron} />
+              凡例の表示設定
+            </>
+          }
+        >
+          <div className={layerPanelStyles.legendCheckboxList}>
+            {routeStyleMode.legend.map((entry) => {
+              const visible = !hiddenRouteLegendKeys.includes(entry.key);
+              const rowClassName = entry.isFallback
+                ? `${layerPanelStyles.legendCheckboxRow} ${layerPanelStyles.legendCheckboxRowFallback}`
+                : layerPanelStyles.legendCheckboxRow;
+              return (
+                <label key={entry.key} className={rowClassName}>
+                  <Checkbox checked={visible} onCheckedChange={() => handleRouteLegendToggle(entry.key)} aria-label={entry.label} />
+                  <span className={layerPanelStyles.swatch} style={{ background: entry.color }} />
+                  {entry.label}
+                </label>
+              );
+            })}
+          </div>
+        </Disclosure>
       </div>
     );
   }
