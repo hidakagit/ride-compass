@@ -51,27 +51,31 @@ describe("coarseGridPointsOutsideDetailBounds", () => {
 
   it("returns all coarse points unfiltered when the detail grid is empty", () => {
     const coarse = [makePoint(35.7, 139.7), makePoint(35.9, 139.9)];
-    expect(coarseGridPointsOutsideDetailBounds(coarse, [], 0.1)).toEqual(coarse);
+    expect(coarseGridPointsOutsideDetailBounds(coarse, [], 0.1, 0.02)).toEqual(coarse);
   });
 
-  it("excludes a coarse point only when a detail point exists within half a coarse cell", () => {
+  it("excludes a coarse point only when its entire cell is covered by the detail grid's extent", () => {
     const coarse = [
-      makePoint(35.7, 139.7), // 詳細格子点(35.71, 139.71)が半径0.05以内 → 除外される
-      makePoint(35.9, 139.9), // 最寄りの詳細格子点まで遠い → 残る
+      makePoint(35.7, 139.7), // セル[35.65-35.75, 139.65-139.75]が、詳細格子の実カバー範囲
+      // （点35.6/35.8・spacing0.02の半分ぶん外側へ拡張した[35.59-35.81, 139.59-139.81]）に
+      // 余裕を持って収まる → 除外される。
+      makePoint(35.9, 139.9), // 詳細格子のカバー範囲から大きく外れる → 残る
     ];
-    const detail = [makePoint(35.71, 139.71)];
-    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1);
+    const detail = [makePoint(35.6, 139.6), makePoint(35.8, 139.8)];
+    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1, 0.02);
     expect(result).toEqual([makePoint(35.9, 139.9)]);
   });
 
-  it("does not exclude a coarse point that falls inside the detail grid's bounding box but has no nearby detail point (a gap within the detail grid)", () => {
-    // 実機報告: 詳細格子が自身の外接矩形の内側を隙間なく埋めているとは限らない
-    // （格子点の取得に一部失敗した等）。外接矩形だけで判定すると、詳細格子が実際には
-    // 届いていない場所まで粗い格子ごと除外してしまい、両方とも描画されない穴ができる。
-    const coarse = [makePoint(35.8, 139.8)]; // detailの外接矩形[35.7-35.9, 139.7-139.9]の内側だが、
-    // 最も近いdetail点(35.7,139.7)/(35.9,139.9)からは半径0.05よりずっと遠い。
-    const detail = [makePoint(35.7, 139.7), makePoint(35.9, 139.9)];
-    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1);
+  it("does not exclude a coarse point whose cell extends beyond the detail grid's actual (small) coverage", () => {
+    // 粗い格子1セル(coarseSpacingDeg=0.1、約11km四方)は、ズームインしたときの詳細格子の
+    // 実際のカバー範囲（狭いbboxに絞られる、clampWindDetailBbox参照）よりずっと大きいことが
+    // ある。この場合、粗い格子点の中心が詳細格子のすぐ近くにあっても、詳細格子は
+    // セルの一部分（下記では[35.795-35.825, 139.795-139.825]という数百m四方）しか
+    // 覆っていないため、セル全体は除外してはならない（除外すると、詳細格子が実際には
+    // 覆っていない残りの部分が粗い格子でも詳細格子でも塗られない穴になる）。
+    const coarse = [makePoint(35.8, 139.8)]; // セル[35.75-35.85, 139.75-139.85]
+    const detail = [makePoint(35.8, 139.8), makePoint(35.82, 139.82)];
+    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1, 0.01);
     expect(result).toEqual(coarse);
   });
 });

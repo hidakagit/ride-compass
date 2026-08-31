@@ -348,14 +348,19 @@ export function useDynamicWeatherLayers({
   // 狭いbboxしかカバーしないことがあるため、常に関東本土全域をカバーするwindGrid（粗い格子、
   // useWeatherGrid.ts参照）から同じ配色ロジックでセルを作る。frameIndexは同じ
   // windFramesList（windGrid由来）を使うため、windPayload/windPenaltyPayloadと常に
-  // 同じ時刻を指す。coarseGridPointsOutsideDetailBoundsで詳細格子の点が近傍に実在する
-  // 粗い格子点だけを除いてから作る（windPenalty.ts側コメント参照。粗い格子の間隔
-  // WIND_GRID_SPACING_DEGを近傍判定の半径に使う——詳細格子側の間隔ではなく粗い格子1マスぶんの
-  // 半径にすることで、粗い格子の1点が担当する面積と過不足なく対応させる）。
+  // 同じ時刻を指す。coarseGridPointsOutsideDetailBoundsで、セル全体が詳細格子の実際の
+  // カバー範囲にすっぽり収まる粗い格子点だけを除いてから作る（windPenalty.ts側コメント
+  // 参照。detailGridが空のときはdetailSpacingDeg自体使われないため、effectiveGridSpacingDeg
+  // をそのまま渡してよい）。
   const windPenaltyCoarsePayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
     if (index == null || windGrid.length === 0) return undefined;
-    const coarsePoints = coarseGridPointsOutsideDetailBounds(windGrid, windDetailGrid, WIND_GRID_SPACING_DEG);
+    const coarsePoints = coarseGridPointsOutsideDetailBounds(
+      windGrid,
+      windDetailGrid,
+      WIND_GRID_SPACING_DEG,
+      effectiveGridSpacingDeg
+    );
     // 調査用の一時ログ（風の環境グループ面塗りが画面右端で欠ける不具合の原因調査）。
     // windGrid（粗い格子、常に関東本土全域624点前後）に対しcoarsePoints（除外後、実際に
     // このレイヤーへ描画する点数）がどれだけ減っているかを見る。
@@ -373,7 +378,7 @@ export function useDynamicWeatherLayers({
         WIND_GRID_SPACING_DEG
       ),
     };
-  }, [windFramesList, dynamicLayerTargetTime, windGrid, windDetailGrid, debouncedWindBearingDeg]);
+  }, [windFramesList, dynamicLayerTargetTime, windGrid, windDetailGrid, debouncedWindBearingDeg, effectiveGridSpacingDeg]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;

@@ -55,30 +55,43 @@ export function windPenaltyGridToCellFeatureCollection(
   );
 }
 
-/** 粗い格子（`windGrid`、関東本土全域を常時カバー）のうち、詳細格子（`detailGrid`）の点が
- * 近傍（`coarseSpacingDeg`の半径以内）に実在する点だけを除いた配列を返す。粗い格子セルと
- * 詳細格子セルを同じ場所へ両方重ねて描画すると、半透明のfill-opacityが二重に重なって
- * 詳細格子の範囲だけ不自然に濃くなるため、重複描画を避けたい。ただし判定は詳細格子の
- * バウンディングボックス（外接矩形）ではなく点ごとの近傍判定で行う——詳細格子はbboxの
- * 内側を隙間なく埋めているとは限らない（格子点の取得に一部失敗した等）ため、bboxだけで
- * 判定すると、詳細格子が実際には届いていない場所まで粗い格子ごと除外してしまい、両方とも
- * 描画されない穴ができる。`detailGrid`が空（詳細格子未取得・ズームアウト時）ならフィルタ
- * せず全点を返す。 */
+/** 粗い格子（`windGrid`、関東本土全域を常時カバー）のうち、セル全体（1辺`coarseSpacingDeg`の
+ * 正方形）が詳細格子（`detailGrid`）の実際のカバー範囲にすっぽり収まっている点だけを除いた
+ * 配列を返す。粗い格子セルと詳細格子セルを同じ場所へ両方重ねて描画すると、半透明の
+ * fill-opacityが二重に重なって詳細格子の範囲だけ不自然に濃くなるため、重複描画を避けたい。
+ *
+ * 詳細格子のカバー範囲は、実際に返ってきた点群の外接矩形を`detailSpacingDeg`半分ぶん
+ * 外側へ広げたもの（各詳細格子点自身のセルぶんの余白）として求める。判定は粗い格子点の
+ * 中心1点への近傍判定ではなく、セル全体（4隅すべて）がこの範囲へ収まっているかで行う——
+ * 粗い格子1セル（`coarseSpacingDeg`）は詳細格子のカバー範囲（ズームインしたときの狭い
+ * bbox、`clampWindDetailBbox`参照）よりずっと大きいことが多く、中心点だけを見る近傍判定
+ * だと「中心が詳細格子のすぐ近くにある」というだけで、詳細格子が実際には覆っていない
+ * セルの残り部分まで丸ごと除外してしまい、粗い・詳細のどちらも描画されない穴ができる
+ * （実測: 詳細格子30点に対し粗い格子624点中623点が除外され、画面の大半が未カバーになる
+ * 事例を確認）。セル全体の包含を見ることで、詳細格子のカバー範囲より大きい粗いセルは
+ * 除外されず残る。`detailGrid`が空（詳細格子未取得・ズームアウト時）ならフィルタせず
+ * 全点を返す。 */
 export function coarseGridPointsOutsideDetailBounds(
   coarseGrid: readonly WindGridPoint[],
   detailGrid: readonly WindGridPoint[],
-  coarseSpacingDeg: number
+  coarseSpacingDeg: number,
+  detailSpacingDeg: number
 ): WindGridPoint[] {
   if (detailGrid.length === 0) return coarseGrid.slice();
-  const radius = coarseSpacingDeg / 2;
-  return coarseGrid.filter(
-    (coarsePoint) =>
-      !detailGrid.some(
-        (detailPoint) =>
-          Math.abs(detailPoint.latitude - coarsePoint.latitude) <= radius &&
-          Math.abs(detailPoint.longitude - coarsePoint.longitude) <= radius
-      )
-  );
+  const detailHalf = detailSpacingDeg / 2;
+  const detailMinLat = Math.min(...detailGrid.map((p) => p.latitude)) - detailHalf;
+  const detailMaxLat = Math.max(...detailGrid.map((p) => p.latitude)) + detailHalf;
+  const detailMinLon = Math.min(...detailGrid.map((p) => p.longitude)) - detailHalf;
+  const detailMaxLon = Math.max(...detailGrid.map((p) => p.longitude)) + detailHalf;
+  const coarseHalf = coarseSpacingDeg / 2;
+  return coarseGrid.filter((coarsePoint) => {
+    const fullyCovered =
+      coarsePoint.latitude - coarseHalf >= detailMinLat &&
+      coarsePoint.latitude + coarseHalf <= detailMaxLat &&
+      coarsePoint.longitude - coarseHalf >= detailMinLon &&
+      coarsePoint.longitude + coarseHalf <= detailMaxLon;
+    return !fullyCovered;
+  });
 }
 
 /** wind_penalty（["get","windPenalty"]）を色へ変換するMapLibre fill-color式。評価軸グループ

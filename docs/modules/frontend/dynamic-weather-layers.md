@@ -91,13 +91,15 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 セルを作る。可視条件（`showWindPenaltyFill`）は`penaltyFill`と同じ。`DYNAMIC_WEATHER_RENDERERS.
 windVector`内で`penaltyFillCoarse`を`penaltyFill`より前に定義しており、`ensureDynamicWeather
 Layer`がgroupSpecのキー順=`addLayer`呼び出し順で描画するため、粗い格子が背面・詳細格子が
-前面になる。`windPenalty.ts: coarseGridPointsOutsideDetailBounds`が、粗い格子の点のうち
-詳細格子の点が近傍（`WIND_GRID_SPACING_DEG`の半径以内）に実在する点だけを除いてから
+前面になる。`windPenalty.ts: coarseGridPointsOutsideDetailBounds`が、粗い格子セル（1辺
+`WIND_GRID_SPACING_DEG`）のうちセル全体が詳細格子の実際のカバー範囲（返ってきた点群の
+外接矩形を詳細格子の間隔ぶん外側へ拡張した範囲）にすっぽり収まる点だけを除いてから
 セル化する（両方を同じ場所へ重ねて描画すると、半透明のfill-opacityが二重に重なって
-詳細格子の範囲だけ不自然に濃くなるため）。判定は詳細格子の外接矩形ではなく点ごとの
-近傍判定で行う——詳細格子は外接矩形の内側を隙間なく埋めているとは限らないため、
-外接矩形だけで判定すると、詳細格子が実際には届いていない場所まで粗い格子ごと除外して
-しまい、両方とも描画されない穴ができる。
+詳細格子の範囲だけ不自然に濃くなるため）。判定は粗い格子点の中心1点への近傍判定ではなく
+セル全体（4隅）の包含で行う——粗い格子1セルは詳細格子の実カバー範囲（ズームインした
+ときの狭いbbox、`clampWindDetailBbox`参照）よりずっと大きいことが多く、中心点だけの
+近傍判定だと、詳細格子が実際には覆っていないセルの残り部分まで丸ごと除外してしまい、
+粗い・詳細のどちらも描画されない穴ができる。
 
 ## 新しい動的要素を追加する1本道
 
