@@ -190,29 +190,6 @@
   flex-shrink: 0;
 }
 
-.modeGroup {
-  display: flex;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.modeItem {
-  min-height: 32px;
-  padding: 0.3rem 0.8rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--foreground);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-
-.modeItemActive {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #ffffff;
-}
-
 /* 各項目は短いラベル+スウォッチだけで、1行に収めると横幅の半分以上が空くという
    実機フィードバックを受け、2列グリッドにして縦スクロール量を減らす（道路情報の
    6+5項目、ルート凡例の3〜6項目のいずれも対象）。 */

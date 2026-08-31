@@ -139,6 +139,13 @@ const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
 // リロードで消えていた）。生成条件（系統A: 出発地点・距離・重み）は保存しない方針
 // （毎回現在地・既定値から始める）。
 const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
+// 改善計画T524（T518コードレビューP2指摘）: layerVisibility.routeの意味がT518で
+// 「色分けレイヤーのみ」から「候補線・ハロー・矢印・色分けレイヤー全体」へ広がったため、
+// 過去に明示的にfalseへ変更・保存していた利用者は、更新後にルートを生成しても地図に
+// 候補線が1本も出ない状態から始まってしまう（復帰手段の地図チップもhasDetail成立まで
+// 無効化されているため気づきにくい）。1回限りの移行マーカー——このキーが無い間だけ
+// route:falseをtrueへ強制し、以後はユーザーの選択どおり保存・復元する。
+const ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY = "ridecompass:route-layer-meaning-migrated-v1";
 const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 // モバイル下部シート（「ルートを作る」/「地図の見え方」）の高さ。2シートは排他表示のため
@@ -473,6 +480,18 @@ export default function Home() {
           const value = parsedRecord[id];
           if (typeof value === "boolean") next[id] = value;
         }
+        // 改善計画T524（T518コードレビューP2指摘）: 1回限りの移行。マーカーが未設定の間だけ
+        // route:falseをtrueへ戻す（T518以前の意味[色分けレイヤーのみ非表示]で保存された
+        // 値を、新しい意味[全レイヤー非表示]のまま引き継がせないため）。マーカー自体は
+        // route値に関わらず必ず立て、次回以降はユーザーの選択どおり尊重する。
+        try {
+          if (window.localStorage.getItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY) == null) {
+            if (next.route === false) next.route = true;
+            window.localStorage.setItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY, "1");
+          }
+        } catch {
+          // 移行マーカーの読み書きに失敗しても、通常のデフォルト値フォールバックに任せる
+        }
         return next;
       },
     },
@@ -527,8 +546,26 @@ export default function Home() {
   );
   useEffect(() => {
     if (filteredRouteStyleModes.some((mode) => mode.id === routeStyleModeId)) return;
+    // 改善計画T524（T518コードレビューP3指摘）: RouteStyleModeIdは事実上string
+    // （routeStyleModes.ts参照）のため、対応する地図色分けモードが無いidを
+    // setRouteStyleModeIdへ渡してもコンパイルエラーにならず、この巻き戻しが黙って
+    // 発生していた（T518実機確認で発覚した「非対応軸チップが無反応に見えるバグ」の
+    // 根本原因）。原因調査ができるよう、「idが評価軸としては実在するが地図色分けに
+    // 対応していない」場合と「idが評価軸としても実在しない」場合を区別して警告ログを
+    // 残す（getRouteStyleMode: routeStyleModes.tsの既存パターンを踏襲）。
+    const matchesKnownAxis = axisCatalog.axes.some((axis) => axis.axisId === routeStyleModeId);
+    debugLog(
+      "map:route-style-mode",
+      matchesKnownAxis
+        ? `route style mode "${routeStyleModeId}" is a known axis but has no map-coloring mode ` +
+          `(supports_route_coloring=false or weight=0), falling back to "${filteredRouteStyleModes[0].id}"`
+        : `route style mode "${routeStyleModeId}" is not a known axis id, falling back to ` +
+          `"${filteredRouteStyleModes[0].id}"`,
+      { requestedId: routeStyleModeId, availableIds: filteredRouteStyleModes.map((mode) => mode.id) },
+      "warn"
+    );
     setRouteStyleModeId(filteredRouteStyleModes[0].id);
-  }, [filteredRouteStyleModes, routeStyleModeId, setRouteStyleModeId]);
+  }, [filteredRouteStyleModes, routeStyleModeId, setRouteStyleModeId, axisCatalog.axes]);
   // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
   // 両系統を管理できる。「文字列の配列」の形のエントリだけ復元時に採用する。
@@ -930,7 +967,13 @@ export default function Home() {
         // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
         // 1箇所で決める（T414時点の設計を踏襲、無効化理由が増えても1本追加するだけで
         // disabled/titleの両方に反映される）。
-        const disabledReason = layer.id === "route" && !hasDetail ? "ルートを生成・選択すると使えます" : null;
+        // 改善計画T524（T518コードレビューP2指摘）: 以前はhasDetail（segments取得済み）を
+        // 見ていたが、RouteAxisProfileの表示条件（selectedCandidateのみ）とズレていた
+        // ——候補選択直後・segments未取得の間、地図の「ルート」チップは無効化されたままな
+        // のに、同時に表示されるRouteAxisProfileのチップ操作でlayerVisibility.routeがON
+        // に変わってしまい、地図チップから直接OFFへ戻せない状態が生じていた。両者を
+        // selectedCandidate基準へ揃える。
+        const disabledReason = layer.id === "route" && !selectedCandidate ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
         const summary = layer.id in summaryByLayerId
           ? (summaryByLayerId[layer.id] ?? null)
@@ -973,7 +1016,7 @@ export default function Home() {
         };
       });
   }, [
-    hasDetail,
+    selectedCandidate,
     layerVisibility,
     roadSurfaceLegendDetails,
     roadSurfaceSummary,
@@ -1493,15 +1536,20 @@ export default function Home() {
             // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブ時の非表示は
             // page.module.cssの[data-state="inactive"]セレクタで行う）。
             <Tabs.Content className={styles.outcomeTabPanel} value="comparison" forceMount>
-              {/* 改善計画T518: 比較タブも全体プロファイルと同じ基準（ルート設定でOFFにした
-                  軸を除外）へ揃える。以前は未フィルタでOFF軸の生値も表示されており不一致
-                  だった。複数の実験スロットを横断比較するビューのため、単一の
-                  generatedRoutePreferenceではなく現在のライブなroutePreference
-                  （RouteSettingsPanelで今まさにON/OFFになっている状態）を基準にする。 */}
+              {/* 改善計画T524（T518コードレビューP2指摘の修正）: 以前はライブなroutePreference
+                  （「今」の設定）で重み>0の軸のみを表示していたため、あるスロットを風重み0.5で
+                  生成→風の重みを0へ変更→別スロットを生成、という手順を踏むと、両スロットの
+                  axis_difficultiesに風の値が残っていても比較表から風の行が消えてしまい、
+                  「重みを変えて何が変わったか比較する」という比較タブ本来の目的と逆行して
+                  いた（ユーザー判断2026-09-01「スロット横断で残す」）。各スロットは生成時点の
+                  重み（conditions.route_preference）を保持しているため、いずれかのスロットで
+                  一度でも重み>0だった軸は、現在のroutePreferenceの値に関わらず残す。 */}
               <ComparisonPanel
                 slots={experimentSlots}
                 axisLabels={axisCatalog.axisLabels}
-                axes={axisCatalog.axes.filter((axis) => (routePreference[axis.axisId] ?? 0) > 0)}
+                axes={axisCatalog.axes.filter((axis) =>
+                  experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0)
+                )}
               />
             </Tabs.Content>
           )}

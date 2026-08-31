@@ -62,11 +62,21 @@ describe("RouteAxisProfile", () => {
     expect(screen.queryByText("風")).not.toBeInTheDocument();
   });
 
-  it("axisDifficultiesが空のときは案内文を表示する", () => {
+  it("axisDifficultiesが空のときは内訳セクションだけ案内文を表示する", () => {
     render(<RouteAxisProfile {...baseProps({ axisDifficulties: {} })} />);
 
     expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+  });
+
+  it("axisDifficultiesが空でも「地図の色分け」チップ列・凡例の表示設定は引き続き操作できる" +
+    "（改善計画T524・T518コードレビューP1指摘: 以前は内訳データが無いとコンポーネント全体が" +
+    "空状態文言だけになり、総合難易度モードへ戻す唯一のUI導線[総合難易度チップ]・凡例の" +
+    "表示設定ポップオーバーごと道連れで消えていた）", () => {
+    render(<RouteAxisProfile {...baseProps({ axisDifficulties: {} })} />);
+
+    expect(screen.getByRole("button", { name: "総合難易度で地図を色分け" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "凡例の表示設定" })).toBeInTheDocument();
   });
 
   it("難易度バーがdisplay:blockで描画される（review:ui F-2の再発防止。trackもbarも<span>のため、" +

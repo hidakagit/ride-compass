@@ -6,6 +6,7 @@ import {
   ROUTE_ARROW_HALO_LAYER_ID,
   ROUTE_ARROW_LAYER_ID,
   ROUTES_LAYER_ID,
+  applyRouteLayerVisibility,
   computeRouteBounds,
   drawBaseRoutes,
   drawSelectedOutline,
@@ -249,5 +250,56 @@ describe("drawSelectedOutline/hideSelectedOutline（「ルート」チップの�
     expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("visible");
     expect(layoutValue(map, ROUTE_ARROW_HALO_LAYER_ID, "visibility")).toBe("visible");
     expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("visible");
+  });
+});
+
+// 改善計画T524（T518コードレビューP1指摘の修正）: redrawAllLayers（地図データ再読み込み・
+// map.setStyle()後の再描画）と2つのuseEffectが、以前は個別にif(routeLayerOn)分岐を
+// 手書きしていたため、redrawAllLayersだけrouteLayerOnを見ずに無条件でdrawBaseRoutes/
+// drawSelectedOutlineを呼ぶ実装漏れが発生していた（「ルート」チップOFFで隠した候補線・
+// ハロー・矢印が、地図データ再読み込みで復活するバグ）。3箇所を1つの共有関数
+// applyRouteLayerVisibilityへ集約した——ここではその共有関数自体を検証する。
+describe("applyRouteLayerVisibility（「ルート」チップの表示切替を1箇所へ集約、改善計画T524）", () => {
+  it("routeLayerOn=trueなら候補線・ハロー・矢印ハロー・矢印の4レイヤーすべてをvisibleにする", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], true, routes, "a");
+
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, ROUTE_ARROW_HALO_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("visible");
+  });
+
+  it("routeLayerOn=falseなら4レイヤーすべてをnoneにする（既にレイヤーが存在する状態から）", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+    map.addLayer({ id: ROUTES_LAYER_ID });
+    map.addLayer({ id: OUTLINE_LAYER_ID });
+    map.addLayer({ id: ROUTE_ARROW_HALO_LAYER_ID });
+    map.addLayer({ id: ROUTE_ARROW_LAYER_ID });
+
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], false, routes, "a");
+
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("none");
+    expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("none");
+    expect(layoutValue(map, ROUTE_ARROW_HALO_LAYER_ID, "visibility")).toBe("none");
+    expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("none");
+  });
+
+  it("routeLayerOn=falseで隠した後、再度trueで呼ぶとvisibleへ戻す" +
+    "（redrawAllLayers経由でも「ルート」チップOFFの状態を維持できることの直接的な検証）", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], true, routes, "a");
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], false, routes, "a");
+    map.layoutCalls.length = 0;
+
+    // 「ルート」チップOFFのまま地図データ再読み込みが起きた想定でもう一度false呼び出し
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], false, routes, "a");
+
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("none");
+    expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("none");
   });
 });

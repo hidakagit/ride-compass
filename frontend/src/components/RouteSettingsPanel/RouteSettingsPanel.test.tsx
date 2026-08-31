@@ -376,7 +376,7 @@ describe("RouteSettingsPanel", () => {
       // 廃止し、案内文はtitle/aria-label付きの無効化アイコンへ置き換わった。
       await waitFor(() =>
         expect(
-          screen.getByTitle('ルート確定後は「生成したルートの色分け」の「風」で確認できます'),
+          screen.getByTitle('ルート確定後は「地図の色分け」の「風」で確認できます'),
         ).toBeInTheDocument(),
       );
       expect(screen.queryByRole("button", { name: "風で地図を色分け表示" })).not.toBeInTheDocument();
@@ -431,7 +431,7 @@ describe("RouteSettingsPanel", () => {
       // labelをそのまま使う（catalogResponseのテスト用ラベル「ラベル[gradient]」）。
       await waitFor(() =>
         expect(
-          screen.getByTitle('ルート確定後は「生成したルートの色分け」の「ラベル[gradient]」で確認できます'),
+          screen.getByTitle('ルート確定後は「地図の色分け」の「ラベル[gradient]」で確認できます'),
         ).toBeInTheDocument(),
       );
       expect(screen.queryByRole("button", { name: "ラベル[gradient]で地図を色分け表示" })).not.toBeInTheDocument();

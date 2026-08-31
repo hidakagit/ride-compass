@@ -460,6 +460,28 @@ export function hideSelectedOutline(map: MapLibreMap) {
   });
 }
 
+// 改善計画T524（T518コードレビューP1・P3指摘）: 「ルート」チップ（routeLayerOn）に応じて
+// 候補線・選択中候補のハロー/矢印をまとめて出し分ける共通処理。呼び出し元effect2箇所と
+// redrawAllLayers（スタイル再構築時の再描画）の計3箇所が、以前はそれぞれ個別に
+// if(routeLayerOn){draw...}else{hide...}を手書きしていたため、redrawAllLayersだけ
+// routeLayerOnを見ずに無条件でdraw...を呼ぶ実装漏れが発生していた（「ルート」チップOFF
+// で隠した候補線・ハロー・矢印が、地図データの再読み込み時に復活する不具合）。1箇所へ
+// 集約することで、将来この呼び出し元が増えても同種の見落としが起きにくくする。
+export function applyRouteLayerVisibility(
+  map: MapLibreMap,
+  routeLayerOn: boolean,
+  routes: RouteCandidate[],
+  selectedRouteId: string | null
+) {
+  if (routeLayerOn) {
+    drawBaseRoutes(map, routes, selectedRouteId);
+    drawSelectedOutline(map, routes, selectedRouteId);
+  } else {
+    hideBaseRoutes(map);
+    hideSelectedOutline(map);
+  }
+}
+
 // 周回ルートの採用向き（順回り/逆回り）を矢印で明示する（改善計画T293）。
 // symbol-placement: "line" + icon-rotation-alignment: "map"の組み合わせだけで、LineStringの
 // 座標順（T274が逆回り候補で座標を逆順に構築済み、RouteCandidate.geometry/segmentsは採用
@@ -2577,9 +2599,13 @@ export default function MapView({
       onRegionZoomHintChangeRef.current
     );
 
-    drawBaseRoutes(map, routes, selectedRouteId);
+    // 改善計画T524（T518コードレビューP1指摘）: 以前はrouteLayerOnを見ずに無条件で
+    // drawBaseRoutes/drawSelectedOutlineを呼んでいたため、「ルート」チップをOFFにして
+    // 候補線・ハロー・矢印を隠していても、地図データの再読み込み（map.setStyle()経由で
+    // このredrawAllLayersが走る）で強制的に再表示されてしまっていた。直後のdetail-segments
+    // 分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
+    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId);
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
-    drawSelectedOutline(map, routes, selectedRouteId);
     drawExperimentSlots(map, experimentSlots);
 
     const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -3143,18 +3169,20 @@ export default function MapView({
     runWhenStyleReady(map, applyDestinationMarker);
   }, [destination]);
 
-  // ルート候補のベース表示を更新（選択状態が変わったら選択色にも反映する）。改善計画T518:
-  // 以前はrouteLayerOn（地図上「ルート」チップ）を見ておらず、OFFにしても候補線が消えない
-  // 不整合があった（ユーザー指摘「一般的にルートをOFFにしたら線すら出ないとイメージする」）。
+  // ルート候補のベース表示・選択中候補のハロー表示をまとめて更新する。改善計画T518:
+  // 以前はrouteLayerOn（地図上「ルート」チップ）を見ておらず、OFFにしても候補線・ハロー・
+  // 矢印が消えない不整合があった（ユーザー指摘「一般的にルートをOFFにしたら線すら
+  // 出ないとイメージする」）。改善計画T524（T518コードレビューP3指摘）: 元は候補線用・
+  // ハロー用の2つの別effectに分かれ、それぞれが同じif(routeLayerOn)分岐を手書きして
+  // いたため、redrawAllLayers側にも同じ分岐を書く必要があり、そちらだけrouteLayerOnの
+  // 反映漏れが起きた。両者をapplyRouteLayerVisibility（MapView.tsx上部で定義）へ
+  // 集約し、この1effectとredrawAllLayersの両方から同じ関数を呼ぶことで、呼び出し元が
+  // 増えても分岐の書き忘れが起きない構造にする。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    if (routeLayerOn) {
-      drawBaseRoutes(map, routes, selectedRouteId);
-    } else {
-      hideBaseRoutes(map);
-    }
+    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId);
   }, [routes, selectedRouteId, routeLayerOn]);
 
   // 表示範囲のフィットは「候補一覧が変わったとき」だけに限定する。
@@ -3169,19 +3197,6 @@ export default function MapView({
       fitBoundsToRoutes(map, routes);
     }
   }, [routes]);
-
-  // 選択中候補のハロー表示。改善計画T518より前は「色分けレイヤーモードに関わらず常時」
-  // 表示だったが、drawBaseRoutesと同じ理由でrouteLayerOnに連動させる（「ルート」チップ
-  // OFFで基本線・ハロー・方向矢印のすべてが消え、完全非表示に到達できるようにする）。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (routeLayerOn) {
-      drawSelectedOutline(map, routes, selectedRouteId);
-    } else {
-      hideSelectedOutline(map);
-    }
-  }, [routes, selectedRouteId, routeLayerOn]);
 
   // 実験スロットの重ね描き（研究インターフェース改善 §10-3）。デバッグモードOFF時は
   // 呼び出し側（page.tsx）が空配列を渡すため、レイヤーは作られるが常に空になる。

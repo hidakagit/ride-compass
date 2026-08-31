@@ -49,6 +49,48 @@ interface RouteAxisProfileProps {
 // 同じ中立グレーを流用し、「特定の軸ではなく全体を指す」ことを色でも示す。
 const TOTAL_DOT_COLOR = "#64748b";
 
+// 改善計画T524（T518コードレビューSIMPLIFY指摘）: 「legendChip > 色ドット + ラベル」という
+// 構造が総合難易度行・色分け対応軸・色分け非対応軸の3箇所でほぼ丸ごと重複していたため、
+// 共有サブコンポーネントへ抽出する。onSelectを渡さない（＝色分け非対応）場合は非活性の
+// <span>、渡す場合はクリック可能な<button>を描画する——見た目・DOM構造は元の実装と同一。
+function AxisChip({
+  color,
+  label,
+  ariaLabel,
+  pressed,
+  onSelect,
+  title,
+}: {
+  color: string;
+  label: string;
+  ariaLabel: string;
+  pressed?: boolean;
+  onSelect?: () => void;
+  title?: string;
+}) {
+  return (
+    <span className={legendStyles.legendChip} title={title}>
+      {onSelect ? (
+        <button
+          type="button"
+          className={styles.axisToggle}
+          aria-pressed={pressed}
+          aria-label={ariaLabel}
+          onClick={onSelect}
+        >
+          <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
+          <span>{label}</span>
+        </button>
+      ) : (
+        <span className={`${styles.axisToggle} ${styles.axisLabel}`}>
+          <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
+          <span>{label}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 // difficulty(0-100)をaxisLayers.tsの共有ランプ配色（緑→黄→橙→赤、RAMP_COLOR_ANCHORS）へ
 // 写像する。rampColorForBand(index, bandCount)はbandCount段階中index番目の色を
 // t=index/(bandCount-1)でRAMP_COLOR_ANCHORS上を線形補間して返す設計のため、
@@ -80,11 +122,11 @@ export default function RouteAxisProfile({
   // 軸カタログの並び順のうち、このルートで実際に評価できた軸だけを表示する
   // （axis_difficultiesにキーが無い＝データ無しで評価不能、という規約はRouteSegmentDetail
   // と共通。domain/route.py: RouteCandidate docstring参照）。
+  // 改善計画T524（T518コードレビューP1指摘）: 以前はrows.length===0の場合にコンポーネント
+  // 全体を空状態文言だけへ差し替えていたため、内訳データが無い候補を選ぶと「地図の色分け」
+  // チップ列・凡例の表示設定ポップオーバー（総合難易度モードへ戻す唯一のUI導線を含む）まで
+  // 道連れで消えていた。空状態の対象を内訳セクション（.breakdown）だけへ限定する。
   const rows = axes.filter((axis) => axisDifficulties[axis.axisId] != null);
-
-  if (rows.length === 0) {
-    return <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>;
-  }
 
   // domain/difficulty.py: composite_difficulty（sum(score*weight)/sum(weight)、有効な軸の
   // みで正規化）と同じ考え方をfrontend側で再現する。表示対象の全軸のcontributionを合計
@@ -138,18 +180,13 @@ export default function RouteAxisProfile({
           片方をもう片方の内訳として扱わない（domain/route.py: RouteCandidate/
           RouteScoreComponentのdocstring参照）。 */}
       <div className={styles.totalRow}>
-        <span className={legendStyles.legendChip}>
-          <button
-            type="button"
-            className={styles.axisToggle}
-            aria-pressed={isTotalSelected}
-            aria-label="総合難易度で地図を色分け"
-            onClick={() => onRouteStyleModeChange("difficulty")}
-          >
-            <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: TOTAL_DOT_COLOR }} />
-            <span>総合難易度</span>
-          </button>
-        </span>
+        <AxisChip
+          color={TOTAL_DOT_COLOR}
+          label="総合難易度"
+          ariaLabel="総合難易度で地図を色分け"
+          pressed={isTotalSelected}
+          onSelect={() => onRouteStyleModeChange("difficulty")}
+        />
       </div>
       {(totalScore != null || overallDifficulty != null) && (
         <div className={styles.scores}>
@@ -167,12 +204,19 @@ export default function RouteAxisProfile({
           )}
         </div>
       )}
+      {/* 改善計画T524（T518コードレビューP2指摘）: 「下の内訳の合計」という表現は、backendの
+          overall_difficulty（区間ごとにその区間で値のある軸だけで正規化してから距離加重
+          平均）と、フロント側のcontribution()（ルート全体で1つのweightSumを使う簡略化）が
+          区間ごとに評価可能な軸が異なるルートでは厳密には一致しないため、「近い値」へ弱める。 */}
       <p className={styles.scoreHint}>
-        おすすめ度は候補間の相対評価、総合難易度は距離・軸重みを反映した絶対値（下の内訳の合計）です。
+        おすすめ度は候補間の相対評価、総合難易度は距離・軸重みを反映した絶対値（下の内訳の合計に近い値）です。
       </p>
 
       <div className={styles.breakdown}>
         <p className={styles.hint}>内訳（重み付き寄与度）</p>
+        {rows.length === 0 ? (
+          <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>
+        ) : (
         <ul className={styles.list}>
           {rows.map((axis) => {
             const raw = axisDifficulties[axis.axisId];
@@ -186,29 +230,17 @@ export default function RouteAxisProfile({
             // 即座に選択を巻き戻すため、クリックしても何も起きたように見えない無反応の
             // ボタンになっていた。対応する地図色分けが無い軸は非活性表示にする。
             const colorable = routeStyleModes.some((mode) => mode.id === axis.axisId);
+            const axisColor = axisColors[axis.axisId] ?? TOTAL_DOT_COLOR;
             return (
               <li key={axis.axisId} className={styles.row}>
-                {colorable ? (
-                  <span className={legendStyles.legendChip}>
-                    <button
-                      type="button"
-                      className={styles.axisToggle}
-                      aria-pressed={active}
-                      aria-label={`${axis.label}で地図を色分け`}
-                      onClick={() => onRouteStyleModeChange(axis.axisId)}
-                    >
-                      <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColors[axis.axisId] ?? TOTAL_DOT_COLOR }} />
-                      <span>{axis.label}</span>
-                    </button>
-                  </span>
-                ) : (
-                  <span className={legendStyles.legendChip} title="この軸は地図の色分けに対応していません">
-                    <span className={`${styles.axisToggle} ${styles.axisLabel}`}>
-                      <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColors[axis.axisId] ?? TOTAL_DOT_COLOR }} />
-                      <span>{axis.label}</span>
-                    </span>
-                  </span>
-                )}
+                <AxisChip
+                  color={axisColor}
+                  label={axis.label}
+                  ariaLabel={`${axis.label}で地図を色分け`}
+                  pressed={active}
+                  onSelect={colorable ? () => onRouteStyleModeChange(axis.axisId) : undefined}
+                  title={colorable ? undefined : "この軸は地図の色分けに対応していません"}
+                />
                 <span className={styles.track}>
                   <span
                     className={styles.bar}
@@ -220,6 +252,7 @@ export default function RouteAxisProfile({
             );
           })}
         </ul>
+        )}
       </div>
     </div>
   );

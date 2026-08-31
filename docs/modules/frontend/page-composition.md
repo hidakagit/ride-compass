@@ -159,8 +159,7 @@ Radix Tabs（`@radix-ui/react-tabs`）で「ルート選択」・「比較」（
 
 「ルート選択」タブは`RouteList`（候補一覧、おすすめ度=`total_score`の表示はここのみ）に
 続けて、`selectedCandidate`があるときだけ`RouteAxisProfile`を同じタブ内に表示する
-（タブ切替不要。以前は「全体プロファイル」という別タブだったが、`RouteList`で選んだ候補の
-詳細という以外の独立した情報を持たなかったため統合した）。`RouteAxisProfile`は
+（タブ切替不要、[T518](../../tasks/T518.md)）。`RouteAxisProfile`は
 「地図の色分け」チップ列（総合難易度＋`route_preference`の重み>0の軸のみ、
 `RouteSettingsPanel`の凡例チップと同じ見た目）・おすすめ度/総合難易度の並記・
 軸別内訳（`domain/difficulty.py: composite_difficulty`と同じ考え方で軸の重みを反映した
@@ -169,8 +168,10 @@ Radix Tabs（`@radix-ui/react-tabs`）で「ルート選択」・「比較」（
 （`routeStyleModeId`）を切り替え、選択中モードがまだOFFなら「ルート」チップ
 （`layerVisibility.route`）も自動でONにする。
 
-`ComparisonPanel`へ渡す`axes`は、`RouteAxisProfile`と同じくルート設定で重み>0の軸のみに
-絞り込む（表示ルールをパネル間で統一する）。
+`ComparisonPanel`へ渡す`axes`は、表示中のいずれかの実験スロットで生成時点の重み
+（`ExperimentSlot.conditions.route_preference`）が>0だった軸に絞り込む（現在のライブな
+`routePreference`ではない。[T524](../../tasks/T524.md)、詳細は下記
+`RouteList.tsx / ComparisonPanel.tsx`節参照）。
 
 ## `MapView`（`Map/MapView.tsx`）との境界
 

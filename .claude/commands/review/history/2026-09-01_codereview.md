@@ -11,6 +11,12 @@
 - 実施方法: 8つの独立した観点別Agent（correctness×3・reuse・simplification・
   efficiency・altitude・conventions）を並行実行し、収集した候補のうち高確度のものを
   実コードの直接確認で裏取りした。
+- **対応状況（2026-09-01追記）**: [T524](../../../docs/tasks/T524.md)として起票・
+  完了。全17件のうち11件修正、2件（比較タブの軸フィルタ基準・内訳合計の精度）は
+  ユーザー確認のうえ設計変更、4件は理由付きで見送り（未使用依存削除は別セッションの
+  package.json並行編集を避けたため、legend系の2件はライブ検証困難な状況下での
+  UIリスク回避、内訳バーの視覚表現はレビュー時点でも既にDEFER指定、型キャストと
+  useAxisCatalog複数インスタンスの2件はConfidence Lowのため）。詳細はT524.md参照。
 
 ## Executive Summary
 

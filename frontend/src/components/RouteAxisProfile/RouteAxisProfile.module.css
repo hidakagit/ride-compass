@@ -16,24 +16,19 @@
   margin: 0 0 var(--space-2);
 }
 
-/* RouteSettingsPanel.module.cssの.legendToggleと同じ見た目（レイアウト・余白・
-   フォントサイズ）を踏襲する。ただしクラス自体は共有せず独自定義にする——
-   RouteSettingsPanel側の.legendToggleは「重みON/OFF」用にaria-pressedへ状態を出して
-   おり（weight>0でtrue、ほぼ常時true）、ここへ「選択中/非選択中」用の
-   [aria-pressed="true"]スタイルを追加すると、同じCSS Modulesファイルを経由して
-   RouteSettingsPanel側の見た目まで意図せず変わってしまうため。 */
+/* 改善計画T524（T518コードレビューREUSE指摘）: RouteSettingsPanel.module.cssの
+   .legendToggleをcomposesで継承する（Map/recipeControls.module.cssの.panelSection等と
+   同じ既存パターン）。composesはローカルなクラス名を新たに1つ発行したうえでベースの
+   ルールを合成するため、下の[aria-pressed="true"]セレクタは.axisToggle固有の生成後
+   クラス名にしか掛からず、.legendToggle側（RouteSettingsPanelの「重みON/OFF」用、
+   weight>0でほぼ常時true）の見た目には影響しない——直接同じクラスを共有するのとは
+   異なり、意図せぬ汚染は起きない。以前はプロパティを1つずつ手で複製していたため、
+   .legendToggle側にだけ後から追加されたモバイル幅（640px以下）のpadding調整
+   （RouteSettingsPanel.module.css）が複製側には反映されず、モバイル幅でチップの
+   余白がズレるドリフトが実際に発生していた——composes化によりこの種のドリフトは
+   構造的に起きなくなる。 */
 .axisToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  border: none;
-  background: transparent;
-  color: var(--foreground);
-  padding: 0.3rem 0.5rem 0.3rem 0.65rem;
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  cursor: pointer;
-  border-radius: 999px;
+  composes: legendToggle from "../RouteSettingsPanel/RouteSettingsPanel.module.css";
 }
 
 /* 選択中（＝現在この軸で地図を色分けしている）はRouteSettingsPanel.module.cssの

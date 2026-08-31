@@ -123,7 +123,8 @@ interface RouteSettingsPanelProps {
   onLayerToggle: (id: MapLayerId, on: boolean) => void;
   /** ルートが確定済みか（page.tsx: hasDetail）。改善計画T414の状態機械どおり、風
    * （windAxis）はルート確定後は視界内の全道路への一律色分けという役割を終了し、
-   * 「生成したルートの色分け」の「風」モードへ案内する（T400.md「2.」節。T418で
+   * 「地図の色分け」（RouteAxisProfile.tsx、旧称「生成したルートの色分け」。改善計画
+   * T518で改称・統合）の「風」モードへ案内する（T400.md「2.」節。T418で
    * この案内自体を地図上チップからルート設定パネルへ移設した）。風以外の軸
    * （car_stress等）は動的パラメータを持たないためルート確定後も一律色分けを続けられ、
    * この対象外のまま変更していない。 */
@@ -176,7 +177,9 @@ export default function RouteSettingsPanel({
     const layerId = mapColorLayerIdFor(axis.axisId);
     if (!layerId) return null;
     if (isDedicatedWayValueLayerId(layerId) && hasDetail) {
-      const unavailableReason = `ルート確定後は「生成したルートの色分け」の「${axis.label}」で確認できます`;
+      // 改善計画T524（T518コードレビューP2指摘）: T518で「生成したルートの色分け」
+      // という旧セクション名は「地図の色分け」（RouteAxisProfile.tsx）へ改称・統合された。
+      const unavailableReason = `ルート確定後は「地図の色分け」の「${axis.label}」で確認できます`;
       return (
         <span className={styles.legendMapColorUnavailable} title={unavailableReason} aria-label={unavailableReason}>
           <MapAppearanceIcon size={13} />
