@@ -5,11 +5,16 @@
    box-shadow・ボタン29px四方・アイコンはダークグレー）へ寸分たがわず揃えた——この
    コントロールは「ズーム+/−・回転コントロールのすぐ下に連続して見える1個の追加ボタン」
    という位置付けのため、アプリの他の浮動UI（現在地ボタン等のcolor-surfaceトークン）
-   ではなくMapLibre自身の（テーマに追従しない）固定色を意図的にそのまま使う。 */
+   ではなくMapLibre自身の（テーマに追従しない）固定色を意図的にそのまま使う。
+   続報のユーザー指摘（「maplibreのアイコン位置と微妙に縦が揃っていない」）: rightに
+   アプリのトークン`--space-3`（12px、ブレークポイントにより8.8px）を使うと、
+   MapLibreの`.maplibregl-ctrl-top-right`自身のmargin（固定10px、テーマ・
+   ブレークポイントに関わらず変わらない）と一致せず数px左右にずれる。上記の配色と
+   同じ理由で、ここも10pxを直書きしてMapLibre自身の値へ揃える。 */
 .trigger {
   position: absolute;
   top: 6.5rem;
-  right: var(--space-3);
+  right: 10px;
   z-index: 20;
   width: 29px;
   height: 29px;
