@@ -200,6 +200,17 @@ const WIND_AXIS_LAYER_ID = "region-wind-axis-line";
 // ——ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けは
 // setFeatureState経由の値（gradientAxisColorExpression、gradientAxisLayer.ts）を読む。
 const GRADIENT_AXIS_LAYER_ID = "region-gradient-axis-line";
+// 改善計画T483: dedicatedWayValues（axisId→way_id→値の汎用Map）から地物へsetFeatureStateする
+// 際のキー名は軸ごとに異なる（"windPenalty"/"gradientValue"、windAxisLayer.ts/
+// gradientAxisLayer.ts参照）ため、他の小さなRecord（LAYER_ICONS等、MapOverlayControls.tsx）と
+// 同じ「既知の少数axisId向けlookup table」パターンで対応付ける。dedicatedWayValueBoundaries
+// （T473）と違い各軸の値自体は`.get(axisId)`だけで完結しないため、この対応表を介して
+// 汎用ループ（下記の風・勾配共通effect・redrawAllLayers内）から呼べるようにしている。
+const DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS: Record<string, string> = {
+  wind: WIND_AXIS_FEATURE_STATE_KEY,
+  gradient: GRADIENT_AXIS_FEATURE_STATE_KEY,
+};
+const EMPTY_DEDICATED_WAY_VALUES: ReadonlyMap<number, number> = new Map();
 // 環境グループの勾配gridFill（改善計画T423）。当初は「風・勾配で実装パターンを揃えるため」
 // windPenaltyFillと同じbespokeなensure/apply関数として実装していたが、改善計画T432で
 // windPenaltyFillはwindVector（矢印、gridMark）と同時表示する必要からDYNAMIC_WEATHER_
@@ -1315,7 +1326,7 @@ function makeEnsureGradientFillLayer(boundaries?: readonly number[] | null) {
  * STATIC_OVERLAY_LAYERS一括effect（showGradientFill）が別途担当する
  * （applyAxisFeatureStateValuesと同じ「値の反映」と「表示ON/OFF」を分離する設計。改善計画T432で
  * 風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ移ったため、この比較対象を
- * 風からwindAxisPenaltiesへ差し替えた）。 */
+ * 風からdedicatedWayValues[改善計画T483で風・勾配それぞれ独立propから統合]へ差し替えた）。 */
 function applyGradientFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
   if (!map.getSource(GRADIENT_FILL_SOURCE_ID)) return;
   const source = map.getSource(GRADIENT_FILL_SOURCE_ID) as GeoJSONSource | undefined;
@@ -2001,20 +2012,24 @@ interface MapViewProps {
   showOneway: boolean;
   /** way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——designation/
    * tunnel/onewayと同じく路面と同じソースを再利用する独立レイヤーだが、値はタイルの
-   * プロパティではなくwindAxisPenalties（別経路のAPI、setFeatureStateで合成）から来る。
+   * プロパティではなくdedicatedWayValues（別経路のAPI、setFeatureStateで合成）から来る。
    * T406（パネル構成再編）が完了するまでの暫定措置として、既存の「動的」グループへ
    * 一時的なチップとして追加している（mapLayers.ts: windAxis参照）。 */
   showWindAxis: boolean;
-  /** hooks/useDynamicWayValues.ts（改善計画T423で旧useWindAxisPenaltiesから汎用化）が
-   * 現在のビューポートに対して取得したway_id→wind_penalty
-   * （m/s、正=向かい風・負=追い風）。showWindAxisがtrueの間、変化のたびにMapLibreの
-   * setFeatureStateで路面タイルの地物へ差し込む（applyAxisFeatureStateValues参照）。 */
-  windAxisPenalties: ReadonlyMap<number, number>;
-  /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxis/windAxisPenaltiesと
-   * 同型——「評価軸」グループとしての勾配。hooks/useDynamicWayValues.tsが現在のビューポート
-   * に対して取得したway_id→effective_gradient（%、正=登り・負=下り）。 */
+  /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型——「評価軸」
+   * グループとしての勾配。 */
   showGradientAxis: boolean;
-  gradientAxisValues: ReadonlyMap<number, number>;
+  /** 改善計画T483: hooks/useDynamicWayValues.ts（改善計画T423で旧useWindAxisPenaltiesから
+   * 汎用化）が現在のビューポートに対して取得したway_id→値（風=wind_penalty[m/s、
+   * 正=向かい風・負=追い風]、勾配=effective_gradient[%、正=登り・負=下り]）を、
+   * axisId→(way_id→値)の汎用Mapとしてまとめて受け取る（page.tsx: windAxisData.values/
+   * gradientAxisData.valuesを1つのMapへ統合して構築）。show{Wind,Gradient}Axisがtrueの
+   * 間、変化のたびにMapLibreのsetFeatureStateで路面タイルの地物へ差し込む
+   * （applyAxisFeatureStateValues参照）。以前はwindAxisPenalties/gradientAxisValuesという
+   * 軸ごとに別名のpropだったが、dedicatedWayValueBoundaries（改善計画T473）と同じ理由
+   * （design-principles.md構造仕様3: 軸ごとにpropを新設しない）で統合した。未設定の軸idは
+   * 空Map扱い（get()がundefinedを返す）として処理される。 */
+  dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<number, number>>;
   /** 改善計画T473: `dedicated_way_value_layer`軸（現状wind/gradient）の
    * display_thresholds_override（軸スタジオ由来）を、axisId→しきい値配列の汎用Mapとして
    * まとめて受け取る（page.tsx: axisCatalog.axesから`dedicatedWayValueLayer===true`の軸を
@@ -2128,9 +2143,8 @@ export default function MapView({
   showTunnel,
   showOneway,
   showWindAxis,
-  windAxisPenalties,
   showGradientAxis,
-  gradientAxisValues,
+  dedicatedWayValues,
   dedicatedWayValueBoundaries,
   showGradientFill,
   gradientFillGeojson,
@@ -2286,8 +2300,7 @@ export default function MapView({
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     axisLabels,
-    windAxisPenalties,
-    gradientAxisValues,
+    dedicatedWayValues,
     gradientFillGeojson,
   });
 
@@ -2365,8 +2378,7 @@ export default function MapView({
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
       axisLabels,
-      windAxisPenalties,
-      gradientAxisValues,
+      dedicatedWayValues,
       gradientFillGeojson,
     };
   }, [
@@ -2400,8 +2412,7 @@ export default function MapView({
     roadSurfaceSharedLayerIds,
     experimentSlots,
     axisLabels,
-    windAxisPenalties,
-    gradientAxisValues,
+    dedicatedWayValues,
     gradientFillGeojson,
   ]);
 
@@ -2442,8 +2453,7 @@ export default function MapView({
       axisOverlayLayers,
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
-      windAxisPenalties,
-      gradientAxisValues,
+      dedicatedWayValues,
       gradientFillGeojson,
     } = redrawPropsRef.current;
     setStaticOverlayVisibility(
@@ -2467,14 +2477,16 @@ export default function MapView({
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
       applyDynamicWeatherState(map, id, dynamicWeatherRenderers[id], dynamicWeather[id]);
     }
-    // 改善計画T425（ゼロベース網羅レビュー指摘）+T457（gradientFillGeojson分）:
-    // WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID（評価軸グループの風・勾配）は
-    // プロパティではなくsetFeatureStateで色付けするため、map.setStyle()でレイヤー自体が
-    // 作り直された後は明示的に再適用しないと無色のまま残ってしまう（値自体は変わって
-    // いないため、通常の依存effectは再実行されない）。gradientFillGeojson
-    // （環境グループの勾配面塗り、geojson source）も同じ理由で再適用が必要。
-    applyAxisFeatureStateValues(map, WIND_AXIS_FEATURE_STATE_KEY, windAxisPenalties);
-    applyAxisFeatureStateValues(map, GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisValues);
+    // 改善計画T425（ゼロベース網羅レビュー指摘）+T457（gradientFillGeojson分）+T483
+    // （dedicatedWayValues統合に伴いループ化）: WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID
+    // （評価軸グループの風・勾配）はプロパティではなくsetFeatureStateで色付けするため、
+    // map.setStyle()でレイヤー自体が作り直された後は明示的に再適用しないと無色のまま
+    // 残ってしまう（値自体は変わっていないため、通常の依存effectは再実行されない）。
+    // gradientFillGeojson（環境グループの勾配面塗り、geojson source）も同じ理由で
+    // 再適用が必要。
+    for (const [axisId, featureStateKey] of Object.entries(DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS)) {
+      applyAxisFeatureStateValues(map, featureStateKey, dedicatedWayValues.get(axisId) ?? EMPTY_DEDICATED_WAY_VALUES);
+    }
     applyGradientFillGeojson(map, gradientFillGeojson);
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
@@ -3166,28 +3178,28 @@ export default function MapView({
     axisOverlayLayers,
   ]);
 
-  // way_id→wind_penalty配信層（改善計画T405）。hooks/useDynamicWayValues.tsが現在の
-  // ビューポートに対して取得した値をMapLibreのsetFeatureStateへ反映する。上の
-  // STATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの切替）とは別のeffectにする理由は動的気象
-  // レイヤーと同じ——windAxisPenaltiesはパン・ズームのたびに変わりうる値のため、他の
-  // show*系フラグ群と同居させると無関係な再実行が増える。showWindAxisがfalseの間もpenalties
-  // 自体はhooks側でenabled=falseにより空のMapへ戻るため、ここでは値をそのまま反映するだけで
-  // 十分（非表示レイヤーへfeature-stateを設定しても表示には影響しない）。
+  // way_id→動的値配信層（風=wind_penalty[改善計画T405]・勾配=effective_gradient
+  // [改善計画T423]）。hooks/useDynamicWayValues.tsが現在のビューポートに対して取得した値を
+  // MapLibreのsetFeatureStateへ反映する。上のSTATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの
+  // 切替）とは別のeffectにする理由は動的気象レイヤーと同じ——dedicatedWayValuesはパン・
+  // ズームのたびに変わりうる値のため、他のshow*系フラグ群と同居させると無関係な再実行が
+  // 増える。showWindAxis/showGradientAxisがfalseの間も値自体はhooks側でenabled=falseにより
+  // 空のMapへ戻るため、ここでは値をそのまま反映するだけで十分（非表示レイヤーへ
+  // feature-stateを設定しても表示には影響しない）。改善計画T483: 以前は風・勾配それぞれ
+  // 独立したeffectとして手書き複製されていたが、dedicatedWayValues（axisId→値の汎用Map）
+  // への統合に合わせ1つのループへまとめた（3件目の動的材料が増えても
+  // DEDICATED_WAY_VALUE_FEATURE_STATE_KEYSへ1行足すだけでこのeffect自体の変更は不要）。
+  // 改善計画T432: 環境グループの風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ
+  // 統合したため、専用effectは持たず下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収されている。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    runWhenStyleReady(map, () => applyAxisFeatureStateValues(map, WIND_AXIS_FEATURE_STATE_KEY, windAxisPenalties));
-  }, [windAxisPenalties]);
-
-  // way_id→勾配（effective_gradient）配信層（改善計画T423）。上のwindAxisPenalties effectと
-  // 同型（同じ理由・同じ分離方針）。改善計画T432: 環境グループの風penalty gridFillは
-  // DYNAMIC_WEATHER_RENDERERS汎用機構へ統合したため、専用effectは撤去し下の
-  // DYNAMIC_WEATHER_LAYER_IDSループへ吸収された。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    runWhenStyleReady(map, () => applyAxisFeatureStateValues(map, GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisValues));
-  }, [gradientAxisValues]);
+    runWhenStyleReady(map, () => {
+      for (const [axisId, featureStateKey] of Object.entries(DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS)) {
+        applyAxisFeatureStateValues(map, featureStateKey, dedicatedWayValues.get(axisId) ?? EMPTY_DEDICATED_WAY_VALUES);
+      }
+    });
+  }, [dedicatedWayValues]);
 
   // 改善計画T414/T423/T444: showWindAxis・showGradientAxisが両方falseへ揃った瞬間
   // （ルート確定・手動OFFいずれも含む）に、それまでの全道路ぶんのfeature-stateを明示的に

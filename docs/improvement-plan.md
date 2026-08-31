@@ -627,7 +627,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 ## CI調査（2026-08-31）
 
 - [x] [T482](tasks/T482.md). GitHub Actions CIの`e2e`ジョブが直近複数コミット連続で失敗している原因を調査する 規模S〜M（2026-08-31完了。原因はT406のグループ再編にsmoke.spec.tsが追従していなかったこと）
-- [ ] [T483](tasks/T483.md). windPenalty.tsの物理式JS移植とwindAxisPenalties/gradientAxisValuesの軸別prop構造の要否検討 規模未見積もり（2026-08-31起票、T473実施中の派生発見。並行セッションとの番号衝突によりT481→T482→T483と2回振り直し）
+- [x] [T483](tasks/T483.md). windPenalty.tsの物理式JS移植とwindAxisPenalties/gradientAxisValuesの軸別prop構造の要否検討 規模S〜M（2026-08-31起票・完了、T473実施中の派生発見。並行セッションとの番号衝突によりT481→T482→T483と2回振り直し。prop統合は実施・物理式JS移植は意図的な例外として維持）
 
 ## ユーザー報告バグ修正（2026-08-31）
 

@@ -93,6 +93,12 @@ RideCompass固有の仕様ではないため、このファイルには置かな
   独立したハードコード定数・`windAxisPenalties`/`gradientAxisValues`という軸ごとの
   別名propという3つの症状が、いずれも構造仕様1〜3の違反として同一原因だった
   （2026-08-31、ユーザー指摘）。うち`WIND_AXIS_THRESHOLDS`のハードコードは
-  [T473](tasks/T473.md)で解消済み。残る2症状（`windPenalty.ts`の物理式JS移植・
-  `windAxisPenalties`/`gradientAxisValues`の軸ごとの別名prop）は
-  [T483](tasks/T483.md)として起票済み。
+  [T473](tasks/T473.md)で、`windAxisPenalties`/`gradientAxisValues`の軸ごとの別名propは
+  [T483](tasks/T483.md)（`dedicatedWayValues`という汎用Mapへ統合）で解消済み。
+  **`windPenalty.ts`の物理式JS移植のみ、T483で検討のうえ意図的な例外として存続**:
+  環境グループのgridFillはコンパススライダーのドラッグ操作のたびに多数の格子セルを
+  再着色する必要があり、都度backendへ問い合わせるとドラッグ操作の応答性が失われる。
+  formula自体は`wind_speed_ms * cos(風向-走行方位)`という調整可能なパラメータを持たない
+  固定の三角関数1行のみで、しきい値等の「調整可能な値」（構造仕様1が本来問題視する対象）は
+  既に`dedicatedWayValueBoundaries`側でbackend/軸スタジオ由来に統一済み。二重実装間の
+  ドリフトは`windPenalty.test.ts`の既知入出力ペアによる回帰テストで検知する。

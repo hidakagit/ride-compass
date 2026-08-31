@@ -1070,7 +1070,6 @@ export default function Home() {
   // `RouteSettingsPanel.tsx: renderMapColorToggle`が担う）。
   const showWindAxis = layerVisibility.windAxis && !hasDetail;
   const windAxisData = useDynamicWayValues("wind", showWindAxis, mapViewport, windBearingDeg, dynamicLayerTargetTime);
-  const windAxisPenalties = windAxisData.values;
 
   // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型だが、勾配は
   // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有せず、
@@ -1093,10 +1092,24 @@ export default function Home() {
     gradientBearingDeg,
     undefined
   );
-  const gradientAxisValues = gradientAxisData.values;
   const gradientFillPayload = useMemo(
     () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
     [showGradientFill, gradientAxisData.byTile]
+  );
+  // 改善計画T483: dedicatedWayValueBoundaries（改善計画T473）と同じ理由
+  // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）で、以前は
+  // windAxisPenalties/gradientAxisValuesという軸ごとに別名のpropだったものを
+  // axisId→(way_id→値)の汎用Mapへ統合した。useDynamicWayValues自体は
+  // materialIdごとに個別インスタンス化する設計（デバウンス・レース対策がaxis間で
+  // 独立している必要があるため、hooks/useDynamicWayValues.ts参照）のままで変更していない
+  // ——統合するのはMapViewへ渡す直前のprop形状だけ。
+  const dedicatedWayValues = useMemo(
+    () =>
+      new Map<string, ReadonlyMap<number, number>>([
+        ["wind", windAxisData.values],
+        ["gradient", gradientAxisData.values],
+      ]),
+    [windAxisData.values, gradientAxisData.values]
   );
   // 改善計画T473: `dedicated_way_value_layer`軸（wind/gradient）の軸スタジオ
   // display_thresholds_overrideをMapViewへ配線する。以前はgradientBoundaries（T443）・
@@ -1674,9 +1687,8 @@ export default function Home() {
             showTunnel={layerVisibility.tunnel}
             showOneway={layerVisibility.oneway}
             showWindAxis={showWindAxis}
-            windAxisPenalties={windAxisPenalties}
             showGradientAxis={showGradientAxis}
-            gradientAxisValues={gradientAxisValues}
+            dedicatedWayValues={dedicatedWayValues}
             dedicatedWayValueBoundaries={dedicatedWayValueBoundaries}
             showGradientFill={showGradientFill}
             gradientFillGeojson={gradientFillPayload}

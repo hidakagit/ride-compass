@@ -127,22 +127,26 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 ```
 page.tsx
   ├─ useDynamicWayValues("wind", showWindAxis, viewport, windBearingDeg, targetTime)
-  │     → windAxisPenalties (ReadonlyMap<wayId, value>)
+  │     → windAxisData.values (ReadonlyMap<wayId, value>)
   ├─ useDynamicWayValues("gradient", showGradientAxis||showGradientFill, viewport, gradientBearingDeg, undefined)
-  │     → gradientAxisValues / gradientFillPayload(gradientGridCellsFromTileResponses経由)
+  │     → gradientAxisData.values / gradientFillPayload(gradientGridCellsFromTileResponses経由)
+  ├─ dedicatedWayValues = Map(["wind", windAxisData.values], ["gradient", gradientAxisData.values])
   ▼
-<MapView windAxisPenalties={...} gradientAxisValues={...} gradientFillGeojson={...} .../>
+<MapView dedicatedWayValues={...} gradientFillGeojson={...} .../>
   ├─ makeEnsureDedicatedWayValueLayer(layerId, colorExpression)
   │     → windAxis/gradientAxisレイヤーをroad_surfaceタイルの独立レイヤーとして初回のみ追加
   │       （ensureRoadSurfaceTileLayerが先にpromoteId付きsourceを用意している前提）
-  ├─ applyAxisFeatureStateValues(map, featureStateKey, values)
+  ├─ DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS（axisId→featureStateKeyの小さなlookup）を
+  │   1つのeffectでループし、各軸へapplyAxisFeatureStateValues(map, featureStateKey, values)
   │     → map.setFeatureState({source, sourceLayer, id: wayId}, {[key]: value}) を全way分実行
   └─ clearRoadTileFeatureState(map)
         → showWindAxis・showGradientAxisが両方falseへ揃った瞬間、setFeatureStateした
           全道路ぶんの値を明示的にクリアする1つのeffectに統合されている
           （`map.removeFeatureState`はsource/sourceLayer単位で全キーを一括で消す
           MapLibre仕様のため、風・勾配のどちらか一方だけがOFFになった時点でクリアすると
-          もう片方の色分けまで巻き添えで消える。両方falseになるまで待つガードで防ぐ）
+          もう片方の色分けまで巻き添えで消える。両方falseになるまで待つガードで防ぐ。
+          判定条件自体は`shouldClearDedicatedWayValueFeatureState`という純粋関数へ
+          切り出し済み、改善計画T490）
 ```
 
 - `promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" }`（`ensureRoadSurfaceTileLayer`）が
@@ -150,20 +154,26 @@ page.tsx
 - `windAxis`/`gradientAxis`のensure関数は`ROAD_TILE_LAYER_ID`（路面本体）と同じ
   `ROAD_TILE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を共有する独立レイヤーとして追加される
   （`designation`/`tunnel`/`oneway`と同型の構成）。
-- `windAxisPenalties`/`gradientAxisValues`はパン・ズームのたびに変わりうる値のため、
-  「表示ON/OFF」を担う一括effect（`STATIC_OVERLAY_LAYERS`ループ）とは別の専用effectで
-  反映する（無関係な再実行を避けるため）。
+- `dedicatedWayValues`はパン・ズームのたびに変わりうる値のため、「表示ON/OFF」を担う
+  一括effect（`STATIC_OVERLAY_LAYERS`ループ）とは別の専用effectで反映する（無関係な
+  再実行を避けるため）。
 - **`map.setStyle()`（「変わらないデータを更新」ボタン経由の基礎地図キャッシュクリア）は
   カスタムレイヤーを全て消すため、`redrawAllLayers`が全レイヤーを再構築する。この際
-  `windAxisPenalties`/`gradientAxisValues`の値自体は変わっていないため通常の依存effectは
-  再実行されないが、`redrawAllLayers`が`applyAxisFeatureStateValues`を明示的に再呼び出しする
-  ことで、setStyle直後に評価軸レイヤーが無色のまま残る事故を防いでいる**（暗黙の前提:
+  `dedicatedWayValues`の値自体は変わっていないため通常の依存effectは再実行されないが、
+  `redrawAllLayers`が`applyAxisFeatureStateValues`を明示的に再呼び出しすることで、
+  setStyle直後に評価軸レイヤーが無色のまま残る事故を防いでいる**（暗黙の前提:
   この明示的な再適用を忘れると、setStyle後は視覚的にレイヤー自体は存在するが完全に無色の
   ままになる）。
 
-**暗黙の前提**: `windAxisPenalties`/`gradientAxisValues`という命名は`MapViewProps`上
-軸ごとの別名propのまま（汎用的な`Record<materialId, ReadonlyMap<wayId,value>>`のような
-形にはなっていない）。
+**改善計画T483で解消**: 以前は`windAxisPenalties`/`gradientAxisValues`という
+`MapViewProps`上軸ごとの別名propだったが、`dedicatedWayValueBoundaries`
+（改善計画T473）と同じ理由（design-principles.md構造仕様3: 軸ごとにpropを新設しない）で
+`dedicatedWayValues: ReadonlyMap<axisId, ReadonlyMap<wayId,value>>`という1つの汎用propへ
+統合した。`useDynamicWayValues`自体はmaterialIdごとに個別インスタンス化する設計
+（デバウンス・レース対策がaxis間で独立している必要があるため）のまま変更していない
+——統合するのはpage.tsxがMapViewへ渡す直前のprop形状だけ。MapView.tsx内部の
+`DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS`（axisId→featureStateKeyの小さなRecord）が
+`windAxisLayer.ts`/`gradientAxisLayer.ts`それぞれの`*_FEATURE_STATE_KEY`定数を束ねる。
 
 `WIND_PENALTY_FILL_LAYER_ID`（環境グループの風penalty gridFill）は`DYNAMIC_WEATHER_
 RENDERERS`側の管理下にあり`STATIC_OVERLAY_LAYERS`に含まれないため、そのままでは
