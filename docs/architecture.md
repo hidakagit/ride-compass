@@ -2420,7 +2420,7 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 
 - **環境（面、`gridFill`）**: 風の矢印（`windVector`、格子点マップ§動的気象レイヤー参照）と
   同じフェッチ済みの風グリッド（`useWeatherGrid`のeffectiveGrid）から、コンパススライダー
-  （`WindBearingSlider`、`@fseehawer/react-circular-slider`採用）で指定した走行方位を使い、
+  （`WindBearingSlider`、矢印を回転させる自前実装）で指定した走行方位を使い、
   **クライアント側だけ**でwind_penaltyを計算する（`frontend/src/components/Map/
   windPenalty.ts: windPenalty`、backend `WindCalculator.wind_penalty`のJS移植）——追加の
   API呼び出しは発生しない。矢印（gridMark）の背後に薄く重ね描きする面塗りは、当初

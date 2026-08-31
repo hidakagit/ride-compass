@@ -680,4 +680,4 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 
 ## T503の後始末（2026-09-01）
 
-- [ ] [T515](tasks/T515.md). 未使用依存関係@fseehawer/react-circular-sliderの削除 規模S
+- [x] [T515](tasks/T515.md). 未使用依存関係@fseehawer/react-circular-sliderの削除 規模S（2026-09-01完了）
