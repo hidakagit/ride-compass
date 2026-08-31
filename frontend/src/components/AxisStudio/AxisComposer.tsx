@@ -433,9 +433,17 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
 
 /** 複製（改善計画T271、公開済み軸を「改良」する唯一の経路）。既存の内容を丸ごと写すが、
  * axis_idは新規に自動採番し（改善計画T305）、is_publishedは常にfalse（下書き）から
- * 始める——複製元が公開済みでも複製先まで公開扱いを引き継がない。 */
+ * 始める——複製元が公開済みでも複製先まで公開扱いを引き継がない。displayThresholdsOverride
+ * も複製元の手動設定値を引き継がずnullへリセットする——複製先は変化点(breakpoints)を
+ * 独自に調整しうるため、複製元のしきい値をそのまま持ち越すと自動計算(breakpointsの
+ * x値から導出、backend domain/axis_display.py: derive_ramp_inputs参照)が働かなくなる。 */
 function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readonly AxisMaterialOption[]): Draft {
-  return { ...draftFromExisting(def, materialOptions), axisId: generateAxisId(), isPublished: false };
+  return {
+    ...draftFromExisting(def, materialOptions),
+    axisId: generateAxisId(),
+    isPublished: false,
+    displayThresholdsOverride: null,
+  };
 }
 
 function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]): AxisShape {
