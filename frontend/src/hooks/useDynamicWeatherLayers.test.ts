@@ -24,7 +24,7 @@ vi.mock("@/hooks/useWeatherGrid", () => ({
   useWeatherGrid: vi.fn(),
 }));
 
-const EMPTY_CURRENT_RISK_FRAMES = { land: [], heavyRain: [], inundation: [] };
+const EMPTY_CURRENT_RISK_FRAMES = { land: [], heavyRain: [], inundation: [], flood: [] };
 
 const BASE_OPTIONS = {
   showWindVector: false,

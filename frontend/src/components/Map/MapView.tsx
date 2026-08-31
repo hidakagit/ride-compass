@@ -71,6 +71,7 @@ import { GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisColorExpression } from "@/
 import { gradientFillColorExpression } from "@/components/Map/gradientGridFill";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { JMA_TILE_BASE_URL } from "@/components/Map/jmaNowcastFrames";
+import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
 import {
@@ -172,7 +173,7 @@ const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 // 定数を足す必要はない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。
 // 改善計画T432: sourceを追加し「1グループ=複数の名前付きソース」を表現できるようにした
 // （単一ソースのグループは"main"という1キーだけを持つ）。
-function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark") {
+function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark" | "vector") {
   const base = `region-dynamic-weather-${id}-${source}-${sub}`;
   return { sourceId: base, layerId: `${base}-main`, haloLayerId: `${base}-halo`, iconId: `${base}-icon` };
 }
@@ -613,6 +614,34 @@ const PRECIPITATION_COLOR_SCALE_EXPRESSION = [
 // 0.65、DYNAMIC_WEATHER_RENDERERS参照）よりわずかに抑えている。
 const PRECIPITATION_FILL_OPACITY = 0.55;
 
+// 洪水キキクル（改善計画T416）のline-color。配信元のフィーチャーが持つ`level`
+// プロパティ（1〜4）をRISK_LEVEL_COLORS（riskMap.ts、土砂・大雨・浸水の3種と共通の
+// 危険度配色）へそのままmatchする。level=0・未設定のフィーチャー（平常時の基準線）は
+// DYNAMIC_WEATHER_RENDERERS.floodRiskのminValueToShowフィルタで描画対象から除外される
+// ため、フォールバック値（levelがmatchのどれにも該当しない場合）は実際には使われないが、
+// MapLibreのmatch式は仕様上フォールバックが必須のためRISK_LEVEL_COLORS[0]（level0の色）を
+// 割り当てておく。
+const FLOOD_RISK_LINE_COLOR_EXPRESSION = [
+  "match",
+  ["to-number", ["get", "level"]],
+  1, RISK_LEVEL_COLORS[1].color,
+  2, RISK_LEVEL_COLORS[2].color,
+  3, RISK_LEVEL_COLORS[3].color,
+  4, RISK_LEVEL_COLORS[4].color,
+  RISK_LEVEL_COLORS[0].color,
+] as unknown as maplibregl.ExpressionSpecification;
+
+// 河川の危険情報という性質上、低ズームでは目立たせすぎず、拡大するほど個々の河川区間を
+// 追いやすいよう太くする（JMA公式サイトのzoom依存weight式を単純化した近似値）。
+const FLOOD_RISK_LINE_WIDTH_EXPRESSION = [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  6, 1.5,
+  10, 3,
+  14, 5,
+] as unknown as maplibregl.ExpressionSpecification;
+
 // ズームに応じた追加の拡大率（実機フィードバック「矢印デザインが地図拡大すると見にくい。
 // 拡大率に合わせて目立たせることはできる？」）。symbolレイヤーのicon-sizeは既定で画面上の
 // 固定ピクセルサイズのため、拡大するほど周囲の道路・建物がどんどん大きく描かれる一方で
@@ -712,10 +741,28 @@ interface DynamicWeatherMarkSpec {
   minValueToShow?: number;
 }
 
+/** 配信元のMapbox Vector Tile（.pbf）をMapLibre標準のvectorソース+lineレイヤーで
+ * そのまま描画する（改善計画T416、洪水キキクル）。gridFill/gridMarkと違い値は
+ * フィーチャーのプロパティに焼き込み済みのため、feature-state・GeoJSON変換は不要——
+ * source-layer名とMapLibre paint式（プロパティ参照）だけを持てばよい。 */
+interface DynamicWeatherVectorSpec {
+  placeholderTileUrl: string;
+  sourceLayer: string;
+  colorExpression: maplibregl.ExpressionSpecification;
+  lineWidthExpression: maplibregl.ExpressionSpecification;
+  /** フィルタ対象のプロパティ名（例: "level"）。minValueToShow未指定ならフィルタ無し。 */
+  valueProperty?: string;
+  minValueToShow?: number;
+  minzoom?: number;
+  maxzoom?: number;
+  attribution?: string;
+}
+
 interface DynamicWeatherRendererSpec {
   raster?: DynamicWeatherRasterSpec;
   gridFill?: DynamicWeatherFillSpec;
   gridMark?: DynamicWeatherMarkSpec;
+  vector?: DynamicWeatherVectorSpec;
 }
 
 // 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースごとの描画スペック（改善計画
@@ -864,11 +911,35 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGro
       },
     },
   },
+  // 洪水キキクル（改善計画T416）。他3種と異なり配信元がMapbox Vector Tile（.pbf）のため
+  // vector kind（riskMap.ts冒頭コメント参照）。source-layer名"flood"・プロパティ"level"
+  // （1〜4）は実機確認済み（risk.properties.xml: vectorTileLayerStyles.flood）。zoom範囲は
+  // land/heavyRain/inundと異なりmaxZoom=14まで配信される（properties.xml: imageType
+  // id="flood"のminZoom/maxZoom）。
+  floodRisk: {
+    main: {
+      vector: {
+        placeholderTileUrl:
+          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/flood/{z}/{x}/{y}.pbf`,
+        sourceLayer: "flood",
+        colorExpression: FLOOD_RISK_LINE_COLOR_EXPRESSION,
+        lineWidthExpression: FLOOD_RISK_LINE_WIDTH_EXPRESSION,
+        valueProperty: "level",
+        // level>=1（=何らかの危険度あり）のフィーチャーだけを表示する（riskMap.ts冒頭
+        // コメント「危険情報のみ」方針参照）。既存のminValueToShowフィルタ（gridFill/
+        // gridMarkと共通のパターン）をそのまま流用する。
+        minValueToShow: 0,
+        minzoom: 4,
+        maxzoom: 14,
+        attribution: "気象庁",
+      },
+    },
+  },
 };
 
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
-// パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMarkのうち実際に
-// 指定されているものだけを追加する（改善計画T432、ソースごとにループする形へ一般化）。
+// パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMark/vectorのうち
+// 実際に指定されているものだけを追加する（改善計画T432、ソースごとにループする形へ一般化）。
 function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
   const applyData = () => {
     for (const [source, spec] of Object.entries(groupSpec)) {
@@ -992,6 +1063,37 @@ function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, 
           });
         }
       }
+      if (spec.vector) {
+        const vector = spec.vector;
+        const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");
+        if (!map.getSource(sourceId)) {
+          map.addSource(sourceId, {
+            type: "vector",
+            tiles: [vector.placeholderTileUrl],
+            minzoom: vector.minzoom,
+            maxzoom: vector.maxzoom,
+            attribution: vector.attribution,
+          });
+          map.addLayer({
+            id: layerId,
+            type: "line",
+            source: sourceId,
+            "source-layer": vector.sourceLayer,
+            paint: {
+              "line-color": vector.colorExpression,
+              "line-width": vector.lineWidthExpression,
+            },
+            layout: { visibility: "none" },
+            // gridFill/gridMarkと同じ理由（上記参照）でminValueToShow未設定時はfilterキー
+            // 自体を省略する。
+            ...(vector.minValueToShow != null && vector.valueProperty
+              ? {
+                  filter: [">", ["to-number", ["get", vector.valueProperty]], vector.minValueToShow] as maplibregl.ExpressionSpecification,
+                }
+              : {}),
+          });
+        }
+      }
     }
   };
   runWhenStyleReady(map, applyData);
@@ -1043,6 +1145,14 @@ function applyDynamicWeatherState(
         const shouldShow = visible && payload?.kind === "gridMark";
         setLayerVisibility(map, haloLayerId, shouldShow);
         setLayerVisibility(map, layerId, shouldShow);
+      }
+      if (spec.vector) {
+        const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");
+        if (payload?.kind === "vectorTile") {
+          const vectorSource = map.getSource(sourceId) as maplibregl.VectorTileSource | undefined;
+          vectorSource?.setTiles([payload.tileUrlTemplate]);
+        }
+        setLayerVisibility(map, layerId, visible && payload?.kind === "vectorTile");
       }
     }
   });

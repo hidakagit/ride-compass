@@ -29,6 +29,7 @@ import {
 import {
   fetchCurrentRiskFrames,
   fetchLinearRainbandFrames,
+  floodRenderPayload,
   heavyRainRenderPayload,
   inundationRenderPayload,
   landRenderPayload,
@@ -75,7 +76,12 @@ const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const LINEAR_RAINBAND_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
-const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = { land: EMPTY_RISK_FRAMES, heavyRain: EMPTY_RISK_FRAMES, inundation: EMPTY_RISK_FRAMES };
+const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = {
+  land: EMPTY_RISK_FRAMES,
+  heavyRain: EMPTY_RISK_FRAMES,
+  inundation: EMPTY_RISK_FRAMES,
+  flood: EMPTY_RISK_FRAMES,
+};
 const EMPTY_NOWCAST_FRAMES: NowcastFrame[] = [];
 const EMPTY_RASRF_FRAMES: RasrfFrame[] = [];
 const EMPTY_THUNDER_NOWCAST_FRAMES: ThunderNowcastFrame[] = [];
@@ -235,7 +241,12 @@ export function useDynamicWeatherLayers({
   // キキクル3種+線状降水帯予測マップ（改善計画T410）。riskMap.tsが既にDynamicWeatherFrame
   // 形式で返すが、他レイヤーと異なり共有タイムライン・frameIndexForTimeには乗せない
   // （下記の理由）。
-  const { land: landFramesList, heavyRain: heavyRainFramesList, inundation: inundationFramesList } = currentRiskFrames;
+  const {
+    land: landFramesList,
+    heavyRain: heavyRainFramesList,
+    inundation: inundationFramesList,
+    flood: floodFramesList,
+  } = currentRiskFrames;
 
   // ONの全レイヤーのフレーム時刻を統合した共有タイムライン（T183再設計、実機フィードバック
   // 「時間経過はスライドバー1本で表現する」）。降水ナウキャスト（5分刻み）と風・延長予報
@@ -369,6 +380,12 @@ export function useDynamicWeatherLayers({
     const frame = inundationFramesList[0];
     return frame ? inundationRenderPayload(frame.ref) : undefined;
   }, [inundationFramesList]);
+  // 洪水キキクル（改善計画T416）。他3種と同じ「常時マウント、frames[0]があれば表示」方針
+  // （vectorTile kindのため戻り値の中身は異なるが、ここでの扱いは同型）。
+  const floodRiskPayload = useMemo(() => {
+    const frame = floodFramesList[0];
+    return frame ? floodRenderPayload(frame.ref) : undefined;
+  }, [floodFramesList]);
   // 線状降水帯予測マップ（改善計画T410、T432でrisk系統からrasrf系統・「降水」チップ傘下へ
   // 再分類）。他のキキクル3種と異なり「今後3時間以内におそれ」という予報の性質上、共有
   // タイムラインの選択時刻が現在〜3時間先の範囲内にあるときだけ、ナウキャスト/rasrf/
@@ -403,6 +420,7 @@ export function useDynamicWeatherLayers({
       landslideRisk: { main: { visible: true, payload: landslideRiskPayload } },
       heavyRainRisk: { main: { visible: true, payload: heavyRainRiskPayload } },
       inundationRisk: { main: { visible: true, payload: inundationRiskPayload } },
+      floodRisk: { main: { visible: true, payload: floodRiskPayload } },
     }),
     [
       showWindVector,
@@ -419,6 +437,7 @@ export function useDynamicWeatherLayers({
       landslideRiskPayload,
       heavyRainRiskPayload,
       inundationRiskPayload,
+      floodRiskPayload,
     ]
   );
 

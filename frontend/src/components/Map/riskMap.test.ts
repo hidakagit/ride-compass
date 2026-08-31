@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchCurrentRiskFrames,
   fetchLinearRainbandFrames,
+  floodRenderPayload,
   heavyRainRenderPayload,
   inundationRenderPayload,
   landRenderPayload,
@@ -20,11 +21,16 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
     vi.unstubAllGlobals();
   });
 
-  describe("fetchCurrentRiskFrames（キキクル: 土砂・大雨・浸水）", () => {
+  describe("fetchCurrentRiskFrames（キキクル: 土砂・大雨・浸水・洪水）", () => {
     it("各要素の最新basetimeを1件だけ選び、DynamicWeatherFrameへ変換する", async () => {
       const raw = [
         { basetime: "20260829160000", validtime: "20260829160000", member: "immed1", elements: ["land", "inund"] },
-        { basetime: "20260829170000", validtime: "20260829170000", member: "immed0", elements: ["land", "rain_mesh", "inund"] },
+        {
+          basetime: "20260829170000",
+          validtime: "20260829170000",
+          member: "immed0",
+          elements: ["land", "rain_mesh", "inund", "flood"],
+        },
         { basetime: "20260829165000", validtime: "20260829165000", member: "immed2", elements: ["rain_mesh"] },
       ];
       vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
@@ -40,6 +46,10 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
       expect(frames.inundation).toEqual([
         { time: parseValidtime("20260829170000"), ref: raw[1] },
       ]);
+      // 改善計画T416: 洪水キキクルも同じtargetTimes.json（elements配列に"flood"）由来。
+      expect(frames.flood).toEqual([
+        { time: parseValidtime("20260829170000"), ref: raw[1] },
+      ]);
     });
 
     it("対象の要素を含む行が無ければ空配列を返す", async () => {
@@ -50,6 +60,7 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
 
       expect(frames.heavyRain).toEqual([]);
       expect(frames.inundation).toEqual([]);
+      expect(frames.flood).toEqual([]);
     });
 
     it("取得に失敗した場合は例外を投げる", async () => {
@@ -110,6 +121,15 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
       expect(inundationRenderPayload(ref)).toEqual({
         kind: "rasterTile",
         tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png",
+      });
+    });
+
+    // 改善計画T416: 洪水キキクルは他3種と異なりkind="vectorTile"・拡張子.pbf
+    // （実機確認: risk.properties.xmlのimageType id="flood" type="pbf"）。
+    it("floodRenderPayloadはkind=vectorTile・拡張子.pbfで要素コードfloodを使う", () => {
+      expect(floodRenderPayload(ref)).toEqual({
+        kind: "vectorTile",
+        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/flood/{z}/{x}/{y}.pbf",
       });
     });
 

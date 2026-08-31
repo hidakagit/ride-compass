@@ -6,10 +6,16 @@
 //    WIND_GRID_BBOX、フロント側の対応値はwindLayer.ts: WIND_GRID_SPACING_DEG/
 //    WIND_GRID_DETAIL_SPACING_DEG）を共有する。フェッチも共有（hooks/useWeatherGrid.ts、
 //    1回のOpen-Meteo呼び出しで全要素ぶんの値を取る）。
-// 2. **表現は2パターンのみ**: 格子中央にマークを出す（gridMark、風パターン）または
-//    格子を指定色で塗る（gridFill、雨パターン）。例外として気象庁ナウキャストのような
-//    「配信元が描画済みの画像」はrasterTileで重ねる。新しい要素はこの3種のどれかを選ぶだけで、
-//    独自の描画方式は増やさない。
+// 2. **表現は限られた種類のみ**: 格子中央にマークを出す（gridMark、風パターン）、
+//    格子を指定色で塗る（gridFill、雨パターン）、配信元が描画済みの画像を重ねる
+//    （rasterTile、気象庁ナウキャスト等）に加え、配信元がMapbox Vector Tile（.pbf）で
+//    配信する地物をMapLibre標準のvectorソース+line/fillレイヤーでそのまま描画する
+//    （vectorTile、洪水キキクル。改善計画T416）。vectorTileは配信元のタイルが地物の
+//    プロパティに表示値（例: 危険度レベル）を埋め込み済みのため、gridFill/gridMarkと違い
+//    feature-stateやGeoJSON変換によるJS側の値差し込みが不要——MapLibreのpaint式
+//    （["get", プロパティ名]）だけで色分けできる点がrasterTileとの主な違い（rasterTileは
+//    配信元が色分け済みの画像そのもの、vectorTileは配信元が地物+属性値を配信しこちら側で
+//    色分けする）。新しい要素はこの4種のどれかを選ぶだけで、独自の描画方式は増やさない。
 // 3. **時間経過はスライドバー1本**: ONの全レイヤーのフレーム時刻を統合した1本のタイムライン
 //    （mergeFrameTimes）を共有スライダーへ渡す。各レイヤーは選択時刻に対応する自分のフレームを
 //    描画し、**選択時刻が自分のデータ範囲外なら何も描画しない**（frameIndexForTime、
@@ -25,8 +31,8 @@
 //       weather_client.pyのWIND_GRID_VARIABLESへOpen-Meteo変数を足す（フェッチは相乗り）
 //   (2) データ層: 要素モジュールを新設し、フレーム列（DynamicWeatherFrame[]）と
 //       ペイロード関数（ref→DynamicWeatherRenderPayload）を実装する
-//   (3) MapView.tsx: DYNAMIC_WEATHER_RENDERERSへ描画スペック（raster/gridFill/gridMarkの
-//       宣言と配色・アイコン）を1エントリ追加する
+//   (3) MapView.tsx: DYNAMIC_WEATHER_RENDERERSへ描画スペック（raster/gridFill/gridMark/
+//       vectorTileの宣言と配色・アイコン）を1エントリ追加する
 //   (4) mapLayers.ts: 地図チップを追加し、MapLayerId・page.tsxのdynamicWeather一覧へ
 //       1行足す
 //
@@ -49,13 +55,14 @@ export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
   "tornadoNowcast",
 ] as const satisfies readonly MapLayerId[];
 
-// キキクル（危険度分布：土砂・大雨・浸水、改善計画T410）。「防災」カテゴリとして
+// キキクル（危険度分布：土砂・大雨・浸水・洪水、改善計画T410/T416）。「防災」カテゴリとして
 // WarningBadgeと同じ常時マウント・チップ無しにする（改善計画T432、T420の「既定ON」方針を
 // 訂正）。線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの
 // 一部として扱い、ここには含めない（MapView.tsx: DYNAMIC_WEATHER_RENDERERSの
-// precipitationNowcastグループのlinearRainbandソース参照）。洪水キキクルはベクタタイル
-// （.pbf）形式で本基盤の対応外のため未実装（別タスクで扱う）。
-export const ALWAYS_ON_DYNAMIC_WEATHER_LAYER_IDS = ["landslideRisk", "heavyRainRisk", "inundationRisk"] as const;
+// precipitationNowcastグループのlinearRainbandソース参照）。洪水キキクル（floodRisk）は
+// 他3種と異なりベクタタイル（.pbf）形式のため、vectorTile kind（本ファイル冒頭コメント
+// 参照）で描画する（改善計画T416で実装、当初はT410で本基盤の対応外として見送られていた）。
+export const ALWAYS_ON_DYNAMIC_WEATHER_LAYER_IDS = ["landslideRisk", "heavyRainRisk", "inundationRisk", "floodRisk"] as const;
 
 export const DYNAMIC_WEATHER_LAYER_IDS = [
   ...CHIP_DYNAMIC_WEATHER_LAYER_IDS,
@@ -68,7 +75,12 @@ export type DynamicWeatherLayerId = (typeof DYNAMIC_WEATHER_LAYER_IDS)[number];
 export type DynamicWeatherRenderPayload =
   | { kind: "rasterTile"; tileUrlTemplate: string }
   | { kind: "gridFill"; geojson: GeoJSON.FeatureCollection }
-  | { kind: "gridMark"; geojson: GeoJSON.FeatureCollection };
+  | { kind: "gridMark"; geojson: GeoJSON.FeatureCollection }
+  // 配信元のMapbox Vector Tile（.pbf）をそのままMapLibreのvectorソースへ渡す（改善計画
+  // T416）。色分けに使うプロパティ名・source-layer名等の静的なスタイル定義は
+  // MapView.tsx側のDynamicWeatherVectorSpecが持ち、ここではURLテンプレートだけを運ぶ
+  // （rasterTileと対称的な役割分担）。
+  | { kind: "vectorTile"; tileUrlTemplate: string };
 
 /** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
  * 一意であればよい（改善計画T432、「1レイヤーID=1 kind」制約の解消。単一ソースしか

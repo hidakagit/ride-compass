@@ -24,12 +24,25 @@
 //   ときだけ表示する（isWithinFutureWindow、dynamicWeather.ts参照）——キキクルと異なり
 //   共有タイムラインと連動し続ける点に注意。
 //
-// **洪水キキクル（flood）は実装対象外**: 実機確認（Playwright的手法、Browserペインで
-// JMA公式ページの実際の通信を観測）の結果、他3種（土砂・大雨・浸水）と異なり`.pbf`
-// （Mapbox Vector Tile）形式で、河川リスクをライン形状のfeatureとして配信していると
-// 判明した。本アプリの動的気象レイヤー基盤（dynamicWeather.ts）はrasterTile/gridFill/
-// gridMarkの3種のみを想定しており、ベクタタイル＋feature-state式スタイリングは
-// 対応外のため、着手する場合は別タスクとして切り出す。
+// **洪水キキクル（flood）**: 改善計画T416で実装（当初T410は`.pbf`形式のため本基盤の
+// 対応外として見送っていたが、dynamicWeather.tsへvectorTile kindを追加し対応した）。
+// 実機確認（Browserペインで`https://www.jma.go.jp/bosai/risk/`の実際の通信・
+// `risk.properties.xml`の`vectorTileLayerStyles`定義を観測）の結果:
+// - URLパターンは他3種と完全に同型（`.../risk/{basetime}/{member}/{validtime}/surf/
+//   flood/{z}/{x}/{y}`）で、拡張子だけ`.pbf`（他3種は`.png`）。`targetTimes.json`も
+//   共通（elements配列に`"flood"`が含まれる）で、追加のfetchは不要。
+// - タイル内のsource-layer名は`flood`（`vectorTileLayerStyles`のプロパティキーが
+//   Leaflet.VectorGrid.Protobufの仕様上そのままsource-layer名になる）。
+// - フィーチャーは河川をなぞるLINE形状で、プロパティ`level`（1〜4の危険度レベル、
+//   本ファイルの`RISK_LEVEL_COLORS`と同じ配色）・`type`（"nation"=国管理河川等の
+//   区分、当面未使用）を持つ。`level`が無い（=平常時）フィーチャーはJMA公式サイトでは
+//   薄い水色の基準線として常時描画されるが、本アプリでは「危険情報のみ」を見せる方針
+//   （他3種のラスタタイルも平常時は透明で何も見えない）に揃えるため、`level>=1`の
+//   フィーチャーだけを表示する（MapView.tsx: DYNAMIC_WEATHER_RENDERERS.floodRiskの
+//   `minValueToShow`フィルタ参照）。
+// - 同じtargetTimes.jsonのelementsには`flood_mesh`・`designated_river(_nation)`・
+//   `inland_flood`（内水氾濫、`level`1〜2でtexture塗り）・`flood_riskline`も存在する
+//   関連製品だが、本タスク（洪水キキクルのみ）のスコープ外として未実装のまま残す。
 
 import { fetchJson } from "@/lib/fetchJson";
 import { JMA_TILE_BASE_URL, parseValidtime } from "@/components/Map/jmaNowcastFrames";
@@ -82,16 +95,19 @@ export interface CurrentRiskFrames {
   heavyRain: DynamicWeatherFrame<RiskFrameRef>[];
   /** 浸水キキクル。 */
   inundation: DynamicWeatherFrame<RiskFrameRef>[];
+  /** 洪水キキクル（改善計画T416、タイル要素id="flood"、他3種と異なりvectorTile）。 */
+  flood: DynamicWeatherFrame<RiskFrameRef>[];
 }
 
-/** キキクル3種（土砂・大雨・浸水）の「現在」フレームをまとめて取得する（1回のfetchで
- * targetTimes.json自体は3種共通、要素ごとに最新エントリを個別に選ぶ）。 */
+/** キキクル4種（土砂・大雨・浸水・洪水）の「現在」フレームをまとめて取得する（1回のfetchで
+ * targetTimes.json自体は4種共通、要素ごとに最新エントリを個別に選ぶ）。 */
 export async function fetchCurrentRiskFrames(): Promise<CurrentRiskFrames> {
   const raw = await fetchTargetTimes(RISK_TARGET_TIMES_URL, "危険度分布（キキクル）の時刻一覧");
   return {
     land: toFrames(latestEntry(raw, "land")),
     heavyRain: toFrames(latestEntry(raw, "rain_mesh")),
     inundation: toFrames(latestEntry(raw, "inund")),
+    flood: toFrames(latestEntry(raw, "flood")),
   };
 }
 
@@ -101,8 +117,15 @@ export async function fetchLinearRainbandFrames(): Promise<DynamicWeatherFrame<R
   return toFrames(latestEntry(raw, "sjfcstmap"));
 }
 
-function tileUrlTemplate(group: "risk" | "rasrf", elementId: string, ref: RiskFrameRef): string {
-  return `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.png`;
+function tileUrlTemplate(
+  group: "risk" | "rasrf",
+  elementId: string,
+  ref: RiskFrameRef,
+  // 洪水キキクル（flood）だけ配信元がMapbox Vector Tile（.pbf）のため拡張子が異なる
+  // （改善計画T416）。他はすべてラスタタイル（.png）。
+  extension: "png" | "pbf" = "png"
+): string {
+  return `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.${extension}`;
 }
 
 export function landRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
@@ -115,6 +138,12 @@ export function heavyRainRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderP
 
 export function inundationRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
   return { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate("risk", "inund", ref) };
+}
+
+/** 洪水キキクル（改善計画T416）。他3種と異なりvectorTile——source-layer名・色分けは
+ * MapView.tsx: DYNAMIC_WEATHER_RENDERERS.floodRiskが持つ（本ファイル冒頭コメント参照）。 */
+export function floodRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
+  return { kind: "vectorTile", tileUrlTemplate: tileUrlTemplate("risk", "flood", ref, "pbf") };
 }
 
 export function linearRainbandRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
