@@ -617,7 +617,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 - [x] [T473](tasks/T473.md). windBoundaries/gradientBoundariesの軸専用propを汎用機構へ統合し環境グループの配線漏れを解消〔P1〕規模S〜M（2026-08-31起票・完了）
 - [ ] [T474](tasks/T474.md). モジュール設計書・architecture.md・タスクファイルのドキュメントドリフト一括修正（10箇所）〔P2〕規模M（2026-08-31起票）
 - [x] [T475](tasks/T475.md). 軸スタジオAPI経由のDB変更に「本番DB反映」を完了条件として明記するCLAUDE.md追記提案〔P2〕規模S（2026-08-31完了。ユーザー指摘によりCLAUDE.mdではなくdocs/modules/backend/axis-studio.mdへ反映）
-- [ ] [T476](tasks/T476.md). MapOverlayControls.test.tsxへWidthSwatch統合・ref安定化の回帰テストを追加〔P2〕規模S〜M（2026-08-31起票）
+- [x] [T476](tasks/T476.md). MapOverlayControls.test.tsxへWidthSwatch統合・ref安定化の回帰テストを追加〔P2〕規模S〜M（2026-08-31完了）
 - [x] [T477](tasks/T477.md). T463/T464のタスク番号取り違えを実装コメント・テストコメントで一括訂正〔P2〕規模S（2026-08-31完了）
 - [ ] [T478](tasks/T478.md). 統合レビュー第3回P3級指摘の一括対応（死コード削除・docs/テストの軽微是正10件）〔P3〕規模M（2026-08-31起票）
 - [ ] [T479](tasks/T479.md). region_service.py/graph_service.pyのクールダウン付きバックグラウンドトリガー共通化〔DEFER〕規模S（2026-08-31起票、トリガー=3箇所目発生時）

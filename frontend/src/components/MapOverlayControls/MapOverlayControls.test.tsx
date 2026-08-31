@@ -143,6 +143,47 @@ describe("MapOverlayControls", () => {
     expect(screen.getByText("ズームインすると表示されます")).toBeInTheDocument();
   });
 
+  // 改善計画T471項目3: 以前はここでWidthSwatch.tsxとほぼ同じ太さバーの描画を独立に
+  // 再実装しており、WidthSwatch.tsx: DISPLAY_SCALE=1.8倍の拡大が適用されていなかった
+  // ため、同じentry.widthでもMapLayersPanel側と地図上チップ側で見た目の太さが食い違って
+  // いた（renderLegendSwatch: entry.width!==undefinedならWidthSwatchへ委譲、統合レビュー
+  // 第3回`history/2026-08-31_all.md` Shard E指摘、T476）。
+  it("entry.widthを持つ凡例カテゴリはWidthSwatch（DISPLAY_SCALE=1.8適用済みの太さバー）で描画される", async () => {
+    const user = userEvent.setup();
+    const layers = baseLayers();
+    layers[1] = {
+      ...layers[1],
+      on: true,
+      summary: null,
+      legendDetails: [
+        {
+          label: "道路の種類",
+          legend: [
+            { key: "primary", label: "幹線道路", color: "#111827", filter: ["literal", true], width: 3 },
+            { key: "residential", label: "生活道路", color: "#9ca3af", filter: ["literal", true] }, // width無し→色ドットのまま
+          ],
+          hiddenKeys: [],
+        },
+      ],
+    };
+    render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+    await user.click(screen.getByRole("button", { name: "路面の凡例を表示" }));
+
+    const widthRow = screen.getByText("幹線道路").closest("li")!;
+    const swatch = widthRow.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch).toBeTruthy();
+    // WidthSwatch.tsx: height = Math.max(2, width * DISPLAY_SCALE) = 3 * 1.8 = 5.4px
+    expect(swatch.style.height).toBe("5.4px");
+    expect(swatch.className).not.toMatch(/detailSwatchDot/);
+
+    const dotRow = screen.getByText("生活道路").closest("li")!;
+    const dot = dotRow.querySelector("span") as HTMLElement; // 色ドットはaria-hiddenを持たない（WidthSwatchとの違い）
+    expect(dot).toBeTruthy();
+    expect(dot.className).toMatch(/detailSwatchDot/);
+    expect(dot.style.height).toBe("");
+  });
+
   it("OFF・disabled・凡例無しのレイヤーには▶が出ない", () => {
     const layers: OverlayLayerChip[] = [
       { id: "elevation", label: "標高図", on: true, summary: null, legendDetails: [] }, // 凡例無し
@@ -648,4 +689,55 @@ describe("MapOverlayControls", () => {
     });
   });
 
+  // 改善計画T471項目4: usePagedOverflow内のregisterViewport/registerTrack（chipRowの
+  // はみ出しページ送りが使うResizeObserver接続用コールバックref）はuseCallback化前、
+  // 親の再レンダーのたびに新しい関数として渡り、Reactがref変更とみなして毎回
+  // detach（null呼び出し）→reattachし、rewireObserver（ResizeObserverの破棄・再構築）が
+  // 無関係な再レンダーのたびに走っていた。jsdom/happy-domはResizeObserverを実装しない
+  // ため、useElementHeightCssVar.test.ts等と同じ最小モックで構築・disconnect回数を
+  // 直接観測する（統合レビュー第3回`history/2026-08-31_all.md` Shard E指摘、T476）。
+  describe("usePagedOverflowの安定性（改善計画T471のregisterViewport/registerTrack useCallback化）", () => {
+    let resizeObserverInstances: { disconnect: ReturnType<typeof vi.fn> }[];
+
+    beforeEach(() => {
+      resizeObserverInstances = [];
+      class ResizeObserverMock {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+        constructor() {
+          resizeObserverInstances.push(this);
+        }
+      }
+      window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+    });
+
+    it("親が新しい配列参照でレンダーしてもResizeObserverは再構築されず、グループの展開/収納は壊れない", async () => {
+      const user = userEvent.setup();
+      const layers1: OverlayLayerChip[] = [
+        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
+      ];
+      const { rerender } = render(<MapOverlayControls layers={layers1} onToggle={vi.fn()} />);
+
+      // 初回マウントでchipRowViewport/chipRowTrackの両方が揃った時点で1つだけ構築される
+      expect(resizeObserverInstances).toHaveLength(1);
+      expect(resizeObserverInstances[0].disconnect).not.toHaveBeenCalled();
+
+      // 「親の再レンダー」を、内容は同じだが参照は新しいlayers配列を渡すことで模す
+      // （page.tsx側でstate更新のたびに新しい配列を作ってMapOverlayControlsへ渡す実態と同じ）
+      const layers2: OverlayLayerChip[] = layers1.map((layer) => ({ ...layer }));
+      rerender(<MapOverlayControls layers={layers2} onToggle={vi.fn()} />);
+
+      // useCallbackでref関数の同一性が保たれていればReactはref callbackを再実行せず、
+      // ResizeObserverの再構築（disconnect→new）は起きない
+      expect(resizeObserverInstances).toHaveLength(1);
+      expect(resizeObserverInstances[0].disconnect).not.toHaveBeenCalled();
+
+      // 観測系の安定性だけでなく、再レンダーを挟んでも実際の展開/収納が機能し続けることも確認する
+      await user.click(screen.getByRole("button", { name: "道路" }));
+      expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: "指定路線" })).toBeInTheDocument();
+    });
+  });
 });
