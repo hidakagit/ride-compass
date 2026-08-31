@@ -29,7 +29,9 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
 """
 
 import asyncio
+import logging
 import math
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -85,6 +87,8 @@ BBOX_MARGIN_MIN_KM = 2.0
 # ループ探索のBBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形からはみ出る余裕」を
 # 単純な固定値で持たせる（previewは距離が事前に分からないため半径比例のロジックは使えない）。
 PREVIEW_BBOX_MARGIN_KM = 2.0
+
+logger = logging.getLogger("ridecompass.graph")
 
 
 @dataclass
@@ -180,12 +184,22 @@ class RoadGraphEngine:
         未確定のため出発時刻の近似として使う簡略化はどちらの用途でも変わらない
         （モジュールdocstring参照）。
         """
+        # 改善計画T522: prepare_msが総時間の8〜9割を占める事象（中心部東京30km実測で
+        # 251〜355秒）の調査で、materials取得（DB/タイルキャッシュ）の後段
+        # （evaluate_graph・build_sparse_graph・prepareの索引構築）が無計測のまま
+        # 数秒〜十数秒を占めていることが判明した（docs/tasks/T522.md参照）。これらは
+        # いずれも同期関数でasyncio.to_thread保護が無く、実行中イベントループを
+        # 塞ぐ（get_or_build_graph_with_attributesのbuild_road_graphが同種の理由で
+        # to_thread化済みなのと対照的）。原因特定のためステージ別に計測する。
+        stage_started = time.monotonic()
+
         # 改善計画T219（T12 Stage 1）: トポロジ＋材料（surface/edge_attribute_counts/
         # way_tags/elevation_attributes/designated_edge_ids）をz12タイル単位のプロセス内
         # キャッシュ経由でまとめて取得する（同一エリアへの2回目以降のリクエストはDBへ
         # 一切アクセスしない。以前はここで6回の個別呼び出しを行っていた、
         # graph_service.pyのget_search_materials_for_bbox参照）。
         materials = await self._graph_service.get_search_materials_for_bbox(bbox)
+        materials_ms = round((time.monotonic() - stage_started) * 1000)
         if materials is None or not materials.graph.edges:
             return None
         graph = materials.graph
@@ -210,7 +224,9 @@ class RoadGraphEngine:
         # 「データ無しは軸を合成から除外」動作に委ねる）。
         elevation_attributes = materials.elevation_attributes
 
+        wind_started = time.monotonic()
         wind = await self._weather_service.get_conditions(wind_and_night_origin)
+        wind_ms = round((time.monotonic() - wind_started) * 1000)
         # 改善計画T173: 時間帯依存軸（time_scope="night_only"、現在はnight軸のみ）の
         # 動的化。区間ごとの到達時刻は探索中は未確定のため（風と同じモジュールdocstringの
         # 制約）、出発地点の座標・呼び出し時点を出発時刻の近似として採用し、起点が市民薄明の
@@ -223,7 +239,14 @@ class RoadGraphEngine:
         active_scopes = frozenset({"night_only"}) if night_active else frozenset()
         search_preference = self._route_preference.with_time_scope(active_scopes)
         # 改善計画T218a: 探索用Costへ事前計算済みgradientを組み込む（モジュールdocstring参照）。
-        search_edge_costs = self._evaluation_service.evaluate_graph(
+        # 改善計画T522: evaluate_graph（numpyベクトル化済みだがEdge数十万件規模では
+        # 依然として数秒〜十数秒かかりうる、docs/tasks/T522.md参照）はget_or_build_
+        # graph_with_attributesのbuild_road_graphと同じ理由でasyncio.to_threadへ逃がす
+        # （同期CPU処理を直接awaitせず呼ぶとイベントループを丸ごと塞ぎ、その間他の
+        # 同時接続リクエスト・ヘルスチェックにも応答できなくなる）。
+        cost_started = time.monotonic()
+        search_edge_costs = await asyncio.to_thread(
+            self._evaluation_service.evaluate_graph,
             graph, elevation_attributes, surface_attributes, wind=wind, stop_counts=stop_counts,
             way_tags=way_tags, intersection_counts=intersection_counts,
             accident_counts=accident_counts, accident_years_covered=accident_years_covered,
@@ -232,7 +255,15 @@ class RoadGraphEngine:
             max_average_grade_percent=self._max_average_grade_percent,
             hard_filters=self._hard_filters,
         )
-        sparse_graph = build_sparse_graph(graph, search_edge_costs)
+        cost_ms = round((time.monotonic() - cost_started) * 1000)
+        sparse_started = time.monotonic()
+        sparse_graph = await asyncio.to_thread(build_sparse_graph, graph, search_edge_costs)
+        sparse_ms = round((time.monotonic() - sparse_started) * 1000)
+        total_ms = round((time.monotonic() - stage_started) * 1000)
+        logger.info(
+            "_build_search_graph edges=%d nodes=%d materials_ms=%d wind_ms=%d cost_ms=%d sparse_ms=%d total_ms=%d",
+            len(graph.edges), len(graph.nodes), materials_ms, wind_ms, cost_ms, sparse_ms, total_ms,
+        )
 
         return _SearchGraph(
             graph=graph,
@@ -280,10 +311,18 @@ class RoadGraphEngine:
         # 駅前が国道の交差点に直接面する場所で実機確認）が選ばれ、そこがHard Constraint
         # 除外後のグラフ上では孤立点になるため、8方位すべてのDijkstra探索が
         # "no path found"で失敗してしまう。
-        node_index = build_node_spatial_index(search.graph, node_ids=routable_node_ids(search.sparse_graph))
+        # 改善計画T522: 索引構築（KDTree構築・Edge数十万件規模の辞書構築）もevaluate_graph
+        # と同じ理由でasyncio.to_threadへ逃がす（docs/tasks/T522.md参照）。find_nearest_node_
+        # indexedは既存索引への単発クエリでコストが軽いためメインコルーチンのまま呼ぶ。
+        index_started = time.monotonic()
+        routable_ids = await asyncio.to_thread(routable_node_ids, search.sparse_graph)
+        node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
         origin_node = find_nearest_node_indexed(node_index, origin)
         if origin_node is None:
             return None
+        node_pair_index = await asyncio.to_thread(_build_node_pair_index, search.graph)
+        index_ms = round((time.monotonic() - index_started) * 1000)
+        logger.info("prepare index build edges=%d index_ms=%d", len(search.graph.edges), index_ms)
 
         return _RoadGraphContext(
             graph=search.graph,
@@ -299,7 +338,7 @@ class RoadGraphEngine:
             origin_node=origin_node,
             node_index=node_index,
             night_active=search.night_active,
-            node_pair_index=_build_node_pair_index(search.graph),
+            node_pair_index=node_pair_index,
         )
 
     async def preview_segment(
@@ -322,7 +361,9 @@ class RoadGraphEngine:
 
         # 改善計画T256: prepareと同じ理由で、索引の候補をsparse_graph上で経路探索可能な
         # Nodeのみに絞る（幹線道路にしか接続していない孤立Nodeを除外）。
-        node_index = build_node_spatial_index(search.graph, node_ids=routable_node_ids(search.sparse_graph))
+        # 改善計画T522: prepareと同じ理由でasyncio.to_threadへ逃がす（docs/tasks/T522.md参照）。
+        routable_ids = await asyncio.to_thread(routable_node_ids, search.sparse_graph)
+        node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
         origin_node = find_nearest_node_indexed(node_index, origin)
         destination_node = find_nearest_node_indexed(node_index, destination)
         if origin_node is None or destination_node is None:
