@@ -9,6 +9,32 @@
 
 ---
 
+## 2026-08-31: consistency.mdとCLAUDE.mdへ「docs/modules/*.mdのフォーマット準拠」チェックを追加
+
+**変更箇所**: consistency.md「設計 ↔ 実装」節、CLAUDE.md「どのタスクを完了扱いにする前にも」節
+（3つ目のチェックとして追加、2項目→3項目）
+
+**経緯**: T458（`DYNAMIC_WAY_VALUE_MATERIALS`をAXIS_DEFINITIONS由来の動的導出へ置換）・
+T459（`RouteSegmentDetail.car_stress`撤去）の完了直後、ユーザーから「設計書反映もすべて
+終わってる？」と確認された際、`docs/modules/backend/dynamic-way-values.md`・`axis-studio.md`
+の更新自体はしていたものの、その更新記述自体が`docs/modules/README.md`「記載粒度」節の
+禁止パターン（「以前は…」「改善計画Txxxで…に変更した」）へ違反していることが判明した——
+docsをコードの変更に追従させる作業と、その追従記述自体がフォーマットに従っているかの
+確認は別の作業であり、後者を怠っていた。さらにユーザーの「全設計書についてフォーマット
+準拠しているか確認して」という指示を受けて全15ファイルを走査したところ、今回のセッションで
+自分が追加した違反に加え、`routing-engine.md`（T462関連）・`cross-cutting-infrastructure.md`・
+`frontend/axis-studio.md`・`frontend/route-settings-and-results.md`に既存の違反が複数
+見つかった——docs/modules/README.md自体には記載粒度ルールが明文化されていたにもかかわらず、
+違反を検出する機械的チェックが存在しなかったため蓄積していた。
+
+**対応**: 「docs/modules/*.mdを変更する・した際は、README.md記載粒度ルールへの違反が
+紛れていないか確認する」チェックを、CLAUDE.mdの毎タスク完了時即時チェック（3つ目）・
+consistency.mdの周期レビュー（設計 ↔ 実装節）の両方へ追加した。既存の2チェック
+（分割元タスクの未起票フォローアップ・共有フィールドの全消費者チェック）と同じ「安価で
+機械的、周期レビューまで待たない」性質のチェックのため、CLAUDE.md側は即時チェックとして
+追加。ただし変更していないファイルの既存違反はタスク完了時の即時チェックでは拾えないため、
+consistency.md側は「変更範囲だけでなく全15ファイルを周期的に走査する」ことを明記した。
+
 ## 2026-08-31: consistency.mdに「削除・統合された事実を語る周辺表現の残存」チェックを追加
 
 **変更箇所**: consistency.md「設計 ↔ 実装」節のみ（CLAUDE.mdへは追加しない。訂正の経緯は
