@@ -4,9 +4,8 @@
 
 出発地点（＋任意で経由地・目的地）から、周回または経由地ルートの候補を複数生成し、
 距離・難易度でスコアリングして返す。実際の経路計算・軸評価はroad_graphエンジン
-（自前Road Graph + scipy Dijkstra）が担う（改善計画T462でopenrouteserviceエンジンを
-撤去し一本化）。Road Graph自体（ノード・Edge・交差点分割・空間索引）の構築・永続化・
-キャッシュもこのモジュールが担う。
+（自前Road Graph + scipy Dijkstra）が担う。Road Graph自体（ノード・Edge・交差点分割・
+空間索引）の構築・永続化・キャッシュもこのモジュールが担う。
 
 **対象ファイル**
 
@@ -30,9 +29,8 @@ Dijkstraで経路計算する。標高（勾配）は事前計算済み`elevatio
 
 `LoopRoutingEngine`という3メソッドの契約（Protocol、`prepare`/`trace_loop`/
 `evaluate_loops`）を挟むことで、`RouteGenerator`自体は探索エンジンの内部実装を
-知らない設計になっている（改善計画T462でopenrouteserviceエンジンを撤去した後も、
-将来別方式のエンジンを差し込める余地としてこのProtocol自体は残してある）。
-現在の実装は`RoadGraphEngine`のみ。
+知らない設計になっている（将来別方式のエンジンを差し込める余地を持たせるための
+抽象化）。現在の実装は`RoadGraphEngine`のみ。
 
 ```
 RouteGenerator.generate_loops()
@@ -296,7 +294,7 @@ importしないプロセスで`NoReferencedTableError`を起こす。
 | `road_graph_tile_cache.py`（split鮮度マーカー） | `is_split_up_to_date`の判定結果 | 1h | `save_graph`成功直後にmark、`import_pbf.py`の再importで`invalidate_split_fresh` |
 | `road_edge_geometry_cache.py` | edge_id単位の実ジオメトリ | 24h | `save_graph`が`new_edge_ids`を無条件delete（precise invalidation） |
 
-いずれも**Redis自体が疎通不能ならPostGIS単独の従来動作へfail-open**する（呼び出し元は
+いずれも**Redis自体が疎通不能ならPostGIS単独の動作へfail-open**する（呼び出し元は
 Redis障害を意識しなくてよい）。取得済みマーカーはOverpassフォールバックを持たないため、
 これを失うと該当bboxのルート生成が「データ未整備」として拒否される（再取得の自動復旧
 手段が無い）——このためRedisを正本にできず、書き込みは常にPostGISが担いRedisは読み取り

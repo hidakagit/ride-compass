@@ -35,25 +35,25 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
 ```
 
 `AXIS_DEFINITIONS`（[軸スタジオ](axis-studio.md)のDB管理データ）から
-`dedicated_way_value_layer=True`の軸を抽出して呼び出しの都度導出する関数（改善計画T458、
-モジュール定数ではない）。`needs_time`/`needs_bearing`も軸自身のDBフィールド
+`dedicated_way_value_layer=True`の軸を抽出し、呼び出しの都度（モジュール定数ではなく
+関数として）導出する。`needs_time`/`needs_bearing`も軸自身のDBフィールド
 （`AxisDefinition.dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`）を
-そのまま使う——以前は独立したPython辞書へハードコードしており、3件目の材料を追加するには
-軸スタジオでの登録に加えてコード変更・再デプロイが必要だった（設計原則8違反、T458で解消）。
+そのまま使うため、新しい動的＋向きあり材料を追加するときは軸スタジオでの登録
+（`dedicated_way_value_layer`・`dynamic_way_value_needs_time`/
+`dynamic_way_value_needs_bearing`）だけで、この関数の戻り値には自動的に反映される。
 
 - `needs_time`: 時刻（`at`クエリパラメータ）に依存するか。風=Yes（気象予報）、
   勾配=No（標高・道路の向きは時刻で変わらない）。
 - `needs_bearing`: 向き（`bearing_deg`クエリパラメータ）に依存するか。風・勾配とも
   Yes（向きの*出所*が異なるだけで、パラメータとしては両方ともユーザー指定の走行方位を
   必要とする）。
-- `dedicated_way_value_layer=True`の軸は現状wind/gradientの2軸のみ（軸スタジオAPI経由で
-  backfill済み）。
+- `dedicated_way_value_layer=True`の軸は現状wind/gradientの2軸のみ。
 
 `api/dependencies.py: get_dynamic_way_value_service`内の`_DYNAMIC_WAY_VALUE_SERVICE_
-FACTORIES`（改善計画T460）は、material_id→サービス実装本体（`WindWayService`/
-`GradientWayService`）の組み立てを担う別のdict。こちらはPython実装本体の登録のため
-宣言だけでは代替できず、3件目の材料を追加する際も引き続きコード変更が必要
-（`dynamic_way_value_materials()`側の拡張とは別軸・別タイミングで進められる）。
+FACTORIES`は、material_id→サービス実装本体（`WindWayService`/`GradientWayService`）の
+組み立てを担う別のdict。こちらはPython実装本体（コンストラクタ）の登録のため軸スタジオの
+宣言だけでは代替できず、新しい材料を追加する際は引き続きコード変更が必要
+（`dynamic_way_value_materials()`側とは別軸・別タイミングで拡張できる）。
 
 ## API（`api/routers/region.py`）
 

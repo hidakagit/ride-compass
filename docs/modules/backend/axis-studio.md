@@ -240,9 +240,7 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 
 ## 既知の軸idハードコード（`_CODE_COUPLED_AXIS_IDS`）
 
-`services/axis_registry_service.py`の`frozenset[str] = frozenset({"gradient"})`。
-削除すると壊れるコードが存在する軸のリストで、`is_published`の状態に関わらず削除を拒否する
-安全弁。
-
-- `gradient`: `domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`が`"gradient"`を
-  辞書キーとして直接宣言する。
+`services/axis_registry_service.py`の`frozenset[str] = frozenset()`（空集合）。
+削除すると壊れるコードが存在する軸を登録するリストで、`is_published`の状態に関わらず
+削除を拒否する安全弁。現時点で該当する軸は無い。将来axis_idをハードコード参照するコードが
+増えた場合に備え、仕組み自体は残す。

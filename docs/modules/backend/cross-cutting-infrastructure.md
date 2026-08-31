@@ -146,11 +146,10 @@ JMA気象データの短命キャッシュ・`road_graph_tile_cache.py`のcache-
 ## HTTPクライアントの共有（`http_client.py`）
 
 `get_http_client(timeout)`が、timeoutの値ごとに`httpx.AsyncClient`を1つだけ生成して
-キャッシュする（`_clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成が
-SSLコンテキスト構築（CA証明書バンドルの読み込み・パース）を伴い、環境によっては
-1回あたり約1秒かかる実測があったため、リクエストごとの新規生成をやめプロセス全体で
-使い回す（`main.py`のlifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアップする
-のもこのため）。
+キャッシュする（`_clients: dict[float, httpx.AsyncClient]`）。`httpx.AsyncClient`の生成は
+SSLコンテキスト構築（CA証明書バンドルの読み込み・パース）を伴い環境によっては高コストに
+なりうるため、リクエストごとの新規生成をやめプロセス全体で使い回す（`main.py`の
+lifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアップするのもこのため）。
 
 ## リクエストIDとアクセスログ（`request_log.py`）
 

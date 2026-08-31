@@ -103,8 +103,8 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
   （軸を増やしてもこのファイルを直接編集する必要が無い）。`total_score`は同一generate
   呼び出し内でのみ比較可能な相対値であることを明記する説明文を先頭に添える。
 - `ComparisonPanel.tsx`: 研究モードの実験スロット比較表。表示順は
-  (1) 生の物理量（距離・獲得標高・風スコア・舗装率、旧scoring.yaml時代のレガシー
-  フィールドだが単位・意味がaxis_difficultiesと異なるためそのまま残す）→
+  (1) 生の物理量（距離・獲得標高・風スコア・舗装率。単位・意味がaxis_difficultiesとは
+  異なる別系統のフィールドのため区別して残す）→
   (2) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
   `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
   (3) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。`total_score`は実験間

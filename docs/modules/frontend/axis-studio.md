@@ -70,7 +70,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 
 | カード | 説明 | backend `AxisShape.kind`への対応 |
 |---|---|---|
-| なめらか評価 | 数値の大きさ・複数要素の有無で点数を変える（旧flag_sumもここへ吸収済み） | `breakpoint_linear` |
+| なめらか評価 | 数値の大きさ・複数要素の有無で点数を変える | `breakpoint_linear` |
 | ぴったり評価 | はい/いいえ、種類ごとに点数を決める | `categorical` |
 | かけあわせ評価 | 既にある軸のスコアに重みを掛けて合計する | `breakpoint_linear`（他axis_idをmaterialとして参照、折れ点編集UIは出さない） |
 
@@ -97,7 +97,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 ### categorical材料の値入力
 
 選択した材料のdtypeで表示を切り替える:
-- `dtype="boolean"`: 従来どおり該当時(true)/非該当時(false)の2スコア入力。
+- `dtype="boolean"`: 該当時(true)/非該当時(false)の2スコア入力。
 - `dtype="categorical"`（例: highway/surface/smoothness）: 値ごとのスコア行。
   `useMaterialValues(materialId)`が`GET /api/material-catalog/{id}/values`から実データ値
   一覧を取得できた場合、値は読み取り専用の候補選択（自由入力を許さない——タイプミスが
