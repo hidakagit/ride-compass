@@ -57,6 +57,7 @@ import type { DynamicLayerTimeSliderFrame } from "@/components/DynamicLayerTimeS
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
+import { debugLog } from "@/lib/debugLog";
 
 // 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
 // 雷は10分毎更新のため5分より長くても足りるが、実装を単純にするため揃えている）。
@@ -355,6 +356,14 @@ export function useDynamicWeatherLayers({
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
     if (index == null || windGrid.length === 0) return undefined;
     const coarsePoints = coarseGridPointsOutsideDetailBounds(windGrid, windDetailGrid, WIND_GRID_SPACING_DEG);
+    // 調査用の一時ログ（風の環境グループ面塗りが画面右端で欠ける不具合の原因調査）。
+    // windGrid（粗い格子、常に関東本土全域624点前後）に対しcoarsePoints（除外後、実際に
+    // このレイヤーへ描画する点数）がどれだけ減っているかを見る。
+    debugLog("windGrid:penalty-coarse", "粗い格子ペイロード", {
+      windGridCount: windGrid.length,
+      windDetailGridCount: windDetailGrid.length,
+      coarsePointsCount: coarsePoints.length,
+    });
     return {
       kind: "gridFill",
       geojson: windPenaltyGridToCellFeatureCollection(

@@ -22,6 +22,7 @@ import {
 import type { WindGridPoint } from "@/types/weather";
 import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { debugLog } from "@/lib/debugLog";
 
 // バックエンド側のTTLキャッシュ（weather_client.py: WIND_GRID_CACHE_TTL_SECONDS）に合わせた
 // 間隔で再取得する。これより短い間隔で再取得してもキャッシュヒットするだけで新しいデータは
@@ -131,6 +132,18 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
       }
       const spacingDeg = windGridDetailSpacingDegForZoom(debouncedMapViewport.zoom);
       const bbox = clampWindDetailBbox(debouncedMapViewport, spacingDeg);
+      // 調査用の一時ログ（風の環境グループ面塗りが画面右端で欠ける不具合の原因調査）。
+      // detail bboxの東端(maxLon)がビューポートの東端(east)までどれだけ届いているか
+      // （eastGapDegが0より大きいほど、詳細格子が画面右端まで届かず粗い格子頼みになる）を
+      // 比較できるようにする。フェッチ結果の点数自体は既存のapi:windGridDetailログ
+      // （weatherApi.ts）で分かるため、ここでは重複させない。
+      debugLog("windGrid:detail-bbox", "詳細格子bbox計算", {
+        viewport: debouncedMapViewport,
+        bbox,
+        spacingDeg,
+        eastGapDeg: debouncedMapViewport.east - bbox.maxLon,
+        westGapDeg: bbox.minLon - debouncedMapViewport.west,
+      });
       try {
         const freshGrid = await getWindGridDetail(bbox, spacingDeg);
         if (cancelled) return;
