@@ -83,9 +83,11 @@
 
 ## 意図的な設計判断（新しい根拠なしに再指摘しない）
 
-docs/complexity-review-2026-08-16.md の **Keep List** が正。代表例:
-- エンジン切替の併存・`LoopRoutingEngine` 3段階ポート契約
-- DI工場が使わない側エンジンの軽量依存も毎回構築（FastAPI制約への単純さ優先）
+docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エンジン切替の併存・
+`LoopRoutingEngine` 3段階ポート契約」「DI工場が使わない側エンジンの軽量依存も毎回構築」の
+2項目は、改善計画T462でopenrouteserviceエンジンを完全撤去しroad_graph単一構成になった
+ため前提自体が消滅しており対象外——2026-08-16レビュー本文自体は経緯記録として書き換えない）。
+代表例:
 - `/api/routes/preview` の残置（Step3疎通確認用）
 - `page.tsx` / `MapView.tsx` の分割見送り（肥大化はcomplexity.mdの「規模ウォッチ」で
   横断監視する。MapView.tsxのみ個別の閾値付きKEEPがあり、現在有効な閾値・発火状況は

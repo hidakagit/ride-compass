@@ -43,6 +43,11 @@ FastAPI(lifespan=lifespan)
   CORSMiddleware → request_log_middleware（リクエストID付与・アクセスログ、CORSより外側）
         ▼
   api_router（api/routers/__init__.py、全routerを集約）
+        ▼
+      yield（アプリ稼働中）
+        ▼
+  シャットダウン: (1) APSchedulerを停止（`wait=False`）→
+                 (2) httpxクライアントを明示close（`close_all_http_clients`、T464）
 ```
 
 - ログレベルは`debug_mode`の値でINFO/DEBUGを切り替える（`main.py`のlogging.basicConfig）。
@@ -50,6 +55,8 @@ FastAPI(lifespan=lifespan)
   `debug_admin.py`経由でSSH無しに直近ログを取得できるようにする。
 - `httpx`ロガー自体はWARNING以上に抑制する（1リクエストごとのINFOでログが埋まるため。
   外部呼び出しの記録は`debug_log.py: log_external_call`が別途担う）。
+- 未処理例外（500）発生時も`unhandled_exception_handler`（`request_log.py`）経由で
+  `X-Request-ID`ヘッダを付けて返す（T464、通常レスポンスと同じ追跡性を保つ）。
 
 ## 設定（`config.py: Settings`）
 
@@ -111,10 +118,13 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 |---|---|---|
 | `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at` |
 | `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数） |
-| `GET /api/debug/db-status` | 不要（読み取り専用診断） | pending migrations・主要テーブルの直近import run状況・行数。DB障害時も500にせずWARNINGログ＋`reachable=false`を返す |
+| `GET /api/debug/db-status` | 必要（`require_admin_basic_auth`） | pending migrations・主要テーブルの直近import run状況・行数。DB障害時も500にせずWARNINGログ＋`reachable=false`を返す |
 
 `db-status`は「本番DBがコード上の期待に追いついているか」を1リクエストで確認する診断
 エンドポイント。`road_graph_use_repository=false`のときは接続を試みずその旨だけ返す。
+テーブル行数・migration適用状況・import run履歴という運用上機微な情報を返すため、
+`axis_admin.py`/`debug_admin.py`と同じ管理API認可境界を持つ（T467、従来は無認証だった）。
+`/health`・`/api/debug/stats`（集計値のみで機微情報を含まない）は引き続き無認証。
 
 ## `debug_admin.py`（`debug_mode`のランタイム切替）
 

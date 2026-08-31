@@ -238,6 +238,14 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
 いずれの書き込みも「DB commit → `refresh_axis_definitions`呼び出し」で完結する
 （1操作=1トランザクション）。
 
+create/update/delete/unpublishはいずれも冒頭で`AxisDefinitionRepository.
+acquire_write_lock()`（PostgreSQLのトランザクションスコープadvisory lock）を呼び、
+「読み取り→Python側で検証→書き込み」の一連を直列化する（T469）。ロック無しだと、
+2つのcreate()が同時に走った場合に互いのsort_orderや材料排他帰属チェックが相手の
+変更を見ないまま古いスナップショットへ基づいて計算され、書き込み後にsort_order衝突・
+材料の二重帰属が残りうるTOCTOUレースだった。asyncio.Lock（同一プロセス内のみ有効）
+ではなくDBレベルのロックにしているのは、将来複数ワーカー化する場合にも機能させるため。
+
 ## 既知の軸idハードコード（`_CODE_COUPLED_AXIS_IDS`）
 
 `services/axis_registry_service.py`の`frozenset[str] = frozenset()`（空集合）。
