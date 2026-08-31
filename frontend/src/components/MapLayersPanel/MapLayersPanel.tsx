@@ -88,6 +88,11 @@ interface MapLayersPanelProps {
 // 内部キーとしてのみ使う。降水ナウキャスト等dataNature="dynamic"のレイヤー（帯単位の
 // 絞り込み機能を持たない、ユーザー判断2026-08-25）は、グループ再編後もこのパネルの詳細
 // セクションからは引き続き除外する（ON/OFFは地図上チップ側で操作できるため実害なし）。
+// 改善計画: elevation（標高図）のように静的なラスタレイヤーでdataNature="dynamic"には
+// 当てはまらないが同じ理由（絞り込み機能を持たずON/OFFのみ）で掲載する意味が無いレイヤーは
+// hideFromLayersPanelで個別に除外する（ユーザー指摘2026-08-31、mapLayers.ts:
+// MapLayerDescriptor.hideFromLayersPanel参照。地図上チップのON/OFF自体は引き続き必要
+// なため撤去はせず、このサイドバーパネルへの重複掲載のみをやめる）。
 // 「生成したルートの色分け」（dynamic/route）はどのグループにも属さないレイヤーのため、
 // 地図の見え方パネルからは撤去し「ルートを作る」パネル側へ移設した（page.tsx:
 // renderRouteSectionBody参照。実機フィードバック「ルートを作るパネルがルートに関する
@@ -340,14 +345,6 @@ export default function MapLayersPanel({
 
   function renderSectionBody(layer: MapLayerDescriptor) {
     switch (layer.id) {
-      case "elevation":
-        // 設定項目が無いレイヤーは説明文のみ（将来、不透明度等の設定を足す場所）。
-        // ラスタタイルのためデータ取得状態は取得失敗のみ検知対象（MapView.tsx参照）。
-        return (
-          <>
-            {renderDataStatusHint(layer.id)}
-          </>
-        );
       case "designation":
       case "tunnel":
       case "oneway":
@@ -441,14 +438,17 @@ export default function MapLayersPanel({
       {MAP_OVERLAY_GROUP_ORDER.map((group: MapOverlayGroup) => {
         // 「道路」「環境」「スポット」は、mapOverlayGroupForで地図上チップと同じグループへ
         // 判定されるレイヤーのうち、dataNature="dynamic"（絞り込み機能を持たない、上記
-        // コメント参照）を除いたものを、categoryの並び順（MAP_LAYER_CATEGORY_ORDER）で
-        // 揃えて列挙する。
+        // コメント参照）・hideFromLayersPanel（同じくON/OFFのみで絞り込み機能を持たない
+        // が、dynamicではない静的ラスタレイヤー[elevation実例]向け、mapLayers.ts:
+        // MapLayerDescriptor.hideFromLayersPanel参照）を除いたものを、categoryの並び順
+        // （MAP_LAYER_CATEGORY_ORDER）で揃えて列挙する。
         const layers = MAP_LAYER_CATEGORY_ORDER.flatMap((category) =>
           mapLayers.filter(
             (layer) =>
               layer.kind === "static" &&
               layer.category === category &&
               (layer.dataNature ?? "raw") !== "dynamic" &&
+              !layer.hideFromLayersPanel &&
               mapOverlayGroupFor(layer) === group
           )
         );

@@ -268,6 +268,17 @@ export interface MapLayerDescriptor {
    * switch文へレイヤーごとハードコードされておりカタログ集約の方針（設計原則8）から
    * 外れていた。未指定のレイヤー（道路情報・ルート等）はパネル側が独自の特殊なJSXを持つ。 */
   panelHint?: string;
+  /** 改善計画: MapLayersPanel（サイドバー「地図の見え方」パネル）の一覧から、この
+   * レイヤーを除外するか。既定false（掲載する）。dataNature="dynamic"（帯単位の
+   * 絞り込み機能を持たない、2026-08-25ユーザー判断、MapLayersPanel.tsx参照）と同じ
+   * 理由——ON/OFFの単純な切替しか提供せず、絞り込み・凡例等サイドバー掲載の価値が
+   * 無い場合に立てる。elevation（標高図、ラスタタイル）が実例——地図上チップ
+   * （MapOverlayControls）のON/OFFで用途は完結しており、そちらだけを唯一の入口とする
+   * （ユーザー指摘2026-08-31: 地図の見え方パネルに載せる意味が無い。地図上チップの
+   * ON/OFF自体は引き続き必要）。dataNature自体を再利用しない理由: dataNatureは
+   * 「データの性質」（生/合成/時々刻々変わる）を表す別概念のフィールドで、elevationは
+   * 静的なラスタタイルのため"dynamic"に当てはめると意味が食い違う。 */
+  hideFromLayersPanel?: boolean;
 }
 
 // ramp軸のpanelHint（改善計画: 地図の見え方パネルの推定指標説明を簡略化）。以前は
@@ -291,6 +302,11 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     category: "terrain",
     description: "国土地理院の色別標高図を重ねる",
     panelHint: "国土地理院の色別標高図を重ねる",
+    // ユーザー指摘（2026-08-31）: ラスタタイルのため他レイヤーのような凡例ベースの
+    // 絞り込みができず、MapLayersPanel.tsxのrenderSectionBody（case "elevation"）も
+    // 説明文のみで設定項目を一切持たない。ON/OFF自体は地図上チップ（MapOverlayControls）
+    // 側で完結しているため、サイドバー「地図の見え方」パネルへ重複掲載する意味が無い。
+    hideFromLayersPanel: true,
   },
   {
     // 改善計画T165（地図レイヤー階層の次数反転）: 旧「道路情報」（road、1レイヤーに

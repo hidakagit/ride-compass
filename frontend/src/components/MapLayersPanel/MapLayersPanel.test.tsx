@@ -116,22 +116,23 @@ describe("MapLayersPanel", () => {
   // （route、どのグループにも属さない）は「ルートを作る」パネル（page.tsx参照）、評価軸
   // （軸スタジオ由来のレイヤー、car_stress等）はルート設定パネル（RouteSettingsPanel.tsx、
   // docs/tasks/T418.md）へそれぞれ移設し、このパネルの対象外になった。
-  it("レイヤーカタログの全レイヤーが、グループ見出し（道路/環境/スポット）のみのフラットな一覧としてセクションで並ぶ", () => {
+  it("レイヤーカタログの全レイヤーが、グループ見出し（道路/スポット）のみのフラットな一覧としてセクションで並ぶ", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
     const groupHeadings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
     // 表示順は地図上チップと同じMAP_OVERLAY_GROUP_ORDER（道路→環境→スポット）をそのまま
     // 使う（旧「観測/推定」時代のパネル専用反転は廃止、mapLayers.tsのコメント参照）。
-    // 降水ナウキャスト・風・雷・竜巻等dataNature="dynamic"のレイヤーはユーザー判断
-    // （2026-08-25）により絞り込み機能を持たないためこのパネルから撤去済み（下記の別テスト参照）。
-    expect(groupHeadings).toEqual(["道路", "環境", "スポット"]);
+    // 降水ナウキャスト・風・雷・竜巻等dataNature="dynamic"のレイヤー、およびelevation
+    // （hideFromLayersPanel、下記の別テスト参照）はこのパネルから撤去済みのため、
+    // 「環境」グループはメンバーが1件も残らずグループ見出し自体が現れない
+    // （MapLayersPanel.tsx: layers.length === 0のグループを描画しない分岐）。
+    expect(groupHeadings).toEqual(["道路", "スポット"]);
 
     // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
     // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
     expect(container.querySelectorAll(`.${styles.groupTitle}`).length).toBe(0);
 
     // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
-    expect(container.querySelector("#map-layer-section-elevation")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-roadType")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-roadSurface")).toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-designation")).toBeInTheDocument();
@@ -163,11 +164,24 @@ describe("MapLayersPanel", () => {
     expect(container.querySelector("#map-layer-section-tornadoNowcast")).not.toBeInTheDocument();
   });
 
+  // ユーザー指摘（2026-08-31）: elevation（標高図）はラスタタイルのため他レイヤーのような
+  // 凡例ベースの絞り込みができず、ON/OFFのみで完結する（地図上チップ側で操作できる）。
+  // dataNature="dynamic"ではない（静的データのため）が、上のdynamicレイヤーと同じ理由
+  // （絞り込み機能を持たずこのパネルへ掲載する価値が無い）でhideFromLayersPanelにより
+  // 個別に除外される（mapLayers.ts: MapLayerDescriptor.hideFromLayersPanel参照）。
+  it("hideFromLayersPanel=trueのレイヤー（標高図）は行が表示されない", () => {
+    const { container } = render(<MapLayersPanel {...baseProps()} />);
+
+    expect(container.querySelector("#map-layer-section-elevation")).not.toBeInTheDocument();
+  });
+
   // 改善計画T413: mapOverlayGroupForの判定どおり、道路の純粋な属性（roadType/roadSurface/
-  // designation）は「道路」、点レイヤー（accidents/stopPoi/supplyPoi）は「スポット」、
-  // 標高図（terrain）は「環境」に属する。以前はcar_stress以外の全レイヤーが単一の
-  // 「観測」グループへ一緒くたに入っていた（地図上チップ側は既にT406でこの分類だったため、
-  // パネルとチップで所属グループの語彙が食い違っていた）。
+  // designation）は「道路」、点レイヤー（accidents/stopPoi/supplyPoi）は「スポット」に属する。
+  // 以前はcar_stress以外の全レイヤーが単一の「観測」グループへ一緒くたに入っていた
+  // （地図上チップ側は既にT406でこの分類だったため、パネルとチップで所属グループの語彙が
+  // 食い違っていた）。「環境」（terrain/weather）に属するレイヤーは全てdataNature=
+  // "dynamic"またはhideFromLayersPanelでこのパネルから除外されるため、確認対象に含めない
+  // （上記の別テスト参照。「環境」グループ見出し自体が現れないことは冒頭のテストで確認済み）。
   it("レイヤーが地図上チップ（mapOverlayGroupFor）と同じグループの下に属する", () => {
     render(<MapLayersPanel {...baseProps()} />);
 
@@ -183,7 +197,6 @@ describe("MapLayersPanel", () => {
     expect(overlayGroupTitleFor("accidents")).toBe("スポット");
     expect(overlayGroupTitleFor("stopPoi")).toBe("スポット");
     expect(overlayGroupTitleFor("supplyPoi")).toBe("スポット");
-    expect(overlayGroupTitleFor("elevation")).toBe("環境");
   });
 
   it("絞り込み中の軸が無ければ「絞り込みを一括クリア」ボタンは出ず、あれば出て押すとonClearAllFiltersが呼ばれる", async () => {
@@ -239,12 +252,12 @@ describe("MapLayersPanel", () => {
       <MapLayersPanel
         {...baseProps()}
         layerVisibility={{
-          elevation: true,
+          elevation: false,
           roadType: false,
           roadSurface: false,
           "axis:car_stress": false,
           designation: false,
-          tunnel: false,
+          tunnel: true,
           oneway: false,
           stopPoi: false,
           supplyPoi: false,
@@ -262,14 +275,14 @@ describe("MapLayersPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "標高図レイヤーを表示" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "トンネルレイヤーを表示" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "路面の種類レイヤーを表示" })).toHaveAttribute("aria-pressed", "false");
 
     await user.click(screen.getByRole("button", { name: "路面の種類レイヤーを表示" }));
     expect(onLayerToggle).toHaveBeenCalledWith("roadSurface", true);
 
-    await user.click(screen.getByRole("button", { name: "標高図レイヤーを表示" }));
-    expect(onLayerToggle).toHaveBeenCalledWith("elevation", false);
+    await user.click(screen.getByRole("button", { name: "トンネルレイヤーを表示" }));
+    expect(onLayerToggle).toHaveBeenCalledWith("tunnel", false);
   });
 
   it("チップ操作は所属するセクションの開閉状態を変えない", async () => {
@@ -277,11 +290,11 @@ describe("MapLayersPanel", () => {
     render(<MapLayersPanel {...baseProps()} />);
     openAllSections();
 
-    const section = document.getElementById(layerSectionDomId("elevation")) as HTMLElement;
-    const trigger = within(section).getByRole("button", { name: "標高図" });
+    const section = document.getElementById(layerSectionDomId("tunnel")) as HTMLElement;
+    const trigger = within(section).getByRole("button", { name: "トンネル" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(screen.getByRole("button", { name: "標高図レイヤーを表示" }));
+    await user.click(screen.getByRole("button", { name: "トンネルレイヤーを表示" }));
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
