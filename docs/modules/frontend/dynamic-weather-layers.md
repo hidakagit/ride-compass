@@ -92,9 +92,12 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 windVector`内で`penaltyFillCoarse`を`penaltyFill`より前に定義しており、`ensureDynamicWeather
 Layer`がgroupSpecのキー順=`addLayer`呼び出し順で描画するため、粗い格子が背面・詳細格子が
 前面になる。`windPenalty.ts: coarseGridPointsOutsideDetailBounds`が、粗い格子の点のうち
-詳細格子の点集合のバウンディングボックス（詳細格子の間隔ぶん外側へ余裕を持たせたもの）に
-入るものを除いてからセル化する（両方を同じ場所へ重ねて描画すると、半透明のfill-opacityが
-二重に重なって詳細格子の範囲だけ不自然に濃くなるため）。
+詳細格子の点が近傍（`WIND_GRID_SPACING_DEG`の半径以内）に実在する点だけを除いてから
+セル化する（両方を同じ場所へ重ねて描画すると、半透明のfill-opacityが二重に重なって
+詳細格子の範囲だけ不自然に濃くなるため）。判定は詳細格子の外接矩形ではなく点ごとの
+近傍判定で行う——詳細格子は外接矩形の内側を隙間なく埋めているとは限らないため、
+外接矩形だけで判定すると、詳細格子が実際には届いていない場所まで粗い格子ごと除外して
+しまい、両方とも描画されない穴ができる。
 
 ## 新しい動的要素を追加する1本道
 

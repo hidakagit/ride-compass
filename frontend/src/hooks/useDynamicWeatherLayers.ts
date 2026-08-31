@@ -343,19 +343,18 @@ export function useDynamicWeatherLayers({
       ),
     };
   }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid, debouncedWindBearingDeg, effectiveGridSpacingDeg]);
-  // penaltyFillの下敷き（実機報告2026-08-31「画面の右端にだけ面塗りされない」）。
-  // effectiveWindGrid（detailGridがあればそちら優先）は画面中心付近の狭いbboxしか
-  // カバーしないことがあるため、常に関東本土全域をカバーするwindGrid（粗い格子、
+  // penaltyFillの下敷き。effectiveWindGrid（detailGridがあればそちら優先）は画面中心付近の
+  // 狭いbboxしかカバーしないことがあるため、常に関東本土全域をカバーするwindGrid（粗い格子、
   // useWeatherGrid.ts参照）から同じ配色ロジックでセルを作る。frameIndexは同じ
   // windFramesList（windGrid由来）を使うため、windPayload/windPenaltyPayloadと常に
-  // 同じ時刻を指す。coarseGridPointsOutsideDetailBoundsで詳細格子がカバー済みの点を
-  // 除いてから作る（実機報告2026-08-31「境界に色の段差が見える」——詳細格子と粗い格子の
-  // セルを同じ場所へ両方重ねると半透明が二重に重なって不自然に濃くなる、windPenalty.ts
-  // 側コメント参照）。
+  // 同じ時刻を指す。coarseGridPointsOutsideDetailBoundsで詳細格子の点が近傍に実在する
+  // 粗い格子点だけを除いてから作る（windPenalty.ts側コメント参照。粗い格子の間隔
+  // WIND_GRID_SPACING_DEGを近傍判定の半径に使う——詳細格子側の間隔ではなく粗い格子1マスぶんの
+  // 半径にすることで、粗い格子の1点が担当する面積と過不足なく対応させる）。
   const windPenaltyCoarsePayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
     if (index == null || windGrid.length === 0) return undefined;
-    const coarsePoints = coarseGridPointsOutsideDetailBounds(windGrid, windDetailGrid, effectiveGridSpacingDeg);
+    const coarsePoints = coarseGridPointsOutsideDetailBounds(windGrid, windDetailGrid, WIND_GRID_SPACING_DEG);
     return {
       kind: "gridFill",
       geojson: windPenaltyGridToCellFeatureCollection(
@@ -365,7 +364,7 @@ export function useDynamicWeatherLayers({
         WIND_GRID_SPACING_DEG
       ),
     };
-  }, [windFramesList, dynamicLayerTargetTime, windGrid, windDetailGrid, effectiveGridSpacingDeg, debouncedWindBearingDeg]);
+  }, [windFramesList, dynamicLayerTargetTime, windGrid, windDetailGrid, debouncedWindBearingDeg]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;

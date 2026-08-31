@@ -55,41 +55,29 @@ export function windPenaltyGridToCellFeatureCollection(
   );
 }
 
-/** 粗い格子（`windGrid`、関東本土全域を常時カバー）のうち、詳細格子（`detailGrid`）が
- * 既にカバーしている範囲の点を除いた配列を返す（実機報告2026-08-31「画面の右端が塗られる
- * こともあるが、境界に色の段差[濃さの違い]が見える」）。粗い格子セルと詳細格子セルを
- * 同じ範囲へ両方重ねて描画すると、半透明のfill-opacityが二重に重なって詳細格子の範囲だけ
- * 不自然に濃くなる（詳細格子1枚のopacity＝X、粗い格子1枚のopacity＝Xだとしても、両方
- * 重なった範囲は1-(1-X)^2で単純な合算より濃く見える）。詳細格子の点集合のバウンディング
- * ボックス（`detailSpacingDeg`ぶん外側へ余裕を持たせ、詳細格子セルの外周ぎりぎりまで
- * 確実にカバーする）に入る粗い格子点を除外することで、2枚が同じ場所を重ねて塗る状態を
- * 無くし、境界を単一のシームだけに抑える（値そのものの違いによる色の段差は、格子の解像度が
- * 異なる以上残る。実測ではopacityの二重重ねによる濃淡差の方が支配的だった）。
- * `detailGrid`が空（詳細格子未取得・ズームアウト時）ならフィルタせず全点を返す。 */
+/** 粗い格子（`windGrid`、関東本土全域を常時カバー）のうち、詳細格子（`detailGrid`）の点が
+ * 近傍（`coarseSpacingDeg`の半径以内）に実在する点だけを除いた配列を返す。粗い格子セルと
+ * 詳細格子セルを同じ場所へ両方重ねて描画すると、半透明のfill-opacityが二重に重なって
+ * 詳細格子の範囲だけ不自然に濃くなるため、重複描画を避けたい。ただし判定は詳細格子の
+ * バウンディングボックス（外接矩形）ではなく点ごとの近傍判定で行う——詳細格子はbboxの
+ * 内側を隙間なく埋めているとは限らない（格子点の取得に一部失敗した等）ため、bboxだけで
+ * 判定すると、詳細格子が実際には届いていない場所まで粗い格子ごと除外してしまい、両方とも
+ * 描画されない穴ができる。`detailGrid`が空（詳細格子未取得・ズームアウト時）ならフィルタ
+ * せず全点を返す。 */
 export function coarseGridPointsOutsideDetailBounds(
   coarseGrid: readonly WindGridPoint[],
   detailGrid: readonly WindGridPoint[],
-  detailSpacingDeg: number
+  coarseSpacingDeg: number
 ): WindGridPoint[] {
   if (detailGrid.length === 0) return coarseGrid.slice();
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLon = Infinity;
-  let maxLon = -Infinity;
-  for (const point of detailGrid) {
-    if (point.latitude < minLat) minLat = point.latitude;
-    if (point.latitude > maxLat) maxLat = point.latitude;
-    if (point.longitude < minLon) minLon = point.longitude;
-    if (point.longitude > maxLon) maxLon = point.longitude;
-  }
-  const pad = detailSpacingDeg / 2;
-  minLat -= pad;
-  maxLat += pad;
-  minLon -= pad;
-  maxLon += pad;
+  const radius = coarseSpacingDeg / 2;
   return coarseGrid.filter(
-    (point) =>
-      point.latitude < minLat || point.latitude > maxLat || point.longitude < minLon || point.longitude > maxLon
+    (coarsePoint) =>
+      !detailGrid.some(
+        (detailPoint) =>
+          Math.abs(detailPoint.latitude - coarsePoint.latitude) <= radius &&
+          Math.abs(detailPoint.longitude - coarsePoint.longitude) <= radius
+      )
   );
 }
 

@@ -51,18 +51,27 @@ describe("coarseGridPointsOutsideDetailBounds", () => {
 
   it("returns all coarse points unfiltered when the detail grid is empty", () => {
     const coarse = [makePoint(35.7, 139.7), makePoint(35.9, 139.9)];
-    expect(coarseGridPointsOutsideDetailBounds(coarse, [], 0.01)).toEqual(coarse);
+    expect(coarseGridPointsOutsideDetailBounds(coarse, [], 0.1)).toEqual(coarse);
   });
 
-  it("excludes coarse points inside the detail grid's bounding box (plus half spacing padding)", () => {
+  it("excludes a coarse point only when a detail point exists within half a coarse cell", () => {
     const coarse = [
-      makePoint(35.7, 139.7), // 詳細格子の範囲内 → 除外される
-      makePoint(35.9, 139.9), // 詳細格子の範囲外 → 残る
+      makePoint(35.7, 139.7), // 詳細格子点(35.71, 139.71)が半径0.05以内 → 除外される
+      makePoint(35.9, 139.9), // 最寄りの詳細格子点まで遠い → 残る
     ];
-    const detail = [makePoint(35.69, 139.69), makePoint(35.71, 139.71)];
-    // detailの範囲: lat[35.69,35.71] lon[139.69,139.71] を spacingDeg/2=0.005 だけ広げる
-    // → lat[35.685,35.715] lon[139.685,139.715]。(35.7,139.7)はこの中に入るため除外される。
-    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.01);
+    const detail = [makePoint(35.71, 139.71)];
+    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1);
     expect(result).toEqual([makePoint(35.9, 139.9)]);
+  });
+
+  it("does not exclude a coarse point that falls inside the detail grid's bounding box but has no nearby detail point (a gap within the detail grid)", () => {
+    // 実機報告: 詳細格子が自身の外接矩形の内側を隙間なく埋めているとは限らない
+    // （格子点の取得に一部失敗した等）。外接矩形だけで判定すると、詳細格子が実際には
+    // 届いていない場所まで粗い格子ごと除外してしまい、両方とも描画されない穴ができる。
+    const coarse = [makePoint(35.8, 139.8)]; // detailの外接矩形[35.7-35.9, 139.7-139.9]の内側だが、
+    // 最も近いdetail点(35.7,139.7)/(35.9,139.9)からは半径0.05よりずっと遠い。
+    const detail = [makePoint(35.7, 139.7), makePoint(35.9, 139.9)];
+    const result = coarseGridPointsOutsideDetailBounds(coarse, detail, 0.1);
+    expect(result).toEqual(coarse);
   });
 });
