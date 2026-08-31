@@ -154,6 +154,15 @@ tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない�
    `WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS`（24時間）以内のキャッシュがあれば代用する。
 5. **変数を絞る**: `get_forecast_many`は`WIND_GRID_VARIABLES`（風速・風向・降水量のみ）に
    限定する。`get_forecast`（単発、`/api/weather`用）は表示項目のため全変数を維持する。
+6. **応答エントリの対応付けは座標ベース**: Open-Meteoの複数地点応答が常にリクエストと
+   同じ件数・同じ順序を保つとは限らない（実機報告2026-08-31「風の面塗りが毎回同じ場所で
+   切れる」の調査で判明）。応答件数がリクエストより少ない場合、位置（index）だけで
+   対応付けると1件の省略で以降の全地点がズレて誤った地点の天気を割り当ててしまうため、
+   各エントリ自身が返す`latitude`/`longitude`（Open-Meteoの複数地点応答の標準フィールド）で
+   対応するリクエスト地点を引き直す。座標を持たない/一致しないエントリ（テストフィクスチャ等）
+   は位置対応（従来方式）へフォールバックする。対応付けできなかった地点は`results[key] = None`
+   になり、`fields["result"] = "error"`でWARNINGログへ記録される（`missing_locations`件数付き、
+   `log_external_call`参照）。
 
 `open_meteo_base_url`は本番では自前ホスト（Oracle Cloud VM）上のnginxリレープロキシへ
 向けられており、Render→Open-Meteo直叩きによる送信元IP共有問題を回避している。

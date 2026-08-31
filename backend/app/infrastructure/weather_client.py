@@ -350,16 +350,54 @@ class WeatherClient:
                 # 常に地点数ぶんの配列として扱えるようここで揃える。
                 entries = data if isinstance(data, list) else ([data] if data is not None else [])
                 newly_fetched: dict[tuple[float, float], tuple[float, dict]] = {}
-                for key, entry in zip(to_fetch, entries):
+
+                # 実機報告2026-08-31「風の面塗りが毎回同じ場所で切れる」の調査結果: 以前は
+                # zip(to_fetch, entries)で応答順=リクエスト順という前提で位置対応させていたが、
+                # Open-Meteoが特定地点だけ省略して応答件数がリクエストより少なくなる場合、
+                # 途中の1件が省略されただけでそれ以降の全件が1つずつズレて誤った地点の天気を
+                # 割り当ててしまう（さらに末尾は「対応しきれない残り」としてNone扱いになる、
+                # という以前のコメント自体がこの前提が崩れうることを示唆していた）。各エントリ
+                # 自身が返すlatitude/longitude（Open-Meteoの複数地点応答が持つ標準フィールド）で
+                # 対応するリクエスト地点を引き直すことで、応答順や件数がリクエストと食い違っても
+                # 誤った地点への割り当てを防ぐ。座標を持たない/どのリクエスト地点にも一致しない
+                # エントリ（テスト用フィクスチャ等）は、位置対応（従来方式）へフォールバックする。
+                to_fetch_set = set(to_fetch)
+                matched: set[tuple[float, float]] = set()
+                unmatched_entries: list[dict | None] = []
+                for entry in entries:
+                    key: tuple[float, float] | None = None
+                    if isinstance(entry, dict):
+                        entry_lat = entry.get("latitude")
+                        entry_lon = entry.get("longitude")
+                        if isinstance(entry_lat, (int, float)) and isinstance(entry_lon, (int, float)):
+                            candidate = (round(float(entry_lat), CACHE_PRECISION), round(float(entry_lon), CACHE_PRECISION))
+                            if candidate in to_fetch_set and candidate not in matched:
+                                key = candidate
+                    if key is None:
+                        unmatched_entries.append(entry)
+                        continue
+                    matched.add(key)
                     # 失敗時（entry is None）は既存キャッシュを消さない。下のフォールバック
                     # ループがそれを使えるようにするため（成功時のみ上書き）。
                     if entry is not None:
                         _wind_forecast_cache[key] = (now, entry)
                         newly_fetched[key] = (now, entry)
                     results[key] = entry
+
+                remaining_keys = [key for key in to_fetch if key not in matched]
+                for key, entry in zip(remaining_keys, unmatched_entries):
+                    matched.add(key)
+                    if entry is not None:
+                        _wind_forecast_cache[key] = (now, entry)
+                        newly_fetched[key] = (now, entry)
+                    results[key] = entry
                 # 上流の応答件数がリクエストと食い違う異常時は、対応しきれない残りをNone扱いにする。
-                for key in to_fetch[len(entries) :]:
+                still_missing = remaining_keys[len(unmatched_entries) :]
+                for key in still_missing:
                     results[key] = None
+                if still_missing:
+                    fields["result"] = "error"
+                    fields["missing_locations"] = len(still_missing)
 
                 # 新規取得分をRedis（L2）へ書き戻す。プロセスが再起動しても次回はここから
                 # 拾えるようにする（改善計画「Open-Meteo 429根本対策」④）。書き込み失敗は

@@ -378,6 +378,46 @@ async def test_get_forecast_many_batches_uncached_points_into_one_request():
     assert results[WeatherClient.cache_key(points[1])]["tag"] == "b"
 
 
+async def test_get_forecast_many_matches_entries_by_coordinate_when_response_omits_a_location():
+    # 実機報告2026-08-31「風の面塗りが毎回同じ場所で切れる」の再現: Open-Meteoが応答で
+    # 中間の1地点(2点目)を省略した場合、以前の位置対応(zip)だと3点目以降の天気が
+    # ズレて割り当てられていた。各エントリ自身のlatitude/longitudeで対応付けることで、
+    # 省略された地点だけがNoneになり、後続の地点は正しい天気のまま残ることを確認する。
+    client = WeatherClient()
+    points = [
+        Coordinates(latitude=35.10, longitude=139.10),
+        Coordinates(latitude=35.20, longitude=139.20),
+        Coordinates(latitude=35.30, longitude=139.30),
+    ]
+    # 2点目(35.20, 139.20)を省略した応答（Open-Meteoの複数地点応答はlatitude/longitudeを
+    # 各エントリへ含める）。
+    payload = [
+        {"latitude": 35.10, "longitude": 139.10, "current": {}, "hourly": {}, "tag": "a"},
+        {"latitude": 35.30, "longitude": 139.30, "current": {}, "hourly": {}, "tag": "c"},
+    ]
+    http_client = FakeHttpClient(payload)
+
+    results = await client.get_forecast_many(http_client, points)
+
+    assert results[WeatherClient.cache_key(points[0])]["tag"] == "a"
+    assert results[WeatherClient.cache_key(points[1])] is None
+    assert results[WeatherClient.cache_key(points[2])]["tag"] == "c"
+
+
+async def test_get_forecast_many_falls_back_to_positional_pairing_without_coordinates():
+    # 応答エントリがlatitude/longitudeを持たない場合（フィクスチャ等）は、従来どおり
+    # リクエスト順の位置対応にフォールバックする。
+    client = WeatherClient()
+    payload = [{"current": {}, "hourly": {}, "tag": "a"}, {"current": {}, "hourly": {}, "tag": "b"}]
+    http_client = FakeHttpClient(payload)
+    points = [Coordinates(latitude=35.10, longitude=139.10), Coordinates(latitude=35.20, longitude=139.20)]
+
+    results = await client.get_forecast_many(http_client, points)
+
+    assert results[WeatherClient.cache_key(points[0])]["tag"] == "a"
+    assert results[WeatherClient.cache_key(points[1])]["tag"] == "b"
+
+
 async def test_get_forecast_many_dedupes_points_rounding_to_same_cache_key():
     client = WeatherClient()
     http_client = FakeHttpClient([{"current": {}, "hourly": {}}])
