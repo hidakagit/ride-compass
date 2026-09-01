@@ -86,7 +86,6 @@ class FakeRoadGraphRepository:
         self.designated_edge_ids: set = set()
         self._accident_years_covered = 0
         self.get_graph_topology_in_bbox_call_count = 0
-        self.get_edge_attribute_counts_call_count = 0
         self.get_elevation_attributes_call_count = 0
         self.get_designated_edge_ids_call_count = 0
         self.get_accident_years_covered_call_count = 0
@@ -228,10 +227,6 @@ class FakeRoadGraphRepository:
     async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> RoadGraphLike | None:
         self.get_graph_topology_in_bbox_call_count += 1
         return await self.get_graph_in_bbox(bbox)
-
-    async def get_edge_attribute_counts(self, edge_ids):
-        self.get_edge_attribute_counts_call_count += 1
-        return {edge_id: self.edge_attribute_counts[edge_id] for edge_id in edge_ids if edge_id in self.edge_attribute_counts}
 
     async def get_elevation_attributes(self, edge_ids):
         self.get_elevation_attributes_call_count += 1

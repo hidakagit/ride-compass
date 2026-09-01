@@ -61,9 +61,9 @@ def _redis_key(station_id: str) -> str:
     return f"{_REDIS_KEY_PREFIX}:{station_id}"
 
 
-def _nearest_station(stations: dict, point: Coordinates) -> tuple[str, str, float, float] | None:
-    """station_id -> (station_id, 名称, 緯度, 経度)の最寄り観測所を返す。"""
-    best: tuple[str, str, float, float] | None = None
+def _nearest_station(stations: dict, point: Coordinates) -> str | None:
+    """最寄り観測所のstation_idを返す。"""
+    best_station_id: str | None = None
     best_distance = float("inf")
     for station_id, entry in stations.items():
         lat = entry.get("lat")
@@ -77,8 +77,8 @@ def _nearest_station(stations: dict, point: Coordinates) -> tuple[str, str, floa
         distance = haversine_distance_km(point, LatLonPoint(latitude=latitude, longitude=longitude))
         if distance < best_distance:
             best_distance = distance
-            best = (station_id, name, latitude, longitude)
-    return best
+            best_station_id = station_id
+    return best_station_id
 
 
 class JmaAmedasService:
@@ -93,10 +93,9 @@ class JmaAmedasService:
         stations = await jma_amedas_client.fetch_station_table(self._http_client)
         if not stations:
             return None
-        nearest = _nearest_station(stations, point)
-        if nearest is None:
+        station_id = _nearest_station(stations, point)
+        if station_id is None:
             return None
-        station_id, _name, _latitude, _longitude = nearest
         observation = await self._get_from_redis(station_id)
         if observation is None:
             return None
