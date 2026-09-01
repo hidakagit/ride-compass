@@ -652,6 +652,53 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-b","route-a"]');
     });
   });
+
+  it("改善計画T535: 「ルートをクリア」は実験スロットも空にする（地図に残る色付き線の原因だった）", async () => {
+    // ユーザー報告「ルートをクリアしても地図に緑の線が残る」の再発防止。研究モード中の
+    // 生成はexperimentSlotsへ記録され地図へ重ね描きされるが、以前はhandleRoutesClearが
+    // experimentSlotsに触れていなかった（リポジトリ全体でも空にする経路が他に無かった）。
+    //
+    // routes=[]になるとrenderRouteOutcomeSectionBody自体がnullを返し比較タブ
+    // （comparison-slots testid）ごと一時的にアンマウントされるため、クリア直後に
+    // 直接「[]」を検証することはできない。代わりに、クリア後にもう一度生成して
+    // 新しいスロットだけが積まれる（クリア前のroute-aが残っていれば2件になるはず）
+    // ことで、experimentSlots状態が実際に空へ戻ったことを間接的に確認する。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes)
+      .mockResolvedValueOnce({
+        routes: [makeCandidate({ id: "route-a" })],
+        conditions: makeConditions(),
+        engine: "road_graph",
+      })
+      .mockResolvedValueOnce({
+        routes: [makeCandidate({ id: "route-b" })],
+        conditions: makeConditions(),
+        engine: "road_graph",
+      });
+    const HomeFresh = await renderFreshHome({
+      realRouteForm: true,
+      researchEnabled: true,
+      exposeComparisonSlots: true,
+    });
+    render(<HomeFresh />);
+
+    const generateButton = screen.getByRole("button", { name: "ルート生成" });
+    await user.click(generateButton);
+    await waitFor(() => {
+      expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-a"]');
+    });
+
+    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    // 比較タブごと一時的に消える（routes=[]でrenderRouteOutcomeSectionBodyがnullを返す）。
+    expect(screen.queryByTestId("comparison-slots")).not.toBeInTheDocument();
+
+    await user.click(generateButton);
+    await waitFor(() => {
+      // route-aが残っていれば'["route-b","route-a"]'になるはずだが、クリアで
+      // experimentSlotsが空になっているためroute-bだけになる。
+      expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-b"]');
+    });
+  });
 });
 
 describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列fetchの競合対策", () => {

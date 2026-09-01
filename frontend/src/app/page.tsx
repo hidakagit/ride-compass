@@ -388,15 +388,6 @@ export default function Home() {
   // 生成成功時にここへ複製するだけでよい（バックエンド変更不要）。
   const [generatedRoutePreference, setGeneratedRoutePreference] = useState<RoutePreferenceWeights | null>(null);
 
-  // 改善計画T365: 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。
-  // 経由地・目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。
-  const handleRoutesClear = useCallback(() => {
-    setRoutes([]);
-    setSelectedRouteId(null);
-    setGeneratedConditions(null);
-    setGeneratedRoutePreference(null);
-  }, []);
-
   // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
   // 生成リクエストからscoring_weights/route_preferenceを省略し、既存挙動（YAML既定値）を
   // 完全に維持する（一般ユーザーには影響しない）。route_preference/routePreference自体は
@@ -424,6 +415,24 @@ export default function Home() {
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
   const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
+
+  // 改善計画T365: 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。
+  // 経由地・目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。
+  // 改善計画T535（ユーザー報告「ルートをクリアしても地図に緑の線が残る」の調査で発見）:
+  // 研究モード中の生成はexperimentSlotsへも記録され地図へ重ね描きされる
+  // （EXPERIMENT_SLOT_COLORS[0]="#16a34a"=緑）が、以前はこの関数がexperimentSlotsに
+  // 触れておらず、リポジトリ全体を見てもexperimentSlotsを空にする経路が他に一切
+  // 無かった（ページ再読み込み以外に消す手段が無い状態）。「ルートをクリア」を押した
+  // 見た目どおり地図が空になるよう、実験スロットも同時にクリアする（ユーザー判断
+  // 2026-09-02: 比較履歴を残す設計よりも「クリアしたら地図が本当に空になる」という
+  // 一般的な期待を優先）。
+  const handleRoutesClear = useCallback(() => {
+    setRoutes([]);
+    setSelectedRouteId(null);
+    setGeneratedConditions(null);
+    setGeneratedRoutePreference(null);
+    setExperimentSlots([]);
+  }, []);
 
   // MapViewから伝わる現在のビューポート（改善計画T180、MapView.tsx: onViewportChange参照）。
   // moveend/zoomendのたびに素の値が来るため、フェッチ用にはデバウンスして使う

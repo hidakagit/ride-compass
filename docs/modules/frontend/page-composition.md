@@ -155,7 +155,9 @@ Radix Tabs（`@radix-ui/react-tabs`）で「ルート選択」・「比較」（
 持つため、非アクティブ中も状態更新を止めないよう`forceMount`でマウントし続け、
 `[data-state="inactive"]`のCSSで非表示にする）の最大2タブに切り替える。「ルートを
 クリア」（`handleRoutesClear`）はタブと同じ行に置くがTabs.Listの外の独立したボタンで、
-選択状態を持たず押した瞬間に実行する。
+選択状態を持たず押した瞬間に実行する。`routes`・`selectedRouteId`・
+`generatedConditions`・`generatedRoutePreference`に加え`experimentSlots`
+（比較タブ・地図重ね描き用の履歴）も同時に空にする（[T535](../../tasks/T535.md)）。
 
 「ルート選択」タブは`RouteList`（候補一覧、おすすめ度=`total_score`の表示はここのみ）に
 続けて、`selectedCandidate`があるときだけ`RouteAxisProfile`を同じタブ内に表示する
