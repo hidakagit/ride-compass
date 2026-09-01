@@ -61,6 +61,13 @@
 .stackBarWrap {
   display: flex;
   flex-direction: column;
+  /* モバイルのBottomSheetでは「重み配分」がシート見出し直下の最初の要素になり、
+     見出しとの隙間が狭い。ドラッグ中バッジ（.stackBarDragBadge、帯の上に浮く）が
+     軸ラベル併記で高さを持つため、見出しと重ならないよう上に余白を確保する。
+     --space-4はモバイル（640px以下、globals.css）で0.75rem=12pxまで圧縮され
+     バッジの高さ（実測約25px）+margin-bottom(4px)を確保しきれないため、圧縮対象外の
+     固定値にする。 */
+  margin-top: 24px;
 }
 
 .stackBarHeader {
