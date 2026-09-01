@@ -15,7 +15,10 @@ from app.domain.evaluation import (
     axis_inspector_breakdown,
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
+    compute_edge_axis_scores_from_static_data,
     compute_edge_cost,
+    compute_edge_cost_from_static_data,
+    compute_edge_static_axis_data,
     compute_wind_penalty,
     is_edge_allowed,
 )
@@ -321,6 +324,120 @@ def test_compute_edge_cost_respects_custom_weights():
     assert road_focused.difficulty == 0.0
     # 勾配だけを考慮する重みなら、激坂のgradient_difficultyがそのままdifficultyになる
     assert elevation_focused.difficulty > road_focused.difficulty
+
+
+# --- 改善計画T534: 軸別スコアの事前計算キャッシュ（compute_edge_*_from_static_data）が
+# 非キャッシュ版とビット単位で同じ結果を返すことの回帰確認 ---
+
+
+def _assert_static_data_path_matches_original(
+    edge: DirectedEdge,
+    elevation: ElevationAttribute | None,
+    surface: str | None,
+    preference: RoutePreference,
+    **kwargs,
+) -> None:
+    """`compute_edge_cost`/`compute_edge_axis_scores`（非キャッシュ）と
+    `compute_edge_cost_from_static_data`/`compute_edge_axis_scores_from_static_data`
+    （T534、Edge単位でキャッシュしてよい静的軸別スコアを経由する版）が、同じ引数から
+    常に同じ結果を返すことを確認する共通アサーション。`kwargs`は両関数に共通する
+    パラメータ（wind/stop_count/way_tags/intersection_count/accident_count/
+    accident_years_covered/is_designated/penalty_strength/max_average_grade_percent/
+    weights/hard_filters）をそのまま渡す。
+    """
+    wind = kwargs.pop("wind", None)
+    static_only_kwargs = {
+        k: v
+        for k, v in kwargs.items()
+        if k in {
+            "stop_count", "way_tags", "intersection_count", "accident_count",
+            "accident_years_covered", "is_designated",
+        }
+    }
+
+    original_scores = compute_edge_axis_scores(edge, elevation, surface, wind, **static_only_kwargs)
+    static_data = compute_edge_static_axis_data(edge, elevation, surface, **static_only_kwargs)
+    cached_scores = compute_edge_axis_scores_from_static_data(edge, static_data, wind)
+    assert cached_scores == original_scores
+
+    original_cost = compute_edge_cost(edge, elevation, surface, preference, wind=wind, **kwargs)
+    cached_cost = compute_edge_cost_from_static_data(
+        edge, static_data, elevation, kwargs.get("way_tags"), preference, wind=wind,
+        penalty_strength=kwargs.get("penalty_strength", 1.0),
+        max_average_grade_percent=kwargs.get("max_average_grade_percent"),
+        weights=kwargs.get("weights"), hard_filters=kwargs.get("hard_filters"),
+    )
+    assert cached_cost.edge_id == original_cost.edge_id
+    assert cached_cost.allowed == original_cost.allowed
+    assert cached_cost.cost == original_cost.cost
+    assert cached_cost.difficulty == original_cost.difficulty
+
+
+def test_static_data_path_matches_original_for_flat_and_paved():
+    edge = _edge(distance_m=100.0)
+    _assert_static_data_path_matches_original(edge, _elevation_attr(0.0), "asphalt", RoutePreference())
+
+
+def test_static_data_path_matches_original_for_missing_attributes():
+    edge = _edge(distance_m=250.0)
+    _assert_static_data_path_matches_original(edge, None, None, RoutePreference())
+
+
+def test_static_data_path_matches_original_for_steep_and_unpaved():
+    edge = _edge(distance_m=100.0)
+    _assert_static_data_path_matches_original(edge, _elevation_attr(12.0), "gravel", RoutePreference())
+
+
+def test_static_data_path_matches_original_for_headwind():
+    edge = _edge(distance_m=100.0, bearing_deg=0.0)
+    _assert_static_data_path_matches_original(
+        edge, _elevation_attr(0.0), "asphalt", RoutePreference(), wind=_wind(8.0, 0.0)
+    )
+
+
+def test_static_data_path_matches_original_for_tailwind():
+    edge = _edge(distance_m=100.0, bearing_deg=0.0)
+    _assert_static_data_path_matches_original(
+        edge, _elevation_attr(0.0), "asphalt", RoutePreference(), wind=_wind(8.0, 180.0)
+    )
+
+
+def test_static_data_path_matches_original_without_wind():
+    edge = _edge(distance_m=100.0, bearing_deg=0.0)
+    _assert_static_data_path_matches_original(edge, _elevation_attr(0.0), "asphalt", RoutePreference())
+
+
+def test_static_data_path_matches_original_with_full_materials():
+    # stop_count・way_tags・intersection_count・accident_count・is_designated・風の
+    # すべてが揃った、実際の探索ホットパスに近い組み合わせで一致を確認する。
+    edge = _edge(distance_m=1000.0, bearing_deg=45.0, highway="residential")
+    _assert_static_data_path_matches_original(
+        edge, _elevation_attr(6.0), "gravel", RoutePreference(),
+        wind=_wind(5.0, 90.0), stop_count=3, way_tags={"highway": "residential", "lit": "yes"},
+        intersection_count=2, accident_count=1.0, accident_years_covered=5, is_designated=True,
+    )
+
+
+def test_static_data_path_matches_original_when_hard_constraint_excludes_edge():
+    edge = _edge(highway="residential")
+    _assert_static_data_path_matches_original(
+        edge, None, None, RoutePreference(), way_tags={"bicycle": "no"}
+    )
+
+
+def test_static_data_path_matches_original_with_custom_weights_and_penalty_strength():
+    edge = _edge(distance_m=100.0)
+    _assert_static_data_path_matches_original(
+        edge, _elevation_attr(12.0), "asphalt", RoutePreference(),
+        weights={"gradient": 1.0, "surface_q": 0.0}, penalty_strength=2.0,
+    )
+
+
+def test_static_data_path_matches_original_with_max_average_grade_percent_exclusion():
+    edge = _edge(distance_m=100.0)
+    _assert_static_data_path_matches_original(
+        edge, _elevation_attr(12.0), "asphalt", RoutePreference(), max_average_grade_percent=5.0,
+    )
 
 
 # --- 改善計画T142: 二次(compute_edge_axis_scores)・三次(compute_cost_from_axis_scores)の分離 ---

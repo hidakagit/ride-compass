@@ -18,6 +18,7 @@ from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
+from app.infrastructure import axis_score_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
@@ -815,9 +816,14 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
     )
 
     flat_context = await flat_generator._engine.prepare(ORIGIN, radius_km=1.0)
-    steep_context = await steep_generator._engine.prepare(ORIGIN, radius_km=1.0)
-
     flat_cost = _lazy_edge_cost(flat_generator._engine, flat_context, "a", "b")
+    # 改善計画T534: axis_score_cache（Edge単位の静的軸別スコアキャッシュ）は「同じedge_id
+    # なら同じ材料」という、本番ではgraph_material_cacheが保証する前提に依存する。この
+    # テストはあえて同じedge_id"e1"を「事前計算データ無し」「有り」という2つの別シナリオへ
+    # 使い回す（本番では起きない構造）ため、steep側のprepare前に明示的にクリアし、
+    # flat側で積んだキャッシュをsteep側が誤って再利用しないようにする。
+    axis_score_cache.clear()
+    steep_context = await steep_generator._engine.prepare(ORIGIN, radius_km=1.0)
     steep_cost = _lazy_edge_cost(steep_generator._engine, steep_context, "a", "b")
     # 事前計算データが無い（{}のまま=バッチ未実行を模す）場合はgradient軸がデータ無し扱いで
     # 割増が乗らない。事前計算済みの急勾配が渡されるとgradient軸の割増がコストへ反映される。

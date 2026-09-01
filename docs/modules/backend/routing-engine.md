@@ -4,7 +4,7 @@
 
 出発地点（＋任意で経由地・目的地）から、周回または経由地ルートの候補を複数生成し、
 距離・難易度でスコアリングして返す。実際の経路計算・軸評価はroad_graphエンジン
-（自前Road Graph + scipy Dijkstra）が担う。Road Graph自体（ノード・Edge・交差点分割・
+（自前Road Graph + rustworkxのlazy A*）が担う。Road Graph自体（ノード・Edge・交差点分割・
 空間索引）の構築・永続化・キャッシュもこのモジュールが担う。
 
 **対象ファイル**
@@ -13,14 +13,15 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py` |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`axis_score_cache.py` |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py` |
 
-road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `scipy.sparse.csgraph`の
-Dijkstraで経路計算する。標高（勾配）は事前計算済み`elevation_attributes`をキー参照
-するだけで組み込み済み（探索中にGSI API呼び出しは発生しない）。風は出発時点の起点
-付近の風をルート全体へ一様適用する（探索中は到達時刻が未確定のため）。
+road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `rustworkx`のlazy
+A*（`edge_cost_fn`コールバック、探索が実際に訪れたEdgeのみコストを計算する）で
+経路計算する。標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで
+組み込み済み（探索中にGSI API呼び出しは発生しない）。風は出発時点の起点付近の風を
+ルート全体へ一様適用する（探索中は到達時刻が未確定のため）。
 
 `RouteGenerateRequest.waypoints`/`destination`（経由地・目的地指定）にも対応する
 （`api/routers/routes.py: generate_routes`）。
@@ -85,8 +86,10 @@ RouteGenerator.generate_loops()
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
-自前Road Graphを`GraphService`経由で取得し、`domain/routing.py`のsparse-graph Dijkstra
-（`scipy.sparse.csgraph`）で探索する。
+自前Road Graphを`GraphService`経由で取得し、`domain/routing.py`のlazy評価A*
+（`rustworkx`）で探索する。Edgeコストは探索前に一括計算せず、A*が実際に訪れたEdgeに
+対してのみ`edge_cost_fn`コールバックが都度呼ばれる（bbox全体[数十万Edge]のうち実際に
+訪れるのはごく一部のため、事前一括計算より大幅に少ない計算量で済む）。
 
 ### `prepare(origin, radius_km, waypoints=None)`
 
@@ -97,15 +100,21 @@ RouteGenerator.generate_loops()
 - **waypoints指定（経由地・目的地）**: `_bbox_covering_points(origin, waypoints, ...)`
   （起点＋全経由地＋目的地を包含する矩形）。
 
-`GraphService.get_search_materials_for_bbox`でトポロジ＋5種材料（surface・
-edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids）をまとめて
-取得し、`_build_search_graph`で探索用グラフ（`domain/routing.py: SparseRoadGraph`、
-`NodeSpatialIndex`）を構築する。データ未整備（対象タイル未取込）ならNoneを返し、
-呼び出し元（`RouteGenerator`）が候補0件として扱う。
+`GraphService.get_search_materials_for_bbox`でトポロジ＋材料（surface・
+edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids、Edge単位で
+`EdgeMaterialBundle`へ統合済み）をまとめて取得し、`_build_search_graph`で探索用グラフ
+（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）を構築する。データ未整備
+（対象タイル未取込）ならNoneを返し、呼び出し元（`RouteGenerator`）が候補0件として扱う。
+
+`_build_edge_cost_fn`が組み立てる`edge_cost_fn`は、風以外の軸別スコア（タグパース・
+軸評価ループ）をEdge単位でプロセス内キャッシュする`infrastructure/axis_score_cache.py`
+（`graph_material_cache`とは別枠、軸スタジオでの軸定義編集時にはこちらだけが
+クリアされる）を経由する。1リクエスト内（最大24回＝8方位×3レグ）の重複計算は
+`_RoadGraphContext.cost_cache`で別途防ぐ。
 
 ### `trace_loop` / `evaluate_loops`
 
-`trace_loop`はDijkstraで経由地点間の最短経路（node列）を求め、`GraphService.
+`trace_loop`はA*で経由地点間の最短経路（node列）を求め、`GraphService.
 get_edges_with_geometry`で実ジオメトリを後付けする。`evaluate_loops`が標高・風・路面・
 車ストレス等の軸別difficultyを`domain/evaluation.py: compute_edge_axis_scores`で算出し、
 `_build_segment_details`で`RouteSegmentDetail`列へ組み立てる。
@@ -171,14 +180,23 @@ gather開始前のprepare段階で逐次呼ばれるため対象外）。同一`
 
 ### `domain/routing.py`
 
-- `SparseRoadGraph`/`build_sparse_graph`: 並列Edge（同じnode対の重複辺）は
-  コスト最小の1本を採用する（DB側の行順序に依存しない決定論的な選択）。
+- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフはトポロジのみ（Edgeコストを
+  事前計算しない）。並列Edge（同じnode対の重複辺）はコストで選べないため、edge_idの
+  昇順で先頭を決定論的に採用する。
+- `shortest_path_node_ids_lazy`: `rustworkx.astar_shortest_path`を、探索が実際に訪れた
+  Edgeに対してのみ都度呼ばれる`edge_cost_fn`コールバックでラップする。Hard Constraintで
+  除外するEdgeは`edge_cost_fn`が`math.inf`を返すことで表現する（`LazyRoadGraph`自体は
+  Hard Constraintを知らない）。経路確定後、合計コストが有限かを検算してから返す
+  （rustworkxが`inf`を「非常に高コストだが有効」として扱い、他に経路が無ければ
+  採用してしまうことがあるため）。
 - `NodeSpatialIndex`/`build_node_spatial_index`/`find_nearest_node_indexed`:
   グリッドバケットによる最近傍ノード探索。
-- `routable_node_ids`: 最近傍ノード探索は「ハード制約フィルタを通過したEdgeが
-  最低1本残るノード」だけに制限する（制限しないと孤立ノード——幹線道路にしか面していない
-  駅等——が最近傍として選ばれ、経路探索が失敗しうる）。
-- `shortest_path_node_ids_sparse`/`path_to_edge_ids_sparse`/`concat_node_paths`。
+- `compute_routable_node_ids`（`domain/evaluation.py`）: 最近傍ノード探索は「0次
+  ハードフィルタを通過したEdgeが最低1本残るノード」だけに制限する（制限しないと孤立
+  ノード——幹線道路にしか面していない駅等——が最近傍として選ばれ、経路探索が失敗しうる）。
+  lazy評価ではEdgeコストを事前計算しないため、Hard Constraintだけを軽量に評価する
+  専用関数として`domain/evaluation.py`に置く（`domain/routing.py`側には持たない）。
+- `path_to_edge_ids_lazy`/`concat_node_paths`。
 
 ### `domain/graph.py`
 
@@ -338,5 +356,9 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
   崩れることに注意。
 - **`graph_material_cache`はバージョン管理なし・プロセス寿命限定**——バッチ再実行後は
   プロセス再起動まで対象タイルが古い値を返す。
+- **`axis_score_cache`（Edge単位の静的軸別スコア）は`graph_material_cache`とは別枠**
+  ——軸スタジオでの軸定義編集（`AxisRegistryAdminService`→`refresh_axis_definitions`）
+  はこちらだけをクリアし、材料キャッシュ（DBアクセスを伴う取得）は温存する。編集直後の
+  最初のリクエストがDBへ再問い合わせせずに済む設計上の分離。
 - **`RouteScorer`は候補1件（waypoints指定ルート）に対しては呼ばれない**——曖昧な
   「常に満点」を避けるための意図的な設計。

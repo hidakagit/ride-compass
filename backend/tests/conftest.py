@@ -5,7 +5,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.infrastructure import redis_client
+from app.infrastructure import axis_score_cache, redis_client
 from app.infrastructure.road_graph_models import Base
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.realistic_axis_fixtures import realistic_axis_definitions
@@ -22,6 +22,23 @@ def _reset_redis_circuit_breaker():
     redis_client.reset_circuit_breaker()
     yield
     redis_client.reset_circuit_breaker()
+
+
+@pytest.fixture(autouse=True)
+def _clear_axis_score_cache():
+    """axis_score_cache（Edge単位の静的軸別スコア、改善計画T534）もプロセス内グローバル
+    状態のため、_reset_redis_circuit_breakerと同じ理由でテスト間の汚染を防ぐ。
+
+    多くのテストが"e1"・"e-ab"のような慣用的なedge_idを、テストごとに異なる材料
+    （way_tags・elevation_attribute等）で使い回す。本番のedge_idは実データ由来で
+    Edge単位の材料と一意に対応するため、風以外の軸別スコアをedge_id単位でキャッシュ
+    してよい設計が成立するが、テストの慣用edge_idはその前提を満たさないため、
+    クリアしないと別テストが積んだキャッシュを誤って再利用してしまう
+    （test_prepare_applies_precomputed_gradient_to_search_costで実際に発生・発覚した）。
+    """
+    axis_score_cache.clear()
+    yield
+    axis_score_cache.clear()
 
 
 @pytest.fixture(autouse=True, scope="session")

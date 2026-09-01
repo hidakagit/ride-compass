@@ -558,6 +558,63 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     return order
 
 
+# 改善計画T534: リクエストごとに値が変わりうる材料id（現状は風向・風速由来の
+# wind_penaltyのみ）。`MATERIAL_CATALOG`の`extractor=None`は「汎用抽出の対象外」という
+# 別の意味も持つフラグ（designation等、動的データ以外の理由でもNoneになる）のため流用せず、
+# ここに正準定義を置く。`dynamic_axis_topological_order`がこの集合を起点に、依存する軸を
+# 機械的に導出する（軸id・材料idのハードコードを個別の軸ぶん増やさない汎用設計、
+# CLAUDE.md「原則1」参照）。
+REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({"wind_penalty"})
+
+_DYNAMIC_AXIS_ORDER_CACHE_MAX_SIZE = 64
+_dynamic_axis_order_cache: dict[tuple[tuple[str, tuple[str, ...]], ...], list[str]] = {}
+
+
+def _axes_depending_on_materials(
+    material_ids: frozenset[str], definitions: dict[str, AxisDefinition]
+) -> set[str]:
+    """`definitions`内の各軸が、`material_ids`のいずれかを直接、または他の軸を介して
+    間接的に参照しているかを固定点反復で判定する（改善計画T534）。"""
+    dynamic: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for axis_id, definition in definitions.items():
+            if axis_id in dynamic:
+                continue
+            if any(m in material_ids or m in dynamic for m in definition.materials):
+                dynamic.add(axis_id)
+                changed = True
+    return dynamic
+
+
+def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> list[str]:
+    """`definitions`内の軸のうち`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に依存する軸を、
+    依存順（`topological_axis_order`のサブセット）で返す（改善計画T534）。
+
+    `compute_edge_axis_scores_from_static_data`（domain/evaluation.py）が、Edge単位で
+    事前計算・キャッシュ済みの静的軸別スコア（この関数が返す軸id集合には含まれない）を
+    そのまま使い、この関数が返す軸だけをリクエスト時に風を組み込んで再評価するために使う。
+    軸スタジオが新しく作る軸が風（または風に依存する既存軸）を参照した場合も、
+    ハードコード無しでこの集合へ自動的に含まれる。
+
+    `topological_axis_order`と同じ理由（Edge単位のホットパスで最大24回×訪問Edge数ぶん
+    呼ばれる）でプロセス内メモリへ内容ベースのキーでメモ化する。
+    """
+    cache_key = _topological_axis_order_cache_key(definitions)
+    cached = _dynamic_axis_order_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    dynamic_ids = _axes_depending_on_materials(REQUEST_DYNAMIC_MATERIAL_IDS, definitions)
+    order = [axis_id for axis_id in topological_axis_order(definitions) if axis_id in dynamic_ids]
+
+    if len(_dynamic_axis_order_cache) >= _DYNAMIC_AXIS_ORDER_CACHE_MAX_SIZE:
+        _dynamic_axis_order_cache.pop(next(iter(_dynamic_axis_order_cache)))
+    _dynamic_axis_order_cache[cache_key] = order
+    return order
+
+
 def default_axis_weights() -> dict[str, float]:
     """axis_idキーの既定重み辞書（APIで上書きされる前の値、`RoutePreference`の
     既定値・`GET /api/axis-catalog`のpreference_defaultsが共通で参照する単一

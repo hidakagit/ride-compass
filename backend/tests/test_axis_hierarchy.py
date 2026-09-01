@@ -23,6 +23,7 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     PriorityCondition,
     axis_dependencies,
+    dynamic_axis_topological_order,
     evaluate_axis_array,
     evaluate_axis_scalar,
     topological_axis_order,
@@ -378,3 +379,45 @@ def test_compute_edge_axis_scores_resolves_priority_override_through_hierarchy(i
     # 非舗装（surface_good=False）なら0次条件が発火せず通常のshape計算になる。
     not_overridden = compute_edge_axis_scores(_edge(), elevation, surface_type="ground")
     assert not_overridden["public_b"] == 50.0
+
+
+# --- dynamic_axis_topological_order（改善計画T534: 軸別スコアの事前計算キャッシュ） ---
+
+
+def test_dynamic_axis_topological_order_includes_axis_referencing_dynamic_material_directly():
+    definitions = {
+        "static": _linear_axis("static", "gradient_percent"),
+        "dynamic": _linear_axis("dynamic", "wind_penalty"),
+    }
+    assert dynamic_axis_topological_order(definitions) == ["dynamic"]
+
+
+def test_dynamic_axis_topological_order_includes_axis_referencing_dynamic_axis_indirectly():
+    # "downstream"は"dynamic"（風に直接依存）の結果を材料として参照するのみで、
+    # wind_penaltyを直接は参照しない。それでも間接依存として動的側へ含まれるべき
+    # （軸スタジオがどんな深さの依存連鎖を作っても、風の値が変われば再評価が必要なため）。
+    definitions = {
+        "static": _linear_axis("static", "gradient_percent"),
+        "dynamic": _linear_axis("dynamic", "wind_penalty"),
+        "downstream": _linear_axis("downstream", "dynamic"),
+    }
+    order = dynamic_axis_topological_order(definitions)
+    assert order == ["dynamic", "downstream"]  # 依存順（風→downstream）を維持する
+
+
+def test_dynamic_axis_topological_order_excludes_axes_not_depending_on_dynamic_materials():
+    definitions = {
+        "a": _linear_axis("a", "raw_material"),
+        "b": _linear_axis("b", "a"),
+    }
+    assert dynamic_axis_topological_order(definitions) == []
+
+
+def test_dynamic_axis_topological_order_matches_realistic_axis_definitions():
+    # 本番相当14軸（tests/realistic_axis_fixtures.py、conftest.pyのセッションスコープ
+    # フィクスチャがAXIS_DEFINITIONSへ用意済み）では、風に依存する軸は"wind"のみのはず
+    # （他軸がwind/wind_penaltyを参照する設計にはなっていない）。この前提が崩れて
+    # 新しい軸が風へ依存するようになった場合、compute_edge_axis_scores_from_static_data
+    # 側は自動的に追従するため実害は無いが、その前提が変わったこと自体をこのテストで
+    # 検知できるようにしておく。
+    assert dynamic_axis_topological_order(AXIS_DEFINITIONS) == ["wind"]

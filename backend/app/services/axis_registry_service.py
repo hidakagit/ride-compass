@@ -30,6 +30,7 @@ from app.domain.axis_definitions import (
     topological_axis_order,
 )
 from app.domain.material_catalog import is_known_material
+from app.infrastructure import axis_score_cache
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 logger = logging.getLogger("ridecompass.axis_registry")
@@ -131,6 +132,13 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(definitions)
+    # 改善計画T534: Edge単位の静的軸別スコアキャッシュ（axis_score_cache）は軸定義の
+    # 内容が変わるとEdge ID単位のキーだけでは古いスコアと見分けられないため、
+    # AXIS_DEFINITIONS更新と同じタイミングで明示的にクリアする（`await`を挟まない
+    # 同期ブロックのため、他のコルーチンが新旧混在の中間状態を観測することはない）。
+    # graph_material_cache（EdgeMaterialBundle等の材料そのもの）は意図的に温存する——
+    # 軸編集直後の最初のリクエストがDBへ再問い合わせせずに済む設計（docs/tasks/T534.md参照）。
+    axis_score_cache.clear()
 
 
 class AxisRegistryAdminService:

@@ -10,6 +10,8 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 正規化方式を発明せず、評価基準の食い違いも避ける。
 """
 
+from typing import Mapping
+
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
@@ -17,8 +19,10 @@ from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     default_axis_weights,
+    dynamic_axis_topological_order,
     evaluate_axes_scalar,
     evaluate_axis_array,
+    evaluate_axis_scalar,
     time_scoped_weights,
     topological_axis_order,
 )
@@ -391,9 +395,41 @@ def compute_edge_axis_scores(
     `is_designated`はこのEdgeがKSJ N10/N12（緊急輸送道路・重要物流道路）に該当するか
     （外部静的データソース T51）。車ストレスへの補正のみに使う。
     """
+    materials = _resolve_static_edge_materials(
+        edge, elevation_attribute, surface_type, stop_count, way_tags,
+        intersection_count, accident_count, accident_years_covered, is_designated,
+    )
+    materials["wind_penalty"] = compute_wind_penalty(edge, wind)
+    # 改善計画T292: 軸は他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
+    # 階層構造）。依存先（参照される軸）を先に評価し、結果をmaterialsへ混ぜ込みながら
+    # 進めることで、参照する側は追加のAPIなしに`materials.get(axis_id)`で読める
+    # （`evaluate_axes_scalar`参照）。ここでは値が算出できなかった公開軸のキー自体を
+    # 呼び出し元（RouteSegmentDetail構築側）へ渡さないよう、Noneのキーを落とす
+    # （`axis_inspector_breakdown`はavailable判定のためNoneのキーを残したまま返す点が
+    # 異なる）。
+    scores, _ = evaluate_axes_scalar(materials)
+    return {axis_id: value for axis_id, value in scores.items() if value is not None}
+
+
+def _resolve_static_edge_materials(
+    edge: EdgeLike,
+    elevation_attribute: ElevationAttribute | None,
+    surface_type: str | None,
+    stop_count: int | None,
+    way_tags: dict[str, str] | None,
+    intersection_count: int | None,
+    accident_count: int | None,
+    accident_years_covered: int,
+    is_designated: bool,
+) -> dict[str, object]:
+    """`compute_edge_axis_scores`/`compute_edge_static_axis_data`が共有する、風以外の
+    一次属性→材料解決ロジック（改善計画T534、以前は`compute_edge_axis_scores`内に直接
+    書かれていた処理を抽出）。戻り値は`wind_penalty`キーを含まない——Edgeの材料だけで
+    決まりリクエスト間で不変な部分のみを担当する（風の組み込みは呼び出し元の責務）。
+    パラメータの意味は`compute_edge_axis_scores`のdocstring参照。
+    """
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
     is_good_surface = classify_osm_surface(surface_type)
-    wind_penalty = compute_wind_penalty(edge, wind)
     stop_count_per_km = stop_count / (edge.distance_m / 1000) if stop_count is not None and edge.distance_m > 0 else None
     intersection_count_per_km = (
         intersection_count / (edge.distance_m / 1000) if intersection_count is not None and edge.distance_m > 0 else None
@@ -426,9 +462,8 @@ def compute_edge_axis_scores(
     # 解決済み材料の辞書に対してAXIS_DEFINITIONS（domain/axis_definitions.py）を
     # ループする。既存テンプレート＋既存材料で表現できる新しい軸は、定義データの
     # 追加だけでここへ反映される。
-    materials: dict[str, object] = {
+    return {
         "gradient_percent": gradient_percent,
-        "wind_penalty": wind_penalty,
         "surface_good": is_good_surface,
         "stop_count_per_km": stop_count_per_km,
         "intersection_count_per_km": intersection_count_per_km,
@@ -441,15 +476,71 @@ def compute_edge_axis_scores(
         "motor_vehicle_no": motor_vehicle_no,
         **night_materials(way_tags),
     }
-    # 改善計画T292: 軸は他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
-    # 階層構造）。依存先（参照される軸）を先に評価し、結果をmaterialsへ混ぜ込みながら
-    # 進めることで、参照する側は追加のAPIなしに`materials.get(axis_id)`で読める
-    # （`evaluate_axes_scalar`参照）。ここでは値が算出できなかった公開軸のキー自体を
-    # 呼び出し元（RouteSegmentDetail構築側）へ渡さないよう、Noneのキーを落とす
-    # （`axis_inspector_breakdown`はavailable判定のためNoneのキーを残したまま返す点が
-    # 異なる）。
-    scores, _ = evaluate_axes_scalar(materials)
-    return {axis_id: value for axis_id, value in scores.items() if value is not None}
+
+
+def compute_edge_static_axis_data(
+    edge: EdgeLike,
+    elevation_attribute: ElevationAttribute | None,
+    surface_type: str | None,
+    stop_count: int | None = None,
+    way_tags: dict[str, str] | None = None,
+    intersection_count: int | None = None,
+    accident_count: int | None = None,
+    accident_years_covered: int = 0,
+    is_designated: bool = False,
+) -> dict[str, object]:
+    """改善計画T534: 風を除いた一次属性から、静的な軸別スコアまで含めて評価済みの
+    materials_with_axes辞書（`evaluate_axes_scalar`の第2戻り値、材料＋内部軸＋公開軸の
+    スコアが混在する）を返す。戻り値はEdgeの材料だけで決まりリクエスト間で不変なため、
+    Edge単位でキャッシュしてよい（`infrastructure/axis_score_cache.py`参照）。
+
+    プロファイリング実測（cProfile、24.7万Edge）で、`compute_edge_cost`の累積時間の
+    6割超をタグパース・区分線形補間・軸評価ループ（本関数相当の処理）が占めており、
+    かつこれらは風以外のリクエスト依存性を持たないと判明したことを受けて追加した
+    （docs/tasks/T522.md「材料辞書統合＋EdgeCostResult.model_construct化」節参照）。
+
+    風に依存する軸（現状"wind"のみ、`domain/axis_definitions.py:
+    dynamic_axis_topological_order`が機械的に判定）はこの戻り値には正しい値を持たない
+    （wind_penaltyキー自体が無いため、該当軸はNoneのまま評価される）——
+    `compute_edge_axis_scores_from_static_data`が風を組み込んでリクエスト時に
+    別途評価する。パラメータの意味は`compute_edge_axis_scores`のdocstring参照。
+
+    「静的スコアだけを事前フィルタしてキャッシュし、動的軸はスキップして評価コスト自体を
+    省く」より踏み込んだ最適化も検討したが、実データベンチマーク（24.7万Edge）で
+    温キャッシュの改善（1.53→1.66倍）に対し初回訪問（冷キャッシュ）が悪化した
+    （0.82→0.77倍、`dynamic_axis_topological_order`呼び出しが2回に増える等の追加コストが
+    温キャッシュでの節約を上回った）ため見送り、この単純な設計を採用した
+    （docs/tasks/T534.md参照）。
+    """
+    materials = _resolve_static_edge_materials(
+        edge, elevation_attribute, surface_type, stop_count, way_tags,
+        intersection_count, accident_count, accident_years_covered, is_designated,
+    )
+    _, materials_with_axes = evaluate_axes_scalar(materials)
+    return materials_with_axes
+
+
+def compute_edge_axis_scores_from_static_data(
+    edge: EdgeLike, static_axis_data: Mapping[str, object], wind: WeatherConditions | None = None,
+) -> dict[str, float]:
+    """改善計画T534: `compute_edge_static_axis_data`の戻り値（Edge単位でキャッシュ済み）へ
+    リクエスト時点の風を組み込み、`compute_edge_axis_scores`と同じ契約（axis_id→difficulty、
+    評価できなかった軸はキー自体を含めない）で最終的な公開軸スコア辞書を返す。
+
+    風に依存しない軸は`static_axis_data`内の値をそのまま使い、
+    `dynamic_axis_topological_order`が返す軸（風、および風に依存する軸があれば連鎖的に）
+    だけをその場で再評価する。軸スタジオが新しく作る軸が風を参照した場合も、この関数・
+    キャッシュ側の変更無しで正しく再評価対象に含まれる。
+    """
+    materials_with_axes: dict[str, object] = dict(static_axis_data)
+    materials_with_axes["wind_penalty"] = compute_wind_penalty(edge, wind)
+    for axis_id in dynamic_axis_topological_order(AXIS_DEFINITIONS):
+        materials_with_axes[axis_id] = evaluate_axis_scalar(AXIS_DEFINITIONS[axis_id], materials_with_axes)
+    return {
+        axis_id: value
+        for axis_id, definition in AXIS_DEFINITIONS.items()
+        if definition.is_published and (value := materials_with_axes.get(axis_id)) is not None
+    }
 
 
 def compute_cost_from_axis_scores(
@@ -535,6 +626,43 @@ def compute_edge_cost(
         edge, elevation_attribute, surface_type, wind, stop_count, way_tags,
         intersection_count, accident_count, accident_years_covered, is_designated,
     )
+    resolved_weights = weights if weights is not None else preference.weights
+    cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
+
+    return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
+
+
+def compute_edge_cost_from_static_data(
+    edge: EdgeLike,
+    static_axis_data: Mapping[str, object],
+    elevation_attribute: ElevationAttribute | None,
+    way_tags: dict[str, str] | None,
+    preference: RoutePreference,
+    wind: WeatherConditions | None = None,
+    penalty_strength: float = 1.0,
+    max_average_grade_percent: float | None = None,
+    weights: dict[str, float] | None = None,
+    hard_filters: frozenset[str] | None = None,
+) -> EdgeCostResult:
+    """改善計画T534: `compute_edge_cost`のEdge単位キャッシュ活用版。
+
+    `static_axis_data`は`compute_edge_static_axis_data`の戻り値（Edge単位でタイル間
+    キャッシュ済み、`infrastructure/axis_score_cache.py`参照）。`compute_edge_cost`と
+    ビット単位で同一の結果を返す（`tests/test_evaluation.py`の回帰テストで確認済み）。
+
+    `is_edge_allowed`の判定材料（`way_tags`/`elevation_attribute`）はEdgeの材料そのもの
+    （動的要素を含まない）のため、`compute_edge_cost`と同じくそのまま受け取る——
+    キャッシュ対象は軸別スコアの算出だけで、Hard Constraint判定はキャッシュしない
+    （呼び出しコストが軽く、キャッシュの複雑化に見合わないため）。
+    """
+    if not is_edge_allowed(
+        edge, way_tags, hard_filters=hard_filters,
+        elevation_attribute=elevation_attribute,
+        max_average_grade_percent=max_average_grade_percent,
+    ):
+        return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
+
+    axis_scores = compute_edge_axis_scores_from_static_data(edge, static_axis_data, wind)
     resolved_weights = weights if weights is not None else preference.weights
     cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
 

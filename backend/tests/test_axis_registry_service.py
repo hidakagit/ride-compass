@@ -12,6 +12,7 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     MaterialTerm,
 )
+from app.infrastructure import axis_score_cache
 from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.services import axis_registry_service
@@ -84,6 +85,22 @@ async def test_refresh_replaces_axis_definitions_with_db_content(road_graph_sess
     await refresh_axis_definitions(repository)
 
     assert set(AXIS_DEFINITIONS.keys()) == {"test_axis"}
+
+
+async def test_refresh_clears_axis_score_cache(road_graph_session):
+    # 改善計画T534: Edge単位の静的軸別スコアキャッシュ（axis_score_cache）はAXIS_DEFINITIONS
+    # と同じタイミングでクリアされる必要がある——古いままだと軸編集後も編集前のスコアを
+    # 返し続けてしまう（infrastructure/axis_score_cache.pyのdocstring参照）。
+    axis_score_cache.set("edge-1", {"gradient": 50.0})
+    assert axis_score_cache.get("edge-1") is not None
+
+    repository = AxisDefinitionRepository(road_graph_session)
+    await repository.upsert(_definition("test_axis"), sort_order=0)
+    await repository.commit()
+
+    await refresh_axis_definitions(repository)
+
+    assert axis_score_cache.get("edge-1") is None
 
 
 async def test_refresh_raises_on_repository_error(road_graph_session):

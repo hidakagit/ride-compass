@@ -1104,16 +1104,13 @@ async def test_get_designated_edge_ids_ignores_kinds_outside_car_stress_set(road
 
 async def test_get_edge_materials_batch_returns_empty_for_empty_input(road_graph_repository):
     batch = await road_graph_repository.get_edge_materials_batch([])
-    assert batch.surface_attributes == {}
-    assert batch.edge_attribute_counts == {}
-    assert batch.way_tags == {}
-    assert batch.elevation_attributes == {}
-    assert batch.designated_edge_ids == set()
+    assert batch.materials == {}
 
 
 async def test_get_edge_materials_batch_combines_all_five_materials_correctly(road_graph_repository, road_graph_session):
     # 改善計画T248: 5メソッド個別呼び出しと同じ意味（該当行なしの扱い含む）を、
-    # 1回のJOINクエリへ統合した後も保つことを確認する回帰テスト。
+    # 1回のJOINクエリへ統合した後も保つことを確認する回帰テスト。改善計画T533:
+    # 戻り値はEdge単位でEdgeMaterialBundleへ統合済み（domain/attributes.py参照）。
     way = WaySpec(
         osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt",
         tags={"lanes": "2"},
@@ -1149,23 +1146,23 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
         [fwd_edge_id, bwd_edge_id, "nonexistent-edge"]
     )
 
-    # surface_attributes・way_tagsはLEFT JOINのため実在するEdgeは両方とも必ずkeyを持つ
+    # bundle自体（surface・way_tagsに相当）は実在するEdgeなら両方とも必ずkeyを持つ
     # （存在しないEdgeのみ除外される）。
-    assert set(batch.surface_attributes.keys()) == {fwd_edge_id, bwd_edge_id}
-    assert batch.surface_attributes[fwd_edge_id] == "asphalt"
-    assert batch.surface_attributes[bwd_edge_id] == "asphalt"
-    assert set(batch.way_tags.keys()) == {fwd_edge_id, bwd_edge_id}
-    assert batch.way_tags[fwd_edge_id] == {"lanes": "2"}
+    assert set(batch.materials.keys()) == {fwd_edge_id, bwd_edge_id}
+    assert batch.materials[fwd_edge_id].surface == "asphalt"
+    assert batch.materials[bwd_edge_id].surface == "asphalt"
+    assert batch.materials[fwd_edge_id].way_tags == {"lanes": "2"}
 
-    # edge_attribute_counts・elevation_attributesは該当行が無いbwdのkey自体が無い。
-    assert set(batch.edge_attribute_counts.keys()) == {fwd_edge_id}
-    counts = batch.edge_attribute_counts[fwd_edge_id]
-    assert (counts.accident_count, counts.stop_count, counts.intersection_count) == (1.5, 2, 3)
-    assert set(batch.elevation_attributes.keys()) == {fwd_edge_id}
-    assert batch.elevation_attributes[fwd_edge_id].start_elevation_m == 10.0
+    # attribute_counts・elevation_attributeは該当行が無いbwdだとNoneのまま。
+    fwd_counts = batch.materials[fwd_edge_id].attribute_counts
+    assert (fwd_counts.accident_count, fwd_counts.stop_count, fwd_counts.intersection_count) == (1.5, 2, 3)
+    assert batch.materials[bwd_edge_id].attribute_counts is None
+    assert batch.materials[fwd_edge_id].elevation_attribute.start_elevation_m == 10.0
+    assert batch.materials[bwd_edge_id].elevation_attribute is None
 
     # designationはosm_way_id単位のためfwd・bwd両方。
-    assert batch.designated_edge_ids == {fwd_edge_id, bwd_edge_id}
+    assert batch.materials[fwd_edge_id].is_designated is True
+    assert batch.materials[bwd_edge_id].is_designated is True
 
 
 async def _mark_tile_cached(session, zoom: int, x: int, y: int) -> None:

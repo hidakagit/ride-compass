@@ -28,10 +28,17 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   支配的コストだった（T522実測、王子30km周回でcost_ms=18,105ms）。実際にA*/Dijkstraが
   訪れるEdgeはbbox全体のごく一部（PoC実測で2.79%）のため、`rustworkx`の
   `edge_cost_fn`コールバック（訪れたEdgeに対してのみ都度呼ばれる）へ
-  スカラー版`compute_edge_cost`をラップして渡す設計へ変更した
+  スカラー版のコスト計算をラップして渡す設計へ変更した
   （`domain/routing.py: LazyRoadGraph`/`shortest_path_node_ids_lazy`参照）。
   1リクエスト内（最大24回＝8方位×3レグ）でEdgeコストの再計算を避けるため、
   `_RoadGraphContext.cost_cache`で結果を使い回す。
+- **改善計画T534（`docs/tasks/T534.md`）: 風以外の軸別スコアもEdge単位でプロセス内
+  キャッシュ**。T529のlazy評価後もcProfile実測で`compute_edge_cost`内部（タグパース・
+  軸評価ループ）が支配的コストと判明した。風以外の軸別スコアはEdgeの材料のみで決まり
+  リクエスト間で不変なため、`compute_edge_static_axis_data`の結果をEdge ID単位で
+  `infrastructure/axis_score_cache.py`へキャッシュし、`compute_edge_cost_from_static_data`
+  が風の組み込みと重み付き合成だけをリクエストごとに行う。`cost_cache`（1リクエスト内）
+  より寿命の長い、複数リクエストにまたがるプロセス内キャッシュである点が異なる。
 - `LazyRoadGraph`（domain/routing.py: build_lazy_road_graph）は同一ノード間の並行Edgeを
   1本しか保持しない。ただしコストを事前計算しないため「cost最小のEdgeを採用」はできず、
   edge_idの昇順で先頭を採用する決定的な選択に留める（改善計画T363の非決定性解消という
@@ -53,7 +60,8 @@ from app.domain.evaluation import (
     RoutePreference,
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
-    compute_edge_cost,
+    compute_edge_cost_from_static_data,
+    compute_edge_static_axis_data,
     compute_routable_node_ids,
     compute_wind_penalty,
 )
@@ -81,6 +89,7 @@ from app.domain.routing import (
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
+from app.infrastructure import axis_score_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
@@ -195,12 +204,13 @@ class RoadGraphEngine:
     ) -> Callable[[str], float]:
         """`shortest_path_node_ids_lazy`へ渡す`edge_cost_fn`を組み立てる（改善計画T529）。
 
-        探索が実際に訪れたEdge（edge_id）に対してのみ都度呼ばれ、スカラー版
-        `compute_edge_cost`（`domain/evaluation.py`、bulk版`compute_edge_costs_bulk`の
-        回帰テストオラクルとして現役）をそのまま使う。Hard Constraintで除外される
-        Edge（`allowed=False`）・コスト算出不能なEdgeは`math.inf`を返し、rustworkxの
-        探索から実質的に除外する（`LazyRoadGraph`はグラフ構築時にHard Constraintを
-        知らないため、コストが分かるここで表現する。`domain/routing.py:
+        探索が実際に訪れたEdge（edge_id）に対してのみ都度呼ばれ、`compute_edge_cost`
+        （`domain/evaluation.py`、bulk版`compute_edge_costs_bulk`の回帰テストオラクルとして
+        現役）と等価な`compute_edge_cost_from_static_data`（改善計画T534、Edge単位で
+        プロセス内キャッシュ済みの静的軸別スコアを再利用する版）を使う。Hard Constraintで
+        除外されるEdge（`allowed=False`）・コスト算出不能なEdgeは`math.inf`を返し、
+        rustworkxの探索から実質的に除外する（`LazyRoadGraph`はグラフ構築時にHard
+        Constraintを知らないため、コストが分かるここで表現する。`domain/routing.py:
         shortest_path_node_ids_lazy`のdocstring参照）。
 
         `cost_cache`は呼び出し元（`prepare`/`preview_segment`）が`_RoadGraphContext`に
@@ -227,15 +237,27 @@ class RoadGraphEngine:
             # Edge単位で統合済みの1オブジェクト（EdgeMaterialBundle）を1回引くだけで
             # 済むようにした（実データ計測で3.5倍、docs/tasks/T533.md参照）。
             bundle = materials.get(edge_id)
-            counts = bundle.attribute_counts if bundle else None
-            result = compute_edge_cost(
-                edge, bundle.elevation_attribute if bundle else None, bundle.surface if bundle else None,
-                preference, wind=wind, stop_count=counts.stop_count if counts else None,
-                way_tags=bundle.way_tags if bundle else None,
-                intersection_count=counts.intersection_count if counts else None,
-                accident_count=counts.accident_count if counts else None,
-                accident_years_covered=accident_years_covered,
-                is_designated=bundle.is_designated if bundle else False,
+            # 改善計画T534: 風以外の軸別スコア（タグパース・区分線形補間・軸評価ループ、
+            # cProfile実測でcompute_edge_costの累積時間の6割超）はEdgeの材料だけで決まり
+            # リクエスト間で不変なため、Edge単位でプロセス内キャッシュする
+            # （infrastructure/axis_score_cache.py参照）。初回訪問時のみ計算しキャッシュへ
+            # 積み、2回目以降は風の組み込みと重み付き合成だけで済む。
+            static_axis_data = axis_score_cache.get(edge_id)
+            if static_axis_data is None:
+                counts = bundle.attribute_counts if bundle else None
+                static_axis_data = compute_edge_static_axis_data(
+                    edge, bundle.elevation_attribute if bundle else None, bundle.surface if bundle else None,
+                    stop_count=counts.stop_count if counts else None,
+                    way_tags=bundle.way_tags if bundle else None,
+                    intersection_count=counts.intersection_count if counts else None,
+                    accident_count=counts.accident_count if counts else None,
+                    accident_years_covered=accident_years_covered,
+                    is_designated=bundle.is_designated if bundle else False,
+                )
+                axis_score_cache.set(edge_id, static_axis_data)
+            result = compute_edge_cost_from_static_data(
+                edge, static_axis_data, bundle.elevation_attribute if bundle else None,
+                bundle.way_tags if bundle else None, preference, wind=wind,
                 penalty_strength=penalty_strength, max_average_grade_percent=max_average_grade_percent,
                 weights=weights, hard_filters=hard_filters,
             )
