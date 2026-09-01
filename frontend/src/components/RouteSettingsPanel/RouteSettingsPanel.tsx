@@ -483,10 +483,19 @@ export default function RouteSettingsPanel({
                 >
                   {/* ユーザー要望（2026-08-31、「バーをドラッグ中に数字が出てほしい」）:
                       ドラッグ中だけ、両隣の%をフロートバッジで表示する（native title
-                      ツールチップはホバー限定でモバイルでは事実上見えないため）。 */}
+                      ツールチップはホバー限定でモバイルでは事実上見えないため）。
+                      改善計画: 数字だけでは境界の両側どちらの軸を指すか分からないという
+                      指摘（2026-09-02）を受け、軸ラベルを併記した。ラベル併記で幅が
+                      増えたため、バーの両端付近ではセンター寄せのままだとパネル外へ
+                      はみ出す（同時に指摘・確認済み）。端寄せ（data-align）で回避する。 */}
                   {isDragging && (
-                    <span className={styles.stackBarDragBadge} aria-hidden="true">
-                      {Math.round((leftWeight / total) * 100)}% / {Math.round((right.weight / total) * 100)}%
+                    <span
+                      className={styles.stackBarDragBadge}
+                      data-align={cumulativePct < 25 ? "start" : cumulativePct > 75 ? "end" : undefined}
+                      aria-hidden="true"
+                    >
+                      {left.label} {Math.round((leftWeight / total) * 100)}% / {right.axis.label}{" "}
+                      {Math.round((right.weight / total) * 100)}%
                     </span>
                   )}
                 </div>

@@ -201,6 +201,19 @@
   z-index: 10;
 }
 
+/* バーの両端付近のハンドルはセンター寄せ（既定）のままだとバッジがパネル外へ
+   はみ出す（軸ラベル併記で幅が増えたため）。端寄せへ切り替えて回避する。 */
+.stackBarDragBadge[data-align="start"] {
+  left: 0;
+  transform: none;
+}
+
+.stackBarDragBadge[data-align="end"] {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
 /* ユーザー要望（2026-08-31、「下の各軸毎の有効無効、スライドバーはなくしたい。どの軸が
    どの色なのか凡例をつけて、そのエリアで有効無効や説明文を巻き取れる？」）: チェックボックス
    +スライダーの縦積みリスト（旧.group/.row、以前はここへmax-height+overflow-y:autoを
