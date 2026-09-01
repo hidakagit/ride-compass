@@ -13,7 +13,7 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py` |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py` |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
 
@@ -195,20 +195,31 @@ road_nodes/road_edgesが空のままになるため）。
 ### タイル単位の探索用素材キャッシュ（`get_search_materials_for_bbox`）
 
 bboxをz12タイルへ分解し、`graph_material_cache`（材料、プロセス内LRU、上限2,000タイル）と
-`tile_score_matrix_cache`（改善計画T536の`StaticEdgeScoreMatrix`、材料キャッシュとは別枠の
+`tile_score_matrix_cache`（`StaticEdgeScoreMatrix`、材料キャッシュとは別枠の
 プロセス内LRU）をタイル単位で経由する。全タイルがキャッシュ済みならDBへの問い合わせも
 Edge単位の軸別スコア算出も発生しない（`_get_or_build_tile_score_matrix`）。戻り値は
-`tuple[SearchMaterials, StaticEdgeScoreMatrix]`——複数タイルにまたがる場合は
-`domain/evaluation.py: combine_static_edge_score_matrices`が後勝ちセマンティクスで1つに
-結合する（`combined_edges.update(...)`と同じ結合順序）。split鮮度が古い場合のみ
-`get_or_build_graph_with_attributes`のフル経路へフォールバックし（この場合もその場で
-`build_static_edge_score_matrix`を呼びスコア行列を構築する）、応答後にバックグラウンドで
-該当タイルを材料・スコア行列の両方とも温める（`_maybe_warm_tile_cache`→
+`tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]] | None]`——
+複数タイルにまたがる場合は`domain/evaluation.py: combine_static_edge_score_matrices`が
+後勝ちセマンティクスで1つに結合する（`combined_edges.update(...)`と同じ結合順序）。
+3要素目（タイル集合）は`_build_search_materials_from_tile_cache`経由の場合のみ
+覆う全z12タイルの集合を持ち、`RoadGraphEngine`が`infrastructure/search_graph_cache.py`
+（探索用グラフ・索引のタイル集合キーLRU）のキーとして使う。split鮮度が古い場合
+（`_build_search_materials_uncached`）はNone——このgraphはタイル境界と一致しない不完全な
+集合のため、タイルキャッシュ・search_graph_cacheのどちらへも書き込まない（応答後に
+バックグラウンドで該当タイルを材料・スコア行列の両方とも温める、`_maybe_warm_tile_cache`→
 `_warm_tile_cache_background`）。
 
-**暗黙の前提**: `graph_material_cache`は無効化方針として**バージョン管理を行わず
-プロセス寿命でのみキャッシュする**（ユーザー承認済み）。PBF再取込や各種precomputeバッチを
-実行しても、対象タイルの結果はプロセス再起動までキャッシュされた古い値のまま返る。
+**暗黙の前提**: `graph_material_cache`・`tile_score_matrix_cache`はプロセス内メモリLRUに
+加え、`infrastructure/tile_persistent_cache.py`へディスク永続化する（`backend/data/
+tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`と同じ考え方）。
+メモリmissでもディスクがあればDBへ問い合わせずに復元し、復元した値はメモリへも載せ直す。
+ディスク側の無効化はバージョン文字列をファイルパスへ埋め込む方式
+（`graph_material_cache.py: TILE_MATERIALS_CACHE_VERSION`・`tile_score_matrix_cache.py:
+TILE_SCORE_MATRIX_CACHE_VERSION`、いずれも`region_service.py: ROAD_SURFACE_TILE_VERSION`と
+同じ流儀）——PBF再取込・`presplit_road_graph.py`・関連precomputeバッチを実行したら手動で
+上げる（各定数のコメント・`docs/batch-pipeline-dependencies.md`参照）。軸定義編集
+（`refresh_axis_definitions`）は`tile_score_matrix_cache.clear()`がメモリ・ディスク
+両方を即座に削除する別経路（バージョン文字列は据え置いたまま）。
 
 ### `get_edges_with_geometry`の同時実行ロック
 
@@ -411,14 +422,19 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
   ——他のメソッドは常にgather開始前の逐次実行段階でしか呼ばれないためロック不要という
   前提に立っている。新しいメソッドを`trace_loop`のgather内から呼ぶ場合はこの前提が
   崩れることに注意。
-- **`graph_material_cache`はバージョン管理なし・プロセス寿命限定**——バッチ再実行後は
-  プロセス再起動まで対象タイルが古い値を返す。
-- **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列、改善計画T536）は
+- **`graph_material_cache`・`tile_score_matrix_cache`はプロセス内メモリLRU＋
+  `tile_persistent_cache.py`によるディスク永続化の2段構成**——ディスクの無効化は
+  `TILE_MATERIALS_CACHE_VERSION`/`TILE_SCORE_MATRIX_CACHE_VERSION`のバージョン文字列を
+  手動で上げる方式（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ流儀）。上げ忘れると
+  デプロイでプロセスが再起動しても対象タイルがディスク経由で古い値のまま返り続ける
+  （`docs/batch-pipeline-dependencies.md`「3. ランタイム側の読み取り元」参照）。
+- **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列）は
   `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集
   （`AxisRegistryAdminService`→`refresh_axis_definitions`）はこちらだけをクリアし、
   材料キャッシュ（DBアクセスを伴う取得）は温存する。編集直後の最初のリクエストが
-  DBへ再問い合わせせずに済む設計上の分離（旧`axis_score_cache`[Edge単位、T534]と
-  同じ設計意図をタイル粒度へ引き継いだもの）。
+  DBへ再問い合わせせずに済む設計上の分離。この`clear()`はメモリ・ディスク両方を
+  即座に削除する（バージョン文字列は据え置いたまま、軸編集はデプロイを伴わない
+  実行時操作のため）。
 - **`RouteScorer`は候補1件（waypoints指定ルート）に対しては呼ばれない**——曖昧な
   「常に満点」を避けるための意図的な設計。
 - **`search_graph_cache`（探索用グラフ・索引）はタイル集合キー**——

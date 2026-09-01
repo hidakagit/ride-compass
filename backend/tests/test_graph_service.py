@@ -7,7 +7,7 @@ from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeM
 from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
-from app.infrastructure import graph_material_cache
+from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import graph_service as graph_service_module
 from app.services.graph_service import GraphService
@@ -590,6 +590,41 @@ async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without
     assert first_tile_set is None
     assert second_tile_set == frozenset({(ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE)})
     assert third_tile_set == second_tile_set
+
+
+async def test_get_search_materials_for_bbox_survives_process_restart_via_disk_cache():
+    """改善計画T538: デプロイでコンテナが再起動すると、プロセス内メモリLRU
+    （graph_material_cache・tile_score_matrix_cache）は空になるが、ディスク永続化
+    キャッシュ（infrastructure/tile_persistent_cache.py）は残る。「メモリだけを空にする」
+    ことでこの状態を模し、再起動後もDBへ一切アクセスせずタイルを復元できることを確認する
+    （完了条件: デプロイ直後の最初のリクエストがDB読み出しを経由しない）。
+    """
+    service, repository = await _seeded_service_with_materials()
+
+    # 1〜3回目でタイルキャッシュ（メモリ+ディスク）を温める（既存テストと同じ手順）。
+    await service.get_search_materials_for_bbox(BBOX)
+    await service.get_search_materials_for_bbox(BBOX)
+    third = await service.get_search_materials_for_bbox(BBOX)
+    assert repository.get_graph_topology_in_bbox_call_count == 1
+    assert repository.get_edge_materials_batch_call_count == 2
+
+    # プロセス再起動を模す: メモリLRUだけを空にする（ディスクは温存）。新しいGraphService
+    # インスタンス（＝新しいrepositoryセッション相当）で、旧repositoryへのDBアクセスが
+    # 増えないことを確認する。
+    graph_material_cache._tile_materials_cache.clear()
+    tile_score_matrix_cache._cache.clear()
+    restarted_service = GraphService(repository=repository)
+
+    fourth = await restarted_service.get_search_materials_for_bbox(BBOX)
+
+    assert repository.get_graph_topology_in_bbox_call_count == 1
+    assert repository.get_edge_materials_batch_call_count == 2
+    assert fourth is not None
+    fourth_materials, fourth_score_matrix, fourth_tile_set = fourth
+    third_materials, third_score_matrix, third_tile_set = third
+    assert set(fourth_materials.graph.edges.keys()) == set(third_materials.graph.edges.keys())
+    assert fourth_tile_set == third_tile_set
+    assert fourth_score_matrix.edge_ids == third_score_matrix.edge_ids
 
 
 async def test_get_search_materials_for_bbox_accident_years_covered_is_cached_globally():

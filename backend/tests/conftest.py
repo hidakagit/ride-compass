@@ -5,7 +5,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.infrastructure import redis_client, tile_score_matrix_cache
+from app.infrastructure import redis_client, tile_persistent_cache, tile_score_matrix_cache
 from app.infrastructure.road_graph_models import Base
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from tests.realistic_axis_fixtures import realistic_axis_definitions
@@ -22,6 +22,24 @@ def _reset_redis_circuit_breaker():
     redis_client.reset_circuit_breaker()
     yield
     redis_client.reset_circuit_breaker()
+
+
+@pytest.fixture(autouse=True)
+def _use_temp_tile_persistent_cache_dir(tmp_path, monkeypatch):
+    """ディスク永続化キャッシュ（改善計画T538、infrastructure/tile_persistent_cache.py）の
+    保存先をテストごとの一時ディレクトリへ差し替える。
+
+    `graph_material_cache.clear()`・`tile_score_matrix_cache.clear()`（本ファイル・
+    test_graph_service.py・test_graph_material_cache.py等の多数のautouse/個別フィクスチャが
+    setup/teardownの両方で呼ぶ）は改善計画T538でディスク側（`tile_persistent_cache.
+    clear_namespace`、`shutil.rmtree`相当）も削除するようになった。差し替えないと実際の
+    `backend/data/tile_persistent_cache`配下を毎テストで削除・書き込みしてしまい、
+    並行テスト実行（pytest-xdist）間の競合や、本体の作業ツリーへの意図しない副作用を招く
+    （test_tile_cache.py: use_temp_cache_dirと同じ理由・同じパターン）。他のクリア系
+    フィクスチャより先に反映される必要があるため、モジュールの先頭側に置く（pytestは
+    同scope・同conftest内で宣言順に近い順序でautouseフィクスチャをセットアップする）。
+    """
+    monkeypatch.setattr(tile_persistent_cache, "CACHE_DIR", tmp_path / "tile_persistent_cache")
 
 
 @pytest.fixture(autouse=True)
