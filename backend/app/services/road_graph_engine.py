@@ -130,7 +130,7 @@ class _RoadGraphContext:
     # 表示用フィールド（surface等）取得には引き続き使う。
     materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
-    wind: WeatherConditions | None
+    weather: WeatherConditions | None
     origin_node: str
     # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
     # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
@@ -183,7 +183,7 @@ class _SearchGraph:
     # 改善計画T533: _RoadGraphContextと同じ理由でEdgeMaterialBundleへ統合済み。
     materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
-    wind: WeatherConditions | None
+    weather: WeatherConditions | None
     night_active: bool
     # 改善計画T536: _RoadGraphContextと同じ意味（フィールドdocstring参照）。
     cost_list: list[float]
@@ -271,9 +271,9 @@ class RoadGraphEngine:
         # グローバル値、GraphService側でプロセス内キャッシュ済み）。
         accident_years_covered = await self._graph_service.get_accident_years_covered()
 
-        wind_started = time.monotonic()
-        wind = await self._weather_service.get_conditions(wind_and_night_origin)
-        wind_ms = round((time.monotonic() - wind_started) * 1000)
+        weather_started = time.monotonic()
+        weather = await self._weather_service.get_conditions(wind_and_night_origin)
+        weather_ms = round((time.monotonic() - weather_started) * 1000)
         # 改善計画T173: 時間帯依存軸（time_scope="night_only"、現在はnight軸のみ）の
         # 動的化。区間ごとの到達時刻は探索中は未確定のため（風と同じモジュールdocstringの
         # 制約）、出発地点の座標・呼び出し時点を出発時刻の近似として採用し、起点が市民薄明の
@@ -297,7 +297,7 @@ class RoadGraphEngine:
         static_axis_scores = {
             axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
         }
-        dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, wind=wind)
+        dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, weather=weather)
         resolved_axis_scores = evaluate_dynamic_axis_arrays(static_axis_scores, dynamic_context)
         # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する
         # （compute_edge_costs_bulkの計算フェーズと同じ絞り込み、domain/evaluation.py参照）。
@@ -334,8 +334,8 @@ class RoadGraphEngine:
 
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
-            "_build_search_graph edges=%d nodes=%d materials_ms=%d wind_ms=%d cost_ms=%d graph_ms=%d total_ms=%d",
-            len(graph.edges), len(graph.nodes), materials_ms, wind_ms, cost_ms, graph_ms, total_ms,
+            "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d total_ms=%d",
+            len(graph.edges), len(graph.nodes), materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
         )
 
         return _SearchGraph(
@@ -343,7 +343,7 @@ class RoadGraphEngine:
             lazy_graph=lazy_graph,
             materials=edge_materials,
             accident_years_covered=accident_years_covered,
-            wind=wind,
+            weather=weather,
             night_active=night_active,
             cost_list=cost_list,
             full_edge_row=full_edge_row,
@@ -410,7 +410,7 @@ class RoadGraphEngine:
             graph=search.graph,
             materials=search.materials,
             accident_years_covered=search.accident_years_covered,
-            wind=search.wind,
+            weather=search.weather,
             origin_node=origin_node,
             node_index=node_index,
             lazy_graph=search.lazy_graph,
@@ -661,7 +661,7 @@ class RoadGraphEngine:
         geometry = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         road_score = _aggregate_road_score(edges_in_path, context.materials)
-        wind_score = _aggregate_wind_score(edges_in_path, context.wind)
+        wind_score = _aggregate_wind_score(edges_in_path, context.weather)
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
         # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
         # 集約する（Edge単位のままだと30km級で150〜230件になりペイロード・フロント
@@ -711,7 +711,7 @@ class RoadGraphEngine:
             surface_type = bundle.surface if bundle else None
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
-            wind_penalty = compute_wind_penalty(edge, context.wind)
+            wind_penalty = compute_wind_penalty(edge, context.weather)
             road_surface_good = classify_osm_surface(surface_type)
 
             row = context.full_edge_row.get(edge.edge_id)

@@ -268,8 +268,8 @@ def test_compute_edge_cost_headwind_costs_more_than_tailwind():
     elevation = _elevation_attr(0.0)
     surface = "asphalt"
 
-    headwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), wind=_wind(8.0, 0.0))
-    tailwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), wind=_wind(8.0, 180.0))
+    headwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 0.0))
+    tailwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 180.0))
 
     assert headwind_result.difficulty > tailwind_result.difficulty
     assert headwind_result.cost > tailwind_result.cost

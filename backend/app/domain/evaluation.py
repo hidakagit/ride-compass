@@ -363,7 +363,7 @@ def compute_edge_axis_scores(
     edge: EdgeLike,
     elevation_attribute: ElevationAttribute | None,
     surface_type: str | None,
-    wind: WeatherConditions | None = None,
+    weather: WeatherConditions | None = None,
     stop_count: int | None = None,
     way_tags: dict[str, str] | None = None,
     intersection_count: int | None = None,
@@ -401,7 +401,7 @@ def compute_edge_axis_scores(
         edge, elevation_attribute, surface_type, stop_count, way_tags,
         intersection_count, accident_count, accident_years_covered, is_designated,
     )
-    materials["wind_penalty"] = compute_wind_penalty(edge, wind)
+    materials["wind_penalty"] = compute_wind_penalty(edge, weather)
     # 改善計画T292: 軸は他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
     # 階層構造）。依存先（参照される軸）を先に評価し、結果をmaterialsへ混ぜ込みながら
     # 進めることで、参照する側は追加のAPIなしに`materials.get(axis_id)`で読める
@@ -510,7 +510,7 @@ def compute_edge_cost(
     elevation_attribute: ElevationAttribute | None,
     surface_type: str | None,
     preference: RoutePreference,
-    wind: WeatherConditions | None = None,
+    weather: WeatherConditions | None = None,
     stop_count: int | None = None,
     way_tags: dict[str, str] | None = None,
     intersection_count: int | None = None,
@@ -560,7 +560,7 @@ def compute_edge_cost(
         return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
 
     axis_scores = compute_edge_axis_scores(
-        edge, elevation_attribute, surface_type, wind, stop_count, way_tags,
+        edge, elevation_attribute, surface_type, weather, stop_count, way_tags,
         intersection_count, accident_count, accident_years_covered, is_designated,
     )
     resolved_weights = weights if weights is not None else preference.weights
@@ -620,7 +620,7 @@ def _evaluate_axes_bulk(
     graph: RoadGraphLike,
     elevation_attributes: dict[str, ElevationAttribute],
     surface_attributes: dict[str, str | None],
-    wind: WeatherConditions | None,
+    weather: WeatherConditions | None,
     stop_counts: dict[str, int] | None,
     way_tags: dict[str, dict[str, str]] | None,
     intersection_counts: dict[str, int] | None,
@@ -634,7 +634,7 @@ def _evaluate_axes_bulk(
     切り出したもの（元は`compute_edge_costs_bulk`本体に直接書かれていた処理、
     ロジック自体は移動のみで再実装していない）。
 
-    `wind=None`で呼ぶと、風に依存する軸（`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に
+    `weather=None`で呼ぶと、風に依存する軸（`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に
     依存する軸、現状"wind"のみ）の列は自然にNaNのままになる——`wind_penalty`材料を
     NaN配列にするだけで、`evaluate_axis_array`のrequired項がNaNを演算で自然に伝播させる
     ため、動的軸を特別扱いする分岐は不要。`build_static_edge_score_matrix`（タイル単位の
@@ -753,8 +753,8 @@ def _evaluate_axes_bulk(
     # --- 計算フェーズ（Pythonループ無し） ---
     wind_penalty = (
         np.full(n, np.nan)
-        if wind is None
-        else wind.wind_speed_ms * np.cos(np.radians(wind.wind_direction_deg - bearing_deg))
+        if weather is None
+        else weather.wind_speed_ms * np.cos(np.radians(weather.wind_direction_deg - bearing_deg))
     )
     # wind_penaltyはEdge単位のPythonループを経由しない完全ベクトル化計算のため
     # extractorを持たない（material_catalog.pyのextractorフィールド説明参照）。
@@ -875,7 +875,7 @@ def compute_edge_costs_bulk(
     elevation_attributes: dict[str, ElevationAttribute],
     surface_attributes: dict[str, str | None],
     preference: RoutePreference,
-    wind: WeatherConditions | None = None,
+    weather: WeatherConditions | None = None,
     stop_counts: dict[str, int] | None = None,
     way_tags: dict[str, dict[str, str]] | None = None,
     intersection_counts: dict[str, int] | None = None,
@@ -911,7 +911,7 @@ def compute_edge_costs_bulk(
     resolved_weights = weights if weights is not None else preference.weights
 
     evaluation = _evaluate_axes_bulk(
-        graph, elevation_attributes, surface_attributes, wind, stop_counts, way_tags,
+        graph, elevation_attributes, surface_attributes, weather, stop_counts, way_tags,
         intersection_counts, accident_counts, accident_years_covered, designated_edge_ids,
     )
     if not evaluation.edge_ids:
@@ -948,7 +948,7 @@ class StaticEdgeScoreMatrix:
     Edge）の後継——本行列はEdgeあたり軸の数×8バイト程度で収まる。
 
     `axis_scores`の列（`axis_ids`）は風などREQUEST_DYNAMIC_MATERIAL_IDSに依存する軸を
-    含む全公開軸だが、そのような軸の列は常にNaN（`_evaluate_axes_bulk`をwind=Noneで
+    含む全公開軸だが、そのような軸の列は常にNaN（`_evaluate_axes_bulk`をweather=Noneで
     呼ぶことで自然にそうなる）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
     実際の動的データ（風）で上書きする。
 
@@ -976,7 +976,7 @@ def build_static_edge_score_matrix(
 ) -> StaticEdgeScoreMatrix:
     """改善計画T536: タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ
     呼び、`StaticEdgeScoreMatrix`を構築する。`_evaluate_axes_bulk`（`compute_edge_costs_bulk`
-    と共有する抽出＋計算フェーズ）へ`wind=None`で渡すことで、動的軸の列は自然にNaNのまま
+    と共有する抽出＋計算フェーズ）へ`weather=None`で渡すことで、動的軸の列は自然にNaNのまま
     持たせる。
 
     `EdgeMaterialBundle`（Edge単位で統合済み、T533）を受け取り、`_evaluate_axes_bulk`が
@@ -1093,15 +1093,17 @@ class DynamicAxisRequestContext:
     """
 
     bearing_deg: np.ndarray
-    wind: WeatherConditions | None
+    weather: WeatherConditions | None
 
 
 def _evaluate_wind_penalty_array(context: DynamicAxisRequestContext) -> np.ndarray:
     """風向風速とEdgeの進行方位からwind_penalty配列を求める（`compute_wind_penalty`の
     ベクトル版、`_evaluate_axes_bulk`の計算フェーズと同じ式）。"""
-    if context.wind is None:
+    if context.weather is None:
         return np.full(context.bearing_deg.shape, np.nan)
-    return context.wind.wind_speed_ms * np.cos(np.radians(context.wind.wind_direction_deg - context.bearing_deg))
+    return context.weather.wind_speed_ms * np.cos(
+        np.radians(context.weather.wind_direction_deg - context.bearing_deg)
+    )
 
 
 # 改善計画T536: `REQUEST_DYNAMIC_MATERIAL_IDS`（axis_definitions.py）の各材料idを、

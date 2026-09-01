@@ -286,7 +286,7 @@ def make_generator(
     accident_counts: dict | None = None,
     accident_years_covered: int = 0,
     designated_edge_ids: set | None = None,
-    wind: WeatherConditions | None = None,
+    weather: WeatherConditions | None = None,
     route_preference: RoutePreference | None = None,
     elevation_attributes_for_search: dict | None = None,
     penalty_strength: float = 1.0,
@@ -304,7 +304,7 @@ def make_generator(
     engine = RoadGraphEngine(
         graph_service=graph_service,
         elevation_attribute_service=elevation_service,
-        weather_service=FakeWeatherService(wind),
+        weather_service=FakeWeatherService(weather),
         route_preference=preference,
         penalty_strength=penalty_strength,
         max_average_grade_percent=max_average_grade_percent,
@@ -639,7 +639,7 @@ async def test_candidate_accident_axis_is_absent_when_years_covered_is_zero():
 
 async def test_candidate_aggregates_wind_score_when_weather_available():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    wind = WeatherConditions(
+    weather = WeatherConditions(
         temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=5.0, wind_direction_deg=0.0,
         wind_direction_label="北", wind_gusts_ms=None, precipitation_probability_percent=None,
         precipitation_mm=None, uv_index=None, observed_at="t",
@@ -648,7 +648,7 @@ async def test_candidate_aggregates_wind_score_when_weather_available():
         temperature_max_c=None, temperature_min_c=None,
         uv_index_max=None, today_periods=[],
     )
-    generator, _, _ = make_generator(graph, wind=wind)
+    generator, _, _ = make_generator(graph, weather=weather)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
@@ -657,7 +657,7 @@ async def test_candidate_aggregates_wind_score_when_weather_available():
 
 async def test_candidate_wind_score_is_none_without_weather():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    generator, _, _ = make_generator(graph, wind=None)
+    generator, _, _ = make_generator(graph, weather=None)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
@@ -791,7 +791,7 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
             elevation_attribute=elevation_attr, is_designated=True,
         )
     }
-    wind = WeatherConditions(
+    weather = WeatherConditions(
         temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=5.0, wind_direction_deg=90.0,
         wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
         precipitation_mm=None, uv_index=None, observed_at="t",
@@ -807,12 +807,12 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
 
     context = road_graph_engine._RoadGraphContext(
         graph=graph, materials=materials, accident_years_covered=5,
-        wind=wind, origin_node="a",
+        weather=weather, origin_node="a",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None,
         node_pair_index={},
         **_build_context_score_fields(
-            graph, materials, preference, wind=wind, night_active=False, accident_years_covered=5,
+            graph, materials, preference, weather=weather, night_active=False, accident_years_covered=5,
         ),
     )
 
@@ -821,7 +821,7 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
     segment = segments[0]
 
     oracle_axis_scores = compute_edge_axis_scores(
-        edge, elevation_attr, "gravel", wind=wind, stop_count=3, way_tags=way_tags["e1"],
+        edge, elevation_attr, "gravel", weather=weather, stop_count=3, way_tags=way_tags["e1"],
         intersection_count=2, accident_count=1.0, accident_years_covered=5, is_designated=True,
     )
     _, oracle_difficulty = compute_cost_from_axis_scores(
@@ -1034,7 +1034,7 @@ def _build_context_score_fields(
     materials: dict,
     preference: RoutePreference,
     *,
-    wind: WeatherConditions | None = None,
+    weather: WeatherConditions | None = None,
     night_active: bool = False,
     accident_years_covered: int = 0,
     penalty_strength: float = 1.0,
@@ -1054,7 +1054,7 @@ def _build_context_score_fields(
     static_axis_scores = {
         axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
     }
-    dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, wind=wind)
+    dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, weather=weather)
     resolved_axis_scores = evaluate_dynamic_axis_arrays(static_axis_scores, dynamic_context)
     published_axis_arrays = {axis_id: resolved_axis_scores[axis_id] for axis_id in score_matrix.axis_ids}
 
@@ -1100,7 +1100,7 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     base_kwargs = dict(
         graph=base_graph,
         materials=materials, accident_years_covered=0,
-        wind=None, origin_node="a",
+        weather=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),
         lazy_graph=None,
         node_pair_index={},
@@ -1356,7 +1356,7 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         },
         edges={"e-fwd": edge_fwd, "e-bwd": edge_bwd},
     )
-    wind = WeatherConditions(
+    weather = WeatherConditions(
         temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=8.0, wind_direction_deg=90.0,
         wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
         precipitation_mm=None, uv_index=None, observed_at="t",
@@ -1372,16 +1372,16 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
     engine = RoadGraphEngine(
         graph_service=None,
         elevation_attribute_service=FakeElevationAttributeService({}),
-        weather_service=FakeWeatherService(wind),
+        weather_service=FakeWeatherService(weather),
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
         graph=graph, materials={}, accident_years_covered=0,
-        wind=wind, origin_node="o",
+        weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None,
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
-        **_build_context_score_fields(graph, {}, preference, wind=wind, night_active=False),
+        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
@@ -1417,11 +1417,11 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
     )
     context = road_graph_engine._RoadGraphContext(
         graph=graph, materials={}, accident_years_covered=0,
-        wind=None, origin_node="o",
+        weather=None, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None,
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
-        **_build_context_score_fields(graph, {}, preference, wind=None, night_active=False),
+        **_build_context_score_fields(graph, {}, preference, weather=None, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
@@ -1565,7 +1565,7 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         },
         edges={"e-fwd": edge_fwd, "e-bwd": edge_bwd},
     )
-    wind = WeatherConditions(
+    weather = WeatherConditions(
         temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=8.0, wind_direction_deg=90.0,
         wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
         precipitation_mm=None, uv_index=None, observed_at="t",
@@ -1581,16 +1581,16 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
     engine = RoadGraphEngine(
         graph_service=None,
         elevation_attribute_service=FakeElevationAttributeService({}),
-        weather_service=FakeWeatherService(wind),
+        weather_service=FakeWeatherService(weather),
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
         graph=graph, materials={}, accident_years_covered=0,
-        wind=wind, origin_node="o",
+        weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None,
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
-        **_build_context_score_fields(graph, {}, preference, wind=wind, night_active=False),
+        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=None, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]

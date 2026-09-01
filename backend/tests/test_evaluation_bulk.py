@@ -297,10 +297,10 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
     return graph, materials
 
 
-@pytest.mark.parametrize("wind", [None, WIND])
+@pytest.mark.parametrize("weather", [None, WIND])
 @pytest.mark.parametrize("max_average_grade_percent", [None, 8.0])
 @pytest.mark.parametrize("penalty_strength", [1.0, 2.5])
-def test_bulk_matches_scalar_for_every_edge(preference, wind, max_average_grade_percent, penalty_strength):
+def test_bulk_matches_scalar_for_every_edge(preference, weather, max_average_grade_percent, penalty_strength):
     graph, materials = _build_diverse_graph()
     weights = preference.weights
 
@@ -311,7 +311,7 @@ def test_bulk_matches_scalar_for_every_edge(preference, wind, max_average_grade_
             materials["surface_attributes"].get(edge_id),
             preference,
             weights=weights,
-            wind=wind,
+            weather=weather,
             stop_count=materials["stop_counts"].get(edge_id),
             way_tags=materials["way_tags"].get(edge_id),
             intersection_count=materials["intersection_counts"].get(edge_id),
@@ -329,7 +329,7 @@ def test_bulk_matches_scalar_for_every_edge(preference, wind, max_average_grade_
         materials["elevation_attributes"],
         materials["surface_attributes"],
         preference,
-        wind=wind,
+        weather=weather,
         stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
         intersection_counts=materials["intersection_counts"],
