@@ -26,6 +26,7 @@ from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
+from app.infrastructure import search_graph_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
@@ -35,6 +36,16 @@ from app.services.route_scorer import RouteScorer
 # 「car_stress/night等の実在axis_idを持つ一貫した軸システム」が必要（DBの現在値の検証が
 # 目的ではない）。tests/conftest.pyのセッションスコープautouseフィクスチャが全テスト共通で
 # 用意する（tests/realistic_axis_fixtures.py参照）。
+
+
+@pytest.fixture(autouse=True)
+def _clear_search_graph_cache():
+    # 改善計画T537: search_graph_cache（探索用グラフ・索引のタイル集合キーLRU）は
+    # プロセス内メモリのモジュールグローバルのため、テスト間で漏れないよう明示的に
+    # クリアする（test_graph_service.pyのgraph_material_cacheクリアと同じ規約）。
+    search_graph_cache.clear()
+    yield
+    search_graph_cache.clear()
 
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
@@ -145,8 +156,14 @@ class FakeGraphService:
         designated_edge_ids: set | None = None,
         elevation_attributes_for_search: dict | None = None,
         edges_with_geometry: dict | None = None,
+        tile_set: frozenset[tuple[int, int, int]] | None = None,
     ):
         self._graph = graph
+        # 改善計画T537: search_graph_cache（探索用グラフ・索引のタイル集合キーLRU）の
+        # 挙動を検証するテスト専用。既定None（このfake自体はタイルキャッシュを持たない、
+        # 通常のテストは従来どおりキャッシュを経由せず毎回構築する）で、指定した場合のみ
+        # get_search_materials_for_bboxの戻り値3つ目に使う。
+        self._tile_set = tile_set
         self._surface_attributes = surface_attributes or {}
         self._stop_counts = stop_counts or {}
         self._way_tags = way_tags or {}
@@ -178,14 +195,18 @@ class FakeGraphService:
         return self._graph, self._surface_attributes
 
     async def get_search_materials_for_bbox(self, bbox):
-        # 改善計画T219→T536: prepareが呼ぶ統合メソッドのfake。既存の個別fakeメソッド
+        # 改善計画T219→T536→T537: prepareが呼ぶ統合メソッドのfake。既存の個別fakeメソッド
         # （get_edge_attribute_counts等）を素材の出所として使い、二重にロジックを
         # 持たない（本物のGraphServiceがタイルキャッシュ経由で組み立てるのと同じ
         # 中身になることをテストの他アサーション側は期待していないため、call_count計測
         # 目的のget_or_build_graph_with_attributesを呼ぶだけでよい）。T536以降は
         # `StaticEdgeScoreMatrix`（build_static_edge_score_matrix、本物と同じ実装）も
         # あわせて返す——このfake自体はタイル単位キャッシュを持たない（呼ばれるたびに
-        # 実データから新規構築する）。
+        # 実データから新規構築する）。改善計画T537: 戻り値3つ目のタイル集合は常にNone
+        # （このfakeは「タイルキャッシュをそのまま結合したgraph」という前提を満たさない
+        # ため、search_graph_cache経由のキャッシュは常にバイパスされる。タイル集合を
+        # 実際に持つ経路の検証はtest_graph_service.py・本ファイルのFakeGraphServiceWithTileSet
+        # [search_graph_cache関連テスト]で行う）。
         self.last_bbox = bbox
         built = await self.get_or_build_graph_with_attributes(bbox)
         if built is None:
@@ -207,7 +228,7 @@ class FakeGraphService:
             for edge_id in edge_ids
         }
         score_matrix = build_static_edge_score_matrix(graph, materials, self._accident_years_covered)
-        return SearchMaterials(graph=graph, materials=materials), score_matrix
+        return SearchMaterials(graph=graph, materials=materials), score_matrix, self._tile_set
 
     async def get_edges_with_geometry(self, edge_ids):
         # 主経路（hydrated優先、road_graph_engine.py:341,386の`hydrated.get(edge_id) or
@@ -293,11 +314,12 @@ def make_generator(
     max_average_grade_percent: float | None = None,
     hard_filters: frozenset[str] | None = None,
     edges_with_geometry: dict | None = None,
+    tile_set: frozenset[tuple[int, int, int]] | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
         graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
         accident_counts, accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
-        edges_with_geometry,
+        edges_with_geometry, tile_set,
     )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
@@ -810,7 +832,6 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
         weather=weather, origin_node="a",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None,
-        node_pair_index={},
         **_build_context_score_fields(
             graph, materials, preference, weather=weather, night_active=False, accident_years_covered=5,
         ),
@@ -1029,6 +1050,161 @@ async def test_prepare_snaps_origin_away_from_node_isolated_by_hard_constraint()
     assert context.origin_node == "b"
 
 
+# --- 改善計画T537: search_graph_cache（探索用グラフ・索引のタイル集合キーLRU） ---
+#
+# GraphService.get_search_materials_for_bboxがタイル集合を返した場合のみ、prepare/
+# preview_segmentがLazyRoadGraph・NodeSpatialIndexをタイル集合（＋0次フィルタ）キーで
+# キャッシュする（road_graph_engine.py: _get_or_build_lazy_graph/_get_or_build_node_index
+# 参照）。FakeGraphServiceのtile_set引数で「タイルキャッシュ経由の正規パス」を模す。
+
+_TILE_SET_A = frozenset({(12, 100, 200)})
+_TILE_SET_B = frozenset({(12, 101, 200)})
+
+
+async def test_prepare_reuses_cached_lazy_graph_and_node_index_for_same_tile_set():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph, tile_set=_TILE_SET_A)
+
+    first = await generator._engine.prepare(ORIGIN, radius_km=30.0)
+    second = await generator._engine.prepare(ORIGIN, radius_km=30.0)
+
+    assert first is not None and second is not None
+    # 同一タイル集合への2回目のprepareは、LazyRoadGraph・NodeSpatialIndexいずれも
+    # 新規構築せずキャッシュ済みの同一オブジェクトを再利用する（アイデンティティ確認）。
+    assert first.lazy_graph is second.lazy_graph
+    assert first.node_index is second.node_index
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+    assert search_graph_cache.routable_index_cache_size() == 1
+
+
+async def test_prepare_builds_separately_for_different_tile_sets():
+    # 起点がタイル境界付近で0次フィルタ引数が変わらなくても、GraphServiceが返す
+    # タイル集合そのものが異なれば（bboxが覆うタイルが1枚ずれる等）別エントリになる
+    # ことを確認する（同一集合への誤ヒットが起きない回帰テスト）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator_a, _, _ = make_generator(graph, tile_set=_TILE_SET_A)
+    generator_b, _, _ = make_generator(graph, tile_set=_TILE_SET_B)
+
+    context_a = await generator_a._engine.prepare(ORIGIN, radius_km=30.0)
+    context_b = await generator_b._engine.prepare(ORIGIN, radius_km=30.0)
+
+    assert context_a is not None and context_b is not None
+    assert context_a.lazy_graph is not context_b.lazy_graph
+    assert context_a.node_index is not context_b.node_index
+    assert search_graph_cache.lazy_graph_cache_size() == 2
+    assert search_graph_cache.routable_index_cache_size() == 2
+
+
+async def test_prepare_shares_lazy_graph_but_separates_node_index_by_hard_filters():
+    # LazyRoadGraph（トポロジのみ）はタイル集合だけで決まるためhard_filtersが変わっても
+    # 共有できるが、NodeSpatialIndex（0次フィルタ通過後のroutable Nodeのみ）は
+    # hard_filters込みのキーで別エントリになる。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator_default, _, _ = make_generator(graph, tile_set=_TILE_SET_A)
+    generator_motorway_only, _, _ = make_generator(
+        graph, tile_set=_TILE_SET_A, hard_filters=frozenset({"motorway"})
+    )
+
+    context_default = await generator_default._engine.prepare(ORIGIN, radius_km=30.0)
+    context_motorway_only = await generator_motorway_only._engine.prepare(ORIGIN, radius_km=30.0)
+
+    assert context_default is not None and context_motorway_only is not None
+    assert context_default.lazy_graph is context_motorway_only.lazy_graph  # タイル集合だけで共有
+    assert context_default.node_index is not context_motorway_only.node_index  # hard_filtersで別
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+    assert search_graph_cache.routable_index_cache_size() == 2
+
+
+async def test_prepare_does_not_cache_when_tile_set_is_none():
+    # split鮮度が古くbbox限定で再構築した経路（GraphServiceがtile_set=Noneを返す場合、
+    # 通常のmake_generatorの既定）は、search_graph_cacheを一切経由せず毎回構築する
+    # （不完全な集合をキャッシュへ書き込んで後続の正規リクエストを壊さないための設計、
+    # graph_service.py: get_search_materials_for_bboxのtile_set docstring参照）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)  # tile_set未指定=None
+
+    first = await generator._engine.prepare(ORIGIN, radius_km=30.0)
+    second = await generator._engine.prepare(ORIGIN, radius_km=30.0)
+
+    assert first is not None and second is not None
+    assert first.lazy_graph is not second.lazy_graph
+    assert first.node_index is not second.node_index
+    assert search_graph_cache.lazy_graph_cache_size() == 0
+    assert search_graph_cache.routable_index_cache_size() == 0
+
+
+async def test_prepare_caches_empty_routable_index_when_hard_filter_excludes_all_edges(monkeypatch):
+    # 境界ケース: 0次フィルタでbbox内の全Edgeが除外される場合、compute_routable_node_ids
+    # は空集合を返し、NodeSpatialIndexはbucketsが空のまま構築される。この「空だが正当な
+    # 結果」もキャッシュされ、2回目以降はcompute_routable_node_ids/build_node_spatial_index
+    # 自体を呼ばずに済むことを確認する（cache.get()がNoneを返す条件と「空の索引が
+    # キャッシュ済み」を取り違えていないかの回帰）。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="motorway")  # 既定Hard Constraintで除外
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, tile_set=_TILE_SET_A)
+
+    build_index_calls = []
+    original = road_graph_engine.build_node_spatial_index
+
+    def _counting_build_node_spatial_index(*args, **kwargs):
+        build_index_calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(road_graph_engine, "build_node_spatial_index", _counting_build_node_spatial_index)
+
+    first = await generator._engine.prepare(ORIGIN, radius_km=1.0)
+    second = await generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    # 全Edgeがmotorwayで除外され、routable Nodeが1つも無いためorigin_nodeが見つからずNone。
+    assert first is None
+    assert second is None
+    assert len(build_index_calls) == 1  # 2回目はキャッシュヒットのため呼ばれない
+    assert search_graph_cache.routable_index_cache_size() == 1
+
+
+async def test_prepare_returns_none_without_touching_cache_when_graph_has_no_edges():
+    # 境界ケース: bboxを覆うタイルが全て空（Edge0件）の場合、_build_search_graphは
+    # 「search_materials.graph.edges」が空である時点でNoneを返し、tile_setの値に
+    # 関わらずsearch_graph_cacheへは一切触れない（キャッシュを汚さない）。
+    empty_graph = RoadGraph(graph_version="test", nodes={}, edges={})
+    generator, _, _ = make_generator(empty_graph, tile_set=_TILE_SET_A)
+
+    context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    assert context is None
+    assert search_graph_cache.lazy_graph_cache_size() == 0
+    assert search_graph_cache.routable_index_cache_size() == 0
+
+
+async def test_preview_segment_reuses_cached_node_index_across_calls(monkeypatch):
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", coord_a, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, tile_set=_TILE_SET_A)
+
+    build_index_calls = []
+    original = road_graph_engine.build_node_spatial_index
+
+    def _counting_build_node_spatial_index(*args, **kwargs):
+        build_index_calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(road_graph_engine, "build_node_spatial_index", _counting_build_node_spatial_index)
+
+    first = await generator._engine.preview_segment(coord_a, coord_b)
+    second = await generator._engine.preview_segment(coord_a, coord_b)
+
+    assert first is not None and second is not None
+    assert len(build_index_calls) == 1
+    assert search_graph_cache.routable_index_cache_size() == 1
+
+
 def _build_context_score_fields(
     graph: RoadGraph,
     materials: dict,
@@ -1103,7 +1279,6 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
         weather=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),
         lazy_graph=None,
-        node_pair_index={},
     )
     day_context = road_graph_engine._RoadGraphContext(
         **base_kwargs, night_active=False,
@@ -1179,17 +1354,12 @@ async def test_preview_segment_returns_none_when_bbox_has_no_road_data():
 # --- 改善計画T274: 周回ルートの逆回り候補評価 ---
 
 
-def test_build_node_pair_index_maps_from_to_pairs_to_edges():
-    coord_a = destination_point(ORIGIN, 90, 1.0)
-    edge = _edge("e1", "o", "a", ORIGIN, coord_a)
-    graph = RoadGraph(graph_version="t", nodes={}, edges={"e1": edge})
-
-    index = road_graph_engine._build_node_pair_index(graph)
-
-    assert index == {("o", "a"): edge}
-
-
 def test_reverse_traced_edges_builds_connected_reverse_path_without_new_geometry():
+    # 改善計画T537: 旧`_build_node_pair_index`（bboxの全Edgeから`(from,to)→Edge`の
+    # 逆引き表を毎回構築）は撤去し、`_reverse_traced_edges`はタイル集合キーで
+    # キャッシュ済みの`LazyRoadGraph.edge_index_by_node_pair`を経由する
+    # （road_graph_engine.pyのモジュールdocstring・_reverse_traced_edges参照）。
+    # そのため本テストもgraphからbuild_lazy_road_graphで組み立てたlazy_graphを渡す。
     coord_a = destination_point(ORIGIN, 90, 1.0)
     coord_b = destination_point(ORIGIN, 90, 2.0)
     e1_fwd = _edge("e1-fwd", "o", "a", ORIGIN, coord_a)
@@ -1197,12 +1367,17 @@ def test_reverse_traced_edges_builds_connected_reverse_path_without_new_geometry
     e1_bwd = _edge("e1-bwd", "a", "o", coord_a, ORIGIN)
     e2_bwd = _edge("e2-bwd", "b", "a", coord_b, coord_a)
     graph = RoadGraph(
-        graph_version="t", nodes={},
+        graph_version="t",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "a": Node(node_id="a", latitude=coord_a.latitude, longitude=coord_a.longitude),
+            "b": Node(node_id="b", latitude=coord_b.latitude, longitude=coord_b.longitude),
+        },
         edges={"e1-fwd": e1_fwd, "e2-fwd": e2_fwd, "e1-bwd": e1_bwd, "e2-bwd": e2_bwd},
     )
-    node_pair_index = road_graph_engine._build_node_pair_index(graph)
+    lazy_graph = road_graph_engine.build_lazy_road_graph(graph)
 
-    reverse_edges = road_graph_engine._reverse_traced_edges([e1_fwd, e2_fwd], node_pair_index)
+    reverse_edges = road_graph_engine._reverse_traced_edges([e1_fwd, e2_fwd], lazy_graph, graph)
 
     assert reverse_edges is not None
     # 元の経路o→a→bを逆順に辿るb→a→oの順(改善計画T274)。
@@ -1213,7 +1388,8 @@ def test_reverse_traced_edges_builds_connected_reverse_path_without_new_geometry
     # （DB再取得なし）。
     assert reverse_edges[0].geometry == list(reversed(e2_fwd.geometry))
     assert reverse_edges[1].geometry == list(reversed(e1_fwd.geometry))
-    # bearing_degは逆方向Edge自身のトポロジ値(node_pair_index由来、+180近似ではない)を使う。
+    # bearing_degは逆方向Edge自身のトポロジ値(lazy_graph経由でgraph.edgesから引いた値、
+    # +180近似ではない)を使う。
     assert reverse_edges[0].bearing_deg == e2_bwd.bearing_deg
     assert reverse_edges[1].bearing_deg == e1_bwd.bearing_deg
 
@@ -1222,10 +1398,17 @@ def test_reverse_traced_edges_returns_none_when_any_segment_is_one_way():
     coord_a = destination_point(ORIGIN, 90, 1.0)
     e1_fwd = _edge("e1-fwd", "o", "a", ORIGIN, coord_a)
     # e1-bwdを作らない(一方通行を模す)。
-    graph = RoadGraph(graph_version="t", nodes={}, edges={"e1-fwd": e1_fwd})
-    node_pair_index = road_graph_engine._build_node_pair_index(graph)
+    graph = RoadGraph(
+        graph_version="t",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "a": Node(node_id="a", latitude=coord_a.latitude, longitude=coord_a.longitude),
+        },
+        edges={"e1-fwd": e1_fwd},
+    )
+    lazy_graph = road_graph_engine.build_lazy_road_graph(graph)
 
-    assert road_graph_engine._reverse_traced_edges([e1_fwd], node_pair_index) is None
+    assert road_graph_engine._reverse_traced_edges([e1_fwd], lazy_graph, graph) is None
 
 
 def test_reverse_elevation_attribute_swaps_and_negates():
@@ -1379,8 +1562,10 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         graph=graph, materials={}, accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=None,
-        node_pair_index=road_graph_engine._build_node_pair_index(graph),
+        # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
+        # （LazyRoadGraph.edge_index_by_node_pair）を逆回り候補の逆引きに使うため、
+        # 旧`node_pair_index`引数の代わりに実際のlazy_graphを渡す。
+        lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
         **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
@@ -1419,8 +1604,10 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
         graph=graph, materials={}, accident_years_covered=0,
         weather=None, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=None,
-        node_pair_index=road_graph_engine._build_node_pair_index(graph),
+        # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
+        # （LazyRoadGraph.edge_index_by_node_pair）を逆回り候補の逆引きに使うため、
+        # 旧`node_pair_index`引数の代わりに実際のlazy_graphを渡す。
+        lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
         **_build_context_score_fields(graph, {}, preference, weather=None, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
@@ -1588,8 +1775,10 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         graph=graph, materials={}, accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=None,
-        node_pair_index=road_graph_engine._build_node_pair_index(graph),
+        # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
+        # （LazyRoadGraph.edge_index_by_node_pair）を逆回り候補の逆引きに使うため、
+        # 旧`node_pair_index`引数の代わりに実際のlazy_graphを渡す。
+        lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
         **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(

@@ -541,7 +541,11 @@ async def test_get_search_materials_for_bbox_builds_materials_on_first_call():
     built = await service.get_search_materials_for_bbox(BBOX)
 
     assert built is not None
-    materials, _score_matrix = built
+    materials, _score_matrix, tile_set = built
+    # 改善計画T537: 1回目は生データがまだ「split済み」と認識されておらず、split鮮度が
+    # 古いbbox限定の再構築経路（_build_search_materials_uncached）を通るため、
+    # タイル集合はNone（search_graph_cache経由のキャッシュ対象外）。
+    assert tile_set is None
     edge_id = next(iter(materials.graph.edges))
     bundle = materials.materials[edge_id]
     assert bundle.surface == "asphalt"
@@ -576,9 +580,16 @@ async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without
     assert repository.get_edge_materials_batch_call_count == 2
 
     assert first is not None and second is not None and third is not None
-    second_materials, _second_score_matrix = second
-    third_materials, _third_score_matrix = third
+    first_materials, _first_score_matrix, first_tile_set = first
+    second_materials, _second_score_matrix, second_tile_set = second
+    third_materials, _third_score_matrix, third_tile_set = third
     assert set(second_materials.graph.edges.keys()) == set(third_materials.graph.edges.keys())
+    # 改善計画T537: 1回目はsplit鮮度が古いbbox限定の再構築経路（uncached）のためNone、
+    # 2回目・3回目はタイルキャッシュ経由の正規パスのため同じタイル集合が返る
+    # （search_graph_cacheのキャッシュキーとして安定して使えることの確認）。
+    assert first_tile_set is None
+    assert second_tile_set == frozenset({(ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE)})
+    assert third_tile_set == second_tile_set
 
 
 async def test_get_search_materials_for_bbox_accident_years_covered_is_cached_globally():
@@ -686,10 +697,12 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     # 2回目でis_split_up_to_date=Trueとなりタイルキャッシュ経路（2タイルぶん）を通る。
     built = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
     assert built is not None
-    materials, _score_matrix = built
+    materials, _score_matrix, tile_set = built
     surfaces = {bundle.surface for bundle in materials.materials.values()}
     assert surfaces == {"asphalt", "gravel"}
     assert repository.get_graph_topology_in_bbox_call_count == 2  # 2タイルぶん
+    # 改善計画T537: 2タイルにまたがるbboxでもタイル集合が両タイル分そろって返る。
+    assert tile_set == frozenset({(ROAD_GRAPH_TILE_ZOOM, 3637, 1612), (ROAD_GRAPH_TILE_ZOOM, 3638, 1612)})
 
     # 3回目は両タイルともキャッシュ済みのため、呼び出し回数は増えない。
     await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
@@ -728,13 +741,18 @@ async def test_get_search_materials_for_bbox_handles_empty_tile_mixed_with_nonem
     built = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
 
     assert built is not None
-    materials, score_matrix = built
+    materials, score_matrix, tile_set = built
     # タイルBはEdgeを持たないため、結合後の材料・スコア行列はタイルAの分のみ。
     assert len(materials.graph.edges) == 2  # 双方向
     assert set(score_matrix.edge_ids) == set(materials.graph.edges.keys())
     # 列数（公開軸数）は空タイルの有無に関わらず一定。
     assert score_matrix.axis_scores.shape == (len(score_matrix.edge_ids), len(score_matrix.axis_ids))
     assert len(score_matrix.axis_ids) > 0
+    # 改善計画T537: 空タイルが混在していても、タイル集合には両タイル（空タイル含む）が
+    # 揃って含まれる（search_graph_cacheのキー用途では、空タイルの有無に関わらず
+    # 「bboxを覆う全z12タイル」を1つの集合として扱えれば十分で、graph側でEdgeが
+    # 無いことと矛盾しない）。
+    assert tile_set == frozenset({(ROAD_GRAPH_TILE_ZOOM, 3637, 1612), (ROAD_GRAPH_TILE_ZOOM, 3638, 1612)})
 
 
 # --- 改善計画T248: split直後のタイル材料キャッシュのバックグラウンド温め ---

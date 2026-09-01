@@ -48,6 +48,25 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   `axis_difficulties`を引く（T536で、探索と表示の二重計算を解消）。
 - 8方位の`trace_loop`は直列実行する（`asyncio.to_thread`による並列化は、rustworkxが
   GILを解放しないため8スレッドが競合しむしろ約2秒遅くなることを実測、T522参照）。
+- **改善計画T537（`docs/tasks/T537.md`）: 探索用グラフ（`LazyRoadGraph`）・routable
+  Node空間索引（`NodeSpatialIndex`）はタイル集合キーのプロセス内LRU
+  （`infrastructure/search_graph_cache.py`）でキャッシュする**。T536完了後も
+  `build_lazy_road_graph`・`compute_routable_node_ids`・`build_node_spatial_index`は
+  毎リクエスト作り直されており、これらはタイル集合と0次フィルタ（`hard_filters`・
+  `max_average_grade_percent`）だけで決まる純粋な派生物のため、同じタイル集合への
+  2回目以降のリクエストはこれらの構築自体を丸ごと省略できる（T522実測、温パスの
+  prepareの残り約2秒の内訳）。並行Edge（同一Node間の複数Edge）の解消は、T536で
+  復活させた「cost最小を採用」（コストはリクエストごとに軸重み・風・0次フィルタで
+  変わる）ではなく、`build_lazy_road_graph`の決定的フォールバック（edge_idの昇順で
+  先頭を採用）へ戻す——タイル集合だけで決まるキャッシュとコストベースの動的解消は
+  両立しないため、実データで稀な並行Edgeの厳密さより2回目以降のprepare短縮を優先した
+  （並行Edgeのうち一方だけが0次フィルタで除外される稀なケースでは、cost最小方式なら
+  自動的に許可される側が選ばれるが、この方式では選ばれない場合がある。T536当時の
+  `_build_node_pair_index`「多重辺は後勝ちで曖昧になりうるが許容する」と同種の
+  簡略化として許容する、判断理由の詳細はdocs/tasks/T537.md参照）。
+  `_build_node_pair_index`（逆回り候補用の全Edge分の逆引き表、O(Edge数)）は撤去し、
+  `_reverse_traced_edges`はキャッシュ済み`LazyRoadGraph.edge_index_by_node_pair`
+  （並行Edge解消後、経路上のEdgeだけに対する遅延引き）で代替する。
 """
 
 import asyncio
@@ -96,6 +115,7 @@ from app.domain.routing import (
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
+from app.infrastructure import search_graph_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
@@ -136,7 +156,10 @@ class _RoadGraphContext:
     # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
     node_index: NodeSpatialIndex
     # 改善計画T529→T536: trace_loopが実際のA*探索に使うrustworkxベースの探索用グラフ
-    # （Node/Edge payloadは整数index、domain/routing.py: LazyRoadGraph参照）。
+    # （Node/Edge payloadは整数index、domain/routing.py: LazyRoadGraph参照）。改善計画
+    # T537: タイル集合キーでキャッシュ済み（infrastructure/search_graph_cache.py）。
+    # `_reverse_traced_edges`が`edge_index_by_node_pair`を逆回り候補のEdge逆引きにも使う
+    # （旧`_RoadGraphContext.node_pair_index`[全Edge分の逆引き表]の代替、T537で撤去）。
     lazy_graph: LazyRoadGraph
     # 改善計画T536: リクエストにつき1回だけbbox全体ぶん合成済みのコスト配列
     # （`lazy_graph.edge_ids`と同じ行順のPython list、A*のedge_cost_fnへ
@@ -162,13 +185,6 @@ class _RoadGraphContext:
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
     night_active: bool
-    # 改善計画T274: (from_node_id, to_node_id) → Edge の逆引き表。周回の逆回り候補
-    # （_reverse_traced_edges）が「この経路の各Edgeを逆方向に辿るEdgeが存在するか」を
-    # 追加のDB問い合わせなしに判定するために使う。bboxの全Edge（探索対象の両方向）から
-    # 1リクエストにつき1回だけ構築し、全方位のevaluate_loopsで使い回す。同じNode対を
-    # 複数のEdgeが結ぶ稀なケース（多重辺）は後勝ちで曖昧になりうるが、
-    # build_lazy_road_graph（並行Edgeを1本しか保持しない）と同種の簡略化として許容する。
-    node_pair_index: dict[tuple[str, str], EdgeLike]
 
 
 @dataclass
@@ -180,6 +196,11 @@ class _SearchGraph:
 
     graph: RoadGraphLike
     lazy_graph: LazyRoadGraph
+    # 改善計画T537: bboxを覆うz12タイル集合（frozenset[(zoom,x,y)]）。GraphService.
+    # get_search_materials_for_bboxが「タイルキャッシュをそのまま結合したgraph」を
+    # 返した場合のみ設定される（split鮮度が古いbbox限定の再構築経路ではNone）。
+    # prepare/preview_segmentがroutable Node索引のキャッシュキーとして使い回す。
+    tile_set: frozenset[tuple[int, int, int]] | None
     # 改善計画T533: _RoadGraphContextと同じ理由でEdgeMaterialBundleへ統合済み。
     materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
@@ -258,7 +279,7 @@ class RoadGraphEngine:
         materials_ms = round((time.monotonic() - stage_started) * 1000)
         if built is None:
             return None
-        search_materials, score_matrix = built
+        search_materials, score_matrix, tile_set = built
         if not search_materials.graph.edges:
             return None
         graph = search_materials.graph
@@ -316,13 +337,16 @@ class RoadGraphEngine:
         cost_by_edge_id = dict(zip(score_matrix.edge_ids, cost_array.tolist()))
         full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
 
-        # 改善計画T536: LazyRoadGraph（Node/Edge payloadは整数index、domain/routing.py参照）
-        # の構築はEdge数十万件規模でも数百ms〜1秒台に収まる想定だが（PoC実測、
-        # docs/tasks/T529.md参照）、念のためget_or_build_graph_with_attributesの
-        # build_road_graphと同じ理由でasyncio.to_threadへ逃がす。コストが判明済みのため、
-        # 並行Edge（同一Node間の複数Edge）は改善計画T363の元の意味論どおりcost最小を採用する。
+        # 改善計画T536→T537: LazyRoadGraph（Node/Edge payloadは整数index、domain/routing.py
+        # 参照）の構築はタイル集合キーでキャッシュする（infrastructure/search_graph_cache.py、
+        # _get_or_build_lazy_graph参照）。同じタイル集合への2回目以降のリクエストは
+        # asyncio.to_thread自体を経由せず即座に返る。T536当時は`cost_by_edge_id`を渡して
+        # 並行Edge（同一Node間の複数Edge）をcost最小で解消していたが、コストはリクエストごと
+        # （軸重み・風・0次フィルタ）に変わるためタイル集合だけで決まるこのキャッシュとは
+        # 両立しない——`_get_or_build_lazy_graph`のdocstring・モジュールdocstring「対応方針」
+        # 節に判断理由を記載。
         graph_started = time.monotonic()
-        lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph, cost_by_edge_id)
+        lazy_graph, lazy_graph_cached = await _get_or_build_lazy_graph(tile_set, graph)
         graph_ms = round((time.monotonic() - graph_started) * 1000)
 
         # A*のcost_fnへ渡す配列はlazy_graph.edge_ids（並行Edge解消後）の行順に揃える。
@@ -334,13 +358,16 @@ class RoadGraphEngine:
 
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
-            "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d total_ms=%d",
+            "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d "
+            "total_ms=%d lazy_graph_cached=%s",
             len(graph.edges), len(graph.nodes), materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
+            lazy_graph_cached,
         )
 
         return _SearchGraph(
             graph=graph,
             lazy_graph=lazy_graph,
+            tile_set=tile_set,
             materials=edge_materials,
             accident_years_covered=accident_years_covered,
             weather=weather,
@@ -352,6 +379,36 @@ class RoadGraphEngine:
             node_lat=node_lat,
             node_lon=node_lon,
         )
+
+    async def _get_or_build_node_index(
+        self,
+        tile_set: frozenset[tuple[int, int, int]] | None,
+        graph: RoadGraphLike,
+        materials: dict[str, EdgeMaterialBundle],
+    ) -> tuple[NodeSpatialIndex, bool]:
+        """0次フィルタ通過後のroutable Node空間索引（`NodeSpatialIndex`）を、タイル集合＋
+        0次フィルタ設定（`hard_filters`・`max_average_grade_percent`、いずれも本エンジンの
+        コンストラクタ引数でリクエスト間は変わらない）をキーにキャッシュする
+        （改善計画T537、`infrastructure/search_graph_cache.py`）。
+
+        `tile_set`がNone（`GraphService.get_search_materials_for_bbox`がsplit鮮度の古い
+        bbox限定の再構築経路を通った場合）はキャッシュを経由せず毎回構築する
+        （`_build_search_graph`のtile_set docstring参照）。戻り値の2つ目はキャッシュ
+        ヒットしたかどうか（ログ用）。
+        """
+        key = None
+        if tile_set is not None:
+            key = (tile_set, self._hard_filters, self._max_average_grade_percent)
+            cached = search_graph_cache.get_routable_index(key)
+            if cached is not None:
+                return cached, True
+        routable_ids = await asyncio.to_thread(
+            compute_routable_node_ids, graph, materials, self._hard_filters, self._max_average_grade_percent,
+        )
+        node_index = await asyncio.to_thread(build_node_spatial_index, graph, node_ids=routable_ids)
+        if key is not None:
+            search_graph_cache.set_routable_index(key, node_index)
+        return node_index, False
 
     async def prepare(
         self,
@@ -388,23 +445,24 @@ class RoadGraphEngine:
         # （sparse_graphから算出）は使えない——0次ハードフィルタだけを軽量に評価する
         # `compute_routable_node_ids`（domain/evaluation.py）へ置き換えた
         # （docs/tasks/T529.md参照）。
-        # 改善計画T522: 索引構築（KDTree構築・Edge数十万件規模の辞書構築）もget_or_build_
-        # graph_with_attributesのbuild_road_graphと同じ理由でasyncio.to_threadへ逃がす
-        # （docs/tasks/T522.md参照）。find_nearest_node_indexedは既存索引への単発クエリで
-        # コストが軽いためメインコルーチンのまま呼ぶ。
+        # 改善計画T522→T537: 索引構築（KDTree構築・Edge数十万件規模の辞書構築）は
+        # タイル集合＋0次フィルタ設定キーでキャッシュする
+        # （infrastructure/search_graph_cache.py、_get_or_build_node_index参照）。
+        # 同じ組み合わせへの2回目以降のリクエストはasyncio.to_thread自体を経由せず
+        # 即座に返る。find_nearest_node_indexedは既存索引への単発クエリでコストが軽い
+        # ためキャッシュ対象にせずメインコルーチンのまま呼ぶ。
         index_started = time.monotonic()
-        routable_ids = await asyncio.to_thread(
-            compute_routable_node_ids,
-            search.graph, search.materials,
-            self._hard_filters, self._max_average_grade_percent,
+        node_index, node_index_cached = await self._get_or_build_node_index(
+            search.tile_set, search.graph, search.materials
         )
-        node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
         origin_node = find_nearest_node_indexed(node_index, origin)
         if origin_node is None:
             return None
-        node_pair_index = await asyncio.to_thread(_build_node_pair_index, search.graph)
         index_ms = round((time.monotonic() - index_started) * 1000)
-        logger.info("prepare index build edges=%d index_ms=%d", len(search.graph.edges), index_ms)
+        logger.info(
+            "prepare index build edges=%d index_ms=%d node_index_cached=%s",
+            len(search.graph.edges), index_ms, node_index_cached,
+        )
 
         return _RoadGraphContext(
             graph=search.graph,
@@ -421,7 +479,6 @@ class RoadGraphEngine:
             node_lat=search.node_lat,
             node_lon=search.node_lon,
             night_active=search.night_active,
-            node_pair_index=node_pair_index,
         )
 
     async def preview_segment(
@@ -446,13 +503,11 @@ class RoadGraphEngine:
         # 絞る（幹線道路にしか接続していない孤立Nodeを除外）。改善計画T529:
         # 旧`routable_node_ids`（sparse_graph算出）から`compute_routable_node_ids`
         # （0次ハードフィルタのみの軽量版）へ置き換えた（docs/tasks/T529.md参照）。
-        # 改善計画T522: prepareと同じ理由でasyncio.to_threadへ逃がす（docs/tasks/T522.md参照）。
-        routable_ids = await asyncio.to_thread(
-            compute_routable_node_ids,
-            search.graph, search.materials,
-            self._hard_filters, self._max_average_grade_percent,
+        # 改善計画T522→T537: prepareと同じ理由でタイル集合キーのキャッシュを経由する
+        # （_get_or_build_node_index参照）。
+        node_index, _node_index_cached = await self._get_or_build_node_index(
+            search.tile_set, search.graph, search.materials
         )
-        node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
         origin_node = find_nearest_node_indexed(node_index, origin)
         destination_node = find_nearest_node_indexed(node_index, destination)
         if origin_node is None or destination_node is None:
@@ -594,7 +649,7 @@ class RoadGraphEngine:
         if traced.bearing is None:
             return forward_candidate
 
-        reverse_edges = _reverse_traced_edges(edges_in_path, context.node_pair_index)
+        reverse_edges = _reverse_traced_edges(edges_in_path, context.lazy_graph, context.graph)
         if reverse_edges is None:
             return forward_candidate
         reverse_elevation_attributes = _reverse_elevation_attributes(
@@ -770,6 +825,42 @@ class RoadGraphEngine:
         return segments
 
 
+async def _get_or_build_lazy_graph(
+    tile_set: frozenset[tuple[int, int, int]] | None, graph: RoadGraphLike
+) -> tuple[LazyRoadGraph, bool]:
+    """探索用グラフ（`LazyRoadGraph`）をタイル集合キーでキャッシュする（改善計画T537、
+    `infrastructure/search_graph_cache.py`）。
+
+    `tile_set`は`GraphService.get_search_materials_for_bbox`が「bboxを覆う全z12タイルの
+    材料キャッシュをそのまま結合したグラフ」を返した場合のみ設定される
+    （`_build_search_graph`のtile_set docstring参照）。Noneの場合はキャッシュを経由せず
+    毎回構築する。
+
+    改善計画T536が復活させた「並行Edge（同一Node間の複数Edge）はcost最小を採用」
+    （`build_lazy_road_graph`の`edge_cost_by_id`引数）は、コストがリクエストごと
+    （軸重み・風・0次フィルタ）に変わるため、タイル集合だけで決まるこのキャッシュとは
+    両立しない。本関数は`edge_cost_by_id`を渡さず、`build_lazy_road_graph`の決定的
+    フォールバック（edge_idの昇順で先頭を採用、T529〜T534当時の挙動）で並行Edgeを
+    解消する——2つの並行Edgeのうち一方だけがこのリクエストの0次フィルタで除外される
+    稀なケースでは、cost最小方式なら自動的に許可される側が選ばれるが、この方式では
+    選ばれない場合がある（`(u,v)`ペア自体が到達不能になる）。実データでの並行Edge自体が
+    稀（旧`_build_node_pair_index`のdocstring参照）なうえ、その中でさらに片方だけ
+    0次フィルタ対象という二重に稀な条件のため、同一タイル集合への2回目以降の
+    リクエストでグラフ構築・索引構築を丸ごと省略できる利点を優先した
+    （判断理由の詳細はdocs/tasks/T537.md参照）。
+
+    戻り値の2つ目はキャッシュヒットしたかどうか（ログ用）。
+    """
+    if tile_set is not None:
+        cached = search_graph_cache.get_lazy_graph(tile_set)
+        if cached is not None:
+            return cached, True
+    lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph)
+    if tile_set is not None:
+        search_graph_cache.set_lazy_graph(tile_set, lazy_graph)
+    return lazy_graph, False
+
+
 def _build_estimate_cost_fn(
     graph: RoadGraphLike,
     node_lat: np.ndarray,
@@ -796,34 +887,41 @@ def _build_estimate_cost_fn(
     return est_list.__getitem__
 
 
-def _build_node_pair_index(graph: RoadGraphLike) -> dict[tuple[str, str], EdgeLike]:
-    """(from_node_id, to_node_id) → Edge の逆引き表（改善計画T274）。`_RoadGraphContext`
-    に1リクエストにつき1回だけ構築し、`_reverse_traced_edges`が使い回す。多重辺
-    （同じNode対を複数のEdgeが結ぶ稀なケース）は辞書内包表記の性質上、`graph.edges`の
-    挿入順で後勝ちになる（`_RoadGraphContext.node_pair_index`のコメント参照）。
-    """
-    return {(edge.from_node_id, edge.to_node_id): edge for edge in graph.edges.values()}
-
-
 def _reverse_traced_edges(
-    edges_in_path: list[EdgeLike], node_pair_index: dict[tuple[str, str], EdgeLike]
+    edges_in_path: list[EdgeLike], lazy_graph: LazyRoadGraph, graph: RoadGraphLike
 ) -> list[EdgeLike] | None:
     """順方向の経路`edges_in_path`（起点→...→起点）を逆順に辿った場合の、対応する
     逆方向Edge列を構築する（改善計画T274）。経路中に一方通行（逆方向Edgeが存在しない）
     区間が1つでもあれば物理的に逆走不可能なため`None`を返す。
 
-    `node_pair_index`（`context.graph`から構築済み）を使い、逆方向Edgeのトポロジ
-    （`bearing_deg`等、進行方向で値が変わる唯一のフィールド）を追加のDB/外部API
-    呼び出しなしに引く。`geometry`だけは逆方向Edge自体（lean、空プレースホルダ）からではなく、
+    改善計画T537: 以前は`_build_node_pair_index`（bboxの全Edgeから`(from,to)→Edge`の
+    逆引き表を1リクエストにつき1回だけ構築、O(Edge数)）を使っていたが、これはタイル
+    集合キーでキャッシュする`LazyRoadGraph`（改善計画T537、`_get_or_build_lazy_graph`）と
+    重複する構造のため撤去した。代わりに、経路上のEdgeだけに対する遅延引きへ変える:
+    `lazy_graph.edge_index_by_node_pair`（並行Edge解消後、`build_lazy_road_graph`が
+    既に構築済み）で`(to_index, from_index)`→edge_indexを引き、`lazy_graph.edge_ids`で
+    edge_idへ変換、`graph`（`context.graph`、フル解像度のトポロジ）から実際のEdgeを
+    引く。並行Edge（同じNode対を複数のEdgeが結ぶ稀なケース）は`build_lazy_road_graph`の
+    決定的な解消規則（旧`_build_node_pair_index`の「`graph.edges`挿入順で後勝ち」より
+    決定的）に従う。`geometry`だけは逆方向Edge自体（lean、空プレースホルダ）からではなく、
     順方向で既にhydrate済みのgeometryを反転させて使う（同じ物理区間を逆順に辿るだけの
     ため、DB再取得不要。build_road_graphの`-bwd`Edgeが`-fwd`のgeometryを反転して持つのと
     同じ関係）。distance_m・osm_way_id・highwayは進行方向に依存しない値だが、
-    「逆方向Edge自身の値」として`node_pair_index`側から読む（forward側からの流用ではなく、
-    逆方向Edgeが実在するという確認を兼ねる）。
+    「逆方向Edge自身の値」として引く（forward側からの流用ではなく、逆方向Edgeが実在する
+    という確認を兼ねる）。
     """
     reverse_edges: list[EdgeLike] = []
     for edge in reversed(edges_in_path):
-        reverse_topology = node_pair_index.get((edge.to_node_id, edge.from_node_id))
+        from_index = lazy_graph.node_id_to_index.get(edge.to_node_id)
+        to_index = lazy_graph.node_id_to_index.get(edge.from_node_id)
+        reverse_edge_index = (
+            lazy_graph.edge_index_by_node_pair.get((from_index, to_index))
+            if from_index is not None and to_index is not None
+            else None
+        )
+        reverse_topology = (
+            graph.edges.get(lazy_graph.edge_ids[reverse_edge_index]) if reverse_edge_index is not None else None
+        )
         if reverse_topology is None:
             return None
         reverse_edges.append(
