@@ -15,7 +15,7 @@
 | services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`axis_score_cache.py` |
 | api | `routes.py` |
-| batch | `precompute_road_node_degrees.py` |
+| batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `rustworkx`のlazy
 A*（`edge_cost_fn`コールバック、探索が実際に訪れたEdgeのみコストを計算する）で
@@ -344,6 +344,16 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
 実装済みで、本バッチはそれを呼び出すだけ。**`precompute_edge_attribute_counts.py`より
 先に実行する必要がある**（`intersection_count`がこのバッチの書く`degree`列を参照する
 ため）。
+
+## batch: `presplit_road_graph.py`
+
+取込済み全z12タイル（`road_graph_tiles`）を走査し、`is_split_up_to_date`が偽なタイルへ
+`GraphService.get_or_build_graph_with_attributes`（実行時の遅延構築と同じ再構築経路）を
+順に適用する。新しい分割ロジックは持たず既存メソッドを呼ぶだけで、split済みタイルは
+スキップして冪等。タイルごとに新規DBセッションを開き1件ずつ処理する（並列化しない）。
+このバッチが処理中のタイルへ実行時の遅延構築が同時に到達すると、両者は独立に
+同じ`closure取得→build_road_graph→save_graph`を実行し、`road_edges`の行ロックで
+一方が他方の完了を待つ（edge_idが決定論的なため最終的には同じ結果へ収束する）。
 
 ## 暗黙の前提のまとめ
 
