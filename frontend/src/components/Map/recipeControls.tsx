@@ -106,16 +106,21 @@ export function FieldLabel({
   label,
   description,
   className,
+  hideLabel,
 }: {
   label: string;
   description: string;
   className?: string;
+  /** trueの場合、ラベル文言はTailwindのsr-onlyで視覚的にのみ隠す（アイコン単体の見た目に
+   * したい呼び出し側向け。aria-label自体はlabelの値のまま維持されるため読み上げは変わらない）。
+   * ui/Dialog/Dialog.tsxのhideTitleと同じ既存パターン。 */
+  hideLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <span className={className ? `${styles.fieldLabel} ${className}` : styles.fieldLabel}>
-        {label}
+        {hideLabel ? <span className="sr-only">{label}</span> : label}
         <Popover.Trigger asChild>
           <button
             type="button"

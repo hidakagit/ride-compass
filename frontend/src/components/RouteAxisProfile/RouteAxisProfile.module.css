@@ -58,13 +58,6 @@
   margin: 6px 2px var(--space-1);
 }
 
-/* RouteList.module.cssの.scoreHintTriggerと同じ見た目（FieldLabelの表示用トリガー）。 */
-.scoreHintTrigger {
-  display: inline-flex;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-}
-
 .scoreItem {
   display: inline-flex;
   align-items: baseline;

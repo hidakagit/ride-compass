@@ -74,7 +74,8 @@ RouteGenerator.generate_loops()
 `destination`省略時は起点に戻る周回、指定時は起点に戻らず目的地で終わる片道ルート
 （終点到達後に`id="route-destination"`/`direction_label="目的地ルート"`へ上書き）。
 候補は常に1件のため`RouteScorer`（候補集合内min-max正規化）は呼ばない
-（`total_score`は`None`のまま。frontendの`RouteList.tsx`は`total_score != null`ガードを持つ）。
+（`total_score`は`None`のまま。frontendの候補タブ表示（`app/page.tsx`）は
+`total_score != null`ガードを持つ）。
 
 ## RouteScorer（`route_scorer.py`）
 

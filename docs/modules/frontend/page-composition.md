@@ -3,7 +3,7 @@
 ## 責務
 
 `app/page.tsx`がアプリのコンポジションルート兼状態ハブ。地図（`MapView`）・ルート設定/
-結果パネル（`RouteSettingsPanel`・`RouteForm`・`RouteList`・`RouteAxisProfile`）・地図
+結果パネル（`RouteSettingsPanel`・`RouteForm`・`RouteAxisProfile`）・地図
 オーバーレイ制御（`MapOverlayControls`・`MapLayersPanel`）・研究モードの比較表
 （`ComparisonPanel`）を1つのReactツリーへ束ね、状態を集約する。Next.jsのApp Router
 フレームワークファイル（レイアウト・エラーバウンダリ）と、特定の機能モジュールに
@@ -34,7 +34,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図上アイコン） |
 | ルート設定 | `RouteForm`（モード切替/距離/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
-| ルート結果 | `RouteList`（候補一覧）・`RouteAxisProfile`（選択ルート全体の軸別難易度） |
+| ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補ごとのタブ自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
 | 研究モード | `ComparisonPanel`（実験スロット比較表）。`WeightPanel`自体は`/admin`側 |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
 
@@ -42,7 +42,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 
 | 分類 | state | 永続化 |
 |---|---|---|
-| ルート結果 | `routes`・`selectedRouteId`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
+| ルート結果 | `routes`・`selectedRouteId`・`comparisonTabActive`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
 | 目的地モード | `waypoints`・`destination`・`destinationArmed`・`routeMode`・`distanceInput` | なし |
 | 生成条件（研究） | `weightOverrideEnabled`・`scoringWeights`・`routePreference`・`hardFilters` | localStorage（研究モード2件は`/admin`と共有キー） |
 | 実験スロット | `experimentSlots` | なし |
@@ -144,35 +144,56 @@ localStorageへの保存・復元を1箇所に集約する。
 
 `BottomSheet`はposition:fixedのオーバーレイで暗幕を敷かない（表示中も地図をパン/ズーム
 できる）。ドラッグ中は`onHeightChange`のみ（見た目の即時反映）、確定時に
-`onHeightCommit`（永続化）を呼ぶ2段階のコールバック構成を持つ。
+`onHeightCommit`（永続化）を呼ぶ2段階のコールバック構成を持つ。任意の`headerAction`
+propでタイトル（`<h2>`）の直後・閉じるボタンの手前へ要素を差し込める（「ルート結果」
+シートの情報アイコン、下記`renderRouteOutcomeSectionBody`参照）。
 
 ## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルートを作る」ブロック後半・
 モバイル「ルート結果」タブ共通）
 
 `routes.length === 0`の間は何も描画しない（生成前は空）。1件以上生成された後は、
-Radix Tabs（`@radix-ui/react-tabs`）で「ルート選択」・「比較」（`ComparisonPanel`、
-`researchEnabled`の間だけ表示。実験スロット2件未満の自己ガードは`ComparisonPanel`自身が
-持つため、非アクティブ中も状態更新を止めないよう`forceMount`でマウントし続け、
-`[data-state="inactive"]`のCSSで非表示にする）の最大2タブに切り替える。「ルートを
-クリア」（`handleRoutesClear`）はタブと同じ行に置くがTabs.Listの外の独立したボタンで、
-選択状態を持たず押した瞬間に実行する。`routes`・`selectedRouteId`・
-`generatedConditions`・`generatedRoutePreference`に加え`experimentSlots`
-（比較タブ・地図重ね描き用の履歴）も同時に空にする。
+「ルート結果」見出し（`showHeading`引数、既定true。デスクトップはこの関数自身が
+`<h2>`を描画し、モバイルはBottomSheet側の`title="ルート結果"`と重複するため
+`showHeading=false`で呼ぶ——`renderRouteSettingsSectionBody`と同じ使い分け）に続けて、
+Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブは
+**候補ごと**（`routes`の件数ぶん、選択中候補の`{点数}点`・方向・距離を2行で表示。
+「おすすめ度」の文言はタブ内では繰り返さない）＋「比較」（`ComparisonPanel`、
+`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の自己ガードは`ComparisonPanel`
+自身が持つため、非アクティブ中も状態更新を止めないよう`forceMount`でマウントし続け、
+`[data-state="inactive"]`のCSSで非表示にする）で構成される（「ルート選択」のような候補
+一覧をまとめる中間タブは無い。候補一覧タブ・比較タブの2段構成を経て現在の1段フラット
+構成に落ち着いた）。候補数（8方位＋経由地/目的地ルート）が画面幅を超える場合はタブ列
+自身が横スクロールする。「ルートをクリア」（`handleRoutesClear`）はタブ列と同じ行だが
+Tabs.Listの外に置き、選択状態を持たず押した瞬間に実行する。`routes`・`selectedRouteId`・
+`comparisonTabActive`・`generatedConditions`・`generatedRoutePreference`に加え
+`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする。
 
-「ルート選択」タブは`RouteList`（候補一覧、おすすめ度=`total_score`の表示はここのみ）に
-続けて、`selectedCandidate`があるときだけ`RouteAxisProfile`を同じタブ内に表示する
-（タブ切替不要）。`RouteAxisProfile`は
-「地図の色分け」チップ列（総合難易度＋`route_preference`の重み>0の軸のみ、
-`RouteSettingsPanel`の凡例チップと同じ見た目）・おすすめ度/総合難易度の並記・
-軸別内訳（`domain/difficulty.py: composite_difficulty`と同じ考え方で軸の重みを反映した
-寄与度をバー長に、生の`axis_difficulties`値をバー色に使う）・凡例の表示/非表示設定
-（`stackBarLegendTrigger`パターン）をまとめて持つ。チップ選択は地図側の色分けモード
-（`routeStyleModeId`）を切り替え、選択中モードがまだOFFなら「ルート」チップ
-（`layerVisibility.route`）も自動でONにする。
+「おすすめ度について」「おすすめ度・総合難易度について」に分かれていた説明文言は
+`ROUTE_RESULT_HINT`1本へ統合し、「ルート結果」見出し脇の情報アイコン（`FieldLabel`、
+候補タブ・`RouteAxisProfile`側には置かない）1箇所だけに表示する。デスクトップは
+見出し行内、モバイルはBottomSheetの`headerAction` propとして渡す（`routes.length > 0`の
+間のみ）。`FieldLabel`の`hideLabel`propでラベル文言はsr-only化し、アイコン単体の
+見た目にする。
+
+外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
+（比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も
+「最後に見ていた候補」を保持し続け、地図の色分け対象・`selectedCandidate`等の使われ方は
+タブ構成に関わらず変わらない（比較タブから候補タブへ戻ると、見ていた候補がそのまま
+選択された状態に戻る）。
+
+候補タブの中身（`Tabs.Content`）は`RouteAxisProfile`単体（おすすめ度=`total_score`の
+表示もここに統合済み）。`RouteAxisProfile`は「地図の色分け」チップ列（総合難易度＋
+`route_preference`の重み>0の軸のみ、`RouteSettingsPanel`の凡例チップと同じ見た目の
+1行）・おすすめ度/総合難易度の並記・軸別内訳（`domain/difficulty.py:
+composite_difficulty`と同じ考え方で軸の重みを反映した寄与度をバー長に、生の
+`axis_difficulties`値をバー色に使う。この一覧は選択操作を持たない読み取り専用）・
+凡例の表示/非表示設定（`stackBarLegendTrigger`パターン）をまとめて持つ。地図の色分け
+チップ選択は地図側の色分けモード（`routeStyleModeId`）を切り替え、選択中モードが
+まだOFFなら「ルート」チップ（`layerVisibility.route`）も自動でONにする。
 
 `ComparisonPanel`へ渡す`axes`は、表示中のいずれかの実験スロットで生成時点の重み
 （`ExperimentSlot.conditions.route_preference`）が>0だった軸に絞り込む（現在のライブな
-`routePreference`ではない。詳細は下記`RouteList.tsx / ComparisonPanel.tsx`節参照）。
+`routePreference`ではない）。
 
 ## `MapView`（`Map/MapView.tsx`）との境界
 

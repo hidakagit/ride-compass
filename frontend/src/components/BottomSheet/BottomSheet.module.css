@@ -59,6 +59,15 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* 改善計画T545フォローアップ: タイトルとheaderAction（情報アイコン等）を隣接させて
+   左側にまとめる。閉じるボタンとの間はheader側のjustify-content:space-betweenへ委ねる。 */
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
 .title {
   font-size: var(--font-size-md);
   font-weight: bold;

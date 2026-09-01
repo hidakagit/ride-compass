@@ -13,8 +13,7 @@
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
 | `components/WeightPanel/WeightPanel.tsx` | 研究モード向けのscoring_weights（distance/difficulty）編集 |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
-| `components/RouteList/RouteList.tsx` | 生成候補の一覧表示 |
-| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 選択中ルートの軸別difficulty横棒グラフ |
+| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（軸別difficulty横棒グラフ）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/ComparisonPanel/ComparisonPanel.tsx` | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
@@ -145,10 +144,12 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 （`RouteSettingsPanel.test.tsx`の帯グラフ境界ドラッグと同じ制約）、Browserペインでの
 実機確認で別途検証する。
 
-## RouteAxisProfile.tsx（選択中ルートの地図色分け＋軸別内訳）
+## RouteAxisProfile.tsx（候補ごとタブの中身: 地図色分け＋軸別内訳）
 
-`RouteList`の直後（「ルート選択」タブ内、選択中候補があるときだけ）に表示する。
-呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ絞り込んで渡す。
+page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）が組み立てる候補ごとの
+タブ（`RouteCandidate.total_score`由来の`{点数}点`・方向・距離を2行で表示）の中身として、
+候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ
+絞り込んで渡す。
 
 - **地図の色分けチップ**: 「総合難易度」＋渡された各軸を、`RouteSettingsPanel.module.css`の
   `legendChip`/`legendDot`/`chipRow`クラスをそのままimportして流用した1行の折り返し
@@ -157,11 +158,11 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
   管理し、地図上の色分け式を切り替える。チップ選択時、地図上の「ルート」チップ
   （`layerVisibility.route`）がまだOFFなら自動でONにする。地図の色分け対象を選ぶ役割は
   このチップ列だけが持ち、下記の軸別内訳は選択状態を持たない読み取り専用の一覧。
-- **おすすめ度／総合難易度**: `RouteCandidate.total_score`（候補間の相対スコア、`RouteList`
-  と同じ値・同じ表記）と`overall_difficulty`（絶対基準の軸重み付き合成値）を別指標として
-  両方併記する。総合難易度は下記内訳の合計そのものであり、内訳の1項目としては扱わない。
-  両指標の意味の違いは常時表示のテキストではなく、`RouteList`の「おすすめ度について」と
-  同じ`FieldLabel`（情報アイコン→ポップオーバー）で示す。
+- **おすすめ度／総合難易度**: `RouteCandidate.total_score`（候補間の相対スコア）と
+  `overall_difficulty`（絶対基準の軸重み付き合成値）を別指標として両方併記する。総合難易度
+  は下記内訳の合計そのものであり、内訳の1項目としては扱わない。両指標の意味の違いの説明は
+  このコンポーネント自身は持たず、呼び出し元（`app/page.tsx`の「ルート結果」見出し脇の
+  `FieldLabel`、候補タブすべてに共通の1箇所）へ集約している。
 - **軸別内訳**: `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重
   平均、評価できなかった軸はキー自体が無く非表示）を、`domain/difficulty.py:
   composite_difficulty`と同じ考え方（`raw*weight/weightSum`）でルート設定の重みを反映した
@@ -174,20 +175,9 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 - **凡例の表示設定**: `stackBarLegendTrigger`パターン（見出し脇の(i)アイコン→ポップオーバー
   でチェックボックス一覧）で、選択中モードの凡例カテゴリを地図上で表示/非表示できる。
 
-## RouteList.tsx / ComparisonPanel.tsx
+## ComparisonPanel.tsx
 
-- `RouteList.tsx`: 候補一覧を、候補ごとのRadix Tabs（`Tabs.List`/`Tabs.Trigger`、
-  `aria-label="ルート候補"`）で横並び表示する。タブ自体に「おすすめ度」・方向・距離を
-  併記するため、切り替えずに候補間のおすすめ度を一覧比較できる（下の`RouteAxisProfile`は
-  選択中の1件だけを表示するため、比較目的の一覧性はこのタブ列だけが持つ）。候補数が
-  画面幅を超える場合はタブ列自身が横スクロールする（ページ全体は横スクロールしない）。
-  `Tabs.Content`は持たない（選択状態の伝達だけが目的で、タブごとの中身をこのコンポーネント
-  自身は持たないため）。`selectedRouteId`をpage.tsxが管理し、`routes`が空になると
-  （「ルートをクリア」）タブ自体が消える。ラベルの評価軸部分（おすすめ度の算出根拠の
-  説明）は評価軸カタログ（`SCORING_AXES`）から動的生成する（軸を増やしてもこのファイルを
-  直接編集する必要が無い）。`total_score`は同一generate呼び出し内でのみ比較可能な相対値
-  であることを明記する説明を、`FieldLabel`（情報アイコン→ポップオーバー）で示す。
-- `ComparisonPanel.tsx`: 研究モードの実験スロット比較表。表示順は
+- 研究モードの実験スロット比較表。表示順は
   (1) 生の物理量（距離・獲得標高・風スコア・舗装率。単位・意味がaxis_difficultiesとは
   異なる別系統のフィールドのため区別して残す）→
   (2) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
