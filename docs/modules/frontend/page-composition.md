@@ -145,8 +145,8 @@ localStorageへの保存・復元を1箇所に集約する。
 `BottomSheet`はposition:fixedのオーバーレイで暗幕を敷かない（表示中も地図をパン/ズーム
 できる）。ドラッグ中は`onHeightChange`のみ（見た目の即時反映）、確定時に
 `onHeightCommit`（永続化）を呼ぶ2段階のコールバック構成を持つ。任意の`headerAction`
-propでタイトル（`<h2>`）の直後・閉じるボタンの手前へ要素を差し込める（「ルート結果」
-シートの情報アイコン、下記`renderRouteOutcomeSectionBody`参照）。
+propでヘッダ右側・閉じるボタンの手前へ要素を差し込める（「ルート結果」シートの
+情報アイコン＋「ルートをクリア」、下記`renderRouteOutcomeSectionBody`参照）。
 
 ## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルートを作る」ブロック後半・
 モバイル「ルート結果」タブ共通）
@@ -156,24 +156,24 @@ propでタイトル（`<h2>`）の直後・閉じるボタンの手前へ要素�
 `<h2>`を描画し、モバイルはBottomSheet側の`title="ルート結果"`と重複するため
 `showHeading=false`で呼ぶ——`renderRouteSettingsSectionBody`と同じ使い分け）に続けて、
 Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブは
-**候補ごと**（`routes`の件数ぶん、選択中候補の`{点数}点`・方向・距離を2行で表示。
-「おすすめ度」の文言はタブ内では繰り返さない）＋「比較」（`ComparisonPanel`、
-`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の自己ガードは`ComparisonPanel`
-自身が持つため、非アクティブ中も状態更新を止めないよう`forceMount`でマウントし続け、
-`[data-state="inactive"]`のCSSで非表示にする）で構成される（「ルート選択」のような候補
-一覧をまとめる中間タブは無い。候補一覧タブ・比較タブの2段構成を経て現在の1段フラット
-構成に落ち着いた）。候補数（8方位＋経由地/目的地ルート）が画面幅を超える場合はタブ列
-自身が横スクロールする。「ルートをクリア」（`handleRoutesClear`）はタブ列と同じ行だが
-Tabs.Listの外に置き、選択状態を持たず押した瞬間に実行する。`routes`・`selectedRouteId`・
+**候補ごと**（`routes`の件数ぶん、方向・距離のみを表示。おすすめ度の点数はタブの中身
+（`RouteAxisProfile`のスコア行）に既に出ているためタブ内では繰り返さない）＋「比較」
+（`ComparisonPanel`、`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の
+自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
+`forceMount`でマウントし続け、`[data-state="inactive"]`のCSSで非表示にする）で構成
+される（「ルート選択」のような候補一覧をまとめる中間タブは無い。候補一覧タブ・比較タブの
+2段構成を経て現在の1段フラット構成に落ち着いた）。候補数（8方位＋経由地/目的地ルート）が
+画面幅を超える場合はタブ列自身が横スクロールする。`routes`・`selectedRouteId`・
 `comparisonTabActive`・`generatedConditions`・`generatedRoutePreference`に加え
-`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする。
+`experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
 
-「おすすめ度について」「おすすめ度・総合難易度について」に分かれていた説明文言は
-`ROUTE_RESULT_HINT`1本へ統合し、「ルート結果」見出し脇の情報アイコン（`FieldLabel`、
-候補タブ・`RouteAxisProfile`側には置かない）1箇所だけに表示する。デスクトップは
-見出し行内、モバイルはBottomSheetの`headerAction` propとして渡す（`routes.length > 0`の
-間のみ）。`FieldLabel`の`hideLabel`propでラベル文言はsr-only化し、アイコン単体の
-見た目にする。
+おすすめ度・総合難易度の説明（`ROUTE_RESULT_HINT`）と「ルートをクリア」
+（`handleRoutesClear`）は`renderRouteResultHeaderActions()`という1つのヘルパーへまとめ、
+「ルート結果」セクション見出し1箇所（候補タブ・`RouteAxisProfile`側には置かない）から
+呼ぶ。デスクトップは`renderRouteOutcomeSectionBody`自身の見出し行内（`<h2>`ルート結果と
+`justify-content: space-between`で並べる）、モバイルはBottomSheetの`headerAction`
+propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。情報アイコン
+（`FieldLabel`）は`hideLabel`propでラベル文言をsr-only化し、アイコン単体の見た目にする。
 
 外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
 （比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も

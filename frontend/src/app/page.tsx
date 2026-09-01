@@ -1488,12 +1488,31 @@ export default function Home() {
     );
   }
 
+  // 改善計画T545フォローアップ（ユーザー指摘「ルートをクリアもルート結果ヘッダの右上
+  // 小さくでいい」）: 「ルート結果」見出し脇の情報アイコンと「ルートをクリア」を
+  // まとめて1つの右側アクション群にする。デスクトップ（見出し行）・モバイル
+  // （BottomSheetのheaderAction）の両方から同じ中身を呼ぶ。routes.length===0の間は
+  // どちらの呼び出し元も描画自体をスキップする（デスクトップはrenderRouteOutcomeSectionBody
+  // 自体がnullを返す、モバイルは呼び出し側でroutes.lengthを見てheaderActionをundefinedにする）
+  // ため、ここでは呼ばれた時点で必ずroutes.length>0という前提でよい。
+  function renderRouteResultHeaderActions() {
+    return (
+      <>
+        <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
+        {/* 改善計画T365: 生成済みの候補一覧・地図描画・選択状態だけをリセットする
+            （経由地・目的地のピンは対象外、別々のクリア操作として使い分ける）。
+            押した瞬間に実行する即実行アクション（タブのような選択状態は持たない）。 */}
+        <button type="button" className={styles.outcomeTabAction} onClick={handleRoutesClear}>
+          ルートをクリア
+        </button>
+      </>
+    );
+  }
+
   // 生成結果に関する表示（設定変更の警告・候補ごとの内訳・比較表・色分け設定、ルート設定は
   // 含まない）。モバイルの「ルート結果」タブ、デスクトップの「ルートを作る」ブロック後半から
   // 呼ぶ（改善計画T300、旧renderRouteResultsBodyの後半を分離）。ユーザー指示（省スペース化）:
   // 生成前はほぼ何も出さず、生成後は候補ごとの内訳・比較表を「タブで区切って」1画面に収める。
-  // ルートのクリアは表示切替を伴わない即実行アクションのため、タブ列の脇へ置く（タブとして
-  // 選択状態を持たせない）。
   //
   // 改善計画T545: 「ルート選択（候補一覧+内訳をひとまとめにした1タブ）/比較」という2段の
   // タブ構成をやめ、候補ごとのタブ＋「比較」タブという1段のフラットなタブ列へ再設計した
@@ -1503,12 +1522,13 @@ export default function Home() {
   //
   // 改善計画T545フォローアップ: showHeadingはrenderRouteSettingsSectionBodyと同じ理由
   // （見出しの二重表示回避）で使い分ける。デスクトップ（既定true）はこのセクション自身の
-  // 見出し「ルート結果」＋補足の情報アイコンをここで描画する。モバイルはBottomSheet自体が
-  // title="ルート結果"の見出しを持つため showHeading=false で抑制し、代わりに同じ情報
-  // アイコンをBottomSheetのheaderAction propとして呼び出し側（下のJSX）から渡す——
-  // 「おすすめ度について」「おすすめ度・総合難易度について」と分かれていた2箇所の説明
-  // （旧page.tsxタブ列脇・旧RouteAxisProfile.tsx）をROUTE_RESULT_HINT 1本へ統合し、
-  // 表示場所も「ルート結果」セクション見出し1箇所へ集約した（ユーザー実機指摘）。
+  // 見出し「ルート結果」＋renderRouteResultHeaderActions()（情報アイコン＋ルートをクリア）を
+  // ここで描画する。モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つため
+  // showHeading=false で抑制し、同じrenderRouteResultHeaderActions()をBottomSheetの
+  // headerAction propとして呼び出し側（下のJSX）から渡す——「おすすめ度について」
+  // 「おすすめ度・総合難易度について」と分かれていた2箇所の説明はROUTE_RESULT_HINT 1本へ、
+  // 「ルートをクリア」はタブ列脇からヘッダ右上へ、それぞれ「ルート結果」セクション見出し
+  // 1箇所へ集約した（ユーザー実機指摘）。
   function renderRouteOutcomeSectionBody(showHeading: boolean = true) {
     if (routes.length === 0) return null;
 
@@ -1533,7 +1553,7 @@ export default function Home() {
         {showHeading && (
           <div className={styles.outcomeSectionHeader}>
             <h2 className={layerPanelStyles.groupTitle}>ルート結果</h2>
-            <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
+            <div className={styles.outcomeSectionHeaderActions}>{renderRouteResultHeaderActions()}</div>
           </div>
         )}
         {conditionsDirty && (
@@ -1555,21 +1575,16 @@ export default function Home() {
             <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
               {routes.map((route) => (
                 <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
-                  {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名のおすすめ度もう少し
-                      シンプルに」）: 「ルート結果」セクション見出しに「ルート結果について」の
-                      情報アイコンが常設されているため、タブ内では単位のみ添えた数値だけにする
-                      （「おすすめ度」の文言はタブの数だけ繰り返さない）。 */}
-                  {route.total_score != null && (
-                    <strong className={styles.outcomeRouteTabScore}>{Math.round(route.total_score)}点</strong>
-                  )}
-                  <span className={styles.outcomeRouteTabMeta}>
-                    {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
-                        (route-destination)は候補が常に1件で「方位」という概念が無いため、
-                        direction_label（固定文言、route_generator.py参照）をそのまま表示し
-                        「方向」は付けない。 */}
-                    {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
-                    {route.distance_km.toFixed(1)} km
-                  </span>
+                  {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名はもっと簡潔に、
+                      おすすめ度はタブ内にもあるし」）: おすすめ度（total_score）はタブの
+                      中身（RouteAxisProfileのスコア行）に既に出ているため、タブ自体には
+                      候補を見分けるための方向・距離だけを表示する。 */}
+                  {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
+                      (route-destination)は候補が常に1件で「方位」という概念が無いため、
+                      direction_label（固定文言、route_generator.py参照）をそのまま表示し
+                      「方向」は付けない。 */}
+                  {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
+                  {route.distance_km.toFixed(1)} km
                 </Tabs.Trigger>
               ))}
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
@@ -1581,13 +1596,6 @@ export default function Home() {
                 </Tabs.Trigger>
               )}
             </Tabs.List>
-            {/* 改善計画T365: 生成済みの候補一覧・地図描画・選択状態だけをリセットする
-                （経由地・目的地のピンは対象外、別々のクリア操作として使い分ける）。
-                ユーザー指示: タブと同じ並びに置くが、押した瞬間に実行する
-                （タブの選択状態は持たない）。 */}
-            <button type="button" className={styles.outcomeTabAction} onClick={handleRoutesClear}>
-              ルートをクリア
-            </button>
           </div>
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
@@ -2005,11 +2013,7 @@ export default function Home() {
             onClose={() => setMobileSheet(null)}
             title="ルート結果"
             titleId={ROUTE_OUTCOME_SHEET_TITLE_ID}
-            headerAction={
-              routes.length > 0 ? (
-                <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
-              ) : undefined
-            }
+            headerAction={routes.length > 0 ? renderRouteResultHeaderActions() : undefined}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
