@@ -701,6 +701,47 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     assert repository.get_graph_topology_in_bbox_call_count == 2
 
 
+async def test_get_search_materials_for_bbox_handles_empty_tile_mixed_with_nonempty_tile():
+    # 改善計画T536フォローアップ回帰テスト（2026-09-02、本番Oracle VMの使い捨てコンテナ
+    # ・東京駅30km・split済み条件で実際に発生した障害を再現）: bbox内の一部タイルが
+    # Edge0件（道路データが疎らな区画、都心部でも実際に混在しうる）の場合、
+    # combine_static_edge_score_matrices（domain/evaluation.py）がnp.concatenateで
+    # 「dimension 1のサイズ不一致」ValueErrorを送出していた。原因は
+    # _evaluate_axes_bulkのn==0早期returnがaxis_arrays={}（列数0）を返し、
+    # build_static_edge_score_matrixが構築するaxis_scoresの列数が他タイル
+    # （列数=公開軸数）と食い違っていたこと。修正後は空タイルでもaxis_arraysが
+    # 公開軸ぶんの長さ0配列を持つため、列数が揃い正しく結合できる。
+    #
+    # タイルA(3637,1612)にのみ道路データを投入し、タイルB(3638,1612)は
+    # cached_tilesへ登録するがWayを一切投入しない（=道路データが無い空タイルを模す）。
+    ways = [{"id": 100, "tags": {"highway": "residential", "surface": "asphalt"}, "nodes": [1, 2]}]
+    nodes = {
+        1: _point_in_tile(tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, 3637, 1612), 0.4, 0.4),
+        2: _point_in_tile(tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, 3637, 1612), 0.6, 0.6),
+    }
+    repository = FakeRoadGraphRepository()
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3637, 1612, ways, nodes)
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, 3638, 1612, [], {})  # 空タイル
+    service = GraphService(repository=repository)
+
+    # 1回目は低速経路（closure再計算＋save_graph、タイルA分のみ）を通る。
+    await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
+
+    # 2回目はis_split_up_to_date=Trueとなりタイルキャッシュ経路（2タイルぶん、
+    # うち1タイルはEdge0件）を通る。ここでcombine_static_edge_score_matricesが
+    # 呼ばれ、以前はValueErrorで落ちていた。
+    built = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
+
+    assert built is not None
+    materials, score_matrix = built
+    # タイルBはEdgeを持たないため、結合後の材料・スコア行列はタイルAの分のみ。
+    assert len(materials.graph.edges) == 2  # 双方向
+    assert set(score_matrix.edge_ids) == set(materials.graph.edges.keys())
+    # 列数（公開軸数）は空タイルの有無に関わらず一定。
+    assert score_matrix.axis_scores.shape == (len(score_matrix.edge_ids), len(score_matrix.axis_ids))
+    assert len(score_matrix.axis_ids) > 0
+
+
 # --- 改善計画T248: split直後のタイル材料キャッシュのバックグラウンド温め ---
 
 

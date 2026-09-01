@@ -1,8 +1,9 @@
 import inspect
 
+import numpy as np
 import pytest
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -13,13 +14,15 @@ from app.domain.axis_definitions import (
 from app.domain.evaluation import (
     RoutePreference,
     axis_inspector_breakdown,
+    build_static_edge_score_matrix,
+    combine_static_edge_score_matrices,
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_edge_cost,
     compute_wind_penalty,
     is_edge_allowed,
 )
-from app.domain.graph import DirectedEdge
+from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
 from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
@@ -645,3 +648,82 @@ def test_axis_inspector_breakdown_weights_match_route_preference_weights():
     expected_weights = RoutePreference().weights
     for axis in result.axes:
         assert axis.weight == expected_weights[axis.axis_id]
+
+
+# --- 改善計画T536フォローアップ: 空タイル（Edge0件）混在時のcombine_static_edge_score_matrices ---
+
+
+def test_build_static_edge_score_matrix_for_empty_graph_matches_axis_ids_of_nonempty_graph():
+    # 改善計画T536フォローアップ回帰（2026-09-02、本番Oracle VMの使い捨てコンテナ・
+    # 東京駅30km・split済み条件で実際に発生した障害）: Edge0件のグラフから構築した
+    # StaticEdgeScoreMatrixは、axis_scoresの列数が0（=公開軸の集合と食い違う）に
+    # なっていた（_evaluate_axes_bulkのn==0早期returnがaxis_arrays={}を返していたため）。
+    # 修正後は空グラフでもaxis_idsが非空グラフと同じ公開軸集合・同じ順序になる。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
+            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
+        },
+        edges={"edge-1": _edge()},
+    )
+    materials = {
+        "edge-1": EdgeMaterialBundle(
+            surface="asphalt", way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False
+        )
+    }
+    nonempty_matrix = build_static_edge_score_matrix(graph, materials)
+
+    empty_graph = RoadGraph(graph_version="v1", nodes={}, edges={})
+    empty_matrix = build_static_edge_score_matrix(empty_graph, {})
+
+    assert len(nonempty_matrix.axis_ids) > 0
+    assert empty_matrix.axis_ids == nonempty_matrix.axis_ids
+    assert empty_matrix.axis_scores.shape == (0, len(nonempty_matrix.axis_ids))
+
+
+def test_combine_static_edge_score_matrices_handles_empty_tile_mixed_with_nonempty_tile():
+    # 上記バグの本体（combine_static_edge_score_matrices側）の直接回帰確認。修正前は
+    # np.concatenateが「dimension 1のサイズ不一致」でValueErrorを送出していた。
+    # 空タイルの登場順（先/後）どちらでも正しく結合できることを確認する
+    # （combine_static_edge_score_matricesはmatrices[0].axis_idsを全体のaxis_idsとして
+    # 採用するため、先頭が空タイルの場合も列数・列順が揃っている必要がある）。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
+            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
+        },
+        edges={"edge-1": _edge()},
+    )
+    materials = {
+        "edge-1": EdgeMaterialBundle(
+            surface="asphalt", way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False
+        )
+    }
+    nonempty_matrix = build_static_edge_score_matrix(graph, materials)
+    empty_matrix = build_static_edge_score_matrix(RoadGraph(graph_version="v1", nodes={}, edges={}), {})
+
+    combined = combine_static_edge_score_matrices([nonempty_matrix, empty_matrix])
+    assert combined.edge_ids == ["edge-1"]
+    assert combined.axis_scores.shape == (1, len(nonempty_matrix.axis_ids))
+
+    combined_reversed = combine_static_edge_score_matrices([empty_matrix, nonempty_matrix])
+    assert combined_reversed.edge_ids == ["edge-1"]
+    assert combined_reversed.axis_scores.shape == (1, len(nonempty_matrix.axis_ids))
+    # 値そのものも登場順に関わらず一致する（列の並びがずれていないことの確認、NaNは
+    # NaN同士で一致とみなす）。
+    left, right = combined.axis_scores, combined_reversed.axis_scores
+    both_nan = np.isnan(left) & np.isnan(right)
+    assert ((left == right) | both_nan).all()
+
+
+def test_combine_static_edge_score_matrices_handles_all_empty_tiles():
+    # bbox内の全タイルがEdge0件（道路データの無い区画）の場合も例外なく空の結合結果を返す。
+    empty_matrix_a = build_static_edge_score_matrix(RoadGraph(graph_version="v1", nodes={}, edges={}), {})
+    empty_matrix_b = build_static_edge_score_matrix(RoadGraph(graph_version="v1", nodes={}, edges={}), {})
+
+    combined = combine_static_edge_score_matrices([empty_matrix_a, empty_matrix_b])
+
+    assert combined.edge_ids == []
+    assert combined.axis_scores.shape == (0, len(empty_matrix_a.axis_ids))

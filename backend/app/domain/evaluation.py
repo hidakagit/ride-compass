@@ -648,6 +648,22 @@ def _evaluate_axes_bulk(
     edge_ids = list(graph.edges.keys())
     n = len(edge_ids)
     if n == 0:
+        # 改善計画T536フォローアップ（本番実測で判明、2026-09-02）: axis_arraysを空dict
+        # {}のまま返すと、build_static_edge_score_matrixが構築するaxis_scoresの列数が
+        # 0になり、他タイル（列数=公開軸数、例えば8）とcombine_static_edge_score_matrices
+        # でnp.concatenateする際に「dimension 1のサイズ不一致」でValueErrorになる
+        # （本番Oracle VM、東京駅30km・split済み条件で実際に発生。bbox内の1タイルが
+        # Edge0件[空タイル、道路データが疎らな区画]だったケース）。Edge0件でも
+        # 「公開軸それぞれに対応する長さ0の配列」を持たせることで、他タイルと同じ列数
+        # （shape=(0, 公開軸数)）に揃える。列の並び順は非空タイルの計算フェーズ
+        # （下記for文）と同じtopological_axis_orderを使い、is_published判定も同じにする
+        # ——combine_static_edge_score_matricesは最初のタイルのaxis_idsをそのまま
+        # 全体のaxis_idsとして採用するため、列の並びが全タイルで一致している必要がある。
+        empty_axis_arrays = {
+            axis_id: np.array([])
+            for axis_id in topological_axis_order(AXIS_DEFINITIONS)
+            if AXIS_DEFINITIONS[axis_id].is_published
+        }
         return BulkAxisEvaluation(
             edge_ids=[],
             distance_m=np.array([]),
@@ -656,7 +672,7 @@ def _evaluate_axes_bulk(
             is_trunk=np.array([], dtype=bool),
             no_bicycle=np.array([], dtype=bool),
             gradient_percent=np.array([]),
-            axis_arrays={},
+            axis_arrays=empty_axis_arrays,
         )
     edges = [graph.edges[edge_id] for edge_id in edge_ids]
 
