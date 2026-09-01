@@ -53,7 +53,7 @@ def run() -> list[BenchmarkResult]:
         node_count, edge_count = len(graph.nodes), len(graph.edges)
 
         edge_costs = {
-            edge_id: compute_edge_cost(edge, None, None, preference, wind=None) for edge_id, edge in graph.edges.items()
+            edge_id: compute_edge_cost(edge, None, None, preference, weather=None) for edge_id, edge in graph.edges.items()
         }
         sparse_graph = build_sparse_graph(graph, edge_costs)
         spatial_index = build_node_spatial_index(graph)
