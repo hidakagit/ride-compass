@@ -1,5 +1,6 @@
 "use client";
 
+import * as Tabs from "@radix-ui/react-tabs";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import { SCORING_AXES } from "@/lib/evaluationAxes";
 import type { RouteCandidate } from "@/types/route";
@@ -22,45 +23,46 @@ const SCORE_HINT = `おすすめ度は${SCORING_AXES.map((axis) => `${axis.label
 // 改善計画T364/T365: 8方位以外の単一経路（経由地ルート・目的地ルート）のid集合。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints", "route-destination"]);
 
+// 改善計画T545: 候補一覧は縦積みボタン（選ぶと同じ画面内の内訳が差し替わる）から、
+// 候補ごとのタブへ再構成した（ユーザー実機指摘「ルート確認をもっとやりやすくしたい、
+// ルートごとにタブを分けてほしい」）。タブ自体に「おすすめ度」を残すのは、切り替えずとも
+// 候補間のおすすめ度を一覧比較できるようにするため（RouteAxisProfile側の表示は選択中の
+// 1件だけなので、比較目的の一覧性はこのタブ列だけが持つ）。page.tsxの「ルート選択/比較」
+// 外側タブと同じRadix Tabsだが、こちらはタブごとの中身（Tabs.Content）を持たない
+// 純粋な選択UIのため、Tabs.List/Tabs.Triggerのみ使う（Tabs.Contentは省略可能、Radixの
+// ロービングタブインデックス・ARIA付与はTriggerだけで機能する）。
 export default function RouteList({ routes, selectedRouteId, onSelect }: RouteListProps) {
   if (routes.length === 0) return null;
 
   return (
-    <>
-      {/* total_scoreは何点満点かや算出根拠が画面から分からなかったため、説明を用意している
-          （backend/app/scoring.yamlの重み付けに対応。この一覧内の候補同士でのみ比較できる
-          相対評価であり、他のリクエストの結果とは比較できない）。表示名は「総合スコア」から
-          「おすすめ度」へ変更（T30）: ルート色分けの「総合難易度」と極性が逆
-          （スコア=高いほど良い/難易度=高いほど悪い）なのに両方「総合」で紛らわしかった。
-          ユーザー指示（省スペース化）: 常時表示の説明文だと縦幅を取るため、情報アイコンの
-          ポップオーバー（FieldLabel、他パネルの軸説明と同じ部品）へ収納する。 */}
+    <div className={styles.wrap}>
       <span className={styles.scoreHintTrigger}>
         <FieldLabel label="おすすめ度について" description={SCORE_HINT} />
       </span>
-      <ul className={styles.list}>
-        {routes.map((route) => {
-          const selected = route.id === selectedRouteId;
-          return (
-            <li key={route.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(route.id)}
-                className={selected ? `${styles.item} ${styles.itemSelected}` : styles.item}
-              >
-                {route.total_score != null && (
-                  <strong>おすすめ度 {Math.round(route.total_score)}点 / </strong>
-                )}
+      {/* value省略時（未選択）はRadixの警告を避けるためundefinedへ正規化する。 */}
+      <Tabs.Root
+        className={styles.tabs}
+        value={selectedRouteId ?? undefined}
+        onValueChange={onSelect}
+      >
+        <Tabs.List className={styles.tabList} aria-label="ルート候補">
+          {routes.map((route) => (
+            <Tabs.Trigger key={route.id} value={route.id} className={styles.tab}>
+              {route.total_score != null && (
+                <strong className={styles.tabScore}>おすすめ度 {Math.round(route.total_score)}点</strong>
+              )}
+              <span className={styles.tabMeta}>
                 {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
                     (route-destination)は候補が常に1件で「方位」という概念が無いため、
                     direction_label（固定文言、route_generator.py参照）をそのまま表示し
-                    「〜方向」は付けない。 */}
+                    「方向」は付けない。 */}
                 {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
-                — {route.distance_km.toFixed(1)} km
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </>
+                {route.distance_km.toFixed(1)} km
+              </span>
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+      </Tabs.Root>
+    </div>
   );
 }

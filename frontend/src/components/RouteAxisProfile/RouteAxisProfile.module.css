@@ -45,18 +45,24 @@
   color: var(--color-muted);
 }
 
-.totalRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+/* 改善計画T545: 総合難易度・各軸の選択チップ列（legendStyles.chipRowを流用）。 */
+.selectorRow {
   margin-bottom: 4px;
 }
 
 .scores {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--space-4, 1rem);
   margin: 6px 2px var(--space-1);
+}
+
+/* RouteList.module.cssの.scoreHintTriggerと同じ見た目（FieldLabelの表示用トリガー）。 */
+.scoreHintTrigger {
+  display: inline-flex;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 
 .scoreItem {
@@ -75,13 +81,6 @@
   color: var(--color-muted);
 }
 
-.scoreHint {
-  margin: 0 2px var(--space-3);
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.4;
-}
-
 .breakdown {
   border-top: 1px solid var(--color-border-muted);
   padding-top: var(--space-2);
@@ -98,6 +97,19 @@
   grid-template-columns: 9rem 1fr 2.5rem;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* 改善計画T545: 内訳一覧は選択操作を持たない読み取り専用のため、legendStyles.legendChip
+   （ボタン・情報ポップオーバー付き）ではなく色ドット+ラベルだけの軽量な表示にする
+   （地図の色分け対象を選ぶ役割は上部のchipRow側だけが持つ）。 */
+.rowLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track {

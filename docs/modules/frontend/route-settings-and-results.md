@@ -151,13 +151,17 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ絞り込んで渡す。
 
 - **地図の色分けチップ**: 「総合難易度」＋渡された各軸を、`RouteSettingsPanel.module.css`の
-  `legendChip`/`legendDot`クラスをそのままimportして流用したチップ列で表示する（色ドット＋
-  ラベル、クリックで選択）。選択状態は`routeStyleModeId`（`Map/routeStyleModes.ts`）で
-  page.tsx側が管理し、地図上の色分け式を切り替える。チップ選択時、地図上の「ルート」
-  チップ（`layerVisibility.route`）がまだOFFなら自動でONにする。
+  `legendChip`/`legendDot`/`chipRow`クラスをそのままimportして流用した1行の折り返し
+  チップ列（`RouteSettingsPanel`の軸チップ列と同じ見た目）で表示する（色ドット＋ラベル、
+  クリックで選択）。選択状態は`routeStyleModeId`（`Map/routeStyleModes.ts`）でpage.tsx側が
+  管理し、地図上の色分け式を切り替える。チップ選択時、地図上の「ルート」チップ
+  （`layerVisibility.route`）がまだOFFなら自動でONにする。地図の色分け対象を選ぶ役割は
+  このチップ列だけが持ち、下記の軸別内訳は選択状態を持たない読み取り専用の一覧。
 - **おすすめ度／総合難易度**: `RouteCandidate.total_score`（候補間の相対スコア、`RouteList`
   と同じ値・同じ表記）と`overall_difficulty`（絶対基準の軸重み付き合成値）を別指標として
   両方併記する。総合難易度は下記内訳の合計そのものであり、内訳の1項目としては扱わない。
+  両指標の意味の違いは常時表示のテキストではなく、`RouteList`の「おすすめ度について」と
+  同じ`FieldLabel`（情報アイコン→ポップオーバー）で示す。
 - **軸別内訳**: `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重
   平均、評価できなかった軸はキー自体が無く非表示）を、`domain/difficulty.py:
   composite_difficulty`と同じ考え方（`raw*weight/weightSum`）でルート設定の重みを反映した
@@ -165,14 +169,24 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
   「おすすめ度が高いのに内訳の見た目が悪くて混乱する」ことを避ける。バーの色は生の
   `axis_difficulties`値（`axisLayers.ts: rampColorForBand`を`bandCount=101`で流用、
   地図の段階配色と同じ配色系統）——バー長（影響度）とバー色（深刻度）を意図的に分離する。
+  各行の左側は色ドット＋ラベルのみ（クリック不可）で、地図の色分け対象を選ぶ操作は
+  上記チップ列側だけが担う。
 - **凡例の表示設定**: `stackBarLegendTrigger`パターン（見出し脇の(i)アイコン→ポップオーバー
   でチェックボックス一覧）で、選択中モードの凡例カテゴリを地図上で表示/非表示できる。
 
 ## RouteList.tsx / ComparisonPanel.tsx
 
-- `RouteList.tsx`: 候補一覧のラベルを評価軸カタログ（`SCORING_AXES`）から動的生成する
-  （軸を増やしてもこのファイルを直接編集する必要が無い）。`total_score`は同一generate
-  呼び出し内でのみ比較可能な相対値であることを明記する説明文を先頭に添える。
+- `RouteList.tsx`: 候補一覧を、候補ごとのRadix Tabs（`Tabs.List`/`Tabs.Trigger`、
+  `aria-label="ルート候補"`）で横並び表示する。タブ自体に「おすすめ度」・方向・距離を
+  併記するため、切り替えずに候補間のおすすめ度を一覧比較できる（下の`RouteAxisProfile`は
+  選択中の1件だけを表示するため、比較目的の一覧性はこのタブ列だけが持つ）。候補数が
+  画面幅を超える場合はタブ列自身が横スクロールする（ページ全体は横スクロールしない）。
+  `Tabs.Content`は持たない（選択状態の伝達だけが目的で、タブごとの中身をこのコンポーネント
+  自身は持たないため）。`selectedRouteId`をpage.tsxが管理し、`routes`が空になると
+  （「ルートをクリア」）タブ自体が消える。ラベルの評価軸部分（おすすめ度の算出根拠の
+  説明）は評価軸カタログ（`SCORING_AXES`）から動的生成する（軸を増やしてもこのファイルを
+  直接編集する必要が無い）。`total_score`は同一generate呼び出し内でのみ比較可能な相対値
+  であることを明記する説明を、`FieldLabel`（情報アイコン→ポップオーバー）で示す。
 - `ComparisonPanel.tsx`: 研究モードの実験スロット比較表。表示順は
   (1) 生の物理量（距離・獲得標高・風スコア・舗装率。単位・意味がaxis_difficultiesとは
   異なる別系統のフィールドのため区別して残す）→

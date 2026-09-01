@@ -164,7 +164,9 @@ describe("RouteAxisProfile", () => {
 
     expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "夜間で地図を色分け" })).not.toBeInTheDocument();
-    expect(screen.getByText("夜間")).toBeInTheDocument();
+    // 改善計画T545: 「夜間」は選択チップ列（非活性ラベル）・内訳一覧（読み取り専用ラベル）の
+    // 2箇所に表示される。
+    expect(screen.getAllByText("夜間")).toHaveLength(2);
   });
 
   it("凡例の表示設定トリガーで、選択中モードの凡例カテゴリがチェックボックスとして開き、" +
