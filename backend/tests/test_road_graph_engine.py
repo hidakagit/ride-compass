@@ -449,6 +449,54 @@ async def test_elevation_attribute_service_is_queried_only_with_path_edges_not_w
         assert len(queried_graph.edges) < len(graph.edges)
 
 
+async def test_elevation_attribute_service_is_not_queried_when_materials_already_has_precomputed_data():
+    # 改善計画T522派生（評価ロジックの入口〜出口見直し）: context.materials
+    # （探索フェーズで既に取得済みのEdgeMaterialBundle）が経路上の全Edgeの標高を
+    # 既に持っていれば、ElevationAttributeServiceへは一切問い合わせない
+    # （同じelevation_attributesテーブルを候補確定後にもう一度読み直す重複DB往復の解消）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    elevation_attributes_for_search = {
+        edge_id: ElevationAttribute(edge_id=edge_id, average_grade=0.0, data_source="test", calculated_at="t")
+        for edge_id in graph.edges
+    }
+    generator, _, elevation_service = make_generator(
+        graph, elevation_attributes_for_search=elevation_attributes_for_search
+    )
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+
+    assert len(candidates) == len(DIRECTIONS_DEG)
+    assert elevation_service.graphs_queried == []
+
+
+async def test_elevation_attribute_service_is_queried_only_for_edges_missing_from_materials():
+    # 改善計画T522派生: 経路上の一部のEdgeだけmaterialsに標高が無い（事前計算バッチ未実行）
+    # 場合、ElevationAttributeServiceへはその欠けている分だけを問い合わせる
+    # （materials側に既にある分を含めて丸ごと問い合わせ直したりはしない）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    elevation_attributes_for_search = {
+        "e-0-spoke1": ElevationAttribute(
+            edge_id="e-0-spoke1", average_grade=1.0, data_source="test", calculated_at="t"
+        ),
+    }
+    fetched_on_demand = {
+        "e-0-arc": ElevationAttribute(edge_id="e-0-arc", average_grade=2.0, data_source="test", calculated_at="t"),
+        "e-0-spoke2": ElevationAttribute(
+            edge_id="e-0-spoke2", average_grade=3.0, data_source="test", calculated_at="t"
+        ),
+    }
+    generator, _, elevation_service = make_generator(
+        graph, elevation_attributes=fetched_on_demand,
+        elevation_attributes_for_search=elevation_attributes_for_search,
+    )
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+
+    assert len(candidates) == len(DIRECTIONS_DEG)
+    bearing_0_query = next(g for g in elevation_service.graphs_queried if "e-0-arc" in g.edges)
+    assert set(bearing_0_query.edges.keys()) == {"e-0-arc", "e-0-spoke2"}
+
+
 async def test_elevation_is_not_fetched_for_candidates_rejected_by_distance_filter():
     # 距離フィルタで棄却された候補にはGSI問い合わせ（標高取得）を行わない
     # （評価は距離フィルタ通過後の候補だけに行う、RouteGenerator/evaluate_loopsの分割参照）。

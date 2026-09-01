@@ -602,6 +602,28 @@ class RoadGraphEngine:
     async def _fetch_elevation_attributes(
         self, context: _RoadGraphContext, edges_in_path: list[EdgeLike]
     ) -> dict[str, ElevationAttribute]:
+        # 改善計画T522派生（評価ロジックの入口〜出口の見直し）: context.materials
+        # （EdgeMaterialBundle、探索フェーズで既にDBから取得・タイル単位でプロセス内
+        # キャッシュ済み）が対象Edgeの標高を既に持っていれば、それをそのまま使い
+        # ElevationAttributeServiceへの問い合わせ自体を避ける。同じelevation_attributes
+        # テーブルを候補確定後にもう一度読み直していた重複DB往復を解消する
+        # （evaluate_loopsはasyncio.gatherで候補を並行評価するが、
+        # ElevationAttributeService._repository_lockが内部で直列化するため、
+        # 削減した往復の分だけ候補数[最大8]倍のレイテンシが積み上がっていた）。
+        # 事前計算バッチが未実行のEdge（context.materials側がNone）だけ、従来どおり
+        # ElevationAttributeService経由でその場取得・永続化する。
+        cached: dict[str, ElevationAttribute] = {}
+        missing_edges: list[EdgeLike] = []
+        for edge in edges_in_path:
+            bundle = context.materials.get(edge.edge_id)
+            if bundle is not None and bundle.elevation_attribute is not None:
+                cached[edge.edge_id] = bundle.elevation_attribute
+            else:
+                missing_edges.append(edge)
+
+        if not missing_edges:
+            return cached
+
         # 改善計画T248: ElevationAttributeService.get_attributes_for_graphは
         # graph.edgesしか読まない（nodesは未参照）ため、nodesは空でよい。
         # context.graph.nodes（LeanNode、数万件規模）をそのまま渡すとPydantic
@@ -612,9 +634,10 @@ class RoadGraphEngine:
         path_graph = LeanRoadGraph(
             graph_version=context.graph.graph_version,
             nodes={},
-            edges={edge.edge_id: edge for edge in edges_in_path},
+            edges={edge.edge_id: edge for edge in missing_edges},
         )
-        return await self._elevation_attribute_service.get_attributes_for_graph(path_graph)
+        fetched = await self._elevation_attribute_service.get_attributes_for_graph(path_graph)
+        return {**cached, **fetched}
 
     def _build_candidate(
         self,
