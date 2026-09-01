@@ -1,21 +1,36 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 .scoreHintTrigger {
   display: inline-flex;
-  margin: 0.5rem 0 0;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
-.list {
-  list-style: none;
-  padding: 0;
-  margin: 0.5rem 0 0;
+.tabs {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
 }
 
-.item {
-  width: 100%;
+/* 改善計画T545: 候補数（8方位＋経由地/目的地ルート）ぶんタブが並ぶと画面幅を超えうる
+   ため、このタブ列だけで独自に横スクロールさせる（ページ全体を横スクロールさせない、
+   本アプリの横幅超過コンテンツの扱い方と同じ）。 */
+.tabList {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex-shrink: 0;
   text-align: left;
   padding: var(--space-2) var(--space-3);
   border-radius: 6px;
@@ -25,7 +40,20 @@
   cursor: pointer;
 }
 
-.itemSelected {
+.tab[data-state="active"] {
   border: 2px solid var(--color-accent);
   background: var(--color-accent-bg);
+  /* 選択時だけ枠が2pxへ太くなる分、隣接タブとの間隔がガタつかないよう相殺する。 */
+  margin: 0 -1px;
+}
+
+.tabScore {
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.tabMeta {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  white-space: nowrap;
 }

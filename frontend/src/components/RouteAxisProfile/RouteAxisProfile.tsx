@@ -3,6 +3,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { InfoIcon } from "@/components/Map/icons";
+import { FieldLabel } from "@/components/Map/recipeControls";
 import { rampColorForBand } from "@/components/Map/axisLayers";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
@@ -173,13 +174,12 @@ export default function RouteAxisProfile({
         </Popover.Root>
       </div>
 
-      {/* 総合難易度は内訳（下記）の合計そのものであり内訳の1項目ではないため、別枠の
-          「合計」として分離する（ユーザー指摘2026-09-01「内訳に総合難易度が入っているのは
-          なぜ？」）。おすすめ度（total_score、候補間の相対スコア）と総合難易度
-          （overall_difficulty、絶対基準の軸重み付き合成値）は別指標のため両方を並記し、
-          片方をもう片方の内訳として扱わない（domain/route.py: RouteCandidate/
-          RouteScoreComponentのdocstring参照）。 */}
-      <div className={styles.totalRow}>
+      {/* 改善計画T545: 「総合難易度」単独行＋各軸チップが内訳の各行へ埋め込まれていた
+          選択UIを、ルート設定タブの軸チップ列（chipRow、折り返して並ぶ）と同じ見た目・
+          操作性の1行へ統合した（ユーザー実機指摘）。地図の色分け対象を選ぶ役割はこの
+          チップ列だけが持ち、下の内訳（breakdown）は選択状態を持たない読み取り専用の
+          一覧のまま残す（内訳だけを見て複数軸を横断比較する既存の使い方を変えない）。 */}
+      <div className={`${legendStyles.chipRow} ${styles.selectorRow}`}>
         <AxisChip
           color={TOTAL_DOT_COLOR}
           label="総合難易度"
@@ -187,6 +187,29 @@ export default function RouteAxisProfile({
           pressed={isTotalSelected}
           onSelect={() => onRouteStyleModeChange("difficulty")}
         />
+        {rows.map((axis) => {
+          const active = routeStyleModeId === axis.axisId;
+          // 改善計画T518・実機確認で発覚: routeStyleModesは軸カタログのsupports_route_
+          // coloring===trueの軸だけから生成される（car_stress・accident・night・
+          // bicycle_infra_quality等は対象外）。そうした軸のチップをクリック可能にすると
+          // 「対応する地図色分けが存在しないid」でonRouteStyleModeChangeを呼んでしまい、
+          // page.tsx側のフォールバックeffect（該当モードが無ければ先頭モードへ戻す）が
+          // 即座に選択を巻き戻すため、クリックしても何も起きたように見えない無反応の
+          // ボタンになっていた。対応する地図色分けが無い軸は非活性表示にする。
+          const colorable = routeStyleModes.some((mode) => mode.id === axis.axisId);
+          const axisColor = axisColors[axis.axisId] ?? TOTAL_DOT_COLOR;
+          return (
+            <AxisChip
+              key={axis.axisId}
+              color={axisColor}
+              label={axis.label}
+              ariaLabel={`${axis.label}で地図を色分け`}
+              pressed={active}
+              onSelect={colorable ? () => onRouteStyleModeChange(axis.axisId) : undefined}
+              title={colorable ? undefined : "この軸は地図の色分けに対応していません"}
+            />
+          );
+        })}
       </div>
       {(totalScore != null || overallDifficulty != null) && (
         <div className={styles.scores}>
@@ -202,15 +225,19 @@ export default function RouteAxisProfile({
               <span className={styles.scoreLabel}>/100 総合難易度</span>
             </span>
           )}
+          {/* 改善計画T545: 常時表示していた説明段落を、RouteList.tsxの「おすすめ度について」
+              と同じFieldLabel（情報アイコン＋ポップオーバー）へ変更した（ユーザー実機指摘
+              「冗長な説明文は消すか情報アイコンにして」）。改善計画T524の「下の内訳の合計に
+              近い値」という補足（overall_difficultyとcontribution()の丸め差の注記）も
+              文言はそのまま維持する。 */}
+          <span className={styles.scoreHintTrigger}>
+            <FieldLabel
+              label="おすすめ度・総合難易度について"
+              description="おすすめ度は候補間の相対評価、総合難易度は距離・軸重みを反映した絶対値（下の内訳の合計に近い値）です。"
+            />
+          </span>
         </div>
       )}
-      {/* 改善計画T524（T518コードレビューP2指摘）: 「下の内訳の合計」という表現は、backendの
-          overall_difficulty（区間ごとにその区間で値のある軸だけで正規化してから距離加重
-          平均）と、フロント側のcontribution()（ルート全体で1つのweightSumを使う簡略化）が
-          区間ごとに評価可能な軸が異なるルートでは厳密には一致しないため、「近い値」へ弱める。 */}
-      <p className={styles.scoreHint}>
-        おすすめ度は候補間の相対評価、総合難易度は距離・軸重みを反映した絶対値（下の内訳の合計に近い値）です。
-      </p>
 
       <div className={styles.breakdown}>
         <p className={styles.hint}>内訳（重み付き寄与度）</p>
@@ -221,26 +248,13 @@ export default function RouteAxisProfile({
           {rows.map((axis) => {
             const raw = axisDifficulties[axis.axisId];
             const value = contribution(axis.axisId);
-            const active = routeStyleModeId === axis.axisId;
-            // 改善計画T518・実機確認で発覚: routeStyleModesは軸カタログのsupports_route_
-            // coloring===trueの軸だけから生成される（car_stress・accident・night・
-            // bicycle_infra_quality等は対象外）。そうした軸のチップをクリック可能にすると
-            // 「対応する地図色分けが存在しないid」でonRouteStyleModeChangeを呼んでしまい、
-            // page.tsx側のフォールバックeffect（該当モードが無ければ先頭モードへ戻す）が
-            // 即座に選択を巻き戻すため、クリックしても何も起きたように見えない無反応の
-            // ボタンになっていた。対応する地図色分けが無い軸は非活性表示にする。
-            const colorable = routeStyleModes.some((mode) => mode.id === axis.axisId);
             const axisColor = axisColors[axis.axisId] ?? TOTAL_DOT_COLOR;
             return (
               <li key={axis.axisId} className={styles.row}>
-                <AxisChip
-                  color={axisColor}
-                  label={axis.label}
-                  ariaLabel={`${axis.label}で地図を色分け`}
-                  pressed={active}
-                  onSelect={colorable ? () => onRouteStyleModeChange(axis.axisId) : undefined}
-                  title={colorable ? undefined : "この軸は地図の色分けに対応していません"}
-                />
+                <span className={styles.rowLabel}>
+                  <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColor }} />
+                  <span>{axis.label}</span>
+                </span>
                 <span className={styles.track}>
                   <span
                     className={styles.bar}
