@@ -353,22 +353,34 @@ class GraphService:
         combined_nodes: dict[str, LeanNode] = {}
         combined_edges: dict[str, LeanEdge] = {}
         combined_materials: dict[str, EdgeMaterialBundle] = {}
-        tile_score_matrices: list[StaticEdgeScoreMatrix] = []
 
         tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
-        for x, y in tiles:
-            tile = await self._get_or_build_tile_materials(x, y)
+        # 改善計画T538フォローアップ: 逐次forループだとタイルごとのキャッシュ読み込み
+        # （ディスクフォールバック時のpickle読み込みを含む）が積み上がる（本番実測
+        # 16タイルで約21.5秒）。asyncio.gatherで並列化する。tiles/tile_materials_listの
+        # 順序は一致する（asyncio.gatherは渡した順で結果を返す）ため、後続の
+        # combine_static_edge_score_matricesの「後勝ち」セマンティクス（列順）は
+        # 従来と変わらない。DB問い合わせが必要になるケース（キャッシュmiss）は
+        # _get_or_build_tile_materials内でself._repository_lockにより直列化される。
+        tile_materials_list = await asyncio.gather(
+            *(self._get_or_build_tile_materials(x, y) for x, y in tiles)
+        )
+        for tile in tile_materials_list:
             combined_nodes.update(tile.graph.nodes)
             combined_edges.update(tile.graph.edges)
             combined_materials.update(tile.materials)
-            tile_score_matrices.append(
-                await self._get_or_build_tile_score_matrix(x, y, tile, accident_years_covered)
+
+        tile_score_matrices = await asyncio.gather(
+            *(
+                self._get_or_build_tile_score_matrix(x, y, materials, accident_years_covered)
+                for (x, y), materials in zip(tiles, tile_materials_list)
             )
+        )
 
         graph = LeanRoadGraph(graph_version="tile-cache", nodes=combined_nodes, edges=combined_edges)
         # 改善計画T536: 複数タイルの静的スコア行列を、上と同じ「後勝ち」セマンティクスで
         # 結合する（combine_static_edge_score_matrices参照）。
-        score_matrix = combine_static_edge_score_matrices(tile_score_matrices)
+        score_matrix = combine_static_edge_score_matrices(list(tile_score_matrices))
         # 改善計画T537: このgraphはbboxを覆う全z12タイルの材料キャッシュをそのまま結合した
         # ものなので、タイル集合そのものが「このgraph/score_matrixを再現するために必要十分な
         # キー」になる（同じタイル集合なら、combined_nodes/combined_edgesの中身は常に同じ）。
@@ -378,25 +390,41 @@ class GraphService:
         return SearchMaterials(graph=graph, materials=combined_materials), score_matrix, tile_set
 
     async def _get_or_build_tile_materials(self, x: int, y: int) -> SearchMaterials:
-        cached = graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y)
+        # 改善計画T538フォローアップ: get_tile_materials自体はメモリLRU miss時に
+        # tile_persistent_cache経由でディスクのpickleファイルを同期的に読む。
+        # asyncio.to_threadでスレッドプールへ逃がすことで、呼び出し元
+        # （_build_search_materials_from_tile_cache）がasyncio.gatherで複数タイルを
+        # 同時に呼んだときディスクI/Oが実際に並列化される（本番実測で確認、
+        # docs/tasks/T538.md参照）。
+        cached = await asyncio.to_thread(graph_material_cache.get_tile_materials, ROAD_GRAPH_TILE_ZOOM, x, y)
         if cached is not None:
             return cached
 
-        tile_bbox = tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y)
-        graph = await self._repository.get_graph_topology_in_bbox(tile_bbox)
-        if graph is None:
-            # このタイルに道路が1本も無い（取得失敗ではない）。空の結果もキャッシュする
-            # （毎回このタイルを無駄に再問い合わせしないため）。
-            graph = LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
+        # ディスクキャッシュもmissした場合のみDBへ問い合わせる。複数タイルが同時に
+        # missするとself._repository（単一セッション）へ並行アクセスすることになり
+        # 危険なため、get_edges_with_geometryと同じ理由でself._repository_lockにより
+        # 直列化する（ロック待ちの間に他のgatherタスクが同じタイルを構築済みの可能性が
+        # あるため、ロック取得後に再度キャッシュを確認する）。
+        async with self._repository_lock:
+            cached = graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y)
+            if cached is not None:
+                return cached
 
-        edge_ids = list(graph.edges.keys())
-        # 改善計画T248・T533: 材料を個別に取得する代わりに1回のJOINクエリへ統合し
-        # （dev DB実測、71,791 Edgeで現行5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）、
-        # 戻り値もEdge単位で1オブジェクトへ統合する（EdgeMaterialBundle参照）。
-        batch = await self._repository.get_edge_materials_batch(edge_ids)
-        materials = SearchMaterials(graph=graph, materials=batch.materials)
-        graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y, materials)
-        return materials
+            tile_bbox = tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y)
+            graph = await self._repository.get_graph_topology_in_bbox(tile_bbox)
+            if graph is None:
+                # このタイルに道路が1本も無い（取得失敗ではない）。空の結果もキャッシュする
+                # （毎回このタイルを無駄に再問い合わせしないため）。
+                graph = LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
+
+            edge_ids = list(graph.edges.keys())
+            # 改善計画T248・T533: 材料を個別に取得する代わりに1回のJOINクエリへ統合し
+            # （dev DB実測、71,791 Edgeで現行5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）、
+            # 戻り値もEdge単位で1オブジェクトへ統合する（EdgeMaterialBundle参照）。
+            batch = await self._repository.get_edge_materials_batch(edge_ids)
+            materials = SearchMaterials(graph=graph, materials=batch.materials)
+            graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y, materials)
+            return materials
 
     async def _get_or_build_tile_score_matrix(
         self, x: int, y: int, materials: SearchMaterials, accident_years_covered: int
@@ -407,8 +435,11 @@ class GraphService:
         クリアされ、材料キャッシュは温存される（`tile_score_matrix_cache.py`のdocstring
         参照）。`materials`は`_get_or_build_tile_materials`が返した同じタイルのSearchMaterials
         （キャッシュ済み/新規取得どちらでも、材料自体はここで再取得しない）。
+
+        改善計画T538フォローアップ: キャッシュ確認（ディスクフォールバック含む）を
+        `_get_or_build_tile_materials`と同じ理由で`asyncio.to_thread`へ逃がす。
         """
-        cached = tile_score_matrix_cache.get(ROAD_GRAPH_TILE_ZOOM, x, y)
+        cached = await asyncio.to_thread(tile_score_matrix_cache.get, ROAD_GRAPH_TILE_ZOOM, x, y)
         if cached is not None:
             return cached
         matrix = build_static_edge_score_matrix(materials.graph, materials.materials, accident_years_covered)
