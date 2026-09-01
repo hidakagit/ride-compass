@@ -13,7 +13,7 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py` |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py` |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
 
@@ -117,10 +117,28 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
 ベクトルを適用し、`compose_costs_from_axis_matrix`・`compute_hard_filter_excluded`で
 コスト配列（`_RoadGraphContext.cost_list`、`lazy_graph.edge_ids`と同じ行順）を1回だけ
-合成する。並行Edge（同一Node間の複数Edge）は、コストが探索前に判明しているため
-「cost最小を採用」する（`build_lazy_road_graph`の`edge_cost_by_id`引数）。同じ配列
-（`difficulty_array`・`axis_arrays`）は`_build_segment_details`（区間表示）からも
-`full_edge_row`経由で参照され、探索コストと表示の二重計算を避ける。
+合成する。並行Edge（同一Node間の複数Edge）は、`build_lazy_road_graph`がedge_idの昇順で
+先頭を採用する決定的な規則で解消する（`LazyRoadGraph`がコストに依存せずタイル集合キーで
+キャッシュされるための制約、次節参照）。同じ配列（`difficulty_array`・`axis_arrays`）は
+`_build_segment_details`（区間表示）からも`full_edge_row`経由で参照され、探索コストと
+表示の二重計算を避ける。
+
+### 探索・索引構築のキャッシュ（`infrastructure/search_graph_cache.py`）
+
+`LazyRoadGraph`（探索用グラフ）と`NodeSpatialIndex`（routable Node空間索引）は、
+タイル集合キーのプロセス内LRU（上限64件）へキャッシュする。同じタイル集合への
+2回目以降のリクエストはこれらの構築を丸ごと省略する。
+
+- **キー**: `LazyRoadGraph`は`frozenset[(zoom,x,y)]`（bboxを覆うz12タイル集合）のみ。
+  `NodeSpatialIndex`はこれに`hard_filters`・`max_average_grade_percent`（0次フィルタ、
+  `RoadGraphEngine`のコンストラクタ引数）を加えたタプル。`GraphService.
+  get_search_materials_for_bbox`がタイル集合を返すのは、graphが「bboxを覆う全z12タイルの
+  材料キャッシュをそのまま結合したもの」の場合のみ——split鮮度が古くbbox限定で
+  再構築した経路ではNoneが返り、呼び出し側はこのキャッシュを経由しない。
+- **無効化方針は`graph_material_cache`と同じ**（プロセス寿命でのみキャッシュ、軸定義変更は
+  無関係、材料再取込の反映にはプロセス再起動が必要）。
+- `_reverse_traced_edges`（逆回り候補、後述）は、キャッシュ済み`LazyRoadGraph.
+  edge_index_by_node_pair`を経路上のEdgeだけに対する遅延引きとして使う。
 
 ### `trace_loop` / `evaluate_loops`
 
@@ -403,3 +421,8 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
   同じ設計意図をタイル粒度へ引き継いだもの）。
 - **`RouteScorer`は候補1件（waypoints指定ルート）に対しては呼ばれない**——曖昧な
   「常に満点」を避けるための意図的な設計。
+- **`search_graph_cache`（探索用グラフ・索引）はタイル集合キー**——
+  `graph_material_cache`/`tile_score_matrix_cache`（いずれもタイル単位のキー）とは
+  粒度が異なる。`GraphService.get_search_materials_for_bbox`が「タイルキャッシュを
+  そのまま結合したgraph」を返した場合のみ有効なタイル集合が得られ、split鮮度が
+  古いbbox限定の再構築経路ではこのキャッシュ自体を経由しない。

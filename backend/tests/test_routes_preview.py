@@ -161,10 +161,12 @@ class _FakeGraphServiceForPreview:
             )
             for edge_id, edge in self._graph.edges.items()
         }
-        # 改善計画T536: get_search_materials_for_bboxは(SearchMaterials, StaticEdgeScoreMatrix)
-        # のタプルを返す契約になった（road_graph_engine.py: _build_search_graph参照）。
+        # 改善計画T536→T537: get_search_materials_for_bboxは(SearchMaterials,
+        # StaticEdgeScoreMatrix, タイル集合|None)の3タプルを返す契約になった
+        # （road_graph_engine.py: _build_search_graph参照）。このfakeはタイルキャッシュを
+        # 持たないため3つ目は常にNone（search_graph_cache経由のキャッシュはバイパスされる）。
         score_matrix = build_static_edge_score_matrix(self._graph, materials, 0)
-        return SearchMaterials(graph=self._graph, materials=materials), score_matrix
+        return SearchMaterials(graph=self._graph, materials=materials), score_matrix, None
 
     async def get_accident_years_covered(self) -> int:
         return 0

@@ -253,7 +253,7 @@ class GraphService:
 
     async def get_search_materials_for_bbox(
         self, bbox: BoundingBox
-    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix] | None:
+    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]] | None] | None:
         """探索フェーズ（`RoadGraphEngine.prepare`）向けに、Road Graphのトポロジ＋材料
         （surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）と、
         改善計画T536の「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`）をまとめて
@@ -276,6 +276,14 @@ class GraphService:
         （`_get_or_build_tile_materials`、タイル全体をDBから取得）で温める
         （改善計画T248: 温めが無いと直後の2回目リクエストもキャッシュ未着火のまま
         DB読み出しになる問題があった。`_maybe_warm_tile_cache`参照）。
+
+        改善計画T537: 戻り値の3つ目（タイル集合）は、`graph`がbboxを覆う全z12タイルの
+        材料キャッシュをそのまま結合したもの（`_build_search_materials_from_tile_cache`
+        経由）である場合のみ設定される。`_build_search_materials_uncached`（split鮮度が
+        古くbbox限定で再構築した経路）はNoneを返す——このgraphはタイル境界と一致しない
+        不完全な集合（上記のタイルキャッシュを書き込まない理由と同じ）のため、
+        呼び出し側（`RoadGraphEngine`）は`infrastructure/search_graph_cache.py`
+        （探索用グラフ・索引のタイル集合キーLRU）をこの場合は経由しない。
         """
         if not await self._ensure_tiles_cached(bbox):
             return None
@@ -290,7 +298,8 @@ class GraphService:
             built = await self._build_search_materials_uncached(bbox, accident_years_covered)
             if built is None:
                 return None
-            return built
+            materials, score_matrix = built
+            return materials, score_matrix, None
 
         return await self._build_search_materials_from_tile_cache(bbox, accident_years_covered)
 
@@ -338,7 +347,7 @@ class GraphService:
 
     async def _build_search_materials_from_tile_cache(
         self, bbox: BoundingBox, accident_years_covered: int
-    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix]:
+    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]]:
         # 改善計画T248: このメソッドはタイルキャッシュ経路専用（_get_or_build_tile_materials
         # は常にLeanRoadGraphを返す）のため、結合後もLeanRoadGraphで統一する。
         combined_nodes: dict[str, LeanNode] = {}
@@ -346,7 +355,8 @@ class GraphService:
         combined_materials: dict[str, EdgeMaterialBundle] = {}
         tile_score_matrices: list[StaticEdgeScoreMatrix] = []
 
-        for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
+        tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
+        for x, y in tiles:
             tile = await self._get_or_build_tile_materials(x, y)
             combined_nodes.update(tile.graph.nodes)
             combined_edges.update(tile.graph.edges)
@@ -359,7 +369,13 @@ class GraphService:
         # 改善計画T536: 複数タイルの静的スコア行列を、上と同じ「後勝ち」セマンティクスで
         # 結合する（combine_static_edge_score_matrices参照）。
         score_matrix = combine_static_edge_score_matrices(tile_score_matrices)
-        return SearchMaterials(graph=graph, materials=combined_materials), score_matrix
+        # 改善計画T537: このgraphはbboxを覆う全z12タイルの材料キャッシュをそのまま結合した
+        # ものなので、タイル集合そのものが「このgraph/score_matrixを再現するために必要十分な
+        # キー」になる（同じタイル集合なら、combined_nodes/combined_edgesの中身は常に同じ）。
+        # 呼び出し元（RoadGraphEngine）はこの集合を探索用グラフ・索引のキャッシュキーとして使う
+        # （infrastructure/search_graph_cache.py）。
+        tile_set = frozenset((ROAD_GRAPH_TILE_ZOOM, x, y) for x, y in tiles)
+        return SearchMaterials(graph=graph, materials=combined_materials), score_matrix, tile_set
 
     async def _get_or_build_tile_materials(self, x: int, y: int) -> SearchMaterials:
         cached = graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y)
