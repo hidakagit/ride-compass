@@ -1,44 +1,30 @@
-import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { isResearchEnabled, setResearchEnabled } from "@/lib/researchMode";
+import { setResearchEnabled } from "@/lib/researchMode";
 import ResearchPanel from "./ResearchPanel";
 
+// 改善計画T519: 研究モードON/OFFの操作導線は一般公開ページのヘッダーメニュー
+// （HeaderMenu.tsx、HeaderMenu.test.tsx参照）へ移設した。ResearchPanelは現在値の
+// 読み取り専用表示のみを持つ（チェックボックス操作は無い）。
 describe("ResearchPanel", () => {
   beforeEach(() => {
     setResearchEnabled(false);
   });
 
-  it("初期状態でチェックボックスのaria-checkedがisResearchEnabledと一致する", () => {
+  it("研究モードOFF時は「OFF」と表示する", () => {
     render(<ResearchPanel />);
-    const checkbox = screen.getByRole("checkbox");
-    expect(checkbox).toHaveAttribute("aria-checked", String(isResearchEnabled()));
-    expect(checkbox).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("OFF")).toBeInTheDocument();
   });
 
-  it("チェックボックスをクリックするとsetResearchEnabled経由で状態が反映されaria-checkedが反転する", async () => {
-    const user = userEvent.setup();
+  it("研究モードON時は「ON」と表示する", () => {
+    setResearchEnabled(true);
     render(<ResearchPanel />);
-    const checkbox = screen.getByRole("checkbox");
-
-    expect(checkbox).toHaveAttribute("aria-checked", "false");
-
-    await act(async () => {
-      await user.click(checkbox);
-    });
-
-    expect(checkbox).toHaveAttribute("aria-checked", "true");
-    expect(isResearchEnabled()).toBe(true);
+    expect(screen.getByText("ON")).toBeInTheDocument();
   });
 
-  it("有効化はlocalStorageへ保存される（次回訪問時の復元用）", async () => {
-    const user = userEvent.setup();
+  it("チェックボックス等の操作可能な要素を持たない（読み取り専用表示のみ）", () => {
     render(<ResearchPanel />);
-
-    await act(async () => {
-      await user.click(screen.getByRole("checkbox"));
-    });
-
-    expect(window.localStorage.getItem("ridecompass:research-enabled")).toBe("1");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

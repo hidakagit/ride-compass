@@ -78,8 +78,8 @@ export default function AdminPage() {
           )}
           {!researchEnabled && (
             <p className={styles.hint}>
-              研究モードは現在OFFです。上のチェックボックスで有効にすると評価重みの調整パネルが
-              現れます。
+              研究モードは現在OFFです。一般公開ページのヘッダーメニューで有効にすると評価重みの
+              調整パネルが現れます。
             </p>
           )}
         </Tabs.Content>

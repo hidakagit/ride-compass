@@ -1,0 +1,37 @@
+/* 改善計画T519。WarningBadge.module.cssの.detailPanelと同じ「フローティングカード」
+   の見た目・z-indexに揃える（他のPopover利用箇所との一貫性）。 */
+.menuPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 14rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-2);
+  z-index: 46;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.3rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--color-surface-2);
+}
+
+.menuItem[aria-pressed="true"] {
+  color: var(--color-accent-strong);
+}

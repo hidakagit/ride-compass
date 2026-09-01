@@ -2,20 +2,21 @@
 
 ## 責務
 
-一般ユーザー向け画面には出ない、デバッグ・研究用の補助機能（ログ表示・システム状況・
-研究モードのトグル・評価重みの実験的上書き）。大半は独立URL`/admin`
-（`app/admin/page.tsx`）にある。
+`/admin`（`app/admin/page.tsx`、Basic認証保護下）にある開発者向け補助機能（ログ表示・
+システム状況・評価重みの実験的上書き）と、一般公開ページ`page.tsx`（`/`、認証なし）の
+ヘッダーメニューから直接操作できる機能（デバッグログ表示・研究モードON/OFF）。
 
 **対象ファイル**
 
 | ファイル | 責務 | マウント先 |
 |---|---|---|
+| `components/HeaderMenu/HeaderMenu.tsx` | 研究モードON/OFF・デバッグログ表示を1個のメニューアイコンへ集約したRadix Popover | `page.tsx`（`/`）のヘッダー |
 | `components/DebugPanel/DebugPanel.tsx` | デバッグログ表示のON/OFFトグル | `/admin`「開発者」タブ |
-| `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル | `page.tsx`（`/`）のヘッダー直下 |
+| `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル | `page.tsx`（`/`）、`HeaderMenu`から開閉 |
 | `components/SystemStatusPanel/SystemStatusPanel.tsx` | backend `/api/debug/stats`の集計・フロントバージョンを表示するフローティングパネル | `/admin`「開発者」タブ |
 | `components/BackendStatus.tsx` | バックエンドの死活確認の簡易表示 | `/admin`「開発者」タブ |
 | `components/BackendLogsPanel/BackendLogsPanel.tsx` | backend `GET /api/admin/debug/logs`の直近ログをレベル（DEBUG〜CRITICAL）・部分一致で絞り込んで表示するパネル。取得は「取得」ボタン押下時のみ（ポーリングなし） | `/admin`「開発者」タブ |
-| `components/ResearchPanel/ResearchPanel.tsx` | 研究モードのトグル | `/admin`「研究」タブ |
+| `components/ResearchPanel/ResearchPanel.tsx` | 研究モードの現在値（ON/OFF）の読み取り専用表示 | `/admin`「研究」タブ |
 | `components/FloatingPanel/FloatingPanel.tsx` | `DebugConsole`/`SystemStatusPanel`が共有するドラッグ可能な浮動パネルの共通シェル（`react-rnd`ベース） | 両パネルの実装基盤 |
 | `hooks/useDebugLog.ts`・`lib/debugLog.ts` | デバッグモードON/OFF状態・ログエントリのシングルストア（`useSyncExternalStore`） | |
 | `hooks/useResearchMode.ts`・`lib/researchMode.ts` | 研究モードON/OFF状態の同型シングルストア | |
@@ -29,17 +30,23 @@
 ```
 app/admin/page.tsx（独立URL、Basic認証保護下）
   ├─ タブ「軸スタジオ」: AxisStudio（本モジュール対象外）
-  ├─ タブ「研究」　　　: ResearchPanel + （researchEnabled時のみ）WeightPanel
+  ├─ タブ「研究」　　　: ResearchPanel（読み取り専用表示）+ （researchEnabled時のみ）WeightPanel
   └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 
-app/page.tsx（メインページ、地図を持つ）
-  └─ header直下: DebugConsole（debugEnabled時のみボタン表示）
+app/page.tsx（メインページ、地図を持つ、認証なし）
+  └─ header: HeaderMenu（研究モードON/OFFのトグル本体・デバッグログ表示ボタン）
+       └─ DebugConsole（debugEnabled時のみHeaderMenuに項目表示、開閉はheader直下で管理）
 ```
 
-`DebugConsole`（デバッグログの表示自体）だけが`/`に残る——地図インスタンスに紐づく
-情報のため、地図を持たない`/admin`へ移すと記録先（`lib/debugLog.ts`のシングルトン）が
-タブ間で共有されず実質機能しない。デバッグモードのON/OFF自体は`/admin`の`DebugPanel`で
-切り替え、localStorage経由で`/`側へ共有される。
+研究モードON/OFFの操作は`HeaderMenu`（`/`、認証なし）が正であり、`/admin`の
+`ResearchPanel`は現在値の読み取り専用表示のみを持つ（`researchMode.ts`のフラグ自体は
+`/`・`/admin`のどちらからも`useResearchEnabled()`で参照できる共有state）。
+
+`DebugConsole`（デバッグログの表示自体）は`/`に残る——地図インスタンスに紐づく情報の
+ため、地図を持たない`/admin`へ移すと記録先（`lib/debugLog.ts`のシングルトン）がタブ間で
+共有されず実質機能しない。デバッグモードのON/OFF自体は`/admin`の`DebugPanel`で切り替え、
+localStorage経由で`/`側へ共有される（`HeaderMenu`はデバッグログ**表示**ボタンのみを持ち、
+デバッグモード自体のON/OFFは持たない）。
 
 ## デバッグモードとログ表示・パネル開閉の3段階
 
@@ -53,17 +60,21 @@ app/page.tsx（メインページ、地図を持つ）
 3. **パネルの開閉**（`page.tsx`の`debugConsoleOpen`）: `DebugConsole`自体の表示/非表示。
    デバッグモードONでも常時パネルを占有させない、記録の有効/無効とは独立したstate。
 
-## 研究モード（`ResearchPanel.tsx`）
+## 研究モード（`HeaderMenu.tsx`でON/OFF、`useResearchEnabled()`で参照）
 
-ONにすると`/admin`「研究」タブ内に評価重みの上書きパネル（`WeightPanel`）が現れ、以降
-`page.tsx`側の`handleGenerate`が生成した結果が実験スロット（`page.tsx`の
-`experimentSlots`、最大3件）へ記録されて比較表（`ComparisonPanel`、`page.tsx`のルート
-結果セクション内）・地図の重ね描き（`MapView`の`experimentSlots` prop）に使えるように
-なる。`WeightPanel`が編集する`route_preference`は`/admin`側の`useStoredJsonState`と
-`page.tsx`側の同じキーのstateがlocalStorage経由で共有される（同一タブでのリアルタイム
-同期ではなく、次回開いたとき/再読み込み時に反映される）。
+ONにすると`page.tsx`側の`handleGenerate`が生成した結果が実験スロット（`page.tsx`の
+`experimentSlots`、最大3件）へ記録され、比較タブ（`ComparisonPanel`、「ルート選択」と
+並ぶ2つ目のタブ）・地図の重ね描き（`MapView`の`experimentSlots` prop）に使えるように
+なる——いずれも一般公開ページの機能として認証なしで直接利用できる（気軽に試せる比較
+機能という位置づけ）。ONの間はさらに`/admin`「研究」タブ内に評価重みの上書きパネル
+（`WeightPanel`）が現れる——こちらは複雑さゆえに引き続き`/admin`限定。`WeightPanel`が
+編集する`route_preference`は`/admin`側の`useStoredJsonState`と`page.tsx`側の同じキーの
+stateがlocalStorage経由で共有される（同一タブでのリアルタイム同期ではなく、次回開いた
+とき/再読み込み時に反映される）。
 
-デバッグモード（ログ表示専任）とは独立した別のトグル。
+トグル本体は`page.tsx`の`HeaderMenu`にあり、`/admin`の`ResearchPanel`は同じフラグ
+（`researchMode.ts`）の現在値を読むだけの表示専用コンポーネント。デバッグモード
+（ログ表示専任）とは独立した別のトグル。
 
 ## 暗黙の前提
 

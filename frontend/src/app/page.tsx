@@ -4,12 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
-import { Button } from "@/components/ui/Button/Button";
 import MapView from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllLayersIcon,
-  LogIcon,
   MapAppearanceIcon,
   RouteIcon,
   RouteSettingsIcon,
@@ -63,6 +61,7 @@ import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
+import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
@@ -1622,24 +1621,18 @@ export default function Home() {
         </div>
         <div className={styles.headerActions}>
           <WarningBadgeList items={warningBadgeItems} />
-          {/* デバッグログの起動アイコン（改善計画T300）。以前は「開発者」タブ内のボタン
-              だったが、そのタブ自体を廃止したためヘッダーへ移設した。debugEnabled時のみ
-              表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
+          {/* 改善計画T519: 研究モードON/OFF・デバッグログ表示アイコン（改善計画T300、
+              以前は「開発者」タブ内のボタンだったがそのタブ自体を廃止したためヘッダーへ
+              移設していた）を1個のメニューへ集約する（ヘッダーの個別ボタンをこれ以上
+              増やさないためのユーザー指示）。debugEnabled時のみデバッグログ項目を表示
+              （デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
               DebugConsole自体はposition:fixedのFloatingPanelベースで自己完結しており、
               JSXツリー上のどこに置いても見た目は変わらない。 */}
-          {debugEnabled && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setDebugConsoleOpen((v) => !v)}
-              aria-pressed={debugConsoleOpen}
-              aria-label={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-              title={debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-              className="shrink-0"
-            >
-              <LogIcon size={15} />
-            </Button>
-          )}
+          <HeaderMenu
+            debugEnabled={debugEnabled}
+            debugConsoleOpen={debugConsoleOpen}
+            onToggleDebugConsole={() => setDebugConsoleOpen((v) => !v)}
+          />
         </div>
       </header>
       <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />

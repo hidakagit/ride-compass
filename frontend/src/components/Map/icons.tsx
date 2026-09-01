@@ -581,3 +581,16 @@ export function LayersStackIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+/** メニュー起動（改善計画T519、HeaderMenu.tsx）: 縦3点（ケバブメニュー）の一般的な
+ * 「その他の操作」アフォーダンス。RouteSettingsIcon（横線+丸、スライダーの見た目）とは
+ * 意味が異なるため区別する。 */
+export function MenuIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <circle cx="10" cy="5" r="1.5" fill="currentColor" />
+      <circle cx="10" cy="10" r="1.5" fill="currentColor" />
+      <circle cx="10" cy="15" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
