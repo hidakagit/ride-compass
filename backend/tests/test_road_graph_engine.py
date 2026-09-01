@@ -9,16 +9,23 @@ test_route_generator.pyで検証済み。
 import math
 from datetime import datetime, timezone
 
+import numpy as np
 import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
-from app.domain.evaluation import RoutePreference
+from app.domain.evaluation import (
+    DynamicAxisRequestContext,
+    RoutePreference,
+    build_static_edge_score_matrix,
+    compose_costs_from_axis_matrix,
+    compute_hard_filter_excluded,
+    evaluate_dynamic_axis_arrays,
+)
 from app.domain.geo import bearing_between, destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
-from app.infrastructure import axis_score_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
@@ -39,33 +46,33 @@ def make_route_scorer() -> RouteScorer:
 
 
 def _lazy_edge_cost(engine, context, from_node_id: str, to_node_id: str) -> float:
-    """改善計画T529: 旧`_sparse_edge_weight`（scipy版、事前計算済みcostを行列から直接読む）
-    の置き換え。lazy評価では探索前にコストが存在しないため、実際に探索本体が使う
-    `_build_edge_cost_fn`を呼んで計算する（cost_cacheは検証用の使い捨て辞書でよい）。
+    """改善計画T529→T536: 旧`_sparse_edge_weight`（scipy版、事前計算済みcostを行列から
+    直接読む）の置き換え。T536以降はコストが`prepare()`実行時点で`context.cost_list`
+    （`context.lazy_graph.edge_ids`と同じ行順）へbbox全体ぶん既に合成済みのため、
+    そのままlistインデックスで読む（`engine`引数は旧シグネチャとの互換のため残すが
+    未使用）。
     """
     i = context.lazy_graph.node_id_to_index[from_node_id]
     j = context.lazy_graph.node_id_to_index[to_node_id]
-    edge_id = context.lazy_graph.edge_id_by_index_pair[(i, j)]
-    cost_fn = engine._build_edge_cost_fn(context, {})
-    return cost_fn(edge_id)
+    edge_index = context.lazy_graph.edge_index_by_node_pair[(i, j)]
+    return context.cost_list[edge_index]
 
 
 def _lazy_edge_is_allowed(engine, context, from_node_id: str, to_node_id: str) -> bool:
-    """改善計画T529: 旧`_sparse_has_edge`（scipy版、Hard Constraint除外Edgeはグラフ構造
-    自体から除外されていた）の置き換え。lazy評価の`LazyRoadGraph`はトポロジのみで
-    Hard Constraintを知らないため全Edgeを含む——除外は`edge_cost_fn`が`math.inf`を
-    返すことで表現される（`domain/routing.py: shortest_path_node_ids_lazy`docstring参照）。
-    そのため「Edgeが存在し、かつコストが有限」を「除外されていない」の判定条件にする。
+    """改善計画T529→T536: 旧`_sparse_has_edge`（scipy版、Hard Constraint除外Edgeは
+    グラフ構造自体から除外されていた）の置き換え。lazy評価の`LazyRoadGraph`はトポロジ
+    のみでHard Constraintを知らないため全Edgeを含む——除外は`context.cost_list`が
+    `math.inf`を持つことで表現される。そのため「Edgeが存在し、かつコストが有限」を
+    「除外されていない」の判定条件にする。
     """
     i = context.lazy_graph.node_id_to_index.get(from_node_id)
     j = context.lazy_graph.node_id_to_index.get(to_node_id)
     if i is None or j is None:
         return False
-    edge_id = context.lazy_graph.edge_id_by_index_pair.get((i, j))
-    if edge_id is None:
+    edge_index = context.lazy_graph.edge_index_by_node_pair.get((i, j))
+    if edge_index is None:
         return False
-    cost_fn = engine._build_edge_cost_fn(context, {})
-    return math.isfinite(cost_fn(edge_id))
+    return math.isfinite(context.cost_list[edge_index])
 
 
 def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_coord: Coordinates, **overrides) -> DirectedEdge:
@@ -170,12 +177,15 @@ class FakeGraphService:
             return None
         return self._graph, self._surface_attributes
 
-    async def get_search_materials_for_bbox(self, bbox) -> SearchMaterials | None:
-        # 改善計画T219: prepareが呼ぶ統合メソッドのfake。既存の個別fakeメソッド
+    async def get_search_materials_for_bbox(self, bbox):
+        # 改善計画T219→T536: prepareが呼ぶ統合メソッドのfake。既存の個別fakeメソッド
         # （get_edge_attribute_counts等）を素材の出所として使い、二重にロジックを
         # 持たない（本物のGraphServiceがタイルキャッシュ経由で組み立てるのと同じ
         # 中身になることをテストの他アサーション側は期待していないため、call_count計測
-        # 目的のget_or_build_graph_with_attributesを呼ぶだけでよい）。
+        # 目的のget_or_build_graph_with_attributesを呼ぶだけでよい）。T536以降は
+        # `StaticEdgeScoreMatrix`（build_static_edge_score_matrix、本物と同じ実装）も
+        # あわせて返す——このfake自体はタイル単位キャッシュを持たない（呼ばれるたびに
+        # 実データから新規構築する）。
         self.last_bbox = bbox
         built = await self.get_or_build_graph_with_attributes(bbox)
         if built is None:
@@ -196,7 +206,8 @@ class FakeGraphService:
             )
             for edge_id in edge_ids
         }
-        return SearchMaterials(graph=graph, materials=materials)
+        score_matrix = build_static_edge_score_matrix(graph, materials, self._accident_years_covered)
+        return SearchMaterials(graph=graph, materials=materials), score_matrix
 
     async def get_edges_with_geometry(self, edge_ids):
         # 主経路（hydrated優先、road_graph_engine.py:341,386の`hydrated.get(edge_id) or
@@ -751,28 +762,74 @@ async def test_engine_name_is_road_graph():
     assert generator.engine_name == "road_graph"
 
 
-async def test_build_segment_details_uses_compute_edge_axis_scores(monkeypatch):
-    # 改善計画T143: 区間表示（_build_segment_details）は、探索コスト
-    # （EvaluationService.evaluate_graph経由のcompute_edge_cost）と同じ
-    # compute_edge_axis_scores（T142）を通る。以前はevaluate_axis_difficultiesを
-    # 独立に再計算しており、二次の計算式が表示・探索コストの2箇所に別実装されていた
-    # （非DRY構造）。本物へ委譲しつつ呼び出しを検知するスパイで、_build_segment_details
-    # が実際にこの共通関数を経由することを確認する。
-    calls = []
-    original = road_graph_engine.compute_edge_axis_scores
+async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
+    # 改善計画T536: 区間表示（_build_segment_details）は、探索コスト算出時に
+    # StaticEdgeScoreMatrix経由でbbox全体ぶん合成済みの軸別スコア配列・合成difficulty
+    # 配列（context.axis_arrays/context.difficulty_array）からそのまま読む（探索と表示の
+    # 二重計算を解消、docs/tasks/T536.md参照）。以前（T143）は非キャッシュの
+    # compute_edge_axis_scoresを区間ごとに再計算しており、本テストはそれを呼ぶことだけを
+    # 検証していたが、T536でその呼び出し自体が無くなったため、代わりに
+    # _build_segment_detailsの出力が非キャッシュのスカラー版オラクル
+    # （compute_edge_axis_scores/compute_cost_from_axis_scores）とビット単位で一致する
+    # ことを確認する（T536完了条件「新方式が現行compute_edge_cost経路とビット単位で
+    # 一致する回帰テスト」の、区間表示レイヤーでの確認）。
+    from app.domain.evaluation import compute_cost_from_axis_scores, compute_edge_axis_scores
 
-    def spy(*args, **kwargs):
-        calls.append(1)
-        return original(*args, **kwargs)
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    way_tags = {"e1": {"highway": "residential", "lit": "yes", "surface": "gravel"}}
+    elevation_attr = ElevationAttribute(
+        edge_id="e1", average_grade=6.0, data_source="test", calculated_at="t"
+    )
+    counts = EdgeAttributeCounts(accident_count=1.0, stop_count=3, intersection_count=2)
+    materials = {
+        "e1": EdgeMaterialBundle(
+            surface="gravel", way_tags=way_tags["e1"], attribute_counts=counts,
+            elevation_attribute=elevation_attr, is_designated=True,
+        )
+    }
+    wind = WeatherConditions(
+        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=5.0, wind_direction_deg=90.0,
+        wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
+        precipitation_mm=None, uv_index=None, observed_at="t",
+        weather_code=None, is_day=None,
+        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
+        temperature_max_c=None, temperature_min_c=None,
+        uv_index_max=None, today_periods=[],
+    )
+    preference = RoutePreference()
 
-    monkeypatch.setattr(road_graph_engine, "compute_edge_axis_scores", spy)
+    generator, _, _ = make_generator(None, route_preference=preference)
+    engine = generator._engine
 
-    graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    generator, _, _ = make_generator(graph)
+    context = road_graph_engine._RoadGraphContext(
+        graph=graph, materials=materials, accident_years_covered=5,
+        wind=wind, origin_node="a",
+        node_index=build_node_spatial_index(graph), night_active=False,
+        lazy_graph=None,
+        node_pair_index={},
+        **_build_context_score_fields(
+            graph, materials, preference, wind=wind, night_active=False, accident_years_covered=5,
+        ),
+    )
 
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    segments = engine._build_segment_details([edge], {"e1": elevation_attr}, context, datetime.now(timezone.utc))
+    assert len(segments) == 1
+    segment = segments[0]
 
-    assert len(calls) > 0
+    oracle_axis_scores = compute_edge_axis_scores(
+        edge, elevation_attr, "gravel", wind=wind, stop_count=3, way_tags=way_tags["e1"],
+        intersection_count=2, accident_count=1.0, accident_years_covered=5, is_designated=True,
+    )
+    _, oracle_difficulty = compute_cost_from_axis_scores(
+        edge.distance_m, oracle_axis_scores, preference.weights, 1.0
+    )
+
+    assert segment.axis_difficulties == oracle_axis_scores
+    assert segment.difficulty == oracle_difficulty
 
 
 # 改善計画T173: night軸の動的化（prepare実行時点の起点が市民薄明の外かどうかで、
@@ -865,12 +922,10 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
 
     flat_context = await flat_generator._engine.prepare(ORIGIN, radius_km=1.0)
     flat_cost = _lazy_edge_cost(flat_generator._engine, flat_context, "a", "b")
-    # 改善計画T534: axis_score_cache（Edge単位の静的軸別スコアキャッシュ）は「同じedge_id
-    # なら同じ材料」という、本番ではgraph_material_cacheが保証する前提に依存する。この
-    # テストはあえて同じedge_id"e1"を「事前計算データ無し」「有り」という2つの別シナリオへ
-    # 使い回す（本番では起きない構造）ため、steep側のprepare前に明示的にクリアし、
-    # flat側で積んだキャッシュをsteep側が誤って再利用しないようにする。
-    axis_score_cache.clear()
+    # 改善計画T536: 旧axis_score_cache（Edge単位のプロセス内グローバルキャッシュ、T534）は
+    # 撤去済み。静的スコア行列はFakeGraphService.get_search_materials_for_bboxが呼ばれる
+    # たびに新規構築される（fake自体がタイル単位キャッシュを持たないため）ため、
+    # 同じedge_id"e1"を別シナリオへ使い回してもflat/steep間でキャッシュ汚染は起きない。
     steep_context = await steep_generator._engine.prepare(ORIGIN, radius_km=1.0)
     steep_cost = _lazy_edge_cost(steep_generator._engine, steep_context, "a", "b")
     # 事前計算データが無い（{}のまま=バッチ未実行を模す）場合はgradient軸がデータ無し扱いで
@@ -974,6 +1029,54 @@ async def test_prepare_snaps_origin_away_from_node_isolated_by_hard_constraint()
     assert context.origin_node == "b"
 
 
+def _build_context_score_fields(
+    graph: RoadGraph,
+    materials: dict,
+    preference: RoutePreference,
+    *,
+    wind: WeatherConditions | None = None,
+    night_active: bool = False,
+    accident_years_covered: int = 0,
+    penalty_strength: float = 1.0,
+) -> dict:
+    """改善計画T536: `_RoadGraphContext`を`prepare()`を経由せず直接構築するテスト
+    （`_build_segment_details`・`_build_best_candidate`の単体テスト）向けに、
+    `cost_list`/`full_edge_row`/`difficulty_array`/`axis_arrays`を
+    `RoadGraphEngine._build_search_graph`と同じ計算経路（`build_static_edge_score_matrix`
+    →`evaluate_dynamic_axis_arrays`→`compose_costs_from_axis_matrix`）で構築する。
+    `node_lat`/`node_lon`はA*のestimate_cost_fn用で、これらのテストはA*探索本体を
+    経由しないため空配列でよい。
+    """
+    score_matrix = build_static_edge_score_matrix(graph, materials, accident_years_covered)
+    active_scopes = frozenset({"night_only"}) if night_active else frozenset()
+    weights = preference.with_time_scope(active_scopes).weights
+
+    static_axis_scores = {
+        axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
+    }
+    dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, wind=wind)
+    resolved_axis_scores = evaluate_dynamic_axis_arrays(static_axis_scores, dynamic_context)
+    published_axis_arrays = {axis_id: resolved_axis_scores[axis_id] for axis_id in score_matrix.axis_ids}
+
+    cost_array, difficulty_array = compose_costs_from_axis_matrix(
+        score_matrix.distance_m, published_axis_arrays, weights, penalty_strength
+    )
+    hard_filter_excluded = compute_hard_filter_excluded(
+        score_matrix.is_motorway, score_matrix.is_trunk, score_matrix.no_bicycle, score_matrix.gradient_percent,
+    )
+    cost_array = np.where(hard_filter_excluded, np.inf, cost_array)
+    full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
+
+    return dict(
+        cost_list=cost_array.tolist(),
+        full_edge_row=full_edge_row,
+        difficulty_array=difficulty_array,
+        axis_arrays=published_axis_arrays,
+        node_lat=np.array([]),
+        node_lon=np.array([]),
+    )
+
+
 async def test_build_segment_details_night_difficulty_follows_context_night_active():
     node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
     node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
@@ -999,11 +1102,17 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
         materials=materials, accident_years_covered=0,
         wind=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),
-        lazy_graph=None, cost_cache={},
+        lazy_graph=None,
         node_pair_index={},
     )
-    day_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=False)
-    night_context = road_graph_engine._RoadGraphContext(**base_kwargs, night_active=True)
+    day_context = road_graph_engine._RoadGraphContext(
+        **base_kwargs, night_active=False,
+        **_build_context_score_fields(base_graph, materials, preference, night_active=False),
+    )
+    night_context = road_graph_engine._RoadGraphContext(
+        **base_kwargs, night_active=True,
+        **_build_context_score_fields(base_graph, materials, preference, night_active=True),
+    )
 
     day_segments = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc))
     night_segments = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc))
@@ -1270,8 +1379,9 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         graph=graph, materials={}, accident_years_covered=0,
         wind=wind, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=None, cost_cache={},
+        lazy_graph=None,
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
+        **_build_context_score_fields(graph, {}, preference, wind=wind, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
@@ -1309,8 +1419,9 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
         graph=graph, materials={}, accident_years_covered=0,
         wind=None, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=None, cost_cache={},
+        lazy_graph=None,
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
+        **_build_context_score_fields(graph, {}, preference, wind=None, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
@@ -1477,8 +1588,9 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         graph=graph, materials={}, accident_years_covered=0,
         wind=wind, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=None, cost_cache={},
+        lazy_graph=None,
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
+        **_build_context_score_fields(graph, {}, preference, wind=wind, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=None, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]

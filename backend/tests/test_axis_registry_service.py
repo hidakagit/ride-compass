@@ -1,5 +1,6 @@
 import logging
 
+import numpy as np
 import pytest
 
 from app.domain.axis_definitions import (
@@ -12,7 +13,8 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     MaterialTerm,
 )
-from app.infrastructure import axis_score_cache
+from app.domain.evaluation import StaticEdgeScoreMatrix
+from app.infrastructure import tile_score_matrix_cache
 from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.services import axis_registry_service
@@ -87,12 +89,24 @@ async def test_refresh_replaces_axis_definitions_with_db_content(road_graph_sess
     assert set(AXIS_DEFINITIONS.keys()) == {"test_axis"}
 
 
-async def test_refresh_clears_axis_score_cache(road_graph_session):
-    # 改善計画T534: Edge単位の静的軸別スコアキャッシュ（axis_score_cache）はAXIS_DEFINITIONS
-    # と同じタイミングでクリアされる必要がある——古いままだと軸編集後も編集前のスコアを
-    # 返し続けてしまう（infrastructure/axis_score_cache.pyのdocstring参照）。
-    axis_score_cache.set("edge-1", {"gradient": 50.0})
-    assert axis_score_cache.get("edge-1") is not None
+async def test_refresh_clears_tile_score_matrix_cache(road_graph_session):
+    # 改善計画T536（旧T534のaxis_score_cacheを置き換え）: タイル単位の静的Edge×公開軸
+    # スコア行列キャッシュ（tile_score_matrix_cache）はAXIS_DEFINITIONSと同じタイミングで
+    # クリアされる必要がある——古いままだと軸編集後も編集前のスコアを返し続けてしまう
+    # （infrastructure/tile_score_matrix_cache.pyのdocstring参照）。
+    dummy_matrix = StaticEdgeScoreMatrix(
+        edge_ids=["edge-1"],
+        axis_ids=["gradient"],
+        axis_scores=np.array([[50.0]]),
+        distance_m=np.array([100.0]),
+        bearing_deg=np.array([np.nan]),
+        is_motorway=np.array([False]),
+        is_trunk=np.array([False]),
+        no_bicycle=np.array([False]),
+        gradient_percent=np.array([np.nan]),
+    )
+    tile_score_matrix_cache.set(12, 1, 1, dummy_matrix)
+    assert tile_score_matrix_cache.get(12, 1, 1) is not None
 
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("test_axis"), sort_order=0)
@@ -100,7 +114,7 @@ async def test_refresh_clears_axis_score_cache(road_graph_session):
 
     await refresh_axis_definitions(repository)
 
-    assert axis_score_cache.get("edge-1") is None
+    assert tile_score_matrix_cache.get(12, 1, 1) is None
 
 
 async def test_refresh_raises_on_repository_error(road_graph_session):

@@ -417,7 +417,7 @@ def test_dynamic_axis_topological_order_matches_realistic_axis_definitions():
     # 本番相当14軸（tests/realistic_axis_fixtures.py、conftest.pyのセッションスコープ
     # フィクスチャがAXIS_DEFINITIONSへ用意済み）では、風に依存する軸は"wind"のみのはず
     # （他軸がwind/wind_penaltyを参照する設計にはなっていない）。この前提が崩れて
-    # 新しい軸が風へ依存するようになった場合、compute_edge_axis_scores_from_static_data
-    # 側は自動的に追従するため実害は無いが、その前提が変わったこと自体をこのテストで
-    # 検知できるようにしておく。
+    # 新しい軸が風へ依存するようになった場合、`evaluate_dynamic_axis_arrays`
+    # （domain/evaluation.py、改善計画T536）側は自動的に追従するため実害は無いが、
+    # その前提が変わったこと自体をこのテストで検知できるようにしておく。
     assert dynamic_axis_topological_order(AXIS_DEFINITIONS) == ["wind"]

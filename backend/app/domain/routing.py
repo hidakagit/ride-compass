@@ -14,7 +14,7 @@ Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を�
 """
 
 import math
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -155,38 +155,51 @@ class LazyRoadGraph:
     構築する）は、この無駄な事前計算そのものが`prepare_ms`の支配的コストになっている
     （T522実測、王子30km周回でcost_ms=18,105ms）。
 
-    並行Edge（同一Node間の複数Edge）は`build_sparse_graph`と同じ理由
-    （改善計画T363、docs参照）で1本のみ保持する。ただしコストを事前計算しないため
-    「cost最小のEdgeを採用」はできず、**edge_idの昇順で先頭を採用**する決定的な選択に
-    留める（並行Edgeは実データで484件[dev DB]と稀なケースであり、非決定性さえ
-    解消できれば許容できる簡略化——`_build_node_pair_index`が同じ理由で
-    「後勝ち」を許容しているのと同種）。
+    改善計画T536: Node/Edgeのpayloadはいずれも整数index（`add_nodes_from(range(n))`・
+    `add_edge(u, v, edge_index)`）にしてある。rustworkxの`astar_shortest_path`は
+    `goal_fn`/`edge_cost_fn`/`estimate_cost_fn`へノード・Edgeの**payload**（rustworkx内部の
+    生indexではない）を渡す仕様のため、payload自体を「配列の添字として直接使える整数」に
+    しておくことで、呼び出し元（`shortest_path_node_ids_lazy`の呼び出し元、
+    `road_graph_engine.py`）は`cost_list.__getitem__`のような素のlistインデックスアクセスを
+    そのままcost_fn/estimate_cost_fnとして渡せる——探索中に一切Pythonの関数フレームを
+    作らずに済む（T522実測: 辞書キャッシュ経由のPythonコールバックがA* 24本で8.3〜17.7秒
+    かかっていたが、素のlist.__getitem__に置き換えると0.37秒に短縮、docs/tasks/T536.md
+    参照）。文字列edge_id/node_idは、経路確定後の変換（`path_to_edge_ids_lazy`・戻り値の
+    Node ID列）でのみ使う。
     """
 
     py_graph: rx.PyDiGraph
     node_id_to_index: dict[str, int]
     index_to_node_id: list[str]
-    # (from_index, to_index) -> edge_id。PyDiGraphのedge payload自体もedge_idだが、
-    # path_to_edge_ids_lazyがscipy版のpath_to_edge_ids_sparseと同じ実装で書けるよう、
-    # 同じ形の索引を別途保持する。
-    edge_id_by_index_pair: dict[tuple[int, int], str]
+    # edge_index（py_graphのEdge payload、= 下記edge_idsの添字）→ edge_id。
+    edge_ids: list[str]
+    # (from_index, to_index) -> edge_index。並行Edge解消後の実際に採用されたペアのみ持つ。
+    edge_index_by_node_pair: dict[tuple[int, int], int]
 
 
-def build_lazy_road_graph(graph: RoadGraphLike) -> LazyRoadGraph:
-    """`graph`のトポロジのみからrustworkxの`PyDiGraph`を構築する（Hard Constraint・
-    Edgeコストは計算しない）。ノードpayloadはnode_id文字列（A*のestimate_cost_fnが
-    呼び出し元のクロージャ経由で`graph.nodes[node_id]`の緯度経度を引く）、Edge payloadは
-    edge_id文字列（edge_cost_fnが呼び出し元のクロージャ経由で材料を引く）。
+def build_lazy_road_graph(
+    graph: RoadGraphLike, edge_cost_by_id: Mapping[str, float] | None = None
+) -> LazyRoadGraph:
+    """`graph`のトポロジからrustworkxの`PyDiGraph`を構築する（Hard Constraint自体は
+    評価しない。除外は呼び出し元がcost=math.infで表現する）。
+
+    改善計画T536: Node/Edge payloadは整数index（`LazyRoadGraph`のdocstring参照）。
+    `edge_cost_by_id`（edge_id→コスト、省略可）を渡すと、並行Edge（同一Node間の複数Edge）は
+    **cost最小のEdgeを採用**する（改善計画T363の元の意味論——コストが探索前に判明している
+    T536設計では、事前一括計算だったT363当時と同じ比較が再び可能になる）。省略時
+    （コストがまだ判明していない場面、主にテスト）は、従来どおりedge_idの昇順で先頭を
+    採用する決定的な選択にフォールバックする。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
 
     py_graph = rx.PyDiGraph()
-    py_graph.add_nodes_from(node_ids)
+    py_graph.add_nodes_from(range(len(node_ids)))
 
-    # edge_idの昇順で処理し、(from_index, to_index)ペアごとに最初に登場したものだけを
-    # 採用する（並行Edgeの決定的な選択、docstring参照）。
+    # edge_idの昇順で処理する（複数の並行Edgeのうちどれを「先に登場した」とみなすかの
+    # 決定的な基準、cost比較が同点の場合のタイブレークにも使う）。
     best_by_pair: dict[tuple[int, int], str] = {}
+    best_cost_by_pair: dict[tuple[int, int], float] = {}
     for edge_id in sorted(graph.edges.keys()):
         edge = graph.edges[edge_id]
         from_index = node_id_to_index.get(edge.from_node_id)
@@ -194,17 +207,30 @@ def build_lazy_road_graph(graph: RoadGraphLike) -> LazyRoadGraph:
         if from_index is None or to_index is None:
             continue
         pair = (from_index, to_index)
-        if pair not in best_by_pair:
+        if edge_cost_by_id is None:
+            if pair not in best_by_pair:
+                best_by_pair[pair] = edge_id
+            continue
+        cost = edge_cost_by_id.get(edge_id, math.inf)
+        existing_cost = best_cost_by_pair.get(pair)
+        if existing_cost is None or cost < existing_cost:
+            best_cost_by_pair[pair] = cost
             best_by_pair[pair] = edge_id
 
-    for (from_index, to_index), edge_id in best_by_pair.items():
-        py_graph.add_edge(from_index, to_index, edge_id)
+    edge_ids: list[str] = []
+    edge_index_by_node_pair: dict[tuple[int, int], int] = {}
+    for pair, edge_id in best_by_pair.items():
+        edge_index = len(edge_ids)
+        py_graph.add_edge(pair[0], pair[1], edge_index)
+        edge_ids.append(edge_id)
+        edge_index_by_node_pair[pair] = edge_index
 
     return LazyRoadGraph(
         py_graph=py_graph,
         node_id_to_index=node_id_to_index,
         index_to_node_id=node_ids,
-        edge_id_by_index_pair=best_by_pair,
+        edge_ids=edge_ids,
+        edge_index_by_node_pair=edge_index_by_node_pair,
     )
 
 
@@ -212,17 +238,23 @@ def shortest_path_node_ids_lazy(
     lazy_graph: LazyRoadGraph,
     start_node_id: str,
     end_node_id: str,
-    edge_cost_fn: Callable[[str], float],
-    estimate_cost_fn: Callable[[str], float],
+    edge_cost_fn: Callable[[int], float],
+    estimate_cost_fn: Callable[[int], float],
 ) -> list[str] | None:
     """`start_node_id`から`end_node_id`までの最小コスト経路をNode ID列で返す
     （改善計画T529、`shortest_path_node_ids_sparse`のlazy評価版）。
 
-    `edge_cost_fn`はedge_idを受け取り非負のコストを返す（Hard Constraintで除外される
-    Edgeは`math.inf`を返すことで通行不能を表現する——`build_sparse_graph`がグラフ構築時に
-    Edgeそのものを除外するのと異なり、lazy評価ではコストが分かるまで除外できないため）。
-    `estimate_cost_fn`はnode_idを受け取り、目的地までの下界推定（admissibleヒューリスティック、
-    直線距離）を返す。経路が存在しない場合はNoneを返す。
+    改善計画T536: `edge_cost_fn`/`estimate_cost_fn`は、`LazyRoadGraph`のNode/Edge payload
+    である**整数index**（Edge index/Node index、それぞれ`lazy_graph.edge_ids`/
+    `lazy_graph.index_to_node_id`の添字）を受け取る（旧: edge_id/node_id文字列）。
+    典型的には呼び出し元が`cost_list.__getitem__`のような素のlistインデックスアクセスを
+    そのまま渡す（探索中にPythonの関数フレームを作らない、`LazyRoadGraph`のdocstring
+    参照）。Hard Constraintで除外されるEdgeは`edge_cost_fn`が`math.inf`を返すことで
+    通行不能を表現する（`build_sparse_graph`がグラフ構築時にEdgeそのものを除外するのと
+    異なり、lazy評価ではコストが分かるまで除外できないため——ただしT536以降はコストが
+    探索前に判明しているため、この除外自体は`build_lazy_road_graph`より前の時点で
+    コスト配列へ焼き込まれている）。`estimate_cost_fn`は目的地までの下界推定
+    （admissibleヒューリスティック、直線距離）を返す。経路が存在しない場合はNoneを返す。
     """
     if start_node_id == end_node_id:
         return [start_node_id] if start_node_id in lazy_graph.node_id_to_index else None
@@ -232,8 +264,8 @@ def shortest_path_node_ids_lazy(
     if start_index is None or end_index is None:
         return None
 
-    def goal_fn(node_id: str) -> bool:
-        return node_id == end_node_id
+    def goal_fn(node_index: int) -> bool:
+        return node_index == end_index
 
     try:
         path_indices = rx.astar_shortest_path(
@@ -251,8 +283,8 @@ def shortest_path_node_ids_lazy(
     # 合計コストを検算し、無限大ならHard Constraintで実質到達不能だったとみなす。
     total_cost = 0.0
     for u, v in zip(path_indices, path_indices[1:]):
-        edge_id = lazy_graph.edge_id_by_index_pair[(u, v)]
-        total_cost += edge_cost_fn(edge_id)
+        edge_index = lazy_graph.edge_index_by_node_pair[(u, v)]
+        total_cost += edge_cost_fn(edge_index)
     if not math.isfinite(total_cost):
         return None
 
@@ -262,8 +294,10 @@ def shortest_path_node_ids_lazy(
 def path_to_edge_ids_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[str]:
     """Node ID列を、それらを結ぶEdgeのID列へ変換する（`path_to_edge_ids_sparse`と同じ形）。"""
     return [
-        lazy_graph.edge_id_by_index_pair[
-            (lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])
+        lazy_graph.edge_ids[
+            lazy_graph.edge_index_by_node_pair[
+                (lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])
+            ]
         ]
         for u, v in zip(path_node_ids, path_node_ids[1:])
     ]

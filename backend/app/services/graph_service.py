@@ -4,9 +4,10 @@ import time
 from dataclasses import replace
 
 from app.domain.attributes import EdgeMaterialBundle, SearchMaterials, surface_by_edge_id
+from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, combine_static_edge_score_matrices
 from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
-from app.infrastructure import graph_material_cache, road_graph_tile_cache
+from app.infrastructure import graph_material_cache, road_graph_tile_cache, tile_score_matrix_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
@@ -45,11 +46,19 @@ def _maybe_warm_tile_cache(bbox: BoundingBox) -> None:
 
 async def _warm_tile_cache_background(x: int, y: int, attempted_at: float) -> None:
     """リクエストのセッションとは別の新規セッションを使う（HTTPレスポンスが返った後も
-    タスクを続けるため、T59の_build_graph_for_tile_backgroundと同じ理由）。"""
+    タスクを続けるため、T59の_build_graph_for_tile_backgroundと同じ理由）。
+
+    改善計画T536: 材料（graph_material_cache）だけでなく静的スコア行列
+    （tile_score_matrix_cache）もあわせて温める——ここで温めておかないと、次回の
+    リクエストが材料キャッシュはヒットするのにスコア行列だけ未着火のまま構築する
+    手戻りが発生する。
+    """
     try:
         async with get_session_factory()() as session:
             service = GraphService(repository=RoadGraphRepository(session))
-            await service._get_or_build_tile_materials(x, y)
+            materials = await service._get_or_build_tile_materials(x, y)
+            accident_years_covered = await service.get_accident_years_covered()
+            await service._get_or_build_tile_score_matrix(x, y, materials, accident_years_covered)
     except Exception as exc:  # noqa: BLE001 バックグラウンド温めの失敗は元のレスポンスに影響させない
         logger.warning(
             "タイル材料キャッシュのバックグラウンド温めに失敗 zoom=%d x=%d y=%d error=%r",
@@ -242,17 +251,21 @@ class GraphService:
 
         return primary_graph, primary_surface_attributes
 
-    async def get_search_materials_for_bbox(self, bbox: BoundingBox) -> SearchMaterials | None:
+    async def get_search_materials_for_bbox(
+        self, bbox: BoundingBox
+    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix] | None:
         """探索フェーズ（`RoadGraphEngine.prepare`）向けに、Road Graphのトポロジ＋材料
-        （surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）を
-        まとめて返す（改善計画T219、T12 Stage 1）。
+        （surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）と、
+        改善計画T536の「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`）をまとめて
+        返す（改善計画T219、T12 Stage 1）。
 
         `get_or_build_graph_with_attributes`は1回のリクエストのbbox全体で
         素材を都度取得するため、同じエリアへ2回目以降のリクエストが来ても毎回DBへ
         問い合わせていた。本メソッドはbboxをz12タイル（`ROAD_GRAPH_TILE_ZOOM`）に分解し、
-        タイル単位でプロセス内メモリキャッシュ（`infrastructure/graph_material_cache.py`）を
-        経由することで、既にキャッシュ済みのタイルだけで完結するリクエストはDBへ
-        一切アクセスしない（無効化方針はキャッシュモジュールのdocstring参照）。
+        タイル単位でプロセス内メモリキャッシュ（`infrastructure/graph_material_cache.py`・
+        `infrastructure/tile_score_matrix_cache.py`）を経由することで、既にキャッシュ済みの
+        タイルだけで完結するリクエストはDBへ一切アクセスせず、探索コストの軸別スコア
+        算出（Edgeごとの重いPython評価）も行わない。
 
         対象bboxのデータが前回のsplit以降変わっている稀なケース（`is_split_up_to_date`が
         False）は、既存の`get_or_build_graph_with_attributes`（フルグラフ構築・保存を含む
@@ -267,12 +280,23 @@ class GraphService:
         if not await self._ensure_tiles_cached(bbox):
             return None
 
+        # accident_count_per_km_year軸材料の年正規化に必要（改善計画T536: 静的スコア
+        # 行列の構築に必要なため、タイル単位キャッシュへ入る前にここで1回だけ解決する。
+        # get_accident_years_coveredはbboxに依存しないグローバル値で既にプロセス内
+        # 単一値キャッシュ済みのため、ここで先に呼んでも追加のDB往復は増えない）。
+        accident_years_covered = await self.get_accident_years_covered()
+
         if not await self._ensure_split_up_to_date(bbox):
-            return await self._build_search_materials_uncached(bbox)
+            built = await self._build_search_materials_uncached(bbox, accident_years_covered)
+            if built is None:
+                return None
+            return built
 
-        return await self._build_search_materials_from_tile_cache(bbox)
+        return await self._build_search_materials_from_tile_cache(bbox, accident_years_covered)
 
-    async def _build_search_materials_uncached(self, bbox: BoundingBox) -> SearchMaterials | None:
+    async def _build_search_materials_uncached(
+        self, bbox: BoundingBox, accident_years_covered: int
+    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix] | None:
         built = await self.get_or_build_graph_with_attributes(bbox)
         if built is None:
             return None
@@ -289,9 +313,6 @@ class GraphService:
         # 経路のため許容する）。
         batch = await self._repository.get_edge_materials_batch(edge_ids)
         materials_ms = round((time.monotonic() - materials_started) * 1000)
-        logger.info(
-            "_build_search_materials_uncached edges=%d materials_ms=%d", len(edge_ids), materials_ms
-        )
         # isinstanceで実リポジトリのときだけ発火させる（region_service.pyの
         # _maybe_trigger_graph_build呼び出し箇所と同じ理由。テストのFakeRoadGraphRepositoryは
         # ダックタイピングでこのクラスを継承しないため、ここで弾かれ実DBセッションを
@@ -302,23 +323,43 @@ class GraphService:
             edge_id: replace(bundle, surface=surface_attributes.get(edge_id))
             for edge_id, bundle in batch.materials.items()
         }
-        return SearchMaterials(graph=graph, materials=materials)
+        # 改善計画T536: このbboxはタイル境界と一致しないため結果をタイルキャッシュへ
+        # 書き込まないのはmaterials同様だが、静的スコア行列自体はこの応答（探索コスト）が
+        # 使うため、ここで1回だけ構築する（応答後のバックグラウンド温め成功後は次回以降
+        # 正規のタイル単位キャッシュ経由になる）。
+        score_matrix_started = time.monotonic()
+        score_matrix = build_static_edge_score_matrix(graph, materials, accident_years_covered)
+        score_matrix_ms = round((time.monotonic() - score_matrix_started) * 1000)
+        logger.info(
+            "_build_search_materials_uncached edges=%d materials_ms=%d score_matrix_ms=%d",
+            len(edge_ids), materials_ms, score_matrix_ms,
+        )
+        return SearchMaterials(graph=graph, materials=materials), score_matrix
 
-    async def _build_search_materials_from_tile_cache(self, bbox: BoundingBox) -> SearchMaterials:
+    async def _build_search_materials_from_tile_cache(
+        self, bbox: BoundingBox, accident_years_covered: int
+    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix]:
         # 改善計画T248: このメソッドはタイルキャッシュ経路専用（_get_or_build_tile_materials
         # は常にLeanRoadGraphを返す）のため、結合後もLeanRoadGraphで統一する。
         combined_nodes: dict[str, LeanNode] = {}
         combined_edges: dict[str, LeanEdge] = {}
         combined_materials: dict[str, EdgeMaterialBundle] = {}
+        tile_score_matrices: list[StaticEdgeScoreMatrix] = []
 
         for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
             tile = await self._get_or_build_tile_materials(x, y)
             combined_nodes.update(tile.graph.nodes)
             combined_edges.update(tile.graph.edges)
             combined_materials.update(tile.materials)
+            tile_score_matrices.append(
+                await self._get_or_build_tile_score_matrix(x, y, tile, accident_years_covered)
+            )
 
         graph = LeanRoadGraph(graph_version="tile-cache", nodes=combined_nodes, edges=combined_edges)
-        return SearchMaterials(graph=graph, materials=combined_materials)
+        # 改善計画T536: 複数タイルの静的スコア行列を、上と同じ「後勝ち」セマンティクスで
+        # 結合する（combine_static_edge_score_matrices参照）。
+        score_matrix = combine_static_edge_score_matrices(tile_score_matrices)
+        return SearchMaterials(graph=graph, materials=combined_materials), score_matrix
 
     async def _get_or_build_tile_materials(self, x: int, y: int) -> SearchMaterials:
         cached = graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y)
@@ -340,6 +381,23 @@ class GraphService:
         materials = SearchMaterials(graph=graph, materials=batch.materials)
         graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y, materials)
         return materials
+
+    async def _get_or_build_tile_score_matrix(
+        self, x: int, y: int, materials: SearchMaterials, accident_years_covered: int
+    ) -> StaticEdgeScoreMatrix:
+        """改善計画T536: タイル単位の「Edge×公開軸」静的スコア行列を、材料キャッシュ
+        （`graph_material_cache`）とは別枠のLRU（`tile_score_matrix_cache`）へキャッシュ
+        する。軸スタジオでの軸定義編集時（`refresh_axis_definitions`）はこちらだけが
+        クリアされ、材料キャッシュは温存される（`tile_score_matrix_cache.py`のdocstring
+        参照）。`materials`は`_get_or_build_tile_materials`が返した同じタイルのSearchMaterials
+        （キャッシュ済み/新規取得どちらでも、材料自体はここで再取得しない）。
+        """
+        cached = tile_score_matrix_cache.get(ROAD_GRAPH_TILE_ZOOM, x, y)
+        if cached is not None:
+            return cached
+        matrix = build_static_edge_score_matrix(materials.graph, materials.materials, accident_years_covered)
+        tile_score_matrix_cache.set(ROAD_GRAPH_TILE_ZOOM, x, y, matrix)
+        return matrix
 
     async def get_accident_years_covered(self) -> int:
         """事故データの収録年数を返す。

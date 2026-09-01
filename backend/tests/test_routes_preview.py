@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_preview_builder
 from app.config import settings
 from app.domain.attributes import EdgeMaterialBundle, SearchMaterials
+from app.domain.evaluation import build_static_edge_score_matrix
 from app.domain.errors import RoutingError
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteSegment
@@ -160,7 +161,10 @@ class _FakeGraphServiceForPreview:
             )
             for edge_id, edge in self._graph.edges.items()
         }
-        return SearchMaterials(graph=self._graph, materials=materials)
+        # 改善計画T536: get_search_materials_for_bboxは(SearchMaterials, StaticEdgeScoreMatrix)
+        # のタプルを返す契約になった（road_graph_engine.py: _build_search_graph参照）。
+        score_matrix = build_static_edge_score_matrix(self._graph, materials, 0)
+        return SearchMaterials(graph=self._graph, materials=materials), score_matrix
 
     async def get_accident_years_covered(self) -> int:
         return 0

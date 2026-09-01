@@ -13,15 +13,19 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`axis_score_cache.py` |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py` |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py` |
 
-road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `rustworkx`のlazy
-A*（`edge_cost_fn`コールバック、探索が実際に訪れたEdgeのみコストを計算する）で
-経路計算する。標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで
-組み込み済み（探索中にGSI API呼び出しは発生しない）。風は出発時点の起点付近の風を
-ルート全体へ一様適用する（探索中は到達時刻が未確定のため）。
+road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `rustworkx`のA*で経路計算する。
+Edgeコストは改善計画T536で「タイル単位の静的Edge×公開軸スコア行列＋リクエスト時ベクトル
+計算」方式へ変更済み——探索が実際に訪れたEdgeに対してPythonのコスト計算コールバックを
+都度呼ぶ（旧T529/T534方式）のではなく、`prepare`/`preview_segment`が対象bbox全体ぶんの
+コスト配列を1回だけnumpyで合成し、A*（`domain/routing.py: shortest_path_node_ids_lazy`）
+へは合成済み配列への`list.__getitem__`だけを渡す（探索中にPythonの関数フレームを作らない）。
+標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで組み込み済み
+（探索中にGSI API呼び出しは発生しない）。風は出発時点の起点付近の風をルート全体へ
+一様適用する（探索中は到達時刻が未確定のため）。
 
 `RouteGenerateRequest.waypoints`/`destination`（経由地・目的地指定）にも対応する
 （`api/routers/routes.py: generate_routes`）。
@@ -102,22 +106,35 @@ RouteGenerator.generate_loops()
 
 `GraphService.get_search_materials_for_bbox`でトポロジ＋材料（surface・
 edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids、Edge単位で
-`EdgeMaterialBundle`へ統合済み）をまとめて取得し、`_build_search_graph`で探索用グラフ
-（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）を構築する。データ未整備
-（対象タイル未取込）ならNoneを返し、呼び出し元（`RouteGenerator`）が候補0件として扱う。
+`EdgeMaterialBundle`へ統合済み）＋改善計画T536の`StaticEdgeScoreMatrix`（タイル単位で
+キャッシュ済みの「Edge×公開軸」静的スコア行列）をまとめて取得し、`_build_search_graph`が
+探索用グラフ（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）とbbox全体ぶんの
+コスト配列を構築する。データ未整備（対象タイル未取込）ならNoneを返し、呼び出し元
+（`RouteGenerator`）が候補0件として扱う。
 
-`_build_edge_cost_fn`が組み立てる`edge_cost_fn`は、風以外の軸別スコア（タグパース・
-軸評価ループ）をEdge単位でプロセス内キャッシュする`infrastructure/axis_score_cache.py`
-（`graph_material_cache`とは別枠、軸スタジオでの軸定義編集時にはこちらだけが
-クリアされる）を経由する。1リクエスト内（最大24回＝8方位×3レグ）の重複計算は
-`_RoadGraphContext.cost_cache`で別途防ぐ。
+`_build_search_graph`は、`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
+NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`。材料id→evaluator
+関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
+ベクトルを適用し、`compose_costs_from_axis_matrix`・`compute_hard_filter_excluded`で
+コスト配列（`_RoadGraphContext.cost_list`、`lazy_graph.edge_ids`と同じ行順）を1回だけ
+合成する。並行Edge（同一Node間の複数Edge）は、コストが探索前に判明しているため
+「cost最小を採用」する（`build_lazy_road_graph`の`edge_cost_by_id`引数）。同じ配列
+（`difficulty_array`・`axis_arrays`）は`_build_segment_details`（区間表示）からも
+`full_edge_row`経由で参照され、探索コストと表示の二重計算を避ける。
 
 ### `trace_loop` / `evaluate_loops`
 
 `trace_loop`はA*で経由地点間の最短経路（node列）を求め、`GraphService.
-get_edges_with_geometry`で実ジオメトリを後付けする。`evaluate_loops`が標高・風・路面・
-車ストレス等の軸別difficultyを`domain/evaluation.py: compute_edge_axis_scores`で算出し、
-`_build_segment_details`で`RouteSegmentDetail`列へ組み立てる。
+get_edges_with_geometry`で実ジオメトリを後付けする。8方位ぶんの`trace_loop`は
+`RouteGenerator.generate_loops`から`asyncio.gather`で呼ばれるが、探索本体は
+`asyncio.to_thread`による並列化をしない（改善計画T536: rustworkxはEdgeごとに
+Pythonコールバックへ戻る構造のためGILを解放できず、複数スレッド並列は直列より
+約2秒遅いことを本番実測。`_trace_segments`をコルーチン内で直接呼び、gatherの
+協調的スケジューリングにより実質直列で実行される）。`evaluate_loops`が呼ぶ
+`_build_segment_details`は、探索コスト算出時に`prepare`が既に合成済みの軸別スコア
+配列・合成difficulty配列（`_RoadGraphContext.axis_arrays`/`difficulty_array`、改善計画
+T536）からそのまま値を読み、`RouteSegmentDetail`列へ組み立てる（標高・風・路面等の
+表示専用フィールドはEdge単位の軽量な計算のまま）。
 
 ### `_build_best_candidate`（逆回りループ候補の代数的合成）
 
@@ -159,10 +176,17 @@ road_nodes/road_edgesが空のままになるため）。
 
 ### タイル単位の探索用素材キャッシュ（`get_search_materials_for_bbox`）
 
-bboxをz12タイルへ分解し、`graph_material_cache`（プロセス内LRU、上限2,000タイル）を
-タイル単位で経由する。全タイルがキャッシュ済みならDBへ一切アクセスしない。split鮮度が
-古い場合のみ`get_or_build_graph_with_attributes`のフル経路へフォールバックし、応答後に
-バックグラウンドで該当タイルを温める（`_maybe_warm_tile_cache`）。
+bboxをz12タイルへ分解し、`graph_material_cache`（材料、プロセス内LRU、上限2,000タイル）と
+`tile_score_matrix_cache`（改善計画T536の`StaticEdgeScoreMatrix`、材料キャッシュとは別枠の
+プロセス内LRU）をタイル単位で経由する。全タイルがキャッシュ済みならDBへの問い合わせも
+Edge単位の軸別スコア算出も発生しない（`_get_or_build_tile_score_matrix`）。戻り値は
+`tuple[SearchMaterials, StaticEdgeScoreMatrix]`——複数タイルにまたがる場合は
+`domain/evaluation.py: combine_static_edge_score_matrices`が後勝ちセマンティクスで1つに
+結合する（`combined_edges.update(...)`と同じ結合順序）。split鮮度が古い場合のみ
+`get_or_build_graph_with_attributes`のフル経路へフォールバックし（この場合もその場で
+`build_static_edge_score_matrix`を呼びスコア行列を構築する）、応答後にバックグラウンドで
+該当タイルを材料・スコア行列の両方とも温める（`_maybe_warm_tile_cache`→
+`_warm_tile_cache_background`）。
 
 **暗黙の前提**: `graph_material_cache`は無効化方針として**バージョン管理を行わず
 プロセス寿命でのみキャッシュする**（ユーザー承認済み）。PBF再取込や各種precomputeバッチを
@@ -180,15 +204,20 @@ gather開始前のprepare段階で逐次呼ばれるため対象外）。同一`
 
 ### `domain/routing.py`
 
-- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフはトポロジのみ（Edgeコストを
-  事前計算しない）。並列Edge（同じnode対の重複辺）はコストで選べないため、edge_idの
-  昇順で先頭を決定論的に採用する。
+- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフ。改善計画T536でNode/Edgeの
+  payloadを整数index（`add_nodes_from(range(n))`・Edge payload=`edge_ids`の添字）にし、
+  A*のcost_fn/estimate_cost_fnが素の`list.__getitem__`を受け取れるようにした（探索中に
+  Pythonの関数フレームを作らない設計の核心）。`build_lazy_road_graph`に`edge_cost_by_id`
+  （コスト辞書）を渡すと、並列Edge（同じnode対の重複辺）は**cost最小のEdgeを採用**する
+  （改善計画T363の元の意味論、コストが事前に判明しているため）。省略時（コスト未確定の
+  場面、主にテスト）はedge_idの昇順で先頭を採用する決定的な選択にフォールバックする。
 - `shortest_path_node_ids_lazy`: `rustworkx.astar_shortest_path`を、探索が実際に訪れた
-  Edgeに対してのみ都度呼ばれる`edge_cost_fn`コールバックでラップする。Hard Constraintで
-  除外するEdgeは`edge_cost_fn`が`math.inf`を返すことで表現する（`LazyRoadGraph`自体は
-  Hard Constraintを知らない）。経路確定後、合計コストが有限かを検算してから返す
-  （rustworkxが`inf`を「非常に高コストだが有効」として扱い、他に経路が無ければ
-  採用してしまうことがあるため）。
+  Edge・Nodeに対してのみ都度呼ばれる`edge_cost_fn`/`estimate_cost_fn`（いずれも整数index
+  引数）でラップする。Hard Constraintで除外するEdgeは`edge_cost_fn`が`math.inf`を返す
+  ことで表現する（`LazyRoadGraph`自体はHard Constraintを知らない。改善計画T536以降は
+  この`math.inf`は探索前に`prepare`が合成したコスト配列へ既に焼き込み済み）。経路確定後、
+  合計コストが有限かを検算してから返す（rustworkxが`inf`を「非常に高コストだが有効」
+  として扱い、他に経路が無ければ採用してしまうことがあるため）。
 - `NodeSpatialIndex`/`build_node_spatial_index`/`find_nearest_node_indexed`:
   グリッドバケットによる最近傍ノード探索。
 - `compute_routable_node_ids`（`domain/evaluation.py`）: 最近傍ノード探索は「0次
@@ -356,9 +385,11 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
   崩れることに注意。
 - **`graph_material_cache`はバージョン管理なし・プロセス寿命限定**——バッチ再実行後は
   プロセス再起動まで対象タイルが古い値を返す。
-- **`axis_score_cache`（Edge単位の静的軸別スコア）は`graph_material_cache`とは別枠**
-  ——軸スタジオでの軸定義編集（`AxisRegistryAdminService`→`refresh_axis_definitions`）
-  はこちらだけをクリアし、材料キャッシュ（DBアクセスを伴う取得）は温存する。編集直後の
-  最初のリクエストがDBへ再問い合わせせずに済む設計上の分離。
+- **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列、改善計画T536）は
+  `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集
+  （`AxisRegistryAdminService`→`refresh_axis_definitions`）はこちらだけをクリアし、
+  材料キャッシュ（DBアクセスを伴う取得）は温存する。編集直後の最初のリクエストが
+  DBへ再問い合わせせずに済む設計上の分離（旧`axis_score_cache`[Edge単位、T534]と
+  同じ設計意図をタイル粒度へ引き継いだもの）。
 - **`RouteScorer`は候補1件（waypoints指定ルート）に対しては呼ばれない**——曖昧な
   「常に満点」を避けるための意図的な設計。

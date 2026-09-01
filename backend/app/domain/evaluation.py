@@ -10,7 +10,8 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 正規化方式を発明せず、評価基準の食い違いも避ける。
 """
 
-from typing import Mapping
+from dataclasses import dataclass
+from typing import Callable, Mapping
 
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
+    REQUEST_DYNAMIC_MATERIAL_IDS,
     default_axis_weights,
     dynamic_axis_topological_order,
     evaluate_axes_scalar,
@@ -422,11 +424,11 @@ def _resolve_static_edge_materials(
     accident_years_covered: int,
     is_designated: bool,
 ) -> dict[str, object]:
-    """`compute_edge_axis_scores`/`compute_edge_static_axis_data`が共有する、風以外の
-    一次属性→材料解決ロジック（改善計画T534、以前は`compute_edge_axis_scores`内に直接
-    書かれていた処理を抽出）。戻り値は`wind_penalty`キーを含まない——Edgeの材料だけで
-    決まりリクエスト間で不変な部分のみを担当する（風の組み込みは呼び出し元の責務）。
-    パラメータの意味は`compute_edge_axis_scores`のdocstring参照。
+    """`compute_edge_axis_scores`が使う、風以外の一次属性→材料解決ロジック
+    （改善計画T534、以前は`compute_edge_axis_scores`内に直接書かれていた処理を抽出）。
+    戻り値は`wind_penalty`キーを含まない——Edgeの材料だけで決まりリクエスト間で不変な
+    部分のみを担当する（風の組み込みは呼び出し元の責務）。パラメータの意味は
+    `compute_edge_axis_scores`のdocstring参照。
     """
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
     is_good_surface = classify_osm_surface(surface_type)
@@ -475,71 +477,6 @@ def _resolve_static_edge_materials(
         "is_designated": is_designated,
         "motor_vehicle_no": motor_vehicle_no,
         **night_materials(way_tags),
-    }
-
-
-def compute_edge_static_axis_data(
-    edge: EdgeLike,
-    elevation_attribute: ElevationAttribute | None,
-    surface_type: str | None,
-    stop_count: int | None = None,
-    way_tags: dict[str, str] | None = None,
-    intersection_count: int | None = None,
-    accident_count: int | None = None,
-    accident_years_covered: int = 0,
-    is_designated: bool = False,
-) -> dict[str, object]:
-    """改善計画T534: 風を除いた一次属性から、静的な軸別スコアまで含めて評価済みの
-    materials_with_axes辞書（`evaluate_axes_scalar`の第2戻り値、材料＋内部軸＋公開軸の
-    スコアが混在する）を返す。戻り値はEdgeの材料だけで決まりリクエスト間で不変なため、
-    Edge単位でキャッシュしてよい（`infrastructure/axis_score_cache.py`参照）。
-
-    プロファイリング実測（cProfile、24.7万Edge）で、`compute_edge_cost`の累積時間の
-    6割超をタグパース・区分線形補間・軸評価ループ（本関数相当の処理）が占めており、
-    かつこれらは風以外のリクエスト依存性を持たないと判明したことを受けて追加した
-    （docs/tasks/T522.md「材料辞書統合＋EdgeCostResult.model_construct化」節参照）。
-
-    風に依存する軸（現状"wind"のみ、`domain/axis_definitions.py:
-    dynamic_axis_topological_order`が機械的に判定）はこの戻り値には正しい値を持たない
-    （wind_penaltyキー自体が無いため、該当軸はNoneのまま評価される）——
-    `compute_edge_axis_scores_from_static_data`が風を組み込んでリクエスト時に
-    別途評価する。パラメータの意味は`compute_edge_axis_scores`のdocstring参照。
-
-    「静的スコアだけを事前フィルタしてキャッシュし、動的軸はスキップして評価コスト自体を
-    省く」より踏み込んだ最適化も検討したが、実データベンチマーク（24.7万Edge）で
-    温キャッシュの改善（1.53→1.66倍）に対し初回訪問（冷キャッシュ）が悪化した
-    （0.82→0.77倍、`dynamic_axis_topological_order`呼び出しが2回に増える等の追加コストが
-    温キャッシュでの節約を上回った）ため見送り、この単純な設計を採用した
-    （docs/tasks/T534.md参照）。
-    """
-    materials = _resolve_static_edge_materials(
-        edge, elevation_attribute, surface_type, stop_count, way_tags,
-        intersection_count, accident_count, accident_years_covered, is_designated,
-    )
-    _, materials_with_axes = evaluate_axes_scalar(materials)
-    return materials_with_axes
-
-
-def compute_edge_axis_scores_from_static_data(
-    edge: EdgeLike, static_axis_data: Mapping[str, object], wind: WeatherConditions | None = None,
-) -> dict[str, float]:
-    """改善計画T534: `compute_edge_static_axis_data`の戻り値（Edge単位でキャッシュ済み）へ
-    リクエスト時点の風を組み込み、`compute_edge_axis_scores`と同じ契約（axis_id→difficulty、
-    評価できなかった軸はキー自体を含めない）で最終的な公開軸スコア辞書を返す。
-
-    風に依存しない軸は`static_axis_data`内の値をそのまま使い、
-    `dynamic_axis_topological_order`が返す軸（風、および風に依存する軸があれば連鎖的に）
-    だけをその場で再評価する。軸スタジオが新しく作る軸が風を参照した場合も、この関数・
-    キャッシュ側の変更無しで正しく再評価対象に含まれる。
-    """
-    materials_with_axes: dict[str, object] = dict(static_axis_data)
-    materials_with_axes["wind_penalty"] = compute_wind_penalty(edge, wind)
-    for axis_id in dynamic_axis_topological_order(AXIS_DEFINITIONS):
-        materials_with_axes[axis_id] = evaluate_axis_scalar(AXIS_DEFINITIONS[axis_id], materials_with_axes)
-    return {
-        axis_id: value
-        for axis_id, definition in AXIS_DEFINITIONS.items()
-        if definition.is_published and (value := materials_with_axes.get(axis_id)) is not None
     }
 
 
@@ -632,43 +569,6 @@ def compute_edge_cost(
     return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
 
 
-def compute_edge_cost_from_static_data(
-    edge: EdgeLike,
-    static_axis_data: Mapping[str, object],
-    elevation_attribute: ElevationAttribute | None,
-    way_tags: dict[str, str] | None,
-    preference: RoutePreference,
-    wind: WeatherConditions | None = None,
-    penalty_strength: float = 1.0,
-    max_average_grade_percent: float | None = None,
-    weights: dict[str, float] | None = None,
-    hard_filters: frozenset[str] | None = None,
-) -> EdgeCostResult:
-    """改善計画T534: `compute_edge_cost`のEdge単位キャッシュ活用版。
-
-    `static_axis_data`は`compute_edge_static_axis_data`の戻り値（Edge単位でタイル間
-    キャッシュ済み、`infrastructure/axis_score_cache.py`参照）。`compute_edge_cost`と
-    ビット単位で同一の結果を返す（`tests/test_evaluation.py`の回帰テストで確認済み）。
-
-    `is_edge_allowed`の判定材料（`way_tags`/`elevation_attribute`）はEdgeの材料そのもの
-    （動的要素を含まない）のため、`compute_edge_cost`と同じくそのまま受け取る——
-    キャッシュ対象は軸別スコアの算出だけで、Hard Constraint判定はキャッシュしない
-    （呼び出しコストが軽く、キャッシュの複雑化に見合わないため）。
-    """
-    if not is_edge_allowed(
-        edge, way_tags, hard_filters=hard_filters,
-        elevation_attribute=elevation_attribute,
-        max_average_grade_percent=max_average_grade_percent,
-    ):
-        return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
-
-    axis_scores = compute_edge_axis_scores_from_static_data(edge, static_axis_data, wind)
-    resolved_weights = weights if weights is not None else preference.weights
-    cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
-
-    return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
-
-
 def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
     """`terms`を先頭から順に加算する（Neumaier補償加算、Kahan加算の改良版）。
 
@@ -692,65 +592,72 @@ def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
     return total + compensation
 
 
-def compute_edge_costs_bulk(
+@dataclass(frozen=True, slots=True)
+class BulkAxisEvaluation:
+    """`compute_edge_costs_bulk`の抽出＋計算フェーズ（改善計画T536で`_evaluate_axes_bulk`
+    として切り出し）の結果。bbox全体一括評価（`compute_edge_costs_bulk`本体）と、タイル
+    単位の静的スコア行列構築（`build_static_edge_score_matrix`）の両方から共有する。
+
+    `axis_arrays`は公開軸のみ・依存順（`topological_axis_order`のサブセット）。重み付き
+    合成（Neumaier加算・cost算出）は含まない——`weights`が定まった時点で呼び出し元が
+    `compose_costs_from_axis_matrix`へ渡す。0次フィルタは`is_motorway`/`is_trunk`/
+    `no_bicycle`/`gradient_percent`の生フラグのみを持ち、`hard_filters`/
+    `max_average_grade_percent`（リクエストごとに変わりうる）による絞り込みは
+    `compute_hard_filter_excluded`が別途行う。
+    """
+
+    edge_ids: list[str]
+    distance_m: np.ndarray
+    bearing_deg: np.ndarray
+    is_motorway: np.ndarray
+    is_trunk: np.ndarray
+    no_bicycle: np.ndarray
+    gradient_percent: np.ndarray
+    axis_arrays: dict[str, np.ndarray]
+
+
+def _evaluate_axes_bulk(
     graph: RoadGraphLike,
     elevation_attributes: dict[str, ElevationAttribute],
     surface_attributes: dict[str, str | None],
-    preference: RoutePreference,
-    wind: WeatherConditions | None = None,
-    stop_counts: dict[str, int] | None = None,
-    way_tags: dict[str, dict[str, str]] | None = None,
-    intersection_counts: dict[str, int] | None = None,
-    accident_counts: dict[str, int] | None = None,
-    accident_years_covered: int = 0,
-    designated_edge_ids: set[str] | None = None,
-    penalty_strength: float = 1.0,
-    max_average_grade_percent: float | None = None,
-    weights: dict[str, float] | None = None,
-    hard_filters: frozenset[str] | None = None,
-) -> dict[str, EdgeCostResult]:
-    """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
-    算出する（改善計画T221/T240、`EvaluationService.evaluate_graph`専用）。
+    wind: WeatherConditions | None,
+    stop_counts: dict[str, int] | None,
+    way_tags: dict[str, dict[str, str]] | None,
+    intersection_counts: dict[str, int] | None,
+    accident_counts: dict[str, int] | None,
+    accident_years_covered: int,
+    designated_edge_ids: set[str] | None,
+) -> BulkAxisEvaluation:
+    """改善計画T536: `compute_edge_costs_bulk`の抽出フェーズ（`MATERIAL_CATALOG`の
+    extractor宣言経由でEdge単位の辞書・タグアクセスをnumpy配列へ落とし込む）と計算
+    フェーズ（`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を求める）を共有実装へ
+    切り出したもの（元は`compute_edge_costs_bulk`本体に直接書かれていた処理、
+    ロジック自体は移動のみで再実装していない）。
 
-    構造は「抽出フェーズ」と「計算フェーズ」の2段:
-
-    - 抽出フェーズ（1回のPythonループ）: Edge単位の辞書・タグアクセスを`MATERIAL_CATALOG`
-      （改善計画T280、`domain/material_catalog.py: MaterialSpec.extractor`）へ委譲し、
-      以降で使う数値をすべてnumpy配列へ落とし込む。欠損値は数値材料がNaN、文字列材料
-      （highway・surface等、dtype=object）がNoneで表現する。材料を1件追加する
-      ときはmaterial_catalog.pyへ抽出関数を書いてカタログへ登録するだけでよく、
-      この関数自体の変更は不要（0次ハードフィルタ判定はEdgeの通行可否そのものであり
-      材料の値ではないため、対象外のままここに残す）。
-    - 計算フェーズ（Pythonループ無し）: 材料id→配列の辞書に対して`AXIS_DEFINITIONS`
-      （domain/axis_definitions.py、改善計画T221 Stage B/C）を軸ごとに適用して
-      difficulty配列を求め、重み配列とのマスク付き加重平均（`composite_difficulty`の
-      ベクトル版）→cost算出まで、すべて配列演算で行う。スカラー経路
-      （`compute_edge_axis_scores`）と同じ軸定義データを読むため、軸の追加は
-      定義データの追加だけで両経路へ同時に反映される。
-
-    スカラー版`compute_edge_cost`は削除せず、本関数との出力一致を検証する回帰テスト
-    （`tests/test_evaluation_bulk.py`）のオラクルとして残す。
-
-    `stop_count`/`intersection_count`/`accident_count`は実データ上ゼロ以上の整数
-    （PostGIS事前集計、`domain/attributes.py: EdgeAttributeCounts`）であることを前提とし、
-    「負値ならNone」という防御的ガード（テスト専用の異常値入力を想定したもの、改善計画
-    T320で削除済みのスカラー版互換ラッパが持っていた）はここでは再現しない（実データでは
-    到達しない分岐のため、ベクトル化の単純さを優先した）。
-
-    `hard_filters`（改善計画T266）: `is_edge_allowed`と同じフィルタ名集合による上書き。
-    省略時（既定None）は`DEFAULT_HARD_FILTERS`（全フィルタ常時有効）を使う。
+    `wind=None`で呼ぶと、風に依存する軸（`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に
+    依存する軸、現状"wind"のみ）の列は自然にNaNのままになる——`wind_penalty`材料を
+    NaN配列にするだけで、`evaluate_axis_array`のrequired項がNaNを演算で自然に伝播させる
+    ため、動的軸を特別扱いする分岐は不要。`build_static_edge_score_matrix`（タイル単位の
+    静的スコア行列、探索コストの新方式）がこの性質を使う。
     """
     stop_counts = stop_counts or {}
     intersection_counts = intersection_counts or {}
     accident_counts = accident_counts or {}
     designated_edge_ids = designated_edge_ids or set()
-    resolved_weights = weights if weights is not None else preference.weights
-    active_hard_filters = hard_filters if hard_filters is not None else DEFAULT_HARD_FILTERS
 
     edge_ids = list(graph.edges.keys())
     n = len(edge_ids)
     if n == 0:
-        return {}
+        return BulkAxisEvaluation(
+            edge_ids=[],
+            distance_m=np.array([]),
+            bearing_deg=np.array([]),
+            is_motorway=np.array([], dtype=bool),
+            is_trunk=np.array([], dtype=bool),
+            no_bicycle=np.array([], dtype=bool),
+            gradient_percent=np.array([]),
+            axis_arrays={},
+        )
     edges = [graph.edges[edge_id] for edge_id in edge_ids]
 
     distance_m = np.array([edge.distance_m for edge in edges], dtype=float)
@@ -781,25 +688,25 @@ def compute_edge_costs_bulk(
         else:  # numeric、またはbool_default="nan"のboolean（surface_good等）
             material_arrays[spec.material_id] = np.full(n, np.nan)
 
-    hard_filter_excluded = np.zeros(n, dtype=bool)
+    # 改善計画T536: 0次フィルタ判定用の生フラグ（highway種別・bicycle=noタグ）は
+    # `hard_filters`（リクエストごとに変わりうる）を前提とせず、該当するかどうかの
+    # 生の判定結果のみ持つ。有効/無効の絞り込みは呼び出し元（`compute_hard_filter_excluded`）
+    # が行う——タイル単位でキャッシュする`build_static_edge_score_matrix`は
+    # `hard_filters`をまだ知らない時点でこの関数を呼ぶため。
+    highway_filter_flags: dict[str, np.ndarray] = {
+        filter_name: np.zeros(n, dtype=bool) for filter_name in HARD_FILTER_HIGHWAY_TYPES
+    }
+    no_bicycle = np.zeros(n, dtype=bool)
 
     for i, (edge_id, edge) in enumerate(zip(edge_ids, edges)):
         edge_way_tags = way_tags.get(edge_id) if way_tags is not None else None
 
-        # 0次ハードフィルタ（is_edge_allowedと同じ判定、改善計画T266でactive_hard_filters
-        # 引数による上書きに対応）。材料の値ではなくEdgeの通行可否そのものなので、
-        # 材料抽出とは独立にここへ残す。
         if edge.highway is not None:
             for filter_name, highway_types in HARD_FILTER_HIGHWAY_TYPES.items():
-                if filter_name in active_hard_filters and edge.highway in highway_types:
-                    hard_filter_excluded[i] = True
-                    break
-        if (
-            "no_bicycle" in active_hard_filters
-            and edge_way_tags is not None
-            and tag_value_is(edge_way_tags, "bicycle", "no")
-        ):
-            hard_filter_excluded[i] = True
+                if edge.highway in highway_types:
+                    highway_filter_flags[filter_name][i] = True
+        if edge_way_tags is not None and tag_value_is(edge_way_tags, "bicycle", "no"):
+            no_bicycle[i] = True
 
         ctx = MaterialExtractionContext(
             edge=edge,
@@ -827,13 +734,6 @@ def compute_edge_costs_bulk(
             elif value is not None:  # numeric
                 array[i] = float(value)
 
-    # 勾配の〇次ハードフィルタ（改善計画T280: 抽出済みgradient_percent配列に対する
-    # ベクトル演算1本に分離。NaNとの比較は常にFalseになるため、勾配不明のEdgeへは
-    # 従来どおり適用されない）。
-    if max_average_grade_percent is not None:
-        with np.errstate(invalid="ignore"):
-            hard_filter_excluded |= np.abs(material_arrays["gradient_percent"]) > max_average_grade_percent
-
     # --- 計算フェーズ（Pythonループ無し） ---
     wind_penalty = (
         np.full(n, np.nan)
@@ -860,26 +760,76 @@ def compute_edge_costs_bulk(
         if definition.is_published:
             axis_arrays[axis_id] = arr
 
-    # composite_difficultyのベクトル版: Noneの軸（NaN）は除外し残りの重みで再正規化する
-    # （辞書挿入順=上のaxis_arraysと同じgradient→wind→...→nightの順、無効な軸はスカラー版の
-    # `available`リストでは最初から除外されるが、ここでは0.0を加算するのと数学的に等価
-    # ——Neumaier加算でも0.0項の加算は補正項に影響しないため、スカラー版と同じ結果になる）。
-    # スカラー版composite_difficultyの`sum(score*weight for score,weight in available)`は
-    # Python組み込み`sum()`（3.12以降、Neumaier補償加算）であり、単純な逐次`+=`とは
-    # 異なる浮動小数点結果になりうる（`_neumaier_accumulate`のdocstring参照）。
+    return BulkAxisEvaluation(
+        edge_ids=edge_ids,
+        distance_m=distance_m,
+        bearing_deg=bearing_deg,
+        is_motorway=highway_filter_flags.get("motorway", np.zeros(n, dtype=bool)),
+        is_trunk=highway_filter_flags.get("trunk", np.zeros(n, dtype=bool)),
+        no_bicycle=no_bicycle,
+        gradient_percent=material_arrays["gradient_percent"],
+        axis_arrays=axis_arrays,
+    )
+
+
+def compute_hard_filter_excluded(
+    is_motorway: np.ndarray,
+    is_trunk: np.ndarray,
+    no_bicycle: np.ndarray,
+    gradient_percent: np.ndarray,
+    hard_filters: frozenset[str] | None = None,
+    max_average_grade_percent: float | None = None,
+) -> np.ndarray:
+    """`_evaluate_axes_bulk`が返す生フラグから、リクエスト時点の`hard_filters`/
+    `max_average_grade_percent`を反映した0次フィルタ除外の真偽値配列を求める
+    （改善計画T536、`is_edge_allowed`のベクトル版）。省略時（既定None）は
+    `DEFAULT_HARD_FILTERS`（全フィルタ常時有効）を使う。
+    """
+    active_hard_filters = hard_filters if hard_filters is not None else DEFAULT_HARD_FILTERS
+    excluded = np.zeros(len(is_motorway), dtype=bool)
+    if "motorway" in active_hard_filters:
+        excluded |= is_motorway
+    if "trunk" in active_hard_filters:
+        excluded |= is_trunk
+    if "no_bicycle" in active_hard_filters:
+        excluded |= no_bicycle
+    # 勾配の〇次ハードフィルタ（NaNとの比較は常にFalseになるため、勾配不明のEdgeへは
+    # 従来どおり適用されない）。
+    if max_average_grade_percent is not None:
+        with np.errstate(invalid="ignore"):
+            excluded |= np.abs(gradient_percent) > max_average_grade_percent
+    return excluded
+
+
+def compose_costs_from_axis_matrix(
+    distance_m: np.ndarray,
+    axis_arrays: Mapping[str, np.ndarray],
+    weights: dict[str, float],
+    penalty_strength: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """`_evaluate_axes_bulk`/`evaluate_dynamic_axis_arrays`が求めた軸別スコア配列群から、
+    重み付き合成のcost・composite difficulty配列を求める（改善計画T536、
+    `compute_edge_costs_bulk`から切り出した合成フェーズ）。
+
+    Neumaier加算・`round1_array`はスカラー版`composite_difficulty`/
+    `compute_cost_from_axis_scores`とビット単位で一致させるために必須
+    （`_neumaier_accumulate`のdocstring参照）。0次フィルタによる除外（cost=inf/None）は
+    呼び出し元の責務（`compute_hard_filter_excluded`参照、Edgeの通行可否そのものであり
+    軸別スコアの合成とは独立した判定のため）。戻り値は`(cost, composite_difficulty)`の
+    配列（difficultyはNaN=データ無し、costは0次フィルタを考慮しない「仮に許可された場合の
+    コスト」）。
+    """
+    n = len(distance_m)
     score_terms = []
     weight_terms = []
     for axis_id, arr in axis_arrays.items():
-        weight = resolved_weights.get(axis_id, 0.0)
+        weight = weights.get(axis_id, 0.0)
         valid = ~np.isnan(arr)
         score_terms.append(np.where(valid, arr * weight, 0.0))
         weight_terms.append(np.where(valid, weight, 0.0))
-    # 改善計画T463: 公開軸が1つも無い場合（AXIS_DEFINITIONSがDB読み込み前、または
-    # 軸スタジオで全軸を非公開化した状態）はaxis_arraysが空になりscore_terms/
-    # weight_termsも空リストのまま_neumaier_accumulate([terms[0]...])へ渡ると
-    # IndexErrorで/api/routes/generate全体が500になっていた。空のときはn件ぶんの
-    # ゼロ配列を直接使う（下のweighted_weight_sums==0判定が既にNaN合成へ倒す設計の
-    # ため、この分岐を通しても後続処理は変更不要）。
+    # 改善計画T463: 公開軸が1つも無い場合はn件ぶんのゼロ配列を直接使う（下の
+    # weighted_weight_sums==0判定が既にNaN合成へ倒す設計のため、この分岐を通しても
+    # 後続処理は変更不要）。
     if score_terms:
         weighted_scores = _neumaier_accumulate(score_terms)
         weighted_weight_sums = _neumaier_accumulate(weight_terms)
@@ -894,19 +844,74 @@ def compute_edge_costs_bulk(
     # （2進浮動小数点の実際の値に対する正しい丸め）と結果が食い違うことがある
     # （実測: 385.949999999999988...→np.roundは386.0、round()は385.9）。
     # スカラー版composite_difficulty/compute_cost_from_axis_scoresの`round(x, 1)`と
-    # 完全一致させるため、最終丸めのみ要素ごとにPythonの`round()`を適用する
-    # （軸別スコアの計算・加重合成自体はベクトル化済みのままで、丸めのみの
-    # 逐次処理はn件でも計算コストは無視できる）。
+    # 完全一致させるため、最終丸めのみ要素ごとにPythonの`round()`を適用する。
     composite = round1_array(composite)
 
     # compute_cost_from_axis_scoresと同じ: difficultyがNaN(None相当)ならcostは距離そのもの
-    # （割増なし）。allowed=Falseのcost=Noneは出力構築時に別途上書きする。
+    # （割増なし）。
     penalty_multiplier = np.where(np.isnan(composite), 1.0, 1.0 + penalty_strength * (composite / 100))
     cost = round1_array(distance_m * penalty_multiplier)
+    return cost, composite
+
+
+def compute_edge_costs_bulk(
+    graph: RoadGraphLike,
+    elevation_attributes: dict[str, ElevationAttribute],
+    surface_attributes: dict[str, str | None],
+    preference: RoutePreference,
+    wind: WeatherConditions | None = None,
+    stop_counts: dict[str, int] | None = None,
+    way_tags: dict[str, dict[str, str]] | None = None,
+    intersection_counts: dict[str, int] | None = None,
+    accident_counts: dict[str, int] | None = None,
+    accident_years_covered: int = 0,
+    designated_edge_ids: set[str] | None = None,
+    penalty_strength: float = 1.0,
+    max_average_grade_percent: float | None = None,
+    weights: dict[str, float] | None = None,
+    hard_filters: frozenset[str] | None = None,
+) -> dict[str, EdgeCostResult]:
+    """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
+    算出する（改善計画T221/T240、`EvaluationService.evaluate_graph`専用）。
+
+    改善計画T536: 抽出＋計算フェーズは`_evaluate_axes_bulk`（`build_static_edge_score_matrix`
+    と共有）、重み付き合成フェーズは`compose_costs_from_axis_matrix`（同じく共有）へ
+    切り出した薄いラッパー。挙動は分離前と完全に同一（`tests/test_evaluation_bulk.py`の
+    既存回帰テストで確認済み）。
+
+    材料を1件追加するときはmaterial_catalog.pyへ抽出関数を書いてカタログへ登録するだけで
+    よく、この関数自体の変更は不要。スカラー版`compute_edge_cost`は削除せず、本関数との
+    出力一致を検証する回帰テストのオラクルとして残す。
+
+    `stop_count`/`intersection_count`/`accident_count`は実データ上ゼロ以上の整数
+    （PostGIS事前集計、`domain/attributes.py: EdgeAttributeCounts`）であることを前提とし、
+    「負値ならNone」という防御的ガード（テスト専用の異常値入力を想定したもの、改善計画
+    T320で削除済みのスカラー版互換ラッパが持っていた）はここでは再現しない（実データでは
+    到達しない分岐のため、ベクトル化の単純さを優先した）。
+
+    `hard_filters`（改善計画T266）: `is_edge_allowed`と同じフィルタ名集合による上書き。
+    省略時（既定None）は`DEFAULT_HARD_FILTERS`（全フィルタ常時有効）を使う。
+    """
+    resolved_weights = weights if weights is not None else preference.weights
+
+    evaluation = _evaluate_axes_bulk(
+        graph, elevation_attributes, surface_attributes, wind, stop_counts, way_tags,
+        intersection_counts, accident_counts, accident_years_covered, designated_edge_ids,
+    )
+    if not evaluation.edge_ids:
+        return {}
+
+    hard_filter_excluded = compute_hard_filter_excluded(
+        evaluation.is_motorway, evaluation.is_trunk, evaluation.no_bicycle, evaluation.gradient_percent,
+        hard_filters, max_average_grade_percent,
+    )
+    cost, composite = compose_costs_from_axis_matrix(
+        evaluation.distance_m, evaluation.axis_arrays, resolved_weights, penalty_strength
+    )
 
     # --- 出力構築（EdgeCostResult.model_construct: 値は内部計算済みでバリデーション不要） ---
     results: dict[str, EdgeCostResult] = {}
-    for i, edge_id in enumerate(edge_ids):
+    for i, edge_id in enumerate(evaluation.edge_ids):
         if hard_filter_excluded[i]:
             results[edge_id] = EdgeCostResult.model_construct(
                 edge_id=edge_id, cost=None, difficulty=None, allowed=False
@@ -917,3 +922,204 @@ def compute_edge_costs_bulk(
                 edge_id=edge_id, cost=float(cost[i]), difficulty=difficulty_value, allowed=True
             )
     return results
+
+
+@dataclass(frozen=True, slots=True)
+class StaticEdgeScoreMatrix:
+    """タイル単位でキャッシュする「Edge×公開軸」の静的スコア行列＋0次フィルタ・A*
+    ヒューリスティック用の生配列（改善計画T536）。全ての配列は`edge_ids`と同じ行順で
+    揃う。`infrastructure/axis_score_cache.py`（Edge単位の辞書キャッシュ、T534。約1.3KB/
+    Edge）の後継——本行列はEdgeあたり軸の数×8バイト程度で収まる。
+
+    `axis_scores`の列（`axis_ids`）は風などREQUEST_DYNAMIC_MATERIAL_IDSに依存する軸を
+    含む全公開軸だが、そのような軸の列は常にNaN（`_evaluate_axes_bulk`をwind=Noneで
+    呼ぶことで自然にそうなる）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
+    実際の動的データ（風）で上書きする。
+
+    既知の制約（意図的なスコープ限定、docs/tasks/T536.md参照）: 動的軸が参照できる材料は
+    `REQUEST_DYNAMIC_MATERIAL_IDS`のみを前提にしている（現状は"wind"軸がwind_penaltyの
+    みを参照する構成と一致）。将来、動的材料と他の静的材料を組み合わせる軸が必要になった
+    場合は別途設計が要る。
+    """
+
+    edge_ids: list[str]
+    axis_ids: list[str]
+    axis_scores: np.ndarray  # shape (len(edge_ids), len(axis_ids))
+    distance_m: np.ndarray
+    bearing_deg: np.ndarray
+    is_motorway: np.ndarray
+    is_trunk: np.ndarray
+    no_bicycle: np.ndarray
+    gradient_percent: np.ndarray
+
+
+def build_static_edge_score_matrix(
+    graph: RoadGraphLike,
+    materials: Mapping[str, EdgeMaterialBundle],
+    accident_years_covered: int = 0,
+) -> StaticEdgeScoreMatrix:
+    """改善計画T536: タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ
+    呼び、`StaticEdgeScoreMatrix`を構築する。`_evaluate_axes_bulk`（`compute_edge_costs_bulk`
+    と共有する抽出＋計算フェーズ）へ`wind=None`で渡すことで、動的軸の列は自然にNaNのまま
+    持たせる。
+
+    `EdgeMaterialBundle`（Edge単位で統合済み、T533）を受け取り、`_evaluate_axes_bulk`が
+    要求する個別辞書（way_tags/elevation_attributes/...）へここで分解する——
+    `compute_edge_costs_bulk`の既存の公開シグネチャ（個別辞書引数）を崩さないための
+    変換で、タイル読込時に1回だけ発生する（探索のホットパスには乗らない）。
+    """
+    elevation_attributes = {
+        edge_id: bundle.elevation_attribute
+        for edge_id, bundle in materials.items() if bundle.elevation_attribute is not None
+    }
+    surface_attributes = {edge_id: bundle.surface for edge_id, bundle in materials.items()}
+    way_tags = {edge_id: bundle.way_tags for edge_id, bundle in materials.items()}
+    stop_counts = {
+        edge_id: bundle.attribute_counts.stop_count
+        for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
+    }
+    intersection_counts = {
+        edge_id: bundle.attribute_counts.intersection_count
+        for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
+    }
+    accident_counts = {
+        edge_id: bundle.attribute_counts.accident_count
+        for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
+    }
+    designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
+
+    evaluation = _evaluate_axes_bulk(
+        graph, elevation_attributes, surface_attributes, None, stop_counts, way_tags,
+        intersection_counts, accident_counts, accident_years_covered, designated_edge_ids,
+    )
+    axis_ids = list(evaluation.axis_arrays.keys())
+    axis_scores = (
+        np.stack([evaluation.axis_arrays[axis_id] for axis_id in axis_ids], axis=1)
+        if axis_ids
+        else np.empty((len(evaluation.edge_ids), 0))
+    )
+    return StaticEdgeScoreMatrix(
+        edge_ids=evaluation.edge_ids,
+        axis_ids=axis_ids,
+        axis_scores=axis_scores,
+        distance_m=evaluation.distance_m,
+        bearing_deg=evaluation.bearing_deg,
+        is_motorway=evaluation.is_motorway,
+        is_trunk=evaluation.is_trunk,
+        no_bicycle=evaluation.no_bicycle,
+        gradient_percent=evaluation.gradient_percent,
+    )
+
+
+def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) -> StaticEdgeScoreMatrix:
+    """複数タイルぶんの`StaticEdgeScoreMatrix`を、bbox全体1件分へ結合する（改善計画T536、
+    `GraphService._build_search_materials_from_tile_cache`が複数z12タイルを1つの探索用
+    グラフへ結合するのと同じタイミングで使う）。
+
+    タイル同士でEdgeが重複する場合（境界付近等、稀）は**後のタイルを優先**する
+    （`combined_edges.update(tile.graph.edges)`と同じ「後勝ち」セマンティクスに揃える）。
+    行の並べ替えはEdge数十万件規模でもO(N)のnumpy fancy indexingで済み、Edge単位の
+    Pythonループ（探索のホットパスで避けたい処理そのもの）はここでは発生しない
+    （タイル→結合Edge indexの対応付けだけがPython dictループだが、これは`dict.update`
+    ベースの既存のグラフ結合処理と同じオーダーの一度きりのコスト）。
+    """
+    if not matrices:
+        return StaticEdgeScoreMatrix(
+            edge_ids=[], axis_ids=[], axis_scores=np.empty((0, 0)),
+            distance_m=np.array([]), bearing_deg=np.array([]),
+            is_motorway=np.array([], dtype=bool), is_trunk=np.array([], dtype=bool),
+            no_bicycle=np.array([], dtype=bool), gradient_percent=np.array([]),
+        )
+    if len(matrices) == 1:
+        return matrices[0]
+
+    axis_ids = matrices[0].axis_ids
+    all_edge_ids = [edge_id for matrix in matrices for edge_id in matrix.edge_ids]
+    axis_scores = np.concatenate([matrix.axis_scores for matrix in matrices], axis=0)
+    distance_m = np.concatenate([matrix.distance_m for matrix in matrices])
+    bearing_deg = np.concatenate([matrix.bearing_deg for matrix in matrices])
+    is_motorway = np.concatenate([matrix.is_motorway for matrix in matrices])
+    is_trunk = np.concatenate([matrix.is_trunk for matrix in matrices])
+    no_bicycle = np.concatenate([matrix.no_bicycle for matrix in matrices])
+    gradient_percent = np.concatenate([matrix.gradient_percent for matrix in matrices])
+
+    # 重複edge_idは後勝ち（後から登場した行のindexで上書き）。
+    last_index_for_edge_id: dict[str, int] = {edge_id: i for i, edge_id in enumerate(all_edge_ids)}
+    final_edge_ids = list(last_index_for_edge_id.keys())
+    final_indices = np.array(list(last_index_for_edge_id.values()), dtype=int)
+
+    return StaticEdgeScoreMatrix(
+        edge_ids=final_edge_ids,
+        axis_ids=axis_ids,
+        axis_scores=axis_scores[final_indices],
+        distance_m=distance_m[final_indices],
+        bearing_deg=bearing_deg[final_indices],
+        is_motorway=is_motorway[final_indices],
+        is_trunk=is_trunk[final_indices],
+        no_bicycle=no_bicycle[final_indices],
+        gradient_percent=gradient_percent[final_indices],
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DynamicAxisRequestContext:
+    """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`、現状は`wind_penalty`のみ）をリクエスト時に
+    ベクトル評価するための統一入力（改善計画T536）。Edgeの幾何配列とリクエスト単位の
+    動的データ（現状は風のみ）を束ねる。
+
+    `DYNAMIC_MATERIAL_EVALUATORS`へ登録する各材料のevaluatorはこの1引数だけを受け取り
+    材料配列を返す統一シグネチャにすることで、動的材料が増えても呼び出し側
+    （`evaluate_dynamic_axis_arrays`、静的行列のNaN列を埋める処理）へ軸名・材料名の分岐を
+    追加せず、この辞書へ1エントリ追加するだけで対応できる（CLAUDE.md原則1、フロントの
+    `RAMP_AXES`/`buildAxisOverlayLayers`と同種の汎用ディスパッチ）。呼び出しはリクエスト
+    あたり動的材料の数だけ（現状1回）の設定フェーズであり、Edge単位のホットループには
+    入らない。
+    """
+
+    bearing_deg: np.ndarray
+    wind: WeatherConditions | None
+
+
+def _evaluate_wind_penalty_array(context: DynamicAxisRequestContext) -> np.ndarray:
+    """風向風速とEdgeの進行方位からwind_penalty配列を求める（`compute_wind_penalty`の
+    ベクトル版、`_evaluate_axes_bulk`の計算フェーズと同じ式）。"""
+    if context.wind is None:
+        return np.full(context.bearing_deg.shape, np.nan)
+    return context.wind.wind_speed_ms * np.cos(np.radians(context.wind.wind_direction_deg - context.bearing_deg))
+
+
+# 改善計画T536: `REQUEST_DYNAMIC_MATERIAL_IDS`（axis_definitions.py）の各材料idを、
+# リクエスト時点の幾何配列＋動的contextからベクトル評価する関数への唯一の登録点。
+# `REQUEST_DYNAMIC_MATERIAL_IDS`自体が既に「材料id」の集合として宣言されている（軸idの
+# 集合ではない）ため、ここも材料idでキーイングする——`dynamic_axis_topological_order`・
+# `evaluate_axis_array`（いずれも軸名を一切ハードコードしない既存の汎用実装）が
+# 「動的材料さえ埋まればどんな軸（軸スタジオがwind_penaltyを直接参照して新規作成した
+# カスタム軸を含む）でも正しく合成する」設計のため、材料id単位の登録だけで軸全体を
+# カバーできる（軸id単位の登録だと、カスタム軸ごとに個別のevaluator追加が必要になり
+# 汎用性が後退する）。将来2つ目の動的材料が増えても、ここへ1エントリ追加するだけでよい。
+DYNAMIC_MATERIAL_EVALUATORS: dict[str, Callable[[DynamicAxisRequestContext], np.ndarray]] = {
+    "wind_penalty": _evaluate_wind_penalty_array,
+}
+
+
+def evaluate_dynamic_axis_arrays(
+    static_axis_scores: Mapping[str, np.ndarray], context: DynamicAxisRequestContext,
+) -> dict[str, np.ndarray]:
+    """タイル単位でキャッシュ済みの`StaticEdgeScoreMatrix.axis_scores`（NaN列を含む）から、
+    動的軸（`dynamic_axis_topological_order`が返す軸、現状"wind"のみ）だけをリクエスト
+    時点の値で上書きした軸別スコア辞書を返す（改善計画T536）。
+
+    `DYNAMIC_MATERIAL_EVALUATORS`で動的材料（現状wind_penaltyのみ）を求め、そこから
+    `dynamic_axis_topological_order`の順で`evaluate_axis_array`を適用する——
+    スカラー版（旧T534の`compute_edge_axis_scores_from_static_data`が担っていた組み立て、
+    材料→軸の汎用トポロジカル合成）と同じ考え方をベクトル版へ移植したもので、動的軸の
+    軸名自体は本関数もハードコードしない。
+    """
+    materials_with_axes: dict[str, np.ndarray] = dict(static_axis_scores)
+    for material_id in REQUEST_DYNAMIC_MATERIAL_IDS:
+        evaluator = DYNAMIC_MATERIAL_EVALUATORS.get(material_id)
+        if evaluator is not None:
+            materials_with_axes[material_id] = evaluator(context)
+    for axis_id in dynamic_axis_topological_order(AXIS_DEFINITIONS):
+        materials_with_axes[axis_id] = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], materials_with_axes)
+    return materials_with_axes

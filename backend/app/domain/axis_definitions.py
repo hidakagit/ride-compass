@@ -592,14 +592,14 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
     """`definitions`内の軸のうち`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に依存する軸を、
     依存順（`topological_axis_order`のサブセット）で返す（改善計画T534）。
 
-    `compute_edge_axis_scores_from_static_data`（domain/evaluation.py）が、Edge単位で
-    事前計算・キャッシュ済みの静的軸別スコア（この関数が返す軸id集合には含まれない）を
-    そのまま使い、この関数が返す軸だけをリクエスト時に風を組み込んで再評価するために使う。
-    軸スタジオが新しく作る軸が風（または風に依存する既存軸）を参照した場合も、
-    ハードコード無しでこの集合へ自動的に含まれる。
+    改善計画T536の`evaluate_dynamic_axis_arrays`（domain/evaluation.py）が、タイル単位で
+    事前計算・キャッシュ済みの静的軸別スコア行列（この関数が返す軸id集合には含まれない
+    列はNaN）はそのまま使い、この関数が返す軸だけをリクエスト時に動的材料（風等）を
+    組み込んで再評価するために使う。軸スタジオが新しく作る軸が風（または風に依存する
+    既存軸）を参照した場合も、ハードコード無しでこの集合へ自動的に含まれる。
 
-    `topological_axis_order`と同じ理由（Edge単位のホットパスで最大24回×訪問Edge数ぶん
-    呼ばれる）でプロセス内メモリへ内容ベースのキーでメモ化する。
+    `topological_axis_order`と同じ理由（タイル読込時・リクエスト時の両方で呼ばれる）で
+    プロセス内メモリへ内容ベースのキーでメモ化する。
     """
     cache_key = _topological_axis_order_cache_key(definitions)
     cached = _dynamic_axis_order_cache.get(cache_key)

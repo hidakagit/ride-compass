@@ -22,27 +22,32 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   なるが、他の軸で評価は継続する）。
 - 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため、
   区間ごとの推定到達時刻の風は使わない）。
-- **改善計画T529（`docs/tasks/T529.md`）: Edgeコストはlazy評価**。以前は探索前に
-  bbox全体（数十万Edge）のコストを`compute_edge_costs_bulk`で一括計算してから
+- **改善計画T529（`docs/tasks/T529.md`）→T536（`docs/tasks/T536.md`）で置き換え:
+  Edgeコストは「タイル単位の静的スコア行列＋リクエスト時ベクトル計算」**。T529当初は
+  探索前にbbox全体（数十万Edge）のコストを`compute_edge_costs_bulk`で一括計算してから
   `scipy.sparse.csgraph.dijkstra`へ渡していたが、この事前計算自体が`prepare_ms`の
-  支配的コストだった（T522実測、王子30km周回でcost_ms=18,105ms）。実際にA*/Dijkstraが
-  訪れるEdgeはbbox全体のごく一部（PoC実測で2.79%）のため、`rustworkx`の
-  `edge_cost_fn`コールバック（訪れたEdgeに対してのみ都度呼ばれる）へ
-  スカラー版のコスト計算をラップして渡す設計へ変更した
-  （`domain/routing.py: LazyRoadGraph`/`shortest_path_node_ids_lazy`参照）。
-  1リクエスト内（最大24回＝8方位×3レグ）でEdgeコストの再計算を避けるため、
-  `_RoadGraphContext.cost_cache`で結果を使い回す。
-- **改善計画T534（`docs/tasks/T534.md`）: 風以外の軸別スコアもEdge単位でプロセス内
-  キャッシュ**。T529のlazy評価後もcProfile実測で`compute_edge_cost`内部（タグパース・
-  軸評価ループ）が支配的コストと判明した。風以外の軸別スコアはEdgeの材料のみで決まり
-  リクエスト間で不変なため、`compute_edge_static_axis_data`の結果をEdge ID単位で
-  `infrastructure/axis_score_cache.py`へキャッシュし、`compute_edge_cost_from_static_data`
-  が風の組み込みと重み付き合成だけをリクエストごとに行う。`cost_cache`（1リクエスト内）
-  より寿命の長い、複数リクエストにまたがるプロセス内キャッシュである点が異なる。
-- `LazyRoadGraph`（domain/routing.py: build_lazy_road_graph）は同一ノード間の並行Edgeを
-  1本しか保持しない。ただしコストを事前計算しないため「cost最小のEdgeを採用」はできず、
-  edge_idの昇順で先頭を採用する決定的な選択に留める（改善計画T363の非決定性解消という
-  目的は維持しつつ、lazy評価の制約に合わせた簡略化）。
+  支配的コストだった（T522実測、王子30km周回でcost_ms=18,105ms）。続くT529
+  （`edge_cost_fn`コールバックによるlazy評価）・T534（Edge単位の辞書キャッシュ）でも、
+  探索中にEdge1本ごとにPythonのコスト計算コールバックを呼ぶ構造自体は変わらず、
+  依然としてA* 24本で数秒〜十数秒を占めていた（T522全再点検、本番VM実測8.3〜17.7秒）。
+  T536は、タイル読込時（`GraphService._get_or_build_tile_materials`）に「Edge×公開軸」の
+  静的スコア行列（`domain/evaluation.py: StaticEdgeScoreMatrix`、風など動的軸の列は
+  NaN）を1回だけ構築してキャッシュし、リクエスト時にその行列＋動的軸（風、
+  `evaluate_dynamic_axis_arrays`）＋重みベクトルからコスト配列を**bbox全体ぶん1回だけ**
+  numpyで合成する設計へ変更した。`LazyRoadGraph`のEdge/Node payloadは整数indexにし、
+  A*（`domain/routing.py: shortest_path_node_ids_lazy`）へは`edge_cost_fn=cost_list.
+  __getitem__`のような素のlistインデックスアクセスを渡す——探索中にPythonの関数
+  フレームを一切作らない（本番VM試作でA* 24本 8.3〜17.7秒→0.37秒を確認済み）。
+  同一Node間の並行Edgeは、コストが探索前に判明しているため「cost最小を採用」
+  （改善計画T363の元の意味論）に戻せる。`_RoadGraphContext.cost_cache`（Edge単位の
+  1リクエスト内キャッシュ）・`infrastructure/axis_score_cache.py`（Edge単位の複数
+  リクエストにまたがるキャッシュ、T534）はいずれも不要になり撤去した——静的スコア
+  行列はタイル単位で`infrastructure/tile_score_matrix_cache.py`へキャッシュされ、
+  リクエスト時のベクトル計算はEdge単位のPythonコールバックを経由しないため。
+- `_build_segment_details`（区間表示）も探索と同じコスト配列・スコア行列から
+  `axis_difficulties`を引く（T536で、探索と表示の二重計算を解消）。
+- 8方位の`trace_loop`は直列実行する（`asyncio.to_thread`による並列化は、rustworkxが
+  GILを解放しないため8スレッドが競合しむしろ約2秒遅くなることを実測、T522参照）。
 """
 
 import asyncio
@@ -53,19 +58,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
+
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
+    DynamicAxisRequestContext,
     RoutePreference,
-    compute_cost_from_axis_scores,
-    compute_edge_axis_scores,
-    compute_edge_cost_from_static_data,
-    compute_edge_static_axis_data,
+    compose_costs_from_axis_matrix,
+    compute_hard_filter_excluded,
     compute_routable_node_ids,
     compute_wind_penalty,
+    evaluate_dynamic_axis_arrays,
 )
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km_array
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
@@ -89,7 +96,6 @@ from app.domain.routing import (
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
-from app.infrastructure import axis_score_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
@@ -118,9 +124,10 @@ class _RoadGraphContext:
     graph: RoadGraphLike
     # 改善計画T533: 以前はelevation_attributes/surface_attributes/stop_counts/way_tags/
     # intersection_counts/accident_counts/designated_edge_idsの7個の別々の辞書・集合
-    # だったが、Edge単位で`EdgeMaterialBundle`へ統合した1辞書へ改めた（cost_fn等の
-    # ホットパスで7回の個別.get()を1回で済ませるため、`domain/attributes.py:
-    # EdgeMaterialBundle`のdocstring参照）。
+    # だったが、Edge単位で`EdgeMaterialBundle`へ統合した1辞書へ改めた
+    # （`domain/attributes.py: EdgeMaterialBundle`のdocstring参照）。T536以降はEdge単位の
+    # 材料アクセスは探索コスト算出のホットパスからは外れたが、`_build_segment_details`の
+    # 表示用フィールド（surface等）取得には引き続き使う。
     materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
     wind: WeatherConditions | None
@@ -128,16 +135,29 @@ class _RoadGraphContext:
     # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
     # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
     node_index: NodeSpatialIndex
-    # 改善計画T529: trace_loopが実際のA*/Dijkstra探索に使うrustworkxベースの探索用
-    # グラフ（トポロジのみ、Edgeコストは持たない）。旧scipy版`sparse_graph`（Edgeコストを
-    # 事前に一括計算してから構築）から置き換えた——bbox全体のコストを毎回計算する設計
-    # 自体がprepare_msの支配的コストだったため（docs/tasks/T522.md・T529.md参照）。
+    # 改善計画T529→T536: trace_loopが実際のA*探索に使うrustworkxベースの探索用グラフ
+    # （Node/Edge payloadは整数index、domain/routing.py: LazyRoadGraph参照）。
     lazy_graph: LazyRoadGraph
-    # 改善計画T529: 探索中に実際に訪れたEdgeのコストだけを都度計算し、1リクエスト内
-    # （最大24回＝8方位×3レグ）で使い回すキャッシュ。リクエストを跨いで共有しない
-    # （風・夜間判定等の動的要素がリクエストごとに変わるため、`prepare`が
-    # `_RoadGraphContext`を構築するたびに空の辞書で初期化する）。
-    cost_cache: dict[str, float]
+    # 改善計画T536: リクエストにつき1回だけbbox全体ぶん合成済みのコスト配列
+    # （`lazy_graph.edge_ids`と同じ行順のPython list、A*のedge_cost_fnへ
+    # `cost_list.__getitem__`としてそのまま渡す）。0次フィルタで除外されたEdgeは
+    # math.infになっている。
+    cost_list: list[float]
+    # 改善計画T536: `score_matrix.edge_ids`（並行Edge解消前、bbox全体の生Edge集合）上での
+    # edge_id→行indexの対応表。`difficulty_array`/`axis_arrays`と組み合わせて
+    # `_build_segment_details`が探索と同じ配列からaxis_difficultiesを引くために使う
+    # （並行Edge解消後のlazy_graphより広い集合をカバーするため、経路上のどのEdgeも
+    # 必ず引ける）。
+    full_edge_row: dict[str, int]
+    # 改善計画T536: 合成済みcomposite difficulty配列（NaN=データ無し、full_edge_row基準）。
+    difficulty_array: np.ndarray
+    # 改善計画T536: 公開軸ごとのスコア配列（axis_id→array、full_edge_row基準、動的軸[風]も
+    # 実際の値へ上書き済み）。_build_segment_detailsのaxis_difficulties構築に使う。
+    axis_arrays: dict[str, np.ndarray]
+    # 改善計画T536: A*のestimate_cost_fn（ヒューリスティック）を、レグごとの目的地に対して
+    # numpyで1回だけベクトル計算するための、lazy_graph.index_to_node_id順の緯度・経度配列。
+    node_lat: np.ndarray
+    node_lon: np.ndarray
     # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
@@ -165,6 +185,13 @@ class _SearchGraph:
     accident_years_covered: int
     wind: WeatherConditions | None
     night_active: bool
+    # 改善計画T536: _RoadGraphContextと同じ意味（フィールドdocstring参照）。
+    cost_list: list[float]
+    full_edge_row: dict[str, int]
+    difficulty_array: np.ndarray
+    axis_arrays: dict[str, np.ndarray]
+    node_lat: np.ndarray
+    node_lon: np.ndarray
 
 
 class RoadGraphEngine:
@@ -182,11 +209,12 @@ class RoadGraphEngine:
     ):
         self._graph_service = graph_service
         self._elevation_attribute_service = elevation_attribute_service
-        # 改善計画T529: EvaluationService（compute_edge_costs_bulkのbbox全体一括評価）は
-        # lazy評価化により本エンジンから不要になった（探索コストはtrace_loopが直接
-        # compute_edge_cost[スカラー版]をedge_cost_fnとして使う）。EvaluationService
-        # クラス自体・compute_edge_costs_bulkは、フォールバック案（抽出フェーズの
-        # ベクトル化、docs/tasks/T529.md参照）用の回帰テストオラクルとして残置。
+        # 改善計画T536: EvaluationService（compute_edge_costs_bulkのbbox全体一括評価）は
+        # 本エンジンから不要になった（探索コストは_build_search_graphがbbox全体ぶん
+        # リクエストにつき1回だけベクトル合成する）。EvaluationServiceクラス自体・
+        # compute_edge_costs_bulkは回帰テストオラクルとして残置——静的スコア行列
+        # （StaticEdgeScoreMatrix）が同じ抽出・計算フェーズ（_evaluate_axes_bulk）を
+        # 共有するため、両者の一致は引き続きtests/test_evaluation_bulk.pyで検証する。
         self._weather_service = weather_service
         self._route_preference = route_preference
         # 改善計画T218・T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
@@ -199,86 +227,22 @@ class RoadGraphEngine:
         # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
         self._hard_filters = hard_filters
 
-    def _build_edge_cost_fn(
-        self, search: "_SearchGraph | _RoadGraphContext", cost_cache: dict[str, float]
-    ) -> Callable[[str], float]:
-        """`shortest_path_node_ids_lazy`へ渡す`edge_cost_fn`を組み立てる（改善計画T529）。
-
-        探索が実際に訪れたEdge（edge_id）に対してのみ都度呼ばれ、`compute_edge_cost`
-        （`domain/evaluation.py`、bulk版`compute_edge_costs_bulk`の回帰テストオラクルとして
-        現役）と等価な`compute_edge_cost_from_static_data`（改善計画T534、Edge単位で
-        プロセス内キャッシュ済みの静的軸別スコアを再利用する版）を使う。Hard Constraintで
-        除外されるEdge（`allowed=False`）・コスト算出不能なEdgeは`math.inf`を返し、
-        rustworkxの探索から実質的に除外する（`LazyRoadGraph`はグラフ構築時にHard
-        Constraintを知らないため、コストが分かるここで表現する。`domain/routing.py:
-        shortest_path_node_ids_lazy`のdocstring参照）。
-
-        `cost_cache`は呼び出し元（`prepare`/`preview_segment`）が`_RoadGraphContext`に
-        持たせる1リクエスト内共有の辞書。1リクエストにつき最大24回（8方位×3レグ）の
-        探索間で同じEdgeのコストを再計算しない。
-        """
-        active_scopes = frozenset({"night_only"}) if search.night_active else frozenset()
-        preference = self._route_preference.with_time_scope(active_scopes)
-        weights = preference.weights
-        graph = search.graph
-        materials = search.materials
-        accident_years_covered = search.accident_years_covered
-        wind = search.wind
-        penalty_strength = self._penalty_strength
-        max_average_grade_percent = self._max_average_grade_percent
-        hard_filters = self._hard_filters
-
-        def cost_fn(edge_id: str) -> float:
-            cached = cost_cache.get(edge_id)
-            if cached is not None:
-                return cached
-            edge = graph.edges[edge_id]
-            # 改善計画T533: 以前は7つの別々の辞書・集合へ個別に.get()/inしていたが、
-            # Edge単位で統合済みの1オブジェクト（EdgeMaterialBundle）を1回引くだけで
-            # 済むようにした（実データ計測で3.5倍、docs/tasks/T533.md参照）。
-            bundle = materials.get(edge_id)
-            # 改善計画T534: 風以外の軸別スコア（タグパース・区分線形補間・軸評価ループ、
-            # cProfile実測でcompute_edge_costの累積時間の6割超）はEdgeの材料だけで決まり
-            # リクエスト間で不変なため、Edge単位でプロセス内キャッシュする
-            # （infrastructure/axis_score_cache.py参照）。初回訪問時のみ計算しキャッシュへ
-            # 積み、2回目以降は風の組み込みと重み付き合成だけで済む。
-            static_axis_data = axis_score_cache.get(edge_id)
-            if static_axis_data is None:
-                counts = bundle.attribute_counts if bundle else None
-                static_axis_data = compute_edge_static_axis_data(
-                    edge, bundle.elevation_attribute if bundle else None, bundle.surface if bundle else None,
-                    stop_count=counts.stop_count if counts else None,
-                    way_tags=bundle.way_tags if bundle else None,
-                    intersection_count=counts.intersection_count if counts else None,
-                    accident_count=counts.accident_count if counts else None,
-                    accident_years_covered=accident_years_covered,
-                    is_designated=bundle.is_designated if bundle else False,
-                )
-                axis_score_cache.set(edge_id, static_axis_data)
-            result = compute_edge_cost_from_static_data(
-                edge, static_axis_data, bundle.elevation_attribute if bundle else None,
-                bundle.way_tags if bundle else None, preference, wind=wind,
-                penalty_strength=penalty_strength, max_average_grade_percent=max_average_grade_percent,
-                weights=weights, hard_filters=hard_filters,
-            )
-            cost = result.cost if (result.allowed and result.cost is not None) else math.inf
-            cost_cache[edge_id] = cost
-            return cost
-
-        return cost_fn
-
     async def _build_search_graph(
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
     ) -> _SearchGraph | None:
-        """bboxに対する探索用グラフ（lazy_graph）＋材料一式を構築する（改善計画T237、
-        `prepare`・`preview_segment`共通）。wind/night軸の判定は`wind_and_night_origin`
-        （周回ならその起点、区間確認なら起点側の座標）を基準にする——探索中は到達時刻が
-        未確定のため出発時刻の近似として使う簡略化はどちらの用途でも変わらない
-        （モジュールdocstring参照）。
+        """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する
+        （改善計画T237、`prepare`・`preview_segment`共通）。wind/night軸の判定は
+        `wind_and_night_origin`（周回ならその起点、区間確認なら起点側の座標）を基準にする
+        ——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化はどちらの用途でも
+        変わらない（モジュールdocstring参照）。
 
-        改善計画T529: Edgeコストは事前に一括計算しない（lazy評価、モジュールdocstring
-        参照）。ここで構築するのはトポロジのみの`LazyRoadGraph`と、後段の
-        cost_fnクロージャ（`_build_edge_cost_fn`）が参照する材料一式のみ。
+        改善計画T536: `GraphService.get_search_materials_for_bbox`が返す
+        `StaticEdgeScoreMatrix`（タイル単位でキャッシュ済みの静的Edge×公開軸スコア行列）に
+        対し、動的軸（風、`evaluate_dynamic_axis_arrays`）と重みベクトルを適用して
+        コスト配列を**bbox全体ぶん1回だけ**numpyで合成する。これがEdgeごとのPython
+        コールバックを排除する設計の核心（`LazyRoadGraph`のNode/Edge payloadを整数index
+        にし、探索本体[`shortest_path_node_ids_lazy`]へは合成済みの`list.__getitem__`を
+        渡すだけにする）。
         """
         # 改善計画T522: prepare_msが総時間の8〜9割を占める事象（中心部東京30km実測で
         # 251〜355秒）の調査で、materials取得（DB/タイルキャッシュ）の後段が無計測のまま
@@ -286,21 +250,23 @@ class RoadGraphEngine:
         # ためステージ別に計測する。
         stage_started = time.monotonic()
 
-        # 改善計画T219（T12 Stage 1）: トポロジ＋材料（surface/edge_attribute_counts/
-        # way_tags/elevation_attributes/designated_edge_ids）をz12タイル単位のプロセス内
-        # キャッシュ経由でまとめて取得する（同一エリアへの2回目以降のリクエストはDBへ
-        # 一切アクセスしない。以前はここで6回の個別呼び出しを行っていた、
+        # 改善計画T219（T12 Stage 1）→T536: トポロジ＋材料＋静的スコア行列をz12タイル
+        # 単位のプロセス内キャッシュ経由でまとめて取得する（同一エリアへの2回目以降の
+        # リクエストはDBアクセスもEdge単位のPython評価も一切発生しない、
         # graph_service.pyのget_search_materials_for_bbox参照）。
-        materials = await self._graph_service.get_search_materials_for_bbox(bbox)
+        built = await self._graph_service.get_search_materials_for_bbox(bbox)
         materials_ms = round((time.monotonic() - stage_started) * 1000)
-        if materials is None or not materials.graph.edges:
+        if built is None:
             return None
-        graph = materials.graph
+        search_materials, score_matrix = built
+        if not search_materials.graph.edges:
+            return None
+        graph = search_materials.graph
         # 改善計画T533: surface・edge_attribute_counts（stop/intersection/accident件数）・
         # way_tags・elevation_attribute・is_designatedは、Edge単位で`EdgeMaterialBundle`へ
-        # 統合済みの1辞書としてそのまま使う（以前はここで3つの個別dictへ分解していた、
-        # `domain/attributes.py: EdgeMaterialBundle`のdocstring参照）。
-        edge_materials = materials.materials
+        # 統合済みの1辞書としてそのまま使う（T536以降は表示用[_build_segment_details]の
+        # 一部フィールド取得にのみ使う）。
+        edge_materials = search_materials.materials
         # accident_years_coveredは密度の「件/(km・年)」正規化に使う（bboxに依存しない
         # グローバル値、GraphService側でプロセス内キャッシュ済み）。
         accident_years_covered = await self._graph_service.get_accident_years_covered()
@@ -318,17 +284,58 @@ class RoadGraphEngine:
         # （RoutePreference.with_time_scope参照）。
         night_active = is_night(wind_and_night_origin, now)
 
-        # 改善計画T529: LazyRoadGraph（トポロジのみ）の構築はEdge数十万件規模でも
-        # 数百ms〜1秒台に収まる想定だが（PoC実測、docs/tasks/T529.md参照）、念のため
-        # get_or_build_graph_with_attributesのbuild_road_graphと同じ理由で
-        # asyncio.to_threadへ逃がす。
+        # --- 改善計画T536: bbox全体ぶんのコスト配列をリクエストにつき1回だけ合成する ---
+        cost_started = time.monotonic()
+        active_scopes = frozenset({"night_only"}) if night_active else frozenset()
+        preference = self._route_preference.with_time_scope(active_scopes)
+        weights = preference.weights
+
+        # StaticEdgeScoreMatrix.axis_scores（Edge×公開軸の2次元配列）を軸id→1次元配列の
+        # 辞書へ展開し、動的軸（風）だけをリクエスト時点の値へ上書きする
+        # （evaluate_dynamic_axis_arrays、軸名を一切ハードコードしない汎用ディスパッチ、
+        # domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS参照）。
+        static_axis_scores = {
+            axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
+        }
+        dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, wind=wind)
+        resolved_axis_scores = evaluate_dynamic_axis_arrays(static_axis_scores, dynamic_context)
+        # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する
+        # （compute_edge_costs_bulkの計算フェーズと同じ絞り込み、domain/evaluation.py参照）。
+        published_axis_arrays = {axis_id: resolved_axis_scores[axis_id] for axis_id in score_matrix.axis_ids}
+
+        cost_array, difficulty_array = compose_costs_from_axis_matrix(
+            score_matrix.distance_m, published_axis_arrays, weights, self._penalty_strength,
+        )
+        hard_filter_excluded = compute_hard_filter_excluded(
+            score_matrix.is_motorway, score_matrix.is_trunk, score_matrix.no_bicycle,
+            score_matrix.gradient_percent, self._hard_filters, self._max_average_grade_percent,
+        )
+        cost_array = np.where(hard_filter_excluded, np.inf, cost_array)
+        cost_ms = round((time.monotonic() - cost_started) * 1000)
+
+        cost_by_edge_id = dict(zip(score_matrix.edge_ids, cost_array.tolist()))
+        full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
+
+        # 改善計画T536: LazyRoadGraph（Node/Edge payloadは整数index、domain/routing.py参照）
+        # の構築はEdge数十万件規模でも数百ms〜1秒台に収まる想定だが（PoC実測、
+        # docs/tasks/T529.md参照）、念のためget_or_build_graph_with_attributesの
+        # build_road_graphと同じ理由でasyncio.to_threadへ逃がす。コストが判明済みのため、
+        # 並行Edge（同一Node間の複数Edge）は改善計画T363の元の意味論どおりcost最小を採用する。
         graph_started = time.monotonic()
-        lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph)
+        lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph, cost_by_edge_id)
         graph_ms = round((time.monotonic() - graph_started) * 1000)
+
+        # A*のcost_fnへ渡す配列はlazy_graph.edge_ids（並行Edge解消後）の行順に揃える。
+        cost_list = [cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids]
+        # A*のestimate_cost_fn（ヒューリスティック）をレグごとにnumpyで1回だけ計算できる
+        # よう、lazy_graph.index_to_node_id順の緯度・経度配列を1回だけ構築する。
+        node_lat = np.array([graph.nodes[node_id].latitude for node_id in lazy_graph.index_to_node_id])
+        node_lon = np.array([graph.nodes[node_id].longitude for node_id in lazy_graph.index_to_node_id])
+
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
-            "_build_search_graph edges=%d nodes=%d materials_ms=%d wind_ms=%d graph_ms=%d total_ms=%d",
-            len(graph.edges), len(graph.nodes), materials_ms, wind_ms, graph_ms, total_ms,
+            "_build_search_graph edges=%d nodes=%d materials_ms=%d wind_ms=%d cost_ms=%d graph_ms=%d total_ms=%d",
+            len(graph.edges), len(graph.nodes), materials_ms, wind_ms, cost_ms, graph_ms, total_ms,
         )
 
         return _SearchGraph(
@@ -338,6 +345,12 @@ class RoadGraphEngine:
             accident_years_covered=accident_years_covered,
             wind=wind,
             night_active=night_active,
+            cost_list=cost_list,
+            full_edge_row=full_edge_row,
+            difficulty_array=difficulty_array,
+            axis_arrays=published_axis_arrays,
+            node_lat=node_lat,
+            node_lon=node_lon,
         )
 
     async def prepare(
@@ -401,7 +414,12 @@ class RoadGraphEngine:
             origin_node=origin_node,
             node_index=node_index,
             lazy_graph=search.lazy_graph,
-            cost_cache={},
+            cost_list=search.cost_list,
+            full_edge_row=search.full_edge_row,
+            difficulty_array=search.difficulty_array,
+            axis_arrays=search.axis_arrays,
+            node_lat=search.node_lat,
+            node_lon=search.node_lon,
             night_active=search.night_active,
             node_pair_index=node_pair_index,
         )
@@ -440,12 +458,11 @@ class RoadGraphEngine:
         if origin_node is None or destination_node is None:
             return None
 
-        # 改善計画T529: lazy評価（rustworkxのA*、モジュールdocstring参照）。cost_cacheは
-        # このpreview_segment呼び出し1回限りのローカル辞書（trace_loopのような複数回の
-        # 探索間での再利用は無いため、prepare()のcontext.cost_cacheとは異なりここでは
-        # 使い捨てでよい）。
-        cost_fn = self._build_edge_cost_fn(search, {})
-        estimate_fn = _build_estimate_cost_fn(search.graph, destination_node)
+        # 改善計画T536: コストは_build_search_graphでbbox全体ぶん既に合成済み
+        # （search.cost_list、lazy_graph.edge_ids順）のため、Edgeごとのコールバックは
+        # 不要——素のlistインデックスアクセスをそのままedge_cost_fnとして渡す。
+        cost_fn = search.cost_list.__getitem__
+        estimate_fn = _build_estimate_cost_fn(search.graph, search.node_lat, search.node_lon, destination_node)
         path = await asyncio.to_thread(
             shortest_path_node_ids_lazy, search.lazy_graph, origin_node, destination_node, cost_fn, estimate_fn
         )
@@ -496,29 +513,24 @@ class RoadGraphEngine:
                 raise RoutingError(f"direction {bearing}: could not snap destination to road graph")
         node_sequence = [context.origin_node, *interior_nodes, end_node]
 
-        # 改善計画T529: A*/Dijkstra本体はscipy（bbox全体のコストを事前に一括計算してから
-        # 構築するeager評価）ではなく、rustworkx（訪れたEdgeのみ都度コストを計算する
-        # lazy評価）で行う（1リクエストにつき最大24回、モジュールdocstring参照）。
-        # cost_fnは`context.cost_cache`（8方位×3レグで共有）経由でEdgeの重複計算を避ける。
-        # estimate_fn（A*ヒューリスティック）はレグごとに目的地（to_node）が変わるため
-        # レグごとに組み立て直す。同期関数（rustworkxの探索本体）を直接awaitせず呼ぶと
-        # イベントループを塞ぐため、asyncio.to_threadへ逃がす（T522と同じ理由）。
-        raw_cost_fn = self._build_edge_cost_fn(context, context.cost_cache)
-        # 改善計画T529フォローアップ調査: 本番実測でtrace_ms（lazy評価が実際に走る場所）が
-        # 旧実装より悪化する事象が判明した（docs/tasks/T529.md参照）。原因切り分けのため、
-        # 方位ごとにedge_cost_fn呼び出し回数（cache hit/miss問わず）・壁時計時間・
-        # cost_cacheの純増分（このリクエスト内で他方位と共有できた分）を計測する。
-        call_count = 0
-
-        def cost_fn(edge_id: str) -> float:
-            nonlocal call_count
-            call_count += 1
-            return raw_cost_fn(edge_id)
+        # 改善計画T536: コストは_build_search_graphでbbox全体ぶん既に合成済み
+        # （context.cost_list、lazy_graph.edge_ids順）のため、A*のedge_cost_fnは素の
+        # listインデックスアクセスをそのまま渡す（Edgeごとのコールバック・キャッシュは
+        # 不要になった）。estimate_fn（A*ヒューリスティック）はレグごとに目的地
+        # （to_node）が変わるため、レグごとにnumpyで1回だけベクトル計算し直す。
+        #
+        # 改善計画T536（対応方針5）: 8方位のtrace_loopは`asyncio.to_thread`による並列を
+        # やめ、直列（呼び出し元route_generator.pyのasyncio.gatherに委ねる、実質1スレッド）
+        # で実行する。rustworkxはEdgeごとにPythonコールバックへ戻るためGILを手放せず、
+        # 8スレッド並列は直列より約2秒遅いことを実測した（T522参照）。本関数は`_trace_
+        # segments`を直接（awaitを挟まず）呼ぶ同期関数として実行するため、8方位分の
+        # gatherは実質的に順番に完了する。
+        cost_fn = context.cost_list.__getitem__
 
         def _trace_segments() -> list[list[str]] | None:
             segment_paths = []
             for from_node, to_node in zip(node_sequence, node_sequence[1:]):
-                estimate_fn = _build_estimate_cost_fn(context.graph, to_node)
+                estimate_fn = _build_estimate_cost_fn(context.graph, context.node_lat, context.node_lon, to_node)
                 segment_path = shortest_path_node_ids_lazy(
                     context.lazy_graph, from_node, to_node, cost_fn, estimate_fn
                 )
@@ -528,15 +540,9 @@ class RoadGraphEngine:
             return segment_paths
 
         trace_started = time.monotonic()
-        cache_size_before = len(context.cost_cache)
-        segment_paths = await asyncio.to_thread(_trace_segments)
+        segment_paths = _trace_segments()
         trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
-        cache_size_after = len(context.cost_cache)
-        logger.info(
-            "trace_loop direction=%s wall_ms=%d cost_fn_calls=%d cache_before=%d cache_after=%d cache_added=%d",
-            bearing, trace_wall_ms, call_count, cache_size_before, cache_size_after,
-            cache_size_after - cache_size_before,
-        )
+        logger.info("trace_loop direction=%s wall_ms=%d", bearing, trace_wall_ms)
         if segment_paths is None:
             raise RoutingError(f"direction {bearing}: no path found between waypoints")
 
@@ -684,49 +690,44 @@ class RoadGraphEngine:
         # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
         # （edges=方位ごとの経路、elevation_attributes=経路確定後に取得、start_time=呼び出し元
         # 引数）のため、これらだけを個別引数として残しcontextを1引数で渡す。
-        # 改善計画T173: 時間帯依存軸の重みはcontext.night_active（prepare時点の判定、
-        # 探索コストで使ったものと同一）で0倍にする。表示（本関数）と探索コストが
-        # 食い違わないようにする。改善計画T352: 汎用ロジックへ置き換え（上記_build_search_
-        # graph参照）。
-        active_scopes = frozenset({"night_only"}) if context.night_active else frozenset()
-        preference = self._route_preference.with_time_scope(active_scopes)
+        #
+        # 改善計画T536: 軸別スコア・合成difficultyは、探索コスト算出時に既に合成済みの
+        # `context.axis_arrays`/`context.difficulty_array`（`context.full_edge_row`で
+        # edge_idから行indexを引く）からそのまま読む——以前は`compute_edge_axis_scores`/
+        # `compute_cost_from_axis_scores`を区間ごとに再計算していたが（T143の非DRY構造）、
+        # 探索と表示の二重計算を解消する（T522派生調査「評価ロジック入口〜出口の再点検」で
+        # 指摘された1件）。重み（night時間帯スコープ含む）は探索コスト算出時点で既に
+        # 折り込み済みのため、ここでpreferenceを再構築する必要も無くなった。
         segments = []
         cumulative_km = 0.0
 
         for edge in edges:
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_attributes.get(edge.edge_id)
-            # 改善計画T533: surface/stop_count/way_tags/intersection_count/accident_count/
-            # is_designatedは、Edge単位で統合済みの1オブジェクトから1回の.get()で取り出す
-            # （`domain/attributes.py: EdgeMaterialBundle`参照）。
+            # 改善計画T533: surfaceは、Edge単位で統合済みの1オブジェクトから取り出す
+            # （`domain/attributes.py: EdgeMaterialBundle`参照。stop_count等の他材料は
+            # T536以降axis_difficultiesの再計算に使わないため取り出さない）。
             bundle = context.materials.get(edge.edge_id)
-            counts = bundle.attribute_counts if bundle else None
             surface_type = bundle.surface if bundle else None
-            stop_count = counts.stop_count if counts else None
-            edge_way_tags = bundle.way_tags if bundle else None
-            intersection_count = counts.intersection_count if counts else None
-            accident_count = counts.accident_count if counts else None
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             wind_penalty = compute_wind_penalty(edge, context.wind)
             road_surface_good = classify_osm_surface(surface_type)
-            is_designated = bundle.is_designated if bundle else False
 
-            # 改善計画T143: 区間表示の軸別スコアは、コスト計算（compute_edge_cost、
-            # EvaluationService.evaluate_graph経由）と同じcompute_edge_axis_scores（T142）を
-            # 通す。設計プロンプトの完了条件「地図表示とルーティングコストが同一のレシピ定義
-            # から生成される」に対応し、二次の計算式が表示・探索コストの2箇所に独立実装される
-            # 非DRY構造（現状把握C.で判明）を解消する。
-            axis_scores = compute_edge_axis_scores(
-                edge, elevation_attr, surface_type,
-                wind=context.wind, stop_count=stop_count, way_tags=edge_way_tags,
-                intersection_count=intersection_count, accident_count=accident_count,
-                accident_years_covered=context.accident_years_covered, is_designated=is_designated,
-            )
-            weights = preference.weights
-            _, composite_difficulty_value = compute_cost_from_axis_scores(
-                edge.distance_m, axis_scores, weights, self._penalty_strength
-            )
+            row = context.full_edge_row.get(edge.edge_id)
+            if row is None:
+                # 通常は到達しない（full_edge_rowはbbox全体の生Edge集合を覆うため）。
+                # 経路上のEdgeが何らかの理由で行を持たない防御的フォールバック。
+                axis_scores: dict[str, float] = {}
+                composite_difficulty_value: float | None = None
+            else:
+                axis_scores = {
+                    axis_id: float(arr[row])
+                    for axis_id, arr in context.axis_arrays.items()
+                    if not math.isnan(arr[row])
+                }
+                difficulty_value = context.difficulty_array[row]
+                composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
 
             # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
             # 一様適用する簡略化のため、到達時刻そのものはwindのfetchには使わない。
@@ -769,9 +770,20 @@ class RoadGraphEngine:
         return segments
 
 
-def _build_estimate_cost_fn(graph: RoadGraphLike, target_node_id: str) -> Callable[[str], float]:
-    """`shortest_path_node_ids_lazy`へ渡すA*のestimate_cost_fn（改善計画T529）を、
+def _build_estimate_cost_fn(
+    graph: RoadGraphLike,
+    node_lat: np.ndarray,
+    node_lon: np.ndarray,
+    target_node_id: str,
+) -> Callable[[int], float]:
+    """`shortest_path_node_ids_lazy`へ渡すA*のestimate_cost_fn（改善計画T529→T536）を、
     目的地ノード`target_node_id`への直線距離（m）として組み立てる。
+
+    改善計画T536: レグごとに目的地が変わるたび、グラフ上の全Node分の直線距離を
+    numpyで1回だけベクトル計算し（`haversine_distance_km_array`）、`list.__getitem__`を
+    そのまま返す——Pythonの関数フレームを作らないA*の設計（`LazyRoadGraph`のdocstring
+    参照）と揃える。`node_lat`/`node_lon`は`lazy_graph.index_to_node_id`と同じ行順
+    （`_build_search_graph`がリクエストにつき1回だけ構築、レグごとの再構築はしない）。
 
     Edge Costは常に`cost >= distance_m`を満たす（`docs/decisions/t12-routing-scale.md`
     原則1「不変条件1」、ペナルティ倍率は常に1以上）ため、直線距離は実際のコストを
@@ -780,14 +792,8 @@ def _build_estimate_cost_fn(graph: RoadGraphLike, target_node_id: str) -> Callab
     意図的に維持してきたものであり、本タスクがその意図どおり利用する形になる。
     """
     target_node = graph.nodes[target_node_id]
-    target_coord = Coordinates(latitude=target_node.latitude, longitude=target_node.longitude)
-
-    def estimate_fn(node_id: str) -> float:
-        node = graph.nodes[node_id]
-        node_coord = Coordinates(latitude=node.latitude, longitude=node.longitude)
-        return haversine_distance_km(node_coord, target_coord) * 1000
-
-    return estimate_fn
+    est_list: list[float] = (haversine_distance_km_array(node_lat, node_lon, target_node) * 1000).tolist()
+    return est_list.__getitem__
 
 
 def _build_node_pair_index(graph: RoadGraphLike) -> dict[tuple[str, str], EdgeLike]:

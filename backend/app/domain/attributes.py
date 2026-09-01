@@ -53,14 +53,16 @@ class EdgeMaterialBundle:
 
     `get_edge_materials_batch`は元々1回のJOINクエリで全材料を1行取得していた
     （改善計画T248）が、戻り値だけは`surface_attributes`/`edge_attribute_counts`/
-    `way_tags`/`elevation_attributes`の4つの辞書へ再分割していた。探索コストの
-    ホットパス（`RoadGraphEngine._build_edge_cost_fn`のcost_fn、訪れたEdgeごとに
-    最大24回＝8方位×3レグ呼ばれる）はその4辞書＋designated_edge_idsへ個別に
+    `way_tags`/`elevation_attributes`の4つの辞書へ再分割していた。当時の探索コストの
+    ホットパス（旧`RoadGraphEngine._build_edge_cost_fn`のcost_fn、訪れたEdgeごとに
+    最大24回＝8方位×3レグ呼ばれていた。改善計画T536でタイル単位の静的スコア行列＋
+    ベクトル計算方式へ置き換え済み）はその4辞書＋designated_edge_idsへ個別に
     `.get(edge_id)`していたため、実データ計測（渋谷相当bbox・24.7万Edge）で
     「統合済み1辞書への1回アクセス」が「4辞書への個別アクセス」の3.5倍速いことを
     確認した上で、Edge単位でこの1オブジェクトへ統合した
     （`@dataclass(frozen=True, slots=True)`はLeanEdge等と同じ実績パターン、素の辞書
-    比で受け渡しが速い）。
+    比で受け渡しが速い）。統合形式自体は`build_static_edge_score_matrix`（T536、
+    タイル読込時1回だけの分解）・`_build_segment_details`（区間表示）が引き続き使う。
 
     `way_tags`は該当Wayにタグが無い場合も`{}`（空辞書、Noneにしない）——
     元の`way_tags`辞書がLEFT JOINで「key自体は必ず存在、値は`row.tags or {}`」

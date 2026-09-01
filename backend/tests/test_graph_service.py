@@ -543,9 +543,10 @@ async def test_get_search_materials_for_bbox_returns_none_for_uncached_tile():
 async def test_get_search_materials_for_bbox_builds_materials_on_first_call():
     service, _ = await _seeded_service_with_materials()
 
-    materials = await service.get_search_materials_for_bbox(BBOX)
+    built = await service.get_search_materials_for_bbox(BBOX)
 
-    assert materials is not None
+    assert built is not None
+    materials, _score_matrix = built
     edge_id = next(iter(materials.graph.edges))
     bundle = materials.materials[edge_id]
     assert bundle.surface == "asphalt"
@@ -580,7 +581,9 @@ async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without
     assert repository.get_edge_materials_batch_call_count == 2
 
     assert first is not None and second is not None and third is not None
-    assert set(second.graph.edges.keys()) == set(third.graph.edges.keys())
+    second_materials, _second_score_matrix = second
+    third_materials, _third_score_matrix = third
+    assert set(second_materials.graph.edges.keys()) == set(third_materials.graph.edges.keys())
 
 
 async def test_get_search_materials_for_bbox_accident_years_covered_is_cached_globally():
@@ -686,8 +689,9 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     assert repository.get_graph_topology_in_bbox_call_count == 0
 
     # 2回目でis_split_up_to_date=Trueとなりタイルキャッシュ経路（2タイルぶん）を通る。
-    materials = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
-    assert materials is not None
+    built = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
+    assert built is not None
+    materials, _score_matrix = built
     surfaces = {bundle.surface for bundle in materials.materials.values()}
     assert surfaces == {"asphalt", "gravel"}
     assert repository.get_graph_topology_in_bbox_call_count == 2  # 2タイルぶん

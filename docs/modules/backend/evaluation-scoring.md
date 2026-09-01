@@ -63,19 +63,30 @@
 
 ## `compute_edge_costs_bulk`（numpyベクトル化版）
 
-`EvaluationService.evaluate_graph`（road_graphエンジンの探索コスト算出、既定のホット
-パス）専用。`compute_edge_cost`を全Edge分ループするのと同じ結果を、Pythonループ無しの
-numpy配列演算で算出する。
+`compute_edge_cost`を全Edge分ループするのと同じ結果を、Pythonループ無しのnumpy配列演算で
+算出する。改善計画T536で、抽出・計算フェーズ（`_evaluate_axes_bulk`）と重み付き合成
+フェーズ（`compose_costs_from_axis_matrix`）へ分割し、道路グラフ探索のホットパス
+（`build_static_edge_score_matrix`、次節）と共有する構造にした。`EvaluationService.
+evaluate_graph`（bbox全体を一括評価する経路）自体は本番のルート生成では呼ばれず
+（探索コストの既定経路は次節）、回帰テストオラクルとしての利用が主。
 
-- **抽出フェーズ**（1回のPythonループ）: `MATERIAL_CATALOG`の`extractor`宣言を使い、
-  Edge単位の辞書・タグアクセスをすべてnumpy配列へ落とし込む。材料を1件追加する際は
-  `material_catalog.py`へ抽出関数を登録するだけでよく、この関数自体の変更は不要。
-- **計算フェーズ**（Pythonループ無し）: 材料id→配列の辞書に対して`AXIS_DEFINITIONS`を
-  軸ごとに適用しdifficulty配列を求め、重み配列とのマスク付き加重平均→cost算出まで
-  すべて配列演算で行う。スカラー経路（`compute_edge_axis_scores`）と同じ軸定義データを
-  読むため、軸の追加は定義データの追加だけで両経路へ同時に反映される。
-- スカラー版`compute_edge_cost`は削除せず、本関数との出力一致を検証する回帰テストの
-  オラクルとして残る。
+- **`_evaluate_axes_bulk`（抽出＋計算フェーズ、Pythonループ1回＋配列演算）**:
+  `MATERIAL_CATALOG`の`extractor`宣言を使いEdge単位の辞書・タグアクセスをnumpy配列へ
+  落とし込み、`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を求める
+  （`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の生フラグ
+  `is_motorway`/`is_trunk`/`no_bicycle`/`gradient_percent`も返す——`hard_filters`は
+  リクエストごとに変わりうるため、除外判定そのものはこの関数では確定させない）。
+  `wind=None`で呼ぶと、風など`REQUEST_DYNAMIC_MATERIAL_IDS`に依存する軸の列は
+  `wind_penalty`がNaN配列になることで自然にNaNへ伝播する（動的軸の特別扱いが不要）。
+  材料を1件追加する際は`material_catalog.py`へ抽出関数を登録するだけでよく、この関数
+  自体の変更は不要。
+- **`compose_costs_from_axis_matrix`（重み付き合成フェーズ）**: 軸別スコア配列群と
+  重み辞書からNeumaier加算→`round1_array`丸め→cost算出まで配列演算で行う。
+  0次フィルタによる除外（`compute_hard_filter_excluded`が`hard_filters`/
+  `max_average_grade_percent`を反映して別途判定）はここには含まれない。
+- スカラー経路（`compute_edge_axis_scores`）と同じ軸定義データを読むため、軸の追加は
+  定義データの追加だけで両経路へ同時に反映される。スカラー版`compute_edge_cost`は
+  削除せず、本関数との出力一致を検証する回帰テストのオラクルとして残る。
 
 **暗黙の前提（浮動小数点の一致）**: `_neumaier_accumulate`（Neumaier補償加算のnumpy版）は
 Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）とビット単位で同じ
@@ -89,6 +100,44 @@ Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）
 GUI作成した軸を評価した際に`evaluate_axis_array`が`KeyError`で`/api/routes/generate`
 自体を落とす（スカラー版`evaluate_axes_scalar`は`materials.get(...)`のためこの経路では
 発生しない非対称性がある）。
+
+## タイル単位の静的スコア行列と動的軸合成（改善計画T536、探索コストの既定経路）
+
+`RoadGraphEngine`（[routing-engine.md](routing-engine.md)参照）が実際に使う探索コスト
+算出の既定経路。目的は「探索中にEdge1本ごとにPythonのコスト計算コールバックを呼ぶ」
+構造（旧T529のlazy評価＋T534のEdge単位辞書キャッシュ）を排除し、bbox全体ぶんのコストを
+リクエストにつき1回だけnumpyで合成することで、A*本体へは配列への`list.__getitem__`
+だけを渡す。
+
+- **`build_static_edge_score_matrix`**: タイル読込時（`GraphService.
+  _get_or_build_tile_materials`）に1回だけ呼び、`_evaluate_axes_bulk`を`wind=None`で
+  実行して`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
+  bearing_deg・0次フィルタ判定用の生配列）を構築する。`infrastructure/
+  tile_score_matrix_cache.py`（タイル単位、`graph_material_cache`とは別枠のLRU）へ
+  キャッシュされる。
+- **`combine_static_edge_score_matrices`**: 複数タイルの`StaticEdgeScoreMatrix`を
+  bbox全体1件へ結合する（後勝ちセマンティクス、Edge単位のPythonループを持ち込まない
+  numpy fancy indexingで行う）。
+- **`DynamicAxisRequestContext`/`DYNAMIC_MATERIAL_EVALUATORS`/
+  `evaluate_dynamic_axis_arrays`**: リクエスト時点で風などの動的材料
+  （`REQUEST_DYNAMIC_MATERIAL_IDS`）を実際の値へ差し替える。`DYNAMIC_MATERIAL_EVALUATORS`は
+  材料id→evaluator関数（Edgeの幾何配列＋動的contextを受け取りその材料の配列を返す
+  統一シグネチャ）の登録制ディスパッチ（現状`{"wind_penalty": ...}`の1件のみ）——
+  `REQUEST_DYNAMIC_MATERIAL_IDS`自体が材料id集合として宣言されているため軸id単位では
+  なく材料id単位で登録する（`dynamic_axis_topological_order`・`evaluate_axis_array`
+  という既存の汎用トポロジカル合成が「動的材料さえ埋まればどんな軸[軸スタジオが
+  `wind_penalty`を直接参照して作ったカスタム軸を含む]でも正しく合成する」ため、
+  軸名のハードコードは呼び出し側に一切現れない）。将来2つ目の動的材料が増えても、
+  この辞書へ1エントリ追加するだけでよい（CLAUDE.md原則1、フロントの`RAMP_AXES`/
+  `buildAxisOverlayLayers`と同種の汎用ディスパッチ）。
+- リクエスト時（`RoadGraphEngine._build_search_graph`）は、`StaticEdgeScoreMatrix`を
+  軸id→配列の辞書へ展開→`evaluate_dynamic_axis_arrays`で動的軸を上書き→
+  `compose_costs_from_axis_matrix`で重み合成→`compute_hard_filter_excluded`で0次
+  フィルタを適用、の順にbbox全体ぶん1回だけ実行してコスト配列を得る。並行Edge
+  （同一Node間の複数Edge）はコストが判明済みのため`domain/routing.py:
+  build_lazy_road_graph`が「cost最小を採用」する（改善計画T363の元の意味論）。
+  同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
+  探索と表示の二重計算を避ける。
 
 ## 材料カタログ（`domain/material_catalog.py`）
 
@@ -171,6 +220,7 @@ OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`
 `load_route_preference()`が既定の`RoutePreference`（`RoutePreference()`、
 `default_axis_weights()`由来）を返す。`EvaluationService.evaluate_graph`はI/Oを行わず、
 既に取得済みのRoadGraph・属性から`compute_edge_costs_bulk`を呼ぶだけのオーケストレーション層。
-`preference`は呼び出し元（`RoadGraphEngine.prepare`）が必ず明示的に渡す（night軸の動的
-重み付けを反映したコピーを渡すため、`EvaluationService`自身が保持する`self._preference`は
-直接使わない）。
+改善計画T536以降、探索コストの既定経路（`RoadGraphEngine`）は本クラスを経由しない
+（前節「タイル単位の静的スコア行列と動的軸合成」参照）——本クラス自体は
+`compute_edge_costs_bulk`のbbox全体一括評価という形を保つオーケストレーション層として
+残る（テスト・将来の別呼び出し元向け）。

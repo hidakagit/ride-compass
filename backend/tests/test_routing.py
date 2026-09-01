@@ -6,6 +6,7 @@ from app.domain.evaluation import EdgeCostResult
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
 from app.domain.routing import (
+    LazyRoadGraph,
     build_lazy_road_graph,
     build_node_spatial_index,
     build_sparse_graph,
@@ -275,29 +276,32 @@ def test_concat_node_paths_handles_empty_input():
     assert concat_node_paths([]) == []
 
 
-# --- 改善計画T529: rustworkxベースのlazy評価版（shortest_path_node_ids_sparseの置き換え） ---
+# --- 改善計画T529→T536: rustworkxベースのlazy評価版（shortest_path_node_ids_sparseの
+# 置き換え）。T536でNode/Edge payloadを整数indexへ変更したため、edge_cost_fn/
+# estimate_cost_fnはedge_id/node_id文字列ではなくlazy_graph.edge_ids/index_to_node_id上の
+# 整数indexを受け取る契約になった（domain/routing.py: LazyRoadGraphのdocstring参照）。 ---
 
 
-def _cost_fn_from_dict(edge_costs: dict[str, float]) -> Callable[[str], float]:
-    """テスト用のedge_cost_fn。`math.inf`は「Hard Constraintで除外」を表す
-    （`shortest_path_node_ids_lazy`のdocstring参照）。"""
+def _cost_fn_from_dict(lazy_graph: LazyRoadGraph, edge_costs: dict[str, float]) -> Callable[[int], float]:
+    """テスト用のedge_cost_fn。`lazy_graph.edge_ids`（edge_index→edge_id）を介して
+    edge_id文字列ベースの`edge_costs`辞書から整数indexベースのlistへ変換する
+    （改善計画T536でedge_cost_fnの契約が整数indexへ変わったため）。`math.inf`は
+    「Hard Constraintで除外」を表す（`shortest_path_node_ids_lazy`のdocstring参照）。
+    """
+    values = [edge_costs.get(edge_id, math.inf) for edge_id in lazy_graph.edge_ids]
+    return values.__getitem__
 
-    def _cost_fn(edge_id: str) -> float:
-        return edge_costs.get(edge_id, math.inf)
 
-    return _cost_fn
-
-
-def _zero_estimate_fn(_node_id: str) -> float:
+def _zero_estimate_fn(_node_index: int) -> float:
     """常に0を返すヒューリスティック（admissibleの下限）。A*をDijkstraと同じ挙動へ
     単純化し、経路選択そのものの正しさだけを検証する。"""
     return 0.0
 
 
-def test_build_lazy_road_graph_keeps_edge_id_ascending_for_parallel_edges():
-    # 改善計画T529: lazy評価はコストを事前計算しないため、build_sparse_graphと異なり
-    # 「cost最小のEdgeを採用」はできない。edge_idの昇順で先頭を採用する決定的な
-    # 選択になることを確認する（並行Edgeの回帰観点、docstring参照）。
+def test_build_lazy_road_graph_keeps_edge_id_ascending_for_parallel_edges_without_costs():
+    # 改善計画T529→T536: コスト未確定（edge_cost_by_id省略）の場合、build_sparse_graphと
+    # 異なり「cost最小のEdgeを採用」はできないため、edge_idの昇順で先頭を採用する
+    # 決定的な選択にフォールバックすることを確認する（並行Edgeの回帰観点、docstring参照）。
     graph = RoadGraph(
         graph_version="v1",
         nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
@@ -311,6 +315,43 @@ def test_build_lazy_road_graph_keeps_edge_id_ascending_for_parallel_edges():
     assert path_to_edge_ids_lazy(lazy_graph, ["a", "b"]) == ["a_first"]
 
 
+def test_build_lazy_road_graph_picks_cheapest_edge_for_parallel_edges_when_costs_given():
+    # 改善計画T536: edge_cost_by_idを渡すと、並行Edge（同一Node間の複数Edge）はcost最小の
+    # Edgeを採用する（改善計画T363の元の意味論、コストが事前に判明しているため）。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
+        edges={
+            "cheap_first": _edge("cheap_first", "a", "b", distance_m=50.0),
+            "expensive_second": _edge("expensive_second", "a", "b", distance_m=200.0),
+        },
+    )
+    lazy_graph = build_lazy_road_graph(
+        graph, edge_cost_by_id={"cheap_first": 5.0, "expensive_second": 999.0}
+    )
+
+    assert path_to_edge_ids_lazy(lazy_graph, ["a", "b"]) == ["cheap_first"]
+
+
+def test_build_lazy_road_graph_parallel_edge_selection_is_order_independent():
+    # 改善計画T536回帰テスト: 登場順（edge_id昇順）が「先」の方がcost最小であっても、
+    # 必ずcost最小のEdgeが選ばれることを検証する（前テストとは登場順とcost最小の
+    # 対応関係を逆にしてある）。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
+        edges={
+            "a_first": _edge("a_first", "a", "b", distance_m=200.0),
+            "z_second": _edge("z_second", "a", "b", distance_m=50.0),
+        },
+    )
+    lazy_graph = build_lazy_road_graph(
+        graph, edge_cost_by_id={"a_first": 999.0, "z_second": 5.0}
+    )
+
+    assert path_to_edge_ids_lazy(lazy_graph, ["a", "b"]) == ["z_second"]
+
+
 def test_shortest_path_node_ids_lazy_picks_lower_cost_route():
     graph = RoadGraph(
         graph_version="v1",
@@ -322,7 +363,7 @@ def test_shortest_path_node_ids_lazy_picks_lower_cost_route():
         },
     )
     lazy_graph = build_lazy_road_graph(graph)
-    cost_fn = _cost_fn_from_dict({"direct": 1000.0, "via_b": 10.0, "via_c": 10.0})
+    cost_fn = _cost_fn_from_dict(lazy_graph, {"direct": 1000.0, "via_b": 10.0, "via_c": 10.0})
 
     path = shortest_path_node_ids_lazy(lazy_graph, "a", "d", cost_fn, _zero_estimate_fn)
 
@@ -337,14 +378,20 @@ def test_shortest_path_node_ids_lazy_returns_none_when_unreachable():
     )
     lazy_graph = build_lazy_road_graph(graph)
 
-    assert shortest_path_node_ids_lazy(lazy_graph, "a", "b", _cost_fn_from_dict({}), _zero_estimate_fn) is None
+    assert (
+        shortest_path_node_ids_lazy(lazy_graph, "a", "b", _cost_fn_from_dict(lazy_graph, {}), _zero_estimate_fn)
+        is None
+    )
 
 
 def test_shortest_path_node_ids_lazy_same_start_and_end_returns_single_node():
     graph = RoadGraph(graph_version="v1", nodes={"a": _node("a", 35.7, 139.7)}, edges={})
     lazy_graph = build_lazy_road_graph(graph)
 
-    assert shortest_path_node_ids_lazy(lazy_graph, "a", "a", _cost_fn_from_dict({}), _zero_estimate_fn) == ["a"]
+    assert (
+        shortest_path_node_ids_lazy(lazy_graph, "a", "a", _cost_fn_from_dict(lazy_graph, {}), _zero_estimate_fn)
+        == ["a"]
+    )
 
 
 def test_shortest_path_node_ids_lazy_excludes_disallowed_edges():
@@ -361,7 +408,7 @@ def test_shortest_path_node_ids_lazy_excludes_disallowed_edges():
         },
     )
     lazy_graph = build_lazy_road_graph(graph)
-    cost_fn = _cost_fn_from_dict({"e1": 100.0})  # e2/e3は辞書に無い＝math.inf
+    cost_fn = _cost_fn_from_dict(lazy_graph, {"e1": 100.0})  # e2/e3は辞書に無い＝math.inf
 
     assert shortest_path_node_ids_lazy(lazy_graph, "a", "b", cost_fn, _zero_estimate_fn) == ["a", "b"]
     assert shortest_path_node_ids_lazy(lazy_graph, "b", "c", cost_fn, _zero_estimate_fn) is None
@@ -390,11 +437,11 @@ def test_shortest_path_node_ids_lazy_uses_estimate_fn_to_prefer_direct_route():
         edges={"e1": _edge("e1", "a", "b"), "e2": _edge("e2", "b", "c")},
     )
     lazy_graph = build_lazy_road_graph(graph)
-    cost_fn = _cost_fn_from_dict({"e1": 10.0, "e2": 10.0})
-    estimate_calls: list[str] = []
+    cost_fn = _cost_fn_from_dict(lazy_graph, {"e1": 10.0, "e2": 10.0})
+    estimate_calls: list[int] = []
 
-    def _tracking_estimate_fn(node_id: str) -> float:
-        estimate_calls.append(node_id)
+    def _tracking_estimate_fn(node_index: int) -> float:
+        estimate_calls.append(node_index)
         return 0.0
 
     path = shortest_path_node_ids_lazy(lazy_graph, "a", "c", cost_fn, _tracking_estimate_fn)
@@ -424,8 +471,8 @@ def test_lazy_and_sparse_engines_agree_on_shortest_path_for_same_costs():
     sparse_graph = build_sparse_graph(
         graph, {eid: _cost(eid, cost=cost) for eid, cost in costs_by_edge_id.items()}
     )
-    lazy_graph = build_lazy_road_graph(graph)
-    cost_fn = _cost_fn_from_dict(costs_by_edge_id)
+    lazy_graph = build_lazy_road_graph(graph, edge_cost_by_id=costs_by_edge_id)
+    cost_fn = _cost_fn_from_dict(lazy_graph, costs_by_edge_id)
 
     for start, end in [("a", "e"), ("a", "d"), ("b", "d")]:
         sparse_path = shortest_path_node_ids_sparse(sparse_graph, start, end)
