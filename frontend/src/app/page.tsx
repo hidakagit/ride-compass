@@ -56,8 +56,9 @@ import RouteSettingsPanel, {
   DEFAULT_HARD_FILTERS,
   stackBarColorForIndex,
 } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
-import RouteList from "@/components/RouteList/RouteList";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
+import { FieldLabel } from "@/components/Map/recipeControls";
+import { SCORING_AXES } from "@/lib/evaluationAxes";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
@@ -99,6 +100,22 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
+
+// 改善計画T545（旧RouteList.tsxから移設）: 評価軸カタログ（lib/evaluationAxes.ts）から
+// 生成する。軸を増やしてもこの文言を直接編集する必要が無い。各軸のdescription（軸スタジオの
+// 重みで合成した値であることを説明する文言）を併記し、ルート色分けモードの「総合難易度」
+// （区間ごとの絶対基準スコア、routeStyleModes.ts）と同名で紛らわしいという実機指摘に対応する。
+// 改善計画T545フォローアップ（ユーザー指摘「おすすめ度の説明とか、ルート結果諸々の補足は
+// ルート結果ヘッダのところに情報アイコンをつけて集約できない？」）: 旧
+// RouteAxisProfile.tsxの「おすすめ度・総合難易度について」（総合難易度の絶対値としての
+// 位置付けを説明する文言）をここへ統合し、候補タブごとに同じ説明を繰り返さず「ルート結果」
+// セクション見出し1箇所（renderRouteOutcomeSectionBodyのheader行、モバイルはBottomSheetの
+// headerAction）だけに情報アイコンを置く。
+const ROUTE_RESULT_HINT = `おすすめ度は${SCORING_AXES.map((axis) => `${axis.label}（${axis.description}）`).join("・")}を重み付けして算出した、この一覧内での相対評価です。総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。`;
+
+// 改善計画T364/T365（旧RouteList.tsxから移設）: 8方位以外の単一経路（経由地ルート・
+// 目的地ルート）のid集合。
+const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints", "route-destination"]);
 
 // backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
 // le=MAX_ROUTE_DISTANCE_KM)）と一致させる（目的地モードの自動算出値もこの上限で
@@ -294,6 +311,14 @@ export default function Home() {
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // 改善計画T545: ルート結果パネルの外側タブを「ルート選択（候補一覧+内訳をひとまとめ）/
+  // 比較」の2つから、候補ごとのタブ＋「比較」タブという1段のフラットなタブ列へ再設計した
+  // （ユーザー指摘「ルート選択タブは不要、研究タブと同じ形でルートごとタブにして」）。
+  // outerタブの選択値はselectedRouteId（候補タブ選択時）とこのフラグ（比較タブ選択時）を
+  // 組み合わせて求める——selectedRouteId自体は比較タブを見ている間も「最後に見ていた候補」
+  // を保持し続け、地図の色分け対象・selectedCandidate等の既存の使われ方を変えない
+  // （比較タブから候補タブへ戻ったとき、見ていた候補がそのまま選択された状態に戻る）。
+  const [comparisonTabActive, setComparisonTabActive] = useState(false);
   // 改善計画T439: モバイルで軸調整→再生成した直後、「ルート結果」タブへの視覚的な誘導が
   // 無かった問題への対応（review:ui 2026-08-30 F-5）。conditionsDirtyの通知ドットは
   // 「生成前に条件が変わった」ことを知らせる目的で、生成完了と同時に消える仕様のため、
@@ -429,6 +454,7 @@ export default function Home() {
   const handleRoutesClear = useCallback(() => {
     setRoutes([]);
     setSelectedRouteId(null);
+    setComparisonTabActive(false);
     setGeneratedConditions(null);
     setGeneratedRoutePreference(null);
     setExperimentSlots([]);
@@ -1462,35 +1488,90 @@ export default function Home() {
     );
   }
 
-  // 生成結果に関する表示（設定変更の警告・候補一覧・全体プロファイル・比較表・色分け設定、
-  // ルート設定は含まない）。モバイルの「ルート結果」タブ、デスクトップの「ルートを作る」
-  // ブロック後半から呼ぶ（改善計画T300、旧renderRouteResultsBodyの後半を分離）。
-  // ユーザー指示（省スペース化）: 生成前はほぼ何も出さず、生成後は候補一覧・全体
-  // プロファイル・比較表を「タブで区切って」1画面に収める。ルートのクリアは表示切替を
-  // 伴わない即実行アクションのため、他の3つとは別にタブ列の脇へ置く（タブとして
+  // 生成結果に関する表示（設定変更の警告・候補ごとの内訳・比較表・色分け設定、ルート設定は
+  // 含まない）。モバイルの「ルート結果」タブ、デスクトップの「ルートを作る」ブロック後半から
+  // 呼ぶ（改善計画T300、旧renderRouteResultsBodyの後半を分離）。ユーザー指示（省スペース化）:
+  // 生成前はほぼ何も出さず、生成後は候補ごとの内訳・比較表を「タブで区切って」1画面に収める。
+  // ルートのクリアは表示切替を伴わない即実行アクションのため、タブ列の脇へ置く（タブとして
   // 選択状態を持たせない）。
-  function renderRouteOutcomeSectionBody() {
+  //
+  // 改善計画T545: 「ルート選択（候補一覧+内訳をひとまとめにした1タブ）/比較」という2段の
+  // タブ構成をやめ、候補ごとのタブ＋「比較」タブという1段のフラットなタブ列へ再設計した
+  // （ユーザー指摘「ルート選択タブは不要、比較タブと同じ形でルートごとタブにして」）。
+  // 候補の切り替え（旧RouteList.tsx）とその候補の内訳表示（RouteAxisProfile）を、
+  // このタブ列自体が担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
+  //
+  // 改善計画T545フォローアップ: showHeadingはrenderRouteSettingsSectionBodyと同じ理由
+  // （見出しの二重表示回避）で使い分ける。デスクトップ（既定true）はこのセクション自身の
+  // 見出し「ルート結果」＋補足の情報アイコンをここで描画する。モバイルはBottomSheet自体が
+  // title="ルート結果"の見出しを持つため showHeading=false で抑制し、代わりに同じ情報
+  // アイコンをBottomSheetのheaderAction propとして呼び出し側（下のJSX）から渡す——
+  // 「おすすめ度について」「おすすめ度・総合難易度について」と分かれていた2箇所の説明
+  // （旧page.tsxタブ列脇・旧RouteAxisProfile.tsx）をROUTE_RESULT_HINT 1本へ統合し、
+  // 表示場所も「ルート結果」セクション見出し1箇所へ集約した（ユーザー実機指摘）。
+  function renderRouteOutcomeSectionBody(showHeading: boolean = true) {
     if (routes.length === 0) return null;
 
     const showComparisonTab = researchEnabled;
+    const outerTabValue = comparisonTabActive ? "comparison" : (selectedRouteId ?? routes[0].id);
+    // ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
+    // プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが「見たくない」と
+    // 選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は重み0の軸も評価済みで
+    // 持っているため、絞り込みはaxesの側で行う（RouteAxisProfile内部の
+    // axisDifficulties!=nullフィルタとは独立）。重みの参照元はfilteredRouteStyleModesと
+    // 同じ「生成時点の重み」（generatedRoutePreference、未生成時のみライブな
+    // routePreferenceへフォールバック）に揃える——内訳の寄与度計算（weights prop）も
+    // これと同じ値を使うため、表示するかどうかの判定と計算が同じ重みでなければズレが
+    // 生じる。全候補で共通のため、候補ごとのTabs.Contentループの外で1回だけ計算する。
+    const visibleAxes = axisCatalog.axes.filter(
+      (axis) => ((generatedRoutePreference ?? routePreference)[axis.axisId] ?? 0) > 0
+    );
+    const routeWeights = generatedRoutePreference ?? routePreference;
 
-    // 改善計画T518: 「全体プロファイル」タブを廃止し「ルート選択」タブへ統合した
-    // （ユーザー指摘「ルート選択で選んだものが出てくるなら、同じ画面でよくない？」）。
-    // 全体プロファイルはhasDetail（＝ルート選択で何か選んでいる）が無いと出せず、独立した
-    // 情報を持たないタブだった——タブを跨がずRouteList直後に続けて表示することで、
-    // タブ切替なしに候補選択→詳細確認が完結する。旧`renderRouteColorSectionBody`
-    // （Tabs.Rootの外の独立ブロック、色分け選択+凡例設定）もRouteAxisProfileへ統合済み。
     return (
       <>
+        {showHeading && (
+          <div className={styles.outcomeSectionHeader}>
+            <h2 className={layerPanelStyles.groupTitle}>ルート結果</h2>
+            <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
+          </div>
+        )}
         {conditionsDirty && (
           <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
         )}
-        <Tabs.Root className={styles.outcomeTabs} defaultValue="routes">
+        <Tabs.Root
+          className={styles.outcomeTabs}
+          value={outerTabValue}
+          onValueChange={(value) => {
+            if (value === "comparison") {
+              setComparisonTabActive(true);
+            } else {
+              setComparisonTabActive(false);
+              setSelectedRouteId(value);
+            }
+          }}
+        >
           <div className={styles.outcomeTabBar}>
-            <Tabs.List className={styles.outcomeTabList}>
-              <Tabs.Trigger className={styles.outcomeTabTrigger} value="routes">
-                ルート選択
-              </Tabs.Trigger>
+            <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
+              {routes.map((route) => (
+                <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
+                  {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名のおすすめ度もう少し
+                      シンプルに」）: 「ルート結果」セクション見出しに「ルート結果について」の
+                      情報アイコンが常設されているため、タブ内では単位のみ添えた数値だけにする
+                      （「おすすめ度」の文言はタブの数だけ繰り返さない）。 */}
+                  {route.total_score != null && (
+                    <strong className={styles.outcomeRouteTabScore}>{Math.round(route.total_score)}点</strong>
+                  )}
+                  <span className={styles.outcomeRouteTabMeta}>
+                    {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
+                        (route-destination)は候補が常に1件で「方位」という概念が無いため、
+                        direction_label（固定文言、route_generator.py参照）をそのまま表示し
+                        「方向」は付けない。 */}
+                    {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
+                    {route.distance_km.toFixed(1)} km
+                  </span>
+                </Tabs.Trigger>
+              ))}
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
                   スロット2件未満の間は中身を持たない自己ガードを持つ（旧実装から変更なし、
                   ComparisonPanel.tsx参照）ため、ここでスロット件数を重複判定しない。 */}
@@ -1508,27 +1589,14 @@ export default function Home() {
               ルートをクリア
             </button>
           </div>
-          <Tabs.Content className={styles.outcomeTabPanel} value="routes">
-            <RouteList routes={routes} selectedRouteId={selectedRouteId} onSelect={setSelectedRouteId} />
-            {/* ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
-                プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが
-                「見たくない」と選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は
-                重み0の軸も評価済みで持っているため、絞り込みはaxesの側で行う
-                （RouteAxisProfile内部のaxisDifficulties!=nullフィルタとは独立）。
-                重みの参照元はfilteredRouteStyleModesと同じ「生成時点の重み」
-                （generatedRoutePreference、未生成時のみライブなroutePreferenceへ
-                フォールバック）に揃える——内訳の寄与度計算（weights prop）もこれと
-                同じ値を使うため、表示するかどうかの判定と計算が同じ重みでなければ
-                ズレが生じる。 */}
-            {selectedCandidate && (
+          {routes.map((route) => (
+            <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
               <RouteAxisProfile
-                axes={axisCatalog.axes.filter(
-                  (axis) => ((generatedRoutePreference ?? routePreference)[axis.axisId] ?? 0) > 0
-                )}
-                axisDifficulties={selectedCandidate.axis_difficulties}
-                overallDifficulty={selectedCandidate.overall_difficulty}
-                totalScore={selectedCandidate.total_score}
-                weights={generatedRoutePreference ?? routePreference}
+                axes={visibleAxes}
+                axisDifficulties={route.axis_difficulties}
+                overallDifficulty={route.overall_difficulty}
+                totalScore={route.total_score}
+                weights={routeWeights}
                 axisColors={axisChipColors}
                 routeStyleModes={filteredRouteStyleModes}
                 routeStyleModeId={routeStyleModeId}
@@ -1536,8 +1604,8 @@ export default function Home() {
                 hiddenLegendKeys={hiddenRouteLegendKeys}
                 onToggleLegendKey={handleRouteLegendToggle}
               />
-            )}
-          </Tabs.Content>
+            </Tabs.Content>
+          ))}
           {showComparisonTab && (
             // forceMount: 比較タブを開いていない間もComparisonPanelをマウントし続ける
             // （実験スロットは生成のたびにpage.tsxのstateへ積まれ続けるため、タブが
@@ -1937,11 +2005,16 @@ export default function Home() {
             onClose={() => setMobileSheet(null)}
             title="ルート結果"
             titleId={ROUTE_OUTCOME_SHEET_TITLE_ID}
+            headerAction={
+              routes.length > 0 ? (
+                <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
+              ) : undefined
+            }
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderRouteOutcomeSectionBody()}
+            {renderRouteOutcomeSectionBody(false)}
           </BottomSheet>
 
           <BottomSheet

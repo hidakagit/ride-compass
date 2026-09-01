@@ -11,6 +11,10 @@ interface BottomSheetProps {
   /** 見出しのDOM id。外部からこのシートの中身へフォーカスを送る起点として使うことがある
    *（page.tsxのhandleGoToGenerate参照）。 */
   titleId: string;
+  /** タイトルの直後（閉じるボタンより前）へ差し込む任意の要素。改善計画T545フォローアップ:
+   * シート本文（.body）側に散らばっていた補足説明の情報アイコンを、シートごとに1箇所へ
+   * 集約するための差し込み口（page.tsx: 「ルート結果」シートのFieldLabel参照）。 */
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
   /** シートの高さ（vh）。「ルートを作る」「地図の見え方」の2シートは排他表示のため、
    * 呼び出し側（page.tsx）が1つの値を共有して持ち、どちらを開いても直前の高さを保つ。 */
@@ -55,6 +59,7 @@ export default function BottomSheet({
   onClose,
   title,
   titleId,
+  headerAction,
   children,
   heightVh,
   onHeightChange,
@@ -168,9 +173,12 @@ export default function BottomSheet({
         onKeyDown={handleHandleKeyDown}
       />
       <div className={styles.header}>
-        <h2 id={titleId} tabIndex={-1} className={styles.title}>
-          {title}
-        </h2>
+        <div className={styles.titleGroup}>
+          <h2 id={titleId} tabIndex={-1} className={styles.title}>
+            {title}
+          </h2>
+          {headerAction}
+        </div>
         <button type="button" onClick={onClose} aria-label="閉じる" className={styles.closeButton}>
           ✕
         </button>

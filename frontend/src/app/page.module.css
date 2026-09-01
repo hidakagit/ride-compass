@@ -153,9 +153,23 @@
   margin: 0;
 }
 
-/* ルート結果パネルの内側タブ（ルート選択/全体プロファイル/比較）。省スペース化のため、
-   候補一覧・全体プロファイル・比較表を縦積みではなくタブ切り替えで1画面に収める。
-   見た目はadmin.module.cssの.tabs系（下線インジケータ方式）と揃える。 */
+/* デスクトップ専用の「ルート結果」見出し行（改善計画T545フォローアップ）。モバイルは
+   BottomSheet自体のtitle="ルート結果"が見出しを兼ねるため showHeading=false で
+   出さない（renderRouteOutcomeSectionBodyのコメント参照）。 */
+.outcomeSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: 0.3rem;
+}
+
+.outcomeSectionHeader h2 {
+  margin: 0;
+}
+
+/* ルート結果パネルのタブ（候補ごと＋比較）。省スペース化のため、候補一覧・全体プロファイル・
+   比較表を縦積みではなくタブ切り替えで1画面に収める。見た目はadmin.module.cssの.tabs系
+   （下線インジケータ方式）と揃える。 */
 .outcomeTabs {
   display: flex;
   flex-direction: column;
@@ -165,23 +179,45 @@
 .outcomeTabBar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
   border-bottom: 1px solid var(--color-border);
 }
 
+/* 改善計画T545: 候補ごとのタブ＋比較タブがこの1列に並ぶため、候補数（8方位＋経由地/
+   目的地ルート）ぶんで画面幅を超えうる。タブ列自身だけを横スクロールさせ（ページ全体は
+   横スクロールさせない）、情報アイコン・「ルートをクリア」は縮まず常に見える位置に残す。 */
 .outcomeTabList {
   display: flex;
   gap: var(--space-2);
+  overflow-x: auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .outcomeTabTrigger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex-shrink: 0;
   font-size: var(--font-size-sm);
   font-weight: 700;
   color: var(--color-muted);
   padding: 0.4rem 0.5rem;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
+}
+
+/* 改善計画T545（旧RouteList.tsxのタブ本文）: おすすめ度は太字、方向・距離は
+   .outcomeTabTrigger既定のfont-weight:700を打ち消して控えめに見せる。 */
+.outcomeRouteTabScore {
+  white-space: nowrap;
+}
+
+.outcomeRouteTabMeta {
+  font-weight: 400;
+  color: var(--color-muted);
+  white-space: nowrap;
 }
 
 .outcomeTabTrigger[data-state="active"] {
@@ -199,6 +235,7 @@
    控えめなテキストリンク見た目を踏襲する。 */
 .outcomeTabAction {
   align-self: center;
+  flex-shrink: 0;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   background: transparent;

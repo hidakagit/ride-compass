@@ -17,7 +17,6 @@ import type { AxisCatalogResponse } from "@/types/route";
 vi.mock("@/components/Map/MapView", () => ({ default: () => null }));
 vi.mock("@/components/MapLayersPanel/MapLayersPanel", () => ({ default: () => null }));
 vi.mock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
-vi.mock("@/components/RouteList/RouteList", () => ({ default: () => null }));
 vi.mock("@/components/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
 vi.mock("@/components/WarningBadge/WarningBadge", () => ({ default: () => null }));
 vi.mock("@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider", () => ({ default: () => null }));
@@ -588,10 +587,9 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
   });
 
   it("改善計画T365: 「ルートをクリア」ボタンで生成済みの候補一覧をリセットできる", async () => {
-    // RouteList自体はこのファイル全体でモック済み（21行目のvi.mock、内容表示は
-    // RouteList.test.tsxが別途検証済み）のため、ここではpage.tsx側の状態
-    // （routes.length > 0で出す「ルートをクリア」ボタン自体の表示/非表示）で
-    // handleRoutesClearの配線を検証する。
+    // ここではpage.tsx側の状態（routes.length > 0で出す「ルートをクリア」ボタン自体の
+    // 表示/非表示）でhandleRoutesClearの配線を検証する（候補タブ・内訳の中身自体は
+    // RouteAxisProfile.test.tsxが別途検証済み）。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],

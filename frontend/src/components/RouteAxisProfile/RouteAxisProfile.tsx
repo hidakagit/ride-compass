@@ -3,7 +3,6 @@
 import * as Popover from "@radix-ui/react-popover";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { InfoIcon } from "@/components/Map/icons";
-import { FieldLabel } from "@/components/Map/recipeControls";
 import { rampColorForBand } from "@/components/Map/axisLayers";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
@@ -225,17 +224,6 @@ export default function RouteAxisProfile({
               <span className={styles.scoreLabel}>/100 総合難易度</span>
             </span>
           )}
-          {/* 改善計画T545: 常時表示していた説明段落を、RouteList.tsxの「おすすめ度について」
-              と同じFieldLabel（情報アイコン＋ポップオーバー）へ変更した（ユーザー実機指摘
-              「冗長な説明文は消すか情報アイコンにして」）。改善計画T524の「下の内訳の合計に
-              近い値」という補足（overall_difficultyとcontribution()の丸め差の注記）も
-              文言はそのまま維持する。 */}
-          <span className={styles.scoreHintTrigger}>
-            <FieldLabel
-              label="おすすめ度・総合難易度について"
-              description="おすすめ度は候補間の相対評価、総合難易度は距離・軸重みを反映した絶対値（下の内訳の合計に近い値）です。"
-            />
-          </span>
         </div>
       )}
 
