@@ -694,7 +694,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 
 ## nowcグループの未使用element調査（2026-09-01、雷・竜巻basetime調査の副産物）
 
-- [ ] [T520](tasks/T520.md). nowcグループ（targetTimes_N3.json）の未使用element調査（liden・slmcs系） 規模不明（調査のみ、2026-09-01WebSearchで要素ごとの実在は確認したが一次ページ本文未確認のため着手判断には未達）
+- [x] [T520](tasks/T520.md). nowcグループ（targetTimes_N3.json）の未使用element調査（liden・slmcs系） 規模不明（調査のみ、2026-09-02完了。Browserペインでjma.go.jp本体へ直接アクセスし技術仕様を確定。amds_rain10mは既存機能と重複確認により導入不要、liden・slmcs系は配信形式確定・実装要否はプロダクト判断待ちで未着手のまま）
 
 ## 雷・竜巻ナウキャストのbasetime選択バグ修正（2026-09-01、T514効果確認の副産物）
 
