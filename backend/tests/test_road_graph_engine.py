@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.domain.attributes import EdgeAttributeCounts, ElevationAttribute, SearchMaterials
+from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
 from app.domain.evaluation import RoutePreference
 from app.domain.geo import bearing_between, destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
@@ -181,14 +181,21 @@ class FakeGraphService:
             return None
         graph, surface_attributes = built
         edge_ids = list(graph.edges.keys())
-        return SearchMaterials(
-            graph=graph,
-            surface_attributes=surface_attributes,
-            edge_attribute_counts=await self.get_edge_attribute_counts(edge_ids),
-            way_tags=await self.get_way_tags(edge_ids),
-            elevation_attributes=await self.get_elevation_attributes(edge_ids),
-            designated_edge_ids=await self.get_designated_edge_ids(edge_ids),
-        )
+        edge_attribute_counts = await self.get_edge_attribute_counts(edge_ids)
+        way_tags = await self.get_way_tags(edge_ids)
+        elevation_attributes = await self.get_elevation_attributes(edge_ids)
+        designated_edge_ids = await self.get_designated_edge_ids(edge_ids)
+        materials = {
+            edge_id: EdgeMaterialBundle(
+                surface=surface_attributes.get(edge_id),
+                way_tags=way_tags.get(edge_id, {}),
+                attribute_counts=edge_attribute_counts.get(edge_id),
+                elevation_attribute=elevation_attributes.get(edge_id),
+                is_designated=edge_id in designated_edge_ids,
+            )
+            for edge_id in edge_ids
+        }
+        return SearchMaterials(graph=graph, materials=materials)
 
     async def get_edges_with_geometry(self, edge_ids):
         # 主経路（hydrated優先、road_graph_engine.py:341,386の`hydrated.get(edge_id) or
@@ -927,11 +934,16 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
     engine = generator._engine
 
     base_graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    materials = {
+        "e1": EdgeMaterialBundle(
+            surface=None, way_tags=way_tags["e1"], attribute_counts=None,
+            elevation_attribute=None, is_designated=False,
+        )
+    }
     base_kwargs = dict(
         graph=base_graph,
-        elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags=way_tags,
-        intersection_counts={}, accident_counts={}, accident_years_covered=0,
-        designated_edge_ids=set(), wind=None, origin_node="a",
+        materials=materials, accident_years_covered=0,
+        wind=None, origin_node="a",
         node_index=build_node_spatial_index(base_graph),
         lazy_graph=None, cost_cache={},
         node_pair_index={},
@@ -1201,9 +1213,8 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags={},
-        intersection_counts={}, accident_counts={}, accident_years_covered=0,
-        designated_edge_ids=set(), wind=wind, origin_node="o",
+        graph=graph, materials={}, accident_years_covered=0,
+        wind=wind, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None, cost_cache={},
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
@@ -1241,9 +1252,8 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags={},
-        intersection_counts={}, accident_counts={}, accident_years_covered=0,
-        designated_edge_ids=set(), wind=None, origin_node="o",
+        graph=graph, materials={}, accident_years_covered=0,
+        wind=None, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None, cost_cache={},
         node_pair_index=road_graph_engine._build_node_pair_index(graph),
@@ -1410,9 +1420,8 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, elevation_attributes={}, surface_attributes={}, stop_counts={}, way_tags={},
-        intersection_counts={}, accident_counts={}, accident_years_covered=0,
-        designated_edge_ids=set(), wind=wind, origin_node="o",
+        graph=graph, materials={}, accident_years_covered=0,
+        wind=wind, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=None, cost_cache={},
         node_pair_index=road_graph_engine._build_node_pair_index(graph),

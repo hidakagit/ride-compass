@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialsBatch, SearchMaterials
+from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialsBatch, SearchMaterials
 from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
@@ -242,25 +242,23 @@ class FakeRoadGraphRepository:
         return {edge_id for edge_id in edge_ids if edge_id in self.designated_edge_ids}
 
     async def get_edge_materials_batch(self, edge_ids) -> EdgeMaterialsBatch:
-        # 改善計画T248: 実装（AttributeRepository.get_edge_materials_batch）は5種の材料を
-        # 1回のJOINクエリへ統合するが、Fakeでは個別メソッドの導出ロジックをそのまま
-        # 束ねるだけでよい（呼び出し回数の計測はこのメソッド専用のカウンタで行う）。
+        # 改善計画T248・T533: 実装（AttributeRepository.get_edge_materials_batch）は材料を
+        # 1回のJOINクエリへ統合し、戻り値もEdge単位で1オブジェクト（EdgeMaterialBundle）へ
+        # 統合するが、Fakeでは個別メソッドの導出ロジックをそのまま束ねるだけでよい
+        # （呼び出し回数の計測はこのメソッド専用のカウンタで行う）。
         self.get_edge_materials_batch_call_count += 1
-        return EdgeMaterialsBatch(
-            surface_attributes=await self.get_surface_attributes(edge_ids),
-            edge_attribute_counts={
-                edge_id: self.edge_attribute_counts[edge_id]
-                for edge_id in edge_ids
-                if edge_id in self.edge_attribute_counts
-            },
-            way_tags={edge_id: self.way_tags[edge_id] for edge_id in edge_ids if edge_id in self.way_tags},
-            elevation_attributes={
-                edge_id: self.elevation_attributes[edge_id]
-                for edge_id in edge_ids
-                if edge_id in self.elevation_attributes
-            },
-            designated_edge_ids={edge_id for edge_id in edge_ids if edge_id in self.designated_edge_ids},
-        )
+        surface_attributes = await self.get_surface_attributes(edge_ids)
+        materials = {
+            edge_id: EdgeMaterialBundle(
+                surface=surface_attributes.get(edge_id),
+                way_tags=self.way_tags.get(edge_id, {}),
+                attribute_counts=self.edge_attribute_counts.get(edge_id),
+                elevation_attribute=self.elevation_attributes.get(edge_id),
+                is_designated=edge_id in self.designated_edge_ids,
+            )
+            for edge_id in edge_ids
+        }
+        return EdgeMaterialsBatch(materials=materials)
 
     async def get_accident_years_covered(self) -> int:
         self.get_accident_years_covered_call_count += 1
@@ -549,11 +547,12 @@ async def test_get_search_materials_for_bbox_builds_materials_on_first_call():
 
     assert materials is not None
     edge_id = next(iter(materials.graph.edges))
-    assert materials.surface_attributes[edge_id] == "asphalt"
-    counts = materials.edge_attribute_counts[edge_id]
+    bundle = materials.materials[edge_id]
+    assert bundle.surface == "asphalt"
+    counts = bundle.attribute_counts
     assert (counts.accident_count, counts.stop_count, counts.intersection_count) == (1.0, 2, 3)
-    assert materials.way_tags[edge_id] == {"highway": "residential"}
-    assert edge_id in materials.designated_edge_ids
+    assert bundle.way_tags == {"highway": "residential"}
+    assert bundle.is_designated
 
 
 async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without_db_access():
@@ -689,7 +688,7 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     # 2回目でis_split_up_to_date=Trueとなりタイルキャッシュ経路（2タイルぶん）を通る。
     materials = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
     assert materials is not None
-    surfaces = set(materials.surface_attributes.values())
+    surfaces = {bundle.surface for bundle in materials.materials.values()}
     assert surfaces == {"asphalt", "gravel"}
     assert repository.get_graph_topology_in_bbox_call_count == 2  # 2タイルぶん
 
@@ -780,11 +779,7 @@ async def test_maybe_warm_tile_cache_skips_tile_already_in_material_cache(monkey
     monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
     empty_materials = SearchMaterials(
         graph=LeanRoadGraph(graph_version="cached", nodes={}, edges={}),
-        surface_attributes={},
-        edge_attribute_counts={},
-        way_tags={},
-        elevation_attributes={},
-        designated_edge_ids=set(),
+        materials={},
     )
     graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, empty_materials)
 

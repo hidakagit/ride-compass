@@ -13,7 +13,7 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     default_axis_weights,
@@ -299,8 +299,7 @@ def is_edge_allowed(
 
 def compute_routable_node_ids(
     graph: RoadGraphLike,
-    way_tags: dict[str, dict[str, str]] | None = None,
-    elevation_attributes: dict[str, ElevationAttribute] | None = None,
+    materials: dict[str, EdgeMaterialBundle] | None = None,
     hard_filters: frozenset[str] | None = None,
     max_average_grade_percent: float | None = None,
 ) -> set[str]:
@@ -312,17 +311,18 @@ def compute_routable_node_ids(
     計算しないため、同じ判定を得るにはHard Constraintだけを別途・軽量に評価する必要が
     ある。`is_edge_allowed`は材料抽出（`compute_edge_axis_scores`）を伴わない単純な
     タグ判定のみのため、bbox全体（数十万Edge）に対しても`compute_edge_costs_bulk`の
-    抽出フェーズほど重くならない。
+    抽出フェーズほど重くならない。`materials`は改善計画T533のEdgeMaterialBundle統合
+    辞書（`domain/attributes.py`参照）。
     """
-    way_tags = way_tags or {}
-    elevation_attributes = elevation_attributes or {}
+    materials = materials or {}
     routable: set[str] = set()
     for edge in graph.edges.values():
+        bundle = materials.get(edge.edge_id)
         if is_edge_allowed(
             edge,
-            way_tags.get(edge.edge_id),
+            bundle.way_tags if bundle is not None else None,
             hard_filters=hard_filters,
-            elevation_attribute=elevation_attributes.get(edge.edge_id),
+            elevation_attribute=bundle.elevation_attribute if bundle is not None else None,
             max_average_grade_percent=max_average_grade_percent,
         ):
             routable.add(edge.from_node_id)
@@ -523,7 +523,13 @@ def compute_edge_cost(
         elevation_attribute=elevation_attribute,
         max_average_grade_percent=max_average_grade_percent,
     ):
-        return EdgeCostResult(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
+        # 改善計画T533フォローアップ: bulk版（compute_edge_costs_bulk）が既に採用している
+        # model_construct（値は内部計算済みでバリデーション不要）と同じ最適化。lazy評価
+        # （改善計画T529）でこの関数が探索のホットパス（訪れたEdgeごとに最大24回）に
+        # なったため、cProfile実測でPydanticバリデーションが無視できないコストと判明した
+        # （edge_id/cost/difficulty/allowedはすべて内部で計算済みの値で、外部入力の検証は
+        # 元々不要だった）。
+        return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
 
     axis_scores = compute_edge_axis_scores(
         edge, elevation_attribute, surface_type, wind, stop_count, way_tags,
@@ -532,7 +538,7 @@ def compute_edge_cost(
     resolved_weights = weights if weights is not None else preference.weights
     cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
 
-    return EdgeCostResult(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
+    return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
 
 
 def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:

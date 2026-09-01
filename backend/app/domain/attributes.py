@@ -46,6 +46,38 @@ class EdgeAttributeCounts(BaseModel):
     intersection_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class EdgeMaterialBundle:
+    """Edge 1本ぶんの材料（surface・way_tags・件数・標高・指定路線）を1オブジェクトへ
+    束ねたもの（改善計画T533派生）。
+
+    `get_edge_materials_batch`は元々1回のJOINクエリで全材料を1行取得していた
+    （改善計画T248）が、戻り値だけは`surface_attributes`/`edge_attribute_counts`/
+    `way_tags`/`elevation_attributes`の4つの辞書へ再分割していた。探索コストの
+    ホットパス（`RoadGraphEngine._build_edge_cost_fn`のcost_fn、訪れたEdgeごとに
+    最大24回＝8方位×3レグ呼ばれる）はその4辞書＋designated_edge_idsへ個別に
+    `.get(edge_id)`していたため、実データ計測（渋谷相当bbox・24.7万Edge）で
+    「統合済み1辞書への1回アクセス」が「4辞書への個別アクセス」の3.5倍速いことを
+    確認した上で、Edge単位でこの1オブジェクトへ統合した
+    （`@dataclass(frozen=True, slots=True)`はLeanEdge等と同じ実績パターン、素の辞書
+    比で受け渡しが速い）。
+
+    `way_tags`は該当Wayにタグが無い場合も`{}`（空辞書、Noneにしない）——
+    元の`way_tags`辞書がLEFT JOINで「key自体は必ず存在、値は`row.tags or {}`」
+    だった仕様をそのまま踏襲する（`domain/evaluation.py: is_edge_allowed`等が
+    `way_tags is not None`で「タグ取得済みか」を判定するため、空タグとNone
+    [未取得]の区別を保つ必要がある）。`attribute_counts`/`elevation_attribute`は
+    対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の判定に使っていた
+    元の仕様を保つ）。
+    """
+
+    surface: str | None
+    way_tags: dict[str, str]
+    attribute_counts: EdgeAttributeCounts | None
+    elevation_attribute: ElevationAttribute | None
+    is_designated: bool
+
+
 @dataclass
 class SearchMaterials:
     """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
@@ -57,28 +89,22 @@ class SearchMaterials:
     # RoadGraph（Pydantic、split再構築を伴うuncached経路）またはLeanRoadGraph
     # （dataclass、タイルキャッシュ経路、改善計画T248）のいずれかが入る。
     graph: RoadGraphLike
-    surface_attributes: dict[str, str | None]
-    edge_attribute_counts: dict[str, EdgeAttributeCounts]
-    way_tags: dict[str, dict[str, str]]
-    elevation_attributes: dict[str, ElevationAttribute]
-    designated_edge_ids: set[str]
+    materials: dict[str, EdgeMaterialBundle]
 
 
 @dataclass
 class EdgeMaterialsBatch:
-    """`SearchMaterials`から`graph`を除いた5種の材料（改善計画T248）。
+    """`SearchMaterials`から`graph`を除いた材料一式（改善計画T248・T533）。
 
     以前は`surface_attributes`/`edge_attribute_counts`/`way_tags`/
     `elevation_attributes`/`designated_edge_ids`をEdge集合が同じまま5回individually
     取得していたが、実測（dev DB、71,791 Edge）で現行5クエリ8.33秒→統合1クエリ
     （`AttributeRepository.get_edge_materials_batch`）1.30秒（6.4倍）を確認したため、
-    1回のJOINクエリへ統合した戻り値の型として新設した。"""
+    1回のJOINクエリへ統合した。当初はこの戻り値を4つの辞書へ再分割していたが
+    （クエリ統合時に直し忘れた技術的負債）、Edge単位で`EdgeMaterialBundle`へ
+    統合した1辞書へ改めた（T533、`EdgeMaterialBundle`のdocstring参照）。"""
 
-    surface_attributes: dict[str, str | None]
-    edge_attribute_counts: dict[str, EdgeAttributeCounts]
-    way_tags: dict[str, dict[str, str]]
-    elevation_attributes: dict[str, ElevationAttribute]
-    designated_edge_ids: set[str]
+    materials: dict[str, EdgeMaterialBundle]
 
 
 def _now_iso() -> str:

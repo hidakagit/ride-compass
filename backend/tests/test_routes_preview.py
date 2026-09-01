@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_preview_builder
 from app.config import settings
-from app.domain.attributes import SearchMaterials
+from app.domain.attributes import EdgeMaterialBundle, SearchMaterials
 from app.domain.errors import RoutingError
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteSegment
@@ -153,14 +153,14 @@ class _FakeGraphServiceForPreview:
     async def get_search_materials_for_bbox(self, bbox):
         if self._graph is None or not self._graph.edges:
             return None
-        return SearchMaterials(
-            graph=self._graph,
-            surface_attributes={},
-            edge_attribute_counts={},
-            way_tags={edge_id: {"highway": edge.highway} for edge_id, edge in self._graph.edges.items()},
-            elevation_attributes={},
-            designated_edge_ids=set(),
-        )
+        materials = {
+            edge_id: EdgeMaterialBundle(
+                surface=None, way_tags={"highway": edge.highway}, attribute_counts=None,
+                elevation_attribute=None, is_designated=False,
+            )
+            for edge_id, edge in self._graph.edges.items()
+        }
+        return SearchMaterials(graph=self._graph, materials=materials)
 
     async def get_accident_years_covered(self) -> int:
         return 0

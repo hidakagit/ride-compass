@@ -46,7 +46,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
@@ -107,14 +107,13 @@ class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
     graph: RoadGraphLike
-    elevation_attributes: dict[str, ElevationAttribute]
-    surface_attributes: dict[str, str | None]
-    stop_counts: dict[str, int]
-    way_tags: dict[str, dict[str, str]]
-    intersection_counts: dict[str, int]
-    accident_counts: dict[str, int]
+    # 改善計画T533: 以前はelevation_attributes/surface_attributes/stop_counts/way_tags/
+    # intersection_counts/accident_counts/designated_edge_idsの7個の別々の辞書・集合
+    # だったが、Edge単位で`EdgeMaterialBundle`へ統合した1辞書へ改めた（cost_fn等の
+    # ホットパスで7回の個別.get()を1回で済ませるため、`domain/attributes.py:
+    # EdgeMaterialBundle`のdocstring参照）。
+    materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
-    designated_edge_ids: set[str]
     wind: WeatherConditions | None
     origin_node: str
     # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
@@ -152,14 +151,9 @@ class _SearchGraph:
 
     graph: RoadGraphLike
     lazy_graph: LazyRoadGraph
-    elevation_attributes: dict[str, ElevationAttribute]
-    surface_attributes: dict[str, str | None]
-    stop_counts: dict[str, int]
-    way_tags: dict[str, dict[str, str]]
-    intersection_counts: dict[str, int]
-    accident_counts: dict[str, int]
+    # 改善計画T533: _RoadGraphContextと同じ理由でEdgeMaterialBundleへ統合済み。
+    materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
-    designated_edge_ids: set[str]
     wind: WeatherConditions | None
     night_active: bool
 
@@ -217,14 +211,8 @@ class RoadGraphEngine:
         preference = self._route_preference.with_time_scope(active_scopes)
         weights = preference.weights
         graph = search.graph
-        elevation_attributes = search.elevation_attributes
-        surface_attributes = search.surface_attributes
-        stop_counts = search.stop_counts
-        way_tags = search.way_tags
-        intersection_counts = search.intersection_counts
-        accident_counts = search.accident_counts
+        materials = search.materials
         accident_years_covered = search.accident_years_covered
-        designated_edge_ids = search.designated_edge_ids
         wind = search.wind
         penalty_strength = self._penalty_strength
         max_average_grade_percent = self._max_average_grade_percent
@@ -235,11 +223,19 @@ class RoadGraphEngine:
             if cached is not None:
                 return cached
             edge = graph.edges[edge_id]
+            # 改善計画T533: 以前は7つの別々の辞書・集合へ個別に.get()/inしていたが、
+            # Edge単位で統合済みの1オブジェクト（EdgeMaterialBundle）を1回引くだけで
+            # 済むようにした（実データ計測で3.5倍、docs/tasks/T533.md参照）。
+            bundle = materials.get(edge_id)
+            counts = bundle.attribute_counts if bundle else None
             result = compute_edge_cost(
-                edge, elevation_attributes.get(edge_id), surface_attributes.get(edge_id), preference,
-                wind=wind, stop_count=stop_counts.get(edge_id), way_tags=way_tags.get(edge_id),
-                intersection_count=intersection_counts.get(edge_id), accident_count=accident_counts.get(edge_id),
-                accident_years_covered=accident_years_covered, is_designated=edge_id in designated_edge_ids,
+                edge, bundle.elevation_attribute if bundle else None, bundle.surface if bundle else None,
+                preference, wind=wind, stop_count=counts.stop_count if counts else None,
+                way_tags=bundle.way_tags if bundle else None,
+                intersection_count=counts.intersection_count if counts else None,
+                accident_count=counts.accident_count if counts else None,
+                accident_years_covered=accident_years_covered,
+                is_designated=bundle.is_designated if bundle else False,
                 penalty_strength=penalty_strength, max_average_grade_percent=max_average_grade_percent,
                 weights=weights, hard_filters=hard_filters,
             )
@@ -278,26 +274,14 @@ class RoadGraphEngine:
         if materials is None or not materials.graph.edges:
             return None
         graph = materials.graph
-        surface_attributes = materials.surface_attributes
-        # 静的道路属性P1（信号・横断歩道・一時停止・踏切・交差点密度）＋外部静的データ
-        # ソースT50（事故密度）。事前集計済みのedge_attribute_counts（改善計画T144）が
-        # 3種の値をまとめて持つため、compute_edge_cost等の呼び出し先シグネチャ（従来どおり
-        # 3つの個別dictを受け取る）に合わせてここで分解する。
-        stop_counts = {edge_id: c.stop_count for edge_id, c in materials.edge_attribute_counts.items()}
-        intersection_counts = {
-            edge_id: c.intersection_count for edge_id, c in materials.edge_attribute_counts.items()
-        }
-        accident_counts = {edge_id: c.accident_count for edge_id, c in materials.edge_attribute_counts.items()}
-        way_tags = materials.way_tags
+        # 改善計画T533: surface・edge_attribute_counts（stop/intersection/accident件数）・
+        # way_tags・elevation_attribute・is_designatedは、Edge単位で`EdgeMaterialBundle`へ
+        # 統合済みの1辞書としてそのまま使う（以前はここで3つの個別dictへ分解していた、
+        # `domain/attributes.py: EdgeMaterialBundle`のdocstring参照）。
+        edge_materials = materials.materials
         # accident_years_coveredは密度の「件/(km・年)」正規化に使う（bboxに依存しない
         # グローバル値、GraphService側でプロセス内キャッシュ済み）。
         accident_years_covered = await self._graph_service.get_accident_years_covered()
-        designated_edge_ids = materials.designated_edge_ids
-        # 改善計画T218a（T12 Stage 0.5）: 事前計算済みのgradient（average_grade）を探索コストへ
-        # 組み込む。`app.batch.precompute_elevation_attributes`で事前計算済みのEdgeのみ値が
-        # 埋まる（未計算のEdgeはNoneのまま=評価スキップ、compute_edge_axis_scoresの既存の
-        # 「データ無しは軸を合成から除外」動作に委ねる）。
-        elevation_attributes = materials.elevation_attributes
 
         wind_started = time.monotonic()
         wind = await self._weather_service.get_conditions(wind_and_night_origin)
@@ -328,14 +312,8 @@ class RoadGraphEngine:
         return _SearchGraph(
             graph=graph,
             lazy_graph=lazy_graph,
-            elevation_attributes=elevation_attributes,
-            surface_attributes=surface_attributes,
-            stop_counts=stop_counts,
-            way_tags=way_tags,
-            intersection_counts=intersection_counts,
-            accident_counts=accident_counts,
+            materials=edge_materials,
             accident_years_covered=accident_years_covered,
-            designated_edge_ids=designated_edge_ids,
             wind=wind,
             night_active=night_active,
         )
@@ -382,7 +360,7 @@ class RoadGraphEngine:
         index_started = time.monotonic()
         routable_ids = await asyncio.to_thread(
             compute_routable_node_ids,
-            search.graph, search.way_tags, search.elevation_attributes,
+            search.graph, search.materials,
             self._hard_filters, self._max_average_grade_percent,
         )
         node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
@@ -395,14 +373,8 @@ class RoadGraphEngine:
 
         return _RoadGraphContext(
             graph=search.graph,
-            elevation_attributes=search.elevation_attributes,
-            surface_attributes=search.surface_attributes,
-            stop_counts=search.stop_counts,
-            way_tags=search.way_tags,
-            intersection_counts=search.intersection_counts,
-            accident_counts=search.accident_counts,
+            materials=search.materials,
             accident_years_covered=search.accident_years_covered,
-            designated_edge_ids=search.designated_edge_ids,
             wind=search.wind,
             origin_node=origin_node,
             node_index=node_index,
@@ -437,7 +409,7 @@ class RoadGraphEngine:
         # 改善計画T522: prepareと同じ理由でasyncio.to_threadへ逃がす（docs/tasks/T522.md参照）。
         routable_ids = await asyncio.to_thread(
             compute_routable_node_ids,
-            search.graph, search.way_tags, search.elevation_attributes,
+            search.graph, search.materials,
             self._hard_filters, self._max_average_grade_percent,
         )
         node_index = await asyncio.to_thread(build_node_spatial_index, search.graph, node_ids=routable_ids)
@@ -637,7 +609,7 @@ class RoadGraphEngine:
         # 総距離・同じ方位の候補のため）traced（順方向のTracedLoop）からそのまま使う。
         geometry = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
-        road_score = _aggregate_road_score(edges_in_path, context.surface_attributes)
+        road_score = _aggregate_road_score(edges_in_path, context.materials)
         wind_score = _aggregate_wind_score(edges_in_path, context.wind)
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
         # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
@@ -679,16 +651,21 @@ class RoadGraphEngine:
         for edge in edges:
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_attributes.get(edge.edge_id)
-            surface_type = context.surface_attributes.get(edge.edge_id)
-            stop_count = context.stop_counts.get(edge.edge_id)
-            edge_way_tags = context.way_tags.get(edge.edge_id)
-            intersection_count = context.intersection_counts.get(edge.edge_id)
-            accident_count = context.accident_counts.get(edge.edge_id)
+            # 改善計画T533: surface/stop_count/way_tags/intersection_count/accident_count/
+            # is_designatedは、Edge単位で統合済みの1オブジェクトから1回の.get()で取り出す
+            # （`domain/attributes.py: EdgeMaterialBundle`参照）。
+            bundle = context.materials.get(edge.edge_id)
+            counts = bundle.attribute_counts if bundle else None
+            surface_type = bundle.surface if bundle else None
+            stop_count = counts.stop_count if counts else None
+            edge_way_tags = bundle.way_tags if bundle else None
+            intersection_count = counts.intersection_count if counts else None
+            accident_count = counts.accident_count if counts else None
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             wind_penalty = compute_wind_penalty(edge, context.wind)
             road_surface_good = classify_osm_surface(surface_type)
-            is_designated = edge.edge_id in context.designated_edge_ids
+            is_designated = bundle.is_designated if bundle else False
 
             # 改善計画T143: 区間表示の軸別スコアは、コスト計算（compute_edge_cost、
             # EvaluationService.evaluate_graph経由）と同じcompute_edge_axis_scores（T142）を
@@ -944,12 +921,16 @@ def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> d
     }
 
 
-def _aggregate_road_score(edges: list[EdgeLike], surface_attributes: dict[str, str | None]) -> float | None:
+def _aggregate_road_score(edges: list[EdgeLike], materials: dict[str, EdgeMaterialBundle]) -> float | None:
     """経路の総距離に対する「走行しやすい舗装路面」の割合(%)を算出する。Edge単位のsurfaceタグを
     domain/road.py: distance_weighted_road_scoreへ渡す薄いラッパー。
     """
+    def surface_of(edge: EdgeLike) -> str | None:
+        bundle = materials.get(edge.edge_id)
+        return bundle.surface if bundle else None
+
     return distance_weighted_road_score(
-        [(edge.distance_m, classify_osm_surface(surface_attributes.get(edge.edge_id))) for edge in edges]
+        [(edge.distance_m, classify_osm_surface(surface_of(edge))) for edge in edges]
     )
 
 

@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import time
+from dataclasses import replace
 
-from app.domain.attributes import SearchMaterials, surface_by_edge_id
+from app.domain.attributes import EdgeMaterialBundle, SearchMaterials, surface_by_edge_id
 from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure import graph_material_cache, road_graph_tile_cache
@@ -282,9 +283,10 @@ class GraphService:
         # 差分（本番30km実測で約17秒）がこのバッチ取得由来かをここで確認する。
         materials_started = time.monotonic()
         # 改善計画T248: surface_attributesはget_or_build_graph_with_attributesが
-        # 既に取得済みのためここでは使わず、残り4種のみバッチ取得する
-        # （get_edge_materials_batchのsurface_attributesは捨てる二重取得になるが、
-        # このメソッド自体が低頻度・重い処理のuncachedフォールバック経路のため許容する）。
+        # 既に取得済みのため、get_edge_materials_batchが返すbundle.surfaceは使わず
+        # ここで上書きする（get_edge_materials_batch側のsurface取得自体は捨てる
+        # 二重取得になるが、このメソッド自体が低頻度・重い処理のuncachedフォールバック
+        # 経路のため許容する）。
         batch = await self._repository.get_edge_materials_batch(edge_ids)
         materials_ms = round((time.monotonic() - materials_started) * 1000)
         logger.info(
@@ -296,45 +298,27 @@ class GraphService:
         # 開こうとしない）。
         if isinstance(self._repository, RoadGraphRepository):
             _maybe_warm_tile_cache(bbox)
-        return SearchMaterials(
-            graph=graph,
-            surface_attributes=surface_attributes,
-            edge_attribute_counts=batch.edge_attribute_counts,
-            way_tags=batch.way_tags,
-            elevation_attributes=batch.elevation_attributes,
-            designated_edge_ids=batch.designated_edge_ids,
-        )
+        materials = {
+            edge_id: replace(bundle, surface=surface_attributes.get(edge_id))
+            for edge_id, bundle in batch.materials.items()
+        }
+        return SearchMaterials(graph=graph, materials=materials)
 
     async def _build_search_materials_from_tile_cache(self, bbox: BoundingBox) -> SearchMaterials:
         # 改善計画T248: このメソッドはタイルキャッシュ経路専用（_get_or_build_tile_materials
         # は常にLeanRoadGraphを返す）のため、結合後もLeanRoadGraphで統一する。
         combined_nodes: dict[str, LeanNode] = {}
         combined_edges: dict[str, LeanEdge] = {}
-        combined_surface: dict = {}
-        combined_counts: dict = {}
-        combined_way_tags: dict = {}
-        combined_elevation: dict = {}
-        combined_designated: set = set()
+        combined_materials: dict[str, EdgeMaterialBundle] = {}
 
         for x, y in tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM):
             tile = await self._get_or_build_tile_materials(x, y)
             combined_nodes.update(tile.graph.nodes)
             combined_edges.update(tile.graph.edges)
-            combined_surface.update(tile.surface_attributes)
-            combined_counts.update(tile.edge_attribute_counts)
-            combined_way_tags.update(tile.way_tags)
-            combined_elevation.update(tile.elevation_attributes)
-            combined_designated |= tile.designated_edge_ids
+            combined_materials.update(tile.materials)
 
         graph = LeanRoadGraph(graph_version="tile-cache", nodes=combined_nodes, edges=combined_edges)
-        return SearchMaterials(
-            graph=graph,
-            surface_attributes=combined_surface,
-            edge_attribute_counts=combined_counts,
-            way_tags=combined_way_tags,
-            elevation_attributes=combined_elevation,
-            designated_edge_ids=combined_designated,
-        )
+        return SearchMaterials(graph=graph, materials=combined_materials)
 
     async def _get_or_build_tile_materials(self, x: int, y: int) -> SearchMaterials:
         cached = graph_material_cache.get_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y)
@@ -349,17 +333,11 @@ class GraphService:
             graph = LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
 
         edge_ids = list(graph.edges.keys())
-        # 改善計画T248: 5種の材料を個別に取得する代わりに1回のJOINクエリへ統合する
-        # （dev DB実測、71,791 Edgeで現行5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
+        # 改善計画T248・T533: 材料を個別に取得する代わりに1回のJOINクエリへ統合し
+        # （dev DB実測、71,791 Edgeで現行5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）、
+        # 戻り値もEdge単位で1オブジェクトへ統合する（EdgeMaterialBundle参照）。
         batch = await self._repository.get_edge_materials_batch(edge_ids)
-        materials = SearchMaterials(
-            graph=graph,
-            surface_attributes=batch.surface_attributes,
-            edge_attribute_counts=batch.edge_attribute_counts,
-            way_tags=batch.way_tags,
-            elevation_attributes=batch.elevation_attributes,
-            designated_edge_ids=batch.designated_edge_ids,
-        )
+        materials = SearchMaterials(graph=graph, materials=batch.materials)
         graph_material_cache.set_tile_materials(ROAD_GRAPH_TILE_ZOOM, x, y, materials)
         return materials
 
