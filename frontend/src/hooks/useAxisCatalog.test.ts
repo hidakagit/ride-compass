@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 
 // 改善計画T308: useAxisCatalogがrampAxes/axisLabels/secondaryAxesを実行時APIから
@@ -9,7 +9,13 @@ vi.mock("@/services/axisCatalogApi", () => ({
 }));
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { useAxisCatalog } from "./useAxisCatalog";
+import { __resetAxisCatalogStoreForTests, useAxisCatalog } from "./useAxisCatalog";
+
+// 改善計画T527: フェッチ結果をモジュールレベルの共有ストアへ変更したため、前のテストの
+// 解決済みカタログが次のテストの初期値へ持ち越されないよう、テストごとにリセットする。
+beforeEach(() => {
+  __resetAxisCatalogStoreForTests();
+});
 
 function catalogResponse(): AxisCatalogResponse {
   return {
@@ -144,5 +150,49 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       expect(second.result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
     });
     expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1);
+  });
+
+  it("改善計画T527: 先にマウント済みの呼び出し元は、別の呼び出し元が後から再フェッチした結果も共有する", async () => {
+    // page.tsxが先にマウントしてフェッチ完了した後、RouteSettingsPanel.tsxが再マウント
+    // （モバイルのBottomSheetでタブを開き直す等）して再フェッチするシナリオ。以前は
+    // 呼び出し元ごとに独立したuseStateだったため、firstは古いカタログのまま取り残され
+    // secondとの間でaxes配列が食い違っていた。
+    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
+    const first = renderHook(() => useAxisCatalog());
+    await waitFor(() => expect(first.result.current.loaded).toBe(true));
+    expect(first.result.current.axes).toHaveLength(2);
+
+    // 軸スタジオでgui_published_axisが非公開になり、以後のフェッチは1軸だけ返す想定。
+    vi.mocked(getAxisCatalog).mockResolvedValueOnce({
+      axes: [catalogResponse().axes[0]],
+      material_runtime_scales: {},
+    });
+    const second = renderHook(() => useAxisCatalog());
+
+    await waitFor(() => expect(second.result.current.axes).toHaveLength(1));
+    // firstは自分では再フェッチしていないが、共有ストア経由で最新の1軸へ追従する。
+    expect(first.result.current.axes).toHaveLength(1);
+    expect(first.result.current.axes).toBe(second.result.current.axes);
+  });
+
+  it("改善計画T527: 後発の呼び出し元の再フェッチが失敗しても、既に取得済みの正常なカタログを巻き戻さない", async () => {
+    // 呼び出し回数はテストファイル内で共有されるため、このテスト内での増分だけを見る
+    // （「同時にマウントされた複数の呼び出し元」テストと同じ方針）。
+    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
+    const first = renderHook(() => useAxisCatalog());
+    await waitFor(() => expect(first.result.current.loaded).toBe(true));
+    const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
+
+    vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
+    const second = renderHook(() => useAxisCatalog());
+    await waitFor(() =>
+      expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1),
+    );
+
+    // secondの再フェッチが失敗しても、firstが既に取得していた2軸のカタログのまま
+    // （静的フォールバックの7軸へ巻き戻らない）。
+    expect(first.result.current.loaded).toBe(true);
+    expect(first.result.current.axes).toHaveLength(2);
+    expect(second.result.current.axes).toHaveLength(2);
   });
 });

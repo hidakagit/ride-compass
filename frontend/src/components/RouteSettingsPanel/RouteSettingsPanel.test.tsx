@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
 import type { MapLayerId, MapLayerVisibility } from "@/components/Map/mapLayers";
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "./RouteSettingsPanel";
@@ -16,6 +16,7 @@ vi.mock("@/services/axisCatalogApi", () => ({
 }));
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
 import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 
 // 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）検証用に、
@@ -103,6 +104,12 @@ function baseNewProps() {
 }
 
 describe("RouteSettingsPanel", () => {
+  // 改善計画T527: useAxisCatalogのフェッチ結果はモジュールレベルの共有ストアのため、
+  // 前のテストで解決したカタログが次のテストの初期表示へ持ち越されないようリセットする。
+  beforeEach(() => {
+    __resetAxisCatalogStoreForTests();
+  });
+
   it("カタログから消えた軸（unpublish後）のキーをroutePreferenceから取り除く", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
     const onRoutePreferenceChange = vi.fn();

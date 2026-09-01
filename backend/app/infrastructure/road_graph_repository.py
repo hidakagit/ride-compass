@@ -1814,30 +1814,6 @@ class AttributeRepository(_SessionRepository):
             ],
         )
 
-    async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
-        """`edge_attribute_counts`（改善計画T144、事故・停止・交差点の事前集計）を読む。
-
-        以前は`get_stop_poi_counts`/`get_intersection_counts`/`get_accident_counts`
-        （road_graph_repository.py内、いずれも空間結合SQL）でリクエストの都度PostGIS上の
-        `ST_DWithin`空間結合を計算していたが、`app/batch/precompute_edge_attribute_counts.py`
-        が同じ計算結果を事前に永続化しているため、単純な主キー参照へ置き換える
-        （改善計画T218、T12 Stage 0）。3種の空間結合クエリが1クエリへ集約される。
-        """
-        if not edge_ids:
-            return {}
-        result: dict[str, EdgeAttributeCounts] = {}
-        for id_chunk in _chunked(edge_ids, 50_000):
-            stmt = select(EdgeAttributeCountsRow).where(
-                EdgeAttributeCountsRow.edge_id == any_(cast(id_chunk, ARRAY(Text)))
-            )
-            for row in (await self._session.execute(stmt)).scalars().all():
-                result[row.edge_id] = EdgeAttributeCounts(
-                    accident_count=row.accident_count,
-                    stop_count=row.stop_count,
-                    intersection_count=row.intersection_count,
-                )
-        return result
-
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         if not edge_ids:
             return {}
@@ -2231,9 +2207,6 @@ class RoadGraphRepository:
 
     async def save_elevation_attributes(self, attributes: list[ElevationAttribute]) -> None:
         await self.attributes.save_elevation_attributes(attributes)
-
-    async def get_edge_attribute_counts(self, edge_ids: list[str]) -> dict[str, EdgeAttributeCounts]:
-        return await self.attributes.get_edge_attribute_counts(edge_ids)
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         return await self.attributes.get_surface_attributes(edge_ids)

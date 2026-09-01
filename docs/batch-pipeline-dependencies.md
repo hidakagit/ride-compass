@@ -30,18 +30,26 @@
 ② import_accidents.py     警察庁公開CSV → accident_points
 ③ import_designations.py  国土数値情報N10/N12 → route_designations
 
-【第2グループ: road_edges起点の派生計算（①のroad_edges作成後、かつ内部順序あり）】
-④ precompute_road_node_degrees.py     road_edges → road_nodes.degree
-      └─ 必ず⑤より先に実行すること（⑤のintersection_count計算が参照するため）
-⑤ precompute_edge_attribute_counts.py  road_edges + accident_points + osm_raw_pois
+【交差点分割（①の後、第2グループの前提）】
+④ presplit_road_graph.py  osm_raw_ways/osm_raw_nodes（①の出力）→ road_edges / road_nodes
+      └─ 取込済み全タイルを走査しGraphServiceの再構築経路（closure→build_road_graph→
+         save_graph）を適用する。未実行の範囲は`GraphService.get_or_build_graph_with_attributes`
+         がルート生成リクエスト内で同じ経路を遅延実行する安全網が働くため、本バッチは
+         「ランタイムの初回リクエストで数十秒級の遅延が起きるのを避ける」ための事前実行であり、
+         省略しても機能上は成立する（ただし後述⑤⑥[旧④⑤]は`road_edges`が存在しないと空実行になる）
+
+【第2グループ: road_edges起点の派生計算（④のroad_edges作成後、かつ内部順序あり）】
+⑤ precompute_road_node_degrees.py     road_edges → road_nodes.degree
+      └─ 必ず⑥より先に実行すること（⑥のintersection_count計算が参照するため）
+⑥ precompute_edge_attribute_counts.py  road_edges + accident_points + osm_raw_pois
                                         + road_nodes.degree → edge_attribute_counts
-⑥ precompute_elevation_attributes.py   road_edges + GSI DEM API → elevation_attributes
-      └─ ④⑤との明示的な前後関係なし。road_edgesにのみ依存
+⑦ precompute_elevation_attributes.py   road_edges + GSI DEM API → elevation_attributes
+      └─ ⑤⑥との明示的な前後関係なし。road_edgesにのみ依存
 
 【第3グループ: osm_raw_ways起点の派生計算（road_edges非依存）】
-⑦ precompute_way_attribute_counts.py   osm_raw_ways + accident_points + osm_raw_pois
+⑧ precompute_way_attribute_counts.py   osm_raw_ways + accident_points + osm_raw_pois
                                         → raw_intersection_nodes / way_attribute_counts
-⑧ match_designations.py                route_designations（③の出力）+ osm_raw_ways.geom
+⑨ match_designations.py                route_designations（③の出力）+ osm_raw_ways.geom
                                         → designation_attributes
       └─ ③の後、かつ①（osm_raw_ways更新）の後に再実行が必要
 ```
@@ -57,14 +65,16 @@
 | ① | `import_pbf.py` | PBFファイル（`--pbf`）+ `import_profile.yaml` | `osm_raw_ways`（UPSERT）/ `osm_raw_nodes`（DO NOTHING、座標更新は追わない）/ `osm_raw_pois`（UPSERT）/ `osm_import_runs` | なし | PBFデータ更新時 | UPSERTだが**ノード座標の移動は追わない**（位置補正には完全再取込が必要） |
 | ② | `import_accidents.py` | 警察庁公開CSV（`--years`） | `accident_points`（`accident_id`でUPSERT）/ `accident_import_runs` | なし | 年次データ更新時 | UPSERT、安全 |
 | ③ | `import_designations.py` | 国土数値情報N10/N12 ZIP（自動DL） | `route_designations`（kind, pref_code単位でDELETE→INSERT）/ `designation_import_runs` | なし | KSJデータ更新時 | DELETE→INSERT、安全 |
-| ④ | `precompute_road_node_degrees.py` | `road_edges`（from/to node） | `road_nodes.degree`（全件洗い替え） | ①でroad_edgesが存在すること | road_edges変化時（PBF再取込・トポロジ変更） | 全件洗い替え、安全 |
-| ⑤ | `precompute_edge_attribute_counts.py` | `road_edges`全件 + `accident_points` + `osm_raw_pois` + `road_nodes.degree` | `edge_attribute_counts`（edge_id主キーでUPSERT） | **④の後**（未実行だと全edgeでintersection_count=0） | `accident_points`/`osm_raw_pois`/`road_edges`のいずれか変化時 | 全件再計算、増分無し |
-| ⑥ | `precompute_elevation_attributes.py` | `road_edges`（ジオメトリ） + GSI DEM API | `elevation_attributes` | ①でroad_edgesが存在すること | road_edges変化時（新規Edge追加・PBF再取込） | **増分実行可能**（未計算Edgeのみ計算） |
-| ⑦ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`region_service.py`の`ROAD_SURFACE_TILE_VERSION`を上げてタイルキャッシュを陳腐化させること**（コード中に明記） | UPSERT、安全 |
-| ⑧ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
+| ④ | `presplit_road_graph.py` | `osm_raw_ways`/`osm_raw_nodes`（取込済み全z12タイル） | `road_edges`/`road_nodes`（`GraphService.get_or_build_graph_with_attributes`と同じ再構築経路） | ①でosm_raw_waysが存在すること | PBF再取込時（`is_split_up_to_date`がFalseになったタイルのみ再構築、`is_split_up_to_date`判定を使い済タイルはスキップし冪等） | 未split分のみ再構築、安全 |
+| ⑤ | `precompute_road_node_degrees.py` | `road_edges`（from/to node） | `road_nodes.degree`（全件洗い替え） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・トポロジ変更） | 全件洗い替え、安全 |
+| ⑥ | `precompute_edge_attribute_counts.py` | `road_edges`全件 + `accident_points` + `osm_raw_pois` + `road_nodes.degree` | `edge_attribute_counts`（edge_id主キーでUPSERT） | **⑤の後**（未実行だと全edgeでintersection_count=0） | `accident_points`/`osm_raw_pois`/`road_edges`のいずれか変化時 | 全件再計算、増分無し |
+| ⑦ | `precompute_elevation_attributes.py` | `road_edges`（ジオメトリ） + GSI DEM API | `elevation_attributes` | ④でroad_edgesが存在すること | road_edges変化時（新規Edge追加・PBF再取込） | **増分実行可能**（未計算Edgeのみ計算） |
+| ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`region_service.py`の`ROAD_SURFACE_TILE_VERSION`を上げてタイルキャッシュを陳腐化させること**（コード中に明記） | UPSERT、安全 |
+| ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
 
-全8バッチともUPSERTまたはDELETE→INSERT（トランザクション内、0件時はDELETEもスキップ）で
-単純な再実行は安全。冪等性の唯一の例外は①のノード座標（DO NOTHING）。
+全9バッチともUPSERTまたはDELETE→INSERT（トランザクション内、0件時はDELETEもスキップ）で
+単純な再実行は安全。冪等性の唯一の例外は①のノード座標（DO NOTHING）。④はタイル単位で
+`is_split_up_to_date`により未split分だけへスコープを絞るため、全件洗い替えではない。
 
 ## 3. ランタイム側の読み取り元
 
@@ -73,21 +83,23 @@
 | `edge_attribute_counts` / `elevation_attributes` | `infrastructure/graph_material_cache.py`経由で`services/road_graph_engine.py`（`prepare`） | 評価軸算出（stop/accident/intersection/gradient） |
 | `way_attribute_counts` | `services/region_service.py` | 道路サーフェスタイルMVT生成 |
 | `designation_attributes` | `domain/evaluation.py`等の評価系 | 指定路線の評価軸（car_stress補正） |
-| `road_nodes.degree` | ランタイムでは直接使われない | ⑤の`intersection_count`計算専用の中間データ |
+| `road_nodes.degree` | ランタイムでは直接使われない | ⑥の`intersection_count`計算専用の中間データ |
 
 `api/routers/health.py`の`/health`（`_KEY_TABLES`）が`osm_raw_ways`/`route_designations`/
 `designation_attributes`等の0件検知で「バッチ未実行」を検出する仕組みを既に持つ
 （ただし「0件」は検知できても「road_edges追加分だけ欠損している」部分的な鮮度劣化までは
-検知しない）。
+検知しない）。`road_edges`/`road_nodes`自体は④が事前に埋めなくても
+`GraphService.get_or_build_graph_with_attributes`がリクエスト内で同じ経路を遅延実行する
+安全網を持つため、`/health`の対象には含まれない。
 
 ## 4. 再実行トリガー早見表
 
 | 生データの変化 | 再実行が必要なバッチ |
 |---|---|
-| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧（⑧は③の完了も前提） |
-| 事故CSV更新 | ②のみ再取込。ただし⑤・⑦が事故カウントを参照するため、⑤・⑦も追随再実行が必要 |
-| KSJ指定路線データ更新 | ③→⑧ |
-| ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`のOverpass経由構築等） | ⑤・⑥の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。④はroad_edges全体からの集計のため併せて再実行が必要 |
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨（⑨は③の完了も前提） |
+| 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
+| KSJ指定路線データ更新 | ③→⑨ |
+| ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |
 
 ## 段階2・3（本ファイルの対象外）
 

@@ -83,7 +83,14 @@ vi.mock("@/services/axisCatalogApi", () => ({
 }));
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
 import Home from "./page";
+
+// 改善計画T527: useAxisCatalogのフェッチ結果はモジュールレベルの共有ストアのため、
+// 前のテストで解決したカタログが次のテストの初期表示へ持ち越されないようリセットする。
+beforeEach(() => {
+  __resetAxisCatalogStoreForTests();
+});
 
 const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
 
