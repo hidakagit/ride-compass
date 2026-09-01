@@ -78,10 +78,11 @@ stateがlocalStorage経由で共有される（同一タブでのリアルタイ
 
 ## 暗黙の前提
 
-- `useAxisCatalog()`（`GET /api/axis-catalog`）は呼び出しごとに独立してフェッチせず、
-  モジュールレベル変数`inFlightCatalogFetch`で同時に飛んでいる未解決フェッチだけを
-  共有する（`page.tsx`と`RouteSettingsPanel.tsx`が同時にマウントされる際、同じ
-  リクエストが2重に飛ぶのを防ぐ）。解決後の結果は永続キャッシュしない——後続の別マウント
+- `useAxisCatalog()`（`GET /api/axis-catalog`）は解決済みのカタログをモジュールレベルの
+  単一ストアとして持ち、全呼び出し元が`useSyncExternalStore`で同じオブジェクト参照を
+  購読する。同時に飛んでいる未解決フェッチは`inFlightCatalogFetch`で重複排除する
+  （`page.tsx`と`RouteSettingsPanel.tsx`が同時にマウントされる際、同じリクエストが
+  2重に飛ぶのを防ぐ）。解決後の結果は永続キャッシュしない——後続の別マウント
   （例: `/admin`と`/`を別タブで開く）では改めて最新を取得する。
 - `SystemStatusPanel`・`DebugConsole`はポーリングをせず、開いたとき（`open`が`true`に
   なった瞬間）と明示的な「更新」ボタン押下時にのみ`fetchAll`/エントリ取得を行う

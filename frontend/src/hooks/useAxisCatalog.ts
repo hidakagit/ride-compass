@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { PREFERENCE_AXES } from "@/lib/evaluationAxes";
 import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
@@ -149,6 +149,43 @@ function fetchAxisCatalogDeduped(): ReturnType<typeof getAxisCatalog> {
   return request;
 }
 
+// 改善計画T527: 上記の「同時に飛んでいる場合」の重複排除だけでは、page.tsxが先に
+// マウント・フェッチ完了した後にRouteSettingsPanel.tsxが再マウント（モバイルの
+// BottomSheetでタブを開き直す等）してフェッチし直すケースを救えず、その再フェッチが
+// 失敗する/軸スタジオでの公開状態変化を挟むと2インスタンスの`axes`配列が食い違い、
+// stackBarColorForIndex(index, length)の結果がパネル間でズレうる不具合があった。
+// 解決済みカタログをモジュールレベルの単一ストアとして持ち、全呼び出し元が
+// useSyncExternalStoreで同じオブジェクト参照を購読する形へ変更し、構造的に
+// 起こらなくした（どちらかのフェッチが解決すれば全呼び出し元へ即座に反映される）。
+let sharedCatalog: AxisCatalog = FALLBACK_CATALOG;
+const catalogListeners = new Set<() => void>();
+
+function publishCatalog(next: AxisCatalog): void {
+  sharedCatalog = next;
+  catalogListeners.forEach((listener) => listener());
+}
+
+function subscribeToCatalog(listener: () => void): () => void {
+  catalogListeners.add(listener);
+  return () => {
+    catalogListeners.delete(listener);
+  };
+}
+
+function getCatalogSnapshot(): AxisCatalog {
+  return sharedCatalog;
+}
+
+function getCatalogServerSnapshot(): AxisCatalog {
+  return FALLBACK_CATALOG;
+}
+
+/** テスト専用: モジュールレベルの共有ストアをリセットする。本番コードからは呼ばない。 */
+export function __resetAxisCatalogStoreForTests(): void {
+  sharedCatalog = FALLBACK_CATALOG;
+  inFlightCatalogFetch = null;
+}
+
 /** 軸カタログ（改善計画T269、T308で地図表示情報を追加）。マウント時に一度
  * `GET /api/axis-catalog`を取得し、軸スタジオ（T270）がDBへ追加・公開した軸を反映する
  * （is_publishedの切替も含め、再デプロイ不要で即座に反映される）。取得完了までとエラー時は
@@ -166,10 +203,7 @@ function fetchAxisCatalogDeduped(): ReturnType<typeof getAxisCatalog> {
  * backendのGET /api/axis-catalogレスポンス自体には引き続き`category`フィールドが含まれる
  * （他用途・将来のプロファイル機能のため）が、このフックはそれを消費しない。 */
 export function useAxisCatalog(): AxisCatalog {
-  const [catalog, setCatalog] = useState<AxisCatalog>(FALLBACK_CATALOG);
-
   useEffect(() => {
-    let cancelled = false;
     fetchAxisCatalogDeduped()
       .then((response) => {
         // 改善計画T318フォローアップ: 以前は`response.axes.length > 0`もガード条件に
@@ -178,17 +212,14 @@ export function useAxisCatalog(): AxisCatalog {
         // 全軸を非公開にしてもルート設定パネルに7軸が表示され続ける実障害があった
         // （2026-08-25）。取得成功時はaxesが空でもそのままbuildCatalogへ渡す
         // （フェッチ未完了・失敗時のみFALLBACK_CATALOGに留まる、という区別に一本化）。
-        if (!cancelled) {
-          setCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
-        }
+        publishCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
       })
       .catch(() => {
-        // 取得失敗時はFALLBACK_CATALOGのまま（fetchJsonが既にdebugLogへ記録済み）。
+        // 取得失敗時は共有ストアを書き換えない（fetchJsonが既にdebugLogへ記録済み。
+        // 他の呼び出し元が既に取得済みの正常なカタログを、この呼び出し元だけの
+        // 失敗で巻き戻さないため、T527の食い違い修正と対になる挙動）。
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  return catalog;
+  return useSyncExternalStore(subscribeToCatalog, getCatalogSnapshot, getCatalogServerSnapshot);
 }
