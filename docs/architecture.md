@@ -68,7 +68,11 @@ Windows環境では `uvicorn --reload` はリローダー親プロセスとワ�
 bboxを組む。`_build_best_candidate`のT274逆回り最適化（周回の向きに意味が無い8方位探索
 向け）は、経由地ルートでは訪問順序の保持が要件そのものなので`bearing is None`のとき
 スキップする。road_graphエンジンのみ対応（改善計画T462でopenrouteserviceエンジンを
-撤去し唯一のエンジンになったため、この制約自体が解消済み）。
+撤去し唯一のエンジンになったため、この制約自体が解消済み）。**改善計画T531で周回候補は
+8方位固定から公開軸重み駆動のフロンティア方式（折返し点選定＋復路A*）へ転換済み**——
+T274逆回り最適化自体は任意の周回Edge列に対して成り立つため引き続き有効（`bearing`は
+フロンティア方式の折返し点の方位に置き換わった）。現状は
+[docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)参照。
 
 ### 標高計算のアルゴリズムと既知の制約（Step5）
 `ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）は、各ルートのGeoJSON LineStringから始点・終点を含む点列（当初は12点固定。現在はエンジンが`sample_count_for_distance`で距離連動の約1km間隔・12〜32点を決めて渡す。Step9で点列を直接受け取るシグネチャへ変更）をサンプリングし、国土地理院の標高API（1リクエスト=1地点）に問い合わせる。獲得標高は連続区間の正の標高差の合計、最大勾配は`|標高差| / 水平距離`の最大値（%、水平距離は`haversine_distance_km`で算出）。標高が取得できない区間（海上・データ範囲外・通信エラー）は`None`として扱い、有効な点が2点未満なら標高関連フィールドはすべて`None`を返す（ルート自体は除外しない）。
@@ -462,7 +466,9 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
      （Redisキャッシュヒット時）: 平均0.22ms/回（約7倍高速化、`get_cached_tiles`
      [T387、0.17ms]と同水準）。
   2. **`get_edges_with_geometry`**（`DerivedGraphRepository.get_edges_with_geometry`、
-     `trace_loop`が8方位ぶん`asyncio.gather`で呼ぶホットパス）: edge_id単位で
+     周回候補・経由地ルートの実ジオメトリ取得ホットパス。改善計画T531以降は
+     `RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんをまとめて1回だけ
+     呼ぶ）: edge_id単位で
      `infrastructure/road_edge_geometry_cache.py`にcache-aside化（TTL 24時間）。
      `DirectedEdge`（domain/graph.py）はshapelyジオメトリを含まないプレーンなPydantic
      モデルのためJSON化するだけで済む。本番実測（着手前・PostGIS単体）: 100 edgesの
@@ -564,10 +570,10 @@ RideCompass/
         wbgt.py                            ✅ 改善計画T174: 暑さ指数（WBGT）の値→4段階＋非表示の判定（環境省「熱中症予防運動指針」を典拠）、提供期間（4〜10月）判定
         wbgt_points.py                     ✅ 改善計画T174: 情報提供地点（アメダス観測所ベース、約840地点）への最近傍点探索
         flood_forecast.py                  ✅ 改善計画T212: JMA指定河川洪水予報のコード対応表（気象庁公式コード表を典拠、item.code自体が発表/継続/警報解除/完全解除を区別）とレベル2〜5→バッジ4段階への対応、電文からのActiveFloodForecast抽出
-        routing.py                     ✅ build_sparse_graph/shortest_path_node_ids_sparse/path_to_edge_ids_sparse（T220、scipy.sparse.csgraph版）・build_node_spatial_index/find_nearest_node_indexed・concat_node_paths。NetworkX版（build_networkx_graph/find_nearest_node/shortest_path_node_ids/path_to_edge_ids、「完全移行」時点の実装）はscipy移行後実行時経路から呼ばれなくなっていたため改善計画T321（デッドコード監査）で削除、networkx依存自体もrequirements.txtから撤去
+        routing.py                     ✅ `LazyRoadGraph`/`build_lazy_road_graph`・`shortest_path_node_ids_lazy`/`path_to_edge_ids_lazy`（rustworkx A*、lazy評価、Node/Edge payloadは整数index、改善計画T536）。改善計画T531で`CsrGraphStructure`/`build_csr_structure`・`SearchGraphStatics`/`build_search_graph_statics`・`ShortestPathTree`/`build_shortest_path_tree`（起点からの一対全Dijkstra、scipy.sparse.csgraph、周回の折返し点選定に使う）・`tree_path_edge_indices`・`overlap_ratio`/`select_diverse_by_overlap`（往路重複率ベースの多様性間引き）を新設し、旧`SparseRoadGraph`/`build_sparse_graph`/`shortest_path_node_ids_sparse`/`path_to_edge_ids_sparse`/`routable_node_ids`（T220、scipy.sparse.csgraph版）を撤去。`build_node_spatial_index`/`find_nearest_node_indexed`・`concat_node_paths`は変更なし
       services/
-        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`。8方位・距離許容フィルタ・`overall_difficulty`昇順ソート（改善計画T548、旧`RouteScorer`降順ソートを置換）を単一実装で持ち、経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）。改善計画T364で経由地指定ルート専用の`generate_via_waypoints`を追加
-        road_graph_engine.py   ✅ `RoadGraphEngine`。Road Graph + Evaluation Engine + Route Engine（domain/routing.py）で経路・評価を行うエンジン（「完全移行」の実装をポート化。prepareでRoad Graph1回取得、evaluate_loopsで経路上Edgeのみ標高取得）。改善計画T462でopenrouteserviceエンジンを撤去し唯一のエンジン実装になった
+        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`/`LoopTurnaround`。改善計画T531で8方位固定を撤廃し、`select_loop_turnarounds`（軸重み駆動の折返し点選定、エンジンへ委譲）→`trace_loop_from_turnaround`→距離許容フィルタ→`overall_difficulty`昇順（改善計画T548、旧`RouteScorer`降順ソートを置換）上位`max_routes`件（既定8・上限15）というフロンティア方式へ転換。経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）。改善計画T364で経由地指定ルート専用の`generate_via_waypoints`を追加（本体は無変更）
+        road_graph_engine.py   ✅ `RoadGraphEngine`。Road Graph + Evaluation Engine + Route Engine（domain/routing.py）で経路・評価を行うエンジン（「完全移行」の実装をポート化、改善計画T462でopenrouteserviceエンジンを撤去し唯一のエンジン実装になった）。改善計画T531で`select_loop_turnarounds`（一対全木からの折返し点選定）・`trace_loop_from_turnaround`（往路Edge＋逆方向Edgeのコストを一時的に差し替えて探索する復路A*）を新設。実ジオメトリ取得（`get_edges_with_geometry`）は距離フィルタ通過候補ぶんをまとめて`evaluate_loops`側で1回だけ行う
         weather_service.py     ✅ 「地点＋時刻」で天候を取得（Step6）。RoadGraphEngineからは出発時点・起点付近の風を取得する用途で（「完全移行」）呼ばれる
         warning_service.py     ✅ 改善計画T205: 緯度経度→市区町村→JMA警報エリアの解決とr8警報APIの電文配列集約でWeatherWarningsを組み立てる。地点解決・警報取得のどこで失敗しても空応答（警報なし）を返す
         wbgt_service.py         ✅ 改善計画T174: 緯度経度→最寄りWBGT地点の解決と予測値APIの取得でWbgtStatusを組み立てる。提供期間外・地点解決失敗・取得失敗・「ほぼ安全」のいずれもlevel=nullを返す
@@ -613,9 +619,9 @@ RideCompass/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_betweenの検証
       test_routes_preview.py  ✅ get_preview_builderをDIでモックしたAPIテスト。per-IPレート制限（20回/分）の429検証を追加
-      test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 経由地点が起点始点/終点の周回を成すこと・距離許容フィルタ・失敗方位のスキップ・prepare失敗時の空返却・**評価が距離フィルタ通過候補だけに行われること**・`overall_difficulty`昇順ソート（改善計画T548で降順`total_score`ソートから変更）・engine_name公開（設計レビュー対応のポート分割で新規）
-      test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 起点を中心とした「車輪」状のRoad Graphフィクスチャによる8方位生成・許容範囲フィルタ・経路探索失敗時スキップ・標高/路面/風の集計・segments構築・graph_serviceへの問い合わせが1回のみ・標高取得がパス上のEdgeだけ＆距離フィルタ通過候補だけに絞られること（性能回帰テスト）・engine_name（旧test_route_generator.pyのRoad Graph版から改組）
-      test_routing.py          ✅ build_sparse_graph/shortest_path_node_ids_sparse/path_to_edge_ids_sparse（コスト最小経路・到達不能・始点=終点・Hard Constraint除外）・build_node_spatial_index/find_nearest_node_indexed・concat_node_pathsの検証（T321でNetworkX版のテストは実装ごと削除）
+      test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 折返し点候補プールからの逐次trace・`max_routes`件到達時の早期停止・失敗候補のスキップ・距離許容フィルタ・prepare/折返し点0件時の空返却・**評価が距離フィルタ通過候補だけに行われること**・`overall_difficulty`昇順ソート（同点は目標距離に近い順、改善計画T531。降順`total_score`ソートからの変更は改善計画T548）・engine_name公開
+      test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 双方向の「車輪＋迂回路」状Road Graphフィクスチャによる折返し点選定（軸駆動ランキング・往路重複率ベースの間引き）・復路探索（往路コスト差し替え→復元）・距離許容フィルタ・経路探索失敗時のスキップ・標高/路面/風の集計・segments構築・graph_serviceへの問い合わせ（ジオメトリ取得）が距離フィルタ通過候補ぶん1回にまとまること・engine_name
+      test_routing.py          ✅ `shortest_path_node_ids_lazy`/`path_to_edge_ids_lazy`（コスト最小経路・到達不能・始点=終点・Hard Constraint除外）・`build_node_spatial_index`/`find_nearest_node_indexed`・`concat_node_paths`に加え、改善計画T531の`build_shortest_path_tree`（一対全木、Python走査との実距離一致）・`tree_path_edge_indices`・`overlap_ratio`/`select_diverse_by_overlap`（多様性間引きの決定性）を検証
       test_routes_generate.py ✅ get_route_generation_builderをDIでモックしたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429に加え、研究IF改善Phase 1で重み上書きの伝搬・conditionsエコー・上書きバリデーション422・既定値へのフォールバックの検証を追加）
       test_elevation_client_cache.py ✅ 同一/近傍座標でのキャッシュ再利用・遠方座標での再取得
       test_weather_service.py ✅ 現在/指定時刻の天候取得、取得失敗時の扱い
@@ -746,7 +752,7 @@ RideCompass/
         materialCatalogApi.ts       ✅ 改善計画T277: getMaterialCatalog()。GET /api/material-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
         axisAdminApi.ts             ✅ 改善計画T270: listAxisDefinitions()/createAxisDefinition()/updateAxisDefinition()/deleteAxisDefinition()/unpublishAxisDefinition()。改善計画T305で呼び出し先を同一オリジンの`/admin/api/axis-definitions`（Next.js route handler、lib/adminApiProxy.ts参照）へ変更し、Authorizationヘッダの手動付与を撤去（ブラウザの認証キャッシュが自動付与するため）。PUT/DELETE対応が必要なためfetchJson[GET専用]ではなく自前実装。改善計画T277でshapeが参照する材料id（terms/flags/categoricalのmaterial）が未知の場合、backend側が422を返すようになった
       types/
-        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）・route-generate-config.json（`{"max_distance_km": 100}`、backend `api/routers/routes.py: MAX_ROUTE_DISTANCE_KM`が正準定義、改善計画T471。`RouteForm.tsx`/`page.tsx`の距離上限ハードコードの重複を解消する片側import）等の付随生成物も同じ仕組みでドリフト検知される
+        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）・route-generate-config.json（`max_distance_km`、backend `api/routers/routes.py: MAX_ROUTE_DISTANCE_KM`が正準定義、改善計画T471。`max_routes`/`default_max_routes`[backend `route_generator.py: MAX_ROUTES`/`DEFAULT_MAX_ROUTES`が正準定義、改善計画T531]も同じ生成物に含まれる。`RouteForm.tsx`/`page.tsx`の上限ハードコードの重複を解消する片側import）等の付随生成物も同じ仕組みでドリフト検知される
         route.ts                  ✅ generated/api.d.tsの再エクスポート＋GeoJSON型の補正（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等。手書きの型二重管理を廃止、改善計画T4）
         weather.ts                 ✅ 同上（WeatherConditions）
   docker-compose.yml            ✅ (frontend/backend/postgres)
