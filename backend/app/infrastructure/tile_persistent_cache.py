@@ -34,6 +34,7 @@ import logging
 import os
 import pickle
 import shutil
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -63,14 +64,39 @@ def _write_atomic(final_path: Path, write: Callable[[Path], None]) -> None:
     os.replace(tmp_path, final_path)
 
 
-def get(namespace: str, version: str, zoom: int, x: int, y: int) -> Any | None:
-    """キャッシュ済みならデシリアライズ済みの値を返す。未キャッシュ・破損時はNone。"""
+def get(
+    namespace: str, version: str, zoom: int, x: int, y: int, stats: dict[str, object] | None = None
+) -> Any | None:
+    """キャッシュ済みならデシリアライズ済みの値を返す。未キャッシュ・破損時はNone。
+
+    改善計画T546: `stats`を渡すと、ファイル読み込み・unpickleの所要時間（ms）と
+    バイト数を分けて書き込む（"read_ms"/"unpickle_ms"/"bytes"）——「pickleが遅い」のか
+    「ディスクI/Oが遅い」のかを本番ログから切り分けられるようにするための計測
+    （docs/tasks/T546.md「背景」参照。ボトルネックの再発をログ1行で追えるように、
+    docs/logging.mdの方針どおりDEBUG時のイベントログへ載せる）。呼び出し元
+    （`graph_material_cache.py`・`tile_score_matrix_cache.py`）が更に上位（リクエスト
+    単位のINFOサマリ）へ集約する。未キャッシュ・破損時は`stats`へ何も書き込まない。
+    """
     path = _tile_path(namespace, version, zoom, x, y)
     try:
         if not path.is_file():
             return None
-        with path.open("rb") as f:
-            return pickle.load(f)
+        read_started = time.monotonic()
+        data = path.read_bytes()
+        read_ms = (time.monotonic() - read_started) * 1000
+        unpickle_started = time.monotonic()
+        value = pickle.loads(data)
+        unpickle_ms = (time.monotonic() - unpickle_started) * 1000
+        if stats is not None:
+            stats["read_ms"] = read_ms
+            stats["unpickle_ms"] = unpickle_ms
+            stats["bytes"] = len(data)
+        logger.debug(
+            "tile persistent cache hit namespace=%s version=%s zoom=%d x=%d y=%d "
+            "read_ms=%.1f unpickle_ms=%.1f bytes=%d",
+            namespace, version, zoom, x, y, read_ms, unpickle_ms, len(data),
+        )
+        return value
     except Exception as exc:  # noqa: BLE001 破損ファイル・pickle形式の不整合(UnpicklingError/
         # EOFError/AttributeError/ImportError等、壊れ方次第で例外の型が多岐にわたる)は
         # すべて未キャッシュ扱いにフォールバックし、呼び出し元にDBから再構築させる

@@ -172,3 +172,38 @@ class TestDiskPersistence:
 
         tile_score_matrix_cache._cache.clear()  # さらにプロセス再起動を模す
         assert tile_score_matrix_cache.get(12, 1, 1) is None
+
+
+class TestReadStats:
+    """改善計画T546（対応方針項目6）: getの`read_stats`引数がgraph_material_cacheと
+    同じ意味論で動くことを確認する。"""
+
+    def test_memory_hit_records_source_memory(self):
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+
+        stats: dict[str, object] = {}
+        result = tile_score_matrix_cache.get(12, 5, 6, stats)
+
+        assert result is not None
+        assert stats == {"source": "memory"}
+
+    def test_disk_hit_records_source_disk_with_read_and_unpickle_stats(self):
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+        tile_score_matrix_cache._cache.clear()
+
+        stats: dict[str, object] = {}
+        result = tile_score_matrix_cache.get(12, 5, 6, stats)
+
+        assert result is not None
+        assert stats["source"] == "disk"
+        assert stats["read_ms"] >= 0
+        assert stats["unpickle_ms"] >= 0
+        assert stats["bytes"] > 0
+
+    def test_miss_leaves_stats_untouched(self):
+        stats: dict[str, object] = {}
+
+        result = tile_score_matrix_cache.get(12, 9, 9, stats)
+
+        assert result is None
+        assert stats == {}

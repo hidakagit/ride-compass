@@ -3,7 +3,7 @@ import inspect
 import numpy as np
 import pytest
 
-from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
+from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialTable, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -19,6 +19,8 @@ from app.domain.evaluation import (
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_edge_cost,
+    compute_hard_filter_excluded,
+    compute_routable_node_ids,
     compute_wind_penalty,
     is_edge_allowed,
 )
@@ -727,3 +729,157 @@ def test_combine_static_edge_score_matrices_handles_all_empty_tiles():
 
     assert combined.edge_ids == []
     assert combined.axis_scores.shape == (0, len(empty_matrix_a.axis_ids))
+
+
+# --- 改善計画T546: EdgeMaterialTable経由でもbuild_static_edge_score_matrixが一致すること ---
+
+
+def _diverse_graph_and_bundles(n: int) -> tuple[RoadGraph, dict[str, EdgeMaterialBundle]]:
+    """標高・件数・タグ・指定路線の有無を組み合わせた、実データ規模相当のfixture。"""
+    nodes = {f"node-{i}": Node(node_id=f"node-{i}", latitude=35.70 + i * 0.0001, longitude=139.70) for i in range(n + 1)}
+    edges = {
+        f"edge-{i}": _edge(
+            edge_id=f"edge-{i}", from_node_id=f"node-{i}", to_node_id=f"node-{i + 1}",
+            highway="residential" if i % 5 else "trunk", osm_way_id=i,
+        )
+        for i in range(n)
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+
+    bundles: dict[str, EdgeMaterialBundle] = {}
+    for i in range(n):
+        edge_id = f"edge-{i}"
+        remainder = i % 4
+        if remainder == 0:
+            bundles[edge_id] = EdgeMaterialBundle(
+                surface="asphalt",
+                way_tags={"highway": "residential", "bicycle": "no" if i % 20 == 0 else "yes"},
+                attribute_counts=EdgeAttributeCounts(
+                    accident_count=float(i % 3), stop_count=i % 4, intersection_count=i % 2
+                ),
+                elevation_attribute=ElevationAttribute(
+                    edge_id=edge_id, average_grade=(i % 11) - 5, data_source="test", calculated_at="t",
+                ),
+                is_designated=(i % 13 == 0),
+            )
+        elif remainder == 1:
+            bundles[edge_id] = EdgeMaterialBundle(
+                surface=None, way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False,
+            )
+        elif remainder == 2:
+            bundles[edge_id] = EdgeMaterialBundle(
+                surface="gravel", way_tags={"surface": "gravel"}, attribute_counts=None,
+                # 行はあるが有効点不足で全フィールドNone（境界ケース）。
+                elevation_attribute=ElevationAttribute(edge_id=edge_id, data_source="test", calculated_at="t"),
+                is_designated=False,
+            )
+        else:
+            bundles[edge_id] = EdgeMaterialBundle(
+                surface=None, way_tags={"motor_vehicle": "no"},
+                attribute_counts=EdgeAttributeCounts(accident_count=0.0, stop_count=0, intersection_count=0),
+                elevation_attribute=None, is_designated=(i % 7 == 0),
+            )
+    return graph, bundles
+
+
+def _assert_matrices_equal(a, b) -> None:
+    assert a.edge_ids == b.edge_ids
+    assert a.axis_ids == b.axis_ids
+    for name in ("axis_scores", "distance_m", "bearing_deg", "gradient_percent"):
+        left, right = getattr(a, name), getattr(b, name)
+        both_nan = np.isnan(left) & np.isnan(right)
+        assert ((left == right) | both_nan).all(), name
+    assert (a.is_motorway == b.is_motorway).all()
+    assert (a.is_trunk == b.is_trunk).all()
+    assert (a.no_bicycle == b.no_bicycle).all()
+
+
+def test_build_static_edge_score_matrix_matches_between_table_and_dict_materials():
+    """改善計画T546「実装リスク」節が要求する回帰: 軸編集後の経路
+    （`to_legacy_dicts()`経由で構築したスコア行列）が、bundleの生dictから直接構築した
+    行列と一致することを、実データ規模相当のfixtureで確認する（ずれるとルートの軸別
+    色分けだけが変わる、という指摘への対応）。"""
+    graph, bundles = _diverse_graph_and_bundles(2_000)
+    edge_ids = list(graph.edges.keys())
+    table = EdgeMaterialTable.from_bundles(edge_ids, bundles)
+
+    matrix_from_table = build_static_edge_score_matrix(graph, table, accident_years_covered=3)
+    matrix_from_dict = build_static_edge_score_matrix(graph, bundles, accident_years_covered=3)
+
+    _assert_matrices_equal(matrix_from_table, matrix_from_dict)
+
+
+def test_build_static_edge_score_matrix_with_empty_edge_material_table():
+    graph = RoadGraph(graph_version="v1", nodes={}, edges={})
+    table = EdgeMaterialTable.from_bundles([], {})
+
+    matrix = build_static_edge_score_matrix(graph, table)
+
+    assert matrix.edge_ids == []
+    assert len(matrix.axis_ids) > 0
+    assert matrix.axis_scores.shape == (0, len(matrix.axis_ids))
+
+
+# --- 改善計画T546: compute_routable_node_ids（スコア行列の生配列ベース版） ---
+
+
+def test_compute_routable_node_ids_includes_endpoints_of_non_excluded_edges():
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
+            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
+        },
+        edges={"edge-1": _edge(edge_id="edge-1", from_node_id="node-1", to_node_id="node-2")},
+    )
+
+    routable = compute_routable_node_ids(graph, ["edge-1"], np.array([False]))
+
+    assert routable == {"node-1", "node-2"}
+
+
+def test_compute_routable_node_ids_excludes_edges_marked_excluded():
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
+            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
+        },
+        edges={"edge-1": _edge(edge_id="edge-1", from_node_id="node-1", to_node_id="node-2")},
+    )
+
+    routable = compute_routable_node_ids(graph, ["edge-1"], np.array([True]))
+
+    assert routable == set()
+
+
+def test_compute_routable_node_ids_matches_hard_filter_excluded_from_score_matrix():
+    """`compute_hard_filter_excluded`が返す配列をそのまま渡す実際の呼び出し形（
+    `road_graph_engine.py: _get_or_build_node_index`と同じ経路）で、motorway等の
+    0次フィルタがそのままroutable判定へ反映されることを確認する。"""
+    graph, bundles = _diverse_graph_and_bundles(50)
+    edge_ids = list(graph.edges.keys())
+    table = EdgeMaterialTable.from_bundles(edge_ids, bundles)
+    matrix = build_static_edge_score_matrix(graph, table)
+    excluded = compute_hard_filter_excluded(
+        matrix.is_motorway, matrix.is_trunk, matrix.no_bicycle, matrix.gradient_percent,
+    )
+
+    routable = compute_routable_node_ids(graph, matrix.edge_ids, excluded)
+
+    # trunk（highwayが5の倍数でないedge、_diverse_graph_and_bundles参照）は既定
+    # DEFAULT_HARD_FILTERSで除外されるため、trunkのみに接続するNodeはroutableに含まれない。
+    for i, edge_id in enumerate(matrix.edge_ids):
+        edge = graph.edges[edge_id]
+        if excluded[i]:
+            continue
+        assert edge.from_node_id in routable
+        assert edge.to_node_id in routable
+
+
+def test_compute_routable_node_ids_empty_inputs_return_empty_set():
+    graph = RoadGraph(graph_version="v1", nodes={}, edges={})
+
+    routable = compute_routable_node_ids(graph, [], np.array([]))
+
+    assert routable == set()

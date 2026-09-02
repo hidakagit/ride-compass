@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 相対パス".env"はプロセスのカレントディレクトリ基準になるため、backend/以外から
@@ -183,6 +185,16 @@ class Settings(BaseSettings):
     # backendコンテナは--network=hostで起動するため、この既定値（localhost）のまま
     # VM上のRedisへ到達できる（導入手順はdocs/architecture.md参照）。
     redis_url: str = "redis://localhost:6379/0"
+
+    # 改善計画T546: タイル材料キャッシュ（graph_material_cache.py・tile_score_matrix_cache.py）
+    # のディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）読み込みの
+    # 同時実行数上限。案C1（列指向EdgeMaterialTable化）で残るCPUコストは`LeanEdge`等の
+    # 再構築を伴うPythonループのためGILで直列化される（本番実測、docs/tasks/T546.md
+    # 「背景」の「2スレッド同時loads: 逐次比1.01倍」参照）——コア数を増やして効くのは
+    # ファイルI/O・numpy部分のみで、コア数に比例して線形に速くなるのは案C2（グラフ側も
+    # 完全列指向化する将来の別タスク）まで進めた場合に限る。既定は
+    # `min(4, os.cpu_count())`（コア数が少ない環境でも過剰にスレッドを起動しない）。
+    tile_cache_load_max_concurrent: int = Field(default_factory=lambda: min(4, os.cpu_count() or 4))
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

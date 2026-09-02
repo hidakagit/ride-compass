@@ -16,7 +16,7 @@ from typing import Callable, Mapping
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
-from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
+from app.domain.attributes import EdgeMaterialBundle, EdgeMaterialTable, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
@@ -305,34 +305,40 @@ def is_edge_allowed(
 
 def compute_routable_node_ids(
     graph: RoadGraphLike,
-    materials: dict[str, EdgeMaterialBundle] | None = None,
-    hard_filters: frozenset[str] | None = None,
-    max_average_grade_percent: float | None = None,
+    edge_ids: list[str],
+    hard_filter_excluded: np.ndarray,
 ) -> set[str]:
-    """`is_edge_allowed`（0次ハードフィルタ）を通過するEdgeが1本以上あるNode ID集合を
-    返す（改善計画T256の主旨をlazy評価向けに移植したもの、`docs/tasks/T529.md`）。
+    """0次ハードフィルタで除外されなかった（`hard_filter_excluded[i]`がFalse）Edgeが
+    1本以上あるNode ID集合を返す（改善計画T256の主旨をlazy評価向けに移植したもの、
+    `docs/tasks/T529.md`。改善計画T546でEdgeMaterialBundle経由の判定からスコア行列の
+    生配列ベースへ置き換え）。
 
     `domain/routing.py: routable_node_ids`はEdgeコストを事前計算済みの`SparseRoadGraph`
     から算出するが、lazy評価（`shortest_path_node_ids_lazy`）はコストを探索中にしか
     計算しないため、同じ判定を得るにはHard Constraintだけを別途・軽量に評価する必要が
-    ある。`is_edge_allowed`は材料抽出（`compute_edge_axis_scores`）を伴わない単純な
-    タグ判定のみのため、bbox全体（数十万Edge）に対しても`compute_edge_costs_bulk`の
-    抽出フェーズほど重くならない。`materials`は改善計画T533のEdgeMaterialBundle統合
-    辞書（`domain/attributes.py`参照）。
+    ある。
+
+    改善計画T546: 以前は`materials`（EdgeMaterialBundle辞書）へ`.get(edge_id)`した上で
+    `is_edge_allowed`をEdgeごとに呼んでいたが、この判定は`StaticEdgeScoreMatrix`の
+    `is_motorway`/`is_trunk`/`no_bicycle`/`gradient_percent`列から`compute_hard_filter_
+    excluded`が求める`excluded`配列と全く同じ内容（呼び出し元
+    `road_graph_engine.py: _build_search_graph`がコスト配列を`inf`にする判定に使うのと
+    同じ配列）である。呼び出し元がその配列をそのまま渡すことで、本関数は
+    `EdgeMaterialTable`/`EdgeMaterialBundle`辞書への依存を持たない
+    （タイル材料キャッシュの復元コストとは独立になる、docs/tasks/T546.md「対応方針」
+    項目5参照）。`edge_ids`は`hard_filter_excluded`と同じ行順（`StaticEdgeScoreMatrix.
+    edge_ids`）。
     """
-    materials = materials or {}
     routable: set[str] = set()
-    for edge in graph.edges.values():
-        bundle = materials.get(edge.edge_id)
-        if is_edge_allowed(
-            edge,
-            bundle.way_tags if bundle is not None else None,
-            hard_filters=hard_filters,
-            elevation_attribute=bundle.elevation_attribute if bundle is not None else None,
-            max_average_grade_percent=max_average_grade_percent,
-        ):
-            routable.add(edge.from_node_id)
-            routable.add(edge.to_node_id)
+    edges = graph.edges
+    for edge_id, excluded in zip(edge_ids, hard_filter_excluded.tolist()):
+        if excluded:
+            continue
+        edge = edges.get(edge_id)
+        if edge is None:
+            continue
+        routable.add(edge.from_node_id)
+        routable.add(edge.to_node_id)
     return routable
 
 
@@ -971,7 +977,7 @@ class StaticEdgeScoreMatrix:
 
 def build_static_edge_score_matrix(
     graph: RoadGraphLike,
-    materials: Mapping[str, EdgeMaterialBundle],
+    materials: "EdgeMaterialTable | Mapping[str, EdgeMaterialBundle]",
     accident_years_covered: int = 0,
 ) -> StaticEdgeScoreMatrix:
     """改善計画T536: タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ
@@ -979,30 +985,43 @@ def build_static_edge_score_matrix(
     と共有する抽出＋計算フェーズ）へ`weather=None`で渡すことで、動的軸の列は自然にNaNのまま
     持たせる。
 
-    `EdgeMaterialBundle`（Edge単位で統合済み、T533）を受け取り、`_evaluate_axes_bulk`が
+    `materials`は`EdgeMaterialTable`（改善計画T546、タイルキャッシュ経路が持つ列指向表現）
+    または`dict[str, EdgeMaterialBundle]`（`_build_search_materials_uncached`等、テスト・
+    タイルキャッシュを経由しない経路）のいずれかを受け取る。`_evaluate_axes_bulk`が
     要求する個別辞書（way_tags/elevation_attributes/...）へここで分解する——
     `compute_edge_costs_bulk`の既存の公開シグネチャ（個別辞書引数）を崩さないための
     変換で、タイル読込時に1回だけ発生する（探索のホットパスには乗らない）。
+    `EdgeMaterialTable`は`to_legacy_dicts()`で自身が既に列指向で保持する内容を一括変換する。
     """
-    elevation_attributes = {
-        edge_id: bundle.elevation_attribute
-        for edge_id, bundle in materials.items() if bundle.elevation_attribute is not None
-    }
-    surface_attributes = {edge_id: bundle.surface for edge_id, bundle in materials.items()}
-    way_tags = {edge_id: bundle.way_tags for edge_id, bundle in materials.items()}
-    stop_counts = {
-        edge_id: bundle.attribute_counts.stop_count
-        for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
-    }
-    intersection_counts = {
-        edge_id: bundle.attribute_counts.intersection_count
-        for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
-    }
-    accident_counts = {
-        edge_id: bundle.attribute_counts.accident_count
-        for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
-    }
-    designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
+    if isinstance(materials, EdgeMaterialTable):
+        legacy = materials.to_legacy_dicts()
+        elevation_attributes = legacy.elevation_attributes
+        surface_attributes = legacy.surface_attributes
+        way_tags = legacy.way_tags
+        stop_counts = legacy.stop_counts
+        intersection_counts = legacy.intersection_counts
+        accident_counts = legacy.accident_counts
+        designated_edge_ids = legacy.designated_edge_ids
+    else:
+        elevation_attributes = {
+            edge_id: bundle.elevation_attribute
+            for edge_id, bundle in materials.items() if bundle.elevation_attribute is not None
+        }
+        surface_attributes = {edge_id: bundle.surface for edge_id, bundle in materials.items()}
+        way_tags = {edge_id: bundle.way_tags for edge_id, bundle in materials.items()}
+        stop_counts = {
+            edge_id: bundle.attribute_counts.stop_count
+            for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
+        }
+        intersection_counts = {
+            edge_id: bundle.attribute_counts.intersection_count
+            for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
+        }
+        accident_counts = {
+            edge_id: bundle.attribute_counts.accident_count
+            for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
+        }
+        designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
 
     evaluation = _evaluate_axes_bulk(
         graph, elevation_attributes, surface_attributes, None, stop_counts, way_tags,

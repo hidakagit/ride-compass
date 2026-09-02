@@ -139,6 +139,34 @@ class LeanEdge:
     bearing_deg: float | None = None
 
 
+def _rebuild_lean_road_graph(
+    graph_version: str,
+    node_rows: list[tuple[str, float, float, int | None]],
+    edge_rows: list[tuple[str, str, str, float, int | None, str | None, float | None]],
+) -> "LeanRoadGraph":
+    """`LeanRoadGraph.__reduce__`が指すpickle復元関数（改善計画T546）。列（生のtuple列）から
+    `LeanNode`/`LeanEdge`をコンストラクタ呼び出しで作り直す——デフォルトのpickle復元
+    （slotted dataclassごとに`__setstate__`/`dataclasses.fields()`を呼ぶ機構、Edge1本
+    あたり約36µsのうちの一部をこのグラフ部分が占めていた、docs/tasks/T546.md参照）を
+    経由しない。`geometry`は`_topology_rows_to_road_graph`が生成する
+    タイルキャッシュ経路（`GraphService._get_or_build_tile_materials`が
+    `graph_material_cache`経由でpickle化する対象）に限り常に空リストのため、列として
+    持たせず復元時に固定で補う。
+    """
+    nodes = {
+        node_id: LeanNode(node_id=node_id, latitude=lat, longitude=lon, osm_node_id=osm_node_id)
+        for node_id, lat, lon, osm_node_id in node_rows
+    }
+    edges = {
+        edge_id: LeanEdge(
+            edge_id=edge_id, from_node_id=from_id, to_node_id=to_id, geometry=[],
+            distance_m=distance_m, osm_way_id=osm_way_id, highway=highway, bearing_deg=bearing_deg,
+        )
+        for edge_id, from_id, to_id, distance_m, osm_way_id, highway, bearing_deg in edge_rows
+    }
+    return LeanRoadGraph(graph_version=graph_version, nodes=nodes, edges=edges)
+
+
 @dataclass(frozen=True, slots=True)
 class LeanRoadGraph:
     """`RoadGraph`の探索専用軽量実装（改善計画T248）。`graph_version`・`nodes`・`edges`の
@@ -149,6 +177,24 @@ class LeanRoadGraph:
     graph_version: str
     nodes: dict[str, LeanNode]
     edges: dict[str, LeanEdge]
+
+    def __reduce__(self) -> tuple:
+        """改善計画T546（T538の再検討案C1、項目3）: pickle時にNode/Edgeを列（tupleのリスト）
+        へ分解し、復元は`_rebuild_lean_road_graph`が担う。デフォルトのpickle復元は
+        `nodes`/`edges`辞書の値（`LeanNode`/`LeanEdge`、いずれもslotted frozen dataclass）を
+        1個ずつ`__setstate__`経由で再構築するため、Edge数万〜数十万件規模のタイルでは
+        このオブジェクト単位の復元コストが支配的になる（案B「`__reduce__`をLeanEdge/
+        LeanNodeへ個別定義するだけ」として実測済み、docs/tasks/T546.md参照。合成計測で
+        グラフ部分は253ms→118ms/タイルへ短縮）。`geometry`は常に空リスト
+        （`_topology_rows_to_road_graph`のタイルキャッシュ経路のみがpickle化対象、
+        クラスdocstring参照）のため列に持たせない。
+        """
+        node_rows = [(n.node_id, n.latitude, n.longitude, n.osm_node_id) for n in self.nodes.values()]
+        edge_rows = [
+            (e.edge_id, e.from_node_id, e.to_node_id, e.distance_m, e.osm_way_id, e.highway, e.bearing_deg)
+            for e in self.edges.values()
+        ]
+        return (_rebuild_lean_road_graph, (self.graph_version, node_rows, edge_rows))
 
 
 @dataclass(frozen=True, slots=True)

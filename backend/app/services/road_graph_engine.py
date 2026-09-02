@@ -213,6 +213,13 @@ class _SearchGraph:
     axis_arrays: dict[str, np.ndarray]
     node_lat: np.ndarray
     node_lon: np.ndarray
+    # 改善計画T546: `score_matrix.edge_ids`と、それに対応する0次フィルタ除外配列
+    # （`compute_hard_filter_excluded`、cost_arrayをinfにするのに使ったのと同じ配列）。
+    # `_get_or_build_node_index`がroutable Node判定にこの配列をそのまま使い回すことで、
+    # `materials`（EdgeMaterialBundle辞書/EdgeMaterialTable）への依存を持たない
+    # （docs/tasks/T546.md「対応方針」項目5参照）。
+    edge_ids: list[str]
+    hard_filter_excluded: np.ndarray
 
 
 class RoadGraphEngine:
@@ -378,13 +385,16 @@ class RoadGraphEngine:
             axis_arrays=published_axis_arrays,
             node_lat=node_lat,
             node_lon=node_lon,
+            edge_ids=score_matrix.edge_ids,
+            hard_filter_excluded=hard_filter_excluded,
         )
 
     async def _get_or_build_node_index(
         self,
         tile_set: frozenset[tuple[int, int, int]] | None,
         graph: RoadGraphLike,
-        materials: dict[str, EdgeMaterialBundle],
+        edge_ids: list[str],
+        hard_filter_excluded: np.ndarray,
     ) -> tuple[NodeSpatialIndex, bool]:
         """0次フィルタ通過後のroutable Node空間索引（`NodeSpatialIndex`）を、タイル集合＋
         0次フィルタ設定（`hard_filters`・`max_average_grade_percent`、いずれも本エンジンの
@@ -395,6 +405,12 @@ class RoadGraphEngine:
         bbox限定の再構築経路を通った場合）はキャッシュを経由せず毎回構築する
         （`_build_search_graph`のtile_set docstring参照）。戻り値の2つ目はキャッシュ
         ヒットしたかどうか（ログ用）。
+
+        改善計画T546: `hard_filter_excluded`は`_build_search_graph`がコスト配列を
+        `inf`にするのに使ったのと同じ配列（`compute_hard_filter_excluded`の戻り値、
+        `edge_ids`と同じ行順）。呼び出し元がこれをそのまま渡すため、
+        `compute_routable_node_ids`はEdgeMaterialBundle辞書/EdgeMaterialTableへ一切
+        アクセスしない（タイル材料キャッシュの復元コストと完全に独立になる）。
         """
         key = None
         if tile_set is not None:
@@ -402,9 +418,7 @@ class RoadGraphEngine:
             cached = search_graph_cache.get_routable_index(key)
             if cached is not None:
                 return cached, True
-        routable_ids = await asyncio.to_thread(
-            compute_routable_node_ids, graph, materials, self._hard_filters, self._max_average_grade_percent,
-        )
+        routable_ids = await asyncio.to_thread(compute_routable_node_ids, graph, edge_ids, hard_filter_excluded)
         node_index = await asyncio.to_thread(build_node_spatial_index, graph, node_ids=routable_ids)
         if key is not None:
             search_graph_cache.set_routable_index(key, node_index)
@@ -453,7 +467,7 @@ class RoadGraphEngine:
         # ためキャッシュ対象にせずメインコルーチンのまま呼ぶ。
         index_started = time.monotonic()
         node_index, node_index_cached = await self._get_or_build_node_index(
-            search.tile_set, search.graph, search.materials
+            search.tile_set, search.graph, search.edge_ids, search.hard_filter_excluded
         )
         origin_node = find_nearest_node_indexed(node_index, origin)
         if origin_node is None:
@@ -506,7 +520,7 @@ class RoadGraphEngine:
         # 改善計画T522→T537: prepareと同じ理由でタイル集合キーのキャッシュを経由する
         # （_get_or_build_node_index参照）。
         node_index, _node_index_cached = await self._get_or_build_node_index(
-            search.tile_set, search.graph, search.materials
+            search.tile_set, search.graph, search.edge_ids, search.hard_filter_excluded
         )
         origin_node = find_nearest_node_indexed(node_index, origin)
         destination_node = find_nearest_node_indexed(node_index, destination)

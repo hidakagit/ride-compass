@@ -69,19 +69,25 @@ def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
         _cache.popitem(last=False)
 
 
-def get(zoom: int, x: int, y: int) -> StaticEdgeScoreMatrix | None:
+def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) -> StaticEdgeScoreMatrix | None:
+    """改善計画T546: `read_stats`は`graph_material_cache.get_tile_materials`と同じ意味
+    （"source"="memory"/"disk"＋ディスク経由時の"read_ms"/"unpickle_ms"/"bytes"）。"""
     key = (zoom, x, y)
     value = _cache.get(key)
     if value is not None:
         _cache.move_to_end(key)
+        if read_stats is not None:
+            read_stats["source"] = "memory"
         return value
     # 改善計画T538: メモリmissでもディスク永続化キャッシュを確認する（プロセス再起動
     # 直後や、LRU上限で立ち退いた直後がこの経路に該当する）。
     persisted: StaticEdgeScoreMatrix | None = tile_persistent_cache.get(
-        _CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y
+        _CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y, stats=read_stats
     )
     if persisted is None:
         return None
+    if read_stats is not None:
+        read_stats["source"] = "disk"
     _remember(key, persisted)
     return persisted
 

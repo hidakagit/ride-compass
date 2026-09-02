@@ -104,6 +104,13 @@ CACHE_VERSION`・`tile_score_matrix_cache.py: TILE_SCORE_MATRIX_CACHE_VERSION`�
 スコア行列が次回デプロイ後も復元され続ける（⑧の`ROAD_SURFACE_TILE_VERSION`と同型の
 上げ忘れリスク。docs/tasks/T538.md参照）。
 
+**改善計画T546追記**: `TILE_MATERIALS_CACHE_VERSION`は`"2"`（`graph_material_cache`が
+保持する`SearchMaterials.materials`を`EdgeMaterialBundle`辞書から列指向の
+`domain/attributes.py: EdgeMaterialTable`へ変更したため）。`TILE_SCORE_MATRIX_CACHE_
+VERSION`は保存形式（numpy配列）自体は無変更のため据え置き。上記④〜⑨のいずれかを
+更新するバッチを実行したときに両方の版数を上げる運用自体は変わらない。docs/tasks/T546.md
+参照。
+
 ## 4. 再実行トリガー早見表
 
 | 生データの変化 | 再実行が必要なバッチ |

@@ -222,6 +222,30 @@ TILE_SCORE_MATRIX_CACHE_VERSION`、いずれも`region_service.py: ROAD_SURFACE_
 （`refresh_axis_definitions`）は`tile_score_matrix_cache.clear()`がメモリ・ディスク
 両方を即座に削除する別経路（バージョン文字列は据え置いたまま）。
 
+**キャッシュ表現**: `graph_material_cache`が保持する`SearchMaterials.materials`は、
+タイルキャッシュ経由（`_get_or_build_tile_materials`）の場合`domain/attributes.py:
+EdgeMaterialTable`（列指向、numpy配列＋リスト、`EdgeMaterialBundle`と1対1のビュー）を
+持つ（`_build_search_materials_uncached`はタイルキャッシュへ書き込まれないため、
+`dict[str, EdgeMaterialBundle]`のまま）。`EdgeMaterialTable.get(edge_id)`は必要になった
+Edgeだけをその場で`EdgeMaterialBundle`へ組み立てる——探索フェーズが実際に材料を引くのは
+経路上のEdge（数百本）だけで、bbox全体（数十万Edge）を毎回復元する構造ではない。複数
+タイルを結合する`_build_search_materials_from_tile_cache`も、結合直後に全EdgeをEdge
+MaterialBundleへ復元せず、`edge_id→タイルindex`の遅延ビュー（`_CombinedEdgeMaterials`）で
+`.get(edge_id)`を該当タイルへ委譲する（同じ理由）。`LeanRoadGraph`（トポロジ側）も
+`__reduce__`でNode/Edgeを列（tupleのリスト）へ分解してpickle化し、復元時に`LeanNode`/
+`LeanEdge`をコンストラクタ呼び出しで作り直す。正準定義は引き続き`EdgeMaterialBundle`
+1箇所（設計原則4）——`EdgeMaterialTable`は軸定義も材料カタログも知らない。詳細な設計判断は
+[T546](../../tasks/T546.md)参照。
+
+**並列度設定が効く範囲**: `config.py: tile_cache_load_max_concurrent`（既定
+`min(4, os.cpu_count())`）が、`graph_service.py`の`_get_or_build_tile_materials`・
+`_get_or_build_tile_score_matrix`が行うディスク永続化キャッシュ読み込み
+（`asyncio.to_thread`経由）の同時実行数を縛る。Edgeの再構築自体は`LeanEdge`/
+`EdgeMaterialBundle`のコンストラクタ呼び出しを伴うPythonループのためGILで直列化される
+——この設定が効くのはファイルI/O・numpy配列の復元部分のみで、コア数に比例して線形に
+速くなるのはグラフ側も完全列指向化する将来の別案（`LeanEdge`オブジェクト自体を持たない
+設計）まで進めた場合に限る（[T546](../../tasks/T546.md)「比較した他案と採否」参照）。
+
 ### `get_edges_with_geometry`の同時実行ロック
 
 `RoadGraphEngine.trace_loop`が8方位ぶん`asyncio.gather`で並列に呼ぶため、
@@ -255,6 +279,10 @@ gather開始前のprepare段階で逐次呼ばれるため対象外）。同一`
   ノード——幹線道路にしか面していない駅等——が最近傍として選ばれ、経路探索が失敗しうる）。
   lazy評価ではEdgeコストを事前計算しないため、Hard Constraintだけを軽量に評価する
   専用関数として`domain/evaluation.py`に置く（`domain/routing.py`側には持たない）。
+  入力は`EdgeMaterialBundle`辞書ではなく、`StaticEdgeScoreMatrix`の生配列
+  （`edge_ids`＋`compute_hard_filter_excluded`が返す`excluded`配列、`_build_search_graph`が
+  コスト配列を`inf`にするのに使うのと同じ配列）——タイル材料キャッシュの復元コストと
+  完全に独立している。
 - `path_to_edge_ids_lazy`/`concat_node_paths`。
 
 ### `domain/graph.py`

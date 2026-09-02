@@ -1,6 +1,9 @@
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Iterator, Mapping
 
+import numpy as np
 from pydantic import BaseModel
 
 from app.domain.geo import haversine_distance_km
@@ -80,6 +83,290 @@ class EdgeMaterialBundle:
     is_designated: bool
 
 
+@dataclass(frozen=True, slots=True)
+class LegacyEdgeMaterialDicts:
+    """`EdgeMaterialTable.to_legacy_dicts()`の戻り値（改善計画T546）。
+
+    `_evaluate_axes_bulk`（`build_static_edge_score_matrix`が呼ぶ抽出フェーズ）が要求する
+    個別辞書引数の形そのもの。タイル読込時に1回だけ発生する変換であり、探索のホットパスには
+    乗らない（`domain/evaluation.py: build_static_edge_score_matrix`のdocstring参照）。
+    """
+
+    elevation_attributes: dict[str, ElevationAttribute]
+    surface_attributes: dict[str, str | None]
+    way_tags: dict[str, dict[str, str]]
+    stop_counts: dict[str, int]
+    intersection_counts: dict[str, int]
+    accident_counts: dict[str, float]
+    designated_edge_ids: set[str]
+
+
+def _none_if_nan(value: float) -> float | None:
+    return None if math.isnan(value) else value
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeMaterialTable:
+    """タイル1枚ぶんの`EdgeMaterialBundle`群を列指向（numpy配列＋リスト）で保持する
+    表現（改善計画T546、T538の再検討案C1）。
+
+    背景: T538でタイル材料キャッシュをディスク永続化したが、本番実測で「デプロイ直後の
+    復元」が20.7秒（完了条件5秒未満に未達）だった。cProfileで、ボトルネックはディスク
+    I/Oでもpickle自体でもなく「Edge1本ごとに`EdgeMaterialBundle`
+    （Pydantic`ElevationAttribute`/`EdgeAttributeCounts`＋frozen dataclass混在）を
+    Pythonオブジェクトとして再構築するコスト」（Edge1本あたり約36µs、Python 3.12の
+    `dataclasses._dataclass_setstate`・Pydantic`BaseModel.__setstate__`が支配的）と
+    判明した（詳細はdocs/tasks/T546.md参照）。本クラスは、タイル単位でキャッシュへ
+    入れる材料をEdgeごとのオブジェクトの辞書ではなく列（numpy配列・リスト）として持つ
+    ことで、pickle復元をEdge数に依存しない列単位の操作へ変える（1タイルあたりの
+    復元コストが約36µs×Edge数から約20ms＋オブジェクト再構築約118ms/タイルへ短縮する
+    見込み、T546.md参照）。
+
+    **正準定義は引き続き`EdgeMaterialBundle`1箇所**（設計原則4）。本クラスは軸定義
+    （`AXIS_DEFINITIONS`）も材料カタログ（`MATERIAL_CATALOG`）も一切知らない、
+    `EdgeMaterialBundle`と1対1の列指向ビューに過ぎない（設計原則3・8には触れない）。
+
+    列の設計（`from_bundles`/`get`が対称に扱う）:
+    - `surface`: `str | None`をそのまま格納するobject配列（Noneは値として区別、
+      「行の有無」の概念は無い＝`EdgeMaterialBundle.surface`自体が常にNoneを許容する
+      ため）。
+    - `way_tags`: `dict[str, str]`のリスト（`EdgeMaterialBundle.way_tags`は該当Wayに
+      タグが無くても`{}`を持つため、Noneにはならない。`{}`とNone[bundle自体が無い]の
+      区別は、後者を`get()`がNoneを返すことで表現する——本テーブルの行自体が存在しない
+      edge_idは`_row_index`に含めない）。
+    - 標高7列（`elevation_start_m`等）: `float64`配列、欠損値は`NaN`（元の
+      `ElevationAttribute`のフィールドはそもそも実データでNaNを取らないため、NaNを
+      「その1フィールドがNone」の印として安全に使える）。加えて`elevation_present`
+      （bool配列）が「`ElevationAttribute`オブジェクト自体が無い」（＝bundleの
+      `elevation_attribute is None`）を独立して表す——標高7列すべてがNaNでも
+      `elevation_present=True`（=len(valid)<2でオブジェクトは存在しフィールドのみ
+      Noneの場合）と、`elevation_present=False`（=標高が未計算でオブジェクトが
+      存在しない場合）を区別する。data_source/data_version/calculated_atは文字列列
+      （Noneを含みうる`list`）で個別に保持する。
+    - 件数3列（`accident_count`等）＋`counts_present`（bool配列）: 標高と同じ設計。
+      `EdgeAttributeCounts`のフィールド自体は必須（Optionalではない）ため、
+      `counts_present`だけで「行の有無」を判定できる。
+    - `is_designated`: bool配列（常に値を持つ、Optionalではない）。
+
+    `get(edge_id)`は`_row_index`（edge_id→行index）を1回引いた後、対応する列から
+    `EdgeMaterialBundle`をその場で組み立てて返す（探索フェーズが経路上のEdge[数百本]
+    だけを引く用途、`road_graph_engine.py: context.materials.get(edge.edge_id)`）。
+    `to_legacy_dicts()`は全行を一括で`_evaluate_axes_bulk`向けの個別辞書へ変換する
+    （`build_static_edge_score_matrix`がタイル読込時に1回だけ呼ぶ、ホットパスではない）。
+    """
+
+    edge_ids: list[str]
+    surface: np.ndarray  # dtype=object, str | None
+    way_tags: list[dict[str, str]]
+    elevation_present: np.ndarray  # dtype=bool
+    elevation_start_m: np.ndarray  # dtype=float64, NaN=欠損
+    elevation_end_m: np.ndarray
+    elevation_gain_m: np.ndarray
+    elevation_loss_m: np.ndarray
+    elevation_average_grade: np.ndarray
+    elevation_max_grade: np.ndarray
+    elevation_min_grade: np.ndarray
+    elevation_data_source: list[str | None]
+    elevation_data_version: list[str | None]
+    elevation_calculated_at: list[str | None]
+    counts_present: np.ndarray  # dtype=bool
+    accident_count: np.ndarray  # dtype=float64
+    stop_count: np.ndarray  # dtype=float64（int相当、NaN=欠損）
+    intersection_count: np.ndarray  # dtype=float64
+    is_designated: np.ndarray  # dtype=bool
+    # Noneは「未指定」を表し、__post_init__がedge_ids全件を行indexとして自動算出する
+    # （直接構築するテスト向けの便宜）。`from_bundles`はbundleが無いedge_idの行を
+    # 意図的に含めない辞書を明示的に渡すため、空dict({})と「未指定」を区別する必要がある
+    # （空dictをそのまま「未指定」扱いすると、全Edgeがbundleを持たないタイルという
+    # 稀なケースでedge_ids全件を誤って行indexへ復元してしまう）。
+    _row_index: dict[str, int] | None = field(default=None)
+
+    def __post_init__(self) -> None:
+        if self._row_index is None:
+            object.__setattr__(self, "_row_index", {edge_id: i for i, edge_id in enumerate(self.edge_ids)})
+
+    @staticmethod
+    def from_bundles(edge_ids: list[str], materials: Mapping[str, "EdgeMaterialBundle"]) -> "EdgeMaterialTable":
+        """`edge_ids`の行順で`materials`（edge_id→`EdgeMaterialBundle`）を列指向へ変換する。
+
+        `materials`に対応するbundleが無いedge_id（現行の呼び出し元では発生しない——
+        `AttributeRepository.get_edge_materials_batch`は`edge_ids`に含まれる全Edgeぶん
+        必ずbundleを持つ、`EdgeMaterialBundle`のdocstring参照）は行を持たず、`get()`が
+        Noneを返す（元の`materials.get(edge_id)`がNoneを返すのと同じ意味論）。
+        """
+        n = len(edge_ids)
+        surface = np.empty(n, dtype=object)
+        way_tags: list[dict[str, str]] = [{} for _ in range(n)]
+        elevation_present = np.zeros(n, dtype=bool)
+        elevation_start_m = np.full(n, np.nan)
+        elevation_end_m = np.full(n, np.nan)
+        elevation_gain_m = np.full(n, np.nan)
+        elevation_loss_m = np.full(n, np.nan)
+        elevation_average_grade = np.full(n, np.nan)
+        elevation_max_grade = np.full(n, np.nan)
+        elevation_min_grade = np.full(n, np.nan)
+        elevation_data_source: list[str | None] = [None] * n
+        elevation_data_version: list[str | None] = [None] * n
+        elevation_calculated_at: list[str | None] = [None] * n
+        counts_present = np.zeros(n, dtype=bool)
+        accident_count = np.full(n, np.nan)
+        stop_count = np.full(n, np.nan)
+        intersection_count = np.full(n, np.nan)
+        is_designated = np.zeros(n, dtype=bool)
+
+        row_index: dict[str, int] = {}
+        for i, edge_id in enumerate(edge_ids):
+            bundle = materials.get(edge_id)
+            if bundle is None:
+                continue  # bundle自体が無いedge_id: 行を持たせず、get()がNoneを返すようにする
+            row_index[edge_id] = i
+
+            surface[i] = bundle.surface
+            way_tags[i] = bundle.way_tags
+            is_designated[i] = bundle.is_designated
+
+            counts = bundle.attribute_counts
+            if counts is not None:
+                counts_present[i] = True
+                accident_count[i] = counts.accident_count
+                stop_count[i] = counts.stop_count
+                intersection_count[i] = counts.intersection_count
+
+            elevation = bundle.elevation_attribute
+            if elevation is not None:
+                elevation_present[i] = True
+                if elevation.start_elevation_m is not None:
+                    elevation_start_m[i] = elevation.start_elevation_m
+                if elevation.end_elevation_m is not None:
+                    elevation_end_m[i] = elevation.end_elevation_m
+                if elevation.elevation_gain_m is not None:
+                    elevation_gain_m[i] = elevation.elevation_gain_m
+                if elevation.elevation_loss_m is not None:
+                    elevation_loss_m[i] = elevation.elevation_loss_m
+                if elevation.average_grade is not None:
+                    elevation_average_grade[i] = elevation.average_grade
+                if elevation.max_grade is not None:
+                    elevation_max_grade[i] = elevation.max_grade
+                if elevation.min_grade is not None:
+                    elevation_min_grade[i] = elevation.min_grade
+                elevation_data_source[i] = elevation.data_source
+                elevation_data_version[i] = elevation.data_version
+                elevation_calculated_at[i] = elevation.calculated_at
+
+        return EdgeMaterialTable(
+            edge_ids=edge_ids,
+            surface=surface,
+            way_tags=way_tags,
+            elevation_present=elevation_present,
+            elevation_start_m=elevation_start_m,
+            elevation_end_m=elevation_end_m,
+            elevation_gain_m=elevation_gain_m,
+            elevation_loss_m=elevation_loss_m,
+            elevation_average_grade=elevation_average_grade,
+            elevation_max_grade=elevation_max_grade,
+            elevation_min_grade=elevation_min_grade,
+            elevation_data_source=elevation_data_source,
+            elevation_data_version=elevation_data_version,
+            elevation_calculated_at=elevation_calculated_at,
+            counts_present=counts_present,
+            accident_count=accident_count,
+            stop_count=stop_count,
+            intersection_count=intersection_count,
+            is_designated=is_designated,
+            _row_index=row_index,
+        )
+
+    def _reconstruct_attribute_counts(self, i: int) -> EdgeAttributeCounts | None:
+        if not self.counts_present[i]:
+            return None
+        return EdgeAttributeCounts(
+            accident_count=float(self.accident_count[i]),
+            stop_count=int(self.stop_count[i]),
+            intersection_count=int(self.intersection_count[i]),
+        )
+
+    def _reconstruct_elevation_attribute(self, i: int, edge_id: str) -> ElevationAttribute | None:
+        if not self.elevation_present[i]:
+            return None
+        return ElevationAttribute(
+            edge_id=edge_id,
+            start_elevation_m=_none_if_nan(self.elevation_start_m[i]),
+            end_elevation_m=_none_if_nan(self.elevation_end_m[i]),
+            elevation_gain_m=_none_if_nan(self.elevation_gain_m[i]),
+            elevation_loss_m=_none_if_nan(self.elevation_loss_m[i]),
+            average_grade=_none_if_nan(self.elevation_average_grade[i]),
+            max_grade=_none_if_nan(self.elevation_max_grade[i]),
+            min_grade=_none_if_nan(self.elevation_min_grade[i]),
+            data_source=self.elevation_data_source[i],
+            data_version=self.elevation_data_version[i],
+            calculated_at=self.elevation_calculated_at[i],
+        )
+
+    def get(self, edge_id: str) -> EdgeMaterialBundle | None:
+        """`dict.get`と同じ意味論。行が無ければNone（元の`materials.get(edge_id)`が
+        Noneを返すのと同じ、`EdgeMaterialBundle.way_tags`自体の`{}`/Noneの区別とは
+        独立した「bundleそのものの有無」を表す）。"""
+        i = self._row_index.get(edge_id)
+        if i is None:
+            return None
+        return EdgeMaterialBundle(
+            surface=self.surface[i],
+            way_tags=self.way_tags[i],
+            attribute_counts=self._reconstruct_attribute_counts(i),
+            elevation_attribute=self._reconstruct_elevation_attribute(i, edge_id),
+            is_designated=bool(self.is_designated[i]),
+        )
+
+    def __getitem__(self, edge_id: str) -> EdgeMaterialBundle:
+        bundle = self.get(edge_id)
+        if bundle is None:
+            raise KeyError(edge_id)
+        return bundle
+
+    def values(self) -> Iterator[EdgeMaterialBundle]:
+        for edge_id in self._row_index:
+            bundle = self.get(edge_id)
+            assert bundle is not None
+            yield bundle
+
+    def __len__(self) -> int:
+        return len(self._row_index)
+
+    def to_legacy_dicts(self) -> LegacyEdgeMaterialDicts:
+        """`_evaluate_axes_bulk`が要求する個別辞書群へ全行を一括変換する
+        （`build_static_edge_score_matrix`がタイル読込時に1回だけ呼ぶ）。"""
+        elevation_attributes: dict[str, ElevationAttribute] = {}
+        surface_attributes: dict[str, str | None] = {}
+        way_tags: dict[str, dict[str, str]] = {}
+        stop_counts: dict[str, int] = {}
+        intersection_counts: dict[str, int] = {}
+        accident_counts: dict[str, float] = {}
+        designated_edge_ids: set[str] = set()
+
+        for edge_id, i in self._row_index.items():
+            surface_attributes[edge_id] = self.surface[i]
+            way_tags[edge_id] = self.way_tags[i]
+            if self.is_designated[i]:
+                designated_edge_ids.add(edge_id)
+            if self.counts_present[i]:
+                stop_counts[edge_id] = int(self.stop_count[i])
+                intersection_counts[edge_id] = int(self.intersection_count[i])
+                accident_counts[edge_id] = float(self.accident_count[i])
+            elevation = self._reconstruct_elevation_attribute(i, edge_id)
+            if elevation is not None:
+                elevation_attributes[edge_id] = elevation
+
+        return LegacyEdgeMaterialDicts(
+            elevation_attributes=elevation_attributes,
+            surface_attributes=surface_attributes,
+            way_tags=way_tags,
+            stop_counts=stop_counts,
+            intersection_counts=intersection_counts,
+            accident_counts=accident_counts,
+            designated_edge_ids=designated_edge_ids,
+        )
+
+
 @dataclass
 class SearchMaterials:
     """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
@@ -91,7 +378,15 @@ class SearchMaterials:
     # RoadGraph（Pydantic、split再構築を伴うuncached経路）またはLeanRoadGraph
     # （dataclass、タイルキャッシュ経路、改善計画T248）のいずれかが入る。
     graph: RoadGraphLike
-    materials: dict[str, EdgeMaterialBundle]
+    # 改善計画T546: `graph_material_cache`（ディスク永続化を経由する正規のタイルキャッシュ
+    # 経路、`GraphService._get_or_build_tile_materials`）は`EdgeMaterialTable`（列指向、
+    # pickle復元コストが低い）を持たせる。`_build_search_materials_uncached`
+    # （split鮮度が古いbbox限定の再構築経路、タイルキャッシュへは書き込まれない
+    # ——`GraphService.get_search_materials_for_bbox`のdocstring参照）はこの変換コストを
+    # 払う理由が無いため、従来どおり`dict[str, EdgeMaterialBundle]`のまま返す。
+    # いずれの型も`.get(edge_id)`で同じ意味論のEdgeMaterialBundle（またはNone）を返すため、
+    # 消費側（`road_graph_engine.py`）はどちらの型が来ても区別なく扱える。
+    materials: "dict[str, EdgeMaterialBundle] | EdgeMaterialTable"
 
 
 @dataclass

@@ -51,8 +51,11 @@ DEFAULT_MAX_TILES = 2_000
 # 再起動した瞬間から復元されてしまう（バッチ実行後もメモリキャッシュはプロセス寿命内は
 # 温存されるため、バッチ直後は気づきにくい点に注意）。
 # v1: 初版（改善計画T538）。
+# v2: `SearchMaterials.materials`をEdgeMaterialBundle辞書から列指向の`EdgeMaterialTable`へ
+#     変更（改善計画T546、T538再検討案C1）。保存形式が変わるため世代を上げる
+#     （`TILE_SCORE_MATRIX_CACHE_VERSION`は`StaticEdgeScoreMatrix`自体は無変更のため据え置き）。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = "1"
+TILE_MATERIALS_CACHE_VERSION = "2"
 
 
 class _LRUCache(Generic[_T]):
@@ -85,18 +88,28 @@ _tile_materials_cache: _LRUCache[SearchMaterials] = _LRUCache(DEFAULT_MAX_TILES)
 _accident_years_covered_cache: int | None = None
 
 
-def get_tile_materials(zoom: int, x: int, y: int) -> SearchMaterials | None:
+def get_tile_materials(
+    zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None
+) -> SearchMaterials | None:
+    """改善計画T546: `read_stats`を渡すと、"source"（memory/disk）と、ディスク経由時は
+    追加で"read_ms"/"unpickle_ms"/"bytes"（`tile_persistent_cache.get`参照）を書き込む
+    （`graph_service.py`がリクエスト単位の1行INFOサマリへ集約する、対応方針項目6）。
+    """
     cached = _tile_materials_cache.get((zoom, x, y))
     if cached is not None:
+        if read_stats is not None:
+            read_stats["source"] = "memory"
         return cached
     # 改善計画T538: メモリmissでもディスク永続化キャッシュを確認する（プロセス再起動
     # 直後や、LRU上限で立ち退いた直後がこの経路に該当する）。ディスクヒット時はメモリ
     # LRUへも載せ直し、同一プロセス内の以後のアクセスは再度ディスクI/Oを経由しない。
     persisted: SearchMaterials | None = tile_persistent_cache.get(
-        _CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y
+        _CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, stats=read_stats
     )
     if persisted is None:
         return None
+    if read_stats is not None:
+        read_stats["source"] = "disk"
     _tile_materials_cache.set((zoom, x, y), persisted)
     return persisted
 

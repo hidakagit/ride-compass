@@ -190,14 +190,58 @@ def test_set_overwrite_replaces_previous_value_atomically():
     assert tile_persistent_cache.get("materials", "1", 12, 1, 1) == "second"
 
 
-def test_pickle_error_on_read_is_caught_broadly(monkeypatch):
-    # UnpicklingError以外（AttributeError/ImportError等クラス定義変更相当）も拾えることを
-    # 直接確認する。pickle.loadをエラーが起きるものへ差し替えて検証する。
+# --- 改善計画T546: read_ms/unpickle_ms/bytesの分離計測（stats引数）---
+
+
+def test_get_with_stats_records_read_and_unpickle_ms_and_bytes_on_hit():
+    tile_persistent_cache.set("materials", "1", 12, 1, 1, {"key": "value"})
+
+    stats: dict[str, object] = {}
+    result = tile_persistent_cache.get("materials", "1", 12, 1, 1, stats=stats)
+
+    assert result == {"key": "value"}
+    assert isinstance(stats["read_ms"], float) and stats["read_ms"] >= 0
+    assert isinstance(stats["unpickle_ms"], float) and stats["unpickle_ms"] >= 0
+    assert isinstance(stats["bytes"], int) and stats["bytes"] > 0
+
+
+def test_get_with_stats_leaves_stats_untouched_on_miss():
+    stats: dict[str, object] = {}
+
+    result = tile_persistent_cache.get("materials", "1", 12, 1, 1, stats=stats)
+
+    assert result is None
+    assert stats == {}
+
+
+def test_get_with_stats_leaves_stats_untouched_on_corruption():
+    tile_persistent_cache.set("materials", "1", 12, 1, 1, "valid-value")
+    path = tile_persistent_cache._tile_path("materials", "1", 12, 1, 1)
+    path.write_bytes(b"not a valid pickle stream \x00\x01\xff")
+
+    stats: dict[str, object] = {}
+    result = tile_persistent_cache.get("materials", "1", 12, 1, 1, stats=stats)
+
+    assert result is None
+    assert stats == {}
+
+
+def test_get_without_stats_argument_still_works_unmodified():
+    # statsを渡さない既存呼び出し（graph_material_cache.py等）が無修正で動くことの確認。
     tile_persistent_cache.set("materials", "1", 12, 1, 1, "value")
 
-    def _boom(_file):
+    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) == "value"
+
+
+def test_pickle_error_on_read_is_caught_broadly(monkeypatch):
+    # UnpicklingError以外（AttributeError/ImportError等クラス定義変更相当）も拾えることを
+    # 直接確認する。pickle.loadsをエラーが起きるものへ差し替えて検証する（改善計画T546:
+    # read_ms/unpickle_msを分けて計測するため、file.read()+pickle.loads()へ変更した）。
+    tile_persistent_cache.set("materials", "1", 12, 1, 1, "value")
+
+    def _boom(_data):
         raise AttributeError("class moved")
 
-    monkeypatch.setattr(pickle, "load", _boom)
+    monkeypatch.setattr(pickle, "loads", _boom)
 
     assert tile_persistent_cache.get("materials", "1", 12, 1, 1) is None

@@ -1,5 +1,7 @@
+import pickle
+
 from app.domain.geo import haversine_distance_km
-from app.domain.graph import WaySpec, build_road_graph
+from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph, WaySpec, build_road_graph
 from app.domain.route import Coordinates
 
 # 単純な三角格子: A(交差点) - B(形状点のみ) - C(交差点、Way1とWay2で共有) - D
@@ -233,3 +235,69 @@ def test_lean_types_are_frozen():
         assert False, "frozen dataclassのはずが書き換えできてしまった"
     except AttributeError:
         pass
+
+
+# --- 改善計画T546: LeanRoadGraph.__reduce__（pickle列指向化）---
+
+
+def test_lean_road_graph_pickle_roundtrip_preserves_nodes_and_edges():
+    nodes = {
+        "n1": LeanNode(node_id="n1", latitude=35.700, longitude=139.700, osm_node_id=1),
+        "n2": LeanNode(node_id="n2", latitude=35.701, longitude=139.701, osm_node_id=None),
+    }
+    edges = {
+        "e1": LeanEdge(
+            edge_id="e1", from_node_id="n1", to_node_id="n2", geometry=[], distance_m=123.4,
+            osm_way_id=10, highway="residential", bearing_deg=45.5,
+        ),
+        "e2": LeanEdge(
+            edge_id="e2", from_node_id="n2", to_node_id="n1", geometry=[], distance_m=123.4,
+            osm_way_id=None, highway=None, bearing_deg=None,
+        ),
+    }
+    graph = LeanRoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+
+    restored = pickle.loads(pickle.dumps(graph, protocol=pickle.HIGHEST_PROTOCOL))
+
+    assert restored.graph_version == graph.graph_version
+    assert restored.nodes == graph.nodes
+    assert restored.edges == graph.edges
+    # geometryは常に空リストへ復元される（タイルキャッシュ経路の既存の規約、クラス
+    # docstring参照）。
+    assert all(e.geometry == [] for e in restored.edges.values())
+
+
+def test_lean_road_graph_pickle_roundtrip_at_realistic_scale():
+    """実データ規模相当のfixtureで、列（tupleリスト）分解→再構築の対応ズレが無いことを
+    確認する（往復テストは実装リスクの優先度、docs/tasks/T546.md参照）。"""
+    n = 20_000
+    nodes = {
+        f"n{i}": LeanNode(node_id=f"n{i}", latitude=35.0 + i * 1e-5, longitude=139.0, osm_node_id=i)
+        for i in range(n)
+    }
+    edges = {
+        f"e{i}": LeanEdge(
+            edge_id=f"e{i}", from_node_id=f"n{i}", to_node_id=f"n{(i + 1) % n}", geometry=[],
+            distance_m=float(i), osm_way_id=i if i % 3 else None, highway="residential" if i % 2 else None,
+            bearing_deg=float(i % 360) if i % 7 else None,
+        )
+        for i in range(n)
+    }
+    graph = LeanRoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+
+    restored = pickle.loads(pickle.dumps(graph, protocol=pickle.HIGHEST_PROTOCOL))
+
+    assert restored.graph_version == graph.graph_version
+    assert restored.nodes == graph.nodes
+    assert restored.edges == graph.edges
+
+
+def test_lean_road_graph_pickle_roundtrip_handles_empty_graph():
+    # 境界ケース: Edge0件・Node0件のタイル（空タイル）。
+    graph = LeanRoadGraph(graph_version="v1", nodes={}, edges={})
+
+    restored = pickle.loads(pickle.dumps(graph, protocol=pickle.HIGHEST_PROTOCOL))
+
+    assert restored.graph_version == "v1"
+    assert restored.nodes == {}
+    assert restored.edges == {}

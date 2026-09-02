@@ -234,3 +234,55 @@ class TestDiskPersistence:
         assert restored is not None
         assert restored.graph.edges == {}
         assert restored.graph.graph_version == "tile-cache-empty"
+
+
+class TestReadStats:
+    """改善計画T546（対応方針項目6）: get_tile_materialsの`read_stats`引数が、
+    メモリ/ディスクいずれを経由したかと、ディスク経由時のread_ms/unpickle_ms/bytesを
+    正しく書き込むことを確認する。"""
+
+    def setup_method(self):
+        graph_material_cache.clear()
+
+    def teardown_method(self):
+        graph_material_cache.clear()
+
+    def _sample_materials(self) -> SearchMaterials:
+        return SearchMaterials(
+            graph=LeanRoadGraph(graph_version="tile-cache", nodes={}, edges={}), materials={},
+        )
+
+    def test_memory_hit_records_source_memory_without_disk_fields(self):
+        graph_material_cache.set_tile_materials(12, 5, 6, self._sample_materials())
+
+        stats: dict[str, object] = {}
+        result = graph_material_cache.get_tile_materials(12, 5, 6, stats)
+
+        assert result is not None
+        assert stats == {"source": "memory"}
+
+    def test_disk_hit_records_source_disk_with_read_and_unpickle_stats(self):
+        graph_material_cache.set_tile_materials(12, 5, 6, self._sample_materials())
+        graph_material_cache._tile_materials_cache.clear()
+
+        stats: dict[str, object] = {}
+        result = graph_material_cache.get_tile_materials(12, 5, 6, stats)
+
+        assert result is not None
+        assert stats["source"] == "disk"
+        assert stats["read_ms"] >= 0
+        assert stats["unpickle_ms"] >= 0
+        assert stats["bytes"] > 0
+
+    def test_miss_leaves_stats_untouched(self):
+        stats: dict[str, object] = {}
+
+        result = graph_material_cache.get_tile_materials(12, 9, 9, stats)
+
+        assert result is None
+        assert stats == {}
+
+    def test_read_stats_argument_is_optional(self):
+        graph_material_cache.set_tile_materials(12, 5, 6, self._sample_materials())
+
+        assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
