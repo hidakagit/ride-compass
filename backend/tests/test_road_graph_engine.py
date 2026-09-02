@@ -563,18 +563,22 @@ async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():
     assert all(t.outbound_difficulty == 100.0 for t in turnarounds[1:])
 
 
-async def test_select_turnarounds_skips_nearby_node_sharing_outbound_corridor():
-    # p-0の2km先に同じスポークの延長上のNode p-0bを足す。往路実距離17kmはリング（12.5〜17.5km）
-    # に入るが、往路の88%（15/17）をp-0の往路と共有するため多様性間引きで飛ばされる。
+async def test_select_turnarounds_skips_node_sharing_outbound_corridor():
+    # bearing=0のスポークを起点→p-0a（13.5km）→p-0（1.5km）の2Edgeへ分割する。p-0a・p-0は
+    # どちらもリング（目標30km±5km→往路12.5〜15.2km）に入り、1.5km離れている（近接間引きの
+    # 下限ちょうど）が、p-0の往路の90%（13.5/15）はp-0aの往路と同じEdgeのため、重複率の
+    # 間引きで片方だけが残る（同じコリドー上の候補が並ばない）。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    split_point = destination_point(ORIGIN, 0, 13.5)
     tip = graph.nodes["p-0"]
     tip_coord = Coordinates(latitude=tip.latitude, longitude=tip.longitude)
-    beyond = destination_point(ORIGIN, 0, 17.0)
     new_nodes = dict(graph.nodes)
-    new_nodes["p-0b"] = Node(node_id="p-0b", latitude=beyond.latitude, longitude=beyond.longitude)
-    new_edges = dict(graph.edges)
-    new_edges["e-0-ext"] = _edge("e-0-ext", "p-0", "p-0b", tip_coord, beyond)
-    new_edges["e-0-ext-rev"] = _edge("e-0-ext-rev", "p-0b", "p-0", beyond, tip_coord)
+    new_nodes["p-0a"] = Node(node_id="p-0a", latitude=split_point.latitude, longitude=split_point.longitude)
+    new_edges = {eid: e for eid, e in graph.edges.items() if not eid.startswith("e-0-spoke1")}
+    new_edges["e-0-spoke1a"] = _edge("e-0-spoke1a", "origin", "p-0a", ORIGIN, split_point)
+    new_edges["e-0-spoke1b"] = _edge("e-0-spoke1b", "p-0a", "p-0", split_point, tip_coord)
+    new_edges["e-0-spoke1a-rev"] = _edge("e-0-spoke1a-rev", "p-0a", "origin", split_point, ORIGIN)
+    new_edges["e-0-spoke1b-rev"] = _edge("e-0-spoke1b-rev", "p-0", "p-0a", tip_coord, split_point)
     graph = RoadGraph(graph_version="test", nodes=new_nodes, edges=new_edges)
     generator, _, _ = make_generator(graph)
     engine = generator._engine
@@ -582,8 +586,9 @@ async def test_select_turnarounds_skips_nearby_node_sharing_outbound_corridor():
 
     turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
 
+    selected = {t.data.node_id for t in turnarounds}
     assert len(turnarounds) == len(BEARINGS)
-    assert "p-0b" not in {t.data.node_id for t in turnarounds}
+    assert len(selected & {"p-0a", "p-0"}) == 1
 
 
 async def test_generate_loops_returns_at_most_max_routes_and_stops_tracing_early():

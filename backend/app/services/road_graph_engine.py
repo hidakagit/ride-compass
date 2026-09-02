@@ -101,7 +101,7 @@ from app.domain.evaluation import (
     compute_wind_penalty,
     evaluate_dynamic_axis_arrays,
 )
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km, haversine_distance_km_array
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km_array
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
@@ -161,7 +161,14 @@ MIN_TURNAROUND_SEPARATION_KM = 1.5
 TURNAROUND_MAX_OVERLAP_RATIO = 0.6
 TURNAROUND_RELAXED_OVERLAP_RATIO = 0.85
 # ランキング上位から間引き判定にかけるリングNode数の上限（往路の経路復元コストの上限）。
-MAX_RING_CANDIDATES_EXAMINED = 2000
+MAX_RING_CANDIDATES_EXAMINED = 4000
+# 周回全長／往路実距離の比の想定範囲。往路は軸コスト最適経路、復路はその往路を避けて探索
+# するため、復路は往路と同程度以上に長くなる（dev実DB・東京駅20kmの実測で1.8〜2.8、中央値
+# 約2.05）。リング（折返し候補の往路実距離の範囲）は、この比で周回全長が目標±許容に
+# 収まるよう`[(目標-許容)/MIN, (目標+許容)/MAX]`に置く（許容が狭く範囲が反転する場合は
+# `目標/2 ± 許容/2`へ戻す）。
+LOOP_TO_OUTBOUND_RATIO_MIN = 2.0
+LOOP_TO_OUTBOUND_RATIO_MAX = 2.3
 # 一対全探索のコスト上限（リング上限×(1+P)）に掛ける余裕。Edge単位の丸め（0.1m）の
 # 積み上がりで上限ぎりぎりのNodeを取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
@@ -282,14 +289,6 @@ class _TurnaroundData:
     node_id: str
     outbound_edge_indices: list[int]
     outbound_length_m: float
-
-
-@dataclass(frozen=True)
-class _LatLon:
-    """`haversine_distance_km`（LatLon Protocol）へnumpy配列の要素を渡すための軽量座標。"""
-
-    latitude: float
-    longitude: float
 
 
 class RoadGraphEngine:
@@ -716,22 +715,27 @@ class RoadGraphEngine:
         1. 起点からの一対全最短経路木（`domain/routing.py: build_shortest_path_tree`、
            軸重み付きコスト、scipy）を1回だけ求める。探索はコスト上限
            （リング上限×(1+P)、`cost >= distance`の不変条件による安全な上限）で打ち切る。
-        2. 木に沿った往路の**実距離**が`目標/2 ± 許容/2`に入るNodeを「リング」として
-           抽出する（最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを
-           極端に振った設定ほど往路が遠回りするため、最短実距離基準だと往路だけで
-           目標の半分を超え距離フィルタで全滅する）。
+        2. 木に沿った往路の**実距離**が`[(目標-許容)/LOOP_TO_OUTBOUND_RATIO_MIN,
+           (目標+許容)/LOOP_TO_OUTBOUND_RATIO_MAX]`に入るNodeを「リング」として抽出する
+           （最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを極端に振った
+           設定ほど往路が遠回りするため、最短実距離基準だと往路だけで目標の半分を超え
+           距離フィルタで全滅する。比の範囲は復路が往路より長くなりやすい実測に基づく）。
         3. 往路の距離加重平均difficulty `(cost/len - 1)/P`（コスト式の逆算、
            overall_difficultyと同じ物差し）の昇順に並べる。同点（小数1桁）は
-           「往路実距離が目標の半分に近い順」、さらにNode index順で決定的にする。
+           「往路実距離がリング中心に近い順」、さらにNode index順で決定的にする。
         4. 上位から順に、既採用候補と往路の重複率が`TURNAROUND_MAX_OVERLAP_RATIO`を
            超えるもの・`MIN_TURNAROUND_SEPARATION_KM`より近いものを飛ばして`pool_size`件
            採る（同一コリドー上の隣接Nodeが上位を独占し似た周回が並ぶのを防ぐ）。
            埋まらなければ閾値を`TURNAROUND_RELAXED_OVERLAP_RATIO`へ緩めてやり直す。
         """
-        half_m = distance_km * 500.0
-        half_tolerance_m = distance_tolerance_km * 500.0
-        ring_lower_m = half_m - half_tolerance_m
-        ring_upper_m = half_m + half_tolerance_m
+        target_m = distance_km * 1000.0
+        tolerance_m = distance_tolerance_km * 1000.0
+        ring_lower_m = (target_m - tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MIN
+        ring_upper_m = (target_m + tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MAX
+        if ring_lower_m > ring_upper_m:
+            ring_lower_m = (target_m - tolerance_m) / 2.0
+            ring_upper_m = (target_m + tolerance_m) / 2.0
+        ring_center_m = (ring_lower_m + ring_upper_m) / 2.0
         cost_limit = ring_upper_m * (1.0 + max(self._penalty_strength, 0.0)) * COST_LIMIT_SLACK
         statics = context.statics
 
@@ -762,7 +766,7 @@ class RoadGraphEngine:
             # P=0はコスト＝距離（難易度を一切考慮しない）なので全候補同点。
             difficulty = np.zeros(len(ring))
         difficulty_key = np.round(difficulty, 1)
-        closeness_key = np.abs(ring_length - half_m)
+        closeness_key = np.abs(ring_length - ring_center_m)
         order = np.lexsort((ring, closeness_key, difficulty_key))
         ranked = ring[order][:MAX_RING_CANDIDATES_EXAMINED]
         difficulty_by_node = dict(zip(ring[order].tolist(), difficulty_key[order].tolist()))
@@ -775,26 +779,38 @@ class RoadGraphEngine:
                 outbound_cache[node_index] = tree_path_edge_indices(tree, lazy_graph, node_index)
             return outbound_cache[node_index]
 
-        min_separation_km = MIN_TURNAROUND_SEPARATION_KM
+        # 近接判定は、緯度経度を起点基準の平面km座標へ1回だけ変換し（東京規模のbboxでは
+        # 等距円筒近似で十分）、採用済み候補との平方距離をPythonのfloat演算で比べる
+        # （候補ごとにnumpyのhaversineを呼ぶと数千件×2パスで0.5秒近くかかる）。
+        min_separation_sq = MIN_TURNAROUND_SEPARATION_KM ** 2
+        lat0 = float(context.node_lat[context.origin_index])
+        km_per_deg_lon = KM_PER_DEGREE_LATITUDE * math.cos(math.radians(lat0))
+        node_y = (context.node_lat * KM_PER_DEGREE_LATITUDE).tolist()
+        node_x = (context.node_lon * km_per_deg_lon).tolist()
 
-        def far_enough(a: int, b: int) -> bool:
-            return (
-                haversine_distance_km(
-                    _LatLon(context.node_lat[a], context.node_lon[a]), _LatLon(context.node_lat[b], context.node_lon[b])
-                )
-                >= min_separation_km
-            )
+        def far_enough(node_index: int, selected: list[int]) -> bool:
+            x, y = node_x[node_index], node_y[node_index]
+            for other in selected:
+                dx = x - node_x[other]
+                dy = y - node_y[other]
+                if dx * dx + dy * dy < min_separation_sq:
+                    return False
+            return True
 
         ranked_list = ranked.tolist()
+        rejected_by_overlap: list[int] = []
         selected = select_diverse_by_overlap(
             ranked_list, outbound_edges, statics.edge_length_m, TURNAROUND_MAX_OVERLAP_RATIO, pool_size, far_enough,
+            rejected_by_overlap=rejected_by_overlap,
         )
         relaxed = False
-        if len(selected) < pool_size:
+        if len(selected) < pool_size and rejected_by_overlap:
+            # 2回目のパスは、1回目に重複率だけを理由に飛ばした候補のみを緩和閾値で再検査する
+            # （近接・経路無しで飛ばした候補は再検査しても結果が変わらない）。
             relaxed = True
             selected = select_diverse_by_overlap(
-                ranked_list, outbound_edges, statics.edge_length_m, TURNAROUND_RELAXED_OVERLAP_RATIO, pool_size,
-                far_enough,
+                rejected_by_overlap, outbound_edges, statics.edge_length_m, TURNAROUND_RELAXED_OVERLAP_RATIO,
+                pool_size, far_enough, initial_selected=selected,
             )
 
         origin_node = context.graph.nodes[context.origin_node]

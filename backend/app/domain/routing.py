@@ -22,7 +22,7 @@ Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を�
 """
 import math
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypeVar
 
 import numpy as np
@@ -274,9 +274,17 @@ class ShortestPathTree:
     predecessor: np.ndarray
     # 木に沿った（＝最小コスト経路の）実距離（m）の積算。到達不能はNaN、起点は0。
     length_m: np.ndarray
+    # `predecessor`のPython list版（遅延構築）。`tree_path_edge_indices`が数千Nodeぶんの
+    # 経路復元でnumpyスカラーの取り出しを繰り返すのを避ける（実データ規模で約2倍速い）。
+    _predecessor_list: list[int] | None = field(default=None, repr=False, compare=False)
 
     def is_reached(self, node_index: int) -> bool:
         return bool(np.isfinite(self.cost[node_index]))
+
+    def predecessor_list(self) -> list[int]:
+        if self._predecessor_list is None:
+            self._predecessor_list = self.predecessor.tolist()
+        return self._predecessor_list
 
 
 def build_shortest_path_tree(
@@ -346,8 +354,10 @@ def tree_path_edge_indices(tree: ShortestPathTree, lazy_graph: LazyRoadGraph, ta
     edge_indices: list[int] = []
     current = int(target_index)
     pair_index = lazy_graph.edge_index_by_node_pair
-    while current != tree.source_index:
-        parent = int(tree.predecessor[current])
+    predecessor = tree.predecessor_list()
+    source = tree.source_index
+    while current != source:
+        parent = predecessor[current]
         edge_indices.append(pair_index[(parent, current)])
         current = parent
     edge_indices.reverse()
@@ -376,28 +386,62 @@ def select_diverse_by_overlap(
     edge_length_m: np.ndarray,
     max_overlap_ratio: float,
     max_count: int,
-    is_compatible: Callable[[T, T], bool] | None = None,
+    is_compatible: Callable[[T, list[T]], bool] | None = None,
+    initial_selected: Sequence[T] | None = None,
+    rejected_by_overlap: list[T] | None = None,
 ) -> list[T]:
     """ランク順の`items`を先頭から貪欲に採用し、採用済みのいずれかと経路の重複率
-    （`overlap_ratio`、候補側の距離基準）が`max_overlap_ratio`を超えるもの、または
-    `is_compatible`（採用済みとの互換判定、例: 近接し過ぎないか）がFalseのものを飛ばして
-    `max_count`件まで返す（改善計画T531の多様性間引き）。`edge_indices_of`がNoneを返す
-    itemは対象外として飛ばす。決定的（入力順と同じ規則でしか選ばない）。"""
+    （候補側の距離加重、`overlap_ratio`と同じ定義）が`max_overlap_ratio`を超えるもの、
+    または`is_compatible(item, 採用済みリスト)`がFalseのものを飛ばして`max_count`件まで
+    返す（改善計画T531の多様性間引き）。`edge_indices_of`がNoneを返すitemは対象外として
+    飛ばす。`initial_selected`を渡すと、それらを採用済みとして（戻り値の先頭に含めて）
+    続きを選ぶ（閾値を緩めた2回目のパスで、1回目の採用分を再検査しないため）。
+    `rejected_by_overlap`（list）を渡すと、重複率だけを理由に飛ばしたitemを順に追記する
+    （2回目のパスは`is_compatible`や経路無しで飛ばしたitemを再検査する必要が無いため、
+    このリストだけを`items`に渡せばよい）。決定的（入力順と同じ規則でしか選ばない）。
+
+    重複率は採用済み候補ごとのEdge集合をbool行列（採用数×Edge数）で持ち、候補のEdge index
+    配列で列を抜き出して距離加重和を1回のnumpy演算で求める（採用済みごとに`np.isin`を
+    呼ぶ実装は、数千件のリングNodeを検査する実データ規模で数百ms〜1秒超かかった）。
+    """
+    edge_count = len(edge_length_m)
     selected: list[T] = []
-    selected_edges: list[np.ndarray] = []
+    masks = np.zeros((max(max_count, 1), edge_count), dtype=bool)
+
+    def try_accept(item: T, edges: Sequence[int]) -> bool:
+        if len(selected) >= max_count:
+            return False
+        edge_array = np.asarray(edges, dtype=np.int64)
+        if len(selected) and len(edge_array):
+            lengths = edge_length_m[edge_array]
+            total = float(lengths.sum())
+            if total > 0:
+                shared = (masks[: len(selected)][:, edge_array] * lengths).sum(axis=1)
+                if bool((shared / total > max_overlap_ratio).any()):
+                    if rejected_by_overlap is not None:
+                        rejected_by_overlap.append(item)
+                    return False
+        masks[len(selected), edge_array] = True
+        selected.append(item)
+        return True
+
+    for item in initial_selected or ():
+        edges = edge_indices_of(item)
+        if edges is not None:
+            try_accept(item, edges)
+    seeded = set(map(id, selected))
+
     for item in items:
         if len(selected) >= max_count:
             break
-        if is_compatible is not None and any(not is_compatible(item, other) for other in selected):
+        if id(item) in seeded:
+            continue
+        if is_compatible is not None and not is_compatible(item, selected):
             continue
         edges = edge_indices_of(item)
         if edges is None:
             continue
-        edge_array = np.asarray(edges, dtype=np.int64)
-        if any(overlap_ratio(edge_array, other, edge_length_m) > max_overlap_ratio for other in selected_edges):
-            continue
-        selected.append(item)
-        selected_edges.append(edge_array)
+        try_accept(item, edges)
     return selected
 
 

@@ -538,14 +538,36 @@ def test_select_diverse_by_overlap_uses_compatibility_hook_and_skips_missing_pat
     items = {"a": [0], "b": [1], "c": None, "d": [2]}
     incompatible = {("b", "a")}
 
+    def compatible(item, selected):
+        return all((item, other) not in incompatible for other in selected)
+
     selected = select_diverse_by_overlap(
-        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10,
-        is_compatible=lambda item, other: (item, other) not in incompatible,
+        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10, is_compatible=compatible,
     )
 
     assert selected == ["a", "d"]  # bはaと非互換、cは経路無し
     # 決定的: 同じ入力で同じ結果
     assert selected == select_diverse_by_overlap(
-        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10,
-        is_compatible=lambda item, other: (item, other) not in incompatible,
+        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10, is_compatible=compatible,
     )
+
+
+def test_select_diverse_by_overlap_keeps_initial_selection_and_continues_with_relaxed_threshold():
+    lengths = np.array([100.0, 100.0, 100.0, 100.0])
+    items = {"first": [0, 1, 2], "mostly_same": [0, 1, 3], "other": [3]}
+
+    strict = select_diverse_by_overlap(list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=3)
+    assert strict == ["first", "other"]  # mostly_sameは67%重複で棄却
+
+    rejected: list[str] = []
+    strict_again = select_diverse_by_overlap(
+        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=3, rejected_by_overlap=rejected,
+    )
+    assert strict_again == strict
+    assert rejected == ["mostly_same"]  # 重複率だけを理由に飛ばしたitemが記録される
+
+    relaxed = select_diverse_by_overlap(
+        rejected, items.__getitem__, lengths, max_overlap_ratio=0.7, max_count=3, initial_selected=strict,
+    )
+    # 1回目の採用分を先頭に保ったまま、緩和した閾値で残りを追加する
+    assert relaxed == ["first", "other", "mostly_same"]
