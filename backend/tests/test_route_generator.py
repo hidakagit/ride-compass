@@ -2,16 +2,14 @@
 
 エンジンの中身はtest_road_graph_engine.pyで検証し、ここでは戦略側の責務
 （経由地点の計算・距離許容範囲フィルタ・失敗方位のスキップ・評価が生存候補だけに
-行われること・total_scoreソート）をFakeエンジンで検証する。
+行われること・overall_difficulty昇順ソート）をFakeエンジンで検証する。
 """
 
 from app.domain.errors import RouteDistanceExceededError, RoutingError
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator, TracedLoop, candidate_identity
-from app.services.route_scorer import RouteScorer
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
-SCORING_WEIGHTS = {"distance_weight": 0.30, "difficulty_weight": 0.70}
 
 
 def make_geometry():
@@ -67,7 +65,7 @@ class FakeEngine:
 
 def make_generator(distances_by_bearing, **kwargs) -> tuple[RouteGenerator, FakeEngine]:
     engine = FakeEngine(distances_by_bearing, **kwargs)
-    return RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS)), engine
+    return RouteGenerator(engine), engine
 
 
 async def test_generates_one_candidate_per_direction_when_all_within_tolerance():
@@ -222,15 +220,38 @@ async def test_waypoints_form_a_loop_starting_and_ending_at_origin():
         assert waypoints[1] != ORIGIN and waypoints[2] != ORIGIN
 
 
-async def test_sorts_final_candidates_by_total_score_descending():
-    distances = {0: 33.0, 45: 30.0, 90: 27.0, 135: 34.0, 180: 26.0, 225: 30.0, 270: 30.0, 315: 30.0}
-    generator, _ = make_generator(distances)
+async def test_sorts_final_candidates_by_overall_difficulty_ascending():
+    # 改善計画T548: 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）
+    # 昇順（易しい候補が先頭）。
+    engine = SegmentedFakeEngine(
+        {0: 33.0, 45: 30.0, 90: 27.0},
+        {
+            0: [make_segment(1.0, 80.0)],
+            45: [make_segment(1.0, 20.0)],
+            90: [make_segment(1.0, 50.0)],
+        },
+    )
+    generator = RouteGenerator(engine)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert all(c.total_score is not None for c in candidates)
-    scores = [c.total_score for c in candidates]
-    assert scores == sorted(scores, reverse=True)
+    difficulties = [c.overall_difficulty for c in candidates]
+    assert all(d is not None for d in difficulties)
+    assert difficulties == sorted(difficulties)
+    assert difficulties[0] == 20.0
+
+
+async def test_candidates_with_none_overall_difficulty_sort_last():
+    # 改善計画T548: overall_difficultyがNone（算出不能）の候補は末尾へ回す。
+    engine = SegmentedFakeEngine(
+        {0: 33.0, 45: 30.0},
+        {45: [make_segment(1.0, 20.0)]},  # bearing=0はsegments無し→overall_difficulty=None
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+
+    assert candidates[-1].overall_difficulty is None
 
 
 def test_engine_name_is_exposed():
@@ -282,7 +303,7 @@ async def test_overall_difficulty_is_distance_weighted_average_of_segments():
         {0: 30.0},
         {0: [make_segment(1.0, 0.0), make_segment(3.0, 100.0)]},
     )
-    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+    generator = RouteGenerator(engine)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
@@ -310,7 +331,7 @@ async def test_axis_difficulties_is_distance_weighted_average_of_segments():
             ]
         },
     )
-    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+    generator = RouteGenerator(engine)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
@@ -368,16 +389,6 @@ async def test_generate_via_waypoints_returns_empty_when_trace_fails():
     assert "経由地" in generator.last_no_candidates_reason
 
 
-async def test_generate_via_waypoints_does_not_call_route_scorer():
-    # 候補が常に1件のため、min-maxで常に満点になるRouteScorer.scoreを意図的に呼ばない
-    # （generate_via_waypointsのdocstring参照）。total_scoreはNoneのまま返る。
-    generator, _ = make_generator({None: 12.0})
-
-    candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
-
-    assert candidates[0].total_score is None
-
-
 DESTINATION = Coordinates(latitude=35.90, longitude=139.80)
 
 
@@ -426,7 +437,7 @@ async def test_generate_via_waypoints_also_aggregates_axis_difficulties():
         {None: 12.0},
         {None: [make_segment(2.0, 0.0, axis_difficulties={"wind": 40.0})]},
     )
-    generator = RouteGenerator(engine, RouteScorer(SCORING_WEIGHTS))
+    generator = RouteGenerator(engine)
 
     candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
 

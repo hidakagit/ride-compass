@@ -17,8 +17,6 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     max_gradient_percent: null,
     wind_score: null,
     road_score: null,
-    total_score: 88,
-    score_breakdown: null,
     segments: null,
     overall_difficulty: null,
     axis_difficulties: {},
@@ -36,7 +34,6 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
       longitude: 139.0,
       distance_km: 30,
       distance_tolerance_km: 5,
-      scoring_weights: { distance_weight: 0.3, difficulty_weight: 0.7 },
       route_preference: {
         gradient: 0.15, surface_q: 0.19, wind: 0.26, stop_density: 0.2,
         car_stress: 0.2, accident: 0.08,
@@ -99,17 +96,6 @@ describe("ComparisonPanel", () => {
     expect(screen.getByText(/29\.8 km/)).toBeInTheDocument();
     expect(screen.getByText("40.0")).toBeInTheDocument();
     expect(screen.getByText("55.0")).toBeInTheDocument();
-  });
-
-  it("total_scoreは表(表示テキスト)に含めない(スロット間比較の誤用防止)", () => {
-    const slots = [
-      makeSlot({ id: "a", topCandidate: makeCandidate({ total_score: 12.3 }) }),
-      makeSlot({ id: "b", topCandidate: makeCandidate({ total_score: 45.6 }) }),
-    ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
-
-    expect(screen.queryByText(/12\.3/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/45\.6/)).not.toBeInTheDocument();
   });
 
   it("個別軸の行はaxis_difficultiesベースで動的生成する(改善計画T421、旧stop_density等のレガシーフィールド直接参照を撤去)", () => {
@@ -182,7 +168,6 @@ describe("ComparisonPanel", () => {
       // 地図表示・地図の見え方パネルと考え方を併せて再設計）。以前は独自の言い換え
       // 「信号・踏切等」だったが、地図の「停止密度」へ統一した。
       expect(title).toContain("停止密度");
-      expect(title).toContain("score");
       expect(title).toContain("pref");
     }
   });

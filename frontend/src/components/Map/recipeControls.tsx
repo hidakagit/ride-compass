@@ -7,15 +7,15 @@ import { InfoIcon } from "./icons";
 import LayerChip from "./LayerChip";
 import styles from "./recipeControls.module.css";
 
-// 研究タブの評価重み上書きUI（WeightPanel）・一般向けルート設定画面（RouteSettingsPanel）
-// が共有する上書きUI部品。T113でCarStressRecipePanel専用に実装したものを、2つ目のレシピ
-// （当時の安全度レシピ。安全度軸自体はT148で削除済み）登場を機に汎用化した
-// （改善計画: 安全度レシピ。「今後ほかの2次データのレシピが増えると思うので、くくり出して
-// ほしい」というユーザー要望への対応）。改善計画T292: 車ストレス専用の3レシピパネル
+// 一般向けルート設定画面（RouteSettingsPanel）が使う上書きUI部品。T113で
+// CarStressRecipePanel専用に実装したものを、2つ目のレシピ（当時の安全度レシピ。
+// 安全度軸自体はT148で削除済み）登場を機に汎用化した（改善計画: 安全度レシピ。
+// 「今後ほかの2次データのレシピが増えると思うので、くくり出してほしい」という
+// ユーザー要望への対応）。改善計画T292: 車ストレス専用の3レシピパネル
 // （CarStressRecipePanel等）の廃止に伴い、それらだけが使っていた部品（LevelPicker・
 // AdjustmentStepper・CarClosenessReferenceSection・adjustmentEndpointColors・
 // ScalarInput・ThresholdAdjustmentRow）は削除した。RecipePanelSection・withAutoEnable・
-// FieldLabelは引き続きWeightPanel/RouteSettingsPanelが使う汎用部品として残す。
+// FieldLabelは引き続きRouteSettingsPanel等が使う汎用部品として残す。
 
 // 研究タブ各パネルの最上位の折りたたみ（改善計画: 研究タブのレイアウト改善。ユーザー
 // フィードバック「地図の見え方のようなデザインに合わせて、折りたたみを工夫したり表示非表示を

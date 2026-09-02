@@ -2,48 +2,23 @@
 // （改善計画T25、docs/research-interface-review-2026-08-15.md §10-8）。
 //
 // 静的属性P1（停止密度）でRoutePreferenceに4つ目の軸が増えたのを機に、軸のid・重みキー・
-// 表示名が RouteList のhint文言・WeightPanel の入力欄リストへ手作業で分散していた状態
-// （軸を増やすたびにズレる「第3の手動同期ペア」、レビュー指摘）を解消する。
+// 表示名が RouteList のhint文言・RouteSettingsPanel の入力欄リストへ手作業で分散していた
+// 状態（軸を増やすたびにズレる「第3の手動同期ペア」、レビュー指摘）を解消する。
 //
-// ラベルは Record<キー, string> として書くことで、backend/app/scoring.yaml のキー集合
-// （OpenAPI型生成でフロントへ届く ScoringWeights）とフィールドが1対1で揃っていることを
-// TypeScriptのコンパイルで強制する（キーの過不足はコンパイルエラーになる）。
 // route_preference側は改善計画T221 Stage Bでaxis_idキーの辞書（RoutePreferenceWeightsは
 // index signature型）へ一般化されたためコンパイル時のキー照合はできず、代わりに
 // evaluationAxes.test.tsがaxis-catalog.jsonのpreference_defaultsとキー集合を突き合わせる。
-import type { ScoringWeights } from "@/types/route";
+import type { RoutePreferenceWeights } from "@/types/route";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 
-export interface ScoringAxisDef {
-  /** RouteScoreComponent.axis（backend/app/services/route_scorer.py）と一致する値。
-   * weightKeyから"_weight"接尾辞を除いたもの（バックエンド側の命名規約、
-   * test_route_scorer.pyで固定）。 */
-  id: string;
-  weightKey: keyof ScoringWeights;
-  /** RouteListのhint文・WeightPanelの入力欄ラベルに共通で使う表示名 */
-  label: string;
-  /** この軸が何を表すかの短い説明。WeightPanel.tsxがFieldLabelのdescriptionとして
-   * ラベル横の情報アイコン開閉表示に使う（コメント修正: デッドコード監査2026-08-25、
-   * 「将来のツールチップ等向け、現状は未使用」という記述は事実誤認だった）。 */
-  description: string;
-}
-
-// 改善計画T401: 従来のelevation_weight/wind_weight/road_weightはoverall_difficulty
-// （軸スタジオのRoutePreference.weightsで既に重み付け合成済みの値）に既に織り込まれて
-// いたため二重管理だった。distance（目標距離への近さ）とdifficulty（overall_difficulty）の
-// 2指標へ単純化した。
-const SCORING_AXIS_META: Record<keyof ScoringWeights, Omit<ScoringAxisDef, "id" | "weightKey">> = {
-  distance_weight: { label: "距離の合わせ込み", description: "指定距離との差の小ささ" },
-  difficulty_weight: { label: "総合難易度", description: "各軸の重み付け設定で合成した総合難易度が小さいほど高評価" },
-};
-
-export const SCORING_AXES: readonly ScoringAxisDef[] = (
-  Object.keys(SCORING_AXIS_META) as (keyof ScoringWeights)[]
-).map((weightKey) => ({
-  id: weightKey.replace(/_weight$/, ""),
-  weightKey,
-  ...SCORING_AXIS_META[weightKey],
-}));
+// 区間難易度の重み（route_preference）の既定値。「既定値に戻す」ボタンの起点、および
+// 上書き有効化の直後に送る初期値として使う（改善計画T548: 従来はWeightPanel.tsxが
+// この定数をexportしていたが、total_score撤去に伴いWeightPanel自体を削除したため
+// こちらへ移設した）。axis-catalog.jsonのpreference_defaults（backend domain/
+// axis_definitions.py: AXIS_DEFINITIONSのdefault_weightを生成物として書き出したもの、
+// 改善計画T221 Stage B）から読むことで、軸の増減・既定値変更に自動追従する。
+export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = axisCatalog.preference_defaults;
 
 export interface PreferenceAxisDef {
   /** route_preference（axis_idキーの重み辞書）のキー。backend
@@ -51,7 +26,7 @@ export interface PreferenceAxisDef {
    * （改善計画T221 Stage B: 旧weightKey[elevation_weight等]→axis_idの手書き対応表
    * PREFERENCE_WEIGHT_KEY_BY_AXIS_IDは、重み辞書自体がaxis_idキーになったため廃止）。 */
   axisId: string;
-  /** 区間の色分け・WeightPanelの入力欄ラベルに共通で使う表示名 */
+  /** 区間の色分け・RouteSettingsPanelの入力欄ラベルに共通で使う表示名 */
   label: string;
   description: string;
   /** 改善計画T440: この軸が専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から

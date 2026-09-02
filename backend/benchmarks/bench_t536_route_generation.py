@@ -35,7 +35,6 @@ from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
-from app.services.route_scorer import RouteScorer
 from app.services.weather_service import WeatherService
 
 # T522.mdと同じ起点（東京駅相当）。distance_kmはdev機で現実的な時間に収めるため
@@ -65,7 +64,7 @@ async def _run_once(label: str) -> None:
             engine = RoadGraphEngine(
                 graph_service, elevation_service, weather_service, RoutePreference(),
             )
-            generator = RouteGenerator(engine, RouteScorer({"distance_weight": 0.3, "difficulty_weight": 0.7}))
+            generator = RouteGenerator(engine)
 
             started = time.monotonic()
             candidates = await generator.generate_loops(ORIGIN, DISTANCE_KM, TOLERANCE_KM)

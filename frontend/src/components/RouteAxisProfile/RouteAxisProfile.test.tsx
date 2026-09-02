@@ -38,7 +38,6 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
     axes: AXES,
     axisDifficulties: { car_stress: 72.4, night: 10 },
     overallDifficulty: 46,
-    totalScore: 70,
     weights: WEIGHTS,
     axisColors: AXIS_COLORS,
     routeStyleModes: ROUTE_STYLE_MODES,
@@ -100,7 +99,7 @@ describe("RouteAxisProfile", () => {
     // rows = car_stress(raw72.4,weight0.5) + night(raw10,weight0.2)。windはaxisDifficulties
     // に値が無いため対象外（weightSumにも含まれない）。weightSum=0.7。
     // car_stress寄与度 = 72.4*0.5/0.7 ≈ 51.7 → 52、night寄与度 = 10*0.2/0.7 ≈ 2.9 → 3。
-    const { container } = render(<RouteAxisProfile {...baseProps({ overallDifficulty: null, totalScore: null })} />);
+    const { container } = render(<RouteAxisProfile {...baseProps({ overallDifficulty: null })} />);
 
     const values = Array.from(container.querySelectorAll('[class*="value"]')).map((el) => el.textContent);
     expect(values).toEqual(["52", "3"]);
@@ -110,18 +109,16 @@ describe("RouteAxisProfile", () => {
 
   it("重み情報が全く無い（weightSum=0）場合は素の距離加重平均へフォールバックする", () => {
     const { container } = render(
-      <RouteAxisProfile {...baseProps({ weights: {}, overallDifficulty: null, totalScore: null })} />
+      <RouteAxisProfile {...baseProps({ weights: {}, overallDifficulty: null })} />
     );
 
     const values = Array.from(container.querySelectorAll('[class*="value"]')).map((el) => el.textContent);
     expect(values).toEqual(["72", "10"]);
   });
 
-  it("おすすめ度と総合難易度の両方を表示する（別指標のため片方をもう片方の内訳として扱わない）", () => {
+  it("総合難易度（絶対基準0-100）を表示する（改善計画T548でおすすめ度表示は撤去済み）", () => {
     render(<RouteAxisProfile {...baseProps()} />);
 
-    expect(screen.getByText("70")).toBeInTheDocument();
-    expect(screen.getAllByText(/おすすめ度/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("46")).toBeInTheDocument();
     // 「総合難易度」自体はチップ名とスコアラベルの2箇所に出るため複数件ヒットする
     expect(screen.getAllByText(/総合難易度/).length).toBeGreaterThanOrEqual(2);
@@ -154,12 +151,15 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByRole("button", { name: "総合難易度で地図を色分け" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("routeStyleModesに対応モードが無い軸（supports_route_coloring===false）は選択チップ列に" +
-    "出さない（実機確認で発覚: 以前は非活性チップとして並べていたが、色分け対応チップと" +
-    "見分けにくく「クリックしても反応しない壊れたボタン」に見えていた。改善計画T545" +
-    "フォローアップでチップ列自体から除外し、内訳一覧のみに残す）", () => {
+  it("routeStyleModesに対応モードが無い軸は選択チップ列に出さない（実機確認で発覚: 以前は" +
+    "非活性チップとして並べていたが、色分け対応チップと見分けにくく「クリックしても" +
+    "反応しない壊れたボタン」に見えていた。改善計画T545フォローアップでチップ列自体から" +
+    "除外し、内訳一覧のみに残す）", () => {
     // ROUTE_STYLE_MODESにはcar_stressの色分けモードはあるが、nightのモードは無い
-    // （AXES/axisDifficultiesの両方にnightは含まれる想定のfixture）。
+    // （AXES/axisDifficultiesの両方にnightは含まれる想定のfixture。実運用では改善計画
+    // T549により公開軸は無条件で色分けモードを持つが、rowsとrouteStyleModesの
+    // axis_id集合が完全一致しない場合[重み0で除外された軸等]への安全策として
+    // このフィルタ自体は残っている、RouteAxisProfile.tsx参照）。
     render(<RouteAxisProfile {...baseProps()} />);
 
     expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け" })).toBeInTheDocument();

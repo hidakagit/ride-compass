@@ -11,13 +11,12 @@
 |---|---|
 | `components/RouteForm/RouteForm.tsx` | 距離入力・生成ボタン。周回/目的地モード切替 |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
-| `components/WeightPanel/WeightPanel.tsx` | 研究モード向けのscoring_weights（distance/difficulty）編集 |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（軸別difficulty横棒グラフ）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/ComparisonPanel/ComparisonPanel.tsx` | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
-| `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`SCORING_AXES`（distance/difficulty） |
+| `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`DEFAULT_ROUTE_PREFERENCE`（route_preference既定値） |
 | `lib/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
 | `components/Map/recipeControls.tsx`（`FieldLabel`・`withAutoEnable`・`RecipePanelSection`） | 上書き有効化・情報アイコン付きラベルの共有UI部品 |
 
@@ -104,14 +103,6 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 区別しなければならない。取得成功時に軸が0件（全軸非公開）であっても`loaded=true`になる
 （0件も確定した実際の状態のため）。
 
-## WeightPanel.tsx（研究モード）
-
-`RouteSettingsPanel`とは別の入口（研究モード向け）。`ScoringWeights`
-（`distance_weight`/`difficulty_weight`の2指標）を編集する。`route_preference`
-（軸ごとの重み）自体を編集するUIは持たない（`RouteSettingsPanel`側が担う）。初期値の
-定数export（`DEFAULT_ROUTE_PREFERENCE`、`axis-catalog.json`の`preference_defaults`由来）は
-`page.tsx`・admin側が参照する。
-
 ## WindBearingSlider.tsx（走行方位ダイヤル）／TravelBearingControl.tsx（地図上の入口）
 
 外部ライブラリを使わない自前実装のコンパス型UI。中心から伸びる矢印
@@ -147,13 +138,13 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 ## RouteAxisProfile.tsx（候補ごとタブの中身: 地図色分け＋軸別内訳）
 
 page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）が組み立てる候補ごとの
-タブ（方向・距離のみを表示。おすすめ度の点数はタブ内では繰り返さない）の中身として、
+タブ（方向・距離のみを表示。総合難易度の点数はタブ内では繰り返さない）の中身として、
 候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ
 絞り込んで渡す。
 
 - **地図の色分けチップ**: 「総合難易度」＋渡された各軸のうち**地図の色分けに対応する軸だけ**
-  （`routeStyleModes.some(mode => mode.id === axis.axisId)`で判定。`car_stress`・`accident`・
-  `night`・`bicycle_infra_quality`等、`supports_route_coloring===false`の軸は対象外）を、
+  （`routeStyleModes.some(mode => mode.id === axis.axisId)`で判定。公開軸は無条件で
+  地図の色分けモードを持つため、この判定は実質的に「重み>0の公開軸すべて」を通す）を、
   `RouteSettingsPanel.module.css`の`legendChip`/`legendDot`/`chipRow`クラスをそのまま
   importして流用した1行の折り返しチップ列（`RouteSettingsPanel`の軸チップ列と同じ見た目）で
   表示する。1チップは「色ドット＋ラベル（クリックで選択）」「(i)説明文ポップオーバー
@@ -174,17 +165,18 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   持たない読み取り専用の一覧（色分けに対応しない軸もこちらには表示される）。このチップ列に
   並ぶチップは常にクリック可能（`AxisChip`は非活性描画を持たない）——色分けに対応しない軸を
   この列へ含めない絞り込みが、その前提を成立させている。
-- **おすすめ度／総合難易度**: `RouteCandidate.total_score`（候補間の相対スコア）と
-  `overall_difficulty`（絶対基準の軸重み付き合成値）を別指標として両方併記する。総合難易度
-  は下記内訳の合計そのものであり、内訳の1項目としては扱わない。両指標の意味の違いの説明は
-  このコンポーネント自身は持たず、呼び出し元（`app/page.tsx`の「ルート結果」見出し脇の
+- **総合難易度**: `RouteCandidate.overall_difficulty`（絶対基準0-100の軸重み付き合成値）を
+  表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順
+  もこの値の昇順（backend `route_generator.py`が返す`routes`配列の並び順をそのまま使う、
+  [ページ全体構成・状態管理](page-composition.md)参照）。説明文言はこのコンポーネント
+  自身は持たず、呼び出し元（`app/page.tsx`の「ルート結果」見出し脇の
   `renderRouteResultHeaderActions()`が返す`FieldLabel`、候補タブすべてに共通の1箇所）へ
   集約している。
 - **軸別内訳**: `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重
   平均、評価できなかった軸はキー自体が無く非表示）を、`domain/difficulty.py:
   composite_difficulty`と同じ考え方（`raw*weight/weightSum`）でルート設定の重みを反映した
   「寄与度」に変換してからバー長にする——重みが低い軸は生の難易度が高くてもバーが短くなり、
-  「おすすめ度が高いのに内訳の見た目が悪くて混乱する」ことを避ける。バーの色は生の
+  「総合難易度が低いのに内訳の見た目が悪くて混乱する」ことを避ける。バーの色は生の
   `axis_difficulties`値（`axisLayers.ts: rampColorForBand`を`bandCount=101`で流用、
   地図の段階配色と同じ配色系統）——バー長（影響度）とバー色（深刻度）を意図的に分離する。
   各行の左側は色ドット＋ラベルのみ（クリック不可）で、地図の色分け対象を選ぶ操作は
@@ -199,8 +191,9 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   異なる別系統のフィールドのため区別して残す）→
   (2) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
   `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
-  (3) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。`total_score`は実験間
-  比較表には出さない（相対評価の誤用防止をUIで強制する設計）。page.tsxが渡す`axes`は、
+  (3) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。各列は各回の
+  `ExperimentSlot.topCandidate`（生成直後の`overall_difficulty`最小候補で固定、
+  [ページ全体構成・状態管理](page-composition.md)参照）。page.tsxが渡す`axes`は、
   表示中のいずれかの実験スロットで生成時点の重み（`ExperimentSlot.conditions.
   route_preference`）が>0だった軸に絞り込み済み——現在のライブな`routePreference`
   （「今」の設定）は使わない。
@@ -210,3 +203,12 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 距離入力・生成ボタン。`RouteMode`（"loop"|"destination"）で周回/目的地モードを切り替える。
 モバイル上部バー向けの`compact`表示を持つ。目的地モードでは距離を入力させず、経由地・
 目的地のいずれも未指定のまま生成しようとするとサイレント失敗せずエラー文言を出す。
+
+距離の`<Input type="number">`はネイティブのスピンボタン（上下矢印）をCSS
+（`[&::-webkit-inner-spin-button]:appearance-none`等）で非表示にする——直接入力が主な
+操作手段で、1km刻みの矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
+数値専用キーボードを明示し、`onFocus`で既存の値を全選択して毎回消してから打ち直す手間を
+無くす。`distance`はstring stateのまま親（`page.tsx`）が持ち、数値への変換は送信直前
+（`handleSubmit`内の`Number(distance)`検証）でのみ行うため、`AxisComposer.tsx`の
+`NumberField`（[軸スタジオ](axis-studio.md)参照）が対処する「入力途中でReactの制御値が
+NaNへ倒れる」問題はこの入力には無い。

@@ -543,7 +543,7 @@ function ensureRouteArrowLayer(map: MapLibreMap) {
 }
 
 // 実験スロット（研究インターフェース改善 §10-3）の重ね描き。各スロットの代表候補
-// （topCandidate、生成直後のtotal_score最上位で固定）の全体形状をスロット別の色で描く
+// （topCandidate、生成直後のoverall_difficulty最小で固定）の全体形状をスロット別の色で描く
 // （「路面重視にしたら形が変わったか」等の比較が本命）。detail-segments（現在選択中の
 // 色分け表示）より下・base routes（8候補の参考線）より上に置くため、作成時にDETAIL_LAYER_IDの
 // 直下（既に存在すれば）を明示指定する（drawSelectedOutlineと同じ考え方）。
@@ -2171,8 +2171,8 @@ interface MapViewProps {
    * axisVisibility側と同様RAMP_AXES由来のためここには手書きされていない）。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
-  /** 改善計画T352: ルート色分けモード一覧（axis-catalog由来、supports_route_coloring軸を
-   * 動的に含む）。page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的
+  /** 改善計画T352: ルート色分けモード一覧（axis-catalog由来、公開軸を無条件で動的に
+   * 含む）。page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的
    * フォールバック）をそのまま渡す。 */
   routeStyleModes: readonly RouteStyleMode[];
   routeStyleModeId: RouteStyleModeId;

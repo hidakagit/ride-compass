@@ -59,11 +59,10 @@ Windows環境では `uvicorn --reload` はリローダー親プロセスとワ�
 **経由地（中継地）指定ルート（改善計画T364）**: 上記の固定三角形waypoint生成は「特定の
 経由地を通るルート形状」をそもそも表現できない制約があるため、ユーザーが地図上で
 指定した経由地を順に通る単一経路を生成する別経路`RouteGenerator.generate_via_waypoints`
-を追加した（`generate_loops`とは独立、8方位探索・距離フィルタ・`RouteScorer`を通らない）。
+を追加した（`generate_loops`とは独立、8方位探索・距離フィルタを通らない）。
 `TracedLoop.bearing`が`None`のときがこの経由地ルートを表す規約で、`candidate_identity`は
-`id="route-waypoints"`・`direction_label="経由地ルート"`を返す。候補が常に1件のため
-`RouteScorer.score`（min-max正規化）は意図的に呼ばず、`total_score`は`None`のまま
-返る。`road_graph_engine.py`の`trace_loop`は中間経由地を任意個数受け取れる汎用ループへ
+`id="route-waypoints"`・`direction_label="経由地ルート"`を返す。`road_graph_engine.py`の
+`trace_loop`は中間経由地を任意個数受け取れる汎用ループへ
 一般化されており（waypoints=2点の8方位探索は従来と同じ3ペアに帰着）、`prepare`は
 経由地指定時のみ`_bbox_covering_points`（複数点の外接矩形、`preview_segment`と同じ）で
 bboxを組む。`_build_best_candidate`のT274逆回り最適化（周回の向きに意味が無い8方位探索
@@ -127,18 +126,17 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 4. `domain/wind.py`の`WindCalculator.wind_penalty(wind_speed_ms, wind_direction_deg, travel_bearing_deg)`＝`風速 × cos(風向 − 走行方位)`で区間ごとのペナルティを算出（`wind_direction_deg`は気象学の慣習で「風が吹いてくる方向」。走行方位と一致＝正面からの向かい風＝`cos(0)=1`で最大、180度差＝追い風＝`cos(180°)=-1`、90度差＝横風＝`cos(90°)=0`で走行への影響なし。進行方向に平行な風成分のみが影響するという物理的に妥当なモデル）
 5. 区間距離で加重平均した値を`wind_score`（符号付きm/s、正=正味向かい風、負=正味追い風）として`RouteCandidate`にマージ
 
-天候取得に失敗した区間はスキップし、有効な区間が無い場合は`wind_score=None`（標高と同じ「取得失敗は握りつぶしてnull」方針）。既知の制約: 推定到達時刻の計算は「サーバーのローカル時刻＝Asia/Tokyoのその時刻」という簡易近似（Open-Meteoの`hourly`もタイムゾーン付きでなくAsia/Tokyoのnaiveなローカル時刻文字列を返すため整合はしている）。`wind_score`は正規化・重み付けされていない生の物理量で、Step8の`total_score`算出時にスコアリング設定（`scoring.yaml`想定）で重み付けする。
+天候取得に失敗した区間はスキップし、有効な区間が無い場合は`wind_score=None`（標高と同じ「取得失敗は握りつぶしてnull」方針）。既知の制約: 推定到達時刻の計算は「サーバーのローカル時刻＝Asia/Tokyoのその時刻」という簡易近似（Open-Meteoの`hourly`もタイムゾーン付きでなくAsia/Tokyoのnaiveなローカル時刻文字列を返すため整合はしている）。`wind_score`は正規化・重み付けされていない生の物理量で、`RouteCandidate`へそのまま残る（Step8時点の重み付け先だった`total_score`は改善計画T548で撤去済み、次節参照）。
 
-### 路面評価（`road_score`）と総合スコア（`total_score`）の設計（Step8）
+### 路面評価（`road_score`）と総合スコア（`total_score`）の設計（Step8、**改善計画T548・2026-09-03で総合スコアリング部分を撤去**）
 道路特性（`road_weight`）はOSM/Overpassの実データ連携が将来課題として残っていたが、openrouteserviceの`extra_info`パラメータを調査した結果、`cycling-road`プロファイルが`extra_info: ["surface"]`に対応しており、Step4-7から既に呼んでいるルート取得リクエスト（`ORSClient.get_directions`）1回に相乗りする形で、追加APIコールなしに区間ごとの路面種別内訳（`properties.extras.surface.summary`、`{value, distance, amount}`の配列。`value`はOSMのsurfaceタグ相当の0-18の路面種別ID）が取得できることが分かった。これにより当初のスコアリング設計（距離・標高・風・道路の4要素）をStep8内でそのまま実装できた。
 
-- **`road_score`の算出**: `RoutingService.get_route`が`feature["properties"]["extras"]["surface"]["summary"]`を`RouteSegment.surface_summary`としてパースし（無くても`None`で許容、必須フィールドの欠如とは扱いを分けている）、`route_generator._build_candidate`で候補生成と同時に`domain/road.py`の`paved_percent(surface_summary)`を呼んで`road_score`（走行しやすい舗装路面＝Paved/Asphalt/Concrete/Paving Stones＝ID 1,3,4,14の`amount`合計、0-100%）を算出する。標高・風とは異なり別サービス呼び出しが不要な同期計算。
-- **正規化方式**: `domain/scoring.py`の`normalize_min_max(values, higher_is_better)`が、**その回の`generate_loops`呼び出しで生成された候補集合内**でmin-max正規化して0-100点に変換する。絶対的なしきい値（獲得標高200mが何点か等）を決め打ちできる実データが無いため、候補同士の相対比較として設計している（異なるリクエスト間の`total_score`は比較不可）。値が`None`の候補はそのメトリクスを除外し、全候補が同値の場合は中立の100点とする。
-- **重みの方向**: 距離は目標との差が小さいほど高得点、獲得標高は小さいほど高得点（MVPでは「走りやすさ」優先の解釈。ヒルクライム志向のユーザー向けに反転する余地は将来課題）、`wind_score`は小さい（追い風寄り）ほど高得点、`road_score`は舗装率が高いほど高得点。
-- **`RouteScorer`**（[backend/app/services/route_scorer.py](../backend/app/services/route_scorer.py)）: I/Oを行わない純粋なクラス。`score(candidates, target_distance_km)`がdistance/difficultyの2指標を正規化し、`backend/app/scoring.yaml`の重み（`distance_weight: 0.30, difficulty_weight: 0.70`）で加重合成して`total_score`を`RouteCandidate`にマージする（**改善計画T401**: 従来は`elevation`/`wind`/`road`を個別にハードコード計算していたが、これらは`overall_difficulty`[軸スタジオの`RoutePreference.weights`で既に重み付け合成済みの値]に既に織り込まれ二重管理だったため、`overall_difficulty`をそのまま`difficulty`指標として使う形へ単純化した）。一部の指標が`None`の候補は、取得できた指標の重みだけで再正規化して合成する（1つも指標が無い候補のみ`total_score=None`。ただし距離は`RouteCandidate.distance_km`が必須フィールドのため実運用では常に値が存在する）。
-- **最終ソート順の変更**: `RouteGenerator.generate_loops`の返却順は、Step7までの「目標距離との近さ」から`total_score`降順（良い候補が先頭）に変更した。
+- **`road_score`の算出**: `RoutingService.get_route`が`feature["properties"]["extras"]["surface"]["summary"]`を`RouteSegment.surface_summary`としてパースし（無くても`None`で許容、必須フィールドの欠如とは扱いを分けている）、`route_generator._build_candidate`で候補生成と同時に`domain/road.py`の`paved_percent(surface_summary)`を呼んで`road_score`（走行しやすい舗装路面＝Paved/Asphalt/Concrete/Paving Stones＝ID 1,3,4,14の`amount`合計、0-100%）を算出する。標高・風とは異なり別サービス呼び出しが不要な同期計算。`RouteCandidate.road_score`フィールド自体は現在も残る（研究インターフェースの物理量表示用、後述`ComparisonPanel`参照）。
+- **重みの方向（Step8当時）**: 距離は目標との差が小さいほど高得点、獲得標高は小さいほど高得点（MVPでは「走りやすさ」優先の解釈。ヒルクライム志向のユーザー向けに反転する余地は将来課題）、`wind_score`は小さい（追い風寄り）ほど高得点、`road_score`は舗装率が高いほど高得点。
+- **`RouteScorer`（撤去済み）**: 旧`backend/app/services/route_scorer.py`が`score(candidates, target_distance_km)`でdistance/difficultyの2指標を候補集合内min-max正規化し、旧`backend/app/scoring.yaml`の重みで加重合成して`total_score`（`RouteCandidate.total_score`・`score_breakdown`）を算出していた（**改善計画T401**でelevation/wind/roadの個別ハードコード計算から`overall_difficulty`ベースの2指標へ単純化した経緯を持つ）。ユーザーから「おすすめ度の数字が極端で、ルート生成ロジックの距離誤差でほぼ決まっており参考にならない」という指摘を受け、**改善計画T548（2026-09-03）でtotal_score算出機構（`RouteScorer`・`domain/scoring.py`・`scoring.yaml`・`RouteCandidate.total_score`/`score_breakdown`・API境界の`scoring_weights`/`ScoringWeights`・フロントの`WeightPanel`）を丸ごと撤去**した。
+- **最終ソート順（改善計画T548で変更）**: `RouteGenerator.generate_loops`/`generate_via_waypoints`の返却順は、旧`total_score`降順から**`overall_difficulty`（絶対基準0-100の総合難易度）昇順**（易しい候補が先頭、算出不能な`None`は末尾）へ変更した。この基準は異なるリクエスト間でも比較可能な絶対値のため、候補集合内でしか意味を持たなかった旧`total_score`降順より単純で分かりやすい。
 
-既知の制約: `total_score`は同一リクエスト内の相対評価であり、異なる`distance_km`や別日時のリクエスト結果と比較する指標ではない。路面データはOSMの`surface`タグが付与されていない区間があると実態より低く出る可能性がある。
+既知の制約: 路面データはOSMの`surface`タグが付与されていない区間があると実態より低く出る可能性がある。
 
 **（後日追加: 改善計画T21・2026-08-15で撤去）** ここまでに書いたopenrouteservice `extra_info=surface`・`RouteSegment.surface_summary`・`paved_percent`は、評価のエンジン非依存化（後述「ルーティングエンジンの切り替え対応」）に伴い撤去済み。`road_score`は現在、両エンジンとも`domain/road.py`の`classify_osm_surface`（OSMタグ語彙）と`distance_weighted_road_score`（距離加重集計、共通関数）で算出する。ORSエンジンはサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチしてタグを読む（詳細は後述）。
 
@@ -148,7 +146,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 - **データ取得方針**: Step5-7-8で候補ごとに12点サンプリングして取得していた標高・風・路面の生データは、集約値（`elevation_gain_m`等）だけを残して区間ごとの詳細を捨てていた。Step9はこれを**捨てずに`RouteCandidate.segments`として返す**だけで実現しており、追加のAPIコール（GSI/Open-Meteo/openrouteservice）は一切発生しない。
 - **サンプル点の共有化**: `ElevationService.get_profile`と`WindService.get_wind_score`はそれぞれ独立に`sample_line_coordinates`を呼んでいたが、区間ごとの標高・風・路面を1つの配列としてインデックス整合させるため、`route_generator.py`が`sample_line_points(geometry, SAMPLE_COUNT)`（新規、`domain/geo.py`。座標だけでなく元geometry内でのインデックスも返す）で一度だけ点を取得し、両サービスに共有するようリファクタした。シグネチャも`get_profile(points)` / `get_wind_profile(points, start_time)`に変更（`geometry`ではなく点列を直接受け取る）。
 - **路面の位置対応（2026-08-15、改善計画T21で撤去・置換）**: 当初はopenrouteserviceの`extras.surface.values`（`[[start_idx, end_idx, surface_id], ...]`）を`RouteSegment.surface_values`として保持し`surface_id_at_index`で求めていたが、現在はサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチして`classify_osm_surface`で判定する方式に統一済み（後述「ルーティングエンジンの切り替え対応」）。
-- **難易度の算出（絶対基準）**: `domain/difficulty.py`が、Step8の相対正規化とは異なり**絶対基準**（一般的なロードバイク走行の目安）で0-100点化する。`gradient_difficulty`（0-3%易しい〜9%以上激坂の区分的線形）、`wind_difficulty`（向かい風0-8m/sで0→100、追い風・無風は0）、`road_difficulty`（舗装路0・非舗装80、`domain/road.py`の`GOOD_SURFACE_IDS`と基準を統一）、`composite_difficulty`（重み付き平均、`None`の指標は除外して残りの重みで再正規化、`RouteScorer`と同じ考え方）。当時（Step9時点）は重みをStep8の`scoring.yaml`から`distance_weight`を除いた`elevation_weight`/`wind_weight`/`road_weight`のまま流用していたが、現在の重みの単一の情報源は`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`（改善計画T316）であり、`scoring.yaml`は参照していない（改善計画T401で`scoring.yaml`自体も`distance_weight`/`difficulty_weight`の2キーへ変わっている）。地図の色分けは「候補間の相対比較」ではなく「客観的にどこが大変か」を示す目的のため、Step8のような候補集合内正規化ではなく絶対基準を採用した。
+- **難易度の算出（絶対基準）**: `domain/difficulty.py`が、Step8の相対正規化とは異なり**絶対基準**（一般的なロードバイク走行の目安）で0-100点化する。`gradient_difficulty`（0-3%易しい〜9%以上激坂の区分的線形）、`wind_difficulty`（向かい風0-8m/sで0→100、追い風・無風は0）、`road_difficulty`（舗装路0・非舗装80、`domain/road.py`の`GOOD_SURFACE_IDS`と基準を統一）、`composite_difficulty`（重み付き平均、`None`の指標は除外して残りの重みで再正規化）。当時（Step9時点）は重みをStep8の旧`scoring.yaml`から`distance_weight`を除いた`elevation_weight`/`wind_weight`/`road_weight`のまま流用していたが、現在の重みの単一の情報源は`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`（改善計画T316）である（旧`scoring.yaml`自体が改善計画T548で撤去済み）。地図の色分け・候補タブの並び順は「候補間の相対比較」ではなく「客観的にどこが大変か」を示す目的のため、Step8のような候補集合内正規化ではなく絶対基準を採用した（改善計画T548で候補タブの並び順もこの絶対基準＝`overall_difficulty`昇順へ統一）。
 - **`RouteSegmentDetail`**（`domain/route.py`、`RouteCandidate.segments`）: 区間の始点/終点座標・累積距離・推定到達時刻に加え、表示用の生値（`gradient_percent`, `wind_penalty`, `road_surface_good`, `car_stress`）と正規化済みの軸別内訳（当初のStep9時点は`elevation_difficulty`等の固定4〜7フィールドだったが、改善計画T309で`axis_difficulties`＝axis_id→difficultyの汎用dict＋総合の`difficulty`へ置換済み。正準定義は下記「6. データモデル」の`RouteSegmentDetail`インターフェース参照）を両方保持する。正規化済みの値をフロントに渡すことで、閾値ロジックをフロント側に複製せず、UIは常に「0-100→緑〜赤」の単一の色変換関数だけで済む。
 - **フロントエンド**（当初実装）: 選択中候補に`segments`があれば区間ごとの色分けレイヤーを追加し、モード切替ボタン（総合難易度/標高/風/路面）で`line-color`を切り替える形にした。この設計は後述のUI再構成でレイヤー構成ごと見直している。
 
@@ -162,7 +160,7 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
   1. `route-candidates-line`（既存）: 全候補のベース表示（amber未選択/blue選択）。`staticLayer==="none"`のときのみ表示。
   2. `route-static-segments-line`（新規）: **全候補**のセグメントを`elevation_difficulty`/`road_difficulty`で色分け。選択に関わらず常時利用可能（`MapOverlayControls`のチェックボックスでON/OFF）。
   3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする（**訂正・改善計画T518/T524（2026-09-01）**: この「常時」は本節が書かれた時点の設計。T518以降は候補線・方向矢印と合わせ、地図上「ルート」チップ[`layerVisibility.route`]のON/OFFに連動する——チップOFFで完全非表示になる、詳細は[docs/tasks/T518.md](tasks/T518.md)参照）。
-  4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`。改善計画T440時点では軸スタジオの`supports_route_coloring`軸から動的生成される各モード＋固定の総合難易度[`difficulty`]。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加、T440でモード集合自体が動的化された）。
+  4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`。改善計画T440で動的化・改善計画T549で軸ごとの手動フラグも撤去し、現在は軸スタジオの公開軸から動的生成される各モード＋固定の総合難易度[`difficulty`]。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加、T440でモード集合自体が動的化された）。
   - ①②は`visibility`レイアウトプロパティで排他的に切り替え、③は（本節が書かれた時点では）常時、④は最前面（③の現状はT518/T524の訂正注記参照）。クリック/ホバーの`queryRenderedFeatures`は②④の両方を対象にし、②のポップアップには所属候補が分かるよう`direction_label`を付与している。
 - **静的レイヤーのON/OFF**: 「標高図」「路面」はそれぞれ独立にON/OFFできる。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。ON/OFFの操作UIはその後のUI再構成（第2段、後述）で地図上のチップ＋サイドバーのスイッチに変わったが、「独立して同時表示可」という性質は変わっていない。
 - **`isStyleLoaded()`起因の描画スキップ**: 実装時、地図初期化直後や候補選択直後にレイヤーが表示されない不具合が実機確認（Playwright）で見つかった。原因は、各描画関数が使っていた「`map.isStyleLoaded()`がfalseなら`map.once("load", ...)`で待つ」というガード。`isStyleLoaded()`は初期スタイル読み込み後もタイル読み込み中は一時的にfalseを返すが、MapLibreの`load`イベントは初回読み込み時に一度しか発火しない。そのため、候補選択でカメラが動いてタイル読み込み中に描画関数が呼ばれると、`isStyleLoaded()===false`と判定されて`once("load", ...)`を登録するが、その`load`はもう二度と来ず、描画が永久にスキップされていた。スタイルが一度でも読み込まれたかどうかをmapインスタンス自身にフラグとして記録する`runWhenStyleReady`ヘルパーに置き換えて解消した。
@@ -537,13 +535,12 @@ RideCompass/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
         routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
-        route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・total_score・segments・axis_difficulties含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み）
+        route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・overall_difficulty・segments・axis_difficulties含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み）
         weather.py               ✅ WeatherConditions
         errors.py               ✅ RoutingError
         geo.py                   ✅ destination_point, haversine_distance_km, compass_label, bearing_between（sample_indices/sample_line_coordinates/sample_line_pointsはOpenRouteServiceEngine専用だったため改善計画T462の撤去に伴い削除済み）
         road.py                   ✅ classify_osm_surface, GOOD_OSM_SURFACE_TAGS, BAD_OSM_SURFACE_TAGS（両エンジン共通の唯一の路面判定語彙）, distance_weighted_road_score（距離加重集計、改善計画T21で両エンジン共通化）
-        scoring.py               ✅ normalize_min_max（Step8）
-        difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9）
+        difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9。scoring.py/normalize_min_maxは改善計画T548で撤去済み）
         wind.py                   ✅ WindCalculator.wind_penalty（Step7）
         region.py                 ✅ BoundingBox, tile_bounds_lonlat, ROAD_TILE_MIN_ZOOM/MAX_ZOOM（Step10改訂。標高グリッド・snap_cells・bbox対角距離関連は撤去済み）。ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox（Road Graphのタイル単位キャッシュ用、新規）
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
@@ -569,13 +566,12 @@ RideCompass/
         flood_forecast.py                  ✅ 改善計画T212: JMA指定河川洪水予報のコード対応表（気象庁公式コード表を典拠、item.code自体が発表/継続/警報解除/完全解除を区別）とレベル2〜5→バッジ4段階への対応、電文からのActiveFloodForecast抽出
         routing.py                     ✅ build_sparse_graph/shortest_path_node_ids_sparse/path_to_edge_ids_sparse（T220、scipy.sparse.csgraph版）・build_node_spatial_index/find_nearest_node_indexed・concat_node_paths。NetworkX版（build_networkx_graph/find_nearest_node/shortest_path_node_ids/path_to_edge_ids、「完全移行」時点の実装）はscipy移行後実行時経路から呼ばれなくなっていたため改善計画T321（デッドコード監査）で削除、networkx依存自体もrequirements.txtから撤去
       services/
-        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`。8方位・距離許容フィルタ・RouteScorer適用を単一実装で持ち、経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）。改善計画T364で経由地指定ルート専用の`generate_via_waypoints`（8方位探索・RouteScorerを通らない一本道）を追加
+        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`。8方位・距離許容フィルタ・`overall_difficulty`昇順ソート（改善計画T548、旧`RouteScorer`降順ソートを置換）を単一実装で持ち、経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）。改善計画T364で経由地指定ルート専用の`generate_via_waypoints`を追加
         road_graph_engine.py   ✅ `RoadGraphEngine`。Road Graph + Evaluation Engine + Route Engine（domain/routing.py）で経路・評価を行うエンジン（「完全移行」の実装をポート化。prepareでRoad Graph1回取得、evaluate_loopsで経路上Edgeのみ標高取得）。改善計画T462でopenrouteserviceエンジンを撤去し唯一のエンジン実装になった
         weather_service.py     ✅ 「地点＋時刻」で天候を取得（Step6）。RoadGraphEngineからは出発時点・起点付近の風を取得する用途で（「完全移行」）呼ばれる
         warning_service.py     ✅ 改善計画T205: 緯度経度→市区町村→JMA警報エリアの解決とr8警報APIの電文配列集約でWeatherWarningsを組み立てる。地点解決・警報取得のどこで失敗しても空応答（警報なし）を返す
         wbgt_service.py         ✅ 改善計画T174: 緯度経度→最寄りWBGT地点の解決と予測値APIの取得でWbgtStatusを組み立てる。提供期間外・地点解決失敗・取得失敗・「ほぼ安全」のいずれもlevel=nullを返す
         flood_service.py         ✅ 改善計画T212: T205のjma_area.resolve_areaを再利用した地点解決と洪水予報APIの電文集約でFloodForecastsを組み立てる。地点解決・取得のどこで失敗しても空応答を返す
-        route_scorer.py            ✅ 4指標を正規化・重み付け合成しtotal_scoreを算出（Step8）。「完全移行」後もRoad Graphベースの候補に対しそのまま再利用
         region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）。get_poi_tile(z,x,y)で停止要因POI・交差点密度の点タイルを生成（T54）。カバレッジ内タイル配信のたびにz12祖先タイルの道路グラフ未構築・古さを確認しバックグラウンド構築を起動（T59、7章参照）
         accident_service.py          ✅ 事故点のタイル生成（accident_repository.py経由）。region_service.pyとは別系統（外部静的データソースT50、7章参照）
         graph_service.py            ✅ GraphService.get_or_build_graph_with_attributes(bbox)でPostGIS（`repository`必須）からRoad Graphを取得・構築（Road Graph移行Phase 1〜3、新規）。「完全移行」でRouteGeneratorから実際に参照されるようになった。当初はrepository未接続時にOverpassから都度構築するDBなし構成を持っていたが、改善計画T222で撤去済み（本番・dev環境は常にrepositoryを注入するため未到達だった）。改善計画T321（デッドコード監査）: T219のタイルキャッシュ導入でホットパスが`_build_search_materials_from_tile_cache`へ移った後、`lean`引数と依存する分岐が実行時到達不能のまま残っていたため削除。T248の材料取得統合（`get_edge_materials_batch`）後に呼び出し元を失っていた素通しラッパー4本（`get_way_tags`/`get_edge_attribute_counts`/`get_elevation_attributes`/`get_designated_edge_ids`）も削除
@@ -617,18 +613,16 @@ RideCompass/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
       test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_betweenの検証
       test_routes_preview.py  ✅ get_preview_builderをDIでモックしたAPIテスト。per-IPレート制限（20回/分）の429検証を追加
-      test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 経由地点が起点始点/終点の周回を成すこと・距離許容フィルタ・失敗方位のスキップ・prepare失敗時の空返却・**評価が距離フィルタ通過候補だけに行われること**・total_scoreソート・engine_name公開（設計レビュー対応のポート分割で新規）
+      test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 経由地点が起点始点/終点の周回を成すこと・距離許容フィルタ・失敗方位のスキップ・prepare失敗時の空返却・**評価が距離フィルタ通過候補だけに行われること**・`overall_difficulty`昇順ソート（改善計画T548で降順`total_score`ソートから変更）・engine_name公開（設計レビュー対応のポート分割で新規）
       test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 起点を中心とした「車輪」状のRoad Graphフィクスチャによる8方位生成・許容範囲フィルタ・経路探索失敗時スキップ・標高/路面/風の集計・segments構築・graph_serviceへの問い合わせが1回のみ・標高取得がパス上のEdgeだけ＆距離フィルタ通過候補だけに絞られること（性能回帰テスト）・engine_name（旧test_route_generator.pyのRoad Graph版から改組）
       test_routing.py          ✅ build_sparse_graph/shortest_path_node_ids_sparse/path_to_edge_ids_sparse（コスト最小経路・到達不能・始点=終点・Hard Constraint除外）・build_node_spatial_index/find_nearest_node_indexed・concat_node_pathsの検証（T321でNetworkX版のテストは実装ごと削除）
-      test_routes_generate.py ✅ get_route_generation_builderをDIでモックしたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429に加え、研究IF改善Phase 1で重み上書きの伝搬・conditionsエコー・上書きバリデーション422・YAML既定値へのフォールバックの検証を追加）
+      test_routes_generate.py ✅ get_route_generation_builderをDIでモックしたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429に加え、研究IF改善Phase 1で重み上書きの伝搬・conditionsエコー・上書きバリデーション422・既定値へのフォールバックの検証を追加）
       test_elevation_client_cache.py ✅ 同一/近傍座標でのキャッシュ再利用・遠方座標での再取得
       test_weather_service.py ✅ 現在/指定時刻の天候取得、取得失敗時の扱い
       test_weather_client_cache.py ✅ TTL内キャッシュ再利用・失効後再取得・取得失敗時の扱い
       test_weather_route.py   ✅ /api/weatherのDIモックテスト。per-IPレート制限（60回/分）の429検証を追加
       test_wind.py             ✅ WindCalculator.wind_penaltyの向かい風/追い風/横風の検証（domain/wind.py自体は「完全移行」後もdomain/evaluation.py: compute_wind_penaltyから再利用）
       test_road.py             ✅ classify_osm_surface（OSMタグ基準、両エンジン共通）とdistance_weighted_road_score（距離加重集計、改善計画T21で両エンジン共通化）の検証。不明路面の「分母から除外・None判定」（設計レビュー対応）の検証を含む
-      test_scoring.py         ✅ normalize_min_maxの方向反転・全同値時の中立100点・None扱いの検証
-      test_route_scorer.py    ✅ RouteScorer.scoreの正常系・指標欠損時の重み再正規化・score_breakdown（寄与点の合計=total_score）・全重み0時のtotal_score=Noneの検証
       test_difficulty.py      ✅ gradient/wind/road_difficultyの閾値・composite_difficultyの再正規化の検証
       test_axis_templates.py   ✅ 改善計画T239、T396で2プリミティブへ再編: 連続演算（区分線形補間、boolean材料の重み付き和も含む）・離散演算（カテゴリ→定数）のスカラー/配列両モードの一致・NaN伝播の検証
       test_region.py           ✅ tile_bounds_lonlatの検証（zoom0で全世界を覆う・隣接タイルの境界一致など、Step10改訂）。tiles_covering_bboxの検証（単一/複数タイル・世界端でのクランプ）を追加（Road Graphのタイル単位キャッシュ導入時、新規）
@@ -654,7 +648,6 @@ RideCompass/
       test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証。_sweep（アクセス途絶クライアントの定期削除、メモリリーク対策）の検証を追加
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
     migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）。0009_designation_attributes_osm_way_id.sql: designation_attributesのキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways FK）へ変更（T74、DROP→再作成）
-    scoring.yaml               ✅ total_score算出とStep9難易度可視化で共有する重み設定（Step8）
     data/                       ✅ 地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）。旧SQLite永続キャッシュ（ridecompass_cache.db）はT398でRedisへ移行し撤去済み
     requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加。networkxは「完全移行」（Route Engine）時に追加したが、T220でDijkstra本体がscipy.sparse.csgraphへ移行した後もNetworkX版の関数群が実行時経路から呼ばれないまま残っていたため、改善計画T321（デッドコード監査）で依存ごと削除した
     Dockerfile                ✅
@@ -690,8 +683,7 @@ RideCompass/
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
-        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー）。研究モード限定ではなく常時表示。route_preference（weightOverrideEnabled）はWeightPanelと状態を共有し、withAutoEnableでどちらを操作しても自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T418: 各軸の行末尾に「この条件で地図を色分け」トグル（`renderMapColorToggle`）を追加し、地図上チップから撤去した評価軸の色分け起動をこのパネルへ移設した。専用の表示レイヤーを持つ軸（kind="ramp"、`catalog.secondaryAxes`のlayerId）・風（`wind`、axisIdで直接`windAxis`へ紐付け）・改善計画T423で追加した勾配（`gradient`、axisIdで直接`gradientAxis`へ紐付け）だけがトグルを持ち、持たない軸とルート確定後の風・勾配は押せない案内表示になる
-        RouteList/RouteList.tsx  ✅ 候補一覧・選択・おすすめ度（total_score）表示（Step4-5-7-8）。改善計画T421: サマリ行を「距離」と「軸による重みづけ（おすすめ度）」の2つへ単純化し、旧scoring.yaml時代の個別フィールド（獲得標高・風評価・路面）の表示は撤去した（値自体はRouteCandidateに引き続き残る）。軸ごとの内訳はレーダーチャート（区間クリック、T403）・RouteAxisProfile（T402）で見る
+        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー）。常時表示。route_preference（weightOverrideEnabled）はpage.tsxとlocalStorage経由で状態を共有し、withAutoEnableで操作すると自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T418: 各軸の行末尾に「この条件で地図を色分け」トグル（`renderMapColorToggle`）を追加し、地図上チップから撤去した評価軸の色分け起動をこのパネルへ移設した。専用の表示レイヤーを持つ軸（kind="ramp"、`catalog.secondaryAxes`のlayerId）・風（`wind`、axisIdで直接`windAxis`へ紐付け）・改善計画T423で追加した勾配（`gradient`、axisIdで直接`gradientAxis`へ紐付け）だけがトグルを持ち、持たない軸とルート確定後の風・勾配は押せない案内表示になる
         RouteAxisProfile/RouteAxisProfile.tsx ✅ 改善計画T402: 選択中ルートの`RouteCandidate.axis_difficulties`
           を軸ごとの横棒グラフ一覧で表示（レーダーチャートは不採用）。軸の並び順・ラベルは
           useAxisCatalog().axesから取得しハードコード辞書は持たない。バー色は
@@ -833,12 +825,11 @@ Request:
 { "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5, "route_type":"loop" }
 Request（評価重みの上書き。研究用・省略可。docs/research-interface-review-2026-08-15.md §10-1）:
 { ...上記に加えて,
-  "scoring_weights": { "distance_weight":0.3, "difficulty_weight":0.7 },
   "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
     "car_stress":0.20, "accident":0.08, "night":0.0 },
   "penalty_strength": 1.0, "max_average_grade_percent": null,
   "hard_filters": { "no_bicycle":true, "motorway":true, "trunk":false } }
-  # 省略時はscoring.yamlの既定値 / AXIS_DEFINITIONSのdefault_weight（改善計画T316）。
+  # 省略時はAXIS_DEFINITIONSのdefault_weight（改善計画T316）。
   # 指定する場合はいずれも
   # 全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ。
   # route_preference・hard_filtersは全フィールド必須の別モデルで、一部だけの指定は422になる。
@@ -848,9 +839,7 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
   # Pythonレシピ（car_stress_recipe/road_suitability_recipe/motor_vehicle_density_recipe）は
   # 廃止され、car_stressを含む全軸の材料はAXIS_DEFINITIONSの内部軸階層（下記参照）へ
   # 一本化された。
-  # scoring_weightsの重みは有効指標の重み和で正規化されるため合計1.0でなくてよい。全て0にすると
-  # total_score=nullになる（RouteScorer参照）。penalty_strength（改善計画T218・T12 ADR原則1）は
-  # コスト式の割増率の強さ、max_average_grade_percent（改善計画T218a・T12 ADR原則5）は
+  # penalty_strength（改善計画T218・T12 ADR原則1）は
   # 0次ハードフィルタの勾配しきい値で、いずれもroad_graphエンジンのみに効く。
   # hard_filters（改善計画T266）は0次ハードフィルタ（`no_bicycle`/`motorway`/`trunk`、
   # domain/evaluation.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
@@ -877,15 +866,7 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
     {
       "id":"route-090", "direction_label":"東", "distance_km":32.7,
       "elevation_gain_m":12.8, "min_elevation_m":1.1, "max_elevation_m":9.6, "max_gradient_percent":0.8,
-      "wind_score":0.15, "road_score":76.2, "total_score":73.8,
-      "score_breakdown": [   /* total_scoreの軸別内訳（RouteScorerが算出。研究IF改善 §10-2）。
-                                scoreは候補集合内相対の正規化値(0-100)、contributionは寄与点で
-                                有効指標分の合計がtotal_scoreに一致（丸め誤差除く） */
-        { "axis":"distance", "score":95.0, "weight":0.30, "contribution":28.5 },
-        { "axis":"elevation", "score":80.0, "weight":0.15, "contribution":12.0 },
-        { "axis":"wind", "score":66.0, "weight":0.30, "contribution":19.8 },
-        { "axis":"road", "score":54.0, "weight":0.25, "contribution":13.5 }
-      ],
+      "wind_score":0.15, "road_score":76.2,
       "segments": [
         {
           "geometry": { "type":"LineString","coordinates":[...] },  /* 区間の道なり形状（ルートgeometryの部分列。地図の色分けはこれに沿って描く） */
@@ -913,7 +894,7 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
       /* ↑ 改善計画T402。segments[]のaxis_difficultiesを候補全区間に集約したルート単位版
          （overall_difficultyと対）。BottomSheet「ルート全体プロファイル」（横棒グラフ一覧）が消費する */
     },
-    ...（total_scoreが高い順、最大8件）
+    ...（overall_difficultyが小さい順[改善計画T548]、最大8件）
   ],
   "engine": "road_graph",
   "conditions": {   /* この生成に実際に適用された条件のエコー（実験の記録・再現用。研究IF改善 §10-6）。
@@ -922,7 +903,6 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
                        （GenerationConditions、上のRequest部分指定不可の説明と対応。改善計画T292で
                        専用Pythonレシピ3つは廃止済み） */
     "latitude":35.7597, "longitude":139.7387, "distance_km":30, "distance_tolerance_km":5,
-    "scoring_weights": { "distance_weight":0.30, "difficulty_weight":0.70 },
     "route_preference": { "gradient":0.15, "surface_q":0.19, "wind":0.26, "stop_density":0.20,
       "car_stress":0.20, "accident":0.08, "night":0.0 },
     "penalty_strength": 1.0, "max_average_grade_percent": null,
@@ -1129,30 +1109,22 @@ Response 429（同一クライアントIPから1分あたり6リクエスト（`
 
 風評価（`wind_score`）はStep7で実装済み。「風評価（`wind_score`）の設計（Step7）」を参照。序盤/中盤/終盤で風負荷の重みを変える拡張（帰路の向かい風を重視）は設計上考慮するが、MVPでは必須としない（現状は区間距離での単純な加重平均のみ）。
 
-総合スコアリング（Step8）の重みは `scoring.yaml` で管理し、コードにハードコードしていない（実際の設定ファイルは[backend/app/scoring.yaml](../backend/app/scoring.yaml)）：
-
-```yaml
-scoring:
-  distance_weight: 0.30
-  difficulty_weight: 0.70
-```
+総合スコアリング（Step8の`total_score`算出機構）が使っていた`scoring.yaml`は
+**改善計画T548（2026-09-03）で撤去済み**（前節「路面評価と総合スコアの設計（Step8）」参照）。
 
 ### 評価重みのリクエスト上書きと評価モデル研究時の構成（研究インターフェース改善 Phase 1）
 
 評価モデルの探索・研究（[research-interface-review-2026-08-15.md](research-interface-review-2026-08-15.md)）のため、
-`scoring.yaml`（total_score・候補集合内相対）と`RoutePreference`（Edge評価・区間難易度・絶対、
-既定値は`domain/axis_definitions.py: AXIS_DEFINITIONS`のdefault_weight、改善計画T316）の重みは
-`/api/routes/generate`のリクエストボディでリクエスト単位に上書きできる（§10-1）。実際に適用された値は
-レスポンスの`conditions`にエコーされ（§10-6）、レスポンスJSONを保存すればそのまま再現条件になる。
+`RoutePreference`（Edge評価・区間難易度・絶対、既定値は`domain/axis_definitions.py:
+AXIS_DEFINITIONS`のdefault_weight、改善計画T316）の重みは`/api/routes/generate`のリクエスト
+ボディでリクエスト単位に上書きできる（§10-1）。実際に適用された値はレスポンスの`conditions`に
+エコーされ（§10-6）、レスポンスJSONを保存すればそのまま再現条件になる。
 
 - 配線: `dependencies.py: get_route_generation_builder`がビルダー（`RouteGenerationSetup`を返す呼び出し可能）を
   DIで供給し、エンドポイントが検証済みの上書き値（無ければNone→既定値）を渡して組み立てを完了する。
-  `scoring.yaml`はリクエスト毎に再読込されるためファイル編集もサーバー再起動なしで反映されるが、
   `route_preference`側の既定値は軸スタジオでの公開軸・default_weight編集がサーバー再起動なしで
   即座に反映される（`AxisRegistryAdminService`の書き込み直後リフレッシュ、改善計画T221 Stage D）
-- 上書きは全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ）。重みは有効指標の
-  重み和で正規化するため合計1.0でなくてよく、`scoring_weights`を全て0にした場合は合成不能として
-  `total_score=null`（`RouteScorer`のweight_sum==0ガード、`composite_difficulty`と同じ扱い）
+- 上書きは全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ）
 - **研究時の重みの効き方**: road_graphエンジン（改善計画T462で唯一のエンジンに一本化）では
   `route_preference`がEdge Cost→Dijkstra探索に直接効くため、重みの変更はルート形状そのものに
   反映される（ただし勾配は探索コストに含まれない既知の制約がある。road_graph_engine.pyの
@@ -1199,13 +1171,6 @@ interface RouteSegmentDetail {
   difficulty: number | null;              // 公開軸の合成値（絶対基準0-100）
 }
 
-interface RouteScoreComponent {   // total_scoreの軸別内訳（研究IF改善 §10-2）
-  axis: string;                    // "distance" | "elevation" | "wind" | "road"
-  score: number | null;            // 候補集合内相対の正規化値0-100（指標が取れなかった候補はnull）
-  weight: number;                  // 合成に使った設定重み
-  contribution: number | null;     // total_scoreへの寄与点（有効指標分の合計=total_score）
-}
-
 interface RouteCandidate {
   id: string;
   direction_label: string;
@@ -1217,10 +1182,11 @@ interface RouteCandidate {
   max_gradient_percent: number | null;
   wind_score: number | null;
   road_score: number | null;
-  total_score: number | null;
-  score_breakdown: RouteScoreComponent[] | null;
   segments: RouteSegmentDetail[] | null;
-  overall_difficulty: number | null;  // segments.difficultyの距離加重平均（絶対基準、実験間比較用。研究IF改善§10-7）
+  overall_difficulty: number | null;  // segments.difficultyの距離加重平均（絶対基準）。改善計画T548で
+    // 候補タブの並び順の基準にもなった（昇順、算出不能なnullは末尾）。旧`total_score`・
+    // `score_breakdown`（研究IF改善§10-2の候補集合内相対スコア、RouteScoreComponent[]）は
+    // 改善計画T548（2026-09-03）で撤去済み
   axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。改善計画T402で新設。
     // RouteSegmentDetail.axis_difficultiesと同じ汎用dictを候補の全区間へ集約したもの
     // （merge_axis_difficultiesをビン単位ではなく候補全体に1回適用するだけ）。軸スタジオの
@@ -1236,8 +1202,8 @@ interface RouteGenerateRequest {
   distance_km: number;
   distance_tolerance_km: number;
   route_type: "loop";
-  scoring_weights?: ScoringWeights;          // 評価重みの上書き（研究用・省略可、§10-1）
-  route_preference?: RoutePreferenceWeights; // 同上（Edge評価・区間難易度の重み、axis_idキーの辞書。
+  route_preference?: RoutePreferenceWeights; // 評価重みの上書き（研究用・省略可、§10-1。Edge評価・
+    // 区間難易度の重み、axis_idキーの辞書。
     // 改善計画T292でcar_stress_recipe等の専用Pythonレシピ上書きは廃止し、公開軸の重みのみで表現する）
   penalty_strength?: number;         // コスト式の割増率の強さ（改善計画T218・T12 ADR原則1、省略時1.0）
   max_average_grade_percent?: number | null; // 0次ハードフィルタの勾配しきい値（改善計画T218a・T12 ADR原則5、省略時は除外なし）
@@ -1257,7 +1223,7 @@ interface WeatherConditions {
 
 ```
 
-バックエンド側は `domain/route.py`, `domain/weather.py` に同等のPydanticモデルを実装済み。フィールド名はキャメルケースではなくAPIレスポンスに合わせたスネークケースにしている（フロント⇔バックエンドで変換不要にするため）。標高系・`wind_score`・`road_score`・`total_score`・`segments`内の各フィールドは取得失敗時に`null`になりうるため、フロント側も`null`許容で扱う。
+バックエンド側は `domain/route.py`, `domain/weather.py` に同等のPydanticモデルを実装済み。フィールド名はキャメルケースではなくAPIレスポンスに合わせたスネークケースにしている（フロント⇔バックエンドで変換不要にするため）。標高系・`wind_score`・`road_score`・`overall_difficulty`・`segments`内の各フィールドは取得失敗時に`null`になりうるため、フロント側も`null`許容で扱う。
 
 候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）は、いずれもタイル形式（標高はGSIのラスタタイル、路面はPostGIS/ST_AsMVTで生成したMVT）で配信するため、Step5-9のようなJSONのレスポンスモデルを持たない。バックエンド側の`domain/region.py`にはタイル範囲計算に使う`BoundingBox`（Pydanticモデル）が残っているが、これはPostGISクエリ・（DBなし構成での）Overpass問い合わせに使う内部的な値であり、フロントエンドとの間でJSONとしてやり取りするものではない（フロント側に対応する型定義は無い）。
 
@@ -1271,7 +1237,7 @@ Step8時点の評価（距離・標高・風・路面の4指標）に加え、OS
 （KSJ）を材料とした指標を追加し、区間難易度（`RoutePreference`）・地図の静的レイヤーの
 両方に反映した（`static-road-attributes-plan.md` P0/P1、
 [external-data-sources-review-2026-08-16.md](external-data-sources-review-2026-08-16.md)）。
-scoring.yaml（total_score）には含めない（stop_weightと同じ
+旧scoring.yaml（total_score、改善計画T548で撤去済み）には含めない（stop_weightと同じ
 スコープ判断、後述）。
 
 自転車インフラは改善計画T138（評価システムの層構造再設計）で独立軸（`infra_weight`）を
@@ -1349,12 +1315,14 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 （改善計画T316でこの既定値の情報源を一本化、`route_preference.yaml`の手書きミラーは撤廃済み）。
 APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキー）。
 
-`scoring.yaml`（total_score・候補集合内相対評価）は**改善計画T401**でdistance/difficultyの
-2指標へ単純化された。difficulty側は`overall_difficulty`（この8軸すべてを`RoutePreference.weights`
-で重み付け合成した値）をそのまま使うため、候補間の「おすすめ度」の並び順にも8軸全てが
-軸スタジオで設定した重みどおりに反映される（P1着手時点では距離・標高・風・路面の4指標のみを
-候補順位に使うというスコープ判断だったが、「候補は軸スタジオで決めた尺度で比較されるべき」
-というユーザー方針を受けT401で撤回・一本化した）。**軸を追加するときは
+旧`scoring.yaml`（total_score・候補集合内相対評価）は**改善計画T401**でdistance/difficultyの
+2指標へ単純化され、その後**改善計画T548（2026-09-03）で総合スコアリング機構自体が撤去**された。
+現在の候補タブの並び順は`overall_difficulty`（この8軸すべてを`RoutePreference.weights`で
+重み付け合成した値）の昇順で、8軸全てが軸スタジオで設定した重みどおりに反映される（P1着手
+時点では距離・標高・風・路面の4指標のみを候補順位に使うというスコープ判断だったが、「候補は
+軸スタジオで決めた尺度で比較されるべき」というユーザー方針を受けT401で撤回・一本化し、
+「並び順はoverall_difficultyのみでよい」というさらなるユーザー判断を受けT548でtotal_score
+自体を撤去した）。**軸を追加するときは
 必ずこの1本道を通す**（`CLAUDE.md`参照）: 取込（`import_profile.yaml`/`ALLOWED_WAY_TAGS`等）
 → 材料の解決（既存材料で足りない場合のみ。スカラー経路`compute_edge_axis_scores`は
 引き続き手書き。配列経路`compute_edge_costs_bulk`は改善計画T280で`domain/material_catalog.py:
@@ -1370,10 +1338,10 @@ MaterialSpec.extractor`宣言駆動化済みのため、抽出方法がタグ判
 書き足さない。区間詳細表示（`RouteSegmentDetail.axis_difficulties`、改善計画T309で
 axis_id→difficultyの汎用dictへ置換済み）も両エンジンの区間ビルダーからaxis_scores/
 axis_difficultiesをそのまま渡すだけで自動反映され、軸ごとの手書き追記は不要
-（フロント`routeStyleModes.ts`の色分けモードは改善計画T440で`supports_route_coloring`
-軸から動的に生成する形へ一本化したため、新規軸を軸スタジオで公開し`supports_route_
-coloring`をtrueにするだけでコード変更なしにモードが増える。固定で残るのは`difficulty`
-[総合難易度、対応する軸を持たない唯一の例外]のみ）。
+（フロント`routeStyleModes.ts`の色分けモードは改善計画T440で動的生成する形へ一本化し、
+改善計画T549で軸ごとの手動フラグも撤去したため、新規軸を軸スタジオで公開するだけで
+コード変更なしにモードが増える。固定で残るのは`difficulty`[総合難易度、対応する軸を
+持たない唯一の例外]のみ）。
 **この1本道はコスト計算
 （ルーティング・研究モードの重みパネル）の配線経路であり、地図表示（レイヤーパネル・凡例）への
 反映は別経路（下記「一次属性レジストリ・二次軸レジストリ」参照）** — 両者は現状レジストリ
@@ -1629,10 +1597,12 @@ route handler側は自分のサーバー環境（frontend側の`ADMIN_BASIC_AUTH
 食い違うとページ本体は入れるがAPI呼び出しだけ500/401になる——設定時は両者を必ず
 揃えること）はT272から変わらない。
 
-研究モードの表示切替（`lib/researchMode.ts`、`/admin`内でWeightPanel等の表示ON/OFFを
+研究モードの表示切替（`lib/researchMode.ts`、実験スロット記録・比較タブ等の表示ON/OFFを
 選ぶだけのUI用トグル）は元々認可の意味を持たない簡易フラグだったが、`/admin`ページ
 自体が認証済みユーザーしか到達できなくなったため、意味の重複が解消された（このトグル
-自体はT272で変更していない、単なる表示設定として残る）。
+自体はT272で変更していない、単なる表示設定として残る。改善計画T519でトグル本体は
+一般公開ページのヘッダーメニューへ移設済み、詳細はdocs/modules/frontend/
+developer-research-tools.md参照）。
 
 ### 材料の排他帰属チェック（改善計画T268）
 
@@ -1932,6 +1902,12 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   起きなくなったため。
 - **軸スタジオの編集UI**: `display_override`と同様、現時点で編集UIを持たない
   （`AxisComposer.tsx`は既存値をpayloadへ素通しするのみ、管理API直接編集のみ対応）。
+- **`supports_route_coloring`は改善計画T549（2026-09-03）で撤去**: この機構
+  （軸のdifficultyを汎用の3段階色分けとして使う仕組み）の対象外になる軸は技術的に
+  存在しないと判明したため、フィールド自体をDBカラム含め全面撤去し、
+  `routeStyleModesFromCatalogAxes()`は公開軸を無条件で対象にする設計へ変更した。
+  実際にユーザーが使っている軸だけへの絞り込みは`filterRouteStyleModesByPreference`
+  （route_preferenceの重み）のみが担う。`time_scope`は変更なし、本節の内容は現在も有効。
 
 ### `display_override`廃止（改善計画T404、2026-08-30）
 
@@ -2197,7 +2173,7 @@ T139時点で既に`domain/night.py: night_difficulty`として独立済みの�
 `recipeExpression.ts`・`recipe.py`（判定プリミティブ）は車ストレス軸の実装として
 そのまま残っていたが、改善計画T292で車ストレス自体が専用Pythonレシピを廃止したことに伴い、
 `CarStressRecipePanel.tsx`ごと`recipeExpression.ts`は削除。`recipeControls.tsx`は
-`WeightPanel`等が引き続き使う`RecipePanelSection`/`withAutoEnable`/`FieldLabel`のみ残し、
+`RouteSettingsPanel`等が引き続き使う`RecipePanelSection`/`withAutoEnable`/`FieldLabel`のみ残し、
 車ストレス専用だった`LevelPicker`/`AdjustmentStepper`等は削除。`recipe.py`は材料タグ正規化
 の純関数群のみ残る（詳細は上記「停止密度・車ストレス...」節参照）。
 
@@ -2465,10 +2441,9 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 feature-stateを明示的にクリアする）。
 代わりに、既に実装済みだった`RouteSegmentDetail.axis_difficulties.wind`（ルート生成時点で
 区間ごとの実進行方向・実到達時刻を使って計算済み、`routeStyleModesFromCatalogAxes`が
-axis-catalogの`wind`軸の`supports_route_coloring`フラグから自動生成する`routeStyleModes`の
-"wind"モード、「ルート設定/結果パネル」の「生成したルートの色分け」）が、ルート線のみへの
-正確な色分けを担う——これはT400.md「3.」節の実装（T352）で既に存在しており、T414で新規に
-実装したものではない。
+axis-catalogの公開軸から自動生成する`routeStyleModes`の"wind"モード、「ルート設定/結果
+パネル」の「生成したルートの色分け」）が、ルート線のみへの正確な色分けを担う——これは
+T400.md「3.」節の実装（T352）で既に存在しており、T414で新規に実装したものではない。
 
 `mapLayers.ts`の`windAxis`レイヤー自体（`layerVisibility.windAxis`のON/OFF・実際の地図描画）は
 変更していないが、それを起動するUIは改善計画T418で地図上チップから撤去し、ルート設定パネル

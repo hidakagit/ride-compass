@@ -12,7 +12,7 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
-| services | `route_generator.py`（戦略層）・`route_scorer.py`・`road_graph_engine.py`・`graph_service.py` |
+| services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py` |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
@@ -56,7 +56,7 @@ RouteGenerator.generate_loops()
   _with_overall_difficulty() → _with_axis_difficulties()
         │  区間segmentsから距離加重でルート単位のoverall_difficulty・axis_difficultiesを集約
         ▼
-  RouteScorer.score(candidates, target_distance_km)
+  candidates.sort(overall_difficulty昇順、Noneは末尾)
         ▼
   RouteCandidate一覧
 ```
@@ -81,21 +81,12 @@ RouteGenerator.generate_loops()
 `generate_loops`とは独立した経路生成（8方位探索・距離フィルタは行わない）。
 `destination`省略時は起点に戻る周回、指定時は起点に戻らず目的地で終わる片道ルート
 （終点到達後に`id="route-destination"`/`direction_label="目的地ルート"`へ上書き）。
-候補は常に1件のため`RouteScorer`（候補集合内min-max正規化）は呼ばない
-（`total_score`は`None`のまま。frontendの候補タブ表示（`app/page.tsx`）は
-`total_score != null`ガードを持つ）。
 
-## RouteScorer（`route_scorer.py`）
+## 候補タブの並び順
 
-`score(candidates, target_distance_km)`が`ScoringWeights`（`distance_weight`・
-`difficulty_weight`の2指標、`scoring.yaml`が既定値）で候補集合内の相対評価
-（`total_score`）を算出する。
-
-- 取得できなかった指標（None）は除外し、残った指標の重みだけで再正規化して合成する。
-  全指標が欠損、または有効指標の重みが全て0の場合は`total_score=None`。
-- `RouteCandidate.score_breakdown`（軸別の正規化スコア・重み・寄与点）も同時に付与する。
-- I/Oは行わない。正規化は`score()`に渡された候補集合内でのmin-max
-  （`domain/scoring.py`）のため、異なるリクエスト間のtotal_scoreは比較できない。
+`generate_loops`・`generate_via_waypoints`とも、返す`RouteCandidate`一覧を
+`overall_difficulty`（絶対基準0-100の総合難易度）昇順（易しい候補が先頭）で並べる。
+算出不能（`None`）の候補は末尾へ回す。異なるリクエスト間でも同じ絶対基準で比較できる。
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
@@ -491,8 +482,6 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
   実際には変わっていない起動のたびにディスクキャッシュを丸ごと再構築しないための区別
   （不一致時はメモリ・ディスク両方を即座に削除、バージョン文字列は据え置いたまま。
   軸編集はデプロイを伴わない実行時操作のため）。
-- **`RouteScorer`は候補1件（waypoints指定ルート）に対しては呼ばれない**——曖昧な
-  「常に満点」を避けるための意図的な設計。
 - **`search_graph_cache`（探索用グラフ・索引）はタイル集合キー**——
   `graph_material_cache`/`tile_score_matrix_cache`（いずれもタイル単位のキー）とは
   粒度が異なる。`GraphService.get_search_materials_for_bbox`が「タイルキャッシュを

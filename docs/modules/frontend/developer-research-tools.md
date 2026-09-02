@@ -30,7 +30,7 @@
 ```
 app/admin/page.tsx（独立URL、Basic認証保護下）
   ├─ タブ「軸スタジオ」: AxisStudio（本モジュール対象外）
-  ├─ タブ「研究」　　　: ResearchPanel（読み取り専用表示）+ （researchEnabled時のみ）WeightPanel
+  ├─ タブ「研究」　　　: ResearchPanel（読み取り専用表示）
   └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 
 app/page.tsx（メインページ、地図を持つ、認証なし）
@@ -66,11 +66,8 @@ ONにすると`page.tsx`側の`handleGenerate`が生成した結果が実験ス�
 `experimentSlots`、最大3件）へ記録され、比較タブ（`ComparisonPanel`、「ルート選択」と
 並ぶ2つ目のタブ）・地図の重ね描き（`MapView`の`experimentSlots` prop）に使えるように
 なる——いずれも一般公開ページの機能として認証なしで直接利用できる（気軽に試せる比較
-機能という位置づけ）。ONの間はさらに`/admin`「研究」タブ内に評価重みの上書きパネル
-（`WeightPanel`）が現れる——こちらは複雑さゆえに引き続き`/admin`限定。`WeightPanel`が
-編集する`route_preference`は`/admin`側の`useStoredJsonState`と`page.tsx`側の同じキーの
-stateがlocalStorage経由で共有される（同一タブでのリアルタイム同期ではなく、次回開いた
-とき/再読み込み時に反映される）。
+機能という位置づけ）。評価軸の重み（`route_preference`）自体は一般向けルート設定画面
+（`RouteSettingsPanel`）が常時編集する状態で、研究モードON/OFFとは独立している。
 
 トグル本体は`page.tsx`の`HeaderMenu`にあり、`/admin`の`ResearchPanel`は同じフラグ
 （`researchMode.ts`）の現在値を読むだけの表示専用コンポーネント。デバッグモード

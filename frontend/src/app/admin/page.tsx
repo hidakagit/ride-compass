@@ -2,18 +2,13 @@
 
 import { useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import { Card } from "@/components/ui/Card/Card";
 import BackendStatus from "@/components/BackendStatus";
 import DebugPanel from "@/components/DebugPanel/DebugPanel";
 import BackendLogsPanel from "@/components/BackendLogsPanel/BackendLogsPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
-import WeightPanel, { DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
 import AxisStudio from "@/components/AxisStudio/AxisStudio";
-import { useStoredJsonState } from "@/hooks/useStoredState";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
-import { useResearchEnabled } from "@/hooks/useResearchMode";
-import type { ScoringWeights } from "@/types/route";
 import styles from "./admin.module.css";
 
 // 軸スタジオ・研究モード・開発者向け機能をまとめた独立URLの管理画面（改善計画T270、
@@ -21,23 +16,9 @@ import styles from "./admin.module.css";
 // 権限制御（改善計画T272、2026-08-24完了）はこのルーティング境界（src/proxy.ts、
 // matcher: ["/admin","/admin/:path*"]）にHTTP Basic認証として敷いている
 // （環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORD未設定時は常に到達不可）。
-// 研究モード・評価重みの各stateはlocalStorage経由でメインページと共有する
-// ——同じキーでuseStoredJsonStateを呼ぶことで、ここでの編集が次回メインページを開いたとき/
-// 再読み込みしたときに反映される。同一タブでのリアルタイム同期ではない点はlib/researchMode.ts
-// 等の既存パターンと同じ）。
 export default function AdminPage() {
-  const researchEnabled = useResearchEnabled();
   const debugEnabled = useDebugEnabled();
   const [systemStatusOpen, setSystemStatusOpen] = useState(false);
-
-  const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredJsonState(
-    "ridecompass:weight-override-enabled",
-    false
-  );
-  const [scoringWeights, setScoringWeights] = useStoredJsonState<ScoringWeights>(
-    "ridecompass:scoring-weights",
-    DEFAULT_SCORING_WEIGHTS
-  );
 
   return (
     <div className={styles.page}>
@@ -66,22 +47,6 @@ export default function AdminPage() {
 
         <Tabs.Content className={styles.tabPanel} value="research">
           <ResearchPanel />
-          {researchEnabled && (
-            <Card>
-              <WeightPanel
-                overrideEnabled={weightOverrideEnabled}
-                onOverrideEnabledChange={setWeightOverrideEnabled}
-                scoringWeights={scoringWeights}
-                onScoringWeightsChange={setScoringWeights}
-              />
-            </Card>
-          )}
-          {!researchEnabled && (
-            <p className={styles.hint}>
-              研究モードは現在OFFです。一般公開ページのヘッダーメニューで有効にすると評価重みの
-              調整パネルが現れます。
-            </p>
-          )}
         </Tabs.Content>
 
         <Tabs.Content className={styles.tabPanel} value="developer">

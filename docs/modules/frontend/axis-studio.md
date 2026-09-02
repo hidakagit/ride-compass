@@ -18,7 +18,7 @@
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
 | `lib/axisMaterialsCatalog.ts` | 材料選択候補の静的フォールバック（`AXIS_MATERIAL_OPTIONS`） |
 | `components/Map/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
-| `components/Map/recipeControls.tsx`（`FieldLabel`のみ使用） | 情報アイコン付きラベルの共有UI部品（研究モードのWeightPanel等とも共有） |
+| `components/Map/recipeControls.tsx`（`FieldLabel`のみ使用） | 情報アイコン付きラベルの共有UI部品（RouteSettingsPanel等とも共有） |
 
 ## AxisStudio.tsx（一覧・状態管理）
 
@@ -102,13 +102,23 @@ listAxisDefinitions() ──→ definitions（全軸）
 除く全軸、`AxisStudio.tsx`が渡す）を材料候補にする——`MaterialTerm.material`が他axis_idを
 指せる設計（backend「軸の階層」）に対応するGUI導線。
 
-### 折れ点エディタ・スライダー
+### 折れ点エディタ・スライダー・数値入力
 
 - `BreakpointCurveEditor`: SVGでbreakpointsをドラッグ調整できる曲線プレビュー。同じ
   `draft.breakpoints` stateを数値入力行と共有し、常に同期する。
 - `SliderNumberField`: 係数・スコアをスライダー（大まかな目安）＋数値入力（正確な値）の
   組み合わせで編集する。スライダーの範囲は材料ごとに大きく異なる値の目安にすぎず、
   範囲外の値は数値入力欄から直接指定できる。
+- `NumberField`: このファイル内の数値入力（`SliderNumberField`の数値欄・既定重み・
+  折れ点の入力値/スコア・地図の色分けしきい値）が共通で使う`<input type="number">`
+  ラッパー。DOM値をコンポーネント自身のローカル文字列stateで保持し、有限数として
+  パースできた時点でだけ`onChange`で親へ伝える（「-」や末尾の小数点のような未確定の
+  中間状態を親の`value`へ反映しないことで、Reactが管理する制御値に上書きされず
+  最後まで打ち切れる。素の`onChange={e => onChange(Number(e.target.value))}`パターンは
+  `Number("-")===NaN`により入力途中の「-」が消え負数を打てない）。ローカル文字列は
+  外部起因の`value`変化にだけ追従させる（useEffectではなくレンダー中に前回値との差分を
+  見て補正するReact公式推奨パターンを使い、無駄な多重レンダーを避ける）。`onFocus`で
+  既存の値を全選択する（タップ/クリック1回で上書きできるようにする）。
 
 ### categorical材料の値入力
 
@@ -162,7 +172,7 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
   `crypto.randomUUID()`（利用不可な非セキュアコンテキストでは`Math.random()`ベースの
   フォールバック）で自動採番する。編集時は既存の`axis_id`をそのまま使う。
 - このフォームに編集欄を持たないフィールド（`priority_overrides`・`time_scope`・
-  `supports_route_coloring`・`dedicated_way_value_layer`・
+  `dedicated_way_value_layer`・
   `dynamic_way_value_needs_time`・`dynamic_way_value_needs_bearing`）も、既存軸の値を
   draftへ素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
   値が失われるため）。`display_thresholds_override`/`display_band_labels_override`は

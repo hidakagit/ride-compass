@@ -6,7 +6,8 @@ import { useResearchEnabled } from "@/hooks/useResearchMode";
 // のヘッダーメニュー（HeaderMenu.tsx）へ一本化した——同じフラグを2箇所で操作できる
 // 状態（更新の取りこぼし・どちらが正か分かりにくい）を避けるため、ここではチェックボックス
 // を置かず現在値の読み取り専用表示のみにする。フラグ自体（researchMode.ts）は変更せず、
-// WeightPanelの表示条件としてこの値を引き続き参照する（下記admin/page.tsx参照）。
+// 一般公開ページの実験スロット比較（ComparisonPanel）の表示条件としてこの値を
+// 引き続き参照する（page.tsx参照）。
 export default function ResearchPanel() {
   const enabled = useResearchEnabled();
 

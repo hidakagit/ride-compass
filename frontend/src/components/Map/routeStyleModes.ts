@@ -15,9 +15,9 @@ import type { RoutePreferenceWeights } from "@/types/route";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 改善計画T440: 以前は"wind"以外に"gradient"/"road"/"difficulty"も固定文字列unionの
-// 一員だったが、gradient/roadはsupports_route_coloring軸から動的に生成されるように
-// なったため、固定IDでは表現しきれなくなった。"difficulty"（対応する軸を持たない唯一の
-// 例外、下記DIFFICULTY_MODE参照）だけを固定文字列として残す。
+// 一員だったが、gradient/roadは公開軸から動的に生成されるようになったため、固定IDでは
+// 表現しきれなくなった。"difficulty"（対応する軸を持たない唯一の例外、下記
+// DIFFICULTY_MODE参照）だけを固定文字列として残す。
 export type RouteStyleModeId = "difficulty" | (string & {});
 
 export interface RouteStyleMode {
@@ -209,8 +209,8 @@ function isSignedAbsShape(
   return shape !== undefined && shape.kind === "breakpoint_linear" && shape.preprocess === "abs" && shape.terms.length === 1;
 }
 
-// 改善計画T352/T440: supports_route_coloring軸（axis-catalog由来）から、ルート結果の
-// 色分けモードを動的に組み立てる。符号付き経路（isSignedAbsShape）とそれ以外（abs差難易度、
+// 改善計画T352/T440/T549: 公開軸（axis-catalog由来）から、ルート結果の色分けモードを
+// 動的に組み立てる。符号付き経路（isSignedAbsShape）とそれ以外（abs差難易度、
 // wind・surface_q等）の2経路へ、axis.axis_idの文字列比較ではなくaxis.shapeの属性で
 // 分岐する——条件を満たす軸がgradient以外に増えても、コード変更無しでそのまま対応する。
 export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
@@ -260,13 +260,17 @@ const DIFFICULTY_MODE: RouteStyleMode = {
   ),
 };
 
-// 改善計画T352: supports_route_coloring軸（axis-catalog由来、動的）＋difficulty（総合
-// 難易度、固定）を組み合わせた、実際に選択肢として使うモード一覧を組み立てる。
+// 改善計画T549: 公開軸すべて（axis-catalog由来、動的）＋difficulty（総合難易度、固定）を
+// 組み合わせた、実際に選択肢として使うモード一覧を組み立てる。この機構（axis_difficulties
+// [axis_id]を汎用の3段階色分けとして使う仕組み）の対象外になる軸は技術的に存在しない
+// ため、以前あった軸ごとの手動フラグ（supports_route_coloring）による絞り込みは撤去し、
+// 公開軸を無条件で対象にする——実際にユーザーが使っている軸だけへの絞り込みは
+// filterRouteStyleModesByPreference（route_preferenceの重み）が既に担う。
 // useAxisCatalog（hooks/useAxisCatalog.ts）が、実行時API取得結果・ビルド時静的
 // フォールバックの両方からこの関数で同じ形の一覧を作る（axisLayers.ts:
 // rampAxesFromCatalogAxes等と同じ片側importパターン）。
 export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): RouteStyleMode[] {
-  const dynamicModes = axes.filter((axis) => axis.supports_route_coloring).map(routeColorableModeFromAxis);
+  const dynamicModes = axes.map(routeColorableModeFromAxis);
   return [...dynamicModes, DIFFICULTY_MODE];
 }
 
@@ -291,10 +295,10 @@ export const ROUTE_STYLE_MODES: readonly RouteStyleMode[] = routeStyleModesFromC
 );
 
 // 改善計画T433: 以前は"wind"を固定文字列でハードコードしており、axis-catalog由来の
-// dynamicModesが偶然modes[0]と一致することに暗黙に依存していた（バックエンド側でwindの
-// supports_route_coloringをfalseにする、または軸自体をunpublishすると、この定数だけが
-// 古い値のまま残り、getRouteStyleModeの「見つからなければmodes[0]」フォールバックで
-// 実際の初期選択と定数の値が静かに食い違う——ゼロベースレビュー2026-08-30 §4で指摘）。
+// dynamicModesが偶然modes[0]と一致することに暗黙に依存していた（バックエンド側で軸自体を
+// unpublishすると、この定数だけが古い値のまま残り、getRouteStyleModeの「見つからなければ
+// modes[0]」フォールバックで実際の初期選択と定数の値が静かに食い違う——ゼロベース
+// レビュー2026-08-30 §4で指摘）。
 // ROUTE_STYLE_MODES[0]から導出することで、この一致をコード上で強制する
 // （DIFFICULTY_MODEが常に末尾に含まれるためROUTE_STYLE_MODESが空になることはなく、
 // [0]は必ず存在する）。dynamicModesが1件も無くなれば総合難易度へ自動的にフォールバックする。

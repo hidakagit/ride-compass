@@ -6,8 +6,8 @@ import { FieldLabel } from "./recipeControls";
 // T113でCarStressRecipePanel専用に実装した部品群を、2つ目のレシピ（当時の安全度レシピ。
 // 安全度軸自体はT148で削除済み）登場を機に汎用化した（改善計画: 安全度レシピ）。
 // 改善計画T292: 車ストレス専用の3レシピパネルの廃止に伴いLevelPicker/AdjustmentStepperは
-// 削除された（recipeControls.tsx参照）。FieldLabelはWeightPanel/RouteSettingsPanelが
-// 引き続き使うため単体検証を残す。
+// 削除された（recipeControls.tsx参照）。FieldLabelはRouteSettingsPanel等が引き続き
+// 使うため単体検証を残す。
 
 describe("FieldLabel", () => {
   it("初期状態はaria-expanded=falseで「表示」ラベルを持ち、説明文は表示しない", () => {

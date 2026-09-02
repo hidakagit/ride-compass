@@ -75,8 +75,6 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       max_gradient_percent: 8.2,
       wind_score: 1.5,
       road_score: 82.3,
-      total_score: 70 + i,
-      score_breakdown: null,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),
       overall_difficulty: 45.6,
       axis_difficulties: {},

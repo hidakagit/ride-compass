@@ -34,7 +34,6 @@ from app.services.evaluation_service import load_route_preference  # noqa: E402
 from app.services.graph_service import GraphService  # noqa: E402
 from app.services.road_graph_engine import RoadGraphEngine  # noqa: E402
 from app.services.route_generator import RouteGenerator  # noqa: E402
-from app.services.route_scorer import RouteScorer, load_scoring_weights  # noqa: E402
 from app.services.weather_service import WeatherService  # noqa: E402
 
 # 東京駅。取込bbox（35.60,139.65,35.75,139.85）の中央付近で、4km周回の探索bbox
@@ -72,7 +71,7 @@ async def main() -> int:
                     WeatherService(WeatherClient(), http_client),
                     route_preference,
                 )
-                generator = RouteGenerator(road_graph_engine, RouteScorer(load_scoring_weights()))
+                generator = RouteGenerator(road_graph_engine)
                 candidates = await generator.generate_loops(
                     origin=ORIGIN, distance_km=DISTANCE_KM, distance_tolerance_km=DISTANCE_TOLERANCE_KM
                 )
@@ -85,7 +84,8 @@ async def main() -> int:
     for c in candidates:
         print(
             f"  {c.direction_label:>3}: distance={c.distance_km}km gain={c.elevation_gain_m}m "
-            f"road={c.road_score} wind={c.wind_score} total={c.total_score} segments={len(c.segments or [])}"
+            f"road={c.road_score} wind={c.wind_score} difficulty={c.overall_difficulty} "
+            f"segments={len(c.segments or [])}"
         )
 
     ok = bool(candidates)

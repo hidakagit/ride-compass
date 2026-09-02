@@ -1,7 +1,6 @@
 "use client";
 
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import { SCORING_AXES } from "@/lib/evaluationAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./ComparisonPanel.module.css";
 
@@ -29,13 +28,10 @@ interface MetricRow {
 }
 
 // 生の物理量（m・m/s・%）を比較対象にする静的行。distance_km・elevation_gain_m・
-// wind_score・road_scoreはRouteCandidateの旧scoring.yaml時代のレガシーフィールドだが、
-// axis_difficulties（0-100の正規化されたdifficulty）とは単位・意味が異なる生の物理量で
-// あり、研究モードでは物理量そのものを見たい場面があるためそのまま残す（改善計画T421
-// 調査結果、RouteListとは異なりComparisonPanelは詳細比較ツールという設計思想のため
-// 単純化はしない）。total_scoreは同一generate呼び出し内の候補間でしか比較できない
-// 相対値のため、実験（スロット）間の比較表には出さない（相対評価の誤用防止をUIで
-// 強制する、研究インターフェース改善 §10-3）。
+// wind_score・road_scoreはRouteCandidateのレガシーフィールドだが、axis_difficulties
+// （0-100の正規化されたdifficulty）とは単位・意味が異なる生の物理量であり、研究モードでは
+// 物理量そのものを見たい場面があるためそのまま残す（改善計画T421調査結果、RouteListとは
+// 異なりComparisonPanelは詳細比較ツールという設計思想のため単純化はしない）。
 const PHYSICAL_METRIC_ROWS: MetricRow[] = [
   { label: "距離", format: (s) => `${s.topCandidate.distance_km.toFixed(1)} km` },
   {
@@ -87,7 +83,7 @@ function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly Prefere
 // 以前はここへ手作業で軸を列挙しており、静的属性P1で追加されたstop_weightが
 // 実験条件の表示から漏れていた（研究モードでstop_weightを変えて比較しても、
 // 条件表示に差が現れず「同条件なのに結果が違う」ように見える実害があった）。
-// カタログはWeightPanel/RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
+// カタログはRouteSettingsPanel/RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
 //
 // 改善計画T320: pref行は`slot.conditions.route_preference`（その回のgenerateへ実際に
 // 送られ、backendがエコーした条件）のキー集合（Object.keys(p)）を正とする。以前は
@@ -96,13 +92,10 @@ function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly Prefere
 // 表示されていた。ラベルはaxisLabels（呼び出し側がuseAxisCatalog経由で取得した動的
 // 辞書）から引き、未知のaxis_id（axisLabelsに無い）はaxis_idそのものにフォールバックする。
 function formatWeights(slot: ExperimentSlot, axisLabels: Record<string, string>): string {
-  const s = slot.conditions.scoring_weights;
   const p = slot.conditions.route_preference;
-  const scoreLine = `score ${SCORING_AXES.map((axis) => `${axis.label}${s[axis.weightKey]}`).join("/")}`;
-  const prefLine = `pref ${Object.entries(p)
+  return `pref ${Object.entries(p)
     .map(([axisId, weight]) => `${axisLabels[axisId] ?? axisId}${weight}`)
     .join("/")}`;
-  return `${scoreLine}\n${prefLine}`;
 }
 
 function formatGeneratedAt(iso: string): string {
@@ -123,8 +116,7 @@ export default function ComparisonPanel({ slots, axisLabels, axes }: ComparisonP
   return (
     <div className="flex flex-col gap-2">
       <p className={styles.hint}>
-        直近{slots.length}回の生成結果を比較[各列は各回のtotal_score最上位候補。生の物理量・軸別難易度[0-100、絶対基準、軸スタジオの重みで自動追従]・
-        総合難易度のみで、リクエスト間の比較ができないtotal_scoreは含まない]
+        直近{slots.length}回の生成結果を比較[各列は各回のoverall_difficulty最小候補。生の物理量・軸別難易度[0-100、絶対基準、軸スタジオの重みで自動追従]・総合難易度]
       </p>
       <div className={styles.tableWrap}>
         <table className={styles.table}>

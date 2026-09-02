@@ -34,7 +34,6 @@ const axisResponse: AxisDefinitionResponse = {
   is_published: false,
   show_map_icon: true,
   time_scope: "always",
-  supports_route_coloring: false,
   dedicated_way_value_layer: false,
   dynamic_way_value_needs_time: false,
   dynamic_way_value_needs_bearing: false,
