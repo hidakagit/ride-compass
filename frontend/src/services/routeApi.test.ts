@@ -150,6 +150,7 @@ describe("routeApi", () => {
       distance_tolerance_km: 5,
       route_type: "loop",
       penalty_strength: 1.0,
+      max_routes: 8,
     };
 
     const routes: RouteCandidate[] = [
@@ -183,6 +184,7 @@ describe("routeApi", () => {
       penalty_strength: 1.0,
       max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },
+      max_routes: 8,
       waypoints: null,
       destination: null,
       generated_at: "2026-08-15T12:00:00+09:00",
@@ -223,16 +225,16 @@ describe("routeApi", () => {
       stubFetchForJob([
         {
           status: "done",
-          result: { routes: [], engine: "road_graph", conditions, no_candidates_reason: "8方位すべてで経路探索に失敗しました" },
+          result: { routes: [], engine: "road_graph", conditions, no_candidates_reason: "5件の折返し候補で復路の探索に失敗しました" },
         },
       ]);
 
       const result = await generateRoutes(request);
 
-      expect(result.noCandidatesReason).toBe("8方位すべてで経路探索に失敗しました");
+      expect(result.noCandidatesReason).toBe("5件の折返し候補で復路の探索に失敗しました");
       expect(debugLog).toHaveBeenCalledWith(
         "api:route",
-        "8方位すべてで経路探索に失敗しました",
+        "5件の折返し候補で復路の探索に失敗しました",
         expect.anything(),
         "warn",
       );

@@ -416,6 +416,7 @@ function makeConditions(overrides: Partial<GenerationConditions> = {}): Generati
     penalty_strength: 1.0,
     max_average_grade_percent: null,
     hard_filters: { no_bicycle: true, motorway: true, trunk: true },
+    max_routes: 8,
     waypoints: null,
     destination: null,
     generated_at: "2026-08-25T12:00:00+09:00",
@@ -558,6 +559,71 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     latestLocationSetter = null;
   });
 
+  it("改善計画T531: 生成リクエストに候補件数(max_routes)の既定値を含める", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({ max_routes: 8 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("改善計画T531: 候補件数入力を変更すると生成リクエストのmax_routesへ反映される", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    // RouteForm（周回モード）は距離・候補件数の2つの数値入力を持つ（距離が先）。
+    const maxRoutesInput = screen.getAllByRole("spinbutton")[1];
+    await user.clear(maxRoutesInput);
+    await user.type(maxRoutesInput, "3");
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({ max_routes: 3 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("改善計画T531: 候補タブに順位番号を表示し、同じ方位の候補を区別できる", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [
+        makeCandidate({ id: "route-00", direction_label: "北", distance_km: 30.1 }),
+        makeCandidate({ id: "route-01", direction_label: "北", distance_km: 31.4 }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "1. 北方向 30.1 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "2. 北方向 31.4 km" })).toBeInTheDocument();
+    });
+  });
+
   it("候補0件で成功したとき、専用のエラーメッセージを表示する", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
@@ -586,7 +652,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       routes: [],
       conditions: makeConditions(),
       engine: "road_graph",
-      noCandidatesReason: "8方位すべてで経路探索に失敗しました。除外設定をご確認ください。",
+      noCandidatesReason: "5件の折返し候補で復路の探索に失敗しました。除外設定をご確認ください。",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -595,7 +661,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "8方位すべてで経路探索に失敗しました。除外設定をご確認ください。",
+        "5件の折返し候補で復路の探索に失敗しました。除外設定をご確認ください。",
       );
     });
   });

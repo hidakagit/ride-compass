@@ -9,7 +9,7 @@
 
 | ファイル | 責務 |
 |---|---|
-| `components/RouteForm/RouteForm.tsx` | 距離入力・生成ボタン。周回/目的地モード切替 |
+| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・生成ボタン。周回/目的地モード切替 |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（地図の色分けチップ列＋「重み付き寄与度」内訳）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
@@ -224,15 +224,20 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 
 ## RouteForm.tsx
 
-距離入力・生成ボタン。`RouteMode`（"loop"|"destination"）で周回/目的地モードを切り替える。
-モバイル上部バー向けの`compact`表示を持つ。目的地モードでは距離を入力させず、経由地・
-目的地のいずれも未指定のまま生成しようとするとサイレント失敗せずエラー文言を出す。
+距離入力・候補件数入力・生成ボタン。`RouteMode`（"loop"|"destination"）で周回/目的地
+モードを切り替える。モバイル上部バー向けの`compact`表示を持つ。目的地モードでは距離・
+候補件数のいずれも入力させず（backendは経由地・目的地指定ルートの候補件数を常に1件へ
+固定し無視するため）、経由地・目的地のいずれも未指定のまま生成しようとするとサイレント
+失敗せずエラー文言を出す。
 
-距離の`<Input type="number">`はネイティブのスピンボタン（上下矢印）をCSS
+距離・候補件数どちらの`<Input type="number">`もネイティブのスピンボタン（上下矢印）をCSS
 （`[&::-webkit-inner-spin-button]:appearance-none`等）で非表示にする——直接入力が主な
-操作手段で、1km刻みの矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
+操作手段で、矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
 数値専用キーボードを明示し、`onFocus`で既存の値を全選択して毎回消してから打ち直す手間を
-無くす。`distance`はstring stateのまま親（`page.tsx`）が持ち、数値への変換は送信直前
-（`handleSubmit`内の`Number(distance)`検証）でのみ行うため、`AxisComposer.tsx`の
+無くす。`distance`・`maxRoutes`はいずれもstring stateのまま親（`page.tsx`）が持ち、
+数値への変換は送信直前（`handleSubmit`内の検証）でのみ行うため、`AxisComposer.tsx`の
 `NumberField`（[軸スタジオ](axis-studio.md)参照）が対処する「入力途中でReactの制御値が
-NaNへ倒れる」問題はこの入力には無い。
+NaNへ倒れる」問題はこの入力には無い。候補件数の上限・既定値は
+`types/generated/route-generate-config.json`の`max_routes`/`default_max_routes`
+（backend: `RouteGenerateRequest.max_routes`のFieldメタデータから生成）から導出し、
+1〜上限の整数以外はエラー表示で送信を止める。
