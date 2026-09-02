@@ -1161,8 +1161,9 @@ class DerivedGraphRepository(_SessionRepository):
         取得し直す用途。bbox全件（数万〜十数万Edge）のdecodeを避けつつ、区間詳細
         表示に必要な実ジオメトリは確保する。
 
-        改善計画T390: `RoadGraphEngine.trace_loop`が8方位ぶん（`asyncio.gather`で並列）
-        呼ぶホットパスのため、edge_id単位のRedis cache-aside
+        改善計画T390: ルート生成のたびに呼ばれるホットパス（改善計画T531以降は
+        `RoadGraphEngine.evaluate_loops`が候補ぶんをまとめて1リクエスト1回）のため、
+        edge_id単位のRedis cache-aside
         （`infrastructure/road_edge_geometry_cache.py`）をまず経由する。Redisで
         判定できなかった分だけ従来どおりPostGISへ問い合わせ、取得できた分をRedisへ
         書き戻す（road_graph_tile_cache.pyのget_cached_tiles/mark_fetchedと同じ構造）。

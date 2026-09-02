@@ -544,7 +544,7 @@ RideCompass/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・overall_difficulty・segments・axis_difficulties含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み）
         weather.py               ✅ WeatherConditions
         errors.py               ✅ RoutingError
-        geo.py                   ✅ destination_point, haversine_distance_km, compass_label, bearing_between（sample_indices/sample_line_coordinates/sample_line_pointsはOpenRouteServiceEngine専用だったため改善計画T462の撤去に伴い削除済み）
+        geo.py                   ✅ haversine_distance_km, haversine_distance_km_array, compass_label, bearing_between（destination_pointは改善計画T531で本番コードから未参照になったため、改善計画T555でtests/geo_fixtures.pyのテスト専用ヘルパーへ移動。sample_indices/sample_line_coordinates/sample_line_pointsはOpenRouteServiceEngine専用だったため改善計画T462の撤去に伴い削除済み）
         road.py                   ✅ classify_osm_surface, GOOD_OSM_SURFACE_TAGS, BAD_OSM_SURFACE_TAGS（両エンジン共通の唯一の路面判定語彙）, distance_weighted_road_score（距離加重集計、改善計画T21で両エンジン共通化）
         difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9。scoring.py/normalize_min_maxは改善計画T548で撤去済み）
         wind.py                   ✅ WindCalculator.wind_penalty（Step7）
@@ -617,7 +617,7 @@ RideCompass/
     scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）。改善計画T292で専用Pythonレシピ（car_stress_level等）を廃止したのに伴い、車ストレスのcalibration研究スクリプト3本（measure_axis_stats.py・measure_axis_correlation.py・analyze_jartic_calibration.py）は削除した。collect_jartic.py（改善計画T53、JARTIC WFS収集）も、唯一の消費先だったanalyze_jartic_calibration.py削除後は較正データを読む者がいない無意味な処理になっていたため改善計画T321（デッドコード監査）で削除した
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
-      test_geo.py             ✅ destination_point / haversine_distance_km / compass_label / bearing_betweenの検証
+      test_geo.py             ✅ haversine_distance_km / compass_label / bearing_betweenの検証（座標生成にtests/geo_fixtures.pyのdestination_pointを使う）
       test_routes_preview.py  ✅ get_preview_builderをDIでモックしたAPIテスト。per-IPレート制限（20回/分）の429検証を追加
       test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 折返し点候補プールからの逐次trace・`max_routes`件到達時の早期停止・失敗候補のスキップ・距離許容フィルタ・prepare/折返し点0件時の空返却・**評価が距離フィルタ通過候補だけに行われること**・`overall_difficulty`昇順ソート（同点は目標距離に近い順、改善計画T531。降順`total_score`ソートからの変更は改善計画T548）・engine_name公開
       test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 双方向の「車輪＋迂回路」状Road Graphフィクスチャによる折返し点選定（軸駆動ランキング・往路重複率ベースの間引き）・復路探索（往路コスト差し替え→復元）・距離許容フィルタ・経路探索失敗時のスキップ・標高/路面/風の集計・segments構築・graph_serviceへの問い合わせ（ジオメトリ取得）が距離フィルタ通過候補ぶん1回にまとまること・engine_name

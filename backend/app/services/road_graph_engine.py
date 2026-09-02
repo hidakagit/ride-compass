@@ -191,7 +191,8 @@ class _RoadGraphContext:
     accident_years_covered: int
     weather: WeatherConditions | None
     origin_node: str
-    # 改善計画T219（T12 Stage 1）: 1リクエストにつき最大17回呼ばれるfind_nearest_node相当を
+    # 改善計画T219（T12 Stage 1）: 1リクエスト内で繰り返し呼ばれるfind_nearest_node相当
+    # （prepareの起点・trace_loopの各経由地と目的地・preview_segmentの両端）を
     # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
     node_index: NodeSpatialIndex
     # 改善計画T529→T536: trace_loopが実際のA*探索に使うrustworkxベースの探索用グラフ
@@ -515,7 +516,7 @@ class RoadGraphEngine:
         now = now or datetime.now(timezone.utc)
         if waypoints:
             # 改善計画T364: ユーザー指定の経由地は起点から半径radius_km以内とは限らない
-            # ため、8方位探索の円形bbox（_bbox_around_point）ではなく、preview_segmentと
+            # ため、周回探索の円形bbox（_bbox_around_point）ではなく、preview_segmentと
             # 同じ「複数点の外接矩形+固定マージン」を使う。
             bbox = _bbox_covering_points([origin, *waypoints], PREVIEW_BBOX_MARGIN_KM)
         else:
@@ -527,12 +528,12 @@ class RoadGraphEngine:
             return None
 
         # 改善計画T219: このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
-        # 経由地スナップ（1リクエストで最大17回）すべてで使い回す。
+        # 経由地スナップ（経由地・目的地ルートの各地点）すべてで使い回す。
         # 改善計画T256: 索引の候補は実際に経路探索可能な（Hard Constraint通過後も
         # 次数1以上の）Nodeのみに絞る。絞らないと、幹線道路（highway=trunk等）にしか
         # 接続していない地理的最近傍Node（新宿駅・渋谷駅等、駅前が国道の交差点に直接
         # 面する場所で実機確認）が選ばれ、そこがHard Constraint除外後のグラフ上では
-        # 孤立点になるため、8方位すべてのDijkstra探索が"no path found"で失敗してしまう。
+        # 孤立点になるため、すべての折返し点・経由地への探索が"no path found"で失敗してしまう。
         # 改善計画T529: lazy評価ではEdgeコストを事前計算しないため、旧`routable_node_ids`
         # （sparse_graphから算出）は使えない——0次ハードフィルタだけを軽量に評価する
         # `compute_routable_node_ids`（domain/evaluation.py）へ置き換えた
@@ -971,7 +972,7 @@ class RoadGraphEngine:
         # テーブルを候補確定後にもう一度読み直していた重複DB往復を解消する
         # （evaluate_loopsはasyncio.gatherで候補を並行評価するが、
         # ElevationAttributeService._repository_lockが内部で直列化するため、
-        # 削減した往復の分だけ候補数[最大8]倍のレイテンシが積み上がっていた）。
+        # 削減した往復の分だけ候補数（max_routes件）倍のレイテンシが積み上がっていた）。
         # 事前計算バッチが未実行のEdge（context.materials側がNone）だけ、従来どおり
         # ElevationAttributeService経由でその場取得・永続化する。
         cached: dict[str, ElevationAttribute] = {}
@@ -1044,7 +1045,7 @@ class RoadGraphEngine:
         # 改善計画T79: 以前は11個の位置引数を取り、うち8個はcontextフィールドの単純展開
         # だった（同型dict[str, int]が3つ並び、順序取り違えが検知されない構造）。
         # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
-        # （edges=方位ごとの経路、elevation_attributes=経路確定後に取得、start_time=呼び出し元
+        # （edges=候補ごとの経路、elevation_attributes=経路確定後に取得、start_time=呼び出し元
         # 引数）のため、これらだけを個別引数として残しcontextを1引数で渡す。
         #
         # 改善計画T536: 軸別スコア・合成difficultyは、探索コスト算出時に既に合成済みの
@@ -1327,8 +1328,8 @@ def _reverse_elevation_attributes(
 def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
     """候補のsegmentsから、距離加重平均の合成difficultyを求める（改善計画T274、
     逆回り候補との比較指標）。`RouteGenerator._with_overall_difficulty`と同じ計算だが、
-    あちらは方位ごとに採否が確定した最終候補へ`overall_difficulty`を付与する後処理
-    （エンジン非依存の戦略層）なのに対し、ここは同じ方位の順方向・逆回り候補のどちらを
+    あちらは候補ごとに採否が確定した最終候補へ`overall_difficulty`を付与する後処理
+    （エンジン非依存の戦略層）なのに対し、ここは同じ候補の順方向・逆回りのどちらを
     残すかをエンジン内部で決めるための指標であり、計算するタイミング・対象が異なる
     （同じ指標を2箇所で使うが、役割が違うため無理に共通化しない）。
     """
@@ -1350,8 +1351,9 @@ def _pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> 
 
 
 def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:
-    """centerを中心とした半径radius_kmの円を覆う矩形bboxを求める（1回のRoad Graph取得で
-    8方位全ての経由地点をカバーするため、方位ごとではなく起点1つに対して1回だけ計算する）。"""
+    """centerを中心とした半径radius_kmの円を覆う矩形bboxを求める（周回ルートの探索範囲。
+    折返し点候補がどの方位に選ばれても1回のRoad Graph取得でカバーできるよう、起点1つに
+    対して1回だけ計算する）。"""
     lat_margin_deg = radius_km / KM_PER_DEGREE_LATITUDE
     lon_margin_deg = radius_km / (KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(center.latitude)), 1e-6))
     return BoundingBox(

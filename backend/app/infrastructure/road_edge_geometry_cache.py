@@ -3,8 +3,9 @@
 `DerivedGraphRepository.get_edges_with_geometry`は、prepareが読み込む探索用グラフ
 （geometryプレースホルダのみ、改善計画T218/T12 Stage 0）から、Dijkstraで確定した経路
 （1候補あたり数十〜数百Edge）だけへ実ジオメトリを取得し直す用途で、`RoadGraphEngine.
-trace_loop`から8方位ぶん（`asyncio.gather`で並列）呼ばれる。本番実測（docs/tasks/T390.md）:
-100 edgesのバッチで平均4.69ms/回、1リクエストで最大8回。
+evaluate_loops`が距離フィルタ通過候補ぶんのedge_idをまとめて1リクエスト1回呼ぶ
+（改善計画T531。導入当時[T390]は`trace_loop`が8方位ぶん`asyncio.gather`で並列に呼び、
+本番実測は100 edgesのバッチで平均4.69ms/回・1リクエスト最大8回だった、docs/tasks/T390.md）。
 
 `DirectedEdge`（domain/graph.py）はshapelyジオメトリ等を含まないプレーンなPydantic
 BaseModel（`geometry: list[list[float]]`）のため、road_graph_tiles/road_edge_attributesと

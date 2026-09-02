@@ -3,8 +3,6 @@ from typing import NamedTuple, Protocol, runtime_checkable
 
 import numpy as np
 
-from app.domain.route import Coordinates
-
 EARTH_RADIUS_KM = 6371.0
 
 
@@ -44,30 +42,6 @@ def compass_label(bearing_deg: float) -> str:
     """任意の角度（0=北、時計回り）を8方位のラベルに変換する。"""
     index = round((bearing_deg % 360) / 45) % 8
     return COMPASS_LABELS[index]
-
-
-def destination_point(origin: Coordinates, bearing_deg: float, distance_km: float) -> Coordinates:
-    """originから方位bearing_deg（0=北、時計回り）にdistance_km進んだ地点を球面三角法で求める。"""
-    lat1 = math.radians(origin.latitude)
-    lon1 = math.radians(origin.longitude)
-    bearing = math.radians(bearing_deg)
-    angular_distance = distance_km / EARTH_RADIUS_KM
-
-    lat2 = math.asin(
-        math.sin(lat1) * math.cos(angular_distance) + math.cos(lat1) * math.sin(angular_distance) * math.cos(bearing)
-    )
-    lon2 = lon1 + math.atan2(
-        math.sin(bearing) * math.sin(angular_distance) * math.cos(lat1),
-        math.cos(angular_distance) - math.sin(lat1) * math.sin(lat2),
-    )
-
-    # 経度は球面三角法の計算結果をそのまま度数化すると±180度を超えることがある
-    # （日付変更線付近が起点の場合。Coordinatesはge=-180/le=180を検証するため、
-    # 正規化しないとValidationErrorが8方位分のwaypoint計算中に同期的に送出され、
-    # generate_loopsのgather(return_exceptions=True)による方位単位の保護をすり抜けて
-    # リクエスト全体が500になる）。[-180, 180)へ正規化する。
-    lon2_deg = (math.degrees(lon2) + 180) % 360 - 180
-    return Coordinates(latitude=math.degrees(lat2), longitude=lon2_deg)
 
 
 def bearing_between(origin: LatLon, destination: LatLon) -> float:

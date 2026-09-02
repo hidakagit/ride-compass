@@ -88,8 +88,8 @@ class WeatherService:
         # Open-Meteoが200を返してもJSON形状が期待と食い違う（一時的なAPI障害・スキーマ変更等）
         # 場合、直下の添字アクセスがKeyError/IndexErrorを送出しうる。ここで捕捉せず伝播させると
         # 「取得失敗は握りつぶしてnull」という他の外部API（標高・路面）と同じ方針から外れ、
-        # 8方位分の候補が確定済みでも1件の異常レスポンスでルート生成全体が500になってしまう
-        # （route_generator.pyのgatherはtrace_loopのみreturn_exceptions=True保護対象）。
+        # 1件の異常レスポンスでルート生成全体が500になってしまう（`RoadGraphEngine.prepare`が
+        # 探索前に1回だけ取得し、Noneなら風・夜間評価なしで続行する設計のため）。
         try:
             observed_at = current["time"]
             temperature = current["temperature_2m"]

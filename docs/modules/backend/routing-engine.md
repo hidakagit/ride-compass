@@ -320,12 +320,14 @@ MaterialBundleへ復元せず、`edge_id→タイルindex`の遅延ビュー（`
 
 ### `get_edges_with_geometry`の同時実行ロック
 
-`GraphService.__init__`が持つ`self._repository_lock`（`asyncio.Lock`）が
-`get_edges_with_geometry`を直列化する（同一`AsyncSession`への同時アクセスは未定義
-動作/例外を招くため）。改善計画T531で候補ごとの個別呼び出しは無くなり、
-`RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんのedge_idをまとめて1回だけ
-呼ぶ形になった（`GraphService`はリクエストごとに新規生成されるため複数リクエスト間で
-共有されることも無い）。
+`GraphService.__init__`が持つ`self._repository_lock`（`asyncio.Lock`）は、同一
+`AsyncSession`への同時アクセス（未定義動作/例外を招く）を防ぐため、`asyncio.gather`配下から
+repositoryへ到達しうる経路を直列化する。実際に同時実行されるのは
+`_get_or_build_tile_materials`のキャッシュmiss時のDB問い合わせ（タイルごとにgatherで並行）
+で、`get_edges_with_geometry`は`RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんの
+edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼ぶだけのため、同じロックを
+取るのは将来の並列化に対する保険にすぎない（`GraphService`はリクエストごとに新規生成される
+ため複数リクエスト間で共有されることも無い）。
 
 ## domain層
 
@@ -393,13 +395,14 @@ MaterialBundleへ復元せず、`edge_id→タイルindex`の遅延ビュー（`
 
 ### `domain/geo.py`・`domain/errors.py`
 
-`geo.py`は球面三角法の地理計算（`haversine_distance_km`・`bearing_between`・
-`destination_point`・`compass_label`）を持つ。`LatLon`（`Protocol`）・
+`geo.py`は球面三角法の地理計算（`haversine_distance_km`・`haversine_distance_km_array`・
+`bearing_between`・`compass_label`）を持つ。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
 せずに緯度経度を扱うための軽量な構造的型で、`build_road_graph`・最近傍ノード探索のような
-ホットパスがバリデーションコストを避けるために使う。`destination_point`は経度を
-[-180, 180)へ正規化する（球面三角法の計算結果がこの範囲を超えうるため）。本番コードからは
-現在参照されておらず、`tests/test_road_graph_engine.py`等のフィクスチャ座標生成に使う。
+ホットパスがバリデーションコストを避けるために使う。「起点から方位θへ距離d進んだ点」を
+求める`destination_point`は本番コードから参照されないため、テスト専用ヘルパー
+`tests/geo_fixtures.py`に置き（`test_road_graph_engine.py`の合成グラフ・`test_geo.py`の
+座標生成が使う）、`geo.py`には持たない。
 
 `errors.py`は`RoutingError`（単一の例外クラス）のみを持つ。`RoadGraphEngine`・
 `RouteGenerator`が経路探索の失敗を表すのに共通で使う。
@@ -536,12 +539,12 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
 - **風・夜間の評価は出発時点1点で決まる**: 探索中は到達時刻が未確定という制約のため、
   出発時点の起点付近の風/昼夜判定をルート全体へ一様適用する（区間ごとの推定到達時刻は
   使わない）。
-- **`GraphService`の`_repository_lock`は`get_edges_with_geometry`のみを保護する**
-  ——このメソッドはリクエストにつき`evaluate_loops`から1回（距離フィルタ通過候補ぶんを
-  まとめて）呼ばれるだけで、他のメソッドは常にそれ以前の逐次実行段階でしか呼ばれない
-  ためロック不要という前提に立っている。`evaluate_loops`の`asyncio.gather`
-  （`_build_best_candidate`の並行評価）内から`get_edges_with_geometry`相当の呼び出しを
-  新たに追加する場合はこの前提が崩れることに注意。
+- **`GraphService`の`_repository_lock`が守るのは`asyncio.gather`配下からrepositoryへ
+  到達する経路だけ**（`_get_or_build_tile_materials`のDB問い合わせと、保険としての
+  `get_edges_with_geometry`）——他のメソッドは常に逐次実行段階でしか呼ばれないため
+  ロック不要という前提に立っている。`evaluate_loops`の`asyncio.gather`
+  （`_build_best_candidate`の並行評価）内からrepositoryへ到達する呼び出しを新たに
+  追加する場合は、同じロックを取らない限りこの前提が崩れることに注意。
 - **`graph_material_cache`・`tile_score_matrix_cache`はプロセス内メモリLRU＋
   `tile_persistent_cache.py`によるディスク永続化の2段構成**——ディスクの無効化は
   `TILE_MATERIALS_CACHE_VERSION`/`TILE_SCORE_MATRIX_CACHE_VERSION`のバージョン文字列を

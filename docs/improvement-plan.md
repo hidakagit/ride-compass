@@ -771,4 +771,4 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 
 ## T531後のbackend残存コメント・デッドコードのクリーンアップ（2026-09-03、T531 docs同期作業の副産物）
 
-- [ ] [T555](tasks/T555.md). T531後に残った8方位gather前提の古いコメント（`get_edges_with_geometry`のロック根拠等）と本番未参照になった`destination_point`のクリーンアップ 規模S（着手中）
+- [x] [T555](tasks/T555.md). T531後に残った8方位gather前提の古いコメント（`get_edges_with_geometry`のロック根拠等）と本番未参照になった`destination_point`のクリーンアップ 規模S（2026-09-03完了）

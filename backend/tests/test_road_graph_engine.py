@@ -22,7 +22,7 @@ from app.domain.evaluation import (
     compute_hard_filter_excluded,
     evaluate_dynamic_axis_arrays,
 )
-from app.domain.geo import bearing_between, compass_label, destination_point, haversine_distance_km
+from app.domain.geo import bearing_between, compass_label, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
@@ -30,6 +30,7 @@ from app.domain.weather import WeatherConditions
 from app.infrastructure import search_graph_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
+from tests.geo_fixtures import destination_point
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO, RouteGenerator
 
 # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルが暗黙に前提とする
