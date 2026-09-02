@@ -207,3 +207,85 @@ class TestReadStats:
 
         assert result is None
         assert stats == {}
+
+
+class TestSyncDiskCacheWithAxisRevision:
+    """改善計画T546フォローアップ: 本番の使い捨てコンテナ検証で発覚した不具合
+    （`refresh_axis_definitions`がアプリ起動のたびに軸定義が変わっていなくても
+    `tile_score_matrix_cache`のディスクキャッシュを無条件で丸ごと再構築していた
+    ——materials（ディスクヒット）とscore_matrix（毎回db）の非対称が生じ、
+    `materials_ms`の大半を占めていた）の回帰テスト。`sync_disk_cache_with_axis_revision`が
+    「revisionが前回ディスク永続化時と同じなら温存、違えば無効化」を正しく行うことを
+    直接検証する。"""
+
+    def test_first_call_with_no_prior_marker_clears_and_records_revision(self):
+        # 初回デプロイ相当（ディスクにrevisionマーカーがまだ無い）。安全側でclear()し、
+        # 新しいrevisionを記録する。
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(1)
+
+        assert tile_score_matrix_cache.get(12, 5, 6) is None
+        assert tile_score_matrix_cache._read_persisted_axis_revision() == 1
+
+    def test_same_revision_across_simulated_restart_preserves_disk_cache(self):
+        # 実際のコンテナ再起動を模す: revision記録→ディスクへ書き込み→メモリだけ空にする
+        # （プロセス再起動）→同じrevisionでsync呼び出し（次の起動時のrefresh_axis_
+        # definitions相当）→ディスクキャッシュがそのまま復元できること。
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(5)
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+        tile_score_matrix_cache._cache.clear()  # プロセス再起動（メモリだけ空になる）を模す
+
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(5)  # 次回起動時のrefresh
+
+        restored = tile_score_matrix_cache.get(12, 5, 6)
+        assert restored is not None
+        assert restored.edge_ids == ["edge-1"]
+
+    def test_changed_revision_clears_disk_cache_and_records_new_revision(self):
+        # 実際の軸編集を模す: revision=5で書き込み済みのディスクキャッシュが、
+        # revision=6（軸定義が実際に変わった）でのsync呼び出し後は見えなくなる。
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(5)
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+        tile_score_matrix_cache._cache.clear()
+
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(6)
+
+        assert tile_score_matrix_cache.get(12, 5, 6) is None
+        assert tile_score_matrix_cache._read_persisted_axis_revision() == 6
+
+    def test_rebuilt_cache_after_revision_change_persists_across_next_restart(self):
+        # revision変更で無効化された後、新しいrevisionのもとで再構築されたキャッシュは、
+        # 以後の（revision不変の）再起動では正しく温存される。
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(5)
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+        tile_score_matrix_cache._cache.clear()
+
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(6)  # 軸編集
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix("edge-1", score=99.0))  # 再構築
+        tile_score_matrix_cache._cache.clear()  # 次の再起動
+
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(6)  # revision不変の再起動
+        restored = tile_score_matrix_cache.get(12, 5, 6)
+
+        assert restored is not None
+        assert restored.axis_scores[0, 0] == 99.0
+
+    def test_none_revision_is_conservative_and_always_clears(self):
+        # axis_registry_metaに行が無い等の想定外の状態ではrevisionがNoneになりうる。
+        # 安全側に倒し、毎回clear()する（マーカーも記録しない）。
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(None)
+
+        assert tile_score_matrix_cache.get(12, 5, 6) is None
+        assert tile_score_matrix_cache._read_persisted_axis_revision() is None
+
+    def test_revision_marker_does_not_collide_with_real_tile_coordinates(self):
+        # 予約座標(zoom=-1, x=0, y=0)が実タイル(zoom=12等)と独立して扱われることの確認。
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(3)
+        tile_score_matrix_cache.set(12, 0, 0, _sample_matrix("edge-real"))
+
+        assert tile_score_matrix_cache.get(12, 0, 0) is not None
+        assert tile_score_matrix_cache.get(12, 0, 0).edge_ids == ["edge-real"]
+        assert tile_score_matrix_cache._read_persisted_axis_revision() == 3

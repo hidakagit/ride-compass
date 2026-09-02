@@ -103,8 +103,12 @@ class AxisRegistryMetaRow(Base):
     """軸レジストリ全体の版数（1行のみ、id=1固定）。
 
     管理API（api/routers/axis_admin.py）の書き込みごとにインクリメントする。将来の
-    マルチプロセス対応・監査用の記録で、現時点ではプロセス内キャッシュの無効化には使わない
-    （services/axis_registry_service.pyのdocstring参照）。
+    マルチプロセス対応・監査用の記録に加え、`infrastructure/tile_score_matrix_cache.py:
+    sync_disk_cache_with_axis_revision`が、アプリ起動のたびに呼ばれる`refresh_axis_
+    definitions`から見て軸定義が実際に変わったかどうかの判定にも使う
+    （services/axis_registry_service.pyのdocstring参照）。migration 0014が初期行
+    （id=1, revision=1）を投入する——この行を経由しない環境（`Base.metadata.create_all`の
+    みのテストDB等）では`get_revision()`がNoneを返し、安全側（常に無効化）へ倒れる。
     """
 
     __tablename__ = "axis_registry_meta"

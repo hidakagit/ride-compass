@@ -118,9 +118,13 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
   `backend/migrations/`はテーブル構造（DDL）のみを持つ**（`0027_axis_definitions_
   dedicated_way_value_layer.sql`で確認済み。0014〜0022は行データ入りの過去migrationだが
   書き換えない）。
-- `axis_registry_meta.revision`（DB1行）は書き込みごとにインクリメントされるが、
-  **現時点ではプロセス内キャッシュの無効化には使われていない**（`AxisDefinitionRow`
-  docstring参照）。将来のマルチプロセス対応・監査用の記録として存在するのみ。
+- `axis_registry_meta.revision`（DB1行、id=1固定）は書き込み（`upsert`/`delete`）ごとに
+  インクリメントされる。`AXIS_DEFINITIONS`自体の無効化には使われていない（`AXIS_
+  DEFINITIONS`は`refresh_axis_definitions`が毎回`.clear()`+`.update()`で全面更新するため
+  無効化の概念自体が無い）が、`infrastructure/tile_score_matrix_cache.py:
+  sync_disk_cache_with_axis_revision`が、アプリ起動時にも必ず1回呼ばれる`refresh_axis_
+  definitions`から見て軸定義が実際に変わったかどうかの判定に使う（`AxisRegistryMetaRow`
+  docstring参照）。将来のマルチプロセス対応・監査用の記録としても存在する。
 
 ### fresh bootstrap（CI・新規環境）専用の別経路
 

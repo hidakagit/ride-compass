@@ -135,11 +135,19 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     # 改善計画T536（旧T534のaxis_score_cacheを置き換え）: タイル単位の静的Edge×公開軸
     # スコア行列キャッシュ（tile_score_matrix_cache）は軸定義の内容が変わるとタイル座標
     # 単位のキーだけでは古いスコアと見分けられないため、AXIS_DEFINITIONS更新と同じ
-    # タイミングで明示的にクリアする（`await`を挟まない同期ブロックのため、他の
+    # タイミングで無効化を判定する（`await`を挟まない同期ブロックのため、他の
     # コルーチンが新旧混在の中間状態を観測することはない）。
     # graph_material_cache（EdgeMaterialBundle等の材料そのもの）は意図的に温存する——
     # 軸編集直後の最初のリクエストがDBへ再問い合わせせずに済む設計（docs/tasks/T534.md参照）。
-    tile_score_matrix_cache.clear()
+    # 改善計画T546フォローアップ: 本関数はアプリ起動時（main.pyのlifespan）にも軸定義が
+    # 実際には変わっていなくても必ず1回呼ばれる。以前は無条件で`tile_score_matrix_cache.
+    # clear()`していたため、デプロイのたびにディスク永続化済みのスコア行列キャッシュを
+    # 丸ごと再構築していた（T538/T546が意図した「デプロイ間でのディスク永続化」の恩恵が
+    # スコア行列側だけ得られない不具合、docs/tasks/T546.md参照）。
+    # `sync_disk_cache_with_axis_revision`は`axis_registry_meta.revision`を使い、
+    # 軸定義が実際に変わった場合のみディスクも削除する。
+    revision = await repository.get_revision()
+    tile_score_matrix_cache.sync_disk_cache_with_axis_revision(revision)
 
 
 class AxisRegistryAdminService:

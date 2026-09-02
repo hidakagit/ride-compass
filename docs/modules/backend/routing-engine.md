@@ -219,8 +219,14 @@ tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`
 TILE_SCORE_MATRIX_CACHE_VERSION`、いずれも`region_service.py: ROAD_SURFACE_TILE_VERSION`と
 同じ流儀）——PBF再取込・`presplit_road_graph.py`・関連precomputeバッチを実行したら手動で
 上げる（各定数のコメント・`docs/batch-pipeline-dependencies.md`参照）。軸定義編集
-（`refresh_axis_definitions`）は`tile_score_matrix_cache.clear()`がメモリ・ディスク
-両方を即座に削除する別経路（バージョン文字列は据え置いたまま）。
+（`refresh_axis_definitions`、アプリ起動時にも必ず1回呼ばれる）は
+`tile_score_matrix_cache.sync_disk_cache_with_axis_revision(revision)`が
+`axis_registry_meta.revision`の変化を見て判定する別経路（バージョン文字列は据え置いた
+まま）——revisionがディスクへ最後に永続化した時点の記録と一致すればメモリだけ
+クリアし、不一致（軸定義が実際に変わった）ならメモリ・ディスク両方を即座に削除する。
+軸定義が変わっていないアプリ起動のたびにディスクキャッシュを丸ごと再構築しないための
+区別で、`graph_material_cache`（`TILE_MATERIALS_CACHE_VERSION`のみで無効化、
+軸編集では変化しない）とは無効化の粒度が異なる。
 
 **キャッシュ表現**: `graph_material_cache`が保持する`SearchMaterials.materials`は、
 タイルキャッシュ経由（`_get_or_build_tile_materials`）の場合`domain/attributes.py:
@@ -459,11 +465,14 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
   （`docs/batch-pipeline-dependencies.md`「3. ランタイム側の読み取り元」参照）。
 - **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列）は
   `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集
-  （`AxisRegistryAdminService`→`refresh_axis_definitions`）はこちらだけをクリアし、
-  材料キャッシュ（DBアクセスを伴う取得）は温存する。編集直後の最初のリクエストが
-  DBへ再問い合わせせずに済む設計上の分離。この`clear()`はメモリ・ディスク両方を
-  即座に削除する（バージョン文字列は据え置いたまま、軸編集はデプロイを伴わない
-  実行時操作のため）。
+  （`AxisRegistryAdminService`→`refresh_axis_definitions`）はこちらだけを対象に無効化を
+  判定し、材料キャッシュ（DBアクセスを伴う取得）は常に温存する。編集直後の最初の
+  リクエストがDBへ再問い合わせせずに済む設計上の分離。`sync_disk_cache_with_axis_
+  revision`は`axis_registry_meta.revision`が前回ディスクへ永続化した時点と一致するかで
+  判定する——`refresh_axis_definitions`はアプリ起動時にも必ず1回呼ばれるため、軸定義が
+  実際には変わっていない起動のたびにディスクキャッシュを丸ごと再構築しないための区別
+  （不一致時はメモリ・ディスク両方を即座に削除、バージョン文字列は据え置いたまま。
+  軸編集はデプロイを伴わない実行時操作のため）。
 - **`RouteScorer`は候補1件（waypoints指定ルート）に対しては呼ばれない**——曖昧な
   「常に満点」を避けるための意図的な設計。
 - **`search_graph_cache`（探索用グラフ・索引）はタイル集合キー**——

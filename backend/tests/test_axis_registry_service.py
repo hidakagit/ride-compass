@@ -117,6 +117,83 @@ async def test_refresh_clears_tile_score_matrix_cache(road_graph_session):
     assert tile_score_matrix_cache.get(12, 1, 1) is None
 
 
+async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unchanged(road_graph_session):
+    """改善計画T546フォローアップ回帰: 本番の使い捨てコンテナ検証で発覚した不具合
+    （`refresh_axis_definitions`はアプリ起動のたびに必ず1回呼ばれるが、軸定義が実際には
+    変わっていなくても`tile_score_matrix_cache`のディスクキャッシュを無条件で丸ごと
+    再構築してしまい、materialsキャッシュ[ディスクヒット]とscore_matrixキャッシュ
+    [毎回db再計算]の非対称が生じ`materials_ms`を押し上げていた）の直接回帰。
+
+    軸定義の変更を挟まずに`refresh_axis_definitions`を2回連続で呼んでも（アプリ起動の
+    たびに毎回呼ばれるのと同じ経路）、2回目でディスク永続化済みのスコア行列キャッシュが
+    温存されることを確認する。
+
+    `road_graph_session`（`Base.metadata.create_all`によるスキーマのみ、migrationの初期
+    データ投入は経由しない）は`axis_registry_meta`にid=1の行を持たないため、`get_revision()`
+    がNoneのままでは本回帰が意図する分岐（revision一致→温存）を検証できない
+    （Noneは`sync_disk_cache_with_axis_revision`が安全側で常にclear()する別経路、
+    本番のmigration 0014が投入する初期行[revision=1]をこのテストが模す）。
+    """
+    dummy_matrix = StaticEdgeScoreMatrix(
+        edge_ids=["edge-1"],
+        axis_ids=["gradient"],
+        axis_scores=np.array([[50.0]]),
+        distance_m=np.array([100.0]),
+        bearing_deg=np.array([np.nan]),
+        is_motorway=np.array([False]),
+        is_trunk=np.array([False]),
+        no_bicycle=np.array([False]),
+        gradient_percent=np.array([np.nan]),
+    )
+    road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
+    repository = AxisDefinitionRepository(road_graph_session)
+    await repository.upsert(_definition("test_axis"), sort_order=0)
+    await repository.commit()
+
+    # 1回目のアプリ起動相当。
+    await refresh_axis_definitions(repository)
+    tile_score_matrix_cache.set(12, 2, 2, dummy_matrix)
+    tile_score_matrix_cache._cache.clear()  # プロセス再起動（メモリだけ空になる）を模す
+
+    # 2回目のアプリ起動相当。間に軸定義の変更（upsert/delete/publish等）は挟んでいない。
+    await refresh_axis_definitions(repository)
+
+    restored = tile_score_matrix_cache.get(12, 2, 2)
+    assert restored is not None
+    assert restored.edge_ids == ["edge-1"]
+
+
+async def test_refresh_invalidates_tile_score_matrix_disk_cache_when_revision_changes(road_graph_session):
+    """上記の対（軸定義が実際に変わった場合は、revision不一致によりディスクキャッシュも
+    正しく無効化されることの確認）。"""
+    dummy_matrix = StaticEdgeScoreMatrix(
+        edge_ids=["edge-1"],
+        axis_ids=["gradient"],
+        axis_scores=np.array([[50.0]]),
+        distance_m=np.array([100.0]),
+        bearing_deg=np.array([np.nan]),
+        is_motorway=np.array([False]),
+        is_trunk=np.array([False]),
+        no_bicycle=np.array([False]),
+        gradient_percent=np.array([np.nan]),
+    )
+    road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
+    repository = AxisDefinitionRepository(road_graph_session)
+    await repository.upsert(_definition("test_axis"), sort_order=0)
+    await repository.commit()
+
+    await refresh_axis_definitions(repository)
+    tile_score_matrix_cache.set(12, 3, 3, dummy_matrix)
+    tile_score_matrix_cache._cache.clear()
+
+    # 軸定義を実際に編集する（upsertは呼ぶたびにrevisionをインクリメントする）。
+    await repository.upsert(_definition("test_axis", default_weight=0.5), sort_order=0)
+    await repository.commit()
+    await refresh_axis_definitions(repository)
+
+    assert tile_score_matrix_cache.get(12, 3, 3) is None
+
+
 async def test_refresh_raises_on_repository_error(road_graph_session):
     # 改善計画T349: DB接続自体が失敗した場合もfail-fast（AxisDefinitionSyncErrorへラップして再送出）。
     original = dict(AXIS_DEFINITIONS)
