@@ -38,13 +38,6 @@
   color: #ffffff;
 }
 
-/* 地図の色分けに対応しない軸（supports_route_coloring===false）向け。.axisToggleと同じ
-   見た目を保ちつつ、クリック不可であることをカーソルで示す。 */
-.axisLabel {
-  cursor: default;
-  color: var(--color-muted);
-}
-
 /* 改善計画T545: 総合難易度・各軸の選択チップ列（legendStyles.chipRowを流用）。 */
 .selectorRow {
   margin-bottom: 4px;

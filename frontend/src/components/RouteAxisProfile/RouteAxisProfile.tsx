@@ -50,43 +50,33 @@ interface RouteAxisProfileProps {
 const TOTAL_DOT_COLOR = "#64748b";
 
 // 改善計画T524（T518コードレビューSIMPLIFY指摘）: 「legendChip > 色ドット + ラベル」という
-// 構造が総合難易度行・色分け対応軸・色分け非対応軸の3箇所でほぼ丸ごと重複していたため、
-// 共有サブコンポーネントへ抽出する。onSelectを渡さない（＝色分け非対応）場合は非活性の
-// <span>、渡す場合はクリック可能な<button>を描画する——見た目・DOM構造は元の実装と同一。
+// 構造が総合難易度行・各軸行で重複していたため、共有サブコンポーネントへ抽出する。
+// 改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）:
+// 以前はsupports_route_coloring===falseの軸（car_stress・accident・night・
+// bicycle_infra_quality等）もこのチップ列に非活性表示（cursor:defaultのみで区別、
+// クリックしても無反応）で並べていたが、他の色分け対応チップと見た目がほぼ同じで
+// 「クリックできるのに反応しない壊れたボタン」に見えていた。呼び出し側
+// （下記rows.filter）で色分け対応軸だけに絞り込むよう変更したため、このコンポーネント
+// 自体は非活性描画を持たず常にクリック可能な<button>のみを描画する。
 function AxisChip({
   color,
   label,
   ariaLabel,
   pressed,
   onSelect,
-  title,
 }: {
   color: string;
   label: string;
   ariaLabel: string;
-  pressed?: boolean;
-  onSelect?: () => void;
-  title?: string;
+  pressed: boolean;
+  onSelect: () => void;
 }) {
   return (
-    <span className={legendStyles.legendChip} title={title}>
-      {onSelect ? (
-        <button
-          type="button"
-          className={styles.axisToggle}
-          aria-pressed={pressed}
-          aria-label={ariaLabel}
-          onClick={onSelect}
-        >
-          <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
-          <span>{label}</span>
-        </button>
-      ) : (
-        <span className={`${styles.axisToggle} ${styles.axisLabel}`}>
-          <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
-          <span>{label}</span>
-        </span>
-      )}
+    <span className={legendStyles.legendChip}>
+      <button type="button" className={styles.axisToggle} aria-pressed={pressed} aria-label={ariaLabel} onClick={onSelect}>
+        <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
+        <span>{label}</span>
+      </button>
     </span>
   );
 }
@@ -177,7 +167,14 @@ export default function RouteAxisProfile({
           選択UIを、ルート設定タブの軸チップ列（chipRow、折り返して並ぶ）と同じ見た目・
           操作性の1行へ統合した（ユーザー実機指摘）。地図の色分け対象を選ぶ役割はこの
           チップ列だけが持ち、下の内訳（breakdown）は選択状態を持たない読み取り専用の
-          一覧のまま残す（内訳だけを見て複数軸を横断比較する既存の使い方を変えない）。 */}
+          一覧のまま残す（内訳だけを見て複数軸を横断比較する既存の使い方を変えない）。
+          改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）:
+          routeStyleModesはsupports_route_coloring===trueの軸だけから生成される
+          （car_stress・accident・night・bicycle_infra_quality等は対象外、routeStyleModes.ts
+          参照）。以前はそうした軸も非活性チップとしてこの列に並べていたが、色分け対応チップと
+          見分けにくく「壊れたボタン」に見えていた。ここで色分け対応軸だけへ絞り込むことで、
+          この列に並ぶチップは常にクリック可能になる（評価はできても地図の色分けには
+          対応しない軸の存在自体は、下の内訳一覧に引き続き表示されるため情報は失われない）。 */}
       <div className={`${legendStyles.chipRow} ${styles.selectorRow}`}>
         <AxisChip
           color={TOTAL_DOT_COLOR}
@@ -186,29 +183,18 @@ export default function RouteAxisProfile({
           pressed={isTotalSelected}
           onSelect={() => onRouteStyleModeChange("difficulty")}
         />
-        {rows.map((axis) => {
-          const active = routeStyleModeId === axis.axisId;
-          // 改善計画T518・実機確認で発覚: routeStyleModesは軸カタログのsupports_route_
-          // coloring===trueの軸だけから生成される（car_stress・accident・night・
-          // bicycle_infra_quality等は対象外）。そうした軸のチップをクリック可能にすると
-          // 「対応する地図色分けが存在しないid」でonRouteStyleModeChangeを呼んでしまい、
-          // page.tsx側のフォールバックeffect（該当モードが無ければ先頭モードへ戻す）が
-          // 即座に選択を巻き戻すため、クリックしても何も起きたように見えない無反応の
-          // ボタンになっていた。対応する地図色分けが無い軸は非活性表示にする。
-          const colorable = routeStyleModes.some((mode) => mode.id === axis.axisId);
-          const axisColor = axisColors[axis.axisId] ?? TOTAL_DOT_COLOR;
-          return (
+        {rows
+          .filter((axis) => routeStyleModes.some((mode) => mode.id === axis.axisId))
+          .map((axis) => (
             <AxisChip
               key={axis.axisId}
-              color={axisColor}
+              color={axisColors[axis.axisId] ?? TOTAL_DOT_COLOR}
               label={axis.label}
               ariaLabel={`${axis.label}で地図を色分け`}
-              pressed={active}
-              onSelect={colorable ? () => onRouteStyleModeChange(axis.axisId) : undefined}
-              title={colorable ? undefined : "この軸は地図の色分けに対応していません"}
+              pressed={routeStyleModeId === axis.axisId}
+              onSelect={() => onRouteStyleModeChange(axis.axisId)}
             />
-          );
-        })}
+          ))}
       </div>
       {(totalScore != null || overallDifficulty != null) && (
         <div className={styles.scores}>

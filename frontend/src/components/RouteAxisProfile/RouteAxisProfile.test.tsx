@@ -154,19 +154,19 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByRole("button", { name: "総合難易度で地図を色分け" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("routeStyleModesに対応モードが無い軸（supports_route_coloring===false）はボタンにせず、" +
-    "クリックしても地図の色分けが変わらない無反応チップにならないようにする（実機確認で発覚: " +
-    "対応モードが無いidでonRouteStyleModeChangeを呼ぶと、page.tsx側のフォールバックeffectが" +
-    "選択を即座に巻き戻していた）", () => {
+  it("routeStyleModesに対応モードが無い軸（supports_route_coloring===false）は選択チップ列に" +
+    "出さない（実機確認で発覚: 以前は非活性チップとして並べていたが、色分け対応チップと" +
+    "見分けにくく「クリックしても反応しない壊れたボタン」に見えていた。改善計画T545" +
+    "フォローアップでチップ列自体から除外し、内訳一覧のみに残す）", () => {
     // ROUTE_STYLE_MODESにはcar_stressの色分けモードはあるが、nightのモードは無い
     // （AXES/axisDifficultiesの両方にnightは含まれる想定のfixture）。
     render(<RouteAxisProfile {...baseProps()} />);
 
     expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "夜間で地図を色分け" })).not.toBeInTheDocument();
-    // 改善計画T545: 「夜間」は選択チップ列（非活性ラベル）・内訳一覧（読み取り専用ラベル）の
-    // 2箇所に表示される。
-    expect(screen.getAllByText("夜間")).toHaveLength(2);
+    // 「夜間」は内訳一覧（読み取り専用ラベル）の1箇所にのみ表示される
+    // （選択チップ列には色分け対応軸だけが並ぶため出現しない）。
+    expect(screen.getAllByText("夜間")).toHaveLength(1);
   });
 
   it("凡例の表示設定トリガーで、選択中モードの凡例カテゴリがチェックボックスとして開き、" +

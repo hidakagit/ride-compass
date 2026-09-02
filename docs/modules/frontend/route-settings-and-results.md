@@ -147,22 +147,28 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 ## RouteAxisProfile.tsx（候補ごとタブの中身: 地図色分け＋軸別内訳）
 
 page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）が組み立てる候補ごとの
-タブ（`RouteCandidate.total_score`由来の`{点数}点`・方向・距離を2行で表示）の中身として、
+タブ（方向・距離のみを表示。おすすめ度の点数はタブ内では繰り返さない）の中身として、
 候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ
 絞り込んで渡す。
 
-- **地図の色分けチップ**: 「総合難易度」＋渡された各軸を、`RouteSettingsPanel.module.css`の
-  `legendChip`/`legendDot`/`chipRow`クラスをそのままimportして流用した1行の折り返し
-  チップ列（`RouteSettingsPanel`の軸チップ列と同じ見た目）で表示する（色ドット＋ラベル、
-  クリックで選択）。選択状態は`routeStyleModeId`（`Map/routeStyleModes.ts`）でpage.tsx側が
-  管理し、地図上の色分け式を切り替える。チップ選択時、地図上の「ルート」チップ
-  （`layerVisibility.route`）がまだOFFなら自動でONにする。地図の色分け対象を選ぶ役割は
-  このチップ列だけが持ち、下記の軸別内訳は選択状態を持たない読み取り専用の一覧。
+- **地図の色分けチップ**: 「総合難易度」＋渡された各軸のうち**地図の色分けに対応する軸だけ**
+  （`routeStyleModes.some(mode => mode.id === axis.axisId)`で判定。`car_stress`・`accident`・
+  `night`・`bicycle_infra_quality`等、`supports_route_coloring===false`の軸は対象外）を、
+  `RouteSettingsPanel.module.css`の`legendChip`/`legendDot`/`chipRow`クラスをそのまま
+  importして流用した1行の折り返しチップ列（`RouteSettingsPanel`の軸チップ列と同じ見た目）で
+  表示する（色ドット＋ラベル、クリックで選択）。選択状態は`routeStyleModeId`
+  （`Map/routeStyleModes.ts`）でpage.tsx側が管理し、地図上の色分け式を切り替える。
+  チップ選択時、地図上の「ルート」チップ（`layerVisibility.route`）がまだOFFなら自動で
+  ONにする。地図の色分け対象を選ぶ役割はこのチップ列だけが持ち、下記の軸別内訳は選択状態を
+  持たない読み取り専用の一覧（色分けに対応しない軸もこちらには表示される）。このチップ列に
+  並ぶチップは常にクリック可能（`AxisChip`は非活性描画を持たない）——色分けに対応しない軸を
+  この列へ含めない絞り込みが、その前提を成立させている。
 - **おすすめ度／総合難易度**: `RouteCandidate.total_score`（候補間の相対スコア）と
   `overall_difficulty`（絶対基準の軸重み付き合成値）を別指標として両方併記する。総合難易度
   は下記内訳の合計そのものであり、内訳の1項目としては扱わない。両指標の意味の違いの説明は
   このコンポーネント自身は持たず、呼び出し元（`app/page.tsx`の「ルート結果」見出し脇の
-  `FieldLabel`、候補タブすべてに共通の1箇所）へ集約している。
+  `renderRouteResultHeaderActions()`が返す`FieldLabel`、候補タブすべてに共通の1箇所）へ
+  集約している。
 - **軸別内訳**: `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重
   平均、評価できなかった軸はキー自体が無く非表示）を、`domain/difficulty.py:
   composite_difficulty`と同じ考え方（`raw*weight/weightSum`）でルート設定の重みを反映した

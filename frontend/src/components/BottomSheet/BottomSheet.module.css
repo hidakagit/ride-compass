@@ -59,19 +59,27 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-/* 改善計画T545フォローアップ: タイトルとheaderAction（情報アイコン等）を隣接させて
-   左側にまとめる。閉じるボタンとの間はheader側のjustify-content:space-betweenへ委ねる。 */
-.titleGroup {
+/* 改善計画T545フォローアップ（ユーザー指摘「ルートをクリアもルート結果ヘッダの右上
+   小さくでいい」）: headerAction（情報アイコン・小さめのアクションボタン等）と
+   閉じるボタンをヘッダ右側へまとめる。タイトルとの間はheader側の
+   justify-content:space-betweenへ委ねる。 */
+.headerActions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .title {
   font-size: var(--font-size-md);
   font-weight: bold;
   margin: 0;
+  /* headerActions（情報アイコン＋「ルートをクリア」等）が幅を取る分、狭い画面でも
+     タイトル側が先に折り返して.header行の高さが崩れないよう1行省略にする。 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title:focus {

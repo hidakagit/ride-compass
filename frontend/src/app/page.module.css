@@ -155,16 +155,25 @@
 
 /* デスクトップ専用の「ルート結果」見出し行（改善計画T545フォローアップ）。モバイルは
    BottomSheet自体のtitle="ルート結果"が見出しを兼ねるため showHeading=false で
-   出さない（renderRouteOutcomeSectionBodyのコメント参照）。 */
+   出さない（renderRouteOutcomeSectionBodyのコメント参照）。見出しは左、情報アイコン・
+   「ルートをクリア」は右（ユーザー指摘「ヘッダの右上小さくでいい」）。 */
 .outcomeSectionHeader {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: space-between;
+  gap: var(--space-2);
   margin-bottom: 0.3rem;
 }
 
 .outcomeSectionHeader h2 {
   margin: 0;
+}
+
+.outcomeSectionHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 /* ルート結果パネルのタブ（候補ごと＋比較）。省スペース化のため、候補一覧・全体プロファイル・
@@ -184,8 +193,8 @@
 }
 
 /* 改善計画T545: 候補ごとのタブ＋比較タブがこの1列に並ぶため、候補数（8方位＋経由地/
-   目的地ルート）ぶんで画面幅を超えうる。タブ列自身だけを横スクロールさせ（ページ全体は
-   横スクロールさせない）、情報アイコン・「ルートをクリア」は縮まず常に見える位置に残す。 */
+   目的地ルート）ぶんで画面幅を超えうる。タブ列自身だけを横スクロールさせる
+   （ページ全体は横スクロールさせない）。 */
 .outcomeTabList {
   display: flex;
   gap: var(--space-2);
@@ -194,30 +203,19 @@
   min-width: 0;
 }
 
+/* 改善計画T545フォローアップ（ユーザー指摘「タブ名はもっと簡潔に、おすすめ度は
+   タブ内にもあるし」）: タブの中身は方向・距離のみの1行（以前はおすすめ度の点数と
+   2行に分けていたが、点数はタブの中身（RouteAxisProfileのスコア行）に既に出ているため
+   タブでは繰り返さない）。 */
 .outcomeTabTrigger {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
   flex-shrink: 0;
+  white-space: nowrap;
   font-size: var(--font-size-sm);
   font-weight: 700;
   color: var(--color-muted);
   padding: 0.4rem 0.5rem;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-}
-
-/* 改善計画T545（旧RouteList.tsxのタブ本文）: おすすめ度は太字、方向・距離は
-   .outcomeTabTrigger既定のfont-weight:700を打ち消して控えめに見せる。 */
-.outcomeRouteTabScore {
-  white-space: nowrap;
-}
-
-.outcomeRouteTabMeta {
-  font-weight: 400;
-  color: var(--color-muted);
-  white-space: nowrap;
 }
 
 .outcomeTabTrigger[data-state="active"] {
@@ -230,11 +228,11 @@
   cursor: not-allowed;
 }
 
-/* ルートのクリア: タブ列と同じ行に置くが、タブとして選択状態を持たず押した瞬間に
-   実行する即実行アクション（ユーザー指示）。clearRoutesButton/routeProfileButtonの
-   控えめなテキストリンク見た目を踏襲する。 */
+/* ルートのクリア: 改善計画T545フォローアップで「ルート結果」ヘッダ右上
+   （outcomeSectionHeaderActions・BottomSheetのheaderAction）へ移設。タブのような
+   選択状態は持たず押した瞬間に実行する即実行アクション（ユーザー指示）。
+   clearRoutesButton/routeProfileButtonの控えめなテキストリンク見た目を踏襲する。 */
 .outcomeTabAction {
-  align-self: center;
   flex-shrink: 0;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
