@@ -42,9 +42,9 @@ function buildAxisInspectorHtml(result: AxisInspectorResult, axisLabels: Record<
     result.composite_difficulty != null
       ? `<strong>合成コスト（参考値）: ${result.composite_difficulty.toFixed(1)}/100</strong>` +
         (result.covered_weight_fraction != null && result.covered_weight_fraction < 0.999
-          ? `<br/><span style="color:var(--color-text-muted);">重みの約${Math.round(result.covered_weight_fraction * 100)}%に相当する軸のみで算出（勾配・風はこの区間単体では算出できないため未算入。実際のルート探索コストとは一致しません）</span>`
+          ? `<br/><span style="color:var(--color-muted);">重みの約${Math.round(result.covered_weight_fraction * 100)}%に相当する軸のみで算出（勾配・風はこの区間単体では算出できないため未算入。実際のルート探索コストとは一致しません）</span>`
           : "")
-      : `<span style="color:var(--color-text-muted);">合成コストを算出できる軸がありません。</span>`;
+      : `<span style="color:var(--color-muted);">合成コストを算出できる軸がありません。</span>`;
 
   return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">
     <strong>一次属性</strong><br/>

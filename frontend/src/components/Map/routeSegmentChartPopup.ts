@@ -134,7 +134,7 @@ function buildLegendRows(entries: readonly RadarEntry[]): string {
       (entry) => `<div style="display:flex; align-items:center; gap:4px; font-size:var(--font-size-sm); min-width:0;">
         <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${rampColorForValue(entry.value)}; flex:none;"></span>
         <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${entry.label}</span>
-        <span style="color:var(--color-text-muted); flex:none;">${formatDifficultyValue(entry.value)}</span>
+        <span style="color:var(--color-muted); flex:none;">${formatDifficultyValue(entry.value)}</span>
       </div>`
     )
     .join("");
@@ -176,7 +176,7 @@ export function buildRouteSegmentChartPopupHtml(
       ? `<div style="margin-top:var(--space-1); text-align:center;">${buildAxisDifficultyRadarSvg(entries)}</div>${legendHtml}`
       : entries.length > 0
         ? legendHtml
-        : `<div style="font-size:var(--font-size-sm); color:var(--color-text-muted); margin-top:var(--space-1);">軸別の内訳を算出できませんでした。</div>`;
+        : `<div style="font-size:var(--font-size-sm); color:var(--color-muted); margin-top:var(--space-1);">軸別の内訳を算出できませんでした。</div>`;
 
   // ユーザー指摘（2026-09-03、「スマホだと見切れて使いにくい」）: チャート縮小・凡例の
   // 2列化だけでは、将来公開軸数が増えた場合に再び縦幅が伸びうる。MapLibre Popupは既定で
