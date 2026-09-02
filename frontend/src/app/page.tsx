@@ -1642,8 +1642,9 @@ export default function Home() {
                       (route-destination)は候補が常に1件で「方位」という概念が無いため、
                       direction_label（固定文言、route_generator.py参照）をそのまま表示し
                       「方向」は付けない。 */}
-                  {index + 1}.{" "}
-                  {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
+                  {NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
+                    ? route.direction_label
+                    : `${index + 1}. ${route.direction_label}方向`}{" "}
                   {route.distance_km.toFixed(1)} km
                 </Tabs.Trigger>
               ))}

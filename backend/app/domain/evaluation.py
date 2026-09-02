@@ -311,10 +311,9 @@ def compute_routable_node_ids(
     `docs/tasks/T529.md`。改善計画T546でEdgeMaterialBundle経由の判定からスコア行列の
     生配列ベースへ置き換え）。
 
-    `domain/routing.py: routable_node_ids`はEdgeコストを事前計算済みの`SparseRoadGraph`
-    から算出するが、lazy評価（`shortest_path_node_ids_lazy`）はコストを探索中にしか
-    計算しないため、同じ判定を得るにはHard Constraintだけを別途・軽量に評価する必要が
-    ある。
+    探索用グラフ（`domain/routing.py: LazyRoadGraph`）はHard Constraintをグラフ構造では
+    なくコスト（`math.inf`）で表現するため、「実際に経路探索可能なNode」の判定は
+    Hard Constraintだけを別途・軽量に評価して得る必要がある。
 
     改善計画T546: 以前は`materials`（EdgeMaterialBundle辞書）へ`.get(edge_id)`した上で
     `is_edge_allowed`をEdgeごとに呼んでいたが、この判定は`StaticEdgeScoreMatrix`の
