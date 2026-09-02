@@ -18,7 +18,7 @@
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
 | `lib/axisMaterialsCatalog.ts` | 材料選択候補の静的フォールバック（`AXIS_MATERIAL_OPTIONS`） |
 | `components/Map/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
-| `components/Map/recipeControls.tsx`（`FieldLabel`のみ使用） | 情報アイコン付きラベルの共有UI部品（研究モードのWeightPanel等とも共有） |
+| `components/Map/recipeControls.tsx`（`FieldLabel`のみ使用） | 情報アイコン付きラベルの共有UI部品（RouteSettingsPanel等とも共有） |
 
 ## AxisStudio.tsx（一覧・状態管理）
 

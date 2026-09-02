@@ -35,7 +35,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図上アイコン） |
 | ルート設定 | `RouteForm`（モード切替/距離/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
 | ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補ごとのタブ自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
-| 研究モード | `ComparisonPanel`（実験スロット比較表）。`WeightPanel`自体は`/admin`側 |
+| 研究モード | `ComparisonPanel`（実験スロット比較表） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
 
 ## page.tsxの状態管理
@@ -155,8 +155,10 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 「ルート結果」見出し（`showHeading`引数、既定true。デスクトップはこの関数自身が
 `<h2>`を描画し、モバイルはBottomSheet側の`title="ルート結果"`と重複するため
 `showHeading=false`で呼ぶ——`renderRouteSettingsSectionBody`と同じ使い分け）に続けて、
-Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブは
-**候補ごと**（`routes`の件数ぶん、方向・距離のみを表示。おすすめ度の点数はタブの中身
+Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
+`routes`配列の並び順（backendが`overall_difficulty`昇順で返す、`route_generator.py`
+参照）をそのまま使い、フロント側での並べ替えは行わない。タブは
+**候補ごと**（`routes`の件数ぶん、方向・距離のみを表示。総合難易度の点数はタブの中身
 （`RouteAxisProfile`のスコア行）に既に出ているためタブ内では繰り返さない）＋「比較」
 （`ComparisonPanel`、`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の
 自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
@@ -167,7 +169,7 @@ Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画�
 `comparisonTabActive`・`generatedConditions`・`generatedRoutePreference`に加え
 `experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
 
-おすすめ度・総合難易度の説明（`ROUTE_RESULT_HINT`）と「ルートをクリア」
+総合難易度の説明（`ROUTE_RESULT_HINT`）と「ルートをクリア」
 （`handleRoutesClear`）は`renderRouteResultHeaderActions()`という1つのヘルパーへまとめ、
 「ルート結果」セクション見出し1箇所（候補タブ・`RouteAxisProfile`側には置かない）から
 呼ぶ。デスクトップは`renderRouteOutcomeSectionBody`自身の見出し行内（`<h2>`ルート結果と
@@ -181,10 +183,10 @@ propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。
 タブ構成に関わらず変わらない（比較タブから候補タブへ戻ると、見ていた候補がそのまま
 選択された状態に戻る）。
 
-候補タブの中身（`Tabs.Content`）は`RouteAxisProfile`単体（おすすめ度=`total_score`の
-表示もここに統合済み）。`RouteAxisProfile`は「地図の色分け」チップ列（総合難易度＋
-`route_preference`の重み>0の軸のみ、`RouteSettingsPanel`の凡例チップと同じ見た目の
-1行）・おすすめ度/総合難易度の並記・軸別内訳（`domain/difficulty.py:
+候補タブの中身（`Tabs.Content`）は`RouteAxisProfile`単体。`RouteAxisProfile`は
+「地図の色分け」チップ列（総合難易度＋`route_preference`の重み>0の軸のみ、
+`RouteSettingsPanel`の凡例チップと同じ見た目の1行）・総合難易度の表示・軸別内訳
+（`domain/difficulty.py:
 composite_difficulty`と同じ考え方で軸の重みを反映した寄与度をバー長に、生の
 `axis_difficulties`値をバー色に使う。この一覧は選択操作を持たない読み取り専用）・
 凡例の表示/非表示設定（`stackBarLegendTrigger`パターン）をまとめて持つ。地図の色分け

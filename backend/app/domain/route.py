@@ -54,28 +54,11 @@ class RouteSegmentDetail(BaseModel):
     difficulty: float | None = None
 
 
-class RouteScoreComponent(BaseModel):
-    """total_scoreの1指標分の内訳（RouteScorerが算出。研究インターフェース改善 §10-2）。
-
-    - `score`: 候補集合内min-max正規化の0-100（相対評価。total_scoreと同じ性質で、
-      同じgenerate呼び出し内の候補同士でのみ比較できる）。指標を取得できなかった候補はNone
-    - `weight`: 合成に使った設定重み（scoring.yamlまたはリクエスト上書きの値そのまま）
-    - `contribution`: total_scoreへの寄与点（score×weight÷有効指標の重み和）。
-      有効な指標のcontributionを合計するとtotal_scoreに一致する（丸め誤差を除く）。
-      scoreがNone、または合成不能（total_score=None）のときはNone
-    """
-
-    axis: str
-    score: float | None = None
-    weight: float
-    contribution: float | None = None
-
-
 class RouteCandidate(BaseModel):
     """`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均
-    （domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate
-    呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので
-    **異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。
+    （domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の
+    比較にも使える絶対基準（研究インターフェース改善 §10-7）。候補タブの並び順は
+    この値の昇順で決まる（route_generator.py参照）。
     segments欠損時・全区間difficulty欠損時はNone。
 
     `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ
@@ -103,8 +86,6 @@ class RouteCandidate(BaseModel):
     max_gradient_percent: float | None = None
     wind_score: float | None = None
     road_score: float | None = None
-    total_score: float | None = None
-    score_breakdown: list[RouteScoreComponent] | None = None
     segments: list[RouteSegmentDetail] | None = None
     overall_difficulty: float | None = None
     axis_difficulties: dict[str, float] = Field(default_factory=dict)

@@ -35,12 +35,9 @@ export type RouteSegmentDetail = Omit<Required<Schemas["RouteSegmentDetail"]>, "
   geometry: GeoJSON.LineString | null;
 };
 
-export type RouteScoreComponent = Required<Schemas["RouteScoreComponent"]>;
-
-export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry" | "segments" | "score_breakdown"> & {
+export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry" | "segments"> & {
   geometry: GeoJSON.LineString;
   segments: RouteSegmentDetail[] | null;
-  score_breakdown: RouteScoreComponent[] | null;
 };
 
 export type RouteGenerateRequest = Schemas["RouteGenerateRequest"];
@@ -58,7 +55,6 @@ export type RouteGenerateJobStatusResponse = Omit<Required<Schemas["RouteGenerat
   result: RouteGenerateResponse | null;
 };
 
-export type ScoringWeights = Schemas["ScoringWeights"];
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
 // 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き(改善計画T266)。
 export type HardFilterOverride = Schemas["HardFilterOverride"];

@@ -27,11 +27,9 @@ interface RouteAxisProfileProps {
   /** RouteCandidate.axis_difficulties（axis_id→difficulty 0-100の距離加重平均）。
    * 評価できなかった軸はキー自体を持たない。 */
   axisDifficulties: Record<string, number>;
-  /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
+  /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。候補タブの並び順も
+   * この値の昇順で決まる（route_generator.py参照）。 */
   overallDifficulty: number | null;
-  /** RouteCandidate.total_score（おすすめ度、候補間の相対スコア。overallDifficultyとは
-   * 別指標のため内訳には含めず並記のみ）。 */
-  totalScore: number | null;
   /** 内訳の重み付き寄与度計算に使う重み（axis_id→重み。生成時点の値を渡すこと）。 */
   weights: RoutePreferenceWeights;
   /** 軸id→色ドットの色（RouteSettingsPanelのstackBarColorForIndexと同じ計算をpage.tsxが
@@ -151,7 +149,6 @@ export default function RouteAxisProfile({
   axes,
   axisDifficulties,
   overallDifficulty,
-  totalScore,
   weights,
   axisColors,
   routeStyleModes,
@@ -248,20 +245,12 @@ export default function RouteAxisProfile({
             />
           ))}
       </div>
-      {(totalScore != null || overallDifficulty != null) && (
+      {overallDifficulty != null && (
         <div className={styles.scores}>
-          {totalScore != null && (
-            <span className={styles.scoreItem}>
-              <span className={styles.scoreValue}>{Math.round(totalScore)}</span>
-              <span className={styles.scoreLabel}>点 おすすめ度</span>
-            </span>
-          )}
-          {overallDifficulty != null && (
-            <span className={styles.scoreItem}>
-              <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
-              <span className={styles.scoreLabel}>/100 総合難易度</span>
-            </span>
-          )}
+          <span className={styles.scoreItem}>
+            <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
+            <span className={styles.scoreLabel}>/100 総合難易度</span>
+          </span>
         </div>
       )}
 

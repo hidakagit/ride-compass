@@ -36,7 +36,6 @@ from app.services.graph_service import GraphService
 from app.services.region_service import RegionService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
-from app.services.route_scorer import RouteScorer, load_scoring_weights
 from app.services.flood_service import FloodService
 from app.services.gradient_way_service import GradientWayService
 from app.services.jma_amedas_service import JmaAmedasService
@@ -114,12 +113,11 @@ def get_flood_service():
 class RouteGenerationSetup:
     """1回のルート生成に使う組み立て済みの部品と、実際に適用された評価条件。
 
-    scoring_weights / route_preference はレスポンスの条件エコー
+    route_preference はレスポンスの条件エコー
     （routers/routes.py: GenerationConditions）にそのまま使う。
     """
 
     generator: RouteGenerator
-    scoring_weights: dict[str, float]
     route_preference: RoutePreference
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。road_graphエンジンのみに効く。
     penalty_strength: float
@@ -164,7 +162,6 @@ def _assemble_route_generation_setup(
     elevation_attribute_service: ElevationAttributeService,
     weather_service: WeatherService,
     preference_override: RoutePreference | None = None,
-    scoring_weights_override: dict[str, float] | None = None,
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
@@ -176,7 +173,6 @@ def _assemble_route_generation_setup(
     tests/test_routes_generate.py参照）。
     """
     preference = preference_override or load_route_preference()
-    scoring_weights = scoring_weights_override or load_scoring_weights()
     hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
     engine = RoadGraphEngine(
         graph_service,
@@ -188,8 +184,7 @@ def _assemble_route_generation_setup(
         hard_filters,
     )
     return RouteGenerationSetup(
-        generator=RouteGenerator(engine, RouteScorer(scoring_weights)),
-        scoring_weights=scoring_weights,
+        generator=RouteGenerator(engine),
         route_preference=preference,
         penalty_strength=penalty_strength,
         max_average_grade_percent=max_average_grade_percent,
@@ -200,7 +195,6 @@ def _assemble_route_generation_setup(
 @asynccontextmanager
 async def open_route_generation_setup(
     preference_override: RoutePreference | None = None,
-    scoring_weights_override: dict[str, float] | None = None,
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
@@ -226,7 +220,7 @@ async def open_route_generation_setup(
         )
         yield _assemble_route_generation_setup(
             graph_service, elevation_attribute_service, weather_service,
-            preference_override, scoring_weights_override, penalty_strength,
+            preference_override, penalty_strength,
             max_average_grade_percent, hard_filters_override,
         )
 

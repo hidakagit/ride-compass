@@ -58,22 +58,6 @@ async def preview_route(
         raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
 
 
-class ScoringWeights(BaseModel):
-    """total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。
-
-    値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は
-    無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。
-
-    改善計画T401: 従来のelevation_weight/wind_weight/road_weightはoverall_difficulty
-    （軸スタジオのRoutePreference.weightsで既に重み付け合成済みの値）に既に織り込まれて
-    いたため二重管理だった。distance（目標距離への近さ）とdifficulty（overall_difficulty）の
-    2指標へ単純化した。
-    """
-
-    distance_weight: float = Field(ge=0)
-    difficulty_weight: float = Field(ge=0)
-
-
 class RoutePreferenceWeights(RootModel[dict[str, float]]):
     """Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
@@ -149,10 +133,8 @@ class RouteGenerateRequest(BaseModel):
     distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用、docs/research-interface-review-2026-08-15.md
-    # §10-1）。省略時はscoring.yaml（おすすめ度）・AXIS_DEFINITIONS由来の既定値
-    # （load_route_preference、改善計画T316）を使う。
-    # 実際に適用された値はレスポンスのconditionsへエコーされる。
-    scoring_weights: ScoringWeights | None = None
+    # §10-1）。省略時はAXIS_DEFINITIONS由来の既定値（load_route_preference、改善計画T316）
+    # を使う。実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。省略時は既定1.0
     # （従来どおり最悪でも距離2倍。domain/evaluation.py: compute_cost_from_axis_scores参照）。
@@ -187,16 +169,15 @@ class RouteGenerateRequest(BaseModel):
 class GenerationConditions(BaseModel):
     """この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。
 
-    scoring_weights / route_preference は「リクエストで上書きされた値」または
-    「YAML既定値」のうち実際に使われた方。レスポンスJSONを保存すれば、同じ条件を
-    scoring_weights / route_preference としてそのまま再送して再現できる。
+    route_preference は「リクエストで上書きされた値」または「既定値」のうち実際に
+    使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま
+    再送して再現できる。
     """
 
     latitude: float
     longitude: float
     distance_km: float
     distance_tolerance_km: float
-    scoring_weights: ScoringWeights
     route_preference: RoutePreferenceWeights
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。
     penalty_strength: float
@@ -292,18 +273,16 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
     `_generate_semaphore`は投稿時点の`generate_routes`側で既に取得済み（改善計画T386、
     TOCTOUレース対応）。ここでは成否によらず必ずfinallyで解放する。"""
     try:
-        # 重みの上書き（省略時はopen_route_generation_setup側でYAML既定値を読む）。
+        # 重みの上書き（省略時はopen_route_generation_setup側で既定値を読む）。
         # 適用された値はconditionsへエコーする。
         preference_override = (
             RoutePreference(weights=dict(request.route_preference.root)) if request.route_preference else None
         )
-        scoring_override = request.scoring_weights.model_dump() if request.scoring_weights else None
         hard_filters_override = request.hard_filters.to_frozenset() if request.hard_filters else None
 
         job_registry.set_running(job_id)
         async with open_route_generation_setup(
             preference_override,
-            scoring_override,
             request.penalty_strength,
             request.max_average_grade_percent,
             hard_filters_override,
@@ -331,7 +310,6 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     longitude=request.longitude,
                     distance_km=request.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
-                    scoring_weights=ScoringWeights(**setup.scoring_weights),
                     route_preference=RoutePreferenceWeights(setup.route_preference.weights),
                     penalty_strength=setup.penalty_strength,
                     max_average_grade_percent=setup.max_average_grade_percent,

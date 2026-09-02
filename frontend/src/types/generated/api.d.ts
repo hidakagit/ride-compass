@@ -1155,9 +1155,9 @@ export interface components {
          * GenerationConditions
          * @description この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。
          *
-         *     scoring_weights / route_preference は「リクエストで上書きされた値」または
-         *     「YAML既定値」のうち実際に使われた方。レスポンスJSONを保存すれば、同じ条件を
-         *     scoring_weights / route_preference としてそのまま再送して再現できる。
+         *     route_preference は「リクエストで上書きされた値」または「既定値」のうち実際に
+         *     使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま
+         *     再送して再現できる。
          */
         GenerationConditions: {
             /** Latitude */
@@ -1168,7 +1168,6 @@ export interface components {
             distance_km: number;
             /** Distance Tolerance Km */
             distance_tolerance_km: number;
-            scoring_weights: components["schemas"]["ScoringWeights"];
             route_preference: components["schemas"]["RoutePreferenceWeights"];
             /** Penalty Strength */
             penalty_strength: number;
@@ -1277,9 +1276,9 @@ export interface components {
         /**
          * RouteCandidate
          * @description `overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均
-         *     （domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate
-         *     呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので
-         *     **異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。
+         *     （domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の
+         *     比較にも使える絶対基準（研究インターフェース改善 §10-7）。候補タブの並び順は
+         *     この値の昇順で決まる（route_generator.py参照）。
          *     segments欠損時・全区間difficulty欠損時はNone。
          *
          *     `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ
@@ -1319,10 +1318,6 @@ export interface components {
             wind_score?: number | null;
             /** Road Score */
             road_score?: number | null;
-            /** Total Score */
-            total_score?: number | null;
-            /** Score Breakdown */
-            score_breakdown?: components["schemas"]["RouteScoreComponent"][] | null;
             /** Segments */
             segments?: components["schemas"]["RouteSegmentDetail"][] | null;
             /** Overall Difficulty */
@@ -1375,7 +1370,6 @@ export interface components {
              * @constant
              */
             route_type: "loop";
-            scoring_weights?: components["schemas"]["ScoringWeights"] | null;
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
             /**
              * Penalty Strength
@@ -1417,27 +1411,6 @@ export interface components {
         RoutePreviewRequest: {
             origin: components["schemas"]["Coordinates"];
             destination: components["schemas"]["Coordinates"];
-        };
-        /**
-         * RouteScoreComponent
-         * @description total_scoreの1指標分の内訳（RouteScorerが算出。研究インターフェース改善 §10-2）。
-         *
-         *     - `score`: 候補集合内min-max正規化の0-100（相対評価。total_scoreと同じ性質で、
-         *       同じgenerate呼び出し内の候補同士でのみ比較できる）。指標を取得できなかった候補はNone
-         *     - `weight`: 合成に使った設定重み（scoring.yamlまたはリクエスト上書きの値そのまま）
-         *     - `contribution`: total_scoreへの寄与点（score×weight÷有効指標の重み和）。
-         *       有効な指標のcontributionを合計するとtotal_scoreに一致する（丸め誤差を除く）。
-         *       scoreがNone、または合成不能（total_score=None）のときはNone
-         */
-        RouteScoreComponent: {
-            /** Axis */
-            axis: string;
-            /** Score */
-            score?: number | null;
-            /** Weight */
-            weight: number;
-            /** Contribution */
-            contribution?: number | null;
         };
         /** RouteSegment */
         RouteSegment: {
@@ -1496,24 +1469,6 @@ export interface components {
             };
             /** Difficulty */
             difficulty?: number | null;
-        };
-        /**
-         * ScoringWeights
-         * @description total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。
-         *
-         *     値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は
-         *     無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。
-         *
-         *     改善計画T401: 従来のelevation_weight/wind_weight/road_weightはoverall_difficulty
-         *     （軸スタジオのRoutePreference.weightsで既に重み付け合成済みの値）に既に織り込まれて
-         *     いたため二重管理だった。distance（目標距離への近さ）とdifficulty（overall_difficulty）の
-         *     2指標へ単純化した。
-         */
-        ScoringWeights: {
-            /** Distance Weight */
-            distance_weight: number;
-            /** Difficulty Weight */
-            difficulty_weight: number;
         };
         /**
          * TileInputSpec

@@ -2681,9 +2681,6 @@
             "type": "number",
             "title": "Distance Tolerance Km"
           },
-          "scoring_weights": {
-            "$ref": "#/components/schemas/ScoringWeights"
-          },
           "route_preference": {
             "$ref": "#/components/schemas/RoutePreferenceWeights"
           },
@@ -2740,7 +2737,6 @@
           "longitude",
           "distance_km",
           "distance_tolerance_km",
-          "scoring_weights",
           "route_preference",
           "penalty_strength",
           "max_average_grade_percent",
@@ -2750,7 +2746,7 @@
           "generated_at"
         ],
         "title": "GenerationConditions",
-        "description": "この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。\n\nscoring_weights / route_preference は「リクエストで上書きされた値」または\n「YAML既定値」のうち実際に使われた方。レスポンスJSONを保存すれば、同じ条件を\nscoring_weights / route_preference としてそのまま再送して再現できる。"
+        "description": "この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。\n\nroute_preference は「リクエストで上書きされた値」または「既定値」のうち実際に\n使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま\n再送して再現できる。"
       },
       "HTTPValidationError": {
         "properties": {
@@ -2989,31 +2985,6 @@
             ],
             "title": "Road Score"
           },
-          "total_score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Total Score"
-          },
-          "score_breakdown": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/RouteScoreComponent"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Score Breakdown"
-          },
           "segments": {
             "anyOf": [
               {
@@ -3055,7 +3026,7 @@
           "geometry"
         ],
         "title": "RouteCandidate",
-        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。total_scoreが同一generate\n呼び出し内の候補間でしか比較できない相対値なのに対し、これは絶対基準なので\n**異なる実験（重み・条件）間の比較**に使える（研究インターフェース改善 §10-7）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位\nではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート\n全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は\n空dict）。\n\n改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・\n`intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の\n名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で\nフロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ\n移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.pyの\n集約計算）もこのフィールドへ値を渡すためだけの処理だったため、併せて撤去済み。"
+        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の\n比較にも使える絶対基準（研究インターフェース改善 §10-7）。候補タブの並び順は\nこの値の昇順で決まる（route_generator.py参照）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位\nではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート\n全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は\n空dict）。\n\n改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・\n`intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の\n名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で\nフロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ\n移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.pyの\n集約計算）もこのフィールドへ値を渡すためだけの処理だったため、併せて撤去済み。"
       },
       "RouteGenerateJobCreatedResponse": {
         "properties": {
@@ -3143,16 +3114,6 @@
             "const": "loop",
             "title": "Route Type",
             "default": "loop"
-          },
-          "scoring_weights": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ScoringWeights"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "route_preference": {
             "anyOf": [
@@ -3285,47 +3246,6 @@
           "destination"
         ],
         "title": "RoutePreviewRequest"
-      },
-      "RouteScoreComponent": {
-        "properties": {
-          "axis": {
-            "type": "string",
-            "title": "Axis"
-          },
-          "score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Score"
-          },
-          "weight": {
-            "type": "number",
-            "title": "Weight"
-          },
-          "contribution": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contribution"
-          }
-        },
-        "type": "object",
-        "required": [
-          "axis",
-          "weight"
-        ],
-        "title": "RouteScoreComponent",
-        "description": "total_scoreの1指標分の内訳（RouteScorerが算出。研究インターフェース改善 §10-2）。\n\n- `score`: 候補集合内min-max正規化の0-100（相対評価。total_scoreと同じ性質で、\n  同じgenerate呼び出し内の候補同士でのみ比較できる）。指標を取得できなかった候補はNone\n- `weight`: 合成に使った設定重み（scoring.yamlまたはリクエスト上書きの値そのまま）\n- `contribution`: total_scoreへの寄与点（score×weight÷有効指標の重み和）。\n  有効な指標のcontributionを合計するとtotal_scoreに一致する（丸め誤差を除く）。\n  scoreがNone、または合成不能（total_score=None）のときはNone"
       },
       "RouteSegment": {
         "properties": {
@@ -3463,27 +3383,6 @@
         ],
         "title": "RouteSegmentDetail",
         "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\ngradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負、\nElevationAttribute.average_gradeから算出）。フロントの勾配色分け\n（routeStyleModes.ts）はこの符号を前提に「下り」カテゴリを持つため、絶対値で\n返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
-      },
-      "ScoringWeights": {
-        "properties": {
-          "distance_weight": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Distance Weight"
-          },
-          "difficulty_weight": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Difficulty Weight"
-          }
-        },
-        "type": "object",
-        "required": [
-          "distance_weight",
-          "difficulty_weight"
-        ],
-        "title": "ScoringWeights",
-        "description": "total_score算出（候補集合内の相対評価、RouteScorer）の重み。キーはscoring.yamlと同じ。\n\n値は非負なら任意（合成時に有効な指標の重み和で正規化するため、合計を1.0にする必要は\n無い）。すべて0にした場合は合成不能としてtotal_score=Noneになる（RouteScorer参照）。\n\n改善計画T401: 従来のelevation_weight/wind_weight/road_weightはoverall_difficulty\n（軸スタジオのRoutePreference.weightsで既に重み付け合成済みの値）に既に織り込まれて\nいたため二重管理だった。distance（目標距離への近さ）とdifficulty（overall_difficulty）の\n2指標へ単純化した。"
       },
       "TileInputSpec": {
         "properties": {

@@ -752,7 +752,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 
 ## おすすめ度（total_score）システムの全面撤去（2026-09-03、ユーザー指摘・合意）
 
-- [ ] [T548](tasks/T548.md). おすすめ度（total_score）を全面撤去し候補タブ並び順をoverall_difficulty基準へ 規模M（着手中）
+- [x] [T548](tasks/T548.md). おすすめ度（total_score）を全面撤去し候補タブ並び順をoverall_difficulty基準へ 規模M（2026-09-03完了）
 
 ## supports_route_coloringフラグの全面撤去（2026-09-03、ユーザー指摘・合意）
 

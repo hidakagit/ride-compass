@@ -10,7 +10,6 @@ import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
 const API_BASE = "http://localhost:8000";
 
-const SCORING_WEIGHTS = { distance_weight: 1, difficulty_weight: 1 };
 // キーはaxis_id（改善計画T221 Stage B、backend AXIS_DEFINITIONS参照）。
 // RoutePreferenceWeightsはindex signature型のため旧キーでも型検査を通ってしまう
 // （コンパイルではドリフト検知できない）。実キー集合の正はaxis-catalog.jsonの
@@ -46,8 +45,6 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     max_gradient_percent: 6.5,
     wind_score: -1.2,
     road_score: 82,
-    total_score: 78,
-    score_breakdown: null,
     segments: null,
     overall_difficulty: 35,
     axis_difficulties: {},
@@ -69,7 +66,6 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
       longitude: 139.7387,
       distance_km: 20,
       distance_tolerance_km: 5,
-      scoring_weights: SCORING_WEIGHTS,
       route_preference: ROUTE_PREFERENCE,
       penalty_strength: 1.0,
       max_average_grade_percent: null,

@@ -1,6 +1,7 @@
 # 区間ごとの生データ（勾配・向かい風・路面）を、ロードバイク走行の一般的な目安に基づく
-# 絶対基準で0-100の「難易度」に変換する。Step8のtotal_score（候補集合内の相対評価）とは異なり、
-# 地図上の色分けは候補間の比較ではなく「客観的にどこが大変か」を示す目的のため絶対基準を採用する。
+# 絶対基準で0-100の「難易度」に変換する。地図上の色分け・候補タブの並び順（overall_
+# difficulty）は候補間の相対比較ではなく「客観的にどこが大変か」を示す目的のため
+# 絶対基準を採用する。
 #
 # 改善計画T221 Stage B/C: 各軸の変換パラメータ（breakpoints等）と計算本体は
 # `domain/axis_definitions.py`（軸定義データ＋汎用評価関数）へ移した。
@@ -64,8 +65,8 @@ def evaluate_axis_difficulties(
 
 
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:
-    """(スコア, 重み)のリストから加重平均を求める。Noneのスコアは除外し残りの重みで再正規化する
-    （RouteScorerと同じ考え方）。1つも有効なスコアが無ければNone。"""
+    """(スコア, 重み)のリストから加重平均を求める。Noneのスコアは除外し残りの重みで再正規化する。
+    1つも有効なスコアが無ければNone。"""
     available = [(score, weight) for score, weight in scored_weights if score is not None]
     if not available:
         return None

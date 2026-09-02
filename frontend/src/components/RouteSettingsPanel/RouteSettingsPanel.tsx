@@ -14,9 +14,9 @@ import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
 
 // 一般ユーザー向けルート設定画面（改善計画T267、目論見書4章「①一般ユーザ向け
-// ルーティング設定」）。研究モード（WeightPanel）とは別の導線で、常に表示される
-// メインの操作面に置く。重み配分バー（帯グラフ、ドラッグで調整）→軸の凡例チップ
-// （有効/無効・説明文・地図色分け）→除外する道路、という並び。
+// ルーティング設定」）。常に表示されるメインの操作面に置く。重み配分バー
+// （帯グラフ、ドラッグで調整）→軸の凡例チップ（有効/無効・説明文・地図色分け）→
+// 除外する道路、という並び。
 //
 // プリセット（「バランス」「自転車専用道を優先」等のボタン）は撤去した（2026-08-27
 // ユーザー判断: 重み配分の根拠が不明瞭なため）。既存7軸を名指しした固定の重み値
@@ -107,10 +107,9 @@ interface RouteSettingsPanelProps {
   onHardFiltersChange: (next: HardFilterOverride) => void;
   routePreference: RoutePreferenceWeights;
   onRoutePreferenceChange: (next: RoutePreferenceWeights) => void;
-  /** route_preference上書き（研究モードのWeightPanelと共有する同じ状態、page.tsx参照）の
-   * 有効フラグ。既定値のまま操作しなければ無効のままでよく（DEFAULT_ROUTE_PREFERENCE＝
-   * backend YAML既定値のため挙動は変わらない）、値を変えると自動でONになる
-   * （withAutoEnable、WeightPanel.tsxと同じパターン）。一般ユーザーはこのフラグの存在自体を
+  /** route_preference上書きの有効フラグ（page.tsx参照）。既定値のまま操作しなければ
+   * 無効のままでよく（DEFAULT_ROUTE_PREFERENCE＝backend既定値のため挙動は変わらない）、
+   * 値を変えると自動でONになる（withAutoEnable）。一般ユーザーはこのフラグの存在自体を
    * 意識しない（トグルUIをこのパネルには出さない）。 */
   overrideEnabled: boolean;
   onOverrideEnabledChange: (enabled: boolean) => void;

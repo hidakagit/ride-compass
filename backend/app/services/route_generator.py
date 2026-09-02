@@ -1,7 +1,8 @@
 """周回ルート生成の戦略層（エンジン非依存）。
 
 「8方位×固定半径で経由地点を決め、各方位の周回を距離許容範囲でフィルタし、
-RouteScorerで総合スコアを付けて並べ替える」という周回生成戦略を1箇所に持つ。
+overall_difficulty（絶対基準0-100の総合難易度）昇順で並べ替える」という周回生成戦略を
+1箇所に持つ。
 経由地点間の実際の経路計算と評価値（標高・風・路面）の取得方法はエンジン
 （`LoopRoutingEngine`実装）へ委譲する。現在の唯一の実装は`RoadGraphEngine`
 （自前Road Graph + scipy.sparse.csgraph Dijkstra、road_graph_engine.py参照）。
@@ -37,7 +38,6 @@ from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RouteDistanceExceededError, RoutingError
 from app.domain.geo import compass_label, destination_point
 from app.domain.route import Coordinates, RouteCandidate, merge_axis_difficulties
-from app.services.route_scorer import RouteScorer
 
 # ルート生成のステージ別サマリログ(方針は docs/logging.md)。1リクエスト=1行のINFOで
 # prepare/trace/evaluateの所要時間と候補の減り方(8方位→trace成功→距離フィルタ通過)を残し、
@@ -105,9 +105,8 @@ class LoopRoutingEngine(Protocol):
 class RouteGenerator:
     """周回ルート候補の生成戦略。経路計算と評価はengineへ委譲する。"""
 
-    def __init__(self, engine: LoopRoutingEngine, route_scorer: RouteScorer):
+    def __init__(self, engine: LoopRoutingEngine):
         self._engine = engine
-        self._route_scorer = route_scorer
         # 改善計画T441: candidatesが空になったときの原因（人間可読な要約、下記の
         # logger.warning行と同じ情報源）。呼び出し側（routes.py: _run_generate_job）が
         # RouteGenerateResponse.no_candidates_reasonへそのまま転記し、GUI（デバッグログ・
@@ -202,7 +201,7 @@ class RouteGenerator:
                     "distance filter rejected bearing=%d distance_km=%.1f (target=%.1f±%.1f)",
                     t.bearing, t.distance_km, distance_km, distance_tolerance_km,
                 )
-        # 評価前に目標距離に近い順へ並べておく（最終順序はtotal_scoreで決まるが、
+        # 評価前に目標距離に近い順へ並べておく（最終順序はoverall_difficultyで決まるが、
         # 評価順・candidates内の並びを安定させるため）。
         traced.sort(key=lambda t: abs(t.distance_km - distance_km))
 
@@ -225,8 +224,11 @@ class RouteGenerator:
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
 
-        candidates = self._route_scorer.score(candidates, distance_km, distance_tolerance_km)
-        candidates.sort(key=lambda c: c.total_score if c.total_score is not None else -1, reverse=True)
+        # 改善計画T548: 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）
+        # 昇順（易しい候補が先頭）。算出不能（None）の候補は末尾へ回す。
+        candidates.sort(
+            key=lambda c: c.overall_difficulty if c.overall_difficulty is not None else float("inf")
+        )
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 
@@ -304,12 +306,6 @@ class RouteGenerator:
                 c.model_copy(update={"id": "route-destination", "direction_label": "目的地ルート"})
                 for c in candidates
             ]
-        # 改善計画T364: 候補は常に1件のため、RouteScorer（候補集合内でのmin-max正規化）は
-        # 呼ばない。domain/scoring.py: normalize_min_maxはlo==hiのとき常に中立50点を返す
-        # （改善計画T463、以前は100点だった）ため、候補1件に対して呼ぶと差の無い定数を
-        # 意味ありげなスコアとして表示してしまう。
-        # total_scoreはRouteCandidateで元々None許容であり、frontend側（RouteList.tsx）は
-        # 既にtotal_score != nullで無表示に倒す分岐を持つ。
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)
 

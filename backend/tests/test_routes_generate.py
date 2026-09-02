@@ -17,7 +17,6 @@ from app.main import app
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
-from app.services.route_scorer import load_scoring_weights
 from app.services.weather_service import WeatherService
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
@@ -32,12 +31,6 @@ REQUEST_BODY = {
     "distance_tolerance_km": 5,
     "route_type": "loop",
 }
-
-DEFAULT_SCORING_WEIGHTS = {
-    "distance_weight": 0.30,
-    "difficulty_weight": 0.70,
-}
-
 
 @pytest.fixture(autouse=True)
 def clear_rate_limiter():
@@ -71,20 +64,17 @@ def fake_open_route_generation_setup(
     @asynccontextmanager
     async def _open(
         preference_override=None,
-        scoring_weights_override=None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters_override: frozenset[str] | None = None,
     ):
         if captured is not None:
             captured["preference"] = preference_override
-            captured["scoring"] = scoring_weights_override
             captured["penalty_strength"] = penalty_strength
             captured["max_average_grade_percent"] = max_average_grade_percent
             captured["hard_filters"] = hard_filters_override
         yield RouteGenerationSetup(
             generator=FakeRouteGenerator(candidates, no_candidates_reason),
-            scoring_weights=scoring_weights_override or DEFAULT_SCORING_WEIGHTS,
             route_preference=preference_override or RoutePreference(),
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
@@ -189,7 +179,6 @@ def test_generate_routes_echoes_applied_conditions(monkeypatch):
     assert conditions["longitude"] == REQUEST_BODY["longitude"]
     assert conditions["distance_km"] == REQUEST_BODY["distance_km"]
     assert conditions["distance_tolerance_km"] == REQUEST_BODY["distance_tolerance_km"]
-    assert conditions["scoring_weights"] == DEFAULT_SCORING_WEIGHTS
     # RoutePreferenceWeightsはRootModel(dict)のため、レスポンスではaxis_idキーの
     # プレーンな辞書としてシリアライズされる（改善計画T221 Stage B）。
     assert conditions["route_preference"] == RoutePreference().weights
@@ -202,21 +191,16 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them(monkeypatch):
     # （研究インターフェース改善 §10-1）。
     captured: dict = {}
     monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], captured))
-    scoring_weights = {"distance_weight": 0.1, "difficulty_weight": 0.9}
     route_preference = {
         "gradient": 0.5, "surface_q": 0.25, "wind": 0.2, "stop_density": 0.05,
         "car_stress": 0.0, "accident": 0.0,
         "night": 0.0, "bicycle_infra_quality": 0.0,
     }
 
-    result = submit_and_await_done(
-        {**REQUEST_BODY, "scoring_weights": scoring_weights, "route_preference": route_preference}
-    )
+    result = submit_and_await_done({**REQUEST_BODY, "route_preference": route_preference})
 
-    assert captured["scoring"] == scoring_weights
     assert captured["preference"] == RoutePreference(weights=route_preference)
     conditions = result["conditions"]
-    assert conditions["scoring_weights"] == scoring_weights
     assert conditions["route_preference"] == route_preference
 
 
@@ -364,7 +348,7 @@ def test_generate_job_failure_releases_concurrency_semaphore(monkeypatch):
     assert _generate_semaphore._value == settings.generate_max_concurrent
 
 
-def _lightweight_route_generation_setup(preference_override=None, scoring_weights_override=None):
+def _lightweight_route_generation_setup(preference_override=None):
     # _assemble_route_generation_setupはFastAPIのDependsで解決される前提の依存を
     # 直接渡して呼べる純粋関数（改善計画T265でget_route_generation_builderのクロージャから
     # 抽出）。重みの既定値/上書きの反映だけを検証する。いずれの依存もコンストラクタでは
@@ -374,7 +358,6 @@ def _lightweight_route_generation_setup(preference_override=None, scoring_weight
         elevation_attribute_service=ElevationAttributeService(ElevationClient(), http_client=None),
         weather_service=WeatherService(WeatherClient(), http_client=None),
         preference_override=preference_override,
-        scoring_weights_override=scoring_weights_override,
     )
 
 
@@ -391,8 +374,6 @@ def _lightweight_route_generation_setup(preference_override=None, scoring_weight
         {"route_type": "not-a-real-type"},
         # 重み上書きは非負のみ許可。部分指定（フィールド欠け）は「クラス既定値が黙って入る」
         # 事故を避けるため全フィールド必須（routes.py: RoutePreferenceWeights参照）
-        {"scoring_weights": {"distance_weight": -0.1, "difficulty_weight": 0.9}},
-        {"scoring_weights": {"distance_weight": 0.5}},
         {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
         {"route_preference": {"elevation_weight": 0.5}},
     ],
@@ -404,18 +385,15 @@ def test_generate_routes_rejects_invalid_request_body(overrides):
     assert response.status_code == 422
 
 
-def test_generation_setup_uses_yaml_defaults_when_no_override():
+def test_generation_setup_uses_defaults_when_no_override():
     setup = _lightweight_route_generation_setup()
 
-    assert setup.scoring_weights == load_scoring_weights()
     assert setup.route_preference == load_route_preference()
 
 
 def test_generation_setup_uses_overrides_when_provided():
     preference = RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0, "wind": 0.0})
-    scoring_weights = {"distance_weight": 1.0, "difficulty_weight": 0.0}
 
-    setup = _lightweight_route_generation_setup(preference, scoring_weights)
+    setup = _lightweight_route_generation_setup(preference)
 
     assert setup.route_preference is preference
-    assert setup.scoring_weights == scoring_weights
