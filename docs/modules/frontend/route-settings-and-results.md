@@ -152,8 +152,8 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 絞り込んで渡す。
 
 - **地図の色分けチップ**: 「総合難易度」＋渡された各軸のうち**地図の色分けに対応する軸だけ**
-  （`routeStyleModes.some(mode => mode.id === axis.axisId)`で判定。`car_stress`・`accident`・
-  `night`・`bicycle_infra_quality`等、`supports_route_coloring===false`の軸は対象外）を、
+  （`routeStyleModes.some(mode => mode.id === axis.axisId)`で判定。公開軸は無条件で
+  地図の色分けモードを持つため、この判定は実質的に「重み>0の公開軸すべて」を通す）を、
   `RouteSettingsPanel.module.css`の`legendChip`/`legendDot`/`chipRow`クラスをそのまま
   importして流用した1行の折り返しチップ列（`RouteSettingsPanel`の軸チップ列と同じ見た目）で
   表示する。1チップは「色ドット＋ラベル（クリックで選択）」「(i)説明文ポップオーバー

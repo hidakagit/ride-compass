@@ -141,12 +141,11 @@ def main() -> None:
                 {
                     "axis_id": axis.axis_id,
                     # 改善計画T352: ルート地図の色分けモード（frontend routeStyleModes.ts）が
-                    # 軸ラベル・選択可否を動的に組み立てるための値。display.labelは
+                    # 軸ラベルを動的に組み立てるための値。display.labelは
                     # kind="none"の軸（例: wind）でも設定されているが、実行時API
                     # （GET /api/axis-catalog: AxisCatalogEntry.label）と揃えるため
                     # 独立したトップレベルフィールドとして書き出す。
                     "label": AXIS_DEFINITIONS[axis.axis_id].label,
-                    "supports_route_coloring": AXIS_DEFINITIONS[axis.axis_id].supports_route_coloring,
                     # コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的、domain/
                     # axis_definitions.py: AxisDefinition.category）を書き出す。これが無いと
                     # フロント側でwind（category="動的"）を推定指標チップグループから除外

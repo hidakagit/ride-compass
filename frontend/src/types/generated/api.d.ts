@@ -747,8 +747,6 @@ export interface components {
             panel_hint: string | null;
             /** Show Map Icon */
             show_map_icon: boolean;
-            /** Supports Route Coloring */
-            supports_route_coloring: boolean;
             /** Primary Attribute Ids */
             primary_attribute_ids: string[];
             /** Shape */
@@ -823,11 +821,6 @@ export interface components {
              * @enum {string}
              */
             time_scope: "always" | "night_only";
-            /**
-             * Supports Route Coloring
-             * @default false
-             */
-            supports_route_coloring: boolean;
             /** Display Thresholds Override */
             display_thresholds_override?: number[] | null;
             /** Display Band Labels Override */
@@ -905,11 +898,6 @@ export interface components {
              * @enum {string}
              */
             time_scope: "always" | "night_only";
-            /**
-             * Supports Route Coloring
-             * @default false
-             */
-            supports_route_coloring: boolean;
             /** Display Thresholds Override */
             display_thresholds_override?: number[] | null;
             /** Display Band Labels Override */

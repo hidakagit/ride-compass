@@ -21,8 +21,20 @@ const windAxis = AXES.find((a) => a.axis_id === "wind")!;
 const surfaceQAxis = AXES.find((a) => a.axis_id === "surface_q")!;
 
 describe("routeStyleModes", () => {
-  it("改善計画T440: gradient・wind・surface_q（動的）+ difficulty（固定）を定義し、デフォルトはROUTE_STYLE_MODES[0]と一致する", () => {
-    expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual(["gradient", "wind", "surface_q", "difficulty"]);
+  it("改善計画T440/T549: 公開軸すべて（動的）+ difficulty（固定）を定義し、デフォルトはROUTE_STYLE_MODES[0]と一致する", () => {
+    // 改善計画T549: supports_route_coloring撤去により、以前は対象外だったstop_density・
+    // car_stress・accident・night・bicycle_infra_quality等も無条件で対象になる。
+    expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual([
+      "gradient",
+      "wind",
+      "surface_q",
+      "stop_density",
+      "car_stress",
+      "accident",
+      "night",
+      "bicycle_infra_quality",
+      "difficulty",
+    ]);
     expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe(ROUTE_STYLE_MODES[0].id);
   });
 
@@ -138,7 +150,11 @@ describe("routeStyleModes", () => {
   it("総合難易度モードはdifficulty(0-100絶対基準)を色分けし、対応する軸を持たないため常に選択肢に残る", () => {
     const difficulty = getRouteStyleMode(ROUTE_STYLE_MODES, "difficulty");
     expect(difficulty.colorExpression[1]).toEqual(["==", ["get", "difficulty"], null]);
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0, surface_q: 0 });
+    // 全軸の重みを0にする（difficulty以外の全modeのidをキーに持つ）と、difficultyだけが残る。
+    const allWeightsZero = Object.fromEntries(
+      ROUTE_STYLE_MODES.filter((mode) => mode.id !== "difficulty").map((mode) => [mode.id, 0])
+    );
+    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, allWeightsZero);
     expect(filtered.map((m) => m.id)).toEqual(["difficulty"]);
   });
 
@@ -154,20 +170,47 @@ describe("routeStyleModes", () => {
   });
 
   it("改善計画T440: filterRouteStyleModesByPreferenceは重み0の軸（gradient/wind/surface_q）を除外し、対応する軸を持たないdifficultyは常に残す", () => {
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0.26, surface_q: 0.19 });
+    // 改善計画T549: gradient/wind/surface_q以外の公開軸もROUTE_STYLE_MODESに含まれるため、
+    // それらも明示的に0を渡さないと（routePreferenceに無いキーは「常に残す」扱いのため）
+    // 残ってしまう——このテストの目的（重み0の軸だけが除外されること）を検証するため、
+    // difficulty以外の全modeを起点に明示的な重みマップを組み立てる。
+    const weights = Object.fromEntries(
+      ROUTE_STYLE_MODES.filter((mode) => mode.id !== "difficulty").map((mode) => [mode.id, 0])
+    );
+    weights.wind = 0.26;
+    weights.surface_q = 0.19;
+    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, weights);
     expect(filtered.map((m) => m.id)).toEqual(["wind", "surface_q", "difficulty"]);
   });
 
-  it("改善計画T440: gradient軸が軸カタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {
+  it("改善計画T440/T549: gradient軸が軸カタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {
     const axesWithoutGradient = AXES.filter((axis) => axis.axis_id !== "gradient");
     const modes = routeStyleModesFromCatalogAxes(axesWithoutGradient);
-    expect(modes.map((m) => m.id)).toEqual(["wind", "surface_q", "difficulty"]);
+    expect(modes.map((m) => m.id)).toEqual([
+      "wind",
+      "surface_q",
+      "stop_density",
+      "car_stress",
+      "accident",
+      "night",
+      "bicycle_infra_quality",
+      "difficulty",
+    ]);
   });
 
-  it("改善計画T440: surface_q軸が軸カタログから消えると、対応するモードも一覧から消える", () => {
+  it("改善計画T440/T549: surface_q軸が軸カタログから消えると、対応するモードも一覧から消える", () => {
     const axesWithoutSurfaceQ = AXES.filter((axis) => axis.axis_id !== "surface_q");
     const modes = routeStyleModesFromCatalogAxes(axesWithoutSurfaceQ);
-    expect(modes.map((m) => m.id)).toEqual(["gradient", "wind", "difficulty"]);
+    expect(modes.map((m) => m.id)).toEqual([
+      "gradient",
+      "wind",
+      "stop_density",
+      "car_stress",
+      "accident",
+      "night",
+      "bicycle_infra_quality",
+      "difficulty",
+    ]);
   });
 
   it("改善計画T440: difficultyはどの軸にも対応しないため、軸が0件でも一覧から消えない", () => {

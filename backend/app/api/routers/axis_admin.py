@@ -103,11 +103,10 @@ class AxisDefinitionFields(BaseModel):
     # 置き換わり撤去した。
     show_map_icon: bool = True
     # 改善計画T352: axis_idハードコード分岐を性質ベースの宣言的フィールドへ汎用化した
-    # もの（domain/axis_definitions.py: AxisDefinition.time_scope/
-    # supports_route_coloringのdocstring参照）。AxisComposer.tsx（GUIフォーム）は
-    # 現時点で編集UIを持たない（管理API経由の直接編集のみ対応）。
+    # もの（domain/axis_definitions.py: AxisDefinition.time_scopeのdocstring参照）。
+    # AxisComposer.tsx（GUIフォーム）は現時点で編集UIを持たない（管理API経由の
+    # 直接編集のみ対応）。
     time_scope: Literal["always", "night_only"] = "always"
-    supports_route_coloring: bool = False
     # 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き（domain/
     # axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring参照）。
     # 旧display_override（TileInputSpecの構造が複雑なためGUI編集を持てなかった生JSON
@@ -124,8 +123,8 @@ class AxisDefinitionFields(BaseModel):
     display_band_labels_override: list[str] | None = None
     # この軸が専用のway_id→値配信レイヤー（Redis経由、domain/axis_definitions.py:
     # AxisDefinition.dedicated_way_value_layerのdocstring参照）を持つかの宣言。
-    # time_scope/supports_route_coloringと同じ理由でAxisComposer.tsx（GUIフォーム）は
-    # 現時点で編集UIを持たない（管理API経由の直接編集のみ対応）。
+    # time_scopeと同じ理由でAxisComposer.tsx（GUIフォーム）は現時点で編集UIを
+    # 持たない（管理API経由の直接編集のみ対応）。
     dedicated_way_value_layer: bool = False
     # 改善計画T458: dedicated_way_value_layer=trueの軸のみ意味を持つ（domain/
     # axis_definitions.py: AxisDefinition.dynamic_way_value_needs_time/

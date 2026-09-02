@@ -162,7 +162,7 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
   `crypto.randomUUID()`（利用不可な非セキュアコンテキストでは`Math.random()`ベースの
   フォールバック）で自動採番する。編集時は既存の`axis_id`をそのまま使う。
 - このフォームに編集欄を持たないフィールド（`priority_overrides`・`time_scope`・
-  `supports_route_coloring`・`dedicated_way_value_layer`・
+  `dedicated_way_value_layer`・
   `dynamic_way_value_needs_time`・`dynamic_way_value_needs_bearing`）も、既存軸の値を
   draftへ素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
   値が失われるため）。`display_thresholds_override`/`display_band_labels_override`は

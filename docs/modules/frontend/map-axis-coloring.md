@@ -47,8 +47,11 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 | 判定 | 使う軸データ属性 | 関数 |
 |---|---|---|
 | 専用way_id配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `mapLayers.ts: isDedicatedWayValueLayerId` |
-| ルート結果色分けの選択肢に使えるか | `supports_route_coloring` | `routeStyleModes.ts: routeStyleModesFromCatalogAxes` |
 | 符号付き値を直接読むべきか（勾配のような向きを持つ軸） | `shape.kind==="breakpoint_linear" && shape.preprocess==="abs" && shape.terms.length===1` | `routeStyleModes.ts: isSignedAbsShape` |
+
+公開軸は無条件でルート結果色分けの選択肢になる（`routeStyleModes.ts:
+routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実際にユーザーが使っている
+軸だけへの絞り込みは`filterRouteStyleModesByPreference`（route_preferenceの重み>0）が担う。
 
 `isSignedAbsShape`が真の場合、値は`axis_difficulties[axis_id]`（0-100正規化済み）
 ではなく`shape.terms[0].material`（生材料、例: `gradient_percent`）を直接読む——

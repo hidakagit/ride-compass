@@ -417,7 +417,7 @@ def test_create_persists_and_returns_display_thresholds_override(override_servic
 def test_create_persists_and_returns_dedicated_way_value_layer(override_service):
     # この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
     # （dedicated_way_value_layer）が管理API経由で設定・参照できること。
-    # supports_route_coloringと同じ配線パターン（axis_admin.py: AxisDefinitionFields参照）。
+    # time_scope等と同じ配線パターン（axis_admin.py: AxisDefinitionFields参照）。
     payload = {**_PAYLOAD, "dedicated_way_value_layer": True}
 
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)

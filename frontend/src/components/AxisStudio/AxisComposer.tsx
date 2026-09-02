@@ -310,15 +310,14 @@ interface Draft {
    * 決まらないと対応が取れないため、backend側のバリデーションと同じ制約をGUIでも
    * 先回りする）。要素数はdisplayThresholdsOverride.length+1と常に一致させる。 */
   displayBandLabelsOverride: string[] | null;
-  /** 改善計画T352: time_scope/supports_route_coloringも同じ理由（このフォームに編集欄を
-   * 持たないが、既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
-   * AxisDefinition.time_scope/supports_route_coloringのdocstring参照。 */
-  timeScope: AxisDefinitionResponse["time_scope"];
-  supportsRouteColoring: AxisDefinitionResponse["supports_route_coloring"];
-  /** この軸が専用のway_id→値配信レイヤーを持つかの宣言。time_scope/
-   * supportsRouteColoringと同じ理由（このフォームに編集欄を持たないが、既存軸の値を
+  /** 改善計画T352: time_scopeも同じ理由（このフォームに編集欄を持たないが、既存軸の値を
    * payloadへ素通しして保持する）で追加。domain/axis_definitions.py:
-   * AxisDefinition.dedicated_way_value_layerのdocstring参照。 */
+   * AxisDefinition.time_scopeのdocstring参照。 */
+  timeScope: AxisDefinitionResponse["time_scope"];
+  /** この軸が専用のway_id→値配信レイヤーを持つかの宣言。time_scopeと同じ理由（この
+   * フォームに編集欄を持たないが、既存軸の値をpayloadへ素通しして保持する）で追加。
+   * domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring
+   * 参照。 */
   dedicatedWayValueLayer: boolean;
   /** 改善計画T458: dedicatedWayValueLayerと同じ理由（このフォームに編集欄を持たないが、
    * 既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
@@ -360,7 +359,6 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     displayThresholdsOverride: null,
     displayBandLabelsOverride: null,
     timeScope: "always",
-    supportsRouteColoring: false,
     dedicatedWayValueLayer: false,
     dynamicWayValueNeedsTime: false,
     dynamicWayValueNeedsBearing: false,
@@ -385,7 +383,6 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     displayThresholdsOverride: def.display_thresholds_override ?? null,
     displayBandLabelsOverride: def.display_band_labels_override ?? null,
     timeScope: def.time_scope,
-    supportsRouteColoring: def.supports_route_coloring,
     dedicatedWayValueLayer: def.dedicated_way_value_layer ?? false,
     dynamicWayValueNeedsTime: def.dynamic_way_value_needs_time ?? false,
     dynamicWayValueNeedsBearing: def.dynamic_way_value_needs_bearing ?? false,
@@ -695,7 +692,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       display_thresholds_override: draft.displayThresholdsOverride,
       display_band_labels_override: draft.displayBandLabelsOverride,
       time_scope: draft.timeScope,
-      supports_route_coloring: draft.supportsRouteColoring,
       dedicated_way_value_layer: draft.dedicatedWayValueLayer,
       dynamic_way_value_needs_time: draft.dynamicWayValueNeedsTime,
       dynamic_way_value_needs_bearing: draft.dynamicWayValueNeedsBearing,

@@ -224,24 +224,6 @@ class AxisDefinition(BaseModel):
     見て判定する。将来、別の時間帯依存軸（例: 通勤ラッシュ限定）を追加する場合も、
     このフィールドへ新しい値（例: "commute_only"）を1つ増やすだけでよく、エンジン側の
     コード変更は不要。"""
-    supports_route_coloring: bool = False
-    """改善計画T352: この軸のdifficulty（0-100）を、ルート地図の色分けモード
-    （frontend/src/components/Map/routeStyleModes.ts）の選択肢として使えるかの宣言。
-    従来は`RouteStyleModeId`が`"wind"`・`"gradient"`を固定の文字列unionとして
-    ハードコードしていた。true設定の軸は`axis_difficulties[axis_id]`を値sourceとする
-    汎用の3段階（易しい/普通/難しい）色分けモードとして自動的に選択肢へ現れる
-    （`routeStyleModesFromCatalogAxes`参照）。
-
-    改善計画T440（訂正）: 当初`gradient`はこの機構の対象外のまま据え置く設計だった
-    ——gradient色分けは向き（登り/下り）を区別するため、difficulty（前処理でabsを
-    取った絶対値）ではなく符号付きの生材料`gradient_percent`を直接読む必要があり、
-    単純な「difficultyを3段階で塗る」という本フラグの汎用機構では表現できないと
-    考えられていた。しかしこの非対称性はaxis_idのハードコード分岐（フロント側で
-    `if (axis.axis_id === "gradient")`）を招き、「軸スタジオと同期していない」という
-    再三の指摘を受けた。現在は`gradient`も`supports_route_coloring=true`（フロント
-    routeStyleModes.tsの`shape.kind==="breakpoint_linear" && shape.preprocess==="abs"`
-    判定が符号付き専用の描画へ自動的に振り分ける）で公開しており、この機構の対象外の軸は
-    存在しない。"""
     display_thresholds_override: list[float] | None = None
     """地図の色分けしきい値だけを差し替える軽量な上書き（改善計画T404、
     docs/tasks/T404.md）。未設定は`derive_ramp_inputs()`が計算したしきい値
@@ -278,12 +260,11 @@ class AxisDefinition(BaseModel):
     """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
     dynamic_way_value_cache.py`）を持つかの宣言。従来`RouteSettingsPanel.tsx`・
     `mapLayers.ts`・`MapView.tsx`が`axis_id`の文字列比較（`"wind"`/`"gradient"`）で
-    直接ハードコード分岐していたのを、`supports_route_coloring`と同様に性質ベースの
-    宣言的フィールドへ汎用化したもの。
+    直接ハードコード分岐していたのを、性質ベースの宣言的フィールドへ汎用化したもの。
 
-    `supports_route_coloring`との違い: あちらは**ルート確定後**の色分け
-    （`axis_difficulties[axis_id]`を`routeStyleModes.ts`の3段階色分けモードとして
-    使えるかの宣言、shape・breakpointsから機械的に判定可能な性質）。こちらは
+    **ルート確定後**の地図色分け（`axis_difficulties[axis_id]`を
+    `routeStyleModes.ts`の3段階色分けモードとして使う機構、公開軸なら自動的に
+    対象になりこのフィールドとは無関係）とは別の概念であることに注意。こちらは
     **ルート未確定時**でも地図上の視界内の全道路を線色分け表示できるか、という
     工学的事実——「専用のway_id配信レイヤーがbackendに実際に実装されているか」は
     軸の評価ロジック（shape）自体からは自動導出できないため、他のbool系フィールドと

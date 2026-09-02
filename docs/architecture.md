@@ -162,7 +162,7 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
   1. `route-candidates-line`（既存）: 全候補のベース表示（amber未選択/blue選択）。`staticLayer==="none"`のときのみ表示。
   2. `route-static-segments-line`（新規）: **全候補**のセグメントを`elevation_difficulty`/`road_difficulty`で色分け。選択に関わらず常時利用可能（`MapOverlayControls`のチェックボックスでON/OFF）。
   3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする（**訂正・改善計画T518/T524（2026-09-01）**: この「常時」は本節が書かれた時点の設計。T518以降は候補線・方向矢印と合わせ、地図上「ルート」チップ[`layerVisibility.route`]のON/OFFに連動する——チップOFFで完全非表示になる、詳細は[docs/tasks/T518.md](tasks/T518.md)参照）。
-  4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`。改善計画T440時点では軸スタジオの`supports_route_coloring`軸から動的生成される各モード＋固定の総合難易度[`difficulty`]。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加、T440でモード集合自体が動的化された）。
+  4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`。改善計画T440で動的化・改善計画T549で軸ごとの手動フラグも撤去し、現在は軸スタジオの公開軸から動的生成される各モード＋固定の総合難易度[`difficulty`]。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加、T440でモード集合自体が動的化された）。
   - ①②は`visibility`レイアウトプロパティで排他的に切り替え、③は（本節が書かれた時点では）常時、④は最前面（③の現状はT518/T524の訂正注記参照）。クリック/ホバーの`queryRenderedFeatures`は②④の両方を対象にし、②のポップアップには所属候補が分かるよう`direction_label`を付与している。
 - **静的レイヤーのON/OFF**: 「標高図」「路面」はそれぞれ独立にON/OFFできる。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。ON/OFFの操作UIはその後のUI再構成（第2段、後述）で地図上のチップ＋サイドバーのスイッチに変わったが、「独立して同時表示可」という性質は変わっていない。
 - **`isStyleLoaded()`起因の描画スキップ**: 実装時、地図初期化直後や候補選択直後にレイヤーが表示されない不具合が実機確認（Playwright）で見つかった。原因は、各描画関数が使っていた「`map.isStyleLoaded()`がfalseなら`map.once("load", ...)`で待つ」というガード。`isStyleLoaded()`は初期スタイル読み込み後もタイル読み込み中は一時的にfalseを返すが、MapLibreの`load`イベントは初回読み込み時に一度しか発火しない。そのため、候補選択でカメラが動いてタイル読み込み中に描画関数が呼ばれると、`isStyleLoaded()===false`と判定されて`once("load", ...)`を登録するが、その`load`はもう二度と来ず、描画が永久にスキップされていた。スタイルが一度でも読み込まれたかどうかをmapインスタンス自身にフラグとして記録する`runWhenStyleReady`ヘルパーに置き換えて解消した。
@@ -1370,10 +1370,10 @@ MaterialSpec.extractor`宣言駆動化済みのため、抽出方法がタグ判
 書き足さない。区間詳細表示（`RouteSegmentDetail.axis_difficulties`、改善計画T309で
 axis_id→difficultyの汎用dictへ置換済み）も両エンジンの区間ビルダーからaxis_scores/
 axis_difficultiesをそのまま渡すだけで自動反映され、軸ごとの手書き追記は不要
-（フロント`routeStyleModes.ts`の色分けモードは改善計画T440で`supports_route_coloring`
-軸から動的に生成する形へ一本化したため、新規軸を軸スタジオで公開し`supports_route_
-coloring`をtrueにするだけでコード変更なしにモードが増える。固定で残るのは`difficulty`
-[総合難易度、対応する軸を持たない唯一の例外]のみ）。
+（フロント`routeStyleModes.ts`の色分けモードは改善計画T440で動的生成する形へ一本化し、
+改善計画T549で軸ごとの手動フラグも撤去したため、新規軸を軸スタジオで公開するだけで
+コード変更なしにモードが増える。固定で残るのは`difficulty`[総合難易度、対応する軸を
+持たない唯一の例外]のみ）。
 **この1本道はコスト計算
 （ルーティング・研究モードの重みパネル）の配線経路であり、地図表示（レイヤーパネル・凡例）への
 反映は別経路（下記「一次属性レジストリ・二次軸レジストリ」参照）** — 両者は現状レジストリ
@@ -1932,6 +1932,12 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   起きなくなったため。
 - **軸スタジオの編集UI**: `display_override`と同様、現時点で編集UIを持たない
   （`AxisComposer.tsx`は既存値をpayloadへ素通しするのみ、管理API直接編集のみ対応）。
+- **`supports_route_coloring`は改善計画T549（2026-09-03）で撤去**: この機構
+  （軸のdifficultyを汎用の3段階色分けとして使う仕組み）の対象外になる軸は技術的に
+  存在しないと判明したため、フィールド自体をDBカラム含め全面撤去し、
+  `routeStyleModesFromCatalogAxes()`は公開軸を無条件で対象にする設計へ変更した。
+  実際にユーザーが使っている軸だけへの絞り込みは`filterRouteStyleModesByPreference`
+  （route_preferenceの重み）のみが担う。`time_scope`は変更なし、本節の内容は現在も有効。
 
 ### `display_override`廃止（改善計画T404、2026-08-30）
 
@@ -2465,10 +2471,9 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 feature-stateを明示的にクリアする）。
 代わりに、既に実装済みだった`RouteSegmentDetail.axis_difficulties.wind`（ルート生成時点で
 区間ごとの実進行方向・実到達時刻を使って計算済み、`routeStyleModesFromCatalogAxes`が
-axis-catalogの`wind`軸の`supports_route_coloring`フラグから自動生成する`routeStyleModes`の
-"wind"モード、「ルート設定/結果パネル」の「生成したルートの色分け」）が、ルート線のみへの
-正確な色分けを担う——これはT400.md「3.」節の実装（T352）で既に存在しており、T414で新規に
-実装したものではない。
+axis-catalogの公開軸から自動生成する`routeStyleModes`の"wind"モード、「ルート設定/結果
+パネル」の「生成したルートの色分け」）が、ルート線のみへの正確な色分けを担う——これは
+T400.md「3.」節の実装（T352）で既に存在しており、T414で新規に実装したものではない。
 
 `mapLayers.ts`の`windAxis`レイヤー自体（`layerVisibility.windAxis`のON/OFF・実際の地図描画）は
 変更していないが、それを起動するUIは改善計画T418で地図上チップから撤去し、ルート設定パネル

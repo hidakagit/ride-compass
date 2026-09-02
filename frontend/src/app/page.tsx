@@ -609,7 +609,7 @@ export default function Home() {
       "map:route-style-mode",
       matchesKnownAxis
         ? `route style mode "${routeStyleModeId}" is a known axis but has no map-coloring mode ` +
-          `(supports_route_coloring=false or weight=0), falling back to "${filteredRouteStyleModes[0].id}"`
+          `(weight=0), falling back to "${filteredRouteStyleModes[0].id}"`
         : `route style mode "${routeStyleModeId}" is not a known axis id, falling back to ` +
           `"${filteredRouteStyleModes[0].id}"`,
       { requestedId: routeStyleModeId, availableIds: filteredRouteStyleModes.map((mode) => mode.id) },

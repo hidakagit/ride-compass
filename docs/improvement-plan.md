@@ -756,4 +756,4 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 
 ## supports_route_coloringフラグの全面撤去（2026-09-03、ユーザー指摘・合意）
 
-- [ ] [T549](tasks/T549.md). supports_route_coloringフラグを撤去し全公開軸を自動的にルート地図色分け対象へ 規模M（着手中）
+- [x] [T549](tasks/T549.md). supports_route_coloringフラグを撤去し全公開軸を自動的にルート地図色分け対象へ 規模M（2026-09-03完了）

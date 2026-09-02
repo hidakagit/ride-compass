@@ -154,12 +154,15 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByRole("button", { name: "総合難易度で地図を色分け" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("routeStyleModesに対応モードが無い軸（supports_route_coloring===false）は選択チップ列に" +
-    "出さない（実機確認で発覚: 以前は非活性チップとして並べていたが、色分け対応チップと" +
-    "見分けにくく「クリックしても反応しない壊れたボタン」に見えていた。改善計画T545" +
-    "フォローアップでチップ列自体から除外し、内訳一覧のみに残す）", () => {
+  it("routeStyleModesに対応モードが無い軸は選択チップ列に出さない（実機確認で発覚: 以前は" +
+    "非活性チップとして並べていたが、色分け対応チップと見分けにくく「クリックしても" +
+    "反応しない壊れたボタン」に見えていた。改善計画T545フォローアップでチップ列自体から" +
+    "除外し、内訳一覧のみに残す）", () => {
     // ROUTE_STYLE_MODESにはcar_stressの色分けモードはあるが、nightのモードは無い
-    // （AXES/axisDifficultiesの両方にnightは含まれる想定のfixture）。
+    // （AXES/axisDifficultiesの両方にnightは含まれる想定のfixture。実運用では改善計画
+    // T549により公開軸は無条件で色分けモードを持つが、rowsとrouteStyleModesの
+    // axis_id集合が完全一致しない場合[重み0で除外された軸等]への安全策として
+    // このフィルタ自体は残っている、RouteAxisProfile.tsx参照）。
     render(<RouteAxisProfile {...baseProps()} />);
 
     expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け" })).toBeInTheDocument();

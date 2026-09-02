@@ -119,7 +119,6 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         chip_label: null,
         panel_hint: null,
         show_map_icon: true,
-        supports_route_coloring: false,
         shape: { kind: "breakpoint_linear", terms: [{ material: "lanes_count", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
         display_thresholds_override: null,
         display_band_labels_override: null,

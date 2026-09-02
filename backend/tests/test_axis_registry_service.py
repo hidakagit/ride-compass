@@ -514,10 +514,11 @@ async def test_delete_rejects_axis_id_in_code_coupled_set_after_unpublish(road_g
 
 @pytest.mark.parametrize("axis_id", ["night", "wind", "car_stress", "gradient"])
 async def test_delete_allows_axis_id_after_t352_generalization(road_graph_session, axis_id):
-    # 改善計画T352: night（time_scope="night_only"）・wind（supports_route_coloring=True）は
-    # 以前`_CODE_COUPLED_AXIS_IDS`に含まれ削除禁止だったが、road_graph_engine.pyの
-    # T173ロジック・frontend routeStyleModes.tsのハードコードをそれぞれ宣言的フィールドへ
-    # 汎用化したことで、axis_idの直接ハードコードが解消された。改善計画T459: car_stressも
+    # 改善計画T352: night（time_scope="night_only"）は以前`_CODE_COUPLED_AXIS_IDS`に
+    # 含まれ削除禁止だったが、road_graph_engine.pyのT173ロジックを宣言的フィールドへ
+    # 汎用化したことで、axis_idの直接ハードコードが解消された。windも改善計画T549で
+    # ルート地図の色分けモード（frontend routeStyleModes.ts）が全公開軸を無条件で
+    # 対象にする設計へ変更されたことで、同様にハードコードが解消された。改善計画T459: car_stressも
     # 同様に、`car_stress_display_level()`（末端消費者ゼロの生値フィールド専用だった）を
     # 撤去したことでハードコードが解消された。改善計画T458: gradientも同様に、
     # `DYNAMIC_WAY_VALUE_MATERIALS`ハードコード辞書を`AXIS_DEFINITIONS`由来の動的導出へ
