@@ -1856,7 +1856,16 @@ export default function Home() {
             onViewportChange={handleViewportChange}
             onLayerDataStatusChange={setLayerDataStatus}
             refreshToken={refreshToken}
-            experimentSlots={researchEnabled ? experimentSlots : []}
+            // ユーザー指摘（2026-09-03、「別ルートを選んでいてもずっと常に緑になる」）:
+            // T535はexperimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
+            // COLORS[0]="#16a34a"=緑）が「ルートをクリア」操作で残る事象のみ対応していたが、
+            // タブ切り替え・再生成では引き続き残り続けていた（drawExperimentSlotsは
+            // comparisonTabActiveを見ずに無条件で描画するため）。研究モード中の比較用
+            // オーバーレイという役割上、実際に「比較」タブを見ているとき以外は地図に
+            // 描画する意味が無く、むしろ選択中ルートの色分けと紛らわしいだけだったため、
+            // comparisonTabActiveの間だけ渡すよう限定する（スロット自体の記録・
+            // ComparisonPanelでの一覧表示は従来どおり researchEnabled のみで動く）。
+            experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
             routePreferenceWeights={generatedRoutePreference ?? routePreference}
