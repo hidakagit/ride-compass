@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { RouteSegmentDetail } from "@/types/route";
-import { segmentsToFeatureCollection } from "./MapView";
+import { nearestPointOnLineString, segmentsToFeatureCollection } from "./MapView";
 
 function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail {
   return {
@@ -22,6 +22,55 @@ function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail
     ...overrides,
   };
 }
+
+describe("nearestPointOnLineString", () => {
+  // ユーザー指摘（2026-09-03、「ピンの位置は実際に情報表示しているルート上に補正してほしい」）:
+  // 当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線より広いため、クリック地点を
+  // そのままマーカー位置に使うとルート線から見た目にズレる。区間クリックのマーカー位置を
+  // 区間geometry上へスナップするために使う純関数の単体テスト。
+  it("線分の真上の点はそのまま返す", () => {
+    const line: [number, number][] = [
+      [0, 0],
+      [10, 0],
+    ];
+    expect(nearestPointOnLineString(line, [5, 0])).toEqual([5, 0]);
+  });
+
+  it("線分から外れた点は垂線の足（線分上の最近点）へ補正する", () => {
+    const line: [number, number][] = [
+      [0, 0],
+      [10, 0],
+    ];
+    expect(nearestPointOnLineString(line, [5, 3])).toEqual([5, 0]);
+  });
+
+  it("垂線の足が線分の外に出る場合は端点へクランプする", () => {
+    const line: [number, number][] = [
+      [0, 0],
+      [10, 0],
+    ];
+    expect(nearestPointOnLineString(line, [-5, 2])).toEqual([0, 0]);
+    expect(nearestPointOnLineString(line, [15, 2])).toEqual([10, 0]);
+  });
+
+  it("複数線分のうち最も近い線分上の点を選ぶ", () => {
+    const line: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+    ];
+    // (10, 5)に最も近いのは2本目の線分[(10,0),(10,10)]上の(10,5)
+    expect(nearestPointOnLineString(line, [10.5, 5])).toEqual([10, 5]);
+  });
+
+  it("座標が1点だけならその点を返す", () => {
+    expect(nearestPointOnLineString([[3, 4]], [0, 0])).toEqual([3, 4]);
+  });
+
+  it("座標が空なら渡された点をそのまま返す", () => {
+    expect(nearestPointOnLineString([], [7, 8])).toEqual([7, 8]);
+  });
+});
 
 describe("segmentsToFeatureCollection", () => {
   it("区間の道なり形状（geometry）があればそれをfeatureの形状に使う", () => {

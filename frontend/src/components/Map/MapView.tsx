@@ -2020,6 +2020,45 @@ function formatRoad(good: boolean | null): string {
 // 密度の1.4へ詰めた。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 
+// ユーザー指摘（2026-09-03、「ピンの位置は実際に情報表示しているルート上に補正してほしい」）:
+// 区間クリックの当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線（6px）より広いため、
+// クリック地点（e.lngLat）をそのままマーカー位置に使うと、ルート線から目に見えてズレた
+// 場所にマーカーが立ってしまう。クリックされた区間のgeometry（LineString）上で
+// クリック地点にもっとも近い点を求め、そちらをマーカー位置として使う
+// （handleRouteSegmentClick参照）。区間規模の距離感での見た目上のスナップが目的のため、
+// 球面上の正確な最近点ではなく経緯度を平面とみなした単純な線分への垂線ベースの近似で十分
+// （道路レベルのローカルな距離では誤差は無視できる）。
+export function nearestPointOnLineString(
+  coordinates: readonly (readonly [number, number])[],
+  point: readonly [number, number]
+): [number, number] {
+  if (coordinates.length === 0) return [point[0], point[1]];
+  if (coordinates.length === 1) return [coordinates[0][0], coordinates[0][1]];
+
+  let best: [number, number] = [coordinates[0][0], coordinates[0][1]];
+  let bestDistSq = Infinity;
+
+  for (let i = 0; i < coordinates.length - 1; i++) {
+    const [ax, ay] = coordinates[i];
+    const [bx, by] = coordinates[i + 1];
+    const [px, py] = point;
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lengthSq = abx * abx + aby * aby;
+    const t = lengthSq === 0 ? 0 : Math.min(1, Math.max(0, ((px - ax) * abx + (py - ay) * aby) / lengthSq));
+    const cx = ax + t * abx;
+    const cy = ay + t * aby;
+    const dx = px - cx;
+    const dy = py - cy;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      best = [cx, cy];
+    }
+  }
+  return best;
+}
+
 // ルート線クリック時の表示は改善計画T550でボトムシート統合へ変更した。以前は
 // routeSegmentChartPopup.ts（buildRouteSegmentChartPopupHtml、レーダーチャート）が
 // 地図上にフローティングポップアップを出していたが、モバイルで「ルート結果」ボトム
@@ -2951,12 +2990,24 @@ export default function MapView({
         axis_contributions: axisContributions,
         geometry: null,
       };
-      // 改善計画T550: 地図上はテキストポップアップを出さず、クリック地点へ軽量な
-      // マーカーのみ立てる（下部の`selectedRouteSegment`監視useEffectが実際のマーカー
-      // 表示を担う、destinationMarkerと同じcontrolled propパターン）。区間の地点・
+      // ユーザー指摘（2026-09-03）: 当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線
+      // （6px）より広いため、クリック地点をそのまま使うとマーカーがルート線から目に
+      // 見えてズレる。区間のgeometry（LineString）上の最近点へ補正する
+      // （nearestPointOnLineString参照）。geometryが無い/空の異常系は従来どおり
+      // クリック地点そのままへフォールバックする。
+      const geometry = feature.geometry as GeoJSON.Geometry | undefined;
+      const lineCoordinates =
+        geometry?.type === "LineString" ? (geometry.coordinates as [number, number][]) : [];
+      const [snappedLng, snappedLat] =
+        lineCoordinates.length > 0
+          ? nearestPointOnLineString(lineCoordinates, [e.lngLat.lng, e.lngLat.lat])
+          : [e.lngLat.lng, e.lngLat.lat];
+      // 改善計画T550: 地図上はテキストポップアップを出さず、クリック地点（上記の補正後）へ
+      // 軽量なマーカーのみ立てる（下部の`selectedRouteSegment`監視useEffectが実際の
+      // マーカー表示を担う、destinationMarkerと同じcontrolled propパターン）。区間の地点・
       // 到達予想時刻・軸別内訳（積み上げバー）はすべてボトムシート側
       // （page.tsx: selectedRouteSegment state、RouteAxisProfile）が表示する。
-      onRouteSegmentSelectRef.current({ segment, latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+      onRouteSegmentSelectRef.current({ segment, latitude: snappedLat, longitude: snappedLng });
     }
 
     function handleMouseMove(e: MapMouseEvent) {
