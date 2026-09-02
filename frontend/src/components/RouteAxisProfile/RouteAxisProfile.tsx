@@ -50,8 +50,7 @@ const TOTAL_DOT_COLOR = "#64748b";
 // 改善計画T524（T518コードレビューSIMPLIFY指摘）: 「legendChip > 色ドット + ラベル」という
 // 構造が総合難易度行・各軸行で重複していたため、共有サブコンポーネントへ抽出する。
 // 改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）:
-// 以前はsupports_route_coloring===falseの軸（car_stress・accident・night・
-// bicycle_infra_quality等）もこのチップ列に非活性表示（cursor:defaultのみで区別、
+// 以前は色分け対応外の軸もこのチップ列に非活性表示（cursor:defaultのみで区別、
 // クリックしても無反応）で並べていたが、他の色分け対応チップと見た目がほぼ同じで
 // 「クリックできるのに反応しない壊れたボタン」に見えていた。呼び出し側
 // （下記rows.filter）で色分け対応軸だけに絞り込むよう変更したため、このコンポーネント
@@ -216,13 +215,13 @@ export default function RouteAxisProfile({
           操作性の1行へ統合した（ユーザー実機指摘）。地図の色分け対象を選ぶ役割はこの
           チップ列だけが持ち、下の内訳（breakdown）は選択状態を持たない読み取り専用の
           一覧のまま残す（内訳だけを見て複数軸を横断比較する既存の使い方を変えない）。
-          改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）:
-          routeStyleModesはsupports_route_coloring===trueの軸だけから生成される
-          （car_stress・accident・night・bicycle_infra_quality等は対象外、routeStyleModes.ts
-          参照）。以前はそうした軸も非活性チップとしてこの列に並べていたが、色分け対応チップと
-          見分けにくく「壊れたボタン」に見えていた。ここで色分け対応軸だけへ絞り込むことで、
-          この列に並ぶチップは常にクリック可能になる（評価はできても地図の色分けには
-          対応しない軸の存在自体は、下の内訳一覧に引き続き表示されるため情報は失われない）。 */}
+          改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）・
+          改善計画T549: routeStyleModesは公開軸すべてから無条件で生成される
+          （routeStyleModes.ts参照、絞り込みはroute_preferenceの重みのみ）。以前は
+          特定の軸だけ非活性チップとしてこの列に並べていたが、色分け対応チップと
+          見分けにくく「壊れたボタン」に見えていた。この`rows.filter`はrows（評価軸の
+          内訳一覧）とrouteStyleModesのaxis_id集合が完全一致しない場合（重み0で
+          routeStyleModesから除外された軸等）への安全策として残す。 */}
       <div className={`${legendStyles.chipRow} ${styles.selectorRow}`}>
         <AxisChip
           color={TOTAL_DOT_COLOR}

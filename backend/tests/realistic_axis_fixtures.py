@@ -10,13 +10,15 @@ axis_idを持つ、一貫した軸システム」が入っていることを暗�
 （`road_graph_engine.py`等が"car_stress"をハードコード参照するため、単なるダミー軸では
 代替できない）。
 
-**改善計画T352の完了確認（2026-08-28）**: 以前はnight・windの重み掛け替えロジックも
-axis_idの直接ハードコードで、この「フルセット必須」の一因だった。T352で`time_scope`・
-`supports_route_coloring`という性質ベースの宣言的フィールドへ汎用化した結果、
-night・windは（car_stressと異なり）**もはや実在を前提としない**——存在しない場合は
-単に「この性質を持つ軸が無い」として何も掛け替えず動作する（KeyError等では落ちない、
-`test_evaluation.py: test_with_time_scope_*`・`test_axis_registry_service.py:
-test_delete_allows_axis_id_after_t352_generalization`で裏付け済み）。それでも本
+**改善計画T352の完了確認（2026-08-28）**: 以前はnightの重み掛け替えロジックが
+axis_idの直接ハードコードで、この「フルセット必須」の一因だった。T352で`time_scope`
+という性質ベースの宣言的フィールドへ汎用化した結果、nightは（car_stressと異なり）
+**もはや実在を前提としない**——存在しない場合は単に「この性質を持つ軸が無い」として
+何も掛け替えず動作する（KeyError等では落ちない、`test_evaluation.py:
+test_with_time_scope_*`・`test_axis_registry_service.py:
+test_delete_allows_axis_id_after_t352_generalization`で裏付け済み）。ルート地図の
+色分けモード（旧`supports_route_coloring`）も改善計画T549で全公開軸を無条件で対象に
+する設計へ変更され、windは同様の理由で対象から外れた。それでも本
 autouseフィクスチャ自体は撤去・縮小していない——car_stressのハードコード
 （T352の対象外、`services/axis_registry_service.py: _CODE_COUPLED_AXIS_IDS`参照）が
 残る以上、多くの既存テストが暗黙に「一貫した軸システム」を前提にし続けており、
@@ -120,7 +122,6 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         description="向かい風が弱いほど易しい",
         category="動的",
         is_published=True,
-        supports_route_coloring=True,
         dedicated_way_value_layer=True,
         dynamic_way_value_needs_time=True,
         dynamic_way_value_needs_bearing=True,

@@ -55,12 +55,13 @@ class AxisDefinitionSyncError(RuntimeError):
 # （unpublish→delete）でも削除できないようにする。将来、axis_idをハードコード参照する
 # コードが増えた場合はここへ追加する。
 #
-# 改善計画T352: 以前は`night`（road_graph_engine.pyのT173ロジック）・
-# `wind`（frontend routeStyleModes.tsのRouteStyleModeId）もここに
-# 含めていたが、それぞれ`AxisDefinition.time_scope`・`supports_route_coloring`という
-# 性質ベースの宣言的フィールドへ汎用化したことで、axis_idの直接ハードコードが
-# コードから消えた（削除しても対応するコードが黙って「この性質を持つ軸が無い」として
-# 動作するだけで、KeyError等では落ちない）。`car_stress`も改善計画T459で
+# 改善計画T352: 以前は`night`（road_graph_engine.pyのT173ロジック）もここに
+# 含めていたが、`AxisDefinition.time_scope`という性質ベースの宣言的フィールドへ
+# 汎用化したことで、axis_idの直接ハードコードがコードから消えた（削除しても対応する
+# コードが黙って「この性質を持つ軸が無い」として動作するだけで、KeyError等では
+# 落ちない）。ルート地図の色分けモード（frontend routeStyleModes.ts）も改善計画T549で
+# 全公開軸を無条件で対象にする設計へ変更され、同様の理由で対象から外れた。
+# `car_stress`も改善計画T459で
 # `car_stress_display_level()`（axis_definitions.py、`RouteSegmentDetail.car_stress`
 # という末端消費者ゼロの生値フィールド専用だった）を撤去し、同様に対象から外れた。
 # `gradient`も改善計画T458で対象から外れた——以前は`domain/dynamic_way_values.py:

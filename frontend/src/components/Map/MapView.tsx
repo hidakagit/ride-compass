@@ -2171,8 +2171,8 @@ interface MapViewProps {
    * axisVisibility側と同様RAMP_AXES由来のためここには手書きされていない）。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
-  /** 改善計画T352: ルート色分けモード一覧（axis-catalog由来、supports_route_coloring軸を
-   * 動的に含む）。page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的
+  /** 改善計画T352: ルート色分けモード一覧（axis-catalog由来、公開軸を無条件で動的に
+   * 含む）。page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的
    * フォールバック）をそのまま渡す。 */
   routeStyleModes: readonly RouteStyleMode[];
   routeStyleModeId: RouteStyleModeId;

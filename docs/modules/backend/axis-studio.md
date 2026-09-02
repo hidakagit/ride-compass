@@ -33,7 +33,6 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `priority_overrides` | list[PriorityCondition] | 0次条件（下記） |
 | `icon_id`/`chip_label`/`panel_hint`/`show_map_icon` | | 地図チップ表示要素 |
 | `time_scope` | "always"\|"night_only" | 特定時間帯のみ重みを持つか |
-| `supports_route_coloring` | bool | ルート結果色分けの選択肢に使えるか |
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
 | `dedicated_way_value_layer` | bool | 専用way_id→値配信レイヤーを持つか |

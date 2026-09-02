@@ -38,7 +38,7 @@ export interface AxisCatalog {
   /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む、改善計画T308でフェッチ
    * 対応）。フェッチ完了までとエラー時は静的フォールバック（secondaryAxes.ts: SECONDARY_AXES）。 */
   secondaryAxes: readonly SecondaryAxisSummary[];
-  /** ルート地図の色分けモード一覧（改善計画T352、supports_route_coloring軸を動的に含む）。
+  /** ルート地図の色分けモード一覧（改善計画T352、公開軸を無条件で動的に含む）。
    * フェッチ完了までとエラー時は静的フォールバック（routeStyleModes.ts: ROUTE_STYLE_MODES）。 */
   routeStyleModes: readonly RouteStyleMode[];
   /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを
@@ -95,7 +95,6 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     chip_label: entry.chip_label,
     panel_hint: entry.panel_hint,
     show_map_icon: entry.show_map_icon,
-    supports_route_coloring: entry.supports_route_coloring,
     shape: entry.shape,
     display_thresholds_override: entry.display_thresholds_override,
     display_band_labels_override: entry.display_band_labels_override,
