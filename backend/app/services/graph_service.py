@@ -150,9 +150,9 @@ class GraphService:
 
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
-        # 改善計画T391: get_edges_with_geometryのみ、RouteGenerator.generate_loopsの
-        # 8方位asyncio.gather経由でRoadGraphEngine.trace_loopから同時に呼ばれうる
-        # （このメソッド以外は常にgather開始前のprepare段階で逐次呼ばれるため対象外）。
+        # 改善計画T391: get_edges_with_geometryのみ、prepare段階（逐次）の外から呼ばれる
+        # （改善計画T531以降は`RoadGraphEngine.evaluate_loops`が候補ぶんをまとめて1回呼ぶ
+        # だけだが、同一リクエスト内の他の並行処理[標高取得等]と同時に走りうる構造は残る）。
         # repository内包のSQLAlchemy AsyncSessionは同一セッションへの同時アクセスが
         # 未定義動作/例外を招くため（elevation_attribute_service.pyの同種ロックと同じ理由、
         # docs/decisions/road-graph-migration.md「AsyncSessionの同時使用クラッシュ」参照）、
@@ -597,9 +597,9 @@ class GraphService:
         """`LeanRoadGraph`として読み込んだ探索用グラフ（geometryプレースホルダのみ）の
         一部Edgeへ、実ジオメトリを後付けで取得する（改善計画T218、T12 Stage 0）。
 
-        改善計画T391: 呼び出し元`RoadGraphEngine.trace_loop`はRouteGenerator.generate_loopsの
-        8方位`asyncio.gather`から同時に呼ばれるため、`self._repository_lock`で直列化する
-        （`__init__`のコメント参照）。
+        改善計画T391: 呼び出し元（`RoadGraphEngine.evaluate_loops`、改善計画T531以降は
+        距離フィルタ通過候補ぶんをまとめて1回）がprepare段階の逐次処理の外で走るため、
+        `self._repository_lock`で直列化する（`__init__`のコメント参照）。
         """
         async with self._repository_lock:
             return await self._repository.get_edges_with_geometry(edge_ids)
