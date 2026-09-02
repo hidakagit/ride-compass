@@ -169,6 +169,45 @@ describe("RouteAxisProfile", () => {
     expect(screen.getAllByText("夜間")).toHaveLength(1);
   });
 
+  it("軸チップに(i)説明ポップオーバーが付き、クリックするとaxis.descriptionを表示する" +
+    "（RouteSettingsPanelの軸チップとレイアウトを揃える、2026-09-02ユーザー指摘）", async () => {
+    const user = userEvent.setup();
+    render(<RouteAxisProfile {...baseProps()} />);
+
+    await user.click(screen.getByRole("button", { name: "車の圧迫感の説明を表示" }));
+
+    expect(await screen.findByText("車の通行量の説明")).toBeInTheDocument();
+  });
+
+  it("軸チップの地図色分けアイコン（レイヤアイコン）をクリックしてもトグルと同じ" +
+    "onRouteStyleModeChange(axisId)が呼ばれる（背景の全道路表示ではなく、選択中ルートの" +
+    "色分けへ一本化する設計、2026-09-02ユーザー判断）", async () => {
+    const user = userEvent.setup();
+    const onRouteStyleModeChange = vi.fn();
+    render(<RouteAxisProfile {...baseProps({ onRouteStyleModeChange })} />);
+
+    await user.click(screen.getByRole("button", { name: "車の圧迫感で地図を色分け表示" }));
+
+    expect(onRouteStyleModeChange).toHaveBeenCalledWith("car_stress");
+  });
+
+  it("選択中の軸チップは、トグルだけでなく地図色分けアイコンもaria-pressed=trueになる", () => {
+    render(<RouteAxisProfile {...baseProps({ routeStyleModeId: "car_stress" })} />);
+
+    expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け表示" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("説明を持たない「総合難易度」チップには(i)アイコン・地図色分けアイコンを出さない" +
+    "（合成指標のため軸固有の説明・独立した地図レイヤーを持たない）", () => {
+    render(<RouteAxisProfile {...baseProps()} />);
+
+    expect(screen.queryByRole("button", { name: "総合難易度の説明を表示" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "総合難易度で地図を色分け表示" })).not.toBeInTheDocument();
+  });
+
   it("凡例の表示設定トリガーで、選択中モードの凡例カテゴリがチェックボックスとして開き、" +
     "クリックでonToggleLegendKeyが呼ばれる", async () => {
     const user = userEvent.setup();

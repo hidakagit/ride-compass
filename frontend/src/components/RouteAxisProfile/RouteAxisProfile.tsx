@@ -2,7 +2,7 @@
 
 import * as Popover from "@radix-ui/react-popover";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import { InfoIcon } from "@/components/Map/icons";
+import { InfoIcon, MapAppearanceIcon } from "@/components/Map/icons";
 import { rampColorForBand } from "@/components/Map/axisLayers";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
@@ -58,18 +58,31 @@ const TOTAL_DOT_COLOR = "#64748b";
 // 「クリックできるのに反応しない壊れたボタン」に見えていた。呼び出し側
 // （下記rows.filter）で色分け対応軸だけに絞り込むよう変更したため、このコンポーネント
 // 自体は非活性描画を持たず常にクリック可能な<button>のみを描画する。
+// 改善計画: ルート設定タブの軸チップ（RouteSettingsPanel.tsx: renderLegendChip）と
+// レイアウトを揃える（ユーザー指摘、2026-09-02）——(i)説明ポップオーバー・地図色分け
+// アイコンを追加する。ただし後者の役割はRouteSettingsPanel側（layerVisibilityの
+// ON/OFF、視界内の全道路を背景色分け）とは異なる。ルート確定後（page.tsx:
+// showWindAxis = layerVisibility.windAxis && !hasDetail 等）は評価軸グループの背景
+// 表示自体が無効化され、この「地図の色分け」チップ列（＝選択中ルートの線色分け）が
+// 役割を引き継ぐ設計のため、独立した背景レイヤーのON/OFFを持たせると無効化された
+// 背景表示と紛らわしい・実際には何も起きないボタンになる。ユーザー判断（2026-09-02、
+// 「ルートに合わせて対応する色付けをしたい」）により、アイコンはトグルボタンと同じ
+// onSelect（このチップを選択＝ルートをこの軸で色分け）を呼ぶ——レイアウトの見た目を
+// 揃えつつ、実際の切り替えは常にルート線の色分けに一本化する。
 function AxisChip({
   color,
   label,
   ariaLabel,
   pressed,
   onSelect,
+  description,
 }: {
   color: string;
   label: string;
   ariaLabel: string;
   pressed: boolean;
   onSelect: () => void;
+  description?: string;
 }) {
   return (
     <span className={legendStyles.legendChip}>
@@ -77,6 +90,36 @@ function AxisChip({
         <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
         <span>{label}</span>
       </button>
+      {description && (
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <button type="button" className={legendStyles.legendInfoButton} aria-label={`${label}の説明を表示`}>
+              <InfoIcon />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content className={legendStyles.legendInfoPopover} side="bottom" align="start" sideOffset={6}>
+              {description}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
+      {description && (
+        // aria-labelはトグルボタン（ariaLabel、「〜で地図を色分け」）と意図的に文言を
+        // 変える——同一の名前だと2つのボタンがアクセシビリティツリー上・テストの
+        // getByRole(name)双方で区別できなくなる（RouteSettingsPanel.module.cssの
+        // legendMapColorButtonは元々「〜で地図を色分け表示」という別文言を使っており、
+        // ここでも踏襲するだけで済む）。
+        <button
+          type="button"
+          className={legendStyles.legendMapColorButton}
+          aria-pressed={pressed}
+          aria-label={`${label}で地図を色分け表示`}
+          onClick={onSelect}
+        >
+          <MapAppearanceIcon size={13} />
+        </button>
+      )}
     </span>
   );
 }
@@ -193,6 +236,7 @@ export default function RouteAxisProfile({
               ariaLabel={`${axis.label}で地図を色分け`}
               pressed={routeStyleModeId === axis.axisId}
               onSelect={() => onRouteStyleModeChange(axis.axisId)}
+              description={axis.description}
             />
           ))}
       </div>

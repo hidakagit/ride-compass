@@ -156,7 +156,18 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   `night`・`bicycle_infra_quality`等、`supports_route_coloring===false`の軸は対象外）を、
   `RouteSettingsPanel.module.css`の`legendChip`/`legendDot`/`chipRow`クラスをそのまま
   importして流用した1行の折り返しチップ列（`RouteSettingsPanel`の軸チップ列と同じ見た目）で
-  表示する（色ドット＋ラベル、クリックで選択）。選択状態は`routeStyleModeId`
+  表示する。1チップは「色ドット＋ラベル（クリックで選択）」「(i)説明文ポップオーバー
+  （`axis.description`、`legendInfoButton`/`legendInfoPopover`を流用）」「地図色分けアイコン
+  （`legendMapColorButton`を流用、`MapAppearanceIcon`）」の3要素——`RouteSettingsPanel`の
+  軸チップと見た目は同じだが、地図色分けアイコンの役割は異なる。`RouteSettingsPanel`側は
+  `layerVisibility`のON/OFF（視界内の全道路の背景色分け）を切り替えるが、こちらはルート
+  確定後（`page.tsx`: `showWindAxis = layerVisibility.windAxis && !hasDetail`等により評価軸
+  グループの背景表示自体が無効化される）の画面のため、独立した背景レイヤーは持たない。
+  クリックするとトグルボタンと同じ`onSelect`（このチップを選択＝選択中ルートをこの軸で
+  色分け）を呼ぶ——レイアウトの見た目だけを揃え、実際の切り替えは常にルート線の色分けへ
+  一本化している。「総合難易度」チップは軸固有の説明・地図レイヤーを持たないため、
+  (i)アイコン・地図色分けアイコンいずれも出さない（`description`未指定時は非表示、
+  `AxisChip`の`description`プロパティ参照）。選択状態は`routeStyleModeId`
   （`Map/routeStyleModes.ts`）でpage.tsx側が管理し、地図上の色分け式を切り替える。
   チップ選択時、地図上の「ルート」チップ（`layerVisibility.route`）がまだOFFなら自動で
   ONにする。地図の色分け対象を選ぶ役割はこのチップ列だけが持ち、下記の軸別内訳は選択状態を
