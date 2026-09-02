@@ -9,3 +9,14 @@
 scoring:
   distance_weight: 0.30
   difficulty_weight: 0.70
+  # ユーザー指摘（2026-09-03、「おすすめ度の数字が極端。距離誤差でほぼ決まっていて
+  # 参考にならない」→「固定値で特殊条件を入れるのではなく汎用的なロジックにして」）:
+  # difficultyの候補間min-max正規化（domain/scoring.py: normalize_min_max）は、実差が
+  # どれだけ小さくても強制的に0/100へ引き伸ばす。distance側は既にリクエストの
+  # distance_tolerance_km（そのメトリクスの値がとりうる幅の定義そのもの、候補の絞り込みに
+  # 実際に使われている値）をmin_meaningful_rangeとして使えるが、difficultyには
+  # 同種のリクエスト単位の値が無い。distance_weight/difficulty_weightと同じく
+  # 「Pythonコードへ埋め込む特殊条件ではなく、スコアリング設定として調整可能な値」という
+  # 一般原則へ揃え、ここへ配置する（RouteScorer.__init__がweights辞書からdistance_weight/
+  # difficulty_weightと同じ扱いで読む、route_scorer.py参照）。
+  difficulty_min_meaningful_range: 10.0

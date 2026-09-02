@@ -200,6 +200,16 @@ describe("RouteAxisProfile", () => {
     );
   });
 
+  it("選択中/非選択中の区別はチップ外枠のdata-checkedで表す（RouteSettingsPanelの" +
+    "legendChip[data-checked]と同じ「非選択チップを薄くする」方式へ統一、2026-09-03ユーザー指摘）", () => {
+    render(<RouteAxisProfile {...baseProps({ routeStyleModeId: "car_stress" })} />);
+
+    const selectedChip = screen.getByRole("button", { name: "車の圧迫感で地図を色分け" }).closest("span");
+    const unselectedChip = screen.getByRole("button", { name: "総合難易度で地図を色分け" }).closest("span");
+    expect(selectedChip).toHaveAttribute("data-checked", "true");
+    expect(unselectedChip).toHaveAttribute("data-checked", "false");
+  });
+
   it("説明を持たない「総合難易度」チップには(i)アイコン・地図色分けアイコンを出さない" +
     "（合成指標のため軸固有の説明・独立した地図レイヤーを持たない）", () => {
     render(<RouteAxisProfile {...baseProps()} />);

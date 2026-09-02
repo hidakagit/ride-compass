@@ -63,10 +63,14 @@ function formatDifficultyValue(value: number): string {
 }
 
 // レーダーチャートの寸法。ポップアップの標準幅（MapLibre Popupの既定maxWidth=240px）に
-// 収まる「小型チャート」（T400.md指定）として、余白込みで176px四方に収める。
-const RADAR_SIZE = 176;
+// 収まる「小型チャート」（T400.md指定）として設計している。
+// ユーザー指摘（2026-09-03、「情報量の割に大きすぎる、スマホだと見切れて使いにくい」）:
+// 以前は176px四方＋凡例8行（公開軸数ぶん）を縦一列で並べており、合計の縦幅がモバイルの
+// 画面高さを超えて見切れていた。チャート自体を132px四方へ縮小し、凡例を2列グリッド化
+// （buildLegendRows参照）して縦幅をさらに圧縮する。
+const RADAR_SIZE = 132;
 const RADAR_CENTER = RADAR_SIZE / 2;
-const RADAR_MAX_RADIUS = 66;
+const RADAR_MAX_RADIUS = 49;
 // 背景の同心グリッド（25/50/75/100%の目盛り）。値そのものの目盛り数値は出さず
 // （小型チャートに数値を詰め込むと読みにくくなるため）、下の凡例リストで正確な値を確認する
 // 二段構成にしている。
@@ -127,10 +131,10 @@ export function buildAxisDifficultyRadarSvg(entries: readonly RadarEntry[]): str
 function buildLegendRows(entries: readonly RadarEntry[]): string {
   return entries
     .map(
-      (entry) => `<div style="display:flex; align-items:center; gap:6px; font-size:var(--font-size-sm);">
+      (entry) => `<div style="display:flex; align-items:center; gap:4px; font-size:var(--font-size-sm); min-width:0;">
         <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${rampColorForValue(entry.value)}; flex:none;"></span>
-        <span style="flex:1;">${entry.label}</span>
-        <span style="color:var(--color-text-muted);">${formatDifficultyValue(entry.value)}</span>
+        <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${entry.label}</span>
+        <span style="color:var(--color-text-muted); flex:none;">${formatDifficultyValue(entry.value)}</span>
       </div>`
     )
     .join("");
@@ -147,15 +151,24 @@ export function buildRouteSegmentChartPopupHtml(
   segment: RouteSegmentChartSegment,
   axisLabels: Record<string, string>
 ): string {
-  const entries: RadarEntry[] = Object.entries(segment.axis_difficulties ?? {}).map(([axisId, value]) => ({
-    axisId,
-    label: axisLabels[axisId] ?? axisId,
-    value,
-  }));
+  // ユーザー指摘（2026-09-03）: 以前はaxisLabelsに無いaxis_idも生のaxis_idのまま表示していた
+  // （改善計画T320の「ラベル未取得でも隠さず出す」規約）が、RouteAxisProfile側の「地図の
+  // 色分け」チップ列・内訳は現在の公開軸カタログ（axisLabels、GET /api/axis-catalog由来、
+  // 公開軸のみ）に無い軸を表示しない設計のため、こちらだけ軸が多く見える不整合になっていた。
+  // ルート結果の他UIと同じ基準（axisLabelsにある＝現在の公開軸）へ揃え、無い軸は除外する。
+  const entries: RadarEntry[] = Object.entries(segment.axis_difficulties ?? {})
+    .filter(([axisId]) => axisId in axisLabels)
+    .map(([axisId, value]) => ({
+      axisId,
+      label: axisLabels[axisId],
+      value,
+    }));
 
+  // ユーザー指摘（2026-09-03）: 縦一列（公開軸数ぶんの行数）だと軸が増えるほど縦に伸び続ける。
+  // 2列グリッド化して同じ情報量でも縦幅を概ね半分にする。
   const legendHtml =
     entries.length > 0
-      ? `<div style="display:flex; flex-direction:column; gap:2px; margin-top:var(--space-1);">${buildLegendRows(entries)}</div>`
+      ? `<div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 8px; margin-top:var(--space-1);">${buildLegendRows(entries)}</div>`
       : "";
 
   const chartSection =
@@ -165,7 +178,12 @@ export function buildRouteSegmentChartPopupHtml(
         ? legendHtml
         : `<div style="font-size:var(--font-size-sm); color:var(--color-text-muted); margin-top:var(--space-1);">軸別の内訳を算出できませんでした。</div>`;
 
-  return `<div style="${POPUP_BODY_STYLE}">
+  // ユーザー指摘（2026-09-03、「スマホだと見切れて使いにくい」）: チャート縮小・凡例の
+  // 2列化だけでは、将来公開軸数が増えた場合に再び縦幅が伸びうる。MapLibre Popupは既定で
+  // 内部スクロールを持たないため、画面高さに対する上限（60vh）とoverflow-y:autoを
+  // 常に持たせ、どれだけ軸数が増えてもポップアップ自体が画面からはみ出さないようにする
+  // （軸数に依存しない一般的な対策）。
+  return `<div style="${POPUP_BODY_STYLE} max-height:60vh; overflow-y:auto;">
     <strong>${segment.cumulative_distance_km.toFixed(1)} km地点</strong>[到達予想 ${formatTimeLabel(segment.estimated_arrival_time)}]<br/>
     勾配: ${formatGradientLabel(segment.gradient_percent)}｜風: ${formatWindLabel(segment.wind_penalty)}｜路面: ${formatRoadLabel(segment.road_surface_good)}
     <div style="border-top:1px solid var(--color-border); margin-top:var(--space-1); padding-top:var(--space-1);">

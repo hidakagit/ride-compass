@@ -34,18 +34,36 @@ class RouteScorer:
     def __init__(self, weights: dict[str, float]):
         self._weights = weights
 
-    def score(self, candidates: list[RouteCandidate], target_distance_km: float) -> list[RouteCandidate]:
+    def score(
+        self,
+        candidates: list[RouteCandidate],
+        target_distance_km: float,
+        distance_tolerance_km: float = 0.0,
+    ) -> list[RouteCandidate]:
+        """distance_tolerance_kmはリクエストで許容した距離誤差の幅（省略時0.0＝従来どおり
+        常に候補間の実差をそのまま0/100へ引き伸ばす）。distanceのnormalize_min_maxへ
+        min_meaningful_rangeとして渡し、候補間の距離誤差の実差がこの許容幅より小さければ
+        0/100への誇張を弱める（ユーザー指摘2026-09-03、モジュールdocstring参照）。"""
         if not candidates:
             return []
 
         distance_diffs = [abs(c.distance_km - target_distance_km) for c in candidates]
         component_scores = {
             "distance": (
-                normalize_min_max(distance_diffs, higher_is_better=False),
+                normalize_min_max(distance_diffs, higher_is_better=False, min_meaningful_range=distance_tolerance_km),
                 self._weights["distance_weight"],
             ),
             "difficulty": (
-                normalize_min_max([c.overall_difficulty for c in candidates], higher_is_better=False),
+                normalize_min_max(
+                    [c.overall_difficulty for c in candidates],
+                    higher_is_better=False,
+                    # scoring.yamlのdifficulty_min_meaningful_range参照。distance_weight/
+                    # difficulty_weightと同じ「Pythonコードへ埋め込まずスコアリング設定として
+                    # 持つ」原則に揃えた（ユーザー指摘2026-09-03）。キー未設定（例えばテストが
+                    # {distance_weight, difficulty_weight}だけの辞書を渡す場合）は0.0＝
+                    # 圧縮無効（従来どおりの挙動）にフォールバックする。
+                    min_meaningful_range=self._weights.get("difficulty_min_meaningful_range", 0.0),
+                ),
                 self._weights["difficulty_weight"],
             ),
         }

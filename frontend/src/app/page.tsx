@@ -39,7 +39,6 @@ import {
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
-  filterRouteStyleModesByPreference,
   getRouteStyleMode,
   isRouteStyleModeId,
   type RouteStyleModeId,
@@ -520,11 +519,26 @@ export default function Home() {
         // route値に関わらず必ず立て、次回以降はユーザーの選択どおり尊重する。
         try {
           if (window.localStorage.getItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY) == null) {
-            if (next.route === false) next.route = true;
+            if (next.route === false) {
+              next.route = true;
+              // 実バグ修正（2026-09-03ユーザー指摘「進行方向の矢印が以前は出てたのに消えている」）:
+              // useStoredStateの復元effect（useStoredState.ts）はsetValueのみを呼びcommit
+              // （localStorageへの書き戻し）は行わない。この移行はreloadKey（axisCatalog.loaded）
+              // 経由でマウント直後（false）→フェッチ完了後（true）の2回deserializeが走るが、
+              // 書き戻さないと1回目でnext.route=trueへ補正してもlocalStorage上は元のroute:false
+              // のまま残り、2回目のdeserializeが同じ生値を読み直して補正前のfalseへ静かに
+              // 巻き戻っていた（マーカー自体は1回目で立つため2回目は移行ブロックに入らずfalseの
+              // まま確定していた）。route:falseが復元されるとMapView側のapplyRouteLayerVisibility
+              // （候補線・ハロー・矢印・区間色分けの4レイヤーをまとめて出し分ける）が全て非表示に
+              // なり、「以前は出ていた矢印が消えている」という報告と一致する。
+              window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify(next));
+            }
             window.localStorage.setItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY, "1");
           }
         } catch {
-          // 移行マーカーの読み書きに失敗しても、通常のデフォルト値フォールバックに任せる
+          // 書き戻し・マーカーいずれかの読み書きに失敗した場合は移行が未完了のまま残る
+          // （マーカー未設定なら次回起動時に再試行される。通常のデフォルト値フォールバックにも
+          // 引き続き任せる）。
         }
         return next;
       },
@@ -568,16 +582,14 @@ export default function Home() {
     DEFAULT_ROUTE_STYLE_MODE_ID,
     { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null) },
   );
-  // 改善計画T434/T440: 「評価で有効にした軸」（route_preferenceの重み>0）だけを選択肢として
-  // 動的に見せる。判定には生成済みルートを実際に評価した瞬間の重み
-  // （generatedRoutePreference、上記）を使う——ライブなroutePreferenceをそのまま使うと、
-  // 生成後に重みだけ変更（再生成せず）した場合に表示中のルートの実際の評価内容と
-  // メニューがズレる（T440、ユーザー指摘）。ルート未生成（null）の間はライブな
-  // routePreferenceをプレビュー用フォールバックとして使う。
-  const filteredRouteStyleModes = useMemo(
-    () => filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, generatedRoutePreference ?? routePreference),
-    [axisCatalog.routeStyleModes, generatedRoutePreference, routePreference],
-  );
+  // 改善計画T434/T440当初は「評価で有効にした軸」（route_preferenceの重み>0）だけを
+  // 選択肢として動的に見せていたが、ユーザー指摘（2026-09-03、「ルート結果のところ、
+  // 公開軸がすべて表示されない」）を受けて重みによる絞り込みは廃止した。axis_difficulties
+  // 自体は重み0の軸も評価済みで持っており、地図の色分け対象は「現在の公開軸カタログ
+  // （supports_route_coloring）」だけで決まるべきという判断（visibleAxes、renderRoute
+  // OutcomeSectionBody側と同じ基準）。variable名はfilteredのままだが、以後の「filter」は
+  // routeStyleModesFromCatalogAxes側のsupports_route_coloring絞り込みのみを指す。
+  const filteredRouteStyleModes = axisCatalog.routeStyleModes;
   useEffect(() => {
     if (filteredRouteStyleModes.some((mode) => mode.id === routeStyleModeId)) return;
     // 改善計画T524（T518コードレビューP3指摘）: RouteStyleModeIdは事実上string
@@ -592,7 +604,7 @@ export default function Home() {
       "map:route-style-mode",
       matchesKnownAxis
         ? `route style mode "${routeStyleModeId}" is a known axis but has no map-coloring mode ` +
-          `(supports_route_coloring=false or weight=0), falling back to "${filteredRouteStyleModes[0].id}"`
+          `(supports_route_coloring=false), falling back to "${filteredRouteStyleModes[0].id}"`
         : `route style mode "${routeStyleModeId}" is not a known axis id, falling back to ` +
           `"${filteredRouteStyleModes[0].id}"`,
       { requestedId: routeStyleModeId, availableIds: filteredRouteStyleModes.map((mode) => mode.id) },
@@ -1534,18 +1546,15 @@ export default function Home() {
 
     const showComparisonTab = researchEnabled;
     const outerTabValue = comparisonTabActive ? "comparison" : (selectedRouteId ?? routes[0].id);
-    // ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
-    // プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが「見たくない」と
-    // 選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は重み0の軸も評価済みで
-    // 持っているため、絞り込みはaxesの側で行う（RouteAxisProfile内部の
-    // axisDifficulties!=nullフィルタとは独立）。重みの参照元はfilteredRouteStyleModesと
-    // 同じ「生成時点の重み」（generatedRoutePreference、未生成時のみライブな
-    // routePreferenceへフォールバック）に揃える——内訳の寄与度計算（weights prop）も
-    // これと同じ値を使うため、表示するかどうかの判定と計算が同じ重みでなければズレが
-    // 生じる。全候補で共通のため、候補ごとのTabs.Contentループの外で1回だけ計算する。
-    const visibleAxes = axisCatalog.axes.filter(
-      (axis) => ((generatedRoutePreference ?? routePreference)[axis.axisId] ?? 0) > 0
-    );
+    // ユーザー指摘（2026-09-03、「ルート結果のところ、公開軸がすべて表示されない」）: 以前は
+    // ルート設定パネルで重み0にした軸をこのプロファイルからも消していたが、axis_difficulties
+    // 自体は重み0の軸も評価済みで持っており（route_preferenceの重みは生成時のコスト合成に
+    // しか影響しない）、この絞り込みのせいで「実際にはこの軸のルート上の値を見たい」という
+    // 用途（例: 単一軸100%で生成したうえで他の公開軸のこのルートでの値も確認したい）を
+    // 塞いでいた。公開軸カタログ（axisCatalog.axes）をそのまま渡し、地図の色分けチップ・
+    // 内訳とも現在の公開軸集合と一致させる（routeSegmentChartPopup.tsのセグメントクリック
+    // ポップアップと同じ「常に現在の公開軸集合」という基準に統一）。
+    const visibleAxes = axisCatalog.axes;
     const routeWeights = generatedRoutePreference ?? routePreference;
 
     return (

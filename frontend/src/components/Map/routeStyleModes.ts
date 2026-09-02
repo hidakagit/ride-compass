@@ -11,7 +11,6 @@
 import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
 import type { AxisShape, CatalogAxis } from "./axisLayers";
-import type { RoutePreferenceWeights } from "@/types/route";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 改善計画T440: 以前は"wind"以外に"gradient"/"road"/"difficulty"も固定文字列unionの
@@ -268,18 +267,6 @@ const DIFFICULTY_MODE: RouteStyleMode = {
 export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): RouteStyleMode[] {
   const dynamicModes = axes.filter((axis) => axis.supports_route_coloring).map(routeColorableModeFromAxis);
   return [...dynamicModes, DIFFICULTY_MODE];
-}
-
-// 改善計画T434: routeStyleModesFromCatalogAxes（公開軸カタログ由来）はroutePreferenceの
-// 重みを知らないため、ユーザーがルート設定パネルでチェックを外した（重み0にした）軸の
-// モードも選択肢に残り続けてしまう。dynamicModes（wind/gradient/surface_q等、
-// routeColorableModeFromAxisがid=axis.axis_idで生成）は重み>0のときだけ残す。
-// difficultyはどのaxis_idとも一致しない（対応する軸が無い）ため、常に残る。
-export function filterRouteStyleModesByPreference(
-  modes: readonly RouteStyleMode[],
-  routePreference: RoutePreferenceWeights
-): RouteStyleMode[] {
-  return modes.filter((mode) => !(mode.id in routePreference) || (routePreference[mode.id] ?? 0) > 0);
 }
 
 // ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと

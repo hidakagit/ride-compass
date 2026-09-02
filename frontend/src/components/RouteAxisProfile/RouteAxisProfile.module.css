@@ -31,12 +31,11 @@
   composes: legendToggle from "../RouteSettingsPanel/RouteSettingsPanel.module.css";
 }
 
-/* 選択中（＝現在この軸で地図を色分けしている）はRouteSettingsPanel.module.cssの
-   .legendMapColorButton[aria-pressed="true"]と同じ塗りつぶし処理を踏襲する。 */
-.axisToggle[aria-pressed="true"] {
-  background: var(--color-accent);
-  color: #ffffff;
-}
+/* ユーザー指摘（2026-09-03）: 選択中/非選択中の表現はトグルボタン自体の塗りつぶしではなく、
+   legendStyles.legendChip[data-checked="false"]（RouteSettingsPanel.module.css、非選択の
+   チップ全体をopacity 0.55へ落とす）へ一本化した。「どの軸が地図の色分けに使われているか」は
+   legendStyles.legendMapColorButton[aria-pressed="true"]（レイヤアイコンの塗りつぶし）
+   1箇所だけが示す。 */
 
 /* 改善計画T545: 総合難易度・各軸の選択チップ列（legendStyles.chipRowを流用）。 */
 .selectorRow {

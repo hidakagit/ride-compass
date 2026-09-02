@@ -69,6 +69,14 @@ const TOTAL_DOT_COLOR = "#64748b";
 // 「ルートに合わせて対応する色付けをしたい」）により、アイコンはトグルボタンと同じ
 // onSelect（このチップを選択＝ルートをこの軸で色分け）を呼ぶ——レイアウトの見た目を
 // 揃えつつ、実際の切り替えは常にルート線の色分けに一本化する。
+// ユーザー指摘（2026-09-03、「総合難易度、風のonoffを、ルート設定と同じで活性非活性に
+// 揃えて」）: 以前はトグルボタン自体（.axisToggle）にaria-pressed=true時の塗りつぶしを
+// 独自に追加しており、右端のレイヤアイコン（legendMapColorButton、選択中軸を示す唯一の
+// アクセント）と二重に強調されて煩雑だった。RouteSettingsPanel（.legendChip
+// [data-checked="false"]でチップ全体をopacity 0.55へ落とす、重みOFFの表現）と同じ
+// 「非選択側を薄くする」方式へ統一し、data-checkedをこのAxisChip（総合難易度チップ含む）の
+// 外枠へ渡す。トグルボタン自体の色は変えず、「どの軸が地図の色分けに使われているか」は
+// レイヤアイコンの塗りつぶし1箇所だけが示す。
 function AxisChip({
   color,
   label,
@@ -85,7 +93,7 @@ function AxisChip({
   description?: string;
 }) {
   return (
-    <span className={legendStyles.legendChip}>
+    <span className={legendStyles.legendChip} data-checked={pressed}>
       <button type="button" className={styles.axisToggle} aria-pressed={pressed} aria-label={ariaLabel} onClick={onSelect}>
         <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
         <span>{label}</span>

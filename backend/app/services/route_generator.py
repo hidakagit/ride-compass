@@ -225,7 +225,7 @@ class RouteGenerator:
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
 
-        candidates = self._route_scorer.score(candidates, distance_km)
+        candidates = self._route_scorer.score(candidates, distance_km, distance_tolerance_km)
         candidates.sort(key=lambda c: c.total_score if c.total_score is not None else -1, reverse=True)
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
         total_ms = round((time.monotonic() - started) * 1000)

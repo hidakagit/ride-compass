@@ -69,13 +69,14 @@ describe("buildRouteSegmentChartPopupHtml", () => {
     expect(html).toContain("風");
   });
 
-  it("axisLabelsに無いaxis_id（軸スタジオのGUI作成軸等）は生のaxis_idのまま表示する（改善計画T320と同じ規約）", () => {
+  it("axisLabelsに無いaxis_id（非公開化された軸等）は表示しない（ユーザー指摘2026-09-03、" +
+    "RouteAxisProfile側と同じ「現在の公開軸カタログに無い軸は出さない」基準へ揃えた）", () => {
     const html = buildRouteSegmentChartPopupHtml(
-      makeSegment({ axis_difficulties: { gui_created_axis: 42.0 } }),
+      makeSegment({ axis_difficulties: { unpublished_axis: 42.0 } }),
       AXIS_LABELS
     );
-    expect(html).toContain("gui_created_axis");
-    expect(html).toContain("42.0/100");
+    expect(html).not.toContain("unpublished_axis");
+    expect(html).toContain("軸別の内訳を算出できませんでした。");
   });
 
   it("axis_difficultiesが空の区間は「算出できませんでした」を表示し、svgは出さない", () => {

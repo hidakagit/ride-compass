@@ -160,6 +160,23 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
     });
   });
 
+  it("route:false（T518以前の意味で保存された値）は移行後trueとしてlocalStorageへも" +
+    "書き戻される（実バグ修正の回帰テスト、2026-09-03ユーザー指摘「進行方向の矢印が" +
+    "以前は出てたのに消えている」）。reloadKey（axisCatalog.loaded）によりdeserializeが" +
+    "マウント直後・カタログ取得完了後の2回走るが、1回目の移行結果をlocalStorageへ" +
+    "書き戻さないと2回目が古いroute:falseを読み直して巻き戻る不具合があった", async () => {
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
+    window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify({ route: false }));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      const stored = window.localStorage.getItem(LAYER_VISIBILITY_STORAGE_KEY);
+      expect(stored).not.toBeNull();
+      expect((JSON.parse(stored ?? "{}") as { route?: boolean }).route).toBe(true);
+    });
+  });
+
   it("保存値が無ければGUI作成軸は既定でOFFのまま", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
 

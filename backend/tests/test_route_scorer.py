@@ -4,6 +4,10 @@ from app.services.route_scorer import RouteScorer
 GEOMETRY = {"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]}
 
 WEIGHTS = {"distance_weight": 0.30, "difficulty_weight": 0.70}
+# difficulty_min_meaningful_range（scoring.yaml参照）を含む本番相当の重み辞書。
+# RouteScorerはこのキーが無ければ0.0（圧縮無効）へフォールバックするため、圧縮を
+# 検証するテストだけこちらを使う。
+WEIGHTS_WITH_COMPRESSION = {**WEIGHTS, "difficulty_min_meaningful_range": 10.0}
 
 
 def candidate(id_: str, distance_km: float, overall_difficulty=None) -> RouteCandidate:
@@ -93,6 +97,40 @@ def test_score_breakdown_missing_metric_has_none_contribution():
         assert difficulty_entry.score is None
         assert difficulty_entry.contribution is None
         assert difficulty_entry.weight == 0.70
+
+
+def test_small_real_differences_no_longer_swing_to_extremes():
+    # ユーザー指摘（2026-09-03、「おすすめ度の数字が極端。ルート生成ロジックの距離誤差で
+    # ほぼ決まっていて参考にならない」）: 風が弱い日の風100%検証（実測5.8〜6.8）のような、
+    # overall_difficultyの候補間の実差がごく小さい（1点未満）ケースでも、distance_diffが
+    # ほぼ同じであれば以前は0/100へ誇張されていた。distance_tolerance_kmを渡すことで
+    # distance側も、DIFFICULTY_MIN_MEANINGFUL_RANGE（10.0）により difficulty側も圧縮され、
+    # スコアが極端に振れなくなることを確認する。
+    a = candidate("a", distance_km=20.1, overall_difficulty=5.8)
+    b = candidate("b", distance_km=20.2, overall_difficulty=6.1)
+    c = candidate("c", distance_km=20.15, overall_difficulty=6.4)
+
+    scored = RouteScorer(WEIGHTS_WITH_COMPRESSION).score([a, b, c], target_distance_km=20.0, distance_tolerance_km=5.0)
+
+    scores = {s.id: s.total_score for s in scored}
+    # 順序（aが最良）は維持しつつ、0/100への誇張は起きない。
+    assert scores["a"] is not None and scores["c"] is not None
+    assert scores["a"] > scores["b"] > scores["c"]
+    assert scores["a"] < 100.0
+    assert scores["c"] > 0.0
+
+
+def test_distance_tolerance_km_default_preserves_previous_full_stretch_behavior():
+    # distance_tolerance_kmを省略した既存呼び出し（既定0.0）は、min_meaningful_range無効化
+    # により従来どおりの挙動のまま（後方互換）。
+    good = candidate("good", distance_km=30.0, overall_difficulty=10.0)
+    bad = candidate("bad", distance_km=40.0, overall_difficulty=90.0)
+
+    scored = RouteScorer(WEIGHTS).score([good, bad], target_distance_km=30.0)
+
+    scores = {c.id: c.total_score for c in scored}
+    assert scores["good"] == 100.0
+    assert scores["bad"] == 0.0
 
 
 def test_all_zero_weights_yield_none_total_score_without_crash():

@@ -5,7 +5,6 @@ import { buildLegendFilterExpression } from "./legendFilter";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   ROUTE_STYLE_MODES,
-  filterRouteStyleModesByPreference,
   getRouteStyleMode,
   interpolateColors,
   isRouteStyleModeId,
@@ -135,11 +134,9 @@ describe("routeStyleModes", () => {
     expect(buildLegendFilterExpression(wind.legend, [middle.key])).toEqual(["all", ["!", middle.filter]]);
   });
 
-  it("総合難易度モードはdifficulty(0-100絶対基準)を色分けし、対応する軸を持たないため常に選択肢に残る", () => {
+  it("総合難易度モードはdifficulty(0-100絶対基準)を色分けし、対応する軸を持たない", () => {
     const difficulty = getRouteStyleMode(ROUTE_STYLE_MODES, "difficulty");
     expect(difficulty.colorExpression[1]).toEqual(["==", ["get", "difficulty"], null]);
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0, surface_q: 0 });
-    expect(filtered.map((m) => m.id)).toEqual(["difficulty"]);
   });
 
   it("interpolateColorsは境界値の個数に関わらずcolorLow→colorHighの間をcount色生成する（固定色配列を持たない）", () => {
@@ -151,11 +148,6 @@ describe("routeStyleModes", () => {
     const five = interpolateColors("#0284c7", "#dc2626", 5);
     expect(five).toHaveLength(5);
     expect(new Set(five).size).toBe(5); // 全段階が異なる色になる
-  });
-
-  it("改善計画T440: filterRouteStyleModesByPreferenceは重み0の軸（gradient/wind/surface_q）を除外し、対応する軸を持たないdifficultyは常に残す", () => {
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, { gradient: 0, wind: 0.26, surface_q: 0.19 });
-    expect(filtered.map((m) => m.id)).toEqual(["wind", "surface_q", "difficulty"]);
   });
 
   it("改善計画T440: gradient軸が軸カタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {

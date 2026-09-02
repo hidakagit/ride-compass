@@ -303,10 +303,21 @@ const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
 // （ベンチマーク用途のみ。MapView自身は下のprivateなラッパー関数経由でしか呼ばない）。
 export function routesToFeatureCollection(
   routes: RouteCandidate[],
-  selectedRouteId: string | null
+  selectedRouteId: string | null,
+  // ユーザー指摘（2026-09-03）: 選択中候補にDETAIL_LAYER_ID（区間ごとの軸色分け線、
+  // drawDetailSegments）を重ね描きしている間、この不透明・単色（#2563eb、opacity 1、
+  // width 5）のROUTES_LAYER_IDが選択中候補の下からそのまま透けて見えていた。凡例で
+  // 一部カテゴリを非表示にするとDETAIL_LAYER_ID側は該当区間をfilterで隠すが、この層は
+  // 区間の絞り込みを持たないため、「隠したはずの区間が単色の線として残って見える」ように
+  // 映っていた（薄いハロー[drawSelectedOutline、opacity 0.25]は「選択中候補を常時
+  // 識別できるように」という意図的な設計のため、そちらは残したまま選択中候補の
+  // ROUTES_LAYER_ID側だけをこのfeature collectionから除外する）。
+  excludeSelected = false
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, { selected: boolean }> {
   // 選択中の候補が他の線に隠れないよう、配列の最後（最前面）に描画されるようにする
-  const ordered = [...routes].sort((a, b) => Number(a.id === selectedRouteId) - Number(b.id === selectedRouteId));
+  const ordered = [...routes]
+    .filter((route) => !excludeSelected || route.id !== selectedRouteId)
+    .sort((a, b) => Number(a.id === selectedRouteId) - Number(b.id === selectedRouteId));
 
   return {
     type: "FeatureCollection",
@@ -375,8 +386,14 @@ function runWhenStyleReady(map: MapLibreMap, fn: () => void) {
 }
 
 // 改善計画T518: MapView.routes.test.tsの「ルート」チップ表示切替テスト向けにexport。
-export function drawBaseRoutes(map: MapLibreMap, routes: RouteCandidate[], selectedRouteId: string | null) {
-  const data = routesToFeatureCollection(routes, selectedRouteId);
+// excludeSelectedはrouteToFeatureCollection側のdocコメント参照（ユーザー指摘2026-09-03）。
+export function drawBaseRoutes(
+  map: MapLibreMap,
+  routes: RouteCandidate[],
+  selectedRouteId: string | null,
+  excludeSelected = false
+) {
+  const data = routesToFeatureCollection(routes, selectedRouteId, excludeSelected);
 
   const applyData = () => {
     const source = map.getSource(ROUTES_SOURCE_ID) as GeoJSONSource | undefined;
@@ -471,10 +488,14 @@ export function applyRouteLayerVisibility(
   map: MapLibreMap,
   routeLayerOn: boolean,
   routes: RouteCandidate[],
-  selectedRouteId: string | null
+  selectedRouteId: string | null,
+  // 選択中候補にDETAIL_LAYER_ID（区間ごとの軸色分け線）を重ね描きする場合はtrue。
+  // routesToFeatureCollectionのexcludeSelectedへそのまま渡し、単色のROUTES_LAYER_IDが
+  // 色分け線の下から透けて見える（ユーザー指摘2026-09-03）のを防ぐ。
+  hasDetailSegments = false
 ) {
   if (routeLayerOn) {
-    drawBaseRoutes(map, routes, selectedRouteId);
+    drawBaseRoutes(map, routes, selectedRouteId, hasDetailSegments);
     drawSelectedOutline(map, routes, selectedRouteId);
   } else {
     hideBaseRoutes(map);
@@ -2604,11 +2625,11 @@ export default function MapView({
     // 候補線・ハロー・矢印を隠していても、地図データの再読み込み（map.setStyle()経由で
     // このredrawAllLayersが走る）で強制的に再表示されてしまっていた。直後のdetail-segments
     // 分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
-    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId);
+    const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
+    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selected?.segments));
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
     drawExperimentSlots(map, experimentSlots);
 
-    const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
     if (routeLayerOn && selected?.segments) {
       drawDetailSegments(map, selected.segments, getRouteStyleMode(routeStyleModes, routeStyleModeId), hiddenRouteLegendKeys);
     } else {
@@ -3182,8 +3203,8 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
 
-    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId);
-  }, [routes, selectedRouteId, routeLayerOn]);
+    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selectedCandidate?.segments));
+  }, [routes, selectedRouteId, routeLayerOn, selectedCandidate]);
 
   // 表示範囲のフィットは「候補一覧が変わったとき」だけに限定する。
   // selectedRouteIdを依存に含めると、候補選択の切り替えのたびに（fitBoundsToRoutesは
