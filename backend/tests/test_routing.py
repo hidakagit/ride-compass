@@ -2,21 +2,25 @@ import math
 import random
 from collections.abc import Callable
 
-from app.domain.evaluation import EdgeCostResult
+import numpy as np
+import pytest
+
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
 from app.domain.routing import (
     LazyRoadGraph,
+    build_csr_structure,
     build_lazy_road_graph,
     build_node_spatial_index,
-    build_sparse_graph,
+    build_search_graph_statics,
+    build_shortest_path_tree,
     concat_node_paths,
     find_nearest_node_indexed,
+    overlap_ratio,
     path_to_edge_ids_lazy,
-    path_to_edge_ids_sparse,
-    routable_node_ids,
+    select_diverse_by_overlap,
     shortest_path_node_ids_lazy,
-    shortest_path_node_ids_sparse,
+    tree_path_edge_indices,
 )
 
 
@@ -29,10 +33,6 @@ def _edge(edge_id: str, from_id: str, to_id: str, distance_m: float = 100.0) -> 
         edge_id=edge_id, from_node_id=from_id, to_node_id=to_id,
         geometry=[[35.700, 139.700], [35.701, 139.700]], distance_m=distance_m,
     )
-
-
-def _cost(edge_id: str, cost: float | None, allowed: bool = True) -> EdgeCostResult:
-    return EdgeCostResult(edge_id=edge_id, cost=cost, difficulty=None, allowed=allowed)
 
 
 def _linear_nearest_node(graph: RoadGraph, point: Coordinates) -> str | None:
@@ -97,33 +97,6 @@ def test_find_nearest_node_indexed_matches_linear_scan_for_random_points():
         assert find_nearest_node_indexed(index, point) == _linear_nearest_node(graph, point)
 
 
-def test_routable_node_ids_excludes_nodes_with_only_hard_filtered_edges():
-    # 改善計画T256: 幹線道路（highway=trunk等）にしか接続していないNodeは、Hard
-    # Constraint適用後のsparse_graph上では次数0の孤立点になる。routable_node_idsは
-    # そのようなNodeを除外し、実際に経路探索可能なNodeだけを返す。
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={
-            "isolated": _node("isolated", 35.700, 139.700),
-            "a": _node("a", 35.701, 139.701),
-            "b": _node("b", 35.702, 139.702),
-        },
-        edges={
-            "e_trunk": _edge("e_trunk", "isolated", "a"),  # Hard Constraintで除外される想定
-            "e_ok": _edge("e_ok", "a", "b"),
-        },
-    )
-    edge_costs = {
-        "e_trunk": _cost("e_trunk", cost=None, allowed=False),
-        "e_ok": _cost("e_ok", cost=100.0, allowed=True),
-    }
-    sparse_graph = build_sparse_graph(graph, edge_costs)
-
-    result = routable_node_ids(sparse_graph)
-
-    assert result == {"a", "b"}
-
-
 def test_build_node_spatial_index_with_node_ids_skips_isolated_nearest_node():
     # 改善計画T256回帰テスト: 地理的に最も近いNode（"isolated"）が幹線道路にしか
     # 接続していない場合、node_idsで絞った索引はそれを候補から除き、次に近い
@@ -143,129 +116,6 @@ def test_build_node_spatial_index_with_node_ids_skips_isolated_nearest_node():
     assert result == "routable"
 
 
-# --- 改善計画T220（T12 Stage 2）: scipy.sparse.csgraph版のDijkstra探索 ---
-
-
-def test_shortest_path_node_ids_sparse_picks_lower_cost_route():
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={n: _node(n, 35.7, 139.7) for n in ["a", "b", "c", "d"]},
-        edges={
-            "direct": _edge("direct", "a", "d"),
-            "via_b": _edge("via_b", "a", "b"),
-            "via_c": _edge("via_c", "b", "d"),
-        },
-    )
-    edge_costs = {
-        "direct": _cost("direct", cost=1000.0),
-        "via_b": _cost("via_b", cost=10.0),
-        "via_c": _cost("via_c", cost=10.0),
-    }
-    sparse_graph = build_sparse_graph(graph, edge_costs)
-
-    path = shortest_path_node_ids_sparse(sparse_graph, "a", "d")
-
-    assert path == ["a", "b", "d"]
-
-
-def test_shortest_path_node_ids_sparse_returns_none_when_unreachable():
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
-        edges={},
-    )
-    sparse_graph = build_sparse_graph(graph, {})
-
-    assert shortest_path_node_ids_sparse(sparse_graph, "a", "b") is None
-
-
-def test_shortest_path_node_ids_sparse_same_start_and_end_returns_single_node():
-    graph = RoadGraph(graph_version="v1", nodes={"a": _node("a", 35.7, 139.7)}, edges={})
-    sparse_graph = build_sparse_graph(graph, {})
-
-    assert shortest_path_node_ids_sparse(sparse_graph, "a", "a") == ["a"]
-
-
-def test_shortest_path_node_ids_sparse_excludes_disallowed_and_costless_edges():
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={"a": _node("a", 35.70, 139.70), "b": _node("b", 35.71, 139.71), "c": _node("c", 35.72, 139.72)},
-        edges={
-            "e1": _edge("e1", "a", "b"),
-            "e2": _edge("e2", "b", "c"),  # Hard Constraintで除外
-            "e3": _edge("e3", "a", "c"),  # cost算出不可
-        },
-    )
-    edge_costs = {
-        "e1": _cost("e1", cost=100.0, allowed=True),
-        "e2": _cost("e2", cost=None, allowed=False),
-        "e3": _cost("e3", cost=None, allowed=True),
-    }
-    sparse_graph = build_sparse_graph(graph, edge_costs)
-
-    assert shortest_path_node_ids_sparse(sparse_graph, "a", "b") == ["a", "b"]
-    assert shortest_path_node_ids_sparse(sparse_graph, "b", "c") is None
-    assert shortest_path_node_ids_sparse(sparse_graph, "a", "c") is None
-
-
-def test_path_to_edge_ids_sparse_maps_consecutive_nodes_to_edges():
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={n: _node(n, 35.7, 139.7) for n in ["a", "b", "c"]},
-        edges={"e1": _edge("e1", "a", "b"), "e2": _edge("e2", "b", "c")},
-    )
-    edge_costs = {"e1": _cost("e1", 10.0), "e2": _cost("e2", 10.0)}
-    sparse_graph = build_sparse_graph(graph, edge_costs)
-
-    assert path_to_edge_ids_sparse(sparse_graph, ["a", "b", "c"]) == ["e1", "e2"]
-
-
-def test_build_sparse_graph_keeps_cheapest_edge_for_parallel_edges():
-    # scipy.sparse.coo_matrixは同一(row,col)への重複を合算してしまうため、build_sparse_graph
-    # は疎行列を組む前にPython側で並行Edgeを1本化する（並行Edgeの回帰観点）。
-    # 改善計画T363: 以前は「後から登場したEdgeで上書き」（graph.edgesの辞書挿入順＝
-    # DBクエリの返却行順に依存）だったが、その行順序が非決定的（ORDER BY無し・実測で
-    # Parallel Scanが選ばれ実行のたびに順序が変わる）と判明したため、辞書の挿入順に
-    # 依存しないcost最小のEdgeを採用する方式へ改めた。本テストは「登場順が後の方」と
-    # 「cost最小」を意図的に一致させ、min-cost選択であることを検証する。
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
-        edges={
-            "first": _edge("first", "a", "b", distance_m=50.0),
-            "second": _edge("second", "a", "b", distance_m=200.0),
-        },
-    )
-    edge_costs = {"first": _cost("first", cost=999.0), "second": _cost("second", cost=5.0)}
-    sparse_graph = build_sparse_graph(graph, edge_costs)
-
-    assert path_to_edge_ids_sparse(sparse_graph, ["a", "b"]) == ["second"]  # cost最小
-    assert sparse_graph.matrix[sparse_graph.node_id_to_index["a"], sparse_graph.node_id_to_index["b"]] == 5.0
-
-
-def test_build_sparse_graph_parallel_edge_selection_is_order_independent():
-    # 改善計画T363の回帰テスト本体: 登場順が「先」の方がcost最小であっても、
-    # 辞書の挿入順（＝呼び出しごとに変わりうるDB行順序の代理）に関わらず必ず
-    # cost最小のEdgeが選ばれることを検証する（前テストとは登場順とcost最小の
-    # 対応関係を逆にしてある）。
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
-        edges={
-            "cheap_first": _edge("cheap_first", "a", "b", distance_m=50.0),
-            "expensive_second": _edge("expensive_second", "a", "b", distance_m=200.0),
-        },
-    )
-    edge_costs = {
-        "cheap_first": _cost("cheap_first", cost=5.0),
-        "expensive_second": _cost("expensive_second", cost=999.0),
-    }
-    sparse_graph = build_sparse_graph(graph, edge_costs)
-
-    assert path_to_edge_ids_sparse(sparse_graph, ["a", "b"]) == ["cheap_first"]
-    assert sparse_graph.matrix[sparse_graph.node_id_to_index["a"], sparse_graph.node_id_to_index["b"]] == 5.0
-
-
 def test_concat_node_paths_removes_duplicate_boundary_nodes():
     result = concat_node_paths([["a", "b", "c"], ["c", "d"], ["d", "e", "f"]])
 
@@ -276,8 +126,8 @@ def test_concat_node_paths_handles_empty_input():
     assert concat_node_paths([]) == []
 
 
-# --- 改善計画T529→T536: rustworkxベースのlazy評価版（shortest_path_node_ids_sparseの
-# 置き換え）。T536でNode/Edge payloadを整数indexへ変更したため、edge_cost_fn/
+# --- 改善計画T529→T536: rustworkxベースのlazy評価版（2点間探索）。
+# T536でNode/Edge payloadを整数indexへ変更したため、edge_cost_fn/
 # estimate_cost_fnはedge_id/node_id文字列ではなくlazy_graph.edge_ids/index_to_node_id上の
 # 整数indexを受け取る契約になった（domain/routing.py: LazyRoadGraphのdocstring参照）。 ---
 
@@ -299,8 +149,8 @@ def _zero_estimate_fn(_node_index: int) -> float:
 
 
 def test_build_lazy_road_graph_keeps_edge_id_ascending_for_parallel_edges_without_costs():
-    # 改善計画T529→T536: コスト未確定（edge_cost_by_id省略）の場合、build_sparse_graphと
-    # 異なり「cost最小のEdgeを採用」はできないため、edge_idの昇順で先頭を採用する
+    # 改善計画T529→T536: コスト未確定（edge_cost_by_id省略）の場合、「cost最小のEdgeを
+    # 採用」はできないため、edge_idの昇順で先頭を採用する
     # 決定的な選択にフォールバックすることを確認する（並行Edgeの回帰観点、docstring参照）。
     graph = RoadGraph(
         graph_version="v1",
@@ -396,8 +246,8 @@ def test_shortest_path_node_ids_lazy_same_start_and_end_returns_single_node():
 
 def test_shortest_path_node_ids_lazy_excludes_disallowed_edges():
     # 改善計画T529: LazyRoadGraphはHard Constraintを知らずトポロジ全体を含むため、
-    # edge_cost_fnがmath.infを返すことで「除外」を表現する（build_sparse_graphが
-    # グラフ構築時にEdge自体を除外するのと異なる仕組み）。
+    # edge_cost_fnがmath.infを返すことで「除外」を表現する（グラフ構築時にEdge自体を
+    # 除外するのではなく、コスト側で通行不能を表す仕組み）。
     graph = RoadGraph(
         graph_version="v1",
         nodes={"a": _node("a", 35.70, 139.70), "b": _node("b", 35.71, 139.71), "c": _node("c", 35.72, 139.72)},
@@ -450,31 +300,252 @@ def test_shortest_path_node_ids_lazy_uses_estimate_fn_to_prefer_direct_route():
     assert len(estimate_calls) > 0
 
 
-def test_lazy_and_sparse_engines_agree_on_shortest_path_for_same_costs():
-    # 改善計画T529: 新旧エンジン（rustworkxのlazy評価 vs scipyの事前一括評価）が、
-    # 同一のEdgeコストに対して同じ最短経路を返すことを確認する回帰テスト
-    # （新旧一致確認、docs/tasks/T529.md参照）。並行Edgeを含まないグラフで比較する
-    # （並行Edge選択の仕組み自体は異なる設計のため対象外、上記の専用テスト参照）。
+# --- 改善計画T531: 一対全最短経路木（scipy CSR）・多様性間引き ---
+
+
+def _random_road_graph(seed: int, rows: int = 7, cols: int = 7, extra_edges: int = 40) -> RoadGraph:
+    """格子＋ランダムな追加Edgeの有向グラフ。距離はEdgeごとにランダム（50〜300m）。
+    一対全木（scipy）と2点間A*（rustworkx）が同じコストで一致することを検証する材料。"""
+    rng = random.Random(seed)
+    nodes: dict[str, Node] = {}
+    for r in range(rows):
+        for c in range(cols):
+            nodes[f"n{r}-{c}"] = _node(f"n{r}-{c}", 35.70 + r * 0.001, 139.70 + c * 0.001)
+    edges: dict[str, DirectedEdge] = {}
+
+    def add(u: str, v: str) -> None:
+        edge_id = f"{u}>{v}"
+        if edge_id not in edges:
+            edges[edge_id] = _edge(edge_id, u, v, distance_m=rng.uniform(50.0, 300.0))
+
+    for r in range(rows):
+        for c in range(cols):
+            if c + 1 < cols:
+                add(f"n{r}-{c}", f"n{r}-{c + 1}")
+                add(f"n{r}-{c + 1}", f"n{r}-{c}")
+            if r + 1 < rows:
+                add(f"n{r}-{c}", f"n{r + 1}-{c}")
+                add(f"n{r + 1}-{c}", f"n{r}-{c}")
+    node_ids = list(nodes)
+    for _ in range(extra_edges):
+        u, v = rng.sample(node_ids, 2)
+        add(u, v)
+    return RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+
+
+def _cost_array(lazy_graph: LazyRoadGraph, edge_costs: dict[str, float]) -> np.ndarray:
+    return np.array([edge_costs.get(edge_id, math.inf) for edge_id in lazy_graph.edge_ids], dtype=float)
+
+
+def _length_array(lazy_graph: LazyRoadGraph, graph: RoadGraph) -> np.ndarray:
+    return np.array([graph.edges[edge_id].distance_m for edge_id in lazy_graph.edge_ids], dtype=float)
+
+
+def _path_cost(lazy_graph: LazyRoadGraph, node_path: list[str], cost_array: np.ndarray) -> float:
+    total = 0.0
+    for u, v in zip(node_path, node_path[1:]):
+        edge_index = lazy_graph.edge_index_by_node_pair[(lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])]
+        total += cost_array[edge_index]
+    return total
+
+
+def test_build_csr_structure_matches_node_pair_index():
+    graph = _random_road_graph(seed=1)
+    lazy_graph = build_lazy_road_graph(graph)
+
+    structure = build_csr_structure(lazy_graph)
+
+    n = len(lazy_graph.index_to_node_id)
+    assert structure.node_count == n
+    assert structure.indptr[-1] == len(lazy_graph.edge_index_by_node_pair)
+    assert np.all(np.diff(structure.entry_keys) > 0)  # 昇順かつ重複なし
+    for (u, v), edge_index in lazy_graph.edge_index_by_node_pair.items():
+        row = slice(structure.indptr[u], structure.indptr[u + 1])
+        position = structure.indptr[u] + list(structure.indices[row]).index(v)
+        assert structure.entry_edge_index[position] == edge_index
+        assert structure.entry_keys[position] == u * n + v
+
+
+def test_build_csr_structure_handles_graph_without_edges():
+    graph = RoadGraph(graph_version="v1", nodes={"a": _node("a", 35.7, 139.7)}, edges={})
+    structure = build_csr_structure(build_lazy_road_graph(graph))
+
+    assert structure.node_count == 1
+    assert list(structure.indptr) == [0, 0]
+    assert len(structure.indices) == 0
+
+
+def test_build_search_graph_statics_aligns_edge_lengths_with_lazy_edge_order():
+    graph = _random_road_graph(seed=2)
+    lazy_graph = build_lazy_road_graph(graph)
+
+    statics = build_search_graph_statics(lazy_graph, graph)
+
+    assert list(statics.edge_length_m) == [graph.edges[e].distance_m for e in lazy_graph.edge_ids]
+    assert statics.csr.node_count == len(lazy_graph.index_to_node_id)
+
+
+def test_shortest_path_tree_costs_match_astar_for_random_graph():
+    # 一対全木（scipy）の各Nodeへの最小コストが、同じコスト配列での2点間A*（rustworkx、
+    # ヒューリスティック0）の経路コストと一致する（＝2つのライブラリで同じ意味論）。
+    rng = random.Random(3)
+    graph = _random_road_graph(seed=3)
+    lazy_graph = build_lazy_road_graph(graph)
+    edge_costs = {edge_id: edge.distance_m * rng.uniform(1.0, 2.0) for edge_id, edge in graph.edges.items()}
+    cost_array = _cost_array(lazy_graph, edge_costs)
+    source = "n3-3"
+
+    tree = build_shortest_path_tree(
+        build_csr_structure(lazy_graph), cost_array, _length_array(lazy_graph, graph), lazy_graph.node_id_to_index[source]
+    )
+
+    for node_id, node_index in lazy_graph.node_id_to_index.items():
+        path = shortest_path_node_ids_lazy(lazy_graph, source, node_id, cost_array.tolist().__getitem__, _zero_estimate_fn)
+        if path is None:
+            assert not tree.is_reached(node_index)
+        else:
+            assert tree.cost[node_index] == pytest.approx(_path_cost(lazy_graph, path, cost_array), rel=1e-9)
+
+
+def test_shortest_path_tree_length_matches_python_walk_along_predecessors():
+    rng = random.Random(4)
+    graph = _random_road_graph(seed=4)
+    lazy_graph = build_lazy_road_graph(graph)
+    edge_costs = {edge_id: edge.distance_m * rng.uniform(1.0, 2.0) for edge_id, edge in graph.edges.items()}
+    length_array = _length_array(lazy_graph, graph)
+    source_index = lazy_graph.node_id_to_index["n0-0"]
+
+    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), _cost_array(lazy_graph, edge_costs), length_array, source_index)
+
+    assert tree.length_m[source_index] == 0.0
+    assert tree.predecessor[source_index] == -1
+    for node_index in range(len(lazy_graph.index_to_node_id)):
+        if not tree.is_reached(node_index):
+            assert math.isnan(tree.length_m[node_index])
+            continue
+        walked = 0.0
+        current = node_index
+        while current != source_index:
+            parent = int(tree.predecessor[current])
+            walked += length_array[lazy_graph.edge_index_by_node_pair[(parent, current)]]
+            current = parent
+        assert tree.length_m[node_index] == pytest.approx(walked, rel=1e-12)
+
+
+def test_shortest_path_tree_treats_inf_cost_edges_as_impassable():
     graph = RoadGraph(
         graph_version="v1",
-        nodes={n: _node(n, 35.7, 139.7) for n in ["a", "b", "c", "d", "e"]},
-        edges={
-            "a_b": _edge("a_b", "a", "b", distance_m=10.0),
-            "b_d": _edge("b_d", "b", "d", distance_m=10.0),
-            "a_c": _edge("a_c", "a", "c", distance_m=5.0),
-            "c_d": _edge("c_d", "c", "d", distance_m=5.0),
-            "d_e": _edge("d_e", "d", "e", distance_m=1.0),
-        },
+        nodes={"a": _node("a", 35.700, 139.700), "b": _node("b", 35.701, 139.700), "c": _node("c", 35.702, 139.700)},
+        edges={"ab": _edge("ab", "a", "b"), "bc": _edge("bc", "b", "c")},
     )
-    costs_by_edge_id = {"a_b": 100.0, "b_d": 100.0, "a_c": 10.0, "c_d": 10.0, "d_e": 1.0}
+    lazy_graph = build_lazy_road_graph(graph)
+    cost_array = _cost_array(lazy_graph, {"ab": 100.0, "bc": math.inf})
 
-    sparse_graph = build_sparse_graph(
-        graph, {eid: _cost(eid, cost=cost) for eid, cost in costs_by_edge_id.items()}
+    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), cost_array, _length_array(lazy_graph, graph), lazy_graph.node_id_to_index["a"])
+
+    c_index = lazy_graph.node_id_to_index["c"]
+    assert tree.is_reached(lazy_graph.node_id_to_index["b"])
+    assert not tree.is_reached(c_index)
+    assert tree.predecessor[c_index] == -1
+    assert math.isnan(tree.length_m[c_index])
+    assert tree_path_edge_indices(tree, lazy_graph, c_index) is None
+
+
+def test_shortest_path_tree_cost_limit_prunes_nodes_beyond_limit():
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"a": _node("a", 35.700, 139.700), "b": _node("b", 35.701, 139.700), "c": _node("c", 35.702, 139.700)},
+        edges={"ab": _edge("ab", "a", "b"), "bc": _edge("bc", "b", "c")},
     )
-    lazy_graph = build_lazy_road_graph(graph, edge_cost_by_id=costs_by_edge_id)
-    cost_fn = _cost_fn_from_dict(lazy_graph, costs_by_edge_id)
+    lazy_graph = build_lazy_road_graph(graph)
+    cost_array = _cost_array(lazy_graph, {"ab": 100.0, "bc": 100.0})
+    structure = build_csr_structure(lazy_graph)
+    lengths = _length_array(lazy_graph, graph)
+    a = lazy_graph.node_id_to_index["a"]
 
-    for start, end in [("a", "e"), ("a", "d"), ("b", "d")]:
-        sparse_path = shortest_path_node_ids_sparse(sparse_graph, start, end)
-        lazy_path = shortest_path_node_ids_lazy(lazy_graph, start, end, cost_fn, _zero_estimate_fn)
-        assert sparse_path == lazy_path
+    unlimited = build_shortest_path_tree(structure, cost_array, lengths, a)
+    limited = build_shortest_path_tree(structure, cost_array, lengths, a, cost_limit=150.0)
+
+    assert unlimited.is_reached(lazy_graph.node_id_to_index["c"])
+    assert limited.is_reached(lazy_graph.node_id_to_index["b"])
+    assert not limited.is_reached(lazy_graph.node_id_to_index["c"])
+
+
+def test_shortest_path_tree_traverses_zero_cost_edges():
+    # 距離0のEdge（cost=0）はscipyのCSRで「明示的な0」として保持され、通行可能でなければ
+    # ならない（疎行列の暗黙の0＝Edge無しと混同しない）。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"a": _node("a", 35.700, 139.700), "b": _node("b", 35.701, 139.700), "c": _node("c", 35.702, 139.700)},
+        edges={"ab": _edge("ab", "a", "b", distance_m=0.0), "bc": _edge("bc", "b", "c", distance_m=10.0)},
+    )
+    lazy_graph = build_lazy_road_graph(graph)
+    cost_array = _cost_array(lazy_graph, {"ab": 0.0, "bc": 10.0})
+
+    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), cost_array, _length_array(lazy_graph, graph), lazy_graph.node_id_to_index["a"])
+
+    c_index = lazy_graph.node_id_to_index["c"]
+    assert tree.cost[c_index] == 10.0
+    assert tree.length_m[c_index] == 10.0
+    assert [lazy_graph.edge_ids[i] for i in tree_path_edge_indices(tree, lazy_graph, c_index)] == ["ab", "bc"]
+
+
+def test_tree_path_edge_indices_reconstructs_connected_path_from_source():
+    rng = random.Random(5)
+    graph = _random_road_graph(seed=5)
+    lazy_graph = build_lazy_road_graph(graph)
+    edge_costs = {edge_id: edge.distance_m * rng.uniform(1.0, 2.0) for edge_id, edge in graph.edges.items()}
+    source_index = lazy_graph.node_id_to_index["n2-2"]
+
+    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), _cost_array(lazy_graph, edge_costs), _length_array(lazy_graph, graph), source_index)
+
+    assert tree_path_edge_indices(tree, lazy_graph, source_index) == []
+    target_index = lazy_graph.node_id_to_index["n6-6"]
+    edge_indices = tree_path_edge_indices(tree, lazy_graph, target_index)
+    assert edge_indices
+    edges = [graph.edges[lazy_graph.edge_ids[i]] for i in edge_indices]
+    assert edges[0].from_node_id == "n2-2"
+    assert edges[-1].to_node_id == "n6-6"
+    for previous, following in zip(edges, edges[1:]):
+        assert previous.to_node_id == following.from_node_id
+
+
+def test_overlap_ratio_is_distance_weighted_on_candidate_side():
+    lengths = np.array([100.0, 300.0, 600.0])
+
+    assert overlap_ratio(np.array([0, 1, 2]), np.array([1]), lengths) == pytest.approx(0.3)
+    assert overlap_ratio(np.array([0, 1]), np.array([2]), lengths) == 0.0
+    assert overlap_ratio(np.array([], dtype=np.int64), np.array([0]), lengths) == 0.0
+
+
+def test_select_diverse_by_overlap_skips_overlapping_items_and_respects_limit():
+    lengths = np.array([100.0, 100.0, 100.0, 100.0, 100.0])
+    items = {
+        "first": [0, 1, 2],
+        "same_corridor": [0, 1, 3],  # firstと2/3=67%重複→閾値0.6超で棄却
+        "distinct": [3, 4],
+        "half_overlap": [2, 4],  # firstと50%・distinctと50%→閾値0.6以下で採用
+        "late": [4],
+    }
+
+    selected = select_diverse_by_overlap(list(items), items.__getitem__, lengths, max_overlap_ratio=0.6, max_count=3)
+
+    assert selected == ["first", "distinct", "half_overlap"]
+
+
+def test_select_diverse_by_overlap_uses_compatibility_hook_and_skips_missing_paths():
+    lengths = np.array([100.0, 100.0, 100.0])
+    items = {"a": [0], "b": [1], "c": None, "d": [2]}
+    incompatible = {("b", "a")}
+
+    selected = select_diverse_by_overlap(
+        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10,
+        is_compatible=lambda item, other: (item, other) not in incompatible,
+    )
+
+    assert selected == ["a", "d"]  # bはaと非互換、cは経路無し
+    # 決定的: 同じ入力で同じ結果
+    assert selected == select_diverse_by_overlap(
+        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10,
+        is_compatible=lambda item, other: (item, other) not in incompatible,
+    )

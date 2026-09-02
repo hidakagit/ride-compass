@@ -1,17 +1,28 @@
 """RouteGenerator（周回生成戦略、エンジン非依存）の単体テスト。
 
 エンジンの中身はtest_road_graph_engine.pyで検証し、ここでは戦略側の責務
-（経由地点の計算・距離許容範囲フィルタ・失敗方位のスキップ・評価が生存候補だけに
-行われること・overall_difficulty昇順ソート）をFakeエンジンで検証する。
+（折返し候補の逐次処理と早期停止・距離許容範囲フィルタ・失敗候補のスキップ・評価が
+生存候補だけに行われること・overall_difficulty昇順ソートと同点時の距離近さ順・
+max_routesによるスライスとid再採番）をFakeエンジンで検証する。
 """
 
 import pytest
 
-from app.domain.errors import RouteDistanceExceededError, RoutingError
+from app.domain.errors import RoutingError
+from app.domain.geo import compass_label
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator, TracedLoop, candidate_identity
+from app.services.route_generator import (
+    LoopTurnaround,
+    RouteGenerator,
+    TracedLoop,
+    candidate_identity,
+    turnaround_pool_size,
+)
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
+# テスト用の折返し候補の方位（旧8方位方式の名残ではなく、FakeEngineが返す候補を区別する
+# ためのラベル。方位は生成機構ではなく表示ラベルにしか使わない、改善計画T531）。
+BEARINGS = [0, 45, 90, 135, 180, 225, 270, 315]
 
 
 def make_geometry():
@@ -19,10 +30,10 @@ def make_geometry():
 
 
 class FakeEngine:
-    """方位→距離（またはException）の対応を返すフェイクエンジン。
+    """方位→距離（またはException）の対応から折返し候補・周回を返すフェイクエンジン。
 
-    trace_loopに渡されたwaypoints・evaluate_loopsに渡されたtracedを記録し、
-    戦略側の呼び出し内容を検証できるようにする。
+    select_loop_turnarounds/trace_loop_from_turnaround/trace_loop/evaluate_loopsへ渡された
+    引数を記録し、戦略側の呼び出し内容を検証できるようにする。
     """
 
     engine_name = "fake"
@@ -34,10 +45,9 @@ class FakeEngine:
         self._prepare_result = prepare_result
         self.prepare_calls: list[tuple[Coordinates, float]] = []
         self.prepare_waypoints: list[Coordinates] | None = None
+        self.select_calls: list[tuple[float, float, int]] = []
+        self.traced_bearings: list[int] = []
         self.traced_waypoints: dict[int | None, list[Coordinates]] = {}
-        # 改善計画T540: generate_loopsがtrace_loopへ渡すmax_distance_kmを方位ごとに
-        # 記録する（配線の検証用）。
-        self.traced_max_distance_km: dict[int | None, float | None] = {}
         self.evaluated_traced: list[TracedLoop] | None = None
 
     async def prepare(self, origin, radius_km, waypoints=None):
@@ -45,9 +55,23 @@ class FakeEngine:
         self.prepare_waypoints = waypoints
         return self._prepare_result
 
-    async def trace_loop(self, context, waypoints, bearing, max_distance_km=None):
+    async def select_loop_turnarounds(self, context, distance_km, distance_tolerance_km, pool_size):
+        self.select_calls.append((distance_km, distance_tolerance_km, pool_size))
+        bearings = [b for b in self._distances if b is not None]
+        return [
+            LoopTurnaround(bearing=b, outbound_distance_km=distance_km / 2, outbound_difficulty=None, data=None)
+            for b in bearings
+        ][:pool_size]
+
+    async def trace_loop_from_turnaround(self, context, turnaround):
+        self.traced_bearings.append(turnaround.bearing)
+        outcome = self._distances[turnaround.bearing]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return TracedLoop(bearing=turnaround.bearing, distance_km=outcome, data=None)
+
+    async def trace_loop(self, context, waypoints, bearing):
         self.traced_waypoints[bearing] = waypoints
-        self.traced_max_distance_km[bearing] = max_distance_km
         outcome = self._distances[bearing]
         if isinstance(outcome, Exception):
             raise outcome
@@ -70,102 +94,110 @@ def make_generator(distances_by_bearing, **kwargs) -> tuple[RouteGenerator, Fake
     return RouteGenerator(engine), engine
 
 
-async def test_generates_one_candidate_per_direction_when_all_within_tolerance():
-    generator, _ = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+def _labels(candidates: list[RouteCandidate]) -> list[str]:
+    return [c.direction_label for c in candidates]
+
+
+async def test_generates_one_candidate_per_turnaround_when_all_within_tolerance():
+    generator, _ = make_generator({b: 30.0 for b in BEARINGS})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert len(candidates) == len(DIRECTIONS_DEG)
-    assert {c.id for c in candidates} == {f"route-{b:03d}" for b in DIRECTIONS_DEG}
+    assert len(candidates) == len(BEARINGS)
+    # 改善計画T531: idは最終順位で振り直す（方位由来のidではない）。方位ラベルはエンジンの値のまま。
+    assert [c.id for c in candidates] == [f"route-{i:02d}" for i in range(len(BEARINGS))]
+    assert set(_labels(candidates)) == {compass_label(b) for b in BEARINGS}
     # 改善計画T441: 候補が得られたときはlast_no_candidates_reasonがNoneのままであること。
     assert generator.last_no_candidates_reason is None
 
 
 async def test_filters_out_candidates_outside_tolerance():
-    distances = {b: 30.0 for b in DIRECTIONS_DEG}
+    distances = {b: 30.0 for b in BEARINGS}
     distances[0] = 50.0
     distances[90] = 10.0
     generator, _ = make_generator(distances)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    ids = [c.id for c in candidates]
-    assert "route-000" not in ids
-    assert "route-090" not in ids
-    assert len(candidates) == len(DIRECTIONS_DEG) - 2
+    labels = _labels(candidates)
+    assert compass_label(0) not in labels
+    assert compass_label(90) not in labels
+    assert len(candidates) == len(BEARINGS) - 2
 
 
-async def test_generate_loops_passes_distance_upper_bound_to_trace_loop():
-    # 改善計画T540: trace_loopへ渡すmax_distance_kmはdistance_km + distance_tolerance_km
-    # （距離フィルタの上限と同じ値）であること。8方位すべてに同じ値が渡る。
-    generator, engine = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+async def test_generate_loops_requests_turnaround_pool_sized_from_max_routes():
+    # 改善計画T531: 折返し候補のプール件数はmax_routesから導出し（turnaround_pool_size）、
+    # 距離・許容差とともにエンジンへ渡す。
+    generator, engine = make_generator({b: 30.0 for b in BEARINGS})
 
-    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0, max_routes=4)
 
-    assert engine.traced_max_distance_km == {b: 35.0 for b in DIRECTIONS_DEG}
-
-
-async def test_generate_via_waypoints_does_not_pass_distance_upper_bound():
-    # 改善計画T540: 経由地指定ルート（bearing=None）は距離フィルタ自体を行わないため、
-    # max_distance_kmはNoneのまま渡る（早期打ち切りの対象外）。
-    generator, engine = make_generator({None: 12.0})
-
-    await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
-
-    assert engine.traced_max_distance_km[None] is None
+    assert engine.select_calls == [(30.0, 5.0, turnaround_pool_size(4))]
 
 
-async def test_early_distance_cutoff_is_treated_same_as_post_hoc_distance_filter():
-    # 改善計画T540: engine.trace_loopがRouteDistanceExceededError（早期打ち切り）を
-    # raiseした方位は、全レグ完了後の距離フィルタで棄却された場合（RoutingErrorではなく
-    # 単純に距離が範囲外のTracedLoopを返すケース）と同じ扱い（filtered_out集計・
-    # no_candidates_reasonの文言）になることを確認する。
-    distances = {b: 30.0 for b in DIRECTIONS_DEG}
-    distances[0] = RouteDistanceExceededError("direction 0: distance exceeds tolerance")
-    generator, _ = make_generator(distances)
+async def test_generate_loops_stops_tracing_once_max_routes_are_accepted():
+    # 改善計画T531: 候補はランク順に逐次処理し、距離フィルタ合格がmax_routes件に達した
+    # 時点で残りの候補の復路探索を行わない。
+    generator, engine = make_generator({b: 30.0 for b in BEARINGS})
 
-    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0, max_routes=3)
 
-    ids = [c.id for c in candidates]
-    assert "route-000" not in ids
-    assert len(candidates) == len(DIRECTIONS_DEG) - 1
+    assert len(candidates) == 3
+    assert engine.traced_bearings == BEARINGS[:3]
+    assert [c.id for c in candidates] == ["route-00", "route-01", "route-02"]
 
 
-async def test_early_distance_cutoff_reason_mentions_distance_not_trace_failure():
-    # 改善計画T540: 全方位が早期打ち切りされた場合のno_candidates_reasonは、従来の
-    # 距離フィルタ全滅時と同じ「距離」を含む文言になり、「経路探索に失敗」（RoutingErrorの
-    # 文言）にはならない。
-    distances = {
-        b: RouteDistanceExceededError(f"direction {b}: distance exceeds tolerance") for b in DIRECTIONS_DEG
-    }
-    generator, _ = make_generator(distances)
+async def test_generate_loops_keeps_tracing_past_rejected_candidates_until_max_routes():
+    # 距離フィルタで落ちた候補・失敗した候補は合格数に数えず、次の候補へ進む。
+    distances = {0: 60.0, 45: RoutingError("no return"), 90: 30.0, 135: 31.0, 180: 30.0, 225: 30.0}
+    generator, engine = make_generator(distances)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0, max_routes=2)
+
+    assert engine.traced_bearings == [0, 45, 90, 135]
+    assert set(_labels(candidates)) == {compass_label(90), compass_label(135)}
+
+
+async def test_generate_loops_returns_empty_with_reason_when_no_turnaround_candidates():
+    generator, engine = make_generator({})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert candidates == []
+    assert engine.evaluated_traced is None
     assert generator.last_no_candidates_reason is not None
-    assert "距離" in generator.last_no_candidates_reason
-    assert "経路探索に失敗" not in generator.last_no_candidates_reason
+    assert "折返し" in generator.last_no_candidates_reason
 
 
-async def test_skips_directions_that_fail_without_raising():
-    distances = {b: 30.0 for b in DIRECTIONS_DEG}
+async def test_generate_via_waypoints_does_not_select_turnarounds():
+    # 経由地指定ルートは折返し候補の選定・距離フィルタを通らない（指定地点列を結ぶだけ）。
+    generator, engine = make_generator({None: 12.0})
+
+    await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
+
+    assert engine.select_calls == []
+    assert engine.traced_bearings == []
+
+
+async def test_skips_turnarounds_that_fail_without_raising():
+    distances = {b: 30.0 for b in BEARINGS}
     distances[0] = RoutingError("no route")
     distances[135] = RoutingError("no route")
     generator, _ = make_generator(distances)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert len(candidates) == len(DIRECTIONS_DEG) - 2
+    assert len(candidates) == len(BEARINGS) - 2
 
 
 async def test_returns_empty_list_when_prepare_returns_none():
-    generator, engine = make_generator({b: 30.0 for b in DIRECTIONS_DEG}, prepare_result=None)
+    generator, engine = make_generator({b: 30.0 for b in BEARINGS}, prepare_result=None)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert candidates == []
     assert engine.evaluated_traced is None  # 評価まで進まない
+    assert engine.select_calls == []
     # 改善計画T441: 候補0件の原因がRouteGenerateResponse.no_candidates_reason経由でGUIへ
     # 届くよう、人間可読な理由をlast_no_candidates_reasonへ残す。
     assert generator.last_no_candidates_reason is not None
@@ -186,40 +218,27 @@ async def test_evaluate_receives_only_survivors_sorted_by_distance_closeness():
 
 
 async def test_evaluate_is_skipped_when_no_candidates_survive():
-    generator, engine = make_generator({b: 100.0 for b in DIRECTIONS_DEG})
+    generator, engine = make_generator({b: 100.0 for b in BEARINGS})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert candidates == []
     assert engine.evaluated_traced is None
-    # 改善計画T441: 全方位が距離フィルタで落ちたケースの理由を確認する
-    # （trace自体は成功しているため「経路探索に失敗」ではなく距離条件の文言になること）。
+    # 改善計画T441: 全候補が距離フィルタで落ちたケースの理由を確認する
+    # （trace自体は成功しているため「探索に失敗」ではなく距離条件の文言になること）。
     assert generator.last_no_candidates_reason is not None
     assert "距離" in generator.last_no_candidates_reason
-    assert "経路探索に失敗" not in generator.last_no_candidates_reason
+    assert "探索に失敗" not in generator.last_no_candidates_reason
 
 
-async def test_no_candidates_reason_mentions_trace_failures_when_all_directions_fail():
-    generator, _ = make_generator({b: RoutingError("no route") for b in DIRECTIONS_DEG})
+async def test_no_candidates_reason_mentions_trace_failures_when_all_turnarounds_fail():
+    generator, _ = make_generator({b: RoutingError("no route") for b in BEARINGS})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert candidates == []
     assert generator.last_no_candidates_reason is not None
-    assert "経路探索に失敗" in generator.last_no_candidates_reason
-
-
-async def test_waypoints_form_a_loop_starting_and_ending_at_origin():
-    generator, engine = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
-
-    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
-
-    for bearing in DIRECTIONS_DEG:
-        waypoints = engine.traced_waypoints[bearing]
-        assert len(waypoints) == 4
-        assert waypoints[0] == ORIGIN
-        assert waypoints[-1] == ORIGIN
-        assert waypoints[1] != ORIGIN and waypoints[2] != ORIGIN
+    assert "探索に失敗" in generator.last_no_candidates_reason
 
 
 async def test_sorts_final_candidates_by_overall_difficulty_ascending():
@@ -241,6 +260,22 @@ async def test_sorts_final_candidates_by_overall_difficulty_ascending():
     assert all(d is not None for d in difficulties)
     assert difficulties == sorted(difficulties)
     assert difficulties[0] == 20.0
+    assert [c.id for c in candidates] == ["route-00", "route-01", "route-02"]
+
+
+async def test_candidates_with_equal_difficulty_are_ordered_by_distance_closeness():
+    # 改善計画T531: overall_difficultyが同点（小数1桁）の候補は目標距離に近い順に並ぶ
+    # （周囲に重みを振った軸のデータが無く全候補が同じdifficultyになる状況で、結果が
+    # 実質的に目標距離に近い順になる）。
+    engine = SegmentedFakeEngine(
+        {0: 34.0, 45: 30.5, 90: 27.0},
+        {b: [make_segment(1.0, 100.0)] for b in (0, 45, 90)},
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+
+    assert _labels(candidates) == [compass_label(45), compass_label(90), compass_label(0)]
 
 
 async def test_candidates_with_none_overall_difficulty_sort_last():
@@ -315,7 +350,7 @@ async def test_overall_difficulty_is_distance_weighted_average_of_segments():
 
 
 async def test_overall_difficulty_is_none_when_segments_missing():
-    generator, _ = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+    generator, _ = make_generator({b: 30.0 for b in BEARINGS})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
@@ -346,7 +381,7 @@ async def test_axis_difficulties_is_distance_weighted_average_of_segments():
 
 
 async def test_axis_difficulties_is_empty_dict_when_segments_missing():
-    generator, _ = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+    generator, _ = make_generator({b: 30.0 for b in BEARINGS})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
@@ -376,7 +411,7 @@ async def test_axis_contributions_is_distance_weighted_average_of_segments():
 
 
 async def test_axis_contributions_is_empty_dict_when_segments_missing():
-    generator, _ = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+    generator, _ = make_generator({b: 30.0 for b in BEARINGS})
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 

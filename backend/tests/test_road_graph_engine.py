@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
-from app.domain.errors import RouteDistanceExceededError
+from app.domain.errors import RoutingError
 from app.domain.evaluation import (
     DynamicAxisRequestContext,
     RoutePreference,
@@ -22,7 +22,7 @@ from app.domain.evaluation import (
     compute_hard_filter_excluded,
     evaluate_dynamic_axis_arrays,
 )
-from app.domain.geo import bearing_between, destination_point, haversine_distance_km
+from app.domain.geo import bearing_between, compass_label, destination_point, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
@@ -30,7 +30,7 @@ from app.domain.weather import WeatherConditions
 from app.infrastructure import search_graph_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
-from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
+from app.services.route_generator import TURNAROUND_RADIUS_RATIO, RouteGenerator
 
 # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルが暗黙に前提とする
 # 「car_stress/night等の実在axis_idを持つ一貫した軸システム」が必要（DBの現在値の検証が
@@ -49,6 +49,9 @@ def _clear_search_graph_cache():
 
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
+# テスト用フィクスチャ（build_loop_graph）が折返し点を置く方位。方位は生成機構ではなく
+# 候補を区別するラベルにしか使わない（改善計画T531）。
+BEARINGS = [0, 45, 90, 135, 180, 225, 270, 315]
 
 
 def _lazy_edge_cost(engine, context, from_node_id: str, to_node_id: str) -> float:
@@ -97,45 +100,51 @@ def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_co
     return DirectedEdge(**defaults)
 
 
-def build_loop_graph(origin: Coordinates, distance_km: float, *, skip_bearings: set[int] = frozenset()) -> RoadGraph:
-    """route_generator.pyが実際に使うのと同じdestination_point/RADIUS_RATIOで、
-    起点を中心とした「車輪」状のRoad Graphを構築する: 各方位（DIRECTIONS_DEG）の
-    半径radius_km地点をスポーク（起点↔各点）で結び、隣り合う地点同士をアーク
-    （bearing地点↔bearing+45地点）で結ぶ。
+def build_loop_graph(
+    origin: Coordinates, distance_km: float, *, skip_bearings: set[int] = frozenset(), highway: str | None = None
+) -> RoadGraph:
+    """フロンティア方式（改善計画T531）向けの「車輪」状Road Graph。各方位bearingについて、
+    起点から目標距離の半分（R）の位置に折返し点`p-{bearing}`を置き、起点と`p-{bearing}`を
+    結ぶ道を2本用意する（いずれも双方向）:
 
-    ある方位bearingの周回候補は「起点→bearing地点→(bearing+45)地点→起点」という
-    経路になる。これはwaypoint_a(bearing)とwaypoint_b(bearing)がそれぞれ
-    「bearing地点」「(bearing+45)地点」に対応し、かつ隣接するbearingの
-    waypoint_bとwaypoint_aが同一の実座標（同じ地点を指す）になるという、
-    destination_pointの性質と一致させるための構造。座標が同じ地点に別々のNodeを
-    重複して作ると、最近接ノード探索が別方位のNodeへ誤ってスナップしうる
-    （実データでは実在の交差点1つに収束するため起きない問題）。
+    - スポーク `e-{b}-spoke1`（起点→p、長さR）と逆方向 `e-{b}-spoke1-rev`
+    - 迂回路 `e-{b}-alt1`（p→`m-{b}`）・`e-{b}-alt2`（m→起点）と各逆方向（`-rev`）。
+      `m-{b}`は方位b+12°・距離R/2の点で、迂回路の全長はRよりわずかに長い（約1.02R）
 
-    `skip_bearings`に含めた方位は、その方位専用のアーク・起点側スポークを作らない
-    （＝その方位に限って経路探索が失敗する状況を再現する）。
+    一対全木では`p-{b}`への往路は最短のスポークになり、往路の実距離RはリングD/2±tol/2に
+    入る（`m-{b}`は約R/2で入らない）。復路はretraceペナルティによりスポークの逆走ではなく
+    迂回路を選ぶため、各方位の周回は「spoke1→alt1→alt2」の3Edge・約2.02R（≒目標距離）になる。
+    `skip_bearings`の方位は道を作らない（折返し点に到達できない）。`highway`を指定すると
+    全Edgeへ同じhighway種別を付ける（材料の欠損ではなく「インフラ無し」として評価させたい
+    テスト向け）。
     """
-    radius_km = distance_km * RADIUS_RATIO
-    nodes = {"origin": Node(node_id="origin", latitude=origin.latitude, longitude=origin.longitude)}
+    radius_km = distance_km / 2
+    nodes: dict[str, Node] = {"origin": Node(node_id="origin", latitude=origin.latitude, longitude=origin.longitude)}
     edges: dict[str, DirectedEdge] = {}
-
-    spoke_coords = {bearing: destination_point(origin, bearing, radius_km) for bearing in DIRECTIONS_DEG}
-    for bearing, coord in spoke_coords.items():
-        nodes[f"p-{bearing}"] = Node(node_id=f"p-{bearing}", latitude=coord.latitude, longitude=coord.longitude)
-
-    for bearing in DIRECTIONS_DEG:
+    overrides = {"highway": highway} if highway is not None else {}
+    for bearing in BEARINGS:
+        tip = destination_point(origin, bearing, radius_km)
+        mid = destination_point(origin, (bearing + 12) % 360, radius_km / 2)
+        nodes[f"p-{bearing}"] = Node(node_id=f"p-{bearing}", latitude=tip.latitude, longitude=tip.longitude)
+        nodes[f"m-{bearing}"] = Node(node_id=f"m-{bearing}", latitude=mid.latitude, longitude=mid.longitude)
         if bearing in skip_bearings:
-            continue  # このWayをつながないことで、経路探索が失敗する方位を作る
-
-        next_bearing = (bearing + 45) % 360
-        node_a_id, node_b_id = f"p-{bearing}", f"p-{next_bearing}"
-        coord_a, coord_b = spoke_coords[bearing], spoke_coords[next_bearing]
-
-        edges[f"e-{bearing}-spoke1"] = _edge(f"e-{bearing}-spoke1", "origin", node_a_id, origin, coord_a)
-        edges[f"e-{bearing}-arc"] = _edge(f"e-{bearing}-arc", node_a_id, node_b_id, coord_a, coord_b)
-        edges[f"e-{bearing}-spoke2"] = _edge(f"e-{bearing}-spoke2", node_b_id, "origin", coord_b, origin)
-
+            continue
+        tip_id, mid_id = f"p-{bearing}", f"m-{bearing}"
+        forward = [
+            (f"e-{bearing}-spoke1", "origin", tip_id, origin, tip),
+            (f"e-{bearing}-alt1", tip_id, mid_id, tip, mid),
+            (f"e-{bearing}-alt2", mid_id, "origin", mid, origin),
+        ]
+        for edge_id, from_id, to_id, from_coord, to_coord in forward:
+            edges[edge_id] = _edge(edge_id, from_id, to_id, from_coord, to_coord, **overrides)
+        for edge_id, from_id, to_id, from_coord, to_coord in forward:
+            edges[f"{edge_id}-rev"] = _edge(f"{edge_id}-rev", to_id, from_id, to_coord, from_coord, **overrides)
     return RoadGraph(graph_version="test", nodes=nodes, edges=edges)
 
+
+def _candidate_for_bearing(candidates: list[RouteCandidate], bearing: int) -> RouteCandidate:
+    """方位ラベルで候補を引く（改善計画T531: idは最終順位で振り直されるため方位からは引けない）。"""
+    return next(c for c in candidates if c.direction_label == compass_label(bearing))
 
 class FakeGraphService:
     def __init__(
@@ -182,6 +191,9 @@ class FakeGraphService:
         self._stop_data_available = stop_data_available
         self.call_count = 0
         self.last_bbox = None
+        # 改善計画T531: get_edges_with_geometryへ渡されたedge_id列の記録（距離フィルタ通過後の
+        # 候補ぶんだけを1回で取得することの検証用）。
+        self.geometry_requests: list[list[str]] = []
 
     async def get_or_build_graph_with_attributes(self, bbox):
         self.call_count += 1
@@ -232,6 +244,7 @@ class FakeGraphService:
         # Overpass経由構築時と同じ挙動＝or右辺のみが動く防御的フォールバック）。
         # edges_with_geometryにセットされたedge_idのみ、その値を返す（本物のRoadGraphRepository
         # と同じ「指定edge_idのうち持っているものだけ返す」規約）。
+        self.geometry_requests.append(list(edge_ids))
         return {edge_id: self._edges_with_geometry[edge_id] for edge_id in edge_ids if edge_id in self._edges_with_geometry}
 
     async def get_edge_attribute_counts(self, edge_ids):
@@ -337,8 +350,9 @@ async def test_generate_loops_returns_one_candidate_per_reachable_direction():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert len(candidates) == len(DIRECTIONS_DEG)
-    assert {c.id for c in candidates} == {f"route-{b:03d}" for b in DIRECTIONS_DEG}
+    assert len(candidates) == len(BEARINGS)
+    assert [c.id for c in candidates] == [f"route-{i:02d}" for i in range(len(BEARINGS))]
+    assert {c.direction_label for c in candidates} == {compass_label(b) for b in BEARINGS}
     assert all(c.distance_km > 0 for c in candidates)
     assert all(c.geometry["type"] == "LineString" for c in candidates)
 
@@ -349,8 +363,8 @@ async def test_generate_loops_skips_directions_with_no_path():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert len(candidates) == len(DIRECTIONS_DEG) - 2
-    assert "route-000" not in [c.id for c in candidates]
+    assert len(candidates) == len(BEARINGS) - 2
+    assert compass_label(0) not in [c.direction_label for c in candidates]
     assert "route-180" not in [c.id for c in candidates]
 
 
@@ -369,7 +383,7 @@ async def test_trace_loop_uses_hydrated_geometry_over_context_graph_edge():
     # （実DBアクセスが何らかの理由で失敗した場合の防御的フォールバック）だけがテストされ、
     # hydrated（実DBジオメトリ相当）優先の主経路が一度も検証されていなかった。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    target_edge_id = "e-0-spoke1"  # route-000（bearing=0）の経路に含まれるEdge
+    target_edge_id = "e-0-spoke1"  # bearing=0の周回の往路Edge
     original_edge = graph.edges[target_edge_id]
     # 実DBから取得し直した想定のhydrated版: 元のgeometryにはない中間点を挟み、
     # context.graph.edges側にフォールバックした場合と区別できるようにする。
@@ -388,7 +402,7 @@ async def test_trace_loop_uses_hydrated_geometry_over_context_graph_edge():
     )
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     # hydrated側の中間点（GeoJSONは[lon, lat]順）が候補のgeometryへ反映されている
     # ＝context.graph.edges側（フォールバック、中間点を持たない）ではなくhydratedが使われた。
@@ -408,151 +422,217 @@ async def test_generate_loops_fetches_road_graph_only_once_for_all_directions():
 
 
 async def test_generate_loops_filters_candidates_outside_distance_tolerance():
-    # bearing=0の起点→p-0スポークだけを、大きく迂回するdetourノード経由に置き換えて距離を伸ばす。
-    # 他の方位のスポーク・アークはp-0を終点として参照するのみ（origin→p-0とは別のEdge）
-    # なので、この置き換えの影響はbearing=0だけに閉じる。
+    # bearing=0の迂回路（復路の候補）を50km先を回る大回りへ置き換える。往路（スポーク、15km）は
+    # リングに入るため折返し候補にはなるが、復路がretraceペナルティ付きスポーク逆走
+    # （コスト15km×8）より安い大回り（約100km）を選ぶため周回は約115kmになり、距離フィルタで
+    # 棄却される。他の方位は影響を受けない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    detour_point = destination_point(ORIGIN, 0, 50.0)  # 大きく迂回する経由地
-    node_a_id = "p-0"
-    origin_node = graph.nodes["origin"]
-    a_node = graph.nodes[node_a_id]
-    origin_coord = Coordinates(latitude=origin_node.latitude, longitude=origin_node.longitude)
-    a_coord = Coordinates(latitude=a_node.latitude, longitude=a_node.longitude)
-
+    far_point = destination_point(ORIGIN, 12, 50.0)
+    tip = graph.nodes["p-0"]
+    tip_coord = Coordinates(latitude=tip.latitude, longitude=tip.longitude)
     new_nodes = dict(graph.nodes)
-    new_nodes["detour"] = Node(node_id="detour", latitude=detour_point.latitude, longitude=detour_point.longitude)
-    new_edges = dict(graph.edges)
-    del new_edges["e-0-spoke1"]  # 直行するorigin→p-0を消し、大回りするorigin→detour→p-0へ置き換える
-    new_edges["detour-1"] = _edge("detour-1", "origin", "detour", origin_coord, detour_point)
-    new_edges["detour-2"] = _edge("detour-2", "detour", node_a_id, detour_point, a_coord)
+    new_nodes["far"] = Node(node_id="far", latitude=far_point.latitude, longitude=far_point.longitude)
+    new_edges = {eid: e for eid, e in graph.edges.items() if not eid.startswith("e-0-alt")}
+    new_edges["e-0-far1"] = _edge("e-0-far1", "p-0", "far", tip_coord, far_point)
+    new_edges["e-0-far2"] = _edge("e-0-far2", "far", "origin", far_point, ORIGIN)
     graph = RoadGraph(graph_version="test", nodes=new_nodes, edges=new_edges)
 
     generator, _, _ = make_generator(graph)
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    assert "route-000" not in [c.id for c in candidates]
-    assert len(candidates) == len(DIRECTIONS_DEG) - 1
+    assert compass_label(0) not in [c.direction_label for c in candidates]
+    assert len(candidates) == len(BEARINGS) - 1
 
 
-def _build_detoured_bearing0_graph(*, drop_final_leg: bool = False) -> RoadGraph:
-    """改善計画T540の早期打ち切りテスト用。bearing=0の起点→p-0スポーク
-    （レグ1）だけを大きく迂回するdetourノード経由に置き換え、レグ1＋レグ2の
-    累計だけで距離許容範囲の上限を確実に超えるグラフを作る
-    （test_generate_loops_filters_candidates_outside_distance_toleranceと同じ構成）。
+# --- 改善計画T531: フロンティア方式（折返し点選定・復路探索） ---
 
-    `drop_final_leg=True`の場合、レグ3（p-0の次のアーク終点→origin、
-    `e-0-spoke2`）自体を削除する——早期打ち切りが機能していなければ、
-    レグ3の探索を実際に試みて「経路が見つからない」RoutingErrorになる
-    はずの状況を作り、早期打ち切り（RouteDistanceExceededError）と
-    区別できるようにする。
-    """
+
+async def _prepare_context(generator: RouteGenerator, distance_km: float = 30.0):
+    context = await generator._engine.prepare(ORIGIN, radius_km=distance_km * TURNAROUND_RADIUS_RATIO)
+    assert context is not None
+    return context
+
+
+async def test_select_turnarounds_returns_ring_nodes_with_outbound_from_tree():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    detour_point = destination_point(ORIGIN, 0, 50.0)
-    node_a_id = "p-0"
-    origin_node = graph.nodes["origin"]
-    a_node = graph.nodes[node_a_id]
-    origin_coord = Coordinates(latitude=origin_node.latitude, longitude=origin_node.longitude)
-    a_coord = Coordinates(latitude=a_node.latitude, longitude=a_node.longitude)
-
-    new_nodes = dict(graph.nodes)
-    new_nodes["detour"] = Node(node_id="detour", latitude=detour_point.latitude, longitude=detour_point.longitude)
-    new_edges = dict(graph.edges)
-    del new_edges["e-0-spoke1"]
-    new_edges["detour-1"] = _edge("detour-1", "origin", "detour", origin_coord, detour_point)
-    new_edges["detour-2"] = _edge("detour-2", "detour", node_a_id, detour_point, a_coord)
-    if drop_final_leg:
-        del new_edges["e-0-spoke2"]
-    return RoadGraph(graph_version="test", nodes=new_nodes, edges=new_edges)
-
-
-def test_distance_limit_certainly_exceeded_boundary():
-    # 改善計画T540完了条件: 「レグ3の下限を足すとちょうど上限に一致する」境界ケース。
-    # 下限距離が達成可能な最短経路と一致しうるため、等号（ちょうど一致）は打ち切らない
-    # 側（False）に倒す。
-    assert road_graph_engine._distance_limit_certainly_exceeded(20.0, 15.0, 35.0) is False
-    # わずかでも上限を超えれば確実に打ち切ってよい。
-    assert road_graph_engine._distance_limit_certainly_exceeded(20.0, 15.01, 35.0) is True
-    # 完了条件: 「レグ1＋レグ2だけで既に上限超過」（下限がゼロでも成立するケース）。
-    assert road_graph_engine._distance_limit_certainly_exceeded(40.0, 0.0, 35.0) is True
-    assert road_graph_engine._distance_limit_certainly_exceeded(35.0, 0.0, 35.0) is False
-
-
-async def test_early_cutoff_rejects_exactly_what_post_hoc_distance_filter_would():
-    # 改善計画T540の最重要完了条件: 早期打ち切り（max_distance_km指定）と、従来の
-    # 「全レグ完了後に距離フィルタ」（max_distance_km=None、T540以前の挙動）が、
-    # 同じ入力に対し同じ候補を棄却/採用することを確認する回帰テスト。
-    graph = _build_detoured_bearing0_graph()
     generator, _, _ = make_generator(graph)
     engine = generator._engine
+    context = await _prepare_context(generator)
 
-    distance_km, tolerance_km = 30.0, 5.0
-    max_distance_km = distance_km + tolerance_km
-    radius_km = distance_km * RADIUS_RATIO
-    context = await engine.prepare(ORIGIN, radius_km)
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
 
-    # bearing=0（迂回済み、距離超過が確定している方位）: 打ち切り無しでは完走するが
-    # post-hoc距離フィルタで確実に棄却される距離になっている。
-    rejected_waypoints = RouteGenerator._loop_waypoints(ORIGIN, 0, radius_km)
-    baseline_rejected = await engine.trace_loop(context, rejected_waypoints, bearing=0, max_distance_km=None)
-    assert abs(baseline_rejected.distance_km - distance_km) > tolerance_km
+    # 各方位の折返し点p-{b}（往路15km=目標の半分、リング内）だけが候補になる。
+    # m-{b}（約7.7km）はリングに入らない。
+    assert sorted(t.bearing for t in turnarounds) == sorted(BEARINGS)
+    assert {t.data.node_id for t in turnarounds} == {f"p-{b}" for b in BEARINGS}
+    for turnaround in turnarounds:
+        assert turnaround.outbound_distance_km == pytest.approx(15.0, abs=0.1)
+        assert [turnaround.data.outbound_edge_indices] and len(turnaround.data.outbound_edge_indices) == 1
 
-    # 同じ入力へ早期打ち切りを有効にすると、レグ3を探索せずRouteDistanceExceededError
-    # で打ち切られる（post-hocフィルタが棄却するのと同じ候補）。
-    with pytest.raises(RouteDistanceExceededError):
-        await engine.trace_loop(context, rejected_waypoints, bearing=0, max_distance_km=max_distance_km)
 
-    # bearing=45（迂回の影響を受けない、許容範囲内の方位）: 早期打ち切りを有効にしても
-    # 打ち切られず、打ち切り無し版とビット単位で同じ距離のTracedLoopを返す
-    # （早期打ち切りが本来採用すべき候補まで誤って棄却しないことの確認）。
-    accepted_waypoints = RouteGenerator._loop_waypoints(ORIGIN, 45, radius_km)
-    traced_without_cutoff = await engine.trace_loop(context, accepted_waypoints, bearing=45, max_distance_km=None)
-    traced_with_cutoff = await engine.trace_loop(
-        context, accepted_waypoints, bearing=45, max_distance_km=max_distance_km
+async def test_return_leg_avoids_outbound_road_when_alternative_exists():
+    # 復路探索の間だけ往路Edge（＋逆方向Edge）のコストをRETRACE_PENALTY_MULTIPLIER倍に
+    # するため、スポークの逆走（15km）より迂回路（約15.3km）が選ばれる。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_context(generator)
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
+    turnaround = next(t for t in turnarounds if t.bearing == 0)
+
+    traced = await engine.trace_loop_from_turnaround(context, turnaround)
+
+    assert traced.bearing == 0
+    assert traced.data == ["e-0-spoke1", "e-0-alt1", "e-0-alt2"]
+    assert traced.distance_km == pytest.approx(15.0 * (1 + 1.0215), abs=0.2)
+
+
+async def test_return_leg_retraces_outbound_when_no_alternative_exists():
+    # 倍率は有限のため、復路が往路を戻る以外に道が無ければそのまま逆走して周回を閉じる。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    graph = RoadGraph(
+        graph_version="test", nodes=graph.nodes,
+        edges={eid: e for eid, e in graph.edges.items() if not eid.startswith("e-0-alt")},
     )
-    assert traced_with_cutoff.distance_km == traced_without_cutoff.distance_km
-    assert abs(traced_with_cutoff.distance_km - distance_km) <= tolerance_km
-
-
-async def test_early_cutoff_skips_final_leg_search_entirely():
-    # 改善計画T540完了条件: 「レグ1＋レグ2だけで既に上限超過」のとき、レグ3
-    # （B→起点）自体を探索しないことを確認する。レグ3のEdgeを完全に削除した
-    # グラフでも、早期打ち切りが機能していれば距離超過（RouteDistanceExceededError）
-    # を返す——もし早期打ち切りが機能せずレグ3を実際に探索していたら、Edgeが
-    # 存在しないため代わりに汎用のRoutingError（"no path found"）になるはずで、
-    # この2つは区別できる。
-    graph = _build_detoured_bearing0_graph(drop_final_leg=True)
     generator, _, _ = make_generator(graph)
     engine = generator._engine
+    context = await _prepare_context(generator)
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
+    turnaround = next(t for t in turnarounds if t.bearing == 0)
 
-    distance_km, tolerance_km = 30.0, 5.0
-    radius_km = distance_km * RADIUS_RATIO
-    context = await engine.prepare(ORIGIN, radius_km)
-    waypoints = RouteGenerator._loop_waypoints(ORIGIN, 0, radius_km)
+    traced = await engine.trace_loop_from_turnaround(context, turnaround)
 
-    with pytest.raises(RouteDistanceExceededError):
-        await engine.trace_loop(
-            context, waypoints, bearing=0, max_distance_km=distance_km + tolerance_km
-        )
+    assert traced.data == ["e-0-spoke1", "e-0-spoke1-rev"]
+    assert traced.distance_km == pytest.approx(30.0, abs=0.1)
 
 
-async def test_waypoints_routes_are_not_early_cut_off_even_with_max_distance_km():
-    # 改善計画T540: 経由地指定ルート（bearing=None）はmax_distance_kmを渡されても
-    # 早期打ち切りの対象外（generate_via_waypointsは距離フィルタ自体を行わないため）。
+async def test_return_leg_search_restores_shared_cost_list():
+    # 復路探索のコスト差し替えは探索後に必ず元へ戻す（共有cost_listを汚さない）。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph)
     engine = generator._engine
+    context = await _prepare_context(generator)
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
+    before = list(context.cost_list)
 
-    radius_km = 30.0 * RADIUS_RATIO
-    context = await engine.prepare(ORIGIN, radius_km, waypoints=[destination_point(ORIGIN, 0, radius_km)])
-    origin_coord = ORIGIN
-    waypoint = destination_point(ORIGIN, 0, radius_km)
-    waypoints = [origin_coord, waypoint, origin_coord]
+    for turnaround in turnarounds:
+        await engine.trace_loop_from_turnaround(context, turnaround)
 
-    # max_distance_kmを極端に小さくしても、bearing=Noneでは早期打ち切りが働かず
-    # 正常にTracedLoopが返る。
-    traced = await engine.trace_loop(context, waypoints, bearing=None, max_distance_km=0.001)
-    assert traced.bearing is None
-    assert traced.distance_km > 0
+    assert context.cost_list == before
+
+
+async def test_return_leg_search_restores_cost_list_even_when_no_path_found():
+    # 復路が見つからない（折返し点から起点へ戻る道が無い）場合もコストを復元してから
+    # RoutingErrorになる。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    graph = RoadGraph(
+        graph_version="test", nodes=graph.nodes,
+        edges={eid: e for eid, e in graph.edges.items() if not (eid.startswith("e-0-") and eid != "e-0-spoke1")},
+    )
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_context(generator)
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
+    turnaround = next(t for t in turnarounds if t.bearing == 0)
+    before = list(context.cost_list)
+
+    with pytest.raises(RoutingError):
+        await engine.trace_loop_from_turnaround(context, turnaround)
+
+    assert context.cost_list == before
+
+
+async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():
+    # 自転車インフラの重みを100%にすると、往路（スポーク）が分離自転車道である方位が先頭になる。
+    # 他の方位はインフラ無し（difficulty 100）で同点→往路実距離が目標の半分に近い順→node index順。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0, highway="residential")
+    preference = RoutePreference(
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0, "bicycle_infra_quality": 1.0}
+    )
+    generator, _, _ = make_generator(
+        graph, way_tags={"e-90-spoke1": {"cycleway": "track"}}, route_preference=preference,
+    )
+    engine = generator._engine
+    context = await _prepare_context(generator)
+
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
+
+    assert turnarounds[0].bearing == 90
+    assert turnarounds[0].outbound_difficulty == 0.0
+    assert all(t.outbound_difficulty == 100.0 for t in turnarounds[1:])
+
+
+async def test_select_turnarounds_skips_nearby_node_sharing_outbound_corridor():
+    # p-0の2km先に同じスポークの延長上のNode p-0bを足す。往路実距離17kmはリング（12.5〜17.5km）
+    # に入るが、往路の88%（15/17）をp-0の往路と共有するため多様性間引きで飛ばされる。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    tip = graph.nodes["p-0"]
+    tip_coord = Coordinates(latitude=tip.latitude, longitude=tip.longitude)
+    beyond = destination_point(ORIGIN, 0, 17.0)
+    new_nodes = dict(graph.nodes)
+    new_nodes["p-0b"] = Node(node_id="p-0b", latitude=beyond.latitude, longitude=beyond.longitude)
+    new_edges = dict(graph.edges)
+    new_edges["e-0-ext"] = _edge("e-0-ext", "p-0", "p-0b", tip_coord, beyond)
+    new_edges["e-0-ext-rev"] = _edge("e-0-ext-rev", "p-0b", "p-0", beyond, tip_coord)
+    graph = RoadGraph(graph_version="test", nodes=new_nodes, edges=new_edges)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_context(generator)
+
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
+
+    assert len(turnarounds) == len(BEARINGS)
+    assert "p-0b" not in {t.data.node_id for t in turnarounds}
+
+
+async def test_generate_loops_returns_at_most_max_routes_and_stops_tracing_early():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    calls = []
+    original = engine.trace_loop_from_turnaround
+
+    async def counting(context, turnaround):
+        calls.append(turnaround.bearing)
+        return await original(context, turnaround)
+
+    engine.trace_loop_from_turnaround = counting
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0, max_routes=3)
+
+    assert [c.id for c in candidates] == ["route-00", "route-01", "route-02"]
+    assert len(calls) == 3
+
+
+async def test_generate_loops_returns_empty_when_no_node_reaches_ring():
+    # 目標距離100kmに対し道路網は半径15kmしか無く、往路実距離がリング（45〜55km）に入る
+    # Nodeが存在しない→折返し候補0件。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, elevation_service = make_generator(graph)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=100.0, distance_tolerance_km=10.0)
+
+    assert candidates == []
+    assert elevation_service.graphs_queried == []
+    assert generator.last_no_candidates_reason is not None
+    assert "折返し" in generator.last_no_candidates_reason
+
+
+async def test_geometry_is_fetched_once_for_all_survivors_after_distance_filter():
+    # 改善計画T531: 実ジオメトリのDB取得は距離フィルタ通過後の候補ぶんをまとめて1回だけ
+    # 行う（棄却候補のぶんは取得しない）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, graph_service, _ = make_generator(graph)
+
+    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+    assert len(graph_service.geometry_requests) == 1
+    assert len(graph_service.geometry_requests[0]) == 3 * len(BEARINGS)
+
+    graph_service.geometry_requests.clear()
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=0.001)
+    assert candidates == []
+    assert graph_service.geometry_requests == []
 
 
 async def test_candidate_aggregates_elevation_from_path_edges():
@@ -573,7 +653,7 @@ async def test_candidate_aggregates_elevation_from_path_edges():
     generator, _, elevation_service = make_generator(graph, elevation_attributes=elevation_attributes)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     assert candidate.elevation_gain_m == 20.0
     assert candidate.min_elevation_m == 10.0
@@ -592,9 +672,9 @@ async def test_elevation_attribute_service_is_queried_only_with_path_edges_not_w
 
     await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert len(elevation_service.graphs_queried) == len(DIRECTIONS_DEG)  # 方位ごとに1回ずつ
+    assert len(elevation_service.graphs_queried) == len(BEARINGS)  # 方位ごとに1回ずつ
     for queried_graph in elevation_service.graphs_queried:
-        assert len(queried_graph.edges) == 3  # 1候補=3区間分のみ（フルグラフの24区間ではない）
+        assert len(queried_graph.edges) == 3  # 1候補=3区間分のみ（フルグラフの48区間ではない）
         assert len(queried_graph.edges) < len(graph.edges)
 
 
@@ -614,7 +694,7 @@ async def test_elevation_attribute_service_is_not_queried_when_materials_already
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert len(candidates) == len(DIRECTIONS_DEG)
+    assert len(candidates) == len(BEARINGS)
     assert elevation_service.graphs_queried == []
 
 
@@ -622,16 +702,19 @@ async def test_elevation_attribute_service_is_queried_only_for_edges_missing_fro
     # 改善計画T522派生: 経路上の一部のEdgeだけmaterialsに標高が無い（事前計算バッチ未実行）
     # 場合、ElevationAttributeServiceへはその欠けている分だけを問い合わせる
     # （materials側に既にある分を含めて丸ごと問い合わせ直したりはしない）。
+    # bearing=0の復路（e-0-alt1/e-0-alt2）だけ事前計算が無い状態にする（他の全Edgeは
+    # 事前計算済み。往路・復路の選択がgradient軸のデータ有無で偏らないよう、往路と
+    # その逆方向Edgeには同じ値を持たせる）。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     elevation_attributes_for_search = {
-        "e-0-spoke1": ElevationAttribute(
-            edge_id="e-0-spoke1", average_grade=1.0, data_source="test", calculated_at="t"
-        ),
+        edge_id: ElevationAttribute(edge_id=edge_id, average_grade=1.0, data_source="test", calculated_at="t")
+        for edge_id in graph.edges
+        if edge_id not in ("e-0-alt1", "e-0-alt2")
     }
     fetched_on_demand = {
-        "e-0-arc": ElevationAttribute(edge_id="e-0-arc", average_grade=2.0, data_source="test", calculated_at="t"),
-        "e-0-spoke2": ElevationAttribute(
-            edge_id="e-0-spoke2", average_grade=3.0, data_source="test", calculated_at="t"
+        "e-0-alt1": ElevationAttribute(edge_id="e-0-alt1", average_grade=2.0, data_source="test", calculated_at="t"),
+        "e-0-alt2": ElevationAttribute(
+            edge_id="e-0-alt2", average_grade=3.0, data_source="test", calculated_at="t"
         ),
     }
     generator, _, elevation_service = make_generator(
@@ -641,9 +724,9 @@ async def test_elevation_attribute_service_is_queried_only_for_edges_missing_fro
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert len(candidates) == len(DIRECTIONS_DEG)
-    bearing_0_query = next(g for g in elevation_service.graphs_queried if "e-0-arc" in g.edges)
-    assert set(bearing_0_query.edges.keys()) == {"e-0-arc", "e-0-spoke2"}
+    assert len(candidates) == len(BEARINGS)
+    bearing_0_query = next(g for g in elevation_service.graphs_queried if "e-0-alt1" in g.edges)
+    assert set(bearing_0_query.edges.keys()) == {"e-0-alt1", "e-0-alt2"}
 
 
 async def test_elevation_is_not_fetched_for_candidates_rejected_by_distance_filter():
@@ -666,7 +749,7 @@ async def test_candidate_aggregates_road_score_from_path_edges():
     generator, _, _ = make_generator(graph, surface_attributes=surface_attributes)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     assert candidate.road_score is not None
     assert 0.0 <= candidate.road_score <= 100.0
@@ -675,11 +758,11 @@ async def test_candidate_aggregates_road_score_from_path_edges():
 async def test_candidate_aggregates_stop_density_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    stop_counts = {edge_ids[0]: 3}
+    stop_counts = {edge_ids[0]: 3, f"{edge_ids[0]}-rev": 3}
     generator, _, _ = make_generator(graph, stop_counts=stop_counts)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     segment_with_stops = next(s for s in candidate.segments if s.axis_difficulties.get("stop_density", 0) > 0)
     assert segment_with_stops.difficulty is not None
@@ -690,7 +773,7 @@ async def test_candidate_stop_density_axis_is_zero_without_any_stop_pois():
     generator, _, _ = make_generator(graph)  # stop_counts未指定（=repository注入済み・実測0件）
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     assert all(s.axis_difficulties.get("stop_density") == 0.0 for s in candidate.segments)
 
@@ -702,7 +785,7 @@ async def test_candidate_stop_density_axis_is_absent_when_data_unavailable():
     generator, _, _ = make_generator(graph, stop_data_available=False)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     assert all("stop_density" not in s.axis_difficulties for s in candidate.segments)
 
@@ -714,11 +797,11 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
     # 独立難易度軸（infra_difficulty）は廃止し車ストレス側へ統合済みのため、ここでは検証しない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    way_tags = {edge_ids[0]: {"cycleway": "track"}}
+    way_tags = {edge_ids[0]: {"cycleway": "track"}, f"{edge_ids[0]}-rev": {"cycleway": "track"}}
     generator, _, _ = make_generator(graph, way_tags=way_tags)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     # 改善計画T347: RouteSegmentDetail.bicycle_infra（生値の分類文字列）は削除済みのため、
     # cycleway=track区間が正しく認識されたことは評価軸bicycle_infra_quality（分離自転車道は
@@ -730,11 +813,11 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
 async def test_candidate_aggregates_intersection_density_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    intersection_counts = {edge_ids[0]: 2}
+    intersection_counts = {edge_ids[0]: 2, f"{edge_ids[0]}-rev": 2}
     generator, _, _ = make_generator(graph, intersection_counts=intersection_counts)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     # 改善計画T149: 交差点密度は独立軸を持たずstop_density側へ低い重みで吸収される
     # （旧intersection_difficultyは廃止）。
@@ -749,11 +832,11 @@ async def test_candidate_aggregates_accident_density_from_path_edges():
     # accident_years_coveredも指定する。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    accident_counts = {edge_ids[0]: 2}
+    accident_counts = {edge_ids[0]: 2, f"{edge_ids[0]}-rev": 2}
     generator, _, _ = make_generator(graph, accident_counts=accident_counts, accident_years_covered=2)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     segment_with_accidents = next(
         s for s in candidate.segments if s.axis_difficulties.get("accident", 0) > 0
@@ -766,11 +849,11 @@ async def test_candidate_accident_axis_is_absent_when_years_covered_is_zero():
     # axis_difficulties自体にaccidentキーを持たない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    accident_counts = {edge_ids[0]: 2}
+    accident_counts = {edge_ids[0]: 2, f"{edge_ids[0]}-rev": 2}
     generator, _, _ = make_generator(graph, accident_counts=accident_counts, accident_years_covered=0)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     assert all("accident" not in s.axis_difficulties for s in candidate.segments)
 
@@ -807,10 +890,10 @@ async def test_candidate_segments_cover_every_edge_on_the_path():
     generator, _, _ = make_generator(graph)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     assert candidate.segments is not None
-    assert len(candidate.segments) == 3  # origin→a→b→originの3区間
+    assert len(candidate.segments) == 3  # spoke1→alt1→alt2の3区間
     assert candidate.segments[0].cumulative_distance_km == 0.0
     total_segment_distance = sum(s.distance_km for s in candidate.segments)
     assert abs(total_segment_distance - candidate.distance_km) < 0.1
@@ -823,7 +906,7 @@ async def test_candidate_segments_carry_edge_geometry_for_map_drawing():
     generator, _, _ = make_generator(graph)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
     for seg in candidate.segments:
         assert seg.geometry is not None
@@ -836,11 +919,12 @@ async def test_candidate_segments_carry_edge_geometry_for_map_drawing():
 
 
 async def test_candidate_segments_are_binned_into_approximately_500m_groups():
-    # 改善計画T11（レビュー指摘M3）: bearing=0のorigin→p-0スポーク（実距離約10km、
-    # build_loop_graphのRADIUS_RATIO=1/3・distance_km=30より）を、0.1km刻みの短い
-    # Edge100本のチェーンへ置き換え、実データのEdge単位segments（交差点間、多くは
+    # 改善計画T11（レビュー指摘M3）: bearing=0のorigin→p-0スポーク（実距離15km、
+    # build_loop_graphの折返し点=目標距離の半分・distance_km=30より）を、約0.15km刻みの短い
+    # Edge101本のチェーンへ置き換え、実データのEdge単位segments（交差点間、多くは
     # 500m未満）を模す。ビン化後のsegments件数がEdge本数より大幅に少なくなり、
-    # かつ合計距離は保たれることを確認する。
+    # かつ合計距離は保たれることを確認する（チェーンは一方通行のため復路はスポークの
+    # 逆走`e-0-spoke1-rev`[往路のEdgeではないのでペナルティ対象外]になる）。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     origin_node = graph.nodes["origin"]
     p0_node = graph.nodes["p-0"]
@@ -869,12 +953,12 @@ async def test_candidate_segments_are_binned_into_approximately_500m_groups():
     generator, _, _ = make_generator(graph)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
-    candidate = next(c for c in candidates if c.id == "route-000")
+    candidate = _candidate_for_bearing(candidates, 0)
 
-    # 元のEdge数: チェーン101本 + arc(1) + spoke2(1) = 103本。ビン化後は500m単位に集約され
-    # 大幅に少なくなるはず（チェーン部分だけでも約10km÷0.5km=20ビン程度が目安）。
+    # 元のEdge数: チェーン101本 + 復路1本 = 102本。ビン化後は500m単位に集約され
+    # 大幅に少なくなるはず（チェーン部分は約15km÷0.5km=30ビン程度が目安）。
     assert candidate.segments is not None
-    assert len(candidate.segments) < 30
+    assert len(candidate.segments) < 40
     total_segment_distance = sum(s.distance_km for s in candidate.segments)
     # 各Edge単位segmentのdistance_kmは個別に2桁丸め済み（_build_segment_details）のため、
     # 100本超のチェーンでは累積の丸め誤差が既存テスト（Edge2-3本）より目立つ。
@@ -1362,6 +1446,11 @@ def _build_context_score_fields(
 
     return dict(
         cost_list=cost_array.tolist(),
+        # 改善計画T531: 一対全木用（これらのテストはselect_loop_turnaroundsを経由しないため
+        # statics=None・origin_index=0のダミーでよい）。
+        statics=None,
+        cost_array=cost_array,
+        origin_index=0,
         full_edge_row=full_edge_row,
         difficulty_array=difficulty_array,
         axis_arrays=published_axis_arrays,
@@ -1690,7 +1779,7 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
     )
 
-    candidate = await engine._build_best_candidate(context, traced, datetime.now(timezone.utc))
+    candidate = await engine._build_best_candidate(context, traced, traced.data, datetime.now(timezone.utc))
 
     # 逆回り(a→o、追い風)が採用されるため、区間の始点は順方向の起点(o)ではなくa。
     assert candidate.segments[0].start_latitude == pytest.approx(coord_a.latitude)
@@ -1732,7 +1821,7 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
     )
 
-    candidate = await engine._build_best_candidate(context, traced, datetime.now(timezone.utc))
+    candidate = await engine._build_best_candidate(context, traced, traced.data, datetime.now(timezone.utc))
 
     assert candidate.segments[0].start_latitude == pytest.approx(ORIGIN.latitude)
     assert candidate.segments[0].start_longitude == pytest.approx(ORIGIN.longitude)
@@ -1903,7 +1992,7 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         bearing=None, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
     )
 
-    candidate = await engine._build_best_candidate(context, traced, datetime.now(timezone.utc))
+    candidate = await engine._build_best_candidate(context, traced, traced.data, datetime.now(timezone.utc))
 
     # 逆回り(a→o、追い風)の方がwind difficultyは低いはずだが、bearing=Noneなので
     # 順方向(o→a)のまま維持される。

@@ -35,7 +35,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.domain.routing import LazyRoadGraph, NodeSpatialIndex
+    from app.domain.routing import LazyRoadGraph, NodeSpatialIndex, SearchGraphStatics
 
 # bbox全体ぶんの結合済みグラフ・索引を保持するエントリのため、タイル単位キャッシュより
 # 小さい上限にする（モジュールdocstring参照）。
@@ -45,6 +45,10 @@ TileSet = frozenset[tuple[int, int, int]]
 RoutableIndexKey = tuple[TileSet, "frozenset[str] | None", "float | None"]
 
 _lazy_graph_cache: "OrderedDict[TileSet, LazyRoadGraph]" = OrderedDict()
+# 改善計画T531: 一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
+# SearchGraphStatics`）。LazyRoadGraphと同じくタイル集合だけで決まる派生物のため、
+# 同じキー・同じ寿命で保持する。
+_search_statics_cache: "OrderedDict[TileSet, SearchGraphStatics]" = OrderedDict()
 _routable_index_cache: "OrderedDict[RoutableIndexKey, NodeSpatialIndex]" = OrderedDict()
 _max_entries = DEFAULT_MAX_ENTRIES
 
@@ -61,6 +65,20 @@ def set_lazy_graph(tile_set: TileSet, lazy_graph: "LazyRoadGraph") -> None:
     _lazy_graph_cache.move_to_end(tile_set)
     if len(_lazy_graph_cache) > _max_entries:
         _lazy_graph_cache.popitem(last=False)
+
+
+def get_search_statics(tile_set: TileSet) -> "SearchGraphStatics | None":
+    value = _search_statics_cache.get(tile_set)
+    if value is not None:
+        _search_statics_cache.move_to_end(tile_set)
+    return value
+
+
+def set_search_statics(tile_set: TileSet, statics: "SearchGraphStatics") -> None:
+    _search_statics_cache[tile_set] = statics
+    _search_statics_cache.move_to_end(tile_set)
+    if len(_search_statics_cache) > _max_entries:
+        _search_statics_cache.popitem(last=False)
 
 
 def get_routable_index(key: RoutableIndexKey) -> "NodeSpatialIndex | None":
@@ -80,11 +98,16 @@ def set_routable_index(key: RoutableIndexKey, index: "NodeSpatialIndex") -> None
 def clear() -> None:
     """テスト用。キャッシュを全消去する（本番コードパスからは呼ばない）。"""
     _lazy_graph_cache.clear()
+    _search_statics_cache.clear()
     _routable_index_cache.clear()
 
 
 def lazy_graph_cache_size() -> int:  # テストの検証用
     return len(_lazy_graph_cache)
+
+
+def search_statics_cache_size() -> int:  # テストの検証用
+    return len(_search_statics_cache)
 
 
 def routable_index_cache_size() -> int:  # テストの検証用

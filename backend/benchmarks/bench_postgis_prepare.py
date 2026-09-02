@@ -87,12 +87,12 @@ async def _run_scenario(
     from app.infrastructure.road_graph_repository import RoadGraphRepository
     from app.services.graph_service import GraphService
     from app.services.road_graph_engine import BBOX_MARGIN_MIN_KM, BBOX_MARGIN_RATIO, _bbox_around_point
-    from app.services.route_generator import RADIUS_RATIO
+    from app.services.route_generator import TURNAROUND_RADIUS_RATIO
 
     origin = Coordinates(latitude=ORIGIN_LAT, longitude=ORIGIN_LON)
     # prepare()（road_graph_engine.py）と同じbbox算出式。実際のリクエストと同じ形・
     # 大きさのbboxを再現する（架空の縮尺で計測しても実運用の目安にならないため）。
-    radius_km = distance_km * RADIUS_RATIO
+    radius_km = distance_km * TURNAROUND_RADIUS_RATIO
     margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
     bbox = _bbox_around_point(origin, radius_km + margin_km)
     label = f"distance={distance_km}km"

@@ -17,6 +17,7 @@ from app.main import app
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
+from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.services.weather_service import WeatherService
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
@@ -50,12 +51,17 @@ class FakeRouteGenerator:
         # candidatesが空のときだけ読む）。フェイクも同じ属性を持たせて実インターフェースに揃える。
         self.last_no_candidates_reason = no_candidates_reason
 
-    async def generate_loops(self, origin, distance_km, distance_tolerance_km):
+    async def generate_loops(self, origin, distance_km, distance_tolerance_km, max_routes=None):
+        # 改善計画T531: routes.pyが配線するmax_routesを記録する（既定値・上書き値のエコー検証用）。
+        self.received_max_routes = max_routes
         return self._candidates
 
 
 def fake_open_route_generation_setup(
-    candidates: list[RouteCandidate], captured: dict | None = None, no_candidates_reason: str | None = None
+    candidates: list[RouteCandidate],
+    captured: dict | None = None,
+    no_candidates_reason: str | None = None,
+    generator: FakeRouteGenerator | None = None,
 ):
     """`open_route_generation_setup`（改善計画T265、バックグラウンドジョブが使う
     非同期コンテキストマネージャ）のフェイク版。`captured`を渡すと、ジョブへ渡された
@@ -74,7 +80,7 @@ def fake_open_route_generation_setup(
             captured["max_average_grade_percent"] = max_average_grade_percent
             captured["hard_filters"] = hard_filters_override
         yield RouteGenerationSetup(
-            generator=FakeRouteGenerator(candidates, no_candidates_reason),
+            generator=generator or FakeRouteGenerator(candidates, no_candidates_reason),
             route_preference=preference_override or RoutePreference(),
             penalty_strength=penalty_strength,
             max_average_grade_percent=max_average_grade_percent,
@@ -179,6 +185,8 @@ def test_generate_routes_echoes_applied_conditions(monkeypatch):
     assert conditions["longitude"] == REQUEST_BODY["longitude"]
     assert conditions["distance_km"] == REQUEST_BODY["distance_km"]
     assert conditions["distance_tolerance_km"] == REQUEST_BODY["distance_tolerance_km"]
+    # 改善計画T531: 省略時は既定の候補件数（DEFAULT_MAX_ROUTES）がエコーされる。
+    assert conditions["max_routes"] == DEFAULT_MAX_ROUTES
     # RoutePreferenceWeightsはRootModel(dict)のため、レスポンスではaxis_idキーの
     # プレーンな辞書としてシリアライズされる（改善計画T221 Stage B）。
     assert conditions["route_preference"] == RoutePreference().weights
@@ -371,6 +379,9 @@ def _lightweight_route_generation_setup(preference_override=None):
         {"distance_km": 0},
         {"distance_km": -5},
         {"distance_tolerance_km": 0},
+        # 改善計画T531: 候補件数は1〜MAX_ROUTES（15）の整数のみ。
+        {"max_routes": 0},
+        {"max_routes": MAX_ROUTES + 1},
         {"route_type": "not-a-real-type"},
         # 重み上書きは非負のみ許可。部分指定（フィールド欠け）は「クラス既定値が黙って入る」
         # 事故を避けるため全フィールド必須（routes.py: RoutePreferenceWeights参照）
@@ -397,3 +408,17 @@ def test_generation_setup_uses_overrides_when_provided():
     setup = _lightweight_route_generation_setup(preference)
 
     assert setup.route_preference is preference
+
+
+def test_generate_routes_passes_and_echoes_max_routes_override(monkeypatch):
+    # 改善計画T531: max_routesはgenerate_loopsへ配線され、実際に適用された値がconditionsへ
+    # エコーされる。
+    generator = FakeRouteGenerator([])
+    monkeypatch.setattr(
+        routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], generator=generator)
+    )
+
+    conditions = submit_and_await_done({**REQUEST_BODY, "max_routes": 3})["conditions"]
+
+    assert conditions["max_routes"] == 3
+    assert generator.received_max_routes == 3

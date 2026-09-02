@@ -45,6 +45,7 @@ from app.main import app  # noqa: E402
 from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
+from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
@@ -208,7 +209,15 @@ def main() -> None:
     )
     # ルート生成距離の上限（改善計画T471、api/routers/routes.py: MAX_ROUTE_DISTANCE_KMの
     # コメント参照）。以前はfrontend側の複数ファイルが「100」を独立にハードコードしていた。
-    _write_json(ROUTE_GENERATE_CONFIG_PATH, {"max_distance_km": MAX_ROUTE_DISTANCE_KM})
+    # 改善計画T531: 周回候補の件数（max_routes）の上限・既定値も同じ経路でフロントへ渡す。
+    _write_json(
+        ROUTE_GENERATE_CONFIG_PATH,
+        {
+            "max_distance_km": MAX_ROUTE_DISTANCE_KM,
+            "max_routes": MAX_ROUTES,
+            "default_max_routes": DEFAULT_MAX_ROUTES,
+        },
+    )
 
 
 if __name__ == "__main__":

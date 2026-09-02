@@ -1,27 +1,24 @@
-"""`RoadGraphEngine`の経路探索フェーズ（`prepare`のグラフ構築後〜`trace_loop`）を
-まとめて模擬計測する。
+"""`RoadGraphEngine`の経路探索フェーズ（`prepare`のグラフ構築後〜復路探索）をまとめて
+模擬計測する。
 
-実際のリクエストは8方位（`RouteGenerator`のデフォルト）それぞれについて`trace_loop`を
-呼び、内部で`find_nearest_node_indexed`を2回（経由地点A・Bのスナップ）・
-`shortest_path_node_ids_sparse`（scipy.sparse.csgraph Dijkstra）を3回（起点→A、A→B、
-B→起点）呼ぶ。加えて`prepare`で起点のスナップに1回。合計で最近傍探索は17回
-（1 + 2x8）、Dijkstraは24回（3x8）呼ばれる（`bench_nearest_node.py`の
-`CALLS_PER_ROUTE_GENERATION_REQUEST`と同じ前提）。
-
-合成の格子グラフ上で同じ回数の呼び出しを行い、「Node最近傍探索（グリッドバケット索引）」と
-「Dijkstra探索」のどちらが1リクエストの支配的なコストになっているかを内訳として示す。
+改善計画T531以降の実際のリクエストは、`select_loop_turnarounds`で起点からの一対全最短
+経路木（`build_shortest_path_tree`、scipy）を1回求め、折返し点候補ごとに復路のA*
+（`shortest_path_node_ids_lazy`、rustworkx）を1回呼ぶ。加えて`prepare`で起点のスナップ
+（`find_nearest_node_indexed`）に1回。合成の格子グラフ上で同じ構成の呼び出しを行い、
+「一対全木」「復路A*×候補数」のどちらが1リクエストの支配的なコストになっているかを
+内訳として示す。
 """
 
 from __future__ import annotations
 
 import random
 
+import numpy as np
+
 from benchmarks._harness import BenchmarkResult, measure, print_report
 from benchmarks._synthetic import GRID_SPACING_DEG, TOKYO_LAT, TOKYO_LON, make_grid_graph
 
-BEARING_COUNT = 8  # RouteGenerator.DIRECTIONSと同じ想定
-NEAREST_NODE_CALLS = 1 + 2 * BEARING_COUNT  # prepare 1回 + trace_loop 2回 x 8方位 = 17
-DIJKSTRA_CALLS = 3 * BEARING_COUNT  # trace_loop 3回 x 8方位 = 24
+POOL_SIZE = 24  # RouteGenerator.turnaround_pool_size(8)と同じ想定
 
 
 def _random_grid_point(rows: int, cols: int, rng: random.Random):
@@ -34,95 +31,54 @@ def _random_grid_point(rows: int, cols: int, rng: random.Random):
 
 
 def run() -> list[BenchmarkResult]:
-    from app.domain.evaluation import compute_edge_cost
     from app.domain.routing import (
+        build_lazy_road_graph,
         build_node_spatial_index,
-        build_sparse_graph,
-        concat_node_paths,
+        build_search_graph_statics,
+        build_shortest_path_tree,
         find_nearest_node_indexed,
-        path_to_edge_ids_sparse,
-        shortest_path_node_ids_sparse,
+        shortest_path_node_ids_lazy,
     )
-    from app.services.evaluation_service import load_route_preference
 
-    preference = load_route_preference()
     results: list[BenchmarkResult] = []
 
     for rows, cols in [(23, 23), (45, 45), (90, 90)]:
         graph = make_grid_graph(rows, cols)
         node_count, edge_count = len(graph.nodes), len(graph.edges)
-
-        edge_costs = {
-            edge_id: compute_edge_cost(edge, None, None, preference, weather=None) for edge_id, edge in graph.edges.items()
-        }
-        sparse_graph = build_sparse_graph(graph, edge_costs)
-        spatial_index = build_node_spatial_index(graph)
-
+        lazy_graph = build_lazy_road_graph(graph)
+        statics = build_search_graph_statics(lazy_graph, graph)
         rng = random.Random(42)
+        # コストは距離×(1〜2倍)の乱数（cost >= distanceの不変条件を満たす）。
+        cost_array = statics.edge_length_m * np.array([rng.uniform(1.0, 2.0) for _ in range(edge_count)])
+        cost_list = cost_array.tolist()
+        spatial_index = build_node_spatial_index(graph)
+        zero_estimate = [0.0] * node_count
+
         origin = _random_grid_point(rows, cols, rng)
-        # 8方位 x (経由地A, 経由地B) = 16点。実際のRouteGeneratorの周回経路と同じ構造。
-        bearing_waypoints = [
-            (_random_grid_point(rows, cols, rng), _random_grid_point(rows, cols, rng)) for _ in range(BEARING_COUNT)
-        ]
+        origin_node = find_nearest_node_indexed(spatial_index, origin)
+        origin_index = lazy_graph.node_id_to_index[origin_node]
+        turnaround_nodes = [find_nearest_node_indexed(spatial_index, _random_grid_point(rows, cols, rng)) for _ in range(POOL_SIZE)]
 
-        def trace_all_bearings(
-            spatial_index=spatial_index, sparse_graph=sparse_graph, origin=origin, bearing_waypoints=bearing_waypoints
-        ):
-            origin_node = find_nearest_node_indexed(spatial_index, origin)
-            for point_a, point_b in bearing_waypoints:
-                node_a = find_nearest_node_indexed(spatial_index, point_a)
-                node_b = find_nearest_node_indexed(spatial_index, point_b)
-                path_1 = shortest_path_node_ids_sparse(sparse_graph, origin_node, node_a)
-                path_2 = shortest_path_node_ids_sparse(sparse_graph, node_a, node_b)
-                path_3 = shortest_path_node_ids_sparse(sparse_graph, node_b, origin_node)
-                if path_1 and path_2 and path_3:
-                    full_path = concat_node_paths([path_1, path_2, path_3])
-                    path_to_edge_ids_sparse(sparse_graph, full_path)
+        def tree_only(statics=statics, cost_array=cost_array, origin_index=origin_index):
+            build_shortest_path_tree(statics.csr, cost_array, statics.edge_length_m, origin_index)
+
+        def return_legs_only(lazy_graph=lazy_graph, cost_list=cost_list, origin_node=origin_node, nodes=turnaround_nodes):
+            for node in nodes:
+                shortest_path_node_ids_lazy(lazy_graph, node, origin_node, cost_list.__getitem__, zero_estimate.__getitem__)
 
         results.append(
             measure(
-                f"8-bearing trace_loop simulation (nodes={node_count}, edges={edge_count})",
-                trace_all_bearings,
-                repeat=5,
-                warmup=1,
+                f"one-to-all tree (nodes={node_count}, edges={edge_count})", tree_only, repeat=5, warmup=1,
             )
         )
-
-        # 内訳: 同じ規模のグラフで「Node最近傍探索(グリッドバケット索引)だけ」「Dijkstra探索だけ」を
-        # それぞれ実リクエスト相当の回数(17回/24回)行い、どちらが支配的か切り分ける。
-        all_points = [origin] + [p for pair in bearing_waypoints for p in pair]
-        assert len(all_points) == NEAREST_NODE_CALLS
-
-        def nearest_node_only(spatial_index=spatial_index, points=all_points):
-            for point in points:
-                find_nearest_node_indexed(spatial_index, point)
-
-        node_ids = [find_nearest_node_indexed(spatial_index, p) for p in all_points]
-        origin_node_id = node_ids[0]
-        pairs = []
-        for i in range(BEARING_COUNT):
-            node_a, node_b = node_ids[1 + 2 * i], node_ids[2 + 2 * i]
-            pairs.extend([(origin_node_id, node_a), (node_a, node_b), (node_b, origin_node_id)])
-        assert len(pairs) == DIJKSTRA_CALLS
-
-        def dijkstra_only(sparse_graph=sparse_graph, pairs=pairs):
-            for a, b in pairs:
-                shortest_path_node_ids_sparse(sparse_graph, a, b)
-
         results.append(
             measure(
-                f"  - find_nearest_node_indexed only x{len(all_points)} (nodes={node_count})",
-                nearest_node_only,
-                repeat=5,
-                warmup=1,
+                f"  - return-leg A* x{POOL_SIZE} (nodes={node_count})", return_legs_only, repeat=5, warmup=1,
             )
-        )
-        results.append(
-            measure(f"  - dijkstra_path only x{len(pairs)} (nodes={node_count})", dijkstra_only, repeat=5, warmup=1)
         )
 
     return results
 
 
 if __name__ == "__main__":
-    print_report("RoadGraphEngine trace phase: nearest-node + Dijkstra x 8 bearings", run())
+    print_report("RoadGraphEngine trace phase: one-to-all tree + return-leg A* x pool", run())

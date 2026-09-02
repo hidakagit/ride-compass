@@ -21,7 +21,7 @@ from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.services.route_generator import JST
+from app.services.route_generator import DEFAULT_MAX_ROUTES, JST, MAX_ROUTES
 
 router = APIRouter()
 logger = logging.getLogger("ridecompass.generate")
@@ -145,8 +145,13 @@ class RouteGenerateRequest(BaseModel):
     # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
     # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。
     hard_filters: HardFilterOverride | None = None
+    # 改善計画T531: 返す周回候補の上限件数（フロンティア方式の折返し点候補から距離フィルタ
+    # 合格・overall_difficulty昇順の上位この件数を返す）。経由地・目的地指定ルートでは
+    # 無視される（常に1件）。上限・既定値はOpenAPI生成物（route-generate-config.json）経由で
+    # フロントへ渡す唯一の情報源にする（MAX_ROUTE_DISTANCE_KMと同じ設計原則）。
+    max_routes: int = Field(ge=1, le=MAX_ROUTES, default=DEFAULT_MAX_ROUTES)
     # 改善計画T364: ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で
-    # 通過する単一経路を生成する）。指定時は8方位探索を行わない。bboxが際限なく
+    # 通過する単一経路を生成する）。指定時は周回候補の生成を行わない。bboxが際限なく
     # 広がらないよう、起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性は
     # ルーティング自体の成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
@@ -185,7 +190,9 @@ class GenerationConditions(BaseModel):
     max_average_grade_percent: float | None
     # 改善計画T266: 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
-    # 改善計画T364: 指定された経由地（未指定はNone、従来どおりの8方位探索）。
+    # 改善計画T531: 周回候補の上限件数（実際に適用された値。経由地・目的地指定時は無視される）。
+    max_routes: int
+    # 改善計画T364: 指定された経由地（未指定はNone、周回候補の生成）。
     waypoints: list[Coordinates] | None
     # 改善計画T365: 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
     destination: Coordinates | None
@@ -300,6 +307,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     origin=origin,
                     distance_km=request.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
+                    max_routes=request.max_routes,
                 )
             response = RouteGenerateResponse(
                 routes=candidates,
@@ -314,6 +322,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     penalty_strength=setup.penalty_strength,
                     max_average_grade_percent=setup.max_average_grade_percent,
                     hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
+                    max_routes=request.max_routes,
                     waypoints=request.waypoints,
                     destination=request.destination,
                     generated_at=datetime.now(JST).isoformat(),

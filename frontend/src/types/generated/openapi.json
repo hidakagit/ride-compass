@@ -2687,6 +2687,10 @@
           "hard_filters": {
             "$ref": "#/components/schemas/HardFilterOverride"
           },
+          "max_routes": {
+            "type": "integer",
+            "title": "Max Routes"
+          },
           "waypoints": {
             "anyOf": [
               {
@@ -2726,6 +2730,7 @@
           "penalty_strength",
           "max_average_grade_percent",
           "hard_filters",
+          "max_routes",
           "waypoints",
           "destination",
           "generated_at"
@@ -3144,6 +3149,13 @@
                 "type": "null"
               }
             ]
+          },
+          "max_routes": {
+            "type": "integer",
+            "maximum": 15.0,
+            "minimum": 1.0,
+            "title": "Max Routes",
+            "default": 8
           },
           "waypoints": {
             "anyOf": [
