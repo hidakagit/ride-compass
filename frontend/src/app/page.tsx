@@ -113,7 +113,7 @@ const DISTANCE_TOLERANCE_KM = 5;
 // headerAction）だけに情報アイコンを置く。
 const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。";
 
-// 改善計画T364/T365（旧RouteList.tsxから移設）: 8方位以外の単一経路（経由地ルート・
+// 改善計画T364/T365（旧RouteList.tsxから移設）: 周回候補以外の単一経路（経由地ルート・
 // 目的地ルート）のid集合。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints", "route-destination"]);
 
@@ -351,7 +351,7 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // 改善計画T364: 地図クリックで指定する経由地（起点→経由地1→...→起点の順で通過する
-  // 単一経路を生成する）。指定があれば8方位探索は行わない（handleGenerate参照）。
+  // 単一経路を生成する）。指定があれば周回探索は行わない（handleGenerate参照）。
   const [waypoints, setWaypoints] = useState<Coordinates[]>([]);
   const handleWaypointAdd = useCallback((point: Coordinates) => {
     setWaypoints((prev) => [...prev, point]);
@@ -367,7 +367,7 @@ export default function Home() {
   const [destination, setDestination] = useState<Coordinates | null>(null);
   const [destinationArmed, setDestinationArmed] = useState(false);
 
-  // 改善計画T365-2: 周回（距離指定、従来の8方位探索）/目的地（地図タップで経由地・目的地を
+  // 改善計画T365-2: 周回（距離指定）/目的地（地図タップで経由地・目的地を
   // 指定）モードの切り替え。実機フィードバック「経由地・目的地の操作パネルが地図上で邪魔」を
   // 受け、地図上の浮動パネルを廃止しRouteForm（距離入力・生成ボタンと同じ場所）へ統合した。
   // モード切り替え自体は経由地・目的地の値を消さない（周回モードへ切り替えても地図上のピンは
@@ -403,12 +403,17 @@ export default function Home() {
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
   // 出すため（生成条件系の反映タイミング可視化、T31）。
   const [distanceInput, setDistanceInput] = useState("30");
+  // 改善計画T531: 周回候補の上限件数（backend: RouteGenerateRequest.max_routes、1〜15）。
+  // 距離入力と同じくstring stateのまま保持し、送信時にNumber化する。目的地モードでは
+  // backendが常に1件へ固定するため無視される（handleGenerate参照）。
+  const [maxRoutesInput, setMaxRoutesInput] = useState(String(routeGenerateConfig.default_max_routes));
   // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
   // （フィールド比較の列挙より差分検知の漏れが出にくい）。
   const [generatedConditions, setGeneratedConditions] = useState<{
     latitude: number;
     longitude: number;
     distanceKm: number;
+    maxRoutes: number;
     weightsKey: string;
     // 改善計画T365-2: 目的地モードで生成した場合はdistanceKmが地図上のピンからの
     // 自動算出値になり、distanceInput（RouteFormが表示しない値）とは無関係になるため、
@@ -1344,6 +1349,9 @@ export default function Home() {
       location.longitude !== generatedConditions.longitude ||
       routeMode !== generatedConditions.routeMode ||
       (generatedConditions.routeMode === "loop" && Number(distanceInput) !== generatedConditions.distanceKm) ||
+      // 改善計画T531: 候補件数も距離と同じ理由（loopモードでのみ意味を持つ生成条件）で
+      // dirty判定へ組み込む。目的地モードはbackendが件数を無視するため比較しない。
+      (generatedConditions.routeMode === "loop" && Number(maxRoutesInput) !== generatedConditions.maxRoutes) ||
       (generatedConditions.routeMode === "destination" &&
         JSON.stringify({ waypoints, destination }) !== generatedConditions.waypointsKey) ||
       currentWeightsKey !== generatedConditions.weightsKey);
@@ -1387,6 +1395,11 @@ export default function Home() {
         // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
         // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
+        // 改善計画T531: 周回候補の上限件数。RouteGenerateRequest.max_routesは既定値を
+        // 持つがrequired（distance_tolerance_km/penalty_strengthと同じ扱い）のため、
+        // モードに関わらず常に送る。経由地・目的地指定ルートはbackendが常に1件へ
+        // 固定し無視する。
+        max_routes: Number(maxRoutesInput),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
         // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
         // （backend側の分岐はapi/routers/routes.py参照）。
@@ -1408,6 +1421,9 @@ export default function Home() {
         latitude: location.latitude,
         longitude: location.longitude,
         distanceKm: effectiveDistanceKm,
+        // 改善計画T531: 目的地モードではbackendが無視する値のため意味を持たないが、
+        // conditionsDirtyの比較はroute_mode==="loop"のときだけこの値を見る（上記参照）。
+        maxRoutes: Number(maxRoutesInput),
         weightsKey: currentWeightsKey,
         routeMode,
         waypointsKey: JSON.stringify({ waypoints, destination }),
@@ -1473,6 +1489,8 @@ export default function Home() {
         <RouteForm
           distance={distanceInput}
           onDistanceChange={setDistanceInput}
+          maxRoutes={maxRoutesInput}
+          onMaxRoutesChange={setMaxRoutesInput}
           onGenerate={handleGenerate}
           loading={loading}
           progressLabel={generationProgressLabel}
@@ -1608,16 +1626,23 @@ export default function Home() {
         >
           <div className={styles.outcomeTabBar}>
             <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
-              {routes.map((route) => (
+              {routes.map((route, index) => (
                 <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
                   {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名はもっと簡潔に」）:
                       総合難易度はタブの中身（RouteAxisProfileのスコア行）に既に出ている
-                      ため、タブ自体には候補を見分けるための方向・距離だけを表示する
+                      ため、タブ自体には候補を見分けるための順位・方向・距離だけを表示する
                       （改善計画T548: 候補タブ自体の並び順もこの総合難易度の昇順）。 */}
+                  {/* 改善計画T531: 周回生成が8方位固定から軸重み駆動のフロンティア方式へ
+                      転換したことに伴い、同じ方位ラベルの候補が複数並びうるようになった
+                      （direction_labelは折返し地点の方位から表示専用に導出するだけで、
+                      候補選定の基準ではない）。並び順（overall_difficulty昇順）に沿った
+                      1始まりの順位番号を先頭に付け、方位が同じ候補どうしも見分けられる
+                      ようにする。 */}
                   {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
                       (route-destination)は候補が常に1件で「方位」という概念が無いため、
                       direction_label（固定文言、route_generator.py参照）をそのまま表示し
                       「方向」は付けない。 */}
+                  {index + 1}.{" "}
                   {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${route.direction_label}方向`}{" "}
                   {route.distance_km.toFixed(1)} km
                 </Tabs.Trigger>
@@ -1797,6 +1822,8 @@ export default function Home() {
           <RouteForm
             distance={distanceInput}
             onDistanceChange={setDistanceInput}
+            maxRoutes={maxRoutesInput}
+            onMaxRoutesChange={setMaxRoutesInput}
             onGenerate={handleGenerate}
             loading={loading}
             compact

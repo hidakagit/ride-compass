@@ -33,7 +33,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 |---|---|
 | 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図上アイコン） |
-| ルート設定 | `RouteForm`（モード切替/距離/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
+| ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
 | ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補ごとのタブ自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
 | 研究モード | `ComparisonPanel`（実験スロット比較表） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
@@ -43,7 +43,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | 分類 | state | 永続化 |
 |---|---|---|
 | ルート結果 | `routes`・`selectedRouteId`・`selectedRouteSegment`・`comparisonTabActive`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
-| 目的地モード | `waypoints`・`destination`・`destinationArmed`・`routeMode`・`distanceInput` | なし |
+| 目的地モード | `waypoints`・`destination`・`destinationArmed`・`routeMode`・`distanceInput`・`maxRoutesInput` | なし |
 | 生成条件（研究） | `weightOverrideEnabled`・`scoringWeights`・`routePreference`・`hardFilters` | localStorage（研究モード2件は`/admin`と共有キー） |
 | 実験スロット | `experimentSlots` | なし |
 | 地図ビューポート | `mapViewport` | なし |
@@ -158,14 +158,17 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
 `routes`配列の並び順（backendが`overall_difficulty`昇順で返す、`route_generator.py`
 参照）をそのまま使い、フロント側での並べ替えは行わない。タブは
-**候補ごと**（`routes`の件数ぶん、方向・距離のみを表示。総合難易度の点数はタブの中身
+**候補ごと**（`routes`の件数ぶん、`routes`配列上の順位番号（1始まり）・方向・距離を
+表示。周回候補は軸重み駆動で折返し地点を選ぶため同じ方位ラベルの候補が複数並びうる
+ことがあり、順位番号で区別する。経由地ルート・目的地ルートは方位の概念が無いため
+「方向」を付けずdirection_labelをそのまま表示する。総合難易度の点数はタブの中身
 （`RouteAxisProfile`のスコア行）に既に出ているためタブ内では繰り返さない）＋「比較」
 （`ComparisonPanel`、`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の
 自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
 `forceMount`でマウントし続け、`[data-state="inactive"]`のCSSで非表示にする）で構成
-される（「ルート選択」のような候補一覧をまとめる中間タブは無い。候補一覧タブ・比較タブの
-2段構成を経て現在の1段フラット構成に落ち着いた）。候補数（8方位＋経由地/目的地ルート）が
-画面幅を超える場合はタブ列自身が横スクロールする。`routes`・`selectedRouteId`・
+される（「ルート選択」のような候補一覧をまとめる中間タブは無い）。候補数
+（`RouteForm`で指定する`max_routes`件＋経由地/目的地ルート）が画面幅を超える場合は
+タブ列自身が横スクロールする。`routes`・`selectedRouteId`・
 `comparisonTabActive`・`generatedConditions`・`generatedRoutePreference`に加え
 `experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
 

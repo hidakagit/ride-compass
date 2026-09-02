@@ -14,6 +14,10 @@ interface RouteFormProps {
   /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（page.tsx）に使うため親が持つ */
   distance: string;
   onDistanceChange: (value: string) => void;
+  /** 候補件数入力の現在値（文字列のまま）。距離と同じ理由で親が持つ。周回モードのみ意味を持ち、
+   * backendは経由地・目的地指定ルートでは無視する（常に1件）。 */
+  maxRoutes: string;
+  onMaxRoutesChange: (value: string) => void;
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
   /** 改善計画T265: 生成中(loading)のボタン文言を差し替える（例:「生成中...(12秒経過)」
@@ -38,10 +42,16 @@ interface RouteFormProps {
 // ハードコードしていた（page.tsxにも同じ値の別定義があった）ため、backend側の唯一の
 // 情報源（export_openapi.py: ROUTE_GENERATE_CONFIG_PATH）から導出するよう変更した。
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
+// backend/app/api/routers/routes.py: RouteGenerateRequest.max_routes（Field(ge=1,
+// le=MAX_ROUTES)）と一致させる。距離入力と同じくハードコードせずroute-generate-config.jsonを
+// 唯一の情報源にする。
+const MAX_ROUTES = routeGenerateConfig.max_routes;
 
 export default function RouteForm({
   distance,
   onDistanceChange,
+  maxRoutes,
+  onMaxRoutesChange,
   onGenerate,
   loading,
   progressLabel,
@@ -58,8 +68,9 @@ export default function RouteForm({
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (routeMode === "destination") {
-      // 目的地モードは距離を入力させない（page.tsx側が地図上の指定点から自動算出する、
-      // handleGenerate参照）。代わりに経由地・目的地のいずれも未指定のサイレント失敗を防ぐ。
+      // 目的地モードは距離・候補件数のいずれも入力させない（件数はbackendが常に1件へ
+      // 固定するため無視される。distance同様page.tsx側が自動算出する、handleGenerate参照）。
+      // 経由地・目的地のいずれも未指定のサイレント失敗を防ぐ。
       if (waypointCount === 0 && destinationState !== "set") {
         setError("地図をタップして目的地か経由地を指定してください。");
         return;
@@ -81,6 +92,15 @@ export default function RouteForm({
     }
     if (value > MAX_DISTANCE_KM) {
       setError(`距離は${MAX_DISTANCE_KM}km以下で入力してください。`);
+      return;
+    }
+    const maxRoutesValue = Number(maxRoutes);
+    if (maxRoutes.trim() === "" || Number.isNaN(maxRoutesValue) || !Number.isInteger(maxRoutesValue)) {
+      setError("候補件数は整数で入力してください。");
+      return;
+    }
+    if (maxRoutesValue < 1 || maxRoutesValue > MAX_ROUTES) {
+      setError(`候補件数は1〜${MAX_ROUTES}件で入力してください。`);
       return;
     }
     setError(null);
@@ -125,31 +145,56 @@ export default function RouteForm({
       </div>
 
       {routeMode === "loop" ? (
-        <label className={compact ? styles.labelCompact : undefined}>
-          {!compact && "距離"}
-          {/* 改善計画T547（ユーザー指摘: 生成距離の数値入力がしにくい）: ネイティブの
-              スピンボタン（上下矢印）はタップ領域が数px四方しかなく、代わりに幅を圧迫する
-              だけだったため非表示にする（distanceは直接入力が主な操作手段で、1km刻みの
-              矢印クリックは想定していない）。inputMode="numeric"でモバイルの数値専用
-              キーボードを明示し、onFocusで既存の値を全選択にして毎回消してから
-              打ち直す手間を無くす。 */}
-          <Input
-            type="number"
-            inputMode="numeric"
-            min="1"
-            max={MAX_DISTANCE_KM}
-            step="1"
-            value={distance}
-            onChange={(e) => onDistanceChange(e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
-            className={
-              (compact ? "w-16" : "ml-2 w-24") +
-              " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            }
-            aria-label={compact ? "距離(km)" : undefined}
-          />
-          km
-        </label>
+        <>
+          <label className={compact ? styles.labelCompact : undefined}>
+            {!compact && "距離"}
+            {/* 改善計画T547（ユーザー指摘: 生成距離の数値入力がしにくい）: ネイティブの
+                スピンボタン（上下矢印）はタップ領域が数px四方しかなく、代わりに幅を圧迫する
+                だけだったため非表示にする（distanceは直接入力が主な操作手段で、1km刻みの
+                矢印クリックは想定していない）。inputMode="numeric"でモバイルの数値専用
+                キーボードを明示し、onFocusで既存の値を全選択にして毎回消してから
+                打ち直す手間を無くす。 */}
+            <Input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              max={MAX_DISTANCE_KM}
+              step="1"
+              value={distance}
+              onChange={(e) => onDistanceChange(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              className={
+                (compact ? "w-16" : "ml-2 w-24") +
+                " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              }
+              aria-label={compact ? "距離(km)" : undefined}
+            />
+            km
+          </label>
+          <label className={compact ? styles.labelCompact : undefined}>
+            {!compact && "候補数"}
+            {/* 距離入力（改善計画T547）と同じ流儀: スピンボタン非表示、inputMode="numeric"で
+                数値専用キーボード、onFocusで全選択。改善計画T531で8方位固定から軸重み駆動の
+                フロンティア方式へ転換したことに伴い、周回候補の上限件数（backend:
+                RouteGenerateRequest.max_routes）をユーザーが指定できるようにした。 */}
+            <Input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              max={MAX_ROUTES}
+              step="1"
+              value={maxRoutes}
+              onChange={(e) => onMaxRoutesChange(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              className={
+                (compact ? "w-10" : "ml-2 w-16") +
+                " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              }
+              aria-label={compact ? "候補件数" : undefined}
+            />
+            件
+          </label>
+        </>
       ) : (
         <div className={styles.destinationSummary}>
           {waypointCount > 0 && (
