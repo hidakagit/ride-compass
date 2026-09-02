@@ -44,8 +44,9 @@ RouteGenerator.generate_loops()
   engine.prepare(origin, radius_km, waypoints)
         │  1リクエスト分の共有準備（Road Graph構築等）。失敗時はNone→候補0件
         ▼
-  8方位 × engine.trace_loop(context, waypoints, bearing)   ※asyncio.gather、return_exceptions=True
-        │  RoutingErrorはその方位だけスキップ。それ以外の例外はENGINE不具合とみなしERRORログ
+  8方位 × engine.trace_loop(context, waypoints, bearing, max_distance_km)
+        │  ※asyncio.gather、return_exceptions=True。RoutingErrorはその方位だけ
+        │  スキップ。それ以外の例外はENGINE不具合とみなしERRORログ
         ▼
   距離フィルタ（|distance - target| <= tolerance を通過した候補だけを次段へ）
         ▼
@@ -67,6 +68,13 @@ RouteGenerator.generate_loops()
   「向き」を持たない。road_graph_engine.pyの逆回り候補合成をスキップする判定にも使う）。
 - 候補0件になった理由は`RouteGenerator.last_no_candidates_reason`に人間可読な文字列で
   残り、`RouteGenerateResponse.no_candidates_reason`としてクライアントへ返る。
+- `trace_loop`へは距離許容範囲の上限（`max_distance_km = distance_km +
+  distance_tolerance_km`、8方位探索[bearing指定]のみ）を渡す。エンジンはレグ1＋レグ2の
+  累計距離＋最終レグ（レグ3）の下限（直線距離）を足しても上限を超えると分かった時点で
+  最終レグの探索を省略し、`RouteDistanceExceededError`（`RoutingError`のサブクラス）を
+  raiseしてよい——`generate_loops`はこれを全レグ完了後の距離フィルタ棄却
+  （`filtered_out`）と同じ扱いで集計する（区別した理由文言は増やさない）。経由地指定
+  ルート（`bearing=None`）は距離フィルタ自体を行わないため対象外。
 
 ### `generate_via_waypoints`（経由地・目的地指定）
 
@@ -154,6 +162,16 @@ Pythonコールバックへ戻る構造のためGILを解放できず、複数�
 配列・合成difficulty配列（`_RoadGraphContext.axis_arrays`/`difficulty_array`、改善計画
 T536）からそのまま値を読み、`RouteSegmentDetail`列へ組み立てる（標高・風・路面等の
 表示専用フィールドはEdge単位の軽量な計算のまま）。
+
+8方位探索（`bearing`指定）では`_trace_segments`が各レグ完走後に
+累計距離（`context.graph.edges[edge_id].distance_m`の合計、hydrate前のトポロジで
+足りる）を積算し、最終レグへ入る直前（3レグ構成なら常にレグ1＋レグ2の完了後）に
+`context.graph.nodes`の実座標から最終レグの下限距離（直線距離、
+`domain/geo.py: haversine_distance_km`）を求める。累計＋下限が`max_distance_km`を
+超えると確定した時点（`_distance_limit_certainly_exceeded`）で最終レグのA*探索
+そのものを省略し`RouteDistanceExceededError`をraiseする——全レグ完了後の距離フィルタと
+同じ棄却結果になることは、下限距離が実際の道なり距離を常に下回る（三角不等式）ことで
+保証される。境界（累計＋下限がちょうど上限に一致する場合）は棄却しない側に倒す。
 
 ### `_build_best_candidate`（逆回りループ候補の代数的合成）
 

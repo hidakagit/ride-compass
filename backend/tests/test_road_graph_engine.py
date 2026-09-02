@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
+from app.domain.errors import RouteDistanceExceededError
 from app.domain.evaluation import (
     DynamicAxisRequestContext,
     RoutePreference,
@@ -437,6 +438,127 @@ async def test_generate_loops_filters_candidates_outside_distance_tolerance():
 
     assert "route-000" not in [c.id for c in candidates]
     assert len(candidates) == len(DIRECTIONS_DEG) - 1
+
+
+def _build_detoured_bearing0_graph(*, drop_final_leg: bool = False) -> RoadGraph:
+    """改善計画T540の早期打ち切りテスト用。bearing=0の起点→p-0スポーク
+    （レグ1）だけを大きく迂回するdetourノード経由に置き換え、レグ1＋レグ2の
+    累計だけで距離許容範囲の上限を確実に超えるグラフを作る
+    （test_generate_loops_filters_candidates_outside_distance_toleranceと同じ構成）。
+
+    `drop_final_leg=True`の場合、レグ3（p-0の次のアーク終点→origin、
+    `e-0-spoke2`）自体を削除する——早期打ち切りが機能していなければ、
+    レグ3の探索を実際に試みて「経路が見つからない」RoutingErrorになる
+    はずの状況を作り、早期打ち切り（RouteDistanceExceededError）と
+    区別できるようにする。
+    """
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    detour_point = destination_point(ORIGIN, 0, 50.0)
+    node_a_id = "p-0"
+    origin_node = graph.nodes["origin"]
+    a_node = graph.nodes[node_a_id]
+    origin_coord = Coordinates(latitude=origin_node.latitude, longitude=origin_node.longitude)
+    a_coord = Coordinates(latitude=a_node.latitude, longitude=a_node.longitude)
+
+    new_nodes = dict(graph.nodes)
+    new_nodes["detour"] = Node(node_id="detour", latitude=detour_point.latitude, longitude=detour_point.longitude)
+    new_edges = dict(graph.edges)
+    del new_edges["e-0-spoke1"]
+    new_edges["detour-1"] = _edge("detour-1", "origin", "detour", origin_coord, detour_point)
+    new_edges["detour-2"] = _edge("detour-2", "detour", node_a_id, detour_point, a_coord)
+    if drop_final_leg:
+        del new_edges["e-0-spoke2"]
+    return RoadGraph(graph_version="test", nodes=new_nodes, edges=new_edges)
+
+
+def test_distance_limit_certainly_exceeded_boundary():
+    # 改善計画T540完了条件: 「レグ3の下限を足すとちょうど上限に一致する」境界ケース。
+    # 下限距離が達成可能な最短経路と一致しうるため、等号（ちょうど一致）は打ち切らない
+    # 側（False）に倒す。
+    assert road_graph_engine._distance_limit_certainly_exceeded(20.0, 15.0, 35.0) is False
+    # わずかでも上限を超えれば確実に打ち切ってよい。
+    assert road_graph_engine._distance_limit_certainly_exceeded(20.0, 15.01, 35.0) is True
+    # 完了条件: 「レグ1＋レグ2だけで既に上限超過」（下限がゼロでも成立するケース）。
+    assert road_graph_engine._distance_limit_certainly_exceeded(40.0, 0.0, 35.0) is True
+    assert road_graph_engine._distance_limit_certainly_exceeded(35.0, 0.0, 35.0) is False
+
+
+async def test_early_cutoff_rejects_exactly_what_post_hoc_distance_filter_would():
+    # 改善計画T540の最重要完了条件: 早期打ち切り（max_distance_km指定）と、従来の
+    # 「全レグ完了後に距離フィルタ」（max_distance_km=None、T540以前の挙動）が、
+    # 同じ入力に対し同じ候補を棄却/採用することを確認する回帰テスト。
+    graph = _build_detoured_bearing0_graph()
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+
+    distance_km, tolerance_km = 30.0, 5.0
+    max_distance_km = distance_km + tolerance_km
+    radius_km = distance_km * RADIUS_RATIO
+    context = await engine.prepare(ORIGIN, radius_km)
+
+    # bearing=0（迂回済み、距離超過が確定している方位）: 打ち切り無しでは完走するが
+    # post-hoc距離フィルタで確実に棄却される距離になっている。
+    rejected_waypoints = RouteGenerator._loop_waypoints(ORIGIN, 0, radius_km)
+    baseline_rejected = await engine.trace_loop(context, rejected_waypoints, bearing=0, max_distance_km=None)
+    assert abs(baseline_rejected.distance_km - distance_km) > tolerance_km
+
+    # 同じ入力へ早期打ち切りを有効にすると、レグ3を探索せずRouteDistanceExceededError
+    # で打ち切られる（post-hocフィルタが棄却するのと同じ候補）。
+    with pytest.raises(RouteDistanceExceededError):
+        await engine.trace_loop(context, rejected_waypoints, bearing=0, max_distance_km=max_distance_km)
+
+    # bearing=45（迂回の影響を受けない、許容範囲内の方位）: 早期打ち切りを有効にしても
+    # 打ち切られず、打ち切り無し版とビット単位で同じ距離のTracedLoopを返す
+    # （早期打ち切りが本来採用すべき候補まで誤って棄却しないことの確認）。
+    accepted_waypoints = RouteGenerator._loop_waypoints(ORIGIN, 45, radius_km)
+    traced_without_cutoff = await engine.trace_loop(context, accepted_waypoints, bearing=45, max_distance_km=None)
+    traced_with_cutoff = await engine.trace_loop(
+        context, accepted_waypoints, bearing=45, max_distance_km=max_distance_km
+    )
+    assert traced_with_cutoff.distance_km == traced_without_cutoff.distance_km
+    assert abs(traced_with_cutoff.distance_km - distance_km) <= tolerance_km
+
+
+async def test_early_cutoff_skips_final_leg_search_entirely():
+    # 改善計画T540完了条件: 「レグ1＋レグ2だけで既に上限超過」のとき、レグ3
+    # （B→起点）自体を探索しないことを確認する。レグ3のEdgeを完全に削除した
+    # グラフでも、早期打ち切りが機能していれば距離超過（RouteDistanceExceededError）
+    # を返す——もし早期打ち切りが機能せずレグ3を実際に探索していたら、Edgeが
+    # 存在しないため代わりに汎用のRoutingError（"no path found"）になるはずで、
+    # この2つは区別できる。
+    graph = _build_detoured_bearing0_graph(drop_final_leg=True)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+
+    distance_km, tolerance_km = 30.0, 5.0
+    radius_km = distance_km * RADIUS_RATIO
+    context = await engine.prepare(ORIGIN, radius_km)
+    waypoints = RouteGenerator._loop_waypoints(ORIGIN, 0, radius_km)
+
+    with pytest.raises(RouteDistanceExceededError):
+        await engine.trace_loop(
+            context, waypoints, bearing=0, max_distance_km=distance_km + tolerance_km
+        )
+
+
+async def test_waypoints_routes_are_not_early_cut_off_even_with_max_distance_km():
+    # 改善計画T540: 経由地指定ルート（bearing=None）はmax_distance_kmを渡されても
+    # 早期打ち切りの対象外（generate_via_waypointsは距離フィルタ自体を行わないため）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+
+    radius_km = 30.0 * RADIUS_RATIO
+    context = await engine.prepare(ORIGIN, radius_km, waypoints=[destination_point(ORIGIN, 0, radius_km)])
+    origin_coord = ORIGIN
+    waypoint = destination_point(ORIGIN, 0, radius_km)
+    waypoints = [origin_coord, waypoint, origin_coord]
+
+    # max_distance_kmを極端に小さくしても、bearing=Noneでは早期打ち切りが働かず
+    # 正常にTracedLoopが返る。
+    traced = await engine.trace_loop(context, waypoints, bearing=None, max_distance_km=0.001)
+    assert traced.bearing is None
+    assert traced.distance_km > 0
 
 
 async def test_candidate_aggregates_elevation_from_path_edges():

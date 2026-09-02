@@ -81,7 +81,7 @@ import numpy as np
 
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.difficulty import distance_weighted_difficulty
-from app.domain.errors import RoutingError
+from app.domain.errors import RouteDistanceExceededError, RoutingError
 from app.domain.evaluation import (
     DynamicAxisRequestContext,
     RoutePreference,
@@ -91,7 +91,7 @@ from app.domain.evaluation import (
     compute_wind_penalty,
     evaluate_dynamic_axis_arrays,
 )
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km_array
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km, haversine_distance_km_array
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
@@ -135,6 +135,21 @@ BBOX_MARGIN_MIN_KM = 2.0
 PREVIEW_BBOX_MARGIN_KM = 2.0
 
 logger = logging.getLogger("ridecompass.graph")
+
+
+def _distance_limit_certainly_exceeded(cumulative_km: float, remaining_lower_bound_km: float, max_distance_km: float) -> bool:
+    """改善計画T540: これまでの累計距離＋残りレグの下限（直線距離）を足しても、なお
+    距離許容範囲の上限を超えるかを判定する。
+
+    残りレグの実際の道なり距離は、必ずこの直線距離（下限）以上になる
+    （三角不等式）。そのため`cumulative_km + remaining_lower_bound_km > max_distance_km`
+    が成り立てば、残りレグをどう辿っても最終距離は`max_distance_km`を超えることが
+    確定する——`RouteGenerator.generate_loops`が全レグ完了後に行う距離フィルタ
+    （`abs(distance_km - target) <= tolerance`、`max_distance_km = target + tolerance`）と
+    同じ棄却結果になる。境界（ちょうど一致する場合）は棄却しない側（`>`、`>=`ではない）
+    に倒し、下限距離が達成可能な最短経路と一致するケースを誤って早期棄却しない。
+    """
+    return cumulative_km + remaining_lower_bound_km > max_distance_km
 
 
 @dataclass
@@ -555,8 +570,21 @@ class RoadGraphEngine:
         return RouteSegment(distance_km=distance_km, duration_minutes=duration_minutes, geometry=geometry)
 
     async def trace_loop(
-        self, context: _RoadGraphContext, waypoints: list[Coordinates], bearing: int | None
+        self,
+        context: _RoadGraphContext,
+        waypoints: list[Coordinates],
+        bearing: int | None,
+        max_distance_km: float | None = None,
     ) -> TracedLoop:
+        # 改善計画T540: max_distance_km（RouteGenerator.generate_loopsが渡す
+        # distance_km + distance_tolerance_km、8方位探索のみ・経由地指定ルート
+        # [bearing=None]では常にNone）が指定されている場合、最終レグ（8方位探索なら
+        # 常にレグ3=B→起点）を探索する前に、それまでの累計距離＋最終レグの下限
+        # （直線距離）が上限を超えないか確認する。超えていれば、全レグ完了後に
+        # RouteGenerator側で行われる距離フィルタで確実に棄却されると分かるため、
+        # 最終レグのA*探索そのものを省略しRouteDistanceExceededErrorを送出する
+        # （generate_loops側はfiltered_outと同じ扱いで集計する、docs/tasks/T540.md参照）。
+        #
         # waypoints = [起点, 中間経由地..., 終点]（8方位探索ではRouteGenerator._loop_waypoints
         # が経由地2点の固定三角形＋終点=起点を、改善計画T364の経由地指定ルートでは
         # ユーザー指定の中間経由地1〜N点＋終点=起点を、改善計画T365の目的地指定ルートでは
@@ -595,10 +623,33 @@ class RoadGraphEngine:
         # segments`を直接（awaitを挟まず）呼ぶ同期関数として実行するため、8方位分の
         # gatherは実質的に順番に完了する。
         cost_fn = context.cost_list.__getitem__
+        total_legs = len(node_sequence) - 1
 
         def _trace_segments() -> list[list[str]] | None:
-            segment_paths = []
-            for from_node, to_node in zip(node_sequence, node_sequence[1:]):
+            segment_paths: list[list[str]] = []
+            cumulative_km = 0.0
+            for leg_index, (from_node, to_node) in enumerate(zip(node_sequence, node_sequence[1:])):
+                # 改善計画T540: 最終レグへ入る直前（8方位探索なら常にレグ3の直前、
+                # つまりレグ1＋レグ2の完了後）にだけ早期打ち切りを判定する。それより前の
+                # レグでは「残り2レグ分の下限」を足しても十分に緩く、無駄な計算をする
+                # だけで打ち切れる見込みが薄いため、最終レグ直前の1回に限定する。
+                if (
+                    bearing is not None
+                    and max_distance_km is not None
+                    and total_legs > 1
+                    and leg_index == total_legs - 1
+                ):
+                    remaining_lower_bound_km = haversine_distance_km(
+                        context.graph.nodes[from_node], context.graph.nodes[node_sequence[-1]]
+                    )
+                    if _distance_limit_certainly_exceeded(cumulative_km, remaining_lower_bound_km, max_distance_km):
+                        raise RouteDistanceExceededError(
+                            f"direction {bearing}: distance exceeds tolerance "
+                            f"(cumulative={cumulative_km:.2f}km + remaining_lower_bound="
+                            f"{remaining_lower_bound_km:.2f}km > max={max_distance_km:.2f}km), "
+                            "skipping final leg"
+                        )
+
                 estimate_fn = _build_estimate_cost_fn(context.graph, context.node_lat, context.node_lon, to_node)
                 segment_path = shortest_path_node_ids_lazy(
                     context.lazy_graph, from_node, to_node, cost_fn, estimate_fn
@@ -606,10 +657,19 @@ class RoadGraphEngine:
                 if segment_path is None:
                     return None
                 segment_paths.append(segment_path)
+                leg_edge_ids = path_to_edge_ids_lazy(context.lazy_graph, segment_path)
+                cumulative_km += sum(context.graph.edges[edge_id].distance_m for edge_id in leg_edge_ids) / 1000
             return segment_paths
 
         trace_started = time.monotonic()
-        segment_paths = _trace_segments()
+        try:
+            segment_paths = _trace_segments()
+        except RouteDistanceExceededError:
+            trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
+            logger.info(
+                "trace_loop direction=%s wall_ms=%d early_cutoff=distance_exceeded", bearing, trace_wall_ms
+            )
+            raise
         trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
         logger.info("trace_loop direction=%s wall_ms=%d", bearing, trace_wall_ms)
         if segment_paths is None:

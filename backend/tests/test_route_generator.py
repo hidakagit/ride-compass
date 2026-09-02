@@ -5,7 +5,7 @@
 行われること・total_scoreソート）をFakeエンジンで検証する。
 """
 
-from app.domain.errors import RoutingError
+from app.domain.errors import RouteDistanceExceededError, RoutingError
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator, TracedLoop, candidate_identity
 from app.services.route_scorer import RouteScorer
@@ -35,6 +35,9 @@ class FakeEngine:
         self.prepare_calls: list[tuple[Coordinates, float]] = []
         self.prepare_waypoints: list[Coordinates] | None = None
         self.traced_waypoints: dict[int | None, list[Coordinates]] = {}
+        # 改善計画T540: generate_loopsがtrace_loopへ渡すmax_distance_kmを方位ごとに
+        # 記録する（配線の検証用）。
+        self.traced_max_distance_km: dict[int | None, float | None] = {}
         self.evaluated_traced: list[TracedLoop] | None = None
 
     async def prepare(self, origin, radius_km, waypoints=None):
@@ -42,8 +45,9 @@ class FakeEngine:
         self.prepare_waypoints = waypoints
         return self._prepare_result
 
-    async def trace_loop(self, context, waypoints, bearing):
+    async def trace_loop(self, context, waypoints, bearing, max_distance_km=None):
         self.traced_waypoints[bearing] = waypoints
+        self.traced_max_distance_km[bearing] = max_distance_km
         outcome = self._distances[bearing]
         if isinstance(outcome, Exception):
             raise outcome
@@ -89,6 +93,59 @@ async def test_filters_out_candidates_outside_tolerance():
     assert "route-000" not in ids
     assert "route-090" not in ids
     assert len(candidates) == len(DIRECTIONS_DEG) - 2
+
+
+async def test_generate_loops_passes_distance_upper_bound_to_trace_loop():
+    # 改善計画T540: trace_loopへ渡すmax_distance_kmはdistance_km + distance_tolerance_km
+    # （距離フィルタの上限と同じ値）であること。8方位すべてに同じ値が渡る。
+    generator, engine = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+
+    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert engine.traced_max_distance_km == {b: 35.0 for b in DIRECTIONS_DEG}
+
+
+async def test_generate_via_waypoints_does_not_pass_distance_upper_bound():
+    # 改善計画T540: 経由地指定ルート（bearing=None）は距離フィルタ自体を行わないため、
+    # max_distance_kmはNoneのまま渡る（早期打ち切りの対象外）。
+    generator, engine = make_generator({None: 12.0})
+
+    await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
+
+    assert engine.traced_max_distance_km[None] is None
+
+
+async def test_early_distance_cutoff_is_treated_same_as_post_hoc_distance_filter():
+    # 改善計画T540: engine.trace_loopがRouteDistanceExceededError（早期打ち切り）を
+    # raiseした方位は、全レグ完了後の距離フィルタで棄却された場合（RoutingErrorではなく
+    # 単純に距離が範囲外のTracedLoopを返すケース）と同じ扱い（filtered_out集計・
+    # no_candidates_reasonの文言）になることを確認する。
+    distances = {b: 30.0 for b in DIRECTIONS_DEG}
+    distances[0] = RouteDistanceExceededError("direction 0: distance exceeds tolerance")
+    generator, _ = make_generator(distances)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    ids = [c.id for c in candidates]
+    assert "route-000" not in ids
+    assert len(candidates) == len(DIRECTIONS_DEG) - 1
+
+
+async def test_early_distance_cutoff_reason_mentions_distance_not_trace_failure():
+    # 改善計画T540: 全方位が早期打ち切りされた場合のno_candidates_reasonは、従来の
+    # 距離フィルタ全滅時と同じ「距離」を含む文言になり、「経路探索に失敗」（RoutingErrorの
+    # 文言）にはならない。
+    distances = {
+        b: RouteDistanceExceededError(f"direction {b}: distance exceeds tolerance") for b in DIRECTIONS_DEG
+    }
+    generator, _ = make_generator(distances)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert candidates == []
+    assert generator.last_no_candidates_reason is not None
+    assert "距離" in generator.last_no_candidates_reason
+    assert "経路探索に失敗" not in generator.last_no_candidates_reason
 
 
 async def test_skips_directions_that_fail_without_raising():

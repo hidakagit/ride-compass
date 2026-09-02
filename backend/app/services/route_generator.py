@@ -14,9 +14,13 @@ RouteScorerで総合スコアを付けて並べ替える」という周回生成
 - `engine_name`: レスポンスの`engine`フィールドに入る識別子
 - `prepare(origin, radius_km)`: 1リクエスト分の共有準備（Road Graph構築等）。
   候補生成が不可能な場合はNoneを返す（→ 空の候補リスト）
-- `trace_loop(context, waypoints, bearing)`: 1方位分の周回経路を引き、距離と
-  エンジン固有の中間データを`TracedLoop`で返す。失敗はRoutingErrorをraiseする
-  （その方位はスキップされる）
+- `trace_loop(context, waypoints, bearing, max_distance_km=None)`: 1方位分の周回経路を
+  引き、距離とエンジン固有の中間データを`TracedLoop`で返す。失敗はRoutingErrorを
+  raiseする（その方位はスキップされる）。改善計画T540: `max_distance_km`
+  （`distance_km + distance_tolerance_km`、8方位探索[bearing指定]のみ渡す）を
+  超えることが残りレグの下限距離から確定した時点で、エンジンは残りレグの探索を
+  省略し`RouteDistanceExceededError`をraiseしてよい（`generate_loops`側は従来の
+  距離フィルタ棄却と同じ`filtered_out`集計に含める）
 - `evaluate_loops(context, traced, start_time)`: 距離フィルタを通過した候補
   **だけ**に標高・風・路面の評価を行い、完全な`RouteCandidate`群を返す。
   棄却済み候補に外部API問い合わせを浪費しないための2段階分割
@@ -30,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from app.domain.difficulty import distance_weighted_difficulty
-from app.domain.errors import RoutingError
+from app.domain.errors import RouteDistanceExceededError, RoutingError
 from app.domain.geo import compass_label, destination_point
 from app.domain.route import Coordinates, RouteCandidate, merge_axis_difficulties
 from app.services.route_scorer import RouteScorer
@@ -86,7 +90,11 @@ class LoopRoutingEngine(Protocol):
     ) -> Any | None: ...
 
     async def trace_loop(
-        self, context: Any, waypoints: list[Coordinates], bearing: int | None
+        self,
+        context: Any,
+        waypoints: list[Coordinates],
+        bearing: int | None,
+        max_distance_km: float | None = None,
     ) -> TracedLoop: ...
 
     async def evaluate_loops(
@@ -139,10 +147,19 @@ class RouteGenerator:
             )
             return []
 
+        # 改善計画T540: 距離許容範囲の上限（distance_km + distance_tolerance_km）を
+        # engine.trace_loopへ渡す。エンジンは残りレグの下限距離からこの上限を確実に
+        # 超えると分かった時点でRouteDistanceExceededErrorをraiseし、無駄な残りレグの
+        # 探索を省略できる（8方位探索[bearing指定]のみ。経由地指定ルートは
+        # generate_via_waypoints側の別経路で距離フィルタ自体を行わないため対象外）。
+        max_distance_km = distance_km + distance_tolerance_km
         trace_started = time.monotonic()
         results = await asyncio.gather(
             *(
-                self._engine.trace_loop(context, self._loop_waypoints(origin, bearing, radius_km), bearing)
+                self._engine.trace_loop(
+                    context, self._loop_waypoints(origin, bearing, radius_km), bearing,
+                    max_distance_km=max_distance_km,
+                )
                 for bearing in DIRECTIONS_DEG
             ),
             return_exceptions=True,
@@ -151,9 +168,17 @@ class RouteGenerator:
 
         traced_all: list[TracedLoop] = []
         failed_bearings: list[int] = []
+        # 改善計画T540: エンジンが早期打ち切りした方位の件数。全レグ完了後の距離フィルタ
+        # （下のfiltered_out算出）で棄却されていたはずの候補と同じ集合のため、
+        # 従来のfiltered_outへ合算し、no_candidates_reasonの文言も従来どおり
+        # 「指定距離から外れました」に寄せる（区別して新しい文言を増やさない）。
+        early_filtered_out = 0
         for bearing, result in zip(DIRECTIONS_DEG, results):
             if isinstance(result, TracedLoop):
                 traced_all.append(result)
+            elif isinstance(result, RouteDistanceExceededError):
+                early_filtered_out += 1
+                logger.debug("distance filter rejected bearing=%d (early cutoff): %s", bearing, result)
             elif isinstance(result, RoutingError):
                 # 個々の方位の失敗は準正常(道路網次第で起きる)。件数はINFOサマリに含め、
                 # 理由はDEBUGで補足する。全滅した場合のみ後段でWARNINGになる。
@@ -165,7 +190,12 @@ class RouteGenerator:
                 logger.error("trace bearing=%d unexpected error", bearing, exc_info=result)
 
         traced = [t for t in traced_all if abs(t.distance_km - distance_km) <= distance_tolerance_km]
-        filtered_out = len(traced_all) - len(traced)
+        # 改善計画T540: 全レグ完了後の距離フィルタ棄却（post_hoc）＋早期打ち切り
+        # （early_filtered_out）を合算した値を、以降のログ・no_candidates_reasonへ渡す
+        # filtered_outとして扱う（打ち切りが距離フィルタと同じ集合を棄却するという
+        # 前提のもと、呼び出し元からは区別しない）。
+        post_hoc_filtered_out = len(traced_all) - len(traced)
+        filtered_out = post_hoc_filtered_out + early_filtered_out
         for t in traced_all:
             if abs(t.distance_km - distance_km) > distance_tolerance_km:
                 logger.debug(
