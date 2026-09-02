@@ -62,6 +62,11 @@ jobs:
               sudo sed -i "s#^CORS_ALLOWED_ORIGINS=.*#&,$REQUIRED_ORIGIN#" "$ENV_FILE"
             fi
             sudo docker build -t ridecompass-backend:latest .
+            # 改善計画T538: backend/data配下（DEMタイルキャッシュ・タイル材料/スコア行列の
+            # ディスク永続化キャッシュ）はコンテナの書き込み可能レイヤーに置かれており、
+            # ボリュームマウントが無いとdocker rm時に消えてしまう（デプロイのたびに
+            # T538の永続化が無意味化する）。ホスト側ディレクトリへマウントして永続化する。
+            sudo mkdir -p /home/ubuntu/ridecompass-cache-data
             # migration適用（改善計画T349）: axis_definitionsのDB読み込みがfail-fast化された
             # ため（services/axis_registry_service.py参照）、migration未適用のまま新コンテナを
             # 起動すると即座に起動失敗してサービス全体が止まる。旧コンテナをstopする前
@@ -103,6 +108,7 @@ jobs:
               --memory=6g --memory-swap=6g \
               --network=host \
               --log-opt max-size=10m --log-opt max-file=5 \
+              -v /home/ubuntu/ridecompass-cache-data:/app/data \
               --env-file /home/ubuntu/ridecompass-backend.env \
               -e GIT_COMMIT="$GIT_COMMIT" \
               ridecompass-backend:latest
