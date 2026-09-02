@@ -15,8 +15,8 @@ import type {
   Coordinates,
   LocationSource,
   RouteCandidate,
-  RoutePreferenceWeights,
   RouteSegmentDetail,
+  SelectedRouteSegment,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import {
@@ -31,10 +31,6 @@ import {
   buildAxisInspectorAffordanceHtml,
   attachAxisInspectorHandler,
 } from "@/components/Map/axisInspectorPopup";
-// ルート線専用のクリック内訳ポップアップ（改善計画T403）。axisInspectorPopup.ts
-// （一般道路網向け、サーバーへのfetchあり）とは別経路の独立モジュール
-// （routeSegmentChartPopup.ts側の冒頭コメント参照）。
-import { buildRouteSegmentChartPopupHtml } from "@/components/Map/routeSegmentChartPopup";
 import {
   KNOWN_LINE_OPACITY,
   ROAD_FILTER_AXES,
@@ -167,6 +163,11 @@ export const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
 export const ROUTE_ARROW_LAYER_ID = "route-arrow";
 const DETAIL_SOURCE_ID = "route-detail-segments";
 const DETAIL_LAYER_ID = "route-detail-segments-line";
+// 改善計画T550: DETAIL_LAYER_ID（見た目の線、幅6px）そのものはモバイルでタップしづらいため、
+// 同じDETAIL_SOURCE_IDを参照する当たり判定専用の太い（幅24px）・見えない（line-opacity:0）
+// レイヤー。クリックイベント・カーソル変更（interactiveLayerIds）はこちらへ登録し、見た目の
+// 線幅・色は変えない（drawDetailSegments・buildInteractiveLayerIds参照）。
+const DETAIL_HIT_LAYER_ID = "route-detail-segments-hit";
 const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
@@ -606,19 +607,36 @@ function drawDetailSegments(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         paint: { "line-color": mode.colorExpression as any, "line-width": 6, "line-opacity": 1 },
       });
+      // 改善計画T550: 当たり判定専用の見えない太い線（DETAIL_HIT_LAYER_IDのdocstring
+      // 参照）。同じソース・同じfilterを共有し、見た目の線（DETAIL_LAYER_ID）の上に重ねる
+      // （line-opacity:0のため描画順自体は見た目に影響しない）。
+      map.addLayer({
+        id: DETAIL_HIT_LAYER_ID,
+        type: "line",
+        source: DETAIL_SOURCE_ID,
+        paint: { "line-width": 24, "line-opacity": 0 },
+      });
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     map.setPaintProperty(DETAIL_LAYER_ID, "line-color", mode.colorExpression as any);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setFilter(DETAIL_LAYER_ID, buildLegendFilterExpression(mode.legend, hiddenLegendKeys) as any);
+    const filterExpression = buildLegendFilterExpression(mode.legend, hiddenLegendKeys) as any;
+    map.setFilter(DETAIL_LAYER_ID, filterExpression);
+    // 当たり判定レイヤーも同じfilterを適用する（非表示カテゴリの区間は見た目どおり
+    // クリックもできないようにする）。
+    map.setFilter(DETAIL_HIT_LAYER_ID, filterExpression);
     setLayerVisibility(map, DETAIL_LAYER_ID, true);
+    setLayerVisibility(map, DETAIL_HIT_LAYER_ID, true);
   };
 
   runWhenStyleReady(map, applyData);
 }
 
 function hideDetailSegments(map: MapLibreMap) {
-  runWhenStyleReady(map, () => setLayerVisibility(map, DETAIL_LAYER_ID, false));
+  runWhenStyleReady(map, () => {
+    setLayerVisibility(map, DETAIL_LAYER_ID, false);
+    setLayerVisibility(map, DETAIL_HIT_LAYER_ID, false);
+  });
 }
 
 // 標高（国土地理院 色別標高図）・路面はどちらも「変わらないデータ」として、選択候補に
@@ -1855,18 +1873,20 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
 
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を
-// 除いたものに、STATIC_OVERLAY_LAYERSの対象外であるDETAIL_LAYER_ID（ルート詳細区間）・
-// ROAD_TILE_LAYER_ID（路面）を加える（改善計画T83）。以前はhandleClick/handleMouseMoveの
-// 2箇所に同一の8要素配列を手書きしており、STATIC_OVERLAY_LAYERSと合わせて三重管理
-// だった。レイヤー追加時に片方だけ追記漏れすると「ポップアップは出るがカーソルが
-// 変わらない」等の非対称な劣化が検知されず残る。
+// 除いたものに、STATIC_OVERLAY_LAYERSの対象外であるDETAIL_HIT_LAYER_ID（ルート詳細区間の
+// 当たり判定専用レイヤー、改善計画T550。以前は見た目の線DETAIL_LAYER_ID自体を対象に
+// していたが、幅6pxの線そのものはモバイルでタップしづらいため幅24pxの当たり判定レイヤーへ
+// 差し替えた）・ROAD_TILE_LAYER_ID（路面）を加える（改善計画T83）。以前はhandleClick/
+// handleMouseMoveの2箇所に同一の8要素配列を手書きしており、STATIC_OVERLAY_LAYERSと
+// 合わせて三重管理だった。レイヤー追加時に片方だけ追記漏れすると「ポップアップは出るが
+// カーソルが変わらない」等の非対称な劣化が検知されず残る。
 // 二次軸rampレイヤー（T145b）はクリック時の内訳ポップアップ（recipeBreakdownPopup等）に
 // 対応する専用表示を持たないため、elevationと同様にクリック判定から除外する
 // （一次属性→軸スコアを遡る汎用インスペクタは改善計画T146のスコープ）。
 // exportはテスト専用（MapView.overlayFilters.test.ts、改善計画T478の回帰テスト）。
 export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
   return [
-    DETAIL_LAYER_ID,
+    DETAIL_HIT_LAYER_ID,
     ROAD_TILE_LAYER_ID,
     ...staticOverlayLayers.filter(
       // 改善計画T478（統合レビュー第3回§9指摘の再確認）: "gradientFill"（環境グループの
@@ -2000,10 +2020,13 @@ function formatRoad(good: boolean | null): string {
 // 密度の1.4へ詰めた。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 
-// ルート線（DETAIL_LAYER_ID）クリック時のポップアップ本体は改善計画T403で
-// routeSegmentChartPopup.ts（buildRouteSegmentChartPopupHtml）へ分離した。
-// 旧buildSegmentPopupHtml（勾配/風/路面のみのテキスト箇条書き）は、既にフェッチ済みの
-// axis_difficulties（軸スタジオの全軸内訳、勾配・風も含む）を活かせていなかったため撤去。
+// ルート線クリック時の表示は改善計画T550でボトムシート統合へ変更した。以前は
+// routeSegmentChartPopup.ts（buildRouteSegmentChartPopupHtml、レーダーチャート）が
+// 地図上にフローティングポップアップを出していたが、モバイルで「ルート結果」ボトム
+// シートに隠れる・軸数が少ないとレーダーが機能しない問題があり撤去した。区間クリックは
+// 軽量なマーカーのみを地図上に立て、地点・到達予想時刻・軸別の内訳（積み上げバー、
+// AxisContributionBar）はすべてボトムシート側（page.tsx: selectedRouteSegment state、
+// RouteAxisProfile）が表示する（handleRouteSegmentClick参照）。
 
 // 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
@@ -2204,13 +2227,16 @@ interface MapViewProps {
    * 表示されず生のaxis_idがそのまま出ていた（動的なaxisLabelsが用意済みなのに
    * 消費者が無かった配線漏れ）。 */
   axisLabels: Record<string, string>;
-  /** ルート結果の内訳（RouteAxisProfile）・地図の色分けチップと同じ「重み>0の軸のみ」
-   * 基準（ユーザー指摘2026-09-03）を、選択中候補の区間クリックポップアップ
-   * （routeSegmentChartPopup.ts）でも揃えるための重み辞書。page.tsx側の
-   * `generatedRoutePreference ?? routePreference`と同じ値を渡す。axisLabels自体は
-   * axisInspectorPopup.ts（ルート文脈の無い一般道路網クリック）とも共有しているため、
-   * axisLabelsそのものを重みで絞り込まず、ポップアップ組み立て側でこの重みと掛け合わせる。 */
-  routePreferenceWeights: RoutePreferenceWeights;
+  /** 改善計画T550: 区間クリックで選択中の区間（controlled、page.tsx側のstate）。
+   * nullの間はクリック地点マーカーを表示しない。地点・到達予想時刻・軸別内訳の表示は
+   * すべてボトムシート側（RouteAxisProfile）が担う——このコンポーネントはクリック地点へ
+   * マーカーを立てる・onRouteSegmentSelectで選択を通知するだけで、テキストポップアップは
+   * 一切出さない（旧routeSegmentChartPopup.tsのレーダーチャートポップアップは撤去済み）。 */
+  selectedRouteSegment: SelectedRouteSegment | null;
+  /** ルート線クリック（handleRouteSegmentClick）で呼ばれる。呼び出し元（page.tsx）が
+   * selectedRouteSegment stateへ格納し、上記propとして折り返される
+   * （destination/waypointsと同じcontrolled propパターン）。 */
+  onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
   /** 改善計画T364: ユーザーが地図クリックで指定した経由地（起点→経由地1→...→起点の順で
    * 通過する単一経路の生成に使う、page.tsx側のstate）。 */
   waypoints: Coordinates[];
@@ -2274,7 +2300,8 @@ export default function MapView({
   experimentSlots,
   rampAxes,
   axisLabels,
-  routePreferenceWeights,
+  selectedRouteSegment,
+  onRouteSegmentSelect,
   waypoints,
   onWaypointAdd,
   onWaypointRemove,
@@ -2294,6 +2321,9 @@ export default function MapView({
   const appliedMarkerSourceRef = useRef<LocationSource | null>(null);
   const waypointMarkersRef = useRef<Marker[]>([]);
   const destinationMarkerRef = useRef<Marker | null>(null);
+  // 改善計画T550: 区間クリックのマーカー（destinationMarkerRefと同じcontrolled prop駆動
+  // パターン、下部のuseEffect参照）。
+  const selectedSegmentMarkerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   // 改善計画T308: 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
@@ -2382,6 +2412,9 @@ export default function MapView({
   const pinPlacementEnabledRef = useRef(pinPlacementEnabled);
   // 改善計画T372: 出発地点マーカーのdragendコールバックもrefで最新値を読む。
   const onOriginSetRef = useRef(onOriginSet);
+  // 改善計画T550: handleRouteSegmentClick（地図初期化effect内で一度だけ登録）が最新の
+  // onRouteSegmentSelectを読めるようにするref（onWaypointAddRefと同じパターン）。
+  const onRouteSegmentSelectRef = useRef(onRouteSegmentSelect);
   // trueの間、位置更新effect（下部）がmap.flyTo（カメラ移動）をスキップする。
   // ドラッグ操作自体で既にその地点が画面内に見えているため、setManualLocation経由で
   // location/locationSourceが更新された直後に不要なカメラ移動（ズームリセットを含む）を
@@ -2418,7 +2451,6 @@ export default function MapView({
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     axisLabels,
-    routePreferenceWeights,
     dedicatedWayValues,
     gradientFillGeojson,
   });
@@ -2466,6 +2498,10 @@ export default function MapView({
   }, [onOriginSet]);
 
   useEffect(() => {
+    onRouteSegmentSelectRef.current = onRouteSegmentSelect;
+  }, [onRouteSegmentSelect]);
+
+  useEffect(() => {
     redrawPropsRef.current = {
       routes,
       selectedRouteId,
@@ -2497,7 +2533,6 @@ export default function MapView({
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
       axisLabels,
-      routePreferenceWeights,
       dedicatedWayValues,
       gradientFillGeojson,
     };
@@ -2532,7 +2567,6 @@ export default function MapView({
     roadSurfaceSharedLayerIds,
     experimentSlots,
     axisLabels,
-    routePreferenceWeights,
     dedicatedWayValues,
     gradientFillGeojson,
   ]);
@@ -2786,24 +2820,25 @@ export default function MapView({
         onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
         return;
       }
-      // 改善計画T403: ルート線（DETAIL_LAYER_ID）は下のhandleRouteSegmentClickという
-      // 専用ハンドラを別途map.on("click", DETAIL_LAYER_ID, ...)で登録している。MapLibreは
-      // map全体のgenericな"click"（このhandleClick）とlayer-scopedな"click"を互いに独立して
+      // 改善計画T403: ルート線（当たり判定はDETAIL_HIT_LAYER_ID、改善計画T550）は下の
+      // handleRouteSegmentClickという専用ハンドラを別途
+      // map.on("click", DETAIL_HIT_LAYER_ID, ...)で登録している。MapLibreはmap全体の
+      // genericな"click"（このhandleClick）とlayer-scopedな"click"を互いに独立して
       // 両方発火するため、ここで何もガードしないとルート線をクリックしたときに専用ハンドラの
-      // レーダーチャートポップアップと、この下の一般道路網向けポップアップが同時に開いてしまう
+      // マーカー表示・区間選択と、この下の一般道路網向けポップアップが同時に開いてしまう
       // （ルート線は常にroad_surfaceタイルより上に重ねて描画される、drawDetailSegments参照）。
       // ルート線がヒットした場合はここで即座に抜け、一般道路網側の判定・ポップアップ表示を
       // 一切行わない。
       if (
-        map.getLayer(DETAIL_LAYER_ID) &&
-        map.queryRenderedFeatures(e.point, { layers: [DETAIL_LAYER_ID] }).length > 0
+        map.getLayer(DETAIL_HIT_LAYER_ID) &&
+        map.queryRenderedFeatures(e.point, { layers: [DETAIL_HIT_LAYER_ID] }).length > 0
       ) {
         return;
       }
       // 改善計画T425（ゼロベース網羅レビュー指摘）: 風penalty gridFill
       // （WIND_PENALTY_FILL_LAYER_ID）はinteractiveLayerIdsに含まれず専用ポップアップも
       // 持たないため、以前はここでガードせず下に重なるroad_surfaceタイルへそのまま
-      // クリック判定が抜け、誤った路面ポップアップが出ていた。DETAIL_LAYER_IDと同じ
+      // クリック判定が抜け、誤った路面ポップアップが出ていた。DETAIL_HIT_LAYER_IDと同じ
       // 「ヒットしたら何もしない」早期returnで防ぐ。
       if (
         map.getLayer(WIND_PENALTY_FILL_LAYER_ID) &&
@@ -2876,10 +2911,11 @@ export default function MapView({
       }
     }
 
-    // ルート線専用のクリックハンドラ（改善計画T403）。MapLibreのlayer-scoped listener
+    // ルート線専用のクリックハンドラ（改善計画T403、改善計画T550で当たり判定レイヤーへ
+    // 差し替え・ボトムシート統合）。MapLibreのlayer-scoped listener
     // （map.on(type, layerId, listener)）を使い、上のhandleClick（一般道路網向け、複数レイヤーを
     // queryRenderedFeaturesで横断判定する汎用ディスパッチャ）とは別経路として独立させている。
-    // DETAIL_LAYER_IDがまだstyleに追加されていない（ルート未生成）間はMapLibre側が内部で
+    // DETAIL_HIT_LAYER_IDがまだstyleに追加されていない（ルート未生成）間はMapLibre側が内部で
     // existingLayersを毎回フィルタしており、レイヤー不在でも例外を投げず単に発火しない
     // （maplibre-gl-dev.js: Map.prototype._createDelegatedListener参照）ため、地図初期化時に
     // 先読み登録しても安全。feature.properties（RouteSegmentDetailのgeometry除いた形、
@@ -2888,34 +2924,39 @@ export default function MapView({
     function handleRouteSegmentClick(e: MapLayerMouseEvent) {
       const feature = e.features?.[0];
       if (!feature) return;
+      // 改善計画T550: 一般道路網向けの詳細ポップアップ（popupRef、handleClick側）と
+      // 同時に開いた状態が残らないよう、こちらも既存のポップアップを閉じる
+      // （このハンドラ自体はもうポップアップを開かないが、以前のクリックで開いたままの
+      // ポップアップが残っていれば片付ける）。
       popupRef.current?.remove();
       const rawProperties = feature.properties as unknown as RouteSegmentProperties;
       // MapLibreはGeoJSONソースのfeature.propertiesをvector tile相当の内部表現へ変換する際、
-      // オブジェクト値（axis_difficulties、唯一のオブジェクト型フィールド）をJSON文字列へ
-      // 自動的にシリアライズする（プリミティブ型[string/number/boolean]しか保持できない
-      // vector tile仕様の制約）。segmentsToFeatureCollectionが渡す時点では素のオブジェクト
-      // だが、クリック時にqueryRenderedFeatures経由で読み戻すと文字列化されているため、
-      // ここでパースし直す必要がある（さもないとbuildRouteSegmentChartPopupHtml内の
-      // Object.entries(axis_difficulties)が文字列を文字単位でイテレートしてしまい、
-      // 各文字を数値として扱おうとして例外になる）。
+      // オブジェクト値（axis_difficulties・axis_contributions、唯一のオブジェクト型
+      // フィールド）をJSON文字列へ自動的にシリアライズする（プリミティブ型
+      // [string/number/boolean]しか保持できないvector tile仕様の制約）。
+      // segmentsToFeatureCollectionが渡す時点では素のオブジェクトだが、クリック時に
+      // queryRenderedFeatures経由で読み戻すと文字列化されているため、ここでパースし
+      // 直す必要がある。
       const axisDifficulties =
         typeof rawProperties.axis_difficulties === "string"
           ? (JSON.parse(rawProperties.axis_difficulties) as Record<string, number>)
           : rawProperties.axis_difficulties;
-      // ユーザー指摘（2026-09-03）: 「地図の色分け」チップ・内訳（RouteAxisProfile）と同じ
-      // 「ルート設定でONにした（重み>0の）軸のみ」基準へ揃える。axisLabels自体は
-      // axisInspectorPopup.ts（ルート文脈の無い一般道路網クリック）とも共有しているため、
-      // ここで重み>0の軸だけへ絞り込んだコピーを都度組み立てて渡す（axisLabels自体は
-      // 変更しない）。
-      const weights = redrawPropsRef.current.routePreferenceWeights;
-      const weightedAxisLabels = Object.fromEntries(
-        Object.entries(redrawPropsRef.current.axisLabels).filter(([axisId]) => (weights[axisId] ?? 0) > 0)
-      );
-      const html = buildRouteSegmentChartPopupHtml(
-        { ...rawProperties, axis_difficulties: axisDifficulties },
-        weightedAxisLabels
-      );
-      popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+      const axisContributions =
+        typeof rawProperties.axis_contributions === "string"
+          ? (JSON.parse(rawProperties.axis_contributions) as Record<string, number>)
+          : rawProperties.axis_contributions;
+      const segment: RouteSegmentDetail = {
+        ...rawProperties,
+        axis_difficulties: axisDifficulties,
+        axis_contributions: axisContributions,
+        geometry: null,
+      };
+      // 改善計画T550: 地図上はテキストポップアップを出さず、クリック地点へ軽量な
+      // マーカーのみ立てる（下部の`selectedRouteSegment`監視useEffectが実際のマーカー
+      // 表示を担う、destinationMarkerと同じcontrolled propパターン）。区間の地点・
+      // 到達予想時刻・軸別内訳（積み上げバー）はすべてボトムシート側
+      // （page.tsx: selectedRouteSegment state、RouteAxisProfile）が表示する。
+      onRouteSegmentSelectRef.current({ segment, latitude: e.lngLat.lat, longitude: e.lngLat.lng });
     }
 
     function handleMouseMove(e: MapMouseEvent) {
@@ -3061,9 +3102,10 @@ export default function MapView({
     }
 
     map.on("click", handleClick);
-    // 改善計画T403: ルート線専用（layer-scoped）。上のhandleClick（generic）とは独立して
-    // 両方このイベントで発火するため、handleClick冒頭のガードと対で機能する。
-    map.on("click", DETAIL_LAYER_ID, handleRouteSegmentClick);
+    // 改善計画T403（改善計画T550で対象レイヤーをDETAIL_HIT_LAYER_IDへ変更）: ルート線専用
+    // （layer-scoped）。上のhandleClick（generic）とは独立して両方このイベントで発火する
+    // ため、handleClick冒頭のガードと対で機能する。
+    map.on("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
     map.on("mousemove", handleMouseMove);
     map.on("zoom", handleZoom);
     map.on("load", handleLoad);
@@ -3081,7 +3123,7 @@ export default function MapView({
       map.off("styledata", collapseAttribution);
       map.off("sourcedata", collapseAttribution);
       map.off("click", handleClick);
-      map.off("click", DETAIL_LAYER_ID, handleRouteSegmentClick);
+      map.off("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
       map.off("load", handleLoad);
@@ -3102,6 +3144,7 @@ export default function MapView({
       popupRef.current = null;
       waypointMarkersRef.current = [];
       destinationMarkerRef.current = null;
+      selectedSegmentMarkerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -3210,6 +3253,38 @@ export default function MapView({
 
     runWhenStyleReady(map, applyDestinationMarker);
   }, [destination]);
+
+  // 改善計画T550: 区間クリックで選択中の区間があれば、クリック地点へ軽量なマーカーのみを
+  // 立てる（テキストポップアップは出さない——地点・到達予想時刻・軸別内訳はボトムシート側
+  // [RouteAxisProfile]が表示する）。destinationMarkerと同じcontrolled propパターン
+  // （selectedRouteSegmentがnullになれば、page.tsx側の×ボタン操作・別候補への切り替え等
+  // どの経路でクリアされてもここでマーカーが消える）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const applySelectedSegmentMarker = () => {
+      selectedSegmentMarkerRef.current?.remove();
+      selectedSegmentMarkerRef.current = null;
+      if (!selectedRouteSegment) return;
+
+      const el = document.createElement("div");
+      el.textContent = "📍";
+      // 改善計画T372: touch-action:noneの理由は経由地マーカーと同じ。
+      el.style.cssText =
+        "font-size:26px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;";
+      el.setAttribute("aria-label", "選択中の区間");
+      el.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onRouteSegmentSelectRef.current(null);
+      });
+      selectedSegmentMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom" })
+        .setLngLat([selectedRouteSegment.longitude, selectedRouteSegment.latitude])
+        .addTo(map);
+    };
+
+    runWhenStyleReady(map, applySelectedSegmentMarker);
+  }, [selectedRouteSegment]);
 
   // ルート候補のベース表示・選択中候補のハロー表示をまとめて更新する。改善計画T518:
   // 以前はrouteLayerOn（地図上「ルート」チップ）を見ておらず、OFFにしても候補線・ハロー・

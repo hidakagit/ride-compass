@@ -16,7 +16,7 @@
 | `Map/primaryAttributes.ts` | 一次属性⇄二次軸の双方向導出（軸増減時の観測データ連動表示に使用） |
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位3グループ（道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定 |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
-| `Map/routeArrowIcon.ts`・`routeSegmentChartPopup.ts`・`icons.tsx` | ルート矢印・区間クリックポップアップ・アイコン集（下記「本モジュールとの関係」参照） |
+| `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `Map/axisInspectorPopup.ts` | 区間インスペクタ（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）のポップアップHTML組み立て |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI） |
@@ -132,10 +132,13 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 
 ## 本モジュールとの関係が薄いファイル
 
-- `routeArrowIcon.ts`（周回ルートの順回り/逆回り矢印、選択中ルートにのみ描画）・
-  `routeSegmentChartPopup.ts`（ルート線クリック時のレーダーチャートポップアップ）は
+- `routeArrowIcon.ts`（周回ルートの順回り/逆回り矢印、選択中ルートにのみ描画）は
   「選択中ルート」に紐づく動的データを扱う。対象ファイル表に含まれているが、責務としては
   [ページ構成](page-composition.md)・[地図: 軸・ルート色分け](map-axis-coloring.md)に近い。
+  区間クリック時の詳細表示（地点・到達予想時刻・軸別内訳）はボトムシート側
+  （[ルート設定・結果パネル](route-settings-and-results.md)のRouteAxisProfile）が持ち、
+  地図上（`MapView.tsx: handleRouteSegmentClick`）は軽量なマーカーを立てるのみで
+  テキストポップアップを持たない。
 - `icons.tsx`はこのモジュール（`MapOverlayControls`のアイコン辞書）専用ではなく、
   [動的気象レイヤー](dynamic-weather-layers.md)の`WeatherPanel`/`TodayOutlook`からも
   使われる、地図関連UI全体で共有するアイコン集である。

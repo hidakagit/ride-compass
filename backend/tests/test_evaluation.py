@@ -16,6 +16,7 @@ from app.domain.evaluation import (
     axis_inspector_breakdown,
     build_static_edge_score_matrix,
     combine_static_edge_score_matrices,
+    compose_costs_from_axis_matrix,
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_edge_cost,
@@ -883,3 +884,47 @@ def test_compute_routable_node_ids_empty_inputs_return_empty_set():
     routable = compute_routable_node_ids(graph, [], np.array([]))
 
     assert routable == set()
+
+
+def test_compose_costs_from_axis_matrix_returns_axis_contributions():
+    """改善計画T550: compose_costs_from_axis_matrixが返す3個目の値
+    （axis_id→区間ごとの寄与度配列）は、`arr*weight/weighted_weight_sums`（validな軸の
+    みで再正規化した重み配分、区間ごとに欠損軸を除いて残りの重みで再正規化する
+    compositeの合成式と同じ重み配分）。有効な寄与度の合計は丸め前のcompositeと一致し、
+    validでない軸・weighted_weight_sums==0の区間ではNaNになる。"""
+    distance_m = np.array([100.0, 200.0, 300.0, 400.0])
+    axis_arrays = {
+        "wind": np.array([80.0, 20.0, np.nan, np.nan]),
+        "car_stress": np.array([10.0, 40.0, 60.0, np.nan]),
+    }
+    weights = {"wind": 0.6, "car_stress": 0.4}
+
+    cost, composite, contributions = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
+
+    assert set(contributions.keys()) == {"wind", "car_stress"}
+
+    # edge0: 両軸ともvalid。wind=80*0.6/1.0=48、car_stress=10*0.4/1.0=4、合計52=composite。
+    assert contributions["wind"][0] == pytest.approx(48.0)
+    assert contributions["car_stress"][0] == pytest.approx(4.0)
+    assert composite[0] == pytest.approx(52.0)
+
+    # edge2: windがNaN（欠損）のため、car_stressの重みだけで再正規化される
+    # （欠損軸を除いて残りの重みで再正規化、というcompositeと同じ規約）。
+    assert np.isnan(contributions["wind"][2])
+    assert contributions["car_stress"][2] == pytest.approx(60.0)
+    assert composite[2] == pytest.approx(60.0)
+
+    # edge3: 両軸ともNaN→weighted_weight_sums=0→composite・寄与度ともNaN。
+    assert np.isnan(composite[3])
+    assert np.isnan(contributions["wind"][3])
+    assert np.isnan(contributions["car_stress"][3])
+
+    # 不変条件: 有効な寄与度の合計（丸め前）は、その区間のcomposite（丸め後）と一致する
+    # （RouteCandidate.axis_contributionsの合計をoverall_difficultyと一致させる根拠）。
+    for i in range(len(distance_m)):
+        if np.isnan(composite[i]):
+            continue
+        valid_total = sum(
+            contributions[axis_id][i] for axis_id in contributions if not np.isnan(contributions[axis_id][i])
+        )
+        assert valid_total == pytest.approx(composite[i], abs=1e-6)

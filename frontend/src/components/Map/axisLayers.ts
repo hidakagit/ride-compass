@@ -298,15 +298,6 @@ export function rampColorForBand(index: number, bandCount: number): string {
   return rampColorForRatio(t);
 }
 
-/** difficulty値（0=易しい〜100=大変、RouteSegmentDetail.axis_difficultiesと同じ基準）を
- * 統一パレット（RAMP_COLOR_ANCHORS）で連続的に着色する。ramp軸の地図色分け
- * （rampColorForBand、thresholdsによる段階色）とは異なり、区間内訳チャート
- * （routeSegmentChartPopup.ts、改善計画T403）はしきい値を持たない軸横断の値そのものを
- * 見せたいため、bandへ量子化せず値/maxの比率をそのまま連続スケールへ渡す。 */
-export function rampColorForValue(value: number, max = 100): string {
-  return rampColorForRatio(max <= 0 ? 0 : value / max);
-}
-
 // 既存4段階軸（gradient/surface_q/stop_density/night/accident等）・staticAttributeLayers.ts
 // の非ramp用途（DESIGNATION/TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
 // rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。

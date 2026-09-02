@@ -55,6 +55,15 @@ function makeSegments(count: number): RouteSegmentDetail[] {
         accident: (i * 37) % 100,
         night: (i * 41) % 100,
       },
+      axis_contributions: {
+        gradient: (i * 7) % 100,
+        wind: (i * 13) % 100,
+        surface_q: (i * 17) % 100,
+        stop_density: (i * 19) % 100,
+        car_stress: (i * 23) % 100,
+        accident: (i * 37) % 100,
+        night: (i * 41) % 100,
+      },
       difficulty: (i * 11) % 100,
     });
   }
@@ -78,6 +87,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),
       overall_difficulty: 45.6,
       axis_difficulties: {},
+      axis_contributions: {},
     });
   }
   return candidates;

@@ -3001,6 +3001,13 @@
             },
             "type": "object",
             "title": "Axis Difficulties"
+          },
+          "axis_contributions": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Axis Contributions"
           }
         },
         "type": "object",
@@ -3344,6 +3351,13 @@
             },
             "type": "object",
             "title": "Axis Difficulties"
+          },
+          "axis_contributions": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Axis Contributions"
           },
           "difficulty": {
             "anyOf": [

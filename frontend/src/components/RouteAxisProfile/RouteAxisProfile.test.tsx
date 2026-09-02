@@ -2,7 +2,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import type { RoutePreferenceWeights } from "@/types/route";
 import type { RouteStyleMode, RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import RouteAxisProfile from "./RouteAxisProfile";
 
@@ -12,7 +11,6 @@ const AXES: PreferenceAxisDef[] = [
   { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
 ];
 
-const WEIGHTS: RoutePreferenceWeights = { car_stress: 0.5, wind: 0.3, night: 0.2 };
 const AXIS_COLORS: Record<string, string> = { car_stress: "#111111", wind: "#222222", night: "#333333" };
 
 const ROUTE_STYLE_MODES: RouteStyleMode[] = [
@@ -36,9 +34,10 @@ const ROUTE_STYLE_MODES: RouteStyleMode[] = [
 function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = {}) {
   return {
     axes: AXES,
-    axisDifficulties: { car_stress: 72.4, night: 10 },
+    // 改善計画T550: axisDifficulties+weightsからのfrontend独自再計算を撤去し、
+    // backendが算出したaxis_contributionsをそのまま表示するようになった。
+    axisContributions: { car_stress: 36.2, night: 2.9 },
     overallDifficulty: 46,
-    weights: WEIGHTS,
     axisColors: AXIS_COLORS,
     routeStyleModes: ROUTE_STYLE_MODES,
     routeStyleModeId: "difficulty" as RouteStyleModeId,
@@ -50,7 +49,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
 }
 
 describe("RouteAxisProfile", () => {
-  it("axisDifficultiesに値を持つ軸だけを、軸カタログの並び順で内訳表示する", () => {
+  it("axisContributionsに値を持つ軸だけを、軸カタログの並び順で内訳表示する", () => {
     render(<RouteAxisProfile {...baseProps()} />);
 
     // 軸カタログの並び順（car_stress→wind→night）のうち、値を持つ2軸だけが表示される
@@ -61,31 +60,31 @@ describe("RouteAxisProfile", () => {
     expect(screen.queryByText("風")).not.toBeInTheDocument();
   });
 
-  it("axisDifficultiesが空のときは内訳セクションだけ案内文を表示する", () => {
-    render(<RouteAxisProfile {...baseProps({ axisDifficulties: {} })} />);
+  it("axisContributionsが空のときは内訳セクションだけ案内文を表示する", () => {
+    render(<RouteAxisProfile {...baseProps({ axisContributions: {} })} />);
 
     expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
   });
 
-  it("axisDifficultiesが空でも「地図の色分け」チップ列・凡例の表示設定は引き続き操作できる" +
+  it("axisContributionsが空でも「地図の色分け」チップ列・凡例の表示設定は引き続き操作できる" +
     "（改善計画T524・T518コードレビューP1指摘: 以前は内訳データが無いとコンポーネント全体が" +
     "空状態文言だけになり、総合難易度モードへ戻す唯一のUI導線[総合難易度チップ]・凡例の" +
     "表示設定ポップオーバーごと道連れで消えていた）", () => {
-    render(<RouteAxisProfile {...baseProps({ axisDifficulties: {} })} />);
+    render(<RouteAxisProfile {...baseProps({ axisContributions: {} })} />);
 
     expect(screen.getByRole("button", { name: "総合難易度で地図を色分け" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "凡例の表示設定" })).toBeInTheDocument();
   });
 
-  it("難易度バーがdisplay:blockで描画される（review:ui F-2の再発防止。trackもbarも<span>のため、" +
-    "displayを明示しない既定のinlineのままだとwidthスタイルがCSS仕様上無視され、バーが幅0で" +
-    "描画されなくなる）", () => {
+  it("内訳バーは積み上げ1本バー（RouteSettingsPanel.module.cssのstackBar/stackSegmentを流用）" +
+    "として描画される（改善計画T550: 軸ごとの個別横棒グラフのリストから積み上げバーへ統一）", () => {
     const { container } = render(<RouteAxisProfile {...baseProps()} />);
 
-    const bar = container.querySelector('[class*="bar"]');
+    const bar = container.querySelector('[class*="stackBar"]');
     expect(bar).not.toBeNull();
-    expect(getComputedStyle(bar as Element).display).toBe("block");
+    const segments = container.querySelectorAll('[class*="stackSegment"]');
+    expect(segments).toHaveLength(2);
   });
 
   it("一般ユーザー向け画面のため、Basic認証必須の管理画面限定機能名「軸スタジオ」を含まない" +
@@ -95,25 +94,14 @@ describe("RouteAxisProfile", () => {
     expect(container.textContent).not.toContain("軸スタジオ");
   });
 
-  it("内訳の値は距離加重平均の生値ではなく、軸の重みで正規化した寄与度になる（改善計画T518）", () => {
-    // rows = car_stress(raw72.4,weight0.5) + night(raw10,weight0.2)。windはaxisDifficulties
-    // に値が無いため対象外（weightSumにも含まれない）。weightSum=0.7。
-    // car_stress寄与度 = 72.4*0.5/0.7 ≈ 51.7 → 52、night寄与度 = 10*0.2/0.7 ≈ 2.9 → 3。
-    const { container } = render(<RouteAxisProfile {...baseProps({ overallDifficulty: null })} />);
-
-    const values = Array.from(container.querySelectorAll('[class*="value"]')).map((el) => el.textContent);
-    expect(values).toEqual(["52", "3"]);
-    // 生の距離加重平均（72.4→72、10→10）が寄与度に置き換わっている（重みで薄められている）ため出ない
-    expect(screen.queryByText("72")).not.toBeInTheDocument();
-  });
-
-  it("重み情報が全く無い（weightSum=0）場合は素の距離加重平均へフォールバックする", () => {
+  it("内訳の値はbackendが算出したaxis_contributionsをそのまま表示する（frontend側で" +
+    "独自の重み計算を行わない、改善計画T550）", () => {
     const { container } = render(
-      <RouteAxisProfile {...baseProps({ weights: {}, overallDifficulty: null })} />
+      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 52.1, night: 2.9 } })} />
     );
 
-    const values = Array.from(container.querySelectorAll('[class*="value"]')).map((el) => el.textContent);
-    expect(values).toEqual(["72", "10"]);
+    const values = Array.from(container.querySelectorAll('[class*="legendValue"]')).map((el) => el.textContent);
+    expect(values).toEqual(["52.1", "2.9"]);
   });
 
   it("総合難易度（絶対基準0-100）を表示する（改善計画T548でおすすめ度表示は撤去済み）", () => {
@@ -156,7 +144,7 @@ describe("RouteAxisProfile", () => {
     "反応しない壊れたボタン」に見えていた。改善計画T545フォローアップでチップ列自体から" +
     "除外し、内訳一覧のみに残す）", () => {
     // ROUTE_STYLE_MODESにはcar_stressの色分けモードはあるが、nightのモードは無い
-    // （AXES/axisDifficultiesの両方にnightは含まれる想定のfixture。実運用では改善計画
+    // （AXES/axisContributionsの両方にnightは含まれる想定のfixture。実運用では改善計画
     // T549により公開軸は無条件で色分けモードを持つが、rowsとrouteStyleModesの
     // axis_id集合が完全一致しない場合[重み0で除外された軸等]への安全策として
     // このフィルタ自体は残っている、RouteAxisProfile.tsx参照）。

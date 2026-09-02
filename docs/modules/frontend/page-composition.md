@@ -42,7 +42,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 
 | 分類 | state | 永続化 |
 |---|---|---|
-| ルート結果 | `routes`・`selectedRouteId`・`comparisonTabActive`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
+| ルート結果 | `routes`・`selectedRouteId`・`selectedRouteSegment`・`comparisonTabActive`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
 | 目的地モード | `waypoints`・`destination`・`destinationArmed`・`routeMode`・`distanceInput` | なし |
 | 生成条件（研究） | `weightOverrideEnabled`・`scoringWeights`・`routePreference`・`hardFilters` | localStorage（研究モード2件は`/admin`と共有キー） |
 | 実験スロット | `experimentSlots` | なし |

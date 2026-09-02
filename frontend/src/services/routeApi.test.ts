@@ -167,6 +167,7 @@ describe("routeApi", () => {
         segments: null,
         overall_difficulty: null,
         axis_difficulties: {},
+        axis_contributions: {},
       },
     ];
     const conditions: GenerationConditions = {

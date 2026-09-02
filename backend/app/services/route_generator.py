@@ -37,7 +37,12 @@ from typing import Any, Protocol
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RouteDistanceExceededError, RoutingError
 from app.domain.geo import compass_label, destination_point
-from app.domain.route import Coordinates, RouteCandidate, merge_axis_difficulties
+from app.domain.route import (
+    Coordinates,
+    RouteCandidate,
+    merge_axis_contributions,
+    merge_axis_difficulties,
+)
 
 # ルート生成のステージ別サマリログ(方針は docs/logging.md)。1リクエスト=1行のINFOで
 # prepare/trace/evaluateの所要時間と候補の減り方(8方位→trace成功→距離フィルタ通過)を残し、
@@ -223,6 +228,7 @@ class RouteGenerator:
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
+        candidates = [self._with_axis_contributions(c) for c in candidates]
 
         # 改善計画T548: 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）
         # 昇順（易しい候補が先頭）。算出不能（None）の候補は末尾へ回す。
@@ -301,6 +307,7 @@ class RouteGenerator:
         candidates = await self._engine.evaluate_loops(context, [traced], start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
+        candidates = [self._with_axis_contributions(c) for c in candidates]
         if destination is not None:
             candidates = [
                 c.model_copy(update={"id": "route-destination", "direction_label": "目的地ルート"})
@@ -360,6 +367,18 @@ class RouteGenerator:
             return candidate
         axis_difficulties = merge_axis_difficulties(candidate.segments)
         return candidate.model_copy(update={"axis_difficulties": axis_difficulties})
+
+    @staticmethod
+    def _with_axis_contributions(candidate: RouteCandidate) -> RouteCandidate:
+        """segmentsのaxis_contributions（区間ごとのaxis_id→重み付き寄与度）をルート
+        全区間へ集約し、overall_difficultyの内訳として付与する（改善計画T550）。
+        `_with_axis_difficulties`と同じ構造（`merge_axis_contributions`を候補全区間に
+        1回適用するだけ）。合計は丸め誤差を除いてoverall_difficultyと一致する
+        （domain/evaluation.py: compose_costs_from_axis_matrixのdocstring参照）。"""
+        if not candidate.segments:
+            return candidate
+        axis_contributions = merge_axis_contributions(candidate.segments)
+        return candidate.model_copy(update={"axis_contributions": axis_contributions})
 
     @staticmethod
     def _loop_waypoints(origin: Coordinates, bearing: int, radius_km: float) -> list[Coordinates]:

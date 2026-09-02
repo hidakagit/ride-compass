@@ -5,6 +5,8 @@
 行われること・overall_difficulty昇順ソート）をFakeエンジンで検証する。
 """
 
+import pytest
+
 from app.domain.errors import RouteDistanceExceededError, RoutingError
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.services.route_generator import DIRECTIONS_DEG, RouteGenerator, TracedLoop, candidate_identity
@@ -264,6 +266,7 @@ def make_segment(
     distance_km: float,
     difficulty: float | None,
     axis_difficulties: dict[str, float] | None = None,
+    axis_contributions: dict[str, float] | None = None,
 ) -> RouteSegmentDetail:
     return RouteSegmentDetail(
         start_latitude=35.0,
@@ -274,6 +277,7 @@ def make_segment(
         distance_km=distance_km,
         difficulty=difficulty,
         axis_difficulties=axis_difficulties or {},
+        axis_contributions=axis_contributions or {},
     )
 
 
@@ -347,6 +351,68 @@ async def test_axis_difficulties_is_empty_dict_when_segments_missing():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.axis_difficulties == {} for c in candidates)
+
+
+async def test_axis_contributions_is_distance_weighted_average_of_segments():
+    # 改善計画T550: RouteCandidate.axis_contributionsはaxis_difficultiesと同じ集約方法
+    # （merge_axis_contributions、distance_weighted_difficulty）で候補全区間へ集約される。
+    engine = SegmentedFakeEngine(
+        {0: 30.0},
+        {
+            0: [
+                make_segment(1.0, 0.0, axis_contributions={"wind": 80.0, "car_stress": 10.0}),
+                make_segment(3.0, 100.0, axis_contributions={"wind": 20.0}),
+            ]
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    # wind: (80*1.0 + 20*3.0) / 4.0 = 35.0
+    assert candidates[0].axis_contributions["wind"] == 35.0
+    # car_stressは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
+    assert candidates[0].axis_contributions["car_stress"] == 10.0
+
+
+async def test_axis_contributions_is_empty_dict_when_segments_missing():
+    generator, _ = make_generator({b: 30.0 for b in DIRECTIONS_DEG})
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.axis_contributions == {} for c in candidates)
+
+
+async def test_axis_contributions_sum_matches_overall_difficulty():
+    # 改善計画T550の不変条件: sum(axis_contributions.values())は丸め誤差を除いて
+    # overall_difficultyと一致する（domain/evaluation.py:
+    # compose_costs_from_axis_matrixのdocstring参照）。各区間のaxis_contributionsの
+    # 合計をその区間のdifficultyと一致させて用意し（compose_costs_from_axis_matrixが
+    # 満たす関係と同じ）、ルート単位に集約した後もこの関係が保たれることを確認する。
+    engine = SegmentedFakeEngine(
+        {0: 30.0},
+        {
+            0: [
+                make_segment(
+                    1.0, 60.0,
+                    axis_contributions={"wind": 40.0, "car_stress": 20.0},
+                ),
+                make_segment(
+                    3.0, 30.0,
+                    axis_contributions={"wind": 10.0, "car_stress": 20.0},
+                ),
+            ]
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    candidate = candidates[0]
+    assert candidate.overall_difficulty == pytest.approx(37.5)
+    assert sum(candidate.axis_contributions.values()) == pytest.approx(
+        candidate.overall_difficulty, abs=0.1
+    )
 
 
 WAYPOINT_A = Coordinates(latitude=35.80, longitude=139.75)
@@ -442,3 +508,18 @@ async def test_generate_via_waypoints_also_aggregates_axis_difficulties():
     candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
 
     assert candidates[0].axis_difficulties == {"wind": 40.0}
+
+
+async def test_generate_via_waypoints_also_aggregates_axis_contributions():
+    # 改善計画T550: axis_contributionsの集約もaxis_difficultiesと同じく
+    # generate_via_waypoints側で行われる（両呼び出し元で_with_axis_contributionsを
+    # 呼ぶ配線の検証）。
+    engine = SegmentedFakeEngine(
+        {None: 12.0},
+        {None: [make_segment(2.0, 0.0, axis_contributions={"wind": 40.0})]},
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
+
+    assert candidates[0].axis_contributions == {"wind": 40.0}
