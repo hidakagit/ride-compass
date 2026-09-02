@@ -39,6 +39,7 @@ import {
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
+  filterRouteStyleModesByPreference,
   getRouteStyleMode,
   isRouteStyleModeId,
   type RouteStyleModeId,
@@ -582,14 +583,18 @@ export default function Home() {
     DEFAULT_ROUTE_STYLE_MODE_ID,
     { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null) },
   );
-  // 改善計画T434/T440当初は「評価で有効にした軸」（route_preferenceの重み>0）だけを
-  // 選択肢として動的に見せていたが、ユーザー指摘（2026-09-03、「ルート結果のところ、
-  // 公開軸がすべて表示されない」）を受けて重みによる絞り込みは廃止した。axis_difficulties
-  // 自体は重み0の軸も評価済みで持っており、地図の色分け対象は「現在の公開軸カタログ
-  // （supports_route_coloring）」だけで決まるべきという判断（visibleAxes、renderRoute
-  // OutcomeSectionBody側と同じ基準）。variable名はfilteredのままだが、以後の「filter」は
-  // routeStyleModesFromCatalogAxes側のsupports_route_coloring絞り込みのみを指す。
-  const filteredRouteStyleModes = axisCatalog.routeStyleModes;
+  // 改善計画T434/T440: 「評価で有効にした軸」（route_preferenceの重み>0）だけを選択肢として
+  // 動的に見せる。判定には生成済みルートを実際に評価した瞬間の重み
+  // （generatedRoutePreference、上記）を使う——ライブなroutePreferenceをそのまま使うと、
+  // 生成後に重みだけ変更（再生成せず）した場合に表示中のルートの実際の評価内容と
+  // メニューがズレる（T440、ユーザー指摘）。ルート未生成（null）の間はライブな
+  // routePreferenceをプレビュー用フォールバックとして使う。ユーザー指摘（2026-09-03）:
+  // 一度この重みフィルタを撤去したが、意図は逆（重み0の軸は選択肢からも消してほしい）と
+  // 確認できたため復元した。
+  const filteredRouteStyleModes = useMemo(
+    () => filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, generatedRoutePreference ?? routePreference),
+    [axisCatalog.routeStyleModes, generatedRoutePreference, routePreference],
+  );
   useEffect(() => {
     if (filteredRouteStyleModes.some((mode) => mode.id === routeStyleModeId)) return;
     // 改善計画T524（T518コードレビューP3指摘）: RouteStyleModeIdは事実上string
@@ -604,7 +609,7 @@ export default function Home() {
       "map:route-style-mode",
       matchesKnownAxis
         ? `route style mode "${routeStyleModeId}" is a known axis but has no map-coloring mode ` +
-          `(supports_route_coloring=false), falling back to "${filteredRouteStyleModes[0].id}"`
+          `(supports_route_coloring=false or weight=0), falling back to "${filteredRouteStyleModes[0].id}"`
         : `route style mode "${routeStyleModeId}" is not a known axis id, falling back to ` +
           `"${filteredRouteStyleModes[0].id}"`,
       { requestedId: routeStyleModeId, availableIds: filteredRouteStyleModes.map((mode) => mode.id) },
@@ -1546,16 +1551,20 @@ export default function Home() {
 
     const showComparisonTab = researchEnabled;
     const outerTabValue = comparisonTabActive ? "comparison" : (selectedRouteId ?? routes[0].id);
-    // ユーザー指摘（2026-09-03、「ルート結果のところ、公開軸がすべて表示されない」）: 以前は
-    // ルート設定パネルで重み0にした軸をこのプロファイルからも消していたが、axis_difficulties
-    // 自体は重み0の軸も評価済みで持っており（route_preferenceの重みは生成時のコスト合成に
-    // しか影響しない）、この絞り込みのせいで「実際にはこの軸のルート上の値を見たい」という
-    // 用途（例: 単一軸100%で生成したうえで他の公開軸のこのルートでの値も確認したい）を
-    // 塞いでいた。公開軸カタログ（axisCatalog.axes）をそのまま渡し、地図の色分けチップ・
-    // 内訳とも現在の公開軸集合と一致させる（routeSegmentChartPopup.tsのセグメントクリック
-    // ポップアップと同じ「常に現在の公開軸集合」という基準に統一）。
-    const visibleAxes = axisCatalog.axes;
+    // ユーザー指摘（2026-09-03）: 一度「公開軸がすべて表示されない」という指摘を受けて
+    // 重みによる絞り込みを撤去したが、その後のユーザー確認により意図は逆で、「ルート設定で
+    // ONにした（重み>0の）軸だけを出してほしい」だった（撤去は誤り、原文どおりに戻す）。
+    // ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
+    // プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが「見たくない」と
+    // 選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は重み0の軸も評価済みで
+    // 持っているため、絞り込みはaxesの側で行う（RouteAxisProfile内部の
+    // axisDifficulties!=nullフィルタとは独立）。重みの参照元はfilteredRouteStyleModesと
+    // 同じ「生成時点の重み」（generatedRoutePreference、未生成時のみライブな
+    // routePreferenceへフォールバック）に揃える——内訳の寄与度計算（weights prop）も
+    // これと同じ値を使うため、表示するかどうかの判定と計算が同じ重みでなければズレが
+    // 生じる。全候補で共通のため、候補ごとのTabs.Contentループの外で1回だけ計算する。
     const routeWeights = generatedRoutePreference ?? routePreference;
+    const visibleAxes = axisCatalog.axes.filter((axis) => (routeWeights[axis.axisId] ?? 0) > 0);
 
     return (
       <>
@@ -1850,6 +1859,7 @@ export default function Home() {
             experimentSlots={researchEnabled ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
+            routePreferenceWeights={generatedRoutePreference ?? routePreference}
             // 改善計画T365-2: 周回モード中は地図上のピンを表示・追加受付しない
             // （モード切り替え自体はwaypoints/destination state自体を消さないため、
             // 目的地モードへ戻れば復元される）。

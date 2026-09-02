@@ -15,6 +15,7 @@ import type {
   Coordinates,
   LocationSource,
   RouteCandidate,
+  RoutePreferenceWeights,
   RouteSegmentDetail,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
@@ -2203,6 +2204,13 @@ interface MapViewProps {
    * 表示されず生のaxis_idがそのまま出ていた（動的なaxisLabelsが用意済みなのに
    * 消費者が無かった配線漏れ）。 */
   axisLabels: Record<string, string>;
+  /** ルート結果の内訳（RouteAxisProfile）・地図の色分けチップと同じ「重み>0の軸のみ」
+   * 基準（ユーザー指摘2026-09-03）を、選択中候補の区間クリックポップアップ
+   * （routeSegmentChartPopup.ts）でも揃えるための重み辞書。page.tsx側の
+   * `generatedRoutePreference ?? routePreference`と同じ値を渡す。axisLabels自体は
+   * axisInspectorPopup.ts（ルート文脈の無い一般道路網クリック）とも共有しているため、
+   * axisLabelsそのものを重みで絞り込まず、ポップアップ組み立て側でこの重みと掛け合わせる。 */
+  routePreferenceWeights: RoutePreferenceWeights;
   /** 改善計画T364: ユーザーが地図クリックで指定した経由地（起点→経由地1→...→起点の順で
    * 通過する単一経路の生成に使う、page.tsx側のstate）。 */
   waypoints: Coordinates[];
@@ -2266,6 +2274,7 @@ export default function MapView({
   experimentSlots,
   rampAxes,
   axisLabels,
+  routePreferenceWeights,
   waypoints,
   onWaypointAdd,
   onWaypointRemove,
@@ -2409,6 +2418,7 @@ export default function MapView({
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     axisLabels,
+    routePreferenceWeights,
     dedicatedWayValues,
     gradientFillGeojson,
   });
@@ -2487,6 +2497,7 @@ export default function MapView({
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
       axisLabels,
+      routePreferenceWeights,
       dedicatedWayValues,
       gradientFillGeojson,
     };
@@ -2521,6 +2532,7 @@ export default function MapView({
     roadSurfaceSharedLayerIds,
     experimentSlots,
     axisLabels,
+    routePreferenceWeights,
     dedicatedWayValues,
     gradientFillGeojson,
   ]);
@@ -2890,9 +2902,18 @@ export default function MapView({
         typeof rawProperties.axis_difficulties === "string"
           ? (JSON.parse(rawProperties.axis_difficulties) as Record<string, number>)
           : rawProperties.axis_difficulties;
+      // ユーザー指摘（2026-09-03）: 「地図の色分け」チップ・内訳（RouteAxisProfile）と同じ
+      // 「ルート設定でONにした（重み>0の）軸のみ」基準へ揃える。axisLabels自体は
+      // axisInspectorPopup.ts（ルート文脈の無い一般道路網クリック）とも共有しているため、
+      // ここで重み>0の軸だけへ絞り込んだコピーを都度組み立てて渡す（axisLabels自体は
+      // 変更しない）。
+      const weights = redrawPropsRef.current.routePreferenceWeights;
+      const weightedAxisLabels = Object.fromEntries(
+        Object.entries(redrawPropsRef.current.axisLabels).filter(([axisId]) => (weights[axisId] ?? 0) > 0)
+      );
       const html = buildRouteSegmentChartPopupHtml(
         { ...rawProperties, axis_difficulties: axisDifficulties },
-        redrawPropsRef.current.axisLabels
+        weightedAxisLabels
       );
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
     }
