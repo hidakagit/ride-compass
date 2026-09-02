@@ -57,7 +57,6 @@ import RouteSettingsPanel, {
 } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import { FieldLabel } from "@/components/Map/recipeControls";
-import { SCORING_AXES } from "@/lib/evaluationAxes";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
@@ -73,9 +72,9 @@ import { gradientGridCellsFromTileResponses } from "@/components/Map/gradientGri
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
-// 改善計画T270: WeightPanel自体（編集UI）は/adminへ移設したが、既定値定数は
-// useStoredJsonStateの初期値としてこのページでも使う。
-import { DEFAULT_ROUTE_PREFERENCE, DEFAULT_SCORING_WEIGHTS } from "@/components/WeightPanel/WeightPanel";
+// 改善計画T548: 従来は/adminへ移設したWeightPanelの既定値定数をここでも使っていたが、
+// WeightPanel自体をtotal_score撤去に伴い削除したため@/lib/evaluationAxesへ移設した。
+import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -92,7 +91,6 @@ import type {
   HardFilterOverride,
   RouteCandidate,
   RoutePreferenceWeights,
-  ScoringWeights,
 } from "@/types/route";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -110,7 +108,7 @@ const DISTANCE_TOLERANCE_KM = 5;
 // 位置付けを説明する文言）をここへ統合し、候補タブごとに同じ説明を繰り返さず「ルート結果」
 // セクション見出し1箇所（renderRouteOutcomeSectionBodyのheader行、モバイルはBottomSheetの
 // headerAction）だけに情報アイコンを置く。
-const ROUTE_RESULT_HINT = `おすすめ度は${SCORING_AXES.map((axis) => `${axis.label}（${axis.description}）`).join("・")}を重み付けして算出した、この一覧内での相対評価です。総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。`;
+const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。";
 
 // 改善計画T364/T365（旧RouteList.tsxから移設）: 8方位以外の単一経路（経由地ルート・
 // 目的地ルート）のid集合。
@@ -413,19 +411,14 @@ export default function Home() {
   const [generatedRoutePreference, setGeneratedRoutePreference] = useState<RoutePreferenceWeights | null>(null);
 
   // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
-  // 生成リクエストからscoring_weights/route_preferenceを省略し、既存挙動（YAML既定値）を
-  // 完全に維持する（一般ユーザーには影響しない）。route_preference/routePreference自体は
-  // 改善計画T267で一般向けルート設定画面（RouteSettingsPanel）とも共有する状態になった
-  // （withAutoEnableにより、どちらのパネルを操作してもこのフラグが自動でONになる）。
-  // 改善計画T270: 編集UI（WeightPanel）は/adminへ移設したため、localStorage経由で
-  // 共有する（useStoredJsonState）。本ページはこの値を読んでリクエスト構築に使うのみ。
+  // 生成リクエストからroute_preferenceを省略し、既存挙動（既定値）を完全に維持する
+  // （一般ユーザーには影響しない）。route_preference/routePreference自体は改善計画T267で
+  // 一般向けルート設定画面（RouteSettingsPanel）とも共有する状態になった（withAutoEnableに
+  // より、どちらのパネルを操作してもこのフラグが自動でONになる）。
   const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredJsonState(
     "ridecompass:weight-override-enabled",
     false
   );
-  // setter未使用: scoringWeightsの編集UI（WeightPanel）は/adminへ移設済み。このページは
-  // 値を読んでリクエスト構築に使うのみ（useStoredJsonStateの戻り値2番目は/admin側が使う）。
-  const [scoringWeights] = useStoredJsonState<ScoringWeights>("ridecompass:scoring-weights", DEFAULT_SCORING_WEIGHTS);
   const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
     "ridecompass:route-preference",
     DEFAULT_ROUTE_PREFERENCE
@@ -1312,7 +1305,7 @@ export default function Home() {
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
   // 廃止に伴い比較対象から削除した。
   const currentWeightsKey = JSON.stringify({
-    weights: weightOverrideEnabled ? { scoringWeights, routePreference } : null,
+    weights: weightOverrideEnabled ? { routePreference } : null,
     // 改善計画T267: hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず
     // 常に比較対象へ含める。
     hardFilters,
@@ -1342,8 +1335,7 @@ export default function Home() {
       // いない（axisCatalog.loaded===false、未取得・取得失敗）場合、この同期は静的フォール
       // バック（既存7軸）に合わせてroutePreferenceを書き換えてしまい、実際の公開軸集合とは
       // 無関係な値になる。この場合はroute_preference自体を省略し、backend側の既定値
-      // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）に委ねる方が安全
-      // （scoring_weightsは軸レジストリと無関係なため引き続き送る）。
+      // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）に委ねる方が安全。
       const syncedRoutePreference = axisCatalog.loaded
         ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
         : null;
@@ -1371,7 +1363,6 @@ export default function Home() {
         // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
         // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
-        ...(weightOverrideEnabled ? { scoring_weights: scoringWeights } : {}),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
         // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
         // （backend側の分岐はapi/routers/routes.py参照）。
@@ -1401,7 +1392,7 @@ export default function Home() {
       } else if (researchEnabled) {
         // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
         // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立、改善計画T29）。
-        // おすすめ度最上位（=candidates[0]）を比較代表候補として
+        // overall_difficulty最小（=candidates[0]）を比較代表候補として
         // 固定し、以降の候補選び直しでは変えない（スロット=生成結果のスナップショット）。
         setExperimentSlots((prev) => {
           const next: ExperimentSlot = {
@@ -1472,10 +1463,10 @@ export default function Home() {
   }
 
   // 一般ユーザー向けルート設定（改善計画T267、目論見書4章）。0次(除外)・軸選択・重みを
-  // 生成前に調整できる、常時表示のメイン導線。研究モードのWeightPanelとはroute_preference
-  // （weightOverrideEnabled）の状態を共有する（page.tsx冒頭のstate宣言・handleGenerateの
-  // コメント参照）。モバイルの「ルート設定」タブ、デスクトップの「ルートを作る」ブロック
-  // 前半から呼ぶ（改善計画T300、旧renderRouteResultsBodyの前半を分離）。
+  // 生成前に調整できる、常時表示のメイン導線（route_preference・weightOverrideEnabledの
+  // 状態はpage.tsx冒頭のstate宣言・handleGenerateのコメント参照）。モバイルの
+  // 「ルート設定」タブ、デスクトップの「ルートを作る」ブロック前半から呼ぶ
+  // （改善計画T300、旧renderRouteResultsBodyの前半を分離）。
   // 改善計画T419: 見出し「ルート設定」は呼び出し元によって要否が変わる。デスクトップは
   // 外側のDisclosure見出しが「ルートを作る」（このセクションと後続のルート結果の両方を
   // 束ねる大枠）のため、このセクション自身の見出しとして必要。モバイルはBottomSheet自体の
@@ -1584,10 +1575,10 @@ export default function Home() {
             <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
               {routes.map((route) => (
                 <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
-                  {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名はもっと簡潔に、
-                      おすすめ度はタブ内にもあるし」）: おすすめ度（total_score）はタブの
-                      中身（RouteAxisProfileのスコア行）に既に出ているため、タブ自体には
-                      候補を見分けるための方向・距離だけを表示する。 */}
+                  {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名はもっと簡潔に」）:
+                      総合難易度はタブの中身（RouteAxisProfileのスコア行）に既に出ている
+                      ため、タブ自体には候補を見分けるための方向・距離だけを表示する
+                      （改善計画T548: 候補タブ自体の並び順もこの総合難易度の昇順）。 */}
                   {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
                       (route-destination)は候補が常に1件で「方位」という概念が無いため、
                       direction_label（固定文言、route_generator.py参照）をそのまま表示し
@@ -1612,7 +1603,6 @@ export default function Home() {
                 axes={visibleAxes}
                 axisDifficulties={route.axis_difficulties}
                 overallDifficulty={route.overall_difficulty}
-                totalScore={route.total_score}
                 weights={routeWeights}
                 axisColors={axisChipColors}
                 routeStyleModes={filteredRouteStyleModes}

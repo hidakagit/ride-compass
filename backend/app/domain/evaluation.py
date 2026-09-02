@@ -76,9 +76,7 @@ class RoutePreference(BaseModel):
     黙って入ることを避ける従来方針のまま）。
 
     軸再編の経緯（T138自転車インフラ統合・T139安全度廃止/night分離・T149交差点密度統合）は
-    `docs/architecture.md` 7章とgit履歴参照。car_stress/accident/nightの重みは区間難易度・
-    探索コスト（本モデル）にのみ効き、scoring.yaml（total_score＝おすすめ度、候補集合内の
-    相対評価）には含めない（ユーザー承認済みのスコープ判断、静的道路属性P1参照）。
+    `docs/architecture.md` 7章とgit履歴参照。
     """
 
     weights: dict[str, float] = Field(default_factory=default_axis_weights)

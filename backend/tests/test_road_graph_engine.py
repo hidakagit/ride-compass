@@ -31,7 +31,6 @@ from app.infrastructure import search_graph_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import DIRECTIONS_DEG, RADIUS_RATIO, RouteGenerator
-from app.services.route_scorer import RouteScorer
 
 # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルが暗黙に前提とする
 # 「car_stress/night等の実在axis_idを持つ一貫した軸システム」が必要（DBの現在値の検証が
@@ -50,11 +49,6 @@ def _clear_search_graph_cache():
 
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
-SCORING_WEIGHTS = {"distance_weight": 0.30, "difficulty_weight": 0.70}
-
-
-def make_route_scorer() -> RouteScorer:
-    return RouteScorer(SCORING_WEIGHTS)
 
 
 def _lazy_edge_cost(engine, context, from_node_id: str, to_node_id: str) -> float:
@@ -333,7 +327,7 @@ def make_generator(
         max_average_grade_percent=max_average_grade_percent,
         hard_filters=hard_filters,
     )
-    generator = RouteGenerator(engine, make_route_scorer())
+    generator = RouteGenerator(engine)
     return generator, graph_service, elevation_service
 
 
@@ -888,15 +882,16 @@ async def test_candidate_segments_are_binned_into_approximately_500m_groups():
     assert abs(total_segment_distance - candidate.distance_km) < 0.5
 
 
-async def test_total_score_is_populated_and_candidates_sorted_descending():
+async def test_candidates_are_sorted_by_overall_difficulty_ascending():
+    # 改善計画T548: 候補タブの並び順はoverall_difficulty（絶対基準0-100）昇順。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert all(c.total_score is not None for c in candidates)
-    scores = [c.total_score for c in candidates]
-    assert scores == sorted(scores, reverse=True)
+    assert all(c.overall_difficulty is not None for c in candidates)
+    difficulties = [c.overall_difficulty for c in candidates]
+    assert difficulties == sorted(difficulties)
 
 
 async def test_engine_name_is_road_graph():

@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`・`difficulty.py`・`material_catalog.py`・`recipe.py`・`scoring.py` |
+| domain | `evaluation.py`・`difficulty.py`・`material_catalog.py`・`recipe.py` |
 | services | `evaluation_service.py` |
 
 ## 0次ハードフィルタ（`domain/evaluation.py`）
@@ -190,15 +190,6 @@ OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`
 ロード等、highway=footway/pathかつbicycle=yes/designated）を1箇所にまとめる。`_or_none`版は
 「タグ自体が未取得」をNoneへ倒すガード条件を1箇所に集約する（呼び出し元4箇所での重複
 ガード実装を避ける）。
-
-## 候補集合内の相対スコアリング（`domain/scoring.py`）
-
-`normalize_min_max(values, higher_is_better)`: 同じ`generate_loops`呼び出し内の候補
-同士をmin-max正規化して0-100点化する（異なるリクエスト間では比較不可な相対スコア）。
-`None`はそのまま`None`を返す。全候補が同値の場合は中立の100点を返す。
-[ルート生成エンジン](routing-engine.md)の`RouteScorer`（services層）がこれを使って
-`total_score`を算出する——本モジュールは正規化の純関数のみを持ち、`RouteScorer`自体は
-ルート生成エンジンモジュール側にある。
 
 ## RoutePreference（`domain/evaluation.py`）
 

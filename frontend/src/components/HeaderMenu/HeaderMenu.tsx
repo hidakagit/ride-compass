@@ -26,8 +26,7 @@ interface HeaderMenuProps {
 // `ResearchPanel`（Basic認証保護下）にしかなかったが、フラグ自体にサーバー側検証は
 // 無く、`/`（認証なし）のDevToolsコンソールから直接操作可能だった（T519調査）。
 // 「隠すべき機微な機能ではなく、気軽に試せる比較機能」という結論に基づき、一般
-// 利用者向けの正式なON/OFF導線としてここへ配置する（`WeightPanel`[評価重み上書き]は
-// 引き続き`/admin`限定）。
+// 利用者向けの正式なON/OFF導線としてここへ配置する。
 export default function HeaderMenu({ debugEnabled, debugConsoleOpen, onToggleDebugConsole }: HeaderMenuProps) {
   const researchEnabled = useResearchEnabled();
 
