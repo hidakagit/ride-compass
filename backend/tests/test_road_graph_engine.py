@@ -1351,7 +1351,7 @@ def _build_context_score_fields(
     resolved_axis_scores = evaluate_dynamic_axis_arrays(static_axis_scores, dynamic_context)
     published_axis_arrays = {axis_id: resolved_axis_scores[axis_id] for axis_id in score_matrix.axis_ids}
 
-    cost_array, difficulty_array = compose_costs_from_axis_matrix(
+    cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
         score_matrix.distance_m, published_axis_arrays, weights, penalty_strength
     )
     hard_filter_excluded = compute_hard_filter_excluded(
@@ -1365,6 +1365,7 @@ def _build_context_score_fields(
         full_edge_row=full_edge_row,
         difficulty_array=difficulty_array,
         axis_arrays=published_axis_arrays,
+        contribution_arrays=contribution_arrays,
         node_lat=np.array([]),
         node_lon=np.array([]),
     )

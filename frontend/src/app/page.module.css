@@ -262,6 +262,50 @@
   display: none;
 }
 
+/* 改善計画T550: 区間クリック詳細（selectedRouteSegment、地図上のマーカーとcontrolled
+   propで連動）。ルート全体の内訳（RouteAxisProfile）と同じタブ位置へ差し替えで表示する。 */
+.selectedSegmentPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.selectedSegmentHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.selectedSegmentTitle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+}
+
+.selectedSegmentTime {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  color: var(--color-muted);
+}
+
+.selectedSegmentClearButton {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+}
+
+.selectedSegmentClearButton:hover {
+  color: var(--foreground);
+}
+
 .refreshButton {
   align-self: flex-start;
   font-size: var(--font-size-sm);

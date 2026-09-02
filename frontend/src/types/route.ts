@@ -40,6 +40,17 @@ export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry
   segments: RouteSegmentDetail[] | null;
 };
 
+// フロント専用（改善計画T550）。APIには現れない。地図上でクリックされた区間
+// （RouteSegmentDetail、geometryはfeature.propertiesから除外済みのためnull）と、実際に
+// クリックされた地点（マーカー表示位置。MapView.tsx: handleRouteSegmentClickがe.lngLatから
+// 組み立てる）を束ねてpage.tsxのstateへ持たせる。「ルート結果」タブ（RouteAxisProfile）は
+// これがnullでない間、ルート全体の内訳の代わりにこの区間の内訳を表示する。
+export interface SelectedRouteSegment {
+  segment: RouteSegmentDetail;
+  latitude: number;
+  longitude: number;
+}
+
 export type RouteGenerateRequest = Schemas["RouteGenerateRequest"];
 
 export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse"]>, "routes"> & {

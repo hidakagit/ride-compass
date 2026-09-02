@@ -826,27 +826,33 @@ def compose_costs_from_axis_matrix(
     axis_arrays: Mapping[str, np.ndarray],
     weights: dict[str, float],
     penalty_strength: float = 1.0,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
     """`_evaluate_axes_bulk`/`evaluate_dynamic_axis_arrays`が求めた軸別スコア配列群から、
-    重み付き合成のcost・composite difficulty配列を求める（改善計画T536、
-    `compute_edge_costs_bulk`から切り出した合成フェーズ）。
+    重み付き合成のcost・composite difficulty配列・軸別寄与度配列を求める（改善計画T536、
+    `compute_edge_costs_bulk`から切り出した合成フェーズ。改善計画T550で軸別寄与度を追加）。
 
     Neumaier加算・`round1_array`はスカラー版`composite_difficulty`/
     `compute_cost_from_axis_scores`とビット単位で一致させるために必須
     （`_neumaier_accumulate`のdocstring参照）。0次フィルタによる除外（cost=inf/None）は
     呼び出し元の責務（`compute_hard_filter_excluded`参照、Edgeの通行可否そのものであり
-    軸別スコアの合成とは独立した判定のため）。戻り値は`(cost, composite_difficulty)`の
-    配列（difficultyはNaN=データ無し、costは0次フィルタを考慮しない「仮に許可された場合の
-    コスト」）。
+    軸別スコアの合成とは独立した判定のため）。戻り値は`(cost, composite_difficulty,
+    axis_contributions)`（difficultyはNaN=データ無し、costは0次フィルタを考慮しない
+    「仮に許可された場合のコスト」、axis_contributionsはaxis_id→寄与度配列
+    ——validな軸のみ`arr*weight/weighted_weight_sums`、invalidな区間はNaN。全軸の
+    寄与度を丸め前で合計すると丸め前のcompositeと一致する——`RouteCandidate.
+    overall_difficulty`とその内訳`axis_contributions`を数学的に一致させるための値
+    ）。
     """
     n = len(distance_m)
     score_terms = []
     weight_terms = []
+    axis_weight_valid: list[tuple[str, np.ndarray, float, np.ndarray]] = []
     for axis_id, arr in axis_arrays.items():
         weight = weights.get(axis_id, 0.0)
         valid = ~np.isnan(arr)
         score_terms.append(np.where(valid, arr * weight, 0.0))
         weight_terms.append(np.where(valid, weight, 0.0))
+        axis_weight_valid.append((axis_id, arr, weight, valid))
     # 改善計画T463: 公開軸が1つも無い場合はn件ぶんのゼロ配列を直接使う（下の
     # weighted_weight_sums==0判定が既にNaN合成へ倒す設計のため、この分岐を通しても
     # 後続処理は変更不要）。
@@ -867,11 +873,21 @@ def compose_costs_from_axis_matrix(
     # 完全一致させるため、最終丸めのみ要素ごとにPythonの`round()`を適用する。
     composite = round1_array(composite)
 
+    # 改善計画T550: 軸ごとの区間寄与度。compositeとは異なり、ここでは丸めない
+    # （区間単位ではなくルート単位に距離加重平均した後、そちらで最終丸めする——
+    # `RouteSegmentDetail.axis_difficulties`/`domain/route.py: merge_axis_difficulties`と
+    # 同じ「区間単位は生値、ルート単位で丸め」という既存の扱いに揃える）。
+    axis_contributions: dict[str, np.ndarray] = {}
+    for axis_id, arr, weight, valid in axis_weight_valid:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            contribution = np.where(valid, arr * weight / weighted_weight_sums, np.nan)
+        axis_contributions[axis_id] = np.where(weighted_weight_sums == 0, np.nan, contribution)
+
     # compute_cost_from_axis_scoresと同じ: difficultyがNaN(None相当)ならcostは距離そのもの
     # （割増なし）。
     penalty_multiplier = np.where(np.isnan(composite), 1.0, 1.0 + penalty_strength * (composite / 100))
     cost = round1_array(distance_m * penalty_multiplier)
-    return cost, composite
+    return cost, composite, axis_contributions
 
 
 def compute_edge_costs_bulk(
@@ -925,7 +941,9 @@ def compute_edge_costs_bulk(
         evaluation.is_motorway, evaluation.is_trunk, evaluation.no_bicycle, evaluation.gradient_percent,
         hard_filters, max_average_grade_percent,
     )
-    cost, composite = compose_costs_from_axis_matrix(
+    # 改善計画T550: axis_contributions（3個目の戻り値）はEdgeCostResultが持たない
+    # フィールドのため、この回帰テストオラクル経路では使わない。
+    cost, composite, _axis_contributions = compose_costs_from_axis_matrix(
         evaluation.distance_m, evaluation.axis_arrays, resolved_weights, penalty_strength
     )
 

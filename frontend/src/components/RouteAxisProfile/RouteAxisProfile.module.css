@@ -42,9 +42,12 @@
   margin-bottom: 4px;
 }
 
+/* 改善計画T550: 「総合難易度」の数字＋その内訳（積み上げ1本バー、AxisContributionBar）を
+   横並びで置く。バー側はflex:1 1 autoで残り幅いっぱいに広がる
+   （AxisContributionBar.module.css参照）。 */
 .scores {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: var(--space-4, 1rem);
   margin: 6px 2px var(--space-1);
@@ -54,6 +57,7 @@
   display: inline-flex;
   align-items: baseline;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 .scoreValue {
@@ -64,58 +68,6 @@
 .scoreLabel {
   font-size: var(--font-size-sm);
   color: var(--color-muted);
-}
-
-.breakdown {
-  border-top: 1px solid var(--color-border-muted);
-  padding-top: var(--space-2);
-}
-
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 9rem 1fr 2.5rem;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-/* 改善計画T545: 内訳一覧は選択操作を持たない読み取り専用のため、legendStyles.legendChip
-   （ボタン・情報ポップオーバー付き）ではなく色ドット+ラベルだけの軽量な表示にする
-   （地図の色分け対象を選ぶ役割は上部のchipRow側だけが持つ）。 */
-.rowLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.track {
-  display: block;
-  background: var(--color-surface-2);
-  border-radius: var(--radius-sm);
-  height: 0.85rem;
-  overflow: hidden;
-}
-
-.bar {
-  display: block;
-  height: 100%;
-  border-radius: var(--radius-sm);
-}
-
-.value {
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 .empty {

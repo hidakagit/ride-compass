@@ -48,6 +48,7 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     segments: null,
     overall_difficulty: 35,
     axis_difficulties: {},
+    axis_contributions: {},
   };
 }
 

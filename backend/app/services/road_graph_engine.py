@@ -192,6 +192,10 @@ class _RoadGraphContext:
     # 改善計画T536: 公開軸ごとのスコア配列（axis_id→array、full_edge_row基準、動的軸[風]も
     # 実際の値へ上書き済み）。_build_segment_detailsのaxis_difficulties構築に使う。
     axis_arrays: dict[str, np.ndarray]
+    # 改善計画T550: 公開軸ごとの区間寄与度配列（axis_id→array、full_edge_row基準、
+    # `compose_costs_from_axis_matrix`が合成コストと同時に求めたもの）。
+    # _build_segment_detailsのaxis_contributions構築に使う。
+    contribution_arrays: dict[str, np.ndarray]
     # 改善計画T536: A*のestimate_cost_fn（ヒューリスティック）を、レグごとの目的地に対して
     # numpyで1回だけベクトル計算するための、lazy_graph.index_to_node_id順の緯度・経度配列。
     node_lat: np.ndarray
@@ -226,6 +230,8 @@ class _SearchGraph:
     full_edge_row: dict[str, int]
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
+    # 改善計画T550: _RoadGraphContextと同じ意味（フィールドdocstring参照）。
+    contribution_arrays: dict[str, np.ndarray]
     node_lat: np.ndarray
     node_lon: np.ndarray
     # 改善計画T546: `score_matrix.edge_ids`と、それに対応する0次フィルタ除外配列
@@ -346,7 +352,7 @@ class RoadGraphEngine:
         # （compute_edge_costs_bulkの計算フェーズと同じ絞り込み、domain/evaluation.py参照）。
         published_axis_arrays = {axis_id: resolved_axis_scores[axis_id] for axis_id in score_matrix.axis_ids}
 
-        cost_array, difficulty_array = compose_costs_from_axis_matrix(
+        cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
             score_matrix.distance_m, published_axis_arrays, weights, self._penalty_strength,
         )
         hard_filter_excluded = compute_hard_filter_excluded(
@@ -398,6 +404,7 @@ class RoadGraphEngine:
             full_edge_row=full_edge_row,
             difficulty_array=difficulty_array,
             axis_arrays=published_axis_arrays,
+            contribution_arrays=contribution_arrays,
             node_lat=node_lat,
             node_lon=node_lon,
             edge_ids=score_matrix.edge_ids,
@@ -505,6 +512,7 @@ class RoadGraphEngine:
             full_edge_row=search.full_edge_row,
             difficulty_array=search.difficulty_array,
             axis_arrays=search.axis_arrays,
+            contribution_arrays=search.contribution_arrays,
             node_lat=search.node_lat,
             node_lon=search.node_lon,
             night_active=search.night_active,
@@ -848,11 +856,21 @@ class RoadGraphEngine:
                 # 通常は到達しない（full_edge_rowはbbox全体の生Edge集合を覆うため）。
                 # 経路上のEdgeが何らかの理由で行を持たない防御的フォールバック。
                 axis_scores: dict[str, float] = {}
+                axis_contributions: dict[str, float] = {}
                 composite_difficulty_value: float | None = None
             else:
                 axis_scores = {
                     axis_id: float(arr[row])
                     for axis_id, arr in context.axis_arrays.items()
+                    if not math.isnan(arr[row])
+                }
+                # 改善計画T550: 「重み付き寄与度」（RouteAxisProfile.tsxのfrontend独自
+                # 再計算を撤去し置き換える値）。context.contribution_arraysは探索コスト
+                # 算出時に既に合成済み（compose_costs_from_axis_matrix参照）のため、
+                # axis_scoresと同じ行から読むだけでよい。
+                axis_contributions = {
+                    axis_id: float(arr[row])
+                    for axis_id, arr in context.contribution_arrays.items()
                     if not math.isnan(arr[row])
                 }
                 difficulty_value = context.difficulty_array[row]
@@ -891,6 +909,9 @@ class RoadGraphEngine:
                     # difficultyの汎用dict（データ無しの軸はキー自体を持たない）のため、
                     # そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
                     axis_difficulties=axis_scores,
+                    # 改善計画T550: 同じ規約（axis_id→寄与度、データ無しはキー自体を
+                    # 持たない）でRouteSegmentDetail.axis_contributionsへ渡す。
+                    axis_contributions=axis_contributions,
                     difficulty=composite_difficulty_value,
                 )
             )

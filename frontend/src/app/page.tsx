@@ -57,6 +57,7 @@ import RouteSettingsPanel, {
   stackBarColorForIndex,
 } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
+import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
@@ -92,6 +93,7 @@ import type {
   HardFilterOverride,
   RouteCandidate,
   RoutePreferenceWeights,
+  SelectedRouteSegment,
 } from "@/types/route";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -114,6 +116,16 @@ const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した�
 // 改善計画T364/T365（旧RouteList.tsxから移設）: 8方位以外の単一経路（経由地ルート・
 // 目的地ルート）のid集合。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints", "route-destination"]);
+
+// 改善計画T550: 区間クリック詳細（selectedRouteSegment）の到達予想時刻表示。旧
+// Map/routeSegmentChartPopup.tsのformatTimeLabelと同じフォーマット（撤去済み、
+// ボトムシート側へ表示を統合したためこちらへ移設）。
+function formatSegmentArrivalTime(iso: string | null): string {
+  if (!iso) return "不明";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "不明";
+  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+}
 
 // backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
 // le=MAX_ROUTE_DISTANCE_KM)）と一致させる（目的地モードの自動算出値もこの上限で
@@ -309,6 +321,12 @@ export default function Home() {
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // 改善計画T550: 地図上でクリックされた区間（MapView.tsx: handleRouteSegmentClickが
+  // クリック地点の座標とともに設定するcontrolled state）。non-nullの間、「ルート結果」
+  // タブはルート全体の内訳の代わりにこの区間の内訳を表示する（下記
+  // renderRouteOutcomeSectionBody参照）。候補タブの切り替え・再生成・ルートクリアの
+  // いずれでも古い区間を選択したままにしないよう、該当箇所でnullへ戻す。
+  const [selectedRouteSegment, setSelectedRouteSegment] = useState<SelectedRouteSegment | null>(null);
   // 改善計画T545: ルート結果パネルの外側タブを「ルート選択（候補一覧+内訳をひとまとめ）/
   // 比較」の2つから、候補ごとのタブ＋「比較」タブという1段のフラットなタブ列へ再設計した
   // （ユーザー指摘「ルート選択タブは不要、研究タブと同じ形でルートごとタブにして」）。
@@ -451,6 +469,7 @@ export default function Home() {
     setGeneratedConditions(null);
     setGeneratedRoutePreference(null);
     setExperimentSlots([]);
+    setSelectedRouteSegment(null);
   }, []);
 
   // MapViewから伝わる現在のビューポート（改善計画T180、MapView.tsx: onViewportChange参照）。
@@ -1376,6 +1395,10 @@ export default function Home() {
       }, setGenerationProgress);
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
+      // 改善計画T550: 新しい候補集合に対して、それより前にクリックしていた区間の選択を
+      // 引き継がない（同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも
+      // 意味を失うため）。
+      setSelectedRouteSegment(null);
       // 改善計画T439: 新しい候補が用意できたことを「ルート結果」タブへ知らせる
       // （モバイルのみ表示に使うが、状態自体はプラットフォーム非依存で立てる）。
       setHasUnseenResults(candidates.length > 0);
@@ -1547,13 +1570,12 @@ export default function Home() {
     // ONにした（重み>0の）軸だけを出してほしい」だった（撤去は誤り、原文どおりに戻す）。
     // ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
     // プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが「見たくない」と
-    // 選んだ軸を除く表示上の絞り込み）。axisDifficulties自体は重み0の軸も評価済みで
-    // 持っているため、絞り込みはaxesの側で行う（RouteAxisProfile内部の
-    // axisDifficulties!=nullフィルタとは独立）。重みの参照元はfilteredRouteStyleModesと
-    // 同じ「生成時点の重み」（generatedRoutePreference、未生成時のみライブな
-    // routePreferenceへフォールバック）に揃える——内訳の寄与度計算（weights prop）も
-    // これと同じ値を使うため、表示するかどうかの判定と計算が同じ重みでなければズレが
-    // 生じる。全候補で共通のため、候補ごとのTabs.Contentループの外で1回だけ計算する。
+    // 選んだ軸を除く表示上の絞り込み）。axis_contributions自体は重み0の軸を持たない
+    // （backend側で既に重み配分へ折り込み済みのため）が、絞り込み自体はaxesの側で行う
+    // （RouteAxisProfile内部のaxisContributions!=nullフィルタとは独立）。重みの参照元は
+    // filteredRouteStyleModesと同じ「生成時点の重み」（generatedRoutePreference、
+    // 未生成時のみライブなroutePreferenceへフォールバック）に揃える。全候補で共通のため、
+    // 候補ごとのTabs.Contentループの外で1回だけ計算する。
     const routeWeights = generatedRoutePreference ?? routePreference;
     const visibleAxes = axisCatalog.axes.filter((axis) => (routeWeights[axis.axisId] ?? 0) > 0);
 
@@ -1572,6 +1594,10 @@ export default function Home() {
           className={styles.outcomeTabs}
           value={outerTabValue}
           onValueChange={(value) => {
+            // 改善計画T550: 候補タブ・比較タブいずれへ切り替えても、以前の候補で
+            // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま
+            // 地図マーカー・内訳が残ると実態と食い違いを起こすため）。
+            setSelectedRouteSegment(null);
             if (value === "comparison") {
               setComparisonTabActive(true);
             } else {
@@ -1608,18 +1634,49 @@ export default function Home() {
           </div>
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
-              <RouteAxisProfile
-                axes={visibleAxes}
-                axisDifficulties={route.axis_difficulties}
-                overallDifficulty={route.overall_difficulty}
-                weights={routeWeights}
-                axisColors={axisChipColors}
-                routeStyleModes={filteredRouteStyleModes}
-                routeStyleModeId={routeStyleModeId}
-                onRouteStyleModeChange={handleRouteModeSelect}
-                hiddenLegendKeys={hiddenRouteLegendKeys}
-                onToggleLegendKey={handleRouteLegendToggle}
-              />
+              {/* 改善計画T550: 区間がクリックされている間（selectedRouteSegment）は、
+                  ルート全体の内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳
+                  （AxisContributionBar、ルート全体の内訳と同じ表示部品）を表示する。
+                  地図側のDETAIL_LAYER_ID/DETAIL_HIT_LAYER_IDは選択中候補（selectedCandidate）
+                  にしか描画されないため、区間クリックは常に現在アクティブなこのタブの
+                  ルートに対して起きる（他候補のタブが誤って区間詳細を出すことは無い）。 */}
+              {selectedRouteSegment ? (
+                <div className={styles.selectedSegmentPanel}>
+                  <div className={styles.selectedSegmentHeader}>
+                    <span className={styles.selectedSegmentTitle}>
+                      {selectedRouteSegment.segment.cumulative_distance_km.toFixed(1)} km地点
+                      <span className={styles.selectedSegmentTime}>
+                        到達予想 {formatSegmentArrivalTime(selectedRouteSegment.segment.estimated_arrival_time)}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.selectedSegmentClearButton}
+                      aria-label="区間の選択を解除"
+                      onClick={() => setSelectedRouteSegment(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <AxisContributionBar
+                    axes={visibleAxes}
+                    contributions={selectedRouteSegment.segment.axis_contributions}
+                    axisColors={axisChipColors}
+                  />
+                </div>
+              ) : (
+                <RouteAxisProfile
+                  axes={visibleAxes}
+                  axisContributions={route.axis_contributions}
+                  overallDifficulty={route.overall_difficulty}
+                  axisColors={axisChipColors}
+                  routeStyleModes={filteredRouteStyleModes}
+                  routeStyleModeId={routeStyleModeId}
+                  onRouteStyleModeChange={handleRouteModeSelect}
+                  hiddenLegendKeys={hiddenRouteLegendKeys}
+                  onToggleLegendKey={handleRouteLegendToggle}
+                />
+              )}
             </Tabs.Content>
           ))}
           {showComparisonTab && (
@@ -1858,7 +1915,8 @@ export default function Home() {
             experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
-            routePreferenceWeights={generatedRoutePreference ?? routePreference}
+            selectedRouteSegment={selectedRouteSegment}
+            onRouteSegmentSelect={setSelectedRouteSegment}
             // 改善計画T365-2: 周回モード中は地図上のピンを表示・追加受付しない
             // （モード切り替え自体はwaypoints/destination state自体を消さないため、
             // 目的地モードへ戻れば復元される）。

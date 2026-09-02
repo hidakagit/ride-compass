@@ -3,10 +3,9 @@
 import * as Popover from "@radix-ui/react-popover";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { InfoIcon, MapAppearanceIcon } from "@/components/Map/icons";
-import { rampColorForBand } from "@/components/Map/axisLayers";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import type { RoutePreferenceWeights } from "@/types/route";
+import AxisContributionBar from "./AxisContributionBar";
 // 改善計画T518: 色分け選択チップ・凡例ポップオーバーの外枠はRouteSettingsPanel.module.css
 // のクラスをそのままimportして流用する（page.tsxがMapLayersPanel.module.cssのクラスを
 // 再利用している既存の「別コンポーネントのCSS Moduleクラスをそのままimportして流用する」
@@ -24,14 +23,13 @@ interface RouteAxisProfileProps {
   /** 表示対象の軸一覧（順序・ラベルの正本）。呼び出し側がuseAxisCatalog().axesを
    * route_preferenceの重み>0で絞り込んで渡す。 */
   axes: readonly PreferenceAxisDef[];
-  /** RouteCandidate.axis_difficulties（axis_id→difficulty 0-100の距離加重平均）。
-   * 評価できなかった軸はキー自体を持たない。 */
-  axisDifficulties: Record<string, number>;
+  /** RouteCandidate.axis_contributions（axis_id→重み付き寄与度0-100、区間ごとの合成に
+   * 使ったのと同じ重み配分をbackendが軸別に分解した値。合計はoverallDifficultyと一致する）。
+   * 評価できなかった軸はキー自体を持たない（改善計画T550、frontend側の独自再計算を撤去）。 */
+  axisContributions: Record<string, number>;
   /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。候補タブの並び順も
    * この値の昇順で決まる（route_generator.py参照）。 */
   overallDifficulty: number | null;
-  /** 内訳の重み付き寄与度計算に使う重み（axis_id→重み。生成時点の値を渡すこと）。 */
-  weights: RoutePreferenceWeights;
   /** 軸id→色ドットの色（RouteSettingsPanelのstackBarColorForIndexと同じ計算をpage.tsxが
    * 行い、同じ軸なら両パネルで同じ色になるようにする）。 */
   axisColors: Record<string, string>;
@@ -129,16 +127,6 @@ function AxisChip({
   );
 }
 
-// difficulty(0-100)をaxisLayers.tsの共有ランプ配色（緑→黄→橙→赤、RAMP_COLOR_ANCHORS）へ
-// 写像する。rampColorForBand(index, bandCount)はbandCount段階中index番目の色を
-// t=index/(bandCount-1)でRAMP_COLOR_ANCHORS上を線形補間して返す設計のため、
-// bandCount=101・index=Math.round(value)とすればt=value/100に一致し、地図の段階配色と
-// 完全に同じ配色系統のまま0-100の連続値をそのまま色へ変換できる。
-function colorForDifficulty(value: number): string {
-  const clamped = Math.min(100, Math.max(0, value));
-  return rampColorForBand(Math.round(clamped), 101);
-}
-
 // ルート全体のaxis_difficultiesを軸ごとの横棒グラフ一覧として表示する（改善計画T400節4・
 // T402の可視化形式を踏襲）。改善計画T518でこのコンポーネントへ「地図の色分け選択」
 // 「凡例の表示設定」を統合した（旧page.tsx: renderRouteColorSectionBody、「ルート結果
@@ -146,9 +134,8 @@ function colorForDifficulty(value: number): string {
 // 「ルート選択」タブ内・選択中候補の直後にこのコンポーネント1つへ集約した）。
 export default function RouteAxisProfile({
   axes,
-  axisDifficulties,
+  axisContributions,
   overallDifficulty,
-  weights,
   axisColors,
   routeStyleModes,
   routeStyleModeId,
@@ -157,23 +144,13 @@ export default function RouteAxisProfile({
   onToggleLegendKey,
 }: RouteAxisProfileProps) {
   // 軸カタログの並び順のうち、このルートで実際に評価できた軸だけを表示する
-  // （axis_difficultiesにキーが無い＝データ無しで評価不能、という規約はRouteSegmentDetail
+  // （axis_contributionsにキーが無い＝データ無しで評価不能、という規約はRouteSegmentDetail
   // と共通。domain/route.py: RouteCandidate docstring参照）。
   // 改善計画T524（T518コードレビューP1指摘）: 以前はrows.length===0の場合にコンポーネント
   // 全体を空状態文言だけへ差し替えていたため、内訳データが無い候補を選ぶと「地図の色分け」
   // チップ列・凡例の表示設定ポップオーバー（総合難易度モードへ戻す唯一のUI導線を含む）まで
-  // 道連れで消えていた。空状態の対象を内訳セクション（.breakdown）だけへ限定する。
-  const rows = axes.filter((axis) => axisDifficulties[axis.axisId] != null);
-
-  // domain/difficulty.py: composite_difficulty（sum(score*weight)/sum(weight)、有効な軸の
-  // みで正規化）と同じ考え方をfrontend側で再現する。表示対象の全軸のcontributionを合計
-  // すると、backend側の丸め差を除きoverallDifficultyにほぼ一致する。
-  const weightSum = rows.reduce((sum, axis) => sum + Math.max(0, weights[axis.axisId] ?? 0), 0);
-  function contribution(axisId: string): number {
-    const raw = axisDifficulties[axisId];
-    if (weightSum <= 0) return raw; // 重み情報が無い/全0の縮退ケースは素の値へフォールバック
-    return (raw * Math.max(0, weights[axisId] ?? 0)) / weightSum;
-  }
+  // 道連れで消えていた。空状態の対象を内訳（積み上げバー）だけへ限定する。
+  const rows = axes.filter((axis) => axisContributions[axis.axisId] != null);
 
   const currentMode = getRouteStyleMode(routeStyleModes, routeStyleModeId);
   const isTotalSelected = routeStyleModeId === "difficulty";
@@ -213,8 +190,9 @@ export default function RouteAxisProfile({
       {/* 改善計画T545: 「総合難易度」単独行＋各軸チップが内訳の各行へ埋め込まれていた
           選択UIを、ルート設定タブの軸チップ列（chipRow、折り返して並ぶ）と同じ見た目・
           操作性の1行へ統合した（ユーザー実機指摘）。地図の色分け対象を選ぶ役割はこの
-          チップ列だけが持ち、下の内訳（breakdown）は選択状態を持たない読み取り専用の
-          一覧のまま残す（内訳だけを見て複数軸を横断比較する既存の使い方を変えない）。
+          チップ列だけが持ち、下の内訳（AxisContributionBar、改善計画T550で積み上げバー化）は
+          選択状態を持たない読み取り専用のまま残す（内訳だけを見て複数軸を横断比較する
+          既存の使い方を変えない）。
           改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）・
           改善計画T549: routeStyleModesは公開軸すべてから無条件で生成される
           （routeStyleModes.ts参照、絞り込みはroute_preferenceの重みのみ）。以前は
@@ -244,44 +222,24 @@ export default function RouteAxisProfile({
             />
           ))}
       </div>
+      {/* 改善計画T550: 「内訳（重み付き寄与度）」は軸ごとの個別横棒グラフのリストをやめ、
+          総合難易度の数字の隣に積み上げ1本バー（AxisContributionBar、RouteSettingsPanelの
+          「重み配分」帯グラフと同じ表現）＋その下の凡例（色ドット＋ラベル＋数値）へ統一する。
+          区間クリック詳細（ボトムシート側）もこの同じコンポーネントを使う——表示部品の
+          一元化がこのタスクの狙いのため、軸ごとの内訳を別の表現で作り直さない。 */}
       {overallDifficulty != null && (
         <div className={styles.scores}>
           <span className={styles.scoreItem}>
             <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
             <span className={styles.scoreLabel}>/100 総合難易度</span>
           </span>
+          {rows.length > 0 ? (
+            <AxisContributionBar axes={rows} contributions={axisContributions} axisColors={axisColors} />
+          ) : (
+            <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>
+          )}
         </div>
       )}
-
-      <div className={styles.breakdown}>
-        <p className={styles.hint}>内訳（重み付き寄与度）</p>
-        {rows.length === 0 ? (
-          <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>
-        ) : (
-        <ul className={styles.list}>
-          {rows.map((axis) => {
-            const raw = axisDifficulties[axis.axisId];
-            const value = contribution(axis.axisId);
-            const axisColor = axisColors[axis.axisId] ?? TOTAL_DOT_COLOR;
-            return (
-              <li key={axis.axisId} className={styles.row}>
-                <span className={styles.rowLabel}>
-                  <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColor }} />
-                  <span>{axis.label}</span>
-                </span>
-                <span className={styles.track}>
-                  <span
-                    className={styles.bar}
-                    style={{ width: `${Math.min(100, Math.max(0, value))}%`, background: colorForDifficulty(raw) }}
-                  />
-                </span>
-                <span className={styles.value}>{Math.round(value)}</span>
-              </li>
-            );
-          })}
-        </ul>
-        )}
-      </div>
     </div>
   );
 }

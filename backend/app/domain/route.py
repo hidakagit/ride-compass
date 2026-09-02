@@ -1,3 +1,5 @@
+from typing import Callable
+
 from pydantic import BaseModel, Field
 
 from app.domain.difficulty import distance_weighted_difficulty
@@ -51,6 +53,13 @@ class RouteSegmentDetail(BaseModel):
     # キー自体を含めない（`compute_edge_axis_scores`・`evaluate_axis_difficulties`と
     # 同じ「データ無しはキーを持たない」規約）。
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
+    # 改善計画T550: 「重み付き寄与度」（この区間の合成に使ったのと同じ重み配分で
+    # axis_id別に分解した値、`arr*weight/weighted_weight_sums`）。axis_difficultiesと
+    # 同じ「データ無しはキーを持たない」規約。全軸のこの値を合計すると
+    # difficulty（丸め前）と一致する——frontendが「重み付き寄与度」内訳を独自
+    # 再計算せず表示するために使う（domain/evaluation.py: compose_costs_from_axis_matrix
+    # 参照）。
+    axis_contributions: dict[str, float] = Field(default_factory=dict)
     difficulty: float | None = None
 
 
@@ -89,6 +98,12 @@ class RouteCandidate(BaseModel):
     segments: list[RouteSegmentDetail] | None = None
     overall_difficulty: float | None = None
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
+    # 改善計画T550: `RouteSegmentDetail.axis_contributions`をルート全区間へ距離加重平均で
+    # 集約したもの（`merge_axis_contributions`、`axis_difficulties`と同じ集約方法）。
+    # 合計は丸め誤差を除いて`overall_difficulty`と一致する（`route_generator.py:
+    # _with_axis_contributions`が付与する）。フロントの「内訳（重み付き寄与度）」表示は
+    # このフィールドをそのまま使い、ルート設定の重みを使った独自再計算はしない。
+    axis_contributions: dict[str, float] = Field(default_factory=dict)
 
 
 # 改善計画T11（レビュー指摘M3）: road_graphエンジンのsegmentsはEdge単位（交差点間、
@@ -167,23 +182,44 @@ def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | Non
     return {"type": "LineString", "coordinates": coordinates}
 
 
-def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """複数の`RouteSegmentDetail.axis_difficulties`を、axis_idごとに距離加重平均へ
-    集約する（改善計画T309）。`_merge_segment_bin`がビン単位（500m）の集約に使うほか、
-    `RouteCandidate.axis_difficulties`（改善計画T402）はこの関数を候補の全区間へ1回
-    適用するだけで得られる（新しい計算式は不要、`route_generator.py`参照）。
+def _merge_axis_value_dict(
+    segments: list[RouteSegmentDetail],
+    field_getter: Callable[[RouteSegmentDetail], dict[str, float]],
+) -> dict[str, float]:
+    """複数の`RouteSegmentDetail`が持つaxis_id→float辞書（`field_getter`で指定）を、
+    axis_idごとに距離加重平均へ集約する共通ロジック（改善計画T309、T550で
+    `merge_axis_difficulties`/`merge_axis_contributions`の共有実装として抽出）。
     渡されたsegments群のどの区間にも無いaxis_idは結果にも含めない
-    （`RouteSegmentDetail.axis_difficulties`と同じ「データ無しはキーを持たない」規約）。
+    （両フィールドと同じ「データ無しはキーを持たない」規約）。
     """
-    axis_ids = {axis_id for s in segments for axis_id in s.axis_difficulties}
+    axis_ids = {axis_id for s in segments for axis_id in field_getter(s)}
     merged: dict[str, float] = {}
     for axis_id in axis_ids:
         value = distance_weighted_difficulty(
-            [(s.axis_difficulties.get(axis_id), s.distance_km) for s in segments]
+            [(field_getter(s).get(axis_id), s.distance_km) for s in segments]
         )
         if value is not None:
             merged[axis_id] = value
     return merged
+
+
+def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, float]:
+    """`RouteSegmentDetail.axis_difficulties`をaxis_idごとに距離加重平均へ集約する
+    （改善計画T309）。`_merge_segment_bin`がビン単位（500m）の集約に使うほか、
+    `RouteCandidate.axis_difficulties`（改善計画T402）はこの関数を候補の全区間へ1回
+    適用するだけで得られる（新しい計算式は不要、`route_generator.py`参照）。
+    """
+    return _merge_axis_value_dict(segments, lambda s: s.axis_difficulties)
+
+
+def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, float]:
+    """`RouteSegmentDetail.axis_contributions`（改善計画T550「重み付き寄与度」）を
+    axis_idごとに距離加重平均へ集約する。`merge_axis_difficulties`と同じ集約方法
+    （`_merge_axis_value_dict`共有実装）。`_merge_segment_bin`のビン単位集約、
+    `RouteCandidate.axis_contributions`（`route_generator.py:
+    _with_axis_contributions`）の両方が使う。
+    """
+    return _merge_axis_value_dict(segments, lambda s: s.axis_contributions)
 
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
@@ -205,5 +241,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         ),
         road_surface_good=_weighted_mode([(s.road_surface_good, s.distance_km) for s in segments]),
         axis_difficulties=merge_axis_difficulties(segments),
+        axis_contributions=merge_axis_contributions(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )

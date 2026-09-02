@@ -1314,6 +1314,10 @@ export interface components {
             axis_difficulties?: {
                 [key: string]: number;
             };
+            /** Axis Contributions */
+            axis_contributions?: {
+                [key: string]: number;
+            };
         };
         /**
          * RouteGenerateJobCreatedResponse
@@ -1453,6 +1457,10 @@ export interface components {
             road_surface_good?: boolean | null;
             /** Axis Difficulties */
             axis_difficulties?: {
+                [key: string]: number;
+            };
+            /** Axis Contributions */
+            axis_contributions?: {
                 [key: string]: number;
             };
             /** Difficulty */

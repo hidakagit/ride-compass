@@ -12,7 +12,8 @@
 | `components/RouteForm/RouteForm.tsx` | 距離入力・生成ボタン。周回/目的地モード切替 |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
-| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（軸別difficulty横棒グラフ）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
+| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（地図の色分けチップ列＋「重み付き寄与度」内訳）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
+| `components/RouteAxisProfile/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
 | `components/ComparisonPanel/ComparisonPanel.tsx` | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
@@ -162,9 +163,10 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   （`Map/routeStyleModes.ts`）でpage.tsx側が管理し、地図上の色分け式を切り替える。
   チップ選択時、地図上の「ルート」チップ（`layerVisibility.route`）がまだOFFなら自動で
   ONにする。地図の色分け対象を選ぶ役割はこのチップ列だけが持ち、下記の軸別内訳は選択状態を
-  持たない読み取り専用の一覧（色分けに対応しない軸もこちらには表示される）。このチップ列に
-  並ぶチップは常にクリック可能（`AxisChip`は非活性描画を持たない）——色分けに対応しない軸を
-  この列へ含めない絞り込みが、その前提を成立させている。
+  持たない読み取り専用の一覧（`axis_contributions`にキーが無い軸[色分けに対応しない軸を
+  含む]は表示されない）。このチップ列に並ぶチップは常にクリック可能（`AxisChip`は非活性
+  描画を持たない）——色分けに対応しない軸をこの列へ含めない絞り込みが、その前提を
+  成立させている。
 - **総合難易度**: `RouteCandidate.overall_difficulty`（絶対基準0-100の軸重み付き合成値）を
   表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順
   もこの値の昇順（backend `route_generator.py`が返す`routes`配列の並び順をそのまま使う、
@@ -172,17 +174,39 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   自身は持たず、呼び出し元（`app/page.tsx`の「ルート結果」見出し脇の
   `renderRouteResultHeaderActions()`が返す`FieldLabel`、候補タブすべてに共通の1箇所）へ
   集約している。
-- **軸別内訳**: `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の距離加重
-  平均、評価できなかった軸はキー自体が無く非表示）を、`domain/difficulty.py:
-  composite_difficulty`と同じ考え方（`raw*weight/weightSum`）でルート設定の重みを反映した
-  「寄与度」に変換してからバー長にする——重みが低い軸は生の難易度が高くてもバーが短くなり、
-  「総合難易度が低いのに内訳の見た目が悪くて混乱する」ことを避ける。バーの色は生の
-  `axis_difficulties`値（`axisLayers.ts: rampColorForBand`を`bandCount=101`で流用、
-  地図の段階配色と同じ配色系統）——バー長（影響度）とバー色（深刻度）を意図的に分離する。
-  各行の左側は色ドット＋ラベルのみ（クリック不可）で、地図の色分け対象を選ぶ操作は
-  上記チップ列側だけが担う。
+- **軸別内訳（重み付き寄与度）**: `RouteCandidate.axis_contributions`（axis_id→重み付き
+  寄与度0-100、backend側で区間ごとの合成に使ったのと同じ重み配分を軸別に分解しルート
+  全体へ距離加重平均で集約した値。評価できなかった軸はキー自体が無く非表示。backend:
+  `domain/evaluation.py: compose_costs_from_axis_matrix`参照）を、「総合難易度」の数字の
+  隣に`AxisContributionBar`（積み上げ1本バー＋その下の凡例）でそのまま表示する。合計が
+  丸め誤差を除いて`overall_difficulty`と数学的に一致するため、frontend側での独自の
+  重み計算は行わない。バーの各セグメントの色は`axisColors`（地図色分けチップと同じ配色）、
+  幅は寄与度の値そのもの。
 - **凡例の表示設定**: `stackBarLegendTrigger`パターン（見出し脇の(i)アイコン→ポップオーバー
   でチェックボックス一覧）で、選択中モードの凡例カテゴリを地図上で表示/非表示できる。
+
+## AxisContributionBar.tsx（「重み付き寄与度」の共有表示部品）
+
+`RouteSettingsPanel.module.css`の`stackBar`/`stackSegment`クラス（「重み配分」帯グラフと
+同じ表現）をそのまま流用した積み上げ1本バーと、その下の凡例（色ドット＋ラベル＋数値）を
+描画する。`axes`（表示順・ラベル）・`contributions`（axis_id→寄与度）・`axisColors`のみを
+受け取る汎用コンポーネントで、値の出どころ（ルート全体か特定の区間か）を一切知らない。
+`contributions`にキーが無い軸は自動的に除外されるため、呼び出し側は`axes`を絞り込まずに
+渡してよい。ルート全体の内訳（RouteAxisProfile、`RouteCandidate.axis_contributions`）と
+区間クリック詳細（page.tsx、`RouteSegmentDetail.axis_contributions`、下記「区間クリック
+詳細（selectedRouteSegment）」参照）の両方が同じこのコンポーネントを使う——「重み付き
+寄与度」の表示はこの1部品に一元化されており、値の出どころごとに別の表現を持たない。
+
+## 区間クリック詳細（selectedRouteSegment）
+
+地図上でルート線の区間をクリックすると、`page.tsx`の`selectedRouteSegment` state
+（`{ segment: RouteSegmentDetail, latitude, longitude }`、`MapView.tsx:
+handleRouteSegmentClick`がクリック地点の座標とともに設定する）が入る。地図側は
+クリック地点へ軽量なマーカーを立てるだけでテキストポップアップは出さない
+（[地図: 静的レイヤー・道路表示](static-map-layers.md)参照）。`selectedRouteSegment`が
+non-nullの間、「ルート結果」タブはルート全体の内訳の代わりにその区間の地点・到達予想
+時刻＋`AxisContributionBar`（区間の`axis_contributions`）を表示し、×ボタンで
+`selectedRouteSegment`をnullへ戻すとルート全体表示に復帰する。
 
 ## ComparisonPanel.tsx
 
