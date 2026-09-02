@@ -10,7 +10,7 @@
 // 実データ消失バグの修正対象。このフォームに編集欄を持たないこのフィールドが、編集
 // フォームを経由しても元の値のままpayloadへ素通しされることを検証する回帰テストを
 // 最優先で書く。
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AxisDefinitionResponse, AxisShape } from "@/types/route";
@@ -347,13 +347,13 @@ describe("AxisComposer", () => {
       const materialSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
       await user.selectOptions(materialSelect, "surface_good");
 
-      // 負の数値をuser.typeで1文字ずつ入力すると、"-"のみ入力された瞬間の中間状態で
-      // Number("-")===NaNとなり、この<input>を制御しているReactの状態がNaNへ倒れて
-      // 入力済みの"-"ごと失われる（実測: 最終的に"-20"ではなく"20"になる）。
-      // 実際のユーザー操作（ペースト等、中間状態を経ない一括入力）に近いfireEvent.changeで
-      // 最終値を直接設定する。
+      // 改善計画T547でNumberField化し、"-"のみ入力された中間状態でも消えず最後まで
+      // 打ち切れるようになったため、実際のユーザー操作に近いuser.type（1文字ずつ）で
+      // 検証する（以前はNumber("-")===NaNで消えるバグを避けfireEvent.changeで一括設定
+      // する回避策を取っていた）。
       const weightInput = screen.getByRole("spinbutton", { name: "係数" });
-      fireEvent.change(weightInput, { target: { value: "-20" } });
+      await user.clear(weightInput);
+      await user.type(weightInput, "-20");
 
       await clickNext(user);
       await user.click(screen.getByRole("button", { name: "作成する" }));

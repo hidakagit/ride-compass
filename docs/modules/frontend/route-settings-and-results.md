@@ -203,3 +203,12 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 距離入力・生成ボタン。`RouteMode`（"loop"|"destination"）で周回/目的地モードを切り替える。
 モバイル上部バー向けの`compact`表示を持つ。目的地モードでは距離を入力させず、経由地・
 目的地のいずれも未指定のまま生成しようとするとサイレント失敗せずエラー文言を出す。
+
+距離の`<Input type="number">`はネイティブのスピンボタン（上下矢印）をCSS
+（`[&::-webkit-inner-spin-button]:appearance-none`等）で非表示にする——直接入力が主な
+操作手段で、1km刻みの矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
+数値専用キーボードを明示し、`onFocus`で既存の値を全選択して毎回消してから打ち直す手間を
+無くす。`distance`はstring stateのまま親（`page.tsx`）が持ち、数値への変換は送信直前
+（`handleSubmit`内の`Number(distance)`検証）でのみ行うため、`AxisComposer.tsx`の
+`NumberField`（[軸スタジオ](axis-studio.md)参照）が対処する「入力途中でReactの制御値が
+NaNへ倒れる」問題はこの入力には無い。

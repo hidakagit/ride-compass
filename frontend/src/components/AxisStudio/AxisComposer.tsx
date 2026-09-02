@@ -113,6 +113,53 @@ function SectionLabel({ label, description }: { label: string; description?: str
   );
 }
 
+/** 改善計画T547（ユーザー指摘: 軸スタジオの数値入力がしにくい・負数を入力できる必要が
+ * ある）: 素の<input type="number" value={n} onChange={e => onChange(Number(e.target.value))}>
+ * は、「-」だけ入力した瞬間にNumber("-")===NaNとなり、Reactが管理するvalueがNaNへ
+ * 倒れて入力済みの「-」ごと消える（AxisComposer.test.tsx「係数をマイナスにできる」の
+ * 回帰テストが、この挙動を避けるためuser.type[1文字ずつ]ではなくfireEvent.changeで
+ * 最終値を一括設定する回避策を取っていた——ユーザーの実際のタイピングでは同じ回避が
+ * できず、この指摘に至った）。同じ理由で末尾の小数点（"12."）も一時的に消える。
+ * 入力中のDOM値はこのコンポーネント自身のローカル文字列stateにそのまま保持し、
+ * 有限数としてパースできた時点でだけ親のonChangeへ伝える——「-」や「12.」のような
+ * 未確定の中間状態を親のvalueへ反映しないことで、Reactに上書きされず最後まで
+ * 打ち切れるようにする。外部起因でvalueが変わった場合（複製・既定値リセット等）は
+ * ローカル文字列を追従させる——ただしuseEffectではなく「レンダー中に前回propsとの差分を
+ * 見てstateを補正する」React公式推奨パターン（https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes）
+ * を使う。useEffectで同期すると一度不正確な値でコミットしてから直後に描画し直す
+ * 無駄な多重レンダーが発生する（react-hooks/set-state-in-effectが警告する箇所）ため。
+ * onFocusで全選択にする（数値の上書きがしにくいという指摘への対応、ワンタップで
+ * 既存の値を全部選択して打ち直せる）。 */
+function NumberField({
+  value,
+  onChange,
+  ...rest
+}: {
+  value: number;
+  onChange: (next: number) => void;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  const [text, setText] = useState(String(value));
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value && Number(text) !== value) {
+    setSyncedValue(value);
+    setText(String(value));
+  }
+  return (
+    <input
+      type="number"
+      value={text}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        const parsed = Number(raw);
+        if (raw.trim() !== "" && Number.isFinite(parsed)) onChange(parsed);
+      }}
+      {...rest}
+    />
+  );
+}
+
 /** 改善計画T397: 係数・スコアの入力を「スライダーで大まかに調整＋数値で正確に入力」の
  * 組み合わせにする（ユーザー指摘: 数値入力だけでなくスライダーも使いたい）。両者は同じ
  * stateを指すため常に同期する。値そのものの取りうる範囲は材料ごとに大きく異なる
@@ -146,13 +193,7 @@ function SliderNumberField({
         value={clamped}
         onChange={(e) => onChange(Number(e.target.value))}
       />
-      <input
-        type="number"
-        step={step}
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
+      <NumberField value={value} onChange={onChange} step={step} aria-label={label} />
     </span>
   );
 }
@@ -865,13 +906,12 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
             label="既定重み(default_weight)"
             description="この軸を誰も上書きしていないときに使われる重みです。他の公開軸の重みとの比率だけがルートの選ばれ方を左右します（数値そのものに意味はありません。例: 全軸の重みを一律2倍にしても結果は変わりません）。大きくするほど、他の軸に対して相対的にこの軸を重視します。0にすると計算から除外されます。"
           />
-          <input
-            type="number"
+          <NumberField
             min="0"
             step="0.01"
             aria-label="既定重み(default_weight)"
             value={draft.defaultWeight}
-            onChange={(e) => setDraft((d) => ({ ...d, defaultWeight: Number(e.target.value) }))}
+            onChange={(next) => setDraft((d) => ({ ...d, defaultWeight: next }))}
           />
           {renderWeightShare()}
         </div>
@@ -1097,9 +1137,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 <BreakpointCurveEditor breakpoints={draft.breakpoints} onChangePoint={updateBreakpoint} />
                 {draft.breakpoints.map((bp, i) => (
                   <div key={i} className={styles.breakpointRow}>
-                    <input type="number" step="0.1" value={bp[0]} aria-label="入力値" onChange={(e) => updateBreakpoint(i, 0, Number(e.target.value))} />
+                    <NumberField step="0.1" value={bp[0]} aria-label="入力値" onChange={(next) => updateBreakpoint(i, 0, next)} />
                     <span>→</span>
-                    <input type="number" step="1" value={bp[1]} aria-label="スコア" onChange={(e) => updateBreakpoint(i, 1, Number(e.target.value))} />
+                    <NumberField step="1" value={bp[1]} aria-label="スコア" onChange={(next) => updateBreakpoint(i, 1, next)} />
                     <button
                       type="button"
                       onClick={() => setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))}
@@ -1317,12 +1357,11 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                       刻み幅を固定しない（step="0.1"のような固定刻みは、浮動小数点誤差で
                       「1」のような値さえHTML5のstep制約検証に引っかかりsubmitイベント
                       自体が発火しなくなる実バグをテスト作成時に発見・修正した）。 */}
-                  <input
-                    type="number"
+                  <NumberField
                     step="any"
                     value={value}
                     aria-label={`しきい値${i + 1}`}
-                    onChange={(e) => updateThresholdOverrideValue(i, Number(e.target.value))}
+                    onChange={(next) => updateThresholdOverrideValue(i, next)}
                   />
                   <button type="button" onClick={() => removeThresholdOverrideValue(i)}>
                     削除

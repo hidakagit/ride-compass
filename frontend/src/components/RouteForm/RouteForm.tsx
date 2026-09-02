@@ -127,14 +127,25 @@ export default function RouteForm({
       {routeMode === "loop" ? (
         <label className={compact ? styles.labelCompact : undefined}>
           {!compact && "距離"}
+          {/* 改善計画T547（ユーザー指摘: 生成距離の数値入力がしにくい）: ネイティブの
+              スピンボタン（上下矢印）はタップ領域が数px四方しかなく、代わりに幅を圧迫する
+              だけだったため非表示にする（distanceは直接入力が主な操作手段で、1km刻みの
+              矢印クリックは想定していない）。inputMode="numeric"でモバイルの数値専用
+              キーボードを明示し、onFocusで既存の値を全選択にして毎回消してから
+              打ち直す手間を無くす。 */}
           <Input
             type="number"
+            inputMode="numeric"
             min="1"
             max={MAX_DISTANCE_KM}
             step="1"
             value={distance}
             onChange={(e) => onDistanceChange(e.target.value)}
-            className={compact ? "w-14" : "ml-2 w-20"}
+            onFocus={(e) => e.currentTarget.select()}
+            className={
+              (compact ? "w-16" : "ml-2 w-24") +
+              " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            }
             aria-label={compact ? "距離(km)" : undefined}
           />
           km
