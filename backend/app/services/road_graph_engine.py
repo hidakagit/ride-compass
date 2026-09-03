@@ -114,6 +114,7 @@ from app.domain.route import (
 )
 from app.domain.twilight import is_night
 from app.domain.routing import (
+    LazyGraphEdgeMismatchError,
     LazyRoadGraph,
     NodeSpatialIndex,
     SearchGraphStatics,
@@ -125,6 +126,7 @@ from app.domain.routing import (
     find_nearest_node_indexed,
     overlap_ratio,
     path_to_edge_ids_lazy,
+    path_to_edge_indices_lazy,
     select_diverse_by_overlap,
     shortest_path_node_ids_lazy,
     tree_path_edge_indices,
@@ -169,6 +171,10 @@ MAX_RING_CANDIDATES_EXAMINED = 4000
 # `目標/2 ± 許容/2`へ戻す）。
 LOOP_TO_OUTBOUND_RATIO_MIN = 2.0
 LOOP_TO_OUTBOUND_RATIO_MAX = 2.3
+# リング中心（タイブレーク「リング中心に近い順」の基準）の比率。上下限の単純平均ではなく
+# 目標距離をこの比率で割った値を使う——許容が目標距離以上のとき下限が0でクランプされ、
+# 上下限の算術平均だと中心が0付近まで引き下げられ極端に短い往路が上位に来るため。
+RING_CENTER_RATIO = (LOOP_TO_OUTBOUND_RATIO_MIN + LOOP_TO_OUTBOUND_RATIO_MAX) / 2.0
 # 一対全探索のコスト上限（リング上限×(1+P)）に掛ける余裕。Edge単位の丸め（0.1m）の
 # 積み上がりで上限ぎりぎりのNodeを取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
@@ -230,10 +236,10 @@ class _RoadGraphContext:
     # 表示を一致させる（詳細はprepare()参照）。
     night_active: bool
     # 改善計画T531: 一対全最短経路木用のCSR構造＋Edge実距離配列（タイル集合キーでキャッシュ済み、
-    # domain/routing.py: SearchGraphStatics参照）と、cost_listと同じ内容のnumpy配列
-    # （一対全探索のCSR dataへ並べ替えるために配列形が要る）。
+    # domain/routing.py: SearchGraphStatics参照）。build_shortest_path_treeへは
+    # cost_listをそのまま渡す（内部でnp.asarray済み、改善計画T557項目12で専用の
+    # cost_array数値配列フィールドを廃止——cost_listと同じ内容を2つ持たない）。
     statics: SearchGraphStatics
-    cost_array: np.ndarray
     # 改善計画T531: origin_nodeのlazy_graph上のNode index（一対全木の起点）。
     origin_index: int
     # 改善計画T531: 復路探索（折返し点→起点）のA*ヒューリスティック配列。目的地が常に起点の
@@ -278,7 +284,6 @@ class _SearchGraph:
     hard_filter_excluded: np.ndarray
     # 改善計画T531: _RoadGraphContextと同じ意味（フィールドdocstring参照）。
     statics: SearchGraphStatics
-    cost_array: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -286,7 +291,6 @@ class _TurnaroundData:
     """`LoopTurnaround.data`（本エンジン固有）: 折返し点のNodeと、一対全木上の往路
     （`LazyRoadGraph`のEdge index列）。`trace_loop_from_turnaround`が復路探索に使う。"""
 
-    node_index: int
     node_id: str
     outbound_edge_indices: list[int]
     outbound_length_m: float
@@ -427,13 +431,12 @@ class RoadGraphEngine:
         graph_ms = round((time.monotonic() - graph_started) * 1000)
 
         # 改善計画T531: 一対全木用のCSR構造・Edge実距離配列もタイル集合キーでキャッシュする。
-        statics, statics_cached = await _get_or_build_search_statics(tile_set, lazy_graph, graph)
+        # 改善計画T557: lazy_graph・graphの再split後の不整合を検知すると再構築された
+        # lazy_graphが返る場合があるため、必ずこの戻り値でlazy_graphを更新する。
+        statics, statics_cached, lazy_graph = await _get_or_build_search_statics(tile_set, lazy_graph, graph)
 
         # A*のcost_fnへ渡す配列はlazy_graph.edge_ids（並行Edge解消後）の行順に揃える。
-        cost_array = np.fromiter(
-            (cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids), dtype=float, count=len(lazy_graph.edge_ids)
-        )
-        cost_list = cost_array.tolist()
+        cost_list = [cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids]
         # A*のestimate_cost_fn（ヒューリスティック）をレグごとにnumpyで1回だけ計算できる
         # よう、lazy_graph.index_to_node_id順の緯度・経度配列を1回だけ構築する。
         node_lat = np.array([graph.nodes[node_id].latitude for node_id in lazy_graph.index_to_node_id])
@@ -465,7 +468,6 @@ class RoadGraphEngine:
             edge_ids=score_matrix.edge_ids,
             hard_filter_excluded=hard_filter_excluded,
             statics=statics,
-            cost_array=cost_array,
         )
 
     async def _get_or_build_node_index(
@@ -574,7 +576,6 @@ class RoadGraphEngine:
             node_lon=search.node_lon,
             night_active=search.night_active,
             statics=search.statics,
-            cost_array=search.cost_array,
             origin_index=search.lazy_graph.node_id_to_index[origin_node],
         )
 
@@ -731,19 +732,19 @@ class RoadGraphEngine:
         """
         target_m = distance_km * 1000.0
         tolerance_m = distance_tolerance_km * 1000.0
-        ring_lower_m = (target_m - tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MIN
+        ring_lower_m = max(0.0, (target_m - tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MIN)
         ring_upper_m = (target_m + tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MAX
         if ring_lower_m > ring_upper_m:
-            ring_lower_m = (target_m - tolerance_m) / 2.0
+            ring_lower_m = max(0.0, (target_m - tolerance_m) / 2.0)
             ring_upper_m = (target_m + tolerance_m) / 2.0
-        ring_center_m = (ring_lower_m + ring_upper_m) / 2.0
+        ring_center_m = target_m / RING_CENTER_RATIO
         cost_limit = ring_upper_m * (1.0 + max(self._penalty_strength, 0.0)) * COST_LIMIT_SLACK
         statics = context.statics
 
         tree_started = time.monotonic()
         tree = await asyncio.to_thread(
             build_shortest_path_tree,
-            statics.csr, context.cost_array, statics.edge_length_m, context.origin_index, cost_limit,
+            statics.csr, context.cost_list, statics.edge_length_m, context.origin_index, cost_limit,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
@@ -770,7 +771,11 @@ class RoadGraphEngine:
         closeness_key = np.abs(ring_length - ring_center_m)
         order = np.lexsort((ring, closeness_key, difficulty_key))
         ranked = ring[order][:MAX_RING_CANDIDATES_EXAMINED]
-        difficulty_by_node = dict(zip(ring[order].tolist(), difficulty_key[order].tolist()))
+        # 改善計画T557（項目10）: difficulty_by_node／近接判定用平面座標は、以降で実際に
+        # 引かれうる`ranked`（上限MAX_RING_CANDIDATES_EXAMINED件）ぶんだけ用意する
+        # （以前はring全件・グラフ全Node分を毎リクエスト作っていた）。
+        ranked_list = ranked.tolist()
+        difficulty_by_node = dict(zip(ranked_list, difficulty_key[order][: len(ranked_list)].tolist()))
 
         lazy_graph = context.lazy_graph
         outbound_cache: dict[int, list[int] | None] = {}
@@ -782,12 +787,16 @@ class RoadGraphEngine:
 
         # 近接判定は、緯度経度を起点基準の平面km座標へ1回だけ変換し（東京規模のbboxでは
         # 等距円筒近似で十分）、採用済み候補との平方距離をPythonのfloat演算で比べる
-        # （候補ごとにnumpyのhaversineを呼ぶと数千件×2パスで0.5秒近くかかる）。
+        # （候補ごとにnumpyのhaversineを呼ぶと数千件×2パスで0.5秒近くかかる）。far_enoughは
+        # ranked由来のnode_indexしか引かないため、座標変換もranked分だけに限定する
+        # （グラフ全Node分のリストを毎回作らない、改善計画T557項目10）。
         min_separation_sq = MIN_TURNAROUND_SEPARATION_KM ** 2
         lat0 = float(context.node_lat[context.origin_index])
         km_per_deg_lon = KM_PER_DEGREE_LATITUDE * math.cos(math.radians(lat0))
-        node_y = (context.node_lat * KM_PER_DEGREE_LATITUDE).tolist()
-        node_x = (context.node_lon * km_per_deg_lon).tolist()
+        ranked_lat = context.node_lat[ranked] * KM_PER_DEGREE_LATITUDE
+        ranked_lon = context.node_lon[ranked] * km_per_deg_lon
+        node_y = dict(zip(ranked_list, ranked_lat.tolist()))
+        node_x = dict(zip(ranked_list, ranked_lon.tolist()))
 
         def far_enough(node_index: int, selected: list[int]) -> bool:
             x, y = node_x[node_index], node_y[node_index]
@@ -798,21 +807,12 @@ class RoadGraphEngine:
                     return False
             return True
 
-        ranked_list = ranked.tolist()
-        rejected_by_overlap: list[int] = []
+        # 改善計画T557（項目15）: 「1回目の閾値→埋まらなければ2回目の緩和閾値で再検査」を
+        # select_diverse_by_overlap内のループへ統合し、呼び出し側の2回呼びを1回にした。
         selected = select_diverse_by_overlap(
-            ranked_list, outbound_edges, statics.edge_length_m, TURNAROUND_MAX_OVERLAP_RATIO, pool_size, far_enough,
-            rejected_by_overlap=rejected_by_overlap,
+            ranked_list, outbound_edges, statics.edge_length_m,
+            [TURNAROUND_MAX_OVERLAP_RATIO, TURNAROUND_RELAXED_OVERLAP_RATIO], pool_size, far_enough,
         )
-        relaxed = False
-        if len(selected) < pool_size and rejected_by_overlap:
-            # 2回目のパスは、1回目に重複率だけを理由に飛ばした候補のみを緩和閾値で再検査する
-            # （近接・経路無しで飛ばした候補は再検査しても結果が変わらない）。
-            relaxed = True
-            selected = select_diverse_by_overlap(
-                rejected_by_overlap, outbound_edges, statics.edge_length_m, TURNAROUND_RELAXED_OVERLAP_RATIO,
-                pool_size, far_enough, initial_selected=selected,
-            )
 
         origin_node = context.graph.nodes[context.origin_node]
         turnarounds: list[LoopTurnaround] = []
@@ -826,18 +826,17 @@ class RoadGraphEngine:
             turnarounds.append(
                 LoopTurnaround(
                     bearing=bearing,
-                    outbound_distance_km=round(float(length[node_index]) / 1000, 2),
                     outbound_difficulty=float(difficulty_by_node[node_index]),
                     data=_TurnaroundData(
-                        node_index=node_index, node_id=node_id, outbound_edge_indices=edges,
+                        node_id=node_id, outbound_edge_indices=edges,
                         outbound_length_m=float(length[node_index]),
                     ),
                 )
             )
         logger.info(
-            "select_turnarounds ring_nodes=%d examined=%d selected=%d pool=%d relaxed=%s "
+            "select_turnarounds ring_nodes=%d examined=%d selected=%d pool=%d "
             "ring_km=[%.1f,%.1f] tree_ms=%d total_ms=%d",
-            len(ring), len(ranked_list), len(turnarounds), pool_size, relaxed,
+            len(ring), len(ranked_list), len(turnarounds), pool_size,
             ring_lower_m / 1000, ring_upper_m / 1000, tree_ms, round((time.monotonic() - tree_started) * 1000),
         )
         return turnarounds
@@ -885,14 +884,14 @@ class RoadGraphEngine:
         if return_path is None:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: no return path found")
 
-        return_edge_ids = path_to_edge_ids_lazy(lazy_graph, return_path)
-        if not return_edge_ids:
+        # 改善計画T557（項目9）: 以前はpath_to_edge_ids_lazy（ID列）と
+        # 「(u,v)ペアからindexを引く」処理を別々に2回行っていたが、indexは1回求めれば
+        # ID列もそこから導けるため、return_path上のNodeペア走査を1回に減らす。
+        return_edge_index_list = path_to_edge_indices_lazy(lazy_graph, return_path)
+        if not return_edge_index_list:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: return path has no edges")
-        return_edge_indices = np.array(
-            [lazy_graph.edge_index_by_node_pair[(lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])]
-             for u, v in zip(return_path, return_path[1:])],
-            dtype=np.int64,
-        )
+        return_edge_ids = [lazy_graph.edge_ids[index] for index in return_edge_index_list]
+        return_edge_indices = np.array(return_edge_index_list, dtype=np.int64)
         retrace = overlap_ratio(return_edge_indices, np.fromiter(penalized, dtype=np.int64), context.statics.edge_length_m)
         outbound_edge_ids = [lazy_graph.edge_ids[index] for index in data.outbound_edge_indices]
         edge_ids = [*outbound_edge_ids, *return_edge_ids]
@@ -1178,30 +1177,73 @@ async def _get_or_build_lazy_graph(
 
 async def _get_or_build_search_statics(
     tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
-) -> tuple[SearchGraphStatics, bool]:
+) -> tuple[SearchGraphStatics, bool, LazyRoadGraph]:
     """一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
     SearchGraphStatics`）を、`_get_or_build_lazy_graph`と同じタイル集合キーで
     キャッシュする（改善計画T531）。`tile_set`がNoneならキャッシュを経由せず毎回構築する。
-    戻り値の2つ目はキャッシュヒットしたかどうか（ログ用）。"""
+    戻り値の2つ目はキャッシュヒットしたかどうか（ログ用）。
+
+    戻り値の3つ目は`lazy_graph`（通常は引数をそのまま返す）。`_lazy_graph_cache`と
+    `_search_statics_cache`はLRU上限に達すると独立に最古のエントリを追い出すため、
+    再splitを挟むと「`lazy_graph`はキャッシュヒットで古いまま、`statics`はキャッシュ
+    ミスで`graph`[新]から構築」という組み合わせが起こりうる（改善計画T557、項目4）。
+    `build_search_graph_statics`が`LazyGraphEdgeMismatchError`でこれを検知したら、
+    該当タイル集合のキャッシュ3種を破棄し`lazy_graph`ごと`graph`から作り直す——
+    呼び出し側は以降このメソッドが返す`lazy_graph`を使うこと（引数の`lazy_graph`を
+    使い続けると同じKeyError相当を再現する）。
+    """
     if tile_set is not None:
         cached = search_graph_cache.get_search_statics(tile_set)
         if cached is not None:
-            return cached, True
-    statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph)
+            return cached, True, lazy_graph
+    try:
+        statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph)
+    except LazyGraphEdgeMismatchError:
+        if tile_set is not None:
+            logger.warning(
+                "search_graph_cache stale_lazy_graph tile_set_size=%d rebuilding",
+                len(tile_set),
+            )
+            search_graph_cache.invalidate_tile_set(tile_set)
+        lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph)
+        statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph)
+        if tile_set is not None:
+            search_graph_cache.set_lazy_graph(tile_set, lazy_graph)
+            search_graph_cache.set_search_statics(tile_set, statics)
+        return statics, False, lazy_graph
     if tile_set is not None:
         search_graph_cache.set_search_statics(tile_set, statics)
-    return statics, False
+    return statics, False, lazy_graph
+
+
+def _estimate_distances_m(
+    graph: RoadGraphLike,
+    node_lat: np.ndarray,
+    node_lon: np.ndarray,
+    target_node_id: str,
+) -> list[float]:
+    """グラフ上の全Node（`node_lat`/`node_lon`と同じ行順）から`target_node_id`への
+    直線距離（m）をnumpyで1回だけベクトル計算する（改善計画T536）。`_build_estimate_cost_fn`
+    と`_origin_estimate_fn`（改善計画T557、項目9で統合）が共有する。
+
+    Edge Costは常に`cost >= distance_m`を満たす（`docs/decisions/t12-routing-scale.md`
+    原則1「不変条件1」、ペナルティ倍率は常に1以上）ため、直線距離は実際のコストを
+    過大評価しない下界＝admissibleなヒューリスティックになる。この不変条件は
+    「将来のA*ヒューリスティック admissibility保存のため」と当時のADRが明記して
+    意図的に維持してきたものであり、本タスクがその意図どおり利用する形になる。
+    """
+    target_node = graph.nodes[target_node_id]
+    return (haversine_distance_km_array(node_lat, node_lon, target_node) * 1000).tolist()
 
 
 def _origin_estimate_fn(context: _RoadGraphContext) -> Callable[[int], float]:
     """復路探索（目的地＝起点）のA*ヒューリスティック。起点は1リクエストで固定のため
-    初回だけ`_build_estimate_cost_fn`で計算し、以降の候補はcontextに保持した配列を共有する
+    初回だけ`_estimate_distances_m`で計算し、以降の候補はcontextに保持した配列を共有する
     （改善計画T531）。"""
     if context.origin_estimate is None:
-        target_node = context.graph.nodes[context.origin_node]
-        context.origin_estimate = (
-            haversine_distance_km_array(context.node_lat, context.node_lon, target_node) * 1000
-        ).tolist()
+        context.origin_estimate = _estimate_distances_m(
+            context.graph, context.node_lat, context.node_lon, context.origin_node
+        )
     return context.origin_estimate.__getitem__
 
 
@@ -1214,21 +1256,13 @@ def _build_estimate_cost_fn(
     """`shortest_path_node_ids_lazy`へ渡すA*のestimate_cost_fn（改善計画T529→T536）を、
     目的地ノード`target_node_id`への直線距離（m）として組み立てる。
 
-    改善計画T536: レグごとに目的地が変わるたび、グラフ上の全Node分の直線距離を
-    numpyで1回だけベクトル計算し（`haversine_distance_km_array`）、`list.__getitem__`を
-    そのまま返す——Pythonの関数フレームを作らないA*の設計（`LazyRoadGraph`のdocstring
-    参照）と揃える。`node_lat`/`node_lon`は`lazy_graph.index_to_node_id`と同じ行順
-    （`_build_search_graph`がリクエストにつき1回だけ構築、レグごとの再構築はしない）。
-
-    Edge Costは常に`cost >= distance_m`を満たす（`docs/decisions/t12-routing-scale.md`
-    原則1「不変条件1」、ペナルティ倍率は常に1以上）ため、直線距離は実際のコストを
-    過大評価しない下界＝admissibleなヒューリスティックになる。この不変条件は
-    「将来のA*ヒューリスティック admissibility保存のため」と当時のADRが明記して
-    意図的に維持してきたものであり、本タスクがその意図どおり利用する形になる。
+    改善計画T536: レグごとに目的地が変わるたび`_estimate_distances_m`を呼び直し、
+    `list.__getitem__`をそのまま返す——Pythonの関数フレームを作らないA*の設計
+    （`LazyRoadGraph`のdocstring参照）と揃える。`node_lat`/`node_lon`は
+    `lazy_graph.index_to_node_id`と同じ行順（`_build_search_graph`がリクエストにつき
+    1回だけ構築、レグごとの再構築はしない）。
     """
-    target_node = graph.nodes[target_node_id]
-    est_list: list[float] = (haversine_distance_km_array(node_lat, node_lon, target_node) * 1000).tolist()
-    return est_list.__getitem__
+    return _estimate_distances_m(graph, node_lat, node_lon, target_node_id).__getitem__
 
 
 def _reverse_traced_edges(

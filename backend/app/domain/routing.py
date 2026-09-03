@@ -30,6 +30,7 @@ import rustworkx as rx
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
+from app.domain.errors import RoutingError
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
@@ -180,16 +181,17 @@ def shortest_path_node_ids_lazy(
     return [lazy_graph.index_to_node_id[i] for i in path_indices]
 
 
-def path_to_edge_ids_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[str]:
-    """Node ID列を、それらを結ぶEdgeのID列へ変換する。"""
+def path_to_edge_indices_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[int]:
+    """Node ID列を、それらを結ぶEdgeのindex列（`lazy_graph.edge_ids`の添字）へ変換する。"""
     return [
-        lazy_graph.edge_ids[
-            lazy_graph.edge_index_by_node_pair[
-                (lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])
-            ]
-        ]
+        lazy_graph.edge_index_by_node_pair[(lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])]
         for u, v in zip(path_node_ids, path_node_ids[1:])
     ]
+
+
+def path_to_edge_ids_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[str]:
+    """Node ID列を、それらを結ぶEdgeのID列へ変換する。"""
+    return [lazy_graph.edge_ids[i] for i in path_to_edge_indices_lazy(lazy_graph, path_node_ids)]
 
 
 # --- 改善計画T531: 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
@@ -241,6 +243,11 @@ def build_csr_structure(lazy_graph: LazyRoadGraph) -> CsrGraphStructure:
     )
 
 
+class LazyGraphEdgeMismatchError(RoutingError):
+    """`build_search_graph_statics`が`lazy_graph.edge_ids`のうち`graph.edges`に
+    存在しないedge_idを検出したときに送出する（改善計画T557、項目4）。"""
+
+
 @dataclass
 class SearchGraphStatics:
     """タイル集合だけで決まる、探索用グラフの静的な派生物一式（改善計画T531）。
@@ -254,11 +261,35 @@ class SearchGraphStatics:
 
 
 def build_search_graph_statics(lazy_graph: LazyRoadGraph, graph: RoadGraphLike) -> SearchGraphStatics:
+    """`lazy_graph.edge_ids`は`graph.edges`の部分集合である前提（同じ`graph`から
+    `build_lazy_road_graph`で作られた場合は常に成り立つ）。`lazy_graph`がタイル集合キーの
+    プロセス内キャッシュ（`infrastructure/search_graph_cache.py`）からの再利用で、その間に
+    タイルが再split（`save_graph`のedge_id再割当）された場合はこの前提が崩れうるため、
+    `.get()`で欠損を検知し`LazyGraphEdgeMismatchError`として呼び出し側（`RoadGraphEngine.
+    _get_or_build_search_statics`）へ伝える——呼び出し側がキャッシュを破棄して
+    `lazy_graph`ごと再構築する。
+    """
+    missing_edge_id: str | None = None
+
+    def _distance_m(edge_id: str) -> float:
+        nonlocal missing_edge_id
+        edge = graph.edges.get(edge_id)
+        if edge is None:
+            if missing_edge_id is None:
+                missing_edge_id = edge_id
+            return math.nan
+        return edge.distance_m
+
     edge_length_m = np.fromiter(
-        (graph.edges[edge_id].distance_m for edge_id in lazy_graph.edge_ids),
+        (_distance_m(edge_id) for edge_id in lazy_graph.edge_ids),
         dtype=float,
         count=len(lazy_graph.edge_ids),
     )
+    if missing_edge_id is not None:
+        raise LazyGraphEdgeMismatchError(
+            f"lazy_graph.edge_ids contains {missing_edge_id!r} not present in graph.edges "
+            "(stale tile-set-keyed cache after re-split)"
+        )
     return SearchGraphStatics(csr=build_csr_structure(lazy_graph), edge_length_m=edge_length_m)
 
 
@@ -274,22 +305,19 @@ class ShortestPathTree:
     predecessor: np.ndarray
     # 木に沿った（＝最小コスト経路の）実距離（m）の積算。到達不能はNaN、起点は0。
     length_m: np.ndarray
-    # `predecessor`のPython list版（遅延構築）。`tree_path_edge_indices`が数千Nodeぶんの
-    # 経路復元でnumpyスカラーの取り出しを繰り返すのを避ける（実データ規模で約2倍速い）。
-    _predecessor_list: list[int] | None = field(default=None, repr=False, compare=False)
+    # `predecessor`のPython list版。`tree_path_edge_indices`が数千Nodeぶんの経路復元で
+    # numpyスカラーの取り出しを繰り返すのを避ける（実データ規模で約2倍速い）。一対全木は
+    # 折返し点選定のたびに必ずこの経路復元で使われるため、遅延構築にする利点が無く
+    # 構築時にtolist()する（改善計画T557、項目14）。
+    predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
 
     def is_reached(self, node_index: int) -> bool:
         return bool(np.isfinite(self.cost[node_index]))
 
-    def predecessor_list(self) -> list[int]:
-        if self._predecessor_list is None:
-            self._predecessor_list = self.predecessor.tolist()
-        return self._predecessor_list
-
 
 def build_shortest_path_tree(
     structure: CsrGraphStructure,
-    edge_cost: np.ndarray,
+    edge_cost: Sequence[float] | np.ndarray,
     edge_length_m: np.ndarray,
     source_index: int,
     cost_limit: float = np.inf,
@@ -318,15 +346,27 @@ def build_shortest_path_tree(
     )
     predecessor = predecessor.astype(np.int64)
     predecessor[predecessor < 0] = -1  # scipyのセンチネル（-9999）を-1へ正規化
-    length_m = _accumulate_tree_lengths(structure, predecessor, np.asarray(edge_length_m, dtype=float), source_index)
-    return ShortestPathTree(source_index=source_index, cost=cost, predecessor=predecessor, length_m=length_m)
+    length_m = _accumulate_tree_lengths(
+        structure, predecessor, np.asarray(edge_length_m, dtype=float), source_index, cost
+    )
+    return ShortestPathTree(
+        source_index=source_index, cost=cost, predecessor=predecessor, length_m=length_m,
+        predecessor_list=predecessor.tolist(),
+    )
 
 
 def _accumulate_tree_lengths(
-    structure: CsrGraphStructure, predecessor: np.ndarray, edge_length_m: np.ndarray, source_index: int
+    structure: CsrGraphStructure, predecessor: np.ndarray, edge_length_m: np.ndarray, source_index: int,
+    cost: np.ndarray,
 ) -> np.ndarray:
+    """`predecessor >= 0`ではなく`np.isfinite(cost)`を到達判定の正本にする（改善計画T557、
+    項目11）。使用中のscipy 1.18.1では両者は一致するが、infコストで打ち切られたEdgeの先へも
+    前任者ポインタを書きうる別バージョンに対する契約保証——コストが確定した「到達済み」
+    集合だけを実距離の積算対象にする。
+    """
     n = structure.node_count
-    has_pred = predecessor >= 0
+    reached = np.isfinite(cost)
+    has_pred = reached & (predecessor >= 0)
     child = np.flatnonzero(has_pred)
     edge_to_child = np.zeros(n)
     if len(child):
@@ -340,7 +380,7 @@ def _accumulate_tree_lengths(
             break
         accumulated = accumulated + accumulated[ancestor]
         ancestor = next_ancestor
-    reached = has_pred.copy()
+    reached = reached.copy()
     reached[source_index] = True
     return np.where(reached, accumulated, np.nan)
 
@@ -354,7 +394,7 @@ def tree_path_edge_indices(tree: ShortestPathTree, lazy_graph: LazyRoadGraph, ta
     edge_indices: list[int] = []
     current = int(target_index)
     pair_index = lazy_graph.edge_index_by_node_pair
-    predecessor = tree.predecessor_list()
+    predecessor = tree.predecessor_list
     source = tree.source_index
     while current != source:
         parent = predecessor[current]
@@ -366,7 +406,11 @@ def tree_path_edge_indices(tree: ShortestPathTree, lazy_graph: LazyRoadGraph, ta
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
     """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重割合
-    （0〜1）。候補の総距離が0なら0。"""
+    （0〜1）。候補の総距離が0なら0。単一の候補対採用済み1件（DEBUGログの`retrace_ratio`等）
+    向けの定義。`select_diverse_by_overlap`内部の間引き本体は同じ定義を、採用済み複数件
+    against 候補というbulk計算へ展開したもの（boolean行列×距離のnumpy演算、候補ごとに
+    本関数を繰り返し呼ぶより高速）——閾値判定式を変更する場合は両方を揃えること。
+    """
     if len(candidate_edges) == 0:
         return 0.0
     lengths = edge_length_m[candidate_edges]
@@ -384,21 +428,22 @@ def select_diverse_by_overlap(
     items: Sequence[T],
     edge_indices_of: Callable[[T], Sequence[int] | None],
     edge_length_m: np.ndarray,
-    max_overlap_ratio: float,
+    max_overlap_ratios: Sequence[float],
     max_count: int,
     is_compatible: Callable[[T, list[T]], bool] | None = None,
-    initial_selected: Sequence[T] | None = None,
-    rejected_by_overlap: list[T] | None = None,
 ) -> list[T]:
     """ランク順の`items`を先頭から貪欲に採用し、採用済みのいずれかと経路の重複率
-    （候補側の距離加重、`overlap_ratio`と同じ定義）が`max_overlap_ratio`を超えるもの、
-    または`is_compatible(item, 採用済みリスト)`がFalseのものを飛ばして`max_count`件まで
-    返す（改善計画T531の多様性間引き）。`edge_indices_of`がNoneを返すitemは対象外として
-    飛ばす。`initial_selected`を渡すと、それらを採用済みとして（戻り値の先頭に含めて）
-    続きを選ぶ（閾値を緩めた2回目のパスで、1回目の採用分を再検査しないため）。
-    `rejected_by_overlap`（list）を渡すと、重複率だけを理由に飛ばしたitemを順に追記する
-    （2回目のパスは`is_compatible`や経路無しで飛ばしたitemを再検査する必要が無いため、
-    このリストだけを`items`に渡せばよい）。決定的（入力順と同じ規則でしか選ばない）。
+    （候補側の距離加重、`overlap_ratio`と同じ定義）が閾値を超えるもの、または
+    `is_compatible(item, 採用済みリスト)`がFalseのものを飛ばして`max_count`件まで返す
+    （改善計画T531の多様性間引き）。`edge_indices_of`がNoneを返すitemは対象外として飛ばす。
+
+    `max_overlap_ratios`は先頭から順に試す閾値列（改善計画T557、項目15。以前は呼び出し側が
+    「1回目の閾値→`max_count`件に満たなければrejected_by_overlapを2回目の緩い閾値で
+    再検査」を2回の関数呼び出しとして組み立てていたが、本関数内のループへ統合した）。
+    ある閾値のパスで重複率だけを理由に飛ばした候補は、次の（より緩い）閾値のパスで
+    再検査する——`is_compatible`がFalse・経路が無い（Noneを返す）ために飛ばした候補は、
+    閾値を緩めても結果が変わらないため再検査しない。`max_count`件に達すれば以降の閾値は
+    試さない。決定的（入力順と同じ規則でしか選ばない）。
 
     重複率は採用済み候補ごとのEdge集合をbool行列（採用数×Edge数）で持ち、候補のEdge index
     配列で列を抜き出して距離加重和を1回のnumpy演算で求める（採用済みごとに`np.isin`を
@@ -408,7 +453,7 @@ def select_diverse_by_overlap(
     selected: list[T] = []
     masks = np.zeros((max(max_count, 1), edge_count), dtype=bool)
 
-    def try_accept(item: T, edges: Sequence[int]) -> bool:
+    def try_accept(item: T, edges: Sequence[int], max_overlap_ratio: float, rejected: list[T] | None) -> bool:
         if len(selected) >= max_count:
             return False
         edge_array = np.asarray(edges, dtype=np.int64)
@@ -418,30 +463,29 @@ def select_diverse_by_overlap(
             if total > 0:
                 shared = (masks[: len(selected)][:, edge_array] * lengths).sum(axis=1)
                 if bool((shared / total > max_overlap_ratio).any()):
-                    if rejected_by_overlap is not None:
-                        rejected_by_overlap.append(item)
+                    if rejected is not None:
+                        rejected.append(item)
                     return False
         masks[len(selected), edge_array] = True
         selected.append(item)
         return True
 
-    for item in initial_selected or ():
-        edges = edge_indices_of(item)
-        if edges is not None:
-            try_accept(item, edges)
-    seeded = set(map(id, selected))
-
-    for item in items:
-        if len(selected) >= max_count:
+    candidates: Sequence[T] = items
+    for ratio_index, max_overlap_ratio in enumerate(max_overlap_ratios):
+        is_last_ratio = ratio_index == len(max_overlap_ratios) - 1
+        rejected_by_overlap: list[T] | None = None if is_last_ratio else []
+        for item in candidates:
+            if len(selected) >= max_count:
+                break
+            if is_compatible is not None and not is_compatible(item, selected):
+                continue
+            edges = edge_indices_of(item)
+            if edges is None:
+                continue
+            try_accept(item, edges, max_overlap_ratio, rejected_by_overlap)
+        if len(selected) >= max_count or not rejected_by_overlap:
             break
-        if id(item) in seeded:
-            continue
-        if is_compatible is not None and not is_compatible(item, selected):
-            continue
-        edges = edge_indices_of(item)
-        if edges is None:
-            continue
-        try_accept(item, edges)
+        candidates = rejected_by_overlap
     return selected
 
 

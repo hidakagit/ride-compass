@@ -337,10 +337,6 @@ def _cost_array(lazy_graph: LazyRoadGraph, edge_costs: dict[str, float]) -> np.n
     return np.array([edge_costs.get(edge_id, math.inf) for edge_id in lazy_graph.edge_ids], dtype=float)
 
 
-def _length_array(lazy_graph: LazyRoadGraph, graph: RoadGraph) -> np.ndarray:
-    return np.array([graph.edges[edge_id].distance_m for edge_id in lazy_graph.edge_ids], dtype=float)
-
-
 def _path_cost(lazy_graph: LazyRoadGraph, node_path: list[str], cost_array: np.ndarray) -> float:
     total = 0.0
     for u, v in zip(node_path, node_path[1:]):
@@ -396,7 +392,7 @@ def test_shortest_path_tree_costs_match_astar_for_random_graph():
     source = "n3-3"
 
     tree = build_shortest_path_tree(
-        build_csr_structure(lazy_graph), cost_array, _length_array(lazy_graph, graph), lazy_graph.node_id_to_index[source]
+        build_csr_structure(lazy_graph), cost_array, build_search_graph_statics(lazy_graph, graph).edge_length_m, lazy_graph.node_id_to_index[source]
     )
 
     for node_id, node_index in lazy_graph.node_id_to_index.items():
@@ -412,7 +408,7 @@ def test_shortest_path_tree_length_matches_python_walk_along_predecessors():
     graph = _random_road_graph(seed=4)
     lazy_graph = build_lazy_road_graph(graph)
     edge_costs = {edge_id: edge.distance_m * rng.uniform(1.0, 2.0) for edge_id, edge in graph.edges.items()}
-    length_array = _length_array(lazy_graph, graph)
+    length_array = build_search_graph_statics(lazy_graph, graph).edge_length_m
     source_index = lazy_graph.node_id_to_index["n0-0"]
 
     tree = build_shortest_path_tree(build_csr_structure(lazy_graph), _cost_array(lazy_graph, edge_costs), length_array, source_index)
@@ -441,7 +437,7 @@ def test_shortest_path_tree_treats_inf_cost_edges_as_impassable():
     lazy_graph = build_lazy_road_graph(graph)
     cost_array = _cost_array(lazy_graph, {"ab": 100.0, "bc": math.inf})
 
-    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), cost_array, _length_array(lazy_graph, graph), lazy_graph.node_id_to_index["a"])
+    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), cost_array, build_search_graph_statics(lazy_graph, graph).edge_length_m, lazy_graph.node_id_to_index["a"])
 
     c_index = lazy_graph.node_id_to_index["c"]
     assert tree.is_reached(lazy_graph.node_id_to_index["b"])
@@ -460,7 +456,7 @@ def test_shortest_path_tree_cost_limit_prunes_nodes_beyond_limit():
     lazy_graph = build_lazy_road_graph(graph)
     cost_array = _cost_array(lazy_graph, {"ab": 100.0, "bc": 100.0})
     structure = build_csr_structure(lazy_graph)
-    lengths = _length_array(lazy_graph, graph)
+    lengths = build_search_graph_statics(lazy_graph, graph).edge_length_m
     a = lazy_graph.node_id_to_index["a"]
 
     unlimited = build_shortest_path_tree(structure, cost_array, lengths, a)
@@ -482,7 +478,7 @@ def test_shortest_path_tree_traverses_zero_cost_edges():
     lazy_graph = build_lazy_road_graph(graph)
     cost_array = _cost_array(lazy_graph, {"ab": 0.0, "bc": 10.0})
 
-    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), cost_array, _length_array(lazy_graph, graph), lazy_graph.node_id_to_index["a"])
+    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), cost_array, build_search_graph_statics(lazy_graph, graph).edge_length_m, lazy_graph.node_id_to_index["a"])
 
     c_index = lazy_graph.node_id_to_index["c"]
     assert tree.cost[c_index] == 10.0
@@ -497,7 +493,7 @@ def test_tree_path_edge_indices_reconstructs_connected_path_from_source():
     edge_costs = {edge_id: edge.distance_m * rng.uniform(1.0, 2.0) for edge_id, edge in graph.edges.items()}
     source_index = lazy_graph.node_id_to_index["n2-2"]
 
-    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), _cost_array(lazy_graph, edge_costs), _length_array(lazy_graph, graph), source_index)
+    tree = build_shortest_path_tree(build_csr_structure(lazy_graph), _cost_array(lazy_graph, edge_costs), build_search_graph_statics(lazy_graph, graph).edge_length_m, source_index)
 
     assert tree_path_edge_indices(tree, lazy_graph, source_index) == []
     target_index = lazy_graph.node_id_to_index["n6-6"]
@@ -528,7 +524,7 @@ def test_select_diverse_by_overlap_skips_overlapping_items_and_respects_limit():
         "late": [4],
     }
 
-    selected = select_diverse_by_overlap(list(items), items.__getitem__, lengths, max_overlap_ratio=0.6, max_count=3)
+    selected = select_diverse_by_overlap(list(items), items.__getitem__, lengths, max_overlap_ratios=[0.6], max_count=3)
 
     assert selected == ["first", "distinct", "half_overlap"]
 
@@ -542,32 +538,30 @@ def test_select_diverse_by_overlap_uses_compatibility_hook_and_skips_missing_pat
         return all((item, other) not in incompatible for other in selected)
 
     selected = select_diverse_by_overlap(
-        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10, is_compatible=compatible,
+        list(items), items.__getitem__, lengths, max_overlap_ratios=[0.5], max_count=10, is_compatible=compatible,
     )
 
     assert selected == ["a", "d"]  # bはaと非互換、cは経路無し
     # 決定的: 同じ入力で同じ結果
     assert selected == select_diverse_by_overlap(
-        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=10, is_compatible=compatible,
+        list(items), items.__getitem__, lengths, max_overlap_ratios=[0.5], max_count=10, is_compatible=compatible,
     )
 
 
-def test_select_diverse_by_overlap_keeps_initial_selection_and_continues_with_relaxed_threshold():
+def test_select_diverse_by_overlap_falls_back_to_relaxed_threshold_within_single_call():
+    # 改善計画T557（項目15）: 複数の閾値max_overlap_ratiosを先頭から順に試す単一呼び出しへ
+    # 統合（以前は呼び出し側が「1回目→埋まらなければrejected_by_overlapを2回目の緩い
+    # 閾値で再検査」を2回のselect_diverse_by_overlap呼び出しとして組み立てていた）。
     lengths = np.array([100.0, 100.0, 100.0, 100.0])
     items = {"first": [0, 1, 2], "mostly_same": [0, 1, 3], "other": [3]}
 
-    strict = select_diverse_by_overlap(list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=3)
-    assert strict == ["first", "other"]  # mostly_sameは67%重複で棄却
-
-    rejected: list[str] = []
-    strict_again = select_diverse_by_overlap(
-        list(items), items.__getitem__, lengths, max_overlap_ratio=0.5, max_count=3, rejected_by_overlap=rejected,
+    strict_only = select_diverse_by_overlap(
+        list(items), items.__getitem__, lengths, max_overlap_ratios=[0.5], max_count=3,
     )
-    assert strict_again == strict
-    assert rejected == ["mostly_same"]  # 重複率だけを理由に飛ばしたitemが記録される
+    assert strict_only == ["first", "other"]  # mostly_sameは67%重複で棄却、緩和パス無しのため復活しない
 
-    relaxed = select_diverse_by_overlap(
-        rejected, items.__getitem__, lengths, max_overlap_ratio=0.7, max_count=3, initial_selected=strict,
+    with_relaxed_fallback = select_diverse_by_overlap(
+        list(items), items.__getitem__, lengths, max_overlap_ratios=[0.5, 0.7], max_count=3,
     )
-    # 1回目の採用分を先頭に保ったまま、緩和した閾値で残りを追加する
-    assert relaxed == ["first", "other", "mostly_same"]
+    # 1回目（閾値0.5）の採用分を先頭に保ったまま、2回目（閾値0.7）で残りを追加する。
+    assert with_relaxed_fallback == ["first", "other", "mostly_same"]

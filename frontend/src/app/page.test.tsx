@@ -462,6 +462,10 @@ function useStatefulLocationDouble() {
 interface RenderFreshHomeOptions {
   /** trueなら実際のRouteFormを使う（生成ボタンをクリックするため）。既定は上と同じnullモック。 */
   realRouteForm?: boolean;
+  /** trueならMapViewをonDestinationSet/onWaypointAddを呼べるボタン付きスタブへ差し替える
+   * （改善計画T557: 目的地モードの生成テストは実際に地図をタップできないため、この
+   * スタブ経由で座標を確定する）。既定は上と同じnullモック。 */
+  exposeMapClickHandlers?: boolean;
   /** trueなら地点を連続変更できるstateful二重体、falseならdefaultUseLocationDoubleの固定値。 */
   statefulLocation?: boolean;
   researchEnabled?: boolean;
@@ -483,6 +487,16 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
     vi.doUnmock("@/components/RouteForm/RouteForm");
   } else {
     vi.doMock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
+  }
+
+  if (options.exposeMapClickHandlers) {
+    vi.doMock("@/components/Map/MapView", () => ({
+      default: (props: { onDestinationSet: (c: { latitude: number; longitude: number }) => void }) => (
+        <button onClick={() => props.onDestinationSet({ latitude: 35.681, longitude: 139.767 })}>
+          テスト用に目的地を設定
+        </button>
+      ),
+    }));
   }
 
   vi.doMock("@/hooks/useLocation", () => ({
@@ -601,6 +615,36 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         expect.anything(),
       );
     });
+  });
+
+  it("改善計画T557（P1）: 周回モードで候補件数欄を空にしてから目的地モードへ切替→生成しても422にならない値を送る", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    // 周回モードのまま候補件数欄を空にする（RouteForm自身の送信時バリデーションは
+    // 周回モードのときだけ働くため、この時点ではまだ生成をブロックされない）。
+    const maxRoutesInput = screen.getAllByRole("spinbutton")[1];
+    await user.clear(maxRoutesInput);
+
+    // 目的地モードへ切替（候補件数入力欄はここで非表示になり検証されなくなるが、
+    // 空文字のままのstateはpage.tsx側に残り続ける）。
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenCalled();
+    });
+    const sentRequest = vi.mocked(generateRoutes).mock.calls[0][0];
+    // backend RouteGenerateRequest.max_routesはField(ge=1, le=15)——0や NaN は422になる。
+    expect(Number.isInteger(sentRequest.max_routes)).toBe(true);
+    expect(sentRequest.max_routes).toBeGreaterThanOrEqual(1);
   });
 
   it("改善計画T531: 候補タブに順位番号を表示し、同じ方位の候補を区別できる", async () => {

@@ -59,7 +59,7 @@ class FakeEngine:
         self.select_calls.append((distance_km, distance_tolerance_km, pool_size))
         bearings = [b for b in self._distances if b is not None]
         return [
-            LoopTurnaround(bearing=b, outbound_distance_km=distance_km / 2, outbound_difficulty=None, data=None)
+            LoopTurnaround(bearing=b, outbound_difficulty=None, data=None)
             for b in bearings
         ][:pool_size]
 

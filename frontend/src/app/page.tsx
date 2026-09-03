@@ -1384,6 +1384,15 @@ export default function Home() {
         routeMode === "destination"
           ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
           : distanceKm;
+      // 改善計画T531/T557: 周回候補の上限件数。RouteForm側の候補数入力欄は目的地モードでは
+      // 非表示になり検証もされないため、maxRoutesInputが空文字・範囲外のまま残っていても
+      // 送信前にここで検証する（destinationモードはbackendが常に1件へ固定し値自体を無視する
+      // ため、この検証漏れは主に周回モードへ戻したときの再送信を守るためのもの）。
+      const parsedMaxRoutes = Number(maxRoutesInput);
+      const effectiveMaxRoutes =
+        Number.isInteger(parsedMaxRoutes) && parsedMaxRoutes >= 1 && parsedMaxRoutes <= routeGenerateConfig.max_routes
+          ? parsedMaxRoutes
+          : routeGenerateConfig.default_max_routes;
       const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
@@ -1399,7 +1408,7 @@ export default function Home() {
         // 持つがrequired（distance_tolerance_km/penalty_strengthと同じ扱い）のため、
         // モードに関わらず常に送る。経由地・目的地指定ルートはbackendが常に1件へ
         // 固定し無視する。
-        max_routes: Number(maxRoutesInput),
+        max_routes: effectiveMaxRoutes,
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
         // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
         // （backend側の分岐はapi/routers/routes.py参照）。
@@ -1423,7 +1432,7 @@ export default function Home() {
         distanceKm: effectiveDistanceKm,
         // 改善計画T531: 目的地モードではbackendが無視する値のため意味を持たないが、
         // conditionsDirtyの比較はroute_mode==="loop"のときだけこの値を見る（上記参照）。
-        maxRoutes: Number(maxRoutesInput),
+        maxRoutes: effectiveMaxRoutes,
         weightsKey: currentWeightsKey,
         routeMode,
         waypointsKey: JSON.stringify({ waypoints, destination }),
