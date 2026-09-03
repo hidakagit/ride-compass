@@ -608,12 +608,16 @@ RideCompass/
         osm_repository.py            ⬜（road_graph_repository.pyが実質この役割を担う）
         accident_repository.py       ✅ AccidentTileQuery（事故点のMVT生成、accident_points専用。road_graph_repository.pyとは別系統）
         designation_models.py        ✅ route_designations/designation_attributes/designation_import_runsのSQLAlchemy ORMモデル（外部静的データソースT51）
+        search_graph_cache.py        ✅ `LazyRoadGraph`・`SearchGraphStatics`（一対全最短経路木用CSR構造＋Edge実距離配列）・`NodeSpatialIndex`を、覆うz12タイル集合をキーにプロセス内LRU（上限64件）でキャッシュする探索・索引構築キャッシュ
+        tile_persistent_cache.py     ✅ `graph_material_cache`・`tile_score_matrix_cache`のプロセス内メモリLRUに加えるディスク永続化層（`backend/data/tile_persistent_cache/`）。無効化はバージョン文字列をファイルパスへ埋め込む方式で手動管理する
+        tile_score_matrix_cache.py   ✅ タイル単位の`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列）をプロセス内LRUでキャッシュする。軸定義編集時は`axis_registry_meta.revision`の変化を見て無効化を判定する専用経路を持つ（`graph_material_cache`とは別枠）
       batch/                    ✅ PostGIS事前取込バッチ群（`.venv\Scripts\python.exe -m app.batch.<module>`で実行、いずれも--dry-run対応）
         _common.py                ✅ asyncpg_dsn（SQLAlchemy URL→asyncpg DSN変換）, download_to_path（ZIP/CSV取得の共通骨格）。4バッチが参照する共通ヘルパ（改善計画T80）
         import_pbf.py              ✅ OSM PBF→osm_raw_ways/osm_raw_nodes/osm_raw_pois取込（Road Graph移行「永続化」、詳細はdocs/osm-pbf-import.md）
         import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
         import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
         match_designations.py         ✅ route_designations→osm_raw_waysバッファマッチ事前計算（designation_attributes、外部静的データソースT51、改善計画T74で対象をroad_edgesからosm_raw_waysへ変更、7章参照）
+        presplit_road_graph.py        ✅ 取込済み全z12タイル（`road_graph_tiles`）のうちsplit未済のものへ`GraphService.get_or_build_graph_with_attributes`（実行時の遅延構築と同じ再構築経路）を1件ずつ順に適用する冪等バッチ（並列化しない）
     scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）。改善計画T292で専用Pythonレシピ（car_stress_level等）を廃止したのに伴い、車ストレスのcalibration研究スクリプト3本（measure_axis_stats.py・measure_axis_correlation.py・analyze_jartic_calibration.py）は削除した。collect_jartic.py（改善計画T53、JARTIC WFS収集）も、唯一の消費先だったanalyze_jartic_calibration.py削除後は較正データを読む者がいない無意味な処理になっていたため改善計画T321（デッドコード監査）で削除した
     tests/
       test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
