@@ -22,6 +22,8 @@
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI） |
 | `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
+| `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品。中身はchildrenで呼び出し側が渡す（`MapLayersPanel`・`RouteSettingsPanel`・`RouteAxisProfile`で共用） |
+| `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`MapLayersPanel`・`RouteAxisProfile`で共用） |
 
 ## 表示層の実装（`MapView.tsx`）
 
