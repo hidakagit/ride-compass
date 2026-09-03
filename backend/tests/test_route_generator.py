@@ -39,16 +39,25 @@ class FakeEngine:
     engine_name = "fake"
 
     def __init__(
-        self, distances_by_bearing: dict[int | None, float | Exception], prepare_result: object = "ctx"
+        self,
+        distances_by_bearing: dict[int | None, float | Exception],
+        prepare_result: object = "ctx",
+        too_similar_bearings: set[int | None] = frozenset(),
     ):
         self._distances = distances_by_bearing
         self._prepare_result = prepare_result
+        # 改善計画T553: is_loop_too_similarがTrueを返すべき候補のbearing集合
+        # （テストが明示的に指定した場合のみ。既定は空＝常にFalse）。
+        self._too_similar_bearings = too_similar_bearings
         self.prepare_calls: list[tuple[Coordinates, float]] = []
         self.prepare_waypoints: list[Coordinates] | None = None
         self.select_calls: list[tuple[float, float, int]] = []
         self.traced_bearings: list[int] = []
         self.traced_waypoints: dict[int | None, list[Coordinates]] = {}
         self.evaluated_traced: list[TracedLoop] | None = None
+        # 改善計画T553: is_loop_too_similar呼び出しを記録する
+        # （candidate.bearing, [acceptedのbearing一覧]）のタプル列。
+        self.similarity_calls: list[tuple[int | None, list[int | None]]] = []
 
     async def prepare(self, origin, radius_km, waypoints=None):
         self.prepare_calls.append((origin, radius_km))
@@ -76,6 +85,10 @@ class FakeEngine:
         if isinstance(outcome, Exception):
             raise outcome
         return TracedLoop(bearing=bearing, distance_km=outcome, data=None)
+
+    def is_loop_too_similar(self, context, candidate, accepted):
+        self.similarity_calls.append((candidate.bearing, [t.bearing for t in accepted]))
+        return candidate.bearing in self._too_similar_bearings
 
     async def evaluate_loops(self, context, traced, start_time):
         self.evaluated_traced = traced
@@ -156,6 +169,33 @@ async def test_generate_loops_keeps_tracing_past_rejected_candidates_until_max_r
 
     assert engine.traced_bearings == [0, 45, 90, 135]
     assert set(_labels(candidates)) == {compass_label(90), compass_label(135)}
+
+
+async def test_generate_loops_skips_candidates_engine_reports_as_too_similar():
+    # 改善計画T553: 距離フィルタ合格後、is_loop_too_similarがTrueを返す候補は採用せず
+    # 次の候補へ進む。早期停止のmax_routesカウントもこのチェックを通過した候補数で数える
+    # （棄却された候補ぶん、より多くの折返し候補が復路探索される）。
+    generator, engine = make_generator({b: 30.0 for b in BEARINGS}, too_similar_bearings={45, 90})
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0, max_routes=3)
+
+    assert len(candidates) == 3
+    # 45・90は重複棄却されるため、代わりに135・180まで復路探索が進む。
+    assert engine.traced_bearings == [0, 45, 90, 135, 180]
+    assert set(_labels(candidates)) == {compass_label(0), compass_label(135), compass_label(180)}
+
+
+async def test_generate_loops_checks_similarity_only_against_already_accepted_candidates():
+    # is_loop_too_similarは「これまでに採用済みの候補」とだけ比較する（棄却された候補や
+    # 未処理の候補とは比較しない）。最初の候補は比較対象が無いため呼ばれない。
+    generator, engine = make_generator({b: 30.0 for b in BEARINGS[:3]})
+
+    await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0, max_routes=3)
+
+    assert engine.similarity_calls == [
+        (45, [0]),
+        (90, [0, 45]),
+    ]
 
 
 async def test_generate_loops_returns_empty_with_reason_when_no_turnaround_candidates():

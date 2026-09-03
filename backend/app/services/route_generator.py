@@ -27,6 +27,10 @@
 - `evaluate_loops(context, traced, start_time)`: 距離フィルタを通過した候補
   **だけ**に実ジオメトリ取得・標高・風・路面の評価を行い、完全な`RouteCandidate`群を返す。
   棄却済み候補にDB/外部API問い合わせを浪費しないための2段階分割
+- `is_loop_too_similar(context, candidate, accepted)`: `candidate`が`accepted`
+  （距離フィルタ・本判定を既に通過した候補群）のいずれかと、周回全体（往路＋復路、
+  進行方向は無視）でエンジン固有の閾値を超えて重複するか（改善計画T553）。
+  戦略層は`TracedLoop.data`の中身を知らないため、重複判定自体もエンジンへ委譲する
 """
 
 import logging
@@ -146,6 +150,8 @@ class LoopRoutingEngine(Protocol):
         self, context: Any, traced: list[TracedLoop], start_time: datetime
     ) -> list[RouteCandidate]: ...
 
+    def is_loop_too_similar(self, context: Any, candidate: TracedLoop, accepted: list[TracedLoop]) -> bool: ...
+
 
 class RouteGenerator:
     """周回ルート候補の生成戦略。折返し点の選定・経路計算・評価はengineへ委譲する。"""
@@ -219,6 +225,7 @@ class RouteGenerator:
         examined = 0
         failed = 0
         filtered_out = 0
+        dedup_skipped = 0
         for turnaround in turnarounds:
             if len(traced) >= max_routes:
                 break
@@ -242,6 +249,12 @@ class RouteGenerator:
                     loop.bearing, loop.distance_km, distance_km, distance_tolerance_km,
                 )
                 continue
+            # 改善計画T553: 既に採用済みの候補と周回全体（往路＋復路、進行方向無視）で
+            # 重複しすぎる場合は棄却し、プールの次の折返し点候補へ進む（早期停止のn件
+            # カウントもこのチェックを通過した候補数で数える、下のlen(traced)判定と同じ）。
+            if traced and self._engine.is_loop_too_similar(context, loop, traced):
+                dedup_skipped += 1
+                continue
             traced.append(loop)
         trace_ms = round((time.monotonic() - trace_started) * 1000)
 
@@ -253,10 +266,10 @@ class RouteGenerator:
         if not traced:
             logger.warning(
                 "generate engine=%s origin=%s target_km=%.1f -> no candidates "
-                "(turnarounds=%d examined=%d trace_failed=%d filtered_out=%d) "
+                "(turnarounds=%d examined=%d trace_failed=%d filtered_out=%d dedup_skipped=%d) "
                 "prepare_ms=%d select_ms=%d trace_ms=%d",
                 self.engine_name, origin_label, distance_km,
-                len(turnarounds), examined, failed, filtered_out,
+                len(turnarounds), examined, failed, filtered_out, dedup_skipped,
                 prepare_ms, select_ms, trace_ms,
             )
             self.last_no_candidates_reason = self._describe_no_traced_reason(
@@ -288,10 +301,10 @@ class RouteGenerator:
 
         logger.info(
             "generate engine=%s origin=%s target_km=%.1f max_routes=%d -> candidates=%d "
-            "turnarounds=%d examined=%d trace_failed=%d filtered_out=%d "
+            "turnarounds=%d examined=%d trace_failed=%d filtered_out=%d dedup_skipped=%d "
             "prepare_ms=%d select_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
             self.engine_name, origin_label, distance_km, max_routes, len(candidates),
-            len(turnarounds), examined, failed, filtered_out,
+            len(turnarounds), examined, failed, filtered_out, dedup_skipped,
             prepare_ms, select_ms, trace_ms, evaluate_ms, total_ms,
         )
         return candidates

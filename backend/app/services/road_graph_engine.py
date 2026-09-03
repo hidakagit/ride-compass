@@ -162,6 +162,11 @@ MIN_TURNAROUND_SEPARATION_KM = 1.5
 # 往路の大半を共有する似た周回がn件並ぶのを防ぐ。プールが埋まらない場合は緩和値で再試行。
 TURNAROUND_MAX_OVERLAP_RATIO = 0.6
 TURNAROUND_RELAXED_OVERLAP_RATIO = 0.85
+# 採用済み候補との周回全体（往路＋復路、進行方向無視）の重複率上限（改善計画T553）。
+# 往路だけを見るTURNAROUND_MAX_OVERLAP_RATIOより緩め——「同じ周回の逆回り」（往路と復路が
+# 入れ替わっただけ）や「往路は違うが復路が同じ裏道へ収束する」周回を弾くための、
+# より緩い最終チェック。
+LOOP_MAX_OVERLAP_RATIO = 0.7
 # ランキング上位から間引き判定にかけるリングNode数の上限（往路の経路復元コストの上限）。
 MAX_RING_CANDIDATES_EXAMINED = 4000
 # 周回全長／往路実距離の比の想定範囲。往路は軸コスト最適経路、復路はその往路を避けて探索
@@ -902,6 +907,33 @@ class RoadGraphEngine:
         )
         return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=edge_ids)
 
+    def is_loop_too_similar(
+        self, context: _RoadGraphContext, candidate: TracedLoop, accepted: list[TracedLoop]
+    ) -> bool:
+        """`candidate`が`accepted`のいずれかと、周回全体（往路＋復路）で
+        `LOOP_MAX_OVERLAP_RATIO`を超えて重複するか（改善計画T553）。進行方向を無視して
+        比較するため、「同じ周回の逆回り」（往路と復路が入れ替わっただけ）や「往路は違うが
+        復路が同じ裏道へ収束する」周回のどちらも同じ判定で弾ける。`TracedLoop.data`は
+        `edge_ids`（往路＋復路、`trace_loop_from_turnaround`/`trace_loop`参照）。
+        """
+        candidate_lengths = _loop_edge_lengths_by_physical_segment(context.graph, candidate.data)
+        if not candidate_lengths:
+            return False
+        total = sum(candidate_lengths.values())
+        if total <= 0:
+            return False
+        for other in accepted:
+            other_keys = _loop_edge_lengths_by_physical_segment(context.graph, other.data)
+            shared = sum(length for key, length in candidate_lengths.items() if key in other_keys)
+            ratio = shared / total
+            if ratio > LOOP_MAX_OVERLAP_RATIO:
+                logger.debug(
+                    "loop dedup rejected bearing=%d overlap_ratio=%.2f vs accepted bearing=%s",
+                    candidate.bearing, ratio, other.bearing,
+                )
+                return True
+        return False
+
     async def evaluate_loops(
         self, context: _RoadGraphContext, traced: list[TracedLoop], start_time: datetime
     ) -> list[RouteCandidate]:
@@ -1263,6 +1295,25 @@ def _build_estimate_cost_fn(
     1回だけ構築、レグごとの再構築はしない）。
     """
     return _estimate_distances_m(graph, node_lat, node_lon, target_node_id).__getitem__
+
+
+def _loop_edge_lengths_by_physical_segment(
+    graph: RoadGraphLike, edge_ids: list[str]
+) -> dict[frozenset[str], float]:
+    """周回1件ぶんのEdge列（`TracedLoop.data`）を、進行方向を無視した物理区間キー
+    （`{from_node_id, to_node_id}`のfrozenset）→距離(m)の辞書へ変換する（改善計画T553、
+    `is_loop_too_similar`が使う）。同じ物理区間を指すfwd/bwd Edge（逆方向Edge）を同一キーへ
+    正規化することで、「同じ周回の逆回り」の比較を可能にする。存在しないedge_idは無視する
+    （`evaluate_loops`の防御的フォールバックと同じ理由で理論上ありうるレース対策）。
+    """
+    result: dict[frozenset[str], float] = {}
+    for edge_id in edge_ids:
+        edge = graph.edges.get(edge_id)
+        if edge is None:
+            continue
+        key = frozenset({edge.from_node_id, edge.to_node_id})
+        result[key] = edge.distance_m
+    return result
 
 
 def _reverse_traced_edges(
