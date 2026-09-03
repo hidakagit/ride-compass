@@ -101,7 +101,12 @@ from app.domain.evaluation import (
     compute_wind_penalty,
     evaluate_dynamic_axis_arrays,
 )
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km_array
+from app.domain.geo import (
+    KM_PER_DEGREE_LATITUDE,
+    bearing_between,
+    bearing_between_array,
+    haversine_distance_km_array,
+)
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
 from app.domain.region import BoundingBox
 from app.domain.road import classify_osm_surface, distance_weighted_road_score
@@ -774,8 +779,16 @@ class RoadGraphEngine:
             difficulty = np.zeros(len(ring))
         difficulty_key = np.round(difficulty, 1)
         closeness_key = np.abs(ring_length - ring_center_m)
-        order = np.lexsort((ring, closeness_key, difficulty_key))
-        ranked = ring[order][:MAX_RING_CANDIDATES_EXAMINED]
+        order = np.lexsort((ring, closeness_key, difficulty_key))[:MAX_RING_CANDIDATES_EXAMINED]
+        # 改善計画T554: 同点（difficulty_keyが等しい）グループ内は、既に並べた候補との
+        # 方位角距離が最大のものを優先する順序へ並べ替える（最遠点貪欲法、方位は生成機構
+        # ではなく同点タイブレーク専用）。difficulty群自体の順序（主キー）は変えない。
+        origin_node = context.graph.nodes[context.origin_node]
+        bearing_deg = bearing_between_array(
+            origin_node, context.node_lat[ring[order]], context.node_lon[ring[order]]
+        )
+        order = order[_diversify_ties_by_bearing(difficulty_key[order], closeness_key[order], bearing_deg)]
+        ranked = ring[order]
         # 改善計画T557（項目10）: difficulty_by_node／近接判定用平面座標は、以降で実際に
         # 引かれうる`ranked`（上限MAX_RING_CANDIDATES_EXAMINED件）ぶんだけ用意する
         # （以前はring全件・グラフ全Node分を毎リクエスト作っていた）。
@@ -819,7 +832,6 @@ class RoadGraphEngine:
             [TURNAROUND_MAX_OVERLAP_RATIO, TURNAROUND_RELAXED_OVERLAP_RATIO], pool_size, far_enough,
         )
 
-        origin_node = context.graph.nodes[context.origin_node]
         turnarounds: list[LoopTurnaround] = []
         for node_index in selected:
             edges = outbound_edges(node_index)
@@ -1295,6 +1307,47 @@ def _build_estimate_cost_fn(
     1回だけ構築、レグごとの再構築はしない）。
     """
     return _estimate_distances_m(graph, node_lat, node_lon, target_node_id).__getitem__
+
+
+def _diversify_ties_by_bearing(
+    difficulty_key: np.ndarray, closeness_key: np.ndarray, bearing_deg: np.ndarray
+) -> np.ndarray:
+    """`difficulty_key`が等しい同点グループ内を、既に並べた候補との方位角距離の最小値が
+    最大のものから並べる最遠点貪欲法で並べ替えた、`0..n-1`の順列を返す（改善計画T554）。
+    引数はすべて同じ添字空間（呼び出し側が`np.lexsort((..., closeness_key, difficulty_key))`
+    済みの配列を渡す前提）。差がある場合（`difficulty_key`が異なる）は方位を一切考慮せず、
+    グループの順序自体（`difficulty_key`昇順）は変えない——各グループは既に
+    `difficulty_key`昇順で連続している。全体で最初の1件（累積で1件も並べていない時点）
+    だけは`closeness_key`最小（呼び出し側の既存の並び=各グループ内`closeness_key`昇順を
+    そのまま使う）。それ以降は、累積で既に並べた**すべて**の候補（別の同点グループの
+    ものも含む）との方位角距離の最小値が最大の候補を優先する。
+    """
+    n = len(difficulty_key)
+    if n == 0:
+        return np.empty(0, dtype=np.int64)
+    result = np.empty(n, dtype=np.int64)
+    boundaries = np.flatnonzero(np.diff(difficulty_key)) + 1
+    groups = np.split(np.arange(n), boundaries)
+    placed_bearings = np.empty(0, dtype=float)
+    pos = 0
+    for group in groups:
+        remaining = group[np.lexsort((group, closeness_key[group]))]
+        if pos == 0:
+            first, remaining = remaining[0], remaining[1:]
+            result[0] = first
+            placed_bearings = np.append(placed_bearings, bearing_deg[first])
+            pos = 1
+        while len(remaining):
+            diffs = np.abs(bearing_deg[remaining][:, None] - placed_bearings[None, :])
+            diffs = np.minimum(diffs, 360.0 - diffs)
+            min_dist = diffs.min(axis=1)
+            best_pos = np.lexsort((remaining, closeness_key[remaining], -min_dist))[0]
+            best = remaining[best_pos]
+            result[pos] = best
+            placed_bearings = np.append(placed_bearings, bearing_deg[best])
+            pos += 1
+            remaining = np.delete(remaining, best_pos)
+    return result
 
 
 def _loop_edge_lengths_by_physical_segment(

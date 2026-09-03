@@ -639,6 +639,23 @@ async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():
     assert all(t.outbound_difficulty == 100.0 for t in turnarounds[1:])
 
 
+async def test_select_turnarounds_spreads_bearing_when_all_difficulty_tied():
+    # 改善計画T554: 全方位が同一difficulty（highway無指定、材料データ無し→全Edge同点）の
+    # とき、pool_sizeで打ち切っても選ばれた候補の方位が隣接象限へ固まらず全4象限へ広がる
+    # （車輪状フィクスチャは全8方位が起点から等距離・同一難易度で完全に対称なため、
+    # 最遠点貪欲法は必ず対蹠点→残り2象限の順で選ぶ）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_context(generator)
+
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=4)
+
+    assert len(turnarounds) == 4
+    quadrants = {t.bearing // 90 for t in turnarounds}
+    assert quadrants == {0, 1, 2, 3}
+
+
 async def test_select_turnarounds_skips_node_sharing_outbound_corridor():
     # bearing=0のスポークを起点→p-0a（13.5km）→p-0（1.5km）の2Edgeへ分割する。p-0a・p-0は
     # どちらもリング（目標30km±5km→往路12.5〜15.2km）に入り、1.5km離れている（近接間引きの
@@ -2128,3 +2145,43 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
     # 順方向(o→a)のまま維持される。
     assert candidate.segments[0].start_latitude == pytest.approx(ORIGIN.latitude)
     assert candidate.segments[0].start_longitude == pytest.approx(ORIGIN.longitude)
+
+
+# --- 改善計画T554: select_loop_turnaroundsの同点タイブレーク（_diversify_ties_by_bearing） ---
+
+
+def test_diversify_ties_by_bearing_spreads_uniform_difficulty_across_quadrants():
+    # difficulty_keyが全件同点（0.0）のとき、最遠点貪欲法は起点近接順の1件目に続き、
+    # 対蹠点（180°）→残り2象限の順に選ぶ——4件を選べば必ず4象限が揃う（車輪状に均等配置した
+    # 8方位、closeness_keyは単調増加で常に一意なタイブレークになる）。
+    difficulty_key = np.zeros(8)
+    closeness_key = np.arange(8, dtype=float)
+    bearing_deg = np.array([0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0])
+
+    order = road_graph_engine._diversify_ties_by_bearing(difficulty_key, closeness_key, bearing_deg)
+
+    quadrants = {int(bearing_deg[i] // 90) for i in order[:4]}
+    assert quadrants == {0, 1, 2, 3}
+
+
+def test_diversify_ties_by_bearing_preserves_difficulty_order_across_groups():
+    # difficulty_keyに差がある（同点でない）グループ間の順序は、方位がどれだけ離れて
+    # いても崩れない——bearing_degは意図的に「離れているほど有利に見える」配置にしてある。
+    difficulty_key = np.array([0.0, 0.0, 1.0, 1.0])
+    closeness_key = np.array([5.0, 1.0, 5.0, 1.0])
+    bearing_deg = np.array([0.0, 200.0, 10.0, 190.0])
+
+    order = road_graph_engine._diversify_ties_by_bearing(difficulty_key, closeness_key, bearing_deg)
+
+    assert difficulty_key[order].tolist() == sorted(difficulty_key.tolist())
+
+
+def test_diversify_ties_by_bearing_is_deterministic():
+    difficulty_key = np.array([0.0, 0.0, 0.0, 1.0, 1.0])
+    closeness_key = np.array([3.0, 1.0, 2.0, 4.0, 0.5])
+    bearing_deg = np.array([10.0, 260.0, 95.0, 300.0, 40.0])
+
+    first = road_graph_engine._diversify_ties_by_bearing(difficulty_key.copy(), closeness_key.copy(), bearing_deg.copy())
+    second = road_graph_engine._diversify_ties_by_bearing(difficulty_key.copy(), closeness_key.copy(), bearing_deg.copy())
+
+    assert np.array_equal(first, second)

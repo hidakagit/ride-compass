@@ -56,6 +56,20 @@ def bearing_between(origin: LatLon, destination: LatLon) -> float:
     return math.degrees(math.atan2(x, y)) % 360
 
 
+def bearing_between_array(origin: LatLon, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+    """`bearing_between`のベクトル化版。originから`(lat, lon)`の各点を見た初期方位角
+    （0=北、時計回り、0-360）を配列で返す（改善計画T554、大量Nodeに対する
+    `bearing_between`の繰り返し呼び出しを避ける）。"""
+    lat1 = math.radians(origin.latitude)
+    lat2 = np.radians(lat)
+    dlon = np.radians(lon - origin.longitude)
+
+    x = np.sin(dlon) * np.cos(lat2)
+    y = math.cos(lat1) * np.sin(lat2) - math.sin(lat1) * np.cos(lat2) * np.cos(dlon)
+
+    return np.degrees(np.arctan2(x, y)) % 360
+
+
 def haversine_distance_km(a: LatLon, b: LatLon) -> float:
     """2地点間の球面距離（km）。"""
     lat1, lon1, lat2, lon2 = (

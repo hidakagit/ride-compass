@@ -1,6 +1,8 @@
 import math
 
-from app.domain.geo import bearing_between, compass_label, haversine_distance_km
+import numpy as np
+
+from app.domain.geo import bearing_between, bearing_between_array, compass_label, haversine_distance_km
 from app.domain.route import Coordinates
 from tests.geo_fixtures import destination_point
 
@@ -39,6 +41,21 @@ def test_bearing_between_matches_destination_point_southwest():
 
 def test_bearing_between_zero_distance_is_zero():
     assert bearing_between(EQUATOR, EQUATOR) == 0.0
+
+
+def test_bearing_between_array_matches_scalar_version():
+    # 改善計画T554: bearing_between_arrayはbearing_betweenのベクトル化版で、同じ
+    # (origin, destination)ペアに対して同じ値を返すはず。
+    points = [
+        destination_point(EQUATOR, bearing_deg=deg, distance_km=111.2) for deg in (0, 90, 225)
+    ]
+    lat = np.array([p.latitude for p in points])
+    lon = np.array([p.longitude for p in points])
+
+    result = bearing_between_array(EQUATOR, lat, lon)
+
+    for value, point in zip(result, points):
+        assert math.isclose(value, bearing_between(EQUATOR, point), abs_tol=0.01)
 
 
 def test_compass_label_cardinal_directions():
