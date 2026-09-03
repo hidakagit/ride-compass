@@ -509,6 +509,43 @@ async def test_select_turnarounds_ring_lower_bound_clamped_when_tolerance_exceed
     assert turnarounds[0].data.node_id == "p-center"
 
 
+async def test_is_loop_too_similar_rejects_exact_reverse_and_keeps_partial_overlap():
+    # 改善計画T557（項目8）→T553: 「同じ周回の逆回り」（進行方向が違うだけで物理的には
+    # 同一の周回）を検知して棄却し、閾値未満の部分重複は残すことを検証する。
+    # 距離は全Edge等しく1000mへ揃え、比率の計算をシンプルにする。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    node_c = Node(node_id="c", latitude=ORIGIN.latitude + 0.02, longitude=ORIGIN.longitude)
+    node_d = Node(node_id="d", latitude=ORIGIN.latitude + 0.03, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    coord_c = Coordinates(latitude=node_c.latitude, longitude=node_c.longitude)
+    coord_d = Coordinates(latitude=node_d.latitude, longitude=node_d.longitude)
+    edges = {
+        "e1": _edge("e1", "a", "b", coord_a, coord_b, distance_m=1000.0),
+        "e1-rev": _edge("e1-rev", "b", "a", coord_b, coord_a, distance_m=1000.0),
+        "e2": _edge("e2", "b", "c", coord_b, coord_c, distance_m=1000.0),
+        "e2-rev": _edge("e2-rev", "c", "b", coord_c, coord_b, distance_m=1000.0),
+        "e4": _edge("e4", "c", "a", coord_c, coord_a, distance_m=1000.0),
+        "e4-rev": _edge("e4-rev", "a", "c", coord_a, coord_c, distance_m=1000.0),
+        "e5": _edge("e5", "c", "d", coord_c, coord_d, distance_m=1000.0),
+    }
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b, "c": node_c, "d": node_d}, edges=edges)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await engine.prepare(ORIGIN, radius_km=5.0)
+    assert context is not None
+
+    accepted = road_graph_engine.TracedLoop(bearing=0, distance_km=3.0, data=["e1", "e2", "e4"])
+    # 完全な逆回り（同じ3区間を逆方向に辿るだけ、重複率100%）→ 棄却される。
+    exact_reverse = road_graph_engine.TracedLoop(bearing=180, distance_km=3.0, data=["e4-rev", "e2-rev", "e1-rev"])
+    assert engine.is_loop_too_similar(context, exact_reverse, [accepted]) is True
+
+    # 3区間中2区間だけ共有（重複率2/3≈0.67 < LOOP_MAX_OVERLAP_RATIO=0.7）→ 残る。
+    partial_overlap = road_graph_engine.TracedLoop(bearing=90, distance_km=3.0, data=["e1-rev", "e2-rev", "e5"])
+    assert engine.is_loop_too_similar(context, partial_overlap, [accepted]) is False
+
+
 async def test_return_leg_avoids_outbound_road_when_alternative_exists():
     # 復路探索の間だけ往路Edge（＋逆方向Edge）のコストをRETRACE_PENALTY_MULTIPLIER倍に
     # するため、スポークの逆走（15km）より迂回路（約15.3km）が選ばれる。

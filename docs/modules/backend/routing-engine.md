@@ -32,10 +32,11 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 
 ## 戦略層（`route_generator.py: RouteGenerator`）
 
-`LoopRoutingEngine`という5メソッドの契約（Protocol、`prepare`/`select_loop_turnarounds`/
-`trace_loop_from_turnaround`/`trace_loop`/`evaluate_loops`）を挟むことで、
-`RouteGenerator`自体は探索エンジンの内部実装を知らない設計になっている（将来別方式の
-エンジンを差し込める余地を持たせるための抽象化）。現在の実装は`RoadGraphEngine`のみ。
+`LoopRoutingEngine`という6メソッドの契約（Protocol、`prepare`/`select_loop_turnarounds`/
+`trace_loop_from_turnaround`/`trace_loop`/`evaluate_loops`/`is_loop_too_similar`）を
+挟むことで、`RouteGenerator`自体は探索エンジンの内部実装を知らない設計になっている
+（将来別方式のエンジンを差し込める余地を持たせるための抽象化）。現在の実装は
+`RoadGraphEngine`のみ。
 
 候補の形は公開軸の重み配分で決まる（フロンティア方式）:
 起点からの一対全最短経路木（軸重み付きコスト）で目標距離の半分付近に到達する折返し点を
@@ -56,7 +57,10 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   ランク順に逐次: engine.trace_loop_from_turnaround(context, turnaround)
         │  往路（木の経路そのもの）＋往路と別の復路（A*）で周回を1本組み立てる。
         │  RoutingErrorはその候補だけスキップ、距離フィルタ不合格も同様にスキップ。
-        │  距離フィルタ合格がmax_routes件に達した時点で処理を打ち切る
+        │  engine.is_loop_too_similar(context, candidate, accepted)が採用済み候補と
+        │  周回全体（往路＋復路、進行方向無視）で重複しすぎると判定した候補もスキップ
+        │  （「同じ周回の逆回り」等を弾く）。このチェックを通過した候補数が
+        │  max_routes件に達した時点で処理を打ち切る
         ▼
   engine.evaluate_loops(context, traced, start_time)
         │  フィルタ通過候補だけに実ジオメトリ取得・標高・風・路面等の評価を行う
@@ -359,6 +363,13 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 - **`overlap_ratio`/`select_diverse_by_overlap`**: 2つのEdge index集合の
   距離加重重複率、およびランク順の候補列から重複率・近接度（`is_compatible`）で貪欲に
   多様な集合を選ぶ汎用関数（周回の折返し点選定・復路の往路重複率算出の両方に使う）。
+- `RoadGraphEngine.is_loop_too_similar`（`LoopRoutingEngine`契約、`_loop_edge_lengths_by_
+  physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
+  （`TracedLoop.data`、往路＋復路のedge_id列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
+  比較する`TURNAROUND_MAX_OVERLAP_RATIO`＝0.6より緩め）を超えて重複するか判定する。
+  edge_idを`{from_node_id, to_node_id}`のfrozensetへ正規化し進行方向を無視して比較する
+  ため、「同じ周回の逆回り」・「往路は違うが復路が同じ裏道へ収束する」周回のどちらも
+  同じ判定で弾ける。
 - `NodeSpatialIndex`/`build_node_spatial_index`/`find_nearest_node_indexed`:
   グリッドバケットによる最近傍ノード探索。
 - `compute_routable_node_ids`（`domain/evaluation.py`）: 最近傍ノード探索は「0次
