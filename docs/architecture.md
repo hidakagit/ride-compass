@@ -23,7 +23,7 @@
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **Open-Meteo Forecast API**（APIキー不要） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）の`get_conditions`が起点1点の現在気象を`current`＋`hourly`から取得する（`RoadGraphEngine`は起点判定に1回だけ呼ぶ、候補ごとの並列呼び出しはしない）。地図の風グリッドレイヤーは`get_wind_grid`が複数地点をまとめて`get_forecast_many`（TTLキャッシュ付き）で取得する（改善計画T462でopenrouteserviceエンジン専用だった候補間prefetch経路[`WeatherService.prefetch`/`WindService`]を削除済み） |
 | 標高 | **国土地理院（GSI）標高API**（APIキー不要、日本国内限定） | `ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）がルートを距離連動の点数（約1km間隔・12〜32点、`sample_count_for_distance`）でサンプリングして問い合わせ、獲得標高・最高/最低標高・最大勾配を算出 |
-| 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、`https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png`、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして直接重ね描き。バックエンドAPIを介さない。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
+| 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして`GET /api/gsi-relief-tile/{path:path}`（`GsiReliefTileClient`、改善計画T572）経由で重ね描き。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
 | 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み（当初はOverpass API＋自前Python MVTエンコードだったが、PostGIS移行に伴い不要になった。経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照） |
 
 ### 地図タイルプロバイダに関する注記
@@ -182,9 +182,10 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
 Step5-9で実装した標高・風・路面はいずれも「生成済みの候補ルート沿い」に限定した評価だった。ユーザーから「候補を出す前に、そもそもどのあたりが走りやすい地形・路面なのか地図で見たい」という要望を受け、候補ルートの有無に関わらず**表示中の地図の範囲全体（ビューポート）**に標高・路面を重ね描きする機能を追加した。
 
 #### 標高オーバーレイ（国土地理院 色別標高図、ラスタタイル）
-初期実装では、標高もリクエストされたbboxを固定間隔（約500m）のグリッド点に分解し、既存の`ElevationClient`（Step5と共通の国土地理院標高API）へ問い合わせて`circle`レイヤーの点として描画していた。しかし実際にブラウザで確認したところ「疎らな点では地形の起伏が直感的に分かりにくい」ことが分かり、標高の点取得・グリッド生成・専用APIエンドポイント（`GET /api/region/elevation`）は撤去し、代わりに国土地理院が公開する**色別標高図**（ラスタタイル、`https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png`、APIキー不要、zoom 5-15）をMapLibreの`raster`ソースとして`MapView.tsx`が直接重ね描きする方式に変更した。
+初期実装では、標高もリクエストされたbboxを固定間隔（約500m）のグリッド点に分解し、既存の`ElevationClient`（Step5と共通の国土地理院標高API）へ問い合わせて`circle`レイヤーの点として描画していた。しかし実際にブラウザで確認したところ「疎らな点では地形の起伏が直感的に分かりにくい」ことが分かり、標高の点取得・グリッド生成・専用APIエンドポイント（`GET /api/region/elevation`）は撤去し、代わりに国土地理院が公開する**色別標高図**（ラスタタイル、APIキー不要、zoom 5-15）をMapLibreの`raster`ソースとして`MapView.tsx`が重ね描きする方式に変更した。
 
-- **バックエンドを介さない**: 地理院タイルはブラウザへの直接埋め込みを想定して公開されているため、基礎地図タイル（OpenFreeMap）のようなプロキシ・キャッシュ層を設けていない。地理院タイルのオリジン（`cyberjapandata.gsi.go.jp`）は基礎地図タイル用に分離したフロントエンドオリジン（`:3000`）・API呼び出し用のバックエンドオリジン（`:8000`）のいずれとも異なるため、ブラウザのオリジン単位の同時接続数上限が競合する心配もない。
+- **バックエンド経由プロキシ＋キャッシュ**（改善計画T572）: `GsiReliefTileClient`
+  （[backend/app/infrastructure/gsi_relief_tile_client.py](../backend/app/infrastructure/gsi_relief_tile_client.py)）が`BasemapClient`と同じ「pathを丸ごとプロキシ＋`tile_cache.py`の永続ファイルキャッシュ」方式で国土地理院（`cyberjapandata.gsi.go.jp`）のタイルを中継する（`GET /api/gsi-relief-tile/{path:path}`、`next.config.ts`の`/api/gsi-relief-tile/*`rewritesで同一オリジン化）。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない静的データのため、JMAタイル系のようなTTL付きキャッシュの分岐は不要。
 - **レイヤー順序**: `ensureGsiReliefLayer`（`MapView.tsx`）は地図初期化直後（他のカスタムレイヤーより先）に一度だけソース/レイヤーを追加し、以降はvisibilityの切替のみで表示・非表示を行う。先に追加しておくことで、後から追加される路面・ルート系のレイヤーが必ずこのラスタの上に重なり、道路線やラベルが標高オーバーレイに隠れないようにしている。不透明度は0.55で、基礎地図の道路・ラベルが透けて見える程度に抑えている。
 - **ビューポート制限は不要**: 標高グリッドAPI（撤去済み）はGSIの点別APIへの問い合わせ数を抑えるため`MAX_REGION_DIAGONAL_KM`のズーム制限を課していたが、ラスタタイルはズームレベルに応じてタイルが自動的に切り替わる標準的なXYZタイルのため、この種の制限は不要になった（後述の路面データのみ制限が残る）。
 
@@ -216,7 +217,7 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 
 - **経緯**: 従来これらは各ユーザーのブラウザがJMAの非公式内部API（`https://www.jma.go.jp/bosai/...`）へ直接fetchしており、バックエンド・キャッシュを一切経由しなかった。T410（キキクル）の実機フィードバック検討中、「防災級の情報は常時ONにすべきでは」という指摘を受け、常時ON化の前提として「利用者数に比例してJMAへの負荷が線形に増えない構成」への切り替えが必要と判断し、ユーザー方針「動的なデータはなるべくバックエンド経由に」に沿って実施した。
 - **キャッシュ戦略の分岐**: `BasemapClient`のOpenFreeMapタイルと異なり、JMA側は2種類の更新頻度が混在する。①ラスタタイル本体（`basetime/validtime/z/x/y`が確定した時点で内容が不変）は`tile_cache.py`の永続ファイルキャッシュへそのまま乗せる。②`targetTimes*.json`（数分〜数十分単位で更新される時刻一覧）を同じ永続キャッシュへ乗せると更新後も古い内容を無期限に返し続けてしまうため、`jma_warning_client.py`と同じ`cachetools.TTLCache`（プロセス内、TTL=2分）を別途用意し、パスの末尾が`targetTimes*.json`かどうかで振り分ける。
-- **横展開の検討と対象外の判断**: JMA以外に同様の直接fetchが無いか調査した結果、国土地理院の色別標高図タイル（`cyberjapandata.gsi.go.jp`、`MapView.tsx`）のみ該当したが、これは「ブラウザからの直接埋め込み利用を前提に国が公開している正式なAPI」であり、JMAの「非公式の内部API」への配慮とは動機が異なるため対象外とした（Open-Meteo・基礎地図・路面/事故/POIタイルは既にバックエンド経由のためそもそも対象外）。ただし色別標高図は時刻に依存しない静的データのため、レスポンス速度向上目的の永続キャッシュ化は別途軽量タスクとして検討する余地がある。
+- **横展開の検討**: JMA以外に同様の直接fetchが無いか調査した結果、国土地理院の色別標高図タイル（`cyberjapandata.gsi.go.jp`、`MapView.tsx`）のみ該当した。「ブラウザからの直接埋め込み利用を前提に国が公開している正式なAPI」でありJMAの「非公式の内部API」への配慮とは動機が異なるため負荷分散の観点では対象外だが、時刻に依存しない静的データのためレスポンス速度向上目的の永続キャッシュ化には価値があると判断し、改善計画T572で`BasemapClient`と同じ方式でバックエンド経由化した（上記「標高オーバーレイ」節参照）。
 
 ### 動的気象レイヤー（風・降水延長予報）の共通契約（改善計画T170〜T195）
 
@@ -539,7 +540,7 @@ RideCompass/
       api/
         admin_auth.py           ✅ 管理API共通の認可境界（`require_admin_basic_auth`、HTTP Basic認証）。元はaxis_admin.pyにのみ定義されていたが、改善計画T379でdebug_admin.pyも同じ認可を必要としたため複製を避けてここへ切り出した
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ gsi_relief_tile.py（GET /api/gsi-relief-tile/{path}、改善計画T572、国土地理院 色別標高図タイルのプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・overall_difficulty・segments・axis_difficulties含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み）
         weather.py               ✅ WeatherConditions
@@ -578,7 +579,7 @@ RideCompass/
         warning_service.py     ✅ 改善計画T205: 緯度経度→市区町村→JMA警報エリアの解決とr8警報APIの電文配列集約でWeatherWarningsを組み立てる。地点解決・警報取得のどこで失敗しても空応答（警報なし）を返す
         wbgt_service.py         ✅ 改善計画T174: 緯度経度→最寄りWBGT地点の解決と予測値APIの取得でWbgtStatusを組み立てる。提供期間外・地点解決失敗・取得失敗・「ほぼ安全」のいずれもlevel=nullを返す
         flood_service.py         ✅ 改善計画T212: T205のjma_area.resolve_areaを再利用した地点解決と洪水予報APIの電文集約でFloodForecastsを組み立てる。地点解決・取得のどこで失敗しても空応答を返す
-        region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてフロントエンドが直接取得するためバックエンドを介さない）。get_poi_tile(z,x,y)で停止要因POI・交差点密度の点タイルを生成（T54）。カバレッジ内タイル配信のたびにz12祖先タイルの道路グラフ未構築・古さを確認しバックグラウンド構築を起動（T59、7章参照）
+        region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてgsi_relief_tile_client.py[改善計画T572]経由でバックエンドがプロキシ・キャッシュする）。get_poi_tile(z,x,y)で停止要因POI・交差点密度の点タイルを生成（T54）。カバレッジ内タイル配信のたびにz12祖先タイルの道路グラフ未構築・古さを確認しバックグラウンド構築を起動（T59、7章参照）
         accident_service.py          ✅ 事故点のタイル生成（accident_repository.py経由）。region_service.pyとは別系統（外部静的データソースT50、7章参照）
         graph_service.py            ✅ GraphService.get_or_build_graph_with_attributes(bbox)でPostGIS（`repository`必須）からRoad Graphを取得・構築（Road Graph移行Phase 1〜3、新規）。「完全移行」でRouteGeneratorから実際に参照されるようになった。当初はrepository未接続時にOverpassから都度構築するDBなし構成を持っていたが、改善計画T222で撤去済み（本番・dev環境は常にrepositoryを注入するため未到達だった）。改善計画T321（デッドコード監査）: T219のタイルキャッシュ導入でホットパスが`_build_search_materials_from_tile_cache`へ移った後、`lean`引数と依存する分岐が実行時到達不能のまま残っていたため削除。T248の材料取得統合（`get_edge_materials_batch`）後に呼び出し元を失っていた素通しラッパー4本（`get_way_tags`/`get_edge_attribute_counts`/`get_elevation_attributes`/`get_designated_edge_ids`）も削除
         elevation_aggregation.py    ✅ 改善計画T321（デッドコード監査）: 標高集約（獲得標高・最高/最低標高・最大勾配）の最終集約ロジック（sum_or_none/min_or_none/max_or_none）を`elevation_service.py`と`road_graph_engine.py: _aggregate_elevation`の二重実装から切り出して共通化
@@ -595,6 +596,7 @@ RideCompass/
         wind_forecast_cache.py       ✅ 気象グリッド（風・降水延長予報）のRedis永続キャッシュ（改善計画T398。標高キャッシュ・路面セルキャッシュは無関係、それぞれtile_cache.py・DEMタイル化[T10]参照。旧SQLite実装cache_db.pyはこの移行で削除済み）
         tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10。T398でDATA_DIR定数の定義元になった）
         basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
+        gsi_relief_tile_client.py   ✅ 改善計画T572: 国土地理院 色別標高図タイルのプロキシ。basemap_client.pyと同じ「pathを丸ごとプロキシ＋tile_cache.pyの永続ファイルキャッシュ」方式（URL書き換え・TTL分岐は不要）
         jma_tile_client.py           ✅ 改善計画T412: JMA動的タイル系（降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップ）のプロキシ。basemap_client.pyと同じpath丸ごとプロキシ方式だが、タイル本体はjma_tile_redis_cache.py（Redis cache-aside、T510でtile_cache.pyから移行）・targetTimes*.jsonはTTLCache（2分）とキャッシュ戦略を分岐する。get_cached（キャッシュのみ参照）/fetch（外部フェッチのみ）/get（両方の一括呼び出し）の3メソッドへ分割し、jma_tile.py側がget_cachedのヒット判定をレート制限より先に行えるようにした（T510、429の直接原因への対応）
         jma_tile_redis_cache.py      ✅ 改善計画T510: JMAタイル本体（ラスタPNG・洪水キキクルのベクタPBF）のRedis cache-aside。wind_forecast_cache.pyと同じfail-open設計、TTL20分、値はbase64化してJSON文字列としてRedisへ保存する（redis_client.pyがdecode_responses=Trueのため生バイト列を直接保存できない）
         rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
@@ -1095,7 +1097,10 @@ Response 429（同一クライアントIPから1分あたり6リクエスト（`
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 ```
 
-標高の地域オーバーレイ（Step10）はバックエンドAPIを持たない。フロントエンドが国土地理院の色別標高図タイル（`https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png`）をMapLibreのraster sourceとして直接取得するため、上記のようなJSON APIは存在しない（詳細は「標高オーバーレイ（国土地理院 色別標高図、ラスタタイル）」を参照）。
+標高の地域オーバーレイ（Step10）は`GET /api/gsi-relief-tile/{path:path}`（改善計画T572）を
+経由する。JSON応答を持つAPIではなく、`BasemapClient`と同じ「pathを丸ごとプロキシ」方式の
+ラスタタイル配信のため、上記のようなJSONレスポンス例は無い（詳細は「標高オーバーレイ
+（国土地理院 色別標高図、ラスタタイル）」を参照）。
 
 これで仕様書18章に記載の最終形のレスポンス項目（距離・標高・風・道路特性・総合スコア）に加え、区間ごとの詳細（`segments`）、候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）も出揃った。
 

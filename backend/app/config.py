@@ -139,6 +139,8 @@ class Settings(BaseSettings):
     # 雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップの各タイル・時刻一覧をまとめて
     # 経由するため、basemapと同水準の上限にする。
     jma_tile_rate_limit_per_minute: int = 300
+    # 国土地理院 色別標高図タイル（改善計画T572）のプロキシ。basemap/jma-tileと同水準の上限。
+    gsi_relief_tile_rate_limit_per_minute: int = 300
     # 改善計画T510: JMA動的タイルの定期プリウォーム間隔。JMA側の実更新間隔（5〜10分おき、
     # jma_tile_client.pyのコメント参照）に合わせ、アメダス（AMEDAS_REFRESH_INTERVAL_MINUTES）
     # と同じ10分にした。

@@ -51,6 +51,12 @@ const nextConfig: NextConfig = {
         source: "/api/jma-tile/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/jma-tile/:path*`,
       },
+      // 国土地理院 色別標高図タイル（改善計画T572）も他のタイル系と同じくバックエンド経由
+      // （永続ファイルキャッシュ付き）・同一オリジンへ切り替える。
+      {
+        source: "/api/gsi-relief-tile/:path*",
+        destination: `${BACKEND_INTERNAL_URL}/api/gsi-relief-tile/:path*`,
+      },
     ];
   },
 };

@@ -120,10 +120,9 @@ function createOriginMarkerElement(color: string): HTMLDivElement {
   return el;
 }
 
-// 国土地理院の色別標高図（ラスタタイル、APIキー不要）。地理院タイルはブラウザから直接
-// 埋め込む利用を想定して公開されているため、基礎地図タイルとは異なりバックエンド経由の
-// プロキシは行わない（別オリジンのため、基礎地図タイルとの接続数競合も発生しない）。
-const GSI_RELIEF_TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png";
+// 国土地理院の色別標高図（ラスタタイル、APIキー不要）。改善計画T572でbasemap/jma-tileと
+// 同じバックエンド経由（永続ファイルキャッシュ付き）・同一オリジンへ切り替えた。
+const GSI_RELIEF_TILE_URL = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
 const GSI_RELIEF_MAX_ZOOM = 15;
 const GSI_RELIEF_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';

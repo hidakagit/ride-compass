@@ -20,6 +20,7 @@ from app.domain.route import Coordinates, RouteSegment
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
+from app.infrastructure.gsi_relief_tile_client import GsiReliefTileClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.elevation_client import ElevationClient
@@ -344,6 +345,10 @@ def get_basemap_client():
 
 def get_jma_tile_client():
     return JmaTileClient(get_http_client(15.0))
+
+
+def get_gsi_relief_tile_client():
+    return GsiReliefTileClient(get_http_client(15.0))
 
 
 async def get_axis_registry_admin_service():

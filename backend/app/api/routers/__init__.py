@@ -12,6 +12,8 @@
 - jma_tile.py: /api/jma-tile/{path}（JMA動的タイル系レイヤーのプロキシ、改善計画T412。
   降水ナウキャスト・降水短時間予報・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップが
   対象。basemap.pyと同じ「pathを丸ごとプロキシ」方式）
+- gsi_relief_tile.py: /api/gsi-relief-tile/{path}（国土地理院 色別標高図タイルのプロキシ、
+  改善計画T572。basemap.pyと同じ「pathを丸ごとプロキシ＋永続ファイルキャッシュ」方式）
 - axis_admin.py: /api/admin/axis-definitions（評価軸定義のCRUD管理API、改善計画T221
   Stage D。共有トークンheaderによる認可が必要）
 - axis_catalog.py: /api/axis-catalog（評価軸カタログの読み取り専用API、改善計画T269。
@@ -33,6 +35,7 @@ from app.api.routers import (
     axis_catalog,
     basemap,
     debug_admin,
+    gsi_relief_tile,
     health,
     jma_tile,
     material_catalog,
@@ -49,6 +52,7 @@ api_router.include_router(region.router)
 api_router.include_router(accidents.router)
 api_router.include_router(basemap.router)
 api_router.include_router(jma_tile.router)
+api_router.include_router(gsi_relief_tile.router)
 api_router.include_router(axis_admin.router)
 api_router.include_router(axis_catalog.router)
 api_router.include_router(material_catalog.router)

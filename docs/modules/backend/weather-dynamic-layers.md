@@ -18,8 +18,8 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 |---|---|
 | domain | `weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
-| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
-| api | `weather.py`・`jma_tile.py`・`basemap.py` |
+| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
 
 ## domain層: 2つの異なる役割
 
@@ -160,8 +160,8 @@ tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない�
 固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `fetch_municipality_code`は`AttributeError`も対象に
 含める）ため、`catch`引数で個別に指定できる。`weather_client.py`（tenacity再試行・2段キャッシュ）・
-`jma_tile_client.py`/`elevation_client.py`/`basemap_client.py`（TTLCache以外の
-キャッシュバックエンド）は対象外のまま各自の実装を維持する。
+`jma_tile_client.py`/`elevation_client.py`/`basemap_client.py`/`gsi_relief_tile_client.py`
+（TTLCache以外のキャッシュバックエンド）は対象外のまま各自の実装を維持する。
 
 ## Open-Meteo呼び出しの信頼性対策（`weather_client.py`）
 
