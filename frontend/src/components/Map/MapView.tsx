@@ -511,6 +511,14 @@ export function applyRouteLayerVisibility(
 // された向きの座標順で返る）がそのまま矢印の向きに反映される（T293技術検証Artifactで確認
 // 済み、フロント側で「どちらが採用されたか」を判定する追加ロジックは不要）。
 // ハロー（縁取り）層+主層の2層重ねは風の矢印（ensureDynamicWeatherLayer）と同じ既存パターン。
+//
+// 改善計画T558: 衝突判定は無効にする（icon-allow-overlap / icon-ignore-placement: true）。
+// MapLibreのシンボル配置はレイヤーの上から順に行われ、先に配置された主層（上）の
+// 矢印と同じ位置・1.4倍の大きさのハロー層（下）は「衝突」として1つ残らず落とされていた
+// （Playwright診断で主層のみ配置・ハロー層0件）。白い縁取りが無いと、区間色分け線が
+// 紺系のモード（既定の勾配モード等）では同色の矢印が線に沈んで見えない。ルート矢印は
+// 選択中候補の線上だけに出る小さなシンボルのため、basemapのラベルと重なる不利益より
+// 「必ず縁取り付きで一定間隔に出る」ことを優先する。
 function ensureRouteArrowLayer(map: MapLibreMap) {
   if (map.getLayer(ROUTE_ARROW_LAYER_ID)) return;
   if (!map.hasImage(ROUTE_ARROW_ICON_ID)) {
@@ -521,8 +529,8 @@ function ensureRouteArrowLayer(map: MapLibreMap) {
     "symbol-placement": "line",
     "symbol-spacing": ROUTE_ARROW_SPACING_PX,
     "icon-rotation-alignment": "map",
-    "icon-allow-overlap": false,
-    "icon-ignore-placement": false,
+    "icon-allow-overlap": true,
+    "icon-ignore-placement": true,
   } as const;
   map.addLayer({
     id: ROUTE_ARROW_HALO_LAYER_ID,
@@ -541,6 +549,21 @@ function ensureRouteArrowLayer(map: MapLibreMap) {
     layout: { ...lineLayout, "icon-size": zoomIconSizeExpression(ROUTE_ARROW_BASE_SCALE) },
     paint: { "icon-color": "#1e3a8a", "icon-opacity": 0.95 },
   });
+  keepRouteArrowsAboveDetailSegments(map);
+}
+
+// 改善計画T558: 矢印は選択中候補の区間色分け線（DETAIL_LAYER_ID、幅6px・不透明）と
+// その当たり判定線（DETAIL_HIT_LAYER_ID）より上に描く。矢印層はページ表示直後
+// （routes=[]でのdrawSelectedOutline）に、区間色分け線は最初の生成後に作られるため、
+// 作成順に任せると常に矢印が下になり線に隠れる。どちらが先に作られても
+// 「色分け線 → 当たり判定線 → 矢印ハロー → 矢印」の順になるよう、矢印層の作成時は
+// ここで既存の色分け線を矢印の直下へ移し、色分け線の作成時（drawDetailSegments）は
+// 矢印ハローをbeforeIdに指定する。
+function keepRouteArrowsAboveDetailSegments(map: MapLibreMap) {
+  if (!map.getLayer(ROUTE_ARROW_HALO_LAYER_ID)) return;
+  for (const layerId of [DETAIL_LAYER_ID, DETAIL_HIT_LAYER_ID]) {
+    if (map.getLayer(layerId)) map.moveLayer(layerId, ROUTE_ARROW_HALO_LAYER_ID);
+  }
 }
 
 // 実験スロット（研究インターフェース改善 §10-3）の重ね描き。各スロットの代表候補
@@ -600,22 +623,31 @@ function drawDetailSegments(
       source.setData(data);
     } else {
       map.addSource(DETAIL_SOURCE_ID, { type: "geojson", data });
-      map.addLayer({
-        id: DETAIL_LAYER_ID,
-        type: "line",
-        source: DETAIL_SOURCE_ID,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        paint: { "line-color": mode.colorExpression as any, "line-width": 6, "line-opacity": 1 },
-      });
+      // 改善計画T558: 進行方向矢印（ROUTE_ARROW_HALO_LAYER_ID/ROUTE_ARROW_LAYER_ID）より
+      // 下に置く（keepRouteArrowsAboveDetailSegments参照）。
+      const beforeId = map.getLayer(ROUTE_ARROW_HALO_LAYER_ID) ? ROUTE_ARROW_HALO_LAYER_ID : undefined;
+      map.addLayer(
+        {
+          id: DETAIL_LAYER_ID,
+          type: "line",
+          source: DETAIL_SOURCE_ID,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          paint: { "line-color": mode.colorExpression as any, "line-width": 6, "line-opacity": 1 },
+        },
+        beforeId
+      );
       // 改善計画T550: 当たり判定専用の見えない太い線（DETAIL_HIT_LAYER_IDのdocstring
       // 参照）。同じソース・同じfilterを共有し、見た目の線（DETAIL_LAYER_ID）の上に重ねる
       // （line-opacity:0のため描画順自体は見た目に影響しない）。
-      map.addLayer({
-        id: DETAIL_HIT_LAYER_ID,
-        type: "line",
-        source: DETAIL_SOURCE_ID,
-        paint: { "line-width": 24, "line-opacity": 0 },
-      });
+      map.addLayer(
+        {
+          id: DETAIL_HIT_LAYER_ID,
+          type: "line",
+          source: DETAIL_SOURCE_ID,
+          paint: { "line-width": 24, "line-opacity": 0 },
+        },
+        beforeId
+      );
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     map.setPaintProperty(DETAIL_LAYER_ID, "line-color", mode.colorExpression as any);
