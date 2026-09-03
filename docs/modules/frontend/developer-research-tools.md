@@ -22,6 +22,7 @@
 | `hooks/useResearchMode.ts`・`lib/researchMode.ts` | 研究モードON/OFF状態の同型シングルストア | |
 | `services/debugStatsApi.ts`・`services/versionApi.ts` | `SystemStatusPanel`が使うAPIクライアント | |
 | `services/debugAdminApi.ts` | `BackendLogsPanel`が使うAPIクライアント（`app/admin/api/debug/logs/`経由、生成型を経由しない手書き型） | |
+| `app/admin/api/debug/logs/route.ts` | `debugAdminApi.ts`が叩くNext.js route handler。`proxyToBackendAdmin`でbackend `GET /api/admin/debug/logs`へ`limit`/`contains`クエリごと転送する | |
 | `services/healthApi.ts` | `BackendStatus.tsx`が使う`GET /api/health`クライアント | |
 | `app/api/version/route.ts` | `versionApi.ts`が読むフロントエンドのビルドバージョンを返すNext.js route handler | |
 

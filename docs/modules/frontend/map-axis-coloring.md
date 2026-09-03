@@ -38,7 +38,7 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
                                   同じ配色・しきい値を共有
                                             ▲
 ルート確定後  ── RouteSegmentDetailの ──────┘   （環境グループは非表示、評価軸グループが
-              axis_difficulties /              「生成したルートの色分け」モードへ役割を譲る）
+              axis_difficulties /              「地図の色分け」モードへ役割を譲る）
               gradient_percent直読み
 ```
 
@@ -130,6 +130,16 @@ routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実�
 
 `windPenalty()`は`WindCalculator.wind_penalty`（backend）と同一計算をfrontendで実装した
 もの。`windPenalty.test.ts`が既知入出力ペアでbackendとの一致を検証する。
+
+風のgridFillは粗い格子（`windGrid`、関東本土全域を常時カバー）と、ズームイン時に画面中心
+付近だけを覆う詳細格子（`windDetailGrid`）の2段構成（[地図: 動的気象レイヤー]
+(dynamic-weather-layers.md)参照）。両方をそのまま重ねて描画すると重なった領域の
+半透明fill-opacityが二重になり凡例の色と対応しなくなるため、
+`windPenaltyCoarseGridToClippedFeatureCollection`が粗いセルと詳細格子の実カバー範囲
+（矩形）が重なる部分だけを`subtractRectangle`（矩形の引き算、最大4枚の帯へ分解）で
+幾何学的に切り取ってから描画する。詳細格子が空（未取得・ズームアウト時）ならフィルタせず
+粗い格子をそのまま返す（`windPenaltyGridToCellFeatureCollection`、詳細格子単独の描画も
+この単純版を使う）。
 
 `windPenaltyFillColorExpression(boundaries?)`は評価軸グループ（`windAxisColorExpression`）と
 同じ`dedicatedWayValueBoundaries`（`.get("wind")`）を`MapView.tsx`側で受け取り、両者が

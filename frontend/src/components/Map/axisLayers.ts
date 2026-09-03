@@ -275,8 +275,7 @@ function lerpColor(a: string, b: string, t: number): string {
 }
 
 /** RAMP_COLOR_ANCHORS（緑(0)→赤(1)）をt（0〜1の相対位置）で線形補間する共通ロジック。
- * rampColorForBand（段階index/bandCountからの離散色）・rampColorForValue（0-100連続値からの
- * 色、改善計画T403でルート区間クリック内訳チャート用に追加）の両方がこれを経由することで、
+ * rampColorForBand（段階index/bandCountからの離散色）がこれを経由することで、
  * アンカー定義（緑→黄→橙→赤の4点）を1箇所だけに保つ（設計原則2: 定数の片側import）。 */
 function rampColorForRatio(t: number): string {
   const clamped = Math.min(1, Math.max(0, t));
