@@ -7,6 +7,11 @@
 # 個別チェックを直接.git/hooks/pre-commitへcpすることもできるが、その場合は他方の
 # チェックを失う。新しいチェックを追加するときはこのファイルへ1行足すだけでよい。
 #
+# docs/modules/*.md の経緯記述（記載粒度）検査は、pre-commit-docs-consistency.shが
+# 呼ぶ`review_checks.py docs --staged`が他のdocs整合性チェックとまとめて行う（禁止
+# パターンの定義元はreview_checks.py: NARRATIVE_PATTERNの1箇所のみ、T561でシェル側の
+# 別定義を統合済み）。
+#
 # 実行順序（重要）: 安価なチェック（grepのみ）を先に、高価なチェック（backend python
 # 起動+npm、実測約12秒）を後に置く。逆順だと、backend/app変更とdocs/modules違反が
 # 同じコミットに混在した場合、「経緯記述を直して再コミット」のたびに無関係な高価な
@@ -18,6 +23,5 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-sh scripts/pre-commit-docs-modules-history.sh
 sh scripts/pre-commit-docs-consistency.sh
 sh scripts/pre-commit-api-contract.sh

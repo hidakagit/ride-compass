@@ -18,9 +18,9 @@
 | batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `rustworkx`のA*で経路計算する。
-Edgeコストは改善計画T536で「タイル単位の静的Edge×公開軸スコア行列＋リクエスト時ベクトル
-計算」方式へ変更済み——探索が実際に訪れたEdgeに対してPythonのコスト計算コールバックを
-都度呼ぶ（旧T529/T534方式）のではなく、`prepare`/`preview_segment`が対象bbox全体ぶんの
+Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リクエスト時ベクトル計算」方式で
+算出する——探索が実際に訪れたEdgeに対してPythonのコスト計算コールバックを都度呼ぶのでは
+なく、`prepare`/`preview_segment`が対象bbox全体ぶんの
 コスト配列を1回だけnumpyで合成し、A*（`domain/routing.py: shortest_path_node_ids_lazy`）
 へは合成済み配列への`list.__getitem__`だけを渡す（探索中にPythonの関数フレームを作らない）。
 標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで組み込み済み
@@ -37,7 +37,7 @@ Edgeコストは改善計画T536で「タイル単位の静的Edge×公開軸ス
 `RouteGenerator`自体は探索エンジンの内部実装を知らない設計になっている（将来別方式の
 エンジンを差し込める余地を持たせるための抽象化）。現在の実装は`RoadGraphEngine`のみ。
 
-候補の形は公開軸の重み配分で決まる（改善計画T531、フロンティア方式）:
+候補の形は公開軸の重み配分で決まる（フロンティア方式）:
 起点からの一対全最短経路木（軸重み付きコスト）で目標距離の半分付近に到達する折返し点を
 往路の軸的な良さの順に選び、往路と別の復路を探索して周回にする。距離は目標
 ±`distance_tolerance_km`の厳格フィルタで、スコアとは混ぜない。
@@ -128,7 +128,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 
 `GraphService.get_search_materials_for_bbox`でトポロジ＋材料（surface・
 edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids、Edge単位で
-`EdgeMaterialBundle`へ統合済み）＋改善計画T536の`StaticEdgeScoreMatrix`（タイル単位で
+`EdgeMaterialBundle`へ統合済み）＋`StaticEdgeScoreMatrix`（タイル単位で
 キャッシュ済みの「Edge×公開軸」静的スコア行列）をまとめて取得し、`_build_search_graph`が
 探索用グラフ（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）とbbox全体ぶんの
 コスト配列を構築する。データ未整備（対象タイル未取込）ならNoneを返し、呼び出し元
@@ -147,7 +147,7 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 
 ### 探索・索引構築のキャッシュ（`infrastructure/search_graph_cache.py`）
 
-`LazyRoadGraph`（探索用グラフ）・`SearchGraphStatics`（改善計画T531、一対全最短経路木
+`LazyRoadGraph`（探索用グラフ）・`SearchGraphStatics`（一対全最短経路木
 用のCSR構造＋Edge実距離配列）・`NodeSpatialIndex`（routable Node空間索引）は、
 タイル集合キーのプロセス内LRU（上限64件）へキャッシュする。同じタイル集合への
 2回目以降のリクエストはこれらの構築を丸ごと省略する。
@@ -168,7 +168,7 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 - `_reverse_traced_edges`（逆回り候補、後述）は、キャッシュ済み`LazyRoadGraph.
   edge_index_by_node_pair`を経路上のEdgeだけに対する遅延引きとして使う。
 
-### `select_loop_turnarounds`（折返し点選定、改善計画T531）
+### `select_loop_turnarounds`（折返し点選定）
 
 1. **一対全最短経路木**: 起点からの一対全Dijkstra（`domain/routing.py:
    build_shortest_path_tree`、scipy.sparse.csgraph、軸重み付きコスト）を1回だけ求める。
@@ -188,7 +188,7 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
    周回が並ぶのを防ぐ）。埋まらなければ`TURNAROUND_RELAXED_OVERLAP_RATIO`（0.85）へ
    緩めてやり直す。
 
-### `trace_loop_from_turnaround`（復路探索、改善計画T531）
+### `trace_loop_from_turnaround`（復路探索）
 
 往路は一対全木上の経路そのもの（`tree_path_edge_indices`で復元、A*での再探索はしない
 ——同じコスト配列でA*をかけ直しても同じ経路になるため）。復路探索の間だけ、往路Edge＋
@@ -205,20 +205,19 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 `select_loop_turnarounds`/`trace_loop_from_turnaround`は周回候補（フロンティア方式）
 専用で、経由地・目的地指定ルート（`generate_via_waypoints`）は本メソッドが指定地点列を
 順にA*で結ぶ（`bearing=None`固定、戻り値の`data`は経路上のedge_id列）。探索は
-`asyncio.to_thread`による並列化をしない（改善計画T536: rustworkxはEdgeごとに
-Pythonコールバックへ戻る構造のためGILを解放できず、複数スレッド並列は直列より
-遅いことを本番実測）。
+`asyncio.to_thread`による並列化をしない（rustworkxはEdgeごとにPythonコールバックへ
+戻る構造のためGILを解放できず、複数スレッド並列は直列より遅いため）。
 
 ### `evaluate_loops`（実ジオメトリ取得・評価）
 
 距離フィルタを通過した全候補ぶんのedge_idを1つにまとめ、`GraphService.
-get_edges_with_geometry`を**1回のクエリ**で呼んで実ジオメトリを取得する（改善計画T531で
-候補ごとの取得から統合。棄却済み候補へのDB問い合わせを避ける2段階分割自体は維持）。
+get_edges_with_geometry`を**1回のクエリ**で呼んで実ジオメトリを取得する（棄却済み候補への
+DB問い合わせを避ける2段階分割を維持したまま、候補ごとには問い合わせない）。
 取得後は候補ごとに`_build_best_candidate`を`asyncio.gather`で並行評価する（標高取得・
 segments構築はEdge単位の軽量な計算のため並行化してよい。復路探索のような共有状態の
 書き換えを伴わない）。`_build_segment_details`は、探索コスト算出時に`prepare`が既に
 合成済みの軸別スコア配列・合成difficulty配列（`_RoadGraphContext.axis_arrays`/
-`difficulty_array`、改善計画T536）からそのまま値を読み、`RouteSegmentDetail`列へ
+`difficulty_array`）からそのまま値を読み、`RouteSegmentDetail`列へ
 組み立てる（標高・風・路面等の表示専用フィールドはEdge単位の軽量な計算のまま）。
 
 ### `_build_best_candidate`（逆回りループ候補の代数的合成）
@@ -333,34 +332,34 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 
 ### `domain/routing.py`
 
-- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフ。改善計画T536でNode/Edgeの
-  payloadを整数index（`add_nodes_from(range(n))`・Edge payload=`edge_ids`の添字）にし、
-  A*のcost_fn/estimate_cost_fnが素の`list.__getitem__`を受け取れるようにした（探索中に
-  Pythonの関数フレームを作らない設計の核心）。`build_lazy_road_graph`に`edge_cost_by_id`
-  （コスト辞書）を渡すと、並列Edge（同じnode対の重複辺）は**cost最小のEdgeを採用**する
-  （改善計画T363の元の意味論、コストが事前に判明しているため）。省略時（コスト未確定の
-  場面、主にテスト）はedge_idの昇順で先頭を採用する決定的な選択にフォールバックする。
+- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフ。Node/Edgeのpayloadは整数index
+  （`add_nodes_from(range(n))`・Edge payload=`edge_ids`の添字）で、A*のcost_fn/
+  estimate_cost_fnは素の`list.__getitem__`を受け取る（探索中にPythonの関数フレームを
+  作らない設計の核心）。`build_lazy_road_graph`に`edge_cost_by_id`（コスト辞書）を渡すと、
+  並列Edge（同じnode対の重複辺）は**cost最小のEdgeを採用**する（コストが事前に判明して
+  いるため）。省略時（コスト未確定の場面、主にテスト）はedge_idの昇順で先頭を採用する
+  決定的な選択にフォールバックする。
 - `shortest_path_node_ids_lazy`: `rustworkx.astar_shortest_path`を、探索が実際に訪れた
   Edge・Nodeに対してのみ都度呼ばれる`edge_cost_fn`/`estimate_cost_fn`（いずれも整数index
   引数）でラップする。Hard Constraintで除外するEdgeは`edge_cost_fn`が`math.inf`を返す
-  ことで表現する（`LazyRoadGraph`自体はHard Constraintを知らない。改善計画T536以降は
-  この`math.inf`は探索前に`prepare`が合成したコスト配列へ既に焼き込み済み）。経路確定後、
+  ことで表現する（`LazyRoadGraph`自体はHard Constraintを知らない。この`math.inf`は
+  探索前に`prepare`が合成したコスト配列へ既に焼き込み済み）。経路確定後、
   合計コストが有限かを検算してから返す（rustworkxが`inf`を「非常に高コストだが有効」
   として扱い、他に経路が無ければ採用してしまうことがあるため）。
 - **`CsrGraphStructure`/`build_csr_structure`・`SearchGraphStatics`/
-  `build_search_graph_statics`**（改善計画T531）: `LazyRoadGraph`と同じNode/Edge index
+  `build_search_graph_statics`**: `LazyRoadGraph`と同じNode/Edge index
   空間のCSR（圧縮行格納）**構造のみ**（Edge重みは持たない。タイル集合だけで決まる
   純粋な派生物のため`LazyRoadGraph`と同じキーでキャッシュされる）。`SearchGraphStatics`は
   この構造とEdge実距離配列（m）を束ねる。
-- **`ShortestPathTree`/`build_shortest_path_tree`**（改善計画T531）: 起点からの一対全
+- **`ShortestPathTree`/`build_shortest_path_tree`**: 起点からの一対全
   Dijkstra（`scipy.sparse.csgraph.dijkstra`、前任者付き、`cost_limit`で打ち切り可能）。
   前任者木に沿った実距離（`length_m`）は、`(pred[v], v)`のCSRエントリ位置を
   `np.searchsorted`で一括検索した後、ポインタジャンプ（`acc[v] += acc[anc[v]]`を木の
   深さのlog2回繰り返す）でベクトル演算して積算する。rustworkxの
   `dijkstra_shortest_path_lengths`は前任者を返さないため一対全木にはscipyを使う。
-- **`tree_path_edge_indices`**（改善計画T531）: 一対全木上の起点→targetの経路を
+- **`tree_path_edge_indices`**: 一対全木上の起点→targetの経路を
   `LazyRoadGraph`のEdge index列で返す（到達不能ならNone、起点自身なら空リスト）。
-- **`overlap_ratio`/`select_diverse_by_overlap`**（改善計画T531）: 2つのEdge index集合の
+- **`overlap_ratio`/`select_diverse_by_overlap`**: 2つのEdge index集合の
   距離加重重複率、およびランク順の候補列から重複率・近接度（`is_compatible`）で貪欲に
   多様な集合を選ぶ汎用関数（周回の折返し点選定・復路の往路重複率算出の両方に使う）。
 - `NodeSpatialIndex`/`build_node_spatial_index`/`find_nearest_node_indexed`:

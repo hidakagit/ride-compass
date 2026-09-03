@@ -8,7 +8,8 @@
 # - docs/improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の不一致
 #   （improvement-plan.md または docs/tasks/ をステージしたときのみ）
 # - ステージした .md 内の history/・docs/tasks/ への死んだリンク
-# 経緯記述（記載粒度）の検査は scripts/pre-commit-docs-modules-history.sh が先に行う。
+# 経緯記述（記載粒度）の検査もこのスクリプト（review_checks.py: NARRATIVE_PATTERN）が
+# 行う。禁止パターンの定義はこの1箇所のみ（T561でシェル側の別定義を統合・削除した）。
 #
 # 有効化方法（このリポジトリでは1回だけ手動実行、他のworktree・clone・CI環境には影響しない）:
 #   cp scripts/pre-commit.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit

@@ -57,10 +57,13 @@ GENERIC_BASENAMES = {
     "page.tsx", "layout.tsx", "route.ts", "index.ts", "index.tsx", "types.ts",
     "utils.ts", "constants.ts", "config.py", "main.py", "models.py", "errors.py",
 }
-# docs/modules/README.md「記載粒度」節の禁止パターン（scripts/pre-commit-docs-modules-history.shと同一）
+# docs/modules/README.md「記載粒度」節の禁止パターン。
+# 唯一の定義元（scripts/pre-commit-docs-modules-history.shは2026-09-03のT561でこの関数を
+# 呼ぶだけの薄いラッパへ統合し、shell側に別定義のPATTERNを持たない）。
 NARRATIVE_PATTERN = re.compile(
-    r"以前は|従来は|旧「|旧『|改善計画T[0-9]+で|実機報告20|実機フィードバック|実機確認|実機指摘"
-    r"|実測で|判明した|発覚した|指摘を受け|フィードバックを受け|ユーザー指摘20|ユーザー要望20|ユーザー判断"
+    r"以前は|従来は|旧「|旧『|旧T[0-9]|改善計画T[0-9]+で|T[0-9]{3,4}で|実機報告20|実機フィードバック"
+    r"|実機確認|実機指摘|実測で|判明した|発覚した|指摘を受け|フィードバックを受け|ユーザー指摘20"
+    r"|ユーザー要望20|ユーザー判断|方式ではなく|へ変更した|に変更した|を導入した"
 )
 FILE_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_./@\-]+\.(?:py|ts|tsx|css|json|yml|yaml|sql|sh|md|js|mjs|toml|txt))`"

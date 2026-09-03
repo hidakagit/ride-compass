@@ -8,9 +8,9 @@
 #
 # 有効化方法（このリポジトリでは1回だけ手動実行、他のworktree・clone・CI環境には影響しない）:
 #   cp scripts/pre-commit.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
-# （scripts/pre-commit.shが本チェックとscripts/pre-commit-docs-modules-history.shの両方を
+# （scripts/pre-commit.shが本チェックとscripts/pre-commit-docs-consistency.shの両方を
 #   束ねて呼ぶ。本ファイル単体を直接.git/hooks/pre-commitへcpすることもできるが、その場合は
-#   docs/modules/*.mdの経緯記述チェックを失う。）
+#   docs/modules/*.mdの経緯記述チェック等を失う。）
 #
 # 設計方針:
 # - 高コスト（backend python起動+npm、実測約12秒）なため、ステージ済みファイルが

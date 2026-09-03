@@ -134,7 +134,7 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 （happy-dom）がキーボード操作・aria属性を検証する——ポインタドラッグの角度計算は
 `getBoundingClientRect()`に依存しhappy-domでは実寸を返さないため単体テストで再現できず
 （`RouteSettingsPanel.test.tsx`の帯グラフ境界ドラッグと同じ制約）、Browserペインでの
-実機確認で別途検証する。
+目視確認で別途検証する。
 
 ## RouteAxisProfile.tsx（候補ごとタブの中身: 地図色分け＋軸別内訳）
 

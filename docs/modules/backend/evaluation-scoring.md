@@ -64,9 +64,9 @@
 ## `compute_edge_costs_bulk`（numpyベクトル化版）
 
 `compute_edge_cost`を全Edge分ループするのと同じ結果を、Pythonループ無しのnumpy配列演算で
-算出する。改善計画T536で、抽出・計算フェーズ（`_evaluate_axes_bulk`）と重み付き合成
-フェーズ（`compose_costs_from_axis_matrix`）へ分割し、道路グラフ探索のホットパス
-（`build_static_edge_score_matrix`、次節）と共有する構造にした。`EvaluationService.
+算出する。抽出・計算フェーズ（`_evaluate_axes_bulk`）と重み付き合成フェーズ
+（`compose_costs_from_axis_matrix`）に分かれており、道路グラフ探索のホットパス
+（`build_static_edge_score_matrix`、次節）と共有する構造になっている。`EvaluationService.
 evaluate_graph`（bbox全体を一括評価する経路）自体は本番のルート生成では呼ばれず
 （探索コストの既定経路は次節）、回帰テストオラクルとしての利用が主。
 
@@ -101,13 +101,12 @@ GUI作成した軸を評価した際に`evaluate_axis_array`が`KeyError`で`/ap
 自体を落とす（スカラー版`evaluate_axes_scalar`は`materials.get(...)`のためこの経路では
 発生しない非対称性がある）。
 
-## タイル単位の静的スコア行列と動的軸合成（改善計画T536、探索コストの既定経路）
+## タイル単位の静的スコア行列と動的軸合成（探索コストの既定経路）
 
 `RoadGraphEngine`（[routing-engine.md](routing-engine.md)参照）が実際に使う探索コスト
-算出の既定経路。目的は「探索中にEdge1本ごとにPythonのコスト計算コールバックを呼ぶ」
-構造（旧T529のlazy評価＋T534のEdge単位辞書キャッシュ）を排除し、bbox全体ぶんのコストを
-リクエストにつき1回だけnumpyで合成することで、A*本体へは配列への`list.__getitem__`
-だけを渡す。
+算出の既定経路。探索中にEdge1本ごとにPythonのコスト計算コールバックを呼ぶ構造を避け、
+bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成することで、A*本体へは配列への
+`list.__getitem__`だけを渡す。
 
 - **`build_static_edge_score_matrix`**: タイル読込時（`GraphService.
   _get_or_build_tile_materials`）に1回だけ呼び、`_evaluate_axes_bulk`を`wind=None`で
@@ -135,7 +134,7 @@ GUI作成した軸を評価した際に`evaluate_axis_array`が`KeyError`で`/ap
   `compose_costs_from_axis_matrix`で重み合成→`compute_hard_filter_excluded`で0次
   フィルタを適用、の順にbbox全体ぶん1回だけ実行してコスト配列を得る。並行Edge
   （同一Node間の複数Edge）はコストが判明済みのため`domain/routing.py:
-  build_lazy_road_graph`が「cost最小を採用」する（改善計画T363の元の意味論）。
+  build_lazy_road_graph`が「cost最小を採用」する。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
   探索と表示の二重計算を避ける。
 
@@ -211,7 +210,7 @@ OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`
 `load_route_preference()`が既定の`RoutePreference`（`RoutePreference()`、
 `default_axis_weights()`由来）を返す。`EvaluationService.evaluate_graph`はI/Oを行わず、
 既に取得済みのRoadGraph・属性から`compute_edge_costs_bulk`を呼ぶだけのオーケストレーション層。
-改善計画T536以降、探索コストの既定経路（`RoadGraphEngine`）は本クラスを経由しない
+探索コストの既定経路（`RoadGraphEngine`）は本クラスを経由しない
 （前節「タイル単位の静的スコア行列と動的軸合成」参照）——本クラス自体は
 `compute_edge_costs_bulk`のbbox全体一括評価という形を保つオーケストレーション層として
 残る（テスト・将来の別呼び出し元向け）。
