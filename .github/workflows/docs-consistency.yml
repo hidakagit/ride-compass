@@ -1,0 +1,49 @@
+# docs/modules・ソースコードコメントの機械的整合性チェック（scripts/review_checks.py docs）。
+# メインのci.yml（backend/frontend/e2e）はdocs/**・**/*.mdの変更を無償枠消費対策で
+# スキップするため、このチェックだけは別ワークフローにして常に走らせる（pure python・
+# 数秒で終わるため、docsのみのコミットでも都度実行して問題ない）。
+#
+# ローカルのpre-commitフック（scripts/pre-commit-docs-consistency.sh）と同じ
+# review_checks.py docsを使うが、ローカル側は`.git/hooks/pre-commit`への手動インストールが
+# 前提（未インストールのセッション・コンテナでは発火しない）のため、CI側を常に走る
+# 安全網として独立に持つ。
+name: Docs Consistency
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docs-consistency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # --sinceの比較対象（差分の起点コミット）を解決するため全履歴が必要。
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: 比較起点(since)を決める
+        id: since
+        # push: そのpushの直前状態(github.event.before)。pull_request: base branchとの
+        # マージベース。新規ブランチの初回push等でbeforeが全0固定値・存在しないSHAに
+        # なる場合はHEAD~1へフォールバックする（記載漏れ・経緯コメントの既存分[T564/T567
+        # 完了まで残る]をこのチェックの対象に含めないため、フルスキャンへは倒さない）。
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SHA=$(git merge-base "origin/${{ github.event.pull_request.base.ref }}" HEAD)
+          else
+            SHA="${{ github.event.before }}"
+          fi
+          if [ -z "$SHA" ] || [ "$SHA" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$SHA" 2>/dev/null; then
+            SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - run: python scripts/review_checks.py docs --since ${{ steps.since.outputs.sha }}

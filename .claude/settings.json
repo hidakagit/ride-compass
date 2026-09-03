@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null) && [ -n \"$ROOT\" ] && [ -f \"$ROOT/scripts/pre-commit.sh\" ] && cp \"$ROOT/scripts/pre-commit.sh\" \"$ROOT/.git/hooks/pre-commit\" && chmod +x \"$ROOT/.git/hooks/pre-commit\" || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
