@@ -6,6 +6,9 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
 
 サブコマンド:
   docs     docs/modules の死んだ参照・新規ファイルの記載漏れ・記載粒度違反、
+           backend/app・frontend/src のソースコードコメントの経緯記述（docs/comments.md、
+           --staged/--sinceでは追加行のみ違反として数える。フルスキャンではT567完了までの
+           既存分が大量にあるため参考件数のみで違反に数えない）、
            improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の照合、
            history/・docs/tasks/ への死んだリンク（consistency.md「設計 ↔ 実装」節の機械的部分）
   size     規模ウォッチ（complexity.md）: 実装ファイル行数の上位と前回比・閾値発火
@@ -13,8 +16,8 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
   trigger  周期レビューのトリガー判定（README.md「定期的なレビュー」節）
 
 使い方の例:
-  python scripts/review_checks.py docs                 # 全件監査
-  python scripts/review_checks.py docs --since cab1441 # 記載漏れチェックをこのref以降の新規ファイルに限定
+  python scripts/review_checks.py docs                 # 全件監査（ソースコード経緯コメントは参考件数のみ）
+  python scripts/review_checks.py docs --since cab1441 # 記載漏れ・ソースコード経緯コメントをこのref以降の追加分に限定（CI向け）
   python scripts/review_checks.py docs --staged        # pre-commit用（ステージ済み変更に関係する項目のみ）
   python scripts/review_checks.py size                 # 現在値と前回比を表示
   python scripts/review_checks.py size --update        # 表示したうえで前回値ファイルを今回値へ更新
@@ -65,6 +68,43 @@ NARRATIVE_PATTERN = re.compile(
     r"|実機確認|実機指摘|実測で|判明した|発覚した|指摘を受け|フィードバックを受け|ユーザー指摘20"
     r"|ユーザー要望20|ユーザー判断|方式ではなく|へ変更した|に変更した|を導入した"
 )
+# docs/comments.md「コメント方針」節が禁止するソースコード内の経緯コメント検出用。
+# docs/modules向けのNARRATIVE_PATTERNをそのまま流用する（定義元を分けない）。
+# コメント行以外（実装コード・文字列リテラル）を誤検出しないよう、行のコメント部分だけを
+# 抽出してから照合する（comment_only参照）。
+SOURCE_COMMENT_PATHSPECS = ("backend/app/*.py", "frontend/src/*.ts", "frontend/src/*.tsx")
+
+
+def comment_only(line: str, path: str) -> str:
+    """1行のうちコメント部分だけを返す（非コメント行・コメントなしは空文字）。
+
+    diffの追加行1行ずつを独立に見るため、複数行にまたがるブロックコメントの内部行
+    （`*`始まりの継続行等）は「行頭が*・/*・*/」という単純な形で判定する——完全な
+    構文解析はしない（review_checks.py全体の「grep一発規模の安価なチェック」という
+    設計方針に合わせる）。
+    """
+    stripped = line.strip()
+    if path.endswith(".py"):
+        idx = line.find("#")
+        return line[idx:] if idx != -1 else ""
+    # ts/tsx
+    if stripped.startswith(("/**", "/*", "*/", "*")):
+        return line
+    idx = line.find("//")
+    return line[idx:] if idx != -1 else ""
+
+
+def find_source_narrative_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
+    out = []
+    for path, lines in source_lines.items():
+        for lineno, line in lines:
+            text = comment_only(line, path)
+            if not text:
+                continue
+            m = NARRATIVE_PATTERN.search(text)
+            if m:
+                out.append(f"{path}:{lineno}: 「{m.group(0)}」 {text.strip()[:80]}")
+    return out
 FILE_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_./@\-]+\.(?:py|ts|tsx|css|json|yml|yaml|sql|sh|md|js|mjs|toml|txt))`"
 )
@@ -245,11 +285,16 @@ def check_dead_doc_links(md_files: list[str]) -> list[str]:
     return out
 
 
-def staged_added_lines(pathspec: str) -> dict[str, list[tuple[int, str]]]:
-    """git diff --cached -U0 の追加行を {ファイル: [(行番号, 行)]} で返す。"""
+def diff_added_lines(pathspec: str, base_ref: str | None = None) -> dict[str, list[tuple[int, str]]]:
+    """追加行を {ファイル: [(行番号, 行)]} で返す。
+
+    base_ref省略時は `git diff --cached`（pre-commit用、ステージ済み変更）。
+    base_ref指定時は `git diff base_ref..HEAD`（CI用、そのref以降にHEADへ積まれた変更）。
+    """
+    diff_args = ["diff", "--cached", "-U0"] if base_ref is None else ["diff", f"{base_ref}..HEAD", "-U0"]
     out: dict[str, list[tuple[int, str]]] = defaultdict(list)
     current, lineno = None, 0
-    for line in git("diff", "--cached", "-U0", "--", pathspec).splitlines():
+    for line in git(*diff_args, "--", pathspec).splitlines():
         if line.startswith("+++ "):
             current = line[4:].removeprefix("b/")
         elif line.startswith("@@"):
@@ -261,6 +306,16 @@ def staged_added_lines(pathspec: str) -> dict[str, list[tuple[int, str]]]:
     return out
 
 
+def gather_added_source_lines(base_ref: str | None) -> dict[str, list[tuple[int, str]]]:
+    """SOURCE_COMMENT_PATHSPECS全体の追加行を集め、is_impl_file（テスト等を除外）で絞る。"""
+    out: dict[str, list[tuple[int, str]]] = {}
+    for spec in SOURCE_COMMENT_PATHSPECS:
+        for path, lines in diff_added_lines(spec, base_ref).items():
+            if is_impl_file(path):
+                out[path] = lines
+    return out
+
+
 def cmd_docs(args: argparse.Namespace) -> int:
     files = git_files()
     all_docs = module_docs()
@@ -269,11 +324,14 @@ def cmd_docs(args: argparse.Namespace) -> int:
 
     if args.staged:
         staged = [l for l in git("diff", "--cached", "--name-only").splitlines() if l]
-        doc_lines = staged_added_lines("docs/modules/*.md")
+        doc_lines = diff_added_lines("docs/modules/*.md")
         doc_lines = {k: v for k, v in doc_lines.items() if not k.endswith("README.md")}
         added = [l for l in git("diff", "--cached", "--name-only", "--diff-filter=A").splitlines() if l]
         sections.append(("docs/modules の死んだ参照（ステージ済み追加行）", find_dead_file_refs(doc_lines, files + added), True))
         sections.append(("docs/modules の記載粒度違反（ステージ済み追加行）", find_narrative_violations(doc_lines), True))
+        source_lines = gather_added_source_lines(None)
+        sections.append(("ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
+                         find_source_narrative_violations(source_lines), True))
         sections.append(("新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
                          find_undocumented_files(added, modules_text, files + added), True))
         if any(s == "docs/improvement-plan.md" or s.startswith("docs/tasks/") for s in staged):
@@ -290,9 +348,21 @@ def cmd_docs(args: argparse.Namespace) -> int:
         if args.since:
             added = [l for l in git("diff", "--diff-filter=A", "--name-only", f"{args.since}..HEAD").splitlines() if l]
             title = f"新規実装ファイルの docs/modules 記載漏れ（{args.since} 以降の新規ファイル）"
+            # ソースコードの経緯コメントはT567（既存分の一掃）完了までフルスキャンだと大量に
+            # 残るため、--sinceで新規追加分だけに絞れる場合のみ違反件数（exit code）に含める
+            # （CI向け。undocumented-filesの--sinceスコープ限定と同じ考え方）。
+            source_title = f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/comments.md参照）"
+            sections.append((source_title, find_source_narrative_violations(gather_added_source_lines(args.since)), True))
         else:
             added = files
             title = "実装ファイルの docs/modules 記載漏れ（全件）"
+            all_source_lines = {
+                rel(p): list(enumerate(read_text(p).splitlines(), 1))
+                for p in (REPO_ROOT / f for f in files if is_impl_file(f))
+                if p.exists()
+            }
+            sections.append(("ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
+                             find_source_narrative_violations(all_source_lines), False))
         sections.append((title, find_undocumented_files(added, modules_text, files), True))
         v, infos = check_plan_vs_tasks()
         sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
@@ -538,7 +608,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("docs", help="docs/modules・improvement-plan・history の機械的整合性チェック")
-    p.add_argument("--since", help="記載漏れチェックをこのref以降に追加されたファイルへ限定する")
+    p.add_argument("--since", help="記載漏れ・ソースコード経緯コメントのチェックをこのref以降の追加分へ限定する")
     p.add_argument("--staged", action="store_true", help="pre-commit用: ステージ済み変更に関係する項目のみ")
     p.set_defaults(func=cmd_docs)
     p = sub.add_parser("size", help="規模ウォッチ（complexity.md）")
