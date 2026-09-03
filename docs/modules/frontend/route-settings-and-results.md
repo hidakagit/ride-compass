@@ -14,7 +14,7 @@
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（地図の色分けチップ列＋「重み付き寄与度」内訳）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
-| `components/ComparisonPanel/ComparisonPanel.tsx` | 研究モードの実験スロット比較表 |
+| `components/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`DEFAULT_ROUTE_PREFERENCE`（route_preference既定値） |

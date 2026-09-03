@@ -13,6 +13,7 @@
 | `components/AxisStudio/AxisStudio.tsx` | トップレベル。一覧取得・作成/更新/削除/複製/非公開化の状態管理 |
 | `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
 | `services/axisAdminApi.ts` | backend `axis_admin.py`への薄いHTTPラッパー（`listAxisDefinitions`・`createAxisDefinition`・`updateAxisDefinition`・`deleteAxisDefinition`・`unpublishAxisDefinition`） |
+| `app/admin/api/axis-definitions/route.ts`・`[axisId]/route.ts`・`[axisId]/unpublish/route.ts` | `axisAdminApi.ts`が叩くNext.js route handler群。`proxyToBackendAdmin`でbackend `/api/admin/axis-definitions`（一覧取得・作成/PUT更新/DELETE削除/POST非公開化）へそのまま転送する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
 | `hooks/useMaterialValues.ts` | `GET /api/material-catalog/{material_id}/values`取得。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |

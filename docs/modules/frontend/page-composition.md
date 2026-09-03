@@ -17,9 +17,10 @@
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts` |
-| types | `route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
+| types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
-| components/ui | `Button`・`Card`・`Checkbox`・`Dialog`・`Input`・`ErrorText`（汎用UI基盤、全モジュール共通） |
+| components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通） |
+| components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
 
 `apiBaseUrl.ts`/`backendInternalUrl.ts`はブラウザからのfetch先（`NEXT_PUBLIC_API_BASE_
 URL`）とNext.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部

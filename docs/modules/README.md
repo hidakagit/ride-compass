@@ -68,5 +68,5 @@
 | [地図: 軸・ルート色分け](frontend/map-axis-coloring.md) | dedicated_way_value_layer軸の描画 |
 | [地図: 動的気象レイヤー](frontend/dynamic-weather-layers.md) | 風・降水・キキクル等の地図表示 |
 | [地図: 静的レイヤー・道路表示](frontend/static-map-layers.md) | 路面・道路種別・POI・事故の地図表示 |
-| [ページ全体構成・状態管理](frontend/page-composition.md) | `page.tsx`のコンポジション・永続化 |
+| [ページ全体構成・状態管理](frontend/page-composition.md) | `page.tsx`のコンポジション・永続化。特定モジュールの責務ではない汎用UI部品（`components/ui/`・`ErrorText`・`BottomSheet`・`Disclosure`等）もここへ集約する（[T564](../tasks/T564.md)） |
 | [開発者/研究者機能](frontend/developer-research-tools.md) | デバッグログ・システム状況・研究モード |
