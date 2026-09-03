@@ -787,3 +787,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 - [x] [T562](tasks/T562.md). `docs/architecture.md`のbackendディレクトリツリーへT536〜T539/T546新設4ファイル（`search_graph_cache.py`・`tile_persistent_cache.py`・`tile_score_matrix_cache.py`・`presplit_road_graph.py`）を反映 規模S（2026-09-03完了、統合レビュー第4回P1）
 - [ ] [T563](tasks/T563.md). docsドリフトの一括是正（`map-axis-coloring.md`・`MapColorLegend.tsx`コメント・`axisLayers.ts`死んだ参照・`docs/logging.md`例外規定・`developer-research-tools.md`へdebug/logs/route.ts）と、docs/tasks「状態:」行の整備（T501/T505の完了反映、「状態:」行なし17件の追加） 規模M（未着手、統合レビュー第4回P2まとめ＋T560初回監査）
 - [ ] [T564](tasks/T564.md). docs/modulesに一切出現しない既存実装ファイル18件（汎用UI部品9・機能部品5・admin API routes4）の扱いを決めて記載し、`scripts/review_checks.py docs`をCIワークフローへ組み込む 規模M（未着手、T561・T563完了後。T560初回監査で検出）
+
+## ルート直下README.mdの陳腐化是正（2026-09-03・ユーザー指摘）
+
+- [ ] [T565](tasks/T565.md). ルート直下README.mdの陳腐化是正 規模M（着手中）
