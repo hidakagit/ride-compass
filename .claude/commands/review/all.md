@@ -18,7 +18,8 @@ git log で前回レビュー以降の変更を特定し、変更の中心・影
 history/ と docs/ の過去レビュー指摘の一覧を整理する。ここでは指摘を出さない。
 
 ### Phase 2: 定量メトリクス計測
-[metrics.md](metrics.md) の手順で実施。Findings（P0-P3）ではなく数値のみを記録する
+[metrics.md](metrics.md) の手順で実施（`python scripts/review_checks.py metrics --full`）。
+Findings（P0-P3）ではなく数値のみを記録する
 ロールのため、Phase 3〜7の相互確認・矛盾解消の対象には含めない。ここで得た実測値
 （規模・churn・静的検査件数等）は、後続のoverall・complexityが規模・複雑度に関する
 指摘のEvidenceとして参照してよい。
@@ -35,6 +36,14 @@ history/ と docs/ の過去レビュー指摘の一覧を整理する。ここ�
   `principles.md`の分割閾値を超える場合、分割は各Phase（レンズ）が自分自身の担当範囲内で
   行う（分割可否・分割単位はレンズごとに異なる。詳細はprinciples.md「共通実行手順」4d・
   complexity.md冒頭・[_history.md](_history.md)参照）
+- **Phase 3（overall）とPhase 5（consistency）のシャードは共有する**: ドメインシャードを
+  1回だけ切り、1シャードにつき1つのAgentへ両レンズの確認観点を渡し、出力は
+  「overall」「consistency」の独立した2節に分けさせる（同じファイルを2度読まない。
+  レンズ構造は出力と集約の単位として維持し、集約はレンズごとに行う。手順は
+  principles.md「共通実行手順」4d）。機械的な項目（死んだ参照・記載漏れ・記載粒度・
+  状態行照合）はAgentに渡さず`python scripts/review_checks.py docs`の出力を本体が読む。
+  Agentは一度に4〜6件までとし、完了してから次を起動する（16件同時起動はAPIの
+  セッション上限に当たる）
 
 ### Phase 3: 全体最適レビュー
 [overall.md](overall.md) の観点で実施。

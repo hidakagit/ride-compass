@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-03",
+  "commit": "89c94cd",
+  "top": [
+    "backend/app/domain/axis_definitions.py",
+    "backend/app/domain/evaluation.py",
+    "backend/app/domain/material_catalog.py",
+    "backend/app/infrastructure/road_graph_repository.py",
+    "backend/app/services/road_graph_engine.py",
+    "docs/architecture.md",
+    "frontend/src/app/page.tsx",
+    "frontend/src/components/AxisStudio/AxisComposer.tsx",
+    "frontend/src/components/Map/MapView.tsx",
+    "frontend/src/components/Map/mapLayers.ts",
+    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx"
+  ],
+  "files": {
+    "backend/app/infrastructure/road_graph_repository.py": 2284,
+    "backend/app/services/road_graph_engine.py": 1449,
+    "backend/app/domain/evaluation.py": 1177,
+    "backend/app/domain/material_catalog.py": 814,
+    "backend/app/domain/axis_definitions.py": 752,
+    "backend/app/services/graph_service.py": 610,
+    "backend/app/domain/routing.py": 552,
+    "frontend/src/components/Map/MapView.tsx": 3633,
+    "frontend/src/app/page.tsx": 2143,
+    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1568,
+    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx": 1149,
+    "frontend/src/components/Map/mapLayers.ts": 687,
+    "docs/architecture.md": 2699
+  },
+  "thresholds": {
+    "backend/app/infrastructure/road_graph_repository.py": 2800,
+    "backend/app/services/road_graph_engine.py": 1100,
+    "frontend/src/components/Map/MapView.tsx": 3200,
+    "frontend/src/app/page.tsx": 1900,
+    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1400,
+    "docs/architecture.md": 3000
+  }
+}

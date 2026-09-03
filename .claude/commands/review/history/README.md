@@ -21,6 +21,8 @@ YYYY-MM-DD_<review-type>.md
   （代わりに`metrics.md`という専用のトレンドファイルへ追記する、下記「スコア推移」節参照）
 - 例: `2026-08-16_overall.md`、`2026-08-16_all.md`
 - 同日に同種を複数回実行した場合は `_2` 等の連番を付ける
+- `size_watch.json`は規模ウォッチ（[complexity.md](../complexity.md)）の前回値・個別閾値。
+  `python scripts/review_checks.py size --update`が書き換える（レビュー記録ではない）
 
 ## 本基盤構築以前のレビュー
 

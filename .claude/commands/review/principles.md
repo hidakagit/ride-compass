@@ -186,6 +186,12 @@ Findingsの件数から**機械的に**算出する（主観採点はしない�
         `consistency.md`の該当節）／出力形式（`file`・`line`・`category`・`severity`・
         `summary`・`failure_scenario`のMarkdown箇条書き、日本語）／「編集・削除は一切行わない
         （読み取り専用）」の明記。
+      - **`/review:all`でoverallとconsistencyを同時に実施する場合はシャードを共有する**:
+        ドメインシャードを1回だけ切り、1シャード1Agentへ`overall.md`と`consistency.md`の
+        両方の確認観点を渡し、出力を「overall」「consistency」の独立した2節に分けさせる。
+        集約（e）はレンズごとに行い、結果ファイルもレンズ単位の節を保つ（同じファイルを
+        レンズの数だけ読み直さないための省力化であり、次項のレンズ構造の維持と両立する。
+        経緯は[_history.md](_history.md)「2026-09-03: 周期レビューの負荷軽減」参照）。
       - **この分割要否判定・ドメインシャーディングはoverall・consistencyにのみ適用する。
         complexity・uiは対象規模に関わらず常に単独実施する**（経緯は
         [_history.md](_history.md)「2026-08-31: シャーディング規則の適用範囲を

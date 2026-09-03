@@ -19,4 +19,5 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 sh scripts/pre-commit-docs-modules-history.sh
+sh scripts/pre-commit-docs-consistency.sh
 sh scripts/pre-commit-api-contract.sh

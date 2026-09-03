@@ -83,8 +83,8 @@ push する（「作業ツリーの安全」節）。
 ### 6. 周期レビュー（該当タスクだけでなくプロジェクト全体に対して随時）
 
 `.claude/commands/review/README.md`「定期的なレビュー」節のトリガー
-（前回レビューから7日 or 20タスク完了のどちらか早い方、または分割元タスク完了直後）に
-該当するかを確認する。該当すれば`/review:all`（最低限`/review:consistency`）を実施し、
+（前回レビューから14日 or 実装コードの変更20,000行のどちらか早い方、または分割元タスク
+完了直後。`python scripts/review_checks.py trigger`で判定）に該当するかを確認する。該当すれば`/review:all`（最低限`/review:consistency`）を実施し、
 `/code-review`（本物、ユーザー起動）も提案する。忘れられがちな`/code-review`の代替として
 セッション自身の自己レビュー（`codereview-self`）も選択肢にある。指摘の起票は
 ユーザー承認後（`review/README.md`参照）。

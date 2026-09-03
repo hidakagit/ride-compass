@@ -200,8 +200,9 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
      docs/modules側に残ること）の検出は`.claude/commands/review/consistency.md`
      「設計 ↔ 実装」節に持たせてある。
 - **作業に着手する際、`.claude/commands/review/README.md`「定期的なレビュー」節の閾値
-  （前回レビューから7日 or 20タスク完了、どちらか早い方。または分割元タスク完了直後）に
-  該当していないか確認し、該当する場合は`/review:all`実施と`/code-review`実施提案を行う**
+  （前回レビューから14日 or 実装コードの変更20,000行、どちらか早い方。または分割元タスク
+  完了直後。`python scripts/review_checks.py trigger`で判定）に該当していないか確認し、
+  該当する場合は`/review:all`実施と`/code-review`実施提案を行う**
   （2026-08-30、`/review:*`が2026-08-27を最後に12日以上・70タスク以上未実施のまま
   ドリフトが蓄積した反省を受け明文化。詳細・code-review結果の蓄積経路は同README.md参照）。
 
