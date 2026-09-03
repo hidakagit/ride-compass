@@ -86,13 +86,13 @@ class LoopTurnaround:
     """`select_loop_turnarounds`が返す折返し点候補（改善計画T531）。
 
     `bearing`は起点から見た折返し点の方位（表示ラベル用、候補選定には使わない）。
-    `outbound_distance_km`は往路（一対全木上の起点→折返し点）の実距離、
     `outbound_difficulty`は往路の距離加重平均difficulty（ランキング指標、0-100、
-    算出不能ならNone）。`data`はエンジン固有の中間データ（復路探索に使う）。
+    算出不能ならNone）。`data`はエンジン固有の中間データ（復路探索に使う。往路の実距離
+    [m]はエンジン固有データ側が持つ——road_graphエンジンでは`data.outbound_length_m`、
+    改善計画T557項目13で戦略層が読まない`outbound_distance_km`[km、同じ値の重複]を撤去）。
     """
 
     bearing: int
-    outbound_distance_km: float
     outbound_difficulty: float | None
     data: Any
 

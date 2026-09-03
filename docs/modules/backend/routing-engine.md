@@ -79,8 +79,9 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   `default=DEFAULT_MAX_ROUTES`[8]）。折返し点候補プールのサイズは
   `turnaround_pool_size(max_routes)`（`min(40, max(12, max_routes*3))`）。
 - `LoopTurnaround`: `bearing`（起点から見た折返し点の方位、表示ラベル用のみ）・
-  `outbound_distance_km`（往路の実距離）・`outbound_difficulty`（往路の距離加重平均
-  difficulty、ランキング指標）・`data`（エンジン固有、復路探索に使う）。
+  `outbound_difficulty`（往路の距離加重平均difficulty、ランキング指標）・`data`
+  （エンジン固有、復路探索に使う。road_graphエンジンでは往路の実距離[m]も
+  `data.outbound_length_m`として持つ）。
 - `TracedLoop.bearing = None`は経由地（waypoints）指定ルートを表す（周回候補と異なり
   「向き」を持たない。road_graph_engine.pyの逆回り候補合成をスキップする判定にも使う）。
 - 候補は折返し点候補のランク順に逐次処理する（復路探索が共有`cost_list`を一時的に
@@ -170,23 +171,19 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 
 ### `select_loop_turnarounds`（折返し点選定）
 
-1. **一対全最短経路木**: 起点からの一対全Dijkstra（`domain/routing.py:
-   build_shortest_path_tree`、scipy.sparse.csgraph、軸重み付きコスト）を1回だけ求める。
-   探索はコスト上限（リング上限×(1+P)、`cost >= distance`の不変条件による安全な上限）で
-   打ち切る。
-2. **リング抽出**: 木に沿った往路の実距離が`目標距離/2 ± 許容/2`に入るNodeを「リング」
-   として抽出する（最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを
-   極端に振った設定ほど往路が遠回りするため、最短実距離基準だと往路だけで目標の半分を
-   超え距離フィルタで全滅する）。
-3. **ランキング**: 往路の距離加重平均difficulty `(cost/実距離 − 1)/penalty_strength`
-   （コスト式の逆算、`overall_difficulty`と同じ物差し）の昇順に並べる。同点（小数1桁）は
-   「往路実距離が目標の半分に近い順」、さらにNode index順で決定的にする。
-4. **多様性間引き**（`domain/routing.py: select_diverse_by_overlap`）: 上位から順に、
-   既採用候補と往路の重複率（距離加重、`overlap_ratio`）が`TURNAROUND_MAX_OVERLAP_RATIO`
-   （0.6）を超えるもの、`MIN_TURNAROUND_SEPARATION_KM`（1.5km）より近いものを飛ばして
-   `pool_size`件採る（同一コリドー上の隣接Nodeが上位を独占し往路の大半を共有する似た
-   周回が並ぶのを防ぐ）。埋まらなければ`TURNAROUND_RELAXED_OVERLAP_RATIO`（0.85）へ
-   緩めてやり直す。
+起点からの一対全Dijkstra（`domain/routing.py: build_shortest_path_tree`、
+scipy.sparse.csgraph、軸重み付きコスト、コスト上限で打ち切り）を1回求め、木に沿った
+往路の実距離が`[max(0, (目標−許容)/2.0), (目標+許容)/2.3]`（下限が上限を超える狭い
+許容では両方とも`(目標∓許容)/2.0`へ対称化）に入るNodeを「リング」として抽出する
+（最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを極端に振った設定ほど
+往路が遠回りするため）。往路の距離加重平均difficulty（`overall_difficulty`と同じ
+物差し）の昇順、同点は「リング中心（`目標/((2.0+2.3)/2)`、上下限の算術平均ではなく
+目標距離ベースで決める——許容が目標以上で下限が0クランプされる場合に算術平均だと
+中心が0付近まで下がってしまうため）に近い順」、さらにNode index順に並べる。上位から
+`domain/routing.py: select_diverse_by_overlap`で、既採用候補と往路の重複率が
+`TURNAROUND_MAX_OVERLAP_RATIO`（0.6）を超えるもの・`MIN_TURNAROUND_SEPARATION_KM`
+（1.5km）より近いものを飛ばして`pool_size`件採る（埋まらなければ
+`TURNAROUND_RELAXED_OVERLAP_RATIO`＝0.85へ緩めてやり直す）。
 
 ### `trace_loop_from_turnaround`（復路探索）
 

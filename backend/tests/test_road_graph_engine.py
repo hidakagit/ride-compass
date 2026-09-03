@@ -366,7 +366,11 @@ async def test_generate_loops_skips_directions_with_no_path():
 
     assert len(candidates) == len(BEARINGS) - 2
     assert compass_label(0) not in [c.direction_label for c in candidates]
-    assert "route-180" not in [c.id for c in candidates]
+    # 改善計画T557（P2、項目7）: idは最終順位で振り直される（"route-00"..."route-NN"）ため
+    # "route-180"という文字列は候補数に関わらず絶対に現れず、この行は何も検証していない
+    # 死んだassertだった（改善計画T531でidがbearingベースからランクベースへ変わった際の
+    # 取り残し）。bearing=180が実際に除外されたかはdirection_labelで検証する。
+    assert compass_label(180) not in [c.direction_label for c in candidates]
 
 
 async def test_generate_loops_returns_empty_list_when_no_road_graph():
@@ -467,8 +471,42 @@ async def test_select_turnarounds_returns_ring_nodes_with_outbound_from_tree():
     assert sorted(t.bearing for t in turnarounds) == sorted(BEARINGS)
     assert {t.data.node_id for t in turnarounds} == {f"p-{b}" for b in BEARINGS}
     for turnaround in turnarounds:
-        assert turnaround.outbound_distance_km == pytest.approx(15.0, abs=0.1)
+        assert turnaround.data.outbound_length_m == pytest.approx(15000.0, abs=100)
         assert [turnaround.data.outbound_edge_indices] and len(turnaround.data.outbound_edge_indices) == 1
+
+
+async def test_select_turnarounds_ring_lower_bound_clamped_when_tolerance_exceeds_target():
+    # 改善計画T557（P1）: 許容distance_tolerance_kmが目標distance_kmを超えると
+    # `ring_lower_m = (target_m - tolerance_m) / LOOP_TO_OUTBOUND_RATIO_MIN`が負になる。
+    # 修正前は0でクランプしておらず、リング中心（`(ring_lower_m + ring_upper_m) / 2`）も
+    # 負・0付近まで引き下げられ、極端に短い往路（起点のすぐ近く）が「リング中心に近い順」の
+    # タイブレークで不当に上位へ来ていた。ここでは目標0.5km・許容20km（許容≥目標を大きく
+    # 超える）という極端な設定で、リング中心付近（新しいRING_CENTER_RATIO=2.15による
+    # 中心≈232.6m）の候補が、起点のすぐ近く（20m）の候補より上位に来ることを検証する。
+    origin = ORIGIN
+    near_origin = destination_point(origin, 0, 0.02)  # 20m
+    near_center = destination_point(origin, 180, 0.2326)  # ≈232.6m（0.5km/2.15付近）
+    nodes = {
+        "origin": Node(node_id="origin", latitude=origin.latitude, longitude=origin.longitude),
+        "p-near": Node(node_id="p-near", latitude=near_origin.latitude, longitude=near_origin.longitude),
+        "p-center": Node(node_id="p-center", latitude=near_center.latitude, longitude=near_center.longitude),
+    }
+    edges = {
+        "e-near": _edge("e-near", "origin", "p-near", origin, near_origin),
+        "e-near-rev": _edge("e-near-rev", "p-near", "origin", near_origin, origin),
+        "e-center": _edge("e-center", "origin", "p-center", origin, near_center),
+        "e-center-rev": _edge("e-center-rev", "p-center", "origin", near_center, origin),
+    }
+    graph = RoadGraph(graph_version="test", nodes=nodes, edges=edges)
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await engine.prepare(origin, radius_km=5.0)
+    assert context is not None
+
+    turnarounds = await engine.select_loop_turnarounds(context, 0.5, 20.0, pool_size=1)
+
+    assert len(turnarounds) == 1
+    assert turnarounds[0].data.node_id == "p-center"
 
 
 async def test_return_leg_avoids_outbound_road_when_alternative_exists():
@@ -1386,6 +1424,56 @@ async def test_prepare_returns_none_without_touching_cache_when_graph_has_no_edg
     assert search_graph_cache.routable_index_cache_size() == 0
 
 
+async def test_prepare_rebuilds_stale_lazy_graph_after_resplit_cache_desync():
+    # 改善計画T557（P2、項目4）: _lazy_graph_cacheと_search_statics_cacheはLRU上限
+    # （既定64件）に達すると独立にpopitem(last=False)で最古のエントリを追い出すため、
+    # 同じtile_setがlazy_graph側には残りsearch_statics側からは既に消えている状態が
+    # 起こりうる。この状態で再split（save_graphのedge_id再割当）が挟まると、キャッシュ
+    # ヒットした古いlazy_graph.edge_idsが新しいgraph.edgesに存在せず、
+    # build_search_graph_statics（domain/routing.py）がKeyError相当
+    # （LazyGraphEdgeMismatchError）を起こしていた。ここでは同じ状況を、
+    # 1回目のprepare完了後にsearch_statics_cacheだけを手動で追い出すことで再現し、
+    # 2回目のprepareが例外を出さず、新しいgraphのedge_idと整合したlazy_graphで
+    # 再構築されることを確認する。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    graph_v1 = RoadGraph(
+        graph_version="test", nodes={"a": node_a, "b": node_b},
+        edges={"e1-v1": _edge("e1-v1", "a", "b", coord_a, coord_b)},
+    )
+    generator_v1, _, _ = make_generator(graph_v1, tile_set=_TILE_SET_A)
+    first = await generator_v1._engine.prepare(ORIGIN, radius_km=1.0)
+    assert first is not None
+    assert list(first.lazy_graph.edge_ids) == ["e1-v1"]
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+    assert search_graph_cache.search_statics_cache_size() == 1
+
+    # LRUの独立追い出しを模して、search_statics側だけをキャッシュから消す
+    # （lazy_graph側は残したまま）。
+    search_graph_cache._search_statics_cache.clear()
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+    assert search_graph_cache.search_statics_cache_size() == 0
+
+    # 再split後: 同じ道（a→b）だがedge_idが振り直され、GraphServiceが返すgraphは新しい
+    # edge_idのみを持つ（旧"e1-v1"は存在しない）。tile_setは変わらないため、次のprepareは
+    # 古い"e1-v1"を含むlazy_graphをキャッシュヒットで再利用しようとする。
+    graph_v2 = RoadGraph(
+        graph_version="test", nodes={"a": node_a, "b": node_b},
+        edges={"e1-v2": _edge("e1-v2", "a", "b", coord_a, coord_b)},
+    )
+    generator_v2, _, _ = make_generator(graph_v2, tile_set=_TILE_SET_A)
+
+    second = await generator_v2._engine.prepare(ORIGIN, radius_km=1.0)
+
+    assert second is not None
+    assert list(second.lazy_graph.edge_ids) == ["e1-v2"]
+    # 破棄→再構築されたエントリが新たにキャッシュされている。
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+    assert search_graph_cache.search_statics_cache_size() == 1
+
+
 async def test_preview_segment_reuses_cached_node_index_across_calls(monkeypatch):
     node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
     node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
@@ -1455,7 +1543,6 @@ def _build_context_score_fields(
         # 改善計画T531: 一対全木用（これらのテストはselect_loop_turnaroundsを経由しないため
         # statics=None・origin_index=0のダミーでよい）。
         statics=None,
-        cost_array=cost_array,
         origin_index=0,
         full_edge_row=full_edge_row,
         difficulty_array=difficulty_array,
