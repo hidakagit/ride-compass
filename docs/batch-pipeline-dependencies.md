@@ -120,11 +120,17 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 | KSJ指定路線データ更新 | ③→⑨ |
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |
 
-## 段階2・3（本ファイルの対象外）
+## 統合エントリポイント（改善計画T281段階2、実装済み）
 
-統合エントリポイント（`python -m app.batch.refresh_derived`等、実行順序を自動解決する
-単一コマンド）と、鮮度台帳（生データ更新時刻 vs 派生computed_atを機械比較できる仕組み）は
-改善計画T281段階2・3として別途トリガー待ち（docs/improvement-plan.md参照）。**2026-08-30
-追記**: 改善計画T351が鮮度台帳の材料となる列（source_*_import_run_id・algorithm_version、
-上記冒頭の追記参照）を先行して用意した。段階3着手時はこの列を読むだけで鮮度台帳を構築でき、
-新たな系譜追跡機構をゼロから設計する必要はない。
+`python -m app.batch.refresh_derived`が④〜⑨（本ファイルの依存順序どおり、①〜③の生データ
+取込は対象外）を1コマンドで実行する。詳細は
+[docs/modules/backend/static-road-attributes.md](modules/backend/static-road-attributes.md)
+「派生データ再構築の単一エントリポイント」参照。
+
+## 段階3（本ファイルの対象外）
+
+鮮度台帳（生データ更新時刻 vs 派生computed_atを機械比較できる仕組み）は改善計画T281段階3
+として別途トリガー待ち（docs/improvement-plan.md参照）。**2026-08-30追記**: 改善計画T351が
+鮮度台帳の材料となる列（source_*_import_run_id・algorithm_version、上記冒頭の追記参照）を
+先行して用意した。段階3着手時はこの列を読むだけで鮮度台帳を構築でき、新たな系譜追跡機構を
+ゼロから設計する必要はない。

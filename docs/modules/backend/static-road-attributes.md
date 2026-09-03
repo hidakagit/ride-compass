@@ -14,7 +14,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py` |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py` |
 | api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_validation.py` |
-| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`_common.py` |
+| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`_common.py`・`refresh_derived.py` |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -98,6 +98,17 @@ Way単位版は地図タイルの母集団になる（`road_edges`はルート�
 ため）。両バッチとも`source_accident_import_run_id`/`source_osm_import_run_id`
 （実行時点の最新成功import run id）と`algorithm_version`（計算ロジック自体の版数、手動で
 上げる）を派生データの系譜として書き込む。
+
+### 派生データ再構築の単一エントリポイント（`refresh_derived.py`）
+
+`presplit_road_graph.py`・`precompute_road_node_degrees.py`・
+`precompute_edge_attribute_counts.py`・`precompute_elevation_attributes.py`・
+`precompute_way_attribute_counts.py`・`match_designations.py`（依存DAGは
+[docs/batch-pipeline-dependencies.md](../../batch-pipeline-dependencies.md)参照）を
+依存順に1コマンドで実行する薄いオーケストレーション。各段は既存バッチの`run`/
+`run_match`関数をそのまま呼ぶだけで新しいロジックは持たず、いずれか1段が例外を
+送出したら即座に停止し後続は実行しない。`import_pbf.py`・`import_accidents.py`・
+`import_designations.py`（生データ取込そのもの）は対象外。
 
 ## タイル配信
 
