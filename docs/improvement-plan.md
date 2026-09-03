@@ -818,4 +818,4 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 ## 本番DB再構築（disaster recovery）手順の整備（2026-09-04・ユーザー指示）
 
-- [ ] [T573](tasks/T573.md). 本番DB再構築（disaster recovery）の包括的手順書整備・検証 規模L（未着手、2026-09-04起票。既存VM上の使い捨てPostgreSQL+PostGISコンテナで実際に検証する）
+- [x] [T573](tasks/T573.md). 本番DB再構築（disaster recovery）の包括的手順書整備・検証 規模L（2026-09-04完了。既存VM上の使い捨てPostgreSQLクラスタでbootstrap_fresh_db.py→import_pbf.py→refresh_derived.py→ルート生成までを実地検証、docs/disaster-recovery.md新設。全国規模・②③生データ取込・Redis周りは未検証のまま残る）
