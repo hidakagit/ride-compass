@@ -177,9 +177,9 @@ const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 // 定数を足す必要はない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。
 // 改善計画T432: sourceを追加し「1グループ=複数の名前付きソース」を表現できるようにした
 // （単一ソースのグループは"main"という1キーだけを持つ）。
-function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark" | "vector") {
+export function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark" | "vector") {
   const base = `region-dynamic-weather-${id}-${source}-${sub}`;
-  return { sourceId: base, layerId: `${base}-main`, haloLayerId: `${base}-halo`, iconId: `${base}-icon` };
+  return { sourceId: base, layerId: `${base}-main`, iconId: `${base}-icon` };
 }
 // 環境グループの風penalty gridFill（改善計画T414、T432でDYNAMIC_WEATHER_RENDERERS汎用機構へ
 // 統合）のlayer id。GRADIENT_FILL_LAYER_IDと同型——こちらはDYNAMIC_WEATHER_RENDERERS側の
@@ -510,15 +510,13 @@ export function applyRouteLayerVisibility(
 // 座標順（T274が逆回り候補で座標を逆順に構築済み、RouteCandidate.geometry/segmentsは採用
 // された向きの座標順で返る）がそのまま矢印の向きに反映される（T293技術検証Artifactで確認
 // 済み、フロント側で「どちらが採用されたか」を判定する追加ロジックは不要）。
-// ハロー（縁取り）層+主層の2層重ねは風の矢印（ensureDynamicWeatherLayer）と同じ既存パターン。
-//
-// 改善計画T558: 衝突判定は無効にする（icon-allow-overlap / icon-ignore-placement: true）。
-// MapLibreのシンボル配置はレイヤーの上から順に行われ、先に配置された主層（上）の
-// 矢印と同じ位置・1.4倍の大きさのハロー層（下）は「衝突」として1つ残らず落とされていた
-// （Playwright診断で主層のみ配置・ハロー層0件）。縁取りが無いと矢印本体が区間色分け線や
-// basemapの色に溶けて見えない（縁取り・本体の配色は下記paint参照）。ルート矢印は
+// ハロー（縁取り）層+主層の2層重ねで、衝突判定は無効化する（icon-allow-overlap /
+// icon-ignore-placement: true）。MapLibreはレイヤーの上から順にシンボルを配置するため、
+// 衝突判定を有効にしたまま2層重ねると、先に配置された主層（上）と同位置・大きめの
+// ハロー層（下）が「衝突」として全て落ちる（風の矢印はこの構造の不具合を踏まえ
+// icon-halo-*で1層にまとめている、ensureDynamicWeatherLayer参照）。ルート矢印は
 // 選択中候補の線上だけに出る小さなシンボルのため、basemapのラベルと重なる不利益より
-// 「必ず縁取り付きで一定間隔に出る」ことを優先する。
+// 「必ず縁取り付きで一定間隔に出る」ことを優先し、衝突判定の無効化で対応する。
 function ensureRouteArrowLayer(map: MapLibreMap) {
   if (map.getLayer(ROUTE_ARROW_LAYER_ID)) return;
   if (!map.hasImage(ROUTE_ARROW_ICON_ID)) {
@@ -727,8 +725,10 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
 // EXPRESSION参照）。
 const WIND_ICON_MIN_SCALE = 0.9;
 const WIND_ICON_MAX_SCALE = 2.6;
-// ハロー（縁取り）層は主層より一回り大きい濃色シルエットを下に敷く倍率。
-const WIND_ICON_HALO_SCALE_MULTIPLIER = 1.35;
+// icon-halo-*（SDFアイコンの縁取りpaintプロパティ）用の色・幅。主層と別レイヤーにしない
+// ため、地図の背景色に関わらず衝突判定の対象は主層のみで縁取りは必ず追従する。
+const WIND_ICON_HALO_COLOR = "rgba(31, 41, 55, 0.85)";
+const WIND_ICON_HALO_WIDTH_PX = 1.5;
 // 微風=水色→ロードバイクで走行が難しい強風域=濃い赤の連続グラデーション（ビューフォート
 // 風力階級準拠、windLayer.ts: WIND_SPEED_COLOR_STOPSのコメント参照）。矢印のicon-colorと
 // 地図チップの凡例（page.tsx）の2箇所で同じ配色を使うため、生データはwindLayer.tsを
@@ -877,7 +877,8 @@ interface DynamicWeatherMarkSpec {
   minScale: number;
   maxScale: number;
   maxValueForFullScale: number;
-  haloScaleMultiplier: number;
+  haloColor: string;
+  haloWidth: number;
   minValueToShow?: number;
 }
 
@@ -913,7 +914,7 @@ type DynamicWeatherGroupSpec = Partial<Record<DynamicWeatherSourceId, DynamicWea
 // 動的気象レイヤーの描画スペック一覧（唯一の情報源）。新しい要素を追加するときはここへ
 // 1エントリ足すだけでよい（dynamicWeather.ts冒頭の「1本道」コメント参照）。色・アイコン式を
 // 参照するため、それらのconst定義より後（JSのconstはhoistされないため）に置く必要がある。
-const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGroupSpec> = {
+export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGroupSpec> = {
   precipitationNowcast: {
     main: {
       raster: {
@@ -967,7 +968,8 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGro
         minScale: WIND_ICON_MIN_SCALE,
         maxScale: WIND_ICON_MAX_SCALE,
         maxValueForFullScale: 15,
-        haloScaleMultiplier: WIND_ICON_HALO_SCALE_MULTIPLIER,
+        haloColor: WIND_ICON_HALO_COLOR,
+        haloWidth: WIND_ICON_HALO_WIDTH_PX,
         minValueToShow: WIND_CALM_THRESHOLD_MS,
       },
     },
@@ -1113,7 +1115,7 @@ const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGro
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
 // パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMark/vectorのうち
 // 実際に指定されているものだけを追加する（改善計画T432、ソースごとにループする形へ一般化）。
-function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
+export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
   const applyData = () => {
     for (const [source, spec] of Object.entries(groupSpec)) {
       if (!spec) continue;
@@ -1163,48 +1165,21 @@ function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, 
       }
       if (spec.gridMark) {
         const mark = spec.gridMark;
-        const { sourceId, layerId, haloLayerId, iconId } = dynamicWeatherIds(id, source, "mark");
+        const { sourceId, layerId, iconId } = dynamicWeatherIds(id, source, "mark");
         if (!map.getSource(sourceId)) {
           if (!map.hasImage(iconId)) {
             // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
             // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
-            // 範囲では実用上問題ない簡易的な使い方）。
+            // 範囲では実用上問題ない簡易的な使い方）。icon-halo-*（縁取り）paintプロパティも
+            // sdf:true必須。
             map.addImage(iconId, mark.createIcon(), { sdf: true });
           }
           map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
-          // ハロー（縁取り）層。主層より一回り大きい濃色シルエットを下に敷き、地図の背景色に
-          // 関わらずマークの輪郭が視認できるようにする（実機フィードバック「矢印見にくい」
-          // 対応）。主層と同じicon-image・向きを使い、色だけ単色の濃色に固定する。ほぼ無い
-          // 値の地点はマーク自体を出さない（ユーザーフィードバック「ほぼ無風でも矢印が出るのが
-          // 違和感」）フィルタをハロー層・主層の両方に掛ける。
-          map.addLayer({
-            id: haloLayerId,
-            type: "symbol",
-            source: sourceId,
-            layout: {
-              "icon-image": iconId,
-              "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
-              "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
-              "icon-allow-overlap": false,
-              "icon-ignore-placement": false,
-              "icon-size": zoomAndPropertyIconSizeExpression(
-                mark.valueProperty,
-                mark.minScale,
-                mark.maxScale,
-                mark.maxValueForFullScale,
-                mark.haloScaleMultiplier
-              ),
-              visibility: "none",
-            },
-            paint: {
-              "icon-color": "#1f2937",
-              "icon-opacity": 0.85,
-            },
-            // gridFillと同じ理由（下記参照）でminValueToShow未設定時はfilterキー自体を省略する。
-            ...(mark.minValueToShow != null
-              ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
-              : {}),
-          });
+          // 縁取りは別レイヤーではなくicon-halo-*（主層と同じsymbolレイヤーのpaint
+          // プロパティ）で表現する。別レイヤーの縁取りは、MapLibreがレイヤーの上から順に
+          // シンボルを配置するため、先に置かれた主層と同位置・大きめの縁取り層が「衝突」として
+          // 全て落ちる（icon-allow-overlap: falseのため）。1層にまとめれば主層自身の衝突判定
+          // （密なズームで格子点を間引く）に縁取りが自動的に追従する。
           map.addLayer({
             id: layerId,
             type: "symbol",
@@ -1229,6 +1204,8 @@ function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, 
             paint: {
               "icon-color": mark.colorExpression,
               "icon-opacity": 1,
+              "icon-halo-color": mark.haloColor,
+              "icon-halo-width": mark.haloWidth,
             },
             ...(mark.minValueToShow != null
               ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
@@ -1310,14 +1287,12 @@ function applyDynamicWeatherState(
         setLayerVisibility(map, layerId, visible && payload?.kind === "gridFill");
       }
       if (spec.gridMark) {
-        const { sourceId, layerId, haloLayerId } = dynamicWeatherIds(id, source, "mark");
+        const { sourceId, layerId } = dynamicWeatherIds(id, source, "mark");
         if (payload?.kind === "gridMark") {
           const markSource = map.getSource(sourceId) as GeoJSONSource | undefined;
           markSource?.setData(payload.geojson);
         }
-        const shouldShow = visible && payload?.kind === "gridMark";
-        setLayerVisibility(map, haloLayerId, shouldShow);
-        setLayerVisibility(map, layerId, shouldShow);
+        setLayerVisibility(map, layerId, visible && payload?.kind === "gridMark");
       }
       if (spec.vector) {
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");

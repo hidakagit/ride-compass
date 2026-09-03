@@ -61,7 +61,14 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 ```
 
 `dynamicWeatherIds(id, source, sub)`が`region-dynamic-weather-${id}-${source}-${sub}`
-という命名規約でsource/layer idを機械的に決める。
+という命名規約でsource/layer idを機械的に決める（`-main`のみ、縁取り専用の別レイヤーは持たない）。
+
+`gridMark`（`DynamicWeatherMarkSpec`）の縁取りは、主層と別のsymbolレイヤーではなく
+`icon-halo-color`/`icon-halo-width`（SDFアイコンのpaintプロパティ、`icon-image`に
+`sdf: true`が必須）で1層にまとめる。MapLibreはレイヤーの上から順にシンボルを配置する
+ため、同位置・大きめのシンボルを別レイヤー（下）で重ねると`icon-allow-overlap: false`
+下では常に「衝突」として全て落ちる——1層にまとめれば衝突判定は主層自身の1回だけになり、
+縁取りは常に主層と同じ地点に出る。
 
 ## 1グループ=複数の名前付きソース
 

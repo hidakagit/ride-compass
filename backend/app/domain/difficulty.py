@@ -17,6 +17,8 @@
 
 from typing import Mapping, NamedTuple
 
+import numpy as np
+
 from app.domain.axis_definitions import evaluate_axes_scalar
 
 
@@ -94,3 +96,15 @@ def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> 
 
     total = sum(difficulty * distance for difficulty, distance in available) / distance_sum
     return round(total, 1)
+
+
+def distance_weighted_difficulty_array(difficulty: np.ndarray, distance_m: np.ndarray) -> float | None:
+    """`distance_weighted_difficulty`のnumpyベクトル化版（改善計画T552）。`difficulty`の
+    NaN要素は除外し残りの距離で再正規化する。1つも有効な要素が無い、または距離の合計が
+    0以下ならNone。呼び出し元は数万〜十数万件規模のEdge配列を想定し、Pythonループを避ける。
+    """
+    valid = ~np.isnan(difficulty)
+    distance_sum = float(distance_m[valid].sum())
+    if not valid.any() or distance_sum <= 0:
+        return None
+    return round(float(np.sum(difficulty[valid] * distance_m[valid]) / distance_sum), 1)

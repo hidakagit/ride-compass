@@ -31,6 +31,7 @@ from app.domain.evaluation import (
     compute_wind_penalty,
     is_edge_allowed,
 )
+from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
 from tests.realistic_axis_fixtures import axis_definitions_snapshot
@@ -343,8 +344,11 @@ def test_compute_cost_from_axis_scores_signature_has_no_primary_attribute_names(
     # 一切現れないことをコードレビューではなくテストでも機械的に確認する。
     params = set(inspect.signature(compute_cost_from_axis_scores).parameters)
     # 改善計画T218・T12 ADR原則1: penalty_strength（P）はコスト式の割増率の強さを
-    # 調整するリクエストパラメータであり、一次属性名ではないため許容する。
-    assert params == {"distance_m", "axis_scores", "weights", "penalty_strength"}
+    # 調整するリクエストパラメータであり、一次属性名ではないため許容する。改善計画T552:
+    # bbox_mean_difficultyは重み付き軸が全欠損のEdgeへ探索コスト算出だけで代入する
+    # bbox内平均difficulty（呼び出し元のリクエストごとの実データ由来）であり、同じ理由で
+    # 一次属性名ではない。
+    assert params == {"distance_m", "axis_scores", "weights", "penalty_strength", "bbox_mean_difficulty"}
     primary_attribute_names = {"highway", "lanes", "maxspeed", "cycleway", "surface", "way_tags", "edge"}
     assert params.isdisjoint(primary_attribute_names)
 
@@ -510,6 +514,28 @@ def test_compute_cost_from_axis_scores_empty_scores_returns_distance_only():
 
     assert difficulty is None
     assert cost == 100.0
+
+
+def test_compute_cost_from_axis_scores_fills_cost_with_bbox_mean_when_missing():
+    # 改善計画T552: 重み付き軸が全欠損（axis_scoresが空）でもbbox_mean_difficultyを
+    # 渡せばcostだけそれを反映する。表示用のdifficultyはNoneのまま変わらない。
+    cost, difficulty = compute_cost_from_axis_scores(
+        distance_m=100.0, axis_scores={}, weights={"gradient": 1.0}, bbox_mean_difficulty=30.0,
+    )
+
+    assert difficulty is None
+    assert cost == 130.0  # 100 * (1 + 30/100)
+
+
+def test_compute_cost_from_axis_scores_ignores_bbox_mean_when_difficulty_available():
+    # 一部でも軸データがあればcompute_cost_from_axis_scores自身のdifficultyを使い、
+    # bbox_mean_difficultyは無視される。
+    cost, difficulty = compute_cost_from_axis_scores(
+        distance_m=100.0, axis_scores={"gradient": 40.0}, weights={"gradient": 1.0}, bbox_mean_difficulty=90.0,
+    )
+
+    assert difficulty == 40.0
+    assert cost == 140.0
 
 
 def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
@@ -934,3 +960,66 @@ def test_compose_costs_from_axis_matrix_returns_axis_contributions():
             contributions[axis_id][i] for axis_id in contributions if not np.isnan(contributions[axis_id][i])
         )
         assert valid_total == pytest.approx(composite[i], abs=1e-6)
+
+
+def test_compose_costs_from_axis_matrix_fills_cost_with_bbox_mean_when_all_axes_missing():
+    # 改善計画T552: 重み付き軸がすべて欠損（composite=NaN）のEdgeは、costの算出だけ
+    # bbox内の他Edgeの距離加重平均difficultyを代入する。表示用のcomposite・
+    # axis_contributionsはNaNのまま変わらない。
+    distance_m = np.array([100.0, 200.0, 300.0, 400.0])
+    axis_arrays = {
+        "wind": np.array([80.0, 20.0, np.nan, np.nan]),
+        "car_stress": np.array([10.0, 40.0, 60.0, np.nan]),
+    }
+    weights = {"wind": 0.6, "car_stress": 0.4}
+
+    cost, composite, contributions = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
+
+    # composite = [52.0, 28.0, 60.0, NaN]（distance加重平均48.0を欠損Edgeへ代入）。
+    bbox_mean = (52.0 * 100.0 + 28.0 * 200.0 + 60.0 * 300.0) / 600.0
+    assert np.isnan(composite[3])
+    assert np.isnan(contributions["wind"][3])
+    assert cost[3] == pytest.approx(distance_m[3] * (1.0 + bbox_mean / 100), abs=1e-6)
+    # 欠損していないEdgeのcostはこれまでどおりcomposite自身を使う（bbox平均の影響を
+    # 受けない）。
+    assert cost[0] == pytest.approx(distance_m[0] * (1.0 + composite[0] / 100), abs=1e-6)
+
+
+def test_compose_costs_from_axis_matrix_cost_equals_distance_when_all_edges_missing():
+    # bbox全体で有効なEdgeが1件も無ければ代入する平均値自体が無いため、従来どおり
+    # cost=distance_m（割増なし）。
+    distance_m = np.array([100.0, 200.0])
+    axis_arrays = {"wind": np.array([np.nan, np.nan])}
+    weights = {"wind": 1.0}
+
+    cost, composite, _ = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
+
+    assert np.all(np.isnan(composite))
+    assert cost.tolist() == distance_m.tolist()
+
+
+def test_compose_costs_from_axis_matrix_bbox_mean_fallback_matches_scalar_oracle():
+    # 改善計画T552: bulk版が自動で求めるbbox内平均difficultyを、スカラー版
+    # compute_cost_from_axis_scoresへbbox_mean_difficultyとして明示的に渡した場合の
+    # costとビット単位で一致すること（tests/test_evaluation_bulk.pyのオラクル方針と
+    # 同じ考え方を、この関数ペア単体でも検証する）。
+    distance_m = np.array([100.0, 200.0, 300.0])
+    axis_arrays = {"wind": np.array([80.0, 20.0, np.nan]), "car_stress": np.array([10.0, 40.0, np.nan])}
+    weights = {"wind": 0.6, "car_stress": 0.4}
+    penalty_strength = 2.5
+
+    bulk_cost, bulk_composite, _ = compose_costs_from_axis_matrix(
+        distance_m, axis_arrays, weights, penalty_strength
+    )
+    bbox_mean = distance_weighted_difficulty_array(bulk_composite, distance_m)
+
+    for i in range(len(distance_m)):
+        axis_scores = {axis_id: float(arr[i]) for axis_id, arr in axis_arrays.items() if not np.isnan(arr[i])}
+        scalar_cost, scalar_difficulty = compute_cost_from_axis_scores(
+            float(distance_m[i]), axis_scores, weights, penalty_strength, bbox_mean_difficulty=bbox_mean,
+        )
+        assert scalar_cost == pytest.approx(float(bulk_cost[i]), abs=1e-9)
+        if np.isnan(bulk_composite[i]):
+            assert scalar_difficulty is None
+        else:
+            assert scalar_difficulty == pytest.approx(float(bulk_composite[i]), abs=1e-9)

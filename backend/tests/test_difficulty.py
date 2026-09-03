@@ -1,7 +1,10 @@
+import numpy as np
+
 from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.difficulty import (
     composite_difficulty,
     distance_weighted_difficulty,
+    distance_weighted_difficulty_array,
     evaluate_axis_difficulties,
 )
 
@@ -172,6 +175,28 @@ def test_distance_weighted_difficulty_zero_total_distance_returns_none():
 
 def test_distance_weighted_difficulty_empty_returns_none():
     assert distance_weighted_difficulty([]) is None
+
+
+def test_distance_weighted_difficulty_array_matches_scalar_version():
+    # 改善計画T552: distance_weighted_difficulty_arrayはdistance_weighted_difficultyの
+    # numpyベクトル化版で、NaN=Noneとして同じ規約（欠損除外・残りの距離で再正規化）に従う。
+    result = distance_weighted_difficulty_array(
+        np.array([0.0, np.nan, 100.0]), np.array([1.0, 5.0, 1.0])
+    )
+
+    assert result == 50.0
+
+
+def test_distance_weighted_difficulty_array_all_nan_returns_none():
+    assert distance_weighted_difficulty_array(np.array([np.nan, np.nan]), np.array([1.0, 2.0])) is None
+
+
+def test_distance_weighted_difficulty_array_zero_total_distance_returns_none():
+    assert distance_weighted_difficulty_array(np.array([50.0]), np.array([0.0])) is None
+
+
+def test_distance_weighted_difficulty_array_empty_returns_none():
+    assert distance_weighted_difficulty_array(np.array([]), np.array([])) is None
 
 
 def test_accident_axis_zero_density_is_easiest():

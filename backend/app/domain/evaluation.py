@@ -29,7 +29,7 @@ from app.domain.axis_definitions import (
     topological_axis_order,
 )
 from app.domain.axis_templates import round1_array
-from app.domain.difficulty import composite_difficulty
+from app.domain.difficulty import composite_difficulty, distance_weighted_difficulty_array
 from app.domain.graph import EdgeLike, RoadGraphLike
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
 from app.domain.night import night_materials
@@ -485,7 +485,11 @@ def _resolve_static_edge_materials(
 
 
 def compute_cost_from_axis_scores(
-    distance_m: float, axis_scores: dict[str, float], weights: dict[str, float], penalty_strength: float = 1.0
+    distance_m: float,
+    axis_scores: dict[str, float],
+    weights: dict[str, float],
+    penalty_strength: float = 1.0,
+    bbox_mean_difficulty: float | None = None,
 ) -> tuple[float, float | None]:
     """三次: 重みベクトル×軸別スコアのみからコストを算出する純関数
     （`cost = length × (1 + P × Σᵢ wᵢ × axisᵢ / 100)`、設計プロンプト「評価システムの
@@ -501,10 +505,18 @@ def compute_cost_from_axis_scores(
     （難易度を一切考慮しない最短距離探索）、Pを上げるほど悪路が強く避けられる
     （P=4なら最悪の道は距離5倍相当）。`cost >= distance_m`（P>=0の間は常に成り立つ）という
     不変条件は維持し、将来の探索高速化（直線距離を下界とするA*等）の前提を崩さない。
+
+    `bbox_mean_difficulty`（改善計画T552）: 重み付き軸すべてが欠損（`difficulty is None`）の
+    ときにコスト計算だけへ代入する値（呼び出し元がbboxの実データから求めた距離加重平均
+    difficulty、`domain/difficulty.py: distance_weighted_difficulty_array`参照）。省略時
+    （既定None）は従来どおり`cost=distance_m`（割増なし）。戻り値の`difficulty`（表示用）は
+    この代入の影響を受けず、欠損なら常にNoneのまま返す——探索コストのみ補完し表示は変えない
+    という方針（`compose_costs_from_axis_matrix`と同じ）を、Edge単位のこの関数でも保つ。
     """
     scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in axis_scores.items()]
     difficulty = composite_difficulty(scored_weights)
-    penalty_multiplier = 1.0 + penalty_strength * (difficulty / 100) if difficulty is not None else 1.0
+    cost_difficulty = difficulty if difficulty is not None else bbox_mean_difficulty
+    penalty_multiplier = 1.0 + penalty_strength * (cost_difficulty / 100) if cost_difficulty is not None else 1.0
     cost = round(distance_m * penalty_multiplier, 1)
     return cost, difficulty
 
@@ -525,6 +537,7 @@ def compute_edge_cost(
     max_average_grade_percent: float | None = None,
     weights: dict[str, float] | None = None,
     hard_filters: frozenset[str] | None = None,
+    bbox_mean_difficulty: float | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -547,6 +560,9 @@ def compute_edge_cost(
 
     `hard_filters`（改善計画T266）はそのまま`is_edge_allowed`へ渡す（省略時は
     `DEFAULT_HARD_FILTERS`）。
+
+    `bbox_mean_difficulty`（改善計画T552）はそのまま`compute_cost_from_axis_scores`へ渡す
+    （同関数のdocstring参照）。
     """
     if not is_edge_allowed(
         edge,
@@ -568,7 +584,9 @@ def compute_edge_cost(
         intersection_count, accident_count, accident_years_covered, is_designated,
     )
     resolved_weights = weights if weights is not None else preference.weights
-    cost, difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, resolved_weights, penalty_strength)
+    cost, difficulty = compute_cost_from_axis_scores(
+        edge.distance_m, axis_scores, resolved_weights, penalty_strength, bbox_mean_difficulty
+    )
 
     return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
 
@@ -842,6 +860,13 @@ def compose_costs_from_axis_matrix(
     寄与度を丸め前で合計すると丸め前のcompositeと一致する——`RouteCandidate.
     overall_difficulty`とその内訳`axis_contributions`を数学的に一致させるための値
     ）。
+
+    重み付き軸がすべてデータ欠損（composite=NaN）のEdgeは、costの算出だけ`distance_m`
+    加重の`domain/difficulty.py: distance_weighted_difficulty_array`で求めたbbox内平均
+    difficultyを代入する（改善計画T552。呼び出し元のリクエストごとに実データから求まる
+    値で、固定定数は使わない）。戻り値の`composite_difficulty`・`axis_contributions`
+    （表示用）はこの代入の影響を受けず、欠損なら常にNaNのまま返す。bbox内が全Edge欠損
+    （代入する平均値自体が無い）ならこれまでどおりcost=distance_m（割増なし）。
     """
     n = len(distance_m)
     score_terms = []
@@ -883,9 +908,16 @@ def compose_costs_from_axis_matrix(
             contribution = np.where(valid, arr * weight / weighted_weight_sums, np.nan)
         axis_contributions[axis_id] = np.where(weighted_weight_sums == 0, np.nan, contribution)
 
+    # 改善計画T552: costの算出にだけ、重み付き軸が全欠損のEdgeへbbox内平均difficultyを
+    # 代入する（composite自体は表示用にNaNのまま返す、上のdocstring参照）。
+    bbox_mean = distance_weighted_difficulty_array(composite, distance_m)
+    if bbox_mean is None:
+        cost_difficulty = composite
+    else:
+        cost_difficulty = np.where(np.isnan(composite), bbox_mean, composite)
     # compute_cost_from_axis_scoresと同じ: difficultyがNaN(None相当)ならcostは距離そのもの
     # （割増なし）。
-    penalty_multiplier = np.where(np.isnan(composite), 1.0, 1.0 + penalty_strength * (composite / 100))
+    penalty_multiplier = np.where(np.isnan(cost_difficulty), 1.0, 1.0 + penalty_strength * (cost_difficulty / 100))
     cost = round1_array(distance_m * penalty_multiplier)
     return cost, composite, axis_contributions
 
