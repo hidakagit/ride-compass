@@ -16,9 +16,11 @@ test("ルート生成→候補一覧の表示", async ({ page }) => {
   await page.getByLabel("距離").fill("20");
   await page.getByRole("button", { name: "ルート生成" }).click();
 
-  // モック応答の2候補（北・南方向）が一覧に表示されることを確認する。
-  await expect(page.getByRole("button", { name: /北方向 — 20\.3 km/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /南方向 — 19\.8 km/ })).toBeVisible();
+  // モック応答の2候補（北・南方向）が候補タブに表示されることを確認する。候補は
+  // 「ルート結果」のタブ（Radix Tabs.Trigger、role=tab）で、ラベルは順位番号付きの
+  // 「1. 北方向 20.3 km」形式（page.tsx参照）。
+  await expect(page.getByRole("tab", { name: /1\. 北方向 20\.3 km/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /2\. 南方向 19\.8 km/ })).toBeVisible();
 });
 
 test("地図レイヤーのON/OFF切替", async ({ page }) => {

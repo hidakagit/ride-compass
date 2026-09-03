@@ -69,6 +69,15 @@ routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実�
 - `filterRouteStyleModesByPreference`: `routePreference`で重み0にした軸のモードを
   選択肢から除外する（`page.tsx`側で使用）。
 - `DEFAULT_ROUTE_STYLE_MODE_ID`は`ROUTE_STYLE_MODES[0].id`から導出する。
+- **地図上の重ね順**（`MapView.tsx: drawDetailSegments`・`keepRouteArrowsAboveDetailSegments`）:
+  選択中候補の区間色分け線（`DETAIL_LAYER_ID`、幅6px・不透明）とその当たり判定線
+  （`DETAIL_HIT_LAYER_ID`、幅24px・透明）は、同じ候補の進行方向矢印
+  （`ROUTE_ARROW_HALO_LAYER_ID`→`ROUTE_ARROW_LAYER_ID`、`routeArrowIcon.ts`）より常に下に置く。
+  矢印層はページ表示直後に、色分け線は最初の生成後に作られるため、作成順に任せず
+  「色分け線→当たり判定線→矢印ハロー→矢印」の順を両方の作成時に明示する。矢印2層は
+  衝突判定を無効（`icon-allow-overlap`/`icon-ignore-placement: true`）にしてある——
+  MapLibreは上のレイヤーから順にシンボルを配置するため、衝突判定を有効にすると主層の矢印と
+  同位置・大きめのハロー層が全て落ち、色分け線が紺系のモードでは同色の矢印が線に沈む。
 
 ## windAxisLayer.ts / gradientAxisLayer.ts（ルート確定前の評価軸グループ線）
 

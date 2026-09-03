@@ -515,8 +515,8 @@ export function applyRouteLayerVisibility(
 // 改善計画T558: 衝突判定は無効にする（icon-allow-overlap / icon-ignore-placement: true）。
 // MapLibreのシンボル配置はレイヤーの上から順に行われ、先に配置された主層（上）の
 // 矢印と同じ位置・1.4倍の大きさのハロー層（下）は「衝突」として1つ残らず落とされていた
-// （Playwright診断で主層のみ配置・ハロー層0件）。白い縁取りが無いと、区間色分け線が
-// 紺系のモード（既定の勾配モード等）では同色の矢印が線に沈んで見えない。ルート矢印は
+// （Playwright診断で主層のみ配置・ハロー層0件）。縁取りが無いと矢印本体が区間色分け線や
+// basemapの色に溶けて見えない（縁取り・本体の配色は下記paint参照）。ルート矢印は
 // 選択中候補の線上だけに出る小さなシンボルのため、basemapのラベルと重なる不利益より
 // 「必ず縁取り付きで一定間隔に出る」ことを優先する。
 function ensureRouteArrowLayer(map: MapLibreMap) {
@@ -540,14 +540,18 @@ function ensureRouteArrowLayer(map: MapLibreMap) {
       ...lineLayout,
       "icon-size": zoomIconSizeExpression(ROUTE_ARROW_BASE_SCALE * ROUTE_ARROW_HALO_SCALE_MULTIPLIER),
     },
-    paint: { "icon-color": "#ffffff", "icon-opacity": 0.9 },
+    // 改善計画T558: 縁取りは濃色、矢印本体は白（ユーザー指摘「白縁取りだと色が沈んで
+    // 見にくい」）。区間色分け線はモードにより紺・緑・赤・紫と変わるため、線と同系になり
+    // うる有彩色ではなく、どの線色の上でも浮く白を本体に使い、濃色の縁取りで線・basemapの
+    // 双方から切り離す（ナビアプリの経路上シェブロンと同じ配色）。
+    paint: { "icon-color": "#111827", "icon-opacity": 0.95 },
   });
   map.addLayer({
     id: ROUTE_ARROW_LAYER_ID,
     type: "symbol",
     source: OUTLINE_SOURCE_ID,
     layout: { ...lineLayout, "icon-size": zoomIconSizeExpression(ROUTE_ARROW_BASE_SCALE) },
-    paint: { "icon-color": "#1e3a8a", "icon-opacity": 0.95 },
+    paint: { "icon-color": "#ffffff", "icon-opacity": 1 },
   });
   keepRouteArrowsAboveDetailSegments(map);
 }
@@ -839,10 +843,12 @@ function zoomIconSizeExpression(baseScale: number) {
 // 自動調整されるためズーム別の値は持たない、T293技術検証Artifactで確認済み）・基準サイズ。
 // 実データ（都心の急カーブ・折り返し区間）での密集/欠落確認は実装タスク3の実機調整で行う。
 const ROUTE_ARROW_SPACING_PX = 80;
-const ROUTE_ARROW_BASE_SCALE = 0.55;
+// 改善計画T558: 0.55→0.8へ拡大（ユーザー指摘「縁取りだけでは色が沈んで見にくい」。
+// 区間色分け線[幅6px]の上に載せて読める大きさにする）。
+const ROUTE_ARROW_BASE_SCALE = 0.8;
 // ハロー層は主層より一回り大きい濃色シルエットを下に敷く倍率（風の矢印のWIND_ICON_HALO_
 // SCALE_MULTIPLIERと同じ考え方）。
-const ROUTE_ARROW_HALO_SCALE_MULTIPLIER = 1.4;
+const ROUTE_ARROW_HALO_SCALE_MULTIPLIER = 1.5;
 
 /** 動的気象レイヤー1要素ぶんの描画スペック。raster/gridFill/gridMarkのうち実際に使う
  * ものだけを持つ（例: windVectorはgridMarkのみ、precipitationNowcastはraster+gridFillの
