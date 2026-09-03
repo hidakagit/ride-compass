@@ -1,34 +1,68 @@
 # RideCompass
 
-ロードバイク愛好者向けに、現在地から指定距離の周回ルートを自動生成するWebアプリのプロトタイプ。
+**ロードバイクで気持ちよく走れる周回ルートを、自動で提案してくれるWebアプリです。**
+出発地点と走りたい距離を入れるだけで、坂道の少なさ・風向き・路面の状態・車通りの多さ・
+信号の多さ・事故の多さ・夜道の暗さといった「走りやすさ」に関わる要素を考慮したルート
+候補がいくつも作られ、その中から好みのものを選べます。
 
-距離・獲得標高・風向風速・道路特性などを考慮し、ロードバイクで走りやすい周回ルートを複数候補から選択できることを目指す。詳細な設計思想・技術選定・ロードマップは [docs/architecture.md](docs/architecture.md) を参照。
+## RideCompassでできること
 
-## 現在の進捗
+- **距離と出発地点を指定するだけでルートを自動生成**: 現在地・地図タップ・ドラッグの
+  いずれかで出発地点を決め、走りたい距離を入れると、その距離に近い周回ルート（元の場所へ
+  戻ってくるルート）や、目的地・経由地を指定したルートを何パターンか自動で作る。
+- **「走りやすさ」を自分好みに調整できる**: 「坂道は避けたい」「車の通りが少ない道を
+  優先したい」「向かい風になりにくいルートがいい」など、重視したいポイントの比重を
+  スライダーで調整でき、その好みに合わせてルート候補の順番が変わる。重視するポイント
+  （評価軸と呼んでいる）自体も画面から追加・調整できるようになっている。
+- **地図上でルートの大変さが一目でわかる**: 生成したルートを区間ごとに色分け表示し、
+  どこが坂道できついか・どこが向かい風になりやすいかなどをひと目で確認できる。区間を
+  クリックすると、その場所の詳しい情報（勾配・風の影響・通過予想時刻など）も見られる。
+- **地図の見え方を自由に切り替えられる**: 路面の種類・道路の種類・トンネル・一方通行
+  ・過去の事故が多い場所など、道路に関する情報を地図に重ねて表示できる。
+- **天気・雨雲レーダーを地図で確認できる**: 気温・風向風速・降水確率に加えて、雨雲
+  レーダー・雷・大雨や洪水の危険度分布といった気象庁の情報も地図上で時間を追って
+  確認できる。
+- **獲得標高やアップダウンを事前に把握できる**: 国土地理院の標高データをもとに、
+  各ルート候補の獲得標高や最大勾配を計算して表示する。
 
-- ✅ **Step 1**: Next.js + MapLibre GL JS で地図を表示（現在地取得 / 取得失敗時は東京・王子付近にフォールバック / 緯度経度の手動入力）
-- ✅ **Step 2**: FastAPI バックエンドを作成し、フロントエンドから疎通確認（`GET /health`）
-- ✅ **Step 3**: openrouteservice に接続し、現在地→クリックした地点までのルート取得を確認（`POST /api/routes/preview`、疎通確認用の暫定機能）
-- ✅ **Step 4**: 周回ルート生成（`POST /api/routes/generate`）。距離を入力して「ルート生成」を押すと、現在地を起点・終点とする周回ルート候補が最大8件（8方位）生成され、地図に描画。候補リストから選ぶと地図上のハイライトが切り替わる
-- ✅ **Step 5**: 獲得標高の計算（国土地理院標高API）。各候補ルートの獲得標高・最高/最低標高・最大勾配を算出し、候補リストに獲得標高を表示
-- ✅ **Step 6**: 天候表示（Open-Meteo API）。現在地の気温・風向風速・降水確率を画面上部に表示。バックエンドは「地点＋時刻」を指定できる設計にしてあり、将来「ルート上の各点を通過する推定時刻の天気」を出す拡張がしやすいようにしてある
-- ✅ **Step 7**: 風評価（`wind_score`）。各周回ルート候補について、ルート上のサンプル点ごとに「仮定巡航速度（20km/h）から逆算した推定到達時刻」の風向風速をStep6の`WeatherService`から取得し、進行方位との関係（向かい風/追い風/横風）から区間距離加重平均の`wind_score`を算出、候補リストに表示。値は符号付きm/s（正=正味向かい風、負=正味追い風）で、正規化・重み付けはStep8で行う
-- ✅ **Step 8**: 総合スコアリング（`total_score`）。距離の近さ・獲得標高・`wind_score`・路面の舗装率（`road_score`、openrouteserviceの`extra_info=surface`から取得）の4指標を、候補集合内でmin-max正規化した上で`scoring.yaml`の重みで合成し0-100点の`total_score`を算出。候補リストは`total_score`が高い順（最も良い候補が先頭）に並ぶ
-- ✅ **Step 9**: 候補ルートの難易度可視化。地図上にルートを区間（約12点サンプリング＝11区間）ごとの色分けで重ね描きする。標高・勾配・風・路面のいずれも、ロードバイク走行の一般的な目安に基づく絶対基準（Step8の相対評価とは異なる）で緑（易しい）〜赤（難しい）に着色。区間クリックで「距離・到達予想時刻・勾配・風・路面」のポップアップを表示し、時系列（推定到達時刻）を考慮した見方ができる
-- ✅ **UI再構成**: 左サイドバー（操作パネル・候補一覧、折りたたみ可）＋右地図の2ペインレイアウトに変更。地図レイヤーは「変わらないデータ（標高・路面）」と「時間で変わるデータ（風）」で扱いを分離: 標高/路面は選択に関係なく**全候補**へチェックON/OFFで常時重ね描きし、風は選択中の候補にのみ自動で色分け表示する。選択中候補は色分けの種類に関わらず常時ハロー（薄い縁取り）で識別できる
-- ✅ **Step 10**: 地域レイヤー（標高＝国土地理院 色別標高図のラスタタイル、路面＝自前生成のベクタタイル`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）。候補ルートの有無に関わらず、**表示中の地図の範囲全体**に標高・OSM/Overpassの路面データを重ね描きできるようにした（Step5-9はいずれも「候補ルート沿い」限定だったのに対し、地域全体を対象にする点が新しい）。標高・路面とも「変わらないデータはタイル表示で統一する」方針のもと、標高は国土地理院の色別標高図タイルをそのまま重ね、路面はOverpassから取得したOSMデータをバックエンドでMVT（Mapbox Vector Tile）形式に変換し、地図タイルと同じファイルキャッシュで永続化して配信する。MapLibreのvector sourceとして扱えるため、区間クリックで路面情報を見るポップアップも維持している。**標高と路面は排他ではなく同時に重ね表示できる**。あわせて、地図タイル（OpenFreeMap）をバックエンド経由でプロキシ＋ファイルキャッシュする仕組み（`GET /api/basemap/{path}`, `POST /api/basemap/refresh`）も追加し、初回以降はオフラインに近い形で地図を表示できるようにした
-- ✅ **フロントエンドUX改善**: スマホ幅（640px以下）では左サイドバーを画面上に重なる開閉式ドロワーに変更し、背景タップ・スワイプ・Escapeキーで閉じられるようにした。地図右下に「現在地に移動」ボタンを追加し、位置情報を再取得できるようにした（失敗時はエラー表示）。サイドバーのチェックボックスで有効化できる「デバッグモード」では、地図のタイル取得・API呼び出しの詳細ログを画面下部に表示する
-- ✅ **バックエンド: 自前Road Graphルーティングの試験実装＋エンジン切り替え**: `/api/routes/generate`のルート生成を、自前のRoad Graph（OSM/Overpass由来）+NetworkX（Dijkstra）で行う実装を試験的に追加した。当初は`.env`の`ROUTING_ENGINE`設定で従来のopenrouteservice委譲（既定）とRoad Graphのどちらを使うか切り替えられるようにしていたが、Road Graph側の精度・速度が実用水準に達したことを受け、2026-08-31（改善計画T462）でopenrouteservice委譲を完全に撤去しRoad Graphへ一本化した（詳細は[docs/architecture.md](docs/architecture.md)参照）
-- ⬜ Step 11以降: 未定（現時点でMVPの主要機能は一通り実装済み）
+技術的な設計・実装の詳細（採用技術・API・データモデル等）は
+[docs/architecture.md](docs/architecture.md)、機能単位の詳細設計は
+[docs/modules/README.md](docs/modules/README.md)を参照。ここから先は開発者向けの情報。
+
+## 主な機能（開発者向け）
+
+- **周回・目的地ルート生成**（`POST /api/routes/generate`）: 自前ホストのRoad Graph
+  （OSM由来、PostGIS永続化）+ `scipy.sparse.csgraph`のDijkstra探索で、外部ルーティングAPIに
+  依存せずルートを計算する。周回・経由地指定・目的地指定のいずれにも対応し、出発地点は
+  現在地取得のほか地図タップ・ドラッグでも指定できる。
+- **評価軸ベースのスコアリング**: 勾配・路面・風・車の圧迫感・停止密度・事故密度・夜間などの
+  評価軸ごとに0-100の難易度を算出し、重み付き合成した`overall_difficulty`で候補を並べる。
+  評価軸自体は「軸スタジオ」（`/admin`、HTTP Basic認証）というGUIから追加・調整でき、
+  コード変更や再デプロイなしに評価の観点を増やせる。軸の一覧・現在の重みは
+  [docs/architecture.md](docs/architecture.md)の評価軸の節が正本。
+- **難易度・評価軸の地図可視化**: ルート区間ごとに勾配・風などで色分け表示し、区間クリックで
+  内訳（軸別寄与度・到達予想時刻）を確認できる。評価軸に対応する道路属性は地図レイヤーとしても
+  重ね描きできる（路面・道路種別・指定路線・トンネル・一方通行・停止要因POI・事故統計など）。
+- **動的な気象・防災レイヤー**: Open-Meteo（気温・風向風速・降水確率）に加え、気象庁の
+  降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップ等の動的タイルを
+  バックエンド経由でプロキシ・キャッシュして地図へ重ね描きする（時系列スライダー付き）。
+- **標高**: 国土地理院DEMタイルをRoad GraphのEdgeへ事前計算で紐付け、探索中の追加API呼び出し
+  なしで獲得標高・最大勾配を算出する。地域全体の標高は色別標高図タイルとして常時表示できる。
+- **ルート比較・研究モード**: 複数回生成した候補を並べて比較する実験スロット機能、評価軸の
+  重み調整UIなど、一般利用者向け画面とは別に研究・軸調整向けの機能を持つ。
 
 ## 構成
 
 ```
 RideCompass/
-  frontend/   Next.js + TypeScript + MapLibre GL JS
-  backend/    FastAPI (Python)
-  docs/       設計ドキュメント
-  docker-compose.yml
+  frontend/           Next.js (App Router) + TypeScript + MapLibre GL JS
+  backend/            FastAPI (Python) + PostGIS
+  docs/               設計ドキュメント（architecture.md・modules/・improvement-plan.md等）
+  .claude/            レビュー基盤・スキル定義（.claude/commands/review/README.md参照）
+  scripts/            リポジトリ横断のCI/pre-commitスクリプト・review_checks.py
+  docker-compose.yml  frontend/backend/postgres(PostGIS)/redisを一括起動
+  restart-dev.bat / stop-dev.bat   Windows向けのローカル再起動・停止スクリプト（backend/frontendの
+                                    残留プロセスをkillしてバックグラウンドで再起動、ログはlogs/へ）
 ```
 
 ## セットアップ
@@ -37,7 +71,11 @@ RideCompass/
 
 - Node.js 20+
 - Python 3.11+
-- Docker / Docker Compose（任意。frontend/backend/postgresをまとめて起動する場合）
+- PostgreSQL + PostGIS（Road Graph・路面タイル生成の一次系統。**DBなしでは起動しない**——
+  `GraphService`は改善計画T222でDBなし構成を撤去済み）
+- Redis（JMA気象データ・road_graph_tilesのcache-aside層。未接続でもフォールバックする箇所が
+  一部あるが、ローカル開発でも用意することを推奨）
+- Docker / Docker Compose（任意。frontend/backend/postgres/redisをまとめて起動する場合）
 
 ### Docker Composeで起動する場合
 
@@ -48,7 +86,8 @@ docker compose up --build
 
 - フロントエンド: http://localhost:3000
 - バックエンド: http://localhost:8000/health
-- Postgres(PostGIS): localhost:5432（Road Graph/Road Attributeの永続化用にSQLAlchemy+GeoAlchemy2の読み書きコードは実装済みだが、このdev環境では実接続の検証ができておらず、`GraphService`/`ElevationAttributeService`へ`repository`を明示的に注入しない限り既存のAPIエンドポイントはどれもこのDBを使わない。詳細は[docs/architecture.md](docs/architecture.md)9章参照）
+- Postgres(PostGIS): localhost:5432
+- Redis: localhost:6379
 
 ### ローカルで個別起動する場合
 
@@ -57,55 +96,79 @@ docker compose up --build
 ```bash
 cd backend
 python -m venv .venv
-.venv/Scripts/activate  # Windows: .venv\Scripts\Activate.ps1
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 cp .env.example .env
-# ルート生成エンジンはroad_graph一本（DATABASE_URLへの実接続が必須。PostGIS必須、詳細はdocs/osm-pbf-import.md参照）
+# DATABASE_URLは実接続できるPostGISが必須（.env.exampleのコメント・
+# docs/architecture.md「本番/開発プロファイル一覧」参照）
 uvicorn app.main:app --reload
 ```
 
 - ヘルスチェック: `curl http://localhost:8000/health`
 - 単一区間ルート確認: `curl -X POST http://localhost:8000/api/routes/preview -H "Content-Type: application/json" -d '{"origin":{"latitude":35.7597,"longitude":139.7387},"destination":{"latitude":35.71,"longitude":139.75}}'`
-- 周回ルート生成確認: `curl -X POST http://localhost:8000/api/routes/generate -H "Content-Type: application/json" -d '{"latitude":35.7597,"longitude":139.7387,"distance_km":15,"distance_tolerance_km":5,"route_type":"loop"}'`（対象エリアが未取込・split未済みだと自前Road Graphの構築コストが乗り数十秒かかることがある。1クライアントIPあたり1分間10回・プロセス全体で同時2件のレート制限があり、超過分は429が返る）
-- 天候確認: `curl "http://localhost:8000/api/weather?latitude=35.7597&longitude=139.7387"`
-- テスト: `pytest`
+- 周回ルート生成確認: `curl -X POST http://localhost:8000/api/routes/generate -H "Content-Type: application/json" -d '{"latitude":35.7597,"longitude":139.7387,"distance_km":15,"distance_tolerance_km":5,"route_type":"loop"}'`（対象エリアが未取込・split未済みだと自前Road Graphの構築コストが乗り数十秒かかることがある。レート制限・同時実行数の上限に達すると429が返る）
+- テスト: `pytest -q -m "not postgis"`（PostGIS統合テストを含むフルスイートは下記「テスト」参照）
 
-> **注意（`.env`変更時）**: `uvicorn --reload` はPythonファイルの変更は自動検知するが、`.env` の変更は検知しない。APIキーなど `.env` を編集した場合は一度プロセスを完全に停止し、再起動すること。Windowsでは `--reload` の再起動サイクルでワーカープロセスが残留し、複数プロセスが同じポートを奪い合うことがある。挙動がおかしい場合は `netstat -ano | findstr :8000` でポートを握っているPIDを確認し、`taskkill /F /PID <PID>` で全て終了してから起動し直すこと。
+> **注意（`.env`変更時）**: `uvicorn --reload` はPythonファイルの変更は自動検知するが、`.env` の変更は検知しない。編集した場合は一度プロセスを完全に停止し、再起動すること。Windowsでは `--reload` の再起動サイクルでワーカープロセスが残留し、複数プロセスが同じポートを奪い合うことがある（`restart-dev.bat`はこのkillを含めて再起動する）。手動で確認する場合は `netstat -ano | findstr :8000` でPIDを確認し、`taskkill /F /PID <PID>` で終了してから起動し直すこと。
 
 #### Frontend
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local
 npm run dev
 ```
 
-ブラウザで http://localhost:3000 を開くと、地図（現在地 or 東京・王子付近）と、バックエンドの疎通状況（`Backend: OK`）が表示される。
-
-## 補足・既知の注意点
-
-- **地図タイル**: MapLibre GL JS の地図タイルには、APIキー不要の [OpenFreeMap](https://openfreemap.org/) を使用している。`tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあるため採用していない。本番運用時は利用規約を確認の上、専用プロバイダへの切り替えを検討すること。
-- **maplibre-gl のバージョン固定**: `maplibre-gl` は `^5.24.0` に固定している。最新メジャー（v6系）は Web Worker のURL解決方法が Next.js のバンドラ（Turbopack / Webpack）と相性が悪く、地図タイルが永久に読み込まれない不具合を確認したため。詳細は [docs/architecture.md](docs/architecture.md) を参照。
-- **ルーティングエンジン**: 自前のRoad Graph（OSM由来、PostGIS永続化）+ `scipy.sparse.csgraph`のDijkstraで経路計算する（[backend/app/services/road_graph_engine.py](backend/app/services/road_graph_engine.py)）。外部ルーティングAPIへの依存は無い（2026-08-31、改善計画T462でopenrouteservice委譲を撤去）。
-- **周回ルート生成のヒューリスティック**: 8方位×固定半径（距離の1/3）で候補地点を決める簡易方式。周回生成戦略は[backend/app/services/route_generator.py](backend/app/services/route_generator.py)（エンジン非依存の戦略層）が持ち、経由地点間の経路計算・評価は[backend/app/services/road_graph_engine.py](backend/app/services/road_graph_engine.py)へ委譲する。適応的な半径調整は行っていないため、方位によって実際の距離にばらつきが出る（デフォルトの許容差は±5km）。詳細・既知の制約は [docs/architecture.md](docs/architecture.md) を参照。
-- **標高API**: 国土地理院（GSI）のDEMタイルを使用（APIキー不要、日本国内限定）。Road GraphのEdgeへ標高属性を事前計算バッチ（`app/batch/precompute_elevation_attributes.py`）で紐付け（[backend/app/services/elevation_attribute_service.py](backend/app/services/elevation_attribute_service.py)）、ルート生成時はこの事前計算済みの値をキー参照するだけで済む（探索中の外部API呼び出しは発生しない）。DEMタイル本文はファイルキャッシュ（[backend/app/infrastructure/elevation_client.py](backend/app/infrastructure/elevation_client.py)）で永続化する。詳細は[docs/modules/backend/elevation.md](docs/modules/backend/elevation.md)参照。
-- **天候API**: Open-Meteo Forecast APIを使用（APIキー不要）。`current`（現在の気象）と`hourly`（当日+翌日の時間別予報）を1回のリクエストでまとめて取得し、緯度経度を丸めたキーで30分TTLのキャッシュを行う（[backend/app/infrastructure/weather_client.py](backend/app/infrastructure/weather_client.py)）。`WeatherService.get_conditions(point, at=...)`は時刻を指定できる設計にしてあり、Step6のUIでは「現在の天候」のみ表示するが、将来ルート上の各点＋推定到達時刻を渡す形にそのまま拡張できる。
-- **風評価（`wind_score`）**: 出発時点の起点付近の風を`WeatherService.get_conditions(point)`（Step6）から1回だけ取得し、ルート全体へ一様適用する（探索中は各区間の到達時刻が未確定のため）。区間ごとの走行方位はEdge自身の`bearing_deg`（directed edge）を使い、`WindCalculator.wind_penalty`（[backend/app/domain/wind.py](backend/app/domain/wind.py)）で`風速 × cos(風向 − 走行方位)`から向かい風/追い風の度合いを計算、区間距離で加重平均した値を`wind_score`（符号付きm/s、正=向かい風・負=追い風）として返す。詳細は[docs/modules/backend/routing-engine.md](docs/modules/backend/routing-engine.md)参照。
-- **路面評価（`road_score`）と総合スコア（`total_score`）**: Edgeが参照するOSMタグ（`surface`）を`domain/road.py: classify_osm_surface`で3値判定（良い/悪い/不明）し、距離加重の`distance_weighted_road_score`（不明は分母から除外）で`road_score`（0-100%）を算出する。`RouteScorer`（[backend/app/services/route_scorer.py](backend/app/services/route_scorer.py)）が、距離目標との近さ・獲得標高・`wind_score`・`road_score`の4指標を**その回に生成された候補集合内でmin-max正規化**（`domain/scoring.py`）した上で、`backend/app/scoring.yaml`の重みで合成し`total_score`（0-100点）を算出する。相対評価のため異なるリクエスト間の`total_score`は比較できない点に注意。一部の指標が取得できなかった候補は、残りの指標の重みだけで再正規化して合成する。
-- **難易度可視化（`RouteCandidate.segments`）**: ルートはEdge単位（交差点間）の区間として`segments`を返す（30km級で1候補あたり150〜230件になるため、`aggregate_segments_into_bins`で約500m単位へ集約してから返す）。**追加のAPIコールは一切発生しない**（標高・路面は事前計算済みのEdge属性を読むだけ、風は出発時点の起点付近の風をルート全体へ適用するため）。区間ごとの難易度（`domain/difficulty.py`）は、`total_score`（候補集合内の相対評価）とは異なり、勾配・向かい風風速・路面種別という**絶対基準**で0-100点化しており、地図上で「客観的にどこが大変か」を示す。
-- **UI再構成（サイドバー＋地図レイヤーの静的/動的分離）**: `MapView`（[frontend/src/components/Map/MapView.tsx](frontend/src/components/Map/MapView.tsx)）は4種類のMapLibreレイヤーを常設する構成に変更した: ①`route-candidates-line`（全候補のベース表示、amber/blue）、②`route-static-segments-line`（**全候補**のセグメントを標高/路面で色分け、選択に関わらず表示）、③`route-selected-outline-line`（選択中候補の常時ハロー、最背面）、④`route-detail-segments-line`（選択中候補のみの風の色分け、最前面）。①と②は`visibility`レイアウトプロパティで排他的に切り替え、③は常時、④は「風の影響を表示」チェックがONかつ選択中候補にセグメントがある場合のみ表示する。区間クリックのポップアップは②③両レイヤーを対象にクエリし、静的レイヤーのポップアップには`direction_label`（例:「南西方向」）を添えてどの候補の区間かを明示する。標高・路面のチェックボックスは当初「同じ線の色を奪い合う」という理由で単一値による排他制御にしていたが、Step10で標高がラスタタイル表示になり色の競合が解消されたため、`showElevation`/`showRoad`の独立した2状態に変更した（同時表示可、後述のStep10改訂参照）。
-- **MapLibreの`isStyleLoaded()`起因の描画スキップ**: 当初、地図初期化直後にレイヤーを追加する際「`map.isStyleLoaded()`がfalseならスタイルの`load`イベントを待ってから描画する」というガードを各描画関数に入れていたが、`isStyleLoaded()`はタイル読み込み中（候補選択時の`fitBounds`によるカメラ移動など）にも一時的にfalseを返すため、`load`イベントが二度と発火しない（初回読み込み時に一度だけ発火する仕様）タイミングでガードに引っかかると、その描画が永久にスキップされる不具合があった（風レイヤーが選択直後に表示されないという形で顕在化、Playwright実機確認で発見）。スタイルが一度でも読み込まれたかどうかをmapインスタンス自身にフラグとして記録する`runWhenStyleReady`ヘルパーに置き換えて解消した。
-- **地域レイヤー（標高・路面の常時オーバーレイ、Step10）**: 標高は国土地理院の色別標高図（ラスタタイル、`https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png`、APIキー不要）を`MapView`（[frontend/src/components/Map/MapView.tsx](frontend/src/components/Map/MapView.tsx)）が直接MapLibreのraster sourceとして半透明（不透明度0.55）で重ね描きする。当初は国土地理院の標高API（1点=1リクエスト）をグリッド状に問い合わせて点で描画していたが、「点だとわかりにくい」というフィードバックを受けて、標準的な地図として塗られた色別標高図タイルをそのまま重ねる方式に変更した（バックエンドAPIを介さずフロントエンドから直接取得。地理院タイルは別オリジンのため、地図タイル用に分離したフロントエンドオリジンとも接続数が競合しない）。
-- **路面のベクタタイル化（Step10改訂）**: 当初、路面はビューポートのbboxで`GET /api/region/road-surface`にリクエストしGeoJSONの線データを返す設計だったが、「変わらないデータはタイル表示で統一したい」という要望を受け、標高と同じくXYZタイルとして配信する方式に作り直した。`RegionService.get_road_surface_tile(z, x, y)`（[backend/app/services/region_service.py](backend/app/services/region_service.py)）が、タイルのz/x/yから求めた範囲（`domain/region.py`の`tile_bounds_lonlat`、標準的なスライピータイル座標式）でOverpassに問い合わせ、`infrastructure/vector_tile.py`の`encode_road_surface_tile`でMVT（Mapbox Vector Tile、`mapbox-vector-tile`ライブラリ使用）にエンコードする。**生成したタイルは基礎地図タイルと同じファイルキャッシュ（`infrastructure/tile_cache.py`）にz/x/y単位で永続化**し、「変わらないデータを更新」ボタン一つで両方まとめてクリアできる（Step9まで使っていた路面専用のSQLiteテーブル`road_surface_cache`は不要になり削除した）。フロントエンドは`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`をMapLibreの`type: "vector"`ソースとして直接読み込む（`MapView.tsx`の`ensureRoadSurfaceTileLayer`）ため、Step9まであった「パン/ズーム終了を検知してbboxをfetchする」独自ロジック（デバウンス処理含む）は不要になり、MapLibre自身がタイル単位で自動的にパン/ズームに追随して取得するようになった。ビューポートが広すぎる場合の「ズームインしてください」表示も、bbox対角距離の計算ではなく、路面ベクタタイルの`minzoom`（12、`ROAD_TILE_MIN_ZOOM`）と現在のズームレベルを比較するだけの単純な判定に置き換わった（標高はラスタタイルのためこの判定の対象外）。路面は`ROAD_SURFACE_COLOR_EXPRESSION`で舗装=緑/未舗装=赤/不明=グレーに塗り分け、MVTは地物データを保持したベクタ形式のため区間クリックでの路面情報ポップアップも従来通り機能する。座標変換は緯度経度→Web Mercator→タイルローカル座標（0-4096）の標準的な手順（[backend/app/infrastructure/vector_tile.py](backend/app/infrastructure/vector_tile.py)）で行っており、Overpassの取得範囲をタイル境界でクリップしていないため、タイル境界をまたぐ道路はタイル範囲をわずかに超える座標を含むことがある（MVT仕様上は許容される値で、MapLibre側の描画時クリップに委ねている）。**標高・路面は独立したチェックボックスで、排他ではなく同時に重ね表示できる**（標高ラスタは他のレイヤーより先に追加し常に背景寄りに描画されるため、路面の色分け線やルート線が隠れることはない）。候補ルートの選択状態とは独立に常時表示できる。
-- **地図タイルのバックエンド経由プロキシ＋キャッシュ（Step10）**: `BasemapClient`（[backend/app/infrastructure/basemap_client.py](backend/app/infrastructure/basemap_client.py)）がOpenFreeMap（`tiles.openfreemap.org`）のスタイルJSON・スプライト・グリフ・タイルを透過的にプロキシしつつ、ファイルシステム（`backend/data/tile_cache/`、[backend/app/infrastructure/tile_cache.py](backend/app/infrastructure/tile_cache.py)）にキャッシュする。フロントエンドは`next.config.ts`のrewritesで`/api/basemap/*`と`/api/region/road-surface-tiles/*`（路面ベクタタイル、Step10改訂）の両方をバックエンドへプロキシし、ブラウザからは常にフロントエンドと同一オリジン（`:3000`）に見えるようにしている。地図タイルとAPI呼び出しを別オリジンから同一オリジンにまとめた結果、大量のタイルリクエストがブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を埋めてしまいAPI呼び出しが詰まる問題が実機確認で発覚したため、あえて地図タイル（路面ベクタタイルも含む）はAPI呼び出し（`:8000`直接）とは別オリジン（フロントエンド`:3000`経由）に分離してある。スタイルJSON内のOpenFreeMap本体への絶対URLは、自分自身（`BASEMAP_PUBLIC_BASE_URL`、既定値`http://localhost:3000/api/basemap`）への絶対URLに書き換えてから返す（MapLibreは相対URLをスタイル自身の取得元ではなくページのオリジンに対して解決してしまうため、絶対URLへの書き換えが必須）。**既知の制約**: このURL書き換え後の内容をそのままファイルキャッシュするため、`BASEMAP_PUBLIC_BASE_URL`の値を変更した場合は古いURLが埋め込まれたキャッシュが残り続ける（キャッシュには書き換え元の設定値を記録していないため自動検知できない）。「変わらないデータを更新」ボタン（`POST /api/basemap/refresh`）でキャッシュを全消去すれば解消する。Windowsでは、URLのパス構造をそのままディレクトリ階層にミラーリングすると「同名のファイルがあるためディレクトリを作成できない」というエラーで実際にクラッシュすることを実機確認したため、パスをSHA-256でハッシュ化しフラットなファイル名で保存する方式にしている。
-- **ベクタタイルの取得はWeb Worker内で行われる点に注意**: MapLibreはラスタタイル（`Image`要素、メインスレッド）とベクタタイル（`fetch`、Web Worker内）でタイルの取得方法が異なる。ラスタタイルのURLは相対パスのままページのオリジンに対して解決されるが、ベクタタイルのURLをWorker内から相対パスのまま`fetch`しようとすると`Failed to construct 'Request'`のエラーで失敗することを実機確認した（Workerの実行コンテキストではベースURLが異なるため）。そのため路面ベクタタイルのURLは`window.location.origin`を使って明示的に絶対URL化している（[frontend/src/services/regionApi.ts](frontend/src/services/regionApi.ts)の`roadSurfaceTileUrl()`。`window`はクライアントサイドでしか使えないため、モジュール読み込み時の定数ではなく呼び出し時に評価する関数にしてある点にも注意）。
+ブラウザで http://localhost:3000 を開く。バックエンドのURLは既定で`http://localhost:8000`
+（`NEXT_PUBLIC_API_URL`で上書き可、`.env.local`は無くても動く）。
 
 ## テスト
 
 ```bash
+# backend（変更に直接関係するテストだけ絞り込む場合はファイルを指定する）
 cd backend
-pytest
+pytest -q -m "not postgis"          # PostGIS統合テストを除いた全件
+pytest tests/test_road_graph_engine.py -q
+
+# frontend
+cd frontend
+npx vitest run                      # 全件
+npx vitest run <対象ファイル> --pool=threads
+npx tsc --noEmit
+npx eslint
 ```
 
-**注意**: PostGIS統合テスト（`test_road_graph_repository.py`等、`road_graph_session`フィクスチャ使用）は、テスト専用DB（既定`postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test`、`TEST_DATABASE_URL`で上書き可）に接続できない環境では自動的に`pytest.skip`される（[backend/tests/conftest.py](backend/tests/conftest.py)）。全件成功と表示されても、これらのテストが実際に実行されたとは限らない点に注意。
+**注意**: PostGIS統合テスト（`road_graph_session`フィクスチャ使用のテスト群）は、テスト専用DB
+（既定`postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test`、
+`TEST_DATABASE_URL`で上書き可）に接続できない環境では自動的にスキップされる
+（[backend/tests/conftest.py](backend/tests/conftest.py)）。CIはpytest-xdistで並列化しているため、
+新規のPostGIS統合テストファイルには`loop_scope="module"`・`xdist_group(name="postgis")`の指定が
+必要（詳細は[docs/testing.md](docs/testing.md)参照）。
+
+## 補足・既知の注意点
+
+- **ルーティングエンジン**: 自前のRoad Graph（OSM由来、PostGIS永続化）+
+  `scipy.sparse.csgraph`のDijkstraで経路計算する
+  ([backend/app/services/road_graph_engine.py](backend/app/services/road_graph_engine.py))。
+  外部ルーティングAPIへの依存は無い（openrouteservice委譲は改善計画T462で完全撤去済み）。
+- **地図タイル**: MapLibre GL JSの地図タイルにはAPIキー不要の[OpenFreeMap](https://openfreemap.org/)を使用し、`BasemapClient`がバックエンド経由でプロキシ・ファイルキャッシュする。`tile.openstreetmap.org`はbulk/非ブラウザアクセスをブロックするポリシーがあるため採用していない。
+- **maplibre-glのバージョン固定**: `maplibre-gl`は`^5.24.0`に固定している。最新メジャー（v6系）はWeb WorkerのURL解決方法がNext.jsのバンドラと相性が悪く、地図タイルが永久に読み込まれない不具合を確認したため（詳細は[docs/architecture.md](docs/architecture.md)参照）。
+- **JMA動的タイル**: 降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル等の気象庁タイルは
+  `GET /api/jma-tile/{path}`経由でプロキシ・キャッシュする（[docs/modules/backend/weather-dynamic-layers.md](docs/modules/backend/weather-dynamic-layers.md)参照）。
+- **標高API**: 国土地理院（GSI）のDEMタイルを使用（APIキー不要、日本国内限定）。Road Graphの
+  Edgeへ標高属性を事前計算バッチ（`app/batch/precompute_elevation_attributes.py`）で紐付ける
+  （[docs/modules/backend/elevation.md](docs/modules/backend/elevation.md)参照）。
+- **天候API**: Open-Meteo Forecast API（APIキー不要）。本番はRenderの共有outbound IPが
+  Open-Meteoにレート制限されるため、Oracle Cloud VM上のリレープロキシ経由にしている
+  （`OPEN_METEO_BASE_URL`、`backend/.env.example`参照）。
+- **評価軸・軸スタジオ**: 評価軸の定義は`axis_definitions`テーブルが唯一の正本で、Python側の
+  ハードコード定義は撤去済み。軸の追加・削除・調整は`/admin`の軸スタジオGUI（またはそのAPI）
+  経由でのみ行う（`backend/migrations/`は行データを持たない。詳細は
+  [docs/modules/backend/axis-studio.md](docs/modules/backend/axis-studio.md)参照）。
+
+## 開発を続ける・タスクの状況を追う
+
+- 直近の設計レビュー結果・進行中の改善タスク一覧: [docs/improvement-plan.md](docs/improvement-plan.md)（各タスクの詳細は`docs/tasks/Txxx.md`）
+- ログ・テストの方針: [docs/logging.md](docs/logging.md) / [docs/testing.md](docs/testing.md)
+- RideCompass固有の設計原則: [docs/design-principles.md](docs/design-principles.md)
+- このリポジトリで作業する際のルール（コミット時の同期ルール等）: [CLAUDE.md](CLAUDE.md)

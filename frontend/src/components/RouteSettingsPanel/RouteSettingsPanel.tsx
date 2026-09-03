@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import * as Popover from "@radix-ui/react-popover";
 import LayerChip from "@/components/Map/LayerChip";
+import InfoPopover from "@/components/Map/InfoPopover";
 import Disclosure from "@/components/Disclosure/Disclosure";
-import { InfoIcon, MapAppearanceIcon } from "@/components/Map/icons";
+import { MapAppearanceIcon } from "@/components/Map/icons";
 import { withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
@@ -220,18 +220,13 @@ export default function RouteSettingsPanel({
           <span aria-hidden="true" className={styles.legendDot} style={{ background: color }} />
           <span className={styles.legendLabel}>{axis.label}</span>
         </button>
-        <Popover.Root>
-          <Popover.Trigger asChild>
-            <button type="button" className={styles.legendInfoButton} aria-label={`${axis.label}の説明を表示`}>
-              <InfoIcon />
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className={styles.legendInfoPopover} side="bottom" align="start" sideOffset={6}>
-              {axis.description}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+        <InfoPopover
+          triggerClassName={styles.legendInfoButton}
+          triggerAriaLabel={`${axis.label}の説明を表示`}
+          contentClassName={styles.legendInfoPopover}
+        >
+          {axis.description}
+        </InfoPopover>
         {renderLegendMapColorToggle(axis)}
       </span>
     );
@@ -403,35 +398,30 @@ export default function RouteSettingsPanel({
           {/* ユーザー要望（2026-08-31、「情報アイコンを押すと、そのなかに凡例出してほしい」）:
               帯グラフの色と軸の対応を、見出し脇の情報アイコンから一覧できるようにする
               （凡例チップ側にも色ドットはあるが、折り返して並ぶため一覧性は弱い）。 */}
-          <Popover.Root>
-            <Popover.Trigger asChild>
-              <button type="button" className={styles.stackBarLegendTrigger} aria-label="重み配分の凡例を表示">
-                <InfoIcon />
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content className={styles.legendInfoPopover} side="bottom" align="start" sideOffset={6}>
-                <ul className={styles.stackBarLegendList}>
-                  {catalog.axes.map((axis, index) => {
-                    const weight = routePreference[axis.axisId] ?? 0;
-                    if (weight <= 0 || total <= 0) return null;
-                    const pct = Math.round((weight / total) * 100);
-                    return (
-                      <li key={axis.axisId} className={styles.stackBarLegendItem}>
-                        <span
-                          aria-hidden="true"
-                          className={styles.legendDot}
-                          style={{ background: stackBarColorForIndex(index, catalog.axes.length) }}
-                        />
-                        <span className={styles.stackBarLegendLabel}>{axis.label}</span>
-                        <span className={styles.stackBarLegendValue}>{pct}%</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
+          <InfoPopover
+            triggerClassName={styles.stackBarLegendTrigger}
+            triggerAriaLabel="重み配分の凡例を表示"
+            contentClassName={styles.legendInfoPopover}
+          >
+            <ul className={styles.stackBarLegendList}>
+              {catalog.axes.map((axis, index) => {
+                const weight = routePreference[axis.axisId] ?? 0;
+                if (weight <= 0 || total <= 0) return null;
+                const pct = Math.round((weight / total) * 100);
+                return (
+                  <li key={axis.axisId} className={styles.stackBarLegendItem}>
+                    <span
+                      aria-hidden="true"
+                      className={styles.legendDot}
+                      style={{ background: stackBarColorForIndex(index, catalog.axes.length) }}
+                    />
+                    <span className={styles.stackBarLegendLabel}>{axis.label}</span>
+                    <span className={styles.stackBarLegendValue}>{pct}%</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </InfoPopover>
         </div>
         <div className={styles.stackBarOuter} ref={stackBarRef}>
           <div className={styles.stackBar}>

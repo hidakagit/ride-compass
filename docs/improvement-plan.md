@@ -729,7 +729,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 ## T518コードレビュー指摘の対応（2026-09-01、/code-review実施の副産物）
 
 - [x] [T524](tasks/T524.md). T518コードレビュー指摘の対応（全17件） 規模M（2026-09-01完了。11件修正・2件はユーザー確認のうえ設計変更・4件は理由付きで見送り）
-- [ ] [T525](tasks/T525.md). 凡例UI（ポップオーバー・チェックボックス行）の共通化 規模M（未着手、T524見送り分。着手前提: T522改善によるBrowserペイン実機確認の容易化）
+- [x] [T525](tasks/T525.md). 凡例UI（ポップオーバー・チェックボックス行）の共通化 規模M（2026-09-03完了）
 - [ ] [T526](tasks/T526.md). 内訳バーの視覚表現見直し（軸数に応じて理論上100/N%まで潰れる） 規模S〜M（未着手、T524見送り分。トリガー: 実機で「短すぎて比較しづらい」という実感が出た場合）
 - [x] [T527](tasks/T527.md). axis_difficulties型キャスト・useAxisCatalog複数インスタンスの型安全性調査 規模S（調査）〜M（2026-09-02完了。前者は起こり得ないと判明・対応不要、後者は共有ストア化で修正）
 - [x] [T528](tasks/T528.md). 未使用依存@radix-ui/react-radio-groupの削除 規模S（2026-09-02完了）
@@ -787,3 +787,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 - [x] [T562](tasks/T562.md). `docs/architecture.md`のbackendディレクトリツリーへT536〜T539/T546新設4ファイル（`search_graph_cache.py`・`tile_persistent_cache.py`・`tile_score_matrix_cache.py`・`presplit_road_graph.py`）を反映 規模S（2026-09-03完了、統合レビュー第4回P1）
 - [ ] [T563](tasks/T563.md). docsドリフトの一括是正（`map-axis-coloring.md`・`MapColorLegend.tsx`コメント・`axisLayers.ts`死んだ参照・`docs/logging.md`例外規定・`developer-research-tools.md`へdebug/logs/route.ts）と、docs/tasks「状態:」行の整備（T501/T505の完了反映、「状態:」行なし17件の追加） 規模M（未着手、統合レビュー第4回P2まとめ＋T560初回監査）
 - [ ] [T564](tasks/T564.md). docs/modulesに一切出現しない既存実装ファイル18件（汎用UI部品9・機能部品5・admin API routes4）の扱いを決めて記載し、`scripts/review_checks.py docs`をCIワークフローへ組み込む 規模M（未着手、T561・T563完了後。T560初回監査で検出）
+
+## ルート直下README.mdの陳腐化是正（2026-09-03・ユーザー指摘）
+
+- [x] [T565](tasks/T565.md). ルート直下README.mdの陳腐化是正 規模M（2026-09-03完了）

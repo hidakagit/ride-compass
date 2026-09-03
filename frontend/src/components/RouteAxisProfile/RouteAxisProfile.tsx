@@ -1,8 +1,8 @@
 "use client";
 
-import * as Popover from "@radix-ui/react-popover";
-import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import { InfoIcon, MapAppearanceIcon } from "@/components/Map/icons";
+import { MapAppearanceIcon } from "@/components/Map/icons";
+import InfoPopover from "@/components/Map/InfoPopover";
+import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import AxisContributionBar from "./AxisContributionBar";
@@ -94,18 +94,13 @@ function AxisChip({
         <span>{label}</span>
       </button>
       {description && (
-        <Popover.Root>
-          <Popover.Trigger asChild>
-            <button type="button" className={legendStyles.legendInfoButton} aria-label={`${label}の説明を表示`}>
-              <InfoIcon />
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className={legendStyles.legendInfoPopover} side="bottom" align="start" sideOffset={6}>
-              {description}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+        <InfoPopover
+          triggerClassName={legendStyles.legendInfoButton}
+          triggerAriaLabel={`${label}の説明を表示`}
+          contentClassName={legendStyles.legendInfoPopover}
+        >
+          {description}
+        </InfoPopover>
       )}
       {description && (
         // aria-labelはトグルボタン（ariaLabel、「〜で地図を色分け」）と意図的に文言を
@@ -162,29 +157,21 @@ export default function RouteAxisProfile({
         {/* RouteSettingsPanel.tsx: 「重み配分」見出し脇のstackBarLegendTriggerと同じ
             パターン（アイコン→ポップオーバーでリスト表示）。中身だけ読み取り専用の%表示
             ではなくChecksbox（表示/非表示トグル）にしている。 */}
-        <Popover.Root>
-          <Popover.Trigger asChild>
-            <button type="button" className={legendStyles.stackBarLegendTrigger} aria-label="凡例の表示設定">
-              <InfoIcon />
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className={legendStyles.legendInfoPopover} side="left" align="start" sideOffset={6}>
-              <ul className={legendStyles.stackBarLegendList}>
-                {currentMode.legend.map((entry) => {
-                  const visible = !hiddenLegendKeys.includes(entry.key);
-                  return (
-                    <li key={entry.key} className={legendStyles.stackBarLegendItem}>
-                      <Checkbox checked={visible} onCheckedChange={() => onToggleLegendKey(entry.key)} aria-label={entry.label} />
-                      <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: entry.color }} />
-                      <span className={legendStyles.stackBarLegendLabel}>{entry.label}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+        <InfoPopover
+          triggerClassName={legendStyles.stackBarLegendTrigger}
+          triggerAriaLabel="凡例の表示設定"
+          contentClassName={legendStyles.legendInfoPopover}
+          side="left"
+        >
+          <LegendCheckboxList
+            legend={currentMode.legend}
+            hiddenKeys={hiddenLegendKeys}
+            onToggle={onToggleLegendKey}
+            listClassName={legendStyles.stackBarLegendList}
+            rowClassName={legendStyles.stackBarLegendItem}
+            swatchClassName={legendStyles.legendDot}
+          />
+        </InfoPopover>
       </div>
 
       {/* 改善計画T545: 「総合難易度」単独行＋各軸チップが内訳の各行へ埋め込まれていた

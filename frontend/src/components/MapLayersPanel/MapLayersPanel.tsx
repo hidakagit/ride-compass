@@ -21,12 +21,10 @@ import {
   type RoadFilterAxis,
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
-import type { LegendEntry } from "@/components/Map/legendFilter";
 import type { StaticFilterAxis, StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import LayerChip from "@/components/Map/LayerChip";
+import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import Disclosure from "@/components/Disclosure/Disclosure";
-import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import WidthSwatch from "./WidthSwatch";
 import styles from "./MapLayersPanel.module.css";
 
 // 路面の絞り込み軸→対応するレイヤーID（改善計画T165: 「道路情報」の論理分割）。
@@ -166,38 +164,6 @@ export default function MapLayersPanel({
     if (!layerVisibility[layerId]) onLayerToggle(layerId, true);
   }
 
-  // 凡例そのものをチェックボックスにして、参照表示と絞り込み操作を1つのリストで兼ねる
-  // （即時反映。ルート凡例と道路情報の2軸が共通で使う、T31で方式統一）。
-  function renderLegendCheckboxes(
-    legend: readonly LegendEntry[],
-    hiddenKeys: readonly string[],
-    onToggle: (key: string) => void
-  ) {
-    return (
-      <div className={styles.legendCheckboxList}>
-        {legend.map((entry) => {
-          const visible = !hiddenKeys.includes(entry.key);
-          // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線＋
-          // 弱調表示で分離する（改善計画T89、legendFilter.ts: LegendEntry.isFallback参照）。
-          const rowClassName = entry.isFallback
-            ? `${styles.legendCheckboxRow} ${styles.legendCheckboxRowFallback}`
-            : styles.legendCheckboxRow;
-          return (
-            <label key={entry.key} className={rowClassName}>
-              <Checkbox checked={visible} onCheckedChange={() => onToggle(entry.key)} aria-label={entry.label} />
-              {entry.width !== undefined ? (
-                <WidthSwatch width={entry.width} dashed={entry.dashed} color={entry.color} />
-              ) : (
-                <span className={styles.swatch} style={{ background: entry.color }} />
-              )}
-              {entry.label}
-            </label>
-          );
-        })}
-      </div>
-    );
-  }
-
   // 道路情報の1軸分（見出し＋一括操作＋凡例チェックボックス）。visualはこの軸が地図の
   // どの視覚チャンネル（色/太さ）に反映されるかの表記。
   function renderRoadAxis(axis: RoadFilterAxis, visual: string) {
@@ -224,7 +190,15 @@ export default function MapLayersPanel({
             </button>
           </div>
         </div>
-        {renderLegendCheckboxes(axis.legend, hiddenKeys, (key) => handleRoadLegendToggle(axis.id, key))}
+        <LegendCheckboxList
+          legend={axis.legend}
+          hiddenKeys={hiddenKeys}
+          onToggle={(key) => handleRoadLegendToggle(axis.id, key)}
+          listClassName={styles.legendCheckboxList}
+          rowClassName={styles.legendCheckboxRow}
+          rowFallbackClassName={styles.legendCheckboxRowFallback}
+          swatchClassName={styles.swatch}
+        />
       </div>
     );
   }
@@ -256,9 +230,15 @@ export default function MapLayersPanel({
             </button>
           </div>
         </div>
-        {renderLegendCheckboxes(axis.legend, hiddenKeys, (key) =>
-          handleStaticFilterLegendToggle(axis.layerId, axis.axisId, key),
-        )}
+        <LegendCheckboxList
+          legend={axis.legend}
+          hiddenKeys={hiddenKeys}
+          onToggle={(key) => handleStaticFilterLegendToggle(axis.layerId, axis.axisId, key)}
+          listClassName={styles.legendCheckboxList}
+          rowClassName={styles.legendCheckboxRow}
+          rowFallbackClassName={styles.legendCheckboxRowFallback}
+          swatchClassName={styles.swatch}
+        />
       </div>
     );
   }
