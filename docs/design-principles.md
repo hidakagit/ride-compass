@@ -71,6 +71,13 @@
    の2用途にのみ使う。frontendからbackend側の生成物へ書き戻す経路は持たない
    （`docs/modules/frontend/axis-studio.md`・`map-axis-coloring.md`・
    `static-map-layers.md`参照）。
+10. **探索コストと表示difficultyの一致**: Edge単位のコスト計算は1回だけ行い、探索
+    （経路選択）と区間表示（`RouteSegmentDetail`のdifficulty・axis_difficulties）が
+    同じ算出結果を共有する（二重計算を持たない）。唯一の意図的な例外: 重み付き軸が
+    すべて欠損しているEdgeは、探索コストの算出だけbbox内の距離加重平均difficultyを
+    補完値として使う（経路比較には有限の値が要るため）。表示側は欠損のままNoneで返し、
+    データが無い事実を利用者へ隠さない（`docs/modules/backend/evaluation-scoring.md`
+    「探索コストの既定経路」参照、[T552](tasks/T552.md)）。
 
 一般的なソフトウェア工学の慣習（数値定数の片側import・スキーマ変更はmigrations/のみ・
 フォールバック経路へ新機能を実装しない・空間JOINのGiST索引利用・UIの語彙表カタログ集約等）は

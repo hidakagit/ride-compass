@@ -424,6 +424,15 @@ class RoadGraphEngine:
         )
         cost_array = np.where(hard_filter_excluded, np.inf, cost_array)
         cost_ms = round((time.monotonic() - cost_started) * 1000)
+        # 改善計画T552（対応方針1、実態把握）: 重み付き軸がすべてNaNのEdge比率
+        # （探索コストはbbox内平均difficultyで補完されるが、本番同等bboxでの実際の
+        # 発生頻度を把握するためのサマリ）。
+        missing_axis_mask = np.isnan(difficulty_array)
+        total_distance_m = float(score_matrix.distance_m.sum())
+        missing_axis_distance_ratio = (
+            float(score_matrix.distance_m[missing_axis_mask].sum() / total_distance_m)
+            if total_distance_m > 0 else 0.0
+        )
 
         cost_by_edge_id = dict(zip(score_matrix.edge_ids, cost_array.tolist()))
         full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
@@ -455,9 +464,10 @@ class RoadGraphEngine:
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
             "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d "
-            "total_ms=%d lazy_graph_cached=%s statics_cached=%s",
+            "total_ms=%d lazy_graph_cached=%s statics_cached=%s missing_axis_edges=%d "
+            "missing_axis_distance_ratio=%.3f",
             len(graph.edges), len(graph.nodes), materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
-            lazy_graph_cached, statics_cached,
+            lazy_graph_cached, statics_cached, int(missing_axis_mask.sum()), missing_axis_distance_ratio,
         )
 
         return _SearchGraph(

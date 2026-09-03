@@ -60,6 +60,10 @@
 - `penalty_strength`（P、既定1.0）は割増率の強さを調整するリクエストパラメータ。
   P=0で`cost=distance_m`（難易度を一切考慮しない最短距離探索）、Pを上げるほど悪路が
   強く避けられる。`cost >= distance_m`という不変条件はP>=0の間常に成り立つ。
+- `bbox_mean_difficulty`（既定None）は、重み付き軸がすべて欠損（`difficulty is None`）の
+  ときにコスト計算だけへ代入する値。戻り値の`difficulty`（表示用）はこの代入の影響を
+  受けずNoneのまま。呼び出し元がbboxの実データから求めた値を渡す想定で、この関数自身は
+  固定値を持たない（後述「探索コストの既定経路」節参照）。
 
 ## `compute_edge_costs_bulk`（numpyベクトル化版）
 
@@ -83,7 +87,9 @@ evaluate_graph`（bbox全体を一括評価する経路）自体は本番のル�
 - **`compose_costs_from_axis_matrix`（重み付き合成フェーズ）**: 軸別スコア配列群と
   重み辞書からNeumaier加算→`round1_array`丸め→cost算出まで配列演算で行う。
   0次フィルタによる除外（`compute_hard_filter_excluded`が`hard_filters`/
-  `max_average_grade_percent`を反映して別途判定）はここには含まれない。
+  `max_average_grade_percent`を反映して別途判定）はここには含まれない。重み付き軸が
+  すべて欠損のEdgeはcost算出だけbbox内平均difficultyを代入する（表示用の戻り値には
+  影響しない、詳細は後述「探索コストの既定経路」節参照）。
 - スカラー経路（`compute_edge_axis_scores`）と同じ軸定義データを読むため、軸の追加は
   定義データの追加だけで両経路へ同時に反映される。スカラー版`compute_edge_cost`は
   削除せず、本関数との出力一致を検証する回帰テストのオラクルとして残る。
@@ -136,7 +142,14 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   （同一Node間の複数Edge）はコストが判明済みのため`domain/routing.py:
   build_lazy_road_graph`が「cost最小を採用」する。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
-  探索と表示の二重計算を避ける。
+  探索と表示の二重計算を避ける。**唯一の例外**（探索コストのみ補完・表示は変えない、
+  `docs/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が
+  すべて欠損（composite=NaN）のEdgeは、探索コスト算出にだけbbox内の距離加重平均
+  difficultyを代入する（`compose_costs_from_axis_matrix`が内部で
+  `distance_weighted_difficulty_array`により算出、`RouteSegmentDetail`側のdifficulty・
+  axis_difficultiesはNaN=Noneのまま変わらない）。`_build_search_graph`のINFOサマリ
+  （`missing_axis_edges`/`missing_axis_distance_ratio`）でリクエストごとの発生比率を
+  観測できる。
 
 ## 材料カタログ（`domain/material_catalog.py`）
 
