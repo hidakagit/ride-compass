@@ -3,7 +3,13 @@ import inspect
 import numpy as np
 import pytest
 
-from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialTable, ElevationAttribute
+from app.domain.attributes import (
+    EdgeAttributeCounts,
+    EdgeMaterialBundle,
+    EdgeMaterialTable,
+    ElevationAttribute,
+    WayAttributeCounts,
+)
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -540,7 +546,7 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
         highway="residential",
         tags={"surface": "asphalt", "lit": "yes"},
         is_designated=False,
-        way_counts=(1000.0, 2.0, 4, 6),  # 1km, 事故2件, 停止4件, 交差点6件
+        way_counts=WayAttributeCounts(length_m=1000.0, accident_count=2.0, stop_count=4, intersection_count=6),
         accident_years_covered=2,
     )
 

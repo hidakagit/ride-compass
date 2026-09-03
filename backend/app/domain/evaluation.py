@@ -16,7 +16,7 @@ from typing import Callable, Mapping
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
-from app.domain.attributes import EdgeMaterialBundle, EdgeMaterialTable, ElevationAttribute
+from app.domain.attributes import EdgeMaterialBundle, EdgeMaterialTable, ElevationAttribute, WayAttributeCounts
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
@@ -158,14 +158,13 @@ def axis_inspector_breakdown(
     highway: str | None,
     tags: dict[str, str],
     is_designated: bool,
-    way_counts: tuple[float, float, int, int] | None,
+    way_counts: WayAttributeCounts | None,
     accident_years_covered: int,
     preference: RoutePreference | None = None,
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。`way_counts`は
-    `RoadGraphRepository.get_way_attribute_counts`の戻り値
-    （length_m, accident_count, stop_count, intersection_count）で、Noneなら
-    事故密度・停止密度は算出不能（available=False）として扱う。
+    `RoadGraphRepository.get_way_attribute_counts`の戻り値で、Noneなら事故密度・
+    停止密度は算出不能（available=False）として扱う。
     """
     weights = (preference or RoutePreference()).weights
 
@@ -178,9 +177,11 @@ def axis_inspector_breakdown(
     length_km = None
     accident_count = stop_count = intersection_count = None
     if way_counts is not None:
-        length_m, accident_count, stop_count, intersection_count = way_counts
-        if length_m and length_m > 0:
-            length_km = length_m / 1000.0
+        accident_count, stop_count, intersection_count = (
+            way_counts.accident_count, way_counts.stop_count, way_counts.intersection_count,
+        )
+        if way_counts.length_m > 0:
+            length_km = way_counts.length_m / 1000.0
 
     stop_per_km = stop_count / length_km if length_km and stop_count is not None else None
     intersection_per_km = intersection_count / length_km if length_km and intersection_count is not None else None

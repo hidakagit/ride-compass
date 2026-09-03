@@ -31,9 +31,11 @@ class EvaluationService:
 
     I/Oは行わない。属性の取得自体はPhase 3の`ElevationAttributeService`・
     `GraphService.get_or_build_graph_with_attributes`が担当し、ここでは
-    既に取得済みのRoadGraph・属性からEdge Costを算出するのみ。
-    `RouteGenerator`→`RoadGraphEngine.prepare`→本クラスの`evaluate_graph`が
-    探索コスト算出のホットパスである。
+    既に取得済みのRoadGraph・属性からEdge Costを算出するのみ。探索コスト算出の
+    既定経路は`RoadGraphEngine`のタイル単位静的スコア行列（`domain/evaluation.py:
+    build_static_edge_score_matrix`）で本クラスを経由しない——`evaluate_graph`は
+    テスト・ベンチマーク（`compute_edge_costs_bulk`との出力一致を確認する回帰オラクル）
+    向けに残るオーケストレーション層。
     """
 
     def __init__(self, preference: RoutePreference):
@@ -56,10 +58,9 @@ class EvaluationService:
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
     ) -> dict[str, EdgeCostResult]:
-        # preferenceは呼び出し元が必ず明示的に渡す（唯一の呼び出し元RoadGraphEngine.prepareは
-        # 改善計画T173で出発時刻に応じてnight_weightだけを差し替えたRoutePreferenceのコピーを
-        # 渡す。self._preferenceを直接書き換えるとリクエスト間で共有される状態を汚染するため、
-        # 呼び出し元がmodel_copyしたコピーをこちらへ渡す設計）。
+        # preferenceは呼び出し元が必ず明示的に渡す（self._preferenceを直接書き換えると
+        # リクエスト間で共有される状態を汚染するため、呼び出し元がmodel_copyしたコピーを
+        # こちらへ渡す設計）。
         # penalty_strength（改善計画T218・T12 ADR原則1）はコスト式の割増率の強さを
         # 調整するリクエストパラメータ（既定1.0）。domain/evaluation.py:
         # compute_cost_from_axis_scores参照。

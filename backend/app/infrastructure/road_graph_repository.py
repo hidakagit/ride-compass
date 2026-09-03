@@ -74,7 +74,13 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialsBatch, ElevationAttribute
+from app.domain.attributes import (
+    EdgeAttributeCounts,
+    EdgeMaterialBundle,
+    EdgeMaterialsBatch,
+    ElevationAttribute,
+    WayAttributeCounts,
+)
 from app.domain.graph import (
     DirectedEdge,
     EdgeLike,
@@ -1879,12 +1885,10 @@ class AttributeRepository(_SessionRepository):
             return None
         return (row.highway, row.tags or {}, row.is_designated)
 
-    async def get_way_attribute_counts(
-        self, osm_way_id: int
-    ) -> tuple[float, float, int, int] | None:
-        """osm_way_id完全一致で(length_m, accident_count, stop_count, intersection_count)を
-        返す（区間インスペクタ、改善計画T146）。事前集計（way_attribute_counts、T145b）に
-        行が無い場合はNone（データ無し。呼び出し元は該当軸をスコア算出不能として扱う）。
+    async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
+        """osm_way_id完全一致で事前集計（way_attribute_counts、T145b）の1行を返す
+        （区間インスペクタ、改善計画T146）。行が無い場合はNone（データ無し。呼び出し元は
+        該当軸をスコア算出不能として扱う）。
         """
         result = await self._session.execute(
             _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id}
@@ -1892,7 +1896,12 @@ class AttributeRepository(_SessionRepository):
         row = result.first()
         if row is None:
             return None
-        return (row.length_m, row.accident_count, row.stop_count, row.intersection_count)
+        return WayAttributeCounts(
+            length_m=row.length_m,
+            accident_count=row.accident_count,
+            stop_count=row.stop_count,
+            intersection_count=row.intersection_count,
+        )
 
     async def get_intersection_counts(
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
@@ -2220,7 +2229,7 @@ class RoadGraphRepository:
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)
 
-    async def get_way_attribute_counts(self, osm_way_id: int) -> tuple[float, float, int, int] | None:
+    async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
         return await self.attributes.get_way_attribute_counts(osm_way_id)
 
     async def get_intersection_counts(

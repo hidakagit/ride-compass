@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+from app.domain.attributes import WayAttributeCounts
 from app.infrastructure import tile_cache
 from app.infrastructure.debug_log import get_stats, reset_stats
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -34,7 +35,7 @@ class FakeRegionRepository:
         self.way_tags_by_osm_way_id_result: tuple[str | None, dict[str, str], bool] | None = None
         self.way_tags_by_osm_way_id_calls: list[int] = []
         # 区間インスペクタ（改善計画T146）用フェイク応答。
-        self.way_attribute_counts_result: tuple[float, float, int, int] | None = None
+        self.way_attribute_counts_result: WayAttributeCounts | None = None
         self.way_attribute_counts_calls: list[int] = []
         self.accident_years_covered_result: int = 3
         # 改善計画T340: 材料の実データ値一覧フェイク応答。
@@ -311,7 +312,9 @@ async def test_graph_build_trigger_skips_recently_checked_tile(monkeypatch):
 async def test_axis_inspector_computes_available_axes_from_way_tags_and_counts():
     repository = FakeRegionRepository()
     repository.way_tags_by_osm_way_id_result = ("residential", {"surface": "asphalt"}, False)
-    repository.way_attribute_counts_result = (1000.0, 2.0, 4, 6)
+    repository.way_attribute_counts_result = WayAttributeCounts(
+        length_m=1000.0, accident_count=2.0, stop_count=4, intersection_count=6
+    )
     repository.accident_years_covered_result = 2
     service = RegionService(repository=repository)
 

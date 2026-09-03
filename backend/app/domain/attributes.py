@@ -49,6 +49,18 @@ class EdgeAttributeCounts(BaseModel):
     intersection_count: int
 
 
+class WayAttributeCounts(BaseModel):
+    """区間インスペクタ用のway単位集計（改善計画T146・T543、`way_attribute_counts`テーブル）。
+
+    `EdgeAttributeCounts`と同じ3カウントに、per_km換算へ使う`length_m`を加えたもの。
+    """
+
+    length_m: float
+    accident_count: float
+    stop_count: int
+    intersection_count: int
+
+
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialBundle:
     """Edge 1本ぶんの材料（surface・way_tags・件数・標高・指定路線）を1オブジェクトへ

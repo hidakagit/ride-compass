@@ -12,7 +12,7 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy import insert, text
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import ElevationAttribute, WayAttributeCounts
 from app.domain.graph import DirectedEdge, WaySpec, build_road_graph
 from app.domain.region import BoundingBox
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
@@ -761,7 +761,7 @@ async def test_get_way_tags_by_osm_way_id_returns_none_when_way_not_found(road_g
 
 async def test_get_way_attribute_counts_returns_row_when_present(road_graph_repository, road_graph_session):
     """区間インスペクタ（改善計画T146）。way_attribute_counts（T145b事前集計）に該当行が
-    あれば(length_m, accident_count, stop_count, intersection_count)を返す。"""
+    あればWayAttributeCountsを返す。"""
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
@@ -775,7 +775,7 @@ async def test_get_way_attribute_counts_returns_row_when_present(road_graph_repo
 
     result = await road_graph_repository.get_way_attribute_counts(100)
 
-    assert result == (500.0, 1.5, 2, 3)
+    assert result == WayAttributeCounts(length_m=500.0, accident_count=1.5, stop_count=2, intersection_count=3)
 
 
 async def test_get_way_attribute_counts_returns_none_when_row_missing(road_graph_repository, road_graph_session):
