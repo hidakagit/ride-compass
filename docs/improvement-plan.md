@@ -780,3 +780,10 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 - [x] [T558](tasks/T558.md). 進行方向矢印（T293）が区間色分け線の下・同色で沈んで見えない問題の修正（重ね順の明示＋縁取り層の配置保証） 規模S（2026-09-03完了）
 - [ ] [T559](tasks/T559.md). 風の矢印（動的気象レイヤーwindVector）の縁取り層が1つも配置されない問題の修正（T558と同構造） 規模S（未着手、T558の残作業確認で発覚）
 - [x] [T560](tasks/T560.md). 周期レビュー（`/review:all`）の負荷軽減——トリガーを「14日 or 実装変更20,000行」へ見直し、死んだ参照・記載漏れ・状態行照合・規模ウォッチ・メトリクスを`scripts/review_checks.py`へ機械化、overall/consistencyのシャード共有 規模M（2026-09-03完了）
+
+## 統合レビュー第4回（2026-09-03）の指摘対応と、review_checks.py初回監査の既存乖離の是正（2026-09-03、ユーザー承認）
+
+- [ ] [T561](tasks/T561.md). docs/modules記載粒度違反の再発22箇所（`routing-engine.md`16・`evaluation-scoring.md`6）の是正と、経緯記述の機械検知パターン拡充（`改善計画T[0-9]+で`以外の言い回し）・フックとスクリプトのパターン二重管理の解消 規模M（未着手、統合レビュー第4回P1）
+- [ ] [T562](tasks/T562.md). `docs/architecture.md`のbackendディレクトリツリーへT536〜T539/T546新設4ファイル（`search_graph_cache.py`・`tile_persistent_cache.py`・`tile_score_matrix_cache.py`・`presplit_road_graph.py`）を反映 規模S（未着手、統合レビュー第4回P1）
+- [ ] [T563](tasks/T563.md). docsドリフトの一括是正（`map-axis-coloring.md`・`MapColorLegend.tsx`コメント・`axisLayers.ts`死んだ参照・`docs/logging.md`例外規定・`developer-research-tools.md`へdebug/logs/route.ts）と、docs/tasks「状態:」行の整備（T501/T505の完了反映、「状態:」行なし17件の追加） 規模M（未着手、統合レビュー第4回P2まとめ＋T560初回監査）
+- [ ] [T564](tasks/T564.md). docs/modulesに一切出現しない既存実装ファイル18件（汎用UI部品9・機能部品5・admin API routes4）の扱いを決めて記載し、`scripts/review_checks.py docs`をCIワークフローへ組み込む 規模M（未着手、T561・T563完了後。T560初回監査で検出）

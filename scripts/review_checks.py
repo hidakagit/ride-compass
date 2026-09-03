@@ -181,8 +181,11 @@ def find_undocumented_files(candidates: list[str], modules_text: str, all_files:
     return out
 
 
-OPEN_STATUS_WORDS = ("未着手", "着手中", "進行中", "保留", "調査中", "中断", "作業中")
-CLOSED_STATUS_WORDS = ("完了", "撤回", "見送り", "取り下げ", "却下", "廃止")
+# 「見送り」「保留」はトリガー待ちで improvement-plan 側も [ ] のままにする運用（例: T422）のため open 扱い
+OPEN_STATUS_WORDS = ("未着手", "着手中", "進行中", "保留", "見送り", "調査中", "中断", "作業中")
+CLOSED_STATUS_WORDS = ("完了", "撤回", "取り下げ", "却下", "廃止")
+# 「存在しないこと自体」を記録している参照（T356: 2026-08-26のcomplexityレビュー結果が保存されなかった件）
+KNOWN_MISSING_HISTORY = {"2026-08-26_complexity.md"}
 
 
 def task_status_kind(task_path: Path) -> str | None:
@@ -231,7 +234,7 @@ def check_dead_doc_links(md_files: list[str]) -> list[str]:
             continue
         for lineno, line in enumerate(read_text(p).splitlines(), 1):
             for name in HISTORY_REF_RE.findall(line):
-                if name not in existing_history:
+                if name not in existing_history and name not in KNOWN_MISSING_HISTORY:
                     out.append(f"{f}:{lineno}: history/{name} が存在しない")
             for n in TASK_FILE_MENTION_RE.findall(line):
                 if f"T{n}.md" not in existing_tasks:
