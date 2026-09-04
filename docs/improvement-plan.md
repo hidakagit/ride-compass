@@ -828,4 +828,5 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 - [x] [T578](tasks/T578.md). 路面タイル配信の高速化（指定路線JOINのLATERAL化・応答のgzip圧縮） 規模S〜M（2026-09-04完了。本番EXPLAINでz14 86→10ms・z15 80→3.6ms、`ContentTypeGZipMiddleware`新設でMVT/JSON応答を約57%へ圧縮、本番のキャッシュミス平均約580ms→約41ms。Renderを経由しない直接配信はnginxのHTTP/2化とセットで別途判断）
 - [x] [T579](tasks/T579.md). test_wind_way_serviceの時刻依存フレーク（23時台に必ず失敗する） 規模S（2026-09-04完了。テストのhourly配列を翌日00:00まで延ばした、実装側は変更なし）
-- [ ] [T580](tasks/T580.md). 路面タイルをRenderフロントを経由せずbackendへ直接配信する（接続上限対策とセット） 規模M
+- [x] [T580](tasks/T580.md). 路面タイルをRenderフロントを経由せずbackendへ直接配信する（接続上限対策とセット） 規模M（2026-09-05完了。VMのnginxをnginx.org 1.30.4へ差し替えHTTP/3＋HTTP/2化、`NEXT_PUBLIC_TILE_BASE_URL`で路面/POI/事故タイルをbackend直接へ。z14タイル20枚の取得が1.81秒→0.24秒[約6〜8倍]）
+- [ ] [T581](tasks/T581.md). 基礎地図・国土地理院・JMAタイルもbackend直接配信へ（T580の適用範囲拡大） 規模M
