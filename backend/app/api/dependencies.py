@@ -26,6 +26,7 @@ from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.jma_tile_client import JmaTileClient
+from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.weather_client import WeatherClient
@@ -40,6 +41,7 @@ from app.services.route_generator import RouteGenerator
 from app.services.flood_service import FloodService
 from app.services.gradient_way_service import GradientWayService
 from app.services.jma_amedas_service import JmaAmedasService
+from app.services.material_coverage_service import MaterialCoverageService
 from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
 from app.services.weather_service import WeatherService
@@ -356,3 +358,11 @@ async def get_axis_registry_admin_service():
     # get_session_factory()（command_timeout=20）で十分（書き込みは軽量なUPSERT/DELETE）。
     async with get_session_factory()() as session:
         yield AxisRegistryAdminService(AxisDefinitionRepository(session))
+
+
+async def get_material_coverage_service():
+    # 材料の欠損割合集計（管理API専用）。osm_raw_ways/road_edgesの全表走査を伴うため、
+    # タイル配信用の短いcommand_timeout（20秒）ではなくルート生成用の長い
+    # command_timeout（180秒）を持つセッションを使う。
+    async with get_route_generation_session_factory()() as session:
+        yield MaterialCoverageService(MaterialCoverageQuery(session))

@@ -105,6 +105,20 @@ from app.domain.traffic import (
 )
 from app.infrastructure import road_edge_geometry_cache, road_graph_tile_cache
 from app.infrastructure.designation_models import DesignationAttributeRow
+from app.infrastructure.osm_way_tag_sql import (
+    BICYCLE_NORMALIZED_SQL,
+    BRIDGE_NORMALIZED_SQL,
+    CYCLEWAY_TAGS_ARRAY_SQL,
+    HIGHWAY_SQL,
+    LANES_COUNT_CASE_SQL,
+    LIT_NORMALIZED_SQL,
+    MAXSPEED_KMH_CASE_SQL,
+    MOTOR_VEHICLE_NORMALIZED_SQL,
+    SMOOTHNESS_NORMALIZED_SQL,
+    SURFACE_GOOD_CASE_SQL,
+    SURFACE_NORMALIZED_SQL,
+    TUNNEL_NORMALIZED_SQL,
+)
 from app.infrastructure.vector_tile import (
     ROAD_SURFACE_LAYER_NAME,
     STOP_POI_LAYER_NAME,
@@ -259,7 +273,7 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #   計算する。
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
-        """
+        f"""
         WITH coverage AS (
             SELECT EXISTS(
                 SELECT 1 FROM road_graph_tiles
@@ -280,15 +294,12 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- ため、フィーチャーが指す行そのものをosm_way_id完全一致で引く
                         -- （get_way_tags_by_osm_way_id）。
                         w.osm_way_id AS osm_way_id,
-                        CASE
-                            WHEN lower(btrim(w.surface)) = ANY(:good_tags) THEN true
-                            WHEN lower(btrim(w.surface)) = ANY(:bad_tags) THEN false
-                        END AS surface_good,
-                        lower(btrim(w.surface)) AS surface,
-                        w.highway AS highway,
-                        lower(btrim(w.tags->>'smoothness')) AS smoothness,
-                        CASE WHEN lower(btrim(w.tags->>'tunnel')) = 'yes' THEN true END AS tunnel,
-                        CASE WHEN lower(btrim(w.tags->>'bridge')) = 'yes' THEN true END AS bridge,
+                        {SURFACE_GOOD_CASE_SQL} AS surface_good,
+                        {SURFACE_NORMALIZED_SQL} AS surface,
+                        {HIGHWAY_SQL} AS highway,
+                        {SMOOTHNESS_NORMALIZED_SQL} AS smoothness,
+                        CASE WHEN {TUNNEL_NORMALIZED_SQL} = 'yes' THEN true END AS tunnel,
+                        CASE WHEN {BRIDGE_NORMALIZED_SQL} = 'yes' THEN true END AS bridge,
                         -- 一方通行（一次属性、改善計画T289）。w.directionはosm_adapter.py:
                         -- _resolve_directionがoneway/oneway:bicycleタグから解決済みの
                         -- forward/backward/both（osm_raw_ways専用列、tagsのJSONBには
@@ -302,22 +313,14 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- キー自体を省略する（"maxspeed=0"のような無効タグでフロント/採点側の
                         -- 補正が誤発火しないようにする。改善計画: 交通ストレスレシピ外出し基盤
                         -- のコードレビューで発覚）。
-                        CASE
-                            WHEN btrim(w.tags->>'maxspeed') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                 AND trunc(btrim(w.tags->>'maxspeed')::numeric) > 0
-                                THEN trunc(btrim(w.tags->>'maxspeed')::numeric)::integer
-                        END AS maxspeed_kmh,
-                        CASE
-                            WHEN btrim(w.tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                 AND trunc(btrim(w.tags->>'lanes')::numeric) > 0
-                                THEN trunc(btrim(w.tags->>'lanes')::numeric)::integer
-                        END AS lanes_count,
-                        CASE WHEN lower(btrim(w.tags->>'motor_vehicle')) = 'no' THEN true END AS motor_vehicle_no,
+                        {MAXSPEED_KMH_CASE_SQL} AS maxspeed_kmh,
+                        {LANES_COUNT_CASE_SQL} AS lanes_count,
+                        CASE WHEN {MOTOR_VEHICLE_NORMALIZED_SQL} = 'no' THEN true END AS motor_vehicle_no,
                         -- 安全度の材料タグ（改善計画: 安全度レシピ）。tunnelは既存プロパティ
                         -- （上のtunnel、表示用と兼用）をそのまま再利用し、litのみ新規抽出する
                         -- （motor_vehicle_noと同じCASE式パターン。shoulderは改善計画T102実測
                         -- 0.0%の死に補正のためT122で撤去した）。
-                        CASE WHEN lower(btrim(w.tags->>'lit')) = 'yes' THEN true END AS lit,
+                        CASE WHEN {LIT_NORMALIZED_SQL} = 'yes' THEN true END AS lit,
                         CASE
                             WHEN COALESCE(d.is_ert, false) AND COALESCE(d.is_cl, false) THEN 'both'
                             WHEN d.is_ert THEN 'emergency_transport'
@@ -341,22 +344,14 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- いたため復活させる（旧bicycle_infraと違い、複数の独立フラグとして
                         -- 個別に焼き込む設計。is_emergency_transport/is_critical_logisticsと
                         -- 同じ理由）。
-                        CASE WHEN w.highway = 'cycleway' THEN true END AS highway_is_cycleway,
-                        CASE WHEN 'track' = ANY(ARRAY[
-                            lower(btrim(w.tags->>'cycleway')), lower(btrim(w.tags->>'cycleway:left')),
-                            lower(btrim(w.tags->>'cycleway:right')), lower(btrim(w.tags->>'cycleway:both'))
-                        ]) THEN true END AS cycleway_has_track,
-                        CASE WHEN 'lane' = ANY(ARRAY[
-                            lower(btrim(w.tags->>'cycleway')), lower(btrim(w.tags->>'cycleway:left')),
-                            lower(btrim(w.tags->>'cycleway:right')), lower(btrim(w.tags->>'cycleway:both'))
-                        ]) THEN true END AS cycleway_has_lane,
-                        CASE WHEN ARRAY[
-                            lower(btrim(w.tags->>'cycleway')), lower(btrim(w.tags->>'cycleway:left')),
-                            lower(btrim(w.tags->>'cycleway:right')), lower(btrim(w.tags->>'cycleway:both'))
-                        ] && ARRAY['share_busway', 'shared_lane'] THEN true END AS cycleway_has_shared,
+                        CASE WHEN {HIGHWAY_SQL} = 'cycleway' THEN true END AS highway_is_cycleway,
+                        CASE WHEN 'track' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_track,
+                        CASE WHEN 'lane' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_lane,
+                        CASE WHEN {CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY['share_busway', 'shared_lane']
+                            THEN true END AS cycleway_has_shared,
                         CASE
-                            WHEN w.highway IN ('footway', 'path')
-                                 AND lower(btrim(w.tags->>'bicycle')) IN ('yes', 'designated')
+                            WHEN {HIGHWAY_SQL} IN ('footway', 'path')
+                                 AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')
                                 THEN true
                         END AS shared_pedestrian_path,
                         -- 事前集計カウントのkm正規化密度（改善計画T145b、冒頭コメント参照）。
@@ -1383,9 +1378,9 @@ class DerivedGraphRepository(_SessionRepository):
 # 揃えること（test_road_graph_repository.pyの整合性テスト参照）。値はosm_raw_waysの列名
 # ・JSONB参照のみで構成された固定リテラルで、外部入力を連結しない（SQLインジェクション対象外）。
 _MATERIAL_VALUE_COLUMN_EXPR: dict[str, str] = {
-    "highway": "highway",
-    "surface": "lower(btrim(surface))",
-    "smoothness": "lower(btrim(tags->>'smoothness'))",
+    "highway": HIGHWAY_SQL,
+    "surface": SURFACE_NORMALIZED_SQL,
+    "smoothness": SMOOTHNESS_NORMALIZED_SQL,
 }
 
 
@@ -1621,10 +1616,11 @@ class RawOsmRepository(_SessionRepository):
         smoothnessのようなオープンエンドな多値材料は事前に全量を静的に列挙できないため、
         実際にDBへ取り込まれている値をここで動的取得する。
 
-        正規化は`_ROAD_SURFACE_TILE_MVT_SQL`（RoadSurfaceTileQuery）と同じ式
-        （surface/smoothnessは`lower(btrim(...))`、highwayは生値のまま——OSM取込
-        プロファイル[`batch/import_pbf.py: ALLOWED_HIGHWAY_TYPES`]で既に許可リスト化
-        された正準値のため正規化不要）を使う。単純な`SELECT DISTINCT`で足りる
+        正規化は`infrastructure/osm_way_tag_sql.py`の共有断片（`_ROAD_SURFACE_TILE_MVT_SQL`
+        [RoadSurfaceTileQuery]・`material_coverage.py`と共通）を使う（surface/smoothnessは
+        `lower(btrim(...))`、highwayは生値のまま——OSM取込プロファイル[`batch/import_pbf.py:
+        ALLOWED_HIGHWAY_TYPES`]で既に許可リスト化された正準値のため正規化不要）。単純な
+        `SELECT DISTINCT`で足りる
         （複雑な優先順位付き分類を要する材料はこの対象外、
         material_catalog.pyのdisplay_only/dtype="categorical"のうち事前に閉じた値集合を
         持つ材料は本APIを使う必要が無い）。未対応の`material_id`は空リストを返す
@@ -1635,7 +1631,7 @@ class RawOsmRepository(_SessionRepository):
             return []
         result = await self._session.execute(
             text(
-                f"SELECT DISTINCT {column_expr} AS value FROM osm_raw_ways "  # noqa: S608 固定の内部辞書のみ使用、外部入力を連結しない
+                f"SELECT DISTINCT {column_expr} AS value FROM osm_raw_ways AS w "  # noqa: S608 固定の内部辞書のみ使用、外部入力を連結しない
                 f"WHERE {column_expr} IS NOT NULL ORDER BY value"
             )
         )

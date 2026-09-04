@@ -14,6 +14,9 @@ vi.mock("@/components/BackendStatus", () => ({ default: () => <div data-testid="
 vi.mock("@/components/DebugPanel/DebugPanel", () => ({ default: () => <div data-testid="debug-panel" /> }));
 vi.mock("@/components/ResearchPanel/ResearchPanel", () => ({ default: () => <div data-testid="research-panel" /> }));
 vi.mock("@/components/AxisStudio/AxisStudio", () => ({ default: () => <div data-testid="axis-studio" /> }));
+vi.mock("@/components/AxisStudio/MaterialCoveragePanel", () => ({
+  default: () => <div data-testid="material-coverage-panel" />,
+}));
 vi.mock("@/components/SystemStatusPanel/SystemStatusPanel", () => ({
   default: ({ open, onClose }: { open: boolean; onClose: () => void }) => (
     <div data-testid="system-status-panel" data-open={open}>
@@ -32,7 +35,7 @@ import AdminPage from "./page";
 // 改善計画T397フォローアップ2: 軸スタジオ/研究/開発者はRadix Tabsの3タブになった
 // （既定で開いているのは先頭の「軸スタジオ」のみ、Tabs.Contentは非選択中DOMへ現れない）。
 // 研究・開発者タブの中身を検証するテストは、先にタブ自体をクリックして選択する必要がある。
-async function openTab(name: "軸スタジオ" | "研究" | "開発者") {
+async function openTab(name: "軸スタジオ" | "材料" | "研究" | "開発者") {
   const { default: userEvent } = await import("@testing-library/user-event");
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name }));
@@ -50,16 +53,26 @@ describe("AdminPage（/admin、改善計画T270・T272・T397）", () => {
     vi.clearAllMocks();
   });
 
-  it("見出しと3つのタブを表示し、既定で軸スタジオタブが選択されている", () => {
+  it("見出しと4つのタブを表示し、既定で軸スタジオタブが選択されている", () => {
     render(<AdminPage />);
 
     expect(screen.getByRole("heading", { name: "軸スタジオ・研究/開発者ツール" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["軸スタジオ", "材料", "研究", "開発者"]);
     expect(screen.getByRole("tab", { name: "軸スタジオ" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("axis-studio")).toBeInTheDocument();
-    // 研究・開発者タブは非選択のため中身はまだDOMへ現れない。
+    // 材料・研究・開発者タブは非選択のため中身はまだDOMへ現れない。
+    expect(screen.queryByTestId("material-coverage-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("research-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("debug-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("backend-status")).not.toBeInTheDocument();
+  });
+
+  it("「材料」タブを開くとMaterialCoveragePanelを表示する", async () => {
+    render(<AdminPage />);
+
+    await openTab("材料");
+
+    expect(screen.getByTestId("material-coverage-panel")).toBeInTheDocument();
   });
 
   it("「研究」タブを開くとResearchPanelを表示する", async () => {

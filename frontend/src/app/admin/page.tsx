@@ -8,6 +8,7 @@ import BackendLogsPanel from "@/components/BackendLogsPanel/BackendLogsPanel";
 import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import AxisStudio from "@/components/AxisStudio/AxisStudio";
+import MaterialCoveragePanel from "@/components/AxisStudio/MaterialCoveragePanel";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import styles from "./admin.module.css";
 
@@ -33,6 +34,9 @@ export default function AdminPage() {
           <Tabs.Trigger className={styles.tabTrigger} value="axisStudio">
             軸スタジオ
           </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabTrigger} value="materials">
+            材料
+          </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabTrigger} value="research">
             研究
           </Tabs.Trigger>
@@ -43,6 +47,10 @@ export default function AdminPage() {
 
         <Tabs.Content className={styles.tabPanel} value="axisStudio">
           <AxisStudio />
+        </Tabs.Content>
+
+        <Tabs.Content className={styles.tabPanel} value="materials">
+          <MaterialCoveragePanel />
         </Tabs.Content>
 
         <Tabs.Content className={styles.tabPanel} value="research">

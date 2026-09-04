@@ -12,7 +12,14 @@
 | レイヤー | ファイル |
 |---|---|
 | domain | `evaluation.py`・`difficulty.py`・`material_catalog.py`・`recipe.py` |
-| services | `evaluation_service.py` |
+| services | `evaluation_service.py`・`material_coverage_service.py` |
+| infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
+| api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
+
+`infrastructure/osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、
+[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と本モジュールの
+`material_coverage.py`が共有する）は[routing-engine.md](routing-engine.md)が主管するため
+対象表には加えず参照のみ行う。
 
 ## 0次ハードフィルタ（`domain/evaluation.py`）
 
@@ -181,6 +188,47 @@ MaterialSpec]`が単一ソース。
   生値取得」「タグ値の単純一致判定」「数値パース」「件数/距離の密度計算」という
   パターンに収まる新規材料は専用のPython関数を書かず、これらへパラメータを渡すだけで
   カタログへ登録できる。優先順位付き分類のような複雑なロジックは専用関数のままでよい。
+
+### 材料カタログのAPI（`api/routers/material_catalog.py`）
+
+| エンドポイント | 認可 | 内容 |
+|---|---|---|
+| `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`のみ。`tile_property`等のbackend内部フィールドは含めない） |
+| `GET /api/material-catalog/{material_id}/values` | 不要 | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・未対応材料/DB未接続は空リスト） |
+| `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
+
+## 材料の欠損割合（`infrastructure/material_coverage.py`・`services/material_coverage_service.py`）
+
+欠損データを取込側で推測して埋めるのではなく、欠損の実態を管理画面
+（[軸スタジオ管理画面（frontend）](../frontend/axis-studio.md)「材料」タブ）で可視化し、
+埋めるかどうかの判断は軸定義側へ委ねる。「欠損」は元データ（OSMタグ・派生テーブルの行）の
+不在を指し、評価パイプラインが不在をどう扱うかは`missing_semantics`として併記する。
+
+`MATERIAL_COVERAGE_SPECS: dict[str, WayMaterialCoverageSpec | EdgeMaterialCoverageSpec]`が
+材料id→「どの母集団の、どの条件が成り立てば欠損か」の宣言テーブル。
+
+| 母集団 | 対象 | 判定 |
+|---|---|---|
+| `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式、`infrastructure/osm_way_tag_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM osm_raw_ways AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
+| `"edge"` | `road_edges`全行 | `present_count_sql`（派生テーブル側の「値あり行数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま「値ありEdge数」として使いJOINを省く |
+
+- `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
+  評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
+  通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——`bool_default="nan"`
+  でもextractorがタグ不在を確定値として扱う材料（自転車インフラ系5材料）があり、実際の
+  扱いはextractorの実装で決まるため、宣言テーブル側に明示する。
+- `MATERIAL_COVERAGE_EXCLUSIONS: dict[str, str]`: 集計対象外の材料とその理由（動的計算材料の
+  `wind_penalty`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の`designation`系）。
+  管理画面はこの理由をそのまま表示する。
+- **暗黙の前提**: `MATERIAL_CATALOG`の全材料は`MATERIAL_COVERAGE_SPECS`か
+  `MATERIAL_COVERAGE_EXCLUSIONS`のどちらか一方に必ず載る（`test_material_coverage.py`が
+  網羅性を検証し、`build_material_coverage_report`はどちらにも無い材料で`ValueError`を
+  送出する）。材料を追加したら、どちらかへ1件追加する。
+- `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、router側で
+  503へ変換する（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
+  `api/dependencies.py: get_material_coverage_service`はルート生成用の長い
+  `command_timeout`（180秒）を持つセッションを渡す（全表走査がタイル配信用の20秒を
+  超えうるため）。
 
 ## 区間インスペクタ（`axis_inspector_breakdown`）
 

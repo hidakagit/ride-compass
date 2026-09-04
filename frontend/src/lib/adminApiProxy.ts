@@ -28,6 +28,14 @@ function backendAuthHeader(): string | null {
   return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
 }
 
+const DEFAULT_TIMEOUT_MS = 15000;
+
+export interface ProxyToBackendAdminOptions {
+  /** backendへの転送タイムアウト（省略時15秒）。全表走査を伴う集計API等、既定より長く
+   * かかることが分かっているエンドポイントだけ個別に延ばす。 */
+  timeoutMs?: number;
+}
+
 /** `backendPath`（例: "/api/admin/axis-definitions/gradient"）へrequestをそのまま転送し、
  * backendの応答（ステータス・本文）をそのまま返す。GET/POST/PUT/DELETEのいずれも
  * 呼び出し元route handlerがHTTPメソッドを解決してから渡す想定（このヘルパー自体は
@@ -35,7 +43,11 @@ function backendAuthHeader(): string | null {
  * "?limit=200&contains=jma-tile"）は`backendPath`にそのまま付け足して転送する
  * （T517: `GET /api/admin/debug/logs`の`limit`/`contains`のように、GET系エンドポイントが
  * クエリパラメータを取る場合に必要）。 */
-export async function proxyToBackendAdmin(request: Request, backendPath: string): Promise<Response> {
+export async function proxyToBackendAdmin(
+  request: Request,
+  backendPath: string,
+  options: ProxyToBackendAdminOptions = {},
+): Promise<Response> {
   const authHeader = backendAuthHeader();
   if (authHeader === null) {
     return Response.json(
@@ -55,7 +67,7 @@ export async function proxyToBackendAdmin(request: Request, backendPath: string)
         ...(hasBody ? { "Content-Type": "application/json" } : {}),
       },
       body: hasBody ? await request.text() : undefined,
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
   } catch (error) {
     return Response.json(

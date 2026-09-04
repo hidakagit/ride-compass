@@ -1686,6 +1686,16 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 （highway/surfaceは`roadFilterAxes.ts`のHIGHWAY_GROUPS/SURFACE_GROUPSから導出、smoothnessは
 OSM標準8値を新規定義、未知の値・材料idはタグ値そのまま表示するフォールバック）。
 
+`GET /api/admin/material-catalog/coverage`（Basic認証必須、改善計画T577）が材料ごとの
+欠損割合（元データ[OSMタグ・派生テーブル行]を持たないWay/Edgeの割合と、欠損を不明値と
+して扱うか確定値として扱うかの区別）を返し、`/admin`の「材料」タブ
+（`components/AxisStudio/MaterialCoveragePanel.tsx`）が表示する。材料id→判定式は
+`infrastructure/material_coverage.py: MATERIAL_COVERAGE_SPECS`（対象外は
+`MATERIAL_COVERAGE_EXCLUSIONS`に理由付きで列挙）の宣言テーブルで、全材料がどちらかに
+載ることをテストで強制する。欠損を取込側で推測して埋めるのではなく、実態を見せて
+埋めるかどうかの判断を軸定義側へ委ねる（詳細は`docs/modules/backend/evaluation-scoring.md`
+「材料の欠損割合」節）。
+
 ### 地図表示ルール（kind=ramp）の自動導出（改善計画T278）
 
 新規`domain/axis_display.py: derive_ramp_inputs(definition) -> RampInputs | None`が、

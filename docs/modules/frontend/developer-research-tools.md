@@ -31,6 +31,7 @@
 ```
 app/admin/page.tsx（独立URL、Basic認証保護下）
   ├─ タブ「軸スタジオ」: AxisStudio（本モジュール対象外）
+  ├─ タブ「材料」　　　: MaterialCoveragePanel（材料ごとの欠損割合、本モジュール対象外）
   ├─ タブ「研究」　　　: ResearchPanel（読み取り専用表示）
   └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 

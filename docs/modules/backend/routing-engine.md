@@ -13,7 +13,7 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py` |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
 
@@ -486,9 +486,10 @@ ST_AsMVT丸ごと生成）・`_WAY_IDS_IN_TILE_SQL`（wind、道路自身の方�
 
 **material_catalogの動的値列挙**（`get_distinct_material_values`）: 軸スタジオ
 （AxisComposer.tsx）がhighway/surface/smoothnessのような開放的な多値材料の候補一覧を
-動的取得するための経路。正規化式（`_MATERIAL_VALUE_COLUMN_EXPR`）は`_ROAD_SURFACE_TILE_
-MVT_SQL`の対応する正規化式と一致させる契約（`test_road_graph_repository.py`の整合性
-テストで担保）。詳細は[axis-studio.md](axis-studio.md)参照。
+動的取得するための経路。正規化式（`_MATERIAL_VALUE_COLUMN_EXPR`）は`infrastructure/
+osm_way_tag_sql.py`の共有断片を`_ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
+（[evaluation-scoring.md](evaluation-scoring.md)）と共通で参照する。詳細は
+[axis-studio.md](axis-studio.md)参照。
 
 ### `road_graph_models.py`（SQLAlchemy ORM）
 

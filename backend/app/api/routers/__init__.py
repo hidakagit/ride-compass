@@ -19,7 +19,9 @@
 - axis_catalog.py: /api/axis-catalog（評価軸カタログの読み取り専用API、改善計画T269。
   認可不要。一般向けルート設定画面がGUI編集済みの軸を再デプロイなしに取得するために使う）
 - material_catalog.py: /api/material-catalog（材料カタログの読み取り専用API、改善計画T277。
-  認可不要。軸スタジオの材料選択候補を、材料自体の追加はコード変更のみのまま動的取得させる）
+  認可不要。軸スタジオの材料選択候補を、材料自体の追加はコード変更のみのまま動的取得させる）、
+  /api/admin/material-catalog/coverage（材料ごとの欠損割合の集計、HTTP Basic認証必須。
+  全表走査を伴うため管理画面専用）
 - debug_admin.py: /api/admin/debug（debug_modeのランタイム切替・直近ログ取得、改善計画
   T379。axis_admin.pyと同じHTTP Basic認証が必要。本番でSSHせずに一時的なDEBUGログ
   取得を行うための運用API）

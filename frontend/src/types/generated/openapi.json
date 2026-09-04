@@ -1350,6 +1350,30 @@
         }
       }
     },
+    "/api/admin/material-catalog/coverage": {
+      "get": {
+        "summary": "Get Material Coverage",
+        "description": "全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。\n\n同じ材料カタログの読み取りAPIでも、上の2エンドポイントと異なりBasic認証を要求する:\nosm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると\n繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。\nDB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。",
+        "operationId": "get_material_coverage_api_admin_material_catalog_coverage_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialCoverageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
+    },
     "/api/admin/debug/mode": {
       "get": {
         "tags": [
@@ -2844,6 +2868,151 @@
           "materials"
         ],
         "title": "MaterialCatalogResponse"
+      },
+      "MaterialCoverageEntry": {
+        "properties": {
+          "material_id": {
+            "type": "string",
+            "title": "Material Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "dtype": {
+            "type": "string",
+            "enum": [
+              "numeric",
+              "boolean",
+              "categorical"
+            ],
+            "title": "Dtype"
+          },
+          "population": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "way",
+                  "edge"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Population"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing"
+          },
+          "missing_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Ratio"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "missing_semantics": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "unknown",
+                  "definite"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Semantics"
+          },
+          "excluded_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "material_id",
+          "label",
+          "dtype",
+          "population",
+          "total",
+          "missing",
+          "missing_ratio",
+          "source",
+          "missing_semantics",
+          "excluded_reason"
+        ],
+        "title": "MaterialCoverageEntry"
+      },
+      "MaterialCoverageResponse": {
+        "properties": {
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Computed At"
+          },
+          "way_total": {
+            "type": "integer",
+            "title": "Way Total"
+          },
+          "edge_total": {
+            "type": "integer",
+            "title": "Edge Total"
+          },
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialCoverageEntry"
+            },
+            "type": "array",
+            "title": "Materials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "computed_at",
+          "way_total",
+          "edge_total",
+          "materials"
+        ],
+        "title": "MaterialCoverageResponse"
       },
       "MaterialTerm": {
         "properties": {
