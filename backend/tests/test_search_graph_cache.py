@@ -189,6 +189,19 @@ class TestReverseSearchStaticsCache:
         assert search_graph_cache.reverse_search_statics_cache_size() == 0
         assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
 
+    def test_invalidate_tile_set_discards_reverse_statics_alongside_other_caches(self):
+        search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
+        search_graph_cache.set_search_statics(_TILE_SET_A, object())
+        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, object())
+        search_graph_cache.set_reverse_search_statics(_TILE_SET_B, object())
+
+        search_graph_cache.invalidate_tile_set(_TILE_SET_A)
+
+        assert search_graph_cache.get_lazy_graph(_TILE_SET_A) is None
+        assert search_graph_cache.get_search_statics(_TILE_SET_A) is None
+        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
+        assert search_graph_cache.reverse_search_statics_cache_size() == 1  # Bは影響を受けない
+
 
 class TestSearchStaticsSeparateLruLimit:
     """`_search_statics_cache`/`_reverse_search_statics_cache`は`_lazy_graph_cache`/
@@ -223,16 +236,3 @@ class TestSearchStaticsSeparateLruLimit:
 
         assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
         assert search_graph_cache.get_reverse_search_statics(_TILE_SET_B) == "b"
-
-    def test_invalidate_tile_set_discards_reverse_statics_alongside_other_caches(self):
-        search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
-        search_graph_cache.set_search_statics(_TILE_SET_A, object())
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, object())
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_B, object())
-
-        search_graph_cache.invalidate_tile_set(_TILE_SET_A)
-
-        assert search_graph_cache.get_lazy_graph(_TILE_SET_A) is None
-        assert search_graph_cache.get_search_statics(_TILE_SET_A) is None
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
-        assert search_graph_cache.reverse_search_statics_cache_size() == 1  # Bは影響を受けない
