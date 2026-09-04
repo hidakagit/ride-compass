@@ -8,9 +8,10 @@ Edge単位の派生テーブルの行有無）ため、材料id→「どの母�
 
 母集団は2種類:
 
-- `"way"`: `osm_raw_ways`全行（OSMタグ由来の材料）。欠損判定式は
-  `road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`の対応する正規化式と揃える
-  （`tests/test_material_coverage.py`の整合性テスト参照）。
+- `"way"`: `osm_raw_ways`全行（OSMタグ由来の材料）。欠損判定式は`infrastructure/
+  osm_way_tag_sql.py`の共有SQL断片を`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`
+  （地図タイル配信）と共通で使う——両者ともRoad Graphを構築せず`osm_raw_ways`を直接
+  クエリする経路のため、独立に書くと片方だけ変更されるドリフトを招く。
 - `"edge"`: `road_edges`全行（Edge単位の派生テーブル由来の材料）。派生テーブル
   （`elevation_attributes`・`edge_attribute_counts`）は`edge_id`が`road_edges`へのFK
   （ON DELETE CASCADE）のため、「派生テーブルの該当行数」をそのまま「値ありEdge数」として
@@ -36,6 +37,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
+from app.infrastructure.osm_way_tag_sql import (
+    BICYCLE_NORMALIZED_SQL,
+    BRIDGE_NORMALIZED_SQL,
+    CYCLEWAY_TAG_NAMES,
+    HIGHWAY_SQL,
+    LANES_COUNT_CASE_SQL,
+    LIT_NORMALIZED_SQL,
+    MAXSPEED_KMH_CASE_SQL,
+    MOTOR_VEHICLE_NORMALIZED_SQL,
+    SMOOTHNESS_NORMALIZED_SQL,
+    SURFACE_GOOD_CASE_SQL,
+    SURFACE_NORMALIZED_SQL,
+    TUNNEL_NORMALIZED_SQL,
+    normalized_tag_sql,
+)
 
 Population = Literal["way", "edge"]
 # "unknown": 欠損は不明値（NaN/None）として扱われ、その材料を使う軸は評価対象外になる。
@@ -68,27 +84,7 @@ class EdgeMaterialCoverageSpec:
 MaterialCoverageSpec = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec
 
 
-def _normalized_tag(tag: str) -> str:
-    return f"lower(btrim(tags->>'{tag}'))"
-
-
-def _positive_integer_tag(tag: str) -> str:
-    """`_ROAD_SURFACE_TILE_MVT_SQL`のmaxspeed_kmh/lanes_countと同じ「数値パースでき、かつ
-    0より大きい場合だけ値を持つ」CASE式（0以下・非数値はunknown扱いでNULL）。"""
-    raw = f"btrim(tags->>'{tag}')"
-    return (
-        f"CASE WHEN {raw} ~ '^[0-9]+(\\.[0-9]+)?$' AND trunc({raw}::numeric) > 0 "
-        f"THEN trunc({raw}::numeric)::integer END"
-    )
-
-
-_SURFACE_GOOD_CASE = (
-    "CASE WHEN lower(btrim(surface)) = ANY(:good_tags) THEN true "
-    "WHEN lower(btrim(surface)) = ANY(:bad_tags) THEN false END"
-)
-_CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(
-    f"tags->>'{tag}' IS NULL" for tag in ("cycleway", "cycleway:left", "cycleway:right", "cycleway:both")
-)
+_CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
 _CYCLEWAY_SOURCE = "osm_raw_ways.tags の cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）"
 _EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL = "SELECT count(*) FROM edge_attribute_counts"
 _EDGE_ATTRIBUTE_COUNTS_SOURCE = "edge_attribute_counts（Edge単位の事前集計行）の有無"
@@ -96,62 +92,62 @@ _EDGE_ATTRIBUTE_COUNTS_SOURCE = "edge_attribute_counts（Edge単位の事前集�
 
 MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
     "highway": WayMaterialCoverageSpec(
-        missing_condition="highway IS NULL",
+        missing_condition=f"{HIGHWAY_SQL} IS NULL",
         source="osm_raw_ways.highway",
         missing_semantics="unknown",
     ),
     "surface": WayMaterialCoverageSpec(
-        missing_condition="lower(btrim(surface)) IS NULL",
+        missing_condition=f"{SURFACE_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.surface",
         missing_semantics="unknown",
     ),
     "surface_good": WayMaterialCoverageSpec(
-        missing_condition=f"({_SURFACE_GOOD_CASE}) IS NULL",
+        missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",
         source="osm_raw_ways.surface（良否いずれの分類にも該当しない値も欠損に含む）",
         missing_semantics="unknown",
     ),
     "smoothness": WayMaterialCoverageSpec(
-        missing_condition=f"{_normalized_tag('smoothness')} IS NULL",
+        missing_condition=f"{SMOOTHNESS_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.tags->>'smoothness'",
         missing_semantics="unknown",
     ),
     "tracktype": WayMaterialCoverageSpec(
-        missing_condition=f"{_normalized_tag('tracktype')} IS NULL",
+        missing_condition=f"{normalized_tag_sql('tracktype')} IS NULL",
         source="osm_raw_ways.tags->>'tracktype'",
         missing_semantics="unknown",
     ),
     "maxspeed_kmh": WayMaterialCoverageSpec(
-        missing_condition=f"({_positive_integer_tag('maxspeed')}) IS NULL",
+        missing_condition=f"({MAXSPEED_KMH_CASE_SQL}) IS NULL",
         source="osm_raw_ways.tags->>'maxspeed'（数値として解釈できない値も欠損に含む）",
         missing_semantics="unknown",
     ),
     "lanes_count": WayMaterialCoverageSpec(
-        missing_condition=f"({_positive_integer_tag('lanes')}) IS NULL",
+        missing_condition=f"({LANES_COUNT_CASE_SQL}) IS NULL",
         source="osm_raw_ways.tags->>'lanes'（数値として解釈できない値も欠損に含む）",
         missing_semantics="unknown",
     ),
     "no_lit": WayMaterialCoverageSpec(
-        missing_condition=f"{_normalized_tag('lit')} IS NULL",
+        missing_condition=f"{LIT_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.tags->>'lit'（タグ不在は街灯なし扱い）",
         missing_semantics="definite",
     ),
     "has_tunnel": WayMaterialCoverageSpec(
-        missing_condition=f"{_normalized_tag('tunnel')} IS NULL",
+        missing_condition=f"{TUNNEL_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.tags->>'tunnel'（タグ不在は非該当扱い）",
         missing_semantics="definite",
     ),
     "bridge": WayMaterialCoverageSpec(
-        missing_condition=f"{_normalized_tag('bridge')} IS NULL",
+        missing_condition=f"{BRIDGE_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.tags->>'bridge'（タグ不在は非該当扱い）",
         missing_semantics="definite",
     ),
     "motor_vehicle_no": WayMaterialCoverageSpec(
-        missing_condition=f"{_normalized_tag('motor_vehicle')} IS NULL",
+        missing_condition=f"{MOTOR_VEHICLE_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.tags->>'motor_vehicle'（タグ不在は通行可扱い）",
         missing_semantics="definite",
     ),
     "highway_is_cycleway": WayMaterialCoverageSpec(
-        missing_condition="highway IS NULL",
+        missing_condition=f"{HIGHWAY_SQL} IS NULL",
         source="osm_raw_ways.highway",
         missing_semantics="definite",
     ),
@@ -171,7 +167,7 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         missing_semantics="definite",
     ),
     "shared_pedestrian_path": WayMaterialCoverageSpec(
-        missing_condition=f"{_normalized_tag('bicycle')} IS NULL",
+        missing_condition=f"{BICYCLE_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.tags->>'bicycle'（highway=footway/pathとの組み合わせで判定、タグ不在は非該当扱い）",
         missing_semantics="definite",
     ),
@@ -225,7 +221,9 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
     columns = ", ".join(
         f"count(*) FILTER (WHERE {spec.missing_condition}) AS {material_id}" for material_id, spec in way_specs.items()
     )
-    sql = f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways"  # noqa: S608 固定の内部辞書のみ使用
+    # AS w: infrastructure/osm_way_tag_sql.pyの共有SQL断片がosm_raw_waysをこのエイリアスで
+    # 参照する前提のため（_ROAD_SURFACE_TILE_MVT_SQLと同じエイリアス）。
+    sql = f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways AS w"  # noqa: S608 固定の内部辞書のみ使用
     statement = text(sql)
     if ":good_tags" in sql:
         statement = statement.bindparams(

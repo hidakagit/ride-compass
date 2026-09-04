@@ -14,6 +14,17 @@ from app.infrastructure.material_coverage import (
     WayMaterialCoverageSpec,
     build_way_coverage_sql,
 )
+from app.infrastructure.osm_way_tag_sql import (
+    BRIDGE_NORMALIZED_SQL,
+    LANES_COUNT_CASE_SQL,
+    LIT_NORMALIZED_SQL,
+    MAXSPEED_KMH_CASE_SQL,
+    MOTOR_VEHICLE_NORMALIZED_SQL,
+    SMOOTHNESS_NORMALIZED_SQL,
+    SURFACE_GOOD_CASE_SQL,
+    SURFACE_NORMALIZED_SQL,
+    TUNNEL_NORMALIZED_SQL,
+)
 from app.infrastructure.road_graph_repository import _ROAD_SURFACE_TILE_MVT_SQL
 from app.services import material_coverage_service
 from app.services.material_coverage_service import MaterialCoverageService, build_material_coverage_report
@@ -55,48 +66,35 @@ def test_specs_carry_source_description_and_population():
             assert spec.present_count_sql.lstrip().upper().startswith("SELECT COUNT(*)")
 
 
-# --- way母集団の判定式は_ROAD_SURFACE_TILE_MVT_SQLの正規化式と揃える契約 ---
-
-
-def _normalize(sql: str) -> str:
-    return " ".join(sql.split())
+# --- way母集団の判定式は infrastructure/osm_way_tag_sql.py の共有SQL断片を
+# _ROAD_SURFACE_TILE_MVT_SQLと文字どおり同じ定数から組み立てる（同じPython定数を
+# 使う以上ドリフトしようがないため、両クエリの文字列を突き合わせる契約テストは不要）。
 
 
 @pytest.mark.parametrize(
     ("material_id", "fragment"),
     [
-        ("surface", "lower(btrim(surface))"),
-        (
-            "surface_good",
-            "CASE WHEN lower(btrim(surface)) = ANY(:good_tags) THEN true "
-            "WHEN lower(btrim(surface)) = ANY(:bad_tags) THEN false END",
-        ),
-        ("smoothness", "lower(btrim(tags->>'smoothness'))"),
-        (
-            "maxspeed_kmh",
-            "CASE WHEN btrim(tags->>'maxspeed') ~ '^[0-9]+(\\.[0-9]+)?$' "
-            "AND trunc(btrim(tags->>'maxspeed')::numeric) > 0 "
-            "THEN trunc(btrim(tags->>'maxspeed')::numeric)::integer END",
-        ),
-        (
-            "lanes_count",
-            "CASE WHEN btrim(tags->>'lanes') ~ '^[0-9]+(\\.[0-9]+)?$' "
-            "AND trunc(btrim(tags->>'lanes')::numeric) > 0 "
-            "THEN trunc(btrim(tags->>'lanes')::numeric)::integer END",
-        ),
-        ("no_lit", "lower(btrim(tags->>'lit'))"),
-        ("has_tunnel", "lower(btrim(tags->>'tunnel'))"),
-        ("bridge", "lower(btrim(tags->>'bridge'))"),
-        ("motor_vehicle_no", "lower(btrim(tags->>'motor_vehicle'))"),
+        ("surface", SURFACE_NORMALIZED_SQL),
+        ("surface_good", SURFACE_GOOD_CASE_SQL),
+        ("smoothness", SMOOTHNESS_NORMALIZED_SQL),
+        ("maxspeed_kmh", MAXSPEED_KMH_CASE_SQL),
+        ("lanes_count", LANES_COUNT_CASE_SQL),
+        ("no_lit", LIT_NORMALIZED_SQL),
+        ("has_tunnel", TUNNEL_NORMALIZED_SQL),
+        ("bridge", BRIDGE_NORMALIZED_SQL),
+        ("motor_vehicle_no", MOTOR_VEHICLE_NORMALIZED_SQL),
     ],
 )
-def test_way_missing_condition_matches_mvt_normalization(material_id: str, fragment: str):
+def test_way_missing_condition_uses_shared_fragment_also_used_by_mvt_sql(material_id: str, fragment: str):
+    """`MATERIAL_COVERAGE_SPECS`の判定式と`_ROAD_SURFACE_TILE_MVT_SQL`が、同じ
+    `osm_way_tag_sql.py`の定数を実際に使っていることを確認する（両クエリが同じ
+    Python文字列を参照する構成そのものが一致を保証するため、独立した2つの文字列を
+    突き合わせる旧方式より確実）。"""
     spec = MATERIAL_COVERAGE_SPECS[material_id]
     assert isinstance(spec, WayMaterialCoverageSpec)
-    mvt_without_alias = _normalize(_ROAD_SURFACE_TILE_MVT_SQL.text).replace("w.", "")
 
-    assert fragment in _normalize(spec.missing_condition)
-    assert fragment in mvt_without_alias
+    assert fragment in spec.missing_condition
+    assert fragment in _ROAD_SURFACE_TILE_MVT_SQL.text
 
 
 def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds_surface_tags():
@@ -105,7 +103,7 @@ def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds
 
     way_material_ids = [m for m, s in MATERIAL_COVERAGE_SPECS.items() if isinstance(s, WayMaterialCoverageSpec)]
     assert sql.startswith("SELECT count(*) AS total")
-    assert sql.rstrip().endswith("FROM osm_raw_ways")
+    assert sql.rstrip().endswith("FROM osm_raw_ways AS w")
     for material_id in way_material_ids:
         assert f" AS {material_id}" in sql
     assert sql.count("count(*) FILTER") == len(way_material_ids)

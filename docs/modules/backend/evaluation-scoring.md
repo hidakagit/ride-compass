@@ -16,6 +16,11 @@
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
 
+`infrastructure/osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、
+[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と本モジュールの
+`material_coverage.py`が共有する）は[routing-engine.md](routing-engine.md)が主管するため
+対象表には加えず参照のみ行う。
+
 ## 0次ハードフィルタ（`domain/evaluation.py`）
 
 `DEFAULT_HARD_FILTERS: frozenset[str] = frozenset({"no_bicycle", "motorway", "trunk"})`。
@@ -204,7 +209,7 @@ MaterialSpec]`が単一ソース。
 
 | 母集団 | 対象 | 判定 |
 |---|---|---|
-| `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`）。正規化式は`_ROAD_SURFACE_TILE_MVT_SQL`の対応する式と一致させる契約（`test_material_coverage.py`の整合性テストで担保） |
+| `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式、`infrastructure/osm_way_tag_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM osm_raw_ways AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
 | `"edge"` | `road_edges`全行 | `present_count_sql`（派生テーブル側の「値あり行数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま「値ありEdge数」として使いJOINを省く |
 
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
