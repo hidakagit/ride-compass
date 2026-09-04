@@ -170,8 +170,12 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 `LazyRoadGraph`（探索用グラフ）・`SearchGraphStatics`（一対全最短経路木
 用のCSR構造＋Edge実距離配列）・`SearchGraphStatics`の転置版（後ろ向き木用、
 [T551](../../tasks/T551.md)）・`NodeSpatialIndex`（routable Node空間索引）の4種は、
-タイル集合キーのプロセス内LRU（上限64件）へキャッシュする。同じタイル集合への
-2回目以降のリクエストはこれらの構築を丸ごと省略する。
+タイル集合キーのプロセス内LRUへキャッシュする。同じタイル集合への2回目以降の
+リクエストはこれらの構築を丸ごと省略する。**上限件数は`LazyRoadGraph`/
+`NodeSpatialIndex`が`DEFAULT_MAX_ENTRIES`（64）、`SearchGraphStatics`（順方向・転置版
+とも）は`SEARCH_STATICS_MAX_ENTRIES`（16）と別立てにしてある**——1エントリがCSR構造
+一式（`indptr`/`indices`/`entry_edge_index`）を保持し他の2種より重いため、同じ上限を
+共有すると常駐メモリが不必要に大きくなりうる（改善計画T568、`/code-review`指摘）。
 
 - **キー**: `LazyRoadGraph`・`SearchGraphStatics`（順方向・転置版とも）は
   `frozenset[(zoom,x,y)]`（bboxを覆うz12タイル集合）のみ。`NodeSpatialIndex`はこれに
@@ -421,7 +425,13 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   この構造とEdge実距離配列（m）を束ねる。両関数とも`reverse=True`（既定False）で
   転置CSR（キー`v * node_count + u`、行・列を入れ替え）を返す
   （[T551](../../tasks/T551.md)、目的地からの後ろ向き木用。`edge_length_m`は向きに
-  依存しないため`reverse`の値に関わらず同じ配列になる）。
+  依存しないため`reverse`の値に関わらず同じ配列になる）。`indptr`/`indices`/
+  `entry_edge_index`はint32（改善計画T568。実データ規模のNode/Edge数はint32の値域に
+  対して桁違いに小さい）。`from_index*node_count+to_index`の整列キー
+  （`(pred, v)`のCSRエントリ位置検索用）はフィールドとして持たず、`indptr`/`indices`
+  から`_reconstruct_entry_keys`が都度再構築する（タイル集合キーのプロセス内LRUが
+  常駐させる1エントリぶんのメモリを削減する。キー自体の計算はint64——`node_count`の
+  2乗がint32の値域を超えうるため）。
 - **`ShortestPathTree`/`build_shortest_path_tree`**: 起点からの一対全
   Dijkstra（`scipy.sparse.csgraph.dijkstra`、前任者付き、`cost_limit`で打ち切り可能）。
   前任者木に沿った実距離（`length_m`）は、`(pred[v], v)`のCSRエントリ位置を
@@ -441,7 +451,12 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   既に`target→目的地`の順に積み上がるため反転は不要。
 - **`overlap_ratio`/`select_diverse_by_overlap`**: 2つのEdge index集合の
   距離加重重複率、およびランク順の候補列から重複率・近接度（`is_compatible`）で貪欲に
-  多様な集合を選ぶ汎用関数（周回の折返し点選定・復路の往路重複率算出の両方に使う）。
+  多様な集合を選ぶ汎用関数（周回の折返し点選定・目的地ルートのvia-node選定の両方に使う）。
+  採用済み集合はEdgeごとのuint64ビットマスク1本（bit `i`＝「採用済み`i`件目がこのEdgeを
+  含む」、改善計画T568）で持つ——`max_count`（実際の呼び出し元の上限は
+  `TURNAROUND_POOL_MAX`=40・`MAX_ROUTES`=15）は64を超えられず、超える呼び出しは
+  `ValueError`になる。以前の`(max_count, Edge数)`のbool行列（常駐メモリ最大約22MB、
+  `/code-review`指摘）よりEdge数×8Bへ縮む。
 - `RoadGraphEngine.is_loop_too_similar`（`LoopRoutingEngine`契約、`_loop_edge_lengths_by_
   physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
   （`TracedLoop.data`、往路＋復路のedge_id列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ

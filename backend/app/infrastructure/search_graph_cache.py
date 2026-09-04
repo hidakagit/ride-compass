@@ -29,6 +29,12 @@ LRU上限は`graph_material_cache`（タイル単位、上限2,000）より大�
 小さめの上限で運用する（実測に基づく調整ではなく、他のプロセス内メモリキャッシュと
 同じ経験的な割り切り。上限に達した場合はLRUで最も長く使われていないエントリから
 自然に破棄される）。
+
+**`SearchGraphStatics`（順方向・転置版）は`LazyRoadGraph`/`NodeSpatialIndex`より
+小さい上限`SEARCH_STATICS_MAX_ENTRIES`（16）を別に持つ**（改善計画T568）。1エントリが
+CSR構造一式（`indptr`/`indices`/`entry_edge_index`）を保持し他の2種より重いため、
+`DEFAULT_MAX_ENTRIES`（64）を共有すると常駐メモリが不必要に大きくなりうる
+（`/code-review`指摘、詳細はdocs/tasks/T568.md参照）。
 """
 
 from collections import OrderedDict
@@ -41,6 +47,12 @@ if TYPE_CHECKING:
 # bbox全体ぶんの結合済みグラフ・索引を保持するエントリのため、タイル単位キャッシュより
 # 小さい上限にする（モジュールdocstring参照）。
 DEFAULT_MAX_ENTRIES = 64
+
+# `SearchGraphStatics`（順方向・転置版とも）の1エントリはCSR構造一式（indptr/indices/
+# entry_edge_index）を保持し、`LazyRoadGraph`より重い（改善計画T568、`/code-review`
+# 指摘）。`DEFAULT_MAX_ENTRIES`と同じ上限を共有する必要は無いため、別の（より小さい）
+# 上限を設ける。
+SEARCH_STATICS_MAX_ENTRIES = 16
 
 TileSet = frozenset[tuple[int, int, int]]
 RoutableIndexKey = tuple[TileSet, "frozenset[str] | None", "float | None"]
@@ -97,6 +109,8 @@ _search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyed
 _reverse_search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
 _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _TileKeyedLru()
 _max_entries = DEFAULT_MAX_ENTRIES
+# `_search_statics_cache`/`_reverse_search_statics_cache`専用の上限（改善計画T568）。
+_search_statics_max_entries = SEARCH_STATICS_MAX_ENTRIES
 
 
 def get_lazy_graph(tile_set: TileSet) -> "LazyRoadGraph | None":
@@ -112,7 +126,7 @@ def get_search_statics(tile_set: TileSet) -> "SearchGraphStatics | None":
 
 
 def set_search_statics(tile_set: TileSet, statics: "SearchGraphStatics") -> None:
-    _search_statics_cache.set(tile_set, statics, _max_entries)
+    _search_statics_cache.set(tile_set, statics, _search_statics_max_entries)
 
 
 def get_reverse_search_statics(tile_set: TileSet) -> "SearchGraphStatics | None":
@@ -120,7 +134,7 @@ def get_reverse_search_statics(tile_set: TileSet) -> "SearchGraphStatics | None"
 
 
 def set_reverse_search_statics(tile_set: TileSet, statics: "SearchGraphStatics") -> None:
-    _reverse_search_statics_cache.set(tile_set, statics, _max_entries)
+    _reverse_search_statics_cache.set(tile_set, statics, _search_statics_max_entries)
 
 
 def get_routable_index(key: RoutableIndexKey) -> "NodeSpatialIndex | None":

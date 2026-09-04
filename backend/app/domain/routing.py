@@ -197,6 +197,13 @@ def path_to_edge_ids_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -
 # --- 改善計画T531: 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
 
 
+# CSRのindptr/indices/entry_edge_indexに使うdtype（改善計画T568）。実データ規模
+# （東京都心30km四方の合成グリッドで約14万Node・56万Edge、docs/tasks/T531.md）は
+# int32の値域（約21億）に対して桁違いに小さく、タイル集合キーのプロセス内LRU
+# （上限64件、後述）が常駐させる分の実メモリを半減できる。
+_CSR_INDEX_DTYPE = np.int32
+
+
 @dataclass
 class CsrGraphStructure:
     """`LazyRoadGraph`と同じNode/Edge index空間を持つCSR（圧縮行格納）表現の**構造のみ**
@@ -214,9 +221,6 @@ class CsrGraphStructure:
     indices: np.ndarray
     # CSRエントリ順→`LazyRoadGraph.edge_ids`のEdge index（コスト配列の並べ替えに使う）。
     entry_edge_index: np.ndarray
-    # CSRエントリ順の`from_index * node_count + to_index`（昇順）。`(pred, v)`のエントリ位置を
-    # `np.searchsorted`で一括検索するための整列キー。
-    entry_keys: np.ndarray
 
 
 def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> CsrGraphStructure:
@@ -227,7 +231,13 @@ def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> 
     `reverse=True`のときはキーを`v * node_count + u`（行=to Node index、列=from Node index）
     で組み、転置グラフのCSRを返す（改善計画T551）。転置CSR上で`source_index=destination`
     としてDijkstraをかけると、各Nodeから見た「元の有向グラフでのdestinationまでの
-    最短経路コスト・距離」が得られる（後ろ向き木、`select_destination_vias`参照）。
+    最短経路コスト・距離」が得られる（後ろ向き木、`RoadGraphEngine.select_via_nodes`参照）。
+
+    `from_index * node_count + to_index`の整列キーはCSR構造の構築だけに使う一時変数で、
+    フィールドとしては持たない（改善計画T568。`(pred, v)`のCSRエントリ位置検索
+    ［`_accumulate_tree_lengths`］に必要な時点で`indptr`/`indices`から都度再構築する
+    ——タイル集合キーのプロセス内LRU［上限64件］が常駐させる1エントリぶんのメモリを
+    削減する。再構築コストとのトレードオフの判断はdocs/tasks/T568.md参照）。
     """
     node_count = len(lazy_graph.index_to_node_id)
     pairs = lazy_graph.edge_index_by_node_pair
@@ -240,7 +250,7 @@ def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> 
     order = np.argsort(keys, kind="stable")
     keys = keys[order]
     edge_index = edge_index[order]
-    indptr = np.zeros(node_count + 1, dtype=np.int64)
+    indptr = np.zeros(node_count + 1, dtype=_CSR_INDEX_DTYPE)
     if entry_count:
         rows = keys // node_count
         cols = keys % node_count
@@ -248,7 +258,10 @@ def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> 
     else:
         cols = np.zeros(0, dtype=np.int64)
     return CsrGraphStructure(
-        node_count=node_count, indptr=indptr, indices=cols, entry_edge_index=edge_index, entry_keys=keys,
+        node_count=node_count,
+        indptr=indptr,
+        indices=cols.astype(_CSR_INDEX_DTYPE),
+        entry_edge_index=edge_index.astype(_CSR_INDEX_DTYPE),
     )
 
 
@@ -349,7 +362,7 @@ def build_shortest_path_tree(
     省く用途。`cost >= distance`の不変条件[`_build_estimate_cost_fn`参照]により
     「実距離の上限×(1+P)」が安全な上限になる）。
 
-    実距離の積算は、`(pred[v], v)`のCSRエントリ位置を`entry_keys`への`searchsorted`で
+    実距離の積算は、`(pred[v], v)`のCSRエントリ位置を整列キーへの`searchsorted`で
     一括検索した後、ポインタジャンプ（`acc[v] += acc[anc[v]]; anc[v] = anc[anc[v]]`を
     木の深さのlog2回だけ繰り返す）でベクトル演算する。素朴にcost昇順のPythonループで
     加算すると開発機の合成グリッド（14万Node）で1.2秒、numpyスカラーのループでは8.6秒
@@ -372,6 +385,18 @@ def build_shortest_path_tree(
     )
 
 
+def _reconstruct_entry_keys(structure: CsrGraphStructure) -> np.ndarray:
+    """CSRエントリ順の`from_index * node_count + to_index`（昇順）を`indptr`/`indices`から
+    再構築する（改善計画T568。永続フィールドとして持たない理由は`CsrGraphStructure`の
+    docstring参照）。`node_count`の2乗がint32の値域を超えうる（実データ規模で14万Node
+    →約196億）ため、キーの計算自体はint64で行う——`indptr`/`indices`のdtype変更とは
+    独立に、この整列キー自体は常にint64のまま。
+    """
+    n = structure.node_count
+    rows = np.repeat(np.arange(n, dtype=np.int64), np.diff(structure.indptr))
+    return rows * n + structure.indices.astype(np.int64)
+
+
 def _accumulate_tree_lengths(
     structure: CsrGraphStructure, predecessor: np.ndarray, edge_length_m: np.ndarray, source_index: int,
     cost: np.ndarray,
@@ -387,7 +412,8 @@ def _accumulate_tree_lengths(
     child = np.flatnonzero(has_pred)
     edge_to_child = np.zeros(n)
     if len(child):
-        positions = np.searchsorted(structure.entry_keys, predecessor[child] * n + child)
+        entry_keys = _reconstruct_entry_keys(structure)
+        positions = np.searchsorted(entry_keys, predecessor[child] * n + child)
         edge_to_child[child] = edge_length_m[structure.entry_edge_index[positions]]
     ancestor = np.where(has_pred, predecessor, np.arange(n))
     accumulated = edge_to_child.copy()
@@ -486,13 +512,18 @@ def select_diverse_by_overlap(
     閾値を緩めても結果が変わらないため再検査しない。`max_count`件に達すれば以降の閾値は
     試さない。決定的（入力順と同じ規則でしか選ばない）。
 
-    重複率は採用済み候補ごとのEdge集合をbool行列（採用数×Edge数）で持ち、候補のEdge index
-    配列で列を抜き出して距離加重和を1回のnumpy演算で求める（採用済みごとに`np.isin`を
-    呼ぶ実装は、数千件のリングNodeを検査する実データ規模で数百ms〜1秒超かかった）。
+    重複率は採用済み候補ごとの集合をEdgeごとのuint64ビットマスク1本（bit `i` が「採用済み
+    `i`件目がこのEdgeを含む」を表す）で持ち、候補のEdge index配列で行を抜き出して
+    距離加重和を1回のnumpy演算で求める（`max_count`の実際の上限は`TURNAROUND_POOL_MAX`
+    =40・`MAX_ROUTES`=15のいずれもuint64の64bitに収まる。常駐メモリはEdge数×8B）。
+    採用済みごとに`np.isin`を呼ぶ実装は、数千件のリングNodeを検査する実データ規模で
+    数百ms〜1秒超かかった。
     """
-    edge_count = len(edge_length_m)
+    if max_count > 64:
+        raise ValueError(f"select_diverse_by_overlap: max_count={max_count} exceeds the uint64 bitmask limit (64)")
     selected: list[T] = []
-    masks = np.zeros((max(max_count, 1), edge_count), dtype=bool)
+    edge_bits = np.zeros(len(edge_length_m), dtype=np.uint64)
+    slot_bits = np.uint64(1) << np.arange(max(max_count, 1), dtype=np.uint64)
 
     def try_accept(item: T, edges: Sequence[int], max_overlap_ratio: float, rejected: list[T] | None) -> bool:
         if len(selected) >= max_count:
@@ -502,12 +533,14 @@ def select_diverse_by_overlap(
             lengths = edge_length_m[edge_array]
             total = float(lengths.sum())
             if total > 0:
-                shared = (masks[: len(selected)][:, edge_array] * lengths).sum(axis=1)
+                candidate_bits = edge_bits[edge_array]
+                shared_mask = (candidate_bits[:, None] & slot_bits[: len(selected)]) != 0
+                shared = (shared_mask * lengths[:, None]).sum(axis=0)
                 if bool((shared / total > max_overlap_ratio).any()):
                     if rejected is not None:
                         rejected.append(item)
                     return False
-        masks[len(selected), edge_array] = True
+        edge_bits[edge_array] |= slot_bits[len(selected)]
         selected.append(item)
         return True
 

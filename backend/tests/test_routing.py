@@ -10,6 +10,7 @@ from app.domain.route import Coordinates
 from app.domain.routing import (
     LazyGraphEdgeMismatchError,
     LazyRoadGraph,
+    _reconstruct_entry_keys,
     build_csr_structure,
     build_lazy_road_graph,
     build_node_spatial_index,
@@ -357,12 +358,44 @@ def test_build_csr_structure_matches_node_pair_index():
     n = len(lazy_graph.index_to_node_id)
     assert structure.node_count == n
     assert structure.indptr[-1] == len(lazy_graph.edge_index_by_node_pair)
-    assert np.all(np.diff(structure.entry_keys) > 0)  # 昇順かつ重複なし
+    # 各行（indptr[u]..indptr[u+1]）内でindicesが昇順（重複なし）＝行昇順・行内to昇順で整列済み。
+    for u in range(n):
+        row = structure.indices[structure.indptr[u]:structure.indptr[u + 1]]
+        assert np.all(np.diff(row) > 0)
     for (u, v), edge_index in lazy_graph.edge_index_by_node_pair.items():
         row = slice(structure.indptr[u], structure.indptr[u + 1])
         position = structure.indptr[u] + list(structure.indices[row]).index(v)
         assert structure.entry_edge_index[position] == edge_index
-        assert structure.entry_keys[position] == u * n + v
+
+
+def test_build_csr_structure_uses_int32_index_arrays():
+    # 改善計画T568: indptr/indices/entry_edge_indexはint32（実データ規模のNode/Edge数は
+    # int32の値域に対して桁違いに小さい、タイル集合キーのプロセス内LRUの常駐メモリ削減）。
+    graph = _random_road_graph(seed=1)
+    structure = build_csr_structure(build_lazy_road_graph(graph))
+
+    assert structure.indptr.dtype == np.int32
+    assert structure.indices.dtype == np.int32
+    assert structure.entry_edge_index.dtype == np.int32
+
+
+def test_reconstruct_entry_keys_matches_row_major_csr_order():
+    # 改善計画T568: entry_keys（from_index*node_count+to_index、昇順）はCsrGraphStructureの
+    # フィールドとして持たず、indptr/indicesから都度再構築する。再構築結果が、フィールドで
+    # 持っていた頃と同じ内容（各行のNode index×node_count+to Node indexが全体で昇順）になる
+    # ことを直接検証する。
+    graph = _random_road_graph(seed=1)
+    lazy_graph = build_lazy_road_graph(graph)
+    structure = build_csr_structure(lazy_graph)
+    n = structure.node_count
+
+    keys = _reconstruct_entry_keys(structure)
+
+    assert np.all(np.diff(keys) > 0)
+    for u in range(n):
+        row = slice(structure.indptr[u], structure.indptr[u + 1])
+        expected = u * n + structure.indices[row].astype(np.int64)
+        assert list(keys[row]) == list(expected)
 
 
 def test_build_csr_structure_handles_graph_without_edges():
@@ -548,15 +581,12 @@ def test_build_csr_structure_reverse_transposes_node_pairs():
     forward = build_csr_structure(lazy_graph)
     reverse = build_csr_structure(lazy_graph, reverse=True)
 
-    n = lazy_graph.node_id_to_index.__len__()
     assert reverse.node_count == forward.node_count
-    assert len(reverse.entry_keys) == len(forward.entry_keys)
-    assert np.all(np.diff(reverse.entry_keys) > 0)
+    assert len(reverse.indices) == len(forward.indices)
     for (u, v), edge_index in lazy_graph.edge_index_by_node_pair.items():
         row = slice(reverse.indptr[v], reverse.indptr[v + 1])
         position = reverse.indptr[v] + list(reverse.indices[row]).index(u)
         assert reverse.entry_edge_index[position] == edge_index
-        assert reverse.entry_keys[position] == v * n + u
 
 
 def test_build_search_graph_statics_reverse_shares_edge_length_but_transposes_csr():
@@ -567,7 +597,7 @@ def test_build_search_graph_statics_reverse_shares_edge_length_but_transposes_cs
     reverse = build_search_graph_statics(lazy_graph, graph, reverse=True)
 
     assert list(reverse.edge_length_m) == list(forward.edge_length_m)
-    assert not np.array_equal(reverse.csr.entry_keys, forward.csr.entry_keys)
+    assert not np.array_equal(reverse.csr.indices, forward.csr.indices)
 
 
 def test_shortest_path_tree_on_reverse_csr_gives_cost_to_destination():
@@ -694,3 +724,14 @@ def test_select_diverse_by_overlap_falls_back_to_relaxed_threshold_within_single
     )
     # 1回目（閾値0.5）の採用分を先頭に保ったまま、2回目（閾値0.7）で残りを追加する。
     assert with_relaxed_fallback == ["first", "other", "mostly_same"]
+
+
+def test_select_diverse_by_overlap_rejects_max_count_beyond_bitmask_limit():
+    # 改善計画T568: 採用済み集合はEdgeごとのuint64ビットマスク1本で持つため、max_countは
+    # 64（uint64のbit数）を超えられない。実際の呼び出し元（TURNAROUND_POOL_MAX=40・
+    # MAX_ROUTES=15）はいずれも収まる。
+    lengths = np.array([100.0])
+    items = {"a": [0]}
+
+    with pytest.raises(ValueError, match="64"):
+        select_diverse_by_overlap(list(items), items.__getitem__, lengths, max_overlap_ratios=[0.5], max_count=65)

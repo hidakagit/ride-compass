@@ -189,6 +189,41 @@ class TestReverseSearchStaticsCache:
         assert search_graph_cache.reverse_search_statics_cache_size() == 0
         assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
 
+
+class TestSearchStaticsSeparateLruLimit:
+    """`_search_statics_cache`/`_reverse_search_statics_cache`は`_lazy_graph_cache`/
+    `_routable_index_cache`と別の上限（`_search_statics_max_entries`）を持つ
+    （改善計画T568、1エントリがCSR構造一式でより重いため）。"""
+
+    def setup_method(self):
+        search_graph_cache.clear()
+
+    def teardown_method(self):
+        search_graph_cache.clear()
+
+    def test_search_statics_eviction_uses_its_own_limit_independent_of_lazy_graph(self, monkeypatch):
+        # lazy_graph用の上限（_max_entries）は緩いままでも、search_statics用の上限
+        # （_search_statics_max_entries）だけを絞れば、search_statics側だけ立ち退く。
+        monkeypatch.setattr(search_graph_cache, "_max_entries", 10)
+        monkeypatch.setattr(search_graph_cache, "_search_statics_max_entries", 1)
+        search_graph_cache.set_lazy_graph(_TILE_SET_A, "lazy-a")
+        search_graph_cache.set_lazy_graph(_TILE_SET_B, "lazy-b")
+        search_graph_cache.set_search_statics(_TILE_SET_A, "statics-a")
+        search_graph_cache.set_search_statics(_TILE_SET_B, "statics-b")  # 上限1のためAが立ち退く
+
+        assert search_graph_cache.get_lazy_graph(_TILE_SET_A) == "lazy-a"
+        assert search_graph_cache.get_lazy_graph(_TILE_SET_B) == "lazy-b"
+        assert search_graph_cache.get_search_statics(_TILE_SET_A) is None
+        assert search_graph_cache.get_search_statics(_TILE_SET_B) == "statics-b"
+
+    def test_reverse_search_statics_eviction_uses_the_same_separate_limit(self, monkeypatch):
+        monkeypatch.setattr(search_graph_cache, "_search_statics_max_entries", 1)
+        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, "a")
+        search_graph_cache.set_reverse_search_statics(_TILE_SET_B, "b")
+
+        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
+        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_B) == "b"
+
     def test_invalidate_tile_set_discards_reverse_statics_alongside_other_caches(self):
         search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
         search_graph_cache.set_search_statics(_TILE_SET_A, object())
