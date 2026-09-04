@@ -34,7 +34,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 |---|---|
 | 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図上アイコン） |
-| ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
+| ルート設定 | `RouteForm`（モード切替/距離/候補件数/巡航速度/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
 | ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補ごとのタブ自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
 | 研究モード | `ComparisonPanel`（実験スロット比較表） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |

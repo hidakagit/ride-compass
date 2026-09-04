@@ -417,6 +417,7 @@ function makeConditions(overrides: Partial<GenerationConditions> = {}): Generati
     max_average_grade_percent: null,
     hard_filters: { no_bicycle: true, motorway: true, trunk: true },
     max_routes: 8,
+    assumed_speed_kmh: 20,
     waypoints: null,
     destination: null,
     generated_at: "2026-08-25T12:00:00+09:00",
@@ -596,6 +597,37 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => {
       expect(generateRoutes).toHaveBeenCalledWith(
         expect.objectContaining({ max_routes: 8 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("生成リクエストに巡航速度(assumed_speed_kmh)の既定値を含め、入力変更が反映される", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({ assumed_speed_kmh: 20 }),
+        expect.anything(),
+      );
+    });
+
+    // RouteForm（周回モード）の数値入力は距離・候補件数・巡航速度の順。
+    const speedInput = screen.getAllByRole("spinbutton")[2];
+    await user.clear(speedInput);
+    await user.type(speedInput, "25");
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ assumed_speed_kmh: 25 }),
         expect.anything(),
       );
     });

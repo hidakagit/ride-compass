@@ -37,6 +37,7 @@ from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.region_service import RegionService
+from app.domain.wind import ASSUMED_SPEED_KMH
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
 from app.services.flood_service import FloodService
@@ -126,6 +127,8 @@ class RouteGenerationSetup:
     route_preference: RoutePreference
     # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。road_graphエンジンのみに効く。
     penalty_strength: float
+    # 仮定巡航速度（km/h）。通過予定時刻・到達予想時刻・所要時間の算出に使う。
+    assumed_speed_kmh: float
     # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは無効）。
     # road_graphエンジンのみに効く。
     max_average_grade_percent: float | None
@@ -170,6 +173,7 @@ def _assemble_route_generation_setup(
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
+    assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
 ) -> RouteGenerationSetup:
     """組み立て済みのサービスと評価条件から`RouteGenerationSetup`を作る（改善計画T265）。
 
@@ -187,11 +191,13 @@ def _assemble_route_generation_setup(
         penalty_strength,
         max_average_grade_percent,
         hard_filters,
+        assumed_speed_kmh,
     )
     return RouteGenerationSetup(
         generator=RouteGenerator(engine),
         route_preference=preference,
         penalty_strength=penalty_strength,
+        assumed_speed_kmh=assumed_speed_kmh,
         max_average_grade_percent=max_average_grade_percent,
         hard_filters=hard_filters,
     )
@@ -203,6 +209,7 @@ async def open_route_generation_setup(
     penalty_strength: float = 1.0,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
+    assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ
     （改善計画T265）。
@@ -226,11 +233,11 @@ async def open_route_generation_setup(
         yield _assemble_route_generation_setup(
             graph_service, elevation_attribute_service, weather_service,
             preference_override, penalty_strength,
-            max_average_grade_percent, hard_filters_override,
+            max_average_grade_percent, hard_filters_override, assumed_speed_kmh,
         )
 
 
-PreviewBuilder = Callable[[Coordinates, Coordinates], Awaitable[RouteSegment]]
+PreviewBuilder = Callable[[Coordinates, Coordinates, float], Awaitable[RouteSegment]]
 
 
 def get_preview_builder(
@@ -245,13 +252,16 @@ def get_preview_builder(
     既定値のみを使う。
     """
 
-    async def preview(origin: Coordinates, destination: Coordinates) -> RouteSegment:
+    async def preview(
+        origin: Coordinates, destination: Coordinates, assumed_speed_kmh: float = ASSUMED_SPEED_KMH
+    ) -> RouteSegment:
         preference = load_route_preference()
         engine = RoadGraphEngine(
             graph_service,
             elevation_attribute_service,
             weather_service,
             preference,
+            assumed_speed_kmh=assumed_speed_kmh,
         )
         segment = await engine.preview_segment(origin, destination)
         if segment is None:

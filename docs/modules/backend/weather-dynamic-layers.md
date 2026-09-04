@@ -100,6 +100,7 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 | メソッド | 用途 | 時刻 | daily/weather_code |
 |---|---|---|---|
 | `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 常に現在時刻 | 埋まる |
+| `get_wind_forecast_series(point)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻の風） | 時別風向・風速の系列（約48時間、JST）。`get_conditions`と同じ応答・キャッシュ | 対象外 |
 | `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 全hourly時系列（約48時間） | 対象外 |
 
 ## その他のサービス

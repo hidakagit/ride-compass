@@ -18,6 +18,7 @@ from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.geo import haversine_distance_km
+from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
@@ -43,6 +44,8 @@ _generate_semaphore = asyncio.Semaphore(settings.generate_max_concurrent)
 class RoutePreviewRequest(BaseModel):
     origin: Coordinates
     destination: Coordinates
+    # 仮定巡航速度（km/h、所要時間の算出に使う）。省略時は既定値。
+    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH, default=ASSUMED_SPEED_KMH)
 
 
 @router.post("/api/routes/preview", response_model=RouteSegment)
@@ -53,7 +56,7 @@ async def preview_route(
 ) -> RouteSegment:
     enforce_rate_limit(http_request, "preview", settings.preview_rate_limit_per_minute)
     try:
-        return await preview(request.origin, request.destination)
+        return await preview(request.origin, request.destination, request.assumed_speed_kmh)
     except RoutingError as exc:
         raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
 
@@ -153,6 +156,10 @@ class RouteGenerateRequest(BaseModel):
     # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする
     # （MAX_ROUTE_DISTANCE_KMと同じ設計原則）。
     max_routes: int = Field(ge=1, le=MAX_ROUTES, default=DEFAULT_MAX_ROUTES)
+    # 仮定巡航速度（km/h）。各区間の通過予定時刻（探索時の風の時刻選択）・到達予想時刻の
+    # 算出に使う。範囲・既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
+    # 渡す唯一の情報源にする。
+    assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH, default=ASSUMED_SPEED_KMH)
     # 改善計画T364: ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で
     # 通過する単一経路を生成する）。指定時は周回候補の生成を行わない。bboxが際限なく
     # 広がらないよう、起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性は
@@ -196,6 +203,8 @@ class GenerationConditions(BaseModel):
     # 改善計画T531: 周回候補の上限件数（実際に適用された値）。改善計画T551: 経由地の無い
     # 目的地ルートにも適用される。経由地を1つ以上伴う経由地・目的地指定時は無視される。
     max_routes: int
+    # 仮定巡航速度（km/h、実際に適用された値）。
+    assumed_speed_kmh: float
     # 改善計画T364: 指定された経由地（未指定はNone、周回候補の生成）。
     waypoints: list[Coordinates] | None
     # 改善計画T365: 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
@@ -297,6 +306,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             request.penalty_strength,
             request.max_average_grade_percent,
             hard_filters_override,
+            request.assumed_speed_kmh,
         ) as setup:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             if request.waypoints or request.destination:
@@ -328,6 +338,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     max_average_grade_percent=setup.max_average_grade_percent,
                     hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
                     max_routes=request.max_routes,
+                    assumed_speed_kmh=setup.assumed_speed_kmh,
                     waypoints=request.waypoints,
                     destination=request.destination,
                     generated_at=datetime.now(JST).isoformat(),

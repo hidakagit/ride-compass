@@ -1,5 +1,8 @@
 {
   "max_distance_km": 100,
   "max_routes": 15,
-  "default_max_routes": 8
+  "default_max_routes": 8,
+  "default_assumed_speed_kmh": 20.0,
+  "min_assumed_speed_kmh": 5.0,
+  "max_assumed_speed_kmh": 60.0
 }

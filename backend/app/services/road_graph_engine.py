@@ -90,21 +90,23 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
+from app.domain.axis_definitions import AXIS_DEFINITIONS, dynamic_axis_topological_order
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
     DynamicAxisRequestContext,
     RoutePreference,
     compose_costs_from_axis_matrix,
     compute_hard_filter_excluded,
     compute_routable_node_ids,
-    compute_wind_penalty,
     evaluate_dynamic_axis_arrays,
 )
 from app.domain.geo import (
     KM_PER_DEGREE_LATITUDE,
     bearing_between,
     bearing_between_array,
+    haversine_distance_km,
     haversine_distance_km_array,
 )
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
@@ -138,12 +140,12 @@ from app.domain.routing import (
     tree_path_edge_indices_to_source,
 )
 from app.domain.weather import WeatherConditions
-from app.domain.wind import ASSUMED_SPEED_KMH
+from app.domain.wind import ASSUMED_SPEED_KMH, ROUTE_DETOUR_RATIO, WindForecastSeries, estimate_passage_hours
 from app.infrastructure import search_graph_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
-from app.services.route_generator import LoopTurnaround, TracedLoop, candidate_identity
+from app.services.route_generator import JST, LoopTurnaround, TracedLoop, candidate_identity
 from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
@@ -207,6 +209,111 @@ logger = logging.getLogger("ridecompass.graph")
 
 
 @dataclass
+class LegCostArrays:
+    """1レグぶんの合成済みコスト配列一式。`cost_list`は`lazy_graph.edge_ids`順（A*・一対全木へ
+    `list.__getitem__`のまま渡す）、それ以外は`score_matrix.edge_ids`（`full_edge_row`）順の
+    表示用配列。レグごとに違うのは風（各Edgeの通過予定時刻の風）だけで、静的軸の列は共有する。"""
+
+    label: str
+    cost_list: list[float]
+    difficulty_array: np.ndarray
+    axis_arrays: dict[str, np.ndarray]
+    contribution_arrays: dict[str, np.ndarray]
+    # `full_edge_row`順のwind_penalty材料配列（風データが無ければNone）。区間表示と
+    # `wind_score`の集計が、探索コストに使ったのと同じ値を読むために保持する。
+    wind_penalty: np.ndarray | None
+    # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
+    passage_hours: np.ndarray | None
+
+
+class _LegCostComposer:
+    """bbox全体ぶんのコスト配列を、レグ（基準点・時刻オフセット・向き）ごとに合成する。
+    静的スコア行列・重み・0次フィルタ・lazy_graph行順の対応表はリクエスト内で共通のため
+    1回だけ用意し、`compose`はレグごとに変わる風の列だけを引き直して合成する。
+    風の時別系列が無い・風に依存する公開軸の重みが0・基準点が無い場合は、出発時点の
+    スナップショットで合成した1本（`snapshot`）を全レグで共有する（追加コストゼロ）。"""
+
+    def __init__(
+        self,
+        score_matrix: StaticEdgeScoreMatrix,
+        weights: dict[str, float],
+        penalty_strength: float,
+        hard_filter_excluded: np.ndarray,
+        weather: WeatherConditions | None,
+        wind_series: WindForecastSeries | None,
+        start: datetime,
+        speed_kmh: float,
+        lazy_row_index: np.ndarray,
+    ) -> None:
+        self._score_matrix = score_matrix
+        self._static_axis_scores = {
+            axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
+        }
+        self._weights = weights
+        self._penalty_strength = penalty_strength
+        self._hard_filter_excluded = hard_filter_excluded
+        self._weather = weather
+        self._wind_series = wind_series
+        self.start = start
+        self.speed_kmh = speed_kmh
+        self._lazy_row_index = lazy_row_index
+        wind_dependent_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS)) & set(score_matrix.axis_ids)
+        self.time_varying = wind_series is not None and any(weights.get(axis_id, 0.0) > 0 for axis_id in wind_dependent_axes)
+        self._cache: dict[tuple, LegCostArrays] = {}
+
+    def compose(self, label: str, anchor: Coordinates | None, offset_hours: float, direction: int) -> LegCostArrays:
+        """`anchor`から`direction=+1`なら離れていく・`-1`なら向かっていくレグとして、各Edgeの
+        通過予定時刻（`offset_hours`基準、`domain/wind.py: estimate_passage_hours`）の風で
+        コスト配列を合成する。"""
+        if not self.time_varying or anchor is None:
+            key: tuple = ("snapshot",)
+            passage = None
+        else:
+            key = (round(anchor.latitude, 5), round(anchor.longitude, 5), round(offset_hours, 3), direction)
+            passage = estimate_passage_hours(
+                self._score_matrix.mid_lat, self._score_matrix.mid_lon, anchor, offset_hours, direction, self.speed_kmh,
+            )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+
+        started = time.monotonic()
+        dynamic_context = DynamicAxisRequestContext(
+            bearing_deg=self._score_matrix.bearing_deg, weather=self._weather,
+            wind_series=self._wind_series, start=self.start, passage_hours=passage,
+        )
+        resolved = evaluate_dynamic_axis_arrays(self._static_axis_scores, dynamic_context)
+        # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
+        published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
+        cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
+            self._score_matrix.distance_m, published, self._weights, self._penalty_strength,
+        )
+        cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
+        wind_penalty = resolved.get("wind_penalty")
+        leg = LegCostArrays(
+            label=label,
+            cost_list=cost_array[self._lazy_row_index].tolist(),
+            difficulty_array=difficulty_array,
+            axis_arrays=published,
+            contribution_arrays=contribution_arrays,
+            wind_penalty=None if wind_penalty is None or np.all(np.isnan(wind_penalty)) else wind_penalty,
+            passage_hours=passage,
+        )
+        self._cache[key] = leg
+        if passage is None:
+            logger.info("compose_leg_costs leg=%s mode=snapshot compose_ms=%d", label,
+                        round((time.monotonic() - started) * 1000))
+        else:
+            logger.info(
+                "compose_leg_costs leg=%s mode=time_varying anchor=(%.2f,%.2f) offset_h=%.2f direction=%+d "
+                "passage_h=[%.2f,%.2f] compose_ms=%d",
+                label, anchor.latitude, anchor.longitude, offset_hours, direction,
+                float(passage.min()), float(passage.max()), round((time.monotonic() - started) * 1000),
+            )
+        return leg
+
+
+@dataclass
 class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
@@ -231,26 +338,16 @@ class _RoadGraphContext:
     # `_reverse_traced_edges`が`edge_index_by_node_pair`を逆回り候補のEdge逆引きにも使う
     # （旧`_RoadGraphContext.node_pair_index`[全Edge分の逆引き表]の代替、T537で撤去）。
     lazy_graph: LazyRoadGraph
-    # 改善計画T536: リクエストにつき1回だけbbox全体ぶん合成済みのコスト配列
-    # （`lazy_graph.edge_ids`と同じ行順のPython list、A*のedge_cost_fnへ
-    # `cost_list.__getitem__`としてそのまま渡す）。0次フィルタで除外されたEdgeは
-    # math.infになっている。
-    cost_list: list[float]
-    # 改善計画T536: `score_matrix.edge_ids`（並行Edge解消前、bbox全体の生Edge集合）上での
-    # edge_id→行indexの対応表。`difficulty_array`/`axis_arrays`と組み合わせて
-    # `_build_segment_details`が探索と同じ配列からaxis_difficultiesを引くために使う
-    # （並行Edge解消後のlazy_graphより広い集合をカバーするため、経路上のどのEdgeも
-    # 必ず引ける）。
+    # レグごとのコスト配列を合成する部品と、合成済みのレグ配列（添字0=往路[起点から離れる
+    # レグ]、周回・目的地ルートは1=復路[基準点へ向かうレグ]、経由地ルートはレグ番号順）。
+    # `TracedLoop.leg_of_edge`がこの添字を指す。
+    composer: _LegCostComposer
+    legs: list[LegCostArrays]
+    # `score_matrix.edge_ids`（並行Edge解消前、bbox全体の生Edge集合）上でのedge_id→行index
+    # の対応表。各レグの表示用配列と組み合わせて`_build_segment_details`が引く。
     full_edge_row: dict[str, int]
-    # 改善計画T536: 合成済みcomposite difficulty配列（NaN=データ無し、full_edge_row基準）。
-    difficulty_array: np.ndarray
-    # 改善計画T536: 公開軸ごとのスコア配列（axis_id→array、full_edge_row基準、動的軸[風]も
-    # 実際の値へ上書き済み）。_build_segment_detailsのaxis_difficulties構築に使う。
-    axis_arrays: dict[str, np.ndarray]
-    # 改善計画T550: 公開軸ごとの区間寄与度配列（axis_id→array、full_edge_row基準、
-    # `compose_costs_from_axis_matrix`が合成コストと同時に求めたもの）。
-    # _build_segment_detailsのaxis_contributions構築に使う。
-    contribution_arrays: dict[str, np.ndarray]
+    # 周回の復路レグ・目的地ルートの後ろ向き木の基準点に使う起点座標。
+    origin: Coordinates
     # 改善計画T536: A*のestimate_cost_fn（ヒューリスティック）を、レグごとの目的地に対して
     # numpyで1回だけベクトル計算するための、lazy_graph.index_to_node_id順の緯度・経度配列。
     node_lat: np.ndarray
@@ -297,13 +394,11 @@ class _SearchGraph:
     accident_years_covered: int
     weather: WeatherConditions | None
     night_active: bool
-    # 改善計画T536: _RoadGraphContextと同じ意味（フィールドdocstring参照）。
-    cost_list: list[float]
+    # _RoadGraphContextと同じ意味（フィールドdocstring参照）。`outbound`は基準点（起点側の
+    # 座標）から離れていくレグとして合成済みの配列。
+    composer: _LegCostComposer
+    outbound: LegCostArrays
     full_edge_row: dict[str, int]
-    difficulty_array: np.ndarray
-    axis_arrays: dict[str, np.ndarray]
-    # 改善計画T550: _RoadGraphContextと同じ意味（フィールドdocstring参照）。
-    contribution_arrays: dict[str, np.ndarray]
     node_lat: np.ndarray
     node_lon: np.ndarray
     # 改善計画T546: `score_matrix.edge_ids`と、それに対応する0次フィルタ除外配列
@@ -337,8 +432,12 @@ class RoadGraphEngine:
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
+        assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     ):
         self._graph_service = graph_service
+        # 仮定巡航速度（km/h、リクエスト単位で上書き可）。各Edgeの通過予定時刻・区間の
+        # 到達予想時刻・所要時間の算出に使う。
+        self._assumed_speed_kmh = assumed_speed_kmh
         self._elevation_attribute_service = elevation_attribute_service
         # 改善計画T536: EvaluationService（compute_edge_costs_bulkのbbox全体一括評価）は
         # 本エンジンから不要になった（探索コストは_build_search_graphがbbox全体ぶん
@@ -404,7 +503,11 @@ class RoadGraphEngine:
 
         weather_started = time.monotonic()
         weather = await self._weather_service.get_conditions(wind_and_night_origin)
+        # 起点の時別風予報（get_conditionsと同じ応答・キャッシュ。追加の外部API呼び出しは無い）。
+        wind_series = await self._weather_service.get_wind_forecast_series(wind_and_night_origin)
         weather_ms = round((time.monotonic() - weather_started) * 1000)
+        # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
+        start = now.astimezone(JST).replace(tzinfo=None)
         # 改善計画T173: 時間帯依存軸（time_scope="night_only"、現在はnight軸のみ）の
         # 動的化。区間ごとの到達時刻は探索中は未確定のため（風と同じモジュールdocstringの
         # 制約）、出発地点の座標・呼び出し時点を出発時刻の近似として採用し、起点が市民薄明の
@@ -415,69 +518,48 @@ class RoadGraphEngine:
         # （RoutePreference.with_time_scope参照）。
         night_active = is_night(wind_and_night_origin, now)
 
-        # --- 改善計画T536: bbox全体ぶんのコスト配列をリクエストにつき1回だけ合成する ---
+        # --- bbox全体ぶんのコスト配列の合成（レグごと。まず起点から離れる往路レグ） ---
         cost_started = time.monotonic()
         active_scopes = frozenset({"night_only"}) if night_active else frozenset()
         preference = self._route_preference.with_time_scope(active_scopes)
         weights = preference.weights
-
-        # StaticEdgeScoreMatrix.axis_scores（Edge×公開軸の2次元配列）を軸id→1次元配列の
-        # 辞書へ展開し、動的軸（風）だけをリクエスト時点の値へ上書きする
-        # （evaluate_dynamic_axis_arrays、軸名を一切ハードコードしない汎用ディスパッチ、
-        # domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS参照）。
-        static_axis_scores = {
-            axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
-        }
-        dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, weather=weather)
-        resolved_axis_scores = evaluate_dynamic_axis_arrays(static_axis_scores, dynamic_context)
-        # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する
-        # （compute_edge_costs_bulkの計算フェーズと同じ絞り込み、domain/evaluation.py参照）。
-        published_axis_arrays = {axis_id: resolved_axis_scores[axis_id] for axis_id in score_matrix.axis_ids}
-
-        cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
-            score_matrix.distance_m, published_axis_arrays, weights, self._penalty_strength,
-        )
         hard_filter_excluded = compute_hard_filter_excluded(
             score_matrix.is_motorway, score_matrix.is_trunk, score_matrix.no_bicycle,
             score_matrix.gradient_percent, self._hard_filters, self._max_average_grade_percent,
         )
-        cost_array = np.where(hard_filter_excluded, np.inf, cost_array)
-        cost_ms = round((time.monotonic() - cost_started) * 1000)
-        # 改善計画T552（対応方針1、実態把握）: 重み付き軸がすべてNaNのEdge比率
-        # （探索コストはbbox内平均difficultyで補完されるが、本番同等bboxでの実際の
-        # 発生頻度を把握するためのサマリ）。
-        missing_axis_mask = np.isnan(difficulty_array)
+        full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
+
+        # 改善計画T536→T537: LazyRoadGraph（Node/Edge payloadは整数index、domain/routing.py
+        # 参照）の構築はタイル集合キーでキャッシュする（infrastructure/search_graph_cache.py、
+        # _get_or_build_lazy_graph参照）。並行Edge（同一Node間の複数Edge）の解消はコストに
+        # 依存しない決定的な規則で行う——コストはリクエストごと（軸重み・風・0次フィルタ）に
+        # 変わるためタイル集合だけで決まるこのキャッシュとは両立しない。
+        graph_started = time.monotonic()
+        lazy_graph, lazy_graph_cached = await _get_or_build_lazy_graph(tile_set, graph)
+        # 再split後の`lazy_graph`・`graph`不整合の検知・再構築は、直後の
+        # `full_edge_row[edge_id] for edge_id in lazy_graph.edge_ids`が同種のKeyErrorに
+        # 脆弱なため、`prepare`・`preview_segment`共通のこの経路で行う。
+        lazy_graph = await _ensure_lazy_graph_consistent(tile_set, lazy_graph, graph)
+        graph_ms = round((time.monotonic() - graph_started) * 1000)
+
+        # lazy_graph.edge_ids（並行Edge解消後）の各行が`score_matrix`のどの行かの対応表。
+        # レグごとのcost_listはこの索引でnumpyのfancy indexingにより並べ替える。
+        lazy_row_index = np.fromiter((full_edge_row[edge_id] for edge_id in lazy_graph.edge_ids), dtype=np.int64, count=len(lazy_graph.edge_ids))
+        composer = _LegCostComposer(
+            score_matrix, weights, self._penalty_strength, hard_filter_excluded, weather, wind_series,
+            start, self._assumed_speed_kmh, lazy_row_index,
+        )
+        outbound = composer.compose("outbound", wind_and_night_origin, 0.0, +1)
+        cost_ms = round((time.monotonic() - cost_started) * 1000) - graph_ms
+        # 重み付き軸がすべてNaNのEdge比率（探索コストはbbox内平均difficultyで補完される。
+        # 実際の発生頻度を把握するためのサマリ）。
+        missing_axis_mask = np.isnan(outbound.difficulty_array)
         total_distance_m = float(score_matrix.distance_m.sum())
         missing_axis_distance_ratio = (
             float(score_matrix.distance_m[missing_axis_mask].sum() / total_distance_m)
             if total_distance_m > 0 else 0.0
         )
 
-        cost_by_edge_id = dict(zip(score_matrix.edge_ids, cost_array.tolist()))
-        full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
-
-        # 改善計画T536→T537: LazyRoadGraph（Node/Edge payloadは整数index、domain/routing.py
-        # 参照）の構築はタイル集合キーでキャッシュする（infrastructure/search_graph_cache.py、
-        # _get_or_build_lazy_graph参照）。同じタイル集合への2回目以降のリクエストは
-        # asyncio.to_thread自体を経由せず即座に返る。T536当時は`cost_by_edge_id`を渡して
-        # 並行Edge（同一Node間の複数Edge）をcost最小で解消していたが、コストはリクエストごと
-        # （軸重み・風・0次フィルタ）に変わるためタイル集合だけで決まるこのキャッシュとは
-        # 両立しない——`_get_or_build_lazy_graph`のdocstring・モジュールdocstring「対応方針」
-        # 節に判断理由を記載。
-        graph_started = time.monotonic()
-        lazy_graph, lazy_graph_cached = await _get_or_build_lazy_graph(tile_set, graph)
-        # 改善計画T569: `SearchGraphStatics`（一対全木用のCSR構造）自体の構築・キャッシュは
-        # 一対全木を実際に使う`prepare`だけが行う（`preview_segment`は2点間の直接A*のみで
-        # 不要）。ただし再split後の`lazy_graph`・`graph`不整合（改善計画T557、項目4）の
-        # 検知・再構築は、直後の`cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids`
-        # （下記）が同種のKeyErrorに脆弱なため、`prepare`・`preview_segment`共通のこの
-        # 経路で行う——`_get_or_build_search_statics`はこの整合性が保証された後の
-        # `lazy_graph`だけを受け取る前提になり、自前の再構築ロジックを持たない。
-        lazy_graph = await _ensure_lazy_graph_consistent(tile_set, lazy_graph, graph)
-        graph_ms = round((time.monotonic() - graph_started) * 1000)
-
-        # A*のcost_fnへ渡す配列はlazy_graph.edge_ids（並行Edge解消後）の行順に揃える。
-        cost_list = [cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids]
         # A*のestimate_cost_fn（ヒューリスティック）をレグごとにnumpyで1回だけ計算できる
         # よう、lazy_graph.index_to_node_id順の緯度・経度配列を1回だけ構築する。
         node_lat = np.array([graph.nodes[node_id].latitude for node_id in lazy_graph.index_to_node_id])
@@ -486,10 +568,11 @@ class RoadGraphEngine:
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
             "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d "
-            "total_ms=%d lazy_graph_cached=%s missing_axis_edges=%d "
+            "total_ms=%d lazy_graph_cached=%s wind_time_varying=%s speed_kmh=%.1f missing_axis_edges=%d "
             "missing_axis_distance_ratio=%.3f",
             len(graph.edges), len(graph.nodes), materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
-            lazy_graph_cached, int(missing_axis_mask.sum()), missing_axis_distance_ratio,
+            lazy_graph_cached, composer.time_varying, self._assumed_speed_kmh, int(missing_axis_mask.sum()),
+            missing_axis_distance_ratio,
         )
 
         return _SearchGraph(
@@ -500,11 +583,9 @@ class RoadGraphEngine:
             accident_years_covered=accident_years_covered,
             weather=weather,
             night_active=night_active,
-            cost_list=cost_list,
+            composer=composer,
+            outbound=outbound,
             full_edge_row=full_edge_row,
-            difficulty_array=difficulty_array,
-            axis_arrays=published_axis_arrays,
-            contribution_arrays=contribution_arrays,
             node_lat=node_lat,
             node_lon=node_lon,
             edge_ids=score_matrix.edge_ids,
@@ -621,11 +702,10 @@ class RoadGraphEngine:
             origin_node=origin_node,
             node_index=node_index,
             lazy_graph=search.lazy_graph,
-            cost_list=search.cost_list,
+            composer=search.composer,
+            legs=[search.outbound],
             full_edge_row=search.full_edge_row,
-            difficulty_array=search.difficulty_array,
-            axis_arrays=search.axis_arrays,
-            contribution_arrays=search.contribution_arrays,
+            origin=origin,
             node_lat=search.node_lat,
             node_lon=search.node_lon,
             night_active=search.night_active,
@@ -669,7 +749,7 @@ class RoadGraphEngine:
         # 改善計画T536: コストは_build_search_graphでbbox全体ぶん既に合成済み
         # （search.cost_list、lazy_graph.edge_ids順）のため、Edgeごとのコールバックは
         # 不要——素のlistインデックスアクセスをそのままedge_cost_fnとして渡す。
-        cost_fn = search.cost_list.__getitem__
+        cost_fn = search.outbound.cost_list.__getitem__
         estimate_fn = _build_estimate_cost_fn(search.graph, search.node_lat, search.node_lon, destination_node)
         path = await asyncio.to_thread(
             shortest_path_node_ids_lazy, search.lazy_graph, origin_node, destination_node, cost_fn, estimate_fn
@@ -689,7 +769,7 @@ class RoadGraphEngine:
         geometry = _concat_edge_geometries(edges_in_path)
         # road_graphエンジンは実測所要時間モデルを持たないため、他所（segments構築時の
         # estimated_arrival_time）と同じASSUMED_SPEED_KMHで概算する。
-        duration_minutes = round(distance_km / ASSUMED_SPEED_KMH * 60, 1)
+        duration_minutes = round(distance_km / self._assumed_speed_kmh * 60, 1)
 
         return RouteSegment(distance_km=distance_km, duration_minutes=duration_minutes, geometry=geometry)
 
@@ -732,18 +812,34 @@ class RoadGraphEngine:
         # listインデックスアクセスをそのまま渡す。estimate_fn（A*ヒューリスティック）は
         # レグごとに目的地（to_node）が変わるため、レグごとにnumpyで1回だけベクトル計算し直す。
         # 探索は`asyncio.to_thread`で包まず直列に行う（モジュールdocstring参照）。
-        cost_fn = context.cost_list.__getitem__
-
+        # レグごとに、レグ起点を基準点・それまでの累積実距離を時刻オフセットとして
+        # コスト配列を合成する（レグ0は起点から離れる往路レグそのもの）。
         def _trace_segments() -> list[list[str]] | None:
             segment_paths: list[list[str]] = []
-            for from_node, to_node in zip(node_sequence, node_sequence[1:]):
+            context.legs = context.legs[:1]
+            cumulative_m = 0.0
+            for leg_index, (from_node, to_node) in enumerate(zip(node_sequence, node_sequence[1:])):
+                if leg_index == 0:
+                    leg = context.legs[0]
+                else:
+                    from_coordinates = context.graph.nodes[from_node]
+                    leg = context.composer.compose(
+                        f"leg{leg_index}",
+                        Coordinates(latitude=from_coordinates.latitude, longitude=from_coordinates.longitude),
+                        cumulative_m / 1000 / context.composer.speed_kmh, +1,
+                    )
+                    context.legs.append(leg)
                 estimate_fn = _build_estimate_cost_fn(context.graph, context.node_lat, context.node_lon, to_node)
                 segment_path = shortest_path_node_ids_lazy(
-                    context.lazy_graph, from_node, to_node, cost_fn, estimate_fn
+                    context.lazy_graph, from_node, to_node, leg.cost_list.__getitem__, estimate_fn
                 )
                 if segment_path is None:
                     return None
                 segment_paths.append(segment_path)
+                cumulative_m += sum(
+                    context.graph.edges[edge_id].distance_m
+                    for edge_id in path_to_edge_ids_lazy(context.lazy_graph, segment_path)
+                )
             return segment_paths
 
         trace_started = time.monotonic()
@@ -758,7 +854,10 @@ class RoadGraphEngine:
         if not edge_ids:
             raise RoutingError(f"direction {bearing}: resulting path has no edges")
         distance_km = round(sum(context.graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
-        return TracedLoop(bearing=bearing, distance_km=distance_km, data=edge_ids)
+        leg_of_edge = [
+            leg_index for leg_index, segment_path in enumerate(segment_paths) for _ in range(len(segment_path) - 1)
+        ]
+        return TracedLoop(bearing=bearing, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge)
 
     async def select_loop_turnarounds(
         self,
@@ -799,9 +898,13 @@ class RoadGraphEngine:
         tree_started = time.monotonic()
         tree = await asyncio.to_thread(
             build_shortest_path_tree,
-            statics.csr, context.cost_list, statics.edge_length_m, context.origin_index, cost_limit,
+            statics.csr, context.legs[0].cost_list, statics.edge_length_m, context.origin_index, cost_limit,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
+        # 復路レグ: 起点へ向かうレグとして、周回の総所要時間（目標距離÷仮定速度）を起点への
+        # 到着予定時刻に置いて合成する（距離フィルタが目標±許容を強制するため定数扱いできる）。
+        inbound = context.composer.compose("inbound", context.origin, distance_km / context.composer.speed_kmh, -1)
+        context.legs = [context.legs[0], inbound]
 
         length = tree.length_m
         in_ring = (length >= ring_lower_m) & (length <= ring_upper_m)
@@ -815,6 +918,11 @@ class RoadGraphEngine:
             return []
 
         ring_length = length[ring]
+        # 道なり距離／直線距離の比（`domain/wind.py: ROUTE_DETOUR_RATIO`の較正用サマリ）。
+        origin_coordinates = context.graph.nodes[context.origin_node]
+        straight_km = haversine_distance_km_array(context.node_lat[ring], context.node_lon[ring], origin_coordinates)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            detour_ratio_median = float(np.nanmedian(np.where(straight_km > 0, ring_length / 1000 / straight_km, np.nan)))
         if self._penalty_strength > 0:
             with np.errstate(invalid="ignore", divide="ignore"):
                 difficulty = (tree.cost[ring] / ring_length - 1.0) / self._penalty_strength * 100.0
@@ -905,9 +1013,10 @@ class RoadGraphEngine:
             )
         logger.info(
             "select_turnarounds ring_nodes=%d examined=%d selected=%d pool=%d "
-            "ring_km=[%.1f,%.1f] tree_ms=%d total_ms=%d",
+            "ring_km=[%.1f,%.1f] detour_ratio_median=%.2f tree_ms=%d total_ms=%d",
             len(ring), len(ranked_list), len(turnarounds), pool_size,
-            ring_lower_m / 1000, ring_upper_m / 1000, tree_ms, round((time.monotonic() - tree_started) * 1000),
+            ring_lower_m / 1000, ring_upper_m / 1000, detour_ratio_median, tree_ms,
+            round((time.monotonic() - tree_started) * 1000),
         )
         return turnarounds
 
@@ -941,14 +1050,21 @@ class RoadGraphEngine:
         tree_started = time.monotonic()
         forward_tree = await asyncio.to_thread(
             build_shortest_path_tree,
-            context.statics.csr, context.cost_list, context.statics.edge_length_m, context.origin_index,
+            context.statics.csr, context.legs[0].cost_list, context.statics.edge_length_m, context.origin_index,
         )
         reverse_statics, reverse_statics_cached = await _get_or_build_reverse_search_statics(
             context.tile_set, lazy_graph, context.graph
         )
+        # 後ろ向き木は目的地へ向かうレグ: 目的地を基準点に、到着予定時刻を
+        # 「起点〜目的地の直線距離×迂回率÷仮定速度」に置いて合成する。
+        arrival_hours = (
+            ROUTE_DETOUR_RATIO * haversine_distance_km(context.origin, destination) / context.composer.speed_kmh
+        )
+        inbound = context.composer.compose("inbound", destination, arrival_hours, -1)
+        context.legs = [context.legs[0], inbound]
         backward_tree = await asyncio.to_thread(
             build_shortest_path_tree,
-            reverse_statics.csr, context.cost_list, reverse_statics.edge_length_m, destination_index,
+            reverse_statics.csr, inbound.cost_list, reverse_statics.edge_length_m, destination_index,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
@@ -984,6 +1100,7 @@ class RoadGraphEngine:
         ranked.insert(0, best_index)
 
         full_edges_cache: dict[int, list[int] | None] = {}
+        forward_edge_count: dict[int, int] = {}
 
         def full_edges(node_index: int) -> list[int] | None:
             if node_index not in full_edges_cache:
@@ -1004,6 +1121,7 @@ class RoadGraphEngine:
                         full_edges_cache[node_index] = None
                     else:
                         full_edges_cache[node_index] = forward_edges + backward_edges
+                        forward_edge_count[node_index] = len(forward_edges)
             return full_edges_cache[node_index]
 
         selected = select_diverse_by_overlap(
@@ -1018,7 +1136,9 @@ class RoadGraphEngine:
                 continue
             edge_ids = [lazy_graph.edge_ids[index] for index in edges]
             distance_km = round(sum(context.graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
-            traced.append(TracedLoop(bearing=None, distance_km=distance_km, data=edge_ids))
+            forward_count = forward_edge_count[node_index]
+            leg_of_edge = [0] * forward_count + [1] * (len(edge_ids) - forward_count)
+            traced.append(TracedLoop(bearing=None, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge))
 
         logger.info(
             "select_via_nodes reachable=%d within_stretch=%d examined=%d selected=%d max_routes=%d "
@@ -1045,7 +1165,8 @@ class RoadGraphEngine:
         data: _TurnaroundData = turnaround.data
         lazy_graph = context.lazy_graph
         graph = context.graph
-        cost_list = context.cost_list
+        # 復路レグのコスト配列（select_loop_turnaroundsが合成済み。無ければ往路と共有）。
+        cost_list = context.legs[1].cost_list if len(context.legs) > 1 else context.legs[0].cost_list
 
         penalized: set[int] = set(data.outbound_edge_indices)
         for edge_index in data.outbound_edge_indices:
@@ -1082,12 +1203,13 @@ class RoadGraphEngine:
         retrace = overlap_ratio(return_edge_indices, np.fromiter(penalized, dtype=np.int64), context.statics.edge_length_m)
         outbound_edge_ids = [lazy_graph.edge_ids[index] for index in data.outbound_edge_indices]
         edge_ids = [*outbound_edge_ids, *return_edge_ids]
+        leg_of_edge = [0] * len(outbound_edge_ids) + [1] * len(return_edge_ids)
         distance_km = round(sum(graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
         logger.debug(
             "trace_loop_from_turnaround bearing=%d outbound_km=%.1f loop_km=%.1f retrace_ratio=%.2f wall_ms=%d",
             turnaround.bearing, data.outbound_length_m / 1000, distance_km, retrace, trace_wall_ms,
         )
-        return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=edge_ids)
+        return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge)
 
     def is_loop_too_similar(
         self, context: _RoadGraphContext, candidate: TracedLoop, accepted: list[TracedLoop]
@@ -1159,7 +1281,10 @@ class RoadGraphEngine:
         （traced.bearing is None）は訪問順序そのものが要件のため、逆回り合成は行わない。
         """
         elevation_attributes = await self._fetch_elevation_attributes(context, edges_in_path)
-        forward_candidate = self._build_candidate(context, traced, edges_in_path, elevation_attributes, start_time)
+        leg_of_edge = traced.leg_of_edge if traced.leg_of_edge is not None else [0] * len(edges_in_path)
+        forward_candidate = self._build_candidate(
+            context, traced, edges_in_path, elevation_attributes, start_time, leg_of_edge
+        )
 
         if traced.bearing is None:
             return forward_candidate
@@ -1170,8 +1295,9 @@ class RoadGraphEngine:
         reverse_elevation_attributes = _reverse_elevation_attributes(
             edges_in_path, reverse_edges, elevation_attributes
         )
+        # 逆回りは復路だった区間を先に走るため、レグの割当ても逆順（先に走る側が往路配列）。
         reverse_candidate = self._build_candidate(
-            context, traced, reverse_edges, reverse_elevation_attributes, start_time
+            context, traced, reverse_edges, reverse_elevation_attributes, start_time, list(reversed(leg_of_edge))
         )
         return _pick_better_candidate(forward_candidate, reverse_candidate)
 
@@ -1222,6 +1348,7 @@ class RoadGraphEngine:
         edges_in_path: list[EdgeLike],
         elevation_attributes: dict[str, ElevationAttribute],
         start_time: datetime,
+        leg_of_edge: list[int],
     ) -> RouteCandidate:
         # 改善計画T274: edges_in_path・elevation_attributesを引数化し（以前はtraced.dataと
         # 自前のGSI問い合わせ結果を直接使っていた）、逆回り候補（_reverse_traced_edges・
@@ -1231,8 +1358,8 @@ class RoadGraphEngine:
         geometry = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         road_score = _aggregate_road_score(edges_in_path, context.materials)
-        wind_score = _aggregate_wind_score(edges_in_path, context.weather)
-        segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time)
+        wind_score = _aggregate_wind_score(edges_in_path, context, leg_of_edge)
+        segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time, leg_of_edge)
         # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
         # 集約する（Edge単位のままだと30km級で150〜230件になりペイロード・フロント
         # 描画コストが嵩む）。
@@ -1254,34 +1381,24 @@ class RoadGraphEngine:
         elevation_attributes: dict,
         context: _RoadGraphContext,
         start_time: datetime,
+        leg_of_edge: list[int],
     ) -> list[RouteSegmentDetail]:
-        # 改善計画T79: 以前は11個の位置引数を取り、うち8個はcontextフィールドの単純展開
-        # だった（同型dict[str, int]が3つ並び、順序取り違えが検知されない構造）。
-        # edges・elevation_attributes・start_timeはcontextに無いリクエスト単位の値
-        # （edges=候補ごとの経路、elevation_attributes=経路確定後に取得、start_time=呼び出し元
-        # 引数）のため、これらだけを個別引数として残しcontextを1引数で渡す。
-        #
-        # 改善計画T536: 軸別スコア・合成difficultyは、探索コスト算出時に既に合成済みの
-        # `context.axis_arrays`/`context.difficulty_array`（`context.full_edge_row`で
-        # edge_idから行indexを引く）からそのまま読む——以前は`compute_edge_axis_scores`/
-        # `compute_cost_from_axis_scores`を区間ごとに再計算していたが（T143の非DRY構造）、
-        # 探索と表示の二重計算を解消する（T522派生調査「評価ロジック入口〜出口の再点検」で
-        # 指摘された1件）。重み（night時間帯スコープ含む）は探索コスト算出時点で既に
-        # 折り込み済みのため、ここでpreferenceを再構築する必要も無くなった。
+        """区間ごとの表示値を組み立てる。軸別スコア・合成difficulty・寄与度・風ペナルティは、
+        そのEdgeが探索されたレグ（`leg_of_edge`）の合成済み配列（`context.legs`、
+        `context.full_edge_row`で行を引く）からそのまま読み、探索コストと表示を一致させる
+        （二重計算を持たない）。到達予想時刻は経路上の累積距離を仮定巡航速度で割って求める。
+        """
         segments = []
         cumulative_km = 0.0
 
-        for edge in edges:
+        for edge, leg_index in zip(edges, leg_of_edge):
+            leg = context.legs[leg_index]
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_attributes.get(edge.edge_id)
-            # 改善計画T533: surfaceは、Edge単位で統合済みの1オブジェクトから取り出す
-            # （`domain/attributes.py: EdgeMaterialBundle`参照。stop_count等の他材料は
-            # T536以降axis_difficultiesの再計算に使わないため取り出さない）。
             bundle = context.materials.get(edge.edge_id)
             surface_type = bundle.surface if bundle else None
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
-            wind_penalty = compute_wind_penalty(edge, context.weather)
             road_surface_good = classify_osm_surface(surface_type)
 
             row = context.full_edge_row.get(edge.edge_id)
@@ -1291,28 +1408,23 @@ class RoadGraphEngine:
                 axis_scores: dict[str, float] = {}
                 axis_contributions: dict[str, float] = {}
                 composite_difficulty_value: float | None = None
+                wind_penalty: float | None = None
             else:
                 axis_scores = {
                     axis_id: float(arr[row])
-                    for axis_id, arr in context.axis_arrays.items()
+                    for axis_id, arr in leg.axis_arrays.items()
                     if not math.isnan(arr[row])
                 }
-                # 改善計画T550: 「重み付き寄与度」（RouteAxisProfile.tsxのfrontend独自
-                # 再計算を撤去し置き換える値）。context.contribution_arraysは探索コスト
-                # 算出時に既に合成済み（compose_costs_from_axis_matrix参照）のため、
-                # axis_scoresと同じ行から読むだけでよい。
                 axis_contributions = {
                     axis_id: float(arr[row])
-                    for axis_id, arr in context.contribution_arrays.items()
+                    for axis_id, arr in leg.contribution_arrays.items()
                     if not math.isnan(arr[row])
                 }
-                difficulty_value = context.difficulty_array[row]
+                difficulty_value = leg.difficulty_array[row]
                 composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
+                wind_penalty = _wind_penalty_at(leg, row)
 
-            # 区間ごとの推定到達時刻の表示にのみ使う（風の評価は出発時点の風をルート全体に
-            # 一様適用する簡略化のため、到達時刻そのものはwindのfetchには使わない。
-            # domain/evaluation.py: compute_wind_penaltyのdocstring参照）。
-            elapsed_hours = cumulative_km / ASSUMED_SPEED_KMH
+            elapsed_hours = cumulative_km / self._assumed_speed_kmh
             arrival_time = start_time + timedelta(hours=elapsed_hours)
 
             start_lat, start_lon = edge.geometry[0]
@@ -1338,12 +1450,9 @@ class RoadGraphEngine:
                     gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
                     wind_penalty=round(wind_penalty, 2) if wind_penalty is not None else None,
                     road_surface_good=road_surface_good,
-                    # 改善計画T309: axis_scores（compute_edge_axis_scores）は既にaxis_id→
-                    # difficultyの汎用dict（データ無しの軸はキー自体を持たない）のため、
-                    # そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
+                    # axis_scoresは既にaxis_id→difficultyの汎用dict（データ無しの軸はキー自体を
+                    # 持たない）のため、そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
                     axis_difficulties=axis_scores,
-                    # 改善計画T550: 同じ規約（axis_id→寄与度、データ無しはキー自体を
-                    # 持たない）でRouteSegmentDetail.axis_contributionsへ渡す。
                     axis_contributions=axis_contributions,
                     difficulty=composite_difficulty_value,
                 )
@@ -1352,6 +1461,13 @@ class RoadGraphEngine:
 
         return segments
 
+
+def _wind_penalty_at(leg: LegCostArrays, row: int) -> float | None:
+    """レグの合成に使ったwind_penalty材料配列から1行を読む（風データ無し・欠損はNone）。"""
+    if leg.wind_penalty is None:
+        return None
+    value = float(leg.wind_penalty[row])
+    return None if math.isnan(value) else value
 
 async def _get_or_build_lazy_graph(
     tile_set: frozenset[tuple[int, int, int]] | None, graph: RoadGraphLike
@@ -1750,15 +1866,18 @@ def _aggregate_road_score(edges: list[EdgeLike], materials: dict[str, EdgeMateri
     )
 
 
-def _aggregate_wind_score(edges: list[EdgeLike], wind: WeatherConditions | None) -> float | None:
-    """経路全体の距離加重平均wind_penalty（符号付きm/s、正=正味向かい風）。
-    風は区間ごとの推定到達時刻ではなく出発時点の値をルート全体に一様適用する
-    （domain/evaluation.py: compute_wind_penalty参照）。
-    """
+def _aggregate_wind_score(
+    edges: list[EdgeLike], context: _RoadGraphContext, leg_of_edge: list[int]
+) -> float | None:
+    """経路全体の距離加重平均wind_penalty（符号付きm/s、正=正味向かい風）。各Edgeの値は、
+    そのEdgeが探索されたレグの合成済み配列（区間表示と同じ値）から読む。"""
     weighted_total = 0.0
     total_weight = 0.0
-    for edge in edges:
-        penalty = compute_wind_penalty(edge, wind)
+    for edge, leg_index in zip(edges, leg_of_edge):
+        row = context.full_edge_row.get(edge.edge_id)
+        if row is None:
+            continue
+        penalty = _wind_penalty_at(context.legs[leg_index], row)
         if penalty is None:
             continue
         distance_km = edge.distance_m / 1000

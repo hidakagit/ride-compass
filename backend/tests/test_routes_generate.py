@@ -9,6 +9,7 @@ from app.api.routers.routes import _generate_semaphore
 from app.config import settings
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.route import RouteCandidate
+from app.domain.wind import ASSUMED_SPEED_KMH
 from app.infrastructure import job_registry, rate_limiter
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -73,16 +74,19 @@ def fake_open_route_generation_setup(
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters_override: frozenset[str] | None = None,
+        assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     ):
         if captured is not None:
             captured["preference"] = preference_override
             captured["penalty_strength"] = penalty_strength
             captured["max_average_grade_percent"] = max_average_grade_percent
             captured["hard_filters"] = hard_filters_override
+            captured["assumed_speed_kmh"] = assumed_speed_kmh
         yield RouteGenerationSetup(
             generator=generator or FakeRouteGenerator(candidates, no_candidates_reason),
             route_preference=preference_override or RoutePreference(),
             penalty_strength=penalty_strength,
+            assumed_speed_kmh=assumed_speed_kmh,
             max_average_grade_percent=max_average_grade_percent,
             hard_filters=hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS,
         )

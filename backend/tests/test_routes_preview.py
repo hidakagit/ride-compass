@@ -40,7 +40,7 @@ def test_preview_route_returns_segment_on_success():
         geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.71]]},
     )
 
-    async def fake_preview(origin, destination):
+    async def fake_preview(origin, destination, assumed_speed_kmh=None):
         return segment
 
     app.dependency_overrides[get_preview_builder] = lambda: fake_preview
@@ -57,7 +57,7 @@ def test_preview_route_returns_segment_on_success():
 
 
 def test_preview_route_returns_502_on_routing_error():
-    async def fake_preview(origin, destination):
+    async def fake_preview(origin, destination, assumed_speed_kmh=None):
         raise RoutingError("road_graph: no path found between origin and destination")
 
     app.dependency_overrides[get_preview_builder] = lambda: fake_preview
@@ -92,7 +92,7 @@ def test_preview_route_is_rate_limited_per_client():
         geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.71]]},
     )
 
-    async def fake_preview(origin, destination):
+    async def fake_preview(origin, destination, assumed_speed_kmh=None):
         return segment
 
     app.dependency_overrides[get_preview_builder] = lambda: fake_preview
@@ -116,7 +116,7 @@ def test_preview_route_uses_preview_builder_and_returns_road_graph_result():
     )
     captured = {}
 
-    async def fake_preview(origin, destination):
+    async def fake_preview(origin, destination, assumed_speed_kmh=None):
         captured["origin"] = origin
         captured["destination"] = destination
         return segment
@@ -134,7 +134,7 @@ def test_preview_route_uses_preview_builder_and_returns_road_graph_result():
 
 
 def test_preview_route_returns_502_when_preview_builder_raises():
-    async def fake_preview(origin, destination):
+    async def fake_preview(origin, destination, assumed_speed_kmh=None):
         raise RoutingError("road_graph: no path found between origin and destination")
 
     app.dependency_overrides[get_preview_builder] = lambda: fake_preview
@@ -177,6 +177,9 @@ class _FakeGraphServiceForPreview:
 
 class _FakeWeatherServiceForPreview:
     async def get_conditions(self, point, at=None):
+        return None
+
+    async def get_wind_forecast_series(self, point):
         return None
 
 
