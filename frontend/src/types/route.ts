@@ -107,3 +107,11 @@ export type MaterialValuesResponse = Schemas["MaterialValuesResponse"];
 // 管理画面「材料」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
 export type MaterialCoverageEntry = Schemas["MaterialCoverageEntry"];
 export type MaterialCoverageResponse = Schemas["MaterialCoverageResponse"];
+
+// 派生データ鮮度台帳。GET /api/admin/derived-data/freshness（Basic認証必須、
+// 管理画面「鮮度」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
+export type SourceFreshnessEntry = Schemas["SourceFreshnessEntry"];
+export type AlgorithmVersionFreshnessEntry = Schemas["AlgorithmVersionFreshnessEntry"];
+export type GenerationFreshnessEntry = Schemas["GenerationFreshnessEntry"];
+export type ElevationCompletenessEntry = Schemas["ElevationCompletenessEntry"];
+export type DerivedDataFreshnessResponse = Schemas["DerivedDataFreshnessResponse"];

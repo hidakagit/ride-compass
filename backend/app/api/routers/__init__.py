@@ -25,6 +25,10 @@
 - debug_admin.py: /api/admin/debug（debug_modeのランタイム切替・直近ログ取得、改善計画
   T379。axis_admin.pyと同じHTTP Basic認証が必要。本番でSSHせずに一時的なDEBUGログ
   取得を行うための運用API）
+- derived_data_freshness.py: /api/admin/derived-data/freshness（派生データ鮮度台帳、
+  改善計画T571。HTTP Basic認証必須。edge_attribute_counts/way_attribute_counts/
+  designation_attributesが参照する生データ世代の鮮度不整合とelevation_attributesの
+  完成度を返す、material_catalog.pyのcoverageエンドポイントとは別の切り口）
 
 DI工場（サービスの組み立て）はapi/dependencies.pyに集約している。
 """
@@ -37,6 +41,7 @@ from app.api.routers import (
     axis_catalog,
     basemap,
     debug_admin,
+    derived_data_freshness,
     gsi_relief_tile,
     health,
     jma_tile,
@@ -59,3 +64,4 @@ api_router.include_router(axis_admin.router)
 api_router.include_router(axis_catalog.router)
 api_router.include_router(material_catalog.router)
 api_router.include_router(debug_admin.router)
+api_router.include_router(derived_data_freshness.router)

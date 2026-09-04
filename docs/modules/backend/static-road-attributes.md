@@ -11,9 +11,9 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | レイヤー | ファイル |
 |---|---|
 | domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`（[region.py](routing-engine.md)は別モジュール管轄） |
-| services | `tile_serving.py`・`accident_service.py`・`region_service.py` |
-| infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py` |
-| api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_validation.py` |
+| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳、改善計画T571） |
+| infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳の集計クエリ、改善計画T571） |
+| api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_validation.py`・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須、改善計画T571） |
 | batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`_common.py`・`refresh_derived.py` |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
@@ -109,6 +109,21 @@ Way単位版は地図タイルの母集団になる（`road_edges`はルート�
 `run_match`関数をそのまま呼ぶだけで新しいロジックは持たず、いずれか1段が例外を
 送出したら即座に停止し後続は実行しない。`import_pbf.py`・`import_accidents.py`・
 `import_designations.py`（生データ取込そのもの）は対象外。
+
+### 派生データ鮮度台帳（`derived_data_freshness.py`・`derived_data_freshness_service.py`、
+改善計画T571）
+
+`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`が参照している
+`source_*_import_run_id`（上記「事前集計バッチ」参照）を、対応する`*_import_runs`の
+最新成功run（`MAX(id) WHERE status='succeeded'`）と突き合わせ、テーブルに実際反映
+されている世代が古いままではないかを機械判定する（`edge_attribute_counts`/
+`way_attribute_counts`は`algorithm_version`の不一致も検知）。`elevation_attributes`は
+この列を持たないため（[elevation.md](elevation.md)参照）、世代比較ではなく`road_edges`
+との行数差分による完成度のみを別枠で扱う。`GET /api/admin/derived-data/freshness`
+（Basic認証必須）が`/admin`「鮮度」タブ（[axis-studio.md](../frontend/axis-studio.md)）へ
+返す。[evaluation-scoring.md](evaluation-scoring.md)の材料欠損割合（`/admin`「材料」タブ）
+とは別の切り口——材料側は完成度、本節は鮮度を見る。詳細な設計判断は
+[docs/tasks/T571.md](../../tasks/T571.md)参照。
 
 ## タイル配信
 
