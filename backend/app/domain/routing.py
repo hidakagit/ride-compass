@@ -498,19 +498,29 @@ def select_diverse_by_overlap(
     max_overlap_ratios: Sequence[float],
     max_count: int,
     is_compatible: Callable[[T, list[T]], bool] | None = None,
+    *,
+    tie_groups: Sequence[Sequence[T]] | None = None,
+    prefer: Callable[[Sequence[T], list[T]], Sequence[T]] | None = None,
 ) -> list[T]:
     """ランク順の`items`を先頭から貪欲に採用し、採用済みのいずれかと経路の重複率
     （候補側の距離加重、`overlap_ratio`と同じ定義）が閾値を超えるもの、または
     `is_compatible(item, 採用済みリスト)`がFalseのものを飛ばして`max_count`件まで返す
-    （改善計画T531の多様性間引き）。`edge_indices_of`がNoneを返すitemは対象外として飛ばす。
+    （多様性間引き）。`edge_indices_of`がNoneを返すitemは対象外として飛ばす。
 
-    `max_overlap_ratios`は先頭から順に試す閾値列（改善計画T557、項目15。以前は呼び出し側が
-    「1回目の閾値→`max_count`件に満たなければrejected_by_overlapを2回目の緩い閾値で
-    再検査」を2回の関数呼び出しとして組み立てていたが、本関数内のループへ統合した）。
-    ある閾値のパスで重複率だけを理由に飛ばした候補は、次の（より緩い）閾値のパスで
-    再検査する——`is_compatible`がFalse・経路が無い（Noneを返す）ために飛ばした候補は、
-    閾値を緩めても結果が変わらないため再検査しない。`max_count`件に達すれば以降の閾値は
-    試さない。決定的（入力順と同じ規則でしか選ばない）。
+    `max_overlap_ratios`は先頭から順に試す閾値列。ある閾値のパスで重複率だけを理由に
+    飛ばした候補は、次の（より緩い）閾値のパスで再検査する——`is_compatible`がFalse・
+    経路が無い（Noneを返す）ために飛ばした候補は、閾値を緩めても結果が変わらないため
+    再検査しない。`max_count`件に達すれば以降の閾値は試さない。決定的（入力順と同じ
+    規則でしか選ばない）。
+
+    `tie_groups`を渡すと`items`の代わりに「同点グループ列」（ランク順に並んだグループの
+    列、各グループは順位の付かない同点候補の集合）を走査する。グループ内の試行順は
+    `prefer(残り候補, 採用済みリスト)`が返す順で、1件採用するたびに（採用済みが変わった
+    時点で）残り候補に対して呼び直す——「採用済み候補に対してどれだけ離れているか」の
+    ような、採用済み集合に依存する優先順を、走査した候補の数ではなく採用件数
+    （`max_count`以下）の回数だけ計算すれば済むようにするため。`prefer`が無ければ
+    グループ内は与えられた順。`tie_groups`無しの呼び出しは各itemを1件のグループとして
+    扱うため挙動は変わらない。
 
     重複率は採用済み候補ごとの集合をEdgeごとのuint64ビットマスク1本（bit `i` が「採用済み
     `i`件目がこのEdgeを含む」を表す）で持ち、候補のEdge index配列で行を抜き出して
@@ -544,22 +554,41 @@ def select_diverse_by_overlap(
         selected.append(item)
         return True
 
-    candidates: Sequence[T] = items
+    groups: list[list[T]] = (
+        [list(group) for group in tie_groups] if tie_groups is not None else [[item] for item in items]
+    )
     for ratio_index, max_overlap_ratio in enumerate(max_overlap_ratios):
         is_last_ratio = ratio_index == len(max_overlap_ratios) - 1
-        rejected_by_overlap: list[T] | None = None if is_last_ratio else []
-        for item in candidates:
+        rejected_groups: list[list[T]] | None = None if is_last_ratio else []
+        for group in groups:
             if len(selected) >= max_count:
                 break
-            if is_compatible is not None and not is_compatible(item, selected):
-                continue
-            edges = edge_indices_of(item)
-            if edges is None:
-                continue
-            try_accept(item, edges, max_overlap_ratio, rejected_by_overlap)
-        if len(selected) >= max_count or not rejected_by_overlap:
+            rejected_in_group: list[T] | None = None if is_last_ratio else []
+            remaining: list[T] = group
+            while remaining and len(selected) < max_count:
+                ordered = list(prefer(remaining, selected)) if prefer is not None else remaining
+                accepted_at: int | None = None
+                for position, item in enumerate(ordered):
+                    if len(selected) >= max_count:
+                        break
+                    if is_compatible is not None and not is_compatible(item, selected):
+                        continue
+                    edges = edge_indices_of(item)
+                    if edges is None:
+                        continue
+                    if try_accept(item, edges, max_overlap_ratio, rejected_in_group):
+                        accepted_at = position
+                        break
+                if accepted_at is None:
+                    break
+                # 採用より前に飛ばした候補は、採用済みが増えても結果が変わらない（重複率は
+                # 増える一方、非互換・経路無しは不変）ため残り候補から外す。
+                remaining = ordered[accepted_at + 1:]
+            if rejected_groups is not None and rejected_in_group:
+                rejected_groups.append(rejected_in_group)
+        if len(selected) >= max_count or not rejected_groups:
             break
-        candidates = rejected_by_overlap
+        groups = rejected_groups
     return selected
 
 

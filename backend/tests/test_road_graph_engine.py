@@ -2386,41 +2386,47 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
     assert candidate.segments[0].start_longitude == pytest.approx(ORIGIN.longitude)
 
 
-# --- 改善計画T554: select_loop_turnaroundsの同点タイブレーク（_diversify_ties_by_bearing） ---
+# --- select_loop_turnaroundsの同点タイブレーク（_order_by_bearing_spread） ---
 
 
-def test_diversify_ties_by_bearing_spreads_uniform_difficulty_across_quadrants():
-    # difficulty_keyが全件同点（0.0）のとき、最遠点貪欲法は起点近接順の1件目に続き、
-    # 対蹠点（180°）→残り2象限の順に選ぶ——4件を選べば必ず4象限が揃う（車輪状に均等配置した
-    # 8方位、closeness_keyは単調増加で常に一意なタイブレークになる）。
-    difficulty_key = np.zeros(8)
-    closeness_key = np.arange(8, dtype=float)
-    bearing_deg = np.array([0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0])
-
-    order = road_graph_engine._diversify_ties_by_bearing(difficulty_key, closeness_key, bearing_deg)
-
-    quadrants = {int(bearing_deg[i] // 90) for i in order[:4]}
-    assert quadrants == {0, 1, 2, 3}
+def _spread_fixture():
+    # 車輪状に均等配置した8方位。closenessは単調増加で常に一意なタイブレークになる。
+    nodes = list(range(8))
+    bearing_by_node = {n: 45.0 * n for n in nodes}
+    closeness_by_node = {n: float(n) for n in nodes}
+    return nodes, bearing_by_node, closeness_by_node
 
 
-def test_diversify_ties_by_bearing_preserves_difficulty_order_across_groups():
-    # difficulty_keyに差がある（同点でない）グループ間の順序は、方位がどれだけ離れて
-    # いても崩れない——bearing_degは意図的に「離れているほど有利に見える」配置にしてある。
-    difficulty_key = np.array([0.0, 0.0, 1.0, 1.0])
-    closeness_key = np.array([5.0, 1.0, 5.0, 1.0])
-    bearing_deg = np.array([0.0, 200.0, 10.0, 190.0])
+def test_order_by_bearing_spread_uses_closeness_when_nothing_selected():
+    nodes, bearing_by_node, closeness_by_node = _spread_fixture()
 
-    order = road_graph_engine._diversify_ties_by_bearing(difficulty_key, closeness_key, bearing_deg)
+    ordered = road_graph_engine._order_by_bearing_spread(list(reversed(nodes)), [], bearing_by_node, closeness_by_node)
 
-    assert difficulty_key[order].tolist() == sorted(difficulty_key.tolist())
+    assert ordered == nodes
 
 
-def test_diversify_ties_by_bearing_is_deterministic():
-    difficulty_key = np.array([0.0, 0.0, 0.0, 1.0, 1.0])
-    closeness_key = np.array([3.0, 1.0, 2.0, 4.0, 0.5])
-    bearing_deg = np.array([10.0, 260.0, 95.0, 300.0, 40.0])
+def test_order_by_bearing_spread_covers_four_quadrants_when_selecting_greedily():
+    # 採用済みとの角距離の最小値が最大の候補を順に採用すると、対蹠点（180°）→残り2象限の
+    # 順になり、4件で必ず4象限が揃う。
+    nodes, bearing_by_node, closeness_by_node = _spread_fixture()
+    selected: list[int] = []
+    remaining = list(nodes)
+    while len(selected) < 4:
+        ordered = road_graph_engine._order_by_bearing_spread(remaining, selected, bearing_by_node, closeness_by_node)
+        selected.append(ordered[0])
+        remaining = ordered[1:]
 
-    first = road_graph_engine._diversify_ties_by_bearing(difficulty_key.copy(), closeness_key.copy(), bearing_deg.copy())
-    second = road_graph_engine._diversify_ties_by_bearing(difficulty_key.copy(), closeness_key.copy(), bearing_deg.copy())
+    assert selected[1] == 4  # 1件目（closeness最小=0°）の対蹠点
+    assert {int(bearing_by_node[n] // 90) for n in selected} == {0, 1, 2, 3}
 
-    assert np.array_equal(first, second)
+
+def test_order_by_bearing_spread_is_deterministic_and_breaks_ties_by_closeness_then_index():
+    bearing_by_node = {10: 90.0, 11: 90.0, 12: 270.0, 13: 90.0}
+    closeness_by_node = {10: 2.0, 11: 1.0, 12: 5.0, 13: 1.0}
+
+    first = road_graph_engine._order_by_bearing_spread([10, 11, 12, 13], [0], {**bearing_by_node, 0: 0.0}, closeness_by_node)
+    second = road_graph_engine._order_by_bearing_spread([13, 12, 11, 10], [0], {**bearing_by_node, 0: 0.0}, closeness_by_node)
+
+    # 角距離はすべて90°で同値→closeness昇順（11,13は同値→index昇順）→10、12の順
+    assert first == [11, 13, 10, 12]
+    assert first == second

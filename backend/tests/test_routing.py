@@ -707,6 +707,49 @@ def test_select_diverse_by_overlap_uses_compatibility_hook_and_skips_missing_pat
     )
 
 
+def test_select_diverse_by_overlap_tie_groups_reorder_by_prefer_after_each_acceptance():
+    # 同点グループ内の試行順はpreferが採用済みリストに応じて決め、1件採用するたびに
+    # 残り候補へ呼び直す。グループ間の順序（ランク順）は変えない。
+    lengths = np.ones(6)
+    paths = {"a": [0], "b": [1], "c": [2], "d": [3], "e": [4], "f": [5]}
+    calls: list[tuple[list[str], list[str]]] = []
+
+    def prefer(remaining, selected):
+        calls.append((list(remaining), list(selected)))
+        # 採用済みが無ければ与えられた順、あれば「採用済みの末尾と同じ頭文字群の反対」を
+        # 模した固定の優先順（逆順）にする。
+        return list(remaining) if not selected else list(reversed(remaining))
+
+    selected = select_diverse_by_overlap(
+        [], paths.__getitem__, lengths, max_overlap_ratios=[0.5], max_count=4,
+        tie_groups=[["a", "b", "c"], ["d", "e", "f"]], prefer=prefer,
+    )
+
+    assert selected == ["a", "c", "b", "f"]
+    # グループ1: 採用済み無しで["a","b","c"]→aを採用→残り["b","c"]を採用済み[a]で呼び直し
+    # →逆順でcを採用→残り["b"]→bを採用。グループ2: 採用済み[a,c,b]で呼び出し→逆順でfを採用、
+    # ここでmax_count到達。
+    assert calls == [
+        (["a", "b", "c"], []),
+        (["b", "c"], ["a"]),
+        (["b"], ["a", "c"]),
+        (["d", "e", "f"], ["a", "c", "b"]),
+    ]
+
+
+def test_select_diverse_by_overlap_tie_groups_retry_rejected_with_relaxed_ratio():
+    lengths = np.array([100.0, 100.0, 100.0, 100.0])
+    paths = {"first": [0, 1, 2], "mostly_same": [0, 1, 3], "other": [3]}
+
+    selected = select_diverse_by_overlap(
+        [], paths.__getitem__, lengths, max_overlap_ratios=[0.6, 0.85], max_count=3,
+        tie_groups=[["first", "mostly_same"], ["other"]],
+    )
+
+    # 0.6ではmostly_same（67%重複）を飛ばし、otherを採用。埋まらないので0.85で再検査して採用。
+    assert selected == ["first", "other", "mostly_same"]
+
+
 def test_select_diverse_by_overlap_falls_back_to_relaxed_threshold_within_single_call():
     # 改善計画T557（項目15）: 複数の閾値max_overlap_ratiosを先頭から順に試す単一呼び出しへ
     # 統合（以前は呼び出し側が「1回目→埋まらなければrejected_by_overlapを2回目の緩い

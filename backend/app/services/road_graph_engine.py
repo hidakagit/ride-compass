@@ -83,7 +83,7 @@ import asyncio
 import logging
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -825,20 +825,27 @@ class RoadGraphEngine:
         difficulty_key = np.round(difficulty, 1)
         closeness_key = np.abs(ring_length - ring_center_m)
         order = np.lexsort((ring, closeness_key, difficulty_key))[:MAX_RING_CANDIDATES_EXAMINED]
-        # 改善計画T554: 同点（difficulty_keyが等しい）グループ内は、既に並べた候補との
-        # 方位角距離が最大のものを優先する順序へ並べ替える（最遠点貪欲法、方位は生成機構
-        # ではなく同点タイブレーク専用）。difficulty群自体の順序（主キー）は変えない。
-        origin_node = context.graph.nodes[context.origin_node]
-        bearing_deg = bearing_between_array(
-            origin_node, context.node_lat[ring[order]], context.node_lon[ring[order]]
-        )
-        order = order[_diversify_ties_by_bearing(difficulty_key[order], closeness_key[order], bearing_deg)]
         ranked = ring[order]
-        # 改善計画T557（項目10）: difficulty_by_node／近接判定用平面座標は、以降で実際に
-        # 引かれうる`ranked`（上限MAX_RING_CANDIDATES_EXAMINED件）ぶんだけ用意する
-        # （以前はring全件・グラフ全Node分を毎リクエスト作っていた）。
+        # difficulty_by_node／方位／近接判定用平面座標は、以降で実際に引かれうる`ranked`
+        # （上限MAX_RING_CANDIDATES_EXAMINED件）ぶんだけ用意する。
         ranked_list = ranked.tolist()
-        difficulty_by_node = dict(zip(ranked_list, difficulty_key[order][: len(ranked_list)].tolist()))
+        difficulty_by_node = dict(zip(ranked_list, difficulty_key[order].tolist()))
+        # 同点（difficulty_keyが等しい）候補はグループとして渡し、グループ内の試行順は
+        # 「採用済み候補との方位角距離の最小値が最大」（最遠点貪欲法、方位は生成機構ではなく
+        # 同点タイブレーク専用）で採用のたびに決め直す。difficulty群自体の順序（主キー）・
+        # 同点でない候補間の順序は変えない。
+        origin_node = context.graph.nodes[context.origin_node]
+        bearing_by_node = dict(zip(
+            ranked_list,
+            bearing_between_array(origin_node, context.node_lat[ranked], context.node_lon[ranked]).tolist(),
+        ))
+        closeness_by_node = dict(zip(ranked_list, closeness_key[order].tolist()))
+        tie_groups = [
+            group.tolist() for group in np.split(ranked, np.flatnonzero(np.diff(difficulty_key[order])) + 1)
+        ]
+
+        def prefer(remaining: Sequence[int], selected: list[int]) -> list[int]:
+            return _order_by_bearing_spread(remaining, selected, bearing_by_node, closeness_by_node)
 
         lazy_graph = context.lazy_graph
         outbound_cache: dict[int, list[int] | None] = {}
@@ -873,8 +880,9 @@ class RoadGraphEngine:
         # 改善計画T557（項目15）: 「1回目の閾値→埋まらなければ2回目の緩和閾値で再検査」を
         # select_diverse_by_overlap内のループへ統合し、呼び出し側の2回呼びを1回にした。
         selected = select_diverse_by_overlap(
-            ranked_list, outbound_edges, statics.edge_length_m,
+            [], outbound_edges, statics.edge_length_m,
             [TURNAROUND_MAX_OVERLAP_RATIO, TURNAROUND_RELAXED_OVERLAP_RATIO], pool_size, far_enough,
+            tie_groups=tie_groups, prefer=prefer,
         )
 
         turnarounds: list[LoopTurnaround] = []
@@ -1503,45 +1511,27 @@ def _build_estimate_cost_fn(
     return _estimate_distances_m(graph, node_lat, node_lon, target_node_id).__getitem__
 
 
-def _diversify_ties_by_bearing(
-    difficulty_key: np.ndarray, closeness_key: np.ndarray, bearing_deg: np.ndarray
-) -> np.ndarray:
-    """`difficulty_key`が等しい同点グループ内を、既に並べた候補との方位角距離の最小値が
-    最大のものから並べる最遠点貪欲法で並べ替えた、`0..n-1`の順列を返す（改善計画T554）。
-    引数はすべて同じ添字空間（呼び出し側が`np.lexsort((..., closeness_key, difficulty_key))`
-    済みの配列を渡す前提）。差がある場合（`difficulty_key`が異なる）は方位を一切考慮せず、
-    グループの順序自体（`difficulty_key`昇順）は変えない——各グループは既に
-    `difficulty_key`昇順で連続している。全体で最初の1件（累積で1件も並べていない時点）
-    だけは`closeness_key`最小（呼び出し側の既存の並び=各グループ内`closeness_key`昇順を
-    そのまま使う）。それ以降は、累積で既に並べた**すべて**の候補（別の同点グループの
-    ものも含む）との方位角距離の最小値が最大の候補を優先する。
+def _order_by_bearing_spread(
+    remaining: Sequence[int],
+    selected: list[int],
+    bearing_by_node: Mapping[int, float],
+    closeness_by_node: Mapping[int, float],
+) -> list[int]:
+    """同点グループの残り候補（Node index）を、採用済み候補との方位角距離の最小値が大きい順
+    （同値はリング中心近さ`closeness`昇順、さらにNode index昇順で決定的）に並べて返す。
+    採用済みが無ければリング中心近さ順。`select_diverse_by_overlap`の`prefer`として
+    1件採用するたびに呼ばれるため、計算量はO(残り候補数×採用済み件数)を採用回数ぶん。
     """
-    n = len(difficulty_key)
-    if n == 0:
-        return np.empty(0, dtype=np.int64)
-    result = np.empty(n, dtype=np.int64)
-    boundaries = np.flatnonzero(np.diff(difficulty_key)) + 1
-    groups = np.split(np.arange(n), boundaries)
-    placed_bearings = np.empty(0, dtype=float)
-    pos = 0
-    for group in groups:
-        remaining = group[np.lexsort((group, closeness_key[group]))]
-        if pos == 0:
-            first, remaining = remaining[0], remaining[1:]
-            result[0] = first
-            placed_bearings = np.append(placed_bearings, bearing_deg[first])
-            pos = 1
-        while len(remaining):
-            diffs = np.abs(bearing_deg[remaining][:, None] - placed_bearings[None, :])
-            diffs = np.minimum(diffs, 360.0 - diffs)
-            min_dist = diffs.min(axis=1)
-            best_pos = np.lexsort((remaining, closeness_key[remaining], -min_dist))[0]
-            best = remaining[best_pos]
-            result[pos] = best
-            placed_bearings = np.append(placed_bearings, bearing_deg[best])
-            pos += 1
-            remaining = np.delete(remaining, best_pos)
-    return result
+    if not selected:
+        return sorted(remaining, key=lambda node_index: (closeness_by_node[node_index], node_index))
+    bearings = np.array([bearing_by_node[node_index] for node_index in remaining], dtype=float)
+    placed = np.array([bearing_by_node[node_index] for node_index in selected], dtype=float)
+    diffs = np.abs(bearings[:, None] - placed[None, :])
+    diffs = np.minimum(diffs, 360.0 - diffs)
+    min_dist = diffs.min(axis=1)
+    closeness = np.array([closeness_by_node[node_index] for node_index in remaining], dtype=float)
+    order = np.lexsort((np.asarray(remaining, dtype=np.int64), closeness, -min_dist))
+    return [remaining[i] for i in order]
 
 
 def _loop_edge_lengths_by_physical_segment(

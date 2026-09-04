@@ -222,13 +222,14 @@ scipy.sparse.csgraph、軸重み付きコスト、コスト上限で打ち切り
 物差し、小数1桁へ丸めた値）の昇順、同点（丸め後のdifficultyが等しい）は「リング中心
 （`目標/((2.0+2.3)/2)`、上下限の算術平均ではなく目標距離ベースで決める——許容が目標
 以上で下限が0クランプされる場合に算術平均だと中心が0付近まで下がってしまうため）に
-近い順」で並べたうえで、`_diversify_ties_by_bearing`が同点グループ内をさらに
-方位（`geo.py: bearing_between_array`）の最遠点貪欲法で並べ替える——グループ内で
-既に並べた候補との角距離の最小値が最大のものを優先し、グループの1件目（累積で
-採用済みが無い時点）だけはリング中心近さ最小のまま。difficulty群自体の順序
-（主キー）・同点でない候補間の順序はこの並べ替えでは変わらない
-（[T554](../../tasks/T554.md)）。上位から
-`domain/routing.py: select_diverse_by_overlap`で、既採用候補と往路の重複率が
+近い順」で並べる。同点の候補は`domain/routing.py: select_diverse_by_overlap`へ
+グループ（`tie_groups`）として渡し、グループ内の試行順は`_order_by_bearing_spread`
+（`prefer`）が「採用済み候補との方位（`geo.py: bearing_between_array`）の角距離の
+最小値が最大」の順に決め、1件採用するたびに残り候補へ対して決め直す（最遠点貪欲法。
+方位は生成機構ではなく同点タイブレーク専用で、比較対象は採用済み候補[最大`pool_size`件]
+だけのため計算量は走査件数×採用件数に留まる）。採用済みが無い時点ではリング中心近さ順。
+difficulty群自体の順序（主キー）・同点でない候補間の順序はこの並べ替えでは変わらない。
+`select_diverse_by_overlap`は上位から、既採用候補と往路の重複率が
 `TURNAROUND_MAX_OVERLAP_RATIO`（0.6）を超えるもの・`MIN_TURNAROUND_SEPARATION_KM`
 （1.5km）より近いものを飛ばして`pool_size`件採る（埋まらなければ
 `TURNAROUND_RELAXED_OVERLAP_RATIO`＝0.85へ緩めてやり直す）。
@@ -452,6 +453,9 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 - **`overlap_ratio`/`select_diverse_by_overlap`**: 2つのEdge index集合の
   距離加重重複率、およびランク順の候補列から重複率・近接度（`is_compatible`）で貪欲に
   多様な集合を選ぶ汎用関数（周回の折返し点選定・目的地ルートのvia-node選定の両方に使う）。
+  候補列の代わりに同点グループ列（`tie_groups`）と、グループ内の試行順を採用済みリストに
+  応じて返す`prefer`を渡せる（1件採用するたびに残り候補へ呼び直す。周回の折返し点選定が
+  方位タイブレークに使う）。
   採用済み集合はEdgeごとのuint64ビットマスク1本（bit `i`＝「採用済み`i`件目がこのEdgeを
   含む」、常駐メモリはEdge数×8B）で持つ——`max_count`（実際の呼び出し元の上限は
   `TURNAROUND_POOL_MAX`=40・`MAX_ROUTES`=15）は64を超えられず、超える呼び出しは
