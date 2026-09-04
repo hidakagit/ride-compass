@@ -51,8 +51,8 @@ _V = TypeVar("_V")
 
 class _TileKeyedLru(Generic[_K, _V]):
     """タイル集合キー（またはそれを含むタプル）のプロセス内LRU。get/set/pop/clear/sizeの
-    定型実装を3キャッシュ（lazy_graph・search_statics・routable_index）で共通化する
-    （改善計画T557、項目18）。上限件数はモジュール変数`_max_entries`をテストが
+    定型実装を4キャッシュ（lazy_graph・search_statics・reverse_search_statics・
+    routable_index）で共通化する（改善計画T557、項目18）。上限件数はモジュール変数`_max_entries`をテストが
     monkeypatchできるよう、`set`呼び出しのたびに引数で受け取る（インスタンスに固定値を
     持たせない）。
     """
@@ -91,6 +91,10 @@ class _TileKeyedLru(Generic[_K, _V]):
 # 同じキー・同じ寿命で保持する。
 _lazy_graph_cache: "_TileKeyedLru[TileSet, LazyRoadGraph]" = _TileKeyedLru()
 _search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
+# 目的地からの後ろ向き木（転置CSR）用。`_search_statics_cache`と同じタイル集合キー・
+# 寿命だが、`csr`が転置されている点だけが異なる別インスタンスのため別キャッシュに分ける
+# （目的地ルート生成時のみ構築、周回生成では使わない）。
+_reverse_search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
 _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _TileKeyedLru()
 _max_entries = DEFAULT_MAX_ENTRIES
 
@@ -111,6 +115,14 @@ def set_search_statics(tile_set: TileSet, statics: "SearchGraphStatics") -> None
     _search_statics_cache.set(tile_set, statics, _max_entries)
 
 
+def get_reverse_search_statics(tile_set: TileSet) -> "SearchGraphStatics | None":
+    return _reverse_search_statics_cache.get(tile_set)
+
+
+def set_reverse_search_statics(tile_set: TileSet, statics: "SearchGraphStatics") -> None:
+    _reverse_search_statics_cache.set(tile_set, statics, _max_entries)
+
+
 def get_routable_index(key: RoutableIndexKey) -> "NodeSpatialIndex | None":
     return _routable_index_cache.get(key)
 
@@ -120,20 +132,23 @@ def set_routable_index(key: RoutableIndexKey, index: "NodeSpatialIndex") -> None
 
 
 def invalidate_tile_set(tile_set: TileSet) -> None:
-    """指定タイル集合のエントリを3キャッシュすべてから破棄する（改善計画T557、項目4）。
+    """指定タイル集合のエントリを4キャッシュ（`_lazy_graph_cache`・`_search_statics_cache`・
+    `_reverse_search_statics_cache`・`_routable_index_cache`）すべてから破棄する
+    （改善計画T557、項目4）。
 
-    `_lazy_graph_cache`/`_search_statics_cache`はLRU上限に達すると独立に
-    popitem(last=False)で最古のエントリを追い出すため、同じ`tile_set`が一方には残り
-    他方からは既に消えている状態になりうる。この状態で再splitが挟まると、残った側の
-    `LazyRoadGraph`（古いedge_id集合）と新しく取得した`graph`（新edge_id集合）の
-    組み合わせで`domain/routing.py: build_search_graph_statics`がKeyError相当
-    （`LazyGraphEdgeMismatchError`）を起こす。検出したら本関数で3キャッシュとも
-    該当`tile_set`を破棄し、`RoadGraphEngine`側が`lazy_graph`ごと再構築する。
+    `_lazy_graph_cache`/`_search_statics_cache`/`_reverse_search_statics_cache`は
+    LRU上限に達すると独立にpopitem(last=False)で最古のエントリを追い出すため、同じ
+    `tile_set`が一方には残り他方からは既に消えている状態になりうる。この状態で再splitが
+    挟まると、残った側の`LazyRoadGraph`（古いedge_id集合）と新しく取得した`graph`
+    （新edge_id集合）の組み合わせで`domain/routing.py: build_search_graph_statics`が
+    KeyError相当（`LazyGraphEdgeMismatchError`）を起こす。検出したら本関数で4キャッシュ
+    とも該当`tile_set`を破棄し、`RoadGraphEngine`側が`lazy_graph`ごと再構築する。
     `_routable_index_cache`のキーは`(tile_set, hard_filters, max_average_grade_percent)`
     のタプルのため、先頭要素で一致するものをすべて破棄する。
     """
     _lazy_graph_cache.pop(tile_set)
     _search_statics_cache.pop(tile_set)
+    _reverse_search_statics_cache.pop(tile_set)
     _routable_index_cache.pop_matching(lambda key: key[0] == tile_set)
 
 
@@ -141,6 +156,7 @@ def clear() -> None:
     """テスト用。キャッシュを全消去する（本番コードパスからは呼ばない）。"""
     _lazy_graph_cache.clear()
     _search_statics_cache.clear()
+    _reverse_search_statics_cache.clear()
     _routable_index_cache.clear()
 
 
@@ -150,6 +166,10 @@ def lazy_graph_cache_size() -> int:  # テストの検証用
 
 def search_statics_cache_size() -> int:  # テストの検証用
     return _search_statics_cache.size()
+
+
+def reverse_search_statics_cache_size() -> int:  # テストの検証用
+    return _reverse_search_statics_cache.size()
 
 
 def routable_index_cache_size() -> int:  # テストの検証用

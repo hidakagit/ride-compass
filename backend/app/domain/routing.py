@@ -219,14 +219,23 @@ class CsrGraphStructure:
     entry_keys: np.ndarray
 
 
-def build_csr_structure(lazy_graph: LazyRoadGraph) -> CsrGraphStructure:
+def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> CsrGraphStructure:
     """`LazyRoadGraph`（並行Edge解消後の`edge_index_by_node_pair`）からCSR構造を組む。
     重複ペアは`build_lazy_road_graph`が既に解消済みのため、単純に`(from, to)`の昇順へ
-    整列するだけでよい。"""
+    整列するだけでよい。
+
+    `reverse=True`のときはキーを`v * node_count + u`（行=to Node index、列=from Node index）
+    で組み、転置グラフのCSRを返す（改善計画T551）。転置CSR上で`source_index=destination`
+    としてDijkstraをかけると、各Nodeから見た「元の有向グラフでのdestinationまでの
+    最短経路コスト・距離」が得られる（後ろ向き木、`select_destination_vias`参照）。
+    """
     node_count = len(lazy_graph.index_to_node_id)
     pairs = lazy_graph.edge_index_by_node_pair
     entry_count = len(pairs)
-    keys = np.fromiter((u * node_count + v for u, v in pairs.keys()), dtype=np.int64, count=entry_count)
+    if reverse:
+        keys = np.fromiter((v * node_count + u for u, v in pairs.keys()), dtype=np.int64, count=entry_count)
+    else:
+        keys = np.fromiter((u * node_count + v for u, v in pairs.keys()), dtype=np.int64, count=entry_count)
     edge_index = np.fromiter(pairs.values(), dtype=np.int64, count=entry_count)
     order = np.argsort(keys, kind="stable")
     keys = keys[order]
@@ -273,13 +282,19 @@ def find_missing_lazy_graph_edge_id(lazy_graph: LazyRoadGraph, graph: RoadGraphL
     return next((edge_id for edge_id in lazy_graph.edge_ids if edge_id not in graph.edges), None)
 
 
-def build_search_graph_statics(lazy_graph: LazyRoadGraph, graph: RoadGraphLike) -> SearchGraphStatics:
+def build_search_graph_statics(
+    lazy_graph: LazyRoadGraph, graph: RoadGraphLike, *, reverse: bool = False
+) -> SearchGraphStatics:
     """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを`find_missing_lazy_graph_
     edge_id`で確認し、崩れていれば`LazyGraphEdgeMismatchError`を送出する（呼び出し側の
     `RoadGraphEngine._ensure_lazy_graph_consistent`が事前にこのチェックを済ませ、崩れて
     いれば`lazy_graph`ごと再構築してから呼ぶ前提のため、実運用でここが実際に送出することは
     無い想定——チェック自体を二重に持つことで、将来この関数が事前チェック無しで直接
     呼ばれても安全なままにする）。
+
+    `reverse=True`は転置CSR版の`SearchGraphStatics`を返す（改善計画T551、目的地からの
+    後ろ向き木用）。`edge_length_m`は向きに依存しない（Edge index→実距離の対応表）ため
+    共通で、`csr`のみ`build_csr_structure(..., reverse=True)`に差し替える。
     """
     missing_edge_id = find_missing_lazy_graph_edge_id(lazy_graph, graph)
     if missing_edge_id is not None:
@@ -292,7 +307,7 @@ def build_search_graph_statics(lazy_graph: LazyRoadGraph, graph: RoadGraphLike) 
         dtype=float,
         count=len(lazy_graph.edge_ids),
     )
-    return SearchGraphStatics(csr=build_csr_structure(lazy_graph), edge_length_m=edge_length_m)
+    return SearchGraphStatics(csr=build_csr_structure(lazy_graph, reverse=reverse), edge_length_m=edge_length_m)
 
 
 @dataclass
@@ -403,6 +418,30 @@ def tree_path_edge_indices(tree: ShortestPathTree, lazy_graph: LazyRoadGraph, ta
         edge_indices.append(pair_index[(parent, current)])
         current = parent
     edge_indices.reverse()
+    return edge_indices
+
+
+def tree_path_edge_indices_to_source(
+    tree: ShortestPathTree, lazy_graph: LazyRoadGraph, start_index: int
+) -> list[int] | None:
+    """`build_csr_structure(..., reverse=True)`から組んだ木（後ろ向き木、`tree.source_index`が
+    目的地）で、`start_index`から目的地までの経路を、実グラフの有向Edge（`start_index`→…→
+    `tree.source_index`の順）のEdge index列で返す（改善計画T551）。転置CSR上の
+    `predecessor[X]=P`は実グラフの`X→P`という辺を表すため、`tree_path_edge_indices`
+    （前向き木・`(parent, current)`順でEdge検索し最後に反転）とはEdge検索の引数順が逆
+    （`(current, parent)`）で、経路は既に`start→source`の順に積み上がるため反転は不要。
+    到達不能ならNone、`start_index`自身が`tree.source_index`なら空リスト。"""
+    if not tree.is_reached(start_index):
+        return None
+    edge_indices: list[int] = []
+    current = int(start_index)
+    pair_index = lazy_graph.edge_index_by_node_pair
+    predecessor = tree.predecessor_list
+    source = tree.source_index
+    while current != source:
+        parent = predecessor[current]
+        edge_indices.append(pair_index[(current, parent)])
+        current = parent
     return edge_indices
 
 

@@ -1349,6 +1349,185 @@ async def test_prepare_snaps_origin_away_from_node_isolated_by_hard_constraint()
     assert context.origin_node == "b"
 
 
+# --- 改善計画T551: 目的地ルート（経由地無し）のvia-node方式代替経路 ---
+
+
+DESTINATION_20KM = destination_point(ORIGIN, 90, 20.0)
+
+
+def build_destination_graph(
+    origin: Coordinates, destination: Coordinates, offsets_km: list[float], *, highway: str | None = None,
+) -> RoadGraph:
+    """目的地ルート（via-node方式、改善計画T551）向けの、起点oと目的地dを結ぶ互いに独立した
+    経路群を持つRoad Graph。`offsets_km[i]`ごとに起点・目的地を結ぶ直線の中点から垂直方向へ
+    その距離だけ外れた位置に折返し点`via-{i}`を置き、o→via-{i}→dの2Edge（片道のみ）で結ぶ
+    （offsetが大きいほど迂回になり経路長が伸びる。offset=0はほぼ直線＝最短経路）。
+    via-node方式は前向き木・後ろ向き木がそれぞれ順方向のEdgeしか辿らないため、経路の
+    再現に復路（逆方向Edge）は不要。
+    """
+    nodes: dict[str, Node] = {
+        "o": Node(node_id="o", latitude=origin.latitude, longitude=origin.longitude),
+        "d": Node(node_id="d", latitude=destination.latitude, longitude=destination.longitude),
+    }
+    edges: dict[str, DirectedEdge] = {}
+    overrides = {"highway": highway} if highway is not None else {}
+    bearing = bearing_between(origin, destination)
+    midpoint = destination_point(origin, bearing, haversine_distance_km(origin, destination) / 2)
+    for i, offset_km in enumerate(offsets_km):
+        via_point = destination_point(midpoint, (bearing + 90) % 360, offset_km) if offset_km else midpoint
+        via_id = f"via-{i}"
+        nodes[via_id] = Node(node_id=via_id, latitude=via_point.latitude, longitude=via_point.longitude)
+        edges[f"e-{i}-out"] = _edge(f"e-{i}-out", "o", via_id, origin, via_point, **overrides)
+        edges[f"e-{i}-in"] = _edge(f"e-{i}-in", via_id, "d", via_point, destination, **overrides)
+    return RoadGraph(graph_version="test", nodes=nodes, edges=edges)
+
+
+async def _prepare_destination_context(generator: RouteGenerator, destination: Coordinates, radius_km: float = 20.0):
+    context = await generator._engine.prepare(ORIGIN, radius_km=radius_km, waypoints=[destination])
+    assert context is not None
+    return context
+
+
+async def test_select_via_nodes_includes_shortest_route_as_top_candidate():
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0, 6.0])
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    traced = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=3)
+
+    assert traced
+    assert traced[0].data == ["e-0-out", "e-0-in"]
+    assert all(t.bearing is None for t in traced)
+
+
+async def test_select_via_nodes_excludes_routes_beyond_stretch_ratio():
+    # offset=12kmの経路は直線比で約1.56倍（>ALTERNATIVE_MAX_STRETCH=1.3）に伸びるため
+    # 候補から除外される。offset=5km（約1.06倍）は残る。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 5.0, 12.0])
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    traced = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=10)
+
+    returned_edge_ids = {edge_id for t in traced for edge_id in t.data}
+    assert "e-2-out" not in returned_edge_ids
+    assert "e-2-in" not in returned_edge_ids
+    assert any("e-0-out" in t.data for t in traced)
+    assert any("e-1-out" in t.data for t in traced)
+
+
+async def test_select_via_nodes_collapses_same_physical_route_to_one_candidate():
+    # 1本の経路をo->via0a->via0b->dの3Edgeに分割しても、どのvia-node（via0a・via0b・
+    # o自身・d自身）を起点にしても同一の経路[e1,e2,e3]に潰れるため、候補は1件になる。
+    mid1 = destination_point(ORIGIN, 90, 7.0)
+    mid2 = destination_point(ORIGIN, 90, 13.0)
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "via0a": Node(node_id="via0a", latitude=mid1.latitude, longitude=mid1.longitude),
+            "via0b": Node(node_id="via0b", latitude=mid2.latitude, longitude=mid2.longitude),
+            "d": Node(node_id="d", latitude=DESTINATION_20KM.latitude, longitude=DESTINATION_20KM.longitude),
+        },
+        edges={
+            "e1": _edge("e1", "o", "via0a", ORIGIN, mid1),
+            "e2": _edge("e2", "via0a", "via0b", mid1, mid2),
+            "e3": _edge("e3", "via0b", "d", mid2, DESTINATION_20KM),
+        },
+    )
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    traced = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=5)
+
+    assert len(traced) == 1
+    assert traced[0].data == ["e1", "e2", "e3"]
+
+
+async def test_select_via_nodes_excludes_there_and_back_via_node():
+    # via-node "v" は o->a->v（前向き）・v->a->d（後ろ向き）としてのみ到達可能なため、
+    # 前向き・後ろ向きの両経路が同じ物理区間{a,v}を共有する（行って戻る形）。
+    point_a = destination_point(ORIGIN, 90, 1.0)
+    point_v = destination_point(point_a, 90, 0.1)
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "a": Node(node_id="a", latitude=point_a.latitude, longitude=point_a.longitude),
+            "v": Node(node_id="v", latitude=point_v.latitude, longitude=point_v.longitude),
+            "d": Node(node_id="d", latitude=DESTINATION_20KM.latitude, longitude=DESTINATION_20KM.longitude),
+        },
+        edges={
+            "e-oa": _edge("e-oa", "o", "a", ORIGIN, point_a),
+            "e-av": _edge("e-av", "a", "v", point_a, point_v),
+            "e-va": _edge("e-va", "v", "a", point_v, point_a),
+            "e-ad": _edge("e-ad", "a", "d", point_a, DESTINATION_20KM),
+        },
+    )
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    traced = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=5)
+
+    for t in traced:
+        assert not ({"e-av", "e-va"} <= set(t.data))
+
+
+async def test_select_via_nodes_is_deterministic_for_tied_candidates():
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 1.0, 2.0, 3.0])
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    first = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=4)
+    second = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=4)
+
+    assert [t.data for t in first] == [t.data for t in second]
+
+
+async def test_select_via_nodes_caches_reverse_search_statics_by_tile_set():
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0])
+    tile_set = frozenset({(12, 100, 200)})
+    generator, _, _ = make_generator(graph, tile_set=tile_set)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    assert search_graph_cache.reverse_search_statics_cache_size() == 0
+    await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=1)
+    assert search_graph_cache.reverse_search_statics_cache_size() == 1
+
+
+async def test_select_via_nodes_returns_empty_when_destination_is_unreachable():
+    # 起点側("o"-"x")と目的地側("d"-"y")が互いに繋がっていない2つの連結成分。
+    # 目的地はNode自体は存在する（スナップは成功する）が、起点から到達不能。
+    x_point = destination_point(ORIGIN, 0, 1.0)
+    y_point = destination_point(DESTINATION_20KM, 0, 1.0)
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "x": Node(node_id="x", latitude=x_point.latitude, longitude=x_point.longitude),
+            "d": Node(node_id="d", latitude=DESTINATION_20KM.latitude, longitude=DESTINATION_20KM.longitude),
+            "y": Node(node_id="y", latitude=y_point.latitude, longitude=y_point.longitude),
+        },
+        edges={
+            "e-ox": _edge("e-ox", "o", "x", ORIGIN, x_point),
+            "e-dy": _edge("e-dy", "d", "y", DESTINATION_20KM, y_point),
+        },
+    )
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    traced = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=3)
+
+    assert traced == []
+
+
 # --- 改善計画T537: search_graph_cache（探索用グラフ・索引のタイル集合キーLRU） ---
 #
 # GraphService.get_search_materials_for_bboxがタイル集合を返した場合のみ、prepare/
@@ -1653,9 +1832,11 @@ def _build_context_score_fields(
     return dict(
         cost_list=cost_array.tolist(),
         # 改善計画T531: 一対全木用（これらのテストはselect_loop_turnaroundsを経由しないため
-        # statics=None・origin_index=0のダミーでよい）。
+        # statics=None・origin_index=0のダミーでよい）。改善計画T551: tile_set=Noneも同じ理由
+        # （select_via_nodesを経由しないテストのダミー）。
         statics=None,
         origin_index=0,
+        tile_set=None,
         full_edge_row=full_edge_row,
         difficulty_array=difficulty_array,
         axis_arrays=published_axis_arrays,

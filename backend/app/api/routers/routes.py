@@ -146,9 +146,12 @@ class RouteGenerateRequest(BaseModel):
     # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。
     hard_filters: HardFilterOverride | None = None
     # 改善計画T531: 返す周回候補の上限件数（フロンティア方式の折返し点候補から距離フィルタ
-    # 合格・overall_difficulty昇順の上位この件数を返す）。経由地・目的地指定ルートでは
-    # 無視される（常に1件）。上限・既定値はOpenAPI生成物（route-generate-config.json）経由で
-    # フロントへ渡す唯一の情報源にする（MAX_ROUTE_DISTANCE_KMと同じ設計原則）。
+    # 合格・overall_difficulty昇順の上位この件数を返す）。改善計画T551: 経由地の無い目的地
+    # ルート（destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
+    # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
+    # あるとレグごとに代替案が組合せで増えるため）。上限・既定値はOpenAPI生成物
+    # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする
+    # （MAX_ROUTE_DISTANCE_KMと同じ設計原則）。
     max_routes: int = Field(ge=1, le=MAX_ROUTES, default=DEFAULT_MAX_ROUTES)
     # 改善計画T364: ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で
     # 通過する単一経路を生成する）。指定時は周回候補の生成を行わない。bboxが際限なく
@@ -190,7 +193,8 @@ class GenerationConditions(BaseModel):
     max_average_grade_percent: float | None
     # 改善計画T266: 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
-    # 改善計画T531: 周回候補の上限件数（実際に適用された値。経由地・目的地指定時は無視される）。
+    # 改善計画T531: 周回候補の上限件数（実際に適用された値）。改善計画T551: 経由地の無い
+    # 目的地ルートにも適用される。経由地を1つ以上伴う経由地・目的地指定時は無視される。
     max_routes: int
     # 改善計画T364: 指定された経由地（未指定はNone、周回候補の生成）。
     waypoints: list[Coordinates] | None
@@ -301,6 +305,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     waypoints=request.waypoints or [],
                     distance_km=request.distance_km,
                     destination=request.destination,
+                    max_routes=request.max_routes,
                 )
             else:
                 candidates = await setup.generator.generate_loops(
