@@ -90,17 +90,26 @@
   border-bottom: none;
 }
 
-.numeric {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+/* 材料名が2行に折り返す高さを使い、割合（数値＋バー）と「欠損 / 総数」を縦に重ねて
+   横幅を抑える。 */
+.ratioCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 8rem;
 }
 
-.ratioCell {
+.ratioRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-width: 10rem;
+}
+
+.ratioCounts {
+  color: var(--color-muted);
+  font-size: var(--font-size-xs, 0.75rem);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .ratioValue {

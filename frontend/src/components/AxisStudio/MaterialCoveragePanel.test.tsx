@@ -90,7 +90,7 @@ describe("MaterialCoveragePanel", () => {
     expect(screen.getByRole("button", { name: "再集計する" })).toBeInTheDocument();
   });
 
-  it("欠損時の扱いでグループ分けし、各グループ内は欠損割合の高い順に割合・件数つきで表示する", async () => {
+  it("欠損時の扱いでグループ分けし、各グループ内は欠損割合の高い順に、割合セルへ件数を重ねて表示する", async () => {
     vi.mocked(getMaterialCoverage).mockResolvedValue(REPORT);
     const user = userEvent.setup();
     render(<MaterialCoveragePanel />);
@@ -108,13 +108,14 @@ describe("MaterialCoveragePanel", () => {
     const surfaceCells = within(unknownRows[1]).getAllByRole("cell");
     expect(surfaceCells[0]).toHaveAttribute("title", "osm_raw_ways.surface");
     expect(surfaceCells[1].textContent).toBe("Way");
+    expect(surfaceCells).toHaveLength(3);
     expect(surfaceCells[2].textContent).toContain("85.0%");
-    expect(surfaceCells[3].textContent).toBe("850 / 1,000");
+    expect(surfaceCells[2].textContent).toContain("850 / 1,000");
 
     const gradientCells = within(unknownRows[0]).getAllByRole("cell").map((cell) => cell.textContent);
     expect(gradientCells[1]).toBe("Edge");
     expect(gradientCells[2]).toContain("88.4%");
-    expect(gradientCells[3]).toBe("3,536 / 4,000");
+    expect(gradientCells[2]).toContain("3,536 / 4,000");
 
     const definiteGroup = screen.getByRole("region", { name: "タグ不在を確定値として評価する材料（参考）" });
     const definiteRows = rowsOf(within(definiteGroup).getByRole("table"));

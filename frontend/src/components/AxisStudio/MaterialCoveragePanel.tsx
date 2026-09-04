@@ -61,9 +61,6 @@ function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] 
             <th scope="col">材料</th>
             <th scope="col">母集団</th>
             <th scope="col">欠損割合</th>
-            <th scope="col" className={styles.numeric}>
-              欠損 / 総数
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -73,16 +70,18 @@ function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] 
               <td>{entry.population ? POPULATION_LABELS[entry.population] : "-"}</td>
               <td>
                 <div className={styles.ratioCell}>
-                  <span className={styles.ratioValue}>{formatPercent(entry.missing_ratio)}</span>
-                  <span
-                    className={styles.ratioBar}
-                    role="presentation"
-                    style={{ width: `${Math.round((entry.missing_ratio ?? 0) * 100)}%` }}
-                  />
+                  <div className={styles.ratioRow}>
+                    <span className={styles.ratioValue}>{formatPercent(entry.missing_ratio)}</span>
+                    <span
+                      className={styles.ratioBar}
+                      role="presentation"
+                      style={{ width: `${Math.round((entry.missing_ratio ?? 0) * 100)}%` }}
+                    />
+                  </div>
+                  <span className={styles.ratioCounts}>
+                    {formatCount(entry.missing)} / {formatCount(entry.total)}
+                  </span>
                 </div>
-              </td>
-              <td className={styles.numeric}>
-                {formatCount(entry.missing)} / {formatCount(entry.total)}
               </td>
             </tr>
           ))}

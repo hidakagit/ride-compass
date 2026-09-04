@@ -154,8 +154,10 @@ listAxisDefinitions() ──→ definitions（全軸）
   評価に穴は開かない）。欠損割合の数字が同じでも意味が正反対のため同じ表へ並べない。
   各グループは`<section aria-label>`で、見出し＋1行の説明＋表。行は欠損割合の降順
   （`sortByMissingRatioDesc`）。`definite`の行は`data-missing-semantics`属性でバーの色を落とす。
-- 表の列は材料（論理名 - 物理名）・母集団（Way/Edge）・欠損割合（数値＋バー）・
-  「欠損 / 総数」の4列。欠損の判定根拠（`source`）は材料セルの`title`（ホバー表示）に置く。
+- 表の列は材料（論理名 - 物理名）・母集団（Way/Edge）・欠損割合の3列。欠損割合セルは
+  数値＋バーの下に「欠損 / 総数」を小さく重ねる（材料名が2行に折り返す高さを使い、
+  スマホ幅でも横スクロールなしで収める）。欠損の判定根拠（`source`）は材料セルの`title`
+  （ホバー表示）に置く。
 - 母集団の定義・件数ベースであること・判定根拠の見方といった補足は、見出し脇の(i)
   （`Map/InfoPopover`＋`recipeControls.module.css`の`infoButton`/`infoTooltip`、
   `AxisComposer`の材料説明と同じ見た目）へ畳み、常時表示の説明文は各グループ1行だけにする。
