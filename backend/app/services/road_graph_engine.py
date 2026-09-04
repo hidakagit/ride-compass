@@ -135,6 +135,7 @@ from app.domain.routing import (
     select_diverse_by_overlap,
     shortest_path_node_ids_lazy,
     tree_path_edge_indices,
+    tree_path_edge_indices_to_source,
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH
@@ -188,6 +189,19 @@ RING_CENTER_RATIO = (LOOP_TO_OUTBOUND_RATIO_MIN + LOOP_TO_OUTBOUND_RATIO_MAX) / 
 # 一対全探索のコスト上限（リング上限×(1+P)）に掛ける余裕。Edge単位の丸め（0.1m）の
 # 積み上がりで上限ぎりぎりのNodeを取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
+
+# --- 改善計画T551: 目的地ルート（via-node方式、経由地無し）の代替経路選定パラメータ ---
+# via-node候補（前向き木＋後ろ向き木の合成経路）の長さが、最も合成コストの低い経路
+# （＝経由地無しの従来の単一生成が返す経路と同じ）の長さの何倍までを候補にするか。
+ALTERNATIVE_MAX_STRETCH = 1.3
+# 採用済み候補との経路全体（前向き＋後ろ向き）の重複率上限。TURNAROUND_MAX_OVERLAP_RATIO/
+# TURNAROUND_RELAXED_OVERLAP_RATIOと同じ役割・同じ値を使う（周回の往路間引きと同じ
+# 「同一コリドー上の候補を間引く」意図のため、値を変える理由が無い）。
+VIA_NODE_MAX_OVERLAP_RATIO = TURNAROUND_MAX_OVERLAP_RATIO
+VIA_NODE_RELAXED_OVERLAP_RATIO = TURNAROUND_RELAXED_OVERLAP_RATIO
+# ランキング上位から間引き判定にかけるvia-node候補数の上限（MAX_RING_CANDIDATES_EXAMINEDと
+# 同じ役割）。目的地ルートのbboxは周回より小さいため周回より小さい上限にする。
+MAX_VIA_NODE_CANDIDATES_EXAMINED = 2000
 
 logger = logging.getLogger("ridecompass.graph")
 
@@ -252,6 +266,10 @@ class _RoadGraphContext:
     statics: SearchGraphStatics
     # 改善計画T531: origin_nodeのlazy_graph上のNode index（一対全木の起点）。
     origin_index: int
+    # 改善計画T551: `select_via_nodes`が目的地からの後ろ向き木（転置CSR）をタイル集合キーで
+    # キャッシュ・取得するために保持する（`_SearchGraph.tile_set`と同じ値、`SearchGraphStatics`
+    # と違い後ろ向き木は目的地ルートでしか使わないため`prepare`では構築しない）。
+    tile_set: frozenset[tuple[int, int, int]] | None
     # 改善計画T531: 復路探索（折返し点→起点）のA*ヒューリスティック配列。目的地が常に起点の
     # ため、リクエストで1回だけ計算し全候補で共有する（初回の復路探索時に遅延構築）。
     origin_estimate: list[float] | None = None
@@ -613,6 +631,7 @@ class RoadGraphEngine:
             night_active=search.night_active,
             statics=statics,
             origin_index=search.lazy_graph.node_id_to_index[origin_node],
+            tile_set=search.tile_set,
         )
 
     async def preview_segment(
@@ -883,6 +902,123 @@ class RoadGraphEngine:
             ring_lower_m / 1000, ring_upper_m / 1000, tree_ms, round((time.monotonic() - tree_started) * 1000),
         )
         return turnarounds
+
+    async def select_via_nodes(
+        self, context: _RoadGraphContext, destination: Coordinates, max_routes: int
+    ) -> list[TracedLoop]:
+        """目的地ルート（起点→目的地、経由地無し）のvia-node方式で、互いに異なる経路を
+        最大`max_routes`件返す（改善計画T551）。周回のretraceペナルティ付き復路探索
+        （`trace_loop_from_turnaround`）とは異なり、起点からの前向き木・目的地からの
+        後ろ向き木（CSRの転置、`_get_or_build_reverse_search_statics`）を各1回求めれば、
+        どのNode（via-node）を経由する経路も両木の経路復元だけで確定するため、候補ごとの
+        追加探索が発生しない。
+
+        1. 全Nodeについて経由路長`len_f+len_b`・合成コスト`cost_f+cost_b`をベクトル計算し、
+           合成コスト最小のNode（＝経由地無しの従来の単一生成が返す経路と同じ、"最良路"）の
+           長さの`ALTERNATIVE_MAX_STRETCH`倍以内のNodeだけを候補にする。
+        2. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
+           先頭へ回す——合成コスト最小であっても、伸び率の許す範囲でより平均difficultyの
+           低い経路が他に存在すれば難易度順ではそちらが上位に来うるため、「最良路は必ず
+           結果に含まれる」（docs/tasks/T551.md完了条件）をランキングとは独立に保証する。
+        3. `select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じEdgeを共有する
+           Node（行って戻る形になり経路として成立しない）を除外しつつ、採用済み候補との
+           重複率が閾値超のものを飛ばして`max_routes`件採る。
+        """
+        lazy_graph = context.lazy_graph
+        destination_node = find_nearest_node_indexed(context.node_index, destination)
+        if destination_node is None:
+            return []
+        destination_index = lazy_graph.node_id_to_index[destination_node]
+
+        tree_started = time.monotonic()
+        forward_tree = await asyncio.to_thread(
+            build_shortest_path_tree,
+            context.statics.csr, context.cost_list, context.statics.edge_length_m, context.origin_index,
+        )
+        reverse_statics, reverse_statics_cached = await _get_or_build_reverse_search_statics(
+            context.tile_set, lazy_graph, context.graph
+        )
+        backward_tree = await asyncio.to_thread(
+            build_shortest_path_tree,
+            reverse_statics.csr, context.cost_list, reverse_statics.edge_length_m, destination_index,
+        )
+        tree_ms = round((time.monotonic() - tree_started) * 1000)
+
+        combined_cost = forward_tree.cost + backward_tree.cost
+        combined_length = forward_tree.length_m + backward_tree.length_m
+        reachable = np.isfinite(combined_cost)
+        if not np.any(reachable):
+            logger.info(
+                "select_via_nodes reachable=0 tree_ms=%d reverse_statics_cached=%s",
+                tree_ms, reverse_statics_cached,
+            )
+            return []
+
+        best_index = int(np.argmin(np.where(reachable, combined_cost, np.inf)))
+        best_length_m = float(combined_length[best_index])
+        within_stretch = reachable & (combined_length <= best_length_m * ALTERNATIVE_MAX_STRETCH)
+        candidates = np.flatnonzero(within_stretch)[:MAX_VIA_NODE_CANDIDATES_EXAMINED]
+
+        if self._penalty_strength > 0:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                difficulty = (
+                    (combined_cost[candidates] / combined_length[candidates] - 1.0) / self._penalty_strength * 100.0
+                )
+            difficulty = np.where(np.isfinite(difficulty), difficulty, 0.0)
+        else:
+            # P=0はコスト＝距離（難易度を一切考慮しない）なので全候補同点。
+            difficulty = np.zeros(len(candidates))
+        difficulty_key = np.round(difficulty, 1)
+        order = np.lexsort((candidates, difficulty_key))
+        ranked = candidates[order].tolist()
+        if best_index in ranked:
+            ranked.remove(best_index)
+        ranked.insert(0, best_index)
+
+        full_edges_cache: dict[int, list[int] | None] = {}
+
+        def full_edges(node_index: int) -> list[int] | None:
+            if node_index not in full_edges_cache:
+                forward_edges = tree_path_edge_indices(forward_tree, lazy_graph, node_index)
+                backward_edges = tree_path_edge_indices_to_source(backward_tree, lazy_graph, node_index)
+                if forward_edges is None or backward_edges is None:
+                    full_edges_cache[node_index] = None
+                else:
+                    # 行って戻る形（前向き・後ろ向きが同じ物理区間を通る）の判定は、
+                    # is_loop_too_similarと同じ進行方向を無視した物理区間キーで行う——
+                    # 同じ道でも逆方向Edge（別のedge_id/index）を通れば単純なEdge index
+                    # 集合の比較では検出できないため。
+                    forward_ids = [lazy_graph.edge_ids[i] for i in forward_edges]
+                    backward_ids = [lazy_graph.edge_ids[i] for i in backward_edges]
+                    forward_segments = _loop_edge_lengths_by_physical_segment(context.graph, forward_ids)
+                    backward_segments = _loop_edge_lengths_by_physical_segment(context.graph, backward_ids)
+                    if forward_segments.keys() & backward_segments.keys():
+                        full_edges_cache[node_index] = None
+                    else:
+                        full_edges_cache[node_index] = forward_edges + backward_edges
+            return full_edges_cache[node_index]
+
+        selected = select_diverse_by_overlap(
+            ranked, full_edges, context.statics.edge_length_m,
+            [VIA_NODE_MAX_OVERLAP_RATIO, VIA_NODE_RELAXED_OVERLAP_RATIO], max_routes,
+        )
+
+        traced: list[TracedLoop] = []
+        for node_index in selected:
+            edges = full_edges(node_index)
+            if not edges:
+                continue
+            edge_ids = [lazy_graph.edge_ids[index] for index in edges]
+            distance_km = round(sum(context.graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
+            traced.append(TracedLoop(bearing=None, distance_km=distance_km, data=edge_ids))
+
+        logger.info(
+            "select_via_nodes reachable=%d within_stretch=%d examined=%d selected=%d max_routes=%d "
+            "best_km=%.1f tree_ms=%d reverse_statics_cached=%s",
+            int(reachable.sum()), len(candidates), len(ranked), len(traced), max_routes,
+            best_length_m / 1000, tree_ms, reverse_statics_cached,
+        )
+        return traced
 
     async def trace_loop_from_turnaround(self, context: _RoadGraphContext, turnaround: LoopTurnaround) -> TracedLoop:
         """往路（一対全木上の経路、`select_loop_turnarounds`で確定済み）に、往路と別の
@@ -1295,6 +1431,26 @@ async def _get_or_build_search_statics(
     statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph)
     if tile_set is not None:
         search_graph_cache.set_search_statics(tile_set, statics)
+    return statics, False
+
+
+async def _get_or_build_reverse_search_statics(
+    tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
+) -> tuple[SearchGraphStatics, bool]:
+    """目的地からの後ろ向き木用の転置CSR（`domain/routing.py: SearchGraphStatics`、
+    `reverse=True`）を、`_get_or_build_search_statics`と同じタイル集合キーでキャッシュする
+    （改善計画T551）。目的地ルートのvia-node方式選定（`select_via_nodes`）だけが呼ぶ——
+    周回生成・`preview_segment`は後ろ向き木を使わないため構築しない。`lazy_graph`は
+    呼び出し元（`prepare`）が`_ensure_lazy_graph_consistent`で検証済みのものである前提
+    （`_get_or_build_search_statics`と同じ契約、再構築ロジックは持たない）。
+    """
+    if tile_set is not None:
+        cached = search_graph_cache.get_reverse_search_statics(tile_set)
+        if cached is not None:
+            return cached, True
+    statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph, reverse=True)
+    if tile_set is not None:
+        search_graph_cache.set_reverse_search_statics(tile_set, statics)
     return statics, False
 
 

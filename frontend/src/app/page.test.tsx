@@ -668,6 +668,27 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
+  it("改善計画T551: 目的地ルート候補タブは順位番号を付けるが「方向」は付けない", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [
+        makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート", distance_km: 20.3 }),
+        makeCandidate({ id: "route-destination-01", direction_label: "目的地ルート", distance_km: 22.1 }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "1. 目的地ルート 20.3 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "2. 目的地ルート 22.1 km" })).toBeInTheDocument();
+    });
+  });
+
   it("候補0件で成功したとき、専用のエラーメッセージを表示する", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({

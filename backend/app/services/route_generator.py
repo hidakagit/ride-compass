@@ -22,6 +22,12 @@
 - `trace_loop_from_turnaround(context, turnaround)`: 往路（折返し点まで）＋往路と別の
   復路（起点まで）の周回を引き、距離とエンジン固有の中間データを`TracedLoop`で返す。
   失敗はRoutingErrorをraiseする（その候補はスキップされる）
+- `select_via_nodes(context, destination, max_routes)`: 経由地の無い目的地ルート
+  （起点→目的地）のvia-node方式代替経路選定（改善計画T551）。互いに異なる経路を最大
+  `max_routes`件、`TracedLoop`（`bearing=None`）のリストで返す。両方向の一対全木の
+  経路復元だけで確定するため個々の候補が失敗することは無く、`select_loop_turnarounds`
+  と違って戻り値がそのまま最終候補になる（`trace_loop_from_turnaround`に相当する
+  候補ごとの再探索ステップが無い）
 - `trace_loop(context, waypoints, bearing)`: 経由地・目的地指定ルート（`generate_via_waypoints`）
   用。指定した地点列を順に結ぶ経路を`TracedLoop`で返す
 - `evaluate_loops(context, traced, start_time)`: 距離フィルタを通過した候補
@@ -138,6 +144,10 @@ class LoopRoutingEngine(Protocol):
     ) -> list[LoopTurnaround]: ...
 
     async def trace_loop_from_turnaround(self, context: Any, turnaround: LoopTurnaround) -> TracedLoop: ...
+
+    async def select_via_nodes(
+        self, context: Any, destination: Coordinates, max_routes: int
+    ) -> list[TracedLoop]: ...
 
     async def trace_loop(
         self,
@@ -315,17 +325,26 @@ class RouteGenerator:
         waypoints: list[Coordinates],
         distance_km: float,
         destination: Coordinates | None = None,
+        max_routes: int = 1,
     ) -> list[RouteCandidate]:
-        """改善計画T364/T365: ユーザーが指定した経由地（中継地）を順に通る単一経路を生成する。
+        """改善計画T364/T365: ユーザーが指定した経由地（中継地）を順に通る経路を生成する。
 
         `generate_loops`の折返し点選定・距離許容フィルタとは独立した経路（経由地が
         あれば、目的は「近い距離の周回」ではなく「指定した地点を通ること」自体のため）。
         `distance_km`はRoad Graph取得bboxの見積り半径にのみ使う参考値で、実際の距離は
         経由地の配置で決まる（距離フィルタは行わない）。`destination`省略時は起点に
-        戻る周回（従来のT364挙動）、指定時は起点に戻らず目的地で終わる片道ルートになる
-        （T365、`candidate_identity`とは別に終点到達後にid/direction_labelを
-        route-destination/目的地ルートへ上書きする）。
+        戻る周回（従来のT364挙動、常に1件）。
+
+        改善計画T551: `destination`指定かつ経由地が無い（起点→目的地のみ）場合は
+        `_generate_destination_routes`（via-node方式）が`max_routes`件の互いに異なる
+        代替経路を返す。経由地が1つ以上ある場合はレグごとに代替案が組合せで増えるため、
+        v1では従来どおり`trace_loop`による単一経路のまま（`max_routes`は無視され、
+        `candidate_identity`とは別に終点到達後にid/direction_labelをroute-destination/
+        目的地ルートへ上書きする）。
         """
+        if destination is not None and not waypoints:
+            return await self._generate_destination_routes(origin, destination, distance_km, max_routes)
+
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
@@ -382,6 +401,71 @@ class RouteGenerator:
             "prepare_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
             self.engine_name, origin_label, len(waypoints), destination is not None, distance_km, traced.distance_km,
             prepare_ms, trace_ms, evaluate_ms, total_ms,
+        )
+        return candidates
+
+    async def _generate_destination_routes(
+        self, origin: Coordinates, destination: Coordinates, distance_km: float, max_routes: int,
+    ) -> list[RouteCandidate]:
+        """経由地の無い目的地ルート（起点→目的地のみ）を、via-node方式で`max_routes`件
+        まで生成する（改善計画T551）。`generate_loops`のような候補ごとの再探索・失敗
+        スキップが無い（`select_via_nodes`が確定済みの経路だけを返す）ぶん、
+        `generate_loops`より単純な「選定→評価」の2段階になる。
+        """
+        radius_km = distance_km * TURNAROUND_RADIUS_RATIO
+        started = time.monotonic()
+        origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
+        self.last_no_candidates_reason = None
+
+        context = await self._engine.prepare(origin, radius_km, waypoints=[destination])
+        prepare_ms = round((time.monotonic() - started) * 1000)
+        if context is None:
+            logger.warning(
+                "generate(destination) engine=%s origin=%s max_routes=%d -> no context prepare_ms=%d",
+                self.engine_name, origin_label, max_routes, prepare_ms,
+            )
+            self.last_no_candidates_reason = (
+                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
+                "対応エリア外の可能性があります。"
+            )
+            return []
+
+        select_started = time.monotonic()
+        traced = await self._engine.select_via_nodes(context, destination, max_routes)
+        select_ms = round((time.monotonic() - select_started) * 1000)
+        if not traced:
+            logger.warning(
+                "generate(destination) engine=%s origin=%s max_routes=%d -> no via-node candidates "
+                "prepare_ms=%d select_ms=%d",
+                self.engine_name, origin_label, max_routes, prepare_ms, select_ms,
+            )
+            self.last_no_candidates_reason = (
+                "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
+            )
+            return []
+
+        evaluate_started = time.monotonic()
+        start_time = datetime.now(JST)
+        candidates = await self._engine.evaluate_loops(context, traced, start_time)
+        candidates = [self._with_overall_difficulty(c) for c in candidates]
+        candidates = [self._with_axis_difficulties(c) for c in candidates]
+        candidates = [self._with_axis_contributions(c) for c in candidates]
+        # 改善計画T548と同じ規約: overall_difficulty昇順（算出不能はNone→末尾）。
+        candidates.sort(
+            key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
+        )
+        candidates = [
+            candidate.model_copy(update={"id": f"route-destination-{rank:02d}", "direction_label": "目的地ルート"})
+            for rank, candidate in enumerate(candidates)
+        ]
+        evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
+        total_ms = round((time.monotonic() - started) * 1000)
+
+        logger.info(
+            "generate(destination) engine=%s origin=%s max_routes=%d -> candidates=%d "
+            "prepare_ms=%d select_ms=%d evaluate_ms=%d total_ms=%d",
+            self.engine_name, origin_label, max_routes, len(candidates),
+            prepare_ms, select_ms, evaluate_ms, total_ms,
         )
         return candidates
 

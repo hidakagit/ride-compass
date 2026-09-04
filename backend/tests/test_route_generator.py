@@ -43,15 +43,21 @@ class FakeEngine:
         distances_by_bearing: dict[int | None, float | Exception],
         prepare_result: object = "ctx",
         too_similar_bearings: set[int | None] = frozenset(),
+        via_node_distances: list[float] | None = None,
     ):
         self._distances = distances_by_bearing
         self._prepare_result = prepare_result
         # 改善計画T553: is_loop_too_similarがTrueを返すべき候補のbearing集合
         # （テストが明示的に指定した場合のみ。既定は空＝常にFalse）。
         self._too_similar_bearings = too_similar_bearings
+        # 改善計画T551: select_via_nodesが返す候補の距離列。省略時はdistances_by_bearing[None]
+        # （bearing=None、Exceptionでなければ）を1件だけ返す後方互換の既定値にする——
+        # 経由地・目的地指定ルートの既存テストの大半はこの1件だけを見ているため。
+        self._via_node_distances = via_node_distances
         self.prepare_calls: list[tuple[Coordinates, float]] = []
         self.prepare_waypoints: list[Coordinates] | None = None
         self.select_calls: list[tuple[float, float, int]] = []
+        self.select_via_nodes_calls: list[tuple[Coordinates, int]] = []
         self.traced_bearings: list[int] = []
         self.traced_waypoints: dict[int | None, list[Coordinates]] = {}
         self.evaluated_traced: list[TracedLoop] | None = None
@@ -63,6 +69,14 @@ class FakeEngine:
         self.prepare_calls.append((origin, radius_km))
         self.prepare_waypoints = waypoints
         return self._prepare_result
+
+    async def select_via_nodes(self, context, destination, max_routes):
+        self.select_via_nodes_calls.append((destination, max_routes))
+        distances = self._via_node_distances
+        if distances is None:
+            outcome = self._distances.get(None)
+            distances = [] if outcome is None or isinstance(outcome, Exception) else [outcome]
+        return [TracedLoop(bearing=None, distance_km=d, data=None) for d in distances[:max_routes]]
 
     async def select_loop_turnarounds(self, context, distance_km, distance_tolerance_km, pool_size):
         self.select_calls.append((distance_km, distance_tolerance_km, pool_size))
@@ -550,15 +564,108 @@ async def test_generate_via_waypoints_with_destination_ends_at_destination_not_o
 
 
 async def test_generate_via_waypoints_destination_only_without_intermediate_waypoints():
+    # 改善計画T551: 経由地の無い目的地ルートはvia-node方式（select_via_nodes）経由になり、
+    # 従来のtrace_loopは呼ばれない。
     generator, engine = make_generator({None: 20.0})
 
     candidates = await generator.generate_via_waypoints(
         ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION
     )
 
-    assert engine.traced_waypoints[None] == [ORIGIN, DESTINATION]
+    assert engine.select_via_nodes_calls == [(DESTINATION, 1)]
+    assert engine.traced_waypoints == {}
+    assert engine.prepare_waypoints == [DESTINATION]
     assert len(candidates) == 1
-    assert candidates[0].id == "route-destination"
+    assert candidates[0].id == "route-destination-00"
+    assert candidates[0].direction_label == "目的地ルート"
+
+
+async def test_generate_destination_routes_passes_max_routes_through_to_select_via_nodes():
+    generator, engine = make_generator({}, via_node_distances=[18.0, 19.5, 21.0])
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=2
+    )
+
+    assert engine.select_via_nodes_calls == [(DESTINATION, 2)]
+    assert len(candidates) == 2
+    assert [c.id for c in candidates] == ["route-destination-00", "route-destination-01"]
+    assert all(c.direction_label == "目的地ルート" for c in candidates)
+
+
+async def test_generate_destination_routes_returns_empty_with_reason_when_no_via_node_candidates():
+    generator, engine = make_generator({}, via_node_distances=[])
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION
+    )
+
+    assert candidates == []
+    assert generator.last_no_candidates_reason is not None
+    assert "目的地" in generator.last_no_candidates_reason
+
+
+async def test_generate_destination_routes_returns_empty_with_reason_when_no_context():
+    generator, engine = make_generator({}, prepare_result=None, via_node_distances=[20.0])
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION
+    )
+
+    assert candidates == []
+    assert engine.select_via_nodes_calls == []
+    assert generator.last_no_candidates_reason is not None
+    assert "道路データ" in generator.last_no_candidates_reason
+
+
+class DestinationSegmentedFakeEngine(FakeEngine):
+    """destinationルート（bearingが常にNone）向けのsegments注入フェイク。SegmentedFakeEngine
+    はsegmentsをbearingキーで引くため、bearingが常にNoneになる目的地ルート候補同士を
+    区別できない——代わりにTracedLoop.dataの値をキーにする。"""
+
+    def __init__(self, via_node_traced: list[TracedLoop], segments_by_data: dict, **kwargs):
+        super().__init__({}, **kwargs)
+        self._via_node_traced = via_node_traced
+        self._segments_by_data = segments_by_data
+
+    async def select_via_nodes(self, context, destination, max_routes):
+        self.select_via_nodes_calls.append((destination, max_routes))
+        return self._via_node_traced[:max_routes]
+
+    async def evaluate_loops(self, context, traced, start_time):
+        self.evaluated_traced = traced
+        return [
+            RouteCandidate(
+                **candidate_identity(t.bearing),
+                distance_km=t.distance_km,
+                geometry=make_geometry(),
+                segments=self._segments_by_data.get(t.data),
+            )
+            for t in traced
+        ]
+
+
+async def test_generate_destination_routes_sorts_by_overall_difficulty():
+    # 最終順位（id採番の順）がoverall_difficulty昇順になることを検証する
+    # （generate_loopsのT548ソート規約と同じロジックを共有している）。
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[
+            TracedLoop(bearing=None, distance_km=20.0, data="hard"),
+            TracedLoop(bearing=None, distance_km=19.0, data="easy"),
+        ],
+        segments_by_data={
+            "hard": [make_segment(20.0, 80.0)],
+            "easy": [make_segment(19.0, 10.0)],
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=2
+    )
+
+    assert [c.distance_km for c in candidates] == [19.0, 20.0]
+    assert [c.id for c in candidates] == ["route-destination-00", "route-destination-01"]
 
 
 async def test_generate_via_waypoints_without_destination_still_loops_back_to_origin():

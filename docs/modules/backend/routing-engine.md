@@ -32,11 +32,11 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 
 ## 戦略層（`route_generator.py: RouteGenerator`）
 
-`LoopRoutingEngine`という6メソッドの契約（Protocol、`prepare`/`select_loop_turnarounds`/
-`trace_loop_from_turnaround`/`trace_loop`/`evaluate_loops`/`is_loop_too_similar`）を
-挟むことで、`RouteGenerator`自体は探索エンジンの内部実装を知らない設計になっている
-（将来別方式のエンジンを差し込める余地を持たせるための抽象化）。現在の実装は
-`RoadGraphEngine`のみ。
+`LoopRoutingEngine`という7メソッドの契約（Protocol、`prepare`/`select_loop_turnarounds`/
+`trace_loop_from_turnaround`/`select_via_nodes`/`trace_loop`/`evaluate_loops`/
+`is_loop_too_similar`）を挟むことで、`RouteGenerator`自体は探索エンジンの内部実装を
+知らない設計になっている（将来別方式のエンジンを差し込める余地を持たせるための抽象化）。
+現在の実装は`RoadGraphEngine`のみ。
 
 候補の形は公開軸の重み配分で決まる（フロンティア方式）:
 起点からの一対全最短経路木（軸重み付きコスト）で目標距離の半分付近に到達する折返し点を
@@ -97,20 +97,35 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 ### `generate_via_waypoints`（経由地・目的地指定）
 
 `generate_loops`の折返し点選定・距離フィルタとは独立した経路生成。
-`destination`省略時は起点に戻る周回、指定時は起点に戻らず目的地で終わる片道ルート
-（終点到達後に`id="route-destination"`/`direction_label="目的地ルート"`へ上書き）。
+`destination`省略時は起点に戻る周回（常に1件）。
+
+`destination`指定時は、経由地の有無で分岐する（[T551](../../tasks/T551.md)）:
+
+- **経由地が無い（起点→目的地のみ）**: `_generate_destination_routes`が
+  `engine.select_via_nodes`（via-node方式、後述）で`max_routes`件まで互いに異なる
+  代替経路を生成する。`overall_difficulty`昇順（`generate_loops`と同じ規約）で
+  `id="route-destination-00"`形式へ振り直し、`direction_label="目的地ルート"`を
+  全件に付ける。
+- **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるためv1では対象にせず、
+  従来どおり`trace_loop`で単一経路を生成する（`max_routes`は無視される。終点到達後に
+  `id="route-destination"`/`direction_label="目的地ルート"`へ上書き、id採番はしない）。
 
 ## 候補タブの並び順
 
-`generate_loops`・`generate_via_waypoints`とも、返す`RouteCandidate`一覧を
-`overall_difficulty`（絶対基準0-100の総合難易度、小数1桁で比較）昇順（易しい候補が
-先頭）で並べる。算出不能（`None`）の候補は末尾へ回す。同点（小数1桁が一致）の候補は、
-評価前に付けた「目標距離に近い順」を安定ソートで引き継ぐ——周囲に重みを振った軸の
-データが無く全候補のdifficultyが同じ値になる場合、結果は実質的に目標距離に近い順になる。
+`generate_loops`・`generate_via_waypoints`（経由地の無い目的地ルートを含む）とも、
+返す`RouteCandidate`一覧を`overall_difficulty`（絶対基準0-100の総合難易度、小数1桁で
+比較）昇順（易しい候補が先頭）で並べる。算出不能（`None`）の候補は末尾へ回す。
+`generate_loops`は同点（小数1桁が一致）の候補を、評価前に付けた「目標距離に近い順」を
+安定ソートで引き継いで並べる——周囲に重みを振った軸のデータが無く全候補のdifficultyが
+同じ値になる場合、結果は実質的に目標距離に近い順になる。異なるリクエスト間でも同じ
+絶対基準で比較できる。
+
 `generate_loops`は先頭`max_routes`件へスライスした後、idを`route-00..`へ振り直す
 （同じ方位に複数候補が並びうるため方位由来のidは一意にならない。`direction_label`は
-エンジンが方位から付けた表示用ラベルのまま）。異なるリクエスト間でも同じ絶対基準で
-比較できる。
+エンジンが方位から付けた表示用ラベルのまま）。経由地の無い目的地ルート
+（[T551](../../tasks/T551.md)）も同じ規約でidを`route-destination-00..`へ振り直すが、
+「目標距離」という概念自体が無いため同点タイブレークは持たない（`select_via_nodes`の
+`select_diverse_by_overlap`が既に決定的な順序で候補を返す）。
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
@@ -153,17 +168,18 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 ### 探索・索引構築のキャッシュ（`infrastructure/search_graph_cache.py`）
 
 `LazyRoadGraph`（探索用グラフ）・`SearchGraphStatics`（一対全最短経路木
-用のCSR構造＋Edge実距離配列）・`NodeSpatialIndex`（routable Node空間索引）は、
+用のCSR構造＋Edge実距離配列）・`SearchGraphStatics`の転置版（後ろ向き木用、
+[T551](../../tasks/T551.md)）・`NodeSpatialIndex`（routable Node空間索引）の4種は、
 タイル集合キーのプロセス内LRU（上限64件）へキャッシュする。同じタイル集合への
 2回目以降のリクエストはこれらの構築を丸ごと省略する。
 
-- **キー**: `LazyRoadGraph`・`SearchGraphStatics`は`frozenset[(zoom,x,y)]`（bboxを覆う
-  z12タイル集合）のみ。`NodeSpatialIndex`はこれに`hard_filters`・
-  `max_average_grade_percent`（0次フィルタ、`RoadGraphEngine`のコンストラクタ引数）を
-  加えたタプル。`GraphService.get_search_materials_for_bbox`がタイル集合を返すのは、
-  graphが「bboxを覆う全z12タイルの材料キャッシュをそのまま結合したもの」の場合のみ——
-  split鮮度が古くbbox限定で再構築した経路ではNoneが返り、呼び出し側はこのキャッシュを
-  経由しない。
+- **キー**: `LazyRoadGraph`・`SearchGraphStatics`（順方向・転置版とも）は
+  `frozenset[(zoom,x,y)]`（bboxを覆うz12タイル集合）のみ。`NodeSpatialIndex`はこれに
+  `hard_filters`・`max_average_grade_percent`（0次フィルタ、`RoadGraphEngine`の
+  コンストラクタ引数）を加えたタプル。`GraphService.get_search_materials_for_bbox`が
+  タイル集合を返すのは、graphが「bboxを覆う全z12タイルの材料キャッシュをそのまま
+  結合したもの」の場合のみ——split鮮度が古くbbox限定で再構築した経路ではNoneが返り、
+  呼び出し側はこのキャッシュを経由しない。
 - `SearchGraphStatics`が持つCSR構造（`indptr`/`indices`とCSRエントリ順→Edge indexの
   並べ替え表）はタイル集合だけで決まる派生物のためキャッシュに含めるが、リクエストごとに
   変わるコスト配列は含めない——`select_loop_turnarounds`が一対全木を求めるたびに
@@ -172,6 +188,12 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
   だけが構築・キャッシュする——`preview_segment`は2点間の直接A*のみで一対全木を使わない
   ため、`LazyRoadGraph`はキャッシュしても`SearchGraphStatics`は構築しない
   ([T569](../../tasks/T569.md))。
+- **転置版`SearchGraphStatics`**（`_get_or_build_reverse_search_statics`、
+  `domain/routing.py: build_csr_structure(..., reverse=True)`）は、目的地からの
+  後ろ向き木を使う`select_via_nodes`だけが構築・キャッシュする——周回生成・
+  `preview_segment`・経由地を伴う目的地ルート（`trace_loop`）は使わない。`edge_length_m`
+  は向きに依存しない配列のため順方向版と共有できる（別インスタンスとして持つ）が、`csr`
+  はキー`v * node_count + u`（行・列を入れ替え）で組み直した別物。
 - **無効化方針は`graph_material_cache`と同じ**（プロセス寿命でのみキャッシュ、軸定義変更は
   無関係、材料再取込の反映にはプロセス再起動が必要）。ただし例外として、タイル再split
   （`save_graph`のedge_id再割当）でキャッシュ済み`LazyRoadGraph.edge_ids`が新しい
@@ -179,8 +201,9 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
   する——`RoadGraphEngine._build_search_graph`（`prepare`・`preview_segment`共通）が
   `_ensure_lazy_graph_consistent`で`domain/routing.py: find_missing_lazy_graph_edge_id`
   （CSR構築を伴わない軽量チェック）を毎回呼び、不整合を検知したら該当タイル集合の
-  3キャッシュ（`LazyRoadGraph`・`SearchGraphStatics`・`NodeSpatialIndex`）を破棄して
-  `LazyRoadGraph`ごと`graph`から作り直す（`search_graph_cache.invalidate_tile_set`）。
+  4キャッシュ（`LazyRoadGraph`・`SearchGraphStatics`・転置版`SearchGraphStatics`・
+  `NodeSpatialIndex`）を破棄して`LazyRoadGraph`ごと`graph`から作り直す
+  （`search_graph_cache.invalidate_tile_set`）。
 - `_reverse_traced_edges`（逆回り候補、後述）は、キャッシュ済み`LazyRoadGraph.
   edge_index_by_node_pair`を経路上のEdgeだけに対する遅延引きとして使う。
 
@@ -217,6 +240,33 @@ scipy.sparse.csgraph、軸重み付きコスト、コスト上限で打ち切り
 復元する。この差し替えはawaitを挟まない同期区間で完結し、復路探索が同期・直列実行
 （並列化すると共有`cost_list`の書き換えが競合するため両立しない）である前提の上で
 安全。
+
+### `select_via_nodes`（目的地ルートのvia-node方式代替経路、[T551](../../tasks/T551.md)）
+
+経由地の無い目的地ルート（起点→目的地のみ）向け。周回の折返し点方式（1本の一対全木＋
+候補ごとのretraceペナルティ付き復路A*）とは異なり、木2本だけで全候補が確定し候補ごとの
+追加探索が発生しない:
+
+1. 起点からの前向き木（`select_loop_turnarounds`と同じ`build_shortest_path_tree`）と、
+   目的地からの後ろ向き木（転置CSR、`_get_or_build_reverse_search_statics`）を各1回求める。
+2. 全Nodeについて経由路長`len_f+len_b`・合成コスト`cost_f+cost_b`をベクトル計算し、
+   合成コスト最小のNode（＝経由地無しの従来の単一生成が返す経路、"最良路"）の長さの
+   `ALTERNATIVE_MAX_STRETCH`（1.3）倍以内のNodeだけを候補にする。
+3. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
+   先頭へ回す——伸び率の許す範囲でより平均difficultyの低い経路が他に存在すれば難易度順
+   ではそちらが上位に来うるため、「最良路は必ず結果に含まれる」をランキングとは独立に
+   保証する。
+4. `domain/routing.py: select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じ
+   物理区間を共有するNode（行って戻る形、`_loop_edge_lengths_by_physical_segment`で
+   進行方向を無視した判定——単純なEdge index集合の比較だと同じ道の逆方向Edgeを
+   見逃す）を除外しつつ、採用済み候補との重複率が`VIA_NODE_MAX_OVERLAP_RATIO`
+   （`TURNAROUND_MAX_OVERLAP_RATIO`と同値の0.6、埋まらなければ0.85へ緩和）を超える
+   ものを飛ばして`max_routes`件採る。
+
+`trace_loop_from_turnaround`と違い、選ばれたNodeの経路（前向き＋後ろ向きの経路復元の
+連結）がそのまま最終候補になる（`tree_path_edge_indices`/`tree_path_edge_indices_to_source`
+で確定済み、候補ごとに失敗しうる探索が無い）ため、戻り値の`TracedLoop`一覧が
+`RouteGenerator._generate_destination_routes`にとってそのまま`evaluate_loops`への入力になる。
 
 ### `trace_loop`（経由地・目的地指定ルート）
 
@@ -368,15 +418,27 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `build_search_graph_statics`**: `LazyRoadGraph`と同じNode/Edge index
   空間のCSR（圧縮行格納）**構造のみ**（Edge重みは持たない。タイル集合だけで決まる
   純粋な派生物のため`LazyRoadGraph`と同じキーでキャッシュされる）。`SearchGraphStatics`は
-  この構造とEdge実距離配列（m）を束ねる。
+  この構造とEdge実距離配列（m）を束ねる。両関数とも`reverse=True`（既定False）で
+  転置CSR（キー`v * node_count + u`、行・列を入れ替え）を返す
+  （[T551](../../tasks/T551.md)、目的地からの後ろ向き木用。`edge_length_m`は向きに
+  依存しないため`reverse`の値に関わらず同じ配列になる）。
 - **`ShortestPathTree`/`build_shortest_path_tree`**: 起点からの一対全
   Dijkstra（`scipy.sparse.csgraph.dijkstra`、前任者付き、`cost_limit`で打ち切り可能）。
   前任者木に沿った実距離（`length_m`）は、`(pred[v], v)`のCSRエントリ位置を
   `np.searchsorted`で一括検索した後、ポインタジャンプ（`acc[v] += acc[anc[v]]`を木の
   深さのlog2回繰り返す）でベクトル演算して積算する。rustworkxの
   `dijkstra_shortest_path_lengths`は前任者を返さないため一対全木にはscipyを使う。
-- **`tree_path_edge_indices`**: 一対全木上の起点→targetの経路を
+  `CsrGraphStructure`が順方向・転置版のどちらでも同じロジックで木を組める（方向に
+  依存する処理を持たない）ため、転置CSRを渡して`source_index=目的地`とするだけで
+  「各Nodeから目的地までの最短経路コスト・実距離」（後ろ向き木）が得られる。
+- **`tree_path_edge_indices`**: 一対全木（順方向）上の起点→targetの経路を
   `LazyRoadGraph`のEdge index列で返す（到達不能ならNone、起点自身なら空リスト）。
+- **`tree_path_edge_indices_to_source`**: 後ろ向き木（転置CSR、`source_index`が目的地）
+  で、targetから目的地までの経路を実グラフの有向Edge順（target→…→目的地）のEdge
+  index列で返す（[T551](../../tasks/T551.md)）。転置CSR上の`predecessor[X]=P`は実
+  グラフの`X→P`という辺を表すため、`tree_path_edge_indices`（`(parent, current)`順で
+  Edge検索し最後に反転）とはEdge検索の引数順が逆（`(current, parent)`）で、経路は
+  既に`target→目的地`の順に積み上がるため反転は不要。
 - **`overlap_ratio`/`select_diverse_by_overlap`**: 2つのEdge index集合の
   距離加重重複率、およびランク順の候補列から重複率・近接度（`is_compatible`）で貪欲に
   多様な集合を選ぶ汎用関数（周回の折返し点選定・復路の往路重複率算出の両方に使う）。

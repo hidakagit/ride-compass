@@ -113,9 +113,14 @@ const DISTANCE_TOLERANCE_KM = 5;
 // headerAction）だけに情報アイコンを置く。
 const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。";
 
-// 改善計画T364/T365（旧RouteList.tsxから移設）: 周回候補以外の単一経路（経由地ルート・
-// 目的地ルート）のid集合。
-const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints", "route-destination"]);
+// 改善計画T364/T365（旧RouteList.tsxから移設）: 経由地ルートのid（常に1件、「方位」という
+// 概念が無いためタブに順位番号を付けない）。
+const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
+
+// 改善計画T551: 目的地ルート（経由地を伴わない起点→目的地のみ）のidは`route-destination-00`
+// 形式（via-node方式で複数件になりうる）。経由地ルートと違い「方位」という概念こそ無いが
+// 複数件並びうるため、タブラベルには順位番号を付ける（`方向`のような向き語は付けない）。
+const DESTINATION_ROUTE_ID_PREFIX = "route-destination";
 
 // 改善計画T550: 区間クリック詳細（selectedRouteSegment）の到達予想時刻表示。旧
 // Map/routeSegmentChartPopup.tsのformatTimeLabelと同じフォーマット（撤去済み、
@@ -1651,13 +1656,17 @@ export default function Home() {
                       候補選定の基準ではない）。並び順（overall_difficulty昇順）に沿った
                       1始まりの順位番号を先頭に付け、方位が同じ候補どうしも見分けられる
                       ようにする。 */}
-                  {/* 改善計画T364/T365: 経由地ルート(route-waypoints)・目的地ルート
-                      (route-destination)は候補が常に1件で「方位」という概念が無いため、
-                      direction_label（固定文言、route_generator.py参照）をそのまま表示し
-                      「方向」は付けない。 */}
+                  {/* 改善計画T364: 経由地ルート(route-waypoints)は候補が常に1件で
+                      「方位」という概念が無いため、direction_label（固定文言、
+                      route_generator.py参照）をそのまま表示し順位番号も付けない。 */}
+                  {/* 改善計画T365/T551: 目的地ルート(route-destination-00形式、前方一致)は
+                      経由地を伴わなければvia-node方式で複数件になりうる。方位という概念は
+                      無いため「方向」は付けないが、複数件を見分けられるよう順位番号は付ける。 */}
                   {NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
                     ? route.direction_label
-                    : `${index + 1}. ${route.direction_label}方向`}{" "}
+                    : route.id.startsWith(DESTINATION_ROUTE_ID_PREFIX)
+                      ? `${index + 1}. ${route.direction_label}`
+                      : `${index + 1}. ${route.direction_label}方向`}{" "}
                   {route.distance_km.toFixed(1)} km
                 </Tabs.Trigger>
               ))}

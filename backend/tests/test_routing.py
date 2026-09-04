@@ -23,6 +23,7 @@ from app.domain.routing import (
     select_diverse_by_overlap,
     shortest_path_node_ids_lazy,
     tree_path_edge_indices,
+    tree_path_edge_indices_to_source,
 )
 
 
@@ -535,6 +536,103 @@ def test_tree_path_edge_indices_reconstructs_connected_path_from_source():
     assert edges[-1].to_node_id == "n6-6"
     for previous, following in zip(edges, edges[1:]):
         assert previous.to_node_id == following.from_node_id
+
+
+# --- 改善計画T551: 転置CSR（後ろ向き木、目的地ルートのvia-node方式） ---
+
+
+def test_build_csr_structure_reverse_transposes_node_pairs():
+    graph = _random_road_graph(seed=6)
+    lazy_graph = build_lazy_road_graph(graph)
+
+    forward = build_csr_structure(lazy_graph)
+    reverse = build_csr_structure(lazy_graph, reverse=True)
+
+    n = lazy_graph.node_id_to_index.__len__()
+    assert reverse.node_count == forward.node_count
+    assert len(reverse.entry_keys) == len(forward.entry_keys)
+    assert np.all(np.diff(reverse.entry_keys) > 0)
+    for (u, v), edge_index in lazy_graph.edge_index_by_node_pair.items():
+        row = slice(reverse.indptr[v], reverse.indptr[v + 1])
+        position = reverse.indptr[v] + list(reverse.indices[row]).index(u)
+        assert reverse.entry_edge_index[position] == edge_index
+        assert reverse.entry_keys[position] == v * n + u
+
+
+def test_build_search_graph_statics_reverse_shares_edge_length_but_transposes_csr():
+    graph = _random_road_graph(seed=6)
+    lazy_graph = build_lazy_road_graph(graph)
+
+    forward = build_search_graph_statics(lazy_graph, graph)
+    reverse = build_search_graph_statics(lazy_graph, graph, reverse=True)
+
+    assert list(reverse.edge_length_m) == list(forward.edge_length_m)
+    assert not np.array_equal(reverse.csr.entry_keys, forward.csr.entry_keys)
+
+
+def test_shortest_path_tree_on_reverse_csr_gives_cost_to_destination():
+    # 転置CSR上でsource_index=目的地としてDijkstraをかけた各Nodeのcostは、元の有向グラフで
+    # そのNodeから目的地までの最短経路コストに一致する（後ろ向き木の意味論）。
+    rng = random.Random(6)
+    graph = _random_road_graph(seed=6)
+    lazy_graph = build_lazy_road_graph(graph)
+    edge_costs = {edge_id: edge.distance_m * rng.uniform(1.0, 2.0) for edge_id, edge in graph.edges.items()}
+    cost_array = _cost_array(lazy_graph, edge_costs)
+    length_array = build_search_graph_statics(lazy_graph, graph).edge_length_m
+    destination = "n4-4"
+    destination_index = lazy_graph.node_id_to_index[destination]
+
+    backward_tree = build_shortest_path_tree(
+        build_csr_structure(lazy_graph, reverse=True), cost_array, length_array, destination_index
+    )
+
+    for node_id, node_index in lazy_graph.node_id_to_index.items():
+        path = shortest_path_node_ids_lazy(lazy_graph, node_id, destination, cost_array.tolist().__getitem__, _zero_estimate_fn)
+        if path is None:
+            assert not backward_tree.is_reached(node_index)
+        else:
+            assert backward_tree.cost[node_index] == pytest.approx(_path_cost(lazy_graph, path, cost_array), rel=1e-9)
+
+
+def test_tree_path_edge_indices_to_source_reconstructs_path_toward_destination():
+    rng = random.Random(6)
+    graph = _random_road_graph(seed=6)
+    lazy_graph = build_lazy_road_graph(graph)
+    edge_costs = {edge_id: edge.distance_m * rng.uniform(1.0, 2.0) for edge_id, edge in graph.edges.items()}
+    length_array = build_search_graph_statics(lazy_graph, graph).edge_length_m
+    destination_index = lazy_graph.node_id_to_index["n4-4"]
+
+    backward_tree = build_shortest_path_tree(
+        build_csr_structure(lazy_graph, reverse=True), _cost_array(lazy_graph, edge_costs), length_array, destination_index
+    )
+
+    assert tree_path_edge_indices_to_source(backward_tree, lazy_graph, destination_index) == []
+    via_index = lazy_graph.node_id_to_index["n0-1"]
+    edge_indices = tree_path_edge_indices_to_source(backward_tree, lazy_graph, via_index)
+    assert edge_indices
+    edges = [graph.edges[lazy_graph.edge_ids[i]] for i in edge_indices]
+    assert edges[0].from_node_id == "n0-1"
+    assert edges[-1].to_node_id == "n4-4"
+    for previous, following in zip(edges, edges[1:]):
+        assert previous.to_node_id == following.from_node_id
+
+
+def test_tree_path_edge_indices_to_source_returns_none_when_unreachable():
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"a": _node("a", 35.700, 139.700), "b": _node("b", 35.701, 139.700), "c": _node("c", 35.702, 139.700)},
+        edges={"ab": _edge("ab", "a", "b")},
+    )
+    lazy_graph = build_lazy_road_graph(graph)
+    cost_array = _cost_array(lazy_graph, {"ab": 100.0})
+    length_array = build_search_graph_statics(lazy_graph, graph).edge_length_m
+    c_index = lazy_graph.node_id_to_index["c"]
+
+    backward_tree = build_shortest_path_tree(build_csr_structure(lazy_graph, reverse=True), cost_array, length_array, c_index)
+
+    a_index = lazy_graph.node_id_to_index["a"]
+    assert not backward_tree.is_reached(a_index)
+    assert tree_path_edge_indices_to_source(backward_tree, lazy_graph, a_index) is None
 
 
 def test_overlap_ratio_is_distance_weighted_on_candidate_side():
