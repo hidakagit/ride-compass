@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import httpx
 
 from app.domain.region import lonlat_to_tile_pixel
@@ -38,9 +40,16 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 # TTLなし。DEMは不変データのため）。パース済みグリッド（256x256のfloat|Noneの二次元配列）は
 # さらにプロセス内メモリにも保持し（_tile_grid_cache、キー=(type, tile_x, tile_y)）、
 # 1リクエスト内で近接する複数のサンプル点が同じタイルを共有する場合に、ファイル読み出し・
-# パースを都度繰り返さないようにする（サイズ上限は設けていない。対象範囲が関東圏に留まる
-# 現状の運用規模では実害が無いと判断、他のプロセス内メモリキャッシュ[weather_client.py等]と
-# 同じ割り切り。将来対象範囲が全国規模まで広がる場合は上限つきLRUへの変更を検討する）。
+# パースを都度繰り返さないようにする。
+#
+# 上限つきLRU（graph_material_cache.py: _LRUCacheと同じ設計）。
+# precompute_elevation_attributes.py（全道路網の一括計算バッチ）はEdgeを地理的に
+# 並べ替えず処理するため、上限が無いと対象範囲全体に散らばったタイルを溜め込み続け
+# メモリを枯渇させる（経緯はdocs/tasks/T575.md参照）。ディスク側（tile_cache.py）は
+# 既にTTL無しで永続化済みのため、ここから追い出されてもネットワーク呼び出し無しの
+# ローカル再パースだけで復元できる——上限に達した場合はLRUで最も長く使われていない
+# エントリから自然に破棄される。
+DEFAULT_MAX_TILE_GRIDS = 500
 DEM_TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt"
 DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")
 DEM_ZOOM = 14
@@ -48,7 +57,16 @@ DEM_TILE_SIZE = 256
 DEM_MISSING_MARKER = "e"
 DEM_TILE_CONTENT_TYPE = "text/plain; charset=utf-8"
 
-_tile_grid_cache: dict[tuple[str, int, int], list[list[float | None]] | None] = {}
+_tile_grid_cache: "OrderedDict[tuple[str, int, int], list[list[float | None]] | None]" = OrderedDict()
+
+
+def _remember_tile_grid(cache_key: tuple[str, int, int], grid: list[list[float | None]] | None) -> None:
+    """`_tile_grid_cache`への書き込み＋上限超過分の追い出しを一箇所へ集約する
+    （`graph_material_cache.py: _LRUCache.set`と同じ定型処理）。"""
+    _tile_grid_cache[cache_key] = grid
+    _tile_grid_cache.move_to_end(cache_key)
+    if len(_tile_grid_cache) > DEFAULT_MAX_TILE_GRIDS:
+        _tile_grid_cache.popitem(last=False)
 
 
 class _CoverageGap:
@@ -140,6 +158,7 @@ class ElevationClient:
         cache_key = (dem_type, tile_x, tile_y)
         if not refresh and cache_key in _tile_grid_cache:
             fields["cache"] = "hit"
+            _tile_grid_cache.move_to_end(cache_key)
             return _tile_grid_cache[cache_key]
 
         path = f"gsi/{dem_type}/{DEM_ZOOM}/{tile_x}/{tile_y}.txt"
@@ -149,7 +168,7 @@ class ElevationClient:
                 fields["cache"] = "hit"
                 content, _content_type = cached
                 grid = _parse_dem_tile_text(content.decode("utf-8"))
-                _tile_grid_cache[cache_key] = grid
+                _remember_tile_grid(cache_key, grid)
                 return grid
 
         fields["cache"] = "miss"
@@ -159,7 +178,7 @@ class ElevationClient:
             # 再取得を試みられるようにする（_CoverageGap docstring参照）。
             return None
         grid = None if isinstance(result, _CoverageGap) else result
-        _tile_grid_cache[cache_key] = grid
+        _remember_tile_grid(cache_key, grid)
         return grid
 
     async def _fetch_tile(

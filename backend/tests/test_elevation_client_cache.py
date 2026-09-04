@@ -174,6 +174,33 @@ async def test_transient_communication_error_is_not_cached_permanently():
     assert flaky_client.dem5a_call_count == 2  # 1回目のエラーが恒久キャッシュされていれば2回目は呼ばれない
 
 
+async def test_tile_grid_cache_evicts_least_recently_used_beyond_cap(monkeypatch):
+    # 改善計画T575: 上限を超えたら最も長く使われていないタイルから追い出されることを
+    # 確認する（本番でこの上限が無く関東全域のタイルを溜め込みOOMを起こした経緯は
+    # docs/tasks/T575.md参照）。上限を2へ下げ、3タイル分の異なる地点へ問い合わせる。
+    monkeypatch.setattr(elevation_client, "DEFAULT_MAX_TILE_GRIDS", 2)
+    client = ElevationClient()
+    http_client = FakeHttpClient(elevation=1.0)
+    # 互いに十分離れた3点＝3枚の異なるz14タイル（DEM_ZOOM=14）を踏む。
+    point_a = Coordinates(latitude=35.0, longitude=139.0)
+    point_b = Coordinates(latitude=36.0, longitude=140.0)
+    point_c = Coordinates(latitude=37.0, longitude=141.0)
+
+    await client.get_elevation(http_client, point_a)
+    await client.get_elevation(http_client, point_b)
+    key_a = next(iter(elevation_client._tile_grid_cache))
+    assert len(elevation_client._tile_grid_cache) == 2
+
+    await client.get_elevation(http_client, point_c)
+
+    # 上限を超えず、最も長く使われていないpoint_a由来のタイルが追い出される
+    # （tile_cache[ファイル層]は別途永続化されているため、メモリ層からの追い出し自体を
+    # 直接確認する。ネットワーク再取得が要るかはファイル層のヒット有無に依存し
+    # このテストの関心事ではない）。
+    assert len(elevation_client._tile_grid_cache) == 2
+    assert key_a not in elevation_client._tile_grid_cache
+
+
 async def test_get_elevation_returns_none_for_missing_pixel_marker():
     # DEMタイルの欠測画素は"e"（GSI仕様、2026-08-23実タイル取得で確認済み）。
     class AllMissingHttpClient:
