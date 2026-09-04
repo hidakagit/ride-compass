@@ -63,8 +63,10 @@ DEFAULT_MAX_TILES = 2_000
 #     一括実行）が本番でこの版数を上げずに実行され、DB側は更新済みなのにディスク
 #     キャッシュが古いまま参照され続ける不具合が発生したための世代上げ（内容自体の変更は
 #     無い）。
+# v4: 改善計画T575・T576。precompute_elevation_attributes.pyを本番で完走させた際の
+#     世代上げ（内容自体の変更は無い）。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = "3"
+TILE_MATERIALS_CACHE_VERSION = "4"
 
 
 class _LRUCache(Generic[_T]):

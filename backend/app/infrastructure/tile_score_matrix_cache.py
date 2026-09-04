@@ -79,8 +79,10 @@ _max_entries = DEFAULT_MAX_TILES
 # v2: 改善計画T574。`app/batch/refresh_derived.py`が本番でこの版数を上げずに実行され、
 #     DB側は更新済みなのにディスクキャッシュが古いまま参照され続ける不具合が発生したための
 #     世代上げ（内容自体の変更は無い）。
+# v3: 改善計画T575・T576。precompute_elevation_attributes.pyを本番で完走させた際の
+#     世代上げ（内容自体の変更は無い）。
 _CACHE_NAMESPACE = "score_matrix"
-TILE_SCORE_MATRIX_CACHE_VERSION = "2"
+TILE_SCORE_MATRIX_CACHE_VERSION = "3"
 
 
 def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
