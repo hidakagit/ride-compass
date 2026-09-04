@@ -207,6 +207,8 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
   thunderNowcast: false,
   tornadoNowcast: false,
+  // 改善計画T541: 雷放電位置データ。同じ理由で既定OFF。
+  liden: false,
   // 改善計画T410でキキクル（危険度分布：土砂・大雨・浸水）+線状降水帯予測マップを
   // 実装した際、当初は既定ON・チップ付きの個別レイヤー（T420）として扱っていたが、
   // 改善計画T432で「防災級の情報は、ユーザー操作を待たず表示すべき（予兆があってから
@@ -1153,6 +1155,7 @@ export default function Home() {
   const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
   const showThunderNowcast = layerVisibility.thunderNowcast;
   const showTornadoNowcast = layerVisibility.tornadoNowcast;
+  const showLiden = layerVisibility.liden;
   const showWindVector = layerVisibility.windVector;
   // 環境グループの風penalty gridFill（改善計画T414）。windVectorのチップON/OFFとは独立に
   // ルート確定後（hasDetail）はfalseへ倒す（T414契約: ルート確定後はルート自身の実際の
@@ -1186,6 +1189,7 @@ export default function Home() {
     showPrecipitationNowcast,
     showThunderNowcast,
     showTornadoNowcast,
+    showLiden,
     mapViewport,
   });
 
@@ -1992,7 +1996,7 @@ export default function Home() {
                 常時マウントへ変更したため、この条件から除外した（このスライダー自体は
                 動かせるが表示に影響しない）。線状降水帯予測マップは「降水」チップ傘下の
                 ソースのため、showPrecipitationNowcastで既にカバーされる。 */}
-            {(showPrecipitationNowcast || showWindVector || showThunderNowcast || showTornadoNowcast) && (
+            {(showPrecipitationNowcast || showWindVector || showThunderNowcast || showTornadoNowcast || showLiden) && (
               <div className={styles.dynamicLayerSliders}>
                 <DynamicLayerTimeSlider
                   frames={sliderFrames}

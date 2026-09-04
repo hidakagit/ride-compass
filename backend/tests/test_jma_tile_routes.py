@@ -26,13 +26,16 @@ class FakeJmaTileClient:
         self._fetch_result = fetch_result
         self.get_cached_calls = 0
         self.fetch_calls = 0
+        self.requested_paths: list[str] = []
 
     async def get_cached(self, path):
         self.get_cached_calls += 1
+        self.requested_paths.append(path)
         return self._cached_result
 
     async def fetch(self, path):
         self.fetch_calls += 1
+        self.requested_paths.append(path)
         return self._fetch_result
 
 
@@ -103,3 +106,21 @@ def test_jma_tile_proxy_cache_hit_does_not_consume_rate_limit():
     assert first.status_code == 200
     assert second.status_code == 200
     assert fake.fetch_calls == 0
+
+
+def test_jma_tile_proxy_forwards_query_string_to_client():
+    fake = FakeJmaTileClient(cached_result=(b'{"type":"FeatureCollection"}', "application/json"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/nowc/20260904120000/none/20260904120000/surf/liden/data.geojson",
+            params={"id": "liden"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert fake.requested_paths == [
+        "bosai/jmatile/data/nowc/20260904120000/none/20260904120000/surf/liden/data.geojson?id=liden"
+    ]

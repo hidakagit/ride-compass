@@ -12,6 +12,7 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
 |---|---|
 | `Map/dynamicWeather.ts` | 共通契約（型・共有タイムライン・状態管理の型・純粋関数） |
 | `Map/precipitationNowcast.ts`・`thunderNowcast.ts`・`jmaNowcastFrames.ts` | 降水/雷/竜巻ナウキャストのフレーム列取得・統合 |
+| `Map/lidenLayer.ts`・`lidenIcon.ts` | 雷放電位置データ（liden、実際の落雷地点）のフレーム列・GeoJSON取得・Canvas 2Dアイコン描画 |
 | `Map/windLayer.ts`・`windArrowIcon.ts` | 風の矢印（gridMark）の格子データ・Canvas 2Dアイコン描画 |
 | `Map/windPenalty.ts` | 環境グループの風penalty gridFill（矢印の背後に敷く面塗り） |
 | `Map/riskMap.ts` | キキクル・線状降水帯予測マップ（未来フレームを持たない特殊系） |
@@ -84,8 +85,21 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 | `windVector` | `penaltyFill` | gridFill | `windPenalty.ts: windPenaltyGridToCellFeatureCollection`（詳細格子=`effectiveGrid`） |
 | `thunderNowcast` | `main` | raster | `thunderNowcast.ts` |
 | `tornadoNowcast` | `main` | raster | `thunderNowcast.ts`（同じフレーム列を共有、プロダクトコードのみ相違） |
+| `liden` | `main` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
 | `landslideRisk`/`heavyRainRisk`/`inundationRisk` | `main` | raster | `riskMap.ts: fetchCurrentRiskFrames` |
 | `floodRisk` | `main` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |
+
+`liden`（雷放電位置データ）は、他要素が既に手元にある格子データ・タイルURLテンプレートから
+同期的にペイロードを組み立てるのに対し、配信元が実際の落雷地点をGeoJSONで提供するため
+選択フレームが変わるたびに`lidenLayer.ts: fetchLidenGeojson`を非同期fetchする唯一の要素
+（「データ取得の差異はデータ層で吸収」という4本柱の枠内だが、取得のタイミング自体が
+「フレーム選択に追従した都度fetch」という他要素に無い形）。`hooks/useDynamicWeatherLayers.ts`
+が`frameIndexForTime`で求めた選択中refの変化を`useEffect`で監視し、取得結果を`{ref, geojson}`
+の形でstateへ保持する——保持しているrefと選択中refが一致するときだけpayloadへ反映すること
+で、scrub中に古いフェッチが後から解決しても直前の時刻のデータを新しい時刻の表示へ混ぜない。
+落雷ごとの強弱を示す値を配信元が持たないため、gridMarkが必須とする`valueProperty`
+（`LIDEN_MARK_VALUE_PROPERTY`）は固定値1を全featureへ合成し、`minScale===maxScale`により
+icon-sizeはズームのみに依存する。
 
 `windVector`の`penaltyFill`は`arrow`と同じフレーム時刻を使うが表示ON/OFFは独立している
 （`showWindPenaltyFill = showWindVector && !hasDetail`。矢印自体はルート確定後も表示され

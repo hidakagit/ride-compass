@@ -31,6 +31,7 @@ import {
   ElevationIcon,
   EnvironmentDataIcon,
   InfoIcon,
+  LidenIcon,
   RaindropIcon,
   RoadIcon,
   RoadSurfaceIcon,
@@ -149,6 +150,7 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   gradientAxis: ElevationIcon,
   thunderNowcast: ThunderIcon,
   tornadoNowcast: TornadoIcon,
+  liden: LidenIcon,
   route: RouteIcon,
 };
 

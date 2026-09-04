@@ -53,6 +53,10 @@ export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
   // （雷だけ確認したい/竜巻は非表示にしたい、という独立したON/OFFニーズに応えるため）。
   "thunderNowcast",
   "tornadoNowcast",
+  // 雷放電位置データ（改善計画T541）。thunderNowcastと同じtargetTimes_N3.json由来だが、
+  // エリア単位の活動度（thns、rasterTile）とは別に、個々の落雷地点（gridMark）を独立して
+  // ON/OFFできるようにする。
+  "liden",
 ] as const satisfies readonly MapLayerId[];
 
 // キキクル（危険度分布：土砂・大雨・浸水・洪水、改善計画T410/T416）。「防災」カテゴリとして

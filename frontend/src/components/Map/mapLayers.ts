@@ -78,6 +78,9 @@ export type MapLayerId =
   // 評価軸には組み込まず警告表示のみ（T170〜T178節の設計判断を踏襲）。
   | "thunderNowcast"
   | "tornadoNowcast"
+  // 雷放電位置データ（改善計画T541）。同じN3配信のthunderNowcastとは別に、個々の落雷
+  // 地点をgridMark（点マーカー）で独立してON/OFFできるようにする。
+  | "liden"
   // キキクル（危険度分布：土砂・大雨・浸水、改善計画T410）は改善計画T432で「防災」
   // カテゴリとしてWarningBadgeと同様の常時マウント（チップ無し）へ変更したため、
   // MapLayerId自体を持たない（mapLayers.tsの対象外、frontend/src/hooks/
@@ -621,6 +624,22 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "スライダーが現れ、実況（直近）から60分先までの竜巻等の激しい突風の可能性を切り替えて" +
       "確認できます。発生確度2は気象庁の「竜巻注意」情報につながる絞り込んだ予測です。" +
       "非公式の内部APIを利用しているため、取得に失敗することがあります。",
+  },
+  {
+    // 雷放電位置データ（改善計画T541）。thunderNowcast（エリア単位の活動度）とは異なり、
+    // 個々の落雷地点そのものを点マーカーで示す。
+    id: "liden",
+    label: "雷放電位置データ",
+    chipLabel: "落雷",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の雷放電位置データ（実際の落雷地点）を表示[実況、5分刻み]",
+    panelHint:
+      "気象庁が検知した実際の落雷地点（雷放電位置データ）です。ONにすると地図上に時刻" +
+      "スライダーが現れ、直近の落雷地点を5分刻みで確認できます。エリア単位の危険度は" +
+      "「雷ナウキャスト」チップで確認してください。非公式の内部APIを利用しているため、" +
+      "取得に失敗することがあります。",
   },
   {
     id: "route",

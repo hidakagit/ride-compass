@@ -40,6 +40,7 @@ function baseProps() {
       gradientAxis: false,
       thunderNowcast: false,
       tornadoNowcast: false,
+      liden: false,
     },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
@@ -270,6 +271,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         onLayerToggle={onLayerToggle}
       />,
@@ -366,6 +368,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         regionZoomTooWide={true}
       />,
@@ -398,6 +401,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         layerDataStatus={{ designation: "error" }}
       />,
@@ -429,6 +433,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         layerDataStatus={{ stopPoi: "empty" }}
       />,
@@ -471,6 +476,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -504,6 +510,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -537,6 +544,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ stopPoi: "empty" }}
@@ -571,6 +579,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
       />,
     );
@@ -602,6 +611,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
       />,
     );
@@ -633,6 +643,7 @@ describe("MapLayersPanel", () => {
       gradientAxis: false,
           thunderNowcast: false,
           tornadoNowcast: false,
+          liden: false,
         }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,

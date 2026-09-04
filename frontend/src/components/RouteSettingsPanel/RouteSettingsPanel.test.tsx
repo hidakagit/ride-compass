@@ -91,6 +91,7 @@ function baseLayerVisibility(): MapLayerVisibility {
     gradientAxis: false,
     thunderNowcast: false,
     tornadoNowcast: false,
+    liden: false,
   };
 }
 

@@ -7,7 +7,7 @@
 // useWeatherGrid経由の風/延長降水予報T183）と、そこから導出する共有タイムライン
 // （T183再設計「時間経過はスライドバー1本で表現する」）・DynamicLayerTimeSlider向けの
 // props・MapView向けのdynamicWeatherプロパティを、この1フックへまとめた。
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchNowcastFrames,
   fetchRasrfFrames,
@@ -29,6 +29,7 @@ import {
   tornadoRenderPayload,
   type ThunderNowcastFrame,
 } from "@/components/Map/thunderNowcast";
+import { fetchLidenFrames, fetchLidenGeojson, lidenFrames, type LidenFrame } from "@/components/Map/lidenLayer";
 import {
   fetchCurrentRiskFrames,
   fetchLinearRainbandFrames,
@@ -88,6 +89,7 @@ const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = {
 const EMPTY_NOWCAST_FRAMES: NowcastFrame[] = [];
 const EMPTY_RASRF_FRAMES: RasrfFrame[] = [];
 const EMPTY_THUNDER_NOWCAST_FRAMES: ThunderNowcastFrame[] = [];
+const EMPTY_LIDEN_FRAMES: LidenFrame[] = [];
 
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
@@ -102,6 +104,7 @@ export interface UseDynamicWeatherLayersOptions {
   showPrecipitationNowcast: boolean;
   showThunderNowcast: boolean;
   showTornadoNowcast: boolean;
+  showLiden: boolean;
   mapViewport: MapViewport | null;
 }
 
@@ -140,6 +143,7 @@ export function useDynamicWeatherLayers({
   showPrecipitationNowcast,
   showThunderNowcast,
   showTornadoNowcast,
+  showLiden,
   mapViewport,
 }: UseDynamicWeatherLayersOptions): UseDynamicWeatherLayersResult {
   // 動的気象レイヤーが指す対象時刻（T183再設計）。ONの全レイヤーのフレーム時刻を統合した
@@ -195,6 +199,20 @@ export function useDynamicWeatherLayers({
     [rawThunderNowcastFrames],
   );
 
+  // 雷放電位置データ（改善計画T541）。同じtargetTimes_N3.json由来だが、雷・竜巻とは
+  // 独立したON/OFFのため別のfetchで取得する（fetchLidenFramesがliden自体を含む
+  // エントリだけへ絞り込む、lidenLayer.ts参照）。
+  const {
+    data: rawLidenNowcastFrames,
+    loading: lidenNowcastLoading,
+    error: lidenNowcastError,
+  } = usePolledFetch(fetchLidenFrames, EMPTY_LIDEN_FRAMES, {
+    enabled: showLiden,
+    intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
+    label: "雷放電位置データ",
+  });
+  const lidenNowcastFrames = useMemo(() => trimToCurrentAndFuture(rawLidenNowcastFrames), [rawLidenNowcastFrames]);
+
   // キキクル（土砂・大雨・浸水、改善計画T410）の「現在」フレーム。3種で1本のtargetTimes.json
   // を共有するため（riskMap.ts参照）1本のfetchでまとめて取得する（thunderNowcastFramesと
   // 同じ考え方）。改善計画T432: 「防災」カテゴリとしてWarningBadgeと同じ常時マウントに
@@ -242,6 +260,7 @@ export function useDynamicWeatherLayers({
   );
   // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列（改善計画T204）。
   const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
+  const lidenFramesList = useMemo(() => lidenFrames(lidenNowcastFrames), [lidenNowcastFrames]);
   // キキクル3種+線状降水帯予測マップ（改善計画T410）。riskMap.tsが既にDynamicWeatherFrame
   // 形式で返すが、他レイヤーと異なり共有タイムライン・frameIndexForTimeには乗せない
   // （下記の理由）。
@@ -273,8 +292,19 @@ export function useDynamicWeatherLayers({
     if (showWindVector) lists.push(windFramesList);
     if (showPrecipitationNowcast) lists.push(precipFramesList);
     if (showThunderNowcast || showTornadoNowcast) lists.push(thunderFramesList);
+    if (showLiden) lists.push(lidenFramesList);
     return lists;
-  }, [showWindVector, windFramesList, showPrecipitationNowcast, precipFramesList, showThunderNowcast, showTornadoNowcast, thunderFramesList]);
+  }, [
+    showWindVector,
+    windFramesList,
+    showPrecipitationNowcast,
+    precipFramesList,
+    showThunderNowcast,
+    showTornadoNowcast,
+    thunderFramesList,
+    showLiden,
+    lidenFramesList,
+  ]);
   const timeline = useMemo(() => mergeFrameTimes(activeFrameLists), [activeFrameLists]);
 
   // スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）と、
@@ -389,6 +419,34 @@ export function useDynamicWeatherLayers({
     if (index == null) return undefined;
     return tornadoRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
   }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
+  // 雷放電位置データ（改善計画T541）。配信元が実際の落雷地点をGeoJSONで提供するため、
+  // 他要素と異なり選択フレームが変わるたびに個別fetchが要る（lidenLayer.ts参照）。
+  // 取得済みgeojsonにref（frames内のindex）を添えて保持し、選択中のindexと一致する
+  // ときだけpayloadへ反映する——scrub中に古いフェッチが新しいフェッチより後に解決しても、
+  // 直前に選んでいた古い時刻のデータを新しい時刻の表示へ混ぜない。
+  const lidenIndex = frameIndexForTime(lidenFramesList, dynamicLayerTargetTime);
+  const lidenRef = lidenIndex == null ? undefined : lidenFramesList[lidenIndex].ref;
+  const [lidenFetched, setLidenFetched] = useState<{ ref: number; geojson: GeoJSON.FeatureCollection } | undefined>();
+  useEffect(() => {
+    if (!showLiden || lidenRef == null) return;
+    let cancelled = false;
+    fetchLidenGeojson(lidenNowcastFrames, lidenRef)
+      .then((geojson) => {
+        if (cancelled || !geojson) return;
+        setLidenFetched({ ref: lidenRef, geojson });
+      })
+      .catch(() => {
+        // フェッチ失敗は表示しないだけに留める（他要素と同じフェイルソフト方針、
+        // fetchJson自体がdebugLogへ記録済み）。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showLiden, lidenRef, lidenNowcastFrames]);
+  const lidenPayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
+    if (lidenIndex == null || !lidenFetched || lidenFetched.ref !== lidenRef) return undefined;
+    return { kind: "gridMark", geojson: lidenFetched.geojson };
+  }, [lidenIndex, lidenFetched, lidenRef]);
   // キキクル（改善計画T410、T432で「防災」カテゴリとして常時マウントへ変更）。isAtNow
   // ゲーティング（スライダーが「現在」位置にあるときだけ表示）は撤回した——キキクル3種は
   // もはやどのUIコントロール（チップ・スライダー）とも接続されず、WarningBadgeと同じ
@@ -445,6 +503,7 @@ export function useDynamicWeatherLayers({
       },
       thunderNowcast: { main: { visible: showThunderNowcast, payload: thunderPayload } },
       tornadoNowcast: { main: { visible: showTornadoNowcast, payload: tornadoPayload } },
+      liden: { main: { visible: showLiden, payload: lidenPayload } },
       landslideRisk: { main: { visible: true, payload: landslideRiskPayload } },
       heavyRainRisk: { main: { visible: true, payload: heavyRainRiskPayload } },
       inundationRisk: { main: { visible: true, payload: inundationRiskPayload } },
@@ -463,6 +522,8 @@ export function useDynamicWeatherLayers({
       thunderPayload,
       showTornadoNowcast,
       tornadoPayload,
+      showLiden,
+      lidenPayload,
       landslideRiskPayload,
       heavyRainRiskPayload,
       inundationRiskPayload,
@@ -478,11 +539,15 @@ export function useDynamicWeatherLayers({
   // （線状降水帯予測マップ）は「降水」チップ配下のためshowPrecipitationNowcast連動
   // （改善計画T425、以前はどちらもdynamicLayerErrorに含まれずエラーがユーザーへ不可視だった）。
   const dynamicLayerLoading =
-    windLoading || (showPrecipitationNowcast && nowcastLoading) || ((showThunderNowcast || showTornadoNowcast) && thunderNowcastLoading);
+    windLoading ||
+    (showPrecipitationNowcast && nowcastLoading) ||
+    ((showThunderNowcast || showTornadoNowcast) && thunderNowcastLoading) ||
+    (showLiden && lidenNowcastLoading);
   const dynamicLayerError =
     windError ??
     (showPrecipitationNowcast ? nowcastError : null) ??
     (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null) ??
+    (showLiden ? lidenNowcastError : null) ??
     currentRiskError ??
     (showPrecipitationNowcast ? linearRainbandError : null);
 

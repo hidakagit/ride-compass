@@ -68,6 +68,8 @@ import { GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisColorExpression } from "@/
 import { gradientFillColorExpression } from "@/components/Map/gradientGridFill";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { JMA_TILE_BASE_URL } from "@/components/Map/jmaNowcastFrames";
+import { createLidenIcon } from "@/components/Map/lidenIcon";
+import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
@@ -1029,6 +1031,27 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
       },
     },
   },
+  // 雷放電位置データ（改善計画T541）。thunderNowcastと同じN3配信だが、配信元が既に
+  // GeoJSON（個々の落雷地点）で提供するためraster設定を持たない。geojson自体は
+  // hooks/useDynamicWeatherLayers.tsが選択フレームごとに取得しstateへ持つ（他要素の
+  // gridMarkと異なり、ここでは既存の格子データからの合成ではなく配信元GeoJSONを
+  // そのまま渡す）。落雷の強弱を示す値を配信元が持たないため、valueProperty
+  // （LIDEN_MARK_VALUE_PROPERTY）は常に固定値で、minScale===maxScaleによりicon-sizeは
+  // ズームだけに依存する（プロパティ値は実質無視される）。
+  liden: {
+    main: {
+      gridMark: {
+        createIcon: createLidenIcon,
+        colorExpression: "#facc15" as unknown as maplibregl.ExpressionSpecification,
+        valueProperty: LIDEN_MARK_VALUE_PROPERTY,
+        minScale: 0.8,
+        maxScale: 0.8,
+        maxValueForFullScale: 1,
+        haloColor: "rgba(31, 41, 55, 0.85)",
+        haloWidth: 1.5,
+      },
+    },
+  },
   // キキクル（危険度分布、改善計画T410、T432で「防災」カテゴリとして常時マウントへ変更）。
   // 他のraster専用スペック（thunderNowcast等）と同じ単純な構成。実機確認済みのzoom範囲
   // （risk.properties.xml: minZoom=4/maxZoom=14/maxNativeZoom=11）に合わせる。
@@ -1828,6 +1851,7 @@ const PRIMARY_DYNAMIC_WEATHER_SOURCE: Record<(typeof CHIP_DYNAMIC_WEATHER_LAYER_
   windVector: "arrow",
   thunderNowcast: "main",
   tornadoNowcast: "main",
+  liden: "main",
 };
 
 function primaryDynamicWeatherSourceId(

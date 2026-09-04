@@ -398,6 +398,16 @@ export function ThunderIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 雷放電位置データ（地図チップ、改善計画T541）: 単体の稲妻（ThunderIconから雲を除いた
+ * 形で、エリア単位の活動度[ThunderIcon]と区別する）。 */
+export function LidenIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M11 2 5.5 11.5H9.5L8 18l6.5-9.5H10.5L11 2Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** 竜巻発生確度（地図チップ、改善計画T204）: 渦を巻く漏斗雲 */
 export function TornadoIcon({ size = 16 }: IconProps) {
   return (

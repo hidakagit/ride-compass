@@ -11,6 +11,10 @@ router = APIRouter()
 async def jma_tile_proxy(
     path: str, request: Request, jma_tile_client: JmaTileClient = Depends(get_jma_tile_client)
 ) -> Response:
+    # クエリ文字列（例: liden/slmcs系のGeoJSONが要求する?id=liden）はpathへ連結して
+    # そのままキャッシュキー・上流URLの一部にする（透過プロキシのため中身を解釈しない）。
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
     # 改善計画T510: キャッシュヒットならレート制限を一切経由しない（以前は
     # enforce_rate_limitを先に呼んでいたため、既にキャッシュ済みのタイルへの往復パンだけで
     # 429になっていた——429の直接原因）。認証なしで叩けるプロキシへの簡易な歯止め
