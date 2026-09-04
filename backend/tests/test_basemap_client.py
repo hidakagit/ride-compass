@@ -92,3 +92,16 @@ async def test_json_is_cached_unrewritten_so_proxy_base_url_change_applies_immed
     assert b'"https://backend.example/api/basemap/sprites/ofm_f384/ofm"' in content
     assert b"tiles.openfreemap.org" not in content
     assert content_type == "application/json"
+
+
+async def test_rewritten_json_left_under_plain_path_key_is_ignored():
+    """パスそのままのキーに書き換え済みJSONが残っていても採用せず、上流から取り直す。"""
+    tile_cache.set("styles/liberty", b'{"sprite":"http://stale.example/api/basemap/sprites/ofm"}', "application/json")
+    http_client = FakeHttpClient(b'{"sprite":"https://tiles.openfreemap.org/sprites/ofm"}', "application/json")
+    client = BasemapClient(http_client, "https://backend.example/api/basemap")
+
+    content, _ = await client.get("styles/liberty")
+
+    assert len(http_client.requested_urls) == 1
+    assert b"stale.example" not in content
+    assert b'"https://backend.example/api/basemap/sprites/ofm"' in content

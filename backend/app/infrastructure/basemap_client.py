@@ -35,7 +35,9 @@ class BasemapClient:
             # リクエストが同時に来るため、awaitせず直接呼ぶとイベントループ全体をブロックし、
             # 同時に処理中の他のリクエスト（ルート生成等）が数十秒単位で詰まることを実機確認した。
             cached = await asyncio.to_thread(tile_cache.get, path)
-            if cached is not None:
+            # JSONは書き換え前の内容を_RAW_JSON_CACHE_PREFIX側にだけ置く。パスそのままのキーに
+            # JSONが残っていても（書き換え済みの内容）採用せず、生キャッシュ→上流の順で引く。
+            if cached is not None and "json" not in cached[1]:
                 fields["cache"] = "hit"
                 return cached
             cached_json = await asyncio.to_thread(tile_cache.get, _RAW_JSON_CACHE_PREFIX + path)
