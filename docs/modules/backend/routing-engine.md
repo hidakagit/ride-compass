@@ -453,10 +453,9 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   距離加重重複率、およびランク順の候補列から重複率・近接度（`is_compatible`）で貪欲に
   多様な集合を選ぶ汎用関数（周回の折返し点選定・目的地ルートのvia-node選定の両方に使う）。
   採用済み集合はEdgeごとのuint64ビットマスク1本（bit `i`＝「採用済み`i`件目がこのEdgeを
-  含む」、改善計画T568）で持つ——`max_count`（実際の呼び出し元の上限は
+  含む」、常駐メモリはEdge数×8B）で持つ——`max_count`（実際の呼び出し元の上限は
   `TURNAROUND_POOL_MAX`=40・`MAX_ROUTES`=15）は64を超えられず、超える呼び出しは
-  `ValueError`になる。以前の`(max_count, Edge数)`のbool行列（常駐メモリ最大約22MB、
-  `/code-review`指摘）よりEdge数×8Bへ縮む。
+  `ValueError`になる。
 - `RoadGraphEngine.is_loop_too_similar`（`LoopRoutingEngine`契約、`_loop_edge_lengths_by_
   physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
   （`TracedLoop.data`、往路＋復路のedge_id列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
