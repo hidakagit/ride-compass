@@ -14,6 +14,7 @@ from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import close_all_http_clients, get_http_client
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware, unhandled_exception_handler
+from app.infrastructure.response_compression import ContentTypeGZipMiddleware
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
@@ -145,6 +146,10 @@ app.add_middleware(
     # ブラウザのJSから読めるようexposeする(request_log.py参照)。
     expose_headers=["X-Request-ID"],
 )
+# 応答のgzip圧縮（infrastructure/response_compression.py、対象content-typeのみ）。
+# CORSより外側・request_log_middlewareより内側に置く（アクセスログの所要時間に
+# 圧縮時間も含める）。
+app.add_middleware(ContentTypeGZipMiddleware)
 
 # 後から登録したミドルウェアが外側になる(リクエストIDの付与・アクセスログはCORS処理も
 # 含めた全体を計測・記録したいため、CORSより外側に置く)。

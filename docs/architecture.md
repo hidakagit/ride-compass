@@ -271,9 +271,8 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   {times: list[str], points: list[WindGridPoint]}`形（`WindGridPoint`自体は`times`を
   持たない）。全地点が同じforecast_days・timezoneで一括取得されるためhourly.timeは
   全地点で共通であり、以前は624地点ぶん同じ`times`配列を複製していた（非圧縮応答の
-  約54%を占めていた、実測）。バックエンドはGZipMiddlewareを持たないため本番でも
-  非圧縮配信の可能性が高く、圧縮下でも実害は限定的というレビュー時の想定を覆す形と
-  なったため実装した。フロント内部（windLayer.ts/useWeatherGrid.ts/precipitationNowcast.ts）
+  約54%を占めていた、実測）。当時バックエンドはGZipMiddlewareを持たず非圧縮配信
+  だったため実装した（現在は`ContentTypeGZipMiddleware`がJSON・MVT応答をgzipする）。フロント内部（windLayer.ts/useWeatherGrid.ts/precipitationNowcast.ts）
   は「各点がtimesを持つ」既存表現のまま変えておらず、`services/weatherApi.ts`の
   `toWindGridPoints`がバックエンド応答を受け取った直後にtimesを各点へ合成し直すことで、
   ワイヤーフォーマット（削減対象）とフロント内部データモデル（既存ロジック）を分離した。

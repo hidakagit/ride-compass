@@ -23,6 +23,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの固定窓レート制限 |
 | infrastructure | `request_log.py` | リクエストIDの付与、1リクエスト=1行のHTTPアクセスサマリログ |
+| infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計 |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
@@ -44,7 +45,8 @@ FastAPI(lifespan=lifespan)
         │       同様に起動直後にも即時実行、[動的気象レイヤー](weather-dynamic-layers.md)
         │       「定期プリウォーム」節参照）
         ▼
-  CORSMiddleware → request_log_middleware（リクエストID付与・アクセスログ、CORSより外側）
+  CORSMiddleware → ContentTypeGZipMiddleware（応答のgzip圧縮）
+            → request_log_middleware（リクエストID付与・アクセスログ、最も外側）
         ▼
   api_router（api/routers/__init__.py、全routerを集約）
         ▼
@@ -170,6 +172,16 @@ JMA気象データの短命キャッシュ・`road_graph_tile_cache.py`のcache-
 SSLコンテキスト構築（CA証明書バンドルの読み込み・パース）を伴い環境によっては高コストに
 なりうるため、リクエストごとの新規生成をやめプロセス全体で使い回す（`main.py`の
 lifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアップするのもこのため）。
+
+## 応答のgzip圧縮（`response_compression.py`）
+
+`ContentTypeGZipMiddleware`はStarletteの`GZipMiddleware`を、応答の`content-type`が
+`COMPRESSIBLE_CONTENT_TYPES`（JSON・MVT・protobuf・JavaScript）または`text/*`のときだけ
+圧縮するよう絞ったもの。basemap/JMA/国土地理院のラスタタイル（PNG等）は圧縮済み形式のため
+素通しする。`Accept-Encoding: gzip`を持つリクエストで、本文が`DEFAULT_MINIMUM_SIZE`
+（1000バイト）以上の応答が対象。`compresslevel`は3（圧縮はイベントループ上で同期的に
+走るため、縮小率がほぼ変わらない高レベルは使わない）。`Vary: Accept-Encoding`は
+Starlette側が付与する。
 
 ## リクエストIDとアクセスログ（`request_log.py`）
 

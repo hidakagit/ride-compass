@@ -391,3 +391,22 @@ def test_road_surface_tile_rate_limit_is_independent_from_basemap_rate_limit(mon
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
+
+
+def test_region_road_surface_tile_is_gzipped_for_gzip_clients():
+    tile = bytes(range(256)) * 40
+    fake = FakeRegionService(tile_bytes=tile)
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/region/road-surface-tiles/14/14551/6447.pbf", headers={"Accept-Encoding": "gzip"}
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+    assert response.headers["cache-control"] == "public, max-age=3600"
+    assert response.content == tile

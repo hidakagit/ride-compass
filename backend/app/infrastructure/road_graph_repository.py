@@ -368,21 +368,20 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         )::double precision AS intersection_per_km
                     FROM osm_raw_ways w
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
-                    LEFT JOIN (
-                        -- 指定路線コンフレーション機構（外部静的データソース T51）。
-                        -- designation_attributesはmatch_designations.pyの事前計算バッチが埋める。
-                        -- 改善計画T74: キーがosm_way_idになったため、road_edges経由の間接JOIN
-                        -- （旧: designation_attributes.edge_id→road_edges.edge_id→osm_way_id）が
-                        -- 不要になった。designation_attributes自体を直接osm_way_id単位へ
-                        -- 事前集約する（改善計画T65の17倍高速化の知見はそのまま活きる。
-                        -- osm_way_id 1件に対しkindは高々2件のためbool_or集約コストは軽微）。
+                    LEFT JOIN LATERAL (
+                        -- 指定路線（designation_attributes、match_designations.pyが埋める
+                        -- osm_way_id単位の派生テーブル）をwayごとに主キーで引く。wayに相関
+                        -- させたLATERALにするのは、相関の無い集約サブクエリ（テーブル全体を
+                        -- GROUP BYしてからJOIN）だとプランナが全行の集約を毎回先に実行し、
+                        -- 数百wayのタイルでもその固定コストが乗るため。osm_way_id 1件に対し
+                        -- kindは高々2件。該当行が無いwayではbool_orがNULLになる（LEFT JOINの
+                        -- 不一致と同じ扱い）。
                         SELECT
-                            osm_way_id,
                             bool_or(kind = 'emergency_transport') AS is_ert,
                             bool_or(kind = 'critical_logistics') AS is_cl
                         FROM designation_attributes
-                        GROUP BY osm_way_id
-                    ) d ON d.osm_way_id = w.osm_way_id
+                        WHERE osm_way_id = w.osm_way_id
+                    ) d ON true
                     WHERE w.geom IS NOT NULL
                       AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
                 ) mvt

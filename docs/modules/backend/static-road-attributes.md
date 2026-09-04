@@ -177,7 +177,10 @@ tile_cache/`）で、パスをSHA-256でハッシュ化したフラットなフ�
 | `POST /api/region/axis-inspector` | 区間インスペクタ（osm_way_id指定） |
 | `GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accidents.py`） | 事故のMVTタイル |
 
-MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`）で行う。
+MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`）で行う。タイル内の
+wayへ付帯情報（`way_attribute_counts`・`designation_attributes`）を結合するJOINは、
+wayごとの主キー検索になる形（`designation_attributes`は`LEFT JOIN LATERAL`）を保つこと——
+相関の無い集約サブクエリだとテーブル全体の集約が毎タイルの固定コストになる。
 
 **同時実行数制限**: 路面・POIタイルは`_region_tile_semaphore`
 （`settings.road_tile_max_concurrent`）を共有する（DB接続プール上限を超えないため専用
@@ -188,6 +191,8 @@ semaphoreを追加しない）。事故タイルは`_accident_tile_semaphore`
 `/health`はこれらのsemaphoreを経由しない別の同期ハンドラのため、待機中のタイル要求に
 巻き込まれず応答し続ける。
 
+応答は`ContentTypeGZipMiddleware`（[横断基盤](cross-cutting-infrastructure.md)）が
+`Accept-Encoding: gzip`のクライアントへgzip圧縮して返す（MVTは約55〜60%に縮む）。
 ブラウザ側HTTPキャッシュは1時間（`Cache-Control: public, max-age=3600`）。路面データは
 PBF取込時にしか変わらないため、再訪時の同一タイル再取得（バーストの主成分）を省ける。
 
