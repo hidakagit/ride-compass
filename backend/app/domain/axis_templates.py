@@ -78,9 +78,18 @@ def round1_array(values: np.ndarray) -> np.ndarray:
     """`round(x, 1)`（Python組み込み、2進浮動小数点の実際の値に対する正しい丸め）と
     ビット単位で一致させるための配列版丸め。`np.round`は内部で「×10→rint→÷10」という
     段階を踏むため、その掛け算で丸め誤差が混入し、値がちょうど.X5の境界にあると
-    Python組み込みの`round()`と結果が食い違うことがある（実測: 実データのEdgeで
-    `np.round`は41.3、`round()`は41.2。`domain/difficulty.py`の配列版4関数・
-    `domain/evaluation.py: compute_edge_costs_bulk`の最終丸めの両方で使う共通実装）。
-    NaNはNaNのまま返す。
+    Python組み込みの`round()`と結果が食い違うことがある（`domain/difficulty.py`の
+    配列版4関数・`domain/evaluation.py: compute_edge_costs_bulk`の最終丸めの両方で
+    使う共通実装）。NaNはNaNのまま返す。
     """
-    return np.array([round(float(v), 1) if not np.isnan(v) else np.nan for v in values])
+    values = np.asarray(values, dtype=float)
+    scaled = values * 10.0
+    out = np.rint(scaled) / 10.0
+    # ×10の丸め誤差で判定が変わりうるのは、計算後の値がちょうど.5に乗った要素だけ
+    # （真の積が.5境界の反対側にあれば、float64の積は必ずちょうど.5へ丸まる）。
+    # その要素だけPythonのround()（10進の正しい丸め）で決め直す。NaNはそのまま伝播する。
+    tie = (scaled - np.floor(scaled)) == 0.5
+    if tie.any():
+        idx = np.flatnonzero(tie)
+        out[idx] = [round(float(values[i]), 1) for i in idx]
+    return out

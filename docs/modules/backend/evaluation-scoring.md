@@ -104,8 +104,10 @@ evaluate_graph`（bbox全体を一括評価する経路）自体は本番のル�
 **暗黙の前提（浮動小数点の一致）**: `_neumaier_accumulate`（Neumaier補償加算のnumpy版）は
 Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）とビット単位で同じ
 結果を返すために存在する。単純な逐次`+=`ではちょうど.X5境界の値で最終丸め結果が
-`compute_edge_cost`（スカラー版）と食い違う。最終丸めも同じ理由でnumpyの`np.round`
-ではなくPythonの`round()`を要素ごとに適用する（`round1_array`）。
+`compute_edge_cost`（スカラー版）と食い違う。最終丸めも同じ理由で`compute_edge_cost`の
+`round(x, 1)`とビット単位で一致させる必要がある（`round1_array`）。`×10→np.rint→÷10`を
+配列全体でまとめて計算し、計算後の値がちょうど`.5`に乗った要素だけ、その要素の元の値へ
+Pythonの`round()`（10進の正しい丸め）を個別に適用して結果を決め直す。
 
 **暗黙の前提**: `material_arrays`は`MATERIAL_CATALOG`の全材料ぶん確保する
 （`extractor`未設定の材料も既定値[NaN/False]で確保）。抽出ループ自体は`extractor`を
