@@ -38,7 +38,9 @@ DEFAULT_MAX_TILES = 2_000
 # （改善計画T538）。パスへ埋め込むことで対応しない世代のファイルを読まないようにする
 # （region_service.py: ROAD_SURFACE_TILE_VERSIONと同じ流儀）。
 #
-# 以下を実行したときはこの値を手動で上げること:
+# 以下を実行したときはこの値を手動で上げること（`app/batch/refresh_derived.py`
+# ［改善計画T281段階2、disaster-recovery.md参照］はPBF再取込を除く下記バッチ一式を
+# 1コマンドで実行するため、これを実行した場合も同様に上げること）:
 #   - PBF再取込（app/batch/import_pbf.py）
 #   - 交差点分割の事前バッチ（app/batch/presplit_road_graph.py）
 #   - SearchMaterialsが読む事前集計・派生データを更新するprecomputeバッチ
@@ -47,15 +49,22 @@ DEFAULT_MAX_TILES = 2_000
 #   - `EdgeMaterialBundle`・`SearchMaterials`自体の構築ロジック変更
 #     （domain/attributes.py・services/graph_service.py: _get_or_build_tile_materials）
 #
-# 上げないと、実行前にディスクへ書き込まれた古いタイル材料が、次回デプロイでプロセスが
-# 再起動した瞬間から復元されてしまう（バッチ実行後もメモリキャッシュはプロセス寿命内は
-# 温存されるため、バッチ直後は気づきにくい点に注意）。
+# 上げないと、バッチ実行前に既にメモリ・ディスクへキャッシュ済みだったタイルは、
+# プロセス再起動をまたいでも（ディスク経由で）古いまま復元され続ける。バッチ実行
+# より前に一度もアクセスされたことのないタイルだけが、バッチ後の初回アクセス時に
+# DBから新しい値を読み新規キャッシュされる——「一部のタイルだけ更新が反映されている
+# ように見える」形で症状が局所的になり気づきにくい（改善計画T574、2026-09-04、
+# 実際にこの状態で本番の欠損比率計測が変化しない不具合として発現した）。
 # v1: 初版（改善計画T538）。
 # v2: `SearchMaterials.materials`をEdgeMaterialBundle辞書から列指向の`EdgeMaterialTable`へ
 #     変更（改善計画T546、T538再検討案C1）。保存形式が変わるため世代を上げる
 #     （`TILE_SCORE_MATRIX_CACHE_VERSION`は`StaticEdgeScoreMatrix`自体は無変更のため据え置き）。
+# v3: 改善計画T574。`app/batch/refresh_derived.py`（precompute_edge_attribute_counts等の
+#     一括実行）が本番でこの版数を上げずに実行され、DB側は更新済みなのにディスク
+#     キャッシュが古いまま参照され続ける不具合が発生したための世代上げ（内容自体の変更は
+#     無い）。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = "2"
+TILE_MATERIALS_CACHE_VERSION = "3"
 
 
 class _LRUCache(Generic[_T]):

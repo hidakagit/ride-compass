@@ -70,6 +70,48 @@ ARM64のDebian系ベースイメージでは`libexpat1`（`apt-get install`）�
 DATABASE_URL=... python -m app.batch.refresh_derived
 ```
 
+**本番（関東本土全域）で実行する場合は必ずDockerメモリ上限を指定すること**
+（`docker run --memory=<上限> ...`）。全域規模（road_edges約500万件）では
+`precompute_elevation_attributes`（DEMタイルをプロセス内メモリキャッシュへ保持し続ける
+設計、`infrastructure/tile_cache.py`とは別にプロセス内`_tile_grid_cache`も肥大化する）が
+長時間・大量にメモリを消費し、上限を指定しないとホストOS全体のメモリを枯渇させうる
+（2026-09-04の本番実行で実際にVM全体が6時間以上無応答になるインシデントが発生、
+下記「既知のリスク」参照）。上限の目安は本番VMの物理メモリの50〜70%程度
+（他のプロセス——本番backend・PostgreSQL・OS自体——の分を必ず残すこと）。
+
+**稼働中DBへの定常運用（新規/被災環境のbootstrap直後を除く）で実行した場合は、
+完了後に`TILE_MATERIALS_CACHE_VERSION`（`infrastructure/graph_material_cache.py`）・
+`TILE_SCORE_MATRIX_CACHE_VERSION`（`infrastructure/tile_score_matrix_cache.py`）を
+同一コミットで上げてpushすること**（deploy-backend.ymlが`backend/**`変更を検知し
+本番backendを自動デプロイ、再起動でディスク永続キャッシュの新世代が有効になる）。
+上げないと、バッチ実行前に既にキャッシュ済みだったタイルはディスク経由で古いまま
+復元され続け、未訪問タイルだけ新しい値になる——「一部だけ更新されたように見える」
+形で気づきにくい（改善計画T574、2026-09-04。新規/被災環境のbootstrap直後は
+ディスクキャッシュが元々空のためこの手順は不要）。
+
+## 既知のリスク・対策（2026-09-04、本番実行時のOOMインシデントを受けて追記）
+
+`refresh_derived.py`を関東本土全域（road_edges約500万件）に対してメモリ上限指定なしで
+実行したところ、⑦`precompute_elevation_attributes`の途中でVM全体のメモリが枯渇し、
+SSH・HTTPともに6時間14分（02:06〜08:20 UTC）応答不能になった（本番backendも同時間帯
+完全にダウン）。OCI CLIの`SOFTRESET`（ACPI経由の正常再起動）も約13分応答せず、最終的に
+`RESET`（強制電源サイクル）で復旧した。ジャーナルログに`snapd.service: Watchdog timeout`・
+大量の`sshd: Broken pipe`が残っており、システム全体が深刻なメモリスラッシング状態に
+あったと見られる（OOM Killerの直接ログは再起動でクリアされ確認できず）。
+
+**判明した脆弱性と対策**:
+- **スワップが0Bだった**（対策済み: 4GBのswapfileを`/`に追加、`vm.swappiness=30`に設定。
+  緩衝材を持たせることで、急激なメモリ枯渇時にOOM Killerがより正確に選別してkillする
+  余地を作る）。
+- **重いバッチにDockerメモリ上限が無かった**（対策: 上記「④refresh_derived.py」節の
+  運用ルール。今後本番で重いバッチを実行する際は必ず`--memory`を指定すること）。
+- **本番backendコンテナ自体のメモリ保護は未実施**（今回のインシデントで確認できた残課題。
+  `docker run --oom-score-adj=<負の値>`等でOOM Killerの標的になりにくくする対策は
+  今回は実施していない、次回検討）。
+- 全国規模（[T127](tasks/T127.md)が扱う所要時間の不確実性）への外挿では、この種の
+  リソース枯渇リスクがさらに増す。全国投入を検討する際は、この節の対策を前提に
+  含めること。
+
 ## 検証実績（2026-09-04、[T573](tasks/T573.md)）
 
 既存本番VM上に別ポートの使い捨てPostgreSQL 18+PostGIS 3.6クラスタを作成し、

@@ -66,12 +66,21 @@ _max_entries = DEFAULT_MAX_TILES
 #     precompute_road_node_degrees.py・precompute_way_attribute_counts.py）
 #   - `build_static_edge_score_matrix`自体の計算式変更（domain/evaluation.py）
 #
+# `app/batch/refresh_derived.py`（改善計画T281段階2、disaster-recovery.md参照）は
+# PBF再取込を除く上記バッチ一式を1コマンドで実行するため、これを実行した場合も
+# 同様に上げること。上げ忘れると、実行前に既にキャッシュ済みだったタイルはディスク
+# 経由で古いまま復元され続け、未訪問タイルだけが新しい値になる（症状が局所的で
+# 気づきにくい。改善計画T574、2026-09-04、`graph_material_cache.py`と同時に発現）。
+#
 # **軸定義（axis_definitionsテーブル）の追加・削除・shape_params調整はこの世代管理の
 # 対象外**——軸スタジオでの編集は上記のバージョン更新（デプロイを伴う）ではなく、
 # 下記`clear()`（`refresh_axis_definitions`経由の即時呼び出し）が担う。
 # v1: 初版（改善計画T538）。
+# v2: 改善計画T574。`app/batch/refresh_derived.py`が本番でこの版数を上げずに実行され、
+#     DB側は更新済みなのにディスクキャッシュが古いまま参照され続ける不具合が発生したための
+#     世代上げ（内容自体の変更は無い）。
 _CACHE_NAMESPACE = "score_matrix"
-TILE_SCORE_MATRIX_CACHE_VERSION = "1"
+TILE_SCORE_MATRIX_CACHE_VERSION = "2"
 
 
 def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
