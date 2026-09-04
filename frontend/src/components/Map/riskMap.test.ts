@@ -108,22 +108,21 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
     it("landRenderPayloadはrisk/{basetime}/{member}/{validtime}/surf/land/... を返す", () => {
       expect(landRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/{z}/{x}/{y}.png",
+        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/{z}/{x}/{y}.png`,
       });
     });
 
     it("heavyRainRenderPayloadは要素コードrain_mesh（imageType定義に準拠）を使う", () => {
       expect(heavyRainRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate:
-          "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/rain_mesh/{z}/{x}/{y}.png",
+        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/rain_mesh/{z}/{x}/{y}.png`,
       });
     });
 
     it("inundationRenderPayloadは要素コードinundを使う", () => {
       expect(inundationRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png",
+        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png`,
       });
     });
 
@@ -134,7 +133,7 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
     // URL解決に失敗する（regionApi.ts: roadSurfaceTileUrl等と同じ理由）。pbfのみ
     // window.location.originを付与した絶対URLを返すよう修正した（他3種のラスタタイルは
     // メインスレッドのImage読み込みのため相対のままで問題ない）。
-    it("floodRenderPayloadはkind=vectorTile・拡張子.pbfで要素コードfloodを使い、URLは絶対パス（window.location.origin付き）", () => {
+    it("floodRenderPayloadはkind=vectorTile・拡張子.pbfで要素コードfloodを使う", () => {
       expect(floodRenderPayload(ref)).toEqual({
         kind: "vectorTile",
         tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/flood/{z}/{x}/{y}.pbf`,
@@ -145,8 +144,7 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
       const sjfcstRef = { basetime: "20260829165000", validtime: "20260829165000", member: "none" };
       expect(linearRainbandRenderPayload(sjfcstRef)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate:
-          "/api/jma-tile/bosai/jmatile/data/rasrf/20260829165000/none/20260829165000/surf/sjfcstmap/{z}/{x}/{y}.png",
+        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/rasrf/20260829165000/none/20260829165000/surf/sjfcstmap/{z}/{x}/{y}.png`,
       });
     });
   });

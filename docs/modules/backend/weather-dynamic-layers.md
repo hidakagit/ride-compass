@@ -163,6 +163,16 @@ tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない�
 `jma_tile_client.py`/`elevation_client.py`/`basemap_client.py`/`gsi_relief_tile_client.py`
 （TTLCache以外のキャッシュバックエンド）は対象外のまま各自の実装を維持する。
 
+## 基礎地図プロキシ（`basemap_client.py`・`api/routers/basemap.py`）
+
+OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイルを透過的にプロキシし、
+`tile_cache`（ファイル）へ保存する。JSON（スタイル/TileJSON）は上流のURLを
+`settings.basemap_public_base_url`へ書き換えて返すが、キャッシュには書き換え前の内容を
+`basemap-raw/`接頭辞のキーで保存し、書き換えは返す直前に毎回行う（設定変更がキャッシュを
+消さずに即座に反映される）。バイナリ（スプライト・グリフ・タイル）は無加工でパスそのままの
+キーに保存する。`POST /api/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も含めた
+ファイルキャッシュ全体を消す。
+
 ## Open-Meteo呼び出しの信頼性対策（`weather_client.py`）
 
 1. **リクエスト集約**: `get_forecast_many`が複数地点を1リクエストへまとめる（GET→POST化、

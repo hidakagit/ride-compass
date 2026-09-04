@@ -45,6 +45,7 @@
 //   関連製品だが、本タスク（洪水キキクルのみ）のスコープ外として未実装のまま残す。
 
 import { fetchJson } from "@/lib/fetchJson";
+import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { JMA_TILE_BASE_URL, parseValidtime } from "@/components/Map/jmaNowcastFrames";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
@@ -126,13 +127,10 @@ function tileUrlTemplate(
   extension: "png" | "pbf" = "png"
 ): string {
   const path = `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.${extension}`;
-  // ユーザー報告（2026-08-31、「地図が出なくなった」"Failed to construct 'Request': Failed
-  // to parse URL from /api/jma-tile/..."）: ベクタタイル（.pbf）はMapLibreがWeb Worker内で
-  // 取得するため、相対パスのままだと解決に失敗する。regionApi.ts: roadSurfaceTileUrl等
-  // （既存のvector sourceタイルURL、同じ理由でwindow.location.originを付与済み）と同じ
-  // 対処。ラスタタイル（.png）はImage要素・メインスレッド読み込みのため相対のままで
-  // 問題なく動いている（実機確認済み）ので、拡張子で分岐しpbfのみ絶対URL化する。
-  return extension === "pbf" ? `${window.location.origin}${path}` : path;
+  // 常に絶対URLにする（オリジンはtileBaseUrl()に従う）。ベクタタイル（.pbf）はMapLibreが
+  // Web Worker内で取得するため相対パスでは解決できず、ラスタタイル（.png）もbackend直接
+  // 配信（NEXT_PUBLIC_TILE_BASE_URL）ではページと別オリジンになるため絶対URLが要る。
+  return `${tileBaseUrl()}${path}`;
 }
 
 export function landRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {

@@ -15,6 +15,7 @@
 
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
+import { tileBaseUrl } from "@/lib/tileBaseUrl";
 
 export type ThunderNowcastFrame = JmaNowcastFrame;
 
@@ -40,7 +41,7 @@ export function thunderFrames(frames: readonly ThunderNowcastFrame[]): DynamicWe
 }
 
 function tileUrlTemplate(frame: ThunderNowcastFrame, product: "thns" | "trns"): string {
-  return `${JMA_TILE_BASE_URL}/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/${product}/{z}/{x}/{y}.png`;
+  return `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/${product}/{z}/{x}/{y}.png`;
 }
 
 /** thunderFramesが返したref（frames内のindex）から、雷ナウキャストの描画ペイロードを

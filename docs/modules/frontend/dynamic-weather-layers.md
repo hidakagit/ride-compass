@@ -185,9 +185,11 @@ Open-MeteoのWMOコードを分類）は**Open-Meteo予報**（今日の降水�
   `MapView.tsx`内に`ensureGradientFillLayer`/`applyGradientFillGeojson`という独立実装を
   持つ。このモジュールの対象範囲は風・降水・雷・竜巻・キキクル・線状降水帯予測マップの
   みであり、勾配は含まない（勾配は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。
-- `vectorTile`（洪水キキクル）のタイルURLは`window.location.origin`で絶対URL化する必要が
-  ある。MapLibreはベクタタイルをWeb Worker内で取得するため、相対パスのままだと
-  `new Request(url)`がWorkerのbase URLに対して解決できず例外になる。`rasterTile`（`<img>`
-  要素・メインスレッド読み込み）はこの制約を受けないため相対パスのままでよい
-  （`riskMap.ts: tileUrlTemplate`のpbf分岐、`services/regionApi.ts`の
-  `roadSurfaceTileUrl`等も同じ理由で絶対URL化している）。
+- タイルURLテンプレート（`riskMap.ts: tileUrlTemplate`・`precipitationNowcast.ts`・
+  `thunderNowcast.ts`）は`lib/tileBaseUrl.ts: tileBaseUrl()`で常に絶対URLにする。
+  `vectorTile`（洪水キキクル）はMapLibreがWeb Worker内で取得するため相対パスだと
+  `new Request(url)`がWorkerのbase URLに対して解決できず例外になり、`rasterTile`も
+  backend直接配信（`NEXT_PUBLIC_TILE_BASE_URL`）ではページと別オリジンになるため絶対URLが
+  要る（`services/regionApi.ts`の`roadSurfaceTileUrl`等と同じ仕組み、
+  [静的レイヤー](static-map-layers.md)「タイルの配信元」参照）。`targetTimes`JSON等のアプリのfetch()で
+  読むデータは相対パスのまま。

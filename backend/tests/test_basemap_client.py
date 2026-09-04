@@ -75,3 +75,20 @@ async def test_get_returns_none_on_upstream_failure():
     result = await client.get("styles/liberty")
 
     assert result is None
+
+
+async def test_json_is_cached_unrewritten_so_proxy_base_url_change_applies_immediately():
+    style_json = b'{"sprite":"https://tiles.openfreemap.org/sprites/ofm_f384/ofm"}'
+    http_client = FakeHttpClient(style_json, "application/json")
+
+    first = BasemapClient(http_client, "http://localhost:3000/api/basemap")
+    content, _ = await first.get("styles/liberty")
+    assert b'"http://localhost:3000/api/basemap/sprites/ofm_f384/ofm"' in content
+
+    second = BasemapClient(http_client, "https://backend.example/api/basemap")
+    content, content_type = await second.get("styles/liberty")
+
+    assert len(http_client.requested_urls) == 1
+    assert b'"https://backend.example/api/basemap/sprites/ofm_f384/ofm"' in content
+    assert b"tiles.openfreemap.org" not in content
+    assert content_type == "application/json"

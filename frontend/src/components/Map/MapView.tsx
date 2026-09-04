@@ -68,6 +68,7 @@ import { GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisColorExpression } from "@/
 import { gradientFillColorExpression } from "@/components/Map/gradientGridFill";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { JMA_TILE_BASE_URL } from "@/components/Map/jmaNowcastFrames";
+import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { createLidenIcon } from "@/components/Map/lidenIcon";
 import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
@@ -90,11 +91,15 @@ import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
 
-// 地図タイルはフロントエンド自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）
-// から取得する。バックエンドAPI呼び出し（:8000）と同一オリジンにすると、大量のタイル
-// リクエストがブラウザのオリジン単位の同時接続数上限を埋めてしまいAPI呼び出しが詰まる
-// ことが実機確認で判明したため、あえてAPI_BASE_URLとは別オリジン（相対パス＝:3000）にしている。
-const MAP_STYLE = "/api/basemap/styles/liberty";
+// 基礎地図のスタイルJSON。オリジンは`tileBaseUrl()`（lib/tileBaseUrl.ts: 既定はフロント
+// 自身のオリジン＝Next.jsのrewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）
+// に従う。スタイルJSON内のタイル・スプライト・グリフのURLはbackendが
+// `basemap_public_base_url`（BASEMAP_PUBLIC_BASE_URL）で組み立てるため、両者は同じ
+// オリジンを指すよう揃える必要がある。
+const MAP_STYLE_PATH = "/api/basemap/styles/liberty";
+function mapStyleUrl(): string {
+  return `${tileBaseUrl()}${MAP_STYLE_PATH}`;
+}
 
 // 改善計画T368: 出発地点マーカーの色。GPS取得失敗時のフォールバック（"default"）だけを
 // グレーにし、それ以外（実際のGPS取得・手動指定）は従来どおりの赤にする。
@@ -124,7 +129,7 @@ function createOriginMarkerElement(color: string): HTMLDivElement {
 
 // 国土地理院の色別標高図（ラスタタイル、APIキー不要）。改善計画T572でbasemap/jma-tileと
 // 同じバックエンド経由（永続ファイルキャッシュ付き）・同一オリジンへ切り替えた。
-const GSI_RELIEF_TILE_URL = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
+const GSI_RELIEF_TILE_PATH = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
 const GSI_RELIEF_MAX_ZOOM = 15;
 const GSI_RELIEF_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
@@ -685,7 +690,7 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
     if (map.getSource(GSI_RELIEF_SOURCE_ID)) return;
     map.addSource(GSI_RELIEF_SOURCE_ID, {
       type: "raster",
-      tiles: [GSI_RELIEF_TILE_URL],
+      tiles: [`${tileBaseUrl()}${GSI_RELIEF_TILE_PATH}`],
       tileSize: 256,
       maxzoom: GSI_RELIEF_MAX_ZOOM,
       attribution: GSI_RELIEF_ATTRIBUTION,
@@ -930,7 +935,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // 再現しない想定、未検証）。表示自体は次のpayload反映で自己回復し実害は無いが、
         // 「visibility:noneの間は要求されない」という以前の説明は不正確だったため訂正する。
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`,
         opacity: 0.65,
         minzoom: 4,
         maxzoom: 10,
@@ -950,7 +955,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     linearRainband: {
       raster: {
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png`,
         opacity: 0.65,
         minzoom: 4,
         maxzoom: 10,
@@ -1011,7 +1016,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     main: {
       raster: {
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
         opacity: 0.65,
         minzoom: 4,
         maxzoom: 10,
@@ -1023,7 +1028,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     main: {
       raster: {
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
         opacity: 0.65,
         minzoom: 4,
         maxzoom: 10,
@@ -1059,7 +1064,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     main: {
       raster: {
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
         opacity: 0.65,
         minzoom: 4,
         maxzoom: 11,
@@ -1071,7 +1076,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     main: {
       raster: {
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`,
         opacity: 0.65,
         minzoom: 4,
         maxzoom: 11,
@@ -1083,7 +1088,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     main: {
       raster: {
         placeholderTileUrl:
-          `${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`,
         opacity: 0.65,
         minzoom: 4,
         maxzoom: 11,
@@ -1110,7 +1115,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // 値自体は使われないため、その場合だけ絶対URL化を諦め従来の相対URLへ戻す
         // （実ブラウザでは常にwindowが存在し、必ず絶対URL化される）。
         placeholderTileUrl:
-          `${typeof window !== "undefined" ? window.location.origin : ""}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/flood/{z}/{x}/{y}.pbf`,
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/flood/{z}/{x}/{y}.pbf`,
         sourceLayer: "flood",
         colorExpression: FLOOD_RISK_LINE_COLOR_EXPRESSION,
         lineWidthExpression: FLOOD_RISK_LINE_WIDTH_EXPRESSION,
@@ -2810,7 +2815,7 @@ export default function MapView({
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: MAP_STYLE,
+      style: mapStyleUrl(),
       center: [location.longitude, location.latitude],
       zoom: 13,
       attributionControl: { compact: true },
@@ -3614,7 +3619,7 @@ export default function MapView({
           styleReloadPendingRef.current = false;
           redrawAllLayers(map);
         });
-        map.setStyle(`${MAP_STYLE}?t=${Date.now()}`);
+        map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
       } catch (error) {
         // refreshBasemapCacheは以前例外を投げない実装だったため、ここでのcatchが無くても
         // 問題なかったが、失敗を呼び出し元へ伝えるよう修正した結果、未処理のPromise

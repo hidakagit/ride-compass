@@ -20,7 +20,7 @@
 | `Map/axisInspectorPopup.ts` | 区間インスペクタ（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）のポップアップHTML組み立て |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代定数） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄） |
-| `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接） |
+| `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI） |
 | `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
@@ -34,7 +34,17 @@
 `NEXT_PUBLIC_TILE_BASE_URL`が設定されていればその値（backendへ直接取りに行く。フロントの
 ホスティング経由の往復を省く）、未設定ならフロント自身のオリジン（`next.config.ts`の
 rewritesでbackendへプロキシ）。`window`をSSR時に参照しないよう、モジュール定数ではなく
-呼び出し時に評価する関数になっている。
+呼び出し時に評価する関数になっている。適用範囲は路面/POI/事故のベクタタイルに限らず、
+基礎地図のスタイルJSON（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図（同
+`GSI_RELIEF_TILE_PATH`）・JMA動的タイル（`riskMap.ts`・`precipitationNowcast.ts`・
+`thunderNowcast.ts`のURLテンプレート）も同じ関数でオリジンを決める。JMAの`targetTimes`
+JSONやlidenのGeoJSONのようにアプリのfetch()で読む小さなデータは対象外（相対パスのまま）。
+
+**暗黙の前提（基礎地図）**: スタイルJSON内のタイル・スプライト・グリフのURLはbackendが
+`basemap_public_base_url`で書き込む（[横断基盤ではなく気象・動的レイヤー側の
+`basemap_client.py`](../backend/weather-dynamic-layers.md)）。backend直接配信にする場合は
+backend側の`BASEMAP_PUBLIC_BASE_URL`も同じbackendオリジンへ揃えないと、スタイルだけ
+backendから取り、タイル本体はrewrites経由に戻る。
 
 **暗黙の前提**: backend直接にすると、API呼び出し（`lib/apiBaseUrl.ts`）と同じオリジンに
 タイル要求が載る。backend前段がHTTP/1.1のままだとブラウザのオリジン単位の同時接続数上限
