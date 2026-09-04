@@ -89,6 +89,14 @@ DATABASE_URL=... python -m app.batch.refresh_derived
 形で気づきにくい（改善計画T574、2026-09-04。新規/被災環境のbootstrap直後は
 ディスクキャッシュが元々空のためこの手順は不要）。
 
+## backend前段nginx（TLS・HTTP/3）の再構築
+
+本番VMのnginxはUbuntu配布版ではなくnginx.org公式パッケージ（1.30系、QUIC/HTTP/3同梱）で、
+設定は`/etc/nginx/conf.d/`（`ridecompass-backend.conf`・`openmeteo-proxy.conf`）にある。
+リポジトリ追加・パッケージ差し替え・server blockの全文・UDP 443開放（iptables＋OCI
+セキュリティリスト）の手順は[T580](tasks/T580.md)「VM側の作業手順」参照。TLS証明書は
+certbot（`sslip.io`ドメイン、HTTP-01）で、port 80のserver blockを残しておく必要がある。
+
 ## 既知のリスク・対策（2026-09-04、本番実行時のOOMインシデントを受けて追記）
 
 `refresh_derived.py`を関東本土全域（road_edges約500万件）に対してメモリ上限指定なしで
