@@ -776,7 +776,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 - [x] [T556](tasks/T556.md). 本番のsplit済み範囲を周回生成の新bbox（目標距離の0.4倍＋マージン）に合わせて拡大する 規模S〜M（2026-09-03完了。実態把握の結果、主要地点は新規タイル登録不要と判明、presplit_road_graph.py本番再実行[66/1,020タイル再構築]でsplit済み率86.2%→95.8%、東京駅30kmの本番計測をT531.mdへ追記）
 - [x] [T557](tasks/T557.md). T531（フロンティア方式）の`/code-review`指摘の是正（上位10件＋P3相当10件） 規模M（2026-09-03完了、16/20件対応・4件見送り[T552/T553依存の2件はそれぞれのタスクへ追記、性能特化の大きめ改修1件は[T568](tasks/T568.md)へ、項目4との相互作用で分離困難と判明した1件は[T569](tasks/T569.md)へ切り出し]。P1の2件[目的地モードでの未検証max_routes送信、短距離指定でリング下限が負]は対応済み）
 - [x] [T568](tasks/T568.md). SearchGraphStatics/選定間引きのメモリ最適化（entry_keys撤去・int32化・ビットマスク化） 規模M（実装完了・本番同等ベンチマーク待ち）
-- [x] [T586](tasks/T586.md). 周回の折返し点選定（`select_loop_turnarounds`）の木の後段処理が本番で約3.3秒かかる遅延の調査・是正（T531実測時のselect_ms 141ms→3,390ms、木自体は約110ms） 規模S〜M（2026-09-05起票・同日完了。原因はT554の同点タイブレーク`_diversify_ties_by_bearing`のO(n²)以上の実装。案A[方位の広がりを採用済み候補に対して評価、`select_diverse_by_overlap`へ`tie_groups`/`prefer`を追加]で是正、開発DBでselect_ms 16,203〜76,516ms→203〜282ms）
+- [x] [T586](tasks/T586.md). 周回の折返し点選定（`select_loop_turnarounds`）の木の後段処理が本番で約3.3秒かかる遅延の調査・是正（T531実測時のselect_ms 141ms→3,390ms、木自体は約110ms） 規模S〜M（2026-09-05起票・同日完了。原因はT554の同点タイブレーク`_diversify_ties_by_bearing`のO(n²)以上の実装。案A[方位の広がりを採用済み候補に対して評価、`select_diverse_by_overlap`へ`tie_groups`/`prefer`を追加]で是正、本番実測[東京駅25km]でselect_ms 3,390ms→176〜213ms、温パスtotal_ms 5,450ms→2,130ms）
 - [x] [T569](tasks/T569.md). preview_segmentがSearchGraphStaticsを不要に構築・キャッシュしている問題の分離 規模S〜M（2026-09-04完了）
 
 ## 周回ルートの進行方向矢印が見えない問題（2026-09-03、ユーザー報告）
