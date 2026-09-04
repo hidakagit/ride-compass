@@ -695,6 +695,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/derived-data/freshness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Derived Data Freshness
+         * @description `edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`の
+         *     鮮度不整合（`is_stale`）と、`elevation_attributes`の完成度を返す。
+         *
+         *     DB例外は`get_material_coverage`と同じく503へ変換する（診断用APIのため
+         *     空レポートへ倒さない）。
+         */
+        get: operations["get_derived_data_freshness_api_admin_derived_data_freshness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -726,6 +750,19 @@ export interface components {
             level: string;
             /** Additions */
             additions: string[];
+        };
+        /** AlgorithmVersionFreshnessEntry */
+        AlgorithmVersionFreshnessEntry: {
+            /** Owner */
+            owner: string;
+            /** Current Version */
+            current_version: string;
+            /** Oldest Version */
+            oldest_version: string | null;
+            /** Null Count */
+            null_count: number;
+            /** Is Stale */
+            is_stale: boolean;
         };
         /**
          * AmedasObservation
@@ -1141,6 +1178,21 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** DerivedDataFreshnessResponse */
+        DerivedDataFreshnessResponse: {
+            /** Computed At */
+            computed_at: string;
+            /** Generations */
+            generations: components["schemas"]["GenerationFreshnessEntry"][];
+            elevation: components["schemas"]["ElevationCompletenessEntry"];
+        };
+        /** ElevationCompletenessEntry */
+        ElevationCompletenessEntry: {
+            /** Road Edges Total */
+            road_edges_total: number;
+            /** Uncalculated Count */
+            uncalculated_count: number;
+        };
         /** ExternalCallStatsResponse */
         ExternalCallStatsResponse: {
             /** Calls */
@@ -1211,6 +1263,18 @@ export interface components {
             destination: components["schemas"]["Coordinates"] | null;
             /** Generated At */
             generated_at: string;
+        };
+        /** GenerationFreshnessEntry */
+        GenerationFreshnessEntry: {
+            /** Table Name */
+            table_name: string;
+            /** Row Count */
+            row_count: number;
+            /** Sources */
+            sources: components["schemas"]["SourceFreshnessEntry"][];
+            algorithm_version: components["schemas"]["AlgorithmVersionFreshnessEntry"] | null;
+            /** Is Stale */
+            is_stale: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1554,6 +1618,21 @@ export interface components {
             };
             /** Difficulty */
             difficulty?: number | null;
+        };
+        /** SourceFreshnessEntry */
+        SourceFreshnessEntry: {
+            /** Label */
+            label: string;
+            /** Run Table */
+            run_table: string;
+            /** Latest Available Run Id */
+            latest_available_run_id: number | null;
+            /** Earliest Reflected Run Id */
+            earliest_reflected_run_id: number | null;
+            /** Null Count */
+            null_count: number;
+            /** Is Stale */
+            is_stale: boolean;
         };
         /**
          * TileInputSpec
@@ -2823,6 +2902,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_derived_data_freshness_api_admin_derived_data_freshness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedDataFreshnessResponse"];
                 };
             };
         };

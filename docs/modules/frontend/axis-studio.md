@@ -6,7 +6,9 @@
 非公開化の状態管理を行い、[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)
 のAPIをそのまま呼ぶ。同じ`/admin`の「材料」タブ（材料ごとの欠損割合の表示、
 [評価・スコアリング（backend）](../backend/evaluation-scoring.md)「材料の欠損割合」節の
-APIを呼ぶ）も本モジュールが持つ。
+APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
+[静的道路属性・タイル配信（backend）](../backend/static-road-attributes.md)
+「派生データ鮮度台帳」節のAPIを呼ぶ）も本モジュールが持つ。
 
 **対象ファイル**
 
@@ -19,6 +21,9 @@ APIを呼ぶ）も本モジュールが持つ。
 | `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合の表（欠損割合降順）と集計対象外材料の理由一覧。集計は「集計する」ボタン押下時のみ |
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
+| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。edge_attribute_counts・way_attribute_counts・designation_attributesの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）とelevation_attributesの完成度（別枠）を表示。集計は「集計する」ボタン押下時のみ |
+| `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
+| `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
 | `hooks/useMaterialValues.ts` | `GET /api/material-catalog/{material_id}/values`取得。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
@@ -154,6 +159,23 @@ listAxisDefinitions() ──→ definitions（全軸）
   はみ出す分は表自身が横スクロールする。
 - 認証情報の入力欄は持たない（`AxisStudio.tsx`と同じく`/admin`のBasic認証セッションを
   route handler経由で再利用する）。
+
+## DerivedDataFreshnessPanel.tsx（「鮮度」タブ）
+
+`GET /admin/api/derived-data-freshness`（backend `GET /api/admin/derived-data/freshness`）の
+レスポンス（`DerivedDataFreshnessResponse`、生成型）をそのまま表にする。
+`MaterialCoveragePanel`（完成度、値がNULL/未取得か）とは別の切り口——行は存在するが、
+参照している生データの世代が最新の取込より古いままではないか、という鮮度を見る。
+
+- `generations`（edge_attribute_counts・way_attribute_counts・designation_attributes）は
+  テーブルごとに小さな表を並べる（比較対象・最新取込run・反映済み最古run・NULL件数・
+  鮮度バッジ）。`algorithm_version`はedge/wayのみ表内に行として追加（designationは
+  対象外のため出さない）。テーブル名の隣に行数と鮮度不整合の有無（バッジ）を出す。
+- `elevation`（`road_edges`との行数差分）は世代比較ではなく完成度のため、上記とは別枠で
+  「完成度（鮮度ではない）」と明記して表示する。
+- 集計はDB全体の走査を伴うため、`MaterialCoveragePanel`と同じく「集計する」ボタン押下時
+  のみ実行する。認証情報の入力欄は持たない（`/admin`のBasic認証セッションをroute handler
+  経由で再利用する）。
 
 ## 材料が0件のときの防御
 

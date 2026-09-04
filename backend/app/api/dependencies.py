@@ -26,6 +26,7 @@ from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.jma_tile_client import JmaTileClient
+from app.infrastructure.derived_data_freshness import DerivedDataFreshnessQuery
 from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -41,6 +42,7 @@ from app.services.route_generator import RouteGenerator
 from app.services.flood_service import FloodService
 from app.services.gradient_way_service import GradientWayService
 from app.services.jma_amedas_service import JmaAmedasService
+from app.services.derived_data_freshness_service import DerivedDataFreshnessService
 from app.services.material_coverage_service import MaterialCoverageService
 from app.services.warning_service import WarningService
 from app.services.wbgt_service import WbgtService
@@ -366,3 +368,10 @@ async def get_material_coverage_service():
     # command_timeout（180秒）を持つセッションを使う。
     async with get_route_generation_session_factory()() as session:
         yield MaterialCoverageService(MaterialCoverageQuery(session))
+
+
+async def get_derived_data_freshness_service():
+    # 派生データ鮮度台帳の集計（管理API専用）。edge_attribute_counts等の全表走査を
+    # 伴うため、get_material_coverage_serviceと同じ長いcommand_timeoutのセッションを使う。
+    async with get_route_generation_session_factory()() as session:
+        yield DerivedDataFreshnessService(DerivedDataFreshnessQuery(session))

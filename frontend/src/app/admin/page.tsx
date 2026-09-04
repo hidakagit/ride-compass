@@ -9,6 +9,7 @@ import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
 import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
 import AxisStudio from "@/components/AxisStudio/AxisStudio";
 import MaterialCoveragePanel from "@/components/AxisStudio/MaterialCoveragePanel";
+import DerivedDataFreshnessPanel from "@/components/AxisStudio/DerivedDataFreshnessPanel";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import styles from "./admin.module.css";
 
@@ -37,6 +38,9 @@ export default function AdminPage() {
           <Tabs.Trigger className={styles.tabTrigger} value="materials">
             材料
           </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabTrigger} value="freshness">
+            鮮度
+          </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabTrigger} value="research">
             研究
           </Tabs.Trigger>
@@ -51,6 +55,10 @@ export default function AdminPage() {
 
         <Tabs.Content className={styles.tabPanel} value="materials">
           <MaterialCoveragePanel />
+        </Tabs.Content>
+
+        <Tabs.Content className={styles.tabPanel} value="freshness">
+          <DerivedDataFreshnessPanel />
         </Tabs.Content>
 
         <Tabs.Content className={styles.tabPanel} value="research">

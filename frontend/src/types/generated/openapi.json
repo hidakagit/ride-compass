@@ -1543,6 +1543,30 @@
           }
         }
       }
+    },
+    "/api/admin/derived-data/freshness": {
+      "get": {
+        "summary": "Get Derived Data Freshness",
+        "description": "`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`の\n鮮度不整合（`is_stale`）と、`elevation_attributes`の完成度を返す。\n\nDB例外は`get_material_coverage`と同じく503へ変換する（診断用APIのため\n空レポートへ倒さない）。",
+        "operationId": "get_derived_data_freshness_api_admin_derived_data_freshness_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DerivedDataFreshnessResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1620,6 +1644,46 @@
           "additions"
         ],
         "title": "ActiveWarning"
+      },
+      "AlgorithmVersionFreshnessEntry": {
+        "properties": {
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "current_version": {
+            "type": "string",
+            "title": "Current Version"
+          },
+          "oldest_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Version"
+          },
+          "null_count": {
+            "type": "integer",
+            "title": "Null Count"
+          },
+          "is_stale": {
+            "type": "boolean",
+            "title": "Is Stale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "owner",
+          "current_version",
+          "oldest_version",
+          "null_count",
+          "is_stale"
+        ],
+        "title": "AlgorithmVersionFreshnessEntry"
       },
       "AmedasObservation": {
         "properties": {
@@ -2579,6 +2643,49 @@
         ],
         "title": "DebugStatsResponse"
       },
+      "DerivedDataFreshnessResponse": {
+        "properties": {
+          "computed_at": {
+            "type": "string",
+            "title": "Computed At"
+          },
+          "generations": {
+            "items": {
+              "$ref": "#/components/schemas/GenerationFreshnessEntry"
+            },
+            "type": "array",
+            "title": "Generations"
+          },
+          "elevation": {
+            "$ref": "#/components/schemas/ElevationCompletenessEntry"
+          }
+        },
+        "type": "object",
+        "required": [
+          "computed_at",
+          "generations",
+          "elevation"
+        ],
+        "title": "DerivedDataFreshnessResponse"
+      },
+      "ElevationCompletenessEntry": {
+        "properties": {
+          "road_edges_total": {
+            "type": "integer",
+            "title": "Road Edges Total"
+          },
+          "uncalculated_count": {
+            "type": "integer",
+            "title": "Uncalculated Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "road_edges_total",
+          "uncalculated_count"
+        ],
+        "title": "ElevationCompletenessEntry"
+      },
       "ExternalCallStatsResponse": {
         "properties": {
           "calls": {
@@ -2798,6 +2905,48 @@
         ],
         "title": "GenerationConditions",
         "description": "この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。\n\nroute_preference は「リクエストで上書きされた値」または「既定値」のうち実際に\n使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま\n再送して再現できる。"
+      },
+      "GenerationFreshnessEntry": {
+        "properties": {
+          "table_name": {
+            "type": "string",
+            "title": "Table Name"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceFreshnessEntry"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "algorithm_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AlgorithmVersionFreshnessEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_stale": {
+            "type": "boolean",
+            "title": "Is Stale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "table_name",
+          "row_count",
+          "sources",
+          "algorithm_version",
+          "is_stale"
+        ],
+        "title": "GenerationFreshnessEntry"
       },
       "HTTPValidationError": {
         "properties": {
@@ -3600,6 +3749,58 @@
         ],
         "title": "RouteSegmentDetail",
         "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\ngradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負、\nElevationAttribute.average_gradeから算出）。フロントの勾配色分け\n（routeStyleModes.ts）はこの符号を前提に「下り」カテゴリを持つため、絶対値で\n返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
+      },
+      "SourceFreshnessEntry": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "run_table": {
+            "type": "string",
+            "title": "Run Table"
+          },
+          "latest_available_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Available Run Id"
+          },
+          "earliest_reflected_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Reflected Run Id"
+          },
+          "null_count": {
+            "type": "integer",
+            "title": "Null Count"
+          },
+          "is_stale": {
+            "type": "boolean",
+            "title": "Is Stale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "run_table",
+          "latest_available_run_id",
+          "earliest_reflected_run_id",
+          "null_count",
+          "is_stale"
+        ],
+        "title": "SourceFreshnessEntry"
       },
       "TileInputSpec": {
         "properties": {

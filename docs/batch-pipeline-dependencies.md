@@ -18,9 +18,8 @@
 実行時点の`accident_import_runs`/`osm_import_runs`の最新成功run id
 （`source_accident_import_run_id`/`source_osm_import_run_id`、高水位マーク）と
 `algorithm_version`を記録する列を追加した。これにより「このバッチはどのデータ世代を
-見て計算したか」がDB上で機械的に確認できるようになったが、下記「段階2・3（本ファイルの
-対象外）」の鮮度台帳のような自動検知・自動再計算のトリガー機構自体はまだ実装していない
-——現状は記録された値を人が`SELECT`で参照し比較する運用のまま。詳細はdocs/tasks/T351.md参照。
+見て計算したか」がDB上で機械的に確認できるようになった。この列を実際に突き合わせて
+可視化する鮮度台帳は下記「5. 鮮度台帳」参照。詳細はdocs/tasks/T351.md参照。
 
 ## 1. 依存順序（実行順）
 
@@ -127,10 +126,24 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 [docs/modules/backend/static-road-attributes.md](modules/backend/static-road-attributes.md)
 「派生データ再構築の単一エントリポイント」参照。
 
-## 段階3（本ファイルの対象外）
+## 5. 鮮度台帳（改善計画T281段階3、T571で実装）
 
-鮮度台帳（生データ更新時刻 vs 派生computed_atを機械比較できる仕組み）は改善計画T281段階3
-として別途トリガー待ち（docs/improvement-plan.md参照）。**2026-08-30追記**: 改善計画T351が
-鮮度台帳の材料となる列（source_*_import_run_id・algorithm_version、上記冒頭の追記参照）を
-先行して用意した。段階3着手時はこの列を読むだけで鮮度台帳を構築でき、新たな系譜追跡機構を
-ゼロから設計する必要はない。
+`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`が参照している
+生データの世代（`source_*_import_run_id`）が、対応する`*_import_runs`テーブルの最新
+成功run（`status='succeeded'`のMAX(id)）より古いままではないかを機械判定する
+（`edge_attribute_counts`/`way_attribute_counts`は`algorithm_version`の不一致も検知）。
+`/admin`「鮮度」タブ（`GET /api/admin/derived-data/freshness`、Basic認証必須）から見える。
+
+`elevation_attributes`は`source_*_import_run_id`列を持たないため（T351の対象外、
+road_edgesのgeometryにのみ依存しOSMタグを参照しないため）、世代比較ではなく`road_edges`
+との行数差分による完成度のみを同タブ内に別枠で表示する。
+
+実装は`backend/app/infrastructure/derived_data_freshness.py`・
+`backend/app/services/derived_data_freshness_service.py`・
+`backend/app/api/routers/derived_data_freshness.py`（詳細はdocs/tasks/T571.md参照）。
+material_catalog.pyの材料欠損割合（`/admin`「材料」タブ）とは別の切り口——材料側は
+「値がNULL/未取得か」という完成度、本節は「行はあるが古い世代のままではないか」という
+鮮度を見る。
+
+自動再実行・cron等のスケジューリングは対象外（[T242](tasks/T242.md)残課題として別トラック、
+本ファイルは検知・可視化までがスコープ）。
