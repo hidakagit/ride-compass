@@ -1,3 +1,4 @@
+import asyncio
 from collections import OrderedDict
 
 import httpx
@@ -14,6 +15,10 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 # テキスト形式）を範囲ごと取得しローカルで双線形補間する方式へ切り替え、外部呼び出し
 # 回数をタイル単位（近接点は同一タイルを共有）へ削減する。呼び出し側インターフェース
 # （get_elevation(client, point, refresh=False) -> float|None）は変更しない。
+#
+# 改善計画T576: 複数地点をまとめて取得する`get_elevations`を追加。`get_elevation`
+# （1地点版）は内部的に`get_elevations([point])`を呼ぶ薄いラッパーになった
+# （結果は完全に同一、地点数が1件のぶんタイル単位バッチ化の恩恵は無い）。
 #
 # タイル仕様（2026-08-23、GSI公式ページ・実タイル取得で確認済み。**当初は「統合dem種別が
 # DEM5A/5B/5C/10Bの優先順位フォールバックをGSIサーバー側で行う」と判断していたが誤りで、
@@ -50,6 +55,11 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 # ローカル再パースだけで復元できる——上限に達した場合はLRUで最も長く使われていない
 # エントリから自然に破棄される。
 DEFAULT_MAX_TILE_GRIDS = 500
+
+# GSIへの同時リクエスト数（改善計画T576。旧`ElevationAttributeService.
+# MAX_CONCURRENT_REQUESTS`から移設——点単位ではなくタイル単位のフェッチへ
+# 制限を掛ける方が「同時に問い合わせている実リクエスト数」の実態に合う）。
+MAX_CONCURRENT_REQUESTS = 5
 DEM_TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt"
 DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")
 DEM_ZOOM = 14
@@ -58,6 +68,13 @@ DEM_MISSING_MARKER = "e"
 DEM_TILE_CONTENT_TYPE = "text/plain; charset=utf-8"
 
 _tile_grid_cache: "OrderedDict[tuple[str, int, int], list[list[float | None]] | None]" = OrderedDict()
+
+# 改善計画T576: 同一タイルへの同時フェッチを1回へ束ねる（single-flight）。
+# `get_elevations`が多数の点を1回のタイル取得へまとめても、複数の未取得タイルを
+# 並行フェッチする際に同じタイルが重複して選ばれることはあり得るほか、異なる
+# リクエスト（本番backendの並行route生成）が同時に同じ未取得タイルへ到達する
+# ケースはこの束ねが無いと重複GET・重複パースになる（docs/tasks/T576.md参照）。
+_in_flight_tile_fetches: "dict[tuple[str, int, int], asyncio.Future[None]]" = {}
 
 
 def _remember_tile_grid(cache_key: tuple[str, int, int], grid: list[list[float | None]] | None) -> None:
@@ -128,39 +145,92 @@ class ElevationClient:
     問い合わせるため、リクエストごとに新規クライアント（＝新規TLSハンドシェイク）を
     作ると大幅に遅くなることが実機検証で判明したため、コネクションを使い回す
     （T10移行前と同じ理由・同じ設計をタイル取得にも引き継ぐ）。
+
+    実際のGSIへの同時リクエスト数は`MAX_CONCURRENT_REQUESTS`で絞る（インスタンス
+    単位、`ElevationAttributeService`と同じ流儀）。改善計画T576でタイル単位の
+    バッチ取得（`get_elevations`）を追加した際、点単位ではなくタイル単位の
+    フェッチへこの制限を移した。
     """
 
+    def __init__(self) -> None:
+        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
     async def get_elevation(self, client: httpx.AsyncClient, point: Coordinates, refresh: bool = False) -> float | None:
-        tile_x, tile_y, px, py = lonlat_to_tile_pixel(point.longitude, point.latitude, DEM_ZOOM, DEM_TILE_SIZE)
+        results = await self.get_elevations(client, [point], refresh=refresh)
+        return results[0]
 
-        # キャッシュヒット時のelapsedは実質プロセス内グリッドキャッシュ/ファイルキャッシュの
-        # 所要時間になるため、このログ・統計が標高キャッシュの効き具合の観測点を兼ねる
-        # （旧SQLite点キャッシュ時代のlog_external_call呼び出しと同じ位置づけ）。
-        # DEM_TYPE_PRIORITY順に、タイル自体が無い（404）・その地点の画素が欠測、いずれの
-        # 場合も次の種別へフォールバックする（GSI公式の優先順位に沿った多段フォールバック、
-        # モジュールdocstring参照）。
-        with log_external_call("elevation:gsi-dem", tile_x=tile_x, tile_y=tile_y) as fields:
-            for dem_type in DEM_TYPE_PRIORITY:
-                grid = await self._get_tile_grid(client, dem_type, tile_x, tile_y, refresh=refresh, fields=fields)
-                if grid is None:
-                    continue
-                elevation = _bilinear_interpolate(grid, px, py)
+    async def get_elevations(
+        self, client: httpx.AsyncClient, points: list[Coordinates], refresh: bool = False
+    ) -> list[float | None]:
+        """複数地点の標高を、地点ごとのasyncioタスクではなくタイル単位でまとめて取得する
+        （改善計画T576）。1地点ずつ`get_elevation`する場合と結果は同一（同じ
+        `DEM_TYPE_PRIORITY`優先順位・同じ双線形補間）だが、地点数ぶんのasyncioタスク
+        生成・`log_external_call`呼び出しが無く、未取得のタイルだけをまとめて非同期
+        取得するためキャッシュヒット時のコストが大幅に小さい（docs/tasks/T576.md参照）。
+
+        `DEM_TYPE_PRIORITY`を1ラウンドずつ進める（最大4ラウンド）: そのラウンドで
+        まだ結果が決まっていない地点が必要とするタイルをまとめて1回のフェッチへ
+        （`_load_tile_grid`のsingle-flightで重複排除）束ね、フェッチ後にまとめて
+        判定し直す。1ラウンドで解決しなかった地点だけが次のdem_typeへ進む。
+        """
+        n = len(points)
+        if n == 0:
+            return []
+        tile_coords = [lonlat_to_tile_pixel(p.longitude, p.latitude, DEM_ZOOM, DEM_TILE_SIZE) for p in points]
+        results: list[float | None] = [None] * n
+        dem_type_index = [0] * n
+        pending = list(range(n))
+
+        for _ in DEM_TYPE_PRIORITY:
+            if not pending:
+                break
+            needed: set[tuple[str, int, int]] = set()
+            for i in pending:
+                cache_key = (DEM_TYPE_PRIORITY[dem_type_index[i]], tile_coords[i][0], tile_coords[i][1])
+                if refresh or cache_key not in _tile_grid_cache:
+                    needed.add(cache_key)
+            if needed:
+                with log_external_call("elevation:gsi-dem", tile_count=len(needed)) as fields:
+                    await asyncio.gather(
+                        *(
+                            self._load_tile_grid(client, dem_type, tile_x, tile_y, refresh, fields)
+                            for dem_type, tile_x, tile_y in needed
+                        )
+                    )
+            still_pending: list[int] = []
+            for i in pending:
+                dem_type = DEM_TYPE_PRIORITY[dem_type_index[i]]
+                tile_x, tile_y, px, py = tile_coords[i]
+                cache_key = (dem_type, tile_x, tile_y)
+                grid = _tile_grid_cache.get(cache_key)
+                if cache_key in _tile_grid_cache:
+                    _tile_grid_cache.move_to_end(cache_key)
+                elevation = _bilinear_interpolate(grid, px, py) if grid is not None else None
                 if elevation is not None:
-                    fields["result"] = "ok"
-                    fields["dem_type"] = dem_type
-                    return elevation
-            fields["result"] = "no_elevation"
-            return None
+                    results[i] = elevation
+                else:
+                    dem_type_index[i] += 1
+                    if dem_type_index[i] < len(DEM_TYPE_PRIORITY):
+                        still_pending.append(i)
+            pending = still_pending
 
-    async def _get_tile_grid(
-        self, client: httpx.AsyncClient, dem_type: str, tile_x: int, tile_y: int, *, refresh: bool, fields: dict
-    ) -> list[list[float | None]] | None:
+        return results
+
+    async def _load_tile_grid(
+        self, client: httpx.AsyncClient, dem_type: str, tile_x: int, tile_y: int, refresh: bool, fields: dict
+    ) -> None:
+        """指定タイルのグリッドをメモリキャッシュ以外（ディスク→ネットワーク）から
+        取得し、`_tile_grid_cache`へ書き込む（戻り値は無く、呼び出し元が改めて
+        `_tile_grid_cache`を参照する）。呼び出し元がメモリキャッシュを先にチェック
+        していることを前提とする。
+
+        同一タイルへの同時呼び出しは1回のフェッチへ束ねる（single-flight、
+        改善計画T576）。フェッチが一時的な通信エラーで失敗した場合は何もキャッシュ
+        しない（`_CoverageGap`とは区別する既存方針、`_fetch_tile`参照）——呼び出し元は
+        `_tile_grid_cache`にキーが無いままなので、次回呼び出しでも未取得として
+        再試行される。
+        """
         cache_key = (dem_type, tile_x, tile_y)
-        if not refresh and cache_key in _tile_grid_cache:
-            fields["cache"] = "hit"
-            _tile_grid_cache.move_to_end(cache_key)
-            return _tile_grid_cache[cache_key]
-
         path = f"gsi/{dem_type}/{DEM_ZOOM}/{tile_x}/{tile_y}.txt"
         if not refresh:
             cached = tile_cache.get(path)
@@ -169,17 +239,29 @@ class ElevationClient:
                 content, _content_type = cached
                 grid = _parse_dem_tile_text(content.decode("utf-8"))
                 _remember_tile_grid(cache_key, grid)
-                return grid
+                return
+
+        in_flight = _in_flight_tile_fetches.get(cache_key)
+        if in_flight is not None:
+            fields["cache"] = "in_flight"
+            await in_flight
+            return
 
         fields["cache"] = "miss"
-        result = await self._fetch_tile(client, dem_type, tile_x, tile_y, path, fields)
-        if result is None:
-            # 一時的な通信エラー（タイムアウト・5xx等）。恒久キャッシュせず、次回呼び出しで
-            # 再取得を試みられるようにする（_CoverageGap docstring参照）。
-            return None
-        grid = None if isinstance(result, _CoverageGap) else result
-        _remember_tile_grid(cache_key, grid)
-        return grid
+        future: "asyncio.Future[None]" = asyncio.get_running_loop().create_future()
+        _in_flight_tile_fetches[cache_key] = future
+        try:
+            async with self._semaphore:
+                result = await self._fetch_tile(client, dem_type, tile_x, tile_y, path, fields)
+            if result is not None:
+                grid = None if isinstance(result, _CoverageGap) else result
+                _remember_tile_grid(cache_key, grid)
+            future.set_result(None)
+        except BaseException as exc:
+            future.set_exception(exc)
+            raise
+        finally:
+            del _in_flight_tile_fetches[cache_key]
 
     async def _fetch_tile(
         self, client: httpx.AsyncClient, dem_type: str, tile_x: int, tile_y: int, path: str, fields: dict

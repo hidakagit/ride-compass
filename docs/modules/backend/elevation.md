@@ -21,10 +21,11 @@
 
 ## ElevationAttributeService（`elevation_attribute_service.py`）
 
-Road GraphのDirected Edgeへ標高属性（`ElevationAttribute`）を紐付ける。Edgeの形状点
-（geometry）を国土地理院APIへ問い合わせ、計算ロジック自体はdomain層（`domain/
-attributes.py: compute_elevation_attribute`）に委譲する。`MAX_CONCURRENT_REQUESTS = 5`
-で`ElevationClient`への同時リクエスト数を制限する。
+Road GraphのDirected Edgeへ標高属性（`ElevationAttribute`）を紐付ける。複数Edgeぶんの
+形状点（geometry）をまとめ、1回の`ElevationClient.get_elevations`呼び出しで国土地理院
+APIへ問い合わせる（改善計画T576）。計算ロジック自体はdomain層（`domain/attributes.py:
+compute_elevation_attribute`）に委譲する。GSIへの同時リクエスト数の制限
+（`MAX_CONCURRENT_REQUESTS = 5`）は`ElevationClient`側（タイル単位）が持つ。
 
 `ElevationAttributeService.get_attributes_for_graph`が返す標高属性（`elevation_gain_m`・
 `min_elevation_m`・`max_elevation_m`・`max_gradient_percent`）の最終集約（合計/最小/最大・
@@ -37,7 +38,12 @@ attributes.py: compute_elevation_attribute`）に委譲する。`MAX_CONCURRENT_
 
 GSIのDEMタイル（テキスト形式、256行×256列カンマ区切り、欠測は`"e"`）を範囲ごと取得し
 ローカルで双線形補間（`_bilinear_interpolate`）する。呼び出し側インターフェースは
-`get_elevation(client, point, refresh=False)`。
+`get_elevation(client, point, refresh=False)`（1地点）と`get_elevations(client, points,
+refresh=False)`（複数地点、改善計画T576）。`get_elevation`は内部的に`get_elevations`
+（要素数1）を呼ぶ薄いラッパー。`get_elevations`は地点ごとにasyncioタスクを生成せず、
+`DEM_TYPE_PRIORITY`を1ラウンドずつ進めながらそのラウンドで未取得のタイルだけをまとめて
+1回のフェッチへ束ねる（`_load_tile_grid`、同一タイルへの同時フェッチはsingle-flightで
+重複排除）。
 
 `type`は単一のDEM種別ではなく`DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")`
 （優先順位付き複数種別）をタイル単位でクライアント側から順に試す。全種別を
@@ -65,7 +71,14 @@ Road Graphの全Edgeに対して`ElevationAttributeService`をあらかじめ実
 
 `ElevationAttributeService`は`repository`を渡すと、Edgeごとに先にPostGISで既存の
 Attributeを確認し（`get_elevation_attributes`）、既に永続化済みならGSIへ問い合わせない
-——本バッチは再実行しても未計算分だけを埋める形で安全に再実行できる。
+——本バッチは再実行しても未計算分だけを埋める形で安全に再実行できる。`_fetch_all_edge_ids`
+自体もanti-joinで計算済みEdgeを最初から除外し、かつ地理的順序（`ORDER BY geom`）で
+返す——`ElevationClient`のプロセス内タイルグリッドキャッシュ（`_tile_grid_cache`）が
+近接するEdgeで同じDEMタイルを共有できるようにするため（DB取得順は地理的に無関係なため、
+順序を変えないとLRU上限に達するたびディスクからの再パースが多発する）。また本バッチが読むgeometry
+（`RoadGraphRepository.get_edges_with_geometry`）は`use_cache=False`でRedis
+cache-asideを迂回する——全道路網一括バッチはbboxに収まらず反復性も無いため、Redisへ
+書き込む意味が無いばかりか、他の用途のキャッシュを追い出す副作用がある。
 
 **暗黙の前提（モジュール間の隠れた依存）**: このバッチが対象Edgeに対して実行されて
 いない、または`elevation_attributes.average_grade`がNULLのままだと、
@@ -80,8 +93,9 @@ Attributeを確認し（`get_elevation_attributes`）、既に永続化済みな
 `AsyncSession`が複数コルーチンからの同時使用不可であることを踏まえ、
 `self._repository_lock`（`asyncio.Lock`）でrepositoryアクセスだけを直列化する。これは
 `RoadGraphEngine.evaluate_loops`が候補（方位）ごとに`asyncio.gather`で並列に本サービスを
-呼ぶために必要な保護。GSIへのHTTP問い合わせ（`_get_attribute`）自体はロック外で並列に
-走る（`self._semaphore`のみで制限）。
+呼ぶために必要な保護。GSIへのHTTP問い合わせ（`_compute_attributes`→
+`ElevationClient.get_elevations`）自体はロック外で並列に走る（同時リクエスト数の制限は
+`ElevationClient.MAX_CONCURRENT_REQUESTS`がタイル単位で行う、改善計画T576）。
 
 `repository`指定時のもう一つの前提: `elevation_attributes`テーブルは
 `road_edges.edge_id`への外部キー（ON DELETE CASCADE）を持つため、渡す`graph`は事前に
@@ -94,10 +108,12 @@ Attributeを確認し（`get_elevation_attributes`）、既に永続化済みな
 ```
 [バッチ事前計算＋探索時参照]
 precompute_elevation_attributes.py（オフライン、CHUNK_SIZE=2000）
-  → RoadGraphRepository.get_edges_with_geometry
+  → _fetch_all_edge_ids（未計算Edgeのみanti-join、地理的順序=ORDER BY geom）
+  → RoadGraphRepository.get_edges_with_geometry（use_cache=False、Redisを迂回）
   → ElevationAttributeService.get_attributes_for_graph
        → repository.get_elevation_attributes（既存分をスキップ）
-       → 未計算分のみ ElevationClient.get_elevation を並列取得
+       → 未計算分のみ ElevationAttributeService._compute_attributes が
+         Edge横断で形状点をまとめ ElevationClient.get_elevations を1回呼ぶ
        → domain/attributes.py: compute_elevation_attribute で ElevationAttribute 算出
        → repository.save_elevation_attributes → repository.commit（サービス層がcommit）
   → elevation_attributes テーブルへ永続化
@@ -107,8 +123,10 @@ precompute_elevation_attributes.py（オフライン、CHUNK_SIZE=2000）
             をJOINして勾配材料を配信（未計算Edgeは静かに除外）
 
 [ElevationClientの内部]
-get_elevation(point) → DEM_TYPE_PRIORITY順にタイル取得
-  → tile_cache（ファイル、無期限）→ ミス時GSI DEMタイルHTTP取得
-  → _tile_grid_cache（プロセス内メモリ、恒久キャッシュは404[_CoverageGap]のみ）
-  → _bilinear_interpolate で任意地点の標高を補間
+get_elevations(points) → DEM_TYPE_PRIORITYを1ラウンドずつ進行
+  → ラウンドごとに未取得タイルをまとめて _load_tile_grid（single-flightで重複排除）
+       → tile_cache（ファイル、無期限）→ ミス時GSI DEMタイルHTTP取得
+         （MAX_CONCURRENT_REQUESTSで同時数を制限）
+  → _tile_grid_cache（プロセス内メモリ、上限つきLRU、恒久キャッシュは404[_CoverageGap]のみ）
+  → _bilinear_interpolate で各点の標高を補間
 ```

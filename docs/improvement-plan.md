@@ -765,7 +765,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 ## 周回・目的地ルートの上位N件化（2026-09-03、T531推敲時のユーザー提案）
 
 - [ ] [T551](tasks/T551.md). 目的地ルートを上位N件（via-node方式の代替経路）へ拡張する 規模M（未着手、T531の共通基盤完成後に着手）
-- [ ] [T552](tasks/T552.md). 重み付き軸がすべてデータ欠損のEdgeのコストを「最良扱い」から「bbox平均difficultyで補完」へ 規模S〜M（対応方針2・3完了、対応方針1[本番同等bboxでの欠損比率計測]・4[取込側補完の要否判断]が未着手のため残タスク）
+- [x] [T552](tasks/T552.md). 重み付き軸がすべてデータ欠損のEdgeのコストを「最良扱い」から「bbox平均difficultyで補完」へ 規模S〜M（2026-09-04完了。対応方針1で全8軸の欠損比率を実測[gradient76.5%・surface_q82.9%が突出、他は0%]、対応方針4[取込側既定値補完]は見送りと判断——理由と可視化の代替案[T577]はT552.md参照）
 - [x] [T553](tasks/T553.md). フロンティア方式の候補間で「同じ周回の逆回り」を重複として棄却する（周回単位の重複率チェック） 規模S（2026-09-03完了、実機確認[Browserペイン]のみユーザー側で要実施）
 - [x] [T554](tasks/T554.md). フロンティア方式の折返し点選定で同点時に方位の広がりを優先するタイブレーク 規模S
 
@@ -821,5 +821,5 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 - [x] [T573](tasks/T573.md). 本番DB再構築（disaster recovery）の包括的手順書整備・検証 規模L（2026-09-04完了。既存VM上の使い捨てPostgreSQLクラスタでbootstrap_fresh_db.py→import_pbf.py→refresh_derived.py→ルート生成までを実地検証、docs/disaster-recovery.md新設。全国規模・②③生データ取込・Redis周りは未検証のまま残る）
 - [x] [T574](tasks/T574.md). refresh_derived.py実行後にタイル永続キャッシュ版数が上がらず本番へ反映されない 規模S（2026-09-04完了。TILE_MATERIALS_CACHE_VERSION/TILE_SCORE_MATRIX_CACHE_VERSIONを上げてコメント・disaster-recovery.mdを補強、本番キャッシュ手動クリアで欠損比率0.698→0.132改善を実地検証）
 - [x] [T575](tasks/T575.md). `_tile_grid_cache`（DEMタイル解析済みグリッド）にサイズ上限が無くOOMを起こす 規模S（2026-09-04完了。DEFAULT_MAX_TILE_GRIDS=500の上限つきLRUへ変更、elevation.md更新、回帰テスト追加。本番への再実行は別途ユーザー確認の上で実施）
-- [ ] [T576](tasks/T576.md). precompute_elevation_attributesの高速化（地理的順序＋タイル単位バッチ化） 規模M
+- [x] [T576](tasks/T576.md). precompute_elevation_attributesの高速化（地理的順序＋タイル単位バッチ化） 規模M（2026-09-04完了。地理的順序＋anti-join・single-flight・タイル単位バッチAPI・Redis回避を実装、elevation.md更新。本番への再実行は別途実施）
 - [ ] [T577](tasks/T577.md). 材料ごとの欠損割合を管理画面で可視化する 規模M

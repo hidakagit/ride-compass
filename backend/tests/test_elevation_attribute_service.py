@@ -13,6 +13,10 @@ class FakeElevationClient:
         self.call_count += 1
         return self._elevations_by_point.get((point.latitude, point.longitude))
 
+    async def get_elevations(self, client, points, refresh=False):
+        self.call_count += len(points)
+        return [self._elevations_by_point.get((p.latitude, p.longitude)) for p in points]
+
 
 def _make_graph(*edges: DirectedEdge) -> RoadGraph:
     node = Node(node_id="node-1", latitude=35.7, longitude=139.7)

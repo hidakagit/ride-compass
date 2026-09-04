@@ -1160,7 +1160,7 @@ class DerivedGraphRepository(_SessionRepository):
 
         return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
 
-    async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
+    async def get_edges_with_geometry(self, edge_ids: list[str], use_cache: bool = True) -> dict[str, DirectedEdge]:
         """指定edge_idぶんだけ、実ジオメトリ込みのDirectedEdgeを取得する（改善計画T218）。
         `get_graph_topology_in_bbox`でgeometry抜きに読み込んだ探索用グラフから、
         Dijkstraで確定した経路（1候補あたり数十〜数百Edge）だけへ絞ってgeometryを
@@ -1173,14 +1173,27 @@ class DerivedGraphRepository(_SessionRepository):
         （`infrastructure/road_edge_geometry_cache.py`）をまず経由する。Redisで
         判定できなかった分だけ従来どおりPostGISへ問い合わせ、取得できた分をRedisへ
         書き戻す（road_graph_tile_cache.pyのget_cached_tiles/mark_fetchedと同じ構造）。
+
+        改善計画T576: `use_cache=False`はRedis cache-asideを丸ごと迂回しPostGISへ
+        直接問い合わせる。全道路網一括バッチ（`precompute_elevation_attributes.py`）
+        のように対象がbboxに収まらず反復性も無い呼び出しでは、Redisへ大量書き込み
+        する意味が無いばかりか、TTL付きエントリで他の用途のキャッシュを追い出す
+        副作用がある（docs/tasks/T576.md参照）。
         """
         if not edge_ids:
             return {}
+        if not use_cache:
+            edges: dict[str, DirectedEdge] = {}
+            for id_chunk in _chunked(edge_ids, 50_000):
+                edge_stmt = select(RoadEdgeRow).where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
+                edge_rows = (await self._session.execute(edge_stmt)).scalars().all()
+                edges.update(await asyncio.to_thread(_edge_rows_to_directed_edges, edge_rows))
+            return edges
         cached = await road_edge_geometry_cache.get_cached_edges(edge_ids)
         remaining = [edge_id for edge_id in edge_ids if edge_id not in cached]
         if not remaining:
             return cached
-        edges: dict[str, DirectedEdge] = {}
+        edges = {}
         for id_chunk in _chunked(remaining, 50_000):
             edge_stmt = select(RoadEdgeRow).where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
             edge_rows = (await self._session.execute(edge_stmt)).scalars().all()
@@ -2198,8 +2211,8 @@ class RoadGraphRepository:
     async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> LeanRoadGraph | None:
         return await self.graph.get_graph_topology_in_bbox(bbox)
 
-    async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
-        return await self.graph.get_edges_with_geometry(edge_ids)
+    async def get_edges_with_geometry(self, edge_ids: list[str], use_cache: bool = True) -> dict[str, DirectedEdge]:
+        return await self.graph.get_edges_with_geometry(edge_ids, use_cache=use_cache)
 
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
         return await self.graph.is_split_up_to_date(bbox)

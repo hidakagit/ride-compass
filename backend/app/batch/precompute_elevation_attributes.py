@@ -37,7 +37,7 @@ from app.batch._common import chunked
 from app.config import settings
 from app.domain.graph import RoadGraph
 from app.infrastructure.elevation_client import ElevationClient
-from app.infrastructure.road_graph_models import RoadEdgeRow
+from app.infrastructure.road_graph_models import ElevationAttributeRow, RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_attribute_service import ElevationAttributeService
 
@@ -49,7 +49,25 @@ CHUNK_SIZE = 2_000
 
 
 async def _fetch_all_edge_ids(session: AsyncSession) -> list[str]:
-    result = await session.execute(select(RoadEdgeRow.edge_id))
+    """未計算のEdge idを地理的順序（`ORDER BY geom`）で返す（改善計画T576）。
+
+    計算済み（`elevation_attributes`に行がある）Edgeはanti-joinで最初から除外する
+    ——再実行時に計算済み分のgeometryを読み直さずに済む。`ElevationAttributeService.
+    get_attributes_for_graph`のEdge単位スキップ判定（T469の全点欠損非永続化含む）は
+    意味を変えず残るため、実行中に他プロセスが計算した分との二重計算も引き続き防げる。
+
+    地理的順序にする理由: `ElevationClient`のプロセス内タイルグリッドキャッシュ
+    （`_tile_grid_cache`、T575でLRU上限化）は近接するEdgeが同じDEMタイルを共有する
+    ことを前提にしている。DB取得順（実質edge_id文字列順）は地理的に無関係なため、
+    上限に達するたびディスクからの再パースが多発する（docs/tasks/T576.md参照）。
+    """
+    stmt = (
+        select(RoadEdgeRow.edge_id)
+        .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
+        .where(ElevationAttributeRow.edge_id.is_(None))
+        .order_by(RoadEdgeRow.geom)
+    )
+    result = await session.execute(stmt)
     return [row[0] for row in result.all()]
 
 
@@ -79,7 +97,10 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 chunk_started = time.perf_counter()
                 async with session_factory() as session:
                     repository = RoadGraphRepository(session)
-                    edges = await repository.get_edges_with_geometry(chunk)
+                    # 改善計画T576: 全道路網一括バッチはbboxに収まらず反復性も無いため、
+                    # Redis cache-asideを迂回する（road_graph_repository.py:
+                    # get_edges_with_geometryのT576コメント参照）。
+                    edges = await repository.get_edges_with_geometry(chunk, use_cache=False)
                     graph = RoadGraph(graph_version="batch-elevation", nodes={}, edges=edges)
 
                     service = ElevationAttributeService(client, http_client, repository=repository)
