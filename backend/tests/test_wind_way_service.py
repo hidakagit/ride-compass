@@ -12,7 +12,7 @@ wind_penaltyを持つ（風グリッドをタイル中心1点で代表させる�
 ため）。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -203,12 +203,13 @@ async def test_repository_error_returns_empty_dict():
 async def test_at_none_defaults_to_now_without_raising():
     # WindWayServiceの既定時刻はdatetime.now(JST)（route_generator.pyのJSTと同じ簡易近似、
     # Open-MeteoのhourlyがnaiveなJST文字列を返すことに整合させるため）。テストのwide_timesも
-    # 同じ基準（JST）で「今日1日分の全時間帯」を用意し、テスト実行環境のタイムゾーンに
-    # 依存せず必ず範囲内に収まるようにする。
+    # 同じ基準（JST）で「今日00:00〜翌日00:00」を用意し、テスト実行環境のタイムゾーンや
+    # 実行時刻（23時台を含む）に依存せず必ず範囲内に収まるようにする（_nearest_time_indexは
+    # 配列の最終時刻を超えると範囲外扱いにするため、今日の23:00までだと23時台に外れる）。
     repository = FakeWayIdsRepository(way_ids=[1])
-    now_jst = datetime.now(JST)
-    wide_times = [f"{now_jst.year:04d}-{now_jst.month:02d}-{now_jst.day:02d}T{h:02d}:00" for h in range(24)]
-    grid_point = make_grid_point(wide_times, [3.0] * 24, [45.0] * 24)
+    today_jst = datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0)
+    wide_times = [(today_jst + timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M") for h in range(25)]
+    grid_point = make_grid_point(wide_times, [3.0] * 25, [45.0] * 25)
     weather_service = FakeWeatherService(wide_times, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 

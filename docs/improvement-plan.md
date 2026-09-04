@@ -827,4 +827,5 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 ## 路面タイル配信の高速化（2026-09-04・T577フォローアップの調査結果）
 
 - [x] [T578](tasks/T578.md). 路面タイル配信の高速化（指定路線JOINのLATERAL化・応答のgzip圧縮） 規模S〜M（2026-09-04完了。本番EXPLAINでz14 86→10ms・z15 80→3.6ms、`ContentTypeGZipMiddleware`新設でMVT/JSON応答を約57%へ圧縮、本番のキャッシュミス平均約580ms→約41ms。Renderを経由しない直接配信はnginxのHTTP/2化とセットで別途判断）
-- [ ] [T579](tasks/T579.md). test_wind_way_serviceの時刻依存フレーク（23時台に必ず失敗する） 規模S
+- [x] [T579](tasks/T579.md). test_wind_way_serviceの時刻依存フレーク（23時台に必ず失敗する） 規模S（2026-09-04完了。テストのhourly配列を翌日00:00まで延ばした、実装側は変更なし）
+- [ ] [T580](tasks/T580.md). 路面タイルをRenderフロントを経由せずbackendへ直接配信する（接続上限対策とセット） 規模M
