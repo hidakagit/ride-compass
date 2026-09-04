@@ -821,3 +821,4 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 - [x] [T573](tasks/T573.md). 本番DB再構築（disaster recovery）の包括的手順書整備・検証 規模L（2026-09-04完了。既存VM上の使い捨てPostgreSQLクラスタでbootstrap_fresh_db.py→import_pbf.py→refresh_derived.py→ルート生成までを実地検証、docs/disaster-recovery.md新設。全国規模・②③生データ取込・Redis周りは未検証のまま残る）
 - [x] [T574](tasks/T574.md). refresh_derived.py実行後にタイル永続キャッシュ版数が上がらず本番へ反映されない 規模S（2026-09-04完了。TILE_MATERIALS_CACHE_VERSION/TILE_SCORE_MATRIX_CACHE_VERSIONを上げてコメント・disaster-recovery.mdを補強、本番キャッシュ手動クリアで欠損比率0.698→0.132改善を実地検証）
 - [x] [T575](tasks/T575.md). `_tile_grid_cache`（DEMタイル解析済みグリッド）にサイズ上限が無くOOMを起こす 規模S（2026-09-04完了。DEFAULT_MAX_TILE_GRIDS=500の上限つきLRUへ変更、elevation.md更新、回帰テスト追加。本番への再実行は別途ユーザー確認の上で実施）
+- [ ] [T576](tasks/T576.md). precompute_elevation_attributesの高速化（地理的順序＋タイル単位バッチ化） 規模M
