@@ -823,3 +823,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 - [x] [T575](tasks/T575.md). `_tile_grid_cache`（DEMタイル解析済みグリッド）にサイズ上限が無くOOMを起こす 規模S（2026-09-04完了。DEFAULT_MAX_TILE_GRIDS=500の上限つきLRUへ変更、elevation.md更新、回帰テスト追加。本番への再実行は別途ユーザー確認の上で実施）
 - [x] [T576](tasks/T576.md). precompute_elevation_attributesの高速化（地理的順序＋タイル単位バッチ化） 規模M（2026-09-04完了。地理的順序＋anti-join・single-flight・タイル単位バッチAPI・Redis回避を実装、elevation.md更新。本番への再実行は別途実施）
 - [x] [T577](tasks/T577.md). 材料ごとの欠損割合を管理画面で可視化する 規模M（2026-09-04完了。`GET /api/admin/material-catalog/coverage`[Basic認証]＋`/admin`「材料」タブ。判定式は`osm_way_tag_sql.py`の共有断片で`_ROAD_SURFACE_TILE_MVT_SQL`等と一本化。本番EXPLAIN ANALYZE実測で3.5〜4.5秒と確認、追加チューニングは見送り）
+
+## 路面タイル配信の高速化（2026-09-04・T577フォローアップの調査結果）
+
+- [ ] [T578](tasks/T578.md). 路面タイル配信の高速化（指定路線JOINのLATERAL化・応答のgzip圧縮） 規模S〜M
