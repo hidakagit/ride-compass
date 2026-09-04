@@ -260,36 +260,38 @@ class SearchGraphStatics:
     edge_length_m: np.ndarray
 
 
-def build_search_graph_statics(lazy_graph: LazyRoadGraph, graph: RoadGraphLike) -> SearchGraphStatics:
-    """`lazy_graph.edge_ids`は`graph.edges`の部分集合である前提（同じ`graph`から
-    `build_lazy_road_graph`で作られた場合は常に成り立つ）。`lazy_graph`がタイル集合キーの
-    プロセス内キャッシュ（`infrastructure/search_graph_cache.py`）からの再利用で、その間に
-    タイルが再split（`save_graph`のedge_id再割当）された場合はこの前提が崩れうるため、
-    `.get()`で欠損を検知し`LazyGraphEdgeMismatchError`として呼び出し側（`RoadGraphEngine.
-    _get_or_build_search_statics`）へ伝える——呼び出し側がキャッシュを破棄して
-    `lazy_graph`ごと再構築する。
+def find_missing_lazy_graph_edge_id(lazy_graph: LazyRoadGraph, graph: RoadGraphLike) -> str | None:
+    """`lazy_graph.edge_ids`のうち`graph.edges`に存在しない最初のedge_idを返す
+    （無ければNone）。`lazy_graph.edge_ids`は`graph.edges`の部分集合である前提
+    （同じ`graph`から`build_lazy_road_graph`で作られた場合は常に成り立つ）だが、
+    `lazy_graph`がタイル集合キーのプロセス内キャッシュ（`infrastructure/
+    search_graph_cache.py`）からの再利用で、その間にタイルが再split（`save_graph`の
+    edge_id再割当）された場合はこの前提が崩れうる。`build_search_graph_statics`の
+    CSR構築を伴わない軽量版チェックで、`RoadGraphEngine._ensure_lazy_graph_consistent`
+    （改善計画T569、`prepare`・`preview_segment`共通）が呼ぶ。
     """
-    missing_edge_id: str | None = None
+    return next((edge_id for edge_id in lazy_graph.edge_ids if edge_id not in graph.edges), None)
 
-    def _distance_m(edge_id: str) -> float:
-        nonlocal missing_edge_id
-        edge = graph.edges.get(edge_id)
-        if edge is None:
-            if missing_edge_id is None:
-                missing_edge_id = edge_id
-            return math.nan
-        return edge.distance_m
 
-    edge_length_m = np.fromiter(
-        (_distance_m(edge_id) for edge_id in lazy_graph.edge_ids),
-        dtype=float,
-        count=len(lazy_graph.edge_ids),
-    )
+def build_search_graph_statics(lazy_graph: LazyRoadGraph, graph: RoadGraphLike) -> SearchGraphStatics:
+    """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを`find_missing_lazy_graph_
+    edge_id`で確認し、崩れていれば`LazyGraphEdgeMismatchError`を送出する（呼び出し側の
+    `RoadGraphEngine._ensure_lazy_graph_consistent`が事前にこのチェックを済ませ、崩れて
+    いれば`lazy_graph`ごと再構築してから呼ぶ前提のため、実運用でここが実際に送出することは
+    無い想定——チェック自体を二重に持つことで、将来この関数が事前チェック無しで直接
+    呼ばれても安全なままにする）。
+    """
+    missing_edge_id = find_missing_lazy_graph_edge_id(lazy_graph, graph)
     if missing_edge_id is not None:
         raise LazyGraphEdgeMismatchError(
             f"lazy_graph.edge_ids contains {missing_edge_id!r} not present in graph.edges "
             "(stale tile-set-keyed cache after re-split)"
         )
+    edge_length_m = np.fromiter(
+        (graph.edges[edge_id].distance_m for edge_id in lazy_graph.edge_ids),
+        dtype=float,
+        count=len(lazy_graph.edge_ids),
+    )
     return SearchGraphStatics(csr=build_csr_structure(lazy_graph), edge_length_m=edge_length_m)
 
 

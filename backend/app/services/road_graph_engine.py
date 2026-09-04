@@ -119,7 +119,6 @@ from app.domain.route import (
 )
 from app.domain.twilight import is_night
 from app.domain.routing import (
-    LazyGraphEdgeMismatchError,
     LazyRoadGraph,
     NodeSpatialIndex,
     SearchGraphStatics,
@@ -128,6 +127,7 @@ from app.domain.routing import (
     build_search_graph_statics,
     build_shortest_path_tree,
     concat_node_paths,
+    find_missing_lazy_graph_edge_id,
     find_nearest_node_indexed,
     overlap_ratio,
     path_to_edge_ids_lazy,
@@ -262,6 +262,9 @@ class _SearchGraph:
     """`prepare`・`preview_segment`共通の「bboxに対する探索用グラフ＋材料一式」
     （改善計画T237）。wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックを
     `_build_search_graph`1箇所にまとめ、ループ探索・単発区間確認の両方で重複させない。
+    `SearchGraphStatics`（一対全木用のCSR構造）は持たない——`preview_segment`は2点間の
+    直接A*しか行わず一対全木を使わないため、必要な`prepare`だけが自前で構築・保持する
+    （`_RoadGraphContext.statics`参照、改善計画T569）。
     """
 
     graph: RoadGraphLike
@@ -292,8 +295,6 @@ class _SearchGraph:
     # （docs/tasks/T546.md「対応方針」項目5参照）。
     edge_ids: list[str]
     hard_filter_excluded: np.ndarray
-    # 改善計画T531: _RoadGraphContextと同じ意味（フィールドdocstring参照）。
-    statics: SearchGraphStatics
 
 
 @dataclass(frozen=True)
@@ -447,12 +448,15 @@ class RoadGraphEngine:
         # 節に判断理由を記載。
         graph_started = time.monotonic()
         lazy_graph, lazy_graph_cached = await _get_or_build_lazy_graph(tile_set, graph)
+        # 改善計画T569: `SearchGraphStatics`（一対全木用のCSR構造）自体の構築・キャッシュは
+        # 一対全木を実際に使う`prepare`だけが行う（`preview_segment`は2点間の直接A*のみで
+        # 不要）。ただし再split後の`lazy_graph`・`graph`不整合（改善計画T557、項目4）の
+        # 検知・再構築は、直後の`cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids`
+        # （下記）が同種のKeyErrorに脆弱なため、`prepare`・`preview_segment`共通のこの
+        # 経路で行う——`_get_or_build_search_statics`はこの整合性が保証された後の
+        # `lazy_graph`だけを受け取る前提になり、自前の再構築ロジックを持たない。
+        lazy_graph = await _ensure_lazy_graph_consistent(tile_set, lazy_graph, graph)
         graph_ms = round((time.monotonic() - graph_started) * 1000)
-
-        # 改善計画T531: 一対全木用のCSR構造・Edge実距離配列もタイル集合キーでキャッシュする。
-        # 改善計画T557: lazy_graph・graphの再split後の不整合を検知すると再構築された
-        # lazy_graphが返る場合があるため、必ずこの戻り値でlazy_graphを更新する。
-        statics, statics_cached, lazy_graph = await _get_or_build_search_statics(tile_set, lazy_graph, graph)
 
         # A*のcost_fnへ渡す配列はlazy_graph.edge_ids（並行Edge解消後）の行順に揃える。
         cost_list = [cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids]
@@ -464,10 +468,10 @@ class RoadGraphEngine:
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
             "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d "
-            "total_ms=%d lazy_graph_cached=%s statics_cached=%s missing_axis_edges=%d "
+            "total_ms=%d lazy_graph_cached=%s missing_axis_edges=%d "
             "missing_axis_distance_ratio=%.3f",
             len(graph.edges), len(graph.nodes), materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
-            lazy_graph_cached, statics_cached, int(missing_axis_mask.sum()), missing_axis_distance_ratio,
+            lazy_graph_cached, int(missing_axis_mask.sum()), missing_axis_distance_ratio,
         )
 
         return _SearchGraph(
@@ -487,7 +491,6 @@ class RoadGraphEngine:
             node_lon=node_lon,
             edge_ids=score_matrix.edge_ids,
             hard_filter_excluded=hard_filter_excluded,
-            statics=statics,
         )
 
     async def _get_or_build_node_index(
@@ -579,6 +582,19 @@ class RoadGraphEngine:
             len(search.graph.edges), index_ms, node_index_cached,
         )
 
+        # 改善計画T569: 一対全木用のCSR構造（SearchGraphStatics）は、それを実際に使う
+        # select_loop_turnarounds/is_loop_too_similarの前段であるここ（prepare）だけが
+        # 構築・キャッシュする（preview_segmentは_build_search_graph止まりで構築しない）。
+        # search.lazy_graphは_build_search_graph内で整合性検証済みのため、ここでは
+        # 単純なキャッシュ参照/構築のみで再構築ロジックを持たない。
+        statics_started = time.monotonic()
+        statics, statics_cached = await _get_or_build_search_statics(search.tile_set, search.lazy_graph, search.graph)
+        statics_ms = round((time.monotonic() - statics_started) * 1000)
+        logger.info(
+            "prepare search_statics build edges=%d statics_ms=%d statics_cached=%s",
+            len(search.graph.edges), statics_ms, statics_cached,
+        )
+
         return _RoadGraphContext(
             graph=search.graph,
             materials=search.materials,
@@ -595,7 +611,7 @@ class RoadGraphEngine:
             node_lat=search.node_lat,
             node_lon=search.node_lon,
             night_active=search.night_active,
-            statics=search.statics,
+            statics=statics,
             origin_index=search.lazy_graph.node_id_to_index[origin_node],
         )
 
@@ -1229,45 +1245,57 @@ async def _get_or_build_lazy_graph(
     return lazy_graph, False
 
 
+async def _ensure_lazy_graph_consistent(
+    tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
+) -> LazyRoadGraph:
+    """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを検証し、崩れていれば
+    タイル集合キャッシュ3種を破棄して`lazy_graph`ごと`graph`から作り直す（改善計画T569、
+    `prepare`・`preview_segment`共通の`_build_search_graph`が呼ぶ）。
+
+    `_lazy_graph_cache`と`_search_statics_cache`はLRU上限に達すると独立に最古のエントリを
+    追い出すため、再split（`save_graph`のedge_id再割当）を挟むと「`lazy_graph`はキャッシュ
+    ヒットで古いまま」という状態が起こりうる（改善計画T557、項目4）。放置すると、直後の
+    `cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids`（`_build_search_graph`）や
+    `domain/routing.py: build_search_graph_statics`が同種のKeyErrorを起こす。この関数は
+    `domain/routing.py: find_missing_lazy_graph_edge_id`（CSR構築を伴わない軽量版チェック）
+    で不整合の有無だけを先に確認し、無ければ`lazy_graph`をそのまま返す。呼び出し側は
+    以降このメソッドの戻り値を使うこと（引数の`lazy_graph`を使い続けると同じKeyError相当を
+    再現する）。
+    """
+    missing = await asyncio.to_thread(find_missing_lazy_graph_edge_id, lazy_graph, graph)
+    if missing is None:
+        return lazy_graph
+    if tile_set is not None:
+        logger.warning("search_graph_cache stale_lazy_graph tile_set_size=%d rebuilding", len(tile_set))
+        search_graph_cache.invalidate_tile_set(tile_set)
+    lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph)
+    if tile_set is not None:
+        search_graph_cache.set_lazy_graph(tile_set, lazy_graph)
+    return lazy_graph
+
+
 async def _get_or_build_search_statics(
     tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
-) -> tuple[SearchGraphStatics, bool, LazyRoadGraph]:
+) -> tuple[SearchGraphStatics, bool]:
     """一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
     SearchGraphStatics`）を、`_get_or_build_lazy_graph`と同じタイル集合キーで
     キャッシュする（改善計画T531）。`tile_set`がNoneならキャッシュを経由せず毎回構築する。
     戻り値の2つ目はキャッシュヒットしたかどうか（ログ用）。
 
-    戻り値の3つ目は`lazy_graph`（通常は引数をそのまま返す）。`_lazy_graph_cache`と
-    `_search_statics_cache`はLRU上限に達すると独立に最古のエントリを追い出すため、
-    再splitを挟むと「`lazy_graph`はキャッシュヒットで古いまま、`statics`はキャッシュ
-    ミスで`graph`[新]から構築」という組み合わせが起こりうる（改善計画T557、項目4）。
-    `build_search_graph_statics`が`LazyGraphEdgeMismatchError`でこれを検知したら、
-    該当タイル集合のキャッシュ3種を破棄し`lazy_graph`ごと`graph`から作り直す——
-    呼び出し側は以降このメソッドが返す`lazy_graph`を使うこと（引数の`lazy_graph`を
-    使い続けると同じKeyError相当を再現する）。
+    `lazy_graph`は呼び出し元（`prepare`）が`_ensure_lazy_graph_consistent`で検証済みの
+    ものである前提のため、`LazyGraphEdgeMismatchError`の検知・再構築ロジックは持たない
+    （改善計画T569、以前はこの関数自身が検知して`lazy_graph`ごと再構築していたが、
+    一対全木を使わない`preview_segment`もこの再構築コストを副次的に払っていたため、
+    整合性検証と`SearchGraphStatics`の構築・キャッシュを分離した）。
     """
     if tile_set is not None:
         cached = search_graph_cache.get_search_statics(tile_set)
         if cached is not None:
-            return cached, True, lazy_graph
-    try:
-        statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph)
-    except LazyGraphEdgeMismatchError:
-        if tile_set is not None:
-            logger.warning(
-                "search_graph_cache stale_lazy_graph tile_set_size=%d rebuilding",
-                len(tile_set),
-            )
-            search_graph_cache.invalidate_tile_set(tile_set)
-        lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph)
-        statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph)
-        if tile_set is not None:
-            search_graph_cache.set_lazy_graph(tile_set, lazy_graph)
-            search_graph_cache.set_search_statics(tile_set, statics)
-        return statics, False, lazy_graph
+            return cached, True
+    statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph)
     if tile_set is not None:
         search_graph_cache.set_search_statics(tile_set, statics)
-    return statics, False, lazy_graph
+    return statics, False
 
 
 def _estimate_distances_m(

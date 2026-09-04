@@ -168,8 +168,19 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
   並べ替え表）はタイル集合だけで決まる派生物のためキャッシュに含めるが、リクエストごとに
   変わるコスト配列は含めない——`select_loop_turnarounds`が一対全木を求めるたびに
   コスト配列をこの並べ替え表でCSRのdata順へ差し替えて`scipy.sparse.csr_matrix`を組む。
+  `SearchGraphStatics`は一対全木を実際に使う`prepare`（`_get_or_build_search_statics`）
+  だけが構築・キャッシュする——`preview_segment`は2点間の直接A*のみで一対全木を使わない
+  ため、`LazyRoadGraph`はキャッシュしても`SearchGraphStatics`は構築しない
+  ([T569](../../tasks/T569.md))。
 - **無効化方針は`graph_material_cache`と同じ**（プロセス寿命でのみキャッシュ、軸定義変更は
-  無関係、材料再取込の反映にはプロセス再起動が必要）。
+  無関係、材料再取込の反映にはプロセス再起動が必要）。ただし例外として、タイル再split
+  （`save_graph`のedge_id再割当）でキャッシュ済み`LazyRoadGraph.edge_ids`が新しい
+  `graph.edges`に存在しなくなる不整合だけは、プロセス再起動を待たずリクエスト内で自己修復
+  する——`RoadGraphEngine._build_search_graph`（`prepare`・`preview_segment`共通）が
+  `_ensure_lazy_graph_consistent`で`domain/routing.py: find_missing_lazy_graph_edge_id`
+  （CSR構築を伴わない軽量チェック）を毎回呼び、不整合を検知したら該当タイル集合の
+  3キャッシュ（`LazyRoadGraph`・`SearchGraphStatics`・`NodeSpatialIndex`）を破棄して
+  `LazyRoadGraph`ごと`graph`から作り直す（`search_graph_cache.invalidate_tile_set`）。
 - `_reverse_traced_edges`（逆回り候補、後述）は、キャッシュ済み`LazyRoadGraph.
   edge_index_by_node_pair`を経路上のEdgeだけに対する遅延引きとして使う。
 

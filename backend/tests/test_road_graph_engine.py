@@ -1528,6 +1528,64 @@ async def test_prepare_rebuilds_stale_lazy_graph_after_resplit_cache_desync():
     assert search_graph_cache.search_statics_cache_size() == 1
 
 
+async def test_preview_segment_never_builds_or_caches_search_statics():
+    # 改善計画T569: preview_segmentは2点間の直接A*のみで一対全木（SearchGraphStatics）を
+    # 使わないため、lazy_graphはキャッシュされてもsearch_statics_cacheは0件のまま。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    graph = RoadGraph(
+        graph_version="test", nodes={"a": node_a, "b": node_b},
+        edges={"e1": _edge("e1", "a", "b", coord_a, coord_b, highway="residential")},
+    )
+    generator, _, _ = make_generator(graph, tile_set=_TILE_SET_A, way_tags={"e1": {"highway": "residential"}})
+
+    segment = await generator._engine.preview_segment(coord_a, coord_b)
+
+    assert segment is not None
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+    assert search_graph_cache.search_statics_cache_size() == 0
+
+
+async def test_preview_segment_rebuilds_stale_lazy_graph_after_resplit():
+    # 改善計画T569: preview_segmentもprepareと同じ整合性検証（_ensure_lazy_graph_
+    # consistent）を経由するため、再split後にキャッシュヒットした古いlazy_graphの
+    # edge_idが新しいgraph.edgesに存在しなくても例外を出さず、新しいgraphのedge_idと
+    # 整合したlazy_graphへ再構築されることを確認する
+    # （test_prepare_rebuilds_stale_lazy_graph_after_resplit_cache_desyncのpreview_segment版）。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    graph_v1 = RoadGraph(
+        graph_version="test", nodes={"a": node_a, "b": node_b},
+        edges={"e1-v1": _edge("e1-v1", "a", "b", coord_a, coord_b, highway="residential")},
+    )
+    generator_v1, _, _ = make_generator(
+        graph_v1, tile_set=_TILE_SET_A, way_tags={"e1-v1": {"highway": "residential"}}
+    )
+    first = await generator_v1._engine.preview_segment(coord_a, coord_b)
+    assert first is not None
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+
+    # 再split後: 同じ道（a→b）だがedge_idが振り直される。tile_setは変わらないため、
+    # 次のpreview_segmentは古い"e1-v1"を含むlazy_graphをキャッシュヒットで再利用しようとする。
+    graph_v2 = RoadGraph(
+        graph_version="test", nodes={"a": node_a, "b": node_b},
+        edges={"e1-v2": _edge("e1-v2", "a", "b", coord_a, coord_b, highway="residential")},
+    )
+    generator_v2, _, _ = make_generator(
+        graph_v2, tile_set=_TILE_SET_A, way_tags={"e1-v2": {"highway": "residential"}}
+    )
+
+    second = await generator_v2._engine.preview_segment(coord_a, coord_b)
+
+    assert second is not None
+    assert search_graph_cache.lazy_graph_cache_size() == 1
+    assert search_graph_cache.search_statics_cache_size() == 0
+
+
 async def test_preview_segment_reuses_cached_node_index_across_calls(monkeypatch):
     node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
     node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)

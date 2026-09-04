@@ -8,6 +8,7 @@ import pytest
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates
 from app.domain.routing import (
+    LazyGraphEdgeMismatchError,
     LazyRoadGraph,
     build_csr_structure,
     build_lazy_road_graph,
@@ -15,6 +16,7 @@ from app.domain.routing import (
     build_search_graph_statics,
     build_shortest_path_tree,
     concat_node_paths,
+    find_missing_lazy_graph_edge_id,
     find_nearest_node_indexed,
     overlap_ratio,
     path_to_edge_ids_lazy,
@@ -379,6 +381,35 @@ def test_build_search_graph_statics_aligns_edge_lengths_with_lazy_edge_order():
 
     assert list(statics.edge_length_m) == [graph.edges[e].distance_m for e in lazy_graph.edge_ids]
     assert statics.csr.node_count == len(lazy_graph.index_to_node_id)
+
+
+def test_find_missing_lazy_graph_edge_id_returns_none_when_consistent():
+    graph = _random_road_graph(seed=2)
+    lazy_graph = build_lazy_road_graph(graph)
+
+    assert find_missing_lazy_graph_edge_id(lazy_graph, graph) is None
+
+
+def test_find_missing_lazy_graph_edge_id_detects_stale_lazy_graph_after_resplit():
+    # 改善計画T569: lazy_graphが再split前のgraphから作られ、graph.edgesのedge_idが
+    # 振り直された（再splitされた）場合の不整合検知（build_search_graph_staticsから
+    # 独立させた軽量版チェック、CSR構築を伴わない）。
+    node_a, node_b = _node("a", 35.700, 139.700), _node("b", 35.701, 139.700)
+    graph_v1 = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1-v1": _edge("e1-v1", "a", "b")})
+    lazy_graph = build_lazy_road_graph(graph_v1)
+    graph_v2 = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1-v2": _edge("e1-v2", "a", "b")})
+
+    assert find_missing_lazy_graph_edge_id(lazy_graph, graph_v2) == "e1-v1"
+
+
+def test_build_search_graph_statics_raises_lazy_graph_edge_mismatch_error_when_stale():
+    node_a, node_b = _node("a", 35.700, 139.700), _node("b", 35.701, 139.700)
+    graph_v1 = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1-v1": _edge("e1-v1", "a", "b")})
+    lazy_graph = build_lazy_road_graph(graph_v1)
+    graph_v2 = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1-v2": _edge("e1-v2", "a", "b")})
+
+    with pytest.raises(LazyGraphEdgeMismatchError):
+        build_search_graph_statics(lazy_graph, graph_v2)
 
 
 def test_shortest_path_tree_costs_match_astar_for_random_graph():
