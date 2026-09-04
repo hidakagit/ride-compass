@@ -102,3 +102,8 @@ export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
 // （backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが単一ソース）。
 export type MaterialValueEntry = Schemas["MaterialValueEntry"];
 export type MaterialValuesResponse = Schemas["MaterialValuesResponse"];
+
+// 材料ごとの欠損割合。GET /api/admin/material-catalog/coverage（Basic認証必須、
+// 管理画面「材料」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
+export type MaterialCoverageEntry = Schemas["MaterialCoverageEntry"];
+export type MaterialCoverageResponse = Schemas["MaterialCoverageResponse"];

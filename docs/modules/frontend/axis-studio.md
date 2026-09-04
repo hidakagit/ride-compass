@@ -4,7 +4,9 @@
 
 管理者向け（Basic認証保護下）の評価軸CRUD画面。一覧・作成・編集・複製・削除・
 非公開化の状態管理を行い、[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)
-のAPIをそのまま呼ぶ。
+のAPIをそのまま呼ぶ。同じ`/admin`の「材料」タブ（材料ごとの欠損割合の表示、
+[評価・スコアリング（backend）](../backend/evaluation-scoring.md)「材料の欠損割合」節の
+APIを呼ぶ）も本モジュールが持つ。
 
 **対象ファイル**
 
@@ -14,6 +16,9 @@
 | `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
 | `services/axisAdminApi.ts` | backend `axis_admin.py`への薄いHTTPラッパー（`listAxisDefinitions`・`createAxisDefinition`・`updateAxisDefinition`・`deleteAxisDefinition`・`unpublishAxisDefinition`） |
 | `app/admin/api/axis-definitions/route.ts`・`[axisId]/route.ts`・`[axisId]/unpublish/route.ts` | `axisAdminApi.ts`が叩くNext.js route handler群。`proxyToBackendAdmin`でbackend `/api/admin/axis-definitions`（一覧取得・作成/PUT更新/DELETE削除/POST非公開化）へそのまま転送する |
+| `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合の表（欠損割合降順）と集計対象外材料の理由一覧。集計は「集計する」ボタン押下時のみ |
+| `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
+| `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
 | `hooks/useMaterialValues.ts` | `GET /api/material-catalog/{material_id}/values`取得。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
@@ -55,7 +60,9 @@ listAxisDefinitions() ──→ definitions（全軸）
   proxyToBackendAdmin`）経由で、ブラウザの認証キャッシュがそのまま転送される。backend宛の
   資格情報はサーバー側route handlerがサーバー環境変数から組み立てるため、ブラウザには
   一切露出しない。`proxyToBackendAdmin`は軸CRUD専用ではなく、「開発者」タブの
-  バックエンドログ表示パネル（`app/admin/api/debug/logs/`）とも共有する汎用プロキシ。
+  バックエンドログ表示パネル（`app/admin/api/debug/logs/`）・「材料」タブの欠損割合
+  （`app/admin/api/material-coverage/`）とも共有する汎用プロキシ（転送タイムアウトは
+  既定15秒、`timeoutMs`オプションで呼び出し元route handlerが延長できる）。
 
 ## AxisComposer.tsx（4ステップウィザード）
 
@@ -130,6 +137,23 @@ listAxisDefinitions() ──→ definitions（全軸）
   一覧を取得できた場合、値は読み取り専用の候補選択（自由入力を許さない——タイプミスが
   「静かに一致しない行」として残る落とし穴を防ぐため）になる。候補一覧が空の材料
   （bicycle_infra等、動的値一覧に未対応）だけ自由テキスト入力のまま。
+
+## MaterialCoveragePanel.tsx（「材料」タブ）
+
+`GET /admin/api/material-coverage`（backend `GET /api/admin/material-catalog/coverage`）の
+レスポンス（`MaterialCoverageResponse`、生成型）をそのまま表にする。
+
+- 表の列: 材料（論理名 - 物理名）・母集団（Way/Edge）・総数・欠損数・欠損割合
+  （数値＋バー）・欠損時の扱い・欠損の判定根拠。行は欠損割合の降順（`sortByMissingRatioDesc`）。
+  `missing_semantics="definite"`（タグ不在=非該当等の確定値として評価される材料）の行は
+  `data-missing-semantics`属性でバーの色を落とし、「不明」扱いの材料と見分けられるようにする。
+- `excluded_reason`を持つ材料（集計対象外）は表に含めず、`<details>`の折りたたみ一覧へ
+  理由つきで出す。
+- 集計はDB全体の走査を伴うため、タブを開いたとき自動では実行せず「集計する」ボタン押下時
+  のみ実行する（`BackendLogsPanel`と同じ流儀）。表の横幅は7列ぶん固定（`min-width`）で、
+  はみ出す分は表自身が横スクロールする。
+- 認証情報の入力欄は持たない（`AxisStudio.tsx`と同じく`/admin`のBasic認証セッションを
+  route handler経由で再利用する）。
 
 ## 材料が0件のときの防御
 

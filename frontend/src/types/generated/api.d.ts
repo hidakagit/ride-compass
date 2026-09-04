@@ -613,6 +613,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/material-catalog/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Material Coverage
+         * @description 全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。
+         *
+         *     同じ材料カタログの読み取りAPIでも、上の2エンドポイントと異なりBasic認証を要求する:
+         *     osm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると
+         *     繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
+         *     DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
+         */
+        get: operations["get_material_coverage_api_admin_material_catalog_coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/debug/mode": {
         parameters: {
             query?: never;
@@ -1220,6 +1245,46 @@ export interface components {
         MaterialCatalogResponse: {
             /** Materials */
             materials: components["schemas"]["MaterialCatalogEntry"][];
+        };
+        /** MaterialCoverageEntry */
+        MaterialCoverageEntry: {
+            /** Material Id */
+            material_id: string;
+            /** Label */
+            label: string;
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "numeric" | "boolean" | "categorical";
+            /** Population */
+            population: ("way" | "edge") | null;
+            /** Total */
+            total: number | null;
+            /** Missing */
+            missing: number | null;
+            /** Missing Ratio */
+            missing_ratio: number | null;
+            /** Source */
+            source: string;
+            /** Missing Semantics */
+            missing_semantics: ("unknown" | "definite") | null;
+            /** Excluded Reason */
+            excluded_reason: string | null;
+        };
+        /** MaterialCoverageResponse */
+        MaterialCoverageResponse: {
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            /** Way Total */
+            way_total: number;
+            /** Edge Total */
+            edge_total: number;
+            /** Materials */
+            materials: components["schemas"]["MaterialCoverageEntry"][];
         };
         /**
          * MaterialTerm
@@ -2652,6 +2717,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_material_coverage_api_admin_material_catalog_coverage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialCoverageResponse"];
                 };
             };
         };

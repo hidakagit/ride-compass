@@ -1,8 +1,16 @@
-from fastapi.testclient import TestClient
+import base64
+from datetime import datetime, timezone
 
-from app.api.dependencies import get_region_service
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import DBAPIError
+
+from app.api.dependencies import get_material_coverage_service, get_region_service
+from app.config import settings
 from app.domain.material_catalog import MATERIAL_CATALOG
+from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
+from app.services.material_coverage_service import build_material_coverage_report
 from app.services.region_service import RegionService
 
 client = TestClient(app)
@@ -185,3 +193,101 @@ def test_get_material_values_without_db_repository_returns_empty_list():
 
     assert response.status_code == 200
     assert response.json() == {"values": []}
+
+
+# --- 材料ごとの欠損割合（GET /api/admin/material-catalog/coverage、Basic認証必須） ---
+
+
+COVERAGE_URL = "/api/admin/material-catalog/coverage"
+
+
+def _basic_auth_header(username: str, password: str) -> str:
+    return "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
+
+
+AUTH_HEADERS = {"Authorization": _basic_auth_header("admin-user", "secret-password")}
+
+
+@pytest.fixture
+def admin_credentials(monkeypatch):
+    monkeypatch.setattr(settings, "admin_basic_auth_username", "admin-user")
+    monkeypatch.setattr(settings, "admin_basic_auth_password", "secret-password")
+
+
+class FakeMaterialCoverageService:
+    def __init__(self, counts: MaterialCoverageCounts | None = None, error: Exception | None = None):
+        self._counts = counts
+        self._error = error
+
+    async def get_material_coverage(self):
+        if self._error is not None:
+            raise self._error
+        assert self._counts is not None
+        return build_material_coverage_report(self._counts, datetime(2026, 9, 4, tzinfo=timezone.utc))
+
+
+def _counts(**missing_overrides: int) -> MaterialCoverageCounts:
+    missing = {material_id: 0 for material_id in MATERIAL_COVERAGE_SPECS}
+    missing.update(missing_overrides)
+    return MaterialCoverageCounts(way_total=200, edge_total=40, missing_by_material=missing)
+
+
+def test_get_material_coverage_requires_basic_auth(admin_credentials):
+    response = client.get(COVERAGE_URL)
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
+
+
+def test_get_material_coverage_rejects_wrong_credentials(admin_credentials):
+    response = client.get(COVERAGE_URL, headers={"Authorization": _basic_auth_header("admin-user", "wrong")})
+
+    assert response.status_code == 401
+
+
+def test_get_material_coverage_returns_all_catalog_materials(admin_credentials):
+    app.dependency_overrides[get_material_coverage_service] = lambda: FakeMaterialCoverageService(
+        counts=_counts(surface=170, gradient_percent=30)
+    )
+    try:
+        response = client.get(COVERAGE_URL, headers=AUTH_HEADERS)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["way_total"] == 200
+    assert body["edge_total"] == 40
+    assert body["computed_at"].startswith("2026-09-04")
+    assert [entry["material_id"] for entry in body["materials"]] == list(MATERIAL_CATALOG)
+
+    by_id = {entry["material_id"]: entry for entry in body["materials"]}
+    assert by_id["surface"] == {
+        "material_id": "surface",
+        "label": MATERIAL_CATALOG["surface"].full_label(),
+        "dtype": "categorical",
+        "population": "way",
+        "total": 200,
+        "missing": 170,
+        "missing_ratio": pytest.approx(0.85),
+        "source": MATERIAL_COVERAGE_SPECS["surface"].source,
+        "missing_semantics": "unknown",
+        "excluded_reason": None,
+    }
+    assert by_id["gradient_percent"]["population"] == "edge"
+    assert by_id["gradient_percent"]["missing_ratio"] == pytest.approx(0.75)
+    assert by_id["no_lit"]["missing_semantics"] == "definite"
+    assert by_id["wind_penalty"]["population"] is None
+    assert by_id["wind_penalty"]["excluded_reason"]
+
+
+def test_get_material_coverage_translates_db_errors_to_503(admin_credentials):
+    db_error = DBAPIError("SELECT 1", {}, Exception("connection refused"))
+    app.dependency_overrides[get_material_coverage_service] = lambda: FakeMaterialCoverageService(error=db_error)
+    try:
+        response = client.get(COVERAGE_URL, headers=AUTH_HEADERS)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert "欠損割合" in response.json()["detail"]

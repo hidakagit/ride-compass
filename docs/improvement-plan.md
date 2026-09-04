@@ -822,4 +822,4 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 - [x] [T574](tasks/T574.md). refresh_derived.py実行後にタイル永続キャッシュ版数が上がらず本番へ反映されない 規模S（2026-09-04完了。TILE_MATERIALS_CACHE_VERSION/TILE_SCORE_MATRIX_CACHE_VERSIONを上げてコメント・disaster-recovery.mdを補強、本番キャッシュ手動クリアで欠損比率0.698→0.132改善を実地検証）
 - [x] [T575](tasks/T575.md). `_tile_grid_cache`（DEMタイル解析済みグリッド）にサイズ上限が無くOOMを起こす 規模S（2026-09-04完了。DEFAULT_MAX_TILE_GRIDS=500の上限つきLRUへ変更、elevation.md更新、回帰テスト追加。本番への再実行は別途ユーザー確認の上で実施）
 - [x] [T576](tasks/T576.md). precompute_elevation_attributesの高速化（地理的順序＋タイル単位バッチ化） 規模M（2026-09-04完了。地理的順序＋anti-join・single-flight・タイル単位バッチAPI・Redis回避を実装、elevation.md更新。本番への再実行は別途実施）
-- [ ] [T577](tasks/T577.md). 材料ごとの欠損割合を管理画面で可視化する 規模M
+- [x] [T577](tasks/T577.md). 材料ごとの欠損割合を管理画面で可視化する 規模M（2026-09-04完了。`GET /api/admin/material-catalog/coverage`[Basic認証]＋`/admin`「材料」タブ。本番未反映）

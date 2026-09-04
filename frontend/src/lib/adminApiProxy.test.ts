@@ -95,6 +95,25 @@ describe("proxyToBackendAdmin", () => {
       expect(url).toBe("http://localhost:8000/api/admin/debug/logs?limit=200&contains=jma-tile");
     });
 
+    it("timeoutMs省略時は15秒、指定時はその値でAbortSignal.timeoutを組み立てる", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+      vi.stubGlobal("fetch", fetchMock);
+      const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+
+      await proxyToBackendAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
+      await proxyToBackendAdmin(
+        new Request("https://example.test/admin/api/material-coverage"),
+        "/api/admin/material-catalog/coverage",
+        { timeoutMs: 90000 },
+      );
+
+      expect(timeoutSpy).toHaveBeenNthCalledWith(1, 15000);
+      expect(timeoutSpy).toHaveBeenNthCalledWith(2, 90000);
+      timeoutSpy.mockRestore();
+    });
+
     it("POSTはリクエストボディをそのまま転送しContent-Typeを付与する", async () => {
       const backendResponse = new Response(JSON.stringify({ axis_id: "surface_q" }), {
         status: 201,

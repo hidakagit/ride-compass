@@ -36,13 +36,24 @@ DB未接続構成（`road_graph_use_repository=False`）では空リストを返
 （例: 材料"道路種別 - highway"、値"自転車専用道 - cycleway"）で返す。論理名だけでは
 どのOSMタグ値に対応するか分からない・軸定義（`AxisDefinitionResponse`）や外部ドキュメント
 上で物理名を探す必要がある、というユーザー要望への対応。
+
+`GET /api/admin/material-catalog/coverage`（Basic認証必須）は、材料ごとの欠損割合
+（元データ[タグ・派生テーブル行]が無いWay/Edgeの割合）を全材料ぶん返す管理画面向けの
+集計API（`services/material_coverage_service.py`・`infrastructure/material_coverage.py`）。
+上の2エンドポイントと異なり認可を要求する理由は`get_material_coverage`のdocstring参照。
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from datetime import datetime
 
-from app.api.dependencies import get_region_service
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.exc import DBAPIError
+
+from app.api.admin_auth import require_admin_basic_auth
+from app.api.dependencies import get_material_coverage_service, get_region_service
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, axis_studio_materials, is_known_material
+from app.infrastructure.material_coverage import MissingSemantics, Population
+from app.services.material_coverage_service import MaterialCoverageService
 from app.services.region_service import RegionService
 
 router = APIRouter()
@@ -77,6 +88,32 @@ class MaterialValuesResponse(BaseModel):
     values: list[MaterialValueEntry]
 
 
+class MaterialCoverageEntry(BaseModel):
+    material_id: str
+    label: str
+    dtype: MaterialDType
+    # 集計対象外の材料はpopulation/total/missing/missing_ratio/missing_semanticsがnullで、
+    # excluded_reasonに理由を持つ。
+    population: Population | None
+    total: int | None
+    missing: int | None
+    # 0〜1（total=0の場合はnull）。
+    missing_ratio: float | None
+    # 欠損判定の根拠（どのテーブル・列・タグの不在を欠損とみなすか）。
+    source: str
+    # "unknown"=欠損は不明値として扱われ軸が評価対象外になる、"definite"=欠損は確定値
+    # （タグ不在=非該当等）として扱われ軸は通常どおり評価される。
+    missing_semantics: MissingSemantics | None
+    excluded_reason: str | None
+
+
+class MaterialCoverageResponse(BaseModel):
+    computed_at: datetime
+    way_total: int
+    edge_total: int
+    materials: list[MaterialCoverageEntry]
+
+
 @router.get("/api/material-catalog", response_model=MaterialCatalogResponse)
 async def get_material_catalog() -> MaterialCatalogResponse:
     return MaterialCatalogResponse(
@@ -105,3 +142,47 @@ async def get_material_values(
     values = await region_service.get_material_values(material_id)
     spec = MATERIAL_CATALOG[material_id]
     return MaterialValuesResponse(values=[MaterialValueEntry(value=v, label=spec.value_label(v)) for v in values])
+
+
+@router.get(
+    "/api/admin/material-catalog/coverage",
+    response_model=MaterialCoverageResponse,
+    dependencies=[Depends(require_admin_basic_auth)],
+)
+async def get_material_coverage(
+    service: MaterialCoverageService = Depends(get_material_coverage_service),
+) -> MaterialCoverageResponse:
+    """全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。
+
+    同じ材料カタログの読み取りAPIでも、上の2エンドポイントと異なりBasic認証を要求する:
+    osm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると
+    繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
+    DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
+    """
+    try:
+        report = await service.get_material_coverage()
+    except DBAPIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="材料の欠損割合の集計に失敗しました（DB接続・migration適用状況を確認してください）",
+        ) from exc
+    return MaterialCoverageResponse(
+        computed_at=report.computed_at,
+        way_total=report.way_total,
+        edge_total=report.edge_total,
+        materials=[
+            MaterialCoverageEntry(
+                material_id=entry.material_id,
+                label=entry.label,
+                dtype=entry.dtype,
+                population=entry.population,
+                total=entry.total,
+                missing=entry.missing,
+                missing_ratio=entry.missing_ratio,
+                source=entry.source,
+                missing_semantics=entry.missing_semantics,
+                excluded_reason=entry.excluded_reason,
+            )
+            for entry in report.materials
+        ],
+    )
