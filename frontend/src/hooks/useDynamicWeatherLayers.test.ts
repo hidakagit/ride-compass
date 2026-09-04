@@ -34,8 +34,6 @@ const EMPTY_CURRENT_RISK_FRAMES = { land: [], heavyRain: [], inundation: [], flo
 
 const BASE_OPTIONS = {
   showWindVector: false,
-  windBearingDeg: 0,
-  showWindPenaltyFill: false,
   showPrecipitationNowcast: false,
   showThunderNowcast: false,
   showTornadoNowcast: false,

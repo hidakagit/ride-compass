@@ -3,9 +3,11 @@
 ## 責務
 
 評価軸（軸スタジオ管理）のdifficulty値を、(1) ルート確定前は視界内の全道路（評価軸
-グループの線）・環境グループの面、(2) ルート確定後は選択中ルートの線、それぞれ地図上で
-色分け表示する。専用のway_id→値配信レイヤー（[動的材料・way_id値配信（backend）](../backend/dynamic-way-values.md)）
-を持つ軸（現状: 風・勾配）が対象。
+グループの線、風・勾配とも）・環境グループの面（勾配のみ。風は矢印のみで面塗りを持たない、
+[地図: 動的気象レイヤー](dynamic-weather-layers.md)参照）、(2) ルート確定後は選択中
+ルートの線、それぞれ地図上で色分け表示する。専用のway_id→値配信レイヤー
+（[動的材料・way_id値配信（backend）](../backend/dynamic-way-values.md)）を持つ軸
+（現状: 風・勾配）が対象。
 
 **対象ファイル**
 
@@ -13,7 +15,7 @@
 |---|---|
 | `Map/routeStyleModes.ts` | ルート確定後の色分けモード一覧・色式 |
 | `Map/windAxisLayer.ts`・`gradientAxisLayer.ts` | ルート確定前の評価軸グループ線の色式 |
-| `Map/windPenalty.ts`・`gradientGridFill.ts` | ルート確定前の環境グループ面（gridFill）の値計算・色式 |
+| `Map/gradientGridFill.ts` | ルート確定前の環境グループ面（勾配のgridFill）の値計算・色式（風は面塗りを持たないため対象外） |
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（共有色ヘルパー、windAxisLayer/gradientAxisLayerが使う）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。windAxisLayer/gradientAxisLayerの`*Legend`関数が使う |
@@ -31,8 +33,8 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 ## ルート確定前後で異なる値source（3つの表示、共通しきい値）
 
 ```
-                          [評価軸グループ（線）]                [環境グループ（面）]
-ルート未確定  ── setFeatureState経由の値 ──┐   ┌── gridFill（風=風グリッド式計算 / 勾配=タイル平均） 
+                          [評価軸グループ（線）]                [環境グループ（面、勾配のみ）]
+ルート未確定  ── setFeatureState経由の値 ──┐   ┌── gridFill（勾配=タイル平均。風は対象外）
               （useDynamicWayValues）      │   │
                                             ▼   ▼
                                   同じ配色・しきい値を共有
@@ -109,42 +111,28 @@ routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実�
   渡す。通常のramp軸（`buildAxisRampLegend`）も同じ`display_band_labels_override`
   （`RampAxis.bandLabelsOverride`経由）を読み、同じ「段階数一致時のみ適用」規則で
   体感ラベルを表示できる。
-  `page.tsx`が`showWindAxis || showWindPenaltyFill`/`showGradientAxis || showGradientFill`
-  （評価軸の線・環境グループのgridFillのどちらか一方でもONの間）・ramp軸（`axisVisibility`、
+  `page.tsx`が`showWindAxis`/`showGradientAxis || showGradientFill`（評価軸の線、勾配は
+  環境グループのgridFillとのどちらか一方でもONの間）・ramp軸（`axisVisibility`、
   `axisLayers.ts: buildAxisRampLegend`）を横断して集め、`MapColorLegend`
   （`components/MapColorLegend/`）が地図上部中央に常時表示する（モバイルのBottomSheetが
   画面下側を覆っても隠れないための配置、コンポーネント側コメント参照）。ramp軸の凡例は
   絞り込みフィルタと共有する`LegendEntry`（`filter`必須）を返すが、windAxis/gradientAxisには
   絞り込み機構自体が無いため、意味の無い`filter`を捏造せずに済む`MapColorLegendBand`
-  （`{label, color}`のみ）という軽量な専用型を使う。環境グループのgridFillも評価軸グループの
-  線と同じ`windAxisLegend`/`gradientAxisLegend`をそのまま使う（同じ配色・しきい値を
-  共有する契約のため、凡例データ自体は変わらず表示条件だけを広げている）。
+  （`{label, color}`のみ）という軽量な専用型を使う。環境グループの勾配gridFillも評価軸
+  グループの線と同じ`gradientAxisLegend`をそのまま使う（同じ配色・しきい値を共有する契約
+  のため、凡例データ自体は変わらず表示条件だけを広げている）。
 
-## windPenalty.ts / gradientGridFill.ts（環境グループの面表示、計算方法が異なる）
+## gradientGridFill.ts（環境グループの面表示、勾配のみ）
 
-| | 風（`windPenalty.ts`） | 勾配（`gradientGridFill.ts`） |
-|---|---|---|
-| 値の出所 | 独立した空間フィールド（気象グリッド、道路とは無関係に存在） | way単位のeffective_gradient（評価軸グループ向けに既にフェッチ済み） |
-| 計算方法 | `windPenalty()`——backend `WindCalculator.wind_penalty`のJS移植（物理式） | フェッチ元のタイル境界を1セルとして平均集計（追加のAPI呼び出し無し） |
-| セルの単位 | 格子点を中心とする正方形（`gridCellRing`） | タイル境界そのもの（`tileRing`） |
+風は矢印のみで面塗りを持たないため（[地図: 動的気象レイヤー](dynamic-weather-layers.md)
+参照）、環境グループの面表示は勾配専用。値は道路のeffective_gradient（評価軸グループ向けに
+既にフェッチ済みのway単位の値）を、フェッチ元のタイル境界を1セルとして平均集計する
+（`gradientGridCellsFromTileResponses`、追加のAPI呼び出し無し）。セルの単位はタイル境界
+そのもの（`tileRing`）。
 
-`windPenalty()`は`WindCalculator.wind_penalty`（backend）と同一計算をfrontendで実装した
-もの。`windPenalty.test.ts`が既知入出力ペアでbackendとの一致を検証する。
-
-風のgridFillは粗い格子（`windGrid`、関東本土全域を常時カバー）と、ズームイン時に画面中心
-付近だけを覆う詳細格子（`windDetailGrid`）の2段構成（[地図: 動的気象レイヤー]
-(dynamic-weather-layers.md)参照）。両方をそのまま重ねて描画すると重なった領域の
-半透明fill-opacityが二重になり凡例の色と対応しなくなるため、
-`windPenaltyCoarseGridToClippedFeatureCollection`が粗いセルと詳細格子の実カバー範囲
-（矩形）が重なる部分だけを`subtractRectangle`（矩形の引き算、最大4枚の帯へ分解）で
-幾何学的に切り取ってから描画する。詳細格子が空（未取得・ズームアウト時）ならフィルタせず
-粗い格子をそのまま返す（`windPenaltyGridToCellFeatureCollection`、詳細格子単独の描画も
-この単純版を使う）。
-
-`windPenaltyFillColorExpression(boundaries?)`は評価軸グループ（`windAxisColorExpression`）と
-同じ`dedicatedWayValueBoundaries`（`.get("wind")`）を`MapView.tsx`側で受け取り、両者が
-同じ配色・しきい値を共有する。`gradientGridFill.ts`側（`makeEnsureGradientFillLayer`）も
-同じMapを経由する。
+`gradientFillColorExpression(boundaries?)`は評価軸グループ（`gradientAxisColorExpression`）と
+同じ`dedicatedWayValueBoundaries`（`.get("gradient")`）を`MapView.tsx`側
+（`makeEnsureGradientFillLayer`）で受け取り、両者が同じ配色・しきい値を共有する。
 
 ## useDynamicWayValues.ts（フェッチ・状態管理）
 
@@ -160,8 +148,7 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 - `values: ReadonlyMap<number, number>`（way_id→値、複数タイル統合済み）——評価軸
   グループの`setFeatureState`にそのまま使える。
 - `byTile: TileDynamicWayValues[]`（タイルごとの生応答）——勾配の環境グループgridFill
-  （タイル境界セル）が使う。風のgridFillは別経路（風グリッド由来の格子点）のため
-  `byTile`は使わない。
+  （タイル境界セル）が使う。風は環境グループのgridFillを持たないため`byTile`は使わない。
 
 `materialId`（"wind"/"gradient"）ごとに呼び出し側（`page.tsx`）が別々にこのフックを
 インスタンス化する。連続する呼び出しの間に古いリクエストが後から解決しても新しい結果を
@@ -223,15 +210,10 @@ design-principles.md構造仕様3「軸ごとにpropを新設しない」に沿�
 （axisId→featureStateKeyの小さなRecord）が`windAxisLayer.ts`/`gradientAxisLayer.ts`
 それぞれの`*_FEATURE_STATE_KEY`定数を束ねる。
 
-`WIND_PENALTY_FILL_LAYER_ID`（環境グループの風penalty gridFill）は`DYNAMIC_WEATHER_
-RENDERERS`側の管理下にあり`STATIC_OVERLAY_LAYERS`に含まれないため、そのままでは
-`interactiveLayerIds`（クリック判定対象）に入らない。専用のポップアップ内容を持たないため、
-`handleClick`冒頭で「ヒットしたら何もしない」早期returnガードを持つ。
-
 ## 動的気象レイヤーとの関係
 
 `windAxisLayer.ts`/`gradientAxisLayer.ts`が扱う「評価軸グループ」（道路そのものを線で塗る）は、
-`windVector`（矢印・面表示、環境グループの探索用表現）とは完全に独立した見せ方であり、
+`windVector`（矢印表示、環境グループの探索用表現）とは完全に独立した見せ方であり、
 同じ`[時刻/向き]`入力を共有するだけで、レイヤー・ソース・フェッチ経路はすべて別individual。
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う`DYNAMIC_WEATHER_RENDERERS`汎用機構
 （風の矢印・降水ナウキャスト等）とは異なり、windAxis/gradientAxisは`mapLayers.ts:

@@ -63,7 +63,6 @@ import {
 import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import { WIND_AXIS_FEATURE_STATE_KEY, windAxisColorExpression } from "@/components/Map/windAxisLayer";
-import { windPenaltyFillColorExpression } from "@/components/Map/windPenalty";
 import { GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisColorExpression } from "@/components/Map/gradientAxisLayer";
 import { gradientFillColorExpression } from "@/components/Map/gradientGridFill";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
@@ -187,15 +186,6 @@ export function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeat
   const base = `region-dynamic-weather-${id}-${source}-${sub}`;
   return { sourceId: base, layerId: `${base}-main`, iconId: `${base}-icon` };
 }
-// 環境グループの風penalty gridFill（改善計画T414、T432でDYNAMIC_WEATHER_RENDERERS汎用機構へ
-// 統合）のlayer id。GRADIENT_FILL_LAYER_IDと同型——こちらはDYNAMIC_WEATHER_RENDERERS側の
-// 管理下にありSTATIC_OVERLAY_LAYERSに無いため、そのままではinteractiveLayerIdsに含まれず
-// クリック判定の対象外（GRADIENT_FILL_LAYER_IDはbuildInteractiveLayerIds側の明示的な
-// 除外条件で同じ扱いに揃えている、改善計画T478）——ただし専用のポップアップ内容を持たない
-// ため、単に対象に加えるのではなくDETAIL_LAYER_IDと同じ「ヒットしたら何もしない」早期return
-// ガードで、下に重なるroad_surfaceの誤ったポップアップを防ぐ（改善計画T425、ゼロベース
-// 網羅レビュー指摘）。
-const WIND_PENALTY_FILL_LAYER_ID = dynamicWeatherIds("windVector", "penaltyFill", "fill").layerId;
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 // exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
@@ -221,15 +211,11 @@ const DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS: Record<string, string> = {
   gradient: GRADIENT_AXIS_FEATURE_STATE_KEY,
 };
 const EMPTY_DEDICATED_WAY_VALUES: ReadonlyMap<number, number> = new Map();
-// 環境グループの勾配gridFill（改善計画T423）。当初は「風・勾配で実装パターンを揃えるため」
-// windPenaltyFillと同じbespokeなensure/apply関数として実装していたが、改善計画T432で
-// windPenaltyFillはwindVector（矢印、gridMark）と同時表示する必要からDYNAMIC_WEATHER_
-// RENDERERS汎用機構（windVectorグループのpenaltyFillソース）へ統合した。gradientFillは
-// 独立した矢印表示を持たず単独のチップのため汎用機構へ乗せられない制約は元々無い
-// （gradientGridFill.tsのモジュールdocstring参照）が、page.tsx側の配線（useDynamicWayValues
-// 由来の別系統フック）まで作り直す統合コストが今回のスコープを超えるため、bespokeな
-// ensure/apply関数のまま据え置く（風との実装パターンの一致は崩れた——追従は将来の
-// フォローアップ課題とする）。
+// 環境グループの勾配gridFill（改善計画T423）。矢印gridMarkと同時表示する必要が無く
+// （gradientGridFill.tsのモジュールdocstring参照）DYNAMIC_WEATHER_RENDERERS汎用機構へ
+// 乗せる制約は無いが、page.tsx側の配線（useDynamicWayValues由来の別系統フック）まで
+// 作り直す統合コストが今回のスコープを超えるため、bespokeなensure/apply関数のまま
+// 据え置く。
 // 改善計画T452（DEFERトリガー明記）: トリガーは「gradientFillのensure/apply関数自体へ
 // 次回手を入れる判断をした時点」または「同種のbespoke実装（way_id依存の動的面塗り）が
 // 3例目として追加される時点」のいずれか。現時点でこのトリガーに向けた着手は不要。
@@ -964,7 +950,9 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     },
   },
   windVector: {
-    // 矢印（改善計画T178）。
+    // 矢印（改善計画T178）。走行方位に依存しない風向・風速そのものの表示のみを持つ
+    // （評価軸としての向かい風/追い風の強さはRouteSettingsPanel「風」の「地図で色分け」
+    // ボタン[windAxis]・地図の色分け[ルート確定後]が担う）。
     arrow: {
       gridMark: {
         createIcon: createWindArrowIcon,
@@ -977,34 +965,6 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         haloColor: WIND_ICON_HALO_COLOR,
         haloWidth: WIND_ICON_HALO_WIDTH_PX,
         minValueToShow: WIND_CALM_THRESHOLD_MS,
-      },
-    },
-    // 環境グループの風penalty gridFillの下敷き（実機報告2026-08-31「画面の右端にだけ面塗り
-    // されない」）。詳細格子（useWeatherGrid.ts: detailGrid、画面中心付近だけをカバーする
-    // clampWindDetailBbox基準の狭いbbox）だけだと、ビューポートがその範囲より広いとき
-    // 画面端に格子点自体が無く塗れない隙間ができる。関東本土全域を常時カバーする粗い格子
-    // （useWeatherGrid.tsのgrid、WIND_GRID_SPACING_DEG）を先に敷いておくことで、詳細格子が
-    // 届かない範囲でも粗い解像度でフォールバック表示する。groupSpecのキー順=addLayer順=
-    // 描画の重なり順（ensureDynamicWeatherLayer参照）のため、下記penaltyFillより前に
-    // 置くことで背面に敷かれる。
-    penaltyFillCoarse: {
-      gridFill: {
-        valueProperty: "windPenalty",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        colorExpression: windPenaltyFillColorExpression() as any,
-        opacity: 0.4,
-      },
-    },
-    // 環境グループの風penalty gridFill（改善計画T414、T432で汎用機構へ統合）。矢印（gridMark）
-    // と同時に表示するための独立ソース。
-    penaltyFill: {
-      gridFill: {
-        valueProperty: "windPenalty",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        colorExpression: windPenaltyFillColorExpression() as any,
-        // 矢印の背後に敷く面塗りのため、降水延長予報（PRECIPITATION_FILL_OPACITY=0.55）
-        // よりさらに控えめにし、矢印の視認性を保つ。
-        opacity: 0.4,
       },
     },
   },
@@ -1142,13 +1102,20 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
 // パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMark/vectorのうち
 // 実際に指定されているものだけを追加する（改善計画T432、ソースごとにループする形へ一般化）。
+// spec.*.colorExpression等はDYNAMIC_WEATHER_RENDERERS呼び出し元（MapView.tsx本体、
+// page.tsx）が軸スタジオ由来の動的なしきい値から組み立てることがある（T587: 過去に
+// windVectorのpenaltyFillがdedicatedWayValueBoundariesから配色しきい値を引いていた）。
+// そのためgroupSpecが変わるたびにこの関数が呼ばれる前提で、レイヤーが既に存在する場合も
+// 各paintプロパティをsetPaintPropertyで再適用する（addLayer時の値で固定させない）。
 export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
   const applyData = () => {
     for (const [source, spec] of Object.entries(groupSpec)) {
       if (!spec) continue;
       if (spec.raster) {
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "raster");
-        if (!map.getSource(sourceId)) {
+        if (map.getSource(sourceId)) {
+          map.setPaintProperty(layerId, "raster-opacity", spec.raster.opacity);
+        } else {
           map.addSource(sourceId, {
             type: "raster",
             tiles: [spec.raster.placeholderTileUrl],
@@ -1168,7 +1135,10 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
       }
       if (spec.gridFill) {
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
-        if (!map.getSource(sourceId)) {
+        if (map.getSource(sourceId)) {
+          map.setPaintProperty(layerId, "fill-color", spec.gridFill.colorExpression);
+          map.setPaintProperty(layerId, "fill-opacity", spec.gridFill.opacity);
+        } else {
           map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
           map.addLayer({
             id: layerId,
@@ -1193,7 +1163,11 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
       if (spec.gridMark) {
         const mark = spec.gridMark;
         const { sourceId, layerId, iconId } = dynamicWeatherIds(id, source, "mark");
-        if (!map.getSource(sourceId)) {
+        if (map.getSource(sourceId)) {
+          map.setPaintProperty(layerId, "icon-color", mark.colorExpression);
+          map.setPaintProperty(layerId, "icon-halo-color", mark.haloColor);
+          map.setPaintProperty(layerId, "icon-halo-width", mark.haloWidth);
+        } else {
           if (!map.hasImage(iconId)) {
             // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
             // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
@@ -1243,7 +1217,10 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
       if (spec.vector) {
         const vector = spec.vector;
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");
-        if (!map.getSource(sourceId)) {
+        if (map.getSource(sourceId)) {
+          map.setPaintProperty(layerId, "line-color", vector.colorExpression);
+          map.setPaintProperty(layerId, "line-width", vector.lineWidthExpression);
+        } else {
           map.addSource(sourceId, {
             type: "vector",
             tiles: [vector.placeholderTileUrl],
@@ -1282,8 +1259,9 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
 // 古いフレームが一瞬見えるのを防ぐ）。payload.kindがそのソースのspecの複数サブレイヤー
 // （precipitationNowcast.mainのraster/gridFill等）のどれと対応するかだけを見て、対応しない
 // サブレイヤーは常に非表示にする（=同時に両方は出ない）。改善計画T432: ソースをまたいだ
-// 複数payloadの同時表示（windVectorのarrow+penaltyFill等）は、グループ内の別ソースとして
-// 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
+// 複数payloadの同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の
+// 別ソースとして独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを
+// 独立に処理するだけ）。
 function applyDynamicWeatherState(
   map: MapLibreMap,
   id: DynamicWeatherLayerId,
@@ -1383,12 +1361,19 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
 // プロパティではなくsetFeatureState経由の値（applyAxisFeatureStateValues参照）を読む。
 // ensureRoadSurfaceTileLayerを先に呼び、promoteId付きのsourceが確実に存在する状態で
 // レイヤーを追加する（designation等の既存レイヤーもこのソースへ依存する順序を暗黙に
-// 仮定しており、それと同じ前提）。
+// 仮定しており、それと同じ前提）。colorExpressionはdedicatedWayValueBoundaries
+// （軸スタジオのdisplay_thresholds_override、実行時フェッチで後から変わりうる）に
+// 依存するため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する
+// （T587: 初回作成時の値で固定され、フェッチ完了後の正しい値が反映されないバグの修正）。
 function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unknown[]): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     ensureRoadSurfaceTileLayer(map);
     const applyData = () => {
-      if (map.getLayer(layerId)) return;
+      if (map.getLayer(layerId)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        map.setPaintProperty(layerId, "line-color", colorExpression as any);
+        return;
+      }
       map.addLayer({
         id: layerId,
         type: "line",
@@ -1458,11 +1443,17 @@ export function shouldClearDedicatedWayValueFeatureState(showWindAxis: boolean, 
 // 改善計画T443: makeEnsureDedicatedWayValueLayer呼び出し（windAxis/gradientAxis）と同じく
 // ファクトリ化し、軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で
 // 受け取れるようにした（以前はboundaries引数を渡す経路が無く、常にビルド時既定値
-// GRADIENT_BOUNDARIESへフォールバックしていた）。
+// GRADIENT_BOUNDARIESへフォールバックしていた）。boundariesは実行時フェッチで後から
+// 変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する（T587）。
 function makeEnsureGradientFillLayer(boundaries?: readonly number[] | null) {
   return (map: MapLibreMap) => {
     const applyData = () => {
-      if (map.getLayer(GRADIENT_FILL_LAYER_ID)) return;
+      const colorExpression = gradientFillColorExpression(boundaries ?? undefined);
+      if (map.getLayer(GRADIENT_FILL_LAYER_ID)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        map.setPaintProperty(GRADIENT_FILL_LAYER_ID, "fill-color", colorExpression as any);
+        return;
+      }
       map.addSource(GRADIENT_FILL_SOURCE_ID, { type: "geojson", data: EMPTY_FEATURE_COLLECTION });
       map.addLayer({
         id: GRADIENT_FILL_LAYER_ID,
@@ -1471,7 +1462,7 @@ function makeEnsureGradientFillLayer(boundaries?: readonly number[] | null) {
         layout: { visibility: "none" },
         paint: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-color": gradientFillColorExpression(boundaries ?? undefined) as any,
+          "fill-color": colorExpression as any,
           "fill-opacity": 0.4,
         },
       });
@@ -1724,12 +1715,19 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 // kind="ramp"軸ごとに、road_surfaceタイルへ焼き込み済みの事実プロパティ（per-km密度）を
 // カタログ宣言のしきい値で色分けする線レイヤーを自動生成する。ensure関数は他の静的
 // レイヤー（makeEnsureAttributeLineLayer等）と同じ「初期化時に一度だけ追加、以降は
-// visibility切替のみ」パターン。
+// visibility切替のみ」パターンだが、axis（軸スタジオのしきい値・色定義）は実行時
+// フェッチで後から変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで
+// 再適用する（T587）。
 function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     runWhenStyleReady(map, () => {
       const layerId = axisLineLayerId(axis.axisId);
-      if (map.getLayer(layerId)) return;
+      const colorExpression = buildAxisRampColorExpression(axis);
+      if (map.getLayer(layerId)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        map.setPaintProperty(layerId, "line-color", colorExpression as any);
+        return;
+      }
       map.addLayer({
         id: layerId,
         type: "line",
@@ -1737,7 +1735,7 @@ function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
         "source-layer": ROAD_TILE_SOURCE_LAYER,
         paint: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "line-color": buildAxisRampColorExpression(axis) as any,
+          "line-color": colorExpression as any,
           "line-width": SECONDARY_AXIS_CASING_WIDTH,
           "line-opacity": SECONDARY_AXIS_CASING_OPACITY,
         },
@@ -1931,9 +1929,9 @@ export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLa
     ROAD_TILE_LAYER_ID,
     ...staticOverlayLayers.filter(
       // 改善計画T478（統合レビュー第3回§9指摘の再確認）: "gradientFill"（環境グループの
-      // 勾配gridFill）はWIND_PENALTY_FILL_LAYER_IDと同型——専用ポップアップを持たず
-      // クリック時は下記handleClickの早期returnガードで「何もしない」設計のため、ここでも
-      // 除外する。除外しないままだとhandleMouseMoveのカーソル判定（同じ
+      // 勾配gridFill）は専用ポップアップを持たず、クリック時は下記handleClickの早期return
+      // ガードで「何もしない」設計のため、ここでも除外する。除外しないままだと
+      // handleMouseMoveのカーソル判定（同じ
       // interactiveLayerIdsを参照）がこのレイヤー上でpointerカーソルを出し、
       // 「カーソルはクリック可能を示すのに実際は何も起きない」という不整合になっていた
       // （T461はクリック時の誤ポップアップだけを早期returnガードで対症療法的に修正しており、
@@ -2240,11 +2238,11 @@ interface MapViewProps {
    * 横断的に抽出して構築。T443/T466が軸ごとに別名prop[gradientBoundaries/windBoundaries]を
    * 新設していたのを統合し、design-principles.md構造仕様3[軸ごとにpropを新設しない]に
    * 適合させた）。評価軸グループ（windAxisColorExpression/gradientAxisColorExpression）・
-   * 環境グループのgridFill（makeEnsureGradientFillLayer・windPenaltyFillColorExpression）の
-   * 両方がこの1つのMapから該当軸idのしきい値を引く。未設定の軸idは各実装のビルド時
-   * 既定値（WIND_AXIS_THRESHOLDS・GRADIENT_BOUNDARIES）へフォールバックする。 */
+   * 環境グループの勾配gridFill（makeEnsureGradientFillLayer）がこの1つのMapから該当軸idの
+   * しきい値を引く。未設定の軸idは各実装のビルド時既定値（WIND_AXIS_THRESHOLDS・
+   * GRADIENT_BOUNDARIES）へフォールバックする。 */
   dedicatedWayValueBoundaries?: ReadonlyMap<string, readonly number[]>;
-  /** 改善計画T423: 環境グループの勾配gridFill（windPenaltyFillと同型）。showGradientFillは
+  /** 改善計画T423: 環境グループの勾配gridFill。showGradientFillは
    * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
    * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDynamicWayValues.ts:
    * byTileをgradientGridFill.ts: gradientGridCellsFromTileResponsesで変換した値をそのまま
@@ -2412,38 +2410,6 @@ export default function MapView({
     () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedWayValueBoundaries),
     [axisOverlayLayers, dedicatedWayValueBoundaries]
   );
-  // 改善計画T473: 環境グループの風penalty gridFill（windVector.penaltyFill）も評価軸グループ
-  // （windAxisColorExpression）と同じdedicatedWayValueBoundariesから配色しきい値を引く
-  // ようにし、「評価軸・環境グループで色の意味を揃える」契約（windPenalty.tsのdocstring）を
-  // 実際に満たす（以前はwindPenaltyFillColorExpression()を引数無しで呼んでおり、環境
-  // グループだけこの配線から取り残されていた）。DYNAMIC_WEATHER_RENDERERS自体は他の
-  // レイヤー（降水・雷・竜巻等）を含む大きな静的スペックのため丸ごと動的化はせず、
-  // windVector.penaltyFillのgridFill.colorExpressionだけを浅く上書きする。
-  const dynamicWeatherRenderers = useMemo<Record<DynamicWeatherLayerId, DynamicWeatherGroupSpec>>(() => {
-    const windPenaltyBoundaries = dedicatedWayValueBoundaries?.get("wind");
-    return {
-      ...DYNAMIC_WEATHER_RENDERERS,
-      windVector: {
-        ...DYNAMIC_WEATHER_RENDERERS.windVector,
-        // penaltyFillCoarse（下敷き）とpenaltyFill（詳細格子）は同じ配色しきい値を
-        // 使う契約のため、両方へ同じboundariesを適用する。
-        penaltyFillCoarse: {
-          gridFill: {
-            ...DYNAMIC_WEATHER_RENDERERS.windVector.penaltyFillCoarse!.gridFill!,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            colorExpression: windPenaltyFillColorExpression(windPenaltyBoundaries) as any,
-          },
-        },
-        penaltyFill: {
-          gridFill: {
-            ...DYNAMIC_WEATHER_RENDERERS.windVector.penaltyFill!.gridFill!,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            colorExpression: windPenaltyFillColorExpression(windPenaltyBoundaries) as any,
-          },
-        },
-      },
-    };
-  }, [dedicatedWayValueBoundaries]);
   const interactiveLayerIds = useMemo(
     () => buildInteractiveLayerIds(staticOverlayLayers),
     [staticOverlayLayers]
@@ -2509,7 +2475,6 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     dynamicWeather,
-    dynamicWeatherRenderers,
     showRoadType,
     showRoadSurface,
     showDesignation,
@@ -2591,7 +2556,6 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       dynamicWeather,
-      dynamicWeatherRenderers,
       showRoadType,
       showRoadSurface,
       showDesignation,
@@ -2625,7 +2589,6 @@ export default function MapView({
     hiddenRouteLegendKeys,
     showElevation,
     dynamicWeather,
-    dynamicWeatherRenderers,
     showRoadType,
     showRoadSurface,
     showDesignation,
@@ -2667,7 +2630,6 @@ export default function MapView({
       hiddenRouteLegendKeys,
       showElevation,
       dynamicWeather,
-      dynamicWeatherRenderers,
       showRoadType,
       showRoadSurface,
       showDesignation,
@@ -2710,7 +2672,7 @@ export default function MapView({
     );
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      applyDynamicWeatherState(map, id, dynamicWeatherRenderers[id], dynamicWeather[id]);
+      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
     // 改善計画T425（ゼロベース網羅レビュー指摘）+T457（gradientFillGeojson分）+T483
     // （dedicatedWayValues統合に伴いループ化）: WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID
@@ -2915,29 +2877,14 @@ export default function MapView({
       ) {
         return;
       }
-      // 改善計画T425（ゼロベース網羅レビュー指摘）: 風penalty gridFill
-      // （WIND_PENALTY_FILL_LAYER_ID）はinteractiveLayerIdsに含まれず専用ポップアップも
-      // 持たないため、以前はここでガードせず下に重なるroad_surfaceタイルへそのまま
-      // クリック判定が抜け、誤った路面ポップアップが出ていた。DETAIL_HIT_LAYER_IDと同じ
-      // 「ヒットしたら何もしない」早期returnで防ぐ。
-      if (
-        map.getLayer(WIND_PENALTY_FILL_LAYER_ID) &&
-        map.queryRenderedFeatures(e.point, { layers: [WIND_PENALTY_FILL_LAYER_ID] }).length > 0
-      ) {
-        return;
-      }
-      // 改善計画T461（モジュール設計書再検証で発見）: 環境グループの勾配gridFill
-      // （GRADIENT_FILL_LAYER_ID）は当時STATIC_OVERLAY_LAYERS経由でinteractiveLayerIdsに
-      // 含まれてしまっており、ガードが無いままだと下の汎用ディスパッチャへ流れ込み、道路
-      // 属性を持たないGradientGridCellProperties（{gradientValue}のみ）が
-      // buildRoadSurfacePopupHtmlへ渡って「路面: 不明」という実態と無関係なポップアップが
-      // 出ていた。専用ポップアップを持たない点も含めWIND_PENALTY_FILL_LAYER_IDと同型のため、
-      // 同じ早期returnで防ぐ。改善計画T478でbuildInteractiveLayerIds自体からも
-      // "gradientFill"を除外し（カーソルだけhoverでpointerになる不整合の解消）、
-      // interactiveLayerIdsに含まれない点でもWIND_PENALTY_FILL_LAYER_IDと同型になった
-      // ——ここでの明示的な早期returnガードは、除外後もqueryRenderedFeaturesがこの
-      // レイヤー自体を直接対象にできるよう引き続き必要（WIND_PENALTY_FILL_LAYER_IDの
-      // ガードと同じ理由）。
+      // 環境グループの勾配gridFill（GRADIENT_FILL_LAYER_ID）は専用ポップアップを持たず、
+      // buildInteractiveLayerIdsの対象からも除外されている。ガード無しでは下の汎用
+      // ディスパッチャへ流れ込み、道路属性を持たないGradientGridCellProperties
+      // （{gradientValue}のみ）がbuildRoadSurfacePopupHtmlへ渡って「路面: 不明」という
+      // 実態と無関係なポップアップが出てしまうため、DETAIL_HIT_LAYER_IDと同じ「ヒットしたら
+      // 何もしない」早期returnで防ぐ——interactiveLayerIdsに含まれないレイヤーでも
+      // queryRenderedFeaturesはこのレイヤー自体を直接対象にできるため、この明示的な
+      // ガードが必要。
       if (
         map.getLayer(GRADIENT_FILL_LAYER_ID) &&
         map.queryRenderedFeatures(e.point, { layers: [GRADIENT_FILL_LAYER_ID] }).length > 0
@@ -3535,10 +3482,10 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      applyDynamicWeatherState(map, id, dynamicWeatherRenderers[id], dynamicWeather[id]);
+      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
     recomputeLayerDataStatus();
-  }, [dynamicWeather, dynamicWeatherRenderers, recomputeLayerDataStatus]);
+  }, [dynamicWeather, recomputeLayerDataStatus]);
 
   // 自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・事故（当事者/重大度）・
   // 車の圧迫感を含むramp軸（改善計画T292でここへ合流）の絞り込み（改善計画T63）。

@@ -20,7 +20,9 @@ import {
   applyAxisFeatureStateValues,
   applyRoadMaterialTrackOffsets,
   applySecondaryAxisCasingStyles,
+  buildStaticOverlayLayers,
   clearRoadTileFeatureState,
+  ensureDynamicWeatherLayer,
   shouldClearDedicatedWayValueFeatureState,
 } from "./MapView";
 
@@ -233,5 +235,66 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
     );
 
     expect(map.setFeatureStateCalls).toEqual([]);
+  });
+});
+
+describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensureが既存レイヤーの色式を再適用する、T587）", () => {
+  it("windAxisレイヤーが既に存在する場合、dedicatedWayValueBoundariesの変更をline-colorへ再適用する", () => {
+    const map = fakeMap();
+    const windEntry = buildStaticOverlayLayers([], undefined).find((l) => l.key === "windAxis")!;
+    // 1回目: axisCatalogのフェッチ未完了を想定（boundaries未設定）でレイヤーを新規作成する。
+    windEntry.ensure(map as unknown as Parameters<typeof windEntry.ensure>[0]);
+    expect(map.layers.has(windEntry.layerId)).toBe(true);
+    expect(map.paintCalls.filter((c) => c.layerId === windEntry.layerId)).toEqual([]);
+
+    // 2回目: フェッチ完了後の正しいboundariesでensureを再実行する（実際にはstaticOverlayLayers
+    // のuseMemo再計算→effect再実行で起きる）。既存レイヤーがあってもsetPaintPropertyで
+    // line-colorが更新されなければならない。
+    const windEntryAfter = buildStaticOverlayLayers([], new Map([["wind", [10, 20, 30, 40, 50]]])).find(
+      (l) => l.key === "windAxis"
+    )!;
+    windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
+
+    const paintCalls = map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color");
+    expect(paintCalls).toHaveLength(1);
+  });
+
+  it("gradientAxis/gradientFillレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
+    const map = fakeMap();
+    const before = buildStaticOverlayLayers([], undefined);
+    const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
+    const gradientFillEntry = before.find((l) => l.key === "gradientFill")!;
+    gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
+    gradientFillEntry.ensure(map as unknown as Parameters<typeof gradientFillEntry.ensure>[0]);
+    expect(map.layers.has(gradientAxisEntry.layerId)).toBe(true);
+    expect(map.layers.has(gradientFillEntry.layerId)).toBe(true);
+
+    const after = buildStaticOverlayLayers([], new Map([["gradient", [-10, -5, 0, 5, 10]]]));
+    const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
+    const gradientFillEntryAfter = after.find((l) => l.key === "gradientFill")!;
+    gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);
+    gradientFillEntryAfter.ensure(map as unknown as Parameters<typeof gradientFillEntryAfter.ensure>[0]);
+
+    expect(map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color")).toHaveLength(1);
+    expect(map.paintCalls.filter((c) => c.layerId === gradientFillEntry.layerId && c.name === "fill-color")).toHaveLength(1);
+  });
+});
+
+describe("ensureDynamicWeatherLayer（gridFill/gridMark/vectorのcolorExpressionを既存レイヤーへ再適用する、T587）", () => {
+  it("gridFillレイヤーが既に存在する場合、colorExpression/opacityの変更をsetPaintPropertyで反映する", () => {
+    const map = fakeMap();
+    const specA = { windVector: { penaltyFill: { gridFill: { valueProperty: "v", colorExpression: ["literal", "a"], opacity: 0.4 } } } };
+    const specB = { windVector: { penaltyFill: { gridFill: { valueProperty: "v", colorExpression: ["literal", "b"], opacity: 0.6 } } } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ensureDynamicWeatherLayer(map as any, "windVector", specA.windVector as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ensureDynamicWeatherLayer(map as any, "windVector", specB.windVector as any);
+
+    const fillColorCalls = map.paintCalls.filter((c) => c.name === "fill-color");
+    expect(fillColorCalls).toHaveLength(1);
+    expect(fillColorCalls[0].value).toEqual(["literal", "b"]);
+    const fillOpacityCalls = map.paintCalls.filter((c) => c.name === "fill-opacity");
+    expect(fillOpacityCalls).toHaveLength(1);
+    expect(fillOpacityCalls[0].value).toBe(0.6);
   });
 });

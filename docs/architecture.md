@@ -233,13 +233,13 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   (3) 選択時刻がそのレイヤーのデータ範囲外なら`frameIndexForTime`が`null`を返し**描画しない**
   （旧設計は端のフレームへクランプして古いデータを見せ続けていた）、という3つの制約を定義する。
   **改善計画T432**: 当初`DynamicWeatherLayerId`（1グループ）は同時に1つのpayload（=1つの
-  kind）しか持てなかったため、風の評価軸penalty面表示（`windPenaltyFill`、windVectorの矢印と
-  同時表示が必要）がこの機構を迂回した個別実装になっていた。`DynamicWeatherGroupState`
+  kind）しか持てなかったため、風の評価軸penalty面表示（windVectorの矢印と同時表示が必要）が
+  この機構を迂回した個別実装になっていた。`DynamicWeatherGroupState`
   （ソースキー→`{visible, payload}`）を導入し「1グループ＝複数の名前付きソース、各ソースが
-  独立してkind/payloadを持てる」形へ一般化したことで、`windPenaltyFill`を汎用機構へ統合し
-  （`windVector`グループの`arrow`+`penaltyFill`の2ソース）、線状降水帯予測マップも
+  独立してkind/payloadを持てる」形へ一般化し、当時は風の面塗りもこの機構へ統合していた
+  （面塗りはユーザー指摘を受け撤去済み、§動的気象レイヤー参照）。線状降水帯予測マップは
   `precipitationNowcast`グループの4つ目のソース（`linearRainband`、既存3段=`main`と独立に
-  重畳）として実現した（詳細は下記「キキクル・線状降水帯予測マップ」節参照）。
+  重畳）として同じ機構を使う（詳細は下記「キキクル・線状降水帯予測マップ」節参照）。
   新しい動的要素の追加は「①`domain/wind_grid.py: WindGridPoint`へ値フィールド追加＋
   `weather_client.py: WIND_GRID_VARIABLES`へOpen-Meteo変数追加（フェッチは相乗り）
   ②要素専用のデータ層モジュール新設（フレーム列＋ペイロード関数）③`MapView.tsx:
@@ -2418,17 +2418,10 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 [`RouteSettingsPanel.tsx`]へ移っても、向きの指定元は「環境」グループのコンパススライダー
 [`WindBearingSlider`]のまま）:
 
-- **環境（面、`gridFill`）**: 風の矢印（`windVector`、格子点マップ§動的気象レイヤー参照）と
-  同じフェッチ済みの風グリッド（`useWeatherGrid`のeffectiveGrid）から、コンパススライダー
-  （`WindBearingSlider`、`@fseehawer/react-circular-slider`採用）で指定した走行方位を使い、
-  **クライアント側だけ**でwind_penaltyを計算する（`frontend/src/components/Map/
-  windPenalty.ts: windPenalty`、backend `WindCalculator.wind_penalty`のJS移植）——追加の
-  API呼び出しは発生しない。矢印（gridMark）の背後に薄く重ね描きする面塗りは、当初
-  `DYNAMIC_WEATHER_RENDERERS`汎用機構が「1グループにつき単一payload.kind」前提だったため
-  `ensureWindPenaltyFillLayer`/`applyWindPenaltyFillGeojson`という独立実装（bespoke）に
-  していたが、**改善計画T432**でこの制約自体を「1グループ＝複数の名前付きソース」へ
-  一般化したことで、`windVector`グループの`penaltyFill`ソースとして汎用機構へ統合した
-  （§動的気象レイヤー参照。bespoke実装は撤去済み）。
+- **環境（面）**: 風は矢印のみを持ち、面塗り（`gridFill`）は持たない——矢印（絶対的な
+  風向風速）とユーザー指定の走行方位に依存する相対値が同時に出ると見にくいため、走行方位に
+  対する向かい風/追い風の強さは次項の評価軸（線）のみで確認する（勾配は評価軸[線]・
+  環境グループのgridFill[面]の両方を持つ、§動的気象レイヤー参照）。
 - **評価軸（線）**: `WindWayService.get_way_wind_penalties(z, x, y, at, bearing_deg)`
   （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル内の
   way_id一覧（`RoadGraphRepository.get_way_ids_in_tile`——T414で道路自身の向き計算
@@ -2453,11 +2446,11 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   まとめてfetchし（`windAxisLayer.ts: tilesCoveringViewport`）、`MapView.tsx`が
   `map.setFeatureState({source, sourceLayer, id: wayId}, {windPenalty: value})`で道路タイル
   の地物へ後から値を差し込む。色分けは`["feature-state","windPenalty"]`を読むMapLibre
-  expression（`windAxisLayer.ts: windAxisColorExpression`）で、環境グループのgridFillと
-  同じしきい値・配色（`WIND_AXIS_THRESHOLDS`）を共有する。
+  expression（`windAxisLayer.ts: windAxisColorExpression`、未設定時のしきい値既定値は
+  `WIND_AXIS_THRESHOLDS`）。
 
 **ルート確定後**: パラメータ指定UI（コンパススライダー・上記windAxisの一律色分け）は終了する
-（`page.tsx`が`hasDetail`で`showWindAxis`/`showWindPenaltyFill`をfalseへ倒し、
+（`page.tsx`が`hasDetail`で`showWindAxis`をfalseへ倒し、
 `RouteSettingsPanel.tsx: renderMapColorToggle`が風の色分けトグルを「地図表示なし」の
 案内表示へ切り替える[改善計画T418]。`MapView.tsx: clearRoadTileFeatureState`
 （改善計画T440で`clearWindAxisFeatureState`/`clearGradientAxisFeatureState`という

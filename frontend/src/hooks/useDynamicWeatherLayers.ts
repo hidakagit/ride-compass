@@ -17,11 +17,7 @@ import {
   type NowcastFrame,
   type RasrfFrame,
 } from "@/components/Map/precipitationNowcast";
-import { windFrames, windRenderPayload, WIND_GRID_SPACING_DEG, type MapViewport } from "@/components/Map/windLayer";
-import {
-  windPenaltyCoarseGridToClippedFeatureCollection,
-  windPenaltyGridToCellFeatureCollection,
-} from "@/components/Map/windPenalty";
+import { windFrames, windRenderPayload, type MapViewport } from "@/components/Map/windLayer";
 import {
   fetchThunderNowcastFrames,
   thunderFrames,
@@ -56,7 +52,6 @@ import {
 } from "@/components/Map/dynamicWeather";
 import type { DynamicLayerTimeSliderFrame } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
-import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
 
 // 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
@@ -68,12 +63,6 @@ const RASRF_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 // キキクル・線状降水帯予測マップ（改善計画T410）の再取得間隔。キキクルは10分おき更新
 // （riskMap.tsのモジュールdocstring参照）に合わせる。
 const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-
-// コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、
-// windBearingDegをそのままuseMemoの依存に使うとドラッグのたびにGeoJSON再構築＋MapView側の
-// source.setData()が連打される。useDynamicWayValues.ts（改善計画T423で旧
-// useWindAxisPenalties.tsから汎用化）のbearingDegデバウンスと同じ値を使う
-// （改善計画T470: useDebouncedValue.ts: MAP_FETCH_DEBOUNCE_MSへ集約）。
 
 // 線状降水帯予測マップ（改善計画T432でrisk系統からrasrf系統・「降水」チップ傘下へ再分類）を
 // 重ねて表示する時間窓。「今後3時間以内に大雨のおそれ」という予報の意味そのものに合わせる。
@@ -93,14 +82,6 @@ const EMPTY_LIDEN_FRAMES: LidenFrame[] = [];
 
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
-  /** 改善計画T414: 評価軸グループとしての風（windAxis）とパラメータ入力を共有するための
-   * ユーザー指定走行方位（コンパススライダー、0〜360度、北=0・時計回り）。「環境」グループの
-   * 風penalty gridFill表示（windVectorグループのpenaltyFillソース）の計算に使う。 */
-  windBearingDeg: number;
-  /** 改善計画T432: 環境グループの風penalty gridFillの表示ON/OFF。windVectorのチップON/OFFとは
-   * 独立（ルート確定後はページ側がfalseへ倒す想定、page.tsx:
-   * showWindPenaltyFill = showWindVector && !hasDetail参照）。 */
-  showWindPenaltyFill: boolean;
   showPrecipitationNowcast: boolean;
   showThunderNowcast: boolean;
   showTornadoNowcast: boolean;
@@ -138,8 +119,6 @@ export interface UseDynamicWeatherLayersResult {
  * showX系オプションを持たず常にフェッチする。 */
 export function useDynamicWeatherLayers({
   showWindVector,
-  windBearingDeg,
-  showWindPenaltyFill,
   showPrecipitationNowcast,
   showThunderNowcast,
   showTornadoNowcast,
@@ -150,7 +129,6 @@ export function useDynamicWeatherLayers({
   // 1本のタイムライン（下記timeline）上の1点で、各レイヤーはこの時刻に対応する自分の
   // フレームを描画する。
   const [dynamicLayerTargetTime, setDynamicLayerTargetTime] = useState(() => new Date());
-  const debouncedWindBearingDeg = useDebouncedValue(windBearingDeg, MAP_FETCH_DEBOUNCE_MS);
 
   // 降水ナウキャストの時刻一覧（改善計画T170/T171）。取得失敗時は例外を投げずnowcastErrorへ
   // 記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ例外、片方だけの
@@ -243,7 +221,6 @@ export function useDynamicWeatherLayers({
   // どちらか一方でもONならenabledにすることで両方ONのときも1本のフェッチで済む。
   const {
     grid: windGrid,
-    detailGrid: windDetailGrid,
     effectiveGrid: effectiveWindGrid,
     effectiveGridSpacingDeg,
     loading: windLoading,
@@ -355,47 +332,6 @@ export function useDynamicWeatherLayers({
     if (index == null || effectiveWindGrid.length === 0) return undefined;
     return windRenderPayload(effectiveWindGrid, windFramesList[index].ref);
   }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid]);
-  // 環境グループの風penalty gridFill（改善計画T414、T432でDynamicWeatherRenderPayload型へ
-  // 統一）。windPayload（矢印gridMark）と同じframeIndexForTime（同じwindFramesList・同じ
-  // dynamicLayerTargetTime）を使うため、両者は常に同じ時刻のデータを指す。windBearingDegは
-  // ユーザー指定の走行方位（全格子点共通）、デバウンス済みの値を使う
-  // （MAP_FETCH_DEBOUNCE_MS参照）。
-  const windPenaltyPayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
-    const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
-    if (index == null || effectiveWindGrid.length === 0) return undefined;
-    return {
-      kind: "gridFill",
-      geojson: windPenaltyGridToCellFeatureCollection(
-        effectiveWindGrid,
-        windFramesList[index].ref,
-        debouncedWindBearingDeg,
-        effectiveGridSpacingDeg
-      ),
-    };
-  }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid, debouncedWindBearingDeg, effectiveGridSpacingDeg]);
-  // penaltyFillの下敷き。effectiveWindGrid（detailGridがあればそちら優先）は画面中心付近の
-  // 狭いbboxしかカバーしないことがあるため、常に関東本土全域をカバーするwindGrid（粗い格子、
-  // useWeatherGrid.ts参照）から同じ配色ロジックでセルを作る。frameIndexは同じ
-  // windFramesList（windGrid由来）を使うため、windPayload/windPenaltyPayloadと常に
-  // 同じ時刻を指す。windPenaltyCoarseGridToClippedFeatureCollectionが、詳細格子と重なる
-  // 部分を幾何学的に切り取ってから粗いセルを作る（windPenalty.ts側コメント参照。
-  // detailGridが空のときはdetailSpacingDeg自体使われないため、effectiveGridSpacingDegを
-  // そのまま渡してよい）。
-  const windPenaltyCoarsePayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
-    const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
-    if (index == null || windGrid.length === 0) return undefined;
-    return {
-      kind: "gridFill",
-      geojson: windPenaltyCoarseGridToClippedFeatureCollection(
-        windGrid,
-        windDetailGrid,
-        windFramesList[index].ref,
-        debouncedWindBearingDeg,
-        WIND_GRID_SPACING_DEG,
-        effectiveGridSpacingDeg
-      ),
-    };
-  }, [windFramesList, dynamicLayerTargetTime, windGrid, windDetailGrid, debouncedWindBearingDeg, effectiveGridSpacingDeg]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;
@@ -485,17 +421,14 @@ export function useDynamicWeatherLayers({
     return frame ? linearRainbandRenderPayload(frame.ref) : undefined;
   }, [linearRainbandFrames, linearRainbandVisible]);
 
-  // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合。
-  // 改善計画T432でグループ内に複数の名前付きソースを持てる形へ一般化した——windVectorは
-  // 矢印[arrow]とpenalty面[penaltyFill]、precipitationNowcastは時系列3段[main]と線状降水帯
-  // [linearRainband]を同時に持つ）。新しい動的気象要素を追加してもMapViewProps自体は
-  // 変わらず、ここへ1エントリ足すだけでよい。
+  // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
+  // 1グループが複数の名前付きソースを同時に持てる——precipitationNowcastは時系列3段
+  // [main]と線状降水帯[linearRainband]を同時に持つ。新しい動的気象要素を追加しても
+  // MapViewProps自体は変わらず、ここへ1エントリ足すだけでよい。
   const dynamicWeather = useMemo(
     () => ({
       windVector: {
         arrow: { visible: showWindVector, payload: windPayload },
-        penaltyFillCoarse: { visible: showWindPenaltyFill, payload: windPenaltyCoarsePayload },
-        penaltyFill: { visible: showWindPenaltyFill, payload: windPenaltyPayload },
       },
       precipitationNowcast: {
         main: { visible: showPrecipitationNowcast, payload: precipitationPayload },
@@ -512,9 +445,6 @@ export function useDynamicWeatherLayers({
     [
       showWindVector,
       windPayload,
-      showWindPenaltyFill,
-      windPenaltyPayload,
-      windPenaltyCoarsePayload,
       showPrecipitationNowcast,
       precipitationPayload,
       linearRainbandPayload,

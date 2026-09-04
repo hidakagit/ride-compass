@@ -696,7 +696,7 @@ T440〜T471（69コミット）を対象とした3回目の統合レビュー
 
 - [x] [T520](tasks/T520.md). nowcグループ（targetTimes_N3.json）の未使用element調査（liden・slmcs系） 規模不明（調査のみ、2026-09-02完了。Browserペインでjma.go.jp本体へ直接アクセスし技術仕様を確定。amds_rain10mは既存機能と重複確認により導入不要、liden・slmcs系は配信形式確定・実装要否はプロダクト判断待ちで未着手のまま）
 - [x] [T541](tasks/T541.md). liden（雷放電位置データ）の地図表示を実装する 規模M（2026-09-04完了、ユーザー判断で導入決定・判断のみから実装まで拡大）
-- [ ] [T542](tasks/T542.md). slmcs系（線状降水帯直前検出・予測領域）の地図表示導入要否を判断する 規模S（判断のみ、2026-09-02起票、T520より分割）
+- [ ] [T542](tasks/T542.md). slmcs系（線状降水帯直前検出・予測領域）の地図表示を実装する 規模S〜M（2026-09-02起票、T520より分割。2026-09-05ユーザー判断で導入決定[slmcs_unify/slmcs_unifyfcst採用]）— トリガー: 実際の線状降水帯発生時にgeometry構造を実機確認できた時点
 
 ## 雷・竜巻ナウキャストのbasetime選択バグ修正（2026-09-01、T514効果確認の副産物）
 
@@ -838,4 +838,4 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 ## MapLibreレイヤーのensure関数が既存レイヤーの色式を更新しない不具合（2026-09-05・ユーザー報告の風penalty面塗り色異常の調査から発覚）
 
-- [ ] [T587](tasks/T587.md). MapLibreレイヤーのensure関数（windAxis/gradientAxis/gradientFill・ramp軸全般）が既存レイヤーの色式（軸スタジオのdisplay_thresholds_override等）を更新しない 規模M（2026-09-05起票、調査中）
+- [x] [T587](tasks/T587.md). MapLibreレイヤーのensure関数（windAxis/gradientAxis/gradientFill・ramp軸全般）が既存レイヤーの色式（軸スタジオのdisplay_thresholds_override等）を更新しない 規模M（2026-09-05完了。4つのensure関数すべてを「既存レイヤーがあればsetPaintPropertyで再適用」する形へ修正、回帰テスト追加）

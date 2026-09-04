@@ -262,11 +262,9 @@ const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
-// ユーザー指摘（2026-08-31「矢印の色と背景色が全然違うのは直ってない。凡例に従っていない」）:
-// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、面塗り（windPenalty、
-// 走行方位に対する向かい風/追い風、mapColorLegendGroups参照）とは別の配色系統。以前は
-// label=""で無題のまま出しており、「地図の色の凡例」だと誤認しやすかったため、
-// 「矢印（風速）」と明示する。
+// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（windPenalty、
+// 走行方位に対する向かい風/追い風、mapColorLegendGroups参照）とは別の配色系統のため、
+// 「地図の色の凡例」との混同を避けて「矢印（風速）」と明示する。
 const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "矢印（風速）",
@@ -1166,17 +1164,12 @@ export default function Home() {
   const showTornadoNowcast = layerVisibility.tornadoNowcast;
   const showLiden = layerVisibility.liden;
   const showWindVector = layerVisibility.windVector;
-  // 環境グループの風penalty gridFill（改善計画T414）。windVectorのチップON/OFFとは独立に
-  // ルート確定後（hasDetail）はfalseへ倒す（T414契約: ルート確定後はルート自身の実際の
-  // 進行方向・到達時刻を使うrouteStyleModes「風」モードへ委ねる）。useDynamicWeatherLayers
-  // 呼び出しより前に計算する必要がある（改善計画T432でオプションとして渡すため）。
-  const showWindPenaltyFill = showWindVector && !hasDetail;
   // ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、1つでいい」）:
   // 動的材料の状態別表現契約（docs/tasks/T400.md「2.」節）の[時刻,向き]のうち「向き」を、
   // 風・勾配それぞれ独立したstate（旧windBearingDeg/gradientBearingDeg）から、実際の
   // 進行方向という単一の概念を表す1つの共有state（travelBearingDeg）へ統合した。
-  // 「環境」グループ（風penalty gridFill・勾配gridFill）・評価軸としての風/勾配
-  // （windAxis/gradientAxis）のいずれもこの1つの値を共有する。設定UIは地図上の
+  // 「環境」グループの勾配gridFill・評価軸としての風/勾配（windAxis/gradientAxis）の
+  // いずれもこの1つの値を共有する。設定UIは地図上の
   // TravelBearingControl（`components/TravelBearingControl/`）1箇所へ集約し、
   // RouteSettingsPanel内の「走行方位を設定」ボタン・地図下部の個別コンパス
   // （bottomControlRow）は撤去した。
@@ -1193,8 +1186,6 @@ export default function Home() {
     dynamicLayerTargetTime,
   } = useDynamicWeatherLayers({
     showWindVector,
-    windBearingDeg: travelBearingDeg,
-    showWindPenaltyFill,
     showPrecipitationNowcast,
     showThunderNowcast,
     showTornadoNowcast,
@@ -1203,10 +1194,10 @@ export default function Home() {
   });
 
   // way_id→wind_penalty配信層（改善計画T405→T414で作り直し、T418でルート設定パネルへ
-  // 移設）。評価軸としての風——上のuseDynamicWeatherLayers（「環境」グループの面・矢印表示）
-  // とは独立したフェッチだが、
-  // [時刻,向き]の入力（dynamicLayerTargetTime・windBearingDeg）は共有する。mapViewportは
-  // 同じMapView.tsx: onViewportChange経由の値を共有する。
+  // 移設）。評価軸としての風——上のuseDynamicWeatherLayers（「環境」グループの矢印表示）
+  // とは独立したフェッチだが、[時刻,向き]の入力（dynamicLayerTargetTime・
+  // travelBearingDeg）は共有する。mapViewportは同じMapView.tsx: onViewportChange経由の
+  // 値を共有する。
   //
   // ルート確定後（hasDetail）は、視界内の全道路への一律色分けというこの機能の役割自体を
   // 終了する（T414契約: ルート確定後はルート自身の実際の進行方向・到達時刻を使う
@@ -1303,17 +1294,7 @@ export default function Home() {
         });
       }
     }
-    // ユーザー指摘（2026-08-31「矢印の色と背景色が全然違うのは直ってない。凡例に従って
-    // いない」）: 評価軸（線、showWindAxis/showGradientAxis）だけでなく環境グループの
-    // gridFill（showWindPenaltyFill/showGradientFill、MapOverlayControlsの「環境」チップ
-    // から一番先に触る導線）も同じ配色・しきい値（windPenaltyFillColorExpression/
-    // windAxisLegendが共有する契約、windPenalty.ts冒頭コメント参照）を使うため、この凡例で
-    // 説明できる。以前はshowWindAxis/showGradientAxis（RouteSettingsPanel側の「地図で色分け」
-    // トグル）単独でしか出しておらず、「環境」チップだけをONにした状態（矢印+面塗り）では
-    // 面塗りの色を説明する凡例がどこにも出ない穴になっていた（矢印自体は風速ベースの別配色
-    // [WIND_SPEED_LEGEND_LEVELS]の専用ポップオーバーを持つため、それを「背景色の凡例」と
-    // 誤認しやすかった）。
-    if (showWindAxis || showWindPenaltyFill) {
+    if (showWindAxis) {
       groups.push({
         axisId: "wind",
         label: axisCatalog.axisLabels.wind ?? "風",
@@ -1336,7 +1317,6 @@ export default function Home() {
     axisCatalog.axisLabels,
     axisVisibility,
     showWindAxis,
-    showWindPenaltyFill,
     showGradientAxis,
     showGradientFill,
     dedicatedWayValueBoundaries,
@@ -2026,9 +2006,10 @@ export default function Home() {
               1つでいい」）: 風・勾配それぞれ個別に持っていたコンパス（環境グループの
               bottomControlRow・RouteSettingsPanel内の「走行方位を設定」）を撤去し、地図上の
               単一のアイコン（MapLibreのズーム/回転コントロールの下）1箇所へ集約した。
-              「環境」グループ（風penalty gridFill・勾配gridFill）・評価軸（windAxis/
-              gradientAxis）のいずれかが表示中の間だけ現れる。 */}
-          {(showWindVector || showGradientFill || showWindAxis || showGradientAxis) && !hasDetail && (
+              「環境」グループの勾配gridFill・評価軸（windAxis/gradientAxis）のいずれかが
+              表示中の間だけ現れる（風の矢印[showWindVector]は走行方位に依存しないため
+              対象外）。 */}
+          {(showGradientFill || showWindAxis || showGradientAxis) && !hasDetail && (
             <TravelBearingControl value={travelBearingDeg} onChange={setTravelBearingDeg} />
           )}
 

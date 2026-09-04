@@ -14,7 +14,6 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
 | `Map/precipitationNowcast.ts`・`thunderNowcast.ts`・`jmaNowcastFrames.ts` | 降水/雷/竜巻ナウキャストのフレーム列取得・統合 |
 | `Map/lidenLayer.ts`・`lidenIcon.ts` | 雷放電位置データ（liden、実際の落雷地点）のフレーム列・GeoJSON取得・Canvas 2Dアイコン描画 |
 | `Map/windLayer.ts`・`windArrowIcon.ts` | 風の矢印（gridMark）の格子データ・Canvas 2Dアイコン描画 |
-| `Map/windPenalty.ts` | 環境グループの風penalty gridFill（矢印の背後に敷く面塗り） |
 | `Map/riskMap.ts` | キキクル・線状降水帯予測マップ（未来フレームを持たない特殊系） |
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ |
@@ -80,9 +79,7 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 |---|---|---|---|
 | `precipitationNowcast` | `main` | raster（60分以内）→raster（〜15時間）→gridFill（延長予報） | `precipitationNowcast.ts` |
 | `precipitationNowcast` | `linearRainband` | raster（sjfcstmap） | `riskMap.ts: fetchLinearRainbandFrames` |
-| `windVector` | `arrow` | gridMark | `windLayer.ts` |
-| `windVector` | `penaltyFillCoarse` | gridFill | `windPenalty.ts: windPenaltyCoarseGridToClippedFeatureCollection`（粗い格子=`useWeatherGrid.ts`の`grid`） |
-| `windVector` | `penaltyFill` | gridFill | `windPenalty.ts: windPenaltyGridToCellFeatureCollection`（詳細格子=`effectiveGrid`） |
+| `windVector` | `arrow` | gridMark | `windLayer.ts`（走行方位に依存しない矢印のみ。走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の`windAxis`が担う） |
 | `thunderNowcast` | `main` | raster | `thunderNowcast.ts` |
 | `tornadoNowcast` | `main` | raster | `thunderNowcast.ts`（同じフレーム列を共有、プロダクトコードのみ相違） |
 | `liden` | `main` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
@@ -100,28 +97,6 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 落雷ごとの強弱を示す値を配信元が持たないため、gridMarkが必須とする`valueProperty`
 （`LIDEN_MARK_VALUE_PROPERTY`）は固定値1を全featureへ合成し、`minScale===maxScale`により
 icon-sizeはズームのみに依存する。
-
-`windVector`の`penaltyFill`は`arrow`と同じフレーム時刻を使うが表示ON/OFFは独立している
-（`showWindPenaltyFill = showWindVector && !hasDetail`。矢印自体はルート確定後も表示され
-続ける）。
-
-`penaltyFillCoarse`は`penaltyFill`（詳細格子、`useWeatherGrid.ts`の`detailGrid`が画面中心
-付近の狭いbbox[`windLayer.ts: clampWindDetailBbox`]しかカバーしないことがある）の下敷きとして、
-関東本土全域を常時カバーする粗い格子（`grid`、`WIND_GRID_SPACING_DEG`）から同じ配色ロジック
-（`windPenaltyFillColorExpression`、`dedicatedWayValueBoundaries`由来のしきい値も共有）で
-セルを作る。可視条件（`showWindPenaltyFill`）は`penaltyFill`と同じ。`DYNAMIC_WEATHER_RENDERERS.
-windVector`内で`penaltyFillCoarse`を`penaltyFill`より前に定義しており、`ensureDynamicWeather
-Layer`がgroupSpecのキー順=`addLayer`呼び出し順で描画するため、粗い格子が背面・詳細格子が
-前面になる。`windPenalty.ts: windPenaltyCoarseGridToClippedFeatureCollection`が、粗い格子
-セル（1辺`WIND_GRID_SPACING_DEG`の正方形）のうち詳細格子の実際のカバー範囲（返ってきた
-点群の外接矩形を詳細格子の間隔ぶん外側へ拡張した範囲）と重なる部分を、`subtractRectangle`
-（軸に平行な矩形どうしの引き算、外部ライブラリ不要）で幾何学的に切り取ってから描画する。
-両方を同じ場所へ重ねて描画すると、半透明のfill-opacityが二重に重なって色が凡例と対応
-しなくなるため、点や矩形の包含判定で丸ごと除外・非除外を決めるのではなく、重なった部分
-だけを正確に切り取る。1つの粗いセルが詳細格子のカバー範囲と部分的にしか重ならない場合、
-残った部分（最大4枚の矩形）を別々のFeatureとして描画するため、1粗格子点が0〜4個の
-Featureに対応することがある。詳細格子の取得範囲自体（ズームに応じた間隔、
-`clampWindDetailBbox`）は変更しないため、ズームインしたときの細かい表現は維持される。
 
 ## 新しい動的要素を追加する1本道
 
@@ -166,7 +141,7 @@ Open-MeteoのWMOコードを分類）は**Open-Meteo予報**（今日の降水�
 
 ## 暗黙の前提
 
-- 各named sourceのvisibility判定（`showWindPenaltyFill`のような追加条件）は汎用機構
+- 各named sourceのvisibility判定（`linearRainbandVisible`のような追加条件）は汎用機構
   （`dynamicWeather.ts`/`MapView.tsx`）の外、呼び出し側（`page.tsx`/
   `useDynamicWeatherLayers.ts`）が都度手書きする。汎用機構自身は渡された`visible`
   フラグをそのまま使うだけで、「なぜそのフラグなのか」を一切知らない。

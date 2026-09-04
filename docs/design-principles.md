@@ -102,10 +102,23 @@ RideCompass固有の仕様ではないため、このファイルには置かな
   （2026-08-31、ユーザー指摘）。うち`WIND_AXIS_THRESHOLDS`のハードコードは
   [T473](tasks/T473.md)で、`windAxisPenalties`/`gradientAxisValues`の軸ごとの別名propは
   [T483](tasks/T483.md)（`dedicatedWayValues`という汎用Mapへ統合）で解消済み。
-  **`windPenalty.ts`の物理式JS移植のみ、T483で検討のうえ意図的な例外として存続**:
-  環境グループのgridFillはコンパススライダーのドラッグ操作のたびに多数の格子セルを
-  再着色する必要があり、都度backendへ問い合わせるとドラッグ操作の応答性が失われる。
-  formula自体は`wind_speed_ms * cos(風向-走行方位)`という調整可能なパラメータを持たない
-  固定の三角関数1行のみで、しきい値等の「調整可能な値」（構造仕様1が本来問題視する対象）は
-  既に`dedicatedWayValueBoundaries`側でbackend/軸スタジオ由来に統一済み。二重実装間の
-  ドリフトは`windPenalty.test.ts`の既知入出力ペアによる回帰テストで検知する。
+  `windPenalty.ts`の物理式JS移植はT483で検討のうえ一度は意図的な例外として存続させた
+  （環境グループのgridFillはコンパススライダーのドラッグ操作のたびに多数の格子セルを
+  再着色する必要があり、都度backendへ問い合わせるとドラッグ操作の応答性が失われるため）。
+  その後、環境グループの風の面塗り自体（矢印の背後に走行方位依存の相対値を重ねる表現）が
+  「絶対的な気象情報[矢印]と走行方位依存の相対値[面塗り]が同時に出ると見にくい」という
+  指摘を受けて撤去され、`windPenalty.ts`ごと削除された（2026-09-05）ため、この例外自体が
+  解消している。
+- 面塗り撤去の調査中、`windAxisLayer.ts`の`WIND_AXIS_THRESHOLDS`（原則1違反として一度は
+  解消したはずのフォールバック定数）が実際には残っており、本番の`display_thresholds_
+  override`が正しく設定されていても反映されない不具合が発覚した（[T587](tasks/T587.md)、
+  2026-09-05）。原因はMapLibreレイヤーの`ensure`関数（`makeEnsureDedicatedWayValueLayer`・
+  `makeEnsureGradientFillLayer`・`makeEnsureAxisRampLayer`・`ensureDynamicWeatherLayer`）が
+  「レイヤーが既に存在すれば何もしない」設計だったこと——`axisCatalog`の実行時フェッチ
+  完了前にレイヤーが作成されると、フォールバック値で固定されたまま、フェッチ完了後の
+  正しい値が二度と反映されない。フォールバック値の存在自体が、DBの値が正しく伝播して
+  いるかを検証する機会を隠し、バグの発覚を遅らせた（凡例テキストは別ロジックで都度
+  再計算されるため正しく表示され、「凡例と実際の色が食い違う」という発見しづらい形で
+  顕在化した）。T587でensure関数群を「既存レイヤーがあればsetPaintPropertyで再適用」する
+  形へ修正し解消。教訓は[.claude/commands/review/principles.md](../.claude/commands/review/principles.md)
+  「判断原則」16番として一般化した。
