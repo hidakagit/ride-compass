@@ -18,7 +18,7 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
 | `services/axisAdminApi.ts` | backend `axis_admin.py`への薄いHTTPラッパー（`listAxisDefinitions`・`createAxisDefinition`・`updateAxisDefinition`・`deleteAxisDefinition`・`unpublishAxisDefinition`） |
 | `app/admin/api/axis-definitions/route.ts`・`[axisId]/route.ts`・`[axisId]/unpublish/route.ts` | `axisAdminApi.ts`が叩くNext.js route handler群。`proxyToBackendAdmin`でbackend `/api/admin/axis-definitions`（一覧取得・作成/PUT更新/DELETE削除/POST非公開化）へそのまま転送する |
-| `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合の表（欠損割合降順）と集計対象外材料の理由一覧。集計は「集計する」ボタン押下時のみ |
+| `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」で2グループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。集計は「集計する」ボタン押下時のみ |
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。edge_attribute_counts・way_attribute_counts・designation_attributesの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）とelevation_attributesの完成度（別枠）を表示。集計は「集計する」ボタン押下時のみ |
@@ -148,15 +148,21 @@ listAxisDefinitions() ──→ definitions（全軸）
 `GET /admin/api/material-coverage`（backend `GET /api/admin/material-catalog/coverage`）の
 レスポンス（`MaterialCoverageResponse`、生成型）をそのまま表にする。
 
-- 表の列: 材料（論理名 - 物理名）・母集団（Way/Edge）・総数・欠損数・欠損割合
-  （数値＋バー）・欠損時の扱い・欠損の判定根拠。行は欠損割合の降順（`sortByMissingRatioDesc`）。
-  `missing_semantics="definite"`（タグ不在=非該当等の確定値として評価される材料）の行は
-  `data-missing-semantics`属性でバーの色を落とし、「不明」扱いの材料と見分けられるようにする。
+- 「欠損時の扱い」（`missing_semantics`）で2つのグループに分けて表示する:
+  「評価に影響する欠損」（`unknown`、欠損区間ではその材料を使う軸が評価対象外）と
+  「タグ不在を確定値として評価する材料（参考）」（`definite`、欠損は「該当なし」を意味し
+  評価に穴は開かない）。欠損割合の数字が同じでも意味が正反対のため同じ表へ並べない。
+  各グループは`<section aria-label>`で、見出し＋1行の説明＋表。行は欠損割合の降順
+  （`sortByMissingRatioDesc`）。`definite`の行は`data-missing-semantics`属性でバーの色を落とす。
+- 表の列は材料（論理名 - 物理名）・母集団（Way/Edge）・欠損割合（数値＋バー）・
+  「欠損 / 総数」の4列。欠損の判定根拠（`source`）は材料セルの`title`（ホバー表示）に置く。
+- 母集団の定義・件数ベースであること・判定根拠の見方といった補足は、見出し脇の(i)
+  （`Map/InfoPopover`＋`recipeControls.module.css`の`infoButton`/`infoTooltip`、
+  `AxisComposer`の材料説明と同じ見た目）へ畳み、常時表示の説明文は各グループ1行だけにする。
 - `excluded_reason`を持つ材料（集計対象外）は表に含めず、`<details>`の折りたたみ一覧へ
   理由つきで出す。
 - 集計はDB全体の走査を伴うため、タブを開いたとき自動では実行せず「集計する」ボタン押下時
-  のみ実行する（`BackendLogsPanel`と同じ流儀）。表の横幅は7列ぶん固定（`min-width`）で、
-  はみ出す分は表自身が横スクロールする。
+  のみ実行する（`DerivedDataFreshnessPanel`と同じ流儀）。
 - 認証情報の入力欄は持たない（`AxisStudio.tsx`と同じく`/admin`のBasic認証セッションを
   route handler経由で再利用する）。
 

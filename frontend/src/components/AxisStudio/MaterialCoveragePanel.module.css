@@ -4,9 +4,23 @@
   gap: var(--space-2);
 }
 
+.headingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .heading {
   font-weight: 700;
   font-size: var(--font-size-md);
+}
+
+.popoverParagraph {
+  margin: 0;
+}
+
+.popoverParagraph + .popoverParagraph {
+  margin-top: var(--space-2);
 }
 
 .hint {
@@ -33,8 +47,18 @@
   font-size: var(--font-size-sm);
 }
 
-/* 7列の表は狭い画面幅で必ずはみ出すため、表自身を横スクロールさせページ全体は
-   横スクロールさせない。 */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.groupTitle {
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+}
+
 .tableWrap {
   overflow-x: auto;
   border: 1px solid var(--color-border-muted);
@@ -44,14 +68,13 @@
 .table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 52rem;
   font-size: var(--font-size-sm);
 }
 
 .table th,
 .table td {
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--color-border-muted);
 }
@@ -75,14 +98,16 @@
 
 .ratioCell {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 6rem;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 10rem;
 }
 
 .ratioValue {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  min-width: 3.5rem;
+  text-align: right;
 }
 
 .ratioBar {
@@ -97,11 +122,6 @@
    軸の評価には影響しないため、バーの色を落として「不明」扱いの材料と見分けられるようにする。 */
 .table tbody tr[data-missing-semantics="definite"] .ratioBar {
   background: var(--color-border-strong);
-}
-
-.source {
-  color: var(--color-muted);
-  min-width: 16rem;
 }
 
 .excluded {

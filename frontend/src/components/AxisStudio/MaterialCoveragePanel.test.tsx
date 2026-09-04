@@ -71,6 +71,10 @@ async function clickAggregate(user: ReturnType<typeof userEvent.setup>) {
   });
 }
 
+function rowsOf(table: HTMLElement): HTMLElement[] {
+  return within(table).getAllByRole("row").slice(1); // ヘッダ行を除く
+}
+
 describe("MaterialCoveragePanel", () => {
   it("開いた直後は集計せず、ボタン押下で初めてgetMaterialCoverageを呼ぶ", async () => {
     vi.mocked(getMaterialCoverage).mockResolvedValue(REPORT);
@@ -83,45 +87,58 @@ describe("MaterialCoveragePanel", () => {
     await clickAggregate(user);
 
     expect(getMaterialCoverage).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "再集計する" })).toBeInTheDocument();
   });
 
-  it("集計対象の材料を欠損割合の高い順に、割合・件数・欠損時の扱い・根拠つきで表示する", async () => {
+  it("欠損時の扱いでグループ分けし、各グループ内は欠損割合の高い順に割合・件数つきで表示する", async () => {
     vi.mocked(getMaterialCoverage).mockResolvedValue(REPORT);
     const user = userEvent.setup();
     render(<MaterialCoveragePanel />);
 
     await clickAggregate(user);
 
-    const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1); // ヘッダ行を除く
-    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual([
-      "トンネル - has_tunnel",
+    const unknownGroup = screen.getByRole("region", { name: "評価に影響する欠損" });
+    const unknownRows = rowsOf(within(unknownGroup).getByRole("table"));
+    expect(unknownRows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual([
       "勾配%（符号付き） - gradient_percent",
       "路面種別 - surface",
       "道路種別 - highway",
     ]);
 
-    const surfaceRow = rows[2];
-    const cells = within(surfaceRow).getAllByRole("cell").map((cell) => cell.textContent);
-    expect(cells[1]).toBe("Way");
-    expect(cells[2]).toBe("1,000");
-    expect(cells[3]).toBe("850");
-    expect(cells[4]).toContain("85.0%");
-    expect(cells[5]).toBe("不明（軸は評価対象外）");
-    expect(cells[6]).toBe("osm_raw_ways.surface");
+    const surfaceCells = within(unknownRows[1]).getAllByRole("cell");
+    expect(surfaceCells[0]).toHaveAttribute("title", "osm_raw_ways.surface");
+    expect(surfaceCells[1].textContent).toBe("Way");
+    expect(surfaceCells[2].textContent).toContain("85.0%");
+    expect(surfaceCells[3].textContent).toBe("850 / 1,000");
 
-    const gradientCells = within(rows[1]).getAllByRole("cell").map((cell) => cell.textContent);
+    const gradientCells = within(unknownRows[0]).getAllByRole("cell").map((cell) => cell.textContent);
     expect(gradientCells[1]).toBe("Edge");
-    expect(gradientCells[2]).toBe("4,000");
-    expect(gradientCells[4]).toContain("88.4%");
+    expect(gradientCells[2]).toContain("88.4%");
+    expect(gradientCells[3]).toBe("3,536 / 4,000");
 
-    const tunnelCells = within(rows[0]).getAllByRole("cell").map((cell) => cell.textContent);
-    expect(tunnelCells[5]).toBe("確定値として評価");
-    expect(rows[0]).toHaveAttribute("data-missing-semantics", "definite");
+    const definiteGroup = screen.getByRole("region", { name: "タグ不在を確定値として評価する材料（参考）" });
+    const definiteRows = rowsOf(within(definiteGroup).getByRole("table"));
+    expect(definiteRows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual([
+      "トンネル - has_tunnel",
+    ]);
+    expect(definiteRows[0]).toHaveAttribute("data-missing-semantics", "definite");
 
     expect(screen.getByText(/Way 1,000件/)).toBeInTheDocument();
     expect(screen.getByText(/Edge 4,000件/)).toBeInTheDocument();
+  });
+
+  it("説明文は見出し脇の(i)ポップオーバーに畳み、常時は表示しない", async () => {
+    vi.mocked(getMaterialCoverage).mockResolvedValue(REPORT);
+    const user = userEvent.setup();
+    render(<MaterialCoveragePanel />);
+
+    expect(screen.queryByText(/距離加重ではない/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "欠損割合の見方" }));
+    });
+
+    expect(screen.getByText(/距離加重ではない/)).toBeInTheDocument();
   });
 
   it("集計対象外の材料は表には出さず、理由つきの折りたたみ一覧に出す", async () => {
@@ -131,7 +148,9 @@ describe("MaterialCoveragePanel", () => {
 
     await clickAggregate(user);
 
-    expect(within(screen.getByRole("table")).queryByText(/wind_penalty/)).not.toBeInTheDocument();
+    for (const table of screen.getAllByRole("table")) {
+      expect(within(table).queryByText(/wind_penalty/)).not.toBeInTheDocument();
+    }
     expect(screen.getByText("集計対象外の材料（1件）")).toBeInTheDocument();
     expect(screen.getByText(/動的材料でDBに静的な値を持たない/)).toBeInTheDocument();
   });
