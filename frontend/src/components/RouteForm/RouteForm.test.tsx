@@ -267,13 +267,13 @@ describe("RouteForm", () => {
   });
 
   describe("改善計画T365-2: 周回/目的地モード切り替え", () => {
-    it("目的地モードに切り替えると距離・候補件数の入力が消え、目的地ボタンが表示される", async () => {
+    it("目的地モードに切り替えると距離入力が消え、目的地ボタンが表示される（候補件数は経由地なしのため残る）", async () => {
       const user = userEvent.setup();
       render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} />);
 
       await user.click(screen.getByRole("button", { name: "目的地" }));
 
-      expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("spinbutton")).toHaveLength(1);
       expect(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" })).toBeInTheDocument();
     });
 
@@ -348,6 +348,64 @@ describe("RouteForm", () => {
       await user.click(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" }));
 
       expect(onDestinationButtonClick).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("目的地モード（経由地なし）の候補件数入力", () => {
+    it("経由地が無ければ候補件数入力が表示され、変更した値のまま送信できる", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(
+        <ControlledRouteForm onGenerate={onGenerate} loading={false} initialRouteMode="destination" destinationState="set" />,
+      );
+
+      const input = screen.getByRole("spinbutton");
+      await user.clear(input);
+      await user.type(input, "3");
+      await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+      expect(input).toHaveValue(3);
+      expect(onGenerate).toHaveBeenCalledWith(0);
+    });
+
+    it("経由地が1件以上あると候補件数入力は表示されない", () => {
+      render(
+        <ControlledRouteForm onGenerate={vi.fn()} loading={false} initialRouteMode="destination" waypointCount={1} />,
+      );
+
+      expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    });
+
+    it("経由地なしで候補件数を空にして送信するとonGenerateは呼ばれずエラーが表示される", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(
+        <ControlledRouteForm onGenerate={onGenerate} loading={false} initialRouteMode="destination" destinationState="set" />,
+      );
+
+      const input = screen.getByRole("spinbutton");
+      await user.clear(input);
+      const form = input.closest("form")!;
+      form.requestSubmit();
+
+      expect(onGenerate).not.toHaveBeenCalled();
+      expect(await screen.findByRole("alert")).toHaveTextContent("候補件数は整数で入力してください。");
+    });
+
+    it("経由地なしで候補件数に上限(15件)を超える値を入力して送信するとエラーが表示される", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(
+        <ControlledRouteForm onGenerate={onGenerate} loading={false} initialRouteMode="destination" destinationState="set" />,
+      );
+
+      const input = screen.getByRole("spinbutton");
+      await user.clear(input);
+      await user.type(input, "16");
+      await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+      expect(onGenerate).not.toHaveBeenCalled();
+      expect(await screen.findByRole("alert")).toHaveTextContent("候補件数は1〜15件で入力してください。");
     });
   });
 });

@@ -14,8 +14,9 @@ interface RouteFormProps {
   /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（page.tsx）に使うため親が持つ */
   distance: string;
   onDistanceChange: (value: string) => void;
-  /** 候補件数入力の現在値（文字列のまま）。距離と同じ理由で親が持つ。周回モードのみ意味を持ち、
-   * backendは経由地・目的地指定ルートでは無視する（常に1件）。 */
+  /** 候補件数入力の現在値（文字列のまま）。距離と同じ理由で親が持つ。周回モードと、
+   * 目的地モードで経由地が無い場合に意味を持つ（経由地を伴う目的地ルートはbackendが
+   * 常に1件へ固定し無視する）。 */
   maxRoutes: string;
   onMaxRoutesChange: (value: string) => void;
   onGenerate: (distanceKm: number) => void;
@@ -64,17 +65,36 @@ export default function RouteForm({
   onDestinationButtonClick,
 }: RouteFormProps) {
   const [error, setError] = useState<string | null>(null);
+  // 候補件数は周回モード、または経由地の無い目的地モードのときだけ生成結果へ反映される
+  // （経由地を伴う目的地ルートはbackendが常に1件へ固定し無視する）。入力欄の表示・検証は
+  // この条件で揃える。
+  const maxRoutesRelevant = routeMode === "loop" || waypointCount === 0;
+
+  function validateMaxRoutes(): boolean {
+    const maxRoutesValue = Number(maxRoutes);
+    if (maxRoutes.trim() === "" || Number.isNaN(maxRoutesValue) || !Number.isInteger(maxRoutesValue)) {
+      setError("候補件数は整数で入力してください。");
+      return false;
+    }
+    if (maxRoutesValue < 1 || maxRoutesValue > MAX_ROUTES) {
+      setError(`候補件数は1〜${MAX_ROUTES}件で入力してください。`);
+      return false;
+    }
+    return true;
+  }
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (routeMode === "destination") {
-      // 目的地モードは距離・候補件数のいずれも入力させない（件数はbackendが常に1件へ
-      // 固定するため無視される。distance同様page.tsx側が自動算出する、handleGenerate参照）。
       // 経由地・目的地のいずれも未指定のサイレント失敗を防ぐ。
       if (waypointCount === 0 && destinationState !== "set") {
         setError("地図をタップして目的地か経由地を指定してください。");
         return;
       }
+      if (maxRoutesRelevant && !validateMaxRoutes()) {
+        return;
+      }
+      // distanceはpage.tsx側が地図上の点から自動算出する（handleGenerate参照）。
       setError(null);
       onGenerate(0);
       return;
@@ -94,13 +114,7 @@ export default function RouteForm({
       setError(`距離は${MAX_DISTANCE_KM}km以下で入力してください。`);
       return;
     }
-    const maxRoutesValue = Number(maxRoutes);
-    if (maxRoutes.trim() === "" || Number.isNaN(maxRoutesValue) || !Number.isInteger(maxRoutesValue)) {
-      setError("候補件数は整数で入力してください。");
-      return;
-    }
-    if (maxRoutesValue < 1 || maxRoutesValue > MAX_ROUTES) {
-      setError(`候補件数は1〜${MAX_ROUTES}件で入力してください。`);
+    if (!validateMaxRoutes()) {
       return;
     }
     setError(null);
@@ -145,56 +159,30 @@ export default function RouteForm({
       </div>
 
       {routeMode === "loop" ? (
-        <>
-          <label className={compact ? styles.labelCompact : undefined}>
-            {!compact && "距離"}
-            {/* 改善計画T547（ユーザー指摘: 生成距離の数値入力がしにくい）: ネイティブの
-                スピンボタン（上下矢印）はタップ領域が数px四方しかなく、代わりに幅を圧迫する
-                だけだったため非表示にする（distanceは直接入力が主な操作手段で、1km刻みの
-                矢印クリックは想定していない）。inputMode="numeric"でモバイルの数値専用
-                キーボードを明示し、onFocusで既存の値を全選択にして毎回消してから
-                打ち直す手間を無くす。 */}
-            <Input
-              type="number"
-              inputMode="numeric"
-              min="1"
-              max={MAX_DISTANCE_KM}
-              step="1"
-              value={distance}
-              onChange={(e) => onDistanceChange(e.target.value)}
-              onFocus={(e) => e.currentTarget.select()}
-              className={
-                (compact ? "w-16" : "ml-2 w-24") +
-                " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-              }
-              aria-label={compact ? "距離(km)" : undefined}
-            />
-            km
-          </label>
-          <label className={compact ? styles.labelCompact : undefined}>
-            {!compact && "候補数"}
-            {/* 距離入力（改善計画T547）と同じ流儀: スピンボタン非表示、inputMode="numeric"で
-                数値専用キーボード、onFocusで全選択。改善計画T531で8方位固定から軸重み駆動の
-                フロンティア方式へ転換したことに伴い、周回候補の上限件数（backend:
-                RouteGenerateRequest.max_routes）をユーザーが指定できるようにした。 */}
-            <Input
-              type="number"
-              inputMode="numeric"
-              min="1"
-              max={MAX_ROUTES}
-              step="1"
-              value={maxRoutes}
-              onChange={(e) => onMaxRoutesChange(e.target.value)}
-              onFocus={(e) => e.currentTarget.select()}
-              className={
-                (compact ? "w-10" : "ml-2 w-16") +
-                " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-              }
-              aria-label={compact ? "候補件数" : undefined}
-            />
-            件
-          </label>
-        </>
+        <label className={compact ? styles.labelCompact : undefined}>
+          {!compact && "距離"}
+          {/* ネイティブのスピンボタン（上下矢印）はタップ領域が数px四方しかなく、代わりに
+              幅を圧迫するだけのため非表示にする（distanceは直接入力が主な操作手段で、1km
+              刻みの矢印クリックは想定していない）。inputMode="numeric"でモバイルの数値専用
+              キーボードを明示し、onFocusで既存の値を全選択にして毎回消してから打ち直す
+              手間を無くす。 */}
+          <Input
+            type="number"
+            inputMode="numeric"
+            min="1"
+            max={MAX_DISTANCE_KM}
+            step="1"
+            value={distance}
+            onChange={(e) => onDistanceChange(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            className={
+              (compact ? "w-16" : "ml-2 w-24") +
+              " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            }
+            aria-label={compact ? "距離(km)" : undefined}
+          />
+          km
+        </label>
       ) : (
         <div className={styles.destinationSummary}>
           {waypointCount > 0 && (
@@ -215,6 +203,31 @@ export default function RouteForm({
             🏁
           </button>
         </div>
+      )}
+      {maxRoutesRelevant && (
+        <label className={compact ? styles.labelCompact : undefined}>
+          {!compact && "候補数"}
+          {/* 距離入力と同じ流儀: スピンボタン非表示、inputMode="numeric"で数値専用
+              キーボード、onFocusで全選択。目的地モードでは経由地が無い場合のみ表示する
+              （経由地を伴うとbackendが件数を無視して1件固定になるため、maxRoutesRelevant
+              参照）。 */}
+          <Input
+            type="number"
+            inputMode="numeric"
+            min="1"
+            max={MAX_ROUTES}
+            step="1"
+            value={maxRoutes}
+            onChange={(e) => onMaxRoutesChange(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            className={
+              (compact ? "w-10" : "ml-2 w-16") +
+              " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            }
+            aria-label={compact ? "候補件数" : undefined}
+          />
+          件
+        </label>
       )}
 
       <Button variant="primary" type="submit" disabled={loading}>

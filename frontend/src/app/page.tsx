@@ -410,9 +410,9 @@ export default function Home() {
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
   // 出すため（生成条件系の反映タイミング可視化、T31）。
   const [distanceInput, setDistanceInput] = useState("30");
-  // 改善計画T531: 周回候補の上限件数（backend: RouteGenerateRequest.max_routes、1〜15）。
-  // 距離入力と同じくstring stateのまま保持し、送信時にNumber化する。目的地モードでは
-  // backendが常に1件へ固定するため無視される（handleGenerate参照）。
+  // 周回候補の上限件数（backend: RouteGenerateRequest.max_routes、1〜15）。距離入力と
+  // 同じくstring stateのまま保持し、送信時にNumber化する。目的地モードでは経由地が無い
+  // 場合のみ意味を持つ（経由地を伴うとbackendが常に1件へ固定し無視する、RouteForm.tsx参照）。
   const [maxRoutesInput, setMaxRoutesInput] = useState(String(routeGenerateConfig.default_max_routes));
   // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
   // （フィールド比較の列挙より差分検知の漏れが出にくい）。
@@ -421,6 +421,10 @@ export default function Home() {
     longitude: number;
     distanceKm: number;
     maxRoutes: number;
+    // 候補件数入力が生成結果に反映される条件だったか（周回モード、または経由地の無い
+    // 目的地モード）。経由地を伴う目的地モードはbackendが件数を無視するため、
+    // conditionsDirtyの比較対象から外す。
+    maxRoutesRelevant: boolean;
     weightsKey: string;
     // 改善計画T365-2: 目的地モードで生成した場合はdistanceKmが地図上のピンからの
     // 自動算出値になり、distanceInput（RouteFormが表示しない値）とは無関係になるため、
@@ -1358,9 +1362,7 @@ export default function Home() {
       location.longitude !== generatedConditions.longitude ||
       routeMode !== generatedConditions.routeMode ||
       (generatedConditions.routeMode === "loop" && Number(distanceInput) !== generatedConditions.distanceKm) ||
-      // 改善計画T531: 候補件数も距離と同じ理由（loopモードでのみ意味を持つ生成条件）で
-      // dirty判定へ組み込む。目的地モードはbackendが件数を無視するため比較しない。
-      (generatedConditions.routeMode === "loop" && Number(maxRoutesInput) !== generatedConditions.maxRoutes) ||
+      (generatedConditions.maxRoutesRelevant && Number(maxRoutesInput) !== generatedConditions.maxRoutes) ||
       (generatedConditions.routeMode === "destination" &&
         JSON.stringify({ waypoints, destination }) !== generatedConditions.waypointsKey) ||
       currentWeightsKey !== generatedConditions.weightsKey);
@@ -1393,10 +1395,10 @@ export default function Home() {
         routeMode === "destination"
           ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
           : distanceKm;
-      // 改善計画T531/T557: 周回候補の上限件数。RouteForm側の候補数入力欄は目的地モードでは
-      // 非表示になり検証もされないため、maxRoutesInputが空文字・範囲外のまま残っていても
-      // 送信前にここで検証する（destinationモードはbackendが常に1件へ固定し値自体を無視する
-      // ため、この検証漏れは主に周回モードへ戻したときの再送信を守るためのもの）。
+      // 経由地を伴う目的地モードではRouteForm側の候補件数入力欄が非表示になり検証も
+      // されないため、maxRoutesInputが空文字・範囲外のまま残っていても送信前にここで検証する
+      // （backendはその場合値自体を無視するが、周回モード・経由地の無い目的地モードへ
+      // 戻したときの再送信を安全にするため）。
       const parsedMaxRoutes = Number(maxRoutesInput);
       const effectiveMaxRoutes =
         Number.isInteger(parsedMaxRoutes) && parsedMaxRoutes >= 1 && parsedMaxRoutes <= routeGenerateConfig.max_routes
@@ -1413,10 +1415,9 @@ export default function Home() {
         // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
         // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
-        // 改善計画T531: 周回候補の上限件数。RouteGenerateRequest.max_routesは既定値を
-        // 持つがrequired（distance_tolerance_km/penalty_strengthと同じ扱い）のため、
-        // モードに関わらず常に送る。経由地・目的地指定ルートはbackendが常に1件へ
-        // 固定し無視する。
+        // RouteGenerateRequest.max_routesは既定値を持つがrequired
+        // （distance_tolerance_km/penalty_strengthと同じ扱い）のため、モードに関わらず
+        // 常に送る。経由地を伴う目的地ルートはbackendが常に1件へ固定し値を無視する。
         max_routes: effectiveMaxRoutes,
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
         // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
@@ -1439,9 +1440,8 @@ export default function Home() {
         latitude: location.latitude,
         longitude: location.longitude,
         distanceKm: effectiveDistanceKm,
-        // 改善計画T531: 目的地モードではbackendが無視する値のため意味を持たないが、
-        // conditionsDirtyの比較はroute_mode==="loop"のときだけこの値を見る（上記参照）。
         maxRoutes: effectiveMaxRoutes,
+        maxRoutesRelevant: routeMode === "loop" || (routeMode === "destination" && waypoints.length === 0),
         weightsKey: currentWeightsKey,
         routeMode,
         waypointsKey: JSON.stringify({ waypoints, destination }),

@@ -491,10 +491,18 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
 
   if (options.exposeMapClickHandlers) {
     vi.doMock("@/components/Map/MapView", () => ({
-      default: (props: { onDestinationSet: (c: { latitude: number; longitude: number }) => void }) => (
-        <button onClick={() => props.onDestinationSet({ latitude: 35.681, longitude: 139.767 })}>
-          テスト用に目的地を設定
-        </button>
+      default: (props: {
+        onDestinationSet: (c: { latitude: number; longitude: number }) => void;
+        onWaypointAdd: (c: { latitude: number; longitude: number }) => void;
+      }) => (
+        <>
+          <button onClick={() => props.onDestinationSet({ latitude: 35.681, longitude: 139.767 })}>
+            テスト用に目的地を設定
+          </button>
+          <button onClick={() => props.onWaypointAdd({ latitude: 35.682, longitude: 139.768 })}>
+            テスト用に経由地を追加
+          </button>
+        </>
       ),
     }));
   }
@@ -617,7 +625,26 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
-  it("改善計画T557（P1）: 周回モードで候補件数欄を空にしてから目的地モードへ切替→生成しても422にならない値を送る", async () => {
+  it("目的地モード（経由地なし）で候補件数欄が空のまま生成しようとすると送信されずエラーが表示される", async () => {
+    const user = userEvent.setup();
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    // 周回モードのまま候補件数欄を空にする。経由地の無い目的地モードでも同じ入力欄が
+    // 引き続き表示・検証されるため（RouteForm.tsx: maxRoutesRelevant）、モード切替後も
+    // 空のままなら送信はRouteForm側でブロックされる。
+    const maxRoutesInput = screen.getAllByRole("spinbutton")[1];
+    await user.clear(maxRoutesInput);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    expect(generateRoutes).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("候補件数は整数で入力してください。");
+  });
+
+  it("改善計画T557（P1）: 経由地を伴う目的地モードで候補件数欄が空のまま生成しても422にならない値を送る", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
@@ -627,15 +654,14 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    // 周回モードのまま候補件数欄を空にする（RouteForm自身の送信時バリデーションは
-    // 周回モードのときだけ働くため、この時点ではまだ生成をブロックされない）。
+    // 周回モードのまま候補件数欄を空にする。
     const maxRoutesInput = screen.getAllByRole("spinbutton")[1];
     await user.clear(maxRoutesInput);
 
-    // 目的地モードへ切替（候補件数入力欄はここで非表示になり検証されなくなるが、
+    // 経由地を伴う目的地モードへ切替（候補件数入力欄はここで非表示になり検証されなくなるが、
     // 空文字のままのstateはpage.tsx側に残り続ける）。
     await user.click(screen.getByRole("button", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に経由地を追加" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
