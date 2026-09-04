@@ -157,9 +157,12 @@ values = {
 ## ルート確定後の風の評価
 
 風の方向はEdge自身の`bearing_deg`（directed edgeのためルート実走行方向と一致）を使う。
-風の時刻は出発時点1点のみをルート全体へ一様適用する（探索中は累積到達時刻が未確定な
-ための簡略化。区間ごとの推定到達時刻は使わない）。実装は`domain/evaluation.py:
-compute_wind_penalty`（詳細は[routing-engine.md](routing-engine.md)参照）。
+風の時刻はEdgeごとの通過予定時刻（基準点からの直線距離×迂回率÷仮定巡航速度、
+`domain/wind.py: estimate_passage_hours`）で起点の時別予報（`WindForecastSeries`）から
+引き、レグ（往路/復路）ごとに別のコスト配列として探索前に合成する。区間表示・`wind_score`
+は探索に使ったその配列から読む（詳細は[routing-engine.md](routing-engine.md)
+「レグ別コスト配列」参照）。
 
-`ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度20km/h）は`road_graph_engine.py`の
-区間所要時間表示に使われる定数。
+`ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
+＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・区間の到達予想時刻・
+所要時間表示に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の想定比。

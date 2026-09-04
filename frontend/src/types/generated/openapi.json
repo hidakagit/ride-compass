@@ -2859,6 +2859,10 @@
             "type": "integer",
             "title": "Max Routes"
           },
+          "assumed_speed_kmh": {
+            "type": "number",
+            "title": "Assumed Speed Kmh"
+          },
           "waypoints": {
             "anyOf": [
               {
@@ -2899,6 +2903,7 @@
           "max_average_grade_percent",
           "hard_filters",
           "max_routes",
+          "assumed_speed_kmh",
           "waypoints",
           "destination",
           "generated_at"
@@ -3512,6 +3517,13 @@
             "title": "Max Routes",
             "default": 8
           },
+          "assumed_speed_kmh": {
+            "type": "number",
+            "maximum": 60.0,
+            "minimum": 5.0,
+            "title": "Assumed Speed Kmh",
+            "default": 20.0
+          },
           "waypoints": {
             "anyOf": [
               {
@@ -3597,6 +3609,13 @@
           },
           "destination": {
             "$ref": "#/components/schemas/Coordinates"
+          },
+          "assumed_speed_kmh": {
+            "type": "number",
+            "maximum": 60.0,
+            "minimum": 5.0,
+            "title": "Assumed Speed Kmh",
+            "default": 20.0
           }
         },
         "type": "object",

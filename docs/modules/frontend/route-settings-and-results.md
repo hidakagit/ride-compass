@@ -9,7 +9,7 @@
 
 | ファイル | 責務 |
 |---|---|
-| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・生成ボタン。周回/目的地モード切替 |
+| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・巡航速度入力・生成ボタン。周回/目的地モード切替 |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（地図の色分けチップ列＋「重み付き寄与度」内訳）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
@@ -224,18 +224,20 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 
 ## RouteForm.tsx
 
-距離入力・候補件数入力・生成ボタン。`RouteMode`（"loop"|"destination"）で周回/目的地
-モードを切り替える。モバイル上部バー向けの`compact`表示を持つ。目的地モードでは距離入力を
-出さない。候補件数入力は経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
+距離入力・候補件数入力・巡航速度入力・生成ボタン。`RouteMode`（"loop"|"destination"）で
+周回/目的地モードを切り替える。モバイル上部バー向けの`compact`表示を持つ。目的地モードでは
+距離入力を出さない。巡航速度（km/h、backend `RouteGenerateRequest.assumed_speed_kmh`、
+範囲・既定値は`route-generate-config.json`の`min/max/default_assumed_speed_kmh`）は
+全モードで表示し、範囲外・空欄は送信前にエラーにする。候補件数入力は経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
 候補件数を常に1件へ固定し無視するため、`maxRoutesRelevant`＝`routeMode==="loop"||
 waypointCount===0`で表示・検証の両方を揃える）。経由地・目的地のいずれも未指定のまま
 生成しようとするとサイレント失敗せずエラー文言を出す。
 
-距離・候補件数どちらの`<Input type="number">`もネイティブのスピンボタン（上下矢印）をCSS
+距離・候補件数・巡航速度いずれの`<Input type="number">`もネイティブのスピンボタン（上下矢印）をCSS
 （`[&::-webkit-inner-spin-button]:appearance-none`等）で非表示にする——直接入力が主な
 操作手段で、矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
 数値専用キーボードを明示し、`onFocus`で既存の値を全選択して毎回消してから打ち直す手間を
-無くす。`distance`・`maxRoutes`はいずれもstring stateのまま親（`page.tsx`）が持ち、
+無くす。`distance`・`maxRoutes`・`assumedSpeed`はいずれもstring stateのまま親（`page.tsx`）が持ち、
 数値への変換は送信直前（`handleSubmit`内の検証）でのみ行うため、`AxisComposer.tsx`の
 `NumberField`（[軸スタジオ](axis-studio.md)参照）が対処する「入力途中でReactの制御値が
 NaNへ倒れる」問題はこの入力には無い。候補件数の上限・既定値は

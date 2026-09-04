@@ -44,6 +44,7 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
       max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },
       max_routes: 8,
+      assumed_speed_kmh: 20,
       waypoints: null,
       destination: null,
       generated_at: "2026-08-15T12:00:00+09:00",

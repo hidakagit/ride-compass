@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 
 import httpx
+import numpy as np
 
 from app.domain.geo import compass_label
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
+from app.domain.wind import WindForecastSeries
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure.weather_client import WeatherClient
 
@@ -25,6 +27,31 @@ class WeatherService:
         if data is None:
             return None
         return self._conditions_from_data(data)
+
+    async def get_wind_forecast_series(self, point: Coordinates) -> WindForecastSeries | None:
+        """地点の時別風向・風速の予報系列（約48時間、1時間刻み、JSTのローカル時刻）を返す。
+        `get_conditions`と同じ`get_forecast`応答（同じキャッシュ）から取り出すため、直後に
+        呼んでも外部APIへの追加リクエストは発生しない。応答に系列が無い・形が崩れている
+        場合はNone（呼び出し元は出発時点のスナップショットへ倒す）。"""
+        data = await self._client.get_forecast(self._http_client, point)
+        if data is None:
+            return None
+        hourly = data.get("hourly") or {}
+        times = hourly.get("time")
+        speeds = hourly.get("wind_speed_10m")
+        directions = hourly.get("wind_direction_10m")
+        if not times or not speeds or not directions or len(times) != len(speeds) or len(times) != len(directions):
+            return None
+        if any(value is None for value in speeds) or any(value is None for value in directions):
+            return None
+        try:
+            return WindForecastSeries(
+                times=[datetime.fromisoformat(t) for t in times],
+                speed_ms=np.asarray(speeds, dtype=float),
+                direction_deg=np.asarray(directions, dtype=float),
+            )
+        except (ValueError, TypeError):
+            return None
 
     async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
         """複数地点の時間別風向・風速・降水量をまとめて取得する（改善計画T178フォローアップ、

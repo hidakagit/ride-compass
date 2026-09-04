@@ -24,8 +24,40 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 コスト配列を1回だけnumpyで合成し、A*（`domain/routing.py: shortest_path_node_ids_lazy`）
 へは合成済み配列への`list.__getitem__`だけを渡す（探索中にPythonの関数フレームを作らない）。
 標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで組み込み済み
-（探索中にGSI API呼び出しは発生しない）。風は出発時点の起点付近の風をルート全体へ
-一様適用する（探索中は到達時刻が未確定のため）。
+（探索中にGSI API呼び出しは発生しない）。風は、各Edgeの通過予定時刻を「基準点からの
+直線距離×迂回率÷仮定巡航速度」で探索前に静的に推定し、起点の時別風予報からその時刻の
+風を引いてレグ（往路/復路）ごとに別のコスト配列を合成する（下記「レグ別コスト配列」）。
+
+### レグ別コスト配列（`_LegCostComposer`・`LegCostArrays`）
+
+探索アルゴリズムは時刻を知らない（配列への`list.__getitem__`しか行わない）ため、
+「いつ通過するか」は探索前に配列を合成する側で決める。`_build_search_graph`は静的スコア
+行列・重み・0次フィルタ・`lazy_graph`行順の対応表をリクエストにつき1回だけ用意した
+`_LegCostComposer`を作り、`compose(label, anchor, offset_hours, direction)`がレグごとに
+風の列だけを引き直して合成する（`domain/wind.py: estimate_passage_hours`、
+`direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が
+到着予定時刻）。合成結果`LegCostArrays`は`cost_list`（`lazy_graph.edge_ids`順）と表示用の
+`difficulty_array`/`axis_arrays`/`contribution_arrays`/`wind_penalty`（`full_edge_row`順）を
+持ち、`_RoadGraphContext.legs`に添字順で並ぶ:
+
+| 用途 | 添字0 | 添字1〜 |
+|---|---|---|
+| 周回 | 往路（基準点=起点、`offset=0`、`+1`） | 復路（基準点=起点、`offset=目標距離÷速度`、`-1`）——`select_loop_turnarounds`が合成 |
+| 目的地ルート（via-node） | 前向き木（同上） | 後ろ向き木（基準点=目的地、`offset=直線距離×迂回率÷速度`、`-1`）——`select_via_nodes`が合成 |
+| 経由地ルート（`trace_loop`） | レグ0 | レグk（基準点=レグ起点、`offset=累積実距離÷速度`、`+1`）を逐次合成 |
+| `preview_segment` | 往路のみ | — |
+
+`TracedLoop.leg_of_edge`が経路上の各Edgeのレグ添字を運び、`_build_segment_details`・
+`_aggregate_wind_score`はそのレグの配列から値を読む（探索と表示の一致、
+[設計原則](../../design-principles.md)10）。逆回り候補はレグ割当ても逆順にする（先に
+走る側が往路配列）。起点の時別風予報（`WeatherService.get_wind_forecast_series`、
+`get_conditions`と同じ応答・キャッシュ）が無い、または風に依存する公開軸の重みが0の
+場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コストゼロ）。
+仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
+リクエストごとに変えられ、`_build_search_graph`のINFOサマリ（`wind_time_varying`・
+`speed_kmh`）と`compose_leg_costs`ログ（レグ・通過予定時刻の範囲・合成時間）、
+`select_turnarounds`の`detour_ratio_median`（往路実距離÷直線距離の中央値、
+`ROUTE_DETOUR_RATIO`の較正用）で運用時に確認できる。
 
 `RouteGenerateRequest.waypoints`/`destination`（経由地・目的地指定）にも対応する
 （`api/routers/routes.py: generate_routes`）。
@@ -641,9 +673,9 @@ Redis障害を意識しなくてよい）。取得済みマーカーはOverpass�
 
 ## 暗黙の前提のまとめ
 
-- **風・夜間の評価は出発時点1点で決まる**: 探索中は到達時刻が未確定という制約のため、
-  出発時点の起点付近の風/昼夜判定をルート全体へ一様適用する（区間ごとの推定到達時刻は
-  使わない）。
+- **夜間の判定は出発時点1点で決まる**: 出発地点・出発時刻の昼夜判定をルート全体へ
+  一様適用する。風は上記「レグ別コスト配列」のとおりEdgeごとの通過予定時刻で引くが、
+  風の空間変化（bbox内で風が違う）は扱わず起点1地点の時別予報を全Edgeへ使う。
 - **`GraphService`の`_repository_lock`が守るのは`asyncio.gather`配下からrepositoryへ
   到達する経路だけ**（`_get_or_build_tile_materials`のDB問い合わせと、保険としての
   `get_edges_with_geometry`）——他のメソッドは常に逐次実行段階でしか呼ばれないため

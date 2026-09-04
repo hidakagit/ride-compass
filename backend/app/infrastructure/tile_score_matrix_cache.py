@@ -82,7 +82,7 @@ _max_entries = DEFAULT_MAX_TILES
 # v3: 改善計画T575・T576。precompute_elevation_attributes.pyを本番で完走させた際の
 #     世代上げ（内容自体の変更は無い）。
 _CACHE_NAMESPACE = "score_matrix"
-TILE_SCORE_MATRIX_CACHE_VERSION = "3"
+TILE_SCORE_MATRIX_CACHE_VERSION = "4"
 
 
 def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:

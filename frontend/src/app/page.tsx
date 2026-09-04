@@ -412,6 +412,10 @@ export default function Home() {
   // 同じくstring stateのまま保持し、送信時にNumber化する。目的地モードでは経由地が無い
   // 場合のみ意味を持つ（経由地を伴うとbackendが常に1件へ固定し無視する、RouteForm.tsx参照）。
   const [maxRoutesInput, setMaxRoutesInput] = useState(String(routeGenerateConfig.default_max_routes));
+  // 仮定巡航速度（backend: RouteGenerateRequest.assumed_speed_kmh、km/h）。距離と同じく
+  // string stateのまま保持し、送信時にNumber化する。区間の通過予定時刻（探索時の風の時刻
+  // 選択）・到達予想時刻の基準になるため全モードで送る。
+  const [assumedSpeedInput, setAssumedSpeedInput] = useState(String(routeGenerateConfig.default_assumed_speed_kmh));
   // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
   // （フィールド比較の列挙より差分検知の漏れが出にくい）。
   const [generatedConditions, setGeneratedConditions] = useState<{
@@ -419,6 +423,7 @@ export default function Home() {
     longitude: number;
     distanceKm: number;
     maxRoutes: number;
+    assumedSpeedKmh: number;
     // 候補件数入力が生成結果に反映される条件だったか（周回モード、または経由地の無い
     // 目的地モード）。経由地を伴う目的地モードはbackendが件数を無視するため、
     // conditionsDirtyの比較対象から外す。
@@ -1343,6 +1348,7 @@ export default function Home() {
       routeMode !== generatedConditions.routeMode ||
       (generatedConditions.routeMode === "loop" && Number(distanceInput) !== generatedConditions.distanceKm) ||
       (generatedConditions.maxRoutesRelevant && Number(maxRoutesInput) !== generatedConditions.maxRoutes) ||
+      Number(assumedSpeedInput) !== generatedConditions.assumedSpeedKmh ||
       (generatedConditions.routeMode === "destination" &&
         JSON.stringify({ waypoints, destination }) !== generatedConditions.waypointsKey) ||
       currentWeightsKey !== generatedConditions.weightsKey);
@@ -1384,6 +1390,15 @@ export default function Home() {
         Number.isInteger(parsedMaxRoutes) && parsedMaxRoutes >= 1 && parsedMaxRoutes <= routeGenerateConfig.max_routes
           ? parsedMaxRoutes
           : routeGenerateConfig.default_max_routes;
+      // 巡航速度もRouteForm側で検証済みだが、範囲外・空文字のまま残っていても送信前に既定値へ倒す。
+      const parsedAssumedSpeed = Number(assumedSpeedInput);
+      const effectiveAssumedSpeed =
+        assumedSpeedInput.trim() !== "" &&
+        Number.isFinite(parsedAssumedSpeed) &&
+        parsedAssumedSpeed >= routeGenerateConfig.min_assumed_speed_kmh &&
+        parsedAssumedSpeed <= routeGenerateConfig.max_assumed_speed_kmh
+          ? parsedAssumedSpeed
+          : routeGenerateConfig.default_assumed_speed_kmh;
       const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
@@ -1399,6 +1414,7 @@ export default function Home() {
         // （distance_tolerance_km/penalty_strengthと同じ扱い）のため、モードに関わらず
         // 常に送る。経由地を伴う目的地ルートはbackendが常に1件へ固定し値を無視する。
         max_routes: effectiveMaxRoutes,
+        assumed_speed_kmh: effectiveAssumedSpeed,
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
         // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
         // （backend側の分岐はapi/routers/routes.py参照）。
@@ -1421,6 +1437,7 @@ export default function Home() {
         longitude: location.longitude,
         distanceKm: effectiveDistanceKm,
         maxRoutes: effectiveMaxRoutes,
+        assumedSpeedKmh: effectiveAssumedSpeed,
         maxRoutesRelevant: routeMode === "loop" || (routeMode === "destination" && waypoints.length === 0),
         weightsKey: currentWeightsKey,
         routeMode,
@@ -1489,6 +1506,8 @@ export default function Home() {
           onDistanceChange={setDistanceInput}
           maxRoutes={maxRoutesInput}
           onMaxRoutesChange={setMaxRoutesInput}
+            assumedSpeed={assumedSpeedInput}
+            onAssumedSpeedChange={setAssumedSpeedInput}
           onGenerate={handleGenerate}
           loading={loading}
           progressLabel={generationProgressLabel}
@@ -1827,6 +1846,8 @@ export default function Home() {
             onDistanceChange={setDistanceInput}
             maxRoutes={maxRoutesInput}
             onMaxRoutesChange={setMaxRoutesInput}
+            assumedSpeed={assumedSpeedInput}
+            onAssumedSpeedChange={setAssumedSpeedInput}
             onGenerate={handleGenerate}
             loading={loading}
             compact

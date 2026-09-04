@@ -120,6 +120,10 @@ class TracedLoop:
     bearing: int | None
     distance_km: float
     data: Any
+    # 経路上の各Edgeがどのレグ（`_RoadGraphContext.legs`の添字。周回は0=往路・1=復路、
+    # 経由地ルートはレグ番号）のコスト配列で探索されたか。区間表示が探索と同じ配列から
+    # 値を読むために使う。Noneは全Edgeがレグ0。
+    leg_of_edge: list[int] | None = None
 
 
 def candidate_identity(bearing: int | None) -> dict[str, str]:

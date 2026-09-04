@@ -72,6 +72,7 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
       max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },
       max_routes: 8,
+      assumed_speed_kmh: 20,
       waypoints: null,
       destination: null,
       generated_at: new Date().toISOString(),

@@ -31,6 +31,7 @@ describe("routeApi", () => {
     const request: RoutePreviewRequest = {
       origin: { latitude: 35.0, longitude: 139.0 },
       destination: { latitude: 35.1, longitude: 139.1 },
+      assumed_speed_kmh: 20,
     };
 
     it("成功時はレスポンスのJSONをそのまま返し、URLとmethodを検証する", async () => {
@@ -151,6 +152,7 @@ describe("routeApi", () => {
       route_type: "loop",
       penalty_strength: 1.0,
       max_routes: 8,
+      assumed_speed_kmh: 20,
     };
 
     const routes: RouteCandidate[] = [
@@ -185,6 +187,7 @@ describe("routeApi", () => {
       max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },
       max_routes: 8,
+      assumed_speed_kmh: 20,
       waypoints: null,
       destination: null,
       generated_at: "2026-08-15T12:00:00+09:00",

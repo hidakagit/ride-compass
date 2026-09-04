@@ -23,6 +23,8 @@ def _sample_matrix(edge_id: str = "edge-1", score: float = 50.0) -> StaticEdgeSc
         is_trunk=np.array([False]),
         no_bicycle=np.array([False]),
         gradient_percent=np.array([np.nan]),
+        mid_lat=np.array([35.0]),
+        mid_lon=np.array([139.0]),
     )
 
 
@@ -39,6 +41,8 @@ def _empty_matrix() -> StaticEdgeScoreMatrix:
         is_trunk=np.zeros(0, dtype=bool),
         no_bicycle=np.zeros(0, dtype=bool),
         gradient_percent=np.zeros(0),
+        mid_lat=np.zeros(0),
+        mid_lon=np.zeros(0),
     )
 
 

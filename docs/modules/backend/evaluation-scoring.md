@@ -143,7 +143,13 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   `wind_penalty`を直接参照して作ったカスタム軸を含む]でも正しく合成する」ため、
   軸名のハードコードは呼び出し側に一切現れない）。将来2つ目の動的材料が増えても、
   この辞書へ1エントリ追加するだけでよい（CLAUDE.md原則1、フロントの`RAMP_AXES`/
-  `buildAxisOverlayLayers`と同種の汎用ディスパッチ）。
+  `buildAxisOverlayLayers`と同種の汎用ディスパッチ）。`DynamicAxisRequestContext`は
+  出発時点のスナップショット（`weather`）に加え、時刻依存の材料向けに起点の時別予報
+  （`wind_series`）・出発時刻（`start`）・Edgeごとの通過予定時刻（`passage_hours`、
+  `bearing_deg`と同じ行順）を持つ。3つが揃えば`wind_penalty`はEdgeごとにその時刻の風で
+  求め、揃わなければスナップショットを全Edgeへ一様に使う。`StaticEdgeScoreMatrix`は
+  通過予定時刻の推定に使うEdge中点座標（`mid_lat`/`mid_lon`、from/toノードの平均）も
+  持つ（タイル単位でキャッシュ）。
 - リクエスト時（`RoadGraphEngine._build_search_graph`）は、`StaticEdgeScoreMatrix`を
   軸id→配列の辞書へ展開→`evaluate_dynamic_axis_arrays`で動的軸を上書き→
   `compose_costs_from_axis_matrix`で重み合成→`compute_hard_filter_excluded`で0次

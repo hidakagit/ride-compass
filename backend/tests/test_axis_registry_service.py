@@ -104,6 +104,8 @@ async def test_refresh_clears_tile_score_matrix_cache(road_graph_session):
         is_trunk=np.array([False]),
         no_bicycle=np.array([False]),
         gradient_percent=np.array([np.nan]),
+        mid_lat=np.array([35.0]),
+        mid_lon=np.array([139.0]),
     )
     tile_score_matrix_cache.set(12, 1, 1, dummy_matrix)
     assert tile_score_matrix_cache.get(12, 1, 1) is not None
@@ -144,6 +146,8 @@ async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unch
         is_trunk=np.array([False]),
         no_bicycle=np.array([False]),
         gradient_percent=np.array([np.nan]),
+        mid_lat=np.array([35.0]),
+        mid_lon=np.array([139.0]),
     )
     road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
     repository = AxisDefinitionRepository(road_graph_session)
@@ -176,6 +180,8 @@ async def test_refresh_invalidates_tile_score_matrix_disk_cache_when_revision_ch
         is_trunk=np.array([False]),
         no_bicycle=np.array([False]),
         gradient_percent=np.array([np.nan]),
+        mid_lat=np.array([35.0]),
+        mid_lon=np.array([139.0]),
     )
     road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
     repository = AxisDefinitionRepository(road_graph_session)

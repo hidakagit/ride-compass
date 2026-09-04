@@ -45,6 +45,7 @@ from app.main import app  # noqa: E402
 from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
+from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
@@ -216,6 +217,9 @@ def main() -> None:
             "max_distance_km": MAX_ROUTE_DISTANCE_KM,
             "max_routes": MAX_ROUTES,
             "default_max_routes": DEFAULT_MAX_ROUTES,
+            "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
+            "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
+            "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
         },
     )
 

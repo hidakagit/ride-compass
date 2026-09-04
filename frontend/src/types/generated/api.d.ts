@@ -1258,6 +1258,8 @@ export interface components {
             hard_filters: components["schemas"]["HardFilterOverride"];
             /** Max Routes */
             max_routes: number;
+            /** Assumed Speed Kmh */
+            assumed_speed_kmh: number;
             /** Waypoints */
             waypoints: components["schemas"]["Coordinates"][] | null;
             destination: components["schemas"]["Coordinates"] | null;
@@ -1524,6 +1526,11 @@ export interface components {
              * @default 8
              */
             max_routes: number;
+            /**
+             * Assumed Speed Kmh
+             * @default 20
+             */
+            assumed_speed_kmh: number;
             /** Waypoints */
             waypoints?: components["schemas"]["Coordinates"][] | null;
             destination?: components["schemas"]["Coordinates"] | null;
@@ -1556,6 +1563,11 @@ export interface components {
         RoutePreviewRequest: {
             origin: components["schemas"]["Coordinates"];
             destination: components["schemas"]["Coordinates"];
+            /**
+             * Assumed Speed Kmh
+             * @default 20
+             */
+            assumed_speed_kmh: number;
         };
         /** RouteSegment */
         RouteSegment: {

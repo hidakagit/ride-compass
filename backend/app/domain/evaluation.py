@@ -11,6 +11,7 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable, Mapping
 
 import numpy as np
@@ -36,7 +37,7 @@ from app.domain.night import night_materials
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
 from app.domain.weather import WeatherConditions
-from app.domain.wind import WindCalculator
+from app.domain.wind import WindCalculator, WindForecastSeries
 
 # 〇次: ハード制約（設計プロンプト「評価システムの層構造再設計」の〇次フィルタ、
 # 改善計画T140。仕様書29章のHard Constraintと同じ概念）。スコア計算には一切登場させず、
@@ -635,6 +636,10 @@ class BulkAxisEvaluation:
     is_trunk: np.ndarray
     no_bicycle: np.ndarray
     gradient_percent: np.ndarray
+    # Edge中点の緯度経度（from/toノードの平均）。探索前に各Edgeの通過予定時刻を基準点からの
+    # 直線距離で推定するために使う。
+    mid_lat: np.ndarray
+    mid_lon: np.ndarray
     axis_arrays: dict[str, np.ndarray]
 
 
@@ -694,11 +699,20 @@ def _evaluate_axes_bulk(
             is_trunk=np.array([], dtype=bool),
             no_bicycle=np.array([], dtype=bool),
             gradient_percent=np.array([]),
+            mid_lat=np.array([]),
+            mid_lon=np.array([]),
             axis_arrays=empty_axis_arrays,
         )
     edges = [graph.edges[edge_id] for edge_id in edge_ids]
 
     distance_m = np.array([edge.distance_m for edge in edges], dtype=float)
+    nodes = graph.nodes
+    mid_lat = np.array(
+        [(nodes[edge.from_node_id].latitude + nodes[edge.to_node_id].latitude) / 2 for edge in edges], dtype=float
+    )
+    mid_lon = np.array(
+        [(nodes[edge.from_node_id].longitude + nodes[edge.to_node_id].longitude) / 2 for edge in edges], dtype=float
+    )
     bearing_deg = np.array(
         [edge.bearing_deg if edge.bearing_deg is not None else np.nan for edge in edges], dtype=float
     )
@@ -806,6 +820,8 @@ def _evaluate_axes_bulk(
         is_trunk=highway_filter_flags.get("trunk", np.zeros(n, dtype=bool)),
         no_bicycle=no_bicycle,
         gradient_percent=material_arrays["gradient_percent"],
+        mid_lat=mid_lat,
+        mid_lon=mid_lon,
         axis_arrays=axis_arrays,
     )
 
@@ -1021,6 +1037,9 @@ class StaticEdgeScoreMatrix:
     is_trunk: np.ndarray
     no_bicycle: np.ndarray
     gradient_percent: np.ndarray
+    # Edge中点の緯度経度（`BulkAxisEvaluation.mid_lat`/`mid_lon`と同じ）。
+    mid_lat: np.ndarray
+    mid_lon: np.ndarray
 
 
 def build_static_edge_score_matrix(
@@ -1091,6 +1110,8 @@ def build_static_edge_score_matrix(
         is_trunk=evaluation.is_trunk,
         no_bicycle=evaluation.no_bicycle,
         gradient_percent=evaluation.gradient_percent,
+        mid_lat=evaluation.mid_lat,
+        mid_lon=evaluation.mid_lon,
     )
 
 
@@ -1112,6 +1133,7 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
             distance_m=np.array([]), bearing_deg=np.array([]),
             is_motorway=np.array([], dtype=bool), is_trunk=np.array([], dtype=bool),
             no_bicycle=np.array([], dtype=bool), gradient_percent=np.array([]),
+            mid_lat=np.array([]), mid_lon=np.array([]),
         )
     if len(matrices) == 1:
         return matrices[0]
@@ -1125,6 +1147,8 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
     is_trunk = np.concatenate([matrix.is_trunk for matrix in matrices])
     no_bicycle = np.concatenate([matrix.no_bicycle for matrix in matrices])
     gradient_percent = np.concatenate([matrix.gradient_percent for matrix in matrices])
+    mid_lat = np.concatenate([matrix.mid_lat for matrix in matrices])
+    mid_lon = np.concatenate([matrix.mid_lon for matrix in matrices])
 
     # 重複edge_idは後勝ち（後から登場した行のindexで上書き）。
     last_index_for_edge_id: dict[str, int] = {edge_id: i for i, edge_id in enumerate(all_edge_ids)}
@@ -1141,6 +1165,8 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
         is_trunk=is_trunk[final_indices],
         no_bicycle=no_bicycle[final_indices],
         gradient_percent=gradient_percent[final_indices],
+        mid_lat=mid_lat[final_indices],
+        mid_lon=mid_lon[final_indices],
     )
 
 
@@ -1161,11 +1187,24 @@ class DynamicAxisRequestContext:
 
     bearing_deg: np.ndarray
     weather: WeatherConditions | None
+    # 時刻依存の材料向け: 起点の時別予報系列と、各Edgeの通過予定時刻（`start`からの経過
+    # 時間[h]、`bearing_deg`と同じ行順）。3つとも揃っていればEdgeごとに通過予定時刻の値を
+    # 引き、揃っていなければ`weather`（出発時点のスナップショット）を全Edgeへ一様に使う。
+    wind_series: WindForecastSeries | None = None
+    start: datetime | None = None
+    passage_hours: np.ndarray | None = None
+
+    def time_varying(self) -> bool:
+        return self.wind_series is not None and self.start is not None and self.passage_hours is not None
 
 
 def _evaluate_wind_penalty_array(context: DynamicAxisRequestContext) -> np.ndarray:
     """風向風速とEdgeの進行方位からwind_penalty配列を求める（`compute_wind_penalty`の
-    ベクトル版、`_evaluate_axes_bulk`の計算フェーズと同じ式）。"""
+    ベクトル版、`_evaluate_axes_bulk`の計算フェーズと同じ式）。時別系列と通過予定時刻が
+    揃っていればEdgeごとにその時刻の風を使う。"""
+    if context.time_varying():
+        speed, direction = context.wind_series.sample(context.start, context.passage_hours)
+        return speed * np.cos(np.radians(direction - context.bearing_deg))
     if context.weather is None:
         return np.full(context.bearing_deg.shape, np.nan)
     return context.weather.wind_speed_ms * np.cos(

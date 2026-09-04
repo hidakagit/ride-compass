@@ -27,6 +27,7 @@ from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
+from app.domain.wind import ASSUMED_SPEED_KMH, WindForecastSeries
 from app.infrastructure import search_graph_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
@@ -65,7 +66,7 @@ def _lazy_edge_cost(engine, context, from_node_id: str, to_node_id: str) -> floa
     i = context.lazy_graph.node_id_to_index[from_node_id]
     j = context.lazy_graph.node_id_to_index[to_node_id]
     edge_index = context.lazy_graph.edge_index_by_node_pair[(i, j)]
-    return context.cost_list[edge_index]
+    return context.legs[0].cost_list[edge_index]
 
 
 def _lazy_edge_is_allowed(engine, context, from_node_id: str, to_node_id: str) -> bool:
@@ -82,7 +83,7 @@ def _lazy_edge_is_allowed(engine, context, from_node_id: str, to_node_id: str) -
     edge_index = context.lazy_graph.edge_index_by_node_pair.get((i, j))
     if edge_index is None:
         return False
-    return math.isfinite(context.cost_list[edge_index])
+    return math.isfinite(context.legs[0].cost_list[edge_index])
 
 
 def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_coord: Coordinates, **overrides) -> DirectedEdge:
@@ -297,11 +298,15 @@ class FakeElevationAttributeService:
 
 
 class FakeWeatherService:
-    def __init__(self, conditions: WeatherConditions | None = None):
+    def __init__(self, conditions: WeatherConditions | None = None, wind_series: WindForecastSeries | None = None):
         self._conditions = conditions
+        self._wind_series = wind_series
 
     async def get_conditions(self, point: Coordinates, at=None):
         return self._conditions
+
+    async def get_wind_forecast_series(self, point: Coordinates):
+        return self._wind_series
 
 
 def make_generator(
@@ -324,6 +329,8 @@ def make_generator(
     hard_filters: frozenset[str] | None = None,
     edges_with_geometry: dict | None = None,
     tile_set: frozenset[tuple[int, int, int]] | None = None,
+    wind_series: WindForecastSeries | None = None,
+    assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
         graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
@@ -335,11 +342,12 @@ def make_generator(
     engine = RoadGraphEngine(
         graph_service=graph_service,
         elevation_attribute_service=elevation_service,
-        weather_service=FakeWeatherService(weather),
+        weather_service=FakeWeatherService(weather, wind_series),
         route_preference=preference,
         penalty_strength=penalty_strength,
         max_average_grade_percent=max_average_grade_percent,
         hard_filters=hard_filters,
+        assumed_speed_kmh=assumed_speed_kmh,
     )
     generator = RouteGenerator(engine)
     return generator, graph_service, elevation_service
@@ -589,12 +597,12 @@ async def test_return_leg_search_restores_shared_cost_list():
     engine = generator._engine
     context = await _prepare_context(generator)
     turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
-    before = list(context.cost_list)
+    before = list(context.legs[-1].cost_list)
 
     for turnaround in turnarounds:
         await engine.trace_loop_from_turnaround(context, turnaround)
 
-    assert context.cost_list == before
+    assert context.legs[-1].cost_list == before
 
 
 async def test_return_leg_search_restores_cost_list_even_when_no_path_found():
@@ -610,12 +618,12 @@ async def test_return_leg_search_restores_cost_list_even_when_no_path_found():
     context = await _prepare_context(generator)
     turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
     turnaround = next(t for t in turnarounds if t.bearing == 0)
-    before = list(context.cost_list)
+    before = list(context.legs[-1].cost_list)
 
     with pytest.raises(RoutingError):
         await engine.trace_loop_from_turnaround(context, turnaround)
 
-    assert context.cost_list == before
+    assert context.legs[-1].cost_list == before
 
 
 async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():
@@ -1136,7 +1144,7 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
         ),
     )
 
-    segments = engine._build_segment_details([edge], {"e1": elevation_attr}, context, datetime.now(timezone.utc))
+    segments = engine._build_segment_details([edge], {"e1": elevation_attr}, context, datetime.now(timezone.utc), [0])
     assert len(segments) == 1
     segment = segments[0]
 
@@ -1800,47 +1808,38 @@ def _build_context_score_fields(
     night_active: bool = False,
     accident_years_covered: int = 0,
     penalty_strength: float = 1.0,
+    wind_series: WindForecastSeries | None = None,
+    origin: Coordinates = ORIGIN,
 ) -> dict:
-    """改善計画T536: `_RoadGraphContext`を`prepare()`を経由せず直接構築するテスト
+    """`_RoadGraphContext`を`prepare()`を経由せず直接構築するテスト
     （`_build_segment_details`・`_build_best_candidate`の単体テスト）向けに、
-    `cost_list`/`full_edge_row`/`difficulty_array`/`axis_arrays`を
-    `RoadGraphEngine._build_search_graph`と同じ計算経路（`build_static_edge_score_matrix`
-    →`evaluate_dynamic_axis_arrays`→`compose_costs_from_axis_matrix`）で構築する。
+    `composer`/`legs`/`full_edge_row`を`RoadGraphEngine._build_search_graph`と同じ計算経路
+    （`build_static_edge_score_matrix`→`_LegCostComposer.compose`）で構築する。
     `node_lat`/`node_lon`はA*のestimate_cost_fn用で、これらのテストはA*探索本体を
-    経由しないため空配列でよい。
+    経由しないため空配列でよい（cost_listの行順も`score_matrix.edge_ids`と同じ恒等索引）。
     """
     score_matrix = build_static_edge_score_matrix(graph, materials, accident_years_covered)
     active_scopes = frozenset({"night_only"}) if night_active else frozenset()
     weights = preference.with_time_scope(active_scopes).weights
-
-    static_axis_scores = {
-        axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
-    }
-    dynamic_context = DynamicAxisRequestContext(bearing_deg=score_matrix.bearing_deg, weather=weather)
-    resolved_axis_scores = evaluate_dynamic_axis_arrays(static_axis_scores, dynamic_context)
-    published_axis_arrays = {axis_id: resolved_axis_scores[axis_id] for axis_id in score_matrix.axis_ids}
-
-    cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
-        score_matrix.distance_m, published_axis_arrays, weights, penalty_strength
-    )
     hard_filter_excluded = compute_hard_filter_excluded(
         score_matrix.is_motorway, score_matrix.is_trunk, score_matrix.no_bicycle, score_matrix.gradient_percent,
     )
-    cost_array = np.where(hard_filter_excluded, np.inf, cost_array)
+    composer = road_graph_engine._LegCostComposer(
+        score_matrix, weights, penalty_strength, hard_filter_excluded, weather, wind_series,
+        datetime(2026, 9, 5, 9, 0), ASSUMED_SPEED_KMH, np.arange(len(score_matrix.edge_ids)),
+    )
     full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
 
     return dict(
-        cost_list=cost_array.tolist(),
-        # 改善計画T531: 一対全木用（これらのテストはselect_loop_turnaroundsを経由しないため
-        # statics=None・origin_index=0のダミーでよい）。改善計画T551: tile_set=Noneも同じ理由
-        # （select_via_nodesを経由しないテストのダミー）。
+        composer=composer,
+        legs=[composer.compose("outbound", origin, 0.0, +1)],
+        # 一対全木用（これらのテストはselect_loop_turnaroundsを経由しないため
+        # statics=None・origin_index=0のダミーでよい）。tile_set=Noneも同じ理由。
         statics=None,
         origin_index=0,
         tile_set=None,
         full_edge_row=full_edge_row,
-        difficulty_array=difficulty_array,
-        axis_arrays=published_axis_arrays,
-        contribution_arrays=contribution_arrays,
+        origin=origin,
         node_lat=np.array([]),
         node_lon=np.array([]),
     )
@@ -1882,8 +1881,8 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
         **_build_context_score_fields(base_graph, materials, preference, night_active=True),
     )
 
-    day_segments = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc))
-    night_segments = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc))
+    day_segments = engine._build_segment_details([edge], {}, day_context, datetime.now(timezone.utc), [0])
+    night_segments = engine._build_segment_details([edge], {}, night_context, datetime.now(timezone.utc), [0])
 
     # night_weight=1.0のみ有効な本ケースでは、日中はcompositeを合成できる重みが1つも
     # 無くなり（他の軸は重み0）Noneに、夜間はnight_difficulty(50.0)そのものになる。

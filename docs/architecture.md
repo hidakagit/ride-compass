@@ -124,7 +124,7 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 ### 風評価（`wind_score`）の設計（Step7）
 Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「地点＋時刻」対応にしておいたのは、まさにこのStep7のため。`WindService`（[backend/app/services/wind_service.py](../backend/app/services/wind_service.py)）は候補ルートのサンプル点列（`ElevationService`と同じ点集合。当初12点固定、現在は距離連動の約1km間隔・12〜32点）について、区間ごとに以下を行う。
 
-1. 起点からの累積距離 ÷ 仮定巡航速度（`ASSUMED_SPEED_KMH = 20.0`、現状固定値。将来ユーザー設定可能にする拡張ポイント）で推定到達時刻を計算
+1. 起点からの累積距離 ÷ 仮定巡航速度（`ASSUMED_SPEED_KMH = 20.0`が既定値。リクエストの`assumed_speed_kmh`で5〜60km/hの範囲で指定できる）で推定到達時刻を計算
 2. 区間の進行方位を`domain/geo.py`の`bearing_between(a, b)`（新規追加、2点間の初期方位角を球面三角法で求める。`destination_point`の逆関数に相当）で算出
 3. `WeatherService.get_conditions(point, at=推定到達時刻)`を各区間の始点について並列取得（`ElevationService`と同じ`asyncio.Semaphore`パターン。天候はTTLキャッシュ済みのため近接点は追加リクエストなしでヒットする）
 4. `domain/wind.py`の`WindCalculator.wind_penalty(wind_speed_ms, wind_direction_deg, travel_bearing_deg)`＝`風速 × cos(風向 − 走行方位)`で区間ごとのペナルティを算出（`wind_direction_deg`は気象学の慣習で「風が吹いてくる方向」。走行方位と一致＝正面からの向かい風＝`cos(0)=1`で最大、180度差＝追い風＝`cos(180°)=-1`、90度差＝横風＝`cos(90°)=0`で走行への影響なし。進行方向に平行な風成分のみが影響するという物理的に妥当なモデル）
@@ -337,8 +337,10 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
   night軸の重み（`RoutePreference.weights["night"]`）をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
   街灯・トンネルタグのみに基づき不変、重みの掛け替えだけで動的化）。`RoadGraphEngine`は
-  出発時刻1点のみで全区間へ一様適用する（探索中は到達時刻が未確定という制約のため、
-  区間ごとの推定到達時刻は使わない。wind評価と同じ簡略化）。
+  出発時刻1点のみで全区間へ一様適用する（区間ごとの推定到達時刻は使わない）。風の
+  探索コストは、Edgeごとの通過予定時刻（基準点からの直線距離×迂回率÷仮定巡航速度）で
+  起点の時別予報から引き、往路/復路のレグごとに別のコスト配列を探索前に合成する
+  （`docs/modules/backend/routing-engine.md`「レグ別コスト配列」）。
 - **Open-Meteo 429対策（T179・T194・T195）**: 本番（Render、共有の送信元IP）でのOpen-Meteo
   429常態化に対し、ユーザー提示の6段階ロードマップ（①複数座標の1リクエスト集約
   ②気象Gridの道路評価Gridからの分離③気象Gridの固定化④TTL付きDB永続キャッシュ⑤
