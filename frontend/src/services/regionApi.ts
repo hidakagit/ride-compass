@@ -1,5 +1,6 @@
 import type { AxisInspectorResult } from "@/types/traffic";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
+import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
@@ -111,15 +112,13 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // derive_ramp_inputsの対象外＝地図に一切出ない状態が続いていたため復活させる。
 const ROAD_SURFACE_TILE_VERSION = "17";
 
-// 路面の地域レイヤー（Step10）のベクタタイルURL。基礎地図タイルと同じ理由でフロントエンド
-// 自身のオリジン（Next.jsのrewrites経由でバックエンドにプロキシ）を使う。ベクタタイルの
-// 取得はMapLibreがWeb Worker内で行うため、相対パスのままだと「ページのオリジンに対して
-// 解決する」というラスタタイル（Image要素の読み込み、メインスレッド）の挙動が通用せず、
-// URLの構築に失敗することを実機確認した。window.location.originで明示的に絶対URL化する
-// 必要があるため、モジュール読み込み時ではなく呼び出し時（クライアントサイドのみ）に
-// 評価する関数として提供する。
+// 路面の地域レイヤー（Step10）のベクタタイルURL。オリジンは`tileBaseUrl()`
+// （lib/tileBaseUrl.ts: 既定はフロント自身のオリジン＝Next.jsのrewrites経由、
+// `NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）に従う。ベクタタイルの取得はMapLibreが
+// Web Worker内で行うため相対パスでは解決できず絶対URLが必要で、`window`をSSR時に参照しない
+// よう呼び出し時（クライアントサイドのみ）に評価する関数として提供する。
 export function roadSurfaceTileUrl(): string {
-  return `${window.location.origin}${ROAD_SURFACE_TILE_PATH}?v=${ROAD_SURFACE_TILE_VERSION}`;
+  return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${ROAD_SURFACE_TILE_VERSION}`;
 }
 
 // 事故レイヤー（外部静的データソース T50）のタイル世代。バックエンド側
@@ -128,7 +127,7 @@ export function roadSurfaceTileUrl(): string {
 const ACCIDENT_TILE_VERSION = "1";
 
 export function accidentTileUrl(): string {
-  return `${window.location.origin}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
+  return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
 }
 
 // 停止要因POIレイヤー（改善計画T54）の世代。バックエンド（region_service.py:
@@ -145,7 +144,7 @@ const POI_TILE_VERSION = "3";
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
 // 呼び出し時に評価する関数として提供する。
 export function poiTileUrl(): string {
-  return `${window.location.origin}${POI_TILE_PATH}?v=${POI_TILE_VERSION}`;
+  return `${tileBaseUrl()}${POI_TILE_PATH}?v=${POI_TILE_VERSION}`;
 }
 
 // バックエンド（domain/region.py）のROAD_TILE_MIN_ZOOM/MAX_ZOOMと一致させる。

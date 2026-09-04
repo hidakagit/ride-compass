@@ -19,11 +19,27 @@
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `Map/axisInspectorPopup.ts` | 区間インスペクタ（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）のポップアップHTML組み立て |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
+| `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代定数） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄） |
+| `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接） |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI） |
 | `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
 | `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品。中身はchildrenで呼び出し側が渡す（`MapLayersPanel`・`RouteSettingsPanel`・`RouteAxisProfile`で共用） |
 | `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`MapLayersPanel`・`RouteAxisProfile`で共用） |
+
+## タイルの配信元（`lib/tileBaseUrl.ts`）
+
+ベクタタイルはMapLibreがWeb Worker内でfetchするため、URLは常に絶対URLでなければならない
+（相対パスはWorkerのベースURLで解決できない）。`tileBaseUrl()`が返すオリジンは、
+`NEXT_PUBLIC_TILE_BASE_URL`が設定されていればその値（backendへ直接取りに行く。フロントの
+ホスティング経由の往復を省く）、未設定ならフロント自身のオリジン（`next.config.ts`の
+rewritesでbackendへプロキシ）。`window`をSSR時に参照しないよう、モジュール定数ではなく
+呼び出し時に評価する関数になっている。
+
+**暗黙の前提**: backend直接にすると、API呼び出し（`lib/apiBaseUrl.ts`）と同じオリジンに
+タイル要求が載る。backend前段がHTTP/1.1のままだとブラウザのオリジン単位の同時接続数上限
+（6本程度）をタイル要求が埋め、API呼び出しが詰まるため、HTTP/2以上（多重化）で応答できる
+構成でのみ設定する（[docs/architecture.md](../../architecture.md)「同時接続数上限との競合」）。
 
 ## 表示層の実装（`MapView.tsx`）
 

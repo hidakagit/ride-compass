@@ -267,3 +267,21 @@ describe("regionApi", () => {
     });
   });
 });
+
+describe("tileBaseUrl（NEXT_PUBLIC_TILE_BASE_URLによるタイル配信元の切替）", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("環境変数が設定されていれば各タイルURLのオリジンがそのbackendになる（末尾スラッシュは除去）", () => {
+    vi.stubEnv("NEXT_PUBLIC_TILE_BASE_URL", "https://backend.example.test/");
+    expect(roadSurfaceTileUrl()).toBe("https://backend.example.test/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=17");
+    expect(poiTileUrl()).toBe("https://backend.example.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=3");
+    expect(accidentTileUrl()).toBe("https://backend.example.test/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=1");
+  });
+
+  it("環境変数が空文字なら未設定と同じくフロント自身のオリジンを使う", () => {
+    vi.stubEnv("NEXT_PUBLIC_TILE_BASE_URL", "");
+    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=17`);
+  });
+});
