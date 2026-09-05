@@ -80,11 +80,18 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 | `precipitationNowcast` | `main` | raster（60分以内）→raster（〜15時間）→gridFill（延長予報） | `precipitationNowcast.ts` |
 | `precipitationNowcast` | `linearRainband` | raster（sjfcstmap） | `riskMap.ts: fetchLinearRainbandFrames` |
 | `windVector` | `arrow` | gridMark | `windLayer.ts`（走行方位に依存しない矢印のみ。走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の`windAxis`が担う） |
-| `thunderNowcast` | `main` | raster | `thunderNowcast.ts` |
-| `tornadoNowcast` | `main` | raster | `thunderNowcast.ts`（同じフレーム列を共有、プロダクトコードのみ相違） |
-| `liden` | `main` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
-| `landslideRisk`/`heavyRainRisk`/`inundationRisk` | `main` | raster | `riskMap.ts: fetchCurrentRiskFrames` |
-| `floodRisk` | `main` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |
+| `disaster` | `heavyRain`/`landslide`/`inundation` | raster | `riskMap.ts: fetchCurrentRiskFrames` |
+| `disaster` | `thunder`/`tornado` | raster | `thunderNowcast.ts`（1本のフレーム列を共有、プロダクトコードのみ相違） |
+| `disaster` | `flood` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |
+| `disaster` | `liden` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
+
+`disaster`（災害）は7要素を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
+連動する。`DYNAMIC_WEATHER_RENDERERS`のキー順がMapLibreのレイヤー追加順＝重なり順になる
+ため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
+（落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
+ゼロの領域は配信元のタイルが透明のため平常時の地図の見た目は変わらない。気象庁は危険度を
+ラスタ画像でしか配信せず現在の警戒レベルを返すAPIを持たないため、「重なっているなら最も
+危険な1枚だけ出す」といった自動制御は実装できない。
 
 `liden`（雷放電位置データ）は、他要素が既に手元にある格子データ・タイルURLテンプレートから
 同期的にペイロードを組み立てるのに対し、配信元が実際の落雷地点をGeoJSONで提供するため
@@ -115,7 +122,7 @@ icon-sizeはズームのみに依存する。
 
 ## データ取得状態（改善計画T608）
 
-9つのチップ付き動的気象レイヤー全てが、`useDynamicWeatherLayers.ts`の
+3つのチップ付き動的気象レイヤー全てが、`useDynamicWeatherLayers.ts`の
 `dynamicWeatherStatus(loading, error, hasPayload)`という同じ純粋関数を通り、
 `LayerDataStatus`（"loading"/"empty"/"error"、`mapLayers.ts`）を1つ返す
 （判定順序はエラー中 > 読込中 > 読込済みだが値なし、`useLayerDataStatus.ts:
@@ -138,10 +145,9 @@ payloadが`undefined`のままレイヤーが非表示になり続け、MapLibre
 1つのため、いずれか一方でも描画できていればloading/errorとしない
 （`nowcastLoading || linearRainbandLoading`・`nowcastError ?? linearRainbandError`・
 `precipitationPayload !== undefined || linearRainbandPayload !== undefined`）。
-`thunderNowcast`/`tornadoNowcast`は同じ`thunderNowcastLoading`/`thunderNowcastError`
-（1本のtargetTimes_N3.json取得）を共有するが、`hasPayload`はそれぞれ自分の
-payload（`thunderPayload`/`tornadoPayload`）を見る。キキクル4種も同様に
-`currentRiskLoading`/`currentRiskError`を共有し、`hasPayload`だけを個別に見る。
+`disaster`も同じくチップ1つのため、3本のフェッチ（キキクル・雷竜巻・落雷）の
+loading/errorをまとめ、`hasPayload`は7ソースのいずれか1つでも描画できていれば
+trueとする。
 
 算出した`dynamicWeatherDataStatus`は`page.tsx`が`mapViewLayerDataStatus`
 （改善計画T87側）とマージして1つの`layerDataStatus`にし、`overlayLayers`
@@ -153,11 +159,15 @@ payload（`thunderPayload`/`tornadoPayload`）を見る。キキクル4種も同
 他の動的気象レイヤーと異なり**未来方向の複数フレームを持たない**——気象庁側で実況と
 短時間予測を統合済みの「現在の危険度」単一値のみを配信する（`validtime===basetime`）。
 
-- キキクル4種（土砂災害・大雨・浸水・洪水）: 他の環境グループ気象レイヤーと同じ地図上
-  チップ（`CHIP_DYNAMIC_WEATHER_LAYER_IDS`所属）を持つが、時刻スライダーとは連動しない
-  ——`showXxx`がONの間、選択中の共有時刻に関わらず`frames[0]`（現在値）があれば表示する。
+- キキクル4種（土砂災害・大雨・浸水・洪水）: `disaster`チップ配下の4ソースで、時刻
+  スライダーとは連動しない——チップがONの間、選択中の共有時刻に関わらず`frames[0]`
+  （現在値）があれば表示する。同じ`disaster`チップの雷・竜巻・落雷はスライダーに連動
+  するため、1つのチップの中で連動する要素としない要素が同居する。
   `page.tsx: FIXED_LAYER_VISIBILITY_DEFAULTS`は他のweatherレイヤー（既定OFF）と異なり
-  既定`true`にしている（防災級の情報はユーザー操作を待たず表示すべきという理由）。
+  `disaster`を既定`true`にしている（防災級の情報はユーザー操作を待たず表示すべきという
+  理由）。あわせて`mapLayers.ts: mapOverlayExclusiveDomainFor`が`category="disaster"`を
+  排他ドメインの対象外にする——「環境」グループの他レイヤー（降水・風・標高図）を選んで
+  いる間も災害情報が地図から消えないようにするため。
 - 線状降水帯予測マップ: `precipitationNowcast`チップの4つ目のソース（`linearRainband`）。
   共有タイムラインの選択時刻が現在〜3時間先の範囲内（`isWithinFutureWindow`）のときだけ、
   他のソースと重ねて表示する（キキクルと異なりタイムラインと連動し続ける）。
