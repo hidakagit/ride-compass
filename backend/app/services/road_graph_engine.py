@@ -109,6 +109,7 @@ from app.domain.routing import (
     overlap_ratio,
     path_to_edge_ids_lazy,
     path_to_edge_indices_lazy,
+    pareto_front_mask,
     select_diverse_by_overlap,
     shortest_path_node_ids_lazy,
     tree_path_edge_indices,
@@ -166,6 +167,12 @@ RING_CENTER_RATIO = (LOOP_TO_OUTBOUND_RATIO_MIN + LOOP_TO_OUTBOUND_RATIO_MAX) / 
 # 一対全探索のコスト上限（リング上限×(1+P)）に掛ける余裕。Edge単位の丸め（0.1m）の
 # 積み上がりで上限ぎりぎりのNodeを取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
+# 候補選定（`pareto_front_mask`）で「実質同じ」とみなす粒度。距離は往路実距離200m
+# （周回全長では約400m差、体感で選び分ける単位より細かい）、難易度は他の集計値と同じ
+# 小数1桁。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、粗すぎると
+# 候補が減りすぎる。
+PARETO_DISTANCE_QUANTUM_M = 200.0
+PARETO_DIFFICULTY_QUANTUM = 0.1
 
 # --- 目的地ルート（via-node方式、経由地無し）の代替経路選定パラメータ ---
 # via-node候補（前向き木＋後ろ向き木の合成経路）の長さが、最も合成コストの低い経路
@@ -933,7 +940,19 @@ class RoadGraphEngine:
             difficulty = np.zeros(len(ring))
         difficulty_key = np.round(difficulty, 1)
         closeness_key = np.abs(ring_length - ring_center_m)
-        order = np.lexsort((ring, closeness_key, difficulty_key))[:MAX_RING_CANDIDATES_EXAMINED]
+        # パレート非劣解（リング中心からのずれ・往路difficultyの2指標で他のどの候補にも
+        # 負けていないもの）を先に並べ、劣解をその後ろへ回す。難易度だけで並べると、
+        # 難易度が距離加重「平均」であるために遠回りして難所を避けた候補が常に上位を占め、
+        # 「目標距離ちょうどだが難所を通る」候補が一覧に現れない（ユーザーには選ぶ余地が
+        # 無くなる）。第1指標に往路実距離そのものではなくリング中心からのずれを使うのは、
+        # 周回では距離が「短いほど良い」ではなく「目標に近いほど良い」ためで、これにより
+        # 目標より短すぎる往路（起点のすぐ近くで折り返す周回）も長すぎる往路も対称に
+        # 扱われる。非劣解だけでプールが埋まらないときのために劣解も順序を保って残す。
+        on_front = pareto_front_mask(
+            closeness_key, difficulty,
+            quantum_a=PARETO_DISTANCE_QUANTUM_M, quantum_b=PARETO_DIFFICULTY_QUANTUM,
+        )
+        order = np.lexsort((ring, closeness_key, difficulty_key, ~on_front))[:MAX_RING_CANDIDATES_EXAMINED]
         ranked = ring[order]
         # difficulty_by_node／方位／近接判定用平面座標は、以降で実際に引かれうる`ranked`
         # （上限MAX_RING_CANDIDATES_EXAMINED件）ぶんだけ用意する。
@@ -949,8 +968,13 @@ class RoadGraphEngine:
             bearing_between_array(origin_node, context.node_lat[ranked], context.node_lon[ranked]).tolist(),
         ))
         closeness_by_node = dict(zip(ranked_list, closeness_key[order].tolist()))
+        # 同点グループの区切りはdifficulty_keyだけでなくパレート非劣解かどうかも見る
+        # ——非劣解群の末尾と劣解群の先頭が同じdifficulty_keyを持つとき、両者を同点として
+        # 混ぜると劣解が非劣解より先に試されうる（orderの主キーである非劣解優先が崩れる）。
+        group_key = np.stack([(~on_front)[order].astype(np.int8), difficulty_key[order]])
         tie_groups = [
-            group.tolist() for group in np.split(ranked, np.flatnonzero(np.diff(difficulty_key[order])) + 1)
+            group.tolist()
+            for group in np.split(ranked, np.flatnonzero(np.any(np.diff(group_key, axis=1) != 0, axis=0)) + 1)
         ]
 
         def prefer(remaining: Sequence[int], selected: list[int]) -> list[int]:
@@ -1136,7 +1160,15 @@ class RoadGraphEngine:
             # P=0はコスト＝距離（難易度を一切考慮しない）なので全候補同点。
             difficulty = np.zeros(len(candidates))
         difficulty_key = np.round(difficulty, 1)
-        order = np.lexsort((candidates, difficulty_key))
+        # 周回の折返し点選定と同じく、経路長・difficultyのパレート非劣解を先に並べる
+        # （難易度は距離加重平均のため、遠回りするほど下がる。目的地ルートは目標距離を
+        # 持たずALTERNATIVE_MAX_STRETCH倍以内という上限だけが効くぶん、難易度単独で
+        # 並べると伸び率上限いっぱいの遠回りが上位を占めやすい）。
+        on_front = pareto_front_mask(
+            combined_length[candidates], difficulty,
+            quantum_a=PARETO_DISTANCE_QUANTUM_M, quantum_b=PARETO_DIFFICULTY_QUANTUM,
+        )
+        order = np.lexsort((candidates, difficulty_key, ~on_front))
         ranked = candidates[order].tolist()
         if best_index in ranked:
             ranked.remove(best_index)

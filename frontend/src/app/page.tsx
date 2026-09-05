@@ -1796,6 +1796,7 @@ export default function Home() {
                   axisDifficulties={route.axis_difficulties}
                   axisContributions={route.axis_contributions}
                   overallDifficulty={route.overall_difficulty}
+                  difficultyLoad={route.difficulty_load ?? null}
                   axisColors={axisChipColors}
                 />
               )}

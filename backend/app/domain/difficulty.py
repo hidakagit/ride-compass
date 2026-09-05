@@ -84,6 +84,26 @@ def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> 
     return round(total, 1)
 
 
+def difficulty_load(segments: list[tuple[float | None, float]]) -> float | None:
+    """(区間difficulty, 区間distance_km)のリストから難易度の総量を求める。
+
+    距離加重平均（`distance_weighted_difficulty`）が距離で正規化されるのに対し、総量は
+    距離が伸びればそのまま増える——「走り切るのにどれだけしんどいか」に近く、遠回りが
+    正直に不利に出る。候補の順位付けには使わず、平均と併せて判断材料として示す。
+
+    difficultyがNoneの区間の扱いは平均と一致させる（平均×全区間の距離合計）。区間ごとに
+    積分して欠損区間を単純に飛ばすと「データが無い区間が多いほど総量が小さい」ことに
+    なり、欠損の多いルートが有利に見えてしまう。
+    """
+    average = distance_weighted_difficulty(segments)
+    if average is None:
+        return None
+    total_distance = sum(distance for _, distance in segments)
+    if total_distance <= 0:
+        return None
+    return round(average * total_distance, 1)
+
+
 def distance_weighted_difficulty_array(difficulty: np.ndarray, distance_m: np.ndarray) -> float | None:
     """`distance_weighted_difficulty`のnumpyベクトル化版。`difficulty`の
     NaN要素は除外し残りの距離で再正規化する。1つも有効な要素が無い、または距離の合計が

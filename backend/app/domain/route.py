@@ -81,6 +81,11 @@ class RouteCandidate(BaseModel):
     max_elevation_m: float | None = None
     segments: list[RouteSegmentDetail] | None = None
     overall_difficulty: float | None = None
+    # 難易度の総量（`overall_difficulty` × 距離km、domain/difficulty.py: difficulty_load）。
+    # 平均は距離で正規化されるため遠回りするほど下がるのに対し、総量は距離が伸びれば
+    # そのまま増える。候補の順位付けには使わず（並び順は`overall_difficulty`昇順のまま）、
+    # 「長い分だけ疲れる」を平均と併せて読み取るための判断材料として持つ。
+    difficulty_load: float | None = None
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
     # `RouteSegmentDetail.axis_contributions`をルート全区間へ距離加重平均で
     # 集約したもの（`merge_axis_contributions`、`axis_difficulties`と同じ集約方法）。

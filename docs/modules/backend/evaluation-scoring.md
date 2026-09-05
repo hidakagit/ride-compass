@@ -177,6 +177,20 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   （`missing_axis_edges`/`missing_axis_distance_ratio`）でリクエストごとの発生比率を
   観測できる。
 
+## ルート単位の集約（`domain/difficulty.py`）
+
+区間ごとのdifficultyをルート1本の値へまとめる2つの指標を持つ。どちらも
+`route_generator.py: _with_overall_difficulty`が同じsegmentsから同時に付ける。
+
+| 指標 | 定義 | 性質 |
+|---|---|---|
+| `overall_difficulty` | 距離加重平均（`distance_weighted_difficulty`） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
+| `difficulty_load` | 平均×距離合計（`difficulty_load`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
+
+`difficulty_load`は順位付けには使わず、平均と併せて判断材料として返す。difficultyが
+Noneの区間の扱いは平均と一致させる（区間ごとに積分して欠損を飛ばすと、データの無い区間が
+多いルートほど総量が小さく見えてしまうため、平均×全区間の距離合計で求める）。
+
 ## 材料カタログ（`domain/material_catalog.py`）
 
 評価軸が参照する材料（material）の正式カタログ。`MATERIAL_CATALOG: dict[str,

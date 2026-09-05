@@ -19,6 +19,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
     axisDifficulties: { car_stress: 72.4, night: 5.8 },
     axisContributions: { car_stress: 36.2, night: 2.9 },
     overallDifficulty: 46,
+    difficultyLoad: null,
     axisColors: AXIS_COLORS,
     ...overrides,
   };

@@ -17,6 +17,7 @@ from app.domain.routing import (
     build_search_graph_statics,
     build_shortest_path_tree,
     concat_node_paths,
+    pareto_front_mask,
     find_missing_lazy_graph_edge_id,
     find_nearest_node_indexed,
     overlap_ratio,
@@ -798,3 +799,60 @@ def test_select_diverse_by_overlap_rejects_max_count_beyond_bitmask_limit():
 
     with pytest.raises(ValueError, match="64"):
         select_diverse_by_overlap(list(items), items.__getitem__, lengths, max_overlap_ratios=[0.5], max_count=65)
+
+
+class TestParetoFrontMask:
+    """距離と難易度の2指標で「他のどの候補にも両方で負けていない」候補を選ぶ。"""
+
+    def test_dominated_candidate_is_excluded(self):
+        # 候補1（10km・難易度30）は候補0（8km・難易度20）より長く、かつ難しいので劣解。
+        distance = np.array([8.0, 10.0, 12.0])
+        difficulty = np.array([20.0, 30.0, 10.0])
+
+        mask = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
+
+        assert mask.tolist() == [True, False, True]
+
+    def test_trade_off_candidates_all_survive(self):
+        # 距離が伸びるほど難易度が下がる関係にある候補は、どれも他に負けていない。
+        distance = np.array([8.0, 10.0, 12.0, 14.0])
+        difficulty = np.array([40.0, 30.0, 20.0, 10.0])
+
+        mask = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
+
+        assert mask.tolist() == [True, True, True, True]
+
+    def test_quantum_treats_near_equal_values_as_equal(self):
+        # 距離が5mしか違わない2候補は「実質同じ距離」として、易しい方だけを残す
+        # （粒度を持たせないと1m短いだけの候補まで非劣解として全件残る）。
+        distance = np.array([10.000, 10.005])
+        difficulty = np.array([30.0, 20.0])
+
+        mask = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
+
+        assert mask.tolist() == [False, True]
+
+    def test_exact_duplicates_keep_only_one(self):
+        distance = np.array([10.0, 10.0, 10.0])
+        difficulty = np.array([20.0, 20.0, 20.0])
+
+        mask = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
+
+        assert mask.sum() == 1
+
+    def test_empty_input(self):
+        mask = pareto_front_mask(np.array([]), np.array([]), quantum_a=0.2, quantum_b=0.1)
+
+        assert mask.tolist() == []
+
+    def test_result_does_not_depend_on_input_order(self):
+        distance = np.array([12.0, 8.0, 10.0])
+        difficulty = np.array([10.0, 20.0, 30.0])
+        shuffled = np.array([1, 2, 0])
+
+        mask = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
+        mask_shuffled = pareto_front_mask(
+            distance[shuffled], difficulty[shuffled], quantum_a=0.2, quantum_b=0.1
+        )
+
+        assert mask[shuffled].tolist() == mask_shuffled.tolist()

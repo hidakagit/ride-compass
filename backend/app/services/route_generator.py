@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
-from app.domain.difficulty import distance_weighted_difficulty
+from app.domain.difficulty import difficulty_load, distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.geo import compass_label
 from app.domain.route import (
@@ -522,10 +522,13 @@ class RouteGenerator:
         （研究インターフェース改善 §10-7、エンジン非依存のためengine実装側には持たせない）。"""
         if not candidate.segments:
             return candidate
-        overall = distance_weighted_difficulty(
-            [(s.difficulty, s.distance_km) for s in candidate.segments]
+        segments = [(s.difficulty, s.distance_km) for s in candidate.segments]
+        overall = distance_weighted_difficulty(segments)
+        # 難易度の総量（平均×距離）も同じsegmentsから同時に付ける。並び順には使わず、
+        # 「遠回りした分だけ増える」量として平均と併せて示す（domain/route.py参照）。
+        return candidate.model_copy(
+            update={"overall_difficulty": overall, "difficulty_load": difficulty_load(segments)}
         )
-        return candidate.model_copy(update={"overall_difficulty": overall})
 
     @staticmethod
     def _with_axis_difficulties(candidate: RouteCandidate) -> RouteCandidate:
