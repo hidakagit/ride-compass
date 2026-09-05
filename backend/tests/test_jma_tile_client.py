@@ -177,6 +177,51 @@ async def test_get_returns_none_for_404_without_raising():
     assert result is None
 
 
+async def test_fetch_caches_404_so_a_later_get_cached_skips_upstream():
+    # 改善計画T605: 恒久404（basetime/validtimeが確定した過去の一時点への結果）を
+    # キャッシュし、同じpathへの次回get_cachedが上流へ問い合わせずTileNotFoundを
+    # 返せることを確認する。
+    import httpx
+
+    from app.infrastructure.jma_tile_client import TileNotFound
+
+    request = httpx.Request("GET", "https://www.jma.go.jp/x")
+    response = httpx.Response(404, request=request)
+    http_client = FakeHttpClient(
+        b"", "text/plain",
+        raises=httpx.HTTPStatusError("404", request=request, response=response),
+    )
+    client = JmaTileClient(http_client)
+    path = "bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
+
+    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
+        await client.fetch(path)
+    cached = await client.get_cached(path)
+
+    assert isinstance(cached, TileNotFound)
+
+
+async def test_fetch_caches_404_for_target_times_path_too():
+    import httpx
+
+    from app.infrastructure.jma_tile_client import TileNotFound
+
+    request = httpx.Request("GET", "https://www.jma.go.jp/x")
+    response = httpx.Response(404, request=request)
+    http_client = FakeHttpClient(
+        b"", "text/plain",
+        raises=httpx.HTTPStatusError("404", request=request, response=response),
+    )
+    client = JmaTileClient(http_client)
+    path = "bosai/jmatile/data/risk/targetTimes.json"
+
+    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
+        await client.fetch(path)
+    cached = await client.get_cached(path)
+
+    assert isinstance(cached, TileNotFound)
+
+
 async def test_404_is_not_counted_as_an_error_in_debug_stats():
     # 改善計画T603: 404は珍しくない正常系のため、他の失敗（タイムアウト・5xx等）と違い
     # /api/debug/statsのerror集計・WARNINGログの対象にしない。
