@@ -1363,17 +1363,15 @@ export default function Home() {
   }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
-  // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
-  // 廃止に伴い比較対象から削除した。
   const currentWeightsKey = JSON.stringify({
     weights: weightOverrideEnabled ? { routePreference } : null,
-    // 改善計画T267: hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず
-    // 常に比較対象へ含める。
+    // hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず常に比較対象へ
+    // 含める。
     hardFilters,
   });
 
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
-  // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する、T31）
+  // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する）
   const conditionsDirty =
     generatedConditions != null &&
     routes.length > 0 &&
@@ -1392,19 +1390,19 @@ export default function Home() {
     setGenerationProgress(null);
     setErrorMessage(null);
     try {
-      // 改善計画T303: 送信直前にキー整合を補正する（上のコメント参照）。RouteSettingsPanel
-      // がマウント済みならこの時点で既にキーは一致しており synced は null になる。
-      // 改善計画T320: axisCatalog.defaultWeights自体がまだ軸スタジオの現在状態を反映して
-      // いない（axisCatalog.loaded===false、未取得・取得失敗）場合、この同期は静的フォール
-      // バック（既存7軸）に合わせてroutePreferenceを書き換えてしまい、実際の公開軸集合とは
-      // 無関係な値になる。この場合はroute_preference自体を省略し、backend側の既定値
-      // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）に委ねる方が安全。
+      // 送信直前にキー整合を補正する。RouteSettingsPanelがマウント済みならこの時点で
+      // 既にキーは一致しており synced は null になる。axisCatalog.defaultWeights自体が
+      // まだ軸スタジオの現在状態を反映していない（axisCatalog.loaded===false、未取得・
+      // 取得失敗）場合、この同期は静的フォールバック（既存7軸）に合わせてroutePreferenceを
+      // 書き換えてしまい、実際の公開軸集合とは無関係な値になる。この場合はroute_preference
+      // 自体を省略し、backend側の既定値（load_route_preference、常に最新の
+      // AXIS_DEFINITIONS由来）に委ねる方が安全。
       const syncedRoutePreference = axisCatalog.loaded
         ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
         : null;
-      // 改善計画T365-2: 周回モードでは経由地・目的地の値が残っていても送らない
-      // （モード切り替え自体は値を消さないため、地図上にピンが残っていても周回モード中は
-      // 無視する。地図表示もrouteMode==="destination"のときだけ、page.tsx→MapView.tsx参照）。
+      // 周回モードでは経由地・目的地の値が残っていても送らない（モード切り替え自体は
+      // 値を消さないため、地図上にピンが残っていても周回モード中は無視する。地図表示も
+      // routeMode==="destination"のときだけ、page.tsx→MapView.tsx参照）。
       // 目的地モードでは距離をRouteForm（distanceKm=0固定）から受け取らず、地図上の
       // 経由地・目的地から自動算出する。distance_kmはbackendのbbox見積り半径のほか、
       // 「起点から近すぎる=distance_km未満」バリデーション（routes.py:
@@ -1415,8 +1413,8 @@ export default function Home() {
         routeMode === "destination"
           ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
           : distanceKm;
-      // T616: 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数
-      // 文字列以外にはなり得ないため、そのままNumber化して使う。
+      // 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数文字列
+      // 以外にはなり得ないため、そのままNumber化して使う。
       const effectiveMaxRoutes = Number(maxRoutesInput);
       const effectiveAssumedSpeed = assumedSpeedKmh;
       const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
@@ -1426,9 +1424,9 @@ export default function Home() {
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
         penalty_strength: 1.0,
-        // 改善計画T267: hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が
-        // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
-        // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
+        // hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が常時操作する対象の
+        // ため、weightOverrideEnabledのような上書き専用トグルを介さず常に送る（既定値は
+        // backendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
         // RouteGenerateRequest.max_routesは既定値を持つがrequired
         // （distance_tolerance_km/penalty_strengthと同じ扱い）のため、モードに関わらず
@@ -1439,25 +1437,25 @@ export default function Home() {
         // レンズが軸を要求していれば、重み0でも区間表示のため風の時変化合成を行う（backend）。
         ...(lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? { lens_axis_id: lens } : {}),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
-        // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
-        // （backend側の分岐はapi/routers/routes.py参照）。
+        // 目的地モードのときだけ経由地・目的地を送る（backend側の分岐はapi/routers/
+        // routes.py参照）。
         ...(routeMode === "destination" && waypoints.length > 0 ? { waypoints } : {}),
         ...(routeMode === "destination" && destination ? { destination } : {}),
       }, setGenerationProgress);
-      // 改善計画T602: backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上の
-      // ピンも実際に使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの
-      // 終点がずれて見える）。
+      // backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上のピンも実際に
+      // 使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの終点が
+      // ずれて見える）。
       if (conditions.corrected_destination) {
         setDestination(conditions.corrected_destination);
       }
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
-      // 改善計画T550: 新しい候補集合に対して、それより前にクリックしていた区間の選択を
-      // 引き継がない（同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも
-      // 意味を失うため）。
+      // 新しい候補集合に対して、それより前にクリックしていた区間の選択を引き継がない
+      // （同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも意味を
+      // 失うため）。
       setSelectedRouteSegment(null);
-      // 改善計画T439: 新しい候補が用意できたことを「ルート結果」タブへ知らせる
-      // （モバイルのみ表示に使うが、状態自体はプラットフォーム非依存で立てる）。
+      // 新しい候補が用意できたことを「ルート結果」タブへ知らせる（モバイルのみ表示に
+      // 使うが、状態自体はプラットフォーム非依存で立てる）。
       setHasUnseenResults(candidates.length > 0);
       // dirty判定の基準は「いま表示している候補を作った条件」。エラー時は既存候補が
       // 残るため更新しない（tryの成功パスでのみ更新する）
@@ -1470,20 +1468,19 @@ export default function Home() {
         maxRoutesRelevant: routeMode === "loop" || (routeMode === "destination" && waypoints.length === 0),
         weightsKey: currentWeightsKey,
         routeMode,
-        // 改善計画T602: 補正があった場合は補正後の地点で比較する（地図上のピンも
-        // 補正後の地点へ動かしているため、conditionsDirtyが直後に誤ってtrueにならないように
-        // 揃える）。
+        // 補正があった場合は補正後の地点で比較する（地図上のピンも補正後の地点へ
+        // 動かしているため、conditionsDirtyが直後に誤ってtrueにならないように揃える）。
         waypointsKey: JSON.stringify({ waypoints, destination: conditions.corrected_destination ?? destination }),
         destinationCorrected: Boolean(conditions.corrected_destination),
       });
       setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
-        // 改善計画T441: バックエンドが原因を特定できた場合はそれを表示する
-        // （routeApi.ts: generateRoutes参照）。特定できない場合のみ従来の汎用文言。
+        // バックエンドが原因を特定できた場合はそれを表示する（routeApi.ts:
+        // generateRoutes参照）。特定できない場合のみ汎用文言。
         setErrorMessage(noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
       } else if (researchEnabled) {
         // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
-        // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立、改善計画T29）。
+        // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立）。
         // overall_difficulty最小（=candidates[0]）を比較代表候補として
         // 固定し、以降の候補選び直しでは変えない（スロット=生成結果のスナップショット）。
         setExperimentSlots((prev) => {
@@ -1506,8 +1503,7 @@ export default function Home() {
       const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
       // generateRoutes（routeApi.ts: postJson）自体の失敗は既にそちらでdebugLog記録済みだが、
       // ここに来る他の例外（候補構築中の想定外エラー等）も含め、ルート生成ハンドラの失敗として
-      // ここでも記録する（2026-08-24実機調査「fail to fetchがどこにもログされない」を受けて
-      // 監査、多層防御として残す）。
+      // ここでも記録する（多層防御）。
       debugLog("api:route", "ルート生成ハンドラで例外", { error: message }, "error");
       setErrorMessage(message);
     } finally {
@@ -1516,8 +1512,8 @@ export default function Home() {
     }
   }
 
-  // 改善計画T265: 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。
-  // queued（同時実行数上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
+  // 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。queued（同時実行数
+  // 上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
   // 既定文言（「生成中...」）に委ねる。
   const generationProgressLabel =
     generationProgress?.status === "queued"
@@ -1528,9 +1524,8 @@ export default function Home() {
 
   // 「ルート設定」見出し行の右側アクション（renderRouteResultHeaderActionsと同じ場所、
   // デスクトップはDisclosureのtrailing・モバイルはBottomSheetのheaderAction）。
-  // T616: 「ルート生成」ボタンをタブの中から見出し行へ移設した（重みづけタブを見ている間も
-  // タブを切り替えずに押せるようにするのが目的で、タブの外にさえあれば足りるため
-  // わざわざタブ内に置き続ける理由が無い）。
+  // 「ルート生成」ボタンをタブの外に置くことで、重みづけタブを見ている間もタブを
+  // 切り替えずに押せるようにする。
   function renderRouteSectionHeaderActions() {
     return (
       <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
@@ -1539,7 +1534,7 @@ export default function Home() {
     );
   }
 
-  // 「ルート設定」区分の中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
+  // 「ルート設定」区分の中身（天候・アプリ名は常設ヘッダにある）。
   // デスクトップの`Disclosure`（summary="ルート設定"）・モバイルの`BottomSheet`
   // （title="ルート設定"）の両方から呼ぶ。見出しはどちらも呼び出し元コンテナが持つため、
   // このセクション自身は見出しを持たない。
@@ -1565,8 +1560,8 @@ export default function Home() {
     );
   }
 
-  // 一般ユーザー向けルート設定（改善計画T267、目論見書4章）。0次(除外)・軸選択・重みを
-  // 生成前に調整できる、常時表示のメイン導線（route_preference・weightOverrideEnabledの
+  // 一般ユーザー向けルート設定。0次(除外)・軸選択・重みを生成前に調整できる、常時表示の
+  // メイン導線（route_preference・weightOverrideEnabledの
   // 状態はpage.tsx冒頭のstate宣言・handleGenerateのコメント参照）。renderRouteSectionBody
   // からのみ呼ばれ、見出しは持たない（呼び出し元コンテナが持つ、上記コメント参照）。
   function renderRouteSettingsSectionBody() {
@@ -1584,9 +1579,8 @@ export default function Home() {
     );
   }
 
-  // 改善計画T545フォローアップ（ユーザー指摘「ルートをクリアもルート結果ヘッダの右上
-  // 小さくでいい」）: 「ルート結果」見出し脇の情報アイコンと「ルートをクリア」を
-  // まとめて1つの右側アクション群にする。デスクトップ（見出し行）・モバイル
+  // 「ルート結果」見出し脇の情報アイコンと「ルートをクリア」をまとめて1つの右側
+  // アクション群にする。デスクトップ（見出し行）・モバイル
   // （BottomSheetのheaderAction）の両方から同じ中身を呼ぶ。routes.length===0の間は
   // どちらの呼び出し元も描画自体をスキップする（デスクトップはrenderRouteOutcomeSectionBody
   // 自体がnullを返す、モバイルは呼び出し側でroutes.lengthを見てheaderActionをundefinedにする）
@@ -1629,24 +1623,21 @@ export default function Home() {
 
   // 生成結果に関する表示（設定変更の警告・候補ごとの内訳・比較表・色分け設定、ルート設定は
   // 含まない）。モバイルの「ルート結果」タブ、デスクトップの「ルートを作る」ブロック後半から
-  // 呼ぶ（改善計画T300、旧renderRouteResultsBodyの後半を分離）。ユーザー指示（省スペース化）:
-  // 生成前はほぼ何も出さず、生成後は候補ごとの内訳・比較表を「タブで区切って」1画面に収める。
+  // 呼ぶ。生成前はほぼ何も出さず、生成後は候補ごとの内訳・比較表をタブで区切って1画面に
+  // 収める。
   //
-  // 改善計画T545: 「ルート選択（候補一覧+内訳をひとまとめにした1タブ）/比較」という2段の
-  // タブ構成をやめ、候補ごとのタブ＋「比較」タブという1段のフラットなタブ列へ再設計した
-  // （ユーザー指摘「ルート選択タブは不要、比較タブと同じ形でルートごとタブにして」）。
-  // 候補の切り替え（旧RouteList.tsx）とその候補の内訳表示（RouteAxisProfile）を、
-  // このタブ列自体が担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
+  // 「ルート結果」パネルの外側タブは、候補ごとのタブ＋「比較」タブという1段のフラットな
+  // タブ列。候補の切り替えとその候補の内訳表示（RouteAxisProfile）を、このタブ列自体が
+  // 担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
   //
-  // 改善計画T545フォローアップ: showHeadingはrenderRouteSettingsSectionBodyと同じ理由
-  // （見出しの二重表示回避）で使い分ける。デスクトップ（既定true）はこのセクション自身の
-  // 見出し「ルート結果」＋renderRouteResultHeaderActions()（情報アイコン＋ルートをクリア）を
-  // ここで描画する。モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つため
-  // showHeading=false で抑制し、同じrenderRouteResultHeaderActions()をBottomSheetの
-  // headerAction propとして呼び出し側（下のJSX）から渡す——「おすすめ度について」
-  // 「おすすめ度・総合難易度について」と分かれていた2箇所の説明はROUTE_RESULT_HINT 1本へ、
-  // 「ルートをクリア」はタブ列脇からヘッダ右上へ、それぞれ「ルート結果」セクション見出し
-  // 1箇所へ集約した（ユーザー実機指摘）。
+  // showHeadingはrenderRouteSettingsSectionBodyと同じ理由（見出しの二重表示回避）で
+  // 使い分ける。デスクトップ（既定true）はこのセクション自身の見出し「ルート結果」＋
+  // renderRouteResultHeaderActions()（情報アイコン＋ルートをクリア）をここで描画する。
+  // モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つためshowHeading=false で
+  // 抑制し、同じrenderRouteResultHeaderActions()をBottomSheetのheaderAction propとして
+  // 呼び出し側（下のJSX）から渡す——各候補・見出しごとに分散していた説明文は
+  // ROUTE_RESULT_HINT 1本へ、「ルートをクリア」はタブ列脇からヘッダ右上へ、それぞれ
+  // 「ルート結果」セクション見出し1箇所へ集約している。
   function renderRouteOutcomeSectionBody() {
     if (routes.length === 0) return null;
 
@@ -1663,9 +1654,9 @@ export default function Home() {
         {conditionsDirty && (
           <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
         )}
-        {/* 改善計画T602: 指定した目的地が自転車で行ける道路につながっていなかったため、
-            backendが最寄りのアクセス可能な地点へ補正して生成した場合の案内
-            （地図上のピンも補正後の地点へ動かす、handleGenerate参照）。 */}
+        {/* 指定した目的地が自転車で行ける道路につながっていなかったため、backendが
+            最寄りのアクセス可能な地点へ補正して生成した場合の案内（地図上のピンも
+            補正後の地点へ動かす、handleGenerate参照）。 */}
         {generatedConditions?.destinationCorrected && (
           <p className={styles.dirtyHint}>
             指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
@@ -1675,9 +1666,9 @@ export default function Home() {
           className={styles.outcomeTabs}
           value={outerTabValue}
           onValueChange={(value) => {
-            // 改善計画T550: 候補タブ・比較タブいずれへ切り替えても、以前の候補で
-            // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま
-            // 地図マーカー・内訳が残ると実態と食い違いを起こすため）。
+            // 候補タブ・比較タブいずれへ切り替えても、他候補でクリックしていた区間の
+            // 選択は引き継がない（別候補のedge_idを指したまま地図マーカー・内訳が残ると
+            // 実態と食い違いを起こすため）。
             setSelectedRouteSegment(null);
             if (value === SAVED_ROUTES_TAB_VALUE) return;
             if (value === "comparison") {
@@ -1692,25 +1683,18 @@ export default function Home() {
             <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
               {routes.map((route, index) => (
                 <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
-                  {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名はもっと簡潔に」）:
-                      総合難易度はタブの中身（RouteAxisProfileのスコア行）に既に出ている
-                      ため、タブ自体には候補を見分けるための順位・方向・距離だけを表示する
-                      （改善計画T548: 候補タブ自体の並び順もこの総合難易度の昇順）。 */}
-                  {/* 改善計画T531: 周回生成が8方位固定から軸重み駆動のフロンティア方式へ
-                      転換したことに伴い、同じ方位ラベルの候補が複数並びうるようになった
-                      （direction_labelは折返し地点の方位から表示専用に導出するだけで、
-                      候補選定の基準ではない）。並び順（overall_difficulty昇順）に沿った
-                      1始まりの順位番号を先頭に付け、方位が同じ候補どうしも見分けられる
-                      ようにする。 */}
-                  {/* 改善計画T364: 経由地ルート(route-waypoints)は候補が常に1件で
+                  {/* タブは候補を見分ける最小限の表記（順位番号・距離）だけを持つ。方位・
+                      難易度はタブの中身（RouteAxisProfile）に出るためここでは繰り返さない。
+                      並び順（overall_difficulty昇順）に沿った1始まりの順位番号を先頭に
+                      付け、方位が同じ候補どうしも見分けられるようにする（周回生成は軸重み
+                      駆動のフロンティア方式のため、同じ方位ラベルの候補が複数並びうる。
+                      direction_labelは折返し地点の方位から表示専用に導出するだけで、候補
+                      選定の基準ではない）。経由地ルート(route-waypoints)は候補が常に1件で
                       「方位」という概念が無いため、direction_label（固定文言、
-                      route_generator.py参照）をそのまま表示し順位番号も付けない。 */}
-                  {/* 改善計画T365/T551: 目的地ルート(route-destination-00形式、前方一致)は
-                      経由地を伴わなければvia-node方式で複数件になりうる。方位という概念は
-                      無いため「方向」は付けないが、複数件を見分けられるよう順位番号は付ける。 */}
-                  {/* タブは候補を見分ける最小限の表記（順位番号・距離）だけを持つ。方位・難易度は
-                      タブの中身（RouteAxisProfile）に出るためここでは繰り返さない。経由地ルートは
-                      常に1件で順位の概念が無いためdirection_label（固定文言）をそのまま出す。 */}
+                      route_generator.py参照）をそのまま表示し順位番号も付けない。目的地
+                      ルート(route-destination-00形式、前方一致)は経由地を伴わなければ
+                      via-node方式で複数件になりうる——方位という概念は無いため「方向」は
+                      付けないが、複数件を見分けられるよう順位番号は付ける。 */}
                   {NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
                     ? route.direction_label
                     : `${index + 1}`}{" "}
@@ -1718,8 +1702,8 @@ export default function Home() {
                 </Tabs.Trigger>
               ))}
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
-                  スロット2件未満の間は中身を持たない自己ガードを持つ（旧実装から変更なし、
-                  ComparisonPanel.tsx参照）ため、ここでスロット件数を重複判定しない。 */}
+                  スロット2件未満の間は中身を持たない自己ガードを持つ（ComparisonPanel.tsx
+                  参照）ため、ここでスロット件数を重複判定しない。 */}
               {showComparisonTab && (
                 <Tabs.Trigger className={styles.outcomeTabTrigger} value="comparison">
                   比較
@@ -1729,12 +1713,12 @@ export default function Home() {
           </div>
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
-              {/* 改善計画T550: 区間がクリックされている間（selectedRouteSegment）は、
-                  ルート全体の内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳
-                  （AxisContributionBar、ルート全体の内訳と同じ表示部品）を表示する。
-                  地図側のDETAIL_LAYER_ID/DETAIL_HIT_LAYER_IDは選択中候補（selectedCandidate）
-                  にしか描画されないため、区間クリックは常に現在アクティブなこのタブの
-                  ルートに対して起きる（他候補のタブが誤って区間詳細を出すことは無い）。 */}
+              {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
+                  内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳（AxisContributionBar、
+                  ルート全体の内訳と同じ表示部品）を表示する。地図側のDETAIL_LAYER_ID/
+                  DETAIL_HIT_LAYER_IDは選択中候補（selectedCandidate）にしか描画されない
+                  ため、区間クリックは常に現在アクティブなこのタブのルートに対して起きる
+                  （他候補のタブが誤って区間詳細を出すことは無い）。 */}
               {selectedRouteSegment ? (
                 <div className={styles.selectedSegmentPanel}>
                   <div className={styles.selectedSegmentHeader}>
