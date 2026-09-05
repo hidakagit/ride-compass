@@ -1,18 +1,16 @@
 "use client";
 
-// way_id→動的値配信層（風・勾配、改善計画T405→T414→T423）のフェッチ・状態管理。
+// way_id→動的値配信層（風・勾配）のフェッチ・状態管理。
 // useWeatherGrid.ts（風の詳細格子）のdetailGrid取得effectと同じ「viewportをデバウンスして
 // から、タイル単位でまとめてfetchする」パターンを踏襲する——パン・ズームのたびに個別way_idを
-// 都度問い合わせず、表示中のタイル範囲ぶんをまとめて1回のリクエストで取得するという設計方針
-// （T405.md）に沿う。enabledがOFFの間はfetchせず（他の外部APIと同じ「表示中のものだけ叩く」
-// 方針）、結果も空へ戻す。
+// 都度問い合わせず、表示中のタイル範囲ぶんをまとめて1回のリクエストで取得する。enabledが
+// OFFの間はfetchせず（他の外部APIと同じ「表示中のものだけ叩く」方針）、結果も空へ戻す。
 //
-// 改善計画T423（T411の実施）: 旧hooks/useWindAxisPenalties.tsを材料id駆動へ汎用化した
-// （風・勾配どちらもこのフックを使う）。`byTile`（材料id・タイルごとの生応答）を新たに
-// 返すようにした——評価軸グループ（線、setFeatureState）はway_id単位でマージした`values`を
-// 使えば足りるが、勾配の環境グループgridFill（gradientGridFill.ts）はタイル境界をセルとする
-// 面表示のため、タイル単位の生データが要る（風のgridFillは別経路[useWeatherGrid由来の格子点]
-// のためbyTileを使わない）。
+// 風・勾配どちらもこのフックを使う。`byTile`（材料id・タイルごとの生応答）は、評価軸
+// グループ（線、setFeatureState）向けにway_id単位でマージした`values`とは別に、勾配の
+// 環境グループgridFill（gradientGridFill.ts）がタイル境界をセルとする面表示のためタイル
+// 単位の生データを必要とすることから持つ（風はgridFillを持たずway_id単位のvaluesだけで
+// 足りるため、byTileは使わない）。
 
 import { useEffect, useRef, useState } from "react";
 import { mergeDynamicWayValues, tilesCoveringViewport, type TileXY } from "@/components/Map/dynamicWayValues";
@@ -35,7 +33,7 @@ export interface UseDynamicWayValuesResult {
   /** タイルごとの生応答（統合前）。環境グループのgridFill（タイル境界をセルとする面表示）が
    * タイル単位の集計に使う。 */
   byTile: readonly TileDynamicWayValues[];
-  /** 現在のビューポートぶんのフェッチが進行中か（改善計画T607）。falseへ戻るまでの間、
+  /** 現在のビューポートぶんのフェッチが進行中か。falseへ戻るまでの間、
    * まだ一度も値を受け取っていないway（feature-stateキー未設定）は「取得中」、フェッチ
    * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする
    * （valueScale.ts: COLOR_LOADING/COLOR_NO_DATA参照）。 */

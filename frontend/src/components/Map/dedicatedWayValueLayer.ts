@@ -39,7 +39,7 @@ export function dedicatedWayValueFeatureStateKey(axisId: string): string {
  * 値の取得元だけが呼び出し側で異なり、評価軸グループの線（feature-state経由）と環境
  * グループの面（勾配gridFill、["get",...]経由）が同じ配色・しきい値を共有する。`loading`は
  * まだ値を受け取っていない対象の色をCOLOR_LOADING（フェッチ進行中）とCOLOR_NO_DATA
- * （取得済みだが値が無い）のどちらにするか（改善計画T607、valueScale.ts参照）。 */
+ * （取得済みだが値が無い）のどちらにするか（valueScale.ts参照）。 */
 export function buildDedicatedWayValueColorExpression(
   valueExpression: unknown[],
   display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,

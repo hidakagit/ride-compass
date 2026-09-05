@@ -12,7 +12,7 @@ export type MapValueKind = "difficulty" | "signed_material";
 export const COLOR_EASY = "#16a34a";
 export const COLOR_HARD = "#dc2626";
 export const COLOR_NO_DATA = "#9ca3af";
-/** フェッチ進行中で、まだそのwayの値を一度も受け取っていない状態の色（改善計画T607）。
+/** フェッチ進行中で、まだそのwayの値を一度も受け取っていない状態の色。
  * COLOR_NO_DATAより明るくし、「取得中」と「取得済みだが値が無い」を見分けられるようにする。 */
 export const COLOR_LOADING = "#d1d5db";
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
@@ -117,7 +117,7 @@ export function bandColorsFor(kind: MapValueKind, boundaries?: readonly number[]
 
 /** 値取得式を段階分けの色へ変換するMapLibre expression。値がnull（データ欠落・未取得）なら
  * `loading`に応じてCOLOR_LOADING（フェッチ進行中）またはCOLOR_NO_DATA（取得済みだが値が
- * 無い、改善計画T607）、それ以外は`["step", value, color0, boundary1, color1, ...]`。
+ * 無い）、それ以外は`["step", value, color0, boundary1, color1, ...]`。
  * `numericExpression`はstep式に渡す数値化済みの式（geojsonプロパティは`["to-number", ...]`で
  * 包む必要があり、feature-stateはそのままでよい）。null判定は数値化前の式で行う
  * （to-numberがnull→0へ変換してしまう前に判定するため）。 */

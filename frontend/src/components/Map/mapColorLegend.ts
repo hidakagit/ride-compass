@@ -1,5 +1,4 @@
-// 地図上の色分け凡例（ユーザー要望2026-08-31、「地図上の色付の凡例が欲しい。例えば、勾配ON
-// にした時に青くなる道路は何なのか、その度合いが分かればいい」）の共通型・ラベル生成。
+// 地図上の色分け凡例の共通型・ラベル生成。
 //
 // 色分けを実際に塗る側（axisLayers.ts: buildAxisRampColorExpression・
 // dedicatedWayValueLayer.ts: buildDedicatedWayValueColorExpression）とは別に、この凡例は「今どう塗られているか」を
@@ -27,12 +26,11 @@ export function rangeStepLabel(lower: number | null, upper: number | null, unit:
  * rangeStepLabelでラベル付けした凡例段階を組み立てる共通ロジック。dedicatedWayValueLayer.ts（風・勾配共通）が同じ「しきい値配列→段階ラベル+色」変換を必要とするため
  * ここへ集約する（設計原則2: 定数・変換ロジックの片側import）。
  *
- * ユーザー要望（2026-08-31「降水のように体感で分かる凡例ラベルを付けたい（色の指定は不要）」）:
  * `labels`（省略可、colors.length件）を渡すと、数値レンジ表記の前に体感ラベルを添える
- * （例:「強い向かい風（2〜6m/s）」）。渡さない場合は従来どおり数値レンジ表記のみ。
+ * （例:「強い向かい風（2〜6m/s）」）。渡さない場合は数値レンジ表記のみ。
  * `windLayer.ts: WIND_SPEED_LEGEND_LEVELS`・`precipitationNowcast.ts:
  * PRECIPITATION_INTENSITY_LEVELS`と違い色は手打ちにしない（呼び出し側が既存の
- * rampColorForBand自動生成をそのまま使う）——ユーザー指示により色指定機能は追加しない。 */
+ * rampColorForBand自動生成をそのまま使う。色指定機能は持たない設計）。 */
 export function buildRangeLegendBands(
   boundaries: readonly number[],
   colors: readonly string[],
