@@ -1773,10 +1773,9 @@ export function applySecondaryAxisCasingStyles(
 
 type StaticOverlayKey = string;
 
-// レイヤーごとのデータ取得状態（改善計画T87）の算出元となる(source, source-layer)対応表。
-// roadType/roadSurface（T165で「道路情報」から論理分割）/designation/tunnel/
-// oneway/車の圧迫感等のramp軸（T292でcar_stressも合流）は同じroad_surfaceタイルを
-// 再利用しているため（T59でroad_edgesが未構築の地点では、これらのレイヤーが同時に
+// レイヤーごとのデータ取得状態の算出元となる(source, source-layer)対応表。
+// roadType/roadSurface/designation/tunnel/oneway/車の圧迫感等のramp軸は同じroad_surface
+// タイルを再利用しているため（road_edgesが未構築の地点では、これらのレイヤーが同時に
 // empty/errorになるのが正しい挙動）、あえて同じ
 // sourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
 // source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
@@ -1785,13 +1784,13 @@ type StaticOverlayKey = string;
 // （MapView.dataStatus.test.ts）からbuildLayerDataSources(RAMP_AXES)経由で
 // 個別レイヤーのsourceIdを参照できるようexportしている。
 // 動的気象レイヤー（降水ナウキャスト・風・雷/竜巻・雷放電位置データ・キキクル4種）は
-// この表の対象外（改善計画T608）——実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で
+// この表の対象外——実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で
 // 行われ、結果をsetData/setTilesで流し込むだけのため、MapLibreのソースイベントは外部
 // フェッチの待ち時間・失敗を観測できない。データ取得状態は`useDynamicWeatherLayers.ts`が
 // 各要素のフェッチ自身のloading/errorから直接算出する（`dynamicWeatherDataStatus`）。
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
 
-// 改善計画T308: buildAxisOverlayLayers等と同じ理由で関数化。テスト
+// buildAxisOverlayLayers等と同じ理由で関数化してある。テスト
 // （MapView.dataStatus.test.ts）からbuild*(RAMP_AXES)として直接呼べるようexportしている。
 export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly LayerDataSource[] {
   return [
@@ -1804,7 +1803,7 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
-    // 二次軸rampレイヤー（T145b、改善計画T292でcar_stressも含む）はroad_surfaceタイルへ
+    // 二次軸rampレイヤー（car_stressを含む）はroad_surfaceタイルへ
     // 焼き込み済みのプロパティを読む（designation等と同じソース共有。
     // ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
     ...rampAxes.map((axis) => ({
@@ -1815,25 +1814,23 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
   ];
 }
 
-// レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus・
-// clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.ts（改善計画T123）に
-// 集約されている。buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と
-// 同じくこのファイルに残し、フックへ引数として渡す（フック側からMapView.tsxを逆import
-// しないため）。
+// レイヤーデータ状態（loading/empty/error）の算出・追跡（computeLayerDataStatus・
+// clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.tsに集約されている。
+// buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と同じくこのファイルに
+// 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
 
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を
 // 除いたものに、STATIC_OVERLAY_LAYERSの対象外であるDETAIL_HIT_LAYER_ID（ルート詳細区間の
-// 当たり判定専用レイヤー、改善計画T550。以前は見た目の線DETAIL_LAYER_ID自体を対象に
-// していたが、幅6pxの線そのものはモバイルでタップしづらいため幅24pxの当たり判定レイヤーへ
-// 差し替えた）・ROAD_TILE_LAYER_ID（路面）を加える（改善計画T83）。以前はhandleClick/
-// handleMouseMoveの2箇所に同一の8要素配列を手書きしており、STATIC_OVERLAY_LAYERSと
-// 合わせて三重管理だった。レイヤー追加時に片方だけ追記漏れすると「ポップアップは出るが
-// カーソルが変わらない」等の非対称な劣化が検知されず残る。
-// 二次軸rampレイヤー（T145b）はクリック時の内訳ポップアップ（recipeBreakdownPopup等）に
-// 対応する専用表示を持たないため、elevationと同様にクリック判定から除外する
-// （一次属性→軸スコアを遡る汎用インスペクタは改善計画T146のスコープ）。
-// exportはテスト専用（MapView.overlayFilters.test.ts、改善計画T478の回帰テスト）。
+// 当たり判定専用レイヤー。幅6pxの見た目の線DETAIL_LAYER_ID自体はモバイルでタップしづらいため、
+// 幅24pxの当たり判定専用レイヤーを別に持つ）・ROAD_TILE_LAYER_ID（路面）を加える。
+// handleClick/handleMouseMoveの両方が同じ対象レイヤー一覧を参照する必要があり、
+// STATIC_OVERLAY_LAYERSとも一致させる必要がある——レイヤー追加時にどこか1箇所だけ
+// 追記漏れすると「ポップアップは出るがカーソルが変わらない」等の非対称な劣化が
+// 検知されず残るため、この関数へ集約する。
+// 二次軸rampレイヤーはクリック時の内訳ポップアップ（axisInspectorPopup等）に
+// 対応する専用表示を持たないため、elevationと同様にクリック判定から除外する。
+// exportはテスト専用（MapView.overlayFilters.test.ts）。
 export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
   return [
     DETAIL_HIT_LAYER_ID,
