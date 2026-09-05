@@ -3,7 +3,7 @@
 「起点からの一対全最短経路木（公開軸の重み付きコスト）で目標距離の半分付近に到達する
 折返し点を、往路の軸的な良さの順に選び、往路と別の復路を探索して周回にし、距離許容範囲で
 フィルタして、overall_difficulty（絶対基準0-100の総合難易度）昇順の上位`max_routes`件を
-返す」という周回生成戦略（改善計画T531、フロンティア方式）を1箇所に持つ。
+返す」という周回生成戦略（フロンティア方式）を1箇所に持つ。
 折返し点の選定・経路計算・評価値（標高・風・路面）の取得方法はエンジン
 （`LoopRoutingEngine`実装）へ委譲する。現在の唯一の実装は`RoadGraphEngine`
 （自前Road Graph + rustworkx A*/scipy一対全Dijkstra、road_graph_engine.py参照）。
@@ -23,7 +23,7 @@
   復路（起点まで）の周回を引き、距離とエンジン固有の中間データを`TracedLoop`で返す。
   失敗はRoutingErrorをraiseする（その候補はスキップされる）
 - `select_via_nodes(context, destination, max_routes)`: 経由地の無い目的地ルート
-  （起点→目的地）のvia-node方式代替経路選定（改善計画T551）。互いに異なる経路を最大
+  （起点→目的地）のvia-node方式代替経路選定。互いに異なる経路を最大
   `max_routes`件、`TracedLoop`（`bearing=None`）のリストで返す。両方向の一対全木の
   経路復元だけで確定するため個々の候補が失敗することは無く、`select_loop_turnarounds`
   と違って戻り値がそのまま最終候補になる（`trace_loop_from_turnaround`に相当する
@@ -35,7 +35,7 @@
   棄却済み候補にDB/外部API問い合わせを浪費しないための2段階分割
 - `is_loop_too_similar(context, candidate, accepted)`: `candidate`が`accepted`
   （距離フィルタ・本判定を既に通過した候補群）のいずれかと、周回全体（往路＋復路、
-  進行方向は無視）でエンジン固有の閾値を超えて重複するか（改善計画T553）。
+  進行方向は無視）でエンジン固有の閾値を超えて重複するか。
   戦略層は`TracedLoop.data`の中身を知らないため、重複判定自体もエンジンへ委譲する
 """
 
@@ -64,9 +64,9 @@ logger = logging.getLogger("ridecompass.generate")
 
 # Road Graph取得bboxの半径ヒューリスティック（目標距離に対する比率）。折返し点は往路の
 # 実距離が目標の半分付近にあり、直線距離はそれより短い（実道路の迂回率は概ね1.3）ため、
-# 0.5ではなく0.4から始める（0.5だとbbox面積が旧8方位方式[1/3]比で2.25倍になり
-# prepare・メモリ・タイルキャッシュのヒット率に効く）。半径が足りない場合は一対全探索が
-# bboxで自然に切れ、リング（折返し候補の集合）が欠けるだけで壊れない。実測で調整する。
+# 0.5ではなく0.4から始める（0.5だとbbox面積が2.25倍になりprepare・メモリ・タイル
+# キャッシュのヒット率に効く）。半径が足りない場合は一対全探索がbboxで自然に切れ、
+# リング（折返し候補の集合）が欠けるだけで壊れないため、この値は経験的に調整してよい。
 TURNAROUND_RADIUS_RATIO = 0.4
 
 # 返す候補数の既定値と上限（APIの`max_routes`、api/routers/routes.py参照）。
@@ -94,13 +94,13 @@ def turnaround_pool_size(max_routes: int) -> int:
 
 @dataclass
 class LoopTurnaround:
-    """`select_loop_turnarounds`が返す折返し点候補（改善計画T531）。
+    """`select_loop_turnarounds`が返す折返し点候補。
 
     `bearing`は起点から見た折返し点の方位（表示ラベル用、候補選定には使わない）。
     `outbound_difficulty`は往路の距離加重平均difficulty（ランキング指標、0-100、
     算出不能ならNone）。`data`はエンジン固有の中間データ（復路探索に使う。往路の実距離
     [m]はエンジン固有データ側が持つ——road_graphエンジンでは`data.outbound_length_m`、
-    改善計画T557項目13で戦略層が読まない`outbound_distance_km`[km、同じ値の重複]を撤去）。
+    戦略層は距離[km]を独立に持たない）。
     """
 
     bearing: int
@@ -113,8 +113,8 @@ class TracedLoop:
     """trace_loop/trace_loop_from_turnaroundの結果。距離フィルタに必要な情報と、
     evaluate_loopsが完全なRouteCandidateを組み立てるためのエンジン固有の中間データを運ぶ。
 
-    改善計画T364: bearing=Noneは経由地(waypoints)指定ルートを表す。周回候補と異なり
-    「向き」という概念を持たず、ユーザーが指定した訪問順序をそのまま保持する必要がある
+    bearing=Noneは経由地(waypoints)指定ルートを表す。周回候補と異なり「向き」という
+    概念を持たず、ユーザーが指定した訪問順序をそのまま保持する必要がある
     （road_graph_engine.py: _build_best_candidateの逆回り合成をスキップする判定に使う）。
     """
 
@@ -129,7 +129,7 @@ class TracedLoop:
 
 def candidate_identity(bearing: int | None) -> dict[str, str]:
     """方位から候補のid・方位ラベルを導出する（エンジン非依存の共通命名規則）。
-    改善計画T364: bearing=None（経由地指定ルート）は固定のid・ラベルを返す。
+    bearing=None（経由地指定ルート）は固定のid・ラベルを返す。
     周回候補のidは`generate_loops`が最終順位で`route-00..`へ振り直す（同じ方位に複数の
     候補が並びうるため、方位由来のidは一意にならない）。"""
     if bearing is None:
@@ -177,19 +177,16 @@ class RouteGenerator:
 
     def __init__(self, engine: LoopRoutingEngine):
         self._engine = engine
-        # 改善計画T441: candidatesが空になったときの原因（人間可読な要約、下記の
-        # logger.warning行と同じ情報源）。呼び出し側（routes.py: _run_generate_job）が
+        # candidatesが空になったときの原因（人間可読な要約、下記のlogger.warning行と
+        # 同じ情報源）。呼び出し側（routes.py: _run_generate_job）が
         # RouteGenerateResponse.no_candidates_reasonへそのまま転記し、GUI（デバッグログ・
-        # 候補0件時のメッセージ）から確認できるようにする——実際に本番で「候補0件」が
-        # 発生した際、原因を切り分ける手段がサーバーログのSSH閲覧しか無かった実インシデント
-        # を受けて追加した。インスタンスは`api/dependencies.py: _build_route_generation_setup`
-        # がリクエストごとに新規生成するため、インスタンス属性として持っても並行リクエスト間で
-        # 競合しない。
+        # 候補0件時のメッセージ）から確認できるようにする。インスタンスは
+        # `api/dependencies.py: _build_route_generation_setup`がリクエストごとに
+        # 新規生成するため、インスタンス属性として持っても並行リクエスト間で競合しない。
         self.last_no_candidates_reason: str | None = None
-        # 改善計画T602: _generate_destination_routesが目的地をアクセス可能な最寄りNodeへ
-        # 補正した場合の実際の座標（補正が無ければNone）。last_no_candidates_reasonと同じ
-        # 経路でroutes.py: _run_generate_jobがGenerationConditions.corrected_destinationへ
-        # 転記する。
+        # _generate_destination_routesが目的地をアクセス可能な最寄りNodeへ補正した場合の
+        # 実際の座標（補正が無ければNone）。last_no_candidates_reasonと同じ経路で
+        # routes.py: _run_generate_jobがGenerationConditions.corrected_destinationへ転記する。
         self.last_destination_correction: Coordinates | None = None
 
     @property
@@ -224,7 +221,7 @@ class RouteGenerator:
             )
             return []
 
-        # 改善計画T531: 折返し点候補を往路の軸的な良さの順に選定する（一対全木、エンジン側）。
+        # 折返し点候補を往路の軸的な良さの順に選定する（一対全木、エンジン側）。
         pool_size = turnaround_pool_size(max_routes)
         select_started = time.monotonic()
         turnarounds = await self._engine.select_loop_turnarounds(
@@ -275,8 +272,8 @@ class RouteGenerator:
                     loop.bearing, loop.distance_km, distance_km, distance_tolerance_km,
                 )
                 continue
-            # 改善計画T553: 既に採用済みの候補と周回全体（往路＋復路、進行方向無視）で
-            # 重複しすぎる場合は棄却し、プールの次の折返し点候補へ進む（早期停止のn件
+            # 既に採用済みの候補と周回全体（往路＋復路、進行方向無視）で重複しすぎる
+            # 場合は棄却し、プールの次の折返し点候補へ進む（早期停止のn件
             # カウントもこのチェックを通過した候補数で数える、下のlen(traced)判定と同じ）。
             if traced and self._engine.is_loop_too_similar(context, loop, traced):
                 dedup_skipped += 1
@@ -310,9 +307,9 @@ class RouteGenerator:
         candidates = [self._with_axis_contributions(c) for c in candidates]
         candidates = [self._with_material_values(c) for c in candidates]
 
-        # 改善計画T548: 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）
-        # 昇順（易しい候補が先頭）。算出不能（None）の候補は末尾へ回す。改善計画T531:
-        # 小数1桁で比較し、同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
+        # 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）昇順
+        # （易しい候補が先頭）。算出不能（None）の候補は末尾へ回す。小数1桁で比較し、
+        # 同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
         candidates.sort(
             key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
         )
@@ -344,20 +341,20 @@ class RouteGenerator:
         max_routes: int = 1,
         start_time: datetime | None = None,
     ) -> list[RouteCandidate]:
-        """改善計画T364/T365: ユーザーが指定した経由地（中継地）を順に通る経路を生成する。
+        """ユーザーが指定した経由地（中継地）を順に通る経路を生成する。
 
         `generate_loops`の折返し点選定・距離許容フィルタとは独立した経路（経由地が
         あれば、目的は「近い距離の周回」ではなく「指定した地点を通ること」自体のため）。
         `distance_km`はRoad Graph取得bboxの見積り半径にのみ使う参考値で、実際の距離は
         経由地の配置で決まる（距離フィルタは行わない）。`destination`省略時は起点に
-        戻る周回（従来のT364挙動、常に1件）。
+        戻る周回（常に1件）。
 
-        改善計画T551: `destination`指定かつ経由地が無い（起点→目的地のみ）場合は
+        `destination`指定かつ経由地が無い（起点→目的地のみ）場合は
         `_generate_destination_routes`（via-node方式）が`max_routes`件の互いに異なる
         代替経路を返す。経由地が1つ以上ある場合はレグごとに代替案が組合せで増えるため、
-        v1では従来どおり`trace_loop`による単一経路のまま（`max_routes`は無視され、
-        `candidate_identity`とは別に終点到達後にid/direction_labelをroute-destination/
-        目的地ルートへ上書きする）。
+        `trace_loop`による単一経路のまま（`max_routes`は無視され、`candidate_identity`
+        とは別に終点到達後にid/direction_labelをroute-destination/目的地ルートへ
+        上書きする）。
         """
         if destination is not None and not waypoints:
             return await self._generate_destination_routes(origin, destination, distance_km, max_routes, start_time)
@@ -368,7 +365,7 @@ class RouteGenerator:
         self.last_no_candidates_reason = None
         end_point = destination if destination is not None else origin
         full_waypoints = [origin, *waypoints, end_point]
-        # 改善計画T365: bboxが目的地もカバーするよう、prepareへ渡す点集合に含める
+        # bboxが目的地もカバーするよう、prepareへ渡す点集合に含める
         # （経由地のみのbbox計算は`_bbox_covering_points`、road_graph_engine.py参照）。
         bbox_points = [*waypoints, destination] if destination is not None else waypoints
 
@@ -431,7 +428,7 @@ class RouteGenerator:
         start_time: datetime | None = None,
     ) -> list[RouteCandidate]:
         """経由地の無い目的地ルート（起点→目的地のみ）を、via-node方式で`max_routes`件
-        まで生成する（改善計画T551）。`generate_loops`のような候補ごとの再探索・失敗
+        まで生成する。`generate_loops`のような候補ごとの再探索・失敗
         スキップが無い（`select_via_nodes`が確定済みの経路だけを返す）ぶん、
         `generate_loops`より単純な「選定→評価」の2段階になる。
         """
@@ -458,8 +455,8 @@ class RouteGenerator:
         select_started = time.monotonic()
         traced = await self._engine.select_via_nodes(context, destination, max_routes)
         select_ms = round((time.monotonic() - select_started) * 1000)
-        # 改善計画T602: engineが目的地をアクセス可能な最寄りNodeへ補正した場合、その座標を
-        # 引き継ぐ（contextはengine実装ごとに異なりうるAny型のため、無い場合はNoneのまま）。
+        # engineが目的地をアクセス可能な最寄りNodeへ補正した場合、その座標を引き継ぐ
+        # （contextはengine実装ごとに異なりうるAny型のため、無い場合はNoneのまま）。
         self.last_destination_correction = getattr(context, "destination_correction", None)
         if not traced:
             logger.warning(
@@ -478,7 +475,7 @@ class RouteGenerator:
         candidates = [self._with_axis_difficulties(c) for c in candidates]
         candidates = [self._with_axis_contributions(c) for c in candidates]
         candidates = [self._with_material_values(c) for c in candidates]
-        # 改善計画T548と同じ規約: overall_difficulty昇順（算出不能はNone→末尾）。
+        # generate_loopsと同じ規約: overall_difficulty昇順（算出不能はNone→末尾）。
         candidates.sort(
             key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
         )
@@ -504,9 +501,9 @@ class RouteGenerator:
         failed: int,
         filtered_out: int,
     ) -> str:
-        """改善計画T441: generate_loopsが`traced`空で候補0件になったときの人間可読な要約を
-        組み立てる（logger.warningと同じ情報源から、RouteGenerateResponse.
-        no_candidates_reason用に生成する）。"""
+        """generate_loopsが`traced`空で候補0件になったときの人間可読な要約を組み立てる
+        （logger.warningと同じ情報源から、RouteGenerateResponse.no_candidates_reason用に
+        生成する）。"""
         parts = []
         if failed:
             parts.append(f"{failed}件の折返し候補で復路の探索に失敗しました（除外設定をご確認ください）")
@@ -533,7 +530,7 @@ class RouteGenerator:
     @staticmethod
     def _with_axis_difficulties(candidate: RouteCandidate) -> RouteCandidate:
         """segmentsのaxis_difficulties（区間ごとのaxis_id→difficulty）をルート全区間へ
-        集約し、overall_difficultyと対になるルート全体版を付与する（改善計画T402）。
+        集約し、overall_difficultyと対になるルート全体版を付与する。
         既存の`merge_axis_difficulties`（domain/route.py、_merge_segment_bin用に元々あった
         もの）を候補全区間に対して1回適用するだけで得られ、新しい計算式は不要。"""
         if not candidate.segments:
@@ -544,7 +541,7 @@ class RouteGenerator:
     @staticmethod
     def _with_axis_contributions(candidate: RouteCandidate) -> RouteCandidate:
         """segmentsのaxis_contributions（区間ごとのaxis_id→重み付き寄与度）をルート
-        全区間へ集約し、overall_difficultyの内訳として付与する（改善計画T550）。
+        全区間へ集約し、overall_difficultyの内訳として付与する。
         `_with_axis_difficulties`と同じ構造（`merge_axis_contributions`を候補全区間に
         1回適用するだけ）。合計は丸め誤差を除いてoverall_difficultyと一致する
         （domain/evaluation.py: compose_costs_from_axis_matrixのdocstring参照）。"""
