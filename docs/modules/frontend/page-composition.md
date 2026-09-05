@@ -192,7 +192,8 @@ destinationCorrected`、[T602](../../tasks/T602.md)）。補正時は地図上�
 
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
 「保存」「GPX出力」（機能未実装のdisabled占位、`SaveIcon`/`DownloadIcon`）・「ルートをクリア」
-（`handleRoutesClear`）・総合難易度の説明（`ROUTE_RESULT_HINT`）をこの順で横並びにする
+（`ClearAllLayersIcon`のアイコンボタン、`handleRoutesClear`）・総合難易度の説明
+（`ROUTE_RESULT_HINT`）をこの順で横並びにする
 （候補タブ・`RouteAxisProfile`側には置かない）。デスクトップは「ルート結果」`Disclosure`の
 `trailing`、モバイルはBottomSheetの`headerAction`propとして同じヘルパーを渡す
 （`routes.length > 0`の間のみ）。候補タブ列のvalue体系はroute id・`"comparison"`・
