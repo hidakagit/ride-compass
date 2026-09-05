@@ -55,6 +55,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
         accident: (i * 37) % 100,
         night: (i * 41) % 100,
       },
+      material_values: {},
       axis_contributions: {
         gradient: (i * 7) % 100,
         wind: (i * 13) % 100,
@@ -87,6 +88,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),
       overall_difficulty: 45.6,
       axis_difficulties: {},
+      material_values: {},
       axis_contributions: {},
     });
   }

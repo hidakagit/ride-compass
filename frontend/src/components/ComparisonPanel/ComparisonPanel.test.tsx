@@ -20,6 +20,7 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     segments: null,
     overall_difficulty: null,
     axis_difficulties: {},
+    material_values: {},
     axis_contributions: {},
     ...overrides,
   };
