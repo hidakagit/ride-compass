@@ -410,6 +410,7 @@ function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate 
     max_elevation_m: null,
     segments: null,
     overall_difficulty: null,
+    difficulty_load: null,
     axis_difficulties: {},
     material_values: {},
     axis_contributions: {},

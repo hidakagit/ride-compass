@@ -1,4 +1,4 @@
-"""既存の一次属性・二次軸をレジストリ（domain/registry.py）へ登録する既定セット（改善計画T137）。
+"""既存の一次属性・二次軸をレジストリ（domain/registry.py）へ登録する既定セット。
 
 `register_defaults()`を呼ぶと、一次属性（このファイルに固定の手書きカタログとして残る、
 OSM/政府統計等の実際のデータ取込パイプラインが提供する有限集合で、軸スタジオの編集対象
@@ -8,30 +8,24 @@ OSM/政府統計等の実際のデータ取込パイプラインが提供する�
 空/一部登録済みのどちらの状態にもなりうり壊れやすいため）。
 
 **実際の呼び出し元は`scripts/export_openapi.py`（ビルド時、`axis-catalog.json`等の生成物
-書き出し用）とテストのみで、FastAPIアプリ本体は起動時に呼ばない**（改善計画T142の
-コスト関数`compute_edge_axis_scores`はこのレジストリを一切参照しない。詳細は
-docs/architecture.md「一次属性レジストリ・二次軸レジストリ」節・改善計画T154参照）。
+書き出し用）とテストのみで、FastAPIアプリ本体は起動時に呼ばない**（コスト関数
+`compute_edge_axis_scores`はこのレジストリを一切参照しない。詳細は
+docs/architecture.md「一次属性レジストリ・二次軸レジストリ」節参照）。
 本レジストリが実際に駆動するのは、地図レイヤーパネル・凡例・区間インスペクタが読む
 表示カタログ（`axis-catalog.json`）の生成のみ。
 
-**改善計画T320: 二次軸の登録を軸id直書きの手動列挙からAXIS_DEFINITIONS走査へ一本化**。
-以前は`car_stress`・`night`等6軸ぶんを1軸ずつ`if axis_id in AXIS_DEFINITIONS: register_axis(
-AxisSpec(axis_id="gradient", ...))`のように手書きしており、①組み込み軸がAXIS_DEFINITIONS
-から削除されるとKeyErrorでビルド自体が落ちる、②新規に軸スタジオへ追加された軸はこの
-一覧に含まれずビルド時静的生成物（`axis-catalog.json`）へ永遠に現れない、という2つの
-不整合があった（後者は`scripts/export_openapi.py`側の`_auto_ramp_axes`という重複した
-別ループで部分的に穴埋めしていたが、これ自体が「同じロジックの二重実装」という別の問題
-だった）。`_register_axes()`は`AXIS_DEFINITIONS`をそのまま走査し、公開軸すべてを
-（軸id・軸の数を一切コードへ書かずに）登録する形へ書き換えた。`display`・`inputs`
-（参照する一次属性id）は`domain/axis_display.py: axis_display_for()`・
-`primary_attribute_ids_for()`（`GET /api/axis-catalog`が実行時に使うのと同一の純粋関数、
-片側import）から導出するため、ビルド時静的生成物と実行時APIの計算ロジックが完全に一致する。
+二次軸の登録は`AXIS_DEFINITIONS`走査への一本化により、軸id・軸の数を一切コードへ
+書かない。`_register_axes()`は`AXIS_DEFINITIONS`をそのまま走査し、公開軸すべてを
+登録する。`display`・`inputs`（参照する一次属性id）は`domain/axis_display.py:
+axis_display_for()`・`primary_attribute_ids_for()`（`GET /api/axis-catalog`が実行時に
+使うのと同一の純粋関数、片側import）から導出するため、ビルド時静的生成物と実行時APIの
+計算ロジックが完全に一致する。
 
-**表示名（label）等の単一ソース化（改善計画T270フォローアップ・T320）**: `label`・
+**表示名（label）等の単一ソース化**: `label`・
 `description`（`AxisDisplaySpec`側の`category`はここでは持たない——地図レイヤーパネルの
-グルーピング用の別概念だったが、`axis_display_for()`は自動導出時に既定値
+グルーピング用の別概念だが、`axis_display_for()`は自動導出時に既定値
 `category="trafficSafety"`を使うため、軸ごとの個別分類は現状表現しない）は
-`domain/axis_definitions.py: AXIS_DEFINITIONS[axis_id]`（T269でDB化・軸スタジオでGUI
+`domain/axis_definitions.py: AXIS_DEFINITIONS[axis_id]`（DB化・軸スタジオでGUI
 編集可能）を単一ソースとする。
 
 **この単一ソース化が解決しない範囲**: `register_defaults()`はビルド時
@@ -61,11 +55,8 @@ def register_defaults() -> None:
 
 
 def _register_primary_attributes() -> None:
-    # 死コード監査（過去の監査）で、各PrimaryAttributeSpecからsource/geometry/dtype/
-    # update_cadence/description/ingest_fnを削除した（唯一の消費者export_openapi.pyは
-    # attr_id/label/sharedの3つしか書き出しておらず、これらは宣言されているだけで
-    # 実際には誰にも消費されていなかった。詳細はdomain/registry.py: PrimaryAttributeSpec
-    # docstring参照）。
+    # 各PrimaryAttributeSpecはattr_id/label/sharedのみを持つ（詳細はdomain/registry.py:
+    # PrimaryAttributeSpec docstring参照）。
     register_primary_attribute(PrimaryAttributeSpec(attr_id="highway", label="道路の種類"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="lanes", label="車線数"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度"))
@@ -73,7 +64,7 @@ def _register_primary_attributes() -> None:
         PrimaryAttributeSpec(
             attr_id="cycleway",
             label="自転車インフラ",
-            # 改善計画T347: highway_is_cycleway/cycleway_has_track/cycleway_has_lane/
+            # highway_is_cycleway/cycleway_has_track/cycleway_has_lane/
             # cycleway_has_sharedの4材料は、car_stress軸（内部のcar_stress_bicycle_infra_
             # adjustment経由）と、新設の公開軸bicycle_infra_qualityの両方が正当に参照する
             # （後者はcar_stressの内部補正とほぼ同一の重みを再利用した「ニアリーイコールの
@@ -106,8 +97,8 @@ def _register_primary_attributes() -> None:
 
 
 def _register_axes() -> None:
-    """公開済みの評価軸すべてを、AXIS_DEFINITIONSをそのまま走査してレジストリへ登録する
-    （改善計画T320）。特定のaxis_idを名指しした条件分岐は持たない——`is_published`という
+    """公開済みの評価軸すべてを、AXIS_DEFINITIONSをそのまま走査してレジストリへ登録する。
+    特定のaxis_idを名指しした条件分岐は持たない——`is_published`という
     軸横断の性質だけで判定するため、組み込み軸が増減しても・軸スタジオ経由でGUI作成軸が
     増えても、このループ自体は変更不要（詳細はモジュールdocstring参照）。
 

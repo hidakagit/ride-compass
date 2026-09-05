@@ -137,6 +137,11 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   （`RouteCandidate.axis_difficulties`、四捨五入）」の行で並べる。この候補を評価した重み
   （生成時点の`route_preference`）が0の軸は「未使用」バッジ付きで薄く残し、値が無い軸は
   「データなし」を示す。選択操作は持たない（地図の色分けは`LensControl`）。
+- **負荷（難易度×距離）**: `RouteCandidate.difficulty_load`を総合難易度の隣へ併記する
+  （(i)で意味を説明する）。総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
+  「難所を通っても短いルート」と「遠回りで易しいルート」を見比べるための値
+  （[評価・スコアリング](../backend/evaluation-scoring.md)「ルート単位の集約」節参照）。
+  候補の並び順には影響しない。
 - **総合難易度**: `RouteCandidate.overall_difficulty`（絶対基準0-100の軸重み付き合成値）を
   表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順
   もこの値の昇順（backend `route_generator.py`が返す`routes`配列の並び順をそのまま使う、
