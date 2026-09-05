@@ -11,6 +11,7 @@ import {
 } from "./dedicatedWayValueLayer";
 import {
   COLOR_HARD,
+  COLOR_LOADING,
   COLOR_NO_DATA,
   COLOR_SIGNED_LOW,
   DEFAULT_DIFFICULTY_BOUNDARIES,
@@ -46,6 +47,12 @@ describe("dedicatedWayValueLayer", () => {
     it("表示宣言を省略すると難易度スケール（軸カタログ取得前の既定）になる", () => {
       const step = dedicatedWayValueColorExpression("wind")[3] as unknown[];
       expect(step).toHaveLength(3 + DEFAULT_DIFFICULTY_BOUNDARIES.length * 2);
+    });
+
+    it("loading省略時・falseはCOLOR_NO_DATA、trueはCOLOR_LOADINGへ倒す（改善計画T607）", () => {
+      expect(dedicatedWayValueColorExpression("wind", difficultyDisplay)[2]).toBe(COLOR_NO_DATA);
+      expect(dedicatedWayValueColorExpression("wind", difficultyDisplay, false)[2]).toBe(COLOR_NO_DATA);
+      expect(dedicatedWayValueColorExpression("wind", difficultyDisplay, true)[2]).toBe(COLOR_LOADING);
     });
   });
 

@@ -1437,10 +1437,10 @@ export function shouldClearDedicatedWayValueFeatureState(showWindAxis: boolean, 
 // 受け取れるようにした（以前はboundaries引数を渡す経路が無く、常にビルド時既定値
 // 既定しきい値へフォールバックしていた）。表示宣言は実行時フェッチで後から
 // 変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する（T587）。
-function makeEnsureGradientFillLayer(display?: DedicatedWayValueDisplay) {
+function makeEnsureGradientFillLayer(display?: DedicatedWayValueDisplay, loading = false) {
   return (map: MapLibreMap) => {
     const applyData = () => {
-      const colorExpression = gradientFillColorExpression(display);
+      const colorExpression = gradientFillColorExpression(display, loading);
       if (map.getLayer(GRADIENT_FILL_LAYER_ID)) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         map.setPaintProperty(GRADIENT_FILL_LAYER_ID, "fill-color", colorExpression as any);
@@ -1765,10 +1765,15 @@ export function buildStaticOverlayLayers(
   // 改善計画T473: `dedicated_way_value_layer`軸（wind/gradient）のdisplay_thresholds_override
   // を軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueDisplays
   // 参照、以前はgradientBoundaries/windBoundariesという軸ごとの別名引数だった）。
-  dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>
+  dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>,
+  // 改善計画T607: 同じ軸id→booleanの汎用Mapとして、フェッチ進行中かどうかを受け取る
+  // （MapViewProps.dedicatedWayValueLoading参照）。
+  dedicatedWayValueLoading?: ReadonlyMap<string, boolean>
 ): readonly OverlayLayerEntry[] {
   const gradientDisplay = dedicatedWayValueDisplays?.get("gradient");
   const windDisplay = dedicatedWayValueDisplays?.get("wind");
+  const gradientLoading = dedicatedWayValueLoading?.get("gradient") ?? false;
+  const windLoading = dedicatedWayValueLoading?.get("wind") ?? false;
   return [
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
     // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
@@ -1780,11 +1785,11 @@ export function buildStaticOverlayLayers(
     // 改善計画T405/T440/T466: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。
-    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, dedicatedWayValueColorExpression("wind", windDisplay)) },
+    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, dedicatedWayValueColorExpression("wind", windDisplay, windLoading)) },
     // 改善計画T423/T440/T443: way_id→勾配配信層（評価軸グループとしての勾配）。
-    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, dedicatedWayValueColorExpression("gradient", gradientDisplay)) },
+    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, dedicatedWayValueColorExpression("gradient", gradientDisplay, gradientLoading)) },
     // 改善計画T423/T443: 環境グループの勾配gridFill（タイル境界セル）。
-    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientDisplay) },
+    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientDisplay, gradientLoading) },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -2234,6 +2239,12 @@ interface MapViewProps {
    * 難易度スケールの既定（dedicatedWayValueLayer.ts: DEFAULT_DEDICATED_WAY_VALUE_DISPLAY）
    * へフォールバックする。 */
   dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>;
+  /** `dedicated_way_value_layer`軸ごとのフェッチ進行中フラグ（改善計画T607、
+   * hooks/useDynamicWayValues.ts: loading）をaxisId→booleanの汎用Mapとして受け取る。
+   * dedicatedWayValueDisplaysと同じ理由（design-principles.md構造仕様3: 軸ごとにpropを
+   * 新設しない）で、windLoading/gradientLoadingのような別名propは持たない。未設定の軸idは
+   * false（フェッチ中でない）扱い。 */
+  dedicatedWayValueLoading?: ReadonlyMap<string, boolean>;
   /** 改善計画T423: 環境グループの勾配gridFill。showGradientFillは
    * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
    * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDynamicWayValues.ts:
@@ -2350,6 +2361,7 @@ export default function MapView({
   showGradientAxis,
   dedicatedWayValues,
   dedicatedWayValueDisplays,
+  dedicatedWayValueLoading,
   showGradientFill,
   gradientFillGeojson,
   showAccidents,
@@ -2399,8 +2411,8 @@ export default function MapView({
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
   const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
   const staticOverlayLayers = useMemo(
-    () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedWayValueDisplays),
-    [axisOverlayLayers, dedicatedWayValueDisplays]
+    () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedWayValueDisplays, dedicatedWayValueLoading),
+    [axisOverlayLayers, dedicatedWayValueDisplays, dedicatedWayValueLoading]
   );
   const interactiveLayerIds = useMemo(
     () => buildInteractiveLayerIds(staticOverlayLayers),

@@ -885,4 +885,4 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 ## キキクル4種・風/勾配road-value系レイヤーのデータ取得状態（読込中/データなし/失敗）可視化（2026-09-05・ユーザー指摘「風とかも今は読込待ちなのか区別がつかない」から）
 
 - [x] [T606](tasks/T606.md). キキクル4種を地図上チップ化しdataStatusドット機構をMapOverlayControlsへ拡張 規模M（2026-09-05完了。キキクル4種[土砂災害/大雨/浸水/洪水]をT432の常時マウント方針から他の環境グループ気象レイヤーと同じチップ付き表現へ戻し、LayerChipのdataStatusドット機構をMapOverlayControls.tsxのChipButtonへ拡張。風/勾配road-value系レイヤーの読込状態可視化は[T607](tasks/T607.md)へ分離）
-- [ ] [T607](tasks/T607.md). 風/勾配road-value系レイヤーのデータ取得状態（読込中/データなし）可視化 規模S（T606から分離、未着手）
+- [x] [T607](tasks/T607.md). 風/勾配road-value系レイヤーのデータ取得状態（読込中/データなし）可視化 規模S（2026-09-05完了。`COLOR_NO_DATA`と対になる`COLOR_LOADING`を導入し、`useDynamicWayValues.ts`のloadingフラグに応じて地図の色分けそのもので読込中/データなしを区別する。`dedicatedWayValueLoading`はdedicatedWayValueDisplaysと同じ軸id→値の汎用Mapとして配線）

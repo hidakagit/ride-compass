@@ -90,14 +90,17 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
 かつ`!hasDetail`）。中身は`RouteSettingsPanel`と同じ`WindBearingSlider`ダイヤルを
 Radix Popoverで開く。
 
-**暗黙の前提**: `windAxisPenalties`・`gradientAxisValues`・`gradientFillGeojson`（way_id/
-タイル単位の実データ本体）は`MapView.tsx`の`MapViewProps`上で軸ごとに個別に型付けされた
-propとして渡されている（汎用的な「軸id→値」の1つのpropにまとまっていない）。一方、
-表示宣言（種類・単位・しきい値・段階ラベル、軸カタログ由来）は
-`dedicatedWayValueDisplays: ReadonlyMap<string, DedicatedWayValueDisplay>`という1つの汎用propに
-まとまっている。`page.tsx`が`axisCatalog.axes`から`dedicatedWayValueLayer===true`の軸を
-横断的に抽出して構築するため、`dedicated_way_value_layer`軸が増えてもこのprop自体の
-変更は不要。
+**暗黙の前提**: way_id単位の実データ本体（`dedicatedWayValues: ReadonlyMap<axisId,
+ReadonlyMap<wayId, value>>`）・フェッチ進行中フラグ（`dedicatedWayValueLoading:
+ReadonlyMap<axisId, boolean>`、改善計画T607）・表示宣言（`dedicatedWayValueDisplays:
+ReadonlyMap<axisId, DedicatedWayValueDisplay>`）は、いずれも`MapView.tsx`の`MapViewProps`上で
+軸id→値の1つの汎用propにまとまっている（design-principles.md構造仕様3「軸ごとにpropを
+新設しない」）。`page.tsx`が`axisCatalog.axes`から`dedicatedWayValueLayer===true`の軸を
+横断的に抽出して構築するため、`dedicated_way_value_layer`軸が増えてもこれらのprop自体の
+変更は不要。一方`gradientFillGeojson`（タイル単位に集計済みの環境グループgridFill本体）は
+勾配専用の個別propのまま残っている——風は独立した空間フィールドを持たずgridFill表現自体を
+持たないため（[map-axis-coloring.md](map-axis-coloring.md)「gradientGridFill.ts」節参照）、
+風・勾配で対称な汎用化の対象にならない。
 
 ## 状態の永続化（`hooks/useStoredState.ts`）
 

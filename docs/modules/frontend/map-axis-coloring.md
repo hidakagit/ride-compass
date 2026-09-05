@@ -88,8 +88,9 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
   符号付き材料は`COLOR_SIGNED_LOW→COLOR_HARD`）。
 - `interpolateColors(colorLow, colorHigh, count)`: 2色の間をHSL色空間でcount色に均等
   補間する（固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する）。
-- `buildSteppedColorExpression(valueExpression, kind, boundaries?, numericExpression?)`:
-  null→`COLOR_NO_DATA`、それ以外は`["step", ...]`の色式。
+- `buildSteppedColorExpression(valueExpression, kind, boundaries?, numericExpression?, loading?)`:
+  null→`loading`がtrueなら`COLOR_LOADING`（フェッチ進行中でまだ値を受け取っていない）、
+  falseなら`COLOR_NO_DATA`（取得済みだが値が無い）。それ以外は`["step", ...]`の色式。
 
 ## routeStyleModes.ts（ルート確定後）
 
@@ -119,11 +120,11 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
   未設定の軸は`DEFAULT_DEDICATED_WAY_VALUE_DISPLAY`（難易度スケール・単位なし）。
 - `dedicatedWayValueFeatureStateKey(axisId)`: setFeatureStateのキー（`${axisId}Value`）。
   同じ路面タイルソースの地物へ複数の軸が値を持つため軸idごとに異なる。
-- `buildDedicatedWayValueColorExpression(valueExpression, display)`: 値の取得元
+- `buildDedicatedWayValueColorExpression(valueExpression, display, loading?)`: 値の取得元
   （feature-state or geojsonプロパティ）だけが呼び出し側で異なる共通ロジック。評価軸
   グループ（`dedicatedWayValueColorExpression`、feature-state経由）と環境グループの
   gradientFill（`["get",...]`経由）が同じ配色・しきい値を共有する契約をコード上で1箇所に
-  集約する。
+  集約する。`loading`は`buildSteppedColorExpression`へそのまま渡す（後述）。
 - `dedicatedWayValueLegend(display)`: 同じ配色・しきい値から地図上の凡例
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
   `display_band_labels_override`）は要素数が段階数と一致する間だけ数値レンジの前に添える
@@ -143,9 +144,13 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 （`gradientGridCellsFromTileResponses`、追加のAPI呼び出し無し）。セルの単位はタイル境界
 そのもの（`tileRing`）。
 
-`gradientFillColorExpression(display?)`は評価軸グループ（`dedicatedWayValueColorExpression`）と
-同じ`dedicatedWayValueDisplays`（`.get("gradient")`）を`MapView.tsx`側
-（`makeEnsureGradientFillLayer`）で受け取り、両者が同じ配色・しきい値を共有する。
+`gradientFillColorExpression(display?, loading?)`は評価軸グループ
+（`dedicatedWayValueColorExpression`）と同じ`dedicatedWayValueDisplays`（`.get("gradient")`）・
+`dedicatedWayValueLoading`（`.get("gradient")`）を`MapView.tsx`側
+（`makeEnsureGradientFillLayer`）で受け取り、両者が同じ配色・しきい値・読込状態を共有する。
+このレイヤーは値を持つタイルだけをfeatureとして含む（`gradientGridCellsFromTileResponses`）
+ため、`COLOR_LOADING`/`COLOR_NO_DATA`の分岐が実際の描画へ現れることは無い
+（feature自体が存在しないタイルは透明のまま）。
 
 ## useDynamicWayValues.ts（フェッチ・状態管理）
 
@@ -156,12 +161,17 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 入れるとドラッグ1回で「可視タイル数×連続イベント数」ぶんのfetchが発生してしまうため。
 `enabled=false`の間はfetchせず結果も空へ戻す。
 
-戻り値は2種類:
+戻り値は3種類:
 
 - `values: ReadonlyMap<number, number>`（way_id→値、複数タイル統合済み）——評価軸
   グループの`setFeatureState`にそのまま使える。
 - `byTile: TileDynamicWayValues[]`（タイルごとの生応答）——勾配の環境グループgridFill
   （タイル境界セル）が使う。風は環境グループのgridFillを持たないため`byTile`は使わない。
+- `loading: boolean`（現在のビューポートぶんのフェッチが進行中か、改善計画T607）——
+  `values`は古い値をそのまま残す設計（パン・ズームで一部way_idが最新の応答に含まれなく
+  なっても明示的に消さない）ため、`loading`だけを見て「まだ一度も値を受け取っていない
+  wayが読込中なのか、取得済みだが値が無いのか」を呼び出し側（`valueScale.ts`の
+  `COLOR_LOADING`/`COLOR_NO_DATA`）が判定する。
 
 `materialId`（"wind"/"gradient"）ごとに呼び出し側（`page.tsx`）が別々にこのフックを
 インスタンス化する。連続する呼び出しの間に古いリクエストが後から解決しても新しい結果を
@@ -176,13 +186,15 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 ```
 page.tsx
   ├─ useDynamicWayValues("wind", showWindAxis, viewport, travelBearingDeg, targetTime)
-  │     → windAxisData.values (ReadonlyMap<wayId, value>)
+  │     → windAxisData.values / .loading (ReadonlyMap<wayId, value> / boolean)
   ├─ useDynamicWayValues("gradient", showGradientAxis||showGradientFill, viewport, travelBearingDeg, undefined)
-  │     → gradientAxisData.values / gradientFillPayload(gradientGridCellsFromTileResponses経由)
+  │     → gradientAxisData.values / .loading / gradientFillPayload(gradientGridCellsFromTileResponses経由)
   ├─ dedicatedWayValues = Map(["wind", windAxisData.values], ["gradient", gradientAxisData.values])
+  ├─ dedicatedWayValueLoading = Map(["wind", windAxisData.loading], ["gradient", gradientAxisData.loading])
   ▼
-<MapView dedicatedWayValues={...} gradientFillGeojson={...} .../>
-  ├─ makeEnsureDedicatedWayValueLayer(layerId, colorExpression)（色式はdedicatedWayValueDisplaysから）
+<MapView dedicatedWayValues={...} dedicatedWayValueLoading={...} gradientFillGeojson={...} .../>
+  ├─ makeEnsureDedicatedWayValueLayer(layerId, colorExpression)（色式はdedicatedWayValueDisplays・
+  │     dedicatedWayValueLoadingから）
   │     → windAxis/gradientAxisレイヤーをroad_surfaceタイルの独立レイヤーとして初回のみ追加
   │       （ensureRoadSurfaceTileLayerが先にpromoteId付きsourceを用意している前提）
   ├─ dedicatedWayValuesのエントリを1つのeffectでループし、各軸へ
@@ -215,12 +227,13 @@ page.tsx
   ままになる）。
 
 `dedicatedWayValues`は`MapViewProps`上、`ReadonlyMap<axisId, ReadonlyMap<wayId, value>>`
-という1つの汎用propにまとまっている（`dedicatedWayValueDisplays`と同じく、
-design-principles.md構造仕様3「軸ごとにpropを新設しない」に沿う）。`useDynamicWayValues`
-自体はmaterialIdごとに個別インスタンス化する設計（デバウンス・レース対策がaxis間で
-独立している必要があるため）で、汎用propへまとまっているのはpage.tsxがMapViewへ渡す
-直前の形状だけである。feature-stateキーは`dedicatedWayValueFeatureStateKey(axisId)`で
-軸idから機械的に導出するため、軸ごとの対応表は持たない。
+という1つの汎用propにまとまっている（`dedicatedWayValueDisplays`・`dedicatedWayValueLoading`
+（`ReadonlyMap<axisId, boolean>`、改善計画T607）と同じく、design-principles.md構造仕様3
+「軸ごとにpropを新設しない」に沿う）。`useDynamicWayValues`自体はmaterialIdごとに
+個別インスタンス化する設計（デバウンス・レース対策がaxis間で独立している必要があるため）で、
+汎用propへまとまっているのはpage.tsxがMapViewへ渡す直前の形状だけである。feature-stateキーは
+`dedicatedWayValueFeatureStateKey(axisId)`で軸idから機械的に導出するため、軸ごとの対応表は
+持たない。
 
 ## 動的気象レイヤーとの関係
 

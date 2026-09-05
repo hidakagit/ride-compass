@@ -278,6 +278,29 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     expect(map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color")).toHaveLength(1);
     expect(map.paintCalls.filter((c) => c.layerId === gradientFillEntry.layerId && c.name === "fill-color")).toHaveLength(1);
   });
+
+  it("dedicatedWayValueLoadingの変更（フェッチ開始/完了）もwindAxis/gradientAxis/gradientFillのline-color/fill-colorへ再適用する（改善計画T607）", () => {
+    const map = fakeMap();
+    const before = buildStaticOverlayLayers([], undefined, new Map([["wind", false], ["gradient", false]]));
+    const windEntry = before.find((l) => l.key === "windAxis")!;
+    const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
+    const gradientFillEntry = before.find((l) => l.key === "gradientFill")!;
+    windEntry.ensure(map as unknown as Parameters<typeof windEntry.ensure>[0]);
+    gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
+    gradientFillEntry.ensure(map as unknown as Parameters<typeof gradientFillEntry.ensure>[0]);
+
+    const after = buildStaticOverlayLayers([], undefined, new Map([["wind", true], ["gradient", true]]));
+    const windEntryAfter = after.find((l) => l.key === "windAxis")!;
+    const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
+    const gradientFillEntryAfter = after.find((l) => l.key === "gradientFill")!;
+    windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
+    gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);
+    gradientFillEntryAfter.ensure(map as unknown as Parameters<typeof gradientFillEntryAfter.ensure>[0]);
+
+    expect(map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color")).toHaveLength(1);
+    expect(map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color")).toHaveLength(1);
+    expect(map.paintCalls.filter((c) => c.layerId === gradientFillEntry.layerId && c.name === "fill-color")).toHaveLength(1);
+  });
 });
 
 describe("ensureDynamicWeatherLayer（gridFill/gridMark/vectorのcolorExpressionを既存レイヤーへ再適用する、T587）", () => {

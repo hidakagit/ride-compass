@@ -35,9 +35,14 @@ export interface UseDynamicWayValuesResult {
   /** タイルごとの生応答（統合前）。環境グループのgridFill（タイル境界をセルとする面表示）が
    * タイル単位の集計に使う。 */
   byTile: readonly TileDynamicWayValues[];
+  /** 現在のビューポートぶんのフェッチが進行中か（改善計画T607）。falseへ戻るまでの間、
+   * まだ一度も値を受け取っていないway（feature-stateキー未設定）は「取得中」、フェッチ
+   * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする
+   * （valueScale.ts: COLOR_LOADING/COLOR_NO_DATA参照）。 */
+  loading: boolean;
 }
 
-const EMPTY_RESULT: UseDynamicWayValuesResult = { values: new Map(), byTile: [] };
+const EMPTY_RESULT: UseDynamicWayValuesResult = { values: new Map(), byTile: [], loading: false };
 
 /** enabled中、現在のビューポート（デバウンス済み）を覆う道路タイル分をまとめて取得し、
  * way_id→値のMapへ統合して返す。連続する呼び出しの間に古いリクエストが後から解決しても
@@ -76,6 +81,7 @@ export function useDynamicWayValues(
         setResult(EMPTY_RESULT);
         return;
       }
+      setResult((prev) => ({ ...prev, loading: true }));
       const tiles: TileXY[] = tilesCoveringViewport(debouncedViewport, ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM);
       const seq = ++requestSeqRef.current;
       const responses = await Promise.all(
@@ -87,6 +93,7 @@ export function useDynamicWayValues(
       setResult({
         values: mergeDynamicWayValues(responses),
         byTile: tiles.map((tile, index) => ({ tile, values: responses[index] })),
+        loading: false,
       });
     });
     return () => {

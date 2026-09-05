@@ -60,7 +60,14 @@ export function gradientGridCellsFromTileResponses(
  * グループの線（dedicatedWayValueLayer.ts、feature-state経由）と同じ表示宣言・色ロジックを
  * 共有する——環境（面）・評価軸（線）は同じ[向き]入力を共有するという契約に加え、色の
  * 意味も揃えることで両者を見比べやすくする。こちらはgeojson sourceのプロパティを
- * 直接["get",...]で読む。表示宣言が無い間は符号付き材料の既定スケールを使う。 */
-export function gradientFillColorExpression(display?: DedicatedWayValueDisplay): unknown[] {
-  return buildDedicatedWayValueColorExpression(["get", "gradientValue"], display ?? { kind: "signed_material", unit: "" });
+ * 直接["get",...]で読む。表示宣言が無い間は符号付き材料の既定スケールを使う。`loading`は
+ * dedicatedWayValueColorExpressionと同じ意味（改善計画T607）——ただしこのレイヤーは値を
+ * 持つタイルだけをfeatureとして含む（gradientGridCellsFromTileResponses参照）ため、
+ * COLOR_LOADING/COLOR_NO_DATAの分岐が実際に描画へ現れることは無い。 */
+export function gradientFillColorExpression(display?: DedicatedWayValueDisplay, loading = false): unknown[] {
+  return buildDedicatedWayValueColorExpression(
+    ["get", "gradientValue"],
+    display ?? { kind: "signed_material", unit: "" },
+    loading
+  );
 }
