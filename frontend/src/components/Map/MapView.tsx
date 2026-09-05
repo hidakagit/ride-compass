@@ -1961,7 +1961,6 @@ function formatRoad(good: boolean | null): string {
 // （components/ui/Card等）に近い密度に合わせている。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 
-// ユーザー指摘（2026-09-03、「ピンの位置は実際に情報表示しているルート上に補正してほしい」）:
 // 区間クリックの当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線（6px）より広いため、
 // クリック地点（e.lngLat）をそのままマーカー位置に使うと、ルート線から目に見えてズレた
 // 場所にマーカーが立ってしまう。クリックされた区間のgeometry（LineString）上で
@@ -2000,27 +1999,26 @@ export function nearestPointOnLineString(
   return best;
 }
 
-// ルート線クリック時の表示は改善計画T550でボトムシート統合へ変更した。以前は
-// routeSegmentChartPopup.ts（buildRouteSegmentChartPopupHtml、レーダーチャート）が
-// 地図上にフローティングポップアップを出していたが、モバイルで「ルート結果」ボトム
-// シートに隠れる・軸数が少ないとレーダーが機能しない問題があり撤去した。区間クリックは
-// 軽量なマーカーのみを地図上に立て、地点・到達予想時刻・軸別の内訳（積み上げバー、
-// AxisContributionBar）はすべてボトムシート側（page.tsx: selectedRouteSegment state、
-// RouteAxisProfile）が表示する（handleRouteSegmentClick参照）。
+// ルート線クリック時、区間クリックは軽量なマーカーのみを地図上に立て、地点・到達予想
+// 時刻・軸別の内訳（積み上げバー、AxisContributionBar）はすべてボトムシート側
+// （page.tsx: selectedRouteSegment state、RouteAxisProfile）が表示する
+// （handleRouteSegmentClick参照）。地図上にフローティングポップアップでレーダーチャートを
+// 出す方式は、モバイルで「ルート結果」ボトムシートに隠れる・軸数が少ないとレーダーが
+// 機能しない問題があるため採らない。
 
 // 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
 interface RoadSurfacePopupProperties {
-  /** 区間インスペクタ（改善計画T146）で全軸の内訳を引き直すための識別子。 */
+  /** 区間インスペクタで全軸の内訳を引き直すための識別子。 */
   osm_way_id?: number | null;
   surface_good?: boolean | null;
   smoothness?: string | null;
   tunnel?: boolean | null;
   bridge?: boolean | null;
-  /** 一方通行（一次属性、OSM onewayタグ。改善計画T289）。未該当（双方向）はプロパティ欠落。 */
+  /** 一方通行（一次属性、OSM onewayタグ）。未該当（双方向）はプロパティ欠落。 */
   oneway?: boolean | null;
-  /** 指定路線コンフレーション機構（外部静的データソース T51）。未該当はプロパティ欠落。 */
+  /** 指定路線コンフレーション機構（外部静的データソース）。未該当はプロパティ欠落。 */
   designation?: string | null;
 }
 
@@ -2046,14 +2044,13 @@ function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): stri
   if (properties.tunnel) rows.push("トンネル");
   if (properties.bridge) rows.push("橋・高架");
   if (properties.oneway) rows.push("一方通行");
-  // 区間インスペクタ（改善計画T146）: 一次属性→全二次軸（車の圧迫感を含む）→合成コスト
-  // (参考値)。改善計画T292: 車の圧迫感専用の内訳ボタン（旧recipeBreakdownPopup.ts）は
-  // このボタンと機能重複したため削除し、車の圧迫感もここから確認する一本化した。
+  // 区間インスペクタ: 一次属性→全二次軸（車の圧迫感を含む）→合成コスト(参考値)を
+  // このボタン1つから確認できる。
   const axisInspectorAffordance = properties.osm_way_id != null ? buildAxisInspectorAffordanceHtml() : "";
   return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${axisInspectorAffordance}</div>`;
 }
 
-// 外部静的データソース T50（警察庁交通事故統計）のクリックポップアップ用プロパティ。
+// 外部静的データソース（警察庁交通事故統計）のクリックポップアップ用プロパティ。
 interface AccidentPopupProperties {
   fatal?: boolean | null;
   involves_bicycle?: boolean | null;
@@ -2067,9 +2064,8 @@ function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
   return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}</div>`;
 }
 
-// 改善計画T54/T101（T465で統合）: 停止要因POI・補給休憩POIのクリックポップアップ用
-// プロパティは同じ形（{kind}）で、ラベル辞書とprefix文言が違うだけの2組がほぼ同一の
-// まま別々定義されていた（ゼロベース網羅レビュー指摘）。1つの関数へ統合する。
+// 停止要因POI・補給休憩POIのクリックポップアップ用プロパティは同じ形（{kind}）で、
+// ラベル辞書とprefix文言が違うだけのため、1つの関数へ統合する。
 interface PoiPopupProperties {
   kind?: string | null;
 }
@@ -2083,30 +2079,25 @@ interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
   location: Coordinates;
-  /** 改善計画T368: 出発地点マーカーの色分けに使う（LocationControl.tsxのテキスト表示を
-   * 廃止した代わりに、GPS取得失敗時のフォールバック（"default"）だけをグレーで視覚的に
-   * 区別する。実際のGPS取得（"geolocation"）と手動指定（"manual"）はどちらも
-   * 「意図した位置」という点で同格のため、従来どおりの赤で区別しない）。 */
+  /** 出発地点マーカーの色分けに使う。GPS取得失敗時のフォールバック（"default"）だけを
+   * グレーで視覚的に区別する。実際のGPS取得（"geolocation"）と手動指定（"manual"）は
+   * どちらも「意図した位置」という点で同格のため、赤で区別しない。 */
   locationSource: LocationSource;
   showElevation: boolean;
-  /** 動的気象レイヤー（降水ナウキャスト=改善計画T170/T171、風の矢印=T178フォローアップ、
-   * T183で降水延長予報を追加してから両者を再設計、T432でグループ内に複数の名前付きソースを
-   * 持てる形へ一般化）。要素id（DynamicWeatherLayerId）ごとに、ソースキー→ON/OFFと
+  /** 動的気象レイヤー。要素id（DynamicWeatherLayerId）ごとに、ソースキー→ON/OFFと
    * page.tsx側が各要素のデータ層関数（precipitationRenderPayload/windRenderPayload）から
    * 計算した「選択中の共有時刻に対応するペイロード」を渡す。payloadが未定（フェッチ未完了・
    * 取得失敗、あるいは選択時刻がその要素のデータ範囲外で「描画しない」場合）の間はvisible=
    * trueでも非表示のまま（DYNAMIC_WEATHER_RENDERERS・applyDynamicWeatherState参照）。
    * 要素・ソースを追加してもこのプロパティ自体は変わらない。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
-  /** 道路の種類（改善計画T165で「道路情報」から論理分割）。太さ・線種で反映する。
-   * 物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ合成される（MapView.tsx:
-   * applyRoadLayerState参照）。 */
+  /** 道路の種類。太さ・線種で反映する。物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ
+   * 合成される（MapView.tsx: applyRoadLayerState参照）。 */
   showRoadType: boolean;
-  /** 路面の種類（改善計画T165で「道路情報」から論理分割）。色で反映する。 */
+  /** 路面の種類。色で反映する。 */
   showRoadSurface: boolean;
-  /** 指定路線（外部静的データソース T51、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。
-   * 改善計画T347: 旧showBicycleInfra（自転車インフラの専用地図レイヤー）はここから削除した
-   * （評価軸bicycle_infra_qualityへ置き換え、地図レイヤーは持たない）。 */
+  /** 指定路線（外部静的データソース、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。
+   * 自転車インフラは専用の地図レイヤーを持たず、評価軸bicycle_infra_qualityとして表現する。 */
   showDesignation: boolean;
   /** トンネル（一次属性、OSMのtunnelタグ）。designationと同じく路面と同じソースを
    * 再利用する独立レイヤー。 */
