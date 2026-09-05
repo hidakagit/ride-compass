@@ -17,23 +17,13 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "http://localhost:3000"
     # Road Graph/Road Attributeの永続化先（PostGIS）。docker-compose.ymlのpostgresサービスに
     # 対応する。ElevationAttributeServiceへrepositoryを明示的に注入した場合にのみ使われる
-    # （infrastructure/database.py, road_graph_repository.py）。GraphServiceは改善計画T222で
-    # repository必須（このURLへの接続必須）へ一本化済み。
+    # （infrastructure/database.py, road_graph_repository.py）。GraphServiceは常に
+    # repository必須（このURLへの接続必須）。
     database_url: str = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
     # Road Graphの永続化（PostGIS）をランタイムのread-throughキャッシュとして使うかどうか。
-    # ElevationAttributeService・地図表示系（RegionService/AccidentService）へ
-    # RoadGraphRepositoryを注入するかを切り替える。database_urlのDBへ実際に接続できない
-    # 環境ではFalseにすること（これらはDBなしで動作する）。GraphService
-    # （get_or_build_graph_with_attributes等、ルート生成が使う）はこの設定に関わらず
-    # 常にrepositoryを必要とする（改善計画T222でDBなし構成を撤去済みのため、Falseのまま
-    # 使うとGraphService経由のDBアクセスが失敗する）。
-    # 改善計画T283: 既定はTrue（DB接続ありを前提）。以前はFalseが既定だったため、新環境
-    # 構築時にこの設定を明示し忘れると「ルート生成は動くのに地図レイヤーがすべて空」という
-    # 気づきにくい縮退になっていた（レビュー指摘）。DB接続失敗時は既存の空タイル
-    # フォールバック（vector_tile.py: encode_empty_road_surface_tile等）が効くため、
-    # DBが無い環境でTrueのままでも安全側に倒れる（単に空タイルが返るだけ）。DBなし構成を
-    # 明示的に選びたい場合（.env.exampleの「開発（DBなし）」プロファイル等）は引き続き
-    # 明示的にFalseを設定すること。
+    # 既定はTrue（DB接続ありを前提）。詳細（GraphServiceは常にrepository必須で本設定の
+    # 影響を受けないこと、DBなし環境での安全側フォールバック）はdocs/modules/backend/
+    # cross-cutting-infrastructure.md「設定」節参照。
     road_graph_use_repository: bool = True
     # 基礎地図プロキシ（/api/basemap）のスタイルJSON内URL書き換えに使う絶対URL。
     # MapLibreは相対URLをスタイル自身の取得元ではなくページのオリジンに対して解決してしまう
@@ -49,45 +39,39 @@ class Settings(BaseSettings):
     # .envには書かない。ローカル開発では未設定のためNoneのまま）。`/health`のレスポンスに
     # 含め、本番で実際に動いているコミットが手元のgit HEADと一致しているか（＝最新版が
     # 反映されているか）を外部から確認できるようにする（詳細はdocs/architecture.md参照）。
-    # 改善計画T263: backendがRenderからOracle Cloud VMへ移行し、Render固有の自動注入
-    # 環境変数`RENDER_GIT_COMMIT`が使えなくなったため、デプロイワークフロー
-    # （.github/workflows/deploy-backend.yml）側で`git rev-parse HEAD`の結果を明示的に
-    # `GIT_COMMIT`として渡す方式へ変更した（旧名`render_git_commit`から改称）。
     git_commit: str | None = None
 
     # --- 認証なしエンドポイントのper-IPレート制限・同時実行上限（api/routers/*が参照） ---
-    # 元はapi/routes.pyのモジュール定数だったが、環境（Render無料枠/ローカル/負荷試験）で
-    # 調整したい運用値のため.envで上書き可能にした（改善計画T5）。各値の根拠は以下の通り。
+    # 環境（Render無料枠/ローカル/負荷試験）で調整したい運用値のため.envで上書き可能に
+    # している。各値の根拠は以下の通り。
     #
     # /preview・/weatherは/generateほど高コストではないが、/weatherは外部API
     # （Open-Meteo）の無料枠を消費する。
     preview_rate_limit_per_minute: int = 20
     weather_rate_limit_per_minute: int = 60
-    # 風の格子点マップ（改善計画T178フォローアップ）は1回で関東本土全域（約624地点、
-    # domain/wind_grid.py: WIND_GRID_SPACING_DEG=0.1度間隔。0.35度間隔だった初期値
-    # 約56地点からユーザー要望「通常ズームでもある程度使えるように」を受け密度を
-    # 上げた経緯はwind_grid.py参照）をまとめて取得する重いエンドポイントのため、
-    # /weather（1地点）より低めに絞る。TTLキャッシュ（weather_client.py、T195でL1+L2の
-    # 2段構成・TTL 3時間へ拡大）が効くため、同一クライアントの短時間の再取得
+    # 風の格子点マップは1回で関東本土全域（約624地点、domain/wind_grid.py:
+    # WIND_GRID_SPACING_DEG=0.1度間隔）をまとめて取得する重いエンドポイントのため、
+    # /weather（1地点）より低めに絞る。TTLキャッシュ（weather_client.py、L1+L2の
+    # 2段構成・TTL 3時間）が効くため、同一クライアントの短時間の再取得
     # （時刻スライダー操作等）はキャッシュヒットしOpen-Meteoへは行かない。
     wind_grid_rate_limit_per_minute: int = 20
-    # 詳細格子（改善計画T180、ズームイン時の面表現用）。パン・ズームのたびに（デバウンス済み
+    # 詳細格子（ズームイン時の面表現用）。パン・ズームのたびに（デバウンス済み
     # とはいえ）呼ばれうるためwind_gridより高めにするが、固定ラティス由来のキャッシュ共有
     # （domain/wind_grid.py: generate_wind_grid_detail_points参照）により大半はOpen-Meteoへの
     # 新規リクエストを伴わない軽い呼び出しになる想定。
     wind_grid_detail_rate_limit_per_minute: int = 30
-    # 警報・注意報バッジ（改善計画T205）。/weatherと同じ地点変更時デバウンス起点で呼ばれる
+    # 警報・注意報バッジ。/weatherと同じ地点変更時デバウンス起点で呼ばれる
     # （1回の呼び出しでGSI逆ジオコーダ・JMA地域マスタ・JMA警報APIの最大3件を叩きうるが、
     # 後2者は長寿命TTLキャッシュが効くため実際の外部リクエストは大半がGSI呼び出しのみ）。
     weather_warnings_rate_limit_per_minute: int = 30
-    # WBGT警告バッジ（改善計画T174）。/weather・/weather/warningsと同じ地点変更デバウンス
+    # WBGT警告バッジ。/weather・/weather/warningsと同じ地点変更デバウンス
     # 起点で呼ばれる。地点マスタCSV・予測値APIともに長寿命TTLキャッシュが効くため、
     # 実際の外部リクエストは大半がキャッシュヒットになる。
     weather_wbgt_rate_limit_per_minute: int = 30
-    # 河川氾濫予報バッジ（改善計画T212）。/weather/warnings・/weather/wbgtと同じ地点変更
+    # 河川氾濫予報バッジ。/weather/warnings・/weather/wbgtと同じ地点変更
     # デバウンス起点で呼ばれる。洪水予報API自体は10分TTLキャッシュが効く。
     weather_flood_forecast_rate_limit_per_minute: int = 30
-    # 最寄りアメダス観測値（改善計画T387）。他の/weather系バッジと同じ地点変更デバウンス
+    # 最寄りアメダス観測値。他の/weather系バッジと同じ地点変更デバウンス
     # 起点で呼ばれる想定。観測値自体はRedis Hash（TTL 15分）でキャッシュされるため、
     # 実際のJMA呼び出しは大半がキャッシュヒットになる。
     weather_amedas_rate_limit_per_minute: int = 30
@@ -103,56 +87,50 @@ class Settings(BaseSettings):
     # ほぼDB応答待ちになり、律速はDB側の同時クエリ負荷とSQLAlchemyの接続プール
     # （既定pool_size=5+max_overflow=10=最大15接続）。6なら事故タイル分と合わせても
     # タイル配信系プールの上限に収まり、コールドタイルのバースト時の待ち行列を半減できる
-    # （詳細な経緯はapi/routers/region.pyのコメント参照。改善計画T243でルート生成系は
-    # 専用エンジン・別プール[さらに15接続、database.py: get_route_generation_engine]へ
-    # 分離済みのため、ルート生成とタイル配信は接続プールを取り合わない。プール合計は
-    # 最大30接続で、本番PostgreSQLのmax_connections=100に対し余裕がある）。
+    # （ルート生成は専用エンジン・別プール[さらに15接続、database.py:
+    # get_route_generation_engine]のため、ルート生成とタイル配信は接続プールを取り合わない。
+    # プール合計は最大30接続で、本番PostgreSQLのmax_connections=100に対し余裕がある）。
     road_tile_rate_limit_per_minute: int = 120
     road_tile_max_concurrent: int = 6
-    # 改善計画T467: 区間インスペクタ（region.py: region_axis_inspector、地図クリックで
-    # 1件のosm_way_idを引くAPI）は座標を持たない単発リクエストで、パン/ズームのたびに
-    # 多数のz/x/yタイルを連続要求するroad_tileとは負荷特性が異なる。以前は
-    # road_tile_rate_limit_per_minuteを`_check_tile_rate_limit`経由でそのまま流用していたため、
-    # road_tile側の値をタイル配信の事情で調整するたびに無関係なaxis-inspectorの上限も
-    # 意図せず変わってしまう結合があった。現状の挙動は変えず（同じ120/分）、設定を分離する。
+    # 区間インスペクタ（region.py: region_axis_inspector、地図クリックで1件のosm_way_idを
+    # 引くAPI）は座標を持たない単発リクエストで、パン/ズームのたびに多数のz/x/yタイルを
+    # 連続要求するroad_tileとは負荷特性が異なるため別設定として持つ。
     axis_inspector_rate_limit_per_minute: int = 120
-    # 事故タイル（外部静的データソース T50）。road_tileと同じ理由（PostGIS問い合わせ・
-    # ディスクキャッシュ書き込みを伴う）で同種の歯止めを持つが、accident_pointsは
-    # road_edgesよりテーブルが小さく1タイルあたりのクエリコストも低いため、road_tileより
-    # やや緩い上限にしている。
+    # 事故タイル。road_tileと同じ理由（PostGIS問い合わせ・ディスクキャッシュ書き込みを
+    # 伴う）で同種の歯止めを持つが、accident_pointsはroad_edgesよりテーブルが小さく
+    # 1タイルあたりのクエリコストも低いため、road_tileよりやや緩い上限にしている。
     accident_tile_rate_limit_per_minute: int = 120
     accident_tile_max_concurrent: int = 6
-    # 地図タイル閲覧起点の道路グラフ構築（改善計画T59、RegionService._maybe_trigger_graph_build）。
+    # 地図タイル閲覧起点の道路グラフ構築（RegionService._maybe_trigger_graph_build）。
     # closure再計算・Edge全量再UPSERTを伴う重い処理（数十秒〜数分規模）で、DBセッションを
     # 長時間保持する。road_tile_max_concurrent(6)+accident_tile_max_concurrent(6)で
     # 接続プール上限15のうち既に12を使いうるため、残り枠を大きく占有しないよう低く抑える
-    # （密集した未構築エリアへの一斉アクセスでプールが枯渇し、無関係な他タイル・API呼び出しまで
-    # 502化した実障害を受けての対応）。ユーザー体験には影響しない完全なバックグラウンド処理
-    # のため、待たされても実害が無く1で十分（複数エリアへの構築要求は順番に処理される）。
+    # （密集した未構築エリアへの一斉アクセスでプールが枯渇すると、無関係な他タイル・API呼び出し
+    # まで502化しうる）。ユーザー体験には影響しない完全なバックグラウンド処理のため、
+    # 待たされても実害が無く1で十分（複数エリアへの構築要求は順番に処理される）。
     graph_build_max_concurrent: int = 1
     basemap_rate_limit_per_minute: int = 300
     # refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
     # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
     # Overpass/OpenFreeMapへの実問い合わせが毎回発生し続けてしまう）。
     basemap_refresh_rate_limit_per_minute: int = 6
-    # JMA動的タイル系レイヤー（改善計画T412）のプロキシ。降水ナウキャスト・rasrf・
+    # JMA動的タイル系レイヤーのプロキシ。降水ナウキャスト・rasrf・
     # 雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップの各タイル・時刻一覧をまとめて
     # 経由するため、basemapと同水準の上限にする。
     jma_tile_rate_limit_per_minute: int = 300
-    # 国土地理院 色別標高図タイル（改善計画T572）のプロキシ。basemap/jma-tileと同水準の上限。
+    # 国土地理院 色別標高図タイルのプロキシ。basemap/jma-tileと同水準の上限。
     gsi_relief_tile_rate_limit_per_minute: int = 300
-    # 改善計画T510: JMA動的タイルの定期プリウォーム間隔。JMA側の実更新間隔（5〜10分おき、
+    # JMA動的タイルの定期プリウォーム間隔。JMA側の実更新間隔（5〜10分おき、
     # jma_tile_client.pyのコメント参照）に合わせ、アメダス（AMEDAS_REFRESH_INTERVAL_MINUTES）
     # と同じ10分にした。
     jma_tile_prewarm_interval_minutes: int = 10
-    # 改善計画T514: JMA非公式APIへの実際の秒間リクエスト数の上限。プリウォーム本体の
-    # 同時実行数制御（jma_tile_prewarm_service.py: _MAX_CONCURRENCY=8）だけでは、
-    # 各リクエストの応答が速いと総スループット（秒間リクエスト数）自体は青天井になる
-    # ——本番投入後、これが原因と見られる大量のエラー（`http_4xx`、JMA側のレート制限と
-    # 推測）を観測した。jma_tile_client.py: fetchの実フェッチ直前でこの秒間上限を守る
-    # よう待機する（キャッシュヒットは対象外、プリウォーム・オンデマンド双方の実フェッチ
-    # 経路を共有する）。1983タイル/回・10分間隔の定期プリウォームに対し、この値でも
-    # 十分に間隔内へ収まる（1983/5≒397秒 < 600秒）よう控えめに設定した。
+    # JMA非公式APIへの実際の秒間リクエスト数の上限。プリウォーム本体の同時実行数制御
+    # （jma_tile_prewarm_service.py: _MAX_CONCURRENCY=8）だけでは、各リクエストの応答が
+    # 速いと総スループット（秒間リクエスト数）自体は青天井になるため、jma_tile_client.py:
+    # fetchの実フェッチ直前でこの秒間上限を守るよう待機する（キャッシュヒットは対象外、
+    # プリウォーム・オンデマンド双方の実フェッチ経路を共有する）。1983タイル/回・10分間隔の
+    # 定期プリウォームに対し、この値でも十分に間隔内へ収まる（1983/5≒397秒 < 600秒）よう
+    # 控えめに設定した。
     jma_tile_upstream_max_requests_per_second: float = 5.0
     # Open-Meteo Forecast APIの呼び出し先。既定は本家直叩き（ローカル開発用）。
     # 本番（Render）はOpen-Meteo側が送信元IP単位でレート制限しており、Renderの共有
@@ -165,20 +143,16 @@ class Settings(BaseSettings):
     open_meteo_base_url: str = "https://api.open-meteo.com/v1/forecast"
 
     # 管理画面（/admin、軸スタジオの管理API/api/admin/axis-definitions）を保護するHTTP Basic
-    # 認証の資格情報（改善計画T272）。空文字（既定）のときは常に拒否する（うっかり無保護
-    # 公開しない、api/routers/axis_admin.py: require_admin_basic_auth参照）。以前は
-    # 共有トークン（X-Admin-Tokenヘッダ、axis_admin_token）による簡易保護だったが、T272で
-    # 「実権限チェックへの差し替え」としてBasic認証へ置き換えた（ユーザー方針、2026-08-24:
-    # 「将来的にはアカウント制としたいが、現状は動作確認・研究用のためBasic認証として
-    # 後から拡張する」）。frontend側（src/proxy.ts、/adminページ全体のルーティング境界）も
-    # 同じ資格情報をNEXT側の環境変数（ADMIN_BASIC_AUTH_USERNAME/PASSWORD）として持つ
-    # ——2つの独立したBasic認証チェック（ページ本体とAPI呼び出しはオリジンが異なるため
-    # ブラウザの認証情報が自動伝播しない、docs/architecture.md「T272」節参照）だが、
-    # 同じ値を設定運用することで実質1つの資格情報として扱う。
+    # 認証の資格情報。空文字（既定）のときは常に拒否する（うっかり無保護
+    # 公開しない、api/routers/axis_admin.py: require_admin_basic_auth参照）。frontend側
+    # （src/proxy.ts、/adminページ全体のルーティング境界）も同じ資格情報をNEXT側の環境変数
+    # （ADMIN_BASIC_AUTH_USERNAME/PASSWORD）として持つ——2つの独立したBasic認証チェック
+    # （ページ本体とAPI呼び出しはオリジンが異なるためブラウザの認証情報が自動伝播しない）
+    # だが、同じ値を設定運用することで実質1つの資格情報として扱う。
     admin_basic_auth_username: str = ""
     admin_basic_auth_password: str = ""
 
-    # Redis（改善計画T387）。JMA気象データ（アメダス・降水ナウキャスト・MSM）の短命キャッシュと、
+    # JMA気象データ（アメダス・降水ナウキャスト・MSM）の短命キャッシュと、
     # road_graph_tilesタイル取得済みマーカーのcache-aside層（infrastructure/road_graph_tile_cache.py）
     # が使う。いずれもTTL付きキャッシュ、またはPostGIS（正本）へフォールバック可能なcache-asideの
     # ため、Redis側に永続化（RDB/AOF）設定は要らない設計にしてある（再起動・キャッシュ消失時は
@@ -188,11 +162,10 @@ class Settings(BaseSettings):
     # VM上のRedisへ到達できる（導入手順はdocs/architecture.md参照）。
     redis_url: str = "redis://localhost:6379/0"
 
-    # 改善計画T546: タイル材料キャッシュ（graph_material_cache.py・tile_score_matrix_cache.py）
-    # のディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）読み込みの
+    # タイル材料キャッシュ（graph_material_cache.py・tile_score_matrix_cache.py）の
+    # ディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）読み込みの
     # 同時実行数上限。案C1（列指向EdgeMaterialTable化）で残るCPUコストは`LeanEdge`等の
-    # 再構築を伴うPythonループのためGILで直列化される（本番実測、docs/tasks/T546.md
-    # 「背景」の「2スレッド同時loads: 逐次比1.01倍」参照）——コア数を増やして効くのは
+    # 再構築を伴うPythonループのためGILで直列化される——コア数を増やして効くのは
     # ファイルI/O・numpy部分のみで、コア数に比例して線形に速くなるのは案C2（グラフ側も
     # 完全列指向化する将来の別タスク）まで進めた場合に限る。既定は
     # `min(4, os.cpu_count())`（コア数が少ない環境でも過剰にスレッドを起動しない）。

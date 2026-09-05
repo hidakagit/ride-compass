@@ -97,7 +97,7 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
                 "cache_misses": 0,
                 "total_ms": 0,
                 "max_ms": 0,
-                # 以下は「失敗の主な理由を推測する」ための追加集計（改善計画T92夜間502調査）。
+                # 以下は「失敗の主な理由を推測する」ための追加集計。
                 "error_types": {},
                 "last_error_type": None,
                 "last_error_at": None,

@@ -1,7 +1,5 @@
-"""管理API共通の認可境界（改善計画T221 Stage D、Basic認証化はT272）。
-
-元は`axis_admin.py`にのみ定義されていたが、T379（debug_modeの管理API化）で
-2つ目の管理ルーターが同じ認可を必要としたため、複製を避けてここへ切り出した。
+"""管理API共通の認可境界。`axis_admin.py`・`debug_admin.py`の複数の管理ルーターが
+共有する（複製を避けるためここへ切り出してある）。
 """
 
 import secrets
@@ -15,13 +13,11 @@ _basic_auth = HTTPBasic(realm="RideCompass admin", auto_error=False)
 
 
 async def require_admin_basic_auth(credentials: HTTPBasicCredentials | None = Depends(_basic_auth)) -> None:
-    """管理APIの認可境界（改善計画T221 Stage D、Basic認証化は改善計画T272）。
+    """管理APIの認可境界。
 
     HTTP Basic認証（環境変数`ADMIN_BASIC_AUTH_USERNAME`/`ADMIN_BASIC_AUTH_PASSWORD`、
-    settings参照）。以前は共有トークンheader（X-Admin-Token）による簡易保護だったが、
-    T272でユーザー方針（2026-08-24: 「将来的にはアカウント制としたいが、現状は動作確認・
-    研究用のためBasic認証として後から拡張する」）に基づきBasic認証へ置き換えた。
-    `secrets.compare_digest`でタイミング攻撃を避ける（ユーザー名・パスワードどちらも）。
+    settings参照）。`secrets.compare_digest`でタイミング攻撃を避ける（ユーザー名・
+    パスワードどちらも）。
     未設定（既定""）の環境では常に拒否し、うっかり無保護公開しない。
     認可判定をこの1関数（FastAPI Dependency）へ集約しているため、将来アカウント制へ
     差し替える際もこの関数の中身だけを変えればよい（Stage D設計の継続）。

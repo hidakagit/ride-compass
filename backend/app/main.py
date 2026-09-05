@@ -31,7 +31,7 @@ logging.basicConfig(
 for _handler in logging.getLogger().handlers:
     _handler.addFilter(RequestIdLogFilter())
 
-# 改善計画T379: debug_modeをSSH不要で切り替え・確認できるよう、直近ログをメモリに
+# debug_modeをSSH不要で切り替え・確認できるよう、直近ログをメモリに
 # 保持するハンドラをルートロガーへ追加する（api/routers/debug_admin.py経由で取得）。
 install_ring_buffer_handler()
 
@@ -49,8 +49,8 @@ logging.getLogger("ridecompass.startup").info(
 )
 
 # DATABASE_URLへ実際に接続できない環境(.env未作成のDBなし構成等)では
-# /api/routes/generate・/api/routes/previewが常に失敗する(GraphServiceは改善計画T222で
-# repository必須へ一本化済み)。起動自体は妨げず、「起動するが全リクエスト失敗」という
+# /api/routes/generate・/api/routes/previewが常に失敗する(GraphServiceは常に
+# repository必須)。起動自体は妨げず、「起動するが全リクエスト失敗」という
 # 分かりにくい状態を早期に説明するWARNINGを出す。接続確認はイベントループ起動前のため
 # ここでは行わず、設定値をそのままログへ出すだけに留める(実際に接続不可かはリクエスト時
 # のエラーで判明する。ここはその読み解きの補助)。
@@ -63,7 +63,7 @@ _scheduler = AsyncIOScheduler()
 
 
 async def _refresh_amedas_job() -> None:
-    """定期バッチ本体（改善計画T387）。JMAアメダスは1地点だけを絞り込めず全国約1,300
+    """定期バッチ本体。JMAアメダスは1地点だけを絞り込めず全国約1,300
     観測所ぶんを1レスポンスで返すAPIのため、都度リクエストのたびに個別フェッチするのではなく
     ここで全国分をまとめて取得しRedisへ書き戻す（jma_amedas_service.pyのdocstring参照）。
     ジョブ内の例外はAPSchedulerがログするが、このプロジェクトの命名規約（ridecompass.*）に
@@ -78,7 +78,7 @@ async def _refresh_amedas_job() -> None:
 
 
 async def _prewarm_jma_tile_job() -> None:
-    """定期バッチ本体（改善計画T510）。JMA動的タイル（キキクル・線状降水帯予測マップ・
+    """定期バッチ本体。JMA動的タイル（キキクル・線状降水帯予測マップ・
     雷/竜巻ナウキャスト）をアプリの実運用範囲ぶんあらかじめRedisへ温める
     （jma_tile_prewarm_service.pyのdocstring参照）。ジョブ内の例外はAPSchedulerがログするが、
     このプロジェクトの命名規約（ridecompass.*）に揃えたWARNINGも残す。
@@ -91,7 +91,7 @@ async def _prewarm_jma_tile_job() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # httpx.AsyncClientのウォームアップ（デプロイ直後の天候API失敗調査より）:
+    # httpx.AsyncClientのウォームアップ:
     # infrastructure/http_client.pyのコメントの通りクライアント生成はSSLコンテキスト構築
     # （CA証明書バンドルの読み込み・パース）を伴い、環境によっては数百ms〜1秒かかる。
     # 遅延生成のままだとデプロイ直後の最初のリクエストがこのコストを負い、
@@ -102,14 +102,14 @@ async def lifespan(app: FastAPI):
     get_http_client(10.0)
     get_http_client(15.0)
 
-    # 改善計画T221 Stage D / T349: 評価軸定義（domain/axis_definitions.py: AXIS_DEFINITIONS）を
-    # DBから読み込む。未migration・DB未接続・DB定義が半端に古い場合はAxisDefinitionSyncError
+    # 評価軸定義（domain/axis_definitions.py: AXIS_DEFINITIONS）をDBから読み込む。
+    # 未migration・DB未接続・DB定義が半端に古い場合はAxisDefinitionSyncError
     # を送出し、ここで捕捉しないため起動自体が失敗する（fail-fast、
     # services/axis_registry_service.py参照）。
     async with get_session_factory()() as session:
         await refresh_axis_definitions(AxisDefinitionRepository(session))
 
-    # 改善計画T387: JMAアメダスの定期バッチ。next_run_time=nowで起動直後にも1回即時実行し、
+    # JMAアメダスの定期バッチ。next_run_time=nowで起動直後にも1回即時実行し、
     # 次の定期実行（interval分後）を待たずにデータを温める（コールドスタート時に
     # /api/weather/amedasがinterval分ぶんキャッシュ空で502になり続けるのを避ける）。
     _scheduler.add_job(
@@ -119,7 +119,7 @@ async def lifespan(app: FastAPI):
         next_run_time=datetime.now(),
         id="refresh_amedas",
     )
-    # 改善計画T510: JMA動的タイルの定期プリウォーム。アメダスと同じくnext_run_time=nowで
+    # JMA動的タイルの定期プリウォーム。アメダスと同じくnext_run_time=nowで
     # 起動直後にも1回即時実行し、次の定期実行を待たずにRedisを温める。
     _scheduler.add_job(
         _prewarm_jma_tile_job,
@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
-    # 改善計画T464: httpx.AsyncClientの明示close（http_client.pyのdocstring参照）。
+    # httpx.AsyncClientの明示close（http_client.pyのdocstring参照）。
     await close_all_http_clients()
 
 
@@ -154,7 +154,7 @@ app.add_middleware(ContentTypeGZipMiddleware)
 # 後から登録したミドルウェアが外側になる(リクエストIDの付与・アクセスログはCORS処理も
 # 含めた全体を計測・記録したいため、CORSより外側に置く)。
 app.middleware("http")(request_log_middleware)
-# 改善計画T464: 未処理例外(500)発生時もX-Request-IDヘッダを付けるための
+# 未処理例外(500)発生時もX-Request-IDヘッダを付けるための
 # Exceptionハンドラ(request_log.pyのモジュールdocstring参照)。
 app.add_exception_handler(Exception, unhandled_exception_handler)
 

@@ -1,4 +1,4 @@
-"""最小マイグレーション機構（改善計画T17、decisions/pre-static-attributes-gate.md 決定3）。
+"""最小マイグレーション機構（decisions/pre-static-attributes-gate.md 決定3）。
 
 `backend/migrations/` 配下の番号付きSQLファイルを、ファイル名の昇順で1回だけ適用する。
 適用済みファイル名は `schema_migrations` テーブルへ記録し、以降の呼び出しでは再実行しない。
@@ -9,8 +9,8 @@ Alembicのような自動生成・downgradeは持たない最小構成（この�
 残るかのいずれかになり、一部だけ適用された中途半端な状態にはならない）。
 
 SQLAlchemyのasyncpg方言はprepared statement経由でSQLを実行するため、';'区切りの複数文を
-1回の`execute()`にまとめて渡すことができない（実機確認: `PostgresSyntaxError: cannot insert
-multiple commands into a prepared statement`）。そのため単純な';'区切りで文単位に分割してから
+1回の`execute()`にまとめて渡すことができない（`PostgresSyntaxError: cannot insert
+multiple commands into a prepared statement`になる）。そのため単純な';'区切りで文単位に分割してから
 1文ずつ`execute()`する。マイグレーションSQLは文字列リテラル内に';'を含まない単純なDDL/DMLのみを
 想定しており、本モジュールは汎用SQLパーサーではない。
 """
@@ -71,13 +71,9 @@ async def apply_pending_migrations(engine: AsyncEngine, migrations_dir: Path = M
 
 async def list_pending_migrations(engine: AsyncEngine, migrations_dir: Path = MIGRATIONS_DIR) -> list[str]:
     """未適用マイグレーションのファイル名一覧を返す（読み取り専用、適用はしない）。
-
-    改善計画T74の本番適用時、`route_designations`等を新設するmigration 0007自体が
-    本番へ一度も適用されていなかった（devだけ整備されて本番が置き去りになる）ことが
-    事後にしか発覚しなかった反省から、`/api/debug/db-status`が常時この状態を返せるように
-    する（対策A）。`apply_pending_migrations`と違い`schema_migrations`テーブルを
-    作成しない（GETリクエストでスキーマを変更しない）。テーブル自体が無い場合は
-    全マイグレーションを未適用として扱う。
+    `/api/debug/db-status`が常時この状態を返すために使う。`apply_pending_migrations`と
+    違い`schema_migrations`テーブルを作成しない（GETリクエストでスキーマを変更しない）。
+    テーブル自体が無い場合は全マイグレーションを未適用として扱う。
     """
     async with engine.connect() as conn:
         table_exists = await conn.scalar(text("SELECT to_regclass('schema_migrations') IS NOT NULL"))
@@ -90,10 +86,9 @@ async def list_pending_migrations(engine: AsyncEngine, migrations_dir: Path = MI
 
 
 async def run_as_cli_script(body: Callable[[AsyncEngine], Awaitable[int]], *, failure_label: str) -> int:
-    """DB操作CLIスクリプト共通の定型処理をまとめる（改善計画T350のcode-review対応:
-    `scripts/apply_migrations.py`・`scripts/bootstrap_ci_db.py`の2箇所が、engine作成
-    （`settings.database_url`）→本体処理→例外時はラベル付きで表示・engineをdisposeして
-    終了コードを返す、というほぼ同じtry/except/finally骨格を独立に持っていたため集約した）。
+    """DB操作CLIスクリプト共通の定型処理をまとめる（`scripts/apply_migrations.py`・
+    `scripts/bootstrap_ci_db.py`が使う: engine作成→本体処理→例外時はラベル付きで表示・
+    engineをdisposeして終了コードを返す、という骨格）。
 
     `body`は実際の処理（`apply_pending_migrations`呼び出し等）を行い、成功時の終了コード
     （通常0）を返す。例外を送出した場合はここで捕捉し`{failure_label}: {例外}`を標準出力へ
