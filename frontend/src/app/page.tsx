@@ -107,8 +107,7 @@ import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
 
-// 改善計画T364/T365（旧RouteList.tsxから移設）: 経由地ルートのid（常に1件、「方位」という
-// 概念が無いためタブに順位番号を付けない）。
+// 経由地ルートのid（常に1件、「方位」という概念が無いためタブに順位番号を付けない）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
 
 // 区間クリック詳細（selectedRouteSegment）の到達予想時刻表示のフォーマット。
