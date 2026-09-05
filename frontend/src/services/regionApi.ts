@@ -67,49 +67,12 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
 // 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
 // （region_service.pyの_tile_cache_path）と対で更新すること。
-// v11: 改善計画T122。shoulder材料タグ（付与率0.0%の死に補正、T102実測）を撤去した。
-// プロパティ削除を伴うが、shoulderは元々全fetchで実質未使用だったため、v9のような
-// 厳格なデプロイ順序制約はない。
-// v10: 安全度レシピ（T148で削除済み）。当時の材料タグ（shoulder/lit、tunnelは既存
-// プロパティを再利用）追加のため世代を上げた。lit自体はT139でnight軸へ転用され現在も使用中。
-// v9: 車ストレスレシピ外出し基盤。計算済みのcar_stress最終値プロパティを廃止し、
-// 材料タグ（cycleway_class/maxspeed_kmh/lanes_count/motor_vehicle_no）へ差し替えた
-// （最終値の計算は改善計画T292以降、components/Map/axisLayers.tsの汎用rampパイプラインが
-// MapLibre expressionとして行う。専用手書きexpression`carStressExpression.ts`は廃止済み）。
-// v2〜v8はプロパティ追加のみで旧フロントとの後方互換が保たれていたが、v9はプロパティ削除を
-// 伴う初めての非互換変更。backend（road_graph_repository.py）がこの世代へ切り替わるより先に
-// この変更を含むfrontendをデプロイすること（逆順だと、この世代のcar_stress前提の凡例
-// フィルタが全地物に一致し、車ストレスレイヤーが一時的に全線「不明・他」表示になる。
-// docs/architecture.md「Renderデプロイの反映確認」参照）。
-// v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92のcar_stress判定ロジック変更
-// （secondary系base値4→3、shared_lane/share_busway・lanes<=1補正）がタイル世代の対上げを
-// 伴っていなかったため、キャッシュ陳腐化を断つために世代のみ更新（プロパティ構成は不変）。
-// v7: 改善計画T90。車ストレスの区間別判定内訳表示のため、osm_way_idプロパティを追加した。
-// v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
-// 変更し、designationプロパティの3値目"both"（N10・N12両方該当）を追加した。
-// v5: 指定路線コンフレーション機構（外部静的データソース T51）でdesignationプロパティを
-// 追加し、car_stressへKSJ N10/N12該当の+1補正を組み込んだ。
-// v4: 静的道路属性P0（docs/static-road-attributes-plan.md）でsmoothness/tunnel/bridge/
-// car_stress/bicycle_infraプロパティを追加した。
-// v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、T7）で
-// surface_goodの値が変わった。
-// v2: surface（正規化済み生タグ）・highwayプロパティ追加（色分けモード用）。
-// v12: 改善計画T145b。二次軸rampレイヤー用の事前集計密度プロパティ
-// （accident_per_km/stop_per_km/intersection_per_km）を追加。
-// v13: 改善計画T289。一方通行（一次属性、oneway）プロパティを追加。
-// v14: 改善計画T337。cycleway_classプロパティを削除した（どの評価軸・地図表示からも
-// 参照されない未使用材料だったため。cycleway由来の材料はbicycle_infraのみ現存）。
-// 削除のみで参照側への影響は無いため、v9のような非互換変更ではない。
-// v15: 改善計画T338フォローアップ。designation（3値、地図表示は引き続きこちらを使う）が
-// 畳み込む前の正規化フラグis_emergency_transport/is_critical_logisticsを追加した
-// （評価軸材料として軸スタジオから選べるようにするため）。追加のみで参照側への影響は
-// 無いため、v9のような非互換変更ではない。
-// v16: 改善計画T347。bicycle_infraプロパティを削除した（地図表示は専用レイヤーごと廃止し、
-// 評価軸側は新設の公開軸「自転車インフラ」bicycle_infra_qualityへ置き換えたため、
-// 地図表示・評価軸のどちらからも一切参照されなくなった）。
-// v17: 改善計画T367。公開軸「自転車インフラ」（bicycle_infra_quality）が参照する
-// 5正規化フラグ材料（highway_is_cycleway等）を追加した。v16でtile_propertyを失って以降
-// derive_ramp_inputsの対象外＝地図に一切出ない状態が続いていたため復活させる。
+// プロパティの追加・削除のみ（既存プロパティの意味を変えない）なら後方互換で、世代を
+// 上げるだけでよい。既存プロパティの意味自体を変える非互換変更は、backend
+// （road_graph_repository.py）がこの世代へ切り替わるより先にこの変更を含むfrontendを
+// デプロイすること（逆順だと、新世代前提の凡例フィルタが全地物に一致し、対象レイヤーが
+// 一時的に全線「不明・他」表示になる。docs/architecture.md「Renderデプロイの反映確認」
+// 参照）。
 const ROAD_SURFACE_TILE_VERSION = "17";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。オリジンは`tileBaseUrl()`
@@ -121,26 +84,21 @@ export function roadSurfaceTileUrl(): string {
   return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${ROAD_SURFACE_TILE_VERSION}`;
 }
 
-// 事故レイヤー（外部静的データソース T50）のタイル世代。バックエンド側
+// 事故レイヤー（外部静的データソース）のタイル世代。バックエンド側
 // （accident_service.pyのACCIDENT_TILE_VERSION）と対で更新すること。
-// v1: 初回実装（involves_bicycle/fatal/occurred_yearプロパティ）。
 const ACCIDENT_TILE_VERSION = "1";
 
 export function accidentTileUrl(): string {
   return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
 }
 
-// 停止要因POIレイヤー（改善計画T54）の世代。バックエンド（region_service.py:
-// POI_TILE_VERSION）と対で上げる。ROAD_SURFACE_TILE_VERSIONと同じ理由（ブラウザHTTP
-// キャッシュのバスト用）。
-// v3: T101（補給・休憩ポイントPOIレイヤー）。osm_raw_pois.kindへコンビニ・自販機・
-// トイレ・給水・駐輪場を追加。
-// v2: T97。地図の独立可視化レイヤーとしては使われなくなっていた（T96）intersectionレイヤーの
-// 配信自体をバックエンドから削除し、stop_poiのみの1レイヤー構成へ変更した世代。
-// v1: 初版（stop_poi・intersectionの2レイヤー）。
+// 停止要因POIレイヤーの世代。バックエンド（region_service.py: POI_TILE_VERSION）と対で
+// 上げる。ROAD_SURFACE_TILE_VERSIONと同じ理由（ブラウザHTTPキャッシュのバスト用）。
+// stop_poiのみの1レイヤー構成（交差点密度は地図上の独立可視化レイヤーとしては提供しない、
+// staticAttributeLayers.ts参照）。
 const POI_TILE_VERSION = "3";
 
-// 停止要因POIの地域レイヤー（改善計画T54）のベクタタイルURL。
+// 停止要因POIの地域レイヤーのベクタタイルURL。
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
 // 呼び出し時に評価する関数として提供する。
 export function poiTileUrl(): string {
