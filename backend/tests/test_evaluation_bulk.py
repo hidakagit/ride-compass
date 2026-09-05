@@ -78,19 +78,6 @@ _SYNTHETIC_AXES: dict[str, AxisDefinition] = {
         category="動的",
         is_published=True,
     ),
-    # 本番DBの風軸がまだ参照する非推奨エイリアス材料を参照する軸（切替完了までの後方互換
-    # をスカラー/bulkの一致として確認する）。
-    "wind_legacy": AxisDefinition(
-        axis_id="wind_legacy",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="wind_penalty")],
-            breakpoints=[(0.0, 0.0), (8.0, 100.0)],
-        ),
-        default_weight=0.0,
-        label="テスト風（旧材料）",
-        category="動的",
-        is_published=True,
-    ),
     "surface_q": AxisDefinition(
         axis_id="surface_q",
         shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),

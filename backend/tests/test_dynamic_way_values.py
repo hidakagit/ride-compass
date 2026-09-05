@@ -85,9 +85,9 @@ def test_map_value_unit_comes_from_material_catalog_for_signed_material_only():
 
 
 def test_transform_evaluates_difficulty_with_axis_breakpoints_and_clamps():
-    wind = AXIS_DEFINITIONS["wind"]  # breakpoints [(0,0),(8,100)]
-    result = transform_dedicated_way_values(wind, "wind_penalty", {1: 0.0, 2: 4.0, 3: 8.0, 4: -3.0, 5: 12.0})
-    assert result == {1: 0.0, 2: 50.0, 3: 100.0, 4: 0.0, 5: 100.0}
+    wind = AXIS_DEFINITIONS["wind"]  # breakpoints [(-1.2,0),(0,15),(5,100)]
+    result = transform_dedicated_way_values(wind, "wind_drag_ratio", {1: 0.0, 2: 4.0, 3: 8.0, 4: -3.0, 5: 12.0})
+    assert result == {1: 15.0, 2: 83.0, 3: 100.0, 4: 0.0, 5: 100.0}
 
 
 def test_transform_passes_signed_material_through_unchanged():
@@ -100,11 +100,11 @@ def test_transform_drops_ways_the_axis_cannot_evaluate_from_one_material():
     two_materials = AxisDefinition(
         axis_id="two_materials",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="wind_penalty"), MaterialTerm(material="lanes_count")],
+            terms=[MaterialTerm(material="wind_drag_ratio"), MaterialTerm(material="lanes_count")],
             breakpoints=[(0.0, 0.0), (10.0, 100.0)],
         ),
         default_weight=0.1,
         label="2材料",
         dedicated_way_value_layer=True,
     )
-    assert transform_dedicated_way_values(two_materials, "wind_penalty", {1: 3.0}) == {}
+    assert transform_dedicated_way_values(two_materials, "wind_drag_ratio", {1: 3.0}) == {}

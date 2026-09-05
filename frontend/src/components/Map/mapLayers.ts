@@ -53,8 +53,8 @@ export type MapLayerId =
   // 格子点サンプリング（バックエンド新設、GeoJSON source + symbolレイヤー）。
   // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
-  // way_id→wind_penalty配信層（改善計画T405/T414）。評価軸としての風——道路自身の
-  // 向きではなくユーザー指定の走行方位から計算したwind_penaltyをway単位でsetFeatureState
+  // way_id→wind_drag_ratio配信層（改善計画T405/T414）。評価軸としての風——道路自身の
+  // 向きではなくユーザー指定の走行方位から計算したwind_drag_ratioをway単位でsetFeatureState
   // 経由で線色分けする、windVector（面・矢印、探索用）とは独立の見せ方
   // （docs/tasks/T400.md「2. 動的要素…の二重表現」節）。改善計画T418で地図上チップとしては
   // 撤去し、ルート設定パネル（RouteSettingsPanel.tsx）から起動する形へ移設した。
@@ -516,10 +516,10 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "「風」の「地図で色分け」ボタンから道路の色分けとして別途確認できます。",
   },
   {
-    // way_id→wind_penalty配信層（改善計画T405/T414、docs/tasks/T400.md「2. 動的要素…の
+    // way_id→wind_drag_ratio配信層（改善計画T405/T414、docs/tasks/T400.md「2. 動的要素…の
     // 二重表現」節）。上のwindVector（格子点・矢印表示、探索用の「環境」表現）とは
     // 独立した評価軸としての表現——ユーザー指定の走行方位と最寄りの風グリッド値から
-    // wind_penaltyを計算し、backendのRedis配信層（タイル単位キー）・新設APIを経由して
+    // wind_drag_ratioを計算し、backendのRedis配信層（タイル単位キー）・新設APIを経由して
     // MapLibreのsetFeatureStateで道路線そのものを色分けする。改善計画T418で地図上チップ
     // としては撤去し、ルート設定パネル（RouteSettingsPanel.tsx）の「風」行から起動する形へ
     // 移設した——label/chipLabel/descriptionはisAxisStudioLayerによりMapOverlayControls/
@@ -686,9 +686,9 @@ export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): r
     "designation",
     "tunnel",
     "oneway",
-    // 改善計画T405/T423/T446: way_id→wind_penalty/勾配配信層（評価軸としての風・勾配）も
+    // 改善計画T405/T423/T446: way_id→wind_drag_ratio/勾配配信層（評価軸としての風・勾配）も
     // 同じroad_surfaceタイル（ソース）を再利用する独立レイヤーのため、ズーム範囲外判定
-    // （regionZoomTooWide）はここに含める。ただしデータ自体（wind_penalty/勾配値）はタイルの
+    // （regionZoomTooWide）はここに含める。ただしデータ自体（wind_drag_ratio/勾配値）はタイルの
     // プロパティではなく別経路のfetchで来るため、T87のloading/empty/error状態表示
     // （useLayerDataStatus）の対象には含めていない（MapView.tsx: getLayerVisibility参照。
     // 改善計画T418で地図上チップは撤去しルート設定パネルへ移設したが、この対象外の判断

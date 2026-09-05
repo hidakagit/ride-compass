@@ -1,4 +1,4 @@
-"""`domain/wind.py`の風の材料（`wind_drag_ratio_array`と非推奨エイリアス`headwind_component_ms`）。"""
+"""`domain/wind.py`の風の材料（`wind_drag_ratio_array`）。"""
 
 import math
 
@@ -7,7 +7,6 @@ import pytest
 
 from app.domain.wind import (
     WIND_DRAG_REFERENCE_SPEED_MS,
-    headwind_component_ms,
     kmh_to_ms,
     wind_drag_ratio,
     wind_drag_ratio_array,
@@ -103,13 +102,3 @@ def test_array_version_accepts_per_edge_wind_series():
 def test_non_positive_travel_speed_is_rejected():
     with pytest.raises(ValueError):
         wind_drag_ratio(4.0, 0, 0, 0.0)
-
-
-# --- 非推奨エイリアス`wind_penalty`の値（進行方向に平行な風成分、走行速度に依存しない） ---
-
-
-def test_headwind_component_keeps_cosine_semantics():
-    assert float(headwind_component_ms(5.0, 0, 0)) == pytest.approx(5.0)
-    assert float(headwind_component_ms(5.0, 180, 0)) == pytest.approx(-5.0)
-    assert float(headwind_component_ms(5.0, 90, 0)) == pytest.approx(0.0, abs=1e-9)
-    assert float(headwind_component_ms(0.0, 45, 270)) == 0.0

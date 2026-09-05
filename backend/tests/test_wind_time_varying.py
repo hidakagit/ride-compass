@@ -93,7 +93,7 @@ V20 = kmh_to_ms(20.0)
 
 def test_dynamic_materials_use_series_at_each_edge_passage_time():
     # 0〜11時は北風（0°）、12時以降は南風（180°）。北向き（bearing=0）のEdgeは、通過が12時以降
-    # なら追い風（負）になる。二乗則材料と非推奨エイリアスの両方が同じ風入力から求まる。
+    # なら追い風（負）になる。
     series = _series(24, lambda h: 0 if h < 12 else 180)
     bearing = np.array([0.0, 0.0])
     context = DynamicAxisRequestContext(
@@ -103,8 +103,6 @@ def test_dynamic_materials_use_series_at_each_edge_passage_time():
 
     materials = evaluate_dynamic_material_arrays(context)
 
-    assert materials["wind_penalty"][0] == pytest.approx(5.0)  # 向かい風
-    assert materials["wind_penalty"][1] == pytest.approx(-5.0)  # 追い風
     assert materials["wind_drag_ratio"][0] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
     assert materials["wind_drag_ratio"][1] == pytest.approx(wind_drag_ratio(5.0, 180.0, 0.0, V20))
 
@@ -116,13 +114,12 @@ def test_dynamic_materials_fall_back_to_snapshot_without_passage_hours():
     )
 
     materials = evaluate_dynamic_material_arrays(context)
-    assert materials["wind_penalty"][0] == pytest.approx(5.0)
     assert materials["wind_drag_ratio"][0] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
 
     no_weather = evaluate_dynamic_material_arrays(
         DynamicAxisRequestContext(bearing_deg=np.array([0.0]), weather=None, travel_speed_ms=V20)
     )
-    assert np.isnan(no_weather["wind_penalty"][0]) and np.isnan(no_weather["wind_drag_ratio"][0])
+    assert np.isnan(no_weather["wind_drag_ratio"][0])
 
 
 def test_dynamic_context_requires_travel_speed():
@@ -234,11 +231,11 @@ async def test_inbound_leg_uses_wind_at_return_time_and_segments_read_the_same_a
     assert len(context.legs) == 2 and context.legs[1] is not context.legs[0]
     outbound, inbound = context.legs
 
-    # 北向きスポーク（origin→p-0、bearing 0°）: 往路配列では向かい風（+5）、復路配列では
-    # 復路の通過予定時刻（10:01→最近傍10時=南風）の追い風（-5）。
+    # 北向きスポーク（origin→p-0、bearing 0°）: 往路配列では向かい風（正）、復路配列では
+    # 復路の通過予定時刻（10:01→最近傍10時=南風）の追い風（負）。
     row = context.full_edge_row["e-0-spoke1"]
-    assert outbound.material_arrays["wind_penalty"][row] == pytest.approx(5.0)
-    assert inbound.material_arrays["wind_penalty"][row] == pytest.approx(-5.0)
+    assert outbound.material_arrays["wind_drag_ratio"][row] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
+    assert inbound.material_arrays["wind_drag_ratio"][row] == pytest.approx(wind_drag_ratio(5.0, 180.0, 0.0, V20))
     assert outbound.cost_list != inbound.cost_list
 
     # 区間表示は各Edgeが探索されたレグの配列から読む（往路Edgeは往路配列、復路Edgeは復路配列）。
@@ -248,15 +245,15 @@ async def test_inbound_leg_uses_wind_at_return_time_and_segments_read_the_same_a
     candidates = await engine.evaluate_loops(context, [traced], datetime(2026, 9, 5, 9, 0))
     segments = candidates[0].segments
     first, last = segments[0], segments[-1]
-    # 風軸の重み>0なので、区間のmaterial_valuesに風軸が参照する材料(wind_penalty)が出る
+    # 風軸の重み>0なので、区間のmaterial_valuesに風軸が参照する材料(wind_drag_ratio)が出る
     # （候補全体への集約はroute_generator.pyが行うため、engine.evaluate_loopsが返す
     # 時点ではsegments側だけで確認する）。
-    assert "wind_penalty" in first.material_values and "wind_penalty" in last.material_values
+    assert "wind_drag_ratio" in first.material_values and "wind_drag_ratio" in last.material_values
 
 
 async def test_material_values_omits_wind_when_wind_axis_has_no_weight():
     # 改善計画T592: 風軸の重みが0のリクエストでは、風データ自体はあっても
-    # material_valuesに風の材料(wind_penalty)は出ない（評価に使っていない軸の材料は
+    # material_valuesに風の材料(wind_drag_ratio)は出ない（評価に使っていない軸の材料は
     # 出ない、という規約）。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     weights = {axis_id: 0.0 for axis_id in RoutePreference().weights}
@@ -276,7 +273,7 @@ async def test_material_values_omits_wind_when_wind_axis_has_no_weight():
     candidates = await engine.evaluate_loops(context, [traced], datetime(2026, 9, 5, 9, 0))
 
     for segment in candidates[0].segments:
-        assert "wind_penalty" not in segment.material_values
+        assert "wind_drag_ratio" not in segment.material_values
 
 
 async def test_assumed_speed_changes_estimated_arrival_time_and_preview_duration():

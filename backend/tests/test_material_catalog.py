@@ -332,7 +332,6 @@ def test_wind_drag_ratio_reference_points_match_formula():
     for label, (wind_speed_ms, wind_direction_deg) in scenarios.items():
         assert points_by_label[label] == round(wind_drag_ratio(wind_speed_ms, wind_direction_deg, 0.0, v), 2)
     assert points_by_label["走行速度と同じ追い風"] == -1.0
-    assert MATERIAL_CATALOG["wind_penalty"].reference_points == []  # 非推奨エイリアスには持たせない
 
 
 def test_all_reference_points_have_non_empty_label_and_finite_value():

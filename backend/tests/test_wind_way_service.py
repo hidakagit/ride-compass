@@ -1,4 +1,4 @@
-"""WindWayService（改善計画T405→T414で作り直し、way_id→wind_penalty配信層の
+"""WindWayService（改善計画T405→T414で作り直し、way_id→wind_drag_ratio配信層の
 オーケストレーション）のテスト。
 
 FakeRegionRepository（test_region_service.py）と同じ流儀で、RoadGraphRepository/
@@ -8,7 +8,7 @@ WeatherServiceが持つメソッドのうち本サービスが実際に呼ぶも
 
 T414での設計変更: 走行方位（bearing_deg）は道路自身の向きではなく、呼び出し側
 （コンパススライダー）が指定する引数になった。同じタイル内の全wayは常に同じ
-wind_penaltyを持つ（風グリッドをタイル中心1点で代表させる既存の近似＋向きが全道路共通の
+wind_drag_ratioを持つ（風グリッドをタイル中心1点で代表させる既存の近似＋向きが全道路共通の
 ため）。
 """
 
@@ -16,13 +16,14 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app.domain.wind import headwind_component_ms
+from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure import dynamic_way_value_cache
 from app.services.route_generator import JST
 from app.services.wind_way_service import WindWayService
 
 Z, X, Y = 14, 14551, 6447
+SPEED_KMH = 20.0
 
 
 class FakeRedis:
@@ -85,10 +86,15 @@ AT = datetime(2026, 8, 30, 9, 0)
 TIMES = ["2026-08-30T08:00", "2026-08-30T09:00", "2026-08-30T10:00"]
 
 
+def test_material_id_is_wind_drag_ratio():
+    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
+    assert service.material_id == "wind_drag_ratio"
+
+
 async def test_repository_none_returns_empty_dict():
     service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
 
-    result = await service.get_way_values(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert result == {}
 
@@ -100,7 +106,14 @@ async def test_bearing_deg_none_raises_value_error():
     service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
 
     with pytest.raises(ValueError, match="bearing_deg"):
-        await service.get_way_values(Z, X, Y, AT, None)
+        await service.get_way_values(Z, X, Y, AT, None, SPEED_KMH)
+
+
+async def test_speed_kmh_none_raises_value_error():
+    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
+
+    with pytest.raises(ValueError, match="speed_kmh"):
+        await service.get_way_values(Z, X, Y, AT, 0.0)
 
 
 async def test_uncovered_tile_returns_empty_dict_without_calling_weather():
@@ -108,7 +121,7 @@ async def test_uncovered_tile_returns_empty_dict_without_calling_weather():
     weather_service = FakeWeatherService(TIMES, make_grid_point(TIMES, [5.0, 5.0, 5.0], [0.0, 0.0, 0.0]))
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_values(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert result == {}
     assert weather_service.calls == []  # カバレッジ外は風データを取りに行かない
@@ -118,15 +131,15 @@ async def test_covered_but_no_ways_returns_empty_dict():
     repository = FakeWayIdsRepository(way_ids=[])
     service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
 
-    result = await service.get_way_values(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert result == {}
 
 
-async def test_computes_wind_penalty_from_bearing_and_wind_grid():
+async def test_computes_wind_drag_ratio_from_bearing_speed_and_wind_grid():
     # T414: 走行方位はユーザー指定の単一の値（全道路共通）。同じタイル内のway1・way2は
-    # 常に同じwind_penalty（進行方向に平行な風成分、headwind_component_msの定義どおりに
-    # 直接計算して突き合わせる、二重実装を避ける既存の車ストレス系テストと同じ方針）を持つ。
+    # 常に同じwind_drag_ratio（wind_drag_ratioの定義どおりに直接計算して突き合わせる、
+    # 二重実装を避ける既存の車ストレス系テストと同じ方針）を持つ。
     repository = FakeWayIdsRepository(way_ids=[1, 2])
     wind_speed, wind_direction = 6.0, 200.0
     bearing_deg = 45.0
@@ -134,22 +147,21 @@ async def test_computes_wind_penalty_from_bearing_and_wind_grid():
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_values(Z, X, Y, AT, bearing_deg)
+    result = await service.get_way_values(Z, X, Y, AT, bearing_deg, SPEED_KMH)
 
-    expected = round(float(headwind_component_ms(wind_speed, wind_direction, bearing_deg)), 2)
-    assert service.material_id == "wind_penalty"
+    expected = round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(SPEED_KMH)), 3)
     assert result == {1: expected, 2: expected}
     assert len(weather_service.calls) == 1
 
 
-async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
+async def test_second_call_with_same_bearing_and_speed_bucket_is_served_from_cache():
     repository = FakeWayIdsRepository(way_ids=[1])
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    first = await service.get_way_values(Z, X, Y, AT, 0.0)
-    second = await service.get_way_values(Z, X, Y, AT, 0.0)
+    first = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
+    second = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert first == second
     # way_id一覧の取得（DBクエリ）は都度行うが、風グリッドの再取得はキャッシュヒットのため1回のみ。
@@ -163,11 +175,25 @@ async def test_different_bearing_bucket_recomputes():
     weather_service = FakeWeatherService(TIMES, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    first = await service.get_way_values(Z, X, Y, AT, 0.0)
-    second = await service.get_way_values(Z, X, Y, AT, 90.0)
+    first = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
+    second = await service.get_way_values(Z, X, Y, AT, 90.0, SPEED_KMH)
 
     assert first != second
     assert len(weather_service.calls) == 2
+
+
+async def test_different_speed_bucket_recomputes():
+    repository = FakeWayIdsRepository(way_ids=[1, 2])
+    wind_speed, wind_direction, bearing_deg = 6.0, 200.0, 45.0
+    grid_point = make_grid_point(TIMES, [1.0, wind_speed, 1.0], [10.0, wind_direction, 10.0])
+    service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, grid_point))
+
+    slow = await service.get_way_values(Z, X, Y, AT, bearing_deg, 15.0)
+    fast = await service.get_way_values(Z, X, Y, AT, bearing_deg, 35.0)
+
+    assert slow == {1: round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(15.0)), 3)} | {2: slow[1]}
+    assert fast[1] == round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(35.0)), 3)
+    assert slow[1] != fast[1]  # 速度バケットが異なればキャッシュを共有しない
 
 
 async def test_wind_grid_unavailable_returns_empty_dict():
@@ -175,7 +201,7 @@ async def test_wind_grid_unavailable_returns_empty_dict():
     weather_service = FakeWeatherService(TIMES, None)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_values(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert result == {}
 
@@ -187,7 +213,7 @@ async def test_time_outside_wind_grid_range_returns_empty_dict():
     service = WindWayService(repository=repository, weather_service=weather_service)
 
     far_future = datetime(2027, 1, 1, 0, 0)
-    result = await service.get_way_values(Z, X, Y, far_future, 0.0)
+    result = await service.get_way_values(Z, X, Y, far_future, 0.0, SPEED_KMH)
 
     assert result == {}
 
@@ -196,7 +222,7 @@ async def test_repository_error_returns_empty_dict():
     repository = FakeWayIdsRepository(way_ids=None, error=RuntimeError("db down"))
     service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
 
-    result = await service.get_way_values(Z, X, Y, AT, 0.0)
+    result = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert result == {}
 
@@ -214,69 +240,6 @@ async def test_at_none_defaults_to_now_without_raising():
     weather_service = FakeWeatherService(wide_times, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    result = await service.get_way_values(Z, X, Y, None, 0.0)
+    result = await service.get_way_values(Z, X, Y, None, 0.0, SPEED_KMH)
 
     assert set(result.keys()) == {1}
-
-
-# --- 風軸の参照先がwind_drag_ratioのとき（走行速度依存） ---
-
-
-def _drag_axis_definitions(monkeypatch):
-    from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
-
-    monkeypatch.setitem(
-        AXIS_DEFINITIONS,
-        "wind",
-        AxisDefinition(
-            axis_id="wind",
-            shape=BreakpointLinearShape(terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (5.0, 100.0)]),
-            default_weight=0.2,
-            label="風",
-            dedicated_way_value_layer=True,
-            dynamic_way_value_needs_time=True,
-            dynamic_way_value_needs_bearing=True,
-            dynamic_way_value_needs_speed=True,
-        ),
-    )
-
-
-async def test_material_id_follows_wind_axis_material(monkeypatch):
-    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
-    assert service.material_id == "wind_penalty"
-    _drag_axis_definitions(monkeypatch)
-    assert service.material_id == "wind_drag_ratio"
-
-
-async def test_drag_material_requires_speed_and_uses_it(monkeypatch):
-    from app.domain.wind import kmh_to_ms, wind_drag_ratio
-
-    _drag_axis_definitions(monkeypatch)
-    repository = FakeWayIdsRepository(way_ids=[1, 2])
-    wind_speed, wind_direction, bearing_deg = 6.0, 200.0, 45.0
-    grid_point = make_grid_point(TIMES, [1.0, wind_speed, 1.0], [10.0, wind_direction, 10.0])
-    service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, grid_point))
-
-    with pytest.raises(ValueError, match="speed_kmh"):
-        await service.get_way_values(Z, X, Y, AT, bearing_deg)
-
-    slow = await service.get_way_values(Z, X, Y, AT, bearing_deg, 15.0)
-    fast = await service.get_way_values(Z, X, Y, AT, bearing_deg, 35.0)
-
-    assert slow == {1: round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(15.0)), 3)} | {2: slow[1]}
-    assert fast[1] == round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(35.0)), 3)
-    assert slow[1] != fast[1]  # 速度バケットが異なればキャッシュを共有しない
-
-
-async def test_legacy_material_ignores_speed_in_cache_key(use_fake_redis):
-    repository = FakeWayIdsRepository(way_ids=[1])
-    grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
-    weather_service = FakeWeatherService(TIMES, grid_point)
-    service = WindWayService(repository=repository, weather_service=weather_service)
-
-    first = await service.get_way_values(Z, X, Y, AT, 0.0, 20.0)
-    second = await service.get_way_values(Z, X, Y, AT, 0.0, 40.0)
-
-    assert first == second
-    assert len(weather_service.calls) == 1  # 速度が違ってもキャッシュヒット
-    assert all(key.endswith(":-") for key in use_fake_redis.store)

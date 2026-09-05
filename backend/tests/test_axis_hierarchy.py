@@ -387,18 +387,18 @@ def test_compute_edge_axis_scores_resolves_priority_override_through_hierarchy(i
 def test_dynamic_axis_topological_order_includes_axis_referencing_dynamic_material_directly():
     definitions = {
         "static": _linear_axis("static", "gradient_percent"),
-        "dynamic": _linear_axis("dynamic", "wind_penalty"),
+        "dynamic": _linear_axis("dynamic", "wind_drag_ratio"),
     }
     assert dynamic_axis_topological_order(definitions) == ["dynamic"]
 
 
 def test_dynamic_axis_topological_order_includes_axis_referencing_dynamic_axis_indirectly():
     # "downstream"は"dynamic"（風に直接依存）の結果を材料として参照するのみで、
-    # wind_penaltyを直接は参照しない。それでも間接依存として動的側へ含まれるべき
+    # wind_drag_ratioを直接は参照しない。それでも間接依存として動的側へ含まれるべき
     # （軸スタジオがどんな深さの依存連鎖を作っても、風の値が変われば再評価が必要なため）。
     definitions = {
         "static": _linear_axis("static", "gradient_percent"),
-        "dynamic": _linear_axis("dynamic", "wind_penalty"),
+        "dynamic": _linear_axis("dynamic", "wind_drag_ratio"),
         "downstream": _linear_axis("downstream", "dynamic"),
     }
     order = dynamic_axis_topological_order(definitions)
@@ -416,7 +416,7 @@ def test_dynamic_axis_topological_order_excludes_axes_not_depending_on_dynamic_m
 def test_dynamic_axis_topological_order_matches_realistic_axis_definitions():
     # 本番相当14軸（tests/realistic_axis_fixtures.py、conftest.pyのセッションスコープ
     # フィクスチャがAXIS_DEFINITIONSへ用意済み）では、風に依存する軸は"wind"のみのはず
-    # （他軸がwind/wind_penaltyを参照する設計にはなっていない）。この前提が崩れて
+    # （他軸がwind/wind_drag_ratioを参照する設計にはなっていない）。この前提が崩れて
     # 新しい軸が風へ依存するようになった場合、`evaluate_dynamic_axis_arrays`
     # （domain/evaluation.py、改善計画T536）側は自動的に追従するため実害は無いが、
     # その前提が変わったこと自体をこのテストで検知できるようにしておく。

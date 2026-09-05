@@ -93,7 +93,7 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 - **T11**: road_graphエンジンが返す`segments`はEdge単位（交差点間、1候補あたり150〜230件、
   30km級）のままではAPIペイロード・フロント描画コストが嵩むため、`domain/route.py:
   aggregate_segments_into_bins`で約500m単位（`SEGMENT_BIN_DISTANCE_KM`）へ集約してから
-  返す（road_graph_engine.py: `prepare`が生成した候補へ適用）。集約はgradient/wind_penalty/car_stress等を
+  返す（road_graph_engine.py: `prepare`が生成した候補へ適用）。集約はgradient/wind_drag_ratio/car_stress等を
   距離加重平均、road_surface_good等のカテゴリ値を距離加重多数決で代表値化し、
   `RouteSegmentDetail`型自体は変えない（フロント型・OpenAPI契約への影響なし）。
 - **T274（周回ルートの逆回り候補評価）**: `evaluate_loops`は各方位につき、`trace_loop`が
@@ -127,7 +127,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 1. 起点からの累積距離 ÷ 仮定巡航速度（`ASSUMED_SPEED_KMH = 20.0`が既定値。リクエストの`assumed_speed_kmh`で5〜60km/hの範囲で指定できる）で推定到達時刻を計算
 2. 区間の進行方位を`domain/geo.py`の`bearing_between(a, b)`（新規追加、2点間の初期方位角を球面三角法で求める。`destination_point`の逆関数に相当）で算出
 3. `WeatherService.get_conditions(point, at=推定到達時刻)`を各区間の始点について並列取得（`ElevationService`と同じ`asyncio.Semaphore`パターン。天候はTTLキャッシュ済みのため近接点は追加リクエストなしでヒットする）
-4. `domain/wind.py`の`headwind_component_ms(wind_speed_ms, wind_direction_deg, travel_bearing_deg)`＝`風速 × cos(風向 − 走行方位)`で区間ごとのペナルティを算出（現在はこの値を材料`wind_penalty`[非推奨エイリアス]として残しつつ、評価軸の正式な風の材料は走行速度を含む二乗則の`wind_drag_ratio`[`wind_drag_ratio_array`]へ移行中。詳細は[docs/modules/backend/dynamic-way-values.md](modules/backend/dynamic-way-values.md)参照）（`wind_direction_deg`は気象学の慣習で「風が吹いてくる方向」。走行方位と一致＝正面からの向かい風＝`cos(0)=1`で最大、180度差＝追い風＝`cos(180°)=-1`、90度差＝横風＝`cos(90°)=0`で走行への影響なし。進行方向に平行な風成分のみが影響するという物理的に妥当なモデル）
+4. `domain/wind.py`の`headwind_component_ms(wind_speed_ms, wind_direction_deg, travel_bearing_deg)`＝`風速 × cos(風向 − 走行方位)`で区間ごとのペナルティを算出していた（`wind_direction_deg`は気象学の慣習で「風が吹いてくる方向」。走行方位と一致＝正面からの向かい風＝`cos(0)=1`で最大、180度差＝追い風＝`cos(180°)=-1`、90度差＝横風＝`cos(90°)=0`で走行への影響なし。進行方向に平行な風成分のみが影響するという物理的に妥当なモデル。後日追加: 改善計画T591/T599・2026-09-05で評価軸の正式な風の材料を走行速度依存の二乗則`wind_drag_ratio`[`wind_drag_ratio_array`]へ切替済み、`headwind_component_ms`・非推奨材料`wind_penalty`は撤去済み。詳細は[docs/modules/backend/dynamic-way-values.md](modules/backend/dynamic-way-values.md)参照）
 5. 区間距離で加重平均した値を`wind_score`（符号付きm/s、正=正味向かい風、負=正味追い風）として`RouteCandidate`にマージ
 
 天候取得に失敗した区間はスキップし、有効な区間が無い場合は`wind_score=None`（標高と同じ「取得失敗は握りつぶしてnull」方針）。既知の制約: 推定到達時刻の計算は「サーバーのローカル時刻＝Asia/Tokyoのその時刻」という簡易近似（Open-Meteoの`hourly`もタイムゾーン付きでなくAsia/Tokyoのnaiveなローカル時刻文字列を返すため整合はしている）。`wind_score`は正規化・重み付けされていない生の物理量で、`RouteCandidate`へそのまま残る（Step8時点の重み付け先だった`total_score`は改善計画T548で撤去済み、次節参照）。
@@ -151,7 +151,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 - **サンプル点の共有化**: `ElevationService.get_profile`と`WindService.get_wind_score`はそれぞれ独立に`sample_line_coordinates`を呼んでいたが、区間ごとの標高・風・路面を1つの配列としてインデックス整合させるため、`route_generator.py`が`sample_line_points(geometry, SAMPLE_COUNT)`（新規、`domain/geo.py`。座標だけでなく元geometry内でのインデックスも返す）で一度だけ点を取得し、両サービスに共有するようリファクタした。シグネチャも`get_profile(points)` / `get_wind_profile(points, start_time)`に変更（`geometry`ではなく点列を直接受け取る）。
 - **路面の位置対応（2026-08-15、改善計画T21で撤去・置換）**: 当初はopenrouteserviceの`extras.surface.values`（`[[start_idx, end_idx, surface_id], ...]`）を`RouteSegment.surface_values`として保持し`surface_id_at_index`で求めていたが、現在はサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチして`classify_osm_surface`で判定する方式に統一済み（後述「ルーティングエンジンの切り替え対応」）。
 - **難易度の算出（絶対基準）**: `domain/difficulty.py`が、Step8の相対正規化とは異なり**絶対基準**（一般的なロードバイク走行の目安）で0-100点化する。`gradient_difficulty`（0-3%易しい〜9%以上激坂の区分的線形）、`wind_difficulty`（向かい風0-8m/sで0→100、追い風・無風は0）、`road_difficulty`（舗装路0・非舗装80、`domain/road.py`の`GOOD_SURFACE_IDS`と基準を統一）、`composite_difficulty`（重み付き平均、`None`の指標は除外して残りの重みで再正規化）。当時（Step9時点）は重みをStep8の旧`scoring.yaml`から`distance_weight`を除いた`elevation_weight`/`wind_weight`/`road_weight`のまま流用していたが、現在の重みの単一の情報源は`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`（改善計画T316）である（旧`scoring.yaml`自体が改善計画T548で撤去済み）。地図の色分け・候補タブの並び順は「候補間の相対比較」ではなく「客観的にどこが大変か」を示す目的のため、Step8のような候補集合内正規化ではなく絶対基準を採用した（改善計画T548で候補タブの並び順もこの絶対基準＝`overall_difficulty`昇順へ統一）。
-- **`RouteSegmentDetail`**（`domain/route.py`、`RouteCandidate.segments`）: 区間の始点/終点座標・累積距離・推定到達時刻に加え、表示用の生値（`gradient_percent`, `wind_penalty`, `road_surface_good`, `car_stress`）と正規化済みの軸別内訳（当初のStep9時点は`elevation_difficulty`等の固定4〜7フィールドだったが、改善計画T309で`axis_difficulties`＝axis_id→difficultyの汎用dict＋総合の`difficulty`へ置換済み。正準定義は下記「6. データモデル」の`RouteSegmentDetail`インターフェース参照）を両方保持する。正規化済みの値をフロントに渡すことで、閾値ロジックをフロント側に複製せず、UIは常に「0-100→緑〜赤」の単一の色変換関数だけで済む。
+- **`RouteSegmentDetail`**（`domain/route.py`、`RouteCandidate.segments`）: 区間の始点/終点座標・累積距離・推定到達時刻に加え、表示用の生値（当初のStep9時点は`gradient_percent`/`wind_penalty`/`road_surface_good`/`car_stress`の固定フィールドだったが、改善計画T592で汎用`material_values`辞書[材料id→値]へ置換済み）と正規化済みの軸別内訳（当初のStep9時点は`elevation_difficulty`等の固定4〜7フィールドだったが、改善計画T309で`axis_difficulties`＝axis_id→difficultyの汎用dict＋総合の`difficulty`へ置換済み。正準定義は下記「6. データモデル」の`RouteSegmentDetail`インターフェース参照）を両方保持する。正規化済みの値をフロントに渡すことで、閾値ロジックをフロント側に複製せず、UIは常に「0-100→緑〜赤」の単一の色変換関数だけで済む。
 - **フロントエンド**（当初実装）: 選択中候補に`segments`があれば区間ごとの色分けレイヤーを追加し、モード切替ボタン（総合難易度/標高/風/路面）で`line-color`を切り替える形にした。この設計は後述のUI再構成でレイヤー構成ごと見直している。
 
 既知の制約と改善（区間表示の粒度・形状）: 当初はサンプリング密度が12点固定（＝11区間、Step5-7と同じ）で、30kmルートでは1区間約2.7kmと粗く、さらに区間の線は始点・終点を直線で結んでいたためカーブ区間で色分け線が道路から外れていた。「区間が荒すぎて実態が分からない」というフィードバックを受け、次の2点を改善した（2026-08-15）: ①**区間の道なり形状**: `RouteSegmentDetail.geometry`にルートgeometryの部分列（サンプル点インデックスで切り出し。road_graphエンジンはEdge形状点列）を持たせ、フロントはそれをそのまま描画する（追加APIコール無し。geometryがnullの場合のみ従来の直線代替）。②**距離連動サンプリング**: `sample_count_for_distance`（openrouteservice_engine.py）が約1km間隔になるよう点数を決める（下限12点=従来密度、上限32点=外部API問い合わせの安全弁。最悪でも8候補×32点=256 GSIリクエスト/生成。風はTTL＋座標丸めキャッシュにより点数増の影響がほぼ無い）。密度をさらに上げる場合はGSI問い合わせ数とのトレードオフになる（DEMタイル化T10が根本対策）。
@@ -549,7 +549,7 @@ RideCompass/
         geo.py                   ✅ haversine_distance_km, haversine_distance_km_array, compass_label, bearing_between（destination_pointは改善計画T531で本番コードから未参照になったため、改善計画T555でtests/geo_fixtures.pyのテスト専用ヘルパーへ移動。sample_indices/sample_line_coordinates/sample_line_pointsはOpenRouteServiceEngine専用だったため改善計画T462の撤去に伴い削除済み）
         road.py                   ✅ classify_osm_surface, GOOD_OSM_SURFACE_TAGS, BAD_OSM_SURFACE_TAGS（両エンジン共通の唯一の路面判定語彙。distance_weighted_road_scoreは改善計画T592でroad_score撤去に伴い削除済み）
         difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9。scoring.py/normalize_min_maxは改善計画T548で撤去済み）
-        wind.py                   ✅ wind_drag_ratio_array（相対風速の二乗則、走行速度依存）・headwind_component_ms（非推奨材料wind_penaltyの値）・estimate_passage_hours
+        wind.py                   ✅ wind_drag_ratio_array（相対風速の二乗則、走行速度依存）・estimate_passage_hours
         region.py                 ✅ BoundingBox, tile_bounds_lonlat, ROAD_TILE_MIN_ZOOM/MAX_ZOOM（Step10改訂。標高グリッド・snap_cells・bbox対角距離関連は撤去済み）。ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox（Road Graphのタイル単位キャッシュ用、新規）
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
@@ -887,7 +887,7 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
           "end_latitude":35.7602, "end_longitude":139.7390,
           "cumulative_distance_km":0.0, "distance_km":1.16,
           "estimated_arrival_time":"2026-08-13T23:20:43",
-          "material_values": { "gradient_percent":0.2, "wind_penalty":-0.83 },
+          "material_values": { "gradient_percent":0.2, "wind_drag_ratio":-0.83 },
           "car_stress":2,
           /* ↑ 車ストレスの生値（P1）。material_valuesと
              同じく、難易度への寄与とは別に表示・研究モード用に生値も保持する */
@@ -1183,7 +1183,7 @@ interface RouteSegmentDetail {
     // 公開軸の増減にそのまま追従する
   axis_contributions: { [axisId: string]: number };  // axis_id→重み付き寄与度（改善計画T550）
   material_values: { [materialId: string]: number };  // 材料id→値（改善計画T592で
-    // gradient_percent/wind_penalty等の固定フィールドから汎用dictへ置換。重み>0の公開軸が
+    // gradient_percent/wind_drag_ratio等の固定フィールドから汎用dictへ置換。重み>0の公開軸が
     // 参照する材料、または地図のレンズが指す符号付き材料の軸の材料のみキーを持つ）
   difficulty: number | null;              // 公開軸の合成値（絶対基準0-100）
 }
@@ -1321,7 +1321,7 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 |---|---|---|---|---|
 | 標高（勾配） | `gradient` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
 | 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
-| 風 | `wind` | 0.26 | 本番DBは材料`wind_penalty`（m/s、正=向かい風、非推奨エイリアス）を参照中。正式な材料は`wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存）で軸スタジオ経由の切替待ち | `domain/wind.py`（`wind_drag_ratio_array`／`headwind_component_ms`） |
+| 風 | `wind` | 0.26 | `wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存） | `domain/wind.py`（`wind_drag_ratio_array`） |
 | 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
 | 車ストレス | `car_stress` | 0.20 | 0-4（T353以前は自転車インフラ込みで1-5） | 推定（改善計画T292で`axis_definitions`の内部軸5つ+公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
 | 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
@@ -2427,23 +2427,20 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   風向風速）とユーザー指定の走行方位に依存する相対値が同時に出ると見にくいため、走行方位に
   対する向かい風/追い風の強さは次項の評価軸（線）のみで確認する（勾配は評価軸[線]・
   環境グループのgridFill[面]の両方を持つ、§動的気象レイヤー参照）。
-- **評価軸（線）**: `WindWayService.get_way_wind_penalties(z, x, y, at, bearing_deg)`
+- **評価軸（線）**: `WindWayService.get_way_values(z, x, y, at, bearing_deg, speed_kmh)`
   （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル内の
-  way_id一覧（`RoadGraphRepository.get_way_ids_in_tile`——T414で道路自身の向き計算
-  [`ST_Azimuth`]が不要になったため、旧`get_way_bearings_in_tile`より大幅に単純化した
-  クエリへ置き換え）を取得し、最寄りの風グリッド格子点（`domain/wind_grid.py:
-  nearest_grid_point`）の風向風速と、**ユーザーが指定した単一の走行方位**（全道路共通、
-  道路自身の向きは計算に使わない）から`headwind_component_ms`（材料`wind_penalty`）で1回だけ計算し、
+  way_id一覧（`RoadGraphRepository.get_way_ids_in_tile`）を取得し、最寄りの風グリッド格子点
+  （`domain/wind_grid.py: nearest_grid_point`）の風向風速と、**ユーザーが指定した単一の
+  走行方位**（全道路共通、道路自身の向きは計算に使わない）・想定速度から`wind_drag_ratio`
+  （材料`wind_drag_ratio`、走行速度依存の二乗則、`speed_kmh`必須）で1回だけ計算し、
   タイル内の全way_idへ同じ値を割り当てる（同じタイル内の全wayは常に同じ値を持つ——
   風グリッドをタイル中心1点で代表させる既存の近似＋走行方位が全道路共通のため）。
-  計算結果は`(z, x, y, 時刻バケット, 向きバケット[5度刻み]) → スカラー値1個`という
-  タイル単位のキーでRedisへキャッシュする（[wind_way_penalty_cache.py]
-  (../backend/app/infrastructure/wind_way_penalty_cache.py)、TTLは風グリッドの新鮮判定TTL
-  `WIND_GRID_CACHE_TTL_SECONDS`と同じ3時間）——T405時点は`way_id`単位のキー（旧設計、
-  道路自身の向きが固定値だったため時刻だけが変数だった）だったが、T414で走行方位も
-  ユーザー指定の変数になったことを受け、はるかに小さいタイル単位のキー空間へ再設計した。
-  `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照、`bearing_deg`クエリ
-  パラメータ必須）が`{way_id: 地図表示値}`を返す（backendが軸定義で評価した難易度
+  計算結果は`(材料id, z, x, y, 時刻バケット, 向きバケット[5度刻み], 速度バケット[1km/h刻み])
+  → 値`というタイル単位のキーで[dynamic_way_value_cache.py]
+  (../backend/app/infrastructure/dynamic_way_value_cache.py)経由でRedisへキャッシュする
+  （TTLは風グリッドの新鮮判定TTL`WIND_GRID_CACHE_TTL_SECONDS`と同じ3時間）。
+  `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照、`bearing_deg`・`speed_kmh`
+  クエリパラメータ必須）が`{way_id: 地図表示値}`を返す（backendが軸定義で評価した難易度
   0〜100。勾配のような符号付き材料の軸だけ生値、`domain/dynamic_way_values.py:
   transform_dedicated_way_values`）——静的なroad-surface-tiles（MVT、変更なし）とは
   完全に別経路のJSONエンドポイント。

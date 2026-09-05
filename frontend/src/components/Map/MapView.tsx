@@ -194,7 +194,7 @@ const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureColl
 // exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
 export const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
-// way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
+// way_id→wind_drag_ratio配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
 // SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと
 // 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
@@ -1316,7 +1316,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       tiles: [roadSurfaceTileUrl()],
       minzoom: ROAD_TILE_MIN_ZOOM,
       maxzoom: ROAD_TILE_MAX_ZOOM,
-      // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）がMapLibreの
+      // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸グループとしての風）がMapLibreの
       // setFeatureStateでこのソースの地物へ後から値を差し込むために必要。MVTのフィーチャーは
       // 既定では安定したidを持たないため、既存のosm_way_idプロパティ（区間インスペクタ用に
       // 元から焼き込み済み、_ROAD_SURFACE_TILE_MVT_SQL参照）をfeature.idへ昇格させる
@@ -1777,7 +1777,7 @@ export function buildStaticOverlayLayers(
     { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION) },
     { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION) },
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION) },
-    // 改善計画T405/T440/T466: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
+    // 改善計画T405/T440/T466: way_id→wind_drag_ratio配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。
     { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, dedicatedWayValueColorExpression("wind", windDisplay)) },
@@ -2204,7 +2204,7 @@ interface MapViewProps {
   /** 一方通行（一次属性、OSM onewayタグ、改善計画T289）。tunnelと同じく路面と同じソースを
    * 再利用する独立レイヤー。評価軸には組み込まない表示専用。 */
   showOneway: boolean;
-  /** way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——designation/
+  /** way_id→wind_drag_ratio配信層（改善計画T405）。「評価軸」グループとしての風——designation/
    * tunnel/onewayと同じく路面と同じソースを再利用する独立レイヤーだが、値はタイルの
    * プロパティではなくdedicatedWayValues（別経路のAPI、setFeatureStateで合成）から来る。
    * T406（パネル構成再編）が完了するまでの暫定措置として、既存の「動的」グループへ
@@ -2214,7 +2214,7 @@ interface MapViewProps {
    * グループとしての勾配。 */
   showGradientAxis: boolean;
   /** 改善計画T483: hooks/useDynamicWayValues.ts（改善計画T423で旧useWindAxisPenaltiesから
-   * 汎用化）が現在のビューポートに対して取得したway_id→値（風=wind_penalty[m/s、
+   * 汎用化）が現在のビューポートに対して取得したway_id→値（風=wind_drag_ratio[m/s、
    * 正=向かい風・負=追い風]、勾配=effective_gradient[%、正=登り・負=下り]）を、
    * axisId→(way_id→値)の汎用Mapとしてまとめて受け取る（page.tsx: windAxisData.values/
    * gradientAxisData.valuesを1つのMapへ統合して構築）。show{Wind,Gradient}Axisがtrueの
@@ -3429,7 +3429,7 @@ export default function MapView({
     axisOverlayLayers,
   ]);
 
-  // way_id→動的値配信層（風=wind_penalty[改善計画T405]・勾配=effective_gradient
+  // way_id→動的値配信層（風=wind_drag_ratio[改善計画T405]・勾配=effective_gradient
   // [改善計画T423]）。hooks/useDynamicWayValues.tsが現在のビューポートに対して取得した値を
   // MapLibreのsetFeatureStateへ反映する。上のSTATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの
   // 切替）とは別のeffectにする理由は動的気象レイヤーと同じ——dedicatedWayValuesはパン・

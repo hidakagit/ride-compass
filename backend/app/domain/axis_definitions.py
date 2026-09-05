@@ -544,14 +544,13 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     return order
 
 
-# リクエストごとに値が変わりうる材料id（風向・風速・走行速度由来）。`wind_drag_ratio`が
-# 正式な風の材料で、`wind_penalty`は本番DBの公開軸がまだ参照している非推奨エイリアス
-# （切替完了後に撤去する）。`MATERIAL_CATALOG`の`extractor=None`は「汎用抽出の対象外」という
-# 別の意味も持つフラグ（designation等、動的データ以外の理由でもNoneになる）のため流用せず、
-# ここに正準定義を置く。`dynamic_axis_topological_order`がこの集合を起点に、依存する軸を
-# 機械的に導出する（軸id・材料idのハードコードを個別の軸ぶん増やさない汎用設計）。
-# 各材料の評価関数は`domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
-REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({"wind_drag_ratio", "wind_penalty"})
+# リクエストごとに値が変わりうる材料id（風向・風速・走行速度由来）。`MATERIAL_CATALOG`の
+# `extractor=None`は「汎用抽出の対象外」という別の意味も持つフラグ（designation等、動的
+# データ以外の理由でもNoneになる）のため流用せず、ここに正準定義を置く。
+# `dynamic_axis_topological_order`がこの集合を起点に、依存する軸を機械的に導出する
+# （軸id・材料idのハードコードを個別の軸ぶん増やさない汎用設計）。各材料の評価関数は
+# `domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
+REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({"wind_drag_ratio"})
 
 _DYNAMIC_AXIS_ORDER_CACHE_MAX_SIZE = 64
 _dynamic_axis_order_cache: dict[tuple[tuple[str, tuple[str, ...]], ...], list[str]] = {}

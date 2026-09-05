@@ -114,8 +114,8 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     "wind": AxisDefinition(
         axis_id="wind",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="wind_penalty")],
-            breakpoints=[(0.0, 0.0), (8.0, 100.0)],
+            terms=[MaterialTerm(material="wind_drag_ratio")],
+            breakpoints=[(-1.2, 0.0), (0.0, 15.0), (5.0, 100.0)],
         ),
         default_weight=0.26,
         label="風",
@@ -125,6 +125,7 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         dedicated_way_value_layer=True,
         dynamic_way_value_needs_time=True,
         dynamic_way_value_needs_bearing=True,
+        dynamic_way_value_needs_speed=True,
     ),
     "surface_q": AxisDefinition(
         axis_id="surface_q",

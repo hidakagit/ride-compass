@@ -491,8 +491,8 @@ async def test_material_values_is_distance_weighted_average_of_segments():
         {0: 30.0},
         {
             0: [
-                make_segment(1.0, 0.0, material_values={"wind_penalty": 8.0}),
-                make_segment(3.0, 100.0, material_values={"wind_penalty": 4.0}),
+                make_segment(1.0, 0.0, material_values={"wind_drag_ratio": 8.0}),
+                make_segment(3.0, 100.0, material_values={"wind_drag_ratio": 4.0}),
             ]
         },
     )
@@ -500,8 +500,8 @@ async def test_material_values_is_distance_weighted_average_of_segments():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
-    # wind_penalty: (8*1.0 + 4*3.0) / 4.0 = 5.0
-    assert candidates[0].material_values["wind_penalty"] == 5.0
+    # wind_drag_ratio: (8*1.0 + 4*3.0) / 4.0 = 5.0
+    assert candidates[0].material_values["wind_drag_ratio"] == 5.0
 
 
 async def test_material_values_is_empty_dict_when_segments_missing():

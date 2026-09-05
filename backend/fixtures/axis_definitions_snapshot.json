@@ -8,6 +8,7 @@
         "dedicated_way_value_layer": true,
         "default_weight": 0.15,
         "description": "登り坂の急さが小さいほど易しい",
+        "display_band_labels_override": null,
         "display_thresholds_override": [
           -2.0,
           2.0,
@@ -68,9 +69,21 @@
         "dedicated_way_value_layer": true,
         "default_weight": 0.26,
         "description": "向かい風が弱いほど易しい",
-        "display_thresholds_override": null,
+        "display_band_labels_override": [
+          "無風・追い風",
+          "軽い向かい風",
+          "普通の向かい風",
+          "強い向かい風",
+          "非常に強い向かい風"
+        ],
+        "display_thresholds_override": [
+          20.0,
+          40.0,
+          60.0,
+          80.0
+        ],
         "dynamic_way_value_needs_bearing": true,
-        "dynamic_way_value_needs_speed": false,
+        "dynamic_way_value_needs_speed": true,
         "dynamic_way_value_needs_time": true,
         "icon_id": null,
         "is_published": true,
@@ -80,11 +93,15 @@
         "shape": {
           "breakpoints": [
             [
-              0.0,
+              -1.2,
               0.0
             ],
             [
-              8.0,
+              0.0,
+              15.0
+            ],
+            [
+              5.0,
               100.0
             ]
           ],
@@ -92,7 +109,7 @@
           "preprocess": "identity",
           "terms": [
             {
-              "material": "wind_penalty",
+              "material": "wind_drag_ratio",
               "required": true,
               "weight": 1.0
             }
@@ -111,6 +128,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.19,
         "description": "舗装路であるほど易しい",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -141,6 +159,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.2,
         "description": "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
+        "display_band_labels_override": null,
         "display_thresholds_override": [
           1.0,
           2.0,
@@ -193,6 +212,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.2,
         "description": "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
+        "display_band_labels_override": null,
         "display_thresholds_override": [
           2.0,
           3.0,
@@ -260,6 +280,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.08,
         "description": "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
+        "display_band_labels_override": null,
         "display_thresholds_override": [
           0.133,
           0.267,
@@ -307,6 +328,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -355,6 +377,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "highway種別による車の圧迫感の基準値(1-4、非公開)",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -398,6 +421,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "制限速度による補正(非公開)",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -457,6 +481,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "車線数による補正(非公開)",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -516,6 +541,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "指定路線(緊急輸送道路・重要物流道路)該当による補正(非公開)",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -546,6 +572,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.0,
         "description": "motor_vehicle=noの区間を最良値へ強制する内部軸(非公開)",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -576,6 +603,7 @@
         "dedicated_way_value_layer": false,
         "default_weight": 0.15,
         "description": "専用の自転車インフラ（分離自転車道・自転車レーン等、河川敷サイクリングロード等の自転車通行可の歩行者道を含む）が整備されているほど易しい。",
+        "display_band_labels_override": null,
         "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
@@ -640,5 +668,5 @@
       "sort_order": 13
     }
   ],
-  "revision": 38
+  "revision": 45
 }
