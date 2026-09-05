@@ -12,7 +12,7 @@ wind_drag_ratioを持つ（風グリッドをタイル中心1点で代表させ�
 ため）。
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -241,5 +241,25 @@ async def test_at_none_defaults_to_now_without_raising():
     service = WindWayService(repository=repository, weather_service=weather_service)
 
     result = await service.get_way_values(Z, X, Y, None, 0.0, SPEED_KMH)
+
+    assert set(result.keys()) == {1}
+
+
+async def test_utc_aware_at_is_converted_to_jst_before_range_check():
+    # フロント（regionApi.ts: fetchDynamicWayValues）はDate.toISOString()でtz-aware(UTC)な
+    # 時刻を送る。風グリッドのhourly配列はJST基準の壁時計時刻（tzなし文字列）のため、
+    # tzinfoを単純に剥がすだけで比較するとUTC/JSTの時差(9時間)ぶんズレる——JST深夜〜早朝
+    # （0時台〜8時台）にアクセスすると、ズレた時刻が前日扱いになり誤って範囲外と判定される。
+    repository = FakeWayIdsRepository(way_ids=[1])
+    today_jst = datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0)
+    wide_times = [(today_jst + timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M") for h in range(24)]
+    grid_point = make_grid_point(wide_times, [3.0] * 24, [45.0] * 24)
+    weather_service = FakeWeatherService(wide_times, grid_point)
+    service = WindWayService(repository=repository, weather_service=weather_service)
+
+    # JST今日00:30を、フロントと同じ経路（tz-aware UTC）で表現する。
+    target_utc = today_jst.replace(hour=0, minute=30).astimezone(timezone.utc)
+
+    result = await service.get_way_values(Z, X, Y, target_utc, 0.0, SPEED_KMH)
 
     assert set(result.keys()) == {1}
