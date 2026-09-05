@@ -1,8 +1,8 @@
-"""交差点分割（split）をPBF取込後のバッチで全域に済ませ、実行時再構築を無くす（改善計画T539）。
+"""交差点分割（split）をPBF取込後のバッチで全域に済ませ、実行時再構築を無くす。
 
 未splitエリアへの初回リクエストは`GraphService.get_or_build_graph_with_attributes`の
 再構築経路（closure取得→`build_road_graph`→`save_graph`、都心規模のbboxで数十秒級）が
-リクエスト内で走る（改善計画T522「本番環境での再現・内訳調査」節）。本バッチは取込済み
+リクエスト内で走る。本バッチは取込済み
 全z12タイル（`road_graph_tiles`）を走査し、未split分だけへ同じ再構築経路を事前に適用する
 （実際の分割ロジックは二重実装せず`GraphService`をそのまま呼ぶ。他のprecomputeバッチと
 同じ「新しいロジックを二重に持たない」規約）。
@@ -93,7 +93,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="交差点分割の事前実行バッチ（改善計画T539）")
+    parser = argparse.ArgumentParser(description="交差点分割の事前実行バッチ")
     parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
     parser.add_argument("--dry-run", action="store_true", help="対象タイル数のみログ出力しDB書き込みを行わない")
     args = parser.parse_args(argv)
