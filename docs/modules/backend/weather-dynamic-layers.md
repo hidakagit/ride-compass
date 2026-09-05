@@ -83,6 +83,13 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 乗せない。`get`（プリウォームバッチ等、404と他の失敗を区別する必要が無い呼び出し元向け）は
 `JmaTileNotFoundError`をNoneへ揃えて返す（従来通り）。
 
+**恒久404のキャッシュ（改善計画T605）**: 確認済みの404は`basetime`/`validtime`が確定した
+過去の一時点への結果のため再フェッチしても変わらない。`fetch`が404を確認した時点で、
+タイル本体は`jma_tile_redis_cache.set_not_found`（`TILE_NOT_FOUND`センチネル、実際のタイルと
+同じキー・TTLで`{"not_found": true}`を保存）、`targetTimes*.json`はプロセス内`TTLCache`へ
+直接`TILE_NOT_FOUND`を積む。`get_cached`/`get`が`TileNotFound`を受け取った場合、
+`jma_tile.py`は上流へ再問い合わせせず即座に404を返す（レート制限も消費しない）。
+
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、
 `next_run_time=datetime.now()`で起動直後にも即時実行）が、アプリの実運用範囲
@@ -180,6 +187,22 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 消さずに即座に反映される）。バイナリ（スプライト・グリフ・タイル）は無加工でパスそのままの
 キーに保存する。`POST /api/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も含めた
 ファイルキャッシュ全体を消す。
+
+## 色別標高図タイルプロキシ（`gsi_relief_tile_client.py`・`api/routers/gsi_relief_tile.py`）
+
+国土地理院の色別標高図タイル（`{z}/{x}/{y}.png`）を透過的にプロキシしつつ`tile_cache`
+（ファイル）へキャッシュする。`basemap_client.py`と同じ「pathを丸ごとプロキシ＋
+`tile_cache`の永続ファイルキャッシュ」方式だが、タイルはPNG単体でJSON応答を持たないため
+URL書き換えは不要。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない
+静的データのため、TTL付きキャッシュも不要。
+
+**恒久404のキャッシュ（改善計画T605）**: 色別標高図の整備区域外（404）は珍しくない正常系
+（`elevation_client.py`のDEMタイル・`_CoverageGap`と同じ状況）で、他の失敗（タイムアウト・
+5xx等）と区別して502・WARNINGログ・`/api/debug/stats`のerror集計へは乗せない。確認済みの
+404は`ReliefTileNotFound`センチネルとしてプロセス内メモリのみ（上限付きLRU、キー=path）に
+記憶し、`tile_cache.py`の永続ファイルキャッシュへは書かない（将来GSI側の整備区域が広がった
+場合、プロセス再起動だけで再取得の機会が来るようにするため）。`api/routers/gsi_relief_tile.py`
+は`ReliefTileNotFound`を受け取ると404（それ以外の`None`は502）を返す。
 
 ## Open-Meteo呼び出しの信頼性対策（`weather_client.py`）
 

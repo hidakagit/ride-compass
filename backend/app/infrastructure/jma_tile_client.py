@@ -8,6 +8,7 @@ from cachetools import TTLCache
 from app.config import settings
 from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
+from app.infrastructure.jma_tile_redis_cache import TileNotFound
 
 # JMA bosai タイル/時刻一覧API（降水ナウキャスト・降水短時間予報・雷/竜巻ナウキャスト・
 # キキクル・線状降水帯予測マップ、dynamicWeather.ts「動的気象レイヤー」節参照）を透過的に
@@ -77,11 +78,12 @@ class JmaTileClient:
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
-    async def get_cached(self, path: str) -> tuple[bytes, str] | None:
+    async def get_cached(self, path: str) -> tuple[bytes, str] | TileNotFound | None:
         """キャッシュのみを参照する（外部フェッチはしない）。改善計画T510:
         `jma_tile.py`がレート制限を適用する前にこれを呼び、ヒットすればレート制限を
         一切経由せず即座に返せるようにする（キャッシュヒットでもレート制限を消費して
-        いた429の直接原因への対応）。"""
+        いた429の直接原因への対応）。改善計画T605: `TileNotFound`（確認済みの恒久404）が
+        返ることもあり、その場合`jma_tile.py`は上流へ問い合わせずそのまま404を返す。"""
         is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
         with log_external_call("weather:jma-tile", path=path) as fields:
             if is_target_times:
@@ -121,6 +123,13 @@ class JmaTileClient:
                     fields["result"] = "ok"
                     fields["status"] = 404
                     not_found = True
+                    # 改善計画T605: 恒久404をキャッシュし、次回以降は上流へ問い合わせず
+                    # TileNotFoundで即座に済ませる（basetime/validtimeが確定した過去の
+                    # 一時点への結果のため、再フェッチしても変わらない）。
+                    if is_target_times:
+                        _target_times_cache[path] = jma_tile_redis_cache.TILE_NOT_FOUND
+                    else:
+                        await jma_tile_redis_cache.set_not_found(path)
                 else:
                     fields["result"] = "error"
                     fields["error"] = repr(exc)
@@ -146,11 +155,14 @@ class JmaTileClient:
     async def get(self, path: str) -> tuple[bytes, str] | None:
         """キャッシュ参照→ミスなら外部フェッチ、という従来通りの一括呼び出し。
         レート制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向け。
-        `fetch`が送出する`JmaTileNotFoundError`はここでNoneへ揃える——呼び出し元
-        （`jma_tile_prewarm_service.py`）は404を「取得失敗の1種」として件数集計するだけで、
-        404と他の失敗を区別する必要が無い（区別が要るのはHTTPステータスを返す
-        `jma_tile.py`のみ、そちらは`fetch`を直接呼ぶ）。"""
+        `TileNotFound`（キャッシュ済みの恒久404）・`fetch`が送出する`JmaTileNotFoundError`は
+        いずれもここでNoneへ揃える——呼び出し元（`jma_tile_prewarm_service.py`）は404を
+        「取得失敗の1種」として件数集計するだけで、404と他の失敗を区別する必要が無い
+        （区別が要るのはHTTPステータスを返す`jma_tile.py`のみ、そちらは`get_cached`/`fetch`を
+        直接呼ぶ）。"""
         cached = await self.get_cached(path)
+        if isinstance(cached, TileNotFound):
+            return None
         if cached is not None:
             return cached
         try:

@@ -48,6 +48,20 @@ def test_gsi_relief_tile_proxy_returns_502_on_upstream_failure():
     assert response.status_code == 502
 
 
+def test_gsi_relief_tile_proxy_returns_404_when_tile_not_found_upstream():
+    # 改善計画T605: 整備区域外（404、珍しくない正常系）は502ではなく404を返す。
+    from app.infrastructure.gsi_relief_tile_client import RELIEF_TILE_NOT_FOUND
+
+    app.dependency_overrides[get_gsi_relief_tile_client] = lambda: FakeGsiReliefTileClient(RELIEF_TILE_NOT_FOUND)
+
+    try:
+        response = client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+
+
 def test_gsi_relief_tile_proxy_is_rate_limited_per_client():
     app.dependency_overrides[get_gsi_relief_tile_client] = lambda: FakeGsiReliefTileClient((b"x", "image/png"))
 

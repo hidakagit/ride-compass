@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
 from app.config import settings
-from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileNotFoundError
+from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileNotFoundError, TileNotFound
 
 router = APIRouter()
 
@@ -20,6 +20,10 @@ async def jma_tile_proxy(
     # 429になっていた——429の直接原因）。認証なしで叩けるプロキシへの簡易な歯止め
     # （basemap_proxyと同じ方針）は、実際に外部フェッチが発生するミス時のみ適用する。
     cached = await jma_tile_client.get_cached(path)
+    if isinstance(cached, TileNotFound):
+        # 改善計画T605: 恒久404（疎な格子状タイルでは珍しくない正常系）だと確認済みのため、
+        # 上流へ問い合わせ直さず即座に404を返す。
+        raise HTTPException(status_code=404, detail="指定されたタイルは存在しません")
     if cached is not None:
         content, content_type = cached
         return Response(content=content, media_type=content_type)
