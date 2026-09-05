@@ -1,12 +1,10 @@
 "use client";
 
 // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト）のフェッチ・
-// 共有タイムライン・MapViewへ渡す描画ペイロードまでを1つのフックへ抽出したもの
-// （改善計画T375、T284の分割方針決定を受けた実施）。元はpage.tsx内に直接書かれていた
-// 3本のfetch effect（降水ナウキャストT170/T171・雷竜巻ナウキャストT204・
-// useWeatherGrid経由の風/延長降水予報T183）と、そこから導出する共有タイムライン
-// （T183再設計「時間経過はスライドバー1本で表現する」）・条件バー向けの
-// 共有時刻・MapView向けのdynamicWeatherプロパティを、この1フックへまとめた。
+// 共有タイムライン・MapViewへ渡す描画ペイロードまでを1つのフックへ抽出したもの。
+// 降水ナウキャスト・雷竜巻ナウキャスト・useWeatherGrid経由の風/延長降水予報という
+// 3本のfetch effectと、そこから導出する共有タイムライン・条件バー向けの共有時刻・
+// MapView向けのdynamicWeatherプロパティを、この1フックへまとめてある。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchNowcastFrames,
@@ -52,15 +50,15 @@ import { usePolledFetch } from "@/hooks/usePolledFetch";
 // 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
 // 雷は10分毎更新のため5分より長くても足りるが、実装を単純にするため揃えている）。
 const NOWCAST_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-// 降水短時間予報（改善計画T407）の再取得間隔。直近0〜6時間の"immed"系列が最も高頻度で
+// 降水短時間予報の再取得間隔。直近0〜6時間の"immed"系列が最も高頻度で
 // 更新される部分（precipitationNowcast.ts: fetchRasrfFrames参照）に合わせる。
 const RASRF_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-// キキクル・線状降水帯予測マップ（改善計画T410）の再取得間隔。キキクルは10分おき更新
+// キキクル・線状降水帯予測マップの再取得間隔。キキクルは10分おき更新
 // （riskMap.tsのモジュールdocstring参照）に合わせる。
 const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
-// 線状降水帯予測マップ（改善計画T432でrisk系統からrasrf系統・「降水」チップ傘下へ再分類）を
-// 重ねて表示する時間窓。「今後3時間以内に大雨のおそれ」という予報の意味そのものに合わせる。
+// 「降水」チップ傘下の線状降水帯予測マップを重ねて表示する時間窓。「今後3時間以内に
+// 大雨のおそれ」という予報の意味そのものに合わせる。
 const LINEAR_RAINBAND_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
@@ -88,13 +86,12 @@ export interface UseDynamicWeatherLayersOptions {
 }
 
 export interface UseDynamicWeatherLayersResult {
-  /** MapViewへそのまま渡す動的気象レイヤーのプロパティ（T183再設計、旧5個の個別props統合。
-   * 改善計画T432でグループ内の複数ソース[raster/gridFill/gridMark]を同時に持てる形へ
-   * 一般化した）。 */
+  /** MapViewへそのまま渡す動的気象レイヤーのプロパティ。グループ内の複数ソース
+   * [raster/gridFill/gridMark]を同時に持てる形にしてある。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
-  /** レイヤーごとのデータ取得状態（改善計画T608）。各要素のフェッチ（`usePolledFetch`/
+  /** レイヤーごとのデータ取得状態。各要素のフェッチ（`usePolledFetch`/
    * `useWeatherGrid`）自身が持つloading/errorと、選択中の共有時刻に対応するpayloadの
-   * 有無から直接算出する——MapLibreのソースイベント（改善計画T87、`useLayerDataStatus.ts`）は
+   * 有無から直接算出する——MapLibreのソースイベント（`useLayerDataStatus.ts`）は
    * 経由しない。これらのレイヤーは実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で
    * 行われ、結果を`map.getSource(id).setData(...)`で流し込むだけのため、MapLibre側の
    * ソースイベントは外部フェッチの待ち時間・失敗を観測できない（GeoJSON/ラスタ/ベクタの
@@ -104,12 +101,12 @@ export interface UseDynamicWeatherLayersResult {
   setDynamicLayerTargetTime: (time: Date) => void;
   /** 共有時刻を現在時刻に戻す。 */
   handleDynamicLayerNow: () => void;
-  /** 改善計画T414: windAxis（評価軸グループの風、backend API）が同じ[時刻]を共有するために
+  /** windAxis（評価軸グループの風、backend API）が同じ[時刻]を共有するために
    * 公開する共有時刻そのもの（`at`クエリパラメータに使う）。 */
   dynamicLayerTargetTime: Date;
 }
 
-/** loading/error/payloadの有無から`LayerDataStatus`を1つ決める（改善計画T608）。
+/** loading/error/payloadの有無から`LayerDataStatus`を1つ決める。
  * 判定順序はuseLayerDataStatus.ts: computeLayerDataStatusと同じ「エラー中 > 読込中 >
  * 読込済みだが値なし」。正常時（現在時刻に対応する値が描画できている）はundefined
  * （呼び出し元はキー自体を持たない状態として扱う）。 */
@@ -121,7 +118,7 @@ function dynamicWeatherStatus(loading: boolean, error: string | null, hasPayload
 }
 
 /** 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
- * フェッチ・共有タイムライン・MapView向け描画ペイロードの管理（改善計画T375）。
+ * フェッチ・共有タイムライン・MapView向け描画ペイロードの管理。
  * 各要素は対応するshow*がtrueの間だけフェッチし、OFFの間はfetch自体しない
  * （他の外部APIと同じ「表示中のものだけ叩く」方針）。 */
 export function useDynamicWeatherLayers({
@@ -147,10 +144,10 @@ export function useDynamicWeatherLayers({
   const fetchThunderFrames = ["thunder", "tornado"].some(showDisasterSource);
   const fetchLidenFramesEnabled = showDisasterSource("liden");
 
-  // 降水ナウキャストの時刻一覧（改善計画T170/T171）。取得失敗時は例外を投げずnowcastErrorへ
+  // 降水ナウキャストの時刻一覧。取得失敗時は例外を投げずnowcastErrorへ
   // 記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ例外、片方だけの
   // 失敗は部分的な結果を返すため、ここへ来るのは両方失敗した場合のみ）。
-  // 改善計画T441: この後もwindow.setIntervalで定期的に再取得するフェイルソフト設計
+  // この後もwindow.setIntervalで定期的に再取得するフェイルソフト設計
   // （下の各fetch同様）のため、単発の取得失敗は"error"ではなく"warn"とする
   // （usePolledFetch.ts参照）。
   const {
@@ -167,7 +164,7 @@ export function useDynamicWeatherLayers({
   // スライダーの左端（index 0）が常に「現在」になるようにする。
   const nowcastFrames = useMemo(() => trimToCurrentAndFuture(rawNowcastFrames), [rawNowcastFrames]);
 
-  // 降水短時間予報の時刻一覧（改善計画T407、60分〜15時間先）。「降水」チップの一部
+  // 降水短時間予報の時刻一覧（60分〜15時間先）。「降水」チップの一部
   // （precipitationNowcast.ts: precipitationFrames参照）のため、ナウキャストと同じ
   // showPrecipitationNowcastで開閉する。取得失敗はnowcastと同じくエラーメッセージへ記録するが、
   // precipitationFramesがrasrfFrames=[]でも自然にextended予報へフォールバックするため、
@@ -178,7 +175,7 @@ export function useDynamicWeatherLayers({
     label: "降水短時間予報",
   });
 
-  // 雷・竜巻の時刻一覧（改善計画T204）。同じtargetTimes_N3.json由来のため、どちらか一方でも
+  // 雷・竜巻の時刻一覧。同じtargetTimes_N3.json由来のため、どちらか一方でも
   // ONの間だけ1本のfetchで両方をカバーする（nowcastFramesと同じ理由・同じ更新間隔）。
   const {
     data: rawThunderNowcastFrames,
@@ -194,7 +191,7 @@ export function useDynamicWeatherLayers({
     [rawThunderNowcastFrames],
   );
 
-  // 雷放電位置データ（改善計画T541）。同じtargetTimes_N3.json由来だが、雷・竜巻とは
+  // 雷放電位置データ。同じtargetTimes_N3.json由来だが、雷・竜巻とは
   // 独立したON/OFFのため別のfetchで取得する（fetchLidenFramesがliden自体を含む
   // エントリだけへ絞り込む、lidenLayer.ts参照）。
   const {
@@ -227,7 +224,7 @@ export function useDynamicWeatherLayers({
     },
   );
 
-  // 線状降水帯予測マップ（改善計画T410、T432で「降水」チップ傘下へ再分類）の「現在」フレーム。
+  // 線状降水帯予測マップ（「降水」チップ傘下）の「現在」フレーム。
   // キキクルとはtargetTimes.json自体が別（rasrfのtargetTimes.jsonにelements違いの別行として
   // 混在、riskMap.ts参照）。「降水」チップ（showPrecipitationNowcast）に連動する。
   const {
@@ -258,10 +255,10 @@ export function useDynamicWeatherLayers({
     () => precipitationFrames(nowcastFrames, rasrfFrames, windGrid),
     [nowcastFrames, rasrfFrames, windGrid]
   );
-  // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列（改善計画T204）。
+  // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列。
   const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
   const lidenFramesList = useMemo(() => lidenFrames(lidenNowcastFrames), [lidenNowcastFrames]);
-  // キキクル3種+線状降水帯予測マップ（改善計画T410）。riskMap.tsが既にDynamicWeatherFrame
+  // キキクル3種+線状降水帯予測マップ。riskMap.tsが既にDynamicWeatherFrame
   // 形式で返すが、他レイヤーと異なり共有タイムライン・frameIndexForTimeには乗せない
   // （下記の理由）。
   const {
@@ -306,7 +303,7 @@ export function useDynamicWeatherLayers({
     if (index == null) return undefined;
     return tornadoRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
   }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
-  // 雷放電位置データ（改善計画T541）。配信元が実際の落雷地点をGeoJSONで提供するため、
+  // 雷放電位置データ。配信元が実際の落雷地点をGeoJSONで提供するため、
   // 他要素と異なり選択フレームが変わるたびに個別fetchが要る（lidenLayer.ts参照）。
   // 取得済みgeojsonにref（frames内のindex）を添えて保持し、選択中のindexと一致する
   // ときだけpayloadへ反映する——scrub中に古いフェッチが新しいフェッチより後に解決しても、
@@ -334,7 +331,7 @@ export function useDynamicWeatherLayers({
     if (lidenIndex == null || !lidenFetched || lidenFetched.ref !== lidenRef) return undefined;
     return { kind: "gridMark", geojson: lidenFetched.geojson };
   }, [lidenIndex, lidenFetched, lidenRef]);
-  // キキクル4種（改善計画T410）は未来方向のフレームを持たず「現在の危険度」単一値のみを
+  // キキクル4種は未来方向のフレームを持たず「現在の危険度」単一値のみを
   // 配信するため、選択中の共有時刻に関わらずframes[0]（現在値）があれば表示する
   // （riskMap.ts冒頭コメント「他の動的レイヤーと違い共有タイムライン・frameIndexForTimeには
   // 乗せない」と対）。
@@ -350,14 +347,14 @@ export function useDynamicWeatherLayers({
     const frame = inundationFramesList[0];
     return frame ? inundationRenderPayload(frame.ref) : undefined;
   }, [inundationFramesList]);
-  // 洪水キキクル（改善計画T416）。他3種と同じ「frames[0]があれば表示」方針
+  // 洪水キキクル。他3種と同じ「frames[0]があれば表示」方針
   // （vectorTile kindのため戻り値の中身は異なるが、ここでの扱いは同型）。
   const floodRiskPayload = useMemo(() => {
     const frame = floodFramesList[0];
     return frame ? floodRenderPayload(frame.ref) : undefined;
   }, [floodFramesList]);
-  // 線状降水帯予測マップ（改善計画T410、T432でrisk系統からrasrf系統・「降水」チップ傘下へ
-  // 再分類）。他のキキクル3種と異なり「今後3時間以内におそれ」という予報の性質上、共有
+  // 線状降水帯予測マップ（「降水」チップ傘下）。他のキキクル3種と異なり
+  // 「今後3時間以内におそれ」という予報の性質上、共有
   // タイムラインの選択時刻が現在〜3時間先の範囲内にあるときだけ、ナウキャスト/rasrf/
   // 延長予報のいずれかと重ねて表示する（isWithinFutureWindow、dynamicWeather.ts参照）。
   const linearRainbandVisible = useMemo(
@@ -414,7 +411,7 @@ export function useDynamicWeatherLayers({
     ]
   );
 
-  // レイヤーごとのデータ取得状態（改善計画T608）。3レイヤー全てが同じdynamicWeatherStatus
+  // レイヤーごとのデータ取得状態。3レイヤー全てが同じdynamicWeatherStatus
   // 関数を通る——「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を
   // 意識する必要は無い。複数の名前付きソースを持つグループ（precipitationNowcastの
   // ナウキャスト3段+線状降水帯、disasterの7要素）は、UI上のチップが1つのため、いずれかの
