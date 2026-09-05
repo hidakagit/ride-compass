@@ -22,10 +22,9 @@ import {
   type MapValueKind,
 } from "./valueScale";
 
-// 改善計画T440: 以前は"wind"以外に"gradient"/"road"/"difficulty"も固定文字列unionの
-// 一員だったが、gradient/roadは公開軸から動的に生成されるようになったため、固定IDでは
-// 表現しきれなくなった。"difficulty"（対応する軸を持たない唯一の例外、下記
-// DIFFICULTY_MODE参照）だけを固定文字列として残す。
+// gradient/roadは公開軸から動的に生成されるため固定IDでは表現しきれない。
+// "difficulty"（対応する軸を持たない唯一の例外、下記DIFFICULTY_MODE参照）だけを
+// 固定文字列として残す。
 export type RouteStyleModeId = "difficulty" | "none" | (string & {});
 
 /** レンズ（地図を何で塗るか）の識別子。`"none"`（塗らない）・`"difficulty"`（総合難易度）
@@ -53,9 +52,8 @@ export { COLOR_NO_DATA };
 //
 // valueExpressionはMapLibreの値取得式（`["get", "difficulty"]`のような直下プロパティ、
 // または`["get", "wind", ["get", "axis_difficulties"]]`のようなネストしたプロパティへの
-// アクセスも渡せる）。改善計画T309: RouteSegmentDetailの軸別難易度が既存7軸固定フィールド
-// からaxis_id→difficultyの汎用dict（axis_difficulties）へ置き換わったため、この関数自体は
-// 特定のプロパティ名に依存しない形にしてある。
+// アクセスも渡せる）。RouteSegmentDetailの軸別難易度はaxis_id→difficultyの汎用dict
+// （axis_difficulties）のため、この関数自体は特定のプロパティ名に依存しない形にしてある。
 function buildSteppedMode(
   valueExpression: unknown[],
   steps: { key: string; label: string; color: string }[],
@@ -89,9 +87,9 @@ function rangeLabel(boundaries: readonly number[], stepIndex: number, unit: stri
   return `${boundaries[stepIndex - 1]}〜${boundaries[stepIndex]}${unit}`;
 }
 
-// 改善計画T440: 「固定N段階」という前提そのものをやめ、境界値配列（軸スタジオの
-// display_thresholds_override、正となるデータ）の長さがそのまま段階数を決める、
-// wind・surface_q・gradientを問わず共通の組み立て関数。ラベルは境界値の実際の数字から
+// 「固定N段階」という前提を持たず、境界値配列（軸スタジオのdisplay_thresholds_override、
+// 正となるデータ）の長さがそのまま段階数を決める、wind・surface_q・gradientを問わず
+// 共通の組み立て関数。ラベルは境界値の実際の数字から
 // 機械的に生成する（「易しい/普通/難しい」「下り/上り」のような固定語彙は使わない）ため、
 // 軸スタジオでしきい値を変えてもラベルが必ず一致する。
 function buildRangeSteppedMode(options: {
@@ -149,9 +147,7 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
 
 // 総合難易度は単一軸ではなく全軸の重み付き合成コストを表示するモードで、特定のaxis_idに
 // 紐づかない（評価エンジンが出す合成スコアそのものであり、軸スタジオと同期する対象には
-// ならない——ユーザー確認済み: 「総合難易度は、評価した結果の数値そのものになるべき」）。
-// gradient/road（旧STATIC_MODES）はT440でdynamicModes側（routeColorableModeFromAxis）へ
-// 統合されたため、フロントに直書きされたまま残る唯一のモードになった。
+// ならない）。フロントに直書きされたまま残る唯一のモード。
 const DIFFICULTY_MODE: RouteStyleMode = {
   id: "difficulty",
   label: "総合難易度",
@@ -208,10 +204,10 @@ export function isRouteStyleModeId(
 export function getRouteStyleMode(modes: readonly RouteStyleMode[], id: RouteStyleModeId): RouteStyleMode {
   const found = modes.find((mode) => mode.id === id);
   if (found) return found;
-  // 改善計画T466: 指定idが見つからない場合modes[0]へ無警告フォールバックしていた
-  // （軸のunpublish等でidが指すモード自体が消えた場合に、選択中の色分けモードが
-  // 静かに別のものへ切り替わる。ゼロベース網羅レビュー指摘）。実害を防ぐフォールバック
-  // 自体は妥当な設計のため維持しつつ、原因調査ができるよう警告ログだけ追加する。
+  // 指定idが見つからない場合modes[0]へ無警告フォールバックすると、軸のunpublish等で
+  // idが指すモード自体が消えた場合に、選択中の色分けモードが静かに別のものへ切り替わる。
+  // 実害を防ぐフォールバック自体は妥当な設計のため維持しつつ、原因調査ができるよう
+  // 警告ログだけ追加する。
   debugLog(
     "map:route-style-mode",
     `route style mode "${id}" not found, falling back to "${modes[0]?.id ?? "(no modes)"}"`,

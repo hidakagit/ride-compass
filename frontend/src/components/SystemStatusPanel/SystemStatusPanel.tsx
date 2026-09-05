@@ -29,8 +29,6 @@ function formatLastError(type: string | null, at: string | null): string {
 
 // フロント・バックそれぞれの適用バージョン（commit・起動日時）とバックエンドの外部API
 // 呼び出しサマリを、ログ本文とは別の独立パネルとして表示する（設定内のボタンから開閉）。
-// 以前はDebugConsole（ログ本文）の上部に同居させていたが、更新頻度・情報源の異なる2種類の
-// 情報が1つのスクロール領域に混ざって見づらいというフィードバックを受け分離した（2026-08-16）。
 // プロセス内カウンタ（バックエンド）・モジュール評価時刻（フロント）のスナップショットのため、
 // ポーリングはせず開いたときと「更新」ボタン押下時にだけ取得する。
 export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelProps) {
@@ -42,12 +40,11 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
 
   const fetchAll = useCallback(() => {
     setLoading(true);
-    // 改善計画T471: 以前はsetLoading(false)がgetFrontendVersion()側の.finally()にしか
-    // 紐付いておらず、getDebugStats()（バックエンド、ネットワーク往復を伴い所要時間が
-    // 読めない）より先にgetFrontendVersion()（フロント自身のモジュール評価時刻、実質即時）
-    // が解決すると、バックエンド側がまだ取得中でも「更新」ボタンが押せる状態へ戻り
-    // loading表示が消えてしまっていた。両方が完了するまでloadingを維持するよう
-    // Promise.allでまとめる（下記の理由により失敗ケースも含めPromise.allで足りる）。
+    // getDebugStats()（バックエンド、ネットワーク往復を伴い所要時間が読めない）と
+    // getFrontendVersion()（フロント自身のモジュール評価時刻、実質即時）を別々に
+    // .finally()でsetLoading(false)すると、片方だけ先に解決した時点で「更新」ボタンが
+    // 押せる状態へ戻りloading表示が消えてしまう。両方が完了するまでloadingを維持する
+    // ようPromise.allでまとめる（下記の理由により失敗ケースも含めPromise.allで足りる）。
     const backendFetch = getDebugStats()
       .then((data) => {
         setBackend(data);
@@ -138,8 +135,7 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
                 <tbody>
                   {externalEntries.map(([category, s]) => {
                     // エラーセルのtitleに内訳（原因別件数・再試行状況・stale代用回数）を出す。
-                    // 一覧に列を増やさずとも「429かタイムアウトか」等をホバーで確認できるようにする
-                    // （改善計画T92: /api/debug/statsで失敗の主な理由を推測できる情報がほしい、の対応）。
+                    // 一覧に列を増やさずとも「429かタイムアウトか」等をホバーで確認できるようにする。
                     const errorTypeParts = Object.entries(s.error_types).map(([type, count]) => `${type}:${count}`);
                     if (s.retried_calls > 0) {
                       errorTypeParts.push(`再試行あり ${s.retried_calls}件(延べ${s.retry_attempts_total}回)`);

@@ -11,9 +11,8 @@ const DEFAULT_LIMIT = 200;
 const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"];
 
 // フロントのDebugConsole（lib/debugLog.ts、entry.level="info"/"warn"/"error"）と同じ
-// 「レベルで色分けする」見た目に揃える（改善計画T517、ユーザー指摘「フロントのログ画面と
-// 統一して、色で区別でもOK」）。backendの整形済みログ行（debug_control.py: _LOG_FORMAT）は
-// 先頭付近に"[LEVELNAME]"を含むため、そこから正規表現で取り出す。
+// 「レベルで色分けする」見た目に揃える。backendの整形済みログ行（debug_control.py:
+// _LOG_FORMAT）は先頭付近に"[LEVELNAME]"を含むため、そこから正規表現で取り出す。
 const LEVEL_PATTERN = /\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/;
 
 function parseLogLevel(line: string): LogLevelName | null {
@@ -21,9 +20,8 @@ function parseLogLevel(line: string): LogLevelName | null {
   return (match?.[1] as LogLevelName | undefined) ?? null;
 }
 
-// 「開発者」タブからbackendの直近ログ（GET /api/admin/debug/logs、T379）を見られる
-// パネル（改善計画T517、ユーザー指摘「バックエンドのログを見るのに、サーバに毎回入らないと
-// だめなのはキツい」）。/adminページ自体が既にブラウザ標準のBasic認証で保護されているため、
+// 「開発者」タブからbackendの直近ログ（GET /api/admin/debug/logs）を見られるパネル。
+// /adminページ自体が既にブラウザ標準のBasic認証で保護されているため、
 // 認証情報の入力欄は持たない（axisAdminApi.tsと同じ理由、debugAdminApi.tsのコメント参照）。
 // 取得は開いたとき自動ではなく「取得」ボタン押下時のみ（SystemStatusPanelと同じ、
 // プロセス内スナップショットのためポーリング不要）。
@@ -104,8 +102,7 @@ export default function BackendLogsPanel() {
       {lines && lines.length > 0 && (
         <>
           {/* 行ごとのdivを1件ずつドラッグ選択するのは手間なため、表示中の全行を
-              まとめてクリップボードへコピーするボタンを用意する（ユーザー指摘: ログの
-              コピペがしにくい）。 */}
+              まとめてクリップボードへコピーするボタンを用意する。 */}
           <div className={styles.logActions}>
             <Button variant="secondary" onClick={handleCopy}>
               {copied ? "コピーしました" : "ログ全体をコピー"}

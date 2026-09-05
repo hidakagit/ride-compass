@@ -10,6 +10,7 @@
 
 | ファイル | 責務 | マウント先 |
 |---|---|---|
+| `app/admin/page.tsx` | `/admin`のタブ構成（軸スタジオ・材料・鮮度・研究・開発者）を束ねるコンポジションルート | 独立URL |
 | `components/HeaderMenu/HeaderMenu.tsx` | 研究モードON/OFF・デバッグログ表示を1個のメニューアイコンへ集約したRadix Popover | `page.tsx`（`/`）のヘッダー |
 | `components/DebugPanel/DebugPanel.tsx` | デバッグログ表示のON/OFFトグル | `/admin`「開発者」タブ |
 | `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル | `page.tsx`（`/`）、`HeaderMenu`から開閉 |

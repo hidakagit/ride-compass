@@ -1,26 +1,21 @@
-// 気象庁 降水ナウキャストのタイル・時刻一覧クライアント（改善計画T170/T171）。
+// 気象庁 降水ナウキャストのタイル・時刻一覧クライアント。
 //
 // 実況（targetTimes_N1、basetime=validtime、5分毎更新）と60分先までの予測
 // （targetTimes_N2、basetimeは最新実行時刻で固定・validtimeが5分刻みで先へ進む）を
 // 1つの時系列へ束ねる。タイルURLの構造はbosai系（気象庁の非公式API、公式サポート無し。
-// 政府標準利用規約準拠・出典明記で利用可）の実際の通信を確認して得た（2026-08-20、
-// Playwrightでhttps://www.jma.go.jp/bosai/nowc/ のネットワークリクエストを観測）。
+// 政府標準利用規約準拠・出典明記で利用可）の実際の通信を観測して得た。
 // CORS設定が無いためcanvas経由のピクセル読み取りはできないが、MapLibreのラスタタイルとして
-// 表示するだけなら問題なく読み込める（同じくPlaywrightで実機確認済み）。
+// 表示するだけなら問題なく読み込める。
 //
-// T183（動的気象レイヤーの再設計）で、気象庁ナウキャスト（+60分が上限、JMA提供APIの
-// 仕様上の制約で回避不可）より先の時間帯を、風と共通の格子点マップ（windLayer.ts、
-// 自前実装・Open-Meteo REST API経由・約48時間先まで）が相乗りで返すprecipitation_mmを
-// 使って延長した。改善計画T407（T387「無償範囲で追加できるJMAデータの調査」の続き）で、
-// この延長予報とナウキャストの間に気象庁 降水短時間予報（rasrf、60分〜15時間先、
-// 数値予報モデルによる予測）を挿入し、3段構成にした——rasrfの範囲まではJMA公式データ
-// （精度が高い方から: ナウキャスト[実況の外挿]→rasrf[数値予報モデル]）、それ以降は
-// Open-Meteoの粗いモデル予報という優先順位。「降水」の地図チップ・時刻スライダーは1つの
-// まま（ユーザー要望「アイコンは1つ。ただし内部は時間によって使い分けて」「1要素でも
-// データの取り方が複数あり得る。これはデータ取得層Nだが、差異はデータ取得層で吸収。
-// 画面表示時にはそれは意識しないようにしたい」）とし、3ソースの統合をこのファイル
-// （precipitationFrames）が担い、表示層（page.tsx/MapView.tsx）へはdynamicWeather.tsの
-// 共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
+// 気象庁ナウキャスト（+60分が上限、JMA提供APIの仕様上の制約で回避不可）より先の時間帯を、
+// 風と共通の格子点マップ（windLayer.ts、自前実装・Open-Meteo REST API経由・約48時間先
+// まで）が相乗りで返すprecipitation_mmを使って延長する。この延長予報とナウキャストの間に
+// 気象庁 降水短時間予報（rasrf、60分〜15時間先、数値予報モデルによる予測）を挿入し、
+// 3段構成にしている——rasrfの範囲まではJMA公式データ（精度が高い方から: ナウキャスト
+// [実況の外挿]→rasrf[数値予報モデル]）、それ以降はOpen-Meteoの粗いモデル予報という
+// 優先順位。「降水」の地図チップ・時刻スライダーは1つのままとし、3ソースの統合をこの
+// ファイル（precipitationFrames）が担い、表示層（page.tsx/MapView.tsx）へはdynamicWeather.ts
+// の共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
 
 import {
   gridCellRing,
@@ -36,7 +31,7 @@ import type { WindGridPoint } from "@/types/weather";
 
 export type NowcastFrame = JmaNowcastFrame;
 
-// parseValidtime・trimToCurrentAndFuture（改善計画T204でjmaNowcastFrames.tsへ抽出、
+// parseValidtime・trimToCurrentAndFuture（jmaNowcastFrames.tsで定義、
 // 雷ナウキャストと共有する汎用ロジック）はこのファイルからも既存の呼び出し元（page.tsx）
 // の import パスを変えずに使えるよう再エクスポートする。
 export { parseValidtime, trimToCurrentAndFuture };
@@ -45,17 +40,16 @@ const TARGET_TIMES_N1_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_
 const TARGET_TIMES_N2_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N2.json`;
 
 // 気象庁 降水短時間予報（rasrf）。ナウキャスト（実況の外挿、60分先が上限）とは異なり
-// 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する（改善計画T387
-// 「無償範囲で追加できるJMAデータの調査」で発見・実機確認済み、対応する起票がT407）。
-// 実機確認（2026-08-30）で判明した構造: targetTimes.jsonは`member`フィールドを持ち、
-// "immed"（直近0〜6時間、高頻度更新の詳細予報）と"none"（7〜15時間先、毎正時更新の
-// 延長予報）の2系統が混在する。ナウキャストのN1/N2と違い、同じmember内にも「毎正時の
-// 完全な複数validtime群」と「10分毎の中間ランが返す単発validtime（basetime===validtime）」が
-// 混在するため、単純に「最新basetime」を取るだけでは不十分——中間ランを拾うと1フレームしか
-// 得られない。**加えて**、同じtargetTimes.jsonには線状降水帯予測マップ（sjfcstmap、
-// docs/tasks/T387.md参照。rasrfとは別プロダクト）も混在し、同一(basetime, validtime, member)
-// に対しrasrf無し・sjfcstmapのみのelementsを持つ行が別途存在しうる（実機確認: 本番相当データで
-// 114行中73行がelementsにrasrfを含まないsjfcstmap単体行だった）。これらは「異なるvalidtimeの
+// 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する。
+// targetTimes.jsonは`member`フィールドを持ち、"immed"（直近0〜6時間、高頻度更新の
+// 詳細予報）と"none"（7〜15時間先、毎正時更新の延長予報）の2系統が混在する。ナウキャストの
+// N1/N2と違い、同じmember内にも「毎正時の完全な複数validtime群」と「10分毎の中間ランが
+// 返す単発validtime（basetime===validtime）」が混在するため、単純に「最新basetime」を
+// 取るだけでは不十分——中間ランを拾うと1フレームしか得られない。**加えて**、同じ
+// targetTimes.jsonには線状降水帯予測マップ（sjfcstmap、rasrfとは別プロダクト）も混在し、
+// 同一(basetime, validtime, member)に対しrasrf無し・sjfcstmapのみのelementsを持つ行が
+// 別途存在しうる（本番相当データで114行中73行がelementsにrasrfを含まないsjfcstmap単体
+// 行だった）。これらは「異なるvalidtimeの
 // 種類数」を数える際にノイズになる上、そのままタイルURLを組み立てるとrasrf画像が存在しない
 // 組み合わせになりうるため、**必ずelements.includes("rasrf")で絞り込んでから**
 // 「異なるvalidtimeの種類数が複数ある最新のbasetime」を選ぶ（絞り込み後は同一
@@ -95,7 +89,7 @@ function latestFullRunFrames(raw: readonly RawRasrfTargetTime[], member: string)
 
 /** 降水短時間予報の時刻一覧を取得し、直近0〜6時間（member="immed"）と7〜15時間先
  * （member="none"）それぞれの最新の完全な予報ランを1本の時系列へ統合する。両者は
- * validtimeの範囲が重ならない設計（実機確認済み）だが、念のためvalidtime重複時は
+ * validtimeの範囲が重ならない設計だが、念のためvalidtime重複時は
  * より詳細なimmed側を優先する（Map.setで後勝ちにするため、noneを先に積む）。 */
 export async function fetchRasrfFrames(): Promise<RasrfFrame[]> {
   const data = await fetchJson<unknown>(RASRF_TARGET_TIMES_URL, {
@@ -136,20 +130,19 @@ export async function fetchNowcastFrames(): Promise<NowcastFrame[]> {
 }
 
 // 降水強度→色の対応。20mm/h以上の境界値（mm/h）は気象庁公式の「雨の強さと降り方」の分類
-// （https://www.jma.go.jp/jma/kishou/know/yougo_hp/amehyo.html、2026-08-20確認）と同じ。
-// 同ページに公式区分の無い20mm/h未満は、実機フィードバック「雨の凡例をもっと細かく」
-// （他の天気アプリの雨雲レーダー凡例画面を参考画像として提示された。0.4/2/4/10mm/hの
-// 4段階境界と「ポツポツ」「パラパラ」「ザーッ」「ザーザー」という体感表現は、気象庁の
-// 「雨の程度を表すことば」ページにも載っている一般的な天気アプリの慣用表現であり
-// 特定アプリ固有のものではないためこちらでも採用。ブランド固有のアイコン・配色までは
-// 再現しない）を受け、10mm/h未満を0.4/2/4mm/hの境界で3段階、10〜20mm/hをさらに1段
-// （「弱い雨」からの独立表示ではなく気象庁の用語「ザーザー」寄りの体感表現に統一）へ
-// 細分化している。一方で色そのものは気象庁がタイル配色のカラーコードを公開していないため、
-// 同庁のナウキャスト・レーダー系地図で一般的な「弱い＝青→強い＝紫」の配色慣習に沿った
-// 近似値であり、実際のタイル画像の色と厳密には一致しない（凡例としての目安）。地図チップの
-// 凡例（PRECIPITATION_INTENSITY_LEVELS）とT183の延長予報の塗り（MapView.tsx側の
-// fill-color）の両方がこの配列を単一の情報源として使う（windLayer.tsのWIND_SPEED_COLOR_
-// STOPSと同じ「片側import」の考え方）。
+// （https://www.jma.go.jp/jma/kishou/know/yougo_hp/amehyo.html）と同じ。
+// 同ページに公式区分の無い20mm/h未満は、0.4/2/4/10mm/hの4段階境界と「ポツポツ」
+// 「パラパラ」「ザーッ」「ザーザー」という体感表現を採用する——気象庁の「雨の程度を
+// 表すことば」ページにも載っている一般的な天気アプリの慣用表現であり、特定アプリ固有の
+// ものではない（ブランド固有のアイコン・配色までは再現しない）。10mm/h未満を
+// 0.4/2/4mm/hの境界で3段階、10〜20mm/hをさらに1段（「弱い雨」からの独立表示ではなく
+// 気象庁の用語「ザーザー」寄りの体感表現に統一）へ細分化している。一方で色そのものは
+// 気象庁がタイル配色のカラーコードを公開していないため、同庁のナウキャスト・レーダー系
+// 地図で一般的な「弱い＝青→強い＝紫」の配色慣習に沿った近似値であり、実際のタイル画像の
+// 色と厳密には一致しない（凡例としての目安）。地図チップの凡例
+// （PRECIPITATION_INTENSITY_LEVELS）と延長予報の塗り（MapView.tsx側のfill-color）の
+// 両方がこの配列を単一の情報源として使う（windLayer.tsのWIND_SPEED_COLOR_STOPSと同じ
+// 「片側import」の考え方）。
 export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string }[] = [
   { mmPerHour: 0, color: "#e0f2fe" },
   { mmPerHour: 0.4, color: "#bae6fd" },
@@ -167,7 +160,7 @@ export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: str
 // セルが常時全域を埋め尽くしてしまうため、視覚的なノイズを避ける小さな閾値を設ける。
 export const PRECIPITATION_NONE_THRESHOLD_MM = 0.1;
 
-// 降水強度の凡例（地図チップ、page.tsx、実機フィードバック「風と雨の凡例も欲しい」）。
+// 降水強度の凡例（地図チップ、page.tsx）。
 // 数値はPRECIPITATION_COLOR_STOPSからそのまま持ってくるため、境界値・色を変えてもここは
 // 自動で追従する（windLayer.tsのWIND_SPEED_LEGEND_LEVELSと同じパターン）。
 export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: string; color: string }[] = [
@@ -254,7 +247,7 @@ function precipitationGridToCellFeatureCollection(
 
 /** 降水フレームの内部参照。sourceが"nowcast"なら気象庁ナウキャスト（実況〜60分先、
  * 5分刻み、レーダー実況の外挿）由来でindexはnowcastFrames内のindex、"rasrf"なら気象庁
- * 降水短時間予報（改善計画T407、60分〜15時間先、数値予報モデルによる予測）由来で
+ * 降水短時間予報（60分〜15時間先、数値予報モデルによる予測）由来で
  * indexはrasrfFrames内のindex、"extended"なら風と共通の格子点マップ（Open-Meteo経由、
  * 15時間先以降・約48時間先まで・1時間刻み）由来でindexはそのgridのtimes/precipitation_mm
  * 内のindexを指す。3段は精度の性質が異なる（nowcast=実況外挿で直近ほど高信頼、
@@ -266,7 +259,7 @@ export type PrecipitationFrameRef =
   | { source: "rasrf"; index: number }
   | { source: "extended"; index: number };
 
-/** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先、改善計画T407）・
+/** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先）・
  * 風と共通の格子点マップ由来の延長予報（15時間先以降、約48時間先まで）を1つのフレーム列へ
  * 統合する（データ取得層での差異吸収、ファイル冒頭のコメント参照）。各段は前段の最終フレーム
  * より後の時刻だけを採用する（近い将来の二重表示を避ける、nowcast→rasrfの境界も
@@ -306,9 +299,9 @@ export function precipitationFrames(
 
 /** precipitationFramesが返したrefから、地図へ渡す描画ペイロードを組み立てる。sourceで
  * rasterTile（気象庁ナウキャスト・降水短時間予報のタイル）とgridFill（延長予報、格子を
- * 色で塗る）を切り替える——「アイコンは1つ。ただし内部は時間によって使い分けて」という
- * ユーザー要望をここで実現する。spacingDegはextendedGridの実際の格子間隔（度）を呼び出し側が
- * 渡す（useWeatherGrid.tsのeffectiveGridSpacingDeg、T185でズーム依存の詳細間隔になったため、
+ * 色で塗る）を切り替える——地図チップ・時刻スライダーは1つのまま、内部で描画方式を
+ * 使い分ける。spacingDegはextendedGridの実際の格子間隔（度）を呼び出し側が渡す
+ * （useWeatherGrid.tsのeffectiveGridSpacingDeg、ズーム依存の詳細間隔になりうるため、
  * このファイル自身は「粗いか詳細か」の判定を持たず、渡された値をそのまま使うだけにする）。 */
 export function precipitationRenderPayload(
   nowcastFrames: readonly NowcastFrame[],

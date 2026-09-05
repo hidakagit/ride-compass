@@ -2,8 +2,8 @@
 
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 
-// 改善計画T519: 研究モードON/OFFの操作導線は一般公開ページ（frontend/src/app/page.tsx）
-// のヘッダーメニュー（HeaderMenu.tsx）へ一本化した——同じフラグを2箇所で操作できる
+// 研究モードON/OFFの操作導線は一般公開ページ（frontend/src/app/page.tsx）の
+// ヘッダーメニュー（HeaderMenu.tsx）に一本化してある——同じフラグを2箇所で操作できる
 // 状態（更新の取りこぼし・どちらが正か分かりにくい）を避けるため、ここではチェックボックス
 // を置かず現在値の読み取り専用表示のみにする。フラグ自体（researchMode.ts）は変更せず、
 // 一般公開ページの実験スロット比較（ComparisonPanel）の表示条件としてこの値を

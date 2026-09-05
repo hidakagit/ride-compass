@@ -1,5 +1,4 @@
-// way_id→動的値配信層（風・勾配、改善計画T405→T414→T423、docs/tasks/T400.md「2. 動的要素…の
-// 二重表現」節）の材料非依存な共通ロジック（改善計画T411の実施）。「評価軸」グループとして
+// way_id→動的値配信層（風・勾配）の材料非依存な共通ロジック。「評価軸」グループとして
 // 動的＋向きあり材料を道路そのものを線で塗る表示にする際、どの材料でも共通して必要になる
 // タイル座標計算・複数タイル分の応答統合をここへ集約する。材料固有の値（配色・しきい値・
 // setFeatureStateキー）はdedicatedWayValueLayer.tsが軸カタログの宣言から組み立てる
@@ -27,8 +26,8 @@ function lonLatToTileIndex(lon: number, lat: number, z: number): [number, number
 }
 
 /** XYZタイルの経緯度範囲を求める（backend/app/domain/region.py: tile_bounds_lonlatのJS版）。
- * 改善計画T423: 勾配の環境グループgridFill（gradientGridFill.ts）が、タイル境界そのものを
- * 1セルとする面表示のセル形状を組み立てるために使う。 */
+ * 勾配の環境グループgridFill（gradientGridFill.ts）が、タイル境界そのものを1セルとする
+ * 面表示のセル形状を組み立てるために使う。 */
 export function tileBoundsLonLat(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
   const n = 2 ** z;
   const west = (x / n) * 360 - 180;

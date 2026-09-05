@@ -1,6 +1,6 @@
 // 動的気象レイヤー（風・降水など、時刻スライダーで表示内容が変わる格子ベースのレイヤー）の
-// 共通契約（T183再設計、実機フィードバック「動的レイヤについては今後もデータ追加があり得る
-// ので、それも見据えて拡張性がある設計、実装にしてほしい」）。設計の柱は4つ:
+// 共通契約。設計の柱は4つ（詳細はdocs/modules/frontend/dynamic-weather-layers.md
+// 「共通契約（4本柱）」節参照）:
 //
 // 1. **格子単位は統一**: 全レイヤーが同じ固定ラティス（backend/app/domain/wind_grid.py:
 //    WIND_GRID_BBOX、フロント側の対応値はwindLayer.ts: WIND_GRID_SPACING_DEG/
@@ -10,7 +10,7 @@
 //    格子を指定色で塗る（gridFill、雨パターン）、配信元が描画済みの画像を重ねる
 //    （rasterTile、気象庁ナウキャスト等）に加え、配信元がMapbox Vector Tile（.pbf）で
 //    配信する地物をMapLibre標準のvectorソース+line/fillレイヤーでそのまま描画する
-//    （vectorTile、洪水キキクル。改善計画T416）。vectorTileは配信元のタイルが地物の
+//    （vectorTile、洪水キキクル）。vectorTileは配信元のタイルが地物の
 //    プロパティに表示値（例: 危険度レベル）を埋め込み済みのため、gridFill/gridMarkと違い
 //    feature-stateやGeoJSON変換によるJS側の値差し込みが不要——MapLibreのpaint式
 //    （["get", プロパティ名]）だけで色分けできる点がrasterTileとの主な違い（rasterTileは
@@ -18,8 +18,7 @@
 //    色分けする）。新しい要素はこの4種のどれかを選ぶだけで、独自の描画方式は増やさない。
 // 3. **時間経過はスライドバー1本**: ONの全レイヤーのフレーム時刻を統合した1本のタイムライン
 //    （mergeFrameTimes）を共有スライダーへ渡す。各レイヤーは選択時刻に対応する自分のフレームを
-//    描画し、**選択時刻が自分のデータ範囲外なら何も描画しない**（frameIndexForTime、
-//    従来の「端のフレームへクランプして古いデータを見せ続ける」挙動の廃止）。
+//    描画し、**選択時刻が自分のデータ範囲外なら何も描画しない**（frameIndexForTime）。
 // 4. **データ取得の差異はデータ層で吸収**: 1要素につきデータソースはN個あり得る
 //    （例: 降水=気象庁ナウキャスト+自前格子）。各要素のデータ層モジュール
 //    （precipitationNowcast.ts等）がソースを1本のフレーム列へ統合し、フレームごとの
@@ -72,9 +71,8 @@ export type DynamicWeatherRenderPayload =
   | { kind: "vectorTile"; tileUrlTemplate: string };
 
 /** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
- * 一意であればよい（改善計画T432、「1レイヤーID=1 kind」制約の解消。単一ソースしか
- * 持たないグループも"main"という1キーだけを持つ——ソース1つならキー省略可、という特例は
- * 設けず呼び出し側の分岐を増やさない）。 */
+ * 一意であればよい。単一ソースしか持たないグループも"main"という1キーだけを持つ
+ * ——ソース1つならキー省略可、という特例は設けず呼び出し側の分岐を増やさない。 */
 export type DynamicWeatherSourceId = string;
 
 /** 1ソースぶんの表示状態。visible/payloadどちらか欠けても非表示
@@ -84,10 +82,10 @@ export interface DynamicWeatherSourceState {
   payload: DynamicWeatherRenderPayload | undefined;
 }
 
-/** 1グループぶんの状態。ソースキー→状態（改善計画T432）。 */
+/** 1グループぶんの状態。ソースキー→状態。 */
 export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;
 
-/** targetがnowからwindowMsミリ秒先までの範囲内か（改善計画T432、線状降水帯予測マップ用）。
+/** targetがnowからwindowMsミリ秒先までの範囲内か（線状降水帯予測マップ用）。
  * frameIndexForTimeと違いフレーム列を前提とせず、単発スナップショットが「表示すべき時間窓」に
  * 入っているかだけを判定する。下限側にもFRAME_RANGE_EPSILON_MSの余裕を持たせ、境界ちょうど
  * （例: targetが厳密にnowと同時刻）で浮動小数の丸めに揺られないようにする。 */
@@ -118,8 +116,7 @@ export function mergeFrameTimes(frameLists: readonly (readonly { time: Date }[])
 
 /** 共有スライダーの表示用時刻ラベル（JST）。タイムラインは約48時間先まで日付をまたぐため
  * 常に日付を含める（レイヤーごとのラベル形式差を表示層へ持ち込まない）。WeatherPanel
- * の左端インジケータ上に1行で出す「正確な日時」用（実機フィードバック「今の位置の正しい
- * 日時は左端ではなく上に出して」）。 */
+ * の左端インジケータ上に1行で出す「正確な日時」用。 */
 export function formatDynamicFrameTime(time: Date): string {
   return `${formatDynamicFrameDate(time)} ${formatDynamicFrameHourMinute(time)}`;
 }
@@ -129,15 +126,15 @@ function formatDynamicFrameDate(time: Date): string {
   return time.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" });
 }
 
-/** 時刻のみ（日付無し、JST、HH:mm）。WeatherPanelのルーラー目盛りラベル
- * （実機フィードバック「目盛りは日付部分は不要、時刻のみ」）のうち、正時のコマ用。 */
+/** 時刻のみ（日付無し、JST、HH:mm）。WeatherPanelのルーラー目盛りラベルのうち、
+ * 正時のコマ用。 */
 export function formatDynamicFrameHourMinute(time: Date): string {
   return time.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
 }
 
 /** 分のみ（2桁、0埋め、JST）。ルーラー目盛りラベルのうち、正時でない密な区間
- * （降水ナウキャストの5分刻み等）のコマ用（実機フィードバック「時刻も細いところは
- * 分だけにする」）。JSTはUTC+9:00ちょうどで分のずれが無いため、getUTCMinutes()がそのまま
+ * （降水ナウキャストの5分刻み等）のコマ用。JSTはUTC+9:00ちょうどで分のずれが無いため、
+ * getUTCMinutes()がそのまま
  * JSTの分と一致する（page.tsxのhourMark判定と同じ理由、実行環境のローカルタイムゾーンに
  * 左右されない）。 */
 export function formatDynamicFrameMinuteOnly(time: Date): string {
@@ -166,9 +163,9 @@ export function nearestTimeIndex(times: readonly Date[], target: Date): number {
 const FRAME_RANGE_EPSILON_MS = 1000;
 
 /** 対象時刻に対応するフレームのindexを返す。**対象時刻がこのレイヤーのデータ範囲
- * （先頭〜末尾フレーム）の外なら null**（=そのレイヤーは描画しない。要件「該当時間データが
- * ない場合、地図には描画しない」。従来は端のフレームへクランプし、例えばナウキャストの
- * 範囲を超えた時刻でも最後の雨雲画像を出し続けていた）。範囲内なら最も近いフレームを返す
+ * （先頭〜末尾フレーム）の外なら null**（=そのレイヤーは描画しない。範囲を超えた時刻で
+ * 古いフレーム[例: 最後の雨雲画像]を出し続けることを避けるため）。範囲内なら最も近い
+ * フレームを返す
  * （フレーム間隔の中間時刻は近い方のフレームが「その時間帯の値」を代表する）。 */
 export function frameIndexForTime(frames: readonly { time: Date }[], target: Date): number | null {
   if (frames.length === 0) return null;
@@ -183,10 +180,10 @@ export function frameIndexForTime(frames: readonly { time: Date }[], target: Dat
 }
 
 /** 格子点配列を1件ずつ辿り、extractが値を取れた点だけをFeatureへ変換してFeatureCollection
- * へ積む共通ループ（改善計画T466: precipitationNowcast.ts・windPenalty.ts・windLayer.tsの
- * 3ファイルが「格子点配列→frameIndex/refぶんの値を抜く→欠損はスキップ→Feature push」という
- * ほぼ同型のfor文を独立実装していたのを統合）。extractがnullを返した点（値未取得・欠損）は
- * スキップする（1点の欠損で全体を落とさない、という3ファイル共通の方針）。ジオメトリ形状
+ * へ積む共通ループ（precipitationNowcast.ts・windLayer.ts等が「格子点配列→frameIndex/ref
+ * ぶんの値を抜く→欠損はスキップ→Feature push」という同型のfor文をそれぞれ使うため
+ * 共通化してある）。extractがnullを返した点（値未取得・欠損）はスキップする
+ * （1点の欠損で全体を落とさない方針）。ジオメトリ形状
  * （Point/Polygon）・プロパティの中身は呼び出し側のbuildFeatureに委ねるため、格子種別ごとの
  * 意味的な違いはこのファイルへ持ち込まない。 */
 export function gridToFeatureCollection<TPoint, TValue, TGeometry extends GeoJSON.Geometry, TProps>(

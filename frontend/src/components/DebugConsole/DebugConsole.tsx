@@ -7,8 +7,8 @@ import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import styles from "./DebugConsole.module.css";
 
 interface DebugConsoleProps {
-  /** パネル自体の開閉（デバッグモードのON/OFFとは別。常時占有させたくないという実機
-   * フィードバックを受け、「設定」内のボタンから開閉する、T42） */
+  /** パネル自体の開閉（デバッグモードのON/OFFとは別。常時占有させたくないため
+   * 「設定」内のボタンから開閉する） */
   open: boolean;
   onClose: () => void;
 }
@@ -17,10 +17,10 @@ interface DebugConsoleProps {
 // マップの表示イベント（初期化・タイル/スタイル要求・パン/ズーム）と外部API呼び出し
 // （天候/ルート生成/地域レイヤー/基礎地図）を発生順に積む。DebugPanelのトグルと状態を共有する。
 // デバッグモードON＝ログの記録自体は常時有効だが、このパネル表示は別途openで制御する
-// （常時ONだと画面の目立つ面積を占有し続けるという実機フィードバック、T42）。
-// バックエンドの集計・commit等の「システム状況」は別パネル（SystemStatusPanel）へ分離した
-// （ログ本文と情報源・更新頻度が異なる別種の情報を1つのパネルに詰め込むと見づらいという
-// ユーザーフィードバックを受け、2026-08-16に分割）。
+// （常時ONだと画面の目立つ面積を占有し続けるため）。
+// バックエンドの集計・commit等の「システム状況」は別パネル（SystemStatusPanel）へ
+// 分離してある（ログ本文と情報源・更新頻度が異なる別種の情報を1つのパネルに詰め込むと
+// 見づらいため）。
 export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
   const enabled = useDebugEnabled();
   const entries = useDebugLogEntries();

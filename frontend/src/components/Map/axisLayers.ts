@@ -247,13 +247,11 @@ export function axisLineLayerId(axisId: string): string {
 
 // 共有ランプ配色（低→高、緑→黄→橙→赤）のアンカー。全ramp軸が同じ配色系統を使うことで
 // 「低=緑〜高=赤」という読み方を1回覚えれば全軸に通用させる（軸ごとに独自配色を作らない）。
-// 改善計画T292: 段階数（バンド数）は軸によって異なりうる（例: car_stressは複数材料の
-// 組み合わせのためthresholdsが4個ちょうどに収まるとは限らない）。以前は4色固定配列
-// だったため5段階以上の軸があると末尾の段階が同色に潰れる問題があった
-// （旧CAR_STRESS_COLORSが専用の5段階配色を手書きしていた理由そのもの）。
-// rampColorForBandはこの4色をアンカーとしてbandCount段階ぶんの色を線形補間で生成する
-// ため、bandCount=4のときは既存の4色と完全に一致し（axisLayers.test.ts参照）、
-// bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数ぶんの色を自動生成できる。
+// 段階数（バンド数）は軸によって異なりうる（例: car_stressは複数材料の組み合わせのため
+// thresholdsが4個ちょうどに収まるとは限らない）。rampColorForBandはこの4色をアンカーとして
+// bandCount段階ぶんの色を線形補間で生成するため、bandCount=4のときは既存の4色と完全に
+// 一致し（axisLayers.test.ts参照）、bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数
+// ぶんの色を自動生成できる。
 const RAMP_COLOR_ANCHORS: readonly [number, string][] = [
   [0, "#4caf50"],
   [1 / 3, "#ffb300"],
@@ -293,7 +291,7 @@ function rampColorForRatio(t: number): string {
 }
 
 /** bandCount段階中index番目(0始まり)の色。RAMP_COLOR_ANCHORSを緑(0)→赤(1)の相対位置で
- * 線形補間する。bandCount=4のとき旧AXIS_RAMP_COLORSと完全一致する（axisLayers.test.ts）。 */
+ * 線形補間する。bandCount=4のときAXIS_RAMP_COLORSと完全一致する（axisLayers.test.ts）。 */
 export function rampColorForBand(index: number, bandCount: number): string {
   const t = bandCount <= 1 ? 0 : index / (bandCount - 1);
   return rampColorForRatio(t);
