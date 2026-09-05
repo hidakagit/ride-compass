@@ -105,8 +105,8 @@ def parse_years(text: str) -> list[int]:
 
 
 async def _download_year(client: httpx.AsyncClient, year: int) -> Path | None:
-    """本票CSVを年号から組み立てたURLで直接取得し、DATA_DIRへ保存する（改善計画T80、
-    骨格はapp/batch/_common.py: download_to_pathへ共通化済み）。"""
+    """本票CSVを年号から組み立てたURLで直接取得し、DATA_DIRへ保存する（骨格は
+    app/batch/_common.py: download_to_pathへ共通化されている）。"""
     dest = DATA_DIR / f"honhyo_{year}.csv"
     url = HONHYO_URL_TEMPLATE.format(year=year)
     return await download_to_path(
@@ -125,11 +125,10 @@ def iter_kanto_rows(csv_path: Path, year: int) -> Iterator[tuple]:
         reader = csv.reader(f)
         header = next(reader, None)
         # 列数不一致は個々の行のスキップ理由（欠損データ）ではなく、CSVの列構成自体が
-        # 想定と異なることを意味する（2026-08-16実データ確認: 2019〜2021年のCSVは
-        # サポカー・認知機能検査経過日数等の列が無い58列構成で、2022年以降の68列構成とは
-        # 別スキーマ。実際に2019年分をこの前提でインポートし、全行が列不足スキップになる
-        # ことで発覚した）。行単位のWARNINGで握りつぶさず、その年のバッチ実行自体を
-        # 失敗させて呼び出し側に知らせる（schema_migrationsと同じ「気づける形で落とす」方針）。
+        # 想定と異なることを意味する（2019〜2021年のCSVはサポカー・認知機能検査経過日数
+        # 等の列が無い58列構成で、2022年以降の68列構成とは別スキーマ）。行単位の
+        # WARNINGで握りつぶさず、その年のバッチ実行自体を失敗させて呼び出し側に知らせる
+        # （schema_migrationsと同じ「気づける形で落とす」方針）。
         if header is not None and len(header) != _REQUIRED_COLUMNS:
             raise ValueError(
                 f"year={year}: 想定と異なる列数のCSVです（想定{_REQUIRED_COLUMNS}列、実際{len(header)}列）。"
@@ -201,8 +200,8 @@ async def run_import(years: list[int], database_url: str | None, dry_run: bool) 
     total_matched = 0
     total_upserted = 0
     try:
-        # 改善計画T467: 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか
-        # 確認し、あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
+        # 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか確認し、
+        # あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
         reaped = await reap_stale_running_import_runs(conn, "accident_import_runs")
         if reaped:
             logger.warning(

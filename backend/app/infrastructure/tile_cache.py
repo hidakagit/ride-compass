@@ -6,9 +6,6 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-# 改善計画T398でcache_db.py（SQLite永続キャッシュ）を撤去した際、唯一の非SQLite用途
-# だったDATA_DIRの定義をここへ移設した（地図タイル・路面ベクタタイルのファイルキャッシュは
-# 元々SQLiteとは無関係で、DATA_DIRという保存先ディレクトリの定数だけを間借りしていた）。
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 CACHE_DIR = DATA_DIR / "tile_cache"
 
@@ -21,12 +18,12 @@ def cache_key(path: str) -> str:
     OpenFreeMapのURL構造には`planet`（TileJSON本体）と`planet/<version>/{z}/{x}/{y}.pbf`
     （実タイル）のように、同じセグメントがファイルとディレクトリ接頭辞の両方として使われる
     ケースがある。パスをそのままディレクトリ階層にミラーリングすると、Windowsでは
-    「同名のファイルがあるためディレクトリを作成できない」というエラーで実際にクラッシュした
-    （実機確認で発見）。ハッシュ化してフラットに保存することでこの衝突を構造的に避ける。
-    ディレクトリトラバーサル（`..`等）も、パスがファイル名に使われないため問題にならない。
+    「同名のファイルがあるためディレクトリを作成できない」というエラーでクラッシュしうる。
+    ハッシュ化してフラットに保存することでこの衝突を構造的に避ける。ディレクトリ
+    トラバーサル（`..`等）も、パスがファイル名に使われないため問題にならない。
 
-    改善計画T510: `jma_tile_redis_cache.py`もこのハッシュ方式を踏襲するため公開関数にした
-    （ファイルキャッシュとRedisキャッシュで同じpathから異なるキー体系にならないように）。
+    `jma_tile_redis_cache.py`もこのハッシュ方式を踏襲する（ファイルキャッシュとRedis
+    キャッシュで同じpathから異なるキー体系にならないように、公開関数にしている）。
     """
     return hashlib.sha256(path.encode("utf-8")).hexdigest()
 
@@ -52,9 +49,9 @@ def get(path: str) -> tuple[bytes, str] | None:
 def _write_atomic(final_path: Path, write: Callable[[Path], None]) -> None:
     """同じディレクトリへ一意な一時ファイルを書き、`os.replace`で最終パスへ差し替える。
 
-    改善計画T464: 最終パスへ直接write_bytes/write_textすると、書き込み中の`get()`が
-    「存在するが未完了」のファイルを読んでしまう（部分書き込みの混入）。`os.replace`は
-    同一ファイルシステム内であればPOSIX/Windowsどちらでもアトミックなため、読み手は
+    最終パスへ直接write_bytes/write_textすると、書き込み中の`get()`が「存在するが
+    未完了」のファイルを読んでしまう（部分書き込みの混入）。`os.replace`は同一
+    ファイルシステム内であればPOSIX/Windowsどちらでもアトミックなため、読み手は
     常に「無い」か「完全に書き終わった内容」のどちらかしか見えなくなる。
     """
     tmp_path = final_path.with_suffix(f"{final_path.suffix}.tmp-{uuid.uuid4().hex}")
@@ -71,8 +68,8 @@ def set(path: str, content: bytes, content_type: str) -> None:
     try:
         key = cache_key(path)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        # 改善計画T464: get()は`.bin`の存在を「キャッシュ済みか」の判定に使う
-        # （下記get()参照）ため、`.meta`を先に書き終えてから`.bin`を書く。これにより
+        # get()は`.bin`の存在を「キャッシュ済みか」の判定に使う（下記get()参照）ため、
+        # `.meta`を先に書き終えてから`.bin`を書く。これにより
         # `.bin`が見えた時点で`.meta`は必ず既に完全に書き終わっている（存在＝完了、を
         # os.replaceのアトミック性と合わせて保証する）。
         _write_atomic(CACHE_DIR / f"{key}.meta", lambda p: p.write_text(content_type, encoding="utf-8"))

@@ -7,8 +7,7 @@
 ＋バッチのみでユーザー作業は不要（KSJ利用規約はPDL1.0相当、登録不要・非商用利用可、
 出典明記のみ必須。2026-08-16確認）。
 
-**N10とN12でファイル形式が異なる**（2026-08-16実データ確認、レビュー当初の想定と異なり
-N10はGeoJSON非対応）:
+**N10とN12でファイル形式が異なる**（N10はGeoJSON非対応）:
 - N10: ZIP内の`N10-15_{pref}.xml`がJPGIS/GML（`gml:Curve`＋`ksj:UrgentTransportationRoad`、
   xlinkで参照）。標準ライブラリ`xml.etree.ElementTree`でパースする（新規依存ライブラリ
   不要。GDAL系（fiona/geopandas）もシェープファイル用のpyshpも導入しない）。
@@ -77,8 +76,8 @@ VALUES ($1, $2, $3, '{}'::jsonb, $4, ST_SetSRID(ST_GeomFromWKB($5), 4326), $6)
 
 
 async def _download_zip(client: httpx.AsyncClient, kind: str, pref: str) -> Path | None:
-    """都道府県別ZIPを直接取得しDATA_DIRへ保存する（改善計画T80、骨格は
-    app/batch/_common.py: download_to_pathへ共通化済み）。"""
+    """都道府県別ZIPを直接取得しDATA_DIRへ保存する（骨格はapp/batch/_common.py:
+    download_to_pathへ共通化されている）。"""
     dest = DATA_DIR / f"{kind}_{pref}.zip"
     url = _zip_url(kind, pref)
     return await download_to_path(
@@ -98,9 +97,9 @@ def _parse_n10_gml(xml_bytes: bytes) -> list[tuple[str | None, list[tuple[float,
     curves: dict[str, list[tuple[float, float]]] = {}
     for curve in root.iter(f"{{{_GML_NS['gml']}}}Curve"):
         curve_id = curve.get(f"{{{_GML_NS['gml']}}}id")
-        # JPGISでは1つのgml:Curveが複数のgml:LineStringSegment（＝複数posList）を持ちうる
-        # （改善計画T72）。findで最初の1つだけ読むと2番目以降が無警告で切り捨てられ、
-        # 件数は合うままバッファ交差率だけが縮んで後半区間が指定路線と判定されなくなる。
+        # JPGISでは1つのgml:Curveが複数のgml:LineStringSegment（＝複数posList）を持ちうる。
+        # findで最初の1つだけ読むと2番目以降が無警告で切り捨てられ、件数は合うまま
+        # バッファ交差率だけが縮んで後半区間が指定路線と判定されなくなる。
         # 全posListをdocument順に連結する（連続するセグメント列という前提）。
         pos_list_els = curve.findall(".//gml:posList", _GML_NS)
         if curve_id is None or not pos_list_els:
@@ -136,8 +135,8 @@ def _parse_n10_gml(xml_bytes: bytes) -> list[tuple[str | None, list[tuple[float,
 
 
 def _linestrings_from_geometry(geometry: dict) -> list[list]:
-    """LineString/MultiLineString双方から素の座標配列のリストを返す（改善計画T72、
-    MultiLineStringのfeatureが無警告でスキップされ路線が黙って欠落する問題への対応）。
+    """LineString/MultiLineString双方から素の座標配列のリストを返す
+    （MultiLineStringのfeatureも扱わないと路線が黙って欠落するため）。
     それ以外のtype（Point等、KSJでは想定外）は空リスト。
     """
     geometry_type = geometry.get("type")
@@ -163,7 +162,7 @@ def _parse_n12_geojson(json_bytes: bytes) -> list[tuple[str | None, list[tuple[f
         name = (feature.get("properties") or {}).get("N12_004")
         for raw_coords in lines:
             # RFC 7946は[lon, lat, alt]の3要素座標を許容するため、先頭2要素のみ取得する
-            # （改善計画T72。3要素のままunpackするとValueErrorでrun全体が異常終了していた）。
+            # （3要素のままunpackするとValueErrorになるため）。
             coords = [(float(c[0]), float(c[1])) for c in raw_coords]
             if len(coords) < 2:
                 continue
@@ -175,10 +174,8 @@ def _parse_n12_geojson(json_bytes: bytes) -> list[tuple[str | None, list[tuple[f
 
 @dataclass(frozen=True)
 class _DesignationKindSpec:
-    """kind→(取得URL・DB上のsource値・ZIP内メンバー名・パーサ)の対応（改善計画T75）。
+    """kind→(取得URL・DB上のsource値・ZIP内メンバー名・パーサ)の対応。
 
-    以前はこの対応がURL組み立て・source文字列・ZIPメンバー名解決の3関数へ平行分岐で
-    分散し、いずれもelse側が暗黙にN12扱いへ倒れていた（kind追加時の編集漏れが静かに壊れる）。
     未知kindは`_KIND_SPECS[kind]`のKeyErrorで即死させる（暗黙のフォールバックを許さない）。
     """
 
@@ -225,12 +222,8 @@ async def _write_designations(
     run_started_at: datetime,
 ) -> int:
     """(kind, pref)単位でDELETE→INSERTを1トランザクションに括り、featuresが0件のときは
-    DELETEごとスキップする（改善計画T71）。
-
-    従来はDELETEと各INSERTがトランザクション外（asyncpgのautocommitで1文ずつ確定）で、
-    かつパーサが0件を返した場合もDELETEだけが実行され既存データが静かに消えていた。
-    0件時に何もしないことで、パーサの異常・取得データの一時的欠落がその都道府県の
-    既存指定路線を全消しする事故を防ぐ。
+    DELETEごとスキップする（パーサの異常・取得データの一時的欠落がその都道府県の
+    既存指定路線を全消しする事故を防ぐため）。
     """
     if not features:
         logger.warning(
@@ -281,8 +274,8 @@ async def run_import(database_url: str | None, dry_run: bool) -> int:
     conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
     total_inserted = 0
     try:
-        # 改善計画T467: 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか
-        # 確認し、あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
+        # 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか確認し、
+        # あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
         reaped = await reap_stale_running_import_runs(conn, "designation_import_runs")
         if reaped:
             logger.warning(

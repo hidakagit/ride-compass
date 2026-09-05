@@ -2,21 +2,17 @@
 
 すべて純関数・unknown安全（タグが無い/未知の値は`None`または`"unknown"`を返し、
 根拠のない推測はしない）。正準定義はここ1箇所（domain/road.pyのGOOD/BAD_OSM_SURFACE_TAGSと
-同じ「正準1箇所」の運用、改善計画T7原則）。
+同じ「正準1箇所」の運用）。
 
-車ストレス（改善計画T150で「交通ストレス」から改称）は専用Pythonレシピ（旧
-car_stress_breakdown/car_stress_level）を改善計画T292で廃止し、AXIS_DEFINITIONS
-（domain/axis_definitions.py）の内部軸5つ+公開軸1つの階層構造で再現している。
-
-改善計画T347: 旧`classify_bicycle_infrastructure`（優先順位付き分類、SQL CASE式との
-2箇所手書き複製が「生データの分類ロジックをPythonに持たせない」方針に反するという
-ユーザー指摘を受け削除）は、正規化フラグ材料4種（`domain/recipe.py: bicycle_infra_flags`）
-の組み合わせへ置き換えた（domain/evaluation.pyの軸材料合成が直接参照する）。
+車ストレスはAXIS_DEFINITIONS（domain/axis_definitions.py）の内部軸5つ+公開軸1つの
+階層構造で再現している。自転車インフラは正規化フラグ材料4種
+（`domain/recipe.py: bicycle_infra_flags`）の組み合わせで表し、
+domain/evaluation.pyの軸材料合成が直接参照する。
 """
 
 from typing import Literal
 
-# 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1、改善計画T44）。
+# 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1）。
 # AttributeRepository.get_stop_poi_counts（デフォルト引数、GraphService.get_stop_poi_counts
 # はこのデフォルトを暗黙使用）がこの定数をimportして参照する。
 STOP_POI_MATCH_MAX_DISTANCE_M = 15.0
@@ -41,11 +37,11 @@ _HIGHWAY_STOP_KINDS: dict[str, StopPoiKind] = {
     "give_way": "give_way",
 }
 
-# 停止要因POIのkind正準集合（SQL側のkindフィルタ用、改善計画T145b実装中に発見したバグの
-# 修正）。T101で補給POI（convenience/vending_machine等、SupplyPoiKind）が同じ
-# `osm_raw_pois`テーブルへ入ったため、kindを絞らないCOUNTは停止密度へコンビニ・自販機を
-# 誤算入する。停止密度系のSQL（_STOP_POI_COUNTS_SQL等）は必ずこの集合でフィルタする
-# （設計原則2: 片側import。StopPoiKindのLiteral値と乖離しないようテストで照合する）。
+# 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（convenience/
+# vending_machine等、SupplyPoiKind）が同じ`osm_raw_pois`テーブルへ入っているため、
+# kindを絞らないCOUNTは停止密度へコンビニ・自販機を誤算入する。停止密度系のSQL
+# （_STOP_POI_COUNTS_SQL等）は必ずこの集合でフィルタする（設計原則2: 片側import。
+# StopPoiKindのLiteral値と乖離しないようテストで照合する）。
 STOP_POI_KINDS = frozenset(_HIGHWAY_STOP_KINDS.values()) | {"level_crossing"}
 
 
@@ -74,18 +70,18 @@ _AMENITY_SUPPLY_KINDS: dict[str, SupplyPoiKind] = {
 
 
 def classify_supply_poi(tags: dict[str, str]) -> SupplyPoiKind | None:
-    """補給・休憩ポイント（コンビニ・自販機・トイレ・給水・駐輪場）の分類（改善計画T101、
-    static-road-attributes-plan.md §2.3）。classify_stop_poiと同じくnode取込の対象判定にも
+    """補給・休憩ポイント（コンビニ・自販機・トイレ・給水・駐輪場）の分類
+    （static-road-attributes-plan.md §2.3）。classify_stop_poiと同じくnode取込の対象判定にも
     使う（osm_adapter.py: osm_node_to_poi_spec）。停止要因POIとタグ名（shop/amenity vs
     highway/railway）が独立しており衝突しないため、優先順位の考慮は不要。
 
     実店舗との乖離（閉店・移転にOSM側が追従できていないリスク）はタグ自体からは
-    分からないため、`backend/scripts/measure_poi_freshness.py`（2026-08-18実測）で
-    要素の最終編集日時を代理指標に実測した。コンビニ（shop=convenience）は直近2年以内の
-    編集が関東全域で62.4%と明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が
-    58〜59%と高く、実店舗との乖離リスクが相対的に高い（フロント側mapLayers.ts:
-    supplyPoiのpanelHintで「鮮度に注意」と明記して利用者に伝える。取込・分類自体は
-    5種すべて対象とし、鮮度の扱いは表示側の注意喚起に留める）。
+    分からない。`backend/scripts/measure_poi_freshness.py`で要素の最終編集日時を
+    代理指標に計測すると、コンビニ（shop=convenience）は直近2年以内の編集が関東全域で
+    62.4%と明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、
+    実店舗との乖離リスクが相対的に高い（フロント側mapLayers.ts: supplyPoiのpanelHintで
+    「鮮度に注意」と明記して利用者に伝える。取込・分類自体は5種すべて対象とし、鮮度の
+    扱いは表示側の注意喚起に留める）。
     """
     if (tags.get("shop") or "").strip().lower() == "convenience":
         return "convenience"

@@ -6,9 +6,9 @@
 Base.metadata.create_all）に乗せるため同じ Base を使う。
 
 `route_designations`（raw層、外部指定線形の生値）・`designation_attributes`
-（Way派生、1Wayが複数kindに該当しうるため複合PK。改善計画T74でedge_id基準からosm_way_id基準へ
-変更、road_edgesの遅延構築に依存しない全域表示のため）・
-`designation_import_runs`（osm_import_runs型の取込記録）の3テーブル。
+（Way派生、osm_way_id基準。road_edgesの遅延構築に依存しない全域表示のため。1Wayが
+複数kindに該当しうるため複合PK）・`designation_import_runs`（osm_import_runs型の
+取込記録）の3テーブル。
 """
 
 from datetime import datetime
@@ -40,12 +40,10 @@ class RouteDesignationRow(Base):
 
 
 class DesignationAttributeRow(Base):
-    """osm_raw_waysへのバッファマッチ結果（Way派生）。
-
-    改善計画T74: road_edges（ルート生成地点周辺のみ遅延構築）ではなくosm_raw_ways
-    （関東全域自己完結）を対象にすることで、ルート生成履歴に関係なく全域で表示できるようにする。
-    1つのWayがN10・N12双方に該当しうるため、複合PK(osm_way_id, kind)にする
-    （docs/external-data-sources-review-2026-08-16.md §4.3）。
+    """osm_raw_waysへのバッファマッチ結果（Way派生）。road_edges（ルート生成地点周辺のみ
+    遅延構築）ではなくosm_raw_ways（関東全域自己完結）を対象にすることで、ルート生成
+    履歴に関係なく全域で表示できる。1つのWayがN10・N12双方に該当しうるため、複合
+    PK(osm_way_id, kind)にする（docs/external-data-sources-review-2026-08-16.md §4.3）。
     """
 
     __tablename__ = "designation_attributes"
@@ -57,7 +55,7 @@ class DesignationAttributeRow(Base):
     matched_ratio: Mapped[float] = mapped_column(Float, nullable=False)
     data_version: Mapped[str | None] = mapped_column(String, nullable=True)
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 派生データの系譜追跡（改善計画T351、migration 0024）。matched_route_designation_idsは
+    # 派生データの系譜追跡（migration 0024）。matched_route_designation_idsは
     # このWay×kindのmatched_ratioへ実際に寄与した全route_designations.id（複数可、
     # ST_Unionで集約されるため1:多になりうる。match_designations.pyのdocstring参照）。
     # source_osm_import_run_idはEdgeAttributeCountsRow（road_graph_models.py）と同じ

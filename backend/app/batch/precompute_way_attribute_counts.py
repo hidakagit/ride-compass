@@ -1,4 +1,4 @@
-"""way_attribute_counts（改善計画T145b）の事前集計バッチ。
+"""way_attribute_countsの事前集計バッチ。
 
 地図タイル（_ROAD_SURFACE_TILE_MVT_SQL）へ焼き込む事実カウント（事故・停止POI・交差点）の
 way単位事前集計。母集団はosm_raw_ways全域（geom・highwayを持つway）で、Road Graph
@@ -45,8 +45,8 @@ logger = logging.getLogger("app.batch.precompute_way_attribute_counts")
 # request向けcommand_timeoutを受けない専用エンジンで動くため大きめでも安全側。
 CHUNK_SIZE = 5_000
 
-# 派生データの系譜追跡（改善計画T351）。precompute_edge_attribute_counts.pyと同じ意味・
-# 同じ運用（ROAD_SURFACE_TILE_VERSIONと同種の手動版数）。edge単位版とway単位版は同じ
+# 派生データの系譜追跡。precompute_edge_attribute_counts.pyと同じ意味・同じ運用
+# （ROAD_SURFACE_TILE_VERSIONと同種の手動版数）。edge単位版とway単位版は同じ
 # 集計ロジック（意味論は共通、_RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQLのコメント参照）のため
 # 同じ版数文字列を使うが、対象テーブルが別のため定数自体は独立に持つ（それぞれが
 # 単独で読めることを優先、edge側の値と実際に揃っているかはコードレビュー時の目視確認）。
@@ -95,8 +95,8 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         for chunk_index, chunk in enumerate(chunks):
             chunk_started = time.perf_counter()
             async with session_factory() as session:
-                # 改善計画T467: precompute_edge_attribute_counts.pyと同種の修正（同ファイルの
-                # コメント参照）。run id取得をチャンクごとの直前へ移し、各チャンクが実際に読んだ
+                # run id取得はチャンクごとの直前で行う（precompute_edge_attribute_counts.py
+                # と同種の対応、同ファイルのコメント参照）。各チャンクが実際に読んだ
                 # accident_points/osm_raw_waysとの対応がズレないようにする。
                 source_accident_run_id = (await session.execute(_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL)).scalar_one()
                 source_osm_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
@@ -121,7 +121,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="way_attribute_counts事前集計バッチ（改善計画T145b）")
+    parser = argparse.ArgumentParser(description="way_attribute_counts事前集計バッチ")
     parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
     parser.add_argument("--dry-run", action="store_true", help="件数のみログ出力しDBへ書き込まない")
     args = parser.parse_args(argv)

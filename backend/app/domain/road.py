@@ -1,11 +1,11 @@
 # 路面評価の正準定義:
 # 「走行しやすい舗装路面か」を 良い(True) / 悪い(False) / 不明(None) の3値で判定する。
-# OSMタグ語彙（classify_osm_surface）が唯一の判定源（改善計画T21）。
+# OSMタグ語彙（classify_osm_surface）が唯一の判定源。
 
 # OSMのsurfaceタグ（自由記述に近い文字列）による判定。
 #
 # この2集合が路面語彙の**単一ソース**であり、以下がすべてここへ追従する
-# （改善計画T7。docs/design-review-2026-08-15.md 設計原則1）:
+# （docs/design-review-2026-08-15.md 設計原則1）:
 # - PostGIS側のMVT生成SQL（road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLがバインド）
 # - フロントエンドの路面グループ定義との整合検証
 #   （backend/scripts/export_openapi.pyがsurface-tags.jsonとして書き出し、

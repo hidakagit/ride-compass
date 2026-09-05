@@ -1,4 +1,4 @@
-"""派生データ鮮度台帳の管理API（改善計画T571）。
+"""派生データ鮮度台帳の管理API。
 
 `GET /api/admin/derived-data/freshness`（Basic認証必須）は、`edge_attribute_counts`・
 `way_attribute_counts`・`designation_attributes`について「参照している生データの世代が

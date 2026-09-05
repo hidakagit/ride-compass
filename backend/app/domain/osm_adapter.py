@@ -18,7 +18,7 @@ ONEWAY_BACKWARD_ONLY = {"-1", "reverse"}
 
 
 def _resolve_direction(tags: dict) -> str:
-    """`oneway`と`oneway:bicycle`から通行方向を決定する（改善計画T100）。
+    """`oneway`と`oneway:bicycle`から通行方向を決定する。
 
     `oneway:bicycle`は「自転車に限り一方通行規制の対象外（またはbicycle独自の一方通行）」
     という意味の例外タグで、値がある場合は`oneway`本体より優先する（現実のOSM上でも
@@ -61,8 +61,8 @@ ALLOWED_WAY_TAGS = frozenset(
         "bicycle",
         "motor_vehicle",
         "access",
-        # 改善計画T100: 方向自体は_resolve_directionでWaySpec.directionへ解決済みだが、
-        # 生タグも表示・デバッグ用途に引き続き保持する（他の解釈済みタグと同じ扱い）。
+        # 方向自体は_resolve_directionでWaySpec.directionへ解決済みだが、生タグも
+        # 表示・デバッグ用途に引き続き保持する（他の解釈済みタグと同じ扱い）。
         "oneway:bicycle",
         "tunnel",
         "bridge",
@@ -70,15 +70,15 @@ ALLOWED_WAY_TAGS = frozenset(
         "ref",
         "tracktype",
         "shoulder",
-        # 改善計画T99: shared_pedestrian_waysルールで新たに取り込む自転車歩行者道の歩車分離有無。
-        # 取込コストがゼロ（既存のtags jsonbへ相乗り）なため、T102の採用可否判断を待たず保持する。
-        # 自転車インフラ分類（domain/recipe.py: bicycle_infra_flags）への反映はT102の
-        # 実測結果を待って判断する。
+        # shared_pedestrian_waysルールで取り込む自転車歩行者道の歩車分離有無。取込コストは
+        # ゼロ（既存のtags jsonbへ相乗り）。自転車インフラ分類（domain/recipe.py:
+        # bicycle_infra_flags）への反映は未実施（採用可否の判断は完了、実装は別タスクで
+        # 検討、docs/static-road-attributes-plan.md §2.5参照）。
         "segregated",
-        # 改善計画T102: 街灯の有無。関東全域実測で全体1.1%・幹線道路4.8%と既採用tagの水準を
-        # 上回り採用推奨と判断（詳細はstatic-road-attributes-plan.md §2.5）。取込コストは
-        # segregatedと同じくゼロ（既存way向けtags jsonbへ相乗り、新規node取込は不要）。
-        # 評価軸・表示への反映は別タスクで検討（本タスクはタグ保持のみ）。
+        # 街灯の有無。関東全域で全体1.1%・幹線道路4.8%と既採用tagの水準を上回るため保持する
+        # （詳細はstatic-road-attributes-plan.md §2.5参照）。取込コストはsegregatedと
+        # 同じくゼロ（既存way向けtags jsonbへ相乗り、新規node取込は不要）。評価軸・表示への
+        # 反映は別タスクで検討（本タグは保持のみ）。
         "lit",
     }
 )
