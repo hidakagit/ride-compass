@@ -125,12 +125,12 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
     });
   });
 
-  describe("CHIP_DYNAMIC_WEATHER_LAYER_IDS（改善計画T606: キキクル4種のチップ化）", () => {
-    it("キキクル4種を含む（他の環境グループ気象レイヤーと同じチップ付き扱い）", () => {
-      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("landslideRisk");
-      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("heavyRainRisk");
-      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("inundationRisk");
-      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("floodRisk");
+  describe("CHIP_DYNAMIC_WEATHER_LAYER_IDS", () => {
+    it("災害系7要素は\"disaster\"チップ1つに集約されている", () => {
+      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("disaster");
+      for (const removed of ["landslideRisk", "heavyRainRisk", "inundationRisk", "floodRisk", "thunderNowcast", "tornadoNowcast", "liden"]) {
+        expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).not.toContain(removed);
+      }
     });
 
     it("DYNAMIC_WEATHER_LAYER_IDSはCHIP_DYNAMIC_WEATHER_LAYER_IDSと同じ（常時マウント・チップ無しの要素を持たない）", () => {

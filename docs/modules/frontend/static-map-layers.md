@@ -125,7 +125,8 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
   road/POI/事故/標高等、MapLibreが自身のタイル取得として実行するレイヤー。ソースイベント
   （`sourcedata`/`sourcedataloading`/`error`）から算出する。
 - **`dynamicWeatherDataStatus`**（改善計画T608、[動的気象レイヤー](dynamic-weather-layers.md)
-  「データ取得状態」節参照）: 降水ナウキャスト・風・雷・竜巻・雷放電位置データ・キキクル4種。
+  「データ取得状態」節参照）: 降水ナウキャスト・風・災害（雷・竜巻・落雷・キキクル4種を
+  1チップへまとめたグループ）。
   実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で行われ、結果を
   `map.getSource(id).setData(...)`等で流し込むだけのため、MapLibreのソースイベントは
   フェッチの待ち時間・失敗を観測できない。`buildLayerDataSources`の対象外とし、代わりに
@@ -145,6 +146,12 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 `category`値を見る。`category`だけでは判別できない（例: `car_stress`の
 `category="trafficSafety"`は`accidents`等と同じ値のため、`isAxisStudioLayer`のガードが
 無いと誤って「スポット」グループへ紛れ込む）。
+
+グループはそのまま排他ドメイン（`line`/`area`/`point`）に対応し、同じドメインの中では
+1つしか同時にONにできない（同じ形のものを重ねると読めなくなるため）。唯一の例外が
+`category="disaster"`で、「環境」グループに並びながら排他ドメインには属さない
+——他の環境レイヤーを選んでいる間も災害情報が地図から消えてはならないため
+（`mapOverlayExclusiveDomainFor`、[動的気象レイヤー](dynamic-weather-layers.md)参照）。
 
 ## 路面レイヤーの絞り込み軸（`roadFilterAxes.ts`）
 

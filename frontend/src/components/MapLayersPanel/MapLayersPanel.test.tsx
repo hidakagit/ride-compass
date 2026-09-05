@@ -38,13 +38,7 @@ function baseProps() {
       windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-      thunderNowcast: false,
-      tornadoNowcast: false,
-      liden: false,
-      landslideRisk: false,
-      heavyRainRisk: false,
-      inundationRisk: false,
-      floodRisk: false,
+      disaster: false,
     },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
@@ -160,13 +154,12 @@ describe("MapLayersPanel", () => {
   // 無いため、丸ごと撤去した（ON/OFFは地図上チップで引き続き操作できる、各レイヤーの
   // 説明文はMapOverlayControls.tsxの▶パネルへ移設——MapOverlayControls.test.tsx参照）。
   // 改善計画T413でグループ再編後もこの除外自体は変更していない。
-  it("dataNature=dynamicのレイヤー（降水ナウキャスト・風・雷・竜巻）は行が表示されない", () => {
+  it("dataNature=dynamicのレイヤー（降水ナウキャスト・風・災害）は行が表示されない", () => {
     const { container } = render(<MapLayersPanel {...baseProps()} />);
 
     expect(container.querySelector("#map-layer-section-precipitationNowcast")).not.toBeInTheDocument();
     expect(container.querySelector("#map-layer-section-windVector")).not.toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-thunderNowcast")).not.toBeInTheDocument();
-    expect(container.querySelector("#map-layer-section-tornadoNowcast")).not.toBeInTheDocument();
+    expect(container.querySelector("#map-layer-section-disaster")).not.toBeInTheDocument();
   });
 
   // ユーザー指摘（2026-08-31）: elevation（標高図）はラスタタイルのため他レイヤーのような
@@ -273,13 +266,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         onLayerToggle={onLayerToggle}
       />,
@@ -374,13 +361,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         regionZoomTooWide={true}
       />,
@@ -411,13 +392,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         layerDataStatus={{ designation: "error" }}
       />,
@@ -447,13 +422,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         layerDataStatus={{ stopPoi: "empty" }}
       />,
@@ -494,13 +463,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -532,13 +495,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -570,13 +527,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ stopPoi: "empty" }}
@@ -609,13 +560,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
       />,
     );
@@ -645,13 +590,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
       />,
     );
@@ -681,13 +620,7 @@ describe("MapLayersPanel", () => {
           windAxis: false,
       gradientFill: false,
       gradientAxis: false,
-          thunderNowcast: false,
-          tornadoNowcast: false,
-          liden: false,
-          landslideRisk: false,
-          heavyRainRisk: false,
-          inundationRisk: false,
-          floodRisk: false,
+          disaster: false,
         }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,

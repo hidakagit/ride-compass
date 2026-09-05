@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { buildMapLayers, buildRoadSurfaceSharedLayerIds, isAxisStudioLayer } from "./mapLayers";
+import {
+  buildMapLayers,
+  buildRoadSurfaceSharedLayerIds,
+  isAxisStudioLayer,
+  mapOverlayExclusiveDomainFor,
+  mapOverlayGroupFor,
+} from "./mapLayers";
 
 describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
   it("isAxisStudioLayer: windAxis/gradientAxisはaxis_idのハードコード比較ではなくDEDICATED_WAY_VALUE_LAYER_IDS（軸データ由来）でtrueになる", () => {
@@ -27,17 +33,32 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     expect(ids).toContain("gradientAxis");
   });
 
-  describe("キキクル4種（改善計画T606: 他の環境グループ気象レイヤーと同じチップ付き扱い）", () => {
+  describe("災害チップ（雷・竜巻・落雷・キキクル4種を1つへ統合）", () => {
     const layers = buildMapLayers([]);
     const byId = Object.fromEntries(layers.map((layer) => [layer.id, layer]));
 
-    it.each(["landslideRisk", "heavyRainRisk", "inundationRisk", "floodRisk"])(
-      "%sはcategory=\"weather\"・dataNature=\"dynamic\"のMapLayerDescriptorを持つ",
-      (id) => {
-        expect(byId[id]).toBeDefined();
-        expect(byId[id].category).toBe("weather");
-        expect(byId[id].dataNature).toBe("dynamic");
-      },
-    );
+    it("category=\"disaster\"・dataNature=\"dynamic\"のMapLayerDescriptorを1つだけ持つ", () => {
+      expect(byId.disaster).toBeDefined();
+      expect(byId.disaster.category).toBe("disaster");
+      expect(byId.disaster.dataNature).toBe("dynamic");
+      for (const removed of [
+        "thunderNowcast",
+        "tornadoNowcast",
+        "liden",
+        "landslideRisk",
+        "heavyRainRisk",
+        "inundationRisk",
+        "floodRisk",
+      ]) {
+        expect(byId[removed]).toBeUndefined();
+      }
+    });
+
+    it("「環境」グループに並ぶが、排他ドメインには属さない", () => {
+      // 他の環境レイヤー（降水・風・標高図）を選んでいる間も災害情報が消えないようにする。
+      expect(mapOverlayGroupFor(byId.disaster)).toBe("environment");
+      expect(mapOverlayExclusiveDomainFor(byId.disaster)).toBeUndefined();
+      expect(mapOverlayExclusiveDomainFor(byId.precipitationNowcast)).toBe("area");
+    });
   });
 });
