@@ -66,7 +66,7 @@ import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
-import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
+import RideConditionBar from "@/components/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
@@ -422,7 +422,7 @@ export default function Home() {
   // 仮定巡航速度（backend: RouteGenerateRequest.assumed_speed_kmh、km/h）。距離と同じく
   // string stateのまま保持し、送信時にNumber化する。区間の通過予定時刻（探索時の風の時刻
   // 選択）・到達予想時刻の基準になるため全モードで送る。
-  const [assumedSpeedInput, setAssumedSpeedInput] = useState(String(routeGenerateConfig.default_assumed_speed_kmh));
+  const [assumedSpeedKmh, setAssumedSpeedKmh] = useState<number>(routeGenerateConfig.default_assumed_speed_kmh);
   // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
   // （フィールド比較の列挙より差分検知の漏れが出にくい）。
   const [generatedConditions, setGeneratedConditions] = useState<{
@@ -1174,17 +1174,7 @@ export default function Home() {
   // RouteSettingsPanel内の「走行方位を設定」ボタン・地図下部の個別コンパス
   // （bottomControlRow）は撤去した。
   const [travelBearingDeg, setTravelBearingDeg] = useState(0);
-  const {
-    dynamicWeather,
-    sliderFrames,
-    sliderIndex,
-    sliderCurrentIndex,
-    handleSliderIndexChange,
-    handleDynamicLayerNow,
-    dynamicLayerLoading,
-    dynamicLayerError,
-    dynamicLayerTargetTime,
-  } = useDynamicWeatherLayers({
+  const { dynamicWeather, dynamicLayerTargetTime, setDynamicLayerTargetTime } = useDynamicWeatherLayers({
     showWindVector,
     showPrecipitationNowcast,
     showThunderNowcast,
@@ -1217,11 +1207,7 @@ export default function Home() {
   const showWindAxis = lens === "wind" && lensBackgroundShown;
   // 想定速度（ルート設定の入力欄）は風のレンズ（走行速度依存の材料）にも効く。未入力・不正値の
   // 間は既定速度で配信を続ける。
-  const parsedAssumedSpeedForLens = Number(assumedSpeedInput);
-  const lensSpeedKmh =
-    assumedSpeedInput.trim() !== "" && Number.isFinite(parsedAssumedSpeedForLens)
-      ? parsedAssumedSpeedForLens
-      : routeGenerateConfig.default_assumed_speed_kmh;
+  const lensSpeedKmh = assumedSpeedKmh;
   const windAxisData = useDynamicWayValues(
     "wind",
     showWindAxis,
@@ -1339,7 +1325,7 @@ export default function Home() {
       routeMode !== generatedConditions.routeMode ||
       (generatedConditions.routeMode === "loop" && Number(distanceInput) !== generatedConditions.distanceKm) ||
       (generatedConditions.maxRoutesRelevant && Number(maxRoutesInput) !== generatedConditions.maxRoutes) ||
-      Number(assumedSpeedInput) !== generatedConditions.assumedSpeedKmh ||
+      assumedSpeedKmh !== generatedConditions.assumedSpeedKmh ||
       (generatedConditions.routeMode === "destination" &&
         JSON.stringify({ waypoints, destination }) !== generatedConditions.waypointsKey) ||
       currentWeightsKey !== generatedConditions.weightsKey);
@@ -1382,14 +1368,7 @@ export default function Home() {
           ? parsedMaxRoutes
           : routeGenerateConfig.default_max_routes;
       // 巡航速度もRouteForm側で検証済みだが、範囲外・空文字のまま残っていても送信前に既定値へ倒す。
-      const parsedAssumedSpeed = Number(assumedSpeedInput);
-      const effectiveAssumedSpeed =
-        assumedSpeedInput.trim() !== "" &&
-        Number.isFinite(parsedAssumedSpeed) &&
-        parsedAssumedSpeed >= routeGenerateConfig.min_assumed_speed_kmh &&
-        parsedAssumedSpeed <= routeGenerateConfig.max_assumed_speed_kmh
-          ? parsedAssumedSpeed
-          : routeGenerateConfig.default_assumed_speed_kmh;
+      const effectiveAssumedSpeed = assumedSpeedKmh;
       const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
         latitude: location.latitude,
         longitude: location.longitude,
@@ -1406,6 +1385,7 @@ export default function Home() {
         // 常に送る。経由地を伴う目的地ルートはbackendが常に1件へ固定し値を無視する。
         max_routes: effectiveMaxRoutes,
         assumed_speed_kmh: effectiveAssumedSpeed,
+        start_time: dynamicLayerTargetTime.toISOString(),
         // レンズが軸を要求していれば、重み0でも区間表示のため風の時変化合成を行う（backend）。
         ...(lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? { lens_axis_id: lens } : {}),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
@@ -1499,8 +1479,6 @@ export default function Home() {
           onDistanceChange={setDistanceInput}
           maxRoutes={maxRoutesInput}
           onMaxRoutesChange={setMaxRoutesInput}
-            assumedSpeed={assumedSpeedInput}
-            onAssumedSpeedChange={setAssumedSpeedInput}
           onGenerate={handleGenerate}
           loading={loading}
           progressLabel={generationProgressLabel}
@@ -1833,8 +1811,6 @@ export default function Home() {
             onDistanceChange={setDistanceInput}
             maxRoutes={maxRoutesInput}
             onMaxRoutesChange={setMaxRoutesInput}
-            assumedSpeed={assumedSpeedInput}
-            onAssumedSpeedChange={setAssumedSpeedInput}
             onGenerate={handleGenerate}
             loading={loading}
             compact
@@ -2017,9 +1993,7 @@ export default function Home() {
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
               アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+
-              時刻依存レイヤーの時刻スライダーを横並びで置く。ボタンはレイヤーの種類を問わず
-              常時押せる必要があるため無条件で出し、スライダーは時刻依存レイヤーが1つ以上ON
-              のときだけ隣に出す（改善計画T170、設計原則12: 地図の視界を圧迫しない）。 */}
+              走行条件バー（出発時刻・想定速度）を横並びで置く（設計原則12: 地図の視界を圧迫しない）。 */}
           <div ref={bottomControlRowRef} className={styles.bottomControlRow}>
             <button
               type="button"
@@ -2031,37 +2005,19 @@ export default function Home() {
             >
               <ClearAllLayersIcon size={14} />
             </button>
-            {/* 改善計画T432: キキクル3種は「防災」カテゴリとして共有タイムラインと無関係な
-                常時マウントへ変更したため、この条件から除外した（このスライダー自体は
-                動かせるが表示に影響しない）。線状降水帯予測マップは「降水」チップ傘下の
-                ソースのため、showPrecipitationNowcastで既にカバーされる。 */}
-            {(showPrecipitationNowcast || showWindVector || showThunderNowcast || showTornadoNowcast || showLiden) && (
-              <div className={styles.dynamicLayerSliders}>
-                <DynamicLayerTimeSlider
-                  frames={sliderFrames}
-                  index={sliderIndex}
-                  onIndexChange={handleSliderIndexChange}
-                  currentIndex={sliderCurrentIndex}
-                  onNow={handleDynamicLayerNow}
-                  loading={dynamicLayerLoading}
-                  loadingLabel="気象データの時刻を取得中..."
-                  error={dynamicLayerError}
-                  ariaLabel="気象レイヤーの表示時刻"
-                />
-              </div>
-            )}
+            {/* 走行条件（出発時刻・想定速度）。出発時刻は気象レイヤーの表示時刻と同じ共有state
+                （dynamicLayerTargetTime）。 */}
+            <RideConditionBar
+              departureTime={dynamicLayerTargetTime}
+              onDepartureTimeChange={setDynamicLayerTargetTime}
+              speedKmh={assumedSpeedKmh}
+              onSpeedKmhChange={setAssumedSpeedKmh}
+            />
           </div>
 
-          {/* ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、
-              1つでいい」）: 風・勾配それぞれ個別に持っていたコンパス（環境グループの
-              bottomControlRow・RouteSettingsPanel内の「走行方位を設定」）を撤去し、地図上の
-              単一のアイコン（MapLibreのズーム/回転コントロールの下）1箇所へ集約した。
-              「環境」グループの勾配gridFill・評価軸（windAxis/gradientAxis）のいずれかが
-              表示中の間だけ現れる（風の矢印[showWindVector]は走行方位に依存しないため
-              対象外）。 */}
-          {(showGradientFill || showWindAxis || showGradientAxis) && !hasDetail && (
-            <TravelBearingControl value={travelBearingDeg} onChange={setTravelBearingDeg} />
-          )}
+          {/* 走行方位（風・勾配の評価に使う向き）。出発時刻・想定速度と同じ走行条件の一部として
+              常時表示する（MapLibreのズーム/回転コントロールの下）。 */}
+          <TravelBearingControl value={travelBearingDeg} onChange={setTravelBearingDeg} />
 
           <button
             type="button"

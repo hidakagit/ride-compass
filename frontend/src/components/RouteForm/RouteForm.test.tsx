@@ -13,7 +13,6 @@ function ControlledRouteForm({
   loading,
   initialDistance = "30",
   initialMaxRoutes = "8",
-  initialAssumedSpeed = "20",
   compact = false,
   initialRouteMode = "loop",
   waypointCount = 0,
@@ -25,7 +24,6 @@ function ControlledRouteForm({
   loading: boolean;
   initialDistance?: string;
   initialMaxRoutes?: string;
-  initialAssumedSpeed?: string;
   compact?: boolean;
   initialRouteMode?: RouteMode;
   waypointCount?: number;
@@ -35,7 +33,6 @@ function ControlledRouteForm({
 }) {
   const [distance, setDistance] = useState(initialDistance);
   const [maxRoutes, setMaxRoutes] = useState(initialMaxRoutes);
-  const [assumedSpeed, setAssumedSpeed] = useState(initialAssumedSpeed);
   const [routeMode, setRouteMode] = useState<RouteMode>(initialRouteMode);
   return (
     <RouteForm
@@ -43,8 +40,6 @@ function ControlledRouteForm({
       onDistanceChange={setDistance}
       maxRoutes={maxRoutes}
       onMaxRoutesChange={setMaxRoutes}
-      assumedSpeed={assumedSpeed}
-      onAssumedSpeedChange={setAssumedSpeed}
       onGenerate={onGenerate}
       loading={loading}
       compact={compact}
@@ -66,51 +61,6 @@ function getDistanceInput(): HTMLElement {
 function getMaxRoutesInput(): HTMLElement {
   return screen.getAllByRole("spinbutton")[1];
 }
-
-// 巡航速度入力は距離・候補件数の後（JSX順で3番目）。
-function getAssumedSpeedInput(): HTMLElement {
-  return screen.getAllByRole("spinbutton")[2];
-}
-
-describe("巡航速度入力", () => {
-  it("初期値は20で、変更して送信するとonGenerateが呼ばれる(速度自体はpage.tsx側がstateから読む)", async () => {
-    const user = userEvent.setup();
-    const onGenerate = vi.fn();
-    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
-
-    expect(getAssumedSpeedInput()).toHaveValue(20);
-    await user.clear(getAssumedSpeedInput());
-    await user.type(getAssumedSpeedInput(), "25");
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    expect(onGenerate).toHaveBeenCalledWith(30);
-  });
-
-  it("範囲外の速度で送信するとonGenerateは呼ばれずエラーが表示される", async () => {
-    const user = userEvent.setup();
-    const onGenerate = vi.fn();
-    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
-
-    await user.clear(getAssumedSpeedInput());
-    await user.type(getAssumedSpeedInput(), "80");
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    expect(onGenerate).not.toHaveBeenCalled();
-    expect(await screen.findByRole("alert")).toHaveTextContent("巡航速度は5〜60km/hで入力してください。");
-  });
-
-  it("空欄で送信するとonGenerateは呼ばれずエラーが表示される", async () => {
-    const user = userEvent.setup();
-    const onGenerate = vi.fn();
-    render(<ControlledRouteForm onGenerate={onGenerate} loading={false} />);
-
-    await user.clear(getAssumedSpeedInput());
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    expect(onGenerate).not.toHaveBeenCalled();
-    expect(await screen.findByRole("alert")).toHaveTextContent("巡航速度は数値で入力してください。");
-  });
-});
 
 describe("RouteForm", () => {
   it("初期表示で距離入力のデフォルト値が30、候補件数のデフォルト値が8、ボタンラベルがルート生成", () => {
@@ -323,8 +273,8 @@ describe("RouteForm", () => {
 
       await user.click(screen.getByRole("button", { name: "目的地" }));
 
-      // 距離入力が消え、候補件数・巡航速度の2つが残る。
-      expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
+      // 距離入力が消え、候補件数だけが残る。
+      expect(screen.getAllByRole("spinbutton")).toHaveLength(1);
       expect(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" })).toBeInTheDocument();
     });
 
@@ -424,8 +374,8 @@ describe("RouteForm", () => {
         <ControlledRouteForm onGenerate={vi.fn()} loading={false} initialRouteMode="destination" waypointCount={1} />,
       );
 
-      // 残る数値入力は巡航速度の1つだけ（候補件数入力は無い）。
-      expect(screen.getAllByRole("spinbutton")).toHaveLength(1);
+      // 数値入力は残らない（候補件数入力は無い）。
+      expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
     });
 
     it("経由地なしで候補件数を空にして送信するとonGenerateは呼ばれずエラーが表示される", async () => {

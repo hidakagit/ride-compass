@@ -19,10 +19,6 @@ interface RouteFormProps {
    * 常に1件へ固定し無視する）。 */
   maxRoutes: string;
   onMaxRoutesChange: (value: string) => void;
-  /** 仮定巡航速度（km/h）の現在値（文字列のまま）。距離と同じ理由で親が持つ。全モードで
-   * 意味を持つ（backendが区間の通過予定時刻・到達予想時刻の算出に使う）。 */
-  assumedSpeed: string;
-  onAssumedSpeedChange: (value: string) => void;
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
   /** 改善計画T265: 生成中(loading)のボタン文言を差し替える（例:「生成中...(12秒経過)」
@@ -51,18 +47,12 @@ const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 // le=MAX_ROUTES)）と一致させる。距離入力と同じくハードコードせずroute-generate-config.jsonを
 // 唯一の情報源にする。
 const MAX_ROUTES = routeGenerateConfig.max_routes;
-// backend/app/api/routers/routes.py: RouteGenerateRequest.assumed_speed_kmh（Field(ge=MIN,
-// le=MAX)）と一致させる。route-generate-config.jsonを唯一の情報源にする。
-const MIN_ASSUMED_SPEED_KMH = routeGenerateConfig.min_assumed_speed_kmh;
-const MAX_ASSUMED_SPEED_KMH = routeGenerateConfig.max_assumed_speed_kmh;
 
 export default function RouteForm({
   distance,
   onDistanceChange,
   maxRoutes,
   onMaxRoutesChange,
-  assumedSpeed,
-  onAssumedSpeedChange,
   onGenerate,
   loading,
   progressLabel,
@@ -93,19 +83,6 @@ export default function RouteForm({
     return true;
   }
 
-  function validateAssumedSpeed(): boolean {
-    const speedValue = Number(assumedSpeed);
-    if (assumedSpeed.trim() === "" || Number.isNaN(speedValue)) {
-      setError("巡航速度は数値で入力してください。");
-      return false;
-    }
-    if (speedValue < MIN_ASSUMED_SPEED_KMH || speedValue > MAX_ASSUMED_SPEED_KMH) {
-      setError(`巡航速度は${MIN_ASSUMED_SPEED_KMH}〜${MAX_ASSUMED_SPEED_KMH}km/hで入力してください。`);
-      return false;
-    }
-    return true;
-  }
-
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (routeMode === "destination") {
@@ -115,9 +92,6 @@ export default function RouteForm({
         return;
       }
       if (maxRoutesRelevant && !validateMaxRoutes()) {
-        return;
-      }
-      if (!validateAssumedSpeed()) {
         return;
       }
       // distanceはpage.tsx側が地図上の点から自動算出する（handleGenerate参照）。
@@ -141,9 +115,6 @@ export default function RouteForm({
       return;
     }
     if (!validateMaxRoutes()) {
-      return;
-    }
-    if (!validateAssumedSpeed()) {
       return;
     }
     setError(null);
@@ -258,27 +229,6 @@ export default function RouteForm({
           件
         </label>
       )}
-      <label className={compact ? styles.labelCompact : undefined}>
-        {!compact && "速度"}
-        {/* 仮定巡航速度（km/h）。距離・候補件数と同じ流儀の数値入力。区間の通過予定時刻
-            （風の時刻選択）・到達予想時刻の基準になるため全モードで表示する。 */}
-        <Input
-          type="number"
-          inputMode="decimal"
-          min={MIN_ASSUMED_SPEED_KMH}
-          max={MAX_ASSUMED_SPEED_KMH}
-          step="1"
-          value={assumedSpeed}
-          onChange={(e) => onAssumedSpeedChange(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          className={
-            (compact ? "w-10" : "ml-2 w-16") +
-            " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          }
-          aria-label={compact ? "巡航速度" : undefined}
-        />
-        km/h
-      </label>
 
       <Button variant="primary" type="submit" disabled={loading}>
         {loading ? (compact ? "…" : (progressLabel ?? "生成中...")) : compact ? "生成" : "ルート生成"}

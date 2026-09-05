@@ -132,7 +132,7 @@ export function mergeFrameTimes(frameLists: readonly (readonly { time: Date }[])
 }
 
 /** 共有スライダーの表示用時刻ラベル（JST）。タイムラインは約48時間先まで日付をまたぐため
- * 常に日付を含める（レイヤーごとのラベル形式差を表示層へ持ち込まない）。DynamicLayerTimeSlider
+ * 常に日付を含める（レイヤーごとのラベル形式差を表示層へ持ち込まない）。WeatherPanel
  * の左端インジケータ上に1行で出す「正確な日時」用（実機フィードバック「今の位置の正しい
  * 日時は左端ではなく上に出して」）。 */
 export function formatDynamicFrameTime(time: Date): string {
@@ -144,7 +144,7 @@ function formatDynamicFrameDate(time: Date): string {
   return time.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" });
 }
 
-/** 時刻のみ（日付無し、JST、HH:mm）。DynamicLayerTimeSliderのルーラー目盛りラベル
+/** 時刻のみ（日付無し、JST、HH:mm）。WeatherPanelのルーラー目盛りラベル
  * （実機フィードバック「目盛りは日付部分は不要、時刻のみ」）のうち、正時のコマ用。 */
 export function formatDynamicFrameHourMinute(time: Date): string {
   return time.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });

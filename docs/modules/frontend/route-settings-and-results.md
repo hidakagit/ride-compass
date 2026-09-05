@@ -9,7 +9,7 @@
 
 | ファイル | 責務 |
 |---|---|
-| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・巡航速度入力・生成ボタン。周回/目的地モード切替 |
+| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・生成ボタン。周回/目的地モード切替 |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（地図の色分けチップ列＋「重み付き寄与度」内訳）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
@@ -102,7 +102,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 外部ライブラリを使わない自前実装のコンパス型UI。中心から伸びる矢印
 （`Map/icons.tsx: WindDirectionArrowIcon`）を直接つかんで回すダイヤルで、矢印自体が
 指す向きがそのまま値になる。`value`/`onChange`/`ariaLabel`のみを扱う汎用コンポーネントで、
-時刻には一切関与しない（時刻は別の共有タイムライン`DynamicLayerTimeSlider`が担当）。
+時刻には一切関与しない（時刻は条件バー`RideConditionBar`の出発時刻が担当）。
 
 `WindBearingSlider`自体は本コンポーネント表に無い`components/TravelBearingControl/
 TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置かれるアイコンボタン）
@@ -197,16 +197,15 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 
 ## RouteForm.tsx
 
-距離入力・候補件数入力・巡航速度入力・生成ボタン。`RouteMode`（"loop"|"destination"）で
+距離入力・候補件数入力・生成ボタン。`RouteMode`（"loop"|"destination"）で
 周回/目的地モードを切り替える。モバイル上部バー向けの`compact`表示を持つ。目的地モードでは
-距離入力を出さない。巡航速度（km/h、backend `RouteGenerateRequest.assumed_speed_kmh`、
-範囲・既定値は`route-generate-config.json`の`min/max/default_assumed_speed_kmh`）は
-全モードで表示し、範囲外・空欄は送信前にエラーにする。候補件数入力は経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
+距離入力を出さない。想定速度はこのフォームでは扱わない（地図下部の条件バー
+`RideConditionBar`、page-composition.md参照）。候補件数入力は経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
 候補件数を常に1件へ固定し無視するため、`maxRoutesRelevant`＝`routeMode==="loop"||
 waypointCount===0`で表示・検証の両方を揃える）。経由地・目的地のいずれも未指定のまま
 生成しようとするとサイレント失敗せずエラー文言を出す。
 
-距離・候補件数・巡航速度いずれの`<Input type="number">`もネイティブのスピンボタン（上下矢印）をCSS
+距離・候補件数いずれの`<Input type="number">`もネイティブのスピンボタン（上下矢印）をCSS
 （`[&::-webkit-inner-spin-button]:appearance-none`等）で非表示にする——直接入力が主な
 操作手段で、矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
 数値専用キーボードを明示し、`onFocus`で既存の値を全選択して毎回消してから打ち直す手間を

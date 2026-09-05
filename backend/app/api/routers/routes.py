@@ -172,6 +172,9 @@ class RouteGenerateRequest(BaseModel):
     # 選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。
     # 未知のidや軸以外（総合難易度・なし）は無視される。
     lens_axis_id: str | None = None
+    # 出発時刻（省略時はサーバーの現在時刻）。風の時間変化評価（レグごとの通過予測時刻）の
+    # 起点になる。naive値はJSTとして扱う。
+    start_time: datetime | None = None
 
     @model_validator(mode="after")
     def _check_waypoints_within_range(self) -> "RouteGenerateRequest":
@@ -183,6 +186,14 @@ class RouteGenerateRequest(BaseModel):
             if haversine_distance_km(origin, point) > self.distance_km:
                 raise ValueError("waypoints/destination must be within distance_km of the origin")
         return self
+
+
+def _resolve_start_time(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.now(JST)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=JST)
+    return value.astimezone(JST)
 
 
 class GenerationConditions(BaseModel):
@@ -207,6 +218,8 @@ class GenerationConditions(BaseModel):
     # 改善計画T531: 周回候補の上限件数（実際に適用された値）。改善計画T551: 経由地の無い
     # 目的地ルートにも適用される。経由地を1つ以上伴う経由地・目的地指定時は無視される。
     max_routes: int
+    # 実際に適用された出発時刻（JST）。
+    start_time: datetime
     # 仮定巡航速度（km/h、実際に適用された値）。
     assumed_speed_kmh: float
     # 改善計画T364: 指定された経由地（未指定はNone、周回候補の生成）。
@@ -314,6 +327,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             request.lens_axis_id,
         ) as setup:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
+            start_time = _resolve_start_time(request.start_time)
             if request.waypoints or request.destination:
                 candidates = await setup.generator.generate_via_waypoints(
                     origin=origin,
@@ -321,6 +335,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     distance_km=request.distance_km,
                     destination=request.destination,
                     max_routes=request.max_routes,
+                    start_time=start_time,
                 )
             else:
                 candidates = await setup.generator.generate_loops(
@@ -328,6 +343,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     distance_km=request.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
                     max_routes=request.max_routes,
+                    start_time=start_time,
                 )
             response = RouteGenerateResponse(
                 routes=candidates,
@@ -343,6 +359,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     max_average_grade_percent=setup.max_average_grade_percent,
                     hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
                     max_routes=request.max_routes,
+                    start_time=start_time,
                     assumed_speed_kmh=setup.assumed_speed_kmh,
                     waypoints=request.waypoints,
                     destination=request.destination,

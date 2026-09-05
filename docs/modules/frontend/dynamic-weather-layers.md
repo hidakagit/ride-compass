@@ -18,7 +18,7 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ |
 | `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の5箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・キキクル・線状降水帯予測マップ）が共有するフェッチ骨格の共通実装 |
-| `components/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`components/TodayOutlook/TodayOutlook.tsx`・`components/WarningBadge/WarningBadge.tsx`・`components/DynamicLayerTimeSlider/DynamicLayerTimeSlider.tsx` | UI |
+| `components/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`components/TodayOutlook/TodayOutlook.tsx`・`components/WarningBadge/WarningBadge.tsx` | UI |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
 ## 共通契約（4本柱、`dynamicWeather.ts`冒頭コメント）
@@ -33,8 +33,8 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
    浸水・線状降水帯予測マップ）。加えて洪水キキクルのみ、配信元のMapbox Vector Tile
    （.pbf）をMapLibre標準のvectorソース+lineレイヤーでそのまま描画する`vectorTile`
    （feature-state・GeoJSON変換は不要、`riskMap.ts`冒頭コメント参照）。
-3. **時間経過はスライダー1本**: ONの全レイヤーのフレーム時刻を統合した1本のタイムライン
-   （`mergeFrameTimes`）を`DynamicLayerTimeSlider`へ渡す。各レイヤーは
+3. **時刻は共有state1つ**: 表示時刻は`dynamicLayerTargetTime`（条件バー`RideConditionBar`の
+   出発時刻と同じstate、`setDynamicLayerTargetTime`で書き換える）。各レイヤーは
    `frameIndexForTime`で選択時刻に対応する自分のフレームを求め、選択時刻が自分の
    データ範囲外なら何も描画しない。キキクル3種・線状降水帯予測マップはこの
    タイムラインに乗らない（下記「特殊系」参照）。

@@ -110,7 +110,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  （「同じ周回の逆回り」等を弾く）。このチェックを通過した候補数が
         │  max_routes件に達した時点で処理を打ち切る
         ▼
-  engine.evaluate_loops(context, traced, start_time)
+  engine.evaluate_loops(context, traced, start_time)  # start_time=リクエストのstart_time（省略時はdatetime.now(JST)）、prepare(now=start_time)にも渡す
         │  フィルタ通過候補だけに実ジオメトリ取得・標高・風・路面等の評価を行う
         ▼
   _with_overall_difficulty() → _with_axis_difficulties() → _with_axis_contributions()

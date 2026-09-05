@@ -65,7 +65,7 @@ class FakeEngine:
         # （candidate.bearing, [acceptedのbearing一覧]）のタプル列。
         self.similarity_calls: list[tuple[int | None, list[int | None]]] = []
 
-    async def prepare(self, origin, radius_km, waypoints=None):
+    async def prepare(self, origin, radius_km, waypoints=None, now=None):
         self.prepare_calls.append((origin, radius_km))
         self.prepare_waypoints = waypoints
         return self._prepare_result

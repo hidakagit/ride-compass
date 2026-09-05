@@ -74,6 +74,7 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },
       max_routes: 8,
       assumed_speed_kmh: 20,
+      start_time: "2026-09-05T09:30:00+09:00",
       waypoints: null,
       destination: null,
       generated_at: new Date().toISOString(),

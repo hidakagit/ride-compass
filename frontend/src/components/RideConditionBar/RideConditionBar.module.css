@@ -1,0 +1,115 @@
+/* 地図下部（page.module.cssの.bottomControlRow内）に置く走行条件チップ列。行自体は
+   pointer-events: noneのため、チップ側で明示的に受け取る。 */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 32px;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  line-height: 1;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.15));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip[data-state="open"] {
+  border-color: var(--color-primary);
+}
+
+.chipKey {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.chipValue {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chipCaret {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+}
+
+.popover {
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 14rem;
+  padding: var(--space-3);
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-md, 0 6px 20px rgba(0, 0, 0, 0.2));
+}
+
+.quickRow {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.quickButton {
+  flex: 1;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.quickButton:hover {
+  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fieldLabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.input {
+  height: 32px;
+  padding: 0 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.speedRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.slider {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.speedRow .input {
+  width: 4.5rem;
+}

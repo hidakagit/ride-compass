@@ -351,7 +351,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   TTLを30分→3時間、失敗時のstaleフォールバック許容幅を3時間→24時間へ拡大した。あわせてOracle Cloud VM上のリレープロキシ（`OPEN_METEO_BASE_URL`、
   T179）で送信元IPを本番の共有IPから分離する経路も用意済みだが、本番では未有効化（T182の
   調査でクォータ枯渇は送信元IP非依存の現象と判明したため）。
-- **時刻スライダーのルーラー化（T170・T188〜T193）**: [frontend/src/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider.tsx](../frontend/src/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider.tsx)は
+- **時刻依存レイヤーの表示時刻（T170・T188〜T193・T596）**: 表示時刻は地図下部の条件バー[frontend/src/components/RideConditionBar/RideConditionBar.tsx](../frontend/src/components/RideConditionBar/RideConditionBar.tsx)の出発時刻（`dynamicLayerTargetTime`）と同じstate。時刻スライダー`DynamicLayerTimeSlider`は撤去済み。以下は撤去前の設計記録:
   当初ネイティブ`input[type=range]`だったが、「横スクロールで目盛りの方が動くように」という
   実機フィードバックを受け、横スクロールのルーラー（左端固定インジケータ・正時/非正時で
   異なる目盛り幅・Pointer Events自前ドラッグ・マウスホイールの横スクロール変換・
@@ -692,7 +692,7 @@ RideCompass/
         Map/thunderNowcast.ts          ✅ 改善計画T204: 雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）のデータ層。両者は共有の時刻一覧（targetTimes_N3.json）を使うが独立したON/OFFチップに分ける
         Map/riskMap.ts                 ✅ 改善計画T410: キキクル（土砂land・大雨rain_mesh・浸水inund）・線状降水帯予測マップ（sjfcstmap）のタイル・時刻取得データ層。全て「現在のみ」のスナップショット（未来フレームを持たない）。改善計画T432でキキクル3種は「防災」カテゴリとして共有タイムラインと無関係な常時マウントへ、線状降水帯予測マップは「降水」チップ傘下（現在〜3時間先のみisWithinFutureWindowで重畳）へそれぞれ再分類
         Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と2次→1次/1次→2次の双方向導出（片側import、設計原則2）
-        DynamicLayerTimeSlider/       ✅ 改善計画T170・T188〜T193: 時刻依存レイヤー共通の時刻スライダーUI（横スクロールルーラー、Pointer Events自前ドラッグ）。レイヤー固有の時刻形式を知らない汎用コンポーネント
+        RideConditionBar/            ✅ 改善計画T596: 地図下部の条件バー（出発時刻・想定速度のチップ＋ポップオーバー）。出発時刻は気象レイヤーの表示時刻と同じstate
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）

@@ -5,8 +5,8 @@
 // （改善計画T375、T284の分割方針決定を受けた実施）。元はpage.tsx内に直接書かれていた
 // 3本のfetch effect（降水ナウキャストT170/T171・雷竜巻ナウキャストT204・
 // useWeatherGrid経由の風/延長降水予報T183）と、そこから導出する共有タイムライン
-// （T183再設計「時間経過はスライドバー1本で表現する」）・DynamicLayerTimeSlider向けの
-// props・MapView向けのdynamicWeatherプロパティを、この1フックへまとめた。
+// （T183再設計「時間経過はスライドバー1本で表現する」）・条件バー向けの
+// 共有時刻・MapView向けのdynamicWeatherプロパティを、この1フックへまとめた。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchNowcastFrames,
@@ -39,18 +39,12 @@ import {
 } from "@/components/Map/riskMap";
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
 import {
-  formatDynamicFrameHourMinute,
-  formatDynamicFrameMinuteOnly,
-  formatDynamicFrameTime,
   frameIndexForTime,
   isWithinFutureWindow,
-  mergeFrameTimes,
-  nearestTimeIndex,
   type DynamicWeatherGroupState,
   type DynamicWeatherLayerId,
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
-import type { DynamicLayerTimeSliderFrame } from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
 
@@ -94,15 +88,9 @@ export interface UseDynamicWeatherLayersResult {
    * 改善計画T432でグループ内の複数ソース[raster/gridFill/gridMark]を同時に持てる形へ
    * 一般化した）。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
-  /** DynamicLayerTimeSlider向けの目盛りラベル列。 */
-  sliderFrames: DynamicLayerTimeSliderFrame[];
-  /** スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）。 */
-  sliderIndex: number;
-  /** 「現在」ボタンのジャンプ先index（押された時点のtimelineから都度計算）。 */
-  sliderCurrentIndex: number;
-  /** スライダー操作: タイムライン上のindexを実時刻へ変換してdynamicLayerTargetTimeへ書き込む。 */
-  handleSliderIndexChange: (index: number) => void;
-  /** 「現在」ボタン: dynamicLayerTargetTimeを現在時刻に戻す。 */
+  /** 共有時刻を任意の時刻へ設定する（条件バーの出発時刻）。 */
+  setDynamicLayerTargetTime: (time: Date) => void;
+  /** 共有時刻を現在時刻に戻す。 */
   handleDynamicLayerNow: () => void;
   dynamicLayerLoading: boolean;
   dynamicLayerError: string | null;
@@ -248,78 +236,6 @@ export function useDynamicWeatherLayers({
     flood: floodFramesList,
   } = currentRiskFrames;
 
-  // ONの全レイヤーのフレーム時刻を統合した共有タイムライン（T183再設計、実機フィードバック
-  // 「時間経過はスライドバー1本で表現する」）。降水ナウキャスト（5分刻み）と風・延長予報
-  // （1時間刻み）が混ざると、目盛りが「近い将来は細かく、遠い将来は粗い」を自然に実現する。
-  // **キキクル・線状降水帯予測マップ（改善計画T410）はここに含めない**: frameIndexForTimeの
-  // 範囲判定は`FRAME_RANGE_EPSILON_MS`（1秒）という狭い許容誤差で「選択中の時刻がこの
-  // フレームの時刻とほぼ一致するか」を見る設計だが、これは「複数フレームの中から該当する
-  // 1枚を選ぶ」用途（例: 5分刻みのナウキャストで正確な1枚を当てる）を想定したものであり、
-  // 「常に1枚だけの現在値スナップショットを、10分に1回更新されるデータの鮮度のまま表示する」
-  // キキクル系とは噛み合わない（実機確認: フレームのvalidtimeと実際の「今」の間には
-  // 直近の更新から最大10分程度のズレが常にあり、1秒の許容誤差を必ず超える。実機で
-  // このズレのせいで一切描画されない不具合を発見・修正した）。改善計画T432:
-  // キキクル3種（土砂・大雨・浸水）は「防災」カテゴリとして常時マウントへ変更したため、
-  // タイムラインとの連動自体が無くなった（frames[0]があれば常に表示、下記payload計算
-  // 参照）。線状降水帯予測マップだけは「今後3時間以内」という予報の性質上、共有タイムラインの
-  // 選択時刻が現在〜3時間先の範囲内かどうかで表示を切り替える（isWithinFutureWindow、
-  // dynamicWeather.ts参照）。
-  const activeFrameLists = useMemo(() => {
-    const lists: { time: Date }[][] = [];
-    if (showWindVector) lists.push(windFramesList);
-    if (showPrecipitationNowcast) lists.push(precipFramesList);
-    if (showThunderNowcast || showTornadoNowcast) lists.push(thunderFramesList);
-    if (showLiden) lists.push(lidenFramesList);
-    return lists;
-  }, [
-    showWindVector,
-    windFramesList,
-    showPrecipitationNowcast,
-    precipFramesList,
-    showThunderNowcast,
-    showTornadoNowcast,
-    thunderFramesList,
-    showLiden,
-    lidenFramesList,
-  ]);
-  const timeline = useMemo(() => mergeFrameTimes(activeFrameLists), [activeFrameLists]);
-
-  // スライダーのつまみ位置（共有のdynamicLayerTargetTimeに最も近いタイムライン上のindex）と、
-  // 表示用ラベル列。正時判定はgetUTCMinutes()で行う（JSTはUTC+9:00ちょうどで分のずれが
-  // 無いため、実行環境のローカルタイムゾーンに左右されずJSTの正時と一致する）。延長予報
-  // （60分以降）は全フレームが正時のため、hourMark（目盛りの線を太くするだけ）は毎コマ
-  // 付けても密度の問題は無いが、tickLabel（目盛りの下に出す文字）を毎時間ぶん全部
-  // 「HH:mm」で出すと目盛り間隔に対して文字が重なってしまうため、2時間おきに間引く。
-  // 正時でない密なコマ（降水ナウキャストの5分刻み等）は文字自体を短い分のみ表記にできる
-  // ため、間引かず毎コマぶん出す。
-  const sliderIndex = useMemo(() => nearestTimeIndex(timeline, dynamicLayerTargetTime), [timeline, dynamicLayerTargetTime]);
-  const sliderFrames = useMemo<DynamicLayerTimeSliderFrame[]>(
-    () =>
-      timeline.map((time) => {
-        const isHour = time.getUTCMinutes() === 0;
-        return {
-          label: formatDynamicFrameTime(time),
-          hourMark: isHour,
-          tickLabel: isHour
-            ? time.getUTCHours() % 2 === 0
-              ? formatDynamicFrameHourMinute(time)
-              : undefined
-            : formatDynamicFrameMinuteOnly(time),
-        };
-      }),
-    [timeline]
-  );
-  // 「現在」に戻るボタンのジャンプ先index。ボタンはフェッチのたびではなく毎回押された
-  // 時点の「現在」に戻したいため、timeline自体から都度計算する。
-  const sliderCurrentIndex = useMemo(() => nearestTimeIndex(timeline, new Date()), [timeline]);
-
-  const handleSliderIndexChange = useCallback(
-    (index: number) => {
-      const time = timeline[index];
-      if (time) setDynamicLayerTargetTime(time);
-    },
-    [timeline]
-  );
   const handleDynamicLayerNow = useCallback(() => setDynamicLayerTargetTime(new Date()), []);
 
   // 選択中の共有時刻（dynamicLayerTargetTime）に対応する各要素のペイロード。該当時刻が
@@ -483,10 +399,7 @@ export function useDynamicWeatherLayers({
 
   return {
     dynamicWeather,
-    sliderFrames,
-    sliderIndex,
-    sliderCurrentIndex,
-    handleSliderIndexChange,
+    setDynamicLayerTargetTime,
     handleDynamicLayerNow,
     dynamicLayerLoading,
     dynamicLayerError,

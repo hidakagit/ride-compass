@@ -1276,6 +1276,12 @@ export interface components {
             hard_filters: components["schemas"]["HardFilterOverride"];
             /** Max Routes */
             max_routes: number;
+            /**
+             * Start Time
+             * Format: date-time
+             * @description 実際に適用された出発時刻（JST）。
+             */
+            start_time: string;
             /** Assumed Speed Kmh */
             assumed_speed_kmh: number;
             /** Waypoints */
@@ -1570,6 +1576,11 @@ export interface components {
              * @description 地図のレンズ（色分け）が表示を要求している軸id。探索の重みが0の軸でも、レンズに選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。未知のidや軸以外（総合難易度・なし）は無視される。
              */
             lens_axis_id?: string | null;
+            /**
+             * Start Time
+             * @description 出発時刻（省略時はサーバーの現在時刻）。風の時間変化評価（レグごとの通過予測時刻）の起点になる。naive値はJSTとして扱う。
+             */
+            start_time?: string | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {

@@ -52,7 +52,8 @@ class FakeRouteGenerator:
         # candidatesが空のときだけ読む）。フェイクも同じ属性を持たせて実インターフェースに揃える。
         self.last_no_candidates_reason = no_candidates_reason
 
-    async def generate_loops(self, origin, distance_km, distance_tolerance_km, max_routes=None):
+    async def generate_loops(self, origin, distance_km, distance_tolerance_km, max_routes=None, start_time=None):
+        self.received_start_time = start_time
         # 改善計画T531: routes.pyが配線するmax_routesを記録する（既定値・上書き値のエコー検証用）。
         self.received_max_routes = max_routes
         return self._candidates

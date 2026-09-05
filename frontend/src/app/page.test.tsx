@@ -19,7 +19,6 @@ vi.mock("@/components/MapLayersPanel/MapLayersPanel", () => ({ default: () => nu
 vi.mock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
 vi.mock("@/components/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
 vi.mock("@/components/WarningBadge/WarningBadge", () => ({ default: () => null }));
-vi.mock("@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider", () => ({ default: () => null }));
 vi.mock("@/components/ComparisonPanel/ComparisonPanel", () => ({ default: () => null }));
 vi.mock("@/components/DebugConsole/DebugConsole", () => ({ default: () => null }));
 
@@ -421,6 +420,7 @@ function makeConditions(overrides: Partial<GenerationConditions> = {}): Generati
     hard_filters: { no_bicycle: true, motorway: true, trunk: true },
     max_routes: 8,
     assumed_speed_kmh: 20,
+    start_time: "2026-09-05T09:30:00+09:00",
     waypoints: null,
     destination: null,
     generated_at: "2026-08-25T12:00:00+09:00",
@@ -605,7 +605,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
-  it("生成リクエストに巡航速度(assumed_speed_kmh)の既定値を含め、入力変更が反映される", async () => {
+  it("生成リクエストに巡航速度(assumed_speed_kmh)の既定値と出発時刻(start_time)を含める", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [makeCandidate()],
@@ -618,19 +618,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => {
       expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ assumed_speed_kmh: 20 }),
-        expect.anything(),
-      );
-    });
-
-    // RouteForm（周回モード）の数値入力は距離・候補件数・巡航速度の順。
-    const speedInput = screen.getAllByRole("spinbutton")[2];
-    await user.clear(speedInput);
-    await user.type(speedInput, "25");
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenLastCalledWith(
-        expect.objectContaining({ assumed_speed_kmh: 25 }),
+        expect.objectContaining({ assumed_speed_kmh: 20, start_time: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }),
         expect.anything(),
       );
     });

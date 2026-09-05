@@ -3,7 +3,7 @@ import { useRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useElementHeightCssVar } from "./useElementHeightCssVar";
 
-// jsdomはResizeObserverを実装しない（AxisStudio.test.tsx・DynamicLayerTimeSlider.test.tsxと
+// jsdomはResizeObserverを実装しない（AxisStudio.test.tsxと
 // 同じ既知の欠落への対処、同じ最小モックを使う）。
 class ResizeObserverMock {
   callback: ResizeObserverCallback;

@@ -141,7 +141,11 @@ class LoopRoutingEngine(Protocol):
     engine_name: str
 
     async def prepare(
-        self, origin: Coordinates, radius_km: float, waypoints: list[Coordinates] | None = None
+        self,
+        origin: Coordinates,
+        radius_km: float,
+        waypoints: list[Coordinates] | None = None,
+        now: datetime | None = None,
     ) -> Any | None: ...
 
     async def select_loop_turnarounds(
@@ -193,6 +197,7 @@ class RouteGenerator:
         distance_km: float,
         distance_tolerance_km: float,
         max_routes: int = DEFAULT_MAX_ROUTES,
+        start_time: datetime | None = None,
     ) -> list[RouteCandidate]:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
@@ -200,7 +205,8 @@ class RouteGenerator:
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
         self.last_no_candidates_reason = None
 
-        context = await self._engine.prepare(origin, radius_km)
+        start_time = start_time or datetime.now(JST)
+        context = await self._engine.prepare(origin, radius_km, now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
             logger.warning(
@@ -293,7 +299,6 @@ class RouteGenerator:
             return []
 
         evaluate_started = time.monotonic()
-        start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
@@ -332,6 +337,7 @@ class RouteGenerator:
         distance_km: float,
         destination: Coordinates | None = None,
         max_routes: int = 1,
+        start_time: datetime | None = None,
     ) -> list[RouteCandidate]:
         """改善計画T364/T365: ユーザーが指定した経由地（中継地）を順に通る経路を生成する。
 
@@ -349,7 +355,7 @@ class RouteGenerator:
         目的地ルートへ上書きする）。
         """
         if destination is not None and not waypoints:
-            return await self._generate_destination_routes(origin, destination, distance_km, max_routes)
+            return await self._generate_destination_routes(origin, destination, distance_km, max_routes, start_time)
 
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
@@ -361,7 +367,8 @@ class RouteGenerator:
         # （経由地のみのbbox計算は`_bbox_covering_points`、road_graph_engine.py参照）。
         bbox_points = [*waypoints, destination] if destination is not None else waypoints
 
-        context = await self._engine.prepare(origin, radius_km, waypoints=bbox_points)
+        start_time = start_time or datetime.now(JST)
+        context = await self._engine.prepare(origin, radius_km, waypoints=bbox_points, now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
             logger.warning(
@@ -389,7 +396,6 @@ class RouteGenerator:
         trace_ms = round((time.monotonic() - trace_started) * 1000)
 
         evaluate_started = time.monotonic()
-        start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, [traced], start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
@@ -412,7 +418,12 @@ class RouteGenerator:
         return candidates
 
     async def _generate_destination_routes(
-        self, origin: Coordinates, destination: Coordinates, distance_km: float, max_routes: int,
+        self,
+        origin: Coordinates,
+        destination: Coordinates,
+        distance_km: float,
+        max_routes: int,
+        start_time: datetime | None = None,
     ) -> list[RouteCandidate]:
         """経由地の無い目的地ルート（起点→目的地のみ）を、via-node方式で`max_routes`件
         まで生成する（改善計画T551）。`generate_loops`のような候補ごとの再探索・失敗
@@ -424,7 +435,8 @@ class RouteGenerator:
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
         self.last_no_candidates_reason = None
 
-        context = await self._engine.prepare(origin, radius_km, waypoints=[destination])
+        start_time = start_time or datetime.now(JST)
+        context = await self._engine.prepare(origin, radius_km, waypoints=[destination], now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
             logger.warning(
@@ -452,7 +464,6 @@ class RouteGenerator:
             return []
 
         evaluate_started = time.monotonic()
-        start_time = datetime.now(JST)
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
