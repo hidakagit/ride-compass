@@ -1,8 +1,6 @@
-"""JMA動的タイルの定期プリウォームバッチ（改善計画T510）。
+"""JMA動的タイルの定期プリウォームバッチ。
 
-ユーザー報告「地図を頻繁に動かすと429が出る」の根本原因は`jma_tile.py`のレート制限が
-キャッシュヒットでも消費される作りだったことだが（Part 1の修正で解消済み）、「1度も
-見ていない範囲への初回アクセス」自体は依然としてレート制限の対象になる。本バッチは
+「1度も見ていない範囲への初回アクセス」はレート制限の対象になる。本バッチは
 「アプリの実運用範囲（`WIND_GRID_BBOX`）でよく使われるレイヤー・ズームのタイルを
 あらかじめRedisへ温めておく」ことで、通常の利用パターンでは初回アクセスすら
 オンデマンドフェッチにならない状態を目指す（`jma_amedas_service.py`の定期更新と
@@ -13,8 +11,8 @@
 - ズーム範囲は各レイヤー自身の`maxzoom`（frontend: `MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）
   をそのまま使う——それを超えるズームではMapLibreがクライアント側でタイルを拡大表示する
   だけで追加の通信が発生しないため、レイヤー自身のmaxzoomがプリウォームの実質的な上限になる。
-  flood（洪水キキクル）は元々JMA配信元の`maxzoom=14`だったが、他レイヤーと同じ`maxzoom=11`へ
-  frontend側で引き下げ済み（ユーザー了承済みのトレードオフ、`docs/tasks/T510.md`参照）。
+  flood（洪水キキクル）は他レイヤーと同じ`maxzoom=11`（frontend側で統一済み、トレードオフの
+  背景は`docs/tasks/T510.md`参照）。
 - キキクル3種・線状降水帯予測マップは未来方向のフレームを持たず「現在」の1エントリのみ
   （`riskMap.ts`のコメント参照）だが、雷/竜巻ナウキャストは最大60分先までの予測フレームを
   10分刻みで複数持つ（`thunderNowcast.ts`のコメント参照）。全フレームをプリウォームすると
@@ -62,7 +60,7 @@ _RASRF_TARGET_TIMES = "bosai/jmatile/data/rasrf/targetTimes.json"
 _NOWC_TARGET_TIMES = "bosai/jmatile/data/nowc/targetTimes_N3.json"
 
 # frontend側のレイヤー定義（riskMap.ts/thunderNowcast.ts、MapView.tsx: DYNAMIC_WEATHER_
-# RENDERERS）と1対1対応させる。maxzoomはfloodのみT510でfrontend側を14→11へ変更済み。
+# RENDERERS）と1対1対応させる。maxzoomはfloodのみ他レイヤーと合わせ11に統一している。
 _LAYERS: tuple[_PrewarmLayer, ...] = (
     _PrewarmLayer("キキクル・土砂", "risk", "land", "png", 11, _RISK_TARGET_TIMES),
     _PrewarmLayer("キキクル・大雨", "risk", "rain_mesh", "png", 11, _RISK_TARGET_TIMES),
@@ -78,12 +76,11 @@ def _pick_current_entry(raw: list[dict], element_id: str | None) -> dict | None:
     """targetTimes.jsonのエントリ群から「現在」を表す1件を選ぶ。
 
     `element_id`が指定されていれば、`elements`配列にそれを含むエントリへ先に絞り込む
-    （risk/rasrf/nowcいずれのグループも共通、改善計画T514フォローアップでnowcを他グループと
-    同じ扱いへ揃えた——nowc、特に雷・竜巻[thns/trns]のtargetTimes_N3.jsonは5分おきに
-    エントリを持つが、雷・竜巻自体は10分おきにしか更新されず、5分ズレたエントリは
-    `elements: ["liden"]`[雷放電位置データのみ]しか持たない。絞り込まずに最新basetimeを
-    採用すると、約半分の確率でこのliden-onlyのbasetimeを掴み、存在しないタイルを要求し
-    続けて404になっていた）。絞り込んだ（または`element_id=None`なら絞り込まない）
+    （risk/rasrf/nowcいずれのグループも共通。nowc、特に雷・竜巻[thns/trns]の
+    targetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻自体は10分おきにしか更新されず、
+    5分ズレたエントリは`elements: ["liden"]`[雷放電位置データのみ]しか持たない。絞り込まずに
+    最新basetimeを採用すると、約半分の確率でこのliden-onlyのbasetimeを掴み、存在しない
+    タイルを要求し続けて404になる）。絞り込んだ（または`element_id=None`なら絞り込まない）
     候補の中から、直近の実況フレーム（validtime===basetime）のうちbasetime最大のものを
     返す（`jmaNowcastFrames.ts: latestObservedFrameIndex`と同じ「最新の実況」の考え方。
     観測フレームが1件も無ければ予測フレームを含む全候補の中から最大basetimeを返す）。
@@ -139,13 +136,8 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
         if not raw_entries:
             skipped_labels.append(layer.label)
             continue
-        # 改善計画T514フォローアップ: 以前はnowcグループだけelement_id=None（絞り込み無し）に
-        # していたが誤りだった。targetTimes_N3.jsonは5分おきにエントリを持つが雷・竜巻
-        # (thns/trns)自体は10分おきにしか更新されず、5分ズレたエントリは"elements":
-        # ["liden"]（雷放電位置データのみ）しか持たない。絞り込まずに最新basetimeを採用すると
-        # 約半分の確率でこのliden-onlyのbasetimeを掴み、存在しないタイルを要求し続けて
-        # 404になる（実機のbackendログで確認）。全グループで一律にlayer.element_idへ
-        # 揃える。
+        # 絞り込みの理由は_pick_current_entryのdocstring参照。全グループで一律に
+        # layer.element_idへ揃える。
         entry = _pick_current_entry(raw_entries, layer.element_id)
         if entry is None:
             skipped_labels.append(layer.label)

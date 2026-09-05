@@ -1,4 +1,4 @@
-"""夜間（街灯・トンネル）の材料タグ解決（改善計画T139）。
+"""夜間（街灯・トンネル）の材料タグ解決。
 
 `lit`タグ不在は「街灯なしとみなす」（unknown safeの原則から外れる意図的な選択。litタグは
 明示的に付与されている場合のみ確認できる情報で、多くのwayは単にタグが無いだけだが、
@@ -9,16 +9,9 @@
 「走りにくさ0-100、大きいほど大変」という向きは、この関数ではなく夜間軸定義自身の
 `lit`項の重み（負値）が担う（`domain/axis_definitions.py`のnight軸定義参照）。
 
-改善計画T221 Stage B/C: 加点値・上限（フラグ加算テンプレートのパラメータ）は
-`domain/axis_definitions.py`のnight軸定義へ移した。本モジュールは「lit/tunnelタグ→
-材料フラグ」の解決（`night_materials`）だけを担う。配列版（旧`night_difficulty_array`）は
-`evaluate_axis_array`（同一定義から導出）へ置き換えたため削除した。
-
-改善計画T320: スカラー版の互換ラッパ`night_difficulty`（`evaluate_axis_scalar(
-AXIS_DEFINITIONS["night"], night_materials(tags))`を1行呼ぶだけの薄い関数）は、
-実行時経路のどこからも呼ばれておらずテストのみが参照していたため削除した
-（実行時経路は`evaluate_axis_difficulties`/`compute_edge_axis_scores`を通じて
-`night_materials`の結果を直接評価する経路を使っており、この関数を経由していなかった）。
+本モジュールは「lit/tunnelタグ→材料フラグ」の解決（`night_materials`）だけを担う。
+加点値・上限（フラグ加算テンプレートのパラメータ）は`domain/axis_definitions.py`の
+night軸定義が持つ。
 """
 
 from app.domain.recipe import tag_value_is

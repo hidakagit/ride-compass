@@ -1,5 +1,5 @@
 """シンプルな外部APIクライアント（TTLCacheのみ、tenacity再試行を持たない）が共有する
-「キャッシュ参照→fetch→エラー処理→キャッシュ書き戻し」の定型文（改善計画T488）。
+「キャッシュ参照→fetch→エラー処理→キャッシュ書き戻し」の定型文。
 
 `jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`に
 一字一句同じ形でほぼ複製されていた8〜10行の骨格をここへ集約する。`weather_client.py`

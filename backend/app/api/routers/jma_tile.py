@@ -15,13 +15,12 @@ async def jma_tile_proxy(
     # そのままキャッシュキー・上流URLの一部にする（透過プロキシのため中身を解釈しない）。
     if request.url.query:
         path = f"{path}?{request.url.query}"
-    # 改善計画T510: キャッシュヒットならレート制限を一切経由しない（以前は
-    # enforce_rate_limitを先に呼んでいたため、既にキャッシュ済みのタイルへの往復パンだけで
-    # 429になっていた——429の直接原因）。認証なしで叩けるプロキシへの簡易な歯止め
-    # （basemap_proxyと同じ方針）は、実際に外部フェッチが発生するミス時のみ適用する。
+    # キャッシュヒットならレート制限を一切経由しない。認証なしで叩けるプロキシへの
+    # 簡易な歯止め（basemap_proxyと同じ方針）は、実際に外部フェッチが発生する
+    # ミス時のみ適用する。
     cached = await jma_tile_client.get_cached(path)
     if isinstance(cached, TileNotFound):
-        # 改善計画T605: 恒久404（疎な格子状タイルでは珍しくない正常系）だと確認済みのため、
+        # 恒久404（疎な格子状タイルでは珍しくない正常系）だと確認済みのため、
         # 上流へ問い合わせ直さず即座に404を返す。
         raise HTTPException(status_code=404, detail="指定されたタイルは存在しません")
     if cached is not None:

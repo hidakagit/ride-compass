@@ -1,11 +1,11 @@
-"""環境省 熱中症予防情報サイトのクライアント（改善計画T174）。
+"""環境省 熱中症予防情報サイトのクライアント。
 
 情報提供地点マスタ（CSV）と暑さ指数（WBGT）予測値取得WebAPI（JSON、`man15NH/
 wbgt_data_api_service_manual.pdf`、2026-08-22取得のAPI仕様書を典拠）の2つを叩く。
 サイト側の利用上の注意（wbgt_data_download.php）に「自動化ツールからの高頻度アクセスは
 控えて」と明記されているため、weather_client.pyのような429前提のtenacity再試行は設けず、
 TTLキャッシュで呼び出し頻度自体を抑える。取得失敗はNoneを返し、呼び出し元
-（wbgt_service.py）が「警告なし」として扱う（T205のjma_warning_client.pyと同じ方針）。
+（wbgt_service.py）が「警告なし」として扱う（jma_warning_client.pyと同じ方針）。
 """
 
 import csv
@@ -78,12 +78,11 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
     `range_from`/`range_to`はYYYYMMDDHHMMSS形式（発表時刻=reference_timeの検索範囲。
     呼び出し元が「現在時刻を含む直近N時間」を渡す想定）。date_search_type=3
     （特定時刻）は指定時刻ちょうどに発表（reference_time）が存在しないと空を返す
-    厳格な一致検索であることが実機確認で判明した（2026-08-22: 20:00:00ちょうどを
-    指定すると20時発表がまだ無く空、19:00:00なら19時発表がヒット）。発表は概ね毎時
-    行われるが遅延もありうるため、date_search_type=1（連続期間指定）で直近の発表を
-    幅広く取得し、複数の発表回（reference_time）が返ってきた場合は呼び出し元
-    （wbgt_service.py）が最新の発表回だけを使う。
-    レスポンスの`forecast_val`は暑さ指数を10倍した整数文字列（実機確認、2026-08-22:
+    厳格な一致検索（20:00:00ちょうどを指定すると20時発表がまだ無く空、19:00:00なら
+    19時発表がヒットする、等）。発表は概ね毎時行われるが遅延もありうるため、
+    date_search_type=1（連続期間指定）で直近の発表を幅広く取得し、複数の発表回
+    （reference_time）が返ってきた場合は呼び出し元（wbgt_service.py）が最新の発表回
+    だけを使う。レスポンスの`forecast_val`は暑さ指数を10倍した整数文字列（例:
     東京地点でforecast_val="280"→暑さ指数28.0）のため、呼び出し元で10で割ること。
     """
     params = {

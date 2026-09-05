@@ -54,13 +54,13 @@ class WeatherService:
             return None
 
     async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
-        """複数地点の時間別風向・風速・降水量をまとめて取得する（改善計画T178フォローアップ、
-        T183で降水（+60分以降の延長予報）を追加）。特定時刻1点へ収束させず、hourly配列全体
-        （forecast_days=2分）をそのまま返す（domain/wind_grid.py: WindGridPointのdocstring参照）。
+        """複数地点の時間別風向・風速・降水量（+60分以降の延長予報）をまとめて取得する。
+        特定時刻1点へ収束させず、hourly配列全体（forecast_days=2分）をそのまま返す
+        （domain/wind_grid.py: WindGridPointのdocstring参照）。
 
         時刻配列は全地点で共通のため（同じforecast_days・timezoneで一括取得、
         WindGridResponseのdocstring参照）、戻り値の先頭要素として1本だけ返す
-        （改善計画T203、応答サイズ削減）。最初に見つかった有効な地点のtimesを採用する
+        （応答サイズ削減）。最初に見つかった有効な地点のtimesを採用する
         （全地点失敗時は空リストになる）。"""
         forecasts = await self._client.get_forecast_many(self._http_client, points)
         times: list[str] = []
@@ -122,8 +122,8 @@ class WeatherService:
             temperature = current["temperature_2m"]
             wind_speed = current["wind_speed_10m"]
             wind_direction = current["wind_direction_10m"]
-            # 突風・体感温度・UV指数・降水量は「current」自体に含めて取得済み（改善計画T172、
-            # weather_client.py参照）のため、precipitation_probabilityと違いhourlyへの
+            # 突風・体感温度・UV指数・降水量は「current」自体に含めて取得済み
+            # （weather_client.py参照）のため、precipitation_probabilityと違いhourlyへの
             # 近傍探索は不要。current側に無い場合（プロパティ欠落）はNoneへ倒す。
             apparent_temperature = current.get("apparent_temperature")
             wind_gusts = current.get("wind_gusts_10m")
@@ -132,7 +132,7 @@ class WeatherService:
             weather_code = current.get("weather_code")
             is_day = current.get("is_day")
             precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
-            # 改善計画T385: 「今日の見通し」（daily、forecast_days=2のindex0=今日）。
+            # 「今日の見通し」（daily、forecast_days=2のindex0=今日）。
             daily = data.get("daily") or {}
             sunrise = self._daily_index_value(daily, "sunrise", 0)
             sunset = self._daily_index_value(daily, "sunset", 0)
@@ -141,10 +141,8 @@ class WeatherService:
             temperature_max = self._daily_index_value(daily, "temperature_2m_max", 0)
             temperature_min = self._daily_index_value(daily, "temperature_2m_min", 0)
             uv_index_max = self._daily_index_value(daily, "uv_index_max", 0)
-            # 改善計画T385フォローアップ（ユーザー要望「今日の日中の大まかな天気の
-            # 流れが分かるものも欲しい」）: dailyの日次集約値だけでは「日中いつ頃
-            # 崩れるか」が分からないため、hourlyから2時間おき8コマの代表時刻を抜き出す
-            # （_period_outlooks参照）。
+            # dailyの日次集約値だけでは「日中いつ頃崩れるか」が分からないため、
+            # hourlyから2時間おき8コマの代表時刻を抜き出す（_period_outlooks参照）。
             today_periods = self._period_outlooks(hourly, observed_at)
         except (KeyError, IndexError, TypeError):
             return None
@@ -198,7 +196,7 @@ class WeatherService:
 
     @staticmethod
     def _hourly_index_value(hourly: dict, field: str, index: int):
-        """hourly配列から既知のindexで値を引く（改善計画T172、_period_outlooksが使う）。
+        """hourly配列から既知のindexで値を引く（_period_outlooksが使う）。
         対象時刻のindexが呼び出し元で既に確定しているため、_hourly_value_nearのように
         改めて最近傍時刻を探し直す必要がない。フィールド自体が存在しない/配列が短い場合は
         Noneへ倒す（新規追加パラメータのため既存キャッシュ済みレスポンスに含まれない
@@ -210,23 +208,20 @@ class WeatherService:
 
     @staticmethod
     def _daily_index_value(daily: dict, field: str, index: int):
-        """daily配列から既知のindexで値を引く（改善計画T385、_hourly_index_valueのdaily版）。
+        """daily配列から既知のindexで値を引く（_hourly_index_valueのdaily版）。
         forecast_days=2・timezone=Asia/Tokyoのindex 0が「今日」に対応する。"""
         values = daily.get(field)
         if not values or index >= len(values):
             return None
         return values[index]
 
-    # 改善計画T385フォローアップ: 「今日の見通し」パネルの時間帯別コマ。
-    # 当初「朝/午後/夜」3コマ→ユーザー指摘「少し荒い」→「天気・気温・降水確率をもう少し
-    # 細かい粒度でスマホ横幅に収まる表現で」→固定6時始まり8コマ→後続フォローアップ
-    # 「現在時刻を含む時間帯（例：今7時なら6時の天気）から2時間毎」を経て、現在時刻を
-    # 2時間グリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おき8コマ・代表時刻
-    # そのままの単純採用に決着。severity（重大度）で「その区間で最も荒れた時刻」を選ぶ
-    # 方式ではなく代表1時刻をそのまま使うのは、重大度ランキングがweather_code→
-    # アイコン判定と同種の「意味づけ」であり、frontend/weatherCode.tsへ集約する既存方針
-    # （backendは生の値を素通しするだけ）に合わせたため。既存の_nearest_hourly_index/
-    # _hourly_index_valueをそのまま再利用できる利点もある。
+    # 「今日の見通し」パネルの時間帯別コマ。現在時刻を2時間グリッド（0/2/4...時）へ
+    # 切り下げた時刻を起点に2時間おき8コマ、各コマの代表時刻をそのまま採用する。
+    # severity（重大度）で「その区間で最も荒れた時刻」を選ぶ判定はせず代表1時刻を
+    # そのまま使う。重大度ランキングはweather_code→アイコン判定と同種の「意味づけ」
+    # であり、frontend/weatherCode.tsへ集約する既存方針（backendは生の値を素通しする
+    # だけ）に合わせるため。既存の_nearest_hourly_index/_hourly_index_valueをそのまま
+    # 再利用できる利点もある。
     _PERIOD_SLOT_COUNT = 8
     _PERIOD_INTERVAL_HOURS = 2
 

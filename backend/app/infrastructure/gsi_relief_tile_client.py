@@ -8,7 +8,7 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 
 UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 
-# 改善計画T605: 色別標高図タイルも、DEMタイル（elevation_client.py: _CoverageGap）と同じ
+# 色別標高図タイルも、DEMタイル（elevation_client.py: _CoverageGap）と同じ
 # GSIホストの整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
 # プロセス内メモリのみに留める（tile_cache.pyの永続ファイルキャッシュへは書かない——
 # 将来GSI側の整備区域が広がった場合、プロセス再起動だけで再取得の機会が来るようにする）。
@@ -34,7 +34,7 @@ def _remember_not_found(path: str) -> None:
 
 class GsiReliefTileClient:
     """国土地理院 色別標高図タイル（`{z}/{x}/{y}.png`）を透過的にプロキシしつつ
-    ファイルシステムにキャッシュする（改善計画T572）。`basemap_client.py`と同じ
+    ファイルシステムにキャッシュする。`basemap_client.py`と同じ
     「pathを丸ごとプロキシ＋`tile_cache`の永続ファイルキャッシュ」方式だが、
     タイルはPNG単体でJSON応答（basemapのスタイルJSON等）を持たないため、URL書き換えは
     不要。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない

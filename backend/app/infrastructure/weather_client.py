@@ -20,40 +20,33 @@ CACHE_PRECISION = 2
 # 標高と異なり天候は時間で変化するため、恒久キャッシュではなくTTLを設ける。
 CACHE_TTL_SECONDS = 30 * 60
 
-# 気象グリッド（風・降水延長予報、get_forecast_many）専用のTTL・フォールバック窓（改善計画
-# 「Open-Meteo 429根本対策の6段階ロードマップ」④）。get_forecast（/api/weatherパネル、単発
-# 呼び出し）側はCACHE_TTL_SECONDS/STALE_FALLBACK_MAX_AGE_SECONDSのまま変えない
-# （こちらは値を変える理由が無い上、DB永続化の対象もget_forecast_many側だけのため）。
-# 3時間はOpen-Meteoの予報モデル自体の更新頻度に対して十分な鮮度であり、かつ1日あたりの
-# 総フェッチ回数（＝クォータ消費）を大きく削減できる（旧30分TTLの1/6）。Redis永続化
-# （wind_forecast_cache.get_wind_forecast_many/set_wind_forecast_many、改善計画T398。
-# 導入当初はcache_db.py・SQLiteだったが、T387で導入済みのRedisへ基盤を1本化した）に
-# よりプロセス再起動をまたいで生き残るようになったため、フォールバック窓も従来の3時間
-# （再起動のたびに消えるメモリキャッシュ前提の値）から24時間へ伸ばし、Open-Meteo側の
-# 長時間障害への耐性を上げる。
+# 気象グリッド（風・降水延長予報、get_forecast_many）専用のTTL・フォールバック窓。
+# get_forecast（/api/weatherパネル、単発呼び出し）側はCACHE_TTL_SECONDS/
+# STALE_FALLBACK_MAX_AGE_SECONDSのまま変えない（こちらは値を変える理由が無い上、
+# DB永続化の対象もget_forecast_many側だけのため）。3時間はOpen-Meteoの予報モデル
+# 自体の更新頻度に対して十分な鮮度であり、かつ1日あたりの総フェッチ回数（＝クォータ
+# 消費）を大きく削減できる。Redis永続化（wind_forecast_cache.get_wind_forecast_many/
+# set_wind_forecast_many）によりプロセス再起動をまたいで生き残るため、フォールバック窓は
+# 24時間とし、Open-Meteo側の長時間障害への耐性を上げる。
 WIND_GRID_CACHE_TTL_SECONDS = 3 * 60 * 60
 WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
 
 # get_forecast（単一地点、/api/weatherの現在地パネル用）はcurrent/hourly全変数を表示に使うが、
 # get_forecast_many（風/降水延長予報の格子点マップ用、get_wind_gridが呼ぶ）は消費側を
 # 辿ると実際に使っているのはhourlyのwind_speed_10m/wind_direction_10m/precipitationのみ
-# （T182で他5変数は取得しているだけで捨てられていると判明し除外済み。T183でprecipitationを
-# 追加したが、無料プランのクォータ按分は1地点あたり10変数超で増える仕組み・現状3変数のため
-# T182の対策効果は保たれる）。1回のリクエストが数百地点規模になり得るため、変数を絞ることで
+# （無料プランのクォータ按分は1地点あたり10変数超で増える仕組み・現状3変数のためこの
+# 絞り込みの効果は保たれる）。1回のリクエストが数百地点規模になり得るため、変数を絞ることで
 # Open-Meteo側のクォータ消費（変数数・期間に応じた按分カウント）とレスポンスサイズの両方を
 # 大きく削減できる。
 WIND_GRID_VARIABLES = "wind_speed_10m,wind_direction_10m,precipitation"
 
 # 本番（Render、共有の送信元IP）では、単発の/api/weather呼び出し（現在地表示）だけでも
 # Open-Meteo側の429 Too Many RequestsやConnectTimeout（TLSハンドシェイクの混雑による
-# ものとみられる接続タイムアウト）が発生し502になることが実測で確認された（原因調査ログ参照）。
-# WindServiceのルート評価は元々区間ごとに個別リクエストしておりこれを悪化させていたため
-# get_forecast_manyで1リクエストへ集約したが、単発呼び出し側の対策としてこちらも
-# 短いバックオフで数回だけ再試行する。
-# 2026-08-17: 上記の初版対策（MAX_RETRIES=2・固定0.3秒刻み）をすり抜けて5件すべてが
-# 429で失敗する再発をユーザーが実機で確認（ログ参照）。1回あたりの待機が短すぎて
-# Open-Meteo側の抑制がまだ解けていない間に再試行を使い切っていたとみられるため、
-# 再試行回数と1回あたりの待機を指数的に増やして強化する。
+# ものとみられる接続タイムアウト）が発生し502になることがある。WindServiceのルート評価は
+# 元々区間ごとに個別リクエストしておりこれを悪化させていたためget_forecast_manyで
+# 1リクエストへ集約したが、単発呼び出し側の対策としてこちらも短いバックオフで数回だけ
+# 再試行する。再試行回数と1回あたりの待機を指数的に増やし、Open-Meteo側の抑制が
+# 解けるまでの猶予を確保する。
 RETRY_STATUS_CODE = 429
 MAX_RETRIES = 4
 RETRY_BACKOFF_SECONDS = 0.5
@@ -65,7 +58,7 @@ RETRY_BACKOFF_CAP_SECONDS = 2.0
 # （在圏中のリクエスト自体の時間は含まないため実際の余裕はこれより小さいが、
 # 429応答は通常速く返るため実用上は問題にならない）。
 RETRY_BUDGET_SECONDS = 8.0
-# 2026-08-17: 決定論的なバックオフだと、共有の送信元IPから同時に429を受けた複数リクエストが
+# 決定論的なバックオフだと、共有の送信元IPから同時に429を受けた複数リクエストが
 # 全く同じ秒数で揃って再試行し、Open-Meteo側の抑制が解ける前に再び束になって突入する
 # （再試行の同期）おそれがある。待機秒数へ小さなランダム幅を掛けて分散させる。
 RETRY_JITTER_RANGE = (0.75, 1.25)
@@ -87,10 +80,9 @@ _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 # get_forecastがキャッシュヒットとして読んでしまい、/api/weatherパネルの気温等が
 # 欠落したまま返る（黙って空欄になる）事故になり得るため。両者は変数セットが異なる
 # 別物として扱う。1プロセス内の高速な繰り返し参照を担うL1キャッシュで、プロセス再起動を
-# またいだ永続化はwind_forecast_cache.py（Redis、改善計画T398）がL2として別途担う
-# （改善計画「Open-Meteo 429根本対策」④、get_forecast_many参照）。_forecast_cache
-# （こちら）はRedis永続化の対象外のまま（/api/weatherは単発呼び出しで再起動時の再取得コストが
-# 小さく、永続化の効果が薄いため）。
+# またいだ永続化はwind_forecast_cache.py（Redis）がL2として別途担う（get_forecast_many
+# 参照）。_forecast_cache（こちら）はRedis永続化の対象外のまま（/api/weatherは単発呼び出しで
+# 再起動時の再取得コストが小さく、永続化の効果が薄いため）。
 _wind_forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 
 
@@ -107,8 +99,7 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
 
 
 def _is_retryable(exc: BaseException) -> bool:
-    """再試行すべき失敗か（改善計画、実機フィードバック「より一般的なpythonライブラリ等の
-    手法を踏襲できないか」を受けtenacityへ置き換え）。429（レート制限）とTransportError
+    """再試行すべき失敗か。429（レート制限）とTransportError
     （接続タイムアウト等、応答自体を受け取れなかった失敗）だけを対象とする。それ以外の
     HTTPエラー（4xx/5xx）やJSON解析エラーは再試行しても直らないため対象外のまま。"""
     if isinstance(exc, httpx.HTTPStatusError):
@@ -150,19 +141,16 @@ class WeatherClient:
         """再試行込みでOpen-Meteoを叩き、成功したらJSON本体を返す。失敗時はfieldsへ記録しNoneを返す
         （呼び出し元は単一地点・複数地点どちらの形状（object/array）で解釈するかを判断する）。
 
-        method="POST"（改善計画T178フォローアップ、風の格子点マップ用にget_forecast_manyが使う）は
-        地点数が多い（数百件）とrequest-URIがnginxの既定上限を超え414 Request-URI Too Largeに
-        なることが実機で判明したため（GETはクエリ文字列にlatitude/longitudeのカンマ区切りを
-        載せる）。POSTはフォームボディへ同じパラメータを載せるためURI長の制約を受けない
-        （実機確認: 624地点でPOST成功、同数のGETは414）。単一地点（get_forecast）はパラメータが
-        少なくURI長の心配が無いためGETのまま変更しない。
+        method="POST"（風の格子点マップ用にget_forecast_manyが使う）は地点数が多い（数百件）と
+        request-URIがnginxの既定上限を超え414 Request-URI Too Largeになる（GETはクエリ文字列に
+        latitude/longitudeのカンマ区切りを載せる。624地点でPOST成功、同数のGETは414）。POSTは
+        フォームボディへ同じパラメータを載せるためURI長の制約を受けない。単一地点
+        （get_forecast）はパラメータが少なくURI長の心配が無いためGETのまま変更しない。
 
-        再試行はtenacity（改善計画、実機フィードバック「より一般的なpythonライブラリ等の手法を
-        踏襲できないか」）に委譲している。stop_after_attempt（MAX_RETRIES回まで）と
+        再試行はtenacityに委譲している。stop_after_attempt（MAX_RETRIES回まで）と
         stop_after_delay（RETRY_BUDGET_SECONDS秒を過ぎたら打ち切り）をORで組み合わせ、
-        どちらか早く達した方で止める。以前の自前ループは「次の待機を足すと予算を超える場合は
-        待機せず即座に諦める」という先読みをしていたが、tenacity.stop_after_delayは待機前の
-        経過時間だけを見るため、最悪1回ぶん（RETRY_BACKOFF_CAP_SECONDS秒）だけ予算を超えうる
+        どちらか早く達した方で止める。tenacity.stop_after_delayは待機前の経過時間だけを
+        見るため、最悪1回ぶん（RETRY_BACKOFF_CAP_SECONDS秒）だけ予算を超えうる
         ——フロントのfetchタイムアウト（15秒）に対しては十分な余裕があるため許容する。
         """
 
@@ -217,35 +205,28 @@ class WeatherClient:
             params = {
                 "latitude": point.latitude,
                 "longitude": point.longitude,
-                # weather_code（WMO天気コード）・is_dayは改善計画T385（天気アイコン化）用。
-                # UV指数は夜間常に0.0になり項目としての情報価値が無いままヘッダーを
-                # 圧迫していたため、weather_code+is_dayから快晴/くもり/霧/雨/雪/雷雨と
-                # 昼夜を判定するアイコン1個へ置き換える（frontend/src/components/
-                # WeatherPanel/weatherCode.ts参照）。
+                # weather_code（WMO天気コード）・is_dayは天気アイコン化用。UV指数は夜間常に
+                # 0.0になり項目としての情報価値が無いため、weather_code+is_dayから
+                # 快晴/くもり/霧/雨/雪/雷雨と昼夜を判定するアイコン1個へ変換する
+                # （frontend/src/components/WeatherPanel/weatherCode.ts参照）。
                 "current": "temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
                 "precipitation,apparent_temperature,uv_index,weather_code,is_day",
-                # weather_code・is_dayはhourlyにも追加する（改善計画T385フォローアップ、
-                # 「今日の見通し」パネルの天気の流れ表示用。現在時刻を2時間グリッドへ
-                # 切り下げた時刻を起点に2時間おき8コマをweather_service.py:
-                # _period_outlooksが抜き出す）。
+                # weather_code・is_dayはhourlyにも追加する（「今日の見通し」パネルの天気の
+                # 流れ表示用。現在時刻を2時間グリッドへ切り下げた時刻を起点に2時間おき8コマを
+                # weather_service.py: _period_outlooksが抜き出す）。
                 "hourly": "temperature_2m,wind_speed_10m,wind_direction_10m,precipitation_probability,"
                 "wind_gusts_10m,precipitation,uv_index,apparent_temperature,weather_code,is_day",
-                # 改善計画T385: 「今日の見通し」パネル（日没・今日の降水確率最大・
-                # 最大風速・気温レンジ・UV指数最大）用。current/hourlyの瞬間値と違い
-                # 1日1個の値のため別枠のdailyパラメータで取る。forecast_days=2・
-                # timezone=Asia/Tokyoは既存のcurrent/hourlyと共用のため、daily[0]が
-                # タイムゾーン基準の「今日」に一致する（get_forecast_many/
+                # 「今日の見通し」パネル（日没・今日の降水確率最大・最大風速・気温レンジ・
+                # UV指数最大）用。current/hourlyの瞬間値と違い1日1個の値のため別枠のdaily
+                # パラメータで取る。forecast_days=2・timezone=Asia/Tokyoは既存のcurrent/hourlyと
+                # 共用のため、daily[0]がタイムゾーン基準の「今日」に一致する（get_forecast_many/
                 # WIND_GRID_VARIABLESには含めない。get_forecast_manyは地点数十〜数百件を
                 # 並列取得するため、1地点あたりの取得項目を増やすとクォータ消費への影響が大きく、
                 # 日次見通しはget_forecast（単一地点、この関数）でしか使わないため不要）。
-                # uv_index_max（改善計画T385フォローアップ、ユーザー指摘「UV指数は
-                # スマホからだとどこから見えるのか」）: 現在値のuv_indexはWeatherPanelの
-                # 天気アイコンtitleに格下げしたが、title属性はスマホのタップでは実質
-                # 見えないため、今日の見通しパネル（タップで確実に開くPopover）へ
-                # 今日のUV最大値を追加して確実に見えるようにする。
-                # sunrise（改善計画T385フォローアップ2、ユーザー要望「夜明け前なら夜明け
-                # 時間、日没前なら日没時間をそれぞれ出して」）: 早朝は遠い日没時刻より
-                # 近い夜明け時刻の方が有益なため追加。
+                # uv_index_max: 現在値のuv_indexはWeatherPanelの天気アイコンtitleに格下げして
+                # あるが、title属性はスマホのタップでは実質見えないため、今日の見通しパネル
+                # （タップで確実に開くPopover）へ今日のUV最大値を別途持たせる。
+                # sunrise: 早朝は遠い日没時刻より近い夜明け時刻の方が有益なため追加。
                 "daily": "sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,"
                 "temperature_2m_max,temperature_2m_min,uv_index_max",
                 "forecast_days": 2,
@@ -269,15 +250,13 @@ class WeatherClient:
         """複数地点の予報を、可能な限り1回のOpen-Meteo呼び出しにまとめて取得する。
 
         風グリッド等の呼び出し元がまとめて数十〜数百地点ぶんweatherを個別リクエストすると、
-        本番（Render、共有の送信元IP）ではこれだけで429が常態化し天候取得が全滅する事態が
-        起きていた（原因調査ログ参照）。Open-Meteoは緯度経度をカンマ区切りで渡すと地点ごとの
-        予報配列を1リクエストで返せるため、これを使ってリクエスト数自体を減らす。
-        地点はcache_key（丸め精度CACHE_PRECISION）単位で重複排除し、キャッシュ済みの地点は
-        リクエストに含めない。
+        本番（Render、共有の送信元IP）ではこれだけで429が常態化し天候取得が全滅しうる。
+        Open-Meteoは緯度経度をカンマ区切りで渡すと地点ごとの予報配列を1リクエストで返せる
+        ため、これを使ってリクエスト数自体を減らす。地点はcache_key（丸め精度
+        CACHE_PRECISION）単位で重複排除し、キャッシュ済みの地点はリクエストに含めない。
 
-        改善計画T178フォローアップ（風の格子点マップ）で数百地点をまとめて渡すようになった
-        結果、GET（クエリ文字列）だと地点数によってはrequest-URIがnginxの既定上限を超え
-        414 Request-URI Too Largeになることが実機で判明した（624地点で再現、288地点では
+        数百地点をまとめて渡すと、GET（クエリ文字列）では地点数によってはrequest-URIが
+        nginxの既定上限を超え414 Request-URI Too Largeになる（624地点で再現、288地点では
         未発生）。そのためPOST（フォームボディ）で送る（_fetch_json参照）。
 
         呼び出し元（`WeatherService.get_wind_grid`）が実際に使うのは
@@ -288,10 +267,9 @@ class WeatherClient:
         表示項目を削ることになるためそのまま全変数を維持する）。キャッシュも_forecast_cacheとは
         分離した_wind_forecast_cacheを使う（理由はモジュール冒頭のコメント参照）。
 
-        改善計画「Open-Meteo 429根本対策」④: _wind_forecast_cacheはプロセス内メモリのため
-        Renderのようなプラットフォームでのプロセス再起動・コンテナ再作成のたびに消え、
-        再起動直後のアクセスがOpen-Meteoへの無駄な再取得（＝1日あたりのクォータ消費）を
-        招いていた。wind_forecast_cache.py（Redis、改善計画T398。旧cache_db.py・SQLite）へ
+        _wind_forecast_cacheはプロセス内メモリのためRenderのようなプラットフォームでの
+        プロセス再起動・コンテナ再作成のたびに消え、再起動直後のアクセスがOpen-Meteoへの
+        無駄な再取得（＝1日あたりのクォータ消費）を招く。wind_forecast_cache.py（Redis）へ
         L2として永続化し、L1（メモリ）に無いキーだけL2を引いてから不足分だけ実際にフェッチする。
         """
         keys: list[tuple[float, float]] = []
@@ -351,16 +329,14 @@ class WeatherClient:
                 entries = data if isinstance(data, list) else ([data] if data is not None else [])
                 newly_fetched: dict[tuple[float, float], tuple[float, dict]] = {}
 
-                # 実機報告2026-08-31「風の面塗りが毎回同じ場所で切れる」の調査結果: 以前は
-                # zip(to_fetch, entries)で応答順=リクエスト順という前提で位置対応させていたが、
                 # Open-Meteoが特定地点だけ省略して応答件数がリクエストより少なくなる場合、
+                # 応答順=リクエスト順という前提でzip(to_fetch, entries)のように位置対応させると、
                 # 途中の1件が省略されただけでそれ以降の全件が1つずつズレて誤った地点の天気を
-                # 割り当ててしまう（さらに末尾は「対応しきれない残り」としてNone扱いになる、
-                # という以前のコメント自体がこの前提が崩れうることを示唆していた）。各エントリ
-                # 自身が返すlatitude/longitude（Open-Meteoの複数地点応答が持つ標準フィールド）で
-                # 対応するリクエスト地点を引き直すことで、応答順や件数がリクエストと食い違っても
-                # 誤った地点への割り当てを防ぐ。座標を持たない/どのリクエスト地点にも一致しない
-                # エントリ（テスト用フィクスチャ等）は、位置対応（従来方式）へフォールバックする。
+                # 割り当ててしまう。そのため各エントリ自身が返すlatitude/longitude
+                # （Open-Meteoの複数地点応答が持つ標準フィールド）で対応するリクエスト地点を
+                # 引き直すことで、応答順や件数がリクエストと食い違っても誤った地点への割り当てを
+                # 防ぐ。座標を持たない/どのリクエスト地点にも一致しないエントリ（テスト用
+                # フィクスチャ等）は、位置対応へフォールバックする。
                 to_fetch_set = set(to_fetch)
                 matched: set[tuple[float, float]] = set()
                 unmatched_entries: list[dict | None] = []

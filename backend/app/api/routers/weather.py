@@ -41,13 +41,11 @@ async def get_weather(
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WeatherConditions:
     """今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。
-    改善計画T387フォローアップ（2026-08-29）: 常設ヘッダー（現在値の気温・体感温度・
-    風速風向）はアメダス実測を使う`GET /api/weather/amedas`へ分離したため、
-    このエンドポイントはOpen-Meteoの値をそのまま返す（以前あったアメダス優先の
-    上書きは削除。常設ヘッダーはこのレスポンスを参照しなくなったため不要になった）。"""
-    # 以前はここでの範囲チェックをCoordinates（Pydanticモデル）任せにしており、
-    # 範囲外の値（例: latitude=999）はFastAPIの422ではなくpydantic.ValidationErrorが
-    # 関数内から送出され未処理の500になっていた。Queryのge/leでFastAPI層で弾く。
+    常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
+    `GET /api/weather/amedas`が担うため、このエンドポイントはOpen-Meteoの値を
+    そのまま返す。"""
+    # Queryのge/leで範囲外の値をFastAPI層で弾く（Coordinatesへの委譲だと
+    # pydantic.ValidationErrorが関数内から送出され、422ではなく未処理の500になる）。
     enforce_rate_limit(http_request, "weather", settings.weather_rate_limit_per_minute)
     conditions = await weather_service.get_conditions(Coordinates(latitude=latitude, longitude=longitude))
     if conditions is None:
@@ -62,10 +60,10 @@ async def get_weather_warnings(
     longitude: float = Query(ge=-180, le=180),
     warning_service: WarningService = Depends(get_warning_service),
 ) -> WeatherWarnings:
-    """出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す
-    （改善計画T205）。地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した
+    """出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す。
+    地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した
     場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり
-    このfail-openは意図的な仕様のため、502は返さない——T174（WBGT警告）と共有する
+    このfail-openは意図的な仕様のため、502は返さない——WBGT警告と共有する
     「安全側ではないが失敗時は警告なしとする」という既定の方針）。"""
     enforce_rate_limit(http_request, "weather-warnings", settings.weather_warnings_rate_limit_per_minute)
     return await warning_service.get_warnings(Coordinates(latitude=latitude, longitude=longitude))
@@ -78,9 +76,9 @@ async def get_wbgt(
     longitude: float = Query(ge=-180, le=180),
     wbgt_service: WbgtService = Depends(get_wbgt_service),
 ) -> WbgtStatus:
-    """出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す（改善計画T174）。
+    """出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す。
     提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の
-    いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。T205の警報・
+    いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。警報・
     注意報バッジと同じfail-open方針のため502は返さない）。"""
     enforce_rate_limit(http_request, "weather-wbgt", settings.weather_wbgt_rate_limit_per_minute)
     return await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude))
@@ -93,9 +91,9 @@ async def get_flood_forecast(
     longitude: float = Query(ge=-180, le=180),
     flood_service: FloodService = Depends(get_flood_service),
 ) -> FloodForecasts:
-    """出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す（改善計画T212、
-    T176調査で発見したAPIを使う）。地点解決・洪水予報自体の取得のどこで失敗しても
-    例外にせず空を返す（T205/T174と共有するfail-open方針、502は返さない）。"""
+    """出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す。
+    地点解決・洪水予報自体の取得のどこで失敗しても
+    例外にせず空を返す（警報・WBGTと共有するfail-open方針、502は返さない）。"""
     enforce_rate_limit(
         http_request, "weather-flood-forecast", settings.weather_flood_forecast_rate_limit_per_minute
     )
@@ -109,7 +107,7 @@ async def get_amedas(
     longitude: float = Query(ge=-180, le=180),
     amedas_service: JmaAmedasService = Depends(get_amedas_service),
 ) -> AmedasObservation:
-    """出発地点近傍の最寄りアメダス観測所の直近観測値を返す（改善計画T387）。
+    """出発地点近傍の最寄りアメダス観測所の直近観測値を返す。
     観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
     観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。
     警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。"""
@@ -121,16 +119,12 @@ async def get_amedas(
 
 
 def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:
-    """全地点が取得失敗（Open-Meteo全滅、429常態化等）の場合のみ502で明示的に失敗を返す
-    （改善計画T200、統合レビュー2026-08-22指摘）。以前は1地点の失敗を握りつぶす方針
-    （T178）のまま全地点失敗時も空リスト+200 OKを返しており、フロントの`windError`
-    表示が機能せず「時刻スライダーが動かせるコマが無い」という形でしか症状が見えず
-    診断に実機コンソール計装を要した（T194の根本原因調査で判明）。`/api/weather`
-    （単一地点）は取得失敗を502で返す設計のため、この非対称を解消する。1地点でも
-    成功していれば従来どおり部分結果を200で返す（1地点の失敗で全体を落とさない
-    というT178の方針自体は維持）。`WeatherService.get_wind_grid`は常に`points`と
-    同じ長さの結果（失敗地点はNone）を返す契約のため、`grid`が空のまま（=呼び出し自体が
-    行われていない等）のケースは対象外にする（`grid and`のチェック）。"""
+    """全地点が取得失敗（Open-Meteo全滅、429常態化等）の場合のみ502で明示的に失敗を返す。
+    `/api/weather`（単一地点）は取得失敗を502で返す設計のため、この非対称を解消する。
+    1地点でも成功していれば部分結果を200で返す（1地点の失敗で全体を落とさない方針は
+    維持）。`WeatherService.get_wind_grid`は常に`points`と同じ長さの結果（失敗地点は
+    None）を返す契約のため、`grid`が空のまま（=呼び出し自体が行われていない等）の
+    ケースは対象外にする（`grid and`のチェック）。"""
     if points and grid and all(point is None for point in grid):
         logger.warning("%s: 全%d地点が取得失敗しました（Open-Meteo障害の可能性）", label, len(points))
         raise HTTPException(status_code=502, detail="気象データの取得に失敗しました")
@@ -141,13 +135,13 @@ async def get_wind_grid(
     http_request: Request,
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WindGridResponse:
-    """風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水を追加）。
+    """風・降水延長予報の格子点マップ。
     関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
-    502にしない）。ただし全地点が失敗した場合は502を返す（改善計画T200、
-    _reject_if_all_points_failed参照）。時刻配列はpoints内の各点からは外し、応答トップ
-    レベルに1本だけ持つ（改善計画T203、WindGridResponseのdocstring参照）。"""
+    502にしない）。ただし全地点が失敗した場合は502を返す（_reject_if_all_points_failed
+    参照）。時刻配列はpoints内の各点からは外し、応答トップレベルに1本だけ持つ
+    （WindGridResponseのdocstring参照）。"""
     enforce_rate_limit(http_request, "wind-grid", settings.wind_grid_rate_limit_per_minute)
     points = generate_wind_grid_points()
     times, grid = await weather_service.get_wind_grid(points)
@@ -165,17 +159,17 @@ async def get_wind_grid_detail(
     spacing_deg: float = Query(default=WIND_GRID_DETAIL_SPACING_DEG),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WindGridResponse:
-    """風・降水延長予報の詳細格子（改善計画T180、ヒートマップ等の面表現用。T185でspacing_deg
-    をズーム依存にして間隔可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
+    """風・降水延長予報の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を
+    可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
     密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の
     ため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を
     返す。get_wind_gridと同じく取得失敗地点は結果から除外し、時刻配列は応答トップレベルに
-    1本だけ持つ（改善計画T203）。
+    1本だけ持つ。
 
     spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を
     許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、
     フロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。
-    全地点が失敗した場合は502を返す（改善計画T200、_reject_if_all_points_failed参照）。"""
+    全地点が失敗した場合は502を返す（_reject_if_all_points_failed参照）。"""
     enforce_rate_limit(http_request, "wind-grid-detail", settings.wind_grid_detail_rate_limit_per_minute)
     if min_lon >= max_lon or min_lat >= max_lat:
         raise HTTPException(status_code=400, detail="表示範囲が不正です。")

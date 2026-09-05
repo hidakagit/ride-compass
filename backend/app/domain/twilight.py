@@ -1,4 +1,4 @@
-"""市民薄明（civil twilight）に基づく夜間判定（改善計画T173）。
+"""市民薄明（civil twilight）に基づく夜間判定。
 
 night軸（`domain/night.py`、街灯・トンネル由来の走りにくさ）を出発・到達時刻に応じて
 動的化するための天文計算。night_difficulty自体（街灯・トンネルタグからの難易度算出）は
@@ -8,8 +8,7 @@ night軸（`domain/night.py`、街灯・トンネル由来の走りにくさ）�
 設計、詳細はroad_graph_engine.pyの利用箇所参照）。
 
 市民薄明（太陽高度-6度、日没後も屋外の視認性が残る時間帯）の終わりを「夜」の境界に使う
-（日の入り時刻そのものではなく、薄明が終わるまではまだ十分明るいため。改善計画の
-「市民薄明の開始/終了を境界に使う」という対応方針どおり）。
+（日の入り時刻そのものではなく、薄明が終わるまではまだ十分明るいため）。
 
 天文計算は`astral`ライブラリ（暦計算、外部通信なし・決定論的）に委譲する。妥当性は
 sunrise-sunset.org（NOAA準拠の公開API）の実測値との突き合わせで確認済み
@@ -18,7 +17,7 @@ sunrise-sunset.org（NOAA準拠の公開API）の実測値との突き合わせ�
 `astral.sun(observer, date=D, tzinfo=UTC)`は「dateで指定したUTC暦日の中に収まる
 薄明イベント」を返すため、経度が東側（日本など）だと同じdate引数から返るdawnとduskが
 別々の現地日（duskはD当日の夕方、dawnは翌日の未明）を指し、時刻順が入れ替わって返る
-（実機検証で判明。安易に`dawn <= at <= dusk`で当日の昼間を判定すると誤る）。この関数は
+（安易に`dawn <= at <= dusk`で当日の昼間を判定すると誤る）。この関数は
 その罠を避けるため、`at`前後数日分のdawn/dusk全イベントをUTC時刻で単純にソートし、
 直前のイベント種別（dawn直後=昼、dusk直後=夜）で判定する（地域・時期に依存しない
 頑健な方法）。
@@ -70,12 +69,10 @@ def is_night(coordinates: Coordinates, at: datetime) -> bool:
 
 def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> tuple[str | None, str | None]:
     """`coordinates`地点の`on_date`（JST基準の暦日）における日の出・日没時刻をJST ISO文字列
-    （例: "2026-08-29T05:12:00+09:00"）で返す（改善計画T387フォローアップ、ユーザー指示
-    2026-08-29「日の出日没も予報が不要なので上部常設バーに移動」）。
+    （例: "2026-08-29T05:12:00+09:00"）で返す。
 
     is_nightと違い市民薄明ではなく実際の日の出・日没（太陽の中心が地平線と一致する瞬間）を
-    返す——Open-Meteoのdaily.sunrise/sunsetと同じ定義に揃えるため（TodayOutlookが従来
-    表示していたものと同じ意味の値を、外部APIを使わずローカル計算で置き換える）。
+    返す——Open-Meteoのdaily.sunrise/sunsetと同じ定義に揃えるため。
     極夜・白夜等、日の出/日没が定義できない緯度では(None, None)を返す。"""
     observer = Observer(latitude=coordinates.latitude, longitude=coordinates.longitude)
     try:

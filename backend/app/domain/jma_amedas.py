@@ -1,4 +1,4 @@
-"""JMAアメダス観測値のドメインモデル（改善計画T387）。"""
+"""JMAアメダス観測値のドメインモデル。"""
 
 import math
 
@@ -23,9 +23,9 @@ def wind_direction_label_from_jma_code(code: int | None) -> str | None:
 
 
 def wind_direction_degrees_from_jma_code(code: int | None) -> float | None:
-    """JMAアメダスのwindDirectionコードを角度（0=北、時計回り）へ変換する（改善計画T387
-    フォローアップ、/api/weatherの現在値をアメダス優先にする際にWeatherConditions.
-    wind_direction_deg[度]と揃えるために追加）。code=16は360度ではなく0度（北）に正規化する。
+    """JMAアメダスのwindDirectionコードを角度（0=北、時計回り）へ変換する
+    （WeatherConditions.wind_direction_deg[度]と揃える）。code=16は360度ではなく
+    0度（北）に正規化する。
     """
     if not code:
         return None
@@ -35,8 +35,8 @@ def wind_direction_degrees_from_jma_code(code: int | None) -> float | None:
 def apparent_temperature_from_amedas(
     temperature_c: float | None, humidity_percent: float | None, wind_speed_ms: float | None
 ) -> float | None:
-    """気温・湿度・風速から体感温度を算出する（改善計画T387フォローアップ、ユーザー指示
-    2026-08-29）。JMAは体感温度そのものは提供しない（暑さ指数WBGTのみ）ため、
+    """気温・湿度・風速から体感温度を算出する。
+    JMAは体感温度そのものは提供しない（暑さ指数WBGTのみ）ため、
     オーストラリア気象局(BOM)のApparent Temperature式で自前計算する:
 
         AT = Ta + 0.33e - 0.70*ws - 4.00
@@ -56,8 +56,8 @@ class AmedasObservation(BaseModel):
     """最寄りアメダス観測所の直近観測値。
 
     突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない
-    （改善計画T387フォローアップ、2026-08-29に実データで確認: 全1,286観測所の
-    キー一覧にgust相当のフィールドが1つも無い）ため、このモデルに含めない。
+    （全1,286観測所のキー一覧にgust相当のフィールドが1つも無い）ため、
+    このモデルに含めない。
     """
 
     station_id: str
@@ -74,8 +74,7 @@ class AmedasObservation(BaseModel):
     # 直近10分間の日照時間（分、0〜10）。天気アイコンの簡易分類
     # （晴れ/くもり/雨/雪、frontend側）が降水量と組み合わせて使う。
     sunshine_10min_minutes: float | None
-    # 常設ヘッダーへ日の出/日没を表示するため追加（改善計画T387フォローアップ、
-    # ユーザー指示2026-08-29「日の出日没も予報が不要なので上部常設バーに移動」）。
+    # 常設ヘッダーへ日の出/日没を表示するため持つ。
     # JMA/Open-Meteoいずれにも問い合わせず、astralによるローカル天文計算
     # （domain/twilight.py: sunrise_sunset_jst）で求める。クエリ地点（最寄り観測所ではなく
     # リクエストのlatitude/longitudeそのもの）・当日（JST）の値。
