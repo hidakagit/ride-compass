@@ -247,7 +247,7 @@
   display: inline-flex;
   align-items: stretch;
   border-radius: 999px;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
   overflow: hidden;
 }
@@ -325,8 +325,8 @@
   align-self: flex-start;
   font-size: var(--font-size-sm);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  background: transparent;
   padding: 0.2rem 0.6rem;
   cursor: pointer;
 }
