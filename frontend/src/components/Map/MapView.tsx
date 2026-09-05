@@ -102,17 +102,15 @@ function mapStyleUrl(): string {
   return `${tileBaseUrl()}${MAP_STYLE_PATH}`;
 }
 
-// 改善計画T368: 出発地点マーカーの色。GPS取得失敗時のフォールバック（"default"）だけを
-// グレーにし、それ以外（実際のGPS取得・手動指定）は従来どおりの赤にする。
+// 出発地点マーカーの色。GPS取得失敗時のフォールバック（"default"）だけをグレーにし、
+// それ以外（実際のGPS取得・手動指定）は赤にする。
 const ORIGIN_MARKER_COLOR = "#e11d48";
 const ORIGIN_MARKER_FALLBACK_COLOR = "#9ca3af";
 
-// 改善計画T372（実機フィードバック「赤ピンアイコンと実際の地図上現在地アイコンが異なる、
-// 揃えてほしい」）: 出発地点マーカーは以前maplibregl.Markerの既定のしずく形アイコンを
-// 使っていたが、「現在地に移動」ボタン（page.tsx）の十字線+中心ドットのアイコンと形が
-// 揃っていなかった。同じSVG（十字線+中心ドット、地図アプリの現在地アイコンの定番形状）を
-// 白背景の円に乗せて共通化する。しずく形（下端が地点を指す）と違いこの形は左右対称なため、
-// アンカーを"bottom"ではなく"center"にする（地点＝アイコンの中心）。
+// 出発地点マーカーは、「現在地に移動」ボタン（page.tsx）と同じSVG（十字線+中心ドット、
+// 地図アプリの現在地アイコンの定番形状）を白背景の円に乗せて共通化する。maplibregl.Marker
+// 既定のしずく形（下端が地点を指す）と違いこの形は左右対称なため、アンカーを"bottom"では
+// なく"center"にする（地点＝アイコンの中心）。
 function createOriginMarkerElement(color: string): HTMLDivElement {
   const el = document.createElement("div");
   el.style.cssText =
@@ -128,50 +126,48 @@ function createOriginMarkerElement(color: string): HTMLDivElement {
   return el;
 }
 
-// 国土地理院の色別標高図（ラスタタイル、APIキー不要）。改善計画T572でbasemap/jma-tileと
-// 同じバックエンド経由（永続ファイルキャッシュ付き）・同一オリジンへ切り替えた。
+// 国土地理院の色別標高図（ラスタタイル、APIキー不要）。basemap/jma-tileと同じ
+// バックエンド経由（永続ファイルキャッシュ付き）・同一オリジンで配信する。
 const GSI_RELIEF_TILE_PATH = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
 const GSI_RELIEF_MAX_ZOOM = 15;
 const GSI_RELIEF_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
 
 // 路面のベクタタイル内のレイヤー名。バックエンド（infrastructure/vector_tile.pyの
-// ROAD_SURFACE_LAYER_NAME）と一致させる必要がある（改善計画T19: export_openapi.pyが
-// 書き出すgenerated/region-tile-config.jsonとregionTileConfig.test.tsの照合テストが
-// ドリフトを検知する。exportしているのはそのテストから参照するため）。
+// ROAD_SURFACE_LAYER_NAME）と一致させる必要がある（export_openapi.pyが書き出す
+// generated/region-tile-config.jsonとregionTileConfig.test.tsの照合テストがドリフトを
+// 検知する。exportしているのはそのテストから参照するため）。
 export const ROAD_TILE_SOURCE_LAYER = "road_surface";
 
-// 事故レイヤー（外部静的データソース T50）のベクタタイル内のレイヤー名。バックエンド
+// 事故レイヤー（外部静的データソース）のベクタタイル内のレイヤー名。バックエンド
 // （infrastructure/vector_tile.pyのACCIDENT_LAYER_NAME）と一致させる（ROAD_TILE_SOURCE_LAYERと
 // 同じドリフト検知の仕組み、region-tile-config.jsonのaccidentキー）。
 export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
 
-// 停止要因POIタイル（改善計画T54）内のレイヤー名。バックエンド
+// 停止要因POIタイル内のレイヤー名。バックエンド
 // （infrastructure/vector_tile.pyのSTOP_POI_LAYER_NAME）と一致させる必要がある
 // （ROAD_TILE_SOURCE_LAYERと同じくregion-tile-config.json経由でドリフト検知、
 // regionApi.test.ts参照）。同じpoi-tilesタイルにバックエンドは交差点密度（intersection）も
-// 焼き込んでいるが、地図上の独立可視化レイヤーとしては提供しない判断をしたため
-// （ルーティング材料のintersection_weightとしては引き続き使う。ユーザー判断:
-// 道が何本交わっているかは道路網を見れば分かり、可視化としての追加情報が薄いため）
-// フロント側では参照しない。
+// 焼き込んでいるが、地図上の独立可視化レイヤーとしては提供しない（道が何本交わっているかは
+// 道路網を見れば分かり、可視化としての追加情報が薄いため。ルーティング材料の
+// intersection_weightとしては引き続き使う）ためフロント側では参照しない。
 export const STOP_POI_SOURCE_LAYER = "stop_poi";
 
 const ROUTES_SOURCE_ID = "route-candidates";
-// 改善計画T518: 「ルート」チップOFF時の完全非表示検証（MapView.layerOps.test.ts）向けに
-// export。
+// 「ルート」チップOFF時の完全非表示検証（MapView.layerOps.test.ts）向けにexport。
 export const ROUTES_LAYER_ID = "route-candidates-line";
 const OUTLINE_SOURCE_ID = "route-selected-outline";
 export const OUTLINE_LAYER_ID = "route-selected-outline-line";
-// 周回ルートの採用向き（順回り/逆回り）を示す矢印（改善計画T293）。8候補すべてに出すと
-// 輻輳するため専用sourceは持たず、選択中1候補のgeometryだけを保持するOUTLINE_SOURCE_IDを
-// そのまま流用する（drawSelectedOutline参照）。
+// 周回ルートの採用向き（順回り/逆回り）を示す矢印。8候補すべてに出すと輻輳するため専用
+// sourceは持たず、選択中1候補のgeometryだけを保持するOUTLINE_SOURCE_IDをそのまま流用する
+// （drawSelectedOutline参照）。
 const ROUTE_ARROW_ICON_ID = "route-arrow-icon";
 export const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
 export const ROUTE_ARROW_LAYER_ID = "route-arrow";
 const DETAIL_SOURCE_ID = "route-detail-segments";
 const DETAIL_LAYER_ID = "route-detail-segments-line";
-// 改善計画T550: DETAIL_LAYER_ID（見た目の線、幅6px）そのものはモバイルでタップしづらいため、
-// 同じDETAIL_SOURCE_IDを参照する当たり判定専用の太い（幅24px）・見えない（line-opacity:0）
+// DETAIL_LAYER_ID（見た目の線、幅6px）そのものはモバイルでタップしづらいため、同じ
+// DETAIL_SOURCE_IDを参照する当たり判定専用の太い（幅24px）・見えない（line-opacity:0）
 // レイヤー。クリックイベント・カーソル変更（interactiveLayerIds）はこちらへ登録し、見た目の
 // 線幅・色は変えない（drawDetailSegments・buildInteractiveLayerIds参照）。
 const DETAIL_HIT_LAYER_ID = "route-detail-segments-hit";
@@ -179,42 +175,38 @@ const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
-// 動的気象レイヤー（風・降水、T183再設計）のsource/layer id。要素id×ソース×描画方式
-// （raster/fill/mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい
-// 定数を足す必要はない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。
-// 改善計画T432: sourceを追加し「1グループ=複数の名前付きソース」を表現できるようにした
-// （単一ソースのグループは"main"という1キーだけを持つ）。
+// 動的気象レイヤー（風・降水）のsource/layer id。要素id×ソース×描画方式（raster/fill/
+// mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
+// ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
+// 「1グループ=複数の名前付きソース」を表現できる（単一ソースのグループは"main"という
+// 1キーだけを持つ）。
 export function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark" | "vector") {
   const base = `region-dynamic-weather-${id}-${source}-${sub}`;
   return { sourceId: base, layerId: `${base}-main`, iconId: `${base}-icon` };
 }
 // 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
-// way_id→wind_drag_ratio配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
-// SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと
-// 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
+// way_id→wind_drag_ratio配信層。「評価軸」グループとしての風——ROAD_TILE_SOURCE_ID/
+// ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと同じ構成）だが、
+// 色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
 const WIND_AXIS_LAYER_ID = "region-wind-axis-line";
-// way_id→勾配（effective_gradient）配信層（改善計画T423）。WIND_AXIS_LAYER_IDと同型
-// ——ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けは
-// setFeatureState経由の値（dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む。
+// way_id→勾配（effective_gradient）配信層。WIND_AXIS_LAYER_IDと同型——ROAD_TILE_SOURCE_ID/
+// ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けはsetFeatureState経由の値
+// （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む。
 const GRADIENT_AXIS_LAYER_ID = "region-gradient-axis-line";
-// 環境グループの勾配gridFill（改善計画T423）。矢印gridMarkと同時表示する必要が無く
-// （gradientGridFill.tsのモジュールdocstring参照）DYNAMIC_WEATHER_RENDERERS汎用機構へ
-// 乗せる制約は無いが、page.tsx側の配線（useDynamicWayValues由来の別系統フック）まで
-// 作り直す統合コストが今回のスコープを超えるため、bespokeなensure/apply関数のまま
-// 据え置く。
-// 改善計画T452（DEFERトリガー明記）: トリガーは「gradientFillのensure/apply関数自体へ
-// 次回手を入れる判断をした時点」または「同種のbespoke実装（way_id依存の動的面塗り）が
-// 3例目として追加される時点」のいずれか。現時点でこのトリガーに向けた着手は不要。
+// 環境グループの勾配gridFill。矢印gridMarkと同時表示する必要が無く（gradientGridFill.tsの
+// モジュールdocstring参照）DYNAMIC_WEATHER_RENDERERS汎用機構へ乗せる制約は無いが、
+// page.tsx側の配線（useDynamicWayValues由来の別系統フック）まで作り直す統合コストが
+// 見合わないため、bespokeなensure/apply関数のまま据え置く。
 const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
-// exportはテスト専用（MapView.overlayFilters.test.ts、改善計画T478の回帰テスト）。
+// exportはテスト専用（MapView.overlayFilters.test.ts）。
 export const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export const TUNNEL_LAYER_ID = "region-tunnel-line";
 export const ONEWAY_LAYER_ID = "region-oneway-line";
 const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
@@ -226,27 +218,20 @@ export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
 // 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
 // 必ず設定されている。実行時に万一欠けていた場合、および「道路の種類」レイヤーがOFFの間の
 // フォールバック（均一な太さ・実線）に使う。
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export const DEFAULT_ROAD_LINE_WIDTH = 3;
 const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
 // ROAD_TILE_LAYER_IDの初期化直後の仮の不透明度、および路面の種類・道路の種類のどちらも
 // opacityExpressionを持たない万一のフォールバック（実運用では両軸とも持つため通らない、
-// applyRoadLayerState参照）。「路面の種類」がOFFで「道路の種類」だけONのときは、以前は
-// 色が中立（ROAD_LINE_NEUTRAL_COLOR）でカテゴリを表さなかったためこの値に固定していたが、
-// 道路の種類も専用の濃淡パレット・opacityExpressionを持つようになった（実機フィードバック
-// 「道路種別が支配的な場合、色がすべて灰色で違和感がある」への対応）ため、現在は通常
-// そちらが使われる。
+// applyRoadLayerState参照）。
 const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
 // インフラ・指定路線）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
-// ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠していた。実機
-// フィードバック「1次要素をどれかOFFにして何が支配的なのか見たい」を受け、line-offsetで
+// ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠してしまう。line-offsetで
 // 道路と平行な複数トラックへ横並びに分離する（applyRoadMaterialTrackOffsets参照）。
-// トラック間隔は当初line-width（3px）と揃え隙間なく境界を接する値にしていたが、全部ON時に
-// 全体の帯が「地図の線が太すぎる」という実機フィードバックを受け、隣接トラックが
-// line-widthの半分弱ずつ重なる値へ縮めた（重なりは色の切り替わりとして視認できる範囲に
-// 収まり、完全な塗り潰しにはならない）。
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// トラック間隔はline-width（3px）の半分弱ずつ重なる値にしてある（重なりは色の切り替わりと
+// して視認できる範囲に収まり、完全な塗り潰しにはならない）。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export const MATERIAL_TRACK_OFFSET_STEP = 2;
 export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
   ROAD_TILE_LAYER_ID,
@@ -254,33 +239,21 @@ export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
   TUNNEL_LAYER_ID,
   ONEWAY_LAYER_ID,
 ] as const;
-// 改善計画（1次/2次の地図上表現の統一、松）: ramp軸（車の圧迫感[T292]・停止密度・事故密度等、
-// axisLayers.ts）は「推定」グループのメンバーで、いずれも同じroad_surfaceソース上の
-// 独立レイヤーとして重ねて描画される。以前は1次（designation等）と同じ
-// 太さ・不透明度（3px・0.85）で塗っていたため、同時にONにすると後から追加された
-// レイヤーが前のレイヤーを完全に覆い隠すだけで、材料（T167で連動ONする観測データ）と
-// 推定の両方を同時に読み取れなかった（実機フィードバック「1次と2次の地図上表現を
-// 一致させたい」）。2次は太く半透明な「下敷き」、1次は細くくっきりした「上書き」として
-// 重ねることで、下に赤い区間があってもその上に事故地点の点や道路種別の線が乗って見える
-// ようにする（描画順序はSTATIC_OVERLAY_LAYERS参照。1次より下・road_surfaceより上に置く）。
+// ramp軸（車の圧迫感・停止密度・事故密度等、axisLayers.ts）は「推定」グループのメンバーで、
+// いずれも同じroad_surfaceソース上の独立レイヤーとして重ねて描画される。2次は太く半透明な
+// 「下敷き」、1次（designation等）は細くくっきりした「上書き」として重ねることで、下に
+// 赤い区間があってもその上に事故地点の点や道路種別の線が乗って見えるようにする（描画順序は
+// STATIC_OVERLAY_LAYERS参照。1次より下・road_surfaceより上に置く）。
 // 幅は1次「素材」線が全部ONになったときの最大帯幅（トラック数×オフセット間隔＋自身の
-// 太さ）から計算する。以前はこの値を手計算した結果（「3本・オフセット2px・幅3pxなら
-// 7px」）を別のマジックナンバーとしてここへ直書きしており、オフセット間隔や素材の本数
-// （ROAD_MATERIAL_TRACK_LAYER_IDSの要素数）を変えるとここだけ追従せず、下敷きが帯の外側に
-// はみ出す／内側に収まらないというズレを黙って再発させていた（実機フィードバック「オフセット、
-// カーシングの幅は重ねる線が3本から変わっても揃うようにして」「なるべくベタで書かず、揃える
-// 制約があるものは連動させて欲しい」への対応）。この式にすることで、以後は上記2定数の変更に
-// 自動で追従する。
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// 太さ）から式で算出する。この式にすることで、上記2定数（トラック本数・オフセット間隔）の
+// 変更に自動で追従する。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export const SECONDARY_AXIS_CASING_WIDTH =
   (ROAD_MATERIAL_TRACK_LAYER_IDS.length - 1) * MATERIAL_TRACK_OFFSET_STEP + DEFAULT_ROAD_LINE_WIDTH;
 export const SECONDARY_AXIS_CASING_OPACITY = 0.45;
 // ROAD_TILE_LAYER_IDの初期化直後の仮の色（applyRoadLayerStateが呼び出し直後に必ず実際の
 // 値へ上書きする、placeholder的な役割のみ）。実際に「路面の種類OFF・道路の種類ON」時の
-// 色分けはroadFilterAxes.tsのHIGHWAY_GROUPS（濃淡パレット、COLOR_HIGHWAY_*）を使う
-// （以前はここへ固定した中立グレーを使っていたが、「不明・他」と同じ色を全区間に塗って
-// しまい「道路種別が支配的な場合、色がすべて灰色で違和感がある」という実機フィードバックを
-// 受けて廃止した。applyRoadLayerState参照）。
+// 色分けはroadFilterAxes.tsのHIGHWAY_GROUPS（濃淡パレット、COLOR_HIGHWAY_*）を使う。
 const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
 
 // routesToFeatureCollection/segmentsToFeatureCollection/computeRouteBoundsはexportして
@@ -1485,15 +1458,15 @@ function applyGradientFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureColl
   source?.setData(geojson ?? EMPTY_FEATURE_COLLECTION);
 }
 
-// 路面レイヤーの表示状態を一括反映する（改善計画T165: 「道路情報」を「路面の種類」
-// （roadSurface、色）・「道路の種類」（roadType、太さ・線種）の論理2レイヤーへ分割。
-// 物理的には同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
-// 多重表現が壊れるため、1本のMapLibre線レイヤー（ROAD_TILE_LAYER_ID）へ動的に合成する）。
-// - 両方ON: 色=路面の種類の配色、太さ・線種=道路の種類（従来どおりの見た目）
+// 「道路情報」は「路面の種類」（roadSurface、色）・「道路の種類」（roadType、太さ・線種）の
+// 論理2レイヤーだが、物理的には同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し
+// 「色×太さ」の多重表現が壊れるため、1本のMapLibre線レイヤー（ROAD_TILE_LAYER_ID）へ
+// 動的に合成する。
+// - 両方ON: 色=路面の種類の配色、太さ・線種=道路の種類
 // - 路面の種類のみON: 色=路面の種類の配色、太さ・線種は中立（均一・実線）
 // - 道路の種類のみON: 色=道路の種類の濃淡パレット（COLOR_HIGHWAY_*、太さと同じ序列）、
-//   太さ・線種=道路の種類（改善計画: 実機フィードバック「道路種別が支配的な場合、色が
-//   すべて灰色で違和感がある」への対応。以前は色を一律ROAD_LINE_NEUTRAL_COLORにしていた）
+//   太さ・線種=道路の種類（色をROAD_LINE_NEUTRAL_COLOR一律にすると道路種別が支配的な
+//   場合に全区間が灰色になり判別できなくなるため、濃淡パレットを使う）
 // - 両方OFF: レイヤー自体を隠す
 // フィルタも表示中の軸だけを反映する（OFF中の軸のhiddenKeysで絞り込むと、その軸を
 // OFFにしているのに地物が消える、という矛盾が起きるため）。
