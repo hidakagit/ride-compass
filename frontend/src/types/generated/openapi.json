@@ -3387,6 +3387,13 @@
             },
             "type": "object",
             "title": "Axis Contributions"
+          },
+          "material_values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Material Values"
           }
         },
         "type": "object",
@@ -3758,6 +3765,13 @@
             },
             "type": "object",
             "title": "Axis Contributions"
+          },
+          "material_values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Material Values"
           },
           "difficulty": {
             "anyOf": [

@@ -37,11 +37,11 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 風の列だけを引き直して合成する（`domain/wind.py: estimate_passage_hours`、
 `direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が
 到着予定時刻）。合成結果`LegCostArrays`は`cost_list`（`lazy_graph.edge_ids`順）と表示用の
-`difficulty_array`/`axis_arrays`/`contribution_arrays`/`wind_penalty`（材料`wind_penalty`
-＝進行方向に平行な風成分m/sの配列、`full_edge_row`順）を持ち、`_RoadGraphContext.legs`に
-添字順で並ぶ。`compose`は`DynamicAxisRequestContext`へ風の入力と走行速度
-（`speed_kmh`を`kmh_to_ms`でm/sへ変換）を渡し、風の材料（`wind_drag_ratio`・
-`wind_penalty`）はいずれもこのcontextから求まる:
+`difficulty_array`/`axis_arrays`/`contribution_arrays`/`material_arrays`（動的材料id→
+`full_edge_row`順配列の辞書、`evaluate_dynamic_material_arrays`が返す全材料のうち値がある
+ものだけ）を持ち、`_RoadGraphContext.legs`に添字順で並ぶ。`compose`は
+`DynamicAxisRequestContext`へ風の入力と走行速度（`speed_kmh`を`kmh_to_ms`でm/sへ変換）を
+渡し、風の材料（`wind_drag_ratio`・`wind_penalty`）はいずれもこのcontextから求まる:
 
 | 用途 | 添字0 | 添字1〜 |
 |---|---|---|
@@ -51,8 +51,12 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 | `preview_segment` | 往路のみ | — |
 
 `TracedLoop.leg_of_edge`が経路上の各Edgeのレグ添字を運び、`_build_segment_details`・
-`_aggregate_wind_score`はそのレグの配列から値を読む（探索と表示の一致、
-[設計原則](../../design-principles.md)10）。逆回り候補はレグ割当ても逆順にする（先に
+`_aggregate_material_average`（材料非依存、`_aggregate_wind_score`は`material_id="wind_penalty"`
+で呼ぶ薄いラッパー）はそのレグの配列から値を読む（探索と表示の一致、
+[設計原則](../../design-principles.md)10）。`RouteSegmentDetail.material_values`/
+`RouteCandidate.material_values`（重み>0の公開軸が参照する材料id→値、`AXIS_DEFINITIONS`の
+`materials`プロパティから導出）も同じ`material_arrays`を読む
+（`_active_material_ids`・`_material_value_at`）。逆回り候補はレグ割当ても逆順にする（先に
 走る側が往路配列）。起点の時別風予報（`WeatherService.get_wind_forecast_series`、
 `get_conditions`と同じ応答・キャッシュ）が無い、または風に依存する公開軸の重みが0の
 場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コストゼロ）。
