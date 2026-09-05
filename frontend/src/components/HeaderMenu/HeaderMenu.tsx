@@ -16,17 +16,16 @@ interface HeaderMenuProps {
   onToggleDebugConsole: () => void;
 }
 
-// 改善計画T519: ヘッダーの個別ボタンをこれ以上増やさないよう、常時表示は1個の
-// メニューアイコンに集約する（ユーザー指示2026-09-01。WarningBadgeListと同じ
-// 「常時1行のトリガー→タップで詳細」パターンをRadix Popoverで踏襲）。
+// ヘッダーの個別ボタンをこれ以上増やさないよう、常時表示は1個のメニューアイコンに
+// 集約する（WarningBadgeListと同じ「常時1行のトリガー→タップで詳細」パターンを
+// Radix Popoverで踏襲）。
 //
 // 研究モードON/OFF（実験スロット記録・比較タブ・地図重ね描き）を、`/admin`を一切
-// 経由せずここから直接切り替えられるようにする——従来は`researchEnabled`
-// フラグの実体が素のlocalStorageで、有効化する意図されたUIが`/admin`の
-// `ResearchPanel`（Basic認証保護下）にしかなかったが、フラグ自体にサーバー側検証は
-// 無く、`/`（認証なし）のDevToolsコンソールから直接操作可能だった（T519調査）。
-// 「隠すべき機微な機能ではなく、気軽に試せる比較機能」という結論に基づき、一般
-// 利用者向けの正式なON/OFF導線としてここへ配置する。
+// 経由せずここから直接切り替えられるようにする——`researchEnabled`フラグの実体は
+// 素のlocalStorageで、フラグ自体にサーバー側検証は無く、`/`（認証なし）の
+// DevToolsコンソールからも直接操作できる。「隠すべき機微な機能ではなく、気軽に
+// 試せる比較機能」という位置づけのため、一般利用者向けの正式なON/OFF導線として
+// ここへ配置する。
 export default function HeaderMenu({ debugEnabled, debugConsoleOpen, onToggleDebugConsole }: HeaderMenuProps) {
   const researchEnabled = useResearchEnabled();
 

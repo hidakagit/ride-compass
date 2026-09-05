@@ -1,8 +1,8 @@
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
-// backendの直近ログ取得API（GET /api/admin/debug/logs、改善計画T379）のクライアント
-// （改善計画T517）。axisAdminApi.tsと同じ理由で、同一オリジンのNext.js route handler
+// backendの直近ログ取得API（GET /api/admin/debug/logs）のクライアント。
+// axisAdminApi.tsと同じ理由で、同一オリジンのNext.js route handler
 // （app/admin/api/debug/logs/、lib/adminApiProxy.ts参照）を経由する——/adminページの
 // ブラウザ標準Basic認証セッションをそのまま再利用でき、この画面専用の認証情報入力欄が
 // 不要になる。backendのレスポンス形（list[str]、debug_admin.py: read_recent_logs）は
@@ -20,8 +20,7 @@ export interface GetRecentLogsParams {
   limit?: number;
   /** 部分一致フィルタ（例: "jma-tile"）。 */
   contains?: string;
-  /** このレベル以上だけに絞り込む（例: "WARNING"でWARNING/ERROR/CRITICALだけになる、
-   * 改善計画T517）。 */
+  /** このレベル以上だけに絞り込む（例: "WARNING"でWARNING/ERROR/CRITICALだけになる）。 */
   minLevel?: LogLevelName;
 }
 

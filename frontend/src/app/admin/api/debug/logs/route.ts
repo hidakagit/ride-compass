@@ -1,6 +1,6 @@
 import { proxyToBackendAdmin } from "@/lib/adminApiProxy";
 
-// backend: GET /api/admin/debug/logs（改善計画T379・T517）。limit/containsクエリは
+// backend: GET /api/admin/debug/logs。limit/containsクエリは
 // proxyToBackendAdminがrequest.urlからそのまま転送する。
 const BACKEND_PATH = "/api/admin/debug/logs";
 

@@ -3,7 +3,7 @@ import { fetchJson } from "@/lib/fetchJson";
 import type { components } from "@/types/generated/api";
 
 // APIの型はbackendのOpenAPIスキーマから生成した generated/api.d.ts を正とし、
-// このファイルは再エクスポートのみを持つ（手書きの二重管理をしない、改善計画T481）。
+// このファイルは再エクスポートのみを持つ（手書きの二重管理をしない）。
 // backend/app/api/routers/health.py: DebugStatsResponse/ExternalCallStatsResponse
 // （infrastructure/debug_log.py: get_stats()が組み立てるdictの構造）が単一の情報源。
 // backend側のレスポンスモデルを変更したら
