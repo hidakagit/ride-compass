@@ -1,20 +1,12 @@
-"""axis_definitionsのfresh bootstrap用スナップショット読み書き（改善計画T361）。
+"""axis_definitionsのfresh bootstrap用スナップショット読み書き。
 
-背景: T350で`axis_definitions`テーブルをDBが唯一の正本になるよう単純化したが、
-「まっさらなDBへ全migrationを適用する」fresh bootstrap経路（CI・新規開発環境・
-disaster recovery）は、`backend/migrations/`配下のmigration（0014・0017・0021・0022等）
-が持つ行データのINSERT/DELETEに依存したままだった。T353が軸定義の変更をmigrationでは
-なくaxis_admin APIの直接操作で行った結果、fresh bootstrapが再現する内容と実際の
-DB（本番/dev）の内容が乖離する不整合が発生した（T360で発覚・個別migration 0022で対症療法）。
-「軸定義の変更経路がmigrationとAPIの2つ存在する限り、両者の同期漏れは構造的に再発し続ける」
-（T360）というのが根本原因のため、T361でaxis_definitionsの**行データ**を管理する経路を
-axis_admin APIへ一本化する。migrationは今後（0023以降）`axis_definitions`/
-`axis_registry_meta`の**テーブル構造（DDL）のみ**を管理し、行データを挿入・変更する
-migrationは追加しない（0014〜0022は過去の履歴としてそのまま残す。既存migrationの内容を
-書き換えない、というこのプロジェクトの標準運用に従う）。
-
-fresh bootstrap時の実データは、このモジュールが読み書きする**スナップショットファイル**
-（`backend/fixtures/axis_definitions_snapshot.json`、現在の実DBの内容を
+`axis_definitions`テーブルの**行データ**（軸の新規追加・既存軸の変更）はaxis_admin API
+経由でのみ行い、`backend/migrations/`は0023以降テーブル構造（DDL）のみを管理する
+（0014〜0022は行データを含む過去のmigrationとしてそのまま残す。既存migrationの内容を
+書き換えない、というこのプロジェクトの標準運用に従う）。「まっさらなDBへ全migrationを
+適用する」fresh bootstrap経路（CI・新規開発環境・disaster recovery）は、この行データを
+migrationからは得られないため、代わりにこのモジュールが読み書きする**スナップショット
+ファイル**（`backend/fixtures/axis_definitions_snapshot.json`、現在の実DBの内容を
 `backend/scripts/dump_axis_definitions_snapshot.py`でダンプしたもの）から用意する。
 
 **`load_axis_definitions_snapshot`はテーブルを丸ごと空にしてから投入する（無条件、
@@ -25,15 +17,13 @@ refresh_axis_definitions`）や、稼働中のDBに対して繰り返し実行�
 import_pbf.py`等からは**呼ばない**——呼ぶと、デプロイやバッチ実行のたびに本番の
 生きた軸データ（API経由でチューニング済みかもしれない）がスナップショットの内容で
 黙って上書きされる事故になる。`refresh_axis_definitions`の「テーブルが空なら
-`AxisDefinitionSyncError`で起動自体を失敗させる」というfail-fast方針（T349/T350）は
-この変更後も維持する——fresh bootstrapツールを踏まずにアプリを起動しようとした場合は、
-自動修復せず起動が落ちるのが正しい挙動という判断を引き続き踏襲する。
+`AxisDefinitionSyncError`で起動自体を失敗させる」というfail-fast方針は
+この経路でも維持する——fresh bootstrapツールを踏まずにアプリを起動しようとした場合は、
+自動修復せず起動が落ちるのが正しい挙動とする。
 
 スナップショットの更新は手動運用とする（本番/devでAPI経由の軸変更を行った後、
-`dump_axis_definitions_snapshot.py`を都度手動実行してリフレッシュする）。デプロイの
-たびに自動でダンプする方式も検討したが、頻度が低い操作のためデプロイパイプラインへ
-組み込む複雑さ・リスクの方が上回ると判断した（軸のshape_params調整自体が「本番反映は
-別途」という手動運用のため、スナップショット更新もその手動フローの延長に置くのが自然）。
+`dump_axis_definitions_snapshot.py`を都度手動実行してリフレッシュする）。頻度が低い
+操作のためデプロイパイプラインへ自動で組み込まず、手動フローのままにしてある。
 """
 
 import json
