@@ -1055,11 +1055,10 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
 
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
 // パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMark/vectorのうち
-// 実際に指定されているものだけを追加する（改善計画T432、ソースごとにループする形へ一般化）。
+// 実際に指定されているものだけを追加する。
 // spec.*.colorExpression等はDYNAMIC_WEATHER_RENDERERS呼び出し元（MapView.tsx本体、
-// page.tsx）が軸スタジオ由来の動的なしきい値から組み立てることがある（T587: 過去に
-// windVectorのpenaltyFillがdedicatedWayValueDisplaysから配色しきい値を引いていた）。
-// そのためgroupSpecが変わるたびにこの関数が呼ばれる前提で、レイヤーが既に存在する場合も
+// page.tsx）が軸スタジオ由来の動的なしきい値から組み立てることがある。そのため
+// groupSpecが変わるたびにこの関数が呼ばれる前提で、レイヤーが既に存在する場合も
 // 各paintプロパティをsetPaintPropertyで再適用する（addLayer時の値で固定させない）。
 export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
   const applyData = () => {
@@ -1145,8 +1144,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
               "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
               "icon-allow-overlap": false,
               "icon-ignore-placement": false,
-              // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。ユーザー要望
-              // 「矢印の長さと色の連続グラデーションの組み合わせ」を自前実装で実現。
+              // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。
               "icon-size": zoomAndPropertyIconSizeExpression(
                 mark.valueProperty,
                 mark.minScale,
@@ -1212,10 +1210,9 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
 // 未完了・取得失敗時、あるいは選択時刻がそのソースのデータ範囲外で「描画しない」場合に、
 // 古いフレームが一瞬見えるのを防ぐ）。payload.kindがそのソースのspecの複数サブレイヤー
 // （precipitationNowcast.mainのraster/gridFill等）のどれと対応するかだけを見て、対応しない
-// サブレイヤーは常に非表示にする（=同時に両方は出ない）。改善計画T432: ソースをまたいだ
-// 複数payloadの同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の
-// 別ソースとして独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを
-// 独立に処理するだけ）。
+// サブレイヤーは常に非表示にする（=同時に両方は出ない）。ソースをまたいだ複数payloadの
+// 同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の別ソースとして
+// 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
 function applyDynamicWeatherState(
   map: MapLibreMap,
   id: DynamicWeatherLayerId,
