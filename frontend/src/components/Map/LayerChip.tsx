@@ -11,7 +11,7 @@ interface LayerChipProps {
   on: boolean;
   /** 表示テキストと別のアクセシブル名が必要な場合（サイドバー側の「表示」チップ等）に指定 */
   ariaLabel?: string;
-  /** レイヤーのデータ取得状態（改善計画T87）。表示ON時のみ小さな状態ドットを添える
+  /** レイヤーのデータ取得状態。表示ON時のみ小さな状態ドットを添える
    * （undefined＝正常。OFF中はチップ自体の見た目でON/OFFが分かるため出さない）。 */
   dataStatus?: LayerDataStatus;
   /** イベントを受け取れる形にしているのは、<summary>内に置く場合にクリックが
@@ -21,13 +21,13 @@ interface LayerChipProps {
 }
 
 // サイドバー（MapLayersPanel）の「表示」チップで使うテキストのみのON/OFFボタン。
-// 以前は地図上（MapOverlayControls）とも共有していたが、地図上はスペース節約のため
-// アイコン+短いラベルのボタン（MapOverlayControls.module.cssのiconChip）へ置き換えた。
+// 地図上（MapOverlayControls）はスペース節約のためアイコン+短いラベルのボタン
+// （MapOverlayControls.module.cssのiconChip）を使い、このコンポーネントは共有しない。
 //
-// 押下状態の表示・キーボード操作（Space/Enter）はRadix Toggleへ委譲する（T253併用導入）。
-// ただし押下状態自体は従来どおり呼び出し側（`on` prop）が完全に外部管理しており、
-// このコンポーネントは内部状態を一切持たない（Toggleの`onPressedChange`は使わず生の
-// `onClick`のみを渡す）。`<summary>`内で使う呼び出し側（RecipePanelSection等）が
+// 押下状態の表示・キーボード操作（Space/Enter）はRadix Toggleへ委譲する。ただし
+// 押下状態自体は呼び出し側（`on` prop）が完全に外部管理しており、このコンポーネントは
+// 内部状態を一切持たない（Toggleの`onPressedChange`は使わず生の`onClick`のみを渡す）。
+// `<summary>`内で使う呼び出し側（RecipePanelSection等）が
 // `event.preventDefault()`で親のdetails開閉を止めることがあるため、内部トグルロジックに
 // 依存すると`composeEventHandlers`の仕様上（defaultPrevented時は内部ハンドラをスキップ）
 // 押下が反映されないケースが生まれてしまう。生のonClickだけを使うことでこれを避ける。

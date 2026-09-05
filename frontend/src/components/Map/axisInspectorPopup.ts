@@ -1,14 +1,11 @@
-// 区間インスペクタ（改善計画T146）。クリックした区間の一次属性→二次軸スコア→
-// 三次合成コスト（取得可能な軸だけの参考値）を表示するポップアップ拡張。
-// recipeBreakdownPopup.ts（車ストレス・安全度個別の内訳、改善計画T90・T123）と同じ
-// 「ボタン押下でオンデマンド取得しDOMへ直接差し込む」方式（MapLibre PopupはReactツリー外
-// のためイベントハンドラをaddTo後にquerySelectorで配線する）。
+// 区間インスペクタ。クリックした区間の一次属性→二次軸スコア→三次合成コスト
+// （取得可能な軸だけの参考値）を表示するポップアップ拡張。「ボタン押下でオンデマンド
+// 取得しDOMへ直接差し込む」方式（MapLibre PopupはReactツリー外のためイベントハンドラを
+// addTo後にquerySelectorで配線する）。
 //
 // レジストリ駆動: 軸ラベルは呼び出し側（MapView.tsx）がuseAxisCatalog経由で取得した
-// 実行時のaxisLabels（axis_id→表示名の辞書）を引数で受け取る。改善計画T320: 以前は
-// axisLayers.ts: AXIS_LABELS（ビルド時静的axis-catalog.json由来）を直接importしており、
-// 軸スタジオで新規公開したGUI作成軸のラベルが表示されず生のaxis_idがそのまま出ていた
-// （動的なaxisLabelsが既に用意されていたのに消費者が無かった配線漏れ）。
+// 実行時のaxisLabels（axis_id→表示名の辞書）を引数で受け取る。これにより軸スタジオで
+// 新規公開したGUI作成軸のラベルも生のaxis_idではなく正式名で表示される。
 import type { AxisInspectorResult } from "@/types/traffic";
 import { fetchAxisInspector } from "@/services/regionApi";
 import { PRIMARY_ATTRIBUTE_LABELS } from "./primaryAttributes";
@@ -22,10 +19,10 @@ function formatDifficulty(value: number | null): string {
   return value == null ? "算出不可" : `${value.toFixed(1)}/100`;
 }
 
-// 改善計画T168: result.tagsは生のOSMタグ（way単位、レジストリ外のキーも含みうる）だが、
-// キーがレジストリ登録済みの一次属性（PRIMARY_ATTRIBUTE_LABELS、T163のカタログ正式名）と
-// 一致する場合はその正式名を表示する（1次→2次の逆導出と対で「同じ属性は同じ名前で呼ぶ」
-// 統一ルールT30に揃える）。一致しないキー（name/ref等、登録外の生タグ）は従来どおりraw keyのまま。
+// result.tagsは生のOSMタグ（way単位、レジストリ外のキーも含みうる）だが、キーが
+// レジストリ登録済みの一次属性（PRIMARY_ATTRIBUTE_LABELS、カタログ正式名）と一致する
+// 場合はその正式名を表示する（「同じ属性は同じ名前で呼ぶ」統一ルールに揃える）。
+// 一致しないキー（name/ref等、登録外の生タグ）はraw keyのまま表示する。
 function buildAxisInspectorHtml(result: AxisInspectorResult, axisLabels: Record<string, string>): string {
   const primaryRows = Object.entries(result.tags)
     .map(([key, value]) => `${PRIMARY_ATTRIBUTE_LABELS[key] ?? key}=${value}`)

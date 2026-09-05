@@ -19,9 +19,9 @@ export interface LegendEntry {
   dashed?: boolean;
   /** trueなら「データ欠損・対象外」の受け皿カテゴリ（不明・他／対象外）であり、他の
    * カテゴリのような実際の判定値ではないことを示す。凡例の描画側（MapLayersPanel・
-   * MapOverlayControls）が区切り線＋弱調表示にする（改善計画T89）。車ストレスの凡例が
-   * 「1・2・3・4・不明」の5項目に見え「1〜5評価」と誤解されるという実機フィードバックを
-   * 受け、数値/順序段階と受け皿カテゴリを視覚的に分離する。 */
+   * MapOverlayControls）が区切り線＋弱調表示にすることで、数値/順序段階と受け皿カテゴリを
+   * 視覚的に分離する（車ストレスの凡例が「1・2・3・4・不明」の5項目に見え「1〜5評価」と
+   * 誤解されることを避ける）。 */
   isFallback?: boolean;
 }
 
@@ -41,7 +41,7 @@ export function buildLegendFilterExpression(
 // 絞り込みたいことがある（例: 路面の種類=アスファルト かつ 道路の種類=自転車・歩行者道、
 // の2条件を同時に満たす区間だけ残す）。各軸のフィルタ式をANDで束ねて1つの式にする。
 //
-// baseFilter（改善計画T101）: 停止要因POI・補給休憩POIは同じベクタタイルの同じ
+// baseFilter: 停止要因POI・補給休憩POIは同じベクタタイルの同じ
 // source-layer（stop_poi）を共有しつつ、kind値の集合で2つの独立したMapLibreレイヤーへ
 // 分ける必要がある。凡例の非表示操作が無い（hiddenKeys=[]）ときbuildLegendFilterExpression
 // はnull（フィルタ無し=全件表示）を返すため、baseFilter無しだとその瞬間だけ相手方の

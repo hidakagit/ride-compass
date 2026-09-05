@@ -14,10 +14,10 @@ interface InfoPopoverProps {
 }
 
 // 見出し脇の(i)アイコン→ポップオーバーという構造（トリガー+Popover.Root/Trigger/
-// Portal/Content）が、軸チップの説明文（RouteAxisProfile.tsx/RouteSettingsPanel.tsx:
-// legendInfoButton）・重み配分/地図の色分けの凡例一覧（同: stackBarLegendTrigger）の
-// 計4箇所で重複していたため共通化する（改善計画T525）。外枠だけを担い、中身は
-// 呼び出し側がchildrenで渡す（説明テキストそのまま・凡例一覧いずれも対応）。
+// Portal/Content）の共通部品。軸チップの説明文（RouteAxisProfile.tsx/
+// RouteSettingsPanel.tsx: legendInfoButton）・重み配分/地図の色分けの凡例一覧（同:
+// stackBarLegendTrigger）等で共用する。外枠だけを担い、中身は呼び出し側がchildrenで
+// 渡す（説明テキストそのまま・凡例一覧いずれも対応）。
 export default function InfoPopover({
   triggerClassName,
   triggerAriaLabel,
