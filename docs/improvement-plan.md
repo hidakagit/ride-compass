@@ -842,7 +842,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 ## 既存テストの不安定化（2026-09-05・T532最終検証の副産物、ユーザー指示で起票）
 
-- [ ] [T588](tasks/T588.md). `test_lifespan_registers_jma_tile_prewarm_job_with_immediate_next_run_time`がフルスイート/ファイル単位でのみ失敗する（単体では成功、masterでも再現）時間依存の不安定化を調査・是正する 規模S（未着手）
+- [x] [T588](tasks/T588.md). `test_lifespan_registers_jma_tile_prewarm_job_with_immediate_next_run_time`がフルスイート/ファイル単位でのみ失敗する（単体では成功、masterでも再現）時間依存の不安定化を調査・是正する 規模S（2026-09-05完了。原因はget_http_clientの実httpx.AsyncClient生成[この開発機でSSLコンテキスト構築が約1秒]をテストのたびに払い直していたこと。テスト用フィクスチャでダミーへ差し替え、ファイル単体40〜50秒→1.87秒、全件2回連続green）
 
 ## 迂回率の実測値化（2026-09-05・T532本番実測を受けたユーザー判断）
 

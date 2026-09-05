@@ -52,11 +52,21 @@ def _isolated_scheduler(monkeypatch):
     （実測で確認済み）。本物のジョブはJMAへの実HTTP問い合わせを行うため、lifespanの
     結線自体を検証する本ファイルの目的に対しては不要かつ望ましくない副作用
     （外部依存・フレークの原因、無効化を忘れて後続テストへ実HTTP呼び出しが漏れ込んだ
-    実績あり）になる。"""
+    実績あり）になる。
+
+    `get_http_client`も軽量なダミーへ差し替える: `httpx.AsyncClient`の生成はSSL
+    コンテキスト構築を伴い、`infrastructure/http_client.py`のモジュールdocstringが
+    明記するとおり環境によっては1回あたり約1秒かかる。lifespan()は起動時に2回
+    （timeout=10.0/15.0）呼ぶ上、`with TestClient(app):`のexit時に`close_all_http_clients()`が
+    毎回`_clients`キャッシュを空にするため、本ファイルの4テストはそれぞれ起動のたびに
+    実SSLコンテキスト構築を払い直す形になっていた。本ファイルのどのテストも
+    `_refresh_amedas_job`/`_prewarm_jma_tile_job`を無害化済みでクライアントの返り値を
+    実際には使わないため、ダミーへ差し替えて安全にこのコストを避けられる。"""
     fresh_scheduler = AsyncIOScheduler()
     monkeypatch.setattr(main_module, "_scheduler", fresh_scheduler)
     monkeypatch.setattr(main_module, "_refresh_amedas_job", _noop_refresh_amedas_job)
     monkeypatch.setattr(main_module, "_prewarm_jma_tile_job", _noop_prewarm_jma_tile_job)
+    monkeypatch.setattr(main_module, "get_http_client", lambda timeout: None)
     yield fresh_scheduler
     if fresh_scheduler.running:
         fresh_scheduler.shutdown(wait=False)
