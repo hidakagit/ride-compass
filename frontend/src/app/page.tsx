@@ -52,8 +52,7 @@ import {
 // 「ルート設定」見出し（renderRouteSectionBody）の見た目に、MapLayersPanel側の既存
 // スタイルをそのまま再利用する（CSS Modulesはクラス名の対訳表を返すだけのため、別
 // コンポーネントからのimportでも問題なく使える。同じ見た目のUIをここだけのために複製
-// しない）。改善計画T518でルート結果パネル側の同種の再利用（旧renderRouteColorSectionBody）
-// は撤去済み——現在の唯一の用途は「ルート設定」見出し。
+// しない）。
 import layerPanelStyles from "@/components/MapLayersPanel/MapLayersPanel.module.css";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type DestinationButtonState, type RouteMode } from "@/components/RouteForm/RouteForm";
@@ -82,8 +81,6 @@ import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
-// 改善計画T548: 従来は/adminへ移設したWeightPanelの既定値定数をここでも使っていたが、
-// WeightPanel自体をtotal_score撤去に伴い削除したため@/lib/evaluationAxesへ移設した。
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/lib/gpxExport";
@@ -111,25 +108,16 @@ import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
 
-// 改善計画T545（旧RouteList.tsxから移設）: 評価軸カタログ（lib/evaluationAxes.ts）から
-// 生成する。軸を増やしてもこの文言を直接編集する必要が無い。各軸のdescription（軸スタジオの
-// 重みで合成した値であることを説明する文言）を併記し、ルート色分けモードの「総合難易度」
-// （区間ごとの絶対基準スコア、routeStyleModes.ts）と同名で紛らわしいという実機指摘に対応する。
-// 改善計画T545フォローアップ（ユーザー指摘「おすすめ度の説明とか、ルート結果諸々の補足は
-// ルート結果ヘッダのところに情報アイコンをつけて集約できない？」）: 旧
-// RouteAxisProfile.tsxの「おすすめ度・総合難易度について」（総合難易度の絶対値としての
-// 位置付けを説明する文言）をここへ統合し、候補タブごとに同じ説明を繰り返さず「ルート結果」
-// セクション見出し1箇所（renderRouteOutcomeSectionBodyのheader行、モバイルはBottomSheetの
-// headerAction）だけに情報アイコンを置く。
+// 「ルート結果」セクション見出し1箇所（renderRouteOutcomeSectionBodyのheader行、
+// モバイルはBottomSheetのheaderAction）だけに情報アイコンを置き、候補タブごとに
+// 同じ説明を繰り返さない。ルート色分けモードの「総合難易度」（区間ごとの絶対基準スコア、
+// routeStyleModes.ts）と同名で紛らわしいため、絶対値としての位置付けをここで説明する。
 const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。";
 
-// 改善計画T364/T365（旧RouteList.tsxから移設）: 経由地ルートのid（常に1件、「方位」という
-// 概念が無いためタブに順位番号を付けない）。
+// 経由地ルートのid（常に1件、「方位」という概念が無いためタブに順位番号を付けない）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
 
-// 改善計画T550: 区間クリック詳細（selectedRouteSegment）の到達予想時刻表示。旧
-// Map/routeSegmentChartPopup.tsのformatTimeLabelと同じフォーマット（撤去済み、
-// ボトムシート側へ表示を統合したためこちらへ移設）。
+// 区間クリック詳細（selectedRouteSegment）の到達予想時刻表示のフォーマット。
 function formatSegmentArrivalTime(iso: string | null): string {
   if (!iso) return "不明";
   const date = new Date(iso);
@@ -139,14 +127,13 @@ function formatSegmentArrivalTime(iso: string | null): string {
 
 // backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
 // le=MAX_ROUTE_DISTANCE_KM)）と一致させる（目的地モードの自動算出値もこの上限で
-// クランプする、handleGenerate参照）。改善計画T471: 以前はここへ「100」を独立に
-// ハードコードしていた（RouteForm.tsxにも同じ値の別定義があった）ため、backend側の
-// 唯一の情報源（export_openapi.py: ROUTE_GENERATE_CONFIG_PATH）から導出するよう変更した。
+// クランプする、handleGenerate参照）。backend側の唯一の情報源（export_openapi.py:
+// ROUTE_GENERATE_CONFIG_PATH）から導出する。
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 
-// 改善計画T365-2: 目的地モードでは距離をユーザーに入力させず、地図上の経由地・目的地から
-// 自動算出する（backend/app/domain/geo.py: haversine_distance_kmと同じ球面距離の簡易実装。
-// フロントは既存の距離計算ユーティリティを持たないためここに最小実装する）。
+// 目的地モードでは距離をユーザーに入力させず、地図上の経由地・目的地から自動算出する
+// （backend/app/domain/geo.py: haversine_distance_kmと同じ球面距離の簡易実装。フロントは
+// 既存の距離計算ユーティリティを持たないためここに最小実装する）。
 function haversineKm(a: Coordinates, b: Coordinates): number {
   const EARTH_RADIUS_KM = 6371;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -158,10 +145,10 @@ function haversineKm(a: Coordinates, b: Coordinates): number {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
 
-// 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則
-// （T31）だが、連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
-// 道路情報の2軸に加え、改善計画T63で車ストレス・指定路線・停止要因POI・
-// 事故（当事者/重大度）の絞り込みにも同じ猶予を適用する。
+// 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則だが、
+// 連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
+// 道路情報の2軸に加え、車ストレス・指定路線・停止要因POI・事故（当事者/重大度）の
+// 絞り込みにも同じ猶予を適用する。
 const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
 // 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
@@ -172,16 +159,13 @@ const LEGEND_FILTER_DEBOUNCE_MS = 400;
 const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
 const LENS_KEEP_AFTER_ROUTE_STORAGE_KEY = "ridecompass:lens-keep-after-route";
 
-// 「地図の見え方」（系統B）の設定はすべてlocalStorageへ保存し、リロード後も復元する
-// （保存ポリシー統一、T32。以前は色分けモードだけが保存され、レイヤーON/OFF・絞り込みは
-// リロードで消えていた）。生成条件（系統A: 出発地点・距離・重み）は保存しない方針
-// （毎回現在地・既定値から始める）。
+// 「地図の見え方」（系統B）の設定はすべてlocalStorageへ保存し、リロード後も復元する。
+// 生成条件（系統A: 出発地点・距離・重み）は保存しない方針（毎回現在地・既定値から始める）。
 const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
-// 改善計画T524（T518コードレビューP2指摘）: layerVisibility.routeの意味がT518で
-// 「色分けレイヤーのみ」から「候補線・ハロー・矢印・色分けレイヤー全体」へ広がったため、
-// 過去に明示的にfalseへ変更・保存していた利用者は、更新後にルートを生成しても地図に
-// 候補線が1本も出ない状態から始まってしまう（復帰手段の地図チップもhasDetail成立まで
-// 無効化されているため気づきにくい）。1回限りの移行マーカー——このキーが無い間だけ
+// layerVisibility.routeは「候補線・ハロー・矢印・色分けレイヤー全体」を指す。過去に
+// 明示的にfalseへ変更・保存していた利用者は、更新後にルートを生成しても地図に候補線が
+// 1本も出ない状態から始まってしまう（復帰手段の地図チップもhasDetail成立まで無効化
+// されているため気づきにくい）。1回限りの移行マーカー——このキーが無い間だけ
 // route:falseをtrueへ強制し、以後はユーザーの選択どおり保存・復元する。
 const ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY = "ridecompass:route-layer-meaning-migrated-v1";
 const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
@@ -198,8 +182,8 @@ const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 // キー集合」の両方が、この固定部分を共通の土台として使う。
 const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`> = {
   elevation: false,
-  // 改善計画T165: 「道路情報」（road）を論理2レイヤーへ分割。旧保存値（road: boolean）から
-  // 両方へ移行する処理はuseStoredStateのdeserialize（下記）参照。
+  // 「道路情報」（road）は論理2レイヤー（roadType/roadSurface）。旧保存値（road:
+  // boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。
   roadType: false,
   roadSurface: false,
   designation: false,
@@ -208,14 +192,14 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   stopPoi: false,
   supplyPoi: false,
   accidents: false,
-  // 改善計画T171: 降水ナウキャスト。初期表示から地図を覆うと視界を圧迫するため既定OFF
-  // （設計原則12、他の静的レイヤーと同じ「明示的にONにして初めて出る」規約）。
+  // 降水ナウキャスト。初期表示から地図を覆うと視界を圧迫するため既定OFF（設計原則12、
+  // 他の静的レイヤーと同じ「明示的にONにして初めて出る」規約）。
   precipitationNowcast: false,
-  // 改善計画T178: 風の矢印。precipitationNowcastと同じ理由で既定OFF。
+  // 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
-  // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸としての風）。同じ理由で既定OFF。
+  // way_id→wind_drag_ratio配信層（評価軸としての風）。同じ理由で既定OFF。
   windAxis: false,
-  // 改善計画T423: 環境グループの勾配gridFill・way_id→勾配配信層。同じ理由で既定OFF。
+  // 環境グループの勾配gridFill・way_id→勾配配信層。同じ理由で既定OFF。
   gradientFill: false,
   gradientAxis: false,
   // 災害（雷・竜巻・落雷・キキクル4種）。他の気象レイヤーとは異なり既定ONにする——
@@ -231,8 +215,8 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
 
 const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   ...FIXED_LAYER_VISIBILITY_DEFAULTS,
-  // 二次軸rampレイヤー（改善計画T145b）。backendレジストリ生成物（axis-catalog.json）の
-  // kind="ramp"軸から自動生成されるため、個別の行を手書きせずカタログから導出する
+  // 二次軸rampレイヤー。backendレジストリ生成物（axis-catalog.json）のkind="ramp"軸から
+  // 自動生成されるため、個別の行を手書きせずカタログから導出する
   // （新しい軸が増えてもこのファイルの編集は不要）。既定はすべてOFF。
   // これは実行時カタログ未取得時の静的フォールバック（RAMP_AXES＝axisLayers.tsのビルド時
   // スナップショット）であり、軸スタジオで新規公開された軸のキーはここには含まれない
@@ -244,16 +228,16 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
 const NO_HIDDEN_LEGEND_KEYS: string[] = [];
 
-// 降水ナウキャスト・風の凡例（実機フィードバック「風と雨の凡例も欲しい」）。地図チップの
-// ▶パネル（MapOverlayControls: renderLegendDetails）は表示専用でLegendEntry.filterを
-// 実際には適用しない（道路種別等のようなカテゴリ絞り込みができるレイヤーではないため）ため、
-// filterは一致することのないダミー値にしている。色・階級の実データはprecipitationNowcast.ts/
-// windLayer.ts側（実際の描画・凡例双方の単一の情報源）から持ってくる。他レイヤーと違い
-// 絞り込み状態を持たないため、useMemoではなくモジュール直下の固定値でよい。
+// 降水ナウキャスト・風の凡例。地図チップの▶パネル（MapOverlayControls:
+// renderLegendDetails）は表示専用でLegendEntry.filterを実際には適用しない（道路種別等の
+// ようなカテゴリ絞り込みができるレイヤーではないため）ため、filterは一致することのない
+// ダミー値にしている。色・階級の実データはprecipitationNowcast.ts/windLayer.ts側
+// （実際の描画・凡例双方の単一の情報源）から持ってくる。他レイヤーと違い絞り込み状態を
+// 持たないため、useMemoではなくモジュール直下の固定値でよい。
 const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
-// 改善計画T432: 線状降水帯予測マップが「降水」チップの傘下（4つ目のソース）へ統合された
-// ため、専用の凡例ブロックを`accidents`の「当事者/重大度」と同じ複数ブロックパターンで
-// このPRECIPITATION_LEGEND_DETAILS自体へ追加した（実データはriskMap.tsが単一の情報源）。
+// 線状降水帯予測マップは「降水」チップの傘下（4つ目のソース）へ統合されているため、
+// 専用の凡例ブロックを`accidents`の「当事者/重大度」と同じ複数ブロックパターンで
+// このPRECIPITATION_LEGEND_DETAILS自体へ追加する（実データはriskMap.tsが単一の情報源）。
 const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "",
@@ -266,9 +250,9 @@ const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
-// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（windPenalty、
-// 走行方位に対する向かい風/追い風、mapColorLegendGroups参照）とは別の配色系統のため、
-// 「地図の色の凡例」との混同を避けて「矢印（風速）」と明示する。
+// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（windAxis、
+// 走行方位に対する向かい風/追い風）とは別の配色系統のため、「地図の色の凡例」との混同を
+// 避けて「矢印（風速）」と明示する。
 const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "矢印（風速）",
@@ -318,9 +302,9 @@ const DISASTER_LEGEND_DETAILS_BASE: readonly LegendFilterSummaryAxis[] = [
   },
 ];
 
-// 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>専用
-// （改善計画T300: モバイルは「ルート設定」「ルート結果」の2タブへ分割したため、
-// 専用のROUTE_SETTINGS_SHEET_TITLE_ID/ROUTE_OUTCOME_SHEET_TITLE_IDを別途持つ）。
+// 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>専用（モバイルは
+// 「ルート設定」「ルート結果」の2タブへ分割しているため、専用の
+// ROUTE_SETTINGS_SHEET_TITLE_ID/ROUTE_OUTCOME_SHEET_TITLE_IDを別途持つ）。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 const OUTCOME_SECTION_TITLE_ID = "outcome-section-title";
 const MAP_SETTINGS_SECTION_TITLE_ID = "map-settings-section-title";
@@ -329,10 +313,7 @@ const MAP_SETTINGS_SECTION_TITLE_ID = "map-settings-section-title";
 const SAVED_ROUTES_TAB_VALUE = "saved";
 // モバイルの「地図の見え方」シート見出しのDOM id。
 const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
-// モバイルの「ルート設定」「ルート結果」シート見出しのDOM id（改善計画T300、
-// 「ルート詳細」タブの2分割に伴い新設。旧DEVELOPER_SHEET_TITLE_IDは「開発者」タブ廃止に
-// 伴い削除——地図データ再読み込みは地図の見え方タブへ、デバッグログはヘッダーアイコンへ
-// それぞれ移設した）。
+// モバイルの「ルート設定」「ルート結果」シート見出しのDOM id。
 const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
 const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
@@ -342,12 +323,10 @@ export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
     useLocation();
 
-  // 改善計画T372（実機フィードバック「赤ピンの移動方法が分かりにくい」を受けT366の
-  // ボタン武装方式から再設計）: 出発地点は地図上の赤ピン自体をドラッグ&ドロップして
-  // 動かす（MapView.tsx: onOriginSet、マーカーのdragendから呼ばれる）。「現在地に戻す」は
-  // 既存の「現在地に移動」ボタン（handleLocateMe）がそのまま兼ねるため、専用の
-  // ボタン・武装状態はもう持たない。
-  // 改善計画T308: 軸カタログ（ramp表示・凡例チップグルーピングを含む）を先頭で取得する。
+  // 出発地点は地図上の赤ピン自体をドラッグ&ドロップして動かす（MapView.tsx: onOriginSet、
+  // マーカーのdragendから呼ばれる）。「現在地に戻す」は既存の「現在地に移動」ボタン
+  // （handleLocateMe）がそのまま兼ねるため、専用のボタン・武装状態は持たない。
+  // 軸カタログ（ramp表示・凡例チップグルーピングを含む）を先頭で取得する。
   // axisVisibility/secondaryAxisCasingLayerIds（下記）・地図チップ組み立てが参照するため、
   // それらより前で宣言する必要がある。取得完了までとエラー時は静的フォールバック
   // （axisLayers.ts: RAMP_AXES等）を返すため、呼び出し側は常に何かしらの一覧を受け取れる。
@@ -358,37 +337,35 @@ export default function Home() {
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  // 改善計画T550: 地図上でクリックされた区間（MapView.tsx: handleRouteSegmentClickが
-  // クリック地点の座標とともに設定するcontrolled state）。non-nullの間、「ルート結果」
-  // タブはルート全体の内訳の代わりにこの区間の内訳を表示する（下記
-  // renderRouteOutcomeSectionBody参照）。候補タブの切り替え・再生成・ルートクリアの
-  // いずれでも古い区間を選択したままにしないよう、該当箇所でnullへ戻す。
+  // 地図上でクリックされた区間（MapView.tsx: handleRouteSegmentClickがクリック地点の
+  // 座標とともに設定するcontrolled state）。non-nullの間、「ルート結果」タブはルート
+  // 全体の内訳の代わりにこの区間の内訳を表示する（下記renderRouteOutcomeSectionBody
+  // 参照）。候補タブの切り替え・再生成・ルートクリアのいずれでも古い区間を選択したままに
+  // しないよう、該当箇所でnullへ戻す。
   const [selectedRouteSegment, setSelectedRouteSegment] = useState<SelectedRouteSegment | null>(null);
-  // 改善計画T545: ルート結果パネルの外側タブを「ルート選択（候補一覧+内訳をひとまとめ）/
-  // 比較」の2つから、候補ごとのタブ＋「比較」タブという1段のフラットなタブ列へ再設計した
-  // （ユーザー指摘「ルート選択タブは不要、研究タブと同じ形でルートごとタブにして」）。
-  // outerタブの選択値はselectedRouteId（候補タブ選択時）とこのフラグ（比較タブ選択時）を
+  // ルート結果パネルの外側タブは、候補ごとのタブ＋「比較」タブという1段のフラットな
+  // タブ列。outerタブの選択値はselectedRouteId（候補タブ選択時）とこのフラグ（比較タブ
+  // 選択時）を
   // 組み合わせて求める——selectedRouteId自体は比較タブを見ている間も「最後に見ていた候補」
   // を保持し続け、地図の色分け対象・selectedCandidate等の既存の使われ方を変えない
   // （比較タブから候補タブへ戻ったとき、見ていた候補がそのまま選択された状態に戻る）。
   const [comparisonTabActive, setComparisonTabActive] = useState(false);
-  // 改善計画T439: モバイルで軸調整→再生成した直後、「ルート結果」タブへの視覚的な誘導が
-  // 無かった問題への対応（review:ui 2026-08-30 F-5）。conditionsDirtyの通知ドットは
-  // 「生成前に条件が変わった」ことを知らせる目的で、生成完了と同時に消える仕様のため、
-  // 「新しい結果が用意できた」ことを知らせる別の目的には使えなかった。この状態は
-  // 生成成功時にtrue、「ルート結果」タブを開いたらfalseにする（handleGenerate/
-  // handleMobileTabClick参照）。
+  // モバイルで軸調整→再生成した直後、「ルート結果」タブへの視覚的な誘導に使う状態。
+  // conditionsDirtyの通知ドットは「生成前に条件が変わった」ことを知らせる目的で、生成
+  // 完了と同時に消える仕様のため、「新しい結果が用意できた」ことを知らせる別の目的には
+  // 使えない。この状態は生成成功時にtrue、「ルート結果」タブを開いたらfalseにする
+  // （handleGenerate/handleMobileTabClick参照）。
   const [hasUnseenResults, setHasUnseenResults] = useState(false);
   const [loading, setLoading] = useState(false);
-  // 改善計画T265: ルート生成のバックグラウンドジョブ化に伴う進捗表示。生成中(loading)の
-  // 間だけ意味を持ち、待ち(queued)/実行中(running)の別と経過時間をボタン文言へ反映する
+  // ルート生成のバックグラウンドジョブ化に伴う進捗表示。生成中(loading)の間だけ意味を
+  // 持ち、待ち(queued)/実行中(running)の別と経過時間をボタン文言へ反映する
   // （RouteForm.tsx: progressLabel参照）。生成開始直後・完了直後はnull
   // （queued/runningのどちらかが確定するまでの一瞬はloadingのみでラベルを出さない）。
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // 改善計画T364: 地図クリックで指定する経由地（起点→経由地1→...→起点の順で通過する
-  // 単一経路を生成する）。指定があれば周回探索は行わない（handleGenerate参照）。
+  // 地図クリックで指定する経由地（起点→経由地1→...→起点の順で通過する単一経路を
+  // 生成する）。指定があれば周回探索は行わない（handleGenerate参照）。
   const [waypoints, setWaypoints] = useState<Coordinates[]>([]);
   const handleWaypointAdd = useCallback((point: Coordinates) => {
     setWaypoints((prev) => [...prev, point]);
@@ -398,15 +375,14 @@ export default function Home() {
   }, []);
   const handleWaypointsClear = useCallback(() => setWaypoints([]), []);
 
-  // 改善計画T365: 目的地（最大1点）。指定時は起点に戻らず目的地で終わる片道ルートになる
+  // 目的地（最大1点）。指定時は起点に戻らず目的地で終わる片道ルートになる
   // （handleGenerate参照）。destinationArmedは「目的地を設定」ボタン押下から次の1タップ
   // までの間だけtrueになり、地図クリックが目的地配置として扱われる（MapView.tsx参照）。
   const [destination, setDestination] = useState<Coordinates | null>(null);
   const [destinationArmed, setDestinationArmed] = useState(false);
 
-  // 改善計画T365-2: 周回（距離指定）/目的地（地図タップで経由地・目的地を
-  // 指定）モードの切り替え。実機フィードバック「経由地・目的地の操作パネルが地図上で邪魔」を
-  // 受け、地図上の浮動パネルを廃止しRouteForm（距離入力・生成ボタンと同じ場所）へ統合した。
+  // 周回（距離指定）/目的地（地図タップで経由地・目的地を指定）モードの切り替え。
+  // 経由地・目的地の操作はRouteForm（距離入力・生成ボタンと同じ場所）に統合されている。
   // モード切り替え自体は経由地・目的地の値を消さない（周回モードへ切り替えても地図上のピンは
   // 保持し、目的地モードへ戻れば復元される。地図への表示・追加受付だけがモードで変わる、
   // handleGenerate/MapView.tsxのpinPlacementEnabled参照）。
@@ -433,9 +409,8 @@ export default function Home() {
     setDestinationArmed(false);
   }, []);
   const handleDestinationClear = useCallback(() => setDestination(null), []);
-  // ボタン1個で「未設定→武装→設定済み→解除」を一巡させる（実機フィードバック「アイコンだけに
-  // して」を受け、武装中に同じボタンを押すとキャンセルできるようにした、以前はキャンセル手段が
-  // 無かった）。
+  // ボタン1個で「未設定→武装→設定済み→解除」を一巡させる。武装中に同じボタンを押すと
+  // キャンセルできる。
   const handleDestinationButtonClick = useCallback(() => {
     if (destinationArmed) {
       setDestinationArmed(false);
@@ -449,7 +424,7 @@ export default function Home() {
 
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
-  // 出すため（生成条件系の反映タイミング可視化、T31）。
+  // 出すため。
   const [distanceInput, setDistanceInput] = useState("30");
   // 周回候補の上限件数（backend: RouteGenerateRequest.max_routes、1〜15）。距離入力と
   // 同じくstring stateのまま保持し、送信時にNumber化する。目的地モードでは経由地が無い
@@ -483,35 +458,33 @@ export default function Home() {
     // conditionsDirtyの比較対象から外す。
     maxRoutesRelevant: boolean;
     weightsKey: string;
-    // 改善計画T365-2: 目的地モードで生成した場合はdistanceKmが地図上のピンからの
-    // 自動算出値になり、distanceInput（RouteFormが表示しない値）とは無関係になるため、
-    // conditionsDirtyの距離比較はloopモードで生成したときだけ行う。
+    // 目的地モードで生成した場合はdistanceKmが地図上のピンからの自動算出値になり、
+    // distanceInput（RouteFormが表示しない値）とは無関係になるため、conditionsDirtyの
+    // 距離比較はloopモードで生成したときだけ行う。
     routeMode: RouteMode;
-    // 改善計画T468: 目的地モードで生成した経由地・目的地のスナップショット
-    // （JSON文字列化して比較、weightsKeyと同じ方式）。以前は保持しておらず、
-    // 生成後に経由地を追加・削除・移動してもconditionsDirtyが検知できなかった
-    // （routeMode/緯度経度/重みしか比較していなかったため）。
+    // 目的地モードで生成した経由地・目的地のスナップショット（JSON文字列化して比較、
+    // weightsKeyと同じ方式）。生成後に経由地を追加・削除・移動した変更もconditionsDirtyが
+    // 検知できるようにする。
     waypointsKey: string;
-    // 改善計画T602: 経由地の無い目的地ルートで、指定した目的地がメインの道路網から
-    // 孤立していたためbackendが最寄りのアクセス可能な地点へ補正した場合true
+    // 経由地の無い目的地ルートで、指定した目的地がメインの道路網から孤立していたため
+    // backendが最寄りのアクセス可能な地点へ補正した場合true
     // （conditions.corrected_destination）。表示中の候補がこの補正を経て生成された
     // ことを示すヒントの表示条件に使う。
     destinationCorrected: boolean;
   } | null>(null);
-  // 改善計画T440: 表示中のルートを実際に生成した瞬間のroute_preference（重み）。
-  // routePreference自体はルート設定パネルが常時編集するライブなstateのため、生成後に
-  // 再生成せず重みだけ変更すると、表示中のルートが実際に評価された時の重みと
-  // 「生成したルートの色分け」メニューがズレる（ユーザー指摘）。バックエンドは
-  // 生成に実際に適用したroute_preferenceを`conditions.route_preference`として既に
-  // エコーバックしている（`GenerationConditions`、backend/app/api/routers/routes.py）ため、
+  // 表示中のルートを実際に生成した瞬間のroute_preference（重み）。routePreference自体は
+  // ルート設定パネルが常時編集するライブなstateのため、生成後に再生成せず重みだけ変更すると、
+  // 表示中のルートが実際に評価された時の重みと「生成したルートの色分け」メニューがズレる。
+  // バックエンドは生成に実際に適用したroute_preferenceを`conditions.route_preference`として
+  // 既にエコーバックしている（`GenerationConditions`、backend/app/api/routers/routes.py）ため、
   // 生成成功時にここへ複製するだけでよい（バックエンド変更不要）。
   const [generatedRoutePreference, setGeneratedRoutePreference] = useState<RoutePreferenceWeights | null>(null);
 
   // 評価重みのリクエスト上書き（研究インターフェース改善 §10-1/4）。overrideEnabled=falseの間は
   // 生成リクエストからroute_preferenceを省略し、既存挙動（既定値）を完全に維持する
-  // （一般ユーザーには影響しない）。route_preference/routePreference自体は改善計画T267で
-  // 一般向けルート設定画面（RouteSettingsPanel）とも共有する状態になった（withAutoEnableに
-  // より、どちらのパネルを操作してもこのフラグが自動でONになる）。
+  // （一般ユーザーには影響しない）。route_preference/routePreference自体は一般向けルート
+  // 設定画面（RouteSettingsPanel）とも共有する状態で、withAutoEnableにより、どちらの
+  // パネルを操作してもこのフラグが自動でONになる。
   const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredJsonState(
     "ridecompass:weight-override-enabled",
     false
@@ -520,7 +493,7 @@ export default function Home() {
     "ridecompass:route-preference",
     DEFAULT_ROUTE_PREFERENCE
   );
-  // 0次ハードフィルタ（改善計画T266・T267）。一般向けルート設定画面（RouteSettingsPanel）が
+  // 0次ハードフィルタ。一般向けルート設定画面（RouteSettingsPanel）が
   // 常時操作するため、weightOverrideEnabledのような別トグルは持たず常にリクエストへ含める
   // （既定値はDEFAULT_HARD_FILTERS＝backendのDEFAULT_HARD_FILTERSと同じ全フィルタ有効で、
   // 省略時と挙動が一致するため常時送信して問題ない）。
@@ -530,16 +503,12 @@ export default function Home() {
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
   const [experimentSlots, setExperimentSlots] = useState<ExperimentSlot[]>([]);
 
-  // 改善計画T365: 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。
-  // 経由地・目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。
-  // 改善計画T535（ユーザー報告「ルートをクリアしても地図に緑の線が残る」の調査で発見）:
-  // 研究モード中の生成はexperimentSlotsへも記録され地図へ重ね描きされる
-  // （EXPERIMENT_SLOT_COLORS[0]="#16a34a"=緑）が、以前はこの関数がexperimentSlotsに
-  // 触れておらず、リポジトリ全体を見てもexperimentSlotsを空にする経路が他に一切
-  // 無かった（ページ再読み込み以外に消す手段が無い状態）。「ルートをクリア」を押した
-  // 見た目どおり地図が空になるよう、実験スロットも同時にクリアする（ユーザー判断
-  // 2026-09-02: 比較履歴を残す設計よりも「クリアしたら地図が本当に空になる」という
-  // 一般的な期待を優先）。
+  // 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。経由地・
+  // 目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。研究
+  // モード中の生成はexperimentSlotsへも記録され地図へ重ね描きされる
+  // （EXPERIMENT_SLOT_COLORS[0]="#16a34a"=緑）ため、「ルートをクリア」を押した見た目
+  // どおり地図が空になるよう、実験スロットも同時にクリアする（比較履歴を残すよりも
+  // 「クリアしたら地図が本当に空になる」という一般的な期待を優先）。
   const handleRoutesClear = useCallback(() => {
     setRoutes([]);
     setSelectedRouteId(null);
@@ -556,17 +525,14 @@ export default function Home() {
   const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
 
   // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらDEFAULT_LAYER_VISIBILITYへ
-  // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState（改善計画T47 R-6）参照。
-  // 既知のレイヤーIDかつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、
-  // 残りの設定は活かしてデフォルトで埋める）。
+  // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState参照。既知のレイヤーID
+  // かつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、残りの設定は
+  // 活かしてデフォルトで埋める）。
   //
-  // 実バグ修正（デッドコード監査、2026-08-25）: 以前はdeserializeが常にDEFAULT_LAYER_VISIBILITY
-  // （ビルド時静的7軸ぶんのramp軸キーのみ）を走査してホワイトリストにしていたため、軸スタジオで
-  // 新規公開された軸（axis:xxx等）のON/OFF保存値が復元時に黙って捨てられていた
-  // （axisVisibility側は既にaxisCatalog.rampAxesベースへ移行済みで非対称だった）。
   // axisCatalog.loadedを見て、未フェッチ時はビルド時静的軸集合（DEFAULT_LAYER_VISIBILITY）、
-  // フェッチ完了後は実行時カタログ（axisCatalog.rampAxes）ベースのキー集合を走査するよう
-  // 修正。reloadKeyにaxisCatalog.loadedを渡すことで、マウント直後（静的集合で復元）→
+  // フェッチ完了後は実行時カタログ（axisCatalog.rampAxes）ベースのキー集合を走査する
+  // ことで、軸スタジオで新規公開された軸（axis:xxx等）のON/OFF保存値も復元できる。
+  // reloadKeyにaxisCatalog.loadedを渡すことで、マウント直後（静的集合で復元）→
   // フェッチ完了後（実行時集合で再復元）の2段階復元にしている（useStoredState.ts参照）。
   const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
     LAYER_VISIBILITY_STORAGE_KEY,
@@ -589,8 +555,8 @@ export default function Home() {
             }
           : { ...DEFAULT_LAYER_VISIBILITY };
         const parsedRecord = parsed as Record<string, unknown>;
-        // 改善計画T165: 「道路情報」（road）の論理分割（roadType/roadSurface）に伴う旧保存値の
-        // 移行。旧形式（road: boolean、新キーが無い）が残っていれば両方の新キーへ引き継ぐ
+        // 「道路情報」（road）の論理分割（roadType/roadSurface）に伴う旧保存値の移行。
+        // 旧形式（road: boolean、新キーが無い）が残っていれば両方の新キーへ引き継ぐ
         // （新形式で保存済みなら下のループがroadType/roadSurfaceを個別に上書きする）。
         if (
           typeof parsedRecord.road === "boolean" &&
@@ -604,24 +570,23 @@ export default function Home() {
           const value = parsedRecord[id];
           if (typeof value === "boolean") next[id] = value;
         }
-        // 改善計画T524（T518コードレビューP2指摘）: 1回限りの移行。マーカーが未設定の間だけ
-        // route:falseをtrueへ戻す（T518以前の意味[色分けレイヤーのみ非表示]で保存された
-        // 値を、新しい意味[全レイヤー非表示]のまま引き継がせないため）。マーカー自体は
-        // route値に関わらず必ず立て、次回以降はユーザーの選択どおり尊重する。
+        // 1回限りの移行。マーカーが未設定の間だけroute:falseをtrueへ戻す（旧い意味
+        // [色分けレイヤーのみ非表示]で保存された値を、新しい意味[全レイヤー非表示]の
+        // まま引き継がせないため）。マーカー自体はroute値に関わらず必ず立て、次回以降は
+        // ユーザーの選択どおり尊重する。
         try {
           if (window.localStorage.getItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY) == null) {
             if (next.route === false) {
               next.route = true;
-              // 実バグ修正（2026-09-03ユーザー指摘「進行方向の矢印が以前は出てたのに消えている」）:
               // useStoredStateの復元effect（useStoredState.ts）はsetValueのみを呼びcommit
               // （localStorageへの書き戻し）は行わない。この移行はreloadKey（axisCatalog.loaded）
-              // 経由でマウント直後（false）→フェッチ完了後（true）の2回deserializeが走るが、
-              // 書き戻さないと1回目でnext.route=trueへ補正してもlocalStorage上は元のroute:false
-              // のまま残り、2回目のdeserializeが同じ生値を読み直して補正前のfalseへ静かに
-              // 巻き戻っていた（マーカー自体は1回目で立つため2回目は移行ブロックに入らずfalseの
-              // まま確定していた）。route:falseが復元されるとMapView側のapplyRouteLayerVisibility
-              // （候補線・ハロー・矢印・区間色分けの4レイヤーをまとめて出し分ける）が全て非表示に
-              // なり、「以前は出ていた矢印が消えている」という報告と一致する。
+              // 経由でマウント直後（false）→フェッチ完了後（true）の2回deserializeが走るため、
+              // ここで明示的に書き戻さないと、1回目でnext.route=trueへ補正してもlocalStorage上は
+              // 元のroute:falseのまま残り、2回目のdeserializeが同じ生値を読み直して補正前の
+              // falseへ静かに巻き戻ってしまう（マーカー自体は1回目で立つため2回目は移行
+              // ブロックに入らずfalseのまま確定する）。route:falseが復元されるとMapView側の
+              // applyRouteLayerVisibility（候補線・ハロー・矢印・区間色分けの4レイヤーを
+              // まとめて出し分ける）が全て非表示になる。
               window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify(next));
             }
             window.localStorage.setItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY, "1");
@@ -635,14 +600,12 @@ export default function Home() {
       },
     },
   );
-  // 改善計画（2次の下敷きの副作用対応）: 2次（車の圧迫感・ramp軸）を太く半透明な下敷きに
-  // するのは、その材料（1次、primaryAttributeIdsToLayerIds）が1つでも同時に表示されている
-  // ときだけにする。材料が1つも表示されていなければ、下に隠すものが無いため通常の太さ・
-  // 不透明度で表示する（以前は2次をONにした瞬間から常に太く半透明にしていたため、道路網が
-  // 密な都市部で下敷きの重なりだけで地図全体がぼやけて見える不具合があった、実機
-  // フィードバック）。改善計画T308: 軸→一次属性の解決自体はaxisCatalog.secondaryAxes
-  // （実行時カタログ、GUI作成軸を含む）のprimaryAttributeIdsへ移した（以前は
-  // axisMaterialLayerIds(axisId)がビルド時静的axis-catalog.jsonを軸id経由で逆引きしていた）。
+  // 2次（車の圧迫感・ramp軸）を太く半透明な下敷きにするのは、その材料（1次、
+  // primaryAttributeIdsToLayerIds）が1つでも同時に表示されているときだけにする。材料が
+  // 1つも表示されていなければ、下に隠すものが無いため通常の太さ・不透明度で表示する
+  // （常に太く半透明にすると、道路網が密な都市部で下敷きの重なりだけで地図全体がぼやけて
+  // 見えてしまう）。軸→一次属性の解決はaxisCatalog.secondaryAxes（実行時カタログ、
+  // GUI作成軸を含む）のprimaryAttributeIdsから行う。
   const secondaryAxisCasingLayerIds = useMemo(
     () =>
       axisCatalog.secondaryAxes.filter((axis) => {
@@ -759,27 +722,25 @@ export default function Home() {
     },
   );
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
-  // レイヤーごとのデータ取得状態（改善計画T87）。MapViewが実際のタイル取得結果
-  // （sourcedata/sourcedataloading/errorイベント）から算出する（動的気象レイヤーを除く。
-  // 改善計画T608、下記layerDataStatusのuseMemo参照）。
+  // レイヤーごとのデータ取得状態。MapViewが実際のタイル取得結果（sourcedata/
+  // sourcedataloading/errorイベント）から算出する（動的気象レイヤーを除く、下記
+  // layerDataStatusのuseMemo参照）。
   const [mapViewLayerDataStatus, setMapViewLayerDataStatus] = useState<LayerDataStatusByLayer>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
-  // 改善計画T270でDebugPanel（デバッグモードON/OFFの設定）・SystemStatusPanel・
-  // BackendStatus（バックエンド集計情報、地図に依存しない）は/adminへ移設したが、
-  // DebugConsole（地図の表示イベント・API呼び出しのライブログ）は地図インスタンスに
-  // 紐づく情報のため、レビュー指摘（/adminには地図が無くログがタブ間で共有されない
-  // ため実質機能しなくなっていた）を受けてこのページへ戻した（2026-08-24）。
-  // 「/admin=設定・集計」「/=地図を操作しながら見るライブログ」という役割分担にする。
-  // デバッグモードのON/OFF自体（useDebugEnabled、researchMode.tsと同型のlocalStorage
-  // 共有フラグ）は引き続き/adminのDebugPanelで切り替える。
+  // DebugPanel（デバッグモードON/OFFの設定）・SystemStatusPanel・BackendStatus
+  // （バックエンド集計情報、地図に依存しない）は/adminにあるが、DebugConsole（地図の
+  // 表示イベント・API呼び出しのライブログ）は地図インスタンスに紐づく情報のためこの
+  // ページに置く（「/admin=設定・集計」「/=地図を操作しながら見るライブログ」という
+  // 役割分担）。デバッグモードのON/OFF自体（useDebugEnabled、researchMode.tsと同型の
+  // localStorage共有フラグ）は/adminのDebugPanelで切り替える。
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
   const researchEnabled = useResearchEnabled();
-  // 改善計画T303: RouteSettingsPanelのroute_preferenceキー整合自己修復（T269・T302）は
-  // そのパネルがマウントされたときにしか走らない。モバイルでは生成ボタンがヘッダーへ
-  // 分離済み（T250）のため「ルート設定」タブを一度も開かずに生成できてしまい、
-  // 稀にキー不整合のまま送信して422になりうる。ここでもカタログ（axisCatalog、
+  // RouteSettingsPanelのroute_preferenceキー整合自己修復はそのパネルがマウントされた
+  // ときにしか走らない。モバイルでは生成ボタンがヘッダーへ分離されているため「ルート
+  // 設定」タブを一度も開かずに生成できてしまい、稀にキー不整合のまま送信して422になり
+  // うる。ここでもカタログ（axisCatalog、
   // コンポーネント先頭で取得済み）を使い、生成リクエスト組み立て時（handleGenerate）に
   // 同じ整合チェックを適用する（syncRoutePreferenceKeys、RouteSettingsPanel.tsxと共有）。
   // routePreference state自体は書き換えない（送信直前の値だけを補正する、常時同期化は
@@ -813,14 +774,13 @@ export default function Home() {
       ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
     [hiddenLegendKeysByMode],
   );
-  // コードレビュー指摘の修正: 以前はこのファイル自身の凡例・絞り込みサマリ計算
-  // （staticLegendHiddenKeysByAxis・staticFilterSummaries、下記）だけがビルド時静的
-  // STATIC_FILTER_AXESのまま取り残されており、軸スタジオで新規公開したramp軸の凡例・
-  // 絞り込み操作がこの画面のサマリ表示・MapLayersPanelへ一切反映されなかった
-  // （MapView.tsx側は既にbuildStaticFilterAxes(rampAxes)へ移行済み）。mapLayers/
-  // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる。
+  // このファイル自身の凡例・絞り込みサマリ計算（staticLegendHiddenKeysByAxis・
+  // staticFilterSummaries、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
+  // 操作をこの画面のサマリ表示・MapLayersPanelへ反映できるよう、mapLayers/
+  // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
+  // （ビルド時静的STATIC_FILTER_AXESは使わない）。
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
-  // 改善計画T63: 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・指定路線・
+  // 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・指定路線・
   // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
   // 参照を安定させる。
   const staticLegendHiddenKeysByAxis = useMemo(
