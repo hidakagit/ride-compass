@@ -1,26 +1,26 @@
 """Road Graph・Road AttributeのPostGIS永続化層。
 
-責務ごとに4つのリポジトリへ分割している（改善計画T6。変更理由が異なる操作を
+責務ごとに4つのリポジトリへ分割している（変更理由が異なる操作を
 1クラスに同居させない）:
 - `RawOsmRepository`: 生OSM層（osm_raw_ways/osm_raw_nodes）とタイル取得マーカー
   （road_graph_tiles）。データ取込・closure読み出しの都合で変わる
 - `DerivedGraphRepository`: 派生グラフ（road_nodes/road_edges）と鮮度判定（split_at）。
   交差点分割アルゴリズムの都合で変わる
 - `AttributeRepository`: Edge単位のRoad Attribute（elevation_attributes。surfaceは
-  road_edges.osm_way_id経由でosm_raw_ways.surfaceをJOIN導出するため専用テーブルは持たない、
-  改善計画T9）。属性の種類追加の都合で変わる
+  road_edges.osm_way_id経由でosm_raw_ways.surfaceをJOIN導出するため専用テーブルは持たない）。
+  属性の種類追加の都合で変わる
 - `RoadSurfaceTileQuery`: 地域路面レイヤー表示用のMVT生成（読み取り専用）。
   地図表示の都合で変わる
 `RoadGraphRepository`は4つを既存の公開APIのまま束ねるファサード（DI・テストの
 安定した注入点）。新しいコードは用途に応じて個別リポジトリを直接使ってよい。
 
-**トランザクション境界の規約（T6で確立）**: 本モジュールの書き込みメソッドは
+**トランザクション境界の規約**: 本モジュールの書き込みメソッドは
 一切commitしない。呼び出し側（サービス層）が操作のまとまりごとに
 `RoadGraphRepository.commit()`を呼んで確定する。4リポジトリは同一AsyncSessionを
 共有するため、どのリポジトリ経由の変更もまとめて確定される。
 例: GraphServiceは「タイルの生データ保存＋取得済みマーク」を1コミット、
-「分割結果の保存」を1コミットにする（以前は各メソッドが内部でcommitしており、
-保存とマークの原子性が呼び出し順の暗黙規約に依存していた）。
+「分割結果の保存」を1コミットにする（保存とマークを1コミットにまとめることで
+原子性を保つ）。
 
 node_id/edge_idはdomain/graph.pyでOSM IDから決定論的に導出されるため、同じ現実の
 交差点・道路区間に対する保存は常に同じ主キーへのUPSERT（`Session.merge`）になる。
@@ -139,7 +139,7 @@ logger = logging.getLogger("app.infrastructure.road_graph_repository")
 
 CACHED_GRAPH_VERSION = "cached"
 
-# 近傍Way探索範囲(extent)の上限マージン（改善計画T69）。bboxをかすめる1本の長大way
+# 近傍Way探索範囲(extent)の上限マージン。bboxをかすめる1本の長大way
 # （河川沿いサイクリングロード・幹線等で数十km）があると、主対象Way全体のextentが
 # その全長へ広がり、そこに交差する全way・全nodeをロードしてしまう
 # （最悪ケースでメモリ・転送量・build_road_graph計算量が数十倍に膨らむ）。
@@ -165,9 +165,7 @@ async def create_tables(engine: AsyncEngine) -> None:
 
     列追加・インデックス追加・データバックフィルといった一度きりのスキーマ変更は
     `migrations/`配下の番号付きSQLファイル（`infrastructure/migrate.py:
-    apply_pending_migrations`）で行う（改善計画T17）。以前はこの関数へALTER文を直接
-    追記する方式だったが、静的道路属性計画（docs/static-road-attributes-plan.md）に向けて
-    列追加が繰り返される見込みのため分離した（decisions/pre-static-attributes-gate.md 決定3）。
+    apply_pending_migrations`）で行う（decisions/pre-static-attributes-gate.md 決定3参照）。
     このため、実DBに対して呼び出す場合は本関数の直後に`apply_pending_migrations`も
     呼び出すこと（呼び出し例: `app/batch/import_pbf.py`）。
 
@@ -197,12 +195,12 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 
 # 路面タイル（MVT）をPostGIS側で丸ごと生成するクエリ（get_road_surface_tile_mvt参照）。
 #
-# 以前は「bbox内の全way行（数千件のジオメトリ）をPythonへ転送→shapelyでdecode→
-# mapbox_vector_tileでencode」という構成で、遠隔DB（Supabaseムンバイ）では行転送だけで
-# 数秒、Python側のCPU処理（GILを握る）でさらに数秒かかり、パン操作のバースト時は
-# 3並列の待ち行列が30秒を超えてフロントエンド（Next.jsのrewritesプロキシ、デフォルト
-# 30秒タイムアウト）が一律500を返す不具合の主因になっていた。ST_AsMVTなら転送は
-# 完成済みタイル1個（数十KB）で済み、エンコードはPostGISのC実装が担う。
+# ST_AsMVTでPostGIS側にてタイルを丸ごと生成する。転送は完成済みタイル1個（数十KB）で
+# 済み、エンコードはPostGISのC実装が担う。bbox内の全way行（数千件のジオメトリ）を
+# Pythonへ転送してshapelyでdecode→mapbox_vector_tileでencodeする構成だと、遠隔DB
+# （Supabase等）では行転送だけで数秒、Python側のCPU処理（GILを握る）でさらに数秒かかり、
+# パン操作のバースト時に複数リクエストの待ち行列がフロントエンド（Next.jsのrewrites
+# プロキシ、デフォルト30秒タイムアウト）の制限に抵触しうる。
 #
 # surface_goodの分類はdomain/road.pyのclassify_osm_surfaceと同義（タグ集合も同じ定数を
 # バインドする）: 良い=true / 悪い=false / 不明(タグ無し・未知タグ)=NULL。
@@ -225,42 +223,36 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #
 # カバレッジ判定（road_graph_tilesのz12祖先タイルマーク）も同じクエリへ畳み込み、
 # 1タイルあたりのDB往復を1回にする（Supabaseが遠隔リージョンにあり、往復1回の削減が
-# そのまま数百ms〜1秒程度の短縮になる。以前はis_tile_cached＋MVT生成の2往復だった）。
+# そのまま数百ms〜1秒程度の短縮になる）。
 # CASE式は条件がfalseの分岐を評価しないため、カバレッジ外ではMVT生成のサブクエリ自体が
 # 実行されない。
 # 静的道路属性 P0（docs/static-road-attributes-plan.md）追加プロパティの計算根拠:
 # - smoothness: 生タグをlower(btrim())で正規化して焼くだけ（surfaceと同じ流儀）
 # - tunnel/bridge: タグ値'yes'のときだけtrueを焼く（それ以外はキー省略＝ST_AsMVTがNULLを
 #   省略する既存の挙動をそのまま使う。「非該当」が大多数のため省略した方がタイルが軽い）
-# - car_stress（車ストレス、1-5）は改善計画（交通ストレスレシピ外出し基盤）以降、
+# - car_stress（車ストレス、1-5）は
 #   ここでは**計算済みの最終値を焼かない**。タイルは全ユーザー共有でキャッシュされる
 #   （Cache-Control: max-age=3600＋ディスクキャッシュ）ため、最終値をSQLへ焼き込むと
 #   判定基準（highway別基準値・cycleway/maxspeed/lanes/指定路線の補正）を変えるたびに
 #   世界中のタイルキャッシュを作り直す必要が生じる。代わりに材料タグ
 #   （maxspeed_kmh/lanes_count/motor_vehicle_no、highwayは既存プロパティを流用。
-#   改善計画T337: cycleway_classプロパティ、T347: bicycle_infraプロパティは評価軸・
-#   地図表示のどちらからも参照が無くなったため削除済み。自転車インフラの評価は
-#   is_emergency_transport等と同じ正規化フラグ材料（highway_is_cycleway等、
-#   domain/recipe.py: bicycle_infra_flags）へ移行済み）だけを焼き込み、最終値の計算は
-#   フロントエンド側
-#   （改善計画T292: frontend/src/components/Map/axisLayers.ts、汎用ramp
-#   パイプライン。専用手書きexpression`carStressExpression.ts`は廃止済み）と
+#   自転車インフラの評価はis_emergency_transport等と同じ正規化フラグ材料
+#   [highway_is_cycleway等、domain/recipe.py: bicycle_infra_flags]で行う）だけを
+#   焼き込み、最終値の計算はフロントエンド側
+#   （frontend/src/components/Map/axisLayers.ts、汎用rampパイプライン）と
 #   ルート採点（domain/axis_definitions.pyのAXIS_DEFINITIONS、car_stressを
-#   支える内部軸6つ+公開軸1つの階層構造。旧domain/traffic.py: car_stress_breakdownは廃止）が
-#   それぞれ行う。両者は同じ材料タグの定義（domain/registry_defaults.pyのtile_inputsが
+#   支える内部軸6つ+公開軸1つの階層構造）がそれぞれ行う。両者は同じ材料タグの定義
+#   （domain/registry_defaults.pyのtile_inputsが
 #   AXIS_DEFINITIONSの各内部軸shapeを片側importで参照）に対応させることで同期を担保する
 #   （このSQL側の整合性テストは材料タグの焼き込みが正しいことだけを検証すればよい）。
 #   maxspeed/lanesの数値パースは、Pythonのparse_maxspeed/parse_lanes（int(float(x))で
 #   小数を切り捨て）と合わせるためtrunc()を使い、非数値文字列（"30 mph"等）は正規表現で
 #   弾いてunknown安全にする。
-# - lit（街灯タグの有無）はT148で削除された安全度軸（安全度レシピ）が最終値を焼かず材料
-#   タグとして参照していた名残だが、night軸（domain/night.py: night_difficulty、
-#   domain/registry_defaults.py: inputs=["lit","tunnel"]）の入力としても登録済みのため、
-#   安全度削除後も引き続き焼き込む（tunnelは上のtunnelプロパティを再利用。shoulderは
-#   改善計画T102実測0.0%の死に補正のためT122で撤去済み）。night軸自体はT145a（lit
-#   タグの充実待ち）まで専用の地図レイヤーを持たない。
-# - accident_per_km/stop_per_km/intersection_per_km（改善計画T145b「事実はタイルに、
-#   解釈はクライアントに」）: way_attribute_counts（way単位の事前集計。edge単位の
+# - lit（街灯タグの有無）はnight軸（domain/night.py: night_difficulty、
+#   domain/registry_defaults.py: inputs=["lit","tunnel"]）の入力として焼き込む
+#   （tunnelは上のtunnelプロパティを再利用）。night軸自体は専用の地図レイヤーを持たない。
+# - accident_per_km/stop_per_km/intersection_per_km（「事実はタイルに、
+#   解釈はクライアントに」方針）: way_attribute_counts（way単位の事前集計。edge単位の
 #   edge_attribute_countsはroad_edges＝ルート生成済みエリアしかカバーしないため地図表示の
 #   母集団にできない、dev実測3.6%）をJOINし、km正規化した密度を焼き込む。これらはレシピに
 #   依存しない静的な事実のため、「最終値を焼かない」上記方針と矛盾しない（レシピ変更で
@@ -288,10 +280,10 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         ST_AsMVTGeom(
                             ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                         ) AS geom,
-                        -- クリック時の車ストレス内訳表示（改善計画T90）が、ポップアップに
+                        -- 区間インスペクタ（クリック時の車ストレス内訳表示）が、ポップアップに
                         -- 出た値と同じ行を曖昧さ無く引き直すための識別子。空間マッチ
-                        -- (半径内最近傍)だと交差点付近で別の道路を拾いうる（実機確認で判明）
-                        -- ため、フィーチャーが指す行そのものをosm_way_id完全一致で引く
+                        -- (半径内最近傍)だと交差点付近で別の道路を拾いうるため、
+                        -- フィーチャーが指す行そのものをosm_way_id完全一致で引く
                         -- （get_way_tags_by_osm_way_id）。
                         w.osm_way_id AS osm_way_id,
                         {SURFACE_GOOD_CASE_SQL} AS surface_good,
@@ -300,50 +292,41 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         {SMOOTHNESS_NORMALIZED_SQL} AS smoothness,
                         CASE WHEN {TUNNEL_NORMALIZED_SQL} = 'yes' THEN true END AS tunnel,
                         CASE WHEN {BRIDGE_NORMALIZED_SQL} = 'yes' THEN true END AS bridge,
-                        -- 一方通行（一次属性、改善計画T289）。w.directionはosm_adapter.py:
+                        -- 一方通行（一次属性）。w.directionはosm_adapter.py:
                         -- _resolve_directionがoneway/oneway:bicycleタグから解決済みの
                         -- forward/backward/both（osm_raw_ways専用列、tagsのJSONBには
                         -- 含まれない）。一方通行の逆方向は既にbuild_road_graphがEdge自体を
                         -- 生成しないため、探索の正しさには無関係（表示専用の一次属性）。
                         CASE WHEN w.direction != 'both' THEN true END AS oneway,
-                        -- ST_AsMVTはnumeric型を認識せずtextへフォールバックする（実機確認で
-                        -- 判明。フロントのMapLibre expressionが数値比較できなくなる）ため、
+                        -- ST_AsMVTはnumeric型を認識せずtextへフォールバックする
+                        -- （フロントのMapLibre expressionが数値比較できなくなる）ため、
                         -- integerへキャストしてから焼き込む。0以下はPythonのparse_maxspeed/
                         -- parse_lanes（`value if value > 0 else None`）と同じくunknown扱いにし
                         -- キー自体を省略する（"maxspeed=0"のような無効タグでフロント/採点側の
-                        -- 補正が誤発火しないようにする。改善計画: 交通ストレスレシピ外出し基盤
-                        -- のコードレビューで発覚）。
+                        -- 補正が誤発火しないようにする）。
                         {MAXSPEED_KMH_CASE_SQL} AS maxspeed_kmh,
                         {LANES_COUNT_CASE_SQL} AS lanes_count,
                         CASE WHEN {MOTOR_VEHICLE_NORMALIZED_SQL} = 'no' THEN true END AS motor_vehicle_no,
-                        -- 安全度の材料タグ（改善計画: 安全度レシピ）。tunnelは既存プロパティ
+                        -- night軸の材料タグ。tunnelは既存プロパティ
                         -- （上のtunnel、表示用と兼用）をそのまま再利用し、litのみ新規抽出する
-                        -- （motor_vehicle_noと同じCASE式パターン。shoulderは改善計画T102実測
-                        -- 0.0%の死に補正のためT122で撤去した）。
+                        -- （motor_vehicle_noと同じCASE式パターン）。
                         CASE WHEN {LIT_NORMALIZED_SQL} = 'yes' THEN true END AS lit,
                         CASE
                             WHEN COALESCE(d.is_ert, false) AND COALESCE(d.is_cl, false) THEN 'both'
                             WHEN d.is_ert THEN 'emergency_transport'
                             WHEN d.is_cl THEN 'critical_logistics'
                         END AS designation,
-                        -- 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）: 上のdesignation
-                        -- （3値、地図表示専用）が畳み込む前の正規化フラグを、評価軸の材料として
-                        -- 個別に焼き込む。旧bicycle_infra→cycleway_has_track等（改善計画T336・
-                        -- T347で完全移行）と同じ設計——複雑な分類の生値は表示専用として残し、
-                        -- 評価用の正規化材料は別途用意する。d.is_ert/d.is_clは既に計算済みの
-                        -- ため追加JOINは不要。
+                        -- 上のdesignation（3値、地図表示専用）が畳み込む前の正規化フラグを、
+                        -- 評価軸の材料として個別に焼き込む（複雑な分類の生値は表示専用として
+                        -- 残し、評価用の正規化材料は別途用意する設計）。d.is_ert/d.is_clは
+                        -- 既に計算済みのため追加JOINは不要。
                         CASE WHEN d.is_ert THEN true END AS is_emergency_transport,
                         CASE WHEN d.is_cl THEN true END AS is_critical_logistics,
-                        -- 改善計画T367（ユーザー要望「軸スタジオで作った推定軸を地図上
-                        -- アイコンで自動表示したい」）: 公開軸「自転車インフラ」
-                        -- （bicycle_infra_quality）が参照する5正規化フラグ材料
-                        -- （domain/recipe.py: bicycle_infra_flagsと同じ判定式、
-                        -- domain/material_catalog.py参照）。T347で旧bicycle_infra
-                        -- プロパティを削除して以降tile_propertyを持たず、derive_ramp_inputs
-                        -- （domain/axis_display.py）の対象外＝地図に一切出ない状態が続いて
-                        -- いたため復活させる（旧bicycle_infraと違い、複数の独立フラグとして
-                        -- 個別に焼き込む設計。is_emergency_transport/is_critical_logisticsと
-                        -- 同じ理由）。
+                        -- 公開軸「自転車インフラ」（bicycle_infra_quality）が参照する
+                        -- 5正規化フラグ材料（domain/recipe.py: bicycle_infra_flagsと
+                        -- 同じ判定式、domain/material_catalog.py参照）。複数の独立フラグ
+                        -- として個別に焼き込む設計（is_emergency_transport/
+                        -- is_critical_logisticsと同じ理由）。
                         CASE WHEN {HIGHWAY_SQL} = 'cycleway' THEN true END AS highway_is_cycleway,
                         CASE WHEN 'track' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_track,
                         CASE WHEN 'lane' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_lane,
@@ -354,7 +337,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                                  AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')
                                 THEN true
                         END AS shared_pedestrian_path,
-                        -- 事前集計カウントのkm正規化密度（改善計画T145b、冒頭コメント参照）。
+                        -- 事前集計カウントのkm正規化密度（冒頭コメント参照）。
                         -- ST_AsMVTはnumeric型をtextへフォールバックするため（maxspeed_kmhの
                         -- コメント参照）、丸めた後にdouble precisionへキャストして焼き込む。
                         NULLIF(
@@ -486,16 +469,11 @@ _WAY_GRADIENT_INPUTS_IN_TILE_SQL = text(
 )
 
 
-# 改善計画T54（既取込データの可視化漏れ解消）: 停止要因POI（osm_raw_pois）を1タイルへ
-# 焼き込む。_ROAD_SURFACE_TILE_MVT_SQLと同じカバレッジ判定（road_graph_tilesのz12祖先
-# タイルマーク）を再利用しつつ、対象データソースが別テーブルの点データのため道路（way）とは
-# 独立のクエリにする。osm_raw_pois内のkindタグをそのまま焼き込むだけ（GiST索引を使う
-# ST_Intersects、_STOP_POI_COUNTS_SQLと同じテーブル）。
-#
-# T54では交差点密度（次数3以上のroad_node）レイヤーも同じタイルへCOALESCE+bytea結合（||）で
-# 焼き込んでいたが、T96でフロントの地図表示から撤去（道路網を見れば概ね自明という判断）され
-# 参照が無くなったため、T97でこちらの配信自体も削除した（ルーティング材料の
-# intersection_weightは`_INTERSECTION_COUNTS_SQL`が引き続き独立に計算する）。
+# 停止要因POI（osm_raw_pois）を1タイルへ焼き込む。_ROAD_SURFACE_TILE_MVT_SQLと同じ
+# カバレッジ判定（road_graph_tilesのz12祖先タイルマーク）を再利用しつつ、対象データソースが
+# 別テーブルの点データのため道路（way）とは独立のクエリにする。osm_raw_pois内のkindタグを
+# そのまま焼き込むだけ（GiST索引を使うST_Intersects、_STOP_POI_COUNTS_SQLと同じテーブル）。
+# ルーティング材料のintersection_weightは`_INTERSECTION_COUNTS_SQL`が独立に計算する。
 _POI_TILE_MVT_SQL = text(
     """
     WITH coverage AS (
@@ -529,13 +507,13 @@ _POI_TILE_MVT_SQL = text(
 # 「最近傍1件」ではなく「距離内の件数」を求める単純なLEFT JOIN + COUNTのため、
 # ORDER BY <-> LIMITは使わない（GiST索引で素直にindex nested loopになる）。
 # edge_idはWHEREで先に絞るため、LEFT JOINでも指定edge_id全件が0件を含めて1行ずつ返る。
-# 改善計画T64: JOIN条件がST_DWithin(geography)単体だとGiST索引を使わずJoin Filter
-# （全組み合わせ評価）に落ちる（_INTERSECTION_COUNTS_SQLのコメント・T64実測参照）。
+# JOIN条件がST_DWithin(geography)単体だとGiST索引を使わずJoin Filter
+# （全組み合わせ評価）に落ちる（_INTERSECTION_COUNTS_SQLのコメント参照）。
 # `&&`（geometry型のバウンディングボックス演算子）を前置してGiST索引を先に使わせてから
 # ST_DWithinで精密判定する。
-# 改善計画T145b実装中に発見したバグの修正: T101で補給POI（convenience/vending_machine等）が
-# 同じosm_raw_poisへ入って以降、kindを絞らないこのCOUNTは停止密度へコンビニ・自販機を
-# 誤算入していた（dev実測で全POIの約17%が補給kind）。STOP_POI_KINDS（domain/traffic.py）で
+# 補給POI（convenience/vending_machine等）も同じosm_raw_poisへ入っているため、
+# kindを絞らないこのCOUNTは停止密度へコンビニ・自販機を誤算入する
+# （dev環境で全POIの約17%が補給kind）。STOP_POI_KINDS（domain/traffic.py）で
 # フィルタする。
 _STOP_POI_COUNTS_SQL = text(
     """
@@ -550,12 +528,12 @@ _STOP_POI_COUNTS_SQL = text(
     """
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
-# 外部静的データソース T50残作業（事故密度の評価組み込み）。_STOP_POI_COUNTS_SQLと同じ
+# 外部静的データソースT50（事故密度の評価組み込み）。_STOP_POI_COUNTS_SQLと同じ
 # 「edge_idそれぞれの距離内件数」パターンだが、対象テーブルがaccident_pointsで
 # bicycle_only（当事者に自転車を含む事故のみに絞るか）の切替を追加している。
-# 改善計画T64: _STOP_POI_COUNTS_SQLと同じ理由で`&&`を前置する。
-# 改善計画（事故密度の精度改善）: 単純COUNTではなく死亡事故を`ACCIDENT_FATAL_WEIGHT`件分と
-# みなすSUMへ変更（domain/accident.py参照）。戻り値がint→floatになる。LEFT JOINで一致が
+# _STOP_POI_COUNTS_SQLと同じ理由で`&&`を前置する。
+# 単純COUNTではなく死亡事故を`ACCIDENT_FATAL_WEIGHT`件分とみなすSUMにする
+# （domain/accident.py参照）。戻り値はfloat。LEFT JOINで一致が
 # 無いedgeはa.accident_idもa.fatalもNULLになるため、CASE式の先頭でa.accident_id IS NULLを
 # 明示的に0扱いする（無いとNULLはWHEN a.fatal THENの条件が偽になりELSE 1へ落ち、
 # 事故0件のedgeに架空の1件が計上されてしまう）。
@@ -579,11 +557,11 @@ _ACCIDENT_COUNTS_SQL = text(
 # 指定路線コンフレーション機構（外部静的データソース T51）。designation_attributesは
 # match_designations.pyの事前計算バッチが埋める（クエリ時にはバッファ交差計算をしない）。
 #
-# 改善計画T74: designation_attributesはosm_way_idキーへ変更したが、呼び出し元
+# designation_attributesはosm_way_idキーのため、呼び出し元
 # （get_designated_edge_ids）は構築済みgraph（graph.edges.keys()、road_graph_engine.py）の
 # edge_idを受け取りedge_id集合を返す必要があるため、この経路だけはroad_edgesを経由して
 # edge_id→osm_way_idへマッピングしてからJOINする。呼び出し時点でgraphは既に構築済み
-# （road_edgesの遅延構築は完了済み）のため、この間接JOINはT74の「遅延構築依存」問題の
+# （road_edgesの遅延構築は完了済み）のため、この間接JOINは「遅延構築依存」問題の
 # 対象外（MVT表示のように「ルート生成前に見えるか」が問題になる経路ではない）。
 #
 # DISTINCTは呼び出し側（get_designated_edge_ids）のset()化と二重に見えるが、1エッジが
@@ -602,8 +580,8 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
     "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
 )
 
-# 区間インスペクタ（改善計画T146）。_WAY_TAGS_BY_OSM_WAY_IDと同じ完全一致1行取得パターン。
-# way_attribute_counts（T145b、事前集計）が該当osm_way_idを持たない場合（highway無し等で
+# 区間インスペクタ。_WAY_TAGS_BY_OSM_WAY_IDと同じ完全一致1行取得パターン。
+# way_attribute_counts（事前集計）が該当osm_way_idを持たない場合（highway無し等で
 # バッチのWHERE対象外だったway）は行自体が無くNoneを返す＝呼び出し元は「データ無し」として
 # 扱う（0件と区別する。get_stop_poi_counts等の「edge_id自体は必ず含まれ0埋め」とは異なる
 # 単純な1行SELECTのため区別不要）。
@@ -612,7 +590,7 @@ _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
     "FROM way_attribute_counts WHERE osm_way_id = :osm_way_id"
 )
 
-# 車ストレスの区間別判定内訳表示（改善計画T90）。get_way_tags_by_osm_way_idが使う。
+# 車ストレスの区間別判定内訳表示。get_way_tags_by_osm_way_idが使う。
 # 空間マッチをしない完全一致1行取得。
 _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
     """
@@ -640,22 +618,17 @@ def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
 
 # 静的道路属性P1残り（intersectionDensity）。「次数3以上のNode」を交差点とみなす。
 #
-# 改善計画T151（2026-08-19改訂）: 以前はroad_edgesのfrom/to隣接ノード集合から次数を
-# 呼び出しのたびに計算していたが、「渡されたedge_ids集合内で完結する部分グラフの次数」を
-# 返す設計だったため、(a) 呼び出し元の集合が変わると同じedgeでも結果が変わる、
-# (b) get_intersection_counts内部の50,000件チャンク分割がリスト順序に依存してチャンク
-# 境界を決めるため、同一集合でも順序が異なると境界をまたぐノードの次数が変わる非決定性が
-# あった（T144実装メモ参照）。get_accident_counts/get_stop_poi_countsと同じ「edge単位で
-# 独立な空間近傍カウント」の意味論へ揃えるため、次数を`road_nodes.degree`（DB全体から見た
-# 真のグローバル次数、backend/app/batch/precompute_road_node_degrees.pyが事前計算）へ
-# 一本化した。呼び出し元の集合やチャンク分割から完全に独立するため、順序依存・境界過小評価の
-# どちらも構造的に解消する。
+# get_accident_counts/get_stop_poi_countsと同じ「edge単位で独立な空間近傍カウント」の
+# 意味論へ揃えるため、交差点の次数は`road_nodes.degree`（DB全体から見た真のグローバル
+# 次数、backend/app/batch/precompute_road_node_degrees.pyが事前計算）を参照する
+# （呼び出し元のedge_ids集合やチャンク分割から完全に独立するため、呼び出し順序や
+# 集合の違いによる次数のブレが生じない）。
 #
 # road_nodesとのJOINは`ST_DWithin(geom::geography, ...)`だけに頼らず、必ず`&&`
 # （バウンディングボックス重なり、GiST索引を素直に使う）を先に効かせてからST_DWithinで
-# 精密に絞り込む。`geom::geography`へキャストしたST_DWithinは本環境の実測でGiST索引を
-# 使わない全件Seq Scan + Nested Loopになり（road_nodes 25,608件で単純な1点問い合わせが
-# 132msかかることをEXPLAIN ANALYZEで確認）、複数点をまとめて処理すると数秒〜数十秒に
+# 精密に絞り込む。`geom::geography`へキャストしたST_DWithinはGiST索引を使わない全件
+# Seq Scan + Nested Loopになりうる（road_nodes 25,608件で単純な1点問い合わせが
+# 132msかかることをEXPLAIN ANALYZEで確認済み）、複数点をまとめて処理すると数秒〜数十秒に
 # 劣化する。`&&`はgeometry型の演算子で確実にインデックスを使うため（本ファイルの既存クエリも
 # `geom && bbox`で索引を使わせており、ST_DWithin(geography)単体には頼っていない）、
 # まずこれで候補を数件程度まで絞ってから
@@ -677,7 +650,7 @@ _INTERSECTION_COUNTS_SQL = text(
     """
 )
 
-# 改善計画T145b: raw_intersection_nodes（次数3以上の生OSMノード）の全再構築SQL。
+# raw_intersection_nodes（次数3以上の生OSMノード）の全再構築SQL。
 # road_nodes.degree（Road Graph依存、ルート生成済みエリアのみ）と異なり、osm_raw_ways.
 # node_idsの隣接関係から全域の次数を導出する。Wayの連続するnode_idペアを双方向に展開し、
 # node単位でDISTINCT隣接node数を数える（同じ判定基準: 次数3以上=交差点。中間の形状点は
@@ -713,7 +686,7 @@ _REBUILD_RAW_INTERSECTION_NODES_SQL = text(
     """
 )
 
-# 改善計画T145b: way_attribute_counts（way単位の事実カウント）の再計算SQL。
+# way_attribute_counts（way単位の事実カウント）の再計算SQL。
 # カウントの意味論はedge単位版（_ACCIDENT_COUNTS_SQL/_STOP_POI_COUNTS_SQL/
 # _INTERSECTION_COUNTS_SQL）と同一（半径・kindフィルタ・死亡事故重み・次数しきい値）で、
 # 対象geometryだけがedge→way全体になる。`&&`前置・LATERALの流儀も既存クエリを踏襲。
@@ -771,17 +744,15 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -> RoadGraph:
-    """`get_graph_in_bbox`用。Edgeが数万〜十数万行になる規模のため、1行ずつ
-    `to_shape()`を呼ぶ従来実装ではなく`shapely.from_wkb()`のバッチAPI（GEOS呼び出しの
-    ループをPython側ではなくC側で回す）でgeometryを一括デコードし、Pydanticの
-    `model_construct`（フィールド検証をスキップ。DB由来で型が保証済みのため安全）で
-    DirectedEdgeを構築する。実データ（東京都心4km相当bbox、Edge151,820件・
-    Node59,270件）での実測でCPU時間を約37%削減（6.11秒→3.84秒、
-    backend/benchmarks/README.md参照）。
+    """`get_graph_in_bbox`用。Edgeが数万〜十数万行になる規模のため、`shapely.from_wkb()`の
+    バッチAPI（GEOS呼び出しのループをPython側ではなくC側で回す）でgeometryを一括デコードし、
+    Pydanticの`model_construct`（フィールド検証をスキップ。DB由来で型が保証済みのため安全）で
+    DirectedEdgeを構築する（東京都心4km相当bbox、Edge151,820件・Node59,270件でCPU時間を
+    約37%削減、6.11秒→3.84秒、backend/benchmarks/README.md参照）。
 
     `node_rows`は`Node`が`geometry`フィールドを持たない（`latitude`/`longitude`のみ）ことを
     踏まえ、`get_graph_topology_in_bbox`と同じくST_X/ST_Y列指定クエリの結果を受け取る
-    （改善計画T264、geom列自体のshapely decodeを丸ごと回避）。
+    （geom列自体のshapely decodeを丸ごと回避する）。
     """
     node_rows = list(node_rows)
     nodes = {
@@ -796,7 +767,7 @@ def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -
 
 def _edge_rows_to_directed_edges(edge_rows: Iterable[RoadEdgeRow]) -> dict[str, DirectedEdge]:
     """`RoadEdgeRow`（geom込みの全カラム）のバッチをDirectedEdgeへ変換する共通ヘルパー
-    （`_rows_to_road_graph`・`get_edges_with_geometry`が共有、改善計画T218）。
+    （`_rows_to_road_graph`・`get_edges_with_geometry`が共有）。
     `shapely.from_wkb()`のバッチAPIで一括デコードする理由は`_rows_to_road_graph`の
     docstring参照。
     """
@@ -819,21 +790,20 @@ def _edge_rows_to_directed_edges(edge_rows: Iterable[RoadEdgeRow]) -> dict[str, 
 
 
 def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> LeanRoadGraph:
-    """`get_graph_topology_in_bbox`用（改善計画T218、T12 Stage 0）。`edge_rows`は
+    """`get_graph_topology_in_bbox`用。`edge_rows`は
     `RoadEdgeRow`の全カラムではなく、探索に必要な列（geom以外）だけをSELECTした
     `Row`（SQLAlchemyの軽量タプル的な結果行）を想定する。geomカラムを一切
-    SELECTしないため、`_rows_to_road_graph`が行うshapely decode（実測でCPU時間の
+    SELECTしないため、`_rows_to_road_graph`が行うshapely decode（CPU時間の
     大半を占める、backend/benchmarks/README.md参照）が発生しない。
     `node_rows`も同様に`RoadNodeRow`の全カラムではなく、`node_id`・`osm_node_id`・
     `ST_X(geom)`（経度）・`ST_Y(geom)`（緯度）だけをSELECTした`Row`を想定する
-    （改善計画T248: geom列自体を取得してshapely decodeするより、PostGIS側で
-    ST_X/ST_Yを計算させプレーンなfloatとして受け取る方が3倍以上速いと実測で判明）。
+    （geom列自体を取得してshapely decodeするより、PostGIS側でST_X/ST_Yを計算させ
+    プレーンなfloatとして受け取る方が3倍以上速い）。
 
     戻り値は`RoadGraph`（Pydantic）ではなく`LeanRoadGraph`（dataclass、`domain/graph.py`）
-    にする（改善計画T248）。プロファイリングで`Node.model_construct`/
-    `DirectedEdge.model_construct`自体（バリデーションをスキップしてもなおPydanticの
-    内部簿記コストが残る）が、171,461Edge規模でDBクエリ本体（合計3.4秒）より支配的な
-    11秒を占めることが判明したため、探索専用パスに限りPydanticを完全に外した。
+    にする。`Node.model_construct`/`DirectedEdge.model_construct`自体（バリデーションを
+    スキップしてもなおPydanticの内部簿記コストが残る）は、171,461Edge規模でDBクエリ本体
+    （合計3.4秒）より支配的な11秒を占めるため、探索専用パスに限りPydanticを完全に外す。
     `LeanEdge.geometry`はプレースホルダの空リストにする（探索フェーズの評価関数は
     geometryを参照しない設計にしてある——風の材料評価（DYNAMIC_MATERIAL_EVALUATORS）は`bearing_deg`を
     直接使う、domain/evaluation.py参照。表示用の実ジオメトリが必要な最終候補は
@@ -943,22 +913,22 @@ _MERGE_ROAD_EDGES_SQL = (
 
 
 async def _asyncpg_connection(session: AsyncSession):
-    """SQLAlchemy `AsyncSession`の裏にある生のasyncpg接続を取得する（改善計画T248・T259）。
+    """SQLAlchemy `AsyncSession`の裏にある生のasyncpg接続を取得する。
 
     `_bulk_upsert`（複数行VALUESのINSERT ... ON CONFLICT、chunk=1000）は、都心規模
-    （数万Node・十数万Edge）のsave_graphで数十秒〜数百秒かかることが本番実測
-    （T248: 王子30kmでedge_upsert_ms=149,235）・実機再現（T259: Renderの約100秒
-    プラットフォームタイムアウトに到達し完全失敗）の両方で判明した。PBF取込バッチ
-    （app/batch/import_pbf.py）が既に使っているCOPY（バイナリプロトコル、インデックス
-    更新も1回のバルク処理にまとめられる）へ一時テーブル経由で置き換えることで、
-    dev DB実測で5.6〜9.6倍の高速化を確認した（backend/benchmarks/bench_save_graph_copy.py、
-    10km: 60.9秒→6.4秒、20km: 86.2秒→15.4秒）。
+    （数万Node・十数万Edge）のsave_graphで数十秒〜数百秒かかりうる（王子30kmで
+    edge_upsert_ms=149,235、Renderの約100秒プラットフォームタイムアウトに到達し完全
+    失敗する場合もある）。PBF取込バッチ（app/batch/import_pbf.py）が既に使っている
+    COPY（バイナリプロトコル、インデックス更新も1回のバルク処理にまとめられる）へ
+    一時テーブル経由で置き換えることで、dev DBで5.6〜9.6倍の高速化を確認した
+    （backend/benchmarks/bench_save_graph_copy.py、10km: 60.9秒→6.4秒、
+    20km: 86.2秒→15.4秒）。
 
     SQLAlchemyの`AsyncSession`は「autobegin」のため、SQLAlchemy経由で何か実行するまで
     実トランザクション（BEGIN）がドライバへ送信されない。ここで軽いSELECTを1つ挟んで
     BEGINを確定させないと、`CREATE TEMP TABLE ... ON COMMIT DROP`が（asyncpg接続が
     autocommitのまま）即座にDROPされてしまい、直後のCOPYが存在しないテーブルへの
-    アクセスになる（ベンチマーク実装時に実際に踏んだ失敗）。
+    アクセスになる。
     """
     await session.execute(text("SELECT 1"))
     raw_conn = await session.connection()
@@ -1020,7 +990,7 @@ class _SessionRepository:
         self._session = session
 
 
-# 改善計画T151: road_nodes.degree（DB全体から見た真のグローバル次数）の事前集計SQL。
+# road_nodes.degree（DB全体から見た真のグローバル次数）の事前集計SQL。
 # road_edges全件（呼び出し元の集合ではなくDB全体）から次数を計算するため、
 # recompute_node_degrees()の呼び出し元やチャンク分割から独立した決定的な値になる。
 # backend/app/batch/precompute_road_node_degrees.pyが本メソッドを呼び出す
@@ -1062,7 +1032,7 @@ class DerivedGraphRepository(_SessionRepository):
     """派生グラフ（road_nodes/road_edges、交差点分割の結果）の読み書きと鮮度判定。"""
 
     async def recompute_node_degrees(self) -> None:
-        """road_nodes.degreeをroad_edges全件から再計算する（改善計画T151）。
+        """road_nodes.degreeをroad_edges全件から再計算する。
 
         呼び出し元の集合に依存しないDB全体集計のため、road_edgesが変わった場合
         （PBF再取込等）は都度呼び直す必要がある派生データ（`edge_attribute_counts`と同じ
@@ -1085,10 +1055,10 @@ class DerivedGraphRepository(_SessionRepository):
         # =ANY(配列)化の理由はget_elevation_attributesのコメント参照（1要素=1パラメータの
         # IN句展開と異なり配列全体で1パラメータのため、WAN経由でのラウンドトリップ増加を
         # 避けられる。50,000件チャンクなのでasyncpgのパラメータ上限32767個の問題も無い）。
-        # 改善計画T264: `Node`は`latitude`/`longitude`のみを持ち`geometry`フィールドを
-        # 持たない（`DirectedEdge`と異なりgeom列自体を必要としない）。`get_graph_topology_in_bbox`
-        # （T248でST_X/ST_Y列指定へ最適化済み、3.1倍）と同じ理由がこの`get_graph_in_bbox`
-        # （lean=False、非探索の表示用パス）のNode取得にも当てはまるが未適用のままだった。
+        # `Node`は`latitude`/`longitude`のみを持ち`geometry`フィールドを持たない
+        # （`DirectedEdge`と異なりgeom列自体を必要としない）ため、`get_graph_topology_in_bbox`
+        # と同じくPostGIS側でST_X/ST_Yを計算させプレーンなfloatとして受け取り、
+        # shapely decodeを回避する。
         node_rows = []
         for id_chunk in _chunked(node_ids, 50_000):
             node_stmt = select(
@@ -1106,13 +1076,13 @@ class DerivedGraphRepository(_SessionRepository):
         return await asyncio.to_thread(_rows_to_road_graph, edge_rows, node_rows)
 
     async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> LeanRoadGraph | None:
-        """`get_graph_in_bbox`の軽量版（改善計画T218、T12 Stage 0）。探索フェーズ
+        """`get_graph_in_bbox`の軽量版。探索フェーズ
         （Dijkstra経路選択）はEdgeのトポロジ（from/to node・distance・bearing等）だけ
         あれば成立し、geometry（形状点列）は不要（domain/evaluation.py:
-        風の材料評価がbearing_degを直接使う設計に変更済み）。
+        風の材料評価はbearing_degを直接使う設計のため）。
 
         `geom`カラム自体をSELECT対象から外すことで、shapelyへのgeometry decode
-        （`_rows_to_road_graph`のコメント参照、実測でCPU時間の大半を占める）を
+        （`_rows_to_road_graph`のコメント参照、CPU時間の大半を占める）を
         丸ごと回避する。返す`RoadGraph`の`DirectedEdge.geometry`は空リストの
         プレースホルダ（`_topology_rows_to_road_graph`参照）。
 
@@ -1137,8 +1107,8 @@ class DerivedGraphRepository(_SessionRepository):
             return None
 
         node_ids = sorted({row.from_node_id for row in edge_rows} | {row.to_node_id for row in edge_rows})
-        # 改善計画T248: `select(RoadNodeRow)`（geom列込みのORM行）+shapely decodeは、
-        # 緯度経度だけが目的の探索フェーズには過剰なコストだった（dev DB実測、
+        # `select(RoadNodeRow)`（geom列込みのORM行）+shapely decodeは、
+        # 緯度経度だけが目的の探索フェーズには過剰なコスト（dev DBで
         # 68,760件でORM+shapely decode 2.76秒 → ST_X/ST_Y列指定0.89秒、3.1倍）。
         # PostGIS側でST_X/ST_Yを計算させ、緯度経度をプレーンなfloatとして直接受け取る
         # ことでshapely decode自体を丸ごと回避する。
@@ -1155,20 +1125,19 @@ class DerivedGraphRepository(_SessionRepository):
         return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
 
     async def get_edges_with_geometry(self, edge_ids: list[str], use_cache: bool = True) -> dict[str, DirectedEdge]:
-        """指定edge_idぶんだけ、実ジオメトリ込みのDirectedEdgeを取得する（改善計画T218）。
+        """指定edge_idぶんだけ、実ジオメトリ込みのDirectedEdgeを取得する。
         `get_graph_topology_in_bbox`でgeometry抜きに読み込んだ探索用グラフから、
         Dijkstraで確定した経路（1候補あたり数十〜数百Edge）だけへ絞ってgeometryを
         取得し直す用途。bbox全件（数万〜十数万Edge）のdecodeを避けつつ、区間詳細
         表示に必要な実ジオメトリは確保する。
 
-        改善計画T390: ルート生成のたびに呼ばれるホットパス（改善計画T531以降は
-        `RoadGraphEngine.evaluate_loops`が候補ぶんをまとめて1リクエスト1回）のため、
-        edge_id単位のRedis cache-aside
+        ルート生成のたびに呼ばれるホットパス（`RoadGraphEngine.evaluate_loops`が
+        候補ぶんをまとめて1リクエスト1回呼ぶ）のため、edge_id単位のRedis cache-aside
         （`infrastructure/road_edge_geometry_cache.py`）をまず経由する。Redisで
-        判定できなかった分だけ従来どおりPostGISへ問い合わせ、取得できた分をRedisへ
+        判定できなかった分だけPostGISへ問い合わせ、取得できた分をRedisへ
         書き戻す（road_graph_tile_cache.pyのget_cached_tiles/mark_fetchedと同じ構造）。
 
-        改善計画T576: `use_cache=False`はRedis cache-asideを丸ごと迂回しPostGISへ
+        `use_cache=False`はRedis cache-asideを丸ごと迂回しPostGISへ
         直接問い合わせる。全道路網一括バッチ（`precompute_elevation_attributes.py`）
         のように対象がbboxに収まらず反復性も無い呼び出しでは、Redisへ大量書き込み
         する意味が無いばかりか、TTL付きエントリで他の用途のキャッシュを追い出す
@@ -1231,7 +1200,7 @@ class DerivedGraphRepository(_SessionRepository):
     async def save_graph(self, graph: RoadGraphLike, way_ids_to_replace: set[int] | None = None) -> None:
         """RoadGraphをroad_nodes/road_edgesへ永続化する。
 
-        改善計画T262: 引数は`RoadGraph`ではなく`RoadGraphLike`（`Node`/`DirectedEdge`の
+        引数は`RoadGraph`ではなく`RoadGraphLike`（`Node`/`DirectedEdge`の
         Pydantic版・`LeanNode`/`LeanEdge`のdataclass版いずれも受け付ける構造的型）。
         本メソッドは`graph.nodes`/`graph.edges`とその属性（node_id/latitude/longitude等）を
         読むだけでPydantic固有機能に依存していないため、呼び出し元
@@ -1240,11 +1209,11 @@ class DerivedGraphRepository(_SessionRepository):
 
         `way_ids_to_replace`を指定した場合、それらのosm_way_idを持つ既存Edge行のうち
         「今回のgraphに同じedge_idで含まれないもの」だけを削除してから`graph`内の該当Edgeを
-        UPSERTする（改善計画T66: 全削除→無条件再挿入だと、分割結果が前回と変わらない
+        UPSERTする（全削除→無条件再挿入だと、分割結果が前回と変わらない
         大多数のケースでも同じedge_idの行がDELETE→INSERTを経由してしまい、
         `ON DELETE CASCADE`のEdge派生属性（elevation_attributes等）が巻き添えで
         消える。edge_idは決定論的なため、分割結果が変わらなければ削除自体が不要。
-        なおdesignation_attributesは改善計画T74でosm_raw_ways基準のWay派生に変更したため、
+        なおdesignation_attributesはosm_raw_ways基準のWay派生のため、
         Edgeの再splitでは影響を受けない）。
         `build_road_graph`は渡されたWay集合全体から交差点を再計算するため、
         Wayの分割結果が実際に変わっていた場合は、古い分割によるEdge行（新graphに
@@ -1253,7 +1222,7 @@ class DerivedGraphRepository(_SessionRepository):
         （closureで近傍として取得しただけのWay）はこの呼び出しでは保存しない
         （不完全な文脈で計算した分割結果によって、他のリクエストが正しく永続化した
         Edgeを誤って上書き・破壊しないため）。
-        Noneの場合は`graph`内の全Edgeを単純にUPSERTする（従来の挙動）。
+        Noneの場合は`graph`内の全Edgeを単純にUPSERTする。
 
         `way_ids_to_replace`指定時は、その各osm_way_idについて`osm_raw_ways.split_at`も
         この時刻へ更新する（`is_split_up_to_date`の鮮度判定に使う。Edgeを1件も生成しなかった
@@ -1263,7 +1232,7 @@ class DerivedGraphRepository(_SessionRepository):
         now = datetime.now(timezone.utc)
         # Edgeがroad_nodes.node_idを外部キー参照するため、先にNodeを一括UPSERTする
         # （同一トランザクション内のため文の実行順で制約を満たせる）。
-        # 改善計画T248・T259: 複数行VALUESのON CONFLICT（`_bulk_upsert`）は都心規模で
+        # 複数行VALUESのON CONFLICT（`_bulk_upsert`）は都心規模で
         # 数十秒〜数百秒かかるため、COPY経由の一時テーブルUPSERT（`_copy_upsert_road_nodes`/
         # `_copy_upsert_road_edges`、詳細は`_asyncpg_connection`のdocstring参照）へ置き換えた。
         await _copy_upsert_road_nodes(self._session, graph.nodes.values(), now)
@@ -1278,28 +1247,25 @@ class DerivedGraphRepository(_SessionRepository):
         delete_started = time.monotonic()
         if way_ids_to_replace:
             new_edge_ids = sorted({edge.edge_id for edge in edges_to_save})
-            # 改善計画T224: `new_edge_ids`（再構築対象の全edge_id、都心密度で数万件）を
+            # `new_edge_ids`（再構築対象の全edge_id、都心密度で数万件）を
             # `.not_in(...)`で素朴にIN句化すると、`id_chunk`（最大_ID_CHUNK_SIZE件）との
-            # 合算でasyncpgのプリペアド文パラメータ上限（32,767個）を超え、都心規模の
-            # bboxでroad_graphエンジンの再構築経路が毎回500エラーになっていた（実機確認、
-            # 統合レビュー2026-08-23）。`=ANY(配列)`は要素数に関わらず1パラメータのため、
+            # 合算でasyncpgのプリペアド文パラメータ上限（32,767個）を超えうる。
+            # `=ANY(配列)`は要素数に関わらず1パラメータのため、
             # 本ファイルの他の大量ID参照（get_edge_attribute_counts等）と同じ
             # `=ANY(配列)`パターンへ揃える（`NOT (edge_id = ANY(配列))`でNOT IN相当）。
             #
-            # 改善計画T246: 上記の`NOT (edge_id = ANY(配列))`除外条件は、本番実測（T245）で
-            # 広域bbox（`new_edge_ids`が数十万件規模）の場合、チャンク（`id_chunk`、最大
-            # _ID_CHUNK_SIZE件ずつ）1回ごとに同じ巨大な配列フィルタを毎回再評価してしまい、
-            # 1チャンクあたり100秒超×チャンク数という、チャンク数に比例して悪化する遅延を
-            # 引き起こすことが判明した（`pg_stat_activity`でDELETE文が長時間アクティブ実行中、
-            # ロック待ちではないことを確認済み）。除外側集合を一時テーブルへ1回だけ投入・
+            # ただし`NOT (edge_id = ANY(配列))`除外条件は、広域bbox（`new_edge_ids`が
+            # 数十万件規模）の場合、チャンク（`id_chunk`、最大_ID_CHUNK_SIZE件ずつ）
+            # 1回ごとに同じ巨大な配列フィルタを毎回再評価してしまい、チャンク数に比例して
+            # 悪化する遅延を引き起こす。除外側集合を一時テーブルへ1回だけ投入・
             # PKインデックス化し、各チャンクのDELETEは`NOT EXISTS`（インデックスを使う反結合）
-            # で参照する形へ変更し、チャンク数ぶんの重複評価を無くす。
+            # で参照する形にすることで、チャンク数ぶんの重複評価を無くす。
             if new_edge_ids:
-                # 改善計画T246（DB設計レビュー）: 一時テーブルとroad_edgesのハッシュ結合
-                # サイズは実測でwork_mem既定値(4MB、tile配信保護用のget_engine()と共有する
-                # 設定、database.pyのコメント参照)を要素数万件規模で既に超えており
-                # （実測: 76,221行のハッシュで5.5MB）、広域bbox（数十万件規模）ではさらに
-                # 上回りディスクスピルが起きうる。この操作専用にトランザクションローカルで
+                # 一時テーブルとroad_edgesのハッシュ結合サイズはwork_mem既定値
+                # (4MB、tile配信保護用のget_engine()と共有する設定、database.pyの
+                # コメント参照)を要素数万件規模で超えうる（76,221行のハッシュで5.5MB）。
+                # 広域bbox（数十万件規模）ではさらに上回りディスクスピルが起きうる。
+                # この操作専用にトランザクションローカルで
                 # work_memを引き上げる（`SET LOCAL`のためこのトランザクション終了時に
                 # 自動的に既定値へ戻り、他セッション・他クエリには影響しない）。
                 await self._session.execute(text("SET LOCAL work_mem = '256MB'"))
@@ -1349,7 +1315,7 @@ class DerivedGraphRepository(_SessionRepository):
         edge_upsert_started = time.monotonic()
         await _copy_upsert_road_edges(self._session, edges_to_save, now)
         edge_upsert_ms = round((time.monotonic() - edge_upsert_started) * 1000)
-        # 改善計画T390: このedge_idぶんのgeometry cache-aside（infrastructure/
+        # このedge_idぶんのgeometry cache-aside（infrastructure/
         # road_edge_geometry_cache.py）を無条件で無効化する。同じedge_idが再split後に
         # 異なる形状で再利用されるケース（近傍Wayの分割変更で交差点位置がずれる等）に
         # 備えた precise invalidation。実際にはDELETE→INSERTされなかった行
@@ -1359,10 +1325,8 @@ class DerivedGraphRepository(_SessionRepository):
         total_ms = round((time.monotonic() - started) * 1000)
 
         # 高コスト処理のステージ別所要時間サマリ（docs/logging.md）。この経路は低頻度だが、
-        # 未splitエリアの初回タッチ時に重くなりうる（改善計画T243でDBタイムアウトを
-        # 180秒へ分離した際、本番実測でDELETE段が想定外に長時間化する事例を検知したが、
-        # 当時は本ログが無く事後のEXPLAIN ANALYZEでしか原因追跡できなかった。以後は
-        # このサマリで長時間化の発生自体・どの段が支配的かを都度検知できるようにする）。
+        # 未splitエリアの初回タッチ時に重くなりうるため、長時間化の発生自体・どの段が
+        # 支配的かを都度検知できるようにする。
         logger.info(
             "save_graph nodes=%d edges=%d way_ids_to_replace=%s "
             "node_upsert_ms=%d delete_ms=%d edge_upsert_ms=%d total_ms=%d",
@@ -1372,7 +1336,7 @@ class DerivedGraphRepository(_SessionRepository):
         )
 
 
-# 改善計画T340: get_distinct_material_valuesが対応する材料id→SQL式（正規化含む）。
+# get_distinct_material_valuesが対応する材料id→SQL式（正規化含む）。
 # 新しい材料をこの一覧へ追加する場合、_ROAD_SURFACE_TILE_MVT_SQLの対応する正規化式と
 # 揃えること（test_road_graph_repository.pyの整合性テスト参照）。値はosm_raw_waysの列名
 # ・JSONB参照のみで構成された固定リテラルで、外部入力を連結しない（SQLインジェクション対象外）。
@@ -1458,17 +1422,14 @@ class RawOsmRepository(_SessionRepository):
         要求bboxの境界に関わらず正しく交差点を判定できるようにする
         （タイル境界依存の分割不一致問題への根本対応）。
 
-        当初の実装は「bbox内にノードを持つWay」→「そのノード配列と重なるWay」という
-        node_ids配列のGIN検索（&&）だったが、都心部のbboxでは配列パラメータが数十万
-        要素になり実用的な速度が出ないことを実機で確認した。現在は次の空間検索へ
-        置き換えている（geom列＝Phase 1で追加した実体化済みLINESTRINGが前提。
+        次の空間検索を使う（geom列＝Phase 1で追加した実体化済みLINESTRINGが前提。
         NULLのままの旧データはcreate_tablesのバックフィルで補われる）:
 
-        1. 主対象Way: bboxのenvelopeとST_Intersectsで交差するWay（旧実装の「bbox内に
-           ノードを持つ」の上位互換。頂点がbbox内に無くてもbboxを横切るWayを含む）
+        1. 主対象Way: bboxのenvelopeとST_Intersectsで交差するWay（頂点がbbox内に無くても
+           bboxを横切るWayを含む）
         2. 近傍Way: 主対象Way全体のextent（全長分の外接矩形、bbox外の部分も含む。
-           NEIGHBOR_EXTENT_MAX_MARGIN_M分だけ拡張した要求bboxへクランプ済み、
-           改善計画T69）と交差するWay。「主対象とノードを共有するWay」の厳密な
+           NEIGHBOR_EXTENT_MAX_MARGIN_M分だけ拡張した要求bboxへクランプ済み）と交差する
+           Way。「主対象とノードを共有するWay」の厳密な
            上位集合であり、余分に含まれるWayは交差点判定の文脈情報が増えるだけで
            正しさを損なわない（近傍Wayはこの呼び出しでは永続化しないため）
 
@@ -1495,7 +1456,7 @@ class RawOsmRepository(_SessionRepository):
             return [], {}, set()
 
         # 主対象Wayの全長分のextent（1回の集約クエリでbbox外へのはみ出し範囲を得る）。
-        # 改善計画T69: extentを要求bboxをNEIGHBOR_EXTENT_MAX_MARGIN_M分だけ拡張した範囲へ
+        # extentを要求bboxをNEIGHBOR_EXTENT_MAX_MARGIN_M分だけ拡張した範囲へ
         # ST_Intersectionでクランプする。主対象Wayは定義上すべて要求bboxと交差するため、
         # 拡張後のbboxとの交差は常に非空になる（クランプが空集合を返すことはない）。
         extent_row = (
@@ -1537,13 +1498,13 @@ class RawOsmRepository(_SessionRepository):
         extent_envelope = func.ST_MakeEnvelope(
             extent_row.xmin, extent_row.ymin, extent_row.xmax, extent_row.ymax, 4326
         )
-        # 改善計画T264: `_way_spec_row_to_domain`は`geom`列を一切参照しない
+        # `_way_spec_row_to_domain`は`geom`列を一切参照しない
         # （osm_way_id/node_ids/highway/surface/tags/directionのみ）。にもかかわらず
-        # `select(OsmRawWayRow)`は全列（geom＝LINESTRING込み）をORM行として取得しており、
-        # 本番実測（宇都宮30km、primary_ways=35,725）でDBサーバー側の実行自体はEXPLAIN
-        # ANALYZEで112msしかかからないのに対し、closure_ms全体は9.7秒（約85倍）だった。
-        # `get_graph_topology_in_bbox`がEdge側で既にgeom列を除外した経緯（T218）と同じ
-        # パターンのため、Way側にも列指定クエリを適用してORM行構築・shapely decode・
+        # `select(OsmRawWayRow)`は全列（geom＝LINESTRING込み）をORM行として取得すると、
+        # DBサーバー側の実行自体はEXPLAIN ANALYZEで112msしかかからないのに対し、
+        # closure_ms全体は9.7秒（約85倍、宇都宮30km・primary_ways=35,725の例）になりうる。
+        # `get_graph_topology_in_bbox`がEdge側で既にgeom列を除外しているのと同じ
+        # パターンで、Way側にも列指定クエリを適用してORM行構築・shapely decode・
         # ネットワーク転送量を削減する。WHERE句自体はgeom列を条件に使い続けてよい
         # （SELECTする列と条件に使う列は独立）。
         way_stmt = select(
@@ -1569,7 +1530,7 @@ class RawOsmRepository(_SessionRepository):
 
         # ノード座標はWayが実際に参照するIDで正確に引く（=ANY(配列)は1パラメータで済み、
         # IN句のようなパラメータ数上限の問題を起こさない）。
-        # 改善計画T264: ここも呼び出し元が緯度経度のみを必要とし`geom`（WKB）自体は
+        # ここも呼び出し元が緯度経度のみを必要とし`geom`（WKB）自体は
         # 不要なため、`select(OsmRawNodeRow)`（全列＋`to_shape`によるshapely decode）を
         # ST_X/ST_Y列指定へ変更する（way_stmt・get_graph_in_bboxのnode_stmtと同じ対応）。
         final_node_ids = sorted({node_id for way in way_specs for node_id in way.node_ids})
@@ -1588,12 +1549,12 @@ class RawOsmRepository(_SessionRepository):
 
     async def get_cached_tiles(self, zoom: int, tiles: list[tuple[int, int]]) -> set[tuple[int, int]]:
         """指定タイル群のうち、取込済み（`road_graph_tiles`に存在する）ものの(x,y)集合を返す
-        （改善計画T229: タイル数ぶん個別に問い合わせるループを集約するため。半径10kmの起点1件で
-        6回の個別往復が発生することを実測確認済み）。
+        （タイル数ぶん個別に問い合わせるループを集約するため。半径10kmの起点1件で
+        6回の個別往復が発生しうる）。
 
-        改善計画T387: まずRedis（cache-aside、road_graph_tile_cache.py）で判定できる分は
+        まずRedis（cache-aside、road_graph_tile_cache.py）で判定できる分は
         PostGISへ問い合わせず即答する。Redisで判定できなかった（cold cache）タイルだけを
-        従来どおりPostGISへ1クエリでまとめて問い合わせ、見つかった分をRedisへ書き戻す。
+        PostGISへ1クエリでまとめて問い合わせ、見つかった分をRedisへ書き戻す。
         """
         if not tiles:
             return set()
@@ -1611,7 +1572,7 @@ class RawOsmRepository(_SessionRepository):
         return cached | found
 
     async def get_distinct_material_values(self, material_id: str) -> list[str]:
-        """改善計画T340: 軸スタジオ（AxisComposer.tsx）の値入力UX改善。highway/surface/
+        """軸スタジオ（AxisComposer.tsx）の値入力UX向け。highway/surface/
         smoothnessのようなオープンエンドな多値材料は事前に全量を静的に列挙できないため、
         実際にDBへ取り込まれている値をここで動的取得する。
 
@@ -1690,9 +1651,8 @@ class RoadSurfaceTileQuery(_SessionRepository):
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> bytes | None:
         """停止要因POIレイヤー用のMVTタイル1枚を、PostGIS側（ST_AsMVT）で丸ごと生成して
-        返す（改善計画T54、T97で交差点密度レイヤーの配信を撤去）。get_road_surface_tile_mvtと
-        同じ契約（カバレッジ外はNone、カバレッジ内で対象0件は空バイト列）。クエリの設計意図は
-        _POI_TILE_MVT_SQLのコメント参照。
+        返す。get_road_surface_tile_mvtと同じ契約（カバレッジ外はNone、カバレッジ内で
+        対象0件は空バイト列）。クエリの設計意図は_POI_TILE_MVT_SQLのコメント参照。
         """
         coverage_zoom, coverage_x, coverage_y = coverage_tile
         result = await self._session.execute(
@@ -1777,7 +1737,7 @@ class AttributeRepository(_SessionRepository):
     """Edge単位のRoad Attribute（elevation_attributes）の読み書き。
 
     surfaceは専用テーブルを持たず、road_edges.osm_way_id経由でosm_raw_ways.surfaceを
-    JOINして都度導出する（改善計画T9でsurface_attributesテーブルを廃止）。
+    JOINして都度導出する。
 
     新しい属性種別（交通・信号密度等）を追加するときはこのクラスへメソッドを足す
     （他のリポジトリには触れない。docs/design-review-2026-08-15.md 設計原則6）。
@@ -1833,12 +1793,10 @@ class AttributeRepository(_SessionRepository):
         if not edge_ids:
             return {}
         result: dict[str, str | None] = {}
-        # road_edges.osm_way_id経由でosm_raw_ways.surfaceをJOIN導出する（改善計画T9、
-        # surface_attributesテーブル廃止）。JOINにはmigration 0001の
-        # idx_road_edges_osm_way_idを使う。osm_way_idが無いEdge（座標2点未満等）は
-        # LEFT JOINでsurface=Noneになる。=ANY(配列)化の理由はget_elevation_attributesの
-        # コメント参照。旧実装（専用テーブルへのSELECT）は都心4km相当bbox
-        # （edge_id 151,820件・チャンク数16）でSupabase(WAN)実測7.97〜11.49秒だった。
+        # road_edges.osm_way_id経由でosm_raw_ways.surfaceをJOIN導出する。JOINには
+        # migration 0001のidx_road_edges_osm_way_idを使う。osm_way_idが無いEdge
+        # （座標2点未満等）はLEFT JOINでsurface=Noneになる。=ANY(配列)化の理由は
+        # get_elevation_attributesのコメント参照。
         for id_chunk in _chunked(edge_ids, 50_000):
             stmt = (
                 select(RoadEdgeRow.edge_id, OsmRawWayRow.surface)
@@ -1874,13 +1832,13 @@ class AttributeRepository(_SessionRepository):
         return result
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
-        """osm_way_id完全一致で(highway, tags, is_designated)を返す（改善計画T90）。
+        """osm_way_id完全一致で(highway, tags, is_designated)を返す。
 
         空間マッチ（半径内最近傍）は、交差点付近など複数の道路が近接する場所で、実際に
         クリックされたMVTフィーチャー（`_ROAD_SURFACE_TILE_MVT_SQL`が同じosm_way_idを
-        プロパティとして焼き込み済み）とは別の道路を拾いうることが実機確認で判明した
-        （ポップアップの`car_stress`表示値と、内訳ボタンで計算した値が食い違う）。
-        フィーチャーが指す行そのものをosm_way_idで引き直すことで、この不整合を構造的に防ぐ。
+        プロパティとして焼き込み済み）とは別の道路を拾いうる（ポップアップの`car_stress`
+        表示値と、内訳ボタンで計算した値が食い違う）。フィーチャーが指す行そのものを
+        osm_way_idで引き直すことで、この不整合を構造的に防ぐ。
 
         該当way自体が存在しない（極端な状況、タイル生成後の再取込等）場合はNone。
         """
@@ -1894,9 +1852,8 @@ class AttributeRepository(_SessionRepository):
         return (row.highway, row.tags or {}, row.is_designated)
 
     async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
-        """osm_way_id完全一致で事前集計（way_attribute_counts、T145b）の1行を返す
-        （区間インスペクタ、改善計画T146）。行が無い場合はNone（データ無し。呼び出し元は
-        該当軸をスコア算出不能として扱う）。
+        """osm_way_id完全一致で事前集計（way_attribute_counts）の1行を返す（区間インスペクタ）。
+        行が無い場合はNone（データ無し。呼び出し元は該当軸をスコア算出不能として扱う）。
         """
         result = await self._session.execute(
             _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id}
@@ -1915,13 +1872,13 @@ class AttributeRepository(_SessionRepository):
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
     ) -> dict[str, int]:
         """指定edge_idそれぞれについて、`max_distance_m`以内にある交差点（次数
-        `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（静的道路属性P1残り、
-        intersectionDensity）。road_graphエンジンのcompute_edge_cost（探索コスト自体）で使う。
+        `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（intersectionDensity）。
+        road_graphエンジンのcompute_edge_cost（探索コスト自体）で使う。
         get_stop_poi_countsと同じ「edge_idリストを渡して辞書で受け取る」形で、指定edge_idは
         （0件でも）必ず結果に含まれる。
 
         次数は`road_nodes.degree`（DB全体から見た真のグローバル次数、
-        backend/app/batch/precompute_road_node_degrees.pyが事前計算、改善計画T151）を参照する。
+        backend/app/batch/precompute_road_node_degrees.pyが事前計算）を参照する。
         呼び出し元が渡すedge_ids集合やチャンク分割に依存しないため、同一edge_idを異なる順序・
         異なる集合で渡しても常に同じ結果を返す（get_accident_counts/get_stop_poi_countsと
         揃った「edge単位で独立な空間近傍カウント」の意味論）。
@@ -1998,25 +1955,20 @@ class AttributeRepository(_SessionRepository):
     async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
         """探索フェーズ（`RoadGraphEngine.prepare`）が必要とする材料一式（surface・
         edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids）を
-        1回のJOINクエリへ統合して取得する（改善計画T248・T533）。
-
-        以前は`get_surface_attributes`・`get_edge_attribute_counts`・`get_way_tags`・
-        `get_elevation_attributes`・`get_designated_edge_ids`を同じedge_id集合に対して
-        個別に呼んでいたが、真のボトルネックはラウンドトリップ回数ではなく「同じEdge集合に
-        対してSQLAlchemy ORMの行構築を5回繰り返すオーバーヘッド」と実測で判明した
-        （dev DB、71,791 Edgeで現行5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
+        1回のJOINクエリへ統合して取得する。ボトルネックはラウンドトリップ回数ではなく
+        同じEdge集合に対してSQLAlchemy ORMの行構築を複数回繰り返すオーバーヘッドのため、
+        個別クエリの束ではなく1クエリへ統合する
+        （dev DB、71,791 Edgeで個別5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
         `graph_service.py`の`_build_search_materials_uncached`・
         `_get_or_build_tile_materials`の両方から呼ばれる。
 
-        戻り値はEdge単位で`EdgeMaterialBundle`（1オブジェクト）へ統合する（T533、
-        `domain/attributes.py: EdgeMaterialBundle`のdocstring参照。クエリ自体は元々
-        1回のJOINで1行取得していたにもかかわらず、戻り値だけ4つの辞書へ再分割していた
-        技術的負債の是正）。各材料の「該当行なし」の扱いは元の5メソッドとそれぞれ同じ
-        意味を保つ: surface・way_tagsはLEFT JOINでNone/{}を明示的に持つ（bundle自体は
-        edge_idsに含まれる全Edgeぶん必ず存在する）。attribute_counts・elevation_attribute
-        は対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の判定に使う）。
-        is_designatedはEXISTS副問い合わせで判定する（get_designated_edge_idsと同じ
-        「対象kindのdesignation_attributes行が1つでもあれば該当」の意味）。
+        戻り値はEdge単位で`EdgeMaterialBundle`（1オブジェクト）へ統合する
+        （`domain/attributes.py: EdgeMaterialBundle`のdocstring参照）。各材料の
+        「該当行なし」の扱い: surface・way_tagsはLEFT JOINでNone/{}を明示的に持つ
+        （bundle自体はedge_idsに含まれる全Edgeぶん必ず存在する）。attribute_counts・
+        elevation_attributeは対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の
+        判定に使う）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
+        designation_attributes行が1つでもあれば該当、の意味）。
         """
         if not edge_ids:
             return EdgeMaterialsBatch(materials={})
@@ -2098,7 +2050,7 @@ class AttributeRepository(_SessionRepository):
         return EdgeMaterialsBatch(materials=materials)
 
     async def rebuild_raw_intersection_nodes(self) -> None:
-        """raw_intersection_nodes（次数3以上の生OSMノード、改善計画T145b）を全再構築する。
+        """raw_intersection_nodes（次数3以上の生OSMノード）を全再構築する。
 
         osm_raw_ways.node_idsの隣接関係から導出するRoad Graph非依存の派生データ
         （_REBUILD_RAW_INTERSECTION_NODES_SQLのコメント参照）。osm_raw_waysが変わった場合
@@ -2118,12 +2070,12 @@ class AttributeRepository(_SessionRepository):
         source_osm_import_run_id: int | None = None,
         algorithm_version: str | None = None,
     ) -> None:
-        """指定osm_way_idのway_attribute_counts（way単位の事実カウント、改善計画T145b）を
+        """指定osm_way_idのway_attribute_counts（way単位の事実カウント）を
         再計算しUPSERTする。事前にrebuild_raw_intersection_nodesの実行が必要
         （intersection_countの参照先。_RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQLのコメント参照）。
 
-        source_*_import_run_id/algorithm_versionは派生データの系譜追跡（改善計画T351、
-        migration 0024）用。呼び出し元（precompute_way_attribute_counts.py）が実行時点の
+        source_*_import_run_id/algorithm_versionは派生データの系譜追跡
+        （migration 0024）用。呼び出し元（precompute_way_attribute_counts.py）が実行時点の
         最新成功run idを一度だけ取得し、全チャンクへ同じ値を渡す想定（テスト等で省略時は
         Noneのまま書き込まれる）。
         """
@@ -2150,11 +2102,11 @@ class AttributeRepository(_SessionRepository):
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
-    フラットな委譲メソッド群として公開するファサード（改善計画T6）。
+    フラットな委譲メソッド群として公開するファサード。
 
     **このフラットな形（`repository.save_raw_ways(...)`等、`repository.raw_osm.save_raw_ways(...)`
     ではない）が、`GraphService`/`ElevationAttributeService`/`RegionService`が依存する
-    正式なインターフェースである（改善計画T18で確認・確定）。各サービスは`RoadGraphRepository`
+    正式なインターフェースである。各サービスは`RoadGraphRepository`
     という具象クラスではなくこのフラットな形をダックタイピングで期待しており、対応するテストは
     それぞれ独立した`FakeRoadGraphRepository`/`FakeRegionRepository`等（同じくフラットな形）を
     注入する。個別リポジトリ（`.raw_osm`/`.graph`/`.attributes`/`.tile_query`）への直接アクセスは
