@@ -1,9 +1,8 @@
 import type { ReactElement } from "react";
 import { CloudIcon, MoonIcon, RaindropIcon, SnowflakeIcon, SunIcon } from "@/components/Map/icons";
 
-// 改善計画T387フォローアップ（ユーザー指示2026-08-29「常設エリアは実測値、今日の見通しは
-// 予測値」）。常設ヘッダーの天気アイコンをOpen-Meteoのweather_code（予報由来）から
-// アメダス実測値ベースの簡易分類へ置き換える。weatherCode.ts（Open-Meteo、6カテゴリ）と
+// 常設ヘッダーの天気アイコンはOpen-Meteoのweather_code（予報由来）ではなく
+// アメダス実測値ベースの簡易分類を使う。weatherCode.ts（Open-Meteo、6カテゴリ）と
 // 違い、アメダスの速報値レスポンスには天気概況コードが実質使えない形でしか無い
 // （新設フィールドsunshine_10min_minutes[10分間日照時間]・precipitation_10min_mm
 // [10分間降水量]・temperature_cのみを根拠にする）ため、霧・雷雨は判別できず

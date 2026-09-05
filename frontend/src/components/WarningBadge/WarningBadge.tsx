@@ -3,11 +3,11 @@
 import * as Popover from "@radix-ui/react-popover";
 import styles from "./WarningBadge.module.css";
 
-// JMA警報・注意報バッジ（改善計画T205）とWBGT警告（T174）が共有する表示コンポーネント。
-// 「地図レイヤーではなく警告バッジ」という表現形式を両タスクで揃えるため、JMA固有の型
+// JMA警報・注意報バッジとWBGT警告が共有する表示コンポーネント。
+// 「地図レイヤーではなく警告バッジ」という表現形式を揃えるため、JMA固有の型
 // （ActiveWarning）ではなく汎用のitem形にしている。
-// levelは4段階。JMA（T205）は3段階（advisory/warning/emergency_warning）のみ使い、
-// WBGT（T174、環境省の熱中症予防運動指針）は間の"severe_warning"（厳重警戒）も使う
+// levelは4段階。JMAは3段階（advisory/warning/emergency_warning）のみ使い、
+// WBGT（環境省の熱中症予防運動指針）は間の"severe_warning"（厳重警戒）も使う
 // （4段階のまま素直に表現し、JMAの3段階へ無理に丸め込まない）。
 
 export type WarningBadgeLevel = "advisory" | "warning" | "severe_warning" | "emergency_warning";
@@ -15,8 +15,7 @@ export type WarningBadgeLevel = "advisory" | "warning" | "severe_warning" | "eme
 // バッジの出所。同じlevelキーでも出所ごとに正式な日本語表現が異なる
 // （例: level="warning"はJMA/氾濫予報では「警報」だが、WBGT（環境省の熱中症予防運動指針）
 // では「警戒」——「警報」は気象庁が発表する公式警報を指す別の意味の言葉のため、
-// WBGTの文脈で使うと誤解を招く。サマリーボタンの表示語を出所別に切り替えるために持つ
-// （2026-08-24、実機で「WBGT暑さ指数25が“警報”表示になっている」という指摘を受けて追加）。
+// WBGTの文脈で使うと誤解を招く）。サマリーボタンの表示語を出所別に切り替えるために持つ。
 export type WarningBadgeSource = "jma" | "wbgt" | "flood";
 
 export interface WarningBadgeItem {
@@ -24,8 +23,8 @@ export interface WarningBadgeItem {
   label: string;
   level: WarningBadgeLevel;
   source: WarningBadgeSource;
-  /** 補足（付随事項・取得失敗時のトレードオフの注意書き等）。以前はホバー/長押しの
-   * title属性でのみ見せていたが、詳細パネル（下記）が新設されたためそちらへ本文として出す。 */
+  /** 補足（付随事項・取得失敗時のトレードオフの注意書き等）。詳細パネル（下記）へ
+   * 本文として出す。 */
   title?: string;
 }
 
@@ -46,8 +45,7 @@ const LEVEL_SUMMARY_LABEL: Record<WarningBadgeSource, Record<WarningBadgeLevel, 
   flood: { advisory: "氾濫注意報", warning: "氾濫警報", severe_warning: "氾濫危険警報", emergency_warning: "氾濫特別警報" },
 };
 
-// 色もLEVEL_SUMMARY_LABELと同じ理由でsource別に分ける（2026-08-24、実機フィードバック
-// 「WBGTの“警戒”がJMAの“警報”と同じ赤色なのが気になる」）。JMA（気象庁の公式警報）と
+// 色もLEVEL_SUMMARY_LABELと同じ理由でsource別に分ける。JMA（気象庁の公式警報）と
 // flood（河川管理者の公式氾濫警報、氾濫注意報→氾濫警報→…→氾濫特別警報という同じ4段階の
 // 公式警報語彙を持つ）は「公式警報」として同じ配色（.advisory〜.emergency_warning）を
 // 共有してよいが、WBGT（環境省の熱中症予防運動指針、気象庁の警報とは無関係の別基準）は
@@ -66,16 +64,11 @@ function highestLevelItem(items: readonly WarningBadgeItem[]): WarningBadgeItem 
   );
 }
 
-// UI改善（2026-08-24、ユーザー指示「メニュー上の天候・警告バッジは一行に収まるように。
-// 警告バッジは注意報・警報級があるかどうか分かるボタン配置にとどめ、詳細はボタンを押して
-// 中身確認とする」）。以前は警報・注意報・WBGT・河川氾濫予報の全件を常時バッジとして
-// 並べており（安全性に関わる情報を折りたたまない設計、2026-08-22実機確認の経緯）、
-// 常設の天候ヘッダ（page.tsx: .weatherHeader、本来1行設計、T36）が件数によって
-// 2行以上に折り返される問題があった。全件表示という安全側の方針自体は変えず
-// （警報の存在に気づけないことを避ける）、表示形式を「最も警戒度が高いレベル+件数の
-// サマリーボタン1つを常時1行で表示し、タップで全件の詳細（Radix Popover）を開く」へ
-// 変更した。ボタンの文言・色だけで「今の最高警戒度」が常に分かり、内訳は開かないと
-// 見えないぶん、常時表示だった頃より一歩踏み込む操作が要るという妥当なトレードオフ。
+// 警告バッジは「最も警戒度が高いレベル+件数のサマリーボタン1つを常時1行で表示し、
+// タップで全件の詳細（Radix Popover）を開く」形式にしてある。全件表示という安全側の
+// 方針自体は変えず（警報の存在に気づけないことを避ける）、ボタンの文言・色だけで
+// 「今の最高警戒度」が常に分かり、内訳は開かないと見えないぶん、常時全件表示より
+// 一歩踏み込む操作が要るという妥当なトレードオフ。
 export default function WarningBadgeList({ items }: WarningBadgeListProps) {
   if (items.length === 0) return null;
 

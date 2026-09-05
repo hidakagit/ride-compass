@@ -9,16 +9,15 @@ interface WeatherPanelProps {
   error: string | null;
 }
 
-// 改善計画T387フォローアップ（ユーザー指示2026-08-29「常設エリアは実測値、今日の見通しは
-// 予測値」）: 常設ヘッダーはOpen-Meteo（予報）ではなく最寄りアメダス観測所の実測値のみで
-// 構成する。TodayOutlook（今日の見通し、Open-Meteo）とは独立にフェッチするため、
-// Open-Meteoの障害・遅延から表示が影響を受けない。
+// 常設ヘッダーはOpen-Meteo（予報）ではなく最寄りアメダス観測所の実測値のみで構成する。
+// TodayOutlook（今日の見通し、Open-Meteo）とは独立にフェッチするため、Open-Meteoの
+// 障害・遅延から表示が影響を受けない。
 //
-// アメダスは観測専用APIのため、Open-Meteo版（旧WeatherConditions props）で表示していた
-// 降水確率・weather_code（予報由来）はそのままでは表示できない。代わりに:
+// アメダスは観測専用APIのため、降水確率・weather_code（予報由来）はそのままでは
+// 表示できない。代わりに:
 // - 降水確率 → 実測の10分間降水量（precipitation_10min_mm）
 // - 天気アイコン → 10分間日照時間・降水量・気温から簡易分類（amedasWeatherIcon.ts）
-// - 突風 → アメダスの速報値レスポンスに突風フィールドが存在しないため非表示（実データ確認済み）
+// - 突風 → アメダスの速報値レスポンスに突風フィールドが存在しないため非表示
 // - 日の出/日没 → 新規チップとして追加（予報不要のためアメダスのレスポンスにastralの
 //   ローカル計算結果が乗っている、backend側で計算済み）
 function isCurrentlyDay(sunrise: string | null, sunset: string | null): boolean {
@@ -68,11 +67,10 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
       <span className={styles.stat} title={temperatureTitle}>
         <ThermometerIcon size={16} />
         <span className={styles.srOnly}>気温: </span>
-        {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする（改善計画
-            T387フォローアップ2026-08-29「.unit周りの余白を詰められないか」対応。flexboxの
-            gapは直接の子要素すべての間に均等に効くため、数値と単位を別々の子要素のまま
-            にすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい意図しない余白に
-            なっていた）。 */}
+        {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする
+            （flexboxのgapは直接の子要素すべての間に均等に効くため、数値と単位を別々の
+            子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい
+            意図しない余白になる）。 */}
         <span>
           {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
           <span className={styles.unit}>℃</span>
@@ -108,9 +106,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
         </>
       )}
 
-      {/* 天気アイコン＋日の出/日没を1チップへ統合する（改善計画T387フォローアップ、
-          2026-08-29実機フィードバック「バー右端のログ表示アイコンが消えてる、前より
-          スペースが減ってるのでバッジ見切れる可能性が高い」への対応）。.weatherStatsは
+      {/* 天気アイコン＋日の出/日没を1チップへ統合してある。.weatherStatsは
           flex-shrink: 0で常に自然幅を保つ設計（page.module.css参照）のため、チップを
           1個増やすと右側の.headerActions（警報バッジ・デバッグアイコン）を押し出して
           隠してしまう。日の出/日没チップを新設で独立させず、既に昼夜判定のため
@@ -131,8 +127,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
               {twilightIso != null ? `${twilightTitle}: ` : ""}
             </span>
             {twilightIso != null && (
-              // 「天気アイコン＋時刻」だけだと何の時刻か伝わらないというユーザー指摘
-              // （2026-08-29「雨アイコン＋18:13だとさっぱりわからない」）を受け、昇る/沈むを
+              // 「天気アイコン＋時刻」だけでは何の時刻か伝わらないため、昇る/沈むを
               // 直感的に示す矢印を時刻の直前に添える（多くの天気アプリで使われる日の出↑/
               // 日没↓の慣習的表現。時計アイコンより幅を取らず、天気アイコンと組み合わせても
               // 意味の混同が起きない）。矢印と時刻は1つのspanにまとめ、.statのgapが間に

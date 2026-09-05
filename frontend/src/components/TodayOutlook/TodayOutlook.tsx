@@ -12,14 +12,13 @@ interface TodayOutlookProps {
   error: string | null;
 }
 
-// 改善計画T385: 「今日の見通し」二次パネル。常設ヘッダー（.weatherStats）はどの季節・
+// 「今日の見通し」二次パネル。常設ヘッダー（.weatherStats）はどの季節・
 // 地域でも常に意味を持つ瞬間値（気温・風・降水量・天気アイコン）だけに絞り、
 // 「今日の降水確率最大・今日の最大風速・今日の気温レンジ・UV指数最大」という1日1個の
-// 値はタップで開く本パネルへ集約する（T384調査の結論: 常設ヘッダーへ項目を足さず、
-// 個別ON/OFF設定も新設せず、既存のWarningBadgeListと同じPopoverパターンで済ませる）。
-// 日の出/日没は改善計画T387フォローアップ（ユーザー指示2026-08-29「日の出日没も予報が
-// 不要なので上部常設バーに移動」）で常設ヘッダー（WeatherPanel）へ移設したため、
-// ここには表示しない（予報専用パネルという位置づけがより明確になった）。
+// 値はタップで開く本パネルへ集約する（常設ヘッダーへ項目を足さず、個別ON/OFF設定も
+// 新設せず、既存のWarningBadgeListと同じPopoverパターンで済ませる）。
+// 日の出/日没は常設ヘッダー（WeatherPanel）で表示するため、ここには表示しない
+// （予報専用パネルという位置づけ）。
 
 // today_periodsの各コマ（2時間おきの代表時刻文字列"HH:MM"）の頭2桁を「6時」のような
 // 短い表示ラベルへ整形する（フロントの担当、weather.pyのdocstring参照）。
@@ -29,8 +28,8 @@ function formatPeriodLabel(period: string): string {
 }
 
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
-  // today_periodsは昼夜どちらのコマも含みうる（現在時刻を含む区間から2時間毎、
-  // 改善計画T385フォローアップ2）が、is_dayをコマ単位では取得していないため、
+  // today_periodsは昼夜どちらのコマも含みうる（現在時刻を含む区間から2時間毎）が、
+  // is_dayをコマ単位では取得していないため、
   // isDayは便宜的に常に1固定で渡す（「快晴」カテゴリの昼夜アイコン切替のみに影響し、
   // 実害は小さいと判断。weather_code自体の判定ロジックはweatherCode.ts参照）。
   const display = getWeatherCodeDisplay(period.weather_code, 1);
@@ -51,10 +50,9 @@ function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
 }
 
 export default function TodayOutlook({ weather, loading, error }: TodayOutlookProps) {
-  // 改善計画T387フォローアップ（ユーザー指示2026-08-29「取得失敗したことを何かパネルで
-  // わかるようにして」）: 以前はweather===nullを「取得失敗」「まだ読み込み中」「意味のある
-  // 値が無い」の区別なく同じ扱い（トグル自体を出さない）にしていた。取得が実際に失敗した
-  // 場合は警戒色のトリガーで気づけるようにする（開くとエラー内容を示す最小限のパネル）。
+  // weather===nullは「取得失敗」「まだ読み込み中」「意味のある値が無い」のいずれの
+  // 可能性もあるため、取得が実際に失敗した場合は警戒色のトリガーで気づけるようにする
+  // （開くとエラー内容を示す最小限のパネル）。
   if (error) {
     return (
       <Popover.Root>
