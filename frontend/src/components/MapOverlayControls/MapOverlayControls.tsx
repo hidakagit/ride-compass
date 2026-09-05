@@ -26,6 +26,7 @@ import {
 } from "@/components/Map/mapLayers";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import WidthSwatch from "@/components/MapLayersPanel/WidthSwatch";
+import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import {
   AccidentIcon,
   AxisRampIcon,
@@ -91,6 +92,11 @@ export interface OverlayLayerChip {
 interface MapOverlayControlsProps {
   layers: readonly OverlayLayerChip[];
   onToggle: (id: MapLayerId, on: boolean) => void;
+  /** ▶パネル内の1行（凡例カテゴリ・災害の要素等）の表示/非表示を切り替える。
+   * `axisId`を持つ軸（`LegendFilterSummaryAxis.axisId`）だけがチェックボックス付きで
+   * 描画され、この関数を呼ぶ。保存先はサイドバー（`MapLayersPanel`）と同じ
+   * `page.tsx: hiddenLegendKeysByMode`のため、どちらから操作しても状態は1つに揃う。 */
+  onLegendEntryToggle: (axisId: string, key: string) => void;
 }
 
 // 最上位グループ（改善計画T406/T418: 道路/環境/スポット）単位でグルーピングされた
@@ -240,31 +246,50 @@ function renderLegendSwatch(entry: LegendEntry) {
   return <WidthSwatch width={entry.width} dashed={entry.dashed} color={entry.color} />;
 }
 
-// ▶を開いたときの内訳パネル。軸に属する全カテゴリを表示中/非表示の別なく並べ、
-// 非表示分だけ薄く見せる（「これだけで何が起きているか分かる」ことを優先する）。
-function renderLegendDetails(axes: readonly LegendFilterSummaryAxis[]) {
+// ▶を開いたときの内訳パネル。軸に属する全カテゴリを表示中/非表示の別なく並べる
+// （「これだけで何が起きているか分かる」ことを優先する）。
+// `axisId`を持つ軸はチェックボックス付き（サイドバーと同じ`LegendCheckboxList`）で描き、
+// その場で表示/非表示を切り替えられる。持たない軸——配信元が色を焼き込み済みで
+// カテゴリ単位の絞り込みができないラスタ系——は読み取り専用の一覧のまま、非表示分を
+// 薄く見せる。
+function renderLegendDetails(
+  axes: readonly LegendFilterSummaryAxis[],
+  onEntryToggle: (axisId: string, key: string) => void
+) {
   return (
     <div className={styles.detailBody}>
       {axes.map((axis, axisIndex) => (
-        <div key={axis.label || axisIndex} className={styles.detailAxis}>
+        <div key={axis.axisId ?? axis.label ?? axisIndex} className={styles.detailAxis}>
           {axis.label && <div className={styles.detailAxisLabel}>{axis.label}</div>}
-          <ul className={styles.detailList}>
-            {axis.legend.map((entry) => {
-              const hidden = axis.hiddenKeys.includes(entry.key);
-              // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線で
-              // 分離する（改善計画T89、MapLayersPanel.tsxの同種の区切りと対応）。
-              const rowClasses = [styles.detailRow];
-              if (hidden) rowClasses.push(styles.detailRowHidden);
-              if (entry.isFallback) rowClasses.push(styles.detailRowFallback);
-              return (
-                <li key={entry.key} className={rowClasses.join(" ")}>
-                  {renderLegendSwatch(entry)}
-                  <span className={styles.detailRowLabel}>{entry.label}</span>
-                  {hidden && <span className={styles.detailHiddenTag}>非表示</span>}
-                </li>
-              );
-            })}
-          </ul>
+          {axis.axisId ? (
+            <LegendCheckboxList
+              legend={axis.legend}
+              hiddenKeys={axis.hiddenKeys}
+              onToggle={(key) => onEntryToggle(axis.axisId!, key)}
+              listClassName={styles.detailList}
+              rowClassName={styles.detailRow}
+              rowFallbackClassName={styles.detailRowFallback}
+              swatchClassName={styles.detailSwatchDot}
+            />
+          ) : (
+            <ul className={styles.detailList}>
+              {axis.legend.map((entry) => {
+                const hidden = axis.hiddenKeys.includes(entry.key);
+                // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線で
+                // 分離する（改善計画T89、MapLayersPanel.tsxの同種の区切りと対応）。
+                const rowClasses = [styles.detailRow];
+                if (hidden) rowClasses.push(styles.detailRowHidden);
+                if (entry.isFallback) rowClasses.push(styles.detailRowFallback);
+                return (
+                  <li key={entry.key} className={rowClasses.join(" ")}>
+                    {renderLegendSwatch(entry)}
+                    <span className={styles.detailRowLabel}>{entry.label}</span>
+                    {hidden && <span className={styles.detailHiddenTag}>非表示</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       ))}
     </div>
@@ -608,7 +633,7 @@ function ChipButton({
 // ジャンプ」動線はここが確認専用になったことで廃止した）。このコンポーネントはレイヤー
 // 固有の知識を持たない汎用の描画係で、レイヤーが増えてもここは変更不要（mapLayers.tsの
 // コメント参照）。
-export default function MapOverlayControls({ layers, onToggle }: MapOverlayControlsProps) {
+export default function MapOverlayControls({ layers, onToggle, onLegendEntryToggle }: MapOverlayControlsProps) {
   // 凡例を常時表示すると地図の視界を圧迫するという実機フィードバックを受け、既定は
   // 非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
   // 開閉はキーのSetで個別管理する。キーはレイヤーID（単独チップ）・`member:${id}`
@@ -843,7 +868,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         panelContent={
           canExpand ? (
             hasLegend ? (
-              renderLegendDetails(member.legendDetails!)
+              renderLegendDetails(member.legendDetails!, onLegendEntryToggle)
             ) : (
               <p className={styles.detailNotice}>{member.summary}</p>
             )
@@ -1128,7 +1153,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
           const isExpanded = canExpand && expandedIds.has(layer.id);
           const panelContent =
             layer.legendDetails && layer.legendDetails.length > 0 ? (
-              renderLegendDetails(layer.legendDetails)
+              renderLegendDetails(layer.legendDetails, onLegendEntryToggle)
             ) : (
               <p className={styles.detailNotice}>{layer.summary}</p>
             );

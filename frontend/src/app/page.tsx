@@ -272,11 +272,31 @@ const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
+// 災害チップの要素トグルの保存先ID（hiddenLegendKeysByModeのキー）。実際の絞り込み軸
+// （路面の種類等）のIDと衝突しないよう、レイヤーIDそのものを使う。
+const DISASTER_SOURCE_AXIS_ID = "disaster";
+
+// 災害チップの▶パネルに出す「表示する情報」（7要素の個別トグル）。axisIdを持つため
+// LegendCheckboxListで描画され、非表示キーはhiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID]
+// へ保存される（サイドバーの絞り込みと同じ保存先・同じ操作感）。keyは
+// DYNAMIC_WEATHER_RENDERERSのdisasterグループのソースキーと一致させる必要がある
+// （useDynamicWeatherLayersがこのkeyでソースごとのvisibleを決めるため）。
+// 面同士は重なると混色して危険度を読み取れないため、混んできたらここで絞り込む。
+const DISASTER_SOURCE_LEGEND: LegendEntry[] = [
+  { key: "heavyRain", label: "大雨キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
+  { key: "landslide", label: "土砂災害キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
+  { key: "inundation", label: "浸水キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
+  { key: "flood", label: "洪水キキクル（河川）", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
+  { key: "thunder", label: "雷ナウキャスト", color: THUNDER_ACTIVITY_LEVELS[1].color, filter: UNUSED_LEGEND_FILTER },
+  { key: "tornado", label: "竜巻発生確度", color: TORNADO_POTENTIAL_LEVELS[0].color, filter: UNUSED_LEGEND_FILTER },
+  { key: "liden", label: "落雷（発生地点）", color: "#facc15", filter: UNUSED_LEGEND_FILTER },
+];
+
 // 災害チップの凡例。precipitation/wind凡例と同じパターン（表示専用、filterはダミー値）で、
-// 1チップにまとまった7要素を`accidents`と同じ複数ブロックとして並べる。実データ（活動度・
-// 発生確度・危険度5段階のラベルと近似色）はthunderNowcast.ts・riskMap.tsが単一の情報源。
-// キキクル4種は4つとも同じ5段階配色のため、凡例も1ブロックにまとめる。
-const DISASTER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+// 危険度の色の意味を要素の種類ごとに並べる。実データ（活動度・発生確度・危険度5段階の
+// ラベルと近似色）はthunderNowcast.ts・riskMap.tsが単一の情報源。キキクル4種は4つとも
+// 同じ5段階配色のため、凡例も1ブロックにまとめる。
+const DISASTER_LEGEND_DETAILS_BASE: readonly LegendFilterSummaryAxis[] = [
   {
     label: "キキクル（土砂災害・大雨・浸水・洪水）",
     legend: RISK_LEVEL_COLORS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
@@ -290,11 +310,6 @@ const DISASTER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "竜巻発生確度ナウキャスト",
     legend: TORNADO_POTENTIAL_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-  {
-    label: "落雷（雷放電位置データ）",
-    legend: [{ key: "liden", label: "検知した落雷地点", color: "#facc15", filter: UNUSED_LEGEND_FILTER }],
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
@@ -955,6 +970,7 @@ export default function Home() {
               label: "",
               legend: roadSurfaceAxis.legend,
               hiddenKeys: roadHiddenKeysByMode[roadSurfaceAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+              axisId: roadSurfaceAxis.id,
             },
           ],
     [regionZoomTooWide, roadSurfaceAxis, roadHiddenKeysByMode],
@@ -974,7 +990,12 @@ export default function Home() {
       regionZoomTooWide
         ? []
         : [
-            { label: "", legend: roadTypeAxis.legend, hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS },
+            {
+              label: "",
+              legend: roadTypeAxis.legend,
+              hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+              axisId: roadTypeAxis.id,
+            },
           ],
     [regionZoomTooWide, roadTypeAxis, roadHiddenKeysByMode],
   );
@@ -990,6 +1011,7 @@ export default function Home() {
               label: "",
               legend: getRouteStyleMode(routeStyleModes, lens).legend,
               hiddenKeys: hiddenRouteLegendKeys,
+              axisId: lens,
             },
           ]
         : [],
@@ -1015,6 +1037,7 @@ export default function Home() {
         label: axis.label ?? "",
         legend: axis.legend,
         hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
+        axisId: axis.axisId,
       }));
       result[layerId] = {
         summary: summarizeLegendFilters(axes),
@@ -1031,6 +1054,22 @@ export default function Home() {
   const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
   const showWindVector = layerVisibility.windVector;
   const showDisaster = layerVisibility.disaster;
+  // 災害チップ配下の7要素のうち、▶パネルで非表示に選ばれているもの。面同士が重なると
+  // 混色して危険度を読み取れないため、ユーザーがその場で絞り込めるようにしている
+  // （保存先はサイドバーの絞り込みと同じhiddenLegendKeysByMode）。
+  const hiddenDisasterSources = hiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID] ?? NO_HIDDEN_LEGEND_KEYS;
+  const disasterLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
+    () => [
+      {
+        label: "表示する情報",
+        legend: DISASTER_SOURCE_LEGEND,
+        hiddenKeys: hiddenDisasterSources,
+        axisId: DISASTER_SOURCE_AXIS_ID,
+      },
+      ...DISASTER_LEGEND_DETAILS_BASE,
+    ],
+    [hiddenDisasterSources],
+  );
   const {
     dynamicWeather,
     dynamicWeatherDataStatus,
@@ -1040,6 +1079,7 @@ export default function Home() {
     showWindVector,
     showPrecipitationNowcast,
     showDisaster,
+    hiddenDisasterSources,
     mapViewport,
   });
   // レイヤーごとのデータ取得状態を1つに統合する（改善計画T608）。mapViewLayerDataStatus
@@ -1069,7 +1109,7 @@ export default function Home() {
       route: routeLegendDetails,
       precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
       windVector: WIND_LEGEND_DETAILS,
-      disaster: DISASTER_LEGEND_DETAILS,
+      disaster: disasterLegendDetails,
     };
     return mapLayers.map((layer) => {
         // 改善計画T418: windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
@@ -1143,6 +1183,7 @@ export default function Home() {
     routeLegendDetails,
     routeSummary,
     staticFilterSummaries,
+    disasterLegendDetails,
     mapLayers,
   ]);
 
@@ -2011,7 +2052,11 @@ export default function Home() {
             hasDetail={hasDetail}
           />
 
-          <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
+          <MapOverlayControls
+            layers={overlayLayers}
+            onToggle={handleLayerToggle}
+            onLegendEntryToggle={toggleHiddenLegendKey}
+          />
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア
               アイコンをスライドバーの左側に移動して」で旧MapOverlayControls左上から移設）+

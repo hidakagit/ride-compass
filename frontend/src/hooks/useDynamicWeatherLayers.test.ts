@@ -36,6 +36,7 @@ const BASE_OPTIONS = {
   showWindVector: false,
   showPrecipitationNowcast: false,
   showDisaster: false,
+  hiddenDisasterSources: [],
   mapViewport: null,
 };
 
@@ -184,6 +185,45 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       expect(disaster?.heavyRain?.payload).toBeDefined();
       expect(disaster?.inundation?.payload).toBeUndefined();
       expect(disaster?.flood?.payload).toBeUndefined();
+    });
+  });
+
+  describe("災害グループの要素トグル（▶パネルの「表示する情報」）", () => {
+    it("非表示に選ばれた要素はvisible: falseになり、他の要素は表示のまま残る", async () => {
+      stubHappyPath();
+
+      const { result } = renderHook(() =>
+        useDynamicWeatherLayers({
+          ...BASE_OPTIONS,
+          showDisaster: true,
+          hiddenDisasterSources: ["thunder", "tornado", "liden"],
+        })
+      );
+
+      await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
+      const disaster = result.current.dynamicWeather.disaster;
+      expect(disaster?.thunder?.visible).toBe(false);
+      expect(disaster?.tornado?.visible).toBe(false);
+      expect(disaster?.liden?.visible).toBe(false);
+      expect(disaster?.heavyRain?.visible).toBe(true);
+      expect(disaster?.flood?.visible).toBe(true);
+    });
+
+    it("1本のtargetTimes.jsonを共有する要素がすべて非表示なら、そのフェッチ自体を行わない", async () => {
+      stubHappyPath();
+
+      renderHook(() =>
+        useDynamicWeatherLayers({
+          ...BASE_OPTIONS,
+          showDisaster: true,
+          hiddenDisasterSources: ["heavyRain", "landslide", "inundation", "flood", "liden"],
+        })
+      );
+
+      // 雷・竜巻だけが表示中なので、雷竜巻のフレーム取得だけが走る。
+      await waitFor(() => expect(fetchThunderNowcastFrames).toHaveBeenCalled());
+      expect(fetchCurrentRiskFrames).not.toHaveBeenCalled();
+      expect(fetchLidenFrames).not.toHaveBeenCalled();
     });
   });
 
