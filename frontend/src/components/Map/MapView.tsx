@@ -1516,11 +1516,10 @@ export function applyRoadMaterialTrackOffsets(
   });
 }
 
-// 改善計画T465: designation（指定路線）・tunnel・oneway（いずれも一次属性、路面と同じ
-// ベクタソースを再利用する独立レイヤー）が、レイヤーID・色/不透明度式以外まったく同一の
-// ensure関数として3つコピペされていた（ゼロベース網羅レビュー指摘）ため、
+// designation（指定路線）・tunnel・oneway（いずれも一次属性、路面と同じベクタソースを
+// 再利用する独立レイヤー）は、レイヤーID・色/不透明度式以外まったく同一のため、
 // makeEnsureAxisRampLayer/makeEnsureDedicatedWayValueLayerと同じ「1ファクトリ+N呼び出し」
-// パターンへ統一した。プロパティは該当区間のみ値を持ち、未該当はプロパティ欠落として
+// パターンで共通化する。プロパティは該当区間のみ値を持ち、未該当はプロパティ欠落として
 // 各色式のcoalesce/case式が灰色（designation）・中立色（tunnel/oneway）に倒す。
 function makeEnsureAttributeLineLayer(
   layerId: string,
@@ -1551,7 +1550,7 @@ function makeEnsureAttributeLineLayer(
   };
 }
 
-// 事故レイヤー（外部静的データソース T50）。road_surfaceとは独立のベクタソース・タイル
+// 事故レイヤー（外部静的データソース）。road_surfaceとは独立のベクタソース・タイル
 // エンドポイント（PBF取込範囲とは無関係に取込済みの警察庁データそのもの）のため、
 // ensureRoadSurfaceTileLayerと同じ「初期化時に一度だけ追加、以降はvisibility切替のみ」の
 // パターンだがソース自体を新規に持つ。円の色は自転車関連/その他（involves_bicycle）、
@@ -1585,9 +1584,9 @@ function ensureAccidentTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 停止要因POI・交差点密度（改善計画T54）は点データのため、路面・車ストレス・自転車
-// インフラとは別の新規ベクタソース（region-poi-tiles）を使う。ズーム範囲は路面と同じ
-// （regionApi.ts: ROAD_TILE_MIN_ZOOM/MAX_ZOOM、backend側もT54で同じ範囲に準拠）。
+// 停止要因POI・交差点密度は点データのため、路面・車ストレス・自転車
+// インフラとは別のベクタソース（region-poi-tiles）を使う。ズーム範囲は路面と同じ
+// （regionApi.ts: ROAD_TILE_MIN_ZOOM/MAX_ZOOM、backend側も同じ範囲に準拠）。
 function ensurePoiTileSource(map: MapLibreMap) {
   if (map.getSource(POI_TILE_SOURCE_ID)) return;
   map.addSource(POI_TILE_SOURCE_ID, {
@@ -1621,7 +1620,7 @@ function ensureStopPoiLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 補給・休憩ポイントPOI（改善計画T101）。停止要因POIと同じregion-poi-tiles
+// 補給・休憩ポイントPOI。停止要因POIと同じregion-poi-tiles
 // （source-layer: stop_poi）を共有する独立レイヤー。バックエンドのMVT SQLはkindを
 // 無条件で焼き込むため、この時点（addLayer）ではfilterを付けない。実際のkind値による
 // 絞り込みはsetStaticOverlayFilters側のbaseFilter（STATIC_FILTER_AXES: supplyPoi）が
@@ -1653,15 +1652,14 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 // 5レイヤー（標高・車ストレス・指定路線・事故・停止要因POI）は、
 // いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
 // 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
-// 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する
-// （改善計画T47 R-6: 静的レイヤーが+2種類に達した時点でのensure/setペアの宣言的ループ化）。
-// 二次軸の汎用rampレイヤー（改善計画T145b）。axis-catalog.json（backendレジストリ生成物）の
+// 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する。
+// 二次軸の汎用rampレイヤー。axis-catalog.json（backendレジストリ生成物）の
 // kind="ramp"軸ごとに、road_surfaceタイルへ焼き込み済みの事実プロパティ（per-km密度）を
 // カタログ宣言のしきい値で色分けする線レイヤーを自動生成する。ensure関数は他の静的
 // レイヤー（makeEnsureAttributeLineLayer等）と同じ「初期化時に一度だけ追加、以降は
 // visibility切替のみ」パターンだが、axis（軸スタジオのしきい値・色定義）は実行時
 // フェッチで後から変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで
-// 再適用する（T587）。
+// 再適用する。
 function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     runWhenStyleReady(map, () => {
@@ -1691,9 +1689,9 @@ function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
 
 type OverlayLayerEntry = { key: string; layerId: string; ensure: (map: MapLibreMap) => void };
 
-// 改善計画T308: 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、
-// 実行時フェッチで増減しうる）を反映できるよう関数化した。呼び出し側（コンポーネント内、
-// useMemo経由）がrampAxesを渡す。テスト（MapView.overlayFilters.test.ts等）から
+// 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、実行時フェッチで
+// 増減しうる）を反映できるよう関数化してある。呼び出し側（コンポーネント内、useMemo経由）が
+// rampAxesを渡す。テスト（MapView.overlayFilters.test.ts等）から
 // build*(RAMP_AXES)として直接呼べるようexportしている。
 export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly OverlayLayerEntry[] {
   return rampAxes.map((axis) => ({
@@ -1703,22 +1701,20 @@ export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly 
   }));
 }
 
-// 改善計画（1次/2次の地図上表現の統一、松）: map.addLayer()はbeforeId省略時にレイヤー
-// スタックの最上位へ積み上げるため、この配列の並び順がそのままensureAllStaticOverlayLayers
-// （下記）でのensure()呼び出し順＝実際の描画の重なり順（先＝背面、後＝前面）になる。
-// ramp軸（車の圧迫感[T292]・停止密度・事故密度等、推定/composite、SECONDARY_AXIS_CASING_
+// map.addLayer()はbeforeId省略時にレイヤースタックの最上位へ積み上げるため、この配列の
+// 並び順がそのままensureAllStaticOverlayLayers（下記）でのensure()呼び出し順＝実際の
+// 描画の重なり順（先＝背面、後＝前面）になる。
+// ramp軸（車の圧迫感・停止密度・事故密度等、推定/composite、SECONDARY_AXIS_CASING_
 // WIDTH/OPACITYの太く半透明な下敷き）をroad_surface本体の直上へまとめ、
 // designation・accidents・stopPoi・supplyPoi（観測/raw、通常の太さ・不透明度のくっきりした
-// 上書き）をその上に置く。
-// 以前はramp軸が配列末尾（最前面）だったため、材料の連動ON（T167）で観測データと推定を
-// 同時に表示しても、後から追加された推定側が観測データを塗り潰して見えなくなっていた。
+// 上書き）をその上に置く——観測データと推定を同時に表示したとき、後から追加される側が
+// 先に追加された側を塗り潰さないようにする並び順である。
 export function buildStaticOverlayLayers(
   axisOverlayLayers: readonly OverlayLayerEntry[],
-  // 改善計画T473: `dedicated_way_value_layer`軸（wind/gradient）のdisplay_thresholds_override
-  // を軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueDisplays
-  // 参照、以前はgradientBoundaries/windBoundariesという軸ごとの別名引数だった）。
+  // `dedicated_way_value_layer`軸（wind/gradient）のdisplay_thresholds_overrideを
+  // 軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueDisplays参照）。
   dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>,
-  // 改善計画T607: 同じ軸id→booleanの汎用Mapとして、フェッチ進行中かどうかを受け取る
+  // 同じ軸id→booleanの汎用Mapとして、フェッチ進行中かどうかを受け取る
   // （MapViewProps.dedicatedWayValueLoading参照）。
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>
 ): readonly OverlayLayerEntry[] {
@@ -1728,19 +1724,17 @@ export function buildStaticOverlayLayers(
   const windLoading = dedicatedWayValueLoading?.get("wind") ?? false;
   return [
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
-    // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
-    // 吸収されたため、以前ここにあった専用エントリ（ensureCarStressLayer）は不要になった。
     ...axisOverlayLayers,
     { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION) },
     { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION) },
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION) },
-    // 改善計画T405/T440/T466: way_id→wind_drag_ratio配信層（評価軸グループとしての風）。ensureは
+    // way_id→wind_drag_ratio配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。
     { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, dedicatedWayValueColorExpression("wind", windDisplay, windLoading)) },
-    // 改善計画T423/T440/T443: way_id→勾配配信層（評価軸グループとしての勾配）。
+    // way_id→勾配配信層（評価軸グループとしての勾配）。
     { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, dedicatedWayValueColorExpression("gradient", gradientDisplay, gradientLoading)) },
-    // 改善計画T423/T443: 環境グループの勾配gridFill（タイル境界セル）。
+    // 環境グループの勾配gridFill（タイル境界セル）。
     { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientDisplay, gradientLoading) },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
@@ -1748,17 +1742,16 @@ export function buildStaticOverlayLayers(
   ];
 }
 
-// 改善計画（2次の下敷きの副作用対応）: 2次（ramp軸）を太く半透明な下敷きに
-// するのは、その材料（1次）が同時に表示されているときだけにする。材料が1つも表示されて
-// いなければ下に隠すものが無いため、通常の太さ・不透明度（1次と同じ、DEFAULT_ROAD_LINE_
-// WIDTH/KNOWN_LINE_OPACITY）に戻す。以前はcarStress・ramp軸をONにした瞬間から常に
-// 太く半透明にしていたため、道路網が密な都市部では下敷きの重なりだけで地図全体が
-// ぼやけて見えてしまっていた（実機フィードバック）。casingLayerKeysは、どの2次レイヤーの
-// 材料が現在表示中かをpage.tsx側（axisMaterialLayerIds）が判定して渡す（このファイルは
-// レイヤー固有の材料関係を知らない汎用描画係のまま、という方針を保つ）。axisOverlayLayers
-// （改善計画T308）は「2次（ramp軸）のうち下敷きの対象」そのもの——STATIC_OVERLAY_LAYERSの
-// ramp軸部分と同一集合のため、呼び出し側がbuildAxisOverlayLayers(rampAxes)の結果を渡す。
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// 2次（ramp軸）を太く半透明な下敷きにするのは、その材料（1次）が同時に表示されている
+// ときだけにする。材料が1つも表示されていなければ下に隠すものが無いため、通常の太さ・
+// 不透明度（1次と同じ、DEFAULT_ROAD_LINE_WIDTH/KNOWN_LINE_OPACITY）に戻す（常に太く
+// 半透明にすると、道路網が密な都市部では下敷きの重なりだけで地図全体がぼやけて
+// 見えてしまう）。casingLayerKeysは、どの2次レイヤーの材料が現在表示中かをpage.tsx側
+// （axisMaterialLayerIds）が判定して渡す（このファイルはレイヤー固有の材料関係を
+// 知らない汎用描画係のまま、という方針を保つ）。axisOverlayLayersは「2次（ramp軸）のうち
+// 下敷きの対象」そのもの——STATIC_OVERLAY_LAYERSのramp軸部分と同一集合のため、呼び出し側が
+// buildAxisOverlayLayers(rampAxes)の結果を渡す。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export function applySecondaryAxisCasingStyles(
   map: MapLibreMap,
   casingLayerKeys: ReadonlySet<string>,
