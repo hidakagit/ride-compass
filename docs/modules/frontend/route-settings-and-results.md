@@ -10,9 +10,9 @@
 | ファイル | 責務 |
 |---|---|
 | `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・生成ボタン。周回/目的地モード切替 |
-| `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路・地図色分けトグル |
+| `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路（地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
-| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（地図の色分けチップ列＋「重み付き寄与度」内訳）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
+| `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
 | `components/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
@@ -59,14 +59,9 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   CSS側で切り替え）で表示する。
 - 軸の凡例チップ（`renderLegendChip`）は「色ドット+ラベル（タップで有効/無効を
   切替、weight>0が有効の判定基準）」「(i)説明文ポップオーバー」の2要素で構成される
-  複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にする。地図の色分け（レンズ）は
-  このパネルにはなく、地図上の`LensControl`だけが持つ。
-  **`secondaryAxes.ts`はこのモジュールの対象ファイル表に無いが、`useAxisCatalog`の
-  `secondaryAxes`フィールドを介してこのパネルの地図色分けトグル解決ロジックに
-  直接組み込まれている**（本来の所有元は[地図: 静的レイヤー・道路表示](../frontend/static-map-layers.md)系のモジュール）。
-- ルート確定後（`hasDetail=true`）は、専用way_id配信レイヤーを持つ軸（風・勾配）の
-  色分けアイコンを、案内文（title/aria-label）つきの無効化アイコンへ切り替える——
-  ルート確定後はこれらの軸が「生成したルートの色分け」側の役割になるため。
+  複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にする。`route_preference`の
+  重みを切り替えるだけで、地図の色分けとは無関係（地図の色分け（レンズ）はこのパネルには
+  なく、地図上の`LensControl`だけが持つ）。
 - 向きコンパス（`WindBearingSlider`）はこのパネルには存在しない。風・勾配の走行方位は
   `page.tsx`の単一共有state（`travelBearingDeg`）を地図上の`TravelBearingControl`
   1箇所からのみ設定する（[ページ全体構成・状態管理](page-composition.md)「動的材料
@@ -110,8 +105,8 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 共有、[ページ全体構成・状態管理](page-composition.md)「動的材料（風・勾配）の状態別
 表現契約」参照）を`TravelBearingControl`が受け取り、地図右上（MapLibreのズーム+/−・
 回転コントロールの直下）のアイコンボタンをトリガーにしたRadix Popoverの中で
-`WindBearingSlider`を開閉する。表示条件は風・勾配いずれかの環境/評価軸表示が1件でも
-ONかつ`!hasDetail`（同ファイルのコメント参照）。
+`WindBearingSlider`を開閉する。出発時刻・想定速度と同じ走行条件の一部として常時表示する
+（風・勾配の表示状態に依存しない）。
 
 `cardinalLabel(bearingDeg)`（0〜360度→8方位の日本語ラベル）は`backend/app/domain/geo.py:
 compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側に持つ。

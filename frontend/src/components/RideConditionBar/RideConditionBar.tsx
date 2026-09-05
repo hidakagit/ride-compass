@@ -1,8 +1,11 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
+import { nearestTimeIndex } from "@/components/Map/dynamicWeather";
+import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
 import styles from "./RideConditionBar.module.css";
 
 export interface RideConditionBarProps {
@@ -30,11 +33,6 @@ export function formatDepartureLabel(time: Date, now: Date = new Date()): string
   return sameDay ? hm : `${time.getMonth() + 1}/${time.getDate()} ${hm}`;
 }
 
-/** `<input type="datetime-local">`のvalue形式（ローカル時刻、秒なし）。 */
-function toDatetimeLocalValue(time: Date): string {
-  return `${time.getFullYear()}-${pad2(time.getMonth() + 1)}-${pad2(time.getDate())}T${pad2(time.getHours())}:${pad2(time.getMinutes())}`;
-}
-
 export function clampSpeedKmh(value: number): number {
   if (!Number.isFinite(value)) return routeGenerateConfig.default_assumed_speed_kmh;
   return Math.min(MAX_SPEED_KMH, Math.max(MIN_SPEED_KMH, Math.round(value)));
@@ -50,6 +48,15 @@ export default function RideConditionBar({
   onSpeedKmhChange,
 }: RideConditionBarProps) {
   const [speedDraft, setSpeedDraft] = useState<string | null>(null);
+  // ドラッグタイムラインの目盛りは開いた瞬間の時刻を基準に生成する（開いたまま長時間放置
+  // されても「現在」ボタン・目盛りの基準がずれないよう、開くたびに作り直す）。閉じている間は
+  // nullのままにしてPopover.Content自体が非マウントの間の無駄な計算を避ける。
+  const [departureAnchor, setDepartureAnchor] = useState<Date | null>(null);
+  const departureTimeline = useMemo(
+    () => (departureAnchor ? buildDepartureTimeline(departureAnchor) : []),
+    [departureAnchor]
+  );
+  const departureFrames = useMemo(() => buildDepartureFrames(departureTimeline), [departureTimeline]);
   const speedInputId = useId();
   const departureLabel = formatDepartureLabel(departureTime);
 
@@ -61,7 +68,7 @@ export default function RideConditionBar({
 
   return (
     <div className={styles.bar} role="group" aria-label="走行条件">
-      <Popover.Root>
+      <Popover.Root onOpenChange={(open) => setDepartureAnchor(open ? new Date() : null)}>
         <Popover.Trigger asChild>
           <button type="button" className={styles.chip} aria-label={`出発時刻: ${departureLabel}（タップで変更）`}>
             <span className={styles.chipKey}>出発</span>
@@ -72,7 +79,13 @@ export default function RideConditionBar({
           </button>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content className={styles.popover} side="top" align="start" sideOffset={8} collisionPadding={8}>
+          <Popover.Content
+            className={styles.timelinePopover}
+            side="top"
+            align="start"
+            sideOffset={8}
+            collisionPadding={8}
+          >
             <div className={styles.quickRow} role="group" aria-label="出発時刻のクイック設定">
               {QUICK_OFFSET_HOURS.map((hours) => (
                 <button
@@ -85,18 +98,22 @@ export default function RideConditionBar({
                 </button>
               ))}
             </div>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>出発時刻</span>
-              <input
-                type="datetime-local"
-                className={styles.input}
-                value={toDatetimeLocalValue(departureTime)}
-                onChange={(e) => {
-                  const next = new Date(e.target.value);
-                  if (!Number.isNaN(next.getTime())) onDepartureTimeChange(next);
+            {departureAnchor && (
+              <DynamicLayerTimeSlider
+                frames={departureFrames}
+                index={nearestTimeIndex(departureTimeline, departureTime)}
+                onIndexChange={(index) => {
+                  const time = departureTimeline[index];
+                  if (time) onDepartureTimeChange(time);
                 }}
+                currentIndex={nearestTimeIndex(departureTimeline, departureAnchor)}
+                onNow={() => onDepartureTimeChange(new Date())}
+                loading={false}
+                loadingLabel=""
+                error={null}
+                ariaLabel="出発時刻"
               />
-            </label>
+            )}
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
