@@ -117,8 +117,11 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
 
     const { result } = renderHook(() => useDynamicWayValues("wind", true, VIEWPORT, 0, undefined));
 
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.error).toBe(true);
+    // 初期状態のloading（EMPTY_RESULT）もfalseのため、loading===falseだけを待つと
+    // フェッチ完了前に条件が満たされてしまう（本テストで実際に踏んだ罠）。フェッチが
+    // 呼ばれたことをまず待ってから、errorの反映を待つ。
+    await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.error).toBe(true));
     expect(result.current.values.size).toBe(0);
   });
 });
