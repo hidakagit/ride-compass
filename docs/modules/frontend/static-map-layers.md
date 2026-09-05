@@ -25,7 +25,7 @@
 | `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
 | `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品。中身はchildrenで呼び出し側が渡す（`MapLayersPanel`・`RouteSettingsPanel`・`RouteAxisProfile`で共用） |
-| `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`MapLayersPanel`・`RouteAxisProfile`で共用） |
+| `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`MapLayersPanel`・`RouteAxisProfile`・`MapOverlayControls`の▶パネルで共用） |
 
 ## タイルの配信元（`lib/tileBaseUrl.ts`）
 
@@ -152,6 +152,23 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 `category="disaster"`で、「環境」グループに並びながら排他ドメインには属さない
 ——他の環境レイヤーを選んでいる間も災害情報が地図から消えてはならないため
 （`mapOverlayExclusiveDomainFor`、[動的気象レイヤー](dynamic-weather-layers.md)参照）。
+
+## 凡例カテゴリの絞り込み（サイドバーと地図上チップで同じ状態を共有）
+
+`LegendFilterSummaryAxis.axisId`（`legendFilter.ts`）を持つ軸だけがユーザー操作で
+絞り込める。`axisId`は非表示キーの保存先（`page.tsx: hiddenLegendKeysByMode`のキー）を
+指し、サイドバー（`MapLayersPanel`）と地図上チップの▶パネル（`MapOverlayControls`）の
+どちらから操作しても同じIDの同じ状態を書き換える。どちらも描画には同じ
+`LegendCheckboxList`を使う。
+
+`axisId`を持たない軸は読み取り専用の凡例として描画される。配信元が色を焼き込み済みの
+ラスタタイル（降水ナウキャスト・風・災害の危険度凡例）がこれにあたり、カテゴリ単位で
+地物を選り分けること自体ができない。
+
+例外として、災害チップの「表示する情報」だけは`axisId`を持ちながら地物の絞り込みではなく
+**レイヤーソースの表示切替**に使う（`useDynamicWeatherLayers`が非表示キーを見て7要素の
+`visible`を決める、[動的気象レイヤー](dynamic-weather-layers.md)参照）。UIとしては
+他の絞り込みと同じチェックボックス行で、反映先だけが異なる。
 
 ## 路面レイヤーの絞り込み軸（`roadFilterAxes.ts`）
 

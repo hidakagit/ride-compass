@@ -67,6 +67,13 @@ export interface LegendFilterSummaryAxis {
   label: string;
   legend: readonly LegendEntry[];
   hiddenKeys: readonly string[];
+  /** 非表示キーの保存先を識別するID（`page.tsx: hiddenLegendKeysByMode`のキー）。
+   * **これを持つ軸だけがユーザー操作で絞り込める**——地図上チップの▶パネル
+   * （`MapOverlayControls`）・サイドバー（`MapLayersPanel`）のどちらから操作しても
+   * 同じIDの同じ状態を書き換える。ラスタタイルのように配信元が色を焼き込み済みで
+   * カテゴリ単位の絞り込みができない軸（降水ナウキャスト・風・災害の危険度凡例等）は
+   * 持たず、その軸は読み取り専用の凡例として描画される。 */
+  axisId?: string;
 }
 
 // 軸ごとに「表示中カテゴリを列挙」と「除外カテゴリを列挙」の短い方を選び、どちらも
