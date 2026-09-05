@@ -71,6 +71,7 @@ import TravelBearingControl from "@/components/TravelBearingControl/TravelBearin
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
+import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { useDynamicWayValues } from "@/hooks/useDynamicWayValues";
 import { gradientGridCellsFromTileResponses } from "@/components/Map/gradientGridFill";
@@ -213,19 +214,11 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   // 改善計画T423: 環境グループの勾配gridFill・way_id→勾配配信層。同じ理由で既定OFF。
   gradientFill: false,
   gradientAxis: false,
-  // 改善計画T204: 雷ナウキャスト・竜巻発生確度ナウキャスト。同じ理由で既定OFF。
-  thunderNowcast: false,
-  tornadoNowcast: false,
-  // 改善計画T541: 雷放電位置データ。同じ理由で既定OFF。
-  liden: false,
-  // 改善計画T410/T606: キキクル（危険度分布：土砂災害・大雨・浸水・洪水）。他の気象
-  // レイヤーとは異なり既定ONにする——防災級の情報はユーザー操作を待たず表示すべき
-  // （予兆があってからチップをONにするのでは手遅れ）という理由で、チップというUI要素は
-  // 持たせつつ既定表示にしておく。
-  landslideRisk: true,
-  heavyRainRisk: true,
-  inundationRisk: true,
-  floodRisk: true,
+  // 災害（雷・竜巻・落雷・キキクル4種）。他の気象レイヤーとは異なり既定ONにする——
+  // 防災級の情報はユーザー操作を待たず表示すべき（予兆があってからチップをONにするのでは
+  // 手遅れ）という理由で、チップというUI要素は持たせつつ既定表示にしておく。危険度ゼロの
+  // 領域は配信元のタイルが透明のため、平常時の地図の見た目は変わらない。
+  disaster: true,
   // 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの傘下へ
   // 統合されており、個別のlayerVisibilityキーを持たない（frontend/src/hooks/
   // useDynamicWeatherLayers.ts参照）。
@@ -279,27 +272,32 @@ const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
-// 雷・竜巻の凡例（改善計画T204）。precipitation/wind凡例と同じパターン（表示専用、
-// filterはダミー値）。実データ（活動度・発生確度のラベル・近似色）はthunderNowcast.ts
-// （単一の情報源）から持ってくる。
-const THUNDER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+// 災害チップの凡例。precipitation/wind凡例と同じパターン（表示専用、filterはダミー値）で、
+// 1チップにまとまった7要素を`accidents`と同じ複数ブロックとして並べる。実データ（活動度・
+// 発生確度・危険度5段階のラベルと近似色）はthunderNowcast.ts・riskMap.tsが単一の情報源。
+// キキクル4種は4つとも同じ5段階配色のため、凡例も1ブロックにまとめる。
+const DISASTER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
-    label: "",
+    label: "キキクル（土砂災害・大雨・浸水・洪水）",
+    legend: RISK_LEVEL_COLORS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+  {
+    label: "雷ナウキャスト（活動度）",
     legend: THUNDER_ACTIVITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
-];
-const TORNADO_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
-    label: "",
+    label: "竜巻発生確度ナウキャスト",
     legend: TORNADO_POTENTIAL_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
+  {
+    label: "落雷（雷放電位置データ）",
+    legend: [{ key: "liden", label: "検知した落雷地点", color: "#facc15", filter: UNUSED_LEGEND_FILTER }],
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
 ];
-// 改善計画T432: キキクル3種（土砂・大雨・浸水）は地図上チップ（▶パネル）自体を持たない
-// 常時マウントへ変更したため、専用の凡例ブロック（旧RISK_LEGEND_DETAILS）は表示先を失い
-// 撤去した。色の意味（5段階、riskMap.tsが単一の情報源）を確認する導線が無くなった点は
-// 既知の制約として残る（改善計画T432以降の課題）。
 
 // 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>専用
 // （改善計画T300: モバイルは「ルート設定」「ルート結果」の2タブへ分割したため、
@@ -1031,14 +1029,8 @@ export default function Home() {
   // フックが持つ。各要素は対応するshow*がtrueの間だけフェッチする。overlayLayers
   // （下記）がdataStatusとして参照するため、その手前で定義する。
   const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
-  const showThunderNowcast = layerVisibility.thunderNowcast;
-  const showTornadoNowcast = layerVisibility.tornadoNowcast;
-  const showLiden = layerVisibility.liden;
   const showWindVector = layerVisibility.windVector;
-  const showLandslideRisk = layerVisibility.landslideRisk;
-  const showHeavyRainRisk = layerVisibility.heavyRainRisk;
-  const showInundationRisk = layerVisibility.inundationRisk;
-  const showFloodRisk = layerVisibility.floodRisk;
+  const showDisaster = layerVisibility.disaster;
   const {
     dynamicWeather,
     dynamicWeatherDataStatus,
@@ -1047,13 +1039,7 @@ export default function Home() {
   } = useDynamicWeatherLayers({
     showWindVector,
     showPrecipitationNowcast,
-    showThunderNowcast,
-    showTornadoNowcast,
-    showLiden,
-    showLandslideRisk,
-    showHeavyRainRisk,
-    showInundationRisk,
-    showFloodRisk,
+    showDisaster,
     mapViewport,
   });
   // レイヤーごとのデータ取得状態を1つに統合する（改善計画T608）。mapViewLayerDataStatus
@@ -1083,8 +1069,7 @@ export default function Home() {
       route: routeLegendDetails,
       precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
       windVector: WIND_LEGEND_DETAILS,
-      thunderNowcast: THUNDER_LEGEND_DETAILS,
-      tornadoNowcast: TORNADO_LEGEND_DETAILS,
+      disaster: DISASTER_LEGEND_DETAILS,
     };
     return mapLayers.map((layer) => {
         // 改善計画T418: windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は

@@ -57,29 +57,20 @@
   box-shadow: var(--shadow-md, 0 6px 20px rgba(0, 0, 0, 0.2));
 }
 
-.quickRow {
+/* 出発時刻のポップオーバー用。中身のDynamicLayerTimeSlider自身が枠・背景・影を持つ
+   （DynamicLayerTimeSlider.module.css: .panel）ため、.popoverと違い箱の見た目を持たせない
+   （二重に枠が重なるのを避ける）。 */
+.timelinePopover {
+  z-index: 60;
   display: flex;
-  gap: var(--space-1);
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-.quickButton {
-  flex: 1;
-  height: 30px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 0.85rem;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.15));
-}
-
-/* 背景をrgba重ねで暗くする方式は、この不透明な.quickButton自身より下に別の不透明な
-   背景が無いため、未定義のCSS変数（フォールバックのrgba）が採用されると地図が
-   透けて見える（.pageButton等、地図に直接浮くコントロールと同じくborder-colorだけを
-   変える）。 */
-.quickButton:hover {
-  border-color: var(--color-accent);
+/* .timelinePopover自体が背景を持たないため地図の上に直接浮く。ネイティブの
+   datetime-local入力はブラウザ既定で不透明な背景を持つため、地図が透けて見える心配はない。 */
+.directInput {
+  width: 100%;
 }
 
 .field {

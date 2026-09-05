@@ -33,7 +33,6 @@ import {
   ElevationIcon,
   EnvironmentDataIcon,
   InfoIcon,
-  LidenIcon,
   RaindropIcon,
   RoadIcon,
   RoadSurfaceIcon,
@@ -44,8 +43,6 @@ import {
   TunnelIcon,
   OnewayIcon,
   RouteIcon,
-  ThunderIcon,
-  TornadoIcon,
   WindIcon,
 } from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
@@ -154,15 +151,10 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   // 地図上に出ないが、RouteSettingsPanel側の参照に備えてRecordを完全に埋める。
   gradientFill: ElevationIcon,
   gradientAxis: ElevationIcon,
-  thunderNowcast: ThunderIcon,
-  tornadoNowcast: TornadoIcon,
-  liden: LidenIcon,
-  // キキクル4種（改善計画T410/T606）。専用アイコンは持たず、windAxis/gradientAxisと同じ
-  // パターンでShieldIconを4つとも流用する。
-  landslideRisk: ShieldIcon,
-  heavyRainRisk: ShieldIcon,
-  inundationRisk: ShieldIcon,
-  floodRisk: ShieldIcon,
+  // 災害（雷・竜巻・落雷・キキクル4種を1チップへまとめたグループ）。個々の要素を表す
+  // アイコン（ThunderIcon/TornadoIcon/LidenIcon）ではなく、防災情報全体を表すShieldIconを
+  // 使う。
+  disaster: ShieldIcon,
   route: RouteIcon,
 };
 

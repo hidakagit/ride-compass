@@ -78,13 +78,8 @@ const EMPTY_LIDEN_FRAMES: LidenFrame[] = [];
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
   showPrecipitationNowcast: boolean;
-  showThunderNowcast: boolean;
-  showTornadoNowcast: boolean;
-  showLiden: boolean;
-  showLandslideRisk: boolean;
-  showHeavyRainRisk: boolean;
-  showInundationRisk: boolean;
-  showFloodRisk: boolean;
+  /** 災害チップ（雷・竜巻・落雷・キキクル4種の7要素をまとめた1グループ）。 */
+  showDisaster: boolean;
   mapViewport: MapViewport | null;
 }
 
@@ -128,13 +123,7 @@ function dynamicWeatherStatus(loading: boolean, error: string | null, hasPayload
 export function useDynamicWeatherLayers({
   showWindVector,
   showPrecipitationNowcast,
-  showThunderNowcast,
-  showTornadoNowcast,
-  showLiden,
-  showLandslideRisk,
-  showHeavyRainRisk,
-  showInundationRisk,
-  showFloodRisk,
+  showDisaster,
   mapViewport,
 }: UseDynamicWeatherLayersOptions): UseDynamicWeatherLayersResult {
   // 動的気象レイヤーが指す対象時刻（T183再設計）。ONの全レイヤーのフレーム時刻を統合した
@@ -180,7 +169,7 @@ export function useDynamicWeatherLayers({
     loading: thunderNowcastLoading,
     error: thunderNowcastError,
   } = usePolledFetch(fetchThunderNowcastFrames, EMPTY_THUNDER_NOWCAST_FRAMES, {
-    enabled: showThunderNowcast || showTornadoNowcast,
+    enabled: showDisaster,
     intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
     label: "雷・竜巻ナウキャスト",
   });
@@ -197,7 +186,7 @@ export function useDynamicWeatherLayers({
     loading: lidenNowcastLoading,
     error: lidenNowcastError,
   } = usePolledFetch(fetchLidenFrames, EMPTY_LIDEN_FRAMES, {
-    enabled: showLiden,
+    enabled: showDisaster,
     intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
     label: "雷放電位置データ",
   });
@@ -216,7 +205,7 @@ export function useDynamicWeatherLayers({
     fetchCurrentRiskFrames,
     EMPTY_CURRENT_RISK_FRAMES,
     {
-      enabled: showLandslideRisk || showHeavyRainRisk || showInundationRisk || showFloodRisk,
+      enabled: showDisaster,
       intervalMs: RISK_MAP_REFRESH_INTERVAL_MS,
       label: "危険度分布（キキクル）",
     },
@@ -310,7 +299,7 @@ export function useDynamicWeatherLayers({
   const lidenRef = lidenIndex == null ? undefined : lidenFramesList[lidenIndex].ref;
   const [lidenFetched, setLidenFetched] = useState<{ ref: number; geojson: GeoJSON.FeatureCollection } | undefined>();
   useEffect(() => {
-    if (!showLiden || lidenRef == null) return;
+    if (!showDisaster || lidenRef == null) return;
     let cancelled = false;
     fetchLidenGeojson(lidenNowcastFrames, lidenRef)
       .then((geojson) => {
@@ -324,7 +313,7 @@ export function useDynamicWeatherLayers({
     return () => {
       cancelled = true;
     };
-  }, [showLiden, lidenRef, lidenNowcastFrames]);
+  }, [showDisaster, lidenRef, lidenNowcastFrames]);
   const lidenPayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
     if (lidenIndex == null || !lidenFetched || lidenFetched.ref !== lidenRef) return undefined;
     return { kind: "gridMark", geojson: lidenFetched.geojson };
@@ -378,13 +367,19 @@ export function useDynamicWeatherLayers({
         main: { visible: showPrecipitationNowcast, payload: precipitationPayload },
         linearRainband: { visible: showPrecipitationNowcast, payload: linearRainbandPayload },
       },
-      thunderNowcast: { main: { visible: showThunderNowcast, payload: thunderPayload } },
-      tornadoNowcast: { main: { visible: showTornadoNowcast, payload: tornadoPayload } },
-      liden: { main: { visible: showLiden, payload: lidenPayload } },
-      landslideRisk: { main: { visible: showLandslideRisk, payload: landslideRiskPayload } },
-      heavyRainRisk: { main: { visible: showHeavyRainRisk, payload: heavyRainRiskPayload } },
-      inundationRisk: { main: { visible: showInundationRisk, payload: inundationRiskPayload } },
-      floodRisk: { main: { visible: showFloodRisk, payload: floodRiskPayload } },
+      // 災害グループの7ソースは1つのチップ（showDisaster）でまとめてON/OFFする。時刻
+      // スライダーへの連動有無はソースごとに異なり、雷・竜巻・落雷は選択時刻が自分の
+      // フレーム範囲外ならpayloadがundefinedになって描画されない一方、キキクル4種は
+      // 「現在の危険度」単一値のため選択時刻に関わらず描画され続ける。
+      disaster: {
+        heavyRain: { visible: showDisaster, payload: heavyRainRiskPayload },
+        landslide: { visible: showDisaster, payload: landslideRiskPayload },
+        inundation: { visible: showDisaster, payload: inundationRiskPayload },
+        thunder: { visible: showDisaster, payload: thunderPayload },
+        tornado: { visible: showDisaster, payload: tornadoPayload },
+        flood: { visible: showDisaster, payload: floodRiskPayload },
+        liden: { visible: showDisaster, payload: lidenPayload },
+      },
     }),
     [
       showWindVector,
@@ -392,28 +387,22 @@ export function useDynamicWeatherLayers({
       showPrecipitationNowcast,
       precipitationPayload,
       linearRainbandPayload,
-      showThunderNowcast,
+      showDisaster,
       thunderPayload,
-      showTornadoNowcast,
       tornadoPayload,
-      showLiden,
       lidenPayload,
-      showLandslideRisk,
       landslideRiskPayload,
-      showHeavyRainRisk,
       heavyRainRiskPayload,
-      showInundationRisk,
       inundationRiskPayload,
-      showFloodRisk,
       floodRiskPayload,
     ]
   );
 
-  // レイヤーごとのデータ取得状態（改善計画T608）。9レイヤー全てが同じdynamicWeatherStatus
+  // レイヤーごとのデータ取得状態（改善計画T608）。3レイヤー全てが同じdynamicWeatherStatus
   // 関数を通る——「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を
-  // 意識する必要は無い。precipitationNowcastは「main」（ナウキャスト/短時間予報/延長予報の
-  // 3段）と「linearRainband」（4つ目のソース）の両方を1つのチップとして統合する
-  // （UI上のチップも1つのため、地図に何かしら描画できていればloading/errorとしない）。
+  // 意識する必要は無い。複数の名前付きソースを持つグループ（precipitationNowcastの
+  // ナウキャスト3段+線状降水帯、disasterの7要素）は、UI上のチップが1つのため、いずれかの
+  // ソースが地図に何かしら描画できていればloading/errorとしない。
   const dynamicWeatherDataStatus = useMemo(
     () => ({
       windVector: dynamicWeatherStatus(windLoading, windError, windPayload !== undefined),
@@ -422,13 +411,17 @@ export function useDynamicWeatherLayers({
         nowcastError ?? linearRainbandError,
         precipitationPayload !== undefined || linearRainbandPayload !== undefined
       ),
-      thunderNowcast: dynamicWeatherStatus(thunderNowcastLoading, thunderNowcastError, thunderPayload !== undefined),
-      tornadoNowcast: dynamicWeatherStatus(thunderNowcastLoading, thunderNowcastError, tornadoPayload !== undefined),
-      liden: dynamicWeatherStatus(lidenNowcastLoading, lidenNowcastError, lidenPayload !== undefined),
-      landslideRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, landslideRiskPayload !== undefined),
-      heavyRainRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, heavyRainRiskPayload !== undefined),
-      inundationRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, inundationRiskPayload !== undefined),
-      floodRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, floodRiskPayload !== undefined),
+      disaster: dynamicWeatherStatus(
+        thunderNowcastLoading || lidenNowcastLoading || currentRiskLoading,
+        thunderNowcastError ?? lidenNowcastError ?? currentRiskError,
+        thunderPayload !== undefined ||
+          tornadoPayload !== undefined ||
+          lidenPayload !== undefined ||
+          landslideRiskPayload !== undefined ||
+          heavyRainRiskPayload !== undefined ||
+          inundationRiskPayload !== undefined ||
+          floodRiskPayload !== undefined
+      ),
     }),
     [
       windLoading,

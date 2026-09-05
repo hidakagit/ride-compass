@@ -47,25 +47,13 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
   "precipitationNowcast",
   "windVector",
-  // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。同じtargetTimes_N3.json
-  // 由来のフレーム列を共有するが、地図チップ・レンダラースペックはそれぞれ独立させる
-  // （雷だけ確認したい/竜巻は非表示にしたい、という独立したON/OFFニーズに応えるため）。
-  "thunderNowcast",
-  "tornadoNowcast",
-  // 雷放電位置データ（改善計画T541）。thunderNowcastと同じtargetTimes_N3.json由来だが、
-  // エリア単位の活動度（thns、rasterTile）とは別に、個々の落雷地点（gridMark）を独立して
-  // ON/OFFできるようにする。
-  "liden",
-  // キキクル（危険度分布：土砂災害・大雨・浸水・洪水、改善計画T410/T416/T606）。線状
-  // 降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの一部として
-  // 扱い、ここには含めない（MapView.tsx: DYNAMIC_WEATHER_RENDERERSのprecipitationNowcast
-  // グループのlinearRainbandソース参照）。洪水キキクル（floodRisk）は他3種と異なり
-  // ベクタタイル（.pbf）形式のため、vectorTile kind（本ファイル冒頭コメント参照）で
-  // 描画する。
-  "landslideRisk",
-  "heavyRainRisk",
-  "inundationRisk",
-  "floodRisk",
+  // 災害。雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）・雷放電位置データ
+  // （liden）・キキクル4種（土砂災害・大雨・浸水・洪水）の7要素を名前付きソースとして
+  // 持つ1グループ（MapView.tsx: DYNAMIC_WEATHER_RENDERERSのdisasterグループ参照）。
+  // 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため災害ではなく「降水」
+  // チップの一部として扱う。洪水キキクルのみ配信元がベクタタイル（.pbf）形式のため、
+  // vectorTile kind（本ファイル冒頭コメント参照）で描画する。
+  "disaster",
 ] as const satisfies readonly MapLayerId[];
 
 export const DYNAMIC_WEATHER_LAYER_IDS = CHIP_DYNAMIC_WEATHER_LAYER_IDS;

@@ -21,7 +21,8 @@
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通） |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
-| components/RideConditionBar | `RideConditionBar.tsx`（地図下部の走行条件バー本体。出発時刻はクイック設定ボタン[今/+1h/+2h/+3h]＋`input[type=datetime-local]`の直接指定、想定速度はスライダー＋数値入力） |
+| components/RideConditionBar | `RideConditionBar.tsx`（地図下部の走行条件バー本体。出発時刻はドラッグ式タイムライン＋`input[type=datetime-local]`の直接指定、想定速度はスライダー＋数値入力）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
+| components/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
 
 `apiBaseUrl.ts`/`backendInternalUrl.ts`はブラウザからのfetch先（`NEXT_PUBLIC_API_BASE_
 URL`）とNext.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
