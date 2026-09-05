@@ -11,29 +11,19 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
 
-// 一般ユーザー向けルート設定画面（改善計画T267、目論見書4章「①一般ユーザ向け
-// ルーティング設定」）。常に表示されるメインの操作面に置く。重み配分バー
+// 一般ユーザー向けルート設定画面。常に表示されるメインの操作面に置く。重み配分バー
 // （帯グラフ、ドラッグで調整）→軸の凡例チップ（有効/無効・説明文・地図色分け）→
-// 除外する道路、という並び。
+// 除外する道路、という並び（詳細はdocs/modules/frontend/route-settings-and-results.md参照）。
 //
-// プリセット（「バランス」「自転車専用道を優先」等のボタン）は撤去した（2026-08-27
-// ユーザー判断: 重み配分の根拠が不明瞭なため）。既存7軸を名指しした固定の重み値
-// （「叩き台」段階のまま実走検証を経ていなかった）だったが、後日きちんと設計した
-// プロファイル機能として再実装する想定。復元する場合はgit履歴（本コミット直前）参照。
+// 軸はカテゴリ（観測/推定/動的）で分けず、公開済みの軸を常にフラットな1本のリストとして
+// 表示する（軸スタジオは常にcategory="推定"固定で軸を作るため）。軸の`category`データ
+// 自体はbackend側にそのまま残す（他の用途のために消さない）。
 //
-// 改善計画T306: 以前は軸を観測/推定/動的の3カテゴリへ見出し付きで分けて表示していた
-// （T267の意図的な設計判断）。しかし改善計画T305で軸スタジオのGUIが常にcategory="推定"
-// 固定で軸を作るようになった結果、「観測/動的グループに入るのはコード内蔵の既定軸だけ」
-// というハードコードされた非対称性が生まれた。この非対称性を無くすため、ルート設定画面の
-// 表示からカテゴリによるグルーピングを撤去し、公開済みの軸を（内部的な観測/推定/動的の
-// 分類に関わらず）フラットに1本のリストとして表示する。軸の`category`データ自体は
-// backend側にそのまま残す（他の用途・将来のプロファイル機能のために消さない）。
-//
-// 軸の一覧・既定重みはuseAxisCatalog（改善計画T269）経由でGET /api/axis-catalogから
-// 取得する（is_published=Trueのみ）。軸スタジオ（T270）がDBへ追加した軸も、コード変更・
-// 再デプロイなしにここへ現れる（取得完了まで・失敗時は既存7軸の静的フォールバックを使う）。
+// 軸の一覧・既定重みはuseAxisCatalog経由でGET /api/axis-catalogから取得する
+// （is_published=Trueのみ）。軸スタジオがDBへ追加した軸も、コード変更・再デプロイなしに
+// ここへ現れる（取得完了まで・失敗時は既存軸の静的フォールバックを使う）。
 
-// backend/app/domain/evaluation.py: DEFAULT_HARD_FILTERSと同じ3種（改善計画T266）。
+// backend/app/domain/evaluation.py: DEFAULT_HARD_FILTERSと同じ3種。
 const HARD_FILTER_CHIPS: { key: string; label: string }[] = [
   { key: "no_bicycle", label: "自転車通行禁止" },
   { key: "motorway", label: "高速道路" },
@@ -42,21 +32,13 @@ const HARD_FILTER_CHIPS: { key: string; label: string }[] = [
 
 export const DEFAULT_HARD_FILTERS: HardFilterOverride = { no_bicycle: true, motorway: true, trunk: true };
 
-// 重み配分バーの軸ごとの色分け（改善計画T267のモックアップと同じ配色を初期7色として流用）。
-// 改善計画T320: 以前はCSS側でdata-axis属性値（axis_id文字列）ごとにセレクタを書いており、
-// 軸スタジオで新規公開した軸は対応するセレクタが無いため無色（透明な帯）になっていた
-// （色自体に意味は持たせない識別用のため、固定パレットで足りるという前提自体は変えず、
-// axis_idではなく表示順indexで引く方式へ変更し、軸の増減にコード変更無しで追従させる）。
-// ユーザー指摘（2026-08-31、「帯ごとに色を変えるのはできる？」）: 上記の固定7色パレットを
-// index % 7で循環させていたため、軸が7件を超える（既定でも8件）と8件目以降の帯が既に
-// 使われた色と衝突していた（軸スタジオが軸数を増やせる設計である以上、固定の色数上限を
-// 持つこと自体が破綻の元）。HSL色相環を実際の軸数で等分して割り当てる方式へ変更し、
-// 軸数がいくつであっても衝突しないようにする。indexは常にcatalog.axesの表示順
-// （フルリスト内の位置）を使う——チェックを外した軸があっても、他の軸の色は動かない
-// （表示順が変わらない限り、ある軸の色は常に同じという安定性を保つ）。
-// 改善計画T518: RouteAxisProfile.tsx（ルート選択タブへ統合した軸チップ）が、同じ軸なら
-// ここと同じ色ドットになるよう、この関数をそのまま再利用する（パネルをまたいでも同じ軸は
-// 同じ色、という視覚的な一貫性のためexport）。
+// 重み配分バーの軸ごとの色分け。色自体に意味は持たせない識別用で、HSL色相環を実際の
+// 軸数で等分して割り当てる（軸数がいくつであっても衝突しない）。indexは常に
+// catalog.axesの表示順（フルリスト内の位置）を使う——チェックを外した軸があっても、
+// 他の軸の色は動かない（表示順が変わらない限り、ある軸の色は常に同じという安定性を保つ）。
+// RouteAxisProfile.tsx（ルート選択タブへ統合した軸チップ）が、同じ軸ならここと同じ
+// 色ドットになるよう、この関数をそのまま再利用する（パネルをまたいでも同じ軸は同じ色、
+// という視覚的な一貫性のためexport）。
 export function stackBarColorForIndex(index: number, axisCount: number): string {
   if (axisCount <= 0) return "#94a3b8";
   const hue = (index * (360 / axisCount)) % 360;
@@ -126,9 +108,8 @@ export default function RouteSettingsPanel({
 
   // 各軸のチップは「色ドット+ラベル（タップで有効/無効切替）」「(i)説明文ポップオーバー」の
   // 2要素だけの1行。地図の色分け（レンズ）はこのパネルではなく地図上の凡例ピル（LensControl）
-  // だけが持つ。重みの数値・スライダーはチップから完全に撤去し、重み配分
-  // バー（帯グラフ）のドラッグ・矢印キー操作（T495）だけで調整する——1軸だけを狙って
-  // 0.01刻みで細かく調整する手段は失うが、ユーザー判断で「帯グラフのみに一本化」を選択した。
+  // だけが持つ。重みの数値・スライダーはチップには置かず、重み配分バー（帯グラフ）の
+  // ドラッグ・矢印キー操作だけで調整する。
   function renderLegendChip(axis: PreferenceAxisDef, index: number) {
     const weight = routePreference[axis.axisId] ?? 0;
     const checked = weight > 0;
@@ -156,15 +137,14 @@ export default function RouteSettingsPanel({
     );
   }
 
-  // カタログとroutePreferenceのキー集合を双方向に同期する（改善計画T269・T302）。
-  // backendのroute_preference検証は「上書きするなら既知の全axis_idを明示する」方針
-  // （キー完全一致、routers/routes.py: RoutePreferenceWeights._check_axis_keys）のため、
-  // どちら向きのズレを放置してもルート生成が422になる（改善計画T269、将来のT270軸追加に
-  // 備えた防御）。
+  // カタログとroutePreferenceのキー集合を双方向に同期する。backendのroute_preference
+  // 検証は「上書きするなら既知の全axis_idを明示する」方針（キー完全一致、
+  // routers/routes.py: RoutePreferenceWeights._check_axis_keys）のため、どちら向きの
+  // ズレを放置してもルート生成が422になる。
   // - 新しい軸（軸スタジオがDBへ追加した軸）が現れた場合: その既定重みを補う。
-  // - 軸が消えた場合（改善計画T302、公開軸のunpublish）: そのキーをroutePreferenceから
-  //   削除する。これが無いと、unpublish直後に旧設定を保持したブラウザで次のルート生成が
-  //   422で壊れる（docs/decisions/t221-axis-registry.md「Stage D拡張3」）。
+  // - 軸が消えた場合（公開軸のunpublish）: そのキーをroutePreferenceから削除する。
+  //   これが無いと、unpublish直後に旧設定を保持したブラウザで次のルート生成が422で
+  //   壊れる（docs/decisions/t221-axis-registry.md「Stage D拡張3」）。
   // どちらも値を変えずキーの追加/削除だけなのでoverrideEnabledは動かさない、
   // handlePreferenceChangeではなくonRoutePreferenceChangeを直接使う。
   useEffect(() => {
@@ -178,13 +158,12 @@ export default function RouteSettingsPanel({
   const [lastWeights, setLastWeights] = useState<Record<string, number>>(() => ({
     ...catalog.defaultWeights,
   }));
-  // 改善計画T471: 上記の初期値は「マウント時点のcatalog.defaultWeights」（軸カタログの
-  // 実行時フェッチ完了前は静的フォールバック値）のスナップショットで固定されており、
-  // フェッチ完了後にcatalog.defaultWeightsが実際の値へ更新されても、ユーザーがまだ
-  // 触っていない軸のlastWeightsは古いフォールバック値のまま残り続けていた（チェックを
-  // 一度外して戻すと、実際の既定重みではなく古い値へ復元される不具合）。
-  // catalog.defaultWeightsが変わるたびに、「前回の既定値のまま変更されていない」軸だけを
-  // 新しい既定値へ追従させる（handleWeightChangeで実際にユーザーが変更した値は保持する）。
+  // 上記の初期値は「マウント時点のcatalog.defaultWeights」（軸カタログの実行時フェッチ
+  // 完了前は静的フォールバック値）のスナップショットで固定される。フェッチ完了後に
+  // catalog.defaultWeightsが実際の値へ更新されたら、「前回の既定値のまま変更されていない」
+  // 軸だけを新しい既定値へ追従させる（ユーザーが手動で操作した値は保持する）——これが
+  // 無いと、チェックを一度外して戻したときに実際の既定重みではなく古いフォールバック値へ
+  // 復元されてしまう。
   const previousDefaultWeightsRef = useRef(catalog.defaultWeights);
   useEffect(() => {
     const previousDefaults = previousDefaultWeightsRef.current;
@@ -215,22 +194,17 @@ export default function RouteSettingsPanel({
 
   const total = totalWeight(routePreference);
 
-  // ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
-  // できるUIはないか」）: 既存の重み配分バー（帯グラフ、以前は表示専用）を、隣り合う2要素の
-  // 境界をドラッグして配分し直せるようにする。帯グラフはすでに「複数要素が合算されて全体に
-  // なる」様子をひと目で示していたため、そこへ直接ドラッグ操作を足すのが最も直感的かつ
-  // 省スペース（新規UI領域を追加しない）という判断（AskUserQuestionでユーザーが選択）。
-  // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は変わらない）。
-  // 続くユーザー要望（同日、「各軸毎の…スライドバーはなくしたい」）で、0.01刻みの
-  // 単独重み調整ポップオーバー自体を廃止した——重みの調整手段はこの帯グラフのドラッグ・
-  // 矢印キー操作のみになった（renderLegendChip参照）。
+  // 重み配分バー（帯グラフ）の隣り合う2要素の境界をドラッグして配分し直せる。
+  // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は
+  // 変わらない）。重みの調整手段はこの帯グラフのドラッグ・矢印キー操作のみ
+  // （renderLegendChip参照、0.01刻みの単独重み調整ポップオーバーは持たない）。
   const stackBarRef = useRef<HTMLDivElement>(null);
   // ドラッグ中の起点情報。境界ハンドルは16px幅しかなく、ドラッグ中にポインタが実際の
   // ハンドル要素の外へ出るのが常態のため、React要素スコープのonPointerMove（要素の外に
   // 出ると届かない）ではなくwindowへ直接pointermove/upを登録する（pointer captureは
   // 環境によって確実に効くとは限らないため使わない）。ハンドル自身の
-  // onPointerDown（16px幅、touch-action:noneはこのハンドルだけに絞ってある——T493で
-  // コンパスのtouch-action:noneが帯全体を覆っていた反省と同じ配慮）だけがReact要素側で、
+  // onPointerDown（16px幅、touch-action:noneはこのハンドルだけに絞ってあり、帯全体は
+  // 覆わない——スクロールジェスチャーを妨げないための配慮）だけがReact要素側で、
   // 以降はwindow側のリスナーで完結する。
   const boundaryDragRef = useRef<{
     axisIdA: string;
@@ -240,9 +214,9 @@ export default function RouteSettingsPanel({
     startClientX: number;
     pixelsPerUnit: number;
   } | null>(null);
-  // ユーザー要望（2026-08-31、「バーをドラッグ中に数字が出てほしい」）: ドラッグ中の
-  // 境界だけ、その両隣2軸の%を示すフロートバッジを出す（stackBarDragBadge参照）。
-  // ドラッグ中かどうかの判定にしか使わないためrouteWeightsそのものではなくaxisIdの
+  // ドラッグ中の境界だけ、その両隣2軸の%を示すフロートバッジを出す
+  // （stackBarDragBadge参照）。ドラッグ中かどうかの判定にしか使わないため
+  // routeWeightsそのものではなくaxisIdの
   // ペアだけを持つ——実際のパーセント値はrender時にroutePreferenceから毎回計算する
   // （ドラッグ中はhandlePairWeightChange経由でroutePreferenceが更新されるたびに
   // 再レンダーされるため、この値は常に最新を指す）。
@@ -306,9 +280,8 @@ export default function RouteSettingsPanel({
     handlePairWeightChange(axisIdA, next.weightA, axisIdB, next.weightB);
   }
 
-  // 改善計画T419: 既定でON（除外）の3項目が常に展開表示でスペースを取りすぎるという
-  // 実機フィードバックを受け、MapLayersPanel（.layerSection/.layerHeader/.chevron相当）と
-  // 同じDisclosure折りたたみへ変更した。既定値のまま変えない利用者が大半と見込まれるため
+  // 既定でON（除外）の3項目はMapLayersPanel（.layerSection/.layerHeader/.chevron相当）と
+  // 同じDisclosure折りたたみで表示する。既定値のまま変えない利用者が大半と見込まれるため
   // 既定で閉じるが、既に既定値から変更済みの場合は「変更していることに気づかず開けない」
   // 事故を避けるため既定で開く（defaultOpenはuncontrolledのDisclosureの初期値としてのみ
   // 効く。以降の開閉はユーザー操作に委ねる）。
@@ -319,8 +292,7 @@ export default function RouteSettingsPanel({
       <div className={styles.stackBarWrap}>
         <div className={styles.stackBarHeader}>
           <p className={styles.sectionLabel}>重み配分</p>
-          {/* ユーザー要望（2026-08-31、「情報アイコンを押すと、そのなかに凡例出してほしい」）:
-              帯グラフの色と軸の対応を、見出し脇の情報アイコンから一覧できるようにする
+          {/* 帯グラフの色と軸の対応を、見出し脇の情報アイコンから一覧できるようにする
               （凡例チップ側にも色ドットはあるが、折り返して並ぶため一覧性は弱い）。操作説明
               （帯の境界をドラッグして配分を調整できる旨）もここへ集約し、見出し自体は
               「重み配分」だけの短い表記にする。 */}
@@ -397,13 +369,11 @@ export default function RouteSettingsPanel({
                   onPointerDown={(e) => startBoundaryDrag(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
                   onKeyDown={(e) => handleBoundaryKeyDown(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
                 >
-                  {/* ユーザー要望（2026-08-31、「バーをドラッグ中に数字が出てほしい」）:
-                      ドラッグ中だけ、両隣の%をフロートバッジで表示する（native title
-                      ツールチップはホバー限定でモバイルでは事実上見えないため）。
-                      改善計画: 数字だけでは境界の両側どちらの軸を指すか分からないという
-                      指摘（2026-09-02）を受け、軸ラベルを併記した。ラベル併記で幅が
-                      増えたため、バーの両端付近ではセンター寄せのままだとパネル外へ
-                      はみ出す（同時に指摘・確認済み）。端寄せ（data-align）で回避する。 */}
+                  {/* ドラッグ中だけ、両隣の%と軸ラベルをフロートバッジで表示する
+                      （native titleツールチップはホバー限定でモバイルでは事実上
+                      見えないため）。ラベル併記で幅が増えるため、バーの両端付近では
+                      センター寄せのままだとパネル外へはみ出す——端寄せ（data-align）で
+                      回避する。 */}
                   {isDragging && (
                     <span
                       className={styles.stackBarDragBadge}
