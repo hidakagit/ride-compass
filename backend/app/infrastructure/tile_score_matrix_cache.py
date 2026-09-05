@@ -1,20 +1,18 @@
-"""タイル単位の静的Edge×公開軸スコア行列のプロセス内メモリキャッシュ（改善計画T536）。
+"""タイル単位の静的Edge×公開軸スコア行列のプロセス内メモリキャッシュ。
 
 `GraphService._get_or_build_tile_materials`が、z12タイル単位で`domain/evaluation.py:
 build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここへキャッシュする。
 同一タイルへの2回目以降の探索リクエストは、Edgeごとのコスト計算（Pythonコールバック）を
-一切行わずこの行列から配列演算でコストを合成できる（旧`infrastructure/axis_score_cache.py`
-[Edge単位の辞書キャッシュ、T534。約1.3KB/Edge]を置き換える。本行列はEdgeあたり公開軸の
-数×8バイト程度で収まる、T536実測はdocs/tasks/T536.md参照）。
+一切行わずこの行列から配列演算でコストを合成できる（本行列はEdgeあたり公開軸の
+数×8バイト程度で収まる）。
 
 **`infrastructure/graph_material_cache.py`（`EdgeMaterialBundle`等の材料そのもの）とは
 意図的に別のキャッシュとして持つ**。軸スタジオでの軸定義編集（`AxisRegistryAdminService`
 経由の`refresh_axis_definitions`）はこちらだけを`clear()`し、材料キャッシュ（DBアクセスを
 伴う取得）は温存する——軸編集直後の最初のリクエストがDBへ再問い合わせせずに済み、
-訪れたタイルぶんだけ静的スコア行列を再計算するだけで反映される設計（旧axis_score_cache.py
-と同じ設計意図をタイル粒度へ引き継ぐ）。
+訪れたタイルぶんだけ静的スコア行列を再計算するだけで反映される設計。
 
-**無効化方針（改善計画T538で変更）**: プロセス内メモリのLRU（タイル単位、
+**無効化方針**: プロセス内メモリのLRU（タイル単位、
 `graph_material_cache`と同じ`DEFAULT_MAX_TILES`）に加え、`infrastructure/
 tile_persistent_cache.py`へも同じ内容をディスク永続化する（`graph_material_cache.py`と
 同じ動機・設計、docs/tasks/T538.md）。無効化経路は2種類ある:
@@ -36,11 +34,10 @@ tile_persistent_cache.py`へも同じ内容をディスク永続化する（`gra
 実タイルのzoomと衝突しない）へ記録しておき、渡された`revision`と一致すればディスク
 キャッシュを温存する（メモリだけクリアする——プロセス内で軸編集APIが呼ばれた直後の
 反映のため、`refresh_axis_definitions`はアプリ起動時にも必ず1回呼ばれるが、起動直後は
-メモリが元々空のため無害）。一致しなければ、従来どおり`clear()`でメモリ・ディスク両方を
-削除し、新しいrevisionを記録し直す。**軸定義が実際には変わっていないアプリ起動のたびに
-ディスクキャッシュを丸ごと再構築してしまう不具合の修正**（`refresh_axis_definitions`が
-起動時にも軸編集時にも同じ経路を通ることの副作用で、T536導入時から存在していた。詳細は
-docs/tasks/T546.md参照）。
+メモリが元々空のため無害）。一致しなければ`clear()`でメモリ・ディスク両方を削除し、
+新しいrevisionを記録し直す。`refresh_axis_definitions`は起動時にも軸編集時にも同じ
+経路を通るため、この判定が無いと軸定義が実際には変わっていないアプリ起動のたびに
+ディスクキャッシュを丸ごと再構築してしまう。
 """
 
 from collections import OrderedDict
@@ -55,8 +52,8 @@ DEFAULT_MAX_TILES = 2_000
 _cache: "OrderedDict[tuple[int, int, int], StaticEdgeScoreMatrix]" = OrderedDict()
 _max_entries = DEFAULT_MAX_TILES
 
-# ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン
-# （改善計画T538）。パスへ埋め込むことで対応しない世代のファイルを読まないようにする。
+# ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン。
+# パスへ埋め込むことで対応しない世代のファイルを読まないようにする。
 #
 # 以下を実行したときはこの値を手動で上げること:
 #   - PBF再取込（app/batch/import_pbf.py）
@@ -66,21 +63,14 @@ _max_entries = DEFAULT_MAX_TILES
 #     precompute_road_node_degrees.py・precompute_way_attribute_counts.py）
 #   - `build_static_edge_score_matrix`自体の計算式変更（domain/evaluation.py）
 #
-# `app/batch/refresh_derived.py`（改善計画T281段階2、disaster-recovery.md参照）は
-# PBF再取込を除く上記バッチ一式を1コマンドで実行するため、これを実行した場合も
-# 同様に上げること。上げ忘れると、実行前に既にキャッシュ済みだったタイルはディスク
-# 経由で古いまま復元され続け、未訪問タイルだけが新しい値になる（症状が局所的で
-# 気づきにくい。改善計画T574、2026-09-04、`graph_material_cache.py`と同時に発現）。
+# `app/batch/refresh_derived.py`（disaster-recovery.md参照）はPBF再取込を除く上記
+# バッチ一式を1コマンドで実行するため、これを実行した場合も同様に上げること。
+# 上げ忘れると、実行前に既にキャッシュ済みだったタイルはディスク経由で古いまま
+# 復元され続け、未訪問タイルだけが新しい値になる（症状が局所的で気づきにくい）。
 #
 # **軸定義（axis_definitionsテーブル）の追加・削除・shape_params調整はこの世代管理の
 # 対象外**——軸スタジオでの編集は上記のバージョン更新（デプロイを伴う）ではなく、
 # 下記`clear()`（`refresh_axis_definitions`経由の即時呼び出し）が担う。
-# v1: 初版（改善計画T538）。
-# v2: 改善計画T574。`app/batch/refresh_derived.py`が本番でこの版数を上げずに実行され、
-#     DB側は更新済みなのにディスクキャッシュが古いまま参照され続ける不具合が発生したための
-#     世代上げ（内容自体の変更は無い）。
-# v3: 改善計画T575・T576。precompute_elevation_attributes.pyを本番で完走させた際の
-#     世代上げ（内容自体の変更は無い）。
 _CACHE_NAMESPACE = "score_matrix"
 TILE_SCORE_MATRIX_CACHE_VERSION = "4"
 
@@ -95,7 +85,7 @@ def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
 
 
 def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) -> StaticEdgeScoreMatrix | None:
-    """改善計画T546: `read_stats`は`graph_material_cache.get_tile_materials`と同じ意味
+    """`read_stats`は`graph_material_cache.get_tile_materials`と同じ意味
     （"source"="memory"/"disk"＋ディスク経由時の"read_ms"/"unpickle_ms"/"bytes"）。"""
     key = (zoom, x, y)
     value = _cache.get(key)
@@ -104,7 +94,7 @@ def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) 
         if read_stats is not None:
             read_stats["source"] = "memory"
         return value
-    # 改善計画T538: メモリmissでもディスク永続化キャッシュを確認する（プロセス再起動
+    # メモリmissでもディスク永続化キャッシュを確認する（プロセス再起動
     # 直後や、LRU上限で立ち退いた直後がこの経路に該当する）。
     persisted: StaticEdgeScoreMatrix | None = tile_persistent_cache.get(
         _CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y, stats=read_stats
@@ -126,7 +116,7 @@ def clear() -> None:
     """テスト用、および軸定義の内容が実際に変わった場合
     （`sync_disk_cache_with_axis_revision`）に呼ぶ。
 
-    改善計画T538: ディスク永続化キャッシュ（tile_persistent_cache）も同時に削除する。
+    ディスク永続化キャッシュ（tile_persistent_cache）も同時に削除する。
     メモリだけクリアしてディスクを残すと、次回プロセス再起動時に軸編集前の古いスコア
     行列がディスクから復元されてしまう（軸編集はバージョン文字列の手動更新を伴わない
     実行時操作のため、即時削除で対応する。モジュールdocstring参照）。
@@ -139,7 +129,7 @@ def size() -> int:  # テストの検証用（メモリLRUの件数のみ。デ�
     return len(_cache)
 
 
-# 改善計画T546フォローアップ: ディスクへ最後に永続化した時点のaxis_registry_meta.revisionを
+# ディスクへ最後に永続化した時点のaxis_registry_meta.revisionを
 # 記録する予約タイル座標。実タイルのzoomは常にROAD_GRAPH_TILE_ZOOM（12）のため、
 # zoom=-1は衝突しない。`tile_score_matrix_cache.get/set`（StaticEdgeScoreMatrix専用）
 # ではなく`tile_persistent_cache.get/set`を直接使う——このrevision値自体はメモリLRU
@@ -158,7 +148,7 @@ def _write_persisted_axis_revision(revision: int) -> None:
 
 
 def sync_disk_cache_with_axis_revision(revision: int | None) -> None:
-    """`refresh_axis_definitions`から呼ぶ（改善計画T546フォローアップ）。
+    """`refresh_axis_definitions`から呼ぶ。
 
     `revision`（`AxisDefinitionRepository.get_revision()`、軸定義の追加・更新・削除の
     たびにDB側でインクリメントされる単調増加カウンタ）が、ディスクへ最後に永続化した
