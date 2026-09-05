@@ -141,6 +141,65 @@ async def test_get_cached_returns_none_without_touching_upstream():
     assert http_client.requested_urls == []
 
 
+async def test_fetch_raises_not_found_for_404():
+    import httpx
+
+    from app.infrastructure.jma_tile_client import JmaTileNotFoundError
+
+    request = httpx.Request("GET", "https://www.jma.go.jp/x")
+    response = httpx.Response(404, request=request)
+    http_client = FakeHttpClient(
+        b"", "text/plain",
+        raises=httpx.HTTPStatusError("404", request=request, response=response),
+    )
+    client = JmaTileClient(http_client)
+
+    with pytest.raises(JmaTileNotFoundError):
+        await client.fetch("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
+
+
+async def test_get_returns_none_for_404_without_raising():
+    # 改善計画T603: 疎な格子状タイルでは特定のz/x/yが上流に存在しない（404）ことは
+    # 珍しくない正常系のため、get()（プリウォームバッチ等が使う）はJmaTileNotFoundErrorを
+    # 意識せずNoneへ揃える。
+    import httpx
+
+    request = httpx.Request("GET", "https://www.jma.go.jp/x")
+    response = httpx.Response(404, request=request)
+    http_client = FakeHttpClient(
+        b"", "text/plain",
+        raises=httpx.HTTPStatusError("404", request=request, response=response),
+    )
+    client = JmaTileClient(http_client)
+
+    result = await client.get("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
+
+    assert result is None
+
+
+async def test_404_is_not_counted_as_an_error_in_debug_stats():
+    # 改善計画T603: 404は珍しくない正常系のため、他の失敗（タイムアウト・5xx等）と違い
+    # /api/debug/statsのerror集計・WARNINGログの対象にしない。
+    import httpx
+
+    from app.infrastructure import debug_log
+
+    debug_log.reset_stats()
+    request = httpx.Request("GET", "https://www.jma.go.jp/x")
+    response = httpx.Response(404, request=request)
+    http_client = FakeHttpClient(
+        b"", "text/plain",
+        raises=httpx.HTTPStatusError("404", request=request, response=response),
+    )
+    client = JmaTileClient(http_client)
+
+    await client.get("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
+
+    stats = debug_log.get_stats()["external"]["weather:jma-tile"]
+    assert stats["errors"] == 0
+    assert stats["calls"] == 2  # get_cached()のcache-miss確認 + fetch()の1回
+
+
 async def test_get_cached_hits_after_fetch_writes_cache():
     http_client = FakeHttpClient(b"tile-bytes", "image/png")
     client = JmaTileClient(http_client)

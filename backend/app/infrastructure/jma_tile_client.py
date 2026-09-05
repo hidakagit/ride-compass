@@ -22,6 +22,12 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 # キャッシュへ揃える判断をした。
 UPSTREAM_HOST = "https://www.jma.go.jp"
 
+
+class JmaTileNotFoundError(Exception):
+    """指定パスが上流（JMA）に存在しない（404）。降水・浸水想定区域等の疎な格子状タイルは
+    ズームレベル・場所によって存在しないz/x/yが珍しくないため、タイムアウトや5xx等の
+    他の失敗と区別し、`jma_tile.py`が502ではなく404を返す判断材料にする。"""
+
 # targetTimes*.jsonは実況・ナウキャスト系で5〜10分おき、キキクル系でも10分おきに更新される
 # （riskMap.ts/precipitationNowcast.tsのコメント参照）。TTLは更新間隔より十分短く、かつ
 # 同一TTL窓内の多数ユーザーがキャッシュを共有できる程度の長さとして2分を選んだ。
@@ -93,34 +99,61 @@ class JmaTileClient:
         バッチ・オンデマンドのfetch双方が経由するこの関数1箇所に置くことで、呼び出し元を
         問わずJMAへの総リクエスト数を一律に抑える）。待機自体は「実フェッチ」の所要時間
         ではないため、`log_external_call`の計測（elapsed_ms）に含めないよう、
-        `with`ブロックへ入る前に済ませる。"""
+        `with`ブロックへ入る前に済ませる。
+
+        上流の404は`JmaTileNotFoundError`を送出する（疎な格子状タイルでは珍しくない正常系
+        のため、`result="ok"`のまま記録しWARNINGを出さない。他の失敗はNoneを返す）。
+        """
         await _wait_for_upstream_rate_limit()
         is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
+        # not_found/resultは`with`ブロックの中で確定させ、実際のreturn/raiseは抜けた後で行う
+        # （`log_external_call`はブロックを例外無しで抜けたときだけfields["result"]で
+        # 成功/失敗を判定するため、404を非エラー扱いにするにはブロック内で例外を送出しない
+        # 必要がある）。
+        not_found = False
+        result: tuple[bytes, str] | None = None
         with log_external_call("weather:jma-tile", path=path, cache="miss") as fields:
             try:
                 response = await self._http_client.get(f"{UPSTREAM_HOST}/{path}")
                 response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    fields["result"] = "ok"
+                    fields["status"] = 404
+                    not_found = True
+                else:
+                    fields["result"] = "error"
+                    fields["error"] = repr(exc)
+                    fields["error_type"] = error_type_label(exc)
             except httpx.HTTPError as exc:
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
                 fields["error_type"] = error_type_label(exc)
-                return None
-
-            fields["result"] = "ok"
-            fields["status"] = getattr(response, "status_code", None)
-            content_type = response.headers.get("content-type", "application/octet-stream")
-            content = response.content
-            result = (content, content_type)
-            if is_target_times:
-                _target_times_cache[path] = result
             else:
-                await jma_tile_redis_cache.set(path, content, content_type)
-            return result
+                fields["result"] = "ok"
+                fields["status"] = getattr(response, "status_code", None)
+                content_type = response.headers.get("content-type", "application/octet-stream")
+                content = response.content
+                result = (content, content_type)
+                if is_target_times:
+                    _target_times_cache[path] = result
+                else:
+                    await jma_tile_redis_cache.set(path, content, content_type)
+        if not_found:
+            raise JmaTileNotFoundError(path)
+        return result
 
     async def get(self, path: str) -> tuple[bytes, str] | None:
         """キャッシュ参照→ミスなら外部フェッチ、という従来通りの一括呼び出し。
-        レート制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向け。"""
+        レート制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向け。
+        `fetch`が送出する`JmaTileNotFoundError`はここでNoneへ揃える——呼び出し元
+        （`jma_tile_prewarm_service.py`）は404を「取得失敗の1種」として件数集計するだけで、
+        404と他の失敗を区別する必要が無い（区別が要るのはHTTPステータスを返す
+        `jma_tile.py`のみ、そちらは`fetch`を直接呼ぶ）。"""
         cached = await self.get_cached(path)
         if cached is not None:
             return cached
-        return await self.fetch(path)
+        try:
+            return await self.fetch(path)
+        except JmaTileNotFoundError:
+            return None

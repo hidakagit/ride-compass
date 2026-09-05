@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
 from app.config import settings
-from app.infrastructure.jma_tile_client import JmaTileClient
+from app.infrastructure.jma_tile_client import JmaTileClient, JmaTileNotFoundError
 
 router = APIRouter()
 
@@ -24,7 +24,12 @@ async def jma_tile_proxy(
         content, content_type = cached
         return Response(content=content, media_type=content_type)
     enforce_rate_limit(request, "jma-tile", settings.jma_tile_rate_limit_per_minute)
-    result = await jma_tile_client.fetch(path)
+    try:
+        result = await jma_tile_client.fetch(path)
+    except JmaTileNotFoundError:
+        # 疎な格子状タイル（降水・浸水想定区域等）では特定のz/x/yに対応するタイルが
+        # 存在しないことは珍しくない正常系のため、502（上流障害）ではなく404を返す。
+        raise HTTPException(status_code=404, detail="指定されたタイルは存在しません") from None
     if result is None:
         raise HTTPException(status_code=502, detail="気象庁データの取得に失敗しました")
     content, content_type = result

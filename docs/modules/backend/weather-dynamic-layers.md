@@ -76,6 +76,13 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 呼ぶ。`JmaTileClient.get(path)`（`get_cached`→ミスなら`fetch`の一括呼び出し）はレート
 制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向けに残している。
 
+**フェイルステータスの使い分け（改善計画T603）**: `fetch`は上流の404を`JmaTileNotFoundError`
+として送出し、`jma_tile.py`はこれを404（他の失敗は502）として返す。降水・浸水想定区域等の
+疎な格子状タイルは、ズームレベル・場所によって存在しないz/x/yが珍しくない正常系のため、
+タイムアウト・5xx等の実際の障害と同列に502・WARNINGログ・`/api/debug/stats`のerror集計へは
+乗せない。`get`（プリウォームバッチ等、404と他の失敗を区別する必要が無い呼び出し元向け）は
+`JmaTileNotFoundError`をNoneへ揃えて返す（従来通り）。
+
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、
 `next_run_time=datetime.now()`で起動直後にも即時実行）が、アプリの実運用範囲

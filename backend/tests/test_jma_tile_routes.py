@@ -21,9 +21,10 @@ class FakeJmaTileClient:
     （`get_cached`→ミスなら`enforce_rate_limit`→`fetch`）に合わせ、2つのメソッドを
     個別に差し替えられるフェイク。"""
 
-    def __init__(self, cached_result=None, fetch_result=None):
+    def __init__(self, cached_result=None, fetch_result=None, fetch_raises=None):
         self._cached_result = cached_result
         self._fetch_result = fetch_result
+        self._fetch_raises = fetch_raises
         self.get_cached_calls = 0
         self.fetch_calls = 0
         self.requested_paths: list[str] = []
@@ -36,6 +37,8 @@ class FakeJmaTileClient:
     async def fetch(self, path):
         self.fetch_calls += 1
         self.requested_paths.append(path)
+        if self._fetch_raises is not None:
+            raise self._fetch_raises
         return self._fetch_result
 
 
@@ -66,6 +69,24 @@ def test_jma_tile_proxy_returns_502_on_upstream_failure():
         app.dependency_overrides.clear()
 
     assert response.status_code == 502
+
+
+def test_jma_tile_proxy_returns_404_when_tile_not_found_upstream():
+    # 改善計画T603: 疎な格子状タイルでは特定のz/x/yが上流(JMA)に存在しない(404)ことは
+    # 珍しくない正常系のため、他の失敗（タイムアウト・5xx等の502）と区別して404を返す。
+    from app.infrastructure.jma_tile_client import JmaTileNotFoundError
+
+    fake = FakeJmaTileClient(cached_result=None, fetch_raises=JmaTileNotFoundError("boom"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
 
 
 def test_jma_tile_proxy_is_rate_limited_per_client_on_cache_miss():
