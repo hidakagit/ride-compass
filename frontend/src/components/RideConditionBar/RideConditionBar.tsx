@@ -44,7 +44,7 @@ export function clampSpeedKmh(value: number): number {
   return Math.min(MAX_SPEED_KMH, Math.max(MIN_SPEED_KMH, Math.round(value)));
 }
 
-// 地図下部の条件バー。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・風の抵抗）と
+// 地図上部の条件バー。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・風の抵抗）と
 // 気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームではなく地図上に
 // 常時置き、チップをタップしてその場で変えられるようにする。
 export default function RideConditionBar({

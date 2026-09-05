@@ -344,11 +344,7 @@
   position: relative;
 }
 
-/* 地図下部中央へ浮かべる親コンテナ（改善計画T170/T178、実機フィードバック「左上の全クリア
-   アイコンをスライドバーの左側に移動して」）。全レイヤー一括OFFボタン（.clearAllButton）+
-   走行条件バー（RideConditionBar）
-   を横並びで置く。NowcastTimeSliderの.wrapperが単体で持っていたposition/z-indexをここへ
-   集約した。 */
+/* 地図下部中央へ浮かべる親コンテナ。全レイヤー一括OFFボタン（.clearAllButton）を置く。 */
 .bottomControlRow {
   position: absolute;
   bottom: var(--space-3);
@@ -371,6 +367,19 @@
   .bottomControlRow {
     bottom: calc(var(--space-3) + var(--mobile-tabbar-height));
   }
+}
+
+/* 走行条件バー（出発時刻・想定速度）。レンズピル（LensControl.module.css: .wrap、
+   モバイルのBottomSheetにも隠れない地図上部中央）の直下へ積む。--lens-control-height
+   はレンズピルの実測高さ（useElementHeightCssVar、page.tsx参照）で、ピルの内容量に
+   よらず常に真下へ続く。 */
+.rideConditionRow {
+  position: absolute;
+  top: calc(var(--space-3) + var(--lens-control-height, 0px) + var(--space-2));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  pointer-events: none;
 }
 
 
