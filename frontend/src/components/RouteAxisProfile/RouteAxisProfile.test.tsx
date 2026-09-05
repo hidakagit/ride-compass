@@ -104,4 +104,13 @@ describe("RouteAxisProfile", () => {
 
     expect(await screen.findByText("車の通行量の説明")).toBeInTheDocument();
   });
+
+  it("総合難易度に説明ポップオーバーが付く", async () => {
+    const user = userEvent.setup();
+    render(<RouteAxisProfile {...baseProps()} />);
+
+    await user.click(screen.getByRole("button", { name: "総合難易度の説明を表示" }));
+
+    expect(await screen.findByText(/候補タブはこの値が小さい順に並びます/)).toBeInTheDocument();
+  });
 });

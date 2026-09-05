@@ -63,7 +63,6 @@ import RouteSettingsPanel, {
 } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
-import { FieldLabel } from "@/components/Map/recipeControls";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
@@ -108,13 +107,8 @@ import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
 
-// 「ルート結果」セクション見出し1箇所（renderRouteOutcomeSectionBodyのheader行、
-// モバイルはBottomSheetのheaderAction）だけに情報アイコンを置き、候補タブごとに
-// 同じ説明を繰り返さない。ルート色分けモードの「総合難易度」（区間ごとの絶対基準スコア、
-// routeStyleModes.ts）と同名で紛らわしいため、絶対値としての位置付けをここで説明する。
-const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。";
-
-// 経由地ルートのid（常に1件、「方位」という概念が無いためタブに順位番号を付けない）。
+// 改善計画T364/T365（旧RouteList.tsxから移設）: 経由地ルートのid（常に1件、「方位」という
+// 概念が無いためタブに順位番号を付けない）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
 
 // 区間クリック詳細（selectedRouteSegment）の到達予想時刻表示のフォーマット。
@@ -1578,12 +1572,12 @@ export default function Home() {
     );
   }
 
-  // 「ルート結果」見出し脇の情報アイコンと「ルートをクリア」をまとめて1つの右側
-  // アクション群にする。デスクトップ（見出し行）・モバイル
-  // （BottomSheetのheaderAction）の両方から同じ中身を呼ぶ。routes.length===0の間は
-  // どちらの呼び出し元も描画自体をスキップする（デスクトップはrenderRouteOutcomeSectionBody
-  // 自体がnullを返す、モバイルは呼び出し側でroutes.lengthを見てheaderActionをundefinedにする）
-  // ため、ここでは呼ばれた時点で必ずroutes.length>0という前提でよい。
+  // 「ルート結果」見出し脇の右側アクション群（保存・GPX出力・ルートをクリア）。
+  // デスクトップ（見出し行）・モバイル（BottomSheetのheaderAction）の両方から同じ中身を
+  // 呼ぶ。routes.length===0の間はどちらの呼び出し元も描画自体をスキップする
+  // （デスクトップはrenderRouteOutcomeSectionBody自体がnullを返す、モバイルは呼び出し側で
+  // routes.lengthを見てheaderActionをundefinedにする）ため、ここでは呼ばれた時点で必ず
+  // routes.length>0という前提でよい。
   function renderRouteResultHeaderActions() {
     return (
       <>
@@ -1615,7 +1609,6 @@ export default function Home() {
         >
           <ClearAllLayersIcon size={14} />
         </button>
-        <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
       </>
     );
   }
@@ -1631,12 +1624,11 @@ export default function Home() {
   //
   // showHeadingはrenderRouteSettingsSectionBodyと同じ理由（見出しの二重表示回避）で
   // 使い分ける。デスクトップ（既定true）はこのセクション自身の見出し「ルート結果」＋
-  // renderRouteResultHeaderActions()（情報アイコン＋ルートをクリア）をここで描画する。
-  // モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つためshowHeading=false で
+  // renderRouteResultHeaderActions()（保存・GPX出力・ルートをクリア）をここで描画する。
+  // モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つためshowHeading=falseで
   // 抑制し、同じrenderRouteResultHeaderActions()をBottomSheetのheaderAction propとして
-  // 呼び出し側（下のJSX）から渡す——各候補・見出しごとに分散していた説明文は
-  // ROUTE_RESULT_HINT 1本へ、「ルートをクリア」はタブ列脇からヘッダ右上へ、それぞれ
-  // 「ルート結果」セクション見出し1箇所へ集約している。
+  // 呼び出し側（下のJSX）から渡す。総合難易度の説明はRouteAxisProfile側（総合難易度の
+  // 表示の隣）にあり、本ヘッダは操作アイコンのみを持つ。
   function renderRouteOutcomeSectionBody() {
     if (routes.length === 0) return null;
 

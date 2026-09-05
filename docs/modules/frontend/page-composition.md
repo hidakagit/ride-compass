@@ -160,7 +160,7 @@ localStorageへの保存・復元を1箇所に集約する。
 できる）。ドラッグ中は`onHeightChange`のみ（見た目の即時反映）、確定時に
 `onHeightCommit`（永続化）を呼ぶ2段階のコールバック構成を持つ。任意の`headerAction`
 propでヘッダ右側・閉じるボタンの手前へ要素を差し込める（「ルート結果」シートの
-情報アイコン＋「ルートをクリア」、下記`renderRouteOutcomeSectionBody`参照）。
+保存・GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`参照）。
 
 ## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルート結果」区分・
 モバイル「ルート結果」タブ共通）
@@ -193,15 +193,14 @@ destinationCorrected`、[T602](../../tasks/T602.md)）。補正時は地図上�
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
 「保存」（機能未実装のdisabled占位、`SaveIcon`）・「GPX出力」（`DownloadIcon`、
 `selectedCandidate`をタップで`lib/gpxExport.ts: downloadGpx`へ渡す。候補が未選択の間は
-disabled）・「ルートをクリア」
-（`ClearAllLayersIcon`のアイコンボタン、`handleRoutesClear`）・総合難易度の説明
-（`ROUTE_RESULT_HINT`）をこの順で横並びにする
-（候補タブ・`RouteAxisProfile`側には置かない）。デスクトップは「ルート結果」`Disclosure`の
-`trailing`、モバイルはBottomSheetの`headerAction`propとして同じヘルパーを渡す
-（`routes.length > 0`の間のみ）。候補タブ列のvalue体系はroute id・`"comparison"`・
-先頭固定タブ用の`SAVED_ROUTES_TAB_VALUE`（`"saved"`、保存機能の実装までタブは描画しない。
-`onValueChange`は無視する）。情報アイコン
-（`FieldLabel`）は`hideLabel`propでラベル文言をsr-only化し、アイコン単体の見た目にする。
+disabled）・「ルートをクリア」（`ClearAllLayersIcon`のアイコンボタン、
+`handleRoutesClear`）をこの順で横並びにする操作アイコンのみを持つ。総合難易度の説明は
+`RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
+繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは
+BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。
+候補タブ列のvalue体系はroute id・`"comparison"`・先頭固定タブ用の
+`SAVED_ROUTES_TAB_VALUE`（`"saved"`、保存機能の実装までタブは描画しない。
+`onValueChange`は無視する）。
 
 外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
 （比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も
