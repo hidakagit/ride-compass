@@ -19,10 +19,10 @@ import pytest
 from app.domain.region import tile_bounds_lonlat
 from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
-from app.domain.wind_grid import WindGridPoint, nearest_grid_point
+from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, WindGridPoint, nearest_grid_point
 from app.infrastructure import dynamic_way_value_cache
 from app.services.route_generator import JST
-from app.services.wind_way_service import WIND_WAY_GRID_SPACING_DEG, WindWayService
+from app.services.wind_way_service import WindWayService
 
 Z, X, Y = 14, 14551, 6447
 SPEED_KMH = 20.0
@@ -164,7 +164,7 @@ def _tile_center(z: int, x: int, y: int) -> Coordinates:
     )
 
 
-async def test_grid_point_uses_wind_way_grid_spacing_not_the_coarse_default():
+async def test_grid_point_uses_wind_grid_detail_spacing_not_the_coarse_default():
     repository = FakeWayIdsRepository(way_ids=[1])
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
@@ -172,14 +172,14 @@ async def test_grid_point_uses_wind_way_grid_spacing_not_the_coarse_default():
 
     await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
-    expected_point = nearest_grid_point(_tile_center(Z, X, Y), spacing_deg=WIND_WAY_GRID_SPACING_DEG)
+    expected_point = nearest_grid_point(_tile_center(Z, X, Y), spacing_deg=WIND_GRID_DETAIL_SPACING_DEG)
     assert weather_service.calls[0] == [expected_point]
 
 
 async def test_adjacent_tiles_resolve_to_different_grid_points():
     # 隣接タイル（z=14、幅約0.022度）は、粗い既定間隔（0.1度）では同じ格子点へ丸められて
-    # しまい同じ色になっていた。細かい間隔（WIND_WAY_GRID_SPACING_DEG=0.01度）ではタイル幅
-    # より格子間隔が狭いため、隣接タイルは異なる格子点へ丸められる。
+    # しまい同じ色になっていた。WIND_GRID_DETAIL_SPACING_DEG（0.02度）ではタイル幅より
+    # わずかに格子間隔が狭いため、隣接タイルは異なる格子点へ丸められる。
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
 
     repository_a = FakeWayIdsRepository(way_ids=[1])
