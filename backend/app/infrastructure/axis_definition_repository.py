@@ -1,4 +1,4 @@
-"""評価軸定義（axis_definitions/axis_registry_meta）のPostGIS永続化層（改善計画T221 Stage D）。
+"""評価軸定義（axis_definitions/axis_registry_meta）のPostGIS永続化層。
 
 書き込みメソッドは一切commitしない（road_graph_repository.pyと同じ規約。呼び出し側
 [services/axis_registry_service.py]が操作のまとまりごとに`commit()`を呼んで確定する）。
@@ -7,22 +7,15 @@ shape_paramsの(逆)シリアライズは`AxisShape.model_dump(mode="json")` /
 `TypeAdapter(AxisShape).validate_python(...)`にそのまま委ねる。`CategoricalShape.mapping`の
 `dict[bool | str, float]`キーはmode="json"でJSON文字列("true"/"false"、または通常の
 文字列キー)へ変換され、TypeAdapter側は`union_mode="left_to_right"`でbool判定を先に
-試すため、bool材料・str多値材料のどちらも正しく往復する（改善計画T292、実データ検証済み。
-既定のsmart mode unionだと"true"/"false"がbool化されずstr型のまま残る回帰があったため
-明示指定した）。
+試すため、bool材料・str多値材料のどちらも正しく往復する（既定のsmart mode unionだと
+"true"/"false"がbool化されずstr型のまま残ってしまうため明示指定した）。
 
-priority_overrides（改善計画T292、0次条件）も同様に`list[PriorityCondition]`を
+priority_overrides（0次条件）も同様に`list[PriorityCondition]`を
 `model_dump(mode="json")`したJSON配列としてそのまま往復する。
 
-display_override（改善計画T310、地図ramp表示の手書き上書き。T404で廃止方針が決まり、
-car_stress/stop_density/accidentの3軸を移行済みだったことを確認したうえで改善計画T409で
-フィールド・DBカラムごと削除した）は、以前は`AxisDisplaySpec.model_dump(mode="json")` /
-`TypeAdapter(AxisDisplaySpec).validate_python(...)`で同じ規約の往復をしていたが、現在は
-このリポジトリが扱うフィールドではない。
-
-display_thresholds_override（改善計画T404、地図の色分けしきい値だけの軽量な上書き）は
+display_thresholds_override（地図の色分けしきい値だけの軽量な上書き）は
 単純な`list[float] | None`のため、JSONB列とPythonの`list`/`None`をそのまま素通しする
-（他の2フィールドと異なりPydanticモデルへの往復変換自体が不要）。
+（priority_overrides等と異なりPydanticモデルへの往復変換自体が不要）。
 """
 
 from datetime import datetime, timezone
@@ -38,14 +31,14 @@ from app.infrastructure.axis_definition_models import AxisDefinitionRow, AxisReg
 _SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
 _PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
 
-# 改善計画T469: create/update/delete/unpublish（AxisRegistryAdminService）の
-# 「読み取り→Python側で検証→書き込み」という手順がロック無しのTOCTOUレースだった
-# （例: 2つのcreate()が同時に走ると、互いのsort_orderやcheck_material_exclusivity判定が
-# 相手の変更を見ないまま古いスナップショットに基づいて計算され、書き込み後に不整合な
-# 状態[sort_order衝突・材料の二重帰属]が残りうる）。トランザクションスコープの
+# create/update/delete/unpublish（AxisRegistryAdminService）の
+# 「読み取り→Python側で検証→書き込み」という手順は、ロックが無いと2つのcreate()が
+# 同時に走った場合に互いのsort_orderやcheck_material_exclusivity判定が相手の変更を
+# 見ないまま古いスナップショットに基づいて計算され、書き込み後に不整合な状態
+# [sort_order衝突・材料の二重帰属]が残りうる（TOCTOUレース）。トランザクションスコープの
 # PostgreSQL advisory lock（pg_advisory_xact_lock）で直列化する——asyncio.Lock（同一
-# プロセス内のみ有効）ではなくDBレベルのロックにするのは、このファイル冒頭の
-# 「将来複数ワーカー化する際は」という既知の制約と同じ理由（複数プロセス構成でも機能する）。
+# プロセス内のみ有効）ではなくDBレベルのロックにするのは、将来複数ワーカー化する際にも
+# 機能させるため。
 # キー値自体に意味は無く、他のadvisory lock用途と衝突しない固定値であればよい
 # （"AXISDEFS"の8バイトASCIIをbigintとして解釈しただけ）。
 _WRITE_LOCK_KEY = 0x4158495344454653
@@ -95,10 +88,9 @@ class AxisDefinitionRepository:
         return {row.axis_id: _row_to_definition(row) for row in rows}
 
     async def list_all_with_sort_order(self) -> dict[str, tuple[AxisDefinition, int]]:
-        """`list_all()`と同じ全件だが、各軸のsort_orderも保持する（改善計画T271の
-        レビュー指摘の修正: `AxisRegistryAdminService.create`/`update`が「既存軸の
-        列挙」と「更新対象1件のsort_order取得」のために`list_all()`＋`get()`を
-        2回に分けてSELECTしていたのを1回へ集約するため新設）。"""
+        """`list_all()`と同じ全件だが、各軸のsort_orderも保持する。
+        `AxisRegistryAdminService.create`/`update`が「既存軸の列挙」と「更新対象1件の
+        sort_order取得」の両方をこの1回のSELECTから賄う。"""
         rows = (
             (await self._session.execute(select(AxisDefinitionRow).order_by(AxisDefinitionRow.sort_order)))
             .scalars()
@@ -175,12 +167,12 @@ class AxisDefinitionRepository:
         return deleted
 
     async def count(self) -> int:
-        """行数のみ（改善計画T361: fresh bootstrap用スナップショット読み込み前の状態確認に使う。
+        """行数のみ（fresh bootstrap用スナップショット読み込み前の状態確認に使う。
         `infrastructure/axis_definitions_snapshot.py`参照）。"""
         return await self._session.scalar(select(func.count()).select_from(AxisDefinitionRow)) or 0
 
     async def delete_all(self) -> int:
-        """全行を削除する（改善計画T361: fresh bootstrap専用のスナップショット読み込みが、
+        """全行を削除する（fresh bootstrap専用のスナップショット読み込みが、
         投入前にテーブルを丸ごと空にするために使う。`upsert`/`delete`と違い個別revisionの
         +1は行わない——呼び出し側[`load_axis_definitions_snapshot`]がこの後の一括投入の
         締めくくりでスナップショット由来のrevisionへ直接セットするため、ここでの
@@ -192,7 +184,7 @@ class AxisDefinitionRepository:
         return await self._session.scalar(select(AxisRegistryMetaRow.revision).where(AxisRegistryMetaRow.id == 1))
 
     async def set_revision(self, revision: int) -> None:
-        """revisionを指定値へ直接セットする（改善計画T361: スナップショット読み込み後、
+        """revisionを指定値へ直接セットする（スナップショット読み込み後、
         ダンプ時点の値を復元するために使う。通常の書き込み[`upsert`/`delete`]が使う
         `_bump_revision`の+1方式とは別の、直接代入の経路）。"""
         await self._session.execute(
