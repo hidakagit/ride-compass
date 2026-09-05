@@ -819,8 +819,8 @@ export default function Home() {
     (key: string) => toggleHiddenLegendKey(lens, key),
     [lens, toggleHiddenLegendKey],
   );
-  // 改善計画T518: RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップ
-  // と同じ色にする（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
+  // RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップと同じ色に
+  // する（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
   // stackBarColorForIndexは表示順index・軸総数（catalog.axes.length）から色相環を
   // 等分するため、両パネルとも同じaxisCatalog.axesの並び順・件数を渡す必要がある。
   const axisChipColors = useMemo(() => {
@@ -848,27 +848,23 @@ export default function Home() {
     LEGEND_FILTER_DEBOUNCE_MS,
   );
 
-  // 改善計画T308: MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes
-  // （実行時フェッチ、軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
-  // 改善計画T406: handleLayerToggle（直下）が排他ドメイン判定のためmapLayers全体を
-  // 参照する必要があり、以前はoverlayLayers組み立て（後方）の直前で定義していたものを
-  // ここへ前倒しした（依存するaxisCatalogは既にこの手前[275行目付近]で定義済み）。
+  // MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes（実行時フェッチ、
+  // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。handleLayerToggle
+  // （直下）が排他ドメイン判定のためmapLayers全体を参照するため、overlayLayers組み立て
+  // （後方）より前で定義する。
   const mapLayers = useMemo(() => buildMapLayers(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
   const roadSurfaceSharedLayerIds = useMemo(
     () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes),
     [axisCatalog.rampAxes]
   );
 
-  // 改善計画T167で導入した「推定指標をONにすると材料の観測データレイヤーも連動ON」する
-  // カスケードは撤去した（改善計画T181フォローアップ、実機フィードバック「自由にメンバを
-  // 表示非表示できることで、裏で表示状態で残るのは避けたい」）。T181で観測グループの
-  // メンバーを個別に「表示項目の設定」で非表示にできるようになった結果、非表示にした
+  // 「推定指標をONにすると材料の観測データレイヤーも連動ON」するカスケードは持たない。
+  // 観測グループのメンバーを個別に「表示項目の設定」で非表示にできるため、非表示にした
   // メンバーが推定指標側の操作で裏からONにされてしまうと、非表示設定でチップ自体が
-  // 隠れているためユーザーがOFFに戻す手段を失う（T181で解消したはずの「チップからは
-  // 消えたのに地図には出続ける」不整合が推定側の操作から再発する）。代わりに、推定軸の
-  // 材料がどれか（どの観測データが計算に使われているか）は`renderMaterialsNote`
-  // （MapOverlayControls.tsx、T167で導入済み）が▼展開時に「材料: ○○」として常に示すため、
-  // 連動ONで自動的に地図へ出す必要性は薄いと判断した。
+  // 隠れているためユーザーがOFFに戻す手段を失う（「チップからは消えたのに地図には出続ける」
+  // 不整合が起きる）。推定軸の材料がどれか（どの観測データが計算に使われているか）は
+  // `renderMaterialsNote`（MapOverlayControls.tsx）が▼展開時に「材料: ○○」として常に
+  // 示すため、連動ONで自動的に地図へ出す必要性は薄い。
   //
   // 地図上チップ（道路/環境/スポット）はどれも複数同時にONにできる。重なって読みにくく
   // なった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む
@@ -910,9 +906,8 @@ export default function Home() {
   );
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。改善計画T165で
-  // 「道路情報」が路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーへ
-  // 分割されたため、軸ごとに個別のサマリ・内訳を持つ（以前は1つのroadSummary/
-  // roadLegendDetailsで2軸をまとめていた）。ズーム不足の案内は絞り込みより優先する
+  // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーの
+  // ため、軸ごとに個別のサマリ・内訳を持つ。ズーム不足の案内は絞り込みより優先する
   // （ONにしたのに何も出ない状態の説明が先）。
   const roadSurfaceAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadSurfaceFilterSummary = useMemo(
@@ -984,8 +979,8 @@ export default function Home() {
     [hasDetail, lens, hiddenRouteLegendKeys, routeStyleModes],
   );
 
-  // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
-  // （summarizeLegendFilters）でチップ下に適用中の絞り込みを表示する。レイヤーごとに
+  // 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数（summarizeLegendFilters）
+  // でチップ下に適用中の絞り込みを表示する。レイヤーごとに
   // 保有する軸ぶん（事故のみ2軸、他は1軸）をまとめて渡す。
   const staticFilterSummaries = useMemo(() => {
     const result: Partial<
@@ -1048,11 +1043,10 @@ export default function Home() {
     hiddenDisasterSources,
     mapViewport,
   });
-  // レイヤーごとのデータ取得状態を1つに統合する（改善計画T608）。mapViewLayerDataStatus
-  // （改善計画T87、MapLibreのソースイベントから算出）とdynamicWeatherDataStatus
-  // （動的気象レイヤー、フェッチ自身のloading/errorから算出）はキーが重ならない
-  // （動的気象レイヤーはbuildLayerDataSourcesの対象外）ため、マージの優先順位を
-  // 気にする必要はない。
+  // レイヤーごとのデータ取得状態を1つに統合する。mapViewLayerDataStatus（MapLibreの
+  // ソースイベントから算出）とdynamicWeatherDataStatus（動的気象レイヤー、フェッチ
+  // 自身のloading/errorから算出）はキーが重ならない（動的気象レイヤーは
+  // buildLayerDataSourcesの対象外）ため、マージの優先順位を気にする必要はない。
   const layerDataStatus = useMemo<LayerDataStatusByLayer>(
     () => ({ ...mapViewLayerDataStatus, ...dynamicWeatherDataStatus }),
     [mapViewLayerDataStatus, dynamicWeatherDataStatus]
@@ -1061,9 +1055,8 @@ export default function Home() {
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(() => {
-    // 改善計画T468: summary/legendDetailsの組み立てが、5〜8段ネストした三項演算子
-    // チェーンでlayer.idを1つずつ比較していたのを、layer.id→値のルックアップへ置き換えた
-    // （可読性向上、フォールバック[staticFilterSummaries]は従来どおり最後に見る）。
+    // summary/legendDetailsはlayer.id→値のルックアップで組み立て、無ければ
+    // staticFilterSummariesをフォールバックとして最後に見る。
     const summaryByLayerId: Partial<Record<MapLayerId, string | null>> = {
       roadSurface: roadSurfaceSummary,
       roadType: roadTypeSummary,
@@ -1078,20 +1071,19 @@ export default function Home() {
       disaster: disasterLegendDetails,
     };
     return mapLayers.map((layer) => {
-        // 改善計画T418: windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
+        // windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
         // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
         // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
         // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
         // layerVisibilityへ引き続きアクセスできるようにするためだけの目的になった。
         // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
-        // 1箇所で決める（T414時点の設計を踏襲、無効化理由が増えても1本追加するだけで
-        // disabled/titleの両方に反映される）。
-        // 改善計画T524（T518コードレビューP2指摘）: 以前はhasDetail（segments取得済み）を
-        // 見ていたが、RouteAxisProfileの表示条件（selectedCandidateのみ）とズレていた
-        // ——候補選択直後・segments未取得の間、地図の「ルート」チップは無効化されたままな
-        // のに、同時に表示されるRouteAxisProfileのチップ操作でlayerVisibility.routeがON
-        // に変わってしまい、地図チップから直接OFFへ戻せない状態が生じていた。両者を
-        // selectedCandidate基準へ揃える。
+        // 1箇所で決める（無効化理由が増えても1本追加するだけでdisabled/titleの両方に
+        // 反映される）。
+        // disabledReasonの判定はselectedCandidate基準に揃える——RouteAxisProfileの表示条件
+        // （selectedCandidateのみ）とhasDetail（segments取得済み）がズレると、候補選択
+        // 直後・segments未取得の間、地図の「ルート」チップは無効化されたままなのに、同時に
+        // 表示されるRouteAxisProfileのチップ操作でlayerVisibility.routeがONに変わって
+        // しまい、地図チップから直接OFFへ戻せない状態が生じる。
         const disabledReason = layer.id === "route" && !selectedCandidate ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
         const summary = layer.id in summaryByLayerId
@@ -1099,21 +1091,15 @@ export default function Home() {
           : (staticFilterSummaries[layer.id]?.summary ?? null);
         const legendDetails =
           legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails;
-        // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
-        // 絞り込み機能を持たないため「地図の見え方」パネルの行自体を撤去した
-        // （MapLayersPanel.tsx参照）。地図上チップの▶パネル本体へ説明文を常時表示する
-        // 対応は「読みにくい」というフィードバックを受けて取りやめた（凡例のみを表示する）。
-        // 改善計画T334: 上記とは別に、折りたたみ中の「表示する項目を選ぶ」設定パネル
-        // （MapOverlayControls.tsx: renderVisibilitySettings）側は、各メンバー行に個別の
-        // 情報アイコンを置き、押したメンバーだけ説明文を表示する形で復活させた
-        // （panelHintは推定/観測/動的の全メンバーへ渡す。同時に常時表示にはしないため
-        // 上記のT317同日追記の判断とは矛盾しない）。
-        // 改善計画T468: 以前はlayer.idのハードコード列挙で「動的グループ」を再判定しており、
-        // mapLayers.ts側の単一ソースdataNature==="dynamic"（本来の判定基準）とズレていた
-        // （windAxis/gradientAxis[isAxisStudioLayerで別途チップ非表示のため実害無し]に加え、
-        // gradientFillが列挙漏れで「[設定はサイドバー]」を誤って付与されていた——gradientFillは
-        // 環境グループの実チップとして表示されるため実害あり）。dataNature自体を見る形へ
-        // 修正し、今後dataNature="dynamic"の新規レイヤーが増えても追従する。
+        // 動的グループ（降水ナウキャスト・風・雷・竜巻）は絞り込み機能を持たないため
+        // 「地図の見え方」パネルの行自体を持たない（MapLayersPanel.tsx参照）。地図上チップの
+        // ▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
+        // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
+        // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
+        // （panelHintは推定/観測/動的の全メンバーへ渡すが、常時表示にはしない）。
+        // 「動的グループ」の判定はmapLayers.ts側の単一ソースdataNature==="dynamic"を見る
+        // （layer.idのハードコード列挙ではなく、この基準に揃えることで新規レイヤーが
+        // 増えても追従する）。
         const isDynamicGroupLayer = layer.dataNature === "dynamic";
         return {
           id: layer.id,
@@ -1127,13 +1113,13 @@ export default function Home() {
             (isDynamicGroupLayer ? layer.description : `${layer.description}[設定はサイドバー]`),
           summary,
           legendDetails,
-          // 地図上チップのカテゴリ束ね（改善計画T128、MapOverlayControls.tsx）用。
+          // 地図上チップのカテゴリ束ね（MapOverlayControls.tsx）用。
           category: layer.category,
           dataNature: layer.dataNature,
-          // 改善計画T334: 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
+          // 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
           panelHint: layer.panelHint,
-          // レイヤーのデータ取得状態（改善計画T87/T606）。LayerChip（サイドバー）と同じく
-          // OFF中の抑制はChipButton自身が`active && dataStatus != null`で行うため、ここでは
+          // レイヤーのデータ取得状態。LayerChip（サイドバー）と同じくOFF中の抑制は
+          // ChipButton自身が`active && dataStatus != null`で行うため、ここでは
           // layerVisibilityで抑制せずそのまま渡す。
           dataStatus: layerDataStatus[layer.id],
         };
@@ -1153,12 +1139,9 @@ export default function Home() {
     mapLayers,
   ]);
 
-  // 全レイヤー一括OFF（ユーザー要望「一次・二次・動的まとめて1ボタンでクリアしたい」「ルート等も
-  // 含めて全チップをOffにするのがシンプル」）。以前はMapOverlayControls.tsxが自前で
-  // 持っていたが、地図下部中央の時刻スライダー隣へボタンを移設した（実機フィードバック
-  // 「左上の全クリアアイコンをスライドバーの左側に移動して」）ため、layers/onToggleを
-  // 既に持つこちらへ持ってきた。何もONでないときはno-opのため無効化する（誤操作の
-  // 起点自体を減らす）。
+  // 全レイヤー一括OFF。地図下部中央の時刻スライダー隣に置き、layers/onToggleを既に
+  // 持つこちらで扱う。何もONでないときはno-opのため無効化する（誤操作の起点自体を
+  // 減らす）。
   const hasAnyLayerOn = overlayLayers.some((layer) => layer.on);
   const handleClearAllLayers = useCallback(() => {
     for (const layer of overlayLayers) {
@@ -1170,7 +1153,7 @@ export default function Home() {
   const handleMobileTabClick = useCallback(
     (sheet: "routeSettings" | "routeOutcome" | "map") => {
       setMobileSheet((prev) => (prev === sheet ? null : sheet));
-      // 改善計画T439: 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
+      // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
       if (sheet === "routeOutcome") setHasUnseenResults(false);
     },
     [setMobileSheet]
@@ -1186,16 +1169,16 @@ export default function Home() {
     [setMobileSheetHeightVh],
   );
 
-  // MapViewからのビューポート通知（改善計画T180、MapView.tsx: onViewportChange参照）。
+  // MapViewからのビューポート通知（MapView.tsx: onViewportChange参照）。
   const handleViewportChange = useCallback((viewport: MapViewport) => {
     setMapViewport(viewport);
   }, []);
 
   // 今日の見通し（TodayOutlook向け、Open-Meteo予報）・最寄りアメダス実測値（WeatherPanel＝
-  // 常設ヘッダー向け）・警告バッジ3種（JMA警報・注意報T205／WBGT T174／河川氾濫予報T212）の
-  // フェッチ・状態管理（改善計画T375でuseWeatherConditionsへ抽出、T387フォローアップで
-  // weather[Open-Meteo]とamedas[アメダス実測]を独立フェッチへ分離）。
-  // locationReadyになるまで待ち、その後はlocationが変わるたびに再フェッチする。
+  // 常設ヘッダー向け）・警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）のフェッチ・
+  // 状態管理（useWeatherConditionsが持つ。weather[Open-Meteo]とamedas[アメダス実測]は
+  // 独立フェッチ）。locationReadyになるまで待ち、その後はlocationが変わるたびに
+  // 再フェッチする。
   const {
     weather,
     weatherLoading,
@@ -1206,15 +1189,11 @@ export default function Home() {
     warningBadgeItems,
   } = useWeatherConditions(location, locationReady);
 
-  // ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、1つでいい」）:
-  // 動的材料の状態別表現契約（docs/tasks/T400.md「2.」節）の[時刻,向き]のうち「向き」を、
-  // 風・勾配それぞれ独立したstate（旧windBearingDeg/gradientBearingDeg）から、実際の
-  // 進行方向という単一の概念を表す1つの共有state（travelBearingDeg）へ統合した。
-  // 「環境」グループの勾配gridFill・評価軸としての風/勾配（windAxis/gradientAxis）の
-  // いずれもこの1つの値を共有する。設定UIは地図上の
-  // TravelBearingControl（`components/TravelBearingControl/`）1箇所へ集約し、
-  // RouteSettingsPanel内の「走行方位を設定」ボタン・地図下部の個別コンパス
-  // （bottomControlRow）は撤去した。
+  // 動的材料の状態別表現契約の[時刻,向き]のうち「向き」は、風・勾配で単一の共有state
+  // （travelBearingDeg、実際の進行方向という1つの概念を表す）を使う。「環境」グループの
+  // 勾配gridFill・評価軸としての風/勾配（windAxis/gradientAxis）のいずれもこの1つの値を
+  // 共有する。設定UIは地図上のTravelBearingControl（`components/TravelBearingControl/`）
+  // 1箇所に集約されている。
   const [travelBearingDeg, setTravelBearingDeg] = useState(0);
 
   // way_id→wind_drag_ratio配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
@@ -1248,11 +1227,11 @@ export default function Home() {
     lensSpeedKmh
   );
 
-  // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型だが、勾配は
-  // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有しない。
-  // 向き（travelBearingDeg）は風と共有する（上記の統合コメント参照）。「環境」グループ
-  // （gradientFill、gridFill面表示）・評価軸としての勾配（gradientAxis）が同じ1つの入力
-  // （向き）を共有する（T400.md「2.」節と同じ構造）。表示のON/OFF自体は別チップのまま。
+  // way_id→勾配（effective_gradient）配信層。windAxisと同型だが、勾配は時刻に依存しない
+  // ためdynamicLayerTargetTimeを共有しない。向き（travelBearingDeg）は風と共有する
+  // （上記の統合コメント参照）。「環境」グループ（gradientFill、gridFill面表示）・評価軸
+  // としての勾配（gradientAxis）が同じ1つの入力（向き）を共有する。表示のON/OFF自体は
+  // 別チップのまま。
   const showGradientFill = layerVisibility.gradientFill && !hasDetail;
   const showGradientAxis = lens === "gradient" && lensBackgroundShown;
   // 環境（面）・評価軸（線）どちらかがONの間だけフェッチする（表示中のものだけ叩く方針）。
@@ -1270,13 +1249,11 @@ export default function Home() {
     () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
     [showGradientFill, gradientAxisData.byTile]
   );
-  // 改善計画T483: dedicatedWayValueDisplays（改善計画T473）と同じ理由
-  // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）で、以前は
-  // windAxisPenalties/gradientAxisValuesという軸ごとに別名のpropだったものを
-  // axisId→(way_id→値)の汎用Mapへ統合した。useDynamicWayValues自体は
+  // dedicatedWayValueDisplaysと同じ理由（design-principles.md構造仕様3: 軸ごとにpropを
+  // 新設しない）で、axisId→(way_id→値)の汎用Mapへ統合する。useDynamicWayValues自体は
   // materialIdごとに個別インスタンス化する設計（デバウンス・レース対策がaxis間で
-  // 独立している必要があるため、hooks/useDynamicWayValues.ts参照）のままで変更していない
-  // ——統合するのはMapViewへ渡す直前のprop形状だけ。
+  // 独立している必要があるため、hooks/useDynamicWayValues.ts参照）のままで、統合するのは
+  // MapViewへ渡す直前のprop形状だけ。
   const dedicatedWayValues = useMemo(
     () =>
       new Map<string, ReadonlyMap<number, number>>([
@@ -1285,9 +1262,9 @@ export default function Home() {
       ]),
     [windAxisData.values, gradientAxisData.values]
   );
-  // 改善計画T607: dedicatedWayValuesと同じ理由（design-principles.md構造仕様3）で、
-  // フェッチ進行中フラグもaxisId→booleanの汎用Mapへ統合する（windLoading/gradientLoadingの
-  // ような別名propは持たない）。MapView側はこれを使い、まだ値を受け取っていないwayを
+  // dedicatedWayValuesと同じ理由（design-principles.md構造仕様3）で、フェッチ進行中
+  // フラグもaxisId→booleanの汎用Mapへ統合する（windLoading/gradientLoadingのような
+  // 別名propは持たない）。MapView側はこれを使い、まだ値を受け取っていないwayを
   // 「取得中」（COLOR_LOADING）と「取得済みだが値が無い」（COLOR_NO_DATA）で塗り分ける。
   const dedicatedWayValueLoading = useMemo(
     () =>
@@ -1380,17 +1357,15 @@ export default function Home() {
   }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
-  // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
-  // 廃止に伴い比較対象から削除した。
   const currentWeightsKey = JSON.stringify({
     weights: weightOverrideEnabled ? { routePreference } : null,
-    // 改善計画T267: hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず
-    // 常に比較対象へ含める。
+    // hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず常に比較対象へ
+    // 含める。
     hardFilters,
   });
 
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
-  // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する、T31）
+  // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する）
   const conditionsDirty =
     generatedConditions != null &&
     routes.length > 0 &&
@@ -1409,19 +1384,19 @@ export default function Home() {
     setGenerationProgress(null);
     setErrorMessage(null);
     try {
-      // 改善計画T303: 送信直前にキー整合を補正する（上のコメント参照）。RouteSettingsPanel
-      // がマウント済みならこの時点で既にキーは一致しており synced は null になる。
-      // 改善計画T320: axisCatalog.defaultWeights自体がまだ軸スタジオの現在状態を反映して
-      // いない（axisCatalog.loaded===false、未取得・取得失敗）場合、この同期は静的フォール
-      // バック（既存7軸）に合わせてroutePreferenceを書き換えてしまい、実際の公開軸集合とは
-      // 無関係な値になる。この場合はroute_preference自体を省略し、backend側の既定値
-      // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）に委ねる方が安全。
+      // 送信直前にキー整合を補正する。RouteSettingsPanelがマウント済みならこの時点で
+      // 既にキーは一致しており synced は null になる。axisCatalog.defaultWeights自体が
+      // まだ軸スタジオの現在状態を反映していない（axisCatalog.loaded===false、未取得・
+      // 取得失敗）場合、この同期は静的フォールバック（既存7軸）に合わせてroutePreferenceを
+      // 書き換えてしまい、実際の公開軸集合とは無関係な値になる。この場合はroute_preference
+      // 自体を省略し、backend側の既定値（load_route_preference、常に最新の
+      // AXIS_DEFINITIONS由来）に委ねる方が安全。
       const syncedRoutePreference = axisCatalog.loaded
         ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
         : null;
-      // 改善計画T365-2: 周回モードでは経由地・目的地の値が残っていても送らない
-      // （モード切り替え自体は値を消さないため、地図上にピンが残っていても周回モード中は
-      // 無視する。地図表示もrouteMode==="destination"のときだけ、page.tsx→MapView.tsx参照）。
+      // 周回モードでは経由地・目的地の値が残っていても送らない（モード切り替え自体は
+      // 値を消さないため、地図上にピンが残っていても周回モード中は無視する。地図表示も
+      // routeMode==="destination"のときだけ、page.tsx→MapView.tsx参照）。
       // 目的地モードでは距離をRouteForm（distanceKm=0固定）から受け取らず、地図上の
       // 経由地・目的地から自動算出する。distance_kmはbackendのbbox見積り半径のほか、
       // 「起点から近すぎる=distance_km未満」バリデーション（routes.py:
@@ -1432,8 +1407,8 @@ export default function Home() {
         routeMode === "destination"
           ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
           : distanceKm;
-      // T616: 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数
-      // 文字列以外にはなり得ないため、そのままNumber化して使う。
+      // 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数文字列
+      // 以外にはなり得ないため、そのままNumber化して使う。
       const effectiveMaxRoutes = Number(maxRoutesInput);
       const effectiveAssumedSpeed = assumedSpeedKmh;
       const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
@@ -1443,9 +1418,9 @@ export default function Home() {
         distance_tolerance_km: DISTANCE_TOLERANCE_KM,
         route_type: "loop",
         penalty_strength: 1.0,
-        // 改善計画T267: hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が
-        // 常時操作する対象のため、weightOverrideEnabledのような上書き専用トグルを介さず
-        // 常に送る（既定値はbackendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
+        // hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が常時操作する対象の
+        // ため、weightOverrideEnabledのような上書き専用トグルを介さず常に送る（既定値は
+        // backendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
         hard_filters: hardFilters,
         // RouteGenerateRequest.max_routesは既定値を持つがrequired
         // （distance_tolerance_km/penalty_strengthと同じ扱い）のため、モードに関わらず
@@ -1456,25 +1431,25 @@ export default function Home() {
         // レンズが軸を要求していれば、重み0でも区間表示のため風の時変化合成を行う（backend）。
         ...(lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? { lens_axis_id: lens } : {}),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
-        // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
-        // （backend側の分岐はapi/routers/routes.py参照）。
+        // 目的地モードのときだけ経由地・目的地を送る（backend側の分岐はapi/routers/
+        // routes.py参照）。
         ...(routeMode === "destination" && waypoints.length > 0 ? { waypoints } : {}),
         ...(routeMode === "destination" && destination ? { destination } : {}),
       }, setGenerationProgress);
-      // 改善計画T602: backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上の
-      // ピンも実際に使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの
-      // 終点がずれて見える）。
+      // backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上のピンも実際に
+      // 使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの終点が
+      // ずれて見える）。
       if (conditions.corrected_destination) {
         setDestination(conditions.corrected_destination);
       }
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
-      // 改善計画T550: 新しい候補集合に対して、それより前にクリックしていた区間の選択を
-      // 引き継がない（同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも
-      // 意味を失うため）。
+      // 新しい候補集合に対して、それより前にクリックしていた区間の選択を引き継がない
+      // （同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも意味を
+      // 失うため）。
       setSelectedRouteSegment(null);
-      // 改善計画T439: 新しい候補が用意できたことを「ルート結果」タブへ知らせる
-      // （モバイルのみ表示に使うが、状態自体はプラットフォーム非依存で立てる）。
+      // 新しい候補が用意できたことを「ルート結果」タブへ知らせる（モバイルのみ表示に
+      // 使うが、状態自体はプラットフォーム非依存で立てる）。
       setHasUnseenResults(candidates.length > 0);
       // dirty判定の基準は「いま表示している候補を作った条件」。エラー時は既存候補が
       // 残るため更新しない（tryの成功パスでのみ更新する）
@@ -1487,20 +1462,19 @@ export default function Home() {
         maxRoutesRelevant: routeMode === "loop" || (routeMode === "destination" && waypoints.length === 0),
         weightsKey: currentWeightsKey,
         routeMode,
-        // 改善計画T602: 補正があった場合は補正後の地点で比較する（地図上のピンも
-        // 補正後の地点へ動かしているため、conditionsDirtyが直後に誤ってtrueにならないように
-        // 揃える）。
+        // 補正があった場合は補正後の地点で比較する（地図上のピンも補正後の地点へ
+        // 動かしているため、conditionsDirtyが直後に誤ってtrueにならないように揃える）。
         waypointsKey: JSON.stringify({ waypoints, destination: conditions.corrected_destination ?? destination }),
         destinationCorrected: Boolean(conditions.corrected_destination),
       });
       setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
-        // 改善計画T441: バックエンドが原因を特定できた場合はそれを表示する
-        // （routeApi.ts: generateRoutes参照）。特定できない場合のみ従来の汎用文言。
+        // バックエンドが原因を特定できた場合はそれを表示する（routeApi.ts:
+        // generateRoutes参照）。特定できない場合のみ汎用文言。
         setErrorMessage(noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
       } else if (researchEnabled) {
         // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
-        // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立、改善計画T29）。
+        // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立）。
         // overall_difficulty最小（=candidates[0]）を比較代表候補として
         // 固定し、以降の候補選び直しでは変えない（スロット=生成結果のスナップショット）。
         setExperimentSlots((prev) => {
@@ -1523,8 +1497,7 @@ export default function Home() {
       const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
       // generateRoutes（routeApi.ts: postJson）自体の失敗は既にそちらでdebugLog記録済みだが、
       // ここに来る他の例外（候補構築中の想定外エラー等）も含め、ルート生成ハンドラの失敗として
-      // ここでも記録する（2026-08-24実機調査「fail to fetchがどこにもログされない」を受けて
-      // 監査、多層防御として残す）。
+      // ここでも記録する（多層防御）。
       debugLog("api:route", "ルート生成ハンドラで例外", { error: message }, "error");
       setErrorMessage(message);
     } finally {
@@ -1533,8 +1506,8 @@ export default function Home() {
     }
   }
 
-  // 改善計画T265: 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。
-  // queued（同時実行数上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
+  // 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。queued（同時実行数
+  // 上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
   // 既定文言（「生成中...」）に委ねる。
   const generationProgressLabel =
     generationProgress?.status === "queued"
@@ -1545,9 +1518,8 @@ export default function Home() {
 
   // 「ルート設定」見出し行の右側アクション（renderRouteResultHeaderActionsと同じ場所、
   // デスクトップはDisclosureのtrailing・モバイルはBottomSheetのheaderAction）。
-  // T616: 「ルート生成」ボタンをタブの中から見出し行へ移設した（重みづけタブを見ている間も
-  // タブを切り替えずに押せるようにするのが目的で、タブの外にさえあれば足りるため
-  // わざわざタブ内に置き続ける理由が無い）。
+  // 「ルート生成」ボタンをタブの外に置くことで、重みづけタブを見ている間もタブを
+  // 切り替えずに押せるようにする。
   function renderRouteSectionHeaderActions() {
     return (
       <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
@@ -1556,7 +1528,7 @@ export default function Home() {
     );
   }
 
-  // 「ルート設定」区分の中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
+  // 「ルート設定」区分の中身（天候・アプリ名は常設ヘッダにある）。
   // デスクトップの`Disclosure`（summary="ルート設定"）・モバイルの`BottomSheet`
   // （title="ルート設定"）の両方から呼ぶ。見出しはどちらも呼び出し元コンテナが持つため、
   // このセクション自身は見出しを持たない。
@@ -1582,8 +1554,8 @@ export default function Home() {
     );
   }
 
-  // 一般ユーザー向けルート設定（改善計画T267、目論見書4章）。0次(除外)・軸選択・重みを
-  // 生成前に調整できる、常時表示のメイン導線（route_preference・weightOverrideEnabledの
+  // 一般ユーザー向けルート設定。0次(除外)・軸選択・重みを生成前に調整できる、常時表示の
+  // メイン導線（route_preference・weightOverrideEnabledの
   // 状態はpage.tsx冒頭のstate宣言・handleGenerateのコメント参照）。renderRouteSectionBody
   // からのみ呼ばれ、見出しは持たない（呼び出し元コンテナが持つ、上記コメント参照）。
   function renderRouteSettingsSectionBody() {
@@ -1644,14 +1616,12 @@ export default function Home() {
 
   // 生成結果に関する表示（設定変更の警告・候補ごとの内訳・比較表・色分け設定、ルート設定は
   // 含まない）。モバイルの「ルート結果」タブ、デスクトップの「ルートを作る」ブロック後半から
-  // 呼ぶ（改善計画T300、旧renderRouteResultsBodyの後半を分離）。ユーザー指示（省スペース化）:
-  // 生成前はほぼ何も出さず、生成後は候補ごとの内訳・比較表を「タブで区切って」1画面に収める。
+  // 呼ぶ。生成前はほぼ何も出さず、生成後は候補ごとの内訳・比較表をタブで区切って1画面に
+  // 収める。
   //
-  // 改善計画T545: 「ルート選択（候補一覧+内訳をひとまとめにした1タブ）/比較」という2段の
-  // タブ構成をやめ、候補ごとのタブ＋「比較」タブという1段のフラットなタブ列へ再設計した
-  // （ユーザー指摘「ルート選択タブは不要、比較タブと同じ形でルートごとタブにして」）。
-  // 候補の切り替え（旧RouteList.tsx）とその候補の内訳表示（RouteAxisProfile）を、
-  // このタブ列自体が担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
+  // 「ルート結果」パネルの外側タブは、候補ごとのタブ＋「比較」タブという1段のフラットな
+  // タブ列。候補の切り替えとその候補の内訳表示（RouteAxisProfile）を、このタブ列自体が
+  // 担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
   //
   // showHeadingはrenderRouteSettingsSectionBodyと同じ理由（見出しの二重表示回避）で
   // 使い分ける。デスクトップ（既定true）はこのセクション自身の見出し「ルート結果」＋
@@ -1676,9 +1646,9 @@ export default function Home() {
         {conditionsDirty && (
           <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
         )}
-        {/* 改善計画T602: 指定した目的地が自転車で行ける道路につながっていなかったため、
-            backendが最寄りのアクセス可能な地点へ補正して生成した場合の案内
-            （地図上のピンも補正後の地点へ動かす、handleGenerate参照）。 */}
+        {/* 指定した目的地が自転車で行ける道路につながっていなかったため、backendが
+            最寄りのアクセス可能な地点へ補正して生成した場合の案内（地図上のピンも
+            補正後の地点へ動かす、handleGenerate参照）。 */}
         {generatedConditions?.destinationCorrected && (
           <p className={styles.dirtyHint}>
             指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
@@ -1688,9 +1658,9 @@ export default function Home() {
           className={styles.outcomeTabs}
           value={outerTabValue}
           onValueChange={(value) => {
-            // 改善計画T550: 候補タブ・比較タブいずれへ切り替えても、以前の候補で
-            // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま
-            // 地図マーカー・内訳が残ると実態と食い違いを起こすため）。
+            // 候補タブ・比較タブいずれへ切り替えても、他候補でクリックしていた区間の
+            // 選択は引き継がない（別候補のedge_idを指したまま地図マーカー・内訳が残ると
+            // 実態と食い違いを起こすため）。
             setSelectedRouteSegment(null);
             if (value === SAVED_ROUTES_TAB_VALUE) return;
             if (value === "comparison") {
@@ -1705,25 +1675,18 @@ export default function Home() {
             <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
               {routes.map((route, index) => (
                 <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
-                  {/* 改善計画T545フォローアップ（ユーザー指摘「タブ名はもっと簡潔に」）:
-                      総合難易度はタブの中身（RouteAxisProfileのスコア行）に既に出ている
-                      ため、タブ自体には候補を見分けるための順位・方向・距離だけを表示する
-                      （改善計画T548: 候補タブ自体の並び順もこの総合難易度の昇順）。 */}
-                  {/* 改善計画T531: 周回生成が8方位固定から軸重み駆動のフロンティア方式へ
-                      転換したことに伴い、同じ方位ラベルの候補が複数並びうるようになった
-                      （direction_labelは折返し地点の方位から表示専用に導出するだけで、
-                      候補選定の基準ではない）。並び順（overall_difficulty昇順）に沿った
-                      1始まりの順位番号を先頭に付け、方位が同じ候補どうしも見分けられる
-                      ようにする。 */}
-                  {/* 改善計画T364: 経由地ルート(route-waypoints)は候補が常に1件で
+                  {/* タブは候補を見分ける最小限の表記（順位番号・距離）だけを持つ。方位・
+                      難易度はタブの中身（RouteAxisProfile）に出るためここでは繰り返さない。
+                      並び順（overall_difficulty昇順）に沿った1始まりの順位番号を先頭に
+                      付け、方位が同じ候補どうしも見分けられるようにする（周回生成は軸重み
+                      駆動のフロンティア方式のため、同じ方位ラベルの候補が複数並びうる。
+                      direction_labelは折返し地点の方位から表示専用に導出するだけで、候補
+                      選定の基準ではない）。経由地ルート(route-waypoints)は候補が常に1件で
                       「方位」という概念が無いため、direction_label（固定文言、
-                      route_generator.py参照）をそのまま表示し順位番号も付けない。 */}
-                  {/* 改善計画T365/T551: 目的地ルート(route-destination-00形式、前方一致)は
-                      経由地を伴わなければvia-node方式で複数件になりうる。方位という概念は
-                      無いため「方向」は付けないが、複数件を見分けられるよう順位番号は付ける。 */}
-                  {/* タブは候補を見分ける最小限の表記（順位番号・距離）だけを持つ。方位・難易度は
-                      タブの中身（RouteAxisProfile）に出るためここでは繰り返さない。経由地ルートは
-                      常に1件で順位の概念が無いためdirection_label（固定文言）をそのまま出す。 */}
+                      route_generator.py参照）をそのまま表示し順位番号も付けない。目的地
+                      ルート(route-destination-00形式、前方一致)は経由地を伴わなければ
+                      via-node方式で複数件になりうる——方位という概念は無いため「方向」は
+                      付けないが、複数件を見分けられるよう順位番号は付ける。 */}
                   {NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
                     ? route.direction_label
                     : `${index + 1}`}{" "}
@@ -1731,8 +1694,8 @@ export default function Home() {
                 </Tabs.Trigger>
               ))}
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
-                  スロット2件未満の間は中身を持たない自己ガードを持つ（旧実装から変更なし、
-                  ComparisonPanel.tsx参照）ため、ここでスロット件数を重複判定しない。 */}
+                  スロット2件未満の間は中身を持たない自己ガードを持つ（ComparisonPanel.tsx
+                  参照）ため、ここでスロット件数を重複判定しない。 */}
               {showComparisonTab && (
                 <Tabs.Trigger className={styles.outcomeTabTrigger} value="comparison">
                   比較
@@ -1742,12 +1705,12 @@ export default function Home() {
           </div>
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
-              {/* 改善計画T550: 区間がクリックされている間（selectedRouteSegment）は、
-                  ルート全体の内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳
-                  （AxisContributionBar、ルート全体の内訳と同じ表示部品）を表示する。
-                  地図側のDETAIL_LAYER_ID/DETAIL_HIT_LAYER_IDは選択中候補（selectedCandidate）
-                  にしか描画されないため、区間クリックは常に現在アクティブなこのタブの
-                  ルートに対して起きる（他候補のタブが誤って区間詳細を出すことは無い）。 */}
+              {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
+                  内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳（AxisContributionBar、
+                  ルート全体の内訳と同じ表示部品）を表示する。地図側のDETAIL_LAYER_ID/
+                  DETAIL_HIT_LAYER_IDは選択中候補（selectedCandidate）にしか描画されない
+                  ため、区間クリックは常に現在アクティブなこのタブのルートに対して起きる
+                  （他候補のタブが誤って区間詳細を出すことは無い）。 */}
               {selectedRouteSegment ? (
                 <div className={styles.selectedSegmentPanel}>
                   <div className={styles.selectedSegmentHeader}>
