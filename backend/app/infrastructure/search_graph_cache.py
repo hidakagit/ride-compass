@@ -1,13 +1,11 @@
-"""探索用グラフ・索引（LazyRoadGraph／routable Node空間索引）のプロセス内メモリキャッシュ
-（改善計画T537、docs/tasks/T537.md）。
+"""探索用グラフ・索引（LazyRoadGraph／routable Node空間索引）のプロセス内メモリキャッシュ。
 
 `RoadGraphEngine.prepare`/`preview_segment`は、リクエストごとに`build_lazy_road_graph`・
 `compute_routable_node_ids`・`build_node_spatial_index`をbbox全体（数十万Edge規模）に
-対して毎回作り直しており、温パスのprepare所要時間のほぼ全てを占めていた（T522実測）。
+対して毎回作り直すと、温パスのprepare所要時間のほぼ全てを占めてしまう。
 これらはタイル集合と0次フィルタ（`hard_filters`・`max_average_grade_percent`）だけで
 決まる純粋な派生物のため、`graph_material_cache`と同じ「タイル集合キーのプロセス内
-LRU」でキャッシュする（T537対応方針の案a、実装最小の案を採用——判断理由は
-docs/tasks/T537.md参照）。
+LRU」でキャッシュする。
 
 **キャッシュキーは`frozenset[tuple[zoom, x, y]]`（bboxを覆うz12タイル集合）**。
 `GraphService.get_search_materials_for_bbox`が「bboxを覆う全z12タイルの材料キャッシュを
@@ -24,17 +22,16 @@ uncached`）はタイル集合がNoneになり、呼び出し側はこのキャ�
 LRU上限は`graph_material_cache`（タイル単位、上限2,000）より大幅に小さくしてある。
 本キャッシュの1エントリは「bbox全体を結合した後のグラフ・索引」（起点半径・経由地に
 応じて数タイル〜数十タイル分をまとめたもの）であり、粒度がタイル単体よりずっと粗い。
-典型的な運用（起点付近への繰り返しアクセスが中心、docs/tasks/T522.md参照）では
+典型的な運用（起点付近への繰り返しアクセスが中心）では
 同時にホットな探索エリアの数はタイル数よりずっと少ないという想定のもと、
 小さめの上限で運用する（実測に基づく調整ではなく、他のプロセス内メモリキャッシュと
 同じ経験的な割り切り。上限に達した場合はLRUで最も長く使われていないエントリから
 自然に破棄される）。
 
 **`SearchGraphStatics`（順方向・転置版）は`LazyRoadGraph`/`NodeSpatialIndex`より
-小さい上限`SEARCH_STATICS_MAX_ENTRIES`（16）を別に持つ**（改善計画T568）。1エントリが
+小さい上限`SEARCH_STATICS_MAX_ENTRIES`（16）を別に持つ**。1エントリが
 CSR構造一式（`indptr`/`indices`/`entry_edge_index`）を保持し他の2種より重いため、
-`DEFAULT_MAX_ENTRIES`（64）を共有すると常駐メモリが不必要に大きくなりうる
-（`/code-review`指摘、詳細はdocs/tasks/T568.md参照）。
+`DEFAULT_MAX_ENTRIES`（64）を共有すると常駐メモリが不必要に大きくなりうる。
 """
 
 from collections import OrderedDict
@@ -49,9 +46,8 @@ if TYPE_CHECKING:
 DEFAULT_MAX_ENTRIES = 64
 
 # `SearchGraphStatics`（順方向・転置版とも）の1エントリはCSR構造一式（indptr/indices/
-# entry_edge_index）を保持し、`LazyRoadGraph`より重い（改善計画T568、`/code-review`
-# 指摘）。`DEFAULT_MAX_ENTRIES`と同じ上限を共有する必要は無いため、別の（より小さい）
-# 上限を設ける。
+# entry_edge_index）を保持し、`LazyRoadGraph`より重い。`DEFAULT_MAX_ENTRIES`と同じ
+# 上限を共有する必要は無いため、別の（より小さい）上限を設ける。
 SEARCH_STATICS_MAX_ENTRIES = 16
 
 TileSet = frozenset[tuple[int, int, int]]
@@ -64,7 +60,7 @@ _V = TypeVar("_V")
 class _TileKeyedLru(Generic[_K, _V]):
     """タイル集合キー（またはそれを含むタプル）のプロセス内LRU。get/set/pop/clear/sizeの
     定型実装を4キャッシュ（lazy_graph・search_statics・reverse_search_statics・
-    routable_index）で共通化する（改善計画T557、項目18）。上限件数はモジュール変数`_max_entries`をテストが
+    routable_index）で共通化する。上限件数はモジュール変数`_max_entries`をテストが
     monkeypatchできるよう、`set`呼び出しのたびに引数で受け取る（インスタンスに固定値を
     持たせない）。
     """
@@ -98,7 +94,7 @@ class _TileKeyedLru(Generic[_K, _V]):
         return len(self._entries)
 
 
-# 改善計画T531: 一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
+# 一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
 # SearchGraphStatics`）。LazyRoadGraphと同じくタイル集合だけで決まる派生物のため、
 # 同じキー・同じ寿命で保持する。
 _lazy_graph_cache: "_TileKeyedLru[TileSet, LazyRoadGraph]" = _TileKeyedLru()
@@ -113,7 +109,7 @@ _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _Ti
 # 派生値のため、他の4キャッシュと同じキー・寿命で持つ（失っても既定値から測り直すだけ）。
 _detour_ratio_cache: "_TileKeyedLru[TileSet, float]" = _TileKeyedLru()
 _max_entries = DEFAULT_MAX_ENTRIES
-# `_search_statics_cache`/`_reverse_search_statics_cache`専用の上限（改善計画T568）。
+# `_search_statics_cache`/`_reverse_search_statics_cache`専用の上限。
 _search_statics_max_entries = SEARCH_STATICS_MAX_ENTRIES
 
 
@@ -159,8 +155,7 @@ def set_routable_index(key: RoutableIndexKey, index: "NodeSpatialIndex") -> None
 
 def invalidate_tile_set(tile_set: TileSet) -> None:
     """指定タイル集合のエントリを4キャッシュ（`_lazy_graph_cache`・`_search_statics_cache`・
-    `_reverse_search_statics_cache`・`_routable_index_cache`）すべてから破棄する
-    （改善計画T557、項目4）。
+    `_reverse_search_statics_cache`・`_routable_index_cache`）すべてから破棄する。
 
     `_lazy_graph_cache`/`_search_statics_cache`/`_reverse_search_statics_cache`は
     LRU上限に達すると独立にpopitem(last=False)で最古のエントリを追い出すため、同じ
