@@ -25,9 +25,8 @@ class RouteSegmentDetail(BaseModel):
     カテゴリを持つため、絶対値で返してはならない。
 
     geometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの
-    部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を
-    直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは
-    geometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:
+    部分列）。地図の区間色分けを道路形状に沿って描くために使う。フロントは
+    geometryがnullの場合のみ始点・終点の直線で代替描画する（MapView.tsx:
     segmentsToFeatureCollection）。
     """
 
@@ -39,18 +38,12 @@ class RouteSegmentDetail(BaseModel):
     cumulative_distance_km: float
     distance_km: float
     estimated_arrival_time: str | None = None
-    # 改善計画T309: 以前はelevation_difficulty/wind_difficulty/road_difficulty/
-    # stop_difficulty/car_stress_difficulty/accident_difficulty/night_difficultyという
-    # 既存7軸1対1の固定フィールドだったが、軸スタジオで公開軸を自由に増減できる設計
-    # （T221 Stage D以降の一連の改修の目的そのもの）と矛盾していた。軸スタジオで新規
-    # 公開した軸はこの区間内訳に永遠に出てこず、逆に既存7軸のどれかを非公開にすると
-    # 実装によっては未処理のKeyError/ValidationErrorで500になっていた
-    # （T316フォローアップ、2026-08-25の実障害）。axis_id→difficulty(0-100)の汎用dictへ
-    # 置き換え、公開軸の増減に自動追従する。評価できなかった軸（欠損データ等）は
+    # axis_id→difficulty(0-100)の汎用dict。軸スタジオで公開軸を自由に増減できる設計と
+    # 整合するよう固定フィールドにはしない。評価できなかった軸（欠損データ等）は
     # キー自体を含めない（`compute_edge_axis_scores`・`evaluate_axis_difficulties`と
     # 同じ「データ無しはキーを持たない」規約）。
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
-    # 改善計画T550: 「重み付き寄与度」（この区間の合成に使ったのと同じ重み配分で
+    # 「重み付き寄与度」（この区間の合成に使ったのと同じ重み配分で
     # axis_id別に分解した値、`arr*weight/weighted_weight_sums`）。axis_difficultiesと
     # 同じ「データ無しはキーを持たない」規約。全軸のこの値を合計すると
     # difficulty（丸め前）と一致する——frontendが「重み付き寄与度」内訳を独自
@@ -71,19 +64,12 @@ class RouteCandidate(BaseModel):
     この値の昇順で決まる（route_generator.py参照）。
     segments欠損時・全区間difficulty欠損時はNone。
 
-    `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ
+    `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`と同じ
     axis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの
-    （改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位
-    ではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート
+    （`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位ではなく
+    候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート
     全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は
     空dict）。
-
-    改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・
-    `intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の
-    名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で
-    フロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ
-    移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.pyの
-    集約計算）もこのフィールドへ値を渡すためだけの処理だったため、併せて撤去済み。
     """
 
     id: str
@@ -96,7 +82,7 @@ class RouteCandidate(BaseModel):
     segments: list[RouteSegmentDetail] | None = None
     overall_difficulty: float | None = None
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
-    # 改善計画T550: `RouteSegmentDetail.axis_contributions`をルート全区間へ距離加重平均で
+    # `RouteSegmentDetail.axis_contributions`をルート全区間へ距離加重平均で
     # 集約したもの（`merge_axis_contributions`、`axis_difficulties`と同じ集約方法）。
     # 合計は丸め誤差を除いて`overall_difficulty`と一致する（`route_generator.py:
     # _with_axis_contributions`が付与する）。フロントの「内訳（重み付き寄与度）」表示は
@@ -107,9 +93,8 @@ class RouteCandidate(BaseModel):
     material_values: dict[str, float] = Field(default_factory=dict)
 
 
-# 改善計画T11（レビュー指摘M3）: road_graphエンジンのsegmentsはEdge単位（交差点間、
-# 1候補あたり150〜230件、30km級）でAPIペイロード・フロント描画コストが嵩むため、
-# 約500m単位に集約してから返す。
+# road_graphエンジンのsegmentsはEdge単位（交差点間、1候補あたり150〜230件、30km級）で
+# APIペイロード・フロント描画コストが嵩むため、約500m単位に集約してから返す。
 SEGMENT_BIN_DISTANCE_KM = 0.5
 
 
@@ -117,7 +102,7 @@ def aggregate_segments_into_bins(
     segments: list[RouteSegmentDetail], bin_distance_km: float = SEGMENT_BIN_DISTANCE_KM
 ) -> list[RouteSegmentDetail]:
     """連続するEdge単位の`RouteSegmentDetail`を、累積距離`bin_distance_km`単位で
-    グルーピングし、1ビン1件の`RouteSegmentDetail`へ集約する（改善計画T11）。
+    グルーピングし、1ビン1件の`RouteSegmentDetail`へ集約する。
 
     集約方法（フィールドの性質ごと）:
     - 距離加重平均: 各difficulty系（domain/difficulty.py: distance_weighted_difficulty、
@@ -173,8 +158,8 @@ def _merge_axis_value_dict(
     field_getter: Callable[[RouteSegmentDetail], dict[str, float]],
 ) -> dict[str, float]:
     """複数の`RouteSegmentDetail`が持つaxis_id→float辞書（`field_getter`で指定）を、
-    axis_idごとに距離加重平均へ集約する共通ロジック（改善計画T309、T550で
-    `merge_axis_difficulties`/`merge_axis_contributions`の共有実装として抽出）。
+    axis_idごとに距離加重平均へ集約する共通ロジック（`merge_axis_difficulties`/
+    `merge_axis_contributions`の共有実装）。
     渡されたsegments群のどの区間にも無いaxis_idは結果にも含めない
     （両フィールドと同じ「データ無しはキーを持たない」規約）。
     """
@@ -190,16 +175,16 @@ def _merge_axis_value_dict(
 
 
 def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """`RouteSegmentDetail.axis_difficulties`をaxis_idごとに距離加重平均へ集約する
-    （改善計画T309）。`_merge_segment_bin`がビン単位（500m）の集約に使うほか、
-    `RouteCandidate.axis_difficulties`（改善計画T402）はこの関数を候補の全区間へ1回
+    """`RouteSegmentDetail.axis_difficulties`をaxis_idごとに距離加重平均へ集約する。
+    `_merge_segment_bin`がビン単位（500m）の集約に使うほか、
+    `RouteCandidate.axis_difficulties`はこの関数を候補の全区間へ1回
     適用するだけで得られる（新しい計算式は不要、`route_generator.py`参照）。
     """
     return _merge_axis_value_dict(segments, lambda s: s.axis_difficulties)
 
 
 def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, float]:
-    """`RouteSegmentDetail.axis_contributions`（改善計画T550「重み付き寄与度」）を
+    """`RouteSegmentDetail.axis_contributions`（「重み付き寄与度」）を
     axis_idごとに距離加重平均へ集約する。`merge_axis_difficulties`と同じ集約方法
     （`_merge_axis_value_dict`共有実装）。`_merge_segment_bin`のビン単位集約、
     `RouteCandidate.axis_contributions`（`route_generator.py:
