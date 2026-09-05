@@ -1631,9 +1631,16 @@ export default function Home() {
           <DownloadIcon />
         </button>
         {/* 生成済みの候補一覧・地図描画・選択状態だけをリセットする（経由地・目的地のピンは
-            対象外、別々のクリア操作として使い分ける）。押した瞬間に実行する即実行アクション。 */}
-        <button type="button" className={styles.outcomeTabAction} onClick={handleRoutesClear}>
-          ルートをクリア
+            対象外、別々のクリア操作として使い分ける）。押した瞬間に実行する即実行アクション。
+            保存・GPX出力と並ぶアイコンボタンにし、他の2つと見た目を揃える。 */}
+        <button
+          type="button"
+          className={styles.outcomeHeaderIcon}
+          onClick={handleRoutesClear}
+          title="ルートをクリア"
+          aria-label="ルートをクリア"
+        >
+          <ClearAllLayersIcon size={14} />
         </button>
         <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
       </>
