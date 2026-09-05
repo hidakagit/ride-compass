@@ -1,7 +1,7 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useState, type RefObject } from "react";
+import { useState } from "react";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, type LayerDataStatus } from "@/components/Map/mapLayers";
@@ -39,9 +39,6 @@ export interface LensControlProps {
    * 添える——道路の色分け自体は「取得失敗」と「本当にその範囲にデータが無い」のどちらも
    * 同じ無彩色になり見分けが付かないため。 */
   dataStatus?: LayerDataStatus;
-  /** ルート条件バーを本コンポーネントの直下へ積む配置（page.tsx）が、実測高さを
-   * useElementHeightCssVarへ渡すために使う。指定が無ければ通常どおり動作する。 */
-  rootRef?: RefObject<HTMLDivElement | null>;
 }
 
 const DIFFICULTY_COLOR = "#64748b";
@@ -60,7 +57,6 @@ export default function LensControl({
   onKeepAfterRouteChange,
   hasDetail,
   dataStatus,
-  rootRef,
 }: LensControlProps) {
   const [open, setOpen] = useState(false);
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
@@ -110,7 +106,7 @@ export default function LensControl({
   }
 
   return (
-    <div ref={rootRef} className={styles.wrap}>
+    <div className={styles.wrap}>
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
           <button

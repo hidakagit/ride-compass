@@ -796,10 +796,6 @@ export default function Home() {
   const mapPaneRef = useRef<HTMLDivElement>(null);
   const bottomControlRowRef = useRef<HTMLDivElement>(null);
   useElementHeightCssVar(bottomControlRowRef, mapPaneRef, "--bottom-control-row-height");
-  // 走行条件バー（出発時刻・想定速度）をレンズピルの直下へ積むための実測高さ（下記
-  // renderRideConditionRow参照）。同じuseElementHeightCssVarパターンを使う。
-  const lensControlRef = useRef<HTMLDivElement>(null);
-  useElementHeightCssVar(lensControlRef, mapPaneRef, "--lens-control-height");
 
   // 路面の2軸（路面の種類・道路の種類）は互いに独立なので常に両方同時に効かせる
   // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
@@ -2114,20 +2110,7 @@ export default function Home() {
             onKeepAfterRouteChange={setLensKeepAfterRoute}
             hasDetail={hasDetail}
             dataStatus={lensFetchStatus}
-            rootRef={lensControlRef}
           />
-
-          {/* 走行条件（出発時刻・想定速度）。レンズピル（地図上部中央、モバイルの
-              BottomSheetに隠れない位置）の直下へ積む。出発時刻は気象レイヤーの表示時刻と
-              同じ共有state（dynamicLayerTargetTime）。 */}
-          <div className={styles.rideConditionRow}>
-            <RideConditionBar
-              departureTime={dynamicLayerTargetTime}
-              onDepartureTimeChange={setDynamicLayerTargetTime}
-              speedKmh={assumedSpeedKmh}
-              onSpeedKmhChange={setAssumedSpeedKmh}
-            />
-          </div>
 
           <MapOverlayControls
             layers={overlayLayers}
@@ -2154,6 +2137,19 @@ export default function Home() {
           {/* 走行方位（風・勾配の評価に使う向き）。出発時刻・想定速度と同じ走行条件の一部として
               常時表示する（MapLibreのズーム/回転コントロールの下）。 */}
           <TravelBearingControl value={travelBearingDeg} onChange={setTravelBearingDeg} />
+
+          {/* 走行条件（出発時刻・想定速度）。走行方位アイコンの直下（地図右上）へ積む
+              （狭いスマホ画面でも地図の視界を圧迫しないよう、地図上部中央のレンズピルとは
+              別のアイコン列にする）。出発時刻は気象レイヤーの表示時刻と同じ共有state
+              （dynamicLayerTargetTime）。 */}
+          <div className={styles.rideConditionColumn}>
+            <RideConditionBar
+              departureTime={dynamicLayerTargetTime}
+              onDepartureTimeChange={setDynamicLayerTargetTime}
+              speedKmh={assumedSpeedKmh}
+              onSpeedKmhChange={setAssumedSpeedKmh}
+            />
+          </div>
 
           <button
             type="button"

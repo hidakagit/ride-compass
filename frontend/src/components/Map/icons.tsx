@@ -597,3 +597,14 @@ export function DownloadIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+/** 想定速度: 半円のメーターと針 */
+export function SpeedGaugeIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M3 14a7 7 0 0 1 14 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M10 14 13 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="10" cy="14" r="1.3" fill="currentColor" />
+    </svg>
+  );
+}

@@ -61,32 +61,25 @@ export interface OverlayLayerChip {
   title?: string;
   /** ▶を開いたときに出す案内文。legendDetailsが無い（描く凡例が無い）ときの
    * 唯一の表示内容として使う（例:「ズームインすると表示されます」）。legendDetailsが
-   * あるときは軸ごとの内訳だけで十分なため使わない（レイヤー名や絞り込みの1行要約を
-   * 重ねて出すと、▶を押した本人には自明な情報の繰り返しになるという実機フィードバックを
-   * 受けて廃止した）。 */
+   * あるときは軸ごとの内訳だけで十分なため使わない。 */
   summary?: string | null;
   /** ▶を開いたときに出す、軸ごとの全カテゴリ内訳（表示中/非表示のいずれも含む）。
-   * 絞り込み中かどうかに関わらず、レイヤーがONで凡例を持つならこれだけで開閉できる
-   * （以前は絞り込み中のレイヤーしか▶が出なかったが、無条件のレイヤーでも凡例を
-   * 確認したいという実機フィードバックを受け、legendDetailsの有無だけで判定するよう変更）。 */
+   * 絞り込み中かどうかに関わらず、レイヤーがONで凡例を持つならこれだけで開閉できる。 */
   legendDetails?: readonly LegendFilterSummaryAxis[];
-  /** グループ内の小見出し分け（改善計画T86→T166）用。mapLayers.ts:
-   * MapLayerDescriptor.categoryをそのまま渡す。未指定＝route等はどのグループにも
-   * 属さず単独チップのまま。 */
+  /** グループ内の小見出し分け用。mapLayers.ts: MapLayerDescriptor.categoryをそのまま
+   * 渡す。未指定＝route等はどのグループにも属さず単独チップのまま。 */
   category?: MapLayerCategory;
-  /** 改善計画T406/T418: mapOverlayGroupFor()がcategoryと合わせて最上位グループ（道路/
-   * 環境/スポット）を判定するために使う。mapLayers.ts: MapLayerDescriptor.dataNatureを
-   * そのまま渡す。 */
+  /** mapOverlayGroupFor()がcategoryと合わせて最上位グループ（道路/環境/スポット）を
+   * 判定するために使う。mapLayers.ts: MapLayerDescriptor.dataNatureをそのまま渡す。 */
   dataNature?: MapLayerDataNature;
-  /** 改善計画T334: 「表示する項目を選ぶ」設定パネル（renderVisibilitySettings）で、
-   * この項目の行に個別の情報アイコンを出し、押すと表示する説明文。mapLayers.ts:
+  /** 「表示する項目を選ぶ」設定パネル（renderVisibilitySettings）で、この項目の行に
+   * 個別の情報アイコンを出し、押すと表示する説明文。mapLayers.ts:
    * MapLayerDescriptor.panelHintをそのまま渡す。未設定なら情報アイコン自体を出さない。
-   * ▶パネル本体（renderRawMemberTile等）へ常時表示する用途にはもう使わない
-   * （T317同日追記で「読みにくい」とされ撤去済みのため、このフィールドは設定パネル
+   * ▶パネル本体（renderRawMemberTile等）へ常時表示する用途には使わない（設定パネル
    * 内の任意開閉表示専用）。 */
   panelHint?: string;
-  /** レイヤーのデータ取得状態（改善計画T87/T606）。ChipButtonがLayerChip（サイドバー）と
-   * 同じ「on && dataStatus != null」の間だけ小さな状態ドットを添える。 */
+  /** レイヤーのデータ取得状態。ChipButtonがLayerChip（サイドバー）と同じ
+   * 「on && dataStatus != null」の間だけ小さな状態ドットを添える。 */
   dataStatus?: LayerDataStatus;
 }
 
@@ -103,26 +96,23 @@ interface MapOverlayControlsProps {
   onLegendAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void;
 }
 
-// 最上位グループ（改善計画T406/T418: 道路/環境/スポット）単位でグルーピングされた
-// チップの中身。どのグループにも属さないレイヤー（route等）は単独チップ
-// （members.length === 1）としてまとめて表現し、単独/グループの分岐をレンダリング側で
-// 1本化する（T128から続く設計、実装時の想定どおり「1件だけのグループ」として同じ
-// コンポーネントで扱う）。
+// 最上位グループ（道路/環境/スポット）単位でグルーピングされたチップの中身。どの
+// グループにも属さないレイヤー（route等）は単独チップ（members.length === 1）として
+// まとめて表現し、単独/グループの分岐をレンダリング側で1本化する。
 interface ChipGroup {
   key: string;
   members: readonly OverlayLayerChip[];
 }
 
-// 改善計画T406/T418: レイヤーをmapOverlayGroupFor()（mapLayers.ts）で最上位グループ
-// （道路/環境/スポット）へ束ね、どのグループにも属さないレイヤー（route等）は元の並び順の
-// まま末尾へ単独チップとして追加する。ただし軸スタジオ由来のレイヤー
-// （isAxisStudioLayer、ramp軸・windAxis）はmapOverlayGroupForがundefinedを返す点では
-// route等と同じだが、T418でルート設定パネルへ移設し地図UIには一切出さないと決めたため、
-// 単独チップとしても出さないよう明示的に除外する（撤去せずundefinedにしただけだと
-// route等と区別できず単独チップとして復活してしまう）。表示順はMAP_OVERLAY_GROUP_ORDER
-// （道路→環境→スポット、docs/tasks/T400.md「最終形」の記載順のうち評価軸を除いたもの）に
-// 従う。旧「観測/推定/動的」（次数、MapLayerDataNature）とは独立した分類軸のため、この
-// 関数はdataNatureそのものではなくmapOverlayGroupForの判定結果だけを見る。
+// レイヤーをmapOverlayGroupFor()（mapLayers.ts）で最上位グループ（道路/環境/スポット）へ
+// 束ね、どのグループにも属さないレイヤー（route等）は元の並び順のまま末尾へ単独チップ
+// として追加する。ただし軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・windAxis）は
+// mapOverlayGroupForがundefinedを返す点ではroute等と同じだが、ルート設定パネルへ移設し
+// 地図UIには一切出さないため、単独チップとしても出さないよう明示的に除外する
+// （undefinedだけだとroute等と区別できず単独チップとして復活してしまう）。表示順は
+// MAP_OVERLAY_GROUP_ORDER（道路→環境→スポット）に従う。MapLayerDataNature（生/合成/
+// 動的）とは独立した分類軸のため、この関数はdataNatureそのものではなく
+// mapOverlayGroupForの判定結果だけを見る。
 function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   const groups: ChipGroup[] = [];
   for (const group of MAP_OVERLAY_GROUP_ORDER) {
@@ -137,8 +127,8 @@ function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   return groups;
 }
 
-// レイヤーIDごとの自作アイコン（icons.tsx）。地図上は文字だけのチップだとスペースを
-// 圧迫するという実機フィードバックを受け、小さいアイコン+短いラベルの縦並びへ変更した。
+// レイヤーIDごとの自作アイコン（icons.tsx）。地図上は小さいアイコン+短いラベルの
+// 縦並びで表示する（文字だけのチップはスペースを圧迫するため）。
 const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement> = {
   elevation: ElevationIcon,
   roadType: RoadIcon,
@@ -151,14 +141,14 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   accidents: AccidentIcon,
   precipitationNowcast: RaindropIcon,
   windVector: WindIcon,
-  // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸としての風）。専用アイコンは持たず、
-  // 同じ風のデータを扱うwindVectorと同じWindIconを流用する。T418でこのチップ自体は
-  // 地図上から撤去したが、RouteSettingsPanel側がこのIcon辞書は引き続き参照しうるため残す。
+  // way_id→wind_drag_ratio配信層（評価軸としての風）。専用アイコンは持たず、同じ風の
+  // データを扱うwindVectorと同じWindIconを流用する。このチップ自体は地図上に出ないが、
+  // RouteSettingsPanel側がこのIcon辞書を引き続き参照しうるため残す。
   windAxis: WindIcon,
-  // 改善計画T423: 勾配の環境グループ面表示・評価軸配信層。専用アイコンは持たず、同じ地形
-  // データを扱うelevation（標高図）と同じElevationIconを流用する（windVector/windAxisが
-  // WindIconを共有するのと同じパターン）。gradientAxisもT418と同じ理由でチップとしては
-  // 地図上に出ないが、RouteSettingsPanel側の参照に備えてRecordを完全に埋める。
+  // 勾配の環境グループ面表示・評価軸配信層。専用アイコンは持たず、同じ地形データを扱う
+  // elevation（標高図）と同じElevationIconを流用する（windVector/windAxisがWindIconを
+  // 共有するのと同じパターン）。gradientAxisも同じ理由でチップとしては地図上に出ないが、
+  // RouteSettingsPanel側の参照に備えてRecordを完全に埋める。
   gradientFill: ElevationIcon,
   gradientAxis: ElevationIcon,
   // 災害（雷・竜巻・落雷・キキクル4種を1チップへまとめたグループ）。個々の要素を表す
@@ -168,7 +158,7 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   route: RouteIcon,
 };
 
-// 最上位グループチップ（改善計画T406/T418: 道路/環境/スポット）を代表するアイコン。
+// 最上位グループチップ（道路/環境/スポット）を代表するアイコン。
 // 道路=RoadIcon（個別メンバーroadTypeと共用、群のテーマそのもの）・
 // 環境=EnvironmentDataIcon（雲、terrain+weatherを併せて表す新規アイコン）・
 // スポット=SpotDataIcon（地図ピン、新規アイコン）。
@@ -186,24 +176,21 @@ const PANEL_GAP_PX = 8;
 // 画面下端からのはみ出し対策（下記toggleExpanded参照）をJS側で計算するために数値でも
 // 持つ必要がある）。
 const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot font-size 16pxベース）
-// 内訳パネルの最小幅（実機フィードバック「凡例が見切れる」への対応、2026-08-27）。
-// 画面右端に近いタイル（例: 推定グループ末尾の軸）の▼/▶を押すと、rect.right基準の
-// leftが既にビューポート右端に近く、この最小幅すら確保できないままpanelRect.leftを
+// 内訳パネルの最小幅。画面右端に近いタイル（例: 推定グループ末尾の軸）の▼/▶を押すと、
+// rect.right基準のleftが既にビューポート右端に近く、この最小幅すら確保できないまま
+// panelRect.leftを
 // 使ってしまい、パネルがビューポート外へはみ出して読めなくなっていた。leftをこの分
 // だけビューポート内へ押し戻すことで、パネル自身が必ずこの最小幅ぶんは画面内に収まる
 // ようにする（下記toggleExpanded参照）。
 const MIN_PANEL_WIDTH_PX = 160;
-// グループ本体の開閉キー（改善計画T199、下記toggleExpandedのコメント参照）。
-// floatingパネルを持たないため排他制御の対象外にする。改善計画T406で3グループ
-// （raw/composite/dynamic）から4グループ（道路/評価軸/環境/スポット）へ再編し、
-// T418で評価軸チップを撤去したため道路/環境/スポットの3グループになった。
+// グループ本体の開閉キー（下記toggleExpandedのコメント参照）。floatingパネルを持たない
+// ため排他制御の対象外にする。
 const GROUP_VISIBILITY_KEYS = new Set(["group:road", "group:environment", "group:spot"]);
 
-// グループの開閉・表示項目の設定をlocalStorageへ永続化する（改善計画、ユーザー要望
-// 「グループの選択状態等は保持しておいて、次開いた時に同じ状態にして。時間経過で変動する
-// 要素以外は、過去の設定内容はlocalStorage等で保持してほしい」）。page.tsxのlayerVisibility
-// （各レイヤーのON/OFF自体）は既にuseStoredStateで永続化済みのため、ここではMapOverlayControls
-// 固有の「見せ方」の設定（グループ本体の開閉・非表示に選んだメンバー/軸）だけを対象にする。
+// グループの開閉・表示項目の設定をlocalStorageへ永続化する（時間経過で変動する要素以外は
+// 次回訪問時も同じ状態を保つ）。page.tsxのlayerVisibility（各レイヤーのON/OFF自体）は
+// 既にuseStoredStateで永続化済みのため、ここではMapOverlayControls固有の「見せ方」の
+// 設定（グループ本体の開閉・非表示に選んだメンバー/軸）だけを対象にする。
 const MAP_OVERLAY_EXPANDED_GROUPS_STORAGE_KEY = "ridecompass:map-overlay-expanded-groups";
 const MAP_OVERLAY_HIDDEN_IDS_STORAGE_KEY = "ridecompass:map-overlay-hidden-ids";
 
@@ -236,13 +223,10 @@ interface PanelRect {
 
 // 凡例1カテゴリぶんのスウォッチ。太さ・線種で地図に反映するカテゴリ（entry.widthを持つ、
 // 例:「道路の種類」）は、実寸の太さバーで示す（WidthSwatch.tsxと同じ理由）。バー自体も
-// entry.colorで塗る（改善計画: 「道路種別が支配的な場合、色がすべて灰色で違和感がある」
-// への対応で道路の種類も濃淡パレット（COLOR_HIGHWAY_*）を持つようになったため、凡例と
-// 地図の見た目を一致させる。路面の種類等widthを持たないカテゴリは従来どおり色ドット）。
-// 改善計画T471: 以前はここでWidthSwatch.tsx（MapLayersPanel）とほぼ同じ太さバーの
-// 描画を独立に再実装しており、拡大率（WidthSwatch.tsx: DISPLAY_SCALE=1.8）が
-// 適用されていなかったため、同じentry.widthでも2箇所で見た目の太さが食い違っていた。
-// WidthSwatchをそのまま使うことで実装の重複と縮尺の食い違いを両方解消する。
+// entry.colorで塗る（道路の種類も濃淡パレット（COLOR_HIGHWAY_*）を持つため、凡例と
+// 地図の見た目を一致させる。路面の種類等widthを持たないカテゴリは色ドット）。
+// WidthSwatch（MapLayersPanel）をそのまま使うことで、拡大率（WidthSwatch.tsx:
+// DISPLAY_SCALE）を含め太さバーの描画を1箇所に集約する。
 function renderLegendSwatch(entry: LegendEntry) {
   if (entry.width === undefined) {
     return <span className={styles.detailSwatchDot} style={{ background: entry.color }} />;
@@ -301,7 +285,7 @@ function renderLegendDetails(
               {axis.legend.map((entry) => {
                 const hidden = axis.hiddenKeys.includes(entry.key);
                 // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線で
-                // 分離する（改善計画T89、MapLayersPanel.tsxの同種の区切りと対応）。
+                // 分離する（MapLayersPanel.tsxの同種の区切りと対応）。
                 const rowClasses = [styles.detailRow];
                 if (hidden) rowClasses.push(styles.detailRowHidden);
                 if (entry.isFallback) rowClasses.push(styles.detailRowFallback);
@@ -321,18 +305,10 @@ function renderLegendDetails(
   );
 }
 
-// 改善計画T374（ユーザー指摘、2026-08-27）: T370〜T373のドラッグスクロール方式
-// （useDragScroll、削除済み）は、地図とのピンチズーム競合を避けるための既存対策
-// （.iconChip自身のtouch-action: none）と正面衝突し続け、ドラッグ検知・クリック抑止・
-// setPointerCapture等の後追いパッチが積み重なって煩雑化した上、実際のスクロール発生が
-// 既存のhandleChipRowScroll（スクロールで凡例パネルを閉じる処理、position: fixedパネルが
-// 行に追従できないため）を誤って誘発し「グループの展開状態ごと全部閉じてしまう」不具合も
-// 引き起こした。要件は「はみ出したアイコンを直感的に確認できればよい」だけなので、
-// ドラッグ操作を伴うスクロール自体をやめ、はみ出した分だけ▼/▶ボタンでページ送りする
-// 方式へ変更する（ユーザー提案の設計）。ボタンのクリックはtouch-actionの影響を受けない
-// （touch-actionはpan/zoom等の"ジェスチャー"だけを制御する仕様で、タップ由来のclickは
-// 対象外）ため、.iconChipのtouch-action: noneと衝突しない。ドラッグ検知・クリック抑止・
-// scrollイベント経由の副作用が丸ごと不要になる。
+// はみ出したアイコンは、はみ出した分だけ▼/▶ボタンでページ送りする方式にしてある。
+// ボタンのクリックはtouch-actionの影響を受けない（touch-actionはpan/zoom等の
+// "ジェスチャー"だけを制御する仕様で、タップ由来のclickは対象外）ため、地図との
+// ピンチズーム競合を避けるための.iconChip自身のtouch-action: noneと衝突しない。
 //
 // 表示領域（overflow: hiddenで固定サイズ、スクロールバー自体が存在しない）の中身を
 // translateX/Yで押し引きし、まだ隠れている分がある間だけ矢印ボタンを出す。
@@ -374,10 +350,10 @@ function usePagedOverflow(axis: "x" | "y") {
     measure();
   }, [measure]);
 
-  // 改善計画T471: registerViewport/registerTrackはコールバックrefとしてJSXへ渡すため、
-  // useCallbackで参照を安定させないと親コンポーネントが再レンダーするたびに新しい関数が
-  // 渡り、Reactがref変更とみなして毎回detach（null呼び出し）→reattachし、
-  // rewireObserver（ResizeObserverの破棄・再構築）が無関係な再レンダーのたびに走っていた。
+  // registerViewport/registerTrackはコールバックrefとしてJSXへ渡すため、useCallbackで
+  // 参照を安定させないと親コンポーネントが再レンダーするたびに新しい関数が渡り、Reactが
+  // ref変更とみなして毎回detach（null呼び出し）→reattachし、rewireObserver
+  // （ResizeObserverの破棄・再構築）が無関係な再レンダーのたびに走ってしまう。
   const registerViewport = useCallback(
     (el: HTMLDivElement | null) => {
       viewportRef.current = el;
@@ -409,13 +385,11 @@ function usePagedOverflow(axis: "x" | "y") {
   };
 }
 
-// 改善計画T380フォローアップ（ユーザー指摘、2026-08-27）「押し続けるとそのまま送って
-// ほしい」「誤タップで背後の地図を拡大してしまうことがある」への対応。従来はワンタップ
-// =1ステップのみで、複数ステップ送るには小さい丸ボタン（1.6rem四方）へ素早く連打する
-// 必要があった。連打中はhasMore/hasLessの変化でボタン自体の出現・消滅が起きて位置が
-// わずかに動くため、タップが外れて地図キャンバス側に着弾しやすく、それが2連続になると
-// 地図側のダブルタップズームとして誤って解釈されていたと考えられる。「押しっぱなしで
-// 連続送り」を用意すれば連打そのものが不要になり、地図への誤タップの機会を減らせる。
+// ページ送りボタンは押しっぱなしで連続送りできる。ワンタップ=1ステップのみだと、
+// 複数ステップ送るのに小さい丸ボタン（1.6rem四方）へ連打が必要になり、hasMore/hasLessの
+// 変化でボタン自体の出現・消滅が起きて位置がわずかに動くため、タップが外れて地図
+// キャンバス側の誤操作（ダブルタップズーム等）を誘発しやすい。押しっぱなしでの連続送りは
+// この連打そのものを不要にする。
 //
 // クリック（マウス・タッチ・キーボードのEnter/Spaceいずれも最終的にonClickへ集約される）
 // を「1回押した分」の唯一の実行経路として維持しつつ、pointerdown/upだけで「長押し中の
@@ -501,12 +475,11 @@ function useHoldRepeat(action: () => void, canRepeat: boolean, delayMs = 450, in
 }
 
 // チップ本体の共通コンポーネント。単独チップ（グループ化されないレイヤー）とグループ
-// チップ（改善計画T128、複数レイヤーを1つのカテゴリへ束ねたもの）の両方で同じ
-// 「本体ボタン+隣の▶/▼ボタン」の2ボタン構成を使う。単独チップは本体タップ=ON/OFF・
-// ▶/▼=凡例展開の別アクションだが、グループチップは束ねた個々のレイヤーのON/OFFが
-// 一意に決まらず一括ON/OFFは設けない（誤操作リスク、改善計画T128の実装メモ参照）ため、
-// 本体タップも展開トグルと同じ展開/収納にする（呼び出し側でonTapにonExpandToggleと
-// 同じ関数を渡す）。
+// チップ（複数レイヤーを1つのカテゴリへ束ねたもの）の両方で同じ「本体ボタン+隣の
+// ▶/▼ボタン」の2ボタン構成を使う。単独チップは本体タップ=ON/OFF・▶/▼=凡例展開の
+// 別アクションだが、グループチップは束ねた個々のレイヤーのON/OFFが一意に決まらず
+// 一括ON/OFFは設けない（誤操作リスク）ため、本体タップも展開トグルと同じ展開/収納に
+// する（呼び出し側でonTapにonExpandToggleと同じ関数を渡す）。
 // MapOverlayControlsの内側に定義するとレンダーのたびに新しい関数（＝別のコンポーネント型）
 // になり、Reactが毎回アンマウント/再マウントしてDOMノードの同一性が失われる（展開直後に
 // 別要素へ差し替わり、テストや実機のフォーカス・aria状態が壊れる）ため、モジュール直下の
@@ -551,34 +524,30 @@ function ChipButton({
   panelContent: ReactElement;
   panelRect: PanelRect | undefined;
   registerRow: (el: HTMLDivElement | null) => void;
-  /** 展開方向（改善計画T169、地図UIのマトリックス化）。
+  /** 展開方向。
    * "down"（▼→▲、行の直下へ通常のドキュメントフローで展開）と"right"（▶→▽回転、
    * document.bodyへポータルしてposition: fixedで行の右に浮かせる。個々のメンバータイル・
-   * 単独チップ（ルート等）の凡例展開はこちら）は従来どおり自身がpanelContentを描画する。
+   * 単独チップ（ルート等）の凡例展開はこちら）は自身がpanelContentを描画する。
    * "flat"（観測グループ本体、▼→▲）は、独立カード（サブフレーム）に閉じ込めず、地図の
-   * チップ列と地続きに展開してほしいという実機フィードバックへの対応。矢印の見た目は
-   * "down"と同じだが、自身は内訳を描画しない。呼び出し元（MapOverlayControls本体）が
-   * このボタンの直後にメンバーをchipRowの直接の子として差し込む。改善計画T418で
-   * 評価軸グループ（横並び展開）を撤去したのに伴い、対になっていた"flatRight"は削除した。 */
+   * チップ列と地続きに展開する。矢印の見た目は"down"と同じだが、自身は内訳を描画しない。
+   * 呼び出し元（MapOverlayControls本体）がこのボタンの直後にメンバーをchipRowの直接の
+   * 子として差し込む。 */
   expandDirection?: "right" | "down" | "flat";
-  /** 観測グループ本体だけに立てる印（実機フィードバック「展開三角アイコンをなくし、
-   * 展開状態は推定と観測アイコンの状態で表現して」への対応）。true のときは隣接する
-   * ▶/▼の丸トグルボタン自体を描画せず、本体ボタンのactive見た目とaria-expandedで
-   * 開閉状態を表す。本体タップは元々onTapにtoggleExpandedと同じ関数を渡しているため、
-   * 押下対象は変わらない（挙動はそのまま、見た目と意味づけだけを変える）。単独チップ
-   * （ON/OFFと凡例展開が別アクション）はこの対象外で、従来どおり独立した丸トグルを持つ。
-   * active見た目には.iconChipActive（青、ON/OFFチップと同じ＝「地図に反映されている」の
-   * 意味）ではなく.iconChipExpanded（実機フィードバック「展開中は薄色でON、展開解除は
-   * 灰色でOFFを示して」、CSS側は.groupHeaderChipマーカーとgroupTintの組み合わせで
-   * 折りたたみ=灰色・展開=そのグループの薄色塗りを出す）を使う。見出し自体はメンバーの
-   * ON/OFFを表さないため、青（.iconChipActive）を使うと「このグループの内容が地図に
-   * 出ている」と誤読されてしまう。 */
+  /** 観測グループ本体だけに立てる印。true のときは隣接する▶/▼の丸トグルボタン自体を
+   * 描画せず、本体ボタンのactive見た目とaria-expandedで開閉状態を表す。本体タップは
+   * 元々onTapにtoggleExpandedと同じ関数を渡しているため、押下対象は変わらない
+   * （挙動はそのまま、見た目と意味づけだけを変える）。単独チップ（ON/OFFと凡例展開が
+   * 別アクション）はこの対象外で、独立した丸トグルを持つ。active見た目には
+   * .iconChipActive（青、ON/OFFチップと同じ＝「地図に反映されている」の意味）ではなく
+   * .iconChipExpanded（展開中は薄色でON、展開解除は灰色でOFFを示す。CSS側は
+   * .groupHeaderChipマーカーとgroupTintの組み合わせで折りたたみ=灰色・展開=そのグループの
+   * 薄色塗りを出す）を使う。見出し自体はメンバーのON/OFFを表さないため、青
+   * （.iconChipActive）を使うと「このグループの内容が地図に出ている」と誤読されてしまう。 */
   expandViaSelf?: boolean;
-  /** 最上位グループ（改善計画T406/T418: 道路/環境/スポット）の色分け（実機フィードバック
-   * 「それぞれのタイル及びそのグループ配下を少しずつ色を変えてグルーピングして」）。
-   * 未指定＝どのグループにも属さない単独チップ（ルート等）は無色のまま。 */
+  /** 最上位グループ（道路/環境/スポット）の色分け。未指定＝どのグループにも属さない
+   * 単独チップ（ルート等）は無色のまま。 */
   groupTint?: MapOverlayGroup;
-  /** レイヤーのデータ取得状態（改善計画T87/T606）。LayerChip（サイドバー）と同じ
+  /** レイヤーのデータ取得状態。LayerChip（サイドバー）と同じ
    * 「active && dataStatus != null」の間だけアイコン右上へ小さな状態ドットを添える。 */
   dataStatus?: LayerDataStatus;
 }) {
@@ -586,13 +555,13 @@ function ChipButton({
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
   const isActiveVisual = expandViaSelf ? isExpanded : active;
   const groupTintClass = groupTint ? GROUP_TINT_CLASSES[groupTint] : "";
-  // グループ見出し（観測、expandViaSelf=true）だけに付く印（実機フィードバック
-  // 「展開中は薄色でON、展開解除は灰色でOFFを示して」）。メンバータイルは常に枠線だけ
-  // グループ色のままにしたいため、見出しだけを区別するマーカークラスをCSS側の
-  // コンパウンドセレクタ（.groupHeaderChip.iconChipGroupRaw等）で使う。
+  // グループ見出し（観測、expandViaSelf=true）だけに付く印。展開中は薄色でON、展開解除は
+  // 灰色でOFFを示す。メンバータイルは常に枠線だけグループ色のままにしたいため、見出しだけを
+  // 区別するマーカークラスをCSS側のコンパウンドセレクタ（.groupHeaderChip.iconChipGroupRaw
+  // 等）で使う。
   const headerMarkerClass = expandViaSelf ? styles.groupHeaderChip : "";
-  // レイヤーのデータ取得状態（改善計画T87/T606）。LayerChip.tsxと同じ「ONの間だけ」判定
-  // （OFF中はチップ自体の見た目でON/OFFが分かるため出さない）。
+  // レイヤーのデータ取得状態。LayerChip.tsxと同じ「ONの間だけ」判定（OFF中はチップ自体の
+  // 見た目でON/OFFが分かるため出さない）。
   const showStatusDot = active && dataStatus != null;
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
   const chipTitle = showStatusDot && statusLabel ? (title ? `${title}（${statusLabel}）` : statusLabel) : title;
@@ -654,8 +623,7 @@ function ChipButton({
 
 // 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」ON/OFFチップと、▶で開く凡例
 // だけ。絞り込みの編集・色分けモードの選択など「変更を伴う設定」はすべてサイドバー
-// （MapLayersPanel）で行う（地図上の▶はあくまで確認用で、以前あった「タップでサイドバーへ
-// ジャンプ」動線はここが確認専用になったことで廃止した）。このコンポーネントはレイヤー
+// （MapLayersPanel）で行う（地図上の▶はあくまで確認用）。このコンポーネントはレイヤー
 // 固有の知識を持たない汎用の描画係で、レイヤーが増えてもここは変更不要（mapLayers.tsの
 // コメント参照）。
 export default function MapOverlayControls({
@@ -664,18 +632,16 @@ export default function MapOverlayControls({
   onLegendEntryToggle,
   onLegendAxisSetHidden,
 }: MapOverlayControlsProps) {
-  // 凡例を常時表示すると地図の視界を圧迫するという実機フィードバックを受け、既定は
-  // 非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
-  // 開閉はキーのSetで個別管理する。キーはレイヤーID（単独チップ）・`member:${id}`
-  // （道路/環境/スポットグループのメンバー）・グループキー`group:road`/`group:environment`/
-  // `group:spot`（改善計画T166→T406→T418、グループ本体の開閉）・`${groupKey}:legend`
-  // （アイコンの意味凡例）のいずれか。
+  // 凡例は既定で非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで
+  // 出す（常時表示すると地図の視界を圧迫するため）。開閉はキーのSetで個別管理する。
+  // キーはレイヤーID（単独チップ）・`member:${id}`（道路/環境/スポットグループの
+  // メンバー）・グループキー`group:road`/`group:environment`/`group:spot`（グループ本体の
+  // 開閉）・`${groupKey}:legend`（アイコンの意味凡例）のいずれか。
   // グループ本体の開閉はfloatingパネルを持たない（memberの一覧をchipRowへインラインで
   // 差し込むだけ）ため複数グループを同時に開いても重ならないが、それ以外
   // （member:/単独チップ/${groupKey}:legend）はdocument.bodyへポータルするfloatingパネルの
-  // ため、複数同時に開くと近接する行同士でパネルが重なり両方とも判読不能になる不具合が
-  // 実機で確認された（統合レビュー2026-08-22指摘、改善計画T199: 降水ナウキャストと風の
-  // 凡例を続けて開いた場合）。
+  // ため、複数同時に開くと近接する行同士でパネルが重なり両方とも判読不能になる
+  // （降水ナウキャストと風の凡例を続けて開いた場合等）。
   // toggleExpanded側でfloatingパネル系のキーは排他（新しく開いたら他を閉じる）にする。
   // グループ本体の開閉（GROUP_VISIBILITY_KEYS）だけをlocalStorageへ永続化する（上記
   // MAP_OVERLAY_EXPANDED_GROUPS_STORAGE_KEYのコメント参照。floatingパネル系のキーは
@@ -690,18 +656,16 @@ export default function MapOverlayControls({
   );
   // 内訳パネルの表示位置（viewport基準のpx）。アイコン列（chipRow）は縦スクロール可能
   // （レイヤー数が多い画面向け）だが、CSSの仕様上overflow-yを指定するとoverflow-xも
-  // 暗黙にauto扱いになり、そのままではパネルをposition: absoluteでこの行の右へ
-  // はみ出させる従来方式だとchipRowにクリップされて何も見えなくなる（実機フィードバック
-  // 「▶を押しても何も出ない」＝この不具合）。document.bodyへポータルし、押した瞬間の
+  // 暗黙にauto扱いになり、パネルをposition: absoluteでこの行の右へはみ出させる方式だと
+  // chipRowにクリップされて何も見えなくなる。document.bodyへポータルし、押した瞬間の
   // 行の実際の画面位置をJSで測ってposition: fixedで配置することでクリップを回避する。
   const [panelRects, setPanelRects] = useState<Partial<Record<string, PanelRect>>>({});
   const rowRefs = useRef<Partial<Record<string, HTMLDivElement | null>>>({});
-  // 改善計画T374: .chipRowの、はみ出し分のページ送り（usePagedOverflow参照）。JSXのprops側で
+  // .chipRowの、はみ出し分のページ送り（usePagedOverflow参照）。JSXのprops側で
   // オブジェクトのメンバー式（例: chipRowPaging.registerTrack）を直接参照すると、
   // react-hooks/refs lintルールが「レンダー中のref参照」と誤検知するため（返り値にref操作を
   // 含む関数を持つカスタムフックのため保守的に判定される）、ここで一度分割代入し裸の変数として
-  // JSXへ渡す。改善計画T418で評価軸グループ（横並び展開、.estimatedFlatRow）を撤去したのに
-  // 伴い、対になっていた横方向のusePagedOverflow("x")呼び出しは不要になり削除した。
+  // JSXへ渡す。
   const {
     registerViewport: registerChipRowViewport,
     registerTrack: registerChipRowTrack,
@@ -712,16 +676,12 @@ export default function MapOverlayControls({
     hasLess: chipRowHasLess,
   } = usePagedOverflow("y");
 
-  // 道路/環境/スポットグループで「表示する項目を選ぶ」設定（改善計画T181、T406で
-  // 旧「観測/推定/動的」から再編、T418で評価軸グループを撤去）。ユーザー報告「縦アイコンが
-  // 多くて見切れるようになってきた」への対応として、グループ見出しのⓘボタン（従来は
-  // 読み取り専用の「アイコンの意味」凡例だった）を、配下メンバーの表示・非表示を選べる
-  // 設定パネルへ拡張する。グループ本体を開くと、ここで非表示に選んだもの以外だけが並ぶ
-  // （絞り込みは各グループ内で完結し、既定＝何も非表示に選んでいない状態では従来どおり
-  // 全件表示）。キーは`${scope}:${memberId}`（scope="road"|"environment"|"spot"、グループ間で
-  // IDが衝突しても名前空間で区別できるようにする）。ユーザー要望「過去の設定内容は
-  // localStorageで保持してほしい」を
-  // 受け、localStorageへ永続化する（レイヤー構成が変わり存在しないIDが残っても、
+  // 道路/環境/スポットグループで「表示する項目を選ぶ」設定。グループ見出しのⓘボタンから、
+  // 配下メンバーの表示・非表示を選べる設定パネルを開く。グループ本体を開くと、ここで
+  // 非表示に選んだもの以外だけが並ぶ（絞り込みは各グループ内で完結し、既定＝何も非表示に
+  // 選んでいない状態では全件表示）。キーは`${scope}:${memberId}`（scope="road"|
+  // "environment"|"spot"、グループ間でIDが衝突しても名前空間で区別できるようにする）。
+  // localStorageへ永続化する（レイヤー構成が変わり存在しないIDが残っても、
   // renderVisibilitySettings側は現在渡された項目とのマッチングでしか使わないため実害はない）。
   const [hiddenIds, setHiddenIds] = useStoredState<ReadonlySet<string>>(
     MAP_OVERLAY_HIDDEN_IDS_STORAGE_KEY,
@@ -733,8 +693,7 @@ export default function MapOverlayControls({
   );
 
   // 非表示に選んだ項目に表示中のレイヤーが紐づいている場合、その場でレイヤー自体も
-  // OFFにする（実機フィードバック「設定で非表示にした場合、裏でレイヤ表示ONになっていれば
-  // OFFにして」）。設定パネルからチップが消えた後もレイヤーが地図に描画され続け、かつ
+  // OFFにする。設定パネルからチップが消えた後もレイヤーが地図に描画され続け、かつ
   // チップが無いのでOFFにする手段も無くなる、という状態を防ぐ。逆方向（非表示解除＝
   // 再表示）はチップを選べるようにするだけで、レイヤーを自動でONにはしない
   // （「隠す/出す」はチップの見た目の設定であり、ON/OFFの意思決定はユーザーが個別に行う
@@ -755,9 +714,9 @@ export default function MapOverlayControls({
     }
   }
 
-  // 改善計画T334: 「表示する項目を選ぶ」設定パネル内、各項目の情報アイコンで説明文
-  // (panelHint)を開閉する状態。個々の凡例展開（member:/axis:等）と同じく「今ちょっと
-  // 確認のために開いている」一時的な状態のため、localStorageへは永続化しない
+  // 「表示する項目を選ぶ」設定パネル内、各項目の情報アイコンで説明文(panelHint)を
+  // 開閉する状態。個々の凡例展開（member:/axis:等）と同じく「今ちょっと確認のために
+  // 開いている」一時的な状態のため、localStorageへは永続化しない
   // （serializeStringSet/deserializeStringSetの対象に含めない）。キーは
   // `${scope}:${item.key}`でhiddenIdsと同じ名前空間の作り方に揃える。
   const [openInfoKeys, setOpenInfoKeys] = useState<ReadonlySet<string>>(new Set());
@@ -773,13 +732,11 @@ export default function MapOverlayControls({
     });
   }
 
-  // anchor="right"（従来どおり行の右へ）/"down"（行の直下へ）。いずれもdocument.bodyへ
-  // ポータルしてposition: fixedで浮かせる（下記ChipButton参照）。▼方向（推定グループの
-  // 軸タイル）を最初はchipRowItem内の通常のフロー+position: absoluteで実装したが、
-  // chipRowのoverflow-y: auto（＝暗黙にoverflow-xもauto）の内側にある限りabsolute配置でも
+  // anchor="right"（行の右へ）/"down"（行の直下へ）。いずれもdocument.bodyへポータルして
+  // position: fixedで浮かせる（下記ChipButton参照）。chipRowのoverflow-y: auto
+  // （＝暗黙にoverflow-xもauto）の内側でposition: absolute配置すると、パネルが
   // chipRowのスクロール可能領域に算入されてしまい、パネル1個ぶん右にはみ出ただけで
-  // chipRowに横スクロールバーが出てしまう不具合が実機で見つかった（▶方向で以前解決した
-  // のと同じ種類の問題）。▶方向と同じくポータルで完全にchipRowの外へ出すことで解消する。
+  // chipRowに横スクロールバーが出てしまうため、ポータルで完全にchipRowの外へ出す。
   const toggleExpanded = (id: string, anchor: "right" | "down" = "right") => {
     const isOpening = !expandedIds.has(id);
     if (isOpening) {
@@ -788,16 +745,16 @@ export default function MapOverlayControls({
         const rect = row.getBoundingClientRect();
         const top = anchor === "down" ? rect.bottom + PANEL_GAP_PX : rect.top;
         const rawLeft = anchor === "down" ? rect.left : rect.right + PANEL_GAP_PX;
-        // 画面右端からのはみ出し対策（実機フィードバック「凡例が見切れる」への対応）。
-        // 画面右端に近いタイル（推定グループ末尾の軸等）だとrawLeftが既にビューポート
+        // 画面右端からのはみ出し対策。画面右端に近いタイル（推定グループ末尾の軸等）だと
+        // rawLeftが既にビューポート
         // 右端に近く、下のmaxWidth計算のMath.max(160, ...)フロアにより最小幅160pxが
         // 強制されてもleft自体を動かさないままだとパネルがビューポート外へはみ出して
         // しまう。leftをこの分だけ画面内へ押し戻し、パネルが必ずMIN_PANEL_WIDTH_PXぶん
         // 画面内に収まるようにする（画面幅自体がそれより狭い極端なケースはPANEL_GAP_PX
         // まで詰める）。
         const left = Math.min(rawLeft, Math.max(PANEL_GAP_PX, window.innerWidth - MIN_PANEL_WIDTH_PX - PANEL_GAP_PX));
-        // 画面下端からのはみ出し対策（実機フィードバック「スクロールできないことがある」）。
-        // position: fixedのためtopが画面下端に近いと、CSS既定の最大高さ（16rem）ぶんが
+        // 画面下端からのはみ出し対策。position: fixedのためtopが画面下端に近いと、
+        // CSS既定の最大高さ（16rem）ぶんが
         // ビューポート外へはみ出してしまい、パネル自身のoverflow-y: autoでスクロールしても
         // ビューポート外の部分には原理的に到達できない（fixed要素はドキュメントのスクロール
         // 領域に算入されないため）。横方向のmaxWidthを画面幅から逆算するのと同じ考え方で、
@@ -816,10 +773,10 @@ export default function MapOverlayControls({
       if (next.has(id)) {
         next.delete(id);
       } else {
-        // floatingパネル系のキー（member:/axis:/単独チップ/${groupKey}:legend）は排他
-        // （改善計画T199）: 新しく開くキーがグループ本体の開閉（GROUP_VISIBILITY_KEYS）で
-        // なければ、他のfloatingパネル系キーをすべて閉じてから開く。グループ本体同士は
-        // floatingパネルを持たないため対象外のまま複数同時に開ける。
+        // floatingパネル系のキー（member:/axis:/単独チップ/${groupKey}:legend）は排他:
+        // 新しく開くキーがグループ本体の開閉（GROUP_VISIBILITY_KEYS）でなければ、他の
+        // floatingパネル系キーをすべて閉じてから開く。グループ本体同士はfloatingパネルを
+        // 持たないため対象外のまま複数同時に開ける。
         if (!GROUP_VISIBILITY_KEYS.has(id)) {
           for (const existing of next) {
             if (!GROUP_VISIBILITY_KEYS.has(existing)) next.delete(existing);
@@ -831,13 +788,10 @@ export default function MapOverlayControls({
     });
   };
 
-  // 改善計画T374: ページ送り（▲▼/◀▶）を押すと、position: fixedの凡例パネルは
-  // 行に追従できず表示がずれたままになるため閉じる。以前（T370〜T373のドラッグ
-  // スクロール、handleChipRowScroll）はexpandedIdsを丸ごとクリアしており、
-  // グループ自体の展開状態（GROUP_VISIBILITY_KEYS）まで一緒に閉じてしまい
-  // 「観測/動的グループを開いて送ろうとすると全部折りたたまれる」不具合になっていた。
-  // ページ送り自体はグループを開いたまま行いたい操作のため、フローティングパネル系の
-  // キー（member:/axis:/単独チップ/${groupKey}:legend）だけを対象にする。
+  // ページ送り（▲▼/◀▶）を押すと、position: fixedの凡例パネルは行に追従できず表示が
+  // ずれたままになるため閉じる。ページ送り自体はグループを開いたまま行いたい操作のため、
+  // グループ自体の展開状態（GROUP_VISIBILITY_KEYS）は対象にせず、フローティングパネル系の
+  // キー（member:/axis:/単独チップ/${groupKey}:legend）だけを閉じる。
   const closeFloatingPanels = () => {
     setExpandedIds((prev) => {
       const next = new Set([...prev].filter((key) => GROUP_VISIBILITY_KEYS.has(key)));
@@ -845,10 +799,9 @@ export default function MapOverlayControls({
     });
   };
 
-  // 改善計画T380フォローアップ: ▲▼/◀▶それぞれの「押しっぱなしで連続送り」
-  // （useHoldRepeat参照）。closeFloatingPanels()は既存のクリックハンドラと同じく
-  // ページ送りのたびに呼ぶ（何も開いていなければsetExpandedIdsが同一参照を返すため
-  // 再レンダーは発生せず、繰り返し呼んでも無害）。
+  // ▲▼/◀▶それぞれの「押しっぱなしで連続送り」（useHoldRepeat参照）。
+  // closeFloatingPanels()はページ送りのたびに呼ぶ（何も開いていなければsetExpandedIdsが
+  // 同一参照を返すため再レンダーは発生せず、繰り返し呼んでも無害）。
   const chipRowBackwardHold = useHoldRepeat(() => {
     closeFloatingPanels();
     pageChipRowBackward();
@@ -858,22 +811,20 @@ export default function MapOverlayControls({
     pageChipRowForward();
   }, chipRowHasMore);
 
-  // 観測グループの1メンバー（改善計画T166→T169でタイル化）。推定グループの軸タイルと
-  // 同じ「アイコン+略名の四角タイル+隣に付随する凡例展開ボタン」をChipButtonの再利用で
-  // 表す（見た目を全要素で統一するというユーザー指摘への対応）。観測グループ自体は
-  // ▼縦積み（ChipButtonのexpandDirection="down"）のため、メンバー個々の凡例は▶で
-  // 右へ展開する（縦に並んだ他のメンバーと重ならないよう、グループ本体と直交する
-  // 向きにする）。凡例を持つメンバーは常に▶が付く（実機フィードバック「道路種別や路面等に
-  // ▶を付けて」への対応。以前はON時のみ▶を出していたが、推定グループの軸タイルが
-  // ON/OFFに関わらず▼を出すのと不揃いだったため、ONに依存しない判定へ揃えた。
-  // legendDetailsはレイヤー定義由来の固定内容でありON/OFFで内容が変わらないため、
-  // OFF中に「オンにすると何が出るか」を先に確認できる利点もある）。
-  // legendDetailsが空でもsummaryがあれば▶を出す（実機フィードバック「たまに凡例を出す
-  // ための▶が消える」への対応。道路種別・路面はregionZoomTooWide中legendDetailsが空配列
-  // になる＝ズームインを促す案内文（summary、page.tsx: roadTypeSummary/roadSurfaceSummary
-  // 参照）だけが内容になる想定だが、canExpandがlegendDetailsの有無だけで判定していたため
-  // ▶自体が消えて案内文を開けなくなっていた。単独チップ側（本ファイル末尾のcanExpand=
-  // hasLegendDetails || Boolean(layer.summary)）と同じ判定へ揃える）。
+  // 観測グループの1メンバー。推定グループの軸タイルと同じ「アイコン+略名の四角タイル+
+  // 隣に付随する凡例展開ボタン」をChipButtonの再利用で表す（見た目を全要素で統一する）。
+  // 観測グループ自体は▼縦積み（ChipButtonのexpandDirection="down"）のため、メンバー
+  // 個々の凡例は▶で右へ展開する（縦に並んだ他のメンバーと重ならないよう、グループ本体と
+  // 直交する向きにする）。凡例を持つメンバーはON/OFFに関わらず常に▶が付く（推定グループの
+  // 軸タイルがON/OFFに関わらず▼を出すのと揃える。legendDetailsはレイヤー定義由来の固定
+  // 内容でありON/OFFで内容が変わらないため、OFF中に「オンにすると何が出るか」を先に
+  // 確認できる利点もある）。
+  // legendDetailsが空でもsummaryがあれば▶を出す（道路種別・路面はregionZoomTooWide中
+  // legendDetailsが空配列になる＝ズームインを促す案内文（summary、page.tsx:
+  // roadTypeSummary/roadSurfaceSummary参照）だけが内容になる想定のため、canExpandを
+  // legendDetailsの有無だけで判定すると▶自体が消えて案内文を開けなくなる。単独チップ側
+  // （本ファイル末尾のcanExpand= hasLegendDetails || Boolean(layer.summary)）と同じ
+  // 判定へ揃える）。
   function renderRawMemberTile(member: OverlayLayerChip, groupTint: "road" | "environment" | "spot") {
     const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
@@ -915,24 +866,18 @@ export default function MapOverlayControls({
   }
 
   // 「観測データ」グループの▼内容: 独立したカード（サブフレーム）に閉じ込めず、
-  // chipRowの直接の子として観測チップの直後に地続きで差し込む（実機フィードバック
-  // 「サブフレームの中で縦並びになるのではなく、観測チップと同列に縦並びで展開してほしい」
-  // への対応、以前のrenderObservedGroupPanel＝カード化を廃止）。category小見出し
+  // chipRowの直接の子として観測チップの直後に地続きで差し込む。category小見出し
   // （道路状態・交通・安全）は表示せず、MAP_LAYER_CATEGORY_ORDER順のフラットな一覧に
-  // する（実機フィードバック「道路状態や交通・安全等のグルーピングを消して」への対応。
-  // 順序自体はcategory順を保つが、見出しテキストは出さない）。メンバー本体
+  // する（順序自体はcategory順を保つが、見出しテキストは出さない）。メンバー本体
   // （renderRawMemberTile）はChipButtonが自前でchipRowItemを返すため、ここでは
   // 追加のラッパーを挟まずそのままchipRowの子として返す。
   function orderObservedMembers(members: readonly OverlayLayerChip[]): readonly OverlayLayerChip[] {
     return MAP_LAYER_CATEGORY_ORDER.flatMap((category) => members.filter((m) => m.category === category));
   }
 
-  // メンバー増加（観測グループは現状8件）で展開直後に画面下端を超えて見切れるという
-  // 実機フィードバックを受け、Ⓘの設定パネル（renderVisibilitySettings）で非表示に
-  // 選んだメンバーはここで除外する（改善計画T181）。改善計画T406: groupTint/scopeは
-  // 常に同じグループ値（"road"|"environment"|"spot"のいずれか）を渡すため1引数に統合した
-  // （旧「観測/動的」の2グループ時代はraw/dynamicの2値しか無く別々の意味に見えたが、
-  // 4グループ化で単なる同一値の重複渡しになったため）。
+  // メンバー増加で展開直後に画面下端を超えて見切れることを避けるため、Ⓘの設定パネル
+  // （renderVisibilitySettings）で非表示に選んだメンバーはここで除外する。groupTint/scopeは
+  // 常に同じグループ値（"road"|"environment"|"spot"のいずれか）を渡すため1引数に統合してある。
   function renderObservedMemberRows(
     members: readonly OverlayLayerChip[],
     group: "road" | "environment" | "spot"
@@ -942,19 +887,15 @@ export default function MapOverlayControls({
       .map((member) => renderRawMemberTile(member, group));
   }
 
-  // 道路/環境/スポットグループ見出しの「表示する項目を選ぶ」設定パネル（改善計画T181、
-  // T406で旧「観測/推定/動的」の3グループから4グループ[道路/評価軸/環境/スポット]へ
-  // 再編し、T418で評価軸グループを撤去して3グループに戻った）。
-  // 以前は読み取り専用の「アイコンの意味」凡例（一覧を見せるだけ）だったが、ユーザー
-  // 報告「縦アイコンが多くて見切れるようになってきた」への対応として、各項目に表示/
-  // 非表示のチェックボックスを持たせ、ここで選んだ項目だけがグループ展開時に並ぶように
-  // 拡張した。折りたたみ時だけ見出しの脇に出す独立した入口にする方針は維持する（展開後は
-  // 絞り込み済みの項目自体のアイコンが並ぶため、その場に同じ一覧をもう一度出すと二重表示に
-  // なってかえって読みにくい）。呼び出し側（chipGroups.flatMapの中）が `!isExpanded` の
-  // ときだけこの関数を呼ぶことで担保する。ChipButtonは使わず、同じ「小さい丸ボタン+
-  // document.bodyへポータルする内訳パネル」の仕組み（toggleExpanded/panelRects/rowRefs）を
-  // 直接流用する軽量な専用実装にする。キーは`${groupKey}:legend`でexpandedIds等の
-  // 既存Setにそのまま同居できる。
+  // 道路/環境/スポットグループ見出しの「表示する項目を選ぶ」設定パネル。各項目に表示/
+  // 非表示のチェックボックスを持たせ、ここで選んだ項目だけがグループ展開時に並ぶ。
+  // 折りたたみ時だけ見出しの脇に出す独立した入口にする（展開後は絞り込み済みの項目自体の
+  // アイコンが並ぶため、その場に同じ一覧をもう一度出すと二重表示になってかえって読み
+  // にくい）。呼び出し側（chipGroups.flatMapの中）が `!isExpanded` のときだけこの関数を
+  // 呼ぶことで担保する。ChipButtonは使わず、同じ「小さい丸ボタン+document.bodyへ
+  // ポータルする内訳パネル」の仕組み（toggleExpanded/panelRects/rowRefs）を直接流用する
+  // 軽量な専用実装にする。キーは`${groupKey}:legend`でexpandedIds等の既存Setにそのまま
+  // 同居できる。
   function renderVisibilitySettings(
     groupKey: string,
     groupLabel: string,
@@ -968,8 +909,8 @@ export default function MapOverlayControls({
        * undefinedのまま渡す。 */
       layerId?: MapLayerId;
       on?: boolean;
-      /** 改善計画T334: 行の右側に個別の情報アイコンを出し、押すと表示する説明文。
-       * 未設定なら情報アイコン自体を出さない。 */
+      /** 行の右側に個別の情報アイコンを出し、押すと表示する説明文。未設定なら情報
+       * アイコン自体を出さない。 */
       description?: string;
     }[]
   ) {
@@ -1004,8 +945,8 @@ export default function MapOverlayControls({
                 {items.flatMap((item) => {
                   const hiddenKey = `${scope}:${item.key}`;
                   const isHidden = hiddenIds.has(hiddenKey);
-                  // 改善計画T334: infoKeyはhiddenKeyと同じ`${scope}:${item.key}`名前空間だが
-                  // 別のSet（openInfoKeys）で管理するため、非表示設定と情報アイコンの開閉は
+                  // infoKeyはhiddenKeyと同じ`${scope}:${item.key}`名前空間だが別のSet
+                  // （openInfoKeys）で管理するため、非表示設定と情報アイコンの開閉は
                   // 互いに影響しない。
                   const infoKey = hiddenKey;
                   const isInfoOpen = openInfoKeys.has(infoKey);
@@ -1098,15 +1039,12 @@ export default function MapOverlayControls({
           style={{ transform: `translateY(-${chipRowOffset}px)` }}
         >
         {chipGroups.flatMap((group) => {
-          // 道路/環境/スポットグループ（改善計画T406、旧group:raw/group:dynamicと同じ
-          // 「▼縦積み・地続き展開」の構成を共有する）。▼を開くと、独立したカードに
-          // 閉じ込めず、メンバーをchipRowの直接の子としてグループチップの直後に地続きで
-          // 差し込む（実機フィードバック「サブフレームの中でなく、観測チップと同列に縦並びで
-          // 展開してほしい」への対応）。ChipButton自身はexpandDirection="flat"で▼矢印の
-          // 見た目だけを持ち、内訳は描画しない（renderObservedMemberRowsを別途sibling要素
-          // として返す）。3グループとも見た目・挙動が完全に同一のため、1つの分岐にまとめる
-          // （旧実装は「観測」「動的」で内容がほぼ同じ2ブロックを別々に持っていたが、
-          // 4グループ化でさらに1ブロック増えるため重複を解消した）。
+          // 道路/環境/スポットグループは「▼縦積み・地続き展開」の構成を共有する。▼を
+          // 開くと、独立したカードに閉じ込めず、メンバーをchipRowの直接の子として
+          // グループチップの直後に地続きで差し込む。ChipButton自身はexpandDirection="flat"で
+          // ▼矢印の見た目だけを持ち、内訳は描画しない（renderObservedMemberRowsを別途
+          // sibling要素として返す）。3グループとも見た目・挙動が完全に同一のため、
+          // 1つの分岐にまとめる。
           const flatGroup =
             group.key === "group:road" ? "road" : group.key === "group:environment" ? "environment" : group.key === "group:spot" ? "spot" : undefined;
           if (flatGroup) {
@@ -1174,8 +1112,8 @@ export default function MapOverlayControls({
 
           // どのグループにも属さない単独チップ（route等）。
           const layer = group.members[0];
-          // 二次軸rampレイヤー（改善計画T145b）はレジストリ生成物から自動で増えるため
-          // レイヤーIDごとの専用アイコンを持たず、共通のAxisRampIconへフォールバックする
+          // 二次軸rampレイヤーはレジストリ生成物から自動で増えるためレイヤーIDごとの
+          // 専用アイコンを持たず、共通のAxisRampIconへフォールバックする
           // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
           const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
           const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
