@@ -4,79 +4,54 @@
 Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って経由地点間の
 経路を自前で計算する。ルート生成の唯一のエンジン実装。
 
-設計上の重要な決定（実機検証で判明した問題への対応）:
+設計の骨子（詳細はdocs/modules/backend/routing-engine.md参照）:
 - **Road Graphの取得は1リクエストにつき1回だけ**: 候補ごとに個別のbboxで問い合わせず、
   起点を中心とした単一の円（折返し点候補をすべて覆う半径、`RouteGenerator.
-  TURNAROUND_RADIUS_RATIO`）でRoad Graphを`prepare`で1回だけ取得し、全候補で共有する
-  （旧8方位方式でOverpass公開インスタンスに並列問い合わせが拒否された実機確認に由来する設計）。
-- **改善計画T531（`docs/tasks/T531.md`）: 周回候補は8方位固定ではなく、公開軸の重み駆動の
-  フロンティア方式で生成する**。`select_loop_turnarounds`が起点からの一対全最短経路木
-  （`domain/routing.py: build_shortest_path_tree`、scipy）で「往路の実距離が目標の半分
-  付近」のNode群（リング）を求め、往路の距離加重平均difficultyの昇順に折返し点候補を選ぶ
+  TURNAROUND_RADIUS_RATIO`）でRoad Graphを`prepare`で1回だけ取得し、全候補で共有する。
+- **周回候補は8方位固定ではなく、公開軸の重み駆動のフロンティア方式で生成する**。
+  `select_loop_turnarounds`が起点からの一対全最短経路木（`domain/routing.py:
+  build_shortest_path_tree`、scipy）で「往路の実距離が目標の半分付近」のNode群
+  （リング）を求め、往路の距離加重平均difficultyの昇順に折返し点候補を選ぶ
   （似た往路は`select_diverse_by_overlap`で間引く）。`trace_loop_from_turnaround`が
   往路（木の経路そのもの、再探索しない）に、往路Edge＋逆方向Edgeのコストを一時的に
   `RETRACE_PENALTY_MULTIPLIER`倍へ差し替えて探索した復路（A*）を継いで周回にする。
-  経由地・目的地指定ルート（`trace_loop`）は従来どおり指定地点列を順にA*で結ぶ。
-- **標高（勾配）は改善計画T218a（T12 Stage 0.5）で探索コストへ組み込み済み**:
-  当初はRoad Graph全体（数万Edge）への標高取得（GSI API逐次呼び出し）が非現実的に遅く、
-  経路探索は標高を使わないCostで行い`evaluate_loops`（距離フィルタ通過後）でのみ標高取得
-  していた。T218a以降、探索コストは事前計算済みの`elevation_attributes`
-  （`app.batch.precompute_elevation_attributes`、T10のDEMタイル方式で一括計算済み）を
-  単純なキー参照で読み、gradient軸へ組み込む（その場でのGSI問い合わせは発生しない）。
-  `evaluate_loops`側の標高取得（`ElevationAttributeService`経由、こちらは未計算Edgeが
-  あればその場で取得しrepositoryへ永続化する）は、経路確定後の表示・スコアリング向けとして
-  引き続き別に行う（`elevation_attributes`テーブルを両者が共有するキャッシュ層として
-  参照する構図。事前計算が漏れているEdgeは探索コスト側でgradient軸のみ「データ無し」扱いに
-  なるが、他の軸で評価は継続する）。
+  経由地・目的地指定ルート（`trace_loop`）は指定地点列を順にA*で結ぶ。
+- **標高（勾配）は事前計算済みの`elevation_attributes`をキー参照するだけで探索コストへ
+  組み込まれる**（その場でのGSI API問い合わせは発生しない）。`evaluate_loops`側の標高
+  取得（`ElevationAttributeService`経由、こちらは未計算Edgeがあればその場で取得し
+  repositoryへ永続化する）は、経路確定後の表示・スコアリング向けとして引き続き別に行う
+  （`elevation_attributes`テーブルを両者が共有するキャッシュ層として参照する構図。
+  事前計算が漏れているEdgeは探索コスト側でgradient軸のみ「データ無し」扱いになるが、
+  他の軸で評価は継続する）。
 - 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため、
   区間ごとの推定到達時刻の風は使わない）。
-- **改善計画T529（`docs/tasks/T529.md`）→T536（`docs/tasks/T536.md`）で置き換え:
-  Edgeコストは「タイル単位の静的スコア行列＋リクエスト時ベクトル計算」**。T529当初は
-  探索前にbbox全体（数十万Edge）のコストを`compute_edge_costs_bulk`で一括計算してから
-  `scipy.sparse.csgraph.dijkstra`へ渡していたが、この事前計算自体が`prepare_ms`の
-  支配的コストだった（T522実測、王子30km周回でcost_ms=18,105ms）。続くT529
-  （`edge_cost_fn`コールバックによるlazy評価）・T534（Edge単位の辞書キャッシュ）でも、
-  探索中にEdge1本ごとにPythonのコスト計算コールバックを呼ぶ構造自体は変わらず、
-  依然としてA* 24本で数秒〜十数秒を占めていた（T522全再点検、本番VM実測8.3〜17.7秒）。
-  T536は、タイル読込時（`GraphService._get_or_build_tile_materials`）に「Edge×公開軸」の
+- **Edgeコストは「タイル単位の静的スコア行列＋リクエスト時ベクトル計算」で求める**:
+  タイル読込時（`GraphService._get_or_build_tile_materials`）に「Edge×公開軸」の
   静的スコア行列（`domain/evaluation.py: StaticEdgeScoreMatrix`、風など動的軸の列は
   NaN）を1回だけ構築してキャッシュし、リクエスト時にその行列＋動的軸（風、
   `evaluate_dynamic_axis_arrays`）＋重みベクトルからコスト配列を**bbox全体ぶん1回だけ**
-  numpyで合成する設計へ変更した。`LazyRoadGraph`のEdge/Node payloadは整数indexにし、
-  A*（`domain/routing.py: shortest_path_node_ids_lazy`）へは`edge_cost_fn=cost_list.
+  numpyで合成する。`LazyRoadGraph`のEdge/Node payloadは整数indexにし、A*
+  （`domain/routing.py: shortest_path_node_ids_lazy`）へは`edge_cost_fn=cost_list.
   __getitem__`のような素のlistインデックスアクセスを渡す——探索中にPythonの関数
-  フレームを一切作らない（本番VM試作でA* 24本 8.3〜17.7秒→0.37秒を確認済み）。
-  同一Node間の並行Edgeは、コストが探索前に判明しているため「cost最小を採用」
-  （改善計画T363の元の意味論）に戻せる。`_RoadGraphContext.cost_cache`（Edge単位の
-  1リクエスト内キャッシュ）・`infrastructure/axis_score_cache.py`（Edge単位の複数
-  リクエストにまたがるキャッシュ、T534）はいずれも不要になり撤去した——静的スコア
-  行列はタイル単位で`infrastructure/tile_score_matrix_cache.py`へキャッシュされ、
-  リクエスト時のベクトル計算はEdge単位のPythonコールバックを経由しないため。
+  フレームを一切作らない。同一Node間の並行Edgeは、`build_lazy_road_graph`の決定的
+  フォールバック（edge_idの昇順で先頭を採用）で解消する——タイル集合だけで決まる
+  キャッシュとコストベースの動的解消（cost最小を採用）は両立しないため、実データで稀な
+  並行Edgeの厳密さより探索用グラフのキャッシュ再利用を優先している（並行Edgeのうち
+  一方だけが0次フィルタで除外される稀なケースでは、cost最小方式なら自動的に許可される
+  側が選ばれるが、この方式では選ばれない場合がある。判断理由の詳細はdocs/tasks/T537.md
+  参照）。
 - `_build_segment_details`（区間表示）も探索と同じコスト配列・スコア行列から
-  `axis_difficulties`を引く（T536で、探索と表示の二重計算を解消）。
+  `axis_difficulties`を引く（探索と表示の二重計算を避ける）。
 - 候補ごとの復路探索（`trace_loop_from_turnaround`）・経由地ルートの`trace_loop`は
   直列実行する（`asyncio.to_thread`による並列化は、rustworkxがGILを解放しないため
-  複数スレッドが競合しむしろ遅くなることを実測、T522参照。`trace_loop_from_turnaround`
-  は共有`cost_list`を一時的に書き換えるため、並列化とは両立しない）。
-- **改善計画T537（`docs/tasks/T537.md`）: 探索用グラフ（`LazyRoadGraph`）・routable
-  Node空間索引（`NodeSpatialIndex`）はタイル集合キーのプロセス内LRU
-  （`infrastructure/search_graph_cache.py`）でキャッシュする**。T536完了後も
-  `build_lazy_road_graph`・`compute_routable_node_ids`・`build_node_spatial_index`は
-  毎リクエスト作り直されており、これらはタイル集合と0次フィルタ（`hard_filters`・
-  `max_average_grade_percent`）だけで決まる純粋な派生物のため、同じタイル集合への
-  2回目以降のリクエストはこれらの構築自体を丸ごと省略できる（T522実測、温パスの
-  prepareの残り約2秒の内訳）。並行Edge（同一Node間の複数Edge）の解消は、T536で
-  復活させた「cost最小を採用」（コストはリクエストごとに軸重み・風・0次フィルタで
-  変わる）ではなく、`build_lazy_road_graph`の決定的フォールバック（edge_idの昇順で
-  先頭を採用）へ戻す——タイル集合だけで決まるキャッシュとコストベースの動的解消は
-  両立しないため、実データで稀な並行Edgeの厳密さより2回目以降のprepare短縮を優先した
-  （並行Edgeのうち一方だけが0次フィルタで除外される稀なケースでは、cost最小方式なら
-  自動的に許可される側が選ばれるが、この方式では選ばれない場合がある。T536当時の
-  `_build_node_pair_index`「多重辺は後勝ちで曖昧になりうるが許容する」と同種の
-  簡略化として許容する、判断理由の詳細はdocs/tasks/T537.md参照）。
-  `_build_node_pair_index`（逆回り候補用の全Edge分の逆引き表、O(Edge数)）は撤去し、
-  `_reverse_traced_edges`はキャッシュ済み`LazyRoadGraph.edge_index_by_node_pair`
-  （並行Edge解消後、経路上のEdgeだけに対する遅延引き）で代替する。
+  複数スレッドが競合しむしろ遅くなる。`trace_loop_from_turnaround`は共有`cost_list`を
+  一時的に書き換えるため、並列化とは両立しない）。
+- **探索用グラフ（`LazyRoadGraph`）・routable Node空間索引（`NodeSpatialIndex`）は
+  タイル集合キーのプロセス内LRU（`infrastructure/search_graph_cache.py`）でキャッシュ
+  する**（これらはタイル集合と0次フィルタ[`hard_filters`・`max_average_grade_percent`]
+  だけで決まる純粋な派生物のため、同じタイル集合への2回目以降のリクエストはこれらの
+  構築自体を丸ごと省略できる）。`_reverse_traced_edges`はキャッシュ済み`LazyRoadGraph.
+  edge_index_by_node_pair`（並行Edge解消後、経路上のEdgeだけに対する遅延引き）を使う。
 """
 
 import asyncio
@@ -155,12 +130,12 @@ from app.services.weather_service import WeatherService
 BBOX_MARGIN_RATIO = 0.3
 BBOX_MARGIN_MIN_KM = 2.0
 
-# 改善計画T237: preview_segment（起点・終点2点間の単発経路確認）が使うbboxマージン。
+# preview_segment（起点・終点2点間の単発経路確認）が使うbboxマージン。
 # ループ探索のBBOX_MARGIN_MIN_KMと同じ「道なりが直線外接矩形からはみ出る余裕」を
 # 単純な固定値で持たせる（previewは距離が事前に分からないため半径比例のロジックは使えない）。
 PREVIEW_BBOX_MARGIN_KM = 2.0
 
-# --- 改善計画T531: フロンティア方式の折返し点選定・復路探索のパラメータ（実測調整前提） ---
+# --- フロンティア方式の折返し点選定・復路探索のパラメータ（実測調整前提） ---
 # 復路探索の間、往路Edge（＋同一Node対の逆方向Edge）のコストへ掛ける倍率。infにはしない
 # （復路が往路を戻る以外に道が無い区間[袋小路等]は通れる必要がある）。
 RETRACE_PENALTY_MULTIPLIER = 8.0
@@ -170,7 +145,7 @@ MIN_TURNAROUND_SEPARATION_KM = 1.5
 # 往路の大半を共有する似た周回がn件並ぶのを防ぐ。プールが埋まらない場合は緩和値で再試行。
 TURNAROUND_MAX_OVERLAP_RATIO = 0.6
 TURNAROUND_RELAXED_OVERLAP_RATIO = 0.85
-# 採用済み候補との周回全体（往路＋復路、進行方向無視）の重複率上限（改善計画T553）。
+# 採用済み候補との周回全体（往路＋復路、進行方向無視）の重複率上限。
 # 往路だけを見るTURNAROUND_MAX_OVERLAP_RATIOより緩め——「同じ周回の逆回り」（往路と復路が
 # 入れ替わっただけ）や「往路は違うが復路が同じ裏道へ収束する」周回を弾くための、
 # より緩い最終チェック。
@@ -192,7 +167,7 @@ RING_CENTER_RATIO = (LOOP_TO_OUTBOUND_RATIO_MIN + LOOP_TO_OUTBOUND_RATIO_MAX) / 
 # 積み上がりで上限ぎりぎりのNodeを取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
 
-# --- 改善計画T551: 目的地ルート（via-node方式、経由地無し）の代替経路選定パラメータ ---
+# --- 目的地ルート（via-node方式、経由地無し）の代替経路選定パラメータ ---
 # via-node候補（前向き木＋後ろ向き木の合成経路）の長さが、最も合成コストの低い経路
 # （＝経由地無しの従来の単一生成が返す経路と同じ）の長さの何倍までを候補にするか。
 ALTERNATIVE_MAX_STRETCH = 1.3
@@ -343,25 +318,22 @@ class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
     graph: RoadGraphLike
-    # 改善計画T533: 以前はelevation_attributes/surface_attributes/stop_counts/way_tags/
-    # intersection_counts/accident_counts/designated_edge_idsの7個の別々の辞書・集合
-    # だったが、Edge単位で`EdgeMaterialBundle`へ統合した1辞書へ改めた
-    # （`domain/attributes.py: EdgeMaterialBundle`のdocstring参照）。T536以降はEdge単位の
-    # 材料アクセスは探索コスト算出のホットパスからは外れたが、`_build_segment_details`の
-    # 表示用フィールド（surface等）取得には引き続き使う。
+    # Edge単位で`EdgeMaterialBundle`へ統合した1辞書（`domain/attributes.py:
+    # EdgeMaterialBundle`のdocstring参照）。Edge単位の材料アクセスは探索コスト算出の
+    # ホットパスからは外れているが、`_build_segment_details`の表示用フィールド
+    # （surface等）取得には引き続き使う。
     materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
     weather: WeatherConditions | None
     origin_node: str
-    # 改善計画T219（T12 Stage 1）: 1リクエスト内で繰り返し呼ばれるfind_nearest_node相当
-    # （prepareの起点・trace_loopの各経由地と目的地・preview_segmentの両端）を
-    # 都度線形探索せず使い回すための索引（domain/routing.py参照）。
+    # 1リクエスト内で繰り返し呼ばれるfind_nearest_node相当（prepareの起点・trace_loopの
+    # 各経由地と目的地・preview_segmentの両端）を都度線形探索せず使い回すための索引
+    # （domain/routing.py参照）。
     node_index: NodeSpatialIndex
-    # 改善計画T529→T536: trace_loopが実際のA*探索に使うrustworkxベースの探索用グラフ
-    # （Node/Edge payloadは整数index、domain/routing.py: LazyRoadGraph参照）。改善計画
-    # T537: タイル集合キーでキャッシュ済み（infrastructure/search_graph_cache.py）。
-    # `_reverse_traced_edges`が`edge_index_by_node_pair`を逆回り候補のEdge逆引きにも使う
-    # （旧`_RoadGraphContext.node_pair_index`[全Edge分の逆引き表]の代替、T537で撤去）。
+    # trace_loopが実際のA*探索に使うrustworkxベースの探索用グラフ
+    # （Node/Edge payloadは整数index、domain/routing.py: LazyRoadGraph参照）。
+    # タイル集合キーでキャッシュ済み（infrastructure/search_graph_cache.py）。
+    # `_reverse_traced_edges`が`edge_index_by_node_pair`を逆回り候補のEdge逆引きにも使う。
     lazy_graph: LazyRoadGraph
     # レグごとのコスト配列を合成する部品と、合成済みのレグ配列（添字0=往路[起点から離れる
     # レグ]、周回・目的地ルートは1=復路[基準点へ向かうレグ]、経由地ルートはレグ番号順）。
@@ -373,29 +345,28 @@ class _RoadGraphContext:
     full_edge_row: dict[str, int]
     # 周回の復路レグ・目的地ルートの後ろ向き木の基準点に使う起点座標。
     origin: Coordinates
-    # 改善計画T536: A*のestimate_cost_fn（ヒューリスティック）を、レグごとの目的地に対して
+    # A*のestimate_cost_fn（ヒューリスティック）を、レグごとの目的地に対して
     # numpyで1回だけベクトル計算するための、lazy_graph.index_to_node_id順の緯度・経度配列。
     node_lat: np.ndarray
     node_lon: np.ndarray
-    # 改善計画T173: prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
+    # prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
     night_active: bool
-    # 改善計画T531: 一対全最短経路木用のCSR構造＋Edge実距離配列（タイル集合キーでキャッシュ済み、
+    # 一対全最短経路木用のCSR構造＋Edge実距離配列（タイル集合キーでキャッシュ済み、
     # domain/routing.py: SearchGraphStatics参照）。build_shortest_path_treeへは
-    # cost_listをそのまま渡す（内部でnp.asarray済み、改善計画T557項目12で専用の
-    # cost_array数値配列フィールドを廃止——cost_listと同じ内容を2つ持たない）。
+    # cost_listをそのまま渡す（内部でnp.asarray済みのため、同じ内容を2つ持たない）。
     statics: SearchGraphStatics
-    # 改善計画T531: origin_nodeのlazy_graph上のNode index（一対全木の起点）。
+    # origin_nodeのlazy_graph上のNode index（一対全木の起点）。
     origin_index: int
-    # 改善計画T551: `select_via_nodes`が目的地からの後ろ向き木（転置CSR）をタイル集合キーで
+    # `select_via_nodes`が目的地からの後ろ向き木（転置CSR）をタイル集合キーで
     # キャッシュ・取得するために保持する（`_SearchGraph.tile_set`と同じ値、`SearchGraphStatics`
     # と違い後ろ向き木は目的地ルートでしか使わないため`prepare`では構築しない）。
     tile_set: frozenset[tuple[int, int, int]] | None
-    # 改善計画T531: 復路探索（折返し点→起点）のA*ヒューリスティック配列。目的地が常に起点の
+    # 復路探索（折返し点→起点）のA*ヒューリスティック配列。目的地が常に起点の
     # ため、リクエストで1回だけ計算し全候補で共有する（初回の復路探索時に遅延構築）。
     origin_estimate: list[float] | None = None
-    # 改善計画T602: select_via_nodesが目的地を最寄りのアクセス可能なNodeへ補正した場合の
+    # select_via_nodesが目的地を最寄りのアクセス可能なNodeへ補正した場合の
     # 実際の座標（補正が無ければNone）。RouteGenerator.last_no_candidates_reasonと同じ
     # side channel——Protocolの戻り値型（list[TracedLoop]）を変えずにRouteGenerator側へ
     # 伝える。
@@ -404,22 +375,22 @@ class _RoadGraphContext:
 
 @dataclass
 class _SearchGraph:
-    """`prepare`・`preview_segment`共通の「bboxに対する探索用グラフ＋材料一式」
-    （改善計画T237）。wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックを
+    """`prepare`・`preview_segment`共通の「bboxに対する探索用グラフ＋材料一式」。
+    wind/night軸・0次ハードフィルタ等の探索コスト算出ロジックを
     `_build_search_graph`1箇所にまとめ、ループ探索・単発区間確認の両方で重複させない。
     `SearchGraphStatics`（一対全木用のCSR構造）は持たない——`preview_segment`は2点間の
     直接A*しか行わず一対全木を使わないため、必要な`prepare`だけが自前で構築・保持する
-    （`_RoadGraphContext.statics`参照、改善計画T569）。
+    （`_RoadGraphContext.statics`参照）。
     """
 
     graph: RoadGraphLike
     lazy_graph: LazyRoadGraph
-    # 改善計画T537: bboxを覆うz12タイル集合（frozenset[(zoom,x,y)]）。GraphService.
+    # bboxを覆うz12タイル集合（frozenset[(zoom,x,y)]）。GraphService.
     # get_search_materials_for_bboxが「タイルキャッシュをそのまま結合したgraph」を
     # 返した場合のみ設定される（split鮮度が古いbbox限定の再構築経路ではNone）。
     # prepare/preview_segmentがroutable Node索引のキャッシュキーとして使い回す。
     tile_set: frozenset[tuple[int, int, int]] | None
-    # 改善計画T533: _RoadGraphContextと同じ理由でEdgeMaterialBundleへ統合済み。
+    # _RoadGraphContextと同じ理由でEdgeMaterialBundleへ統合済み。
     materials: dict[str, EdgeMaterialBundle]
     accident_years_covered: int
     weather: WeatherConditions | None
@@ -431,11 +402,10 @@ class _SearchGraph:
     full_edge_row: dict[str, int]
     node_lat: np.ndarray
     node_lon: np.ndarray
-    # 改善計画T546: `score_matrix.edge_ids`と、それに対応する0次フィルタ除外配列
+    # `score_matrix.edge_ids`と、それに対応する0次フィルタ除外配列
     # （`compute_hard_filter_excluded`、cost_arrayをinfにするのに使ったのと同じ配列）。
     # `_get_or_build_node_index`がroutable Node判定にこの配列をそのまま使い回すことで、
-    # `materials`（EdgeMaterialBundle辞書/EdgeMaterialTable）への依存を持たない
-    # （docs/tasks/T546.md「対応方針」項目5参照）。
+    # `materials`（EdgeMaterialBundle辞書/EdgeMaterialTable）への依存を持たない。
     edge_ids: list[str]
     hard_filter_excluded: np.ndarray
 
@@ -473,21 +443,21 @@ class RoadGraphEngine:
         # 到達予想時刻・所要時間の算出に使う。
         self._assumed_speed_kmh = assumed_speed_kmh
         self._elevation_attribute_service = elevation_attribute_service
-        # 改善計画T536: EvaluationService（compute_edge_costs_bulkのbbox全体一括評価）は
-        # 本エンジンから不要になった（探索コストは_build_search_graphがbbox全体ぶん
-        # リクエストにつき1回だけベクトル合成する）。EvaluationServiceクラス自体・
-        # compute_edge_costs_bulkは回帰テストオラクルとして残置——静的スコア行列
-        # （StaticEdgeScoreMatrix）が同じ抽出・計算フェーズ（_evaluate_axes_bulk）を
-        # 共有するため、両者の一致は引き続きtests/test_evaluation_bulk.pyで検証する。
+        # EvaluationService（compute_edge_costs_bulkのbbox全体一括評価）は本エンジンから
+        # 不要（探索コストは_build_search_graphがbbox全体ぶんリクエストにつき1回だけ
+        # ベクトル合成する）。EvaluationServiceクラス自体・compute_edge_costs_bulkは
+        # 回帰テストオラクルとして残置——静的スコア行列（StaticEdgeScoreMatrix）が同じ
+        # 抽出・計算フェーズ（_evaluate_axes_bulk）を共有するため、両者の一致は引き続き
+        # tests/test_evaluation_bulk.pyで検証する。
         self._weather_service = weather_service
         self._route_preference = route_preference
-        # 改善計画T218・T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
-        # 既定1.0は従来どおりの挙動（最悪でも距離2倍）。
+        # T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
+        # 既定1.0の挙動は最悪でも距離2倍。
         self._penalty_strength = penalty_strength
-        # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、既定None＝
+        # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、既定None＝
         # 除外しない）。domain/evaluation.py: is_edge_allowed参照。
         self._max_average_grade_percent = max_average_grade_percent
-        # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き
+        # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き
         # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
         self._hard_filters = hard_filters
 
@@ -495,12 +465,12 @@ class RoadGraphEngine:
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
     ) -> _SearchGraph | None:
         """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する
-        （改善計画T237、`prepare`・`preview_segment`共通）。wind/night軸の判定は
+        （`prepare`・`preview_segment`共通）。wind/night軸の判定は
         `wind_and_night_origin`（周回ならその起点、区間確認なら起点側の座標）を基準にする
         ——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化はどちらの用途でも
         変わらない（モジュールdocstring参照）。
 
-        改善計画T536: `GraphService.get_search_materials_for_bbox`が返す
+        `GraphService.get_search_materials_for_bbox`が返す
         `StaticEdgeScoreMatrix`（タイル単位でキャッシュ済みの静的Edge×公開軸スコア行列）に
         対し、動的軸（風、`evaluate_dynamic_axis_arrays`）と重みベクトルを適用して
         コスト配列を**bbox全体ぶん1回だけ**numpyで合成する。これがEdgeごとのPython
@@ -508,16 +478,12 @@ class RoadGraphEngine:
         にし、探索本体[`shortest_path_node_ids_lazy`]へは合成済みの`list.__getitem__`を
         渡すだけにする）。
         """
-        # 改善計画T522: prepare_msが総時間の8〜9割を占める事象（中心部東京30km実測で
-        # 251〜355秒）の調査で、materials取得（DB/タイルキャッシュ）の後段が無計測のまま
-        # 数秒〜十数秒を占めていることが判明した（docs/tasks/T522.md参照）。原因特定の
-        # ためステージ別に計測する。
+        # prepare全体のどの区間が時間を占めているか原因特定できるよう、ステージ別に計測する。
         stage_started = time.monotonic()
 
-        # 改善計画T219（T12 Stage 1）→T536: トポロジ＋材料＋静的スコア行列をz12タイル
-        # 単位のプロセス内キャッシュ経由でまとめて取得する（同一エリアへの2回目以降の
-        # リクエストはDBアクセスもEdge単位のPython評価も一切発生しない、
-        # graph_service.pyのget_search_materials_for_bbox参照）。
+        # トポロジ＋材料＋静的スコア行列をz12タイル単位のプロセス内キャッシュ経由で
+        # まとめて取得する（同一エリアへの2回目以降のリクエストはDBアクセスもEdge単位の
+        # Python評価も一切発生しない、graph_service.pyのget_search_materials_for_bbox参照）。
         built = await self._graph_service.get_search_materials_for_bbox(bbox)
         materials_ms = round((time.monotonic() - stage_started) * 1000)
         if built is None:
@@ -526,9 +492,9 @@ class RoadGraphEngine:
         if not search_materials.graph.edges:
             return None
         graph = search_materials.graph
-        # 改善計画T533: surface・edge_attribute_counts（stop/intersection/accident件数）・
+        # surface・edge_attribute_counts（stop/intersection/accident件数）・
         # way_tags・elevation_attribute・is_designatedは、Edge単位で`EdgeMaterialBundle`へ
-        # 統合済みの1辞書としてそのまま使う（T536以降は表示用[_build_segment_details]の
+        # 統合済みの1辞書としてそのまま使う（表示用[_build_segment_details]の
         # 一部フィールド取得にのみ使う）。
         edge_materials = search_materials.materials
         # accident_years_coveredは密度の「件/(km・年)」正規化に使う（bboxに依存しない
@@ -542,14 +508,13 @@ class RoadGraphEngine:
         weather_ms = round((time.monotonic() - weather_started) * 1000)
         # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
         start = now.astimezone(JST).replace(tzinfo=None)
-        # 改善計画T173: 時間帯依存軸（time_scope="night_only"、現在はnight軸のみ）の
-        # 動的化。区間ごとの到達時刻は探索中は未確定のため（風と同じモジュールdocstringの
-        # 制約）、出発地点の座標・呼び出し時点を出発時刻の近似として採用し、起点が市民薄明の
-        # 外（夜間）ならnight_only軸の重みをそのまま、日中なら0倍にしたRoutePreferenceの
-        # コピーを探索コストへ渡す（self._route_preference自体は書き換えない、リクエスト間で
-        # 共有される状態のため）。改善計画T352: axis_id"night"のハードコード分岐を
-        # AxisDefinition.time_scopeによる汎用ロジックへ置き換えた
-        # （RoutePreference.with_time_scope参照）。
+        # 時間帯依存軸（time_scope="night_only"、現在はnight軸のみ）の動的化。区間ごとの
+        # 到達時刻は探索中は未確定のため（風と同じモジュールdocstringの制約）、出発地点の
+        # 座標・呼び出し時点を出発時刻の近似として採用し、起点が市民薄明の外（夜間）なら
+        # night_only軸の重みをそのまま、日中なら0倍にしたRoutePreferenceのコピーを探索
+        # コストへ渡す（self._route_preference自体は書き換えない、リクエスト間で共有される
+        # 状態のため）。axis_id"night"のハードコードではなくAxisDefinition.time_scopeに
+        # よる汎用ロジックで判定する（RoutePreference.with_time_scope参照）。
         night_active = is_night(wind_and_night_origin, now)
 
         # --- bbox全体ぶんのコスト配列の合成（レグごと。まず起点から離れる往路レグ） ---
@@ -563,8 +528,8 @@ class RoadGraphEngine:
         )
         full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
 
-        # 改善計画T536→T537: LazyRoadGraph（Node/Edge payloadは整数index、domain/routing.py
-        # 参照）の構築はタイル集合キーでキャッシュする（infrastructure/search_graph_cache.py、
+        # LazyRoadGraph（Node/Edge payloadは整数index、domain/routing.py参照）の構築は
+        # タイル集合キーでキャッシュする（infrastructure/search_graph_cache.py、
         # _get_or_build_lazy_graph参照）。並行Edge（同一Node間の複数Edge）の解消はコストに
         # 依存しない決定的な規則で行う——コストはリクエストごと（軸重み・風・0次フィルタ）に
         # 変わるためタイル集合だけで決まるこのキャッシュとは両立しない。
@@ -641,14 +606,14 @@ class RoadGraphEngine:
         """0次フィルタ通過後のroutable Node空間索引（`NodeSpatialIndex`）を、タイル集合＋
         0次フィルタ設定（`hard_filters`・`max_average_grade_percent`、いずれも本エンジンの
         コンストラクタ引数でリクエスト間は変わらない）をキーにキャッシュする
-        （改善計画T537、`infrastructure/search_graph_cache.py`）。
+        （`infrastructure/search_graph_cache.py`）。
 
         `tile_set`がNone（`GraphService.get_search_materials_for_bbox`がsplit鮮度の古い
         bbox限定の再構築経路を通った場合）はキャッシュを経由せず毎回構築する
         （`_build_search_graph`のtile_set docstring参照）。戻り値の2つ目はキャッシュ
         ヒットしたかどうか（ログ用）。
 
-        改善計画T546: `hard_filter_excluded`は`_build_search_graph`がコスト配列を
+        `hard_filter_excluded`は`_build_search_graph`がコスト配列を
         `inf`にするのに使ったのと同じ配列（`compute_hard_filter_excluded`の戻り値、
         `edge_ids`と同じ行順）。呼び出し元がこれをそのまま渡すため、
         `compute_routable_node_ids`はEdgeMaterialBundle辞書/EdgeMaterialTableへ一切
@@ -673,12 +638,12 @@ class RoadGraphEngine:
         now: datetime | None = None,
         waypoints: list[Coordinates] | None = None,
     ) -> _RoadGraphContext | None:
-        # nowは改善計画T173のnight軸判定用（省略時は実際の現在時刻）。テストが任意の時刻を
+        # nowはnight軸判定用（省略時は実際の現在時刻）。テストが任意の時刻を
         # 注入できるよう引数化した（wind同様、探索中は到達時刻が未確定のためprepare実行時点を
         # 出発時刻の近似として使う簡略化、詳細は_build_search_graph参照）。
         now = now or datetime.now(timezone.utc)
         if waypoints:
-            # 改善計画T364: ユーザー指定の経由地は起点から半径radius_km以内とは限らない
+            # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
             # ため、周回探索の円形bbox（_bbox_around_point）ではなく、preview_segmentと
             # 同じ「複数点の外接矩形+固定マージン」を使う。
             bbox = _bbox_covering_points([origin, *waypoints], PREVIEW_BBOX_MARGIN_KM)
@@ -690,18 +655,16 @@ class RoadGraphEngine:
         if search is None:
             return None
 
-        # 改善計画T219: このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
+        # このgraphに対する索引を1回だけ構築し、原点＋trace_loopの
         # 経由地スナップ（経由地・目的地ルートの各地点）すべてで使い回す。
-        # 改善計画T256: 索引の候補は実際に経路探索可能な（Hard Constraint通過後も
+        # 索引の候補は実際に経路探索可能な（Hard Constraint通過後も
         # 次数1以上の）Nodeのみに絞る。絞らないと、幹線道路（highway=trunk等）にしか
         # 接続していない地理的最近傍Node（新宿駅・渋谷駅等、駅前が国道の交差点に直接
-        # 面する場所で実機確認）が選ばれ、そこがHard Constraint除外後のグラフ上では
+        # 面する場所が実例）が選ばれ、そこがHard Constraint除外後のグラフ上では
         # 孤立点になるため、すべての折返し点・経由地への探索が"no path found"で失敗してしまう。
-        # 改善計画T529: lazy評価ではEdgeコストを事前計算しないため、旧`routable_node_ids`
-        # （sparse_graphから算出）は使えない——0次ハードフィルタだけを軽量に評価する
-        # `compute_routable_node_ids`（domain/evaluation.py）へ置き換えた
-        # （docs/tasks/T529.md参照）。
-        # 改善計画T522→T537: 索引構築（KDTree構築・Edge数十万件規模の辞書構築）は
+        # lazy評価ではEdgeコストを事前計算しないため、0次ハードフィルタだけを軽量に評価する
+        # `compute_routable_node_ids`（domain/evaluation.py）を使う。
+        # 索引構築（KDTree構築・Edge数十万件規模の辞書構築）は
         # タイル集合＋0次フィルタ設定キーでキャッシュする
         # （infrastructure/search_graph_cache.py、_get_or_build_node_index参照）。
         # 同じ組み合わせへの2回目以降のリクエストはasyncio.to_thread自体を経由せず
@@ -720,7 +683,7 @@ class RoadGraphEngine:
             len(search.graph.edges), index_ms, node_index_cached,
         )
 
-        # 改善計画T569: 一対全木用のCSR構造（SearchGraphStatics）は、それを実際に使う
+        # 一対全木用のCSR構造（SearchGraphStatics）は、それを実際に使う
         # select_loop_turnarounds/is_loop_too_similarの前段であるここ（prepare）だけが
         # 構築・キャッシュする（preview_segmentは_build_search_graph止まりで構築しない）。
         # search.lazy_graphは_build_search_graph内で整合性検証済みのため、ここでは
@@ -756,12 +719,12 @@ class RoadGraphEngine:
     async def preview_segment(
         self, origin: Coordinates, destination: Coordinates, now: datetime | None = None
     ) -> RouteSegment | None:
-        """起点・終点2点間の単発区間確認（`/api/routes/preview`、改善計画T237）。
+        """起点・終点2点間の単発区間確認（`/api/routes/preview`）。
 
         `prepare`＋`trace_loop`（周回・3レグ探索）とは異なり、1回の最短経路探索のみを行う。
         探索コストは`generate`と同じ評価軸重み付き（`RoutePreference`）を使う——ORSの
         previewのような単純最短距離ではなく、`penalty_strength`等の研究パラメータも含めて
-        generateと一貫した経路選択にする（2026-08-23、ユーザー確認済みの設計判断）。
+        generateと一貫した経路選択にする。
         経路が見つからない場合はNoneを返す（呼び出し元がRoutingErrorへ変換する）。
         """
         now = now or datetime.now(timezone.utc)
@@ -771,12 +734,10 @@ class RoadGraphEngine:
         if search is None:
             return None
 
-        # 改善計画T256: prepareと同じ理由で、索引の候補を実際に経路探索可能なNodeのみに
-        # 絞る（幹線道路にしか接続していない孤立Nodeを除外）。改善計画T529:
-        # 旧`routable_node_ids`（sparse_graph算出）から`compute_routable_node_ids`
-        # （0次ハードフィルタのみの軽量版）へ置き換えた（docs/tasks/T529.md参照）。
-        # 改善計画T522→T537: prepareと同じ理由でタイル集合キーのキャッシュを経由する
-        # （_get_or_build_node_index参照）。
+        # prepareと同じ理由で、索引の候補を実際に経路探索可能なNodeのみに
+        # 絞る（幹線道路にしか接続していない孤立Nodeを除外）。0次ハードフィルタのみの
+        # 軽量版`compute_routable_node_ids`を使い、prepareと同じ理由でタイル集合キーの
+        # キャッシュを経由する（_get_or_build_node_index参照）。
         node_index, _node_index_cached = await self._get_or_build_node_index(
             search.tile_set, search.graph, search.edge_ids, search.hard_filter_excluded
         )
@@ -785,7 +746,7 @@ class RoadGraphEngine:
         if origin_node is None or destination_node is None:
             return None
 
-        # 改善計画T536: コストは_build_search_graphでbbox全体ぶん既に合成済み
+        # コストは_build_search_graphでbbox全体ぶん既に合成済み
         # （search.cost_list、lazy_graph.edge_ids順）のため、Edgeごとのコールバックは
         # 不要——素のlistインデックスアクセスをそのままedge_cost_fnとして渡す。
         cost_fn = search.outbound.cost_list.__getitem__
@@ -799,7 +760,7 @@ class RoadGraphEngine:
         if not edge_ids:
             return None
 
-        # 改善計画T218（T12 Stage 0）と同じレイジー取得（prepareがlean=Trueで読み込んだ
+        # prepareと同じレイジー取得（prepareがlean=Trueで読み込んだ
         # search.graphのEdgeはgeometryが空プレースホルダのため、この経路ぶんだけ取得し直す）。
         hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
         edges_in_path: list[EdgeLike] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
@@ -818,12 +779,12 @@ class RoadGraphEngine:
         waypoints: list[Coordinates],
         bearing: int | None,
     ) -> TracedLoop:
-        """指定地点列を順にA*で結ぶ（経由地・目的地指定ルート、改善計画T364/T365）。
+        """指定地点列を順にA*で結ぶ（経由地・目的地指定ルート）。
         周回候補（フロンティア方式）は`select_loop_turnarounds`＋
         `trace_loop_from_turnaround`が担い、本メソッドは通らない。
 
         waypoints = [起点, 中間経由地..., 終点]。起点は最近接Nodeをprepareでスナップ
-        したNodeを使い、中間経由地はここでスナップする（改善計画T219: prepareで構築済みの
+        したNodeを使い、中間経由地はここでスナップする（prepareで構築済みの
         索引を使い回す、都度線形探索しない）。戻り値の`data`は経路上のedge_id列
         （実ジオメトリの取得は距離フィルタ通過後の`evaluate_loops`が行う）。
         """
@@ -833,7 +794,7 @@ class RoadGraphEngine:
             if node is None:
                 raise RoutingError(f"direction {bearing}: could not snap waypoints to road graph")
             interior_nodes.append(node)
-        # 改善計画T365: 終点が起点と同一座標（周回）ならprepareで特別扱い済みの
+        # 終点が起点と同一座標（周回）ならprepareで特別扱い済みの
         # context.origin_nodeをそのまま再利用する（起終点を同じNodeに揃えないと周回が
         # 閉じない）。終点が起点と異なる座標（目的地ルート）の場合のみ
         # find_nearest_node_indexedで独立にスナップする。
@@ -846,7 +807,7 @@ class RoadGraphEngine:
                 raise RoutingError(f"direction {bearing}: could not snap destination to road graph")
         node_sequence = [context.origin_node, *interior_nodes, end_node]
 
-        # 改善計画T536: コストは_build_search_graphでbbox全体ぶん既に合成済み
+        # コストは_build_search_graphでbbox全体ぶん既に合成済み
         # （context.cost_list、lazy_graph.edge_ids順）のため、A*のedge_cost_fnは素の
         # listインデックスアクセスをそのまま渡す。estimate_fn（A*ヒューリスティック）は
         # レグごとに目的地（to_node）が変わるため、レグごとにnumpyで1回だけベクトル計算し直す。
@@ -905,7 +866,7 @@ class RoadGraphEngine:
         distance_tolerance_km: float,
         pool_size: int,
     ) -> list[LoopTurnaround]:
-        """折返し点候補を往路の軸的な良さの順に最大`pool_size`件選ぶ（改善計画T531）。
+        """折返し点候補を往路の軸的な良さの順に最大`pool_size`件選ぶ。
 
         1. 起点からの一対全最短経路木（`domain/routing.py: build_shortest_path_tree`、
            軸重み付きコスト、scipy）を1回だけ求める。探索はコスト上限
@@ -1007,7 +968,7 @@ class RoadGraphEngine:
         # 等距円筒近似で十分）、採用済み候補との平方距離をPythonのfloat演算で比べる
         # （候補ごとにnumpyのhaversineを呼ぶと数千件×2パスで0.5秒近くかかる）。far_enoughは
         # ranked由来のnode_indexしか引かないため、座標変換もranked分だけに限定する
-        # （グラフ全Node分のリストを毎回作らない、改善計画T557項目10）。
+        # （グラフ全Node分のリストを毎回作らない）。
         min_separation_sq = MIN_TURNAROUND_SEPARATION_KM ** 2
         lat0 = float(context.node_lat[context.origin_index])
         km_per_deg_lon = KM_PER_DEGREE_LATITUDE * math.cos(math.radians(lat0))
@@ -1025,8 +986,8 @@ class RoadGraphEngine:
                     return False
             return True
 
-        # 改善計画T557（項目15）: 「1回目の閾値→埋まらなければ2回目の緩和閾値で再検査」を
-        # select_diverse_by_overlap内のループへ統合し、呼び出し側の2回呼びを1回にした。
+        # 「1回目の閾値→埋まらなければ2回目の緩和閾値で再検査」はselect_diverse_by_overlap
+        # 内のループが行う（呼び出し側は1回呼ぶだけでよい）。
         selected = select_diverse_by_overlap(
             [], outbound_edges, statics.edge_length_m,
             [TURNAROUND_MAX_OVERLAP_RATIO, TURNAROUND_RELAXED_OVERLAP_RATIO], pool_size, far_enough,
@@ -1064,7 +1025,7 @@ class RoadGraphEngine:
         self, context: _RoadGraphContext, destination: Coordinates, max_routes: int
     ) -> list[TracedLoop]:
         """目的地ルート（起点→目的地、経由地無し）のvia-node方式で、互いに異なる経路を
-        最大`max_routes`件返す（改善計画T551）。周回のretraceペナルティ付き復路探索
+        最大`max_routes`件返す。周回のretraceペナルティ付き復路探索
         （`trace_loop_from_turnaround`）とは異なり、起点からの前向き木・目的地からの
         後ろ向き木（CSRの転置、`_get_or_build_reverse_search_statics`）を各1回求めれば、
         どのNode（via-node）を経由する経路も両木の経路復元だけで確定するため、候補ごとの
@@ -1081,7 +1042,7 @@ class RoadGraphEngine:
            Node（行って戻る形になり経路として成立しない）を除外しつつ、採用済み候補との
            重複率が閾値超のものを飛ばして`max_routes`件採る。
 
-        改善計画T602: 目的地に一番近いNodeが、メインの道路網から孤立した小さな塊
+        目的地に一番近いNodeが、メインの道路網から孤立した小さな塊
         （歩道橋・私有地内通路等、次数1以上ではあるが起点からは実質到達できない場所）に
         スナップされていると、後ろ向き木が起点側とほぼ重ならず毎回0件になる。前向き木で
         実際に届くかをここで確認し、届かなければ「前向き木が届くNode」だけに絞って
@@ -1232,7 +1193,7 @@ class RoadGraphEngine:
 
     async def trace_loop_from_turnaround(self, context: _RoadGraphContext, turnaround: LoopTurnaround) -> TracedLoop:
         """往路（一対全木上の経路、`select_loop_turnarounds`で確定済み）に、往路と別の
-        復路（折返し点→起点のA*）を継いで周回にする（改善計画T531）。
+        復路（折返し点→起点のA*）を継いで周回にする。
 
         復路探索の間だけ、往路Edge＋同一Node対の逆方向Edgeのコストを
         `RETRACE_PENALTY_MULTIPLIER`倍に**差し替え**、探索後に元へ戻す（`cost_list`の
@@ -1274,9 +1235,8 @@ class RoadGraphEngine:
         if return_path is None:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: no return path found")
 
-        # 改善計画T557（項目9）: 以前はpath_to_edge_ids_lazy（ID列）と
-        # 「(u,v)ペアからindexを引く」処理を別々に2回行っていたが、indexは1回求めれば
-        # ID列もそこから導けるため、return_path上のNodeペア走査を1回に減らす。
+        # indexは1回求めればID列もそこから導けるため、return_path上のNodeペア走査は
+        # 1回だけで済ませる。
         return_edge_index_list = path_to_edge_indices_lazy(lazy_graph, return_path)
         if not return_edge_index_list:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: return path has no edges")
@@ -1297,7 +1257,7 @@ class RoadGraphEngine:
         self, context: _RoadGraphContext, candidate: TracedLoop, accepted: list[TracedLoop]
     ) -> bool:
         """`candidate`が`accepted`のいずれかと、周回全体（往路＋復路）で
-        `LOOP_MAX_OVERLAP_RATIO`を超えて重複するか（改善計画T553）。進行方向を無視して
+        `LOOP_MAX_OVERLAP_RATIO`を超えて重複するか。進行方向を無視して
         比較するため、「同じ周回の逆回り」（往路と復路が入れ替わっただけ）や「往路は違うが
         復路が同じ裏道へ収束する」周回のどちらも同じ判定で弾ける。`TracedLoop.data`は
         `edge_ids`（往路＋復路、`trace_loop_from_turnaround`/`trace_loop`参照）。
@@ -1326,10 +1286,10 @@ class RoadGraphEngine:
         # 実ジオメトリ・標高は経路確定後・距離フィルタ通過後の候補だけに絞って取得する
         # （モジュールdocstring参照。棄却済み候補へのDB/GSI問い合わせを避ける）。
         #
-        # 改善計画T218（T12 Stage 0）: prepareが読み込んだcontext.graph（LeanRoadGraph）の
+        # prepareが読み込んだcontext.graph（LeanRoadGraph）の
         # Edgeはgeometryが空プレースホルダのため、区間表示・標高取得等（後段の
         # _build_candidate）に使う実ジオメトリを合格候補の経路ぶんだけ、全候補まとめて
-        # 1回のDBクエリで取得し直す（改善計画T531で候補ごとの取得から統合）。
+        # 1回のDBクエリで取得し直す（候補ごとには問い合わせない）。
         # `or context.graph.edges[edge_id]`は、prepare時点からこのDBクエリまでの間に
         # 別リクエストが同じbboxを再構築（save_graphのUPSERT/DELETE、
         # is_split_up_to_dateの項参照）してedge_idが入れ替わるレースが理論上ありうる
@@ -1352,14 +1312,14 @@ class RoadGraphEngine:
     async def _build_best_candidate(
         self, context: _RoadGraphContext, traced: TracedLoop, edges_in_path: list[EdgeLike], start_time: datetime
     ) -> RouteCandidate:
-        """1候補ぶんの周回を組み立てる。改善計画T274: 同じ物理的な周回形状の
+        """1候補ぶんの周回を組み立てる。同じ物理的な周回形状の
         逆回り（復路を先に、往路を後に辿る）も、追加のDB/外部API呼び出しゼロで合成できる
         場合は合成し、distance_weighted_difficulty（segmentsの距離加重平均、
         RouteGenerator._with_overall_difficultyと同じ指標）が小さい方を採用する
         （両方向を別候補として追加するのではなく、候補ごとに良い方だけを残す設計。
         周回の逆走は生成方法に依存せず常に物理的に意味があり、勾配・風で評点が変わる。
         経路中に一方通行Edgeが1つでもあれば逆回りは物理的に成立しないため、その場合は
-        順方向のみを返す）。改善計画T364: ユーザーが指定した経由地ルート
+        順方向のみを返す）。ユーザーが指定した経由地ルート
         （traced.bearing is None）は訪問順序そのものが要件のため、逆回り合成は行わない。
         """
         elevation_attributes = await self._fetch_elevation_attributes(context, edges_in_path)
@@ -1386,15 +1346,13 @@ class RoadGraphEngine:
     async def _fetch_elevation_attributes(
         self, context: _RoadGraphContext, edges_in_path: list[EdgeLike]
     ) -> dict[str, ElevationAttribute]:
-        # 改善計画T522派生（評価ロジックの入口〜出口の見直し）: context.materials
-        # （EdgeMaterialBundle、探索フェーズで既にDBから取得・タイル単位でプロセス内
-        # キャッシュ済み）が対象Edgeの標高を既に持っていれば、それをそのまま使い
-        # ElevationAttributeServiceへの問い合わせ自体を避ける。同じelevation_attributes
-        # テーブルを候補確定後にもう一度読み直していた重複DB往復を解消する
+        # context.materials（EdgeMaterialBundle、探索フェーズで既にDBから取得・
+        # タイル単位でプロセス内キャッシュ済み）が対象Edgeの標高を既に持っていれば、
+        # それをそのまま使いElevationAttributeServiceへの問い合わせ自体を避ける
         # （evaluate_loopsはasyncio.gatherで候補を並行評価するが、
         # ElevationAttributeService._repository_lockが内部で直列化するため、
-        # 削減した往復の分だけ候補数（max_routes件）倍のレイテンシが積み上がっていた）。
-        # 事前計算バッチが未実行のEdge（context.materials側がNone）だけ、従来どおり
+        # 候補ごとに個別問い合わせすると候補数[max_routes件]倍のレイテンシが積み上がる）。
+        # 事前計算バッチが未実行のEdge（context.materials側がNone）だけ、
         # ElevationAttributeService経由でその場取得・永続化する。
         cached: dict[str, ElevationAttribute] = {}
         missing_edges: list[EdgeLike] = []
@@ -1408,7 +1366,7 @@ class RoadGraphEngine:
         if not missing_edges:
             return cached
 
-        # 改善計画T248: ElevationAttributeService.get_attributes_for_graphは
+        # ElevationAttributeService.get_attributes_for_graphは
         # graph.edgesしか読まない（nodesは未参照）ため、nodesは空でよい。
         # context.graph.nodes（LeanNode、数万件規模）をそのまま渡すとPydantic
         # RoadGraphのフィールド型（dict[str, Node]）検証に失敗するため、
@@ -1432,17 +1390,16 @@ class RoadGraphEngine:
         start_time: datetime,
         leg_of_edge: list[int],
     ) -> RouteCandidate:
-        # 改善計画T274: edges_in_path・elevation_attributesを引数化し（以前はtraced.dataと
-        # 自前のGSI問い合わせ結果を直接使っていた）、逆回り候補（_reverse_traced_edges・
-        # _reverse_elevation_attributes、追加I/Oなしで導出済み）も同じ組み立てロジックへ
-        # 通せるようにした。distance_km・bearingは順方向・逆回りで共通（同じ物理経路の
-        # 総距離・同じ方位の候補のため）traced（順方向のTracedLoop）からそのまま使う。
+        # edges_in_path・elevation_attributesを引数化しているため、逆回り候補
+        # （_reverse_traced_edges・_reverse_elevation_attributes、追加I/Oなしで導出済み）も
+        # 同じ組み立てロジックへ通せる。distance_km・bearingは順方向・逆回りで共通
+        # （同じ物理経路の総距離・同じ方位の候補のため）traced（順方向のTracedLoop）から
+        # そのまま使う。
         geometry = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time, leg_of_edge)
-        # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
-        # 集約する（Edge単位のままだと30km級で150〜230件になりペイロード・フロント
-        # 描画コストが嵩む）。
+        # APIレスポンスとして返すsegmentsは約500m単位に集約する（Edge単位のままだと
+        # 30km級で150〜230件になりペイロード・フロント描画コストが嵩む）。
         segments = aggregate_segments_into_bins(segments)
 
         return RouteCandidate(
@@ -1590,23 +1547,21 @@ def _active_material_ids(weights: Mapping[str, float], lens_axis_id: str | None 
 async def _get_or_build_lazy_graph(
     tile_set: frozenset[tuple[int, int, int]] | None, graph: RoadGraphLike
 ) -> tuple[LazyRoadGraph, bool]:
-    """探索用グラフ（`LazyRoadGraph`）をタイル集合キーでキャッシュする（改善計画T537、
-    `infrastructure/search_graph_cache.py`）。
+    """探索用グラフ（`LazyRoadGraph`）をタイル集合キーでキャッシュする
+    （`infrastructure/search_graph_cache.py`）。
 
     `tile_set`は`GraphService.get_search_materials_for_bbox`が「bboxを覆う全z12タイルの
     材料キャッシュをそのまま結合したグラフ」を返した場合のみ設定される
     （`_build_search_graph`のtile_set docstring参照）。Noneの場合はキャッシュを経由せず
     毎回構築する。
 
-    改善計画T536が復活させた「並行Edge（同一Node間の複数Edge）はcost最小を採用」
-    （`build_lazy_road_graph`の`edge_cost_by_id`引数）は、コストがリクエストごと
-    （軸重み・風・0次フィルタ）に変わるため、タイル集合だけで決まるこのキャッシュとは
-    両立しない。本関数は`edge_cost_by_id`を渡さず、`build_lazy_road_graph`の決定的
-    フォールバック（edge_idの昇順で先頭を採用、T529〜T534当時の挙動）で並行Edgeを
-    解消する——2つの並行Edgeのうち一方だけがこのリクエストの0次フィルタで除外される
-    稀なケースでは、cost最小方式なら自動的に許可される側が選ばれるが、この方式では
-    選ばれない場合がある（`(u,v)`ペア自体が到達不能になる）。実データでの並行Edge自体が
-    稀（旧`_build_node_pair_index`のdocstring参照）なうえ、その中でさらに片方だけ
+    本関数は`build_lazy_road_graph`へ`edge_cost_by_id`を渡さず、決定的フォールバック
+    （edge_idの昇順で先頭を採用）で並行Edge（同一Node間の複数Edge）を解消する——コストは
+    リクエストごと（軸重み・風・0次フィルタ）に変わるため、タイル集合だけで決まる
+    このキャッシュとは「cost最小を採用」方式は両立しない。2つの並行Edgeのうち一方だけが
+    このリクエストの0次フィルタで除外される稀なケースでは、cost最小方式なら自動的に
+    許可される側が選ばれるが、この方式では選ばれない場合がある（`(u,v)`ペア自体が
+    到達不能になる）。実データでの並行Edge自体が稀なうえ、その中でさらに片方だけ
     0次フィルタ対象という二重に稀な条件のため、同一タイル集合への2回目以降の
     リクエストでグラフ構築・索引構築を丸ごと省略できる利点を優先した
     （判断理由の詳細はdocs/tasks/T537.md参照）。
@@ -1627,12 +1582,12 @@ async def _ensure_lazy_graph_consistent(
     tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
 ) -> LazyRoadGraph:
     """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを検証し、崩れていれば
-    タイル集合キャッシュ3種を破棄して`lazy_graph`ごと`graph`から作り直す（改善計画T569、
-    `prepare`・`preview_segment`共通の`_build_search_graph`が呼ぶ）。
+    タイル集合キャッシュ3種を破棄して`lazy_graph`ごと`graph`から作り直す
+    （`prepare`・`preview_segment`共通の`_build_search_graph`が呼ぶ）。
 
     `_lazy_graph_cache`と`_search_statics_cache`はLRU上限に達すると独立に最古のエントリを
     追い出すため、再split（`save_graph`のedge_id再割当）を挟むと「`lazy_graph`はキャッシュ
-    ヒットで古いまま」という状態が起こりうる（改善計画T557、項目4）。放置すると、直後の
+    ヒットで古いまま」という状態が起こりうる。放置すると、直後の
     `cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids`（`_build_search_graph`）や
     `domain/routing.py: build_search_graph_statics`が同種のKeyErrorを起こす。この関数は
     `domain/routing.py: find_missing_lazy_graph_edge_id`（CSR構築を伴わない軽量版チェック）
@@ -1657,14 +1612,13 @@ async def _get_or_build_search_statics(
 ) -> tuple[SearchGraphStatics, bool]:
     """一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
     SearchGraphStatics`）を、`_get_or_build_lazy_graph`と同じタイル集合キーで
-    キャッシュする（改善計画T531）。`tile_set`がNoneならキャッシュを経由せず毎回構築する。
+    キャッシュする。`tile_set`がNoneならキャッシュを経由せず毎回構築する。
     戻り値の2つ目はキャッシュヒットしたかどうか（ログ用）。
 
     `lazy_graph`は呼び出し元（`prepare`）が`_ensure_lazy_graph_consistent`で検証済みの
     ものである前提のため、`LazyGraphEdgeMismatchError`の検知・再構築ロジックは持たない
-    （改善計画T569、以前はこの関数自身が検知して`lazy_graph`ごと再構築していたが、
-    一対全木を使わない`preview_segment`もこの再構築コストを副次的に払っていたため、
-    整合性検証と`SearchGraphStatics`の構築・キャッシュを分離した）。
+    （整合性検証は一対全木を使わない`preview_segment`も含む`_build_search_graph`側の
+    責務として分離している）。
     """
     if tile_set is not None:
         cached = search_graph_cache.get_search_statics(tile_set)
@@ -1680,8 +1634,8 @@ async def _get_or_build_reverse_search_statics(
     tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
 ) -> tuple[SearchGraphStatics, bool]:
     """目的地からの後ろ向き木用の転置CSR（`domain/routing.py: SearchGraphStatics`、
-    `reverse=True`）を、`_get_or_build_search_statics`と同じタイル集合キーでキャッシュする
-    （改善計画T551）。目的地ルートのvia-node方式選定（`select_via_nodes`）だけが呼ぶ——
+    `reverse=True`）を、`_get_or_build_search_statics`と同じタイル集合キーでキャッシュする。
+    目的地ルートのvia-node方式選定（`select_via_nodes`）だけが呼ぶ——
     周回生成・`preview_segment`は後ろ向き木を使わないため構築しない。`lazy_graph`は
     呼び出し元（`prepare`）が`_ensure_lazy_graph_consistent`で検証済みのものである前提
     （`_get_or_build_search_statics`と同じ契約、再構築ロジックは持たない）。
@@ -1729,14 +1683,12 @@ def _estimate_distances_m(
     target_node_id: str,
 ) -> list[float]:
     """グラフ上の全Node（`node_lat`/`node_lon`と同じ行順）から`target_node_id`への
-    直線距離（m）をnumpyで1回だけベクトル計算する（改善計画T536）。`_build_estimate_cost_fn`
-    と`_origin_estimate_fn`（改善計画T557、項目9で統合）が共有する。
+    直線距離（m）をnumpyで1回だけベクトル計算する。`_build_estimate_cost_fn`
+    と`_origin_estimate_fn`が共有する。
 
     Edge Costは常に`cost >= distance_m`を満たす（`docs/decisions/t12-routing-scale.md`
     原則1「不変条件1」、ペナルティ倍率は常に1以上）ため、直線距離は実際のコストを
-    過大評価しない下界＝admissibleなヒューリスティックになる。この不変条件は
-    「将来のA*ヒューリスティック admissibility保存のため」と当時のADRが明記して
-    意図的に維持してきたものであり、本タスクがその意図どおり利用する形になる。
+    過大評価しない下界＝admissibleなヒューリスティックになる。
     """
     target_node = graph.nodes[target_node_id]
     return (haversine_distance_km_array(node_lat, node_lon, target_node) * 1000).tolist()
@@ -1744,8 +1696,8 @@ def _estimate_distances_m(
 
 def _origin_estimate_fn(context: _RoadGraphContext) -> Callable[[int], float]:
     """復路探索（目的地＝起点）のA*ヒューリスティック。起点は1リクエストで固定のため
-    初回だけ`_estimate_distances_m`で計算し、以降の候補はcontextに保持した配列を共有する
-    （改善計画T531）。"""
+    初回だけ`_estimate_distances_m`で計算し、以降の候補はcontextに保持した配列を共有する。
+    """
     if context.origin_estimate is None:
         context.origin_estimate = _estimate_distances_m(
             context.graph, context.node_lat, context.node_lon, context.origin_node
@@ -1759,10 +1711,10 @@ def _build_estimate_cost_fn(
     node_lon: np.ndarray,
     target_node_id: str,
 ) -> Callable[[int], float]:
-    """`shortest_path_node_ids_lazy`へ渡すA*のestimate_cost_fn（改善計画T529→T536）を、
+    """`shortest_path_node_ids_lazy`へ渡すA*のestimate_cost_fnを、
     目的地ノード`target_node_id`への直線距離（m）として組み立てる。
 
-    改善計画T536: レグごとに目的地が変わるたび`_estimate_distances_m`を呼び直し、
+    レグごとに目的地が変わるたび`_estimate_distances_m`を呼び直し、
     `list.__getitem__`をそのまま返す——Pythonの関数フレームを作らないA*の設計
     （`LazyRoadGraph`のdocstring参照）と揃える。`node_lat`/`node_lon`は
     `lazy_graph.index_to_node_id`と同じ行順（`_build_search_graph`がリクエストにつき
@@ -1798,8 +1750,8 @@ def _loop_edge_lengths_by_physical_segment(
     graph: RoadGraphLike, edge_ids: list[str]
 ) -> dict[frozenset[str], float]:
     """周回1件ぶんのEdge列（`TracedLoop.data`）を、進行方向を無視した物理区間キー
-    （`{from_node_id, to_node_id}`のfrozenset）→距離(m)の辞書へ変換する（改善計画T553、
-    `is_loop_too_similar`が使う）。同じ物理区間を指すfwd/bwd Edge（逆方向Edge）を同一キーへ
+    （`{from_node_id, to_node_id}`のfrozenset）→距離(m)の辞書へ変換する
+    （`is_loop_too_similar`が使う）。同じ物理区間を指すfwd/bwd Edge（逆方向Edge）を同一キーへ
     正規化することで、「同じ周回の逆回り」の比較を可能にする。存在しないedge_idは無視する
     （`evaluate_loops`の防御的フォールバックと同じ理由で理論上ありうるレース対策）。
     """
@@ -1817,19 +1769,15 @@ def _reverse_traced_edges(
     edges_in_path: list[EdgeLike], lazy_graph: LazyRoadGraph, graph: RoadGraphLike
 ) -> list[EdgeLike] | None:
     """順方向の経路`edges_in_path`（起点→...→起点）を逆順に辿った場合の、対応する
-    逆方向Edge列を構築する（改善計画T274）。経路中に一方通行（逆方向Edgeが存在しない）
+    逆方向Edge列を構築する。経路中に一方通行（逆方向Edgeが存在しない）
     区間が1つでもあれば物理的に逆走不可能なため`None`を返す。
 
-    改善計画T537: 以前は`_build_node_pair_index`（bboxの全Edgeから`(from,to)→Edge`の
-    逆引き表を1リクエストにつき1回だけ構築、O(Edge数)）を使っていたが、これはタイル
-    集合キーでキャッシュする`LazyRoadGraph`（改善計画T537、`_get_or_build_lazy_graph`）と
-    重複する構造のため撤去した。代わりに、経路上のEdgeだけに対する遅延引きへ変える:
-    `lazy_graph.edge_index_by_node_pair`（並行Edge解消後、`build_lazy_road_graph`が
-    既に構築済み）で`(to_index, from_index)`→edge_indexを引き、`lazy_graph.edge_ids`で
-    edge_idへ変換、`graph`（`context.graph`、フル解像度のトポロジ）から実際のEdgeを
-    引く。並行Edge（同じNode対を複数のEdgeが結ぶ稀なケース）は`build_lazy_road_graph`の
-    決定的な解消規則（旧`_build_node_pair_index`の「`graph.edges`挿入順で後勝ち」より
-    決定的）に従う。`geometry`だけは逆方向Edge自体（lean、空プレースホルダ）からではなく、
+    経路上のEdgeだけに対する遅延引きとして`lazy_graph.edge_index_by_node_pair`
+    （並行Edge解消後、`build_lazy_road_graph`が既に構築済み）で`(to_index, from_index)`→
+    edge_indexを引き、`lazy_graph.edge_ids`でedge_idへ変換、`graph`（`context.graph`、
+    フル解像度のトポロジ）から実際のEdgeを引く。並行Edge（同じNode対を複数のEdgeが
+    結ぶ稀なケース）は`build_lazy_road_graph`の決定的な解消規則に従う。
+    `geometry`だけは逆方向Edge自体（lean、空プレースホルダ）からではなく、
     順方向で既にhydrate済みのgeometryを反転させて使う（同じ物理区間を逆順に辿るだけの
     ため、DB再取得不要。build_road_graphの`-bwd`Edgeが`-fwd`のgeometryを反転して持つのと
     同じ関係）。distance_m・osm_way_id・highwayは進行方向に依存しない値だが、
@@ -1867,7 +1815,7 @@ def _reverse_traced_edges(
 
 def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: str) -> ElevationAttribute:
     """順方向のElevationAttributeから、同じ物理的な地形を逆方向に走った場合の値を
-    代数的に導出する（改善計画T274）。標高は地形の物理量で進行方向に依存しないため、
+    代数的に導出する。標高は地形の物理量で進行方向に依存しないため、
     この変換は厳密に正しい: 獲得標高↔喪失標高の入れ替え、始点/終点標高の入れ替え、
     平均勾配の符号反転、最大/最小勾配の符号反転＋入れ替え（domain/attributes.py:
     compute_elevation_attributeが区間の形状点列を進行方向の順で積算するため、逆順に
@@ -1895,7 +1843,7 @@ def _reverse_elevation_attributes(
     elevation_attributes: dict[str, ElevationAttribute],
 ) -> dict[str, ElevationAttribute]:
     """`_reverse_traced_edges`が返した逆方向Edge列ぶんの`ElevationAttribute`辞書を、
-    順方向で既に取得済みの値から代数的に導出する（改善計画T274、`_reverse_elevation_attribute`
+    順方向で既に取得済みの値から代数的に導出する（`_reverse_elevation_attribute`
     を経路全体へ適用する薄いラッパー）。順方向で標高が取得できなかったEdge
     （`elevation_attributes`にキーが無い）は、逆方向側でもキーを持たせない（欠損の伝播）。
     """
@@ -1908,8 +1856,8 @@ def _reverse_elevation_attributes(
 
 
 def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
-    """候補のsegmentsから、距離加重平均の合成difficultyを求める（改善計画T274、
-    逆回り候補との比較指標）。`RouteGenerator._with_overall_difficulty`と同じ計算だが、
+    """候補のsegmentsから、距離加重平均の合成difficultyを求める（逆回り候補との
+    比較指標）。`RouteGenerator._with_overall_difficulty`と同じ計算だが、
     あちらは候補ごとに採否が確定した最終候補へ`overall_difficulty`を付与する後処理
     （エンジン非依存の戦略層）なのに対し、ここは同じ候補の順方向・逆回りのどちらを
     残すかをエンジン内部で決めるための指標であり、計算するタイミング・対象が異なる
@@ -1922,7 +1870,7 @@ def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
 
 def _pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:
     """順方向・逆回り候補のうち、`_route_composite_difficulty`が小さい（走りやすい）方を
-    採用する（改善計画T274）。逆回り側が算出不能（segments欠損等）なら順方向を採用する
+    採用する。逆回り側が算出不能（segments欠損等）なら順方向を採用する
     （比較不能を「逆回りの方が良い」とは解釈しない、安全側）。
     """
     forward_difficulty = _route_composite_difficulty(forward)
@@ -1947,8 +1895,8 @@ def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:
 
 
 def _bbox_covering_points(points: list[Coordinates], margin_km: float) -> BoundingBox:
-    """複数地点すべてを覆う外接矩形に、margin_kmの余裕を足したbboxを求める（改善計画T237、
-    `preview_segment`の起点・終点2点用）。`_bbox_around_point`と異なり中心・半径ではなく
+    """複数地点すべてを覆う外接矩形に、margin_kmの余裕を足したbboxを求める
+    （`preview_segment`の起点・終点2点用）。`_bbox_around_point`と異なり中心・半径ではなく
     点集合の外接矩形が起点になる点が違うだけで、マージンの度数換算は同じ
     （`KM_PER_DEGREE_LATITUDE`ベース）。"""
     center_lat = sum(p.latitude for p in points) / len(points)
