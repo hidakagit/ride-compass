@@ -177,7 +177,6 @@ MaterialSpec]`が単一ソース。
 |---|---|
 | `dtype` | `"numeric"`/`"boolean"`/`"categorical"` |
 | `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
-| `tile_property_inverted` | タイル側の生値の符号反転が必要か（例: `no_lit`はタイルの`lit`の否定）。`no_lit`は`lit`（非反転）への非推奨エイリアスとして残るのみで、新規材料はこのフィールドを使わず素直な向きの材料として登録すること |
 | `tile_property_needs_runtime_scale` | タイル側の生値と材料の値がスケール不一致（実行時に変動する係数での変換が必要）か。`derive_ramp_inputs`はこれがTrueの材料を含む軸のramp自動導出を拒否する |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |
 | `primary_attribute_id` | 対応する一次属性id（[軸スタジオ](axis-studio.md)・frontendの`primaryAttributes.ts`が使う名前空間）。材料idと名前が異なるため明示的に対応させる |

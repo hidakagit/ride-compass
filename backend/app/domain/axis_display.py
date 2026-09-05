@@ -156,7 +156,6 @@ def _boolean_score_tile_input(spec: MaterialSpec, true_score: float, false_score
     return TileInputSpec(
         property=spec.tile_property,
         boolean=True,
-        invert=spec.tile_property_inverted,
         true_value=true_score,
         false_value=false_score,
         has_unknown_fallback=has_unknown_fallback,
@@ -234,11 +233,9 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float, visited: fr
             or inner_spec.tile_property_direction_dependent
             or inner_spec.tile_property_needs_runtime_scale
             or inner_spec.dtype == "boolean"
-            or inner_spec.tile_property_inverted
         ):
-            # dtype=="boolean"・tile_property_inverted=Trueはbreakpoints自己変換の対象外
-            # （数値材料の区分線形変換のみを表現する仕組みのため、既存のBreakpointLinearShape
-            # 分岐と同じ制約）。
+            # dtype=="boolean"はbreakpoints自己変換の対象外（数値材料の区分線形変換のみを
+            # 表現する仕組みのため、既存のBreakpointLinearShape分岐と同じ制約）。
             return None
         return TileInputSpec(property=inner_spec.tile_property, breakpoints=shape.breakpoints, weight=weight)
     return None
@@ -344,22 +341,12 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
                 tile_inputs.append(resolved)
                 continue
             assert spec.tile_property is not None  # 上のspecsループで確認済み
-            if spec.tile_property_inverted and spec.dtype != "boolean":
-                # tile_property_inverted（否定）はboolean材料の「no_lit⟵litの否定」を表す
-                # ためだけに定義された概念で、数値材料に対する「反転」の意味は未定義
-                # （フロントのbuildAxisRampValueExpressionも数値側の分岐ではinvertを一切
-                # 読まない）。以前はここでinvertを無視したまま素通りしており、将来
-                # tile_property_inverted=Trueの数値材料が追加された場合に色分けが反転した
-                # まま気づかれない欠陥があった。数値材料の反転は未対応のため、安全側で
-                # ramp化不可（None）とする（boolean材料は下のtrue/false分岐で反転を扱う）。
-                return None
             if spec.dtype == "boolean":
                 # 改善計画T396: 旧FlagSumShapeの代替。該当時term.weight・非該当時0の2値。
                 tile_inputs.append(
                     TileInputSpec(
                         property=spec.tile_property,
                         boolean=True,
-                        invert=spec.tile_property_inverted,
                         true_value=term.weight,
                         false_value=0.0,
                     )

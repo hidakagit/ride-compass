@@ -4,16 +4,14 @@
 取得するための読み取り専用・認可不要のエンドポイント。材料自体の追加・編集・削除は
 GUIから行わない（`domain/material_catalog.py`へのコード変更＋デプロイのみ、ユーザー方針）。
 
-`tile_property`/`tile_property_inverted`（地図レイヤーのramp自動生成が内部で使う想定、
-T278）は公開レスポンスに含めない——フロントの軸コンポーザーが必要とするのは
-`material_id`/`label`/`description`/`dtype`のみのため（`description`は改善計画T345で追加、
-軸コンポーザーの情報アイコンから表示する説明文）。
+`tile_property`（地図レイヤーのramp自動生成が内部で使う想定、T278）は公開レスポンスに
+含めない——フロントの軸コンポーザーが必要とするのは`material_id`/`label`/`description`/
+`dtype`のみのため（`description`は改善計画T345で追加、軸コンポーザーの情報アイコンから
+表示する説明文）。
 
-`MaterialSpec.display_only=True`の材料（designation・no_lit）は`axis_studio_materials()`が
-このレスポンスから除外する。designationは構造的なAND条件（"both"）を素朴な
-CategoricalShapeが正しく表現できず誤解を招くため、no_litはlit材料への非推奨エイリアス
-（`domain/material_catalog.py`参照）のため。地図表示（`tile_property`経由）・公開済み
-軸定義からの参照にはいずれも影響しない。
+`MaterialSpec.display_only=True`の材料（designation）は`axis_studio_materials()`が
+このレスポンスから除外する。構造的なAND条件（"both"）を素朴なCategoricalShapeが
+正しく表現できず誤解を招くため。地図表示（`tile_property`経由）には影響しない。
 
 改善計画T340: `GET /api/material-catalog/{material_id}/values`（同じく認可不要・
 読み取り専用）を追加した。highway/surface/smoothnessはOSMタグの生値でオープンエンドな

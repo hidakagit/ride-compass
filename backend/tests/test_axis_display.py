@@ -16,7 +16,7 @@ from app.domain.registry import TileInputSpec
 # derive_ramp_inputs/axis_display_for（純粋関数）の正しさをshapeの種類ごとに検証する
 # ことが目的であって、実運用の軸の値を検証したいわけではないため、実軸（AXIS_DEFINITIONS
 # の各エントリ）を使わずテストファイル内で定義した合成軸データへ書き換えた。参照する
-# material id（surface_good・no_lit・has_tunnel・gradient_percent等）はMATERIAL_CATALOG
+# material id（surface_good・lit・has_tunnel・gradient_percent等）はMATERIAL_CATALOG
 # 側の実データで、AXIS_DEFINITIONSとは別レジストリのため引き続き実在するものを使う。
 
 
@@ -37,7 +37,6 @@ def test_categorical_shape_derives_two_band_ramp():
     tile_input = ramp.tile_inputs[0]
     assert tile_input.property == "surface_good"
     assert tile_input.boolean is True
-    assert tile_input.invert is False
     assert tile_input.true_value == 0.0
     assert tile_input.false_value == 80.0
     assert ramp.thresholds == [40.0]
@@ -80,16 +79,16 @@ def test_categorical_shape_with_str_multi_value_material_derives_ramp():
 
 def test_boolean_terms_breakpoint_linear_derives_subset_sum_thresholds():
     # 改善計画T396: 旧FlagSumShapeをBreakpointLinearShapeへ統合。nightを模した合成軸:
-    # no_lit(材料、tile_property="lit"の否定)50点 + has_tunnel(tile_property="tunnel")
-    # 50点、breakpoints=[(0,0),(100,100)]（cap=100相当）。
+    # lit(材料、tile_property="lit")-50点 + has_tunnel(tile_property="tunnel")50点、
+    # breakpoints=[(-50,0),(50,100)]（cap=50相当）。
     definition = AxisDefinition(
         axis_id="synthetic_night",
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="no_lit", weight=50.0),
+                MaterialTerm(material="lit", weight=-50.0),
                 MaterialTerm(material="has_tunnel", weight=50.0),
             ],
-            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+            breakpoints=[(-50.0, 0.0), (50.0, 100.0)],
         ),
         default_weight=0.0,
         label="テスト軸",
@@ -99,54 +98,17 @@ def test_boolean_terms_breakpoint_linear_derives_subset_sum_thresholds():
 
     assert ramp is not None
     assert len(ramp.tile_inputs) == 2
-    no_lit_input = next(t for t in ramp.tile_inputs if t.property == "lit")
-    assert no_lit_input.invert is True
-    assert no_lit_input.true_value == 50.0
+    lit_input = next(t for t in ramp.tile_inputs if t.property == "lit")
+    assert lit_input.true_value == -50.0
     tunnel_input = next(t for t in ramp.tile_inputs if t.property == "tunnel")
-    assert tunnel_input.invert is False
     assert tunnel_input.true_value == 50.0
-    # 達成しうる合計{0,50,100}の隣接中間点
-    assert ramp.thresholds == [25.0, 75.0]
+    # 達成しうる合計{-50,0,50}の隣接中間点
+    assert ramp.thresholds == [-25.0, 25.0]
     # 全termがboolean材料の軸はタグ不在に既に軸定義側の安全側デフォルト意味
     # （無灯火・非トンネル）があるため、欠損を「不明」として特別扱いしない
     # （CategoricalShapeとの違いの確認）。
-    assert no_lit_input.has_unknown_fallback is False
+    assert lit_input.has_unknown_fallback is False
     assert tunnel_input.has_unknown_fallback is False
-
-
-def test_inverted_numeric_material_is_not_auto_derived(monkeypatch):
-    # レビュー指摘の修正確認: tile_property_invertedはboolean材料の否定（no_lit⟵lit）
-    # のためだけに定義された概念で、数値材料の「反転」は未定義（フロントの
-    # buildAxisRampValueExpressionも数値分岐ではinvertを読まない）。誤って色分けが
-    # 反転したまま気づかれないより、自動導出対象外（None）にする方が安全。改善計画T396で
-    # boolean材料は正しくtrue/false分岐で扱えるようになったため（上のテスト参照）、
-    # この安全弁はnumeric dtypeの材料でのみ検証する（テスト専用材料を一時登録）。
-    monkeypatch.setitem(
-        MATERIAL_CATALOG,
-        "test_inverted_numeric_material",
-        MaterialSpec(
-            material_id="test_inverted_numeric_material",
-            label="テスト用反転数値材料",
-            description="テスト用の材料。",
-            dtype="numeric",
-            tile_property="test_inverted_numeric_property",
-            tile_property_inverted=True,
-        ),
-    )
-    definition = AxisDefinition(
-        axis_id="synthetic_inverted_numeric",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="test_inverted_numeric_material", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="テスト軸",
-        category="推定",
-    )
-
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is None
 
 
 def test_single_term_breakpoint_linear_reuses_breakpoints_as_thresholds():

@@ -129,10 +129,10 @@ _SYNTHETIC_AXES: dict[str, AxisDefinition] = {
         axis_id="night",
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="no_lit", weight=50.0),
+                MaterialTerm(material="lit", weight=-50.0),
                 MaterialTerm(material="has_tunnel", weight=50.0),
             ],
-            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+            breakpoints=[(-50.0, 0.0), (50.0, 100.0)],
         ),
         default_weight=0.0,
         label="テスト夜間",

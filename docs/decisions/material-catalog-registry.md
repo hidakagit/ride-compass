@@ -11,7 +11,7 @@
 MaterialSpec`/`MATERIAL_CATALOG`が単一の情報源になった——各材料は`material_id`・`label`・
 `dtype`（numeric/boolean）に加え、内部専用（公開APIには含めない）の`tile_property`
 （MVTタイルへの焼き込み済みプロパティ名、Noneはタイル非依存＝地図レイヤーのramp自動生成
-不可を意味する）・`tile_property_inverted`（no_lit⟵litのような符号反転フラグ）を持つ。
+不可を意味する）を持つ。
 **材料自体をGUIから追加・編集・削除する経路は用意しない**（ユーザー方針、材料の増減は
 引き続き本ファイルへのコード変更＋デプロイのみで行う）。
 

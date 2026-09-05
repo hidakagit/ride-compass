@@ -125,7 +125,6 @@
             "property": "surface_good",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 80.0,
             "has_unknown_fallback": true,
@@ -173,7 +172,6 @@
             "property": "stop_per_km",
             "weight": 1.0,
             "boolean": false,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -185,7 +183,6 @@
             "property": "intersection_per_km",
             "weight": 0.3,
             "boolean": false,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -260,7 +257,6 @@
             "property": "highway",
             "weight": 1.0,
             "boolean": false,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
             "has_unknown_fallback": true,
@@ -288,7 +284,6 @@
             "property": "maxspeed_kmh",
             "weight": 1.0,
             "boolean": false,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -325,7 +320,6 @@
             "property": "lanes_count",
             "weight": 1.0,
             "boolean": false,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -362,7 +356,6 @@
             "property": "designation",
             "weight": 1.0,
             "boolean": false,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -378,7 +371,6 @@
             "property": "motor_vehicle_no",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": -1000.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -464,7 +456,6 @@
             "property": "accident_per_km",
             "weight": 1.0,
             "boolean": false,
-            "invert": false,
             "true_value": 0.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -531,8 +522,7 @@
             "property": "lit",
             "weight": 1.0,
             "boolean": true,
-            "invert": true,
-            "true_value": 50.0,
+            "true_value": -50.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
             "categories": null,
@@ -543,7 +533,6 @@
             "property": "tunnel",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": 50.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -553,8 +542,8 @@
           }
         ],
         "thresholds": [
-          25.0,
-          75.0
+          -25.0,
+          25.0
         ],
         "unit": "",
         "note": ""
@@ -563,8 +552,8 @@
         "kind": "breakpoint_linear",
         "terms": [
           {
-            "material": "no_lit",
-            "weight": 50.0,
+            "material": "lit",
+            "weight": -50.0,
             "required": true
           },
           {
@@ -576,11 +565,11 @@
         "preprocess": "identity",
         "breakpoints": [
           [
-            0.0,
+            -50.0,
             0.0
           ],
           [
-            100.0,
+            50.0,
             100.0
           ]
         ]
@@ -609,7 +598,6 @@
             "property": "highway_is_cycleway",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": -4.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -621,7 +609,6 @@
             "property": "cycleway_has_track",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": -4.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -633,7 +620,6 @@
             "property": "cycleway_has_lane",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": -2.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -645,7 +631,6 @@
             "property": "cycleway_has_shared",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": -1.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,
@@ -657,7 +642,6 @@
             "property": "shared_pedestrian_path",
             "weight": 1.0,
             "boolean": true,
-            "invert": false,
             "true_value": -4.0,
             "false_value": 0.0,
             "has_unknown_fallback": false,

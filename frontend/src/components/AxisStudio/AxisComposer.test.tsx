@@ -368,7 +368,7 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("priority_overridesの素通し保持（回帰テスト）", () => {
     it("編集フォームに欄を持たないpriority_overridesが、他フィールドの変更だけを経て編集前の値のまま保存される", async () => {
-      const priorityOverrides = [{ material: "no_lit", equals: "true", value: -1000 }];
+      const priorityOverrides = [{ material: "has_tunnel", equals: "true", value: -1000 }];
       const editing = baseDefinition({
         priority_overrides: priorityOverrides,
       });
@@ -625,7 +625,6 @@ describe("AxisComposer", () => {
               property: "dummy_per_km",
               weight: 1.0,
               boolean: false,
-              invert: false,
               true_value: 0,
               false_value: 0,
               has_unknown_fallback: false,
@@ -781,7 +780,7 @@ describe("AxisComposer", () => {
 
     it("categorical(boolean材料)軸を編集で開くと、true/falseスコアが反映される", async () => {
       const editing = baseDefinition({
-        shape: categoricalShape("no_lit", { true: -30, false: 5 }),
+        shape: categoricalShape("has_tunnel", { true: -30, false: 5 }),
       });
       const user = userEvent.setup();
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
@@ -823,7 +822,7 @@ describe("AxisComposer", () => {
       const editing = baseDefinition({
         shape: flagSumShape(
           [
-            ["no_lit", -30],
+            ["lit", -30],
             ["has_tunnel", -20],
           ],
           50,

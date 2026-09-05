@@ -238,7 +238,7 @@ def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
         # bicycle_infra_quality公開軸専用になったため、この計算には登場しない）。
         "highway": "residential",
         "accident_count_per_km_year": 0.25,
-        "no_lit": False,
+        "lit": True,
         "has_tunnel": False,
     }
     result = evaluate_axis_difficulties(materials, weights)

@@ -54,7 +54,6 @@ function catalogResponse(): AxisCatalogResponse {
               property: "lanes_count",
               weight: 1.0,
               boolean: false,
-              invert: false,
               true_value: 0,
               false_value: 0,
               has_unknown_fallback: false,
@@ -94,7 +93,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
     const guiAxis = result.current.rampAxes.find((axis) => axis.axisId === "gui_published_axis")!;
     expect(guiAxis.tileInputs).toEqual([
-      { property: "lanes_count", weight: 1.0, boolean: false, invert: false, trueValue: 0, falseValue: 0, hasUnknownFallback: false, categories: undefined, breakpoints: undefined },
+      { property: "lanes_count", weight: 1.0, boolean: false, trueValue: 0, falseValue: 0, hasUnknownFallback: false, categories: undefined, breakpoints: undefined },
     ]);
     expect(guiAxis.thresholds).toEqual([10.0]);
     // kind=noneのsurface_qはrampAxesには含まれないが、axisLabels/secondaryAxesには含まれる。

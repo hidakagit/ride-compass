@@ -27,12 +27,13 @@ T347で削除した）。それ以外のcategorical材料は
 新しい材料を増やすときはこのファイルへ1件追加するだけで、フロントのコード変更・
 再デプロイなしに軸コンポーザーの選択肢へ現れる。
 
-`tile_property`/`tile_property_inverted`はMVTタイル（`road_graph_repository.py:
+`tile_property`はMVTタイル（`road_graph_repository.py:
 _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名（無ければ材料が
 タイル非依存＝地図レイヤーのramp自動生成が不可能なことを表す）。`GET /api/material-catalog`
 の公開レスポンスには含めない（フロントの軸コンポーザーが必要とするのは`material_id`/
 `label`/`dtype`のみで、tileの内部実装詳細を露出させる理由が無いため）——地図表示ルール
-自動生成タスク（T278、未起票）がbackend内部でのみこの2フィールドを使う想定。
+自動生成（`domain/axis_display.py: derive_ramp_inputs`）がbackend内部でのみこの
+フィールドを使う。
 """
 
 from dataclasses import dataclass
@@ -87,8 +88,6 @@ class MaterialSpec(BaseModel):
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
     tile_property: str | None = None
-    # tile_propertyの符号反転が必要か（例: no_lit材料はタイルのlitプロパティの否定）。
-    tile_property_inverted: bool = False
     # 改善計画T278: tile_propertyの生値と材料の値がスケール不一致（実行時に変動する係数での
     # 変換が必要）な場合True。例: accident_count_per_km_yearは収録年数（実行時にDBから
     # 取得、増え続ける）で正規化済みだが、tile_propertyのaccident_per_kmは年正規化前の生値。
@@ -247,7 +246,7 @@ def raw_way_tag_extractor(tag: str, *, normalize: bool = False) -> MaterialExtra
 def tag_equals_extractor(tag: str, expected: str, *, negate: bool = False) -> MaterialExtractor:
     """「タグ値の単純一致判定」パターン（motor_vehicle_no/has_tunnel/bridge等）。
     `domain/recipe.py: tag_value_is`をMaterialExtractionContext向けに包む。
-    negate=Trueで判定を反転する（no_litのような「タグ不在・不一致を陽性とみなす」材料）。"""
+    negate=Trueで判定を反転する（「タグ不在・不一致を陽性とみなす」材料向け）。"""
 
     def _extract(ctx: MaterialExtractionContext) -> bool | None:
         if ctx.way_tags is None:
@@ -509,21 +508,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="lit",
         primary_attribute_id="lit",
         extractor=tag_equals_extractor("lit", "yes"),
-    ),
-    "no_lit": MaterialSpec(
-        material_id="no_lit",
-        label="街灯なし",
-        description="非推奨エイリアス（lit材料の否定）。新規に評価軸を作る場合はlitを使うこと。",
-        dtype="boolean",
-        # タイルのlitはタグ有無の真偽（yesのみtrue、それ以外はNULL）。no_lit材料は
-        # その否定（litタグ不在は街灯なしとみなす安全側の判断、domain/night.py参照）。
-        # 公開済みの夜間軸定義がこの材料id自体を参照しているため、DB側の軸定義を
-        # lit材料へ移行するまでは残す（display_only=Trueで新規作成時の選択肢からは隠す）。
-        tile_property="lit",
-        tile_property_inverted=True,
-        primary_attribute_id="lit",
-        extractor=tag_equals_extractor("lit", "yes", negate=True),
-        display_only=True,
     ),
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",

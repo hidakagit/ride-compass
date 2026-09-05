@@ -106,13 +106,12 @@ def test_get_material_catalog_includes_description():
 
 
 def test_get_material_catalog_response_excludes_internal_tile_fields():
-    # 改善計画T277: tile_property/tile_property_inverted/tile_property_needs_runtime_scaleは
+    # 改善計画T277: tile_property/tile_property_needs_runtime_scaleは
     # backend内部（axis_display.py）専用で、公開レスポンスには含めない。
     response = client.get("/api/material-catalog")
 
     for entry in response.json()["materials"]:
         assert "tile_property" not in entry
-        assert "tile_property_inverted" not in entry
         assert "tile_property_needs_runtime_scale" not in entry
         assert "display_only" not in entry
 
@@ -276,7 +275,7 @@ def test_get_material_coverage_returns_all_catalog_materials(admin_credentials):
     }
     assert by_id["gradient_percent"]["population"] == "edge"
     assert by_id["gradient_percent"]["missing_ratio"] == pytest.approx(0.75)
-    assert by_id["no_lit"]["missing_semantics"] == "definite"
+    assert by_id["lit"]["missing_semantics"] == "definite"
     assert by_id["wind_penalty"]["population"] is None
     assert by_id["wind_penalty"]["excluded_reason"]
 

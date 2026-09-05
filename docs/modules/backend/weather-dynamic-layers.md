@@ -33,7 +33,7 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 | `wbgt_points.py` | 緯度経度→最寄りWBGT情報提供地点（約840地点の総当たり最近傍探索） | `wbgt_service.py` |
 | `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出 | `flood_service.py` |
 | `twilight.py` | 市民薄明による夜間判定（`is_night`）・日の出日没計算（`sunrise_sunset_jst`） | `jma_amedas_service.py`（表示用）・[routing-engine.md](routing-engine.md)のroad_graphエンジン（night軸の動的化） |
-| `night.py` | way_tagsからnight軸材料フラグ（`lit`・`no_lit`[非推奨エイリアス]・`has_tunnel`）を解決 | road_graphエンジン |
+| `night.py` | way_tagsからnight軸材料フラグ（`lit`・`has_tunnel`）を解決 | road_graphエンジン |
 
 `twilight.py`・`night.py`の2ファイルは外部APIに依存しないローカルの天文計算のみで、
 実際の主消費者は[routing-engine.md](routing-engine.md)が主管する`road_graph_engine.py`

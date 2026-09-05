@@ -93,27 +93,14 @@ def test_accident_count_per_km_year_needs_years_covered():
     assert spec.extractor(_ctx(accident_counts={"e1": 4}, accident_years_covered=0)) is None
 
 
-def test_no_lit_default_differs_between_missing_way_tags_and_missing_tag():
-    """no_litの非対称な既定値（改善計画T280の元実装から移設、回帰の要）:
+def test_lit_default_differs_between_missing_way_tags_and_missing_tag():
+    """litの非対称な既定値（改善計画T280の元実装から移設、回帰の要）:
     way_tags自体が無ければ配列既定値のFalse（安全側=不明時は「街灯あり」扱いにしない
-    誤りを避ける）、way_tagsはあるがlitタグが無ければTrue（安全側=街灯なし扱い）。"""
-    spec = MATERIAL_CATALOG["no_lit"]
-    assert spec.extractor(_ctx(way_tags=None)) is None  # 配列側でFalseへ解決される
-    assert spec.extractor(_ctx(way_tags={})) is True
-    assert spec.extractor(_ctx(way_tags={"lit": "yes"})) is False
-
-
-def test_lit_is_the_non_inverted_counterpart_of_no_lit():
-    """litはno_litとちょうど反対の値を返す（negateを外しただけの同じ抽出器）。"""
+    誤りを避ける）、way_tagsはあるがlitタグが無ければFalse（街灯なし扱い）。"""
     spec = MATERIAL_CATALOG["lit"]
-    assert spec.extractor(_ctx(way_tags=None)) is None
+    assert spec.extractor(_ctx(way_tags=None)) is None  # 配列側でFalseへ解決される
     assert spec.extractor(_ctx(way_tags={})) is False
     assert spec.extractor(_ctx(way_tags={"lit": "yes"})) is True
-
-
-def test_no_lit_is_hidden_from_axis_studio_material_picker():
-    assert MATERIAL_CATALOG["no_lit"].display_only is True
-    assert MATERIAL_CATALOG["lit"].display_only is False
 
 
 def test_highway_requires_way_tags_present():
@@ -257,10 +244,10 @@ def test_tag_equals_extractor_matches_and_negates():
     assert bridge(_ctx(way_tags={})) is False
     assert bridge(_ctx(way_tags=None)) is None
 
-    no_lit = tag_equals_extractor("lit", "yes", negate=True)
-    assert no_lit(_ctx(way_tags={"lit": "yes"})) is False
-    assert no_lit(_ctx(way_tags={})) is True
-    assert no_lit(_ctx(way_tags=None)) is None
+    negated = tag_equals_extractor("lit", "yes", negate=True)
+    assert negated(_ctx(way_tags={"lit": "yes"})) is False
+    assert negated(_ctx(way_tags={})) is True
+    assert negated(_ctx(way_tags=None)) is None
 
 
 def test_way_tag_parser_extractor_delegates_to_parser_and_handles_missing_way_tags():

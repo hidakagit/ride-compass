@@ -17,7 +17,7 @@
 // ——設計原則2: 片側import。フロントに同じ係数を手書きしない）。プロパティ欠損は
 // タイル側が「0をNULLIFでキー省略」した結果なのでcoalesceで0へ倒す
 // （_ROAD_SURFACE_TILE_MVT_SQLのコメント参照）。
-// 真偽値材料（改善計画T278、例: 舗装質=surface_good、夜間=no_lit/has_tunnel）はMVTの
+// 真偽値材料（改善計画T278、例: 舗装質=surface_good、夜間=lit/has_tunnel）はMVTの
 // 真偽値プロパティを["==",["get",property],true]のような比較でしか読めず数値の重み付け
 // 結合が成立しないため、tile_inputs.boolean=trueのときはtrueValue/falseValueで
 // 寄与値を直接指定する（weightは無視。domain/axis_display.py: derive_ramp_inputs参照）。
@@ -35,15 +35,13 @@ export interface AxisTileInput {
   weight: number;
   /** true=真偽値材料（改善計画T278）。weightは無視し、trueValue/falseValueで寄与値を直接指定する。 */
   boolean?: boolean;
-  /** 材料がタイルプロパティの否定（例: no_lit⟵lit）の場合true。 */
-  invert?: boolean;
   trueValue?: number;
   falseValue?: number;
   /** true=タイルプロパティの欠損が「true/falseどちらでもない不明」を表す（例:
    * surface_good、未分類の路面）。欠損時はtrueValue/falseValueどちらにも倒さず、
    * 灰色「不明」表示にする（レビュー指摘の修正、registry.py: TileInputSpec.
    * has_unknown_fallback参照）。既定false（欠損=falseとみなしてよい材料、例:
-   * no_lit⟵lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
+   * lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;
   /** N値文字列材料（改善計画T292、例: highway/designation）。タイルプロパティの
    * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値は0扱い
@@ -88,7 +86,6 @@ interface CatalogTileInput {
   property: string;
   weight: number;
   boolean?: boolean;
-  invert?: boolean;
   true_value?: number;
   false_value?: number;
   has_unknown_fallback?: boolean;
@@ -209,7 +206,6 @@ export function rampAxesFromCatalogAxes(
         property: input.property,
         weight: input.needs_runtime_scale ? input.weight * (runtimeScales[input.property] ?? 0) : input.weight,
         boolean: input.boolean,
-        invert: input.invert,
         trueValue: input.true_value,
         falseValue: input.false_value,
         hasUnknownFallback: input.has_unknown_fallback,
@@ -348,9 +344,7 @@ export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null
 export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
   const terms = axis.tileInputs.map((input) => {
     if (input.boolean) {
-      const comparison = input.invert
-        ? ["!=", ["get", input.property], true]
-        : ["==", ["get", input.property], true];
+      const comparison = ["==", ["get", input.property], true];
       return ["case", comparison, input.trueValue ?? 0, input.falseValue ?? 0];
     }
     if (input.categories) {

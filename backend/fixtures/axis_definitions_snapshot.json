@@ -312,11 +312,11 @@
         "shape": {
           "breakpoints": [
             [
-              0.0,
+              -50.0,
               0.0
             ],
             [
-              100.0,
+              50.0,
               100.0
             ]
           ],
@@ -324,9 +324,9 @@
           "preprocess": "identity",
           "terms": [
             {
-              "material": "no_lit",
+              "material": "lit",
               "required": true,
-              "weight": 50.0
+              "weight": -50.0
             },
             {
               "material": "has_tunnel",

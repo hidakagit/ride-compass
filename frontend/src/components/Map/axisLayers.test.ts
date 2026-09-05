@@ -340,8 +340,8 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     expect(rampAxes[0].axisId).toBe("gui_created_axis");
     expect(rampAxes[0].label).toBe("テスト用GUI軸");
     expect(rampAxes[0].tileInputs).toEqual([
-      { property: "lanes_count", weight: 1.0, boolean: undefined, invert: undefined, trueValue: undefined, falseValue: undefined, hasUnknownFallback: undefined, categories: undefined, breakpoints: undefined },
-      { property: "maxspeed_kmh", weight: 0.5, boolean: undefined, invert: undefined, trueValue: undefined, falseValue: undefined, hasUnknownFallback: undefined, categories: undefined, breakpoints: undefined },
+      { property: "lanes_count", weight: 1.0, boolean: undefined, trueValue: undefined, falseValue: undefined, hasUnknownFallback: undefined, categories: undefined, breakpoints: undefined },
+      { property: "maxspeed_kmh", weight: 0.5, boolean: undefined, trueValue: undefined, falseValue: undefined, hasUnknownFallback: undefined, categories: undefined, breakpoints: undefined },
     ]);
     expect(rampAxes[0].thresholds).toEqual([10.0]);
 

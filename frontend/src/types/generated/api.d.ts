@@ -1655,13 +1655,12 @@ export interface components {
          *     真偽値材料（`boolean=True`、改善計画T278）: MVTの真偽値プロパティは
          *     `["==",["get",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が
          *     成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。
-         *     `invert`は材料がタイルプロパティの否定（例: no_lit⟵lit）の場合に立てる。
          *
          *     `has_unknown_fallback`（レビュー指摘の修正、改善計画T278）: タイルプロパティが
          *     欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、
          *     未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する
          *     うちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい
-         *     真偽値材料」（例: no_lit⟵lit、has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と
+         *     真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と
          *     元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/
          *     `false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、
          *     trueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:
@@ -1719,11 +1718,6 @@ export interface components {
              * @default false
              */
             boolean: boolean;
-            /**
-             * Invert
-             * @default false
-             */
-            invert: boolean;
             /**
              * True Value
              * @default 0

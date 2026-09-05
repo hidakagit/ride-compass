@@ -80,7 +80,6 @@ def test_specs_carry_source_description_and_population():
         ("maxspeed_kmh", MAXSPEED_KMH_CASE_SQL),
         ("lanes_count", LANES_COUNT_CASE_SQL),
         ("lit", LIT_NORMALIZED_SQL),
-        ("no_lit", LIT_NORMALIZED_SQL),
         ("has_tunnel", TUNNEL_NORMALIZED_SQL),
         ("bridge", BRIDGE_NORMALIZED_SQL),
         ("motor_vehicle_no", MOTOR_VEHICLE_NORMALIZED_SQL),

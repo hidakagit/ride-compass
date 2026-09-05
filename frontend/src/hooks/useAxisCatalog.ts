@@ -78,7 +78,6 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
         property: input.property,
         weight: input.weight,
         boolean: input.boolean,
-        invert: input.invert,
         true_value: input.true_value,
         false_value: input.false_value,
         has_unknown_fallback: input.has_unknown_fallback,

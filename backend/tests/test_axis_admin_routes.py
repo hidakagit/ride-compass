@@ -308,7 +308,7 @@ def test_create_returns_422_when_shape_kind_is_removed_flag_sum(override_service
         **_PAYLOAD,
         "shape": {
             "kind": "flag_sum",
-            "flags": [["no_lit", 50.0]],
+            "flags": [["has_tunnel", 50.0]],
             "cap": 100.0,
         },
     }
