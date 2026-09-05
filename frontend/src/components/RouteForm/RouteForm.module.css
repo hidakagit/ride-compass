@@ -6,24 +6,7 @@
   flex-wrap: wrap;
 }
 
-/* モバイル上部の操作バー向け（改善計画T250）。出発地点・生成ボタンと1行を分け合うため、
-   通常版より詰めた余白・幅にする。 */
-.formCompact {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 0 0 auto;
-}
-
-.labelCompact {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
-/* 改善計画T365-2: 周回/目的地モード切り替え（セグメントコントロール）。距離・生成ボタンと
+/* 周回/目的地モード切り替え（セグメントコントロール）。距離・生成ボタンと
    同じ行に収まるよう小さめにする。 */
 .modeToggle {
   display: inline-flex;

@@ -201,7 +201,8 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 ## RouteForm.tsx
 
 距離入力・候補件数入力・生成ボタン。`RouteMode`（"loop"|"destination"）で
-周回/目的地モードを切り替える。モバイル上部バー向けの`compact`表示を持つ。目的地モードでは
+周回/目的地モードを切り替える。デスクトップ・モバイルとも「ルート設定」区分
+（`RouteSettingsPanel`と同じ場所）から呼ぶ。目的地モードでは
 距離入力を出さない。想定速度はこのフォームでは扱わない（地図下部の条件バー
 `RideConditionBar`、page-composition.md参照）。候補件数入力は経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
 候補件数を常に1件へ固定し無視するため、`maxRoutesRelevant`＝`routeMode==="loop"||

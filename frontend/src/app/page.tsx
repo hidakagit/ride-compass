@@ -1509,11 +1509,10 @@ export default function Home() {
         ? `生成中...(${Math.round(generationProgress.elapsedMs / 1000)}秒経過)`
         : undefined;
 
-  // 「ルートを作る」ブロックの中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
-  // デスクトップの<details>専用（改善計画T250でモバイルはヘッダーの操作バーへ出発地点・
-  // 距離・生成ボタンを分離済み。改善計画T300でモバイルの結果表示自体も「ルート設定」
-  // 「ルート結果」の2タブへ分割したため、デスクトップはその両方を続けて呼ぶことで
-  // 従来どおり1つの折りたたみ内に収める）。
+  // 「ルート設定」区分の中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
+  // デスクトップの`Disclosure`（summary="ルート設定"）・モバイルの`BottomSheet`
+  // （title="ルート設定"）の両方から呼ぶ。見出しはどちらも呼び出し元コンテナが持つため、
+  // このセクション自身は見出しを持たない。
   function renderRouteSectionBody() {
     return (
       <>
@@ -1533,25 +1532,18 @@ export default function Home() {
           onDestinationButtonClick={handleDestinationButtonClick}
         />
         {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
-        {renderRouteSettingsSectionBody(false)}
+        {renderRouteSettingsSectionBody()}
       </>
     );
   }
 
   // 一般ユーザー向けルート設定（改善計画T267、目論見書4章）。0次(除外)・軸選択・重みを
   // 生成前に調整できる、常時表示のメイン導線（route_preference・weightOverrideEnabledの
-  // 状態はpage.tsx冒頭のstate宣言・handleGenerateのコメント参照）。モバイルの
-  // 「ルート設定」タブ、デスクトップの「ルートを作る」ブロック前半から呼ぶ
-  // （改善計画T300、旧renderRouteResultsBodyの前半を分離）。
-  // 改善計画T419: 見出し「ルート設定」は呼び出し元によって要否が変わる。デスクトップは
-  // 外側のDisclosure見出しが「ルートを作る」（このセクションと後続のルート結果の両方を
-  // 束ねる大枠）のため、このセクション自身の見出しとして必要。モバイルはBottomSheet自体の
-  // title="ルート設定"（下記BottomSheet呼び出し参照）と文言が重複するため、showHeading=false
-  // で抑制する（実機フィードバック「見出しが二重に表示される」）。
-  function renderRouteSettingsSectionBody(showHeading: boolean = true) {
+  // 状態はpage.tsx冒頭のstate宣言・handleGenerateのコメント参照）。renderRouteSectionBody
+  // からのみ呼ばれ、見出しは持たない（呼び出し元コンテナが持つ、上記コメント参照）。
+  function renderRouteSettingsSectionBody() {
     return (
       <div className={layerPanelStyles.group}>
-        {showHeading && <h2 className={layerPanelStyles.groupTitle}>ルート設定</h2>}
         <RouteSettingsPanel
           hardFilters={hardFilters}
           onHardFiltersChange={setHardFilters}
@@ -1854,32 +1846,6 @@ export default function Home() {
       </header>
       <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />
 
-      {/* モバイル専用の操作バー（改善計画T250）。「ルートを作る」タブを開かないと出発地点の
-          確認も生成もできない、という導線の長さが実機フィードバックだったため、天候ヘッダー
-          直下に常設し、地図を見ながらでも操作できるようにした。生成ボタンがタブの外に出た
-          ことで、失敗時のエラーメッセージが見えなくなる回帰を避けるためここにも表示する
-          （生成結果自体は下部「ルート結果」タブ、renderRouteOutcomeSectionBody参照）。 */}
-      {isMobile && (
-        <div className={styles.mobileActionBar}>
-          <RouteForm
-            distance={distanceInput}
-            onDistanceChange={setDistanceInput}
-            maxRoutes={maxRoutesInput}
-            onMaxRoutesChange={setMaxRoutesInput}
-            onGenerate={handleGenerate}
-            loading={loading}
-            compact
-            routeMode={routeMode}
-            onRouteModeChange={handleRouteModeChange}
-            waypointCount={waypoints.length}
-            onWaypointsClear={handleWaypointsClear}
-            destinationState={destinationState}
-            onDestinationButtonClick={handleDestinationButtonClick}
-          />
-          {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
-        </div>
-      )}
-
       <div className="app-shell">
         {!isMobile && (
           <aside className={`app-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}>
@@ -2172,9 +2138,7 @@ export default function Home() {
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {/* 改善計画T419: BottomSheet自体のtitle="ルート設定"と中身のh2見出しが重複するため、
-                ここではshowHeading=falseで内側の見出しを抑制する。 */}
-            {renderRouteSettingsSectionBody(false)}
+            {renderRouteSectionBody()}
           </BottomSheet>
 
           <BottomSheet
