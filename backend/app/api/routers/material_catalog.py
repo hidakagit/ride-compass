@@ -1,10 +1,10 @@
-"""材料カタログの公開読み取りAPI（改善計画T277）。
+"""材料カタログの公開読み取りAPI。
 
 軸スタジオ（`/admin`、`components/AxisStudio/AxisComposer.tsx`）が材料選択の候補一覧を
 取得するための読み取り専用・認可不要のエンドポイント。材料自体の追加・編集・削除は
-GUIから行わない（`domain/material_catalog.py`へのコード変更＋デプロイのみ、ユーザー方針）。
+GUIから行わない（`domain/material_catalog.py`へのコード変更＋デプロイのみ）。
 
-`tile_property`（地図レイヤーのramp自動生成が内部で使う想定、T278）は公開レスポンスに
+`tile_property`（地図レイヤーのramp自動生成が内部で使う想定）は公開レスポンスに
 含めない——フロントの軸コンポーザーが必要とするのは`material_id`/`label`/`description`/
 `dtype`/`reference_points`のみのため（`description`は軸コンポーザーの情報アイコンから
 表示する説明文、`reference_points`は折れ点編集を助ける「値の目安」一覧）。
@@ -13,28 +13,18 @@ GUIから行わない（`domain/material_catalog.py`へのコード変更＋デ�
 このレスポンスから除外する。構造的なAND条件（"both"）を素朴なCategoricalShapeが
 正しく表現できず誤解を招くため。地図表示（`tile_property`経由）には影響しない。
 
-改善計画T340: `GET /api/material-catalog/{material_id}/values`（同じく認可不要・
-読み取り専用）を追加した。highway/surface/smoothnessはOSMタグの生値でオープンエンドな
-ため、`AxisComposer.tsx`の値入力欄が「タグ生値を暗記して手入力する」というUX課題を
-抱えていた（2026-08-26ユーザー報告）。DBに実際に取り込まれている値を動的取得し返す。
-DB未接続構成（`road_graph_use_repository=False`）では空リストを返し、呼び出し側
-（フロント）が自由テキスト入力へフォールバックする。
+`GET /api/material-catalog/{material_id}/values`（同じく認可不要・読み取り専用）は、
+highway/surface/smoothnessのようなOSMタグの生値でオープンエンドな材料について、DBに
+実際に取り込まれている値を動的取得し返す（`AxisComposer.tsx`の値入力欄がタグ生値を
+暗記して手入力せずに選べるようにする）。DB未接続構成（`road_graph_use_repository=False`）
+では空リストを返し、呼び出し側（フロント）が自由テキスト入力へフォールバックする。
 
-改善計画T345フォローアップ: 当初（T340）はラベル付与を「UI語彙のカタログ集約」原則に
-従いfrontend側（`lib/materialValueLabels.ts`、地図の絞り込みUIのグルーピングを流用）で
-行っていたが、地図表示用のグルーピングは意図的に多対一（例: motorway/trunk/primary等
-複数値が同じ「幹線道路」）なため、軸スタジオの候補一覧で同じラベルが並び見分けが
-付かなくなる実害が判明した。「地図表示と評価は別」という方針のもと、値の意味は
-材料そのものの定義に属するドメイン知識と位置づけ直し、`MaterialSpec.value_labels`
-（`domain/material_catalog.py`、材料定義自体の一部）へ一元化した。本APIのレスポンスに
-`label`を含めることで、frontendは受け取った値をそのまま表示するだけでよくなる
-（frontend側の対訳表は撤去済み）。
-
-改善計画T345さらなるフォローアップ2: `values.label`（`MaterialSpec.value_label`）・
-`materials.label`（`MaterialSpec.full_label`）ともに「論理名 - 物理名」形式
-（例: 材料"道路種別 - highway"、値"自転車専用道 - cycleway"）で返す。論理名だけでは
-どのOSMタグ値に対応するか分からない・軸定義（`AxisDefinitionResponse`）や外部ドキュメント
-上で物理名を探す必要がある、というユーザー要望への対応。
+`values.label`（`MaterialSpec.value_label`）は材料の値ごとの日本語ラベル対訳表
+（`MaterialSpec.value_labels`、`domain/material_catalog.py`、材料定義自体の一部）を
+そのまま返す。`values.label`・`materials.label`（`MaterialSpec.full_label`）ともに
+「論理名 - 物理名」形式（例: 材料"道路種別 - highway"、値"自転車専用道 - cycleway"）で
+返す——論理名だけではどのOSMタグ値に対応するか分からず、軸定義
+（`AxisDefinitionResponse`）や外部ドキュメント上で物理名を探す必要があるため。
 
 `GET /api/admin/material-catalog/coverage`（Basic認証必須）は、材料ごとの欠損割合
 （元データ[タグ・派生テーブル行]が無いWay/Edgeの割合）を全材料ぶん返す管理画面向けの
@@ -65,12 +55,10 @@ class MaterialReferencePointEntry(BaseModel):
 
 class MaterialCatalogEntry(BaseModel):
     material_id: str
-    # 改善計画T345さらなるフォローアップ2: 「論理名 - 物理名」形式（MaterialSpec.full_label、
-    # 例: "道路種別 - highway"）。論理名だけでは物理名(material_id)が分からないという
-    # ユーザー要望への対応。
+    # 「論理名 - 物理名」形式（MaterialSpec.full_label、例: "道路種別 - highway"）。
+    # 論理名だけでは物理名(material_id)が分からないため併記する。
     label: str
-    # 改善計画T345: 軸スタジオの材料選択で、labelだけでは何を表す材料か分かりにくいという
-    # ユーザーフィードバックへの対応。情報アイコン(ⓘ)から表示する説明文。
+    # 情報アイコン(ⓘ)から表示する説明文（labelだけでは何を表す材料か分かりにくいため）。
     description: str
     dtype: MaterialDType
     # 値の単位（MaterialSpec.unitが単一ソース、無次元・真偽値・カテゴリ値は空文字）。
@@ -87,10 +75,9 @@ class MaterialCatalogResponse(BaseModel):
 
 class MaterialValueEntry(BaseModel):
     value: str
-    # 改善計画T345フォローアップ: 「論理名 - 物理名」形式（例: "自転車専用道 - cycleway"）。
-    # ラベル対訳表に無い値はvalueと同じ文字列（MaterialSpec.value_labelのフォールバック、
-    # 新しいOSMタグ値がDBに現れてもAPIが失敗しないようにするため。この場合論理名が無い
-    # ため" - "は付かない）。
+    # 「論理名 - 物理名」形式（例: "自転車専用道 - cycleway"）。ラベル対訳表に無い値は
+    # valueと同じ文字列（MaterialSpec.value_labelのフォールバック、新しいOSMタグ値が
+    # DBに現れてもAPIが失敗しないようにするため。この場合論理名が無いため" - "は付かない）。
     label: str
 
 
@@ -148,7 +135,7 @@ async def get_material_values(
     material_id: str,
     region_service: RegionService = Depends(get_region_service),
 ) -> MaterialValuesResponse:
-    """改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
+    """材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
     未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
     材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
     いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード

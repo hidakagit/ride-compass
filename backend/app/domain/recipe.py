@@ -1,15 +1,8 @@
-"""タグ由来の材料タグを正規化する純関数群（改善計画T122）。
+"""タグ由来の材料タグを正規化する純関数群。
 
 タグの値パース（`parse_lanes`/`parse_maxspeed`）・cycleway系タグの集約（`cycleway_values`）・
 タグ値の真偽判定（`tag_value_is`）を「材料タグの正規化」としてここを正準1箇所にしている。
 複数のevaluationパイプライン（domain/evaluation.py・domain/traffic.py）が同じ関数を参照する。
-
-改善計画T292: 旧`RoadSuitabilityRecipe`・`MotorVehicleDensityRecipe`・`car_closeness`・
-`road_suitability`・`cycleway_adjustment`・`threshold_adjustment`・`clamp_level`・
-`flag_adjustment`・`validate_threshold_order`（highway別基準値＋タグ由来の加減点＋クランプ
-という「専用Pythonレシピ」の採点構造、および`domain/traffic.py: car_stress_breakdown`等の
-呼び出し元）は、car_stress軸をAXIS_DEFINITIONSの内部軸5つ+公開軸1つの階層構造で再現する
-よう再設計したことに伴い削除した。
 """
 
 
@@ -54,17 +47,16 @@ def tag_value_is(tags: dict[str, str], key: str, expected: str) -> bool:
 
 
 def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, bool]:
-    """改善計画T336: `domain/material_catalog.py`のhighway_is_cycleway/cycleway_has_track/
+    """`domain/material_catalog.py`のhighway_is_cycleway/cycleway_has_track/
     cycleway_has_lane/cycleway_has_shared材料（正規化フラグ材料id→真偽値）と同じキーを
     まとめて返す。`domain/evaluation.py: axis_inspector_breakdown`/`compute_edge_axis_scores`が
     手組みするmaterials辞書へそのまま`**bicycle_infra_flags(tags, highway)`で混ぜ込める
-    （bicycle_infra[classify_bicycle_infrastructure]と同じ材料抽出を1箇所にまとめ、
-    複数箇所への手書き複製を避ける）。
+    （材料抽出を1箇所にまとめ、複数箇所への手書き複製を避ける）。
 
-    改善計画T359: `shared_pedestrian_path`は、河川敷サイクリングロード等
-    「highway=footway/pathかつbicycle=yes/designated（自転車通行可の歩行者道）」という
-    別のOSMタグパターンを検知する（王子-荒川ルート調査で発覚、highway=cycleway/track等の
-    車道併設インフラとは別に、車道から完全分離された共用道を拾えていなかった）。
+    `shared_pedestrian_path`は、河川敷サイクリングロード等「highway=footway/pathかつ
+    bicycle=yes/designated（自転車通行可の歩行者道）」という別のOSMタグパターンを検知する
+    （highway=cycleway/track等の車道併設インフラとは別に、車道から完全分離された共用道を
+    拾うため）。
     """
     values = cycleway_values(tags)
     return {
@@ -77,19 +69,16 @@ def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, 
 
 
 def bicycle_infra_flags_or_none(tags: dict[str, str] | None, highway: str | None) -> dict[str, bool] | None:
-    """改善計画T347フォローアップ: `bicycle_infra_flags`を「データ欠損はNone」の規約に
-    倒すラッパー。呼び出し元（material_catalog.pyのextractor・evaluation.py:
-    compute_edge_axis_scores・road_graph_engine.pyの_build_segment_details）が
-    同じガード条件を複数箇所で手書きしていたため、旧classify_bicycle_infrastructureが
-    実際に持っていた「unknown」判定条件をここへ1箇所へ集約する（設計原則1: 正準定義は1箇所）。
+    """`bicycle_infra_flags`を「データ欠損はNone」の規約に倒すラッパー。呼び出し元
+    （material_catalog.pyのextractor・evaluation.py: compute_edge_axis_scores・
+    road_graph_engine.pyの_build_segment_details）が同じガード条件を複数箇所で
+    手書きしないよう、ここへ1箇所へ集約する（設計原則1: 正準定義は1箇所）。
 
     `tags is None`（タグ自体が未取得）はNone。`bicycle_infra_flags`自体はhighway=Noneでも
-    例外を投げず具体的なbool値を返してしまうが、素朴に`highway is None`だけをNoneへ倒すと、
-    旧関数が実際には許していた「highwayは不明だがcyclewayタグから分離自転車道と判定できる」
-    ケース（`highway == "cycleway" or "track" in values`をhighwayの有無より先に判定していた
-    ため、cyclewayタグさえあればhighwayがNoneでも判定できた）まで誤ってNoneに倒してしまう。
-    旧関数が本当にunknownを返していたのは「highwayも解決できず、かつcycleway由来の
-    いずれのフラグも立たない」場合のみ（最終catch-all）なので、フラグ計算後にその条件
+    例外を投げず具体的なbool値を返す——highway="cycleway"かどうかの判定・cyclewayタグ由来の
+    各フラグはhighwayの有無より先に評価されるため、cyclewayタグさえあればhighwayがNoneでも
+    判定できる。unknown（None）とみなすのは「highwayも解決できず、かつcycleway由来の
+    いずれのフラグも立たない」場合のみ（最終catch-all）のため、フラグ計算後にその条件
     （highway=None かつ 全フラグFalse）でだけNoneへ倒す。
     """
     if tags is None:
