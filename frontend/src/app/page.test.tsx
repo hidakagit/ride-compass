@@ -21,6 +21,7 @@ vi.mock("@/components/WeatherPanel/WeatherPanel", () => ({ default: () => null }
 vi.mock("@/components/WarningBadge/WarningBadge", () => ({ default: () => null }));
 vi.mock("@/components/ComparisonPanel/ComparisonPanel", () => ({ default: () => null }));
 vi.mock("@/components/DebugConsole/DebugConsole", () => ({ default: () => null }));
+vi.mock("@/lib/gpxExport", () => ({ downloadGpx: vi.fn() }));
 
 vi.mock("@/components/RouteSettingsPanel/RouteSettingsPanel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/RouteSettingsPanel/RouteSettingsPanel")>();
@@ -385,6 +386,7 @@ import { useEffect, useState } from "react";
 import { act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateRoutes } from "@/services/routeApi";
+import { downloadGpx } from "@/lib/gpxExport";
 import { getAmedasObservation, getCurrentWeather, getWeatherWarnings, getWbgtStatus, getFloodForecasts } from "@/services/weatherApi";
 import type { RouteCandidate, GenerationConditions, SelectedRouteSegment } from "@/types/route";
 import type { AmedasObservation, WeatherConditions, WeatherWarnings, WbgtStatus, FloodForecasts } from "@/types/weather";
@@ -913,6 +915,27 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
 
     expect(screen.queryByRole("button", { name: "ルートをクリア" })).not.toBeInTheDocument();
+  });
+
+  it("「GPX出力」ボタンは選択中候補をdownloadGpxへ渡す", async () => {
+    const user = userEvent.setup();
+    const candidate = makeCandidate({ id: "route-042" });
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [candidate],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    const gpxButton = await screen.findByRole("button", { name: "GPX出力" });
+    expect(gpxButton).toBeEnabled();
+
+    await user.click(gpxButton);
+
+    expect(downloadGpx).toHaveBeenCalledWith(candidate);
   });
 
   it("生成中に例外が投げられたとき、そのメッセージをエラー表示する", async () => {

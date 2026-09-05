@@ -86,6 +86,7 @@ import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 // WeightPanel自体をtotal_score撤去に伴い削除したため@/lib/evaluationAxesへ移設した。
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
+import { downloadGpx } from "@/lib/gpxExport";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -1656,11 +1657,20 @@ export default function Home() {
   function renderRouteResultHeaderActions() {
     return (
       <>
-        {/* 保存・GPX出力は機能未実装の占位（位置だけ先に確保する）。実装時はdisabledを外す。 */}
+        {/* 保存は機能未実装の占位（位置だけ先に確保する）。実装時はdisabledを外す。 */}
         <button type="button" className={styles.outcomeHeaderIcon} disabled title="保存（準備中）" aria-label="保存（準備中）">
           <SaveIcon />
         </button>
-        <button type="button" className={styles.outcomeHeaderIcon} disabled title="GPX出力（準備中）" aria-label="GPX出力（準備中）">
+        {/* 選択中候補のgeometry（区間分割前の連続したLineString）をGPXへ書き出す。
+            selectedCandidateがnullの間は押せない（比較タブ表示中等）。 */}
+        <button
+          type="button"
+          className={styles.outcomeHeaderIcon}
+          disabled={!selectedCandidate}
+          onClick={() => selectedCandidate && downloadGpx(selectedCandidate)}
+          title="GPX出力"
+          aria-label="GPX出力"
+        >
           <DownloadIcon />
         </button>
         {/* 生成済みの候補一覧・地図描画・選択状態だけをリセットする（経由地・目的地のピンは
