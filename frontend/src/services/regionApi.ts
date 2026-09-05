@@ -143,15 +143,25 @@ export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspecto
 // `fetchDynamicWayValues`へ汎用化した。
 const DYNAMIC_WAY_VALUES_PATH = "/api/region/dynamic-way-values";
 
+export interface DynamicWayValuesResult {
+  values: Record<string, number>;
+  /** 通信失敗（HTTPエラー・ネットワークエラー・タイムアウト）ならtrue。backendが正常応答で
+   * 空オブジェクトを返した場合（対象範囲に本当にway_idが無い）はfalseのまま——呼び出し側が
+   * 「取得失敗」と「本当に空」を区別できるようにする。 */
+  error: boolean;
+}
+
 /** 指定タイル（road-surface-tilesと同じz/x/y）内のway_idごとの動的値（風=wind_drag_ratio、
- * 勾配=effective_gradient）をまとめて取得する。失敗時は例外を投げず空オブジェクトへ
+ * 勾配=effective_gradient）をまとめて取得する。失敗時は例外を投げず`error: true`へ
  * フォールバックする——背景の色分けレイヤーという補助的な機能のため、道路タイル自体の
  * 表示・他レイヤーを巻き込んで止めない（useWeatherGridのdetailGrid取得と同じ
- * 「補助機能はサイレントにフォールバック」方針）。
+ * 「補助機能はサイレントにフォールバック」方針。ただし失敗そのものは`error`で呼び出し側へ
+ * 伝える——道路タイルは止めないが、道路の色分け自体が失敗したことは利用者へ示せるように
+ * するため）。
  *
- * 改善計画T414: `bearingDeg`（ユーザーがコンパススライダーで指定した走行方位、0〜360度、
- * 北=0・時計回り）を必須クエリパラメータとして渡す。`at`は環境グループ（矢印・gridFill）と
- * 共有する時刻（省略時はbackend側が現在時刻を使う。勾配は時刻に依存しないため常に省略）。 */
+ * `bearingDeg`（ユーザーがコンパススライダーで指定した走行方位、0〜360度、北=0・時計回り）を
+ * 必須クエリパラメータとして渡す。`at`は環境グループ（矢印・gridFill）と共有する時刻
+ * （省略時はbackend側が現在時刻を使う。勾配は時刻に依存しないため常に省略）。 */
 export async function fetchDynamicWayValues(
   materialId: string,
   z: number,
@@ -160,7 +170,7 @@ export async function fetchDynamicWayValues(
   bearingDeg: number,
   at?: Date,
   speedKmh?: number
-): Promise<Record<string, number>> {
+): Promise<DynamicWayValuesResult> {
   const params = new URLSearchParams({ bearing_deg: String(bearingDeg) });
   if (at) params.set("at", at.toISOString());
   // 走行速度に依存する材料（needs_speed）だけがbackend側で使う。他の材料へ渡しても無視される。
@@ -174,11 +184,11 @@ export async function fetchDynamicWayValues(
     const durationMs = Math.round(performance.now() - startedAt);
     if (!response.ok) {
       debugLog(logCategory, `失敗 (HTTP ${response.status})`, { durationMs }, "error");
-      return {};
+      return { values: {}, error: true };
     }
     const data = (await response.json()) as Record<string, number>;
     debugLog(logCategory, "成功", { durationMs, wayCount: Object.keys(data).length });
-    return data;
+    return { values: data, error: false };
   } catch (error) {
     debugLog(
       logCategory,
@@ -189,7 +199,7 @@ export async function fetchDynamicWayValues(
       },
       "error",
     );
-    return {};
+    return { values: {}, error: true };
   }
 }
 

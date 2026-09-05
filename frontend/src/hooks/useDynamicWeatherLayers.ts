@@ -43,7 +43,7 @@ import {
   type DynamicWeatherLayerId,
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
-import type { LayerDataStatus } from "@/components/Map/mapLayers";
+import { deriveFetchLayerStatus, type LayerDataStatus } from "@/components/Map/mapLayers";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
 
@@ -104,17 +104,6 @@ export interface UseDynamicWeatherLayersResult {
   /** windAxis（評価軸グループの風、backend API）が同じ[時刻]を共有するために
    * 公開する共有時刻そのもの（`at`クエリパラメータに使う）。 */
   dynamicLayerTargetTime: Date;
-}
-
-/** loading/error/payloadの有無から`LayerDataStatus`を1つ決める。
- * 判定順序はuseLayerDataStatus.ts: computeLayerDataStatusと同じ「エラー中 > 読込中 >
- * 読込済みだが値なし」。正常時（現在時刻に対応する値が描画できている）はundefined
- * （呼び出し元はキー自体を持たない状態として扱う）。 */
-function dynamicWeatherStatus(loading: boolean, error: string | null, hasPayload: boolean): LayerDataStatus | undefined {
-  if (error) return "error";
-  if (loading) return "loading";
-  if (!hasPayload) return "empty";
-  return undefined;
 }
 
 /** 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
@@ -411,20 +400,20 @@ export function useDynamicWeatherLayers({
     ]
   );
 
-  // レイヤーごとのデータ取得状態。3レイヤー全てが同じdynamicWeatherStatus
+  // レイヤーごとのデータ取得状態。3レイヤー全てが同じderiveFetchLayerStatus
   // 関数を通る——「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を
   // 意識する必要は無い。複数の名前付きソースを持つグループ（precipitationNowcastの
   // ナウキャスト3段+線状降水帯、disasterの7要素）は、UI上のチップが1つのため、いずれかの
   // ソースが地図に何かしら描画できていればloading/errorとしない。
   const dynamicWeatherDataStatus = useMemo(
     () => ({
-      windVector: dynamicWeatherStatus(windLoading, windError, windPayload !== undefined),
-      precipitationNowcast: dynamicWeatherStatus(
+      windVector: deriveFetchLayerStatus(windLoading, windError, windPayload !== undefined),
+      precipitationNowcast: deriveFetchLayerStatus(
         nowcastLoading || linearRainbandLoading,
         nowcastError ?? linearRainbandError,
         precipitationPayload !== undefined || linearRainbandPayload !== undefined
       ),
-      disaster: dynamicWeatherStatus(
+      disaster: deriveFetchLayerStatus(
         thunderNowcastLoading || lidenNowcastLoading || currentRiskLoading,
         thunderNowcastError ?? lidenNowcastError ?? currentRiskError,
         thunderPayload !== undefined ||

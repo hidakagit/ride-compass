@@ -67,6 +67,44 @@
   flex-shrink: 0;
 }
 
+/* レンズのデータ取得状態を示す小さなドット。クラス名はmapLayers.ts: LayerDataStatusの値
+   （"loading"/"empty"/"error"）とそろえ、LensControl.tsx側は`styles[`statusDot_${dataStatus}`]`
+   で動的に参照する（LayerChip.module.cssと同じ設計、状態→視覚表現の対訳表をコンポーネント
+   内に持たない）。 */
+.statusDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDot_loading {
+  background: currentColor;
+  opacity: 0.5;
+  animation: rc-lens-status-pulse 1.2s ease-in-out infinite;
+}
+
+.statusDot_empty {
+  background: transparent;
+  border: 1px solid currentColor;
+  opacity: 0.7;
+}
+
+.statusDot_error {
+  background: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+@keyframes rc-lens-status-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
 .content {
   z-index: 40;
   width: min(18rem, calc(100vw - 1.5rem));

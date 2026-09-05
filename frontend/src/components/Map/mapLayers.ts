@@ -443,17 +443,14 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     // way_id→wind_drag_ratio配信層。上のwindVector（格子点・矢印表示、探索用の「環境」
     // 表現）とは独立した評価軸としての表現——ユーザー指定の走行方位と最寄りの風グリッド値
     // からwind_drag_ratioを計算し、backendのRedis配信層（タイル単位キー）・新設APIを
-    // 経由してMapLibreのsetFeatureStateで道路線そのものを色分けする。地図上チップとしては
-    // 出さず、ルート設定パネル（RouteSettingsPanel.tsx）の「風」行から起動する——
-    // label/chipLabel/descriptionはisAxisStudioLayerによりMapOverlayControls/
-    // MapLayersPanelの表示対象からは除外される。
-    // RouteSettingsPanel.tsx自体はこのMapLayerDescriptorを直接参照しない
-    // （`mapColorLayerIdFor`経由でlayerVisibility[layerId]のON/OFFだけを扱う、tooltip
-    // 文言も自前のハードコード文字列）。このエントリが実際に使われているのは、(1)
-    // MapLayerId型の定義そのものと、(2) road_surfaceタイル（promoteId付きway_id）を
-    // 共有するレイヤーとしてbuildRoadSurfaceSharedLayerIds（下記）へ含め、
-    // regionZoomTooWide判定（MapView.tsx: isRoadSurfaceGroupVisible→updateRoadZoomHint、
-    // 「表示範囲が広すぎます」バナー）の対象にすることの2点のみ。
+    // 経由してMapLibreのsetFeatureStateで道路線そのものを色分けする。表示ON/OFFの唯一の
+    // 起動導線は地図上部中央のLensControl（レンズ）——label/chipLabel/descriptionは
+    // isAxisStudioLayerによりMapOverlayControls/MapLayersPanelの表示対象からは除外される。
+    // このエントリが実際に使われているのは、(1) MapLayerId型の定義そのものと、(2)
+    // road_surfaceタイル（promoteId付きway_id）を共有するレイヤーとして
+    // buildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
+    // （MapView.tsx: isRoadSurfaceGroupVisible→updateRoadZoomHint、「表示範囲が広すぎます」
+    // バナー）の対象にすることの2点のみ。
     id: "windAxis",
     label: "風（評価軸）",
     chipLabel: "風軸",
@@ -488,10 +485,9 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
   },
   {
     // way_id→勾配（effective_gradient）配信層。上のgradientFill（タイル単位の面表示、
-    // 探索用の「環境」表現）とは独立した評価軸としての表現——windAxisと同型（地図上
-    // チップとしては出さず、ルート設定パネル[RouteSettingsPanel.tsx]の「勾配」行から
-    // 起動する）。windAxis同様buildRoadSurfaceSharedLayerIds（下記）にも含める——
-    // 実際の用途はwindAxisのコメント参照。
+    // 探索用の「環境」表現）とは独立した評価軸としての表現——windAxisと同型（表示ON/OFFの
+    // 唯一の起動導線はLensControl）。windAxis同様buildRoadSurfaceSharedLayerIds（下記）
+    // にも含める——実際の用途はwindAxisのコメント参照。
     id: "gradientAxis",
     label: "勾配（評価軸）",
     chipLabel: "勾配軸",
@@ -560,6 +556,21 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   empty: "この範囲に表示できるデータがありません",
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
+
+/** loading/error/payloadの有無からLayerDataStatusを1つ決める（エラー中 > 読込中 > 読込済み
+ * だが値なし。正常時はundefined＝キー自体を持たない）。実際の外部フェッチが自前のJSコードで
+ * 完結し、結果を`map.getSource(id).setData(...)`等で流し込むだけのレイヤー（MapLibreの
+ * sourcedata/errorイベントを経由しない、`computeLayerDataStatus`の対象外）が共通して使う。 */
+export function deriveFetchLayerStatus(
+  loading: boolean,
+  error: string | null,
+  hasPayload: boolean
+): LayerDataStatus | undefined {
+  if (error) return "error";
+  if (loading) return "loading";
+  if (!hasPayload) return "empty";
+  return undefined;
+}
 
 // roadType/roadSurface/designation/tunnel/onewayは同じroad_surfaceベクタタイル
 // （MapView.tsx: ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を

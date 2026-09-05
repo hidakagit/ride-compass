@@ -92,4 +92,19 @@ describe("LensControl", () => {
 
     expect(screen.getByRole("button", { name: "レンズ: なし（タップで変更）" })).toBeInTheDocument();
   });
+
+  it("dataStatus未指定（正常時）はピルにtitleを付けない", () => {
+    render(<LensControl {...baseProps({ lens: "wind" })} />);
+
+    expect(screen.getByRole("button", { name: /レンズ:/ })).not.toHaveAttribute("title");
+  });
+
+  it("dataStatus='error'のとき、専用配信軸のフェッチ失敗をピルのtitleで示す", () => {
+    render(<LensControl {...baseProps({ lens: "wind", dataStatus: "error" })} />);
+
+    expect(screen.getByRole("button", { name: /レンズ:/ })).toHaveAttribute(
+      "title",
+      "データの取得に失敗しました。しばらくしてから再読み込みしてください"
+    );
+  });
 });

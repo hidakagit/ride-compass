@@ -153,7 +153,7 @@ describe("regionApi", () => {
       // origin経由）とは異なる点に注意。
       expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90");
       expect(options.method ?? "GET").toBe("GET");
-      expect(result).toEqual({ "1": 2.34, "2": -1.5 });
+      expect(result).toEqual({ values: { "1": 2.34, "2": -1.5 }, error: false });
     });
 
     it("material_idが変わればパスも変わる（改善計画T423、材料id駆動のエンドポイント統一）", async () => {
@@ -204,19 +204,25 @@ describe("regionApi", () => {
       expect(new URL(String(url)).searchParams.get("at")).toBe(at.toISOString());
     });
 
-    it("HTTPエラー時は例外を投げず空オブジェクトを返す", async () => {
+    it("HTTPエラー時は例外を投げずerror:trueの空valuesを返す（本当に空のデータと区別する）", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers() }),
       );
 
-      await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({});
+      await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({
+        values: {},
+        error: true,
+      });
     });
 
-    it("通信エラー時も例外を投げず空オブジェクトを返す", async () => {
+    it("通信エラー時も例外を投げずerror:trueの空valuesを返す", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
 
-      await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({});
+      await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({
+        values: {},
+        error: true,
+      });
     });
   });
 

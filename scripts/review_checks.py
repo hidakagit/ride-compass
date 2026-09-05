@@ -64,9 +64,10 @@ GENERIC_BASENAMES = {
 # 唯一の定義元（scripts/pre-commit-docs-modules-history.shは2026-09-03のT561でこの関数を
 # 呼ぶだけの薄いラッパへ統合し、shell側に別定義のPATTERNを持たない）。
 NARRATIVE_PATTERN = re.compile(
-    r"以前は|従来は|旧「|旧『|旧T[0-9]|改善計画T[0-9]+で|T[0-9]{3,4}で|実機報告20|実機フィードバック"
-    r"|実機確認|実機指摘|実測で|判明した|発覚した|指摘を受け|フィードバックを受け|ユーザー指摘20"
-    r"|ユーザー要望20|ユーザー判断|方式ではなく|へ変更した|に変更した|を導入した"
+    r"以前は|従来は|旧「|旧『|旧T[0-9]|改善計画T[0-9]+で|改善計画T[0-9]+[:：]|T[0-9]{3,4}で"
+    r"|T[0-9]{3,4}[:：]|実機報告|実機フィードバック|実機確認|実機指摘|実測で|判明した|発覚した"
+    r"|指摘を受け|フィードバックを受け|ユーザー指摘|ユーザー要望|ユーザー判断|方式ではなく"
+    r"|へ変更した|に変更した|を導入した|コードレビュー指摘|実バグ|UIレビュー|ゼロベース網羅"
 )
 # docs/comments.md「コメント方針」節が禁止するソースコード内の経緯コメント検出用。
 # docs/modules向けのNARRATIVE_PATTERNをそのまま流用する（定義元を分けない）。
@@ -75,19 +76,29 @@ NARRATIVE_PATTERN = re.compile(
 SOURCE_COMMENT_PATHSPECS = ("backend/app/*.py", "frontend/src/*.ts", "frontend/src/*.tsx")
 
 
-def comment_only(line: str, path: str) -> str:
+def comment_only(line: str, path: str, jsx_state: dict[str, bool]) -> str:
     """1行のうちコメント部分だけを返す（非コメント行・コメントなしは空文字）。
 
     diffの追加行1行ずつを独立に見るため、複数行にまたがるブロックコメントの内部行
     （`*`始まりの継続行等）は「行頭が*・/*・*/」という単純な形で判定する——完全な
     構文解析はしない（review_checks.py全体の「grep一発規模の安価なチェック」という
-    設計方針に合わせる）。
+    設計方針に合わせる）。JSX `{/* ... */}` ブロックは開始行が`{/*`、終了行が`*/}`を
+    含む行として扱い、`jsx_state`（呼び出し元がファイル単位で使い回す辞書）へ
+    「現在ブロック内か」を持たせて複数行にまたがる継続行も拾う。
     """
     stripped = line.strip()
     if path.endswith(".py"):
         idx = line.find("#")
         return line[idx:] if idx != -1 else ""
     # ts/tsx
+    if jsx_state.get("in_jsx_comment"):
+        if "*/}" in line:
+            jsx_state["in_jsx_comment"] = False
+        return line
+    if stripped.startswith("{/*"):
+        if "*/}" not in line:
+            jsx_state["in_jsx_comment"] = True
+        return line
     if stripped.startswith(("/**", "/*", "*/", "*")):
         return line
     idx = line.find("//")
@@ -97,8 +108,9 @@ def comment_only(line: str, path: str) -> str:
 def find_source_narrative_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
     out = []
     for path, lines in source_lines.items():
+        jsx_state: dict[str, bool] = {}
         for lineno, line in lines:
-            text = comment_only(line, path)
+            text = comment_only(line, path, jsx_state)
             if not text:
                 continue
             m = NARRATIVE_PATTERN.search(text)
