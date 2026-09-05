@@ -48,14 +48,16 @@ def _tile_center(bbox: BoundingBox) -> Coordinates:
 
 
 def _nearest_time_index(times: list[str], target: datetime) -> int | None:
-    """風グリップのhourly時刻配列から、targetに最も近いindexを求める
-    （weather_service.py: WeatherService._nearest_hourly_index/_within_hourly_rangeと同じ
-    「最近傍だが範囲外は不可」という考え方を踏襲した簡易版。targetはtz-aware/naiveどちらでも
-    受け付け、wall-clock成分[JST想定、route_generator.py: JSTのコメント参照]だけを比較する）。
-    範囲外（風グリッドがまだ届いていない遠い未来・過去）はNoneを返し、呼び出し元は「不明」
-    として扱う。"""
+    """風グリッドのhourly時刻配列（Open-MeteoがJST基準の壁時計時刻をtzなし文字列で返す）から、
+    targetに最も近いindexを求める（weather_service.py:
+    WeatherService._nearest_hourly_index/_within_hourly_rangeと同じ「最近傍だが範囲外は不可」
+    という考え方を踏襲した簡易版）。targetがtz-awareならJSTへ変換してから比較する
+    （tzinfoを剥がすだけだとJSTとの時差ぶんズレる）。範囲外（風グリッドがまだ届いていない
+    遠い未来・過去）はNoneを返し、呼び出し元は「不明」として扱う。"""
     if not times:
         return None
+    if target.tzinfo is not None:
+        target = target.astimezone(JST)
     target_naive = target.replace(tzinfo=None)
     parsed = [datetime.fromisoformat(t) for t in times]
     if target_naive < min(parsed) or target_naive > max(parsed):
