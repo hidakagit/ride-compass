@@ -17,12 +17,8 @@ logger = logging.getLogger("ridecompass.health")
 router = APIRouter()
 
 
-# 改善計画T481: 従来`debug_stats()`は`-> dict`という型無しの戻り値注釈のままで、
-# OpenAPI生成物でもこのエンドポイントのレスポンススキーマが完全に無型
-# （`additionalProperties: true`）になっていた。frontend側`debugStatsApi.ts`が
-# 手書きTypeScript interfaceで型を代替する二重管理になっていたため、
 # `infrastructure/debug_log.py: get_stats()`が組み立てるdictの実際の構造に対応する
-# Pydanticモデルを定義しOpenAPI経由の生成型へ統一する。
+# Pydanticモデル（OpenAPI経由でfrontendの型を生成する）。
 class ExternalCallStatsResponse(BaseModel):
     calls: int
     errors: int
@@ -32,7 +28,7 @@ class ExternalCallStatsResponse(BaseModel):
     max_ms: int
     avg_ms: int
     cache_hit_rate: float | None
-    # 失敗の主な理由を推測するための追加集計（改善計画T92夜間502調査）。error_typesは
+    # 失敗の主な理由を推測するための追加集計。error_typesは
     # HTTPステータス（"http_429"）か例外クラス名のみの粗いラベルで、メッセージ本文・座標は含まない。
     error_types: dict[str, int]
     last_error_type: str | None
@@ -53,11 +49,8 @@ class DebugStatsResponse(BaseModel):
     external: dict[str, ExternalCallStatsResponse]
     rate_limit_rejections: dict[str, int]
 
-# 改善計画T74「本番DBが置き去りになる」対策A: dev DBだけ整備されて本番が未適用のまま
-# 気づかれない事故（T54: osm_raw_pois/accident_points未migration、T74:
-# route_designations未投入）が2度発生した反省から、migration適用状況・データ投入バッチの
-# 最終実行状況・主要テーブル行数を1エンドポイントで確認できるようにする。
-# 「デプロイの反映確認」（/healthのcommit）と同じ思想の、DB版の反映確認。
+# migration適用状況・データ投入バッチの最終実行状況・主要テーブル行数を1エンドポイントで
+# 確認できるようにする。「デプロイの反映確認」（/healthのcommit）と同じ思想の、DB版の反映確認。
 #
 # *_import_runsテーブル（osm_import_runs/accident_import_runs/designation_import_runs）は
 # いずれも「1回のバッチ実行につき1行以上、status(running|succeeded|failed)・started_at・
@@ -69,7 +62,7 @@ _IMPORT_RUN_TABLES = {
 }
 
 # import_runsが指す生データ・派生データの主要テーブル。0件やテーブル欠落自体が
-# 「バッチが本番で一度も走っていない」の直接的なシグナルになる（T74の実例:
+# 「バッチが本番で一度も走っていない」の直接的なシグナルになる（実例:
 # designation_attributesがtable無し→migration未適用、route_designations=0件→取込未実行）。
 _KEY_TABLES = (
     "osm_raw_ways",
@@ -144,17 +137,13 @@ async def _latest_import_run(conn, table: str) -> dict | None:
 @router.get("/api/debug/db-status", dependencies=[Depends(require_admin_basic_auth)])
 async def db_status() -> dict:
     """本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）
-    に追いついているかを1回のリクエストで確認できる診断エンドポイント（改善計画T74）。
+    に追いついているかを1回のリクエストで確認できる診断エンドポイント。
 
     `road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。
     DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
     （docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
-    診断用途のため、DB障害時にHTTP 500にする必要はない）。
-
-    改善計画T467: テーブル行数・migration適用状況・import run履歴という運用上機微な情報を
-    返すにも関わらず従来は無認証だったため、axis_admin.py/debug_admin.pyと同じ管理API
-    認可境界（require_admin_basic_auth）を追加した。`/health`・`/api/debug/stats`
-    （集計値のみで機微情報を含まない）は引き続き無認証のまま維持する。
+    診断用途のため、DB障害時にHTTP 500にする必要はない）。認可境界の理由は
+    docs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」節参照。
     """
     if not settings.road_graph_use_repository:
         return {"commit": settings.git_commit, "database_configured": False}

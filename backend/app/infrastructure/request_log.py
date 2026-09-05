@@ -14,14 +14,14 @@
   レベルはステータスと経路で変える(_access_level参照)。
 - ルーティング内で発生した未処理例外はスタックトレース付きERRORで記録して再送出する
   (「エラー発生箇所」の特定用。HTTPExceptionはFastAPI側で処理済みのためここには来ない)。
-- 未処理例外(500)発生時もX-Request-IDヘッダを付与する(改善計画T464)。このミドルウェアは
+- 未処理例外(500)発生時もX-Request-IDヘッダを付与する。このミドルウェアは
   例外を再送出するだけで実際の500レスポンスは持たない(Starletteの
   ServerErrorMiddlewareが外側で生成する)ため、ヘッダはここでは設定できない。代わりに
   `unhandled_exception_handler`をFastAPIの`Exception`ハンドラとして登録する(main.py)。
   request_idの受け渡しはcontextvarではなく`request.state`を使う——本ミドルウェアの
   `finally`節がcall_next()の例外伝播中に(ServerErrorMiddleware側のハンドラ実行より先に)
   contextvarをリセットしてしまい、ハンドラ側でrequest_id_var.get()を呼ぶと既定値
-  "-"しか読めないタイミング問題が実測で確認できたため。`request.state`はASGI scopeに
+  "-"しか読めないタイミング問題があるため。`request.state`はASGI scopeに
   紐づき、ミドルウェアの巻き戻しの影響を受けない。
 """
 
@@ -59,7 +59,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> Respo
 
     request_log_middlewareは未処理例外をログした上でそのまま再送出するだけで、実際の
     500レスポンス自体はStarletteのServerErrorMiddleware(このミドルウェアより外側)が
-    生成するため、ここでヘッダを設定する機会が無かった(改善計画T464)。FastAPIの
+    生成するため、ここでヘッダを設定する機会が無い。FastAPIの
     Exceptionハンドラはミドルウェアより内側・ServerErrorMiddlewareより先に呼ばれるため、
     ここでレスポンスを構築すればX-Request-IDを含められる。本文・ステータスコードは
     ServerErrorMiddleware既定のプレーンテキスト応答と同じ形（デバッグ情報は含めない、
@@ -89,7 +89,7 @@ def _access_level(method: str, path: str, status_code: int) -> int:
 
 async def request_log_middleware(request: Request, call_next) -> Response:
     request_id = request.headers.get("X-Request-ID") or new_request_id()
-    # 改善計画T464: unhandled_exception_handlerがcontextvarのリセット後でも読めるよう、
+    # unhandled_exception_handlerがcontextvarのリセット後でも読めるよう、
     # ASGI scopeに紐づくrequest.stateへも複製しておく（モジュールdocstring参照）。
     request.state.request_id = request_id
     token = request_id_var.set(request_id)

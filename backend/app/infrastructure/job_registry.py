@@ -1,7 +1,7 @@
-"""汎用の非同期ジョブレジストリ（プロセス内メモリのみ、改善計画T265）。
+"""汎用の非同期ジョブレジストリ（プロセス内メモリのみ）。
 
 `POST /api/routes/generate`の冷パス（未splitな新規エリアへの初回アクセス、数十秒〜
-最大316秒[T248実測]）をバックグラウンドジョブ化し、フロントがポーリングで完了を
+最大316秒）をバックグラウンドジョブ化し、フロントがポーリングで完了を
 待てるようにするために新設した。単一プロセスデプロイ前提（`services/
 axis_registry_service.py`のpush型更新と同じ前提）で、複数ワーカー構成では他プロセスの
 ジョブが見えない制約が残るが、現状の単一プロセスデプロイでは問題にならない。
@@ -21,12 +21,9 @@ JobStatus = Literal["queued", "running", "done", "failed"]
 
 # 完了（done/failed）から10分経過したジョブは次のcreate_job()呼び出し時に掃除する
 # （定期タスクを新設せず、`infrastructure/rate_limiter.py`の
-# `dict + time.monotonic() + 呼び出し時_sweep`と同じ「呼ばれたついでに掃除」方式。
-# 改善計画T386、T265コードレビュー指摘9件目: 以前は`debug_control.py`のリングバッファと
-# 同じ方式と書いていたが、そちらは`deque(maxlen=...)`による件数ベースの暗黙FIFO破棄で
-# TTL・時刻判定を持たず、構造が異なる参照ミスだった）。ジョブ生成頻度に対して十分長く、
-# ポーリング側の最大待機時間[frontend routeApi.tsのMAX_POLL_DURATION_MS=360秒]より
-# 十分長い値。
+# `dict + time.monotonic() + 呼び出し時_sweep`と同じ「呼ばれたついでに掃除」方式）。
+# ジョブ生成頻度に対して十分長く、ポーリング側の最大待機時間
+# [frontend routeApi.tsのMAX_POLL_DURATION_MS=360秒]より十分長い値。
 _JOB_TTL_SECONDS = 600.0
 
 
