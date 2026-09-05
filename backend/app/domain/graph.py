@@ -35,8 +35,8 @@ class DirectedEdge(BaseModel):
     distance_m: float
     osm_way_id: int | None = None
     highway: str | None = None  # OSMのhighwayタグ（生値。分類・評価はRoad Attribute側の責務）
-    # 改善計画T218（T12 Stage 0）: from_node→to_node方向の方位角（度、北=0、時計回り、
-    # domain/geo.py: bearing_betweenと同じ定義）。build_road_graphがgeometryから算出して
+    # from_node→to_node方向の方位角（度、北=0、時計回り、domain/geo.py:
+    # bearing_betweenと同じ定義）。build_road_graphがgeometryから算出して
     # 保持する。探索フェーズの風評価（DYNAMIC_MATERIAL_EVALUATORS）がgeometryを取得・decodeせずに
     # この値だけで完結できるようにするための事前計算値（そのため既定値Noneを許容しつつ、
     # build_road_graph経由の生成では必ず値を持つ）。
@@ -58,7 +58,7 @@ class RoadGraph(BaseModel):
 @runtime_checkable
 class NodeLike(Protocol):
     """探索フェーズ（domain/routing.py・domain/evaluation.py）が実際に読む`Node`の
-    フィールドのみを表す構造的型（改善計画T248）。`Node`（Pydantic）と`LeanNode`
+    フィールドのみを表す構造的型。`Node`（Pydantic）と`LeanNode`
     （dataclass、探索専用の軽量実装）の両方がこのProtocolを満たす。"""
 
     node_id: str
@@ -69,8 +69,8 @@ class NodeLike(Protocol):
 
 @runtime_checkable
 class EdgeLike(Protocol):
-    """探索フェーズが実際に読む`DirectedEdge`のフィールドのみを表す構造的型
-    （改善計画T248）。`DirectedEdge`（Pydantic、表示・保存用）と`LeanEdge`
+    """探索フェーズが実際に読む`DirectedEdge`のフィールドのみを表す構造的型。
+    `DirectedEdge`（Pydantic、表示・保存用）と`LeanEdge`
     （dataclass、探索専用の軽量実装）の両方がこのProtocolを満たす。
 
     `RoadGraphEngine.trace_loop`（`hydrated.get(edge_id) or context.graph.edges[edge_id]`、
@@ -94,7 +94,7 @@ class EdgeLike(Protocol):
 @runtime_checkable
 class RoadGraphLike(Protocol):
     """`RoadGraph`（Pydantic、表示・保存用）と`LeanRoadGraph`（dataclass、探索専用の
-    軽量実装）の両方が満たす構造的型（改善計画T248）。探索フェーズ
+    軽量実装）の両方が満たす構造的型。探索フェーズ
     （`RoadGraphEngine`・`domain/routing.py`・`domain/evaluation.py`）はどちらの実体型を
     渡されても同じ属性アクセスで動作する。"""
 
@@ -105,11 +105,11 @@ class RoadGraphLike(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class LeanNode:
-    """`Node`の探索専用軽量実装（改善計画T248）。フィールド構成は`Node`と完全に一致させる
+    """`Node`の探索専用軽量実装。フィールド構成は`Node`と完全に一致させる
     （`NodeLike`Protocol参照）。Pydantic（`model_construct`でもバリデーション機構自体の
     簿記コストは残る）ではなく素のdataclassにすることで、探索用グラフ構築時の
-    オブジェクト構築コストを削減する（dev DB実測、68,760件でNode.model_construct
-    2.125秒→dataclass構築、詳細はdocs/improvement-plan.md T248参照）。
+    オブジェクト構築コストを削減する（dev DB、68,760件でNode.model_construct
+    2.125秒→dataclass構築）。
     """
 
     node_id: str
@@ -120,13 +120,12 @@ class LeanNode:
 
 @dataclass(frozen=True, slots=True)
 class LeanEdge:
-    """`DirectedEdge`の探索専用軽量実装（改善計画T248）。フィールド構成は
+    """`DirectedEdge`の探索専用軽量実装。フィールド構成は
     `DirectedEdge`と完全に一致させる（`EdgeLike`Protocol参照、
     `RoadGraphEngine.trace_loop`がlean/フル両方のEdgeを同じリストへ混在させるため）。
     `geometry`は常に空リストのプレースホルダ（探索フェーズはgeometryを参照しない設計、
-    `_topology_rows_to_road_graph`参照）。dev DB実測、171,461件で
-    DirectedEdge.model_construct 8.938秒→dataclass構築（詳細はdocs/improvement-plan.md
-    T248参照）。
+    `_topology_rows_to_road_graph`参照）。dev DBで171,461件を
+    DirectedEdge.model_constructすると8.938秒かかるのに対し、dataclass構築なら短縮する。
     """
 
     edge_id: str
@@ -144,11 +143,10 @@ def _rebuild_lean_road_graph(
     node_rows: list[tuple[str, float, float, int | None]],
     edge_rows: list[tuple[str, str, str, float, int | None, str | None, float | None]],
 ) -> "LeanRoadGraph":
-    """`LeanRoadGraph.__reduce__`が指すpickle復元関数（改善計画T546）。列（生のtuple列）から
+    """`LeanRoadGraph.__reduce__`が指すpickle復元関数。列（生のtuple列）から
     `LeanNode`/`LeanEdge`をコンストラクタ呼び出しで作り直す——デフォルトのpickle復元
     （slotted dataclassごとに`__setstate__`/`dataclasses.fields()`を呼ぶ機構、Edge1本
-    あたり約36µsのうちの一部をこのグラフ部分が占めていた、docs/tasks/T546.md参照）を
-    経由しない。`geometry`は`_topology_rows_to_road_graph`が生成する
+    あたり約36µsかかる）を経由しない。`geometry`は`_topology_rows_to_road_graph`が生成する
     タイルキャッシュ経路（`GraphService._get_or_build_tile_materials`が
     `graph_material_cache`経由でpickle化する対象）に限り常に空リストのため、列として
     持たせず復元時に固定で補う。
@@ -169,7 +167,7 @@ def _rebuild_lean_road_graph(
 
 @dataclass(frozen=True, slots=True)
 class LeanRoadGraph:
-    """`RoadGraph`の探索専用軽量実装（改善計画T248）。`graph_version`・`nodes`・`edges`の
+    """`RoadGraph`の探索専用軽量実装。`graph_version`・`nodes`・`edges`の
     フィールド構成は`RoadGraph`と一致させ、`RoadGraphLike`Protocolを満たす。
     `get_graph_topology_in_bbox`（road_graph_repository.py）の戻り値として使う。
     """
@@ -179,13 +177,12 @@ class LeanRoadGraph:
     edges: dict[str, LeanEdge]
 
     def __reduce__(self) -> tuple:
-        """改善計画T546（T538の再検討案C1、項目3）: pickle時にNode/Edgeを列（tupleのリスト）
-        へ分解し、復元は`_rebuild_lean_road_graph`が担う。デフォルトのpickle復元は
-        `nodes`/`edges`辞書の値（`LeanNode`/`LeanEdge`、いずれもslotted frozen dataclass）を
-        1個ずつ`__setstate__`経由で再構築するため、Edge数万〜数十万件規模のタイルでは
-        このオブジェクト単位の復元コストが支配的になる（案B「`__reduce__`をLeanEdge/
-        LeanNodeへ個別定義するだけ」として実測済み、docs/tasks/T546.md参照。合成計測で
-        グラフ部分は253ms→118ms/タイルへ短縮）。`geometry`は常に空リスト
+        """pickle時にNode/Edgeを列（tupleのリスト）へ分解し、復元は
+        `_rebuild_lean_road_graph`が担う。デフォルトのpickle復元は`nodes`/`edges`辞書の値
+        （`LeanNode`/`LeanEdge`、いずれもslotted frozen dataclass）を1個ずつ
+        `__setstate__`経由で再構築するため、Edge数万〜数十万件規模のタイルでは
+        このオブジェクト単位の復元コストが支配的になる（合成計測でグラフ部分は
+        253ms→118ms/タイルへ短縮）。`geometry`は常に空リスト
         （`_topology_rows_to_road_graph`のタイルキャッシュ経路のみがpickle化対象、
         クラスdocstring参照）のため列に持たせない。
         """
@@ -208,11 +205,10 @@ class WaySpec:
     データソース（PBF一括抽出等）に切り替えても、Adapterを差し替えるだけで
     build_road_graphは無変更で使える。
 
-    改善計画T262: 元はPydantic BaseModelだったが、`build_road_graph`が対象bbox＋近傍の
+    Pydantic BaseModelではなく素のdataclass。`build_road_graph`が対象bbox＋近傍の
     全Way（都心規模で数万〜十数万件）ぶん構築するたびPydanticバリデーションのコストが
-    かかっていた（T248でNode/DirectedEdgeに対して確認したのと同種の問題）。外部境界
-    （API・DB行）からの変換専用の内部契約でPydantic固有機能（.model_dump()等）への
-    依存が無いことを確認済みのため、素のdataclassへ変更した。
+    かかるため、外部境界（API・DB行）からの変換専用の内部契約でPydantic固有機能
+    （.model_dump()等）への依存が無いこの型はdataclassにする。
     """
 
     node_ids: list[int]
@@ -234,9 +230,9 @@ def _new_graph_version() -> str:
 
 
 def _way_length_m(coordinates: list[tuple[float, float]]) -> float:
-    # 改善計画T262: 座標ペアごとにPydantic Coordinatesを構築していたのを、
-    # LatLonPoint（NamedTuple、バリデーション無し）へ変更。build_road_graphは
-    # 都心規模で数万〜十数万Edgeぶんこのループを回すホットパスのため。
+    # LatLonPoint（NamedTuple、バリデーション無し）を使う——build_road_graphは
+    # 都心規模で数万〜十数万Edgeぶんこのループを回すホットパスのため、
+    # Pydantic Coordinatesの構築コストを避ける。
     total_km = 0.0
     for (lat1, lon1), (lat2, lon2) in zip(coordinates, coordinates[1:]):
         total_km += haversine_distance_km(LatLonPoint(lat1, lon1), LatLonPoint(lat2, lon2))
@@ -279,12 +275,12 @@ def build_road_graph(
     にしており、osm_way_idを永続的な道路の識別子としてそのまま扱ってはいない点は維持する
     （仕様書11章）。
 
-    改善計画T262: 戻り値は`RoadGraph`（Pydantic）ではなく`LeanRoadGraph`（dataclass）。
+    戻り値は`RoadGraph`（Pydantic）ではなく`LeanRoadGraph`（dataclass）。
     対象bbox＋近傍の全Way（都心規模で数万〜十数万件）ぶんNode/DirectedEdgeを構築する
-    このホットパスでPydanticバリデーションのコストがかかっていた（T248でNode/DirectedEdgeの
-    `model_construct`ですら171,461件で8.9秒超と判明済み）。呼び出し元
+    このホットパスでPydanticバリデーションのコストがかかる（Node/DirectedEdgeの
+    `model_construct`ですら171,461件で8.9秒超かかる）。呼び出し元
     （`GraphService.get_or_build_graph_with_attributes`）は元々`RoadGraphLike`
-    Protocolで受けており、Pydantic固有機能への依存が無いことを確認済み。`LeanEdge.geometry`
+    Protocolで受けており、Pydantic固有機能への依存が無い。`LeanEdge.geometry`
     は「常に空」という規約（`get_graph_topology_in_bbox`側の規約）ではなく、ここでは実際の
     座標列をそのまま持たせる（地図表示（`lean=False`）でも実ジオメトリが必要なため）。
     """
@@ -347,7 +343,7 @@ def build_road_graph(
 
             distance_m = _way_length_m(coordinates)
             geometry_forward = [[lat, lon] for lat, lon in coordinates]
-            # 改善計画T218: forward/backwardそれぞれの実際の進行方向で方位角を算出する
+            # forward/backwardそれぞれの実際の進行方向で方位角を算出する
             # （+180度の単純反転ではなく、逆順の始点・終点から都度求める。短い区間では
             # ほぼ等価だが、地球の丸みを近似せず素直に正しい値を使う）。
             start_point = LatLonPoint(*coordinates[0])
