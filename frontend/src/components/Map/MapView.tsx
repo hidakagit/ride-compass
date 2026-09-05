@@ -674,29 +674,21 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 気象庁 降水ナウキャスト（改善計画T170/T171）を含む動的気象レイヤーのソース/レイヤー
-// 登録・状態反映は、風の矢印・降水延長予報（T183）と共通の汎用関数（ensureDynamicWeatherLayer/
+// 気象庁 降水ナウキャストを含む動的気象レイヤーのソース/レイヤー登録・状態反映は、
+// 風の矢印・降水延長予報と共通の汎用関数（ensureDynamicWeatherLayer/
 // applyDynamicWeatherState）へ集約されている。定義は本ファイル後半、アイコン生成・色/
 // サイズ式が出揃った箇所（DYNAMIC_WEATHER_RENDERERS参照）にある。
 
-// 風の矢印（改善計画T178→フォローアップで自前実装へ移行）。矢印アイコンのCanvas 2D描画
-// 本体（createWindArrowIcon等、MapLibre/DOM以外に依存しない純粋な幾何計算）はwindArrowIcon.ts
-// （改善計画T201、統合レビュー2026-08-22指摘）へ分離済み。ここではMapLibre側の表現
-// （icon-rotate・icon-size・icon-color等）に関わる定数・式のみを持つ。ユーザー
-// フィードバック「ほぼ無風でも矢印が出るのが違和感」を受け、閾値未満はfilterで非表示にする。
-// 実機確認（2026-08-20、王子周辺で実測0.70〜0.81m/s）で当初の閾値1.0m/sだと関東でごく
-// 普通に起きる弱風（1m/s未満だが無風ではない）でも矢印が全滅し、セル塗り（矢印と対応する
-// 範囲を示す機能そのもの）と組み合わせても「何も描画されない」ように見える不具合が
-// 判明したため、「無風」と呼べる範囲まで閾値を引き下げた。
-// アイコンサイズ（風速→スケール倍率）。実機フィードバック「矢印見にくい」を受け、
-// 最低スケールを引き上げた（旧0.4→0.7）。関東は元々弱風日が多く（改善計画T178実装メモ参照）、
-// 無風閾値ぎりぎりの矢印がほぼ最小サイズのままだと目立たなかったため。
-// 実機フィードバック（2026-08-21「背景色は消して。矢印をもう少し大きく、風の強さも
-// 長さと色でより目立つように」）を受け、背景セル塗りの撤去と合わせて全体を一回り
-// 大きくし（0.7→0.9）、かつ弱風〜強風の幅（=矢印の長さの差）をさらに広げた（1.9→2.6）。
-// icon-sizeはアイコン全体を一様スケールするため、この幅を広げるほど「長さで風速が
-// 分かる」度合いが強くなる（色のグラデーションは変えていない、WIND_COLOR_SCALE_
-// EXPRESSION参照）。
+// 風の矢印。矢印アイコンのCanvas 2D描画本体（createWindArrowIcon等、MapLibre/DOM以外に
+// 依存しない純粋な幾何計算）はwindArrowIcon.tsへ分離済み。ここではMapLibre側の表現
+// （icon-rotate・icon-size・icon-color等）に関わる定数・式のみを持つ。ほぼ無風でも
+// 矢印を出すと違和感があるため、「無風」と呼べる範囲までは閾値未満としてfilterで
+// 非表示にする（関東でよく起きる1m/s未満の弱風は無風ではないため、この範囲を非表示に
+// すると矢印が全滅しセル塗りと組み合わせても何も描画されないように見えることに注意）。
+// アイコンサイズ（風速→スケール倍率）。最低スケールを一定以上に確保しないと、無風閾値
+// ぎりぎりの矢印がほぼ最小サイズのままで目立たない。最低〜最大スケールの幅を広く取るほど、
+// icon-sizeによる一様スケールが「長さで風速がわかる」度合いを強める
+// （色のグラデーションは別レイヤーの役割、WIND_COLOR_SCALE_EXPRESSION参照）。
 const WIND_ICON_MIN_SCALE = 0.9;
 const WIND_ICON_MAX_SCALE = 2.6;
 // icon-halo-*（SDFアイコンの縁取りpaintプロパティ）用の色・幅。主層と別レイヤーにしない
@@ -726,7 +718,7 @@ const PRECIPITATION_COLOR_SCALE_EXPRESSION = [
 // 0.65、DYNAMIC_WEATHER_RENDERERS参照）よりわずかに抑えている。
 const PRECIPITATION_FILL_OPACITY = 0.55;
 
-// 洪水キキクル（改善計画T416）のline-color。配信元のフィーチャーが持つ`level`
+// 洪水キキクルのline-color。配信元のフィーチャーが持つ`level`
 // プロパティ（1〜4）をRISK_LEVEL_COLORS（riskMap.ts、土砂・大雨・浸水の3種と共通の
 // 危険度配色）へそのままmatchする。level=0・未設定のフィーチャー（平常時の基準線）は
 // DYNAMIC_WEATHER_RENDERERS.floodRiskのminValueToShowフィルタで描画対象から除外される
@@ -754,14 +746,13 @@ const FLOOD_RISK_LINE_WIDTH_EXPRESSION = [
   14, 5,
 ] as unknown as maplibregl.ExpressionSpecification;
 
-// ズームに応じた追加の拡大率（実機フィードバック「矢印デザインが地図拡大すると見にくい。
-// 拡大率に合わせて目立たせることはできる？」）。symbolレイヤーのicon-sizeは既定で画面上の
+// ズームに応じた追加の拡大率。symbolレイヤーのicon-sizeは既定で画面上の
 // 固定ピクセルサイズのため、拡大するほど周囲の道路・建物がどんどん大きく描かれる一方で
 // 矢印だけ同じ大きさのまま相対的に小さく・目立たなくなる。初期表示ズーム（13、page.tsx:
 // map.zoom初期値）を基準（倍率1）に据え、それより拡大するほど大きく・縮小するほど小さく
 // 描画することで、ズームレベルが変わってもアイコンの「目立ち具合」が視覚的に保たれるようにする。
-// T183再設計で、風専用だったサイズ式をgridMark全般（DynamicWeatherMarkSpec）向けに一般化し、
-// 将来追加されるgridMark要素も同じ式を共有できるようにしている。
+// gridMark全般（DynamicWeatherMarkSpec）向けの汎用式のため、風以外の要素を追加する場合も
+// 同じ式を共有できる。
 const ICON_ZOOM_SCALE_STOPS: readonly { zoom: number; multiplier: number }[] = [
   { zoom: 10, multiplier: 0.75 },
   { zoom: 13, multiplier: 1 },
@@ -801,7 +792,7 @@ function zoomAndPropertyIconSizeExpression(
 }
 
 /** ズームのみに依存するicon-size式（zoomAndPropertyIconSizeExpressionのプロパティ非依存版）。
- * ルート矢印（T293）のように「全シンボル共通の基準サイズをズームでスケールするだけ」で
+ * ルート矢印のように「全シンボル共通の基準サイズをズームでスケールするだけ」で
  * 足りるケース向け。ICON_ZOOM_SCALE_STOPSを共有し、風の矢印と同じズーム曲線に揃える
  * （片側importで2箇所のズーム曲線が食い違わないようにする）。 */
 function zoomIconSizeExpression(baseScale: number) {
@@ -813,12 +804,10 @@ function zoomIconSizeExpression(baseScale: number) {
   ] as unknown as maplibregl.ExpressionSpecification;
 }
 
-// ルート矢印（T293）のsymbol-spacing（線に沿った矢印間隔、画面px単位。ズームで密度が
-// 自動調整されるためズーム別の値は持たない、T293技術検証Artifactで確認済み）・基準サイズ。
-// 実データ（都心の急カーブ・折り返し区間）での密集/欠落確認は実装タスク3の実機調整で行う。
+// ルート矢印のsymbol-spacing（線に沿った矢印間隔、画面px単位。ズームで密度が
+// 自動調整されるためズーム別の値は持たない）・基準サイズ。
 const ROUTE_ARROW_SPACING_PX = 80;
-// 改善計画T558: 0.55→0.8へ拡大（ユーザー指摘「縁取りだけでは色が沈んで見にくい」。
-// 区間色分け線[幅6px]の上に載せて読める大きさにする）。
+// 区間色分け線（幅6px）の上に載せても読める大きさにする。
 const ROUTE_ARROW_BASE_SCALE = 0.8;
 // ハロー層は主層より一回り大きい濃色シルエットを下に敷く倍率（風の矢印のWIND_ICON_HALO_
 // SCALE_MULTIPLIERと同じ考え方）。
@@ -857,7 +846,7 @@ interface DynamicWeatherMarkSpec {
 }
 
 /** 配信元のMapbox Vector Tile（.pbf）をMapLibre標準のvectorソース+lineレイヤーで
- * そのまま描画する（改善計画T416、洪水キキクル）。gridFill/gridMarkと違い値は
+ * そのまま描画する（洪水キキクル）。gridFill/gridMarkと違い値は
  * フィーチャーのプロパティに焼き込み済みのため、feature-state・GeoJSON変換は不要——
  * source-layer名とMapLibre paint式（プロパティ参照）だけを持てばよい。 */
 interface DynamicWeatherVectorSpec {
@@ -880,9 +869,8 @@ interface DynamicWeatherRendererSpec {
   vector?: DynamicWeatherVectorSpec;
 }
 
-// 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースごとの描画スペック（改善計画
-// T432、「1レイヤーID=1 kind」制約の解消）。単一ソースしか持たないグループは"main"という
-// 1キーだけを持つ。
+// 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースごとの描画スペック。
+// 単一ソースしか持たないグループは"main"という1キーだけを持つ。
 type DynamicWeatherGroupSpec = Partial<Record<DynamicWeatherSourceId, DynamicWeatherRendererSpec>>;
 
 // 動的気象レイヤーの描画スペック一覧（唯一の情報源）。新しい要素を追加するときはここへ
@@ -895,13 +883,11 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // 初期化時のsourceプレースホルダ（applyDynamicWeatherStateが本物のURLへsetTilesで
         // 差し替えてからvisibility:visibleにする、ensureRoadSurfaceTileLayer等と同じ
         // 「仮の初期値」パターン。setTiles→visibility切替の順序自体は守られている）。
-        // 既知の制約（改善計画T202、統合レビュー2026-08-22指摘）: `next dev`実行時、この
-        // プレースホルダURL（時刻部分が全ゼロの架空値）へ実際にタイルリクエストが飛び
-        // JMA側で404になることを実機Playwright確認で観測した。React Strict Modeの
-        // 開発時二重実行（mount→cleanup→再mount）で、初回payload未確定時に一瞬visible=trueの
-        // 状態が生じている可能性が高い（本番ビルドではStrict Modeの二重実行が発生しないため
-        // 再現しない想定、未検証）。表示自体は次のpayload反映で自己回復し実害は無いが、
-        // 「visibility:noneの間は要求されない」という以前の説明は不正確だったため訂正する。
+        // このプレースホルダURL（時刻部分が全ゼロの架空値）は、React Strict Modeの
+        // 開発時二重実行（mount→cleanup→再mount）で初回payload未確定時に一瞬visible=trueに
+        // なるタイミングが生じると、実際にタイルリクエストが飛びJMA側で404になりうる
+        // （`next dev`限定の想定、本番ビルドではStrict Modeの二重実行が発生しないため
+        // 再現しない）。表示自体は次のpayload反映で自己回復するため実害は無い。
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`,
         opacity: 0.65,
@@ -916,10 +902,9 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         minValueToShow: PRECIPITATION_NONE_THRESHOLD_MM,
       },
     },
-    // 線状降水帯予測マップ（改善計画T410、T432でrisk系統からrasrf系統・「降水」チップ傘下へ
-    // 再分類）。ナウキャスト/rasrf/延長予報（"main"）と独立に重畳表示する——フレーム列を
-    // 持たない単発スナップショットのため、共有タイムラインが「現在〜3時間先」の範囲内に
-    // あるときだけpayloadが渡る（useDynamicWeatherLayers.ts: linearRainbandVisible参照）。
+    // 線状降水帯予測マップ。ナウキャスト/rasrf/延長予報（"main"）と独立に重畳表示する——
+    // フレーム列を持たない単発スナップショットのため、共有タイムラインが「現在〜3時間先」の
+    // 範囲内にあるときだけpayloadが渡る（useDynamicWeatherLayers.ts: linearRainbandVisible参照）。
     linearRainband: {
       raster: {
         placeholderTileUrl:
@@ -932,7 +917,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     },
   },
   windVector: {
-    // 矢印（改善計画T178）。走行方位に依存しない風向・風速そのものの表示のみを持つ
+    // 矢印。走行方位に依存しない風向・風速そのものの表示のみを持つ
     // （評価軸としての向かい風/追い風の強さはRouteSettingsPanel「風」の「地図で色分け」
     // ボタン[windAxis]・地図の色分け[ルート確定後]が担う）。
     arrow: {
