@@ -17,10 +17,8 @@ type Schemas = components["schemas"];
 
 export type Coordinates = Schemas["Coordinates"];
 
-// フロント専用（位置情報の出所）。APIには現れない。緯度経度の手書きテキスト入力は撤去済み
-// （改善計画T35）だが、改善計画T366で地図タップによる出発地点の手動指定を再導入したため
-// "manual"を持つ（T35が撤去したのはテキスト欄という入力方式であり、手動指定という概念自体
-// ではない）。
+// フロント専用（位置情報の出所）。APIには現れない。緯度経度の手書きテキスト入力は持たないが、
+// 地図タップによる出発地点の手動指定を"manual"として持つ。
 export type LocationSource = "geolocation" | "default" | "manual";
 
 export type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {
@@ -40,7 +38,7 @@ export type RouteCandidate = Omit<Required<Schemas["RouteCandidate"]>, "geometry
   segments: RouteSegmentDetail[] | null;
 };
 
-// フロント専用（改善計画T550）。APIには現れない。地図上でクリックされた区間
+// フロント専用。APIには現れない。地図上でクリックされた区間
 // （RouteSegmentDetail、geometryはfeature.propertiesから除外済みのためnull）と、実際に
 // クリックされた地点（マーカー表示位置。MapView.tsx: handleRouteSegmentClickがe.lngLatから
 // 組み立てる）を束ねてpage.tsxのstateへ持たせる。「ルート結果」タブ（RouteAxisProfile）は
@@ -57,7 +55,7 @@ export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse
   routes: RouteCandidate[];
 };
 
-// 改善計画T265: バックグラウンドジョブ化に伴う型。POST /api/routes/generateは即座に
+// ルート生成のバックグラウンドジョブ化に伴う型。POST /api/routes/generateは即座に
 // job_idを返し、GET /api/routes/generate/{job_id}をポーリングして結果を得る
 // （frontend services/routeApi.ts参照）。
 export type RouteGenerateJobCreatedResponse = Schemas["RouteGenerateJobCreatedResponse"];
@@ -67,23 +65,19 @@ export type RouteGenerateJobStatusResponse = Omit<Required<Schemas["RouteGenerat
 };
 
 export type RoutePreferenceWeights = Schemas["RoutePreferenceWeights"];
-// 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き(改善計画T266)。
+// 0次ハードフィルタ(自転車通行禁止/高速道路/幹線道路)の個別ON/OFF上書き。
 export type HardFilterOverride = Schemas["HardFilterOverride"];
-// 改善計画T292: 車の圧迫感（car_stress）専用レシピ（CarStressRecipeOverride・
-// RoadSuitabilityRecipeOverride・MotorVehicleDensityRecipeOverride）はbackend側で
-// 専用Pythonレシピごと廃止（内部軸6つ+公開軸1つの階層構造へ再実装）したため、
-// 対応する型定義も削除した。
 
 // 実際に適用された条件のエコー（研究インターフェース改善 §10-6）。実験スロットの
 // 保持・比較表・再現性メモの入力になる。
 export type GenerationConditions = Schemas["GenerationConditions"];
 
-// 軸カタログ（改善計画T269）。GET /api/axis-catalogのレスポンス。軸スタジオ（T270）が
-// 管理API経由でDBへ追加した軸も、コード変更・再デプロイなしにここへ反映される。
+// 軸カタログ。GET /api/axis-catalogのレスポンス。軸スタジオが管理API経由でDBへ追加した
+// 軸も、コード変更・再デプロイなしにここへ反映される。
 export type AxisCatalogEntry = Schemas["AxisCatalogEntry"];
 export type AxisCatalogResponse = Schemas["AxisCatalogResponse"];
 
-// 軸スタジオ（改善計画T270）が使う評価軸定義のCRUD型。/api/admin/axis-definitions。
+// 軸スタジオが使う評価軸定義のCRUD型。/api/admin/axis-definitions。
 export type AxisDefinitionPayload = Schemas["AxisDefinitionPayload"];
 export type AxisDefinitionResponse = Schemas["AxisDefinitionResponse"];
 export type MaterialTerm = Schemas["MaterialTerm"];
@@ -91,16 +85,16 @@ export type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
 export type CategoricalShape = Schemas["CategoricalShape"];
 export type AxisShape = BreakpointLinearShape | CategoricalShape;
 
-// 材料カタログ（改善計画T277）。GET /api/material-catalogのレスポンス。軸スタジオの
+// 材料カタログ。GET /api/material-catalogのレスポンス。軸スタジオの
 // 材料選択候補を、材料自体の追加時にコード変更・再デプロイだけで反映する。
 export type MaterialCatalogEntry = Schemas["MaterialCatalogEntry"];
 export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
 export type MaterialReferencePointEntry = Schemas["MaterialReferencePointEntry"];
 
-// 材料の実データ値一覧（改善計画T340）。GET /api/material-catalog/{material_id}/valuesの
-// レスポンス。highway/surface/smoothnessのようなオープンエンドな多値材料向け。
-// 改善計画T345フォローアップ: 各値に日本語ラベル(label)も付く
-// （backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが単一ソース）。
+// 材料の実データ値一覧。GET /api/material-catalog/{material_id}/valuesのレスポンス。
+// highway/surface/smoothnessのようなオープンエンドな多値材料向け。各値に日本語ラベル
+// (label)も付く（backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが
+// 単一ソース）。
 export type MaterialValueEntry = Schemas["MaterialValueEntry"];
 export type MaterialValuesResponse = Schemas["MaterialValuesResponse"];
 
