@@ -271,13 +271,13 @@ describe("routeApi", () => {
       await expect(generateRoutes(request)).rejects.toThrow("冷パスでタイムアウトしました");
     });
 
-    it("6分経過してもdone/failedにならない場合はタイムアウトとしてrejectする", async () => {
+    it("10分経過してもdone/failedにならない場合はタイムアウトとしてrejectする", async () => {
       vi.useFakeTimers();
       stubFetchForJob([{ status: "running" }]); // 常にrunningを返し続ける
 
       const resultPromise = generateRoutes(request);
       resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
-      await vi.advanceTimersByTimeAsync(400000); // MAX_POLL_DURATION_MS(360000ms)を超える
+      await vi.advanceTimersByTimeAsync(650000); // MAX_POLL_DURATION_MS(600000ms)を超える
 
       await expect(resultPromise).rejects.toThrow("タイムアウト");
     });
@@ -338,7 +338,10 @@ describe("routeApi", () => {
       expect(result).toEqual({ routes, engine: "road_graph", conditions });
     });
 
-    it("ポーリングの失敗が規定回数連続した場合は失敗としてrejectする", async () => {
+    it("ポーリングの失敗が規定回数連続した場合は、人間可読な日本語メッセージで失敗としてrejectする", async () => {
+      // 失敗の中身が何であれ（HTTPエラー・AbortSignal.timeout由来のタイムアウト等）、
+      // 5回連続で諦めた場合は生の例外メッセージをそのまま外へ出さず、必ずこの人間可読な
+      // 日本語メッセージへ包み直す（詳細はdocs/tasks/T523.md参照）。
       vi.useFakeTimers();
       const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
         if (options?.method === "POST") {
@@ -352,7 +355,29 @@ describe("routeApi", () => {
       resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
       await vi.advanceTimersByTimeAsync(1500 * 10);
 
-      await expect(resultPromise).rejects.toThrow("サーバーエラー");
+      await expect(resultPromise).rejects.toThrow(
+        "ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。",
+      );
+    });
+
+    it("T523回帰テスト: 個々のポーリングがAbortSignal.timeoutで5回連続失敗しても、生の英語メッセージ（signal timed out等）を画面へ出さない", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
+        if (options?.method === "POST") {
+          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
+        }
+        return Promise.reject(new DOMException("signal timed out", "TimeoutError"));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const resultPromise = generateRoutes(request);
+      resultPromise.catch(() => {});
+      await vi.advanceTimersByTimeAsync(1500 * 10);
+
+      await expect(resultPromise).rejects.toThrow(
+        "ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。",
+      );
+      await expect(resultPromise).rejects.not.toThrow("signal timed out");
     });
   });
 });

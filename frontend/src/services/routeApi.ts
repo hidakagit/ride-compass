@@ -99,13 +99,14 @@ export interface GenerationProgress {
 }
 
 const POLL_INTERVAL_MS = 1500;
-// road_graphエンジンの冷パスは、バックエンドのDBコマンドタイムアウト
-// (ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS=180秒、backend/app/infrastructure/database.py)
-// より短いとポーリングが先に諦めてしまう(改善計画T248で発覚)。本番実測の最悪ケース
-// (王子30km、save_graphのバルクUPSERT込みでtotal_ms=315,859≒316秒)を安全マージン込みで
-// 上回る値にする。以前は単発fetchのAbortSignal.timeoutだったが、改善計画T265で
-// ポーリングの総待ち時間上限へ役割が変わった（値自体は据え置き）。
-const MAX_POLL_DURATION_MS = 360000;
+// road_graphエンジンの冷パス（未split・タイル未キャッシュ）の総所要時間（total_ms）を
+// 安全マージン込みで上回る値にする。開発機実測の最悪ケース（都心部、prepare_ms=355,516・
+// total_ms=360,625）が示すとおり、prepare_ms単体で数分規模になりうる（開発機のリソース
+// 競合で本番より悪化するが、本番でも同種の遅さ自体は再現する）。DBの
+// ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS（180秒、backend/app/infrastructure/
+// database.py）はクエリ1本ごとの上限でありprepare()全体の所要時間とは独立のため、
+// この値の決定には関与しない。
+const MAX_POLL_DURATION_MS = 600000;
 // 改善計画T386（T265コードレビュー指摘2件目、CONFIRMED）: 1回のポーリング失敗（一時的な
 // ネットワーク瞬断・5xx）で生成全体を即座に失敗させず、この回数まで連続失敗を許容してから
 // 諦める。バックエンド側`_run_generate_job`はジョブをキャンセルする手段が無く握ったままの
@@ -174,7 +175,18 @@ export async function generateRoutes(
         "warn",
       );
       if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
-        throw error instanceof Error ? error : new Error("ルート生成の状態取得に失敗しました");
+        // AbortSignal.timeoutが送出する例外（DOMException「signal timed out」等の
+        // ネイティブな英語メッセージ）をそのままthrowすると、呼び出し元（page.tsx）が
+        // error.messageをそのまま画面へ表示するため、ユーザーに未翻訳の英語エラーが
+        // 見えてしまう。MAX_POLL_DURATION_MS超過時と同じ方針で、人間可読な日本語
+        // メッセージへ包み直す（元の例外はこの直前のdebugLogに残る）。
+        debugLog(
+          "api:route",
+          "失敗 (ポーリング連続失敗で諦め)",
+          { jobId, elapsedMs: performance.now() - startedAt },
+          "error",
+        );
+        throw new Error("ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。");
       }
       continue;
     }
