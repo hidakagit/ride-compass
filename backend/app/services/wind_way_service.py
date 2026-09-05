@@ -20,7 +20,7 @@ from datetime import datetime
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_ancestor, tile_bounds_lonlat
 from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
-from app.domain.wind_grid import nearest_grid_point
+from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, nearest_grid_point
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -34,13 +34,11 @@ logger = logging.getLogger("ridecompass.wind_way")
 # キーと同じ）。
 AXIS_ID = "wind"
 
-# 道路タイル単位の風評価に使う格子間隔（度）。Open-Meteoのキャッシュキー（weather_client.py:
-# WeatherClient.cache_key、CACHE_PRECISION=2）は緯度経度を小数2桁（≒0.01度）に丸めるため、
-# これより細かい間隔（domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの
-# 0.005/0.0025）を選んでも同じキャッシュ値を返すだけで解像度は上がらない。
-# WIND_GRID_SPACING_DEG（既定0.1度、道路タイル数枚〜十数枚が同じ格子点へ丸められる粗さ）より
-# 10倍細かくする。
-WIND_WAY_GRID_SPACING_DEG = 0.01
+# 道路タイル単位の風評価に使う格子間隔は、環境グループの風・降水延長予報表示が使う既定間隔
+# （`domain/wind_grid.py: WIND_GRID_DETAIL_SPACING_DEG`、≒2.2km）をそのまま流用する。
+# Open-Meteoが実際に使う気象モデル（JMA、best_match）の最良解像度が2km格子（LFM）のため、
+# これより細かい間隔を選んでもOpen-Meteo自身の補間値を刻むだけで実際の精度は上がらない一方、
+# 道路タイルをパンするたびに問い合わせる格子点数（Open-Meteoクォータ消費）だけが増える。
 
 
 def _hour_bucket(at: datetime) -> str:
@@ -134,7 +132,7 @@ class WindWayService:
             else:
                 fields["cache_status"] = "miss"
 
-                grid_point = nearest_grid_point(_tile_center(bbox), spacing_deg=WIND_WAY_GRID_SPACING_DEG)
+                grid_point = nearest_grid_point(_tile_center(bbox), spacing_deg=WIND_GRID_DETAIL_SPACING_DEG)
                 times, points = await self._weather_service.get_wind_grid([grid_point])
                 wind_grid_point = points[0] if points else None
                 if wind_grid_point is None:
