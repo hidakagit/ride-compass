@@ -126,9 +126,14 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source="osm_raw_ways.tags->>'lanes'（数値として解釈できない値も欠損に含む）",
         missing_semantics="unknown",
     ),
-    "no_lit": WayMaterialCoverageSpec(
+    "lit": WayMaterialCoverageSpec(
         missing_condition=f"{LIT_NORMALIZED_SQL} IS NULL",
         source="osm_raw_ways.tags->>'lit'（タグ不在は街灯なし扱い）",
+        missing_semantics="definite",
+    ),
+    "no_lit": WayMaterialCoverageSpec(
+        missing_condition=f"{LIT_NORMALIZED_SQL} IS NULL",
+        source="osm_raw_ways.tags->>'lit'（タグ不在は街灯なし扱い、非推奨エイリアス）",
         missing_semantics="definite",
     ),
     "has_tunnel": WayMaterialCoverageSpec(

@@ -501,17 +501,29 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="accident_point",
         extractor=_extract_accident_count_per_km_year,
     ),
+    "lit": MaterialSpec(
+        material_id="lit",
+        label="街灯あり",
+        description="OSMの街灯タグ(lit=yes)に該当する区間はtrue。タグ不在はfalse（街灯なし扱い）。",
+        dtype="boolean",
+        tile_property="lit",
+        primary_attribute_id="lit",
+        extractor=tag_equals_extractor("lit", "yes"),
+    ),
     "no_lit": MaterialSpec(
         material_id="no_lit",
         label="街灯なし",
-        description="OSMの街灯タグ(lit)から判定。街灯があると明示されていない区間はtrue（安全側に倒す判断、タグ不明=街灯なし扱い）。",
+        description="非推奨エイリアス（lit材料の否定）。新規に評価軸を作る場合はlitを使うこと。",
         dtype="boolean",
         # タイルのlitはタグ有無の真偽（yesのみtrue、それ以外はNULL）。no_lit材料は
         # その否定（litタグ不在は街灯なしとみなす安全側の判断、domain/night.py参照）。
+        # 公開済みの夜間軸定義がこの材料id自体を参照しているため、DB側の軸定義を
+        # lit材料へ移行するまでは残す（display_only=Trueで新規作成時の選択肢からは隠す）。
         tile_property="lit",
         tile_property_inverted=True,
         primary_attribute_id="lit",
         extractor=tag_equals_extractor("lit", "yes", negate=True),
+        display_only=True,
     ),
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",

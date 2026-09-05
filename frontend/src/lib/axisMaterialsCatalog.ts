@@ -73,9 +73,9 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     dtype: "numeric",
   },
   {
-    id: "no_lit",
-    label: "街灯なし - no_lit",
-    description: "OSMの街灯タグ(lit)から判定。街灯があると明示されていない区間はtrue（安全側に倒す判断、タグ不明=街灯なし扱い）。",
+    id: "lit",
+    label: "街灯あり - lit",
+    description: "OSMの街灯タグ(lit=yes)に該当する区間はtrue。タグ不在はfalse（街灯なし扱い）。",
     dtype: "boolean",
   },
   {

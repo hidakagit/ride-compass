@@ -71,6 +71,7 @@ async def test_way_materials_are_counted_over_all_raw_ways(road_graph_repository
     assert missing["tracktype"] == 3
     assert missing["maxspeed_kmh"] == 3
     assert missing["lanes_count"] == 3
+    assert missing["lit"] == 3
     assert missing["no_lit"] == 3
     assert missing["has_tunnel"] == 3
     assert missing["bridge"] == 3

@@ -103,6 +103,19 @@ def test_no_lit_default_differs_between_missing_way_tags_and_missing_tag():
     assert spec.extractor(_ctx(way_tags={"lit": "yes"})) is False
 
 
+def test_lit_is_the_non_inverted_counterpart_of_no_lit():
+    """litはno_litとちょうど反対の値を返す（negateを外しただけの同じ抽出器）。"""
+    spec = MATERIAL_CATALOG["lit"]
+    assert spec.extractor(_ctx(way_tags=None)) is None
+    assert spec.extractor(_ctx(way_tags={})) is False
+    assert spec.extractor(_ctx(way_tags={"lit": "yes"})) is True
+
+
+def test_no_lit_is_hidden_from_axis_studio_material_picker():
+    assert MATERIAL_CATALOG["no_lit"].display_only is True
+    assert MATERIAL_CATALOG["lit"].display_only is False
+
+
 def test_highway_requires_way_tags_present():
     # car_stress軸グループ全体をway_tags欠損時に評価しない既存仕様（way_tagsが空dictでも
     # 「取得できた」扱いなのでway_tags=Noneとは区別する）。

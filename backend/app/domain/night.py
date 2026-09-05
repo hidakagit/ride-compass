@@ -30,12 +30,17 @@ from app.domain.recipe import tag_value_is
 
 
 def night_materials(tags: dict[str, str] | None) -> dict[str, bool | None]:
-    """way_tagsからnight軸の材料フラグ（no_lit/has_tunnel）を解決する。`tags`がNone
-    （way_tags未取得、他の材料タグ依存関数と同じ「データ無し」の表現）なら両方None
-    （＝night軸は評価されない）。"""
+    """way_tagsからnight軸の材料フラグ（lit/no_lit/has_tunnel）を解決する。`tags`がNone
+    （way_tags未取得、他の材料タグ依存関数と同じ「データ無し」の表現）なら全てNone
+    （＝night軸は評価されない）。no_litはlitの否定を返す非推奨エイリアス——公開済みの
+    夜間軸定義がまだno_litをmaterialとして参照しているため、DB側の軸定義をlit材料へ
+    移行するまで両方のキーを提供する（domain/material_catalog.py: MATERIAL_CATALOG["no_lit"]
+    参照）。"""
     if tags is None:
-        return {"no_lit": None, "has_tunnel": None}
+        return {"lit": None, "no_lit": None, "has_tunnel": None}
+    is_lit = tag_value_is(tags, "lit", "yes")
     return {
-        "no_lit": not tag_value_is(tags, "lit", "yes"),
+        "lit": is_lit,
+        "no_lit": not is_lit,
         "has_tunnel": tag_value_is(tags, "tunnel", "yes"),
     }
