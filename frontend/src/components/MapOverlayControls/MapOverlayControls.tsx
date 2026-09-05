@@ -27,6 +27,7 @@ import {
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import WidthSwatch from "@/components/MapLayersPanel/WidthSwatch";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
+import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import {
   AccidentIcon,
   AxisRampIcon,
@@ -97,6 +98,9 @@ interface MapOverlayControlsProps {
    * 描画され、この関数を呼ぶ。保存先はサイドバー（`MapLayersPanel`）と同じ
    * `page.tsx: hiddenLegendKeysByMode`のため、どちらから操作しても状態は1つに揃う。 */
   onLegendEntryToggle: (axisId: string, key: string) => void;
+  /** ▶パネル内の1軸をまとめて表示/非表示にする（見出し行のチェックボックス）。
+   * 保存先は`onLegendEntryToggle`と同じ`page.tsx: hiddenLegendKeysByMode`。 */
+  onLegendAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void;
 }
 
 // 最上位グループ（改善計画T406/T418: 道路/環境/スポット）単位でグルーピングされた
@@ -254,13 +258,34 @@ function renderLegendSwatch(entry: LegendEntry) {
 // 薄く見せる。
 function renderLegendDetails(
   axes: readonly LegendFilterSummaryAxis[],
-  onEntryToggle: (axisId: string, key: string) => void
+  onEntryToggle: (axisId: string, key: string) => void,
+  onAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void
 ) {
   return (
     <div className={styles.detailBody}>
       {axes.map((axis, axisIndex) => (
         <div key={axis.axisId ?? axis.label ?? axisIndex} className={styles.detailAxis}>
-          {axis.label && <div className={styles.detailAxisLabel}>{axis.label}</div>}
+          {axis.axisId ? (
+            // 一括ON/OFF。1つ残らず表示中のときだけチェックが入り、押すと全部隠す。
+            // 1つでも隠れていれば未チェックで、押すと全部表示に戻る——狭い▶パネルに
+            // 「すべて表示」「すべて隠す」の2ボタン（サイドバー側の形）を置く余地が
+            // 無いため、1つのチェックボックスで両方向を兼ねる。
+            <label className={styles.detailAxisHeader}>
+              <Checkbox
+                checked={axis.hiddenKeys.length === 0}
+                onCheckedChange={() =>
+                  onAxisSetHidden(
+                    axis.axisId!,
+                    axis.hiddenKeys.length === 0 ? axis.legend.map((entry) => entry.key) : []
+                  )
+                }
+                aria-label={`${axis.label || "すべての項目"}をまとめて表示/非表示`}
+              />
+              <span className={styles.detailAxisLabel}>{axis.label || "すべて"}</span>
+            </label>
+          ) : (
+            axis.label && <div className={styles.detailAxisLabel}>{axis.label}</div>
+          )}
           {axis.axisId ? (
             <LegendCheckboxList
               legend={axis.legend}
@@ -633,7 +658,12 @@ function ChipButton({
 // ジャンプ」動線はここが確認専用になったことで廃止した）。このコンポーネントはレイヤー
 // 固有の知識を持たない汎用の描画係で、レイヤーが増えてもここは変更不要（mapLayers.tsの
 // コメント参照）。
-export default function MapOverlayControls({ layers, onToggle, onLegendEntryToggle }: MapOverlayControlsProps) {
+export default function MapOverlayControls({
+  layers,
+  onToggle,
+  onLegendEntryToggle,
+  onLegendAxisSetHidden,
+}: MapOverlayControlsProps) {
   // 凡例を常時表示すると地図の視界を圧迫するという実機フィードバックを受け、既定は
   // 非表示にし、チップ横の▶を押したレイヤーのぶんだけ薄いポップオーバーで出す。
   // 開閉はキーのSetで個別管理する。キーはレイヤーID（単独チップ）・`member:${id}`
@@ -868,7 +898,7 @@ export default function MapOverlayControls({ layers, onToggle, onLegendEntryTogg
         panelContent={
           canExpand ? (
             hasLegend ? (
-              renderLegendDetails(member.legendDetails!, onLegendEntryToggle)
+              renderLegendDetails(member.legendDetails!, onLegendEntryToggle, onLegendAxisSetHidden)
             ) : (
               <p className={styles.detailNotice}>{member.summary}</p>
             )
@@ -1153,7 +1183,7 @@ export default function MapOverlayControls({ layers, onToggle, onLegendEntryTogg
           const isExpanded = canExpand && expandedIds.has(layer.id);
           const panelContent =
             layer.legendDetails && layer.legendDetails.length > 0 ? (
-              renderLegendDetails(layer.legendDetails, onLegendEntryToggle)
+              renderLegendDetails(layer.legendDetails, onLegendEntryToggle, onLegendAxisSetHidden)
             ) : (
               <p className={styles.detailNotice}>{layer.summary}</p>
             );

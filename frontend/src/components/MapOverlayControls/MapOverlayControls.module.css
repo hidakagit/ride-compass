@@ -488,6 +488,15 @@
   gap: 0.2rem;
 }
 
+/* 一括ON/OFFチェックボックスと軸名を1行に収める見出し（省スペース優先で、サイドバー側の
+   「すべて表示」「すべて隠す」2ボタンの代わりにチェックボックス1つで両方向を兼ねる）。 */
+.detailAxisHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
 .detailAxisLabel {
   font-size: 0.7rem;
   font-weight: 700;

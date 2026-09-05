@@ -198,22 +198,17 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
 });
 
 // ============================================================================
-// 改善計画T406/T418: パネル構成再編（道路/環境/スポットの3チップ・3排他ドメイン、
-// docs/tasks/T400.md「1. パネルの最上位グルーピング」節）。T406時点は「道路」と
-// 「評価軸」が排他ドメイン(line)を共有していたが、T418で評価軸チップ自体を地図UIから
-// 撤去したため道路は単独ドメインになった。軸スタジオ由来のレイヤー（ramp軸・windAxis）は
-// 地図上チップの3ドメインとは独立に、同士だけで1つだけ選べる排他制御を維持する
-// （同じ道路ジオメトリへ線を重ねて見にくくなることを防ぐという元々の目的は変わらない
-// ため、docs/tasks/T418.md参照）。排他ドメイン判定自体（mapOverlayGroupFor/
-// mapOverlayExclusiveDomainFor、mapLayers.ts）はMapOverlayControls.test.tsxで検証済みだが、
-// 実際にONにした際の排他ロジック本体はpage.tsx: handleLayerToggleにあるため、ここでは
-// 上のdescribeブロックと同じくMapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶ
-// onToggleが実際のhandleLayerToggleへ届くことを利用して検証する（スタブはlayers.idごとに
-// toggle:${id}という名前のボタンを描画し、押すとonToggle(id, !on)を呼ぶ）。
+// 地図上チップ（道路/環境/スポット）は複数同時にONにできる。重なって読みにくくなった
+// 場合は各チップの▶パネルで絞り込む。軸スタジオ由来のレイヤー（ramp軸・windAxis・
+// gradientAxis）だけは、同じ道路の同じ位置を塗り分けて重ねる意味が無いため1つだけ選べる
+// 状態を保つ。この判定はpage.tsx: handleLayerToggleにあるため、ここでは上のdescribe
+// ブロックと同じくMapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶonToggleが実際の
+// handleLayerToggleへ届くことを利用して検証する（スタブはlayers.idごとにtoggle:${id}という
+// 名前のボタンを描画し、押すとonToggle(id, !on)を呼ぶ）。
 // getAxisCatalogは解決させない（実行時カタログが未取得の間の静的フォールバックRAMP_AXESの
 // ままレイヤーカタログを固定するため。解決させるとテストの axes: [] が実カタログとして
 // 上書きされ、axis:car_stress等の二次軸レイヤー自体が消えてしまう）。
-describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T406/T418）", () => {
+describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -259,38 +254,31 @@ describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T4
     expect(afterWindAxisOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
   });
 
-  it("環境ドメインは道路/評価軸と独立: 環境内では排他だが、道路/評価軸には影響しない", async () => {
+  it("同じグループのレイヤーを複数同時にONにできる（環境: 標高図・降水・災害）", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:elevation" }));
-    const afterElevationOn = overlayLayersOnMap();
-    expect(afterElevationOn.get("roadType")).toBe(true); // 別ドメインのため影響なし
-    expect(afterElevationOn.get("elevation")).toBe(true);
-
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:elevation" }));
     fireEvent.click(screen.getByRole("button", { name: "toggle:precipitationNowcast" }));
-    const afterPrecipOn = overlayLayersOnMap();
-    expect(afterPrecipOn.get("elevation")).toBe(false); // 環境ドメイン内は排他
-    expect(afterPrecipOn.get("precipitationNowcast")).toBe(true);
-    expect(afterPrecipOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
+
+    const after = overlayLayersOnMap();
+    expect(after.get("elevation")).toBe(true);
+    expect(after.get("precipitationNowcast")).toBe(true);
+    expect(after.get("disaster")).toBe(true); // 既定ONのまま消えない
   });
 
-  it("スポットドメインは他ドメインと独立: スポット内では排他だが、道路/環境には影響しない", async () => {
+  it("グループをまたいでも同時にONにできる（道路・スポット）", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
     fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
     fireEvent.click(screen.getByRole("button", { name: "toggle:stopPoi" }));
-    const afterStopPoiOn = overlayLayersOnMap();
-    expect(afterStopPoiOn.get("stopPoi")).toBe(true);
-    expect(afterStopPoiOn.get("roadType")).toBe(true);
-
     fireEvent.click(screen.getByRole("button", { name: "toggle:accidents" }));
-    const afterAccidentsOn = overlayLayersOnMap();
-    expect(afterAccidentsOn.get("stopPoi")).toBe(false); // スポットドメイン内は排他
-    expect(afterAccidentsOn.get("accidents")).toBe(true);
-    expect(afterAccidentsOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
+
+    const after = overlayLayersOnMap();
+    expect(after.get("roadType")).toBe(true);
+    expect(after.get("stopPoi")).toBe(true);
+    expect(after.get("accidents")).toBe(true);
   });
 
   it("ルートはどの排他ドメインにも属さない: 道路/評価軸のON操作と無関係にON/OFFできる", async () => {
