@@ -3,45 +3,6 @@
   flex-direction: column;
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-2);
-}
-
-.hint {
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  margin: 0 0 var(--space-2);
-}
-
-/* 改善計画T524（T518コードレビューREUSE指摘）: RouteSettingsPanel.module.cssの
-   .legendToggleをcomposesで継承する（Map/recipeControls.module.cssの.panelSection等と
-   同じ既存パターン）。composesはローカルなクラス名を新たに1つ発行したうえでベースの
-   ルールを合成するため、下の[aria-pressed="true"]セレクタは.axisToggle固有の生成後
-   クラス名にしか掛からず、.legendToggle側（RouteSettingsPanelの「重みON/OFF」用、
-   weight>0でほぼ常時true）の見た目には影響しない——直接同じクラスを共有するのとは
-   異なり、意図せぬ汚染は起きない。以前はプロパティを1つずつ手で複製していたため、
-   .legendToggle側にだけ後から追加されたモバイル幅（640px以下）のpadding調整
-   （RouteSettingsPanel.module.css）が複製側には反映されず、モバイル幅でチップの
-   余白がズレるドリフトが実際に発生していた——composes化によりこの種のドリフトは
-   構造的に起きなくなる。 */
-.axisToggle {
-  composes: legendToggle from "../RouteSettingsPanel/RouteSettingsPanel.module.css";
-}
-
-/* ユーザー指摘（2026-09-03）: 選択中/非選択中の表現はトグルボタン自体の塗りつぶしではなく、
-   legendStyles.legendChip[data-checked="false"]（RouteSettingsPanel.module.css、非選択の
-   チップ全体をopacity 0.55へ落とす）へ一本化した。「どの軸が地図の色分けに使われているか」は
-   legendStyles.legendMapColorButton[aria-pressed="true"]（レイヤアイコンの塗りつぶし）
-   1箇所だけが示す。 */
-
-/* 改善計画T545: 総合難易度・各軸の選択チップ列（legendStyles.chipRowを流用）。 */
-.selectorRow {
-  margin-bottom: 4px;
-}
-
 /* 改善計画T550: 「総合難易度」の数字＋その内訳（積み上げ1本バー、AxisContributionBar）を
    横並びで置く。バー側はflex:1 1 autoで残り幅いっぱいに広がる
    （AxisContributionBar.module.css参照）。 */
@@ -74,4 +35,46 @@
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 0;
+}
+
+/* 軸別難易度の一覧（公開軸すべて、軸カタログ順）。重み0の軸は薄く残す。 */
+.axisList {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.axisRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--font-size-sm);
+}
+
+.axisRow[data-unused="true"] {
+  opacity: 0.55;
+}
+
+.axisLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.badge {
+  font-size: 0.68rem;
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  background: var(--color-warning-soft, rgba(217, 119, 6, 0.15));
+  color: var(--color-warning-strong, #b45309);
+  white-space: nowrap;
+}
+
+.axisValue {
+  min-width: 2rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }

@@ -11,7 +11,6 @@
 import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
 import type { CatalogAxis } from "./axisLayers";
-import type { RoutePreferenceWeights } from "@/types/route";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 import {
   COLOR_EASY,
@@ -27,7 +26,14 @@ import {
 // 一員だったが、gradient/roadは公開軸から動的に生成されるようになったため、固定IDでは
 // 表現しきれなくなった。"difficulty"（対応する軸を持たない唯一の例外、下記
 // DIFFICULTY_MODE参照）だけを固定文字列として残す。
-export type RouteStyleModeId = "difficulty" | (string & {});
+export type RouteStyleModeId = "difficulty" | "none" | (string & {});
+
+/** レンズ（地図を何で塗るか）の識別子。`"none"`（塗らない）・`"difficulty"`（総合難易度）
+ * 以外は公開軸のaxis_id。ルート前は全道路（rampタイル・専用配信）、ルート後はルート線
+ * （`axis_difficulties`）を同じ識別子で塗る。 */
+export type LensId = RouteStyleModeId;
+export const LENS_NONE_ID: LensId = "none";
+export const LENS_DIFFICULTY_ID: LensId = "difficulty";
 
 export interface RouteStyleMode {
   id: RouteStyleModeId;
@@ -164,6 +170,14 @@ const DIFFICULTY_MODE: RouteStyleMode = {
   ),
 };
 
+// レンズ「なし」: ルート線を単色（候補線の非選択色と同じ中立グレー）で描き、凡例を持たない。
+const NONE_MODE: RouteStyleMode = {
+  id: LENS_NONE_ID,
+  label: "なし",
+  legend: [],
+  colorExpression: ["to-color", "#64748b"],
+};
+
 // 改善計画T549: 公開軸すべて（axis-catalog由来、動的）＋difficulty（総合難易度、固定）を
 // 組み合わせた、実際に選択肢として使うモード一覧を組み立てる。この機構（axis_difficulties
 // [axis_id]を汎用の3段階色分けとして使う仕組み）の対象外になる軸は技術的に存在しない
@@ -175,21 +189,7 @@ const DIFFICULTY_MODE: RouteStyleMode = {
 // rampAxesFromCatalogAxes等と同じ片側importパターン）。
 export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): RouteStyleMode[] {
   const dynamicModes = axes.map(routeColorableModeFromAxis);
-  return [...dynamicModes, DIFFICULTY_MODE];
-}
-
-// 改善計画T434: routeStyleModesFromCatalogAxes（公開軸カタログ由来）はroutePreferenceの
-// 重みを知らないため、ユーザーがルート設定パネルでチェックを外した（重み0にした）軸の
-// モードも選択肢に残り続けてしまう。dynamicModes（wind/gradient/surface_q等、
-// routeColorableModeFromAxisがid=axis.axis_idで生成）は重み>0のときだけ残す。
-// difficultyはどのaxis_idとも一致しない（対応する軸が無い）ため、常に残る。
-// ユーザー指摘（2026-09-03）: 一度この重みフィルタを撤去したが、意図は逆（重み0の軸は
-// 引き続き選択肢から消してほしい）と確認できたため復元した。
-export function filterRouteStyleModesByPreference(
-  modes: readonly RouteStyleMode[],
-  routePreference: RoutePreferenceWeights
-): RouteStyleMode[] {
-  return modes.filter((mode) => !(mode.id in routePreference) || (routePreference[mode.id] ?? 0) > 0);
+  return [...dynamicModes, DIFFICULTY_MODE, NONE_MODE];
 }
 
 // ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと
@@ -198,15 +198,8 @@ export const ROUTE_STYLE_MODES: readonly RouteStyleMode[] = routeStyleModesFromC
   axisCatalog.axes as CatalogAxis[]
 );
 
-// 改善計画T433: 以前は"wind"を固定文字列でハードコードしており、axis-catalog由来の
-// dynamicModesが偶然modes[0]と一致することに暗黙に依存していた（バックエンド側で軸自体を
-// unpublishすると、この定数だけが古い値のまま残り、getRouteStyleModeの「見つからなければ
-// modes[0]」フォールバックで実際の初期選択と定数の値が静かに食い違う——ゼロベース
-// レビュー2026-08-30 §4で指摘）。
-// ROUTE_STYLE_MODES[0]から導出することで、この一致をコード上で強制する
-// （DIFFICULTY_MODEが常に末尾に含まれるためROUTE_STYLE_MODESが空になることはなく、
-// [0]は必ず存在する）。dynamicModesが1件も無くなれば総合難易度へ自動的にフォールバックする。
-export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = ROUTE_STYLE_MODES[0].id;
+// 既定のレンズは総合難易度（軸の公開状態に依存せず常に存在するモード）。
+export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = LENS_DIFFICULTY_ID;
 
 export function isRouteStyleModeId(
   modes: readonly RouteStyleMode[],

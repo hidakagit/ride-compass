@@ -75,6 +75,7 @@ def fake_open_route_generation_setup(
         max_average_grade_percent: float | None = None,
         hard_filters_override: frozenset[str] | None = None,
         assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
+        lens_axis_id: str | None = None,
     ):
         if captured is not None:
             captured["preference"] = preference_override
@@ -82,6 +83,7 @@ def fake_open_route_generation_setup(
             captured["max_average_grade_percent"] = max_average_grade_percent
             captured["hard_filters"] = hard_filters_override
             captured["assumed_speed_kmh"] = assumed_speed_kmh
+            captured["lens_axis_id"] = lens_axis_id
         yield RouteGenerationSetup(
             generator=generator or FakeRouteGenerator(candidates, no_candidates_reason),
             route_preference=preference_override or RoutePreference(),

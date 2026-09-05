@@ -246,6 +246,7 @@ class _LegCostComposer:
         speed_kmh: float,
         lazy_row_index: np.ndarray,
         detour_ratio: float = ROUTE_DETOUR_RATIO,
+        lens_axis_id: str | None = None,
     ) -> None:
         self._score_matrix = score_matrix
         self._static_axis_scores = {
@@ -262,8 +263,12 @@ class _LegCostComposer:
         # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
         # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
         self.detour_ratio = detour_ratio
+        # 風に依存する公開軸のうち、探索の重みが0より大きいもの、または地図のレンズが表示を
+        # 要求している軸（重み0でも区間表示にはレグごとの風が要る）があれば時変化合成する。
         wind_dependent_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS)) & set(score_matrix.axis_ids)
-        self.time_varying = wind_series is not None and any(weights.get(axis_id, 0.0) > 0 for axis_id in wind_dependent_axes)
+        self.time_varying = wind_series is not None and any(
+            weights.get(axis_id, 0.0) > 0 or axis_id == lens_axis_id for axis_id in wind_dependent_axes
+        )
         self._cache: dict[tuple, LegCostArrays] = {}
 
     def compose(
@@ -452,8 +457,12 @@ class RoadGraphEngine:
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
         assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
+        lens_axis_id: str | None = None,
     ):
         self._graph_service = graph_service
+        # 地図のレンズが表示を要求している軸id（無ければNone）。重み0の軸でも区間表示の
+        # ために風の時変化合成を行う判定にだけ使う（探索コストには影響しない）。
+        self._lens_axis_id = lens_axis_id
         # 仮定巡航速度（km/h、リクエスト単位で上書き可）。各Edgeの通過予定時刻・区間の
         # 到達予想時刻・所要時間の算出に使う。
         self._assumed_speed_kmh = assumed_speed_kmh
@@ -570,6 +579,7 @@ class RoadGraphEngine:
             score_matrix, weights, self._penalty_strength, hard_filter_excluded, weather, wind_series,
             start, self._assumed_speed_kmh, lazy_row_index,
             detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
+            lens_axis_id=self._lens_axis_id,
         )
         outbound = composer.compose("outbound", wind_and_night_origin, 0.0, +1)
         cost_ms = round((time.monotonic() - cost_started) * 1000) - graph_ms

@@ -168,6 +168,10 @@ class RouteGenerateRequest(BaseModel):
     # 改善計画T365: 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの
     # 場合は従来通り起点で終わる周回）。
     destination: Coordinates | None = None
+    # 地図のレンズ（色分け）が表示を要求している軸id。探索の重みが0の軸でも、レンズに
+    # 選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。
+    # 未知のidや軸以外（総合難易度・なし）は無視される。
+    lens_axis_id: str | None = None
 
     @model_validator(mode="after")
     def _check_waypoints_within_range(self) -> "RouteGenerateRequest":
@@ -307,6 +311,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             request.max_average_grade_percent,
             hard_filters_override,
             request.assumed_speed_kmh,
+            request.lens_axis_id,
         ) as setup:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             if request.waypoints or request.destination:

@@ -331,6 +331,7 @@ def make_generator(
     tile_set: frozenset[tuple[int, int, int]] | None = None,
     wind_series: WindForecastSeries | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
+    lens_axis_id: str | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
         graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
@@ -348,6 +349,7 @@ def make_generator(
         max_average_grade_percent=max_average_grade_percent,
         hard_filters=hard_filters,
         assumed_speed_kmh=assumed_speed_kmh,
+        lens_axis_id=lens_axis_id,
     )
     generator = RouteGenerator(engine)
     return generator, graph_service, elevation_service

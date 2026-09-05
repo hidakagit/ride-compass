@@ -20,7 +20,7 @@
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（ramp軸の共有色ヘルパー）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。`dedicatedWayValueLegend`が使う |
-| `components/MapColorLegend/MapColorLegend.tsx` | 上記の凡例データを地図上部中央に表示するUI部品（`page.tsx`が組み立てる、配置の理由は下記参照） |
+| `components/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `Map/mapLayers.ts` | `isDedicatedWayValueLayerId`・`isAxisStudioLayer`（レイヤーID判定） |
 | `Map/MapView.tsx`（windAxis/gradientAxis/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
 | `hooks/useDynamicWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得） |
@@ -61,9 +61,17 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
 
-公開軸は無条件でルート結果色分けの選択肢になる（`routeStyleModes.ts:
-routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実際にユーザーが使っている
-軸だけへの絞り込みは`filterRouteStyleModesByPreference`（route_preferenceの重み>0）が担う。
+公開軸は無条件でレンズの選択肢になる（`routeStyleModes.ts: routeStyleModesFromCatalogAxes`が
+公開軸すべて＋`difficulty`（総合難易度）＋`none`（塗らない）をマップする）。重み0の軸も
+選べ、`LensControl`が「未使用」バッジで示す。ルート前に塗る手段（ramp・専用配信）を
+持たない軸は「ルート後のみ」バッジ付きで選べるが、ルート前は何も塗らない。
+
+**レンズ状態は1つ**（`page.tsx: lens`、`"none" | "difficulty" | axis_id`。localStorage
+キーは`ridecompass:route-style-mode`）。ルート前は全道路（ramp軸は`axisVisibility`、
+専用配信は`showWindAxis`/`showGradientAxis`）、ルート後はルート線（`MapView`の
+`routeStyleModeId`）をこの1つの値から導出する。ルート後も全道路の塗りを残すかは
+`lensKeepAfterRoute`（既定ON）。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
+載せ、重み0でもbackendが区間表示のため風の時変化合成を行う。
 
 `map_value_kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
 `shape.terms[0].material`（生材料、例: `gradient_percent`）を直接読む——向き（登り/下り）は
@@ -86,9 +94,8 @@ routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実�
   境界値の実際の数字から機械的に生成する。
 - `DIFFICULTY_MODE`（総合難易度）だけがフロントの固定モード——特定のaxis_idに紐づかず
   全軸の重み付き合成コストそのものを表示するため、軸スタジオと同期する対象にならない。
-- `filterRouteStyleModesByPreference`: `routePreference`で重み0にした軸のモードを
-  選択肢から除外する（`page.tsx`側で使用）。
-- `DEFAULT_ROUTE_STYLE_MODE_ID`は`ROUTE_STYLE_MODES[0].id`から導出する。
+- `NONE_MODE`（レンズなし）: ルート線を単色（候補線の非選択色）で描き、凡例を持たない。
+- `DEFAULT_ROUTE_STYLE_MODE_ID`は`"difficulty"`（総合難易度）。
 - **地図上の重ね順**（`MapView.tsx: drawDetailSegments`・`keepRouteArrowsAboveDetailSegments`）:
   選択中候補の区間色分け線（`DETAIL_LAYER_ID`、幅6px・不透明）とその当たり判定線
   （`DETAIL_HIT_LAYER_ID`、幅24px・透明）は、同じ候補の進行方向矢印
@@ -117,11 +124,11 @@ routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実�
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
   `display_band_labels_override`）は要素数が段階数と一致する間だけ数値レンジの前に添える
   （不整合な保存データへの防御）。単位は`display.unit`（難易度は空文字）。
-  `page.tsx`が表示中の専用軸（`showWindAxis`／`showGradientAxis || showGradientFill`）と
-  ramp軸（`axisVisibility`、`axisLayers.ts: buildAxisRampLegend`）を横断して集め、
-  `MapColorLegend`（`components/MapColorLegend/`）が地図上部中央に常時表示する
-  （モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。ramp軸の凡例は
-  絞り込みフィルタと共有する`LegendEntry`（`filter`必須）を返すが、専用way値レイヤーには
+  `page.tsx`が現在のレンズに応じて凡例を1つ組み立てる（`lensLegend`: ルート後はルート線
+  モードの凡例、ルート前はramp軸なら`axisLayers.ts: buildAxisRampLegend`、専用配信軸なら
+  この関数）。`LensControl`（`components/LensControl/`）が地図上部中央のピルとポップオーバーに
+  表示する（モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。ルート後だけ
+  凡例の段階を非表示にできる（`hiddenLegendKeysByMode[lens]`）。専用way値レイヤーには
   絞り込み機構自体が無いため`MapColorLegendBand`（`{label, color}`のみ）という軽量な型を使う。
 
 ## gradientGridFill.ts（環境グループの面表示、勾配のみ）

@@ -1565,6 +1565,11 @@ export interface components {
             /** Waypoints */
             waypoints?: components["schemas"]["Coordinates"][] | null;
             destination?: components["schemas"]["Coordinates"] | null;
+            /**
+             * Lens Axis Id
+             * @description 地図のレンズ（色分け）が表示を要求している軸id。探索の重みが0の軸でも、レンズに選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。未知のidや軸以外（総合難易度・なし）は無視される。
+             */
+            lens_axis_id?: string | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {

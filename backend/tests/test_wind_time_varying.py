@@ -201,6 +201,21 @@ async def test_prepare_shares_snapshot_leg_when_wind_axis_has_no_weight():
     assert context.legs[1] is context.legs[0]  # 追加の合成無し
 
 
+async def test_lens_axis_forces_time_varying_even_when_wind_weight_is_zero():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    weights = {axis_id: 0.0 for axis_id in RoutePreference().weights}
+    weights["gradient"] = 1.0
+    generator, _, _ = make_generator(
+        graph, weather=_weather(0.0), wind_series=_series(48, lambda h: 0),
+        route_preference=RoutePreference(weights=weights), lens_axis_id="wind",
+    )
+    context = await _prepare_context(generator)
+
+    assert context.composer.time_varying is True
+    await generator._engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
+    assert context.legs[1] is not context.legs[0]  # 復路は復路の時刻の風で別途合成される
+
+
 async def test_inbound_leg_uses_wind_at_return_time_and_segments_read_the_same_arrays():
     # 出発9時、周回30km（20km/hで1.5時間）。10時以降に北風→南風へ反転する系列にすると、
     # 北向きスポーク（中点は起点から7.5km、迂回率1.3で通過まで約0.49h）は往路では9:29

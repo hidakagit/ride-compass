@@ -30,8 +30,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
         ▼                                          ▼
   重み配分バー（帯グラフ、境界              軸の凡例チップ（折り返して並ぶ）:
   ドラッグ/矢印キーで隣接2軸の重みを        色ドット+ラベル（タップで有効/無効）+
-  移し替え）                                (i)説明文ポップオーバー +
-        │                                   地図色分けアイコン（対応軸のみ）
+  移し替え）                                (i)説明文ポップオーバー
         │                                          │
         └──────────────┬───────────────────────────┘
                         ▼
@@ -59,15 +58,9 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   パネル外へはみ出すのを避けるため、センター寄せではなく端寄せ（`data-align`属性、
   CSS側で切り替え）で表示する。
 - 軸の凡例チップ（`renderLegendChip`）は「色ドット+ラベル（タップで有効/無効を
-  切替、weight>0が有効の判定基準）」「(i)説明文ポップオーバー」「地図色分けアイコン
-  （地図表示に対応する軸だけ、`renderLegendMapColorToggle`）」の3要素で構成される
-  複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にする。地図表示に対応しない
-  軸は色分けアイコンごと出さない。
-- `mapColorLayerIdFor(axisId)`: 軸id→地図色分けレイヤーIDの解決。
-  (1) `catalog.secondaryAxes`（`components/Map/secondaryAxes.ts`由来、ramp表示を持つ軸）に
-  あればそのレイヤーID、(2) 無ければ`axis.dedicatedWayValueLayer`
-  （`AxisDefinition.dedicated_way_value_layer`）を見て`${axisId}Axis`という命名規則から
-  `isDedicatedWayValueLayerId`型ガードで機械的に導出する（[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。どちらも無ければ地図表示非対応（凡例チップにアイコンを出さない）。
+  切替、weight>0が有効の判定基準）」「(i)説明文ポップオーバー」の2要素で構成される
+  複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にする。地図の色分け（レンズ）は
+  このパネルにはなく、地図上の`LensControl`だけが持つ。
   **`secondaryAxes.ts`はこのモジュールの対象ファイル表に無いが、`useAxisCatalog`の
   `secondaryAxes`フィールドを介してこのパネルの地図色分けトグル解決ロジックに
   直接組み込まれている**（本来の所有元は[地図: 静的レイヤー・道路表示](../frontend/static-map-layers.md)系のモジュール）。
@@ -143,30 +136,10 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ
 絞り込んで渡す。
 
-- **地図の色分けチップ**: 「総合難易度」＋渡された各軸のうち**地図の色分けに対応する軸だけ**
-  （`routeStyleModes.some(mode => mode.id === axis.axisId)`で判定。公開軸は無条件で
-  地図の色分けモードを持つため、この判定は実質的に「重み>0の公開軸すべて」を通す）を、
-  `RouteSettingsPanel.module.css`の`legendChip`/`legendDot`/`chipRow`クラスをそのまま
-  importして流用した1行の折り返しチップ列（`RouteSettingsPanel`の軸チップ列と同じ見た目）で
-  表示する。1チップは「色ドット＋ラベル（クリックで選択）」「(i)説明文ポップオーバー
-  （`axis.description`、`legendInfoButton`/`legendInfoPopover`を流用）」「地図色分けアイコン
-  （`legendMapColorButton`を流用、`MapAppearanceIcon`）」の3要素——`RouteSettingsPanel`の
-  軸チップと見た目は同じだが、地図色分けアイコンの役割は異なる。`RouteSettingsPanel`側は
-  `layerVisibility`のON/OFF（視界内の全道路の背景色分け）を切り替えるが、こちらはルート
-  確定後（`page.tsx`: `showWindAxis = layerVisibility.windAxis && !hasDetail`等により評価軸
-  グループの背景表示自体が無効化される）の画面のため、独立した背景レイヤーは持たない。
-  クリックするとトグルボタンと同じ`onSelect`（このチップを選択＝選択中ルートをこの軸で
-  色分け）を呼ぶ——レイアウトの見た目だけを揃え、実際の切り替えは常にルート線の色分けへ
-  一本化している。「総合難易度」チップは軸固有の説明・地図レイヤーを持たないため、
-  (i)アイコン・地図色分けアイコンいずれも出さない（`description`未指定時は非表示、
-  `AxisChip`の`description`プロパティ参照）。選択状態は`routeStyleModeId`
-  （`Map/routeStyleModes.ts`）でpage.tsx側が管理し、地図上の色分け式を切り替える。
-  チップ選択時、地図上の「ルート」チップ（`layerVisibility.route`）がまだOFFなら自動で
-  ONにする。地図の色分け対象を選ぶ役割はこのチップ列だけが持ち、下記の軸別内訳は選択状態を
-  持たない読み取り専用の一覧（`axis_contributions`にキーが無い軸[色分けに対応しない軸を
-  含む]は表示されない）。このチップ列に並ぶチップは常にクリック可能（`AxisChip`は非活性
-  描画を持たない）——色分けに対応しない軸をこの列へ含めない絞り込みが、その前提を
-  成立させている。
+- **軸別難易度の一覧**: 公開軸すべて（軸カタログ順）を「色ドット＋ラベル＋(i)説明＋難易度
+  （`RouteCandidate.axis_difficulties`、四捨五入）」の行で並べる。この候補を評価した重み
+  （生成時点の`route_preference`）が0の軸は「未使用」バッジ付きで薄く残し、値が無い軸は
+  「データなし」を示す。選択操作は持たない（地図の色分けは`LensControl`）。
 - **総合難易度**: `RouteCandidate.overall_difficulty`（絶対基準0-100の軸重み付き合成値）を
   表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順
   もこの値の昇順（backend `route_generator.py`が返す`routes`配列の並び順をそのまま使う、

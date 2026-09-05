@@ -1,8 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import type { RouteStyleMode, RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import RouteAxisProfile from "./RouteAxisProfile";
 
 const AXES: PreferenceAxisDef[] = [
@@ -13,72 +12,50 @@ const AXES: PreferenceAxisDef[] = [
 
 const AXIS_COLORS: Record<string, string> = { car_stress: "#111111", wind: "#222222", night: "#333333" };
 
-const ROUTE_STYLE_MODES: RouteStyleMode[] = [
-  {
-    id: "difficulty",
-    label: "総合難易度",
-    legend: [
-      { key: "easy", label: "易しい", color: "#16a34a", filter: [] },
-      { key: "hard", label: "難しい", color: "#dc2626", filter: [] },
-    ],
-    colorExpression: [],
-  },
-  {
-    id: "car_stress",
-    label: "車の圧迫感の影響",
-    legend: [{ key: "low", label: "低い", color: "#16a34a", filter: [] }],
-    colorExpression: [],
-  },
-];
-
 function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = {}) {
   return {
     axes: AXES,
-    // 改善計画T550: axisDifficulties+weightsからのfrontend独自再計算を撤去し、
-    // backendが算出したaxis_contributionsをそのまま表示するようになった。
+    weights: { car_stress: 0.5, wind: 0.0, night: 0.5 },
+    axisDifficulties: { car_stress: 72.4, night: 5.8 },
     axisContributions: { car_stress: 36.2, night: 2.9 },
     overallDifficulty: 46,
     axisColors: AXIS_COLORS,
-    routeStyleModes: ROUTE_STYLE_MODES,
-    routeStyleModeId: "difficulty" as RouteStyleModeId,
-    onRouteStyleModeChange: vi.fn(),
-    hiddenLegendKeys: [] as readonly string[],
-    onToggleLegendKey: vi.fn(),
     ...overrides,
   };
 }
 
 describe("RouteAxisProfile", () => {
-  it("axisContributionsに値を持つ軸だけを、軸カタログの並び順で内訳表示する", () => {
+  it("公開軸すべてを軸カタログの並び順で一覧し、重み0の軸は「未使用」、値が無い軸は「データなし」として残す", () => {
     render(<RouteAxisProfile {...baseProps()} />);
 
-    // 軸カタログの並び順（car_stress→wind→night）のうち、値を持つ2軸だけが表示される
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(2);
-    expect(items[0]).toHaveTextContent("車の圧迫感");
-    expect(items[1]).toHaveTextContent("夜間");
-    expect(screen.queryByText("風")).not.toBeInTheDocument();
+    const items = within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("車の圧迫感"),
+      expect.stringContaining("風"),
+      expect.stringContaining("夜間"),
+    ]);
+    expect(items[1]).toHaveTextContent("未使用");
+    expect(items[1]).toHaveTextContent("データなし");
+    expect(items[1]).toHaveAttribute("data-unused", "true");
+    expect(items[0]).toHaveAttribute("data-unused", "false");
+    expect(items[0]).toHaveTextContent("72");
+    expect(items[2]).toHaveTextContent("6");
   });
 
-  it("axisContributionsが空のときは内訳セクションだけ案内文を表示する", () => {
+  it("地図の色分け（レンズ）を選ぶボタンを持たない（入口は地図上の凡例ピルだけ）", () => {
+    render(<RouteAxisProfile {...baseProps()} />);
+
+    expect(screen.queryByRole("button", { name: /で地図を色分け/ })).not.toBeInTheDocument();
+  });
+
+  it("axisContributionsが空のときは内訳セクションだけ案内文を表示し、軸一覧は残る", () => {
     render(<RouteAxisProfile {...baseProps({ axisContributions: {} })} />);
 
     expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
-    expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem")).toHaveLength(3);
   });
 
-  it("axisContributionsが空でも「地図の色分け」チップ列・凡例の表示設定は引き続き操作できる" +
-    "（改善計画T524・T518コードレビューP1指摘: 以前は内訳データが無いとコンポーネント全体が" +
-    "空状態文言だけになり、総合難易度モードへ戻す唯一のUI導線[総合難易度チップ]・凡例の" +
-    "表示設定ポップオーバーごと道連れで消えていた）", () => {
-    render(<RouteAxisProfile {...baseProps({ axisContributions: {} })} />);
-
-    expect(screen.getByRole("button", { name: "総合難易度で地図を色分け" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "凡例の表示設定" })).toBeInTheDocument();
-  });
-
-  it("内訳バーは積み上げ1本バー（RouteSettingsPanel.module.cssのstackBar/stackSegmentを流用）" +
-    "として描画される（改善計画T550: 軸ごとの個別横棒グラフのリストから積み上げバーへ統一）", () => {
+  it("内訳バーは積み上げ1本バー（RouteSettingsPanel.module.cssのstackBar/stackSegmentを流用）として描画される", () => {
     const { container } = render(<RouteAxisProfile {...baseProps()} />);
 
     const bar = container.querySelector('[class*="stackBar"]');
@@ -87,15 +64,13 @@ describe("RouteAxisProfile", () => {
     expect(segments).toHaveLength(2);
   });
 
-  it("一般ユーザー向け画面のため、Basic認証必須の管理画面限定機能名「軸スタジオ」を含まない" +
-    "（review:ui 2026-08-30 F-4の再発防止）", () => {
+  it("一般ユーザー向け画面のため、Basic認証必須の管理画面限定機能名「軸スタジオ」を含まない", () => {
     const { container } = render(<RouteAxisProfile {...baseProps()} />);
 
     expect(container.textContent).not.toContain("軸スタジオ");
   });
 
-  it("内訳の値はbackendが算出したaxis_contributionsをそのまま表示する（frontend側で" +
-    "独自の重み計算を行わない、改善計画T550）", () => {
+  it("内訳の値はbackendが算出したaxis_contributionsをそのまま表示する", () => {
     const { container } = render(
       <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 52.1, night: 2.9 } })} />
     );
@@ -104,118 +79,18 @@ describe("RouteAxisProfile", () => {
     expect(values).toEqual(["52.1", "2.9"]);
   });
 
-  it("総合難易度（絶対基準0-100）を表示する（改善計画T548でおすすめ度表示は撤去済み）", () => {
+  it("総合難易度（絶対基準0-100）を表示する", () => {
     render(<RouteAxisProfile {...baseProps()} />);
 
     expect(screen.getByText("46")).toBeInTheDocument();
-    // 「総合難易度」自体はチップ名とスコアラベルの2箇所に出るため複数件ヒットする
-    expect(screen.getAllByText(/総合難易度/).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("総合難易度チップをクリックするとonRouteStyleModeChange('difficulty')が呼ばれる", async () => {
-    const user = userEvent.setup();
-    const onRouteStyleModeChange = vi.fn();
-    render(<RouteAxisProfile {...baseProps({ routeStyleModeId: "car_stress", onRouteStyleModeChange })} />);
-
-    await user.click(screen.getByRole("button", { name: "総合難易度で地図を色分け" }));
-
-    expect(onRouteStyleModeChange).toHaveBeenCalledWith("difficulty");
-  });
-
-  it("軸チップをクリックするとonRouteStyleModeChange(axisId)が呼ばれる", async () => {
-    const user = userEvent.setup();
-    const onRouteStyleModeChange = vi.fn();
-    render(<RouteAxisProfile {...baseProps({ onRouteStyleModeChange })} />);
-
-    await user.click(screen.getByRole("button", { name: "車の圧迫感で地図を色分け" }));
-
-    expect(onRouteStyleModeChange).toHaveBeenCalledWith("car_stress");
-  });
-
-  it("routeStyleModeIdに一致するチップがaria-pressed=trueになる（他は false）", () => {
-    render(<RouteAxisProfile {...baseProps({ routeStyleModeId: "car_stress" })} />);
-
-    expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "総合難易度で地図を色分け" })).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("routeStyleModesに対応モードが無い軸は選択チップ列に出さない（実機確認で発覚: 以前は" +
-    "非活性チップとして並べていたが、色分け対応チップと見分けにくく「クリックしても" +
-    "反応しない壊れたボタン」に見えていた。改善計画T545フォローアップでチップ列自体から" +
-    "除外し、内訳一覧のみに残す）", () => {
-    // ROUTE_STYLE_MODESにはcar_stressの色分けモードはあるが、nightのモードは無い
-    // （AXES/axisContributionsの両方にnightは含まれる想定のfixture。実運用では改善計画
-    // T549により公開軸は無条件で色分けモードを持つが、rowsとrouteStyleModesの
-    // axis_id集合が完全一致しない場合[重み0で除外された軸等]への安全策として
-    // このフィルタ自体は残っている、RouteAxisProfile.tsx参照）。
-    render(<RouteAxisProfile {...baseProps()} />);
-
-    expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "夜間で地図を色分け" })).not.toBeInTheDocument();
-    // 「夜間」は内訳一覧（読み取り専用ラベル）の1箇所にのみ表示される
-    // （選択チップ列には色分け対応軸だけが並ぶため出現しない）。
-    expect(screen.getAllByText("夜間")).toHaveLength(1);
-  });
-
-  it("軸チップに(i)説明ポップオーバーが付き、クリックするとaxis.descriptionを表示する" +
-    "（RouteSettingsPanelの軸チップとレイアウトを揃える、2026-09-02ユーザー指摘）", async () => {
+  it("各軸に(i)説明ポップオーバーが付き、クリックするとaxis.descriptionを表示する", async () => {
     const user = userEvent.setup();
     render(<RouteAxisProfile {...baseProps()} />);
 
     await user.click(screen.getByRole("button", { name: "車の圧迫感の説明を表示" }));
 
     expect(await screen.findByText("車の通行量の説明")).toBeInTheDocument();
-  });
-
-  it("軸チップの地図色分けアイコン（レイヤアイコン）をクリックしてもトグルと同じ" +
-    "onRouteStyleModeChange(axisId)が呼ばれる（背景の全道路表示ではなく、選択中ルートの" +
-    "色分けへ一本化する設計、2026-09-02ユーザー判断）", async () => {
-    const user = userEvent.setup();
-    const onRouteStyleModeChange = vi.fn();
-    render(<RouteAxisProfile {...baseProps({ onRouteStyleModeChange })} />);
-
-    await user.click(screen.getByRole("button", { name: "車の圧迫感で地図を色分け表示" }));
-
-    expect(onRouteStyleModeChange).toHaveBeenCalledWith("car_stress");
-  });
-
-  it("選択中の軸チップは、トグルだけでなく地図色分けアイコンもaria-pressed=trueになる", () => {
-    render(<RouteAxisProfile {...baseProps({ routeStyleModeId: "car_stress" })} />);
-
-    expect(screen.getByRole("button", { name: "車の圧迫感で地図を色分け表示" })).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
-  });
-
-  it("選択中/非選択中の区別はチップ外枠のdata-checkedで表す（RouteSettingsPanelの" +
-    "legendChip[data-checked]と同じ「非選択チップを薄くする」方式へ統一、2026-09-03ユーザー指摘）", () => {
-    render(<RouteAxisProfile {...baseProps({ routeStyleModeId: "car_stress" })} />);
-
-    const selectedChip = screen.getByRole("button", { name: "車の圧迫感で地図を色分け" }).closest("span");
-    const unselectedChip = screen.getByRole("button", { name: "総合難易度で地図を色分け" }).closest("span");
-    expect(selectedChip).toHaveAttribute("data-checked", "true");
-    expect(unselectedChip).toHaveAttribute("data-checked", "false");
-  });
-
-  it("説明を持たない「総合難易度」チップには(i)アイコン・地図色分けアイコンを出さない" +
-    "（合成指標のため軸固有の説明・独立した地図レイヤーを持たない）", () => {
-    render(<RouteAxisProfile {...baseProps()} />);
-
-    expect(screen.queryByRole("button", { name: "総合難易度の説明を表示" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "総合難易度で地図を色分け表示" })).not.toBeInTheDocument();
-  });
-
-  it("凡例の表示設定トリガーで、選択中モードの凡例カテゴリがチェックボックスとして開き、" +
-    "クリックでonToggleLegendKeyが呼ばれる", async () => {
-    const user = userEvent.setup();
-    const onToggleLegendKey = vi.fn();
-    render(<RouteAxisProfile {...baseProps({ onToggleLegendKey })} />);
-
-    await user.click(screen.getByRole("button", { name: "凡例の表示設定" }));
-    const checkbox = await screen.findByRole("checkbox", { name: "易しい" });
-    await user.click(checkbox);
-
-    expect(onToggleLegendKey).toHaveBeenCalledWith("easy");
   });
 });

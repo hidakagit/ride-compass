@@ -27,7 +27,8 @@ import {
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES, axisMapLayerId, buildAxisRampLegend } from "@/components/Map/axisLayers";
 import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
-import MapColorLegend, { type MapColorLegendGroup } from "@/components/MapColorLegend/MapColorLegend";
+import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
+import type { LegendEntry } from "@/components/Map/legendFilter";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import {
@@ -40,10 +41,11 @@ import {
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
-  filterRouteStyleModesByPreference,
+  LENS_DIFFICULTY_ID,
+  LENS_NONE_ID,
   getRouteStyleMode,
   isRouteStyleModeId,
-  type RouteStyleModeId,
+  type LensId,
 } from "@/components/Map/routeStyleModes";
 // 「ルート設定」見出し（renderRouteSectionBody）の見た目に、MapLayersPanel側の既存
 // スタイルをそのまま再利用する（CSS Modulesはクラス名の対訳表を返すだけのため、別
@@ -159,7 +161,9 @@ const LEGEND_FILTER_DEBOUNCE_MS = 400;
 // 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
 // 握りつぶす。路面側は色分けモードを持たない（常に固定色。roadFilterAxes.ts参照）ため
 // 対応する保存先は無い。
+// レンズ（地図を何で塗るか）。保存キーはルート線の色分けモードと共通（同じ値を指す）。
 const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
+const LENS_KEEP_AFTER_ROUTE_STORAGE_KEY = "ridecompass:lens-keep-after-route";
 
 // 「地図の見え方」（系統B）の設定はすべてlocalStorageへ保存し、リロード後も復元する
 // （保存ポリシー統一、T32。以前は色分けモードだけが保存され、レイヤーON/OFF・絞り込みは
@@ -579,21 +583,6 @@ export default function Home() {
       },
     },
   );
-  // 二次軸rampレイヤー（改善計画T145b）の表示フラグをMapViewへ渡す形（キー=axisMapLayerId）へ
-  // 絞り込む。layerVisibility全体を渡さないのは、MapView側のエフェクト依存を軸レイヤー分に
-  // 限定するため（deserializeがaxisCatalog.rampAxes（フェッチ完了後）またはDEFAULT_LAYER_
-  // VISIBILITY（フェッチ完了前の静的フォールバック）のキー走査で復元するため、軸スタジオ
-  // 公開軸を含むaxis:*のキーも既知のレイヤーIDとして保存・復元の対象に自動で含まれる）。
-  const axisVisibility = useMemo(
-    () =>
-      Object.fromEntries(
-        axisCatalog.rampAxes.map((axis) => {
-          const id = axisMapLayerId(axis.axisId);
-          return [id, layerVisibility[id] ?? false];
-        }),
-      ),
-    [layerVisibility, axisCatalog.rampAxes],
-  );
   // 改善計画（2次の下敷きの副作用対応）: 2次（車の圧迫感・ramp軸）を太く半透明な下敷きに
   // するのは、その材料（1次、primaryAttributeIdsToLayerIds）が1つでも同時に表示されている
   // ときだけにする。材料が1つも表示されていなければ、下に隠すものが無いため通常の太さ・
@@ -610,47 +599,31 @@ export default function Home() {
       }).map((axis) => axis.layerId as MapLayerId),
     [layerVisibility, axisCatalog.secondaryAxes],
   );
-  // 色分けモード（ルート）。保存形式はJSON化しない生文字列（他の設定と異なる。
-  // isRouteStyleModeIdによる妥当性検証がJSON.parseを兼ねる）。
-  const [routeStyleModeId, setRouteStyleModeId] = useStoredState<RouteStyleModeId>(
+  // レンズ（地図を何で塗るか）: "none" | "difficulty" | 公開軸のaxis_id。ルート前は全道路
+  // （rampタイル・専用配信）、ルート後はルート線を同じ識別子で塗る。生成・クリア・候補切替を
+  // またいで保持する。保存形式はJSON化しない生文字列（isRouteStyleModeIdによる妥当性検証が
+  // JSON.parseを兼ねる）。軸スタジオでunpublishされた軸idは総合難易度へ倒す。
+  const [lens, setLens] = useStoredState<LensId>(
     ROUTE_STYLE_MODE_STORAGE_KEY,
     DEFAULT_ROUTE_STYLE_MODE_ID,
     { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null) },
   );
-  // 改善計画T434/T440: 「評価で有効にした軸」（route_preferenceの重み>0）だけを選択肢として
-  // 動的に見せる。判定には生成済みルートを実際に評価した瞬間の重み
-  // （generatedRoutePreference、上記）を使う——ライブなroutePreferenceをそのまま使うと、
-  // 生成後に重みだけ変更（再生成せず）した場合に表示中のルートの実際の評価内容と
-  // メニューがズレる（T440、ユーザー指摘）。ルート未生成（null）の間はライブな
-  // routePreferenceをプレビュー用フォールバックとして使う。ユーザー指摘（2026-09-03）:
-  // 一度この重みフィルタを撤去したが、意図は逆（重み0の軸は選択肢からも消してほしい）と
-  // 確認できたため復元した。
-  const filteredRouteStyleModes = useMemo(
-    () => filterRouteStyleModesByPreference(axisCatalog.routeStyleModes, generatedRoutePreference ?? routePreference),
-    [axisCatalog.routeStyleModes, generatedRoutePreference, routePreference],
-  );
+  const routeStyleModes = axisCatalog.routeStyleModes;
   useEffect(() => {
-    if (filteredRouteStyleModes.some((mode) => mode.id === routeStyleModeId)) return;
-    // 改善計画T524（T518コードレビューP3指摘）: RouteStyleModeIdは事実上string
-    // （routeStyleModes.ts参照）のため、対応する地図色分けモードが無いidを
-    // setRouteStyleModeIdへ渡してもコンパイルエラーにならず、この巻き戻しが黙って
-    // 発生していた（T518実機確認で発覚した「非対応軸チップが無反応に見えるバグ」の
-    // 根本原因）。原因調査ができるよう、「idが評価軸としては実在するが地図色分けに
-    // 対応していない」場合と「idが評価軸としても実在しない」場合を区別して警告ログを
-    // 残す（getRouteStyleMode: routeStyleModes.tsの既存パターンを踏襲）。
-    const matchesKnownAxis = axisCatalog.axes.some((axis) => axis.axisId === routeStyleModeId);
+    if (routeStyleModes.some((mode) => mode.id === lens)) return;
     debugLog(
       "map:route-style-mode",
-      matchesKnownAxis
-        ? `route style mode "${routeStyleModeId}" is a known axis but has no map-coloring mode ` +
-          `(weight=0), falling back to "${filteredRouteStyleModes[0].id}"`
-        : `route style mode "${routeStyleModeId}" is not a known axis id, falling back to ` +
-          `"${filteredRouteStyleModes[0].id}"`,
-      { requestedId: routeStyleModeId, availableIds: filteredRouteStyleModes.map((mode) => mode.id) },
+      `lens "${lens}" is not a known axis id, falling back to "${LENS_DIFFICULTY_ID}"`,
+      { requestedId: lens, availableIds: routeStyleModes.map((mode) => mode.id) },
       "warn"
     );
-    setRouteStyleModeId(filteredRouteStyleModes[0].id);
-  }, [filteredRouteStyleModes, routeStyleModeId, setRouteStyleModeId, axisCatalog.axes]);
+    setLens(LENS_DIFFICULTY_ID);
+  }, [routeStyleModes, lens, setLens]);
+  // ルート確定後も周囲の道路（全道路の塗り）を残すか。
+  const [lensKeepAfterRoute, setLensKeepAfterRoute] = useStoredState<boolean>(LENS_KEEP_AFTER_ROUTE_STORAGE_KEY, true, {
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => (raw === "true" ? true : raw === "false" ? false : null),
+  });
   // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
   // 両系統を管理できる。「文字列の配列」の形のエントリだけ復元時に採用する。
@@ -805,7 +778,7 @@ export default function Home() {
       ) as unknown as Record<StaticFilterAxisId, readonly string[]>,
     [staticFilterAxes, hiddenLegendKeysByMode],
   );
-  const hiddenRouteLegendKeys = hiddenLegendKeysByMode[routeStyleModeId] ?? NO_HIDDEN_LEGEND_KEYS;
+  const hiddenRouteLegendKeys = hiddenLegendKeysByMode[lens] ?? NO_HIDDEN_LEGEND_KEYS;
   const toggleHiddenLegendKey = useCallback(
     (modeId: string, key: string) => {
       setHiddenLegendKeysByMode((prev) => {
@@ -837,8 +810,8 @@ export default function Home() {
     [setHiddenLegendKeysForAxis],
   );
   const handleRouteLegendToggle = useCallback(
-    (key: string) => toggleHiddenLegendKey(routeStyleModeId, key),
-    [routeStyleModeId, toggleHiddenLegendKey],
+    (key: string) => toggleHiddenLegendKey(lens, key),
+    [lens, toggleHiddenLegendKey],
   );
   // 改善計画T518: RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップ
   // と同じ色にする（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
@@ -934,17 +907,14 @@ export default function Home() {
     [setLayerVisibility, mapLayers],
   );
 
-  // 改善計画T518: 以前はrenderRouteColorSectionBody内のローカル関数だったが、
-  // RouteAxisProfile（「ルート選択」タブへ統合済み）から直接propsとして渡すため
-  // page.tsxのトップレベルへ引き上げた。ルートの色分けモードを選ぶと、地図上の
-  // 「ルート」チップ（layerVisibility.route）がOFFなら自動でONにする（選んだのに
-  // 見えないままだと気づきにくいための配慮、以前からの挙動を維持）。
-  const handleRouteModeSelect = useCallback(
-    (id: RouteStyleModeId) => {
-      setRouteStyleModeId(id);
+  // レンズを選ぶと、地図上の「ルート」チップ（layerVisibility.route）がOFFなら自動でONにする
+  // （選んだのに見えないままだと気づきにくいため）。
+  const handleLensChange = useCallback(
+    (id: LensId) => {
+      setLens(id);
       if (!layerVisibility.route) handleLayerToggle("route", true);
     },
-    [layerVisibility.route, handleLayerToggle, setRouteStyleModeId],
+    [layerVisibility.route, handleLayerToggle, setLens],
   );
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。改善計画T165で
@@ -999,7 +969,7 @@ export default function Home() {
   );
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
-    ? `色分け: ${getRouteStyleMode(filteredRouteStyleModes, routeStyleModeId).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
+    ? `レンズ: ${getRouteStyleMode(routeStyleModes, lens).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
     : null;
   const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
@@ -1007,12 +977,12 @@ export default function Home() {
         ? [
             {
               label: "",
-              legend: getRouteStyleMode(filteredRouteStyleModes, routeStyleModeId).legend,
+              legend: getRouteStyleMode(routeStyleModes, lens).legend,
               hiddenKeys: hiddenRouteLegendKeys,
             },
           ]
         : [],
-    [hasDetail, routeStyleModeId, hiddenRouteLegendKeys, filteredRouteStyleModes],
+    [hasDetail, lens, hiddenRouteLegendKeys, routeStyleModes],
   );
 
   // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
@@ -1234,7 +1204,17 @@ export default function Home() {
   // routeStyleModes「風」モードへ委ねる。改善計画T418で起動元が地図上チップから
   // ルート設定パネルへ移ったため、hasDetail時のdisabled化は
   // `RouteSettingsPanel.tsx: renderMapColorToggle`が担う）。
-  const showWindAxis = layerVisibility.windAxis && !hasDetail;
+  // レンズが全道路の塗りとして有効な間（ルート前、またはルート後も残す設定）。
+  const lensBackgroundShown = !hasDetail || lensKeepAfterRoute;
+  // 二次軸rampレイヤーの表示フラグ（キー=axisMapLayerId）。レンズに選ばれたramp軸だけON。
+  const axisVisibility = useMemo(
+    () =>
+      Object.fromEntries(
+        axisCatalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), lens === axis.axisId && lensBackgroundShown]),
+      ),
+    [axisCatalog.rampAxes, lens, lensBackgroundShown],
+  );
+  const showWindAxis = lens === "wind" && lensBackgroundShown;
   // 想定速度（ルート設定の入力欄）は風のレンズ（走行速度依存の材料）にも効く。未入力・不正値の
   // 間は既定速度で配信を続ける。
   const parsedAssumedSpeedForLens = Number(assumedSpeedInput);
@@ -1257,7 +1237,7 @@ export default function Home() {
   // （gradientFill、gridFill面表示）・評価軸としての勾配（gradientAxis）が同じ1つの入力
   // （向き）を共有する（T400.md「2.」節と同じ構造）。表示のON/OFF自体は別チップのまま。
   const showGradientFill = layerVisibility.gradientFill && !hasDetail;
-  const showGradientAxis = layerVisibility.gradientAxis && !hasDetail;
+  const showGradientAxis = lens === "gradient" && lensBackgroundShown;
   // 環境（面）・評価軸（線）どちらかがONの間だけフェッチする（表示中のものだけ叩く方針）。
   // gradientFillはgradientAxisとは独立に、フェッチ済みのway単位データをタイル単位で集計
   // するだけで作れる（gradientGridFill.tsのモジュールdocstring参照、追加のAPI呼び出し
@@ -1305,48 +1285,39 @@ export default function Home() {
     return map;
   }, [axisCatalog.axes]);
 
-  // ユーザー要望（2026-08-31、「地図上の色付の凡例が欲しい。例えば、勾配ONにした時に
-  // 青くなる道路は何なのか、その度合いが分かればいい」）: 「地図で色分け」がONの軸ぶんだけ、
-  // 地図左下に色→値の凡例を出す（MapColorLegend参照）。ramp軸（axisVisibility）・
-  // windAxis/gradientAxis（showWindAxis/showGradientAxis、専用way_id配信層）の3系統を
-  // 横断して集める——RouteSettingsPanel.tsx: mapColorLayerIdForが軸id→レイヤーIDを
-  // 解決するのと同じ2分岐（secondaryAxes由来のramp／dedicatedWayValueLayer）だが、
-  // ここでは「今ONになっているものの凡例」を集めるのが目的のため判定の向きが逆
-  // （レイヤーID→軸ではなく、既知の3系統それぞれについてON状態を直接見る）。
-  const mapColorLegendGroups = useMemo<MapColorLegendGroup[]>(() => {
-    const groups: MapColorLegendGroup[] = [];
-    for (const axis of axisCatalog.rampAxes) {
-      if (axisVisibility[axisMapLayerId(axis.axisId)]) {
-        groups.push({
-          axisId: axis.axisId,
-          label: axis.label,
-          bands: buildAxisRampLegend(axis).map((entry) => ({ label: entry.label, color: entry.color })),
-        });
-      }
+  // レンズの選択肢（公開軸すべて、軸カタログ順）。「未使用」はこの候補を評価した重み
+  // （生成後はgeneratedRoutePreference、生成前はライブなroutePreference）で判定し、
+  // 「ルート後のみ」はルート前に塗る手段（ramp・専用配信）を持たない軸に付ける。
+  const lensOptions = useMemo<LensOption[]>(() => {
+    const weights = generatedRoutePreference ?? routePreference;
+    const rampAxisIds = new Set(axisCatalog.rampAxes.map((axis) => axis.axisId));
+    return axisCatalog.axes.map((axis) => ({
+      id: axis.axisId,
+      label: axis.label,
+      color: axisChipColors[axis.axisId] ?? "#64748b",
+      description: axis.description,
+      unused: (weights[axis.axisId] ?? 0) <= 0,
+      routeOnly: !rampAxisIds.has(axis.axisId) && !axis.dedicatedWayValueLayer,
+    }));
+  }, [axisCatalog.axes, axisCatalog.rampAxes, axisChipColors, generatedRoutePreference, routePreference]);
+  // 現在のレンズの凡例。ルート後はルート線のモード凡例（段階の非表示切替つき）、ルート前は
+  // ramp軸・専用配信の凡例（読み取り専用）。どちらも塗る手段が無ければ空。
+  const lensLegend = useMemo<LegendEntry[]>(() => {
+    if (lens === LENS_NONE_ID) return [];
+    if (hasDetail) return getRouteStyleMode(routeStyleModes, lens).legend;
+    const rampAxis = axisCatalog.rampAxes.find((axis) => axis.axisId === lens);
+    if (rampAxis) return buildAxisRampLegend(rampAxis);
+    const axis = axisCatalog.axes.find((a) => a.axisId === lens);
+    if (axis?.dedicatedWayValueLayer) {
+      return dedicatedWayValueLegend(dedicatedWayValueDisplays.get(lens)).map((band, index) => ({
+        key: `band-${index}`,
+        label: band.label,
+        color: band.color,
+        filter: [],
+      }));
     }
-    // 専用way値レイヤーの表示状態（環境グループの勾配gridFillも同じ凡例を使う）。
-    const dedicatedLayerShown: Record<string, boolean> = {
-      wind: showWindAxis,
-      gradient: showGradientAxis || showGradientFill,
-    };
-    for (const axis of axisCatalog.axes) {
-      if (!axis.dedicatedWayValueLayer || !dedicatedLayerShown[axis.axisId]) continue;
-      groups.push({
-        axisId: axis.axisId,
-        label: axis.label,
-        bands: dedicatedWayValueLegend(dedicatedWayValueDisplays.get(axis.axisId)),
-      });
-    }
-    return groups;
-  }, [
-    axisCatalog.rampAxes,
-    axisVisibility,
-    showWindAxis,
-    showGradientAxis,
-    showGradientFill,
-    axisCatalog.axes,
-    dedicatedWayValueDisplays,
-  ]);
+    return [];
+  }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
   // 改善計画T292: 車ストレス専用レシピ（旧car_stress_recipe等）は専用Pythonレシピの
@@ -1435,6 +1406,8 @@ export default function Home() {
         // 常に送る。経由地を伴う目的地ルートはbackendが常に1件へ固定し値を無視する。
         max_routes: effectiveMaxRoutes,
         assumed_speed_kmh: effectiveAssumedSpeed,
+        // レンズが軸を要求していれば、重み0でも区間表示のため風の時変化合成を行う（backend）。
+        ...(lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? { lens_axis_id: lens } : {}),
         ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
         // 改善計画T364/T365-2: 目的地モードのときだけ経由地・目的地を送る
         // （backend側の分岐はapi/routers/routes.py参照）。
@@ -1565,9 +1538,6 @@ export default function Home() {
           onRoutePreferenceChange={setRoutePreference}
           overrideEnabled={weightOverrideEnabled}
           onOverrideEnabledChange={setWeightOverrideEnabled}
-          layerVisibility={layerVisibility}
-          onLayerToggle={handleLayerToggle}
-          hasDetail={hasDetail}
         />
       </div>
     );
@@ -1637,7 +1607,6 @@ export default function Home() {
     // 未生成時のみライブなroutePreferenceへフォールバック）に揃える。全候補で共通のため、
     // 候補ごとのTabs.Contentループの外で1回だけ計算する。
     const routeWeights = generatedRoutePreference ?? routePreference;
-    const visibleAxes = axisCatalog.axes.filter((axis) => (routeWeights[axis.axisId] ?? 0) > 0);
 
     return (
       <>
@@ -1727,22 +1696,19 @@ export default function Home() {
                     </button>
                   </div>
                   <AxisContributionBar
-                    axes={visibleAxes}
+                    axes={axisCatalog.axes}
                     contributions={selectedRouteSegment.segment.axis_contributions}
                     axisColors={axisChipColors}
                   />
                 </div>
               ) : (
                 <RouteAxisProfile
-                  axes={visibleAxes}
+                  axes={axisCatalog.axes}
+                  weights={routeWeights}
+                  axisDifficulties={route.axis_difficulties}
                   axisContributions={route.axis_contributions}
                   overallDifficulty={route.overall_difficulty}
                   axisColors={axisChipColors}
-                  routeStyleModes={filteredRouteStyleModes}
-                  routeStyleModeId={routeStyleModeId}
-                  onRouteStyleModeChange={handleRouteModeSelect}
-                  hiddenLegendKeys={hiddenRouteLegendKeys}
-                  onToggleLegendKey={handleRouteLegendToggle}
                 />
               )}
             </Tabs.Content>
@@ -2000,8 +1966,8 @@ export default function Home() {
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
             staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
             routeLayerOn={layerVisibility.route}
-            routeStyleModes={filteredRouteStyleModes}
-            routeStyleModeId={routeStyleModeId}
+            routeStyleModes={routeStyleModes}
+            routeStyleModeId={lens}
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}
             onRegionZoomHintChange={setRegionZoomTooWide}
             onViewportChange={handleViewportChange}
@@ -2035,7 +2001,17 @@ export default function Home() {
             onOriginSet={setManualLocation}
           />
 
-          <MapColorLegend groups={mapColorLegendGroups} />
+          <LensControl
+            lens={lens}
+            onLensChange={handleLensChange}
+            axisOptions={lensOptions}
+            legend={lensLegend}
+            hiddenLegendKeys={hasDetail ? hiddenRouteLegendKeys : undefined}
+            onToggleLegendKey={hasDetail ? handleRouteLegendToggle : undefined}
+            keepAfterRoute={lensKeepAfterRoute}
+            onKeepAfterRouteChange={setLensKeepAfterRoute}
+            hasDetail={hasDetail}
+          />
 
           <MapOverlayControls layers={overlayLayers} onToggle={handleLayerToggle} />
 

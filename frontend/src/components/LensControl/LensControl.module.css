@@ -1,0 +1,173 @@
+/* 地図上部中央（MapOverlayControls[左上]・ズームコントロール[右上]と重ならず、モバイルの
+   BottomSheetにも隠れない位置）。旧MapColorLegendと同じ配置。 */
+.wrap {
+  position: absolute;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: min(14rem, calc(100% - 7rem));
+}
+
+.pill {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.pill:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 2px;
+}
+
+.pillHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.pillLabel {
+  font-weight: 600;
+}
+
+.chevron {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+}
+
+.swatchRow {
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.4rem;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.content {
+  z-index: 40;
+  width: min(18rem, calc(100vw - 1.5rem));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  font-size: var(--font-size-sm);
+  color: var(--foreground);
+}
+
+.heading {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.groupLabel {
+  margin-top: 0.4rem;
+  padding: 0.15rem 0;
+  font-size: var(--font-size-xs, 0.72rem);
+  color: var(--color-muted);
+  letter-spacing: 0.04em;
+}
+
+.option {
+  margin: 0;
+}
+
+.optionButton {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.35rem 0.4rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.optionButton[data-checked="true"] {
+  background: var(--color-accent-soft, rgba(37, 99, 235, 0.12));
+  font-weight: 600;
+}
+
+.optionButton:hover {
+  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+}
+
+.optionLabel {
+  flex: 1 1 auto;
+}
+
+.badge {
+  font-size: 0.68rem;
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  background: var(--color-warning-soft, rgba(217, 119, 6, 0.15));
+  color: var(--color-warning-strong, #b45309);
+  white-space: nowrap;
+}
+
+.keepRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--color-border);
+}
+
+.legendBlock {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.legendList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-variant-numeric: tabular-nums;
+}

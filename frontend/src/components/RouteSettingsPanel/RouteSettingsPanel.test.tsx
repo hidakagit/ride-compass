@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
-import type { MapLayerId, MapLayerVisibility } from "@/components/Map/mapLayers";
 import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "./RouteSettingsPanel";
 
 // 改善計画T302: unpublishでカタログから軸が消えた場合、RouteSettingsPanelが
@@ -72,39 +71,6 @@ function catalogResponse(
   };
 }
 
-// 改善計画T418: layerVisibility/onLayerToggle/hasDetailが新規必須propsになったための
-// 既定値。個々のテストは必要な値だけ上書きする。
-function baseLayerVisibility(): MapLayerVisibility {
-  return {
-    elevation: false,
-    roadType: false,
-    roadSurface: false,
-    designation: false,
-    tunnel: false,
-    oneway: false,
-    stopPoi: false,
-    supplyPoi: false,
-    accidents: false,
-    route: false,
-    precipitationNowcast: false,
-    windVector: false,
-    windAxis: false,
-    gradientFill: false,
-    gradientAxis: false,
-    thunderNowcast: false,
-    tornadoNowcast: false,
-    liden: false,
-  };
-}
-
-function baseNewProps() {
-  return {
-    layerVisibility: baseLayerVisibility(),
-    onLayerToggle: vi.fn() as (id: MapLayerId, on: boolean) => void,
-    hasDetail: false,
-  };
-}
-
 describe("RouteSettingsPanel", () => {
   // 改善計画T527: useAxisCatalogのフェッチ結果はモジュールレベルの共有ストアのため、
   // 前のテストで解決したカタログが次のテストの初期表示へ持ち越されないようリセットする。
@@ -125,7 +91,6 @@ describe("RouteSettingsPanel", () => {
         onRoutePreferenceChange={onRoutePreferenceChange}
         overrideEnabled={false}
         onOverrideEnabledChange={vi.fn()}
-        {...baseNewProps()}
       />,
     );
 
@@ -147,7 +112,6 @@ describe("RouteSettingsPanel", () => {
         onRoutePreferenceChange={onRoutePreferenceChange}
         overrideEnabled={false}
         onOverrideEnabledChange={vi.fn()}
-        {...baseNewProps()}
       />,
     );
 
@@ -177,7 +141,6 @@ describe("RouteSettingsPanel", () => {
         onRoutePreferenceChange={onRoutePreferenceChange}
         overrideEnabled={false}
         onOverrideEnabledChange={vi.fn()}
-        {...baseNewProps()}
       />,
     );
 
@@ -213,7 +176,6 @@ describe("RouteSettingsPanel", () => {
           }}
           overrideEnabled={false}
           onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
         />
       );
     }
@@ -234,220 +196,6 @@ describe("RouteSettingsPanel", () => {
     expect(restored.gradient).toBe(0.42);
   });
 
-  // 改善計画T418: 軸ごとの「この条件で地図を色分け」トグル（renderMapColorToggle）。
-  // 評価軸チップを地図UIから撤去したのに伴い、軸選択・重み設定と同じ行から地図色分けを
-  // 起動できるようにした（docs/tasks/T418.md「やること」2.）。
-  describe("軸ごとの地図色分けトグル（改善計画T418）", () => {
-    it("専用の表示レイヤーを持つ軸（kind=ramp）は色分けトグルが押せ、layerVisibilityに応じたON/OFFをonLayerToggleへ伝える", async () => {
-      const user = userEvent.setup();
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["car_stress"], { car_stress: "ramp" }));
-      const onLayerToggle = vi.fn();
-
-      render(
-        <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
-          routePreference={{ car_stress: 0.3 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
-          onLayerToggle={onLayerToggle}
-        />,
-      );
-
-      const toggle = await screen.findByRole("button", { name: "ラベル[car_stress]で地図を色分け表示" });
-      expect(toggle).toHaveAttribute("aria-pressed", "false");
-
-      await user.click(toggle);
-      expect(onLayerToggle).toHaveBeenCalledWith("axis:car_stress", true);
-    });
-
-    it("専用の表示レイヤーを持たない軸（kind=none、風・勾配以外の未対応軸）は凡例チップに地図色分けアイコンが付かない", async () => {
-      // 改善計画T423: 勾配（gradient）はgradientAxisという専用レイヤーを持つようになった
-      // ため、この「地図表示非対応」ケースの例としては使えなくなった。wind/gradient
-      // どちらでもない、まだ地図表示用のデータ取得経路が無い軸の例として架空のaxisIdを使う。
-      // ユーザー要望（2026-08-31、凡例チップへの集約）で「地図表示なし」という文言表示は
-      // 廃止し、非対応の軸はアイコンごと出さない方式へ変更した（凡例を圧迫しないため）。
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["no_map_layer_axis"], { no_map_layer_axis: "none" }));
-
-      render(
-        <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
-          routePreference={{ no_map_layer_axis: 0.3 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
-        />,
-      );
-
-      // findByRoleでモック済みカタログ（axis 1件のみ）が反映されるまで待つ
-      // （フェッチ完了前は静的フォールバックカタログ[複数軸、地図色分け対応軸を含む]が
-      // 一瞬使われ、absenceの確認をこのタイミングより前に行うと誤検知する）。
-      // 凡例チップ1件が持つボタンは「トグル(色ドット+ラベル)」「(i)説明文」の2つだけ
-      // （地図色分けアイコンが付かない）ことを確認する。
-      const infoButton = await screen.findByRole("button", { name: "ラベル[no_map_layer_axis]の説明を表示" });
-      const chip = infoButton.closest("span");
-      expect(chip?.querySelectorAll("button")).toHaveLength(2);
-      expect(chip?.querySelector('[aria-label*="で地図を色分け表示"]')).not.toBeInTheDocument();
-    });
-
-    it("風（wind）はsecondaryAxesに現れない特殊軸だが、windAxisレイヤーへの色分けトグルとして機能する", async () => {
-      const user = userEvent.setup();
-      // 改善計画T447（2026-08-31訂正）: windはbackendのAXIS_DEFINITIONS上
-      // category="動的"・show_map_icon=trueで公開される（secondaryAxes.tsが
-      // show_map_iconではなくcategoryで除外する、axis_definitions_snapshot.json参照。
-      // 旧コメントは主張が逆だった——詳細はsecondaryAxes.tsのコメント参照）。
-      vi.mocked(getAxisCatalog).mockResolvedValue({
-        axes: [
-          {
-            axis_id: "wind",
-            label: "風",
-            description: "向かい風が弱いほど易しい",
-            category: "動的",
-            default_weight: 0.26,
-            display: { kind: "none", label: "風", category: "weather", tile_inputs: [], thresholds: [], unit: "", note: "" },
-            primary_attribute_ids: [],
-            icon_id: null,
-            chip_label: null,
-            panel_hint: null,
-            show_map_icon: true,
-            shape: { kind: "breakpoint_linear", terms: [{ material: "wind_penalty", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
-            display_thresholds_override: null,
-            display_band_labels_override: null,
-            dedicated_way_value_layer: true,
-            map_value_kind: "difficulty",
-            map_value_unit: "",
-          },
-        ],
-        material_runtime_scales: {},
-      });
-      const onLayerToggle = vi.fn();
-
-      render(
-        <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
-          routePreference={{ wind: 0.26 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
-          onLayerToggle={onLayerToggle}
-        />,
-      );
-
-      const toggle = await screen.findByRole("button", { name: "風で地図を色分け表示" });
-      await user.click(toggle);
-      expect(onLayerToggle).toHaveBeenCalledWith("windAxis", true);
-    });
-
-    it("ルート確定後（hasDetail=true）は風の色分けトグルが非対応の案内に切り替わる", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue({
-        axes: [
-          {
-            axis_id: "wind",
-            label: "風",
-            description: "向かい風が弱いほど易しい",
-            category: "推定",
-            default_weight: 0.26,
-            display: { kind: "none", label: "風", category: "weather", tile_inputs: [], thresholds: [], unit: "", note: "" },
-            primary_attribute_ids: [],
-            icon_id: null,
-            chip_label: null,
-            panel_hint: null,
-            show_map_icon: false,
-            shape: { kind: "breakpoint_linear", terms: [{ material: "wind_penalty", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
-            display_thresholds_override: null,
-            display_band_labels_override: null,
-            dedicated_way_value_layer: true,
-            map_value_kind: "difficulty",
-            map_value_unit: "",
-          },
-        ],
-        material_runtime_scales: {},
-      });
-
-      render(
-        <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
-          routePreference={{ wind: 0.26 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
-          hasDetail
-        />,
-      );
-
-      // ユーザー要望（2026-08-31、凡例チップへの集約）で「地図表示なし」の文言表示は
-      // 廃止し、案内文はtitle/aria-label付きの無効化アイコンへ置き換わった。
-      await waitFor(() =>
-        expect(
-          screen.getByTitle('ルート確定後は「地図の色分け」の「風」で確認できます'),
-        ).toBeInTheDocument(),
-      );
-      expect(screen.queryByRole("button", { name: "風で地図を色分け表示" })).not.toBeInTheDocument();
-    });
-
-    it("勾配（gradient）はsecondaryAxesに現れない特殊軸だが、gradientAxisレイヤーへの色分けトグルとして機能する（改善計画T423）", async () => {
-      const user = userEvent.setup();
-      vi.mocked(getAxisCatalog).mockResolvedValue(
-        catalogResponse(["gradient"], { gradient: "none" }, { gradient: true }),
-      );
-      const onLayerToggle = vi.fn();
-
-      render(
-        <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
-          routePreference={{ gradient: 0.15 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
-          onLayerToggle={onLayerToggle}
-        />,
-      );
-
-      const toggle = await screen.findByRole("button", { name: "ラベル[gradient]で地図を色分け表示" });
-      await user.click(toggle);
-      expect(onLayerToggle).toHaveBeenCalledWith("gradientAxis", true);
-    });
-
-    it("ルート確定後（hasDetail=true）は勾配の色分けトグルが非対応の案内に切り替わる（改善計画T423）", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(
-        catalogResponse(["gradient"], { gradient: "none" }, { gradient: true }),
-      );
-
-      render(
-        <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
-          routePreference={{ gradient: 0.15 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
-          hasDetail
-        />,
-      );
-
-      // ユーザー要望（2026-08-31、凡例チップへの集約）で「地図表示なし」の文言表示は
-      // 廃止し、案内文はtitle/aria-label付きの無効化アイコンへ置き換わった。
-      // 改善計画T440: 案内文のラベルはハードコードした「勾配」ではなく、軸データ自身の
-      // labelをそのまま使う（catalogResponseのテスト用ラベル「ラベル[gradient]」）。
-      await waitFor(() =>
-        expect(
-          screen.getByTitle('ルート確定後は「地図の色分け」の「ラベル[gradient]」で確認できます'),
-        ).toBeInTheDocument(),
-      );
-      expect(screen.queryByRole("button", { name: "ラベル[gradient]で地図を色分け表示" })).not.toBeInTheDocument();
-    });
-  });
 
   // ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
   // できるUIはないか」）: 重み配分バー（帯グラフ）の境界を操作すると、隣接する2軸間でだけ
@@ -469,7 +217,6 @@ describe("RouteSettingsPanel", () => {
           onRoutePreferenceChange={onRoutePreferenceChange}
           overrideEnabled={false}
           onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
         />,
       );
 
@@ -493,7 +240,6 @@ describe("RouteSettingsPanel", () => {
           onRoutePreferenceChange={onRoutePreferenceChange}
           overrideEnabled={false}
           onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
         />,
       );
 
@@ -517,7 +263,6 @@ describe("RouteSettingsPanel", () => {
           onRoutePreferenceChange={onRoutePreferenceChange}
           overrideEnabled={false}
           onOverrideEnabledChange={vi.fn()}
-          {...baseNewProps()}
         />,
       );
 

@@ -4,11 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
 import InfoPopover from "@/components/Map/InfoPopover";
 import Disclosure from "@/components/Disclosure/Disclosure";
-import { MapAppearanceIcon } from "@/components/Map/icons";
 import { withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
-import { isDedicatedWayValueLayerId, type MapLayerId, type MapLayerVisibility } from "@/components/Map/mapLayers";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
@@ -113,21 +111,6 @@ interface RouteSettingsPanelProps {
    * 意識しない（トグルUIをこのパネルには出さない）。 */
   overrideEnabled: boolean;
   onOverrideEnabledChange: (enabled: boolean) => void;
-  /** 改善計画T418: 軸ごとの「この条件で地図を色分け」トグル用。地図レイヤーの表示状態
-   * （page.tsx: layerVisibility）をそのまま渡す。地図UIの評価軸チップを撤去したのに
-   * 伴い、軸選択・重み設定と同じこの行から地図色分けを起動できるようにした
-   * （docs/tasks/T418.md「やること」2.）。専用の表示レイヤーを持つ軸（kind="ramp"・
-   * wind）だけがトグルを持ち、持たない軸（勾配等）は非対応の案内のみ出す。 */
-  layerVisibility: MapLayerVisibility;
-  onLayerToggle: (id: MapLayerId, on: boolean) => void;
-  /** ルートが確定済みか（page.tsx: hasDetail）。改善計画T414の状態機械どおり、風
-   * （windAxis）はルート確定後は視界内の全道路への一律色分けという役割を終了し、
-   * 「地図の色分け」（RouteAxisProfile.tsx、旧称「生成したルートの色分け」。改善計画
-   * T518で改称・統合）の「風」モードへ案内する（T400.md「2.」節。T418で
-   * この案内自体を地図上チップからルート設定パネルへ移設した）。風以外の軸
-   * （car_stress等）は動的パラメータを持たないためルート確定後も一律色分けを続けられ、
-   * この対象外のまま変更していない。 */
-  hasDetail: boolean;
 }
 
 export default function RouteSettingsPanel({
@@ -137,71 +120,13 @@ export default function RouteSettingsPanel({
   onRoutePreferenceChange,
   overrideEnabled,
   onOverrideEnabledChange,
-  layerVisibility,
-  onLayerToggle,
-  hasDetail,
 }: RouteSettingsPanelProps) {
   const catalog = useAxisCatalog();
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
 
-  // 改善計画T418/T440: 軸id→地図表示レイヤーIDの解決。専用の表示レイヤーを持つ軸
-  // （kind="ramp"、catalog.secondaryAxesのlayerId）はそのままレイヤーIDを返す。
-  // 専用のway_id→値配信レイヤー（Redis経由、風・勾配が該当）を持つ軸は、axis_idの
-  // ハードコード比較ではなく軸データ（axis.dedicatedWayValueLayer、domain/
-  // axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）で判定する。
-  // レイヤーIDは命名規約（`${axisId}Axis`、windAxis/gradientAxisの実例）から機械的に
-  // 導出し、実際に配線済みのMapLayerIdであることを型ガードで確認する。どちらにも該当
-  // しない軸はundefined（地図表示非対応）。
-  function mapColorLayerIdFor(axisId: string): MapLayerId | undefined {
-    const secondaryLayerId = catalog.secondaryAxes.find((a) => a.axisId === axisId)?.layerId;
-    if (secondaryLayerId) return secondaryLayerId;
-    const axis = catalog.axes.find((a) => a.axisId === axisId);
-    if (!axis?.dedicatedWayValueLayer) return undefined;
-    const candidateLayerId = `${axisId}Axis`;
-    return isDedicatedWayValueLayerId(candidateLayerId) ? candidateLayerId : undefined;
-  }
-
-  // ユーザー要望（2026-08-31、「下の各軸毎の有効無効、スライドバーはなくしたい。どの軸が
-  // どの色なのか凡例をつけて、そのエリアで有効無効や説明文を巻き取れる？」）を受け、
-  // 軸1件ぶんの「地図で色分け」はチェックボックス・スライダーと同じ行から、凡例チップ
-  // （renderLegendChip）内の小さいアイコンボタンへ圧縮した。地図表示に対応しない軸は
-  // アイコンごと出さない（凡例を圧迫しないため。以前の「地図表示なし」という文言表示は
-  // 廃止——対応する軸だけアイコンが付くこと自体で非対応が分かる）。ルート確定後に
-  // 押せなくなる風・勾配（下記hasDetailのコメント参照）だけは、理由が分かるよう
-  // 案内文つきの無効化アイコンを残す。トグル自体は既存のramp軸描画ロジック
-  // （axisVisibility、MapView.tsx）・windAxis/gradientAxis配信層（useDynamicWayValues）を
-  // そのまま流用し、layerVisibility[layerId]のON/OFFを切り替えるだけ——このコンポーネントは
-  // 地図描画そのものには関与しない。
-  function renderLegendMapColorToggle(axis: PreferenceAxisDef) {
-    const layerId = mapColorLayerIdFor(axis.axisId);
-    if (!layerId) return null;
-    if (isDedicatedWayValueLayerId(layerId) && hasDetail) {
-      // 改善計画T524（T518コードレビューP2指摘）: T518で「生成したルートの色分け」
-      // という旧セクション名は「地図の色分け」（RouteAxisProfile.tsx）へ改称・統合された。
-      const unavailableReason = `ルート確定後は「地図の色分け」の「${axis.label}」で確認できます`;
-      return (
-        <span className={styles.legendMapColorUnavailable} title={unavailableReason} aria-label={unavailableReason}>
-          <MapAppearanceIcon size={13} />
-        </span>
-      );
-    }
-    const on = layerVisibility[layerId] ?? false;
-    return (
-      <button
-        type="button"
-        className={styles.legendMapColorButton}
-        aria-pressed={on}
-        aria-label={`${axis.label}で地図を色分け表示`}
-        onClick={() => onLayerToggle(layerId, !on)}
-      >
-        <MapAppearanceIcon size={13} />
-      </button>
-    );
-  }
-
-  // ユーザー要望（2026-08-31、凡例チップへの機能集約）: 各軸のチップは「色ドット+ラベル
-  // （タップで有効/無効切替）」「(i)説明文ポップオーバー」「地図で色分けアイコン（対応軸のみ）」
-  // の3要素だけの1行に圧縮した。重みの数値・スライダーはチップから完全に撤去し、重み配分
+  // 各軸のチップは「色ドット+ラベル（タップで有効/無効切替）」「(i)説明文ポップオーバー」の
+  // 2要素だけの1行。地図の色分け（レンズ）はこのパネルではなく地図上の凡例ピル（LensControl）
+  // だけが持つ。重みの数値・スライダーはチップから完全に撤去し、重み配分
   // バー（帯グラフ）のドラッグ・矢印キー操作（T495）だけで調整する——1軸だけを狙って
   // 0.01刻みで細かく調整する手段は失うが、ユーザー判断で「帯グラフのみに一本化」を選択した。
   function renderLegendChip(axis: PreferenceAxisDef, index: number) {
@@ -227,7 +152,6 @@ export default function RouteSettingsPanel({
         >
           {axis.description}
         </InfoPopover>
-        {renderLegendMapColorToggle(axis)}
       </span>
     );
   }

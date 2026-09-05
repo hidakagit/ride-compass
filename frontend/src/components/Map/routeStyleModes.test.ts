@@ -5,7 +5,6 @@ import { buildLegendFilterExpression } from "./legendFilter";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   ROUTE_STYLE_MODES,
-  filterRouteStyleModesByPreference,
   getRouteStyleMode,
   isRouteStyleModeId,
   routeColorableModeFromAxis,
@@ -21,7 +20,7 @@ const windAxis = AXES.find((a) => a.axis_id === "wind")!;
 const surfaceQAxis = AXES.find((a) => a.axis_id === "surface_q")!;
 
 describe("routeStyleModes", () => {
-  it("改善計画T440/T549: 公開軸すべて（動的）+ difficulty（固定）を定義し、デフォルトはROUTE_STYLE_MODES[0]と一致する", () => {
+  it("公開軸すべて（動的）+ difficulty（総合難易度）+ none（レンズなし）を定義し、既定は総合難易度", () => {
     // 改善計画T549: supports_route_coloring撤去により、以前は対象外だったstop_density・
     // car_stress・accident・night・bicycle_infra_quality等も無条件で対象になる。
     expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual([
@@ -34,12 +33,14 @@ describe("routeStyleModes", () => {
       "night",
       "bicycle_infra_quality",
       "difficulty",
+      "none",
     ]);
-    expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe(ROUTE_STYLE_MODES[0].id);
+    expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe("difficulty");
   });
 
   it("各モードは凡例と色式を持ち、凡例の色・キーに重複がなく、データなしカテゴリを含む", () => {
     for (const mode of ROUTE_STYLE_MODES) {
+      if (mode.id === "none") continue; // レンズなしは凡例を持たない単色モード
       expect(mode.colorExpression.length).toBeGreaterThan(0);
       const colors = mode.legend.map((entry) => entry.color);
       expect(new Set(colors).size).toBe(colors.length);
@@ -147,15 +148,12 @@ describe("routeStyleModes", () => {
     expect(buildLegendFilterExpression(wind.legend, [middle.key])).toEqual(["all", ["!", middle.filter]]);
   });
 
-  it("総合難易度モードはdifficulty(0-100絶対基準)を色分けし、対応する軸を持たないため常に選択肢に残る", () => {
+  it("総合難易度モードはdifficulty(0-100絶対基準)を色分けし、レンズなしは凡例を持たない単色になる", () => {
     const difficulty = getRouteStyleMode(ROUTE_STYLE_MODES, "difficulty");
     expect(difficulty.colorExpression[1]).toEqual(["==", ["get", "difficulty"], null]);
-    // 全軸の重みを0にする（difficulty以外の全modeのidをキーに持つ）と、difficultyだけが残る。
-    const allWeightsZero = Object.fromEntries(
-      ROUTE_STYLE_MODES.filter((mode) => mode.id !== "difficulty").map((mode) => [mode.id, 0])
-    );
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, allWeightsZero);
-    expect(filtered.map((m) => m.id)).toEqual(["difficulty"]);
+    const none = getRouteStyleMode(ROUTE_STYLE_MODES, "none");
+    expect(none.legend).toEqual([]);
+    expect(none.colorExpression[0]).toBe("to-color");
   });
 
   it("interpolateColorsは境界値の個数に関わらずcolorLow→colorHighの間をcount色生成する（固定色配列を持たない）", () => {
@@ -167,20 +165,6 @@ describe("routeStyleModes", () => {
     const five = interpolateColors("#0284c7", "#dc2626", 5);
     expect(five).toHaveLength(5);
     expect(new Set(five).size).toBe(5); // 全段階が異なる色になる
-  });
-
-  it("改善計画T440: filterRouteStyleModesByPreferenceは重み0の軸（gradient/wind/surface_q）を除外し、対応する軸を持たないdifficultyは常に残す", () => {
-    // 改善計画T549: gradient/wind/surface_q以外の公開軸もROUTE_STYLE_MODESに含まれるため、
-    // それらも明示的に0を渡さないと（routePreferenceに無いキーは「常に残す」扱いのため）
-    // 残ってしまう——このテストの目的（重み0の軸だけが除外されること）を検証するため、
-    // difficulty以外の全modeを起点に明示的な重みマップを組み立てる。
-    const weights = Object.fromEntries(
-      ROUTE_STYLE_MODES.filter((mode) => mode.id !== "difficulty").map((mode) => [mode.id, 0])
-    );
-    weights.wind = 0.26;
-    weights.surface_q = 0.19;
-    const filtered = filterRouteStyleModesByPreference(ROUTE_STYLE_MODES, weights);
-    expect(filtered.map((m) => m.id)).toEqual(["wind", "surface_q", "difficulty"]);
   });
 
   it("改善計画T440/T549: gradient軸が軸カタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {
@@ -195,6 +179,7 @@ describe("routeStyleModes", () => {
       "night",
       "bicycle_infra_quality",
       "difficulty",
+      "none",
     ]);
   });
 
@@ -210,12 +195,13 @@ describe("routeStyleModes", () => {
       "night",
       "bicycle_infra_quality",
       "difficulty",
+      "none",
     ]);
   });
 
   it("改善計画T440: difficultyはどの軸にも対応しないため、軸が0件でも一覧から消えない", () => {
     const modes = routeStyleModesFromCatalogAxes([]);
-    expect(modes.map((m) => m.id)).toEqual(["difficulty"]);
+    expect(modes.map((m) => m.id)).toEqual(["difficulty", "none"]);
   });
 
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {

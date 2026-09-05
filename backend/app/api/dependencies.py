@@ -174,6 +174,7 @@ def _assemble_route_generation_setup(
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
+    lens_axis_id: str | None = None,
 ) -> RouteGenerationSetup:
     """組み立て済みのサービスと評価条件から`RouteGenerationSetup`を作る（改善計画T265）。
 
@@ -192,6 +193,7 @@ def _assemble_route_generation_setup(
         max_average_grade_percent,
         hard_filters,
         assumed_speed_kmh,
+        lens_axis_id=lens_axis_id,
     )
     return RouteGenerationSetup(
         generator=RouteGenerator(engine),
@@ -210,6 +212,7 @@ async def open_route_generation_setup(
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
+    lens_axis_id: str | None = None,
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ
     （改善計画T265）。
@@ -233,7 +236,7 @@ async def open_route_generation_setup(
         yield _assemble_route_generation_setup(
             graph_service, elevation_attribute_service, weather_service,
             preference_override, penalty_strength,
-            max_average_grade_percent, hard_filters_override, assumed_speed_kmh,
+            max_average_grade_percent, hard_filters_override, assumed_speed_kmh, lens_axis_id,
         )
 
 

@@ -1,232 +1,82 @@
 "use client";
 
-import { MapAppearanceIcon } from "@/components/Map/icons";
 import InfoPopover from "@/components/Map/InfoPopover";
-import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
-import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar from "./AxisContributionBar";
-// 改善計画T518: 色分け選択チップ・凡例ポップオーバーの外枠はRouteSettingsPanel.module.css
-// のクラスをそのままimportして流用する（page.tsxがMapLayersPanel.module.cssのクラスを
-// 再利用している既存の「別コンポーネントのCSS Moduleクラスをそのままimportして流用する」
-// 慣習を踏襲）。ただしトグルボタン自体（.legendToggle相当）だけは、RouteSettingsPanel側で
-// 「重みON/OFF」用にaria-pressedへ状態を出しているクラスを直接共有すると、ここで
-// 「選択中/非選択中」用の見た目（aria-pressed="true"時の塗りつぶし）を追加した際に
-// RouteSettingsPanel側の重みON表示（ほぼ常時true）まで意図せず変えてしまう。そのため
-// トグルボタンだけは同じCSS Modulesファイルを共有せず、下記.axisToggleとして独自定義する
-// （legendChip/legendDot/legendInfoButton/legendInfoPopover等の状態を持たない構造的な
-// クラスは共有して問題ない）。
 import legendStyles from "@/components/RouteSettingsPanel/RouteSettingsPanel.module.css";
 import styles from "./RouteAxisProfile.module.css";
 
 interface RouteAxisProfileProps {
-  /** 表示対象の軸一覧（順序・ラベルの正本）。呼び出し側がuseAxisCatalog().axesを
-   * route_preferenceの重み>0で絞り込んで渡す。 */
+  /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
   axes: readonly PreferenceAxisDef[];
-  /** RouteCandidate.axis_contributions（axis_id→重み付き寄与度0-100、区間ごとの合成に
-   * 使ったのと同じ重み配分をbackendが軸別に分解した値。合計はoverallDifficultyと一致する）。
-   * 評価できなかった軸はキー自体を持たない（改善計画T550、frontend側の独自再計算を撤去）。 */
+  /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸は「未使用」として残す。 */
+  weights: RoutePreferenceWeights;
+  /** RouteCandidate.axis_difficulties（axis_id→距離加重平均の難易度0-100）。評価できなかった
+   * 軸はキー自体を持たない。 */
+  axisDifficulties: Record<string, number>;
+  /** RouteCandidate.axis_contributions（axis_id→重み付き寄与度0-100、合計はoverallDifficultyと
+   * 一致する）。重み0の軸は寄与を持たない。 */
   axisContributions: Record<string, number>;
-  /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。候補タブの並び順も
-   * この値の昇順で決まる（route_generator.py参照）。 */
+  /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
   overallDifficulty: number | null;
-  /** 軸id→色ドットの色（RouteSettingsPanelのstackBarColorForIndexと同じ計算をpage.tsxが
-   * 行い、同じ軸なら両パネルで同じ色になるようにする）。 */
+  /** 軸id→色ドットの色（ルート設定パネルの凡例チップと同じ色）。 */
   axisColors: Record<string, string>;
-  routeStyleModes: readonly RouteStyleMode[];
-  routeStyleModeId: RouteStyleModeId;
-  onRouteStyleModeChange: (id: RouteStyleModeId) => void;
-  hiddenLegendKeys: readonly string[];
-  onToggleLegendKey: (key: string) => void;
 }
 
-// 「総合難易度」は特定の軸に紐づかない合成モードのため、軸カタログ由来の色（axisColors）を
-// 持たない。地図の「ルート」候補線の非選択色（#64748b、MapView.tsx: drawBaseRoutes）と
-// 同じ中立グレーを流用し、「特定の軸ではなく全体を指す」ことを色でも示す。
-const TOTAL_DOT_COLOR = "#64748b";
+const FALLBACK_DOT_COLOR = "#64748b";
 
-// 改善計画T524（T518コードレビューSIMPLIFY指摘）: 「legendChip > 色ドット + ラベル」という
-// 構造が総合難易度行・各軸行で重複していたため、共有サブコンポーネントへ抽出する。
-// 改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）:
-// 以前は色分け対応外の軸もこのチップ列に非活性表示（cursor:defaultのみで区別、
-// クリックしても無反応）で並べていたが、他の色分け対応チップと見た目がほぼ同じで
-// 「クリックできるのに反応しない壊れたボタン」に見えていた。呼び出し側
-// （下記rows.filter）で色分け対応軸だけに絞り込むよう変更したため、このコンポーネント
-// 自体は非活性描画を持たず常にクリック可能な<button>のみを描画する。
-// 改善計画: ルート設定タブの軸チップ（RouteSettingsPanel.tsx: renderLegendChip）と
-// レイアウトを揃える（ユーザー指摘、2026-09-02）——(i)説明ポップオーバー・地図色分け
-// アイコンを追加する。ただし後者の役割はRouteSettingsPanel側（layerVisibilityの
-// ON/OFF、視界内の全道路を背景色分け）とは異なる。ルート確定後（page.tsx:
-// showWindAxis = layerVisibility.windAxis && !hasDetail 等）は評価軸グループの背景
-// 表示自体が無効化され、この「地図の色分け」チップ列（＝選択中ルートの線色分け）が
-// 役割を引き継ぐ設計のため、独立した背景レイヤーのON/OFFを持たせると無効化された
-// 背景表示と紛らわしい・実際には何も起きないボタンになる。ユーザー判断（2026-09-02、
-// 「ルートに合わせて対応する色付けをしたい」）により、アイコンはトグルボタンと同じ
-// onSelect（このチップを選択＝ルートをこの軸で色分け）を呼ぶ——レイアウトの見た目を
-// 揃えつつ、実際の切り替えは常にルート線の色分けに一本化する。
-// ユーザー指摘（2026-09-03、「総合難易度、風のonoffを、ルート設定と同じで活性非活性に
-// 揃えて」）: 以前はトグルボタン自体（.axisToggle）にaria-pressed=true時の塗りつぶしを
-// 独自に追加しており、右端のレイヤアイコン（legendMapColorButton、選択中軸を示す唯一の
-// アクセント）と二重に強調されて煩雑だった。RouteSettingsPanel（.legendChip
-// [data-checked="false"]でチップ全体をopacity 0.55へ落とす、重みOFFの表現）と同じ
-// 「非選択側を薄くする」方式へ統一し、data-checkedをこのAxisChip（総合難易度チップ含む）の
-// 外枠へ渡す。トグルボタン自体の色は変えず、「どの軸が地図の色分けに使われているか」は
-// レイヤアイコンの塗りつぶし1箇所だけが示す。
-function AxisChip({
-  color,
-  label,
-  ariaLabel,
-  pressed,
-  onSelect,
-  description,
-}: {
-  color: string;
-  label: string;
-  ariaLabel: string;
-  pressed: boolean;
-  onSelect: () => void;
-  description?: string;
-}) {
-  return (
-    <span className={legendStyles.legendChip} data-checked={pressed}>
-      <button type="button" className={styles.axisToggle} aria-pressed={pressed} aria-label={ariaLabel} onClick={onSelect}>
-        <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: color }} />
-        <span>{label}</span>
-      </button>
-      {description && (
-        <InfoPopover
-          triggerClassName={legendStyles.legendInfoButton}
-          triggerAriaLabel={`${label}の説明を表示`}
-          contentClassName={legendStyles.legendInfoPopover}
-        >
-          {description}
-        </InfoPopover>
-      )}
-      {description && (
-        // aria-labelはトグルボタン（ariaLabel、「〜で地図を色分け」）と意図的に文言を
-        // 変える——同一の名前だと2つのボタンがアクセシビリティツリー上・テストの
-        // getByRole(name)双方で区別できなくなる（RouteSettingsPanel.module.cssの
-        // legendMapColorButtonは元々「〜で地図を色分け表示」という別文言を使っており、
-        // ここでも踏襲するだけで済む）。
-        <button
-          type="button"
-          className={legendStyles.legendMapColorButton}
-          aria-pressed={pressed}
-          aria-label={`${label}で地図を色分け表示`}
-          onClick={onSelect}
-        >
-          <MapAppearanceIcon size={13} />
-        </button>
-      )}
-    </span>
-  );
-}
-
-// ルート全体のaxis_difficultiesを軸ごとの横棒グラフ一覧として表示する（改善計画T400節4・
-// T402の可視化形式を踏襲）。改善計画T518でこのコンポーネントへ「地図の色分け選択」
-// 「凡例の表示設定」を統合した（旧page.tsx: renderRouteColorSectionBody、「ルート結果
-// パネルの全タブに残り続ける」「ルート選択タブと独立した情報を持たない」という指摘を受け、
-// 「ルート選択」タブ内・選択中候補の直後にこのコンポーネント1つへ集約した）。
+// ルート結果の「総合難易度＋重み付き寄与度の積み上げバー」と「軸別難易度の一覧」を表示する
+// 読み取り専用の部品。地図の色分け（レンズ）の選択はここでは行わない（入口は地図上の凡例
+// ピル`LensControl`だけ）。評価に使っていない軸（重み0）も「未使用」として一覧に残す
+// （消さずに薄くする）。
 export default function RouteAxisProfile({
   axes,
+  weights,
+  axisDifficulties,
   axisContributions,
   overallDifficulty,
   axisColors,
-  routeStyleModes,
-  routeStyleModeId,
-  onRouteStyleModeChange,
-  hiddenLegendKeys,
-  onToggleLegendKey,
 }: RouteAxisProfileProps) {
-  // 軸カタログの並び順のうち、このルートで実際に評価できた軸だけを表示する
-  // （axis_contributionsにキーが無い＝データ無しで評価不能、という規約はRouteSegmentDetail
-  // と共通。domain/route.py: RouteCandidate docstring参照）。
-  // 改善計画T524（T518コードレビューP1指摘）: 以前はrows.length===0の場合にコンポーネント
-  // 全体を空状態文言だけへ差し替えていたため、内訳データが無い候補を選ぶと「地図の色分け」
-  // チップ列・凡例の表示設定ポップオーバー（総合難易度モードへ戻す唯一のUI導線を含む）まで
-  // 道連れで消えていた。空状態の対象を内訳（積み上げバー）だけへ限定する。
-  const rows = axes.filter((axis) => axisContributions[axis.axisId] != null);
-
-  const currentMode = getRouteStyleMode(routeStyleModes, routeStyleModeId);
-  const isTotalSelected = routeStyleModeId === "difficulty";
+  const contributionRows = axes.filter((axis) => axisContributions[axis.axisId] != null);
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.header}>
-        <span className={styles.hint}>地図の色分け</span>
-        {/* RouteSettingsPanel.tsx: 「重み配分」見出し脇のstackBarLegendTriggerと同じ
-            パターン（アイコン→ポップオーバーでリスト表示）。中身だけ読み取り専用の%表示
-            ではなくChecksbox（表示/非表示トグル）にしている。 */}
-        <InfoPopover
-          triggerClassName={legendStyles.stackBarLegendTrigger}
-          triggerAriaLabel="凡例の表示設定"
-          contentClassName={legendStyles.legendInfoPopover}
-          side="left"
-        >
-          <LegendCheckboxList
-            legend={currentMode.legend}
-            hiddenKeys={hiddenLegendKeys}
-            onToggle={onToggleLegendKey}
-            listClassName={legendStyles.stackBarLegendList}
-            rowClassName={legendStyles.stackBarLegendItem}
-            swatchClassName={legendStyles.legendDot}
-          />
-        </InfoPopover>
-      </div>
-
-      {/* 改善計画T545: 「総合難易度」単独行＋各軸チップが内訳の各行へ埋め込まれていた
-          選択UIを、ルート設定タブの軸チップ列（chipRow、折り返して並ぶ）と同じ見た目・
-          操作性の1行へ統合した（ユーザー実機指摘）。地図の色分け対象を選ぶ役割はこの
-          チップ列だけが持ち、下の内訳（AxisContributionBar、改善計画T550で積み上げバー化）は
-          選択状態を持たない読み取り専用のまま残す（内訳だけを見て複数軸を横断比較する
-          既存の使い方を変えない）。
-          改善計画T545フォローアップ（ユーザー指摘「タブ内の地図の色分けが切り替えられない」）・
-          改善計画T549: routeStyleModesは公開軸すべてから無条件で生成される
-          （routeStyleModes.ts参照、絞り込みはroute_preferenceの重みのみ）。以前は
-          特定の軸だけ非活性チップとしてこの列に並べていたが、色分け対応チップと
-          見分けにくく「壊れたボタン」に見えていた。この`rows.filter`はrows（評価軸の
-          内訳一覧）とrouteStyleModesのaxis_id集合が完全一致しない場合（重み0で
-          routeStyleModesから除外された軸等）への安全策として残す。 */}
-      <div className={`${legendStyles.chipRow} ${styles.selectorRow}`}>
-        <AxisChip
-          color={TOTAL_DOT_COLOR}
-          label="総合難易度"
-          ariaLabel="総合難易度で地図を色分け"
-          pressed={isTotalSelected}
-          onSelect={() => onRouteStyleModeChange("difficulty")}
-        />
-        {rows
-          .filter((axis) => routeStyleModes.some((mode) => mode.id === axis.axisId))
-          .map((axis) => (
-            <AxisChip
-              key={axis.axisId}
-              color={axisColors[axis.axisId] ?? TOTAL_DOT_COLOR}
-              label={axis.label}
-              ariaLabel={`${axis.label}で地図を色分け`}
-              pressed={routeStyleModeId === axis.axisId}
-              onSelect={() => onRouteStyleModeChange(axis.axisId)}
-              description={axis.description}
-            />
-          ))}
-      </div>
-      {/* 改善計画T550: 「内訳（重み付き寄与度）」は軸ごとの個別横棒グラフのリストをやめ、
-          総合難易度の数字の隣に積み上げ1本バー（AxisContributionBar、RouteSettingsPanelの
-          「重み配分」帯グラフと同じ表現）＋その下の凡例（色ドット＋ラベル＋数値）へ統一する。
-          区間クリック詳細（ボトムシート側）もこの同じコンポーネントを使う——表示部品の
-          一元化がこのタスクの狙いのため、軸ごとの内訳を別の表現で作り直さない。 */}
       {overallDifficulty != null && (
         <div className={styles.scores}>
           <span className={styles.scoreItem}>
             <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
             <span className={styles.scoreLabel}>/100 総合難易度</span>
           </span>
-          {rows.length > 0 ? (
-            <AxisContributionBar axes={rows} contributions={axisContributions} axisColors={axisColors} />
+          {contributionRows.length > 0 ? (
+            <AxisContributionBar axes={contributionRows} contributions={axisContributions} axisColors={axisColors} />
           ) : (
             <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>
           )}
         </div>
       )}
+      <ul className={styles.axisList} aria-label="軸別難易度">
+        {axes.map((axis) => {
+          const unused = (weights[axis.axisId] ?? 0) <= 0;
+          const difficulty = axisDifficulties[axis.axisId];
+          return (
+            <li key={axis.axisId} className={styles.axisRow} data-unused={unused}>
+              <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
+              <span className={styles.axisLabel}>{axis.label}</span>
+              {unused && <span className={styles.badge}>未使用</span>}
+              {difficulty == null && <span className={styles.badge}>データなし</span>}
+              <InfoPopover
+                triggerClassName={legendStyles.legendInfoButton}
+                triggerAriaLabel={`${axis.label}の説明を表示`}
+                contentClassName={legendStyles.legendInfoPopover}
+              >
+                {axis.description}
+              </InfoPopover>
+              <span className={styles.axisValue}>{difficulty == null ? "—" : Math.round(difficulty)}</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

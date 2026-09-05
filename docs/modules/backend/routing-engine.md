@@ -60,6 +60,9 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 走る側が往路配列）。起点の時別風予報（`WeatherService.get_wind_forecast_series`、
 `get_conditions`と同じ応答・キャッシュ）が無い、または風に依存する公開軸の重みが0の
 場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コストゼロ）。
+ただしリクエストの`lens_axis_id`（地図のレンズが表示を要求している軸）が風に依存する
+公開軸なら、重み0でも区間表示のためレグごとに合成する（探索コストには影響しない、
+`_LegCostComposer`の`lens_axis_id`）。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
 リクエストごとに変えられ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
 両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う:

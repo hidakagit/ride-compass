@@ -33,8 +33,8 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | 種別 | コンポーネント |
 |---|---|
 | 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
-| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図上アイコン） |
-| ルート設定 | `RouteForm`（モード切替/距離/候補件数/巡航速度/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み・地図色分けトグル） |
+| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル） |
+| ルート設定 | `RouteForm`（モード切替/距離/候補件数/巡航速度/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
 | ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補ごとのタブ自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
 | 研究モード | `ComparisonPanel`（実験スロット比較表） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
@@ -48,7 +48,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 | 生成条件（研究） | `weightOverrideEnabled`・`scoringWeights`・`routePreference`・`hardFilters` | localStorage（研究モード2件は`/admin`と共有キー） |
 | 実験スロット | `experimentSlots` | なし |
 | 地図ビューポート | `mapViewport` | なし |
-| レイヤー表示 | `layerVisibility`・`routeStyleModeId`・`hiddenLegendKeysByMode` | localStorage |
+| レイヤー表示 | `layerVisibility`・`lens`・`lensKeepAfterRoute`・`hiddenLegendKeysByMode` | localStorage |
 | パネル開閉 | `generateOpen`・`sidebarCollapsed`・`mobileSheet`・`mobileSheetHeightVh` | 一部localStorage |
 | 地図状態 | `regionZoomTooWide`・`layerDataStatus`・`refreshToken`・`debugConsoleOpen` | なし |
 | 動的パラメータ | `travelBearingDeg` | なし |
@@ -120,11 +120,11 @@ localStorageへの保存・復元を1箇所に集約する。
   キー整合補正 → ルート生成リクエスト。整合補正は`RouteSettingsPanel`のマウント時
   （`useEffect`）と、`handleGenerate`内（送信直前、パネル未マウント経路の穴埋め）の
   2箇所で行う。
-- `layerVisibility`（`MapOverlayControls`/`MapLayersPanel`/`RouteSettingsPanel`の
-  「色分け」トグルが共有）→ `MapView`の表示制御。
-- `routeStyleModeId`（`routeStyleModesFromCatalogAxes`が`axisCatalog.axes`から動的生成
-  する選択肢、`filterRouteStyleModesByPreference`で重み0の軸を除外）→ `MapView`の
-  ルート線色分け。
+- `layerVisibility`（`MapOverlayControls`/`MapLayersPanel`が共有）→ `MapView`の
+  一次属性・気象・スポットの表示制御。
+- `lens`（レンズ、`LensControl`が唯一の入口）→ ルート前は`axisVisibility`/`showWindAxis`/
+  `showGradientAxis`（全道路の塗り）、ルート後は`MapView`の`routeStyleModeId`（ルート線）
+  へ同じ値から導出する（[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
 - `RAMP_AXES`/`axisCatalog.rampAxes` → `buildMapLayers`/`buildStaticFilterAxes`/
   `buildRoadSurfaceSharedLayerIds`経由でレイヤー構成を組み立てる。
 - `axisCatalog.secondaryAxes`（`primaryAttributeIds`）→ `secondaryAxisCasingLayerIds`
@@ -195,9 +195,8 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 （`domain/difficulty.py:
 composite_difficulty`と同じ考え方で軸の重みを反映した寄与度をバー長に、生の
 `axis_difficulties`値をバー色に使う。この一覧は選択操作を持たない読み取り専用）・
-凡例の表示/非表示設定（`stackBarLegendTrigger`パターン）をまとめて持つ。地図の色分け
-チップ選択は地図側の色分けモード（`routeStyleModeId`）を切り替え、選択中モードが
-まだOFFなら「ルート」チップ（`layerVisibility.route`）も自動でONにする。
+軸別難易度の一覧（公開軸すべて、重み0は「未使用」・値なしは「データなし」として残す）を
+持つ。地図の色分け（レンズ）を選ぶ操作はここには無い（`LensControl`）。
 
 `ComparisonPanel`へ渡す`axes`は、表示中のいずれかの実験スロットで生成時点の重み
 （`ExperimentSlot.conditions.route_preference`）が>0だった軸に絞り込む（現在のライブな
