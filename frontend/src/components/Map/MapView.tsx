@@ -1383,17 +1383,14 @@ export function shouldClearDedicatedWayValueFeatureState(showWindAxis: boolean, 
   return !showWindAxis && !showGradientAxis;
 }
 
-// 環境グループの勾配gridFill（改善計画T423）。
-// 改善計画T451（コメント訂正）: かつて比較対象だった`ensureWindPenaltyFillLayer`は
-// 改善計画T432で撤去され、風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ
-// 移った（下のapplyGradientFillGeojsonのコメント参照）。勾配gridFillは独立した空間
-// フィールドを持たないため（gradientGridFill.tsのモジュールdocstring参照）、この
+// 環境グループの勾配gridFill。風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ
+// 乗っているが（下のapplyGradientFillGeojsonのコメント参照）、勾配gridFillは独立した
+// 空間フィールドを持たないため（gradientGridFill.tsのモジュールdocstring参照）、この
 // 汎用機構には乗せずensure/apply専用関数のまま残している。
-// 改善計画T443: makeEnsureDedicatedWayValueLayer呼び出し（windAxis/gradientAxis）と同じく
-// ファクトリ化し、軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で
-// 受け取れるようにした（以前はboundaries引数を渡す経路が無く、常にビルド時既定値
-// 既定しきい値へフォールバックしていた）。表示宣言は実行時フェッチで後から
-// 変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する（T587）。
+// makeEnsureDedicatedWayValueLayer呼び出し（windAxis/gradientAxis）と同じくファクトリ化し、
+// 軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で受け取る。
+// 表示宣言は実行時フェッチで後から変わりうるため、レイヤーが既に存在する場合も
+// setPaintPropertyで再適用する。
 function makeEnsureGradientFillLayer(display?: DedicatedWayValueDisplay, loading = false) {
   return (map: MapLibreMap) => {
     const applyData = () => {
@@ -1423,9 +1420,7 @@ function makeEnsureGradientFillLayer(display?: DedicatedWayValueDisplay, loading
 /** hooks/useDynamicWayValues.ts由来のgradientFillPayload（GeoJSON、gradientGridFill.ts:
  * gradientGridCellsFromTileResponsesが組み立てる）をsourceへ反映する。visibility自体は
  * STATIC_OVERLAY_LAYERS一括effect（showGradientFill）が別途担当する
- * （applyAxisFeatureStateValuesと同じ「値の反映」と「表示ON/OFF」を分離する設計。改善計画T432で
- * 風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ移ったため、この比較対象を
- * 風からdedicatedWayValues[改善計画T483で風・勾配それぞれ独立propから統合]へ差し替えた）。 */
+ * （applyAxisFeatureStateValuesと同じ「値の反映」と「表示ON/OFF」を分離する設計）。 */
 function applyGradientFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
   if (!map.getSource(GRADIENT_FILL_SOURCE_ID)) return;
   const source = map.getSource(GRADIENT_FILL_SOURCE_ID) as GeoJSONSource | undefined;
@@ -1498,7 +1493,7 @@ function applyRoadLayerState(
 // 対称に割り付ける（1件→0、2件→±1.5、3件→-3/0/+3）ため、どれかをOFFにすると残りが
 // 自動で中央（実際の道路の位置）へ寄り直す。OFF中のレイヤーもoffsetを0へ戻しておき、
 // 次にONにしたときに古いオフセット値が一瞬残らないようにする。
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
   visible: { road: boolean; designation: boolean; tunnel: boolean; oneway: boolean }
