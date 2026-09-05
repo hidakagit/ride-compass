@@ -34,6 +34,15 @@ export default function BackendLogsPanel() {
   const [lines, setLines] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!lines) return;
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const handleFetch = () => {
     setLoading(true);
@@ -93,13 +102,23 @@ export default function BackendLogsPanel() {
       {error && <p className={styles.error}>取得失敗: {error}</p>}
       {lines && lines.length === 0 && !error && <p className={styles.hint}>該当するログはありません。</p>}
       {lines && lines.length > 0 && (
-        <div className={styles.logBody}>
-          {lines.map((line, i) => (
-            <div key={i} className={styles.logLine} data-level={parseLogLevel(line)}>
-              {line}
-            </div>
-          ))}
-        </div>
+        <>
+          {/* 行ごとのdivを1件ずつドラッグ選択するのは手間なため、表示中の全行を
+              まとめてクリップボードへコピーするボタンを用意する（ユーザー指摘: ログの
+              コピペがしにくい）。 */}
+          <div className={styles.logActions}>
+            <Button variant="secondary" onClick={handleCopy}>
+              {copied ? "コピーしました" : "ログ全体をコピー"}
+            </Button>
+          </div>
+          <div className={styles.logBody}>
+            {lines.map((line, i) => (
+              <div key={i} className={styles.logLine} data-level={parseLogLevel(line)}>
+                {line}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </Card>
   );

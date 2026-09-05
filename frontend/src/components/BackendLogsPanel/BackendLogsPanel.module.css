@@ -46,6 +46,11 @@
   width: 6rem;
 }
 
+.logActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .logBody {
   max-height: 24rem;
   overflow: auto;

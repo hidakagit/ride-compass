@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import BackendLogsPanel from "./BackendLogsPanel";
@@ -48,6 +48,23 @@ describe("BackendLogsPanel", () => {
     });
 
     expect(getRecentLogs).toHaveBeenCalledWith({ contains: undefined, minLevel: "ERROR", limit: 200 });
+  });
+
+  it("ログ全体をコピーボタンで表示中の全行をクリップボードへコピーする", async () => {
+    vi.mocked(getRecentLogs).mockResolvedValue(["2026-09-01 [WARNING] a", "2026-09-01 [WARNING] b"]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<BackendLogsPanel />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "取得" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "ログ全体をコピー" }));
+    });
+
+    expect(writeText).toHaveBeenCalledWith("2026-09-01 [WARNING] a\n2026-09-01 [WARNING] b");
+    expect(await screen.findByRole("button", { name: "コピーしました" })).toBeInTheDocument();
   });
 
   it("取得失敗時はエラーメッセージを表示する", async () => {
