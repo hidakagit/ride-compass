@@ -1,8 +1,8 @@
-"""elevation_attributes（勾配、改善計画T218a）の全道路網一括事前計算バッチ。
+"""elevation_attributesの全道路網一括事前計算バッチ。
 
 Road Graphエンジンの探索コスト（`road_graph_engine.py: prepare`）は、リクエストの都度
 GSIへ標高を問い合わせず、事前計算済みの`elevation_attributes`テーブルを単純なキー参照する
-設計にした（T218a、T12 ADR Stage 0.5）。本バッチはそのための一括計算を行う。
+設計にした（T12 ADR Stage 0.5）。本バッチはそのための一括計算を行う。
 
 実際の計算ロジック（Edgeの形状点ごとにGSI DEMタイル方式の`ElevationClient`で標高取得→
 `compute_elevation_attribute`でaverage_grade等を算出→`elevation_attributes`へ保存）は
@@ -12,10 +12,10 @@ precomputeバッチと同じ「新しいロジックを二重に持たない」�
 「未計算のEdgeのみ計算」を行うため、本バッチは再実行しても未計算分だけを埋める形で
 安全に再実行できる（`road_edges`にEdgeが追加された場合の増分実行にも使える）。
 
-T10（DEMタイル化）によりGSIへの外部呼び出しはタイル単位（近接するEdge・形状点は
-同一タイルを共有）に削減されているため、全道路網規模でも現実的な呼び出し回数で完了する
-（1プロセス内で全チャンクを処理し、`ElevationClient`のタイルキャッシュ
-（`_tile_grid_cache`・`infrastructure/tile_cache.py`）をチャンクをまたいで使い回す）。
+GSIへの外部呼び出しはタイル単位（近接するEdge・形状点は同一タイルを共有）に削減されて
+いるため、全道路網規模でも現実的な呼び出し回数で完了する（1プロセス内で全チャンクを
+処理し、`ElevationClient`のタイルキャッシュ（`_tile_grid_cache`・
+`infrastructure/tile_cache.py`）をチャンクをまたいで使い回す）。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.precompute_elevation_attributes
@@ -49,17 +49,11 @@ CHUNK_SIZE = 2_000
 
 
 async def _fetch_all_edge_ids(session: AsyncSession) -> list[str]:
-    """未計算のEdge idを地理的順序（`ORDER BY geom`）で返す（改善計画T576）。
+    """未計算のEdge idを地理的順序（`ORDER BY geom`）で返す。
 
     計算済み（`elevation_attributes`に行がある）Edgeはanti-joinで最初から除外する
-    ——再実行時に計算済み分のgeometryを読み直さずに済む。`ElevationAttributeService.
-    get_attributes_for_graph`のEdge単位スキップ判定（T469の全点欠損非永続化含む）は
-    意味を変えず残るため、実行中に他プロセスが計算した分との二重計算も引き続き防げる。
-
-    地理的順序にする理由: `ElevationClient`のプロセス内タイルグリッドキャッシュ
-    （`_tile_grid_cache`、T575でLRU上限化）は近接するEdgeが同じDEMタイルを共有する
-    ことを前提にしている。DB取得順（実質edge_id文字列順）は地理的に無関係なため、
-    上限に達するたびディスクからの再パースが多発する（docs/tasks/T576.md参照）。
+    ——再実行時に計算済み分のgeometryを読み直さずに済む。地理的順序にする理由・
+    anti-joinの詳細はdocs/modules/backend/elevation.md「事前計算バッチ」節参照。
     """
     stmt = (
         select(RoadEdgeRow.edge_id)
@@ -90,16 +84,15 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         client = ElevationClient()
         chunks = chunked(edge_ids, CHUNK_SIZE)
         total_computed = 0
-        # ElevationClient本体はコネクションを内部で持たないため、AttributeErrorのT10と
-        # 同じ理由（TLSハンドシェイク再確立の回避）でこのバッチ全体を通して1本のみ生成する。
+        # ElevationClientはhttpx.AsyncClientを内部で持たない設計のため、TLSハンドシェイク
+        # 再確立を避けてこのバッチ全体を通して1本のみ生成する。
         async with httpx.AsyncClient(timeout=15.0) as http_client:
             for chunk_index, chunk in enumerate(chunks):
                 chunk_started = time.perf_counter()
                 async with session_factory() as session:
                     repository = RoadGraphRepository(session)
-                    # 改善計画T576: 全道路網一括バッチはbboxに収まらず反復性も無いため、
-                    # Redis cache-asideを迂回する（road_graph_repository.py:
-                    # get_edges_with_geometryのT576コメント参照）。
+                    # use_cache=Falseの理由はdocs/modules/backend/elevation.md「事前計算
+                    # バッチ」節参照（全道路網一括バッチにRedis cache-asideの意味が無いため）。
                     edges = await repository.get_edges_with_geometry(chunk, use_cache=False)
                     graph = RoadGraph(graph_version="batch-elevation", nodes={}, edges=edges)
 
@@ -122,7 +115,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="elevation_attributes事前計算バッチ（改善計画T218a）")
+    parser = argparse.ArgumentParser(description="elevation_attributes事前計算バッチ")
     parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
     parser.add_argument("--dry-run", action="store_true", help="件数のみログ出力し外部呼び出し・DB書き込みを行わない")
     args = parser.parse_args(argv)
