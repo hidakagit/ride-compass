@@ -191,7 +191,9 @@ destinationCorrected`、[T602](../../tasks/T602.md)）。補正時は地図上�
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
-「保存」「GPX出力」（機能未実装のdisabled占位、`SaveIcon`/`DownloadIcon`）・「ルートをクリア」
+「保存」（機能未実装のdisabled占位、`SaveIcon`）・「GPX出力」（`DownloadIcon`、
+`selectedCandidate`をタップで`lib/gpxExport.ts: downloadGpx`へ渡す。候補が未選択の間は
+disabled）・「ルートをクリア」
 （`ClearAllLayersIcon`のアイコンボタン、`handleRoutesClear`）・総合難易度の説明
 （`ROUTE_RESULT_HINT`）をこの順で横並びにする
 （候補タブ・`RouteAxisProfile`側には置かない）。デスクトップは「ルート結果」`Disclosure`の
