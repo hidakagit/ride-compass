@@ -27,7 +27,7 @@ from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.domain.routing import build_node_spatial_index
 from app.domain.weather import WeatherConditions
-from app.domain.wind import ASSUMED_SPEED_KMH, WindForecastSeries
+from app.domain.wind import ASSUMED_SPEED_KMH, WindForecastSeries, kmh_to_ms
 from app.infrastructure import search_graph_cache
 from app.services import road_graph_engine
 from app.services.road_graph_engine import RoadGraphEngine
@@ -1151,6 +1151,7 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
     oracle_axis_scores = compute_edge_axis_scores(
         edge, elevation_attr, "gravel", weather=weather, stop_count=3, way_tags=way_tags["e1"],
         intersection_count=2, accident_count=1.0, accident_years_covered=5, is_designated=True,
+        travel_speed_ms=kmh_to_ms(ASSUMED_SPEED_KMH),
     )
     _, oracle_difficulty = compute_cost_from_axis_scores(
         edge.distance_m, oracle_axis_scores, preference.weights, 1.0

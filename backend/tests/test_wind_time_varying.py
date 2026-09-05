@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
-from app.domain.evaluation import DynamicAxisRequestContext, RoutePreference, _evaluate_wind_penalty_array
+from app.domain.evaluation import DynamicAxisRequestContext, RoutePreference, evaluate_dynamic_material_arrays
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
-from app.domain.wind import WindForecastSeries, estimate_passage_hours
+from app.domain.wind import WindForecastSeries, estimate_passage_hours, kmh_to_ms, wind_drag_ratio
 from app.infrastructure import search_graph_cache
 from app.services.weather_service import WeatherService
 from tests.test_road_graph_engine import ORIGIN, _prepare_context, build_loop_graph, make_generator
@@ -88,28 +88,47 @@ def test_estimate_passage_hours_outbound_grows_and_inbound_shrinks_with_distance
 # --- domain/evaluation.py ---
 
 
-def test_wind_penalty_array_uses_series_at_each_edge_passage_time():
+V20 = kmh_to_ms(20.0)
+
+
+def test_dynamic_materials_use_series_at_each_edge_passage_time():
     # 0〜11時は北風（0°）、12時以降は南風（180°）。北向き（bearing=0）のEdgeは、通過が12時以降
-    # なら追い風（負）になる。
+    # なら追い風（負）になる。二乗則材料と非推奨エイリアスの両方が同じ風入力から求まる。
     series = _series(24, lambda h: 0 if h < 12 else 180)
     bearing = np.array([0.0, 0.0])
     context = DynamicAxisRequestContext(
-        bearing_deg=bearing, weather=_weather(0.0), wind_series=series, start=START,
+        bearing_deg=bearing, weather=_weather(0.0), travel_speed_ms=V20, wind_series=series, start=START,
         passage_hours=np.array([1.0, 4.0]),  # 10時・13時
     )
 
-    penalty = _evaluate_wind_penalty_array(context)
+    materials = evaluate_dynamic_material_arrays(context)
 
-    assert penalty[0] == pytest.approx(5.0)  # 向かい風
-    assert penalty[1] == pytest.approx(-5.0)  # 追い風
+    assert materials["wind_penalty"][0] == pytest.approx(5.0)  # 向かい風
+    assert materials["wind_penalty"][1] == pytest.approx(-5.0)  # 追い風
+    assert materials["wind_drag_ratio"][0] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
+    assert materials["wind_drag_ratio"][1] == pytest.approx(wind_drag_ratio(5.0, 180.0, 0.0, V20))
 
 
-def test_wind_penalty_array_falls_back_to_snapshot_without_passage_hours():
+def test_dynamic_materials_fall_back_to_snapshot_without_passage_hours():
     series = _series(24, lambda h: 180)
-    context = DynamicAxisRequestContext(bearing_deg=np.array([0.0]), weather=_weather(0.0), wind_series=series)
+    context = DynamicAxisRequestContext(
+        bearing_deg=np.array([0.0]), weather=_weather(0.0), travel_speed_ms=V20, wind_series=series,
+    )
 
-    assert _evaluate_wind_penalty_array(context)[0] == pytest.approx(5.0)
-    assert np.isnan(_evaluate_wind_penalty_array(DynamicAxisRequestContext(bearing_deg=np.array([0.0]), weather=None)))[0]
+    materials = evaluate_dynamic_material_arrays(context)
+    assert materials["wind_penalty"][0] == pytest.approx(5.0)
+    assert materials["wind_drag_ratio"][0] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
+
+    no_weather = evaluate_dynamic_material_arrays(
+        DynamicAxisRequestContext(bearing_deg=np.array([0.0]), weather=None, travel_speed_ms=V20)
+    )
+    assert np.isnan(no_weather["wind_penalty"][0]) and np.isnan(no_weather["wind_drag_ratio"][0])
+
+
+def test_dynamic_context_requires_travel_speed():
+    # 走行速度の伝播漏れは既定値で黙って計算せず、構築時点で失敗する。
+    with pytest.raises(TypeError):
+        DynamicAxisRequestContext(bearing_deg=np.array([0.0]), weather=_weather(0.0))  # type: ignore[call-arg]
 
 
 # --- services/weather_service.py ---

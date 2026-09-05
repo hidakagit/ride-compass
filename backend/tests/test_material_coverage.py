@@ -154,11 +154,12 @@ def test_build_report_marks_excluded_materials_with_reason():
     report = build_material_coverage_report(_counts(), COMPUTED_AT)
     by_id = {e.material_id: e for e in report.materials}
 
-    wind = by_id["wind_penalty"]
-    assert wind.population is None
-    assert wind.total is None and wind.missing is None and wind.missing_ratio is None
-    assert wind.missing_semantics is None
-    assert wind.excluded_reason == MATERIAL_COVERAGE_EXCLUSIONS["wind_penalty"]
+    for material_id in ("wind_drag_ratio", "wind_penalty"):
+        wind = by_id[material_id]
+        assert wind.population is None
+        assert wind.total is None and wind.missing is None and wind.missing_ratio is None
+        assert wind.missing_semantics is None
+        assert wind.excluded_reason == MATERIAL_COVERAGE_EXCLUSIONS[material_id]
 
 
 def test_build_report_returns_none_ratio_when_population_is_empty():
@@ -173,7 +174,7 @@ def test_build_report_returns_none_ratio_when_population_is_empty():
 def test_build_report_fails_fast_when_material_is_registered_nowhere(monkeypatch):
     monkeypatch.setattr(material_coverage_service, "MATERIAL_COVERAGE_EXCLUSIONS", {})
 
-    with pytest.raises(ValueError, match="wind_penalty"):
+    with pytest.raises(ValueError, match="wind_drag_ratio"):
         build_material_coverage_report(_counts(), COMPUTED_AT)
 
 

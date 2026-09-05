@@ -8,10 +8,10 @@ from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 
 # 仮定巡航速度（km/h）の既定値。区間ごとの推定到達時刻（探索時の風の時刻選択・区間表示・
-# 所要時間表示）の算出にのみ使う。リクエストごとに`RouteGenerateRequest.assumed_speed_kmh`
-# で上書きできる（範囲は下記MIN/MAX）。風・勾配に依存しない一律の定数として扱うことが
-# 前提——速度を風で可変にすると「時刻の算出に速度が要り、速度が風（時刻依存）に影響される」
-# という循環が生まれる。
+# 所要時間表示）と、風の追加負荷（`wind_drag_ratio_array`の走行速度）の算出に使う。
+# リクエストごとに`RouteGenerateRequest.assumed_speed_kmh`で上書きできる（範囲は下記MIN/MAX）。
+# 風・勾配に依存しない一律の定数として扱うことが前提——速度を風で可変にすると「時刻の
+# 算出に速度が要り、速度が風（時刻依存）に影響される」という循環が生まれる。
 ASSUMED_SPEED_KMH = 20.0
 MIN_ASSUMED_SPEED_KMH = 5.0
 MAX_ASSUMED_SPEED_KMH = 60.0
@@ -21,21 +21,60 @@ MAX_ASSUMED_SPEED_KMH = 60.0
 # に対し、この比のばらつき（±20%程度）による推定誤差は片道15kmで約9分と十分小さい。
 ROUTE_DETOUR_RATIO = 1.3
 
+# 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。
+# `ASSUMED_SPEED_KMH`とは独立の専用定数にする——既定の想定速度を変えても材料のスケール
+# （軸スタジオのbreakpointsが前提にする値域）がずれないようにするため。
+WIND_DRAG_REFERENCE_SPEED_MS = 20.0 / 3.6
 
-class WindCalculator:
-    """走行方位と風向風速から、走行への風の影響（ペナルティ）を計算する。
 
-    正の値=向かい風（走行が重くなる）、負の値=追い風（走行が楽になる）、0付近=横風（影響小）。
-    進行方向に平行な風成分のみが走行に影響するというモデル。
+def kmh_to_ms(speed_kmh: float) -> float:
+    return speed_kmh / 3.6
+
+
+def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarray:
+    # wind_direction_degは気象学の慣習で「風が吹いてくる方向」。走行方位との差が0で
+    # 正面からの向かい風、180で背後からの追い風。
+    return np.radians(np.asarray(wind_direction_deg, dtype=float) - np.asarray(travel_bearing_deg, dtype=float))
+
+
+def headwind_component_ms(wind_speed_ms, wind_direction_deg, travel_bearing_deg) -> np.ndarray:
+    """進行方向に平行な風成分（m/s）。正=向かい風、負=追い風、横風は0。
+    引数はいずれもスカラーまたは同じ長さの配列（numpyのブロードキャスト規則に従う）。
+
+    `wind_drag_ratio_array`の部品であると同時に、非推奨材料`wind_penalty`の値そのもの
+    （本番DBの公開軸がまだこの材料を参照しているため、切替が完了するまで残す）。
     """
+    return np.asarray(wind_speed_ms, dtype=float) * np.cos(_wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg))
 
-    @staticmethod
-    def wind_penalty(wind_speed_ms: float, wind_direction_deg: float, travel_bearing_deg: float) -> float:
-        # wind_direction_degは気象学の慣習で「風が吹いてくる方向」。
-        # 走行方位と風向の差が0（風が正面から吹いてくる）＝向かい風＝cos(0)=1で最大。
-        # 差が180度（風が背後から吹いてくる＝追い風）＝cos(180)=-1。
-        diff = math.radians(wind_direction_deg - travel_bearing_deg)
-        return wind_speed_ms * math.cos(diff)
+
+def wind_drag_ratio_array(wind_speed_ms, wind_direction_deg, travel_bearing_deg, travel_speed_ms: float) -> np.ndarray:
+    """風の追加負荷（材料`wind_drag_ratio`、無次元）。相対風速ベクトルの二乗則で、無風時に
+    対する進行方向の空気抵抗の増分を`WIND_DRAG_REFERENCE_SPEED_MS`での無風時の抵抗を1と
+    する倍率にしたもの。走行速度v・風速w・風向と走行方位の差dとして:
+
+        x  = v + w·cos(d)              # 進行方向の相対風速（正=向かい風的）
+        Vr = sqrt(x² + (w·sin(d))²)    # 相対風速の大きさ
+        (Vr·x − v²) / v_ref²
+
+    横風0のとき`sign(x)·x² − v²`の1次元式と一致し、追い風が走行速度を超える領域も連続。
+    符号はxの符号で自然に決まる（正=向かい風で重くなる、負=追い風で楽になる、純横風は
+    相対風速が増えるぶんだけ小さな正の値）。走行速度が大きいほど同じ風でも値が大きくなる。
+    `wind_speed_ms`/`wind_direction_deg`/`travel_bearing_deg`はスカラーまたは同じ長さの配列、
+    `travel_speed_ms`はリクエスト単位のスカラー（m/s、正）。
+    """
+    if travel_speed_ms <= 0:
+        raise ValueError("wind_drag_ratio_array: travel_speed_ms must be positive")
+    wind_speed = np.asarray(wind_speed_ms, dtype=float)
+    angle = _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg)
+    along = travel_speed_ms + wind_speed * np.cos(angle)
+    cross = wind_speed * np.sin(angle)
+    relative_speed = np.sqrt(along * along + cross * cross)
+    return (relative_speed * along - travel_speed_ms * travel_speed_ms) / (WIND_DRAG_REFERENCE_SPEED_MS**2)
+
+
+def wind_drag_ratio(wind_speed_ms: float, wind_direction_deg: float, travel_bearing_deg: float, travel_speed_ms: float) -> float:
+    """`wind_drag_ratio_array`のスカラー版（1地点・1方位向け）。"""
+    return float(wind_drag_ratio_array(wind_speed_ms, wind_direction_deg, travel_bearing_deg, travel_speed_ms))
 
 
 @dataclass(frozen=True)

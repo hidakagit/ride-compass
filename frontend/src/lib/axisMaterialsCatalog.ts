@@ -42,10 +42,10 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     dtype: "numeric",
   },
   {
-    id: "wind_penalty",
-    label: "向かい風ペナルティ(m/s、正=向かい風) - wind_penalty",
+    id: "wind_drag_ratio",
+    label: "風の追加負荷(倍率) - wind_drag_ratio",
     description:
-      "出発時刻の気象予報とルートの進行方向から算出した向かい風の強さ（m/s）。追い風・無風はマイナス〜0、向かい風が強いほど大きなプラスの値になります。",
+      "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分（時速20kmで無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。目安（時速20km）: 向かい風2m/s→0.85、4m/s→1.96、8m/s→4.95、追い風4m/s→-0.92、真横4m/s→0.23、走行速度と同じ追い風→-1.0。",
     dtype: "numeric",
   },
   {

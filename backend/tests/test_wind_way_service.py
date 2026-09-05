@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app.domain.wind import WindCalculator
+from app.domain.wind import headwind_component_ms
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure import dynamic_way_value_cache
 from app.services.route_generator import JST
@@ -125,8 +125,8 @@ async def test_covered_but_no_ways_returns_empty_dict():
 
 async def test_computes_wind_penalty_from_bearing_and_wind_grid():
     # T414: 走行方位はユーザー指定の単一の値（全道路共通）。同じタイル内のway1・way2は
-    # 常に同じwind_penaltyを持つ（WindCalculator.wind_penaltyの定義どおりに直接計算して
-    # 突き合わせる、二重実装を避ける既存の車ストレス系テストと同じ方針）。
+    # 常に同じwind_penalty（進行方向に平行な風成分、headwind_component_msの定義どおりに
+    # 直接計算して突き合わせる、二重実装を避ける既存の車ストレス系テストと同じ方針）を持つ。
     repository = FakeWayIdsRepository(way_ids=[1, 2])
     wind_speed, wind_direction = 6.0, 200.0
     bearing_deg = 45.0
@@ -136,7 +136,8 @@ async def test_computes_wind_penalty_from_bearing_and_wind_grid():
 
     result = await service.get_way_values(Z, X, Y, AT, bearing_deg)
 
-    expected = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
+    expected = round(float(headwind_component_ms(wind_speed, wind_direction, bearing_deg)), 2)
+    assert service.material_id == "wind_penalty"
     assert result == {1: expected, 2: expected}
     assert len(weather_service.calls) == 1
 

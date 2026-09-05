@@ -26,6 +26,7 @@ from app.domain.evaluation import (
 )
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
+from app.domain.wind import kmh_to_ms
 from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
 # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルは
@@ -69,11 +70,24 @@ _SYNTHETIC_AXES: dict[str, AxisDefinition] = {
     "wind": AxisDefinition(
         axis_id="wind",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="wind_penalty")],
-            breakpoints=[(0.0, 0.0), (8.0, 100.0)],
+            terms=[MaterialTerm(material="wind_drag_ratio")],
+            breakpoints=[(0.0, 0.0), (5.0, 100.0)],
         ),
         default_weight=0.26,
         label="テスト風",
+        category="動的",
+        is_published=True,
+    ),
+    # 本番DBの風軸がまだ参照する非推奨エイリアス材料を参照する軸（切替完了までの後方互換
+    # をスカラー/bulkの一致として確認する）。
+    "wind_legacy": AxisDefinition(
+        axis_id="wind_legacy",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="wind_penalty")],
+            breakpoints=[(0.0, 0.0), (8.0, 100.0)],
+        ),
+        default_weight=0.0,
+        label="テスト風（旧材料）",
         category="動的",
         is_published=True,
     ),
@@ -297,10 +311,14 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
     return graph, materials
 
 
-@pytest.mark.parametrize("weather", [None, WIND])
+@pytest.mark.parametrize(
+    ("weather", "travel_speed_ms"), [(None, None), (WIND, kmh_to_ms(20.0)), (WIND, kmh_to_ms(35.0))]
+)
 @pytest.mark.parametrize("max_average_grade_percent", [None, 8.0])
 @pytest.mark.parametrize("penalty_strength", [1.0, 2.5])
-def test_bulk_matches_scalar_for_every_edge(preference, weather, max_average_grade_percent, penalty_strength):
+def test_bulk_matches_scalar_for_every_edge(
+    preference, weather, travel_speed_ms, max_average_grade_percent, penalty_strength
+):
     graph, materials = _build_diverse_graph()
     weights = preference.weights
 
@@ -312,6 +330,7 @@ def test_bulk_matches_scalar_for_every_edge(preference, weather, max_average_gra
             preference,
             weights=weights,
             weather=weather,
+            travel_speed_ms=travel_speed_ms,
             stop_count=materials["stop_counts"].get(edge_id),
             way_tags=materials["way_tags"].get(edge_id),
             intersection_count=materials["intersection_counts"].get(edge_id),
@@ -330,6 +349,7 @@ def test_bulk_matches_scalar_for_every_edge(preference, weather, max_average_gra
         materials["surface_attributes"],
         preference,
         weather=weather,
+        travel_speed_ms=travel_speed_ms,
         stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
         intersection_counts=materials["intersection_counts"],

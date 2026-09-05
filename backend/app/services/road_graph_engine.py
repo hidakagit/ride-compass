@@ -140,7 +140,7 @@ from app.domain.routing import (
     tree_path_edge_indices_to_source,
 )
 from app.domain.weather import WeatherConditions
-from app.domain.wind import ASSUMED_SPEED_KMH, ROUTE_DETOUR_RATIO, WindForecastSeries, estimate_passage_hours
+from app.domain.wind import ASSUMED_SPEED_KMH, ROUTE_DETOUR_RATIO, WindForecastSeries, estimate_passage_hours, kmh_to_ms
 from app.infrastructure import search_graph_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
@@ -219,8 +219,9 @@ class LegCostArrays:
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
     contribution_arrays: dict[str, np.ndarray]
-    # `full_edge_row`順のwind_penalty材料配列（風データが無ければNone）。区間表示と
-    # `wind_score`の集計が、探索コストに使ったのと同じ値を読むために保持する。
+    # `full_edge_row`順の材料`wind_penalty`（進行方向に平行な風成分m/s）の配列（風データが
+    # 無ければNone）。区間表示と`wind_score`の集計が、探索コストの合成と同じ風入力から
+    # 求めた値を読むために保持する。
     wind_penalty: np.ndarray | None
     # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
     passage_hours: np.ndarray | None
@@ -293,7 +294,7 @@ class _LegCostComposer:
 
         started = time.monotonic()
         dynamic_context = DynamicAxisRequestContext(
-            bearing_deg=self._score_matrix.bearing_deg, weather=self._weather,
+            bearing_deg=self._score_matrix.bearing_deg, weather=self._weather, travel_speed_ms=kmh_to_ms(self.speed_kmh),
             wind_series=self._wind_series, start=self.start, passage_hours=passage,
         )
         resolved = evaluate_dynamic_axis_arrays(self._static_axis_scores, dynamic_context)

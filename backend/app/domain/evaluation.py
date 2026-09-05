@@ -37,7 +37,7 @@ from app.domain.night import night_materials
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
 from app.domain.weather import WeatherConditions
-from app.domain.wind import WindCalculator, WindForecastSeries
+from app.domain.wind import WindForecastSeries, headwind_component_ms, wind_drag_ratio_array
 
 # 〇次: ハード制約（設計プロンプト「評価システムの層構造再設計」の〇次フィルタ、
 # 改善計画T140。仕様書29章のHard Constraintと同じ概念）。スコア計算には一切登場させず、
@@ -202,7 +202,7 @@ def axis_inspector_breakdown(
     # （どの軸も参照しない値をここで計算・格納するのは無駄なため削除した）。
     materials: dict[str, object] = {
         "gradient_percent": None,
-        "wind_penalty": None,
+        **{material_id: None for material_id in REQUEST_DYNAMIC_MATERIAL_IDS},
         "surface_good": surface_good,
         "stop_count_per_km": stop_per_km,
         "intersection_count_per_km": intersection_per_km,
@@ -341,27 +341,29 @@ def compute_routable_node_ids(
     return routable
 
 
-def compute_wind_penalty(edge: EdgeLike, wind: WeatherConditions | None) -> float | None:
-    """Edgeの進行方向（from_node→to_node）と風向風速からwind_penaltyを算出する
-    （Dynamic Data対応、仕様書20・44章：Edge + Travel Direction + Timeから評価する）。
+def compute_dynamic_edge_materials(
+    edge: EdgeLike, weather: WeatherConditions | None, travel_speed_ms: float | None
+) -> dict[str, float | None]:
+    """Edge1本ぶんの動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`の各材料id→値）を、Edgeの
+    進行方向（`edge.bearing_deg`、from_node→to_node）・出発時点の風・走行速度から求める。
+    風が無い、またはbearing未計算のEdgeは全材料None（データ無し）。
 
-    正=向かい風、負=追い風（domain/wind.py: WindCalculatorをそのまま再利用）。風は
-    Edgeに永続保存しない（動的データでありRoad Attributeとして扱わない、仕様書20章）。
-
-    改善計画T218（T12 Stage 0）: 進行方向はEdgeのgeometry（形状点列）から都度計算せず、
-    事前計算済みの`edge.bearing_deg`（domain/graph.py: build_road_graph参照）をそのまま
-    使う。探索フェーズではgeometry自体を取得しない（geometry decodeが不要になる）ため、
-    この関数もgeometryへ依存しない形にしている。
-
-    既知の簡略化: 本来は出発時刻とEdgeまでの推定累積走行時間から「そのEdgeを実際に
-    通過するであろう時刻」の風を使うべきだが、経路探索中（Dijkstra探索の途中）は
-    まだ累積走行時間が確定していないため、探索対象領域全体で単一の風（出発時点・
-    起点付近の風）を一様に適用する簡略化を採用している。将来、時間展開グラフ等で
-    より精密化する余地がある（docs/architecture.md参照）。
+    `DYNAMIC_MATERIAL_EVALUATORS`（配列版）を長さ1の配列で呼ぶ薄いラッパーのため、
+    スカラー経路とbulk/動的軸経路の式が乖離しない。風はEdgeに永続保存しない（動的データで
+    ありRoad Attributeとして扱わない）。
     """
-    if wind is None or edge.bearing_deg is None:
-        return None
-    return WindCalculator.wind_penalty(wind.wind_speed_ms, wind.wind_direction_deg, edge.bearing_deg)
+    if weather is None or edge.bearing_deg is None:
+        return {material_id: None for material_id in REQUEST_DYNAMIC_MATERIAL_IDS}
+    if travel_speed_ms is None:
+        raise ValueError("compute_dynamic_edge_materials: travel_speed_ms is required when weather is given")
+    context = DynamicAxisRequestContext(
+        bearing_deg=np.array([edge.bearing_deg], dtype=float), weather=weather, travel_speed_ms=travel_speed_ms,
+    )
+    result: dict[str, float | None] = {}
+    for material_id, array in evaluate_dynamic_material_arrays(context).items():
+        value = float(array[0])
+        result[material_id] = None if np.isnan(value) else value
+    return result
 
 
 def compute_edge_axis_scores(
@@ -375,6 +377,7 @@ def compute_edge_axis_scores(
     accident_count: int | None = None,
     accident_years_covered: int = 0,
     is_designated: bool = False,
+    travel_speed_ms: float | None = None,
 ) -> dict[str, float]:
     """二次: 一次属性から軸別スコア（axis_id→0-100のdifficulty）を算出する
     （改善計画T142、設計プロンプト「評価システムの層構造再設計」の二次そのもの）。
@@ -401,12 +404,14 @@ def compute_edge_axis_scores(
     正規化するために使う。
     `is_designated`はこのEdgeがKSJ N10/N12（緊急輸送道路・重要物流道路）に該当するか
     （外部静的データソース T51）。車ストレスへの補正のみに使う。
+    `travel_speed_ms`は風の材料（走行速度依存）に使う走行速度（m/s）。`weather`を渡すときは
+    必須（省略すると即座に失敗する）。
     """
     materials = _resolve_static_edge_materials(
         edge, elevation_attribute, surface_type, stop_count, way_tags,
         intersection_count, accident_count, accident_years_covered, is_designated,
     )
-    materials["wind_penalty"] = compute_wind_penalty(edge, weather)
+    materials.update(compute_dynamic_edge_materials(edge, weather, travel_speed_ms))
     # 改善計画T292: 軸は他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
     # 階層構造）。依存先（参照される軸）を先に評価し、結果をmaterialsへ混ぜ込みながら
     # 進めることで、参照する側は追加のAPIなしに`materials.get(axis_id)`で読める
@@ -429,11 +434,10 @@ def _resolve_static_edge_materials(
     accident_years_covered: int,
     is_designated: bool,
 ) -> dict[str, object]:
-    """`compute_edge_axis_scores`が使う、風以外の一次属性→材料解決ロジック
-    （改善計画T534、以前は`compute_edge_axis_scores`内に直接書かれていた処理を抽出）。
-    戻り値は`wind_penalty`キーを含まない——Edgeの材料だけで決まりリクエスト間で不変な
-    部分のみを担当する（風の組み込みは呼び出し元の責務）。パラメータの意味は
-    `compute_edge_axis_scores`のdocstring参照。
+    """`compute_edge_axis_scores`が使う、風以外の一次属性→材料解決ロジック。
+    戻り値は動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）のキーを含まない——Edgeの材料だけで
+    決まりリクエスト間で不変な部分のみを担当する（風の組み込みは呼び出し元の責務）。
+    パラメータの意味は`compute_edge_axis_scores`のdocstring参照。
     """
     gradient_percent = elevation_attribute.average_grade if elevation_attribute else None
     is_good_surface = classify_osm_surface(surface_type)
@@ -539,6 +543,7 @@ def compute_edge_cost(
     weights: dict[str, float] | None = None,
     hard_filters: frozenset[str] | None = None,
     bbox_mean_difficulty: float | None = None,
+    travel_speed_ms: float | None = None,
 ) -> EdgeCostResult:
     """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
 
@@ -563,7 +568,8 @@ def compute_edge_cost(
     `DEFAULT_HARD_FILTERS`）。
 
     `bbox_mean_difficulty`（改善計画T552）はそのまま`compute_cost_from_axis_scores`へ渡す
-    （同関数のdocstring参照）。
+    （同関数のdocstring参照）。`travel_speed_ms`はそのまま`compute_edge_axis_scores`へ渡す
+    （`weather`を渡すときは必須）。
     """
     if not is_edge_allowed(
         edge,
@@ -583,6 +589,7 @@ def compute_edge_cost(
     axis_scores = compute_edge_axis_scores(
         edge, elevation_attribute, surface_type, weather, stop_count, way_tags,
         intersection_count, accident_count, accident_years_covered, is_designated,
+        travel_speed_ms=travel_speed_ms,
     )
     resolved_weights = weights if weights is not None else preference.weights
     cost, difficulty = compute_cost_from_axis_scores(
@@ -648,6 +655,7 @@ def _evaluate_axes_bulk(
     elevation_attributes: dict[str, ElevationAttribute],
     surface_attributes: dict[str, str | None],
     weather: WeatherConditions | None,
+    travel_speed_ms: float | None,
     stop_counts: dict[str, int] | None,
     way_tags: dict[str, dict[str, str]] | None,
     intersection_counts: dict[str, int] | None,
@@ -655,17 +663,17 @@ def _evaluate_axes_bulk(
     accident_years_covered: int,
     designated_edge_ids: set[str] | None,
 ) -> BulkAxisEvaluation:
-    """改善計画T536: `compute_edge_costs_bulk`の抽出フェーズ（`MATERIAL_CATALOG`の
-    extractor宣言経由でEdge単位の辞書・タグアクセスをnumpy配列へ落とし込む）と計算
-    フェーズ（`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を求める）を共有実装へ
-    切り出したもの（元は`compute_edge_costs_bulk`本体に直接書かれていた処理、
-    ロジック自体は移動のみで再実装していない）。
+    """`compute_edge_costs_bulk`と`build_static_edge_score_matrix`が共有する抽出フェーズ
+    （`MATERIAL_CATALOG`のextractor宣言経由でEdge単位の辞書・タグアクセスをnumpy配列へ
+    落とし込む）と計算フェーズ（`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を
+    求める）。
 
-    `weather=None`で呼ぶと、風に依存する軸（`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に
-    依存する軸、現状"wind"のみ）の列は自然にNaNのままになる——`wind_penalty`材料を
-    NaN配列にするだけで、`evaluate_axis_array`のrequired項がNaNを演算で自然に伝播させる
-    ため、動的軸を特別扱いする分岐は不要。`build_static_edge_score_matrix`（タイル単位の
-    静的スコア行列、探索コストの新方式）がこの性質を使う。
+    動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）は`DYNAMIC_MATERIAL_EVALUATORS`が
+    bearing配列・`weather`・`travel_speed_ms`から求める（`weather`を渡すときは
+    `travel_speed_ms`が必須）。`weather=None`で呼ぶと動的材料がNaN配列になり、それに
+    依存する軸の列は`evaluate_axis_array`のrequired項がNaNを演算で自然に伝播させるため、
+    動的軸を特別扱いする分岐は不要。`build_static_edge_score_matrix`（タイル単位の
+    静的スコア行列）がこの性質を使う。
     """
     stop_counts = stop_counts or {}
     intersection_counts = intersection_counts or {}
@@ -787,14 +795,15 @@ def _evaluate_axes_bulk(
                 array[i] = float(value)
 
     # --- 計算フェーズ（Pythonループ無し） ---
-    wind_penalty = (
-        np.full(n, np.nan)
-        if weather is None
-        else weather.wind_speed_ms * np.cos(np.radians(weather.wind_direction_deg - bearing_deg))
-    )
-    # wind_penaltyはEdge単位のPythonループを経由しない完全ベクトル化計算のため
-    # extractorを持たない（material_catalog.pyのextractorフィールド説明参照）。
-    material_arrays["wind_penalty"] = wind_penalty
+    # 動的材料はEdge単位のPythonループを経由しない完全ベクトル化計算のためextractorを
+    # 持たない（material_catalog.pyのextractorフィールド説明参照）。
+    if weather is None:
+        material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
+    else:
+        if travel_speed_ms is None:
+            raise ValueError("_evaluate_axes_bulk: travel_speed_ms is required when weather is given")
+        dynamic_context = DynamicAxisRequestContext(bearing_deg=bearing_deg, weather=weather, travel_speed_ms=travel_speed_ms)
+        material_arrays.update(evaluate_dynamic_material_arrays(dynamic_context))
     # 改善計画T292: スカラー版compute_edge_axis_scores（`evaluate_axes_scalar`）と同じ
     # 依存順評価（軸が他の軸のdifficultyをmaterialとして参照できる階層構造）。
     # material_arrays_with_axesへは内部軸も含め全軸の結果を混ぜ込む（公開軸が内部軸を
@@ -954,6 +963,7 @@ def compute_edge_costs_bulk(
     max_average_grade_percent: float | None = None,
     weights: dict[str, float] | None = None,
     hard_filters: frozenset[str] | None = None,
+    travel_speed_ms: float | None = None,
 ) -> dict[str, EdgeCostResult]:
     """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
     算出する（改善計画T221/T240、`EvaluationService.evaluate_graph`専用）。
@@ -975,11 +985,12 @@ def compute_edge_costs_bulk(
 
     `hard_filters`（改善計画T266）: `is_edge_allowed`と同じフィルタ名集合による上書き。
     省略時（既定None）は`DEFAULT_HARD_FILTERS`（全フィルタ常時有効）を使う。
+    `travel_speed_ms`は風の材料に使う走行速度（m/s）で、`weather`を渡すときは必須。
     """
     resolved_weights = weights if weights is not None else preference.weights
 
     evaluation = _evaluate_axes_bulk(
-        graph, elevation_attributes, surface_attributes, weather, stop_counts, way_tags,
+        graph, elevation_attributes, surface_attributes, weather, travel_speed_ms, stop_counts, way_tags,
         intersection_counts, accident_counts, accident_years_covered, designated_edge_ids,
     )
     if not evaluation.edge_ids:
@@ -1020,12 +1031,12 @@ class StaticEdgeScoreMatrix:
     `axis_scores`の列（`axis_ids`）は風などREQUEST_DYNAMIC_MATERIAL_IDSに依存する軸を
     含む全公開軸だが、そのような軸の列は常にNaN（`_evaluate_axes_bulk`をweather=Noneで
     呼ぶことで自然にそうなる）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
-    実際の動的データ（風）で上書きする。
+    実際の動的データ（風・走行速度）で上書きする。
 
     既知の制約（意図的なスコープ限定、docs/tasks/T536.md参照）: 動的軸が参照できる材料は
-    `REQUEST_DYNAMIC_MATERIAL_IDS`のみを前提にしている（現状は"wind"軸がwind_penaltyの
-    みを参照する構成と一致）。将来、動的材料と他の静的材料を組み合わせる軸が必要になった
-    場合は別途設計が要る。
+    `REQUEST_DYNAMIC_MATERIAL_IDS`のみを前提にしている（風軸が風の材料1つだけを参照する
+    構成と一致）。将来、動的材料と他の静的材料を組み合わせる軸が必要になった場合は
+    別途設計が要る。
     """
 
     edge_ids: list[str]
@@ -1091,7 +1102,7 @@ def build_static_edge_score_matrix(
         designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
 
     evaluation = _evaluate_axes_bulk(
-        graph, elevation_attributes, surface_attributes, None, stop_counts, way_tags,
+        graph, elevation_attributes, surface_attributes, None, None, stop_counts, way_tags,
         intersection_counts, accident_counts, accident_years_covered, designated_edge_ids,
     )
     axis_ids = list(evaluation.axis_arrays.keys())
@@ -1172,21 +1183,22 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
 
 @dataclass(frozen=True, slots=True)
 class DynamicAxisRequestContext:
-    """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`、現状は`wind_penalty`のみ）をリクエスト時に
-    ベクトル評価するための統一入力（改善計画T536）。Edgeの幾何配列とリクエスト単位の
-    動的データ（現状は風のみ）を束ねる。
+    """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）をリクエスト時にベクトル評価するための
+    統一入力。Edgeの幾何配列とリクエスト単位の動的データ（風・走行速度）を束ねる。
 
     `DYNAMIC_MATERIAL_EVALUATORS`へ登録する各材料のevaluatorはこの1引数だけを受け取り
     材料配列を返す統一シグネチャにすることで、動的材料が増えても呼び出し側
     （`evaluate_dynamic_axis_arrays`、静的行列のNaN列を埋める処理）へ軸名・材料名の分岐を
-    追加せず、この辞書へ1エントリ追加するだけで対応できる（CLAUDE.md原則1、フロントの
+    追加せず、この辞書へ1エントリ追加するだけで対応できる（フロントの
     `RAMP_AXES`/`buildAxisOverlayLayers`と同種の汎用ディスパッチ）。呼び出しはリクエスト
-    あたり動的材料の数だけ（現状1回）の設定フェーズであり、Edge単位のホットループには
-    入らない。
+    あたり動的材料の数だけの設定フェーズであり、Edge単位のホットループには入らない。
     """
 
     bearing_deg: np.ndarray
     weather: WeatherConditions | None
+    # 走行速度（m/s、リクエスト単位）。既定値を置かないのは、走行速度に依存する材料へ
+    # 伝播漏れがあったとき既定値で黙って計算せず、構築時点で失敗させるため。
+    travel_speed_ms: float
     # 時刻依存の材料向け: 起点の時別予報系列と、各Edgeの通過予定時刻（`start`からの経過
     # 時間[h]、`bearing_deg`と同じ行順）。3つとも揃っていればEdgeごとに通過予定時刻の値を
     # 引き、揃っていなければ`weather`（出発時点のスナップショット）を全Edgeへ一様に使う。
@@ -1197,53 +1209,73 @@ class DynamicAxisRequestContext:
     def time_varying(self) -> bool:
         return self.wind_series is not None and self.start is not None and self.passage_hours is not None
 
+    def wind_inputs(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """各Edgeに適用する（風速, 風向）。時別系列と通過予定時刻が揃っていればEdgeごとに
+        その時刻の値、揃っていなければ出発時点のスナップショット（全Edge共通のスカラー）。
+        風が無ければNone。"""
+        if self.time_varying():
+            return self.wind_series.sample(self.start, self.passage_hours)
+        if self.weather is None:
+            return None
+        return np.asarray(self.weather.wind_speed_ms, dtype=float), np.asarray(self.weather.wind_direction_deg, dtype=float)
 
-def _evaluate_wind_penalty_array(context: DynamicAxisRequestContext) -> np.ndarray:
-    """風向風速とEdgeの進行方位からwind_penalty配列を求める（`compute_wind_penalty`の
-    ベクトル版、`_evaluate_axes_bulk`の計算フェーズと同じ式）。時別系列と通過予定時刻が
-    揃っていればEdgeごとにその時刻の風を使う。"""
-    if context.time_varying():
-        speed, direction = context.wind_series.sample(context.start, context.passage_hours)
-        return speed * np.cos(np.radians(direction - context.bearing_deg))
-    if context.weather is None:
+
+def _evaluate_wind_drag_ratio_array(context: DynamicAxisRequestContext) -> np.ndarray:
+    inputs = context.wind_inputs()
+    if inputs is None:
         return np.full(context.bearing_deg.shape, np.nan)
-    return context.weather.wind_speed_ms * np.cos(
-        np.radians(context.weather.wind_direction_deg - context.bearing_deg)
-    )
+    speed, direction = inputs
+    return wind_drag_ratio_array(speed, direction, context.bearing_deg, context.travel_speed_ms)
 
 
-# 改善計画T536: `REQUEST_DYNAMIC_MATERIAL_IDS`（axis_definitions.py）の各材料idを、
-# リクエスト時点の幾何配列＋動的contextからベクトル評価する関数への唯一の登録点。
-# `REQUEST_DYNAMIC_MATERIAL_IDS`自体が既に「材料id」の集合として宣言されている（軸idの
-# 集合ではない）ため、ここも材料idでキーイングする——`dynamic_axis_topological_order`・
-# `evaluate_axis_array`（いずれも軸名を一切ハードコードしない既存の汎用実装）が
-# 「動的材料さえ埋まればどんな軸（軸スタジオがwind_penaltyを直接参照して新規作成した
-# カスタム軸を含む）でも正しく合成する」設計のため、材料id単位の登録だけで軸全体を
-# カバーできる（軸id単位の登録だと、カスタム軸ごとに個別のevaluator追加が必要になり
-# 汎用性が後退する）。将来2つ目の動的材料が増えても、ここへ1エントリ追加するだけでよい。
+def _evaluate_headwind_component_array(context: DynamicAxisRequestContext) -> np.ndarray:
+    inputs = context.wind_inputs()
+    if inputs is None:
+        return np.full(context.bearing_deg.shape, np.nan)
+    speed, direction = inputs
+    return headwind_component_ms(speed, direction, context.bearing_deg)
+
+
+# `REQUEST_DYNAMIC_MATERIAL_IDS`（axis_definitions.py）の各材料idを、リクエスト時点の
+# 幾何配列＋動的contextからベクトル評価する関数への唯一の登録点（式の実体は
+# `domain/wind.py`にあり、ここは配線のみ）。`REQUEST_DYNAMIC_MATERIAL_IDS`自体が
+# 「材料id」の集合として宣言されている（軸idの集合ではない）ため、ここも材料idで
+# キーイングする——`dynamic_axis_topological_order`・`evaluate_axis_array`（いずれも軸名を
+# ハードコードしない汎用実装）が「動的材料さえ埋まればどんな軸（軸スタジオが動的材料を
+# 直接参照して作成したカスタム軸を含む）でも正しく合成する」ため、材料id単位の登録だけで
+# 軸全体をカバーできる。`REQUEST_DYNAMIC_MATERIAL_IDS`と1対1に揃える（動的材料が増えたら
+# 両方へ1エントリずつ追加する。片方だけだと`evaluate_dynamic_material_arrays`が失敗する）。
 DYNAMIC_MATERIAL_EVALUATORS: dict[str, Callable[[DynamicAxisRequestContext], np.ndarray]] = {
-    "wind_penalty": _evaluate_wind_penalty_array,
+    "wind_drag_ratio": _evaluate_wind_drag_ratio_array,
+    "wind_penalty": _evaluate_headwind_component_array,
 }
+
+
+def evaluate_dynamic_material_arrays(context: DynamicAxisRequestContext) -> dict[str, np.ndarray]:
+    """`REQUEST_DYNAMIC_MATERIAL_IDS`の全材料を`context`から評価する（材料id→配列、
+    `context.bearing_deg`と同じ行順）。スカラー経路（`compute_dynamic_edge_materials`）・
+    bulk経路（`_evaluate_axes_bulk`）・静的行列への動的軸合成（`evaluate_dynamic_axis_arrays`）
+    の3経路がすべてここを通る。"""
+    return {
+        material_id: DYNAMIC_MATERIAL_EVALUATORS[material_id](context)
+        for material_id in REQUEST_DYNAMIC_MATERIAL_IDS
+    }
 
 
 def evaluate_dynamic_axis_arrays(
     static_axis_scores: Mapping[str, np.ndarray], context: DynamicAxisRequestContext,
 ) -> dict[str, np.ndarray]:
     """タイル単位でキャッシュ済みの`StaticEdgeScoreMatrix.axis_scores`（NaN列を含む）から、
-    動的軸（`dynamic_axis_topological_order`が返す軸、現状"wind"のみ）だけをリクエスト
-    時点の値で上書きした軸別スコア辞書を返す（改善計画T536）。
+    動的軸（`dynamic_axis_topological_order`が返す軸）だけをリクエスト時点の値で上書き
+    した軸別スコア辞書を返す。戻り値には動的材料の配列も含む（呼び出し元が区間表示用に
+    材料値を読めるようにするため）。
 
-    `DYNAMIC_MATERIAL_EVALUATORS`で動的材料（現状wind_penaltyのみ）を求め、そこから
-    `dynamic_axis_topological_order`の順で`evaluate_axis_array`を適用する——
-    スカラー版（旧T534の`compute_edge_axis_scores_from_static_data`が担っていた組み立て、
-    材料→軸の汎用トポロジカル合成）と同じ考え方をベクトル版へ移植したもので、動的軸の
-    軸名自体は本関数もハードコードしない。
+    `evaluate_dynamic_material_arrays`で動的材料を求め、そこから
+    `dynamic_axis_topological_order`の順で`evaluate_axis_array`を適用する（材料→軸の
+    汎用トポロジカル合成のベクトル版で、動的軸の軸名自体は本関数もハードコードしない）。
     """
     materials_with_axes: dict[str, np.ndarray] = dict(static_axis_scores)
-    for material_id in REQUEST_DYNAMIC_MATERIAL_IDS:
-        evaluator = DYNAMIC_MATERIAL_EVALUATORS.get(material_id)
-        if evaluator is not None:
-            materials_with_axes[material_id] = evaluator(context)
+    materials_with_axes.update(evaluate_dynamic_material_arrays(context))
     for axis_id in dynamic_axis_topological_order(AXIS_DEFINITIONS):
         materials_with_axes[axis_id] = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], materials_with_axes)
     return materials_with_axes

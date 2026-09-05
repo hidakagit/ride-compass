@@ -123,7 +123,7 @@ class MaterialSpec(BaseModel):
     # PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキー）。材料id（例:
     # bicycle_infra・maxspeed_kmh・stop_count_per_km）と一次属性id（例: cycleway・
     # maxspeed・stop_poi）は名前が異なる別の名前空間のため、対応が自明でない材料には
-    # 明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ由来のwind_penalty、
+    # 明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ由来のwind_drag_ratio、
     # 一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが軸ごとにこれを解決して
     # 返すことで、frontend側（axisMaterialLayerIds、MapOverlayControls.tsxの材料一覧表示）が
     # 軸スタジオ作成軸に対しても同じ仕組みで動く（従来はビルド時静的生成物
@@ -132,10 +132,11 @@ class MaterialSpec(BaseModel):
     primary_attribute_id: str | None = None
     # 改善計画T280: この材料をcompute_edge_costs_bulkの抽出フェーズへ載せる関数
     # （MaterialExtractionContext -> 生値、欠損はNone）。Noneは「専用の計算経路を持つため
-    # 汎用抽出の対象外」（wind_penalty: 風向×bearingの完全ベクトル化済み計算で、そもそも
-    # Edge単位のPythonループを経由しない。designation: 種別ごとのper-edge kindが評価
-    # パイプラインへ配線されていない、is_designatedのdocstring参照）。GET /api/material-catalog
-    # の公開レスポンスには含めない（tile_propertyと同じくbackend内部専用）。
+    # 汎用抽出の対象外」（風の材料: `evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`がリクエスト
+    # 時にbearing配列から完全ベクトル化で計算し、Edge単位のPythonループを経由しない。
+    # designation: 種別ごとのper-edge kindが評価パイプラインへ配線されていない、
+    # is_designatedのdocstring参照）。GET /api/material-catalogの公開レスポンスには
+    # 含めない（tile_propertyと同じくbackend内部専用）。
     extractor: MaterialExtractor | None = None
     # dtype="boolean"の材料でextractorがNoneを返した（＝欠損）ときの配列上の扱い。
     # "false": bool配列、欠損はFalse（「タグ不在=非該当」とみなす多数派、motor_vehicle_no等）。
@@ -450,15 +451,35 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="elevation",
         extractor=_extract_gradient_percent,
     ),
+    "wind_drag_ratio": MaterialSpec(
+        material_id="wind_drag_ratio",
+        label="風の追加負荷(倍率)",
+        description=(
+            "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分"
+            "（時速20kmで無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、"
+            "真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。"
+            "目安（時速20km）: 向かい風2m/s→0.85、4m/s→1.96、8m/s→4.95、追い風4m/s→-0.92、真横4m/s→0.23、"
+            "走行速度と同じ追い風→-1.0。"
+        ),
+        dtype="numeric",
+        # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない（`domain/wind.py:
+        # wind_drag_ratio_array`がリクエスト時に計算する）。対応する一次属性も未登録
+        # （動的気象は一次属性レジストリの対象外）。
+        tile_property=None,
+        tile_property_direction_dependent=True,
+    ),
+    # 本番DBの公開軸がまだ参照している非推奨エイリアス（値は進行方向に平行な風成分m/s、
+    # `domain/wind.py: headwind_component_ms`）。軸スタジオの選択肢からは除外し、公開軸の
+    # 参照先が`wind_drag_ratio`へ切り替わった後に撤去する。
     "wind_penalty": MaterialSpec(
         material_id="wind_penalty",
-        label="向かい風ペナルティ(m/s、正=向かい風)",
-        description="出発時刻の気象予報とルートの進行方向から算出した向かい風の強さ（m/s）。追い風・無風はマイナス〜0、向かい風が強いほど大きなプラスの値になります。",
+        label="向かい風ペナルティ(m/s、正=向かい風)【非推奨】",
+        description="【非推奨、風の追加負荷(倍率)へ移行中】出発時刻の気象予報とルートの進行方向から算出した向かい風の強さ（m/s）。走行速度を考慮しません。",
         dtype="numeric",
         unit="m/s",
-        # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない。対応する一次属性も
-        # 未登録（動的気象は一次属性レジストリの対象外）。
         tile_property=None,
+        tile_property_direction_dependent=True,
+        display_only=True,
     ),
     "surface_good": MaterialSpec(
         material_id="surface_good",

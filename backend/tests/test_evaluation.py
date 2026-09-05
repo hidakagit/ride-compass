@@ -26,15 +26,18 @@ from app.domain.evaluation import (
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_edge_cost,
+    compute_dynamic_edge_materials,
     compute_hard_filter_excluded,
     compute_routable_node_ids,
-    compute_wind_penalty,
     is_edge_allowed,
 )
 from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
+from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from tests.realistic_axis_fixtures import axis_definitions_snapshot
+
+V20 = kmh_to_ms(20.0)
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
 # スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
@@ -236,41 +239,55 @@ def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
     )
 
 
-def test_compute_wind_penalty_headwind_is_positive():
-    # 改善計画T218: compute_wind_penaltyはgeometryではなくbearing_degを直接使うため、
-    # ここでbearing=0（北向きに進む）を明示する。北から吹いてくる風（wind_direction_deg=0）は
-    # 正面からの向かい風になるはず（domain/wind.py: WindCalculatorの規約と同じ）。
+def test_compute_dynamic_edge_materials_headwind_is_positive():
+    # bearing=0（北向きに進む）のEdgeに北から吹いてくる風（wind_direction_deg=0）は正面からの
+    # 向かい風。二乗則材料と非推奨エイリアスの両方が同じ入力から求まる。
     edge = _edge(bearing_deg=0.0)
     wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
 
-    penalty = compute_wind_penalty(edge, wind)
+    materials = compute_dynamic_edge_materials(edge, wind, V20)
 
-    assert penalty == pytest.approx(5.0, abs=0.1)
+    assert set(materials) == {"wind_drag_ratio", "wind_penalty"}
+    assert materials["wind_penalty"] == pytest.approx(5.0, abs=0.1)
+    assert materials["wind_drag_ratio"] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
+    assert materials["wind_drag_ratio"] > 0
 
 
-def test_compute_wind_penalty_tailwind_is_negative():
+def test_compute_dynamic_edge_materials_tailwind_is_negative():
     edge = _edge(bearing_deg=0.0)
     wind = _wind(wind_speed_ms=5.0, wind_direction_deg=180.0)  # 南から北へ吹く=追い風
 
-    penalty = compute_wind_penalty(edge, wind)
+    materials = compute_dynamic_edge_materials(edge, wind, V20)
 
-    assert penalty == pytest.approx(-5.0, abs=0.1)
+    assert materials["wind_penalty"] == pytest.approx(-5.0, abs=0.1)
+    assert materials["wind_drag_ratio"] < 0
 
 
-def test_compute_wind_penalty_returns_none_without_wind():
+def test_compute_dynamic_edge_materials_returns_none_without_wind():
     edge = _edge(bearing_deg=0.0)
 
-    assert compute_wind_penalty(edge, None) is None
+    assert compute_dynamic_edge_materials(edge, None, V20) == {"wind_drag_ratio": None, "wind_penalty": None}
+    # 風が無ければ走行速度も要らない（静的評価の経路）。
+    assert compute_dynamic_edge_materials(edge, None, None) == {"wind_drag_ratio": None, "wind_penalty": None}
 
 
-def test_compute_wind_penalty_returns_none_without_bearing():
-    # 改善計画T218: bearing_deg未計算（None）のEdgeは風評価を行わない
-    # （探索フェーズの軽量グラフはgeometryを持たずbearing_degのみで判定するため、
-    # このNoneガードが実質的な唯一の「データ無し」経路になる）。
+def test_compute_dynamic_edge_materials_returns_none_without_bearing():
+    # bearing_deg未計算（None）のEdgeは風評価を行わない（探索フェーズの軽量グラフは
+    # geometryを持たずbearing_degのみで判定するため、このNoneガードが唯一の「データ無し」経路）。
     edge = _edge(bearing_deg=None)
     wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
 
-    assert compute_wind_penalty(edge, wind) is None
+    assert compute_dynamic_edge_materials(edge, wind, V20) == {"wind_drag_ratio": None, "wind_penalty": None}
+
+
+def test_compute_dynamic_edge_materials_requires_travel_speed_when_wind_is_given():
+    edge = _edge(bearing_deg=0.0)
+    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
+
+    with pytest.raises(ValueError, match="travel_speed_ms"):
+        compute_dynamic_edge_materials(edge, wind, None)
+    with pytest.raises(ValueError, match="travel_speed_ms"):
+        compute_edge_axis_scores(edge, None, None, weather=wind)
 
 
 def test_compute_edge_cost_headwind_costs_more_than_tailwind():
@@ -278,8 +295,12 @@ def test_compute_edge_cost_headwind_costs_more_than_tailwind():
     elevation = _elevation_attr(0.0)
     surface = "asphalt"
 
-    headwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 0.0))
-    tailwind_result = compute_edge_cost(edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 180.0))
+    headwind_result = compute_edge_cost(
+        edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 0.0), travel_speed_ms=V20
+    )
+    tailwind_result = compute_edge_cost(
+        edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 180.0), travel_speed_ms=V20
+    )
 
     assert headwind_result.difficulty > tailwind_result.difficulty
     assert headwind_result.cost > tailwind_result.cost
@@ -1023,3 +1044,100 @@ def test_compose_costs_from_axis_matrix_bbox_mean_fallback_matches_scalar_oracle
             assert scalar_difficulty is None
         else:
             assert scalar_difficulty == pytest.approx(float(bulk_composite[i]), abs=1e-9)
+
+
+# --- 動的材料（風）の3経路一致 ---
+
+
+def _wind_axis_on(material_id: str, breakpoints: list[tuple[float, float]]) -> AxisDefinition:
+    return AxisDefinition(
+        axis_id=f"axis_{material_id}",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material=material_id)], breakpoints=breakpoints),
+        default_weight=0.5,
+        label=f"テスト風軸({material_id})",
+        category="動的",
+        is_published=True,
+    )
+
+
+def _bearing_graph() -> RoadGraph:
+    nodes = {
+        "a": Node(node_id="a", latitude=35.0, longitude=139.0),
+        "b": Node(node_id="b", latitude=35.001, longitude=139.001),
+    }
+    edges = {
+        f"e{i}": DirectedEdge(
+            edge_id=f"e{i}", from_node_id="a", to_node_id="b", geometry=[[35.0, 139.0], [35.001, 139.001]],
+            distance_m=120.0, osm_way_id=i, highway="residential", bearing_deg=bearing,
+        )
+        for i, bearing in enumerate([0.0, 45.0, 90.0, 180.0, 300.0, None])
+    }
+    return RoadGraph(graph_version="test", nodes=nodes, edges=edges)
+
+
+def test_dynamic_material_evaluators_cover_every_request_dynamic_material():
+    from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
+    from app.domain.evaluation import DYNAMIC_MATERIAL_EVALUATORS
+
+    assert set(DYNAMIC_MATERIAL_EVALUATORS) == set(REQUEST_DYNAMIC_MATERIAL_IDS)
+
+
+@pytest.mark.parametrize("speed_kmh", [12.0, 20.0, 45.0])
+def test_dynamic_materials_agree_across_scalar_bulk_and_static_matrix_paths(speed_kmh):
+    """同じ風・同じ走行速度に対し、スカラー経路（compute_edge_axis_scores）・bulk経路
+    （_evaluate_axes_bulk）・静的行列＋動的軸合成（build_static_edge_score_matrix→
+    evaluate_dynamic_axis_arrays）が、二乗則材料・非推奨エイリアスとも同じ軸difficultyを返す。"""
+    from app.domain.evaluation import DynamicAxisRequestContext, _evaluate_axes_bulk, evaluate_dynamic_axis_arrays
+
+    graph = _bearing_graph()
+    weather = _wind(wind_speed_ms=6.0, wind_direction_deg=30.0)
+    travel_speed_ms = kmh_to_ms(speed_kmh)
+
+    with axis_definitions_snapshot():
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS["axis_wind_drag_ratio"] = _wind_axis_on("wind_drag_ratio", [(0.0, 0.0), (5.0, 100.0)])
+        AXIS_DEFINITIONS["axis_wind_penalty"] = _wind_axis_on("wind_penalty", [(0.0, 0.0), (8.0, 100.0)])
+
+        scalar = {
+            edge_id: compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=travel_speed_ms)
+            for edge_id, edge in graph.edges.items()
+        }
+        bulk = _evaluate_axes_bulk(graph, {}, {}, weather, travel_speed_ms, None, None, None, None, 0, None)
+        matrix = build_static_edge_score_matrix(graph, {})
+        static_scores = {axis_id: matrix.axis_scores[:, i] for i, axis_id in enumerate(matrix.axis_ids)}
+        assert all(np.all(np.isnan(arr)) for arr in static_scores.values())  # 動的軸の列は静的行列ではNaN
+        resolved = evaluate_dynamic_axis_arrays(
+            static_scores,
+            DynamicAxisRequestContext(bearing_deg=matrix.bearing_deg, weather=weather, travel_speed_ms=travel_speed_ms),
+        )
+
+    for row, edge_id in enumerate(bulk.edge_ids):
+        assert matrix.edge_ids[row] == edge_id
+        for axis_id in ("axis_wind_drag_ratio", "axis_wind_penalty"):
+            bulk_value = float(bulk.axis_arrays[axis_id][row])
+            resolved_value = float(resolved[axis_id][row])
+            if axis_id in scalar[edge_id]:
+                assert bulk_value == pytest.approx(scalar[edge_id][axis_id], abs=1e-9)
+                assert resolved_value == pytest.approx(scalar[edge_id][axis_id], abs=1e-9)
+            else:  # bearing未計算のEdgeは3経路ともデータ無し
+                assert np.isnan(bulk_value) and np.isnan(resolved_value)
+    # 材料値そのものも3経路で一致する（区間表示が読む値）。
+    for row, edge_id in enumerate(bulk.edge_ids):
+        expected = compute_dynamic_edge_materials(graph.edges[edge_id], weather, travel_speed_ms)
+        for material_id, value in expected.items():
+            if value is None:
+                assert np.isnan(resolved[material_id][row])
+            else:
+                assert float(resolved[material_id][row]) == pytest.approx(value, abs=1e-12)
+
+
+def test_faster_travel_speed_raises_wind_drag_ratio_axis_difficulty():
+    # 向かい風3m/sで10km/h→30km/hにすると材料値が約2.3倍になり、軸difficultyも上がる。
+    edge = _edge(bearing_deg=0.0)
+    weather = _wind(wind_speed_ms=3.0, wind_direction_deg=0.0)
+    with axis_definitions_snapshot():
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS["axis_wind_drag_ratio"] = _wind_axis_on("wind_drag_ratio", [(0.0, 0.0), (5.0, 100.0)])
+        slow = compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=kmh_to_ms(10.0))
+        fast = compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=kmh_to_ms(30.0))
+    assert fast["axis_wind_drag_ratio"] / slow["axis_wind_drag_ratio"] == pytest.approx(2.3, abs=0.05)

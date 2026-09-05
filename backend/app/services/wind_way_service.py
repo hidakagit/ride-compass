@@ -33,7 +33,7 @@ from datetime import datetime
 
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_ancestor, tile_bounds_lonlat
 from app.domain.route import Coordinates
-from app.domain.wind import WindCalculator
+from app.domain.wind import headwind_component_ms
 from app.domain.wind_grid import nearest_grid_point
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
@@ -78,7 +78,8 @@ def _nearest_time_index(times: list[str], target: datetime) -> int | None:
 
 class WindWayService:
     # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
-    # 軸定義のどの材料として評価するかを決める）。
+    # 軸定義のどの材料として評価するかを決める）。走行速度がこの配信経路へまだ通っていない
+    # ため、速度に依存しない非推奨材料`wind_penalty`（進行方向に平行な風成分m/s）を返す。
     material_id = "wind_penalty"
 
     def __init__(self, repository: RoadGraphRepository | None, weather_service: WeatherService):
@@ -149,7 +150,7 @@ class WindWayService:
 
                 wind_speed = wind_grid_point.wind_speed_ms[index]
                 wind_direction = wind_grid_point.wind_direction_deg[index]
-                penalty = round(WindCalculator.wind_penalty(wind_speed, wind_direction, bearing_deg), 2)
+                penalty = round(float(headwind_component_ms(wind_speed, wind_direction, bearing_deg)), 2)
                 values = dict.fromkeys(way_ids, penalty)
                 await set_tile_values(MATERIAL_ID, z, x, y, hour_bucket, bearing_deg, values, WIND_GRID_CACHE_TTL_SECONDS)
                 fields["computed"] = len(way_ids)

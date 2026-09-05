@@ -57,6 +57,7 @@ class EvaluationService:
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
+        travel_speed_ms: float | None = None,
     ) -> dict[str, EdgeCostResult]:
         # preferenceは呼び出し元が必ず明示的に渡す（self._preferenceを直接書き換えると
         # リクエスト間で共有される状態を汚染するため、呼び出し元がmodel_copyしたコピーを
@@ -68,6 +69,8 @@ class EvaluationService:
         # 勾配しきい値（既定None＝除外しない）。domain/evaluation.py: is_edge_allowed参照。
         # hard_filters（改善計画T266）は0次フィルタ名（no_bicycle/motorway/trunk）の
         # 個別ON/OFF上書き（既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
+        # travel_speed_msは風の材料（走行速度依存）の算出に使う走行速度（m/s）。weatherを
+        # 渡すときは必須で、省略するとcompute_edge_costs_bulkが即座に失敗する。
         stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
         # 改善計画T221 Stage B: RoutePreference自体がaxis_idキーの重み辞書を持つため
@@ -93,4 +96,5 @@ class EvaluationService:
             max_average_grade_percent=max_average_grade_percent,
             weights=weights,
             hard_filters=hard_filters,
+            travel_speed_ms=travel_speed_ms,
         )
