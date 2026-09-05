@@ -11,7 +11,7 @@
   font-size: var(--font-size-sm);
   font-weight: 700;
   color: var(--color-muted);
-  padding: 0.4rem 0.2rem;
+  padding: 0.4rem 0.5rem;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
@@ -89,14 +89,13 @@
   font-weight: 600;
   color: var(--color-accent);
   background: transparent;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .stepperButton:disabled {
-  color: var(--color-muted);
-  border-color: var(--color-border);
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -109,7 +108,7 @@
 /* 周回/目的地モード切り替え（セグメントコントロール）。 */
 .modeToggle {
   display: inline-flex;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: 999px;
   overflow: hidden;
   flex-shrink: 0;
@@ -163,7 +162,7 @@
 .destinationChip,
 .destinationChipArmed,
 .destinationChipSet {
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-surface);
   cursor: pointer;
