@@ -512,17 +512,88 @@ def pareto_front_mask(
         return np.zeros(0, dtype=bool)
     a = np.round(np.asarray(minimize_a, dtype=float) / quantum_a)
     b = np.round(np.asarray(minimize_b, dtype=float) / quantum_b)
-    # aの昇順（同値内はbの昇順）に走査する。走査済みのbの最小値より真に小さいbを持つ
-    # 候補だけが非劣解——それ以外は「a以下かつb以下」の候補を既に通過している。
+    # aの昇順（同値内はbの昇順）に走査し、「自分より真に前にある点」の最小bと比べる。
+    # 丸めた結果aもbも完全に同値になった点同士は互いを支配しないため、同じグループとして
+    # まとめて同じ判定にする（1つだけ残す形にすると、完全に対称な候補群——例えば起点から
+    # 全方位が等距離・同難易度の地形——が層へばらけ、後段の方位分散[prefer]が働く同点
+    # グループを壊してしまう）。
     order = np.lexsort((b, a))
-    sorted_b = b[order]
-    # 自分より前（a・bの順で先行）の最小値。先頭は比較対象が無いため+infにする。
-    prefix_min = np.minimum.accumulate(sorted_b)
-    best_before = np.concatenate(([np.inf], prefix_min[:-1]))
+    sorted_a, sorted_b = a[order], b[order]
+    group_starts = np.flatnonzero(
+        np.concatenate(([True], (sorted_a[1:] != sorted_a[:-1]) | (sorted_b[1:] != sorted_b[:-1])))
+    )
+    group_b = sorted_b[group_starts]
+    prefix_min = np.minimum.accumulate(group_b)
+    # 自分のグループより前のグループにおける最小b。先頭は比較対象が無いため+inf。
+    best_before_group = np.concatenate(([np.inf], prefix_min[:-1]))
+    group_lengths = np.diff(np.append(group_starts, len(sorted_a)))
+    best_before = np.repeat(best_before_group, group_lengths)
     is_front_sorted = sorted_b < best_before
     mask = np.zeros(len(a), dtype=bool)
     mask[order[is_front_sorted]] = True
     return mask
+
+
+def pareto_layer_index(
+    minimize_a: np.ndarray,
+    minimize_b: np.ndarray,
+    *,
+    quantum_a: float,
+    quantum_b: float,
+    max_items: int,
+) -> np.ndarray:
+    """各点が第何層のパレートフロントに属するかを返す（非優越ソート、0始まり）。
+    層に入らなかった点は-1。
+
+    第1層（`pareto_front_mask`が返す非劣解）だけでは候補が2〜3件にしかならない
+    ——2次元のパレートフロントは点の数が増えてもほとんど大きくならないため。第1層を
+    取り除いた残りで再びフロントを求める、を繰り返して層を作ることで、必要な件数
+    （`max_items`）ぶんがすべてトレードオフ構造で並ぶ。
+
+    `max_items`件に達した層で打ち切る（それ以降の層は計算しない）。
+
+    **計算量の要点**: 全点をそのまま繰り返しフロント判定にかけると層の数×O(n log n)に
+    なり、リングが数万件規模だと無視できない時間になる（実測: 20万件で約670ms）。
+    aを`quantum_a`で丸めた各段階について、bの小さい順に`max_items`件を超える点は
+    層`max_items`以降にしか入りえない（同じ段階でbがより小さい点がk個あればそれらが
+    すべて自分を支配するため層番号はk以上になる）ので、先に落としてから層を作る
+    （同20万件で約38ms）。
+    """
+    n = len(minimize_a)
+    layer = np.full(n, -1, dtype=np.int32)
+    if n == 0 or max_items <= 0:
+        return layer
+    a = np.asarray(minimize_a, dtype=float)
+    b = np.asarray(minimize_b, dtype=float)
+    # 層max_items未満に入りえない点を先に落とす（上記「計算量の要点」参照）。落とす単位は
+    # 点ではなく「aの段階×bの丸め値」のグループ——同値の点同士は互いを支配しないため
+    # 同じ層に入る。点単位で数えると、完全に対称な候補群（全方位が等距離・同難易度の
+    # 地形）がmax_items件で切られ、残りが層に入れないまま最後尾へ回ってしまう。
+    bins = np.round(a / quantum_a).astype(np.int64)
+    b_quantized = np.round(b / quantum_b).astype(np.int64)
+    order = np.lexsort((np.arange(n), b_quantized, bins))
+    sorted_bins, sorted_bq = bins[order], b_quantized[order]
+    is_new_group = np.concatenate(
+        ([True], (sorted_bins[1:] != sorted_bins[:-1]) | (sorted_bq[1:] != sorted_bq[:-1]))
+    )
+    group_index = np.cumsum(is_new_group) - 1
+    is_new_bin = np.concatenate(([True], sorted_bins[1:] != sorted_bins[:-1]))
+    bin_starts = np.flatnonzero(is_new_bin)
+    first_group_of_bin = np.repeat(group_index[bin_starts], np.diff(np.append(bin_starts, n)))
+    keep = order[group_index - first_group_of_bin < max_items]
+
+    remaining = keep
+    assigned = 0
+    for index in range(max_items):
+        if len(remaining) == 0:
+            break
+        mask = pareto_front_mask(a[remaining], b[remaining], quantum_a=quantum_a, quantum_b=quantum_b)
+        layer[remaining[mask]] = index
+        assigned += int(mask.sum())
+        if assigned >= max_items:
+            break
+        remaining = remaining[~mask]
+    return layer
 
 
 def select_diverse_by_overlap(

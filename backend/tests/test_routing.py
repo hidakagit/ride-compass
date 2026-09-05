@@ -18,6 +18,7 @@ from app.domain.routing import (
     build_shortest_path_tree,
     concat_node_paths,
     pareto_front_mask,
+    pareto_layer_index,
     find_missing_lazy_graph_edge_id,
     find_nearest_node_indexed,
     overlap_ratio,
@@ -832,13 +833,25 @@ class TestParetoFrontMask:
 
         assert mask.tolist() == [False, True]
 
-    def test_exact_duplicates_keep_only_one(self):
+    def test_exact_duplicates_all_survive(self):
+        # 完全に同値な候補同士は互いを支配しないため全員が非劣解。1つだけ残す形にすると、
+        # 起点から全方位が等距離・同難易度という対称な地形で候補が層へばらけ、後段の
+        # 方位分散が働く同点グループを壊す（T554の回帰テストが検出した）。
         distance = np.array([10.0, 10.0, 10.0])
         difficulty = np.array([20.0, 20.0, 20.0])
 
         mask = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
 
-        assert mask.sum() == 1
+        assert mask.tolist() == [True, True, True]
+
+    def test_same_distance_keeps_only_the_easiest(self):
+        # 距離が同値でも難易度が違えば、易しい方が難しい方を支配する。
+        distance = np.array([10.0, 10.0])
+        difficulty = np.array([30.0, 20.0])
+
+        mask = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
+
+        assert mask.tolist() == [False, True]
 
     def test_empty_input(self):
         mask = pareto_front_mask(np.array([]), np.array([]), quantum_a=0.2, quantum_b=0.1)
@@ -856,3 +869,83 @@ class TestParetoFrontMask:
         )
 
         assert mask[shuffled].tolist() == mask_shuffled.tolist()
+
+
+class TestParetoLayerIndex:
+    """第1層だけでは候補が2〜3件にしかならないため、必要な件数ぶん層を重ねる。"""
+
+    def test_layers_are_assigned_in_order(self):
+        # 3点が一直線のトレードオフ（全部が第1層）＋それらに全面的に負ける1点（第2層）。
+        distance = np.array([8.0, 10.0, 12.0, 14.0])
+        difficulty = np.array([30.0, 20.0, 10.0, 40.0])
+
+        layer = pareto_layer_index(distance, difficulty, quantum_a=0.2, quantum_b=0.1, max_items=10)
+
+        assert layer.tolist() == [0, 0, 0, 1]
+
+    def test_first_layer_matches_pareto_front_mask(self):
+        rng = np.random.default_rng(0)
+        distance = rng.uniform(8.0, 15.0, 200)
+        difficulty = rng.uniform(0.0, 60.0, 200)
+
+        layer = pareto_layer_index(distance, difficulty, quantum_a=0.2, quantum_b=0.1, max_items=50)
+        front = pareto_front_mask(distance, difficulty, quantum_a=0.2, quantum_b=0.1)
+
+        assert (layer == 0).tolist() == front.tolist()
+
+    def test_stops_once_max_items_reached(self):
+        # max_items件に達した層で打ち切り、残りは-1（層に入らない）。
+        rng = np.random.default_rng(1)
+        distance = rng.uniform(8.0, 15.0, 500)
+        difficulty = rng.uniform(0.0, 60.0, 500)
+
+        layer = pareto_layer_index(distance, difficulty, quantum_a=0.2, quantum_b=0.1, max_items=24)
+
+        assigned = layer[layer >= 0]
+        assert len(assigned) >= 24
+        # 打ち切った層より後ろの層は計算しない（層番号は連続し、飛びが無い）。
+        assert sorted(set(assigned.tolist())) == list(range(int(assigned.max()) + 1))
+
+    def test_prefilter_keeps_the_same_points_as_the_naive_layering(self):
+        # 「aの各段階でbの小さい順にmax_items件を超える点は落とす」という高速化が、
+        # 層に入る点の集合を変えないことを、素朴な繰り返し実装との比較で確かめる
+        # （層番号は、丸めて同値になった点同士のタイブレークぶんだけずれうる）。
+        rng = np.random.default_rng(2)
+        distance = rng.uniform(12.5, 15.2, 3000)
+        difficulty = rng.uniform(0.0, 60.0, 3000)
+        max_items = 24
+
+        layer = pareto_layer_index(distance, difficulty, quantum_a=0.2, quantum_b=0.1, max_items=max_items)
+
+        naive = np.full(len(distance), -1, dtype=int)
+        remaining = np.arange(len(distance))
+        assigned = 0
+        for index in range(max_items):
+            if len(remaining) == 0:
+                break
+            mask = pareto_front_mask(
+                distance[remaining], difficulty[remaining], quantum_a=0.2, quantum_b=0.1
+            )
+            naive[remaining[mask]] = index
+            assigned += int(mask.sum())
+            if assigned >= max_items:
+                break
+            remaining = remaining[~mask]
+
+        assert set(np.flatnonzero(layer >= 0).tolist()) == set(np.flatnonzero(naive >= 0).tolist())
+
+    def test_symmetric_candidates_all_land_on_the_first_layer(self):
+        # 全方位が等距離・同難易度という対称な地形では、max_itemsより候補が多くても全員が
+        # 第1層に入る（同値同士は互いを支配しないため）。ここが層へばらけると、後段の
+        # 方位分散が働く同点グループが壊れて選ばれる方位が偏る（T554の回帰テストが検出）。
+        distance = np.full(8, 15.0)
+        difficulty = np.zeros(8)
+
+        layer = pareto_layer_index(distance, difficulty, quantum_a=0.2, quantum_b=0.1, max_items=4)
+
+        assert layer.tolist() == [0] * 8
+
+    def test_empty_input(self):
+        layer = pareto_layer_index(np.array([]), np.array([]), quantum_a=0.2, quantum_b=0.1, max_items=24)
+
+        assert layer.tolist() == []
