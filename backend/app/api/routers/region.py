@@ -131,7 +131,7 @@ async def region_dynamic_way_values(
 
     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
     とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
-    合成する（`frontend/src/components/Map/windAxisLayer.ts`・`gradientAxisLayer.ts`参照）。
+    合成する（`frontend/src/components/Map/dedicatedWayValueLayer.ts`参照）。
     タイル単位の値が地図表示専用のRedisキャッシュ（`dynamic_way_value_cache.py`）を経由する
     ため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・向きバケットの
     範囲内では風グリッド・DBへの再問い合わせは発生しない。

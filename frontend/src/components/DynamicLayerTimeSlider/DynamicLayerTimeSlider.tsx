@@ -20,11 +20,11 @@ import styles from "./DynamicLayerTimeSlider.module.css";
  * 毎コマに目盛り＝1時間刻みで止まる」という実際の間隔設計がひと目で伝わる（間隔設計自体は
  * 変更しない）。tickLabelは目盛りの線の下に出す短い文字（実機フィードバック「目盛りは
  * 日付部分は不要、時刻のみ。時刻も細いところは分だけにする等」）。日付を持たず、正時なら
- * 「HH:mm」・そうでなければ分のみ2桁（page.tsx: formatDynamicFrameHourMinute/
- * formatDynamicFrameMinuteOnly）。undefined/空文字ならこのコマには文字を出さない
+ * 「HH:mm」・そうでなければ分のみ2桁（RideConditionBar/departureTimeline.ts:
+ * buildDepartureFrames参照）。undefined/空文字ならこのコマには文字を出さない
  * （延長予報のように毎コマ正時が続く区間で毎コマぶん文字まで出すと、1コマの目盛り間隔
- * （TICK_SPACING_HOUR_PX）に対して文字幅の方が広く重なってしまう、実機Playwright確認で
- * 発覚したため、page.tsx側で正時ラベルはさらに間引いて渡す）。 */
+ * [TICK_SPACING_HOUR_PX]に対して文字幅の方が広く重なってしまうため、呼び出し側で
+ * 正時ラベルはさらに間引いて渡す）。 */
 export interface DynamicLayerTimeSliderFrame {
   label: string;
   hourMark?: boolean;
@@ -57,20 +57,13 @@ interface DynamicLayerTimeSliderProps {
   /** framesのindex。framesが空、またはまだ範囲外なら効果なし（呼び出し側でclamp済み前提）。 */
   index: number;
   onIndexChange: (index: number) => void;
-  /** 「現在」に相当するframesのindex（precipitationNowcast.ts: latestObservedFrameIndex・
-   * windLayer.ts: nearestFrameIndexToNowを呼び出し側が計算した値）。「現在」ボタンを
-   * 無効化する判定（index===currentIndexの間はno-op）にのみ使う。ジャンプ先の決定は
-   * onNowが担う（このindexそのものへは飛ばない、下記onNowのコメント参照）。 */
+  /** 「現在」に相当するframesのindex。「現在」ボタンを無効化する判定
+   * （index===currentIndexの間はno-op）にのみ使う。ジャンプ先の決定はonNowが担う
+   * （このindexそのものへは飛ばない、下記onNowのコメント参照）。 */
   currentIndex: number;
-  /** 「現在」ボタンを押したときの処理。呼び出し側（page.tsx）が実時刻(new Date())へ
-   * 共有の対象時刻を戻す想定（改善計画、実機フィードバック「現在リセットすると23:00になって
-   * 上バーが消えた」）。以前はonIndexChange(currentIndex)、つまり「このレイヤー自身の
-   * "現在"フレームの時刻」へ共有時刻を合わせていたが、風は1時間刻みでcurrentIndexが
-   * 実時刻より最大59分過去の正時に丸まる（例: 23:25の実時刻でcurrentIndex=23:00）。
-   * 降水ナウキャストは「現在」より前のフレームを持たない（trimToCurrentAndFuture参照）ため、
-   * 風側の「現在」ボタンでこの過去寄りの時刻へ共有時刻を合わせると、降水側が範囲外
-   * （unavailable）になってしまう不具合があった。実時刻そのものへ戻せば両レイヤーとも
-   * 自分の最寄りフレームへ素直に追従し、この食い違いが起きない。 */
+  /** 「現在」ボタンを押したときの処理。呼び出し側が実時刻（`new Date()`）へ選択中の時刻を
+   * 戻す想定。onIndexChange(currentIndex)を呼ばないのは、currentIndexはframesの目盛り
+   * 間隔に丸めた近似値であり、実時刻そのものより粗いため。 */
   onNow: () => void;
   /** フレーム一覧の取得中（初回フェッチがまだ終わっていない）。 */
   loading: boolean;
@@ -82,15 +75,10 @@ interface DynamicLayerTimeSliderProps {
   ariaLabel: string;
 }
 
-// 時刻依存レイヤー（降水ナウキャストT171・風T178等）共通の時刻スライダーUI（改善計画T170）。
-// 地図の視界を圧迫しないよう（設計原則12）、時刻依存レイヤーが1つ以上ONの間だけpage.tsxが
-// 条件付きでマウントする。実際の時刻の計算・URL組み立ては各レイヤー専用のデータ層
-// （precipitationNowcast.ts/windLayer.ts）に閉じ、このコンポーネントはframesのindexを
-// 操作するだけの汎用UIに徹する。T183再設計以降、ONの全レイヤーのフレーム時刻を
-// dynamicWeather.ts: mergeFrameTimesで1本の共有タイムラインへ統合しているため、
-// 複数の時刻依存レイヤーが同時にONでもこのコンポーネント自体は1つだけマウントする
-// （旧設計は各レイヤーごとに独立したスライダーを縦に複数マウントしていたが、
-// 「同じ日時を示した状態で連動させたい」という実機フィードバックを受け1本化した）。
+// ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。frames/index/onIndexChangeだけを
+// 操作し、時刻の計算・生成元（気象レイヤーのフレーム列か、それ以外の合成タイムラインか）は
+// 一切知らない。呼び出し側（`RideConditionBar`: 出発時刻ピッカー）がタイムラインの生成・
+// 現在時刻との対応付けを担う。
 //
 // T255（UIライブラリ導入Phase3）でEmbla Carousel（+wheel-gesturesプラグイン）へ移行。
 // 可変幅コマ・ホイールの横スクロール変換・離した位置への吸着はEmbla標準機能でカバーし、

@@ -476,6 +476,9 @@ interface RenderFreshHomeOptions {
   exposeComparisonSlots?: boolean;
   exposeWeatherPanel?: boolean;
   exposeWarningBadges?: boolean;
+  /** trueならモバイルレイアウト（BottomSheet経由）でHomeを組み立てる。既定はfalse
+   * （ファイル先頭の`vi.mock("@/hooks/useIsMobile", ...)`と同じデスクトップ判定）。 */
+  mobile?: boolean;
 }
 
 // 1テストごとに独立した振る舞いのHomeを組み立てる。vi.resetModules()でモジュール
@@ -518,6 +521,8 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
   vi.doMock("@/hooks/useResearchMode", () => ({
     useResearchEnabled: () => options.researchEnabled ?? false,
   }));
+
+  vi.doMock("@/hooks/useIsMobile", () => ({ useIsMobile: () => options.mobile ?? false }));
 
   vi.doMock("@/components/ComparisonPanel/ComparisonPanel", () => ({
     // slot.id自体は`slot-${generated_at}-${random}`という生成条件由来の識別子であり
@@ -758,6 +763,16 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // 候補0件はエラー表示であって例外ではないため、次に条件を変えて再試行できるよう
     // loading状態も解除されている（ボタンが再び押せる）ことを合わせて確認する。
     expect(screen.getByRole("button", { name: "ルート生成" })).not.toBeDisabled();
+  });
+
+  it("T597フォローアップ: モバイルでも候補0件時にデスクトップと同じ案内文を表示する", async () => {
+    const user = userEvent.setup();
+    const HomeFresh = await renderFreshHome({ mobile: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: /ルート結果/ }));
+
+    expect(screen.getByText("「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
   });
 
   it("改善計画T441: バックエンドがno_candidates_reasonを返した場合、汎用文言ではなくそちらを表示する", async () => {

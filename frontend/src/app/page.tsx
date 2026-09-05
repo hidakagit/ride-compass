@@ -1039,8 +1039,6 @@ export default function Home() {
         // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
         // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
         // layerVisibilityへ引き続きアクセスできるようにするためだけの目的になった。
-        // ルート確定後の風の一律色分け終了（旧T414時点のdisabled分岐）はRouteSettingsPanel.tsx:
-        // renderMapColorToggleのhasDetail判定へ移設済み。
         // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
         // 1箇所で決める（T414時点の設計を踏襲、無効化理由が増えても1本追加するだけで
         // disabled/titleの両方に反映される）。
@@ -1183,18 +1181,15 @@ export default function Home() {
     mapViewport,
   });
 
-  // way_id→wind_penalty配信層（改善計画T405→T414で作り直し、T418でルート設定パネルへ
-  // 移設）。評価軸としての風——上のuseDynamicWeatherLayers（「環境」グループの矢印表示）
-  // とは独立したフェッチだが、[時刻,向き]の入力（dynamicLayerTargetTime・
+  // way_id→wind_penalty配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
+  // グループの矢印表示）とは独立したフェッチだが、[時刻,向き]の入力（dynamicLayerTargetTime・
   // travelBearingDeg）は共有する。mapViewportは同じMapView.tsx: onViewportChange経由の
   // 値を共有する。
   //
-  // ルート確定後（hasDetail）は、視界内の全道路への一律色分けというこの機能の役割自体を
-  // 終了する（T414契約: ルート確定後はルート自身の実際の進行方向・到達時刻を使う
-  // routeStyleModes「風」モードへ委ねる。改善計画T418で起動元が地図上チップから
-  // ルート設定パネルへ移ったため、hasDetail時のdisabled化は
-  // `RouteSettingsPanel.tsx: renderMapColorToggle`が担う）。
-  // レンズが全道路の塗りとして有効な間（ルート前、またはルート後も残す設定）。
+  // レンズが全道路の塗りとして有効な間（ルート前、またはルート後も残す設定）。ルート確定後
+  // （hasDetail）は、視界内の全道路への一律色分けというこの機能の役割自体を終了し、ルート
+  // 自身の実際の進行方向・到達時刻を使う routeStyleModes.ts の routeColorableModeFromAxis へ委ねる
+  // （lensKeepAfterRouteがtrueなら周囲の道路も薄く残す）。
   const lensBackgroundShown = !hasDetail || lensKeepAfterRoute;
   // 二次軸rampレイヤーの表示フラグ（キー=axisMapLayerId）。レンズに選ばれたramp軸だけON。
   const axisVisibility = useMemo(
@@ -1573,17 +1568,10 @@ export default function Home() {
 
     const showComparisonTab = researchEnabled;
     const outerTabValue = comparisonTabActive ? "comparison" : (selectedRouteId ?? routes[0].id);
-    // ユーザー指摘（2026-09-03）: 一度「公開軸がすべて表示されない」という指摘を受けて
-    // 重みによる絞り込みを撤去したが、その後のユーザー確認により意図は逆で、「ルート設定で
-    // ONにした（重み>0の）軸だけを出してほしい」だった（撤去は誤り、原文どおりに戻す）。
-    // ユーザー指示: ルート設定パネルでチェックを外した（重み0にした）軸は、この
-    // プロファイルからも消す（軸自体の評価が無いためではなく、ユーザーが「見たくない」と
-    // 選んだ軸を除く表示上の絞り込み）。axis_contributions自体は重み0の軸を持たない
-    // （backend側で既に重み配分へ折り込み済みのため）が、絞り込み自体はaxesの側で行う
-    // （RouteAxisProfile内部のaxisContributions!=nullフィルタとは独立）。重みの参照元は
-    // filteredRouteStyleModesと同じ「生成時点の重み」（generatedRoutePreference、
-    // 未生成時のみライブなroutePreferenceへフォールバック）に揃える。全候補で共通のため、
-    // 候補ごとのTabs.Contentループの外で1回だけ計算する。
+    // RouteAxisProfileへは公開軸すべて（axisCatalog.axes）をそのまま渡し、絞り込みは行わない。
+    // routeWeightsは重み<=0の軸を「未使用」バッジ付きで表示する判定にのみ使う（生成時点の重み
+    // ＝generatedRoutePreference、未生成時のみライブなroutePreferenceへフォールバック）。
+    // 全候補で共通のため、候補ごとのTabs.Contentループの外で1回だけ計算する。
     const routeWeights = generatedRoutePreference ?? routePreference;
 
     return (
@@ -2131,7 +2119,11 @@ export default function Home() {
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderRouteOutcomeSectionBody()}
+            {routes.length > 0 ? (
+              renderRouteOutcomeSectionBody()
+            ) : (
+              <p className={styles.emptyHint}>「ルート生成」を押すと候補がここに並びます</p>
+            )}
           </BottomSheet>
 
           <BottomSheet

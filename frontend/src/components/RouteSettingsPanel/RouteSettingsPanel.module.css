@@ -272,9 +272,7 @@
   flex-shrink: 0;
 }
 
-.legendInfoButton,
-.legendMapColorButton,
-.legendMapColorUnavailable {
+.legendInfoButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -285,15 +283,6 @@
   color: var(--color-muted);
   padding: 0;
   cursor: pointer;
-}
-
-.legendMapColorUnavailable {
-  cursor: default;
-}
-
-.legendMapColorButton[aria-pressed="true"] {
-  background: var(--color-accent);
-  color: #ffffff;
 }
 
 .legendInfoButton[aria-expanded="true"] {
@@ -321,9 +310,7 @@
     padding: 0.25rem 0.4rem 0.25rem 0.55rem;
   }
 
-  .legendInfoButton,
-  .legendMapColorButton,
-  .legendMapColorUnavailable {
+  .legendInfoButton {
     width: 1.5rem;
   }
 }

@@ -226,5 +226,5 @@ design-principles.md構造仕様3「軸ごとにpropを新設しない」に沿�
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う`DYNAMIC_WEATHER_RENDERERS`汎用機構
 （風の矢印・降水ナウキャスト等）とは異なり、windAxis/gradientAxisは`mapLayers.ts:
 isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）・サイドバー
-（`MapLayersPanel.tsx`）のどちらにも一切現れない。表示ON/OFFの起動導線は
-[ルート設定・結果パネル](route-settings-and-results.md)の`RouteSettingsPanel`が持つ。
+（`MapLayersPanel.tsx`）のどちらにも一切現れない。表示ON/OFFの起動導線は地図上部中央の
+`LensControl`のみが持つ（本ファイル冒頭「対象ファイル」参照）。

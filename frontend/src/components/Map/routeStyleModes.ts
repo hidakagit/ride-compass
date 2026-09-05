@@ -178,12 +178,9 @@ const NONE_MODE: RouteStyleMode = {
   colorExpression: ["to-color", "#64748b"],
 };
 
-// 改善計画T549: 公開軸すべて（axis-catalog由来、動的）＋difficulty（総合難易度、固定）を
-// 組み合わせた、実際に選択肢として使うモード一覧を組み立てる。この機構（axis_difficulties
-// [axis_id]を汎用の3段階色分けとして使う仕組み）の対象外になる軸は技術的に存在しない
-// ため、以前あった軸ごとの手動フラグ（supports_route_coloring）による絞り込みは撤去し、
-// 公開軸を無条件で対象にする——実際にユーザーが使っている軸だけへの絞り込みは
-// filterRouteStyleModesByPreference（route_preferenceの重み）が既に担う。
+// 公開軸すべて（axis-catalog由来、動的）＋difficulty（総合難易度、固定）＋NONE_MODEを
+// 組み合わせた、レンズ（LensControl）の選択肢一覧を組み立てる。軸ごとの絞り込みは行わない
+// （重み0の軸もレンズには選べる、公開軸を無条件で対象にする）。
 // useAxisCatalog（hooks/useAxisCatalog.ts）が、実行時API取得結果・ビルド時静的
 // フォールバックの両方からこの関数で同じ形の一覧を作る（axisLayers.ts:
 // rampAxesFromCatalogAxes等と同じ片側importパターン）。
