@@ -37,7 +37,7 @@ class DirectedEdge(BaseModel):
     highway: str | None = None  # OSMのhighwayタグ（生値。分類・評価はRoad Attribute側の責務）
     # 改善計画T218（T12 Stage 0）: from_node→to_node方向の方位角（度、北=0、時計回り、
     # domain/geo.py: bearing_betweenと同じ定義）。build_road_graphがgeometryから算出して
-    # 保持する。探索フェーズの風評価（compute_wind_penalty）がgeometryを取得・decodeせずに
+    # 保持する。探索フェーズの風評価（DYNAMIC_MATERIAL_EVALUATORS）がgeometryを取得・decodeせずに
     # この値だけで完結できるようにするための事前計算値（そのため既定値Noneを許容しつつ、
     # build_road_graph経由の生成では必ず値を持つ）。
     bearing_deg: float | None = None

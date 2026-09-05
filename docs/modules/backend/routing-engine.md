@@ -37,8 +37,11 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 風の列だけを引き直して合成する（`domain/wind.py: estimate_passage_hours`、
 `direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が
 到着予定時刻）。合成結果`LegCostArrays`は`cost_list`（`lazy_graph.edge_ids`順）と表示用の
-`difficulty_array`/`axis_arrays`/`contribution_arrays`/`wind_penalty`（`full_edge_row`順）を
-持ち、`_RoadGraphContext.legs`に添字順で並ぶ:
+`difficulty_array`/`axis_arrays`/`contribution_arrays`/`wind_penalty`（材料`wind_penalty`
+＝進行方向に平行な風成分m/sの配列、`full_edge_row`順）を持ち、`_RoadGraphContext.legs`に
+添字順で並ぶ。`compose`は`DynamicAxisRequestContext`へ風の入力と走行速度
+（`speed_kmh`を`kmh_to_ms`でm/sへ変換）を渡し、風の材料（`wind_drag_ratio`・
+`wind_penalty`）はいずれもこのcontextから求まる:
 
 | 用途 | 添字0 | 添字1〜 |
 |---|---|---|
@@ -54,7 +57,8 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 `get_conditions`と同じ応答・キャッシュ）が無い、または風に依存する公開軸の重みが0の
 場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コストゼロ）。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
-リクエストごとに変えられる。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う:
+リクエストごとに変えられ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
+両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う:
 往路レグは同じ探索範囲（タイル集合）で前回学習した値（無ければ`ROUTE_DETOUR_RATIO`）、
 復路レグ・目的地ルートの後ろ向きレグは、直前に求めた往路木（前向き木）から測った中央値
 （周回はリングNode、目的地ルートは起点から1km以上の到達Node）で、その値を

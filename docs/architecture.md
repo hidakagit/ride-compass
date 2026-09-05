@@ -127,7 +127,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 1. 起点からの累積距離 ÷ 仮定巡航速度（`ASSUMED_SPEED_KMH = 20.0`が既定値。リクエストの`assumed_speed_kmh`で5〜60km/hの範囲で指定できる）で推定到達時刻を計算
 2. 区間の進行方位を`domain/geo.py`の`bearing_between(a, b)`（新規追加、2点間の初期方位角を球面三角法で求める。`destination_point`の逆関数に相当）で算出
 3. `WeatherService.get_conditions(point, at=推定到達時刻)`を各区間の始点について並列取得（`ElevationService`と同じ`asyncio.Semaphore`パターン。天候はTTLキャッシュ済みのため近接点は追加リクエストなしでヒットする）
-4. `domain/wind.py`の`WindCalculator.wind_penalty(wind_speed_ms, wind_direction_deg, travel_bearing_deg)`＝`風速 × cos(風向 − 走行方位)`で区間ごとのペナルティを算出（`wind_direction_deg`は気象学の慣習で「風が吹いてくる方向」。走行方位と一致＝正面からの向かい風＝`cos(0)=1`で最大、180度差＝追い風＝`cos(180°)=-1`、90度差＝横風＝`cos(90°)=0`で走行への影響なし。進行方向に平行な風成分のみが影響するという物理的に妥当なモデル）
+4. `domain/wind.py`の`headwind_component_ms(wind_speed_ms, wind_direction_deg, travel_bearing_deg)`＝`風速 × cos(風向 − 走行方位)`で区間ごとのペナルティを算出（現在はこの値を材料`wind_penalty`[非推奨エイリアス]として残しつつ、評価軸の正式な風の材料は走行速度を含む二乗則の`wind_drag_ratio`[`wind_drag_ratio_array`]へ移行中。詳細は[docs/modules/backend/dynamic-way-values.md](modules/backend/dynamic-way-values.md)参照）（`wind_direction_deg`は気象学の慣習で「風が吹いてくる方向」。走行方位と一致＝正面からの向かい風＝`cos(0)=1`で最大、180度差＝追い風＝`cos(180°)=-1`、90度差＝横風＝`cos(90°)=0`で走行への影響なし。進行方向に平行な風成分のみが影響するという物理的に妥当なモデル）
 5. 区間距離で加重平均した値を`wind_score`（符号付きm/s、正=正味向かい風、負=正味追い風）として`RouteCandidate`にマージ
 
 天候取得に失敗した区間はスキップし、有効な区間が無い場合は`wind_score=None`（標高と同じ「取得失敗は握りつぶしてnull」方針）。既知の制約: 推定到達時刻の計算は「サーバーのローカル時刻＝Asia/Tokyoのその時刻」という簡易近似（Open-Meteoの`hourly`もタイムゾーン付きでなくAsia/Tokyoのnaiveなローカル時刻文字列を返すため整合はしている）。`wind_score`は正規化・重み付けされていない生の物理量で、`RouteCandidate`へそのまま残る（Step8時点の重み付け先だった`total_score`は改善計画T548で撤去済み、次節参照）。
@@ -549,7 +549,7 @@ RideCompass/
         geo.py                   ✅ haversine_distance_km, haversine_distance_km_array, compass_label, bearing_between（destination_pointは改善計画T531で本番コードから未参照になったため、改善計画T555でtests/geo_fixtures.pyのテスト専用ヘルパーへ移動。sample_indices/sample_line_coordinates/sample_line_pointsはOpenRouteServiceEngine専用だったため改善計画T462の撤去に伴い削除済み）
         road.py                   ✅ classify_osm_surface, GOOD_OSM_SURFACE_TAGS, BAD_OSM_SURFACE_TAGS（両エンジン共通の唯一の路面判定語彙）, distance_weighted_road_score（距離加重集計、改善計画T21で両エンジン共通化）
         difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9。scoring.py/normalize_min_maxは改善計画T548で撤去済み）
-        wind.py                   ✅ WindCalculator.wind_penalty（Step7）
+        wind.py                   ✅ wind_drag_ratio_array（相対風速の二乗則、走行速度依存）・headwind_component_ms（非推奨材料wind_penaltyの値）・estimate_passage_hours
         region.py                 ✅ BoundingBox, tile_bounds_lonlat, ROAD_TILE_MIN_ZOOM/MAX_ZOOM（Step10改訂。標高グリッド・snap_cells・bbox対角距離関連は撤去済み）。ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox（Road Graphのタイル単位キャッシュ用、新規）
         graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
@@ -558,7 +558,7 @@ RideCompass/
         traffic.py                     ✅ 静的道路属性P1: classify_stop_poi、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル。改善計画T347: `classify_bicycle_infrastructure`（7値分類、改善計画T150で「交通ストレス」から改称）は評価軸・地図表示のどちらからも参照されなくなったため削除。改善計画T431: `distance_weighted_stop_density`/`distance_weighted_intersection_density`/`distance_weighted_bicycle_infra_score`/`is_dedicated_bicycle_infra`（旧`RouteCandidate`個別フィールド集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み。区間ごとの評価軸（axis_difficulties）は`domain/evaluation.py`が直接材料合成する
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT（7章参照）。改善計画T431: `distance_weighted_accident_density`（旧`RouteCandidate.accident_density`集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
-        evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。compute_wind_penaltyを「完全移行」（Phase 6・Dynamic Data対応）で追加。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
+        evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。動的材料（風）はcompute_dynamic_edge_materials／DYNAMIC_MATERIAL_EVALUATORSがwind.pyの関数から求める。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239、T396で2プリミティブへ再編: evaluate_breakpoint_linear（連続演算、旧evaluate_flag_sum/evaluate_recipe_then_breakpoint_linearを統合）・evaluate_categorical（離散演算）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
         axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
         material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。改善計画T337で評価軸・地図表示のどちらからも未使用だったcycleway_class材料を削除し24→23材料（MVTタイルのcycleway_classプロパティ・`domain/recipe.py: cycleway_class`関数も同時に削除、ROAD_SURFACE_TILE_VERSION対上げ）。改善計画T338でdisplay_onlyフィールドを追加しdesignation材料を軸スタジオの選択肢（`GET /api/material-catalog`）から除外（`axis_studio_materials()`、地図表示には影響しない）。改善計画T339で単純パターンのextractorを汎用ファクトリ（raw_way_tag_extractor/tag_equals_extractor/way_tag_parser_extractor/count_per_km_extractor）へ置き換え、実証用にtracktype材料を追加し23→24材料（専用のPython関数を書かず宣言のみで抽出可能にできることを実証、「材料抽出の宣言駆動化」節参照）。改善計画T338フォローアップ（2026-08-26、ユーザー指摘）でdesignationを正規化フラグ材料is_emergency_transport[N10]/is_critical_logistics[N12]へも分解し24→26材料へ拡張（bicycle_infra→cycleway_has_track等[T336]と同じ設計思想、「表示専用材料の除外」節参照）。改善計画T347で7値categorical材料`bicycle_infra`自体（`classify_bicycle_infrastructure`の分類結果を保持していた、材料としては使用者無し）を削除し26→25材料。同時に`highway_is_cycleway`の`primary_attribute_id`を`highway`から`cycleway`へ再割当て（4フラグ材料全てが`cycleway`一次属性を共有する形に統一し、`highway`はcar_stress_highway_base専用のまま非共有を維持）、4フラグ材料全てへ`bool_default="nan"`を追加（ベクトル化評価経路`compute_edge_costs_bulk`が欠落値を`False`へ丸めて「データ無し」を「確認済みでインフラ無し」と誤判定していた回帰を修正、`surface_good`の既存踏襲）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
@@ -634,7 +634,7 @@ RideCompass/
       test_weather_service.py ✅ 現在/指定時刻の天候取得、取得失敗時の扱い
       test_weather_client_cache.py ✅ TTL内キャッシュ再利用・失効後再取得・取得失敗時の扱い
       test_weather_route.py   ✅ /api/weatherのDIモックテスト。per-IPレート制限（60回/分）の429検証を追加
-      test_wind.py             ✅ WindCalculator.wind_penaltyの向かい風/追い風/横風の検証（domain/wind.py自体は「完全移行」後もdomain/evaluation.py: compute_wind_penaltyから再利用）
+      test_wind.py             ✅ wind_drag_ratio_array（向かい風/追い風/横風/無風・速度依存・1次元式との一致・連続性）とheadwind_component_msの検証
       test_road.py             ✅ classify_osm_surface（OSMタグ基準、両エンジン共通）とdistance_weighted_road_score（距離加重集計、改善計画T21で両エンジン共通化）の検証。不明路面の「分母から除外・None判定」（設計レビュー対応）の検証を含む
       test_difficulty.py      ✅ gradient/wind/road_difficultyの閾値・composite_difficultyの再正規化の検証
       test_axis_templates.py   ✅ 改善計画T239、T396で2プリミティブへ再編: 連続演算（区分線形補間、boolean材料の重み付き和も含む）・離散演算（カテゴリ→定数）のスカラー/配列両モードの一致・NaN伝播の検証
@@ -645,7 +645,7 @@ RideCompass/
       test_osm_adapter.py      ✅ osm_way_to_way_specのonewayタグ解釈（yes/-1/大文字小文字・空白/未知の値）・highway受け渡し・ノード数不足時の除外の検証（Road Graph移行Phase 2、新規。Phase 3でsurfaceタグ受け渡しの検証を追加）
       test_attributes.py       ✅ compute_elevation_attribute（登り/下り/混在/欠損値/有効点不足）・build_surface_attributes（osm_way_id対応/未知way/way_id無し）の検証（Road Graph移行Phase 3、新規）
       test_elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graphのDIモックテスト（複数Edge独立性・欠損値・空グラフ）（Road Graph移行Phase 3、新規）
-      test_evaluation.py       ✅ is_edge_allowed（Hard Constraint）・compute_edge_cost（平坦舗装/激坂未舗装の比較・属性欠損時のフォールバック・重み変更）の検証（Road Graph移行Phase 4、新規）。compute_wind_penalty（向かい風/追い風）・風統合の検証を「完全移行」（Phase 6）で追加
+      test_evaluation.py       ✅ is_edge_allowed（Hard Constraint）・compute_edge_cost（平坦舗装/激坂未舗装の比較・属性欠損時のフォールバック・重み変更）の検証（Road Graph移行Phase 4、新規）。compute_dynamic_edge_materials（向かい風/追い風・走行速度必須）・風の3経路[スカラー/bulk/静的行列＋動的軸合成]一致の検証を含む
       test_evaluation_bulk.py  ✅ 改善計画T240: compute_edge_cost（Edge毎）とcompute_edge_costs_bulk（numpyベクトル化）の全Edge一致（highway種別・タグ組み合わせ・欠損データパターンを網羅する合成グラフ、wind/max_average_grade_percent/penalty_strengthの組み合わせ）の検証。実データ（dev DB、東京都心12万Edge超）での追加突き合わせもT240完了条件として実施済み（テストファイル外、improvement-plan.md参照）
       test_evaluation_service.py ✅ EvaluationService.evaluate_graphのDIモックテスト（Hard Constraint除外・属性欠損・空グラフ・カスタムRoutePreference）（Road Graph移行Phase 4、新規。Phase 5でload_route_preference（既定パス/カスタムパス）・設定ファイル経由デフォルトの検証を追加）
       test_graph_service.py   ✅ GraphService.build_graph_with_surface_tags_for_bboxのDIモックテスト（Road Graph移行Phase 1、新規）。get_or_build_graph_with_attributesのタイル単位キャッシュ動作（単一/複数タイル・部分キャッシュ・一部タイル取得失敗）の検証を追加
@@ -1318,7 +1318,7 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 |---|---|---|---|---|
 | 標高（勾配） | `gradient` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
 | 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
-| 風 | `wind` | 0.26 | m/s（正=向かい風） | Step7（`WindCalculator`） |
+| 風 | `wind` | 0.26 | 本番DBは材料`wind_penalty`（m/s、正=向かい風、非推奨エイリアス）を参照中。正式な材料は`wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存）で軸スタジオ経由の切替待ち | `domain/wind.py`（`wind_drag_ratio_array`／`headwind_component_ms`） |
 | 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
 | 車ストレス | `car_stress` | 0.20 | 0-4（T353以前は自転車インフラ込みで1-5） | 推定（改善計画T292で`axis_definitions`の内部軸5つ+公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
 | 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
@@ -2430,7 +2430,7 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   [`ST_Azimuth`]が不要になったため、旧`get_way_bearings_in_tile`より大幅に単純化した
   クエリへ置き換え）を取得し、最寄りの風グリッド格子点（`domain/wind_grid.py:
   nearest_grid_point`）の風向風速と、**ユーザーが指定した単一の走行方位**（全道路共通、
-  道路自身の向きは計算に使わない）から`WindCalculator.wind_penalty`で1回だけ計算し、
+  道路自身の向きは計算に使わない）から`headwind_component_ms`（材料`wind_penalty`）で1回だけ計算し、
   タイル内の全way_idへ同じ値を割り当てる（同じタイル内の全wayは常に同じ値を持つ——
   風グリッドをタイル中心1点で代表させる既存の近似＋走行方位が全道路共通のため）。
   計算結果は`(z, x, y, 時刻バケット, 向きバケット[5度刻み]) → スカラー値1個`という
@@ -2506,7 +2506,7 @@ effective_gradient`）。道路の向きと指定方向のなす角度に応じ�
   スカラー値1個）を[dynamic_way_value_cache.py](../backend/app/infrastructure/dynamic_way_value_cache.py)
   （材料id駆動、キーは`(material_id,z,x,y,時刻,向き)`→`{way_id: 値}`のJSON）へ汎用化した。
   風は従来どおり全way_idへ同値をbroadcastしたdictを渡すだけで動作は変わらない。
-- **サービス層**: `WindWayService`（風専用、風グリッド取得＋`WindCalculator.wind_penalty`）
+- **サービス層**: `WindWayService`（風専用、風グリッド取得＋`headwind_component_ms`）
   と[GradientWayService](../backend/app/services/gradient_way_service.py)（勾配専用、
   `RoadGraphRepository.get_way_gradient_inputs_in_tile`でway単位の`(gradient_percent,
   road_bearing_deg)`を取得しway単位で`GradientCalculator.effective_gradient`を計算）は、

@@ -1,6 +1,6 @@
 import math
 
-# 改善計画T423: 勾配（第2の具体例）。domain/wind.py: WindCalculatorと同型の「向きに依存する
+# 改善計画T423: 勾配（第2の具体例）。domain/wind.py: headwind_component_msと同型の「向きに依存する
 # 動的材料」の純粋計算ロジック。docs/tasks/T423.md「確定済みの設計判断」1.で確定した
 # cos連続補正を実装する。
 #

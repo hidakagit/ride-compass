@@ -45,8 +45,9 @@
 
 ```
 一次: Edge/way_tags/elevation_attribute等の生データ
-        │  compute_edge_axis_scores(edge, elevation_attribute, surface_type, wind, ...)
-        │  MATERIAL_CATALOGの各extractorが材料値（材料id→スカラー値）を組み立てる
+        │  compute_edge_axis_scores(edge, elevation_attribute, surface_type, weather, ..., travel_speed_ms)
+        │  MATERIAL_CATALOGの各extractorが材料値（材料id→スカラー値）を組み立て、
+        │  動的材料（風）はcompute_dynamic_edge_materialsが風・走行速度から求める
         ▼
   二次: 軸id → difficulty(0-100) の辞書
         │  domain/axis_definitions.py: evaluate_axes_scalar が AXIS_DEFINITIONS を評価
@@ -87,10 +88,12 @@ evaluate_graph`（bbox全体を一括評価する経路）自体は本番のル�
   （`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の生フラグ
   `is_motorway`/`is_trunk`/`no_bicycle`/`gradient_percent`も返す——`hard_filters`は
   リクエストごとに変わりうるため、除外判定そのものはこの関数では確定させない）。
-  `wind=None`で呼ぶと、風など`REQUEST_DYNAMIC_MATERIAL_IDS`に依存する軸の列は
-  `wind_penalty`がNaN配列になることで自然にNaNへ伝播する（動的軸の特別扱いが不要）。
-  材料を1件追加する際は`material_catalog.py`へ抽出関数を登録するだけでよく、この関数
-  自体の変更は不要。
+  動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`、風）は抽出ループを通らず、
+  `evaluate_dynamic_material_arrays`（後述）がbearing配列・`weather`・`travel_speed_ms`から
+  ベクトル計算する（`weather`を渡すときは`travel_speed_ms`が必須で、無ければ`ValueError`）。
+  `weather=None`で呼ぶと動的材料がNaN配列になり、それに依存する軸の列は自然にNaNへ
+  伝播する（動的軸の特別扱いが不要）。静的な材料を1件追加する際は`material_catalog.py`へ
+  抽出関数を登録するだけでよく、この関数自体の変更は不要。
 - **`compose_costs_from_axis_matrix`（重み付き合成フェーズ）**: 軸別スコア配列群と
   重み辞書からNeumaier加算→`round1_array`丸め→cost算出まで配列演算で行う。
   0次フィルタによる除外（`compute_hard_filter_excluded`が`hard_filters`/
@@ -133,23 +136,31 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   bbox全体1件へ結合する（後勝ちセマンティクス、Edge単位のPythonループを持ち込まない
   numpy fancy indexingで行う）。
 - **`DynamicAxisRequestContext`/`DYNAMIC_MATERIAL_EVALUATORS`/
-  `evaluate_dynamic_axis_arrays`**: リクエスト時点で風などの動的材料
-  （`REQUEST_DYNAMIC_MATERIAL_IDS`）を実際の値へ差し替える。`DYNAMIC_MATERIAL_EVALUATORS`は
-  材料id→evaluator関数（Edgeの幾何配列＋動的contextを受け取りその材料の配列を返す
-  統一シグネチャ）の登録制ディスパッチ（現状`{"wind_penalty": ...}`の1件のみ）——
+  `evaluate_dynamic_material_arrays`/`evaluate_dynamic_axis_arrays`**: リクエスト時点で
+  風などの動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）を実際の値へ差し替える。
+  `DYNAMIC_MATERIAL_EVALUATORS`は材料id→evaluator関数（Edgeの幾何配列＋動的contextを
+  受け取りその材料の配列を返す統一シグネチャ）の登録制ディスパッチで、
+  `REQUEST_DYNAMIC_MATERIAL_IDS`と1対1に揃える（現状は`wind_drag_ratio`と非推奨
+  エイリアス`wind_penalty`の2件。式の実体は`domain/wind.py`にあり、ここは配線のみ）——
   `REQUEST_DYNAMIC_MATERIAL_IDS`自体が材料id集合として宣言されているため軸id単位では
   なく材料id単位で登録する（`dynamic_axis_topological_order`・`evaluate_axis_array`
   という既存の汎用トポロジカル合成が「動的材料さえ埋まればどんな軸[軸スタジオが
-  `wind_penalty`を直接参照して作ったカスタム軸を含む]でも正しく合成する」ため、
-  軸名のハードコードは呼び出し側に一切現れない）。将来2つ目の動的材料が増えても、
-  この辞書へ1エントリ追加するだけでよい（CLAUDE.md原則1、フロントの`RAMP_AXES`/
-  `buildAxisOverlayLayers`と同種の汎用ディスパッチ）。`DynamicAxisRequestContext`は
-  出発時点のスナップショット（`weather`）に加え、時刻依存の材料向けに起点の時別予報
-  （`wind_series`）・出発時刻（`start`）・Edgeごとの通過予定時刻（`passage_hours`、
-  `bearing_deg`と同じ行順）を持つ。3つが揃えば`wind_penalty`はEdgeごとにその時刻の風で
-  求め、揃わなければスナップショットを全Edgeへ一様に使う。`StaticEdgeScoreMatrix`は
-  通過予定時刻の推定に使うEdge中点座標（`mid_lat`/`mid_lon`、from/toノードの平均）も
-  持つ（タイル単位でキャッシュ）。
+  動的材料を直接参照して作ったカスタム軸を含む]でも正しく合成する」ため、
+  軸名のハードコードは呼び出し側に一切現れない）。動的材料が増えたら
+  `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（CLAUDE.md
+  原則1、フロントの`RAMP_AXES`/`buildAxisOverlayLayers`と同種の汎用ディスパッチ）。
+  `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、スカラー経路
+  （`compute_dynamic_edge_materials`、Edge1本を長さ1の配列で呼ぶ薄いラッパー）・
+  bulk経路（`_evaluate_axes_bulk`）・静的行列への動的軸合成
+  （`evaluate_dynamic_axis_arrays`）の3経路がすべてここを通るため、式が乖離しない。
+  `DynamicAxisRequestContext`は出発時点のスナップショット（`weather`）・走行速度
+  （`travel_speed_ms`、m/s。既定値を持たない必須フィールドで、伝播漏れは構築時点で
+  失敗する）に加え、時刻依存の材料向けに起点の時別予報（`wind_series`）・出発時刻
+  （`start`）・Edgeごとの通過予定時刻（`passage_hours`、`bearing_deg`と同じ行順）を持つ。
+  3つが揃えば風の材料はEdgeごとにその時刻の風で求め（`wind_inputs()`）、揃わなければ
+  スナップショットを全Edgeへ一様に使う。`StaticEdgeScoreMatrix`は通過予定時刻の推定に
+  使うEdge中点座標（`mid_lat`/`mid_lon`、from/toノードの平均）も持つ（タイル単位で
+  キャッシュ）。
 - リクエスト時（`RoadGraphEngine._build_search_graph`）は、`StaticEdgeScoreMatrix`を
   軸id→配列の辞書へ展開→`evaluate_dynamic_axis_arrays`で動的軸を上書き→
   `compose_costs_from_axis_matrix`で重み合成→`compute_hard_filter_excluded`で0次
@@ -190,6 +201,12 @@ MaterialSpec]`が単一ソース。
   （軸スタジオの材料選択肢には現れる）。
 - 材料自体はGUIから追加・編集・削除できない（コード変更＋デプロイが前提）。軸スタジオ
   は`GET /api/material-catalog`経由で本カタログを動的取得する。
+- 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
+  ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
+  基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
+  `wind_penalty`（進行方向に平行な風成分m/s、`headwind_component_ms`）は本番DBの公開軸が
+  まだ参照している非推奨エイリアスで、`display_only=True`（軸スタジオの選択肢に出ない）。
+  公開軸の参照先が`wind_drag_ratio`へ切り替わった後に撤去する。
 - `raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/
   `count_per_km_extractor`という汎用extractorファクトリが用意されており、「単一タグの
   生値取得」「タグ値の単純一致判定」「数値パース」「件数/距離の密度計算」という
@@ -225,7 +242,8 @@ MaterialSpec]`が単一ソース。
   でもextractorがタグ不在を確定値として扱う材料（自転車インフラ系5材料）があり、実際の
   扱いはextractorの実装で決まるため、宣言テーブル側に明示する。
 - `MATERIAL_COVERAGE_EXCLUSIONS: dict[str, str]`: 集計対象外の材料とその理由（動的計算材料の
-  `wind_penalty`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の`designation`系）。
+  `wind_drag_ratio`/`wind_penalty`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の
+  `designation`系）。
   管理画面はこの理由をそのまま表示する。
 - **暗黙の前提**: `MATERIAL_CATALOG`の全材料は`MATERIAL_COVERAGE_SPECS`か
   `MATERIAL_COVERAGE_EXCLUSIONS`のどちらか一方に必ず載る（`test_material_coverage.py`が

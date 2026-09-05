@@ -88,7 +88,7 @@ def _lazy_edge_is_allowed(engine, context, from_node_id: str, to_node_id: str) -
 
 def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_coord: Coordinates, **overrides) -> DirectedEdge:
     # 改善計画T218: bearing_degはbuild_road_graphと同じくfrom_coord→to_coordの実際の
-    # 方位角から算出する（compute_wind_penaltyがgeometryではなくこの値を直接使うため、
+    # 方位角から算出する（compute_dynamic_edge_materialsがgeometryではなくこの値を直接使うため、
     # テスト用Edgeでも実データと同じ計算式で埋めておく必要がある）。
     defaults = dict(
         edge_id=edge_id,

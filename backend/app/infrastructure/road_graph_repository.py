@@ -835,7 +835,7 @@ def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> Le
     内部簿記コストが残る）が、171,461Edge規模でDBクエリ本体（合計3.4秒）より支配的な
     11秒を占めることが判明したため、探索専用パスに限りPydanticを完全に外した。
     `LeanEdge.geometry`はプレースホルダの空リストにする（探索フェーズの評価関数は
-    geometryを参照しない設計にしてある——compute_wind_penaltyは`bearing_deg`を
+    geometryを参照しない設計にしてある——風の材料評価（DYNAMIC_MATERIAL_EVALUATORS）は`bearing_deg`を
     直接使う、domain/evaluation.py参照。表示用の実ジオメトリが必要な最終候補は
     `get_edges_with_geometry`で別途取得する）。
     """
@@ -1109,7 +1109,7 @@ class DerivedGraphRepository(_SessionRepository):
         """`get_graph_in_bbox`の軽量版（改善計画T218、T12 Stage 0）。探索フェーズ
         （Dijkstra経路選択）はEdgeのトポロジ（from/to node・distance・bearing等）だけ
         あれば成立し、geometry（形状点列）は不要（domain/evaluation.py:
-        compute_wind_penaltyがbearing_degを直接使う設計に変更済み）。
+        風の材料評価がbearing_degを直接使う設計に変更済み）。
 
         `geom`カラム自体をSELECT対象から外すことで、shapelyへのgeometry decode
         （`_rows_to_road_graph`のコメント参照、実測でCPU時間の大半を占める）を

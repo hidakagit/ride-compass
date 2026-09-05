@@ -141,7 +141,7 @@ class RoadEdgeRow(Base):
     highway: Mapped[str | None] = mapped_column(String, nullable=True)
     # 改善計画T218（T12 Stage 0）: from_node→to_node方向の方位角（度、北=0、時計回り）。
     # migration 0013で追加。domain/graph.py: build_road_graphが算出し、探索時の風評価
-    # （compute_wind_penalty）がgeometry decodeを経由せずこの列だけで完結できるようにする。
+    # （DYNAMIC_MATERIAL_EVALUATORS）がgeometry decodeを経由せずこの列だけで完結できるようにする。
     bearing_deg: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

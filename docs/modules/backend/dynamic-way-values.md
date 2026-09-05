@@ -83,6 +83,9 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
   スケールになるため、`display_thresholds_override`は軸ごとに1つの意味を持つ。
 - 各サービスは`material_id`クラス属性で自分が返す生値の材料id（`wind_penalty`／
   `gradient_percent`）を宣言し、routerはそれを軸定義のどの材料として評価するかに使う。
+  風は走行速度がこの配信経路へ通っていないため、速度に依存しない非推奨材料
+  `wind_penalty`を返す（ルート確定後の評価が使う`wind_drag_ratio`への切替は速度伝播と
+  同時に行う）。
   キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
   次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
   結果から除く（地図上は「データなし」）。
@@ -128,7 +131,7 @@ get_way_values(z, x, y, at, bearing_deg)
   └─ キャッシュmiss →
        nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
        → _nearest_time_index（範囲外はNone→{}）
-       → WindCalculator.wind_penalty(speed, direction, bearing_deg)
+       → headwind_component_ms(speed, direction, bearing_deg)
        → 全way_idへbroadcastしてキャッシュ書き込み
   └─ 戻り値は常に dict.fromkeys(way_ids, penalty)   … 生値。難易度への変換はrouter側
 ```
@@ -169,13 +172,18 @@ values = {
 
 | 関数 | 意味 | 符号 |
 |---|---|---|
-| `WindCalculator.wind_penalty`（`wind.py`） | 走行方位と風向風速から向かい風/追い風の影響 | 正=向かい風、負=追い風、0付近=横風 |
+| `wind_drag_ratio_array`／`wind_drag_ratio`（`wind.py`） | 走行方位・風向風速・走行速度から、相対風速ベクトルの二乗則で無風時に対する空気抵抗の増分（時速20km無風の抵抗を1とする倍率、`WIND_DRAG_REFERENCE_SPEED_MS`） | 正=向かい風、負=追い風、純横風は小さな正。速いほど同じ風で大きい |
+| `headwind_component_ms`（`wind.py`） | 走行方位と風向風速から進行方向に平行な風成分（m/s）。上記の部品で、非推奨材料`wind_penalty`の値 | 正=向かい風、負=追い風、0付近=横風 |
 | `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り、0付近=道路をほぼ横切るだけ |
 
-両者とも「`cos(道路/風の基準方向 − 走行方位)`を係数として物理量へ掛ける」という同型の
-連続補正モデルを踏襲している。同じ道路の逆方向（forward/backward）の`road_edges`行を
-使っても勾配の結果は変わらない（cosの偶関数性と符号の二重反転が相殺するため、
-`test_gradient.py: test_forward_and_backward_edge_agree`で検証済み）。
+`headwind_component_ms`と`effective_gradient`は「`cos(道路/風の基準方向 − 走行方位)`を
+係数として物理量へ掛ける」という同型の連続補正モデル。同じ道路の逆方向
+（forward/backward）の`road_edges`行を使っても勾配の結果は変わらない（cosの偶関数性と
+符号の二重反転が相殺するため、`test_gradient.py: test_forward_and_backward_edge_agree`で
+検証済み）。`wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
+向かい風成分）と一致し、追い風が走行速度を超える領域も連続。引数はスカラー・配列どちらも
+受け付け（numpyのブロードキャスト）、`domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`が
+探索・区間表示の唯一の呼び出し元（[evaluation-scoring.md](evaluation-scoring.md)参照）。
 
 ## ルート確定後の風の評価
 
@@ -188,5 +196,6 @@ values = {
 
 `ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
 ＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・区間の到達予想時刻・
-所要時間表示に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の初期値で、探索範囲ごとに往路木から
+所要時間表示と、風の材料`wind_drag_ratio`の走行速度（`kmh_to_ms`でm/sへ変換して
+`DynamicAxisRequestContext.travel_speed_ms`へ渡す）に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の初期値で、探索範囲ごとに往路木から
 測った実測中央値を学習して置き換える（[routing-engine.md](routing-engine.md)参照）。
