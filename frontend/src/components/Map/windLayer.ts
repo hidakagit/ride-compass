@@ -1,22 +1,15 @@
-// 風の格子点マップ（改善計画T178フォローアップ）のデータ層。DOM/MapLibreを一切知らない
-// 純粋関数のみを持つ（precipitationNowcast.tsと同型）。実際のフェッチ・地図への反映は
-// page.tsx/MapView.tsxが行う。
+// 風の格子点マップのデータ層。DOM/MapLibreを一切知らない純粋関数のみを持つ
+// （precipitationNowcast.tsと同型）。実際のフェッチ・地図への反映はpage.tsx/MapView.tsx
+// が行う。
 //
-// 当初は`@openmeteo/weather-map-layer`（気象庁MSM由来、Open-Meteo配信のom://プロトコル）で
-// 矢印を描画していたが、(1) ライブラリ本体・内部の.omファイルデコーダともGPL-2.0-onlyで
-// GPLv2依存が避けられない、(2) 矢印の長さがライブラリ側でズームレベル依存に固定され自由に
-// 表現できない、という2つの制約に実機で行き当たった。ユーザー判断（2026-08-20「自前実装案で
-// 進めて」）により、既存のOpen-Meteo REST API経由の地点評価（weather_client.py:
-// get_forecast_many、CC-BY-4.0・GPL無関係）と同じ仕組みでバックエンドが関東本土の固定格子点を
-// サンプリングするAPI（GET /api/weather/wind-grid）を新設し、フロントはその結果を
-// MapLibre標準のsymbolレイヤー（矢印アイコンを独自定義、向き・長さ・色すべて自由に設定可能）で
-// 描画する方式へ切り替えた。
+// Open-Meteo REST API経由の地点評価（weather_client.py: get_forecast_many）と同じ仕組みで
+// バックエンドが関東本土の固定格子点をサンプリングするAPI（GET /api/weather/wind-grid）を
+// フロントが叩き、MapLibre標準のsymbolレイヤー（矢印アイコンを独自定義、向き・長さ・色
+// すべて自由に設定可能）で描画する。
 //
-// T183（動的気象レイヤーの再設計、実機フィードバック「動的レイヤについては今後もデータ追加が
-// あり得るので、それも見据えて拡張性がある設計にしてほしい」）で、風・降水を共通契約
-// （dynamicWeather.ts）へ揃えた。このファイルはDynamicWeatherFrame/DynamicWeatherRenderPayload
-// を組み立てる薄いラッパーのみを持つ（実際のGeoJSON構築・色/サイズの式化はwindFrames/
-// windRenderPayload、MapView.tsx側）。
+// 風・降水は共通契約（dynamicWeather.ts）に揃えてある。このファイルは
+// DynamicWeatherFrame/DynamicWeatherRenderPayloadを組み立てる薄いラッパーのみを持つ
+// （実際のGeoJSON構築・色/サイズの式化はwindFrames/windRenderPayload、MapView.tsx側）。
 
 import {
   gridToFeatureCollection,
@@ -37,8 +30,7 @@ export function parseJstTime(time: string): Date {
 
 /** Open-Meteoのhourly.timeは常にその日の00:00始まりのため、フェッチ時刻によっては
  * 半日近く過去の時刻が配列の前半を占める。gridを「現在時刻の属する時間帯」以降だけへ
- * 切り詰め、スライダーの左端（index 0）が常に「現在」になるようにする（実機フィードバック
- * 「過去の風を気にすることはアプリの性質上ない、デフォルト位置を左端に」）。「現在」の
+ * 切り詰め、スライダーの左端（index 0）が常に「現在」になるようにする。「現在」の
  * 定義は「最も近い時刻」ではなく「現在時刻以下で最も新しい時刻」（＝現在が属する1時間）
  * とする。最も近い時刻だと現在時刻が正時をわずかに過ぎただけで次の1時間へ丸められ、
  * 本来の現在時間帯を消してしまうため。全格子点で時刻配列が共通という前提のもと、grid[0]の
@@ -64,9 +56,8 @@ export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], n
 }
 
 /** 新しく取得した格子（next）に、前回の格子（previous）のうちnextに無い地点だけを
- * 補って返す（実機フィードバック「画面端が塗られないことがある」）。バックエンド
- * （GET /api/weather/wind-grid・wind-grid-detail）はOpen-Meteo側の失敗（429等、この
- * セッション中にも実際に発生）で個別地点の取得に失敗すると、その地点をレスポンスから
+ * 補って返す。バックエンド（GET /api/weather/wind-grid・wind-grid-detail）は
+ * Open-Meteo側の失敗（429等）で個別地点の取得に失敗すると、その地点をレスポンスから
  * 丸ごと除外する「取得失敗は握りつぶす」方針（api/routers/weather.py参照）のため、
  * 再取得のたびにどの地点が欠けるかが変わりうる。前回成功していた地点をそのまま
  * 残すことで、1地点の一時的な失敗が地図上の「その場所だけ描画されていない」穴として
@@ -84,16 +75,15 @@ export function mergeWindGridKeepingStale(
   return [...next, ...staleCarryOver];
 }
 
-// 風速→色の対応。矢印のicon-color（MapView.tsx）・地図チップの凡例（page.tsx、実機
-// フィードバック「風と雨の凡例も欲しい」）の2箇所で同じ配色を使うための単一の情報源
+// 風速→色の対応。矢印のicon-color（MapView.tsx）・地図チップの凡例（page.tsx）の
+// 2箇所で同じ配色を使うための単一の情報源
 // （2箇所以上に同じ配色を書くと片方だけ直して食い違う事故が起きうるため1箇所へ集約）。
 // MapLibre非依存の生データとして持ち、MapLibre補間式への組み立ては呼び出し側
 // （MapView.tsx）が行う（このファイル自体はDOM/MapLibreを知らない、ファイル冒頭の
 // コメント参照）。
 //
-// 実機フィードバック「風の色分けをもっと細かくして。ロードバイクで走れない強風域は
-// 粒度粗く。微風からそこまでは粒度を細かくして」を受け、気象庁も使う国際的なビューフォート
-// 風力階級（0.3m/s刻みではなくBf1〜6の実際の境界値）を刻み幅に採用した: 0（無風、後述の
+// 気象庁も使う国際的なビューフォート風力階級（0.3m/s刻みではなくBf1〜6の実際の境界値）を
+// 刻み幅に採用した: 0（無風、後述の
 // WIND_CALM_THRESHOLD_MS未満は非表示）〜Bf6上限13.8m/s（「傘をさすのが困難」）までは
 // Bf階級ごとに色を変え、この帯（ロードバイクで通常走行できる範囲）を細かく塗り分ける。
 // Bf7開始13.9m/s（「風に向かって歩くのが困難」、ロードバイクでの走行が現実的でなくなる
@@ -111,9 +101,8 @@ export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string }
   { speedMs: 24.4, color: "#7f1d1d" }, // Bf9上限（暴風、これ以上は同じ色のまま）
 ];
 
-// この風速未満は「無風」として矢印を描画しない（MapView.tsx参照）。実機確認
-// （2026-08-20、王子周辺で実測0.70〜0.81m/s）で当初の1.0m/sだと関東でごく普通に起きる
-// 弱風でも矢印が全滅したため、この値まで引き下げた経緯がある。
+// この風速未満は「無風」として矢印を描画しない（MapView.tsx参照）。1.0m/s程度だと
+// 関東でごく普通に起きる弱風でも矢印が全滅するため、この値にしている。
 export const WIND_CALM_THRESHOLD_MS = 0.3;
 
 // 地図チップの凡例（page.tsx）用に、上記の生データへラベルを付けたもの。数値は
@@ -182,13 +171,11 @@ export function windRenderPayload(grid: readonly WindGridPoint[], ref: number): 
   return { kind: "gridMark", geojson: windGridToFeatureCollection(grid, ref) };
 }
 
-// 格子間隔（度）。改善計画T198（統合レビュー2026-08-22指摘F-B）以前は
-// backend/app/domain/wind_grid.pyの同名定数を「値を合わせること」というコメントのみで
-// 手動複製していたが、APIレスポンス自体には間隔情報が含まれない（点の配列のみ）ため
-// 気づかれないままズレうる手動同期ペアだった。他の生成物（axis-catalog.json等）と同じ
-// 片側importへ揃え、backend/scripts/export_openapi.pyが書き出すwind-grid-config.jsonを
-// 単一の情報源とする。降水延長予報のgridFill表現（precipitationNowcast.ts）がセルの
-// 1辺の長さとして使う。
+// 格子間隔（度）。backend/app/domain/wind_grid.pyの同名定数と一致させる必要があるが、
+// APIレスポンス自体には間隔情報が含まれない（点の配列のみ）。他の生成物
+// （axis-catalog.json等）と同じ片側importへ揃え、backend/scripts/export_openapi.pyが
+// 書き出すwind-grid-config.jsonを単一の情報源とする。降水延長予報のgridFill表現
+// （precipitationNowcast.ts）がセルの1辺の長さとして使う。
 export const WIND_GRID_SPACING_DEG = windGridConfig.spacing_deg;
 export const WIND_GRID_DETAIL_SPACING_DEG = windGridConfig.detail_spacing_deg;
 
@@ -207,13 +194,11 @@ export interface Bbox {
   maxLat: number;
 }
 
-// 詳細格子（改善計画T180）を出す最低ズーム。これ未満は広域の粗い格子（既存のgetWindGrid）
+// 詳細格子を出す最低ズーム。これ未満は広域の粗い格子（既存のgetWindGrid）
 // だけで足りると判断（狭い範囲を詳細に見るための機能のため）。
 export const WIND_DETAIL_MIN_ZOOM = 10;
 
-// ズーム依存の詳細格子間隔（T185、実機フィードバック「拡大率が大きいとgridFillの格子が
-// ゴワゴワして気になる。拡大率によって格子サイズも大きく（風の矢印と同じ）補正する汎用的な
-// 拡張はできない？」）。風の矢印のicon-size（ズームに応じて表示サイズを拡大、MapView.tsx:
+// ズーム依存の詳細格子間隔。風の矢印のicon-size（ズームに応じて表示サイズを拡大、MapView.tsx:
 // zoomAndPropertyIconSizeExpression）はピクセル単位の記号なのでこの補正で足りるが、
 // gridFillのセルは「1格子点が担当する実面積」を表す図形のため、表示サイズだけを縮めても
 // 隙間ができるだけで解決しない。根本原因は「同じ間隔の格子が、ズームインするほど画面上の
@@ -221,7 +206,7 @@ export const WIND_DETAIL_MIN_ZOOM = 10;
 // 自体を細かくする。段階は離散値のみ（連続値にすると閲覧者ごとにラティスの絶対座標が
 // わずかにずれ、generate_wind_grid_detail_pointsのキャッシュ共有が効かなくなるため）。
 // 間隔の値そのものはwind-grid-config.json（detail_allowed_spacings_deg、backend/app/
-// domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGが単一の情報源、改善計画T198）
+// domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGが単一の情報源）
 // から取る。zoom境界（10/13/16/19、ICON_ZOOM_SCALE_STOPS・MapView.tsxと同じ刻み）は
 // 地図の見た目に関するUI側の判断のためフロント固有の定数として持つ。
 const WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS: readonly number[] = [WIND_DETAIL_MIN_ZOOM, 13, 16, 19];

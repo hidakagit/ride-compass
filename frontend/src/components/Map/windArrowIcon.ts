@@ -1,22 +1,15 @@
-// 風の矢印アイコンのCanvas 2D描画（改善計画T201、統合レビュー2026-08-22指摘）。
-// MapLibre/DOM（canvas要素の生成のみ）以外に依存しない純粋な描画コードのため、
-// MapView.tsx（地図の初期化・レイヤー登録・propsに専念するファイル）から切り出した
-// （T184の共通契約自体は「描画スペック（DYNAMIC_WEATHER_RENDERERS）はMapView.tsxに
-// 集約する」ことを定めているが、アイコンの中身をCanvas座標で描く幾何計算はその契約の
-// 対象外の純粋関数であり、windLayer.ts等と同じ「DOM/MapLibre非依存のデータ/描画層」に
-// 属する）。
+// 風の矢印アイコンのCanvas 2D描画。MapLibre/DOM（canvas要素の生成のみ）以外に依存しない
+// 純粋な描画コードのため、MapView.tsx（地図の初期化・レイヤー登録・propsに専念する
+// ファイル）から切り出した（描画スペック（DYNAMIC_WEATHER_RENDERERS）はMapView.tsxに
+// 集約する契約だが、アイコンの中身をCanvas座標で描く幾何計算はその契約の対象外の
+// 純粋関数であり、windLayer.ts等と同じ「DOM/MapLibre非依存のデータ/描画層」に属する）。
 
-// 風の矢印（改善計画T178→フォローアップで自前実装へ移行）。当初`@openmeteo/
-// weather-map-layer`（GPLv2、内部の.omデコーダも同じくGPL-2.0-only）のom://プロトコルで
-// 描画していたが、(1) GPLv2依存が避けられない、(2) 矢印の長さがライブラリ側でズーム
-// レベル依存に固定され自由に表現できない、という2つの制約に実機で行き当たった。
-// ユーザー判断（2026-08-20「自前実装案で進めて」）により、バックエンドの格子点マップAPI
-// （GET /api/weather/wind-grid、既存のOpen-Meteo REST地点評価と同じ仕組み・GPL無関係）が
-// 返す風向・風速をMapLibre標準のGeoJSON source + symbolレイヤーで描画する方式にした。
-// 矢印アイコンは独自定義（createWindArrowIcon、白いシルエットをsdf:trueで登録し
-// icon-colorで着色）で、向き（icon-rotate）・長さ+太さ（icon-size、アイコン全体を
-// 一様スケールするため両方同時に変わる）・色（icon-color、連続グラデーション）の
-// すべてを風速から自由に設定できる（ライブラリ由来の制約が無くなった）。
+// 風の矢印は、バックエンドの格子点マップAPI（GET /api/weather/wind-grid、Open-Meteo
+// REST地点評価と同じ仕組み）が返す風向・風速をMapLibre標準のGeoJSON source + symbol
+// レイヤーで描画する。矢印アイコンは独自定義（createWindArrowIcon、白いシルエットを
+// sdf:trueで登録しicon-colorで着色）で、向き（icon-rotate）・長さ+太さ（icon-size、
+// アイコン全体を一様スケールするため両方同時に変わる）・色（icon-color、連続
+// グラデーション）のすべてを風速から自由に設定できる。
 const WIND_ARROW_SIZE_PX = 32;
 
 interface Point2D {
@@ -35,9 +28,8 @@ function cubicBezierPoint(p0: Point2D, p1: Point2D, p2: Point2D, p3: Point2D, t:
 /** 3次ベジェ曲線p0→p3ぶんの帯（先端に向けて太さがwidthStart→widthEndへ線形に変わる
  * リボン状の塗り）を描く。曲線の接線に垂直な方向へオフセットした左右の縁を辿って
  * 1つの閉じたパスにする（オフセット曲線の厳密解ではなく、区間を細かく刻んだ近似）。
- * 気流のストリームライン（実機フィードバック「風を示していることを表現し、地図上の
- * オブジェクトとは区別する意図」への対応、下記createWindArrowIcon参照）を描くための
- * 汎用ヘルパー。 */
+ * 気流のストリームライン（下記createWindArrowIcon参照、風であることを地図上の
+ * オブジェクトと区別して表現する意図）を描くための汎用ヘルパー。 */
 function fillTaperedRibbon(
   ctx: CanvasRenderingContext2D,
   p0: Point2D,

@@ -1,17 +1,14 @@
-// 気象庁 雷ナウキャスト・竜巻発生確度ナウキャストのタイル・時刻一覧クライアント（改善計画T204）。
+// 気象庁 雷ナウキャスト・竜巻発生確度ナウキャストのタイル・時刻一覧クライアント。
 //
-// precipitationNowcast.ts（T171）と同じbosai/jmatile/data/nowc/系だが、降水がN1（実況）/
+// precipitationNowcast.tsと同じbosai/jmatile/data/nowc/系だが、降水がN1（実況）/
 // N2（予測）の2ファイルに分かれているのに対し、雷・竜巻はtargetTimes_N3.json 1本に
-// 実況〜60分先の予測が同居する（実機確認2026-08-22: 古いbasetimeの行はvalidtime===basetimeの
-// 実況のみ、最新basetimeの行だけvalidtime>basetimeの予測が10分刻みで複数並ぶ）。
+// 実況〜60分先の予測が同居する（古いbasetimeの行はvalidtime===basetimeの実況のみ、
+// 最新basetimeの行だけvalidtime>basetimeの予測が10分刻みで複数並ぶ）。
 // elements配列に雷（thns/thns_nd）・竜巻（trns/trns_nd）の両方が含まれるため、時刻一覧の
 // 取得は1回で両方をカバーする（thunderFrames/tornadoFramesは同じ時刻一覧を共有する）。
 //
-// 雷・竜巻は「回避一択」の危険（T170〜T178節の設計判断参照）のため評価軸には組み込まず、
-// rasterTile表現（気象庁が生成した画像をそのまま重ねる）のみを持つ警告表示として扱う。
-// T171の実装メモが「プロダクトコード未確認のため別レイヤー・別調査として残す」としていた
-// 宿題（雷）と、その調査過程で判明した竜巻発生確度ナウキャスト（同じN3・同じタイル構造）を
-// あわせて実装する。
+// 雷・竜巻は「回避一択」の危険のため評価軸には組み込まず、rasterTile表現（気象庁が
+// 生成した画像をそのまま重ねる）のみを持つ警告表示として扱う。
 
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
@@ -21,7 +18,7 @@ export type ThunderNowcastFrame = JmaNowcastFrame;
 
 const TARGET_TIMES_N3_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N3.json`;
 
-/** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。改善計画T514フォローアップ:
+/** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。
  * targetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻(thns/trns)自体は10分おきにしか
  * 更新されない——5分ズレたエントリは"elements": ["liden"]（雷放電位置データのみ）しか
  * 持たず、thns/trnsのタイルが存在しない。elementsに"thns"（"trns"も常に同じエントリへ

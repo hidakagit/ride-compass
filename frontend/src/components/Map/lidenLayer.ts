@@ -1,4 +1,4 @@
-// 気象庁 雷放電位置データ（liden、改善計画T541）のフレーム列・GeoJSON取得。
+// 気象庁 雷放電位置データ（liden）のフレーム列・GeoJSON取得。
 //
 // thunderNowcast.tsと同じtargetTimes_N3.json由来だが、liden自体は5分おきの全エントリに
 // 存在する（thns/trnsは10分おきのエントリにしか無い、jmaNowcastFrames.tsのコメント参照）。

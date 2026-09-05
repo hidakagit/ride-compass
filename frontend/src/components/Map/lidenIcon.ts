@@ -1,4 +1,4 @@
-// 雷放電位置データ（liden、改善計画T541）の地図上マーカーアイコンのCanvas 2D描画。
+// 雷放電位置データ（liden）の地図上マーカーアイコンのCanvas 2D描画。
 // windArrowIcon.tsと同じ「MapLibre/DOM以外に依存しない純粋な幾何計算」の方針で分離する。
 
 const LIDEN_ICON_SIZE_PX = 24;
