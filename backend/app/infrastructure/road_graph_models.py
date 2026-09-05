@@ -34,11 +34,10 @@ class OsmRawNodeRow(Base):
 
     # OSMのノードIDを常に明示的に指定するため、DB側の自動採番(BIGSERIAL)にしない。
     osm_node_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
-    # geomへの空間索引は張らない（改善計画T28）。全コードからのアクセスは常にosm_node_id
-    # 指定のみで、空間検索（ST_Intersects等）は一度も行われない。以前はGiSTを張っていたが、
-    # 「取込時の逐次挿入コストと容量を消費するだけの死荷重」と判明した（PBF初回取込で
-    # チャンク処理時間が7秒→73秒へ単調増加した事象の主因調査で発覚。エントリ数が最も多い
-    # インデックスだった）。既存DB向けの削除はmigrations/0002参照。
+    # geomへの空間索引は張らない。全コードからのアクセスは常にosm_node_id指定のみで、
+    # 空間検索（ST_Intersects等）は一度も行われないため、GiSTは取込時の逐次挿入コストと
+    # 容量を消費するだけの死荷重になる（PBF初回取込でチャンク処理時間が7秒→73秒へ
+    # 単調増加する要因になりうる）。既存DB向けの削除はmigrations/0002参照。
     geom = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -52,7 +51,7 @@ class OsmRawPoiRow(Base):
     classify_stop_poi`で分類できたnode（対象タグを持つごく一部）だけを選別して
     保持する（osm_adapter.py: osm_node_to_poi_spec）。
 
-    geomへの空間索引は必要（osm_raw_nodesのGiST廃止＝改善計画T28とは逆）。
+    geomへの空間索引は必要（空間索引を張らないosm_raw_nodesとは逆）。
     road_edgesとのST_DWithin空間結合（AttributeRepository.get_stop_poi_counts等、
     静的道路属性P1）で使う、この用途で初めて生まれる空間検索アクセスパターンのため。
     """
@@ -69,12 +68,11 @@ class OsmRawPoiRow(Base):
 class OsmRawWayRow(Base):
     """OSMの生Wayデータ（WaySpec相当。domain/osm_adapter.pyでタグ解釈済みの状態で保存する）。
 
-    node_idsはWayが参照するノードIDの順序付き配列。当初は近傍探索
-    （get_way_specs_with_closure）のためにGINインデックス（&&演算子）を張っていたが、
-    実データ規模でスケールしないことが判明しgeom列の空間検索へ置き換えたため、
-    GINインデックスは廃止した（28MBの容量削減にもなる。Supabaseフリープランの
-    容量制約に対応するdocs/osm-pbf-import.md 10章参照）。node_ids自体は
-    build_road_graphへの入力として引き続き必要。
+    node_idsはWayが参照するノードIDの順序付き配列。近傍探索
+    （get_way_specs_with_closure）はgeom列の空間検索で行い、node_ids自体への
+    GINインデックスは張らない（Supabaseフリープランの容量制約に対応する
+    docs/osm-pbf-import.md 10章参照）。node_ids自体はbuild_road_graphへの入力として
+    引き続き必要。
 
     Wayのタグ・ノード列自体は、それを取得したタイルに関わらず常に同じ内容になる
     （road_edgesの分割結果と異なり曖昧さが無い）ため、素直にUPSERTしてよい。
@@ -98,7 +96,7 @@ class OsmRawWayRow(Base):
     surface: Mapped[str | None] = mapped_column(String, nullable=True)
     # 静的道路属性の許可リストタグ（docs/static-road-attributes-plan.md P0、
     # osm_adapter.py: ALLOWED_WAY_TAGS）。highway/surfaceは既存の専用列のままここには
-    # 含めない。容量実測（2026-08-15）で本番規模+約9MBと軽微（無視できる）。
+    # 含めない。本番規模で容量増加は+約9MBと軽微（無視できる）。
     tags: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     direction: Mapped[str] = mapped_column(String, nullable=False)
     # Wayの実体化済みLINESTRING（PBF取込バッチ・save_raw_waysがノード座標から算出して保存）。
@@ -123,7 +121,7 @@ class RoadNodeRow(Base):
     osm_node_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     geom = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 改善計画T151: road_edges全件から見た真のグローバル次数（事前集計、
+    # road_edges全件から見た真のグローバル次数（事前集計、
     # backend/app/batch/precompute_road_node_degrees.pyで再計算）。DEFAULT 0は
     # ノード作成時点（PBF取込）の初期値で、バッチ実行までは未計算を意味する。
     degree: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -139,9 +137,9 @@ class RoadEdgeRow(Base):
     distance_m: Mapped[float] = mapped_column(Float, nullable=False)
     osm_way_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     highway: Mapped[str | None] = mapped_column(String, nullable=True)
-    # 改善計画T218（T12 Stage 0）: from_node→to_node方向の方位角（度、北=0、時計回り）。
-    # migration 0013で追加。domain/graph.py: build_road_graphが算出し、探索時の風評価
-    # （DYNAMIC_MATERIAL_EVALUATORS）がgeometry decodeを経由せずこの列だけで完結できるようにする。
+    # from_node→to_node方向の方位角（度、北=0、時計回り）。domain/graph.py:
+    # build_road_graphが算出し、探索時の風評価（DYNAMIC_MATERIAL_EVALUATORS）が
+    # geometry decodeを経由せずこの列だけで完結できるようにする。
     bearing_deg: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -165,7 +163,7 @@ class ElevationAttributeRow(Base):
 
 
 class EdgeAttributeCountsRow(Base):
-    """事故・停止POI・交差点の事前集計（改善計画T144）。`designation_attributes`と同じ
+    """事故・停止POI・交差点の事前集計。`designation_attributes`と同じ
     「派生データ、バッチ（`app/batch/precompute_edge_attribute_counts.py`）で再計算」
     パターン。migration 0010で実テーブルは作成済み（このORMモデルはBase.metadata経由の
     型定義・create_tables()の`checkfirst`整合のためのミラーで、既存DBへの実際のCREATEは
@@ -185,7 +183,7 @@ class EdgeAttributeCountsRow(Base):
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 派生データの系譜追跡（改善計画T351、migration 0024）。source_*_import_run_idは
+    # 派生データの系譜追跡（migration 0024）。source_*_import_run_idは
     # このバッチ実行時点でのstatus='succeeded'なimport_runsのMAX(id)（高水位マーク、
     # 詳細はmigrationのコメント参照）。algorithm_versionは計算ロジック自体の版数。
     # 実際のFK制約（accident_import_runs.id/osm_import_runs.id）はmigration側でのみ持つ
@@ -193,15 +191,15 @@ class EdgeAttributeCountsRow(Base):
     # SQLAlchemyの`ForeignKey(...)`を書くとBase.metadata経由でaccident_models.py/
     # road_graph_models.py双方のインポートを要求するようになり、precompute_edge_attribute_
     # counts.py単体実行のように参照先モデルを一切importしないプロセスで
-    # `Base.metadata.sorted_tables`/`create_all`実行時にNoReferencedTableErrorを起こす
-    # （実機確認済み、2026-08-30）。素のInteger列に留めることでこの依存を切る。
+    # `Base.metadata.sorted_tables`/`create_all`実行時にNoReferencedTableErrorを起こす。
+    # 素のInteger列に留めることでこの依存を切る。
     source_accident_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class RawIntersectionNodeRow(Base):
-    """次数3以上の生OSMノード（交差点、改善計画T145b）。osm_raw_ways.node_idsの隣接関係
+    """次数3以上の生OSMノード（交差点）。osm_raw_ways.node_idsの隣接関係
     から導出したRoad Graph非依存の派生データで、バッチ
     （`app/batch/precompute_way_attribute_counts.py`）が全再構築する。
     way_attribute_countsのintersection_count集計だけが参照する。migration 0012で
@@ -216,11 +214,11 @@ class RawIntersectionNodeRow(Base):
 
 
 class WayAttributeCountsRow(Base):
-    """事故・停止POI・交差点カウントのway単位事前集計（改善計画T145b「事実はタイルに、
+    """事故・停止POI・交差点カウントのway単位事前集計（「事実はタイルに、
     解釈はクライアントに」）。地図タイル（_ROAD_SURFACE_TILE_MVT_SQL）への焼き込み専用。
 
-    T144のedge_attribute_counts（edge単位、評価用）と並存する: road_edgesはルート生成時に
-    遅延構築されるため地図表示の母集団として不十分（dev実測でタイル内way の約3.6%しか
+    edge_attribute_counts（edge単位、評価用）と並存する: road_edgesはルート生成時に
+    遅延構築されるため地図表示の母集団として不十分（dev環境でタイル内wayの約3.6%しか
     カバーしない）で、地図タイルはosm_raw_ways全域を母集団とする本テーブルを使う。
     カウントの意味論（半径・kindフィルタ・死亡事故重み）はedge単位版と同一。
     バッチは`app/batch/precompute_way_attribute_counts.py`。migration 0012で実テーブルは
@@ -237,7 +235,7 @@ class WayAttributeCountsRow(Base):
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 派生データの系譜追跡（改善計画T351、migration 0024）。EdgeAttributeCountsRowと同じ
+    # 派生データの系譜追跡（migration 0024）。EdgeAttributeCountsRowと同じ
     # 高水位マーク方式・同じ理由でForeignKey()を持たない素のInteger（コメントはそちら参照）。
     source_accident_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
