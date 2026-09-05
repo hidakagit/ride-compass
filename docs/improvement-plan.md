@@ -930,7 +930,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 - [x] [T619](tasks/T619.md). レンズで風を選ぶと全灰色になるバグを修正 規模S（2026-09-06完了。`wind_way_service.py: _nearest_time_index`がtz-awareな時刻をJSTへ変換せず比較していたバグを修正。フロントがUTCで送る時刻がJST深夜〜早朝に前日扱いされ範囲外判定されていた）
 - [ ] [T620](tasks/T620.md). 風・勾配（dedicated_way_value_layer軸）のフェッチ失敗を既存の失敗バナーへ表示する 規模M
 - [x] [T623](tasks/T623.md). 風の評価軸を既存の細かい風グリッドへ乗せ替える 規模S（2026-09-06完了。`nearest_grid_point`のspacing_degを0.1→0.01へ変更。フォローアップで、実機のOpen-Meteoクォータ超過報告を受け0.02[`WIND_GRID_DETAIL_SPACING_DEG`流用]へ再調整。Open-Meteoの実モデル最良解像度[JMA LFM 2km]に合わせた値で、これ以上細かくしても精度は上がらずクォータだけ増える）
-- [ ] [T624](tasks/T624.md). 開放度（遮蔽物）推定軸の新設 規模M/L（設計中・実装未着手。データ源はEsri×Impact Observatory 10m Annual LULC[CC BY 4.0]、独立した静的軸として既存の線形合成モデルへそのまま乗せる方針で確定。ラスタ処理の実装場所等5論点が未決）
+- [ ] [T624](tasks/T624.md). 開放度（遮蔽物）推定軸の新設 規模M/L（2026-09-06設計確定・実装未着手。データ源はEsri×Impact Observatory 10m Annual LULC[CC BY 4.0、9クラス]、材料`openness_percent`=道路周囲リング[内径10m・外径100m]の非遮蔽[Trees/Built以外]画素割合、Way単位テーブル`way_landcover`をrasterioバッチで事前計算しMVT焼き込み→ramp自動導出でフロント変更なし、軸はaxis_admin API経由で作成。5論点の結論と実装段階は本文参照）
 
 ## 候補ルートの区間単位の組み合わせ（2026-09-06・ユーザー指摘「各セクションのいいとこ取りをしたいのに」から）
 
