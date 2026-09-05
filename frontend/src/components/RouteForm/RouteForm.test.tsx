@@ -13,7 +13,6 @@ function ControlledRouteForm({
   loading,
   initialDistance = "30",
   initialMaxRoutes = "8",
-  compact = false,
   initialRouteMode = "loop",
   waypointCount = 0,
   onWaypointsClear = vi.fn(),
@@ -24,7 +23,6 @@ function ControlledRouteForm({
   loading: boolean;
   initialDistance?: string;
   initialMaxRoutes?: string;
-  compact?: boolean;
   initialRouteMode?: RouteMode;
   waypointCount?: number;
   onWaypointsClear?: () => void;
@@ -42,7 +40,6 @@ function ControlledRouteForm({
       onMaxRoutesChange={setMaxRoutes}
       onGenerate={onGenerate}
       loading={loading}
-      compact={compact}
       routeMode={routeMode}
       onRouteModeChange={setRouteMode}
       waypointCount={waypointCount}
@@ -235,32 +232,6 @@ describe("RouteForm", () => {
       await user.clear(input);
       await user.type(input, "15");
       await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-      expect(onGenerate).toHaveBeenCalledWith(30);
-    });
-  });
-
-  describe("compact", () => {
-    it("ボタン文言が「生成」に短縮され、距離・候補件数の各入力にaria-labelが付く", () => {
-      render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} compact />);
-
-      expect(screen.getByRole("button", { name: "生成" })).toBeInTheDocument();
-      expect(screen.getByRole("spinbutton", { name: "距離(km)" })).toHaveValue(30);
-      expect(screen.getByRole("spinbutton", { name: "候補件数" })).toHaveValue(8);
-    });
-
-    it("loading=trueのときボタンが「…」と表示される", () => {
-      render(<ControlledRouteForm onGenerate={vi.fn()} loading={true} compact />);
-
-      expect(screen.getByRole("button", { name: "…" })).toBeDisabled();
-    });
-
-    it("送信するとonGenerateが呼ばれる(通常版と同じ検証ロジックを共有)", async () => {
-      const user = userEvent.setup();
-      const onGenerate = vi.fn();
-      render(<ControlledRouteForm onGenerate={onGenerate} loading={false} compact />);
-
-      await user.click(screen.getByRole("button", { name: "生成" }));
 
       expect(onGenerate).toHaveBeenCalledWith(30);
     });

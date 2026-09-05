@@ -22,14 +22,10 @@ interface RouteFormProps {
   onGenerate: (distanceKm: number) => void;
   loading: boolean;
   /** 改善計画T265: 生成中(loading)のボタン文言を差し替える（例:「生成中...(12秒経過)」
-   * 「順番待ち...」）。未指定時は従来どおり「生成中...」/「…」（compact時）を使う。 */
+   * 「順番待ち...」）。未指定時は既定の「生成中...」を使う。 */
   progressLabel?: string;
-  /** モバイル上部の操作バー向け（改善計画T250）。出発地点・生成ボタンと同じ行に収める
-   * ため、ラベル文言を削って幅を詰める（アクセシブルネームはaria-labelで維持）。 */
-  compact?: boolean;
-  /** 改善計画T365-2: 周回（距離指定）/目的地（経由地・目的地を地図で指定）モードの切り替え。
-   * 実機フィードバック「経由地・目的地の操作パネルが地図上で邪魔」を受け、地図上の浮動
-   * パネルを廃止しこのフォーム内（距離入力・生成ボタンと同じ場所）へ統合した。 */
+  /** 周回（距離指定）/目的地（経由地・目的地を地図で指定）モードの切り替え。距離入力・
+   * 生成ボタンと同じ場所に置く。 */
   routeMode: RouteMode;
   onRouteModeChange: (mode: RouteMode) => void;
   waypointCount: number;
@@ -56,7 +52,6 @@ export default function RouteForm({
   onGenerate,
   loading,
   progressLabel,
-  compact = false,
   routeMode,
   onRouteModeChange,
   waypointCount,
@@ -138,7 +133,7 @@ export default function RouteForm({
     // ブラウザ既定のnumber input制約検証(既定ロケールの英語ツールチップ)が、下の独自の
     // 日本語エラー表示より先にフォーム送信をブロックしてしまい、アプリ内の他のエラー表示と
     // 一貫しないUXになるのを避けるためnoValidateにし、検証は下のJSロジックに一本化する。
-    <form onSubmit={handleSubmit} className={compact ? styles.formCompact : styles.form} noValidate>
+    <form onSubmit={handleSubmit} className={styles.form} noValidate>
       <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
         <button
           type="button"
@@ -159,8 +154,8 @@ export default function RouteForm({
       </div>
 
       {routeMode === "loop" ? (
-        <label className={compact ? styles.labelCompact : undefined}>
-          {!compact && "距離"}
+        <label>
+          距離
           {/* ネイティブのスピンボタン（上下矢印）はタップ領域が数px四方しかなく、代わりに
               幅を圧迫するだけのため非表示にする（distanceは直接入力が主な操作手段で、1km
               刻みの矢印クリックは想定していない）。inputMode="numeric"でモバイルの数値専用
@@ -175,11 +170,7 @@ export default function RouteForm({
             value={distance}
             onChange={(e) => onDistanceChange(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
-            className={
-              (compact ? "w-16" : "ml-2 w-24") +
-              " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            }
-            aria-label={compact ? "距離(km)" : undefined}
+            className="ml-2 w-24 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
           km
         </label>
@@ -205,8 +196,8 @@ export default function RouteForm({
         </div>
       )}
       {maxRoutesRelevant && (
-        <label className={compact ? styles.labelCompact : undefined}>
-          {!compact && "候補数"}
+        <label>
+          候補数
           {/* 距離入力と同じ流儀: スピンボタン非表示、inputMode="numeric"で数値専用
               キーボード、onFocusで全選択。目的地モードでは経由地が無い場合のみ表示する
               （経由地を伴うとbackendが件数を無視して1件固定になるため、maxRoutesRelevant
@@ -220,18 +211,14 @@ export default function RouteForm({
             value={maxRoutes}
             onChange={(e) => onMaxRoutesChange(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
-            className={
-              (compact ? "w-10" : "ml-2 w-16") +
-              " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            }
-            aria-label={compact ? "候補件数" : undefined}
+            className="ml-2 w-16 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
           件
         </label>
       )}
 
       <Button variant="primary" type="submit" disabled={loading}>
-        {loading ? (compact ? "…" : (progressLabel ?? "生成中...")) : compact ? "生成" : "ルート生成"}
+        {loading ? (progressLabel ?? "生成中...") : "ルート生成"}
       </Button>
       {error && <ErrorText>{error}</ErrorText>}
     </form>

@@ -1554,10 +1554,12 @@ boolean材料か」という構造判定へ書き換えることで、night軸�
   `GET /api/axis-catalog`の返す公開軸集合の変化に合わせて、保存済み`routePreference`の
   キー集合を双方向に同期する（新しい軸のキーを補う・消えた軸のキーを削除する）。これが
   無いと、unpublish直後に旧設定を保持したブラウザで`RoutePreferenceWeights`のキー完全
-  一致検証（`routers/routes.py`）が422になる。ただしこの同期は`RouteSettingsPanel`が
-  マウントされたときにしか走らないため、モバイルで同パネル（「ルート詳細」タブ）を
-  一度も開かずに生成ボタン（T250でヘッダーへ分離済み）を押す経路には残課題がある
-  （改善計画T303、トリガー未到達）。
+  一致検証（`routers/routes.py`）が422になる。この同期は`RouteSettingsPanel`がマウント
+  されたときにしか走らないため、`page.tsx`の`handleGenerate`が生成リクエスト組み立て時にも
+  同じキー整合チェック（`syncRoutePreferenceKeys`）を適用し、パネル未マウントのまま
+  生成した場合の穴を塞ぐ（`RouteSettingsPanel`とは異なる`routePreference` state自体は
+  書き換えない）。モバイルの生成ボタンは「ルート設定」タブ内（`RouteSettingsPanel`と
+  同じ区分）にあるため、生成前に同パネルがマウントされる。
 - **下書き軸は一般ユーザーに見えない**: `GET /api/axis-catalog`（T269、`RouteSettingsPanel`
   が読む）は`is_published=True`の軸のみを返す。下書きの一覧・編集は認可必須の
   `GET /api/admin/axis-definitions`（軸スタジオ）側でのみ行う。
