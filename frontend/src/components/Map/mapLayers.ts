@@ -172,19 +172,17 @@ const DEDICATED_WAY_VALUE_LAYER_IDS: ReadonlySet<string> = new Set(
     .map((axis) => `${axis.axis_id}Axis`)
 );
 
-/** 軸スタジオ由来のレイヤーか（改善計画T418、T423でgradientAxisを追加）。ramp軸
- * （dataNature==="composite"）・専用way_id→動的値配信層を持つ軸
- * （DEDICATED_WAY_VALUE_LAYER_IDS、上記）はいずれも、T406時点は地図上チップの
- * 「評価軸」グループへ束ねられていたが、T418でそのチップ自体を撤去しルート設定パネルへ
- * 移設した。地図上チップ（MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）の
- * 両方が、この判定を使ってこれらのレイヤーを描画対象から除外する（mapOverlayGroupForが
- * 返すundefinedは「route等、単独チップとして出す」ものと「軸スタジオ由来のため地図UIには
- * 一切出さない」ものの2種類が混在するため、区別に使う専用の判定）。 */
+/** 軸スタジオ由来のレイヤーか。ramp軸（dataNature==="composite"）・専用way_id→動的値
+ * 配信層を持つ軸（DEDICATED_WAY_VALUE_LAYER_IDS、上記）は、地図上チップ
+ * （MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）の両方が、この判定を
+ * 使ってこれらのレイヤーを描画対象から除外する（mapOverlayGroupForが返すundefinedは
+ * 「route等、単独チップとして出す」ものと「軸スタジオ由来のため地図UIには一切出さない」
+ * ものの2種類が混在するため、区別に使う専用の判定）。 */
 export function isAxisStudioLayer(layer: { id: MapLayerId; dataNature?: MapLayerDataNature }): boolean {
   return DEDICATED_WAY_VALUE_LAYER_IDS.has(layer.id) || layer.dataNature === "composite";
 }
 
-/** レイヤー1件が属するMapOverlayGroupを判定する（改善計画T406/T418）。category/
+/** レイヤー1件が属するMapOverlayGroupを判定する。category/
  * dataNatureの既存フィールドだけで機械的に判定できるが、軸スタジオ由来のレイヤー
  * （isAxisStudioLayer、windAxis・ramp軸）は明示的に対象外（undefined）にする——
  * category値だけを見ると「道路」「スポット」「環境」のいずれかに紛れ込んでしまうため
