@@ -3,11 +3,10 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { cn } from "@/lib/cn";
 
-// 汎用モーダルダイアログ(改善計画T299)。既存のFloatingPanel(react-rndでドラッグ移動)・
-// BottomSheet(自前pointerイベントで高さドラッグ)はいずれもRadix Dialog不使用の
-// 自前実装で、ドラッグ/リサイズという専用の振る舞いを持つため今回は統合・置き換えを
-// 行わない(docs/frontend-design-system.md参照)。このDialogは今後の新規の単純な
-// モーダル要求(ドラッグ不要な確認ダイアログ等)向けの土台として用意する。
+// 汎用モーダルダイアログ。FloatingPanel(react-rndでドラッグ移動)・BottomSheet
+// (自前pointerイベントで高さドラッグ)はドラッグ/リサイズという専用の振る舞いを持つため
+// Radix Dialogを使わない自前実装のままにしてある(docs/frontend-design-system.md参照)。
+// このDialogは新規の単純なモーダル要求(ドラッグ不要な確認ダイアログ等)向けの土台。
 //
 // titleを必須propsにすることでアクセシブルな名前を型で強制する(Disclosure/LayerChipと
 // 同じ既存方針)。hideTitle指定時はTailwind組み込みのsr-onlyで視覚的にのみ隠す。

@@ -2,7 +2,7 @@
 // リクエストバリデーション失敗時（422）はPydanticの`[{loc, msg, type, input}, ...]`という
 // オブジェクト配列になる。呼び出し元がdetailを常に文字列として組み立てると、422時に
 // `new Error(detail)`が配列を`String()`で強制変換して"[object Object],..."という
-// 意味の無いメッセージになる（実機確認: distance_kmが範囲外等で発生しうる）。
+// 意味の無いメッセージになる（distance_kmが範囲外等の入力検証エラーで発生しうる）。
 export function formatErrorDetail(detail: unknown): string | undefined {
   if (detail == null) return undefined;
   if (typeof detail === "string") return detail;

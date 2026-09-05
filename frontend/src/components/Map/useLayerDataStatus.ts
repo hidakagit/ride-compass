@@ -1,8 +1,7 @@
-// レイヤーごとのデータ取得状態（loading/empty/error、改善計画T87）の算出・追跡。
-// MapView.tsxに直接埋め込まれていた純粋関数（computeLayerDataStatus・
-// clearStaleTrackedSourceErrors）とそれを使う状態管理・イベント配線（erroredSourceIdsRef・
-// recomputeLayerDataStatus）を1つのカスタムフックへ抽出した（改善計画T123、
-// 2026-08-17レビューDEFER(a)の事前合意の履行）。
+// レイヤーごとのデータ取得状態（loading/empty/error）の算出・追跡。純粋関数
+// （computeLayerDataStatus・clearStaleTrackedSourceErrors）とそれを使う状態管理・
+// イベント配線（erroredSourceIdsRef・recomputeLayerDataStatus）を1つのカスタムフックへ
+// まとめてある。
 //
 // MapView.tsxとの循環import回避のため、対象レイヤーの(source, source-layer)対応表
 // （MapView.tsx: LAYER_DATA_SOURCES）はこのモジュールが持たず、呼び出し側から引数で渡す
@@ -37,9 +36,9 @@ export function computeLayerDataStatus(
   const status: LayerDataStatusByLayer = {};
   // road/carStress/designationのように複数レイヤーが同じ(sourceId,
   // sourceLayer)を共有するため、querySourceFeatures（実タイルのフィーチャーを走査する
-  // 軽くない処理）を同じ引数で繰り返し呼ばないよう、この1回の呼び出し内でだけ結果を
-  // メモ化する（レビュー指摘: road_surfaceは実測6,273件、共有4レイヤー分で素朴には
-  // 4倍呼ばれていた。この関数はsourcedata等の高頻度イベントのたびに呼ばれるため無視できない）。
+  // 軽くない処理、road_surfaceは6,000件超になりうる）を同じ引数で繰り返し呼ばないよう、
+  // この1回の呼び出し内でだけ結果をメモ化する（この関数はsourcedata等の高頻度イベントの
+  // たびに呼ばれるため無視できないコスト）。
   const emptyBySourceLayer = new Map<string, boolean>();
   for (const { key, sourceId, sourceLayer } of layerDataSources) {
     if (!visibility[key]) continue;
@@ -71,14 +70,12 @@ function layerDataStatusEqual(a: LayerDataStatusByLayer, b: LayerDataStatusByLay
   return aKeys.every((key) => a[key] === b[key]);
 }
 
-// T87実機確認で判明した不具合の対策: erroredSourceIdsは「次の取得サイクル開始
-// （sourcedataloading）まで保持」する設計だが、失敗した地点から一度も再取得が発生しない
-// 別の地点（既にタイルがキャッシュ済みの地点）へ移動した場合、sourcedataloading自体が
-// 発火しないためエラー状態が解除される機会が永久に来ず「取得失敗」が誤って残り続けた
-// （バックエンド停止→別地点でエラー発生→バックエンド復旧→キャッシュ済みの元の地点へ戻っても
-// 「取得失敗」表示のまま、という形で実機確認時に再現）。パン/ズームが収束した時点
-// （moveend/zoomend）でも、保留中の取得が無い（isSourceLoaded=true）sourceは
-// 「このビューポートでは問題が無い」とみなしてエラーを解除する。
+// erroredSourceIdsは「次の取得サイクル開始（sourcedataloading）まで保持」する設計だが、
+// 失敗した地点から一度も再取得が発生しない別の地点（既にタイルがキャッシュ済みの地点）へ
+// 移動した場合、sourcedataloading自体が発火しないためエラー状態が解除される機会が永久に
+// 来ず「取得失敗」が誤って残り続けてしまう。パン/ズームが収束した時点（moveend/zoomend）
+// でも、保留中の取得が無い（isSourceLoaded=true）sourceは「このビューポートでは問題が
+// 無い」とみなしてエラーを解除する。
 //
 // 重要: 呼び出し元はmoveend/zoomend（ビューポートが実際に変わった時点）に限定し、"idle"から
 // 呼んではいけない。MapLibreのisSourceLoaded()は、タイルが'errored'（取得失敗のまま再試行
@@ -86,8 +83,8 @@ function layerDataStatusEqual(a: LayerDataStatusByLayer, b: LayerDataStatusByLay
 // 同列に「settled」とみなすため）。ビューポートが変わっていない"idle"でこれを解除条件に使うと、
 // 今まさに進行中の障害（例: バックエンド停止で該当タイルがずっとerrored状態のまま）を
 // 「もう問題ない」と誤って解除してしまい、"取得失敗"表示が"データなし"に化けてしまう
-// （レビューで発見・修正、useLayerDataStatusのsettleViewport参照）。moveend/zoomendは
-// 定義上ビューポートが実際に変わった時にしか発火しないため、そこでのisSourceLoaded()=trueは
+// （useLayerDataStatusのsettleViewport参照）。moveend/zoomendは定義上ビューポートが
+// 実際に変わった時にしか発火しないため、そこでのisSourceLoaded()=trueは
 // 「新しいビューポートのタイルは問題なく決着した」という意味を持てるが、同じ判定を"idle"だけに
 // 基づいて行うことはできない。
 export function clearStaleTrackedSourceErrors(map: DataStatusMapLike, erroredSourceIds: Set<string>): boolean {

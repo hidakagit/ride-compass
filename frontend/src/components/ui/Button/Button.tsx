@@ -2,13 +2,10 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { forwardRef } from "react";
 import { cn } from "@/lib/cn";
 
-// 汎用ボタン(改善計画T299)。従来は各所で素の<button>にCSS Modulesクラスを直接当てる
-// (RouteForm.tsx等)か、あるいはclassName未指定でglobals.cssのグローバル
-// button[type="submit"]リセットに暗黙依存する(移行対象のRouteFormの送信ボタンが実例)
-// かのどちらかだった。後者は「プライマリボタンの見た目」がどこにも明示されておらず、
-// 将来どこかでtype="submit"のボタンを追加すると意図せず同じ配色を継承してしまう
-// 脆弱な結合になっている。variantを明示するこのコンポーネントへ寄せることで、
-// 見た目の決定箇所を1箇所に集約する。
+// 汎用ボタン。variantを明示することで、見た目の決定箇所をこのコンポーネントへ集約する
+// （className未指定でglobals.cssのグローバルbutton[type="submit"]リセットに暗黙依存すると、
+// 「プライマリボタンの見た目」がどこにも明示されず、将来どこかでtype="submit"のボタンを
+// 追加すると意図せず同じ配色を継承してしまう脆弱な結合になるため）。
 //
 // 色は必ずvar(--color-*)をTailwindの任意値記法で参照する(docs/frontend-design-system.md
 // のルール)。primaryはglobals.cssの既存button[type="submit"]配色(--color-accent塗り+

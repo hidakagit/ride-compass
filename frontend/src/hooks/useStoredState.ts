@@ -23,8 +23,7 @@ interface UseStoredStateOptions<T> {
   reloadKey?: unknown;
 }
 
-// localStorageへ保存し、リロード後も復元するuseState（改善計画T47 R-6:
-// page.tsxに散在していたlocalStorage読み書きの手書きペアを1箇所へ集約）。
+// localStorageへ保存し、リロード後も復元するuseState。
 //
 // 復元はuseStateの初期化子ではなくマウント後のlayout effectで行う（SSR時に生成される
 // HTMLとハイドレーション結果がずれるため。ちらつき防止のためlayoutEffectを使う理由は
@@ -33,7 +32,7 @@ interface UseStoredStateOptions<T> {
 //
 // 保存は「エフェクトで自動保存」ではなく、setter呼び出しのたびに（autoSave=falseでなければ）
 // 即書き込む。エフェクトでの保存だと、開発時StrictModeの再マウントで「復元前の初期値の保存」が
-// 復元読み出しへ割り込み、保存済み設定を既定値で上書きする実害が過去にあったため（T32）。
+// 復元読み出しへ割り込み、保存済み設定を既定値で上書きしてしまう。
 export function useStoredState<T>(
   key: string,
   defaultValue: T,
@@ -52,10 +51,9 @@ export function useStoredState<T>(
   // deserializeクロージャを使って再復元したいため。reloadKey省略時はkeyが不変な限り
   // このeffectは初回のみ実行される、元の挙動のまま）。
   //
-  // 改善計画T470: 以前はraw==null（保存値が無い）のとき何もせずreturnしていたため、
-  // keyが動的に変わるケース（現状の呼び出し側はいずれも静的keyのため未発生だが、将来
-  // 追加されうる）で、新しいkeyに保存値が無いと前のkeyで復元した値が残り続けてしまう
-  // 不整合があった。raw==null・deserialize失敗のいずれもdefaultValueへ明示的に戻す。
+  // raw==null（保存値が無い）でもdefaultValueへ明示的に戻す。keyが動的に変わるケース
+  // （現状の呼び出し側はいずれも静的keyのため未発生だが、将来追加されうる）で、新しい
+  // keyに保存値が無いのに前のkeyで復元した値が残り続ける不整合を避けるため。
   useIsomorphicLayoutEffect(() => {
     try {
       const raw = window.localStorage.getItem(key);
@@ -99,7 +97,7 @@ export function useStoredState<T>(
   return [value, setStoredValue, commit];
 }
 
-// JSON直列化のuseStoredState（改善計画T270）。researchモード関連のstate（評価重み・
+// JSON直列化のuseStoredState。researchモード関連のstate（評価重み・
 // route_preference等）をpage.tsx/admin/page.tsxの2ルート間で共有する際に、
 // 呼び出し側でserialize/deserializeを毎回書かずに済むようにする薄いラッパー。
 // 壊れた保存値はデフォルト値へフォールバックする（useStoredStateの既定動作）。
