@@ -366,6 +366,7 @@ interface Draft {
    * docstring参照。 */
   dynamicWayValueNeedsTime: boolean;
   dynamicWayValueNeedsBearing: boolean;
+  dynamicWayValueNeedsSpeed: boolean;
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -403,6 +404,7 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     dedicatedWayValueLayer: false,
     dynamicWayValueNeedsTime: false,
     dynamicWayValueNeedsBearing: false,
+    dynamicWayValueNeedsSpeed: false,
   };
 }
 
@@ -427,6 +429,7 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     dedicatedWayValueLayer: def.dedicated_way_value_layer ?? false,
     dynamicWayValueNeedsTime: def.dynamic_way_value_needs_time ?? false,
     dynamicWayValueNeedsBearing: def.dynamic_way_value_needs_bearing ?? false,
+    dynamicWayValueNeedsSpeed: def.dynamic_way_value_needs_speed ?? false,
   };
   // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
@@ -736,6 +739,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       dedicated_way_value_layer: draft.dedicatedWayValueLayer,
       dynamic_way_value_needs_time: draft.dynamicWayValueNeedsTime,
       dynamic_way_value_needs_bearing: draft.dynamicWayValueNeedsBearing,
+      dynamic_way_value_needs_speed: draft.dynamicWayValueNeedsSpeed,
     };
     setSaving(true);
     try {

@@ -52,6 +52,9 @@ class DynamicWayValueMaterial:
     # *出所*（外部データ/道路自身に内在）が異なるだけで、パラメータとしては両方とも
     # ユーザー指定の走行方位を必要とする（T400.md「2.」節の3軸目）。
     needs_bearing: bool
+    # 想定速度（`speed_kmh`クエリパラメータ）に依存するか。走行速度依存の材料
+    # （`wind_drag_ratio`）を参照する軸で立てる。
+    needs_speed: bool
 
 
 def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
@@ -70,6 +73,7 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
             label=definition.label,
             needs_time=definition.dynamic_way_value_needs_time,
             needs_bearing=definition.dynamic_way_value_needs_bearing,
+            needs_speed=definition.dynamic_way_value_needs_speed,
         )
         for axis_id, definition in AXIS_DEFINITIONS.items()
         if definition.dedicated_way_value_layer

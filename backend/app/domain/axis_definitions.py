@@ -287,6 +287,11 @@ class AxisDefinition(BaseModel):
     向きの*出所*（外部データ/道路自身に内在）が異なるだけで、パラメータとしては両方とも
     ユーザー指定の走行方位を必要とする）。改善計画T458、`dynamic_way_value_needs_time`と
     同じ理由で明示的なフィールドとして持たせる。"""
+    dynamic_way_value_needs_speed: bool = False
+    """`dedicated_way_value_layer=True`の軸のみ意味を持つ。同エンドポイントの
+    `speed_kmh`クエリパラメータ（想定速度）にこの軸の値が依存するかの宣言。走行速度に
+    依存する材料（`wind_drag_ratio`）を参照する軸で立てる。他の2フラグと同じ理由で
+    明示的なフィールドとして持たせる（キャッシュキーへ速度バケットを含めるかの判定にも使う）。"""
 
     @property
     def materials(self) -> list[str]:

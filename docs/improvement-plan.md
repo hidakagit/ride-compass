@@ -854,7 +854,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 - [x] [T591](tasks/T591.md). 二乗則の風材料を追加しバックエンドの3経路へ走行速度を配線する 規模M（2026-09-05完了。`wind_drag_ratio`材料追加、`DynamicAxisRequestContext.travel_speed_ms`必須化、式は`domain/wind.py`の1箇所へ集約。`wind_penalty`は本番の風軸切替[T599]まで非推奨エイリアスとして残置）
 - [ ] [T592](tasks/T592.md). 区間・候補の物理量表示を材料カタログ駆動へ汎用化する 規模M
 - [x] [T593](tasks/T593.md). 専用way値レイヤーの配信値を難易度スケールへ統一しdisplay_thresholds_overrideの二重帰属を解消する 規模M（2026-09-05完了。配信値はbackendが軸定義で評価した地図表示値[風=難易度、勾配=符号付き材料]、軸カタログにmap_value_kind/unitを追加、フロントの風・勾配専用ファイルをdedicatedWayValueLayer.ts/valueScale.tsへ統合。本番の段階ラベル設定はT599へ）
-- [ ] [T594](tasks/T594.md). 動的way値配信へ走行速度を伝播する（dynamic_way_value_needs_speed） 規模S
+- [x] [T594](tasks/T594.md). 動的way値配信へ走行速度を伝播する（dynamic_way_value_needs_speed） 規模S（2026-09-05完了。DDL 0031・API`speed_kmh`・速度バケット付きキャッシュキー・`WindWayService`が風軸の参照先に応じて材料を切替。実機確認は本番の風軸切替[T599]後）
 - [ ] [T595](tasks/T595.md). 地図の色分け（レンズ）の入口を1箇所へ統合し重み0の軸も選べるようにする 規模M
 - [ ] [T596](tasks/T596.md). 出発時刻・走行方位・想定速度を地図下辺の条件バー1本へ集約する 規模M
 - [ ] [T597](tasks/T597.md). デスクトップのサイドバーをモバイルと同じ3区分にし、ルート結果ヘッダに保存・GPX出力の操作枠を確保する 規模S

@@ -48,17 +48,22 @@ const EMPTY_RESULT: UseDynamicWayValuesResult = { values: new Map(), byTile: [] 
  * `materialId`（"wind"/"gradient"）ごとに呼び出し側が別々にこのフックを使う想定
  * （page.tsx参照）。`bearingDeg`はviewportと同様デバウンス後の値を使い、どちらかが
  * 変わるたびに依存配列経由で再フェッチする（enabled/debouncedViewportの変化と同じ扱い）。
- * `at`は時刻に依存する材料（風）だけが意味を持つ（勾配はundefinedのまま渡してよい）。 */
+ * `at`は時刻に依存する材料（風）だけが意味を持つ（勾配はundefinedのまま渡してよい）。
+ * `speedKmh`（想定速度）は走行速度に依存する材料（風の`wind_drag_ratio`）だけがbackend側で
+ * 使う（それ以外の材料は無視するため渡しても害はない）。 */
 export function useDynamicWayValues(
   materialId: string,
   enabled: boolean,
   mapViewport: MapViewport | null,
   bearingDeg: number,
-  at: Date | undefined
+  at: Date | undefined,
+  speedKmh?: number
 ): UseDynamicWayValuesResult {
   const [result, setResult] = useState<UseDynamicWayValuesResult>(EMPTY_RESULT);
   const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
   const debouncedBearingDeg = useDebouncedValue(bearingDeg, MAP_FETCH_DEBOUNCE_MS);
+  // 想定速度の入力欄も連続入力されるため、向きと同じくデバウンスする。
+  const debouncedSpeedKmh = useDebouncedValue(speedKmh, MAP_FETCH_DEBOUNCE_MS);
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
@@ -74,7 +79,9 @@ export function useDynamicWayValues(
       const tiles: TileXY[] = tilesCoveringViewport(debouncedViewport, ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM);
       const seq = ++requestSeqRef.current;
       const responses = await Promise.all(
-        tiles.map((tile) => fetchDynamicWayValues(materialId, tile.z, tile.x, tile.y, debouncedBearingDeg, at))
+        tiles.map((tile) =>
+          fetchDynamicWayValues(materialId, tile.z, tile.x, tile.y, debouncedBearingDeg, at, debouncedSpeedKmh)
+        )
       );
       if (cancelled || seq !== requestSeqRef.current) return;
       setResult({
@@ -85,7 +92,7 @@ export function useDynamicWayValues(
     return () => {
       cancelled = true;
     };
-  }, [materialId, enabled, debouncedViewport, debouncedBearingDeg, at]);
+  }, [materialId, enabled, debouncedViewport, debouncedBearingDeg, at, debouncedSpeedKmh]);
 
   return result;
 }

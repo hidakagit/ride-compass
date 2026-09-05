@@ -90,6 +90,7 @@ class AxisDefinitionRow(Base):
     # 経由で行う）。
     dynamic_way_value_needs_time: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     dynamic_way_value_needs_bearing: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    dynamic_way_value_needs_speed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # 改善計画T330: create_tables()（Base.metadata.create_all）が先に走る「まっさらなDBから
     # のブートストラップ」経路では、DB側のserver_defaultが無いと0014 migrationのINSERT
     # （updated_atを指定しない）がNOT NULL制約違反になる。他の全カラムはこのため

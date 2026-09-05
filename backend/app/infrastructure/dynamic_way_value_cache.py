@@ -12,7 +12,8 @@ Redis cache-asideキャッシュ。旧`wind_way_penalty_cache.py`（風専用）
 共有できる（風はdict.fromkeys(way_ids, penalty)で作った「全キー同値」のdictを渡すだけ）。
 
 時刻バケットは1時間丸め（`YYYY-MM-DDTHH`、時刻に依存しない材料はNone）、向きバケットは
-`BEARING_BUCKET_DEG`（5度）刻み（向きに依存しない材料はNone）。向きをバケット化する
+`BEARING_BUCKET_DEG`（5度）刻み（向きに依存しない材料はNone）、速度バケットは1km/h刻み
+（速度に依存しない材料はNone）。向きをバケット化する
 理由はwind_way_service.py（旧wind_way_penalty_cache.pyのモジュールdocstring）参照——
 スライダーの連続値をそのままキーへ使うとキャッシュヒット率がほぼ0になるため。
 
@@ -54,15 +55,27 @@ def bearing_bucket(bearing_deg: float) -> int:
     return math.floor(normalized / BEARING_BUCKET_DEG + 0.5) % (360 // BEARING_BUCKET_DEG)
 
 
-def _key(material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None) -> str:
+def speed_bucket(speed_kmh: float) -> int:
+    """想定速度（km/h）を1km/h刻みのバケット番号へ丸める（向きと同じ理由で連続値をそのまま
+    キーにしない）。"""
+    return math.floor(speed_kmh + 0.5)
+
+
+def _key(
+    material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
+    speed_kmh: float | None,
+) -> str:
     bearing_token = str(bearing_bucket(bearing_deg)) if bearing_deg is not None else "-"
-    return f"{_KEY_PREFIX}:{material_id}:{z}:{x}:{y}:{hour_bucket or '-'}:{bearing_token}"
+    speed_token = str(speed_bucket(speed_kmh)) if speed_kmh is not None else "-"
+    return f"{_KEY_PREFIX}:{material_id}:{z}:{x}:{y}:{hour_bucket or '-'}:{bearing_token}:{speed_token}"
 
 
 async def get_tile_values(
-    material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None
+    material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
+    speed_kmh: float | None = None,
 ) -> dict[int, float] | None:
-    """指定タイル・材料・時刻バケット・向きバケットに対応する`{way_id: 値}`を返す。
+    """指定タイル・材料・時刻バケット・向きバケット・速度バケット（速度に依存しない材料は
+    None）に対応する`{way_id: 値}`を返す。
     未キャッシュ・Redis疎通不能・壊れたエントリはいずれもNoneへfail-openする（呼び出し元は
     実計算へ進む）。"""
     if not redis_available():
@@ -70,7 +83,7 @@ async def get_tile_values(
     client = get_redis_client_or_none()
     if client is None:
         return None
-    key = _key(material_id, z, x, y, hour_bucket, bearing_deg)
+    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
     with log_external_call(f"cache:dynway-{material_id}-redis") as fields:
         try:
             raw = await client.get(key)
@@ -107,6 +120,7 @@ async def set_tile_values(
     bearing_deg: float | None,
     values: dict[int, float],
     ttl_seconds: int,
+    speed_kmh: float | None = None,
 ) -> None:
     """新規に計算できた`{way_id: 値}`をRedisへ書き戻す（キャッシュの最適化であり、
     書き込み失敗はレスポンス自体の成否には関与しない。失敗時は抑制付きWARNINGで記録する
@@ -116,7 +130,7 @@ async def set_tile_values(
     client = get_redis_client_or_none()
     if client is None:
         return
-    key = _key(material_id, z, x, y, hour_bucket, bearing_deg)
+    key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
     payload = json.dumps({str(way_id): value for way_id, value in values.items()})
     with log_external_call(f"cache:dynway-{material_id}-redis") as fields:
         try:

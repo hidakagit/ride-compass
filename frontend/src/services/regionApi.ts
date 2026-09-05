@@ -200,10 +200,13 @@ export async function fetchDynamicWayValues(
   x: number,
   y: number,
   bearingDeg: number,
-  at?: Date
+  at?: Date,
+  speedKmh?: number
 ): Promise<Record<string, number>> {
   const params = new URLSearchParams({ bearing_deg: String(bearingDeg) });
   if (at) params.set("at", at.toISOString());
+  // 走行速度に依存する材料（needs_speed）だけがbackend側で使う。他の材料へ渡しても無視される。
+  if (speedKmh !== undefined && Number.isFinite(speedKmh)) params.set("speed_kmh", String(speedKmh));
   const url = `${API_BASE_URL}${DYNAMIC_WAY_VALUES_PATH}/${materialId}/${z}/${x}/${y}?${params.toString()}`;
   const logCategory = `api:${materialId}-way-values`;
   const startedAt = performance.now();

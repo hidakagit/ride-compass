@@ -31,9 +31,10 @@ windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]
 import logging
 from datetime import datetime
 
+from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_ancestor, tile_bounds_lonlat
 from app.domain.route import Coordinates
-from app.domain.wind import headwind_component_ms
+from app.domain.wind import headwind_component_ms, kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import nearest_grid_point
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
@@ -44,7 +45,11 @@ from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.wind_way")
 
-MATERIAL_ID = "wind"
+# このサービスが担当する軸id（`api/dependencies.py: _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`の
+# キーと同じ）。返す材料は軸定義の参照先から決める（下記`material_id`）。
+AXIS_ID = "wind"
+SPEED_DEPENDENT_MATERIAL_ID = "wind_drag_ratio"
+LEGACY_MATERIAL_ID = "wind_penalty"
 
 
 def _hour_bucket(at: datetime) -> str:
@@ -77,20 +82,27 @@ def _nearest_time_index(times: list[str], target: datetime) -> int | None:
 
 
 class WindWayService:
-    # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
-    # 軸定義のどの材料として評価するかを決める）。走行速度がこの配信経路へまだ通っていない
-    # ため、速度に依存しない非推奨材料`wind_penalty`（進行方向に平行な風成分m/s）を返す。
-    material_id = "wind_penalty"
-
     def __init__(self, repository: RoadGraphRepository | None, weather_service: WeatherService):
         self._repository = repository
         self._weather_service = weather_service
 
+    @property
+    def material_id(self) -> str:
+        """このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
+        軸定義のどの材料として評価するかを決める）。風軸が走行速度依存の`wind_drag_ratio`を
+        参照していればそれ、参照していなければ非推奨材料`wind_penalty`（進行方向に平行な
+        風成分m/s）。軸スタジオでの参照先切替に配信側が自動で追従するための判定。"""
+        definition = AXIS_DEFINITIONS.get(AXIS_ID)
+        if definition is not None and SPEED_DEPENDENT_MATERIAL_ID in definition.materials:
+            return SPEED_DEPENDENT_MATERIAL_ID
+        return LEGACY_MATERIAL_ID
+
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
     ) -> dict[int, float]:
-        """指定タイル内のway_idごとのwind_penaltyを返す（T414の訂正後契約では、同じタイル内の
-        全wayは同じ値を持つ——モジュールdocstring参照）。repository未接続・取込範囲外・
+        """指定タイル内のway_idごとの風の材料値（`material_id`）を返す（T414の訂正後契約では、
+        同じタイル内の全wayは同じ値を持つ——モジュールdocstring参照）。`speed_kmh`（想定速度）は
+        材料が`wind_drag_ratio`のとき必須で、`wind_penalty`のときは無視する。repository未接続・取込範囲外・
         風データ取得不能等はいずれも空dictへ倒す（地図表示という既存機能全体を落とさず、
         「この道路には色が付かない」という安全側の劣化で済ませる、他タイル系メソッドと
         同じグレースフルデグレード方針）。
@@ -105,6 +117,11 @@ class WindWayService:
         """
         if bearing_deg is None:
             raise ValueError("WindWayService.get_way_valuesにはbearing_degが必須です")
+        material_id = self.material_id
+        needs_speed = material_id == SPEED_DEPENDENT_MATERIAL_ID
+        if needs_speed and speed_kmh is None:
+            raise ValueError("WindWayService.get_way_valuesにはspeed_kmhが必須です（wind_drag_ratio）")
+        cache_speed = speed_kmh if needs_speed else None
         if self._repository is None:
             return {}
         target = at or datetime.now(JST)
@@ -127,7 +144,7 @@ class WindWayService:
             fields["way_count"] = len(way_ids)
 
             hour_bucket = _hour_bucket(target)
-            cached = await get_tile_values(MATERIAL_ID, z, x, y, hour_bucket, bearing_deg)
+            cached = await get_tile_values(material_id, z, x, y, hour_bucket, bearing_deg, cache_speed)
             if cached is not None:
                 fields["cache_hit"] = len(way_ids)
                 fields["cache_status"] = "hit"
@@ -150,9 +167,14 @@ class WindWayService:
 
                 wind_speed = wind_grid_point.wind_speed_ms[index]
                 wind_direction = wind_grid_point.wind_direction_deg[index]
-                penalty = round(float(headwind_component_ms(wind_speed, wind_direction, bearing_deg)), 2)
+                if needs_speed:
+                    penalty = round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(speed_kmh)), 3)
+                else:
+                    penalty = round(float(headwind_component_ms(wind_speed, wind_direction, bearing_deg)), 2)
                 values = dict.fromkeys(way_ids, penalty)
-                await set_tile_values(MATERIAL_ID, z, x, y, hour_bucket, bearing_deg, values, WIND_GRID_CACHE_TTL_SECONDS)
+                await set_tile_values(
+                    material_id, z, x, y, hour_bucket, bearing_deg, values, WIND_GRID_CACHE_TTL_SECONDS, cache_speed
+                )
                 fields["computed"] = len(way_ids)
 
             # T414の訂正後契約では同じタイル内の全wayが同じ値を持つため、キャッシュhit/miss

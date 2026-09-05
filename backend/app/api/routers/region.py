@@ -109,6 +109,7 @@ async def region_dynamic_way_values(
     request: Request,
     bearing_deg: float | None = None,
     at: datetime | None = None,
+    speed_kmh: float | None = None,
     service=Depends(get_dynamic_way_value_service),
 ) -> dict[int, float]:
     """「評価軸」グループとしての動的＋向きあり材料（風・勾配、改善計画T405→T414→T423、
@@ -125,7 +126,8 @@ async def region_dynamic_way_values(
     に無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
     その材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
-    を使う、勾配は時刻に依存しないため渡しても無視される）。
+    を使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は
+    その材料が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
 
     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
     とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
@@ -143,10 +145,12 @@ async def region_dynamic_way_values(
         raise HTTPException(status_code=404, detail="未知のmaterial_idです。")
     if material.needs_bearing and bearing_deg is None:
         raise HTTPException(status_code=422, detail="この材料にはbearing_degが必須です。")
+    if material.needs_speed and speed_kmh is None:
+        raise HTTPException(status_code=422, detail="この材料にはspeed_kmhが必須です。")
     _check_tile_rate_limit(request, f"{material_id}-way-values")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        values = await service.get_way_values(z, x, y, at, bearing_deg)
+        values = await service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)
     # サービスは材料の生値を返しキャッシュも生値のまま持つ。地図が塗る値（難易度か符号付き
     # 材料か）への変換は軸定義から都度行うため、軸スタジオでbreakpointsを変えても
     # キャッシュを捨てずに即座に反映される。

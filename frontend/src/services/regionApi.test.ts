@@ -171,6 +171,23 @@ describe("regionApi", () => {
       expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/gradient/14/14551/6447?bearing_deg=90");
     });
 
+    it("speedKmhを渡すとspeed_kmhクエリパラメータとして付与する（走行速度依存の材料向け）", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await fetchDynamicWayValues("wind", 14, 14551, 6447, 90, undefined, 25);
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(String(url)).toBe(
+        "http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90&speed_kmh=25"
+      );
+    });
+
     it("atを渡すとISO文字列のクエリパラメータとして付与する", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,

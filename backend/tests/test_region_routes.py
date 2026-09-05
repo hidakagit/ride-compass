@@ -249,8 +249,8 @@ class FakeDynamicWayValueService:
         self.material_id = material_id
         self.last_request = None
 
-    async def get_way_values(self, z, x, y, at, bearing_deg):
-        self.last_request = (z, x, y, at, bearing_deg)
+    async def get_way_values(self, z, x, y, at, bearing_deg, speed_kmh=None):
+        self.last_request = (z, x, y, at, bearing_deg, speed_kmh)
         return self._values
 
 
@@ -273,7 +273,7 @@ def test_region_dynamic_way_values_returns_map_values_json(axis_id, material_id,
     assert response.status_code == 200
     # JSONのキーは常に文字列（intキーは自動的にstrへ変換される、Python標準のjson.dumps挙動）。
     assert response.json() == expected
-    assert fake.last_request == (14, 14551, 6447, None, 90.0)
+    assert fake.last_request == (14, 14551, 6447, None, 90.0, None)
 
 
 @pytest.mark.parametrize("material_id", ["wind", "gradient"])
@@ -313,7 +313,35 @@ def test_region_dynamic_way_values_needs_bearing_false_does_not_require_bearing_
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request == (14, 14551, 6447, None, None)
+    assert fake.last_request == (14, 14551, 6447, None, None, None)
+
+
+def test_region_dynamic_way_values_needs_speed_requires_speed_kmh_and_passes_it(monkeypatch):
+    dummy_axis = AxisDefinition(
+        axis_id="dummy_needs_speed",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (5.0, 100.0)]),
+        default_weight=0.1,
+        label="ダミー",
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_bearing=True,
+        dynamic_way_value_needs_speed=True,
+    )
+    monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_needs_speed", dummy_axis)
+    fake = FakeDynamicWayValueService(values={1: 2.5}, material_id="wind_drag_ratio")
+    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+
+    try:
+        missing = client.get("/api/region/dynamic-way-values/dummy_needs_speed/14/14551/6447", params={"bearing_deg": 0})
+        ok = client.get(
+            "/api/region/dynamic-way-values/dummy_needs_speed/14/14551/6447", params={"bearing_deg": 0, "speed_kmh": 25}
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert missing.status_code == 422
+    assert ok.status_code == 200
+    assert ok.json() == {"1": 50.0}
+    assert fake.last_request == (14, 14551, 6447, None, 0.0, 25.0)
 
 
 def test_region_dynamic_way_values_unknown_material_id_returns_404():
@@ -351,7 +379,7 @@ def test_region_dynamic_way_values_gradient_does_not_require_at_query_param():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert fake.last_request == (14, 14551, 6447, None, 0.0)
+    assert fake.last_request == (14, 14551, 6447, None, 0.0, None)
 
 
 def test_region_dynamic_way_values_rejects_too_low_zoom():

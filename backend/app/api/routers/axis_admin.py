@@ -131,6 +131,7 @@ class AxisDefinitionFields(BaseModel):
     # dynamic_way_value_needs_bearingのdocstring参照）。同じくGUI編集UIは現時点で未対応。
     dynamic_way_value_needs_time: bool = False
     dynamic_way_value_needs_bearing: bool = False
+    dynamic_way_value_needs_speed: bool = False
 
 
 class AxisDefinitionPayload(AxisDefinitionFields):

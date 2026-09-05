@@ -50,15 +50,15 @@ class GradientWayService:
         self._repository = repository
 
     async def get_way_values(
-        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
     ) -> dict[int, float]:
         """指定タイル内のway_idごとの実効勾配（`GradientCalculator.effective_gradient`、
         正=登り・負=下り）を返す。repository未接続・取込範囲外・DB障害等はいずれも空dictへ
         倒す（他の動的配信層[wind_way_service.py]と同じグレースフルデグレード方針）。
 
-        `at`はrouter側の材料非依存な呼び出しインターフェース（`api/routers/region.py`の
+        `at`・`speed_kmh`はrouter側の材料非依存な呼び出しインターフェース（`api/routers/region.py`の
         `/dynamic-way-values/{material_id}/...`）と揃えるためだけに受け取り、勾配の計算
-        自体には使わない（勾配は時刻に依存しない、モジュールdocstring参照）。
+        自体には使わない（勾配は時刻・走行速度に依存しない、モジュールdocstring参照）。
 
         bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
         時計回り）。全道路共通の値として使うが、道路自身の向き（road_bearing_deg）との

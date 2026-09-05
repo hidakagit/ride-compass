@@ -33,3 +33,4 @@ backend/data/
 
 # restart-dev.bat のバックグラウンド起動ログ
 /logs/
+.claude/worktrees/

@@ -48,6 +48,7 @@ function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefini
     dedicated_way_value_layer: false,
     dynamic_way_value_needs_time: false,
     dynamic_way_value_needs_bearing: false,
+    dynamic_way_value_needs_speed: false,
     shape: {
       kind: "breakpoint_linear",
       terms: [{ material: "gradient_percent", weight: 1.0, required: true }],

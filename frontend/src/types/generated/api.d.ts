@@ -357,7 +357,8 @@ export interface paths {
          *     に無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
          *     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
          *     その材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
-         *     を使う、勾配は時刻に依存しないため渡しても無視される）。
+         *     を使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は
+         *     その材料が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
          *
          *     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
          *     とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
@@ -926,6 +927,11 @@ export interface components {
              * @default false
              */
             dynamic_way_value_needs_bearing: boolean;
+            /**
+             * Dynamic Way Value Needs Speed
+             * @default false
+             */
+            dynamic_way_value_needs_speed: boolean;
         };
         /**
          * AxisDefinitionResponse
@@ -1003,6 +1009,11 @@ export interface components {
              * @default false
              */
             dynamic_way_value_needs_bearing: boolean;
+            /**
+             * Dynamic Way Value Needs Speed
+             * @default false
+             */
+            dynamic_way_value_needs_speed: boolean;
             display: components["schemas"]["AxisDisplaySpec"];
         };
         /**
@@ -2348,6 +2359,7 @@ export interface operations {
             query?: {
                 bearing_deg?: number | null;
                 at?: string | null;
+                speed_kmh?: number | null;
             };
             header?: never;
             path: {

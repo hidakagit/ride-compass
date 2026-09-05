@@ -28,6 +28,7 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
             material_id=axis_id, label=definition.label,
             needs_time=definition.dynamic_way_value_needs_time,
             needs_bearing=definition.dynamic_way_value_needs_bearing,
+            needs_speed=definition.dynamic_way_value_needs_speed,
         )
         for axis_id, definition in AXIS_DEFINITIONS.items()
         if definition.dedicated_way_value_layer
@@ -47,6 +48,8 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
 - `needs_bearing`: 向き（`bearing_deg`クエリパラメータ）に依存するか。風・勾配とも
   Yes（向きの*出所*が異なるだけで、パラメータとしては両方ともユーザー指定の走行方位を
   必要とする）。
+- `needs_speed`: 想定速度（`speed_kmh`クエリパラメータ）に依存するか。走行速度依存の
+  材料`wind_drag_ratio`を参照する風軸で立てる（勾配=No）。
 - `dedicated_way_value_layer=True`の軸は現状wind/gradientの2軸のみ。
 
 同じモジュールが、軸について地図が塗る値の種類を軸定義から決める:
@@ -65,13 +68,14 @@ FACTORIES`は、material_id→サービス実装本体（`WindWayService`/`Gradi
 
 ## API（`api/routers/region.py`）
 
-`GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}?bearing_deg=&at=`
+`GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}?bearing_deg=&at=&speed_kmh=`
 
 ```
 material_id → dynamic_way_value_materials().get(material_id)（無ければ404）
             → needs_bearing かつ bearing_deg 省略 → 422
+            → needs_speed かつ speed_kmh 省略 → 422（それ以外の材料はspeed_kmhを無視）
             → get_dynamic_way_value_service(material_id) が WindWayService/GradientWayService を組み立て
-            → service.get_way_values(z, x, y, at, bearing_deg)   … 材料の生値（キャッシュ対象）
+            → service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)   … 材料の生値（キャッシュ対象）
             → transform_dedicated_way_values(AXIS_DEFINITIONS[material_id], service.material_id, 生値)
             → {way_id: 地図表示値} の辞書（JSON）
 ```
@@ -81,11 +85,11 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
   `signed_material`の軸（勾配: 単一材料・`preprocess="abs"`）は符号付き材料生値のまま。
   ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
   スケールになるため、`display_thresholds_override`は軸ごとに1つの意味を持つ。
-- 各サービスは`material_id`クラス属性で自分が返す生値の材料id（`wind_penalty`／
-  `gradient_percent`）を宣言し、routerはそれを軸定義のどの材料として評価するかに使う。
-  風は走行速度がこの配信経路へ通っていないため、速度に依存しない非推奨材料
-  `wind_penalty`を返す（ルート確定後の評価が使う`wind_drag_ratio`への切替は速度伝播と
-  同時に行う）。
+- 各サービスは`material_id`属性で自分が返す生値の材料idを宣言し、routerはそれを軸定義の
+  どの材料として評価するかに使う。勾配は`gradient_percent`固定。風は風軸の参照先から
+  都度決める（`WindWayService.material_id`プロパティ: 風軸が`wind_drag_ratio`を参照して
+  いればそれ[走行速度依存、`speed_kmh`必須]、参照していなければ非推奨材料`wind_penalty`）
+  ため、軸スタジオで参照先を切り替えると配信側はコード変更なしに追従する。
   キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
   次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
   結果から除く（地図上は「データなし」）。
@@ -103,10 +107,12 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
 ## キャッシュ（`infrastructure/dynamic_way_value_cache.py`）
 
 タイル単位の値を地図表示専用のRedisキャッシュへ格納する。キーは
-`_key(material_id, z, x, y, hour_bucket, bearing_deg)` — `bearing_bucket(bearing_deg)`が
-向きを`BEARING_BUCKET_DEG`（5度）刻みで離散バケット化するため、パン・ズームで同じ
-タイルが再び視界に入っても、同じ時刻バケット・向きバケットの範囲内では風グリッド・
-DBへの再問い合わせは発生しない。
+`_key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)` — `bearing_bucket(bearing_deg)`が
+向きを`BEARING_BUCKET_DEG`（5度）刻み、`speed_bucket(speed_kmh)`が想定速度を1km/h刻みで
+離散バケット化するため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・
+向きバケット・速度バケットの範囲内では風グリッド・DBへの再問い合わせは発生しない。
+速度に依存しない材料（勾配、非推奨材料`wind_penalty`の風）は速度バケットをNone（`-`）にし、
+速度が変わってもキャッシュが分割されない。
 
 値は`{way_id: 値}`のJSONオブジェクトで、風のように「タイル内全wayが同値」の場合も
 勾配のように「way単位で異なる値」の場合も同じ表現で吸収する。TTLは呼び出し元が渡す
@@ -123,7 +129,8 @@ DBへの再問い合わせは発生しない。
 `wind_penalty`値を持つ（風グリッドもタイル中心1点で代表させる近似のため）。
 
 ```
-get_way_values(z, x, y, at, bearing_deg)
+get_way_values(z, x, y, at, bearing_deg, speed_kmh)
+  ├─ material_id（風軸の参照先）がwind_drag_ratioなら speed_kmh 必須（Noneは即ValueError）
   ├─ repository未接続 → {}
   ├─ get_way_ids_in_tile → way_id一覧（カバレッジ外はNone→{}、DB障害も{}）
   ├─ hour_bucket = at.strftime("%Y-%m-%dT%H")
@@ -131,7 +138,8 @@ get_way_values(z, x, y, at, bearing_deg)
   └─ キャッシュmiss →
        nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
        → _nearest_time_index（範囲外はNone→{}）
-       → headwind_component_ms(speed, direction, bearing_deg)
+       → wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))   … material_id=wind_drag_ratio
+         または headwind_component_ms(speed, direction, bearing_deg)             … material_id=wind_penalty
        → 全way_idへbroadcastしてキャッシュ書き込み
   └─ 戻り値は常に dict.fromkeys(way_ids, penalty)   … 生値。難易度への変換はrouter側
 ```
@@ -165,8 +173,8 @@ values = {
 
 `at`引数はrouterとのインターフェース統一のためだけに受け取り、計算には使わない。
 
-両サービスとも`get_way_values(z, x, y, at, bearing_deg) -> dict[int, float]`という
-同じシグネチャで`region.py`から材料非依存に呼ばれる。
+両サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[int, float]`という
+同じシグネチャで`region.py`から材料非依存に呼ばれる（勾配は`at`・`speed_kmh`を無視する）。
 
 ## 純粋計算ロジック（domain層）
 

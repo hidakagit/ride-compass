@@ -42,7 +42,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
     await waitFor(() => expect(result.current.values.size).toBe(2));
     expect(result.current.values.get(1)).toBe(2.5);
     expect(result.current.values.get(2)).toBe(-1.0);
-    expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 90, at);
+    expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 90, at, undefined);
   });
 
   it("material_idが異なれば別々の値としてフェッチする（gradientの例）", async () => {
@@ -51,7 +51,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
     const { result } = renderHook(() => useDynamicWayValues("gradient", true, VIEWPORT, 45, undefined));
 
     await waitFor(() => expect(result.current.values.size).toBe(1));
-    expect(fetchDynamicWayValues).toHaveBeenCalledWith("gradient", 14, 14549, 6450, 45, undefined);
+    expect(fetchDynamicWayValues).toHaveBeenCalledWith("gradient", 14, 14549, 6450, 45, undefined, undefined);
   });
 
   it("byTileにタイルごとの生応答を保持する（gridFillのタイル単位集計向け）", async () => {

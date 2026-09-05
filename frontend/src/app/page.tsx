@@ -1209,7 +1209,21 @@ export default function Home() {
   // ルート設定パネルへ移ったため、hasDetail時のdisabled化は
   // `RouteSettingsPanel.tsx: renderMapColorToggle`が担う）。
   const showWindAxis = layerVisibility.windAxis && !hasDetail;
-  const windAxisData = useDynamicWayValues("wind", showWindAxis, mapViewport, travelBearingDeg, dynamicLayerTargetTime);
+  // 想定速度（ルート設定の入力欄）は風のレンズ（走行速度依存の材料）にも効く。未入力・不正値の
+  // 間は既定速度で配信を続ける。
+  const parsedAssumedSpeedForLens = Number(assumedSpeedInput);
+  const lensSpeedKmh =
+    assumedSpeedInput.trim() !== "" && Number.isFinite(parsedAssumedSpeedForLens)
+      ? parsedAssumedSpeedForLens
+      : routeGenerateConfig.default_assumed_speed_kmh;
+  const windAxisData = useDynamicWayValues(
+    "wind",
+    showWindAxis,
+    mapViewport,
+    travelBearingDeg,
+    dynamicLayerTargetTime,
+    lensSpeedKmh
+  );
 
   // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型だが、勾配は
   // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有しない。
