@@ -60,6 +60,10 @@ class RouteSegmentDetail(BaseModel):
     # 再計算せず表示するために使う（domain/evaluation.py: compose_costs_from_axis_matrix
     # 参照）。
     axis_contributions: dict[str, float] = Field(default_factory=dict)
+    # 重み>0の公開軸が参照する材料id→値の汎用辞書（`AXIS_DEFINITIONS`の`materials`
+    # プロパティから導出、軸名のハードコード無し）。axis_difficultiesと同じ
+    # 「値が無い材料はキーを持たない」規約。評価に使っていない軸の材料は出ない。
+    material_values: dict[str, float] = Field(default_factory=dict)
     difficulty: float | None = None
 
 
@@ -104,6 +108,9 @@ class RouteCandidate(BaseModel):
     # _with_axis_contributions`が付与する）。フロントの「内訳（重み付き寄与度）」表示は
     # このフィールドをそのまま使い、ルート設定の重みを使った独自再計算はしない。
     axis_contributions: dict[str, float] = Field(default_factory=dict)
+    # `RouteSegmentDetail.material_values`を候補全区間へ距離加重平均で集約したもの
+    # （`merge_material_values`、`axis_difficulties`と同じ集約方法）。
+    material_values: dict[str, float] = Field(default_factory=dict)
 
 
 # 改善計画T11（レビュー指摘M3）: road_graphエンジンのsegmentsはEdge単位（交差点間、
@@ -222,6 +229,13 @@ def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, fl
     return _merge_axis_value_dict(segments, lambda s: s.axis_contributions)
 
 
+def merge_material_values(segments: list[RouteSegmentDetail]) -> dict[str, float]:
+    """`RouteSegmentDetail.material_values`を材料idごとに距離加重平均へ集約する。
+    `merge_axis_difficulties`と同じ集約方法（`_merge_axis_value_dict`共有実装）。
+    """
+    return _merge_axis_value_dict(segments, lambda s: s.material_values)
+
+
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
     first, last = segments[0], segments[-1]
     return RouteSegmentDetail(
@@ -242,5 +256,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         road_surface_good=_weighted_mode([(s.road_surface_good, s.distance_km) for s in segments]),
         axis_difficulties=merge_axis_difficulties(segments),
         axis_contributions=merge_axis_contributions(segments),
+        material_values=merge_material_values(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )

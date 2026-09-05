@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.route import RouteSegmentDetail, aggregate_segments_into_bins
+from app.domain.route import RouteSegmentDetail, aggregate_segments_into_bins, merge_material_values
 
 
 def _segment(
@@ -212,3 +212,30 @@ def test_aggregate_segments_into_bins_axis_difficulties_survives_axis_unpublishe
     assert bins[0].axis_difficulties["elevation"] == pytest.approx(40.0)
     # (30*0.2 + 60*0.2) / 0.4 = 45.0
     assert bins[0].axis_difficulties["wind"] == pytest.approx(45.0)
+
+
+# merge_material_values（改善計画T592: RouteCandidate.material_valuesの集約関数、
+# merge_axis_difficultiesと同じ距離加重平均の共有実装を使う）。
+
+
+def test_merge_material_values_distance_weighted_average():
+    segments = [
+        _segment(0, distance_km=0.3, material_values={"wind_penalty": 8.0}),
+        _segment(1, distance_km=0.1, material_values={"wind_penalty": 4.0}),
+    ]
+
+    merged = merge_material_values(segments)
+
+    # (8*0.3 + 4*0.1) / 0.4 = 7.0
+    assert merged["wind_penalty"] == pytest.approx(7.0)
+
+
+def test_merge_material_values_omits_material_absent_from_every_segment():
+    segments = [
+        _segment(0, distance_km=0.2, material_values={"wind_penalty": 5.0}),
+        _segment(1, distance_km=0.2, material_values={"wind_penalty": 5.0}),
+    ]
+
+    merged = merge_material_values(segments)
+
+    assert set(merged.keys()) == {"wind_penalty"}

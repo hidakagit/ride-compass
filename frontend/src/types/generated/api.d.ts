@@ -1495,6 +1495,10 @@ export interface components {
             axis_contributions?: {
                 [key: string]: number;
             };
+            /** Material Values */
+            material_values?: {
+                [key: string]: number;
+            };
         };
         /**
          * RouteGenerateJobCreatedResponse
@@ -1653,6 +1657,10 @@ export interface components {
             };
             /** Axis Contributions */
             axis_contributions?: {
+                [key: string]: number;
+            };
+            /** Material Values */
+            material_values?: {
                 [key: string]: number;
             };
             /** Difficulty */

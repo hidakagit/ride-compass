@@ -90,7 +90,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
-from app.domain.axis_definitions import AXIS_DEFINITIONS, dynamic_axis_topological_order
+from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS, dynamic_axis_topological_order
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
@@ -219,10 +219,10 @@ class LegCostArrays:
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
     contribution_arrays: dict[str, np.ndarray]
-    # `full_edge_row`順の材料`wind_penalty`（進行方向に平行な風成分m/s）の配列（風データが
-    # 無ければNone）。区間表示と`wind_score`の集計が、探索コストの合成と同じ風入力から
-    # 求めた値を読むために保持する。
-    wind_penalty: np.ndarray | None
+    # `full_edge_row`順の動的材料id→配列（`evaluate_dynamic_material_arrays`が返す全材料が
+    # 対象、全行NaNの材料はキーを持たない）。区間表示・`material_values`・`wind_score`の
+    # 集計が、探索コストの合成と同じ動的入力から求めた値を読むために保持する。
+    material_arrays: dict[str, np.ndarray]
     # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
     passage_hours: np.ndarray | None
 
@@ -304,14 +304,18 @@ class _LegCostComposer:
             self._score_matrix.distance_m, published, self._weights, self._penalty_strength,
         )
         cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
-        wind_penalty = resolved.get("wind_penalty")
+        material_arrays = {
+            material_id: resolved[material_id]
+            for material_id in REQUEST_DYNAMIC_MATERIAL_IDS
+            if material_id in resolved and not np.all(np.isnan(resolved[material_id]))
+        }
         leg = LegCostArrays(
             label=label,
             cost_list=cost_array[self._lazy_row_index].tolist(),
             difficulty_array=difficulty_array,
             axis_arrays=published,
             contribution_arrays=contribution_arrays,
-            wind_penalty=None if wind_penalty is None or np.all(np.isnan(wind_penalty)) else wind_penalty,
+            material_arrays=material_arrays,
             passage_hours=passage,
         )
         self._cache[key] = leg
@@ -1407,13 +1411,14 @@ class RoadGraphEngine:
         start_time: datetime,
         leg_of_edge: list[int],
     ) -> list[RouteSegmentDetail]:
-        """区間ごとの表示値を組み立てる。軸別スコア・合成difficulty・寄与度・風ペナルティは、
+        """区間ごとの表示値を組み立てる。軸別スコア・合成difficulty・寄与度・材料値は、
         そのEdgeが探索されたレグ（`leg_of_edge`）の合成済み配列（`context.legs`、
         `context.full_edge_row`で行を引く）からそのまま読み、探索コストと表示を一致させる
         （二重計算を持たない）。到達予想時刻は経路上の累積距離を仮定巡航速度で割って求める。
         """
         segments = []
         cumulative_km = 0.0
+        active_material_ids = _active_material_ids(context.composer._weights)
 
         for edge, leg_index in zip(edges, leg_of_edge):
             leg = context.legs[leg_index]
@@ -1433,6 +1438,7 @@ class RoadGraphEngine:
                 axis_contributions: dict[str, float] = {}
                 composite_difficulty_value: float | None = None
                 wind_penalty: float | None = None
+                material_values: dict[str, float] = {}
             else:
                 axis_scores = {
                     axis_id: float(arr[row])
@@ -1446,7 +1452,12 @@ class RoadGraphEngine:
                 }
                 difficulty_value = leg.difficulty_array[row]
                 composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
-                wind_penalty = _wind_penalty_at(leg, row)
+                wind_penalty = _material_value_at(leg, "wind_penalty", row)
+                material_values = {
+                    material_id: value
+                    for material_id in active_material_ids
+                    if (value := _material_value_at(leg, material_id, row)) is not None
+                }
 
             elapsed_hours = cumulative_km / self._assumed_speed_kmh
             arrival_time = start_time + timedelta(hours=elapsed_hours)
@@ -1478,6 +1489,7 @@ class RoadGraphEngine:
                     # 持たない）のため、そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
                     axis_difficulties=axis_scores,
                     axis_contributions=axis_contributions,
+                    material_values=material_values,
                     difficulty=composite_difficulty_value,
                 )
             )
@@ -1486,12 +1498,30 @@ class RoadGraphEngine:
         return segments
 
 
-def _wind_penalty_at(leg: LegCostArrays, row: int) -> float | None:
-    """レグの合成に使ったwind_penalty材料配列から1行を読む（風データ無し・欠損はNone）。"""
-    if leg.wind_penalty is None:
+def _material_value_at(leg: LegCostArrays, material_id: str, row: int) -> float | None:
+    """レグの合成に使った材料配列から1行を読む（材料データ無し・欠損はNone）。"""
+    array = leg.material_arrays.get(material_id)
+    if array is None:
         return None
-    value = float(leg.wind_penalty[row])
+    value = float(array[row])
     return None if math.isnan(value) else value
+
+
+def _active_material_ids(weights: Mapping[str, float]) -> set[str]:
+    """重み>0の公開軸が参照する材料idの集合（`AXIS_DEFINITIONS`の`materials`プロパティ
+    から導出、軸id自体への参照は除く。軸名のハードコード無し）。"""
+    from app.domain.material_catalog import is_known_material
+
+    material_ids: set[str] = set()
+    for axis_id, weight in weights.items():
+        if weight <= 0:
+            continue
+        definition = AXIS_DEFINITIONS.get(axis_id)
+        if definition is None:
+            continue
+        material_ids.update(m for m in definition.materials if is_known_material(m))
+    return material_ids
+
 
 async def _get_or_build_lazy_graph(
     tile_set: frozenset[tuple[int, int, int]] | None, graph: RoadGraphLike
@@ -1916,25 +1946,32 @@ def _aggregate_road_score(edges: list[EdgeLike], materials: dict[str, EdgeMateri
     )
 
 
-def _aggregate_wind_score(
-    edges: list[EdgeLike], context: _RoadGraphContext, leg_of_edge: list[int]
+def _aggregate_material_average(
+    edges: list[EdgeLike], context: _RoadGraphContext, leg_of_edge: list[int], material_id: str
 ) -> float | None:
-    """経路全体の距離加重平均wind_penalty（符号付きm/s、正=正味向かい風）。各Edgeの値は、
-    そのEdgeが探索されたレグの合成済み配列（区間表示と同じ値）から読む。"""
+    """経路全体の距離加重平均材料値。各Edgeの値は、そのEdgeが探索されたレグの合成済み
+    配列（区間表示と同じ値）から読む。"""
     weighted_total = 0.0
     total_weight = 0.0
     for edge, leg_index in zip(edges, leg_of_edge):
         row = context.full_edge_row.get(edge.edge_id)
         if row is None:
             continue
-        penalty = _wind_penalty_at(context.legs[leg_index], row)
-        if penalty is None:
+        value = _material_value_at(context.legs[leg_index], material_id, row)
+        if value is None:
             continue
         distance_km = edge.distance_m / 1000
         if distance_km > 0:
-            weighted_total += penalty * distance_km
+            weighted_total += value * distance_km
             total_weight += distance_km
 
     if total_weight == 0:
         return None
     return round(weighted_total / total_weight, 2)
+
+
+def _aggregate_wind_score(
+    edges: list[EdgeLike], context: _RoadGraphContext, leg_of_edge: list[int]
+) -> float | None:
+    """経路全体の距離加重平均wind_penalty（符号付きm/s、正=正味向かい風）。"""
+    return _aggregate_material_average(edges, context, leg_of_edge, "wind_penalty")

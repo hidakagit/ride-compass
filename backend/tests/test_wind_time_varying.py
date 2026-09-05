@@ -222,8 +222,8 @@ async def test_inbound_leg_uses_wind_at_return_time_and_segments_read_the_same_a
     # 北向きスポーク（origin→p-0、bearing 0°）: 往路配列では向かい風（+5）、復路配列では
     # 復路の通過予定時刻（10:01→最近傍10時=南風）の追い風（-5）。
     row = context.full_edge_row["e-0-spoke1"]
-    assert outbound.wind_penalty[row] == pytest.approx(5.0)
-    assert inbound.wind_penalty[row] == pytest.approx(-5.0)
+    assert outbound.material_arrays["wind_penalty"][row] == pytest.approx(5.0)
+    assert inbound.material_arrays["wind_penalty"][row] == pytest.approx(-5.0)
     assert outbound.cost_list != inbound.cost_list
 
     # 区間表示は各Edgeが探索されたレグの配列から読む（往路Edgeは往路配列、復路Edgeは復路配列）。
@@ -236,6 +236,35 @@ async def test_inbound_leg_uses_wind_at_return_time_and_segments_read_the_same_a
     assert first.wind_penalty is not None and last.wind_penalty is not None
     # 順方向は往路が向かい風。逆回り候補が採用された場合も、先に走る区間が往路配列で評価される。
     assert candidates[0].wind_score is not None
+    # 改善計画T592: 風軸の重み>0なので、区間のmaterial_valuesに風軸が参照する材料
+    # (wind_penalty)が出る（候補全体への集約はroute_generator.pyが行うため、
+    # engine.evaluate_loopsが返す時点ではsegments側だけで確認する）。
+    assert "wind_penalty" in first.material_values
+
+
+async def test_material_values_omits_wind_when_wind_axis_has_no_weight():
+    # 改善計画T592: 風軸の重みが0のリクエストでは、風データ自体はあっても
+    # material_valuesに風の材料(wind_penalty)は出ない（評価に使っていない軸の材料は
+    # 出ない、という規約）。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    weights = {axis_id: 0.0 for axis_id in RoutePreference().weights}
+    weights["gradient"] = 1.0
+    series = _series(48, lambda h: 0)
+    generator, _, _ = make_generator(
+        graph, weather=_weather(0.0), wind_series=series,
+        route_preference=RoutePreference(weights=weights),
+    )
+    engine = generator._engine
+    context = await engine.prepare(ORIGIN, radius_km=30.0 * 0.4, now=datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc))
+    assert context is not None
+
+    turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
+    turnaround = turnarounds[0]
+    traced = await engine.trace_loop_from_turnaround(context, turnaround)
+    candidates = await engine.evaluate_loops(context, [traced], datetime(2026, 9, 5, 9, 0))
+
+    for segment in candidates[0].segments:
+        assert "wind_penalty" not in segment.material_values
 
 
 async def test_assumed_speed_changes_estimated_arrival_time_and_preview_duration():

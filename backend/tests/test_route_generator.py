@@ -356,6 +356,7 @@ def make_segment(
     difficulty: float | None,
     axis_difficulties: dict[str, float] | None = None,
     axis_contributions: dict[str, float] | None = None,
+    material_values: dict[str, float] | None = None,
 ) -> RouteSegmentDetail:
     return RouteSegmentDetail(
         start_latitude=35.0,
@@ -367,6 +368,7 @@ def make_segment(
         difficulty=difficulty,
         axis_difficulties=axis_difficulties or {},
         axis_contributions=axis_contributions or {},
+        material_values=material_values or {},
     )
 
 
@@ -470,6 +472,35 @@ async def test_axis_contributions_is_empty_dict_when_segments_missing():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     assert all(c.axis_contributions == {} for c in candidates)
+
+
+async def test_material_values_is_distance_weighted_average_of_segments():
+    # 改善計画T592: RouteCandidate.material_valuesはaxis_difficulties/axis_contributionsと
+    # 同じ集約方法（merge_material_values、distance_weighted_difficulty）で候補全区間へ
+    # 集約される。
+    engine = SegmentedFakeEngine(
+        {0: 30.0},
+        {
+            0: [
+                make_segment(1.0, 0.0, material_values={"wind_penalty": 8.0}),
+                make_segment(3.0, 100.0, material_values={"wind_penalty": 4.0}),
+            ]
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    # wind_penalty: (8*1.0 + 4*3.0) / 4.0 = 5.0
+    assert candidates[0].material_values["wind_penalty"] == 5.0
+
+
+async def test_material_values_is_empty_dict_when_segments_missing():
+    generator, _ = make_generator({b: 30.0 for b in BEARINGS})
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    assert all(c.material_values == {} for c in candidates)
 
 
 async def test_axis_contributions_sum_matches_overall_difficulty():

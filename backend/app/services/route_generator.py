@@ -53,6 +53,7 @@ from app.domain.route import (
     RouteCandidate,
     merge_axis_contributions,
     merge_axis_difficulties,
+    merge_material_values,
 )
 
 # ルート生成のステージ別サマリログ(方針は docs/logging.md)。1リクエスト=1行のINFOで
@@ -297,6 +298,7 @@ class RouteGenerator:
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
         candidates = [self._with_axis_contributions(c) for c in candidates]
+        candidates = [self._with_material_values(c) for c in candidates]
 
         # 改善計画T548: 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）
         # 昇順（易しい候補が先頭）。算出不能（None）の候補は末尾へ回す。改善計画T531:
@@ -392,6 +394,7 @@ class RouteGenerator:
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
         candidates = [self._with_axis_contributions(c) for c in candidates]
+        candidates = [self._with_material_values(c) for c in candidates]
         if destination is not None:
             candidates = [
                 c.model_copy(update={"id": "route-destination", "direction_label": "目的地ルート"})
@@ -454,6 +457,7 @@ class RouteGenerator:
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
         candidates = [self._with_axis_contributions(c) for c in candidates]
+        candidates = [self._with_material_values(c) for c in candidates]
         # 改善計画T548と同じ規約: overall_difficulty昇順（算出不能はNone→末尾）。
         candidates.sort(
             key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
@@ -528,3 +532,12 @@ class RouteGenerator:
             return candidate
         axis_contributions = merge_axis_contributions(candidate.segments)
         return candidate.model_copy(update={"axis_contributions": axis_contributions})
+
+    @staticmethod
+    def _with_material_values(candidate: RouteCandidate) -> RouteCandidate:
+        """segmentsのmaterial_values（区間ごとの材料id→値）をルート全区間へ集約する。
+        `_with_axis_difficulties`と同じ構造。"""
+        if not candidate.segments:
+            return candidate
+        material_values = merge_material_values(candidate.segments)
+        return candidate.model_copy(update={"material_values": material_values})
