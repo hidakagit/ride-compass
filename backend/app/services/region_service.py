@@ -14,14 +14,13 @@ from app.services.tile_serving import serve_cached_tile
 
 logger = logging.getLogger("ridecompass.region")
 
-# 地図タイル閲覧（ルート生成を経ない）だけでは、road_nodes/road_edges（タイル配信が実際に
-# 読む導出済み道路グラフ）が永遠に構築されない問題への対応（ユーザー指摘: ルート生成と
-# 地図閲覧は別々の用途で使われうるため、構築トリガーがルート生成だけに紐づいているのはおかしい）。
 # タイル配信側でもGraphService.get_or_build_graph_with_attributesと同じ構築処理を、
-# z12（ROAD_GRAPH_TILE_ZOOM）タイル単位でバックグラウンド起動する。同期的に待たせると
-# Next.jsのrewritesプロキシの30秒タイムアウト（docs/architecture.md参照）に触れかねないため、
-# 今回のタイル応答はこれまでどおり即座に返し、構築は非同期に進める（次回以降の同じ地域への
-# アクセスから反映される）。いずれもプロセス内メモリのみの状態（rate_limiter.pyと同じ割り切り、
+# z12（ROAD_GRAPH_TILE_ZOOM）タイル単位でバックグラウンド起動する（地図を眺めるだけの
+# 利用でも道路グラフが構築されるようにするための機構、docs/modules/backend/
+# static-road-attributes.md参照）。同期的に待たせるとNext.jsのrewritesプロキシの
+# 30秒タイムアウト（docs/architecture.md参照）に触れかねないため、今回のタイル応答は
+# これまでどおり即座に返し、構築は非同期に進める（次回以降の同じ地域へのアクセスから
+# 反映される）。いずれもプロセス内メモリのみの状態（rate_limiter.pyと同じ割り切り、
 # 再起動で消えても実害は次回アクセス時に再判定されるだけ）。
 _building_graph_tiles: set[tuple[int, int, int]] = set()
 # 直前に構築済み/最新確認済みのz12タイルを一定時間だけ再チェック対象から外す。無いと、
@@ -43,9 +42,7 @@ async def _build_graph_for_tile_background(ancestor_tile: tuple[int, int, int], 
     鮮度確認（軽い）と実構築（重い、DBセッションを長時間保持）を別セッションに分け、
     実構築だけを`_graph_build_semaphore`で絞る。1つのセッションを保持したまま
     semaphore待ちにすると、密集した未構築エリアへの一斉アクセスで「順番待ちのタスクが
-    次々にDBコネクションだけ先取りして塞ぐ」ことになりかねないため（改善計画T59の
-    最初の実装で、無制限の同時構築がDBコネクションプールを枯渇させ無関係な他タイル・
-    API呼び出しまで502化した実障害を踏まえた対応）。
+    次々にDBコネクションだけ先取りして塞ぐ」ことになりかねないため。
     """
     zoom, x, y = ancestor_tile
     bbox = tile_bounds_lonlat(zoom, x, y)
@@ -83,93 +80,22 @@ def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
     _building_graph_tiles.add(ancestor_tile)
     asyncio.create_task(_build_graph_for_tile_background(ancestor_tile, now))
 
-# road_surface・poi両タイルで共通のMVT MIMEタイプ（改善計画T54でroad限定の名前から一般化）。
+# road_surface・poi両タイルで共通のMVT MIMEタイプ。
 MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 
 # タイル内容の世代。パスへ世代を含めることで、プロパティ追加前に保存された旧タイルを
 # キャッシュヒットさせない（旧世代のファイルは「変わらないデータを更新」のclear_allで
-# まとめて消える）。フロントエンドのタイルURLのバージョンクエリ（regionApi.tsの
-# ROAD_SURFACE_TILE_VERSION、ブラウザキャッシュのバスト用）と対で上げること
-# （改善計画T19: export_openapi.pyが書き出すgenerated/region-tile-config.jsonと
-# regionApi.test.tsの照合テストがドリフトを検知する）。
-# v12: 改善計画T145b「事実はタイルに、解釈はクライアントに」。事前集計カウント
-# （accident_count/stop_count/intersection_count、edge_attribute_countsのway単位AVG）を
-# プロパティ追加した世代（infrastructure/road_graph_repository.py:
-# _ROAD_SURFACE_TILE_MVT_SQL参照）。プロパティ追加のみでv10と同じ運用（デプロイ順序
-# 制約なし。旧タイルにはキーが無く二次軸レイヤーが不完全表示になるため世代を上げる）。
-# v11: 改善計画T122。shoulder材料タグ（付与率0.0%の死に補正、T102実測）を撤去した世代
-# （infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。プロパティ
-# 削除を伴うが、shoulderは元々全fetchで実質未使用（safety_breakdownのlit_adjustment/
-# tunnel_adjustmentのように到達可能な補正が無い）だったため、v9のような厳格なデプロイ
-# 順序制約はない。
-# v10: 安全度レシピ。安全度の材料タグ（`shoulder`/`lit`、tunnelは既存プロパティを再利用）を
-# 追加した世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
-# v9と同じくプロパティ追加のみ（削除は伴わない）だが、キャッシュ済み旧タイルには
-# shoulder/litキーが無く安全度レイヤーが不完全表示になるため世代を上げる。
-# v9: 交通ストレスレシピ外出し基盤。計算済みの`traffic_stress`最終値プロパティを廃止し、
-# 材料タグ（`cycleway_class`/`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`）へ差し替えた
-# 世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
-# v2〜v8と異なりプロパティ削除を伴う非互換変更のため、この世代への切り替えは対応する
-# frontend（regionApi.ts）のデプロイより先に本番へ出さないこと（旧フロントの凡例フィルタが
-# 全地物に一致し交通ストレスレイヤーが一時的に全線「不明・他」表示になる）。
-# v8: 改善計画T93（統合レビュー2026-08-17 F-1）。T92でtraffic_stress判定ロジック
-# （secondary系base値4→3、shared_lane/share_busway・lanes<=1補正）を変更したが
-# タイル世代の対上げを失念していた（T70に続き同型のミス）。焼き込み済みキャッシュの
-# 陳腐化を断つための世代更新のみで、CASE式自体はT92コミット時点から不変。
-# v7: 改善計画T90。交通ストレスの区間別判定内訳表示のため、クリックされたフィーチャーを
-# 曖昧さ無く引き直すosm_way_idプロパティを追加した世代。
-# v6: 改善計画T74。designation_attributesをosm_way_id基準（road_edges遅延構築非依存）へ
-# 変更し、designationプロパティが同一way内でN10・N12の両方に該当する場合の3値目"both"を
-# 追加した世代。
-# v5: 指定路線コンフレーション機構（外部静的データソース T51）でdesignationプロパティを
-# 追加し、traffic_stressへKSJ N10/N12該当の+1補正を組み込んだ世代。
-# v4: 静的道路属性P0（docs/static-road-attributes-plan.md）でsmoothness/tunnel/bridge/
-# traffic_stress/bicycle_infraプロパティを追加した世代。
-# v3: surface正準分類の拡充（chipseal/bricks=良い、rock/unhewn_cobblestone=悪い、
-# 改善計画T7）でsurface_goodの値が変わった世代。
-# v2: surface（正規化済み生タグ）・highwayプロパティを追加した世代。
-# v13: 改善計画T289。一方通行（一次属性、osm_raw_ways.directionの解決済み値から算出）を
-# 追加した世代（infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。
-# プロパティ追加のみ（削除なし）で、v10〜v12と同じくデプロイ順序制約なし。
-# v14: 改善計画T337。cycleway_classプロパティを削除した世代（infrastructure/
-# road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。改善計画T336で車ストレスの
-# cycleway補正がbicycle_infra/正規化フラグ材料ベースへ再設計されて以降このプロパティは
-# 評価軸・地図表示のどちらからも一切参照されておらず（frontend/src/components/Map/
-# axisLayers.ts・staticAttributeLayers.tsに参照なし）、削除しても参照側への影響が無いため
-# v9のような非互換変更ではない（デプロイ順序制約なし。旧世代の焼き込み済みキャッシュは
-# 未使用の余分なキーを持ったまま残るだけで実害はなく、世代更新自体はキャッシュ陳腐化を
-# 明示するために行う）。
-# v15: 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）。designation（3値、地図表示
-# 専用として維持）が畳み込む前の正規化フラグis_emergency_transport[N10]/
-# is_critical_logistics[N12]を追加した世代（infrastructure/road_graph_repository.py:
-# _ROAD_SURFACE_TILE_MVT_SQL参照。material_catalog.pyへ評価軸材料としても登録、ただし
-# extractor未設定のトリガー付きDEFER——car_stress軸の評価は引き続きis_designatedのみを
-# 使う）。プロパティ追加のみ（削除なし）で、v10〜v13と同じくデプロイ順序制約なし。
-# v17: 改善計画T367（ユーザー要望「軸スタジオで作った推定軸を地図上アイコンで自動表示
-# したい」）。公開軸「自転車インフラ」（bicycle_infra_quality）が参照する5正規化フラグ
-# 材料（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared/
-# shared_pedestrian_path）を追加した世代（infrastructure/road_graph_repository.py:
-# _ROAD_SURFACE_TILE_MVT_SQL参照）。v16でbicycle_infraプロパティを削除して以降、
-# これらの材料はtile_propertyを持たずderive_ramp_inputs（domain/axis_display.py）の
-# 対象外だったため、show_map_icon=trueにしても地図に出ないままだった。プロパティ追加
-# のみ（削除なし）で、v10〜v13・v15と同じくデプロイ順序制約なし。
-# v16: 改善計画T347。bicycle_infraプロパティを削除した世代（infrastructure/
-# road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL参照）。地図表示は専用レイヤーごと
-# 廃止し、評価軸側は新設の公開軸「自転車インフラ」（axis_definitions.py:
-# bicycle_infra_quality、正規化フラグ4種の重み付き線形和）へ置き換えたため、地図表示・
-# 評価軸のどちらからも一切参照されなくなった。v14と同じくプロパティ削除を伴うが未使用の
-# ためデプロイ順序制約なし（旧世代の焼き込み済みキャッシュはbicycle_infraキーを持ったまま
-# 残るだけで実害はない）。
+# まとめて消える）。プロパティ削除を伴う世代は、対応するfrontend（regionApi.ts）の
+# デプロイより先に本番へ出さないこと（旧フロントの凡例フィルタが全地物に一致し、
+# 対象レイヤーが一時的に「不明・他」表示になる）。MVTへ実際に焼き込まれるプロパティは
+# `infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`が正本。
+# frontend側のタイルURLバージョンクエリ（regionApi.tsのROAD_SURFACE_TILE_VERSION、
+# ブラウザキャッシュのバスト用）と対で上げる必要があり、export_openapi.pyが書き出す
+# generated/region-tile-config.jsonとregionApi.test.tsの照合テストがドリフトを検知する。
 ROAD_SURFACE_TILE_VERSION = "17"
 
-# 停止要因POIタイル（改善計画T54）の世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・
-# 同じ運用（フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
-# v3: T101（補給・休憩ポイントPOIレイヤー）。osm_raw_pois.kindへコンビニ・自販機・
-# トイレ・給水・駐輪場を追加（stop_poi MVTレイヤーはkindを無条件で焼き込むため、SQL自体は
-# 無改修。フロント側がkind値でstopPoi/supplyPoiの2レイヤーへ絞り込む）。
-# v2: T97。地図の独立可視化レイヤーとしては使われなくなっていた（T96）intersectionレイヤーの
-# 配信自体を削除し、stop_poiのみの1レイヤー構成へ変更した世代。
-# v1: 初版（stop_poi・intersectionの2レイヤー）。
+# 停止要因POIタイルの世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・同じ運用
+# （フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
 POI_TILE_VERSION = "3"
 
 
@@ -197,15 +123,14 @@ class RegionService:
     MVTエンコードまで含めてPostGIS側（ST_AsMVT）でタイルを丸ごと生成する（way行の転送と
     Python側のエンコードCPU処理を避ける。理由はroad_graph_repository.pyの
     _ROAD_SURFACE_TILE_MVT_SQLコメント参照）。カバレッジ外・DB障害時、および`repository`を
-    渡さない場合（既定）は空タイルを返す（改善計画T22でOverpassフォールバックを撤去済み。
-    詳細はdocs/decisions/pre-static-attributes-gate.md 決定2改定参照）。
+    渡さない場合（既定）は空タイルを返す（Overpassフォールバックを持たない設計の背景は
+    docs/decisions/pre-static-attributes-gate.md 決定2参照）。
 
     カバレッジ内（生データ取込済み）でも、実際にタイル描画が読むroad_nodes/road_edges
-    （道路グラフ）は、以前はルート生成（GraphService経由）でしか構築されなかった（改善計画T59:
-    ルート生成と地図閲覧は別々の用途で使われうるため不十分だった。ユーザー指摘を受けて対応）。
-    このタイル配信側でも、カバレッジ内と分かったz12祖先タイルについて未構築・古ければ
-    バックグラウンドで構築する（`_maybe_trigger_graph_build`。応答自体は待たせず即座に返し、
-    次回以降のアクセスから反映される）。
+    （道路グラフ）は、地図を眺めるだけ（ルート生成を経ない）の利用では構築されない
+    ままになりうる。このタイル配信側でも、カバレッジ内と分かったz12祖先タイルについて
+    未構築・古ければバックグラウンドで構築する（`_maybe_trigger_graph_build`。応答自体は
+    待たせず即座に返し、次回以降のアクセスから反映される）。
     """
 
     def __init__(self, repository: RoadGraphRepository | None = None):
@@ -219,7 +144,7 @@ class RegionService:
 
         `repository_method`はRoadGraphRepositoryの委譲メソッド名（`get_road_surface_tile_mvt`/
         `get_poi_tile_mvt`）。両者は「カバレッジ外はNone・カバレッジ内0件は空バイト列」という
-        同じ契約のため、路面タイル・POIタイル（改善計画T54）で本メソッドを共有する。
+        同じ契約のため、路面タイル・POIタイルで本メソッドを共有する。
 
         DB障害もNoneを返す（ログ方針: エラーは常時WARNINGで出す。PostGIS停止時も
         地図表示という既存機能全体を落とさず、空タイルで安全側に倒す）。
@@ -232,10 +157,8 @@ class RegionService:
                 z, x, y, tile_bounds_lonlat(z, x, y), (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
             )
         except Exception as exc:  # noqa: BLE001 DB障害は空タイル返却で吸収する（上記docstring）
-            # 改善計画T469（T426棚卸しでは未検出の追加スコープ）: パン/ズームのたびに
-            # 大量のタイルリクエストが飛びうる最も高頻度な経路にも関わらず、
-            # log_throttled_warning未経由のままだった（呼び出し元の"-uncovered"表記
-            # [L274/283]は既に抑制ヘルパー経由なのに、こちら側だけ揃っていなかった）。
+            # パン/ズームのたびに大量のタイルリクエストが飛びうる高頻度な経路のため
+            # 抑制ヘルパー経由で出す。
             log_throttled_warning(
                 f"region:{label}-error", "%sタイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", label, z, x, y, exc,
             )
@@ -274,9 +197,8 @@ class RegionService:
                 # repository未接続。DB障害時のWARNING（_tile_from_repository側で既に
                 # 出している）と表記を揃え、ここでは「取込範囲外」表記で常時WARNINGを出す
                 # （ログ方針: 取込漏れ・範囲外アクセスを運用で気づけるようにする）。
-                # 改善計画T425（ゼロベース網羅レビュー指摘）: 地図を眺めるだけで未取込
-                # エリアへ何度もアクセスされうる高頻度WARNINGのため、抑制ヘルパー
-                # （毎分カテゴリごと5件）経由にする（他の外部I/O系WARNINGと同じ方針）。
+                # 地図を眺めるだけで未取込エリアへ何度もアクセスされうる高頻度WARNINGの
+                # ため、抑制ヘルパー経由にする（他の外部I/O系WARNINGと同じ方針）。
                 log_throttled_warning(
                     f"{external_call_name}-uncovered", "[%s] %sタイルがPostGIS取込範囲外 z=%d x=%d y=%d",
                     external_call_name, label, z, x, y,
@@ -319,10 +241,8 @@ class RegionService:
         )
 
     async def get_poi_tile(self, z: int, x: int, y: int) -> bytes:
-        """停止要因POIレイヤー（改善計画T54）用のMVTタイルを返す。
-        get_road_surface_tileと同じキャッシュ・カバレッジ判定・エラー処理を、対象データが
-        違うだけの_get_tileへ共通化して使う（osm_raw_poisが評価にのみ使われ
-        地図上で確認できなかった問題への対応）。
+        """停止要因POIレイヤー用のMVTタイルを返す。get_road_surface_tileと同じキャッシュ・
+        カバレッジ判定・エラー処理を、対象データが違うだけの_get_tileへ共通化して使う。
         """
         return await self._get_tile(
             repository_method="get_poi_tile_mvt",
@@ -336,22 +256,18 @@ class RegionService:
         )
 
     async def get_axis_inspector(self, osm_way_id: int) -> AxisInspectorResult | None:
-        """区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、
-        一次属性→二次軸スコア→三次合成コスト（取得可能な軸だけの参考値）を返す。
+        """区間インスペクタ。クリックされた道路（osm_way_id）について、一次属性→二次軸
+        スコア→三次合成コスト（取得可能な軸だけの参考値）を返す（詳細はdocs/modules/backend/
+        static-road-attributes.md参照）。
 
-        クリック地点の緯度経度からの空間マッチ（半径内最近傍）は、交差点付近など複数の
-        道路が近接する場所で、実際にクリックされたMVTフィーチャーとは別の道路を拾い、
-        ポップアップの表示値と内訳の計算値が食い違うことが実機確認で判明したため採用
-        していない。フィーチャーのプロパティに含まれるosm_way_id
-        （`_ROAD_SURFACE_TILE_MVT_SQL`が焼き込み済み）で該当行を曖昧さ無く引き直す。
+        フィーチャーのプロパティに含まれるosm_way_id（`_ROAD_SURFACE_TILE_MVT_SQL`が
+        焼き込み済み）で該当行を曖昧さ無く引き直す（クリック地点の緯度経度からの空間マッチ
+        [半径内最近傍]だと、交差点付近など複数の道路が近接する場所で、実際にクリックされた
+        フィーチャーとは別の道路を拾いうるため採用しない）。
 
         `repository`未注入、該当way自体が存在しない場合はNone。DB例外もNoneへ倒す
-        （改善計画T94・get_road_surface_tile等の`_tile_from_repository`と同じ
-        グレースフルデグレード方針。ログ・統計も同様に`log_external_call`＋
-        `/api/debug/stats`計上へ揃える）。
-
-        改善計画T292: 車ストレスは専用Pythonレシピを廃止したため、レシピ上書き
-        パラメータ（旧car_stress_recipe等）は廃止した。
+        （get_road_surface_tile等の`_tile_from_repository`と同じグレースフルデグレード
+        方針。ログ・統計も同様に`log_external_call`＋`/api/debug/stats`計上へ揃える）。
         """
         if self._repository is None:
             return None
@@ -367,9 +283,8 @@ class RegionService:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                # 改善計画T469: 他のPostGIS読み取り失敗WARNING（region:*-uncovered等）と同じ
-                # 抑制ヘルパー経由へ揃える（区間インスペクタは地図クリックのたびに呼ばれうる
-                # ため、DB障害時にログが未抑制のまま溢れるリスクは他タイル系と同型）。
+                # 区間インスペクタは地図クリックのたびに呼ばれうるため、他のPostGIS読み取り
+                # 失敗WARNINGと同じ抑制ヘルパー経由へ揃える。
                 log_throttled_warning(
                     "region:axis-inspector", "区間インスペクタのPostGIS読み取りに失敗 osm_way_id=%d error=%r",
                     osm_way_id, exc,
@@ -381,7 +296,7 @@ class RegionService:
             return axis_inspector_breakdown(highway, tags, is_designated, way_counts, accident_years_covered, RoutePreference())
 
     async def get_accident_years_covered(self) -> int:
-        """改善計画T404: `GET /api/axis-catalog`が地図表示の実行時スケール定数
+        """`GET /api/axis-catalog`が地図表示の実行時スケール定数
         （`material_runtime_scales`）を組み立てるために使う。事故データの収録年数
         （accident_import_runsの成功run、年重複なし）——`domain/axis_display.py:
         derive_ramp_inputs`が自動導出したaccident軸のtile_input（`accident_per_km`の
@@ -405,14 +320,13 @@ class RegionService:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                # 改善計画T469: 他のPostGIS読み取り失敗WARNINGと同じ抑制ヘルパー経由へ揃える。
                 log_throttled_warning("region:accident-years-covered", "事故データ収録年数のPostGIS読み取りに失敗 error=%r", exc)
                 return 0
             fields["years_covered"] = years
             return years
 
     async def get_material_values(self, material_id: str) -> list[str]:
-        """改善計画T340: 軸スタジオ（AxisComposer.tsx）の値入力UX改善。指定した材料id
+        """軸スタジオ（AxisComposer.tsx）の値入力UX向け。指定した材料id
         （highway/surface/smoothness、`infrastructure/road_graph_repository.py:
         _MATERIAL_VALUE_COLUMN_EXPR`参照）についてDBへ実際に取り込まれている値の一覧を
         返す。`repository`未注入・DB例外はいずれも空リストへ倒す（get_axis_inspectorと
@@ -429,7 +343,6 @@ class RegionService:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                # 改善計画T469: 他のPostGIS読み取り失敗WARNINGと同じ抑制ヘルパー経由へ揃える。
                 log_throttled_warning(
                     "region:material-values", "材料値一覧のPostGIS読み取りに失敗 material_id=%s error=%r",
                     material_id, exc,

@@ -1,13 +1,9 @@
-"""バッチ間共通ヘルパ（改善計画T80）。
+"""バッチ間共通ヘルパ。
 
-asyncpg用DSN変換が4バッチ（import_pbf.py・import_accidents.py・match_designations.py・
-import_designations.py）に、ファイルダウンロードの骨格が2バッチ（import_accidents.py・
-import_designations.py）にそれぞれ独立実装として増殖していた
-（import_accidents.pyのdocstring「2箇所だけのため共通化しない」の前提が崩れた）。
-改善計画T467: `_status_count`（import_accidents.py・import_pbf.py）・`_chunked`
-（precompute_edge_attribute_counts.py・precompute_elevation_attributes.py・
-precompute_way_attribute_counts.py）も、本ファイル新設後に独立実装のまま残っていた
-同種の重複だったためここへ統合した。
+asyncpg用DSN変換（import_pbf.py・import_accidents.py・match_designations.py・
+import_designations.py）、ファイルダウンロードの骨格（import_accidents.py・
+import_designations.py）、チャンク分割・コマンドステータス件数パースなど、
+複数バッチが共通で必要とする処理をここへ集約する。
 """
 
 import logging
@@ -21,12 +17,12 @@ import httpx
 
 _T = TypeVar("_T")
 
-# 改善計画T467: *_import_runsのrunning行がプロセスクラッシュ（OOM-kill・強制終了・VM再起動等）
-# で永久にrunningのまま残留する問題（zero-base-review-2026-08-30.md指摘、db_status診断
-# エンドポイントがこの行を「今も実行中」と誤認し続ける）への対応。次回このバッチが起動した
-# 時点で、これより古いrunning行は「クラッシュで取り残された」とみなしfailedへ遷移させる
-# （自己修復）。実行中のバッチが本当にこの時間を超えて走り続けるケース（全国規模のPBF取込等）
-# を誤検知しないよう、通常の1回の実行時間より十分長い値にする。
+# *_import_runsのrunning行はプロセスクラッシュ（OOM-kill・強制終了・VM再起動等）で
+# 永久にrunningのまま残留しうる（db_status診断エンドポイントがこの行を「今も実行中」と
+# 誤認し続ける）。次回このバッチが起動した時点で、これより古いrunning行は「クラッシュで
+# 取り残された」とみなしfailedへ遷移させる（自己修復）。実行中のバッチが本当にこの時間を
+# 超えて走り続けるケース（全国規模のPBF取込等）を誤検知しないよう、通常の1回の実行時間
+# より十分長い値にする。
 _STALE_RUNNING_THRESHOLD = timedelta(hours=6)
 
 

@@ -1,4 +1,4 @@
-"""派生データ再構築の単一エントリポイント（改善計画T281段階2）。
+"""派生データ再構築の単一エントリポイント。
 
 [docs/batch-pipeline-dependencies.md](../../../docs/batch-pipeline-dependencies.md)の
 ④〜⑨（road_edges起点・osm_raw_ways起点の派生計算バッチ）を、依存順序どおり1コマンドへ
@@ -68,7 +68,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="派生データ再構築の単一エントリポイント（改善計画T281段階2）"
+        description="派生データ再構築の単一エントリポイント"
     )
     parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
     parser.add_argument("--dry-run", action="store_true", help="全段をdry-runモードで実行しDBへ書き込まない")

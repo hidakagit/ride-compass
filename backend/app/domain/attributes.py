@@ -34,10 +34,9 @@ class ElevationAttribute(BaseModel):
 
 
 class EdgeAttributeCounts(BaseModel):
-    """Edge単位の事前集計カウント（改善計画T144: edge_attribute_counts、T218で読み取り経路に
-    配線）。事故密度・停止密度・交差点密度の評価材料（domain/difficulty.py参照）で、
-    以前はリクエストの都度PostGIS空間結合（ST_DWithin）で算出していたが、事前計算済みの
-    値をそのまま読むことで探索フェーズのDBアクセスを削減する。
+    """Edge単位の事前集計カウント（`edge_attribute_counts`）。事故密度・停止密度・
+    交差点密度の評価材料（domain/difficulty.py参照）で、事前計算済みの値をそのまま
+    読むことで探索フェーズのDBアクセス（PostGIS空間結合）を避ける。
 
     accident_countはdouble precision（死亡事故の重み付けSUM、domain/accident.py:
     ACCIDENT_FATAL_WEIGHT参照）。bicycle_only=trueで集計済みの値のみ保持する
@@ -50,7 +49,7 @@ class EdgeAttributeCounts(BaseModel):
 
 
 class WayAttributeCounts(BaseModel):
-    """区間インスペクタ用のway単位集計（改善計画T146・T543、`way_attribute_counts`テーブル）。
+    """区間インスペクタ用のway単位集計（`way_attribute_counts`テーブル）。
 
     `EdgeAttributeCounts`と同じ3カウントに、per_km換算へ使う`length_m`を加えたもの。
     """
@@ -64,20 +63,15 @@ class WayAttributeCounts(BaseModel):
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialBundle:
     """Edge 1本ぶんの材料（surface・way_tags・件数・標高・指定路線）を1オブジェクトへ
-    束ねたもの（改善計画T533派生）。
+    束ねたもの。
 
-    `get_edge_materials_batch`は元々1回のJOINクエリで全材料を1行取得していた
-    （改善計画T248）が、戻り値だけは`surface_attributes`/`edge_attribute_counts`/
-    `way_tags`/`elevation_attributes`の4つの辞書へ再分割していた。当時の探索コストの
-    ホットパス（旧`RoadGraphEngine._build_edge_cost_fn`のcost_fn、訪れたEdgeごとに
-    最大24回＝8方位×3レグ呼ばれていた。改善計画T536でタイル単位の静的スコア行列＋
-    ベクトル計算方式へ置き換え済み）はその4辞書＋designated_edge_idsへ個別に
-    `.get(edge_id)`していたため、実データ計測（渋谷相当bbox・24.7万Edge）で
-    「統合済み1辞書への1回アクセス」が「4辞書への個別アクセス」の3.5倍速いことを
-    確認した上で、Edge単位でこの1オブジェクトへ統合した
+    `get_edge_materials_batch`は1回のJOINクエリで全材料を1行取得する。Edge単位で
+    この1オブジェクトへ統合しているのは、材料を`surface_attributes`/
+    `edge_attribute_counts`/`way_tags`/`elevation_attributes`の4つの辞書へ個別に
+    `.get(edge_id)`するより、統合済み1辞書への1回アクセスの方が速いため
     （`@dataclass(frozen=True, slots=True)`はLeanEdge等と同じ実績パターン、素の辞書
-    比で受け渡しが速い）。統合形式自体は`build_static_edge_score_matrix`（T536、
-    タイル読込時1回だけの分解）・`_build_segment_details`（区間表示）が引き続き使う。
+    比で受け渡しが速い）。統合形式自体は`build_static_edge_score_matrix`
+    （タイル読込時1回だけの分解）・`_build_segment_details`（区間表示）が使う。
 
     `way_tags`は該当Wayにタグが無い場合も`{}`（空辞書、Noneにしない）——
     元の`way_tags`辞書がLEFT JOINで「key自体は必ず存在、値は`row.tags or {}`」
@@ -97,7 +91,7 @@ class EdgeMaterialBundle:
 
 @dataclass(frozen=True, slots=True)
 class LegacyEdgeMaterialDicts:
-    """`EdgeMaterialTable.to_legacy_dicts()`の戻り値（改善計画T546）。
+    """`EdgeMaterialTable.to_legacy_dicts()`の戻り値。
 
     `_evaluate_axes_bulk`（`build_static_edge_score_matrix`が呼ぶ抽出フェーズ）が要求する
     個別辞書引数の形そのもの。タイル読込時に1回だけ発生する変換であり、探索のホットパスには
@@ -119,20 +113,15 @@ def _none_if_nan(value: float) -> float | None:
 
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialTable:
-    """タイル1枚ぶんの`EdgeMaterialBundle`群を列指向（numpy配列＋リスト）で保持する
-    表現（改善計画T546、T538の再検討案C1）。
+    """タイル1枚ぶんの`EdgeMaterialBundle`群を列指向（numpy配列＋リスト）で保持する表現。
 
-    背景: T538でタイル材料キャッシュをディスク永続化したが、本番実測で「デプロイ直後の
-    復元」が20.7秒（完了条件5秒未満に未達）だった。cProfileで、ボトルネックはディスク
-    I/Oでもpickle自体でもなく「Edge1本ごとに`EdgeMaterialBundle`
+    ディスクキャッシュからの復元コストは、Edge1本ごとに`EdgeMaterialBundle`
     （Pydantic`ElevationAttribute`/`EdgeAttributeCounts`＋frozen dataclass混在）を
-    Pythonオブジェクトとして再構築するコスト」（Edge1本あたり約36µs、Python 3.12の
-    `dataclasses._dataclass_setstate`・Pydantic`BaseModel.__setstate__`が支配的）と
-    判明した（詳細はdocs/tasks/T546.md参照）。本クラスは、タイル単位でキャッシュへ
-    入れる材料をEdgeごとのオブジェクトの辞書ではなく列（numpy配列・リスト）として持つ
-    ことで、pickle復元をEdge数に依存しない列単位の操作へ変える（1タイルあたりの
-    復元コストが約36µs×Edge数から約20ms＋オブジェクト再構築約118ms/タイルへ短縮する
-    見込み、T546.md参照）。
+    Pythonオブジェクトとして再構築する部分が支配的（`dataclasses._dataclass_setstate`・
+    Pydantic`BaseModel.__setstate__`が主因、詳細はdocs/tasks/T546.md参照）なため、
+    本クラスはタイル単位でキャッシュへ入れる材料をEdgeごとのオブジェクトの辞書では
+    なく列（numpy配列・リスト）として持つことで、pickle復元をEdge数に依存しない
+    列単位の操作へ変える。
 
     **正準定義は引き続き`EdgeMaterialBundle`1箇所**（設計原則4）。本クラスは軸定義
     （`AXIS_DEFINITIONS`）も材料カタログ（`MATERIAL_CATALOG`）も一切知らない、
@@ -382,20 +371,19 @@ class EdgeMaterialTable:
 @dataclass
 class SearchMaterials:
     """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
-    材料一式（改善計画T219、T12 Stage 1）。`GraphService.get_search_materials_for_bbox`の
-    戻り値であり、`infrastructure/graph_material_cache.py`のタイル単位キャッシュ値
-    （z12タイル1枚ぶんの同形の内容）としても使う共通の型（改善計画T228、旧`_TileMaterials`
-    はフィールド完全一致の重複定義だったため統合済み）。"""
+    材料一式。`GraphService.get_search_materials_for_bbox`の戻り値であり、
+    `infrastructure/graph_material_cache.py`のタイル単位キャッシュ値（z12タイル1枚ぶんの
+    同形の内容）としても使う共通の型。"""
 
     # RoadGraph（Pydantic、split再構築を伴うuncached経路）またはLeanRoadGraph
-    # （dataclass、タイルキャッシュ経路、改善計画T248）のいずれかが入る。
+    # （dataclass、タイルキャッシュ経路）のいずれかが入る。
     graph: RoadGraphLike
-    # 改善計画T546: `graph_material_cache`（ディスク永続化を経由する正規のタイルキャッシュ
-    # 経路、`GraphService._get_or_build_tile_materials`）は`EdgeMaterialTable`（列指向、
+    # `graph_material_cache`（ディスク永続化を経由する正規のタイルキャッシュ経路、
+    # `GraphService._get_or_build_tile_materials`）は`EdgeMaterialTable`（列指向、
     # pickle復元コストが低い）を持たせる。`_build_search_materials_uncached`
     # （split鮮度が古いbbox限定の再構築経路、タイルキャッシュへは書き込まれない
     # ——`GraphService.get_search_materials_for_bbox`のdocstring参照）はこの変換コストを
-    # 払う理由が無いため、従来どおり`dict[str, EdgeMaterialBundle]`のまま返す。
+    # 払う理由が無いため、`dict[str, EdgeMaterialBundle]`のまま返す。
     # いずれの型も`.get(edge_id)`で同じ意味論のEdgeMaterialBundle（またはNone）を返すため、
     # 消費側（`road_graph_engine.py`）はどちらの型が来ても区別なく扱える。
     materials: "dict[str, EdgeMaterialBundle] | EdgeMaterialTable"
@@ -403,15 +391,13 @@ class SearchMaterials:
 
 @dataclass
 class EdgeMaterialsBatch:
-    """`SearchMaterials`から`graph`を除いた材料一式（改善計画T248・T533）。
+    """`SearchMaterials`から`graph`を除いた材料一式。
 
-    以前は`surface_attributes`/`edge_attribute_counts`/`way_tags`/
-    `elevation_attributes`/`designated_edge_ids`をEdge集合が同じまま5回individually
-    取得していたが、実測（dev DB、71,791 Edge）で現行5クエリ8.33秒→統合1クエリ
-    （`AttributeRepository.get_edge_materials_batch`）1.30秒（6.4倍）を確認したため、
-    1回のJOINクエリへ統合した。当初はこの戻り値を4つの辞書へ再分割していたが
-    （クエリ統合時に直し忘れた技術的負債）、Edge単位で`EdgeMaterialBundle`へ
-    統合した1辞書へ改めた（T533、`EdgeMaterialBundle`のdocstring参照）。"""
+    `surface_attributes`/`edge_attribute_counts`/`way_tags`/`elevation_attributes`/
+    `designated_edge_ids`をEdge集合が同じまま5回individuallyに取得するより、1回の
+    JOINクエリ（`AttributeRepository.get_edge_materials_batch`）で取得する方が速いため
+    1クエリへ統合している。Edge単位で`EdgeMaterialBundle`へ統合した1辞書として返す
+    （`EdgeMaterialBundle`のdocstring参照）。"""
 
     materials: dict[str, EdgeMaterialBundle]
 
@@ -428,12 +414,12 @@ def compute_elevation_attribute(
 ) -> ElevationAttribute:
     """Edgeの形状点列とそれぞれの標高値からElevationAttributeを算出する。
 
-    標高が取得できなかった点（None）は除外して評価する（Road Graph移行前のルート単位評価と同じ方針）。
-    改善計画T463: 除外後に隣り合う2点（`valid`上で連続）でも、元の点列では間に欠損点を
-    挟んでいる場合がある。そのまま隣接扱いすると、欠損区間内の実際の起伏（急な上り下り）が
-    均された平均勾配として計算に混入する。distance_m（座標は両点とも既知のため常に正確）と
-    gain/loss/grade（欠損を挟むと信頼できない）を分離し、元の点列でも真に隣接していた
-    ペアのみgain/loss/gradeへ寄与させる。
+    標高が取得できなかった点（None）は除外して評価する。除外後に隣り合う2点（`valid`上で
+    連続）でも、元の点列では間に欠損点を挟んでいる場合がある。そのまま隣接扱いすると、
+    欠損区間内の実際の起伏（急な上り下り）が均された平均勾配として計算に混入する。
+    distance_m（座標は両点とも既知のため常に正確）とgain/loss/grade（欠損を挟むと
+    信頼できない）を分離し、元の点列でも真に隣接していたペアのみgain/loss/gradeへ
+    寄与させる。
     """
     valid = [(i, p, e) for i, (p, e) in enumerate(zip(points, elevations)) if e is not None]
     if len(valid) < 2:

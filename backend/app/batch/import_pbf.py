@@ -275,15 +275,13 @@ async def _mark_tiles(conn: asyncpg.Connection, bbox: BoundingBox, fetched_at: d
         "ON CONFLICT (zoom, x, y) DO NOTHING",
         [(ROAD_GRAPH_TILE_ZOOM, x, y, fetched_at) for x, y in tiles],
     )
-    # 改善計画T387: PostGIS（正本）への書き込み直後にRedis（cache-aside、
-    # road_graph_tile_cache.py）も温めておく。次回のルート生成リクエストが
-    # cold cacheでPostGISへ問い合わせ直す1回分を省ける（失敗してもPostGIS側の
-    # 正本は既に確定済みのため取込結果自体には影響しない）。
+    # PostGIS（正本）への書き込み直後にRedis（cache-aside、road_graph_tile_cache.py）も
+    # 温めておく。次回のルート生成リクエストがcold cacheでPostGISへ問い合わせ直す1回分を
+    # 省ける（失敗してもPostGIS側の正本は既に確定済みのため取込結果自体には影響しない）。
     await mark_tiles_fetched_in_cache(ROAD_GRAPH_TILE_ZOOM, tiles)
-    # 改善計画T390: 同じタイルの再import（osm_raw_ways.updated_atが進む）で
-    # road_edgesが生データより古くなりうるため、is_split_up_to_dateのcache-aside
-    # （split鮮度マーカー）を無効化する。初回import（マーカー自体がまだ無い）でも
-    # 無害（存在しないキーのDELETEは単なるno-op）。
+    # 同じタイルの再import（osm_raw_ways.updated_atが進む）でroad_edgesが生データより
+    # 古くなりうるため、is_split_up_to_dateのcache-aside（split鮮度マーカー）を無効化する。
+    # 初回import（マーカー自体がまだ無い）でも無害（存在しないキーのDELETEは単なるno-op）。
     await invalidate_split_fresh_in_cache(ROAD_GRAPH_TILE_ZOOM, tiles)
     return len(tiles)
 
@@ -361,17 +359,17 @@ async def run_import(
             await engine.dispose()
 
         conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
-        # 改善計画T467: 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか
-        # 確認し、あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
+        # 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか確認し、
+        # あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
         reaped = await reap_stale_running_import_runs(conn, "osm_import_runs")
         if reaped:
             logger.warning("クラッシュで取り残されたrunning状態のosm_import_runsを%d件failedへ遷移しました", reaped)
         run_id = None
         # 初回（空テーブル）取込時のみ、osm_raw_ways.geomのGiSTを取込完了後まで遅延して
-        # 構築する（改善計画T28）。蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers
-        # 超過後のランダムI/O）が、チャンク処理時間が7秒→73秒へ単調増加する主因と判明した
-        # ため。月次UPSERT再取込は非空なのでこの分岐に入らず、既存インデックスをそのまま
-        # 使い続ける（稼働中DBのインデックスを落とさない）。
+        # 構築する。蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers超過後のランダム
+        # I/O）でチャンク処理時間が単調増加するため。月次UPSERT再取込は非空なのでこの
+        # 分岐に入らず、既存インデックスをそのまま使い続ける（稼働中DBのインデックスを
+        # 落とさない）。
         deferred_ways_index = False
         ways_index_ensured = False
         try:

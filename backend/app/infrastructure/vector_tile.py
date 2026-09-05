@@ -1,9 +1,8 @@
 import mapbox_vector_tile
 
 # PostGIS側生成（road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL）と同じ契約の定数。
-# 改善計画T22でOverpassフォールバック撤去に伴いPython側のジオメトリエンコード処理は
-# 不要になったが、この2定数はPostGIS側のST_AsMVT呼び出しと空タイル生成の両方で
-# 共有し続ける（レイヤー名・extentの手動同期を避けるため）。
+# Python側ではジオメトリエンコード処理を行わないが、この2定数はPostGIS側のST_AsMVT
+# 呼び出しと空タイル生成の両方で共有し続ける（レイヤー名・extentの手動同期を避けるため）。
 TILE_EXTENT = 4096
 ROAD_SURFACE_LAYER_NAME = "road_surface"
 
@@ -11,14 +10,9 @@ ROAD_SURFACE_LAYER_NAME = "road_surface"
 # extentを共有する（地域レイヤー共通の契約、accident_repository.py参照）。
 ACCIDENT_LAYER_NAME = "accidents"
 
-# 改善計画T54（既取込データの可視化漏れ解消）: 停止要因POI（osm_raw_pois）を表示する
-# 新規タイルのレイヤー名。road_surfaceとは別のベクタソース（region_service.get_poi_tile）
-# （road_graph_repository.py: _POI_TILE_MVT_SQL参照）。
-# 交差点密度（road_nodes次数）レイヤーはT54で同じタイルへ焼き込んでいたが、T96で地図の
-# 独立可視化レイヤーとしては撤去（道路網を見れば概ね自明という判断、ルーティング材料の
-# intersection_weightとしては引き続き`get_intersection_counts`等を使う）。フロント側の
-# 参照が無くなったため、T97でバックエンド配信（このレイヤー・INTERSECTION_LAYER_NAME）も
-# 削除した。
+# 停止要因POI（osm_raw_pois）を表示するタイルのレイヤー名。road_surfaceとは別の
+# ベクタソース（region_service.get_poi_tile、road_graph_repository.py:
+# _POI_TILE_MVT_SQL参照）。
 STOP_POI_LAYER_NAME = "stop_poi"
 
 

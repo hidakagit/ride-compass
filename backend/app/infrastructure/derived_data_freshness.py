@@ -7,12 +7,12 @@
 独立している。
 
 `edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`は
-`source_*_import_run_id`列（改善計画T351、高水位マーク方式——行単位の厳密な系譜では
-なく「このバッチがどのデータ世代までを見ていたか」を表す）を持つため、対応する
-`*_import_runs`テーブルの最新成功run idと突き合わせて鮮度不整合を判定できる。
-`elevation_attributes`はこの列を持たない（road_edgesのgeometryにのみ依存しOSMタグを
-参照しないため、T351の対象外だった）。`road_edges`との行数差分による完成度チェックの
-みを行い、鮮度ではなく完成度である点を呼び出し側（サービス層・API）で明示する。
+`source_*_import_run_id`列（高水位マーク方式——行単位の厳密な系譜ではなく「このバッチが
+どのデータ世代までを見ていたか」を表す）を持つため、対応する`*_import_runs`テーブルの
+最新成功run idと突き合わせて鮮度不整合を判定できる。`elevation_attributes`はこの列を
+持たない（road_edgesのgeometryにのみ依存しOSMタグを参照しないため）。`road_edges`との
+行数差分による完成度チェックのみを行い、鮮度ではなく完成度である点を呼び出し側
+（サービス層・API）で明示する。
 """
 
 from dataclasses import dataclass
