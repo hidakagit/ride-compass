@@ -1,6 +1,6 @@
 """APIのDI工場（FastAPIのDepends用ファクトリ）とルータ共通ヘルパー。
 
-エンドポイント本体はapi/routers/配下に分かれている（改善計画T5でapi/routes.pyを分割）。
+エンドポイント本体はapi/routers/配下に分かれている。
 サービスの組み立て方（どのクライアント・タイムアウト・リポジトリを注入するか）は
 すべてここに集約し、ルータはエンドポイントの入出力とレート制限だけを持つ。
 """
@@ -60,7 +60,7 @@ def client_id(request: Request) -> str:
     --forwarded-allow-ips設定（backend/Dockerfile）が正しくないと全アクセスが
     プロキシの単一IPに潰れる点に注意（tests/test_client_ip_behind_proxy.py参照）。
 
-    改善計画T467: request.clientがNone（ASGI呼び出し元がclient情報を渡さない場合、
+    request.clientがNone（ASGI呼び出し元がclient情報を渡さない場合、
     または想定外のプロキシ構成）のときは全リクエストが固定文字列"unknown"の1つの
     レート制限バケットへ相乗りし、無関係な複数クライアントの通信量が合算されてしまう
     （本来より早く429になる、または逆に個々のクライアントに対する制限が実質緩くなる）。
@@ -74,14 +74,10 @@ def client_id(request: Request) -> str:
 
 
 def enforce_rate_limit(request: Request, prefix: str, limit_per_minute: int) -> None:
-    """per-IPレート制限を確認し、超過していれば記録した上で429を送出する（改善計画T425）。
+    """per-IPレート制限を確認し、超過していれば記録した上で429を送出する。
 
-    check_rate_limit→超過時のrecord_rate_limit_rejection→HTTPException(429)という
-    3行のブロックが各routerへ個別に複製されていた（weather.py 7箇所・basemap.py 2箇所・
-    jma_tile.py 1箇所・routes.py 2箇所、いずれも文言・組み立て方が完全に同一）ため、
-    ここへ集約する。`prefix`はレート制限のキー・rejection集計カテゴリの両方を兼ねる
-    （`f"{prefix}:{client_id(request)}"`)。地域タイル系エンドポイント専用だった
-    旧`_tile_validation.check_tile_rate_limit`と同じ実装で、対象を全routerへ広げたもの。
+    `prefix`はレート制限のキー・rejection集計カテゴリの両方を兼ねる
+    （`f"{prefix}:{client_id(request)}"`)。
     """
     if not check_rate_limit(f"{prefix}:{client_id(request)}", limit_per_minute):
         record_rate_limit_rejection(prefix, client_id(request), f"{limit_per_minute}/min")
@@ -93,25 +89,25 @@ def get_weather_service():
 
 
 def get_warning_service():
-    # 改善計画T205（警報・注意報バッジ）。GSI逆ジオコーダ・JMA地域マスタ・JMA警報APIは
-    # いずれも軽量なJSON取得のため、他のサービスと同じ共有httpx.AsyncClientを使う。
+    # GSI逆ジオコーダ・JMA地域マスタ・JMA警報APIはいずれも軽量なJSON取得のため、
+    # 他のサービスと同じ共有httpx.AsyncClientを使う。
     return WarningService(get_http_client(10.0))
 
 
 def get_amedas_service():
-    # 改善計画T387（JMAアメダス観測値）。観測所マスタ・生観測値の取得は軽量なJSONのため
-    # 他のJMA系サービスと同じ共有httpx.AsyncClientを使う。
+    # 観測所マスタ・生観測値の取得は軽量なJSONのため他のJMA系サービスと同じ共有
+    # httpx.AsyncClientを使う。
     return JmaAmedasService(get_http_client(10.0))
 
 
 def get_wbgt_service():
-    # 改善計画T174（WBGT警告バッジ）。地点マスタCSV取得・予測値API取得ともに軽量なため
-    # 他のサービスと同じ共有httpx.AsyncClientを使う。
+    # 地点マスタCSV取得・予測値API取得ともに軽量なため他のサービスと同じ共有
+    # httpx.AsyncClientを使う。
     return WbgtService(get_http_client(10.0))
 
 
 def get_flood_service():
-    # 改善計画T212（河川氾濫予報バッジ）。地点解決はT205のjma_warning_client.pyを再利用する。
+    # 地点解決はjma_warning_client.pyを再利用する。
     return FloodService(get_http_client(10.0))
 
 
@@ -125,27 +121,24 @@ class RouteGenerationSetup:
 
     generator: RouteGenerator
     route_preference: RoutePreference
-    # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。road_graphエンジンのみに効く。
+    # T12 ADR原則1: コスト式の割増率の強さ（P）。road_graphエンジンのみに効く。
     penalty_strength: float
     # 仮定巡航速度（km/h）。通過予定時刻・到達予想時刻・所要時間の算出に使う。
     assumed_speed_kmh: float
-    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは無効）。
-    # road_graphエンジンのみに効く。
+    # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは無効）。road_graphエンジンのみに効く。
     max_average_grade_percent: float | None
-    # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
+    # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
     # road_graphエンジンのみに効く。常に解決済み（Noneではなく実際に適用された集合）。
     hard_filters: frozenset[str]
 
 
 async def get_graph_service():
-    # PostGISのみを参照し、取込範囲外はOverpassへ問い合わせずデータ未整備として扱う
-    # （改善計画T22でOverpassフォールバックを撤去済み。改善計画T222でDBなし構成
-    # 自体も撤去したため、road_graph_use_repository設定に関わらず常にrepository付きで
-    # 構築する。config.py参照）。
+    # PostGISのみを参照し、取込範囲外はデータ未整備として扱う。road_graph_use_repository
+    # 設定に関わらず常にrepository付きで構築する（config.py参照）。
     # get_session_factory()（タイル配信と共有、command_timeout=20）ではなく
-    # get_route_generation_session_factory()（改善計画T242、command_timeout=180）を使う。
-    # 未splitエリアの初回タッチ時に発生しうる重い再構築（graph_service.pyのdocstring参照）が
-    # タイル配信保護用の短いタイムアウトでキャンセルされる実測不具合への対応
+    # get_route_generation_session_factory()（command_timeout=180）を使う。未splitエリアの
+    # 初回タッチ時に発生しうる重い再構築（graph_service.pyのdocstring参照）が、タイル配信
+    # 保護用の短いタイムアウトでキャンセルされないようにするため
     # （database.py: get_route_generation_engineのコメント参照）。
     async with get_route_generation_session_factory()() as session:
         yield GraphService(repository=RoadGraphRepository(session))
@@ -155,8 +148,7 @@ async def get_elevation_attribute_service():
     # Road GraphのEdge形状点ごとに問い合わせるため、リクエスト単位でコネクションを使い回す。
     # road_graph_use_repository有効時はEdge単位の標高キャッシュ（PostGIS）を注入する
     # （GraphService側とは別セッション。各操作が独立にcommitするため同居させる必要は無い）。
-    # get_graph_serviceと同じ理由でget_route_generation_session_factory()を使う
-    # （改善計画T242）。
+    # get_graph_serviceと同じ理由でget_route_generation_session_factory()を使う。
     http_client = get_http_client(10.0)
     if settings.road_graph_use_repository:
         async with get_route_generation_session_factory()() as session:
@@ -176,7 +168,7 @@ def _assemble_route_generation_setup(
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     lens_axis_id: str | None = None,
 ) -> RouteGenerationSetup:
-    """組み立て済みのサービスと評価条件から`RouteGenerationSetup`を作る（改善計画T265）。
+    """組み立て済みのサービスと評価条件から`RouteGenerationSetup`を作る。
 
     唯一の呼び出し元`open_route_generation_setup`から「どのサービスをエンジンへ
     どう組み立てるか」を切り離すための純粋関数（テストからも直接呼べる、
@@ -214,8 +206,7 @@ async def open_route_generation_setup(
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     lens_axis_id: str | None = None,
 ) -> AsyncIterator[RouteGenerationSetup]:
-    """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ
-    （改善計画T265）。
+    """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。
 
     FastAPIのリクエストスコープ外（`BackgroundTasks`経由、レスポンス送出後に実行される）
     で使うため、`Depends`は使えない——リクエストのDBセッションはハンドラ関数が返った
@@ -248,7 +239,7 @@ def get_preview_builder(
     elevation_attribute_service: ElevationAttributeService = Depends(get_elevation_attribute_service),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> PreviewBuilder:
-    """`/api/routes/preview`（単一区間確認）向けのビルダー（改善計画T237）。
+    """`/api/routes/preview`（単一区間確認）向けのビルダー。
 
     `RoadGraphEngine.preview_segment`へ委譲する。previewはリクエストボディでの評価重み
     上書きに対応しない（generateと違い研究インターフェース向けの調整UIが無い）ため、
@@ -275,16 +266,15 @@ def get_preview_builder(
 
 
 async def get_region_service():
-    # PostGISのみを参照する（PBF取込済みの範囲外・DB障害時は空タイルを返す。
-    # Overpassフォールバックは改善計画T22で撤去済み。docs/osm-pbf-import.md Phase 2、
-    # docs/decisions/pre-static-attributes-gate.md 決定2改定）。road_graph_use_repository
-    # 無効時（DBなし構成）はrepository自体を注入しないため、路面レイヤーは常に空タイルになる。
+    # PostGISのみを参照する（PBF取込済みの範囲外・DB障害時は空タイルを返す）。
+    # road_graph_use_repository無効時（DBなし構成）はrepository自体を注入しないため、
+    # 路面レイヤーは常に空タイルになる。
     #
     # `get_graph_service`（GraphService）はこの設定に関わらずDB接続を必須とする
-    # （改善計画T222、main.py起動時WARNING参照）ため、本番でDB接続済みの環境でこの設定だけ
-    # Falseのままにすると「ルート生成はDBを使うのに地図タイルは常に空」という一貫性の
-    # 無い構成になる（運用上は非推奨だが、コード上はエラーにならず空タイルを返し続ける
-    # だけで安全側）。
+    # （main.py起動時WARNING参照）ため、本番でDB接続済みの環境でこの設定だけFalseの
+    # ままにすると「ルート生成はDBを使うのに地図タイルは常に空」という一貫性の無い構成に
+    # なる（運用上は非推奨だが、コード上はエラーにならず空タイルを返し続けるだけで
+    # 安全側）。
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
             yield RegionService(repository=RoadGraphRepository(session))
@@ -292,22 +282,19 @@ async def get_region_service():
         yield RegionService()
 
 
-# 改善計画T460: material_id→サービスファクトリの登録テーブル。以前はget_dynamic_way_value_
-# service内の_buildがif material_id == "wind"というハードコード分岐でサービスを組み立てて
-# おり、domain/dynamic_way_values.pyのモジュールdocstringが謳う「新しい動的＋向きあり材料は
-# ここへ1エントリ足すだけで反映される」という1本道の主張に反していた（設計原則8違反）。
-# WindWayService/GradientWayServiceはコンストラクタ依存が異なる（前者だけweather_service を
-# 追加で要求）ため、ファクトリはrepository・weather_serviceの両方を受け取り、必要な方だけ
-# 使う統一シグネチャにする。3つ目の動的材料を追加する際は、このdictへ1エントリ足すだけでよい
-# （T458: dynamic_way_value_materials()自体の拡張[軸スタジオでの宣言のみで完結]とは
-# 別軸・別タイミングで進められる。こちらはPython実装本体の登録のため常にコード変更を伴う）。
-# 注意: このdictのキー集合はdynamic_way_value_materials()（domain/dynamic_way_values.py、
-# 改善計画T458でAXIS_DEFINITIONS由来の動的導出へ変更）のキー集合の部分集合である必要が
-# ある（後者に無いmaterial_idは下の`if material_id not in dynamic_way_value_materials()`で
-# 先に弾かれる）。新しい材料を追加する際は、軸スタジオでの登録（dedicated_way_value_layer・
-# needs_time/needs_bearing）に加えてこのdictへも1エントリ登録すること——片方だけ更新すると
-# `_build`がKeyErrorで即座に失敗する（fail-fast、無音の分岐漏れより検知しやすい設計。
-# こちらはPythonの実装本体[コンストラクタ]の登録なので宣言だけでは代替できない）。
+# material_id→サービスファクトリの登録テーブル。WindWayService/GradientWayServiceは
+# コンストラクタ依存が異なる（前者だけweather_serviceを追加で要求）ため、ファクトリは
+# repository・weather_serviceの両方を受け取り、必要な方だけ使う統一シグネチャにする。
+# 3つ目の動的材料を追加する際は、このdictへ1エントリ足すだけでよい
+# （dynamic_way_value_materials()自体の拡張[軸スタジオでの宣言のみで完結]とは別軸・
+# 別タイミングで進められる。こちらはPython実装本体の登録のため常にコード変更を伴う）。
+# 注意: このdictのキー集合はdynamic_way_value_materials()（domain/dynamic_way_values.py）の
+# キー集合の部分集合である必要がある（後者に無いmaterial_idは下の
+# `if material_id not in dynamic_way_value_materials()`で先に弾かれる）。新しい材料を
+# 追加する際は、軸スタジオでの登録（dedicated_way_value_layer・needs_time/needs_bearing）
+# に加えてこのdictへも1エントリ登録すること——片方だけ更新すると`_build`がKeyErrorで
+# 即座に失敗する（fail-fast、無音の分岐漏れより検知しやすい設計。こちらはPythonの実装
+# 本体[コンストラクタ]の登録なので宣言だけでは代替できない）。
 _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES: dict[
     str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
 ] = {
@@ -320,8 +307,8 @@ async def get_dynamic_way_value_service(
     material_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
 ):
-    """改善計画T423（T411の実施）: way_id→動的値配信層（風・勾配、「評価軸」グループ）の
-    材料id駆動な単一の注入点。`material_id`（パスパラメータ）を見て、DBセッションを1つだけ
+    """way_id→動的値配信層（風・勾配、「評価軸」グループ）の材料id駆動な単一の注入点。
+    `material_id`（パスパラメータ）を見て、DBセッションを1つだけ
     開いた上でその材料に対応するサービスを組み立てる——router側でwind/gradient両方の
     サービスをDependsするとリクエストごとにDBセッションが2重に開いてしまうため、
     この関数自体が分岐して1セッションで済ませる。`material_id`が未知の場合はNoneを返し、
@@ -369,8 +356,8 @@ def get_gsi_relief_tile_client():
 
 
 async def get_axis_registry_admin_service():
-    # 軸定義CRUD管理API（改善計画T221 Stage D）専用。タイル配信と同じ
-    # get_session_factory()（command_timeout=20）で十分（書き込みは軽量なUPSERT/DELETE）。
+    # 軸定義CRUD管理API専用。タイル配信と同じget_session_factory()（command_timeout=20）
+    # で十分（書き込みは軽量なUPSERT/DELETE）。
     async with get_session_factory()() as session:
         yield AxisRegistryAdminService(AxisDefinitionRepository(session))
 

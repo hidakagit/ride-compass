@@ -1,31 +1,17 @@
-"""way_id→wind_penalty配信層（改善計画T405→T414で作り直し、T423でキャッシュ層を
-`dynamic_way_value_cache.py`へ汎用化、docs/tasks/T400.md「2. 動的要素（時刻・向き等）を
-含む材料は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」節）。
+"""way_id→動的値配信層（風、「評価軸」グループ）。
 
 「評価軸」グループとしての風（ルート未確定時、視界内の全道路へユーザー指定の[時刻,向き]を
 一律適用する線表示）の基盤。「環境」グループの風（時刻＋方位スライダー＋`gridFill`面表示、
-windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]のユーザー入力を共有する**
-（T400.md「2.」節）。
+windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]のユーザー入力を共有する**。
 
-**T414での設計変更**: T405時点の実装は、道路のbearing_deg（道路自身のOSM格納方向）と
-風グリッドを掛け合わせて`wind_penalty`を計算していたが、これは実機フィードバックで発覚した
-設計ミスだった——道路自身の向きはデータ収集上の都合で決まる値であり、ユーザーの走行方向とは
-無関係。訂正後は、走行方位（travel_bearing_deg）は**ユーザーがコンパススライダーで指定した
-単一の値**（全道路共通）を使う。この結果、同じタイル内の全wayは常に同じwind_penalty値を
-持つ（風グリッドもタイル中心1点で代表させる既存の近似のため）——道路自身の向きの取得
-（旧`get_way_bearings_in_tile`、ST_Azimuth）は不要になり、対象タイルに存在するway_idの一覧
-（`get_way_ids_in_tile`）だけを取得すればよい。計算結果のキャッシュも、way_idごとではなく
-タイル単位のスカラー値1個で足りる（way_id一覧全件へ同値をbroadcastしたdictとして
-`dynamic_way_value_cache.py`へ渡す）。
+走行方位（travel_bearing_deg）は**ユーザーがコンパススライダーで指定した単一の値**
+（全道路共通）を使う——道路自身のOSM格納方向は使わない。この結果、同じタイル内の全wayは
+常に同じ`wind_drag_ratio`値を持つ（風グリッドもタイル中心1点で代表させる既存の近似の
+ため）。対象タイルに存在するway_idの一覧（`get_way_ids_in_tile`）だけを取得すればよく、
+計算結果のキャッシュもway_idごとではなくタイル単位のスカラー値1個で足りる（way_id一覧
+全件へ同値をbroadcastしたdictとして`dynamic_way_value_cache.py`へ渡す）。
 
-**T423での設計変更**: 勾配（第2の具体例、`gradient_way_service.py`）の実装と同時に、
-専用キャッシュモジュール（旧`wind_way_penalty_cache.py`）を`dynamic_way_value_cache.py`
-（材料id駆動、`dict[way_id, float]`の汎用表現）へ汎用化した。風はこれまでどおり
-「全way_idへ同値をbroadcastしたdict」を渡すだけで、キャッシュ層自体の挙動は変わらない
-（勾配のようなway単位の値も同じインターフェースで扱えるようになっただけ）。公開メソッド名も
-`get_way_wind_penalties`から`get_way_values`へ変更し、`GradientWayService`と同じ
-`(z, x, y, at, bearing_deg) -> dict[int, float]`という統一インターフェースへ揃えた
-（`api/routers/region.py`が材料非依存に呼べるようにするため）。
+制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`WindWayService`」節参照。
 """
 
 import logging
@@ -88,17 +74,17 @@ class WindWayService:
     async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
     ) -> dict[int, float]:
-        """指定タイル内のway_idごとの風の材料値（`material_id`）を返す（T414の訂正後契約では、
-        同じタイル内の全wayは同じ値を持つ——モジュールdocstring参照）。`speed_kmh`（想定速度）は
+        """指定タイル内のway_idごとの風の材料値（`material_id`）を返す（同じタイル内の
+        全wayは同じ値を持つ——モジュールdocstring参照）。`speed_kmh`（想定速度）は
         必須。repository未接続・取込範囲外・風データ取得不能等はいずれも空dictへ倒す
         （地図表示という既存機能全体を落とさず、
         「この道路には色が付かない」という安全側の劣化で済ませる、他タイル系メソッドと
         同じグレースフルデグレード方針）。
 
         bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
-        時計回り）。全道路共通の値として使う。改善計画T445: 型を`at`と揃え
-        `float | None`にしている（router側`api/routers/region.py`の材料非依存な呼び出し
-        インターフェースと一致させるため）が、風は常にbearing_degを必須とする材料
+        時計回り）。全道路共通の値として使う。型は`at`と揃え`float | None`にしている
+        （router側`api/routers/region.py`の材料非依存な呼び出しインターフェースと
+        一致させるため）が、風は常にbearing_degを必須とする材料
         （`domain/dynamic_way_values.py: dynamic_way_value_materials()["wind"].needs_bearing`
         =True）のため、Noneのまま到達したら即座に失敗させる（router側の422検証を
         すり抜けて呼ばれた場合の防御、無音でNoneを計算に渡さない）。
@@ -160,6 +146,6 @@ class WindWayService:
                 )
                 fields["computed"] = len(way_ids)
 
-            # T414の訂正後契約では同じタイル内の全wayが同じ値を持つため、キャッシュhit/miss
-            # いずれの経路もここで1回だけbroadcastする。
+            # 同じタイル内の全wayが同じ値を持つため、キャッシュhit/missいずれの経路も
+            # ここで1回だけbroadcastする。
             return dict.fromkeys(way_ids, penalty)
