@@ -108,6 +108,10 @@ _search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyed
 # （目的地ルート生成時のみ構築、周回生成では使わない）。
 _reverse_search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
 _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _TileKeyedLru()
+# 探索範囲ごとに学習した迂回率（往路木で測った「道なり距離÷直線距離」の中央値）。同じ
+# タイル集合への次のリクエストが往路レグの通過予定時刻の推定に使う。道路網の形だけで決まる
+# 派生値のため、他の4キャッシュと同じキー・寿命で持つ（失っても既定値から測り直すだけ）。
+_detour_ratio_cache: "_TileKeyedLru[TileSet, float]" = _TileKeyedLru()
 _max_entries = DEFAULT_MAX_ENTRIES
 # `_search_statics_cache`/`_reverse_search_statics_cache`専用の上限（改善計画T568）。
 _search_statics_max_entries = SEARCH_STATICS_MAX_ENTRIES
@@ -137,6 +141,14 @@ def set_reverse_search_statics(tile_set: TileSet, statics: "SearchGraphStatics")
     _reverse_search_statics_cache.set(tile_set, statics, _search_statics_max_entries)
 
 
+def get_detour_ratio(tile_set: TileSet) -> float | None:
+    return _detour_ratio_cache.get(tile_set)
+
+
+def set_detour_ratio(tile_set: TileSet, ratio: float) -> None:
+    _detour_ratio_cache.set(tile_set, ratio, _max_entries)
+
+
 def get_routable_index(key: RoutableIndexKey) -> "NodeSpatialIndex | None":
     return _routable_index_cache.get(key)
 
@@ -164,6 +176,7 @@ def invalidate_tile_set(tile_set: TileSet) -> None:
     _search_statics_cache.pop(tile_set)
     _reverse_search_statics_cache.pop(tile_set)
     _routable_index_cache.pop_matching(lambda key: key[0] == tile_set)
+    _detour_ratio_cache.pop(tile_set)
 
 
 def clear() -> None:
@@ -172,6 +185,7 @@ def clear() -> None:
     _search_statics_cache.clear()
     _reverse_search_statics_cache.clear()
     _routable_index_cache.clear()
+    _detour_ratio_cache.clear()
 
 
 def lazy_graph_cache_size() -> int:  # テストの検証用

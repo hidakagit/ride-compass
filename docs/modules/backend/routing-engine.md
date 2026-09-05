@@ -54,10 +54,15 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 `get_conditions`と同じ応答・キャッシュ）が無い、または風に依存する公開軸の重みが0の
 場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コストゼロ）。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
-リクエストごとに変えられ、`_build_search_graph`のINFOサマリ（`wind_time_varying`・
-`speed_kmh`）と`compose_leg_costs`ログ（レグ・通過予定時刻の範囲・合成時間）、
-`select_turnarounds`の`detour_ratio_median`（往路実距離÷直線距離の中央値、
-`ROUTE_DETOUR_RATIO`の較正用）で運用時に確認できる。
+リクエストごとに変えられる。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う:
+往路レグは同じ探索範囲（タイル集合）で前回学習した値（無ければ`ROUTE_DETOUR_RATIO`）、
+復路レグ・目的地ルートの後ろ向きレグは、直前に求めた往路木（前向き木）から測った中央値
+（周回はリングNode、目的地ルートは起点から1km以上の到達Node）で、その値を
+`search_graph_cache.set_detour_ratio`へ学習値として保存する（`_median_detour_ratio`・
+`_learn_detour_ratio`）。運用時は`_build_search_graph`のINFOサマリ（`wind_time_varying`・
+`speed_kmh`・`detour_ratio=値(learned|default)`）、`compose_leg_costs`ログ（レグ・迂回率・
+通過予定時刻の範囲・合成時間）、`select_turnarounds`/`select_via_nodes`の
+`detour_ratio_median`で確認できる。
 
 `RouteGenerateRequest.waypoints`/`destination`（経由地・目的地指定）にも対応する
 （`api/routers/routes.py: generate_routes`）。
@@ -201,7 +206,8 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 
 `LazyRoadGraph`（探索用グラフ）・`SearchGraphStatics`（一対全最短経路木
 用のCSR構造＋Edge実距離配列）・`SearchGraphStatics`の転置版（後ろ向き木用、
-[T551](../../tasks/T551.md)）・`NodeSpatialIndex`（routable Node空間索引）の4種は、
+[T551](../../tasks/T551.md)）・`NodeSpatialIndex`（routable Node空間索引）の4種と、
+探索範囲ごとに学習した迂回率（float 1個、「レグ別コスト配列」節参照）は、
 タイル集合キーのプロセス内LRUへキャッシュする。同じタイル集合への2回目以降の
 リクエストはこれらの構築を丸ごと省略する。**上限件数は`LazyRoadGraph`/
 `NodeSpatialIndex`が`DEFAULT_MAX_ENTRIES`（64）、`SearchGraphStatics`（順方向・転置版

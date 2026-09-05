@@ -9,8 +9,16 @@ from app.domain.evaluation import DynamicAxisRequestContext, RoutePreference, _e
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, estimate_passage_hours
+from app.infrastructure import search_graph_cache
 from app.services.weather_service import WeatherService
 from tests.test_road_graph_engine import ORIGIN, _prepare_context, build_loop_graph, make_generator
+
+
+@pytest.fixture(autouse=True)
+def _clear_search_graph_cache():
+    search_graph_cache.clear()
+    yield
+    search_graph_cache.clear()
 
 START = datetime(2026, 9, 5, 9, 0)
 
@@ -233,3 +241,60 @@ async def test_assumed_speed_changes_estimated_arrival_time_and_preview_duration
     assert preview_slow is not None and preview_fast is not None
     assert preview_fast.duration_minutes == pytest.approx(preview_slow.duration_minutes / 2, rel=0.05)
     assert not math.isnan(preview_slow.duration_minutes)
+
+
+# --- 迂回率の実測値化 ---
+
+TILE_SET = frozenset({(12, 3637, 1612)})
+
+
+async def test_inbound_leg_uses_measured_detour_ratio_and_learns_it_for_next_request():
+    # 車輪状フィクスチャのスポークは直線なので、リングNodeの実測迂回率はちょうど1.0。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    series = _series(48, lambda h: 0 if h < 10 else 180)
+    generator, _, _ = make_generator(
+        graph, weather=_weather(0.0), wind_series=series, route_preference=_wind_only_preference(), tile_set=TILE_SET,
+    )
+    engine = generator._engine
+    context = await engine.prepare(ORIGIN, radius_km=30.0 * 0.4, now=datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc))
+    assert context is not None
+    assert context.composer.detour_ratio == pytest.approx(1.3)  # 学習前は既定値
+
+    await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
+
+    assert search_graph_cache.get_detour_ratio(TILE_SET) == pytest.approx(1.0)
+    outbound, inbound = context.legs
+    row = context.full_edge_row["e-0-spoke1"]
+    # 往路は既定値1.3、復路は実測1.0で通過予定時刻を推定する（スポーク中点は起点から7.5km）。
+    assert outbound.passage_hours[row] == pytest.approx(1.3 * 7.5 / 20, abs=0.01)
+    assert inbound.passage_hours[row] == pytest.approx(1.5 - 1.0 * 7.5 / 20, abs=0.01)
+
+    # 同じタイル集合への次のリクエストは往路にも学習値を使う。
+    second = await engine.prepare(ORIGIN, radius_km=30.0 * 0.4, now=datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc))
+    assert second.composer.detour_ratio == pytest.approx(1.0)
+    assert second.legs[0].passage_hours[row] == pytest.approx(1.0 * 7.5 / 20, abs=0.01)
+
+
+async def test_detour_ratio_is_not_learned_without_tile_set():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(
+        graph, weather=_weather(0.0), wind_series=_series(48, lambda h: 0), route_preference=_wind_only_preference(),
+    )
+    engine = generator._engine
+    context = await _prepare_context(generator)
+
+    await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
+
+    assert context.tile_set is None
+    assert context.legs[1].passage_hours is not None  # 復路は実測値で合成される
+    assert search_graph_cache.get_detour_ratio(TILE_SET) is None
+
+
+def test_search_graph_cache_detour_ratio_roundtrip_and_invalidation():
+    search_graph_cache.set_detour_ratio(TILE_SET, 1.21)
+    assert search_graph_cache.get_detour_ratio(TILE_SET) == pytest.approx(1.21)
+    search_graph_cache.invalidate_tile_set(TILE_SET)
+    assert search_graph_cache.get_detour_ratio(TILE_SET) is None
+    search_graph_cache.set_detour_ratio(TILE_SET, 1.21)
+    search_graph_cache.clear()
+    assert search_graph_cache.get_detour_ratio(TILE_SET) is None

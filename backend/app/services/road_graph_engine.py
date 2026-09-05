@@ -244,6 +244,7 @@ class _LegCostComposer:
         start: datetime,
         speed_kmh: float,
         lazy_row_index: np.ndarray,
+        detour_ratio: float = ROUTE_DETOUR_RATIO,
     ) -> None:
         self._score_matrix = score_matrix
         self._static_axis_scores = {
@@ -257,21 +258,34 @@ class _LegCostComposer:
         self.start = start
         self.speed_kmh = speed_kmh
         self._lazy_row_index = lazy_row_index
+        # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
+        # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
+        self.detour_ratio = detour_ratio
         wind_dependent_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS)) & set(score_matrix.axis_ids)
         self.time_varying = wind_series is not None and any(weights.get(axis_id, 0.0) > 0 for axis_id in wind_dependent_axes)
         self._cache: dict[tuple, LegCostArrays] = {}
 
-    def compose(self, label: str, anchor: Coordinates | None, offset_hours: float, direction: int) -> LegCostArrays:
+    def compose(
+        self,
+        label: str,
+        anchor: Coordinates | None,
+        offset_hours: float,
+        direction: int,
+        detour_ratio: float | None = None,
+    ) -> LegCostArrays:
         """`anchor`から`direction=+1`なら離れていく・`-1`なら向かっていくレグとして、各Edgeの
         通過予定時刻（`offset_hours`基準、`domain/wind.py: estimate_passage_hours`）の風で
-        コスト配列を合成する。"""
+        コスト配列を合成する。`detour_ratio`を渡すとそのレグだけ迂回率を上書きする
+        （復路が往路木の実測値を使うため）。"""
+        ratio = self.detour_ratio if detour_ratio is None else detour_ratio
         if not self.time_varying or anchor is None:
             key: tuple = ("snapshot",)
             passage = None
         else:
-            key = (round(anchor.latitude, 5), round(anchor.longitude, 5), round(offset_hours, 3), direction)
+            key = (round(anchor.latitude, 5), round(anchor.longitude, 5), round(offset_hours, 3), direction, round(ratio, 3))
             passage = estimate_passage_hours(
                 self._score_matrix.mid_lat, self._score_matrix.mid_lon, anchor, offset_hours, direction, self.speed_kmh,
+                detour_ratio=ratio,
             )
         cached = self._cache.get(key)
         if cached is not None:
@@ -306,8 +320,8 @@ class _LegCostComposer:
         else:
             logger.info(
                 "compose_leg_costs leg=%s mode=time_varying anchor=(%.2f,%.2f) offset_h=%.2f direction=%+d "
-                "passage_h=[%.2f,%.2f] compose_ms=%d",
-                label, anchor.latitude, anchor.longitude, offset_hours, direction,
+                "detour_ratio=%.2f passage_h=[%.2f,%.2f] compose_ms=%d",
+                label, anchor.latitude, anchor.longitude, offset_hours, direction, ratio,
                 float(passage.min()), float(passage.max()), round((time.monotonic() - started) * 1000),
             )
         return leg
@@ -545,9 +559,12 @@ class RoadGraphEngine:
         # lazy_graph.edge_ids（並行Edge解消後）の各行が`score_matrix`のどの行かの対応表。
         # レグごとのcost_listはこの索引でnumpyのfancy indexingにより並べ替える。
         lazy_row_index = np.fromiter((full_edge_row[edge_id] for edge_id in lazy_graph.edge_ids), dtype=np.int64, count=len(lazy_graph.edge_ids))
+        # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
+        learned_detour_ratio = search_graph_cache.get_detour_ratio(tile_set) if tile_set is not None else None
         composer = _LegCostComposer(
             score_matrix, weights, self._penalty_strength, hard_filter_excluded, weather, wind_series,
             start, self._assumed_speed_kmh, lazy_row_index,
+            detour_ratio=learned_detour_ratio if learned_detour_ratio is not None else ROUTE_DETOUR_RATIO,
         )
         outbound = composer.compose("outbound", wind_and_night_origin, 0.0, +1)
         cost_ms = round((time.monotonic() - cost_started) * 1000) - graph_ms
@@ -568,11 +585,12 @@ class RoadGraphEngine:
         total_ms = round((time.monotonic() - stage_started) * 1000)
         logger.info(
             "_build_search_graph edges=%d nodes=%d materials_ms=%d weather_ms=%d cost_ms=%d graph_ms=%d "
-            "total_ms=%d lazy_graph_cached=%s wind_time_varying=%s speed_kmh=%.1f missing_axis_edges=%d "
-            "missing_axis_distance_ratio=%.3f",
+            "total_ms=%d lazy_graph_cached=%s wind_time_varying=%s speed_kmh=%.1f detour_ratio=%.2f(%s) "
+            "missing_axis_edges=%d missing_axis_distance_ratio=%.3f",
             len(graph.edges), len(graph.nodes), materials_ms, weather_ms, cost_ms, graph_ms, total_ms,
-            lazy_graph_cached, composer.time_varying, self._assumed_speed_kmh, int(missing_axis_mask.sum()),
-            missing_axis_distance_ratio,
+            lazy_graph_cached, composer.time_varying, self._assumed_speed_kmh, composer.detour_ratio,
+            "learned" if learned_detour_ratio is not None else "default",
+            int(missing_axis_mask.sum()), missing_axis_distance_ratio,
         )
 
         return _SearchGraph(
@@ -901,10 +919,6 @@ class RoadGraphEngine:
             statics.csr, context.legs[0].cost_list, statics.edge_length_m, context.origin_index, cost_limit,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
-        # 復路レグ: 起点へ向かうレグとして、周回の総所要時間（目標距離÷仮定速度）を起点への
-        # 到着予定時刻に置いて合成する（距離フィルタが目標±許容を強制するため定数扱いできる）。
-        inbound = context.composer.compose("inbound", context.origin, distance_km / context.composer.speed_kmh, -1)
-        context.legs = [context.legs[0], inbound]
 
         length = tree.length_m
         in_ring = (length >= ring_lower_m) & (length <= ring_upper_m)
@@ -918,11 +932,16 @@ class RoadGraphEngine:
             return []
 
         ring_length = length[ring]
-        # 道なり距離／直線距離の比（`domain/wind.py: ROUTE_DETOUR_RATIO`の較正用サマリ）。
-        origin_coordinates = context.graph.nodes[context.origin_node]
-        straight_km = haversine_distance_km_array(context.node_lat[ring], context.node_lon[ring], origin_coordinates)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            detour_ratio_median = float(np.nanmedian(np.where(straight_km > 0, ring_length / 1000 / straight_km, np.nan)))
+        # 迂回率（道なり距離÷直線距離）の実測中央値。復路レグの合成に使い、同じ探索範囲の
+        # 次のリクエストが往路レグに使えるよう学習値として保存する。
+        detour_ratio_median = _median_detour_ratio(context, ring, ring_length)
+        inbound_detour_ratio = _learn_detour_ratio(context, detour_ratio_median)
+        # 復路レグ: 起点へ向かうレグとして、周回の総所要時間（目標距離÷仮定速度）を起点への
+        # 到着予定時刻に置いて合成する（距離フィルタが目標±許容を強制するため定数扱いできる）。
+        inbound = context.composer.compose(
+            "inbound", context.origin, distance_km / context.composer.speed_kmh, -1, detour_ratio=inbound_detour_ratio,
+        )
+        context.legs = [context.legs[0], inbound]
         if self._penalty_strength > 0:
             with np.errstate(invalid="ignore", divide="ignore"):
                 difficulty = (tree.cost[ring] / ring_length - 1.0) / self._penalty_strength * 100.0
@@ -1055,12 +1074,16 @@ class RoadGraphEngine:
         reverse_statics, reverse_statics_cached = await _get_or_build_reverse_search_statics(
             context.tile_set, lazy_graph, context.graph
         )
+        # 迂回率は前向き木（起点から1km以上先の到達Node）の実測中央値を使い、学習値として保存する。
+        reached = np.flatnonzero(np.isfinite(forward_tree.cost) & (forward_tree.length_m >= 1000.0))
+        detour_ratio_median = _median_detour_ratio(context, reached, forward_tree.length_m[reached])
+        inbound_detour_ratio = _learn_detour_ratio(context, detour_ratio_median)
         # 後ろ向き木は目的地へ向かうレグ: 目的地を基準点に、到着予定時刻を
         # 「起点〜目的地の直線距離×迂回率÷仮定速度」に置いて合成する。
         arrival_hours = (
-            ROUTE_DETOUR_RATIO * haversine_distance_km(context.origin, destination) / context.composer.speed_kmh
+            inbound_detour_ratio * haversine_distance_km(context.origin, destination) / context.composer.speed_kmh
         )
-        inbound = context.composer.compose("inbound", destination, arrival_hours, -1)
+        inbound = context.composer.compose("inbound", destination, arrival_hours, -1, detour_ratio=inbound_detour_ratio)
         context.legs = [context.legs[0], inbound]
         backward_tree = await asyncio.to_thread(
             build_shortest_path_tree,
@@ -1142,9 +1165,9 @@ class RoadGraphEngine:
 
         logger.info(
             "select_via_nodes reachable=%d within_stretch=%d examined=%d selected=%d max_routes=%d "
-            "best_km=%.1f tree_ms=%d reverse_statics_cached=%s",
+            "best_km=%.1f detour_ratio_median=%.2f tree_ms=%d reverse_statics_cached=%s",
             int(reachable.sum()), len(candidates), len(ranked), len(traced), max_routes,
-            best_length_m / 1000, tree_ms, reverse_statics_cached,
+            best_length_m / 1000, detour_ratio_median, tree_ms, reverse_statics_cached,
         )
         return traced
 
@@ -1576,6 +1599,32 @@ async def _get_or_build_reverse_search_statics(
     if tile_set is not None:
         search_graph_cache.set_reverse_search_statics(tile_set, statics)
     return statics, False
+
+
+def _median_detour_ratio(context: _RoadGraphContext, node_indices: np.ndarray, length_m: np.ndarray) -> float:
+    """起点から`node_indices`（`lazy_graph`のNode index）への道なり距離`length_m`と直線距離の
+    比の中央値を返す。対象が無い・直線距離0のみならNaN。"""
+    if len(node_indices) == 0:
+        return float("nan")
+    origin_coordinates = context.graph.nodes[context.origin_node]
+    straight_km = haversine_distance_km_array(
+        context.node_lat[node_indices], context.node_lon[node_indices], origin_coordinates
+    )
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ratios = np.where(straight_km > 0, np.asarray(length_m, dtype=float) / 1000 / straight_km, np.nan)
+    if np.all(np.isnan(ratios)):
+        return float("nan")
+    return float(np.nanmedian(ratios))
+
+
+def _learn_detour_ratio(context: _RoadGraphContext, measured: float) -> float:
+    """実測の迂回率が有効なら探索範囲（タイル集合）の学習値として保存し、そのまま返す。
+    無効（NaN・非正）なら合成に使っている現在の値（学習値または既定値）を返す。"""
+    if not math.isfinite(measured) or measured <= 0:
+        return context.composer.detour_ratio
+    if context.tile_set is not None:
+        search_graph_cache.set_detour_ratio(context.tile_set, measured)
+    return measured
 
 
 def _estimate_distances_m(

@@ -165,4 +165,5 @@ values = {
 
 `ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
 ＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・区間の到達予想時刻・
-所要時間表示に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の想定比。
+所要時間表示に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の初期値で、探索範囲ごとに往路木から
+測った実測中央値を学習して置き換える（[routing-engine.md](routing-engine.md)参照）。
