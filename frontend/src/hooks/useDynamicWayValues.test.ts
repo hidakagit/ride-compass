@@ -25,6 +25,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
     expect(fetchDynamicWayValues).not.toHaveBeenCalled();
     expect(result.current.values.size).toBe(0);
     expect(result.current.byTile).toEqual([]);
+    expect(result.current.loading).toBe(false);
   });
 
   it("viewportがnullの間はフェッチしない", () => {
@@ -77,6 +78,26 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
     rerender({ enabled: false });
 
     await waitFor(() => expect(result.current.values.size).toBe(0));
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("フェッチ中はloading=trueになり、応答が届くとfalseに戻る（改善計画T607）", async () => {
+    let resolveFetch!: (value: Record<string, number>) => void;
+    vi.mocked(fetchDynamicWayValues).mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useDynamicWayValues("wind", true, VIEWPORT, 0, undefined));
+
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    expect(result.current.values.size).toBe(0);
+
+    resolveFetch({ "1": 2.5 });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.values.get(1)).toBe(2.5);
   });
 
   it("タイル取得が失敗しても（fetchDynamicWayValuesが空オブジェクトで解決する前提で）例外を投げず空の結果に収束する", async () => {

@@ -37,18 +37,29 @@ export function dedicatedWayValueFeatureStateKey(axisId: string): string {
 
 /** 値取得式（feature-state or geojsonプロパティ）を色へ変換するMapLibre expression。
  * 値の取得元だけが呼び出し側で異なり、評価軸グループの線（feature-state経由）と環境
- * グループの面（勾配gridFill、["get",...]経由）が同じ配色・しきい値を共有する。 */
+ * グループの面（勾配gridFill、["get",...]経由）が同じ配色・しきい値を共有する。`loading`は
+ * まだ値を受け取っていない対象の色をCOLOR_LOADING（フェッチ進行中）とCOLOR_NO_DATA
+ * （取得済みだが値が無い）のどちらにするか（改善計画T607、valueScale.ts参照）。 */
 export function buildDedicatedWayValueColorExpression(
   valueExpression: unknown[],
-  display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY
+  display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,
+  loading = false
 ): unknown[] {
-  return buildSteppedColorExpression(valueExpression, display.kind, display.boundaries);
+  return buildSteppedColorExpression(valueExpression, display.kind, display.boundaries, undefined, loading);
 }
 
 /** feature-state値を色へ変換するMapLibre expression。["feature-state", key]は該当キーが
  * 未設定のfeatureに対しnullを返す（MapLibreの仕様）。 */
-export function dedicatedWayValueColorExpression(axisId: string, display?: DedicatedWayValueDisplay): unknown[] {
-  return buildDedicatedWayValueColorExpression(["feature-state", dedicatedWayValueFeatureStateKey(axisId)], display);
+export function dedicatedWayValueColorExpression(
+  axisId: string,
+  display?: DedicatedWayValueDisplay,
+  loading = false
+): unknown[] {
+  return buildDedicatedWayValueColorExpression(
+    ["feature-state", dedicatedWayValueFeatureStateKey(axisId)],
+    display,
+    loading
+  );
 }
 
 /** 地図上の色分け凡例。色式と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。

@@ -2,6 +2,7 @@
 // DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く。
 import { describe, expect, it } from "vitest";
 import { gradientFillColorExpression, gradientGridCellsFromTileResponses } from "./gradientGridFill";
+import { COLOR_LOADING, COLOR_NO_DATA } from "./valueScale";
 import type { TileDynamicWayValues } from "@/hooks/useDynamicWayValues";
 
 describe("gradientGridFill（改善計画T423: 環境グループの勾配面表示）", () => {
@@ -55,6 +56,12 @@ describe("gradientGridFill（改善計画T423: 環境グループの勾配面表
     it('["get","gradientValue"]を値取得式に使ったcase式を返す', () => {
       const expression = gradientFillColorExpression();
       expect(expression[1]).toEqual(["==", ["get", "gradientValue"], null]);
+    });
+
+    it("loading省略時・falseはCOLOR_NO_DATA、trueはCOLOR_LOADINGへ倒す（改善計画T607）", () => {
+      expect(gradientFillColorExpression()[2]).toBe(COLOR_NO_DATA);
+      expect(gradientFillColorExpression(undefined, false)[2]).toBe(COLOR_NO_DATA);
+      expect(gradientFillColorExpression(undefined, true)[2]).toBe(COLOR_LOADING);
     });
   });
 });

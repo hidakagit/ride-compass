@@ -1274,6 +1274,18 @@ export default function Home() {
       ]),
     [windAxisData.values, gradientAxisData.values]
   );
+  // 改善計画T607: dedicatedWayValuesと同じ理由（design-principles.md構造仕様3）で、
+  // フェッチ進行中フラグもaxisId→booleanの汎用Mapへ統合する（windLoading/gradientLoadingの
+  // ような別名propは持たない）。MapView側はこれを使い、まだ値を受け取っていないwayを
+  // 「取得中」（COLOR_LOADING）と「取得済みだが値が無い」（COLOR_NO_DATA）で塗り分ける。
+  const dedicatedWayValueLoading = useMemo(
+    () =>
+      new Map<string, boolean>([
+        ["wind", windAxisData.loading],
+        ["gradient", gradientAxisData.loading],
+      ]),
+    [windAxisData.loading, gradientAxisData.loading]
+  );
   // `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、いずれも
   // 軸カタログ由来）を、axisId→宣言の汎用MapとしてMapView・凡例へ配線する。軸ごとの
   // useMemo・propは持たない（design-principles.md構造仕様3）。
@@ -1974,6 +1986,7 @@ export default function Home() {
             showGradientAxis={showGradientAxis}
             dedicatedWayValues={dedicatedWayValues}
             dedicatedWayValueDisplays={dedicatedWayValueDisplays}
+            dedicatedWayValueLoading={dedicatedWayValueLoading}
             showGradientFill={showGradientFill}
             gradientFillGeojson={gradientFillPayload}
             showStopPoi={layerVisibility.stopPoi}
