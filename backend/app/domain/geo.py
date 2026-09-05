@@ -9,12 +9,11 @@ EARTH_RADIUS_KM = 6371.0
 @runtime_checkable
 class LatLon(Protocol):
     """緯度経度を持つ任意の型（`Coordinates`・`Node`・`LeanNode`等）を受け付ける
-    構造的型（改善計画T262）。`bearing_between`/`haversine_distance_km`は内部で
-    `.latitude`/`.longitude`を読むだけで完結しており、元は型ヒントが`Coordinates`
-    （Pydantic）固定だったため、`build_road_graph`（domain/graph.py）・
-    `find_nearest_node`系（domain/routing.py）のようなホットパスで、既に手元にある
-    生の緯度経度ペアやNodeオブジェクトからわざわざ`Coordinates`を構築し直す
-    無駄が生じていた（T248でNode/DirectedEdgeに対して確認したのと同種の問題）。
+    構造的型。`bearing_between`/`haversine_distance_km`は内部で`.latitude`/`.longitude`
+    を読むだけで完結する。型ヒントを`Coordinates`（Pydantic）固定にすると、
+    `build_road_graph`（domain/graph.py）・`find_nearest_node`系（domain/routing.py）
+    のようなホットパスで、既に手元にある生の緯度経度ペアやNodeオブジェクトから
+    わざわざ`Coordinates`を構築し直す無駄が生じる。
     """
 
     latitude: float
@@ -22,7 +21,7 @@ class LatLon(Protocol):
 
 
 class LatLonPoint(NamedTuple):
-    """`LatLon`を満たす最小実装（改善計画T262）。Pydanticのバリデーションコストを
+    """`LatLon`を満たす最小実装。Pydanticのバリデーションコストを
     避けたい内部計算専用（`Coordinates`は入力検証が必要なAPI境界向けに残す）。
     """
 
@@ -31,8 +30,9 @@ class LatLonPoint(NamedTuple):
 
 # 緯度1度あたりの概算距離（km、地球を球とみなす近似。EARTH_RADIUS_KMと同じ半径前提で
 # 十分、空間索引のバケット分割・打ち切り判定・矩形マージンの見積もりという「目安」用途に
-# のみ使う。実際の距離計算は常にhaversine_distance_kmで正確に行う。改善計画T228で
-# domain/routing.py・services/road_graph_engine.pyの重複定義をここへ片側import化）。
+# のみ使う。実際の距離計算は常にhaversine_distance_kmで正確に行う）。
+# domain/routing.py・services/road_graph_engine.pyがこの定数をimportして使う
+# （重複定義を避けるための正準1箇所）。
 KM_PER_DEGREE_LATITUDE = 111.0
 
 COMPASS_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"]
@@ -58,8 +58,8 @@ def bearing_between(origin: LatLon, destination: LatLon) -> float:
 
 def bearing_between_array(origin: LatLon, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
     """`bearing_between`のベクトル化版。originから`(lat, lon)`の各点を見た初期方位角
-    （0=北、時計回り、0-360）を配列で返す（改善計画T554、大量Nodeに対する
-    `bearing_between`の繰り返し呼び出しを避ける）。"""
+    （0=北、時計回り、0-360）を配列で返す（大量Nodeに対する`bearing_between`の
+    繰り返し呼び出しを避ける）。"""
     lat1 = math.radians(origin.latitude)
     lat2 = np.radians(lat)
     dlon = np.radians(lon - origin.longitude)
@@ -85,7 +85,7 @@ def haversine_distance_km(a: LatLon, b: LatLon) -> float:
 
 
 def haversine_distance_km_array(lat: np.ndarray, lon: np.ndarray, target: LatLon) -> np.ndarray:
-    """`haversine_distance_km`のnumpyベクトル版（改善計画T536）。
+    """`haversine_distance_km`のnumpyベクトル版。
 
     `lat`/`lon`は複数地点の緯度経度配列（同一形状）、`target`は単一の目的地。
     A*ヒューリスティック（`_build_estimate_cost_fn`相当）が、レグごとに目的地が
