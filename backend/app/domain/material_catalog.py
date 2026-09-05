@@ -1,31 +1,20 @@
-"""評価軸が参照する材料（material）の正式カタログ（改善計画T277）。
+"""評価軸が参照する材料（material）の正式カタログ。
 
 `domain/axis_definitions.py: AXIS_DEFINITIONS`の各軸（`MaterialTerm.material`・
-`CategoricalShape.material`）が参照する材料idは、これまで
-`AXIS_DEFINITIONS`のコメントに散文で説明されるだけで、正式な一覧として宣言されていな
-かった（軸スタジオ実装時、フロント側`axisMaterialsCatalog.ts`が独自にハードコードして
-いた）。本モジュールがその単一ソースになる。
+`CategoricalShape.material`）が参照する材料idの単一ソース（詳細は
+docs/modules/backend/evaluation-scoring.md「材料カタログ」参照）。
 
-**材料の「登録」と「評価軸での利用」は独立している（改善計画T290）**: MVTタイル
-（`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）には、既存8軸が実際に使う
-材料以外にも多くの生データ（highway・surface・smoothness等）が
-既に焼き込まれている。設計の一貫性のため、これらも「評価や地図描画に使えそうな
-生データ」として本カタログへ網羅的に登録する（ユーザー方針、2026-08-24）。
-`dtype="categorical"`の材料は、改善計画T292で`domain/axis_definitions.py: CategoricalShape`
-（`mapping: dict[bool | str, float]`）が文字列多値も扱えるよう拡張されたため、既に
-car_stress軸の内部軸（highway、car_stress_highway_base）が実際に利用している
-（改善計画T347: 自転車インフラの内部軸`car_stress_bicycle_infra_adjustment`は
-7値categorical材料`bicycle_infra`ではなく正規化フラグ材料4件のbreakpoint_linear合成へ
-既にT336で移行済みだったため、`bicycle_infra`材料自体は評価軸未使用のまま残置されていたが、
-T347で削除した）。それ以外のcategorical材料は
-登録済みでも対応する軸が無ければ評価には使われない（軸スタジオの材料選択肢には現れる）。
+**材料の「登録」と「評価軸での利用」は独立している**: MVTタイル
+（`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`）には、既存の軸が実際に使う
+材料以外にも多くの生データ（highway・surface・smoothness等）が既に焼き込まれている。
+設計の一貫性のため、これらも「評価や地図描画に使えそうな生データ」として本カタログへ
+網羅的に登録する。登録済みでも対応する軸が無ければ評価には使われない（軸スタジオの
+材料選択肢には現れる）。
 
-**設計方針（ユーザー指示、2026-08-24）**: 材料は今後システムメンテナンス（コード変更＋
-デプロイ）によって増減されうるものとして設計するが、材料自体をGUIから追加・編集・削除
-できるようにはしない。軸スタジオ（`/admin`）が材料を選ぶ際は、本カタログを
-`GET /api/material-catalog`経由で動的に取得する（`api/routers/material_catalog.py`）。
-新しい材料を増やすときはこのファイルへ1件追加するだけで、フロントのコード変更・
-再デプロイなしに軸コンポーザーの選択肢へ現れる。
+材料自体はGUIから追加・編集・削除できない（コード変更＋デプロイが前提）。軸スタジオ
+（`/admin`）が材料を選ぶ際は、本カタログを`GET /api/material-catalog`経由で動的に取得する
+（`api/routers/material_catalog.py`）。新しい材料を増やすときはこのファイルへ1件追加する
+だけで、フロントのコード変更・再デプロイなしに軸コンポーザーの選択肢へ現れる。
 
 `tile_property`はMVTタイル（`road_graph_repository.py:
 _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名（無ければ材料が
@@ -65,8 +54,8 @@ class MaterialReferencePoint(BaseModel):
 
 @dataclass(frozen=True)
 class MaterialExtractionContext:
-    """改善計画T280: `domain/evaluation.py: compute_edge_costs_bulk`の抽出フェーズが
-    Edge単位に組み立てる入力の束。`MaterialSpec.extractor`はこれを受け取り、その材料の
+    """`domain/evaluation.py: compute_edge_costs_bulk`の抽出フェーズがEdge単位に組み立てる
+    入力の束。`MaterialSpec.extractor`はこれを受け取り、その材料の
     Edge1件分の生値（欠損はNone）を返す。way_tags以外のフィールドはcompute_edge_costs_bulk
     側で`None`から`{}`/`set()`へ正規化済みの前提（呼び出し元でNoneチェック不要）。"""
 
@@ -91,8 +80,7 @@ class MaterialSpec(BaseModel):
 
     material_id: str
     label: str
-    # 改善計画T345: 軸スタジオの材料選択で、labelだけでは何を表す材料か分かりにくいという
-    # ユーザーフィードバックへの対応。GET /api/material-catalogの公開レスポンスへ含め、
+    # GET /api/material-catalogの公開レスポンスへ含め、
     # フロント側は選択中の材料の隣に情報アイコン(ⓘ)でこの説明文を表示する（AxisComposer.tsx:
     # MaterialInfoButton）。extractor未配線（DEFER）の材料は、選んでも評価軸としては
     # 機能しない旨をここに明記する（配線状況が変わったら追従が必要）。
@@ -104,21 +92,21 @@ class MaterialSpec(BaseModel):
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
     tile_property: str | None = None
-    # 改善計画T278: tile_propertyの生値と材料の値がスケール不一致（実行時に変動する係数での
+    # tile_propertyの生値と材料の値がスケール不一致（実行時に変動する係数での
     # 変換が必要）な場合True。例: accident_count_per_km_yearは収録年数（実行時にDBから
     # 取得、増え続ける）で正規化済みだが、tile_propertyのaccident_per_kmは年正規化前の生値。
     # domain/axis_display.py: derive_ramp_inputsはこれがTrueの材料を含む軸のramp自動導出を
     # 拒否する（静的な変換係数を持てないため、閾値を安全に流用できない）。
     tile_property_needs_runtime_scale: bool = False
-    # 改善計画T308: 材料の値が進行方向によって変わる（有向）場合True。地図のrampレイヤーは
+    # 材料の値が進行方向によって変わる（有向）場合True。地図のrampレイヤーは
     # 1本の線を単色で塗る前提のため、方向依存材料は単純な重み付き和で表現できない
     # （時間依存の風レイヤー・降水ナウキャストと同じく、矢印等の専用表示が別途必要）。
     # derive_ramp_inputsはこれがTrueの材料を含む軸のramp自動導出を拒否する。現行
     # MATERIAL_CATALOGに該当する材料は無い（onewayはどの軸の材料にもなっていない表示専用の
-    # 一次属性、T289）が、将来方向依存材料が追加された際に安全側へ倒す型的な安全弁として
+    # 一次属性）が、将来方向依存材料が追加された際に安全側へ倒す型的な安全弁として
     # 用意する。
     tile_property_direction_dependent: bool = False
-    # 改善計画T404: この材料がdtype="boolean"だが、タイル側には対応する真偽値プロパティが
+    # この材料がdtype="boolean"だが、タイル側には対応する真偽値プロパティが
     # 無く、代わりに複数値の文字列(categorical)プロパティ`tile_property`の値がここに列挙する
     # 「いずれか」に該当する場合にtrueとみなせる場合に設定する（例: is_designated——
     # 評価時はdesignated_edge_idsから都度算出するタイル非依存の材料だが、地図表示の
@@ -131,7 +119,7 @@ class MaterialSpec(BaseModel):
     # 未該当は常に寄与0扱いのため、false_score=0.0の場合のみ安全に表現できる。それ以外は
     # 安全側でNoneを返し自動導出を諦める）。
     tile_property_categorical_true_values: tuple[str, ...] | None = None
-    # 改善計画T308: この材料の由来となる一次属性id（domain/registry.py:
+    # この材料の由来となる一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.ts:
     # PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキー）。材料id（例:
     # bicycle_infra・maxspeed_kmh・stop_count_per_km）と一次属性id（例: cycleway・
@@ -139,11 +127,9 @@ class MaterialSpec(BaseModel):
     # 明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ由来のwind_drag_ratio、
     # 一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが軸ごとにこれを解決して
     # 返すことで、frontend側（axisMaterialLayerIds、MapOverlayControls.tsxの材料一覧表示）が
-    # 軸スタジオ作成軸に対しても同じ仕組みで動く（従来はビルド時静的生成物
-    # axis-catalog.jsonのregistry.py: AxisSpec.inputs[一次属性id]をそのまま使っており、
-    # GUI作成軸を含まなかった）。
+    # 軸スタジオ作成軸に対しても同じ仕組みで動く。
     primary_attribute_id: str | None = None
-    # 改善計画T280: この材料をcompute_edge_costs_bulkの抽出フェーズへ載せる関数
+    # この材料をcompute_edge_costs_bulkの抽出フェーズへ載せる関数
     # （MaterialExtractionContext -> 生値、欠損はNone）。Noneは「専用の計算経路を持つため
     # 汎用抽出の対象外」（風の材料: `evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`がリクエスト
     # 時にbearing配列から完全ベクトル化で計算し、Edge単位のPythonループを経由しない。
@@ -157,9 +143,9 @@ class MaterialSpec(BaseModel):
     # surface_good）。domain/axis_definitions.py: evaluate_axis_arrayの
     # `values.dtype == bool`分岐（priority_overridesの真偽比較）が実際に配列dtypeを
     # 見て分岐するため、この2表現は数値的に等価ではなく、材料ごとに固定する必要がある
-    # （改善計画T280で発見、統一すると当該分岐が壊れる）。
+    # （統一すると当該分岐が壊れるため）。
     bool_default: Literal["false", "nan"] = "false"
-    # 改善計画T338: この材料を軸スタジオ（`GET /api/material-catalog`の公開レスポンス）
+    # この材料を軸スタジオ（`GET /api/material-catalog`の公開レスポンス）
     # から除外し、地図表示（tile_property・primary_attribute_id経由の凡例等）専用に
     # 限定する場合True。「登録されているが評価軸から未参照」な材料は他にも複数ある
     # （bridge/oneway/smoothness等）が、これらは単に軸がまだ無いだけで正規化フラグ・
@@ -174,19 +160,13 @@ class MaterialSpec(BaseModel):
     # `staticAttributeLayers.ts`の凡例）は本フラグと無関係にtile_property経由で
     # 引き続き動作する。
     display_only: bool = False
-    # 改善計画T345フォローアップ: 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表
-    # （タグ値→ラベル）。highway/surface/smoothnessのようなオープンエンドな多値材料
-    # だけが持つ（他は空dict）。軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが
-    # `GET /api/material-catalog/{material_id}/values`経由で表示するラベルの単一ソース。
-    # T340時点ではこの対訳表をfrontend側（地図の絞り込みUIのグルーピングを流用）に
-    # 置いていたが、地図表示用のグルーピングは意図的に多対一（例: motorway/trunk/primary
-    # 等複数値が同じ「幹線道路」）なため、候補セレクトへ流用すると同じラベルの選択肢が
-    # 並び見分けが付かなくなる実害が判明した（ユーザー指摘「地図表示と評価は別」）。
-    # 値の意味は材料そのものの定義に属するドメイン知識のため、他のフィールドと同じく
-    # ここ（MaterialSpec自体）へ一元化する（material_id文字列をキーにした別の並列辞書に
-    # すると、材料の追加・削除のたびに2箇所を同期する必要が生じ、過去に繰り返し実害を
-    # 出してきた同期漏れパターン[T180・T185・T218のOpenAPIドリフト、T70・T93のタイル
-    # 世代対上げ漏れ等]と同型のリスクを持ち込むため避ける）。
+    # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表（タグ値→ラベル）。
+    # highway/surface/smoothnessのようなオープンエンドな多値材料だけが持つ（他は空dict）。
+    # 軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが`GET /api/material-catalog/
+    # {material_id}/values`経由で表示するラベルの単一ソース。値の意味は材料そのものの
+    # 定義に属するドメイン知識のため、他のフィールドと同じくここ（MaterialSpec自体）へ
+    # 一元化する（material_id文字列をキーにした別の並列辞書にすると、材料の追加・削除の
+    # たびに2箇所を同期する必要が生じるリスクを持ち込むため避ける）。
     value_labels: dict[str, str] = {}
     # 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`）。
     # 値域が直感的でない材料（風等）ほど有用なため全材料必須ではなく、真偽値・categorical
@@ -194,10 +174,10 @@ class MaterialSpec(BaseModel):
     reference_points: list[MaterialReferencePoint] = []
 
     def value_label(self, value: str) -> str:
-        """タグ生値から「論理名 - 物理名」形式の表示用ラベルを組み立てる（例:
-        "自転車専用道 - cycleway"、改善計画T345さらなるフォローアップ2）。対訳表に無い値は
-        物理名のみ返す（フォールバック、新しいOSMタグ値がDBに現れてもAPIが失敗しない
-        ようにするため。この場合論理名が無いため" - "を付けない）。"""
+        """タグ生値から「論理名 - 物理名」形式の表示用ラベルを組み立てる
+        （例: "自転車専用道 - cycleway"）。対訳表に無い値は物理名のみ返す
+        （フォールバック、新しいOSMタグ値がDBに現れてもAPIが失敗しないようにするため。
+        この場合論理名が無いため" - "を付けない）。"""
         label = self.value_labels.get(value)
         if label is None:
             return value
@@ -205,20 +185,18 @@ class MaterialSpec(BaseModel):
 
     def full_label(self) -> str:
         """材料名を「論理名 - 物理名」形式の表示用ラベルにする（例: "道路種別 - highway"、
-        value_labelと同じ理由で軸スタジオの材料選択肢に物理名[material_id]を併記する、
-        改善計画T345さらなるフォローアップ2）。"""
+        value_labelと同じ理由で軸スタジオの材料選択肢に物理名[material_id]を併記する）。"""
         return f"{self.label} - {self.material_id}"
 
 
-# --- 改善計画T280: 抽出関数（compute_edge_costs_bulkの旧手書き抽出ループを1材料1関数へ
-# 分解したもの。ロジック自体は移動のみで再実装していない——既存の判定プリミティブ
+# --- 抽出関数（1材料1関数、既存の判定プリミティブ
 # [tag_value_is/parse_maxspeed/parse_lanes/classify_osm_surface]をそのまま呼ぶ）。
 # way_tags依存の材料は
-# way_tags自体が無いEdge（この場合car_stress軸グループ全体を評価しない、旧実装からの
-# 既存挙動）でNoneを返し、bool系はbool_defaultの規約でFalseへ、それ以外はNaN/Noneへ
-# 落ちる。新しい材料を1件増やすときは、この関数を1つ書いてMATERIAL_CATALOGへ
-# extractorとして登録するだけでよく、compute_edge_costs_bulk自体の変更は不要
-# （改善計画T339: 汎用パターンに収まる材料はここに専用関数を書く必要すら無く、下記
+# way_tags自体が無いEdge（この場合car_stress軸グループ全体を評価しない）でNoneを返し、
+# bool系はbool_defaultの規約でFalseへ、それ以外はNaN/Noneへ落ちる。新しい材料を1件
+# 増やすときは、この関数を1つ書いてMATERIAL_CATALOGへextractorとして登録するだけでよく、
+# compute_edge_costs_bulk自体の変更は不要（汎用パターンに収まる材料はここに専用関数を
+# 書く必要すら無く、下記
 # raw_way_tag_extractor等の汎用ファクトリへMATERIAL_CATALOG側で直接パラメータを渡すだけで
 # よい。gradient_percent/surface_good/surface/accident_count_per_km_year/is_designated/
 # highway/bicycle_infraのように、材料固有の計算経路を持つものだけが専用関数のまま残る）。
@@ -241,9 +219,9 @@ def _per_km(count: int | None, distance_km: float) -> float | None:
     return count / distance_km
 
 
-# --- 改善計画T339: 汎用extractorファクトリ。material_catalog.pyのextractorのうち大半が
+# --- 汎用extractorファクトリ。material_catalog.pyのextractorのうち大半が
 # 「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」「件数/距離の密度計算」という
-# 少数の汎用パターンに分類できる（T339背景参照）ことを踏まえ、材料ごとに専用のPython関数を
+# 少数の汎用パターンに分類できることを踏まえ、材料ごとに専用のPython関数を
 # 書く代わりに、ここで定義した汎用ファクトリへパラメータを渡して`MaterialExtractor`を
 # 組み立てる。新しい材料がこれらのパターンに収まる限り、MATERIAL_CATALOGへの1エントリ
 # 追加（`extractor=xxx_extractor(...)`という宣言）だけで抽出可能になり、専用関数を書く
@@ -373,21 +351,19 @@ _LANES_COUNT_REFERENCE_POINTS = [
 
 
 # way_tags依存の材料群: way_tags自体が欠損のときNoneを返す（車ストレス軸グループを
-# まとめて評価しない旧来の意図的な仕様を維持するため、タグ個別の欠損とは区別する）。
+# まとめて評価しない意図的な仕様のため、タグ個別の欠損とは区別する）。
 def _extract_highway(ctx: MaterialExtractionContext) -> str | None:
     return ctx.edge.highway if ctx.way_tags is not None else None
 
 
-# 改善計画T336: 旧bicycle_infra材料（優先順位付き分類、改善計画T347で削除済み）を評価軸から
-# 切り離すための正規化フラグ材料群。domain/traffic.py: 旧classify_bicycle_infrastructureの
-# 判定条件のうち、cycleway/highway由来の部分（優先順位: track/highway=cycleway ＞ lane ＞
-# shared_busway等）をそのままOR条件の真偽値へ分解したもの（decisions/material-normalization-for-
-# axis-composition.md参照）。bicycle由来の分岐（shared_pedestrian・prohibited、
-# highway×bicycleのAND条件）は正規化フラグの線形結合では近似できないと実データ検証済み
-# のため意図的に対象外（軸定義側の車ストレス補正では「roadway」扱いへ丸められる、
-# 実データでのズレ0.0127%は許容）。抽出ロジック自体は`domain/recipe.py: bicycle_infra_flags`
-# へ集約し（evaluation.pyの各スカラー評価経路が同じ材料を手組みするmaterials辞書へ
-# `**bicycle_infra_flags(...)`で混ぜ込む、bicycle_infra材料と同じ構成）、ここでは
+# 正規化フラグ材料群。cycleway/highway由来の判定条件（優先順位: track/highway=cycleway
+# ＞ lane ＞ shared_busway等）をそのままOR条件の真偽値へ分解したもの（decisions/
+# material-normalization-for-axis-composition.md参照）。bicycle由来の分岐
+# （shared_pedestrian・prohibited、highway×bicycleのAND条件）は正規化フラグの線形結合
+# では近似できないと実データ検証済みのため意図的に対象外（軸定義側の車ストレス補正では
+# 「roadway」扱いへ丸められる、実データでのズレ0.0127%は許容）。抽出ロジック自体は
+# `domain/recipe.py: bicycle_infra_flags`へ集約し（evaluation.pyの各スカラー評価経路が
+# 同じ材料を手組みするmaterials辞書へ`**bicycle_infra_flags(...)`で混ぜ込む）、ここでは
 # bulk抽出フェーズ（MaterialExtractionContext）向けの薄いラッパのみ持つ。
 def _extract_highway_is_cycleway(ctx: MaterialExtractionContext) -> bool | None:
     flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
@@ -409,18 +385,17 @@ def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
     return None if flags is None else flags["cycleway_has_shared"]
 
 
-# 改善計画T359: highway=cycleway系材料とは別のOSMタグパターン（highway=footway/pathかつ
+# highway=cycleway系材料とは別のOSMタグパターン（highway=footway/pathかつ
 # bicycle=yes/designated、河川敷サイクリングロード等の「自転車通行可の歩行者道」）を検知する
-# 正規化フラグ材料。王子-荒川ルート検索の調査で、この種の共用道が評価対象から漏れていたと
-# 発覚（domain/recipe.py: bicycle_infra_flagsのdocstring参照）。抽出ロジック自体は
-# bicycle_infra_flagsへ集約し、ここではbulk抽出フェーズ向けの薄いラッパのみ持つ
+# 正規化フラグ材料（domain/recipe.py: bicycle_infra_flagsのdocstring参照）。抽出ロジック
+# 自体はbicycle_infra_flagsへ集約し、ここではbulk抽出フェーズ向けの薄いラッパのみ持つ
 # （上記4関数と同じ構成）。
 def _extract_shared_pedestrian_path(ctx: MaterialExtractionContext) -> bool | None:
     flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
     return None if flags is None else flags["shared_pedestrian_path"]
 
 
-# 改善計画T345フォローアップ: 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
+# 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
 # MaterialSpec.value_labelsのdocstring参照——「地図表示と評価は別」という方針に基づき、
 # 地図の絞り込みUI（components/Map/roadFilterAxes.ts: HIGHWAY_GROUPS/SURFACE_GROUPS、
 # 意図的に多対一）とは独立した1値1ラベルの専用対訳表。各値の日本語ラベルはOSM wiki
@@ -494,10 +469,9 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 }
 
 
-# 現行7公開軸＋car_stressを支える内部軸6つが参照する材料（AXIS_DEFINITIONSのコメントと
-# 1:1対応）＋改善計画T290で追加した生データ（MVTタイルに焼き込み済みだが評価軸には
-# 未使用のものを含む。カタログ冒頭のT290注記参照）。改善計画T292でcar_stress_levelを
-# 撤去・is_designatedを追加した（旧専用Pythonレシピの廃止に伴う入れ替え）。
+# 現行の公開軸＋car_stressを支える内部軸が参照する材料（AXIS_DEFINITIONSのコメントと
+# 1:1対応）＋MVTタイルに焼き込み済みだが評価軸には未使用の生データを含む
+# （カタログ冒頭の注記参照）。
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "gradient_percent": MaterialSpec(
         material_id="gradient_percent",
@@ -507,16 +481,15 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="%",
         # 標高自体はDEMタイル（infrastructure/tile_cache.py、永続・TTL無し）・Edge単位の
         # 計算済み属性（elevation_attributesテーブル、precompute_elevation_attributes
-        # バッチ＋リクエスト時の遅延書き込みの両経路で埋まる）とも既に永続化されている
-        # （改善計画T10・T218a、2026-08-30のT399調査で確認・本コメントの旧記述を訂正）。
-        # タイルへ焼き込めない本当の理由は別にある: この値は進行方向依存の符号付き値
+        # バッチ＋リクエスト時の遅延書き込みの両経路で埋まる）とも既に永続化されている。
+        # タイルへ焼き込めない理由は別にある: この値は進行方向依存の符号付き値
         # （登り坂プラス・下り坂マイナス）で、1つのOSM Way（地図上の1本の線）に対し
         # 往復2方向ぶんの異なる値を持ちうるため、方向を持たない静的なMVTタイルの
-        # プロパティ1個には焼き込めない（風向風速と同じ制約）。
-        # **改善計画T423で解決**: 方向依存材料を地図表示へ乗せる仕組みは、風と同型の
-        # Redis経由way_id→値配信（`services/gradient_way_service.py`、
-        # `GET /api/region/dynamic-way-values/gradient/{z}/{x}/{y}`）として実装した。
-        # `tile_property`は今後も設定しない方針を確定する（MVT焼き込み経路[kind="ramp"、
+        # プロパティ1個には焼き込めない（風向風速と同じ制約）。方向依存材料を地図表示へ
+        # 乗せる仕組みとして、風と同型のRedis経由way_id→値配信（`services/
+        # gradient_way_service.py`、`GET /api/region/dynamic-way-values/gradient/
+        # {z}/{x}/{y}`）を使う。`tile_property`は今後も設定しない方針を確定する
+        # （MVT焼き込み経路[kind="ramp"、
         # `axis_display.py: derive_ramp_inputs`]はそもそも方向非依存の材料しか安全に
         # 表現できないため、`tile_property_direction_dependent=True`と両輪でこの材料が
         # ramp化されないことを明示する）。
@@ -584,8 +557,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # タイル側は年正規化前の"accident_per_km"（収録全年分の重み付き件数/km）。
         # 年正規化はAXIS_DEFINITIONS側の評価ロジックが行うため、ramp化する場合は
         # 閾値をタイル側のスケールへ再換算する必要がある。収録年数は実行時にDBから
-        # 取得し増え続けるため、静的な変換係数を持てない（改善計画T278で判明、
-        # registry_defaults.pyの既存accident表示は手書きのまま維持する）。
+        # 取得し増え続けるため、静的な変換係数を持てない（registry_defaults.pyの
+        # 既存accident表示は手書きのまま維持する）。
         tile_property="accident_per_km",
         tile_property_needs_runtime_scale=True,
         primary_attribute_id="accident_point",
@@ -610,7 +583,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="tunnel",
         extractor=tag_equals_extractor("tunnel", "yes"),
     ),
-    # --- 改善計画T290: MVTタイルに焼き込み済みだが評価軸には未使用の生データ ---
+    # --- MVTタイルに焼き込み済みだが評価軸には未使用の生データ ---
     "bridge": MaterialSpec(
         material_id="bridge",
         label="橋・高架",
@@ -639,12 +612,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="一方通行",
         description="OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
         dtype="boolean",
-        # osm_raw_ways.direction（forward/backward/both）から算出（改善計画T289で
-        # 一次属性・地図レイヤーとして先行追加済み、本材料登録はその生値の網羅登録）。
-        # 改善計画T280: extractor未設定（データ源のdirectionはEdgeLikeが持たず、
-        # build_road_graphがforward/backward Edge生成の可否判定に消費するのみで
-        # 保持しない。抽出フェーズへ載せるにはEdgeLikeへのフィールド追加が要り、
-        # 表示専用の一方通行材料のためだけにそこまでする理由が今は無い、DEFER）。
+        # osm_raw_ways.direction（forward/backward/both）から算出（一次属性・地図
+        # レイヤーとして先行追加済み、本材料登録はその生値の網羅登録）。
+        # extractor未設定（データ源のdirectionはEdgeLikeが持たず、build_road_graphが
+        # forward/backward Edge生成の可否判定に消費するのみで保持しない。抽出フェーズへ
+        # 載せるにはEdgeLikeへのフィールド追加が要り、表示専用の一方通行材料のためだけに
+        # そこまでする理由が今は無い、DEFER）。
         tile_property="oneway",
         primary_attribute_id="oneway",
     ),
@@ -695,42 +668,27 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         extractor=_extract_surface,
         value_labels=_SURFACE_VALUE_LABELS,
     ),
-    # 改善計画T347: 優先順位付き分類材料bicycle_infra（旧classify_bicycle_infrastructure
-    # 由来）は、生データの分類・加工ロジックをPython側に手書きしないという設計方針に
-    # 反していた（分類がSQL CASE式とPython関数の2箇所に独立して手書き複製されていた）
-    # うえ、評価軸からも参照されなくなっていたため削除した。地図の専用レイヤー「自転車
-    # インフラ」・car_stressランプのbicycle_infra項・classify_bicycle_infrastructure
-    # 自体も同時に削除し、下の正規化フラグ材料4種の組み合わせのみを単一の情報源とする
-    # （公開軸「自転車インフラ」[bicycle_infra_quality]がこれらを重み付き線形結合する、
-    # domain/axis_definitions.py参照）。経緯はdocs/architecture.md「自転車インフラ」節・
-    # docs/improvement-plan.md T347参照。
-    # 改善計画T336: bicycle_infraを評価軸から切り離すための正規化フラグ材料群
-    # （_extract_highway_is_cycleway等のdocstring参照）。
-    # 改善計画T367（ユーザー要望「軸スタジオで作った推定軸を地図上アイコンで自動表示
-    # したい」）: T347で旧bicycle_infraタイルプロパティを削除して以降tile_propertyを
-    # 持たなかったため、公開軸「自転車インフラ」（bicycle_infra_quality）が
-    # derive_ramp_inputs（domain/axis_display.py）の対象外＝地図に一切出ない状態が
-    # 続いていた。5材料それぞれへ専用のtile_propertyを新設し、_ROAD_SURFACE_TILE_MVT_SQL
+    # 自転車インフラを評価軸から切り離すための正規化フラグ材料群
+    # （_extract_highway_is_cycleway等のdocstring参照）。公開軸「自転車インフラ」
+    # （bicycle_infra_quality）がこれらを重み付き線形結合する（domain/axis_definitions.py
+    # 参照）。5材料それぞれが専用のtile_propertyを持ち、_ROAD_SURFACE_TILE_MVT_SQL
     # （road_graph_repository.py）へ焼き込む（is_emergency_transport/is_critical_logistics
-    # [T338フォローアップ]と同じ「複雑な分類の生値は表示専用として残し、評価用の正規化
-    # 材料は別途タイルへ焼き込む」設計）。
+    # と同じ「複雑な分類の生値は表示専用として残し、評価用の正規化材料は別途タイルへ
+    # 焼き込む」設計）。
     "highway_is_cycleway": MaterialSpec(
         material_id="highway_is_cycleway",
         label="道路種別が自転車道",
         description="道路種別(highway)自体が自転車道(cycleway)かどうか。",
         dtype="boolean",
         tile_property="highway_is_cycleway",
-        # 改善計画T347（ユーザー指摘: 実在しない疑似属性を発明する対症療法ではなく、
-        # 実在の一次属性のうち片方だけへ寄せて解消する）。判定式はhighway生タグを見るが、
-        # 意味的には他3材料と同じ「自転車走行環境の分類」という1つのまとまりのため、
-        # cycleway_has_track等と同じprimary_attribute_id="cycleway"へ寄せる（highway自体は
-        # car_stress_highway_baseが単独で使う一次属性のまま、排他チェック対象を維持する）。
+        # 判定式はhighway生タグを見るが、意味的には他3材料と同じ「自転車走行環境の
+        # 分類」という1つのまとまりのため、cycleway_has_track等と同じ
+        # primary_attribute_id="cycleway"へ寄せる（highway自体はcar_stress_highway_baseが
+        # 単独で使う一次属性のまま、排他チェック対象を維持する）。
         primary_attribute_id="cycleway",
-        # 改善計画T347フォローアップ: bool_default既定の"false"のままだと、
-        # compute_edge_costs_bulk（配列評価経路）が「データ欠損（extractorがNoneを返す）」を
-        # 「確定でFalse」へ丸めてしまい、公開軸bicycle_infra_quality（改善計画T353で
-        # car_stress_bicycle_infra_adjustment内部軸を廃止し直接この4材料を持つように
-        # なった）がhighway未解決の区間を「roadway確定」と誤評価する
+        # bool_default既定の"false"のままだと、compute_edge_costs_bulk（配列評価経路）が
+        # 「データ欠損（extractorがNoneを返す）」を「確定でFalse」へ丸めてしまい、公開軸
+        # bicycle_infra_qualityがhighway未解決の区間を「roadway確定」と誤評価する
         # （surface_goodと同じ「不明をFalseと混同してはいけない」ケース）。4材料は常に
         # bicycle_infra_flagsから一括で算出される（個別に欠損することはない）ため、
         # 4件まとめて"nan"にしても副作用は無い。
@@ -784,14 +742,14 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="categorical",
         # 国土数値情報N10/N12該当区分（emergency_transport/critical_logistics/both、
         # 外部静的データソースT51）。未該当はタイル側でプロパティ省略。
-        # 改善計画T280: extractor未設定（種別ごとのper-edge kindがcompute_edge_costs_bulkへ
+        # extractor未設定（種別ごとのper-edge kindがcompute_edge_costs_bulkへ
         # 配線されていない。is_designatedのコメントにある既存DEFERとまとめて扱う）。
         tile_property="designation",
         primary_attribute_id="designation",
-        # 改善計画T338: display_onlyのdocstring参照（"both"のAND条件が実データで35.01%と
+        # display_onlyのdocstring参照（"both"のAND条件が実データで35.01%と
         # 構造的に頻発するため、軸スタジオでの評価軸材料としての選択肢からは除外する）。
         # 地図表示（staticAttributeLayers.tsの凡例、車ストレス表示の自動導出ramp表示等）は
-        # 引き続きこの3値プロパティを使う（ユーザー判断、2026-08-26）。評価軸で種別を
+        # 引き続きこの3値プロパティを使う。評価軸で種別を
         # 区別したい場合はis_emergency_transport/is_critical_logistics（下記）を使う。
         display_only=True,
     ),
@@ -800,20 +758,19 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="緊急輸送道路該当[N10]（真偽）",
         description="緊急輸送道路[N10]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
         dtype="boolean",
-        # 改善計画T338フォローアップ（2026-08-26、ユーザー指摘）: designation（3値、
-        # 優先順位付き分類）をbicycle_infra（改善計画T336）と同じ設計思想で正規化する。
+        # designation（3値、優先順位付き分類）を正規化フラグへ分解した材料。
         # is_ert/is_clは_ROAD_SURFACE_TILE_MVT_SQLが既に計算していた中間値で、'both'/
         # 'emergency_transport'/'critical_logistics'へ畳み込む前の生フラグをそのまま
         # 2材料として個別に焼き込む。
         tile_property="is_emergency_transport",
         primary_attribute_id="designation",
         # extractor未設定（is_designatedと同じ「トリガー付きDEFER」、設計原則9）。
-        # is_designated（下記）と異なりどの内蔵軸からも参照されない——ユーザー指示
-        # 「特定路線かどうかだけで評価は判定」の通り、car_stress_designation_adjustment
-        # 内部軸は今後もis_designatedのみを使う。本材料は軸スタジオでユーザーが種別を
-        # 区別する評価軸を自作したくなった時点で初めて配線する（種別ごとのper-edge kindを
-        # compute_edge_costs_bulk/3つのスカラー評価経路へ運ぶ配線は、実際にそのニーズが
-        # 出るまで新設しない）。
+        # is_designated（下記）と異なりどの内蔵軸からも参照されない——
+        # car_stress_designation_adjustment内部軸は今後もis_designatedのみを使う
+        # （特定路線かどうかだけで評価は判定する方針）。本材料は軸スタジオでユーザーが
+        # 種別を区別する評価軸を自作したくなった時点で初めて配線する（種別ごとの
+        # per-edge kindをcompute_edge_costs_bulk/3つのスカラー評価経路へ運ぶ配線は、
+        # 実際にそのニーズが出るまで新設しない）。
         extractor=None,
     ),
     "is_critical_logistics": MaterialSpec(
@@ -831,16 +788,16 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="指定路線該当（真偽）",
         description="緊急輸送道路・重要物流道路のいずれかに指定されているかどうか（種別は区別しません）。",
         dtype="boolean",
-        # 改善計画T292: car_stress軸の内部軸（designation由来の調整軸）が使う簡略化された
-        # 真偽値材料。指定路線の種別（emergency_transport/critical_logistics/both、材料
-        # "designation"、改善計画T338フォローアップで正規化フラグ版のis_emergency_transport/
-        # is_critical_logisticsも追加）は評価パイプライン側で種別ごとに区別して保持していない
+        # car_stress軸の内部軸（designation由来の調整軸）が使う簡略化された真偽値材料。
+        # 指定路線の種別（emergency_transport/critical_logistics/both、材料
+        # "designation"、正規化フラグ版のis_emergency_transport/is_critical_logisticsも
+        # 別途ある）は評価パイプライン側で種別ごとに区別して保持していない
         # （domain/designation.py: 補正量が種別によらず一律+1のため、種別を評価まで
         # 運ぶ配線を新設する理由が無い）。評価時（extractor）はcar_stress_designation_
         # adjustment内部軸と同じくタイル非依存（designated_edge_idsから都度算出）のまま
         # 変更しない。
         #
-        # 改善計画T404: 一方、地図表示の自動導出（derive_ramp_inputs、axis_display.py）向けに
+        # 一方、地図表示の自動導出（derive_ramp_inputs、axis_display.py）向けに
         # `tile_property`は"designation"（3値categorical、既に他の材料"designation"が使う
         # 同じタイルプロパティ）を指す。指定路線該当=このプロパティが既知の3値
         # （emergency_transport/critical_logistics/both、_ROAD_SURFACE_TILE_MVT_SQL
@@ -868,12 +825,11 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         extractor=raw_way_tag_extractor("smoothness", normalize=True),
         value_labels=_SMOOTHNESS_VALUE_LABELS,
     ),
-    # 改善計画T339完了条件の実証: 専用のPython関数を書かず、汎用ファクトリ
-    # （raw_way_tag_extractor）への宣言追加だけで抽出可能にした新規材料。tracktypeは
-    # OSMの未舗装路面グレード（grade1[良好]〜grade5[粗悪]）で、smoothnessと同じ
-    # 「単一タグの生値取得（正規化: lower/btrim）」パターンにそのまま収まる。
-    # MVTタイルへは未焼き込み（新規追加のため、他の材料と異なりT290の「既存焼き込み済み
-    # データの網羅登録」ではない。地図表示で必要になれば別途タイルへ追加する）。
+    # 専用のPython関数を書かず、汎用ファクトリ（raw_way_tag_extractor）への宣言追加だけで
+    # 抽出可能にした材料。tracktypeはOSMの未舗装路面グレード（grade1[良好]〜grade5[粗悪]）で、
+    # smoothnessと同じ「単一タグの生値取得（正規化: lower/btrim）」パターンにそのまま収まる。
+    # MVTタイルへは未焼き込み（他の材料と異なり「既存焼き込み済みデータの網羅登録」では
+    # ない。地図表示で必要になれば別途タイルへ追加する）。
     "tracktype": MaterialSpec(
         material_id="tracktype",
         label="未舗装路グレード(tracktype)",
@@ -886,7 +842,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
 
 
 def axis_studio_materials() -> list[MaterialSpec]:
-    """改善計画T338: 軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）
+    """軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）
     向けに`display_only`材料を除外した一覧。`display_only`は選択肢からの除外のみを
     意味し、材料idとしての正当性（`is_known_material`）には影響しない
     （designationのdocstring参照）。"""
