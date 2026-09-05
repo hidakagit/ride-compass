@@ -146,8 +146,10 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   集約している。
 - **軸別内訳（重み付き寄与度）**: `RouteCandidate.axis_contributions`（axis_id→重み付き
   寄与度0-100、backend側で区間ごとの合成に使ったのと同じ重み配分を軸別に分解しルート
-  全体へ距離加重平均で集約した値。評価できなかった軸はキー自体が無く非表示。backend:
-  `domain/evaluation.py: compose_costs_from_axis_matrix`参照）を、「総合難易度」の数字の
+  全体へ距離加重平均で集約した値。評価できなかった軸（データ欠損）はキー自体が無く非表示。
+  重み0の軸はキー自体は残り値が常に0.0になる（backend:
+  `domain/evaluation.py: compose_costs_from_axis_matrix`参照。frontend側で値0を除外する、
+  下記`AxisContributionBar.tsx`参照）を、「総合難易度」の数字の
   隣に`AxisContributionBar`（積み上げ1本バー＋その下の凡例）でそのまま表示する。合計が
   丸め誤差を除いて`overall_difficulty`と数学的に一致するため、frontend側での独自の
   重み計算は行わない。バーの各セグメントの色は`axisColors`（地図色分けチップと同じ配色）、
@@ -161,8 +163,9 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 同じ表現）をそのまま流用した積み上げ1本バーと、その下の凡例（色ドット＋ラベル＋数値）を
 描画する。`axes`（表示順・ラベル）・`contributions`（axis_id→寄与度）・`axisColors`のみを
 受け取る汎用コンポーネントで、値の出どころ（ルート全体か特定の区間か）を一切知らない。
-`contributions`にキーが無い軸は自動的に除外されるため、呼び出し側は`axes`を絞り込まずに
-渡してよい。ルート全体の内訳（RouteAxisProfile、`RouteCandidate.axis_contributions`）と
+`contributions`にキーが無い軸・値が0の軸（重み0の軸は常にこの値になる）は自動的に
+除外されるため、呼び出し側は`axes`を絞り込まずに渡してよい。
+ルート全体の内訳（RouteAxisProfile、`RouteCandidate.axis_contributions`）と
 区間クリック詳細（page.tsx、`RouteSegmentDetail.axis_contributions`、下記「区間クリック
 詳細（selectedRouteSegment）」参照）の両方が同じこのコンポーネントを使う——「重み付き
 寄与度」の表示はこの1部品に一元化されており、値の出どころごとに別の表現を持たない。

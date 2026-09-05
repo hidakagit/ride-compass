@@ -26,6 +26,34 @@ describe("AxisContributionBar", () => {
     expect(screen.queryByText("風")).not.toBeInTheDocument();
   });
 
+  it("値が0の軸は表示しない（backendは重み0の軸もキー付きで値0.0を返すため、キーの有無だけでは絞り込めない）", () => {
+    render(
+      <AxisContributionBar
+        axes={AXES}
+        contributions={{ car_stress: 30, wind: 0, night: 5 }}
+        axisColors={AXIS_COLORS}
+      />
+    );
+
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(screen.queryByText("風")).not.toBeInTheDocument();
+  });
+
+  it("負の値（クランプ前）は0ではないため除外しない", () => {
+    render(
+      <AxisContributionBar
+        axes={AXES}
+        contributions={{ car_stress: -10, night: 5 }}
+        axisColors={AXIS_COLORS}
+      />
+    );
+
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
+  });
+
   it("軸カタログの並び順で凡例を表示し、値をそのまま(小数1桁)表示する", () => {
     render(
       <AxisContributionBar

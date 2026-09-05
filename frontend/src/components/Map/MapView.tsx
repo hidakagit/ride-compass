@@ -318,6 +318,30 @@ export function routesToFeatureCollection(
 // geometryを除外する（クリック時のポップアップ表示に必要な値だけを残す）。
 export type RouteSegmentProperties = Omit<RouteSegmentDetail, "geometry">;
 
+// RouteSegmentPropertiesのうちオブジェクト値を持つフィールド。MapLibreはGeoJSONソースの
+// feature.propertiesをvector tile相当の内部表現へ変換する際、プリミティブ型
+// （string/number/boolean）しか保持できないvector tile仕様の制約でオブジェクト値を
+// JSON文字列へ自動的にシリアライズする。segmentsToFeatureCollectionが渡す時点では
+// 素のオブジェクトだが、クリック時にqueryRenderedFeatures経由で読み戻すと文字列化されて
+// いるため、handleRouteSegmentClickでここへ列挙した各フィールドをパースし直す。
+// 新しいオブジェクト型フィールドを追加するときはこの配列へも追加すること
+// （material_valuesの追加漏れで実際に実行時エラーが起きた）。
+const ROUTE_SEGMENT_OBJECT_PROPERTY_KEYS = ["axis_difficulties", "axis_contributions", "material_values"] as const;
+
+/** クリック時にqueryRenderedFeatures経由で読み戻したfeature.properties（ROUTE_SEGMENT_
+ * OBJECT_PROPERTY_KEYS参照のとおりオブジェクト型フィールドが文字列化されている）を、
+ * 元のオブジェクトへ復元する。文字列化されていなければそのまま返す。 */
+export function restoreRouteSegmentProperties(raw: RouteSegmentProperties): RouteSegmentProperties {
+  const restored = { ...raw };
+  for (const key of ROUTE_SEGMENT_OBJECT_PROPERTY_KEYS) {
+    const value = restored[key];
+    if (typeof value === "string") {
+      restored[key] = JSON.parse(value) as Record<string, number>;
+    }
+  }
+  return restored;
+}
+
 export function segmentsToFeatureCollection(
   segments: RouteSegmentDetail[]
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, RouteSegmentProperties> {
@@ -2913,27 +2937,7 @@ export default function MapView({
       // ポップアップが残っていれば片付ける）。
       popupRef.current?.remove();
       const rawProperties = feature.properties as unknown as RouteSegmentProperties;
-      // MapLibreはGeoJSONソースのfeature.propertiesをvector tile相当の内部表現へ変換する際、
-      // オブジェクト値（axis_difficulties・axis_contributions、唯一のオブジェクト型
-      // フィールド）をJSON文字列へ自動的にシリアライズする（プリミティブ型
-      // [string/number/boolean]しか保持できないvector tile仕様の制約）。
-      // segmentsToFeatureCollectionが渡す時点では素のオブジェクトだが、クリック時に
-      // queryRenderedFeatures経由で読み戻すと文字列化されているため、ここでパースし
-      // 直す必要がある。
-      const axisDifficulties =
-        typeof rawProperties.axis_difficulties === "string"
-          ? (JSON.parse(rawProperties.axis_difficulties) as Record<string, number>)
-          : rawProperties.axis_difficulties;
-      const axisContributions =
-        typeof rawProperties.axis_contributions === "string"
-          ? (JSON.parse(rawProperties.axis_contributions) as Record<string, number>)
-          : rawProperties.axis_contributions;
-      const segment: RouteSegmentDetail = {
-        ...rawProperties,
-        axis_difficulties: axisDifficulties,
-        axis_contributions: axisContributions,
-        geometry: null,
-      };
+      const segment: RouteSegmentDetail = { ...restoreRouteSegmentProperties(rawProperties), geometry: null };
       // ユーザー指摘（2026-09-03）: 当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線
       // （6px）より広いため、クリック地点をそのまま使うとマーカーがルート線から目に
       // 見えてズレる。区間のgeometry（LineString）上の最近点へ補正する

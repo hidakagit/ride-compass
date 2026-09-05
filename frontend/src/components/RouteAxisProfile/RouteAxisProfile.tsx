@@ -16,7 +16,8 @@ interface RouteAxisProfileProps {
    * 軸はキー自体を持たない。 */
   axisDifficulties: Record<string, number>;
   /** RouteCandidate.axis_contributions（axis_id→重み付き寄与度0-100、合計はoverallDifficultyと
-   * 一致する）。重み0の軸は寄与を持たない。 */
+   * 一致する）。backendは公開軸すべてにキーを返す（重み0の軸は値0.0）ため、値0の軸は
+   * AxisContributionBar側で表示から除く（本コンポーネント側での絞り込みは行わない）。 */
   axisContributions: Record<string, number>;
   /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
   overallDifficulty: number | null;
@@ -38,7 +39,13 @@ export default function RouteAxisProfile({
   overallDifficulty,
   axisColors,
 }: RouteAxisProfileProps) {
-  const contributionRows = axes.filter((axis) => axisContributions[axis.axisId] != null);
+  // 値0（重み0の軸は常に0.0、AxisContributionBar.tsx参照）は表示すべき寄与が無いものとして
+  // 除外する。ここでの絞り込みはAxisContributionBar自身が行う絞り込みと同じ条件にし、
+  // 「空状態の案内文」と「バーの中身が無い」の判定がずれないようにする。
+  const contributionRows = axes.filter((axis) => {
+    const value = axisContributions[axis.axisId];
+    return value != null && value !== 0;
+  });
 
   return (
     <div className={styles.wrap}>

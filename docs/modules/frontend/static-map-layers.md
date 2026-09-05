@@ -220,7 +220,12 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
   区間クリック時の詳細表示（地点・到達予想時刻・軸別内訳）はボトムシート側
   （[ルート設定・結果パネル](route-settings-and-results.md)のRouteAxisProfile）が持ち、
   地図上（`MapView.tsx: handleRouteSegmentClick`）は軽量なマーカーを立てるのみで
-  テキストポップアップを持たない。
+  テキストポップアップを持たない。`handleRouteSegmentClick`が`queryRenderedFeatures`
+  経由で読み戻す`feature.properties`は、MapLibreがGeoJSONソースをvector tile相当の
+  内部表現へ変換する際にオブジェクト値をJSON文字列へ自動シリアライズするため、
+  `restoreRouteSegmentProperties`（`ROUTE_SEGMENT_OBJECT_PROPERTY_KEYS`に列挙した
+  フィールドのみ）で復元してから使う。新しいオブジェクト型フィールドを`RouteSegmentDetail`
+  へ追加するときはこの配列への追加が必須（追加漏れで文字列のまま渡り実行時エラーになる）。
 - `icons.tsx`はこのモジュール（`MapOverlayControls`のアイコン辞書）専用ではなく、
   [動的気象レイヤー](dynamic-weather-layers.md)の`WeatherPanel`/`TodayOutlook`からも
   使われる、地図関連UI全体で共有するアイコン集である。
