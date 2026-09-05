@@ -2,7 +2,12 @@
 （改善計画T423、T458でAXIS_DEFINITIONS由来の動的導出へ変更）。"""
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
-from app.domain.dynamic_way_values import dynamic_way_value_materials
+from app.domain.dynamic_way_values import (
+    dynamic_way_value_materials,
+    map_value_kind,
+    map_value_unit,
+    transform_dedicated_way_values,
+)
 from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
 
@@ -66,3 +71,40 @@ def test_gradient_needs_bearing_only(monkeypatch):
 def test_material_id_matches_dict_key():
     for key, material in dynamic_way_value_materials().items():
         assert material.material_id == key
+
+
+def test_map_value_kind_is_signed_material_only_for_single_abs_term_axes():
+    assert map_value_kind(AXIS_DEFINITIONS["gradient"]) == "signed_material"
+    assert map_value_kind(AXIS_DEFINITIONS["wind"]) == "difficulty"
+    assert map_value_kind(AXIS_DEFINITIONS["car_stress"]) == "difficulty"
+
+
+def test_map_value_unit_comes_from_material_catalog_for_signed_material_only():
+    assert map_value_unit(AXIS_DEFINITIONS["gradient"]) == "%"
+    assert map_value_unit(AXIS_DEFINITIONS["wind"]) == ""
+
+
+def test_transform_evaluates_difficulty_with_axis_breakpoints_and_clamps():
+    wind = AXIS_DEFINITIONS["wind"]  # breakpoints [(0,0),(8,100)]
+    result = transform_dedicated_way_values(wind, "wind_penalty", {1: 0.0, 2: 4.0, 3: 8.0, 4: -3.0, 5: 12.0})
+    assert result == {1: 0.0, 2: 50.0, 3: 100.0, 4: 0.0, 5: 100.0}
+
+
+def test_transform_passes_signed_material_through_unchanged():
+    gradient = AXIS_DEFINITIONS["gradient"]
+    values = {10: -4.2, 11: 3.1}
+    assert transform_dedicated_way_values(gradient, "gradient_percent", values) == values
+
+
+def test_transform_drops_ways_the_axis_cannot_evaluate_from_one_material():
+    two_materials = AxisDefinition(
+        axis_id="two_materials",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="wind_penalty"), MaterialTerm(material="lanes_count")],
+            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="2材料",
+        dedicated_way_value_layer=True,
+    )
+    assert transform_dedicated_way_values(two_materials, "wind_penalty", {1: 3.0}) == {}

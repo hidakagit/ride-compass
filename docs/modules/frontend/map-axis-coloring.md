@@ -14,11 +14,12 @@
 | ファイル | 責務 |
 |---|---|
 | `Map/routeStyleModes.ts` | ルート確定後の色分けモード一覧・色式 |
-| `Map/windAxisLayer.ts`・`gradientAxisLayer.ts` | ルート確定前の評価軸グループ線の色式 |
+| `Map/dedicatedWayValueLayer.ts` | ルート確定前の評価軸グループ線（専用way値レイヤー、風・勾配共通）の色式・凡例・feature-stateキー。軸カタログの表示宣言（`DedicatedWayValueDisplay`）だけから組み立て、軸ごとのファイル・定数を持たない |
+| `Map/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色、HSL補間、段階分け色式。ルート前後の色分けが共有する葉モジュール |
 | `Map/gradientGridFill.ts` | ルート確定前の環境グループ面（勾配のgridFill）の値計算・色式（風は面塗りを持たないため対象外） |
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
-| `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（共有色ヘルパー、windAxisLayer/gradientAxisLayerが使う）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
-| `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。windAxisLayer/gradientAxisLayerの`*Legend`関数が使う |
+| `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（ramp軸の共有色ヘルパー）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
+| `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。`dedicatedWayValueLegend`が使う |
 | `components/MapColorLegend/MapColorLegend.tsx` | 上記の凡例データを地図上部中央に表示するUI部品（`page.tsx`が組み立てる、配置の理由は下記参照） |
 | `Map/mapLayers.ts` | `isDedicatedWayValueLayerId`・`isAxisStudioLayer`（レイヤーID判定） |
 | `Map/MapView.tsx`（windAxis/gradientAxis/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
@@ -30,42 +31,59 @@
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)の管轄。本ドキュメントはwindAxis/
 gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に関わる箇所のみを扱う。**
 
-## ルート確定前後で異なる値source（3つの表示、共通しきい値）
+## ルート確定前後で同じスケール（3つの表示、1つの表示宣言）
 
 ```
                           [評価軸グループ（線）]                [環境グループ（面、勾配のみ）]
 ルート未確定  ── setFeatureState経由の値 ──┐   ┌── gridFill（勾配=タイル平均。風は対象外）
-              （useDynamicWayValues）      │   │
-                                            ▼   ▼
-                                  同じ配色・しきい値を共有
+              （useDynamicWayValues、      │   │
+               backendが軸定義で評価した   │   │
+               地図表示値）                 ▼   ▼
+                                  同じ表示宣言（種類・単位・しきい値・段階ラベル）
                                             ▲
 ルート確定後  ── RouteSegmentDetailの ──────┘   （環境グループは非表示、評価軸グループが
               axis_difficulties /              「地図の色分け」モードへ役割を譲る）
-              gradient_percent直読み
+              符号付き材料の直読み
 ```
+
+軸ごとに地図が塗る値の種類はbackendが軸定義から決める（`GET /api/axis-catalog`の
+`map_value_kind`/`map_value_unit`、[動的材料・way_id値配信（backend）](../backend/dynamic-way-values.md)
+参照）。`difficulty`の軸はルート前（専用way値レイヤー）もルート後（ルート線）も
+軸スタジオのbreakpointsで評価済みの0〜100を塗り、`signed_material`の軸（勾配）は
+どちらも符号付き材料生値を塗る。`display_thresholds_override`は軸ごとに1つのスケールで
+解釈される（ルート前後でスケールが食い違う軸は無い）。
 
 ## 軸id→振る舞いの判定（データ駆動、axis_idのハードコード比較を使わない）
 
-| 判定 | 使う軸データ属性 | 関数 |
+| 判定 | 使う軸データ属性 | 関数・場所 |
 |---|---|---|
 | 専用way_id配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `mapLayers.ts: isDedicatedWayValueLayerId` |
-| 符号付き値を直接読むべきか（勾配のような向きを持つ軸） | `shape.kind==="breakpoint_linear" && shape.preprocess==="abs" && shape.terms.length===1` | `routeStyleModes.ts: isSignedAbsShape` |
+| 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
+| 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
 
 公開軸は無条件でルート結果色分けの選択肢になる（`routeStyleModes.ts:
 routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実際にユーザーが使っている
 軸だけへの絞り込みは`filterRouteStyleModesByPreference`（route_preferenceの重み>0）が担う。
 
-`isSignedAbsShape`が真の場合、値は`axis_difficulties[axis_id]`（0-100正規化済み）
-ではなく`shape.terms[0].material`（生材料、例: `gradient_percent`）を直接読む——
-向き（登り/下り）は絶対値化されたdifficultyでは表現できないため。
+`map_value_kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
+`shape.terms[0].material`（生材料、例: `gradient_percent`）を直接読む——向き（登り/下り）は
+絶対値化されたdifficultyでは表現できないため。
+
+## valueScale.ts（ルート前後で共有する葉モジュール）
+
+- `valueScaleFor(kind)`: 種類ごとの既定しきい値（`DEFAULT_DIFFICULTY_BOUNDARIES=[33,66]`・
+  `SIGNED_MATERIAL_BOUNDARIES=[-2,2,6,10]`）と配色（難易度は`COLOR_EASY→COLOR_HARD`、
+  符号付き材料は`COLOR_SIGNED_LOW→COLOR_HARD`）。
+- `interpolateColors(colorLow, colorHigh, count)`: 2色の間をHSL色空間でcount色に均等
+  補間する（固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する）。
+- `buildSteppedColorExpression(valueExpression, kind, boundaries?, numericExpression?)`:
+  null→`COLOR_NO_DATA`、それ以外は`["step", ...]`の色式。
 
 ## routeStyleModes.ts（ルート確定後）
 
 - `buildRangeSteppedMode`: 境界値配列（軸スタジオの`display_thresholds_override`、
   未設定時は経路ごとの既定値）の**長さがそのまま段階数を決める**汎用関数。ラベルは
   境界値の実際の数字から機械的に生成する。
-- `interpolateColors(colorLow, colorHigh, count)`: 2色の間をHSL色空間でcount色に均等
-  補間する（固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する）。
 - `DIFFICULTY_MODE`（総合難易度）だけがフロントの固定モード——特定のaxis_idに紐づかず
   全軸の重み付き合成コストそのものを表示するため、軸スタジオと同期する対象にならない。
 - `filterRouteStyleModesByPreference`: `routePreference`で重み0にした軸のモードを
@@ -81,46 +99,30 @@ routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実�
   MapLibreは上のレイヤーから順にシンボルを配置するため、衝突判定を有効にすると主層の矢印と
   同位置・大きめのハロー層が全て落ち、色分け線が紺系のモードでは同色の矢印が線に沈む。
 
-## windAxisLayer.ts / gradientAxisLayer.ts（ルート確定前の評価軸グループ線）
+## dedicatedWayValueLayer.ts（ルート確定前の評価軸グループ線）
 
-- `windAxisLayer.ts`: `WIND_AXIS_FEATURE_STATE_KEY = "windPenalty"`。
-  `WIND_AXIS_THRESHOLDS = [-6, -2, 2, 6]`は未設定時のフォールバック既定値。
-- `gradientAxisLayer.ts`: `GRADIENT_AXIS_FEATURE_STATE_KEY = "gradientValue"`。
-  境界値は`routeStyleModes.ts: GRADIENT_BOUNDARIES`を未設定時のフォールバックとして持つ。
-- wind/gradientいずれも、軸スタジオの`display_thresholds_override`は
-  `page.tsx: dedicatedWayValueBoundaries`（`axisCatalog.axes`から
-  `dedicated_way_value_layer===true`の軸を横断的に抽出した`ReadonlyMap<axisId,
-  readonly number[]>`、`MapViewProps.dedicatedWayValueBoundaries`経由）から取得する
-  汎用機構1つにまとまっている。未設定の軸idは上記のビルド時既定値へフォールバックする。
-- 両者とも`buildXxxColorExpression(valueExpression, boundaries?)`という「値の取得元
-  （feature-state or geojsonプロパティ）だけが呼び出し側で異なる」共通ロジックを持ち、
-  評価軸グループ（feature-state経由）と環境グループのgridFill（`["get",...]`経由）が
-  同じ配色・しきい値を共有する契約をコード上でも1箇所に集約する。
-- `windAxisLegend(boundaries?, labels?)`/`gradientAxisLegend(boundaries?, labels?)`は、
-  同じ配色・しきい値から地図上の凡例（色→値の対応、`mapColorLegend.ts:
-  MapColorLegendBand[]`）を組み立てる。任意の`labels`（段階ごとの体感ラベル、例:
-  「強い向かい風」）を渡すと数値レンジの前に添える（`mapColorLegend.ts:
-  buildRangeLegendBands`の`labels`引数、色は指定せず既存の`rampColorForBand`/
-  `interpolateColors`自動生成のまま）。`labels`は`boundaries.length+1`（段階数）と
-  要素数が一致する間だけ使い、不一致時は数値レンジのみへフォールバックする（不整合な
-  保存データへの防御）。`labels`自体はこのファイルに固定値を持たず、軸スタジオの
-  `display_band_labels_override`（`AxisDefinition`、`display_thresholds_override`と
-  対になるフィールド、[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)参照）
-  が唯一のソース——`page.tsx`が`dedicatedWayValueBoundaries`と同じパターンで
-  `axisCatalog.axes`から`dedicatedWayValueBandLabels`（軸id→ラベル配列のMap）を組み立てて
-  渡す。通常のramp軸（`buildAxisRampLegend`）も同じ`display_band_labels_override`
-  （`RampAxis.bandLabelsOverride`経由）を読み、同じ「段階数一致時のみ適用」規則で
-  体感ラベルを表示できる。
-  `page.tsx`が`showWindAxis`/`showGradientAxis || showGradientFill`（評価軸の線、勾配は
-  環境グループのgridFillとのどちらか一方でもONの間）・ramp軸（`axisVisibility`、
-  `axisLayers.ts: buildAxisRampLegend`）を横断して集め、`MapColorLegend`
-  （`components/MapColorLegend/`）が地図上部中央に常時表示する（モバイルのBottomSheetが
-  画面下側を覆っても隠れないための配置、コンポーネント側コメント参照）。ramp軸の凡例は
-  絞り込みフィルタと共有する`LegendEntry`（`filter`必須）を返すが、windAxis/gradientAxisには
-  絞り込み機構自体が無いため、意味の無い`filter`を捏造せずに済む`MapColorLegendBand`
-  （`{label, color}`のみ）という軽量な専用型を使う。環境グループの勾配gridFillも評価軸
-  グループの線と同じ`gradientAxisLegend`をそのまま使う（同じ配色・しきい値を共有する契約
-  のため、凡例データ自体は変わらず表示条件だけを広げている）。
+- `DedicatedWayValueDisplay`: `{kind, unit, boundaries?, bandLabels?}`。`page.tsx`が
+  `axisCatalog.axes`から`dedicatedWayValueLayer===true`の軸を横断的に抽出し、
+  `mapValueKind`/`mapValueUnit`/`displayThresholdsOverride`/`displayBandLabelsOverride`から
+  組み立てて`MapViewProps.dedicatedWayValueDisplays`（axisId→宣言の汎用Map）として渡す。
+  未設定の軸は`DEFAULT_DEDICATED_WAY_VALUE_DISPLAY`（難易度スケール・単位なし）。
+- `dedicatedWayValueFeatureStateKey(axisId)`: setFeatureStateのキー（`${axisId}Value`）。
+  同じ路面タイルソースの地物へ複数の軸が値を持つため軸idごとに異なる。
+- `buildDedicatedWayValueColorExpression(valueExpression, display)`: 値の取得元
+  （feature-state or geojsonプロパティ）だけが呼び出し側で異なる共通ロジック。評価軸
+  グループ（`dedicatedWayValueColorExpression`、feature-state経由）と環境グループの
+  gradientFill（`["get",...]`経由）が同じ配色・しきい値を共有する契約をコード上で1箇所に
+  集約する。
+- `dedicatedWayValueLegend(display)`: 同じ配色・しきい値から地図上の凡例
+  （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
+  `display_band_labels_override`）は要素数が段階数と一致する間だけ数値レンジの前に添える
+  （不整合な保存データへの防御）。単位は`display.unit`（難易度は空文字）。
+  `page.tsx`が表示中の専用軸（`showWindAxis`／`showGradientAxis || showGradientFill`）と
+  ramp軸（`axisVisibility`、`axisLayers.ts: buildAxisRampLegend`）を横断して集め、
+  `MapColorLegend`（`components/MapColorLegend/`）が地図上部中央に常時表示する
+  （モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。ramp軸の凡例は
+  絞り込みフィルタと共有する`LegendEntry`（`filter`必須）を返すが、専用way値レイヤーには
+  絞り込み機構自体が無いため`MapColorLegendBand`（`{label, color}`のみ）という軽量な型を使う。
 
 ## gradientGridFill.ts（環境グループの面表示、勾配のみ）
 
@@ -130,8 +132,8 @@ routeStyleModesFromCatalogAxes`が公開軸すべてをマップする）。実�
 （`gradientGridCellsFromTileResponses`、追加のAPI呼び出し無し）。セルの単位はタイル境界
 そのもの（`tileRing`）。
 
-`gradientFillColorExpression(boundaries?)`は評価軸グループ（`gradientAxisColorExpression`）と
-同じ`dedicatedWayValueBoundaries`（`.get("gradient")`）を`MapView.tsx`側
+`gradientFillColorExpression(display?)`は評価軸グループ（`dedicatedWayValueColorExpression`）と
+同じ`dedicatedWayValueDisplays`（`.get("gradient")`）を`MapView.tsx`側
 （`makeEnsureGradientFillLayer`）で受け取り、両者が同じ配色・しきい値を共有する。
 
 ## useDynamicWayValues.ts（フェッチ・状態管理）
@@ -157,7 +159,7 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 
 ## MapView.tsx側の配線
 
-`windAxisLayer.ts`/`gradientAxisLayer.ts`が組み立てる色式（純粋なMapLibre expression）は、
+`dedicatedWayValueLayer.ts`が組み立てる色式（純粋なMapLibre expression）は、
 それ自体では地図に何も描かない。実際の地図反映は`MapView.tsx`側の以下の機構が担う。
 
 ```
@@ -169,11 +171,11 @@ page.tsx
   ├─ dedicatedWayValues = Map(["wind", windAxisData.values], ["gradient", gradientAxisData.values])
   ▼
 <MapView dedicatedWayValues={...} gradientFillGeojson={...} .../>
-  ├─ makeEnsureDedicatedWayValueLayer(layerId, colorExpression)
+  ├─ makeEnsureDedicatedWayValueLayer(layerId, colorExpression)（色式はdedicatedWayValueDisplaysから）
   │     → windAxis/gradientAxisレイヤーをroad_surfaceタイルの独立レイヤーとして初回のみ追加
   │       （ensureRoadSurfaceTileLayerが先にpromoteId付きsourceを用意している前提）
-  ├─ DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS（axisId→featureStateKeyの小さなlookup）を
-  │   1つのeffectでループし、各軸へapplyAxisFeatureStateValues(map, featureStateKey, values)
+  ├─ dedicatedWayValuesのエントリを1つのeffectでループし、各軸へ
+  │   applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values)
   │     → map.setFeatureState({source, sourceLayer, id: wayId}, {[key]: value}) を全way分実行
   └─ clearRoadTileFeatureState(map)
         → showWindAxis・showGradientAxisが両方falseへ揃った瞬間、setFeatureStateした
@@ -202,17 +204,16 @@ page.tsx
   ままになる）。
 
 `dedicatedWayValues`は`MapViewProps`上、`ReadonlyMap<axisId, ReadonlyMap<wayId, value>>`
-という1つの汎用propにまとまっている（`dedicatedWayValueBoundaries`と同じく、
+という1つの汎用propにまとまっている（`dedicatedWayValueDisplays`と同じく、
 design-principles.md構造仕様3「軸ごとにpropを新設しない」に沿う）。`useDynamicWayValues`
 自体はmaterialIdごとに個別インスタンス化する設計（デバウンス・レース対策がaxis間で
 独立している必要があるため）で、汎用propへまとまっているのはpage.tsxがMapViewへ渡す
-直前の形状だけである。MapView.tsx内部の`DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS`
-（axisId→featureStateKeyの小さなRecord）が`windAxisLayer.ts`/`gradientAxisLayer.ts`
-それぞれの`*_FEATURE_STATE_KEY`定数を束ねる。
+直前の形状だけである。feature-stateキーは`dedicatedWayValueFeatureStateKey(axisId)`で
+軸idから機械的に導出するため、軸ごとの対応表は持たない。
 
 ## 動的気象レイヤーとの関係
 
-`windAxisLayer.ts`/`gradientAxisLayer.ts`が扱う「評価軸グループ」（道路そのものを線で塗る）は、
+`dedicatedWayValueLayer.ts`が扱う「評価軸グループ」（道路そのものを線で塗る）は、
 `windVector`（矢印表示、環境グループの探索用表現）とは完全に独立した見せ方であり、
 同じ`[時刻/向き]`入力を共有するだけで、レイヤー・ソース・フェッチ経路はすべて別individual。
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う`DYNAMIC_WEATHER_RENDERERS`汎用機構

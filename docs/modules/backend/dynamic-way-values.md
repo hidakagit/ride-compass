@@ -19,7 +19,7 @@
 DBから取り出す`infrastructure/road_graph_repository.py: get_way_gradient_inputs_in_tile`・
 `get_way_ids_in_tile`は[routing-engine.md](routing-engine.md)が主管するファイルに属する。
 
-## 材料登録（`domain/dynamic_way_values.py`）
+## 材料登録と地図表示値（`domain/dynamic_way_values.py`）
 
 ```python
 def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
@@ -49,6 +49,14 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
   必要とする）。
 - `dedicated_way_value_layer=True`の軸は現状wind/gradientの2軸のみ。
 
+同じモジュールが、軸について地図が塗る値の種類を軸定義から決める:
+
+| 関数 | 意味 |
+|---|---|
+| `map_value_kind(definition)` | `BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数なら`signed_material`、それ以外は`difficulty` |
+| `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
+| `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_scalar`で評価（同じ生値は1回だけ評価）、`signed_material`は素通し |
+
 `api/dependencies.py: get_dynamic_way_value_service`内の`_DYNAMIC_WAY_VALUE_SERVICE_
 FACTORIES`は、material_id→サービス実装本体（`WindWayService`/`GradientWayService`）の
 組み立てを担う別のdict。こちらはPython実装本体（コンストラクタ）の登録のため軸スタジオの
@@ -63,9 +71,24 @@ FACTORIES`は、material_id→サービス実装本体（`WindWayService`/`Gradi
 material_id → dynamic_way_value_materials().get(material_id)（無ければ404）
             → needs_bearing かつ bearing_deg 省略 → 422
             → get_dynamic_way_value_service(material_id) が WindWayService/GradientWayService を組み立て
-            → service.get_way_values(z, x, y, at, bearing_deg)
-            → {way_id: 値} の辞書（JSON）
+            → service.get_way_values(z, x, y, at, bearing_deg)   … 材料の生値（キャッシュ対象）
+            → transform_dedicated_way_values(AXIS_DEFINITIONS[material_id], service.material_id, 生値)
+            → {way_id: 地図表示値} の辞書（JSON）
 ```
+
+- 応答は材料の生値ではなく**地図が塗る値**。`map_value_kind(definition)`が`difficulty`の軸
+  （風等）は軸定義（breakpoints・priority_overrides）で評価した難易度0〜100、
+  `signed_material`の軸（勾配: 単一材料・`preprocess="abs"`）は符号付き材料生値のまま。
+  ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
+  スケールになるため、`display_thresholds_override`は軸ごとに1つの意味を持つ。
+- 各サービスは`material_id`クラス属性で自分が返す生値の材料id（`wind_penalty`／
+  `gradient_percent`）を宣言し、routerはそれを軸定義のどの材料として評価するかに使う。
+  キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
+  次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
+  結果から除く（地図上は「データなし」）。
+- `GET /api/axis-catalog`は同じ判定を`map_value_kind`・`map_value_unit`（材料カタログの
+  `MaterialSpec.unit`、難易度は空文字）として公開し、frontendは色式・凡例の単位を
+  これだけから組み立てる（[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)参照）。
 
 - ルート確定後は呼ばれない専用エンドポイント（フロントは`axis_difficulties`を使う）。
 - 静的な路面タイル（`/api/region/road-surface-tiles`、MVT）とは別経路——フロントは
@@ -107,7 +130,7 @@ get_way_values(z, x, y, at, bearing_deg)
        → _nearest_time_index（範囲外はNone→{}）
        → WindCalculator.wind_penalty(speed, direction, bearing_deg)
        → 全way_idへbroadcastしてキャッシュ書き込み
-  └─ 戻り値は常に dict.fromkeys(way_ids, penalty)
+  └─ 戻り値は常に dict.fromkeys(way_ids, penalty)   … 生値。難易度への変換はrouter側
 ```
 
 **暗黙の前提**: キャッシュhit時は`next(iter(cached.values()), 0.0)`で代表値を取り出す。

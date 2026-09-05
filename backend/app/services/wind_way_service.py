@@ -77,6 +77,10 @@ def _nearest_time_index(times: list[str], target: datetime) -> int | None:
 
 
 class WindWayService:
+    # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
+    # 軸定義のどの材料として評価するかを決める）。
+    material_id = "wind_penalty"
+
     def __init__(self, repository: RoadGraphRepository | None, weather_service: WeatherService):
         self._repository = repository
         self._weather_service = weather_service

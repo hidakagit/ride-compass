@@ -62,8 +62,11 @@ import {
 } from "@/components/Map/staticAttributeLayers";
 import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
-import { WIND_AXIS_FEATURE_STATE_KEY, windAxisColorExpression } from "@/components/Map/windAxisLayer";
-import { GRADIENT_AXIS_FEATURE_STATE_KEY, gradientAxisColorExpression } from "@/components/Map/gradientAxisLayer";
+import {
+  dedicatedWayValueColorExpression,
+  dedicatedWayValueFeatureStateKey,
+  type DedicatedWayValueDisplay,
+} from "@/components/Map/dedicatedWayValueLayer";
 import { gradientFillColorExpression } from "@/components/Map/gradientGridFill";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { JMA_TILE_BASE_URL } from "@/components/Map/jmaNowcastFrames";
@@ -194,23 +197,12 @@ export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
 // SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと
 // 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
-// （windAxisColorExpression、windAxisLayer.ts）を読む点が異なる。
+// （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
 const WIND_AXIS_LAYER_ID = "region-wind-axis-line";
 // way_id→勾配（effective_gradient）配信層（改善計画T423）。WIND_AXIS_LAYER_IDと同型
 // ——ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けは
-// setFeatureState経由の値（gradientAxisColorExpression、gradientAxisLayer.ts）を読む。
+// setFeatureState経由の値（dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む。
 const GRADIENT_AXIS_LAYER_ID = "region-gradient-axis-line";
-// 改善計画T483: dedicatedWayValues（axisId→way_id→値の汎用Map）から地物へsetFeatureStateする
-// 際のキー名は軸ごとに異なる（"windPenalty"/"gradientValue"、windAxisLayer.ts/
-// gradientAxisLayer.ts参照）ため、他の小さなRecord（LAYER_ICONS等、MapOverlayControls.tsx）と
-// 同じ「既知の少数axisId向けlookup table」パターンで対応付ける。dedicatedWayValueBoundaries
-// （T473）と違い各軸の値自体は`.get(axisId)`だけで完結しないため、この対応表を介して
-// 汎用ループ（下記の風・勾配共通effect・redrawAllLayers内）から呼べるようにしている。
-const DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS: Record<string, string> = {
-  wind: WIND_AXIS_FEATURE_STATE_KEY,
-  gradient: GRADIENT_AXIS_FEATURE_STATE_KEY,
-};
-const EMPTY_DEDICATED_WAY_VALUES: ReadonlyMap<number, number> = new Map();
 // 環境グループの勾配gridFill（改善計画T423）。矢印gridMarkと同時表示する必要が無く
 // （gradientGridFill.tsのモジュールdocstring参照）DYNAMIC_WEATHER_RENDERERS汎用機構へ
 // 乗せる制約は無いが、page.tsx側の配線（useDynamicWayValues由来の別系統フック）まで
@@ -1104,7 +1096,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
 // 実際に指定されているものだけを追加する（改善計画T432、ソースごとにループする形へ一般化）。
 // spec.*.colorExpression等はDYNAMIC_WEATHER_RENDERERS呼び出し元（MapView.tsx本体、
 // page.tsx）が軸スタジオ由来の動的なしきい値から組み立てることがある（T587: 過去に
-// windVectorのpenaltyFillがdedicatedWayValueBoundariesから配色しきい値を引いていた）。
+// windVectorのpenaltyFillがdedicatedWayValueDisplaysから配色しきい値を引いていた）。
 // そのためgroupSpecが変わるたびにこの関数が呼ばれる前提で、レイヤーが既に存在する場合も
 // 各paintプロパティをsetPaintPropertyで再適用する（addLayer時の値で固定させない）。
 export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
@@ -1361,7 +1353,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
 // プロパティではなくsetFeatureState経由の値（applyAxisFeatureStateValues参照）を読む。
 // ensureRoadSurfaceTileLayerを先に呼び、promoteId付きのsourceが確実に存在する状態で
 // レイヤーを追加する（designation等の既存レイヤーもこのソースへ依存する順序を暗黙に
-// 仮定しており、それと同じ前提）。colorExpressionはdedicatedWayValueBoundaries
+// 仮定しており、それと同じ前提）。colorExpressionはdedicatedWayValueDisplays
 // （軸スタジオのdisplay_thresholds_override、実行時フェッチで後から変わりうる）に
 // 依存するため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する
 // （T587: 初回作成時の値で固定され、フェッチ完了後の正しい値が反映されないバグの修正）。
@@ -1397,8 +1389,8 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
 // 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
 // 判断——古い値が多少残る方が、穴が開いたように見えるより実用上マシという方針を踏襲する。
 // 値そのものはbackend側のRedis TTLの範囲でしか新鮮さを保証しないため、古い値が長時間
-// 残り続けることはない）。featureStateKeyだけが軸ごとに異なる（WIND_AXIS_FEATURE_STATE_
-// KEY/GRADIENT_AXIS_FEATURE_STATE_KEY）。
+// 残り続けることはない）。featureStateKeyだけが軸ごとに異なる（
+// dedicatedWayValueLayer.ts: dedicatedWayValueFeatureStateKey）。
 // exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
 export function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: string, values: ReadonlyMap<number, number>) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
@@ -1443,12 +1435,12 @@ export function shouldClearDedicatedWayValueFeatureState(showWindAxis: boolean, 
 // 改善計画T443: makeEnsureDedicatedWayValueLayer呼び出し（windAxis/gradientAxis）と同じく
 // ファクトリ化し、軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で
 // 受け取れるようにした（以前はboundaries引数を渡す経路が無く、常にビルド時既定値
-// GRADIENT_BOUNDARIESへフォールバックしていた）。boundariesは実行時フェッチで後から
+// 既定しきい値へフォールバックしていた）。表示宣言は実行時フェッチで後から
 // 変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する（T587）。
-function makeEnsureGradientFillLayer(boundaries?: readonly number[] | null) {
+function makeEnsureGradientFillLayer(display?: DedicatedWayValueDisplay) {
   return (map: MapLibreMap) => {
     const applyData = () => {
-      const colorExpression = gradientFillColorExpression(boundaries ?? undefined);
+      const colorExpression = gradientFillColorExpression(display);
       if (map.getLayer(GRADIENT_FILL_LAYER_ID)) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         map.setPaintProperty(GRADIENT_FILL_LAYER_ID, "fill-color", colorExpression as any);
@@ -1771,12 +1763,12 @@ export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly 
 export function buildStaticOverlayLayers(
   axisOverlayLayers: readonly OverlayLayerEntry[],
   // 改善計画T473: `dedicated_way_value_layer`軸（wind/gradient）のdisplay_thresholds_override
-  // を軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueBoundaries
+  // を軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueDisplays
   // 参照、以前はgradientBoundaries/windBoundariesという軸ごとの別名引数だった）。
-  dedicatedWayValueBoundaries?: ReadonlyMap<string, readonly number[]>
+  dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>
 ): readonly OverlayLayerEntry[] {
-  const gradientBoundaries = dedicatedWayValueBoundaries?.get("gradient");
-  const windBoundaries = dedicatedWayValueBoundaries?.get("wind");
+  const gradientDisplay = dedicatedWayValueDisplays?.get("gradient");
+  const windDisplay = dedicatedWayValueDisplays?.get("wind");
   return [
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
     // 改善計画T292: car_stressはAXIS_OVERLAY_LAYERS（RAMP_AXES由来の汎用ramp軸）へ
@@ -1788,11 +1780,11 @@ export function buildStaticOverlayLayers(
     // 改善計画T405/T440/T466: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。
-    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, windAxisColorExpression(windBoundaries ?? undefined)) },
+    { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, dedicatedWayValueColorExpression("wind", windDisplay)) },
     // 改善計画T423/T440/T443: way_id→勾配配信層（評価軸グループとしての勾配）。
-    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, gradientAxisColorExpression(gradientBoundaries ?? undefined)) },
+    { key: "gradientAxis", layerId: GRADIENT_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(GRADIENT_AXIS_LAYER_ID, dedicatedWayValueColorExpression("gradient", gradientDisplay)) },
     // 改善計画T423/T443: 環境グループの勾配gridFill（タイル境界セル）。
-    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientBoundaries) },
+    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientDisplay) },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
@@ -2228,20 +2220,17 @@ interface MapViewProps {
    * gradientAxisData.valuesを1つのMapへ統合して構築）。show{Wind,Gradient}Axisがtrueの
    * 間、変化のたびにMapLibreのsetFeatureStateで路面タイルの地物へ差し込む
    * （applyAxisFeatureStateValues参照）。以前はwindAxisPenalties/gradientAxisValuesという
-   * 軸ごとに別名のpropだったが、dedicatedWayValueBoundaries（改善計画T473）と同じ理由
+   * 軸ごとに別名のpropだったが、dedicatedWayValueDisplays（改善計画T473）と同じ理由
    * （design-principles.md構造仕様3: 軸ごとにpropを新設しない）で統合した。未設定の軸idは
    * 空Map扱い（get()がundefinedを返す）として処理される。 */
   dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<number, number>>;
-  /** 改善計画T473: `dedicated_way_value_layer`軸（現状wind/gradient）の
-   * display_thresholds_override（軸スタジオ由来）を、axisId→しきい値配列の汎用Mapとして
-   * まとめて受け取る（page.tsx: axisCatalog.axesから`dedicatedWayValueLayer===true`の軸を
-   * 横断的に抽出して構築。T443/T466が軸ごとに別名prop[gradientBoundaries/windBoundaries]を
-   * 新設していたのを統合し、design-principles.md構造仕様3[軸ごとにpropを新設しない]に
-   * 適合させた）。評価軸グループ（windAxisColorExpression/gradientAxisColorExpression）・
-   * 環境グループの勾配gridFill（makeEnsureGradientFillLayer）がこの1つのMapから該当軸idの
-   * しきい値を引く。未設定の軸idは各実装のビルド時既定値（WIND_AXIS_THRESHOLDS・
-   * GRADIENT_BOUNDARIES）へフォールバックする。 */
-  dedicatedWayValueBoundaries?: ReadonlyMap<string, readonly number[]>;
+  /** `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、
+   * 軸カタログ由来）をaxisId→宣言の汎用Mapとして受け取る（page.tsx: axisCatalog.axesから
+   * `dedicatedWayValueLayer===true`の軸を横断的に抽出して構築）。評価軸グループの線・
+   * 環境グループの勾配gridFillがこの1つのMapから該当軸の宣言を引く。未設定の軸idは
+   * 難易度スケールの既定（dedicatedWayValueLayer.ts: DEFAULT_DEDICATED_WAY_VALUE_DISPLAY）
+   * へフォールバックする。 */
+  dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>;
   /** 改善計画T423: 環境グループの勾配gridFill。showGradientFillは
    * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
    * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDynamicWayValues.ts:
@@ -2357,7 +2346,7 @@ export default function MapView({
   showWindAxis,
   showGradientAxis,
   dedicatedWayValues,
-  dedicatedWayValueBoundaries,
+  dedicatedWayValueDisplays,
   showGradientFill,
   gradientFillGeojson,
   showAccidents,
@@ -2407,8 +2396,8 @@ export default function MapView({
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
   const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
   const staticOverlayLayers = useMemo(
-    () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedWayValueBoundaries),
-    [axisOverlayLayers, dedicatedWayValueBoundaries]
+    () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedWayValueDisplays),
+    [axisOverlayLayers, dedicatedWayValueDisplays]
   );
   const interactiveLayerIds = useMemo(
     () => buildInteractiveLayerIds(staticOverlayLayers),
@@ -2681,8 +2670,8 @@ export default function MapView({
     // 残ってしまう（値自体は変わっていないため、通常の依存effectは再実行されない）。
     // gradientFillGeojson（環境グループの勾配面塗り、geojson source）も同じ理由で
     // 再適用が必要。
-    for (const [axisId, featureStateKey] of Object.entries(DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS)) {
-      applyAxisFeatureStateValues(map, featureStateKey, dedicatedWayValues.get(axisId) ?? EMPTY_DEDICATED_WAY_VALUES);
+    for (const [axisId, values] of dedicatedWayValues) {
+      applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
     }
     applyGradientFillGeojson(map, gradientFillGeojson);
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
@@ -3437,15 +3426,15 @@ export default function MapView({
   // feature-stateを設定しても表示には影響しない）。改善計画T483: 以前は風・勾配それぞれ
   // 独立したeffectとして手書き複製されていたが、dedicatedWayValues（axisId→値の汎用Map）
   // への統合に合わせ1つのループへまとめた（3件目の動的材料が増えても
-  // DEDICATED_WAY_VALUE_FEATURE_STATE_KEYSへ1行足すだけでこのeffect自体の変更は不要）。
+  // dedicatedWayValuesのキーを回すだけのためこのeffect自体の変更は不要）。
   // 改善計画T432: 環境グループの風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ
   // 統合したため、専用effectは持たず下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収されている。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     runWhenStyleReady(map, () => {
-      for (const [axisId, featureStateKey] of Object.entries(DEDICATED_WAY_VALUE_FEATURE_STATE_KEYS)) {
-        applyAxisFeatureStateValues(map, featureStateKey, dedicatedWayValues.get(axisId) ?? EMPTY_DEDICATED_WAY_VALUES);
+      for (const [axisId, values] of dedicatedWayValues) {
+        applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
       }
     });
   }, [dedicatedWayValues]);

@@ -24,8 +24,7 @@ import {
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { RAMP_AXES, axisMapLayerId, buildAxisRampLegend } from "@/components/Map/axisLayers";
-import { gradientAxisLegend } from "@/components/Map/gradientAxisLayer";
-import { windAxisLegend } from "@/components/Map/windAxisLayer";
+import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import MapColorLegend, { type MapColorLegendGroup } from "@/components/MapColorLegend/MapColorLegend";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
@@ -1234,7 +1233,7 @@ export default function Home() {
     () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
     [showGradientFill, gradientAxisData.byTile]
   );
-  // 改善計画T483: dedicatedWayValueBoundaries（改善計画T473）と同じ理由
+  // 改善計画T483: dedicatedWayValueDisplays（改善計画T473）と同じ理由
   // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）で、以前は
   // windAxisPenalties/gradientAxisValuesという軸ごとに別名のpropだったものを
   // axisId→(way_id→値)の汎用Mapへ統合した。useDynamicWayValues自体は
@@ -1249,33 +1248,19 @@ export default function Home() {
       ]),
     [windAxisData.values, gradientAxisData.values]
   );
-  // 改善計画T473: `dedicated_way_value_layer`軸（wind/gradient）の軸スタジオ
-  // display_thresholds_overrideをMapViewへ配線する。以前はgradientBoundaries（T443）・
-  // windBoundaries（T466）という軸ごとに別名のuseMemo・propだったが、design-principles.md
-  // 構造仕様3（軸ごとにpropを新設しない）に違反していたため、axisCatalog.axesから
-  // dedicatedWayValueLayer===trueの軸を横断的に抽出し、axisId→しきい値配列の汎用Mapへ
-  // 統合した（3件目の動的材料が増えてもこのuseMemo自体の変更は不要）。gradientの
-  // dedicatedWayValueLayerフラグはaxisCatalog.axes側（GET /api/axis-catalog由来）で
-  // 正しくtrueになる（evaluationAxes.tsのビルド時静的フォールバックが誤ってfalse固定
-  // していた問題もあわせて修正済み、evaluationAxes.ts参照）。
-  const dedicatedWayValueBoundaries = useMemo(() => {
-    const map = new Map<string, readonly number[]>();
+  // `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、いずれも
+  // 軸カタログ由来）を、axisId→宣言の汎用MapとしてMapView・凡例へ配線する。軸ごとの
+  // useMemo・propは持たない（design-principles.md構造仕様3）。
+  const dedicatedWayValueDisplays = useMemo(() => {
+    const map = new Map<string, DedicatedWayValueDisplay>();
     for (const axis of axisCatalog.axes) {
-      if (axis.dedicatedWayValueLayer && axis.displayThresholdsOverride) {
-        map.set(axis.axisId, axis.displayThresholdsOverride);
-      }
-    }
-    return map;
-  }, [axisCatalog.axes]);
-  // 改善計画T513: dedicatedWayValueBoundariesと対になる、段階ごとの体感ラベルの汎用Map。
-  // 色分けのしきい値自体（MapViewへ渡す配色式用）には影響しないため、MapViewProps側は
-  // 変更せずMapColorLegend向けのmapColorLegendGroups組み立てだけで使う。
-  const dedicatedWayValueBandLabels = useMemo(() => {
-    const map = new Map<string, readonly string[]>();
-    for (const axis of axisCatalog.axes) {
-      if (axis.dedicatedWayValueLayer && axis.displayBandLabelsOverride) {
-        map.set(axis.axisId, axis.displayBandLabelsOverride);
-      }
+      if (!axis.dedicatedWayValueLayer) continue;
+      map.set(axis.axisId, {
+        kind: axis.mapValueKind ?? "difficulty",
+        unit: axis.mapValueUnit ?? "",
+        boundaries: axis.displayThresholdsOverride ?? undefined,
+        bandLabels: axis.displayBandLabelsOverride ?? undefined,
+      });
     }
     return map;
   }, [axisCatalog.axes]);
@@ -1299,33 +1284,28 @@ export default function Home() {
         });
       }
     }
-    if (showWindAxis) {
+    // 専用way値レイヤーの表示状態（環境グループの勾配gridFillも同じ凡例を使う）。
+    const dedicatedLayerShown: Record<string, boolean> = {
+      wind: showWindAxis,
+      gradient: showGradientAxis || showGradientFill,
+    };
+    for (const axis of axisCatalog.axes) {
+      if (!axis.dedicatedWayValueLayer || !dedicatedLayerShown[axis.axisId]) continue;
       groups.push({
-        axisId: "wind",
-        label: axisCatalog.axisLabels.wind ?? "風",
-        bands: windAxisLegend(dedicatedWayValueBoundaries.get("wind"), dedicatedWayValueBandLabels.get("wind")),
-      });
-    }
-    if (showGradientAxis || showGradientFill) {
-      groups.push({
-        axisId: "gradient",
-        label: axisCatalog.axisLabels.gradient ?? "勾配",
-        bands: gradientAxisLegend(
-          dedicatedWayValueBoundaries.get("gradient"),
-          dedicatedWayValueBandLabels.get("gradient")
-        ),
+        axisId: axis.axisId,
+        label: axis.label,
+        bands: dedicatedWayValueLegend(dedicatedWayValueDisplays.get(axis.axisId)),
       });
     }
     return groups;
   }, [
     axisCatalog.rampAxes,
-    axisCatalog.axisLabels,
     axisVisibility,
     showWindAxis,
     showGradientAxis,
     showGradientFill,
-    dedicatedWayValueBoundaries,
-    dedicatedWayValueBandLabels,
+    axisCatalog.axes,
+    dedicatedWayValueDisplays,
   ]);
 
   // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
@@ -1936,7 +1916,7 @@ export default function Home() {
             showWindAxis={showWindAxis}
             showGradientAxis={showGradientAxis}
             dedicatedWayValues={dedicatedWayValues}
-            dedicatedWayValueBoundaries={dedicatedWayValueBoundaries}
+            dedicatedWayValueDisplays={dedicatedWayValueDisplays}
             showGradientFill={showGradientFill}
             gradientFillGeojson={gradientFillPayload}
             showStopPoi={layerVisibility.stopPoi}

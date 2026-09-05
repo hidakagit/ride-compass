@@ -91,8 +91,8 @@ Radix Popoverで開く。
 **暗黙の前提**: `windAxisPenalties`・`gradientAxisValues`・`gradientFillGeojson`（way_id/
 タイル単位の実データ本体）は`MapView.tsx`の`MapViewProps`上で軸ごとに個別に型付けされた
 propとして渡されている（汎用的な「軸id→値」の1つのpropにまとまっていない）。一方、
-表示しきい値（軸スタジオの`display_thresholds_override`）は
-`dedicatedWayValueBoundaries: ReadonlyMap<string, readonly number[]>`という1つの汎用propに
+表示宣言（種類・単位・しきい値・段階ラベル、軸カタログ由来）は
+`dedicatedWayValueDisplays: ReadonlyMap<string, DedicatedWayValueDisplay>`という1つの汎用propに
 まとまっている。`page.tsx`が`axisCatalog.axes`から`dedicatedWayValueLayer===true`の軸を
 横断的に抽出して構築するため、`dedicated_way_value_layer`軸が増えてもこのprop自体の
 変更は不要。

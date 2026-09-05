@@ -42,6 +42,10 @@ GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
 
 
 class GradientWayService:
+    # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
+    # 軸定義のどの材料として評価するかを決める）。
+    material_id = "gradient_percent"
+
     def __init__(self, repository: RoadGraphRepository | None):
         self._repository = repository
 

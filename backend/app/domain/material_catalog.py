@@ -85,6 +85,9 @@ class MaterialSpec(BaseModel):
     # 機能しない旨をここに明記する（配線状況が変わったら追従が必要）。
     description: str
     dtype: MaterialDType
+    # 値の単位（凡例・数値表示用の表記、無次元・真偽値・カテゴリ値は空文字）。地図の凡例が
+    # 材料の生値を表示するときの単位の唯一の正（frontendは単位を持たない）。
+    unit: str = ""
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
     tile_property: str | None = None
@@ -426,6 +429,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="勾配%（符号付き）",
         description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
+        unit="%",
         # 標高自体はDEMタイル（infrastructure/tile_cache.py、永続・TTL無し）・Edge単位の
         # 計算済み属性（elevation_attributesテーブル、precompute_elevation_attributes
         # バッチ＋リクエスト時の遅延書き込みの両経路で埋まる）とも既に永続化されている
@@ -451,6 +455,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="向かい風ペナルティ(m/s、正=向かい風)",
         description="出発時刻の気象予報とルートの進行方向から算出した向かい風の強さ（m/s）。追い風・無風はマイナス〜0、向かい風が強いほど大きなプラスの値になります。",
         dtype="numeric",
+        unit="m/s",
         # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない。対応する一次属性も
         # 未登録（動的気象は一次属性レジストリの対象外）。
         tile_property=None,

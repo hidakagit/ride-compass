@@ -2,8 +2,7 @@
 // にした時に青くなる道路は何なのか、その度合いが分かればいい」）の共通型・ラベル生成。
 //
 // 色分けを実際に塗る側（axisLayers.ts: buildAxisRampColorExpression・
-// windAxisLayer.ts: buildWindPenaltyColorExpression・gradientAxisLayer.ts:
-// buildGradientColorExpression）とは別に、この凡例は「今どう塗られているか」を
+// dedicatedWayValueLayer.ts: buildDedicatedWayValueColorExpression）とは別に、この凡例は「今どう塗られているか」を
 // 読み手（LegendEntryのfilter述語によるカテゴリ絞り込み）ではなく見せるためだけの
 // 軽量な型を持つ。ramp軸の凡例（axisLayers.ts: buildAxisRampLegend）はMapLayersPanel・
 // MapOverlayControlsの絞り込み機構と共有するLegendEntry（filter必須）を返すが、
@@ -25,8 +24,7 @@ export function rangeStepLabel(lower: number | null, upper: number | null, unit:
 }
 
 /** boundaries（昇順のしきい値配列、要素数=段階数-1）とcolors（段階数ぶん）から、
- * rangeStepLabelでラベル付けした凡例段階を組み立てる共通ロジック。gradientAxisLayer.ts・
- * windAxisLayer.tsの両方が同じ「しきい値配列→段階ラベル+色」変換を必要とするため
+ * rangeStepLabelでラベル付けした凡例段階を組み立てる共通ロジック。dedicatedWayValueLayer.ts（風・勾配共通）が同じ「しきい値配列→段階ラベル+色」変換を必要とするため
  * ここへ集約する（設計原則2: 定数・変換ロジックの片側import）。
  *
  * ユーザー要望（2026-08-31「降水のように体感で分かる凡例ラベルを付けたい（色の指定は不要）」）:

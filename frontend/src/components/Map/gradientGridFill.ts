@@ -5,14 +5,14 @@
 // 存在する）を持つため、格子点を中心とする正方形セルで面表示できた。勾配にはそのような
 // 独立した空間フィールドが無い——勾配は本質的に道路（way）ごとの属性であり、道路と無関係な
 // 「勾配の面」という概念自体が存在しない。そのため本実装は、評価軸グループ（線、
-// gradientAxisLayer.ts）向けに既にフェッチ済みのway単位のeffective_gradient値
+// dedicatedWayValueLayer.ts）向けに既にフェッチ済みのway単位のeffective_gradient値
 // （hooks/useDynamicWayValues.ts: byTile、追加のAPI呼び出し無し）を、フェッチ元のタイル
 // 境界そのものを1セルとして集計（平均）した面表示へ変換する——道路が密なタイルほど「そのタイル
 // 周辺の道路網は平均してどれくらいの勾配か」を表す近似になる。
 
 import type { TileXY } from "./dynamicWayValues";
 import { tileBoundsLonLat } from "./dynamicWayValues";
-import { buildGradientColorExpression } from "./gradientAxisLayer";
+import { buildDedicatedWayValueColorExpression, type DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
 import type { TileDynamicWayValues } from "@/hooks/useDynamicWayValues";
 
 export interface GradientGridCellProperties {
@@ -57,11 +57,10 @@ export function gradientGridCellsFromTileResponses(
 }
 
 /** gradientValue（["get","gradientValue"]）を色へ変換するMapLibre fill-color式。評価軸
- * グループ（gradientAxisLayer.ts: gradientAxisColorExpression、feature-state経由）と
- * 同じ配色・しきい値の組み立てロジック（buildGradientColorExpression）を共有する——環境
- * （面）・評価軸（線）は同じ[向き]入力を共有するという契約（T400.md「2.」節）に加え、色の
- * 意味も揃えることで両者を見比べやすくする。feature-state版と異なり、こちらはgeojson
- * sourceのプロパティを直接["get",...]で読む。 */
-export function gradientFillColorExpression(boundaries?: readonly number[]): unknown[] {
-  return buildGradientColorExpression(["get", "gradientValue"], boundaries);
+ * グループの線（dedicatedWayValueLayer.ts、feature-state経由）と同じ表示宣言・色ロジックを
+ * 共有する——環境（面）・評価軸（線）は同じ[向き]入力を共有するという契約に加え、色の
+ * 意味も揃えることで両者を見比べやすくする。こちらはgeojson sourceのプロパティを
+ * 直接["get",...]で読む。表示宣言が無い間は符号付き材料の既定スケールを使う。 */
+export function gradientFillColorExpression(display?: DedicatedWayValueDisplay): unknown[] {
+  return buildDedicatedWayValueColorExpression(["get", "gradientValue"], display ?? { kind: "signed_material", unit: "" });
 }

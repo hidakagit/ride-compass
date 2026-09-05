@@ -15,6 +15,7 @@
 // 同じくaxisMapLayerId経由で専用レイヤーを持つようになった。
 
 import type { MapLayerId } from "./mapLayers";
+import type { MapValueKind } from "./valueScale";
 import { axisMapLayerId, type CatalogAxis } from "./axisLayers";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
@@ -48,9 +49,9 @@ export interface SecondaryAxisSummary {
   panelHint?: string;
   /** 改善計画T443: プレルート表示（評価軸ライン・環境グループ塗り）の色分けしきい値。
    * 軸自身のデータ（AXIS_DEFINITIONS.display_thresholds_override）をそのまま反映する。
-   * 現状はgradient（Map/gradientAxisLayer.ts・gradientGridFill.tsのboundaries引数）が
+   * 現状はgradient（Map/dedicatedWayValueLayer.ts・gradientGridFill.tsの表示宣言）が
    * 唯一の消費者。未設定はkind="none"軸の各実装が持つビルド時既定値（例:
-   * GRADIENT_BOUNDARIES）へのフォールバックに委ねる。 */
+   * valueScale.tsのSIGNED_MATERIAL_BOUNDARIES）へのフォールバックに委ねる。 */
   displayThresholdsOverride?: readonly number[] | null;
   /** 改善計画T513: displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
    * 上書き（AXIS_DEFINITIONS.display_band_labels_overrideをそのまま反映）。 */
@@ -61,6 +62,9 @@ export interface SecondaryAxisSummary {
    * かつdedicated_way_value_layer=true」という組み合わせが実在するため誤りだった
    * （evaluationAxes.ts参照）。 */
   dedicatedWayValueLayer?: boolean;
+  /** 地図がこの軸について塗る値の種類・単位（CatalogAxis.map_value_kind/map_value_unit）。 */
+  mapValueKind?: MapValueKind;
+  mapValueUnit?: string;
 }
 
 // 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
@@ -119,6 +123,8 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       displayThresholdsOverride: axis.display_thresholds_override ?? undefined,
       displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
       dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
+      mapValueKind: axis.map_value_kind,
+      mapValueUnit: axis.map_value_unit,
     }));
 }
 

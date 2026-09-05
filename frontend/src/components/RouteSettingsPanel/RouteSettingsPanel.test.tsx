@@ -62,6 +62,8 @@ function catalogResponse(
         display_thresholds_override: null,
         display_band_labels_override: null,
         dedicated_way_value_layer: dedicatedWayValueLayerByAxisId[axisId] ?? false,
+        map_value_kind: "difficulty",
+        map_value_unit: "",
       };
     }),
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
@@ -316,6 +318,8 @@ describe("RouteSettingsPanel", () => {
             display_thresholds_override: null,
             display_band_labels_override: null,
             dedicated_way_value_layer: true,
+            map_value_kind: "difficulty",
+            map_value_unit: "",
           },
         ],
         material_runtime_scales: {},
@@ -359,6 +363,8 @@ describe("RouteSettingsPanel", () => {
             display_thresholds_override: null,
             display_band_labels_override: null,
             dedicated_way_value_layer: true,
+            map_value_kind: "difficulty",
+            map_value_unit: "",
           },
         ],
         material_runtime_scales: {},

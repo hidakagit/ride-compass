@@ -46,6 +46,7 @@ from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
+from app.domain.dynamic_way_values import map_value_kind, map_value_unit  # noqa: E402
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
@@ -174,6 +175,8 @@ def main() -> None:
                     "display_thresholds_override": AXIS_DEFINITIONS[axis.axis_id].display_thresholds_override,
                     "display_band_labels_override": AXIS_DEFINITIONS[axis.axis_id].display_band_labels_override,
                     "dedicated_way_value_layer": AXIS_DEFINITIONS[axis.axis_id].dedicated_way_value_layer,
+                    "map_value_kind": map_value_kind(AXIS_DEFINITIONS[axis.axis_id]),
+                    "map_value_unit": map_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
                 }
                 for axis in all_axes()
             ],

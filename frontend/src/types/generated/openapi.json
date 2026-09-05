@@ -1943,6 +1943,18 @@
           "dedicated_way_value_layer": {
             "type": "boolean",
             "title": "Dedicated Way Value Layer"
+          },
+          "map_value_kind": {
+            "type": "string",
+            "enum": [
+              "difficulty",
+              "signed_material"
+            ],
+            "title": "Map Value Kind"
+          },
+          "map_value_unit": {
+            "type": "string",
+            "title": "Map Value Unit"
           }
         },
         "type": "object",
@@ -1961,7 +1973,9 @@
           "shape",
           "display_thresholds_override",
           "display_band_labels_override",
-          "dedicated_way_value_layer"
+          "dedicated_way_value_layer",
+          "map_value_kind",
+          "map_value_unit"
         ],
         "title": "AxisCatalogEntry"
       },

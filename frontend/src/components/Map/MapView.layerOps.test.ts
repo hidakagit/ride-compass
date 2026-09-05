@@ -239,7 +239,7 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
 });
 
 describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensureが既存レイヤーの色式を再適用する、T587）", () => {
-  it("windAxisレイヤーが既に存在する場合、dedicatedWayValueBoundariesの変更をline-colorへ再適用する", () => {
+  it("windAxisレイヤーが既に存在する場合、dedicatedWayValueDisplaysの変更をline-colorへ再適用する", () => {
     const map = fakeMap();
     const windEntry = buildStaticOverlayLayers([], undefined).find((l) => l.key === "windAxis")!;
     // 1回目: axisCatalogのフェッチ未完了を想定（boundaries未設定）でレイヤーを新規作成する。
@@ -250,7 +250,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     // 2回目: フェッチ完了後の正しいboundariesでensureを再実行する（実際にはstaticOverlayLayers
     // のuseMemo再計算→effect再実行で起きる）。既存レイヤーがあってもsetPaintPropertyで
     // line-colorが更新されなければならない。
-    const windEntryAfter = buildStaticOverlayLayers([], new Map([["wind", [10, 20, 30, 40, 50]]])).find(
+    const windEntryAfter = buildStaticOverlayLayers([], new Map([["wind", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]])).find(
       (l) => l.key === "windAxis"
     )!;
     windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
@@ -269,7 +269,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     expect(map.layers.has(gradientAxisEntry.layerId)).toBe(true);
     expect(map.layers.has(gradientFillEntry.layerId)).toBe(true);
 
-    const after = buildStaticOverlayLayers([], new Map([["gradient", [-10, -5, 0, 5, 10]]]));
+    const after = buildStaticOverlayLayers([], new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]]));
     const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
     const gradientFillEntryAfter = after.find((l) => l.key === "gradientFill")!;
     gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);

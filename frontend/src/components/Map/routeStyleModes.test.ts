@@ -7,12 +7,12 @@ import {
   ROUTE_STYLE_MODES,
   filterRouteStyleModesByPreference,
   getRouteStyleMode,
-  interpolateColors,
   isRouteStyleModeId,
   routeColorableModeFromAxis,
   routeStyleModesFromCatalogAxes,
 } from "./routeStyleModes";
 import type { CatalogAxis } from "./axisLayers";
+import { interpolateColors } from "./valueScale";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 const AXES = axisCatalog.axes as CatalogAxis[];
@@ -86,8 +86,8 @@ describe("routeStyleModes", () => {
     debugLogSpy.mockRestore();
   });
 
-  it("改善計画T440: gradient(shape.preprocess==='abs')はgradient_percentを符号付きのまま直接読む——軸idのハードコード分岐ではなくshapeの属性で判定する", () => {
-    expect(gradientAxis.shape).toMatchObject({ kind: "breakpoint_linear", preprocess: "abs" });
+  it("gradient(map_value_kind===\"signed_material\")はgradient_percentを符号付きのまま直接読む——軸idのハードコード分岐ではなくbackendの宣言で判定する", () => {
+    expect(gradientAxis.map_value_kind).toBe("signed_material");
     const mode = routeColorableModeFromAxis(gradientAxis);
     expect(mode.id).toBe("gradient");
     expect(mode.colorExpression[1]).toEqual(["==", ["get", "gradient_percent"], null]);
@@ -119,8 +119,8 @@ describe("routeStyleModes", () => {
     expect(mode.legend.map((e) => e.label)).toEqual(["0%未満", "0〜5%", "5%超", "データなし"]);
   });
 
-  it("windはshape.preprocess!=='abs'のため通常の絶対値差難易度経路を使う（axis_difficulties経由）", () => {
-    expect(windAxis.shape).toMatchObject({ kind: "breakpoint_linear", preprocess: "identity" });
+  it("windはmap_value_kind===\"difficulty\"のため難易度経路を使う（axis_difficulties経由）", () => {
+    expect(windAxis.map_value_kind).toBe("difficulty");
     const wind = routeColorableModeFromAxis(windAxis);
     expect(wind.id).toBe("wind");
     expect(wind.label).toBe("風の影響");

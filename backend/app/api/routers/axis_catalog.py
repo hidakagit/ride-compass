@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from app.api.dependencies import get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisShape
 from app.domain.axis_display import axis_display_for, primary_attribute_ids_for
+from app.domain.dynamic_way_values import MapValueKind, map_value_kind, map_value_unit
 from app.domain.registry import AxisDisplaySpec
 from app.services.region_service import RegionService
 
@@ -97,6 +98,11 @@ class AxisCatalogEntry(BaseModel):
     # RouteSettingsPanel.tsx（mapColorLayerIdFor）・mapLayers.ts（isAxisStudioLayer）が、
     # axis_idの文字列比較（wind/gradientのみ）ではなくこのフィールドで判定する。
     dedicated_way_value_layer: bool
+    # 地図がこの軸について塗る値の種類と単位（domain/dynamic_way_values.py: map_value_kind/
+    # map_value_unit）。ルート確定前の専用way値配信・ルート確定後のルート線色分けの両方が
+    # これに従い、display_thresholds_overrideもこの1つのスケールで解釈する。
+    map_value_kind: MapValueKind
+    map_value_unit: str
 
 
 class AxisCatalogResponse(BaseModel):
@@ -150,6 +156,8 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 display_thresholds_override=definition.display_thresholds_override,
                 display_band_labels_override=definition.display_band_labels_override,
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
+                map_value_kind=map_value_kind(definition),
+                map_value_unit=map_value_unit(definition),
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published

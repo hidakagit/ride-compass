@@ -2440,16 +2440,19 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   道路自身の向きが固定値だったため時刻だけが変数だった）だったが、T414で走行方位も
   ユーザー指定の変数になったことを受け、はるかに小さいタイル単位のキー空間へ再設計した。
   `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照、`bearing_deg`クエリ
-  パラメータ必須）が`{way_id: wind_penalty}`を返す——静的なroad-surface-tiles（MVT、
-  変更なし）とは完全に別経路のJSONエンドポイント。
+  パラメータ必須）が`{way_id: 地図表示値}`を返す（backendが軸定義で評価した難易度
+  0〜100。勾配のような符号付き材料の軸だけ生値、`domain/dynamic_way_values.py:
+  transform_dedicated_way_values`）——静的なroad-surface-tiles（MVT、変更なし）とは
+  完全に別経路のJSONエンドポイント。
   フロントは`ROAD_TILE_SOURCE_ID`のvector sourceへ`promoteId: { [ROAD_TILE_SOURCE_LAYER]:
   "osm_way_id" }`を設定し、既存の`osm_way_id`プロパティをMapLibreの`feature.id`へ昇格させる。
   `hooks/useWindAxisPenalties.ts`が現在のビューポート（500msデバウンス）を覆う道路タイル分を
-  まとめてfetchし（`windAxisLayer.ts: tilesCoveringViewport`）、`MapView.tsx`が
-  `map.setFeatureState({source, sourceLayer, id: wayId}, {windPenalty: value})`で道路タイル
-  の地物へ後から値を差し込む。色分けは`["feature-state","windPenalty"]`を読むMapLibre
-  expression（`windAxisLayer.ts: windAxisColorExpression`、未設定時のしきい値既定値は
-  `WIND_AXIS_THRESHOLDS`）。
+  まとめてfetchし（`dynamicWayValues.ts: tilesCoveringViewport`）、`MapView.tsx`が
+  `map.setFeatureState({source, sourceLayer, id: wayId}, {windValue: value})`で道路タイル
+  の地物へ後から値を差し込む。色分けは`["feature-state","windValue"]`を読むMapLibre
+  expression（`dedicatedWayValueLayer.ts: dedicatedWayValueColorExpression`、しきい値・
+  配色・単位は軸カタログの`map_value_kind`/`map_value_unit`/`display_thresholds_override`
+  から`valueScale.ts`が決め、ルート確定後のルート線色分けと同じスケールになる）。
 
 **ルート確定後**: パラメータ指定UI（コンパススライダー・上記windAxisの一律色分け）は終了する
 （`page.tsx`が`hasDetail`で`showWindAxis`をfalseへ倒し、
@@ -2514,9 +2517,9 @@ effective_gradient`）。道路の向きと指定方向のなす角度に応じ�
   共有できる部分だけを汎用化した（複雑度平衡の原則）。
 - **フロント**: タイル座標計算・複数タイル応答統合（`tilesCoveringViewport`/
   `mergeDynamicWayValues`）を[dynamicWayValues.ts](../frontend/src/components/Map/dynamicWayValues.ts)
-  へ抽出し、`windAxisLayer.ts`（風固有の配色・しきい値）・新設`gradientAxisLayer.ts`
-  （勾配固有の配色・しきい値、ルート確定後の`routeStyleModes.ts`と同じ配色・しきい値
-  `GRADIENT_BOUNDARIES`を共有）が個別に持つ。フェッチ本体は`services/regionApi.ts:
+  へ抽出し、色式・凡例は`dedicatedWayValueLayer.ts`（風・勾配共通、軸カタログの表示宣言
+  `DedicatedWayValueDisplay`だけから組み立てる）と`valueScale.ts`（種類ごとの既定
+  しきい値・配色、ルート確定後の`routeStyleModes.ts`と共有）が持つ。フェッチ本体は`services/regionApi.ts:
   fetchDynamicWayValues(materialId, ...)`・状態管理は`hooks/useDynamicWayValues.ts:
   useDynamicWayValues(materialId, ...)`として統合した（旧`fetchWindWayPenalties`/
   `useWindAxisPenalties`を汎用化、風・勾配どちらもこの1本のフック・1本のfetch関数を使う）。
@@ -2558,9 +2561,10 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 データを見ていなかった）。T440はこれを解消し、以下の設計へ全面的に作り直した:
 
 - `AxisDefinition.shape`（`kind`/`preprocess`/`terms`、軸スタジオで軸を定義する時点で
-  既に選ぶ既存データ）から、`isSignedAbsShape(shape)`（`shape.kind===
-  "breakpoint_linear" && shape.preprocess==="abs" && shape.terms.length===1`）が
-  「符号付き値を直接読むべきか」を判定する。`axis.axis_id==="gradient"`という文字列
+  既に選ぶ既存データ）から、backendの`domain/dynamic_way_values.py: map_value_kind`
+  （`shape.kind=="breakpoint_linear" and preprocess=="abs" and len(terms)==1`なら
+  `signed_material`）が「符号付き値を直接読むべきか」を判定し、`GET /api/axis-catalog`の
+  `map_value_kind`として配信する。frontendは判定を持たない。`axis.axis_id==="gradient"`という文字列
   比較は使わない——gradientの実データがたまたまこの条件を満たすだけで、条件を満たす軸が
   将来増えてもコード変更なしに同じ経路へ乗る。真の場合は`shape.terms[0].material`
   （gradientの場合`"gradient_percent"`、`RouteSegmentDetail`のフィールド名と一致する

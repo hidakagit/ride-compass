@@ -9,6 +9,7 @@
 // index signature型）へ一般化されたためコンパイル時のキー照合はできず、代わりに
 // evaluationAxes.test.tsがaxis-catalog.jsonのpreference_defaultsとキー集合を突き合わせる。
 import type { RoutePreferenceWeights } from "@/types/route";
+import type { MapValueKind } from "@/components/Map/valueScale";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
@@ -37,13 +38,17 @@ export interface PreferenceAxisDef {
   dedicatedWayValueLayer: boolean;
   /** 改善計画T466: 軸スタジオのdisplay_thresholds_override（未設定時はundefined）。
    * dedicatedWayValueLayer軸（現状windのみ）の評価軸グループ色分けしきい値に使う
-   * （windAxisLayer.ts: windAxisColorExpression、gradientのgradientBoundaries[T443]と同型）。
+   * （dedicatedWayValueLayer.ts: dedicatedWayValueColorExpression）。
    * SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない（常にundefined）。 */
   displayThresholdsOverride?: readonly number[] | null;
   /** 改善計画T513: displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
    * 上書き。SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない
-   * （常にundefined、windAxisLegend/gradientAxisLegendの消費者のみが対象）。 */
+   * （常にundefined、dedicatedWayValueLegendの消費者のみが対象）。 */
   displayBandLabelsOverride?: readonly string[] | null;
+  /** 地図がこの軸について塗る値の種類・単位（GET /api/axis-catalogのmap_value_kind/
+   * map_value_unit）。専用way値レイヤーの色式・凡例（dedicatedWayValueLayer.ts）が使う。 */
+  mapValueKind?: MapValueKind;
+  mapValueUnit?: string;
 }
 
 // axis_idごとの説明文（1〜2文の要約）。ラベル自体は下記PREFERENCE_AXESが
@@ -85,9 +90,18 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
       dedicatedWayValueLayer: axis.dedicatedWayValueLayer ?? false,
       displayThresholdsOverride: axis.displayThresholdsOverride,
       displayBandLabelsOverride: axis.displayBandLabelsOverride,
+      mapValueKind: axis.mapValueKind,
+      mapValueUnit: axis.mapValueUnit,
     })
   ),
-  { axisId: "wind", label: "風", description: PREFERENCE_AXIS_DESCRIPTIONS.wind, dedicatedWayValueLayer: true },
+  {
+    axisId: "wind",
+    label: "風",
+    description: PREFERENCE_AXIS_DESCRIPTIONS.wind,
+    dedicatedWayValueLayer: true,
+    mapValueKind: "difficulty",
+    mapValueUnit: "",
+  },
 ];
 
 // 軸の分類（観測/推定/動的、改善計画T267で確定・目論見書3章）は、一般向けルート設定画面

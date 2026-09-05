@@ -123,6 +123,8 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         display_thresholds_override: null,
         display_band_labels_override: null,
         dedicated_way_value_layer: false,
+        map_value_kind: "difficulty",
+        map_value_unit: "",
       },
     ],
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド

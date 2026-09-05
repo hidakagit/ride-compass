@@ -7,7 +7,8 @@ from pydantic import BaseModel
 from app.api.dependencies import enforce_rate_limit, get_dynamic_way_value_service, get_region_service
 from app.api.routers._tile_validation import validate_tile_coords
 from app.config import settings
-from app.domain.dynamic_way_values import dynamic_way_value_materials
+from app.domain.axis_definitions import AXIS_DEFINITIONS
+from app.domain.dynamic_way_values import dynamic_way_value_materials, transform_dedicated_way_values
 from app.domain.evaluation import AxisInspectorResult
 from app.services.region_service import RegionService
 
@@ -145,7 +146,11 @@ async def region_dynamic_way_values(
     _check_tile_rate_limit(request, f"{material_id}-way-values")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        return await service.get_way_values(z, x, y, at, bearing_deg)
+        values = await service.get_way_values(z, x, y, at, bearing_deg)
+    # サービスは材料の生値を返しキャッシュも生値のまま持つ。地図が塗る値（難易度か符号付き
+    # 材料か）への変換は軸定義から都度行うため、軸スタジオでbreakpointsを変えても
+    # キャッシュを捨てずに即座に反映される。
+    return transform_dedicated_way_values(AXIS_DEFINITIONS[material_id], service.material_id, values)
 
 
 class AxisInspectorRequest(BaseModel):

@@ -836,6 +836,13 @@ export interface components {
             display_band_labels_override: string[] | null;
             /** Dedicated Way Value Layer */
             dedicated_way_value_layer: boolean;
+            /**
+             * Map Value Kind
+             * @enum {string}
+             */
+            map_value_kind: "difficulty" | "signed_material";
+            /** Map Value Unit */
+            map_value_unit: string;
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {

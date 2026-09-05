@@ -2,7 +2,7 @@
 // DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
 // （docs/testing.mdパターン3、windLayer.test.tsと同型）。
 //
-// 改善計画T423（T411の実施）: 旧windAxisLayer.test.tsの`tilesCoveringViewport`/
+// 改善計画T423（T411の実施）: 旧windAxisLayer.test.ts（現dedicatedWayValueLayer.test.ts）の`tilesCoveringViewport`/
 // `mergeWindWayPenalties`（材料非依存のタイル座標計算・複数タイル応答統合）テストを、
 // dynamicWayValues.tsへのロジック抽出に合わせてこちらへ移設した。
 import { describe, expect, it } from "vitest";

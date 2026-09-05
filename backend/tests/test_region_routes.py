@@ -244,8 +244,9 @@ class FakeDynamicWayValueService:
     {material_id}向けフェイク。風・勾配どちらのテストにも使う（get_way_valuesという
     統一インターフェース、region.py参照）。"""
 
-    def __init__(self, values=None):
+    def __init__(self, values=None, material_id="gradient_percent"):
         self._values = values if values is not None else {}
+        self.material_id = material_id
         self.last_request = None
 
     async def get_way_values(self, z, x, y, at, bearing_deg):
@@ -253,19 +254,25 @@ class FakeDynamicWayValueService:
         return self._values
 
 
-@pytest.mark.parametrize("material_id", ["wind", "gradient"])
-def test_region_dynamic_way_values_returns_values_json(material_id):
-    fake = FakeDynamicWayValueService(values={1: 2.34, 2: -1.5})
+# 応答はサービスの生値ではなく地図が塗る値（domain/dynamic_way_values.py:
+# transform_dedicated_way_values）。風は軸のbreakpoints[(0,0),(8,100)]で難易度へ、勾配は
+# 符号付き材料のまま返る。
+@pytest.mark.parametrize(
+    ("axis_id", "material_id", "expected"),
+    [("wind", "wind_penalty", {"1": 25.0, "2": 0.0}), ("gradient", "gradient_percent", {"1": 2.0, "2": -1.5})],
+)
+def test_region_dynamic_way_values_returns_map_values_json(axis_id, material_id, expected):
+    fake = FakeDynamicWayValueService(values={1: 2.0, 2: -1.5}, material_id=material_id)
     app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
 
     try:
-        response = client.get(f"/api/region/dynamic-way-values/{material_id}/14/14551/6447", params={"bearing_deg": 90})
+        response = client.get(f"/api/region/dynamic-way-values/{axis_id}/14/14551/6447", params={"bearing_deg": 90})
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
     # JSONのキーは常に文字列（intキーは自動的にstrへ変換される、Python標準のjson.dumps挙動）。
-    assert response.json() == {"1": 2.34, "2": -1.5}
+    assert response.json() == expected
     assert fake.last_request == (14, 14551, 6447, None, 90.0)
 
 

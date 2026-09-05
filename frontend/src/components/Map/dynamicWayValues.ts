@@ -2,7 +2,7 @@
 // 二重表現」節）の材料非依存な共通ロジック（改善計画T411の実施）。「評価軸」グループとして
 // 動的＋向きあり材料を道路そのものを線で塗る表示にする際、どの材料でも共通して必要になる
 // タイル座標計算・複数タイル分の応答統合をここへ集約する。材料固有の値（配色・しきい値・
-// setFeatureStateキー）はwindAxisLayer.ts/gradientAxisLayer.tsが個別に持つ
+// setFeatureStateキー）はdedicatedWayValueLayer.tsが軸カタログの宣言から組み立てる
 // （このファイルはMapLibreの色・feature-state概念を一切知らない）。
 
 export interface TileXY {

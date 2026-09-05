@@ -23,6 +23,7 @@
 // 寄与値を直接指定する（weightは無視。domain/axis_display.py: derive_ramp_inputs参照）。
 
 import type { LegendEntry } from "./legendFilter";
+import type { MapValueKind } from "./valueScale";
 import type { components } from "@/types/generated/api";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
@@ -144,7 +145,7 @@ export interface CatalogAxis {
   // こと全部返すほうがいい」）で追加。routeStyleModes.tsが、axis_idのハードコード分岐では
   // なくこのデータから「符号付き値を直接読むべきか」「その場合どの材料id
   // （≒RouteSegmentDetailのフィールド名）を読むか」を判定する
-  // （isSignedAbsShape・buildRangeSteppedMode参照）。
+  // （map_value_kind・buildRangeSteppedMode参照）。
   shape?: AxisShape;
   // 改善計画T440: 地図タイルramp表示（display.thresholds、kind="ramp"の軸のみ）経由では
   // なく、生の上書き値をそのまま返す。ルート結果の色分けのしきい値
@@ -158,6 +159,11 @@ export interface CatalogAxis {
   // mapLayers.ts（isAxisStudioLayer）・RouteSettingsPanel.tsx（mapColorLayerIdFor）が、
   // axis_idのハードコード比較（wind/gradientのみ）ではなくこのデータを使う。
   dedicated_way_value_layer?: boolean;
+  // 地図がこの軸について塗る値の種類と単位（backend domain/dynamic_way_values.py:
+  // map_value_kind/map_value_unit）。ルート確定前の専用way値レイヤーとルート確定後の
+  // ルート線色分けが同じスケールで解釈する。
+  map_value_kind?: MapValueKind;
+  map_value_unit?: string;
 }
 
 // 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、
@@ -174,7 +180,7 @@ export interface CatalogAxis {
  * 誤り——windは現在axis-catalog.json（静的・実行時とも）に登録済みで、通常は
  * `axes`からのspreadが同じ値で上書きするだけの無害な冗長コードに見える。しかし
  * この直書きには実際は別の役割がある: 全軸非公開（`axes`が空配列）等でカタログから
- * windが一時的に欠落しても、windAxisLayer.ts等が参照するこの辞書のキー自体は
+ * windが一時的に欠落しても、dedicatedWayValueLayer.ts等が参照するこの辞書のキー自体は
  * 常に存在させる安全網として機能する（`useAxisCatalog.test.ts`の回帰テスト
  * 「全軸非公開でaxesが0件でもaxisLabelsはwindを含む」が検証している）。削除しない。 */
 export function axisLabelsFromCatalogAxes(axes: readonly CatalogAxis[]): Record<string, string> {

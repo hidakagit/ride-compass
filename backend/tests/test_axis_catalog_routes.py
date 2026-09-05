@@ -182,3 +182,14 @@ def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale():
     # 挙動はtest_region_service.pyのget_accident_years_covered系テスト参照）。
     assert "material_runtime_scales" in body
     assert isinstance(body["material_runtime_scales"], dict)
+
+
+def test_get_axis_catalog_includes_map_value_kind_and_unit():
+    # 地図の色分けがルート前後で同じスケールを使うための宣言（domain/dynamic_way_values.py:
+    # map_value_kind/map_value_unit）。勾配だけが符号付き材料（%）、他は難易度（無次元）。
+    response = client.get("/api/axis-catalog")
+    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+    assert entries_by_id["gradient"]["map_value_kind"] == "signed_material"
+    assert entries_by_id["gradient"]["map_value_unit"] == "%"
+    assert entries_by_id["wind"]["map_value_kind"] == "difficulty"
+    assert entries_by_id["wind"]["map_value_unit"] == ""
