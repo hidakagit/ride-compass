@@ -1,19 +1,16 @@
 // 路面レイヤー（無方向・地域固定データ）の絞り込み軸の定義。
 //
 // タイル（バックエンドのMVT）にはsurface_good（3値の正準分類）・surface（正規化済み
-// OSM生タグ）・highway（OSM道路種別）が焼き込まれている。かつては舗装/未舗装(surface_good)・
-// 路面の種類(surface)・道路の種類(highway)の3つを「同時に1つだけ選ぶ色分けモード」として
-// 扱っていたが、舗装/未舗装は路面の種類と同じsurfaceタグを2値に粗く束ねただけのもの
-// （backend/app/domain/road.pyのGOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGSと、下の
-// SURFACE_GROUPSの分類が同一のsurfaceタグに基づく）で、独立した軸ではなかった。
-// 「路面の種類=アスファルト」かつ「舗装/未舗装=未舗装」のような組み合わせは常に矛盾するか
-// 冗長になるため、AND絞り込みの対象としては意味を持たない。
-//
-// そのため舗装/未舗装は廃止し、互いに独立な2軸（路面の種類=surfaceタグ、道路の種類=
-// highwayタグ）だけを絞り込み軸として残す。この2つは実際のOSMタグとして独立しており
-// （同じ道路がどんな路面材質にもどんな道路種別にもなりうる）、組み合わせて絞り込む
-// 意味がある。舗装路だけ見たい場合は「路面の種類」で砂利・土のカテゴリを外せば同じ結果に
-// なるため、機能的な欠落は無い。
+// OSM生タグ）・highway（OSM道路種別）が焼き込まれているが、絞り込み軸として持つのは
+// 互いに独立な2軸（路面の種類=surfaceタグ、道路の種類=highwayタグ）だけ。surface_goodは
+// 路面の種類と同じsurfaceタグを2値に粗く束ねただけのもの（backend/app/domain/road.pyの
+// GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGSと、下のSURFACE_GROUPSの分類が同一の
+// surfaceタグに基づく）で、独立した軸として絞り込む意味を持たない
+// （「路面の種類=アスファルト」かつ「舗装/未舗装=未舗装」のような組み合わせは常に矛盾するか
+// 冗長になる）。路面の種類・道路の種類の2つは実際のOSMタグとして独立しており（同じ道路が
+// どんな路面材質にもどんな道路種別にもなりうる）、組み合わせて絞り込む意味がある。
+// 舗装路だけ見たい場合は「路面の種類」で砂利・土のカテゴリを外せば同じ結果になるため、
+// 機能的な欠落は無い。
 //
 // 地図の色分け（line-color）は「路面の種類」がONの間は常にその配色で固定する（自転車走行の
 // 実用上、最も情報量が多い軸のため。路面の種類の色が道路の種類の色を上書きする形で、
@@ -27,8 +24,7 @@
 // 幹線道路ほど太く・自転車専用道路ほど細くしてある（HIGHWAY_GROUPSのwidth参照）。
 // 不明・他はタグが無い/未分類なだけで実際の道幅とは無関係なため、太さでは目立たせず
 // 線種（破線）で区別する。ただし「路面の種類」がOFFの間は色チャンネルが空くため、
-// 太さと同じ序列を色相を持たない濃淡でも重ねて表す（COLOR_HIGHWAY_*、実機フィードバック
-// 「道路種別が支配的な場合、色がすべて灰色で違和感がある」への対応。詳細はHIGHWAY_GROUPS
+// 太さと同じ序列を色相を持たない濃淡でも重ねて表す（COLOR_HIGHWAY_*。詳細はHIGHWAY_GROUPS
 // 直前のコメント、実際の出し分けはMapView.tsx: applyRoadLayerState参照）。
 //
 // 軸を増やすときは、タイルへプロパティを1つ足し、ROAD_FILTER_AXESへ軸定義を1つ足すだけで
@@ -65,26 +61,20 @@ export interface RoadFilterAxis {
 // ルート候補線（選択=青#2563eb・未選択=アンバー#f59e0b）と紛れにくいよう、青は使わず
 // 生活道路には空色を当てる。
 //
-// 改善計画（1次/2次の地図上表現の統一、竹）: 「路面の種類」（SURFACE_GROUPS）は
-// ROAD_LINE_COLOR_AXIS_IDとして地図のline-colorへ直接反映される唯一の軸で、legend側も
-// color値をそのまま丸ドットで表示する（widthを持たないため、下記renderLegendSwatch相当の
-// 判定で色ドット表示になる）。以前はアスファルト=緑・砂利=アンバーという「良し悪し」を
-// 連想させる配色だったが、2次のramp軸（車の圧迫感・停止密度・事故密度等、axisLayers.ts:
-// AXIS_RAMP_COLORSの緑〜赤の評価配色）と色相が重なり、1次（観測された事実）と2次
-// （推定された評価）が地図上で混同されるという実機フィードバックを受け、評価色（緑・
-// アンバー・オレンジ・赤の系統）を避けた中立色へ差し替えた（COLOR_SLATE/COLOR_KHAKI）。
-// 改善計画T466: COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（dedicatedWayValueLayer.tsと同じく
-// そちらからimportする、設計原則2「定数の片側import」）。以前はこのファイルも独立定義を
-// 持っていた（ゼロベース網羅レビュー指摘）。
+// 「路面の種類」（SURFACE_GROUPS）はROAD_LINE_COLOR_AXIS_IDとして地図のline-colorへ
+// 直接反映される唯一の軸で、legend側もcolor値をそのまま丸ドットで表示する（widthを
+// 持たないため、下記renderLegendSwatch相当の判定で色ドット表示になる）。2次のramp軸
+// （車の圧迫感・停止密度・事故密度等、axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤の評価配色）
+// と色相が重なると、1次（観測された事実）と2次（推定された評価）が地図上で混同される
+// ため、評価色（緑・アンバー・オレンジ・赤の系統）を避けた中立色を使う（COLOR_SLATE/
+// COLOR_KHAKI）。COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（dedicatedWayValueLayer.tsと
+// 同じくそちらからimportする、設計原則2「定数の片側import」）。
 
-// 改善計画（1次要素の複数同時表示、対象外区間の低不透明度化）: 1次の複数レイヤーを
-// 同時にONにしても、視覚的な重なりが何を意味するか読み取れないという実機フィードバックを
-// 受けた対応。以前は「不明・他」（そのタグ値が無い/未分類の区間、路面では2〜3割・
-// 自転車インフラや指定路線ではほぼ大半を占める）も分類済みの区間と同じ不透明度で
-// 塗っていたため、意味の薄いグレーが画面を埋め尽くし、本当に伝えたいカテゴリ色が
-// 埋もれていた。「不明・他」だけ大きく透明度を下げ、分類情報を持つ区間だけが浮かび
-// 上がるようにする。staticAttributeLayers.ts（自転車インフラ・指定路線）とも共有し、
-// 地図全体で「薄い＝対象外、濃い＝分類あり」という読み方を統一する。
+// 1次の複数レイヤーを同時にONにしても、視覚的な重なりが何を意味するか読み取れなくなる
+// ことを避けるため、「不明・他」（そのタグ値が無い/未分類の区間、路面では2〜3割・
+// 自転車インフラや指定路線ではほぼ大半を占める）だけ大きく透明度を下げ、分類情報を持つ
+// 区間だけが浮かび上がるようにする。staticAttributeLayers.ts（自転車インフラ・指定路線）
+// とも共有し、地図全体で「薄い＝対象外、濃い＝分類あり」という読み方を統一する。
 export const FALLBACK_LINE_OPACITY = 0.15;
 export const KNOWN_LINE_OPACITY = 0.8;
 
@@ -94,20 +84,14 @@ const COLOR_BROWN = "#92400e";
 const COLOR_SLATE = "#64748b";
 const COLOR_KHAKI = "#a3915f";
 
-// HIGHWAY_GROUPS（道路の種類）専用の濃淡パレット（改善計画: 実機フィードバック「道路種別が
-// 支配的な場合、色がすべて灰色で違和感がある」への対応）。道路の種類は太さ・線種で地図に
-// 反映する軸のため（widthExpression/dashArrayExpression、下記コメント参照）、以前はここの
-// colorを地図のline-colorに一切使わず（路面の種類がOFFの間は全区間が同じ中立グレー
-// ROAD_LINE_NEUTRAL_COLORの塗り潰しだった）、凡例でも各カテゴリがwidthを持つため
-// renderLegendSwatch（MapOverlayControls.tsx）・WidthSwatch（MapLayersPanel.tsx）が
-// 色ドットでなく太さバーを表示する＝画面上は不可視、という設計だった。
-// 路面の種類の色分けと同時に使われることは無い（路面の種類ONの間は常に路面側の色が
-// line-colorを占有し、この配色は使われない。MapView.tsx: applyRoadLayerState参照）ため、
-// 「路面の種類OFF・道路の種類ONのときだけ」太さと同じ「幹線道路ほど強く目立つ」序列を、
-// 色相を持たない濃淡（青みがかった中立トーン）でも重ねて表現する。太さと同じ情報を
-// なぞる補助的な表現のため、色相ベースの評価配色（axisLayers.ts: AXIS_RAMP_COLORSの
-// 緑〜赤）とは体系的に別の視覚言語にしてあり、2次のcar_stress等の評価色と混同しない
-// （竹でSURFACE_GROUPSから評価色を排したのと同じ理由）。COLOR_SLATE（路面の種類=
+// HIGHWAY_GROUPS（道路の種類）専用の濃淡パレット。道路の種類は太さ・線種で地図に反映する
+// 軸で（widthExpression/dashArrayExpression、下記コメント参照）、路面の種類の色分けと
+// 同時に使われることは無い（路面の種類ONの間は常に路面側の色がline-colorを占有し、この
+// 配色は使われない。MapView.tsx: applyRoadLayerState参照）。「路面の種類OFF・道路の種類
+// ONのときだけ」太さと同じ「幹線道路ほど強く目立つ」序列を、色相を持たない濃淡
+// （青みがかった中立トーン）でも重ねて表現する。太さと同じ情報をなぞる補助的な表現のため、
+// 色相ベースの評価配色（axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤）とは体系的に別の視覚
+// 言語にしてあり、2次のcar_stress等の評価色と混同しない。COLOR_SLATE（路面の種類=
 // アスファルトが使用中）やCOLOR_UNKNOWN（不明・他）とも別の色値にし、それぞれの文脈で
 // 意味が食い違わないようにする。太さバー（WidthSwatch）自体もこの色で塗り、地図と凡例の
 // 見た目を一致させる（entry.colorをそのまま渡す、下記buildGroupLegend/呼び出し側参照）。
@@ -132,8 +116,7 @@ export interface CategoryGroup {
 // types/generated/surface-tags.json（backend/scripts/export_openapi.pyが書き出し）として
 // このリポジトリへコミットされている。roadFilterAxes.test.tsが「表示グループの全タグ＝
 // 正準分類済みタグ全体」「舗装系グループはgoodのみ・未舗装系はbadのみ」を検証するため、
-// どちらか片方だけタグを増減するとテストが割れる（改善計画T7。かつてchipsealが
-// 表示上はアスファルト（緑）なのに評価上は不明、という食い違いがあった）。
+// どちらか片方だけタグを増減するとテストが割れる。
 // 「石畳・敷石」だけはgood（paving_stones/bricks）とbad（sett/cobblestone等）が混在する
 // 意図的な中立グループ（材質としては同類のため。色も良し悪しを示さない紫にしてある）。
 export const SURFACE_GROUPS: CategoryGroup[] = [
@@ -182,10 +165,10 @@ const HIGHWAY_DASHARRAY_SOLID = [1, 0];
 const HIGHWAY_DASHARRAY_UNKNOWN = [2, 1.5];
 
 // OSMのhighwayタグ（道路種別）の表示用グルーピング（地図の色分け・線幅専用、意図的に
-// 多対一）。改善計画T345フォローアップ: 以前は軸スタジオの値ラベルもここから導出して
-// いたが、地図表示と評価で必要な粒度が異なる（軸スタジオは1値1ラベルが必要）ため分離した
-// （backend/app/domain/material_catalog.py: MaterialSpec.value_labels参照、「地図表示と
-// 評価は別」の方針）。このexportは地図の絞り込みUI専用として維持する。
+// 多対一）。地図表示と評価で必要な粒度が異なる（軸スタジオは1値1ラベルが必要）ため、
+// 軸スタジオの値ラベルはbackend/app/domain/material_catalog.py: MaterialSpec.value_labels
+// から独立して導出する（「地図表示と評価は別」の方針）。このexportは地図の絞り込みUI
+// 専用として維持する。
 export const HIGHWAY_GROUPS: CategoryGroup[] = [
   {
     key: "arterial",
