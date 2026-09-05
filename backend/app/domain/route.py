@@ -19,10 +19,10 @@ class RouteSegment(BaseModel):
 class RouteSegmentDetail(BaseModel):
     """周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
 
-    gradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負、
-    ElevationAttribute.average_gradeから算出）。フロントの勾配色分け
-    （routeStyleModes.ts）はこの符号を前提に「下り」カテゴリを持つため、絶対値で
-    返してはならない。
+    符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:
+    **符号付き・進行方向基準**（登り=正、下り=負、ElevationAttribute.average_gradeから
+    算出）。フロントの勾配色分け（routeStyleModes.ts）はこの符号を前提に「下り」
+    カテゴリを持つため、絶対値で返してはならない。
 
     geometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの
     部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を
@@ -39,9 +39,6 @@ class RouteSegmentDetail(BaseModel):
     cumulative_distance_km: float
     distance_km: float
     estimated_arrival_time: str | None = None
-    gradient_percent: float | None = None
-    wind_penalty: float | None = None
-    road_surface_good: bool | None = None
     # 改善計画T309: 以前はelevation_difficulty/wind_difficulty/road_difficulty/
     # stop_difficulty/car_stress_difficulty/accident_difficulty/night_difficultyという
     # 既存7軸1対1の固定フィールドだったが、軸スタジオで公開軸を自由に増減できる設計
@@ -96,9 +93,6 @@ class RouteCandidate(BaseModel):
     elevation_gain_m: float | None = None
     min_elevation_m: float | None = None
     max_elevation_m: float | None = None
-    max_gradient_percent: float | None = None
-    wind_score: float | None = None
-    road_score: float | None = None
     segments: list[RouteSegmentDetail] | None = None
     overall_difficulty: float | None = None
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
@@ -126,11 +120,9 @@ def aggregate_segments_into_bins(
     グルーピングし、1ビン1件の`RouteSegmentDetail`へ集約する（改善計画T11）。
 
     集約方法（フィールドの性質ごと）:
-    - 距離加重平均: gradient_percent/wind_penalty/各difficulty系
-      （domain/difficulty.py: distance_weighted_difficulty、Noneの区間は除外し
-      残りの距離で再正規化。ルート全体の集約と同じ考え方）
-    - 距離加重多数決: road_surface_good（カテゴリ値のため平均ではなく、
-      ビン内で最も距離の長い値を代表値とする。Noneの区間は除外）
+    - 距離加重平均: 各difficulty系（domain/difficulty.py: distance_weighted_difficulty、
+      Noneの区間は除外し残りの距離で再正規化）・material_values（material_id単位で同じ
+      考え方、`merge_material_values`）
     - 先頭からの引き継ぎ: cumulative_distance_km/estimated_arrival_time/
       start_latitude/start_longitude（ビン開始時点の値）
     - 末尾からの引き継ぎ: end_latitude/end_longitude（ビン終了時点の値）
@@ -160,19 +152,6 @@ def aggregate_segments_into_bins(
         bins.append(current_bin)
 
     return [_merge_segment_bin(bin_segments) for bin_segments in bins]
-
-
-def _weighted_mode(pairs: list[tuple[object | None, float]]) -> object | None:
-    """(値, 距離)のペア列から、値ごとの合計距離が最大のものを返す（距離加重多数決）。
-    Noneの値は候補から除外する。有効な値が1つも無ければNone。"""
-    totals: dict[object, float] = {}
-    for value, distance in pairs:
-        if value is None:
-            continue
-        totals[value] = totals.get(value, 0.0) + distance
-    if not totals:
-        return None
-    return max(totals.items(), key=lambda item: item[1])[0]
 
 
 def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | None:
@@ -247,13 +226,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         cumulative_distance_km=first.cumulative_distance_km,
         distance_km=round(sum(s.distance_km for s in segments), 2),
         estimated_arrival_time=first.estimated_arrival_time,
-        gradient_percent=distance_weighted_difficulty(
-            [(s.gradient_percent, s.distance_km) for s in segments]
-        ),
-        wind_penalty=distance_weighted_difficulty(
-            [(s.wind_penalty, s.distance_km) for s in segments]
-        ),
-        road_surface_good=_weighted_mode([(s.road_surface_good, s.distance_km) for s in segments]),
         axis_difficulties=merge_axis_difficulties(segments),
         axis_contributions=merge_axis_contributions(segments),
         material_values=merge_material_values(segments),

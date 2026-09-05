@@ -71,10 +71,14 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 専用配信は`showWindAxis`/`showGradientAxis`）、ルート後はルート線（`MapView`の
 `routeStyleModeId`）をこの1つの値から導出する。ルート後も全道路の塗りを残すかは
 `lensKeepAfterRoute`（既定ON）。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
-載せ、重み0でもbackendが区間表示のため風の時変化合成を行う。
+載せ、重み0でもbackendが区間表示のため風の時変化合成（風に依存する軸の場合）・
+`material_values`への当該材料の封入（`signed_material`種の軸の場合）を行う
+（backend側は`_active_material_ids`、[routing-engine.md](../backend/routing-engine.md)
+参照）。
 
 `map_value_kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
-`shape.terms[0].material`（生材料、例: `gradient_percent`）を直接読む——向き（登り/下り）は
+`material_values`から`shape.terms[0].material`（生材料、例: `gradient_percent`）を
+`["get", material, ["get", "material_values"]]`で直接読む——向き（登り/下り）は
 絶対値化されたdifficultyでは表現できないため。
 
 ## valueScale.ts（ルート前後で共有する葉モジュール）

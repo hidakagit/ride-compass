@@ -90,50 +90,49 @@ def test_aggregate_segments_into_bins_concatenates_geometry_without_duplicating_
     ]
 
 
-def test_aggregate_segments_into_bins_averages_difficulty_fields_by_distance():
+def test_aggregate_segments_into_bins_averages_difficulty_by_distance():
     segments = [
-        _segment(0, distance_km=0.3, gradient_percent=10.0, difficulty=80.0),
-        _segment(1, distance_km=0.1, gradient_percent=-6.0, difficulty=20.0),
+        _segment(0, distance_km=0.3, difficulty=80.0),
+        _segment(1, distance_km=0.1, difficulty=20.0),
     ]
 
     bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
 
     assert len(bins) == 1
-    # (10*0.3 + -6*0.1) / 0.4 = 6.0
-    assert bins[0].gradient_percent == pytest.approx(6.0)
     # (80*0.3 + 20*0.1) / 0.4 = 65.0
     assert bins[0].difficulty == pytest.approx(65.0)
 
 
 def test_aggregate_segments_into_bins_excludes_none_values_from_averaging():
     segments = [
-        _segment(0, distance_km=0.2, gradient_percent=None),
-        _segment(1, distance_km=0.2, gradient_percent=8.0),
+        _segment(0, distance_km=0.2, difficulty=None),
+        _segment(1, distance_km=0.2, difficulty=8.0),
     ]
 
     bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
 
-    assert bins[0].gradient_percent == pytest.approx(8.0)
+    assert bins[0].difficulty == pytest.approx(8.0)
 
 
 def test_aggregate_segments_into_bins_returns_none_when_all_values_in_bin_are_none():
-    segments = [_segment(0, distance_km=0.6, gradient_percent=None, difficulty=None)]
+    segments = [_segment(0, distance_km=0.6, difficulty=None)]
 
     bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
 
-    assert bins[0].gradient_percent is None
     assert bins[0].difficulty is None
 
 
-def test_aggregate_segments_into_bins_road_surface_good_picks_majority_by_distance():
+def test_aggregate_segments_into_bins_material_values_distance_weighted_average():
     segments = [
-        _segment(0, distance_km=0.1, road_surface_good=False),
-        _segment(1, distance_km=0.35, road_surface_good=True),
+        _segment(0, distance_km=0.3, material_values={"gradient_percent": 10.0}),
+        _segment(1, distance_km=0.1, material_values={"gradient_percent": -6.0}),
     ]
 
     bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
 
-    assert bins[0].road_surface_good is True
+    assert len(bins) == 1
+    # (10*0.3 + -6*0.1) / 0.4 = 6.0
+    assert bins[0].material_values["gradient_percent"] == pytest.approx(6.0)
 
 
 def test_aggregate_segments_into_bins_single_edge_larger_than_bin_size_forms_its_own_bin():

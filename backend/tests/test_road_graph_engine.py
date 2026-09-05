@@ -766,7 +766,56 @@ async def test_candidate_aggregates_elevation_from_path_edges():
     assert candidate.elevation_gain_m == 20.0
     assert candidate.min_elevation_m == 10.0
     assert candidate.max_elevation_m == 30.0
-    assert candidate.max_gradient_percent == 5.0  # abs(min_grade)=5.0が最大
+
+
+async def test_material_values_includes_gradient_when_it_is_the_lens_even_at_zero_weight():
+    # gradient軸はsigned_material種（map_value_kind）のため、重み0でも地図の色分け
+    # レンズに指定されている間はmaterial_valuesへgradient_percentが出る。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    edge_ids = [eid for eid in graph.edges if eid.startswith("e-0-")]
+    elevation_attributes = {
+        edge_ids[0]: ElevationAttribute(
+            edge_id=edge_ids[0], start_elevation_m=10.0, end_elevation_m=30.0,
+            elevation_gain_m=20.0, elevation_loss_m=0.0, average_grade=2.0, max_grade=3.0, min_grade=1.0,
+            data_source="test", calculated_at="t",
+        ),
+    }
+    preference = RoutePreference(
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0}
+    )
+    generator, _, _ = make_generator(
+        graph, elevation_attributes=elevation_attributes, route_preference=preference, lens_axis_id="gradient",
+    )
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = _candidate_for_bearing(candidates, 0)
+
+    assert any("gradient_percent" in s.material_values for s in candidate.segments)
+
+
+async def test_material_values_omits_gradient_at_zero_weight_when_not_the_lens():
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    edge_ids = [eid for eid in graph.edges if eid.startswith("e-0-")]
+    elevation_attributes = {
+        edge_ids[0]: ElevationAttribute(
+            edge_id=edge_ids[0], start_elevation_m=10.0, end_elevation_m=30.0,
+            elevation_gain_m=20.0, elevation_loss_m=0.0, average_grade=2.0, max_grade=3.0, min_grade=1.0,
+            data_source="test", calculated_at="t",
+        ),
+    }
+    preference = RoutePreference(
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0}
+    )
+    generator, _, _ = make_generator(
+        graph, elevation_attributes=elevation_attributes, route_preference=preference,
+    )
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = _candidate_for_bearing(candidates, 0)
+
+    assert all("gradient_percent" not in s.material_values for s in candidate.segments)
 
 
 async def test_elevation_attribute_service_is_queried_only_with_path_edges_not_whole_graph():
@@ -850,7 +899,7 @@ async def test_elevation_is_not_fetched_for_candidates_rejected_by_distance_filt
     assert elevation_service.graphs_queried == []
 
 
-async def test_candidate_aggregates_road_score_from_path_edges():
+async def test_candidate_aggregates_surface_axis_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
     surface_attributes = {edge_ids[0]: "asphalt", edge_ids[1]: "gravel"}
@@ -859,8 +908,8 @@ async def test_candidate_aggregates_road_score_from_path_edges():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
 
-    assert candidate.road_score is not None
-    assert 0.0 <= candidate.road_score <= 100.0
+    assert "surface_q" in candidate.axis_difficulties
+    assert 0.0 <= candidate.axis_difficulties["surface_q"] <= 100.0
 
 
 async def test_candidate_aggregates_stop_density_from_path_edges():
@@ -966,7 +1015,7 @@ async def test_candidate_accident_axis_is_absent_when_years_covered_is_zero():
     assert all("accident" not in s.axis_difficulties for s in candidate.segments)
 
 
-async def test_candidate_aggregates_wind_score_when_weather_available():
+async def test_candidate_wind_axis_is_present_when_weather_available():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     weather = WeatherConditions(
         temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=5.0, wind_direction_deg=0.0,
@@ -981,16 +1030,16 @@ async def test_candidate_aggregates_wind_score_when_weather_available():
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert all(c.wind_score is not None for c in candidates)
+    assert all("wind" in c.axis_difficulties for c in candidates)
 
 
-async def test_candidate_wind_score_is_none_without_weather():
+async def test_candidate_wind_axis_is_absent_without_weather():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph, weather=None)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
 
-    assert all(c.wind_score is None for c in candidates)
+    assert all("wind" not in c.axis_difficulties for c in candidates)
 
 
 async def test_candidate_segments_cover_every_edge_on_the_path():
@@ -2215,7 +2264,8 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
     # 逆回り(a→o、追い風)が採用されるため、区間の始点は順方向の起点(o)ではなくa。
     assert candidate.segments[0].start_latitude == pytest.approx(coord_a.latitude)
     assert candidate.segments[0].start_longitude == pytest.approx(coord_a.longitude)
-    assert candidate.wind_score is not None and candidate.wind_score < 0  # 追い風
+    # 追い風なのでwind軸のdifficultyは向かい風側(8m/sで上限100)よりずっと低い。
+    assert candidate.segments[0].axis_difficulties["wind"] < 50.0
 
 
 async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_edge():

@@ -135,7 +135,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 ### 路面評価（`road_score`）と総合スコア（`total_score`）の設計（Step8、**改善計画T548・2026-09-03で総合スコアリング部分を撤去**）
 道路特性（`road_weight`）はOSM/Overpassの実データ連携が将来課題として残っていたが、openrouteserviceの`extra_info`パラメータを調査した結果、`cycling-road`プロファイルが`extra_info: ["surface"]`に対応しており、Step4-7から既に呼んでいるルート取得リクエスト（`ORSClient.get_directions`）1回に相乗りする形で、追加APIコールなしに区間ごとの路面種別内訳（`properties.extras.surface.summary`、`{value, distance, amount}`の配列。`value`はOSMのsurfaceタグ相当の0-18の路面種別ID）が取得できることが分かった。これにより当初のスコアリング設計（距離・標高・風・道路の4要素）をStep8内でそのまま実装できた。
 
-- **`road_score`の算出**: `RoutingService.get_route`が`feature["properties"]["extras"]["surface"]["summary"]`を`RouteSegment.surface_summary`としてパースし（無くても`None`で許容、必須フィールドの欠如とは扱いを分けている）、`route_generator._build_candidate`で候補生成と同時に`domain/road.py`の`paved_percent(surface_summary)`を呼んで`road_score`（走行しやすい舗装路面＝Paved/Asphalt/Concrete/Paving Stones＝ID 1,3,4,14の`amount`合計、0-100%）を算出する。標高・風とは異なり別サービス呼び出しが不要な同期計算。`RouteCandidate.road_score`フィールド自体は現在も残る（研究インターフェースの物理量表示用、後述`ComparisonPanel`参照）。
+- **`road_score`の算出**: `RoutingService.get_route`が`feature["properties"]["extras"]["surface"]["summary"]`を`RouteSegment.surface_summary`としてパースし（無くても`None`で許容、必須フィールドの欠如とは扱いを分けている）、`route_generator._build_candidate`で候補生成と同時に`domain/road.py`の`paved_percent(surface_summary)`を呼んで`road_score`（走行しやすい舗装路面＝Paved/Asphalt/Concrete/Paving Stones＝ID 1,3,4,14の`amount`合計、0-100%）を算出する。標高・風とは異なり別サービス呼び出しが不要な同期計算。（後日追加: 改善計画T592・2026-09-05で`RouteCandidate.road_score`・`wind_score`・`RouteSegmentDetail.gradient_percent`等の軸固有レガシーフィールドを撤去し、汎用`material_values`辞書へ統合した。詳細は[docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)参照）
 - **重みの方向（Step8当時）**: 距離は目標との差が小さいほど高得点、獲得標高は小さいほど高得点（MVPでは「走りやすさ」優先の解釈。ヒルクライム志向のユーザー向けに反転する余地は将来課題）、`wind_score`は小さい（追い風寄り）ほど高得点、`road_score`は舗装率が高いほど高得点。
 - **`RouteScorer`（撤去済み）**: 旧`backend/app/services/route_scorer.py`が`score(candidates, target_distance_km)`でdistance/difficultyの2指標を候補集合内min-max正規化し、旧`backend/app/scoring.yaml`の重みで加重合成して`total_score`（`RouteCandidate.total_score`・`score_breakdown`）を算出していた（**改善計画T401**でelevation/wind/roadの個別ハードコード計算から`overall_difficulty`ベースの2指標へ単純化した経緯を持つ）。ユーザーから「おすすめ度の数字が極端で、ルート生成ロジックの距離誤差でほぼ決まっており参考にならない」という指摘を受け、**改善計画T548（2026-09-03）でtotal_score算出機構（`RouteScorer`・`domain/scoring.py`・`scoring.yaml`・`RouteCandidate.total_score`/`score_breakdown`・API境界の`scoring_weights`/`ScoringWeights`・フロントの`WeightPanel`）を丸ごと撤去**した。
 - **最終ソート順（改善計画T548で変更）**: `RouteGenerator.generate_loops`/`generate_via_waypoints`の返却順は、旧`total_score`降順から**`overall_difficulty`（絶対基準0-100の総合難易度）昇順**（易しい候補が先頭、算出不能な`None`は末尾）へ変更した。この基準は異なるリクエスト間でも比較可能な絶対値のため、候補集合内でしか意味を持たなかった旧`total_score`降順より単純で分かりやすい。
@@ -523,7 +523,7 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
 - フロントの表示グループ（`roadFilterAxes.ts: SURFACE_GROUPS`）は、`backend/scripts/export_openapi.py` が書き出す `frontend/src/types/generated/surface-tags.json` と `roadFilterAxes.test.ts` で突き合わせて整合を検証する（「表示グループの全タグ＝正準分類済みタグ全体」「舗装系グループはgoodのみ・未舗装系はbadのみ」。CIのapi-contractジョブがドリフト検知）
 - 「石畳・敷石」グループのみgood/bad混在の意図的な中立グループ（材質として同類のため。色も良し悪しを示さない紫）
 - タグ集合を変更したら路面タイルの世代（`region_service.py: _tile_cache_path` と `regionApi.ts: ROAD_SURFACE_TILE_VERSION` の対）を上げること（surface_goodの焼き込み値が変わるため）
-- ルート評価（`road_score`/`segments[].road_surface_good`）もこの正準集合に統一済み（改善計画T21、2026-08-15）。以前はopenrouteserviceエンジンだけ数値ID語彙の別定義を持っていたが、ORS産geometryのサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチしてこの正準集合で判定する方式へ置き換え、数値ID語彙は削除した（詳細は「ルーティングエンジンの切り替え対応」）
+- ルート評価（`surface_q`軸のdifficulty）もこの正準集合に統一済み（改善計画T21、2026-08-15）。以前はopenrouteserviceエンジンだけ数値ID語彙の別定義を持っていたが、ORS産geometryのサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチしてこの正準集合で判定する方式へ置き換え、数値ID語彙は削除した（詳細は「ルーティングエンジンの切り替え対応」）
 
 ---
 
@@ -543,11 +543,11 @@ RideCompass/
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
         routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ gsi_relief_tile.py（GET /api/gsi-relief-tile/{path}、改善計画T572、国土地理院 色別標高図タイルのプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
-        route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・wind_score・road_score・overall_difficulty・segments・axis_difficulties含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み）
+        route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・overall_difficulty・segments・axis_difficulties・axis_contributions・material_values含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み、改善計画T592でwind_score・road_score・max_gradient_percent（RouteSegmentDetailのgradient_percent・wind_penalty・road_surface_goodも同様）を削除しmaterial_valuesへ統合済み）
         weather.py               ✅ WeatherConditions
         errors.py               ✅ RoutingError
         geo.py                   ✅ haversine_distance_km, haversine_distance_km_array, compass_label, bearing_between（destination_pointは改善計画T531で本番コードから未参照になったため、改善計画T555でtests/geo_fixtures.pyのテスト専用ヘルパーへ移動。sample_indices/sample_line_coordinates/sample_line_pointsはOpenRouteServiceEngine専用だったため改善計画T462の撤去に伴い削除済み）
-        road.py                   ✅ classify_osm_surface, GOOD_OSM_SURFACE_TAGS, BAD_OSM_SURFACE_TAGS（両エンジン共通の唯一の路面判定語彙）, distance_weighted_road_score（距離加重集計、改善計画T21で両エンジン共通化）
+        road.py                   ✅ classify_osm_surface, GOOD_OSM_SURFACE_TAGS, BAD_OSM_SURFACE_TAGS（両エンジン共通の唯一の路面判定語彙。distance_weighted_road_scoreは改善計画T592でroad_score撤去に伴い削除済み）
         difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9。scoring.py/normalize_min_maxは改善計画T548で撤去済み）
         wind.py                   ✅ wind_drag_ratio_array（相対風速の二乗則、走行速度依存）・headwind_component_ms（非推奨材料wind_penaltyの値）・estimate_passage_hours
         region.py                 ✅ BoundingBox, tile_bounds_lonlat, ROAD_TILE_MIN_ZOOM/MAX_ZOOM（Step10改訂。標高グリッド・snap_cells・bbox対角距離関連は撤去済み）。ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox（Road Graphのタイル単位キャッシュ用、新規）
@@ -635,7 +635,7 @@ RideCompass/
       test_weather_client_cache.py ✅ TTL内キャッシュ再利用・失効後再取得・取得失敗時の扱い
       test_weather_route.py   ✅ /api/weatherのDIモックテスト。per-IPレート制限（60回/分）の429検証を追加
       test_wind.py             ✅ wind_drag_ratio_array（向かい風/追い風/横風/無風・速度依存・1次元式との一致・連続性）とheadwind_component_msの検証
-      test_road.py             ✅ classify_osm_surface（OSMタグ基準、両エンジン共通）とdistance_weighted_road_score（距離加重集計、改善計画T21で両エンジン共通化）の検証。不明路面の「分母から除外・None判定」（設計レビュー対応）の検証を含む
+      test_road.py             ✅ classify_osm_surface（OSMタグ基準、両エンジン共通）の検証。不明路面の「分母から除外・None判定」（設計レビュー対応）の検証を含む
       test_difficulty.py      ✅ gradient/wind/road_difficultyの閾値・composite_difficultyの再正規化の検証
       test_axis_templates.py   ✅ 改善計画T239、T396で2プリミティブへ再編: 連続演算（区分線形補間、boolean材料の重み付き和も含む）・離散演算（カテゴリ→定数）のスカラー/配列両モードの一致・NaN伝播の検証
       test_region.py           ✅ tile_bounds_lonlatの検証（zoom0で全世界を覆う・隣接タイルの境界一致など、Step10改訂）。tiles_covering_bboxの検証（単一/複数タイル・世界端でのクランプ）を追加（Road Graphのタイル単位キャッシュ導入時、新規）
@@ -878,8 +878,8 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
   "routes": [
     {
       "id":"route-090", "direction_label":"東", "distance_km":32.7,
-      "elevation_gain_m":12.8, "min_elevation_m":1.1, "max_elevation_m":9.6, "max_gradient_percent":0.8,
-      "wind_score":0.15, "road_score":76.2,
+      "elevation_gain_m":12.8, "min_elevation_m":1.1, "max_elevation_m":9.6,
+      "material_values": { "wind_drag_ratio":1.96, "gradient_percent":0.8 },
       "segments": [
         {
           "geometry": { "type":"LineString","coordinates":[...] },  /* 区間の道なり形状（ルートgeometryの部分列。地図の色分けはこれに沿って描く） */
@@ -887,9 +887,9 @@ Response 200（status="done"、resultにPOST側が従来返していた本文が
           "end_latitude":35.7602, "end_longitude":139.7390,
           "cumulative_distance_km":0.0, "distance_km":1.16,
           "estimated_arrival_time":"2026-08-13T23:20:43",
-          "gradient_percent":0.2, "wind_penalty":-0.83, "road_surface_good":true,
+          "material_values": { "gradient_percent":0.2, "wind_penalty":-0.83 },
           "car_stress":2,
-          /* ↑ 車ストレスの生値（P1）。road_surface_goodと
+          /* ↑ 車ストレスの生値（P1）。material_valuesと
              同じく、難易度への寄与とは別に表示・研究モード用に生値も保持する */
           "axis_difficulties": { "gradient":2.0, "wind":0.0, "surface_q":0.0, "stop_density":5.0,
             "car_stress":25.0, "accident":0.0, "bicycle_infra_quality":0.0 },
@@ -1175,15 +1175,16 @@ interface RouteSegmentDetail {
   cumulative_distance_km: number;
   distance_km: number;
   estimated_arrival_time: string | null;
-  gradient_percent: number | null;
-  wind_penalty: number | null;
-  road_surface_good: boolean | null;
   car_stress: number | null;          // 0-4（T353以前は1-5）、P1残り（生値。T353で自転車インフラの
                                        // 寄与はbicycle_infra_quality側へ分離済み）
   axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。改善計画T309で
     // 固定7フィールド（elevation_difficulty等）から汎用dictへ置換。評価できなかった軸・
     // 非公開の軸はキー自体を持たない（`compute_edge_axis_scores`と同じ規約）。軸スタジオでの
     // 公開軸の増減にそのまま追従する
+  axis_contributions: { [axisId: string]: number };  // axis_id→重み付き寄与度（改善計画T550）
+  material_values: { [materialId: string]: number };  // 材料id→値（改善計画T592で
+    // gradient_percent/wind_penalty等の固定フィールドから汎用dictへ置換。重み>0の公開軸が
+    // 参照する材料、または地図のレンズが指す符号付き材料の軸の材料のみキーを持つ）
   difficulty: number | null;              // 公開軸の合成値（絶対基準0-100）
 }
 
@@ -1195,9 +1196,6 @@ interface RouteCandidate {
   elevation_gain_m: number | null;
   min_elevation_m: number | null;
   max_elevation_m: number | null;
-  max_gradient_percent: number | null;
-  wind_score: number | null;
-  road_score: number | null;
   segments: RouteSegmentDetail[] | null;
   overall_difficulty: number | null;  // segments.difficultyの距離加重平均（絶対基準）。改善計画T548で
     // 候補タブの並び順の基準にもなった（昇順、算出不能なnullは末尾）。旧`total_score`・
@@ -1210,6 +1208,11 @@ interface RouteCandidate {
     // 消費する。旧来の軸1対1固定設計の名残だった個別フィールド群（stop_density・
     // car_stress_score・bicycle_infra_score・intersection_density・accident_density）は
     // 改善計画T431でフロントエンドの末端消費者ゼロを確認した上で撤去済み
+  axis_contributions: { [axisId: string]: number };  // RouteSegmentDetail.axis_contributionsと
+    // 同じ集約方法（merge_axis_contributions）で候補全体へ1回適用したもの（改善計画T550）
+  material_values: { [materialId: string]: number };  // RouteSegmentDetail.material_valuesと
+    // 同じ集約方法（merge_material_values）で候補全体へ1回適用したもの。改善計画T592で
+    // wind_score/road_score/max_gradient_percentから置換
 }
 
 interface RouteGenerateRequest {
@@ -1239,7 +1242,7 @@ interface WeatherConditions {
 
 ```
 
-バックエンド側は `domain/route.py`, `domain/weather.py` に同等のPydanticモデルを実装済み。フィールド名はキャメルケースではなくAPIレスポンスに合わせたスネークケースにしている（フロント⇔バックエンドで変換不要にするため）。標高系・`wind_score`・`road_score`・`overall_difficulty`・`segments`内の各フィールドは取得失敗時に`null`になりうるため、フロント側も`null`許容で扱う。
+バックエンド側は `domain/route.py`, `domain/weather.py` に同等のPydanticモデルを実装済み。フィールド名はキャメルケースではなくAPIレスポンスに合わせたスネークケースにしている（フロント⇔バックエンドで変換不要にするため）。標高系・`overall_difficulty`・`segments`内の各フィールドは取得失敗時に`null`になりうるため、フロント側も`null`許容で扱う。
 
 候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）は、いずれもタイル形式（標高はGSIのラスタタイル、路面はPostGIS/ST_AsMVTで生成したMVT）で配信するため、Step5-9のようなJSONのレスポンスモデルを持たない。バックエンド側の`domain/region.py`にはタイル範囲計算に使う`BoundingBox`（Pydanticモデル）が残っているが、これはPostGISクエリ・（DBなし構成での）Overpass問い合わせに使う内部的な値であり、フロントエンドとの間でJSONとしてやり取りするものではない（フロント側に対応する型定義は無い）。
 

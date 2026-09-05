@@ -1485,12 +1485,6 @@ export interface components {
             min_elevation_m?: number | null;
             /** Max Elevation M */
             max_elevation_m?: number | null;
-            /** Max Gradient Percent */
-            max_gradient_percent?: number | null;
-            /** Wind Score */
-            wind_score?: number | null;
-            /** Road Score */
-            road_score?: number | null;
             /** Segments */
             segments?: components["schemas"]["RouteSegmentDetail"][] | null;
             /** Overall Difficulty */
@@ -1627,10 +1621,10 @@ export interface components {
          * RouteSegmentDetail
          * @description 周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
          *
-         *     gradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負、
-         *     ElevationAttribute.average_gradeから算出）。フロントの勾配色分け
-         *     （routeStyleModes.ts）はこの符号を前提に「下り」カテゴリを持つため、絶対値で
-         *     返してはならない。
+         *     符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:
+         *     **符号付き・進行方向基準**（登り=正、下り=負、ElevationAttribute.average_gradeから
+         *     算出）。フロントの勾配色分け（routeStyleModes.ts）はこの符号を前提に「下り」
+         *     カテゴリを持つため、絶対値で返してはならない。
          *
          *     geometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの
          *     部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を
@@ -1657,12 +1651,6 @@ export interface components {
             distance_km: number;
             /** Estimated Arrival Time */
             estimated_arrival_time?: string | null;
-            /** Gradient Percent */
-            gradient_percent?: number | null;
-            /** Wind Penalty */
-            wind_penalty?: number | null;
-            /** Road Surface Good */
-            road_surface_good?: boolean | null;
             /** Axis Difficulties */
             axis_difficulties?: {
                 [key: string]: number;

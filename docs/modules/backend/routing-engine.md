@@ -50,18 +50,20 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 | 経由地ルート（`trace_loop`） | レグ0 | レグk（基準点=レグ起点、`offset=累積実距離÷速度`、`+1`）を逐次合成 |
 | `preview_segment` | 往路のみ | — |
 
-`TracedLoop.leg_of_edge`が経路上の各Edgeのレグ添字を運び、`_build_segment_details`・
-`_aggregate_material_average`（材料非依存、`_aggregate_wind_score`は`material_id="wind_penalty"`
-で呼ぶ薄いラッパー）はそのレグの配列から値を読む（探索と表示の一致、
-[設計原則](../../design-principles.md)10）。`RouteSegmentDetail.material_values`/
-`RouteCandidate.material_values`（重み>0の公開軸が参照する材料id→値、`AXIS_DEFINITIONS`の
-`materials`プロパティから導出）も同じ`material_arrays`を読む
-（`_active_material_ids`・`_material_value_at`）。逆回り候補はレグ割当ても逆順にする（先に
-走る側が往路配列）。起点の時別風予報（`WeatherService.get_wind_forecast_series`、
-`get_conditions`と同じ応答・キャッシュ）が無い、または風に依存する公開軸の重みが0の
-場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コストゼロ）。
-ただしリクエストの`lens_axis_id`（地図のレンズが表示を要求している軸）が風に依存する
-公開軸なら、重み0でも区間表示のためレグごとに合成する（探索コストには影響しない、
+`TracedLoop.leg_of_edge`が経路上の各Edgeのレグ添字を運び、`_build_segment_details`は
+そのレグの配列から値を読む（探索と表示の一致、[設計原則](../../design-principles.md)10）。
+`RouteSegmentDetail.material_values`/`RouteCandidate.material_values`（重み>0の公開軸が
+参照する材料id→値、`AXIS_DEFINITIONS`の`materials`プロパティから導出、
+`_active_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
+（`_material_value_at`）、静的材料（`gradient_percent`）はEdgeごとに計算済みの値を
+そのまま読む。`_active_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
+要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
+その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
+逆回り候補はレグ割当ても逆順にする（先に走る側が往路配列）。起点の時別風予報
+（`WeatherService.get_wind_forecast_series`、`get_conditions`と同じ応答・キャッシュ）が
+無い、または風に依存する公開軸の重みが0の場合は、出発時点のスナップショットで合成した
+1本を全レグで共有する（追加コストゼロ）。ただし`lens_axis_id`が風に依存する公開軸なら、
+重み0でも区間表示のためレグごとに合成する（探索コストには影響しない、
 `_LegCostComposer`の`lens_axis_id`）。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
 リクエストごとに変えられ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
@@ -549,11 +551,12 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 
 ### `domain/route.py`
 
-- `Coordinates`・`RouteSegment`・`RouteSegmentDetail`（**gradient_percentは符号付きが
-  正準契約**——絶対値ではない。frontend`routeStyleModes.ts`がこの契約に依存する）・
-  `RouteScoreComponent`・`RouteCandidate`。
+- `Coordinates`・`RouteSegment`・`RouteSegmentDetail`（**material_valuesに入る
+  符号付き材料（`gradient_percent`等）は符号付きが正準契約**——絶対値ではない。
+  frontend`routeStyleModes.ts`がこの契約に依存する）・`RouteScoreComponent`・
+  `RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
-  `_merge_segment_bin`。
+  `merge_axis_contributions`・`merge_material_values`・`_merge_segment_bin`。
 
 ### `domain/geo.py`・`domain/errors.py`
 

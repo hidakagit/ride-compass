@@ -1,22 +1,6 @@
 # 路面評価の正準定義:
-# 「走行しやすい舗装路面か」を 良い(True) / 悪い(False) / 不明(None) の3値で判定し、
-# road_score（舗装率%）は判定できた区間だけを分母にする（不明=無視。不明を「悪い」扱いに
-# しない）。全区間が不明ならNone。OSMタグ語彙（classify_osm_surface）が唯一の判定源
-# （改善計画T21）。
-
-
-def distance_weighted_road_score(pairs: list[tuple[float, bool | None]]) -> float | None:
-    """(区間の距離, 走行しやすい舗装路面か)のペア列から、距離加重の舗装率(%)を算出する。
-
-    不明（None）の区間は分母から除外する（不明を「悪い路面」扱いにしない、冒頭の正準定義
-    参照）。判定できる区間が1つも無ければNone。
-    """
-    known = sum(distance for distance, is_good in pairs if is_good is not None)
-    if known <= 0:
-        return None
-    good = sum(distance for distance, is_good in pairs if is_good)
-    return round(good / known * 100, 1)
-
+# 「走行しやすい舗装路面か」を 良い(True) / 悪い(False) / 不明(None) の3値で判定する。
+# OSMタグ語彙（classify_osm_surface）が唯一の判定源（改善計画T21）。
 
 # OSMのsurfaceタグ（自由記述に近い文字列）による判定。
 #

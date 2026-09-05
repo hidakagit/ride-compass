@@ -3389,39 +3389,6 @@
             ],
             "title": "Max Elevation M"
           },
-          "max_gradient_percent": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Gradient Percent"
-          },
-          "wind_score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Wind Score"
-          },
-          "road_score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Road Score"
-          },
           "segments": {
             "anyOf": [
               {
@@ -3815,39 +3782,6 @@
             ],
             "title": "Estimated Arrival Time"
           },
-          "gradient_percent": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gradient Percent"
-          },
-          "wind_penalty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Wind Penalty"
-          },
-          "road_surface_good": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Road Surface Good"
-          },
           "axis_difficulties": {
             "additionalProperties": {
               "type": "number"
@@ -3891,7 +3825,7 @@
           "distance_km"
         ],
         "title": "RouteSegmentDetail",
-        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\ngradient_percentの正準定義: **符号付き・進行方向基準**（登り=正、下り=負、\nElevationAttribute.average_gradeから算出）。フロントの勾配色分け\n（routeStyleModes.ts）はこの符号を前提に「下り」カテゴリを持つため、絶対値で\n返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
+        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\n符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:\n**符号付き・進行方向基準**（登り=正、下り=負、ElevationAttribute.average_gradeから\n算出）。フロントの勾配色分け（routeStyleModes.ts）はこの符号を前提に「下り」\nカテゴリを持つため、絶対値で返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
       },
       "SourceFreshnessEntry": {
         "properties": {

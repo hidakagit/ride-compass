@@ -129,7 +129,7 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
     return buildRangeSteppedMode({
       id: axis.axis_id,
       label: axis.label,
-      valueExpression: ["get", axis.shape.terms[0].material],
+      valueExpression: ["get", axis.shape.terms[0].material, ["get", "material_values"]],
       boundaries,
       colorLow: scale.colorLow,
       colorHigh: scale.colorHigh,

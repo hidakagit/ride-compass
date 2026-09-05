@@ -92,6 +92,7 @@ import numpy as np
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS, dynamic_axis_topological_order
 from app.domain.difficulty import distance_weighted_difficulty
+from app.domain.dynamic_way_values import map_value_kind
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
     StaticEdgeScoreMatrix,
@@ -111,7 +112,6 @@ from app.domain.geo import (
 )
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
 from app.domain.region import BoundingBox
-from app.domain.road import classify_osm_surface, distance_weighted_road_score
 from app.domain.route import (
     Coordinates,
     RouteCandidate,
@@ -220,8 +220,8 @@ class LegCostArrays:
     axis_arrays: dict[str, np.ndarray]
     contribution_arrays: dict[str, np.ndarray]
     # `full_edge_row`順の動的材料id→配列（`evaluate_dynamic_material_arrays`が返す全材料が
-    # 対象、全行NaNの材料はキーを持たない）。区間表示・`material_values`・`wind_score`の
-    # 集計が、探索コストの合成と同じ動的入力から求めた値を読むために保持する。
+    # 対象、全行NaNの材料はキーを持たない）。区間表示・`material_values`の集計が、
+    # 探索コストの合成と同じ動的入力から求めた値を読むために保持する。
     material_arrays: dict[str, np.ndarray]
     # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
     passage_hours: np.ndarray | None
@@ -260,6 +260,7 @@ class _LegCostComposer:
         self.start = start
         self.speed_kmh = speed_kmh
         self._lazy_row_index = lazy_row_index
+        self._lens_axis_id = lens_axis_id
         # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
         # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
         self.detour_ratio = detour_ratio
@@ -1438,8 +1439,6 @@ class RoadGraphEngine:
         # 総距離・同じ方位の候補のため）traced（順方向のTracedLoop）からそのまま使う。
         geometry = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
-        road_score = _aggregate_road_score(edges_in_path, context.materials)
-        wind_score = _aggregate_wind_score(edges_in_path, context, leg_of_edge)
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time, leg_of_edge)
         # 改善計画T11（レビュー指摘M3）: APIレスポンスとして返すsegmentsは約500m単位に
         # 集約する（Edge単位のままだと30km級で150〜230件になりペイロード・フロント
@@ -1450,8 +1449,6 @@ class RoadGraphEngine:
             **candidate_identity(traced.bearing),
             distance_km=traced.distance_km,
             geometry=geometry,
-            wind_score=wind_score,
-            road_score=road_score,
             segments=segments,
             **elevation_stats,
         )
@@ -1471,17 +1468,23 @@ class RoadGraphEngine:
         """
         segments = []
         cumulative_km = 0.0
-        active_material_ids = _active_material_ids(context.composer._weights)
+        active_material_ids = _active_material_ids(context.composer._weights, context.composer._lens_axis_id)
 
         for edge, leg_index in zip(edges, leg_of_edge):
             leg = context.legs[leg_index]
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_attributes.get(edge.edge_id)
-            bundle = context.materials.get(edge.edge_id)
-            surface_type = bundle.surface if bundle else None
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
-            road_surface_good = classify_osm_surface(surface_type)
+            # 静的材料（`leg.material_arrays`が持つ動的材料とは別経路）の生値。現状
+            # material_valuesが必要とする静的材料はgradient_percentのみ（符号付き材料の
+            # 軸はこれ1つ、`_active_material_ids`のdocstring参照）。この区間ループは
+            # 元々gradient_percentをEdgeごとに計算済みのため、新たな計算コストは無い。
+            static_material_values = (
+                {"gradient_percent": round(gradient_percent, 1)}
+                if "gradient_percent" in active_material_ids and gradient_percent is not None
+                else {}
+            )
 
             row = context.full_edge_row.get(edge.edge_id)
             if row is None:
@@ -1490,8 +1493,7 @@ class RoadGraphEngine:
                 axis_scores: dict[str, float] = {}
                 axis_contributions: dict[str, float] = {}
                 composite_difficulty_value: float | None = None
-                wind_penalty: float | None = None
-                material_values: dict[str, float] = {}
+                material_values: dict[str, float] = static_material_values
             else:
                 axis_scores = {
                     axis_id: float(arr[row])
@@ -1505,11 +1507,13 @@ class RoadGraphEngine:
                 }
                 difficulty_value = leg.difficulty_array[row]
                 composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
-                wind_penalty = _material_value_at(leg, "wind_penalty", row)
                 material_values = {
-                    material_id: value
-                    for material_id in active_material_ids
-                    if (value := _material_value_at(leg, material_id, row)) is not None
+                    **static_material_values,
+                    **{
+                        material_id: value
+                        for material_id in active_material_ids
+                        if (value := _material_value_at(leg, material_id, row)) is not None
+                    },
                 }
 
             elapsed_hours = cumulative_km / self._assumed_speed_kmh
@@ -1535,9 +1539,6 @@ class RoadGraphEngine:
                     cumulative_distance_km=round(cumulative_km, 2),
                     distance_km=round(distance_km, 2),
                     estimated_arrival_time=arrival_time.isoformat(),
-                    gradient_percent=round(gradient_percent, 1) if gradient_percent is not None else None,
-                    wind_penalty=round(wind_penalty, 2) if wind_penalty is not None else None,
-                    road_surface_good=road_surface_good,
                     # axis_scoresは既にaxis_id→difficultyの汎用dict（データ無しの軸はキー自体を
                     # 持たない）のため、そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
                     axis_difficulties=axis_scores,
@@ -1560,9 +1561,15 @@ def _material_value_at(leg: LegCostArrays, material_id: str, row: int) -> float 
     return None if math.isnan(value) else value
 
 
-def _active_material_ids(weights: Mapping[str, float]) -> set[str]:
+def _active_material_ids(weights: Mapping[str, float], lens_axis_id: str | None = None) -> set[str]:
     """重み>0の公開軸が参照する材料idの集合（`AXIS_DEFINITIONS`の`materials`プロパティ
-    から導出、軸id自体への参照は除く。軸名のハードコード無し）。"""
+    から導出、軸id自体への参照は除く。軸名のハードコード無し）に加え、`lens_axis_id`が
+    符号付き材料の軸（`map_value_kind`が`"signed_material"`）を指す場合はその材料も
+    重みに関わらず含める。地図のレンズ（ルート線色分け）は符号付き材料の生値を
+    `axis_difficulties`ではなくこの`material_values`経由で塗るため（`frontend/src/
+    components/Map/routeStyleModes.ts: routeColorableModeFromAxis`のsigned_material分岐、
+    符号[登り/下り]の情報を保つため難易度0-100へは変換しない）、重み0の軸をレンズに
+    選んでも表示が欠けないようにする。"""
     from app.domain.material_catalog import is_known_material
 
     material_ids: set[str] = set()
@@ -1573,6 +1580,10 @@ def _active_material_ids(weights: Mapping[str, float]) -> set[str]:
         if definition is None:
             continue
         material_ids.update(m for m in definition.materials if is_known_material(m))
+    if lens_axis_id is not None:
+        lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
+        if lens_definition is not None and map_value_kind(lens_definition) == "signed_material":
+            material_ids.update(m for m in lens_definition.materials if is_known_material(m))
     return material_ids
 
 
@@ -1974,57 +1985,12 @@ def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> d
             elevations.append(a.start_elevation_m)
         if a.end_elevation_m is not None:
             elevations.append(a.end_elevation_m)
-    grades = [abs(a.max_grade) for a in valid if a.max_grade is not None]
-    grades += [abs(a.min_grade) for a in valid if a.min_grade is not None]
 
     # 最終集約（sum/min/max・空ならNone・小数1桁丸め）はelevation_aggregation.pyへ集約する。
     return {
         "elevation_gain_m": sum_or_none(gains),
         "min_elevation_m": min_or_none(elevations),
         "max_elevation_m": max_or_none(elevations),
-        "max_gradient_percent": max_or_none(grades),
     }
 
 
-def _aggregate_road_score(edges: list[EdgeLike], materials: dict[str, EdgeMaterialBundle]) -> float | None:
-    """経路の総距離に対する「走行しやすい舗装路面」の割合(%)を算出する。Edge単位のsurfaceタグを
-    domain/road.py: distance_weighted_road_scoreへ渡す薄いラッパー。
-    """
-    def surface_of(edge: EdgeLike) -> str | None:
-        bundle = materials.get(edge.edge_id)
-        return bundle.surface if bundle else None
-
-    return distance_weighted_road_score(
-        [(edge.distance_m, classify_osm_surface(surface_of(edge))) for edge in edges]
-    )
-
-
-def _aggregate_material_average(
-    edges: list[EdgeLike], context: _RoadGraphContext, leg_of_edge: list[int], material_id: str
-) -> float | None:
-    """経路全体の距離加重平均材料値。各Edgeの値は、そのEdgeが探索されたレグの合成済み
-    配列（区間表示と同じ値）から読む。"""
-    weighted_total = 0.0
-    total_weight = 0.0
-    for edge, leg_index in zip(edges, leg_of_edge):
-        row = context.full_edge_row.get(edge.edge_id)
-        if row is None:
-            continue
-        value = _material_value_at(context.legs[leg_index], material_id, row)
-        if value is None:
-            continue
-        distance_km = edge.distance_m / 1000
-        if distance_km > 0:
-            weighted_total += value * distance_km
-            total_weight += distance_km
-
-    if total_weight == 0:
-        return None
-    return round(weighted_total / total_weight, 2)
-
-
-def _aggregate_wind_score(
-    edges: list[EdgeLike], context: _RoadGraphContext, leg_of_edge: list[int]
-) -> float | None:
-    """経路全体の距離加重平均wind_penalty（符号付きm/s、正=正味向かい風）。"""
-    return _aggregate_material_average(edges, context, leg_of_edge, "wind_penalty")

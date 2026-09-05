@@ -43,9 +43,6 @@ function makeSegments(count: number): RouteSegmentDetail[] {
       cumulative_distance_km: i * 0.1,
       distance_km: 0.1,
       estimated_arrival_time: "2026-01-01T09:00:00+09:00",
-      gradient_percent: (i % 10) - 5,
-      wind_penalty: (i % 7) - 3,
-      road_surface_good: i % 2 === 0,
       axis_difficulties: {
         gradient: (i * 7) % 100,
         wind: (i * 13) % 100,
@@ -55,7 +52,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
         accident: (i * 37) % 100,
         night: (i * 41) % 100,
       },
-      material_values: {},
+      material_values: { gradient_percent: (i % 10) - 5, wind_penalty: (i % 7) - 3 },
       axis_contributions: {
         gradient: (i * 7) % 100,
         wind: (i * 13) % 100,
@@ -82,9 +79,6 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       elevation_gain_m: 120,
       min_elevation_m: 3,
       max_elevation_m: 45,
-      max_gradient_percent: 8.2,
-      wind_score: 1.5,
-      road_score: 82.3,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),
       overall_difficulty: 45.6,
       axis_difficulties: {},

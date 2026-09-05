@@ -58,7 +58,11 @@ describe("routeStyleModes", () => {
     expect((wind.colorExpression[3] as unknown[])[0]).toBe("step");
 
     const gradient = getRouteStyleMode(ROUTE_STYLE_MODES, "gradient");
-    expect(gradient.colorExpression[1]).toEqual(["==", ["get", "gradient_percent"], null]);
+    expect(gradient.colorExpression[1]).toEqual([
+      "==",
+      ["get", "gradient_percent", ["get", "material_values"]],
+      null,
+    ]);
   });
 
   // 改善計画T466: id未検出時のmodes[0]無警告フォールバックへ警告ログを追加した回帰テスト。
@@ -91,7 +95,11 @@ describe("routeStyleModes", () => {
     expect(gradientAxis.map_value_kind).toBe("signed_material");
     const mode = routeColorableModeFromAxis(gradientAxis);
     expect(mode.id).toBe("gradient");
-    expect(mode.colorExpression[1]).toEqual(["==", ["get", "gradient_percent"], null]);
+    expect(mode.colorExpression[1]).toEqual([
+      "==",
+      ["get", "gradient_percent", ["get", "material_values"]],
+      null,
+    ]);
   });
 
   it("改善計画T440: gradientのしきい値は軸スタジオのdisplay_thresholds_override由来で、段階数はその長さ+1になる（固定5カテゴリを仮定しない）", () => {

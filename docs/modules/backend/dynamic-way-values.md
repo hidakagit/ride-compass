@@ -198,9 +198,9 @@ values = {
 風の方向はEdge自身の`bearing_deg`（directed edgeのためルート実走行方向と一致）を使う。
 風の時刻はEdgeごとの通過予定時刻（基準点からの直線距離×迂回率÷仮定巡航速度、
 `domain/wind.py: estimate_passage_hours`）で起点の時別予報（`WindForecastSeries`）から
-引き、レグ（往路/復路）ごとに別のコスト配列として探索前に合成する。区間表示・`wind_score`
-は探索に使ったその配列から読む（詳細は[routing-engine.md](routing-engine.md)
-「レグ別コスト配列」参照）。
+引き、レグ（往路/復路）ごとに別のコスト配列として探索前に合成する。区間表示
+（`RouteSegmentDetail.material_values`）は探索に使ったその配列から読む（詳細は
+[routing-engine.md](routing-engine.md)「レグ別コスト配列」参照）。
 
 `ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
 ＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・区間の到達予想時刻・

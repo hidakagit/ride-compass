@@ -84,8 +84,7 @@ async def main() -> int:
     for c in candidates:
         print(
             f"  {c.direction_label:>3}: distance={c.distance_km}km gain={c.elevation_gain_m}m "
-            f"road={c.road_score} wind={c.wind_score} difficulty={c.overall_difficulty} "
-            f"segments={len(c.segments or [])}"
+            f"difficulty={c.overall_difficulty} segments={len(c.segments or [])}"
         )
 
     ok = bool(candidates)

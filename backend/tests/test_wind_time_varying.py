@@ -248,13 +248,10 @@ async def test_inbound_leg_uses_wind_at_return_time_and_segments_read_the_same_a
     candidates = await engine.evaluate_loops(context, [traced], datetime(2026, 9, 5, 9, 0))
     segments = candidates[0].segments
     first, last = segments[0], segments[-1]
-    assert first.wind_penalty is not None and last.wind_penalty is not None
-    # 順方向は往路が向かい風。逆回り候補が採用された場合も、先に走る区間が往路配列で評価される。
-    assert candidates[0].wind_score is not None
-    # 改善計画T592: 風軸の重み>0なので、区間のmaterial_valuesに風軸が参照する材料
-    # (wind_penalty)が出る（候補全体への集約はroute_generator.pyが行うため、
-    # engine.evaluate_loopsが返す時点ではsegments側だけで確認する）。
-    assert "wind_penalty" in first.material_values
+    # 風軸の重み>0なので、区間のmaterial_valuesに風軸が参照する材料(wind_penalty)が出る
+    # （候補全体への集約はroute_generator.pyが行うため、engine.evaluate_loopsが返す
+    # 時点ではsegments側だけで確認する）。
+    assert "wind_penalty" in first.material_values and "wind_penalty" in last.material_values
 
 
 async def test_material_values_omits_wind_when_wind_axis_has_no_weight():
