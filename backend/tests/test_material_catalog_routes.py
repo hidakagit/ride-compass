@@ -105,6 +105,23 @@ def test_get_material_catalog_includes_description():
         assert entry["description"].strip() != ""
 
 
+def test_get_material_catalog_includes_reference_points():
+    # 軸スタジオの折れ点編集を助ける「値の目安」一覧。値を持つ材料（wind_drag_ratio）は
+    # 非空、値を持たない材料（lit等）は空配列で返る。
+    response = client.get("/api/material-catalog")
+
+    entries_by_id = {entry["material_id"]: entry for entry in response.json()["materials"]}
+
+    wind = entries_by_id["wind_drag_ratio"]
+    assert len(wind["reference_points"]) > 0
+    assert wind["reference_points"][0].keys() == {"label", "value"}
+    assert [p.value for p in MATERIAL_CATALOG["wind_drag_ratio"].reference_points] == [
+        entry["value"] for entry in wind["reference_points"]
+    ]
+
+    assert entries_by_id["lit"]["reference_points"] == []
+
+
 def test_get_material_catalog_response_excludes_internal_tile_fields():
     # 改善計画T277: tile_property/tile_property_needs_runtime_scaleは
     # backend内部（axis_display.py）専用で、公開レスポンスには含めない。

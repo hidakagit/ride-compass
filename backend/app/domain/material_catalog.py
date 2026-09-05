@@ -46,8 +46,21 @@ from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.graph import EdgeLike
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
+from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
+
+
+class MaterialReferencePoint(BaseModel):
+    """軸スタジオの折れ点編集を助ける「値の目安」1点。材料の値域が
+    直感的でない場合（風の材料等）に、換算式を知らなくても代表的な状況がどの値になるかを
+    示す。換算式自体はbackendだけが持ち、値はここで計算済みのものを持たせる（設計原則1、
+    frontendはこの一覧をそのまま表示するのみ）。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str
+    value: float
 
 
 @dataclass(frozen=True)
@@ -175,6 +188,10 @@ class MaterialSpec(BaseModel):
     # 出してきた同期漏れパターン[T180・T185・T218のOpenAPIドリフト、T70・T93のタイル
     # 世代対上げ漏れ等]と同型のリスクを持ち込むため避ける）。
     value_labels: dict[str, str] = {}
+    # 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`）。
+    # 値域が直感的でない材料（風等）ほど有用なため全材料必須ではなく、真偽値・categorical
+    # 材料や単純な材料は空のままでよい。
+    reference_points: list[MaterialReferencePoint] = []
 
     def value_label(self, value: str) -> str:
         """タグ生値から「論理名 - 物理名」形式の表示用ラベルを組み立てる（例:
@@ -296,6 +313,63 @@ def _extract_accident_count_per_km_year(ctx: MaterialExtractionContext) -> float
 
 def _extract_is_designated(ctx: MaterialExtractionContext) -> bool:
     return ctx.edge_id in ctx.designated_edge_ids
+
+
+def _wind_drag_ratio_reference_points() -> list[MaterialReferencePoint]:
+    """`wind_drag_ratio`材料の参考点（時速20km=基準速度で走行、走行方位0度を基準に
+    風向差0度=向かい風・180度=追い風・90度=真横として`wind_drag_ratio`で計算する）。"""
+    v = WIND_DRAG_REFERENCE_SPEED_MS
+    scenarios = [
+        ("時速20km・向かい風2m/s", 2.0, 0.0),
+        ("時速20km・向かい風4m/s", 4.0, 0.0),
+        ("時速20km・向かい風8m/s", 8.0, 0.0),
+        ("時速20km・追い風4m/s", 4.0, 180.0),
+        ("時速20km・真横4m/s", 4.0, 90.0),
+        ("走行速度と同じ追い風", v, 180.0),
+    ]
+    return [
+        MaterialReferencePoint(label=label, value=round(wind_drag_ratio(wind_speed_ms, wind_direction_deg, 0.0, v), 2))
+        for label, wind_speed_ms, wind_direction_deg in scenarios
+    ]
+
+
+_GRADIENT_PERCENT_REFERENCE_POINTS = [
+    MaterialReferencePoint(label="平坦", value=0.0),
+    MaterialReferencePoint(label="緩い坂", value=3.0),
+    MaterialReferencePoint(label="きつい坂", value=9.0),
+    MaterialReferencePoint(label="激坂", value=15.0),
+]
+
+_STOP_COUNT_PER_KM_REFERENCE_POINTS = [
+    MaterialReferencePoint(label="少ない", value=0.5),
+    MaterialReferencePoint(label="普通", value=2.0),
+    MaterialReferencePoint(label="多い", value=5.0),
+]
+
+_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS = [
+    MaterialReferencePoint(label="少ない", value=1.0),
+    MaterialReferencePoint(label="普通", value=3.0),
+    MaterialReferencePoint(label="多い", value=8.0),
+]
+
+_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS = [
+    MaterialReferencePoint(label="少ない", value=0.02),
+    MaterialReferencePoint(label="普通", value=0.1),
+    MaterialReferencePoint(label="多い", value=0.3),
+]
+
+_MAXSPEED_KMH_REFERENCE_POINTS = [
+    MaterialReferencePoint(label="生活道路", value=20.0),
+    MaterialReferencePoint(label="一般道", value=40.0),
+    MaterialReferencePoint(label="幹線道路", value=60.0),
+    MaterialReferencePoint(label="高規格道路", value=80.0),
+]
+
+_LANES_COUNT_REFERENCE_POINTS = [
+    MaterialReferencePoint(label="1車線", value=1.0),
+    MaterialReferencePoint(label="2車線", value=2.0),
+    MaterialReferencePoint(label="4車線以上", value=4.0),
+]
 
 
 # way_tags依存の材料群: way_tags自体が欠損のときNoneを返す（車ストレス軸グループを
@@ -450,6 +524,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property_direction_dependent=True,
         primary_attribute_id="elevation",
         extractor=_extract_gradient_percent,
+        reference_points=_GRADIENT_PERCENT_REFERENCE_POINTS,
     ),
     "wind_drag_ratio": MaterialSpec(
         material_id="wind_drag_ratio",
@@ -467,6 +542,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # （動的気象は一次属性レジストリの対象外）。
         tile_property=None,
         tile_property_direction_dependent=True,
+        reference_points=_wind_drag_ratio_reference_points(),
     ),
     # 本番DBの公開軸がまだ参照している非推奨エイリアス（値は進行方向に平行な風成分m/s、
     # `domain/wind.py: headwind_component_ms`）。軸スタジオの選択肢からは除外し、公開軸の
@@ -501,6 +577,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="stop_per_km",
         primary_attribute_id="stop_poi",
         extractor=count_per_km_extractor(lambda ctx: ctx.stop_counts),
+        reference_points=_STOP_COUNT_PER_KM_REFERENCE_POINTS,
     ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
@@ -510,6 +587,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
         extractor=count_per_km_extractor(lambda ctx: ctx.intersection_counts),
+        reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",
@@ -525,6 +603,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property_needs_runtime_scale=True,
         primary_attribute_id="accident_point",
         extractor=_extract_accident_count_per_km_year,
+        reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
     ),
     "lit": MaterialSpec(
         material_id="lit",
@@ -590,6 +669,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="maxspeed_kmh",
         primary_attribute_id="maxspeed",
         extractor=way_tag_parser_extractor(parse_maxspeed),
+        reference_points=_MAXSPEED_KMH_REFERENCE_POINTS,
     ),
     "lanes_count": MaterialSpec(
         material_id="lanes_count",
@@ -599,6 +679,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="lanes_count",
         primary_attribute_id="lanes",
         extractor=way_tag_parser_extractor(parse_lanes),
+        reference_points=_LANES_COUNT_REFERENCE_POINTS,
     ),
     "highway": MaterialSpec(
         material_id="highway",

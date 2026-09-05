@@ -12,6 +12,13 @@
 // docs/decisions/t221-axis-registry.md「T12との関係」に記録済み）。
 export type AxisMaterialDType = "numeric" | "boolean" | "categorical";
 
+/** 軸スタジオの折れ点編集を助ける「値の目安」1点。backend/app/domain/
+ * material_catalog.py: MaterialReferencePointが単一ソース。 */
+export interface AxisMaterialReferencePoint {
+  label: string;
+  value: number;
+}
+
 export interface AxisMaterialOption {
   id: string;
   /** 改善計画T345さらなるフォローアップ2: 「論理名 - 物理名」形式（例: "道路種別 - highway"）。
@@ -25,6 +32,9 @@ export interface AxisMaterialOption {
    * （BreakpointLinearShape/CategoricalShape向け）、"categorical"=文字列多値材料
    * （CategoricalShapeがbool/str両方に対応、改善計画T292）。 */
   dtype: AxisMaterialDType;
+  /** 「値の目安」一覧。値を持たない材料や静的フォールバック（本ファイル）では
+   * 省略されうる。 */
+  referencePoints?: readonly AxisMaterialReferencePoint[];
 }
 
 // backend/app/domain/material_catalog.py: MATERIAL_CATALOGのうちdisplay_only=Falseの

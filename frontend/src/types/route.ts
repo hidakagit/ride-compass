@@ -95,6 +95,7 @@ export type AxisShape = BreakpointLinearShape | CategoricalShape;
 // 材料選択候補を、材料自体の追加時にコード変更・再デプロイだけで反映する。
 export type MaterialCatalogEntry = Schemas["MaterialCatalogEntry"];
 export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
+export type MaterialReferencePointEntry = Schemas["MaterialReferencePointEntry"];
 
 // 材料の実データ値一覧（改善計画T340）。GET /api/material-catalog/{material_id}/valuesの
 // レスポンス。highway/surface/smoothnessのようなオープンエンドな多値材料向け。
