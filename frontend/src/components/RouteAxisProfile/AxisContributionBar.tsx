@@ -1,8 +1,8 @@
 "use client";
 
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-// 改善計画T550: RouteSettingsPanelの「重み配分」帯グラフ（.stackBar/.stackSegment）と
-// 同じ表現・同じCSS classをそのまま流用する（ユーザー指定「積み上げ1本バーへ統一」）。
+// RouteSettingsPanelの「重み配分」帯グラフ（.stackBar/.stackSegment）と同じ表現・
+// 同じCSS classをそのまま流用する。
 import stackBarStyles from "@/components/RouteSettingsPanel/RouteSettingsPanel.module.css";
 import styles from "./AxisContributionBar.module.css";
 
@@ -26,10 +26,10 @@ interface AxisContributionBarProps {
 const FALLBACK_COLOR = "#94a3b8";
 
 /** 「重み付き寄与度」の内訳を積み上げ1本バー＋下の凡例（色ドット＋ラベル＋数値）で表示する
- * 共有部品（改善計画T550）。ルート結果タブ全体の内訳（RouteAxisProfile）と、区間クリック
- * 詳細（ボトムシート側）の両方が同じこのコンポーネントを使う——区間ごとに専用のレーダー
- * チャートを持っていた旧実装（routeSegmentChartPopup.ts）を撤去し、表示部品を一元化した。
- * contributionsが1件も無ければ何も描画しない（呼び出し側の空状態文言に委ねる）。 */
+ * 共有部品。ルート結果タブ全体の内訳（RouteAxisProfile）と、区間クリック詳細
+ * （ボトムシート側）の両方が同じこのコンポーネントを使う——値の出どころごとに別の
+ * 表現は持たない。contributionsが1件も無ければ何も描画しない（呼び出し側の空状態
+ * 文言に委ねる）。 */
 export default function AxisContributionBar({ axes, contributions, axisColors }: AxisContributionBarProps) {
   // 値0（重み0の軸は常にちょうど0.0になる、backend: compose_costs_from_axis_matrix参照）は
   // 除外する。キーが無い（欠損データ）場合と同じ「表示すべき寄与が無い」として扱うが、

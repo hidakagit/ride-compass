@@ -7,19 +7,14 @@ import styles from "./ComparisonPanel.module.css";
 
 interface ComparisonPanelProps {
   slots: ExperimentSlot[];
-  /** axis_id→表示名の辞書（改善計画T320）。route_preferenceの重み表示に使う。呼び出し側
-   * （page.tsx）がuseAxisCatalog経由で取得したもの。以前はビルド時静的な
-   * PREFERENCE_AXES（既存7軸固定）を直接参照しており、軸スタジオで新規公開した軸の重みが
-   * 比較表のツールチップに出ず、非公開化した軸は`p[axis.axisId]`がundefinedのまま
-   * 「風undefined」のような表示になっていた（実際に送信されたroute_preferenceの
-   * キー集合＝Object.keys(p)を正とし、ラベルだけこの辞書から引く形へ修正）。 */
+  /** axis_id→表示名の辞書。route_preferenceの重み表示に使う。呼び出し側（page.tsx）が
+   * useAxisCatalog経由で取得したもの。実際に送信されたroute_preferenceのキー集合
+   * （Object.keys(p)）を正とし、ラベルだけこの辞書から引く。 */
   axisLabels: Record<string, string>;
-  /** 評価軸カタログ（axis_id・label・並び順の正本、改善計画T421）。呼び出し側
-   * （page.tsx）がuseAxisCatalog().axesを渡す（RouteAxisProfileと同じ渡し方）。
-   * 個別軸の生値行（旧: 停止密度・車の圧迫感・自転車インフラ率・交差点密度・事故密度、
-   * RouteCandidateのレガシー1軸1フィールド固定設計）を、この一覧から
-   * `topCandidate.axis_difficulties[axisId]`ベースで動的生成することで、軸スタジオの
-   * 軸増減へ自動追従させる（新しいハードコードした軸id→ラベル辞書は増やさない）。 */
+  /** 評価軸カタログ（axis_id・label・並び順の正本）。呼び出し側（page.tsx）が
+   * useAxisCatalog().axesを渡す（RouteAxisProfileと同じ渡し方）。個別軸の生値行を
+   * この一覧から`topCandidate.axis_difficulties[axisId]`ベースで動的生成することで、
+   * 軸スタジオの軸増減へ自動追従させる（ハードコードした軸id→ラベル辞書は持たない）。 */
   axes: readonly PreferenceAxisDef[];
   /** 材料カタログ（material_id→label/unit、呼び出し側がuseMaterialCatalog()を渡す）。
    * `topCandidate.material_values`の行（風の追加負荷等）のラベル・単位表記に使う。
@@ -34,8 +29,7 @@ interface MetricRow {
 }
 
 // 距離・獲得標高は材料（重み>0の軸が参照するもの）ではなくルート自体の属性のため、
-// material_valuesには乗らない固定行として残す（旧・風スコア/舗装率は材料カタログ駆動の
-// 動的行[buildMaterialValueRows]へ置き換えた）。
+// material_valuesには乗らない固定行として残す。
 const PHYSICAL_METRIC_ROWS: MetricRow[] = [
   { label: "距離", format: (s) => `${s.topCandidate.distance_km.toFixed(1)} km` },
   {
@@ -67,22 +61,21 @@ function buildMaterialValueRows(slots: ExperimentSlot[], materials: readonly Axi
 // 全軸を合成した総合difficulty（RouteSegmentDetail.difficulty由来、domain/difficulty.py）。
 // 特定のaxis_idに紐づかず「全軸の合成結果」という別概念のため、下記の個別軸行とは別枠で
 // 表の末尾に固定する（routeStyleModes.tsのdifficultyモードが個別軸の汎用パターンに
-// 乗らない、と同じ理由づけ。改善計画T421再検証結果）。
+// 乗らないのと同じ理由づけ）。
 const OVERALL_DIFFICULTY_ROW: MetricRow = {
   label: "総合難易度[絶対基準]",
   format: (s) => (s.topCandidate.overall_difficulty != null ? `${s.topCandidate.overall_difficulty.toFixed(1)}` : "—"),
 };
 
-// 個別軸の生値行（改善計画T421）: `RouteCandidate.axis_difficulties`
-// （axis_id→difficulty 0-100の距離加重平均、改善計画T402）ベースで動的に生成する。
-// 軸カタログ（`axes`、呼び出し側がuseAxisCatalog().axesを渡す）の並び順をそのまま使い、
-// 表示するスロットのいずれか1件でも値を持つ軸だけを行として残す（RouteAxisProfile.tsxの
-// 「このルートで実際に評価できた軸だけ表示する」フィルタと同じ規約）。軸スタジオが軸を
-// 追加・削除するたびにこの表の行も自動で増減し、以前の固定5行（停止密度・車の圧迫感・
-// 自転車インフラ率・交差点密度・事故密度）のような手動追記漏れ（コメントに残る
-// 「stop_weight漏れ」実績と同種の問題）が起きなくなる。風（wind）・舗装質（surface_q）の
-// 軸もここに含まれうるが、上記PHYSICAL_METRIC_ROWSの風スコア・舗装率（生の物理量）とは
-// 単位・意味が異なる別情報のため、重複ではなく併存として扱う。
+// 個別軸の生値行: `RouteCandidate.axis_difficulties`（axis_id→difficulty 0-100の
+// 距離加重平均）ベースで動的に生成する。軸カタログ（`axes`、呼び出し側が
+// useAxisCatalog().axesを渡す）の並び順をそのまま使い、表示するスロットのいずれか
+// 1件でも値を持つ軸だけを行として残す（RouteAxisProfile.tsxの「このルートで実際に
+// 評価できた軸だけ表示する」フィルタと同じ規約）。軸スタジオが軸を追加・削除する
+// たびにこの表の行も自動で増減する（ハードコードした軸id一覧を持たないため手動追記が
+// 不要）。風（wind）・舗装質（surface_q）の軸もここに含まれうるが、上記
+// PHYSICAL_METRIC_ROWSの風スコア・舗装率（生の物理量）とは単位・意味が異なる別情報の
+// ため、重複ではなく併存として扱う。
 function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly PreferenceAxisDef[]): MetricRow[] {
   return axes
     .filter((axis) => slots.some((slot) => slot.topCandidate.axis_difficulties[axis.axisId] != null))
@@ -95,18 +88,14 @@ function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly Prefere
     }));
 }
 
-// 重み表示は評価軸カタログ（lib/evaluationAxes.ts）から生成する（改善計画T45）。
-// 以前はここへ手作業で軸を列挙しており、静的属性P1で追加されたstop_weightが
-// 実験条件の表示から漏れていた（研究モードでstop_weightを変えて比較しても、
-// 条件表示に差が現れず「同条件なのに結果が違う」ように見える実害があった）。
-// カタログはRouteSettingsPanel/RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
+// 重み表示は評価軸カタログ（lib/evaluationAxes.ts）から生成する。ハードコードした
+// 軸一覧を持たないため、軸が増減しても表示から漏れない。カタログはRouteSettingsPanel/
+// RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
 //
-// 改善計画T320: pref行は`slot.conditions.route_preference`（その回のgenerateへ実際に
-// 送られ、backendがエコーした条件）のキー集合（Object.keys(p)）を正とする。以前は
-// ビルド時静的なPREFERENCE_AXES（既存7軸固定）を回していたため、軸スタジオで新規
-// 公開した軸の重みが表示されず、非公開化された軸は`p[axis.axisId]`がundefinedのまま
-// 表示されていた。ラベルはaxisLabels（呼び出し側がuseAxisCatalog経由で取得した動的
-// 辞書）から引き、未知のaxis_id（axisLabelsに無い）はaxis_idそのものにフォールバックする。
+// pref行は`slot.conditions.route_preference`（その回のgenerateへ実際に送られ、
+// backendがエコーした条件）のキー集合（Object.keys(p)）を正とする。ラベルは
+// axisLabels（呼び出し側がuseAxisCatalog経由で取得した動的辞書）から引き、未知の
+// axis_id（axisLabelsに無い）はaxis_idそのものにフォールバックする。
 function formatWeights(slot: ExperimentSlot, axisLabels: Record<string, string>): string {
   const p = slot.conditions.route_preference;
   return `pref ${Object.entries(p)

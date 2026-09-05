@@ -1,4 +1,4 @@
-/* 地図下部（page.module.cssの.bottomControlRow内）に置く走行条件チップ列。行自体は
+/* 地図上部中央（page.module.cssの.rideConditionRow内）に置く走行条件チップ列。行自体は
    pointer-events: noneのため、チップ側で明示的に受け取る。 */
 .bar {
   display: flex;
