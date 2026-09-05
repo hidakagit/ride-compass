@@ -33,8 +33,9 @@ export interface PreferenceAxisDef {
   /** 改善計画T440: この軸が専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
    * 地図上で視界内の全道路を線色分け表示できる）を持つかの宣言（domain/
    * axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）。
-   * RouteSettingsPanel.tsx（mapColorLayerIdFor）が、axis_idのハードコード比較
-   * （wind/gradientのみ）ではなくこのフィールドで判定する。 */
+   * `page.tsx`が、axis_idのハードコード比較（wind/gradientのみ）ではなくこのフィールドで
+   * `dedicatedWayValueDisplays`（軸id→表示宣言の汎用Map）・レンズ選択肢の`routeOnly`判定を
+   * 行う。 */
   dedicatedWayValueLayer: boolean;
   /** 改善計画T466: 軸スタジオのdisplay_thresholds_override（未設定時はundefined）。
    * dedicatedWayValueLayer軸（現状windのみ）の評価軸グループ色分けしきい値に使う

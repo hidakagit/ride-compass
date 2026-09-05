@@ -671,7 +671,7 @@ RideCompass/
     src/
       proxy.ts                   ✅ 改善計画T272: `/admin`ルーティング境界のHTTP Basic認証（Next.js 16の`middleware.ts`改称後の規約名、frontend/AGENTS.md参照）。環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORD未設定時は常に到達不可
       app/
-        page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持（UI再構成）。改善計画T270で研究・開発者セクションを/adminへ移設済み（地図インスタンスに紐づく「地図データを再読み込み」ボタンのみ「開発者」に残る）
+        page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持。改善計画T270で研究・開発者セクションを/adminへ移設済み（地図インスタンスに紐づく「地図データを再読み込み」ボタンのみ「開発者」に残る）。改善計画T597: サイドバー中身はデスクトップ・モバイル共通で「ルート設定/ルート結果/地図の見え方」の3区分Disclosureに揃える。地図の色分け（レンズ）の入口は地図上部中央の`LensControl`1箇所のみで、サイドバー側には置かない（改善計画T595）
         layout.tsx              ✅
         admin/page.tsx           ✅ 改善計画T270: 軸スタジオ・研究・開発者ツールをまとめた独立URLの管理画面。権限制御（改善計画T272、2026-08-24完了）は`src/proxy.ts`がこのルーティング境界（`/admin/:path*`）でHTTP Basic認証を敷く。研究モードの評価重みstateはlocalStorage経由でpage.tsxと共有する（useStoredJsonStateのstorageKey、hooks/参照）
         admin/api/axis-definitions/route.ts, [axisId]/route.ts, [axisId]/unpublish/route.ts
@@ -692,7 +692,8 @@ RideCompass/
         Map/thunderNowcast.ts          ✅ 改善計画T204: 雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）のデータ層。両者は共有の時刻一覧（targetTimes_N3.json）を使うが独立したON/OFFチップに分ける
         Map/riskMap.ts                 ✅ 改善計画T410: キキクル（土砂land・大雨rain_mesh・浸水inund）・線状降水帯予測マップ（sjfcstmap）のタイル・時刻取得データ層。全て「現在のみ」のスナップショット（未来フレームを持たない）。改善計画T432でキキクル3種は「防災」カテゴリとして共有タイムラインと無関係な常時マウントへ、線状降水帯予測マップは「降水」チップ傘下（現在〜3時間先のみisWithinFutureWindowで重畳）へそれぞれ再分類
         Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と2次→1次/1次→2次の双方向導出（片側import、設計原則2）
-        RideConditionBar/            ✅ 改善計画T596: 地図下部の条件バー（出発時刻・想定速度のチップ＋ポップオーバー）。出発時刻は気象レイヤーの表示時刻と同じstate
+        RideConditionBar/            ✅ 改善計画T596・T609: 地図下部の条件バー（出発時刻・想定速度のチップ＋ポップオーバー）。出発時刻は気象レイヤーの表示時刻と同じstate。出発時刻はクイック設定ボタン（今/+1h/+2h/+3h）＋`input[type=datetime-local]`の直接指定
+        LensControl/LensControl.tsx  ✅ 改善計画T595: 地図の色分け（レンズ）の入口を1箇所へ統合したピル型コントロール（地図上部中央）。ルート前は全道路、ルート後はルート線を同じ凡例で塗る。重み0の軸も「未使用」表示で選べる
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）

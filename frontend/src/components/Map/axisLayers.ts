@@ -156,8 +156,8 @@ export interface CatalogAxis {
   display_band_labels_override?: string[] | null;
   // 改善計画T440: この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
   // （domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）。
-  // mapLayers.ts（isAxisStudioLayer）・RouteSettingsPanel.tsx（mapColorLayerIdFor）が、
-  // axis_idのハードコード比較（wind/gradientのみ）ではなくこのデータを使う。
+  // mapLayers.ts（isAxisStudioLayer）が、axis_idのハードコード比較（wind/gradientのみ）
+  // ではなくこのデータを使う。
   dedicated_way_value_layer?: boolean;
   // 地図がこの軸について塗る値の種類と単位（backend domain/dynamic_way_values.py:
   // map_value_kind/map_value_unit）。ルート確定前の専用way値レイヤーとルート確定後の
