@@ -45,6 +45,7 @@ import {
   type DynamicWeatherLayerId,
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
+import type { LayerDataStatus } from "@/components/Map/mapLayers";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
 
@@ -92,15 +93,32 @@ export interface UseDynamicWeatherLayersResult {
    * 改善計画T432でグループ内の複数ソース[raster/gridFill/gridMark]を同時に持てる形へ
    * 一般化した）。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
+  /** レイヤーごとのデータ取得状態（改善計画T608）。各要素のフェッチ（`usePolledFetch`/
+   * `useWeatherGrid`）自身が持つloading/errorと、選択中の共有時刻に対応するpayloadの
+   * 有無から直接算出する——MapLibreのソースイベント（改善計画T87、`useLayerDataStatus.ts`）は
+   * 経由しない。これらのレイヤーは実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で
+   * 行われ、結果を`map.getSource(id).setData(...)`で流し込むだけのため、MapLibre側の
+   * ソースイベントは外部フェッチの待ち時間・失敗を観測できない（GeoJSON/ラスタ/ベクタの
+   * いずれの`kind`でも、フェッチ自体はこのフックの外の世界で完結している）。 */
+  dynamicWeatherDataStatus: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>>;
   /** 共有時刻を任意の時刻へ設定する（条件バーの出発時刻）。 */
   setDynamicLayerTargetTime: (time: Date) => void;
   /** 共有時刻を現在時刻に戻す。 */
   handleDynamicLayerNow: () => void;
-  dynamicLayerLoading: boolean;
-  dynamicLayerError: string | null;
   /** 改善計画T414: windAxis（評価軸グループの風、backend API）が同じ[時刻]を共有するために
    * 公開する共有時刻そのもの（`at`クエリパラメータに使う）。 */
   dynamicLayerTargetTime: Date;
+}
+
+/** loading/error/payloadの有無から`LayerDataStatus`を1つ決める（改善計画T608）。
+ * 判定順序はuseLayerDataStatus.ts: computeLayerDataStatusと同じ「エラー中 > 読込中 >
+ * 読込済みだが値なし」。正常時（現在時刻に対応する値が描画できている）はundefined
+ * （呼び出し元はキー自体を持たない状態として扱う）。 */
+function dynamicWeatherStatus(loading: boolean, error: string | null, hasPayload: boolean): LayerDataStatus | undefined {
+  if (error) return "error";
+  if (loading) return "loading";
+  if (!hasPayload) return "empty";
+  return undefined;
 }
 
 /** 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
@@ -190,7 +208,11 @@ export function useDynamicWeatherLayers({
   // 同じ考え方で、いずれか1つでもONの間だけenabledにする）。未来方向のフレームを持たない
   // ため取得失敗時もnowcastのような「部分結果」は無く、フェッチ自体を諦めてエラーのみ
   // 記録する。
-  const { data: currentRiskFrames, error: currentRiskError } = usePolledFetch(
+  const {
+    data: currentRiskFrames,
+    loading: currentRiskLoading,
+    error: currentRiskError,
+  } = usePolledFetch(
     fetchCurrentRiskFrames,
     EMPTY_CURRENT_RISK_FRAMES,
     {
@@ -203,9 +225,11 @@ export function useDynamicWeatherLayers({
   // 線状降水帯予測マップ（改善計画T410、T432で「降水」チップ傘下へ再分類）の「現在」フレーム。
   // キキクルとはtargetTimes.json自体が別（rasrfのtargetTimes.jsonにelements違いの別行として
   // 混在、riskMap.ts参照）。「降水」チップ（showPrecipitationNowcast）に連動する。
-  // 改善計画T425（ゼロベース網羅レビュー指摘）: currentRiskErrorと同じ理由でdynamicLayerErrorへ
-  // 反映する（線状降水帯予測マップは「降水」チップ配下のためshowPrecipitationNowcast連動）。
-  const { data: linearRainbandFrames, error: linearRainbandError } = usePolledFetch(
+  const {
+    data: linearRainbandFrames,
+    loading: linearRainbandLoading,
+    error: linearRainbandError,
+  } = usePolledFetch(
     fetchLinearRainbandFrames,
     EMPTY_RISK_FRAMES,
     { enabled: showPrecipitationNowcast, intervalMs: RISK_MAP_REFRESH_INTERVAL_MS, label: "線状降水帯予測マップ" },
@@ -385,32 +409,58 @@ export function useDynamicWeatherLayers({
     ]
   );
 
-  // 共有スライダーのloading/error表示。windLoading/windErrorは両要素が使う格子点フェッチ
-  // （useWeatherGrid、ONのどちらか一方でも走る）、nowcastLoading/nowcastErrorは降水ナウキャスト
-  // 固有のフェッチ、thunderNowcastLoading/thunderNowcastErrorは雷・竜巻共有のフェッチ。
-  // 風のみONならnowcast/thunderの状態は無関係（フェッチ自体走らない）。currentRiskError
-  // （キキクル）はキキクル4種のいずれかがONのときだけ含める。linearRainbandError
-  // （線状降水帯予測マップ）は「降水」チップ配下のためshowPrecipitationNowcast連動。
-  const showAnyRisk = showLandslideRisk || showHeavyRainRisk || showInundationRisk || showFloodRisk;
-  const dynamicLayerLoading =
-    windLoading ||
-    (showPrecipitationNowcast && nowcastLoading) ||
-    ((showThunderNowcast || showTornadoNowcast) && thunderNowcastLoading) ||
-    (showLiden && lidenNowcastLoading);
-  const dynamicLayerError =
-    windError ??
-    (showPrecipitationNowcast ? nowcastError : null) ??
-    (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null) ??
-    (showLiden ? lidenNowcastError : null) ??
-    (showAnyRisk ? currentRiskError : null) ??
-    (showPrecipitationNowcast ? linearRainbandError : null);
+  // レイヤーごとのデータ取得状態（改善計画T608）。9レイヤー全てが同じdynamicWeatherStatus
+  // 関数を通る——「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を
+  // 意識する必要は無い。precipitationNowcastは「main」（ナウキャスト/短時間予報/延長予報の
+  // 3段）と「linearRainband」（4つ目のソース）の両方を1つのチップとして統合する
+  // （UI上のチップも1つのため、地図に何かしら描画できていればloading/errorとしない）。
+  const dynamicWeatherDataStatus = useMemo(
+    () => ({
+      windVector: dynamicWeatherStatus(windLoading, windError, windPayload !== undefined),
+      precipitationNowcast: dynamicWeatherStatus(
+        nowcastLoading || linearRainbandLoading,
+        nowcastError ?? linearRainbandError,
+        precipitationPayload !== undefined || linearRainbandPayload !== undefined
+      ),
+      thunderNowcast: dynamicWeatherStatus(thunderNowcastLoading, thunderNowcastError, thunderPayload !== undefined),
+      tornadoNowcast: dynamicWeatherStatus(thunderNowcastLoading, thunderNowcastError, tornadoPayload !== undefined),
+      liden: dynamicWeatherStatus(lidenNowcastLoading, lidenNowcastError, lidenPayload !== undefined),
+      landslideRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, landslideRiskPayload !== undefined),
+      heavyRainRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, heavyRainRiskPayload !== undefined),
+      inundationRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, inundationRiskPayload !== undefined),
+      floodRisk: dynamicWeatherStatus(currentRiskLoading, currentRiskError, floodRiskPayload !== undefined),
+    }),
+    [
+      windLoading,
+      windError,
+      windPayload,
+      nowcastLoading,
+      linearRainbandLoading,
+      nowcastError,
+      linearRainbandError,
+      precipitationPayload,
+      linearRainbandPayload,
+      thunderNowcastLoading,
+      thunderNowcastError,
+      thunderPayload,
+      tornadoPayload,
+      lidenNowcastLoading,
+      lidenNowcastError,
+      lidenPayload,
+      currentRiskLoading,
+      currentRiskError,
+      landslideRiskPayload,
+      heavyRainRiskPayload,
+      inundationRiskPayload,
+      floodRiskPayload,
+    ]
+  );
 
   return {
     dynamicWeather,
+    dynamicWeatherDataStatus,
     setDynamicLayerTargetTime,
     handleDynamicLayerNow,
-    dynamicLayerLoading,
-    dynamicLayerError,
     dynamicLayerTargetTime,
   };
 }

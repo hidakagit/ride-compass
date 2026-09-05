@@ -721,9 +721,9 @@ export default function Home() {
   );
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   // レイヤーごとのデータ取得状態（改善計画T87）。MapViewが実際のタイル取得結果
-  // （sourcedata/sourcedataloading/errorイベント）から算出し、サイドバー（MapLayersPanel）へ
-  // 「読込中」「データなし」「取得失敗」の表示として反映する。
-  const [layerDataStatus, setLayerDataStatus] = useState<LayerDataStatusByLayer>({});
+  // （sourcedata/sourcedataloading/errorイベント）から算出する（動的気象レイヤーを除く。
+  // 改善計画T608、下記layerDataStatusのuseMemo参照）。
+  const [mapViewLayerDataStatus, setMapViewLayerDataStatus] = useState<LayerDataStatusByLayer>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   // 改善計画T270でDebugPanel（デバッグモードON/OFFの設定）・SystemStatusPanel・
@@ -1026,6 +1026,46 @@ export default function Home() {
     return result;
   }, [staticFilterAxes, staticLegendHiddenKeysByAxis]);
 
+  // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
+  // フェッチ・共有タイムライン・MapView向け描画ペイロードは`useDynamicWeatherLayers`
+  // フックが持つ。各要素は対応するshow*がtrueの間だけフェッチする。overlayLayers
+  // （下記）がdataStatusとして参照するため、その手前で定義する。
+  const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
+  const showThunderNowcast = layerVisibility.thunderNowcast;
+  const showTornadoNowcast = layerVisibility.tornadoNowcast;
+  const showLiden = layerVisibility.liden;
+  const showWindVector = layerVisibility.windVector;
+  const showLandslideRisk = layerVisibility.landslideRisk;
+  const showHeavyRainRisk = layerVisibility.heavyRainRisk;
+  const showInundationRisk = layerVisibility.inundationRisk;
+  const showFloodRisk = layerVisibility.floodRisk;
+  const {
+    dynamicWeather,
+    dynamicWeatherDataStatus,
+    dynamicLayerTargetTime,
+    setDynamicLayerTargetTime,
+  } = useDynamicWeatherLayers({
+    showWindVector,
+    showPrecipitationNowcast,
+    showThunderNowcast,
+    showTornadoNowcast,
+    showLiden,
+    showLandslideRisk,
+    showHeavyRainRisk,
+    showInundationRisk,
+    showFloodRisk,
+    mapViewport,
+  });
+  // レイヤーごとのデータ取得状態を1つに統合する（改善計画T608）。mapViewLayerDataStatus
+  // （改善計画T87、MapLibreのソースイベントから算出）とdynamicWeatherDataStatus
+  // （動的気象レイヤー、フェッチ自身のloading/errorから算出）はキーが重ならない
+  // （動的気象レイヤーはbuildLayerDataSourcesの対象外）ため、マージの優先順位を
+  // 気にする必要はない。
+  const layerDataStatus = useMemo<LayerDataStatusByLayer>(
+    () => ({ ...mapViewLayerDataStatus, ...dynamicWeatherDataStatus }),
+    [mapViewLayerDataStatus, dynamicWeatherDataStatus]
+  );
+
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(() => {
@@ -1171,18 +1211,6 @@ export default function Home() {
     warningBadgeItems,
   } = useWeatherConditions(location, locationReady);
 
-  // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
-  // フェッチ・共有タイムライン・MapView向け描画ペイロード（改善計画T375でuseDynamicWeather
-  // Layersへ抽出）。各要素は対応するshow*がtrueの間だけフェッチする。
-  const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
-  const showThunderNowcast = layerVisibility.thunderNowcast;
-  const showTornadoNowcast = layerVisibility.tornadoNowcast;
-  const showLiden = layerVisibility.liden;
-  const showWindVector = layerVisibility.windVector;
-  const showLandslideRisk = layerVisibility.landslideRisk;
-  const showHeavyRainRisk = layerVisibility.heavyRainRisk;
-  const showInundationRisk = layerVisibility.inundationRisk;
-  const showFloodRisk = layerVisibility.floodRisk;
   // ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、1つでいい」）:
   // 動的材料の状態別表現契約（docs/tasks/T400.md「2.」節）の[時刻,向き]のうち「向き」を、
   // 風・勾配それぞれ独立したstate（旧windBearingDeg/gradientBearingDeg）から、実際の
@@ -1193,18 +1221,6 @@ export default function Home() {
   // RouteSettingsPanel内の「走行方位を設定」ボタン・地図下部の個別コンパス
   // （bottomControlRow）は撤去した。
   const [travelBearingDeg, setTravelBearingDeg] = useState(0);
-  const { dynamicWeather, dynamicLayerTargetTime, setDynamicLayerTargetTime } = useDynamicWeatherLayers({
-    showWindVector,
-    showPrecipitationNowcast,
-    showThunderNowcast,
-    showTornadoNowcast,
-    showLiden,
-    showLandslideRisk,
-    showHeavyRainRisk,
-    showInundationRisk,
-    showFloodRisk,
-    mapViewport,
-  });
 
   // way_id→wind_drag_ratio配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
   // グループの矢印表示）とは独立したフェッチだが、[時刻,向き]の入力（dynamicLayerTargetTime・
@@ -2002,7 +2018,7 @@ export default function Home() {
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}
             onRegionZoomHintChange={setRegionZoomTooWide}
             onViewportChange={handleViewportChange}
-            onLayerDataStatusChange={setLayerDataStatus}
+            onLayerDataStatusChange={setMapViewLayerDataStatus}
             refreshToken={refreshToken}
             // ユーザー指摘（2026-09-03、「別ルートを選んでいてもずっと常に緑になる」）:
             // T535はexperimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_

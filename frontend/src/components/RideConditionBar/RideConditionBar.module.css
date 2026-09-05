@@ -57,24 +57,11 @@
   box-shadow: var(--shadow-md, 0 6px 20px rgba(0, 0, 0, 0.2));
 }
 
-/* 出発時刻のポップオーバー用。中身のDynamicLayerTimeSlider自身が枠・背景・影を持つ
-   （DynamicLayerTimeSlider.module.css: .panel）ため、.popoverと違い箱の見た目を持たせない
-   （二重に枠が重なるのを避ける）。 */
-.timelinePopover {
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
 .quickRow {
   display: flex;
   gap: var(--space-1);
 }
 
-/* .timelinePopover自体が背景を持たないため、地図の上に直接浮く。背景を透明にすると
-   地図の色によっては地図が透けて視認できなくなるため、他の地図上コントロール
-   （.chip等）と同じ不透明な背景を持たせる。 */
 .quickButton {
   flex: 1;
   height: 30px;
@@ -87,8 +74,12 @@
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.15));
 }
 
+/* 背景をrgba重ねで暗くする方式は、この不透明な.quickButton自身より下に別の不透明な
+   背景が無いため、未定義のCSS変数（フォールバックのrgba）が採用されると地図が
+   透けて見える（.pageButton等、地図に直接浮くコントロールと同じくborder-colorだけを
+   変える）。 */
 .quickButton:hover {
-  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+  border-color: var(--color-accent);
 }
 
 .field {

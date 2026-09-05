@@ -78,7 +78,6 @@ import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
 import {
   DYNAMIC_WEATHER_LAYER_IDS,
-  CHIP_DYNAMIC_WEATHER_LAYER_IDS,
   type DynamicWeatherGroupState,
   type DynamicWeatherLayerId,
   type DynamicWeatherSourceId,
@@ -1839,36 +1838,11 @@ type StaticOverlayKey = string;
 // MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
 // （MapView.dataStatus.test.ts）からbuildLayerDataSources(RAMP_AXES)経由で
 // 個別レイヤーのsourceIdを参照できるようexportしている。
-// 動的気象レイヤーは要素ごとに複数の名前付きソース（改善計画T432）、各ソースがさらに
-// raster/gridFill/gridMark/vectorの複数サブレイヤーを持ちうるが、レイヤーデータ状態の追跡
-// （useLayerDataStatus.ts）は1レイヤー1sourceIdを前提とするため、「代表」のソース・
-// サブレイヤーを1つ選ぶ（取得失敗の検知対象という位置づけは旧PRECIPITATION_NOWCAST_
-// SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。CHIP_DYNAMIC_WEATHER_LAYER_IDSの全要素
-// （キキクル4種を含む）がこの表のキーとして必須になる（Recordの型がそれを強制する）。
-const PRIMARY_DYNAMIC_WEATHER_SOURCE: Record<(typeof CHIP_DYNAMIC_WEATHER_LAYER_IDS)[number], DynamicWeatherSourceId> = {
-  precipitationNowcast: "main",
-  windVector: "arrow",
-  thunderNowcast: "main",
-  tornadoNowcast: "main",
-  liden: "main",
-  landslideRisk: "main",
-  heavyRainRisk: "main",
-  inundationRisk: "main",
-  floodRisk: "main",
-};
-
-function primaryDynamicWeatherSourceId(
-  id: (typeof CHIP_DYNAMIC_WEATHER_LAYER_IDS)[number],
-  groupSpec: DynamicWeatherGroupSpec
-): string {
-  const source = PRIMARY_DYNAMIC_WEATHER_SOURCE[id];
-  const spec = groupSpec[source];
-  if (spec?.raster) return dynamicWeatherIds(id, source, "raster").sourceId;
-  if (spec?.gridFill) return dynamicWeatherIds(id, source, "fill").sourceId;
-  if (spec?.vector) return dynamicWeatherIds(id, source, "vector").sourceId;
-  return dynamicWeatherIds(id, source, "mark").sourceId;
-}
-
+// 動的気象レイヤー（降水ナウキャスト・風・雷/竜巻・雷放電位置データ・キキクル4種）は
+// この表の対象外（改善計画T608）——実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で
+// 行われ、結果をsetData/setTilesで流し込むだけのため、MapLibreのソースイベントは外部
+// フェッチの待ち時間・失敗を観測できない。データ取得状態は`useDynamicWeatherLayers.ts`が
+// 各要素のフェッチ自身のloading/errorから直接算出する（`dynamicWeatherDataStatus`）。
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
 
 // 改善計画T308: buildAxisOverlayLayers等と同じ理由で関数化。テスト
@@ -1884,15 +1858,6 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
-    // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計、
-    // キキクル4種=T606）。CHIP_DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しいチップ付き
-    // 要素を追加してもここへ手動で1行足す必要はない。GeoJSON source（gridFill/gridMark）は
-    // sourceLayerの概念自体が無くquerySourceFeaturesによる0件判定（empty）は元から対象外、
-    // ラスタタイル（raster）・ベクタタイル（vector）はelevationと同じく取得失敗のみ検知対象。
-    ...CHIP_DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
-      key: id,
-      sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),
-    })),
     // 二次軸rampレイヤー（T145b、改善計画T292でcar_stressも含む）はroad_surfaceタイルへ
     // 焼き込み済みのプロパティを読む（designation等と同じソース共有。
     // ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）

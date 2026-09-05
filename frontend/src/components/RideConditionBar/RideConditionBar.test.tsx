@@ -1,37 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import RideConditionBar, { clampSpeedKmh, formatDepartureLabel } from "./RideConditionBar";
-
-// 出発時刻ポップオーバーはDynamicLayerTimeSliderを内包する。EmblaCarouselがマウント時に
-// window.matchMedia/IntersectionObserver/ResizeObserverを無条件に呼ぶため、jsdom環境では
-// 未定義のままだと例外になる（DynamicLayerTimeSlider.test.tsxと同じ理由）。
-beforeEach(() => {
-  window.matchMedia = vi.fn().mockReturnValue({
-    matches: false,
-    media: "",
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-  } as unknown as MediaQueryList);
-
-  class IntersectionObserverMock {
-    observe = vi.fn();
-    unobserve = vi.fn();
-    disconnect = vi.fn();
-    takeRecords = vi.fn(() => []);
-  }
-  window.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver;
-
-  class ResizeObserverMock {
-    observe = vi.fn();
-    unobserve = vi.fn();
-    disconnect = vi.fn();
-  }
-  window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-});
+import { describe, expect, it, vi } from "vitest";
+import RideConditionBar, { clampSpeedKmh, formatDepartureLabel, toDatetimeLocalValue } from "./RideConditionBar";
 
 function Harness({ initialTime, onTime }: { initialTime: Date; onTime?: (t: Date) => void }) {
   const [time, setTime] = useState(initialTime);
@@ -83,37 +54,28 @@ describe("RideConditionBar", () => {
     expect(picked.getTime()).toBeGreaterThanOrEqual(before + 3_600_000 - 1000);
   });
 
-  it("出発チップをタップするとドラッグ式タイムラインが開き、キーボード操作で出発時刻を進められる", async () => {
+  it("出発チップをタップすると日時入力欄が開き、直接指定した日時をそのまま反映する", async () => {
     const user = userEvent.setup();
     const onTime = vi.fn();
     const initial = new Date();
+    initial.setHours(9, 30, 0, 0);
     render(<Harness initialTime={initial} onTime={onTime} />);
 
     await user.click(screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(initial)}（タップで変更）` }));
-    const ruler = screen.getByRole("slider", { name: "出発時刻" });
-    ruler.focus();
-    await user.keyboard("{ArrowRight}");
+    const input = screen.getByLabelText("出発日時を直接指定") as HTMLInputElement;
+    expect(input.value).toBe(toDatetimeLocalValue(initial));
 
-    expect(onTime).toHaveBeenCalledTimes(1);
-    const picked = onTime.mock.calls[0][0] as Date;
-    expect(picked.getTime()).toBeGreaterThan(initial.getTime());
-  });
+    const next = new Date(initial);
+    next.setDate(next.getDate() + 1);
+    next.setHours(14, 15, 0, 0);
+    // datetime-local入力欄はセグメント単位の編集UIのため、jsdom上ではuserEvent.typeで
+    // 打鍵を再現できない（BackendLogsPanel.test.tsxのコピー操作と同種の既知の制約）。
+    // fireEvent.changeで値を直接設定する。
+    fireEvent.change(input, { target: { value: toDatetimeLocalValue(next) } });
 
-  it("「現在」ボタンで実時刻へ戻す", async () => {
-    const user = userEvent.setup();
-    const onTime = vi.fn();
-    // タイムラインは開いた時点（≒現在時刻）以降しか目盛りを持たないため、「現在」ボタンが
-    // 無効化されない（index !== currentIndex になる）ことを確かめるには未来の時刻を使う。
-    const future = new Date(Date.now() + 2 * 60 * 60_000);
-    render(<Harness initialTime={future} onTime={onTime} />);
-
-    await user.click(screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(future)}（タップで変更）` }));
-    const before = Date.now();
-    await user.click(screen.getByRole("button", { name: "出発時刻を現在に戻す" }));
-
-    expect(onTime).toHaveBeenCalledTimes(1);
-    const picked = onTime.mock.calls[0][0] as Date;
-    expect(picked.getTime()).toBeGreaterThanOrEqual(before);
+    expect(onTime).toHaveBeenCalled();
+    const picked = onTime.mock.calls[onTime.mock.calls.length - 1][0] as Date;
+    expect(picked.getTime()).toBe(next.getTime());
   });
 
   it("速度チップから数値入力で想定速度を変更すると範囲内へ丸めて反映する", async () => {
