@@ -724,8 +724,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: "1. 北方向 30.1 km" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "2. 北方向 31.4 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "1 30.1 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "2 31.4 km" })).toBeInTheDocument();
     });
   });
 
@@ -745,8 +745,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: "1. 目的地ルート 20.3 km" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "2. 目的地ルート 22.1 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "1 20.3 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "2 22.1 km" })).toBeInTheDocument();
     });
   });
 

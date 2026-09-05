@@ -604,3 +604,21 @@ export function MenuIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+// ルート結果ヘッダの操作枠（保存・GPX出力）。機能実装まではdisabledの占位として使う。
+export function SaveIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M4 3h9l3 3v11H4z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M7 3v4h5V3M7 17v-5h6v5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function DownloadIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M10 3v9m0 0-3.5-3.5M10 12l3.5-3.5M4 15v2h12v-2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

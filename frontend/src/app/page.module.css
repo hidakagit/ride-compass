@@ -169,6 +169,43 @@
   margin: 0;
 }
 
+/* 3区分の見出し行（トリガー＋右側の操作枠）。ルート結果の保存・GPX出力・クリア・説明を
+   同じ行に固定し、操作アイコンを追加しても再レイアウトが要らない構造にする。 */
+.blockHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.blockHeaderRow .blockSummary {
+  margin-bottom: 0;
+}
+
+.outcomeHeaderIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.outcomeHeaderIcon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.emptyHint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
 .outcomeSectionHeaderActions {
   display: flex;
   align-items: center;

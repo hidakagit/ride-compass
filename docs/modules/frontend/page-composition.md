@@ -137,8 +137,11 @@ localStorageへの保存・復元を1箇所に集約する。
 `useIsMobile()`（`MOBILE_BREAKPOINT_PX`=640px、`globals.css`の`@media`と一致を自動
 テストで検証）で分岐する:
 
-- デスクトップ: サイドバー（`aside.app-sidebar`）に「ルートを作る」（`Disclosure`
-  折りたたみ、`generateOpen`で開閉状態を永続化）と「地図の見え方」の2ブロックを縦積み。
+- デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ3区分
+  「ルート設定 / ルート結果 / 地図の見え方」を同じ順序で縦積み。各区分は独立した
+  `Disclosure`折りたたみで、開閉状態は`generateOpen`・`outcomeOpen`・`mapSettingsOpen`
+  （localStorage）で永続化する。「ルート結果」の見出し行は`trailing`に操作枠
+  （`renderRouteResultHeaderActions()`）を持ち、候補が無い間は本文に案内文だけを出す。
 - モバイル: 天候ヘッダー直下に`RouteForm`（`compact`）を常設し、下部タブバー（ルート
   設定/ルート結果/地図の見え方）+`BottomSheet`（3枚が`mobileSheet`で排他表示、高さ
   `mobileSheetHeightVh`を共有）。
@@ -149,26 +152,18 @@ localStorageへの保存・復元を1箇所に集約する。
 propでヘッダ右側・閉じるボタンの手前へ要素を差し込める（「ルート結果」シートの
 情報アイコン＋「ルートをクリア」、下記`renderRouteOutcomeSectionBody`参照）。
 
-## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルートを作る」ブロック後半・
+## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルート結果」区分・
 モバイル「ルート結果」タブ共通）
 
-`routes.length === 0`の間は何も描画しない（生成前は空）。1件以上生成された後は、
-「ルート結果」見出し（`showHeading`引数、既定true。デスクトップはこの関数自身が
-`<h2>`を描画し、モバイルはBottomSheet側の`title="ルート結果"`と重複するため
-`showHeading=false`で呼ぶ——`renderRouteSettingsSectionBody`と同じ使い分け）に続けて、
-Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
+`routes.length === 0`の間は何も描画しない（生成前は空）。見出しは描画しない
+（デスクトップは`Disclosure`の見出し、モバイルはBottomSheetの`title`が担う）。1件以上
+生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
 `routes`配列の並び順（backendが`overall_difficulty`昇順で返す、`route_generator.py`
 参照）をそのまま使い、フロント側での並べ替えは行わない。タブは
-**候補ごと**（`routes`の件数ぶん、`routes`配列上の順位番号（1始まり）・方向・距離を
-表示。周回候補は軸重み駆動で折返し地点を選ぶため同じ方位ラベルの候補が複数並びうる
-ことがあり、順位番号で区別する。経由地ルート（id: `route-waypoints`）は常に1件で方位の
-概念も無いため、順位番号・「方向」を付けずdirection_labelをそのまま表示する。経由地の無い
-目的地ルート（id: `route-destination-00`形式の前方一致、`NON_DIRECTIONAL_ROUTE_IDS`は
-`route-waypoints`のみを持ち`route-destination`はここでは判定しない）はvia-node方式で
-複数件になりうるため、方位の概念こそ無いが順位番号は付ける（「方向」は付けない）。
-経由地を伴う目的地ルート（id: `route-destination`固定、v1では常に1件のまま）は経由地
-ルートと同じく順位番号を付けない。総合難易度の点数はタブの中身
-（`RouteAxisProfile`のスコア行）に既に出ているためタブ内では繰り返さない）＋「比較」
+**候補ごと**（`routes`の件数ぶん、「順位番号（1始まり） 距離km」だけを表示する。方位・
+総合難易度はタブの中身（`RouteAxisProfile`）に出るためタブでは繰り返さない。経由地
+ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
+の判定でdirection_label[固定文言]をそのまま表示する）＋「比較」
 （`ComparisonPanel`、`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の
 自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
 `forceMount`でマウントし続け、`[data-state="inactive"]`のCSSで非表示にする）で構成
@@ -178,12 +173,14 @@ Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画�
 `comparisonTabActive`・`generatedConditions`・`generatedRoutePreference`に加え
 `experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
 
-総合難易度の説明（`ROUTE_RESULT_HINT`）と「ルートをクリア」
-（`handleRoutesClear`）は`renderRouteResultHeaderActions()`という1つのヘルパーへまとめ、
-「ルート結果」セクション見出し1箇所（候補タブ・`RouteAxisProfile`側には置かない）から
-呼ぶ。デスクトップは`renderRouteOutcomeSectionBody`自身の見出し行内（`<h2>`ルート結果と
-`justify-content: space-between`で並べる）、モバイルはBottomSheetの`headerAction`
-propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。情報アイコン
+「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
+「保存」「GPX出力」（機能未実装のdisabled占位、`SaveIcon`/`DownloadIcon`）・「ルートをクリア」
+（`handleRoutesClear`）・総合難易度の説明（`ROUTE_RESULT_HINT`）をこの順で横並びにする
+（候補タブ・`RouteAxisProfile`側には置かない）。デスクトップは「ルート結果」`Disclosure`の
+`trailing`、モバイルはBottomSheetの`headerAction`propとして同じヘルパーを渡す
+（`routes.length > 0`の間のみ）。候補タブ列のvalue体系はroute id・`"comparison"`・
+先頭固定タブ用の`SAVED_ROUTES_TAB_VALUE`（`"saved"`、保存機能の実装までタブは描画しない。
+`onValueChange`は無視する）。情報アイコン
 （`FieldLabel`）は`hideLabel`propでラベル文言をsr-only化し、アイコン単体の見た目にする。
 
 外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`

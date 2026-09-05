@@ -8,9 +8,11 @@ import MapView from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllLayersIcon,
+  DownloadIcon,
   MapAppearanceIcon,
   RouteIcon,
   RouteSettingsIcon,
+  SaveIcon,
 } from "@/components/Map/icons";
 import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
@@ -116,11 +118,6 @@ const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した�
 // 概念が無いためタブに順位番号を付けない）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
 
-// 改善計画T551: 目的地ルート（経由地を伴わない起点→目的地のみ）のidは`route-destination-00`
-// 形式（via-node方式で複数件になりうる）。経由地ルートと違い「方位」という概念こそ無いが
-// 複数件並びうるため、タブラベルには順位番号を付ける（`方向`のような向き語は付けない）。
-const DESTINATION_ROUTE_ID_PREFIX = "route-destination";
-
 // 改善計画T550: 区間クリック詳細（selectedRouteSegment）の到達予想時刻表示。旧
 // Map/routeSegmentChartPopup.tsのformatTimeLabelと同じフォーマット（撤去済み、
 // ボトムシート側へ表示を統合したためこちらへ移設）。
@@ -178,6 +175,8 @@ const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
 const ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY = "ridecompass:route-layer-meaning-migrated-v1";
 const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
+const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
+const MAP_SETTINGS_OPEN_STORAGE_KEY = "ridecompass:map-settings-open";
 // モバイル下部シート（「ルートを作る」/「地図の見え方」）の高さ。2シートは排他表示のため
 // 1つの値を共有する（BottomSheetのheightVh props参照）。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
@@ -297,6 +296,11 @@ const TORNADO_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
 // （改善計画T300: モバイルは「ルート設定」「ルート結果」の2タブへ分割したため、
 // 専用のROUTE_SETTINGS_SHEET_TITLE_ID/ROUTE_OUTCOME_SHEET_TITLE_IDを別途持つ）。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
+const OUTCOME_SECTION_TITLE_ID = "outcome-section-title";
+const MAP_SETTINGS_SECTION_TITLE_ID = "map-settings-section-title";
+// 候補タブ列のvalue体系: 候補はroute id、比較は"comparison"、先頭固定の「保存済み」は
+// SAVED_ROUTES_TAB_VALUE（保存機能の実装まではタブ自体を描画しない）。
+const SAVED_ROUTES_TAB_VALUE = "saved";
 // モバイルの「地図の見え方」シート見出しのDOM id。
 const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
 // モバイルの「ルート設定」「ルート結果」シート見出しのDOM id（改善計画T300、
@@ -675,6 +679,28 @@ export default function Home() {
   // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない（モバイル実機
   // フィードバック対応T34）。
   const [generateOpen, setGenerateOpen] = useStoredState(GENERATE_OPEN_STORAGE_KEY, true, {
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => {
+      try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === "boolean" ? parsed : null;
+      } catch {
+        return null;
+      }
+    },
+  });
+  const [outcomeOpen, setOutcomeOpen] = useStoredState(OUTCOME_OPEN_STORAGE_KEY, true, {
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => {
+      try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === "boolean" ? parsed : null;
+      } catch {
+        return null;
+      }
+    },
+  });
+  const [mapSettingsOpen, setMapSettingsOpen] = useStoredState(MAP_SETTINGS_OPEN_STORAGE_KEY, true, {
     serialize: (v) => JSON.stringify(v),
     deserialize: (raw) => {
       try {
@@ -1513,8 +1539,7 @@ export default function Home() {
           onDestinationButtonClick={handleDestinationButtonClick}
         />
         {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
-        {renderRouteSettingsSectionBody()}
-        {renderRouteOutcomeSectionBody()}
+        {renderRouteSettingsSectionBody(false)}
       </>
     );
   }
@@ -1558,13 +1583,19 @@ export default function Home() {
   function renderRouteResultHeaderActions() {
     return (
       <>
-        <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
-        {/* 改善計画T365: 生成済みの候補一覧・地図描画・選択状態だけをリセットする
-            （経由地・目的地のピンは対象外、別々のクリア操作として使い分ける）。
-            押した瞬間に実行する即実行アクション（タブのような選択状態は持たない）。 */}
+        {/* 保存・GPX出力は機能未実装の占位（位置だけ先に確保する）。実装時はdisabledを外す。 */}
+        <button type="button" className={styles.outcomeHeaderIcon} disabled title="保存（準備中）" aria-label="保存（準備中）">
+          <SaveIcon />
+        </button>
+        <button type="button" className={styles.outcomeHeaderIcon} disabled title="GPX出力（準備中）" aria-label="GPX出力（準備中）">
+          <DownloadIcon />
+        </button>
+        {/* 生成済みの候補一覧・地図描画・選択状態だけをリセットする（経由地・目的地のピンは
+            対象外、別々のクリア操作として使い分ける）。押した瞬間に実行する即実行アクション。 */}
         <button type="button" className={styles.outcomeTabAction} onClick={handleRoutesClear}>
           ルートをクリア
         </button>
+        <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
       </>
     );
   }
@@ -1589,7 +1620,7 @@ export default function Home() {
   // 「おすすめ度・総合難易度について」と分かれていた2箇所の説明はROUTE_RESULT_HINT 1本へ、
   // 「ルートをクリア」はタブ列脇からヘッダ右上へ、それぞれ「ルート結果」セクション見出し
   // 1箇所へ集約した（ユーザー実機指摘）。
-  function renderRouteOutcomeSectionBody(showHeading: boolean = true) {
+  function renderRouteOutcomeSectionBody() {
     if (routes.length === 0) return null;
 
     const showComparisonTab = researchEnabled;
@@ -1610,12 +1641,6 @@ export default function Home() {
 
     return (
       <>
-        {showHeading && (
-          <div className={styles.outcomeSectionHeader}>
-            <h2 className={layerPanelStyles.groupTitle}>ルート結果</h2>
-            <div className={styles.outcomeSectionHeaderActions}>{renderRouteResultHeaderActions()}</div>
-          </div>
-        )}
         {conditionsDirty && (
           <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
         )}
@@ -1627,6 +1652,7 @@ export default function Home() {
             // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま
             // 地図マーカー・内訳が残ると実態と食い違いを起こすため）。
             setSelectedRouteSegment(null);
+            if (value === SAVED_ROUTES_TAB_VALUE) return;
             if (value === "comparison") {
               setComparisonTabActive(true);
             } else {
@@ -1655,11 +1681,12 @@ export default function Home() {
                   {/* 改善計画T365/T551: 目的地ルート(route-destination-00形式、前方一致)は
                       経由地を伴わなければvia-node方式で複数件になりうる。方位という概念は
                       無いため「方向」は付けないが、複数件を見分けられるよう順位番号は付ける。 */}
+                  {/* タブは候補を見分ける最小限の表記（順位番号・距離）だけを持つ。方位・難易度は
+                      タブの中身（RouteAxisProfile）に出るためここでは繰り返さない。経由地ルートは
+                      常に1件で順位の概念が無いためdirection_label（固定文言）をそのまま出す。 */}
                   {NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
                     ? route.direction_label
-                    : route.id.startsWith(DESTINATION_ROUTE_ID_PREFIX)
-                      ? `${index + 1}. ${route.direction_label}`
-                      : `${index + 1}. ${route.direction_label}方向`}{" "}
+                    : `${index + 1}`}{" "}
                   {route.distance_km.toFixed(1)} km
                 </Tabs.Trigger>
               ))}
@@ -1870,17 +1897,9 @@ export default function Home() {
 
             {!sidebarCollapsed && (
               <>
-                {/* サイドバーは「A. ルートを作る（生成条件系・生成ボタンで反映）」
-                    「B. 地図の見え方（表示系・即時反映）」の2ブロック構成
-                    （UI一貫性再編T30）。生成に効く条件（出発地点・距離・重み）が
-                    画面のあちこちに分散していた状態を解消し、系統ごとに反映タイミングを揃える。
-                    評価重み・車ストレスレシピの調整UI（旧「研究」ブロック）はT270で/adminへ
-                    移設済み。運用/デバッグツール（旧「C. 開発者」ブロック、旧称「設定」）は
-                    改善計画T300で廃止し、地図データ再読み込みボタンはB（地図の見え方）へ、
-                    デバッグログ切替は常設ヘッダーのアイコンへそれぞれ移設した
-                    （renderMapSettingsSectionBody・header部分参照）。 */}
-
-                {/* A. ルートを作る: アプリの主機能のため最上部・デフォルト開。 */}
+                {/* サイドバーはモバイルの下部タブと同じ「ルート設定（生成ボタンで反映）／
+                    ルート結果（読むだけ）／地図の見え方（即時反映）」の3区分・同じ順序。
+                    各区分は独立して開閉し、開閉状態はlocalStorageへ保存する。 */}
                 <Disclosure
                   className={styles.blockSection}
                   triggerClassName={styles.blockSummary}
@@ -1889,7 +1908,7 @@ export default function Home() {
                   summary={
                     <>
                       <span aria-hidden="true" className={styles.blockChevron} />
-                      ルートを作る
+                      ルート設定
                     </>
                   }
                   open={generateOpen}
@@ -1898,14 +1917,54 @@ export default function Home() {
                   {renderRouteSectionBody()}
                 </Disclosure>
 
-                {/* B. 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
+                {/* ルート結果: 見出し行の右側が操作枠（保存・GPX出力・クリア・説明）。
+                    候補が無い間は本文が空になるだけで、区分自体は常に出す。 */}
+                <Disclosure
+                  className={styles.blockSection}
+                  headerClassName={styles.blockHeaderRow}
+                  triggerClassName={styles.blockSummary}
+                  bodyClassName={styles.blockBody}
+                  id={OUTCOME_SECTION_TITLE_ID}
+                  summary={
+                    <>
+                      <span aria-hidden="true" className={styles.blockChevron} />
+                      ルート結果
+                    </>
+                  }
+                  trailing={
+                    routes.length > 0 ? (
+                      <div className={styles.outcomeSectionHeaderActions}>{renderRouteResultHeaderActions()}</div>
+                    ) : undefined
+                  }
+                  open={outcomeOpen}
+                  onOpenChange={setOutcomeOpen}
+                >
+                  {routes.length > 0 ? (
+                    renderRouteOutcomeSectionBody()
+                  ) : (
+                    <p className={styles.emptyHint}>「ルート生成」を押すと候補がここに並びます</p>
+                  )}
+                </Disclosure>
+
+                {/* 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
                     地図の上（MapOverlayControls）にはON/OFFチップと適用中の条件の1行サマリだけを
-                    残し、詳細は地図に重ねない（地図の視界を優先）。サマリのタップでこのパネルの
-                    該当セクションへスクロールしてくる。 */}
-                <section className={styles.blockSection}>
-                  <h2 className={styles.blockHeading}>地図の見え方</h2>
+                    残し、詳細は地図に重ねない（地図の視界を優先）。 */}
+                <Disclosure
+                  className={styles.blockSection}
+                  triggerClassName={styles.blockSummary}
+                  bodyClassName={styles.blockBody}
+                  id={MAP_SETTINGS_SECTION_TITLE_ID}
+                  summary={
+                    <>
+                      <span aria-hidden="true" className={styles.blockChevron} />
+                      地図の見え方
+                    </>
+                  }
+                  open={mapSettingsOpen}
+                  onOpenChange={setMapSettingsOpen}
+                >
                   {renderMapSettingsSectionBody()}
-                </section>
+                </Disclosure>
               </>
             )}
           </aside>
@@ -2140,7 +2199,7 @@ export default function Home() {
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderRouteOutcomeSectionBody(false)}
+            {renderRouteOutcomeSectionBody()}
           </BottomSheet>
 
           <BottomSheet
