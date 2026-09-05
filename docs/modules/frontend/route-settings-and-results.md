@@ -145,10 +145,8 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 - **総合難易度**: `RouteCandidate.overall_difficulty`（絶対基準0-100の軸重み付き合成値）を
   表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順
   もこの値の昇順（backend `route_generator.py`が返す`routes`配列の並び順をそのまま使う、
-  [ページ全体構成・状態管理](page-composition.md)参照）。説明文言はこのコンポーネント
-  自身は持たず、呼び出し元（`app/page.tsx`の「ルート結果」見出し脇の
-  `renderRouteResultHeaderActions()`が返す`FieldLabel`、候補タブすべてに共通の1箇所）へ
-  集約している。
+  [ページ全体構成・状態管理](page-composition.md)参照）。数字の隣に(i)説明ポップオーバー
+  （このコンポーネント自身が持つ、負荷の説明と同じ形）を置く。
 - **軸別内訳（重み付き寄与度）**: `RouteCandidate.axis_contributions`（axis_id→重み付き
   寄与度0-100、backend側で区間ごとの合成に使ったのと同じ重み配分を軸別に分解しルート
   全体へ距離加重平均で集約した値。評価できなかった軸（データ欠損）はキー自体が無く非表示。

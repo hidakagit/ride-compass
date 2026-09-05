@@ -62,7 +62,6 @@ import RouteSettingsPanel, {
 } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
-import { FieldLabel } from "@/components/Map/recipeControls";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
 import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
@@ -108,18 +107,6 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import styles from "./page.module.css";
 
 const DISTANCE_TOLERANCE_KM = 5;
-
-// 改善計画T545（旧RouteList.tsxから移設）: 評価軸カタログ（lib/evaluationAxes.ts）から
-// 生成する。軸を増やしてもこの文言を直接編集する必要が無い。各軸のdescription（軸スタジオの
-// 重みで合成した値であることを説明する文言）を併記し、ルート色分けモードの「総合難易度」
-// （区間ごとの絶対基準スコア、routeStyleModes.ts）と同名で紛らわしいという実機指摘に対応する。
-// 改善計画T545フォローアップ（ユーザー指摘「おすすめ度の説明とか、ルート結果諸々の補足は
-// ルート結果ヘッダのところに情報アイコンをつけて集約できない？」）: 旧
-// RouteAxisProfile.tsxの「おすすめ度・総合難易度について」（総合難易度の絶対値としての
-// 位置付けを説明する文言）をここへ統合し、候補タブごとに同じ説明を繰り返さず「ルート結果」
-// セクション見出し1箇所（renderRouteOutcomeSectionBodyのheader行、モバイルはBottomSheetの
-// headerAction）だけに情報アイコンを置く。
-const ROUTE_RESULT_HINT = "総合難易度は距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。";
 
 // 改善計画T364/T365（旧RouteList.tsxから移設）: 経由地ルートのid（常に1件、「方位」という
 // 概念が無いためタブに順位番号を付けない）。
@@ -1614,13 +1601,12 @@ export default function Home() {
     );
   }
 
-  // 改善計画T545フォローアップ（ユーザー指摘「ルートをクリアもルート結果ヘッダの右上
-  // 小さくでいい」）: 「ルート結果」見出し脇の情報アイコンと「ルートをクリア」を
-  // まとめて1つの右側アクション群にする。デスクトップ（見出し行）・モバイル
-  // （BottomSheetのheaderAction）の両方から同じ中身を呼ぶ。routes.length===0の間は
-  // どちらの呼び出し元も描画自体をスキップする（デスクトップはrenderRouteOutcomeSectionBody
-  // 自体がnullを返す、モバイルは呼び出し側でroutes.lengthを見てheaderActionをundefinedにする）
-  // ため、ここでは呼ばれた時点で必ずroutes.length>0という前提でよい。
+  // 「ルート結果」見出し脇の右側アクション群（保存・GPX出力・ルートをクリア）。
+  // デスクトップ（見出し行）・モバイル（BottomSheetのheaderAction）の両方から同じ中身を
+  // 呼ぶ。routes.length===0の間はどちらの呼び出し元も描画自体をスキップする
+  // （デスクトップはrenderRouteOutcomeSectionBody自体がnullを返す、モバイルは呼び出し側で
+  // routes.lengthを見てheaderActionをundefinedにする）ため、ここでは呼ばれた時点で必ず
+  // routes.length>0という前提でよい。
   function renderRouteResultHeaderActions() {
     return (
       <>
@@ -1652,7 +1638,6 @@ export default function Home() {
         >
           <ClearAllLayersIcon size={14} />
         </button>
-        <FieldLabel label="ルート結果について" description={ROUTE_RESULT_HINT} hideLabel />
       </>
     );
   }
@@ -1668,15 +1653,13 @@ export default function Home() {
   // 候補の切り替え（旧RouteList.tsx）とその候補の内訳表示（RouteAxisProfile）を、
   // このタブ列自体が担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
   //
-  // 改善計画T545フォローアップ: showHeadingはrenderRouteSettingsSectionBodyと同じ理由
-  // （見出しの二重表示回避）で使い分ける。デスクトップ（既定true）はこのセクション自身の
-  // 見出し「ルート結果」＋renderRouteResultHeaderActions()（情報アイコン＋ルートをクリア）を
-  // ここで描画する。モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つため
-  // showHeading=false で抑制し、同じrenderRouteResultHeaderActions()をBottomSheetの
-  // headerAction propとして呼び出し側（下のJSX）から渡す——「おすすめ度について」
-  // 「おすすめ度・総合難易度について」と分かれていた2箇所の説明はROUTE_RESULT_HINT 1本へ、
-  // 「ルートをクリア」はタブ列脇からヘッダ右上へ、それぞれ「ルート結果」セクション見出し
-  // 1箇所へ集約した（ユーザー実機指摘）。
+  // showHeadingはrenderRouteSettingsSectionBodyと同じ理由（見出しの二重表示回避）で
+  // 使い分ける。デスクトップ（既定true）はこのセクション自身の見出し「ルート結果」＋
+  // renderRouteResultHeaderActions()（保存・GPX出力・ルートをクリア）をここで描画する。
+  // モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つためshowHeading=falseで
+  // 抑制し、同じrenderRouteResultHeaderActions()をBottomSheetのheaderAction propとして
+  // 呼び出し側（下のJSX）から渡す。総合難易度の説明はRouteAxisProfile側（総合難易度の
+  // 表示の隣）にあり、本ヘッダは操作アイコンのみを持つ。
   function renderRouteOutcomeSectionBody() {
     if (routes.length === 0) return null;
 

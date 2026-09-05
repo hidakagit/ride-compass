@@ -59,6 +59,13 @@ export default function RouteAxisProfile({
           <span className={styles.scoreItem}>
             <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
             <span className={styles.scoreLabel}>/100 総合難易度</span>
+            <InfoPopover
+              triggerClassName={legendStyles.legendInfoButton}
+              triggerAriaLabel="総合難易度の説明を表示"
+              contentClassName={legendStyles.legendInfoPopover}
+            >
+              <p>距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。</p>
+            </InfoPopover>
           </span>
           {difficultyLoad != null && (
             <span className={styles.scoreItem}>
