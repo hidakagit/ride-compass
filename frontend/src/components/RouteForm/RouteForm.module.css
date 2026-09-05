@@ -1,19 +1,65 @@
 .form {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* 「生成条件」「重みづけ」の2タブ（page.module.cssの.outcomeTabList等と同じ方式）。 */
+.tabList {
+  display: flex;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-2);
+}
+
+.tabTrigger {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-muted);
+  padding: 0.4rem 0.2rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabTrigger[data-state="active"] {
+  color: var(--color-accent-strong);
+  border-bottom-color: var(--color-accent-strong);
+}
+
+/* forceMountで両タブとも常時マウントし、表示だけdata-stateで切り替える
+   （RouteForm.tsx側コメント参照。page.module.cssの.outcomeTabPanelと同じ方式）。 */
+.tabPanel[data-state="inactive"] {
+  display: none;
+}
+
+/* 距離・候補数を横1行に並べる。 */
+.fieldsRow {
+  display: flex;
   align-items: center;
   gap: var(--space-3);
-  margin-bottom: var(--space-3);
   flex-wrap: wrap;
 }
 
-/* 周回/目的地モード切り替え（セグメントコントロール）。距離・生成ボタンと
-   同じ行に収まるよう小さめにする。 */
+.fieldLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.generateButton {
+  align-self: flex-start;
+}
+
+/* 周回/目的地モード切り替え（セグメントコントロール）。 */
 .modeToggle {
   display: inline-flex;
   border: 1px solid var(--color-border-strong);
   border-radius: 999px;
   overflow: hidden;
   flex-shrink: 0;
+  margin-bottom: var(--space-2);
 }
 
 .modeButton,

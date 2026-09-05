@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import * as Tabs from "@radix-ui/react-tabs";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import { Button } from "@/components/ui/Button/Button";
 import { Input } from "@/components/ui/Input/Input";
@@ -9,6 +10,8 @@ import styles from "./RouteForm.module.css";
 
 export type RouteMode = "loop" | "destination";
 export type DestinationButtonState = "unset" | "armed" | "set";
+
+type SettingsTab = "generate" | "weights";
 
 interface RouteFormProps {
   /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（page.tsx）に使うため親が持つ */
@@ -32,6 +35,10 @@ interface RouteFormProps {
   onWaypointsClear: () => void;
   destinationState: DestinationButtonState;
   onDestinationButtonClick: () => void;
+  /** 「重みづけ」タブの中身（RouteSettingsPanelを含む要素一式）。「ルート設定」区分は
+   * 「生成条件」（本コンポーネントの距離・候補数等）と「重みづけ」の2タブへ分け、
+   * 生成ボタンはどちらのタブを見ていても押せるようタブの外に常時表示する。 */
+  weightsPanel: React.ReactNode;
 }
 
 // backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
@@ -58,8 +65,10 @@ export default function RouteForm({
   onWaypointsClear,
   destinationState,
   onDestinationButtonClick,
+  weightsPanel,
 }: RouteFormProps) {
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("generate");
   // 候補件数は周回モード、または経由地の無い目的地モードのときだけ生成結果へ反映される
   // （経由地を伴う目的地ルートはbackendが常に1件へ固定し無視する）。入力欄の表示・検証は
   // この条件で揃える。
@@ -134,90 +143,113 @@ export default function RouteForm({
     // 日本語エラー表示より先にフォーム送信をブロックしてしまい、アプリ内の他のエラー表示と
     // 一貫しないUXになるのを避けるためnoValidateにし、検証は下のJSロジックに一本化する。
     <form onSubmit={handleSubmit} className={styles.form} noValidate>
-      <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
-        <button
-          type="button"
-          onClick={() => onRouteModeChange("loop")}
-          aria-pressed={routeMode === "loop"}
-          className={routeMode === "loop" ? styles.modeButtonActive : styles.modeButton}
-        >
-          周回
-        </button>
-        <button
-          type="button"
-          onClick={() => onRouteModeChange("destination")}
-          aria-pressed={routeMode === "destination"}
-          className={routeMode === "destination" ? styles.modeButtonActive : styles.modeButton}
-        >
-          目的地
-        </button>
-      </div>
+      <Tabs.Root value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)}>
+        <Tabs.List className={styles.tabList} aria-label="ルート設定">
+          <Tabs.Trigger className={styles.tabTrigger} value="generate">
+            生成条件
+          </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabTrigger} value="weights">
+            重みづけ
+          </Tabs.Trigger>
+        </Tabs.List>
 
-      {routeMode === "loop" ? (
-        <label>
-          距離
-          {/* ネイティブのスピンボタン（上下矢印）はタップ領域が数px四方しかなく、代わりに
-              幅を圧迫するだけのため非表示にする（distanceは直接入力が主な操作手段で、1km
-              刻みの矢印クリックは想定していない）。inputMode="numeric"でモバイルの数値専用
-              キーボードを明示し、onFocusで既存の値を全選択にして毎回消してから打ち直す
-              手間を無くす。 */}
-          <Input
-            type="number"
-            inputMode="numeric"
-            min="1"
-            max={MAX_DISTANCE_KM}
-            step="1"
-            value={distance}
-            onChange={(e) => onDistanceChange(e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
-            className="ml-2 w-24 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-          km
-        </label>
-      ) : (
-        <div className={styles.destinationSummary}>
-          {waypointCount > 0 && (
-            <span className={styles.summaryChip}>
-              📍{waypointCount}
-              <button type="button" onClick={onWaypointsClear} aria-label="経由地をクリア">
-                ✕
-              </button>
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={onDestinationButtonClick}
-            aria-label={destinationButtonLabel}
-            title={destinationButtonLabel}
-            className={destinationButtonClassName}
-          >
-            🏁
-          </button>
-        </div>
-      )}
-      {maxRoutesRelevant && (
-        <label>
-          候補数
-          {/* 距離入力と同じ流儀: スピンボタン非表示、inputMode="numeric"で数値専用
-              キーボード、onFocusで全選択。目的地モードでは経由地が無い場合のみ表示する
-              （経由地を伴うとbackendが件数を無視して1件固定になるため、maxRoutesRelevant
-              参照）。 */}
-          <Input
-            type="number"
-            inputMode="numeric"
-            min="1"
-            max={MAX_ROUTES}
-            step="1"
-            value={maxRoutes}
-            onChange={(e) => onMaxRoutesChange(e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
-            className="ml-2 w-16 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-          件
-        </label>
-      )}
+        {/* forceMount+data-stateでの表示切替（page.module.css: .outcomeTabPanelと同じ方式）。
+            候補数入力等はpage.tsx側の制御stateのため非表示中も値は失われないが、
+            重みづけタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
+            重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
+        <Tabs.Content value="generate" forceMount className={styles.tabPanel}>
+          <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
+            <button
+              type="button"
+              onClick={() => onRouteModeChange("loop")}
+              aria-pressed={routeMode === "loop"}
+              className={routeMode === "loop" ? styles.modeButtonActive : styles.modeButton}
+            >
+              周回
+            </button>
+            <button
+              type="button"
+              onClick={() => onRouteModeChange("destination")}
+              aria-pressed={routeMode === "destination"}
+              className={routeMode === "destination" ? styles.modeButtonActive : styles.modeButton}
+            >
+              目的地
+            </button>
+          </div>
 
-      <Button variant="primary" type="submit" disabled={loading}>
+          <div className={styles.fieldsRow}>
+            {routeMode === "loop" ? (
+              <label className={styles.fieldLabel}>
+                距離
+                {/* ネイティブのスピンボタン（上下矢印）はタップ領域が数px四方しかなく、
+                    代わりに幅を圧迫するだけのため非表示にする（distanceは直接入力が主な
+                    操作手段で、1km刻みの矢印クリックは想定していない）。inputMode="numeric"
+                    でモバイルの数値専用キーボードを明示し、onFocusで既存の値を全選択にして
+                    毎回消してから打ち直す手間を無くす。 */}
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max={MAX_DISTANCE_KM}
+                  step="1"
+                  value={distance}
+                  onChange={(e) => onDistanceChange(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-16 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                km
+              </label>
+            ) : (
+              <div className={styles.destinationSummary}>
+                {waypointCount > 0 && (
+                  <span className={styles.summaryChip}>
+                    📍{waypointCount}
+                    <button type="button" onClick={onWaypointsClear} aria-label="経由地をクリア">
+                      ✕
+                    </button>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={onDestinationButtonClick}
+                  aria-label={destinationButtonLabel}
+                  title={destinationButtonLabel}
+                  className={destinationButtonClassName}
+                >
+                  🏁
+                </button>
+              </div>
+            )}
+            {maxRoutesRelevant && (
+              <label className={styles.fieldLabel}>
+                候補数
+                {/* 距離入力と同じ流儀: スピンボタン非表示、inputMode="numeric"で数値専用
+                    キーボード、onFocusで全選択。目的地モードでは経由地が無い場合のみ表示する
+                    （経由地を伴うとbackendが件数を無視して1件固定になるため、maxRoutesRelevant
+                    参照）。 */}
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max={MAX_ROUTES}
+                  step="1"
+                  value={maxRoutes}
+                  onChange={(e) => onMaxRoutesChange(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-12 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                件
+              </label>
+            )}
+          </div>
+        </Tabs.Content>
+
+        <Tabs.Content value="weights" forceMount className={styles.tabPanel}>
+          {weightsPanel}
+        </Tabs.Content>
+      </Tabs.Root>
+
+      <Button variant="primary" type="submit" disabled={loading} className={styles.generateButton}>
         {loading ? (progressLabel ?? "生成中...") : "ルート生成"}
       </Button>
       {error && <ErrorText>{error}</ErrorText>}

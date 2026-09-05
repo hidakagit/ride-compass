@@ -46,6 +46,7 @@ function ControlledRouteForm({
       onWaypointsClear={onWaypointsClear}
       destinationState={destinationState}
       onDestinationButtonClick={onDestinationButtonClick}
+      weightsPanel={<p>重みづけタブの中身（テスト用ダミー）</p>}
     />
   );
 }
@@ -379,6 +380,37 @@ describe("RouteForm", () => {
 
       expect(onGenerate).not.toHaveBeenCalled();
       expect(await screen.findByRole("alert")).toHaveTextContent("候補件数は1〜15件で入力してください。");
+    });
+  });
+
+  describe("「生成条件」「重みづけ」タブ", () => {
+    it("既定では「生成条件」タブが選択されている", () => {
+      render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} />);
+
+      expect(screen.getByRole("tab", { name: "生成条件" })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("tab", { name: "重みづけ" })).toHaveAttribute("aria-selected", "false");
+    });
+
+    it("「重みづけ」タブに切り替えるとweightsPanelの中身が見え、タブの選択状態が入れ替わる", async () => {
+      const user = userEvent.setup();
+      render(<ControlledRouteForm onGenerate={vi.fn()} loading={false} />);
+
+      await user.click(screen.getByRole("tab", { name: "重みづけ" }));
+
+      expect(screen.getByText("重みづけタブの中身（テスト用ダミー）")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "重みづけ" })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("tab", { name: "生成条件" })).toHaveAttribute("aria-selected", "false");
+    });
+
+    it("「重みづけ」タブを表示中でも「ルート生成」ボタンは押せて、生成条件タブの入力値のまま送信される", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      render(<ControlledRouteForm onGenerate={onGenerate} loading={false} initialDistance="42" />);
+
+      await user.click(screen.getByRole("tab", { name: "重みづけ" }));
+      await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+      expect(onGenerate).toHaveBeenCalledWith(42);
     });
   });
 });

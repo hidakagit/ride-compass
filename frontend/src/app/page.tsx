@@ -1571,9 +1571,9 @@ export default function Home() {
           onWaypointsClear={handleWaypointsClear}
           destinationState={destinationState}
           onDestinationButtonClick={handleDestinationButtonClick}
+          weightsPanel={renderRouteSettingsSectionBody()}
         />
         {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
-        {renderRouteSettingsSectionBody()}
       </>
     );
   }
