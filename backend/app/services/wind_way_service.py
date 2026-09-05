@@ -34,6 +34,14 @@ logger = logging.getLogger("ridecompass.wind_way")
 # キーと同じ）。
 AXIS_ID = "wind"
 
+# 道路タイル単位の風評価に使う格子間隔（度）。Open-Meteoのキャッシュキー（weather_client.py:
+# WeatherClient.cache_key、CACHE_PRECISION=2）は緯度経度を小数2桁（≒0.01度）に丸めるため、
+# これより細かい間隔（domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの
+# 0.005/0.0025）を選んでも同じキャッシュ値を返すだけで解像度は上がらない。
+# WIND_GRID_SPACING_DEG（既定0.1度、道路タイル数枚〜十数枚が同じ格子点へ丸められる粗さ）より
+# 10倍細かくする。
+WIND_WAY_GRID_SPACING_DEG = 0.01
+
 
 def _hour_bucket(at: datetime) -> str:
     """時刻を1時間バケットへ丸める（dynamic_way_value_cache.pyのキー参照）。"""
@@ -126,7 +134,7 @@ class WindWayService:
             else:
                 fields["cache_status"] = "miss"
 
-                grid_point = nearest_grid_point(_tile_center(bbox))
+                grid_point = nearest_grid_point(_tile_center(bbox), spacing_deg=WIND_WAY_GRID_SPACING_DEG)
                 times, points = await self._weather_service.get_wind_grid([grid_point])
                 wind_grid_point = points[0] if points else None
                 if wind_grid_point is None:
