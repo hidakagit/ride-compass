@@ -1,11 +1,10 @@
-"""road_edgesの実ジオメトリ（`get_edges_with_geometry`）のRedis cache-aside層（改善計画T390）。
+"""road_edgesの実ジオメトリ（`get_edges_with_geometry`）のRedis cache-aside層。
 
 `DerivedGraphRepository.get_edges_with_geometry`は、prepareが読み込む探索用グラフ
-（geometryプレースホルダのみ、改善計画T218/T12 Stage 0）から、Dijkstraで確定した経路
-（1候補あたり数十〜数百Edge）だけへ実ジオメトリを取得し直す用途で、`RoadGraphEngine.
-evaluate_loops`が距離フィルタ通過候補ぶんのedge_idをまとめて1リクエスト1回呼ぶ
-（改善計画T531。導入当時[T390]は`trace_loop`が8方位ぶん`asyncio.gather`で並列に呼び、
-本番実測は100 edgesのバッチで平均4.69ms/回・1リクエスト最大8回だった、docs/tasks/T390.md）。
+（geometryプレースホルダのみ）から、Dijkstraで確定した経路（1候補あたり数十〜数百Edge）
+だけへ実ジオメトリを取得し直す用途で、`RoadGraphEngine.evaluate_loops`が距離フィルタ
+通過候補ぶんのedge_idをまとめて1リクエスト1回呼ぶ（100 edgesのバッチで平均4.69ms/回
+規模の呼び出しコスト）。
 
 `DirectedEdge`（domain/graph.py）はshapelyジオメトリ等を含まないプレーンなPydantic
 BaseModel（`geometry: list[list[float]]`）のため、road_graph_tiles/road_edge_attributesと
@@ -109,7 +108,7 @@ async def cache_edges(edges: dict[str, DirectedEdge]) -> None:
 
 
 async def invalidate_edges(edge_ids: list[str]) -> None:
-    """`save_graph`がedge_idを再UPSERTした直後に呼ぶ（改善計画T390）。
+    """`save_graph`がedge_idを再UPSERTした直後に呼ぶ。
 
     同じedge_idが再split後に異なる形状で再利用されるケースに備え、無条件で削除する
     （書き戻しは次回の`get_cached_edges`ミス経由の`cache_edges`に委ねる）。

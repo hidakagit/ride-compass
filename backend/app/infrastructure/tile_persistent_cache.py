@@ -1,14 +1,13 @@
-"""タイル単位の複雑なPythonオブジェクトをディスクへ永続化する汎用キャッシュ（改善計画T538）。
+"""タイル単位の複雑なPythonオブジェクトをディスクへ永続化する汎用キャッシュ。
 
 `infrastructure/tile_cache.py`（DEMタイル・ベクタタイルのディスクキャッシュ、生バイト列を
 そのまま保存する）と同じ「デプロイのたびにプロセスが再起動されても、ディスク上のキャッシュは
 残る」という考え方を、タイル単位の複雑なPythonオブジェクト（`SearchMaterials`・
 `StaticEdgeScoreMatrix`。いずれもPydanticモデル/dataclass/numpy配列が混在する構造）へ
 拡張したもの。`graph_material_cache.py`・`tile_score_matrix_cache.py`のプロセス内LRUが
-missしたときの第2段として使う——`graph_material_cache`（z12タイル単位のトポロジ＋材料）は
-元々プロセス内メモリのみで、`deploy-backend.yml`がデプロイのたびにコンテナを再起動するため、
-再起動後最初の利用者が毎回DB読み出し（本番VM実測29〜45秒、東京駅30km・16タイル）を負担して
-いた（docs/tasks/T538.md）。
+missしたときの第2段として使う——プロセス内メモリのみだと、`deploy-backend.yml`が
+デプロイのたびにコンテナを再起動するたびに、再起動後最初の利用者が毎回DB読み出し
+（29〜45秒規模、東京駅30km・16タイル）を負担することになる。
 
 **シリアライズはpickleを使う**: 対象（`SearchMaterials`・`StaticEdgeScoreMatrix`）は
 Pydanticモデル・frozen dataclass・numpy配列が混在する構造で、JSON化に適さない
@@ -69,11 +68,10 @@ def get(
 ) -> Any | None:
     """キャッシュ済みならデシリアライズ済みの値を返す。未キャッシュ・破損時はNone。
 
-    改善計画T546: `stats`を渡すと、ファイル読み込み・unpickleの所要時間（ms）と
+    `stats`を渡すと、ファイル読み込み・unpickleの所要時間（ms）と
     バイト数を分けて書き込む（"read_ms"/"unpickle_ms"/"bytes"）——「pickleが遅い」のか
     「ディスクI/Oが遅い」のかを本番ログから切り分けられるようにするための計測
-    （docs/tasks/T546.md「背景」参照。ボトルネックの再発をログ1行で追えるように、
-    docs/logging.mdの方針どおりDEBUG時のイベントログへ載せる）。呼び出し元
+    （docs/logging.mdの方針どおりDEBUG時のイベントログへ載せる）。呼び出し元
     （`graph_material_cache.py`・`tile_score_matrix_cache.py`）が更に上位（リクエスト
     単位のINFOサマリ）へ集約する。未キャッシュ・破損時は`stats`へ何も書き込まない。
     """

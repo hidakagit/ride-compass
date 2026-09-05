@@ -1,41 +1,34 @@
-"""評価軸の定義データと汎用評価関数（改善計画T221 Stage B/C、ADR: docs/decisions/t221-axis-registry.md）。
+"""評価軸の定義データと汎用評価関数（ADR: docs/decisions/t221-axis-registry.md）。
 
-現行8軸（勾配・向かい風・舗装質・停止密度・車ストレス・事故密度・夜間・自転車インフラ）の
 「一次属性由来の材料 → 軸別difficulty(0-100)」変換を、コード（軸ごとの関数）ではなく
-**データ（`AXIS_DEFINITIONS`）**として宣言する。変換の計算自体はStage A（T239）の
-4テンプレート（`domain/axis_templates.py`）が担い、本モジュールは
-「どの材料を・どのテンプレートに・どのパラメータで通すか」だけを持つ。
+**データ（`AXIS_DEFINITIONS`）**として宣言する。変換の計算自体は2テンプレート
+（`domain/axis_templates.py`）が担い、本モジュールは「どの材料を・どのテンプレートに・
+どのパラメータで通すか」だけを持つ。
 
 - 既存テンプレート＋既存材料の組み合わせで表現できる新しい軸は、`AXIS_DEFINITIONS`へ
   1エントリ追加するだけで、スカラー評価（`compute_edge_axis_scores`・区間表示）と
   配列評価（`compute_edge_costs_bulk`のベクトル化経路）の両方へ同時に反映される
-  （T240のベクトル化で生じたスカラー/配列二重実装は本モジュールで解消済み。
-  `evaluate_axis_scalar`/`evaluate_axis_array`が同じ定義データを読む）。
+  （`evaluate_axis_scalar`/`evaluate_axis_array`が同じ定義データを読む）。
 - breakpoints等の変換パラメータの単一ソースはここ（定数の片側import原則、
   docs/complexity-review-2026-08-16.md）。`domain/difficulty.py`・`domain/night.py`の
-  従来関数は本定義を参照する薄いラッパとして残る（外部シグネチャ互換のため）。
+  関数は本定義を参照する薄いラッパとして残る（外部シグネチャ互換のため）。
 - 材料（material）はOSM生タグそのものではなく「評価直前まで解決済みの値」
   （勾配%・風ペナルティm/s・舗装良否・km正規化済み密度・レシピ計算済みレベル・
   タグ由来フラグ）。材料の解決（抽出）は呼び出し元の責務で、材料idごとの意味は
   `AXIS_DEFINITIONS`の各エントリのコメント参照。
 - 0次ハードフィルタ（ADRスキーマの`hard_filter`）は軸単位ではなく独立した仕組み
   （`domain/evaluation.py: DEFAULT_HARD_FILTERS`）のままのため、本定義には持たない。
-- Stage D（DBテーブル化）・Stage E（GUI編集）は完了済み（軸スタジオ、改善計画T270/T292）。
-  改善計画T350で`AXIS_DEFINITIONS`のPython literalも撤去し、`axis_definitions`DBテーブルが
-  14軸全ての唯一の正本になった。起動時（`app/services/axis_registry_service.py:
-  refresh_axis_definitions`）にDBから読み込みこのモジュールレベルdictへpushするまでは
-  空のまま。本モジュールが持つのは型定義（`AxisDefinition`等）と評価用の純粋関数
-  （`evaluate_axis_scalar`等）のみで、実データは持たない。**行データ（軸の新規追加・
-  既存軸の値変更）は`api/routers/axis_admin.py`経由（create/update/unpublish→再publish）
-  で行い、`backend/migrations/`の手書きSQLでは行わない**（2026-08-31訂正、最新の
-  `0027_axis_definitions_dedicated_way_value_layer.sql`自身が「行データはaxis_admin API
-  経由、本migrationはテーブル構造[DDL]のみ」と明記している。migrationは`axis_definitions`
-  テーブルの**構造**変更のみに使う）。
+- `axis_definitions`DBテーブルが全軸の唯一の正本。起動時（`app/services/
+  axis_registry_service.py: refresh_axis_definitions`）にDBから読み込みこのモジュール
+  レベルdictへpushするまでは空のまま。本モジュールが持つのは型定義（`AxisDefinition`等）
+  と評価用の純粋関数（`evaluate_axis_scalar`等）のみで、実データは持たない。**行データ
+  （軸の新規追加・既存軸の値変更）は`api/routers/axis_admin.py`経由（create/update/
+  unpublish→再publish）で行い、`backend/migrations/`の手書きSQLでは行わない**
+  （migrationは`axis_definitions`テーブルの**構造**変更のみに使う）。
 
-欠損値の表現はスカラー経路がNone、配列経路がNaN（従来の`*_difficulty`関数・
-`*_difficulty_array`関数と同じ規約）。丸めは区分線形補間系のみ小数1桁
-（スカラーはPython `round()`、配列は`np.round`——両者の.X5境界での差異と
-実データでの安全性確認はdomain/difficulty.pyの配列版コメント（T240）参照）。
+欠損値の表現はスカラー経路がNone、配列経路がNaN（`*_difficulty`関数・`*_difficulty_array`
+関数と同じ規約）。丸めは区分線形補間系のみ小数1桁（スカラーはPython `round()`、配列は
+`np.round`）。
 """
 
 from typing import Annotated, Literal, Mapping, Union
@@ -54,7 +47,7 @@ class MaterialTerm(BaseModel):
 
     `required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。
     `required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の
-    「信号等のデータが主、交差点データは補助」という非対称な扱い、改善計画T149）。
+    「信号等のデータが主、交差点データは補助」という非対称な扱い）。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -67,17 +60,10 @@ class MaterialTerm(BaseModel):
 class BreakpointLinearShape(BaseModel):
     """区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。
 
-    改善計画T396: 軸スタジオの設計精査で、旧4テンプレート
-    （breakpoint_linear/recipe_then_breakpoint_linear/categorical/flag_sum）は
-    実質「連続演算（結合＋整形、本shape）」「離散演算（`CategoricalShape`）」の
-    2プリミティブに還元でき、合成（他軸参照）はどちらの独立テンプレートでもなく
-    連続演算の結合ステップの性質にすぎないと判明した。これに伴い
-    `recipe_then_breakpoint_linear`（旧: 材料が軸固有のレシピ判定の算出済み結果で
-    あることを表す別名kind、実装は本shapeのエイリアス）は撤去した——`terms`の各
-    materialは元々材料id・軸idのどちらも区別なく指せる設計のため、別kindを持たせる
-    理由が無かった。旧`FlagSumShape`（真偽値フラグの加点合計）も本shapeへ統合済み
-    （全termがboolean材料の場合として表現する。`domain/axis_display.py:
-    derive_ramp_inputs`の構造判定・移行方法は同モジュールのコメント参照）。
+    合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・
+    軸idのどちらも区別なく指せる設計から生じる性質にすぎない。真偽値フラグの加点合計は
+    全termがboolean材料の場合として本shapeで表現する（`domain/axis_display.py:
+    derive_ramp_inputs`の構造判定参照）。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -91,17 +77,14 @@ class BreakpointLinearShape(BaseModel):
 class CategoricalShape(BaseModel):
     """カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
 
-    改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と
-    str（highway/designation等、MATERIAL_CATALOGのdtype="categorical"材料、
-    3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`
-    自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで
-    新テンプレートは不要だった。
+    `mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype="categorical"材料、
+    3値以上）の両方を許容する（混在は想定しないが型上は許容）。
 
     キー型は`union_mode="left_to_right"`でbool判定を先に試す（既定のsmart modeだと
-    JSON文字列"true"/"false"がboolへ強制変換されずstr型のまま残ってしまい、
+    JSON文字列"true"/"false"がboolへ強制変換されずstr型のまま残り、
     `infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が
-    壊れる回帰があった——実データ検証で発覚、"true"/"false"以外の文字列キーは
-    bool変換に失敗してstrへフォールバックするため通常のcategorical材料には影響しない）。
+    壊れる。"true"/"false"以外の文字列キーはbool変換に失敗してstrへフォールバックするため
+    通常のcategorical材料には影響しない）。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -118,7 +101,7 @@ AxisCategory = Literal["観測", "推定", "動的"]
 
 
 class PriorityCondition(BaseModel):
-    """0次条件（改善計画T292）: 探索除外のハードフィルタ（`domain/evaluation.py:
+    """0次条件: 探索除外のハードフィルタ（`domain/evaluation.py:
     DEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、
     **評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算
     （shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。
@@ -127,11 +110,11 @@ class PriorityCondition(BaseModel):
     自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。
     自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ
     （`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない
-    （「探索除外」と「評価の優先確定」は別の概念、docs/improvement-plan.md T292参照）。
+    （「探索除外」と「評価の優先確定」は別の概念）。
 
     軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な
     仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる
-    （「各推定軸に重複して持たせない」というユーザー方針）。
+    （各推定軸に重複して持たせない）。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -145,20 +128,17 @@ class AxisDefinition(BaseModel):
     """1つの評価軸の宣言（ADRの`AxisDefinition`スキーマ）。
 
     `default_weight`はAPIリクエストで上書きされなかった場合の既定の合成重み
-    （`RoutePreference`の既定値の単一ソース、改善計画T316）。
+    （`RoutePreference`の既定値の単一ソース）。
 
-    `label`/`description`/`category`（改善計画T269）は一般向けルート設定画面
-    （`RouteSettingsPanel`）が`GET /api/axis-catalog`経由で表示する。従来
-    `frontend/src/lib/evaluationAxes.ts`に手書きしていた値をここへ移し、
-    軸スタジオ（T270）がGUIから作る新規軸も同じ経路で表示名を持てるようにする
-    （`registry.py`側の表示レジストリ[T137/T145b、地図レイヤー専用]とは別物——
-    あちらはPython宣言のみでDB化されておらず、GUIで作った軸を表現できないため、
-    ルーティング計算を駆動するこちら側に単一ソースを置く）。`category`は
-    観測（タグ・POI等の一次属性を直接読む、または単純なフラグ加算のみの軸）／
+    `label`/`description`/`category`は一般向けルート設定画面（`RouteSettingsPanel`）が
+    `GET /api/axis-catalog`経由で表示する（`registry.py`側の表示レジストリ
+    [地図レイヤー専用]とは別物——あちらはPython宣言のみでDB化されておらず、GUIで作った
+    軸を表現できないため、ルーティング計算を駆動するこちら側に単一ソースを置く）。
+    `category`は観測（タグ・POI等の一次属性を直接読む、または単純なフラグ加算のみの軸）／
     推定（複数材料をレシピ・判定式で合成する軸）／動的（時々刻々変わる外部データ由来の軸）
-    の3分類（目論見書3章、T267で確定）。
+    の3分類。
 
-    **軸の階層（改善計画T292）**: `shape`の`MaterialTerm.material`/`CategoricalShape.
+    **軸の階層**: `shape`の`MaterialTerm.material`/`CategoricalShape.
     material`等は、`MATERIAL_CATALOG`の材料idだけでなく**他の軸のaxis_id**も指せる
     （評価時、既に計算済みの軸のdifficulty値が`materials`辞書へ材料と同じ扱いで
     混ぜ込まれる。`evaluate_axis_scalar`/`evaluate_axis_array`のシグネチャ・実装は
@@ -180,25 +160,23 @@ class AxisDefinition(BaseModel):
     label: str
     description: str = ""
     category: AxisCategory = "推定"
-    # 改善計画T271: 公開済み軸は一般向け`GET /api/axis-catalog`（一般ユーザーの保存設定が
+    # 公開済み軸は一般向け`GET /api/axis-catalog`（一般ユーザーの保存設定が
     # axis_idキーで再現されるため、公開後の破壊的変更・削除は他ユーザーの設定を黙って
     # 壊す）に出る一方、下書き軸は管理API（軸スタジオ）でのみ見える。既定Falseは
-    # 「新規作成した軸はまず下書き」という安全側の初期値。改善計画T292でこのフラグを
+    # 「新規作成した軸はまず下書き」という安全側の初期値。このフラグは
     # 「内部軸（他の軸から参照される専用、恒久的に非公開のまま運用）」の表現にも流用する
-    # （新フィールドを増やさず既存の仕組みを再利用する、ユーザー承認済み）。
+    # （新フィールドを増やさず既存の仕組みを再利用する）。
     is_published: bool = False
-    # 改善計画T292: 0次条件（軸の通常計算より前に評価される優先確定ルール）。空リストは
-    # 「無し」（従来どおりshapeだけで評価）で、既存6軸の挙動には影響しない。
+    # 0次条件（軸の通常計算より前に評価される優先確定ルール）。空リストは
+    # 「無し」（shapeだけで評価）で、対象外の軸の挙動には影響しない。
     priority_overrides: list[PriorityCondition] = Field(default_factory=list)
-    # 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
-    # 軸id→値の手書き辞書を廃止し、軸自身のデータとして持たせる。全て未設定＝Noneが既定で、
+    # 地図チップ表示要素。軸自身のデータとして持たせる。全て未設定＝Noneが既定で、
     # フロント側は未設定を「汎用フォールバックを使う」の意味で扱う（機能は壊れない）。
     icon_id: str | None = None
     """地図チップのアイコン（frontend/src/components/Map/axisIconPalette.tsxの固定
     パレットからidを選ぶ。未知/未設定のidは汎用アイコン[AxisRampIcon]へフォールバック。
     新しいアイコン形状の追加自体は引き続きコード変更を要する——GUIから任意のSVGを
-    登録させる方式はスタイル一貫性・XSSサニタイズのコストが高いためユーザー判断で
-    見送った、docs/improvement-plan.md T310参照）。"""
+    登録させる方式はスタイル一貫性・XSSサニタイズのコストが高いため見送っている）。"""
     chip_label: str | None = None
     """地図チップの略称。設定する場合は4文字以内必須（地図チップが固定サイズのタイルの
     ため、axis_admin.py: AxisDefinitionPayload._check_chip_label_lengthが書き込み時に
@@ -212,12 +190,9 @@ class AxisDefinition(BaseModel):
     """falseなら地図上チップ（MapOverlayControls）・地図の見え方パネル
     （MapLayersPanel）の両方からこの軸を丸ごと除外する
     （frontend/src/components/Map/secondaryAxes.ts: secondaryAxesFromCatalogAxes()の
-    フィルタ条件）。既定trueは既存軸の見た目を変えないための後方互換値。旧`proxy_hint`
-    （専用地図レイヤーを持たない軸向けの代役案内文）は、この真偽値ON/OFFで
-    「そもそも表示しない」という選択肢自体が持てるようになったことで不要となり撤去した
-    （ユーザー判断2026-08-25、改善計画T318）。"""
+    フィルタ条件）。既定trueは既存軸の見た目を変えないための後方互換値。"""
     time_scope: Literal["always", "night_only"] = "always"
-    """改善計画T352: この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
+    """この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
     「`time_scope != "always"`な軸のうち、現在の`active_scopes`に含まれないものの
     重みを0倍にする」という汎用ロジック（`RoutePreference.with_time_scope`、
     `domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
@@ -225,42 +200,36 @@ class AxisDefinition(BaseModel):
     このフィールドへ新しい値（例: "commute_only"）を1つ増やすだけでよく、エンジン側の
     コード変更は不要。"""
     display_thresholds_override: list[float] | None = None
-    """地図の色分けしきい値だけを差し替える軽量な上書き（改善計画T404、
-    docs/tasks/T404.md）。未設定は`derive_ramp_inputs()`が計算したしきい値
-    （`AxisDefinition.shape`のbreakpoints由来のX軸スケール値）をそのまま使う。
+    """地図の色分けしきい値だけを差し替える軽量な上書き。未設定は`derive_ramp_inputs()`
+    が計算したしきい値（`AxisDefinition.shape`のbreakpoints由来のX軸スケール値）を
+    そのまま使う。
 
     `derive_ramp_inputs`は「材料の値をどう合成して1つの表示用の値にするか」
     （`tile_inputs`）は数学的に厳密に自動導出できるが、色分けの**段階の刻み方**
     （何段階に分けるか）まではbreakpointsのX軸の値をそのまま流用するため粗くなりがちで
     （車の圧迫感[2段階]・停止密度/事故密度[各2段階]が実例）、見やすさのために人間が
     細かく刻みたいという正当なニーズがある。これは`tile_inputs`の自動導出能力の
-    問題ではなく「見やすさの好み」の問題のため、旧`display_override`（tile_inputsまで
-    含む生JSON上書き、TileInputSpecの構造が複雑なためGUI編集を持てなかった。改善計画
-    T409でフィールド・DBカラムごと削除済み）とは別の、しきい値だけの軽量なフィールドとして
-    独立させた——軸スタジオのGUI（AxisComposer.tsx）が「数値の配列を編集する」という
+    問題ではなく「見やすさの好み」の問題のため、しきい値だけの軽量なフィールドとして
+    独立させてある——軸スタジオのGUI（AxisComposer.tsx）が「数値の配列を編集する」という
     単純なUIで直接編集できる。値は昇順の数値配列（段階境界値）で、単位は
     `AxisDefinition.shape`のbreakpointsのX軸と同じ「材料スケール」
     （`tile_property_needs_runtime_scale`な材料を含む軸でも、実行時スケール変換後の
     スケール——年数等の変換係数が変わっても値を書き直す必要が無い）。`derive_ramp_inputs`
     自体が失敗する軸（kind="none"）には効果が無い（`axis_display_for()`の優先順位参照）。"""
     display_band_labels_override: list[str] | None = None
-    """地図の色分け段階に添える体感ラベル（改善計画T513、docs/tasks/T513.md）。未設定は
+    """地図の色分け段階に添える体感ラベル。未設定は
     段階の数値レンジ表記（例:「2〜6」）のみを凡例に出す。設定する場合は
     `display_thresholds_override`も設定済みで、かつ要素数が段階数
     （`len(display_thresholds_override)+1`）と一致していなければならない
     （`axis_admin.py: AxisDefinitionPayload._check_display_band_labels_override`参照）。
 
-    改善計画T512で風の評価軸凡例へ体感ラベル（「強い向かい風」等）を追加する際、
-    最初は風専用のハードコード配列（frontend）として実装してしまったが、
     `display_thresholds_override`と対になる概念（どちらも「地図の色分け段階の見せ方」の
-    軸ごとの好み）であるにもかかわらず軸スタジオを経由しない特別扱いだったため、
-    ユーザー指摘を受けこのフィールドへ汎用化した——風・勾配のdedicated_way_value_layer軸
-    だけでなく、通常のramp軸（`buildAxisRampLegend`）の凡例にも同じ仕組みで使える。"""
+    軸ごとの好み）で、風・勾配のdedicated_way_value_layer軸だけでなく、通常のramp軸
+    （`buildAxisRampLegend`）の凡例にも同じ仕組みで使える。"""
     dedicated_way_value_layer: bool = False
     """この軸が専用のway_id→値配信レイヤー（Redis経由、`app/infrastructure/
-    dynamic_way_value_cache.py`）を持つかの宣言。従来`RouteSettingsPanel.tsx`・
-    `mapLayers.ts`・`MapView.tsx`が`axis_id`の文字列比較（`"wind"`/`"gradient"`）で
-    直接ハードコード分岐していたのを、性質ベースの宣言的フィールドへ汎用化したもの。
+    dynamic_way_value_cache.py`）を持つかの宣言。`axis_id`の文字列比較による
+    ハードコード分岐ではなく、性質ベースの宣言的フィールドとして持たせてある。
 
     **ルート確定後**の地図色分け（`axis_difficulties[axis_id]`を
     `routeStyleModes.ts`の3段階色分けモードとして使う機構、公開軸なら自動的に
@@ -275,17 +244,14 @@ class AxisDefinition(BaseModel):
     """`dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/
     dynamic-way-values/{material_id}/...`（`api/routers/region.py`）の`at`クエリ
     パラメータにこの軸の値が依存するかの宣言（風=True、気象予報が時々刻々変わる。
-    勾配=False、標高・道路の向きは時刻で変わらない）。改善計画T458: 従来
-    `domain/dynamic_way_values.py: DYNAMIC_WAY_VALUE_MATERIALS`が軸スタジオ
-    （`dedicated_way_value_layer`）とは独立したPython辞書へこの値をハードコードしており、
-    3件目の動的材料を追加するには軸スタジオでの登録に加えてコード変更・再デプロイが
-    必要だった。`dedicated_way_value_layer`と同様、この値自体は軸の評価ロジック
-    （shape）から自動導出できない工学的事実のため、明示的なフィールドとして持たせる。"""
+    勾配=False、標高・道路の向きは時刻で変わらない）。`dedicated_way_value_layer`と
+    同様、この値自体は軸の評価ロジック（shape）から自動導出できない工学的事実のため、
+    明示的なフィールドとして持たせる。"""
     dynamic_way_value_needs_bearing: bool = False
     """`dedicated_way_value_layer=True`の軸のみ意味を持つ。同エンドポイントの
     `bearing_deg`クエリパラメータにこの軸の値が依存するかの宣言（風・勾配どちらもTrue——
     向きの*出所*（外部データ/道路自身に内在）が異なるだけで、パラメータとしては両方とも
-    ユーザー指定の走行方位を必要とする）。改善計画T458、`dynamic_way_value_needs_time`と
+    ユーザー指定の走行方位を必要とする）。`dynamic_way_value_needs_time`と
     同じ理由で明示的なフィールドとして持たせる。"""
     dynamic_way_value_needs_speed: bool = False
     """`dedicated_way_value_layer=True`の軸のみ意味を持つ。同エンドポイントの
@@ -298,7 +264,7 @@ class AxisDefinition(BaseModel):
         """この軸が参照する材料id・軸idの一覧（shapeから導出。二重管理しない。
         `priority_overrides`が参照する材料も含む）。呼び出し側が材料か軸かを
         区別する必要がある場合は`material_catalog.is_known_material`で判別する
-        （改善計画T292、`check_material_exclusivity`参照）。"""
+        （`check_material_exclusivity`参照）。"""
         if isinstance(self.shape, BreakpointLinearShape):
             shape_materials = [term.material for term in self.shape.terms]
         else:
@@ -312,22 +278,21 @@ class AxisDefinition(BaseModel):
         return list(seen)
 
 
-# 改善計画T350: 14軸分のPython literalは撤去した。`axis_definitions`DBテーブルが唯一の
-# 正本で、起動時（app/services/axis_registry_service.py: refresh_axis_definitions）に
-# DBから読み込みこの辞書をin-placeで書き換えるまでは空のまま。新規軸の追加・既存軸の
-# 変更は他のスキーマ変更と同じく手書きのmigration SQL（backend/migrations/）で行う。
+# `axis_definitions`DBテーブルが唯一の正本で、起動時（app/services/
+# axis_registry_service.py: refresh_axis_definitions）にDBから読み込みこの辞書を
+# in-placeで書き換えるまでは空のまま。新規軸の追加・既存軸の変更は`api/routers/
+# axis_admin.py`経由で行い、`backend/migrations/`の手書きSQLでは行わない
+# （モジュールdocstring参照）。
 AXIS_DEFINITIONS: dict[str, AxisDefinition] = {}
 
 
 class AxisMaterialConflictError(ValueError):
-    """新規/更新しようとした軸の材料が、既存の別軸と重複している場合に送出する
-    （改善計画T268）。
+    """新規/更新しようとした軸の材料が、既存の別軸と重複している場合に送出する。
 
     `registry.py: register_axis`の`AxisInputConflictError`（表示用レジストリの排他帰属
     チェック）と同じ「1つの材料は原則1つの軸だけが使う」原則を、実際にルーティング計算を
-    駆動する`AXIS_DEFINITIONS`側（Stage DでDB化・管理API経由の書き込みが可能になった）へ
-    移植したもの。軸スタジオ（T270）で任意の軸を登録できるようになる前に、既存軸が使う
-    材料を新軸が黙って再利用し二重計上が混入する事故を構造的に防ぐ。
+    駆動する`AXIS_DEFINITIONS`側へ適用したもの。軸スタジオで任意の軸を登録できるため、
+    既存軸が使う材料を新軸が黙って再利用し二重計上が混入する事故を構造的に防ぐ。
     """
 
     def __init__(self, axis_id: str, conflicting_axis_id: str, overlapping_materials: set[str]) -> None:
@@ -342,18 +307,17 @@ class AxisMaterialConflictError(ValueError):
 
 
 class AxisPublishedImmutableError(ValueError):
-    """公開済み（is_published=True）の軸を更新・削除しようとした場合に送出する
-    （改善計画T271）。
+    """公開済み（is_published=True）の軸を更新・削除しようとした場合に送出する。
 
     一般ユーザーの保存設定（RouteSettingsPanelのプリセット・重み）はaxis_idキーで
     再現されるため、公開後の破壊的変更・削除は他ユーザーの設定を黙って壊す。
     改良したい場合は複製（新しいaxis_idの下書き軸として作成）してから公開する導線を
     UI側に用意する（この関数は変更を一切拒否するのみで、複製自体は関与しない）。
 
-    改善計画T501: ただし更新（`action="updated"`）については、`_COSMETIC_ONLY_FIELDS`
-    のみの差分（評価ロジック・重みに一切影響しない見た目専用の変更）なら例外的に許可する
-    （`check_publish_immutability`の`candidate`引数参照）。T271の原則自体
-    （評価結果に影響しうる変更・削除は不変）は変えない。
+    ただし更新（`action="updated"`）については、`_COSMETIC_ONLY_FIELDS`のみの差分
+    （評価ロジック・重みに一切影響しない見た目専用の変更）なら例外的に許可する
+    （`check_publish_immutability`の`candidate`引数参照）。評価結果に影響しうる
+    変更・削除は不変という原則自体は変えない。
     """
 
     def __init__(self, axis_id: str, action: str) -> None:
@@ -365,10 +329,10 @@ class AxisPublishedImmutableError(ValueError):
         )
 
 
-# 改善計画T501: 評価ロジック（shape・default_weight・priority_overrides等）に一切影響しない
+# 評価ロジック（shape・default_weight・priority_overrides等）に一切影響しない
 # 表示専用フィールドのみ、公開済み軸でも直接更新を許可する（unpublish→update→republishの
 # 手順を経由しなくてよい）。値を変えてもaxis_idキーで再現される他ユーザーの保存重み設定・
-# ルート計算結果は変わらないため、T271が防ごうとしている問題を再発させない。改善計画T513:
+# ルート計算結果は変わらないため、公開後の破壊的変更を防ぐという目的を損なわない。
 # display_band_labels_overrideもdisplay_thresholds_overrideと同じ「地図の色分け段階の
 # 見せ方」の表示専用フィールドのためここへ加える。
 _COSMETIC_ONLY_FIELDS = frozenset(
@@ -384,8 +348,8 @@ _COSMETIC_ONLY_FIELDS = frozenset(
 
 
 def is_cosmetic_only_update(existing: AxisDefinition, candidate: AxisDefinition) -> bool:
-    """`existing`から`candidate`への差分が`_COSMETIC_ONLY_FIELDS`だけかどうかを判定する
-    （改善計画T501）。`existing`へ`candidate`側の表示専用フィールドだけを重ねた結果が
+    """`existing`から`candidate`への差分が`_COSMETIC_ONLY_FIELDS`だけかどうかを判定する。
+    `existing`へ`candidate`側の表示専用フィールドだけを重ねた結果が
     `candidate`と完全一致すれば、それ以外のフィールドは変わっていないと分かる。"""
     patched = existing.model_copy(update={field: getattr(candidate, field) for field in _COSMETIC_ONLY_FIELDS})
     return patched == candidate
@@ -395,9 +359,9 @@ def check_publish_immutability(existing: AxisDefinition, action: str, candidate:
     """`existing`が公開済みなら`AxisPublishedImmutableError`を送出する（更新・削除の
     どちらの直前でも呼べる汎用関数、`action`はエラーメッセージ用の英語動詞句）。
 
-    改善計画T501: `candidate`（更新後の内容）が渡され、かつその差分が表示専用
+    `candidate`（更新後の内容）が渡され、かつその差分が表示専用
     フィールドのみ（`is_cosmetic_only_update`）の場合は例外的に許可する。`delete()`のように
-    `candidate`が無い呼び出しは従来どおり一律拒否のまま。"""
+    `candidate`が無い呼び出しは一律拒否のまま。"""
     if existing.is_published and not (candidate is not None and is_cosmetic_only_update(existing, candidate)):
         raise AxisPublishedImmutableError(existing.axis_id, action)
 
@@ -413,7 +377,7 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
     複数軸が参照してよい共通コンテキスト）の材料が存在しないため、`shared`フラグは
     持たない。将来そうした材料が必要になった時点で`MaterialTerm`側への追加を検討する。
 
-    改善計画T292: `candidate.materials`は材料idと軸id（軸の階層構造、他の軸への参照）を
+    `candidate.materials`は材料idと軸id（軸の階層構造、他の軸への参照）を
     区別せずに返すため、`MATERIAL_CATALOG`に実在するものだけを検査対象とする
     （`is_known_material`でフィルタ）。軸参照は複数の公開軸が同じ内部軸を意図的に
     共有できる設計のため、この排他チェックの対象外——材料の二重計上とは別の話。
@@ -431,7 +395,7 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
 
 class AxisDependencyCycleError(ValueError):
     """軸間の依存関係（他の軸をmaterialとして参照する構造）に循環があった場合に
-    送出する（改善計画T292）。"""
+    送出する。"""
 
     def __init__(self, cycle: list[str]) -> None:
         self.cycle = cycle
@@ -440,8 +404,8 @@ class AxisDependencyCycleError(ValueError):
 
 
 def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> set[str]:
-    """`definition`が参照する軸id（materialsのうち、材料ではなく軸を指すもの）を返す
-    （改善計画T292）。`known_axis_ids`は循環検出・評価順序決定の対象となる軸id全体
+    """`definition`が参照する軸id（materialsのうち、材料ではなく軸を指すもの）を返す。
+    `known_axis_ids`は循環検出・評価順序決定の対象となる軸id全体
     （通常は`AXIS_DEFINITIONS`のキー集合）。"""
     from app.domain.material_catalog import is_known_material
 
@@ -450,15 +414,12 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
 
 class AxisInternalAxisPublishError(ValueError):
     """他の軸から参照されている内部軸を公開（is_published=True）しようとした場合に
-    送出する（改善計画T292/T311フォローアップ）。
+    送出する。
 
     「内部軸は他の軸から参照される専用で、恒久的に非公開のまま運用する」という軸階層の
-    設計意図（本モジュールのAxisDefinition docstring「軸の階層」参照）は、従来コード
-    レベルで強制されていなかった。軸スタジオでの操作（動作確認・トグルの戻し忘れ等）で
-    car_stress内部軸の1つがis_published=Trueのまま保存され、migration適用ラグでDB読み込み
-    自体が失敗し続けていた間は気付かれず、DB読み込みが復旧した際に一般ユーザー向けの
-    ルート設定画面（`GET /api/axis-catalog`、is_publishedフィルタのみ）へそのまま
-    漏れ出た実障害があった（T311フォローアップ、2026-08-25）。
+    設計意図（本モジュールのAxisDefinition docstring「軸の階層」参照）をコードレベルで
+    強制する。内部軸が誤って公開されると、一般ユーザー向けのルート設定画面
+    （`GET /api/axis-catalog`、is_publishedフィルタのみ）へそのまま漏れ出てしまう。
     """
 
     def __init__(self, axis_id: str, referencing_axis_id: str) -> None:
@@ -472,8 +433,8 @@ class AxisInternalAxisPublishError(ValueError):
 
 def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[str, AxisDefinition]) -> None:
     """`candidate`が`existing`内の他の軸（自分自身を除く）から軸参照（内部軸）として
-    使われているにもかかわらず、is_published=Trueで保存しようとしていないか検査する
-    （改善計画T292/T311フォローアップ）。非公開のままなら常に許可する（早期return）。
+    使われているにもかかわらず、is_published=Trueで保存しようとしていないか検査する。
+    非公開のままなら常に許可する（早期return）。
     """
     if not candidate.is_published:
         return
@@ -496,13 +457,13 @@ def _topological_axis_order_cache_key(
 
 
 def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
-    """軸を「依存先（参照される軸）が先」の順序に並べ替える（改善計画T292、
-    深さ優先探索によるトポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
-    送出する。依存を持たない軸同士の相対順序は`definitions`の挿入順を保つ（既存の
-    Neumaier加算のビット一致要件——3次合成の対象は公開軸のみだが、軸単位のdifficulty
+    """軸を「依存先（参照される軸）が先」の順序に並べ替える（深さ優先探索による
+    トポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
+    送出する。依存を持たない軸同士の相対順序は`definitions`の挿入順を保つ（Neumaier加算の
+    ビット一致要件——3次合成の対象は公開軸のみだが、軸単位のdifficulty
     計算自体の再現性のため安定ソートにする）。
 
-    コードレビュー指摘の修正: `compute_edge_axis_scores`等がEdge単位（1ルート候補あたり
+    `compute_edge_axis_scores`等がEdge単位（1ルート候補あたり
     最大数百回）で呼ぶホットパスのため、結果をプロセス内メモリでメモ化する。キーは
     各軸の`materials`（依存関係を決める唯一の入力）から導出した内容ベースの値であり、
     `AXIS_DEFINITIONS`自体のオブジェクト同一性には依存しない（`refresh_axis_definitions`
@@ -560,7 +521,7 @@ def _axes_depending_on_materials(
     material_ids: frozenset[str], definitions: dict[str, AxisDefinition]
 ) -> set[str]:
     """`definitions`内の各軸が、`material_ids`のいずれかを直接、または他の軸を介して
-    間接的に参照しているかを固定点反復で判定する（改善計画T534）。"""
+    間接的に参照しているかを固定点反復で判定する。"""
     dynamic: set[str] = set()
     changed = True
     while changed:
@@ -576,9 +537,9 @@ def _axes_depending_on_materials(
 
 def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     """`definitions`内の軸のうち`REQUEST_DYNAMIC_MATERIAL_IDS`へ直接・間接に依存する軸を、
-    依存順（`topological_axis_order`のサブセット）で返す（改善計画T534）。
+    依存順（`topological_axis_order`のサブセット）で返す。
 
-    改善計画T536の`evaluate_dynamic_axis_arrays`（domain/evaluation.py）が、タイル単位で
+    `evaluate_dynamic_axis_arrays`（domain/evaluation.py）が、タイル単位で
     事前計算・キャッシュ済みの静的軸別スコア行列（この関数が返す軸id集合には含まれない
     列はNaN）はそのまま使い、この関数が返す軸だけをリクエスト時に動的材料（風等）を
     組み込んで再評価するために使う。軸スタジオが新しく作る軸が風（または風に依存する
@@ -604,9 +565,9 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
 def default_axis_weights() -> dict[str, float]:
     """axis_idキーの既定重み辞書（APIで上書きされる前の値、`RoutePreference`の
     既定値・`GET /api/axis-catalog`のpreference_defaultsが共通で参照する単一
-    ソース、改善計画T316）。
+    ソース）。
 
-    改善計画T292: 内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
+    内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
     除外する。`RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と
     整合させる。"""
     return {
@@ -618,8 +579,8 @@ def default_axis_weights() -> dict[str, float]:
 
 def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[str]) -> dict[str, float]:
     """`weights`のうち、`time_scope`が"always"以外（AXIS_DEFINITIONS参照）かつ
-    `active_scopes`に含まれない軸の重みを0.0にした新しい辞書を返す（改善計画T352、
-    元のT173 night動的化ロジックの汎用化。`weights`自体は変更しない）。
+    `active_scopes`に含まれない軸の重みを0.0にした新しい辞書を返す
+    （`weights`自体は変更しない）。
 
     `AxisDefinition.time_scope`という性質ベースの宣言的フィールドを持つことで、
     エンジン側は「この性質を持つ軸を探して掛け替える」という汎用ロジックだけを持てば
@@ -627,8 +588,8 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
     エンジン側のコード変更は不要。
 
     `weights`に無いaxis_id（内部軸への重み・非公開化された軸等）は無視する
-    （`RoutePreference.with_weight`の「対象軸が存在しなければ無変更」という既定動作、
-    改善計画T316フォローアップと同じ理由）。"""
+    （`RoutePreference.with_weight`の「対象軸が存在しなければ無変更」という既定動作と
+    同じ理由）。"""
     overrides = {
         axis_id: 0.0
         for axis_id, definition in AXIS_DEFINITIONS.items()
@@ -657,9 +618,9 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
     `materials`は材料id→解決済みスカラー値（float/bool/int/None）。定義が参照しない
     材料が含まれていてもよい（呼び出し元は既知の全材料をまとめて渡してよい）。
 
-    改善計画T292: `definition.priority_overrides`が1件でも一致すれば、shapeの通常計算を
+    `definition.priority_overrides`が1件でも一致すれば、shapeの通常計算を
     スキップしその条件のvalueをそのまま返す（定義順で最初に一致したものを採用。探索除外の
-    ハードフィルタとは別に「評価を優先確定する」ための機構、最初の適用例はmotor_vehicle_no
+    ハードフィルタとは別に「評価を優先確定する」ための機構、適用例はmotor_vehicle_no
     =true。自転車通行禁止は既存の0次ハードフィルタ`no_bicycle`で既にカバー済みのため
     この機構は使わない）。
     """
@@ -724,7 +685,7 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
     自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う（スカラー版の
     None規約と対応）。
 
-    改善計画T292: `definition.priority_overrides`はshape計算の結果へ後から重ねる
+    `definition.priority_overrides`はshape計算の結果へ後から重ねる
     （`np.where`をpriority_overridesの逆順に重ねることで、先頭の条件が最終的に最優先になる
     ——スカラー版の「定義順で最初に一致したものを採用」と同じ優先順位）。
     """

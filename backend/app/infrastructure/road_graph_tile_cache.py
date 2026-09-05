@@ -1,15 +1,13 @@
-"""road_graph_tilesタイル取得済みマーカー・split鮮度マーカーのRedis cache-aside層
-（改善計画T387・T390）。
+"""road_graph_tilesタイル取得済みマーカー・split鮮度マーカーのRedis cache-aside層。
 
 `road_graph_tiles`（PostGIS）は「このタイルはOverpass/PBF取込を完了した」という完了
 マーカーであり、地理データそのものではない（road_graph_models.py: RoadGraphTileRowの
 docstring参照）。GraphService._ensure_tiles_cachedがルート生成のリクエストごとに参照する
-ホットパスのため、PostGIS往復をRedisで肩代わりしレイテンシを削減する狙い
-（実測結果はdocs/tasks/T387.md参照）。
+ホットパスのため、PostGIS往復をRedisで肩代わりしレイテンシを削減する狙い。
 
-**cache-aside、PostGISを正本のまま維持する（置き換えない）**: このマーカーの再構築コストは
-本来Overpassへの再問い合わせだが、改善計画T22でOverpassフォールバック自体を撤去済みのため、
-このマーカーを失うと該当bboxのルート生成が「データ未整備」として拒否されてしまう
+**cache-aside、PostGISを正本のまま維持する（置き換えない）**: このマーカーの再構築手段は
+無い（Overpassフォールバックは撤去済みのため）。このマーカーを失うと該当bboxのルート
+生成が「データ未整備」として拒否されてしまう
 （再取得の自動復旧手段が無い）。Redisは永続化（RDB/AOF）設定を持たない前提のキャッシュ層
 のため、ここを正本にすると再起動・エビクションのたびに広範囲のルート生成が壊れる重大な
 後退になる。そのため書き込みは常にPostGIS（`RawOsmRepository.get_cached_tiles`が読む
@@ -99,7 +97,7 @@ async def mark_fetched(zoom: int, tiles: list[tuple[int, int]]) -> None:
             fields["result"] = "ok"
 
 
-# 改善計画T390: `is_split_up_to_date`（DerivedGraphRepository）の判定結果のcache-aside。
+# `is_split_up_to_date`（DerivedGraphRepository）の判定結果のcache-aside。
 # `_KEY_PREFIX`（取得済みマーカー）とは異なるキー空間を持つ別種のタイルマーカー
 # ——「このタイルは取得済みか」（一度立てば実質恒久）と「このタイルのsplit結果は生データより
 # 新しいか」（PBF再import・遅延rebuildのたびに変わりうる）はライフサイクルが異なるため、
