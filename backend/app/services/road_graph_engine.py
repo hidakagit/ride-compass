@@ -394,6 +394,11 @@ class _RoadGraphContext:
     # 改善計画T531: 復路探索（折返し点→起点）のA*ヒューリスティック配列。目的地が常に起点の
     # ため、リクエストで1回だけ計算し全候補で共有する（初回の復路探索時に遅延構築）。
     origin_estimate: list[float] | None = None
+    # 改善計画T602: select_via_nodesが目的地を最寄りのアクセス可能なNodeへ補正した場合の
+    # 実際の座標（補正が無ければNone）。RouteGenerator.last_no_candidates_reasonと同じ
+    # side channel——Protocolの戻り値型（list[TracedLoop]）を変えずにRouteGenerator側へ
+    # 伝える。
+    destination_correction: Coordinates | None = None
 
 
 @dataclass
@@ -1074,6 +1079,12 @@ class RoadGraphEngine:
         3. `select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じEdgeを共有する
            Node（行って戻る形になり経路として成立しない）を除外しつつ、採用済み候補との
            重複率が閾値超のものを飛ばして`max_routes`件採る。
+
+        改善計画T602: 目的地に一番近いNodeが、メインの道路網から孤立した小さな塊
+        （歩道橋・私有地内通路等、次数1以上ではあるが起点からは実質到達できない場所）に
+        スナップされていると、後ろ向き木が起点側とほぼ重ならず毎回0件になる。前向き木で
+        実際に届くかをここで確認し、届かなければ「前向き木が届くNode」だけに絞って
+        最寄りへ再スナップする（`context.destination_correction`に実際の座標を残す）。
         """
         lazy_graph = context.lazy_graph
         destination_node = find_nearest_node_indexed(context.node_index, destination)
@@ -1087,6 +1098,29 @@ class RoadGraphEngine:
             build_shortest_path_tree,
             context.statics.csr, context.legs[0].cost_list, context.statics.edge_length_m, context.origin_index,
         )
+
+        if not np.isfinite(forward_tree.cost[destination_index]):
+            corrected_node = find_nearest_node_indexed(
+                context.node_index, destination,
+                predicate=lambda node_id: np.isfinite(forward_tree.cost[lazy_graph.node_id_to_index[node_id]]),
+            )
+            if corrected_node is None:
+                logger.warning(
+                    "select_via_nodes destination unreachable from origin, no accessible alternative found "
+                    "destination_node=%s",
+                    destination_node,
+                )
+                return []
+            destination_node = corrected_node
+            destination_index = lazy_graph.node_id_to_index[destination_node]
+            corrected = context.graph.nodes[destination_node]
+            destination = Coordinates(latitude=corrected.latitude, longitude=corrected.longitude)
+            context.destination_correction = destination
+            logger.warning(
+                "select_via_nodes corrected destination to nearest accessible node lat=%.5f lon=%.5f",
+                destination.latitude, destination.longitude,
+            )
+
         reverse_statics, reverse_statics_cached = await _get_or_build_reverse_search_statics(
             context.tile_set, lazy_graph, context.graph
         )

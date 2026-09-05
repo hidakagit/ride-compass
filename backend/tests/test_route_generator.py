@@ -6,6 +6,8 @@
 max_routesによるスライスとid再採番）をFakeエンジンで検証する。
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.domain.errors import RoutingError
@@ -44,9 +46,14 @@ class FakeEngine:
         prepare_result: object = "ctx",
         too_similar_bearings: set[int | None] = frozenset(),
         via_node_distances: list[float] | None = None,
+        destination_correction: Coordinates | None = None,
     ):
         self._distances = distances_by_bearing
         self._prepare_result = prepare_result
+        # 改善計画T602: select_via_nodesが目的地を補正した体を取るテスト用（prepareが返す
+        # contextは既定で不変のstr "ctx" のため、補正を検証するテストは可変なオブジェクトを
+        # prepare_resultへ渡す必要がある）。
+        self._destination_correction = destination_correction
         # 改善計画T553: is_loop_too_similarがTrueを返すべき候補のbearing集合
         # （テストが明示的に指定した場合のみ。既定は空＝常にFalse）。
         self._too_similar_bearings = too_similar_bearings
@@ -72,6 +79,8 @@ class FakeEngine:
 
     async def select_via_nodes(self, context, destination, max_routes):
         self.select_via_nodes_calls.append((destination, max_routes))
+        if self._destination_correction is not None:
+            context.destination_correction = self._destination_correction
         distances = self._via_node_distances
         if distances is None:
             outcome = self._distances.get(None)
@@ -634,6 +643,31 @@ async def test_generate_destination_routes_returns_empty_with_reason_when_no_via
     assert candidates == []
     assert generator.last_no_candidates_reason is not None
     assert "目的地" in generator.last_no_candidates_reason
+
+
+async def test_generate_destination_routes_propagates_destination_correction():
+    # 改善計画T602: engineが目的地を補正した場合、その座標がlast_destination_correction
+    # として引き継がれる（context自体はengine実装ごとに異なるAny型のため、テストでは
+    # 属性を持てる可変オブジェクトをprepare_resultとして渡す）。
+    corrected = Coordinates(latitude=35.70, longitude=139.70)
+    generator, engine = make_generator(
+        {}, prepare_result=SimpleNamespace(destination_correction=None),
+        via_node_distances=[15.0], destination_correction=corrected,
+    )
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION
+    )
+
+    assert len(candidates) == 1
+    assert generator.last_destination_correction == corrected
+
+    # 補正の無い次回の生成では引きずらずNoneへ戻る（実際のprepareは呼び出しのたびに
+    # 新しいcontextを返すため、ここでも新しいcontextを用意して同じ前提を再現する）。
+    engine._destination_correction = None
+    engine._prepare_result = SimpleNamespace(destination_correction=None)
+    await generator.generate_via_waypoints(ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION)
+    assert generator.last_destination_correction is None
 
 
 async def test_generate_destination_routes_returns_empty_with_reason_when_no_context():

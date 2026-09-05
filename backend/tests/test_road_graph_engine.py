@@ -1539,6 +1539,49 @@ async def test_select_via_nodes_returns_empty_when_destination_is_unreachable():
     assert traced == []
 
 
+async def test_select_via_nodes_corrects_destination_isolated_from_main_network():
+    # 改善計画T602: タップ地点に一番近いNode（isolated、次数1のため routable ではあるが
+    # 起点とは繋がらない孤立した2ノードの塊）ではなく、起点から実際に到達できる最寄りの
+    # Node（main）へ補正されることを確認する（本番の目的地ルート「常にエラー」の原因）。
+    tap_point = destination_point(ORIGIN, 90, 5.0)
+    isolated_point = destination_point(tap_point, 0, 0.01)  # tap_pointの目と鼻の先(≈10m)
+    isolated2_point = destination_point(isolated_point, 90, 0.05)
+    main_point = destination_point(tap_point, 0, 0.5)  # isolatedより遠いが起点と繋がる
+
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            "o": Node(node_id="o", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude),
+            "main": Node(node_id="main", latitude=main_point.latitude, longitude=main_point.longitude),
+            "isolated": Node(node_id="isolated", latitude=isolated_point.latitude, longitude=isolated_point.longitude),
+            "isolated2": Node(
+                node_id="isolated2", latitude=isolated2_point.latitude, longitude=isolated2_point.longitude
+            ),
+        },
+        edges={
+            "e-o-main": _edge("e-o-main", "o", "main", ORIGIN, main_point),
+            "e-main-o": _edge("e-main-o", "main", "o", main_point, ORIGIN),
+            "e-isolated-isolated2": _edge(
+                "e-isolated-isolated2", "isolated", "isolated2", isolated_point, isolated2_point
+            ),
+            "e-isolated2-isolated": _edge(
+                "e-isolated2-isolated", "isolated2", "isolated", isolated2_point, isolated_point
+            ),
+        },
+    )
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, tap_point)
+
+    traced = await engine.select_via_nodes(context, tap_point, max_routes=1)
+
+    assert traced
+    assert all("isolated" not in edge_id for t in traced for edge_id in t.data)
+    assert context.destination_correction is not None
+    assert context.destination_correction.latitude == pytest.approx(main_point.latitude)
+    assert context.destination_correction.longitude == pytest.approx(main_point.longitude)
+
+
 # --- 改善計画T537: search_graph_cache（探索用グラフ・索引のタイル集合キーLRU） ---
 #
 # GraphService.get_search_materials_for_bboxがタイル集合を返した場合のみ、prepare/

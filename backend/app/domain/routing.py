@@ -642,7 +642,9 @@ def build_node_spatial_index(
     return NodeSpatialIndex(graph=graph, cell_size_deg=cell_size_deg, buckets=buckets)
 
 
-def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> str | None:
+def find_nearest_node_indexed(
+    index: NodeSpatialIndex, point: Coordinates, predicate: Callable[[str], bool] | None = None
+) -> str | None:
     """`build_node_spatial_index`が作った索引を使い、指定地点に最も近いNodeを総当たり
     より高速に探す。
 
@@ -653,6 +655,11 @@ def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> st
     緯度方向より常に狭い（赤道上でのみ等しい）ため、緯度方向の距離をそのまま安全マージンに
     使うと、実際にはまだ調べていない経度方向のセルの方が近い可能性があるのに打ち切って
     しまう（改善計画T463で訂正。訂正前のdocstringは逆の主張をしていた）。
+
+    `predicate`を渡すと、それがFalseを返すNodeを最近傍候補から除外する（改善計画T602:
+    目的地ルートで一番近いNodeがメインの道路網から孤立している場合に、アクセス可能な
+    最寄りNodeへ改めて絞り込むために使う）。停止条件は「見つかった最近傍（`predicate`を
+    満たすもの限定）の距離」を基準にするため、除外対象があっても安全性は変わらない。
     """
     if not index.graph.nodes:
         return None
@@ -674,6 +681,8 @@ def find_nearest_node_indexed(index: NodeSpatialIndex, point: Coordinates) -> st
                 if max(abs(dx), abs(dy)) != radius:
                     continue  # 内側のリングは前回までのループで調べ済み
                 for node_id in index.buckets.get((cell_lat + dx, cell_lon + dy), ()):
+                    if predicate is not None and not predicate(node_id):
+                        continue
                     node = index.graph.nodes[node_id]
                     # 改善計画T262: nodeは既にlatitude/longitudeを持つ（NodeLike）ため、
                     # Coordinatesへ包み直さない。

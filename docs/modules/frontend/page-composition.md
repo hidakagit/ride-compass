@@ -175,6 +175,13 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 `comparisonTabActive`・`generatedConditions`・`generatedRoutePreference`に加え
 `experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
 
+タブ列の上には、条件変更後の未反映（`conditionsDirty`）を知らせるヒントに加え、
+経由地の無い目的地ルートで指定した地点が自転車で行ける道路に繋がっていなかったため
+backendが最寄りのアクセス可能な地点へ補正した場合のヒントを出す（`generatedConditions.
+destinationCorrected`、[T602](../../tasks/T602.md)）。補正時は地図上の目的地ピンも
+`handleGenerate`が実際に使われた地点（`conditions.corrected_destination`）へ動かす
+（ピンの位置と生成されたルートの終点がずれて見えないようにする）。
+
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
 「保存」「GPX出力」（機能未実装のdisabled占位、`SaveIcon`/`DownloadIcon`）・「ルートをクリア」
 （`handleRoutesClear`）・総合難易度の説明（`ROUTE_RESULT_HINT`）をこの順で横並びにする

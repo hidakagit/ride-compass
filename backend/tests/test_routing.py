@@ -101,6 +101,26 @@ def test_find_nearest_node_indexed_matches_linear_scan_for_random_points():
         assert find_nearest_node_indexed(index, point) == _linear_nearest_node(graph, point)
 
 
+def test_find_nearest_node_indexed_with_predicate_skips_non_matching_candidates():
+    # 改善計画T602: predicateを渡すと、それを満たさないNodeを最近傍候補から除外し、
+    # 満たす中で最も近いNodeを返す（node_ids絞り込みは索引構築時点の固定集合だが、
+    # predicateは呼び出しごとに動的な条件[起点から到達可能か等]を渡せる）。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "near": _node("near", 35.7001, 139.7001),
+            "far": _node("far", 35.702, 139.702),
+        },
+        edges={},
+    )
+    index = build_node_spatial_index(graph)
+    point = Coordinates(latitude=35.700, longitude=139.700)
+
+    assert find_nearest_node_indexed(index, point) == "near"
+    assert find_nearest_node_indexed(index, point, predicate=lambda node_id: node_id != "near") == "far"
+    assert find_nearest_node_indexed(index, point, predicate=lambda node_id: False) is None
+
+
 def test_build_node_spatial_index_with_node_ids_skips_isolated_nearest_node():
     # 改善計画T256回帰テスト: 地理的に最も近いNode（"isolated"）が幹線道路にしか
     # 接続していない場合、node_idsで絞った索引はそれを候補から除き、次に近い

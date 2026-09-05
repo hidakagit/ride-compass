@@ -450,6 +450,11 @@ export default function Home() {
     // 生成後に経由地を追加・削除・移動してもconditionsDirtyが検知できなかった
     // （routeMode/緯度経度/重みしか比較していなかったため）。
     waypointsKey: string;
+    // 改善計画T602: 経由地の無い目的地ルートで、指定した目的地がメインの道路網から
+    // 孤立していたためbackendが最寄りのアクセス可能な地点へ補正した場合true
+    // （conditions.corrected_destination）。表示中の候補がこの補正を経て生成された
+    // ことを示すヒントの表示条件に使う。
+    destinationCorrected: boolean;
   } | null>(null);
   // 改善計画T440: 表示中のルートを実際に生成した瞬間のroute_preference（重み）。
   // routePreference自体はルート設定パネルが常時編集するライブなstateのため、生成後に
@@ -1394,6 +1399,12 @@ export default function Home() {
         ...(routeMode === "destination" && waypoints.length > 0 ? { waypoints } : {}),
         ...(routeMode === "destination" && destination ? { destination } : {}),
       }, setGenerationProgress);
+      // 改善計画T602: backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上の
+      // ピンも実際に使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの
+      // 終点がずれて見える）。
+      if (conditions.corrected_destination) {
+        setDestination(conditions.corrected_destination);
+      }
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
       // 改善計画T550: 新しい候補集合に対して、それより前にクリックしていた区間の選択を
@@ -1414,7 +1425,11 @@ export default function Home() {
         maxRoutesRelevant: routeMode === "loop" || (routeMode === "destination" && waypoints.length === 0),
         weightsKey: currentWeightsKey,
         routeMode,
-        waypointsKey: JSON.stringify({ waypoints, destination }),
+        // 改善計画T602: 補正があった場合は補正後の地点で比較する（地図上のピンも
+        // 補正後の地点へ動かしているため、conditionsDirtyが直後に誤ってtrueにならないように
+        // 揃える）。
+        waypointsKey: JSON.stringify({ waypoints, destination: conditions.corrected_destination ?? destination }),
+        destinationCorrected: Boolean(conditions.corrected_destination),
       });
       setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
@@ -1583,6 +1598,14 @@ export default function Home() {
       <>
         {conditionsDirty && (
           <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
+        )}
+        {/* 改善計画T602: 指定した目的地が自転車で行ける道路につながっていなかったため、
+            backendが最寄りのアクセス可能な地点へ補正して生成した場合の案内
+            （地図上のピンも補正後の地点へ動かす、handleGenerate参照）。 */}
+        {generatedConditions?.destinationCorrected && (
+          <p className={styles.dirtyHint}>
+            指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
+          </p>
         )}
         <Tabs.Root
           className={styles.outcomeTabs}

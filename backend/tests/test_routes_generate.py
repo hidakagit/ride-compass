@@ -46,15 +46,32 @@ def clear_rate_limiter():
 class FakeRouteGenerator:
     engine_name = "fake-engine"
 
-    def __init__(self, candidates: list[RouteCandidate], no_candidates_reason: str | None = None):
+    def __init__(
+        self,
+        candidates: list[RouteCandidate],
+        no_candidates_reason: str | None = None,
+        destination_correction=None,
+    ):
         self._candidates = candidates
         # 改善計画T441: 実際のRouteGeneratorが持つ属性（routes.py: _run_generate_jobが
         # candidatesが空のときだけ読む）。フェイクも同じ属性を持たせて実インターフェースに揃える。
         self.last_no_candidates_reason = no_candidates_reason
+        # 改善計画T602: 同じく実際のRouteGeneratorが持つ属性（_run_generate_jobが常に読む）。
+        self.last_destination_correction = destination_correction
 
     async def generate_loops(self, origin, distance_km, distance_tolerance_km, max_routes=None, start_time=None):
         self.received_start_time = start_time
         # 改善計画T531: routes.pyが配線するmax_routesを記録する（既定値・上書き値のエコー検証用）。
+        self.received_max_routes = max_routes
+        return self._candidates
+
+    async def generate_via_waypoints(
+        self, origin, waypoints, distance_km, destination=None, max_routes=None, start_time=None
+    ):
+        # 改善計画T602: destination/waypoints指定リクエスト（_run_generate_jobの分岐先）を
+        # 経由地・目的地ルート向けテストで使うための最小実装。generate_loopsと同じく
+        # 渡された候補をそのまま返すだけで、経路探索自体は検証しない。
+        self.received_start_time = start_time
         self.received_max_routes = max_routes
         return self._candidates
 
@@ -179,6 +196,38 @@ def test_generate_routes_no_candidates_reason_is_none_when_candidates_present(mo
 
     assert len(result["routes"]) == 1
     assert result["no_candidates_reason"] is None
+
+
+def test_generate_routes_echoes_destination_correction(monkeypatch):
+    # 改善計画T602: RouteGenerator.last_destination_correctionがconditions.
+    # corrected_destinationへそのまま転記されることを確認する。
+    candidates = [
+        RouteCandidate(
+            id="route-destination-00",
+            direction_label="目的地ルート",
+            distance_km=12.3,
+            geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]},
+        )
+    ]
+    generator = FakeRouteGenerator(candidates, destination_correction={"latitude": 35.70, "longitude": 139.70})
+    monkeypatch.setattr(
+        routes_module, "open_route_generation_setup", fake_open_route_generation_setup(candidates, generator=generator)
+    )
+
+    conditions = submit_and_await_done(
+        {**REQUEST_BODY, "destination": {"latitude": 35.6999, "longitude": 139.6999}}
+    )["conditions"]
+
+    assert conditions["destination"] == {"latitude": 35.6999, "longitude": 139.6999}
+    assert conditions["corrected_destination"] == {"latitude": 35.70, "longitude": 139.70}
+
+
+def test_generate_routes_corrected_destination_is_none_when_not_corrected(monkeypatch):
+    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
+
+    conditions = submit_and_await_done(REQUEST_BODY)["conditions"]
+
+    assert conditions["corrected_destination"] is None
 
 
 def test_generate_routes_echoes_applied_conditions(monkeypatch):

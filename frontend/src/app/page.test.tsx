@@ -710,6 +710,43 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("候補件数は整数で入力してください。");
   });
 
+  it("改善計画T602: backendが目的地を補正した場合、案内を表示し次回生成では補正後の地点を送る", async () => {
+    const user = userEvent.setup();
+    const correctedDestination = { latitude: 35.70, longitude: 139.70 };
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
+      conditions: makeConditions({ destination: { latitude: 35.681, longitude: 139.767 }, corrected_destination: correctedDestination }),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    expect(
+      await screen.findByText(
+        "指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。",
+      ),
+    ).toBeInTheDocument();
+
+    // 地図上のピンも補正後の地点へ動いているため、次回生成では補正後の座標を送る。
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
+      conditions: makeConditions({ destination: correctedDestination }),
+      engine: "road_graph",
+    });
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ destination: correctedDestination }),
+        expect.anything(),
+      );
+    });
+  });
+
   it("改善計画T557（P1）: 経由地を伴う目的地モードで候補件数欄が空のまま生成しても422にならない値を送る", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({

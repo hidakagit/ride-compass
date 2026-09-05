@@ -301,16 +301,25 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
 候補ごとのretraceペナルティ付き復路A*）とは異なり、木2本だけで全候補が確定し候補ごとの
 追加探索が発生しない:
 
-1. 起点からの前向き木（`select_loop_turnarounds`と同じ`build_shortest_path_tree`）と、
-   目的地からの後ろ向き木（転置CSR、`_get_or_build_reverse_search_statics`）を各1回求める。
-2. 全Nodeについて経由路長`len_f+len_b`・合成コスト`cost_f+cost_b`をベクトル計算し、
+1. 起点からの前向き木（`select_loop_turnarounds`と同じ`build_shortest_path_tree`）を求める。
+   目的地に一番近いNode（`find_nearest_node_indexed`、次数1以上のみが候補[T256]）が
+   この前向き木で到達不能な場合（歩道橋・私有地内通路等、メインの道路網から孤立した
+   小さな塊へスナップされたケース）、`find_nearest_node_indexed`へ「前向き木が届くNode」
+   だけを候補にする`predicate`を渡して再スナップする（[T602](../../tasks/T602.md)、
+   実際の座標は`_RoadGraphContext.destination_correction`に残り
+   `RouteGenerator.last_destination_correction`→`GenerationConditions.
+   corrected_destination`経由でレスポンスへエコーされる）。再スナップも失敗する
+   （前向き木が届くNodeが近傍に無い）場合は候補0件として扱う。
+2. （補正後の）目的地からの後ろ向き木（転置CSR、`_get_or_build_reverse_search_statics`）を
+   求める。
+3. 全Nodeについて経由路長`len_f+len_b`・合成コスト`cost_f+cost_b`をベクトル計算し、
    合成コスト最小のNode（＝経由地無しの従来の単一生成が返す経路、"最良路"）の長さの
    `ALTERNATIVE_MAX_STRETCH`（1.3）倍以内のNodeだけを候補にする。
-3. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
+4. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
    先頭へ回す——伸び率の許す範囲でより平均difficultyの低い経路が他に存在すれば難易度順
    ではそちらが上位に来うるため、「最良路は必ず結果に含まれる」をランキングとは独立に
    保証する。
-4. `domain/routing.py: select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じ
+5. `domain/routing.py: select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じ
    物理区間を共有するNode（行って戻る形、`_loop_edge_lengths_by_physical_segment`で
    進行方向を無視した判定——単純なEdge index集合の比較だと同じ道の逆方向Edgeを
    見逃す）を除外しつつ、採用済み候補との重複率が`VIA_NODE_MAX_OVERLAP_RATIO`

@@ -186,6 +186,11 @@ class RouteGenerator:
         # がリクエストごとに新規生成するため、インスタンス属性として持っても並行リクエスト間で
         # 競合しない。
         self.last_no_candidates_reason: str | None = None
+        # 改善計画T602: _generate_destination_routesが目的地をアクセス可能な最寄りNodeへ
+        # 補正した場合の実際の座標（補正が無ければNone）。last_no_candidates_reasonと同じ
+        # 経路でroutes.py: _run_generate_jobがGenerationConditions.corrected_destinationへ
+        # 転記する。
+        self.last_destination_correction: Coordinates | None = None
 
     @property
     def engine_name(self) -> str:
@@ -434,6 +439,7 @@ class RouteGenerator:
         started = time.monotonic()
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
         self.last_no_candidates_reason = None
+        self.last_destination_correction = None
 
         start_time = start_time or datetime.now(JST)
         context = await self._engine.prepare(origin, radius_km, waypoints=[destination], now=start_time)
@@ -452,6 +458,9 @@ class RouteGenerator:
         select_started = time.monotonic()
         traced = await self._engine.select_via_nodes(context, destination, max_routes)
         select_ms = round((time.monotonic() - select_started) * 1000)
+        # 改善計画T602: engineが目的地をアクセス可能な最寄りNodeへ補正した場合、その座標を
+        # 引き継ぐ（contextはengine実装ごとに異なりうるAny型のため、無い場合はNoneのまま）。
+        self.last_destination_correction = getattr(context, "destination_correction", None)
         if not traced:
             logger.warning(
                 "generate(destination) engine=%s origin=%s max_routes=%d -> no via-node candidates "
