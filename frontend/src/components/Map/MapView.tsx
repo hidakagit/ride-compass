@@ -959,72 +959,17 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
       },
     },
   },
-  // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。降水ナウキャストと同じ
-  // bosai/jmatile/data/nowc/系だが、60分より先の延長予報を持たない（風・降水と違い
-  // Open-Meteo側に雷・竜巻に相当するデータが無いため）。プロダクトコード違い（thns/trns）
-  // だけの単純なrasterのみのスペックで、gridFill/gridMarkは持たない。
-  thunderNowcast: {
-    main: {
-      raster: {
-        placeholderTileUrl:
-          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
-        opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 10,
-        attribution: "気象庁",
-      },
-    },
-  },
-  tornadoNowcast: {
-    main: {
-      raster: {
-        placeholderTileUrl:
-          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
-        opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 10,
-        attribution: "気象庁",
-      },
-    },
-  },
-  // 雷放電位置データ（改善計画T541）。thunderNowcastと同じN3配信だが、配信元が既に
-  // GeoJSON（個々の落雷地点）で提供するためraster設定を持たない。geojson自体は
-  // hooks/useDynamicWeatherLayers.tsが選択フレームごとに取得しstateへ持つ（他要素の
-  // gridMarkと異なり、ここでは既存の格子データからの合成ではなく配信元GeoJSONを
-  // そのまま渡す）。落雷の強弱を示す値を配信元が持たないため、valueProperty
-  // （LIDEN_MARK_VALUE_PROPERTY）は常に固定値で、minScale===maxScaleによりicon-sizeは
-  // ズームだけに依存する（プロパティ値は実質無視される）。
-  liden: {
-    main: {
-      gridMark: {
-        createIcon: createLidenIcon,
-        colorExpression: "#facc15" as unknown as maplibregl.ExpressionSpecification,
-        valueProperty: LIDEN_MARK_VALUE_PROPERTY,
-        minScale: 0.8,
-        maxScale: 0.8,
-        maxValueForFullScale: 1,
-        haloColor: "rgba(31, 41, 55, 0.85)",
-        haloWidth: 1.5,
-      },
-    },
-  },
-  // キキクル（危険度分布、改善計画T410）。他のraster専用スペック（thunderNowcast等）と
-  // 同じ単純な構成。zoom範囲はrisk.properties.xml（minZoom=4/maxZoom=14/
-  // maxNativeZoom=11）に合わせる。
-  landslideRisk: {
-    main: {
-      raster: {
-        placeholderTileUrl:
-          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
-        opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 11,
-        attribution: "気象庁",
-      },
-    },
-  },
-  heavyRainRisk: {
-    main: {
+  // 災害。7要素を名前付きソースとして同時に描画する1グループ（mapLayers.ts: "disaster"）。
+  // オブジェクトのキー順がそのままMapLibreのレイヤー追加順＝重なり順になる
+  // （ensureDynamicWeatherLayerがObject.entriesで走査する）ため、面（キキクル・雷・竜巻の
+  // ラスタ）を下に、局所的で見落としやすい線（洪水）・点（落雷）を上に置く。ラスタ同士が
+  // 重なった領域は混色になるが、危険度ゼロの領域は配信元のタイルが透明のため、平常時は
+  // 7要素すべてONでも地図の見た目は変わらない。
+  disaster: {
+    // キキクル（危険度分布）。zoom範囲はrisk.properties.xml（minZoom=4/maxZoom=14/
+    // maxNativeZoom=11）に合わせる。大雨は浸水・土砂双方を統合した指標のため、個別の
+    // 土砂・浸水より下に置く。
+    heavyRain: {
       raster: {
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`,
@@ -1034,9 +979,17 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         attribution: "気象庁",
       },
     },
-  },
-  inundationRisk: {
-    main: {
+    landslide: {
+      raster: {
+        placeholderTileUrl:
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 11,
+        attribution: "気象庁",
+      },
+    },
+    inundation: {
       raster: {
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`,
@@ -1046,25 +999,42 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         attribution: "気象庁",
       },
     },
-  },
-  // 洪水キキクル（改善計画T416）。他3種と異なり配信元がMapbox Vector Tile（.pbf）のため
-  // vector kind（riskMap.ts冒頭コメント参照）。source-layer名"flood"・プロパティ"level"
-  // （1〜4）は実機確認済み（risk.properties.xml: vectorTileLayerStyles.flood）。配信元は
-  // maxZoom=14まで持つ（properties.xml: imageType id="flood"のminZoom/maxZoom）が、
-  // このアプリでのフェッチ上限は他レイヤーと揃えて11にしている（下記maxzoomのコメント
-  // 参照、改善計画T510）。
-  floodRisk: {
-    main: {
+    // 雷ナウキャスト・竜巻発生確度ナウキャスト。降水ナウキャストと同じbosai/jmatile/
+    // data/nowc/系だが、60分より先の延長予報を持たない（Open-Meteo側に雷・竜巻に相当する
+    // データが無いため）。プロダクトコード違い（thns/trns）だけの単純なrasterのみの
+    // スペックで、gridFill/gridMarkは持たない。
+    thunder: {
+      raster: {
+        placeholderTileUrl:
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 10,
+        attribution: "気象庁",
+      },
+    },
+    tornado: {
+      raster: {
+        placeholderTileUrl:
+          `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
+        opacity: 0.65,
+        minzoom: 4,
+        maxzoom: 10,
+        attribution: "気象庁",
+      },
+    },
+    // 洪水キキクル。他3種と異なり配信元がMapbox Vector Tile（.pbf）のためvector kind
+    // （riskMap.ts冒頭コメント参照）。source-layer名"flood"・プロパティ"level"（1〜4）は
+    // risk.properties.xmlのvectorTileLayerStyles.floodに対応する。
+    flood: {
       vector: {
-        // ユーザー報告（2026-08-31、「地図が出なくなった」"Failed to construct 'Request':
-        // Failed to parse URL from /api/jma-tile/..."）: ベクタタイルはMapLibreがWeb
-        // Worker内で取得するため相対パスのままだと解決に失敗する（regionApi.ts:
-        // roadSurfaceTileUrl等と同じ理由、riskMap.ts: tileUrlTemplateのpbf分岐参照）。
-        // DYNAMIC_WEATHER_RENDERERSはモジュール読み込み時に評価される定数のため、
-        // 純ロジックのみをnode環境（windowを持たない）でテストするMapView.routes.test.ts等
-        // からも本ファイルがimportされる。windowが無い環境ではこのプレースホルダURLの
-        // 値自体は使われないため、その場合だけ絶対URL化を諦め従来の相対URLへ戻す
-        // （実ブラウザでは常にwindowが存在し、必ず絶対URL化される）。
+        // ベクタタイルはMapLibreがWeb Worker内で取得するため、相対パスのままだとWorkerの
+        // base URLに対して解決できず例外になる（regionApi.ts: roadSurfaceTileUrl等と同じ
+        // 理由、riskMap.ts: tileUrlTemplateのpbf分岐参照）。DYNAMIC_WEATHER_RENDERERSは
+        // モジュール読み込み時に評価される定数のため、純ロジックのみをnode環境（windowを
+        // 持たない）でテストするMapView.routes.test.ts等からも本ファイルがimportされる。
+        // windowが無い環境ではこのプレースホルダURLの値自体は使われないため、その場合だけ
+        // 絶対URL化を諦め相対URLへ戻す（実ブラウザでは常にwindowが存在する）。
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/flood/{z}/{x}/{y}.pbf`,
         sourceLayer: "flood",
@@ -1076,15 +1046,32 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // gridMarkと共通のパターン）をそのまま流用する。
         minValueToShow: 0,
         minzoom: 4,
-        // 改善計画T510: 配信元(JMA properties.xml)はmaxZoom=14まで持つが、他のJMA動的
-        // タイル系レイヤー（キキクル3種・線状降水帯予測マップ・雷/竜巻ナウキャスト、
-        // いずれもmaxzoom10〜11）と揃えて11へ下げた。ベクタタイルのためz11超過分は
-        // MapLibreがz11時点のジオメトリをクライアント側で拡大表示するだけで済み
-        // （ラスタと異なりボケない）、ユーザー了承済みのトレードオフ
-        // （backend/app/services/jma_tile_prewarm_service.pyが定期的にRedisへ温める対象
-        // ズーム範囲を全レイヤーで揃えられる、docs/tasks/T510.md参照）。
+        // 配信元（JMA properties.xml）はmaxZoom=14まで持つが、他のJMA動的タイル系レイヤー
+        // （キキクル3種・線状降水帯予測マップ・雷/竜巻ナウキャスト、いずれもmaxzoom10〜11）と
+        // 揃えて11にする。ベクタタイルのためz11超過分はMapLibreがz11時点のジオメトリを
+        // クライアント側で拡大表示するだけで済み（ラスタと異なりボケない）、
+        // backend/app/services/jma_tile_prewarm_service.pyが定期的にRedisへ温める対象
+        // ズーム範囲を全レイヤーで揃えられる（docs/tasks/T510.md参照）。
         maxzoom: 11,
         attribution: "気象庁",
+      },
+    },
+    // 雷放電位置データ（落雷）。同じN3配信の雷ナウキャストと異なり、配信元が既にGeoJSON
+    // （個々の落雷地点）で提供するためraster設定を持たない。geojson自体は
+    // hooks/useDynamicWeatherLayers.tsが選択フレームごとに取得しstateへ持つ（他要素の
+    // gridMarkと異なり、既存の格子データからの合成ではなく配信元GeoJSONをそのまま渡す）。
+    // 落雷の強弱を示す値を配信元が持たないため、valueProperty（LIDEN_MARK_VALUE_PROPERTY）は
+    // 常に固定値で、minScale===maxScaleによりicon-sizeはズームだけに依存する。
+    liden: {
+      gridMark: {
+        createIcon: createLidenIcon,
+        colorExpression: "#facc15" as unknown as maplibregl.ExpressionSpecification,
+        valueProperty: LIDEN_MARK_VALUE_PROPERTY,
+        minScale: 0.8,
+        maxScale: 0.8,
+        maxValueForFullScale: 1,
+        haloColor: "rgba(31, 41, 55, 0.85)",
+        haloWidth: 1.5,
       },
     },
   },

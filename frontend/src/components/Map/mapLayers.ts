@@ -73,25 +73,13 @@ export type MapLayerId =
   // 向きが本質的に必要という点が風とは異なる性質（T423.mdの重要な注意点参照）だが、
   // 配信・setFeatureState連携の枠組み自体はwindAxisと共有する（dynamicWayValues.ts）。
   | "gradientAxis"
-  // 雷ナウキャスト・竜巻発生確度ナウキャスト（改善計画T204）。precipitationNowcastと同じ
-  // 理由でkind="static"・dataNature="dynamic"。「回避一択」の危険（雷・竜巻）のため
-  // 評価軸には組み込まず警告表示のみ（T170〜T178節の設計判断を踏襲）。
-  | "thunderNowcast"
-  | "tornadoNowcast"
-  // 雷放電位置データ（改善計画T541）。同じN3配信のthunderNowcastとは別に、個々の落雷
-  // 地点をgridMark（点マーカー）で独立してON/OFFできるようにする。
-  | "liden"
-  // キキクル（危険度分布：土砂災害・大雨・浸水、改善計画T410）。他の気象グループ
-  // （降水ナウキャスト・風・雷等）と同じ地図上チップを持ち、category="weather"・
-  // dataNature="dynamic"で扱う。線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）
-  // のため個別チップを持たず、"precipitationNowcast"チップの傘下（4つ目のソース）にある。
-  | "landslideRisk"
-  | "heavyRainRisk"
-  | "inundationRisk"
-  // 洪水キキクル（改善計画T416）。他3種と異なり配信元がベクタタイル（.pbf）のため
-  // dynamicWeather.tsのDynamicWeatherRenderPayloadは"vectorTile" kindを返すが、
-  // MapLayerId・地図上チップとしての扱いは他3種と同じ。
-  | "floodRisk"
+  // 災害。雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ（落雷）・キキクル
+  // 4種（土砂災害・大雨・浸水・洪水）の7要素を1つのチップへまとめたグループで、7要素は
+  // MapView.tsxのDYNAMIC_WEATHER_RENDERERSの名前付きソースとして同時に描画する。
+  // 「回避一択」の危険のため評価軸には組み込まず表示のみを行う。線状降水帯予測マップは
+  // rasrf系統（降水短時間予報と同じ）のため、ここではなく"precipitationNowcast"チップの
+  // 傘下（4つ目のソース）にある。
+  | "disaster"
   // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
   // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
   // （axisLayers.ts: axisMapLayerId参照）。
@@ -108,7 +96,7 @@ export type MapLayerKind = "static" | "dynamic";
 // staticレイヤーの中分類（改善計画T86）。staticが8種に達しflatな一覧のまま並んでいたため、
 // サイドバー（MapLayersPanel）の見出しをkind単位からこの単位へ変更する。dynamic（route）は
 // 今のところ1種のみのため中分類を持たない（category未指定）。
-export type MapLayerCategory = "roadCondition" | "trafficSafety" | "terrain" | "amenity" | "weather";
+export type MapLayerCategory = "roadCondition" | "trafficSafety" | "terrain" | "amenity" | "weather" | "disaster";
 
 // カテゴリの表示順・見出し文言の単一ソース（改善計画T86→T128）。以前はMapLayersPanel.tsx
 // だけが持っていたが、T128（地図上チップのカテゴリ束ね）でMapOverlayControls.tsxも
@@ -120,6 +108,7 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
   "terrain",
   "amenity",
   "weather",
+  "disaster",
 ];
 
 /** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
@@ -225,18 +214,23 @@ export function mapOverlayGroupFor(layer: {
 }): MapOverlayGroup | undefined {
   if (isAxisStudioLayer(layer)) return undefined;
   if (layer.category === "roadCondition") return "road";
-  if (layer.category === "terrain" || layer.category === "weather") return "environment";
+  if (layer.category === "terrain" || layer.category === "weather" || layer.category === "disaster")
+    return "environment";
   if (layer.category === "trafficSafety" || layer.category === "amenity") return "spot";
   return undefined;
 }
 
 /** レイヤー1件が属する排他ドメインを判定する（mapOverlayGroupForのラッパー）。
- * どのグループにも属さないレイヤー（route等）はundefined＝排他制御の対象外。 */
+ * どのグループにも属さないレイヤー（route等）はundefined＝排他制御の対象外。
+ * category="disaster"（防災レイヤー）は「環境」グループのメンバーとして並ぶが排他制御
+ * からは外す——他の環境レイヤー（降水・風・標高図等）を選んでいる間も災害情報が地図から
+ * 消えてはならないため。 */
 export function mapOverlayExclusiveDomainFor(layer: {
   id: MapLayerId;
   category?: MapLayerCategory;
   dataNature?: MapLayerDataNature;
 }): MapOverlayExclusiveDomain | undefined {
+  if (layer.category === "disaster") return undefined;
   const group = mapOverlayGroupFor(layer);
   return group ? MAP_OVERLAY_EXCLUSIVE_DOMAIN[group] : undefined;
 }
@@ -584,123 +578,28 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "で、ルート自身の実際の進行方向に基づく色分けをルート線だけに適用できます。",
   },
   {
-    // 雷ナウキャスト（改善計画T204）。T171実装メモが「プロダクトコード未確認のため
-    // 別レイヤー・別調査として残す」としていた宿題。降水ナウキャストと同じ気象庁配信
-    // （bosai/jmatile/data/nowc/、プロダクトコードthns）だが、実況〜60分先までのみで
-    // それより先の延長予報は無い（範囲外はT184共通契約どおり描画しない）。「回避一択」の
-    // 危険のため評価軸には組み込まず警告表示のみ。
-    id: "thunderNowcast",
-    label: "雷ナウキャスト",
-    chipLabel: "雷",
+    // 災害（雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ・キキクル4種）。
+    // 7要素を1つのチップでまとめてON/OFFし、MapView.tsxのDYNAMIC_WEATHER_RENDERERSが
+    // 名前付きソースとして同時に描画する。雷・竜巻・落雷は時刻スライダーに連動し、
+    // キキクル4種は「現在の危険度」単一値のみの配信のため連動しない（riskMap.ts参照）。
+    // 「回避一択」の危険のため評価軸には組み込まず表示のみを行う。
+    id: "disaster",
+    label: "災害",
+    chipLabel: "災害",
     kind: "static",
-    category: "weather",
+    category: "disaster",
     dataNature: "dynamic",
-    description: "気象庁の雷ナウキャストを表示[実況〜60分先、10分刻み]",
+    description:
+      "気象庁の雷・竜巻・落雷とキキクル4種（土砂災害・大雨・浸水・洪水）をまとめて表示" +
+      "[雷・竜巻・落雷は実況〜60分先、キキクルは現在の危険度のみ]",
     panelHint:
-      "気象庁の雷ナウキャスト（活動度1〜4）です。ONにすると地図上に時刻スライダーが現れ、" +
-      "実況（直近）から60分先までの雷の状況を切り替えて確認できます。活動度2以上が表示" +
-      "されている領域では、直ちに建物の中など安全な場所への避難が必要です。非公式の内部" +
-      "APIを利用しているため、取得に失敗することがあります。",
-  },
-  {
-    // 竜巻発生確度ナウキャスト（改善計画T204、雷と同じN3配信のため同時に実装）。雷とは
-    // 独立したON/OFFにする（同じ地図上に雷・竜巻を重ねると見分けにくいという判断、
-    // 必要な情報だけを選んで表示できるようにする）。
-    id: "tornadoNowcast",
-    label: "竜巻発生確度ナウキャスト",
-    chipLabel: "竜巻",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "気象庁の竜巻発生確度ナウキャストを表示[実況〜60分先、10分刻み]",
-    panelHint:
-      "気象庁の竜巻発生確度ナウキャスト（発生確度1・2）です。ONにすると地図上に時刻" +
-      "スライダーが現れ、実況（直近）から60分先までの竜巻等の激しい突風の可能性を切り替えて" +
-      "確認できます。発生確度2は気象庁の「竜巻注意」情報につながる絞り込んだ予測です。" +
-      "非公式の内部APIを利用しているため、取得に失敗することがあります。",
-  },
-  {
-    // 雷放電位置データ（改善計画T541）。thunderNowcast（エリア単位の活動度）とは異なり、
-    // 個々の落雷地点そのものを点マーカーで示す。
-    id: "liden",
-    label: "雷放電位置データ",
-    chipLabel: "落雷",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "気象庁の雷放電位置データ（実際の落雷地点）を表示[実況、5分刻み]",
-    panelHint:
-      "気象庁が検知した実際の落雷地点（雷放電位置データ）です。ONにすると地図上に時刻" +
-      "スライダーが現れ、直近の落雷地点を5分刻みで確認できます。エリア単位の危険度は" +
-      "「雷ナウキャスト」チップで確認してください。非公式の内部APIを利用しているため、" +
-      "取得に失敗することがあります。",
-  },
-  {
-    // 土砂災害キキクル（気象庁 危険度分布、改善計画T410/T606）。他のraster専用スペック
-    // （thunderNowcast等）と同じ単純な構成。未来方向のフレームを持たず「現在の危険度」
-    // 単一値のみを配信するため、時刻スライダーとは連動しない（riskMap.ts冒頭コメント参照）。
-    id: "landslideRisk",
-    label: "土砂災害キキクル",
-    chipLabel: "土砂",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "気象庁の危険度分布（キキクル）土砂災害を表示",
-    panelHint:
-      "気象庁の危険度分布（キキクル）のうち土砂災害の危険度分布です。5段階（注意・警戒・" +
-      "危険・災害切迫、平常時は表示なし）で色分けされた現在の危険度を表示します。実況を" +
-      "もとにした「現在の危険度」単一値のみを配信するため、他の気象レイヤーと異なり時刻" +
-      "スライダーには連動しません。非公式の内部APIを利用しているため、取得に失敗すること" +
-      "があります。",
-  },
-  {
-    id: "heavyRainRisk",
-    label: "大雨キキクル",
-    chipLabel: "大雨",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "気象庁の危険度分布（キキクル）大雨を表示",
-    panelHint:
-      "気象庁の危険度分布（キキクル）のうち大雨（浸水・土砂災害双方の危険度を統合した" +
-      "指標）の危険度分布です。5段階（注意・警戒・危険・災害切迫、平常時は表示なし）で" +
-      "色分けされた現在の危険度を表示します。実況をもとにした「現在の危険度」単一値のみを" +
-      "配信するため、他の気象レイヤーと異なり時刻スライダーには連動しません。非公式の内部" +
-      "APIを利用しているため、取得に失敗することがあります。",
-  },
-  {
-    id: "inundationRisk",
-    label: "浸水キキクル",
-    chipLabel: "浸水",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "気象庁の危険度分布（キキクル）浸水を表示",
-    panelHint:
-      "気象庁の危険度分布（キキクル）のうち浸水害の危険度分布です。5段階（注意・警戒・" +
-      "危険・災害切迫、平常時は表示なし）で色分けされた現在の危険度を表示します。実況を" +
-      "もとにした「現在の危険度」単一値のみを配信するため、他の気象レイヤーと異なり時刻" +
-      "スライダーには連動しません。非公式の内部APIを利用しているため、取得に失敗すること" +
-      "があります。",
-  },
-  {
-    // 洪水キキクル（改善計画T416）。他3種と異なり配信元がベクタタイル（.pbf）のため
-    // dynamicWeather.tsのDynamicWeatherRenderPayloadはvectorTile kindを返すが、
-    // MapLayerDescriptorとしての扱いは他3種と同じ（vectorTile自体はユーザーに見えない
-    // 実装詳細のためpanelHintでは触れない）。
-    id: "floodRisk",
-    label: "洪水キキクル",
-    chipLabel: "洪水",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "気象庁の危険度分布（キキクル）洪水を表示",
-    panelHint:
-      "気象庁の危険度分布（キキクル）のうち洪水の危険度分布です。河川ごとに5段階" +
-      "（注意・警戒・危険・災害切迫、平常時は表示なし）で色分けされた現在の危険度を表示" +
-      "します。実況をもとにした「現在の危険度」単一値のみを配信するため、他の気象レイヤーと" +
-      "異なり時刻スライダーには連動しません。非公式の内部APIを利用しているため、取得に" +
-      "失敗することがあります。",
+      "気象庁の防災情報をまとめて表示します。雷ナウキャスト（活動度1〜4）・竜巻発生確度" +
+      "ナウキャスト（発生確度1・2）・雷放電位置データ（実際の落雷地点）は時刻スライダーに" +
+      "連動し、実況（直近）から60分先までを切り替えて確認できます。キキクル4種（土砂災害・" +
+      "大雨・浸水・洪水）は5段階（注意・警戒・危険・災害切迫、平常時は表示なし）で色分け" +
+      "した現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動" +
+      "しません。平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +
+      "変わりません。非公式の内部APIを利用しているため、取得に失敗することがあります。",
   },
   {
     id: "route",
