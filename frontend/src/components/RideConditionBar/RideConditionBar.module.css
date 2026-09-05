@@ -59,7 +59,7 @@
 
 /* 出発時刻のポップオーバー用。中身のDynamicLayerTimeSlider自身が枠・背景・影を持つ
    （DynamicLayerTimeSlider.module.css: .panel）ため、.popoverと違い箱の見た目を持たせない
-   （二重に枠が重なるのを避ける）。クイック設定ボタン行だけはこの透明な領域に直接置く。 */
+   （二重に枠が重なるのを避ける）。 */
 .timelinePopover {
   z-index: 60;
   display: flex;
@@ -72,15 +72,19 @@
   gap: var(--space-1);
 }
 
+/* .timelinePopover自体が背景を持たないため、地図の上に直接浮く。背景を透明にすると
+   地図の色によっては地図が透けて視認できなくなるため、他の地図上コントロール
+   （.chip等）と同じ不透明な背景を持たせる。 */
 .quickButton {
   flex: 1;
   height: 30px;
   border-radius: 6px;
   border: 1px solid var(--color-border);
-  background: transparent;
+  background: var(--color-surface);
   color: var(--color-text);
   font-size: 0.85rem;
   cursor: pointer;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.15));
 }
 
 .quickButton:hover {
