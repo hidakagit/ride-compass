@@ -1,16 +1,12 @@
-"""評価軸の変換ロジックが還元できる2つの汎用プリミティブ（改善計画T221 Stage A・T239、
-T396で4テンプレートから再編）。
+"""評価軸の変換ロジックが還元できる2つの汎用プリミティブ。
 
 - **連続演算**（`evaluate_breakpoint_linear`）: 材料（または他軸のスコア）を重み付き
-  結合し、区分線形カーブ（両端クランプ）でスコア化する。旧4テンプレートのうち
-  「区分線形補間」「フラグ加算」（`evaluate_flag_sum`、boolean材料限定の特殊形だった）
-  「レシピ→レベル→区分線形補間」（`evaluate_recipe_then_breakpoint_linear`、他軸参照を
-  表す別名にすぎず実装は本関数のエイリアスだった）はすべてこの1関数に還元される
-  （T396で統合、`domain/axis_definitions.py: BreakpointLinearShape`docstring参照）。
+  結合し、区分線形カーブ（両端クランプ）でスコア化する（`domain/axis_definitions.py:
+  BreakpointLinearShape`docstring参照）。
 - **離散演算**（`evaluate_categorical`）: 単一の離散値（bool/カテゴリ文字列）を
   テーブル引きでスコア化する。
 
-「合成」（他軸のスコアを次の軸の入力として使う階層構造、改善計画T292）は独立した
+「合成」（他軸のスコアを次の軸の入力として使う階層構造）は独立した
 プリミティブではなく、連続演算の結合ステップの性質——`terms`の各materialが
 材料id・他軸のaxis_idのどちらも区別なく指せることから生じる（`axis_definitions.py:
 topological_axis_order`が依存順の評価を担う）。
@@ -19,7 +15,7 @@ topological_axis_order`が依存順の評価を担う）。
 Pythonのfloat/boolを、配列入力には同じ形状のnumpy配列を返す（欠損値はNaNで表現・伝播する）。
 `domain/difficulty.py`・`domain/night.py`の各`*_difficulty`関数（1エッジずつ呼ばれる
 スカラー経路、Noneガードは呼び出し側が担う）と、`EvaluationService.evaluate_graph`の
-ベクトル化された一括経路（改善計画T240）の両方が同じ実装を共有することで、「軸のロジックは
+ベクトル化された一括経路の両方が同じ実装を共有することで、「軸のロジックは
 1箇所にまとめる」という設計原則（`docs/complexity-review-2026-08-16.md`）をベクトル化後も
 維持する。
 """
@@ -51,9 +47,9 @@ def evaluate_categorical(value, mapping: dict, default: float | None = None):
     `default`、既定Noneなら数値配列の文脈に合わせてNaN）。
 
     配列入力はキーでソートした`np.searchsorted`（二分探索）で該当インデックスを求める
-    （コードレビュー指摘の修正: 以前はmappingの各キーごとに配列全体を`np.where`で
-    走査するO(要素数×キー数)のループだったが、highway等キー数が多い多値categorical
-    材料でO(要素数×log(キー数))へ改善）。欠損（None）は`keys[0]`の位置へ一時的に
+    （mappingの各キーごとに配列全体を走査するO(要素数×キー数)ではなく、
+    highway等キー数が多い多値categorical材料でもO(要素数×log(キー数))で済む）。
+    欠損（None）は`keys[0]`の位置へ一時的に
     差し替えてから検索する必要がある（Noneはstr材料と順序比較できずsearchsorted自体が
     例外になるため）が、`keys[0]`はmappingの実在キーなので置き換えただけでは
     「一致した」ことにしてしまう——`missing`マスクを別途保持し、検索結果とは無関係に
