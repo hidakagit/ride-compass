@@ -56,6 +56,16 @@ describe("RouteAxisProfile", () => {
     expect(within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem")).toHaveLength(3);
   });
 
+  it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、内訳バーからは除外され軸一覧には残る", () => {
+    const { container } = render(
+      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 36.2, wind: 0, night: 2.9 } })} />
+    );
+
+    const segments = container.querySelectorAll('[class*="stackSegment"]');
+    expect(segments).toHaveLength(2);
+    expect(within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem")).toHaveLength(3);
+  });
+
   it("内訳バーは積み上げ1本バー（RouteSettingsPanel.module.cssのstackBar/stackSegmentを流用）として描画される", () => {
     const { container } = render(<RouteAxisProfile {...baseProps()} />);
 

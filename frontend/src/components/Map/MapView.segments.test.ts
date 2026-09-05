@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { RouteSegmentDetail } from "@/types/route";
-import { nearestPointOnLineString, segmentsToFeatureCollection } from "./MapView";
+import {
+  nearestPointOnLineString,
+  restoreRouteSegmentProperties,
+  segmentsToFeatureCollection,
+  type RouteSegmentProperties,
+} from "./MapView";
 
 function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail {
   return {
@@ -113,5 +118,56 @@ describe("segmentsToFeatureCollection", () => {
     expect(properties.axis_difficulties).toEqual({ gradient: 10, wind: 20, surface_q: 0, stop_density: 0 });
     expect(properties.material_values).toEqual({ gradient_percent: 1.2, wind_drag_ratio: 0.5 });
     expect(properties.difficulty).toBe(12);
+  });
+});
+
+describe("restoreRouteSegmentProperties", () => {
+  function withoutGeometry(segment: RouteSegmentDetail): RouteSegmentProperties {
+    const properties: Partial<RouteSegmentDetail> = { ...segment };
+    delete properties.geometry;
+    return properties as RouteSegmentProperties;
+  }
+
+  // クリック時にqueryRenderedFeatures経由で読み戻すfeature.propertiesでは、MapLibreが
+  // オブジェクト型フィールドをJSON文字列へシリアライズする（vector tile相当の内部表現へ
+  // 変換する際、プリミティブ型しか保持できないvector tile仕様の制約のため）。
+  // segmentsToFeatureCollectionが渡す時点の素のオブジェクトではなく、この文字列化された
+  // 形を入力にする。
+  function makeSerializedProperties(overrides: Partial<RouteSegmentProperties> = {}): RouteSegmentProperties {
+    const base = makeSegment({});
+    return {
+      ...withoutGeometry(base),
+      axis_difficulties: JSON.stringify(base.axis_difficulties) as unknown as Record<string, number>,
+      axis_contributions: JSON.stringify(base.axis_contributions) as unknown as Record<string, number>,
+      material_values: JSON.stringify(base.material_values) as unknown as Record<string, number>,
+      ...overrides,
+    };
+  }
+
+  it("文字列化されたaxis_difficulties・axis_contributions・material_valuesをすべてオブジェクトへ復元する", () => {
+    const restored = restoreRouteSegmentProperties(makeSerializedProperties());
+
+    expect(restored.axis_difficulties).toEqual({ gradient: 10, wind: 20, surface_q: 0, stop_density: 0 });
+    expect(restored.axis_contributions).toEqual({ gradient: 5, wind: 10, surface_q: 0, stop_density: 0 });
+    expect(restored.material_values).toEqual({ gradient_percent: 1.2, wind_drag_ratio: 0.5 });
+  });
+
+  // 実際に発生していたクラッシュの再現: material_valuesのパースが漏れていると、文字列の
+  // ままObject.entries()に渡され1文字ずつのエントリになる（利用側のformatMaterialValueが
+  // .toFixed()を呼びTypeErrorになる、frontend/src/app/page.tsx参照）。
+  it("パース漏れが無ければmaterial_valuesはObject.entries()で正しい[materialId, value]の組を返す", () => {
+    const restored = restoreRouteSegmentProperties(makeSerializedProperties());
+
+    const entries = Object.entries(restored.material_values ?? {});
+    expect(entries).toEqual([
+      ["gradient_percent", 1.2],
+      ["wind_drag_ratio", 0.5],
+    ]);
+  });
+
+  it("既にオブジェクトのまま（文字列化されていない）フィールドはそのまま返す", () => {
+    const properties = withoutGeometry(makeSegment({}));
+
+    expect(restoreRouteSegmentProperties(properties)).toEqual(properties);
   });
 });
