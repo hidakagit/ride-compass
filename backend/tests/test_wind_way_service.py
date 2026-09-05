@@ -16,11 +16,13 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.domain.region import tile_bounds_lonlat
+from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
-from app.domain.wind_grid import WindGridPoint
+from app.domain.wind_grid import WindGridPoint, nearest_grid_point
 from app.infrastructure import dynamic_way_value_cache
 from app.services.route_generator import JST
-from app.services.wind_way_service import WindWayService
+from app.services.wind_way_service import WIND_WAY_GRID_SPACING_DEG, WindWayService
 
 Z, X, Y = 14, 14551, 6447
 SPEED_KMH = 20.0
@@ -152,6 +154,45 @@ async def test_computes_wind_drag_ratio_from_bearing_speed_and_wind_grid():
     expected = round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(SPEED_KMH)), 3)
     assert result == {1: expected, 2: expected}
     assert len(weather_service.calls) == 1
+
+
+def _tile_center(z: int, x: int, y: int) -> Coordinates:
+    bbox = tile_bounds_lonlat(z, x, y)
+    return Coordinates(
+        latitude=(bbox.min_latitude + bbox.max_latitude) / 2,
+        longitude=(bbox.min_longitude + bbox.max_longitude) / 2,
+    )
+
+
+async def test_grid_point_uses_wind_way_grid_spacing_not_the_coarse_default():
+    repository = FakeWayIdsRepository(way_ids=[1])
+    grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
+    weather_service = FakeWeatherService(TIMES, grid_point)
+    service = WindWayService(repository=repository, weather_service=weather_service)
+
+    await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
+
+    expected_point = nearest_grid_point(_tile_center(Z, X, Y), spacing_deg=WIND_WAY_GRID_SPACING_DEG)
+    assert weather_service.calls[0] == [expected_point]
+
+
+async def test_adjacent_tiles_resolve_to_different_grid_points():
+    # 隣接タイル（z=14、幅約0.022度）は、粗い既定間隔（0.1度）では同じ格子点へ丸められて
+    # しまい同じ色になっていた。細かい間隔（WIND_WAY_GRID_SPACING_DEG=0.01度）ではタイル幅
+    # より格子間隔が狭いため、隣接タイルは異なる格子点へ丸められる。
+    grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
+
+    repository_a = FakeWayIdsRepository(way_ids=[1])
+    weather_service_a = FakeWeatherService(TIMES, grid_point)
+    service_a = WindWayService(repository=repository_a, weather_service=weather_service_a)
+    await service_a.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
+
+    repository_b = FakeWayIdsRepository(way_ids=[1])
+    weather_service_b = FakeWeatherService(TIMES, grid_point)
+    service_b = WindWayService(repository=repository_b, weather_service=weather_service_b)
+    await service_b.get_way_values(Z, X + 1, Y, AT, 0.0, SPEED_KMH)
+
+    assert weather_service_a.calls[0] != weather_service_b.calls[0]
 
 
 async def test_second_call_with_same_bearing_and_speed_bucket_is_served_from_cache():
