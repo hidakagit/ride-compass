@@ -1265,8 +1265,7 @@ function applyDynamicWeatherState(
 // 路面もGSI標高ラスタと同じ考え方で、地図初期化時に一度だけベクタタイルのソース/レイヤーを
 // 追加し、以降はvisibilityの切替・setPaintProperty/setFilterのみで表示・非表示・見た目を
 // 変える。標高ラスタの直後に追加することで、標高の上・ルート系レイヤーの下に描画される。
-// paintの初期値は仮の中立値（applyRoadLayerStateが呼び出し直後に必ず実際の値へ上書きする、
-// 改善計画T165参照）。
+// paintの初期値は仮の中立値（applyRoadLayerStateが呼び出し直後に必ず実際の値へ上書きする）。
 function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   const applyData = () => {
     if (map.getSource(ROAD_TILE_SOURCE_ID)) return;
@@ -1275,7 +1274,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       tiles: [roadSurfaceTileUrl()],
       minzoom: ROAD_TILE_MIN_ZOOM,
       maxzoom: ROAD_TILE_MAX_ZOOM,
-      // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸グループとしての風）がMapLibreの
+      // way_id→wind_drag_ratio配信層（評価軸グループとしての風）がMapLibreの
       // setFeatureStateでこのソースの地物へ後から値を差し込むために必要。MVTのフィーチャーは
       // 既定では安定したidを持たないため、既存のosm_way_idプロパティ（区間インスペクタ用に
       // 元から焼き込み済み、_ROAD_SURFACE_TILE_MVT_SQL参照）をfeature.idへ昇格させる
@@ -1302,12 +1301,11 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 改善計画T440: 専用のway_id→動的値配信層を持つ軸（風・勾配）のensure/apply/clearが、
-// レイヤーID・色式・feature-stateキーだけが違う同型の関数として軸ごとに手書きで
-// 重複していた（ensureWindAxisLayer/ensureGradientAxisLayer等）。makeEnsureAxisRampLayer
+// 専用のway_id→動的値配信層を持つ軸（風・勾配）のensure/apply/clearは、レイヤーID・色式・
+// feature-stateキーだけが違う同型の関数を軸ごとに用意するのではなく、makeEnsureAxisRampLayer
 // （ramp軸向け、上記）と同じ「1ファクトリ+N呼び出し」パターンへ統一する。
 //
-// way_id→値配信層（改善計画T405/T423）。designation/tunnel/onewayと同じくROAD_TILE_
+// way_id→値配信層。designation/tunnel/onewayと同じくROAD_TILE_
 // SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けはタイルの
 // プロパティではなくsetFeatureState経由の値（applyAxisFeatureStateValues参照）を読む。
 // ensureRoadSurfaceTileLayerを先に呼び、promoteId付きのsourceが確実に存在する状態で
@@ -1315,7 +1313,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
 // 仮定しており、それと同じ前提）。colorExpressionはdedicatedWayValueDisplays
 // （軸スタジオのdisplay_thresholds_override、実行時フェッチで後から変わりうる）に
 // 依存するため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する
-// （T587: 初回作成時の値で固定され、フェッチ完了後の正しい値が反映されないバグの修正）。
+// （初回作成時の値のまま固定させず、フェッチ完了後の値を反映させるため）。
 function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unknown[]): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     ensureRoadSurfaceTileLayer(map);
@@ -1342,15 +1340,15 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
   };
 }
 
-// useDynamicWayValues（hooks、改善計画T423で旧useWindAxisPenaltiesから汎用化）が
-// 取得した{way_id: 値}をMapLibreのsetFeatureStateで地物へ差し込む。パン・ズームで
+// useDynamicWayValues（hooks）が取得した{way_id: 値}をMapLibreのsetFeatureStateで
+// 地物へ差し込む。パン・ズームで
 // 表示範囲が変わり、直前に取得した一部のway_idが最新の応答に含まれなくなっても、
 // 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
 // 判断——古い値が多少残る方が、穴が開いたように見えるより実用上マシという方針を踏襲する。
 // 値そのものはbackend側のRedis TTLの範囲でしか新鮮さを保証しないため、古い値が長時間
 // 残り続けることはない）。featureStateKeyだけが軸ごとに異なる（
 // dedicatedWayValueLayer.ts: dedicatedWayValueFeatureStateKey）。
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: string, values: ReadonlyMap<number, number>) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
   values.forEach((value, wayId) => {
@@ -1361,24 +1359,24 @@ export function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: s
   });
 }
 
-/** 改善計画T414/T423: windAxis/gradientAxis（評価軸グループの風・勾配、視界内の全道路への
- * 一律色分け）が終了する瞬間（showWindAxis/showGradientAxisがfalseへ切り替わる瞬間
- * ——ルート確定・手動OFFのいずれも含む）に、それまでsetFeatureStateで差し込んだ全道路
- * ぶんの値を明示的にクリアする。上のapplyAxisFeatureStateValuesは（enabledのまま
- * パン・ズームで一部way_idが新しい応答へ含まれなくなる通常のケース向けに）意図的に
- * 古い値を残す設計だが、T414の契約は「ルート確定後はルート以外の道路を無色に戻す」ことを
- * 明示的に要求している——レイヤー自体はvisibility:noneで非表示になるため視覚上は
- * 問題ないが、契約どおり値そのものも消しておく（再度ONにしたときに一瞬だけ古い値が
- * ちらつくのを防ぐ副次効果もある）。removeFeatureStateはsource/sourceLayer単位で
- * 全キーをまとめて消す（MapLibreの仕様）ため、風・勾配どちらの終了判定からでも同じこの
- * 1関数を呼べばよい（feature-stateキーごとの個別クリアは元々できない）。 */
-// exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
+/** windAxis/gradientAxis（評価軸グループの風・勾配、視界内の全道路への一律色分け）が
+ * 終了する瞬間（showWindAxis/showGradientAxisがfalseへ切り替わる瞬間——ルート確定・
+ * 手動OFFのいずれも含む）に、それまでsetFeatureStateで差し込んだ全道路ぶんの値を
+ * 明示的にクリアする。上のapplyAxisFeatureStateValuesは（enabledのままパン・ズームで
+ * 一部way_idが新しい応答へ含まれなくなる通常のケース向けに）意図的に古い値を残す設計だが、
+ * ルート確定後はルート以外の道路を無色に戻す必要がある——レイヤー自体はvisibility:noneで
+ * 非表示になるため視覚上は問題ないが、値そのものも消しておく（再度ONにしたときに
+ * 一瞬だけ古い値がちらつくのを防ぐ副次効果もある）。removeFeatureStateはsource/
+ * sourceLayer単位で全キーをまとめて消す（MapLibreの仕様）ため、風・勾配どちらの
+ * 終了判定からでも同じこの1関数を呼べばよい（feature-stateキーごとの個別クリアは
+ * 元々できない）。 */
+// exportはテスト専用（MapView.layerOps.test.ts）。
 export function clearRoadTileFeatureState(map: MapLibreMap) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
   map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
 }
 
-/** 改善計画T490: 上記clearRoadTileFeatureStateを呼ぶべきかどうかの判定条件（風・勾配が
+/** 上記clearRoadTileFeatureStateを呼ぶべきかどうかの判定条件（風・勾配が
  * 両方OFFになったか）を、下のuseEffect内のif文から純粋関数として切り出したもの
  * （単体テスト化のため。呼び出し元・挙動は変更しない）。 */
 export function shouldClearDedicatedWayValueFeatureState(showWindAxis: boolean, showGradientAxis: boolean): boolean {
