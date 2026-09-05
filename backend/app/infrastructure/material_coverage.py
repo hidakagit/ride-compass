@@ -197,7 +197,6 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
 # 欠損割合の集計対象外とする材料と、その理由（管理画面にそのまま表示する）。
 MATERIAL_COVERAGE_EXCLUSIONS: dict[str, str] = {
     "wind_drag_ratio": "出発時刻の気象予報・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
-    "wind_penalty": "出発時刻の気象予報から都度計算する動的材料で、DBに静的な値を持たない",
     "oneway": "osm_raw_ways.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）",
     "designation": "designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）",
     "is_emergency_transport": "designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）",

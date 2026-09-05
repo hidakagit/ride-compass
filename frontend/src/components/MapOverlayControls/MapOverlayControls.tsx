@@ -12,11 +12,13 @@ import { createPortal } from "react-dom";
 import { useStoredState } from "@/hooks/useStoredState";
 import {
   isAxisStudioLayer,
+  LAYER_DATA_STATUS_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
   MAP_OVERLAY_GROUP_CHIP_LABELS,
   MAP_OVERLAY_GROUP_LABELS,
   MAP_OVERLAY_GROUP_ORDER,
   mapOverlayGroupFor,
+  type LayerDataStatus,
   type MapLayerCategory,
   type MapLayerDataNature,
   type MapLayerId,
@@ -35,6 +37,7 @@ import {
   RaindropIcon,
   RoadIcon,
   RoadSurfaceIcon,
+  ShieldIcon,
   SpotDataIcon,
   StopPoiIcon,
   SupplyPoiIcon,
@@ -83,6 +86,9 @@ export interface OverlayLayerChip {
    * （T317同日追記で「読みにくい」とされ撤去済みのため、このフィールドは設定パネル
    * 内の任意開閉表示専用）。 */
   panelHint?: string;
+  /** レイヤーのデータ取得状態（改善計画T87/T606）。ChipButtonがLayerChip（サイドバー）と
+   * 同じ「on && dataStatus != null」の間だけ小さな状態ドットを添える。 */
+  dataStatus?: LayerDataStatus;
 }
 
 interface MapOverlayControlsProps {
@@ -138,7 +144,7 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   accidents: AccidentIcon,
   precipitationNowcast: RaindropIcon,
   windVector: WindIcon,
-  // 改善計画T405: way_id→wind_penalty配信層（評価軸としての風）。専用アイコンは持たず、
+  // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸としての風）。専用アイコンは持たず、
   // 同じ風のデータを扱うwindVectorと同じWindIconを流用する。T418でこのチップ自体は
   // 地図上から撤去したが、RouteSettingsPanel側がこのIcon辞書は引き続き参照しうるため残す。
   windAxis: WindIcon,
@@ -151,6 +157,12 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   thunderNowcast: ThunderIcon,
   tornadoNowcast: TornadoIcon,
   liden: LidenIcon,
+  // キキクル4種（改善計画T410/T606）。専用アイコンは持たず、windAxis/gradientAxisと同じ
+  // パターンでShieldIconを4つとも流用する。
+  landslideRisk: ShieldIcon,
+  heavyRainRisk: ShieldIcon,
+  inundationRisk: ShieldIcon,
+  floodRisk: ShieldIcon,
   route: RouteIcon,
 };
 
@@ -482,6 +494,7 @@ function ChipButton({
   expandDirection = "right",
   expandViaSelf,
   groupTint,
+  dataStatus,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -523,6 +536,9 @@ function ChipButton({
    * 「それぞれのタイル及びそのグループ配下を少しずつ色を変えてグルーピングして」）。
    * 未指定＝どのグループにも属さない単独チップ（ルート等）は無色のまま。 */
   groupTint?: MapOverlayGroup;
+  /** レイヤーのデータ取得状態（改善計画T87/T606）。LayerChip（サイドバー）と同じ
+   * 「active && dataStatus != null」の間だけアイコン右上へ小さな状態ドットを添える。 */
+  dataStatus?: LayerDataStatus;
 }) {
   const arrowGlyph = expandDirection === "right" ? "▶" : "▼";
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
@@ -533,6 +549,11 @@ function ChipButton({
   // グループ色のままにしたいため、見出しだけを区別するマーカークラスをCSS側の
   // コンパウンドセレクタ（.groupHeaderChip.iconChipGroupRaw等）で使う。
   const headerMarkerClass = expandViaSelf ? styles.groupHeaderChip : "";
+  // レイヤーのデータ取得状態（改善計画T87/T606）。LayerChip.tsxと同じ「ONの間だけ」判定
+  // （OFF中はチップ自体の見た目でON/OFFが分かるため出さない）。
+  const showStatusDot = active && dataStatus != null;
+  const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
+  const chipTitle = showStatusDot && statusLabel ? (title ? `${title}（${statusLabel}）` : statusLabel) : title;
   return (
     <div ref={registerRow} className={styles.chipRowItem}>
       <div className={styles.iconToggleRow}>
@@ -541,7 +562,7 @@ function ChipButton({
           aria-pressed={expandViaSelf ? undefined : active}
           aria-expanded={expandViaSelf ? isExpanded : undefined}
           disabled={disabled}
-          title={title}
+          title={chipTitle}
           onClick={onTap}
           className={
             isActiveVisual
@@ -550,6 +571,12 @@ function ChipButton({
           }
         >
           <Icon />
+          {/* 状態→CSSクラスの対訳表をコンポーネント内に持たず、LayerDataStatusの値と
+              そろえたクラス名（MapOverlayControls.module.css: iconStatusDot_loading等）を
+              直接組み立てて参照する（LayerChip.tsxと同じ設計原則8）。 */}
+          {showStatusDot && dataStatus && (
+            <span aria-hidden="true" className={`${styles.iconStatusDot} ${styles[`iconStatusDot_${dataStatus}`]}`} />
+          )}
           <span className={styles.iconLabel}>{chipLabel}</span>
         </button>
         {canExpand && !expandViaSelf && (
@@ -820,6 +847,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
         onExpandToggle={() => toggleExpanded(key)}
         expandDirection="right"
         groupTint={groupTint}
+        dataStatus={member.dataStatus}
         panelContent={
           canExpand ? (
             hasLegend ? (
@@ -1125,6 +1153,7 @@ export default function MapOverlayControls({ layers, onToggle }: MapOverlayContr
               canExpand={canExpand}
               isExpanded={isExpanded}
               onExpandToggle={() => toggleExpanded(layer.id)}
+              dataStatus={layer.dataStatus}
               panelContent={panelContent}
               panelRect={panelRects[layer.id]}
               registerRow={(el) => {

@@ -41,6 +41,10 @@ function baseProps() {
       thunderNowcast: false,
       tornadoNowcast: false,
       liden: false,
+      landslideRisk: false,
+      heavyRainRisk: false,
+      inundationRisk: false,
+      floodRisk: false,
     },
     onLayerToggle: vi.fn(),
     roadHiddenKeysByMode: { surface: [], highway: [] } as Record<"surface" | "highway", readonly string[]>,
@@ -272,6 +276,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         onLayerToggle={onLayerToggle}
       />,
@@ -369,6 +377,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         regionZoomTooWide={true}
       />,
@@ -402,6 +414,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         layerDataStatus={{ designation: "error" }}
       />,
@@ -434,6 +450,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         layerDataStatus={{ stopPoi: "empty" }}
       />,
@@ -477,6 +497,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -511,6 +535,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ roadSurface: "empty" }}
@@ -545,6 +573,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         regionZoomTooWide={true}
         layerDataStatus={{ stopPoi: "empty" }}
@@ -580,6 +612,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
       />,
     );
@@ -612,6 +648,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
       />,
     );
@@ -644,6 +684,10 @@ describe("MapLayersPanel", () => {
           thunderNowcast: false,
           tornadoNowcast: false,
           liden: false,
+          landslideRisk: false,
+          heavyRainRisk: false,
+          inundationRisk: false,
+          floodRisk: false,
         }}
         roadHiddenKeysByMode={{ surface: ["gravel"], highway: [] }}
       />,

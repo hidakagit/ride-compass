@@ -219,22 +219,22 @@ def test_aggregate_segments_into_bins_axis_difficulties_survives_axis_unpublishe
 
 def test_merge_material_values_distance_weighted_average():
     segments = [
-        _segment(0, distance_km=0.3, material_values={"wind_penalty": 8.0}),
-        _segment(1, distance_km=0.1, material_values={"wind_penalty": 4.0}),
+        _segment(0, distance_km=0.3, material_values={"wind_drag_ratio": 8.0}),
+        _segment(1, distance_km=0.1, material_values={"wind_drag_ratio": 4.0}),
     ]
 
     merged = merge_material_values(segments)
 
     # (8*0.3 + 4*0.1) / 0.4 = 7.0
-    assert merged["wind_penalty"] == pytest.approx(7.0)
+    assert merged["wind_drag_ratio"] == pytest.approx(7.0)
 
 
 def test_merge_material_values_omits_material_absent_from_every_segment():
     segments = [
-        _segment(0, distance_km=0.2, material_values={"wind_penalty": 5.0}),
-        _segment(1, distance_km=0.2, material_values={"wind_penalty": 5.0}),
+        _segment(0, distance_km=0.2, material_values={"wind_drag_ratio": 5.0}),
+        _segment(1, distance_km=0.2, material_values={"wind_drag_ratio": 5.0}),
     ]
 
     merged = merge_material_values(segments)
 
-    assert set(merged.keys()) == {"wind_penalty"}
+    assert set(merged.keys()) == {"wind_drag_ratio"}

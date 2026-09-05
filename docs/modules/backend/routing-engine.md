@@ -41,7 +41,7 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 `full_edge_row`順配列の辞書、`evaluate_dynamic_material_arrays`が返す全材料のうち値がある
 ものだけ）を持ち、`_RoadGraphContext.legs`に添字順で並ぶ。`compose`は
 `DynamicAxisRequestContext`へ風の入力と走行速度（`speed_kmh`を`kmh_to_ms`でm/sへ変換）を
-渡し、風の材料（`wind_drag_ratio`・`wind_penalty`）はいずれもこのcontextから求まる:
+渡し、風の材料（`wind_drag_ratio`）はこのcontextから求まる:
 
 | 用途 | 添字0 | 添字1〜 |
 |---|---|---|

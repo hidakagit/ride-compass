@@ -282,7 +282,7 @@ async def test_create_rejects_axis_id_colliding_with_known_material(road_graph_s
     service = AxisRegistryAdminService(repository)
 
     with pytest.raises(ValueError, match="highway"):
-        await service.create(_definition("highway", material="wind_penalty"))
+        await service.create(_definition("highway", material="wind_drag_ratio"))
 
     assert "highway" not in AXIS_DEFINITIONS
 
@@ -315,9 +315,9 @@ async def test_update_allows_keeping_own_materials(road_graph_session):
     # 更新時、材料構成を変えなければ自分自身との衝突にはならない。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
-    await service.create(_definition("test_axis", default_weight=0.1, material="wind_penalty"))
+    await service.create(_definition("test_axis", default_weight=0.1, material="wind_drag_ratio"))
 
-    await service.update("test_axis", _definition("test_axis", default_weight=0.5, material="wind_penalty"))
+    await service.update("test_axis", _definition("test_axis", default_weight=0.5, material="wind_drag_ratio"))
 
     assert AXIS_DEFINITIONS["test_axis"].default_weight == 0.5
 
@@ -446,7 +446,7 @@ async def test_delete_rejects_published_axis(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("test_axis", is_published=True))
-    await service.create(_definition("other_axis", material="wind_penalty"))
+    await service.create(_definition("other_axis", material="wind_drag_ratio"))
 
     with pytest.raises(AxisPublishedImmutableError, match="test_axis"):
         await service.delete("test_axis")
@@ -494,7 +494,7 @@ async def test_delete_rejects_axis_id_in_code_coupled_set_even_when_draft(road_g
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("fake_coupled_axis", is_published=False))
-    await service.create(_definition("other_axis", material="wind_penalty"))
+    await service.create(_definition("other_axis", material="wind_drag_ratio"))
 
     with pytest.raises(ValueError, match="fake_coupled_axis"):
         await service.delete("fake_coupled_axis")
@@ -509,7 +509,7 @@ async def test_delete_rejects_axis_id_in_code_coupled_set_after_unpublish(road_g
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("fake_coupled_axis", is_published=True))
-    await service.create(_definition("other_axis", material="wind_penalty"))
+    await service.create(_definition("other_axis", material="wind_drag_ratio"))
     await service.unpublish("fake_coupled_axis")
 
     with pytest.raises(ValueError, match="fake_coupled_axis"):
@@ -532,7 +532,7 @@ async def test_delete_allows_axis_id_after_t352_generalization(road_graph_sessio
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition(axis_id, is_published=False))
-    await service.create(_definition("other_axis", material="wind_penalty"))
+    await service.create(_definition("other_axis", material="wind_drag_ratio"))
 
     await service.delete(axis_id)
 
@@ -612,7 +612,7 @@ async def test_unpublish_then_delete_succeeds_where_direct_delete_was_rejected(r
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("test_axis", is_published=True))
-    await service.create(_definition("other_axis", material="wind_penalty"))
+    await service.create(_definition("other_axis", material="wind_drag_ratio"))
 
     with pytest.raises(AxisPublishedImmutableError):
         await service.delete("test_axis")

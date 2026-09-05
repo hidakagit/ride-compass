@@ -51,8 +51,8 @@ const REPORT: MaterialCoverageResponse = {
       missing_semantics: "definite",
     }),
     entry({
-      material_id: "wind_penalty",
-      label: "向かい風ペナルティ - wind_penalty",
+      material_id: "wind_drag_ratio",
+      label: "向かい風ペナルティ - wind_drag_ratio",
       dtype: "numeric",
       population: null,
       total: null,
@@ -150,7 +150,7 @@ describe("MaterialCoveragePanel", () => {
     await clickAggregate(user);
 
     for (const table of screen.getAllByRole("table")) {
-      expect(within(table).queryByText(/wind_penalty/)).not.toBeInTheDocument();
+      expect(within(table).queryByText(/wind_drag_ratio/)).not.toBeInTheDocument();
     }
     expect(screen.getByText("集計対象外の材料（1件）")).toBeInTheDocument();
     expect(screen.getByText(/動的材料でDBに静的な値を持たない/)).toBeInTheDocument();

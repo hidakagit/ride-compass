@@ -114,7 +114,7 @@ async def region_dynamic_way_values(
 ) -> dict[int, float]:
     """「評価軸」グループとしての動的＋向きあり材料（風・勾配、改善計画T405→T414→T423、
     docs/tasks/T400.md「2. 動的要素…は状態（ルートの有無）に応じてパラメータの出所と塗る
-    対象が変わる」節）。指定タイル内のway_idごとの値（風=wind_penalty[backend/app/domain/
+    対象が変わる」節）。指定タイル内のway_idごとの値（風=wind_drag_ratio[backend/app/domain/
     wind.py]、勾配=effective_gradient[backend/app/domain/gradient.py]）をまとめて返す
     軽量なJSONエンドポイント。このエンドポイントはルート未確定時（視界内の全道路への
     一律適用）専用——ルート確定後はルート自身の実進行方向・実到達時刻/実値から計算済みの

@@ -305,8 +305,8 @@ def test_get_material_coverage_returns_all_catalog_materials(admin_credentials):
     assert by_id["gradient_percent"]["population"] == "edge"
     assert by_id["gradient_percent"]["missing_ratio"] == pytest.approx(0.75)
     assert by_id["lit"]["missing_semantics"] == "definite"
-    assert by_id["wind_penalty"]["population"] is None
-    assert by_id["wind_penalty"]["excluded_reason"]
+    assert by_id["wind_drag_ratio"]["population"] is None
+    assert by_id["wind_drag_ratio"]["excluded_reason"]
 
 
 def test_get_material_coverage_translates_db_errors_to_503(admin_credentials):

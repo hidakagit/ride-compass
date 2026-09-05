@@ -174,7 +174,7 @@ export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspecto
 }
 
 // way_id→動的値配信層（風・勾配、改善計画T405→T414→T423、docs/tasks/T400.md「2. 動的要素…の
-// 二重表現」節）。「評価軸」グループ向けに、指定タイル内のway_idごとの値（風=wind_penalty、
+// 二重表現」節）。「評価軸」グループ向けに、指定タイル内のway_idごとの値（風=wind_drag_ratio、
 // 勾配=effective_gradient）をまとめて取得する。road-surface-tiles（MapLibreのWeb Worker
 // 経由）とは別経路で、fetchAxisInspectorと同じくアプリのfetch()から直接呼ぶ（絶対URL化は
 // 不要）。バージョンクエリを持たない（road-surface-tilesと異なりブラウザHTTPキャッシュに
@@ -185,7 +185,7 @@ export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspecto
 // `fetchDynamicWayValues`へ汎用化した。
 const DYNAMIC_WAY_VALUES_PATH = "/api/region/dynamic-way-values";
 
-/** 指定タイル（road-surface-tilesと同じz/x/y）内のway_idごとの動的値（風=wind_penalty、
+/** 指定タイル（road-surface-tilesと同じz/x/y）内のway_idごとの動的値（風=wind_drag_ratio、
  * 勾配=effective_gradient）をまとめて取得する。失敗時は例外を投げず空オブジェクトへ
  * フォールバックする——背景の色分けレイヤーという補助的な機能のため、道路タイル自体の
  * 表示・他レイヤーを巻き込んで止めない（useWeatherGridのdetailGrid取得と同じ

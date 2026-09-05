@@ -86,7 +86,7 @@
         "kind": "breakpoint_linear",
         "terms": [
           {
-            "material": "wind_penalty",
+            "material": "wind_drag_ratio",
             "weight": 1.0,
             "required": true
           }
@@ -94,17 +94,32 @@
         "preprocess": "identity",
         "breakpoints": [
           [
-            0.0,
+            -1.2,
             0.0
           ],
           [
-            8.0,
+            0.0,
+            15.0
+          ],
+          [
+            5.0,
             100.0
           ]
         ]
       },
-      "display_thresholds_override": null,
-      "display_band_labels_override": null,
+      "display_thresholds_override": [
+        20.0,
+        40.0,
+        60.0,
+        80.0
+      ],
+      "display_band_labels_override": [
+        "無風・追い風",
+        "軽い向かい風",
+        "普通の向かい風",
+        "強い向かい風",
+        "非常に強い向かい風"
+      ],
       "dedicated_way_value_layer": true,
       "map_value_kind": "difficulty",
       "map_value_unit": ""

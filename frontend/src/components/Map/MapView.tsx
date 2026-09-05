@@ -194,7 +194,7 @@ const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureColl
 // exportはテスト専用（MapView.layerOps.test.ts、改善計画T490）。
 export const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
-// way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
+// way_id→wind_drag_ratio配信層（改善計画T405）。「評価軸」グループとしての風——ROAD_TILE_
 // SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと
 // 同じ構成）だが、色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
@@ -1009,9 +1009,9 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
       },
     },
   },
-  // キキクル（危険度分布、改善計画T410、T432で「防災」カテゴリとして常時マウントへ変更）。
-  // 他のraster専用スペック（thunderNowcast等）と同じ単純な構成。実機確認済みのzoom範囲
-  // （risk.properties.xml: minZoom=4/maxZoom=14/maxNativeZoom=11）に合わせる。
+  // キキクル（危険度分布、改善計画T410）。他のraster専用スペック（thunderNowcast等）と
+  // 同じ単純な構成。zoom範囲はrisk.properties.xml（minZoom=4/maxZoom=14/
+  // maxNativeZoom=11）に合わせる。
   landslideRisk: {
     main: {
       raster: {
@@ -1316,7 +1316,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       tiles: [roadSurfaceTileUrl()],
       minzoom: ROAD_TILE_MIN_ZOOM,
       maxzoom: ROAD_TILE_MAX_ZOOM,
-      // 改善計画T405: way_id→wind_penalty配信層（評価軸グループとしての風）がMapLibreの
+      // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸グループとしての風）がMapLibreの
       // setFeatureStateでこのソースの地物へ後から値を差し込むために必要。MVTのフィーチャーは
       // 既定では安定したidを持たないため、既存のosm_way_idプロパティ（区間インスペクタ用に
       // 元から焼き込み済み、_ROAD_SURFACE_TILE_MVT_SQL参照）をfeature.idへ昇格させる
@@ -1777,7 +1777,7 @@ export function buildStaticOverlayLayers(
     { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION) },
     { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION) },
     { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION) },
-    // 改善計画T405/T440/T466: way_id→wind_penalty配信層（評価軸グループとしての風）。ensureは
+    // 改善計画T405/T440/T466: way_id→wind_drag_ratio配信層（評価軸グループとしての風）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。
     { key: "windAxis", layerId: WIND_AXIS_LAYER_ID, ensure: makeEnsureDedicatedWayValueLayer(WIND_AXIS_LAYER_ID, dedicatedWayValueColorExpression("wind", windDisplay)) },
@@ -1835,18 +1835,21 @@ type StaticOverlayKey = string;
 // （MapView.dataStatus.test.ts）からbuildLayerDataSources(RAMP_AXES)経由で
 // 個別レイヤーのsourceIdを参照できるようexportしている。
 // 動的気象レイヤーは要素ごとに複数の名前付きソース（改善計画T432）、各ソースがさらに
-// raster/gridFill/gridMarkの複数サブレイヤーを持ちうるが、レイヤーデータ状態の追跡
+// raster/gridFill/gridMark/vectorの複数サブレイヤーを持ちうるが、レイヤーデータ状態の追跡
 // （useLayerDataStatus.ts）は1レイヤー1sourceIdを前提とするため、「代表」のソース・
 // サブレイヤーを1つ選ぶ（取得失敗の検知対象という位置づけは旧PRECIPITATION_NOWCAST_
-// SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。防災3種（キキクル、常時マウント・チップ無し）は
-// 対応するUI要素が無いためこの追跡対象に含めない（呼び出し側でCHIP_DYNAMIC_WEATHER_
-// LAYER_IDSに絞る）。
+// SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。CHIP_DYNAMIC_WEATHER_LAYER_IDSの全要素
+// （キキクル4種を含む）がこの表のキーとして必須になる（Recordの型がそれを強制する）。
 const PRIMARY_DYNAMIC_WEATHER_SOURCE: Record<(typeof CHIP_DYNAMIC_WEATHER_LAYER_IDS)[number], DynamicWeatherSourceId> = {
   precipitationNowcast: "main",
   windVector: "arrow",
   thunderNowcast: "main",
   tornadoNowcast: "main",
   liden: "main",
+  landslideRisk: "main",
+  heavyRainRisk: "main",
+  inundationRisk: "main",
+  floodRisk: "main",
 };
 
 function primaryDynamicWeatherSourceId(
@@ -1857,6 +1860,7 @@ function primaryDynamicWeatherSourceId(
   const spec = groupSpec[source];
   if (spec?.raster) return dynamicWeatherIds(id, source, "raster").sourceId;
   if (spec?.gridFill) return dynamicWeatherIds(id, source, "fill").sourceId;
+  if (spec?.vector) return dynamicWeatherIds(id, source, "vector").sourceId;
   return dynamicWeatherIds(id, source, "mark").sourceId;
 }
 
@@ -1875,12 +1879,11 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
-    // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計）。
-    // CHIP_DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しいチップ付き要素を追加しても
-    // ここへ手動で1行足す必要はない（改善計画T432: 防災3種はチップが無いため対象外）。
-    // GeoJSON source（gridFill/gridMark）はsourceLayerの概念自体が無くquerySourceFeatures
-    // による0件判定（empty）は元から対象外、ラスタタイル（raster）はelevationと同じく
-    // 取得失敗のみ検知対象。
+    // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計、
+    // キキクル4種=T606）。CHIP_DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しいチップ付き
+    // 要素を追加してもここへ手動で1行足す必要はない。GeoJSON source（gridFill/gridMark）は
+    // sourceLayerの概念自体が無くquerySourceFeaturesによる0件判定（empty）は元から対象外、
+    // ラスタタイル（raster）・ベクタタイル（vector）はelevationと同じく取得失敗のみ検知対象。
     ...CHIP_DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
       key: id,
       sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),
@@ -2204,7 +2207,7 @@ interface MapViewProps {
   /** 一方通行（一次属性、OSM onewayタグ、改善計画T289）。tunnelと同じく路面と同じソースを
    * 再利用する独立レイヤー。評価軸には組み込まない表示専用。 */
   showOneway: boolean;
-  /** way_id→wind_penalty配信層（改善計画T405）。「評価軸」グループとしての風——designation/
+  /** way_id→wind_drag_ratio配信層（改善計画T405）。「評価軸」グループとしての風——designation/
    * tunnel/onewayと同じく路面と同じソースを再利用する独立レイヤーだが、値はタイルの
    * プロパティではなくdedicatedWayValues（別経路のAPI、setFeatureStateで合成）から来る。
    * T406（パネル構成再編）が完了するまでの暫定措置として、既存の「動的」グループへ
@@ -2214,7 +2217,7 @@ interface MapViewProps {
    * グループとしての勾配。 */
   showGradientAxis: boolean;
   /** 改善計画T483: hooks/useDynamicWayValues.ts（改善計画T423で旧useWindAxisPenaltiesから
-   * 汎用化）が現在のビューポートに対して取得したway_id→値（風=wind_penalty[m/s、
+   * 汎用化）が現在のビューポートに対して取得したway_id→値（風=wind_drag_ratio[m/s、
    * 正=向かい風・負=追い風]、勾配=effective_gradient[%、正=登り・負=下り]）を、
    * axisId→(way_id→値)の汎用Mapとしてまとめて受け取る（page.tsx: windAxisData.values/
    * gradientAxisData.valuesを1つのMapへ統合して構築）。show{Wind,Gradient}Axisがtrueの
@@ -3429,7 +3432,7 @@ export default function MapView({
     axisOverlayLayers,
   ]);
 
-  // way_id→動的値配信層（風=wind_penalty[改善計画T405]・勾配=effective_gradient
+  // way_id→動的値配信層（風=wind_drag_ratio[改善計画T405]・勾配=effective_gradient
   // [改善計画T423]）。hooks/useDynamicWayValues.tsが現在のビューポートに対して取得した値を
   // MapLibreのsetFeatureStateへ反映する。上のSTATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの
   // 切替）とは別のeffectにする理由は動的気象レイヤーと同じ——dedicatedWayValuesはパン・

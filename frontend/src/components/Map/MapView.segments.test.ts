@@ -14,7 +14,7 @@ function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail
     distance_km: 1.0,
     estimated_arrival_time: null,
     axis_difficulties: { gradient: 10, wind: 20, surface_q: 0, stop_density: 0 },
-    material_values: { gradient_percent: 1.2, wind_penalty: 0.5 },
+    material_values: { gradient_percent: 1.2, wind_drag_ratio: 0.5 },
     axis_contributions: { gradient: 5, wind: 10, surface_q: 0, stop_density: 0 },
     difficulty: 12,
     ...overrides,
@@ -111,7 +111,7 @@ describe("segmentsToFeatureCollection", () => {
     expect(properties).not.toHaveProperty("geometry");
     // 色分け式・ポップアップが参照する値は残っている
     expect(properties.axis_difficulties).toEqual({ gradient: 10, wind: 20, surface_q: 0, stop_density: 0 });
-    expect(properties.material_values).toEqual({ gradient_percent: 1.2, wind_penalty: 0.5 });
+    expect(properties.material_values).toEqual({ gradient_percent: 1.2, wind_drag_ratio: 0.5 });
     expect(properties.difficulty).toBe(12);
   });
 });

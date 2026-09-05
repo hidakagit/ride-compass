@@ -53,8 +53,8 @@ export type MapLayerId =
   // 格子点サンプリング（バックエンド新設、GeoJSON source + symbolレイヤー）。
   // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
-  // way_id→wind_penalty配信層（改善計画T405/T414）。評価軸としての風——道路自身の
-  // 向きではなくユーザー指定の走行方位から計算したwind_penaltyをway単位でsetFeatureState
+  // way_id→wind_drag_ratio配信層（改善計画T405/T414）。評価軸としての風——道路自身の
+  // 向きではなくユーザー指定の走行方位から計算したwind_drag_ratioをway単位でsetFeatureState
   // 経由で線色分けする、windVector（面・矢印、探索用）とは独立の見せ方
   // （docs/tasks/T400.md「2. 動的要素…の二重表現」節）。改善計画T418で地図上チップとしては
   // 撤去し、ルート設定パネル（RouteSettingsPanel.tsx）から起動する形へ移設した。
@@ -81,12 +81,17 @@ export type MapLayerId =
   // 雷放電位置データ（改善計画T541）。同じN3配信のthunderNowcastとは別に、個々の落雷
   // 地点をgridMark（点マーカー）で独立してON/OFFできるようにする。
   | "liden"
-  // キキクル（危険度分布：土砂・大雨・浸水、改善計画T410）は改善計画T432で「防災」
-  // カテゴリとしてWarningBadgeと同様の常時マウント（チップ無し）へ変更したため、
-  // MapLayerId自体を持たない（mapLayers.tsの対象外、frontend/src/hooks/
-  // useDynamicWeatherLayers.ts参照）。線状降水帯予測マップも同T432で、risk系統
-  // （キキクル）ではなくrasrf系統（降水短時間予報と同じ）と判明したため個別チップを
-  // 撤去し、"precipitationNowcast"チップの傘下（4つ目のソース）へ統合した。
+  // キキクル（危険度分布：土砂災害・大雨・浸水、改善計画T410）。他の気象グループ
+  // （降水ナウキャスト・風・雷等）と同じ地図上チップを持ち、category="weather"・
+  // dataNature="dynamic"で扱う。線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）
+  // のため個別チップを持たず、"precipitationNowcast"チップの傘下（4つ目のソース）にある。
+  | "landslideRisk"
+  | "heavyRainRisk"
+  | "inundationRisk"
+  // 洪水キキクル（改善計画T416）。他3種と異なり配信元がベクタタイル（.pbf）のため
+  // dynamicWeather.tsのDynamicWeatherRenderPayloadは"vectorTile" kindを返すが、
+  // MapLayerId・地図上チップとしての扱いは他3種と同じ。
+  | "floodRisk"
   // 二次軸の汎用rampレイヤー（改善計画T145b）。backendレジストリ生成物
   // （axis-catalog.json）のkind="ramp"軸から自動生成されるためIDは動的
   // （axisLayers.ts: axisMapLayerId参照）。
@@ -516,10 +521,10 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "「風」の「地図で色分け」ボタンから道路の色分けとして別途確認できます。",
   },
   {
-    // way_id→wind_penalty配信層（改善計画T405/T414、docs/tasks/T400.md「2. 動的要素…の
+    // way_id→wind_drag_ratio配信層（改善計画T405/T414、docs/tasks/T400.md「2. 動的要素…の
     // 二重表現」節）。上のwindVector（格子点・矢印表示、探索用の「環境」表現）とは
     // 独立した評価軸としての表現——ユーザー指定の走行方位と最寄りの風グリッド値から
-    // wind_penaltyを計算し、backendのRedis配信層（タイル単位キー）・新設APIを経由して
+    // wind_drag_ratioを計算し、backendのRedis配信層（タイル単位キー）・新設APIを経由して
     // MapLibreのsetFeatureStateで道路線そのものを色分けする。改善計画T418で地図上チップ
     // としては撤去し、ルート設定パネル（RouteSettingsPanel.tsx）の「風」行から起動する形へ
     // 移設した——label/chipLabel/descriptionはisAxisStudioLayerによりMapOverlayControls/
@@ -639,6 +644,73 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "取得に失敗することがあります。",
   },
   {
+    // 土砂災害キキクル（気象庁 危険度分布、改善計画T410/T606）。他のraster専用スペック
+    // （thunderNowcast等）と同じ単純な構成。未来方向のフレームを持たず「現在の危険度」
+    // 単一値のみを配信するため、時刻スライダーとは連動しない（riskMap.ts冒頭コメント参照）。
+    id: "landslideRisk",
+    label: "土砂災害キキクル",
+    chipLabel: "土砂",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の危険度分布（キキクル）土砂災害を表示",
+    panelHint:
+      "気象庁の危険度分布（キキクル）のうち土砂災害の危険度分布です。5段階（注意・警戒・" +
+      "危険・災害切迫、平常時は表示なし）で色分けされた現在の危険度を表示します。実況を" +
+      "もとにした「現在の危険度」単一値のみを配信するため、他の気象レイヤーと異なり時刻" +
+      "スライダーには連動しません。非公式の内部APIを利用しているため、取得に失敗すること" +
+      "があります。",
+  },
+  {
+    id: "heavyRainRisk",
+    label: "大雨キキクル",
+    chipLabel: "大雨",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の危険度分布（キキクル）大雨を表示",
+    panelHint:
+      "気象庁の危険度分布（キキクル）のうち大雨（浸水・土砂災害双方の危険度を統合した" +
+      "指標）の危険度分布です。5段階（注意・警戒・危険・災害切迫、平常時は表示なし）で" +
+      "色分けされた現在の危険度を表示します。実況をもとにした「現在の危険度」単一値のみを" +
+      "配信するため、他の気象レイヤーと異なり時刻スライダーには連動しません。非公式の内部" +
+      "APIを利用しているため、取得に失敗することがあります。",
+  },
+  {
+    id: "inundationRisk",
+    label: "浸水キキクル",
+    chipLabel: "浸水",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の危険度分布（キキクル）浸水を表示",
+    panelHint:
+      "気象庁の危険度分布（キキクル）のうち浸水害の危険度分布です。5段階（注意・警戒・" +
+      "危険・災害切迫、平常時は表示なし）で色分けされた現在の危険度を表示します。実況を" +
+      "もとにした「現在の危険度」単一値のみを配信するため、他の気象レイヤーと異なり時刻" +
+      "スライダーには連動しません。非公式の内部APIを利用しているため、取得に失敗すること" +
+      "があります。",
+  },
+  {
+    // 洪水キキクル（改善計画T416）。他3種と異なり配信元がベクタタイル（.pbf）のため
+    // dynamicWeather.tsのDynamicWeatherRenderPayloadはvectorTile kindを返すが、
+    // MapLayerDescriptorとしての扱いは他3種と同じ（vectorTile自体はユーザーに見えない
+    // 実装詳細のためpanelHintでは触れない）。
+    id: "floodRisk",
+    label: "洪水キキクル",
+    chipLabel: "洪水",
+    kind: "static",
+    category: "weather",
+    dataNature: "dynamic",
+    description: "気象庁の危険度分布（キキクル）洪水を表示",
+    panelHint:
+      "気象庁の危険度分布（キキクル）のうち洪水の危険度分布です。河川ごとに5段階" +
+      "（注意・警戒・危険・災害切迫、平常時は表示なし）で色分けされた現在の危険度を表示" +
+      "します。実況をもとにした「現在の危険度」単一値のみを配信するため、他の気象レイヤーと" +
+      "異なり時刻スライダーには連動しません。非公式の内部APIを利用しているため、取得に" +
+      "失敗することがあります。",
+  },
+  {
     id: "route",
     label: "ルート",
     kind: "dynamic",
@@ -686,9 +758,9 @@ export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): r
     "designation",
     "tunnel",
     "oneway",
-    // 改善計画T405/T423/T446: way_id→wind_penalty/勾配配信層（評価軸としての風・勾配）も
+    // 改善計画T405/T423/T446: way_id→wind_drag_ratio/勾配配信層（評価軸としての風・勾配）も
     // 同じroad_surfaceタイル（ソース）を再利用する独立レイヤーのため、ズーム範囲外判定
-    // （regionZoomTooWide）はここに含める。ただしデータ自体（wind_penalty/勾配値）はタイルの
+    // （regionZoomTooWide）はここに含める。ただしデータ自体（wind_drag_ratio/勾配値）はタイルの
     // プロパティではなく別経路のfetchで来るため、T87のloading/empty/error状態表示
     // （useLayerDataStatus）の対象には含めていない（MapView.tsx: getLayerVisibility参照。
     // 改善計画T418で地図上チップは撤去しルート設定パネルへ移設したが、この対象外の判断

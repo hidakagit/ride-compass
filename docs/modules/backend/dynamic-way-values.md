@@ -86,10 +86,8 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
   ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
   スケールになるため、`display_thresholds_override`は軸ごとに1つの意味を持つ。
 - 各サービスは`material_id`属性で自分が返す生値の材料idを宣言し、routerはそれを軸定義の
-  どの材料として評価するかに使う。勾配は`gradient_percent`固定。風は風軸の参照先から
-  都度決める（`WindWayService.material_id`プロパティ: 風軸が`wind_drag_ratio`を参照して
-  いればそれ[走行速度依存、`speed_kmh`必須]、参照していなければ非推奨材料`wind_penalty`）
-  ため、軸スタジオで参照先を切り替えると配信側はコード変更なしに追従する。
+  どの材料として評価するかに使う。勾配は`gradient_percent`固定、風は`wind_drag_ratio`固定
+  （走行速度依存、`speed_kmh`必須）。
   キャッシュは生値のまま持つため、軸スタジオでbreakpointsを変えてもキャッシュを捨てずに
   次の応答から反映される。評価できない値（軸が他の材料も必須にしている等）はその道路を
   結果から除く（地図上は「データなし」）。
@@ -111,8 +109,8 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
 向きを`BEARING_BUCKET_DEG`（5度）刻み、`speed_bucket(speed_kmh)`が想定速度を1km/h刻みで
 離散バケット化するため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・
 向きバケット・速度バケットの範囲内では風グリッド・DBへの再問い合わせは発生しない。
-速度に依存しない材料（勾配、非推奨材料`wind_penalty`の風）は速度バケットをNone（`-`）にし、
-速度が変わってもキャッシュが分割されない。
+速度に依存しない材料（勾配）は速度バケットをNone（`-`）にし、速度が変わってもキャッシュが
+分割されない。
 
 値は`{way_id: 値}`のJSONオブジェクトで、風のように「タイル内全wayが同値」の場合も
 勾配のように「way単位で異なる値」の場合も同じ表現で吸収する。TTLは呼び出し元が渡す
@@ -126,11 +124,11 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
 
 走行方位（`bearing_deg`）は**ユーザーがコンパススライダーで指定した単一の値**（全道路
 共通）を使う。道路自身のOSM格納方向は使わない。同じタイル内の全wayは常に同じ
-`wind_penalty`値を持つ（風グリッドもタイル中心1点で代表させる近似のため）。
+`wind_drag_ratio`値を持つ（風グリッドもタイル中心1点で代表させる近似のため）。
 
 ```
 get_way_values(z, x, y, at, bearing_deg, speed_kmh)
-  ├─ material_id（風軸の参照先）がwind_drag_ratioなら speed_kmh 必須（Noneは即ValueError）
+  ├─ bearing_deg・speed_kmh のいずれかがNoneなら即ValueError
   ├─ repository未接続 → {}
   ├─ get_way_ids_in_tile → way_id一覧（カバレッジ外はNone→{}、DB障害も{}）
   ├─ hour_bucket = at.strftime("%Y-%m-%dT%H")
@@ -138,8 +136,7 @@ get_way_values(z, x, y, at, bearing_deg, speed_kmh)
   └─ キャッシュmiss →
        nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
        → _nearest_time_index（範囲外はNone→{}）
-       → wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))   … material_id=wind_drag_ratio
-         または headwind_component_ms(speed, direction, bearing_deg)             … material_id=wind_penalty
+       → wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))
        → 全way_idへbroadcastしてキャッシュ書き込み
   └─ 戻り値は常に dict.fromkeys(way_ids, penalty)   … 生値。難易度への変換はrouter側
 ```
@@ -181,11 +178,10 @@ values = {
 | 関数 | 意味 | 符号 |
 |---|---|---|
 | `wind_drag_ratio_array`／`wind_drag_ratio`（`wind.py`） | 走行方位・風向風速・走行速度から、相対風速ベクトルの二乗則で無風時に対する空気抵抗の増分（時速20km無風の抵抗を1とする倍率、`WIND_DRAG_REFERENCE_SPEED_MS`） | 正=向かい風、負=追い風、純横風は小さな正。速いほど同じ風で大きい |
-| `headwind_component_ms`（`wind.py`） | 走行方位と風向風速から進行方向に平行な風成分（m/s）。上記の部品で、非推奨材料`wind_penalty`の値 | 正=向かい風、負=追い風、0付近=横風 |
 | `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り、0付近=道路をほぼ横切るだけ |
 
-`headwind_component_ms`と`effective_gradient`は「`cos(道路/風の基準方向 − 走行方位)`を
-係数として物理量へ掛ける」という同型の連続補正モデル。同じ道路の逆方向
+`wind_drag_ratio_array`と`effective_gradient`はいずれも走行方位との角度差を係数として
+物理量へ反映するモデル。同じ道路の逆方向
 （forward/backward）の`road_edges`行を使っても勾配の結果は変わらない（cosの偶関数性と
 符号の二重反転が相殺するため、`test_gradient.py: test_forward_and_backward_edge_agree`で
 検証済み）。`wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+

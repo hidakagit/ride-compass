@@ -17,7 +17,7 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
 | `Map/riskMap.ts` | キキクル・線状降水帯予測マップ（未来フレームを持たない特殊系） |
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ |
-| `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の5箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・キキクル・線状降水帯予測マップ）が共有するフェッチ骨格の共通実装 |
+| `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の6箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・雷放電位置データ・キキクル・線状降水帯予測マップ）が共有するフェッチ骨格の共通実装 |
 | `components/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`components/TodayOutlook/TodayOutlook.tsx`・`components/WarningBadge/WarningBadge.tsx` | UI |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
@@ -36,7 +36,7 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
 3. **時刻は共有state1つ**: 表示時刻は`dynamicLayerTargetTime`（条件バー`RideConditionBar`の
    出発時刻と同じstate、`setDynamicLayerTargetTime`で書き換える）。各レイヤーは
    `frameIndexForTime`で選択時刻に対応する自分のフレームを求め、選択時刻が自分の
-   データ範囲外なら何も描画しない。キキクル3種・線状降水帯予測マップはこの
+   データ範囲外なら何も描画しない。キキクル4種・線状降水帯予測マップはこの
    タイムラインに乗らない（下記「特殊系」参照）。
 4. **データ取得の差異はデータ層で吸収**: 各要素のデータ層モジュールがソース（1グループに
    つきN個ありうる）を統合し、フレームごとの描画内容（`DynamicWeatherRenderPayload`）を
@@ -107,8 +107,7 @@ icon-sizeはズームのみに依存する。
 3. `MapView.tsx`: `DYNAMIC_WEATHER_RENDERERS`へ描画スペックを1エントリ追加する
    （既存グループへ名前付きソースを1つ追加する場合も同じ辞書内へ足すだけでよい）
 4. `mapLayers.ts`: 地図チップを追加し、`MapLayerId`・`dynamicWeather.ts`の
-   `CHIP_DYNAMIC_WEATHER_LAYER_IDS`（または常時マウントなら
-   `ALWAYS_ON_DYNAMIC_WEATHER_LAYER_IDS`）へ1行足す
+   `CHIP_DYNAMIC_WEATHER_LAYER_IDS`へ1行足す
 5. `hooks/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
    `dynamicWeather`オブジェクトへの追加（3〜4と違い自動反映の仕組みは無い、手書き作業）
 
@@ -117,9 +116,11 @@ icon-sizeはズームのみに依存する。
 他の動的気象レイヤーと異なり**未来方向の複数フレームを持たない**——気象庁側で実況と
 短時間予測を統合済みの「現在の危険度」単一値のみを配信する（`validtime===basetime`）。
 
-- キキクル3種（土砂・大雨・浸水）: 「防災」カテゴリとして`WarningBadge`と同様の常時
-  マウント（チップ無し・時刻スライダーとも無関係、マウント時に常にフェッチする）。
-  `MapLayerId`自体を持たない。
+- キキクル4種（土砂災害・大雨・浸水・洪水）: 他の環境グループ気象レイヤーと同じ地図上
+  チップ（`CHIP_DYNAMIC_WEATHER_LAYER_IDS`所属）を持つが、時刻スライダーとは連動しない
+  ——`showXxx`がONの間、選択中の共有時刻に関わらず`frames[0]`（現在値）があれば表示する。
+  `page.tsx: FIXED_LAYER_VISIBILITY_DEFAULTS`は他のweatherレイヤー（既定OFF）と異なり
+  既定`true`にしている（防災級の情報はユーザー操作を待たず表示すべきという理由）。
 - 線状降水帯予測マップ: `precipitationNowcast`チップの4つ目のソース（`linearRainband`）。
   共有タイムラインの選択時刻が現在〜3時間先の範囲内（`isWithinFutureWindow`）のときだけ、
   他のソースと重ねて表示する（キキクルと異なりタイムラインと連動し続ける）。

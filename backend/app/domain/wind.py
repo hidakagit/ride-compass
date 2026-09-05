@@ -37,16 +37,6 @@ def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarr
     return np.radians(np.asarray(wind_direction_deg, dtype=float) - np.asarray(travel_bearing_deg, dtype=float))
 
 
-def headwind_component_ms(wind_speed_ms, wind_direction_deg, travel_bearing_deg) -> np.ndarray:
-    """進行方向に平行な風成分（m/s）。正=向かい風、負=追い風、横風は0。
-    引数はいずれもスカラーまたは同じ長さの配列（numpyのブロードキャスト規則に従う）。
-
-    `wind_drag_ratio_array`の部品であると同時に、非推奨材料`wind_penalty`の値そのもの
-    （本番DBの公開軸がまだこの材料を参照しているため、切替が完了するまで残す）。
-    """
-    return np.asarray(wind_speed_ms, dtype=float) * np.cos(_wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg))
-
-
 def wind_drag_ratio_array(wind_speed_ms, wind_direction_deg, travel_bearing_deg, travel_speed_ms: float) -> np.ndarray:
     """風の追加負荷（材料`wind_drag_ratio`、無次元）。相対風速ベクトルの二乗則で、無風時に
     対する進行方向の空気抵抗の増分を`WIND_DRAG_REFERENCE_SPEED_MS`での無風時の抵抗を1と

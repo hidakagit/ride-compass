@@ -208,7 +208,7 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   precipitationNowcast: false,
   // 改善計画T178: 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
-  // 改善計画T405: way_id→wind_penalty配信層（評価軸としての風）。同じ理由で既定OFF。
+  // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸としての風）。同じ理由で既定OFF。
   windAxis: false,
   // 改善計画T423: 環境グループの勾配gridFill・way_id→勾配配信層。同じ理由で既定OFF。
   gradientFill: false,
@@ -218,14 +218,17 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   tornadoNowcast: false,
   // 改善計画T541: 雷放電位置データ。同じ理由で既定OFF。
   liden: false,
-  // 改善計画T410でキキクル（危険度分布：土砂・大雨・浸水）+線状降水帯予測マップを
-  // 実装した際、当初は既定ON・チップ付きの個別レイヤー（T420）として扱っていたが、
-  // 改善計画T432で「防災級の情報は、ユーザー操作を待たず表示すべき（予兆があってから
-  // チップをONにするのでは手遅れ）」という当初の動機に立ち返り、キキクル3種は
-  // WarningBadgeと同様の常時マウント（チップ無し・layerVisibility自体を持たない）へ
-  // 訂正した。線状降水帯予測マップはrisk系統ではなくrasrf系統（降水短時間予報と同じ）と
-  // 判明したため「降水」チップの傘下へ統合し、これも個別のlayerVisibilityキーを持たない
-  // （frontend/src/hooks/useDynamicWeatherLayers.ts参照）。
+  // 改善計画T410/T606: キキクル（危険度分布：土砂災害・大雨・浸水・洪水）。他の気象
+  // レイヤーとは異なり既定ONにする——防災級の情報はユーザー操作を待たず表示すべき
+  // （予兆があってからチップをONにするのでは手遅れ）という理由で、チップというUI要素は
+  // 持たせつつ既定表示にしておく。
+  landslideRisk: true,
+  heavyRainRisk: true,
+  inundationRisk: true,
+  floodRisk: true,
+  // 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの傘下へ
+  // 統合されており、個別のlayerVisibilityキーを持たない（frontend/src/hooks/
+  // useDynamicWeatherLayers.ts参照）。
   route: true,
 };
 
@@ -1044,7 +1047,7 @@ export default function Home() {
       tornadoNowcast: TORNADO_LEGEND_DETAILS,
     };
     return mapLayers.map((layer) => {
-        // 改善計画T418: windAxis（way_id→wind_penalty配信層）・ramp軸（axis:${string}）は
+        // 改善計画T418: windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
         // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
         // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
         // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
@@ -1098,11 +1101,16 @@ export default function Home() {
           dataNature: layer.dataNature,
           // 改善計画T334: 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
           panelHint: layer.panelHint,
+          // レイヤーのデータ取得状態（改善計画T87/T606）。LayerChip（サイドバー）と同じく
+          // OFF中の抑制はChipButton自身が`active && dataStatus != null`で行うため、ここでは
+          // layerVisibilityで抑制せずそのまま渡す。
+          dataStatus: layerDataStatus[layer.id],
         };
       });
   }, [
     selectedCandidate,
     layerVisibility,
+    layerDataStatus,
     roadSurfaceLegendDetails,
     roadSurfaceSummary,
     roadTypeLegendDetails,
@@ -1165,13 +1173,16 @@ export default function Home() {
 
   // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
   // フェッチ・共有タイムライン・MapView向け描画ペイロード（改善計画T375でuseDynamicWeather
-  // Layersへ抽出）。各要素は対応するshow*がtrueの間だけフェッチする（キキクル3種は
-  // 改善計画T432で「防災」カテゴリとして常時マウントへ変更したためshow*を持たない）。
+  // Layersへ抽出）。各要素は対応するshow*がtrueの間だけフェッチする。
   const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
   const showThunderNowcast = layerVisibility.thunderNowcast;
   const showTornadoNowcast = layerVisibility.tornadoNowcast;
   const showLiden = layerVisibility.liden;
   const showWindVector = layerVisibility.windVector;
+  const showLandslideRisk = layerVisibility.landslideRisk;
+  const showHeavyRainRisk = layerVisibility.heavyRainRisk;
+  const showInundationRisk = layerVisibility.inundationRisk;
+  const showFloodRisk = layerVisibility.floodRisk;
   // ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、1つでいい」）:
   // 動的材料の状態別表現契約（docs/tasks/T400.md「2.」節）の[時刻,向き]のうち「向き」を、
   // 風・勾配それぞれ独立したstate（旧windBearingDeg/gradientBearingDeg）から、実際の
@@ -1188,10 +1199,14 @@ export default function Home() {
     showThunderNowcast,
     showTornadoNowcast,
     showLiden,
+    showLandslideRisk,
+    showHeavyRainRisk,
+    showInundationRisk,
+    showFloodRisk,
     mapViewport,
   });
 
-  // way_id→wind_penalty配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
+  // way_id→wind_drag_ratio配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
   // グループの矢印表示）とは独立したフェッチだが、[時刻,向き]の入力（dynamicLayerTargetTime・
   // travelBearingDeg）は共有する。mapViewportは同じMapView.tsx: onViewportChange経由の
   // 値を共有する。
