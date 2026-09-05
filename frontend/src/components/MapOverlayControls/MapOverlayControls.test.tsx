@@ -689,6 +689,35 @@ describe("MapOverlayControls", () => {
     });
   });
 
+  describe("レイヤーのデータ取得状態（改善計画T87/T606: 地図上チップの状態ドット）", () => {
+    it("dataStatusを渡すとON中のチップに状態ドットが描画され、titleへ状態文言が反映される", () => {
+      const layers: OverlayLayerChip[] = [
+        { id: "route", label: "ルート", on: true, title: "選択中ルート", dataStatus: "loading" },
+      ];
+      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} />);
+
+      const chip = screen.getByRole("button", { name: "ルート" });
+      expect(chip.querySelector('[class*="iconStatusDot_loading"]')).not.toBeNull();
+      expect(chip).toHaveAttribute("title", "選択中ルート（読み込み中です）");
+    });
+
+    it("OFF中のチップはdataStatusがあってもドットを出さない（LayerChipと同じ抑制条件）", () => {
+      const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: false, dataStatus: "error" }];
+      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} />);
+
+      const chip = screen.getByRole("button", { name: "ルート" });
+      expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
+    });
+
+    it("dataStatus未指定（正常）のチップはドットを出さない", () => {
+      const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: true }];
+      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} />);
+
+      const chip = screen.getByRole("button", { name: "ルート" });
+      expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
+    });
+  });
+
   // 改善計画T471項目4: usePagedOverflow内のregisterViewport/registerTrack（chipRowの
   // はみ出しページ送りが使うResizeObserver接続用コールバックref）はuseCallback化前、
   // 親の再レンダーのたびに新しい関数として渡り、Reactがref変更とみなして毎回

@@ -108,6 +108,16 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 `MapView.tsx`は渡された`secondaryAxisCasingLayerIds`（キー集合）をそのまま使うだけの
 汎用描画係のまま保たれている。
 
+## レイヤーのデータ取得状態（`ChipButton`/`LayerChip`共通のドット表現）
+
+`MapOverlayControls`の`ChipButton`は、サイドバー（`MapLayersPanel`）が使う`LayerChip.tsx`と
+同じ`LayerDataStatus`（`mapLayers.ts`、"loading"/"empty"/"error"）を受け取り、
+「表示ON かつ dataStatus が設定されている」間だけアイコン右上へ小さな状態ドットを描画する
+（`on`/`active`がfalseの間は出さない）。クラス名は`LayerDataStatus`の値とそろえて
+（`MapOverlayControls.module.css: .iconStatusDot_loading`等）動的に組み立てる点も
+`LayerChip.module.css`側と同じ設計。`page.tsx`は`layerDataStatus`ステートを
+`overlayLayers`（`MapOverlayControls`向け）・`MapLayersPanel`向けの両方へ渡す。
+
 ## 最上位グルーピング（道路/環境/スポット）
 
 `mapLayers.ts: mapOverlayGroupFor(layer)`がレイヤーIDを3グループへ分類する。

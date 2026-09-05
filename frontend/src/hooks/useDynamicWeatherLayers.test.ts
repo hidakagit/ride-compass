@@ -38,6 +38,10 @@ const BASE_OPTIONS = {
   showThunderNowcast: false,
   showTornadoNowcast: false,
   showLiden: false,
+  showLandslideRisk: false,
+  showHeavyRainRisk: false,
+  showInundationRisk: false,
+  showFloodRisk: false,
   mapViewport: null,
 };
 
@@ -63,21 +67,23 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
     });
   }
 
-  it("全フェッチ成功時はdynamicLayerErrorがnullのまま（キキクル・線状降水帯予測マップは常時/降水チップ連動でフェッチされる）", async () => {
+  it("全フェッチ成功時はdynamicLayerErrorがnullのまま", async () => {
     stubHappyPath();
 
-    const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true }));
+    const { result } = renderHook(() =>
+      useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true, showLandslideRisk: true })
+    );
 
     await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
     await waitFor(() => expect(fetchLinearRainbandFrames).toHaveBeenCalled());
     expect(result.current.dynamicLayerError).toBeNull();
   });
 
-  it("キキクル（現在のリスク分布）の取得失敗がdynamicLayerErrorへ反映される（show*ガード無しの常時マウント）", async () => {
+  it("キキクル（現在のリスク分布）の取得失敗が、キキクル4種のいずれかがONの間だけdynamicLayerErrorへ反映される", async () => {
     stubHappyPath();
     vi.mocked(fetchCurrentRiskFrames).mockRejectedValue(new Error("kikkuru boom"));
 
-    const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
+    const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showLandslideRisk: true }));
 
     await waitFor(() => expect(result.current.dynamicLayerError).toBe("kikkuru boom"));
   });
@@ -96,19 +102,50 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
   it("線状降水帯予測マップの取得失敗は、降水チップOFF時はフェッチ自体走らずdynamicLayerErrorに反映されない", async () => {
     stubHappyPath();
 
-    renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
+    renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showLandslideRisk: true }));
 
     await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
     expect(fetchLinearRainbandFrames).not.toHaveBeenCalled();
   });
 
-  describe("雷放電位置データ（liden、改善計画T541）", () => {
-    it("showLiden=falseの間はフェッチ自体走らない", async () => {
+  describe("キキクル4種（改善計画T606: 地図上チップ化）", () => {
+    it("4種すべてOFFの間はフェッチ自体走らない", () => {
       stubHappyPath();
 
       renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
 
+      expect(fetchCurrentRiskFrames).not.toHaveBeenCalled();
+    });
+
+    it("いずれか1つでもONならフェッチする（4種で1本のtargetTimes.jsonを共有）", async () => {
+      stubHappyPath();
+
+      renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showFloodRisk: true }));
+
       await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
+    });
+
+    it("showXxx=trueの要素だけvisible: trueでpayloadを持ち、showXxx=falseの要素はvisible: falseのまま", async () => {
+      stubHappyPath();
+      const frame = [{ time: new Date(), ref: { basetime: "0", validtime: "0", member: "" } }];
+      vi.mocked(fetchCurrentRiskFrames).mockResolvedValue({ land: frame, heavyRain: frame, inundation: [], flood: [] });
+
+      const { result } = renderHook(() =>
+        useDynamicWeatherLayers({ ...BASE_OPTIONS, showLandslideRisk: true, showHeavyRainRisk: false })
+      );
+
+      await waitFor(() => expect(result.current.dynamicWeather.landslideRisk?.main?.payload).toBeDefined());
+      expect(result.current.dynamicWeather.landslideRisk?.main?.visible).toBe(true);
+      expect(result.current.dynamicWeather.heavyRainRisk?.main?.visible).toBe(false);
+    });
+  });
+
+  describe("雷放電位置データ（liden、改善計画T541）", () => {
+    it("showLiden=falseの間はフェッチ自体走らない", () => {
+      stubHappyPath();
+
+      renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
+
       expect(fetchLidenFrames).not.toHaveBeenCalled();
     });
 

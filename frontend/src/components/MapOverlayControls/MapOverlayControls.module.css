@@ -181,6 +181,8 @@
    小さいボタンで、以前の文字だけの横スクロールチップより地図の占有面積が小さい。
    サイドバー側（MapLayersPanel）の「表示」チップは引き続きLayerChip（テキストのみ）を使う。 */
 .iconChip {
+  /* .iconStatusDot（下記）をアイコン右上へ絶対配置するための基準。 */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -224,6 +226,47 @@
 .iconChip:disabled {
   color: var(--color-neutral);
   cursor: default;
+}
+
+/* レイヤーのデータ取得状態を示す小さなドット（改善計画T87/T606）。LayerChip.module.css
+   の.statusDot系と同じ「塗りつぶし/中空/点滅」の3表現をアイコン右上へ絶対配置する
+   （テキストチップと違いアイコンの左に余白を割けないため）。クラス名はmapLayers.ts:
+   LayerDataStatusの値（"loading"/"empty"/"error"）とそろえてあり、MapOverlayControls.tsx
+   側は`styles[`iconStatusDot_${dataStatus}`]`で動的に参照する。 */
+.iconStatusDot {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.iconStatusDot_loading {
+  background: currentColor;
+  opacity: 0.5;
+  animation: rc-overlay-chip-pulse 1.2s ease-in-out infinite;
+}
+
+.iconStatusDot_empty {
+  background: transparent;
+  border: 1px solid currentColor;
+  opacity: 0.7;
+}
+
+.iconStatusDot_error {
+  background: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+@keyframes rc-overlay-chip-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.85;
+  }
 }
 
 /* 最上位グループ（道路/環境/スポット、改善計画T406で「観測/推定/動的」から再編、T418で

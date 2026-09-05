@@ -80,6 +80,10 @@ export interface UseDynamicWeatherLayersOptions {
   showThunderNowcast: boolean;
   showTornadoNowcast: boolean;
   showLiden: boolean;
+  showLandslideRisk: boolean;
+  showHeavyRainRisk: boolean;
+  showInundationRisk: boolean;
+  showFloodRisk: boolean;
   mapViewport: MapViewport | null;
 }
 
@@ -102,15 +106,17 @@ export interface UseDynamicWeatherLayersResult {
 /** 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
  * フェッチ・共有タイムライン・MapView向け描画ペイロードの管理（改善計画T375）。
  * 各要素は対応するshow*がtrueの間だけフェッチし、OFFの間はfetch自体しない
- * （他の外部APIと同じ「表示中のものだけ叩く」方針）。ただしキキクル3種（改善計画T432、
- * 「防災」カテゴリ）はWarningBadgeと同じ常時マウントのためこの方針の対象外——
- * showX系オプションを持たず常にフェッチする。 */
+ * （他の外部APIと同じ「表示中のものだけ叩く」方針）。 */
 export function useDynamicWeatherLayers({
   showWindVector,
   showPrecipitationNowcast,
   showThunderNowcast,
   showTornadoNowcast,
   showLiden,
+  showLandslideRisk,
+  showHeavyRainRisk,
+  showInundationRisk,
+  showFloodRisk,
   mapViewport,
 }: UseDynamicWeatherLayersOptions): UseDynamicWeatherLayersResult {
   // 動的気象レイヤーが指す対象時刻（T183再設計）。ONの全レイヤーのフレーム時刻を統合した
@@ -179,19 +185,19 @@ export function useDynamicWeatherLayers({
   });
   const lidenNowcastFrames = useMemo(() => trimToCurrentAndFuture(rawLidenNowcastFrames), [rawLidenNowcastFrames]);
 
-  // キキクル（土砂・大雨・浸水、改善計画T410）の「現在」フレーム。3種で1本のtargetTimes.json
+  // キキクル4種（土砂災害・大雨・浸水・洪水）の「現在」フレーム。4種で1本のtargetTimes.json
   // を共有するため（riskMap.ts参照）1本のfetchでまとめて取得する（thunderNowcastFramesと
-  // 同じ考え方）。改善計画T432: 「防災」カテゴリとしてWarningBadgeと同じ常時マウントに
-  // したため、show*ガードを持たずマウント時に常にフェッチする。未来方向のフレームを
-  // 持たないため取得失敗時もnowcastのような「部分結果」は無く、フェッチ自体を諦めて
-  // エラーのみ記録する。
-  // 改善計画T425（ゼロベース網羅レビュー指摘）: 以前はエラーをdebugLogへ記録するのみで
-  // dynamicLayerErrorへ反映しておらず、キキクル（「防災」カテゴリ、常時マウント）の取得が
-  // 失敗してもユーザーへ一切可視化されなかった。
+  // 同じ考え方で、いずれか1つでもONの間だけenabledにする）。未来方向のフレームを持たない
+  // ため取得失敗時もnowcastのような「部分結果」は無く、フェッチ自体を諦めてエラーのみ
+  // 記録する。
   const { data: currentRiskFrames, error: currentRiskError } = usePolledFetch(
     fetchCurrentRiskFrames,
     EMPTY_CURRENT_RISK_FRAMES,
-    { enabled: true, intervalMs: RISK_MAP_REFRESH_INTERVAL_MS, label: "危険度分布（キキクル）" },
+    {
+      enabled: showLandslideRisk || showHeavyRainRisk || showInundationRisk || showFloodRisk,
+      intervalMs: RISK_MAP_REFRESH_INTERVAL_MS,
+      label: "危険度分布（キキクル）",
+    },
   );
 
   // 線状降水帯予測マップ（改善計画T410、T432で「降水」チップ傘下へ再分類）の「現在」フレーム。
@@ -299,12 +305,10 @@ export function useDynamicWeatherLayers({
     if (lidenIndex == null || !lidenFetched || lidenFetched.ref !== lidenRef) return undefined;
     return { kind: "gridMark", geojson: lidenFetched.geojson };
   }, [lidenIndex, lidenFetched, lidenRef]);
-  // キキクル（改善計画T410、T432で「防災」カテゴリとして常時マウントへ変更）。isAtNow
-  // ゲーティング（スライダーが「現在」位置にあるときだけ表示）は撤回した——キキクル3種は
-  // もはやどのUIコントロール（チップ・スライダー）とも接続されず、WarningBadgeと同じ
-  // 「常に現在値だけ見せる」独立表示になったため、「未来のスライダー位置で古いスナップ
-  // ショットが誤解を招く」という当時（T410）の懸念は構造的に発生しない。frames[0]が
-  // あれば常に表示する。
+  // キキクル4種（改善計画T410）は未来方向のフレームを持たず「現在の危険度」単一値のみを
+  // 配信するため、選択中の共有時刻に関わらずframes[0]（現在値）があれば表示する
+  // （riskMap.ts冒頭コメント「他の動的レイヤーと違い共有タイムライン・frameIndexForTimeには
+  // 乗せない」と対）。
   const landslideRiskPayload = useMemo(() => {
     const frame = landFramesList[0];
     return frame ? landRenderPayload(frame.ref) : undefined;
@@ -317,7 +321,7 @@ export function useDynamicWeatherLayers({
     const frame = inundationFramesList[0];
     return frame ? inundationRenderPayload(frame.ref) : undefined;
   }, [inundationFramesList]);
-  // 洪水キキクル（改善計画T416）。他3種と同じ「常時マウント、frames[0]があれば表示」方針
+  // 洪水キキクル（改善計画T416）。他3種と同じ「frames[0]があれば表示」方針
   // （vectorTile kindのため戻り値の中身は異なるが、ここでの扱いは同型）。
   const floodRiskPayload = useMemo(() => {
     const frame = floodFramesList[0];
@@ -353,10 +357,10 @@ export function useDynamicWeatherLayers({
       thunderNowcast: { main: { visible: showThunderNowcast, payload: thunderPayload } },
       tornadoNowcast: { main: { visible: showTornadoNowcast, payload: tornadoPayload } },
       liden: { main: { visible: showLiden, payload: lidenPayload } },
-      landslideRisk: { main: { visible: true, payload: landslideRiskPayload } },
-      heavyRainRisk: { main: { visible: true, payload: heavyRainRiskPayload } },
-      inundationRisk: { main: { visible: true, payload: inundationRiskPayload } },
-      floodRisk: { main: { visible: true, payload: floodRiskPayload } },
+      landslideRisk: { main: { visible: showLandslideRisk, payload: landslideRiskPayload } },
+      heavyRainRisk: { main: { visible: showHeavyRainRisk, payload: heavyRainRiskPayload } },
+      inundationRisk: { main: { visible: showInundationRisk, payload: inundationRiskPayload } },
+      floodRisk: { main: { visible: showFloodRisk, payload: floodRiskPayload } },
     }),
     [
       showWindVector,
@@ -370,9 +374,13 @@ export function useDynamicWeatherLayers({
       tornadoPayload,
       showLiden,
       lidenPayload,
+      showLandslideRisk,
       landslideRiskPayload,
+      showHeavyRainRisk,
       heavyRainRiskPayload,
+      showInundationRisk,
       inundationRiskPayload,
+      showFloodRisk,
       floodRiskPayload,
     ]
   );
@@ -381,9 +389,9 @@ export function useDynamicWeatherLayers({
   // （useWeatherGrid、ONのどちらか一方でも走る）、nowcastLoading/nowcastErrorは降水ナウキャスト
   // 固有のフェッチ、thunderNowcastLoading/thunderNowcastErrorは雷・竜巻共有のフェッチ。
   // 風のみONならnowcast/thunderの状態は無関係（フェッチ自体走らない）。currentRiskError
-  // （キキクル）はshow*ガードを持たず常時マウントのため無条件に含める。linearRainbandError
-  // （線状降水帯予測マップ）は「降水」チップ配下のためshowPrecipitationNowcast連動
-  // （改善計画T425、以前はどちらもdynamicLayerErrorに含まれずエラーがユーザーへ不可視だった）。
+  // （キキクル）はキキクル4種のいずれかがONのときだけ含める。linearRainbandError
+  // （線状降水帯予測マップ）は「降水」チップ配下のためshowPrecipitationNowcast連動。
+  const showAnyRisk = showLandslideRisk || showHeavyRainRisk || showInundationRisk || showFloodRisk;
   const dynamicLayerLoading =
     windLoading ||
     (showPrecipitationNowcast && nowcastLoading) ||
@@ -394,7 +402,7 @@ export function useDynamicWeatherLayers({
     (showPrecipitationNowcast ? nowcastError : null) ??
     (showThunderNowcast || showTornadoNowcast ? thunderNowcastError : null) ??
     (showLiden ? lidenNowcastError : null) ??
-    currentRiskError ??
+    (showAnyRisk ? currentRiskError : null) ??
     (showPrecipitationNowcast ? linearRainbandError : null);
 
   return {
