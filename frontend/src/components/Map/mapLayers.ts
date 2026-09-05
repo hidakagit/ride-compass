@@ -477,13 +477,9 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
     // 二重表現」節）。上のwindVector（格子点・矢印表示、探索用の「環境」表現）とは
     // 独立した評価軸としての表現——ユーザー指定の走行方位と最寄りの風グリッド値から
     // wind_drag_ratioを計算し、backendのRedis配信層（タイル単位キー）・新設APIを経由して
-    // MapLibreのsetFeatureStateで道路線そのものを色分けする。改善計画T418で地図上チップ
-    // としては撤去し、ルート設定パネル（RouteSettingsPanel.tsx）の「風」行から起動する形へ
-    // 移設した——label/chipLabel/descriptionはisAxisStudioLayerによりMapOverlayControls/
-    // MapLayersPanelの表示対象からは除外される。
-    // 改善計画T446（コード実態と食い違っていた旧コメントの訂正）: RouteSettingsPanel.tsx
-    // 自体はこのMapLayerDescriptorを直接参照しない（`mapColorLayerIdFor`経由で
-    // layerVisibility[layerId]のON/OFFだけを扱う、tooltip文言も自前のハードコード文字列）。
+    // MapLibreのsetFeatureStateで道路線そのものを色分けする。表示ON/OFFの唯一の起動導線は
+    // 地図上部中央のLensControl（レンズ）——label/chipLabel/descriptionはisAxisStudioLayer
+    // によりMapOverlayControls/MapLayersPanelの表示対象からは除外される。
     // このエントリが実際に使われているのは、(1) MapLayerId型の定義そのものと、(2)
     // road_surfaceタイル（promoteId付きway_id）を共有するレイヤーとして
     // buildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
@@ -524,10 +520,9 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
   {
     // way_id→勾配（effective_gradient）配信層（改善計画T423、docs/tasks/T400.md「2. 動的
     // 要素…の二重表現」節）。上のgradientFill（タイル単位の面表示、探索用の「環境」表現）
-    // とは独立した評価軸としての表現——windAxisと同型（改善計画T418で地図上チップとしては
-    // 撤去し、ルート設定パネル[RouteSettingsPanel.tsx]の「勾配」行から起動する形へ移設）。
-    // windAxis同様buildRoadSurfaceSharedLayerIds（下記）にも含める——実際の用途はwindAxisの
-    // コメント参照（改善計画T446、以前はwindAxisのみ含みここが非対称のまま残っていた）。
+    // とは独立した評価軸としての表現——windAxisと同型（表示ON/OFFの唯一の起動導線は
+    // LensControl）。windAxis同様buildRoadSurfaceSharedLayerIds（下記）にも含める——
+    // 実際の用途はwindAxisのコメント参照。
     id: "gradientAxis",
     label: "勾配（評価軸）",
     chipLabel: "勾配軸",
@@ -597,6 +592,21 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
   empty: "この範囲に表示できるデータがありません",
   error: "データの取得に失敗しました。しばらくしてから再読み込みしてください",
 };
+
+/** loading/error/payloadの有無からLayerDataStatusを1つ決める（エラー中 > 読込中 > 読込済み
+ * だが値なし。正常時はundefined＝キー自体を持たない）。実際の外部フェッチが自前のJSコードで
+ * 完結し、結果を`map.getSource(id).setData(...)`等で流し込むだけのレイヤー（MapLibreの
+ * sourcedata/errorイベントを経由しない、`computeLayerDataStatus`の対象外）が共通して使う。 */
+export function deriveFetchLayerStatus(
+  loading: boolean,
+  error: string | null,
+  hasPayload: boolean
+): LayerDataStatus | undefined {
+  if (error) return "error";
+  if (loading) return "loading";
+  if (!hasPayload) return "empty";
+  return undefined;
+}
 
 // roadType/roadSurface（T165で「道路情報」から論理分割）/designation/tunnel/
 // onewayは同じroad_surfaceベクタタイル（MapView.tsx: ROAD_TILE_SOURCE_ID/

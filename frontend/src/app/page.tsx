@@ -20,7 +20,9 @@ import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/comp
 import {
   buildMapLayers,
   buildRoadSurfaceSharedLayerIds,
+  deriveFetchLayerStatus,
   isAxisStudioLayer,
+  type LayerDataStatus,
   type LayerDataStatusByLayer,
   type MapLayerId,
   type MapLayerVisibility,
@@ -1344,6 +1346,37 @@ export default function Home() {
       ]),
     [windAxisData.loading, gradientAxisData.loading]
   );
+  // レンズが専用配信軸（windAxis/gradientAxis）を指している間だけ、そのフェッチの
+  // loading/empty/errorをLensControlのピルへ渡す（road_surface等のT87経路
+  // [useLayerDataStatus]はこれらのfetchを観測できないため、deriveFetchLayerStatusで
+  // 動的気象レイヤーと同じ判定を共有する）。ramp軸・総合難易度・なしはこの失敗モードを
+  // 持たないためundefinedのまま。
+  const lensFetchStatus = useMemo<LayerDataStatus | undefined>(() => {
+    if (showWindAxis) {
+      return deriveFetchLayerStatus(
+        windAxisData.loading,
+        windAxisData.error ? "fetch-failed" : null,
+        windAxisData.values.size > 0
+      );
+    }
+    if (showGradientAxis) {
+      return deriveFetchLayerStatus(
+        gradientAxisData.loading,
+        gradientAxisData.error ? "fetch-failed" : null,
+        gradientAxisData.values.size > 0
+      );
+    }
+    return undefined;
+  }, [
+    showWindAxis,
+    showGradientAxis,
+    windAxisData.loading,
+    windAxisData.error,
+    windAxisData.values,
+    gradientAxisData.loading,
+    gradientAxisData.error,
+    gradientAxisData.values,
+  ]);
   // `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、いずれも
   // 軸カタログ由来）を、axisId→宣言の汎用MapとしてMapView・凡例へ配線する。軸ごとの
   // useMemo・propは持たない（design-principles.md構造仕様3）。
@@ -2080,6 +2113,7 @@ export default function Home() {
             keepAfterRoute={lensKeepAfterRoute}
             onKeepAfterRouteChange={setLensKeepAfterRoute}
             hasDetail={hasDetail}
+            dataStatus={lensFetchStatus}
             rootRef={lensControlRef}
           />
 

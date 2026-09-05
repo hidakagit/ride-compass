@@ -38,9 +38,13 @@ export interface UseDynamicWayValuesResult {
    * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする
    * （valueScale.ts: COLOR_LOADING/COLOR_NO_DATA参照）。 */
   loading: boolean;
+  /** 直近に完了したフェッチで、いずれかのタイルの取得が通信失敗（HTTPエラー・
+   * ネットワークエラー）したか。falseは「本当にその範囲にway_idが無い」場合と区別する
+   * （fetchDynamicWayValuesのerrorをタイル横断でOR集約する）。 */
+  error: boolean;
 }
 
-const EMPTY_RESULT: UseDynamicWayValuesResult = { values: new Map(), byTile: [], loading: false };
+const EMPTY_RESULT: UseDynamicWayValuesResult = { values: new Map(), byTile: [], loading: false, error: false };
 
 /** enabled中、現在のビューポート（デバウンス済み）を覆う道路タイル分をまとめて取得し、
  * way_id→値のMapへ統合して返す。連続する呼び出しの間に古いリクエストが後から解決しても
@@ -89,9 +93,10 @@ export function useDynamicWayValues(
       );
       if (cancelled || seq !== requestSeqRef.current) return;
       setResult({
-        values: mergeDynamicWayValues(responses),
-        byTile: tiles.map((tile, index) => ({ tile, values: responses[index] })),
+        values: mergeDynamicWayValues(responses.map((response) => response.values)),
+        byTile: tiles.map((tile, index) => ({ tile, values: responses[index].values })),
         loading: false,
+        error: responses.some((response) => response.error),
       });
     });
     return () => {

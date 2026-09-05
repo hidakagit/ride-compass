@@ -26,6 +26,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
     expect(result.current.values.size).toBe(0);
     expect(result.current.byTile).toEqual([]);
     expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBe(false);
   });
 
   it("viewportがnullの間はフェッチしない", () => {
@@ -35,7 +36,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
   });
 
   it("enabled=trueで、現在のビューポートを覆うタイル分をmaterial_id付きでフェッチし統合した結果を返す", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ "1": 2.5, "2": -1.0 });
+    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "1": 2.5, "2": -1.0 }, error: false });
     const at = new Date("2026-08-30T09:00:00Z");
 
     const { result } = renderHook(() => useDynamicWayValues("wind", true, VIEWPORT, 90, at));
@@ -43,11 +44,12 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
     await waitFor(() => expect(result.current.values.size).toBe(2));
     expect(result.current.values.get(1)).toBe(2.5);
     expect(result.current.values.get(2)).toBe(-1.0);
+    expect(result.current.error).toBe(false);
     expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 90, at, undefined);
   });
 
   it("material_idが異なれば別々の値としてフェッチする（gradientの例）", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ "3": 4.5 });
+    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "3": 4.5 }, error: false });
 
     const { result } = renderHook(() => useDynamicWayValues("gradient", true, VIEWPORT, 45, undefined));
 
@@ -56,7 +58,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
   });
 
   it("byTileにタイルごとの生応答を保持する（gridFillのタイル単位集計向け）", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ "1": 2.5 });
+    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "1": 2.5 }, error: false });
 
     const { result } = renderHook(() => useDynamicWayValues("gradient", true, VIEWPORT, 0, undefined));
 
@@ -66,7 +68,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
   });
 
   it("OFFへ切り替えると結果を空へ戻す", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ "1": 2.5 });
+    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "1": 2.5 }, error: false });
 
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) => useDynamicWayValues("wind", enabled, VIEWPORT, 0, undefined),
@@ -82,7 +84,7 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
   });
 
   it("フェッチ中はloading=trueになり、応答が届くとfalseに戻る（改善計画T607）", async () => {
-    let resolveFetch!: (value: Record<string, number>) => void;
+    let resolveFetch!: (value: { values: Record<string, number>; error: boolean }) => void;
     vi.mocked(fetchDynamicWayValues).mockReturnValue(
       new Promise((resolve) => {
         resolveFetch = resolve;
@@ -94,18 +96,29 @@ describe("useDynamicWayValues（改善計画T405→T423: way_id→動的値配�
     await waitFor(() => expect(result.current.loading).toBe(true));
     expect(result.current.values.size).toBe(0);
 
-    resolveFetch({ "1": 2.5 });
+    resolveFetch({ values: { "1": 2.5 }, error: false });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.values.get(1)).toBe(2.5);
   });
 
-  it("タイル取得が失敗しても（fetchDynamicWayValuesが空オブジェクトで解決する前提で）例外を投げず空の結果に収束する", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({});
+  it("タイル取得が本当に空（backendが正常応答でerror:falseの空values）なら、例外を投げず空の結果に収束しerrorはfalseのまま", async () => {
+    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: {}, error: false });
 
     const { result } = renderHook(() => useDynamicWayValues("wind", true, VIEWPORT, 0, undefined));
 
     await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalled());
+    expect(result.current.values.size).toBe(0);
+    expect(result.current.error).toBe(false);
+  });
+
+  it("いずれかのタイルの取得が失敗（error:true）したら、結果全体のerrorをtrueにする", async () => {
+    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: {}, error: true });
+
+    const { result } = renderHook(() => useDynamicWayValues("wind", true, VIEWPORT, 0, undefined));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBe(true);
     expect(result.current.values.size).toBe(0);
   });
 });
