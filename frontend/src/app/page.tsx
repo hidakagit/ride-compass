@@ -825,8 +825,8 @@ export default function Home() {
     (key: string) => toggleHiddenLegendKey(lens, key),
     [lens, toggleHiddenLegendKey],
   );
-  // 改善計画T518: RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップ
-  // と同じ色にする（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
+  // RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップと同じ色に
+  // する（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
   // stackBarColorForIndexは表示順index・軸総数（catalog.axes.length）から色相環を
   // 等分するため、両パネルとも同じaxisCatalog.axesの並び順・件数を渡す必要がある。
   const axisChipColors = useMemo(() => {
@@ -854,27 +854,23 @@ export default function Home() {
     LEGEND_FILTER_DEBOUNCE_MS,
   );
 
-  // 改善計画T308: MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes
-  // （実行時フェッチ、軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
-  // 改善計画T406: handleLayerToggle（直下）が排他ドメイン判定のためmapLayers全体を
-  // 参照する必要があり、以前はoverlayLayers組み立て（後方）の直前で定義していたものを
-  // ここへ前倒しした（依存するaxisCatalogは既にこの手前[275行目付近]で定義済み）。
+  // MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes（実行時フェッチ、
+  // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。handleLayerToggle
+  // （直下）が排他ドメイン判定のためmapLayers全体を参照するため、overlayLayers組み立て
+  // （後方）より前で定義する。
   const mapLayers = useMemo(() => buildMapLayers(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
   const roadSurfaceSharedLayerIds = useMemo(
     () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes),
     [axisCatalog.rampAxes]
   );
 
-  // 改善計画T167で導入した「推定指標をONにすると材料の観測データレイヤーも連動ON」する
-  // カスケードは撤去した（改善計画T181フォローアップ、実機フィードバック「自由にメンバを
-  // 表示非表示できることで、裏で表示状態で残るのは避けたい」）。T181で観測グループの
-  // メンバーを個別に「表示項目の設定」で非表示にできるようになった結果、非表示にした
+  // 「推定指標をONにすると材料の観測データレイヤーも連動ON」するカスケードは持たない。
+  // 観測グループのメンバーを個別に「表示項目の設定」で非表示にできるため、非表示にした
   // メンバーが推定指標側の操作で裏からONにされてしまうと、非表示設定でチップ自体が
-  // 隠れているためユーザーがOFFに戻す手段を失う（T181で解消したはずの「チップからは
-  // 消えたのに地図には出続ける」不整合が推定側の操作から再発する）。代わりに、推定軸の
-  // 材料がどれか（どの観測データが計算に使われているか）は`renderMaterialsNote`
-  // （MapOverlayControls.tsx、T167で導入済み）が▼展開時に「材料: ○○」として常に示すため、
-  // 連動ONで自動的に地図へ出す必要性は薄いと判断した。
+  // 隠れているためユーザーがOFFに戻す手段を失う（「チップからは消えたのに地図には出続ける」
+  // 不整合が起きる）。推定軸の材料がどれか（どの観測データが計算に使われているか）は
+  // `renderMaterialsNote`（MapOverlayControls.tsx）が▼展開時に「材料: ○○」として常に
+  // 示すため、連動ONで自動的に地図へ出す必要性は薄い。
   //
   // 地図上チップ（道路/環境/スポット）はどれも複数同時にONにできる。重なって読みにくく
   // なった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む
@@ -916,9 +912,8 @@ export default function Home() {
   );
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。改善計画T165で
-  // 「道路情報」が路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーへ
-  // 分割されたため、軸ごとに個別のサマリ・内訳を持つ（以前は1つのroadSummary/
-  // roadLegendDetailsで2軸をまとめていた）。ズーム不足の案内は絞り込みより優先する
+  // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーの
+  // ため、軸ごとに個別のサマリ・内訳を持つ。ズーム不足の案内は絞り込みより優先する
   // （ONにしたのに何も出ない状態の説明が先）。
   const roadSurfaceAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
   const roadSurfaceFilterSummary = useMemo(
@@ -990,8 +985,8 @@ export default function Home() {
     [hasDetail, lens, hiddenRouteLegendKeys, routeStyleModes],
   );
 
-  // 改善計画T63: 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数
-  // （summarizeLegendFilters）でチップ下に適用中の絞り込みを表示する。レイヤーごとに
+  // 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数（summarizeLegendFilters）
+  // でチップ下に適用中の絞り込みを表示する。レイヤーごとに
   // 保有する軸ぶん（事故のみ2軸、他は1軸）をまとめて渡す。
   const staticFilterSummaries = useMemo(() => {
     const result: Partial<
@@ -1054,11 +1049,10 @@ export default function Home() {
     hiddenDisasterSources,
     mapViewport,
   });
-  // レイヤーごとのデータ取得状態を1つに統合する（改善計画T608）。mapViewLayerDataStatus
-  // （改善計画T87、MapLibreのソースイベントから算出）とdynamicWeatherDataStatus
-  // （動的気象レイヤー、フェッチ自身のloading/errorから算出）はキーが重ならない
-  // （動的気象レイヤーはbuildLayerDataSourcesの対象外）ため、マージの優先順位を
-  // 気にする必要はない。
+  // レイヤーごとのデータ取得状態を1つに統合する。mapViewLayerDataStatus（MapLibreの
+  // ソースイベントから算出）とdynamicWeatherDataStatus（動的気象レイヤー、フェッチ
+  // 自身のloading/errorから算出）はキーが重ならない（動的気象レイヤーは
+  // buildLayerDataSourcesの対象外）ため、マージの優先順位を気にする必要はない。
   const layerDataStatus = useMemo<LayerDataStatusByLayer>(
     () => ({ ...mapViewLayerDataStatus, ...dynamicWeatherDataStatus }),
     [mapViewLayerDataStatus, dynamicWeatherDataStatus]
@@ -1067,9 +1061,8 @@ export default function Home() {
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(() => {
-    // 改善計画T468: summary/legendDetailsの組み立てが、5〜8段ネストした三項演算子
-    // チェーンでlayer.idを1つずつ比較していたのを、layer.id→値のルックアップへ置き換えた
-    // （可読性向上、フォールバック[staticFilterSummaries]は従来どおり最後に見る）。
+    // summary/legendDetailsはlayer.id→値のルックアップで組み立て、無ければ
+    // staticFilterSummariesをフォールバックとして最後に見る。
     const summaryByLayerId: Partial<Record<MapLayerId, string | null>> = {
       roadSurface: roadSurfaceSummary,
       roadType: roadTypeSummary,
@@ -1084,20 +1077,19 @@ export default function Home() {
       disaster: disasterLegendDetails,
     };
     return mapLayers.map((layer) => {
-        // 改善計画T418: windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
+        // windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
         // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
         // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
         // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
         // layerVisibilityへ引き続きアクセスできるようにするためだけの目的になった。
         // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
-        // 1箇所で決める（T414時点の設計を踏襲、無効化理由が増えても1本追加するだけで
-        // disabled/titleの両方に反映される）。
-        // 改善計画T524（T518コードレビューP2指摘）: 以前はhasDetail（segments取得済み）を
-        // 見ていたが、RouteAxisProfileの表示条件（selectedCandidateのみ）とズレていた
-        // ——候補選択直後・segments未取得の間、地図の「ルート」チップは無効化されたままな
-        // のに、同時に表示されるRouteAxisProfileのチップ操作でlayerVisibility.routeがON
-        // に変わってしまい、地図チップから直接OFFへ戻せない状態が生じていた。両者を
-        // selectedCandidate基準へ揃える。
+        // 1箇所で決める（無効化理由が増えても1本追加するだけでdisabled/titleの両方に
+        // 反映される）。
+        // disabledReasonの判定はselectedCandidate基準に揃える——RouteAxisProfileの表示条件
+        // （selectedCandidateのみ）とhasDetail（segments取得済み）がズレると、候補選択
+        // 直後・segments未取得の間、地図の「ルート」チップは無効化されたままなのに、同時に
+        // 表示されるRouteAxisProfileのチップ操作でlayerVisibility.routeがONに変わって
+        // しまい、地図チップから直接OFFへ戻せない状態が生じる。
         const disabledReason = layer.id === "route" && !selectedCandidate ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
         const summary = layer.id in summaryByLayerId
@@ -1105,21 +1097,15 @@ export default function Home() {
           : (staticFilterSummaries[layer.id]?.summary ?? null);
         const legendDetails =
           legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails;
-        // ユーザー判断（2026-08-25）: 動的グループ（降水ナウキャスト・風・雷・竜巻）は
-        // 絞り込み機能を持たないため「地図の見え方」パネルの行自体を撤去した
-        // （MapLayersPanel.tsx参照）。地図上チップの▶パネル本体へ説明文を常時表示する
-        // 対応は「読みにくい」というフィードバックを受けて取りやめた（凡例のみを表示する）。
-        // 改善計画T334: 上記とは別に、折りたたみ中の「表示する項目を選ぶ」設定パネル
-        // （MapOverlayControls.tsx: renderVisibilitySettings）側は、各メンバー行に個別の
-        // 情報アイコンを置き、押したメンバーだけ説明文を表示する形で復活させた
-        // （panelHintは推定/観測/動的の全メンバーへ渡す。同時に常時表示にはしないため
-        // 上記のT317同日追記の判断とは矛盾しない）。
-        // 改善計画T468: 以前はlayer.idのハードコード列挙で「動的グループ」を再判定しており、
-        // mapLayers.ts側の単一ソースdataNature==="dynamic"（本来の判定基準）とズレていた
-        // （windAxis/gradientAxis[isAxisStudioLayerで別途チップ非表示のため実害無し]に加え、
-        // gradientFillが列挙漏れで「[設定はサイドバー]」を誤って付与されていた——gradientFillは
-        // 環境グループの実チップとして表示されるため実害あり）。dataNature自体を見る形へ
-        // 修正し、今後dataNature="dynamic"の新規レイヤーが増えても追従する。
+        // 動的グループ（降水ナウキャスト・風・雷・竜巻）は絞り込み機能を持たないため
+        // 「地図の見え方」パネルの行自体を持たない（MapLayersPanel.tsx参照）。地図上チップの
+        // ▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
+        // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
+        // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
+        // （panelHintは推定/観測/動的の全メンバーへ渡すが、常時表示にはしない）。
+        // 「動的グループ」の判定はmapLayers.ts側の単一ソースdataNature==="dynamic"を見る
+        // （layer.idのハードコード列挙ではなく、この基準に揃えることで新規レイヤーが
+        // 増えても追従する）。
         const isDynamicGroupLayer = layer.dataNature === "dynamic";
         return {
           id: layer.id,
@@ -1133,13 +1119,13 @@ export default function Home() {
             (isDynamicGroupLayer ? layer.description : `${layer.description}[設定はサイドバー]`),
           summary,
           legendDetails,
-          // 地図上チップのカテゴリ束ね（改善計画T128、MapOverlayControls.tsx）用。
+          // 地図上チップのカテゴリ束ね（MapOverlayControls.tsx）用。
           category: layer.category,
           dataNature: layer.dataNature,
-          // 改善計画T334: 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
+          // 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
           panelHint: layer.panelHint,
-          // レイヤーのデータ取得状態（改善計画T87/T606）。LayerChip（サイドバー）と同じく
-          // OFF中の抑制はChipButton自身が`active && dataStatus != null`で行うため、ここでは
+          // レイヤーのデータ取得状態。LayerChip（サイドバー）と同じくOFF中の抑制は
+          // ChipButton自身が`active && dataStatus != null`で行うため、ここでは
           // layerVisibilityで抑制せずそのまま渡す。
           dataStatus: layerDataStatus[layer.id],
         };
@@ -1159,12 +1145,9 @@ export default function Home() {
     mapLayers,
   ]);
 
-  // 全レイヤー一括OFF（ユーザー要望「一次・二次・動的まとめて1ボタンでクリアしたい」「ルート等も
-  // 含めて全チップをOffにするのがシンプル」）。以前はMapOverlayControls.tsxが自前で
-  // 持っていたが、地図下部中央の時刻スライダー隣へボタンを移設した（実機フィードバック
-  // 「左上の全クリアアイコンをスライドバーの左側に移動して」）ため、layers/onToggleを
-  // 既に持つこちらへ持ってきた。何もONでないときはno-opのため無効化する（誤操作の
-  // 起点自体を減らす）。
+  // 全レイヤー一括OFF。地図下部中央の時刻スライダー隣に置き、layers/onToggleを既に
+  // 持つこちらで扱う。何もONでないときはno-opのため無効化する（誤操作の起点自体を
+  // 減らす）。
   const hasAnyLayerOn = overlayLayers.some((layer) => layer.on);
   const handleClearAllLayers = useCallback(() => {
     for (const layer of overlayLayers) {
@@ -1176,7 +1159,7 @@ export default function Home() {
   const handleMobileTabClick = useCallback(
     (sheet: "routeSettings" | "routeOutcome" | "map") => {
       setMobileSheet((prev) => (prev === sheet ? null : sheet));
-      // 改善計画T439: 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
+      // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
       if (sheet === "routeOutcome") setHasUnseenResults(false);
     },
     [setMobileSheet]
@@ -1192,16 +1175,16 @@ export default function Home() {
     [setMobileSheetHeightVh],
   );
 
-  // MapViewからのビューポート通知（改善計画T180、MapView.tsx: onViewportChange参照）。
+  // MapViewからのビューポート通知（MapView.tsx: onViewportChange参照）。
   const handleViewportChange = useCallback((viewport: MapViewport) => {
     setMapViewport(viewport);
   }, []);
 
   // 今日の見通し（TodayOutlook向け、Open-Meteo予報）・最寄りアメダス実測値（WeatherPanel＝
-  // 常設ヘッダー向け）・警告バッジ3種（JMA警報・注意報T205／WBGT T174／河川氾濫予報T212）の
-  // フェッチ・状態管理（改善計画T375でuseWeatherConditionsへ抽出、T387フォローアップで
-  // weather[Open-Meteo]とamedas[アメダス実測]を独立フェッチへ分離）。
-  // locationReadyになるまで待ち、その後はlocationが変わるたびに再フェッチする。
+  // 常設ヘッダー向け）・警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）のフェッチ・
+  // 状態管理（useWeatherConditionsが持つ。weather[Open-Meteo]とamedas[アメダス実測]は
+  // 独立フェッチ）。locationReadyになるまで待ち、その後はlocationが変わるたびに
+  // 再フェッチする。
   const {
     weather,
     weatherLoading,
@@ -1212,15 +1195,11 @@ export default function Home() {
     warningBadgeItems,
   } = useWeatherConditions(location, locationReady);
 
-  // ユーザー要望（2026-08-31、「今は軸毎やレイヤ毎に走行方位が決められるけれど、1つでいい」）:
-  // 動的材料の状態別表現契約（docs/tasks/T400.md「2.」節）の[時刻,向き]のうち「向き」を、
-  // 風・勾配それぞれ独立したstate（旧windBearingDeg/gradientBearingDeg）から、実際の
-  // 進行方向という単一の概念を表す1つの共有state（travelBearingDeg）へ統合した。
-  // 「環境」グループの勾配gridFill・評価軸としての風/勾配（windAxis/gradientAxis）の
-  // いずれもこの1つの値を共有する。設定UIは地図上の
-  // TravelBearingControl（`components/TravelBearingControl/`）1箇所へ集約し、
-  // RouteSettingsPanel内の「走行方位を設定」ボタン・地図下部の個別コンパス
-  // （bottomControlRow）は撤去した。
+  // 動的材料の状態別表現契約の[時刻,向き]のうち「向き」は、風・勾配で単一の共有state
+  // （travelBearingDeg、実際の進行方向という1つの概念を表す）を使う。「環境」グループの
+  // 勾配gridFill・評価軸としての風/勾配（windAxis/gradientAxis）のいずれもこの1つの値を
+  // 共有する。設定UIは地図上のTravelBearingControl（`components/TravelBearingControl/`）
+  // 1箇所に集約されている。
   const [travelBearingDeg, setTravelBearingDeg] = useState(0);
 
   // way_id→wind_drag_ratio配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
@@ -1254,11 +1233,11 @@ export default function Home() {
     lensSpeedKmh
   );
 
-  // way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型だが、勾配は
-  // 時刻に依存しないため（docs/tasks/T400.md「2.」節）dynamicLayerTargetTimeを共有しない。
-  // 向き（travelBearingDeg）は風と共有する（上記の統合コメント参照）。「環境」グループ
-  // （gradientFill、gridFill面表示）・評価軸としての勾配（gradientAxis）が同じ1つの入力
-  // （向き）を共有する（T400.md「2.」節と同じ構造）。表示のON/OFF自体は別チップのまま。
+  // way_id→勾配（effective_gradient）配信層。windAxisと同型だが、勾配は時刻に依存しない
+  // ためdynamicLayerTargetTimeを共有しない。向き（travelBearingDeg）は風と共有する
+  // （上記の統合コメント参照）。「環境」グループ（gradientFill、gridFill面表示）・評価軸
+  // としての勾配（gradientAxis）が同じ1つの入力（向き）を共有する。表示のON/OFF自体は
+  // 別チップのまま。
   const showGradientFill = layerVisibility.gradientFill && !hasDetail;
   const showGradientAxis = lens === "gradient" && lensBackgroundShown;
   // 環境（面）・評価軸（線）どちらかがONの間だけフェッチする（表示中のものだけ叩く方針）。
@@ -1276,13 +1255,11 @@ export default function Home() {
     () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
     [showGradientFill, gradientAxisData.byTile]
   );
-  // 改善計画T483: dedicatedWayValueDisplays（改善計画T473）と同じ理由
-  // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）で、以前は
-  // windAxisPenalties/gradientAxisValuesという軸ごとに別名のpropだったものを
-  // axisId→(way_id→値)の汎用Mapへ統合した。useDynamicWayValues自体は
+  // dedicatedWayValueDisplaysと同じ理由（design-principles.md構造仕様3: 軸ごとにpropを
+  // 新設しない）で、axisId→(way_id→値)の汎用Mapへ統合する。useDynamicWayValues自体は
   // materialIdごとに個別インスタンス化する設計（デバウンス・レース対策がaxis間で
-  // 独立している必要があるため、hooks/useDynamicWayValues.ts参照）のままで変更していない
-  // ——統合するのはMapViewへ渡す直前のprop形状だけ。
+  // 独立している必要があるため、hooks/useDynamicWayValues.ts参照）のままで、統合するのは
+  // MapViewへ渡す直前のprop形状だけ。
   const dedicatedWayValues = useMemo(
     () =>
       new Map<string, ReadonlyMap<number, number>>([
@@ -1291,9 +1268,9 @@ export default function Home() {
       ]),
     [windAxisData.values, gradientAxisData.values]
   );
-  // 改善計画T607: dedicatedWayValuesと同じ理由（design-principles.md構造仕様3）で、
-  // フェッチ進行中フラグもaxisId→booleanの汎用Mapへ統合する（windLoading/gradientLoadingの
-  // ような別名propは持たない）。MapView側はこれを使い、まだ値を受け取っていないwayを
+  // dedicatedWayValuesと同じ理由（design-principles.md構造仕様3）で、フェッチ進行中
+  // フラグもaxisId→booleanの汎用Mapへ統合する（windLoading/gradientLoadingのような
+  // 別名propは持たない）。MapView側はこれを使い、まだ値を受け取っていないwayを
   // 「取得中」（COLOR_LOADING）と「取得済みだが値が無い」（COLOR_NO_DATA）で塗り分ける。
   const dedicatedWayValueLoading = useMemo(
     () =>
