@@ -103,10 +103,12 @@ describe("AxisComposer", () => {
       const inputValueInputs = screen.getAllByRole("spinbutton", { name: "入力値" });
       const scoreInputs = screen.getAllByRole("spinbutton", { name: "スコア" });
       expect(inputValueInputs).toHaveLength(3);
-      await user.clear(inputValueInputs[2]);
-      await user.type(inputValueInputs[2], "20");
-      await user.clear(scoreInputs[2]);
-      await user.type(scoreInputs[2], "60");
+      // 追加は最も間隔の広い区間（既定値[[0,0],[10,100]]では唯一の区間）の中間へ挿入される
+      // ため、新しい点は真ん中の行（index 1）に[5, 50]で入る。
+      expect(inputValueInputs[1]).toHaveValue(5);
+      expect(scoreInputs[1]).toHaveValue(50);
+      await user.clear(scoreInputs[1]);
+      await user.type(scoreInputs[1], "60");
 
       await clickNext(user); // shape_params -> display_publish
       await user.click(screen.getByRole("button", { name: "作成する" }));
@@ -120,17 +122,13 @@ describe("AxisComposer", () => {
         preprocess: "identity",
         breakpoints: [
           [0, 0],
+          [5, 60],
           [10, 100],
-          [20, 60],
         ],
       });
     });
 
-    it("改善計画T425回帰テスト: 折れ点の横軸が昇順でないまま次へ進もうとすると、進まずエラーが出る", async () => {
-      // 「+ 折れ点を追加」は新しい折れ点を既定値[0, 0]で末尾に追加するため、既存の
-      // 最後の点(10, 100)より横軸が小さく、追加しただけで非昇順になる（そのまま
-      // 気づかず保存すると、backend側のnp.interpが前提とする不変条件が破れ評価結果が
-      // 未定義動作になっていた——ゼロベース網羅レビュー指摘、items 12）。
+    it("T598: 「+ 折れ点を追加」は最も間隔の広い区間の中間へ挿入するため、昇順のまま次へ進める（改善計画T425の不具合を解消）", async () => {
       const user = userEvent.setup();
       render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
@@ -139,6 +137,28 @@ describe("AxisComposer", () => {
       await clickNext(user);
 
       await user.click(screen.getByRole("button", { name: "+ 折れ点を追加" }));
+      await clickNext(user);
+
+      expect(
+        screen.queryByText("折れ点は横軸（左の入力欄）の値が小さい順になるようにしてください（同じ値は使えません）。"),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("ステップ 4/4: 地図表示・公開")).toBeInTheDocument();
+    });
+
+    it("改善計画T425回帰テスト: 手入力で折れ点の横軸が昇順でなくなった状態で次へ進もうとすると、進まずエラーが出る", async () => {
+      const user = userEvent.setup();
+      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
+      await clickNext(user);
+      await clickNext(user);
+
+      // 既定値[[0,0],[10,100]]の最後の行を、最初の行より小さい値へ手入力で書き換えて
+      // 非昇順にする（自動生成・追加はいずれも昇順を保つため、手入力だけがこの状態を
+      // 作れる経路として残る）。
+      const inputValueInputs = screen.getAllByRole("spinbutton", { name: "入力値" });
+      await user.clear(inputValueInputs[1]);
+      await user.type(inputValueInputs[1], "-5");
       await clickNext(user);
 
       expect(

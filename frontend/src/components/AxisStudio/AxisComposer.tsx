@@ -1,6 +1,15 @@
 "use client";
 
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  BREAKPOINT_SHAPE_OPTIONS,
+  generateBreakpoints,
+  insertBreakpointAtLargestGap,
+  interpolateBreakpointScore,
+  niceStep,
+  snapToStep,
+  type BreakpointShape,
+} from "./breakpointTools";
 import * as Popover from "@radix-ui/react-popover";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import { InfoIcon } from "@/components/Map/icons";
@@ -198,28 +207,55 @@ function SliderNumberField({
   );
 }
 
-/** 改善計画T397: 折れ点(breakpoints)をドラッグで調整できる曲線エディタ。既存の数値入力
- * 行（正確な値の入力・行の追加削除）はそのまま残し、この曲線はその可視化＋補助的な
- * 操作手段として上に添える（両者は同じdraft.breakpoints stateを指すため常に同期する）。
- * 横軸・縦軸とも現在のbreakpointsの値から自動的にスケールする。 */
+/** 材料の生値を折れ点の横軸(x)の値へ変換する。backend: domain/axis_definitions.py:
+ * evaluate_axis_scalarの`total = value * weight`→`abs()`（preprocess="abs"の場合）と
+ * 同じ変換（`terms`が1件のbreakpoint_linear軸限定、複数termの合計は対応しない）。 */
+function toBreakpointX(value: number, weight: number, preprocess: "identity" | "abs"): number {
+  const total = value * weight;
+  return preprocess === "abs" ? Math.abs(total) : total;
+}
+
+/** きりのいい目盛り位置の一覧（min〜maxの範囲内、niceStep刻み）。 */
+function niceTicks(min: number, max: number): number[] {
+  const step = niceStep(max - min || 1);
+  const start = Math.ceil(min / step) * step;
+  const ticks: number[] = [];
+  for (let v = start; v <= max + step * 1e-6; v += step) {
+    ticks.push(Math.round(v * 1000) / 1000);
+  }
+  return ticks;
+}
+
+/** 折れ点(breakpoints)をドラッグ・矢印キーで調整できる曲線エディタ。既存の数値入力行
+ * （正確な値の入力・行の追加削除）はそのまま残し、この曲線はその可視化＋補助的な操作手段
+ * として上に添える（両者は同じdraft.breakpoints stateを指すため常に同期する）。
+ * `referenceRange`（材料の参考点の値域）を渡すと横軸をその範囲に固定し、ドラッグ中に
+ * 見た目のスケールが動かないようにする（材料の参考点が無い場合は現在のbreakpointsの
+ * 値から自動スケールする）。 */
 function BreakpointCurveEditor({
   breakpoints,
   onChangePoint,
+  referenceRange,
 }: {
   breakpoints: [number, number][];
   onChangePoint: (index: number, pos: 0 | 1, value: number) => void;
+  referenceRange?: { min: number; max: number };
 }) {
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const width = 400;
   const height = 160;
   const padding = 28;
   const xs = breakpoints.map((bp) => bp[0]);
   const ys = breakpoints.map((bp) => bp[1]);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
+  // referenceRangeがあれば10%の余白を持たせて横軸を固定し、無ければ現在のbreakpoints
+  // から自動スケールする（従来どおり）。
+  const xMin = referenceRange ? referenceRange.min - (referenceRange.max - referenceRange.min) * 0.1 : Math.min(...xs);
+  const xMax = referenceRange ? referenceRange.max + (referenceRange.max - referenceRange.min) * 0.1 : Math.max(...xs);
   const yMin = Math.min(0, ...ys);
   const yMax = Math.max(100, ...ys);
   const xSpan = xMax - xMin || 1;
   const ySpan = yMax - yMin || 1;
+  const xSnapStep = niceStep(xSpan);
 
   function toScreen(bp: [number, number]): [number, number] {
     const sx = padding + ((bp[0] - xMin) / xSpan) * (width - padding * 2);
@@ -230,11 +266,13 @@ function BreakpointCurveEditor({
   function fromScreen(sx: number, sy: number): [number, number] {
     const x = xMin + ((sx - padding) / (width - padding * 2)) * xSpan;
     const y = yMin + ((height - padding - sy) / (height - padding * 2)) * ySpan;
-    return [Math.round(x * 10) / 10, Math.round(y)];
+    return [snapToStep(x, xSnapStep), Math.round(y)];
   }
 
   const points = breakpoints.map(toScreen);
   const polyline = points.map(([x, y]) => `${x},${y}`).join(" ");
+  const xTicks = niceTicks(xMin, xMax);
+  const yTicks = [25, 50, 75];
 
   function handlePointerMove(e: ReactPointerEvent<SVGCircleElement>, index: number) {
     if (e.buttons !== 1) return;
@@ -248,13 +286,51 @@ function BreakpointCurveEditor({
     onChangePoint(index, 1, y);
   }
 
+  // 矢印キーでの微調整（左右=入力値をxSnapStep刻み、上下=スコアを1刻み、Shift併用で
+  // その10倍）。ドラッグ操作の代替手段として、キーボード操作・スクリーンリーダー
+  // 利用者にも折れ点を動かす手段を確保する。
+  function handleKeyDown(e: ReactKeyboardEvent<SVGCircleElement>, index: number) {
+    const bigStep = e.shiftKey ? 10 : 1;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      onChangePoint(index, 0, breakpoints[index][0] + xSnapStep * bigStep);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      onChangePoint(index, 0, breakpoints[index][0] - xSnapStep * bigStep);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      onChangePoint(index, 1, breakpoints[index][1] + bigStep);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      onChangePoint(index, 1, breakpoints[index][1] - bigStep);
+    }
+  }
+
+  const dragging = draggingIndex != null ? breakpoints[draggingIndex] : null;
+  const draggingScreen = draggingIndex != null ? points[draggingIndex] : null;
+
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className={styles.curveEditor}
       role="img"
-      aria-label="折れ点の曲線プレビュー（ドラッグで調整可能）"
+      aria-label="折れ点の曲線プレビュー（ドラッグまたは矢印キーで調整可能）"
     >
+      {yTicks.map((y) => {
+        const [, sy] = toScreen([xMin, y]);
+        return <line key={`y-${y}`} x1={padding} y1={sy} x2={width - padding} y2={sy} className={styles.curveGridline} />;
+      })}
+      {xTicks.map((x) => {
+        const [sx] = toScreen([x, yMin]);
+        return (
+          <g key={`x-${x}`}>
+            <line x1={sx} y1={padding} x2={sx} y2={height - padding} className={styles.curveGridline} />
+            <text x={sx} y={height - padding + 12} className={styles.curveTickLabel} textAnchor="middle">
+              {x}
+            </text>
+          </g>
+        );
+      })}
       <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className={styles.curveAxis} />
       <line x1={padding} y1={padding} x2={padding} y2={height - padding} className={styles.curveAxis} />
       <polyline points={polyline} className={styles.curveLine} />
@@ -264,11 +340,25 @@ function BreakpointCurveEditor({
           cx={x}
           cy={y}
           r={7}
+          tabIndex={0}
+          role="slider"
+          aria-label={`折れ点${i + 1}（入力値${breakpoints[i][0]}、スコア${breakpoints[i][1]}）`}
+          aria-valuenow={breakpoints[i][1]}
           className={styles.curvePoint}
-          onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setDraggingIndex(i);
+          }}
           onPointerMove={(e) => handlePointerMove(e, i)}
+          onPointerUp={() => setDraggingIndex(null)}
+          onKeyDown={(e) => handleKeyDown(e, i)}
         />
       ))}
+      {dragging && draggingScreen && (
+        <text x={draggingScreen[0]} y={draggingScreen[1] - 12} className={styles.curveDragLabel} textAnchor="middle">
+          {dragging[0]} → {dragging[1]}
+        </text>
+      )}
     </svg>
   );
 }
@@ -571,6 +661,30 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const categoricalMaterialValues = useMaterialValues(
     selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null,
   );
+  // 折れ点の自動生成フォーム（範囲＋形の3入力）の下書き。draft.breakpointsとは別の
+  // 使い捨て入力欄で、「生成」を押すまでdraft.breakpointsへは反映しない。
+  const [generatorZeroValue, setGeneratorZeroValue] = useState(0);
+  const [generatorHundredValue, setGeneratorHundredValue] = useState(10);
+  const [generatorShape, setGeneratorShape] = useState<BreakpointShape>("flat");
+  // breakpoint_linearで単一材料（他軸参照ではない）のtermを1つだけ持つ場合にのみ、その
+  // 材料の参考点（reference_points）を「効き目プレビュー」「自動生成の値の目安」
+  // 「曲線エディタの横軸固定」に使う。複数termの組み合わせ・他軸参照は参考点の対応が
+  // 取れないため対象外（T598対応方針の判断点）。
+  const primaryMaterial =
+    draft.shapeKind === "breakpoint_linear" && draft.terms.length === 1
+      ? materialOptions.find((m) => m.id === draft.terms[0].material)
+      : undefined;
+  const primaryMaterialReferencePoints = primaryMaterial?.referencePoints ?? [];
+  const primaryTermWeight = draft.terms[0]?.weight ?? 1;
+  // 参考点の値域（曲線エディタの横軸固定・効き目プレビューに使う）。参考点が無ければ
+  // undefinedのままで、曲線エディタは従来どおりbreakpoints自体から自動スケールする。
+  const breakpointReferenceRange =
+    primaryMaterialReferencePoints.length > 0
+      ? (() => {
+          const xs = primaryMaterialReferencePoints.map((p) => toBreakpointX(p.value, primaryTermWeight, draft.preprocess));
+          return { min: Math.min(...xs), max: Math.max(...xs) };
+        })()
+      : undefined;
   // 改善計画T501: 公開済み軸を編集対象に開いた場合、材料・計算式・重み等の
   // ステップ（1〜3）を一切見せず、常に最終ステップ（表示専用フィールドのみ）から
   // 動かさない。goNext/goBackはこのモードでは呼ばれない（対応するボタンを描画しない）ため
@@ -1131,10 +1245,78 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     ここで向きを訂正する。改善計画T397フォローアップ: 説明文はポップオーバーへ
                     折りたたむ（0-100の向きの説明は下の共通キャプション参照）。 */}
                 <SectionLabel
-                  label="折れ点"
-                  description="値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに設定してください。図はドラッグでも調整できます。"
+                  label="折れ点を自動生成"
+                  description={
+                    "「0点にする値」「100点にする値」「形」の3つから折れ点を作り直します。生成後も下の一覧・図で個別に調整できます。" +
+                    (primaryMaterial && primaryMaterialReferencePoints.length > 0
+                      ? "値の欄の下のボタンは材料の参考点（目安）です。"
+                      : "")
+                  }
                 />
-                <BreakpointCurveEditor breakpoints={draft.breakpoints} onChangePoint={updateBreakpoint} />
+                <div className={styles.breakpointGeneratorRow}>
+                  <span className={styles.sliderNumberField}>
+                    <span className={styles.breakpointGeneratorLabel}>0点</span>
+                    <NumberField step="0.1" value={generatorZeroValue} aria-label="0点にする値" onChange={setGeneratorZeroValue} />
+                  </span>
+                  <span className={styles.sliderNumberField}>
+                    <span className={styles.breakpointGeneratorLabel}>100点</span>
+                    <NumberField
+                      step="0.1"
+                      value={generatorHundredValue}
+                      aria-label="100点にする値"
+                      onChange={setGeneratorHundredValue}
+                    />
+                  </span>
+                  <select
+                    aria-label="折れ点の形"
+                    value={generatorShape}
+                    onChange={(e) => setGeneratorShape(e.target.value as BreakpointShape)}
+                  >
+                    {BREAKPOINT_SHAPE_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft((d) => ({ ...d, breakpoints: generateBreakpoints(generatorZeroValue, generatorHundredValue, generatorShape) }))
+                    }
+                    disabled={generatorZeroValue === generatorHundredValue}
+                  >
+                    生成
+                  </button>
+                </div>
+                {primaryMaterial && primaryMaterialReferencePoints.length > 0 && (
+                  <div className={styles.breakpointReferenceRow} role="group" aria-label="参考点から値を選ぶ">
+                    {primaryMaterialReferencePoints.map((p) => {
+                      const x = toBreakpointX(p.value, primaryTermWeight, draft.preprocess);
+                      return (
+                        <button
+                          key={p.label}
+                          type="button"
+                          className={styles.breakpointReferenceButton}
+                          title={`${p.label}: ${p.value}${primaryMaterial.unit}`}
+                          onClick={() => setGeneratorZeroValue(x)}
+                          onDoubleClick={() => setGeneratorHundredValue(x)}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <SectionLabel
+                  label="折れ点"
+                  description="値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに設定してください。図はドラッグ・矢印キーでも調整できます。"
+                />
+                <BreakpointCurveEditor
+                  breakpoints={draft.breakpoints}
+                  onChangePoint={updateBreakpoint}
+                  referenceRange={breakpointReferenceRange}
+                />
                 {draft.breakpoints.map((bp, i) => (
                   <div key={i} className={styles.breakpointRow}>
                     <NumberField step="0.1" value={bp[0]} aria-label="入力値" onChange={(next) => updateBreakpoint(i, 0, next)} />
@@ -1152,10 +1334,42 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 <button
                   type="button"
                   className={styles.addButton}
-                  onClick={() => setDraft((d) => ({ ...d, breakpoints: [...d.breakpoints, [0, 0]] }))}
+                  onClick={() => setDraft((d) => ({ ...d, breakpoints: insertBreakpointAtLargestGap(d.breakpoints) }))}
                 >
                   + 折れ点を追加
                 </button>
+
+                {primaryMaterial && primaryMaterialReferencePoints.length > 0 && (
+                  <div className={styles.breakpointPreview}>
+                    <SectionLabel label="効き目プレビュー" description="今の折れ点で、材料の参考点それぞれが何点になるかです。" />
+                    <table className={styles.breakpointPreviewTable}>
+                      <thead>
+                        <tr>
+                          <th>参考点</th>
+                          <th>値</th>
+                          <th>スコア</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {primaryMaterialReferencePoints.map((p) => (
+                          <tr key={p.label}>
+                            <td>{p.label}</td>
+                            <td>
+                              {p.value}
+                              {primaryMaterial.unit}
+                            </td>
+                            <td>
+                              {interpolateBreakpointScore(
+                                draft.breakpoints,
+                                toBreakpointX(p.value, primaryTermWeight, draft.preprocess),
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </>
             )}
           </div>
