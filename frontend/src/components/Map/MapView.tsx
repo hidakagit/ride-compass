@@ -1836,14 +1836,11 @@ export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLa
     DETAIL_HIT_LAYER_ID,
     ROAD_TILE_LAYER_ID,
     ...staticOverlayLayers.filter(
-      // 改善計画T478（統合レビュー第3回§9指摘の再確認）: "gradientFill"（環境グループの
-      // 勾配gridFill）は専用ポップアップを持たず、クリック時は下記handleClickの早期return
-      // ガードで「何もしない」設計のため、ここでも除外する。除外しないままだと
-      // handleMouseMoveのカーソル判定（同じ
+      // "gradientFill"（環境グループの勾配gridFill）は専用ポップアップを持たず、
+      // クリック時は下記handleClickの早期returnガードで「何もしない」設計のため、
+      // ここでも除外する。除外しないままだと、handleMouseMoveのカーソル判定（同じ
       // interactiveLayerIdsを参照）がこのレイヤー上でpointerカーソルを出し、
-      // 「カーソルはクリック可能を示すのに実際は何も起きない」という不整合になっていた
-      // （T461はクリック時の誤ポップアップだけを早期returnガードで対症療法的に修正しており、
-      // このinteractiveLayerIds自体の除外漏れは未着手のまま残っていた）。
+      // 「カーソルはクリック可能を示すのに実際は何も起きない」という不整合になる。
       (layer) => layer.key !== "elevation" && layer.key !== "gradientFill" && !layer.key.startsWith("axis:"),
     ).map((layer) => layer.layerId),
   ];
@@ -1866,17 +1863,15 @@ function setStaticOverlayVisibility(
   });
 }
 
-// 改善計画T63: 標高を除く各レイヤー（車の圧迫感[T292でramp軸へ移行]・自転車インフラ・
-// 指定路線・事故・停止要因POI・補給休憩POI[T101]等）の絞り込み。STATIC_FILTER_AXES
-// （staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSのkeyと突き合わせ、
-// そのレイヤーが持つ軸ぶん（事故のみ2軸、他は1軸）を道路情報と同じ
-// buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする
-// （setFilterはvector/circleレイヤー用でラスタレイヤーには使えないため）。
+// 標高を除く各レイヤー（車の圧迫感（ramp軸）・自転車インフラ・指定路線・事故・
+// 停止要因POI・補給休憩POI等）の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）の
+// layerIdでSTATIC_OVERLAY_LAYERSのkeyと突き合わせ、そのレイヤーが持つ軸ぶん
+// （事故のみ2軸、他は1軸）を道路情報と同じbuildCombinedLegendFilterExpressionでAND
+// 束ねする。軸を持たない標高はスキップする（setFilterはvector/circleレイヤー用で
+// ラスタレイヤーには使えないため）。
 //
-// 改善計画T292: car_stressは専用Pythonレシピ廃止に伴いbackendのtile_inputs/thresholds
-// （registry_defaults.py）から静的に決まるramp軸になったため、以前ここにあった
-// 「レシピ上書き中は都度legendを組み立て直す」特殊分岐・レシピ引数は不要になった
-// （他のramp軸=stop_density/accident等と同じ扱いに統一）。
+// car_stressはbackendのtile_inputs/thresholds（registry_defaults.py）から静的に決まる
+// ramp軸のため、他のramp軸（stop_density/accident等）と同じ扱いで統一的に処理できる。
 // MapView.overlayFilters.test.tsからフェイクmapで検証できるようexportしている
 // （computeLayerDataStatus等と同じ方針）。
 export function setStaticOverlayFilters(
@@ -1907,14 +1902,15 @@ export function setStaticOverlayFilters(
 // 軸スタジオの公開ramp軸を含む）のいずれかが表示ONかを判定する。road_surfaceソースを
 // 参照する箇所（ズーム範囲外判定・レイヤーデータ状態表示の抑制）が両方ともこのヘルパー
 // 経由でroadSurfaceSharedLayerIdsを参照するようにし、「対象レイヤーはどれか」を1箇所
-// （mapLayers.ts）だけが知っていればよい状態にする（改善計画T87レビュー指摘: 以前はroadの
-// 表示状態だけを見ていたため、road自体はOFFのままcarStress等だけONの場合にズーム範囲外の
-// 案内が一切出なかった）。MapView.segments.test.tsと同じ考え方でテスト可能にexportしている。
+// （mapLayers.ts）だけが知っていればよい状態にする。road自体がOFFでもcarStress等の
+// ramp軸だけがONであればズーム範囲外の案内対象に含める必要があるため、road単体の表示
+// 状態ではなくこの判定を使う。MapView.segments.test.tsと同じ考え方でテスト可能に
+// exportしている。
 //
-// コードレビュー指摘の修正: 以前は第2引数を持たず、ビルド時静的フォールバック
-// ROAD_SURFACE_SHARED_LAYER_IDSを直接参照していたため、軸スタジオで新規公開したramp軸を
+// roadSurfaceSharedLayerIdsは第2引数として実行時に渡す——ビルド時静的フォールバック
+// ROAD_SURFACE_SHARED_LAYER_IDSを直接参照すると、軸スタジオで新規公開したramp軸を
 // 低ズームでONにしても「表示範囲が広すぎます」の案内が出ないまま何も表示されない状態に
-// なっていた（呼び出し元がpropsのrampAxesから実行時に算出したリストを渡す前提へ変更）。
+// なるため、呼び出し元がpropsのrampAxesから実行時に算出したリストを渡す。
 export function isRoadSurfaceGroupVisible(
   visibility: Partial<Record<MapLayerId, boolean>>,
   roadSurfaceSharedLayerIds: readonly MapLayerId[],
@@ -1924,11 +1920,10 @@ export function isRoadSurfaceGroupVisible(
 
 // 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
 // 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
-// （以前のbbox対角距離チェックの代わり。標高はラスタタイルのためこの判定の対象外）。
+// （標高はラスタタイルのためこの判定の対象外）。
 // showRoadSurfaceGroupは isRoadSurfaceGroupVisible の結果（road_surfaceタイルを共有する
-// 6レイヤーのいずれかが表示ONか）。以前はroadの表示状態だけを見ていたため、road自体はOFFの
-// ままcarStress等だけONで同じソースを見ている場合にこの案内が一切出ない不整合があった
-// （改善計画T87レビュー指摘）。
+// 各レイヤーのいずれかが表示ONか）——road自体がOFFでもcarStress等の他レイヤーが同じ
+// ソースを見ていればこの案内の対象に含める。
 function updateRoadZoomHint(
   map: MapLibreMap,
   showRoadSurfaceGroup: boolean,
@@ -1962,9 +1957,8 @@ function formatRoad(good: boolean | null): string {
   return good ? "舗装路" : "未舗装路";
 }
 
-// ポップアップ本文の共通スタイル。line-heightは以前1.6だったが、短い行の羅列に対して
-// 間延びして見えたため、サイドバーの他カード（components/ui/Card等、改善計画T299）に近い
-// 密度の1.4へ詰めた。
+// ポップアップ本文の共通スタイル。line-height 1.4はサイドバーの他カード
+// （components/ui/Card等）に近い密度に合わせている。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 
 // ユーザー指摘（2026-09-03、「ピンの位置は実際に情報表示しているルート上に補正してほしい」）:
