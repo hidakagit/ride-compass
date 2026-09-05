@@ -306,6 +306,21 @@ describe("Home（app/page.tsx） レイヤー排他ドメイン（改善計画T4
     // route自体はどちらの操作の影響も受けずONのまま
     expect(afterBothToggled.get("route")).toBe(true);
   });
+
+  // 改善計画T606: キキクル4種は他の環境グループ気象レイヤー（既定OFF）と異なり、
+  // 防災級の情報をユーザー操作を待たず表示するため既定ONにする（FIXED_LAYER_VISIBILITY_
+  // DEFAULTS参照）。
+  it("キキクル4種は既定でON", async () => {
+    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
+    render(<Home />);
+
+    await screen.findByRole("button", { name: "toggle:route" });
+    const initial = overlayLayersOnMap();
+    expect(initial.get("landslideRisk")).toBe(true);
+    expect(initial.get("heavyRainRisk")).toBe(true);
+    expect(initial.get("inundationRisk")).toBe(true);
+    expect(initial.get("floodRisk")).toBe(true);
+  });
 });
 
 // 改善計画T468回帰テスト（2026-08-31 T478で追加）: overlayLayers組み立ての

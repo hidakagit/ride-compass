@@ -4,6 +4,8 @@
 // ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
 import {
+  CHIP_DYNAMIC_WEATHER_LAYER_IDS,
+  DYNAMIC_WEATHER_LAYER_IDS,
   formatDynamicFrameTime,
   frameIndexForTime,
   gridCellRing,
@@ -120,6 +122,19 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
     it("過去（現在より前）は範囲外", () => {
       const target = new Date(now.getTime() - 60 * 1000);
       expect(isWithinFutureWindow(target, now, windowMs)).toBe(false);
+    });
+  });
+
+  describe("CHIP_DYNAMIC_WEATHER_LAYER_IDS（改善計画T606: キキクル4種のチップ化）", () => {
+    it("キキクル4種を含む（他の環境グループ気象レイヤーと同じチップ付き扱い）", () => {
+      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("landslideRisk");
+      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("heavyRainRisk");
+      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("inundationRisk");
+      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("floodRisk");
+    });
+
+    it("DYNAMIC_WEATHER_LAYER_IDSはCHIP_DYNAMIC_WEATHER_LAYER_IDSと同じ（常時マウント・チップ無しの要素を持たない）", () => {
+      expect(DYNAMIC_WEATHER_LAYER_IDS).toEqual(CHIP_DYNAMIC_WEATHER_LAYER_IDS);
     });
   });
 });

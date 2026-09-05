@@ -33,7 +33,7 @@
 //       ペイロード関数（ref→DynamicWeatherRenderPayload）を実装する
 //   (3) MapView.tsx: DYNAMIC_WEATHER_RENDERERSへ描画スペック（raster/gridFill/gridMark/
 //       vectorTileの宣言と配色・アイコン）を1エントリ追加する
-//   (4) mapLayers.ts: 地図チップを追加し、MapLayerId・page.tsxのdynamicWeather一覧へ
+//   (4) mapLayers.ts: 地図チップを追加し、MapLayerId・CHIP_DYNAMIC_WEATHER_LAYER_IDSへ
 //       1行足す
 //
 // このファイル自体はDOM/MapLibreを知らない純粋なデータ層（windLayer.ts等と同じ方針）。
@@ -42,9 +42,8 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 
 // 動的気象レイヤーの一覧（単一の情報源、MapView.tsx: DYNAMIC_WEATHER_RENDERERS・
 // page.tsxのdynamicWeather組み立ての両方がこの配列を見る）。新しい要素を追加するときは
-// ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。
-//
-// チップ（layerVisibility）でON/OFFする要素（改善計画T432）。
+// ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。全要素が
+// チップ（layerVisibility）でON/OFFする（常時マウント・チップ無しの要素は持たない）。
 export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
   "precipitationNowcast",
   "windVector",
@@ -57,21 +56,19 @@ export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
   // エリア単位の活動度（thns、rasterTile）とは別に、個々の落雷地点（gridMark）を独立して
   // ON/OFFできるようにする。
   "liden",
+  // キキクル（危険度分布：土砂災害・大雨・浸水・洪水、改善計画T410/T416/T606）。線状
+  // 降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの一部として
+  // 扱い、ここには含めない（MapView.tsx: DYNAMIC_WEATHER_RENDERERSのprecipitationNowcast
+  // グループのlinearRainbandソース参照）。洪水キキクル（floodRisk）は他3種と異なり
+  // ベクタタイル（.pbf）形式のため、vectorTile kind（本ファイル冒頭コメント参照）で
+  // 描画する。
+  "landslideRisk",
+  "heavyRainRisk",
+  "inundationRisk",
+  "floodRisk",
 ] as const satisfies readonly MapLayerId[];
 
-// キキクル（危険度分布：土砂・大雨・浸水・洪水、改善計画T410/T416）。「防災」カテゴリとして
-// WarningBadgeと同じ常時マウント・チップ無しにする（改善計画T432、T420の「既定ON」方針を
-// 訂正）。線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの
-// 一部として扱い、ここには含めない（MapView.tsx: DYNAMIC_WEATHER_RENDERERSの
-// precipitationNowcastグループのlinearRainbandソース参照）。洪水キキクル（floodRisk）は
-// 他3種と異なりベクタタイル（.pbf）形式のため、vectorTile kind（本ファイル冒頭コメント
-// 参照）で描画する（改善計画T416で実装、当初はT410で本基盤の対応外として見送られていた）。
-export const ALWAYS_ON_DYNAMIC_WEATHER_LAYER_IDS = ["landslideRisk", "heavyRainRisk", "inundationRisk", "floodRisk"] as const;
-
-export const DYNAMIC_WEATHER_LAYER_IDS = [
-  ...CHIP_DYNAMIC_WEATHER_LAYER_IDS,
-  ...ALWAYS_ON_DYNAMIC_WEATHER_LAYER_IDS,
-] as const;
+export const DYNAMIC_WEATHER_LAYER_IDS = CHIP_DYNAMIC_WEATHER_LAYER_IDS;
 export type DynamicWeatherLayerId = (typeof DYNAMIC_WEATHER_LAYER_IDS)[number];
 
 /** フレーム1つぶんの描画内容。表示層はこのkindだけで描画方法を決める（データソースの

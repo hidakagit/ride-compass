@@ -1,9 +1,5 @@
-"""debug_modeのランタイム切替・直近ログの保持（改善計画T379）。
+"""debug_modeのランタイム切替・直近ログの保持。
 
-`settings.debug_mode`（config.py）は元々プロセス起動時に一度だけ読まれる環境変数で、
-唯一の用途は`main.py`が`logging.basicConfig`のログレベルを決めることだけだった
-（grep実測、他に分岐箇所なし）。本番でこれを一時的にONにするにはSSH→env file編集→
-コンテナ再作成が必要で、T318の調査で運用上のボトルネックと判明した。ここでは
 (1) ルートロガーのレベルをプロセスを再起動せず書き換える関数と、(2) DEBUGログを
 本番のdocker logsを見ずにHTTP経由で取得できるよう直近ログを保持するリングバッファ
 ハンドラを提供する。管理API（api/routers/debug_admin.py）からのみ呼ばれる想定。
@@ -29,8 +25,8 @@ _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [req:%(request_id)s]: %(mess
 
 class _LogRingBufferHandler(logging.Handler):
     """直近`_RING_BUFFER_MAX_SIZE`件の整形済みログ行を、レベル（`record.levelno`）と
-    セットでメモリ上に保持するハンドラ。改善計画T517: `get_recent_logs`の`min_level`
-    フィルタが整形済み文字列を`[WARNING]`のような部分文字列でパースせずに済むよう、
+    セットでメモリ上に保持するハンドラ。`get_recent_logs`の`min_level`フィルタが
+    整形済み文字列を`[WARNING]`のような部分文字列でパースせずに済むよう、
     数値のログレベルを別途保持する。"""
 
     def __init__(self, maxlen: int) -> None:
@@ -76,8 +72,8 @@ def get_recent_logs(limit: int | None = None, contains: str | None = None, min_l
     """リングバッファから直近ログを取得する。
 
     `min_level`を指定すると、Python標準の`logging`と同じ「このレベル以上」の意味で
-    フィルタする（改善計画T517、例: `logging.WARNING`を渡すとWARNING/ERROR/CRITICALだけに
-    絞れる）。`contains`を指定すると部分一致でさらにフィルタする（T318のユースケース:
+    フィルタする（例: `logging.WARNING`を渡すとWARNING/ERROR/CRITICALだけに
+    絞れる）。`contains`を指定すると部分一致でさらにフィルタする（例:
     `distance filter rejected`だけを抜き出す等）。両方指定した場合はAND条件（レベルで
     絞った上でさらに文字列一致も要求）。`limit`は「フィルタ後の末尾N件」を返す
     （古い順のまま、末尾が最新）。

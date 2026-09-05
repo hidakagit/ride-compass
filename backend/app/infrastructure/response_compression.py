@@ -6,7 +6,7 @@ CPUを使ってしまう。ここでは`COMPRESSIBLE_CONTENT_TYPES`に該当す�
 それ以外はそのまま素通しする。
 
 圧縮はイベントループ上で同期的に行われる（GZipResponderの実装）ため、compresslevelは
-高くしない。路面タイル（z12で約680KB）の実測ではlevel 3で約57%、level 9で約55%と
+高くしない。路面タイル（z12で約680KB）ではlevel 3で約57%、level 9で約55%と
 縮小率がほぼ同じ一方、所要時間は6倍近く違う。
 """
 

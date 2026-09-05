@@ -1009,9 +1009,9 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
       },
     },
   },
-  // キキクル（危険度分布、改善計画T410、T432で「防災」カテゴリとして常時マウントへ変更）。
-  // 他のraster専用スペック（thunderNowcast等）と同じ単純な構成。実機確認済みのzoom範囲
-  // （risk.properties.xml: minZoom=4/maxZoom=14/maxNativeZoom=11）に合わせる。
+  // キキクル（危険度分布、改善計画T410）。他のraster専用スペック（thunderNowcast等）と
+  // 同じ単純な構成。zoom範囲はrisk.properties.xml（minZoom=4/maxZoom=14/
+  // maxNativeZoom=11）に合わせる。
   landslideRisk: {
     main: {
       raster: {
@@ -1835,18 +1835,21 @@ type StaticOverlayKey = string;
 // （MapView.dataStatus.test.ts）からbuildLayerDataSources(RAMP_AXES)経由で
 // 個別レイヤーのsourceIdを参照できるようexportしている。
 // 動的気象レイヤーは要素ごとに複数の名前付きソース（改善計画T432）、各ソースがさらに
-// raster/gridFill/gridMarkの複数サブレイヤーを持ちうるが、レイヤーデータ状態の追跡
+// raster/gridFill/gridMark/vectorの複数サブレイヤーを持ちうるが、レイヤーデータ状態の追跡
 // （useLayerDataStatus.ts）は1レイヤー1sourceIdを前提とするため、「代表」のソース・
 // サブレイヤーを1つ選ぶ（取得失敗の検知対象という位置づけは旧PRECIPITATION_NOWCAST_
-// SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。防災3種（キキクル、常時マウント・チップ無し）は
-// 対応するUI要素が無いためこの追跡対象に含めない（呼び出し側でCHIP_DYNAMIC_WEATHER_
-// LAYER_IDSに絞る）。
+// SOURCE_ID/WIND_VECTOR_SOURCE_IDと同じ）。CHIP_DYNAMIC_WEATHER_LAYER_IDSの全要素
+// （キキクル4種を含む）がこの表のキーとして必須になる（Recordの型がそれを強制する）。
 const PRIMARY_DYNAMIC_WEATHER_SOURCE: Record<(typeof CHIP_DYNAMIC_WEATHER_LAYER_IDS)[number], DynamicWeatherSourceId> = {
   precipitationNowcast: "main",
   windVector: "arrow",
   thunderNowcast: "main",
   tornadoNowcast: "main",
   liden: "main",
+  landslideRisk: "main",
+  heavyRainRisk: "main",
+  inundationRisk: "main",
+  floodRisk: "main",
 };
 
 function primaryDynamicWeatherSourceId(
@@ -1857,6 +1860,7 @@ function primaryDynamicWeatherSourceId(
   const spec = groupSpec[source];
   if (spec?.raster) return dynamicWeatherIds(id, source, "raster").sourceId;
   if (spec?.gridFill) return dynamicWeatherIds(id, source, "fill").sourceId;
+  if (spec?.vector) return dynamicWeatherIds(id, source, "vector").sourceId;
   return dynamicWeatherIds(id, source, "mark").sourceId;
 }
 
@@ -1875,12 +1879,11 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
-    // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計）。
-    // CHIP_DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しいチップ付き要素を追加しても
-    // ここへ手動で1行足す必要はない（改善計画T432: 防災3種はチップが無いため対象外）。
-    // GeoJSON source（gridFill/gridMark）はsourceLayerの概念自体が無くquerySourceFeatures
-    // による0件判定（empty）は元から対象外、ラスタタイル（raster）はelevationと同じく
-    // 取得失敗のみ検知対象。
+    // 動的気象レイヤー（降水ナウキャスト=T171、風の矢印=T178フォローアップ、T183再設計、
+    // キキクル4種=T606）。CHIP_DYNAMIC_WEATHER_LAYER_IDSを唯一の情報源とし、新しいチップ付き
+    // 要素を追加してもここへ手動で1行足す必要はない。GeoJSON source（gridFill/gridMark）は
+    // sourceLayerの概念自体が無くquerySourceFeaturesによる0件判定（empty）は元から対象外、
+    // ラスタタイル（raster）・ベクタタイル（vector）はelevationと同じく取得失敗のみ検知対象。
     ...CHIP_DYNAMIC_WEATHER_LAYER_IDS.map((id) => ({
       key: id,
       sourceId: primaryDynamicWeatherSourceId(id, DYNAMIC_WEATHER_RENDERERS[id]),

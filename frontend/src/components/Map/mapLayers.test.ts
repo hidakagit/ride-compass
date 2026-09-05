@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { buildRoadSurfaceSharedLayerIds, isAxisStudioLayer, isDedicatedWayValueLayerId } from "./mapLayers";
+import { buildMapLayers, buildRoadSurfaceSharedLayerIds, isAxisStudioLayer, isDedicatedWayValueLayerId } from "./mapLayers";
 
 describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
   it("isDedicatedWayValueLayerId: 実データでdedicated_way_value_layer=trueのwindAxis/gradientAxisをtrueと判定する", () => {
@@ -36,5 +36,19 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     const ids = buildRoadSurfaceSharedLayerIds([]);
     expect(ids).toContain("windAxis");
     expect(ids).toContain("gradientAxis");
+  });
+
+  describe("キキクル4種（改善計画T606: 他の環境グループ気象レイヤーと同じチップ付き扱い）", () => {
+    const layers = buildMapLayers([]);
+    const byId = Object.fromEntries(layers.map((layer) => [layer.id, layer]));
+
+    it.each(["landslideRisk", "heavyRainRisk", "inundationRisk", "floodRisk"])(
+      "%sはcategory=\"weather\"・dataNature=\"dynamic\"のMapLayerDescriptorを持つ",
+      (id) => {
+        expect(byId[id]).toBeDefined();
+        expect(byId[id].category).toBe("weather");
+        expect(byId[id].dataNature).toBe("dynamic");
+      },
+    );
   });
 });

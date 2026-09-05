@@ -12,27 +12,19 @@ DATA_SOURCE = "gsi-dem"
 
 
 class ElevationAttributeService:
-    """Road GraphのDirected Edgeへ標高属性（ElevationAttribute）を紐付ける（仕様書13-15章、Phase 3）。
+    """Road GraphのDirected Edgeへ標高属性（ElevationAttribute）を紐付ける。
 
     Edgeの形状点（geometry、交差点間のシェイプポイントをそのまま使う）を国土地理院APIへ
     問い合わせる。使用する`ElevationClient`はキャッシュを共有する（緯度経度キャッシュを
-    共有するため、同じ地点への問い合わせはキャッシュヒットする）。
-
-    既知の制約: 広いbboxのRoad Graphは形状点数が多く、初回はGSIへの問い合わせ数が
-    比例して増える（`ElevationClient.MAX_CONCURRENT_REQUESTS`で同時実行数を抑える
-    のみ、改善計画T576で`ElevationClient`側のタイル単位フェッチへ移設済み）。
+    共有するため、同じ地点への問い合わせはキャッシュヒットする）。広いbboxのRoad Graphは
+    形状点数が多く、初回はGSIへの問い合わせ数が比例して増える
+    （`ElevationClient.MAX_CONCURRENT_REQUESTS`で同時実行数を抑えるのみ）。
 
     `repository`（infrastructure/road_graph_repository.RoadGraphRepository）を渡すと、
     `get_attributes_for_graph`はEdgeごとにPostGISを先に確認し、既に永続化済みの
     Attributeがあれば国土地理院APIへ問い合わせない。渡さない場合（既定）は、
-    Phase 3と同じ「毎回全Edgeを問い合わせる」挙動のまま。
-
-    重要な前提（`repository`指定時）: `elevation_attributes`テーブルは`road_edges.edge_id`
-    への外部キー（ON DELETE CASCADE）を持つため、渡す`graph`は事前に同じ`repository`
-    経由でDBへ保存済み（`road_edges`にそのedge_idの行が存在する状態）でなければならない。
-    `GraphService.get_or_build_graph_with_attributes`で得たRoadGraphはこの条件を満たすが、
-    DB未保存のRoadGraphを`repository`指定時に渡すと、`save_elevation_attributes`が
-    外部キー制約違反で失敗する。
+    毎回全Edgeを問い合わせる。`repository`指定時の前提はdocs/modules/backend/
+    elevation.md「事前計算バッチ」節参照（`road_edges`への保存が先に必要）。
     """
 
     def __init__(
@@ -44,11 +36,9 @@ class ElevationAttributeService:
         self._client = client
         self._http_client = http_client
         self._repository = repository
-        # repositoryが内包するSQLAlchemyのAsyncSessionは複数コルーチンからの同時使用が
-        # 不可（IllegalStateChangeErrorになる）。このサービスはRoadGraphEngineの
-        # evaluate_loopsから候補ごとにasyncio.gatherで並列に呼ばれるため（実E2Eで
-        # クラッシュを確認）、repositoryアクセスだけをロックで直列化する。GSIへの
-        # HTTP問い合わせ（_compute_attributes）はロック外のまま並列に走る。
+        # repositoryのAsyncSessionは複数コルーチンからの同時使用が不可なため、
+        # repositoryアクセスだけをロックで直列化する（docs/modules/backend/elevation.md
+        # 「同時実行制御」参照。GSIへのHTTP問い合わせはロック外のまま並列に走る）。
         self._repository_lock = asyncio.Lock()
 
     async def get_attributes_for_graph(self, graph: RoadGraphLike) -> dict[str, ElevationAttribute]:
@@ -66,8 +56,8 @@ class ElevationAttributeService:
         computed = await self._compute_attributes(missing)
 
         if self._repository is not None and computed:
-            # 改善計画T469: GSIの一時障害等で該当Edgeの形状点すべてが標高取得に失敗した
-            # 場合、compute_elevation_attribute（domain/attributes.py）はstart_elevation_m等
+            # GSIの一時障害等で該当Edgeの形状点すべてが標高取得に失敗した場合、
+            # compute_elevation_attribute（domain/attributes.py）はstart_elevation_m等
             # 全フィールドNoneのAttributeを返す。これをそのまま永続化すると、次回以降
             # get_elevation_attributesのキャッシュ判定（edge_idの行が存在するかのみを見る）
             # がヒットしてしまい、GSI障害が復旧した後も二度と再問い合わせされなくなる。
@@ -88,13 +78,8 @@ class ElevationAttributeService:
         return {**cached, **computed}
 
     async def _compute_attributes(self, edges: list[DirectedEdge]) -> dict[str, ElevationAttribute]:
-        """複数Edgeぶんの形状点をまとめ、1回の`ElevationClient.get_elevations`
-        呼び出しで標高を取得する（改善計画T576）。Edge単位・点単位でasyncioタスクを
-        個別生成していた旧実装（Edgeごとに`_get_attribute`→点ごとに`fetch`）は、
-        キャッシュヒット時のタスク生成・Semaphore待機のオーバーヘッドが支配的だった
-        （docs/tasks/T576.md参照）。GSIへの同時リクエスト数の制限は`ElevationClient`
-        側（タイル単位）へ移設済み。
-        """
+        """複数Edgeぶんの形状点をまとめ、1回の`ElevationClient.get_elevations`呼び出しで
+        標高を取得する。"""
         all_points: list[Coordinates] = []
         edge_point_ranges: list[tuple[int, int]] = []
         for edge in edges:

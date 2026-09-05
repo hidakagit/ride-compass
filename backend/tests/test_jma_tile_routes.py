@@ -89,6 +89,25 @@ def test_jma_tile_proxy_returns_404_when_tile_not_found_upstream():
     assert response.status_code == 404
 
 
+def test_jma_tile_proxy_returns_404_from_cached_tile_not_found_without_fetching():
+    # 改善計画T605: get_cachedがTileNotFound（恒久404を確認済み）を返した場合、
+    # レート制限もfetchも経由せず即座に404を返す。
+    from app.infrastructure.jma_tile_client import TileNotFound
+
+    fake = FakeJmaTileClient(cached_result=TileNotFound())
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert fake.fetch_calls == 0
+
+
 def test_jma_tile_proxy_is_rate_limited_per_client_on_cache_miss():
     fake = FakeJmaTileClient(cached_result=None, fetch_result=(b"{}", "application/json"))
     app.dependency_overrides[get_jma_tile_client] = lambda: fake
