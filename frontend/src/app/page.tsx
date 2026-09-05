@@ -208,7 +208,7 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   precipitationNowcast: false,
   // 改善計画T178: 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
-  // 改善計画T405: way_id→wind_penalty配信層（評価軸としての風）。同じ理由で既定OFF。
+  // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸としての風）。同じ理由で既定OFF。
   windAxis: false,
   // 改善計画T423: 環境グループの勾配gridFill・way_id→勾配配信層。同じ理由で既定OFF。
   gradientFill: false,
@@ -1047,7 +1047,7 @@ export default function Home() {
       tornadoNowcast: TORNADO_LEGEND_DETAILS,
     };
     return mapLayers.map((layer) => {
-        // 改善計画T418: windAxis（way_id→wind_penalty配信層）・ramp軸（axis:${string}）は
+        // 改善計画T418: windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
         // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
         // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
         // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
@@ -1206,7 +1206,7 @@ export default function Home() {
     mapViewport,
   });
 
-  // way_id→wind_penalty配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
+  // way_id→wind_drag_ratio配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
   // グループの矢印表示）とは独立したフェッチだが、[時刻,向き]の入力（dynamicLayerTargetTime・
   // travelBearingDeg）は共有する。mapViewportは同じMapView.tsx: onViewportChange経由の
   // 値を共有する。

@@ -1,4 +1,4 @@
-"""緯度経度から暑さ指数（WBGT）警告バッジ向けの情報を組み立てるサービス（改善計画T174）。"""
+"""緯度経度から暑さ指数（WBGT）警告バッジ向けの情報を組み立てるサービス。"""
 
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
 from app.services.route_generator import JST
 
 # 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
-# 検索する（実機確認、2026-08-22: 20時発表が20:05時点でまだ無く、19時発表が最新
-# だった。1〜2時間の遅延は起こりうる前提で余裕を持たせる）。
+# 検索する（1〜2時間の遅延は起こりうる前提で余裕を持たせる）。
 _FORECAST_SEARCH_WINDOW_HOURS = 6
 
 
@@ -37,9 +36,9 @@ class WbgtService:
     async def get_status(self, point: Coordinates, now: datetime | None = None) -> WbgtStatus:
         """出発地点の暑さ指数警戒レベルを取得する。
 
-        提供期間外（11〜3月）は取得自体を行わずに空を返す（改善計画T174完了条件）。
-        地点解決・予測値取得のどこで失敗しても例外にせず空を返す（T205と共有する
-        fail-open方針。「ほぼ安全」（21未満）も警告として意味を持たないため空を返す）。
+        提供期間外（11〜3月）は取得自体を行わずに空を返す。
+        地点解決・予測値取得のどこで失敗しても例外にせず空を返す（他の警報系バッジと
+        共有するfail-open方針。「ほぼ安全」（21未満）も警告として意味を持たないため空を返す）。
         """
         now = now or datetime.now(JST)
         if not is_within_provision_period(now):

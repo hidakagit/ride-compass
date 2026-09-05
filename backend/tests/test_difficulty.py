@@ -52,20 +52,23 @@ def test_gradient_axis_missing_material_is_none():
     assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {}) is None
 
 
-def test_wind_axis_tailwind_is_zero():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": -3.0}) == 0.0
+def test_wind_axis_strong_tailwind_is_zero():
+    # breakpoints[(-1.2,0),(0,15),(5,100)]は追い風を横風より優遇するため、-1.2以下で0に
+    # クランプする（T590決定事項1・T599）。
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": -3.0}) == 0.0
 
 
-def test_wind_axis_no_wind_is_zero():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": 0.0}) == 0.0
+def test_wind_axis_no_wind_has_baseline_above_zero():
+    # 無風は追い風より不利な基準点（15）を持つ（追い風優遇の設計、T599）。
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": 0.0}) == 15.0
 
 
 def test_wind_axis_strong_headwind_caps_at_100():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": 10.0}) == 100.0
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": 10.0}) == 100.0
 
 
 def test_wind_axis_moderate_headwind_is_between():
-    value = evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_penalty": 4.0})
+    value = evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": 4.0})
     assert value is not None
     assert 0.0 < value < 100.0
 
@@ -226,7 +229,7 @@ def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
                ("gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night")}
     materials = {
         "gradient_percent": 6.0,
-        "wind_penalty": 4.0,
+        "wind_drag_ratio": 4.0,
         "surface_good": True,
         "stop_count_per_km": 2.0,
         "intersection_count_per_km": 1.0,

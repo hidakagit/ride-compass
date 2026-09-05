@@ -12,15 +12,11 @@ from app.infrastructure.jma_tile_redis_cache import TileNotFound
 
 # JMA bosai タイル/時刻一覧API（降水ナウキャスト・降水短時間予報・雷/竜巻ナウキャスト・
 # キキクル・線状降水帯予測マップ、dynamicWeather.ts「動的気象レイヤー」節参照）を透過的に
-# プロキシする（改善計画T412）。basemap_client.pyと同じ「path丸ごとプロキシ」方式だが、
+# プロキシする。basemap_client.pyと同じ「path丸ごとプロキシ」方式だが、
 # targetTimes.json（数分〜数十分単位で更新される時刻一覧）とラスタタイル本体
 # （basetime/validtime/z/x/yが確定した時点で内容が不変、OpenFreeMapタイルと同じ性質）で
-# キャッシュ戦略を分ける必要がある。改善計画T510: タイル本体はファイル永続キャッシュ
-# （tile_cache.py、有効期限なし）からRedis cache-aside（jma_tile_redis_cache.py、TTL付き）へ
-# 移した——キャッシュヒットでも`jma_tile.py`のレート制限を消費していた問題（429の直接原因）
-# を、キャッシュ参照をレート制限より先に行う構成へ入れ替えるにあたり、無期限に肥大化する
-# ファイルキャッシュより定期プリウォーム（jma_tile_prewarm_service.py）と相性の良いTTL付き
-# キャッシュへ揃える判断をした。
+# キャッシュ戦略を分ける（詳細はdocs/modules/backend/weather-dynamic-layers.md
+# 「JMAタイル系の共通プロキシ」節参照）。
 UPSTREAM_HOST = "https://www.jma.go.jp"
 
 
@@ -41,7 +37,7 @@ _target_times_cache: TTLCache = TTLCache(maxsize=16, ttl=_TARGET_TIMES_TTL_SECON
 # 末尾がtargetTimes*.jsonという共通パターンを持つ。
 _TARGET_TIMES_PATTERN = re.compile(r"targetTimes[^/]*\.json$")
 
-# 改善計画T514: JMA非公式APIへの実フェッチ（fetch）を秒間settings.jma_tile_upstream_
+# JMA非公式APIへの実フェッチ（fetch）を秒間settings.jma_tile_upstream_
 # max_requests_per_second回までに抑える。`JmaTileClient`はリクエストごとに使い捨てで
 # インスタンス化される（api/dependencies.py: get_jma_tile_client、
 # _prewarm_jma_tile_job）ため、プロセス全体で共有する状態はモジュールレベルで持つ
@@ -69,20 +65,17 @@ async def _wait_for_upstream_rate_limit() -> None:
 
 class JmaTileClient:
     """JMAの動的タイル系レイヤーが使うbosaiエンドポイント（時刻一覧JSON・ラスタタイルPNG）の
-    プロキシ＋キャッシュ。改善計画T412: 従来これらはフロントエンド（各ユーザーのブラウザ）が
-    直接JMAへfetchしており、常時ON化（実機フィードバック「キキクルのような防災級の情報は
-    ユーザー操作を待たず表示すべき」）の前提として、利用者数に比例してJMAの非公式内部APIへの
-    負荷が線形に増えない構成へ切り替える。
+    プロキシ＋キャッシュ。利用者数に比例してJMAの非公式内部APIへの負荷が線形に増えない
+    構成にする。
     """
 
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
     async def get_cached(self, path: str) -> tuple[bytes, str] | TileNotFound | None:
-        """キャッシュのみを参照する（外部フェッチはしない）。改善計画T510:
+        """キャッシュのみを参照する（外部フェッチはしない）。
         `jma_tile.py`がレート制限を適用する前にこれを呼び、ヒットすればレート制限を
-        一切経由せず即座に返せるようにする（キャッシュヒットでもレート制限を消費して
-        いた429の直接原因への対応）。改善計画T605: `TileNotFound`（確認済みの恒久404）が
+        一切経由せず即座に返せるようにする。`TileNotFound`（確認済みの恒久404）が
         返ることもあり、その場合`jma_tile.py`は上流へ問い合わせずそのまま404を返す。"""
         is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
         with log_external_call("weather:jma-tile", path=path) as fields:
@@ -96,7 +89,7 @@ class JmaTileClient:
 
     async def fetch(self, path: str) -> tuple[bytes, str] | None:
         """キャッシュを一切参照せず外部フェッチのみ行い、結果をキャッシュへ書き戻す。
-        呼び出し元（`jma_tile.py`）はレート制限を適用済みである前提。改善計画T514:
+        呼び出し元（`jma_tile.py`）はレート制限を適用済みである前提。
         実際にJMAへ問い合わせる直前で`_wait_for_upstream_rate_limit`を待つ（プリウォーム
         バッチ・オンデマンドのfetch双方が経由するこの関数1箇所に置くことで、呼び出し元を
         問わずJMAへの総リクエスト数を一律に抑える）。待機自体は「実フェッチ」の所要時間
@@ -123,7 +116,7 @@ class JmaTileClient:
                     fields["result"] = "ok"
                     fields["status"] = 404
                     not_found = True
-                    # 改善計画T605: 恒久404をキャッシュし、次回以降は上流へ問い合わせず
+                    # 恒久404をキャッシュし、次回以降は上流へ問い合わせず
                     # TileNotFoundで即座に済ませる（basetime/validtimeが確定した過去の
                     # 一時点への結果のため、再フェッチしても変わらない）。
                     if is_target_times:

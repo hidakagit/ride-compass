@@ -1,4 +1,4 @@
-"""JMAアメダス観測値APIのクライアント（改善計画T387）。
+"""JMAアメダス観測値APIのクライアント。
 
 jma_warning_client.pyと同じ「JMA公式の非公開だが広く使われているエンドポイント」を使う。
 アメダスは10分ごとに更新されるため、jma_warning_client.pyの警報（10分TTL）と同程度の
@@ -12,13 +12,10 @@ from cachetools import TTLCache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
-# 2026-08-29、実機（curl）で全エンドポイントを検証した結果2件が誤り（存在しないURLで
-# 常時404、実装時は机上のURL推測のまま未検証だった）と判明し修正:
-# - 観測所マスタは`amedas.json`ではなく`amedastable.json`
-# - 最新時刻は`latest_time_list.json`（JSON配列を想定）ではなく`latest_time.txt`
-#   （ISO時刻文字列1個のプレーンテキスト。fetch_latest_observation_time参照）
-# 3つとも実データで構造（lat/lon=[度,分]配列、temp/wind/windDirection/humidity/
-# precipitation10mのキー名）を確認済み。
+# 観測所マスタは`amedastable.json`（`amedas.json`ではない）。最新時刻は`latest_time.txt`
+# （ISO時刻文字列1個のプレーンテキスト、JSON配列ではない。fetch_latest_observation_time
+# 参照）。データ構造はlat/lon=[度,分]配列、temp/wind/windDirection/humidity/
+# precipitation10mのキー名。
 AMEDAS_STATION_TABLE_URL = "https://www.jma.go.jp/bosai/amedas/const/amedastable.json"
 AMEDAS_LATEST_TIME_URL = "https://www.jma.go.jp/bosai/amedas/data/latest_time.txt"
 AMEDAS_OBSERVATION_URL_TEMPLATE = "https://www.jma.go.jp/bosai/amedas/data/map/{timestamp}.json"
@@ -56,7 +53,7 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None
     """最新の観測時刻（ISO時刻文字列1個）を返す。
 
     レスポンスはJSON配列ではなく、ISO時刻文字列1個だけのプレーンテキスト
-    （例: "2026-08-29T17:00:00+09:00"、実機確認済み）。
+    （例: "2026-08-29T17:00:00+09:00"）。
     """
 
     async def fetch() -> str:

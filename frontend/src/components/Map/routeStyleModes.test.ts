@@ -145,13 +145,14 @@ describe("routeStyleModes", () => {
   });
 
   it("凡例タップのフィルタが風モードの各カテゴリで機能する（隣接カテゴリと境界が重ならない）", () => {
+    // T599: 本番の風軸display_thresholds_overrideが[20,40,60,80]（5段階）へ較正された。
     const wind = getRouteStyleMode(ROUTE_STYLE_MODES, "wind");
     const middle = wind.legend[1];
     expect(middle.filter).toEqual([
       "all",
       ["!=", ["get", "wind", ["get", "axis_difficulties"]], null],
-      [">=", ["to-number", ["get", "wind", ["get", "axis_difficulties"]]], 33],
-      ["<", ["to-number", ["get", "wind", ["get", "axis_difficulties"]]], 66],
+      [">=", ["to-number", ["get", "wind", ["get", "axis_difficulties"]]], 20],
+      ["<", ["to-number", ["get", "wind", ["get", "axis_difficulties"]]], 40],
     ]);
     expect(buildLegendFilterExpression(wind.legend, [middle.key])).toEqual(["all", ["!", middle.filter]]);
   });

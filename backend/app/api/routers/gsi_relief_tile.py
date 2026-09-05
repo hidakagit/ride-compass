@@ -15,7 +15,7 @@ async def gsi_relief_tile_proxy(
     enforce_rate_limit(request, "gsi-relief-tile", settings.gsi_relief_tile_rate_limit_per_minute)
     result = await gsi_relief_tile_client.get(path)
     if isinstance(result, ReliefTileNotFound):
-        # 改善計画T605: 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）
+        # 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）
         # ではなく404を返す。
         raise HTTPException(status_code=404, detail="指定されたタイルは存在しません")
     if result is None:

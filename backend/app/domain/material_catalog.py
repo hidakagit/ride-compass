@@ -544,19 +544,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property_direction_dependent=True,
         reference_points=_wind_drag_ratio_reference_points(),
     ),
-    # 本番DBの公開軸がまだ参照している非推奨エイリアス（値は進行方向に平行な風成分m/s、
-    # `domain/wind.py: headwind_component_ms`）。軸スタジオの選択肢からは除外し、公開軸の
-    # 参照先が`wind_drag_ratio`へ切り替わった後に撤去する。
-    "wind_penalty": MaterialSpec(
-        material_id="wind_penalty",
-        label="向かい風ペナルティ(m/s、正=向かい風)【非推奨】",
-        description="【非推奨、風の追加負荷(倍率)へ移行中】出発時刻の気象予報とルートの進行方向から算出した向かい風の強さ（m/s）。走行速度を考慮しません。",
-        dtype="numeric",
-        unit="m/s",
-        tile_property=None,
-        tile_property_direction_dependent=True,
-        display_only=True,
-    ),
     "surface_good": MaterialSpec(
         material_id="surface_good",
         label="舗装良否",

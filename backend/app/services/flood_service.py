@@ -1,4 +1,4 @@
-"""緯度経度からJMA指定河川洪水予報バッジ向けの情報を組み立てるサービス（改善計画T212）。"""
+"""緯度経度からJMA指定河川洪水予報バッジ向けの情報を組み立てるサービス。"""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ class FloodService:
     async def get_forecasts(self, point: Coordinates) -> FloodForecasts:
         """出発地点近傍の指定河川洪水予報（レベル2〜5）を取得する。
 
-        地点→市区町村→JMA警報エリアの解決（T205の`jma_area.resolve_area`を再利用）、
-        または洪水予報自体の取得のどこで失敗しても例外にせず空を返す（T205/T174と
+        地点→市区町村→JMA警報エリアの解決（`jma_area.resolve_area`を再利用）、
+        または洪水予報自体の取得のどこで失敗しても例外にせず空を返す（警報・WBGTと
         共有するfail-open方針）。
         """
         muni_cd = await fetch_municipality_code(self._http_client, point.latitude, point.longitude)

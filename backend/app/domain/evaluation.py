@@ -37,7 +37,7 @@ from app.domain.night import night_materials
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
 from app.domain.weather import WeatherConditions
-from app.domain.wind import WindForecastSeries, headwind_component_ms, wind_drag_ratio_array
+from app.domain.wind import WindForecastSeries, wind_drag_ratio_array
 
 # 〇次: ハード制約（設計プロンプト「評価システムの層構造再設計」の〇次フィルタ、
 # 改善計画T140。仕様書29章のHard Constraintと同じ概念）。スコア計算には一切登場させず、
@@ -1228,14 +1228,6 @@ def _evaluate_wind_drag_ratio_array(context: DynamicAxisRequestContext) -> np.nd
     return wind_drag_ratio_array(speed, direction, context.bearing_deg, context.travel_speed_ms)
 
 
-def _evaluate_headwind_component_array(context: DynamicAxisRequestContext) -> np.ndarray:
-    inputs = context.wind_inputs()
-    if inputs is None:
-        return np.full(context.bearing_deg.shape, np.nan)
-    speed, direction = inputs
-    return headwind_component_ms(speed, direction, context.bearing_deg)
-
-
 # `REQUEST_DYNAMIC_MATERIAL_IDS`（axis_definitions.py）の各材料idを、リクエスト時点の
 # 幾何配列＋動的contextからベクトル評価する関数への唯一の登録点（式の実体は
 # `domain/wind.py`にあり、ここは配線のみ）。`REQUEST_DYNAMIC_MATERIAL_IDS`自体が
@@ -1247,7 +1239,6 @@ def _evaluate_headwind_component_array(context: DynamicAxisRequestContext) -> np
 # 両方へ1エントリずつ追加する。片方だけだと`evaluate_dynamic_material_arrays`が失敗する）。
 DYNAMIC_MATERIAL_EVALUATORS: dict[str, Callable[[DynamicAxisRequestContext], np.ndarray]] = {
     "wind_drag_ratio": _evaluate_wind_drag_ratio_array,
-    "wind_penalty": _evaluate_headwind_component_array,
 }
 
 

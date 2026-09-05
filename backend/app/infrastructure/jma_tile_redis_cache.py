@@ -1,11 +1,6 @@
-"""JMA動的タイル（ラスタPNG・洪水ベクタPBF）本体のRedis cache-aside（改善計画T510）。
+"""JMA動的タイル（ラスタPNG・洪水ベクタPBF）本体のRedis cache-aside。
 
-以前は`tile_cache.py`（ファイル永続キャッシュ、有効期限なし）を使っていたが、キャッシュ
-ヒットしていても`jma_tile.py`のレート制限は消費される作りだったため（T510の直接の
-発端）、キャッシュヒット率をレート制限の判定より前に確定させる必要があった。ファイル
-キャッシュはTTLの概念を持たず古いbasetime/validtimeのタイルが無期限に残り続けるため、
-Redis（`wind_forecast_cache.py`と同じ「正本を持たないcache-aside」設計、TTL付き）へ
-移した。
+`wind_forecast_cache.py`と同じ「正本を持たないcache-aside」設計（TTL付き）。
 
 **正本を持たない**: road_graph_tile_cache.pyと異なり、このキャッシュを失っても
 「データ未整備で機能が壊れる」ことはない（JMAへ再フェッチすればよいだけ）。Redis障害時は
@@ -36,7 +31,7 @@ _TTL_SECONDS = 20 * 60
 
 class TileNotFound:
     """指定パスのタイルが上流（JMA）に存在しないこと（404）を確認済みというキャッシュ済みの
-    事実を表すセンチネル（改善計画T605、`elevation_client.py: _CoverageGap`と同じ設計）。
+    事実を表すセンチネル（`elevation_client.py: _CoverageGap`と同じ設計）。
     降水・浸水想定区域等の疎な格子状タイルでは、特定のz/x/yに対応するデータが無いのは
     珍しくない正常系だが、basetime/validtimeが確定した過去の一時点に対する結果のため
     再フェッチしても変わらない。実際のタイル内容と同じキー・TTLで保持し、次回以降は
@@ -116,7 +111,7 @@ async def set(path: str, content: bytes, content_type: str) -> None:
 async def set_not_found(path: str) -> None:
     """上流の404（疎な格子状タイルでは珍しくない正常系）を確認したときに呼ぶ。`set()`と
     同じTTL・fail-open方針で、次回以降の問い合わせを`TILE_NOT_FOUND`で即座に済ませられる
-    ようにする（改善計画T605）。"""
+    ようにする。"""
     if not redis_available():
         return
     client = get_redis_client_or_none()

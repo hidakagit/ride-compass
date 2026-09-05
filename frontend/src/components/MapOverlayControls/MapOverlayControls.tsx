@@ -144,7 +144,7 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   accidents: AccidentIcon,
   precipitationNowcast: RaindropIcon,
   windVector: WindIcon,
-  // 改善計画T405: way_id→wind_penalty配信層（評価軸としての風）。専用アイコンは持たず、
+  // 改善計画T405: way_id→wind_drag_ratio配信層（評価軸としての風）。専用アイコンは持たず、
   // 同じ風のデータを扱うwindVectorと同じWindIconを流用する。T418でこのチップ自体は
   // 地図上から撤去したが、RouteSettingsPanel側がこのIcon辞書は引き続き参照しうるため残す。
   windAxis: WindIcon,

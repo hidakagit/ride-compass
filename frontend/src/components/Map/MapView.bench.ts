@@ -52,7 +52,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
         accident: (i * 37) % 100,
         night: (i * 41) % 100,
       },
-      material_values: { gradient_percent: (i % 10) - 5, wind_penalty: (i % 7) - 3 },
+      material_values: { gradient_percent: (i % 10) - 5, wind_drag_ratio: (i % 7) - 3 },
       axis_contributions: {
         gradient: (i * 7) % 100,
         wind: (i * 13) % 100,

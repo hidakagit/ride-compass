@@ -128,12 +128,12 @@ describe("ComparisonPanel", () => {
 
   it("材料カタログに無いmaterial_id(表示専用に格下げされた旧材料等)はidそのものをラベルにする", () => {
     const slots = [
-      makeSlot({ id: "a", topCandidate: makeCandidate({ material_values: { wind_penalty: 2.1 } }) }),
+      makeSlot({ id: "a", topCandidate: makeCandidate({ material_values: { unknown_material_id: 2.1 } }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ material_values: {} }) }),
     ];
     render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
-    expect(screen.getByText("wind_penalty")).toBeInTheDocument();
+    expect(screen.getByText("unknown_material_id")).toBeInTheDocument();
     expect(screen.getByText("2.10")).toBeInTheDocument();
   });
 

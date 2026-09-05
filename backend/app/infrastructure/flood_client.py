@@ -1,8 +1,8 @@
-"""JMA指定河川洪水予報APIのクライアント（改善計画T212、T176調査で発見）。
+"""JMA指定河川洪水予報APIのクライアント。
 
 `https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json`は全国の現在発表中/直近解除済みの
 指定河川洪水予報を1つの配列で返す（府県別・河川別に分かれておらず1回のGETで完結する）。
-T205のjma_warning_client.pyと同じ理由（更新頻度がOpen-Meteoほど高くない、機械アクセス制限の
+jma_warning_client.pyと同じ理由（更新頻度がOpen-Meteoほど高くない、機械アクセス制限の
 明記なし）でtenacity再試行は設けず、TTLキャッシュのみで済ませる。取得失敗はNoneを返す。
 """
 
@@ -26,7 +26,7 @@ _flood_cache: TTLCache = TTLCache(maxsize=1, ttl=_FLOOD_CACHE_TTL_SECONDS)
 async def fetch_flood_documents(client: httpx.AsyncClient) -> list | None:
     """全国の指定河川洪水予報の電文一覧を取得する。1エントリ=1河川の最新状態
     （発表・継続・解除のいずれか）で、河川ごとに配列内で更新される
-    （実機確認、2026-08-22: 解除された河川はcode=10のまま配列に残り続ける）。"""
+    （解除された河川はcode=10のまま配列に残り続ける）。"""
 
     async def fetch() -> list:
         response = await client.get(FLOOD_API_URL, timeout=REQUEST_TIMEOUT)

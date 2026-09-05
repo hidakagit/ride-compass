@@ -140,8 +140,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   風などの動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）を実際の値へ差し替える。
   `DYNAMIC_MATERIAL_EVALUATORS`は材料id→evaluator関数（Edgeの幾何配列＋動的contextを
   受け取りその材料の配列を返す統一シグネチャ）の登録制ディスパッチで、
-  `REQUEST_DYNAMIC_MATERIAL_IDS`と1対1に揃える（現状は`wind_drag_ratio`と非推奨
-  エイリアス`wind_penalty`の2件。式の実体は`domain/wind.py`にあり、ここは配線のみ）——
+  `REQUEST_DYNAMIC_MATERIAL_IDS`と1対1に揃える（現状は`wind_drag_ratio`の1件。式の実体は
+  `domain/wind.py`にあり、ここは配線のみ）——
   `REQUEST_DYNAMIC_MATERIAL_IDS`自体が材料id集合として宣言されているため軸id単位では
   なく材料id単位で登録する（`dynamic_axis_topological_order`・`evaluate_axis_array`
   という既存の汎用トポロジカル合成が「動的材料さえ埋まればどんな軸[軸スタジオが
@@ -206,9 +206,6 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
-  `wind_penalty`（進行方向に平行な風成分m/s、`headwind_component_ms`）は本番DBの公開軸が
-  まだ参照している非推奨エイリアスで、`display_only=True`（軸スタジオの選択肢に出ない）。
-  公開軸の参照先が`wind_drag_ratio`へ切り替わった後に撤去する。
 - `raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/
   `count_per_km_extractor`という汎用extractorファクトリが用意されており、「単一タグの
   生値取得」「タグ値の単純一致判定」「数値パース」「件数/距離の密度計算」という
@@ -244,8 +241,7 @@ MaterialSpec]`が単一ソース。
   でもextractorがタグ不在を確定値として扱う材料（自転車インフラ系5材料）があり、実際の
   扱いはextractorの実装で決まるため、宣言テーブル側に明示する。
 - `MATERIAL_COVERAGE_EXCLUSIONS: dict[str, str]`: 集計対象外の材料とその理由（動的計算材料の
-  `wind_drag_ratio`/`wind_penalty`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の
-  `designation`系）。
+  `wind_drag_ratio`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の`designation`系）。
   管理画面はこの理由をそのまま表示する。
 - **暗黙の前提**: `MATERIAL_CATALOG`の全材料は`MATERIAL_COVERAGE_SPECS`か
   `MATERIAL_COVERAGE_EXCLUSIONS`のどちらか一方に必ず載る（`test_material_coverage.py`が

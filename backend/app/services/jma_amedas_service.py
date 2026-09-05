@@ -1,10 +1,10 @@
-"""JMAアメダス観測値サービス（改善計画T387）。
+"""JMAアメダス観測値サービス。
 
 最寄りのアメダス観測所を解決し、直近の気温・風向風速・10分間降水量を返す。
 
 **取得は定期バッチ（main.pyのAPScheduler、AMEDAS_REFRESH_INTERVAL_MINUTES間隔）が担い、
-リクエスト経路（get_nearest_observation）はRedis読み取り専用にする**（ユーザー指摘、
-2026-08-29）。理由: JMAの観測値エンドポイント（jma_amedas_client.fetch_observation_map）は
+リクエスト経路（get_nearest_observation）はRedis読み取り専用にする**。理由:
+JMAの観測値エンドポイント（jma_amedas_client.fetch_observation_map）は
 1地点だけを絞り込めず、常に全国約1,300観測所ぶんを1回のレスポンスで返す。「都度・
 リクエストされた1地点だけ」フェッチ＆キャッシュする設計だと、この不可分な取得コストを
 払っているのに他の近隣ユーザーのリクエストがキャッシュヒットせず同じ全国データを
@@ -16,9 +16,7 @@
 完結させる設計（CLAUDE.md「JMA気象データ連携・キャッシュ基盤」節参照）。
 
 バッチ間隔（AMEDAS_REFRESH_INTERVAL_MINUTES）は気象庁アメダスの公式仕様（毎正時から
-10分おきに観測・配信）に合わせた10分にしている（ユーザー指示2026-08-29「気象庁側の
-更新頻度に合わせて」、および「（暫定的だった）10分とかは適当な数字なので最適化して」を
-受け、実際の公式更新周期で裏付けた値へ変更）。TTL（15分）はバッチ間隔より長く取ることで、
+10分おきに観測・配信）に合わせた10分にしている。TTL（15分）はバッチ間隔より長く取ることで、
 1回のバッチ実行が遅延・失敗しても次の成功まで古い値のまま動作を続けられる安全マージンに
 なっている。失敗はWARNINGで可視化される（main.py: _refresh_amedas_job、外部API呼び出し
 自体の詳細はjma_amedas_client.py内のlog_external_callが別途出す）。
@@ -100,7 +98,7 @@ class JmaAmedasService:
         if observation is None:
             return None
         # 日の出/日没はJMA/Open-Meteoに問い合わせず、クエリ地点そのものに対してその場で
-        # ローカル計算する（改善計画T387フォローアップ）。最寄り観測所の位置ではなく
+        # ローカル計算する。最寄り観測所の位置ではなく
         # リクエストのpointを使う（観測所境界付近でのわずかなズレを避けるため、かつ
         # Redisキャッシュ済みの観測値と違い計算コストが無視できるほど軽いため都度計算で
         # 問題ない）。
@@ -148,11 +146,11 @@ class JmaAmedasService:
         """
         stations = await jma_amedas_client.fetch_station_table(self._http_client)
         if not stations:
-            # 改善計画T425（ゼロベース網羅レビュー指摘）: 以前はここから静かに0を返しており、
-            # 呼び出し元main.py: _refresh_amedas_jobは例外の有無しか見ていないため
-            # count=0の全滅バッチが完全に無警告のまま繰り返される可能性があった
-            # （個別の外部API呼び出し詳細はjma_amedas_client.py内のlog_external_callが
-            # 出すが、「今回のバッチが実質何もできなかった」というサービス層の要約は無い）。
+            # 呼び出し元main.py: _refresh_amedas_jobは例外の有無しか見ていないため、
+            # ここでWARNINGを出さないとcount=0の全滅バッチが完全に無警告のまま
+            # 繰り返されうる（個別の外部API呼び出し詳細はjma_amedas_client.py内の
+            # log_external_callが出すが、「今回のバッチが実質何もできなかった」という
+            # サービス層の要約は無い）。
             logger.warning("アメダス観測所マスタの取得に失敗しました（全滅バッチ）")
             return 0
         latest_time = await jma_amedas_client.fetch_latest_observation_time(self._http_client)
