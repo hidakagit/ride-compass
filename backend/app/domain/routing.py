@@ -4,15 +4,14 @@ Road Graph（domain/graph.py）とEdge Cost（domain/evaluation.py）を使っ�
 最小コスト経路を探索する。探索アルゴリズム自体は独自実装せず、標準的なグラフ
 アルゴリズムライブラリの実装をそのまま利用する（仕様書34章「探索アルゴリズムを
 独断で変更しない」「独自の経路探索アルゴリズムの実装はしない」の趣旨を踏まえ、
-新規性のある独自アルゴリズムは開発しない）。当初はNetworkX（Python実装）、改善計画T220で
-scipy.sparse.csgraph（C実装のDijkstra）、改善計画T529→T536でrustworkx（C実装のA*、
-Node/Edge payloadを整数indexにしてPythonコールバックを探索中に作らない）へ移り、
-2点間探索は現在rustworkxのA*（`shortest_path_node_ids_lazy`）で行う。
+新規性のある独自アルゴリズムは開発しない）。2点間探索はrustworkxのA*
+（`shortest_path_node_ids_lazy`、C実装、Node/Edge payloadを整数indexにして
+Pythonコールバックを探索中に作らない）で行う。
 
-改善計画T531（フロンティア方式の周回生成）で、起点からの**一対全**最短経路木
-（`build_shortest_path_tree`）をscipy.sparse.csgraph.dijkstraで求める用途が加わった。
-一対全は前任者木（predecessors）が要り、rustworkxの`dijkstra_shortest_path_lengths`は
-前任者を返さずEdgeごとにPythonコールバックへ戻るため、この用途だけはscipyのCSR表現
+起点からの**一対全**最短経路木（`build_shortest_path_tree`、フロンティア方式の
+周回生成の共通基盤）はscipy.sparse.csgraph.dijkstraで求める。一対全は前任者木
+（predecessors）が要り、rustworkxの`dijkstra_shortest_path_lengths`は前任者を返さず
+EdgeごとにPythonのコールバックへ戻るため、この用途だけはscipyのCSR表現
 （`CsrGraphStructure`、`LazyRoadGraph`と同じEdge index空間・構造のみでタイル集合キーの
 キャッシュ対象）を使う。標準ライブラリの実装をそのまま使うだけで、アルゴリズム自体の
 独自実装ではない点は変わらない。
@@ -38,26 +37,24 @@ from app.domain.route import Coordinates
 
 @dataclass
 class LazyRoadGraph:
-    """探索グラフのrustworkx表現（改善計画T529、`docs/tasks/T529.md`）。
+    """探索グラフのrustworkx表現。
 
     Edgeコストを事前計算しない——トポロジのみを保持し、探索中に実際に訪れたEdgeに
-    対してのみ`edge_cost_fn`が都度呼ばれる（lazy評価）。PoC実測（合成グリッドグラフ、
-    王子実測相当のnodes=139,876 edges=558,008）でA*は全Edgeの2.79%しか評価せずに済む
-    ことを確認済み——T529以前の実装（bbox全体のコストを事前に一括計算してからscipyの
-    CSRを構築する）は、この無駄な事前計算そのものが`prepare_ms`の支配的コストになって
-    いた（T522実測、王子30km周回でcost_ms=18,105ms）。
+    対してのみ`edge_cost_fn`が都度呼ばれる（lazy評価）。合成グリッドグラフ
+    （nodes=139,876 edges=558,008規模）でA*は全Edgeの2.79%しか評価せずに済む
+    （bbox全体のコストを事前に一括計算してからCSRを構築する方式は、この無駄な
+    事前計算そのものが`prepare_ms`の支配的コストになる）。
 
-    改善計画T536: Node/Edgeのpayloadはいずれも整数index（`add_nodes_from(range(n))`・
+    Node/Edgeのpayloadはいずれも整数index（`add_nodes_from(range(n))`・
     `add_edge(u, v, edge_index)`）にしてある。rustworkxの`astar_shortest_path`は
     `goal_fn`/`edge_cost_fn`/`estimate_cost_fn`へノード・Edgeの**payload**（rustworkx内部の
     生indexではない）を渡す仕様のため、payload自体を「配列の添字として直接使える整数」に
     しておくことで、呼び出し元（`shortest_path_node_ids_lazy`の呼び出し元、
     `road_graph_engine.py`）は`cost_list.__getitem__`のような素のlistインデックスアクセスを
     そのままcost_fn/estimate_cost_fnとして渡せる——探索中に一切Pythonの関数フレームを
-    作らずに済む（T522実測: 辞書キャッシュ経由のPythonコールバックがA* 24本で8.3〜17.7秒
-    かかっていたが、素のlist.__getitem__に置き換えると0.37秒に短縮、docs/tasks/T536.md
-    参照）。文字列edge_id/node_idは、経路確定後の変換（`path_to_edge_ids_lazy`・戻り値の
-    Node ID列）でのみ使う。
+    作らずに済む（辞書キャッシュ経由のPythonコールバックだとA* 24本で8.3〜17.7秒
+    かかるが、素のlist.__getitem__に置き換えると0.37秒に短縮する）。文字列edge_id/node_idは、
+    経路確定後の変換（`path_to_edge_ids_lazy`・戻り値のNode ID列）でのみ使う。
     """
 
     py_graph: rx.PyDiGraph
@@ -75,12 +72,10 @@ def build_lazy_road_graph(
     """`graph`のトポロジからrustworkxの`PyDiGraph`を構築する（Hard Constraint自体は
     評価しない。除外は呼び出し元がcost=math.infで表現する）。
 
-    改善計画T536: Node/Edge payloadは整数index（`LazyRoadGraph`のdocstring参照）。
-    `edge_cost_by_id`（edge_id→コスト、省略可）を渡すと、並行Edge（同一Node間の複数Edge）は
-    **cost最小のEdgeを採用**する（改善計画T363の元の意味論——コストが探索前に判明している
-    T536設計では、事前一括計算だったT363当時と同じ比較が再び可能になる）。省略時
-    （コストがまだ判明していない場面、主にテスト）は、従来どおりedge_idの昇順で先頭を
-    採用する決定的な選択にフォールバックする。
+    Node/Edge payloadは整数index（`LazyRoadGraph`のdocstring参照）。`edge_cost_by_id`
+    （edge_id→コスト、省略可）を渡すと、並行Edge（同一Node間の複数Edge）は**cost最小の
+    Edgeを採用**する。省略時（コストがまだ判明していない場面、主にテスト）は、
+    edge_idの昇順で先頭を採用する決定的な選択にフォールバックする。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
@@ -134,17 +129,18 @@ def shortest_path_node_ids_lazy(
     estimate_cost_fn: Callable[[int], float],
 ) -> list[str] | None:
     """`start_node_id`から`end_node_id`までの最小コスト経路をNode ID列で返す
-    （改善計画T529、rustworkxのA*）。
+    （rustworkxのA*）。
 
-    改善計画T536: `edge_cost_fn`/`estimate_cost_fn`は、`LazyRoadGraph`のNode/Edge payload
-    である**整数index**（Edge index/Node index、それぞれ`lazy_graph.edge_ids`/
-    `lazy_graph.index_to_node_id`の添字）を受け取る（旧: edge_id/node_id文字列）。
-    典型的には呼び出し元が`cost_list.__getitem__`のような素のlistインデックスアクセスを
-    そのまま渡す（探索中にPythonの関数フレームを作らない、`LazyRoadGraph`のdocstring
-    参照）。Hard Constraintで除外されるEdgeは`edge_cost_fn`が`math.inf`を返すことで
-    通行不能を表現する（T536以降はコストが探索前に判明しているため、この除外自体は
-    `build_lazy_road_graph`より前の時点でコスト配列へ焼き込まれている）。`estimate_cost_fn`は目的地までの下界推定
-    （admissibleヒューリスティック、直線距離）を返す。経路が存在しない場合はNoneを返す。
+    `edge_cost_fn`/`estimate_cost_fn`は、`LazyRoadGraph`のNode/Edge payloadである
+    **整数index**（Edge index/Node index、それぞれ`lazy_graph.edge_ids`/
+    `lazy_graph.index_to_node_id`の添字）を受け取る。典型的には呼び出し元が
+    `cost_list.__getitem__`のような素のlistインデックスアクセスをそのまま渡す
+    （探索中にPythonの関数フレームを作らない、`LazyRoadGraph`のdocstring参照）。
+    Hard Constraintで除外されるEdgeは`edge_cost_fn`が`math.inf`を返すことで通行不能を
+    表現する（コストは探索前に判明しているため、この除外自体は`build_lazy_road_graph`
+    より前の時点でコスト配列へ焼き込まれている）。`estimate_cost_fn`は目的地までの
+    下界推定（admissibleヒューリスティック、直線距離）を返す。経路が存在しない場合は
+    Noneを返す。
     """
     if start_node_id == end_node_id:
         return [start_node_id] if start_node_id in lazy_graph.node_id_to_index else None
@@ -168,9 +164,9 @@ def shortest_path_node_ids_lazy(
 
     # rustworkxは`math.inf`を「通行不能」ではなく「非常に高いが有効なコスト」として
     # 扱うため、他に到達手段が無ければinfコストのEdgeを含む経路でもそのまま返してくる
-    # （実測で確認、他の有限コスト経路が存在する限りはそちらが優先されるためこの
-    # チェックはfinite経路が本当に存在しない場合にのみNoneへ倒す）。経路確定後に
-    # 合計コストを検算し、無限大ならHard Constraintで実質到達不能だったとみなす。
+    # （他の有限コスト経路が存在する限りはそちらが優先されるため、このチェックは
+    # finite経路が本当に存在しない場合にのみNoneへ倒す）。経路確定後に合計コストを
+    # 検算し、無限大ならHard Constraintで実質到達不能だったとみなす。
     total_cost = 0.0
     for u, v in zip(path_indices, path_indices[1:]):
         edge_index = lazy_graph.edge_index_by_node_pair[(u, v)]
@@ -194,24 +190,22 @@ def path_to_edge_ids_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -
     return [lazy_graph.edge_ids[i] for i in path_to_edge_indices_lazy(lazy_graph, path_node_ids)]
 
 
-# --- 改善計画T531: 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
+# --- 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
 
 
-# CSRのindptr/indices/entry_edge_indexに使うdtype（改善計画T568）。実データ規模
-# （東京都心30km四方の合成グリッドで約14万Node・56万Edge、docs/tasks/T531.md）は
-# int32の値域（約21億）に対して桁違いに小さく、タイル集合キーのプロセス内LRU
-# （上限64件、後述）が常駐させる分の実メモリを半減できる。
+# CSRのindptr/indices/entry_edge_indexに使うdtype。実データ規模（東京都心30km四方の
+# 合成グリッドで約14万Node・56万Edge）はint32の値域（約21億）に対して桁違いに小さく、
+# タイル集合キーのプロセス内LRU（上限64件、後述）が常駐させる分の実メモリを半減できる。
 _CSR_INDEX_DTYPE = np.int32
 
 
 @dataclass
 class CsrGraphStructure:
-    """`LazyRoadGraph`と同じNode/Edge index空間を持つCSR（圧縮行格納）表現の**構造のみ**
-    （改善計画T531）。Edge重み（コスト）はリクエストごとに変わるため持たず、
-    `build_shortest_path_tree`が呼び出しのたびに`entry_edge_index`でコスト配列を
-    CSRのdata順へ並べ替えて`scipy.sparse.csr_matrix`を組む。構造はタイル集合だけで
-    決まる純粋な派生物のため`LazyRoadGraph`と同じキーでキャッシュできる
-    （`infrastructure/search_graph_cache.py`）。
+    """`LazyRoadGraph`と同じNode/Edge index空間を持つCSR（圧縮行格納）表現の**構造のみ**。
+    Edge重み（コスト）はリクエストごとに変わるため持たず、`build_shortest_path_tree`が
+    呼び出しのたびに`entry_edge_index`でコスト配列をCSRのdata順へ並べ替えて
+    `scipy.sparse.csr_matrix`を組む。構造はタイル集合だけで決まる純粋な派生物のため
+    `LazyRoadGraph`と同じキーでキャッシュできる（`infrastructure/search_graph_cache.py`）。
     """
 
     node_count: int
@@ -229,15 +223,15 @@ def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> 
     整列するだけでよい。
 
     `reverse=True`のときはキーを`v * node_count + u`（行=to Node index、列=from Node index）
-    で組み、転置グラフのCSRを返す（改善計画T551）。転置CSR上で`source_index=destination`
-    としてDijkstraをかけると、各Nodeから見た「元の有向グラフでのdestinationまでの
-    最短経路コスト・距離」が得られる（後ろ向き木、`RoadGraphEngine.select_via_nodes`参照）。
+    で組み、転置グラフのCSRを返す。転置CSR上で`source_index=destination`としてDijkstra
+    をかけると、各Nodeから見た「元の有向グラフでのdestinationまでの最短経路コスト・
+    距離」が得られる（後ろ向き木、`RoadGraphEngine.select_via_nodes`参照）。
 
     `from_index * node_count + to_index`の整列キーはCSR構造の構築だけに使う一時変数で、
-    フィールドとしては持たない（改善計画T568。`(pred, v)`のCSRエントリ位置検索
+    フィールドとしては持たない（`(pred, v)`のCSRエントリ位置検索
     ［`_accumulate_tree_lengths`］に必要な時点で`indptr`/`indices`から都度再構築する
     ——タイル集合キーのプロセス内LRU［上限64件］が常駐させる1エントリぶんのメモリを
-    削減する。再構築コストとのトレードオフの判断はdocs/tasks/T568.md参照）。
+    削減する）。
     """
     node_count = len(lazy_graph.index_to_node_id)
     pairs = lazy_graph.edge_index_by_node_pair
@@ -267,12 +261,12 @@ def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> 
 
 class LazyGraphEdgeMismatchError(RoutingError):
     """`build_search_graph_statics`が`lazy_graph.edge_ids`のうち`graph.edges`に
-    存在しないedge_idを検出したときに送出する（改善計画T557、項目4）。"""
+    存在しないedge_idを検出したときに送出する。"""
 
 
 @dataclass
 class SearchGraphStatics:
-    """タイル集合だけで決まる、探索用グラフの静的な派生物一式（改善計画T531）。
+    """タイル集合だけで決まる、探索用グラフの静的な派生物一式。
     `LazyRoadGraph`と同じキャッシュ寿命で保持し、リクエストごとに変わる値（コスト配列）は
     含めない。"""
 
@@ -290,7 +284,7 @@ def find_missing_lazy_graph_edge_id(lazy_graph: LazyRoadGraph, graph: RoadGraphL
     search_graph_cache.py`）からの再利用で、その間にタイルが再split（`save_graph`の
     edge_id再割当）された場合はこの前提が崩れうる。`build_search_graph_statics`の
     CSR構築を伴わない軽量版チェックで、`RoadGraphEngine._ensure_lazy_graph_consistent`
-    （改善計画T569、`prepare`・`preview_segment`共通）が呼ぶ。
+    （`prepare`・`preview_segment`共通）が呼ぶ。
     """
     return next((edge_id for edge_id in lazy_graph.edge_ids if edge_id not in graph.edges), None)
 
@@ -305,9 +299,9 @@ def build_search_graph_statics(
     無い想定——チェック自体を二重に持つことで、将来この関数が事前チェック無しで直接
     呼ばれても安全なままにする）。
 
-    `reverse=True`は転置CSR版の`SearchGraphStatics`を返す（改善計画T551、目的地からの
-    後ろ向き木用）。`edge_length_m`は向きに依存しない（Edge index→実距離の対応表）ため
-    共通で、`csr`のみ`build_csr_structure(..., reverse=True)`に差し替える。
+    `reverse=True`は転置CSR版の`SearchGraphStatics`を返す（目的地からの後ろ向き木用）。
+    `edge_length_m`は向きに依存しない（Edge index→実距離の対応表）ため共通で、`csr`のみ
+    `build_csr_structure(..., reverse=True)`に差し替える。
     """
     missing_edge_id = find_missing_lazy_graph_edge_id(lazy_graph, graph)
     if missing_edge_id is not None:
@@ -325,7 +319,7 @@ def build_search_graph_statics(
 
 @dataclass
 class ShortestPathTree:
-    """起点からの一対全最短経路木（改善計画T531）。配列はいずれも`LazyRoadGraph.
+    """起点からの一対全最短経路木。配列はいずれも`LazyRoadGraph.
     index_to_node_id`と同じNode index順。"""
 
     source_index: int
@@ -338,7 +332,7 @@ class ShortestPathTree:
     # `predecessor`のPython list版。`tree_path_edge_indices`が数千Nodeぶんの経路復元で
     # numpyスカラーの取り出しを繰り返すのを避ける（実データ規模で約2倍速い）。一対全木は
     # 折返し点選定のたびに必ずこの経路復元で使われるため、遅延構築にする利点が無く
-    # 構築時にtolist()する（改善計画T557、項目14）。
+    # 構築時にtolist()する。
     predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
 
     def is_reached(self, node_index: int) -> bool:
@@ -353,20 +347,20 @@ def build_shortest_path_tree(
     cost_limit: float = np.inf,
 ) -> ShortestPathTree:
     """起点`source_index`からの一対全Dijkstra（scipy.sparse.csgraph、前任者付き）を行い、
-    前任者木に沿った実距離も積算して返す（改善計画T531）。
+    前任者木に沿った実距離も積算して返す。
 
     `edge_cost`/`edge_length_m`は`LazyRoadGraph.edge_ids`と同じ行順の配列。`math.inf`の
     コストは通行不能（0次フィルタ除外）を表し、scipyはそのEdge経由の到達をinfとして
-    扱う（実測確認済み、`shortest_path_node_ids_lazy`の検算と同じ意味論）。`cost_limit`は
-    このコストを超えるNodeの探索を打ち切る上限（scipyの`limit`、リングより外側の探索を
-    省く用途。`cost >= distance`の不変条件[`_build_estimate_cost_fn`参照]により
-    「実距離の上限×(1+P)」が安全な上限になる）。
+    扱う（`shortest_path_node_ids_lazy`の検算と同じ意味論）。`cost_limit`はこのコストを
+    超えるNodeの探索を打ち切る上限（scipyの`limit`、リングより外側の探索を省く用途。
+    `cost >= distance`の不変条件[`_build_estimate_cost_fn`参照]により「実距離の上限×
+    (1+P)」が安全な上限になる）。
 
     実距離の積算は、`(pred[v], v)`のCSRエントリ位置を整列キーへの`searchsorted`で
     一括検索した後、ポインタジャンプ（`acc[v] += acc[anc[v]]; anc[v] = anc[anc[v]]`を
     木の深さのlog2回だけ繰り返す）でベクトル演算する。素朴にcost昇順のPythonループで
     加算すると開発機の合成グリッド（14万Node）で1.2秒、numpyスカラーのループでは8.6秒
-    かかったのに対し、この方式は0.2秒（docs/tasks/T531.md）。
+    かかるのに対し、この方式は0.2秒。
     """
     n = structure.node_count
     data = np.asarray(edge_cost, dtype=float)[structure.entry_edge_index]
@@ -387,10 +381,10 @@ def build_shortest_path_tree(
 
 def _reconstruct_entry_keys(structure: CsrGraphStructure) -> np.ndarray:
     """CSRエントリ順の`from_index * node_count + to_index`（昇順）を`indptr`/`indices`から
-    再構築する（改善計画T568。永続フィールドとして持たない理由は`CsrGraphStructure`の
-    docstring参照）。`node_count`の2乗がint32の値域を超えうる（実データ規模で14万Node
-    →約196億）ため、キーの計算自体はint64で行う——`indptr`/`indices`のdtype変更とは
-    独立に、この整列キー自体は常にint64のまま。
+    再構築する（永続フィールドとして持たない理由は`CsrGraphStructure`のdocstring参照）。
+    `node_count`の2乗がint32の値域を超えうる（実データ規模で14万Node→約196億）ため、
+    キーの計算自体はint64で行う——`indptr`/`indices`のdtype変更とは独立に、この整列キー
+    自体は常にint64のまま。
     """
     n = structure.node_count
     rows = np.repeat(np.arange(n, dtype=np.int64), np.diff(structure.indptr))
@@ -401,9 +395,9 @@ def _accumulate_tree_lengths(
     structure: CsrGraphStructure, predecessor: np.ndarray, edge_length_m: np.ndarray, source_index: int,
     cost: np.ndarray,
 ) -> np.ndarray:
-    """`predecessor >= 0`ではなく`np.isfinite(cost)`を到達判定の正本にする（改善計画T557、
-    項目11）。使用中のscipy 1.18.1では両者は一致するが、infコストで打ち切られたEdgeの先へも
-    前任者ポインタを書きうる別バージョンに対する契約保証——コストが確定した「到達済み」
+    """`predecessor >= 0`ではなく`np.isfinite(cost)`を到達判定の正本にする。使用中の
+    scipy 1.18.1では両者は一致するが、infコストで打ち切られたEdgeの先へも前任者
+    ポインタを書きうる別バージョンに対する契約保証——コストが確定した「到達済み」
     集合だけを実距離の積算対象にする。
     """
     n = structure.node_count
@@ -430,8 +424,8 @@ def _accumulate_tree_lengths(
 
 def tree_path_edge_indices(tree: ShortestPathTree, lazy_graph: LazyRoadGraph, target_index: int) -> list[int] | None:
     """一対全木上の起点→`target_index`の経路を、`LazyRoadGraph`のEdge index列で返す
-    （改善計画T531。同じコスト配列でA*をかけ直しても同じ経路になるため、往路の再探索は
-    不要）。到達不能ならNone、起点自身なら空リスト。"""
+    （同じコスト配列でA*をかけ直しても同じ経路になるため、往路の再探索は不要）。
+    到達不能ならNone、起点自身なら空リスト。"""
     if not tree.is_reached(target_index):
         return None
     edge_indices: list[int] = []
@@ -452,7 +446,7 @@ def tree_path_edge_indices_to_source(
 ) -> list[int] | None:
     """`build_csr_structure(..., reverse=True)`から組んだ木（後ろ向き木、`tree.source_index`が
     目的地）で、`start_index`から目的地までの経路を、実グラフの有向Edge（`start_index`→…→
-    `tree.source_index`の順）のEdge index列で返す（改善計画T551）。転置CSR上の
+    `tree.source_index`の順）のEdge index列で返す。転置CSR上の
     `predecessor[X]=P`は実グラフの`X→P`という辺を表すため、`tree_path_edge_indices`
     （前向き木・`(parent, current)`順でEdge検索し最後に反転）とはEdge検索の引数順が逆
     （`(current, parent)`）で、経路は既に`start→source`の順に積み上がるため反転は不要。
@@ -594,16 +588,15 @@ def select_diverse_by_overlap(
 
 @dataclass
 class NodeSpatialIndex:
-    """緯度経度の総当たり線形探索を高速化するグリッドバケット索引
-    （改善計画T219、T12 Stage 1）。
+    """緯度経度の総当たり線形探索を高速化するグリッドバケット索引。
 
     `RoadGraphEngine`は1リクエストの同じRoad Graphに対し繰り返し、指定地点に最も
     近いNodeを探す呼び出しを行う（`prepare`で起点1回・`trace_loop`で経由地と目的地
-    ごとに1回・`preview_segment`で両端2回。改善計画T531以前は8方位×2経由地で最大17回）。
-    ノード数が増えるとこの繰り返しが線形探索×回数ぶん積み上がるため、索引を1回だけ
-    構築して使い回す。新規外部ライブラリ（scipy.spatial.cKDTree等）は導入せず、既定の
-    `dict`だけで組めるグリッドバケット方式にする（PostGIS空間インデックスが無い
-    構成でも同じロジックで動く）。
+    ごとに1回・`preview_segment`で両端2回）。ノード数が増えるとこの繰り返しが
+    線形探索×回数ぶん積み上がるため、索引を1回だけ構築して使い回す。新規外部
+    ライブラリ（scipy.spatial.cKDTree等）は導入せず、既定の`dict`だけで組める
+    グリッドバケット方式にする（PostGIS空間インデックスが無い構成でも同じロジックで
+    動く）。
     """
 
     graph: RoadGraphLike
@@ -630,8 +623,8 @@ def build_node_spatial_index(
     その場合Noneを返すことで区別すればよい）。
 
     `node_ids`省略時は`graph.nodes`全件を対象にする。指定時はその集合に含まれるNode
-    のみを索引の候補にする（改善計画T256: `routable_node_ids`と組み合わせ、Hard
-    Constraint通過後に孤立するNodeを最近傍探索の候補から除外するために使う）。
+    のみを索引の候補にする（`routable_node_ids`と組み合わせ、Hard Constraint通過後に
+    孤立するNodeを最近傍探索の候補から除外するために使う）。
     """
     ids = graph.nodes.keys() if node_ids is None else node_ids
     buckets: dict[tuple[int, int], list[str]] = {}
@@ -654,12 +647,12 @@ def find_nearest_node_indexed(
     高緯度ほど1度あたりの物理距離が短くなる）の1度あたり距離を使う——経度方向のセルは
     緯度方向より常に狭い（赤道上でのみ等しい）ため、緯度方向の距離をそのまま安全マージンに
     使うと、実際にはまだ調べていない経度方向のセルの方が近い可能性があるのに打ち切って
-    しまう（改善計画T463で訂正。訂正前のdocstringは逆の主張をしていた）。
+    しまう。
 
-    `predicate`を渡すと、それがFalseを返すNodeを最近傍候補から除外する（改善計画T602:
-    目的地ルートで一番近いNodeがメインの道路網から孤立している場合に、アクセス可能な
-    最寄りNodeへ改めて絞り込むために使う）。停止条件は「見つかった最近傍（`predicate`を
-    満たすもの限定）の距離」を基準にするため、除外対象があっても安全性は変わらない。
+    `predicate`を渡すと、それがFalseを返すNodeを最近傍候補から除外する（目的地ルートで
+    一番近いNodeがメインの道路網から孤立している場合に、アクセス可能な最寄りNodeへ
+    改めて絞り込むために使う）。停止条件は「見つかった最近傍（`predicate`を満たすもの
+    限定）の距離」を基準にするため、除外対象があっても安全性は変わらない。
     """
     if not index.graph.nodes:
         return None
@@ -684,7 +677,7 @@ def find_nearest_node_indexed(
                     if predicate is not None and not predicate(node_id):
                         continue
                     node = index.graph.nodes[node_id]
-                    # 改善計画T262: nodeは既にlatitude/longitudeを持つ（NodeLike）ため、
+                    # nodeは既にlatitude/longitudeを持つ（NodeLike）ため、
                     # Coordinatesへ包み直さない。
                     distance = haversine_distance_km(point, node)
                     if nearest_distance is None or distance < nearest_distance:
