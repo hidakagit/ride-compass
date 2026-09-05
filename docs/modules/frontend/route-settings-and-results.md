@@ -9,7 +9,7 @@
 
 | ファイル | 責務 |
 |---|---|
-| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・生成ボタン。周回/目的地モード切替 |
+| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・生成ボタン。周回/目的地モード切替。「ルート設定」区分の「生成条件」「重みづけ」2タブもホストする（下記参照） |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路（地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
@@ -50,8 +50,9 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   ドラッグ・矢印キー操作のみ**——0.01刻みで1軸だけを狙う個別スライダーは持たない。
   帯の色（`stackBarColorForIndex`、実際の軸数でHSL色相環を等分）と凡例チップの
   色ドットは同じ関数・同じindexから生成しており、常に一致する。「重み配分」見出し脇の
-  情報アイコン（`stackBarLegendTrigger`）を押すと、全軸ぶんの色ドット+ラベル+現在の%を
-  一覧するポップオーバーが開く。境界をドラッグしている間だけ、そのハンドルの直上に
+  情報アイコン（`stackBarLegendTrigger`）を押すと、操作説明（帯の境界をドラッグして
+  配分を調整できる旨）に続けて全軸ぶんの色ドット+ラベル+現在の%を一覧するポップオーバーが
+  開く（見出し自体は「重み配分」の短い表記のみ）。境界をドラッグしている間だけ、そのハンドルの直上に
   両隣2軸のラベル+%をフロート表示する（`stackBarDragBadge`、ドラッグ終了で消える）——
   native title属性のホバーツールチップ（モバイルでは事実上見えない）の代わり。バーの
   両端付近（累積%が25%未満/75%超）のハンドルは、ラベル併記で幅が増えたバッジが
@@ -202,7 +203,17 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 
 距離入力・候補件数入力・生成ボタン。`RouteMode`（"loop"|"destination"）で
 周回/目的地モードを切り替える。デスクトップ・モバイルとも「ルート設定」区分
-（`RouteSettingsPanel`と同じ場所）から呼ぶ。目的地モードでは
+（`RouteSettingsPanel`と同じ場所）から呼ぶ。
+
+「ルート設定」区分自体を「生成条件」（本コンポーネントのモード切替・距離・候補数）と
+「重みづけ」（`weightsPanel`propで受け取る`RouteSettingsPanel`一式）の2タブへ分け、
+`Tabs.Root`（`@radix-ui/react-tabs`）でホストする。「ルート生成」ボタン・エラー表示は
+タブの外・`<form>`の末尾に置き、どちらのタブを見ていても押せるようにする。両タブとも
+`forceMount`で常時マウントし表示だけ`data-state`で切り替える（`RouteSettingsPanel`が
+ローカルstate[`lastWeights`等]を持つため、タブ切替のたびにアンマウントすると失われる。
+page.module.cssの`.outcomeTabPanel`と同じ方式）。
+
+目的地モードでは
 距離入力を出さない。想定速度はこのフォームでは扱わない（地図下部の条件バー
 `RideConditionBar`、page-composition.md参照）。候補件数入力は経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
 候補件数を常に1件へ固定し無視するため、`maxRoutesRelevant`＝`routeMode==="loop"||

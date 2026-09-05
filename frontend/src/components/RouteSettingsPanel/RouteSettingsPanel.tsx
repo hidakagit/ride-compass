@@ -318,15 +318,18 @@ export default function RouteSettingsPanel({
     <div className="flex flex-col gap-3">
       <div className={styles.stackBarWrap}>
         <div className={styles.stackBarHeader}>
-          <p className={styles.sectionLabel}>重み配分[帯の境界をドラッグして配分を調整できます]</p>
+          <p className={styles.sectionLabel}>重み配分</p>
           {/* ユーザー要望（2026-08-31、「情報アイコンを押すと、そのなかに凡例出してほしい」）:
               帯グラフの色と軸の対応を、見出し脇の情報アイコンから一覧できるようにする
-              （凡例チップ側にも色ドットはあるが、折り返して並ぶため一覧性は弱い）。 */}
+              （凡例チップ側にも色ドットはあるが、折り返して並ぶため一覧性は弱い）。操作説明
+              （帯の境界をドラッグして配分を調整できる旨）もここへ集約し、見出し自体は
+              「重み配分」だけの短い表記にする。 */}
           <InfoPopover
             triggerClassName={styles.stackBarLegendTrigger}
             triggerAriaLabel="重み配分の凡例を表示"
             contentClassName={styles.legendInfoPopover}
           >
+            <p className={styles.stackBarLegendHint}>帯の境界をドラッグして配分を調整できます。</p>
             <ul className={styles.stackBarLegendList}>
               {catalog.axes.map((axis, index) => {
                 const weight = routePreference[axis.axisId] ?? 0;
