@@ -1,10 +1,3 @@
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
 /* 「生成条件」「重みづけ」の2タブ（page.module.cssの.outcomeTabList等と同じ方式）。 */
 .tabList {
   display: flex;
@@ -34,22 +27,83 @@
   display: none;
 }
 
-/* 距離・候補数を横1行に並べる。 */
-.fieldsRow {
+/* 距離（スライダー）・候補数（ステッパー）を縦に並べる。 */
+.fieldsColumn {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-.fieldLabel {
+/* 距離スライダー。ラベル・スライダー・現在値(km)を1行に収める。 */
+.sliderField {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: var(--space-2);
 }
 
-.generateButton {
-  align-self: flex-start;
+.sliderLabel {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.sliderValue {
+  flex-shrink: 0;
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 候補数ステッパー。直接の数値入力はさせず「‹ 8 › 件」の-/+操作のみにする
+   （DynamicLayerTimeSlider.module.cssの.stepButtonと同じ役割分担: ピンポイントの
+   1件単位調整）。 */
+.stepperField {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepperLabel {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepperButton {
+  flex-shrink: 0;
+  min-width: 1.6rem;
+  padding: 0.2rem 0.3rem;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.stepperButton:disabled {
+  color: var(--color-muted);
+  border-color: var(--color-border);
+  cursor: default;
+}
+
+.stepperValue {
+  min-width: 2.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 周回/目的地モード切り替え（セグメントコントロール）。 */

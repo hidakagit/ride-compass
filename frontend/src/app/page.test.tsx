@@ -673,7 +673,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
-  it("改善計画T531: 候補件数入力を変更すると生成リクエストのmax_routesへ反映される", async () => {
+  it("改善計画T531: 候補数ステッパーを変更すると生成リクエストのmax_routesへ反映される", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
@@ -683,10 +683,11 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
 
-    // RouteForm（周回モード）は距離・候補件数の2つの数値入力を持つ（距離が先）。
-    const maxRoutesInput = screen.getAllByRole("spinbutton")[1];
-    await user.clear(maxRoutesInput);
-    await user.type(maxRoutesInput, "3");
+    // T616: 候補数の直接数値入力はステッパー（‹/›）へ置き換えた。既定値8から5回減らして3にする。
+    const decrement = screen.getByRole("button", { name: "候補数を減らす" });
+    for (let i = 0; i < 5; i++) {
+      await user.click(decrement);
+    }
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
@@ -697,23 +698,29 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
-  it("目的地モード（経由地なし）で候補件数欄が空のまま生成しようとすると送信されずエラーが表示される", async () => {
+  it("T616: 何も指定していない状態で目的地モードへ切り替えると、ゴールボタンを押さなくても即座に目的地を指定できる状態(armed)になる", async () => {
+    const user = userEvent.setup();
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+
+    expect(
+      screen.getByRole("button", { name: "地図をタップして目的地を指定（タップでキャンセル）" })
+    ).toBeInTheDocument();
+  });
+
+  it("T616: 既に目的地が指定済みの状態で目的地モードへ戻っても自動でarmedにはならない", async () => {
     const user = userEvent.setup();
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    // 周回モードのまま候補件数欄を空にする。経由地の無い目的地モードでも同じ入力欄が
-    // 引き続き表示・検証されるため（RouteForm.tsx: maxRoutesRelevant）、モード切替後も
-    // 空のままなら送信はRouteForm側でブロックされる。
-    const maxRoutesInput = screen.getAllByRole("spinbutton")[1];
-    await user.clear(maxRoutesInput);
-
     await user.click(screen.getByRole("button", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await user.click(screen.getByRole("button", { name: "周回" }));
+    await user.click(screen.getByRole("button", { name: "目的地" }));
 
-    expect(generateRoutes).not.toHaveBeenCalled();
-    expect(await screen.findByRole("alert")).toHaveTextContent("候補件数は整数で入力してください。");
+    expect(screen.getByRole("button", { name: "目的地を解除" })).toBeInTheDocument();
   });
 
   it("改善計画T602: backendが目的地を補正した場合、案内を表示し次回生成では補正後の地点を送る", async () => {
@@ -751,35 +758,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         expect.anything(),
       );
     });
-  });
-
-  it("改善計画T557（P1）: 経由地を伴う目的地モードで候補件数欄が空のまま生成しても422にならない値を送る", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-      engine: "road_graph",
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    // 周回モードのまま候補件数欄を空にする。
-    const maxRoutesInput = screen.getAllByRole("spinbutton")[1];
-    await user.clear(maxRoutesInput);
-
-    // 経由地を伴う目的地モードへ切替（候補件数入力欄はここで非表示になり検証されなくなるが、
-    // 空文字のままのstateはpage.tsx側に残り続ける）。
-    await user.click(screen.getByRole("button", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に経由地を追加" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalled();
-    });
-    const sentRequest = vi.mocked(generateRoutes).mock.calls[0][0];
-    // backend RouteGenerateRequest.max_routesはField(ge=1, le=15)——0や NaN は422になる。
-    expect(Number.isInteger(sentRequest.max_routes)).toBe(true);
-    expect(sentRequest.max_routes).toBeGreaterThanOrEqual(1);
   });
 
   it("改善計画T531: 候補タブに順位番号を表示し、同じ方位の候補を区別できる", async () => {

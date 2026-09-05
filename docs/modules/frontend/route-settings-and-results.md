@@ -9,7 +9,8 @@
 
 | ファイル | 責務 |
 |---|---|
-| `components/RouteForm/RouteForm.tsx` | 距離入力・候補件数入力・生成ボタン。周回/目的地モード切替。「ルート設定」区分の「生成条件」「重みづけ」2タブもホストする（下記参照） |
+| `components/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替の入力欄。「ルート設定」区分の「生成条件」「重みづけ」2タブもホストする（下記参照） |
+| `components/RouteForm/useRouteFormSubmit.ts` | 上記の検証・送信ロジック（`{error, handleSubmit}`）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路（地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
@@ -199,35 +200,44 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
   （「今」の設定）は使わない。旧・風スコア/舗装率の固定行（`RouteCandidate.wind_score`/
   `road_score`直接参照）は材料値の生値行へ置き換えた。
 
-## RouteForm.tsx
+## RouteForm.tsx・useRouteFormSubmit.ts
 
-距離入力・候補件数入力・生成ボタン。`RouteMode`（"loop"|"destination"）で
-周回/目的地モードを切り替える。デスクトップ・モバイルとも「ルート設定」区分
-（`RouteSettingsPanel`と同じ場所）から呼ぶ。
+`RouteMode`（"loop"|"destination"）で周回/目的地モードを切り替える入力欄一式
+（`RouteForm.tsx`）と、その検証・送信ロジック（`useRouteFormSubmit.ts`）を分離する。
+デスクトップ・モバイルとも「ルート設定」区分（`RouteSettingsPanel`と同じ場所）から呼ぶ。
 
-「ルート設定」区分自体を「生成条件」（本コンポーネントのモード切替・距離・候補数）と
+「ルート設定」区分自体を「生成条件」（`RouteForm`のモード切替・距離・候補数）と
 「重みづけ」（`weightsPanel`propで受け取る`RouteSettingsPanel`一式）の2タブへ分け、
-`Tabs.Root`（`@radix-ui/react-tabs`）でホストする。「ルート生成」ボタン・エラー表示は
-タブの外・`<form>`の末尾に置き、どちらのタブを見ていても押せるようにする。両タブとも
+`Tabs.Root`（`@radix-ui/react-tabs`）で`RouteForm`自身がホストする。両タブとも
 `forceMount`で常時マウントし表示だけ`data-state`で切り替える（`RouteSettingsPanel`が
 ローカルstate[`lastWeights`等]を持つため、タブ切替のたびにアンマウントすると失われる。
-page.module.cssの`.outcomeTabPanel`と同じ方式）。
+page.module.cssの`.outcomeTabPanel`と同じ方式）。「ルート生成」ボタン・検証エラー表示は
+`RouteForm`の外（`page.tsx`の「ルート設定」見出し行、デスクトップは`Disclosure`の
+`trailing`・モバイルは`BottomSheet`の`headerAction`、「ルート結果」見出し行の
+`renderRouteResultHeaderActions`と同じ場所）に置き、どちらのタブを見ていても押せる
+（`page.tsx: renderRouteSectionHeaderActions`）。検証・送信ロジック自体は
+`useRouteFormSubmit`（`distance`・`maxRoutes`・`routeMode`・`waypointCount`・
+`destinationState`・`onGenerate`を受け取り`{error, handleSubmit}`を返す）へ切り出し、
+`page.tsx`がヘッダーのボタンから直接呼ぶ。`isMaxRoutesRelevant(routeMode, waypointCount)`
+は`RouteForm`（候補数ステッパーの表示要否）・`useRouteFormSubmit`（検証要否）の両方が
+参照する単一の情報源。
 
-目的地モードでは
-距離入力を出さない。想定速度はこのフォームでは扱わない（地図下部の条件バー
-`RideConditionBar`、page-composition.md参照）。候補件数入力は経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
-候補件数を常に1件へ固定し無視するため、`maxRoutesRelevant`＝`routeMode==="loop"||
-waypointCount===0`で表示・検証の両方を揃える）。経由地・目的地のいずれも未指定のまま
+距離は`<input type="range">`のスライダー、候補数は「‹ 8 › 件」のステッパー
+（-/+ボタン、`DynamicLayerTimeSlider`の1コマ送りボタンと同じ役割分担）にし、
+数値の直接入力欄は持たない（原則としてユーザーに数字を直接入力させない方針）。
+distance・maxRoutesはいずれもstring stateのまま親（`page.tsx`）が
+持ち、数値への変換は送信直前（`useRouteFormSubmit: handleSubmit`内の検証）でのみ行う。
+スライダー・ステッパーはmin/maxで値域を強制するため空文字・範囲外を作れず、
+`useRouteFormSubmit`側の距離・候補数の範囲検証は主に目的地モード（経由地を伴うと
+候補数ステッパー自体が非表示になり、その間もstring stateとして残り続ける値に対する
+境界チェック）向けに残っている。目的地モードでは距離入力を出さない。想定速度はこの
+フォームでは扱わない（地図下部の条件バー`RideConditionBar`、page-composition.md参照）。
+候補数ステッパーは経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
+候補件数を常に1件へ固定し無視するため）。経由地・目的地のいずれも未指定のまま
 生成しようとするとサイレント失敗せずエラー文言を出す。
 
-距離・候補件数いずれの`<Input type="number">`もネイティブのスピンボタン（上下矢印）をCSS
-（`[&::-webkit-inner-spin-button]:appearance-none`等）で非表示にする——直接入力が主な
-操作手段で、矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
-数値専用キーボードを明示し、`onFocus`で既存の値を全選択して毎回消してから打ち直す手間を
-無くす。`distance`・`maxRoutes`はいずれもstring stateのまま親（`page.tsx`）が持ち、
-数値への変換は送信直前（`handleSubmit`内の検証）でのみ行うため、`AxisComposer.tsx`の
-`NumberField`（[軸スタジオ](axis-studio.md)参照）が対処する「入力途中でReactの制御値が
-NaNへ倒れる」問題はこの入力には無い。候補件数の上限・既定値は
-`types/generated/route-generate-config.json`の`max_routes`/`default_max_routes`
-（backend: `RouteGenerateRequest.max_routes`のFieldメタデータから生成）から導出し、
-1〜上限の整数以外はエラー表示で送信を止める。
+目的地モードへ切り替えた時点で目的地・経由地とも未指定なら、ゴールアイコンを押さなくても
+即座に地図タップで目的地を指定できる状態（armed）にする（`page.tsx:
+handleRouteModeChange`）。既に目的地・経由地がある場合は自動武装しない——次のタップの
+意図が「経由地の追加」である可能性があり、武装したままだと意図せず目的地が上書きされて
+しまうため。

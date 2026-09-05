@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
+import { Button } from "@/components/ui/Button/Button";
 import MapView from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
@@ -54,6 +55,7 @@ import {
 import layerPanelStyles from "@/components/MapLayersPanel/MapLayersPanel.module.css";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type DestinationButtonState, type RouteMode } from "@/components/RouteForm/RouteForm";
+import { useRouteFormSubmit } from "@/components/RouteForm/useRouteFormSubmit";
 import RouteSettingsPanel, {
   DEFAULT_HARD_FILTERS,
   stackBarColorForIndex,
@@ -406,11 +408,22 @@ export default function Home() {
   // 保持し、目的地モードへ戻れば復元される。地図への表示・追加受付だけがモードで変わる、
   // handleGenerate/MapView.tsxのpinPlacementEnabled参照）。
   const [routeMode, setRouteMode] = useState<RouteMode>("loop");
-  const handleRouteModeChange = useCallback((mode: RouteMode) => {
-    setRouteMode(mode);
-    // 武装中に周回モードへ切り替えた場合、目的地モードへ戻るまで武装状態を持ち越さない。
-    setDestinationArmed(false);
-  }, []);
+  const handleRouteModeChange = useCallback(
+    (mode: RouteMode) => {
+      setRouteMode(mode);
+      if (mode === "destination") {
+        // 目的地・経由地とも未指定のまま目的地モードへ入った場合、ゴールアイコンを
+        // 押さなくても次のタップで即座に目的地を指定できるようにする。既に目的地・
+        // 経由地があるときは自動武装しない——次のタップの意図が「経由地の追加」である
+        // 可能性があり、武装したままだと意図せず目的地が上書きされてしまうため。
+        setDestinationArmed(destination === null && waypoints.length === 0);
+      } else {
+        // 武装中に周回モードへ切り替えた場合、目的地モードへ戻るまで武装状態を持ち越さない。
+        setDestinationArmed(false);
+      }
+    },
+    [destination, waypoints.length]
+  );
 
   const handleDestinationSet = useCallback((point: Coordinates) => {
     setDestination(point);
@@ -439,6 +452,17 @@ export default function Home() {
   // 同じくstring stateのまま保持し、送信時にNumber化する。目的地モードでは経由地が無い
   // 場合のみ意味を持つ（経由地を伴うとbackendが常に1件へ固定し無視する、RouteForm.tsx参照）。
   const [maxRoutesInput, setMaxRoutesInput] = useState(String(routeGenerateConfig.default_max_routes));
+  // 「ルート生成」ボタン（「ルート設定」見出し行、RouteForm.tsxのタブとは別位置）の
+  // 検証・送信ロジック。handleGenerateは関数宣言のため巻き上げにより以降で定義されていても
+  // 参照できる。
+  const routeFormSubmit = useRouteFormSubmit({
+    distance: distanceInput,
+    maxRoutes: maxRoutesInput,
+    routeMode,
+    waypointCount: waypoints.length,
+    destinationState,
+    onGenerate: handleGenerate,
+  });
   // 仮定巡航速度（backend: RouteGenerateRequest.assumed_speed_kmh、km/h）。距離と同じく
   // string stateのまま保持し、送信時にNumber化する。区間の通過予定時刻（探索時の風の時刻
   // 選択）・到達予想時刻の基準になるため全モードで送る。
@@ -1186,11 +1210,14 @@ export default function Home() {
   }, [overlayLayers, handleLayerToggle]);
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
-  const handleMobileTabClick = useCallback((sheet: "routeSettings" | "routeOutcome" | "map") => {
-    setMobileSheet((prev) => (prev === sheet ? null : sheet));
-    // 改善計画T439: 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
-    if (sheet === "routeOutcome") setHasUnseenResults(false);
-  }, []);
+  const handleMobileTabClick = useCallback(
+    (sheet: "routeSettings" | "routeOutcome" | "map") => {
+      setMobileSheet((prev) => (prev === sheet ? null : sheet));
+      // 改善計画T439: 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
+      if (sheet === "routeOutcome") setHasUnseenResults(false);
+    },
+    [setMobileSheet]
+  );
 
   // 下部シートの高さ変更。ドラッグ中/キー操作中は見た目の即時反映のみ（onHeightChange）、
   // 確定時のみ保存する（onHeightCommit。ドラッグ中の毎フレーム書き込みを避けるため、
@@ -1417,16 +1444,9 @@ export default function Home() {
         routeMode === "destination"
           ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
           : distanceKm;
-      // 経由地を伴う目的地モードではRouteForm側の候補件数入力欄が非表示になり検証も
-      // されないため、maxRoutesInputが空文字・範囲外のまま残っていても送信前にここで検証する
-      // （backendはその場合値自体を無視するが、周回モード・経由地の無い目的地モードへ
-      // 戻したときの再送信を安全にするため）。
-      const parsedMaxRoutes = Number(maxRoutesInput);
-      const effectiveMaxRoutes =
-        Number.isInteger(parsedMaxRoutes) && parsedMaxRoutes >= 1 && parsedMaxRoutes <= routeGenerateConfig.max_routes
-          ? parsedMaxRoutes
-          : routeGenerateConfig.default_max_routes;
-      // 巡航速度もRouteForm側で検証済みだが、範囲外・空文字のまま残っていても送信前に既定値へ倒す。
+      // T616: 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数
+      // 文字列以外にはなり得ないため、そのままNumber化して使う。
+      const effectiveMaxRoutes = Number(maxRoutesInput);
       const effectiveAssumedSpeed = assumedSpeedKmh;
       const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
         latitude: location.latitude,
@@ -1525,15 +1545,28 @@ export default function Home() {
     }
   }
 
-  // 改善計画T265: RouteForm（デスクトップ・モバイル両方の呼び出し箇所で共有）のボタン文言。
+  // 改善計画T265: 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。
   // queued（同時実行数上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
-  // RouteForm側の既定文言（「生成中...」）に委ねる。
+  // 既定文言（「生成中...」）に委ねる。
   const generationProgressLabel =
     generationProgress?.status === "queued"
       ? "順番待ち..."
       : generationProgress?.status === "running"
         ? `生成中...(${Math.round(generationProgress.elapsedMs / 1000)}秒経過)`
         : undefined;
+
+  // 「ルート設定」見出し行の右側アクション（renderRouteResultHeaderActionsと同じ場所、
+  // デスクトップはDisclosureのtrailing・モバイルはBottomSheetのheaderAction）。
+  // T616: 「ルート生成」ボタンをタブの中から見出し行へ移設した（重みづけタブを見ている間も
+  // タブを切り替えずに押せるようにするのが目的で、タブの外にさえあれば足りるため
+  // わざわざタブ内に置き続ける理由が無い）。
+  function renderRouteSectionHeaderActions() {
+    return (
+      <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
+        {loading ? (generationProgressLabel ?? "生成中...") : "ルート生成"}
+      </Button>
+    );
+  }
 
   // 「ルート設定」区分の中身（天候・アプリ名は常設ヘッダへ移動済み、T36/T37）。
   // デスクトップの`Disclosure`（summary="ルート設定"）・モバイルの`BottomSheet`
@@ -1542,14 +1575,13 @@ export default function Home() {
   function renderRouteSectionBody() {
     return (
       <>
+        {routeFormSubmit.error && <ErrorText>{routeFormSubmit.error}</ErrorText>}
+        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
         <RouteForm
           distance={distanceInput}
           onDistanceChange={setDistanceInput}
           maxRoutes={maxRoutesInput}
           onMaxRoutesChange={setMaxRoutesInput}
-          onGenerate={handleGenerate}
-          loading={loading}
-          progressLabel={generationProgressLabel}
           routeMode={routeMode}
           onRouteModeChange={handleRouteModeChange}
           waypointCount={waypoints.length}
@@ -1558,7 +1590,6 @@ export default function Home() {
           onDestinationButtonClick={handleDestinationButtonClick}
           weightsPanel={renderRouteSettingsSectionBody()}
         />
-        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
       </>
     );
   }
@@ -1891,6 +1922,7 @@ export default function Home() {
                     各区分は独立して開閉し、開閉状態はlocalStorageへ保存する。 */}
                 <Disclosure
                   className={styles.blockSection}
+                  headerClassName={styles.blockHeaderRow}
                   triggerClassName={styles.blockSummary}
                   bodyClassName={styles.blockBody}
                   id={GENERATE_SECTION_TITLE_ID}
@@ -1900,6 +1932,7 @@ export default function Home() {
                       ルート設定
                     </>
                   }
+                  trailing={renderRouteSectionHeaderActions()}
                   open={generateOpen}
                   onOpenChange={setGenerateOpen}
                 >
@@ -2165,6 +2198,7 @@ export default function Home() {
             onClose={() => setMobileSheet(null)}
             title="ルート設定"
             titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
+            headerAction={renderRouteSectionHeaderActions()}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}

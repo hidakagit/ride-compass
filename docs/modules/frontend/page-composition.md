@@ -145,12 +145,16 @@ localStorageへの保存・復元を1箇所に集約する。
 - デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ3区分
   「ルート設定 / ルート結果 / 地図の見え方」を同じ順序で縦積み。各区分は独立した
   `Disclosure`折りたたみで、開閉状態は`generateOpen`・`outcomeOpen`・`mapSettingsOpen`
-  （localStorage）で永続化する。「ルート結果」の見出し行は`trailing`に操作枠
-  （`renderRouteResultHeaderActions()`）を持ち、候補が無い間は本文に案内文だけを出す。
+  （localStorage）で永続化する。「ルート設定」「ルート結果」の見出し行はどちらも
+  `trailing`に操作枠を持つ（前者は`renderRouteSectionHeaderActions()`の「ルート生成」
+  ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」は候補が無い間は
+  本文に案内文だけを出す。
 - モバイル: 下部タブバー（ルート設定/ルート結果/地図の見え方）+`BottomSheet`（3枚が
   `mobileSheet`で排他表示、高さ`mobileSheetHeightVh`を共有）。デスクトップと同じく
   「ルート設定」シートは`RouteForm`（内部で「生成条件」「重みづけ」の2タブへさらに
-  分け、`RouteSettingsPanel`を「重みづけ」タブの中身として受け取る）を描画する。
+  分け、`RouteSettingsPanel`を「重みづけ」タブの中身として受け取る）を描画し、
+  `headerAction`propとして`renderRouteSectionHeaderActions()`（「ルート生成」ボタン）を
+  デスクトップと同じヘルパーから渡す。
 
 `BottomSheet`はposition:fixedのオーバーレイで暗幕を敷かない（表示中も地図をパン/ズーム
 できる）。ドラッグ中は`onHeightChange`のみ（見た目の即時反映）、確定時に
