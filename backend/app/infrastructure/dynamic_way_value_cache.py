@@ -1,21 +1,16 @@
-"""動的＋向きあり材料の「way_id→値」配信（改善計画T405→T414→T423で汎用化）専用の
-Redis cache-asideキャッシュ。旧`wind_way_penalty_cache.py`（風専用）をT423で汎用化した
-——docs/tasks/T411.md「Redisキャッシュ層…を計算式だけ差し替え可能な共通モジュールへ
-抽出」の実施。`wind_forecast_cache.py`（風グリッド地点そのもののキャッシュ）とは別レイヤー。
+"""動的＋向きあり材料の「way_id→値」配信専用のRedis cache-asideキャッシュ。
+`wind_forecast_cache.py`（風グリッド地点そのもののキャッシュ）とは別レイヤー。
 
-キーは`(material_id, z, x, y, 時刻バケット, 向きバケット)`。値は`{way_id: 値}`のJSON
-オブジェクト——T414時点の風は「同じタイル内の全wayが同じ値を持つ」ためスカラー1個で
-足りたが、T423の勾配は道路自身の向き・勾配%がway単位で異なるため、材料によって
-「1タイルにつき1個のスカラー値」（風、broadcast）にも「1タイルにつきway数ぶんの値」
-（勾配）にもなりうる。両者を同じキャッシュ表現（`dict[way_id, float]`のJSON）で
-吸収することで、材料側は「タイル単位でいくつ値を返すか」を意識せずこのモジュールを
-共有できる（風はdict.fromkeys(way_ids, penalty)で作った「全キー同値」のdictを渡すだけ）。
+キーは`(material_id, z, x, y, 時刻バケット, 向きバケット, 速度バケット)`。値は
+`{way_id: 値}`のJSONオブジェクト——風のように「タイル内全wayが同値」の場合も勾配のように
+「way単位で異なる値」の場合も同じ表現で吸収するため、材料側は「タイル単位でいくつ値を
+返すか」を意識せずこのモジュールを共有できる（風はdict.fromkeys(way_ids, penalty)で
+作った「全キー同値」のdictを渡すだけ）。
 
 時刻バケットは1時間丸め（`YYYY-MM-DDTHH`、時刻に依存しない材料はNone）、向きバケットは
 `BEARING_BUCKET_DEG`（5度）刻み（向きに依存しない材料はNone）、速度バケットは1km/h刻み
-（速度に依存しない材料はNone）。向きをバケット化する
-理由はwind_way_service.py（旧wind_way_penalty_cache.pyのモジュールdocstring）参照——
-スライダーの連続値をそのままキーへ使うとキャッシュヒット率がほぼ0になるため。
+（速度に依存しない材料はNone）。バケット化する理由は、スライダーの連続値をそのまま
+キーへ使うとキャッシュヒット率がほぼ0になるため。
 
 TTLは呼び出し元（各材料のサービス）が渡す——風は気象データの新鮮さ
 （`weather_client.WIND_GRID_CACHE_TTL_SECONDS`）に合わせる必要があるが、勾配は道路の向き・
@@ -48,9 +43,9 @@ def bearing_bucket(bearing_deg: float) -> int:
     """向き（0〜360度、範囲外は正規化）をBEARING_BUCKET_DEG刻みのバケット番号（int）へ
     丸める。360度は0度と同じバケットに正規化する（`% 360`をBEARING_BUCKET_DEG丸めの後に
     適用するため、359度台の値がBEARING_BUCKET_DEG刻み数で割り切れずズレたバケットへ
-    分類されることはない）。改善計画T464: 組み込み`round()`は偶数への銀行丸め
-    （非対称、境界のバケット幅が理論値からずれる）のため、`math.floor(x+0.5)`
-    （四捨五入、0.5は常に切り上げ）を使い境界幅を均一にする。"""
+    分類されることはない）。組み込み`round()`は偶数への銀行丸め（非対称、境界の
+    バケット幅が理論値からずれる）のため、`math.floor(x+0.5)`（四捨五入、0.5は常に
+    切り上げ）を使い境界幅を均一にする。"""
     normalized = bearing_deg % 360
     return math.floor(normalized / BEARING_BUCKET_DEG + 0.5) % (360 // BEARING_BUCKET_DEG)
 

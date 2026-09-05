@@ -380,23 +380,17 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
 )
 
 
-# way_id→wind_penalty配信層（改善計画T405→T414で作り直し、docs/tasks/T400.md「2. 動的要素
-# （時刻・向き等）を含む材料は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」
-# 節）。「評価軸」グループとしての風（ルート未確定時は視界内の全道路へ一律適用する線表示）の
-# 基盤。_ROAD_SURFACE_TILE_MVT_SQLと同じカバレッジ判定（road_graph_tilesのz12祖先タイル
-# マーク）・同じST_Intersectsフィルタで対象wayを絞るが、MVTエンコード（ST_AsMVT/
-# ST_AsMVTGeom）は行わない——返すのは指定タイル範囲に存在するway_idの単純な集合のみ。
+# way_id→動的値配信層（風、「評価軸」グループ）。ルート未確定時は視界内の全道路へ
+# 一律適用する線表示の基盤。_ROAD_SURFACE_TILE_MVT_SQLと同じカバレッジ判定
+# （road_graph_tilesのz12祖先タイルマーク）・同じST_Intersectsフィルタで対象wayを絞るが、
+# MVTエンコード（ST_AsMVT/ST_AsMVTGeom）は行わない——返すのは指定タイル範囲に存在する
+# way_idの単純な集合のみ。
 #
-# **T414での設計変更（旧_WAY_BEARINGS_IN_TILE_SQLからの作り直し）**: 訂正後の契約では、
-# ある道路のwind_penaltyは「その道路の最寄り風グリッド点の値」と「ユーザーが指定した単一の
-# 向き（全道路共通、UIのコンパススライダー由来）」だけから決まり、道路自身の向き
+# ある道路のwind_drag_ratioは「その道路の最寄り風グリッド点の値」と「ユーザーが指定した
+# 単一の向き（全道路共通、UIのコンパススライダー由来）」だけから決まり、道路自身の向き
 # （OSM上の始点→終点、データ収集上の都合で決まる値でユーザーの走行方向とは無関係）は
 # 計算に一切関与しない。そのため、このSQLはway自身の方位角（ST_Azimuth）を計算する必要が
-# 無くなった——CROSS JOIN LATERALでの方位角算出・geographyキャストといった旧実装の複雑さは
-# 丸ごと不要になり、単に「タイル範囲に存在するway_idの一覧」を返すだけの軽量なクエリになった。
-# ST_Azimuthの平面近似 vs 球面（geography）の精度差についての旧コメント（migration 0013との
-# 差異）は、bearing計算自体がこのSQLから無くなったため、このファイルからは削除した
-# （road_edges.bearing_deg自体の平面近似問題はルーティング側の別の話として変更なし）。
+# 無く、単に「タイル範囲に存在するway_idの一覧」を返すだけの軽量なクエリになっている。
 _WAY_IDS_IN_TILE_SQL = text(
     """
     WITH coverage AS (
@@ -418,12 +412,10 @@ _WAY_IDS_IN_TILE_SQL = text(
 )
 
 
-# way_id→勾配（gradient_percent）配信層（改善計画T423、docs/tasks/T423.md）。上の
-# _WAY_IDS_IN_TILE_SQLと同じカバレッジ判定・空間フィルタだが、勾配はway_idの一覧だけでは
-# 足りない——T400.md「2.」節どおり、勾配は「道路自身の向き」が本質的に必要な材料
-# （風とは異なる性質、docs/tasks/T423.md「重要な注意点」参照）のため、各wayの
-# gradient_percent（elevation_attributes.average_grade）とbearing_deg（road_edges）を
-# 併せて返す。
+# way_id→勾配（gradient_percent）配信層。上の_WAY_IDS_IN_TILE_SQLと同じカバレッジ判定・
+# 空間フィルタだが、勾配はway_idの一覧だけでは足りない——勾配は「道路自身の向き」が
+# 本質的に必要な材料（風とは異なる性質）のため、各wayのgradient_percent
+# （elevation_attributes.average_grade）とbearing_deg（road_edges）を併せて返す。
 #
 # gradient_percent・bearing_degはOSM Way単位ではなくRoad Graph Edge単位
 # （road_edges、交差点で分割済み）の値のため、1つのwayが複数のedgeへ分割されている場合は
@@ -1071,7 +1063,7 @@ class DerivedGraphRepository(_SessionRepository):
 
         # 密集した都市部のbboxではEdge/Nodeが数万〜十数万行になり、shapelyへのgeometry
         # decode（to_shape）だけで数秒〜十数秒のCPU処理になる（bench_postgis_prepare.py
-        # 実測でこの呼び出し単体13.3秒、東京都心4km相当bbox・Edge151,820件）。
+        # 計測でこの呼び出し単体13.3秒、東京都心4km相当bbox・Edge151,820件）。
         # asyncio.to_threadで逃さないとイベントループを塞ぐ。
         return await asyncio.to_thread(_rows_to_road_graph, edge_rows, node_rows)
 
@@ -1679,11 +1671,10 @@ class RoadSurfaceTileQuery(_SessionRepository):
     async def get_way_ids_in_tile(
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> list[int] | None:
-        """way_id→wind_penalty配信層（改善計画T405→T414で作り直し）用に、指定タイル範囲へ
+        """way_id→動的値配信層（風、「評価軸」グループ）用に、指定タイル範囲へ
         存在するway_idの一覧を返す。契約はget_road_surface_tile_mvtと同じ（カバレッジ外は
-        None、カバレッジ内0件は空リスト）。旧get_way_bearings_in_tileと異なりbearing_degは
-        含まない（_WAY_IDS_IN_TILE_SQLのコメント参照、道路自身の向きはT414の訂正後契約では
-        計算に不要）。
+        None、カバレッジ内0件は空リスト）。bearing_degは含まない（_WAY_IDS_IN_TILE_SQLの
+        コメント参照、道路自身の向きは計算に不要）。
         """
         coverage_zoom, coverage_x, coverage_y = coverage_tile
         result = await self._session.execute(
@@ -1706,7 +1697,7 @@ class RoadSurfaceTileQuery(_SessionRepository):
     async def get_way_gradient_inputs_in_tile(
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> dict[int, tuple[float, float]] | None:
-        """way_id→勾配（gradient_percent）配信層（改善計画T423）用に、指定タイル範囲へ
+        """way_id→勾配（gradient_percent）配信層用に、指定タイル範囲へ
         存在するway_idごとの`(gradient_percent, road_bearing_deg)`を返す。契約は
         get_way_ids_in_tileと同じ（カバレッジ外はNone、カバレッジ内0件は空dict）。
         gradient_percent・bearing_degのいずれかが欠損しているedgeは除外する
@@ -2241,13 +2232,13 @@ class RoadGraphRepository:
     async def get_way_ids_in_tile(
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> list[int] | None:
-        # 改善計画T405→T414: way_id→wind_penalty配信層。詳細はRoadSurfaceTileQuery.
+        # way_id→動的値配信層（風）。詳細はRoadSurfaceTileQuery.
         # get_way_ids_in_tileのdocstring参照。
         return await self.tile_query.get_way_ids_in_tile(z, x, y, bbox, coverage_tile)
 
     async def get_way_gradient_inputs_in_tile(
         self, z: int, x: int, y: int, bbox: BoundingBox, coverage_tile: tuple[int, int, int]
     ) -> dict[int, tuple[float, float]] | None:
-        # 改善計画T423: way_id→勾配配信層。詳細はRoadSurfaceTileQuery.
+        # way_id→勾配配信層。詳細はRoadSurfaceTileQuery.
         # get_way_gradient_inputs_in_tileのdocstring参照。
         return await self.tile_query.get_way_gradient_inputs_in_tile(z, x, y, bbox, coverage_tile)

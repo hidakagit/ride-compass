@@ -101,17 +101,14 @@ async def region_dynamic_way_values(
     speed_kmh: float | None = None,
     service=Depends(get_dynamic_way_value_service),
 ) -> dict[int, float]:
-    """「評価軸」グループとしての動的＋向きあり材料（風・勾配、改善計画T405→T414→T423、
-    docs/tasks/T400.md「2. 動的要素…は状態（ルートの有無）に応じてパラメータの出所と塗る
-    対象が変わる」節）。指定タイル内のway_idごとの値（風=wind_drag_ratio[backend/app/domain/
-    wind.py]、勾配=effective_gradient[backend/app/domain/gradient.py]）をまとめて返す
-    軽量なJSONエンドポイント。このエンドポイントはルート未確定時（視界内の全道路への
-    一律適用）専用——ルート確定後はルート自身の実進行方向・実到達時刻/実値から計算済みの
-    `axis_difficulties`（`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを
-    呼ばない。
+    """「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のway_idごとの
+    値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
+    [backend/app/domain/gradient.py]）をまとめて返す軽量なJSONエンドポイント。この
+    エンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は
+    ルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`
+    （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
 
-    `material_id`はパスパラメータ（改善計画T411の実施: `wind`専用の固定パスをT423で
-    材料id駆動へ一本化した）。`domain/dynamic_way_values.py: dynamic_way_value_materials()`
+    `material_id`はパスパラメータ。`domain/dynamic_way_values.py: dynamic_way_value_materials()`
     に無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
     その材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]

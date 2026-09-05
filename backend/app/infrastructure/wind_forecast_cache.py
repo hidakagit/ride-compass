@@ -1,11 +1,8 @@
 """気象グリッド（風・降水延長予報、`weather_client.py: get_forecast_many`）のRedis
-cache-asideキャッシュ（改善計画T398）。
+cache-asideキャッシュ。
 
 `weather_client.py`側のプロセス内メモリ辞書（L1）がヒットしなかったキーだけをここ（L2）が
-引く2段構成のL2を担う。以前は`cache_db.py`（SQLite、`backend/data/ridecompass_cache.db`）が
-この役割を持っていたが、JMAアメダス連携（改善計画T387）で導入済みのRedisへ基盤を1本化した
-（同居するVM上に既にRedisが稼働しているため、新たにSQLiteファイルの永続化を維持する理由が
-無くなったため）。
+引く2段構成のL2を担う。
 
 **正本を持たないキャッシュ**: road_graph_tile_cache.pyのタイル取得済みマーカーと異なり、
 このキャッシュを失っても「データ未整備で機能が壊れる」ことはない（Open-Meteoへ再取得すれば

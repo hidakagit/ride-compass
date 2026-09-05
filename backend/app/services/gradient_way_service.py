@@ -1,23 +1,21 @@
-"""way_id→勾配（gradient_percent）配信層（改善計画T423、docs/tasks/T400.md「2. 動的要素
-（時刻・向き等）を含む材料は状態（ルートの有無）に応じてパラメータの出所と塗る対象が変わる」
-節）。wind_way_service.pyと同型の役割——「評価軸」グループとしての勾配（ルート未確定時、
-視界内の全道路へユーザー指定の向きを一律適用する線表示）の基盤。「環境」グループの勾配
-（gridFill面表示）とも同じ入力（ユーザー指定の向き）を共有する。
+"""way_id→勾配（gradient_percent）配信層。wind_way_service.pyと同型の役割——「評価軸」
+グループとしての勾配（ルート未確定時、視界内の全道路へユーザー指定の向きを一律適用する
+線表示）の基盤。「環境」グループの勾配（gridFill面表示）とも同じ入力（ユーザー指定の
+向き）を共有する。
 
-**風との違い（docs/tasks/T423.md「重要な注意点」参照）**: 風は「道路自身の向きが不要」
-という訂正を経た材料（T414）だが、勾配は逆に「道路自身の向きが本質的に必要」——
-gradient_percent自体が道路の始点→終点方向を基準にした符号付き値のため。そのため風は
-タイル単位のスカラー値1個（同じタイル内の全wayが同じ値）へ縮小できたが、勾配は
-way_idごとに異なる値を返す（`RoadGraphRepository.get_way_gradient_inputs_in_tile`が
-返すway単位の`(gradient_percent, road_bearing_deg)`と、ユーザー指定の走行方位から
+風とは異なり、gradient_percent自体が道路の始点→終点方向を基準にした符号付き値のため
+道路自身の向きが本質的に必要——そのため風はタイル単位のスカラー値1個（同じタイル内の
+全wayが同じ値）へ縮小できるが、勾配はway_idごとに異なる値を返す
+（`RoadGraphRepository.get_way_gradient_inputs_in_tile`が返すway単位の
+`(gradient_percent, road_bearing_deg)`と、ユーザー指定の走行方位から
 `domain/gradient.py: GradientCalculator.effective_gradient`をway単位で計算する）。
 `infrastructure/dynamic_way_value_cache.py`は両者を同じ`dict[way_id, float]`表現で
-吸収するため、キャッシュ層自体は共有できる（改善計画T411の実施）。
+吸収するため、キャッシュ層自体は共有できる。
 
-勾配は時刻に依存しない（標高・道路の向きは時刻で変わらない、docs/tasks/T400.md「2.」節）
-ため、`at`パラメータは受け取らず（インターフェース統一のため引数としては受け取るが無視する）、
-キャッシュキーの時刻バケットも常にNoneで扱う。TTLは風のような気象データの新鮮さの制約が
-無いため、DB再問い合わせの頻度を抑える目的だけの長めの値にする。
+勾配は時刻に依存しないため、`at`パラメータは受け取らず（インターフェース統一のため
+引数としては受け取るが無視する）、キャッシュキーの時刻バケットも常にNoneで扱う。TTLは
+風のような気象データの新鮮さの制約が無いため、DB再問い合わせの頻度を抑える目的だけの
+長めの値にする。
 """
 
 import logging
@@ -63,9 +61,9 @@ class GradientWayService:
         bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
         時計回り）。全道路共通の値として使うが、道路自身の向き（road_bearing_deg）との
         cos補正込みでway単位に異なる値になる（風とは異なる性質、モジュールdocstring参照）。
-        改善計画T445: 型を`float | None`にしているのはrouter側インターフェースと揃える
-        ためで、`at`と同じ理由（wind_way_service.pyのbearing_deg docstring参照）。勾配は
-        常にbearing_degを必須とする材料のため、Noneのまま到達したら即座に失敗させる。
+        型を`float | None`にしているのはrouter側インターフェースと揃えるためで、`at`と
+        同じ理由（wind_way_service.pyのbearing_deg docstring参照）。勾配は常にbearing_degを
+        必須とする材料のため、Noneのまま到達したら即座に失敗させる。
         """
         if bearing_deg is None:
             raise ValueError("GradientWayService.get_way_valuesにはbearing_degが必須です")
