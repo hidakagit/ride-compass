@@ -262,14 +262,13 @@ const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
 export function routesToFeatureCollection(
   routes: RouteCandidate[],
   selectedRouteId: string | null,
-  // ユーザー指摘（2026-09-03）: 選択中候補にDETAIL_LAYER_ID（区間ごとの軸色分け線、
-  // drawDetailSegments）を重ね描きしている間、この不透明・単色（#2563eb、opacity 1、
-  // width 5）のROUTES_LAYER_IDが選択中候補の下からそのまま透けて見えていた。凡例で
-  // 一部カテゴリを非表示にするとDETAIL_LAYER_ID側は該当区間をfilterで隠すが、この層は
-  // 区間の絞り込みを持たないため、「隠したはずの区間が単色の線として残って見える」ように
-  // 映っていた（薄いハロー[drawSelectedOutline、opacity 0.25]は「選択中候補を常時
-  // 識別できるように」という意図的な設計のため、そちらは残したまま選択中候補の
-  // ROUTES_LAYER_ID側だけをこのfeature collectionから除外する）。
+  // trueのとき選択中候補をこのfeature collectionから除外する。選択中候補には
+  // DETAIL_LAYER_ID（区間ごとの軸色分け線、drawDetailSegments）を重ね描きするため、
+  // この不透明・単色（#2563eb、opacity 1、width 5）のROUTES_LAYER_IDを残すと下から
+  // 透けて見える。DETAIL_LAYER_ID側は凡例で非表示にしたカテゴリをfilterで隠すが
+  // この層は区間の絞り込みを持たないため、除外しないと「隠したはずの区間が単色の線として
+  // 残って見える」。薄いハロー（drawSelectedOutline、opacity 0.25）は選択中候補を常時
+  // 識別できるようにする別の意図的な表現のため、そちらは除外の対象にしない。
   excludeSelected = false
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, { selected: boolean }> {
   // 選択中の候補が他の線に隠れないよう、配列の最後（最前面）に描画されるようにする
@@ -367,8 +366,8 @@ function runWhenStyleReady(map: MapLibreMap, fn: () => void) {
   });
 }
 
-// 改善計画T518: MapView.routes.test.tsの「ルート」チップ表示切替テスト向けにexport。
-// excludeSelectedはrouteToFeatureCollection側のdocコメント参照（ユーザー指摘2026-09-03）。
+// MapView.routes.test.tsの「ルート」チップ表示切替テスト向けにexport。
+// excludeSelectedはrouteToFeatureCollection側のdocコメント参照。
 export function drawBaseRoutes(
   map: MapLibreMap,
   routes: RouteCandidate[],
@@ -390,20 +389,18 @@ export function drawBaseRoutes(
         paint: {
           // 未選択の候補は「背景の参考線」として見えればよく、選択中候補
           // （特にroute-detail-segments-lineの路面/難易度色分け）を主役として引き立てる
-          // 脇役にする（以前はアンバー・幅3・不透明度0.85で選択中候補と競合し輻輳して
-          // 見づらかった。ユーザーFB「区間が荒すぎて実態がよくわからない」の後続改善）。
-          // 色はアンバーだとOpenFreeMapベースマップの主要道路（暖色系のオレンジ〜ベージュ）に
-          // 溶け込んで見分けが付きにくかったため、ベースマップに存在しない寒色（スレート）へ
-          // 変更した。8候補比較（地図上での見比べ）自体は維持したいため、消えるほど薄くは
-          // せず（実機確認で不透明度0.45は背景に埋没して見えなくなることを確認済み）、
-          // 「はっきり見えるが選択中候補ほどは目立たない」不透明度に調整している。
+          // 脇役にする。色はOpenFreeMapベースマップの主要道路（暖色系のオレンジ〜ベージュ）に
+          // 溶け込まない、ベースマップに存在しない寒色（スレート）を使う。8候補比較
+          // （地図上での見比べ）自体は維持したいため、不透明度0.45程度まで下げると
+          // 背景に埋没して見えなくなる一方、選択中候補ほど目立たせたくもないため、
+          // その中間の「はっきり見えるが選択中候補ほどは目立たない」不透明度に調整している。
           "line-color": ["case", ["get", "selected"], "#2563eb", "#64748b"],
           "line-width": ["case", ["get", "selected"], 5, 2.5],
           "line-opacity": ["case", ["get", "selected"], 1, 0.65],
         },
       });
     }
-    // 改善計画T518: 「ルート」チップOFFで隠した後、再度ONにしたときに再表示されるよう、
+    // 「ルート」チップOFFで隠した後、再度ONにしたときに再表示されるよう、
     // 更新のたびにvisibility="visible"を明示する（addLayer直後は既定でvisibleだが、
     // hideBaseRoutesでnoneにした後の再表示はこの明示が無いと戻らない）。
     setLayerVisibility(map, ROUTES_LAYER_ID, true);
@@ -441,7 +438,7 @@ export function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], 
       );
       ensureRouteArrowLayer(map);
     }
-    // 改善計画T518: hideSelectedOutlineでnoneにした後の再表示のため明示する
+    // hideSelectedOutlineでnoneにした後の再表示のため明示する
     // （drawBaseRoutesと同じ理由）。矢印レイヤーもハロー・線と同じ表示状態に揃える。
     setLayerVisibility(map, OUTLINE_LAYER_ID, true);
     setLayerVisibility(map, ROUTE_ARROW_HALO_LAYER_ID, true);
@@ -459,13 +456,11 @@ export function hideSelectedOutline(map: MapLibreMap) {
   });
 }
 
-// 改善計画T524（T518コードレビューP1・P3指摘）: 「ルート」チップ（routeLayerOn）に応じて
-// 候補線・選択中候補のハロー/矢印をまとめて出し分ける共通処理。呼び出し元effect2箇所と
-// redrawAllLayers（スタイル再構築時の再描画）の計3箇所が、以前はそれぞれ個別に
-// if(routeLayerOn){draw...}else{hide...}を手書きしていたため、redrawAllLayersだけ
-// routeLayerOnを見ずに無条件でdraw...を呼ぶ実装漏れが発生していた（「ルート」チップOFF
-// で隠した候補線・ハロー・矢印が、地図データの再読み込み時に復活する不具合）。1箇所へ
-// 集約することで、将来この呼び出し元が増えても同種の見落としが起きにくくする。
+// 「ルート」チップ（routeLayerOn）に応じて候補線・選択中候補のハロー/矢印をまとめて
+// 出し分ける共通処理。呼び出し元effect2箇所とredrawAllLayers（スタイル再構築時の再描画）の
+// 計3箇所が個別にif(routeLayerOn){draw...}else{hide...}を書くと、呼び出し元が増えるたびに
+// routeLayerOnの判定漏れ（「ルート」チップOFFで隠した候補線・ハロー・矢印が地図データの
+// 再読み込み時に復活する等）が起きやすいため、1箇所へ集約する。
 export function applyRouteLayerVisibility(
   map: MapLibreMap,
   routeLayerOn: boolean,
@@ -473,7 +468,7 @@ export function applyRouteLayerVisibility(
   selectedRouteId: string | null,
   // 選択中候補にDETAIL_LAYER_ID（区間ごとの軸色分け線）を重ね描きする場合はtrue。
   // routesToFeatureCollectionのexcludeSelectedへそのまま渡し、単色のROUTES_LAYER_IDが
-  // 色分け線の下から透けて見える（ユーザー指摘2026-09-03）のを防ぐ。
+  // 色分け線の下から透けて見えるのを防ぐ。
   hasDetailSegments = false
 ) {
   if (routeLayerOn) {
@@ -485,11 +480,11 @@ export function applyRouteLayerVisibility(
   }
 }
 
-// 周回ルートの採用向き（順回り/逆回り）を矢印で明示する（改善計画T293）。
+// 周回ルートの採用向き（順回り/逆回り）を矢印で明示する。
 // symbol-placement: "line" + icon-rotation-alignment: "map"の組み合わせだけで、LineStringの
-// 座標順（T274が逆回り候補で座標を逆順に構築済み、RouteCandidate.geometry/segmentsは採用
-// された向きの座標順で返る）がそのまま矢印の向きに反映される（T293技術検証Artifactで確認
-// 済み、フロント側で「どちらが採用されたか」を判定する追加ロジックは不要）。
+// 座標順（逆回り候補は座標を逆順に構築済みで、RouteCandidate.geometry/segmentsは採用された
+// 向きの座標順で返る）がそのまま矢印の向きに反映されるため、フロント側で「どちらが
+// 採用されたか」を判定する追加ロジックは不要。
 // ハロー（縁取り）層+主層の2層重ねで、衝突判定は無効化する（icon-allow-overlap /
 // icon-ignore-placement: true）。MapLibreはレイヤーの上から順にシンボルを配置するため、
 // 衝突判定を有効にしたまま2層重ねると、先に配置された主層（上）と同位置・大きめの
@@ -518,10 +513,9 @@ function ensureRouteArrowLayer(map: MapLibreMap) {
       ...lineLayout,
       "icon-size": zoomIconSizeExpression(ROUTE_ARROW_BASE_SCALE * ROUTE_ARROW_HALO_SCALE_MULTIPLIER),
     },
-    // 改善計画T558: 縁取りは濃色、矢印本体は白（ユーザー指摘「白縁取りだと色が沈んで
-    // 見にくい」）。区間色分け線はモードにより紺・緑・赤・紫と変わるため、線と同系になり
-    // うる有彩色ではなく、どの線色の上でも浮く白を本体に使い、濃色の縁取りで線・basemapの
-    // 双方から切り離す（ナビアプリの経路上シェブロンと同じ配色）。
+    // 縁取りは濃色、矢印本体は白。区間色分け線はモードにより紺・緑・赤・紫と変わるため、
+    // 線と同系になりうる有彩色ではなく、どの線色の上でも浮く白を本体に使い、濃色の縁取りで
+    // 線・basemapの双方から切り離す（ナビアプリの経路上シェブロンと同じ配色）。
     paint: { "icon-color": "#111827", "icon-opacity": 0.95 },
   });
   map.addLayer({
@@ -534,7 +528,7 @@ function ensureRouteArrowLayer(map: MapLibreMap) {
   keepRouteArrowsAboveDetailSegments(map);
 }
 
-// 改善計画T558: 矢印は選択中候補の区間色分け線（DETAIL_LAYER_ID、幅6px・不透明）と
+// 矢印は選択中候補の区間色分け線（DETAIL_LAYER_ID、幅6px・不透明）と
 // その当たり判定線（DETAIL_HIT_LAYER_ID）より上に描く。矢印層はページ表示直後
 // （routes=[]でのdrawSelectedOutline）に、区間色分け線は最初の生成後に作られるため、
 // 作成順に任せると常に矢印が下になり線に隠れる。どちらが先に作られても
@@ -605,7 +599,7 @@ function drawDetailSegments(
       source.setData(data);
     } else {
       map.addSource(DETAIL_SOURCE_ID, { type: "geojson", data });
-      // 改善計画T558: 進行方向矢印（ROUTE_ARROW_HALO_LAYER_ID/ROUTE_ARROW_LAYER_ID）より
+      // 進行方向矢印（ROUTE_ARROW_HALO_LAYER_ID/ROUTE_ARROW_LAYER_ID）より
       // 下に置く（keepRouteArrowsAboveDetailSegments参照）。
       const beforeId = map.getLayer(ROUTE_ARROW_HALO_LAYER_ID) ? ROUTE_ARROW_HALO_LAYER_ID : undefined;
       map.addLayer(
@@ -618,8 +612,8 @@ function drawDetailSegments(
         },
         beforeId
       );
-      // 改善計画T550: 当たり判定専用の見えない太い線（DETAIL_HIT_LAYER_IDのdocstring
-      // 参照）。同じソース・同じfilterを共有し、見た目の線（DETAIL_LAYER_ID）の上に重ねる
+      // 当たり判定専用の見えない太い線（DETAIL_HIT_LAYER_IDのdocstring参照）。
+      // 同じソース・同じfilterを共有し、見た目の線（DETAIL_LAYER_ID）の上に重ねる
       // （line-opacity:0のため描画順自体は見た目に影響しない）。
       map.addLayer(
         {
