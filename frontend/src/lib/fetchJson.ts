@@ -1,10 +1,9 @@
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
 
-// GET系APIクライアント（weatherApi.ts・debugStatsApi.ts・versionApi.ts）で「fetch→通信エラーの
-// try/catch→response.ok確認→エラーボディ解析→整形したErrorをthrow→各段階でdebugLog記録」という
-// 同一パターンが個別に手書きされていた（車輪の再発明、実機フィードバック「フロント、バック
-// 合わせて車輪の再発明している所ないかチェックして」）のを1箇所へ集約する。
+// GET系APIクライアント（weatherApi.ts・debugStatsApi.ts・versionApi.ts）が共有する
+// 「fetch→通信エラーのtry/catch→response.ok確認→エラーボディ解析→整形したErrorをthrow→
+// 各段階でdebugLog記録」という共通パターンをここへ集約する。
 //
 // POST系（routeApi.ts: postJson・regionApi.ts: fetchBreakdown等）は対象外にしている。
 // 「取得に失敗しました」という動詞がGET（取得）には自然に当てはまる一方、POSTは

@@ -11,9 +11,8 @@ interface BottomSheetProps {
   /** 見出しのDOM id。外部からこのシートの中身へフォーカスを送る起点として使うことがある
    *（page.tsxのhandleGoToGenerate参照）。 */
   titleId: string;
-  /** ヘッダ右側、閉じるボタンの手前へ差し込む任意の要素。改善計画T545フォローアップ:
-   * シート本文（.body）側に散らばっていた補足説明の情報アイコン・アクションボタンを、
-   * シートごとに1箇所（ヘッダ右上）へ集約するための差し込み口（page.tsx:
+  /** ヘッダ右側、閉じるボタンの手前へ差し込む任意の要素。シートごとの補足説明の
+   * 情報アイコン・アクションボタンをヘッダ右上へ集約するための差し込み口（page.tsx:
    * 「ルート結果」シートのrenderRouteResultHeaderActions参照）。 */
   headerAction?: React.ReactNode;
   children: React.ReactNode;
@@ -28,10 +27,9 @@ interface BottomSheetProps {
 
 const SWIPE_CLOSE_THRESHOLD_PX = 60;
 
-// 実機フィードバックを受け65vh→50vh固定へ縮小した経緯（下のsheetコメント参照）はあるが、
-// 「ちょうどいい高さ」はユーザーによって違う（片手操作か両手か、地図をどれだけ見たいか等）ため
-// 固定値をやめ、ハンドルドラッグ/キー操作で変えられる範囲にした。地図を完全に隠さない
-// （T34の設計方針）よう上限は100vhにしない。
+// 「ちょうどいい高さ」はユーザーによって違う（片手操作か両手か、地図をどれだけ見たいか等）
+// ため固定値にせず、ハンドルドラッグ/キー操作で変えられる範囲にする。地図を完全に隠さない
+// よう上限は100vhにしない。
 export const MIN_SHEET_HEIGHT_VH = 20;
 export const MAX_SHEET_HEIGHT_VH = 80;
 export const DEFAULT_SHEET_HEIGHT_VH = 50;
@@ -41,20 +39,15 @@ export function clampSheetHeightVh(vh: number): number {
   return Math.min(MAX_SHEET_HEIGHT_VH, Math.max(MIN_SHEET_HEIGHT_VH, vh));
 }
 
-// モバイル専用の部分高さシート（画面下部から最大70%程度せり上がる）。
-// モバイル実機フィードバック対応T34: 「サイドバーで設定をいじっている間、地図を直接
-// 確認できない」という実機フィードバックを受け、全面ドロワー＋暗幕だった旧UIを置き換える。
-// フルスクリーンの暗幕は意図的に敷かない（シート表示中も上に見えている地図をパン/ズーム
-// できる状態を保つ）。閉じる操作は✕ボタン・下スワイプ・呼び出し側のタブ再タップの3通り。
-// 一度「シート外タップでも閉じる」を試したが、「地図をぐりぐり操作しながら凡例を見たい」
-// という実機フィードバックで撤回した（シート外のタップ・スクロール＝地図操作は
-// シートを開いたまま自由にできて欲しい、という要望のため）。
+// モバイル専用の部分高さシート（画面下部から最大70%程度せり上がる）。フルスクリーンの
+// 暗幕は意図的に敷かない（シート表示中も上に見えている地図をパン/ズームできる状態を
+// 保つ）。閉じる操作は✕ボタン・下スワイプ・呼び出し側のタブ再タップの3通り。シート外
+// タップでは閉じない——地図をぐりぐり操作しながら凡例を見たい、というシート外のタップ・
+// スクロール＝地図操作をシートを開いたまま自由にできるようにするため。
 //
-// 以前は「シート内のスクロールが下スワイプと誤認されて閉じてしまう」不具合があった。
-// 下スワイプでの閉じる判定（handleTouchStart/handleTouchEnd）をシート全体
-// （.bodyの内容スクロールを含む）で拾っていたのが原因で、.body側でtouch
-// イベントのbubbleを止めて解消した（下のJSX、.body要素のonTouchStart/onTouchEnd参照）。
-// この修正は上の撤回とは独立に維持する（スクロール操作自体は引き続き閉じる原因にしない）。
+// 下スワイプでの閉じる判定（handleTouchStart/handleTouchEnd）はシート内のスクロールと
+// 誤認しないよう、.body側でtouchイベントのbubbleを止める（下のJSX、.body要素の
+// onTouchStart/onTouchEnd参照）。
 export default function BottomSheet({
   open,
   onClose,
@@ -186,8 +179,7 @@ export default function BottomSheet({
       </div>
       {/* シート内容のスクロールがシート全体の下スワイプ判定（handleTouchStart/
           handleTouchEnd）まで届かないよう、ここでbubbleを止める。止めないと、
-          スクロールで指を大きく動かしただけで「下スワイプで閉じる」と誤認されていた
-          （実機フィードバック）。 */}
+          スクロールで指を大きく動かしただけで「下スワイプで閉じる」と誤認されてしまう。 */}
       <div className={styles.body} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
         {children}
       </div>

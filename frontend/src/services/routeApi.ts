@@ -84,15 +84,15 @@ export interface GenerateRoutesResult {
   routes: RouteCandidate[];
   conditions: GenerationConditions;
   engine: string;
-  /** 改善計画T441: routesが空のときの原因（backend: RouteGenerator.
-   * last_no_candidates_reason）。SSHでサーバーログを見ないと原因が分からなかった
-   * 実インシデントを受け、GUI（呼び出し側のエラーメッセージ・デバッグログ）まで届ける。 */
+  /** routesが空のときの原因（backend: RouteGenerator.last_no_candidates_reason）。
+   * SSHでサーバーログを見なくても、GUI（呼び出し側のエラーメッセージ・デバッグログ）まで
+   * 届ける。 */
   noCandidatesReason?: string;
 }
 
-/** ルート生成の進捗（改善計画T265）。プロパティの粒度は「待ち/実行中」＋フロント側で
- * 計算する経過時間のみ（prepare/trace/evaluateのステージ別進捗はエンジン内部への
- * 侵襲的な変更が要るため対象外、docs/tasks/T265.md参照）。 */
+/** ルート生成の進捗。プロパティの粒度は「待ち/実行中」＋フロント側で計算する経過時間
+ * のみ（prepare/trace/evaluateのステージ別進捗はエンジン内部への侵襲的な変更が要るため
+ * 対象外）。 */
 export interface GenerationProgress {
   status: "queued" | "running";
   elapsedMs: number;
@@ -107,8 +107,8 @@ const POLL_INTERVAL_MS = 1500;
 // database.py）はクエリ1本ごとの上限でありprepare()全体の所要時間とは独立のため、
 // この値の決定には関与しない。
 const MAX_POLL_DURATION_MS = 600000;
-// 改善計画T386（T265コードレビュー指摘2件目、CONFIRMED）: 1回のポーリング失敗（一時的な
-// ネットワーク瞬断・5xx）で生成全体を即座に失敗させず、この回数まで連続失敗を許容してから
+// 1回のポーリング失敗（一時的なネットワーク瞬断・5xx）で生成全体を即座に失敗させず、
+// この回数まで連続失敗を許容してから
 // 諦める。バックエンド側`_run_generate_job`はジョブをキャンセルする手段が無く握ったままの
 // ため、早すぎる諦めは同時実行枠（既定2）を無駄に占有させる孤立ジョブを生みやすい一方、
 // 諦めが遅すぎても本当に接続が切れているケースの検知が遅れるため、POLL_INTERVAL_MS込みで
@@ -119,7 +119,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** ルート生成ジョブの状態を1回取得する（改善計画T265）。GET専用の共通ラッパー
+/** ルート生成ジョブの状態を1回取得する。GET専用の共通ラッパー
  * （lib/fetchJson.ts、他のGET系APIクライアントと同じパターン）を使う。 */
 function pollGenerationJob(jobId: string): Promise<RouteGenerateJobStatusResponse> {
   return fetchJson<RouteGenerateJobStatusResponse>(`${API_BASE_URL}/api/routes/generate/${jobId}`, {
@@ -130,7 +130,7 @@ function pollGenerationJob(jobId: string): Promise<RouteGenerateJobStatusRespons
   });
 }
 
-/** ルート生成（改善計画T265でバックグラウンドジョブ化）。`POST /api/routes/generate`は
+/** ルート生成はバックグラウンドジョブ化されている。`POST /api/routes/generate`は
  * 即座（数百ms）にjob_idを返すため、`GET /api/routes/generate/{job_id}`をポーリングして
  * 完了を待つ。`onProgress`は待ち(queued)/実行中(running)の間、ポーリングのたびに
  * 呼ばれる（呼び出し側のUI表示用、省略可）。 */
@@ -149,9 +149,8 @@ export async function generateRoutes(
       debugLog("api:route", "失敗 (ポーリングタイムアウト)", { jobId, elapsedMs: performance.now() - startedAt }, "error");
       throw new Error("ルート生成がタイムアウトしました");
     }
-    // 改善計画T386（T265コードレビュー指摘6件目、CONFIRMED）: 初回だけsleepを挟まず
-    // 即座にポーリングする。以前は毎回ループ先頭でsleepしていたため、サーバー側の生成が
-    // 数百ms〜1秒程度で終わる典型的なウォームパスでも必ずPOLL_INTERVAL_MS分待たされていた。
+    // 初回だけsleepを挟まず即座にポーリングする。毎回ループ先頭でsleepすると、サーバー側の
+    // 生成が数百ms〜1秒程度で終わる典型的なウォームパスでも必ずPOLL_INTERVAL_MS分待たされる。
     if (pollCount > 0) {
       await sleep(POLL_INTERVAL_MS);
     }
@@ -162,12 +161,10 @@ export async function generateRoutes(
       consecutivePollFailures = 0;
     } catch (error) {
       consecutivePollFailures += 1;
-      // 改善計画T386（T265コードレビュー指摘2件目、CONFIRMED）: 1回の一時的な失敗では
-      // 生成全体を落とさず、次のポーリングでリトライする。改善計画T441:
-      // この時点ではまだ「失敗が確定」していない（リトライで回復する可能性が高い、
-      // 実際に本番でtimeoutの直後に成功した実績がある）ため"error"ではなく"warn"にする。
-      // 5回連続で失敗し諦める場合は、この関数の呼び出し元（page.tsx）が例外を
-      // catchした時点で別途"error"として記録される。
+      // 1回の一時的な失敗では生成全体を落とさず、次のポーリングでリトライする。
+      // この時点ではまだ「失敗が確定」していない（リトライで回復する可能性が高い）ため
+      // "error"ではなく"warn"にする。5回連続で失敗し諦める場合は、この関数の呼び出し元
+      // （page.tsx）が例外をcatchした時点で別途"error"として記録される。
       debugLog(
         "api:route",
         `ポーリング失敗、リトライします (${consecutivePollFailures}/${MAX_CONSECUTIVE_POLL_FAILURES})`,
@@ -191,10 +188,9 @@ export async function generateRoutes(
       continue;
     }
 
-    // 改善計画T386（T265コードレビュー指摘8件目、CONFIRMED）: onProgressへ渡す経過時間は
-    // GETの応答が返った直後（＝実際に観測できた最新時点）で計算する。以前はループ先頭
-    // （sleep・GETの前）で計算していたため、表示が常にPOLL_INTERVAL_MS+GET応答時間ぶん
-    // 遅れていた。
+    // onProgressへ渡す経過時間はGETの応答が返った直後（＝実際に観測できた最新時点）で
+    // 計算する。ループ先頭（sleep・GETの前）で計算すると、表示が常にPOLL_INTERVAL_MS+
+    // GET応答時間ぶん遅れてしまう。
     const elapsedMs = performance.now() - startedAt;
     if (status.status === "done") {
       if (!status.result) {
@@ -205,8 +201,8 @@ export async function generateRoutes(
       }
       const result = status.result;
       debugLog("api:route", `ルーティングエンジン: ${result.engine}`, { count: result.routes.length });
-      // 改善計画T441: 候補0件の原因をwarnレベルで残す（デバッグモードでSSHを使わず
-      // 確認できるようにする）。1件以上あれば`no_candidates_reason`は常にnull。
+      // 候補0件の原因をwarnレベルで残す（デバッグモードでSSHを使わず確認できるように
+      // する）。1件以上あれば`no_candidates_reason`は常にnull。
       if (result.routes.length === 0 && result.no_candidates_reason) {
         debugLog("api:route", result.no_candidates_reason, { jobId }, "warn");
       }

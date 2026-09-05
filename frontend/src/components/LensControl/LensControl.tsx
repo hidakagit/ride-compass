@@ -4,6 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import type { LegendEntry } from "@/components/Map/legendFilter";
+import { LAYER_DATA_STATUS_LABELS, type LayerDataStatus } from "@/components/Map/mapLayers";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID, type LensId } from "@/components/Map/routeStyleModes";
 import styles from "./LensControl.module.css";
 
@@ -33,6 +34,11 @@ export interface LensControlProps {
   onKeepAfterRouteChange: (keep: boolean) => void;
   /** ルート確定済みか（ルート前は「ルート後のみ」バッジを出す）。 */
   hasDetail: boolean;
+  /** 現在のレンズのデータ取得状態（専用配信軸[windAxis/gradientAxis]がレンズの間のみ意味を
+   * 持つ。それ以外のレンズはこの失敗モードを持たないためundefined）。ピルへ小さな状態ドットを
+   * 添える——道路の色分け自体は「取得失敗」と「本当にその範囲にデータが無い」のどちらも
+   * 同じ無彩色になり見分けが付かないため。 */
+  dataStatus?: LayerDataStatus;
 }
 
 const DIFFICULTY_COLOR = "#64748b";
@@ -50,8 +56,10 @@ export default function LensControl({
   keepAfterRoute,
   onKeepAfterRouteChange,
   hasDetail,
+  dataStatus,
 }: LensControlProps) {
   const [open, setOpen] = useState(false);
+  const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
   const current =
     lens === LENS_NONE_ID
       ? { label: "なし", color: DIFFICULTY_COLOR }
@@ -101,10 +109,21 @@ export default function LensControl({
     <div className={styles.wrap}>
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
-          <button type="button" className={styles.pill} aria-label={`レンズ: ${current.label}（タップで変更）`}>
+          <button
+            type="button"
+            className={styles.pill}
+            aria-label={`レンズ: ${current.label}（タップで変更）`}
+            title={statusLabel}
+          >
             <span className={styles.pillHeader}>
               <span aria-hidden="true" className={styles.dot} style={{ background: current.color }} />
               <span className={styles.pillLabel}>{current.label}</span>
+              {dataStatus && (
+                <span
+                  aria-hidden="true"
+                  className={`${styles.statusDot} ${styles[`statusDot_${dataStatus}`]}`}
+                />
+              )}
               <span aria-hidden="true" className={styles.chevron}>
                 ▾
               </span>

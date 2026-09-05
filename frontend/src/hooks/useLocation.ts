@@ -12,23 +12,20 @@ export interface UseLocationResult {
   locationSource: LocationSource;
   // マウント時の自動取得（成功・失敗・API非対応のいずれか）が確定したかどうか。
   // page.tsxの天候・警報等のフェッチが、DEFAULT_LOCATIONぶんの使い捨てリクエストを
-  // 発行せず「確定した1つの地点」だけで済むよう待ち合わせるために使う（改善計画、
-  // 実機フィードバック「天候がすぐ出てその後リフレッシュされる＝2回問い合わせ」対応）。
+  // 発行せず「確定した1つの地点」だけで済むよう待ち合わせるために使う。
   locationReady: boolean;
   locating: boolean;
   locateError: string | null;
   handleLocateMe: () => void;
-  /** 改善計画T366（T372で地図タップからドラッグ&ドロップへ再設計）: 出発地点マーカーを
-   * ドラッグ&ドロップで手動指定する（MapView.tsx: dragendハンドラから呼ばれる）。
-   * locationSourceを"manual"にし、まだ解決していないマウント時の自動取得や進行中の
-   * handleLocateMe呼び出しが後から上書きしないようリクエストIDを無効化する
+  /** 出発地点マーカーをドラッグ&ドロップで手動指定する（MapView.tsx: dragendハンドラから
+   * 呼ばれる）。locationSourceを"manual"にし、まだ解決していないマウント時の自動取得や
+   * 進行中のhandleLocateMe呼び出しが後から上書きしないようリクエストIDを無効化する
    * （handleLocateMeと同じ「後発の明示操作を優先する」パターン）。 */
   setManualLocation: (point: Coordinates) => void;
 }
 
 // 位置情報の取得・保持を一箇所に集約するフック（マウント時の自動取得／地図上の「現在地に
-// 移動」ボタンからの再取得の2経路をまとめる。手動緯度経度入力はモバイル実機フィードバックで
-// 不要と判断し撤去済み、docs/improvement-plan.md T35）。
+// 移動」ボタンからの再取得の2経路をまとめる）。手動緯度経度入力は持たない。
 //
 // マウント時取得（最大8秒かかりうる）とボタンからの取得は非同期に並走しうるため、後から
 // 発行したリクエストの結果を、先に発行したが遅れて返ってきたリクエストの結果が上書きして
@@ -67,10 +64,6 @@ export function useLocation(): UseLocationResult {
       },
       () => {
         if (requestId !== latestGeolocationRequestId.current) return;
-        // no-op削除（デッドコード監査、2026-08-25）: ここに来る時点でlocationSourceは
-        // 初期値"default"のまま変化しえない（成功コールバックとは排他、かつ上のrequestId
-        // チェックによりhandleLocateMe由来の後発リクエストに追い越されていた場合は既に
-        // returnしている）ため、setLocationSource("default")は常にno-opだった。
         setLocationReady(true);
       },
       { timeout: GEOLOCATION_TIMEOUT_MS }
@@ -108,9 +101,9 @@ export function useLocation(): UseLocationResult {
     );
   }, []);
 
-  // 改善計画T366（T372でドラッグ&ドロップへ再設計）: 出発地点の手動指定。マウント時の
-  // 自動取得・handleLocateMeによる再取得は非同期のため、手動指定した後にそれらが遅れて
-  // 解決して上書きしてしまわないよう、handleLocateMeと同じリクエストID無効化を行う。
+  // 出発地点の手動指定。マウント時の自動取得・handleLocateMeによる再取得は非同期のため、
+  // 手動指定した後にそれらが遅れて解決して上書きしてしまわないよう、handleLocateMeと
+  // 同じリクエストID無効化を行う。
   const setManualLocation = useCallback((point: Coordinates) => {
     latestGeolocationRequestId.current += 1;
     setLocation(point);

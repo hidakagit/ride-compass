@@ -161,17 +161,26 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 入れるとドラッグ1回で「可視タイル数×連続イベント数」ぶんのfetchが発生してしまうため。
 `enabled=false`の間はfetchせず結果も空へ戻す。
 
-戻り値は3種類:
+戻り値は4種類:
 
 - `values: ReadonlyMap<number, number>`（way_id→値、複数タイル統合済み）——評価軸
   グループの`setFeatureState`にそのまま使える。
 - `byTile: TileDynamicWayValues[]`（タイルごとの生応答）——勾配の環境グループgridFill
   （タイル境界セル）が使う。風は環境グループのgridFillを持たないため`byTile`は使わない。
-- `loading: boolean`（現在のビューポートぶんのフェッチが進行中か、改善計画T607）——
+- `loading: boolean`（現在のビューポートぶんのフェッチが進行中か）——
   `values`は古い値をそのまま残す設計（パン・ズームで一部way_idが最新の応答に含まれなく
   なっても明示的に消さない）ため、`loading`だけを見て「まだ一度も値を受け取っていない
   wayが読込中なのか、取得済みだが値が無いのか」を呼び出し側（`valueScale.ts`の
   `COLOR_LOADING`/`COLOR_NO_DATA`）が判定する。
+- `error: boolean`（直近に完了したフェッチで、いずれかのタイルの取得が通信失敗したか）——
+  `fetchDynamicWayValues`の`DynamicWayValuesResult.error`をタイル横断でOR集約する。
+  backendが正常応答で空オブジェクトを返した場合（対象範囲に本当にway_idが無い）は
+  `false`のまま。地図の色分け自体は「取得失敗」と「本当に空」のどちらも同じ無彩色
+  （`COLOR_NO_DATA`）になり見分けが付かないため、`page.tsx`が`lens`が
+  windAxis/gradientAxisを指す間だけ`error`/`loading`/`values`の有無から
+  `deriveFetchLayerStatus`（`mapLayers.ts`、動的気象レイヤーと共有する判定関数）で
+  `LayerDataStatus`を1つ算出し、`LensControl`のピルへ小さな状態ドット（`LayerChip`と
+  同じ視覚表現）として表示する。
 
 `materialId`（"wind"/"gradient"）ごとに呼び出し側（`page.tsx`）が別々にこのフックを
 インスタンス化する。連続する呼び出しの間に古いリクエストが後から解決しても新しい結果を
