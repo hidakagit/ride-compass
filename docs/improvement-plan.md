@@ -886,3 +886,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 - [x] [T606](tasks/T606.md). キキクル4種を地図上チップ化しdataStatusドット機構をMapOverlayControlsへ拡張 規模M（2026-09-05完了。キキクル4種[土砂災害/大雨/浸水/洪水]をT432の常時マウント方針から他の環境グループ気象レイヤーと同じチップ付き表現へ戻し、LayerChipのdataStatusドット機構をMapOverlayControls.tsxのChipButtonへ拡張。風/勾配road-value系レイヤーの読込状態可視化は[T607](tasks/T607.md)へ分離）
 - [x] [T607](tasks/T607.md). 風/勾配road-value系レイヤーのデータ取得状態（読込中/データなし）可視化 規模S（2026-09-05完了。`COLOR_NO_DATA`と対になる`COLOR_LOADING`を導入し、`useDynamicWayValues.ts`のloadingフラグに応じて地図の色分けそのもので読込中/データなしを区別する。`dedicatedWayValueLoading`はdedicatedWayValueDisplaysと同じ軸id→値の汎用Mapとして配線）
+
+## 動的気象レイヤーのデータ取得状態をMapLibreソースイベント非依存の統一IFへ再設計（2026-09-05・T606/T607完了後のユーザー監査依頼「読込中/データなしを区別できないレイヤーが他にも残っていないか」から）
+
+- [x] [T608](tasks/T608.md). 動的気象レイヤーのデータ取得状態をMapLibreソースイベント非依存の統一IFへ再設計 規模M（2026-09-05完了。9レイヤー全てが`dynamicWeatherStatus`という1つの関数を通り、各要素のフェッチ自身のloading/errorから直接算出する。`buildLayerDataSources`[T87]からは撤去し、elevationのみMapLibreソースイベント追跡の対象として残す）

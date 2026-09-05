@@ -115,8 +115,24 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 「表示ON かつ dataStatus が設定されている」間だけアイコン右上へ小さな状態ドットを描画する
 （`on`/`active`がfalseの間は出さない）。クラス名は`LayerDataStatus`の値とそろえて
 （`MapOverlayControls.module.css: .iconStatusDot_loading`等）動的に組み立てる点も
-`LayerChip.module.css`側と同じ設計。`page.tsx`は`layerDataStatus`ステートを
-`overlayLayers`（`MapOverlayControls`向け）・`MapLayersPanel`向けの両方へ渡す。
+`LayerChip.module.css`側と同じ設計。
+
+`page.tsx`の`layerDataStatus`（`overlayLayers`・`MapLayersPanel`の両方へ渡す1つの値）は、
+出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたものである
+（改善計画T608）:
+
+- **`mapViewLayerDataStatus`**（改善計画T87、`MapView.tsx: buildLayerDataSources`）:
+  road/POI/事故/標高等、MapLibreが自身のタイル取得として実行するレイヤー。ソースイベント
+  （`sourcedata`/`sourcedataloading`/`error`）から算出する。
+- **`dynamicWeatherDataStatus`**（改善計画T608、[動的気象レイヤー](dynamic-weather-layers.md)
+  「データ取得状態」節参照）: 降水ナウキャスト・風・雷・竜巻・雷放電位置データ・キキクル4種。
+  実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で行われ、結果を
+  `map.getSource(id).setData(...)`等で流し込むだけのため、MapLibreのソースイベントは
+  フェッチの待ち時間・失敗を観測できない。`buildLayerDataSources`の対象外とし、代わりに
+  各要素のフェッチ自身のloading/errorから直接算出する。
+
+両者はキーが重ならない（`buildLayerDataSources`は動的気象レイヤーを含まない）ため、
+マージの優先順位を気にする必要はない。
 
 ## 最上位グルーピング（道路/環境/スポット）
 

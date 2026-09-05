@@ -109,7 +109,44 @@ icon-sizeはズームのみに依存する。
 4. `mapLayers.ts`: 地図チップを追加し、`MapLayerId`・`dynamicWeather.ts`の
    `CHIP_DYNAMIC_WEATHER_LAYER_IDS`へ1行足す
 5. `hooks/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
-   `dynamicWeather`オブジェクトへの追加（3〜4と違い自動反映の仕組みは無い、手書き作業）
+   `dynamicWeather`オブジェクトへの追加（3〜4と違い自動反映の仕組みは無い、手書き作業）。
+   `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の
+   `dynamicWeatherStatus(loading, error, payload !== undefined)`呼び出しを1行足す。
+
+## データ取得状態（改善計画T608）
+
+9つのチップ付き動的気象レイヤー全てが、`useDynamicWeatherLayers.ts`の
+`dynamicWeatherStatus(loading, error, hasPayload)`という同じ純粋関数を通り、
+`LayerDataStatus`（"loading"/"empty"/"error"、`mapLayers.ts`）を1つ返す
+（判定順序はエラー中 > 読込中 > 読込済みだが値なし、`useLayerDataStatus.ts:
+computeLayerDataStatus`と同じ）。`loading`/`error`は各要素が既に持つフェッチフック
+（`usePolledFetch`の戻り値、風は`useWeatherGrid`）自身の値をそのまま渡し、`hasPayload`は
+選択中の共有時刻に対応するpayloadが`undefined`でないかで決まる。
+
+**改善計画T87（`MapView.tsx: buildLayerDataSources`、MapLibreのソースイベント）は
+この9レイヤーの対象外**——実際の外部フェッチは自前のJSコード（`usePolledFetch`等）で
+行われ、結果を`map.getSource(id).setData(...)`/`setTiles(...)`で流し込むだけのため、
+MapLibre側のソースイベントはフェッチの待ち時間・失敗を観測できない（`kind`が
+raster/vectorTile[実タイル取得がMapLibre自身の責務]であっても、フレーム一覧
+[targetTimes.json等]の取得自体は自前のJSフェッチのため、そちらが失敗すると
+payloadが`undefined`のままレイヤーが非表示になり続け、MapLibre側には何のイベントも
+発生しない）。`elevation`（国土地理院のラスタタイル、静的データで自前のJSフェッチ層を
+持たない）だけがT87の対象のまま残る。
+
+`precipitationNowcast`は「main」（ナウキャスト/短時間予報/延長予報の3段）と
+「linearRainband」（4つ目のソース）を1つのチップとして統合する——UI上のチップも
+1つのため、いずれか一方でも描画できていればloading/errorとしない
+（`nowcastLoading || linearRainbandLoading`・`nowcastError ?? linearRainbandError`・
+`precipitationPayload !== undefined || linearRainbandPayload !== undefined`）。
+`thunderNowcast`/`tornadoNowcast`は同じ`thunderNowcastLoading`/`thunderNowcastError`
+（1本のtargetTimes_N3.json取得）を共有するが、`hasPayload`はそれぞれ自分の
+payload（`thunderPayload`/`tornadoPayload`）を見る。キキクル4種も同様に
+`currentRiskLoading`/`currentRiskError`を共有し、`hasPayload`だけを個別に見る。
+
+算出した`dynamicWeatherDataStatus`は`page.tsx`が`mapViewLayerDataStatus`
+（改善計画T87側）とマージして1つの`layerDataStatus`にし、`overlayLayers`
+（`MapOverlayControls`の状態ドット）・`MapLayersPanel`の両方へ渡す
+（[静的地図レイヤー](static-map-layers.md)「レイヤーのデータ取得状態」節参照）。
 
 ## キキクル・線状降水帯予測マップ（特殊系）
 
