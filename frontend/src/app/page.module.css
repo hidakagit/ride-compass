@@ -369,15 +369,16 @@
   }
 }
 
-/* 走行条件バー（出発時刻・想定速度）。レンズピル（LensControl.module.css: .wrap、
-   モバイルのBottomSheetにも隠れない地図上部中央）の直下へ積む。--lens-control-height
-   はレンズピルの実測高さ（useElementHeightCssVar、page.tsx参照）で、ピルの内容量に
-   よらず常に真下へ続く。 */
-.rideConditionRow {
+/* 走行条件バー（出発時刻・想定速度）。TravelBearingControl.module.css: .trigger
+   （29px四方、top: 6.5rem・right: 10px）の直下へ、同じ29px四方のアイコンボタンを
+   4px間隔で積む。地図上部中央のレンズピルとは別の列にすることで、狭いスマホ幅でも
+   レンズの横に収めようとして地図の視界を圧迫しないようにする。top/rightの値は
+   TravelBearingControl.module.cssの値と結合しているため、あちらを変える際は
+   ここも合わせて調整すること。 */
+.rideConditionColumn {
   position: absolute;
-  top: calc(var(--space-3) + var(--lens-control-height, 0px) + var(--space-2));
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(6.5rem + 29px + 4px);
+  right: 10px;
   z-index: 20;
   pointer-events: none;
 }
