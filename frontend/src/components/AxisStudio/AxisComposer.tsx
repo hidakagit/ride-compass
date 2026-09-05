@@ -21,35 +21,30 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
 import styles from "./AxisStudio.module.css";
 // 情報アイコン(ⓘ)ポップオーバーのCSS（.infoButton/.infoTooltip）はrecipeControls.tsxの
-// FieldLabelが既に定義済みのものをそのまま流用する（同じ見た目・z-index対策[T305]を
-// 材料選択の情報アイコンでも二重定義せず共有するため。改善計画T345）。
+// FieldLabelが既に定義済みのものをそのまま流用する（同じ見た目・z-index対策を
+// 材料選択の情報アイコンでも二重定義せず共有するため）。
 import recipeControlStyles from "@/components/Map/recipeControls.module.css";
 
-// 軸コンポーザー（改善計画T270、T221 Stage E）。表示名→点数のつけ方を選ぶ→点数の詳細→
-// 地図表示・公開、という4ステップのウィザードで軸を組み立てる中核機能。既存の
-// `AxisDefinition.shape`（判別union、backend/app/domain/axis_definitions.py）をそのまま
-// GUIの入力欄群へ写す構造は変えず、専門知識のないユーザーにも辿れる導線へ再構成した
-// （改善計画T332、UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」
-// への対応。カード選択の文言化でF-2の元ネタT324、地図チップ折れ点のスコア向き説明で
-// T327、旧ドロップダウンの「真偽2値→定数」という食い違った文言の撤去でT326も併せて解消）。
+// 軸コンポーザー。表示名→点数のつけ方を選ぶ→点数の詳細→地図表示・公開、という
+// 4ステップのウィザードで軸を組み立てる中核機能。既存の`AxisDefinition.shape`
+// （判別union、backend/app/domain/axis_definitions.py）をそのままGUIの入力欄群へ写す
+// 構造は変えず、専門知識のないユーザーにも辿れる導線へ再構成してある。
 //
-// 内部で保持する4種の変換テンプレート(shape kind)自体は変えない（ADR「新しい計算
+// 内部で保持する3種の変換テンプレート(shape kind)自体は変えない（ADR「新しい計算
 // テンプレートの追加は引き続きコード変更が必要、際限のない汎用化は目指さない」という
-// 承認済み方針）。材料はuseMaterialCatalog()（改善計画T277、GET /api/material-catalog）が
-// 返す候補から選ぶ（目論見書7章・歯止め4「材料の天井」。API取得失敗時はlib/
-// axisMaterialsCatalog.tsの静的フォールバックへ自動的に切り替わる）。
+// 承認済み方針）。材料はuseMaterialCatalog()（GET /api/material-catalog）が返す候補から
+// 選ぶ（API取得失敗時はlib/axisMaterialsCatalog.tsの静的フォールバックへ自動的に
+// 切り替わる）。
 
 type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical";
 
-// 改善計画T397: 軸スタジオの合成ロジックが2プリミティブ+合成へ再設計された（T396）ことに
-// 合わせ、4枚のカードを3枚へ整理した。「複数の要素の有無を数えて減点・加点する」
-// （旧flag_sum）は「数値の大きさに応じて点数を変える」（なめらか評価）に吸収した——
-// backend側では元々同一の仕組み（真偽値材料は該当時1・非該当時0として係数と掛け合わされる）
-// で、専用の別画面を持たせる理由が無かったため（カードの説明文に両方の具体例を残し、
-// どちらの用途で来たユーザーも迷わないようにする）。recipe_then_breakpoint_linear
-// （かけあわせ評価）は他の軸を組み合わせる専用の入口として引き続き独立させるが、
-// 「純粋な重み付き結合（nX + mY）」に絞り、折れ点の編集UIは出さない（ユーザー判断、
-// 条件判定等は含めない）。
+// カードは3枚。「複数の要素の有無を数えて減点・加点する」は「数値の大きさに応じて
+// 点数を変える」（なめらか評価）に吸収している——backend側では元々同一の仕組み
+// （真偽値材料は該当時1・非該当時0として係数と掛け合わされる）で、専用の別画面を
+// 持たせる理由が無いため（カードの説明文に両方の具体例を残し、どちらの用途で来た
+// ユーザーも迷わないようにする）。recipe_then_breakpoint_linear（かけあわせ評価）は
+// 他の軸を組み合わせる専用の入口として独立させているが、「純粋な重み付き結合
+// （nX + mY）」に絞り、折れ点の編集UIは出さない（条件判定等は含めない）。
 interface ShapeKindOption {
   kind: ShapeKind;
   title: string;
@@ -80,12 +75,11 @@ function shapeKindOption(kind: ShapeKind): ShapeKindOption {
   return SHAPE_KIND_OPTIONS.find((o) => o.kind === kind) ?? SHAPE_KIND_OPTIONS[0];
 }
 
-/** 改善計画T345: 材料選択セレクトの隣に置く情報アイコン(ⓘ)。選択中の材料の説明文
+/** 材料選択セレクトの隣に置く情報アイコン(ⓘ)。選択中の材料の説明文
  * （backend/app/domain/material_catalog.py: MaterialSpec.description）をポップオーバーで
- * 表示する。「材料名だけでは何を表しているか分かりにくい」というユーザー指摘への対応。
- * 材料が複数行並ぶ欄（terms/flags）でも行ごとに選択中の材料が違うため、FieldLabelを
- * そのまま流用せずラベル文言を持たない専用の小型トリガーにする（行ごとに毎回同じ文言を
- * 繰り返し表示すると煩雑なため）。実体はInfoPopoverButton（ラベル文言を持たない汎用版）。 */
+ * 表示する。材料が複数行並ぶ欄（terms/flags）でも行ごとに選択中の材料が違うため、
+ * FieldLabelをそのまま流用せずラベル文言を持たない専用の小型トリガーにする（行ごとに
+ * 毎回同じ文言を繰り返し表示すると煩雑なため）。 */
 function InfoPopoverButton({ ariaLabel, description }: { ariaLabel: string; description: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -109,8 +103,7 @@ function MaterialInfoButton({ option }: { option: AxisMaterialOption | undefined
   return <InfoPopoverButton ariaLabel={`${option.label}の説明`} description={option.description} />;
 }
 
-/** 改善計画T397フォローアップ（ユーザー指摘: 説明文が常に表示されていて見にくい）:
- * 見出し＋詳しい説明は(ⓘ)ポップオーバーへ折りたたむ（表示名・既定重み欄で既に使っている
+/** 見出し＋詳しい説明は(ⓘ)ポップオーバーへ折りたたむ（表示名・既定重み欄で既に使っている
  * FieldLabelと同じ考え方を、フォーム項目1つではなく材料一覧・折れ点等のセクション
  * 単位に広げたもの）。descriptionを省略した場合は見出しだけを出す。 */
 function SectionLabel({ label, description }: { label: string; description?: string }) {
@@ -122,13 +115,9 @@ function SectionLabel({ label, description }: { label: string; description?: str
   );
 }
 
-/** 改善計画T547（ユーザー指摘: 軸スタジオの数値入力がしにくい・負数を入力できる必要が
- * ある）: 素の<input type="number" value={n} onChange={e => onChange(Number(e.target.value))}>
+/** 素の<input type="number" value={n} onChange={e => onChange(Number(e.target.value))}>
  * は、「-」だけ入力した瞬間にNumber("-")===NaNとなり、Reactが管理するvalueがNaNへ
- * 倒れて入力済みの「-」ごと消える（AxisComposer.test.tsx「係数をマイナスにできる」の
- * 回帰テストが、この挙動を避けるためuser.type[1文字ずつ]ではなくfireEvent.changeで
- * 最終値を一括設定する回避策を取っていた——ユーザーの実際のタイピングでは同じ回避が
- * できず、この指摘に至った）。同じ理由で末尾の小数点（"12."）も一時的に消える。
+ * 倒れて入力済みの「-」ごと消える。同じ理由で末尾の小数点（"12."）も一時的に消える。
  * 入力中のDOM値はこのコンポーネント自身のローカル文字列stateにそのまま保持し、
  * 有限数としてパースできた時点でだけ親のonChangeへ伝える——「-」や「12.」のような
  * 未確定の中間状態を親のvalueへ反映しないことで、Reactに上書きされず最後まで
@@ -137,8 +126,7 @@ function SectionLabel({ label, description }: { label: string; description?: str
  * 見てstateを補正する」React公式推奨パターン（https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes）
  * を使う。useEffectで同期すると一度不正確な値でコミットしてから直後に描画し直す
  * 無駄な多重レンダーが発生する（react-hooks/set-state-in-effectが警告する箇所）ため。
- * onFocusで全選択にする（数値の上書きがしにくいという指摘への対応、ワンタップで
- * 既存の値を全部選択して打ち直せる）。 */
+ * onFocusで全選択にする（ワンタップで既存の値を全部選択して打ち直せる）。 */
 function NumberField({
   value,
   onChange,
@@ -169,12 +157,11 @@ function NumberField({
   );
 }
 
-/** 改善計画T397: 係数・スコアの入力を「スライダーで大まかに調整＋数値で正確に入力」の
- * 組み合わせにする（ユーザー指摘: 数値入力だけでなくスライダーも使いたい）。両者は同じ
- * stateを指すため常に同期する。値そのものの取りうる範囲は材料ごとに大きく異なる
- * （傾斜の係数1.0、車線数の係数0.1、旧flag_sumの加点50等）ため、スライダーの範囲は
- * あくまで「大まかな調整用の目安」とし、範囲外の値は数値入力欄から直接指定できる
- * （スライダー自体はその値を表示できないが、隣の数値入力の値がそのまま送信される）。 */
+/** 係数・スコアの入力を「スライダーで大まかに調整＋数値で正確に入力」の組み合わせに
+ * する。両者は同じstateを指すため常に同期する。値そのものの取りうる範囲は材料ごとに
+ * 大きく異なる（傾斜の係数1.0、車線数の係数0.1等）ため、スライダーの範囲はあくまで
+ * 「大まかな調整用の目安」とし、範囲外の値は数値入力欄から直接指定できる（スライダー
+ * 自体はその値を表示できないが、隣の数値入力の値がそのまま送信される）。 */
 function SliderNumberField({
   value,
   onChange,
@@ -363,19 +350,17 @@ function BreakpointCurveEditor({
   );
 }
 
-// 改善計画T305: axis_idはユーザー入力欄から撤去した。ユーザーからの指摘「axis_idは
-// システムが勝手に一意な何かを自動採番してくれればよい。設定画面に不要では？画面上は
-// 表示名があればよい」への対応——内部識別子であって人間が読む必要はなく、実際に画面上で
-// 意味を持つのは表示名(label)の方だけだったため。新規作成・複製時にここで自動生成し、
-// 編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が無い[str]ため、
-// 半角英数字で読みやすいprefix+乱数のみで十分）。
+// axis_idはユーザー入力欄から撤去してある——内部識別子であって人間が読む必要はなく、
+// 実際に画面上で意味を持つのは表示名(label)の方だけのため。新規作成・複製時にここで
+// 自動生成し、編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が
+// 無い[str]ため、半角英数字で読みやすいprefix+乱数のみで十分）。
 function generateAxisId(): string {
-  // コードレビュー指摘の修正: crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）
-  // でのみ定義される。/adminが平文HTTPの非localhostオリジン（TLS終端がNext.jsの手前に
-  // 無いオンプレ運用時の内部LAN IP等）から配信されると、この関数がuseState初期化子内で
-  // TypeErrorを送出し、AxisComposerのマウント自体が失敗する（エラー表示すら出ない）。
-  // Math.randomベースのフォールバックを用意する（axis_idは内部識別子で暗号学的な
-  // 一意性は不要、衝突時はbackend側のPRIMARY KEY制約で409になるだけで安全）。
+  // crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）でのみ定義される。/admin
+  // が平文HTTPの非localhostオリジン（TLS終端がNext.jsの手前に無いオンプレ運用時の
+  // 内部LAN IP等）から配信されると、この関数がuseState初期化子内でTypeErrorを送出し、
+  // AxisComposerのマウント自体が失敗する（エラー表示すら出ない）。Math.randomベースの
+  // フォールバックを用意する（axis_idは内部識別子で暗号学的な一意性は不要、衝突時は
+  // backend側のPRIMARY KEY制約で409になるだけで安全）。
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `axis_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   }
@@ -388,9 +373,9 @@ interface TermDraft {
   required: boolean;
 }
 
-/** 改善計画T322: categorical材料（highway/bicycle_infra等、真偽値ではなく文字列多値）を
+/** categorical材料（highway/bicycle_infra等、真偽値ではなく文字列多値）を
  * 「はい/いいえ、または種類ごとに点数を決める」で使うための(値, スコア)行。値は自由入力
- * テキストで持つ（mapping未登録の値は評価対象外[欠損]として扱われる）。改善計画T340:
+ * テキストで持つ（mapping未登録の値は評価対象外[欠損]として扱われる）。
  * highway/surface/smoothnessのようにGET /api/material-catalog/{material_id}/valuesが
  * 実データの値一覧を返せる材料では、入力欄の隣に候補選択セレクトを添えてタグ生値の
  * 暗記・手入力の負担を減らす（値の保存先はこのvalueフィールドのまま変わらない）。 */
@@ -411,38 +396,35 @@ interface Draft {
   categoricalMaterial: string;
   trueScore: number;
   falseScore: number;
-  /** 改善計画T322: categoricalMaterialのdtypeが"categorical"のときのみ使う行群。
+  /** categoricalMaterialのdtypeが"categorical"のときのみ使う行群。
    * dtype="boolean"の材料を選んでいる間はtrueScore/falseScoreの方を使う。 */
   categoricalRows: CategoricalRowDraft[];
-  /** 改善計画T271: 公開状態。trueにすると一般向けGET /api/axis-catalogへ現れ、以後
+  /** 公開状態。trueにすると一般向けGET /api/axis-catalogへ現れ、以後
    * backend側で更新・削除が拒否される（不変制約）ため、確定前によく確認してからONにする。 */
   isPublished: boolean;
-  /** 改善計画T310: 地図チップ表示要素（未設定は空文字列で表し、送信時にnullへ変換する）。 */
+  /** 地図チップ表示要素（未設定は空文字列で表し、送信時にnullへ変換する）。 */
   iconId: string;
   chipLabel: string;
   panelHint: string;
-  /** 改善計画T318: この軸のアイコンを地図上チップ・地図の見え方パネルに表示するか
-   * どうか。既定true（表示する）。旧proxyHint（専用地図レイヤーを持たない軸向けの
-   * 代役案内文）はこのON/OFFに置き換わり撤去した。 */
+  /** この軸のアイコンを地図上チップ・地図の見え方パネルに表示するかどうか。
+   * 既定true（表示する）。 */
   showMapIcon: boolean;
-  /** コードレビュー指摘の修正: priority_overrides（改善計画T292、0次条件）はこの
-   * フォームに編集欄を持たないが、既存軸の値をpayloadへ素通しして保持する
-   * （以前はpayloadに含めておらず、公開済み軸を非公開へ戻して軽微な編集をしただけで
-   * これが黙って失われていた——エラーも警告も出ない静かなデータ破壊だったため）。 */
+  /** priority_overrides（0次条件）はこのフォームに編集欄を持たないが、既存軸の値を
+   * payloadへ素通しして保持する（省くと、公開済み軸を非公開へ戻して軽微な編集を
+   * しただけでこの値が黙って失われる——エラーも警告も出ない静かなデータ破壊になる）。 */
   priorityOverrides: AxisDefinitionResponse["priority_overrides"];
-  /** 改善計画T404: 地図の色分けしきい値だけを差し替える軽量な上書き。未設定(null)は
-   * 自動導出したしきい値をそのまま使う。数値の配列を直接編集するシンプルなUIで
-   * このフォームで直接編集できる（旧display_overrideは生JSON編集が必要で編集欄を
-   * 持てなかったが、改善計画T409でフィールド自体を削除した。domain/axis_definitions.py:
+  /** 地図の色分けしきい値だけを差し替える軽量な上書き。未設定(null)は自動導出した
+   * しきい値をそのまま使う。数値の配列を直接編集するシンプルなUIでこのフォームで
+   * 直接編集できる（domain/axis_definitions.py:
    * AxisDefinition.display_thresholds_overrideのdocstring参照）。 */
   displayThresholdsOverride: number[] | null;
-  /** 改善計画T513: displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
+  /** displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
    * 上書き。displayThresholdsOverrideがnullの間は編集欄自体を出さない（段階数が
    * 決まらないと対応が取れないため、backend側のバリデーションと同じ制約をGUIでも
    * 先回りする）。要素数はdisplayThresholdsOverride.length+1と常に一致させる。 */
   displayBandLabelsOverride: string[] | null;
-  /** 改善計画T352: time_scopeも同じ理由（このフォームに編集欄を持たないが、既存軸の値を
-   * payloadへ素通しして保持する）で追加。domain/axis_definitions.py:
+  /** time_scopeもpriorityOverridesと同じ理由（このフォームに編集欄を持たないが、
+   * 既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
    * AxisDefinition.time_scopeのdocstring参照。 */
   timeScope: AxisDefinitionResponse["time_scope"];
   /** この軸が専用のway_id→値配信レイヤーを持つかの宣言。time_scopeと同じ理由（この
@@ -450,8 +432,8 @@ interface Draft {
    * domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring
    * 参照。 */
   dedicatedWayValueLayer: boolean;
-  /** 改善計画T458: dedicatedWayValueLayerと同じ理由（このフォームに編集欄を持たないが、
-   * 既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
+  /** dedicatedWayValueLayerと同じ理由（このフォームに編集欄を持たないが、既存軸の値を
+   * payloadへ素通しして保持する）で追加。domain/axis_definitions.py:
    * AxisDefinition.dynamic_way_value_needs_time/dynamic_way_value_needs_bearingの
    * docstring参照。 */
   dynamicWayValueNeedsTime: boolean;
@@ -460,11 +442,11 @@ interface Draft {
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
-  // T424修正: materialOptionsが空配列（useMaterialCatalogが取得成功したがmaterials
-  // 0件の場合、docs/tasks/T424.md参照）のとき、以前は`materialOptions[0].id`を無条件
-  // 参照しマウント直後にTypeErrorでクラッシュしていた。空文字列(""へ)フォールバックし、
-  // 呼び出し元(AxisComposer本体)が materialOptions.length === 0 のとき早期にエラー状態
-  // UIへ切り替えてこの空文字列のdraftをそもそも画面に出さないようにする。
+  // materialOptionsが空配列（useMaterialCatalogが取得成功したがmaterials0件の場合）の
+  // とき、`materialOptions[0].id`を無条件参照するとマウント直後にTypeErrorでクラッシュ
+  // する。空文字列(""へ)フォールバックし、呼び出し元(AxisComposer本体)が
+  // materialOptions.length === 0 のとき早期にエラー状態UIへ切り替えてこの空文字列の
+  // draftをそもそも画面に出さないようにする。
   const firstBoolean = materialOptions.find((m) => m.dtype === "boolean")?.id ?? materialOptions[0]?.id ?? "";
   return {
     axisId: generateAxisId(),
@@ -525,9 +507,9 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
   // backend側の判別子(kind)に合わせてこちらを単一の判定基準にする）。
   if (shape.kind === "categorical") {
-    // 改善計画T322: 材料のdtypeで真偽値2択/カテゴリ値複数行のどちらの編集UIを
-    // 初期表示するか決める（保存済みmapping自体のキー型からは判別しない。JSON化された
-    // mappingのキーは常に文字列で、bool材料でも"true"/"false"という文字列キーになるため）。
+    // 材料のdtypeで真偽値2択/カテゴリ値複数行のどちらの編集UIを初期表示するか決める
+    // （保存済みmapping自体のキー型からは判別しない。JSON化されたmappingのキーは
+    // 常に文字列で、bool材料でも"true"/"false"という文字列キーになるため）。
     const dtype = materialOptions.find((m) => m.id === shape.material)?.dtype;
     if (dtype === "categorical") {
       return {
@@ -545,11 +527,10 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
       falseScore: shape.mapping["false"] ?? 0,
     };
   }
-  // 改善計画T396/T397: backendはbreakpoint_linear/recipe_then_breakpoint_linear/flag_sumの
-  // 3種を"breakpoint_linear"1種へ統合したため、保存済みのkindだけでは元々どのカードで
-  // 作られた軸かを判別できない。termsの構造（材料か他軸か）から表示するカードを推定し直す
-  // （domain/axis_display.pyの構造判定と同じ考え方）。旧flag_sum相当（全termがboolean材料）は
-  // T397で「なめらか評価」カードへ吸収されたため、専用の判別は不要になった。
+  // backendはbreakpoint_linear/recipe_then_breakpoint_linearを"breakpoint_linear"1種へ
+  // 統合しているため、保存済みのkindだけでは元々どのカードで作られた軸かを判別できない。
+  // termsの構造（材料か他軸か）から表示するカードを推定し直す（domain/axis_display.pyの
+  // 構造判定と同じ考え方）。
   const isAxisReference = (material: string) => !materialOptions.some((m) => m.id === material);
   if (shape.terms.length > 0 && shape.terms.every((t) => isAxisReference(t.material))) {
     return {
@@ -569,14 +550,14 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
   };
 }
 
-/** 複製（改善計画T271、公開済み軸を「改良」する唯一の経路）。既存の内容を丸ごと写すが、
- * axis_idは新規に自動採番し（改善計画T305）、is_publishedは常にfalse（下書き）から
- * 始める——複製元が公開済みでも複製先まで公開扱いを引き継がない。displayThresholdsOverride
- * も複製元の手動設定値を引き継がずnullへリセットする——複製先は変化点(breakpoints)を
- * 独自に調整しうるため、複製元のしきい値をそのまま持ち越すと自動計算(breakpointsの
- * x値から導出、backend domain/axis_display.py: derive_ramp_inputs参照)が働かなくなる。
- * displayBandLabelsOverride（改善計画T513）も同じ理由でnullへリセットする——
- * displayThresholdsOverrideが無いままでは段階数が決まらず対応が取れない。 */
+/** 複製（公開済み軸を「改良」する唯一の経路）。既存の内容を丸ごと写すが、axis_idは
+ * 新規に自動採番し、is_publishedは常にfalse（下書き）から始める——複製元が公開済みでも
+ * 複製先まで公開扱いを引き継がない。displayThresholdsOverrideも複製元の手動設定値を
+ * 引き継がずnullへリセットする——複製先は変化点(breakpoints)を独自に調整しうるため、
+ * 複製元のしきい値をそのまま持ち越すと自動計算(breakpointsのx値から導出、backend
+ * domain/axis_display.py: derive_ramp_inputs参照)が働かなくなる。
+ * displayBandLabelsOverrideも同じ理由でnullへリセットする——displayThresholdsOverrideが
+ * 無いままでは段階数が決まらず対応が取れない。 */
 function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readonly AxisMaterialOption[]): Draft {
   return {
     ...draftFromExisting(def, materialOptions),
@@ -588,10 +569,10 @@ function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readon
 }
 
 function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]): AxisShape {
-  // 改善計画T396: backend側はbreakpoint_linear/recipe_then_breakpoint_linear/flag_sumの
-  // 3種を「連続演算」1種（kind="breakpoint_linear"）へ統合した。draft.shapeKindは
-  // ユーザー向けカード選択（UIの入り口）としては引き続き4種を保つが、保存する
-  // shape.kindは常に"breakpoint_linear"へ正規化する。
+  // backend側はbreakpoint_linear/recipe_then_breakpoint_linearを「連続演算」1種
+  // （kind="breakpoint_linear"）へ統合している。draft.shapeKindはユーザー向けカード選択
+  // （UIの入り口）としては引き続き3種を保つが、保存するshape.kindは常に
+  // "breakpoint_linear"へ正規化する。
   if (draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") {
     return {
       kind: "breakpoint_linear",
@@ -618,25 +599,24 @@ function buildShape(draft: Draft, materialOptions: readonly AxisMaterialOption[]
 }
 
 interface AxisComposerProps {
-  /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。改善計画T501:
-   * 公開済み軸も渡りうる——その場合は材料・計算式・重み等の編集UIを一切出さず、
-   * 表示専用フィールド（icon_id・chip_label・panel_hint・show_map_icon・
-   * display_thresholds_override）だけを編集する制限モードへ自動的に切り替わる
-   * （下記`restrictedDisplayOnly`参照）。 */
+  /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。公開済み軸も
+   * 渡りうる——その場合は材料・計算式・重み等の編集UIを一切出さず、表示専用フィールド
+   * （icon_id・chip_label・panel_hint・show_map_icon・display_thresholds_override）だけを
+   * 編集する制限モードへ自動的に切り替わる（下記`restrictedDisplayOnly`参照）。 */
   editing: AxisDefinitionResponse | null;
-  /** 複製元（改善計画T271）。editingがnullのとき、この軸の内容（axis_id/is_published除く）
-   * で新規作成フォームを初期化する。 */
+  /** 複製元。editingがnullのとき、この軸の内容（axis_id/is_published除く）で新規作成
+   * フォームを初期化する。 */
   duplicateFrom: AxisDefinitionResponse | null;
-  /** 改善計画T345: 既定重み(default_weight)欄に「他の公開軸の重みに対して何%か」を
-   * 参考表示するための、この軸以外を含む全軸一覧（AxisStudio.tsxが一覧取得済みのものを
-   * そのまま渡す）。省略時（テスト等）は参考表示自体を出さない。 */
+  /** 既定重み(default_weight)欄に「他の公開軸の重みに対して何%か」を参考表示するための、
+   * この軸以外を含む全軸一覧（AxisStudio.tsxが一覧取得済みのものをそのまま渡す）。
+   * 省略時（テスト等）は参考表示自体を出さない。 */
   otherAxes?: readonly AxisDefinitionResponse[];
   onCancelEdit: () => void;
   onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
 }
 
-// 改善計画T332: 4ステップのウィザード。ステップ自体の追加・削除はコード変更を要する
-// （4テンプレート限定の方針と同様、際限のない動的ステップ化は目指さない）。
+// 4ステップのウィザード。ステップ自体の追加・削除はコード変更を要する（3テンプレート
+// 限定の方針と同様、際限のない動的ステップ化は目指さない）。
 const STEPS = ["basic", "shape_kind", "shape_params", "display_publish"] as const;
 type Step = (typeof STEPS)[number];
 const STEP_TITLES: Record<Step, string> = {
@@ -653,7 +633,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions);
     return emptyDraft(materialOptions);
   });
-  // 改善計画T340: categorical材料の値入力欄に候補選択を添えるための実データ値一覧。
+  // categorical材料の値入力欄に候補選択を添えるための実データ値一覧。
   // dtype="categorical"の材料を選んでいる間だけ取得する（boolean材料選択中・
   // categorical材料でも動的値一覧に対応していない場合[bicycle_infra等]は空配列が返り、
   // 呼び出し先の入力欄は自由テキストのままになる）。
@@ -669,7 +649,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   // breakpoint_linearで単一材料（他軸参照ではない）のtermを1つだけ持つ場合にのみ、その
   // 材料の参考点（reference_points）を「効き目プレビュー」「自動生成の値の目安」
   // 「曲線エディタの横軸固定」に使う。複数termの組み合わせ・他軸参照は参考点の対応が
-  // 取れないため対象外（T598対応方針の判断点）。
+  // 取れないため対象外。
   const primaryMaterial =
     draft.shapeKind === "breakpoint_linear" && draft.terms.length === 1
       ? materialOptions.find((m) => m.id === draft.terms[0].material)
@@ -685,10 +665,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           return { min: Math.min(...xs), max: Math.max(...xs) };
         })()
       : undefined;
-  // 改善計画T501: 公開済み軸を編集対象に開いた場合、材料・計算式・重み等の
-  // ステップ（1〜3）を一切見せず、常に最終ステップ（表示専用フィールドのみ）から
-  // 動かさない。goNext/goBackはこのモードでは呼ばれない（対応するボタンを描画しない）ため
-  // stepIndexが動く余地はない。
+  // 公開済み軸を編集対象に開いた場合、材料・計算式・重み等のステップ（1〜3）を
+  // 一切見せず、常に最終ステップ（表示専用フィールドのみ）から動かさない。goNext/goBack
+  // はこのモードでは呼ばれない（対応するボタンを描画しない）ためstepIndexが動く余地はない。
   const restrictedDisplayOnly = editing !== null && editing.is_published;
   const [stepIndex, setStepIndex] = useState(() => (restrictedDisplayOnly ? STEPS.indexOf("display_publish") : 0));
   const step = STEPS[stepIndex];
@@ -696,9 +675,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
 
-  // T424修正: useMaterialCatalog()は取得成功したがmaterialsが0件のとき、静的
-  // フォールバック（AXIS_MATERIAL_OPTIONS）へは留まらず空配列をそのまま返す仕様
-  // （useMaterialCatalog.tsのdocstring参照、2026-08-25の修正）。backend側の
+  // useMaterialCatalog()は取得成功したがmaterialsが0件のとき、静的フォールバック
+  // （AXIS_MATERIAL_OPTIONS）へは留まらず空配列をそのまま返す仕様
+  // （useMaterialCatalog.tsのdocstring参照）。backend側の
   // material_catalog.pyが運用上の何らかの理由（材料レジストリ空・DB接続不調時の
   // 空応答等）で0件を返すとここに到達する。材料が1件も無ければ「材料」「値ごとの
   // スコア」等どのステップも選択肢が作れず、ウィザードを進めても保存不能な軸しか
@@ -722,13 +701,12 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     );
   }
 
-  // ユーザー指摘（軸同士の線形結合nX+mYがGUIから組めない）への対応: backend側は元々
-  // MaterialTerm.materialへ他の軸のaxis_idを指定できる設計（domain/axis_definitions.py:
-  // AxisDefinition docstring「軸の階層」）だが、「他の軸の計算結果をもとに点数を変える」
-  // テンプレートの材料セレクトがmaterialOptions（MATERIAL_CATALOGの材料のみ）しか
-  // 出しておらず、他の軸を選ぶ手段自体がGUI上に存在しなかった（実装漏れ）。編集中の
-  // 軸自身は自己参照になるため候補から除く。軸のスコアは常に0〜100（difficultyの規約）
-  // のためdtype="numeric"として扱う。
+  // backend側は元々MaterialTerm.materialへ他の軸のaxis_idを指定できる設計
+  // （domain/axis_definitions.py: AxisDefinition docstring「軸の階層」）。「他の軸の
+  // 計算結果をもとに点数を変える」テンプレートでは、この軸候補一覧（otherAxes）を
+  // materialOptions（MATERIAL_CATALOGの材料）とは別に用意する。編集中の軸自身は
+  // 自己参照になるため候補から除く。軸のスコアは常に0〜100（difficultyの規約）のため
+  // dtype="numeric"として扱う。
   const axisTermOptions: readonly AxisMaterialOption[] = (otherAxes ?? [])
     .filter((a) => a.axis_id !== draft.axisId)
     .map((a) => ({ id: a.axis_id, label: a.label, description: a.description, dtype: "numeric" as const, unit: "" }));
@@ -737,14 +715,14 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
   // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
 
-  // 改善計画T332: ステップを進める前の検証。「表示名が無いまま次へ進んで、最後の保存時に
+  // ステップを進める前の検証。「表示名が無いまま次へ進んで、最後の保存時に
   // 初めてエラーが出る」という手戻りを避け、該当ステップに留まったまま原因を示す。
   function validateStep(target: Step): string | null {
     if (target === "basic") {
       if (draft.label.trim() === "") return "表示名(label)を入力してください。";
     }
     if (target === "shape_params" && draft.shapeKind === "breakpoint_linear") {
-      // 改善計画T425（ゼロベース網羅レビュー指摘）: display_thresholds_override
+      // display_thresholds_override
       // （色分け表示用）と同じ昇順チェックを、評価に使うdraft.breakpoints
       // （backend: shape.breakpoints）にも先回りして適用する。backend側の対応する
       // 検証（axis_admin.py: _check_materials_are_known内）は保存時の最終防衛のため、
@@ -755,7 +733,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       }
     }
     if (target === "shape_params" && draft.shapeKind === "categorical") {
-      // 改善計画T322: categorical材料選択時、値の行が1つも入力されていないと
+      // categorical材料選択時、値の行が1つも入力されていないと
       // mapping={}のまま保存されてしまい（全区間で評価不能=欠損になるだけで保存自体は
       // 通ってしまう）、設定し忘れに気づきにくいため事前に弾く。
       const dtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
@@ -764,16 +742,15 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       }
     }
     if (target === "display_publish") {
-      // コードレビュー指摘の修正: backend側の検証（axis_admin.py:
-      // _check_label_length_or_chip_label）と同じ条件をここでも先回りしてチェックし、
-      // 保存時まで待たせない。地図チップの略称(chip_label)欄はこのステップにあるため、
-      // ここでチェックする（「基本情報」ステップでチェックすると、まだ入力欄が無い
-      // 「地図表示・公開」ステップへ誘導するだけで先へ進めない詰みを生む——実機確認で
-      // 発覚したT332実装時の不具合、修正済み）。
+      // backend側の検証（axis_admin.py: _check_label_length_or_chip_label）と同じ条件を
+      // ここでも先回りしてチェックし、保存時まで待たせない。地図チップの略称(chip_label)
+      // 欄はこのステップにあるため、ここでチェックする（「基本情報」ステップで
+      // チェックすると、まだ入力欄が無い「地図表示・公開」ステップへ誘導するだけで
+      // 先へ進めない詰みを生む）。
       if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
         return "表示名(label)が4文字を超えています。地図チップの略称(chip_label)を設定してください。";
       }
-      // 改善計画T404: backend側の検証（axis_admin.py: AxisDefinitionPayload._check_
+      // backend側の検証（axis_admin.py: AxisDefinitionPayload._check_
       // display_thresholds_override_is_ascending）と同じ条件を先回りしてチェックする。
       if (draft.displayThresholdsOverride !== null) {
         if (draft.displayThresholdsOverride.length === 0) {
@@ -806,7 +783,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // 改善計画T332: 最終ステップ以外でのEnterキー送信は「次へ」として扱う
+    // 最終ステップ以外でのEnterキー送信は「次へ」として扱う
     // （このコンポーネントは単一の<form>のまま、表示するステップだけを切り替える設計の
     // ため、type="submit"ボタンが常にDOM上に無くても暗黙のフォーム送信は起こりうる）。
     if (step !== "display_publish") {
@@ -828,24 +805,23 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       axis_id: draft.axisId,
       label: draft.label.trim(),
       description: draft.description,
-      // 改善計画T305: 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。
-      // 「観測」（タグ・POIをそのまま読む）「動的」（気象等、時々刻々変わる外部データ由来）は
+      // 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。「観測」
+      // （タグ・POIをそのまま読む）「動的」（気象等、時々刻々変わる外部データ由来）は
       // どちらもそれ自体が材料の性質であり、材料を組み合わせて判定式を作る軸スタジオの
-      // 仕組みからこれらを生み出すのは概念上おかしい、というユーザー指摘を受けて固定した。
+      // 仕組みからこれらを生み出すのは概念上おかしい。
       category: "推定",
       default_weight: draft.defaultWeight,
       shape: buildShape(draft, materialOptions),
       is_published: draft.isPublished,
-      // 改善計画T310: 空文字列は「未設定」の意味でnullへ変換する（trim()の理由はlabelと同じ、
+      // 空文字列は「未設定」の意味でnullへ変換する（trim()の理由はlabelと同じ、
       // 空白のみの入力を未設定扱いにする）。
       icon_id: draft.iconId.trim() === "" ? null : draft.iconId,
       chip_label: draft.chipLabel.trim() === "" ? null : draft.chipLabel.trim(),
       panel_hint: draft.panelHint.trim() === "" ? null : draft.panelHint.trim(),
-      // 改善計画T318: 地図上にアイコンを表示するかどうかのON/OFF（既定true）。
+      // 地図上にアイコンを表示するかどうかのON/OFF（既定true）。
       show_map_icon: draft.showMapIcon,
-      // コードレビュー指摘の修正: このフォームに編集欄を持たないフィールドも、既存値を
-      // 素通しして送る（未送信＝サーバー側の既定値[空リスト/null]で上書きされ、既存軸の
-      // 値が消えるのを防ぐ）。
+      // このフォームに編集欄を持たないフィールドも、既存値を素通しして送る（未送信＝
+      // サーバー側の既定値[空リスト/null]で上書きされ、既存軸の値が消えるのを防ぐ）。
       priority_overrides: draft.priorityOverrides,
       display_thresholds_override: draft.displayThresholdsOverride,
       display_band_labels_override: draft.displayBandLabelsOverride,
@@ -857,9 +833,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     };
     setSaving(true);
     try {
-      // 改善計画T304: 保存成功後は呼び出し側（AxisStudio）がモーダルごと閉じるため、
-      // ここでフォームをリセットして開いたままにする必要はない（以前の「新規作成時は
-      // 続けて次の1件を入力できるようフォームを空へ戻す」挙動は撤去した）。
+      // 保存成功後は呼び出し側（AxisStudio）がモーダルごと閉じるため、ここでフォームを
+      // リセットして開いたままにする必要はない。
       await onSave(payload, isNew);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -894,7 +869,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     setDraft((d) => ({ ...d, categoricalRows: d.categoricalRows.filter((_, i) => i !== index) }));
   }
 
-  // 改善計画T404: 色分けのしきい値（display_thresholds_override）編集用ヘルパー。
+  // 色分けのしきい値（display_thresholds_override）編集用ヘルパー。
   // 生のJSON編集ではなく、数値の配列だけを直接編集するシンプルなUIにする
   // （AxisDefinition.display_thresholds_overrideのdocstring参照）。
   function updateThresholdOverrideValue(index: number, value: number) {
@@ -911,7 +886,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       return {
         ...d,
         displayThresholdsOverride: [...current, next],
-        // 改善計画T513: 体感ラベルは段階数(=しきい値数+1)と1:1対応するため、しきい値を
+        // 体感ラベルは段階数(=しきい値数+1)と1:1対応するため、しきい値を
         // 増やすときも末尾へ空欄を1件足して段階数を追従させる（設定中でなければ触らない）。
         displayBandLabelsOverride: d.displayBandLabelsOverride && [...d.displayBandLabelsOverride, ""],
       };
@@ -922,7 +897,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     setDraft((d) => ({
       ...d,
       displayThresholdsOverride: (d.displayThresholdsOverride ?? []).filter((_, i) => i !== index),
-      // 改善計画T513: しきい値を1件減らすと段階数も1件減るため、対応する体感ラベルも
+      // しきい値を1件減らすと段階数も1件減るため、対応する体感ラベルも
       // 同じindexで1件減らして数を揃える（境界を1件消すと前後2段階が1段階へ統合される
       // ため、厳密にどちらのラベルを残すべきかは決められないが、消したしきい値と同じ
       // indexのラベルを削るのがもっとも直感的な対応——例: 3段目の境界を消すと4段階目
@@ -931,7 +906,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     }));
   }
 
-  // 改善計画T513: 体感ラベル（display_band_labels_override）編集用ヘルパー。
+  // 体感ラベル（display_band_labels_override）編集用ヘルパー。
   // display_thresholds_overrideが決める段階数（thresholds.length+1）と要素数を
   // 常に一致させる（backend側のバリデーションと同じ制約、AxisDefinition.
   // display_band_labels_overrideのdocstring参照）。
@@ -953,7 +928,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     setDraft((d) => ({ ...d, displayBandLabelsOverride: null }));
   }
 
-  /** 改善計画T345: 既定重みの絶対値だけでは効果が分からないという指摘への対応。
+  /** 既定重みの絶対値だけでは効果が分からない。
    * backend側の合成（domain/difficulty.py: composite_difficulty）は重み付き"平均"
    * （重みの合計で正規化）で、かつ対象は公開軸のみ（domain/axis_definitions.py:
    * default_axis_weights）のため、「他の公開軸の重み合計に対して何%か」を参考表示する。
@@ -1071,7 +1046,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                       };
                     }
                     if (d.shapeKind === "recipe_then_breakpoint_linear" && option.kind === "breakpoint_linear") {
-                      // T424修正: materialOptionsが空のときはfindも[0]も両方undefinedになりうる
+                      // materialOptionsが空のときはfindも[0]も両方undefinedになりうる
                       // ため、最終フォールバックは""（この分岐へ到達する時点で早期リターン済みの
                       // はずだが、念のため無条件アクセスを排除する）。
                       const firstMaterial =
@@ -1110,9 +1085,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     return (
       <>
         <p className={styles.groupLabel}>選択中: {shapeKindOption(draft.shapeKind).title}</p>
-        {/* 改善計画T397フォローアップ（ユーザー指摘: 説明文が多く見にくい）: 折れ点・
-            カテゴリのスコア・true/falseスコアの3箇所で繰り返していた「0=走りやすい・
-            100=走りにくい」を、このステップの先頭で1回だけ短く伝える形へ統合した。 */}
+        {/* 「0=走りやすい・100=走りにくい」をこのステップの先頭で1回だけ伝える
+            （折れ点・カテゴリのスコア・true/falseスコアの入力欄では繰り返さない）。 */}
         <p className={styles.hint}>スコアは0(走りやすい)〜100(走りにくい)です。</p>
 
         {(draft.shapeKind === "breakpoint_linear" || draft.shapeKind === "recipe_then_breakpoint_linear") && (
@@ -1135,7 +1109,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 description="はい/いいえの材料も選べます（該当時は1、非該当時は0として係数と掛け合わされます。街灯なし・トンネルなど、複数の危険要素の有無を数えて減点・加点したい場合もここに追加してください）。複数の材料を追加すると、それぞれの「値×係数」の合計が下の折れ点でスコアへ変換されます。"
               />
             )}
-            {/* 改善計画T342: booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
+            {/* booleanの材料も選べる（該当時1・非該当時0として係数と掛け合わされる、
                 backend/app/domain/axis_definitions.py: evaluate_axis_scalarのBreakpointLinearShape
                 分岐参照）。categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側で
                 エラーになる）。recipe_then_breakpoint_linear（かけあわせ評価）は、材料の代わりに
@@ -1155,9 +1129,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     ))}
                   </select>
                   <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
-                  {/* 改善計画T397フォローアップ（ユーザー指摘: スライダーが小さいのに数字が
-                      大きく振れて設定しにくい）: 典型的な係数の範囲（±10）に絞り、範囲外の
-                      値（旧flag_sumの加点50等）は数値欄から直接入力する想定にした。 */}
+                  {/* 典型的な係数の範囲（±10）に絞り、範囲外の値は数値欄から直接入力する想定にした。 */}
                   <SliderNumberField
                     label="係数"
                     value={term.weight}
@@ -1194,7 +1166,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     d.shapeKind === "recipe_then_breakpoint_linear"
                       ? axisTermOptions
                       : materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean");
-                  // T424修正: materialOptionsが空のとき無条件アクセスでクラッシュしないよう""へ。
+                  // materialOptionsが空のとき無条件アクセスでクラッシュしないよう""へ。
                   const fallback = termOptions[0]?.id ?? materialOptions[0]?.id ?? "";
                   return { ...d, terms: [...d.terms, { material: fallback, weight: 1.0, required: false }] };
                 })
@@ -1203,9 +1175,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
               + {draft.shapeKind === "recipe_then_breakpoint_linear" ? "軸を追加" : "材料を追加"}
             </button>
 
-            {/* 改善計画T397: 「かけあわせ評価」は純粋な重み付き結合に絞り、下ごしらえ・
-                折れ点の編集UIを出さない（保存時は既定値[そのまま・恒等クランプ0→0,100→100]の
-                まま送信される、buildShape/renderShapeKindStepのdefault設定参照）。 */}
+            {/* 「かけあわせ評価」は純粋な重み付き結合に絞り、下ごしらえ・折れ点の編集UIを
+                出さない（保存時は既定値[そのまま・恒等クランプ0→0,100→100]のまま送信される、
+                buildShape/renderShapeKindStepのdefault設定参照）。 */}
             {draft.shapeKind === "breakpoint_linear" && (
               <>
                 <SectionLabel
@@ -1236,14 +1208,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                   </label>
                 </div>
 
-                {/* 改善計画T345: T327（UIレビュー2026-08-25 F-5）が明文化したこのヒント文は
-                    実際の向きと逆だった（バグ）。組み込みのgradient軸を確認すると、勾配0%→
-                    スコア0・勾配15%→スコア100（description="登り坂の急さが小さいほど易しい"）、
-                    すなわち0が最も走りやすく100が最も走りにくい。この値はbackend全体で
-                    「difficulty(0-100、大きいほど走りにくい)」として扱われる規約
-                    （EdgeCostResult.difficulty等）とも一致する。T327時点の認識が逆だったため
-                    ここで向きを訂正する。改善計画T397フォローアップ: 説明文はポップオーバーへ
-                    折りたたむ（0-100の向きの説明は下の共通キャプション参照）。 */}
                 <SectionLabel
                   label="折れ点を自動生成"
                   description={
@@ -1376,16 +1340,14 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
         )}
 
         {draft.shapeKind === "categorical" && (() => {
-          // 改善計画T322: 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
+          // 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
           // categorical→値ごとのスコア行）。selectedDtypeはコンポーネント冒頭の
-          // selectedCategoricalDtype（useMaterialValuesの入力にも使う、改善計画T340）と同じ計算。
+          // selectedCategoricalDtype（useMaterialValuesの入力にも使う）と同じ計算。
           const selectedDtype = selectedCategoricalDtype;
           return (
             <div className={styles.shapeGroup}>
-              {/* 改善計画T345フォローアップ（実機フィードバック: 情報アイコンが独立した行に
-                  はみ出て中央寄せに見える不具合）: .fieldはcolumn方向のflexのため、
-                  兄弟要素としてただ並べると縦に積まれてしまう。.row（横方向flex）で
-                  括ってラベルの隣に揃える。 */}
+              {/* .fieldはcolumn方向のflexのため、兄弟要素としてただ並べると縦に積まれて
+                  しまう。.row（横方向flex）で括ってラベルの隣に揃える。 */}
               <div className={styles.row}>
                 <label className={styles.field}>
                   材料(material)
@@ -1427,15 +1389,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     }
                   />
                   {draft.categoricalRows.map((row, i) => {
-                    // 改善計画T345フォローアップ（ユーザー指摘: 候補が存在する材料では
-                    // 生のタグ値の直接入力自体が不要——material_catalogに無い値を書く
-                    // 実運用上の必要性は基本無く、直接入力を残すとタイプミスがそのまま
-                    // 「静かに一致しない行」として残る落とし穴になる）: 候補一覧
-                    // （categoricalMaterialValues）がある材料は、候補セレクトでの選択のみを
-                    // 許可し、値は常にラベルの読み取り専用表示にする（生のタグ値は画面に
-                    // 出さない）。候補一覧が無い材料（bicycle_infra等、動的値一覧に
-                    // 対応していない）だけ、従来どおり自由テキスト入力のままにする
-                    // （選ぶ元となる候補自体が存在しないため）。
+                    // 候補一覧（categoricalMaterialValues）がある材料は、候補セレクトでの
+                    // 選択のみを許可し、値は常にラベルの読み取り専用表示にする（生の
+                    // タグ値は画面に出さない——material_catalogに無い値を書く実運用上の
+                    // 必要性は基本無く、直接入力を残すとタイプミスがそのまま「静かに
+                    // 一致しない行」として残る落とし穴になる）。候補一覧が無い材料
+                    // （bicycle_infra等、動的値一覧に対応していない）だけ、従来どおり
+                    // 自由テキスト入力のままにする（選ぶ元となる候補自体が存在しないため）。
                     const hasDynamicCandidates = categoricalMaterialValues.length > 0;
                     // 選択中の値のラベルは、取得済みの候補一覧（backendが返すMaterialSpec.
                     // value_labelsのラベル）から引く。候補一覧に無い値（編集を開いた時点で
@@ -1461,10 +1421,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                           </select>
                         )}
                         {hasDynamicCandidates ? (
-                          // 改善計画T345フォローアップ（ユーザー指摘: 「選択欄」と「値の入力欄」の
-                          // 2つだけで見えるようにしたい）: 実体は読み取り専用のinputにする
-                          // （素のspanではなく input[type=text] にすることで、globals.cssの
-                          // 共通スタイルがそのまま当たり見た目が他のinputと揃う）。編集不可
+                          // 実体は読み取り専用のinputにする（素のspanではなく
+                          // input[type=text] にすることで、globals.cssの共通スタイルが
+                          // そのまま当たり見た目が他のinputと揃う）。編集不可
                           // （readOnly）で、値は候補セレクトからのみ設定する。
                           <input type="text" value={label} readOnly aria-label="値" placeholder="候補から選択してください" />
                         ) : (
@@ -1535,11 +1494,10 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   }
 
   function renderDisplayPublishStep() {
-    // 改善計画T404: 自動導出（derive_ramp_inputs）もdisplay_thresholds_overrideも効かず
-    // 地図表示不可（kind="none"）な場合の注記（T400.mdで文言を確定済み）。新規作成中
-    // （editingがnull）はまだbackendが計算したdisplayを持たないため、既存軸の編集時のみ
-    // 判定する（保存すればkindが確定するため、新規作成時は保存後に軸一覧から再度開けば
-    // 確認できる）。
+    // 自動導出（derive_ramp_inputs）もdisplay_thresholds_overrideも効かず地図表示不可
+    // （kind="none"）な場合の注記。新規作成中（editingがnull）はまだbackendが計算した
+    // displayを持たないため、既存軸の編集時のみ判定する（保存すればkindが確定するため、
+    // 新規作成時は保存後に軸一覧から再度開けば確認できる）。
     const showMapDisplayUnavailableNote = editing !== null && editing.display.kind === "none";
     return (
       <>
@@ -1566,11 +1524,11 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
             <>
               {draft.displayThresholdsOverride.map((value, i) => (
                 <div key={i} className={styles.termRow}>
-                  {/* 改善計画T404: しきい値は軸によって整数（stop_density: 1,2,4）にも
-                      小数（accident: 0.133,0.267,0.5）にもなりうるため、step="any"で
-                      刻み幅を固定しない（step="0.1"のような固定刻みは、浮動小数点誤差で
-                      「1」のような値さえHTML5のstep制約検証に引っかかりsubmitイベント
-                      自体が発火しなくなる実バグをテスト作成時に発見・修正した）。 */}
+                  {/* しきい値は軸によって整数（stop_density: 1,2,4）にも小数
+                      （accident: 0.133,0.267,0.5）にもなりうるため、step="any"で刻み幅を
+                      固定しない（step="0.1"のような固定刻みは、浮動小数点誤差で「1」の
+                      ような値さえHTML5のstep制約検証に引っかかりsubmitイベント自体が
+                      発火しなくなる）。 */}
                   <NumberField
                     step="any"
                     value={value}
@@ -1589,7 +1547,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 <button
                   type="button"
                   onClick={() =>
-                    // 改善計画T513: 体感ラベルはしきい値が決める段階数と対応するため、
+                    // 体感ラベルはしきい値が決める段階数と対応するため、
                     // しきい値の上書き自体をやめるときは体感ラベルの上書きも一緒に解除する
                     // （残すとbackend側のバリデーション「体感ラベルはしきい値の上書きが
                     // 設定済みでなければならない」に反する）。
@@ -1691,7 +1649,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           </label>
         </div>
 
-        {/* 改善計画T501: 制限モード（公開済み軸を表示専用フィールドだけ編集）では
+        {/* 制限モード（公開済み軸を表示専用フィールドだけ編集）では
             is_publishedを変更させない（変更するとcheck_publish_immutability/
             is_cosmetic_only_updateの表示専用フィールドのみという前提から外れ、backend側で
             拒否される）。公開状態の切り替えは「非公開に戻す」専用ボタン（AxisStudio.tsx）
@@ -1710,7 +1668,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     );
   }
 
-  // 改善計画T501: 公開済み軸は材料・計算式・重みのステップ自体を出さず、表示専用
+  // 公開済み軸は材料・計算式・重みのステップ自体を出さず、表示専用
   // フィールドの編集画面のみを1画面で完結させる（ステッパー・戻る/次へボタンは不要）。
   if (restrictedDisplayOnly) {
     return (
@@ -1755,18 +1713,15 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           </button>
         )}
         {step !== "display_publish" ? (
-          // 実機不具合の修正: keyを付けずtype="button"↔"submit"を切り替えると、
-          // 同じ場所（ツリー上の位置）にある同じ要素種別(button)としてReactがDOMノードを
-          // 再利用し、type属性だけをその場で書き換える（要素の作り直しをしない）。
-          // 「次へ」クリックでgoNext()がstepIndexを進めてこの分岐が切り替わると、
-          // クリックを受けたその<button>自身のtype属性が"button"→"submit"へ同期的に
-          // 書き換わり、ブラウザ側のクリックのデフォルト動作判定（type="submit"なら
-          // フォーム送信）がこの書き換え後のtypeを見てしまい、「次へ」を押しただけで
-          // フォームが暗黙に送信されてしまっていた（本番環境で発生していた「ウィザードの
-          // 4/4画面に着くと勝手に閉じる」不具合の原因——実際には閉じたのではなく、
-          // 未変更のドラフトのまま無言で保存・成功しモーダルが閉じていた）。
-          // key を変えることでReactに「別の要素」と認識させ、既存ノードを書き換えず
-          // 必ずunmount→mountさせる（type属性がクリック後に書き変わる余地を無くす）。
+          // keyを付けずtype="button"↔"submit"を切り替えると、同じ場所（ツリー上の位置）に
+          // ある同じ要素種別(button)としてReactがDOMノードを再利用し、type属性だけを
+          // その場で書き換える（要素の作り直しをしない）。「次へ」クリックでgoNext()が
+          // stepIndexを進めてこの分岐が切り替わると、クリックを受けたその<button>自身の
+          // type属性が"button"→"submit"へ同期的に書き換わり、ブラウザ側のクリックの
+          // デフォルト動作判定（type="submit"ならフォーム送信）がこの書き換え後のtypeを
+          // 見てしまい、「次へ」を押しただけでフォームが暗黙に送信されてしまう。
+          // keyを変えることでReactに「別の要素」と認識させ、既存ノードを書き換えず必ず
+          // unmount→mountさせる（type属性がクリック後に書き変わる余地を無くす）。
           <button key="next" type="button" onClick={goNext} className={styles.saveButton}>
             次へ
           </button>

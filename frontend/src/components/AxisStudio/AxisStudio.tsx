@@ -15,57 +15,46 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 import AxisComposer from "./AxisComposer";
 import styles from "./AxisStudio.module.css";
 
-// 改善計画T323: shapeが参照する材料id一覧（`kind`ごとにフィールド名が異なるため統一する）。
-// この中には材料カタログの材料idだけでなく、他axis_idを指すもの（改善計画T292「他axis_idを
-// 材料として参照する内部軸階層」）も混在しうる。
+// shapeが参照する材料id一覧（`kind`ごとにフィールド名が異なるため統一する）。この中には
+// 材料カタログの材料idだけでなく、他axis_idを指すもの（他axis_idを材料として参照する
+// 内部軸階層）も混在しうる。
 function materialIdsOf(shape: AxisShape): string[] {
   if (shape.kind === "categorical") return [shape.material];
   return shape.terms.map((t) => t.material);
 }
 
-// 改善計画T325（UIレビュー2026-08-25 F-3）: 一覧のサマリ表示用に、材料id/軸idどちらも
-// 人間向けラベルへ解決する。`materialLabel`は材料カタログにのみ問い合わせるため、
-// `t.material`が他axis_id（改善計画T292「他axis_idを材料として参照する内部軸階層」、
-// 例: car_stress軸のterms）を指すケースでは該当ラベルを引けず、材料カタログのフォールバック
-// （`?? materialId`）で生のsnake_case識別子がそのまま表示されていた。まずこのaxis_id一覧
-// 内に該当する軸が無いか探し、あればその表示名(label)を優先する。
+// 一覧のサマリ表示用に、材料id/軸idどちらも人間向けラベルへ解決する。`materialLabel`は
+// 材料カタログにのみ問い合わせるため、`t.material`が他axis_id（他axis_idを材料として
+// 参照する内部軸階層、例: car_stress軸のterms）を指すケースは解決できない。まずこの
+// axis_id一覧内に該当する軸が無いか探し、あればその表示名(label)を優先し、無ければ
+// `materialLabel`のフォールバックへ委ねる。
 function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
   return definitions.find((d) => d.axis_id === id)?.label ?? materialLabel(id);
 }
 
-// 改善計画T323: 「この軸を削除しようとしたら、他の軸から材料として参照されていた」という
-// 事実が見えないまま削除できてしまう問題への対応（UIレビュー2026-08-25 F-1）。削除の可否は
-// 制限せず、削除前に参照元とその影響をユーザーへ明示する。
+// 「この軸を削除しようとしたら、他の軸から材料として参照されていた」という事実が
+// 見えないまま削除できてしまう問題への対応。削除の可否は制限せず、削除前に参照元と
+// その影響をユーザーへ明示する。
 function axesReferencing(axisId: string, definitions: readonly AxisDefinitionResponse[]): AxisDefinitionResponse[] {
   return definitions.filter((d) => d.axis_id !== axisId && materialIdsOf(d.shape).includes(axisId));
 }
 
-// 軸スタジオ（改善計画T270、T221 Stage E）のトップレベルコンポーネント。
-// 一覧取得・作成・更新・削除の状態管理をここに集約し、フォーム自体はAxisComposerへ委ねる。
-//
-// 改善計画T305: 以前はここに管理者ユーザー名/パスワードの入力欄を持っていたが撤去した。
-// /adminページ自体が既にBasic認証（frontend/src/proxy.ts）で保護されているため、
-// この画面へ来られた時点でブラウザは既に認証済み——二重ログインを求めるUIが分かりにくいと
-// いう実機フィードバックへの対応。軸CRUD APIの呼び出しは同一オリジンのroute handler
-// （app/admin/api/axis-definitions/配下、services/axisAdminApi.ts参照）を経由するため、
-// ブラウザが/admin読込時にキャッシュした認証情報がこのAPI呼び出しにも自動で使われる。
+// 軸スタジオのトップレベルコンポーネント。一覧取得・作成・更新・削除の状態管理をここに
+// 集約し、フォーム自体はAxisComposerへ委ねる。認証・route handler経由の詳細は
+// docs/modules/frontend/axis-studio.md「AxisStudio.tsx（一覧・状態管理）」節参照。
 export default function AxisStudio() {
   const [definitions, setDefinitions] = useState<AxisDefinitionResponse[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
   const [unpublishingAxisId, setUnpublishingAxisId] = useState<string | null>(null);
-  // 複製元（改善計画T271）。nullでなければAxisComposerを「新規作成」モードのまま
-  // duplicateFromの内容で初期化する（axis_idは空のまま、is_publishedは常にfalseへ
-  // 落とす——公開済み軸を複製しても複製先は下書きから始まる）。
+  // 複製元。nullでなければAxisComposerを「新規作成」モードのままduplicateFromの内容で
+  // 初期化する（axis_idは空のまま、is_publishedは常にfalseへ落とす——公開済み軸を
+  // 複製しても複製先は下書きから始まる）。
   const [duplicateFrom, setDuplicateFrom] = useState<AxisDefinitionResponse | null>(null);
-  // 改善計画T304: 「編集ボタンを押した後にそのまま編集画面がポップアップ起動してほしい。
-  // 下部エリアの編集エリアまで目が行かない」という実機フィードバックへの対応。以前は
-  // AxisComposerが一覧の下に常時表示（新規作成モード）されており、「編集」を押しても
-  // 一覧のさらに下までスクロールしないと気づけなかった。編集・複製・新規作成のどれかを
-  // 選んだときだけモーダル（components/ui/Dialog）で開く方式へ変更した。creatingNewは
-  // 「新しい軸を作る」ボタンを押したときだけtrueになる（以前は常時この状態がデフォルト
-  // 表示されていたが、一覧を隠さない・目的の操作を選んでから開く、という一貫した導線にする）。
+  // 「新しい軸を作る」ボタンを押したときだけtrueになる。編集・複製・新規作成のいずれかを
+  // 選んだときだけモーダル（components/ui/Dialog）でAxisComposerを開く（一覧を隠さない・
+  // 目的の操作を選んでから開く導線）。
   const [creatingNew, setCreatingNew] = useState(false);
   const composerOpen = editingAxisId !== null || duplicateFrom !== null || creatingNew;
 
@@ -109,7 +98,7 @@ export default function AxisStudio() {
   }
 
   async function handleUnpublish(axisId: string) {
-    // 改善計画T302: 公開済み軸を下書きへ戻す。一般ユーザー向けGET /api/axis-catalogから
+    // 公開済み軸を下書きへ戻す。一般ユーザー向けGET /api/axis-catalogから
     // 即座に消えるため、フロント側の自己修復（RouteSettingsPanel）とセットで
     // 初めて安全な操作になる（docs/decisions/t221-axis-registry.md「Stage D拡張3」）。
     setUnpublishingAxisId(axisId);
@@ -124,9 +113,9 @@ export default function AxisStudio() {
   }
 
   async function handleDelete(axisId: string) {
-    // 改善計画T323: 削除しようとしている軸が他の軸から材料として参照されている場合、
-    // その事実と影響を確認ダイアログで明示する（一律拒否はしない——内部軸を整理・
-    // 再設計するために意図的に削除したい場面もありうるため、最終判断はユーザーに委ねる）。
+    // 削除しようとしている軸が他の軸から材料として参照されている場合、その事実と
+    // 影響を確認ダイアログで明示する（一律拒否はしない——内部軸を整理・再設計するために
+    // 意図的に削除したい場面もありうるため、最終判断はユーザーに委ねる）。
     const referencing = definitions ? axesReferencing(axisId, definitions) : [];
     if (referencing.length > 0) {
       const names = referencing.map((d) => d.label).join("・");
@@ -177,18 +166,14 @@ export default function AxisStudio() {
 
   return (
     <div className={styles.studio}>
-      {/* 改善計画T397フォローアップ2（ユーザー指摘: 見出し「評価軸（軸スタジオ）」と
-          タイトルが被る・軸の説明も何が言いたいか分からない）: 常設の説明文は撤去した。 */}
       {listError && <p className={styles.errorText}>{listError}</p>}
 
-      {/* 改善計画T397フォローアップ（ユーザー指摘: 公開済みと未公開をタブで分けたい）。
-          下書きタブを既定にする——新規作成した軸はまず下書きから始まり、実際の編集・
-          削除操作もほぼ下書きに対して行うため。公開済みタブに削除ボタンは出さない
-          （常に無効化されているだけの状態を見せるより、そもそも出さない方がシンプル。
-          削除は先に「非公開に戻す」という導線を残す）。編集ボタンは改善計画T501により
-          「表示だけ編集」として復活させた——AxisComposerが編集対象の公開状態を見て
-          自動的に表示専用フィールドのみの制限モードへ切り替わるため、材料・計算式・
-          重みを変えたい場合は引き続き「複製して新規作成」に導線を残す。 */}
+      {/* 下書きタブが既定表示。公開済みタブに削除ボタンは出さない（削除は先に
+          「非公開に戻す」という導線を残す）。編集ボタンは「表示だけ編集」として、
+          AxisComposerが編集対象の公開状態を見て自動的に表示専用フィールドのみの
+          制限モードへ切り替わる（材料・計算式・重みを変えたい場合は「複製して
+          新規作成」に導線を残す。詳細はdocs/modules/frontend/axis-studio.md
+          「AxisStudio.tsx（一覧・状態管理）」節参照）。 */}
       <Tabs.Root className={styles.tabs} defaultValue="draft">
         <Tabs.List className={styles.tabList}>
           <Tabs.Trigger className={styles.tabTrigger} value="draft">
@@ -270,9 +255,9 @@ export default function AxisStudio() {
       <DialogRoot open={composerOpen} onOpenChange={(open) => { if (!open) closeComposer(); }}>
         {/* 既定のDialogContentは幅min(90vw,28rem)・高さ内容依存だが、AxisComposerは
             材料/折れ点/フラグの可変長リストを持つ比較的大きなフォームのため、幅と
-            最大高さ+縦スクロールを拡張する（改善計画T304）。cn()のtwMergeで既定の
-            Tailwindユーティリティ(w-[...]/デフォルトのoverflow無指定)を正しく
-            上書きするため、CSS Modulesではなくここでも同じくTailwindクラス文字列を渡す。 */}
+            最大高さ+縦スクロールを拡張する。cn()のtwMergeで既定のTailwindユーティリティ
+            (w-[...]/デフォルトのoverflow無指定)を正しく上書きするため、CSS Modulesでは
+            なくここでも同じくTailwindクラス文字列を渡す。 */}
         <DialogContent title={composerTitle} className="w-[min(94vw,42rem)] max-h-[85vh] overflow-y-auto">
           <AxisComposer
             key={editingAxisId ?? (duplicateFrom ? `duplicate-${duplicateFrom.axis_id}` : "new")}
