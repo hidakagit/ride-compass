@@ -3,6 +3,7 @@ import numpy as np
 from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.difficulty import (
     composite_difficulty,
+    difficulty_load,
     distance_weighted_difficulty,
     distance_weighted_difficulty_array,
     evaluate_axis_difficulties,
@@ -270,3 +271,36 @@ def test_evaluate_axis_difficulties_all_none_inputs_yield_none_composite():
     assert all(value is None for value in result.axes.values())
     assert set(result.axes.keys()) == set(weights.keys())
     assert result.composite is None
+
+
+def test_difficulty_load_grows_with_distance():
+    # 同じ平均難易度でも、距離が2倍なら総量も2倍になる（平均は距離で正規化されるため
+    # 同じ値のまま。「長い分だけ疲れる」を平均と区別して示すのが総量の役割）。
+    short = difficulty_load([(50.0, 5.0)])
+    long = difficulty_load([(50.0, 10.0)])
+
+    assert distance_weighted_difficulty([(50.0, 5.0)]) == distance_weighted_difficulty([(50.0, 10.0)])
+    assert short == 250.0
+    assert long == 500.0
+
+
+def test_difficulty_load_penalizes_detour_that_lowers_average():
+    # 8km・平均40（難所あり）と、12km・平均30（遠回りして難所を避けた）を比べると、
+    # 平均では後者が良く見えるが、総量では前者が小さい。
+    direct = difficulty_load([(40.0, 8.0)])
+    detour = difficulty_load([(30.0, 12.0)])
+
+    assert direct < detour
+
+
+def test_difficulty_load_missing_segments_follow_average_semantics():
+    # difficulty欠損区間の扱いは平均と一致させる（平均×全区間の距離合計）。区間ごとに
+    # 積分して欠損を飛ばすと、データの無い区間が多いルートほど総量が小さく見えてしまう。
+    segments = [(0.0, 1.0), (None, 5.0), (100.0, 1.0)]
+
+    assert distance_weighted_difficulty(segments) == 50.0
+    assert difficulty_load(segments) == 350.0
+
+
+def test_difficulty_load_all_none_returns_none():
+    assert difficulty_load([(None, 1.0), (None, 2.0)]) is None

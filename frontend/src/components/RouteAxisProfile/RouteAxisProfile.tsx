@@ -20,6 +20,10 @@ interface RouteAxisProfileProps {
   axisContributions: Record<string, number>;
   /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
   overallDifficulty: number | null;
+  /** RouteCandidate.difficulty_load（総合難易度×距離km）。総合難易度が距離で正規化
+   * されるのに対し、こちらは距離が伸びればそのまま増えるため「遠回りした分だけ増える
+   * しんどさ」を表す。候補間の相対比較に使う値で単位を持たない。 */
+  difficultyLoad: number | null;
   /** 軸id→色ドットの色（ルート設定パネルの凡例チップと同じ色）。 */
   axisColors: Record<string, string>;
 }
@@ -36,6 +40,7 @@ export default function RouteAxisProfile({
   axisDifficulties,
   axisContributions,
   overallDifficulty,
+  difficultyLoad,
   axisColors,
 }: RouteAxisProfileProps) {
   const contributionRows = axes.filter((axis) => axisContributions[axis.axisId] != null);
@@ -48,6 +53,23 @@ export default function RouteAxisProfile({
             <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
             <span className={styles.scoreLabel}>/100 総合難易度</span>
           </span>
+          {difficultyLoad != null && (
+            <span className={styles.scoreItem}>
+              <span className={styles.scoreValue}>{Math.round(difficultyLoad)}</span>
+              <span className={styles.scoreLabel}>負荷（難易度×距離）</span>
+              <InfoPopover
+                triggerClassName={legendStyles.legendInfoButton}
+                triggerAriaLabel="負荷の説明を表示"
+                contentClassName={legendStyles.legendInfoPopover}
+              >
+                <p>
+                  総合難易度は距離で割った平均のため、遠回りして難所を避けるほど下がります。
+                  負荷は距離を掛けた総量で、走り切るまでのしんどさの目安です。難所を通っても
+                  短いルートと、遠回りで易しいルートを見比べるときに使ってください。
+                </p>
+              </InfoPopover>
+            </span>
+          )}
           {contributionRows.length > 0 ? (
             <AxisContributionBar axes={contributionRows} contributions={axisContributions} axisColors={axisColors} />
           ) : (

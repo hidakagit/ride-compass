@@ -44,6 +44,7 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     max_elevation_m: 45,
     segments: null,
     overall_difficulty: 35,
+    difficulty_load: null,
     axis_difficulties: {},
     material_values: {},
     axis_contributions: {},

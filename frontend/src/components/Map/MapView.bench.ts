@@ -81,6 +81,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       max_elevation_m: 45,
       segments: makeSegments(Math.round(pointsPerCandidate / 12)),
       overall_difficulty: 45.6,
+      difficulty_load: null,
       axis_difficulties: {},
       material_values: {},
       axis_contributions: {},

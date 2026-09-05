@@ -55,7 +55,7 @@
     "/api/debug/db-status": {
       "get": {
         "summary": "Db Status",
-        "description": "本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）\nに追いついているかを1回のリクエストで確認できる診断エンドポイント（改善計画T74）。\n\n`road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。\nDB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す\n（docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の\n診断用途のため、DB障害時にHTTP 500にする必要はない）。\n\n改善計画T467: テーブル行数・migration適用状況・import run履歴という運用上機微な情報を\n返すにも関わらず従来は無認証だったため、axis_admin.py/debug_admin.pyと同じ管理API\n認可境界（require_admin_basic_auth）を追加した。`/health`・`/api/debug/stats`\n（集計値のみで機微情報を含まない）は引き続き無認証のまま維持する。",
+        "description": "本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）\nに追いついているかを1回のリクエストで確認できる診断エンドポイント。\n\n`road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。\nDB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す\n（docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の\n診断用途のため、DB障害時にHTTP 500にする必要はない）。認可境界の理由は\ndocs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」節参照。",
         "operationId": "db_status_api_debug_db_status_get",
         "responses": {
           "200": {
@@ -196,7 +196,7 @@
     "/api/weather": {
       "get": {
         "summary": "Get Weather",
-        "description": "今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。\n改善計画T387フォローアップ（2026-08-29）: 常設ヘッダー（現在値の気温・体感温度・\n風速風向）はアメダス実測を使う`GET /api/weather/amedas`へ分離したため、\nこのエンドポイントはOpen-Meteoの値をそのまま返す（以前あったアメダス優先の\n上書きは削除。常設ヘッダーはこのレスポンスを参照しなくなったため不要になった）。",
+        "description": "今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。\n常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う\n`GET /api/weather/amedas`が担うため、このエンドポイントはOpen-Meteoの値を\nそのまま返す。",
         "operationId": "get_weather_api_weather_get",
         "parameters": [
           {
@@ -249,7 +249,7 @@
     "/api/weather/warnings": {
       "get": {
         "summary": "Get Weather Warnings",
-        "description": "出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す\n（改善計画T205）。地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した\n場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり\nこのfail-openは意図的な仕様のため、502は返さない——T174（WBGT警告）と共有する\n「安全側ではないが失敗時は警告なしとする」という既定の方針）。",
+        "description": "出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す。\n地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した\n場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり\nこのfail-openは意図的な仕様のため、502は返さない——WBGT警告と共有する\n「安全側ではないが失敗時は警告なしとする」という既定の方針）。",
         "operationId": "get_weather_warnings_api_weather_warnings_get",
         "parameters": [
           {
@@ -302,7 +302,7 @@
     "/api/weather/wbgt": {
       "get": {
         "summary": "Get Wbgt",
-        "description": "出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す（改善計画T174）。\n提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の\nいずれも例外にせず空（level=None）を返す（wbgt_service.py参照。T205の警報・\n注意報バッジと同じfail-open方針のため502は返さない）。",
+        "description": "出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す。\n提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の\nいずれも例外にせず空（level=None）を返す（wbgt_service.py参照。警報・\n注意報バッジと同じfail-open方針のため502は返さない）。",
         "operationId": "get_wbgt_api_weather_wbgt_get",
         "parameters": [
           {
@@ -355,7 +355,7 @@
     "/api/weather/flood-forecast": {
       "get": {
         "summary": "Get Flood Forecast",
-        "description": "出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す（改善計画T212、\nT176調査で発見したAPIを使う）。地点解決・洪水予報自体の取得のどこで失敗しても\n例外にせず空を返す（T205/T174と共有するfail-open方針、502は返さない）。",
+        "description": "出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す。\n地点解決・洪水予報自体の取得のどこで失敗しても\n例外にせず空を返す（警報・WBGTと共有するfail-open方針、502は返さない）。",
         "operationId": "get_flood_forecast_api_weather_flood_forecast_get",
         "parameters": [
           {
@@ -408,7 +408,7 @@
     "/api/weather/amedas": {
       "get": {
         "summary": "Get Amedas",
-        "description": "出発地点近傍の最寄りアメダス観測所の直近観測値を返す（改善計画T387）。\n観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。\n観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。\n警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。",
+        "description": "出発地点近傍の最寄りアメダス観測所の直近観測値を返す。\n観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。\n観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。\n警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。",
         "operationId": "get_amedas_api_weather_amedas_get",
         "parameters": [
           {
@@ -461,7 +461,7 @@
     "/api/weather/wind-grid": {
       "get": {
         "summary": "Get Wind Grid",
-        "description": "風・降水延長予報の格子点マップ（改善計画T178フォローアップ、T183で降水を追加）。\n関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）\nぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから\n除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を\n502にしない）。ただし全地点が失敗した場合は502を返す（改善計画T200、\n_reject_if_all_points_failed参照）。時刻配列はpoints内の各点からは外し、応答トップ\nレベルに1本だけ持つ（改善計画T203、WindGridResponseのdocstring参照）。",
+        "description": "風・降水延長予報の格子点マップ。\n関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）\nぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから\n除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を\n502にしない）。ただし全地点が失敗した場合は502を返す（_reject_if_all_points_failed\n参照）。時刻配列はpoints内の各点からは外し、応答トップレベルに1本だけ持つ\n（WindGridResponseのdocstring参照）。",
         "operationId": "get_wind_grid_api_weather_wind_grid_get",
         "responses": {
           "200": {
@@ -480,7 +480,7 @@
     "/api/weather/wind-grid-detail": {
       "get": {
         "summary": "Get Wind Grid Detail",
-        "description": "風・降水延長予報の詳細格子（改善計画T180、ヒートマップ等の面表現用。T185でspacing_deg\nをズーム依存にして間隔可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する\n密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の\nため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を\n返す。get_wind_gridと同じく取得失敗地点は結果から除外し、時刻配列は応答トップレベルに\n1本だけ持つ（改善計画T203）。\n\nspacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を\n許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、\nフロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。\n全地点が失敗した場合は502を返す（改善計画T200、_reject_if_all_points_failed参照）。",
+        "description": "風・降水延長予報の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を\n可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する\n密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の\nため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を\n返す。get_wind_gridと同じく取得失敗地点は結果から除外し、時刻配列は応答トップレベルに\n1本だけ持つ。\n\nspacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を\n許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、\nフロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。\n全地点が失敗した場合は502を返す（_reject_if_all_points_failed参照）。",
         "operationId": "get_wind_grid_detail_api_weather_wind_grid_detail_get",
         "parameters": [
           {
@@ -620,7 +620,7 @@
     "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Region Poi Tile",
-        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー（改善計画T54）。\n静的道路属性P1で評価にのみ使われていたosm_raw_poisの可視化。交差点密度\n（road_nodes次数）レイヤーもT54で同じタイルへ焼き込んでいたが、T96で地図上の\n独立可視化レイヤーとしては撤去され参照が無くなったため、T97でこの配信からも削除した\n（ルーティング材料のintersection_weightとしては`get_intersection_counts`等を引き続き使う）。\n路面タイルと同じ歯止め・同時実行制御をそのまま流用する。",
+        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ\n使われていたosm_raw_poisの可視化（ルーティング材料のintersection_weightとしては\n`get_intersection_counts`等を引き続き使う）。路面タイルと同じ歯止め・同時実行制御を\nそのまま流用する。",
         "operationId": "region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get",
         "parameters": [
           {
@@ -796,7 +796,7 @@
     "/api/region/axis-inspector": {
       "post": {
         "summary": "Region Axis Inspector",
-        "description": "区間インスペクタ（改善計画T146）。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能\nなため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果\n自体を見る）。\n\n改善計画T292: 車ストレス専用レシピ（旧`/api/region/car-stress-breakdown`、\n`CarStressBreakdown`）は廃止し、本エンドポイント（軸別の汎用内訳）へ統合した。\nレシピ上書きパラメータ（旧car_stress_recipe等）も、専用Pythonレシピの廃止に伴い\n廃止した。",
+        "description": "区間インスペクタ。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能\nなため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果\n自体を見る）。",
         "operationId": "region_axis_inspector_api_region_axis_inspector_post",
         "requestBody": {
           "content": {
@@ -1248,7 +1248,7 @@
           "axis-admin"
         ],
         "summary": "Unpublish Axis Definition",
-        "description": "公開済み軸を下書きへ戻す（改善計画T302）。`update()`と異なり公開済み軸に対しても\n成功する——これが`update()`ではなく専用エンドポイントである理由（is_published以外の\nフィールドは一切変更しない、T271の「公開済みは編集不可」原則を保ったまま公開フラグの\n反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。",
+        "description": "公開済み軸を下書きへ戻す。`update()`と異なり公開済み軸に対しても\n成功する——これが`update()`ではなく専用エンドポイントである理由（is_published以外の\nフィールドは一切変更しない、「公開済みは編集不可」原則を保ったまま公開フラグの\n反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。",
         "operationId": "unpublish_axis_definition_api_admin_axis_definitions__axis_id__unpublish_post",
         "security": [
           {
@@ -1329,7 +1329,7 @@
     "/api/material-catalog/{material_id}/values": {
       "get": {
         "summary": "Get Material Values",
-        "description": "改善計画T340: 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は\nいずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード\n方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。",
+        "description": "材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は\nいずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード\n方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。",
         "operationId": "get_material_values_api_material_catalog__material_id__values_get",
         "parameters": [
           {
@@ -1467,7 +1467,7 @@
           "debug-admin"
         ],
         "summary": "Read Recent Logs",
-        "description": "直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。\n\n`min_level`で「このレベル以上」に絞り込める（例: `WARNING`を渡すとWARNING/ERROR/\nCRITICALだけになる、改善計画T517）。`contains`で部分一致フィルタ（例: T318調査の\n`distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に\n絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意\n（先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、\ndocs/logging.md参照）。\n\n改善計画T467: `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が\nPythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう\n（例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は\nリングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても\n保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。",
+        "description": "直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。\n\n`min_level`で「このレベル以上」に絞り込める（例: `WARNING`を渡すとWARNING/ERROR/\nCRITICALだけになる）。`contains`で部分一致フィルタ（例:\n`distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に\n絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意\n（先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、\ndocs/logging.md参照）。\n\n`limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が\nPythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう\n（例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は\nリングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても\n保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。",
         "operationId": "read_recent_logs_api_admin_debug_logs_get",
         "security": [
           {
@@ -1841,7 +1841,7 @@
           "sunset"
         ],
         "title": "AmedasObservation",
-        "description": "最寄りアメダス観測所の直近観測値。\n\n突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない\n（改善計画T387フォローアップ、2026-08-29に実データで確認: 全1,286観測所の\nキー一覧にgust相当のフィールドが1つも無い）ため、このモデルに含めない。"
+        "description": "最寄りアメダス観測所の直近観測値。\n\n突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない\n（全1,286観測所のキー一覧にgust相当のフィールドが1つも無い）ため、\nこのモデルに含めない。"
       },
       "AxisCatalogEntry": {
         "properties": {
@@ -2176,7 +2176,7 @@
           "label"
         ],
         "title": "AxisDefinitionPayload",
-        "description": "作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ\n\n（極端な重み設定に対する意味的な歯止めは設けない、2026-08-24ユーザー判断。\ndefault_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。"
+        "description": "作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ\n\n（極端な重み設定に対する意味的な歯止めは設けない。\ndefault_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。"
       },
       "AxisDefinitionResponse": {
         "properties": {
@@ -2339,7 +2339,7 @@
           "display"
         ],
         "title": "AxisDefinitionResponse",
-        "description": "一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、\n`AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は\n継承しない（`AxisDefinitionFields`のdocstring参照）。\n\n`display`（改善計画T404）: `domain/axis_display.py: axis_display_for()`の計算結果\n（`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が\n「自動導出が失敗している（kind=\"none\"）ので、この軸の材料には地図表示用のデータ取得\n経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）\nは`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの\nレスポンスにしか無い。"
+        "description": "一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、\n`AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は\n継承しない（`AxisDefinitionFields`のdocstring参照）。\n\n`display`: `domain/axis_display.py: axis_display_for()`の計算結果\n（`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が\n「自動導出が失敗している（kind=\"none\"）ので、この軸の材料には地図表示用のデータ取得\n経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）\nは`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの\nレスポンスにしか無い。"
       },
       "AxisDisplaySpec": {
         "properties": {
@@ -2391,7 +2391,7 @@
           "label"
         ],
         "title": "AxisDisplaySpec",
-        "description": "二次軸の地図レイヤー表示宣言（改善計画T145b「事実はタイルに、解釈はクライアントに」）。\n\n- kind=\"ramp\": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を\n  `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの\n  レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。\n- kind=\"none\": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。\n  `note`へ理由を書く。\n\n改善計画T298: 以前は「タグの複雑な組み合わせを要しフロント側の手書きexpressionが\n必要な軸」向けのkind=\"bespoke\"（例: 旧`carStressExpression.ts`）もあったが、\n改善計画T292でcar_stressが最後の利用者としてkind=\"ramp\"へ移行し利用がゼロになった\nため削除した（Literalから外すだけで、既存データ・呼び出し元への影響は無いことを\ngrep（`kind=\"bespoke\"`の構築箇所ゼロ）で確認済み）。"
+        "description": "二次軸の地図レイヤー表示宣言（「事実はタイルに、解釈はクライアントに」）。\n\n- kind=\"ramp\": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を\n  `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの\n  レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。\n- kind=\"none\": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。\n  `note`へ理由を書く。"
       },
       "AxisInspectorAxis": {
         "properties": {
@@ -2554,7 +2554,7 @@
           "breakpoints"
         ],
         "title": "BreakpointLinearShape",
-        "description": "区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。\n\n改善計画T396: 軸スタジオの設計精査で、旧4テンプレート\n（breakpoint_linear/recipe_then_breakpoint_linear/categorical/flag_sum）は\n実質「連続演算（結合＋整形、本shape）」「離散演算（`CategoricalShape`）」の\n2プリミティブに還元でき、合成（他軸参照）はどちらの独立テンプレートでもなく\n連続演算の結合ステップの性質にすぎないと判明した。これに伴い\n`recipe_then_breakpoint_linear`（旧: 材料が軸固有のレシピ判定の算出済み結果で\nあることを表す別名kind、実装は本shapeのエイリアス）は撤去した——`terms`の各\nmaterialは元々材料id・軸idのどちらも区別なく指せる設計のため、別kindを持たせる\n理由が無かった。旧`FlagSumShape`（真偽値フラグの加点合計）も本shapeへ統合済み\n（全termがboolean材料の場合として表現する。`domain/axis_display.py:\nderive_ramp_inputs`の構造判定・移行方法は同モジュールのコメント参照）。"
+        "description": "区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。\n\n合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・\n軸idのどちらも区別なく指せる設計から生じる性質にすぎない。真偽値フラグの加点合計は\n全termがboolean材料の場合として本shapeで表現する（`domain/axis_display.py:\nderive_ramp_inputs`の構造判定参照）。"
       },
       "CategoricalShape": {
         "properties": {
@@ -2582,7 +2582,7 @@
           "mapping"
         ],
         "title": "CategoricalShape",
-        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n改善計画T292: `mapping`のキーはbool（旧来のsurface_good等、真偽2値の材料）と\nstr（highway/designation等、MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。`evaluate_categorical`\n自体は元々キーの型を問わない汎用実装のため、ここのモデル定義を広げるだけで\n新テンプレートは不要だった。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残ってしまい、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる回帰があった——実データ検証で発覚、\"true\"/\"false\"以外の文字列キーは\nbool変換に失敗してstrへフォールバックするため通常のcategorical材料には影響しない）。"
+        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n`mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残り、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる。\"true\"/\"false\"以外の文字列キーはbool変換に失敗してstrへフォールバックするため\n通常のcategorical材料には影響しない）。"
       },
       "Coordinates": {
         "properties": {
@@ -3028,7 +3028,7 @@
         },
         "type": "object",
         "title": "HardFilterOverride",
-        "description": "0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き（改善計画T266）。\nキーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/\n'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら\n全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。"
+        "description": "0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。\nキーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/\n'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら\n全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。"
       },
       "MaterialCatalogEntry": {
         "properties": {
@@ -3277,7 +3277,7 @@
           "material"
         ],
         "title": "MaterialTerm",
-        "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱い、改善計画T149）。"
+        "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱い）。"
       },
       "MaterialValueEntry": {
         "properties": {
@@ -3335,7 +3335,7 @@
           "value"
         ],
         "title": "PriorityCondition",
-        "description": "0次条件（改善計画T292）: 探索除外のハードフィルタ（`domain/evaluation.py:\nDEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、\n**評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算\n（shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。\n\n典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・\n自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。\n自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ\n（`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない\n（「探索除外」と「評価の優先確定」は別の概念、docs/improvement-plan.md T292参照）。\n\n軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な\n仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる\n（「各推定軸に重複して持たせない」というユーザー方針）。"
+        "description": "0次条件: 探索除外のハードフィルタ（`domain/evaluation.py:\nDEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、\n**評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算\n（shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。\n\n典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・\n自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。\n自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ\n（`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない\n（「探索除外」と「評価の優先確定」は別の概念）。\n\n軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な\n仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる\n（各推定軸に重複して持たせない）。"
       },
       "RouteCandidate": {
         "properties": {
@@ -3414,6 +3414,17 @@
             ],
             "title": "Overall Difficulty"
           },
+          "difficulty_load": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty Load"
+          },
           "axis_difficulties": {
             "additionalProperties": {
               "type": "number"
@@ -3444,7 +3455,7 @@
           "geometry"
         ],
         "title": "RouteCandidate",
-        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の\n比較にも使える絶対基準（研究インターフェース改善 §10-7）。候補タブの並び順は\nこの値の昇順で決まる（route_generator.py参照）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`（改善計画T309）と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（改善計画T402、`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位\nではなく候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート\n全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は\n空dict）。\n\n改善計画T431: `stop_density`・`car_stress_score`・`bicycle_infra_score`・\n`intersection_density`・`accident_density`の5フィールド（旧来の軸1対1固定設計の\n名残で軸スタジオでの軸増減に追従しない、上記`axis_difficulties`が正）は、T421で\nフロントエンドの最後の消費者（ComparisonPanel.tsx）が`axis_difficulties`駆動へ\n移行し末端消費者ゼロを確認した上で撤去した。書き込み側（road_graph_engine.pyの\n集約計算）もこのフィールドへ値を渡すためだけの処理だったため、併せて撤去済み。"
+        "description": "`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均\n（domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の\n比較にも使える絶対基準（研究インターフェース改善 §10-7）。候補タブの並び順は\nこの値の昇順で決まる（route_generator.py参照）。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n`axis_difficulties`: `RouteSegmentDetail.axis_difficulties`と同じ\naxis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの\n（`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位ではなく\n候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート\n全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は\n空dict）。"
       },
       "RouteGenerateJobCreatedResponse": {
         "properties": {
@@ -3458,7 +3469,7 @@
           "job_id"
         ],
         "title": "RouteGenerateJobCreatedResponse",
-        "description": "`POST /api/routes/generate`の応答（改善計画T265）。\n\n冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒[T248実測]）が\nブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ\n切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/\n{job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。"
+        "description": "`POST /api/routes/generate`の応答。\n\n冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒規模）が\nブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ\n切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/\n{job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。"
       },
       "RouteGenerateJobStatusResponse": {
         "properties": {
@@ -3684,7 +3695,7 @@
         },
         "type": "object",
         "title": "RoutePreferenceWeights",
-        "description": "Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。\nキーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、\n`domain/evaluation.py: RoutePreference`と同じ。\n\n改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した\n（軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が\n黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する\n（上書きするなら全軸を明示する、という方針）。値は非負。"
+        "description": "Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。\nキーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、\n`domain/evaluation.py: RoutePreference`と同じ。\n\n軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの\n改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、\n既知の全axis_idを明示することを検証で強制する（上書きするなら全軸を明示する、\nという方針）。値は非負。"
       },
       "RoutePreviewRequest": {
         "properties": {
@@ -3825,7 +3836,7 @@
           "distance_km"
         ],
         "title": "RouteSegmentDetail",
-        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\n符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:\n**符号付き・進行方向基準**（登り=正、下り=負、ElevationAttribute.average_gradeから\n算出）。フロントの勾配色分け（routeStyleModes.ts）はこの符号を前提に「下り」\nカテゴリを持つため、絶対値で返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う（以前は始点・終点の2点を\n直線で結んでおり、カーブ区間で色分け線が道路から大きく外れていた）。フロントは\ngeometryがnullの場合のみ従来どおり始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
+        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\n符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:\n**符号付き・進行方向基準**（登り=正、下り=負、ElevationAttribute.average_gradeから\n算出）。フロントの勾配色分け（routeStyleModes.ts）はこの符号を前提に「下り」\nカテゴリを持つため、絶対値で返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う。フロントは\ngeometryがnullの場合のみ始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
       },
       "SourceFreshnessEntry": {
         "properties": {
@@ -3959,7 +3970,7 @@
           "property"
         ],
         "title": "TileInputSpec",
-        "description": "地図表示（ramp）が読むMVTタイルプロパティ（改善計画T145b・T278・T292）。\n\n数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre\nexpressionが計算する。\n真偽値材料（`boolean=True`、改善計画T278）: MVTの真偽値プロパティは\n`[\"==\",[\"get\",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が\n成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。\n\n`has_unknown_fallback`（レビュー指摘の修正、改善計画T278）: タイルプロパティが\n欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、\n未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する\nうちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい\n真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と\n元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/\n`false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、\ntrueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:\nevaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。\n\nN値文字列材料（`categories`、改善計画T292）: `domain/axis_definitions.py:\nCategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の\n場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする\n（`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`\n（既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを\n圧迫感等の点数に反映すれば足りる材料向け、例: `designation`は評価側のmappingが\n全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。\n`has_unknown_fallback=True`（改善計画T297で修正）の場合、未登録値は0扱いではなく\n「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/\naxis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で\nNoneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0\n[最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`\n（`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は\n評価側でcar_stress軸全体を評価しない[required=True]。以前はフロント側の実装が\nプロパティの**欠損**のみを「不明」判定していたため、この「値はあるが未登録」の\nケースを見落とし、実際には未評価のはずの区間が0点=最良[緑]色で表示される\n不整合があった。`axisLayers.ts: buildAxisRampUnknownExpression`参照）。\nboolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している\n場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。\n\n自己変換材料（`breakpoints`、改善計画T292）: 材料自身が\n`BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:\n`car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`\nexpressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。\n\n`needs_runtime_scale`（改善計画T404）: この材料のタイル生値が実行時にしか決まらない\n係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.\ntile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`\n——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の\n生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は\nこのフラグが立つ材料も自動導出の対象に含める（以前はこのフラグを持つ材料を含む軸を\n一律`None`[自動導出不可]としていたが、`weight`が「タイル生値→材料スケール」の\n静的な変換係数を表現できないだけで、`GET /api/axis-catalog`が実行時に取得した\nスケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば\n正しく解決できるため、T404でこの制約を緩和した）。`thresholds`は元々\n`AxisDefinition.shape.breakpoints`由来の「材料スケール」の値のため、この\nフラグを持たない他のtile_inputと同じ意味のまま扱ってよい（フロント側だけが\nこのフラグを見てtile生値に追加のスケール定数を掛ける）。"
+        "description": "地図表示（ramp）が読むMVTタイルプロパティ。\n\n数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre\nexpressionが計算する。\n真偽値材料（`boolean=True`）: MVTの真偽値プロパティは\n`[\"==\",[\"get\",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が\n成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。\n\n`has_unknown_fallback`: タイルプロパティが\n欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、\n未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する\nうちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい\n真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と\n元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/\n`false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、\ntrueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:\nevaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。\n\nN値文字列材料（`categories`）: `domain/axis_definitions.py:\nCategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の\n場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする\n（`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`\n（既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを\n圧迫感等の点数に反映すれば足りる材料向け、例: `designation`は評価側のmappingが\n全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。\n`has_unknown_fallback=True`の場合、未登録値は0扱いではなく\n「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/\naxis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で\nNoneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0\n[最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`\n（`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は\n評価側でcar_stress軸全体を評価しない[required=True]。プロパティの**欠損**のみを\n「不明」判定すると、「値はあるが未登録」のケースを見落とし、実際には未評価のはずの\n区間が0点=最良[緑]色で表示されてしまう。`axisLayers.ts: buildAxisRampUnknownExpression`\n参照）。boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している\n場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。\n\n自己変換材料（`breakpoints`）: 材料自身が\n`BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:\n`car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`\nexpressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。\n\n`needs_runtime_scale`: この材料のタイル生値が実行時にしか決まらない\n係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.\ntile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`\n——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の\n生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は\nこのフラグが立つ材料も自動導出の対象に含める——`weight`が「タイル生値→材料スケール」の\n静的な変換係数を表現できなくても、`GET /api/axis-catalog`が実行時に取得した\nスケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば\n正しく解決できる。`thresholds`は元々`AxisDefinition.shape.breakpoints`由来の\n「材料スケール」の値のため、このフラグを持たない他のtile_inputと同じ意味のまま\n扱ってよい（フロント側だけがこのフラグを見てtile生値に追加のスケール定数を掛ける）。"
       },
       "ValidationError": {
         "properties": {
@@ -4307,7 +4318,7 @@
           "precipitation_probability_percent"
         ],
         "title": "WeatherPeriodOutlook",
-        "description": "「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん（改善計画T385フォローアップ、\nユーザー要望「今日の日中の大まかな天気の流れが分かるものも欲しい」→「朝/午後/夜3区分は\n荒い」→「天気・気温・降水確率をもう少し細かい粒度でスマホ横幅に収まる表現で」の3段階の\nやり取りを経て、2時間おき8コマ・\"HH:MM\"表記に決着。さらに次のフォローアップで\n「現在時刻を含む時間帯から2時間毎」（固定6時始まりではなく現在時刻基準）へ変更）。\nperiodは代表時刻の\"HH:MM\"文字列（weather_service.py: _period_outlooks参照。現在時刻を\n2時間単位のグリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。\n朝/午後/夜のような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの\n整形はfrontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.\nweather_codeと同じくfrontend側（weatherCode.ts）に集約する。"
+        "description": "「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。periodは代表時刻の\n\"HH:MM\"文字列（weather_service.py: _period_outlooks参照。現在時刻を2時間単位の\nグリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。朝/午後/夜\nのような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの整形は\nfrontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.\nweather_codeと同じくfrontend側（weatherCode.ts）に集約する。"
       },
       "WeatherWarnings": {
         "properties": {

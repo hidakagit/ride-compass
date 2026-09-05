@@ -485,6 +485,46 @@ def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_
 T = TypeVar("T")
 
 
+def pareto_front_mask(
+    minimize_a: np.ndarray,
+    minimize_b: np.ndarray,
+    *,
+    quantum_a: float,
+    quantum_b: float,
+) -> np.ndarray:
+    """2つの「小さいほど良い」指標について、パレート非劣解（他のどの候補にも両方で
+    負けていない候補）を示す真偽配列を返す。
+
+    候補iが劣解になるのは「aもbもi以下で、少なくとも一方が真に小さい候補jが存在する」
+    とき。ルート候補では距離と難易度がこの2指標にあたり、劣解＝「より短くてより易しい
+    候補が他にあるので誰も選ぶ理由がない」を意味する。2指標を1つのスコアへ合成しない
+    ため、重み配分という恣意的なパラメータを持たずに済む。
+
+    `quantum_a`/`quantum_b`は「実質同じ」とみなす粒度で、比較の前に各指標をこの単位へ
+    丸める（例: 距離200m・難易度0.1）。粒度を持たせないと、1m短いだけの候補が互いに
+    非劣解として全件残りフィルタとして機能しない——逆に粗すぎると候補が減りすぎるため、
+    呼び出し側が指標の意味に応じて決める。
+
+    計算量はO(n log n)（aの昇順に走査しbの最小値を更新するだけ）。同値の扱いを含めて
+    決定的で、入力順には依存しない。
+    """
+    if len(minimize_a) == 0:
+        return np.zeros(0, dtype=bool)
+    a = np.round(np.asarray(minimize_a, dtype=float) / quantum_a)
+    b = np.round(np.asarray(minimize_b, dtype=float) / quantum_b)
+    # aの昇順（同値内はbの昇順）に走査する。走査済みのbの最小値より真に小さいbを持つ
+    # 候補だけが非劣解——それ以外は「a以下かつb以下」の候補を既に通過している。
+    order = np.lexsort((b, a))
+    sorted_b = b[order]
+    # 自分より前（a・bの順で先行）の最小値。先頭は比較対象が無いため+infにする。
+    prefix_min = np.minimum.accumulate(sorted_b)
+    best_before = np.concatenate(([np.inf], prefix_min[:-1]))
+    is_front_sorted = sorted_b < best_before
+    mask = np.zeros(len(a), dtype=bool)
+    mask[order[is_front_sorted]] = True
+    return mask
+
+
 def select_diverse_by_overlap(
     items: Sequence[T],
     edge_indices_of: Callable[[T], Sequence[int] | None],
