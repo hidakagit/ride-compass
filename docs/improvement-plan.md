@@ -850,7 +850,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 ## 風penaltyの二乗則化とレンズUI再編（2026-09-05・ユーザー検討依頼から合意、T590を分割元とする一連）
 
-- [ ] [T590](tasks/T590.md). 風penaltyの二乗則化とレンズUI再編（分割元・設計メモ。数式・スケール・UI設計の基準・分割先の依存関係を持つ。UI系タスクは実装前に各パネル・条件バーの詳細をユーザーと詰める） 規模L
+- [x] [T590](tasks/T590.md). 風penaltyの二乗則化とレンズUI再編（分割元・設計メモ） 規模L（2026-09-05完了。分割先T591〜T599が全て完了したことを受け、分割元の仕上げ[design-principles.mdへのUI仕様昇格・architecture.mdの現状追従・機械的チェック]を実施。現状追従の過程でT595統合時の消し忘れデッドコード[mapLayers.ts: isDedicatedWayValueLayerId]も発見し除去。T600のみトリガー待ちで対象外）
 - [x] [T591](tasks/T591.md). 二乗則の風材料を追加しバックエンドの3経路へ走行速度を配線する 規模M（2026-09-05完了。`wind_drag_ratio`材料追加、`DynamicAxisRequestContext.travel_speed_ms`必須化、式は`domain/wind.py`の1箇所へ集約。`wind_penalty`は本番の風軸切替[T599]まで非推奨エイリアスとして残置）
 - [x] [T592](tasks/T592.md). 区間・候補の物理量表示を材料カタログ駆動へ汎用化する 規模M（2026-09-05完了。第1段[backend・UI、ComparisonPanel/区間クリック詳細をmaterial_values駆動へ切替]・第2段[レガシーフィールド撤去]とも完了）
 - [x] [T593](tasks/T593.md). 専用way値レイヤーの配信値を難易度スケールへ統一しdisplay_thresholds_overrideの二重帰属を解消する 規模M（2026-09-05完了。配信値はbackendが軸定義で評価した地図表示値[風=難易度、勾配=符号付き材料]、軸カタログにmap_value_kind/unitを追加、フロントの風・勾配専用ファイルをdedicatedWayValueLayer.ts/valueScale.tsへ統合。本番の段階ラベル設定はT599へ）

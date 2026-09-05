@@ -200,14 +200,6 @@ const DEDICATED_WAY_VALUE_LAYER_IDS: ReadonlySet<string> = new Set(
     .map((axis) => `${axis.axis_id}Axis`)
 );
 
-/** 改善計画T440: 与えられた文字列が、専用way_id→動的値配信層を持つ軸のMapLayerIdとして
- * 実際に配線済みかを判定する型ガード。RouteSettingsPanel.tsx（mapColorLayerIdFor・
- * renderMapColorToggle）が、axis_idのハードコード比較（wind/gradientのみ）ではなく
- * これを使う。 */
-export function isDedicatedWayValueLayerId(id: string): id is MapLayerId {
-  return DEDICATED_WAY_VALUE_LAYER_IDS.has(id);
-}
-
 /** 軸スタジオ由来のレイヤーか（改善計画T418、T423でgradientAxisを追加）。ramp軸
  * （dataNature==="composite"）・専用way_id→動的値配信層を持つ軸
  * （DEDICATED_WAY_VALUE_LAYER_IDS、上記）はいずれも、T406時点は地図上チップの
