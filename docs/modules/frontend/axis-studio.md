@@ -16,6 +16,7 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 |---|---|
 | `components/AxisStudio/AxisStudio.tsx` | トップレベル。一覧取得・作成/更新/削除/複製/非公開化の状態管理 |
 | `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
+| `components/AxisStudio/breakpointTools.ts` | 折れ点の自動生成・区分線形補間・追加位置決定・ドラッグスナップ刻み幅算出（DOM非依存の純粋関数、`AxisComposer.tsx`が使う） |
 | `services/axisAdminApi.ts` | backend `axis_admin.py`への薄いHTTPラッパー（`listAxisDefinitions`・`createAxisDefinition`・`updateAxisDefinition`・`deleteAxisDefinition`・`unpublishAxisDefinition`） |
 | `app/admin/api/axis-definitions/route.ts`・`[axisId]/route.ts`・`[axisId]/unpublish/route.ts` | `axisAdminApi.ts`が叩くNext.js route handler群。`proxyToBackendAdmin`でbackend `/api/admin/axis-definitions`（一覧取得・作成/PUT更新/DELETE削除/POST非公開化）へそのまま転送する |
 | `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」で2グループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。集計は「集計する」ボタン押下時のみ |
@@ -117,8 +118,32 @@ listAxisDefinitions() ──→ definitions（全軸）
 
 ### 折れ点エディタ・スライダー・数値入力
 
-- `BreakpointCurveEditor`: SVGでbreakpointsをドラッグ調整できる曲線プレビュー。同じ
-  `draft.breakpoints` stateを数値入力行と共有し、常に同期する。
+- `breakpointTools.ts`（DOM非依存の純粋関数、`AxisComposer.tsx`が使う単一の実装）:
+  - `generateBreakpoints(zeroValue, hundredValue, shape)`: 「0点にする値」「100点にする値」
+    「形」（一定/後半で急/前半で急/S字）の3入力から6点の折れ点を生成する。
+    `zeroValue > hundredValue`（値が大きいほど走りやすい軸）でも常にx昇順で返す。
+  - `interpolateBreakpointScore(breakpoints, x)`: 区分線形補間。backend:
+    `domain/axis_templates.py: evaluate_breakpoint_linear`（`np.interp`、両端クランプ・
+    小数1桁丸め）と同じ結果になるよう実装を揃える——効き目プレビュー表が実際の評価結果と
+    食い違わないようにするため。
+  - `insertBreakpointAtLargestGap(breakpoints)`: 「+ 折れ点を追加」の挿入位置。隣接点の
+    x間隔が最も広い区間の中間へ挿入する（末尾へ既定値[0,0]を足すだけの旧実装は、既存の
+    折れ点より横軸が小さい点を足してしまい昇順制約に即座に違反していた）。
+  - `niceStep`/`snapToStep`: ドラッグ中のx方向スナップ刻み幅の算出（表示レンジに対して
+    「きりのいい」1/2/5×10^nを選ぶ）。
+- **効き目プレビュー表・自動生成の値の目安（「参考点から値を選ぶ」ボタン）**は、
+  `draft.terms.length === 1`かつ他軸参照ではない（`shapeKind === "breakpoint_linear"`）
+  場合にのみ、そのterm1件の材料が持つ`referencePoints`（`GET /api/material-catalog`の
+  `reference_points`、下記「useMaterialCatalog.ts / useMaterialValues.ts」節参照）から出す。
+  複数termの組み合わせ・他軸参照（かけあわせ評価）は参考点の対応が取れないため対象外
+  （`AxisComposer.tsx: primaryMaterial`）。参考点の生値は折れ点の横軸（`weight`を掛け、
+  `preprocess="abs"`なら絶対値を取った後の値）へ変換してから使う
+  （`toBreakpointX`、backend: `evaluate_axis_scalar`の`total`計算と同じ変換）。
+- `BreakpointCurveEditor`: SVGでbreakpointsをドラッグ・矢印キー調整できる曲線プレビュー。
+  同じ`draft.breakpoints` stateを数値入力行と共有し、常に同期する。`referenceRange`
+  （参考点の値域）を渡すとその範囲＋10%余白へ横軸を固定する——参考点が無い材料は
+  従来どおりbreakpoints自体の値から自動スケールする。目盛り線・ドラッグ中の値ラベル
+  （フォーカス中の点の上に表示）・矢印キーでの微調整（Shift併用で10倍刻み）を持つ。
 - `SliderNumberField`: 係数・スコアをスライダー（大まかな目安）＋数値入力（正確な値）の
   組み合わせで編集する。スライダーの範囲は材料ごとに大きく異なる値の目安にすぎず、
   範囲外の値は数値入力欄から直接指定できる。

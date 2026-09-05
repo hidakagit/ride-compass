@@ -376,3 +376,86 @@
   fill: var(--color-accent, #2563eb);
   cursor: grab;
 }
+
+.curvePoint:focus-visible {
+  outline: 2px solid var(--color-accent, #2563eb);
+  outline-offset: 2px;
+}
+
+.curveGridline {
+  stroke: var(--color-border, #e2e8f0);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+.curveTickLabel {
+  fill: var(--color-muted);
+  font-size: 8px;
+}
+
+.curveDragLabel {
+  fill: var(--color-text);
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.breakpointGeneratorRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.breakpointGeneratorLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.breakpointReferenceRow {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.breakpointReferenceButton {
+  font-size: var(--font-size-sm);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.breakpointReferenceButton:hover {
+  border-color: var(--color-accent, #2563eb);
+  color: var(--color-text);
+}
+
+.breakpointPreview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.breakpointPreviewTable {
+  width: 100%;
+  max-width: 24rem;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.breakpointPreviewTable th,
+.breakpointPreviewTable td {
+  text-align: left;
+  padding: 0.2rem 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.breakpointPreviewTable th {
+  color: var(--color-muted);
+  font-weight: 500;
+}
