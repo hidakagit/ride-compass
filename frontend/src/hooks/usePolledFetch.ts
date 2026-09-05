@@ -22,7 +22,7 @@ export interface UsePolledFetchOptions {
 }
 
 /** マウント（enabled=true）時に即座に1回フェッチし、以降intervalMsごとに再フェッチし続ける
- * ポーリングフック（改善計画T470）。
+ * ポーリングフック。
  *
  * useDynamicWeatherLayers.tsに「cancelledフラグ+Promise+catch」の同型フェッチ骨格が
  * 5箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・キキクル・線状降水帯予測

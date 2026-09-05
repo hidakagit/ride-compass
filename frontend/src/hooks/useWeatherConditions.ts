@@ -1,11 +1,10 @@
 "use client";
 
-// 現在地の天候（WeatherPanel向け）と3種の警告バッジ（JMA警報・注意報T205／WBGT T174／
-// 河川氾濫予報T212）のフェッチ・状態管理を1つのフックへ抽出したもの（改善計画T375、
-// T284の分割方針決定を受けた実施）。4つとも「locationReadyになるまで待ち、location変更の
-// たびに再フェッチする」という同じ形のeffectを持ち、警告バッジ3種は失敗時も例外を投げず
-// 「警告なし」（null/空配列）としてbackend契約どおり静かに扱う点まで共通のため、元は
-// page.tsx内に個別に書かれていた4本のfetch effectをまとめて1フックにした。
+// 現在地の天候（WeatherPanel向け）と3種の警告バッジ（JMA警報・注意報／WBGT／
+// 河川氾濫予報）のフェッチ・状態管理を1つのフックへ抽出したもの。4つとも
+// 「locationReadyになるまで待ち、location変更のたびに再フェッチする」という同じ形の
+// effectを持ち、警告バッジ3種は失敗時も例外を投げず「警告なし」（null/空配列）として
+// backend契約どおり静かに扱う点まで共通のため、1フックにまとめてある。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getAmedasObservation,
@@ -20,8 +19,8 @@ import type { WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
 
 export interface UseWeatherConditionsResult {
   /** 今日の見通し（TodayOutlook向け）。Open-Meteoの予報値（日次集計・weather_code・
-   * UV指数等）で、常設ヘッダーはこれを参照しない（改善計画T387フォローアップ、
-   * 2026-08-29「常設エリアは実測値、今日の見通しは予測値」の方針分離）。 */
+   * UV指数等）で、常設ヘッダーはこれを参照しない（常設エリアは実測値、今日の見通しは
+   * 予測値という方針分離）。 */
   weather: WeatherConditions | null;
   weatherLoading: boolean;
   weatherError: string | null;
@@ -34,7 +33,7 @@ export interface UseWeatherConditionsResult {
   warningBadgeItems: WarningBadgeItem[];
 }
 
-/** 現在地の天候・警告バッジ3種のフェッチ・状態管理（改善計画T375）。locationReadyが
+/** 現在地の天候・警告バッジ3種のフェッチ・状態管理。locationReadyが
  * trueになるまで待ち、その後はlocationが変わるたびに再フェッチする（マウント直後は
  * DEFAULT_LOCATION、Geolocationが成功すると実際の現在地でも1回走る、useLocation.ts参照）。
  * 各フェッチはリクエストごとに連番を振り、「一番最後に投げたリクエストの結果か」を
@@ -69,7 +68,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [locationReady, location, fetchWeatherFor]);
 
-  // 最寄りアメダス観測所の実測値（改善計画T387フォローアップ）。weather（Open-Meteo）とは
+  // 最寄りアメダス観測所の実測値。weather（Open-Meteo）とは
   // 独立したフェッチ・状態にすることで、常設ヘッダーの表示がOpen-Meteoの障害・遅延から
   // 影響を受けないようにする。
   const [amedas, setAmedas] = useState<AmedasObservation | null>(null);
@@ -101,9 +100,9 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     Promise.resolve().then(() => fetchAmedasFor(location));
   }, [locationReady, location, fetchAmedasFor]);
 
-  // 警報・注意報バッジ（改善計画T205）。通信エラー時は例外を投げるだけで、警報なし
+  // 警報・注意報バッジ。通信エラー時は例外を投げるだけで、警報なし
   // （空配列）として静かに扱う（バックエンド自体が失敗時に空warningsを返す契約のため、
-  // これは主にネットワーク到達不能等の場合。T205完了条件「取得失敗時は警告なし」）。
+  // これは主にネットワーク到達不能等の場合）。
   const [weatherWarnings, setWeatherWarnings] = useState<WeatherWarnings | null>(null);
   const latestWarningsRequestId = useRef(0);
   const fetchWarningsFor = useCallback((next: Coordinates) => {
@@ -124,7 +123,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     Promise.resolve().then(() => fetchWarningsFor(location));
   }, [locationReady, location, fetchWarningsFor]);
 
-  // WBGT警告バッジ（改善計画T174）。提供期間外（11〜3月）・取得失敗・「ほぼ安全」の
+  // WBGT警告バッジ。提供期間外（11〜3月）・取得失敗・「ほぼ安全」の
   // いずれもbackend契約どおりlevel=nullとして静かに扱う。
   const [wbgtStatus, setWbgtStatus] = useState<WbgtStatus | null>(null);
   const latestWbgtRequestId = useRef(0);
@@ -146,7 +145,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     Promise.resolve().then(() => fetchWbgtFor(location));
   }, [locationReady, location, fetchWbgtFor]);
 
-  // 河川氾濫予報バッジ（改善計画T212）。他の警告バッジと同じ「取得失敗・対象河川なしは
+  // 河川氾濫予報バッジ。他の警告バッジと同じ「取得失敗・対象河川なしは
   // forecasts=[]として静かに扱う」方式。
   const [floodForecasts, setFloodForecasts] = useState<FloodForecasts | null>(null);
   const latestFloodRequestId = useRef(0);
@@ -184,7 +183,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
         }))
       : [];
     // WBGTはlevelがnull（提供期間外・取得失敗・「ほぼ安全」のいずれか）の間は表示しない
-    // （T174完了条件、JMA警報が0件の場合と同じ「無ければ何も出ない」挙動）。
+    // （JMA警報が0件の場合と同じ「無ければ何も出ない」挙動）。
     const wbgtItem: WarningBadgeItem[] =
       wbgtStatus?.level && wbgtStatus.value != null
         ? [

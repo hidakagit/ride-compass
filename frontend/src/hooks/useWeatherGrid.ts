@@ -1,11 +1,9 @@
 "use client";
 
-// 風の格子点マップ（改善計画T178フォローアップ）のフェッチ・マージ・detail切り替えを
-// 1つのフックへ抽出したもの（T183「1時間より先も、短時間雨予報を出してほしい」
-// 「風と同じ考え方で、風と汎用化して実装してほしい」を受け、元はpage.tsx内に直接
-// 書かれていた約100行の風専用ロジックを、風と延長降水予報が共有できる形へ切り出した）。
+// 風の格子点マップのフェッチ・マージ・detail切り替えを1つのフックへ抽出したもの
+// （風と延長降水予報が共有できる形にしてある）。
 // バックエンド（GET /api/weather/wind-grid・wind-grid-detail）は1回のフェッチで
-// 風向・風速・降水量（precipitation_mm、T183で追加）をまとめて返すため、風の矢印と
+// 風向・風速・降水量（precipitation_mm）をまとめて返すため、風の矢印と
 // 延長降水予報アイコンは同じ格子点データを共有でき、enabledをどちらか一方でもONなら
 // trueにして呼び出すだけで両機能ぶんのフェッチを1本化できる（呼び出し側はpage.tsxが
 // 表示用に個別のFeatureCollectionへ変換する、windLayer.ts/precipitationNowcast.ts参照）。
@@ -25,13 +23,11 @@ import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedVa
 
 // バックエンド側のTTLキャッシュ（weather_client.py: WIND_GRID_CACHE_TTL_SECONDS）に合わせた
 // 間隔で再取得する。これより短い間隔で再取得してもキャッシュヒットするだけで新しいデータは
-// 得られず、624地点ぶんの応答（実測約0.9MB、統合レビュー2026-08-22指摘）を無駄に
-// 再ダウンロードするだけになる。T195でTTLを30分→3時間へ拡大した際、この間隔も追従させる
-// 必要があったが更新漏れがあったため、あわせて3時間へ揃えた（改善計画T202）。
+// 得られず、624地点ぶんの応答（約0.9MB）を無駄に再ダウンロードするだけになる。
 const WEATHER_GRID_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000;
 // パン・ズームのたびに（デバウンス済みとはいえ）呼ばれうるため、道路情報の絞り込み等の
 // LEGEND_FILTER_DEBOUNCE_MSより長め。地図フィルタの再適用と違いネットワーク往復を伴うため、
-// より鷹揚な間隔にしている（改善計画T470: 値自体はuseDebouncedValue.ts:
+// より鷹揚な間隔にしている（値自体はuseDebouncedValue.ts:
 // MAP_FETCH_DEBOUNCE_MSへ集約、他の地図系フェッチデバウンスと共有）。
 
 export interface UseWeatherGridResult {
@@ -67,9 +63,9 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   const [detailSpacingDeg, setDetailSpacingDeg] = useState(WIND_GRID_SPACING_DEG);
 
   // 再取得のたびにOpen-Meteo側の一時的な失敗（429等）で一部地点だけ抜け落ちることがあり、
-  // そのまま置き換えると地図上に「その地点だけ塗られていない」穴ができる（実機フィードバック
-  // 「画面端が塗られないことがある」）。前回成功していた地点を補って残すmergeWindGridKeepingStale
-  // のため、trim前の生の状態をrefで持ち続ける（grid自体はtrim後の表示用state、こちらは
+  // そのまま置き換えると地図上に「その地点だけ塗られていない」穴ができる。前回成功していた
+  // 地点を補って残すmergeWindGridKeepingStaleのため、trim前の生の状態をrefで持ち続ける
+  // （grid自体はtrim後の表示用state、こちらは
   // マージ専用の内部状態）。
   const rawGridRef = useRef<WindGridPoint[]>([]);
   useEffect(() => {
@@ -81,9 +77,8 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
         const rawGrid = mergeWindGridKeepingStale(rawGridRef.current, await getWindGrid());
         rawGridRef.current = rawGrid;
         // Open-Meteoのhourly.timeはその日の00:00始まりのため、そのままだと配列の前半に
-        // 過去の時刻が並ぶ。過去の風・降水を振り返る用途はアプリの性質上無いため
-        // （実機フィードバック「過去の風、雨を気にすることはアプリの性質上ない、デフォルト
-        // 位置を左端に」）、trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる。
+        // 過去の時刻が並ぶ。過去の風・降水を振り返る用途はアプリの性質上無いため、
+        // trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる。
         const trimmed = trimWindGridToCurrentAndFuture(rawGrid);
         if (cancelled) return;
         setGrid(trimmed);

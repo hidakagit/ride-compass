@@ -1,33 +1,25 @@
 // キキクル（気象庁 危険度分布：土砂・大雨・浸水）と線状降水帯予測マップ（sjfcstmap）の
-// タイル・時刻取得クライアント（改善計画T410、T387「無償範囲で追加できるJMAデータの調査」の
-// 続き）。
+// タイル・時刻取得クライアント。
 //
 // どちらも他の動的気象レイヤー（降水・風等）と異なり、**未来方向の複数フレームを持たない**
 // ——気象庁側で実況と短時間予測を統合済みの「現在の危険度」単一値のみを配信する
-// （実機確認2026-08-30: targetTimes.jsonの全エントリでvalidtime===basetime）。フレーム列は
+// （targetTimes.jsonの全エントリでvalidtime===basetime）。フレーム列は
 // 常に「現在」を表す最大1件のみ返す。**他の動的レイヤーと違い共有タイムライン・
 // frameIndexForTimeには乗せない**——フレームのvalidtimeは実際の「今」から最大10分ほど
 // 遅れるのが常態で、frameIndexForTimeの1秒の許容誤差には収まらない。
 //
-// **改善計画T432でキキクル3種と線状降水帯予測マップは扱いが分岐した**（当初T410は両者を
-// 「現在の防災リスク」として一括りにしていたが、データソースの系統（risk vs rasrf）と
-// 予報の性質が異なると判明したため訂正）:
+// キキクル3種と線状降水帯予測マップは扱いが分岐する（詳細は
+// docs/modules/frontend/dynamic-weather-layers.md「キキクル・線状降水帯予測マップ
+// （特殊系）」節参照）:
 // - キキクル3種（土砂・大雨・浸水）: 「防災」カテゴリとしてWarningBadgeと同様の常時
-//   マウント（チップ無し・時刻スライダーとも無関係）へ変更した。以前は「12時間後の雷が
-//   常時マップに警告されているのは嫌」という実機フィードバックを受け「スライダーが
-//   『現在』位置にある間だけ表示」（isAtNow判定）にしていたが、チップ・スライダーの
-//   どちらとも接続しない独立表示になったことで当時の懸念は構造的に発生しなくなり、
-//   isAtNowゲーティング自体を撤回した（frontend/src/hooks/useDynamicWeatherLayers.ts参照）。
-// - 線状降水帯予測マップ: データソースが実はrisk系統ではなくrasrf系統（降水短時間予報と
-//   同じ）と判明したため「降水」チップの傘下（4つ目のソース）へ再分類した。「今後3時間
+//   マウント（チップ無し・時刻スライダーとも無関係）。
+// - 線状降水帯予測マップ: データソースがrisk系統ではなくrasrf系統（降水短時間予報と
+//   同じ）のため「降水」チップの傘下（4つ目のソース）に分類する。「今後3時間
 //   以内におそれ」という予報の性質に合わせ、共有タイムラインが現在〜3時間先の範囲内の
 //   ときだけ表示する（isWithinFutureWindow、dynamicWeather.ts参照）——キキクルと異なり
 //   共有タイムラインと連動し続ける点に注意。
 //
-// **洪水キキクル（flood）**: 改善計画T416で実装（当初T410は`.pbf`形式のため本基盤の
-// 対応外として見送っていたが、dynamicWeather.tsへvectorTile kindを追加し対応した）。
-// 実機確認（Browserペインで`https://www.jma.go.jp/bosai/risk/`の実際の通信・
-// `risk.properties.xml`の`vectorTileLayerStyles`定義を観測）の結果:
+// **洪水キキクル（flood）**: 他3種と異なりvectorTile（.pbf）形式で配信される。
 // - URLパターンは他3種と完全に同型（`.../risk/{basetime}/{member}/{validtime}/surf/
 //   flood/{z}/{x}/{y}`）で、拡張子だけ`.pbf`（他3種は`.png`）。`targetTimes.json`も
 //   共通（elements配列に`"flood"`が含まれる）で、追加のfetchは不要。
@@ -42,7 +34,7 @@
 //   `minValueToShow`フィルタ参照）。
 // - 同じtargetTimes.jsonのelementsには`flood_mesh`・`designated_river(_nation)`・
 //   `inland_flood`（内水氾濫、`level`1〜2でtexture塗り）・`flood_riskline`も存在する
-//   関連製品だが、本タスク（洪水キキクルのみ）のスコープ外として未実装のまま残す。
+//   関連製品だが、洪水キキクルのみのスコープ外として未実装のまま残す。
 
 import { fetchJson } from "@/lib/fetchJson";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
@@ -51,7 +43,7 @@ import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/compone
 
 const RISK_TARGET_TIMES_URL = `${JMA_TILE_BASE_URL}/jmatile/data/risk/targetTimes.json`;
 // 線状降水帯予測マップ(sjfcstmap)は降水短時間予報(rasrf)と同じtargetTimes.jsonに
-// elements違いの別行として混在する（改善計画T407実装メモ参照）。
+// elements違いの別行として混在する。
 const RASRF_TARGET_TIMES_URL = `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/targetTimes.json`;
 
 interface RawRiskTargetTime {
@@ -96,7 +88,7 @@ export interface CurrentRiskFrames {
   heavyRain: DynamicWeatherFrame<RiskFrameRef>[];
   /** 浸水キキクル。 */
   inundation: DynamicWeatherFrame<RiskFrameRef>[];
-  /** 洪水キキクル（改善計画T416、タイル要素id="flood"、他3種と異なりvectorTile）。 */
+  /** 洪水キキクル（タイル要素id="flood"、他3種と異なりvectorTile）。 */
   flood: DynamicWeatherFrame<RiskFrameRef>[];
 }
 
@@ -122,8 +114,8 @@ function tileUrlTemplate(
   group: "risk" | "rasrf",
   elementId: string,
   ref: RiskFrameRef,
-  // 洪水キキクル（flood）だけ配信元がMapbox Vector Tile（.pbf）のため拡張子が異なる
-  // （改善計画T416）。他はすべてラスタタイル（.png）。
+  // 洪水キキクル（flood）だけ配信元がMapbox Vector Tile（.pbf）のため拡張子が異なる。
+  // 他はすべてラスタタイル（.png）。
   extension: "png" | "pbf" = "png"
 ): string {
   const path = `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.${extension}`;
@@ -145,7 +137,7 @@ export function inundationRenderPayload(ref: RiskFrameRef): DynamicWeatherRender
   return { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate("risk", "inund", ref) };
 }
 
-/** 洪水キキクル（改善計画T416）。他3種と異なりvectorTile——source-layer名・色分けは
+/** 洪水キキクル。他3種と異なりvectorTile——source-layer名・色分けは
  * MapView.tsx: DYNAMIC_WEATHER_RENDERERS.floodRiskが持つ（本ファイル冒頭コメント参照）。 */
 export function floodRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
   return { kind: "vectorTile", tileUrlTemplate: tileUrlTemplate("risk", "flood", ref, "pbf") };
