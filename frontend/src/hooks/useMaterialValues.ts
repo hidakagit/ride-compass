@@ -9,11 +9,11 @@ interface MaterialValuesState {
   values: readonly MaterialValueEntry[];
 }
 
-/** 材料の実データ値一覧（改善計画T340）。軸スタジオ（AxisComposer.tsx）が
+/** 材料の実データ値一覧。軸スタジオ（AxisComposer.tsx）が
  * highway/surface/smoothnessのようなオープンエンドな多値材料の値入力欄を、
  * テキスト自由入力から選択式へ切り替えるために使う。各値の日本語ラベル(label)は
  * backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが単一ソース
- * （改善計画T345フォローアップ、地図の絞り込みUIのグルーピングとは独立）。
+ * （地図の絞り込みUIのグルーピングとは独立）。
  *
  * `materialId`がnull、または動的値一覧に対応していない材料（bicycle_infra等）・
  * DB未接続・DB障害・取得中はいずれも空配列を返す——呼び出し側は空配列を

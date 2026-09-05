@@ -1,15 +1,15 @@
-// 軸スタジオ（改善計画T270）の材料選択候補の静的フォールバック。改善計画T277で
-// backend/app/domain/material_catalog.py: MATERIAL_CATALOGが正式な単一ソースになり、
+// 軸スタジオの材料選択候補の静的フォールバック。
+// backend/app/domain/material_catalog.py: MATERIAL_CATALOGが正式な単一ソースで、
 // 軸コンポーザーは通常`hooks/useMaterialCatalog.ts`経由でGET /api/material-catalogから
 // 動的取得する。本定数は取得失敗時（オフライン・API未起動等）のフォールバックとしてのみ
 // 残す——新しい材料を増やす際にこのファイルの更新は必須ではない（動的取得が失敗した
 // 場合のみ古いまま表示される）。
 //
 // これはbackend側`compute_edge_axis_scores`/`compute_edge_costs_bulk`が組み立てる
-// 材料辞書のキーそのものであり（目論見書7章・歯止め4「材料の天井」）、
-// backend/app/domain/registry_defaults.pyの一次属性（OSM生タグ等）とは別の語彙のため、
-// あちらのカタログをそのまま流用できない（両者は将来統合の余地がある課題として
-// docs/decisions/t221-axis-registry.md「T12との関係」に記録済み）。
+// 材料辞書のキーそのものであり、backend/app/domain/registry_defaults.pyの一次属性
+// （OSM生タグ等）とは別の語彙のため、あちらのカタログをそのまま流用できない（両者は
+// 将来統合の余地がある課題として docs/decisions/t221-axis-registry.md「T12との関係」に
+// 記録済み）。
 export type AxisMaterialDType = "numeric" | "boolean" | "categorical";
 
 /** 軸スタジオの折れ点編集を助ける「値の目安」1点。backend/app/domain/
@@ -21,16 +21,16 @@ export interface AxisMaterialReferencePoint {
 
 export interface AxisMaterialOption {
   id: string;
-  /** 改善計画T345さらなるフォローアップ2: 「論理名 - 物理名」形式（例: "道路種別 - highway"）。
-   * backend/app/domain/material_catalog.py: MaterialSpec.full_label()と同じ形式で、
-   * 動的取得（GET /api/material-catalog）が失敗した場合のフォールバックとして揃える。 */
+  /** 「論理名 - 物理名」形式（例: "道路種別 - highway"）。backend/app/domain/
+   * material_catalog.py: MaterialSpec.full_label()と同じ形式で、動的取得
+   * （GET /api/material-catalog）が失敗した場合のフォールバックとして揃える。 */
   label: string;
-  /** 改善計画T345: 情報アイコン(ⓘ)から表示する説明文。backend/app/domain/
+  /** 情報アイコン(ⓘ)から表示する説明文。backend/app/domain/
    * material_catalog.py: MaterialSpec.descriptionが単一ソース。 */
   description: string;
   /** "numeric"=数値材料（BreakpointLinearShape向け）、"boolean"=真偽値材料
    * （BreakpointLinearShape/CategoricalShape向け）、"categorical"=文字列多値材料
-   * （CategoricalShapeがbool/str両方に対応、改善計画T292）。 */
+   * （CategoricalShapeがbool/str両方に対応）。 */
   dtype: AxisMaterialDType;
   /** 値の単位（凡例・数値表示用、無次元・真偽値・カテゴリ値は空文字）。
    * backend/app/domain/material_catalog.py: MaterialSpec.unitが単一ソース。 */
@@ -41,10 +41,10 @@ export interface AxisMaterialOption {
 }
 
 // backend/app/domain/material_catalog.py: MATERIAL_CATALOGのうちdisplay_only=Falseの
-// 材料（GET /api/material-catalogの公開レスポンスと同じ集合、改善計画T338）と同じ内容。
+// 材料（GET /api/material-catalogの公開レスポンスと同じ集合）と同じ内容。
 // 動的取得が失敗した場合のみこの一覧が使われるため、backend側の変更に追従できていなくても
 // 軸スタジオの選択肢が古くなるだけで実害はないが、削除済みの材料id（car_stress_level）や
-// display_only化された材料id（designation、改善計画T338）を含んだままだと選択→保存時に
+// display_only化された材料id（designation）を含んだままだと選択→保存時に
 // AxisDefinitionPayload._check_materials_are_knownの"unknown material(s)"エラーには
 // ならないものの選択肢として不適切なままになるため、削除・除外済みidだけは残さない。
 export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
