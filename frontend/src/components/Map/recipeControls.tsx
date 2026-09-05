@@ -7,29 +7,18 @@ import { InfoIcon } from "./icons";
 import LayerChip from "./LayerChip";
 import styles from "./recipeControls.module.css";
 
-// 一般向けルート設定画面（RouteSettingsPanel）が使う上書きUI部品。T113で
-// CarStressRecipePanel専用に実装したものを、2つ目のレシピ（当時の安全度レシピ。
-// 安全度軸自体はT148で削除済み）登場を機に汎用化した（改善計画: 安全度レシピ。
-// 「今後ほかの2次データのレシピが増えると思うので、くくり出してほしい」という
-// ユーザー要望への対応）。改善計画T292: 車ストレス専用の3レシピパネル
-// （CarStressRecipePanel等）の廃止に伴い、それらだけが使っていた部品（LevelPicker・
-// AdjustmentStepper・CarClosenessReferenceSection・adjustmentEndpointColors・
-// ScalarInput・ThresholdAdjustmentRow）は削除した。RecipePanelSection・withAutoEnable・
-// FieldLabelは引き続きRouteSettingsPanel等が使う汎用部品として残す。
+// 一般向けルート設定画面（RouteSettingsPanel）等が使う上書きUI部品
+// （RecipePanelSection・withAutoEnable・FieldLabel）。
 
-// 研究タブ各パネルの最上位の折りたたみ（改善計画: 研究タブのレイアウト改善。ユーザー
-// フィードバック「地図の見え方のようなデザインに合わせて、折りたたみを工夫したり表示非表示を
-// スマートにして」への対応）。MapLayersPanel.module.cssの.layerSection/.layerHeader/
-// .layerTitle/.chevron/.layerBodyをcomposesでそのまま再利用し、地図側のレイヤー折りたたみと
-// 同一の見た目・挙動にする。ON/OFFチップも同じLayerChip部品を流用（表示チップの「表示」→
-// このチップは「上書き」）。
+// 研究タブ各パネルの最上位の折りたたみ。MapLayersPanel.module.cssの.layerSection/
+// .layerHeader/.layerTitle/.chevron/.layerBodyをcomposesでそのまま再利用し、地図側の
+// レイヤー折りたたみと同一の見た目・挙動にする。ON/OFFチップも同じLayerChip部品を
+// 流用（表示チップの「表示」→このチップは「上書き」）。
 //
-// 以前は「上書きする」チェックボックス1つが開閉と有効/無効を兼ねていたため、値を確認する
-// だけでも上書きを有効化する（＝地図やルート生成に即座に影響する）しかなかった。
-// MapLayersPanelの「OFF中でも絞り込み操作でき、操作すると自動でONになる」設計
-// （handleRoadLegendToggle等）と同じ考え方で、開閉（details）と有効/無効（チップ）を分離する。
-// 上書き無効中も中身は既定値で表示・編集でき、値を変更すると上書きが自動でONになる
-// （呼び出し側はonRecipeChange等をwithAutoEnableで包んで渡す）。
+// 開閉（details）と有効/無効（チップ）は分離してある——両方を1つのチェックボックスが
+// 兼ねると、値を確認するだけでも上書きを有効化する（＝地図やルート生成に即座に影響する）
+// しかなくなるため。上書き無効中も中身は既定値で表示・編集でき、値を変更すると上書きが
+// 自動でONになる（呼び出し側はonRecipeChange等をwithAutoEnableで包んで渡す）。
 export function RecipePanelSection({
   title,
   overrideAriaLabel,
@@ -58,9 +47,7 @@ export function RecipePanelSection({
         </>
       }
       // LayerChipはAccordion.Trigger（button）の兄弟として配置する（trailing）。
-      // button内buttonという無効なHTMLを避けるためで、以前<summary>内で必要だった
-      // preventDefault/stopPropagation（開閉のデフォルト動作との衝突回避）は、
-      // Trigger外に出たことで不要になった。
+      // button内buttonという無効なHTMLを避けるため。
       trailing={
         <LayerChip
           label="上書き"
@@ -93,12 +80,9 @@ export function withAutoEnable<T>(
 
 // フィールドラベル+情報アイコン。タップでも確実に開くクリック式の開閉ボタン
 // （MapOverlayControlsのaria-expanded凡例トグルと同じ規約）。説明本体はRadix Popoverで
-// フローティング表示する（T253併用導入。以前は呼び出し側がopen/onToggleを受け取り、
-// DOM上input/tr等の後ろへ`<p>`/`<tr>`を個別に配置していたが、呼び出し側ごとに配置形が
-// バラバラだった（div直後の<p> vs テーブル行内の<tr colSpan>）。Popoverはトリガー位置基準の
-// フローティング表示のためDOM上の配置形に依存せず、開閉状態もこのコンポーネント自身が
-// 持つため呼び出し側は`description`を渡すだけでよくなった）。`className`は任意の追加クラス
-// （改善計画T118のモバイル幅溢れ修正: highway別基準値テーブル内では
+// フローティング表示する——トリガー位置基準のためDOM上の配置形（div直後 vs テーブル行内等）
+// に依存せず、開閉状態もこのコンポーネント自身が持つため呼び出し側は`description`を
+// 渡すだけでよい。`className`は任意の追加クラス（highway別基準値テーブル内では
 // nowrap/flex-shrink:0を打ち消して折り返しを許可する必要があり、呼び出し側の
 // module.cssでその上書きクラスを定義してここへ渡す）。
 

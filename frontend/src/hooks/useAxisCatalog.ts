@@ -21,8 +21,8 @@ import {
   type RouteStyleMode,
 } from "@/components/Map/routeStyleModes";
 
-// ビルド時静的生成物（既存7軸の既定重み、開発中のフォールバック用）。GET /api/axis-catalog
-// （改善計画T269）はこれと同じ形の情報をDBの最新内容から動的に返す。
+// ビルド時静的生成物（既存7軸の既定重み、開発中のフォールバック用）。
+// GET /api/axis-catalogはこれと同じ形の情報をDBの最新内容から動的に返す。
 const STATIC_DEFAULT_WEIGHTS: RoutePreferenceWeights = axisCatalogStatic.preference_defaults;
 
 export interface AxisCatalog {
@@ -30,23 +30,23 @@ export interface AxisCatalog {
   axes: readonly PreferenceAxisDef[];
   /** axis_idから既定重みを引く。未知のaxis_idには0を返す。 */
   defaultWeights: RoutePreferenceWeights;
-  /** 地図のramp表示を持つ軸（改善計画T308）。フェッチ完了までとエラー時は静的
+  /** 地図のramp表示を持つ軸。フェッチ完了までとエラー時は静的
    * フォールバック（axisLayers.ts: RAMP_AXES）を返す。 */
   rampAxes: readonly RampAxis[];
   /** axis_id→表示名の辞書（軸スタジオ公開軸を含む、フェッチ完了までは静的フォールバック）。 */
   axisLabels: Record<string, string>;
-  /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む、改善計画T308でフェッチ
-   * 対応）。フェッチ完了までとエラー時は静的フォールバック（secondaryAxes.ts: SECONDARY_AXES）。 */
+  /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む）。フェッチ完了までと
+   * エラー時は静的フォールバック（secondaryAxes.ts: SECONDARY_AXES）。 */
   secondaryAxes: readonly SecondaryAxisSummary[];
-  /** ルート地図の色分けモード一覧（改善計画T352、公開軸を無条件で動的に含む）。
-   * フェッチ完了までとエラー時は静的フォールバック（routeStyleModes.ts: ROUTE_STYLE_MODES）。 */
+  /** ルート地図の色分けモード一覧（公開軸を無条件で動的に含む）。フェッチ完了までと
+   * エラー時は静的フォールバック（routeStyleModes.ts: ROUTE_STYLE_MODES）。 */
   routeStyleModes: readonly RouteStyleMode[];
-  /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを
-   * 表す（改善計画T320）。falseの間（未取得・取得失敗）は他フィールドが静的フォールバック
-   * （ビルド時の既存7軸スナップショット）である可能性があるため、呼び出し側が
-   * 「軸スタジオの現在の公開軸集合と一致している」ことを要求する処理（route_preference
-   * のキー整合等）では、このフラグで未確定状態を区別しなければならない。取得成功時に
-   * axesが0件（全軸非公開）であってもtrueになる（0件も確定した実際の状態のため）。 */
+  /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを表す。
+   * falseの間（未取得・取得失敗）は他フィールドが静的フォールバック（ビルド時の既存7軸
+   * スナップショット）である可能性があるため、呼び出し側が「軸スタジオの現在の公開軸集合と
+   * 一致している」ことを要求する処理（route_preferenceのキー整合等）では、このフラグで
+   * 未確定状態を区別しなければならない。取得成功時にaxesが0件（全軸非公開）であっても
+   * trueになる（0件も確定した実際の状態のため）。 */
   loaded: boolean;
 }
 
@@ -133,13 +133,11 @@ function buildCatalog(
   };
 }
 
-// コードレビュー指摘の修正: useAxisCatalog()は呼び出しごとに独立してGET /api/axis-catalogを
-// 発火していたため、page.tsxとRouteSettingsPanel.tsx（page.tsxの子として初回描画時から
-// マウントされる）が同時にこのフックを呼ぶと、初回描画で同じリクエストが2回同時に飛んで
-// いた。同時に飛んでいる（未解決の）フェッチだけをこのモジュールレベル変数で共有し、
-// 解決/失敗したら即座にクリアする（解決後の結果を永続キャッシュしない——軸スタジオでの
-// 公開操作を再デプロイなしに反映するというT269の設計を保つため、後続の別マウント
-// [例: モバイルのBottomSheetでタブを開き直す]では改めて最新を取得する）。
+// page.tsxとRouteSettingsPanel.tsx（page.tsxの子として初回描画時からマウントされる）が
+// 同時にこのフックを呼びうるため、同時に飛んでいる（未解決の）フェッチだけをこの
+// モジュールレベル変数で共有し、解決/失敗したら即座にクリアする（解決後の結果を
+// 永続キャッシュしない——軸スタジオでの公開操作を再デプロイなしに反映するため、
+// 後続の別マウント[例: モバイルのBottomSheetでタブを開き直す]では改めて最新を取得する）。
 let inFlightCatalogFetch: ReturnType<typeof getAxisCatalog> | null = null;
 
 function fetchAxisCatalogDeduped(): ReturnType<typeof getAxisCatalog> {
@@ -151,14 +149,12 @@ function fetchAxisCatalogDeduped(): ReturnType<typeof getAxisCatalog> {
   return request;
 }
 
-// 改善計画T527: 上記の「同時に飛んでいる場合」の重複排除だけでは、page.tsxが先に
-// マウント・フェッチ完了した後にRouteSettingsPanel.tsxが再マウント（モバイルの
-// BottomSheetでタブを開き直す等）してフェッチし直すケースを救えず、その再フェッチが
-// 失敗する/軸スタジオでの公開状態変化を挟むと2インスタンスの`axes`配列が食い違い、
-// stackBarColorForIndex(index, length)の結果がパネル間でズレうる不具合があった。
-// 解決済みカタログをモジュールレベルの単一ストアとして持ち、全呼び出し元が
-// useSyncExternalStoreで同じオブジェクト参照を購読する形へ変更し、構造的に
-// 起こらなくした（どちらかのフェッチが解決すれば全呼び出し元へ即座に反映される）。
+// 上記の「同時に飛んでいる場合」の重複排除だけでは、page.tsxが先にマウント・フェッチ
+// 完了した後にRouteSettingsPanel.tsxが再マウント（モバイルのBottomSheetでタブを
+// 開き直す等）してフェッチし直すケースを救えない。解決済みカタログをモジュールレベルの
+// 単一ストアとして持ち、全呼び出し元がuseSyncExternalStoreで同じオブジェクト参照を
+// 購読することで、2インスタンス間で`axes`配列が食い違うことは構造的に起こらない
+// （どちらかのフェッチが解決すれば全呼び出し元へ即座に反映される）。
 let sharedCatalog: AxisCatalog = FALLBACK_CATALOG;
 const catalogListeners = new Set<() => void>();
 
@@ -188,38 +184,34 @@ export function __resetAxisCatalogStoreForTests(): void {
   inFlightCatalogFetch = null;
 }
 
-/** 軸カタログ（改善計画T269、T308で地図表示情報を追加）。マウント時に一度
- * `GET /api/axis-catalog`を取得し、軸スタジオ（T270）がDBへ追加・公開した軸を反映する
- * （is_publishedの切替も含め、再デプロイ不要で即座に反映される）。取得完了までとエラー時は
- * 静的な既存7軸カタログ（フォールバック）を返すため、呼び出し側は常に何かしらの
- * 一覧を受け取れる（loading状態を個別に扱う必要がない）。
+/** 軸カタログ。マウント時に一度`GET /api/axis-catalog`を取得し、軸スタジオがDBへ
+ * 追加・公開した軸を反映する（is_publishedの切替も含め、再デプロイ不要で即座に
+ * 反映される）。取得完了までとエラー時は静的な既存7軸カタログ（フォールバック）を
+ * 返すため、呼び出し側は常に何かしらの一覧を受け取れる（loading状態を個別に扱う
+ * 必要がない）。
  *
- * 改善計画T320: フォールバック中（`loaded=false`）の値を「軸スタジオの現在の公開軸集合」と
- * 取り違えて送信すると、実際の公開軸と食い違うroute_preferenceを送ってしまい422になりうる
+ * フォールバック中（`loaded=false`）の値を「軸スタジオの現在の公開軸集合」と取り違えて
+ * 送信すると、実際の公開軸と食い違うroute_preferenceを送ってしまい422になりうる
  * （`page.tsx: handleGenerate`参照）。フォールバック値をUIの初期描画・地図レイヤーの初期状態
  * 用に使うことは問題ないが、APIへ送るペイロードの構築等「軸スタジオの現在の状態と一致して
- * いなければならない」処理では、必ず`loaded`を確認すること。
- *
- * 改善計画T306: 以前はaxis_idから観測/推定/動的カテゴリを引く`categoryOf`も持っていたが、
- * 唯一の消費者だったRouteSettingsPanelのカテゴリ別グルーピング表示を撤去したのに伴い削除。
- * backendのGET /api/axis-catalogレスポンス自体には引き続き`category`フィールドが含まれる
- * （他用途・将来のプロファイル機能のため）が、このフックはそれを消費しない。 */
+ * いなければならない」処理では、必ず`loaded`を確認すること。このフックはaxis_idから
+ * 観測/推定/動的カテゴリを引く手段を提供しない——backendのGET /api/axis-catalog
+ * レスポンス自体には引き続き`category`フィールドが含まれる（他用途のため）が、
+ * このフックはそれを消費しない。 */
 export function useAxisCatalog(): AxisCatalog {
   useEffect(() => {
     fetchAxisCatalogDeduped()
       .then((response) => {
-        // 改善計画T318フォローアップ: 以前は`response.axes.length > 0`もガード条件に
-        // 含めており、「まだ取得中/取得失敗」と「取得成功したが軸が0件（全軸非公開）」を
-        // 同一視していた。後者でも静的フォールバック（既存7軸）が残り続け、軸スタジオで
-        // 全軸を非公開にしてもルート設定パネルに7軸が表示され続ける実障害があった
-        // （2026-08-25）。取得成功時はaxesが空でもそのままbuildCatalogへ渡す
-        // （フェッチ未完了・失敗時のみFALLBACK_CATALOGに留まる、という区別に一本化）。
+        // 取得成功時はaxesが空でもそのままbuildCatalogへ渡す（フェッチ未完了・失敗時のみ
+        // FALLBACK_CATALOGに留まる、という区別に一本化する——「まだ取得中/取得失敗」と
+        // 「取得成功したが軸が0件（全軸非公開）」を同一視すると、軸スタジオで全軸を
+        // 非公開にしても静的フォールバックの既存7軸が表示され続けてしまう）。
         publishCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
       })
       .catch(() => {
         // 取得失敗時は共有ストアを書き換えない（fetchJsonが既にdebugLogへ記録済み。
         // 他の呼び出し元が既に取得済みの正常なカタログを、この呼び出し元だけの
-        // 失敗で巻き戻さないため、T527の食い違い修正と対になる挙動）。
+        // 失敗で巻き戻さないため）。
       });
   }, []);
 
