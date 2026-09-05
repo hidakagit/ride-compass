@@ -47,6 +47,7 @@ export function useMaterialCatalog(): readonly AxisMaterialOption[] {
               label: m.label,
               description: m.description,
               dtype: m.dtype,
+              referencePoints: m.reference_points,
             })),
           );
         }

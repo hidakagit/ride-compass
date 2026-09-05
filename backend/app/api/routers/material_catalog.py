@@ -6,8 +6,8 @@ GUIから行わない（`domain/material_catalog.py`へのコード変更＋デ�
 
 `tile_property`（地図レイヤーのramp自動生成が内部で使う想定、T278）は公開レスポンスに
 含めない——フロントの軸コンポーザーが必要とするのは`material_id`/`label`/`description`/
-`dtype`のみのため（`description`は改善計画T345で追加、軸コンポーザーの情報アイコンから
-表示する説明文）。
+`dtype`/`reference_points`のみのため（`description`は軸コンポーザーの情報アイコンから
+表示する説明文、`reference_points`は折れ点編集を助ける「値の目安」一覧）。
 
 `MaterialSpec.display_only=True`の材料（designation）は`axis_studio_materials()`が
 このレスポンスから除外する。構造的なAND条件（"both"）を素朴なCategoricalShapeが
@@ -58,6 +58,11 @@ from app.services.region_service import RegionService
 router = APIRouter()
 
 
+class MaterialReferencePointEntry(BaseModel):
+    label: str
+    value: float
+
+
 class MaterialCatalogEntry(BaseModel):
     material_id: str
     # 改善計画T345さらなるフォローアップ2: 「論理名 - 物理名」形式（MaterialSpec.full_label、
@@ -68,6 +73,9 @@ class MaterialCatalogEntry(BaseModel):
     # ユーザーフィードバックへの対応。情報アイコン(ⓘ)から表示する説明文。
     description: str
     dtype: MaterialDType
+    # 軸スタジオの折れ点編集を助ける「値の目安」一覧。値域が直感的でない材料（風等）
+    # ほど有用なため、真偽値・categorical材料や単純な材料は空配列になりうる。
+    reference_points: list[MaterialReferencePointEntry]
 
 
 class MaterialCatalogResponse(BaseModel):
@@ -118,7 +126,13 @@ async def get_material_catalog() -> MaterialCatalogResponse:
     return MaterialCatalogResponse(
         materials=[
             MaterialCatalogEntry(
-                material_id=m.material_id, label=m.full_label(), description=m.description, dtype=m.dtype
+                material_id=m.material_id,
+                label=m.full_label(),
+                description=m.description,
+                dtype=m.dtype,
+                reference_points=[
+                    MaterialReferencePointEntry(label=p.label, value=p.value) for p in m.reference_points
+                ],
             )
             for m in axis_studio_materials()
         ]

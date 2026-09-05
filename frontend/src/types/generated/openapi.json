@@ -3010,6 +3010,13 @@
               "categorical"
             ],
             "title": "Dtype"
+          },
+          "reference_points": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialReferencePointEntry"
+            },
+            "type": "array",
+            "title": "Reference Points"
           }
         },
         "type": "object",
@@ -3017,7 +3024,8 @@
           "material_id",
           "label",
           "description",
-          "dtype"
+          "dtype",
+          "reference_points"
         ],
         "title": "MaterialCatalogEntry"
       },
@@ -3181,6 +3189,24 @@
           "materials"
         ],
         "title": "MaterialCoverageResponse"
+      },
+      "MaterialReferencePointEntry": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "MaterialReferencePointEntry"
       },
       "MaterialTerm": {
         "properties": {

@@ -184,6 +184,7 @@ MaterialSpec]`が単一ソース。
 | `bool_default` | `dtype="boolean"`でextractorが欠損を返したときの配列上の扱い。`"false"`（タグ不在=非該当とみなす多数派）と`"nan"`（不明を非該当と混同しない少数派）の2種で、材料ごとに固定する（数値的に等価ではない） |
 | `display_only` | 軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）から除外し、地図表示専用に限定するか |
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/material-catalog/{id}/values`が返す） |
+| `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
 - 材料の「登録」（本カタログに載る）と「評価軸での利用」（`AxisDefinition.shape`が
   実際に参照する）は独立している。登録済みでも対応する軸が無ければ評価には使われない
@@ -200,7 +201,7 @@ MaterialSpec]`が単一ソース。
 
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`のみ。`tile_property`等のbackend内部フィールドは含めない） |
+| `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`/`reference_points`のみ。`tile_property`等のbackend内部フィールドは含めない） |
 | `GET /api/material-catalog/{material_id}/values` | 不要 | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・未対応材料/DB未接続は空リスト） |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 

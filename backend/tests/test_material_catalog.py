@@ -312,6 +312,36 @@ def test_value_label_falls_back_to_the_raw_value_for_unknown_values():
     assert gradient.value_label("anything") == "anything"
 
 
+def test_wind_penalty_reference_points_match_wind_calculator_computation():
+    # 参考点はハードコード数値ではなく`WindCalculator.wind_penalty`の計算値
+    # （小数2桁丸め）でなければならない。
+    from app.domain.wind import WindCalculator
+
+    spec = MATERIAL_CATALOG["wind_penalty"]
+    scenarios = {
+        "向かい風2m/s": (2.0, 0.0),
+        "向かい風4m/s": (4.0, 0.0),
+        "向かい風8m/s": (8.0, 0.0),
+        "追い風4m/s": (4.0, 180.0),
+        "真横4m/s": (4.0, 90.0),
+    }
+    points_by_label = {p.label: p.value for p in spec.reference_points}
+    assert points_by_label.keys() == scenarios.keys()
+    for label, (wind_speed_ms, wind_direction_deg) in scenarios.items():
+        expected = round(WindCalculator.wind_penalty(wind_speed_ms, wind_direction_deg, 0.0), 2)
+        assert points_by_label[label] == expected
+
+
+def test_all_reference_points_have_non_empty_label_and_finite_value():
+    # 新規材料追加時に参考点のlabel空文字・非有限値(NaN/inf)混入を検知する。
+    import math
+
+    for spec in MATERIAL_CATALOG.values():
+        for point in spec.reference_points:
+            assert point.label.strip() != "", f"{spec.material_id} has a reference point with empty label"
+            assert math.isfinite(point.value), f"{spec.material_id} has a non-finite reference point value"
+
+
 def test_full_label_combines_label_and_material_id():
     # 改善計画T345さらなるフォローアップ2: 材料名も値と同じ「論理名 - 物理名」形式
     # （例: "道路種別 - highway"）で軸スタジオへ返す（full_labelはGET /api/material-catalogの

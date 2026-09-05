@@ -1313,6 +1313,8 @@ export interface components {
              * @enum {string}
              */
             dtype: "numeric" | "boolean" | "categorical";
+            /** Reference Points */
+            reference_points: components["schemas"]["MaterialReferencePointEntry"][];
         };
         /** MaterialCatalogResponse */
         MaterialCatalogResponse: {
@@ -1358,6 +1360,13 @@ export interface components {
             edge_total: number;
             /** Materials */
             materials: components["schemas"]["MaterialCoverageEntry"][];
+        };
+        /** MaterialReferencePointEntry */
+        MaterialReferencePointEntry: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
         };
         /**
          * MaterialTerm
