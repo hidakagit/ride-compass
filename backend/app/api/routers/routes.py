@@ -28,11 +28,10 @@ router = APIRouter()
 logger = logging.getLogger("ridecompass.generate")
 
 # ルート生成距離の上限（km）。上限が無いとbboxが際限なく広がりタイル問い合わせが長時間
-# ハングしうる。既存の実機検証は30kmまでのため、余裕を見つつも無制限は避ける値として
-# 100kmとする。改善計画T471: 以前はfrontend/src/components/RouteForm/RouteForm.tsx・
-# frontend/src/app/page.tsxが「100」をそれぞれ独立にハードコードしていた
-# （設計原則1「OpenAPI生成物からの導出」違反）ため、この値をOpenAPI生成物経由で
-# フロントへ渡す唯一の情報源にする（export_openapi.py: ROUTE_GENERATE_CONFIG_PATH参照）。
+# ハングしうる。30km規模までの検証実績を踏まえ、余裕を見つつも無制限は避ける値として
+# 100kmとする。この値はOpenAPI生成物経由でフロントへ渡す唯一の情報源にする
+# （設計原則1「OpenAPI生成物からの導出」、export_openapi.py:
+# ROUTE_GENERATE_CONFIG_PATH参照）。
 MAX_ROUTE_DISTANCE_KM = 100
 
 # ルート生成の同時実行上限（settings.generate_max_concurrent、config.pyのコメント参照）。
@@ -66,17 +65,17 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
     `domain/evaluation.py: RoutePreference`と同じ。
 
-    改善計画T221 Stage B: 軸ごとの固定フィールドをやめaxis_idキーの辞書へ一般化した
-    （軸の増減でこのモデルの改修が不要になる）。API境界では「キー省略時に既定値が
-    黙って入る」ことを避けるため、既知の全axis_idを明示することを検証で強制する
-    （上書きするなら全軸を明示する、という方針）。値は非負。
+    軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの
+    改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、
+    既知の全axis_idを明示することを検証で強制する（上書きするなら全軸を明示する、
+    という方針）。値は非負。
     """
 
     @model_validator(mode="after")
     def _check_axis_keys(self) -> "RoutePreferenceWeights":
-        # 改善計画T292: AXIS_DEFINITIONSには内部軸（is_published=False、他の公開軸から
-        # 参照される専用の推定軸）も含まれるため、一般ユーザー向けAPIの上書き対象は
-        # 公開軸のみへ絞る（domain/evaluation.py: RoutePreference._validate_and_fill_weightsと
+        # AXIS_DEFINITIONSには内部軸（is_published=False、他の公開軸から参照される
+        # 専用の推定軸）も含まれるため、一般ユーザー向けAPIの上書き対象は公開軸のみへ
+        # 絞る（domain/evaluation.py: RoutePreference._validate_and_fill_weightsと
         # 同じ絞り込み）。
         expected = {axis_id for axis_id, definition in AXIS_DEFINITIONS.items() if definition.is_published}
         actual = self.root.keys()
@@ -98,7 +97,7 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
 
 
 class HardFilterOverride(RootModel[dict[str, bool]]):
-    """0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き（改善計画T266）。
+    """0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。
     キーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/
     'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら
     全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。
@@ -136,21 +135,21 @@ class RouteGenerateRequest(BaseModel):
     distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用、docs/research-interface-review-2026-08-15.md
-    # §10-1）。省略時はAXIS_DEFINITIONS由来の既定値（load_route_preference、改善計画T316）
-    # を使う。実際に適用された値はレスポンスのconditionsへエコーされる。
+    # §10-1）。省略時はAXIS_DEFINITIONS由来の既定値（load_route_preference）を使う。
+    # 実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
-    # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。省略時は既定1.0
-    # （従来どおり最悪でも距離2倍。domain/evaluation.py: compute_cost_from_axis_scores参照）。
+    # T12 ADR原則1: コスト式の割増率の強さ（P）。省略時は既定1.0
+    # （最悪でも距離2倍。domain/evaluation.py: compute_cost_from_axis_scores参照）。
     penalty_strength: float = Field(ge=0, default=1.0)
-    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
+    # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
     # 除外なし。domain/evaluation.py: is_edge_allowed参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)
-    # 改善計画T266: 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
-    # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS、従来どおりの挙動）。
+    # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
+    # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS）。
     hard_filters: HardFilterOverride | None = None
-    # 改善計画T531: 返す周回候補の上限件数（フロンティア方式の折返し点候補から距離フィルタ
-    # 合格・overall_difficulty昇順の上位この件数を返す）。改善計画T551: 経由地の無い目的地
-    # ルート（destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
+    # 返す周回候補の上限件数（フロンティア方式の折返し点候補から距離フィルタ合格・
+    # overall_difficulty昇順の上位この件数を返す）。経由地の無い目的地ルート
+    # （destination指定・waypoints未指定）はvia-node方式の代替経路にも同じ値が効く。
     # 経由地を1つ以上伴う経由地・目的地指定ルートでは無視される（常に1件、経由地が
     # あるとレグごとに代替案が組合せで増えるため）。上限・既定値はOpenAPI生成物
     # （route-generate-config.json）経由でフロントへ渡す唯一の情報源にする
@@ -160,13 +159,13 @@ class RouteGenerateRequest(BaseModel):
     # 算出に使う。範囲・既定値はOpenAPI生成物（route-generate-config.json）経由でフロントへ
     # 渡す唯一の情報源にする。
     assumed_speed_kmh: float = Field(ge=MIN_ASSUMED_SPEED_KMH, le=MAX_ASSUMED_SPEED_KMH, default=ASSUMED_SPEED_KMH)
-    # 改善計画T364: ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で
-    # 通過する単一経路を生成する）。指定時は周回候補の生成を行わない。bboxが際限なく
-    # 広がらないよう、起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性は
-    # ルーティング自体の成否に委ねる）。
+    # ユーザーが地図上で指定した経由地（起点→経由地1→...→起点の順で通過する単一経路を
+    # 生成する）。指定時は周回候補の生成を行わない。bboxが際限なく広がらないよう、
+    # 起点からdistance_km以内という緩いガードのみ課す（詳細な妥当性はルーティング自体の
+    # 成否に委ねる）。
     waypoints: list[Coordinates] | None = Field(default=None, max_length=8)
-    # 改善計画T365: 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの
-    # 場合は従来通り起点で終わる周回）。
+    # 指定時は起点に戻らず目的地で終わる片道ルートにする（経由地のみの場合は起点で
+    # 終わる周回）。
     destination: Coordinates | None = None
     # 地図のレンズ（色分け）が表示を要求している軸id。探索の重みが0の軸でも、レンズに
     # 選ばれていれば区間表示のためにレグごとの風で評価する（探索コストには影響しない）。
@@ -209,24 +208,24 @@ class GenerationConditions(BaseModel):
     distance_km: float
     distance_tolerance_km: float
     route_preference: RoutePreferenceWeights
-    # 改善計画T218・T12 ADR原則1: コスト式の割増率の強さ（P）。
+    # T12 ADR原則1: コスト式の割増率の強さ（P）。
     penalty_strength: float
-    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
+    # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
     max_average_grade_percent: float | None
-    # 改善計画T266: 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
+    # 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
-    # 改善計画T531: 周回候補の上限件数（実際に適用された値）。改善計画T551: 経由地の無い
-    # 目的地ルートにも適用される。経由地を1つ以上伴う経由地・目的地指定時は無視される。
+    # 周回候補の上限件数（実際に適用された値）。経由地の無い目的地ルートにも適用される。
+    # 経由地を1つ以上伴う経由地・目的地指定時は無視される。
     max_routes: int
     # 実際に適用された出発時刻（JST）。
     start_time: datetime
     # 仮定巡航速度（km/h、実際に適用された値）。
     assumed_speed_kmh: float
-    # 改善計画T364: 指定された経由地（未指定はNone、周回候補の生成）。
+    # 指定された経由地（未指定はNone、周回候補の生成）。
     waypoints: list[Coordinates] | None
-    # 改善計画T365: 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
+    # 指定された目的地（未指定はNone、経由地のみなら起点に戻る周回）。
     destination: Coordinates | None
-    # 改善計画T602: 経由地の無い目的地ルートで、`destination`がメインの道路網から孤立した
+    # 経由地の無い目的地ルートで、`destination`がメインの道路網から孤立した
     # Node（歩道橋・私有地内通路等）にスナップされたため、実際にはアクセス可能な最寄りNode
     # へ補正して探索した場合の座標。補正しなかった（`destination`をそのまま使えた）場合は
     # None。
@@ -241,17 +240,17 @@ class RouteGenerateResponse(BaseModel):
     # engine_name`がroad_graph_engine.pyのクラス属性から決まる）。
     engine: str
     conditions: GenerationConditions
-    # 改善計画T441: routesが空のとき、原因の要約（RouteGenerator.last_no_candidates_reason、
+    # routesが空のとき、原因の要約（RouteGenerator.last_no_candidates_reason、
     # route_generator.pyのlogger.warning行と同じ情報源）。ユーザーが原因を推測できず
-    # SSHでサーバーログを見る以外に切り分け手段が無かった問題への対応（実インシデントを
-    # 受けて追加）。routesが1件以上あるときは常にNone。
+    # SSHでサーバーログを見る以外に切り分け手段が無い状態を避けるための情報。
+    # routesが1件以上あるときは常にNone。
     no_candidates_reason: str | None = None
 
 
 class RouteGenerateJobCreatedResponse(BaseModel):
-    """`POST /api/routes/generate`の応答（改善計画T265）。
+    """`POST /api/routes/generate`の応答。
 
-    冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒[T248実測]）が
+    冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒規模）が
     ブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ
     切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/
     {job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。
@@ -271,12 +270,11 @@ async def generate_routes(request: RouteGenerateRequest, http_request: Request, 
     enforce_rate_limit(http_request, "generate", settings.generate_rate_limit_per_minute)
 
     # 同時実行数の上限に達している場合は待たせず即座に429を返す（外部サービスへの負荷が
-    # 積み上がるのを防ぐ）。改善計画T386（T265コードレビュー指摘1件目、CONFIRMED）:
-    # 以前は`locked()`確認をこのハンドラ内・実際のacquireを`BackgroundTasks`経由で
-    # レスポンス送出後に実行される`_run_generate_job`内、という別々のタイミングで
-    # 行っていたため、間にHTTPレスポンス送出という実I/Oが挟まり、複数リクエストが
-    # ほぼ同時に届くと上限を超える数のジョブが202で受理されてしまうレースがあった。
-    # `locked()`確認と`acquire()`をこのハンドラ内でawaitを挟まず連続実行する
+    # 積み上がるのを防ぐ）。`locked()`確認を`BackgroundTasks`経由でレスポンス送出後に
+    # 実行される`_run_generate_job`側でのみ行うと、間にHTTPレスポンス送出という実I/Oが
+    # 挟まり、複数リクエストがほぼ同時に届くと上限を超える数のジョブが202で受理されて
+    # しまうレースになる。`locked()`確認と`acquire()`をこのハンドラ内でawaitを挟まず
+    # 連続実行する
     # （`asyncio.Semaphore.acquire()`は値が残っていれば内部の待機用awaitへ到達せず
     # 同期的に減算するため、この2行の間に他コルーチンが割り込む隙間は無い）ことで、
     # 「投稿時点で即429」という既定の挙動を隙間なく保証する。取得したセマフォは
@@ -307,13 +305,13 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
 
 
 async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
-    """`generate_routes`が`BackgroundTasks`経由でレスポンス送出後に実行するジョブ本体
-    （改善計画T265）。例外はここで捕捉してjob_registryへ記録する——`BackgroundTasks`の
-    例外はどこにも伝播せず、素通しするとサーバーログにしか残らずクライアントは
-    永久にポーリングし続けることになる。
+    """`generate_routes`が`BackgroundTasks`経由でレスポンス送出後に実行するジョブ本体。
+    例外はここで捕捉してjob_registryへ記録する——`BackgroundTasks`の例外はどこにも
+    伝播せず、素通しするとサーバーログにしか残らずクライアントは永久にポーリングし
+    続けることになる。
 
-    `_generate_semaphore`は投稿時点の`generate_routes`側で既に取得済み（改善計画T386、
-    TOCTOUレース対応）。ここでは成否によらず必ずfinallyで解放する。"""
+    `_generate_semaphore`は投稿時点の`generate_routes`側で既に取得済み（TOCTOUレース
+    対応）。ここでは成否によらず必ずfinallyで解放する。"""
     try:
         # 重みの上書き（省略時はopen_route_generation_setup側で既定値を読む）。
         # 適用された値はconditionsへエコーする。
