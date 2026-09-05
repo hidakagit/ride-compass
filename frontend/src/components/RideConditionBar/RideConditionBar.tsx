@@ -5,8 +5,11 @@ import { useId, useMemo, useState } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 import { nearestTimeIndex } from "@/components/Map/dynamicWeather";
+import { ClockIcon, SpeedGaugeIcon } from "@/components/Map/icons";
 import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
 import styles from "./RideConditionBar.module.css";
+
+const TRIGGER_ICON_SIZE_PX = 16;
 
 export interface RideConditionBarProps {
   /** 出発時刻（気象レイヤーの表示時刻と同じ共有state）。 */
@@ -44,9 +47,11 @@ export function clampSpeedKmh(value: number): number {
   return Math.min(MAX_SPEED_KMH, Math.max(MIN_SPEED_KMH, Math.round(value)));
 }
 
-// 地図上部の条件バー。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・風の抵抗）と
-// 気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームではなく地図上に
-// 常時置き、チップをタップしてその場で変えられるようにする。
+// 地図右上の走行条件アイコン列。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・
+// 風の抵抗）と気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
+// なく地図上に常時置き、アイコンをタップしてその場で変えられるようにする。TravelBearingControl
+// と同じアイコンボタンの見た目（29px四方）に揃え、値そのものはポップオーバーを開くまで
+// 表示しない（page.tsx: .rideConditionColumnがTravelBearingControlの直下へ積む）。
 export default function RideConditionBar({
   departureTime,
   onDepartureTimeChange,
@@ -77,18 +82,14 @@ export default function RideConditionBar({
     <div className={styles.bar} role="group" aria-label="走行条件">
       <Popover.Root onOpenChange={(open) => setDepartureAnchor(open ? new Date() : null)}>
         <Popover.Trigger asChild>
-          <button type="button" className={styles.chip} aria-label={`出発時刻: ${departureLabel}（タップで変更）`}>
-            <span className={styles.chipKey}>出発</span>
-            <span className={styles.chipValue}>{departureLabel}</span>
-            <span aria-hidden="true" className={styles.chipCaret}>
-              ▾
-            </span>
+          <button type="button" className={styles.trigger} aria-label={`出発時刻: ${departureLabel}（タップで変更）`}>
+            <ClockIcon size={TRIGGER_ICON_SIZE_PX} />
           </button>
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
             className={styles.timelinePopover}
-            side="top"
+            side="left"
             align="start"
             sideOffset={8}
             collisionPadding={8}
@@ -126,16 +127,12 @@ export default function RideConditionBar({
 
       <Popover.Root onOpenChange={(open) => !open && commitSpeedDraft()}>
         <Popover.Trigger asChild>
-          <button type="button" className={styles.chip} aria-label={`想定速度: ${speedKmh} km/h（タップで変更）`}>
-            <span className={styles.chipValue}>{speedKmh}</span>
-            <span className={styles.chipKey}>km/h</span>
-            <span aria-hidden="true" className={styles.chipCaret}>
-              ▾
-            </span>
+          <button type="button" className={styles.trigger} aria-label={`想定速度: ${speedKmh} km/h（タップで変更）`}>
+            <SpeedGaugeIcon size={TRIGGER_ICON_SIZE_PX} />
           </button>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content className={styles.popover} side="top" align="end" sideOffset={8} collisionPadding={8}>
+          <Popover.Content className={styles.popover} side="left" align="start" sideOffset={8} collisionPadding={8}>
             <label className={styles.field} htmlFor={speedInputId}>
               <span className={styles.fieldLabel}>想定速度（km/h）</span>
             </label>

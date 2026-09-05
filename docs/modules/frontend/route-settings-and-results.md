@@ -239,7 +239,7 @@ distance・maxRoutesはいずれもstring stateのまま親（`page.tsx`）が
 `useRouteFormSubmit`側の距離・候補数の範囲検証は主に目的地モード（経由地を伴うと
 候補数ステッパー自体が非表示になり、その間もstring stateとして残り続ける値に対する
 境界チェック）向けに残っている。目的地モードでは距離入力を出さない。想定速度はこの
-フォームでは扱わない（地図上部中央の条件バー`RideConditionBar`、page-composition.md参照）。
+フォームでは扱わない（地図右上の条件アイコン列`RideConditionBar`、page-composition.md参照）。
 候補数ステッパーは経由地が無い場合のみ表示する（経由地を伴う目的地ルートはbackendが
 候補件数を常に1件へ固定し無視するため）。経由地・目的地のいずれも未指定のまま
 生成しようとするとサイレント失敗せずエラー文言を出す。

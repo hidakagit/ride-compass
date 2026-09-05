@@ -1,7 +1,7 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useState, type RefObject } from "react";
+import { useState } from "react";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID, type LensId } from "@/components/Map/routeStyleModes";
@@ -33,9 +33,6 @@ export interface LensControlProps {
   onKeepAfterRouteChange: (keep: boolean) => void;
   /** ルート確定済みか（ルート前は「ルート後のみ」バッジを出す）。 */
   hasDetail: boolean;
-  /** ルート条件バーを本コンポーネントの直下へ積む配置（page.tsx）が、実測高さを
-   * useElementHeightCssVarへ渡すために使う。指定が無ければ通常どおり動作する。 */
-  rootRef?: RefObject<HTMLDivElement | null>;
 }
 
 const DIFFICULTY_COLOR = "#64748b";
@@ -53,7 +50,6 @@ export default function LensControl({
   keepAfterRoute,
   onKeepAfterRouteChange,
   hasDetail,
-  rootRef,
 }: LensControlProps) {
   const [open, setOpen] = useState(false);
   const current =
@@ -102,7 +98,7 @@ export default function LensControl({
   }
 
   return (
-    <div ref={rootRef} className={styles.wrap}>
+    <div className={styles.wrap}>
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
           <button type="button" className={styles.pill} aria-label={`レンズ: ${current.label}（タップで変更）`}>

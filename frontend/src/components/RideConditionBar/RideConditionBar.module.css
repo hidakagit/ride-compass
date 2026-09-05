@@ -1,46 +1,34 @@
-/* 地図上部中央（page.module.cssの.rideConditionRow内）に置く走行条件チップ列。行自体は
-   pointer-events: noneのため、チップ側で明示的に受け取る。 */
+/* 地図右上（page.module.cssの.rideConditionColumn内、TravelBearingControlの直下）に
+   積む走行条件アイコン列。列自体はpointer-events: noneのため、アイコン側で明示的に
+   受け取る。 */
 .bar {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: 4px;
   pointer-events: auto;
 }
 
-.chip {
-  display: inline-flex;
+/* TravelBearingControl.module.css: .triggerと同じ見た目（MapLibreのズーム+/−・回転
+   コントロールと寸分たがわず揃えた29px四方のボタン）に揃える。位置指定
+   （position/top/right）は親のTravelBearingControl.module.css: .triggerを持たない
+   ——ここは.rideConditionColumn内でflexの通常配置に従う。 */
+.trigger {
+  width: 29px;
+  height: 29px;
+  border-radius: 4px;
+  border: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  display: flex;
   align-items: center;
-  gap: 0.3rem;
-  height: 32px;
-  padding: 0 0.7rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 0.85rem;
-  line-height: 1;
-  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.15));
+  justify-content: center;
+  color: #333;
   cursor: pointer;
-  white-space: nowrap;
+  touch-action: none;
 }
 
-.chip[data-state="open"] {
-  border-color: var(--color-primary);
-}
-
-.chipKey {
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-}
-
-.chipValue {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.chipCaret {
-  color: var(--color-text-muted);
-  font-size: 0.7rem;
+.trigger[data-state="open"] {
+  box-shadow: 0 0 2px 2px #0096ff;
 }
 
 .popover {
