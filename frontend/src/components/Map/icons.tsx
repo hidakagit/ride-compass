@@ -28,11 +28,10 @@ export function ElevationIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 二次軸rampレイヤー（改善計画T145b）の汎用フォールバック: 密度の濃淡を表す棒グラフ。
- * 各軸は`icon_id`（軸自身のデータ、改善計画T310）でaxisIconPalette.tsxの固定パレットから
- * 専用アイコンを選べる（実機フィードバック「2次要素はアイコンだけで区別がつくように」への
- * 対応、旧来はこのアイコンを全軸で共用していた）。この汎用形はicon_id未設定の軸（まだ
- * 専用アイコンを選んでいないramp軸・単独チップ）向けのフォールバックとして残す。 */
+/** 二次軸rampレイヤーの汎用フォールバック: 密度の濃淡を表す棒グラフ。各軸は`icon_id`
+ * （軸自身のデータ）でaxisIconPalette.tsxの固定パレットから専用アイコンを選べる。
+ * この汎用形はicon_id未設定の軸（まだ専用アイコンを選んでいないramp軸・単独チップ）
+ * 向けのフォールバックとして残す。 */
 export function AxisRampIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -119,7 +118,7 @@ export function AccidentDensityAxisIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 道路の種類（改善計画T165で「道路情報」から論理分割）: 消失点へ向かう道路と車線の破線 */
+/** 道路の種類（「道路情報」から論理分割した1軸）: 消失点へ向かう道路と車線の破線 */
 export function RoadIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -129,7 +128,7 @@ export function RoadIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 路面の種類（改善計画T165で「道路情報」から論理分割）: 材質のテクスチャを表す帯+点の並び */
+/** 路面の種類（「道路情報」から論理分割した1軸）: 材質のテクスチャを表す帯+点の並び */
 export function RoadSurfaceIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -179,7 +178,7 @@ export function TunnelIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 一方通行（一次属性、OSM onewayタグ。改善計画T289）: 一方向の矢印 */
+/** 一方通行（一次属性、OSM onewayタグ）: 一方向の矢印 */
 export function OnewayIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -224,7 +223,7 @@ export function StopPoiIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 補給・休憩ポイント（改善計画T101）: 買い物袋のシルエット */
+/** 補給・休憩ポイント: 買い物袋のシルエット */
 export function SupplyPoiIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -239,7 +238,7 @@ export function SupplyPoiIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 観測データ（改善計画T166、地図チップ最上位グループ）: 生データをそのまま見る目=虫眼鏡 */
+/** 観測データ（地図チップ最上位グループ）: 生データをそのまま見る目=虫眼鏡 */
 export function ObservedDataIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -249,7 +248,7 @@ export function ObservedDataIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 推定指標（合成）（改善計画T166、地図チップ最上位グループ）: 複数要因を合成した値=メーター */
+/** 推定指標（合成）（地図チップ最上位グループ）: 複数要因を合成した値=メーター */
 export function EstimatedIndexIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -260,7 +259,7 @@ export function EstimatedIndexIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 動的データ（改善計画T170、地図チップ最上位グループ）: 時刻で変わることを表す時計 */
+/** 動的データ（地図チップ最上位グループ）: 時刻で変わることを表す時計 */
 export function DynamicDataIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -270,9 +269,9 @@ export function DynamicDataIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 環境（改善計画T406、地図チップ最上位グループ）: 標高（terrain）・降水/風/雷等（weather）を
- * まとめて表す雲のシルエット。旧「動的データ」（DynamicDataIcon、時計）は主にweather側の
- * 象徴だったが、環境グループはterrain（標高）も含むため、より広く「屋外環境」を表す形にした。 */
+/** 環境（地図チップ最上位グループ）: 標高（terrain）・降水/風/雷等（weather）をまとめて
+ * 表す雲のシルエット。DynamicDataIcon（時計）はweatherの時刻依存性を象徴する別アイコンで、
+ * こちらはterrain（標高）も含む広い「屋外環境」グループを表す。 */
 export function EnvironmentDataIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -287,7 +286,7 @@ export function EnvironmentDataIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** スポット（改善計画T406、地図チップ最上位グループ）: 停止要因・補給・事故等の点データを
+/** スポット（地図チップ最上位グループ）: 停止要因・補給・事故等の点データを
  * まとめて表す地図ピンのシルエット。 */
 export function SpotDataIcon({ size = 16 }: IconProps) {
   return (
@@ -382,7 +381,7 @@ export function RaindropIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 雷ナウキャスト（地図チップ、改善計画T204）: 雷雲から伸びる稲妻 */
+/** 雷ナウキャスト（地図チップ）: 雷雲から伸びる稲妻 */
 export function ThunderIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -398,7 +397,7 @@ export function ThunderIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** UV指数（天候ヘッダ、改善計画T172）: 太陽 */
+/** UV指数（天候ヘッダ）: 太陽 */
 export function SunIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -413,7 +412,7 @@ export function SunIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 天気アイコン（天候ヘッダ、改善計画T385）: 夜間の快晴。三日月 */
+/** 天気アイコン（天候ヘッダ）: 夜間の快晴。三日月 */
 export function MoonIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -428,7 +427,7 @@ export function MoonIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 天気アイコン（天候ヘッダ、改善計画T385）: くもり。丸みを帯びた雲のシルエット */
+/** 天気アイコン（天候ヘッダ）: くもり。丸みを帯びた雲のシルエット */
 export function CloudIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -443,7 +442,7 @@ export function CloudIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 天気アイコン（天候ヘッダ、改善計画T385）: 霧。視界不良を表す水平線3本 */
+/** 天気アイコン（天候ヘッダ）: 霧。視界不良を表す水平線3本 */
 export function FogIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -452,7 +451,7 @@ export function FogIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 天気アイコン（天候ヘッダ、改善計画T385）: 雪。3本の直径が交差する結晶 */
+/** 天気アイコン（天候ヘッダ）: 雪。3本の直径が交差する結晶 */
 export function SnowflakeIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -498,7 +497,7 @@ export function MapAppearanceIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** ルート設定（モバイル下部タブ、改善計画T300）: 高さ違いのスライダー3本 */
+/** ルート設定（モバイル下部タブ）: 高さ違いのスライダー3本 */
 export function RouteSettingsIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
@@ -510,11 +509,11 @@ export function RouteSettingsIcon({ size = 16 }: IconProps) {
   );
 }
 
-// --- 改善計画T310: 軸スタジオの地図チップアイコン選択パレット向け、汎用ピクトグラム ---
+// --- 軸スタジオの地図チップアイコン選択パレット向け、汎用ピクトグラム ---
 // 既存の軸専用アイコン（勾配=GradientAxisIcon等）に加え、新規作成した軸がすぐ選べる
-// スペア（あらかじめ用意しておく、ユーザー判断）。既存アイコンと同じ線画スタイル
-// （stroke=currentColor、丸端、塗りなし基調）に揃える。新しい意匠の追加は引き続き
-// コード変更を要する（axisIconPalette.tsx参照、GUIからの任意SVG登録は見送り）。
+// スペアをあらかじめ用意しておく。既存アイコンと同じ線画スタイル（stroke=currentColor、
+// 丸端、塗りなし基調）に揃える。新しい意匠の追加は引き続きコード変更を要する
+// （axisIconPalette.tsx参照、GUIからの任意SVG登録はしない）。
 
 /** 盾（安全・保護の概念向け）: 縦の盾形シルエット */
 export function ShieldIcon({ size = 16 }: IconProps) {
@@ -568,9 +567,9 @@ export function LayersStackIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** メニュー起動（改善計画T519、HeaderMenu.tsx）: 縦3点（ケバブメニュー）の一般的な
- * 「その他の操作」アフォーダンス。RouteSettingsIcon（横線+丸、スライダーの見た目）とは
- * 意味が異なるため区別する。 */
+/** メニュー起動（HeaderMenu.tsx）: 縦3点（ケバブメニュー）の一般的な「その他の操作」
+ * アフォーダンス。RouteSettingsIcon（横線+丸、スライダーの見た目）とは意味が異なる
+ * ため区別する。 */
 export function MenuIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
