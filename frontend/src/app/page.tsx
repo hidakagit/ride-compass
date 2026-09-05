@@ -519,7 +519,7 @@ export default function Home() {
     setSelectedRouteSegment(null);
   }, []);
 
-  // MapViewから伝わる現在のビューポート（改善計画T180、MapView.tsx: onViewportChange参照）。
+  // MapViewから伝わる現在のビューポート（MapView.tsx: onViewportChange参照）。
   // moveend/zoomendのたびに素の値が来るため、フェッチ用にはデバウンスして使う
   // （useDynamicWeatherLayers/useWeatherGrid内のwindDetailフェッチeffect参照）。
   const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
@@ -664,8 +664,7 @@ export default function Home() {
     },
   );
   // 「ルートを作る」セクションの開閉（デスクトップのみ。主機能のためデフォルト開）。
-  // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない（モバイル実機
-  // フィードバック対応T34）。
+  // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない。
   const [generateOpen, setGenerateOpen] = useStoredState(GENERATE_OPEN_STORAGE_KEY, true, {
     serialize: (v) => JSON.stringify(v),
     deserialize: (raw) => {
@@ -803,10 +802,10 @@ export default function Home() {
   );
   // 道路情報・道路情報以外の絞り込み可能レイヤーの「すべて表示/すべて隠す」一括操作
   // （1軸分の非表示キー全体の置き換え）。個別チェックはtoggleHiddenLegendKeyをそのまま使う
-  // （絞り込みは即時反映、T31。レイヤーの自動ONはMapLayersPanel側が担う）。
-  // 改善計画T468: 実装（setHiddenLegendKeysByModeの更新ロジック）自体はこの1箇所へまとめ、
-  // 呼び出し側の型（RoadFilterAxisId/StaticFilterAxisId）だけを分けたラッパーを2つ持つことで、
-  // 実装の重複を無くしつつ誤った軸idの取り違えを防ぐ型安全性は維持する。
+  // （絞り込みは即時反映。レイヤーの自動ONはMapLayersPanel側が担う）。実装
+  // （setHiddenLegendKeysByModeの更新ロジック）自体はこの1箇所へまとめ、呼び出し側の型
+  // （RoadFilterAxisId/StaticFilterAxisId）だけを分けたラッパーを2つ持つことで、実装の
+  // 重複を無くしつつ誤った軸idの取り違えを防ぐ型安全性は維持する。
   const setHiddenLegendKeysForAxis = useCallback(
     (axisId: string, hiddenKeys: string[]) => {
       setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
@@ -911,7 +910,7 @@ export default function Home() {
     [layerVisibility.route, handleLayerToggle, setLens],
   );
 
-  // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。改善計画T165で
+  // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
   // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーの
   // ため、軸ごとに個別のサマリ・内訳を持つ。ズーム不足の案内は絞り込みより優先する
   // （ONにしたのに何も出ない状態の説明が先）。
@@ -1281,7 +1280,7 @@ export default function Home() {
     [windAxisData.loading, gradientAxisData.loading]
   );
   // レンズが専用配信軸（windAxis/gradientAxis）を指している間だけ、そのフェッチの
-  // loading/empty/errorをLensControlのピルへ渡す（road_surface等のT87経路
+  // loading/empty/errorをLensControlのピルへ渡す（road_surface等の経路
   // [useLayerDataStatus]はこれらのfetchを観測できないため、deriveFetchLayerStatusで
   // 動的気象レイヤーと同じ判定を共有する）。ramp軸・総合難易度・なしはこの失敗モードを
   // 持たないためundefinedのまま。
@@ -1772,14 +1771,13 @@ export default function Home() {
             // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブ時の非表示は
             // page.module.cssの[data-state="inactive"]セレクタで行う）。
             <Tabs.Content className={styles.outcomeTabPanel} value="comparison" forceMount>
-              {/* 改善計画T524（T518コードレビューP2指摘の修正）: 以前はライブなroutePreference
-                  （「今」の設定）で重み>0の軸のみを表示していたため、あるスロットを風重み0.5で
-                  生成→風の重みを0へ変更→別スロットを生成、という手順を踏むと、両スロットの
-                  axis_difficultiesに風の値が残っていても比較表から風の行が消えてしまい、
-                  「重みを変えて何が変わったか比較する」という比較タブ本来の目的と逆行して
-                  いた（ユーザー判断2026-09-01「スロット横断で残す」）。各スロットは生成時点の
-                  重み（conditions.route_preference）を保持しているため、いずれかのスロットで
-                  一度でも重み>0だった軸は、現在のroutePreferenceの値に関わらず残す。 */}
+              {/* 比較表の軸は、ライブなroutePreference（「今」の設定）ではなく各スロットの
+                  生成時点の重み（conditions.route_preference）を見る——いずれかのスロットで
+                  一度でも重み>0だった軸は、現在のroutePreferenceの値に関わらず残す。「今」の
+                  設定だけで絞ると、風重み0.5で生成→風の重みを0へ変更→別スロットを生成、と
+                  いう手順で両スロットのaxis_difficultiesに風の値が残っていても比較表から
+                  風の行が消えてしまい、「重みを変えて何が変わったか比較する」という比較タブ
+                  本来の目的と逆行してしまう。 */}
               <ComparisonPanel
                 slots={experimentSlots}
                 axisLabels={axisCatalog.axisLabels}
@@ -1795,11 +1793,9 @@ export default function Home() {
     );
   }
 
-  // 「地図の見え方」の中身。改善計画T300: 「開発者」ブロック（旧称「設定」）廃止に伴い、
-  // 地図インスタンス（refreshToken）に紐づく「地図データを再読み込み」ボタンをここへ
-  // 移設した（デバッグログ切替はヘッダーのアイコンボタンへ移設、下記header参照。
-  // 情報量が薄い独立ブロックとして維持する理由が無くなったため、両方とも他の場所へ
-  // 移すだけで「開発者」ブロック自体は廃止した）。
+  // 「地図の見え方」の中身。地図インスタンス（refreshToken）に紐づく「地図データを
+  // 再読み込み」ボタンをここに置く（デバッグログ切替はヘッダーのアイコンボタン、
+  // 下記header参照）。
   function renderMapSettingsSectionBody() {
     return (
       <Card>
@@ -1832,38 +1828,29 @@ export default function Home() {
 
   return (
     <div className={styles.viewport}>
-      {/* 天候は生成条件（風評価の起点）だが、以前はサイドバー内の「ルートを作る」ブロックに
-          埋もれてスマホで見づらいという実機フィードバックを受け、常設ヘッダへ移した
-          （モバイル実機フィードバック対応T36）。デスクトップ・モバイル共通の1箇所。 */}
+      {/* 天候は生成条件（風評価の起点）のため、サイドバー内に埋もれさせず常設ヘッダに
+          置く。デスクトップ・モバイル共通の1箇所。 */}
       <header
         className={styles.weatherHeader}
         title="風向・風速はルート候補の評価に使われます"
       >
-        {/* ユーザー指摘（2026-08-28）「上部バーで、固定部分がなるべく見切れないように」:
-            以前は下記.headerActions側だけをposition: sticky; right: 0で常時可視にし、
-            この天候の数値側は既定のflex-shrink（1）のまま.weatherHeaderの残り幅に
-            押し込まれ、入り切らない分はWeatherPanel自身の内部overflow-x: auto
-            （scrollbar-width: noneでスクロールバーの手がかりも無い）へ静かに逃げていた。
-            風向・風速はルート評価の起点（ヘッダー本来の主目的、header自身のtitle参照）
-            であるため、警報バッジより優先して常に見える側へ入れ替える: flex-shrink: 0で
+        {/* 風向・風速はルート評価の起点（ヘッダー本来の主目的、header自身のtitle参照）
+            であるため、警報バッジより優先して常に見える側に置く: flex-shrink: 0で
             常に自然幅を保ち、position: sticky; left: 0で.weatherHeaderの左端に固定する。
             警報バッジ・デバッグアイコン（.headerActions）は代わりに、入り切らなければ
             スクロールしないと見えない状態を許容する。 */}
         <div className={styles.weatherStats}>
           <WeatherPanel amedas={amedas} loading={amedasLoading} error={amedasError} />
-          {/* 改善計画T385: 「今日の見通し」（日没・今日の降水確率最大・最大風速・気温
-              レンジ）。.weatherStatsと同じ左寄せ固定グループに含め、警報バッジより
-              優先して常に見える側に置く（T384調査「常設ヘッダーへ項目を足さず二次
-              パネルへ集約する」の結論どおり、瞬間値のWeatherPanelとは別枠のトグルにする）。 */}
+          {/* 「今日の見通し」（日没・今日の降水確率最大・最大風速・気温レンジ）。
+              .weatherStatsと同じ左寄せ固定グループに含め、警報バッジより優先して常に
+              見える側に置く（瞬間値のWeatherPanelとは別枠のトグルにする）。 */}
           <TodayOutlook weather={weather} loading={weatherLoading} error={weatherError} />
         </div>
         <div className={styles.headerActions}>
           <WarningBadgeList items={warningBadgeItems} />
-          {/* 改善計画T519: 研究モードON/OFF・デバッグログ表示アイコン（改善計画T300、
-              以前は「開発者」タブ内のボタンだったがそのタブ自体を廃止したためヘッダーへ
-              移設していた）を1個のメニューへ集約する（ヘッダーの個別ボタンをこれ以上
-              増やさないためのユーザー指示）。debugEnabled時のみデバッグログ項目を表示
-              （デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
+          {/* 研究モードON/OFF・デバッグログ表示アイコンを1個のメニューへ集約する
+              （ヘッダーの個別ボタンを増やさないため）。debugEnabled時のみデバッグログ項目を
+              表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
               DebugConsole自体はposition:fixedのFloatingPanelベースで自己完結しており、
               JSXツリー上のどこに置いても見た目は変わらない。 */}
           <HeaderMenu
@@ -2002,23 +1989,20 @@ export default function Home() {
             onViewportChange={handleViewportChange}
             onLayerDataStatusChange={setMapViewLayerDataStatus}
             refreshToken={refreshToken}
-            // ユーザー指摘（2026-09-03、「別ルートを選んでいてもずっと常に緑になる」）:
-            // T535はexperimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
-            // COLORS[0]="#16a34a"=緑）が「ルートをクリア」操作で残る事象のみ対応していたが、
-            // タブ切り替え・再生成では引き続き残り続けていた（drawExperimentSlotsは
-            // comparisonTabActiveを見ずに無条件で描画するため）。研究モード中の比較用
-            // オーバーレイという役割上、実際に「比較」タブを見ているとき以外は地図に
-            // 描画する意味が無く、むしろ選択中ルートの色分けと紛らわしいだけだったため、
+            // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
+            // COLORS[0]="#16a34a"=緑）はdrawExperimentSlotsが無条件で描画するため、
+            // 実際に「比較」タブを見ているとき以外に地図へ残ると選択中ルートの色分けと
+            // 紛らわしい。研究モード中の比較用オーバーレイという役割上、
             // comparisonTabActiveの間だけ渡すよう限定する（スロット自体の記録・
-            // ComparisonPanelでの一覧表示は従来どおり researchEnabled のみで動く）。
+            // ComparisonPanelでの一覧表示は researchEnabled のみで動く）。
             experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
             selectedRouteSegment={selectedRouteSegment}
             onRouteSegmentSelect={setSelectedRouteSegment}
-            // 改善計画T365-2: 周回モード中は地図上のピンを表示・追加受付しない
-            // （モード切り替え自体はwaypoints/destination state自体を消さないため、
-            // 目的地モードへ戻れば復元される）。
+            // 周回モード中は地図上のピンを表示・追加受付しない（モード切り替え自体は
+            // waypoints/destination state自体を消さないため、目的地モードへ戻れば
+            // 復元される）。
             waypoints={routeMode === "destination" ? waypoints : []}
             onWaypointAdd={handleWaypointAdd}
             onWaypointRemove={handleWaypointRemove}
@@ -2093,10 +2077,9 @@ export default function Home() {
             {locating ? (
               "…"
             ) : (
-              // 以前はUnicode文字「◎」を使っていたが、Android Chrome実機では書体（Noto Sans）が
-              // 中央のドットを描画せず単なる白丸に見える不具合が実機で確認されたため、フォントに
-              // 依存しないSVGアイコン（十字線+中心ドット、地図アプリの現在地アイコンの定番形状）
-              // に置き換えた。
+              // フォントに依存しないSVGアイコン（十字線+中心ドット、地図アプリの現在地
+              // アイコンの定番形状）を使う——Unicode文字「◎」は書体によって中央のドットを
+              // 描画せず単なる白丸に見えることがある。
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" fill="currentColor" />
                 <path
@@ -2113,17 +2096,12 @@ export default function Home() {
         </div>
       </div>
 
-      {/* モバイル: サイドバーの全面ドロワーだった旧UIを、下部タブバー＋部分シート3枚へ置換
-          （モバイル実機フィードバック対応T34）。改善計画T300: 「ルート詳細」パネルが
-          RouteSettingsPanel・RouteList・ComparisonPanel・色分け設定を1枚に同居させ縦長に
-          なっていたという実機フィードバックを受け、「ルート設定」「ルート結果」の2タブへ
-          分割した。空いた枠は増やさず、情報量の薄かった「開発者」タブ（廃止、地図データ
-          再読み込みは地図の見え方タブへ・デバッグログはヘッダーアイコンへ移設）の枠を使う
-          ため、タブ総数は3のまま変わらない。各タブはアイコン+1行ラベル（地図上のiconChip、
+      {/* モバイル: 下部タブバー＋部分シート3枚（「ルート設定」「ルート結果」「地図の
+          見え方」）。各タブはアイコン+1行ラベル（地図上のiconChip、
           MapOverlayControls.module.cssと同じ構成）。「ルート結果」タブには、設定変更後
-          未反映（conditionsDirty）を分割前と同じくタブを開かなくても気づけるよう、
-          小さいバッジを付ける（完了条件(c)）。シート表示中も地図の上側が見えたまま
-          パン/ズームできる（暗幕なし、詳細はBottomSheetのコメント参照）。 */}
+          未反映（conditionsDirty）に気づけるよう小さいバッジを付ける。シート表示中も
+          地図の上側が見えたままパン/ズームできる（暗幕なし、詳細はBottomSheetの
+          コメント参照）。 */}
       {isMobile && (
         <>
           <nav className={styles.mobileTabBar} aria-label="パネル切り替え">
@@ -2148,10 +2126,10 @@ export default function Home() {
             >
               <RouteIcon />
               <span className={styles.tabLabel}>ルート結果</span>
-              {/* 改善計画T439: conditionsDirty（生成前に条件が変わった）とhasUnseenResults
-                  （生成が完了し新しい結果が用意できた）の両方をこのドットで知らせる。
-                  前者は生成完了と同時に消える一方後者は生成完了時に立つため、生成の
-                  前後を通じて「ルート結果タブを見るべきタイミング」の合図が途切れない。 */}
+              {/* conditionsDirty（生成前に条件が変わった）とhasUnseenResults（生成が完了し
+                  新しい結果が用意できた）の両方をこのドットで知らせる。前者は生成完了と
+                  同時に消える一方後者は生成完了時に立つため、生成の前後を通じて「ルート
+                  結果タブを見るべきタイミング」の合図が途切れない。 */}
               {(conditionsDirty || hasUnseenResults) && (
                 <span
                   aria-hidden="true"
