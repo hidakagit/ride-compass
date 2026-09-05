@@ -20,7 +20,6 @@ import {
   buildMapLayers,
   buildRoadSurfaceSharedLayerIds,
   isAxisStudioLayer,
-  mapOverlayExclusiveDomainFor,
   type LayerDataStatusByLayer,
   type MapLayerId,
   type MapLayerVisibility,
@@ -890,37 +889,23 @@ export default function Home() {
   // （MapOverlayControls.tsx、T167で導入済み）が▼展開時に「材料: ○○」として常に示すため、
   // 連動ONで自動的に地図へ出す必要性は薄いと判断した。
   //
-  // 改善計画T406: パネル構成再編（道路/環境/スポットの3チップ・3排他ドメイン、
-  // docs/tasks/T400.md「1. パネルの最上位グルーピング」節）に伴い、チップ本体のON/OFFを
-  // 「同一排他ドメイン内は1つだけ選べる」ラジオボタン方式へ変更する。「環境」（面）・
-  // 「スポット」（点）はそれぞれ独立した排他ドメインを持ち、「道路」（線）はT406時点は
-  // 「評価軸」と排他ドメインを共有していたが、T418で評価軸チップ自体を地図UIから撤去した
-  // ため単独ドメインになった（mapLayers.ts: mapOverlayExclusiveDomainFor参照）。
-  // ONにする操作のときだけ、同じ排他ドメインに属する他の全レイヤーIDをOFFにする
-  // （OFFにする操作自体は他レイヤーに影響しない）。ルート等どの排他ドメインにも属さない
-  // レイヤーは対象外のまま複数同時ONを許す（従来どおり）。
+  // 地図上チップ（道路/環境/スポット）はどれも複数同時にONにできる。重なって読みにくく
+  // なった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む
+  // （MapOverlayControls.tsx: renderLegendDetails）。道路グループの線同士は
+  // `line-offset`による並行トラック（MapView.tsx: applyRoadMaterialTrackOffsets）で
+  // 重ならずに並ぶ。
   //
-  // 改善計画T418: 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・windAxis）は
-  // 地図上チップとしては撤去しルート設定パネルへ移設したが、複数を同時にONにすると
-  // 同じ道路ジオメトリへ線を重ねて見にくくなるという排他ドメインの元々の目的
-  // （道路と評価軸を1つの"line"ドメインで束ねていた理由）はそのまま当てはまるため、
-  // 地図上チップの3ドメイン（road/environment/spot）とは独立に、軸スタジオ由来の
-  // レイヤー同士だけで1つだけ選べる排他制御を維持する。
+  // 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・windAxis・gradientAxis）だけは
+  // 1つだけ選べる状態を保つ。これらは同じ道路の同じ位置をそれぞれの評価で塗り分けるため、
+  // 重ねると後から描画した色が前の色を完全に覆い、並行トラックのように並べて見ることも
+  // できない（地図上チップではなくルート設定パネル・レンズから操作する）。
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
       setLayerVisibility((prev) => {
         const next: MapLayerVisibility = { ...prev, [id]: on };
         if (on) {
           const layer = mapLayers.find((l) => l.id === id);
-          const domain = layer ? mapOverlayExclusiveDomainFor(layer) : undefined;
-          if (domain) {
-            for (const other of mapLayers) {
-              if (other.id === id) continue;
-              if (mapOverlayExclusiveDomainFor(other) === domain) {
-                next[other.id] = false;
-              }
-            }
-          } else if (layer && isAxisStudioLayer(layer)) {
+          if (layer && isAxisStudioLayer(layer)) {
             for (const other of mapLayers) {
               if (other.id === id) continue;
               if (isAxisStudioLayer(other)) next[other.id] = false;
@@ -2056,6 +2041,7 @@ export default function Home() {
             layers={overlayLayers}
             onToggle={handleLayerToggle}
             onLegendEntryToggle={toggleHiddenLegendKey}
+            onLegendAxisSetHidden={setHiddenLegendKeysForAxis}
           />
 
           {/* 地図下部中央の行。全レイヤー一括OFFボタン（実機フィードバック「左上の全クリア

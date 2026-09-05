@@ -16,6 +16,7 @@ function baseProps() {
     layers: baseLayers(),
     onToggle: vi.fn(),
     onLegendEntryToggle: vi.fn(),
+    onLegendAxisSetHidden: vi.fn(),
   };
 }
 
@@ -153,6 +154,42 @@ describe("MapOverlayControls", () => {
 
       expect(screen.getByRole("checkbox", { name: "アスファルト" })).toBeChecked();
       expect(screen.getByRole("checkbox", { name: "コンクリート" })).not.toBeChecked();
+    });
+
+    it("見出しの一括チェックは、全部表示中なら押すと全部隠す", async () => {
+      const user = userEvent.setup();
+      const onLegendAxisSetHidden = vi.fn();
+      render(
+        <MapOverlayControls
+          {...baseProps()}
+          layers={layersWithToggleableLegend()}
+          onLegendAxisSetHidden={onLegendAxisSetHidden}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "路面の凡例を表示" }));
+      await user.click(screen.getByRole("checkbox", { name: "路面の種類をまとめて表示/非表示" }));
+
+      expect(onLegendAxisSetHidden).toHaveBeenCalledWith("surface", ["asphalt", "concrete"]);
+    });
+
+    it("見出しの一括チェックは、1つでも隠れていれば押すと全部表示に戻す", async () => {
+      const user = userEvent.setup();
+      const onLegendAxisSetHidden = vi.fn();
+      render(
+        <MapOverlayControls
+          {...baseProps()}
+          layers={layersWithToggleableLegend(["concrete"])}
+          onLegendAxisSetHidden={onLegendAxisSetHidden}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "路面の凡例を表示" }));
+      const bulk = screen.getByRole("checkbox", { name: "路面の種類をまとめて表示/非表示" });
+      expect(bulk).not.toBeChecked();
+
+      await user.click(bulk);
+      expect(onLegendAxisSetHidden).toHaveBeenCalledWith("surface", []);
     });
 
     it("axisIdを持たない軸（ラスタ等、カテゴリ単位で絞り込めない）はチェックボックスを出さない", async () => {
@@ -766,7 +803,7 @@ describe("MapOverlayControls", () => {
       const layers: OverlayLayerChip[] = [
         { id: "route", label: "ルート", on: true, title: "選択中ルート", dataStatus: "loading" },
       ];
-      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} />);
+      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
 
       const chip = screen.getByRole("button", { name: "ルート" });
       expect(chip.querySelector('[class*="iconStatusDot_loading"]')).not.toBeNull();
@@ -775,7 +812,7 @@ describe("MapOverlayControls", () => {
 
     it("OFF中のチップはdataStatusがあってもドットを出さない（LayerChipと同じ抑制条件）", () => {
       const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: false, dataStatus: "error" }];
-      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} />);
+      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
 
       const chip = screen.getByRole("button", { name: "ルート" });
       expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
@@ -783,7 +820,7 @@ describe("MapOverlayControls", () => {
 
     it("dataStatus未指定（正常）のチップはドットを出さない", () => {
       const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: true }];
-      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} />);
+      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
 
       const chip = screen.getByRole("button", { name: "ルート" });
       expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
@@ -819,7 +856,7 @@ describe("MapOverlayControls", () => {
         { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
         { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
       ];
-      const { rerender } = render(<MapOverlayControls layers={layers1} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} />);
+      const { rerender } = render(<MapOverlayControls layers={layers1} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
 
       // 初回マウントでchipRowViewport/chipRowTrackの両方が揃った時点で1つだけ構築される
       expect(resizeObserverInstances).toHaveLength(1);
@@ -828,7 +865,7 @@ describe("MapOverlayControls", () => {
       // 「親の再レンダー」を、内容は同じだが参照は新しいlayers配列を渡すことで模す
       // （page.tsx側でstate更新のたびに新しい配列を作ってMapOverlayControlsへ渡す実態と同じ）
       const layers2: OverlayLayerChip[] = layers1.map((layer) => ({ ...layer }));
-      rerender(<MapOverlayControls layers={layers2} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} />);
+      rerender(<MapOverlayControls layers={layers2} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
 
       // useCallbackでref関数の同一性が保たれていればReactはref callbackを再実行せず、
       // ResizeObserverの再構築（disconnect→new）は起きない

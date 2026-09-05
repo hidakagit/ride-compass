@@ -1,12 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import {
-  buildMapLayers,
-  buildRoadSurfaceSharedLayerIds,
-  isAxisStudioLayer,
-  mapOverlayExclusiveDomainFor,
-  mapOverlayGroupFor,
-} from "./mapLayers";
+import { buildMapLayers, buildRoadSurfaceSharedLayerIds, isAxisStudioLayer, mapOverlayGroupFor } from "./mapLayers";
 
 describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
   it("isAxisStudioLayer: windAxis/gradientAxisはaxis_idのハードコード比較ではなくDEDICATED_WAY_VALUE_LAYER_IDS（軸データ由来）でtrueになる", () => {
@@ -54,11 +48,9 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
       }
     });
 
-    it("「環境」グループに並ぶが、排他ドメインには属さない", () => {
-      // 他の環境レイヤー（降水・風・標高図）を選んでいる間も災害情報が消えないようにする。
+    it("「環境」グループに並ぶ（降水・風・標高図と同じグループ）", () => {
       expect(mapOverlayGroupFor(byId.disaster)).toBe("environment");
-      expect(mapOverlayExclusiveDomainFor(byId.disaster)).toBeUndefined();
-      expect(mapOverlayExclusiveDomainFor(byId.precipitationNowcast)).toBe("area");
+      expect(mapOverlayGroupFor(byId.precipitationNowcast)).toBe("environment");
     });
   });
 });

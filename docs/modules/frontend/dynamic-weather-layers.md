@@ -169,9 +169,8 @@ trueとする。
   するため、1つのチップの中で連動する要素としない要素が同居する。
   `page.tsx: FIXED_LAYER_VISIBILITY_DEFAULTS`は他のweatherレイヤー（既定OFF）と異なり
   `disaster`を既定`true`にしている（防災級の情報はユーザー操作を待たず表示すべきという
-  理由）。あわせて`mapLayers.ts: mapOverlayExclusiveDomainFor`が`category="disaster"`を
-  排他ドメインの対象外にする——「環境」グループの他レイヤー（降水・風・標高図）を選んで
-  いる間も災害情報が地図から消えないようにするため。
+  理由）。地図上チップは複数同時にONにできるため、他の環境レイヤー（降水・風・標高図）を
+  選んでも災害情報は地図に残る。
 - 線状降水帯予測マップ: `precipitationNowcast`チップの4つ目のソース（`linearRainband`）。
   共有タイムラインの選択時刻が現在〜3時間先の範囲内（`isWithinFutureWindow`）のときだけ、
   他のソースと重ねて表示する（キキクルと異なりタイムラインと連動し続ける）。

@@ -147,11 +147,15 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 `category="trafficSafety"`は`accidents`等と同じ値のため、`isAxisStudioLayer`のガードが
 無いと誤って「スポット」グループへ紛れ込む）。
 
-グループはそのまま排他ドメイン（`line`/`area`/`point`）に対応し、同じドメインの中では
-1つしか同時にONにできない（同じ形のものを重ねると読めなくなるため）。唯一の例外が
-`category="disaster"`で、「環境」グループに並びながら排他ドメインには属さない
-——他の環境レイヤーを選んでいる間も災害情報が地図から消えてはならないため
-（`mapOverlayExclusiveDomainFor`、[動的気象レイヤー](dynamic-weather-layers.md)参照）。
+グループは表示上のまとまりだけを表し、**どのレイヤーも複数同時にONにできる**。重なって
+読みにくくなった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む（下記「凡例
+カテゴリの絞り込み」節）。道路グループの線同士は`line-offset`による並行トラック
+（`applyRoadMaterialTrackOffsets`）で重ならずに並ぶ。
+
+軸スタジオ由来のレイヤー（`isAxisStudioLayer`、ramp軸・windAxis・gradientAxis）だけは
+`page.tsx: handleLayerToggle`が1つだけ選べる状態を保つ。これらは同じ道路の同じ位置を
+それぞれの評価で塗り分けるため、重ねると後から描画した色が前の色を完全に覆い、並行
+トラックのように並べて見ることもできない。
 
 ## 凡例カテゴリの絞り込み（サイドバーと地図上チップで同じ状態を共有）
 

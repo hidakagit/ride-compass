@@ -159,23 +159,6 @@ export const MAP_OVERLAY_GROUP_CHIP_LABELS: Record<MapOverlayGroup, string> = {
  * 評価軸[T418で撤去]を除いた並び）。 */
 export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = ["road", "environment", "spot"];
 
-/** 排他ドメイン（改善計画T406）。同一ドメイン内は1つだけ選べる（1つを選ぶと他の選択は
- * 自動的に解除される）。T406時点は「道路」「評価軸」がどちらも幾何としては線のため
- * ドメインを共有していたが、T418で評価軸チップ自体が地図UIから撤去されたため、現在は
- * MapOverlayGroupと1:1で対応する（road="line"単独、environment="area"、spot="point"）。
- * road自身は依然として複数メンバー（道路種別・路面種別・指定路線・トンネル・一方通行）を
- * 持つため、「同じ道路ジオメトリへ線を重ねて見にくくなることを防ぐ」という排他ドメインの
- * 本来の目的はroad単独でも変わらず成立する（evironment/spotも同様に複数メンバーを持つ）。
- * ルート本体（category未指定のdynamicレイヤー）・軸スタジオ由来のレイヤー
- * （isAxisStudioLayer参照、ルート設定パネル側で別途排他制御する）はどの排他ドメインにも
- * 属さない（対象外、docs/tasks/T400.md参照）。 */
-export type MapOverlayExclusiveDomain = "line" | "area" | "point";
-const MAP_OVERLAY_EXCLUSIVE_DOMAIN: Record<MapOverlayGroup, MapOverlayExclusiveDomain> = {
-  road: "line",
-  environment: "area",
-  spot: "point",
-};
-
 // 改善計画T440: 専用のway_id→動的値配信層を持つ軸（軸データのdedicated_way_value_layer、
 // domain/axis_definitions.py参照）のMapLayerIdを、axis_idのハードコード比較ではなく
 // ビルド時静的axis-catalog.json（RAMP_AXES/AXIS_LABELS等と同じ「片側import」の
@@ -218,21 +201,6 @@ export function mapOverlayGroupFor(layer: {
     return "environment";
   if (layer.category === "trafficSafety" || layer.category === "amenity") return "spot";
   return undefined;
-}
-
-/** レイヤー1件が属する排他ドメインを判定する（mapOverlayGroupForのラッパー）。
- * どのグループにも属さないレイヤー（route等）はundefined＝排他制御の対象外。
- * category="disaster"（防災レイヤー）は「環境」グループのメンバーとして並ぶが排他制御
- * からは外す——他の環境レイヤー（降水・風・標高図等）を選んでいる間も災害情報が地図から
- * 消えてはならないため。 */
-export function mapOverlayExclusiveDomainFor(layer: {
-  id: MapLayerId;
-  category?: MapLayerCategory;
-  dataNature?: MapLayerDataNature;
-}): MapOverlayExclusiveDomain | undefined {
-  if (layer.category === "disaster") return undefined;
-  const group = mapOverlayGroupFor(layer);
-  return group ? MAP_OVERLAY_EXCLUSIVE_DOMAIN[group] : undefined;
 }
 
 export interface MapLayerDescriptor {
