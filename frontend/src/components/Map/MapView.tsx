@@ -3106,6 +3106,17 @@ export default function MapView({
       settleViewport();
       reportViewport();
     }
+    // MapLibreのMap#resize()（ResizeObserver経由、上記参照）はmap内部が既に移動中
+    // （慣性スクロール中等、_moving=true）のときmovestart/move/moveendの発火を意図的に
+    // 抑止し、"resize"イベントのみを発火する。このタイミングでリサイズが起きると、
+    // moveend/zoomendしか見ていないreportViewportが呼ばれずboundsが古いまま固定され、
+    // 環境グループのgridFill・windAxis等viewportデバウンス経由でタイル範囲を決める
+    // レイヤーが、新しく見えるようになった領域（典型的には画面右端）を塗らないまま残る。
+    function handleResize() {
+      debugLog("map:viewport", "resize", { zoom: Number(map.getZoom().toFixed(2)) });
+      settleViewport();
+      reportViewport();
+    }
     // T87実機確認で判明した不具合の対策その2: isSourceLoaded()がtrueになった直後の一瞬は
     // querySourceFeatures()がまだ実際のフィーチャーを返さないタイミングがあり
     // （isSourceLoadedとタイルのパース完了の間に競合がある）、その瞬間にsourcedataイベントで
@@ -3140,6 +3151,7 @@ export default function MapView({
     map.on("error", handleMapError);
     map.on("moveend", handleMoveEnd);
     map.on("zoomend", handleZoomEnd);
+    map.on("resize", handleResize);
     map.on("sourcedataloading", handleTrackedSourceDataLoading);
     map.on("sourcedata", handleTrackedSourceData);
     map.on("idle", handleIdleRecompute);
@@ -3158,6 +3170,7 @@ export default function MapView({
       map.off("error", handleMapError);
       map.off("moveend", handleMoveEnd);
       map.off("zoomend", handleZoomEnd);
+      map.off("resize", handleResize);
       map.off("sourcedataloading", handleTrackedSourceDataLoading);
       map.off("sourcedata", handleTrackedSourceData);
       map.off("idle", handleIdleRecompute);
