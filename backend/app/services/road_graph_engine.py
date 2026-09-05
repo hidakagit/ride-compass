@@ -1078,6 +1078,7 @@ class RoadGraphEngine:
         lazy_graph = context.lazy_graph
         destination_node = find_nearest_node_indexed(context.node_index, destination)
         if destination_node is None:
+            logger.warning("select_via_nodes destination_node=None (not snapped to routable graph)")
             return []
         destination_index = lazy_graph.node_id_to_index[destination_node]
 
@@ -1110,8 +1111,16 @@ class RoadGraphEngine:
         combined_length = forward_tree.length_m + backward_tree.length_m
         reachable = np.isfinite(combined_cost)
         if not np.any(reachable):
-            logger.info(
-                "select_via_nodes reachable=0 tree_ms=%d reverse_statics_cached=%s",
+            # 改善計画docs/logging.md「候補0件はWARNINGへ昇格し、原因の内訳を同じ行に含める」:
+            # 前向き木・後ろ向き木のどちらがどれだけ到達できているかを内訳として出す
+            # （前向きのみ0なら起点側、後ろ向きのみ0なら目的地側の孤立を疑える）。
+            logger.warning(
+                "select_via_nodes reachable=0 forward_reached=%d backward_reached=%d "
+                "destination_reached_by_forward=%s origin_reached_by_backward=%s "
+                "tree_ms=%d reverse_statics_cached=%s",
+                int(np.isfinite(forward_tree.cost).sum()), int(np.isfinite(backward_tree.cost).sum()),
+                bool(np.isfinite(forward_tree.cost[destination_index])),
+                bool(np.isfinite(backward_tree.cost[context.origin_index])),
                 tree_ms, reverse_statics_cached,
             )
             return []
