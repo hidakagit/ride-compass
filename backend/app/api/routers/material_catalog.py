@@ -73,6 +73,9 @@ class MaterialCatalogEntry(BaseModel):
     # ユーザーフィードバックへの対応。情報アイコン(ⓘ)から表示する説明文。
     description: str
     dtype: MaterialDType
+    # 値の単位（MaterialSpec.unitが単一ソース、無次元・真偽値・カテゴリ値は空文字）。
+    # 凡例・比較パネル等、数値を表示する箇所の単位表記の唯一の正（frontendは単位を持たない）。
+    unit: str
     # 軸スタジオの折れ点編集を助ける「値の目安」一覧。値域が直感的でない材料（風等）
     # ほど有用なため、真偽値・categorical材料や単純な材料は空配列になりうる。
     reference_points: list[MaterialReferencePointEntry]
@@ -130,6 +133,7 @@ async def get_material_catalog() -> MaterialCatalogResponse:
                 label=m.full_label(),
                 description=m.description,
                 dtype=m.dtype,
+                unit=m.unit,
                 reference_points=[
                     MaterialReferencePointEntry(label=p.label, value=p.value) for p in m.reference_points
                 ],

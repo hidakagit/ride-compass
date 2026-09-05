@@ -852,7 +852,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 - [ ] [T590](tasks/T590.md). 風penaltyの二乗則化とレンズUI再編（分割元・設計メモ。数式・スケール・UI設計の基準・分割先の依存関係を持つ。UI系タスクは実装前に各パネル・条件バーの詳細をユーザーと詰める） 規模L
 - [x] [T591](tasks/T591.md). 二乗則の風材料を追加しバックエンドの3経路へ走行速度を配線する 規模M（2026-09-05完了。`wind_drag_ratio`材料追加、`DynamicAxisRequestContext.travel_speed_ms`必須化、式は`domain/wind.py`の1箇所へ集約。`wind_penalty`は本番の風軸切替[T599]まで非推奨エイリアスとして残置）
-- [ ] [T592](tasks/T592.md). 区間・候補の物理量表示を材料カタログ駆動へ汎用化する 規模M
+- [ ] [T592](tasks/T592.md). 区間・候補の物理量表示を材料カタログ駆動へ汎用化する 規模M（第1段[backend・UI]完了2026-09-05。ComparisonPanel/区間クリック詳細[研究モード限定]をmaterial_values駆動へ切替。第2段[レガシーフィールド撤去]は未着手）
 - [x] [T593](tasks/T593.md). 専用way値レイヤーの配信値を難易度スケールへ統一しdisplay_thresholds_overrideの二重帰属を解消する 規模M（2026-09-05完了。配信値はbackendが軸定義で評価した地図表示値[風=難易度、勾配=符号付き材料]、軸カタログにmap_value_kind/unitを追加、フロントの風・勾配専用ファイルをdedicatedWayValueLayer.ts/valueScale.tsへ統合。本番の段階ラベル設定はT599へ）
 - [x] [T594](tasks/T594.md). 動的way値配信へ走行速度を伝播する（dynamic_way_value_needs_speed） 規模S（2026-09-05完了。DDL 0031・API`speed_kmh`・速度バケット付きキャッシュキー・`WindWayService`が風軸の参照先に応じて材料を切替。実機確認は本番の風軸切替[T599]後）
 - [x] [T595](tasks/T595.md). 地図の色分け（レンズ）の入口を1箇所へ統合し重み0の軸も選べるようにする 規模M（2026-09-05完了。入口は地図上の凡例ピルLensControlのみ、地図の見え方パネルには置かない。lens_axis_idで重み0軸の時変化合成）

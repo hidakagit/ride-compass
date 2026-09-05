@@ -27,7 +27,7 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
 | `hooks/useMaterialValues.ts` | `GET /api/material-catalog/{material_id}/values`取得。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
-| `lib/axisMaterialsCatalog.ts` | 材料選択候補の静的フォールバック（`AXIS_MATERIAL_OPTIONS`） |
+| `lib/axisMaterialsCatalog.ts` | 材料選択候補の静的フォールバック（`AXIS_MATERIAL_OPTIONS`）。`materialCatalogLabel`/`formatMaterialValue`は軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
 | `components/Map/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
 | `components/Map/recipeControls.tsx`（`FieldLabel`のみ使用） | 情報アイコン付きラベルの共有UI部品（RouteSettingsPanel等とも共有） |
 

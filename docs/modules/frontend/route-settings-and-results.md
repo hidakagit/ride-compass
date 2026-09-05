@@ -174,21 +174,29 @@ handleRouteSegmentClick`がクリック地点の座標とともに設定する�
 （[地図: 静的レイヤー・道路表示](static-map-layers.md)参照）。`selectedRouteSegment`が
 non-nullの間、「ルート結果」タブはルート全体の内訳の代わりにその区間の地点・到達予想
 時刻＋`AxisContributionBar`（区間の`axis_contributions`）を表示し、×ボタンで
-`selectedRouteSegment`をnullへ戻すとルート全体表示に復帰する。
+`selectedRouteSegment`をnullへ戻すとルート全体表示に復帰する。研究モード
+（`researchEnabled`）の間だけ、`AxisContributionBar`の下へ区間の材料値
+（`RouteSegmentDetail.material_values`）の一覧を追加表示する——一般ユーザー向けには
+出さない（走行中のスマホ利用が主で情報量を増やしたくないという方針、ComparisonPanel.tsxの
+材料値行と同じ`lib/axisMaterialsCatalog.ts: materialCatalogLabel`/`formatMaterialValue`を使う）。
 
 ## ComparisonPanel.tsx
 
 - 研究モードの実験スロット比較表。表示順は
-  (1) 生の物理量（距離・獲得標高・風スコア・舗装率。単位・意味がaxis_difficultiesとは
-  異なる別系統のフィールドのため区別して残す）→
-  (2) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
+  (1) ルート属性（距離・獲得標高。材料ではないため`material_values`には乗らない固定行）→
+  (2) 材料値の生値行（`RouteCandidate.material_values`から動的生成。重み>0の軸が参照する
+  材料id→値の辞書で、いずれかのスロットが値を持つ材料だけを行にする。ラベル・単位は
+  `materials`[page.tsxが`useMaterialCatalog()`を渡す]から引く、
+  `lib/axisMaterialsCatalog.ts: materialCatalogLabel`/`formatMaterialValue`共用）→
+  (3) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
   `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
-  (3) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。各列は各回の
+  (4) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。各列は各回の
   `ExperimentSlot.topCandidate`（生成直後の`overall_difficulty`最小候補で固定、
   [ページ全体構成・状態管理](page-composition.md)参照）。page.tsxが渡す`axes`は、
   表示中のいずれかの実験スロットで生成時点の重み（`ExperimentSlot.conditions.
   route_preference`）が>0だった軸に絞り込み済み——現在のライブな`routePreference`
-  （「今」の設定）は使わない。
+  （「今」の設定）は使わない。旧・風スコア/舗装率の固定行（`RouteCandidate.wind_score`/
+  `road_score`直接参照）は材料値の生値行へ置き換えた。
 
 ## RouteForm.tsx
 
@@ -204,7 +212,7 @@ waypointCount===0`で表示・検証の両方を揃える）。経由地・目�
 （`[&::-webkit-inner-spin-button]:appearance-none`等）で非表示にする——直接入力が主な
 操作手段で、矢印クリックは想定していないため。`inputMode="numeric"`でモバイルの
 数値専用キーボードを明示し、`onFocus`で既存の値を全選択して毎回消してから打ち直す手間を
-無くす。`distance`・`maxRoutes`・`assumedSpeed`はいずれもstring stateのまま親（`page.tsx`）が持ち、
+無くす。`distance`・`maxRoutes`はいずれもstring stateのまま親（`page.tsx`）が持ち、
 数値への変換は送信直前（`handleSubmit`内の検証）でのみ行うため、`AxisComposer.tsx`の
 `NumberField`（[軸スタジオ](axis-studio.md)参照）が対処する「入力途中でReactの制御値が
 NaNへ倒れる」問題はこの入力には無い。候補件数の上限・既定値は

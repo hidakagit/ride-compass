@@ -343,6 +343,19 @@
   color: var(--foreground);
 }
 
+/* 研究モード限定の材料値（material_values、風の追加負荷の倍率等）一覧。軸別内訳
+   （AxisContributionBar）とは別の生の物理量のため、控えめな注記として下に添える。 */
+.selectedSegmentMaterialValues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
 .refreshButton {
   align-self: flex-start;
   font-size: var(--font-size-sm);

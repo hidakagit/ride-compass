@@ -32,6 +32,9 @@ export interface AxisMaterialOption {
    * （BreakpointLinearShape/CategoricalShape向け）、"categorical"=文字列多値材料
    * （CategoricalShapeがbool/str両方に対応、改善計画T292）。 */
   dtype: AxisMaterialDType;
+  /** 値の単位（凡例・数値表示用、無次元・真偽値・カテゴリ値は空文字）。
+   * backend/app/domain/material_catalog.py: MaterialSpec.unitが単一ソース。 */
+  unit: string;
   /** 「値の目安」一覧。値を持たない材料や静的フォールバック（本ファイル）では
    * 省略されうる。 */
   referencePoints?: readonly AxisMaterialReferencePoint[];
@@ -50,6 +53,7 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     label: "勾配%（符号付き） - gradient_percent",
     description: "国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
     dtype: "numeric",
+    unit: "%",
   },
   {
     id: "wind_drag_ratio",
@@ -57,54 +61,63 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     description:
       "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分（時速20kmで無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。目安（時速20km）: 向かい風2m/s→0.85、4m/s→1.96、8m/s→4.95、追い風4m/s→-0.92、真横4m/s→0.23、走行速度と同じ追い風→-1.0。",
     dtype: "numeric",
+    unit: "",
   },
   {
     id: "surface_good",
     label: "舗装良否 - surface_good",
     description: "OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "stop_count_per_km",
     label: "停止密度(回/km) - stop_count_per_km",
     description: "信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
     dtype: "numeric",
+    unit: "",
   },
   {
     id: "intersection_count_per_km",
     label: "交差点密度(回/km) - intersection_count_per_km",
     description: "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
     dtype: "numeric",
+    unit: "",
   },
   {
     id: "accident_count_per_km_year",
     label: "事故密度(件/(km・年)) - accident_count_per_km_year",
     description: "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
     dtype: "numeric",
+    unit: "",
   },
   {
     id: "lit",
     label: "街灯あり - lit",
     description: "OSMの街灯タグ(lit=yes)に該当する区間はtrue。タグ不在はfalse（街灯なし扱い）。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "has_tunnel",
     label: "トンネル - has_tunnel",
     description: "OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "bridge",
     label: "橋・高架 - bridge",
     description: "OSMの橋・高架タグ(bridge=yes)に該当する区間はtrue。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "motor_vehicle_no",
     label: "自動車通行不可 - motor_vehicle_no",
     description: "OSMのタグ(motor_vehicle=no)から判定した、自動車が通行できない区間かどうか。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "oneway",
@@ -112,60 +125,70 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     description:
       "OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "maxspeed_kmh",
     label: "制限速度(km/h) - maxspeed_kmh",
     description: "OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
     dtype: "numeric",
+    unit: "",
   },
   {
     id: "lanes_count",
     label: "車線数 - lanes_count",
     description: "OSMの車線数タグ(lanes)から解析した車線数。",
     dtype: "numeric",
+    unit: "",
   },
   {
     id: "highway",
     label: "道路種別 - highway",
     description: "OSMの道路種別タグ(highway)の生値（例: residential/primary/cycleway等）。値ごとに個別のスコアを設定できます。",
     dtype: "categorical",
+    unit: "",
   },
   {
     id: "surface",
     label: "路面種別 - surface",
     description: "OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
     dtype: "categorical",
+    unit: "",
   },
   {
     id: "highway_is_cycleway",
     label: "道路種別が自転車道 - highway_is_cycleway",
     description: "道路種別(highway)自体が自転車道(cycleway)かどうか。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "cycleway_has_track",
     label: "自転車道(track)を併設 - cycleway_has_track",
     description: "車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "cycleway_has_lane",
     label: "自転車レーン(lane)を併設 - cycleway_has_lane",
     description: "車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "cycleway_has_shared",
     label: "バス共用等の自転車レーンを併設 - cycleway_has_shared",
     description: "バス専用レーン共用など、簡易な自転車レーン(cycleway=shared_busway/shared_lane)を併設しているかどうか。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "is_designated",
     label: "指定路線該当（真偽） - is_designated",
     description: "緊急輸送道路・重要物流道路のいずれかに指定されているかどうか（種別は区別しません）。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "is_emergency_transport",
@@ -173,6 +196,7 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     description:
       "緊急輸送道路[N10]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "is_critical_logistics",
@@ -180,21 +204,37 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     description:
       "重要物流道路[N12]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
     dtype: "boolean",
+    unit: "",
   },
   {
     id: "smoothness",
     label: "路面の状態 - smoothness",
     description: "OSMの路面状態タグ(smoothness)の生値（excellent〜impassableの7段階）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
     dtype: "categorical",
+    unit: "",
   },
   {
     id: "tracktype",
     label: "未舗装路グレード(tracktype) - tracktype",
     description: "OSMの未舗装路グレードタグ(tracktype)の生値（grade1[良好]〜grade5[粗悪]）。",
     dtype: "categorical",
+    unit: "",
   },
 ];
 
 export function materialLabel(materialId: string): string {
   return AXIS_MATERIAL_OPTIONS.find((m) => m.id === materialId)?.label ?? materialId;
+}
+
+/** 材料カタログ（呼び出し側がuseMaterialCatalog()を渡す、静的AXIS_MATERIAL_OPTIONSに
+ * 限らない）からラベルを引く。カタログに無いmaterial_id（表示専用に格下げされた旧材料等）
+ * はidそのものへフォールバックする。 */
+export function materialCatalogLabel(materialId: string, materials: readonly AxisMaterialOption[]): string {
+  return materials.find((m) => m.id === materialId)?.label ?? materialId;
+}
+
+/** material_valuesの生値1件を「値 単位」表記にする。単位が無い（無次元）材料は値のみ。 */
+export function formatMaterialValue(materialId: string, value: number, materials: readonly AxisMaterialOption[]): string {
+  const unit = materials.find((m) => m.id === materialId)?.unit ?? "";
+  return unit ? `${value.toFixed(2)} ${unit}` : value.toFixed(2);
 }

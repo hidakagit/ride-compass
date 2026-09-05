@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RouteCandidate } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
@@ -82,10 +83,17 @@ const SAMPLE_AXES: readonly PreferenceAxisDef[] = [
   { axisId: "bicycle_infra_quality", label: "自転車インフラ", description: "", dedicatedWayValueLayer: false },
 ];
 
+// 呼び出し側（page.tsx）がuseMaterialCatalog()経由で渡す材料カタログの実データを模した固定
+// フィクスチャ（RouteAxisProfile.test.tsxのSAMPLE_AXESと同じ位置付け）。
+const SAMPLE_MATERIALS: readonly AxisMaterialOption[] = [
+  { id: "wind_drag_ratio", label: "風の追加負荷(倍率)", description: "", dtype: "numeric", unit: "" },
+  { id: "gradient_percent", label: "勾配%（符号付き）", description: "", dtype: "numeric", unit: "%" },
+];
+
 describe("ComparisonPanel", () => {
   it("スロットが1件以下のときは何も表示しない", () => {
     const { container } = render(
-      <ComparisonPanel slots={[makeSlot({})]} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />
+      <ComparisonPanel slots={[makeSlot({})]} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />
     );
     expect(container).toBeEmptyDOMElement();
   });
@@ -95,12 +103,41 @@ describe("ComparisonPanel", () => {
       makeSlot({ id: "a", topCandidate: makeCandidate({ distance_km: 30.1, overall_difficulty: 40 }) }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ distance_km: 29.8, overall_difficulty: 55 }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
     expect(screen.getByText(/30\.1 km/)).toBeInTheDocument();
     expect(screen.getByText(/29\.8 km/)).toBeInTheDocument();
     expect(screen.getByText("40.0")).toBeInTheDocument();
     expect(screen.getByText("55.0")).toBeInTheDocument();
+  });
+
+  it("材料値の行はmaterial_valuesベースで動的生成し、材料カタログのラベル・単位を使う(改善計画T592、旧・風スコア/舗装率の固定行を撤去)", () => {
+    const slots = [
+      makeSlot({
+        id: "a",
+        topCandidate: makeCandidate({ material_values: { wind_drag_ratio: 1.964, gradient_percent: 3.2 } }),
+      }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({ material_values: {} }) }),
+    ];
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
+
+    expect(screen.getByText("風の追加負荷(倍率)")).toBeInTheDocument();
+    expect(screen.getByText("1.96")).toBeInTheDocument();
+    expect(screen.getByText("勾配%（符号付き）")).toBeInTheDocument();
+    expect(screen.getByText("3.20 %")).toBeInTheDocument();
+    expect(screen.queryByText("風スコア")).not.toBeInTheDocument();
+    expect(screen.queryByText("舗装率")).not.toBeInTheDocument();
+  });
+
+  it("材料カタログに無いmaterial_id(表示専用に格下げされた旧材料等)はidそのものをラベルにする", () => {
+    const slots = [
+      makeSlot({ id: "a", topCandidate: makeCandidate({ material_values: { wind_penalty: 2.1 } }) }),
+      makeSlot({ id: "b", topCandidate: makeCandidate({ material_values: {} }) }),
+    ];
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
+
+    expect(screen.getByText("wind_penalty")).toBeInTheDocument();
+    expect(screen.getByText("2.10")).toBeInTheDocument();
   });
 
   it("個別軸の行はaxis_difficultiesベースで動的生成する(改善計画T421、旧stop_density等のレガシーフィールド直接参照を撤去)", () => {
@@ -111,7 +148,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
     expect(screen.getByText("停止密度")).toBeInTheDocument();
     expect(screen.getByText("42.5")).toBeInTheDocument();
@@ -127,7 +164,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
     expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
     expect(screen.getByText("23.0")).toBeInTheDocument();
@@ -147,7 +184,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
     const rowHeaders = screen.getAllByRole("rowheader").map((el) => el.textContent);
     const gradientIndex = rowHeaders.indexOf("勾配");
@@ -163,7 +200,7 @@ describe("ComparisonPanel", () => {
     // stop_weightが実験条件の表示から漏れていた(研究モードでstop_weightを変えて
     // 比較しても条件表示に差が現れない実害)。カタログ生成後は全軸が含まれる。
     const slots = [makeSlot({ id: "a" }), makeSlot({ id: "b" })];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
     expect(headers).toHaveLength(2);
@@ -188,7 +225,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b" }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
     expect(headers[0].getAttribute("title")).toContain("gui_published_axis0.3");
@@ -205,7 +242,7 @@ describe("ComparisonPanel", () => {
       }),
       makeSlot({ id: "b" }),
     ];
-    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} />);
+    render(<ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />);
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
     const title = headers[0].getAttribute("title") ?? "";

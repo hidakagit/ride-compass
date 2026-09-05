@@ -102,10 +102,12 @@ describe("RideConditionBar", () => {
   it("「現在」ボタンで実時刻へ戻す", async () => {
     const user = userEvent.setup();
     const onTime = vi.fn();
-    const past = new Date(Date.now() - 2 * 60 * 60_000);
-    render(<Harness initialTime={past} onTime={onTime} />);
+    // タイムラインは開いた時点（≒現在時刻）以降しか目盛りを持たないため、「現在」ボタンが
+    // 無効化されない（index !== currentIndex になる）ことを確かめるには未来の時刻を使う。
+    const future = new Date(Date.now() + 2 * 60 * 60_000);
+    render(<Harness initialTime={future} onTime={onTime} />);
 
-    await user.click(screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(past)}（タップで変更）` }));
+    await user.click(screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(future)}（タップで変更）` }));
     const before = Date.now();
     await user.click(screen.getByRole("button", { name: "出発時刻を現在に戻す" }));
 

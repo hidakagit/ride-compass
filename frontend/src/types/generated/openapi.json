@@ -3044,6 +3044,10 @@
             ],
             "title": "Dtype"
           },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
           "reference_points": {
             "items": {
               "$ref": "#/components/schemas/MaterialReferencePointEntry"
@@ -3058,6 +3062,7 @@
           "label",
           "description",
           "dtype",
+          "unit",
           "reference_points"
         ],
         "title": "MaterialCatalogEntry"

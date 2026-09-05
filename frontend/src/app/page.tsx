@@ -76,10 +76,12 @@ import { useDynamicWayValues } from "@/hooks/useDynamicWayValues";
 import { gradientGridCellsFromTileResponses } from "@/components/Map/gradientGridFill";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 // 改善計画T548: 従来は/adminへ移設したWeightPanelの既定値定数をここでも使っていたが、
 // WeightPanel自体をtotal_score撤去に伴い削除したため@/lib/evaluationAxesへ移設した。
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
+import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -330,6 +332,9 @@ export default function Home() {
   // それらより前で宣言する必要がある。取得完了までとエラー時は静的フォールバック
   // （axisLayers.ts: RAMP_AXES等）を返すため、呼び出し側は常に何かしらの一覧を受け取れる。
   const axisCatalog = useAxisCatalog();
+  // 比較パネル（研究モード）の材料値行（material_values）のラベル・単位表記に使う
+  // （ComparisonPanel.tsx参照）。
+  const materialCatalog = useMaterialCatalog();
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -1666,6 +1671,16 @@ export default function Home() {
                     contributions={selectedRouteSegment.segment.axis_contributions}
                     axisColors={axisChipColors}
                   />
+                  {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
+                    <ul className={styles.selectedSegmentMaterialValues}>
+                      {Object.entries(selectedRouteSegment.segment.material_values).map(([materialId, value]) => (
+                        <li key={materialId}>
+                          {materialCatalogLabel(materialId, materialCatalog)}:{" "}
+                          {formatMaterialValue(materialId, value, materialCatalog)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ) : (
                 <RouteAxisProfile
@@ -1699,6 +1714,7 @@ export default function Home() {
                 axes={axisCatalog.axes.filter((axis) =>
                   experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0)
                 )}
+                materials={materialCatalog}
               />
             </Tabs.Content>
           )}

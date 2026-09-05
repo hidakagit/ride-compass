@@ -187,6 +187,7 @@ MaterialSpec]`が単一ソース。
 | フィールド | 意味 |
 |---|---|
 | `dtype` | `"numeric"`/`"boolean"`/`"categorical"` |
+| `unit` | 値の単位（凡例・比較パネル等の数値表示用、無次元・真偽値・カテゴリ値は空文字）。`GET /api/material-catalog`が配信し、frontendは単位を持たない（唯一の正） |
 | `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
 | `tile_property_needs_runtime_scale` | タイル側の生値と材料の値がスケール不一致（実行時に変動する係数での変換が必要）か。`derive_ramp_inputs`はこれがTrueの材料を含む軸のramp自動導出を拒否する |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |
@@ -218,7 +219,7 @@ MaterialSpec]`が単一ソース。
 
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
-| `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`/`reference_points`のみ。`tile_property`等のbackend内部フィールドは含めない） |
+| `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`/`unit`/`reference_points`のみ。`tile_property`等のbackend内部フィールドは含めない） |
 | `GET /api/material-catalog/{material_id}/values` | 不要 | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・未対応材料/DB未接続は空リスト） |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 

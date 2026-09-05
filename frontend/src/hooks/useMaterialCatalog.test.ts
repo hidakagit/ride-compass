@@ -23,6 +23,7 @@ function catalogResponse(): MaterialCatalogResponse {
         label: "勾配%（符号付き）",
         description: "勾配（%）。",
         dtype: "numeric",
+        unit: "%",
         reference_points: [{ label: "平坦", value: 0 }],
       },
       // 静的フォールバック（AXIS_MATERIAL_OPTIONS）には無い、backend側だけへ新規追加された材料。
@@ -31,6 +32,7 @@ function catalogResponse(): MaterialCatalogResponse {
         label: "新規材料テスト",
         description: "テスト用の材料。",
         dtype: "boolean",
+        unit: "",
         reference_points: [],
       },
     ],
@@ -52,6 +54,7 @@ describe("useMaterialCatalog", () => {
         label: "勾配%（符号付き）",
         description: "勾配（%）。",
         dtype: "numeric",
+        unit: "%",
         referencePoints: [{ label: "平坦", value: 0 }],
       },
       {
@@ -59,6 +62,7 @@ describe("useMaterialCatalog", () => {
         label: "新規材料テスト",
         description: "テスト用の材料。",
         dtype: "boolean",
+        unit: "",
         referencePoints: [],
       },
     ]);

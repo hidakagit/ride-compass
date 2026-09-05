@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMaterialValue, materialCatalogLabel, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./ComparisonPanel.module.css";
@@ -20,6 +21,11 @@ interface ComparisonPanelProps {
    * `topCandidate.axis_difficulties[axisId]`ベースで動的生成することで、軸スタジオの
    * 軸増減へ自動追従させる（新しいハードコードした軸id→ラベル辞書は増やさない）。 */
   axes: readonly PreferenceAxisDef[];
+  /** 材料カタログ（material_id→label/unit、呼び出し側がuseMaterialCatalog()を渡す）。
+   * `topCandidate.material_values`の行（風の追加負荷等）のラベル・単位表記に使う。
+   * カタログに無いmaterial_id（表示専用に格下げされた旧材料等）はidそのものをラベルに、
+   * 単位無しにフォールバックする。 */
+  materials: readonly AxisMaterialOption[];
 }
 
 interface MetricRow {
@@ -27,26 +33,36 @@ interface MetricRow {
   format: (slot: ExperimentSlot) => string;
 }
 
-// 生の物理量（m・m/s・%）を比較対象にする静的行。distance_km・elevation_gain_m・
-// wind_score・road_scoreはRouteCandidateのレガシーフィールドだが、axis_difficulties
-// （0-100の正規化されたdifficulty）とは単位・意味が異なる生の物理量であり、研究モードでは
-// 物理量そのものを見たい場面があるためそのまま残す（改善計画T421調査結果、RouteListとは
-// 異なりComparisonPanelは詳細比較ツールという設計思想のため単純化はしない）。
+// 距離・獲得標高は材料（重み>0の軸が参照するもの）ではなくルート自体の属性のため、
+// material_valuesには乗らない固定行として残す（旧・風スコア/舗装率は材料カタログ駆動の
+// 動的行[buildMaterialValueRows]へ置き換えた）。
 const PHYSICAL_METRIC_ROWS: MetricRow[] = [
   { label: "距離", format: (s) => `${s.topCandidate.distance_km.toFixed(1)} km` },
   {
     label: "獲得標高",
     format: (s) => (s.topCandidate.elevation_gain_m != null ? `${Math.round(s.topCandidate.elevation_gain_m)} m` : "—"),
   },
-  {
-    label: "風スコア",
-    format: (s) => (s.topCandidate.wind_score != null ? `${s.topCandidate.wind_score.toFixed(1)} m/s` : "—"),
-  },
-  {
-    label: "舗装率",
-    format: (s) => (s.topCandidate.road_score != null ? `${Math.round(s.topCandidate.road_score)}%` : "—"),
-  },
 ];
+
+// 材料値の生値行（重み>0の軸が参照する材料id→値、backend: RouteCandidate.material_values）。
+// いずれかのスロットが値を持つ材料だけを行にする（buildAxisDifficultyRowsと同じ「実際に
+// 評価できたものだけ表示する」規約）。ラベル・単位は材料カタログから引き、軸スタジオで
+// 軸の参照材料が変わっても表示は自動追従する（material_id→ラベルのハードコード無し）。
+function buildMaterialValueRows(slots: ExperimentSlot[], materials: readonly AxisMaterialOption[]): MetricRow[] {
+  const materialIds = new Set<string>();
+  for (const slot of slots) {
+    for (const materialId of Object.keys(slot.topCandidate.material_values)) {
+      materialIds.add(materialId);
+    }
+  }
+  return [...materialIds].map((materialId) => ({
+    label: materialCatalogLabel(materialId, materials),
+    format: (slot: ExperimentSlot) => {
+      const value = slot.topCandidate.material_values[materialId];
+      return value != null ? formatMaterialValue(materialId, value, materials) : "—";
+    },
+  }));
+}
 
 // 全軸を合成した総合difficulty（RouteSegmentDetail.difficulty由来、domain/difficulty.py）。
 // 特定のaxis_idに紐づかず「全軸の合成結果」という別概念のため、下記の個別軸行とは別枠で
@@ -106,12 +122,17 @@ function formatGeneratedAt(iso: string): string {
 
 // 実験スロット間の比較表（研究インターフェース改善 §10-3）。行=メトリクス、列=スロット
 // （生成のたびに自動保存された直近最大3件）。スロットが2件以上たまった時だけ表示する。
-export default function ComparisonPanel({ slots, axisLabels, axes }: ComparisonPanelProps) {
+export default function ComparisonPanel({ slots, axisLabels, axes, materials }: ComparisonPanelProps) {
   if (slots.length < 2) return null;
 
-  // 表示順: 生の物理量（距離・獲得標高・風スコア・舗装率）→ 個別軸の生値
-  // （axis_difficulties駆動、軸スタジオの軸増減に自動追従）→ 全軸合成の総合難易度。
-  const rows: MetricRow[] = [...PHYSICAL_METRIC_ROWS, ...buildAxisDifficultyRows(slots, axes), OVERALL_DIFFICULTY_ROW];
+  // 表示順: ルート属性（距離・獲得標高）→ 材料値の生値（material_values駆動）→ 個別軸の
+  // 生値（axis_difficulties駆動、軸スタジオの軸増減に自動追従）→ 全軸合成の総合難易度。
+  const rows: MetricRow[] = [
+    ...PHYSICAL_METRIC_ROWS,
+    ...buildMaterialValueRows(slots, materials),
+    ...buildAxisDifficultyRows(slots, axes),
+    OVERALL_DIFFICULTY_ROW,
+  ];
 
   return (
     <div className="flex flex-col gap-2">

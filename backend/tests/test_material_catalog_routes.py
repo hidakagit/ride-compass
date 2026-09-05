@@ -105,6 +105,18 @@ def test_get_material_catalog_includes_description():
         assert entry["description"].strip() != ""
 
 
+def test_get_material_catalog_includes_unit():
+    # 値の単位（凡例・比較パネル等の表示に使う）。単位を持つ材料はMATERIAL_CATALOGの値と
+    # 一致し、無次元・真偽値・カテゴリ値の材料は空文字で返る。
+    response = client.get("/api/material-catalog")
+
+    entries_by_id = {entry["material_id"]: entry for entry in response.json()["materials"]}
+
+    assert entries_by_id["gradient_percent"]["unit"] == "%"
+    assert entries_by_id["wind_drag_ratio"]["unit"] == ""
+    assert entries_by_id["lit"]["unit"] == ""
+
+
 def test_get_material_catalog_includes_reference_points():
     # 軸スタジオの折れ点編集を助ける「値の目安」一覧。値を持つ材料（wind_drag_ratio）は
     # 非空、値を持たない材料（lit等）は空配列で返る。

@@ -1330,6 +1330,8 @@ export interface components {
              * @enum {string}
              */
             dtype: "numeric" | "boolean" | "categorical";
+            /** Unit */
+            unit: string;
             /** Reference Points */
             reference_points: components["schemas"]["MaterialReferencePointEntry"][];
         };

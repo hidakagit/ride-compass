@@ -374,7 +374,7 @@ import { act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateRoutes } from "@/services/routeApi";
 import { getAmedasObservation, getCurrentWeather, getWeatherWarnings, getWbgtStatus, getFloodForecasts } from "@/services/weatherApi";
-import type { RouteCandidate, GenerationConditions } from "@/types/route";
+import type { RouteCandidate, GenerationConditions, SelectedRouteSegment } from "@/types/route";
 import type { AmedasObservation, WeatherConditions, WeatherWarnings, WbgtStatus, FloodForecasts } from "@/types/weather";
 
 // "@/services/routeApi"はこれまでどのテストもモックしていなかった新規モジュール。
@@ -470,6 +470,10 @@ interface RenderFreshHomeOptions {
    * （改善計画T557: 目的地モードの生成テストは実際に地図をタップできないため、この
    * スタブ経由で座標を確定する）。既定は上と同じnullモック。 */
   exposeMapClickHandlers?: boolean;
+  /** trueならMapViewをonRouteSegmentSelectを呼べるボタン付きスタブへ差し替える
+   * （区間クリック詳細のテスト用。地図上のクリックを実際に再現できないためスタブ経由で
+   * 選択を確定する）。既定は上と同じnullモック。 */
+  exposeSegmentSelect?: boolean;
   /** trueなら地点を連続変更できるstateful二重体、falseならdefaultUseLocationDoubleの固定値。 */
   statefulLocation?: boolean;
   researchEnabled?: boolean;
@@ -496,19 +500,53 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
     vi.doMock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
   }
 
-  if (options.exposeMapClickHandlers) {
+  if (options.exposeMapClickHandlers || options.exposeSegmentSelect) {
     vi.doMock("@/components/Map/MapView", () => ({
       default: (props: {
         onDestinationSet: (c: { latitude: number; longitude: number }) => void;
         onWaypointAdd: (c: { latitude: number; longitude: number }) => void;
+        onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
       }) => (
         <>
-          <button onClick={() => props.onDestinationSet({ latitude: 35.681, longitude: 139.767 })}>
-            テスト用に目的地を設定
-          </button>
-          <button onClick={() => props.onWaypointAdd({ latitude: 35.682, longitude: 139.768 })}>
-            テスト用に経由地を追加
-          </button>
+          {options.exposeMapClickHandlers && (
+            <>
+              <button onClick={() => props.onDestinationSet({ latitude: 35.681, longitude: 139.767 })}>
+                テスト用に目的地を設定
+              </button>
+              <button onClick={() => props.onWaypointAdd({ latitude: 35.682, longitude: 139.768 })}>
+                テスト用に経由地を追加
+              </button>
+            </>
+          )}
+          {options.exposeSegmentSelect && (
+            <button
+              onClick={() =>
+                props.onRouteSegmentSelect({
+                  latitude: 35.68,
+                  longitude: 139.76,
+                  segment: {
+                    start_latitude: 35.68,
+                    start_longitude: 139.76,
+                    end_latitude: 35.681,
+                    end_longitude: 139.761,
+                    cumulative_distance_km: 5.2,
+                    distance_km: 0.5,
+                    estimated_arrival_time: null,
+                    gradient_percent: null,
+                    wind_penalty: null,
+                    road_surface_good: null,
+                    axis_difficulties: {},
+                    axis_contributions: {},
+                    material_values: { wind_drag_ratio: 1.964 },
+                    difficulty: null,
+                    geometry: null,
+                  },
+                })
+              }
+            >
+              テスト用に区間を選択
+            </button>
+          )}
         </>
       ),
     }));
@@ -741,6 +779,40 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       expect(screen.getByRole("tab", { name: "1 20.3 km" })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: "2 22.1 km" })).toBeInTheDocument();
     });
+  });
+
+  it("T592フォローアップ: 研究モード中は区間クリック詳細に材料値(material_values)を表示する", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeSegmentSelect: true, researchEnabled: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "テスト用に区間を選択" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
+
+    expect(screen.getByText(/wind_drag_ratio.*1\.96/)).toBeInTheDocument();
+  });
+
+  it("T592フォローアップ: 研究モードでなければ区間クリック詳細に材料値を表示しない", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeSegmentSelect: true, researchEnabled: false });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "テスト用に区間を選択" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
+
+    expect(screen.queryByText(/wind_drag_ratio/)).not.toBeInTheDocument();
   });
 
   it("候補0件で成功したとき、専用のエラーメッセージを表示する", async () => {
