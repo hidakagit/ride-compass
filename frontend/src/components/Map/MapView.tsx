@@ -1027,7 +1027,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // 揃えて11にする。ベクタタイルのためz11超過分はMapLibreがz11時点のジオメトリを
         // クライアント側で拡大表示するだけで済み（ラスタと異なりボケない）、
         // backend/app/services/jma_tile_prewarm_service.pyが定期的にRedisへ温める対象
-        // ズーム範囲を全レイヤーで揃えられる（docs/tasks/T510.md参照）。
+        // ズーム範囲を全レイヤーで揃えられる。
         maxzoom: 11,
         attribution: "気象庁",
       },
@@ -3366,9 +3366,9 @@ export default function MapView({
   // （固定ではなくなった、applyRoadLayerStateのコメント参照）。
   // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するdesignation/
   // tunnelのON/OFFでも変わりうるため、依存配列に含めてこれらの
-  // フラグが変わるたびにも再評価する（改善計画T87レビュー指摘: road自体はOFFのままdesignation等
-  // だけONで表示範囲が広すぎる場合に案内が一切出なかった不整合の修正）。ramp軸（車の圧迫感・
-  // 停止密度・事故密度等）はこのチェックの対象外のまま（従来からの既知の制約、T292でも変更なし）。
+  // フラグが変わるたびにも再評価する（road自体はOFFのままdesignation等だけONで表示範囲が
+  // 広すぎる場合にも案内を出すため）。ramp軸（車の圧迫感・停止密度・事故密度等）は
+  // このチェックの対象外（既知の制約）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3412,9 +3412,9 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || refreshToken === 0) return;
-    // 改善計画T465: refreshTokenが短時間に連続変化した場合（連打）、複数の
-    // refreshBasemapCache→setStyle呼び出しが重なることへのガード（ゼロベース網羅
-    // レビュー指摘）。MapLibreは新しいsetStyle呼び出しで前のスタイル読み込みを
+    // refreshTokenが短時間に連続変化した場合（連打）、複数の
+    // refreshBasemapCache→setStyle呼び出しが重なることへのガード。
+    // MapLibreは新しいsetStyle呼び出しで前のスタイル読み込みを
     // 打ち切りうるため、1回目のstyle.loadリスナーが発火せずredrawAllLayersが一度も
     // 呼ばれない可能性があった。既に進行中（style.load未確定）ならこの呼び出しは
     // スキップする——非同期の待ち合わせに入る前、この同期区間のうちにフラグを立てる
@@ -3431,9 +3431,8 @@ export default function MapView({
         });
         map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
       } catch (error) {
-        // refreshBasemapCacheは以前例外を投げない実装だったため、ここでのcatchが無くても
-        // 問題なかったが、失敗を呼び出し元へ伝えるよう修正した結果、未処理のPromise
-        // rejectionになるのを防ぐ必要がある。
+        // refreshBasemapCacheは失敗しうるため、未処理のPromise rejectionになるのを
+        // 防ぐ必要がある。
         styleReloadPendingRef.current = false; // 失敗時も解放し、次のrefreshTokenで再試行できるようにする
         debugLog(
           "map:error",
