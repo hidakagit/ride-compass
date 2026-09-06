@@ -75,13 +75,22 @@ DATABASE_URL=... python -m app.batch.refresh_derived
 
 **⑩precompute_way_landcoverが読むEsri×Impact Observatory Sentinel-2 10m Annual LULCの
 GeoTIFFはリポジトリにコミットしない**（PBFをGeofabrikから手動取得するのと同じ運用）。
-Azure Blob（`https://lulctimeseriesv003.blob.core.windows.net/lulctimeseriesv003/
-lc<年>/<ゾーン>_<年>0101-<翌年>0101.tif`）またはMicrosoft Planetary Computer STAC
-（コレクション`io-lulc-annual-v02`）から該当ゾーンのタイルを手動取得し、
-`settings.lulc_raster_paths`（環境変数`LULC_RASTER_PATHS`、カンマ区切りで複数可）へ
-ローカルパスを設定する。未設定のまま`refresh_derived.py`を実行するとこの段が
-失敗するため、ラスタを用意できない環境（検証用の使い捨てDB等）では`--skip-landcover`を
-明示的に指定してこの段だけスキップする。
+T624設計時点ではAzure Blob（`lulctimeseriesv003.blob.core.windows.net`）のURLを想定していたが
+実装時点で存在しないドメインだったため（実測、DNS解決不可）、**AWS S3の
+`s3://io-10m-annual-lulc/`（サインなしアクセス可、リージョン`us-west-2`）を正本とする**:
+
+```
+aws s3 cp --no-sign-request s3://io-10m-annual-lulc/<ゾーン>_<年>.tif .
+```
+
+ファイル名は`<ゾーン>_<年>.tif`（例: `54S_2024.tif`）で、Azure Blobの想定と異なり
+期間表記（`<年>0101-<翌年>0101`）は付かない。関東本土はゾーン`54S`1枚で足り、
+2026-09時点の最新年は2024（2025年版は未公開）。Microsoft Planetary Computer STAC
+（コレクション`io-lulc-annual-v02`）も代替として使えるが、AWS S3の方が認証・SASトークン
+発行が不要でシンプル。取得したファイルは`settings.lulc_raster_paths`（環境変数
+`LULC_RASTER_PATHS`、カンマ区切りで複数可）へローカルパスを設定する。未設定のまま
+`refresh_derived.py`を実行するとこの段が失敗するため、ラスタを用意できない環境
+（検証用の使い捨てDB等）では`--skip-landcover`を明示的に指定してこの段だけスキップする。
 
 **本番（関東本土全域）で実行する場合は必ずDockerメモリ上限を指定すること**
 （`docker run --memory=<上限> ...`）。全域規模（road_edges約500万件）では

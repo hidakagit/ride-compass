@@ -930,7 +930,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 - [x] [T619](tasks/T619.md). レンズで風を選ぶと全灰色になるバグを修正 規模S（2026-09-06完了。`wind_way_service.py: _nearest_time_index`がtz-awareな時刻をJSTへ変換せず比較していたバグを修正。フロントがUTCで送る時刻がJST深夜〜早朝に前日扱いされ範囲外判定されていた）
 - [x] [T620](tasks/T620.md). 風・勾配（dedicated_way_value_layer軸）のフェッチ失敗を既存の失敗バナーへ表示する 規模M（2026-09-06完了。実装時にMapLayersPanelには風/勾配のチップ行自体が無いと判明し、LensControlのピルへ状態ドットを付ける方式へ変更）
 - [x] [T623](tasks/T623.md). 風の評価軸を既存の細かい風グリッドへ乗せ替える 規模S（2026-09-06完了。`nearest_grid_point`のspacing_degを0.1→0.01へ変更。フォローアップで、実機のOpen-Meteoクォータ超過報告を受け0.02[`WIND_GRID_DETAIL_SPACING_DEG`流用]へ再調整。Open-Meteoの実モデル最良解像度[JMA LFM 2km]に合わせた値で、これ以上細かくしても精度は上がらずクォータだけ増える）
-- [ ] [T624](tasks/T624.md). 開放度（遮蔽物）推定軸の新設 規模M/L（段階1・2完了[2026-09-06]、段階3[較正・本番バッチ・軸公開]は未着手。データ源はEsri×Impact Observatory 10m Annual LULC[CC BY 4.0、9クラス]、Way単位テーブル`way_landcover`へ8クラスの割合を独立したnumeric材料としてrasterioバッチで事前計算・保存[情報欠落最小化]、そのうちtrees_percent/built_percentの2件のみ評価パイプラインへ配線しMVT焼き込み→ramp自動導出でフロント変更なし、軸の`terms`重み付き線形結合はaxis_admin API経由で作成予定。5論点の結論と実装段階は本文参照）
+- [ ] [T624](tasks/T624.md). 開放度（遮蔽物）推定軸の新設 規模M/L（段階1・2完了[2026-09-06]、段階3は開発DBでの較正・下書き軸作成まで完了[2026-09-07]・本番バッチ実行/軸公開はユーザー確認待ち。データ源はEsri×Impact Observatory 10m Annual LULC[CC BY 4.0、9クラス、実際の配布はAWS S3 `io-10m-annual-lulc`]、Way単位テーブル`way_landcover`へ8クラスの割合を独立したnumeric材料としてrasterioバッチで事前計算・保存[情報欠落最小化]、そのうちtrees_percent/built_percentの2件のみ評価パイプラインへ配線しMVT焼き込み→ramp自動導出でフロント変更なし、軸`openness`は下書き作成済み[breakpoints方向を修正済みだが本番全域データでの再較正が必要]。5論点の結論と実装段階・段階3進捗は本文参照）
 
 ## 走行条件バーの配置（2026-09-06・ユーザー指摘「下部パネルを開いていると隠れて使いにくい」から）
 
