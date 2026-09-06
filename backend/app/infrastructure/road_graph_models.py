@@ -242,6 +242,41 @@ class WayAttributeCountsRow(Base):
     algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class WayLandcoverRow(Base):
+    """道路centerline周囲100mリングの土地被覆クラス別割合のway単位事前集計
+    （開放度評価軸の材料）。地図タイル母集団はosm_raw_ways全域のため
+    way_attribute_countsと同じくWay単位（Edge単位ではない）。
+
+    8列は互いに独立な数値材料（domain/material_catalog.py参照）で、Python側での
+    クラス分類（どれが「遮蔽」か）は行わない——分類は評価軸のterms（重み付き線形結合）が
+    表現する（domain/landcover.pyのモジュールdocstring参照）。バッチは
+    `app/batch/precompute_way_landcover.py`。migration 0032で実テーブルは作成済み
+    （ORMモデルはミラー、EdgeAttributeCountsRowの同種コメント参照）。
+    """
+
+    __tablename__ = "way_landcover"
+
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
+    )
+    valid_pixels: Mapped[int] = mapped_column(Integer, nullable=False)
+    water_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    trees_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    flooded_veg_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    crops_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    built_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    bare_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    snow_ice_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    rangeland_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    data_source: Mapped[str] = mapped_column(String, nullable=False)
+    data_version: Mapped[str] = mapped_column(String, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 派生データの系譜追跡。EdgeAttributeCountsRowと同じ高水位マーク方式・同じ理由で
+    # ForeignKey()を持たない素のInteger（コメントはそちら参照）。
+    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 class OsmImportRunRow(Base):
     """PBF取込バッチ（app/batch/import_pbf.py）の実行記録。
 

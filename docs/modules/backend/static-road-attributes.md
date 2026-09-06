@@ -10,7 +10,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`（[region.py](routing-engine.md)は別モジュール管轄） |
+| domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、開放度評価軸の材料）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳、改善計画T571） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳の集計クエリ、改善計画T571） |
 | api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_validation.py`・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須、改善計画T571） |
