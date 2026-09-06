@@ -21,7 +21,9 @@ from app.batch.precompute_way_landcover import (
     count_pixels_in_ring,
     infer_data_version_from_filename,
     run,
+    run_default,
 )
+from app.config import settings
 from app.domain.graph import WaySpec
 from tests.conftest import TEST_DATABASE_URL
 
@@ -79,6 +81,15 @@ class TestRunIntegration:
         pytest.mark.xdist_group(name="postgis"),
         pytest.mark.postgis,
     ]
+
+    async def test_run_default_raises_when_raster_paths_unset_and_not_dry_run(self, monkeypatch):
+        monkeypatch.setattr(settings, "lulc_raster_paths", "")
+        with pytest.raises(ValueError, match="lulc_raster_paths"):
+            await run_default(TEST_DATABASE_URL, False)
+
+    async def test_run_default_dry_run_does_not_require_raster_paths(self, monkeypatch):
+        monkeypatch.setattr(settings, "lulc_raster_paths", "")
+        assert await run_default(TEST_DATABASE_URL, True) == 0
 
     async def test_run_writes_percentages_for_way_within_raster_bounds(
         self, road_graph_repository, road_graph_session, tmp_path

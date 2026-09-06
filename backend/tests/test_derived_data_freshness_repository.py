@@ -46,7 +46,7 @@ async def test_empty_database_yields_no_stale_generations(road_graph_session):
 
     assert counts.road_edges_total == 0
     assert counts.elevation_uncalculated_count == 0
-    assert len(counts.generations) == 3
+    assert len(counts.generations) == 4
     for generation in counts.generations:
         assert generation.row_count == 0
     assert counts.latest_succeeded_run_id == {"accident_import_runs": None, "osm_import_runs": None}

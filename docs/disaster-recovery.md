@@ -20,11 +20,14 @@ CLAUDE.md「コミット時の同期ルール」・[deployment-sync.md](deployme
 ```
 
 `refresh_derived.py`（`app/batch/refresh_derived.py`）は依存DAG
-（[batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)）の④〜⑨
+（[batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)）の④〜⑩
 （`presplit_road_graph`→`precompute_road_node_degrees`→
 `precompute_edge_attribute_counts`→`precompute_elevation_attributes`→
-`precompute_way_attribute_counts`→`match_designations`）を依存順に1コマンドで実行する。
-①〜③（生データ取込そのもの）は対象外——個別のファイル・年次・kind指定を要するため。
+`precompute_way_attribute_counts`→`match_designations`→`precompute_way_landcover`）を
+依存順に1コマンドで実行する。①〜③（生データ取込そのもの）は対象外——個別のファイル・
+年次・kind指定を要するため。⑩`precompute_way_landcover`だけラスタファイルの手動取得
+（下記「4. refresh_derived.py」節参照）を要するため、未整備の環境では`--skip-landcover`で
+この段だけスキップできる。
 
 ## disaster recovery手順（新規/被災環境）
 
@@ -69,6 +72,16 @@ ARM64のDebian系ベースイメージでは`libexpat1`（`apt-get install`）�
 ```
 DATABASE_URL=... python -m app.batch.refresh_derived
 ```
+
+**⑩precompute_way_landcoverが読むEsri×Impact Observatory Sentinel-2 10m Annual LULCの
+GeoTIFFはリポジトリにコミットしない**（PBFをGeofabrikから手動取得するのと同じ運用）。
+Azure Blob（`https://lulctimeseriesv003.blob.core.windows.net/lulctimeseriesv003/
+lc<年>/<ゾーン>_<年>0101-<翌年>0101.tif`）またはMicrosoft Planetary Computer STAC
+（コレクション`io-lulc-annual-v02`）から該当ゾーンのタイルを手動取得し、
+`settings.lulc_raster_paths`（環境変数`LULC_RASTER_PATHS`、カンマ区切りで複数可）へ
+ローカルパスを設定する。未設定のまま`refresh_derived.py`を実行するとこの段が
+失敗するため、ラスタを用意できない環境（検証用の使い捨てDB等）では`--skip-landcover`を
+明示的に指定してこの段だけスキップする。
 
 **本番（関東本土全域）で実行する場合は必ずDockerメモリ上限を指定すること**
 （`docker run --memory=<上限> ...`）。全域規模（road_edges約500万件）では
