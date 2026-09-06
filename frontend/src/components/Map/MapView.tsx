@@ -2819,8 +2819,7 @@ export default function MapView({
       }
     }
 
-    // ルート線専用のクリックハンドラ（改善計画T403、改善計画T550で当たり判定レイヤーへ
-    // 差し替え・ボトムシート統合）。MapLibreのlayer-scoped listener
+    // ルート線専用のクリックハンドラ。MapLibreのlayer-scoped listener
     // （map.on(type, layerId, listener)）を使い、上のhandleClick（一般道路網向け、複数レイヤーを
     // queryRenderedFeaturesで横断判定する汎用ディスパッチャ）とは別経路として独立させている。
     // DETAIL_HIT_LAYER_IDがまだstyleに追加されていない（ルート未生成）間はMapLibre側が内部で
@@ -2832,18 +2831,18 @@ export default function MapView({
     function handleRouteSegmentClick(e: MapLayerMouseEvent) {
       const feature = e.features?.[0];
       if (!feature) return;
-      // 改善計画T550: 一般道路網向けの詳細ポップアップ（popupRef、handleClick側）と
+      // 一般道路網向けの詳細ポップアップ（popupRef、handleClick側）と
       // 同時に開いた状態が残らないよう、こちらも既存のポップアップを閉じる
       // （このハンドラ自体はもうポップアップを開かないが、以前のクリックで開いたままの
       // ポップアップが残っていれば片付ける）。
       popupRef.current?.remove();
       const rawProperties = feature.properties as unknown as RouteSegmentProperties;
       const segment: RouteSegmentDetail = { ...restoreRouteSegmentProperties(rawProperties), geometry: null };
-      // ユーザー指摘（2026-09-03）: 当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線
+      // 当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線
       // （6px）より広いため、クリック地点をそのまま使うとマーカーがルート線から目に
       // 見えてズレる。区間のgeometry（LineString）上の最近点へ補正する
-      // （nearestPointOnLineString参照）。geometryが無い/空の異常系は従来どおり
-      // クリック地点そのままへフォールバックする。
+      // （nearestPointOnLineString参照）。geometryが無い/空の異常系はクリック地点
+      // そのままへフォールバックする。
       const geometry = feature.geometry as GeoJSON.Geometry | undefined;
       const lineCoordinates =
         geometry?.type === "LineString" ? (geometry.coordinates as [number, number][]) : [];
@@ -2851,7 +2850,7 @@ export default function MapView({
         lineCoordinates.length > 0
           ? nearestPointOnLineString(lineCoordinates, [e.lngLat.lng, e.lngLat.lat])
           : [e.lngLat.lng, e.lngLat.lat];
-      // 改善計画T550: 地図上はテキストポップアップを出さず、クリック地点（上記の補正後）へ
+      // 地図上はテキストポップアップを出さず、クリック地点（上記の補正後）へ
       // 軽量なマーカーのみ立てる（下部の`selectedRouteSegment`監視useEffectが実際の
       // マーカー表示を担う、destinationMarkerと同じcontrolled propパターン）。区間の地点・
       // 到達予想時刻・軸別内訳（積み上げバー）はすべてボトムシート側
@@ -2912,12 +2911,12 @@ export default function MapView({
       // 頼るmap.once("load", ...)がこの後発火しないままdrawBaseRoutes等の描画コールバックが
       // 永久にスキップされる）。デバッグモードに関わらずユーザーへ気づけるようにする。
       const tagged = map as unknown as { __rcStyleReady?: boolean };
-      // 改善計画T465: __rcStyleReadyは初回ロード成功後は永久にtrueのままのため、
-      // 「変わらないデータを更新」によるsetStyle()が失敗したケースを見逃していた
+      // __rcStyleReadyは初回ロード成功後は永久にtrueのままのため、それだけでは
+      // 「変わらないデータを更新」によるsetStyle()の失敗を検知できない
       // （styleReloadPendingRef宣言のコメント参照）。両方のフラグのいずれかが
       // 「まだ有効なスタイルが無い」ことを示していればfatal扱いにする。
       const isFatal = !tagged.__rcStyleReady || styleReloadPendingRef.current;
-      // 改善計画T441: スタイル読み込み後に起きるerrorは、大半が個別タイル1枚の一過性の
+      // スタイル読み込み後に起きるerrorは、大半が個別タイル1枚の一過性の
       // 取得失敗（パン/ズーム中のキャンセル・瞬断等、次の取得サイクルで自然に解消する）
       // であり、上記の致命的ケースと同列の"error"にすると常時ノイズになる。
       // 致命的か一過性かで"error"/"warn"を出し分ける。
@@ -2926,7 +2925,7 @@ export default function MapView({
         setStyleLoadFailed(true);
         setInitialTilesLoading(false);
       }
-      // T87: レイヤーデータ状態の対象sourceで起きたエラーは「取得失敗」として記録する
+      // レイヤーデータ状態の対象sourceで起きたエラーは「取得失敗」として記録する
       // （エラー解除はhandleTrackedSourceDataLoading側、新しい取得サイクルの開始時のみ）。
       if (sourceId) markSourceErrored(sourceId);
     }
@@ -2938,7 +2937,7 @@ export default function MapView({
       // 風の詳細格子等が初期位置に対して取得できるようにするため）。
       reportViewport();
     }
-    // T87: レイヤーデータ状態の対象sourceのタイル取得イベント。新しい取得サイクルの
+    // レイヤーデータ状態の対象sourceのタイル取得イベント。新しい取得サイクルの
     // 開始（sourcedataloading）で直前のエラー状態をクリアし、進行・完了（sourcedata）の
     // たびに再計算する（loading/empty/errorいずれも、実際の変化がなければ
     // recompute内でコールバックを呼ばない）。
@@ -2948,7 +2947,7 @@ export default function MapView({
     function handleTrackedSourceData(e: maplibregl.MapSourceDataEvent) {
       notifySourceData(e.sourceId);
     }
-    // 改善計画T180: 風の詳細格子（ヒートマップ用）等、「今見えている範囲だけ」を対象に
+    // 風の詳細格子（ヒートマップ用）等、「今見えている範囲だけ」を対象に
     // フェッチしたいレイヤーへビューポートを伝える。デバウンス・ズーム閾値判定は
     // 呼び出し側（page.tsx）の責務とし、ここでは素直に現在値を都度渡すだけにする。
     function reportViewport() {
