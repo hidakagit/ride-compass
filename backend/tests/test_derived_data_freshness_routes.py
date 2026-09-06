@@ -63,6 +63,14 @@ def _fresh_counts() -> DerivedDataFreshnessCounts:
                 {"source_accident_import_run_id": 10, "source_osm_import_run_id": 20},
             ),
             _generation("designation_attributes", {"source_osm_import_run_id": 20}),
+            GenerationFreshnessCounts(
+                table_name="way_landcover",
+                row_count=5,
+                source_min={"source_osm_import_run_id": 20},
+                source_null_count={"source_osm_import_run_id": 0},
+                algorithm_version_min="v1-ring10-100",
+                algorithm_version_null_count=0,
+            ),
         ),
         latest_succeeded_run_id={"accident_import_runs": 10, "osm_import_runs": 20},
         road_edges_total=100,
@@ -99,6 +107,7 @@ def test_get_derived_data_freshness_returns_report(admin_credentials):
         "edge_attribute_counts",
         "way_attribute_counts",
         "designation_attributes",
+        "way_landcover",
     ]
     edge_entry = body["generations"][0]
     assert edge_entry["is_stale"] is False

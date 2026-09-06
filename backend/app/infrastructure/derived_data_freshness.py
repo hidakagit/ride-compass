@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION
 from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION
+from app.batch.precompute_way_landcover import ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,12 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
         sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
         algorithm_version_current=None,
         algorithm_version_owner=None,
+    ),
+    GenerationFreshnessSpec(
+        table_name="way_landcover",
+        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
+        algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
+        algorithm_version_owner="precompute_way_landcover.ALGORITHM_VERSION",
     ),
 )
 

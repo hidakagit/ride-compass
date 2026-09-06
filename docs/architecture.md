@@ -2275,10 +2275,13 @@ T350のDB設計書レビューで、`edge_attribute_counts`/`way_attribute_count
 `computed_at`/`calculated_at`しか持たず、(a) どの`accident_import_runs`/
 `osm_import_runs`の内容から計算したか、(b) 「入力データが古い」のか「計算ロジックが
 変わった」のかを区別する手段が無いと判明した（[docs/tasks/T351.md](tasks/T351.md)参照）。
-以下の列を追加した:
+以下の列を追加した（[T624](tasks/T624.md)で新設した`way_landcover`もosm起点の派生データ
+としてこのパターンへ合流している）:
 
 - **`source_accident_import_run_id`/`source_osm_import_run_id`**（`edge_attribute_counts`・
-  `way_attribute_counts`・`designation_attributes`のうちaccident/osm各データに依存する列のみ）:
+  `way_attribute_counts`・`designation_attributes`のうちaccident/osm各データに依存する列のみ。
+  `way_landcover`は`designation_attributes`と同じくosm由来データにのみ依存するため
+  `source_osm_import_run_id`のみを持つ）:
   バッチ実行時点での`accident_import_runs`/`osm_import_runs`の`status='succeeded'`な行の
   中でのMAX(id)（**高水位マーク**）。行単位の厳密な系譜ではなく「この計算はどのデータ世代
   までを見ていたか」を表す——`accident_import_runs`は年ごとに複数行が積み上がる設計のため
@@ -2289,12 +2292,16 @@ T350のDB設計書レビューで、`edge_attribute_counts`/`way_attribute_count
   ORM側にも書くと、参照先モデルをimportしないプロセス——`precompute_edge_attribute_counts.py`
   単体実行時のテストフィクスチャ等——で`Base.metadata.sorted_tables`/`create_all`が
   `NoReferencedTableError`を起こすことを実機確認したため）。
-- **`algorithm_version`**（`edge_attribute_counts`・`way_attribute_counts`のみ）: 計算ロジック
-  自体（半径・重み付け等のパラメータ）の版数。`region_service.py: ROAD_SURFACE_TILE_VERSION`と
-  同じ「パラメータを変えたら手動で上げる」文字列定数で、各バッチモジュール自身が持つ
-  （`precompute_edge_attribute_counts.py`/`precompute_way_attribute_counts.py`の
-  `ALGORITHM_VERSION`）。`designation_attributes`は既存の`data_version`列
-  （バッファ幅`buffer{N}m`）が実質同じ役割を既に果たしているため新設していない。
+- **`algorithm_version`**（`edge_attribute_counts`・`way_attribute_counts`・`way_landcover`）: 計算
+  ロジック自体（半径・重み付け等のパラメータ）の版数。`region_service.py:
+  ROAD_SURFACE_TILE_VERSION`と同じ「パラメータを変えたら手動で上げる」文字列定数で、各バッチ
+  モジュール自身が持つ（`precompute_edge_attribute_counts.py`/
+  `precompute_way_attribute_counts.py`/`precompute_way_landcover.py`の`ALGORITHM_VERSION`）。
+  `way_landcover`は`designation_attributes`と異なりバッファ幅を表す`data_version`列
+  （ラスタのタイル年）とは別に、リング半径（`inner_m`/`outer_m`）というアルゴリズム側の
+  パラメータを`algorithm_version`が独立して持つ——`designation_attributes`は既存の
+  `data_version`列（バッファ幅`buffer{N}m`）が実質同じ役割を既に果たしているため新設して
+  いない。
 - **`matched_route_designation_ids`**（`designation_attributes`のみ）: この`(osm_way_id, kind)`の
   `matched_ratio`へ実際に寄与した全`route_designations.id`（`integer[]`）。
   `match_designations.py`の`_MATCH_SQL`は同一`(osm_way_id, kind)`に複数の`route_designations`行が

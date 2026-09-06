@@ -60,6 +60,13 @@ def algorithm_version(inner_m: float, buffer_m: float) -> str:
     return f"v1-ring{int(inner_m)}-{int(buffer_m)}"
 
 
+# 派生データ鮮度台帳（derived_data_freshness.py: GENERATION_FRESHNESS_SPECS）が参照する
+# 「現在の既定リング径」の版数。--buffer-m/--inner-mでこれと異なる値を指定して実行すると、
+# 鮮度台帳はその行を古い版として検知する（`algorithm_version`関数のとおり径ごとに
+# 版文字列が変わるため）。
+ALGORITHM_VERSION = algorithm_version(DEFAULT_INNER_M, DEFAULT_BUFFER_M)
+
+
 def infer_data_version_from_filename(path: str) -> str | None:
     match = _DATA_VERSION_FROM_FILENAME_RE.search(Path(path).name)
     return match.group(1) if match else None
@@ -230,6 +237,22 @@ async def run(
                 source.close()
     finally:
         await engine.dispose()
+
+
+async def run_default(database_url: str | None, dry_run: bool) -> int:
+    """`refresh_derived.py`（`(database_url, dry_run)`の統一シグネチャで各段を呼ぶ）向けの
+    薄いラッパー。ラスタパスは`settings.lulc_raster_paths_list`から読み、既定のリング径
+    （`DEFAULT_INNER_M`/`DEFAULT_BUFFER_M`）・増分実行（`--recompute`無し相当）を使う。
+    dry-run以外でラスタパスが未設定なら失敗させる（黙って飛ばすと「バッチ未実行で軸が
+    静かに欠落する」既知の障害モードを再生産するため。呼び出し元の`refresh_derived.py`が
+    ラスタ未整備の環境向けに`--skip-landcover`でこの段自体をスキップする経路を持つ）。"""
+    raster_paths = settings.lulc_raster_paths_list
+    if not raster_paths and not dry_run:
+        raise ValueError(
+            "settings.lulc_raster_paths（環境変数LULC_RASTER_PATHS）が未設定です。"
+            "ラスタを用意できない環境ではrefresh_derived.pyの--skip-landcoverを使ってください。"
+        )
+    return await run(database_url, raster_paths, DEFAULT_BUFFER_M, DEFAULT_INNER_M, None, False, dry_run)
 
 
 def main(argv: list[str] | None = None) -> int:

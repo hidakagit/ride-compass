@@ -71,6 +71,7 @@ _KEY_TABLES = (
     "route_designations",
     "designation_attributes",
     "accident_points",
+    "way_landcover",
 )
 
 

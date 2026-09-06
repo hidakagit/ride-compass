@@ -66,18 +66,42 @@ def _designation_counts(
     )
 
 
+def _landcover_counts(
+    *,
+    osm_min: int | None = 10,
+    osm_null: int = 0,
+    algorithm_version_min: str | None = "v1-ring10-100",
+    algorithm_version_null: int = 0,
+    row_count: int = 5,
+) -> GenerationFreshnessCounts:
+    return GenerationFreshnessCounts(
+        table_name="way_landcover",
+        row_count=row_count,
+        source_min={"source_osm_import_run_id": osm_min},
+        source_null_count={"source_osm_import_run_id": osm_null},
+        algorithm_version_min=algorithm_version_min,
+        algorithm_version_null_count=algorithm_version_null,
+    )
+
+
 def _counts(
     *,
     edge=None,
     way=None,
     designation=None,
+    landcover=None,
     latest_accident: int | None = 10,
     latest_osm: int | None = 10,
     road_edges_total: int = 5,
     elevation_uncalculated_count: int = 0,
 ) -> DerivedDataFreshnessCounts:
     return DerivedDataFreshnessCounts(
-        generations=(edge or _edge_counts(), way or _way_counts(), designation or _designation_counts()),
+        generations=(
+            edge or _edge_counts(),
+            way or _way_counts(),
+            designation or _designation_counts(),
+            landcover or _landcover_counts(),
+        ),
         latest_succeeded_run_id={"accident_import_runs": latest_accident, "osm_import_runs": latest_osm},
         road_edges_total=road_edges_total,
         elevation_uncalculated_count=elevation_uncalculated_count,
@@ -87,19 +111,21 @@ def _counts(
 # --- 宣言テーブルの構造 ---
 
 
-def test_generation_freshness_specs_cover_exactly_the_three_tables():
+def test_generation_freshness_specs_cover_exactly_the_four_tables():
     assert [spec.table_name for spec in GENERATION_FRESHNESS_SPECS] == [
         "edge_attribute_counts",
         "way_attribute_counts",
         "designation_attributes",
+        "way_landcover",
     ]
 
 
-def test_only_edge_and_way_specs_have_algorithm_version():
+def test_only_edge_way_and_landcover_specs_have_algorithm_version():
     by_table = {spec.table_name: spec for spec in GENERATION_FRESHNESS_SPECS}
     assert by_table["edge_attribute_counts"].algorithm_version_current is not None
     assert by_table["way_attribute_counts"].algorithm_version_current is not None
     assert by_table["designation_attributes"].algorithm_version_current is None
+    assert by_table["way_landcover"].algorithm_version_current is not None
 
 
 def test_build_generation_freshness_sql_has_one_column_pair_per_source():
@@ -202,4 +228,4 @@ def test_report_carries_elevation_completeness_separately_from_generation_entrie
     assert report.elevation.road_edges_total == 100
     assert report.elevation.uncalculated_count == 7
     assert report.computed_at == COMPUTED_AT
-    assert len(report.generations) == 3
+    assert len(report.generations) == 4

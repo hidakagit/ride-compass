@@ -151,6 +151,7 @@ async def test_db_status_returns_table_row_counts_and_import_run_status_for_empt
         "route_designations": 0,
         "designation_attributes": 0,
         "accident_points": 0,
+        "way_landcover": 0,
     }
     # import_runsテーブルも作成済みだが0行のため、status等はNone（テーブル欠落時のNoneと区別）。
     assert result["import_runs"] == {
