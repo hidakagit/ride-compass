@@ -676,7 +676,7 @@
     "/api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}": {
       "get": {
         "summary": "Region Dynamic Way Values",
-        "description": "「評価軸」グループとしての動的＋向きあり材料（風・勾配、改善計画T405→T414→T423、\ndocs/tasks/T400.md「2. 動的要素…は状態（ルートの有無）に応じてパラメータの出所と塗る\n対象が変わる」節）。指定タイル内のway_idごとの値（風=wind_drag_ratio[backend/app/domain/\nwind.py]、勾配=effective_gradient[backend/app/domain/gradient.py]）をまとめて返す\n軽量なJSONエンドポイント。このエンドポイントはルート未確定時（視界内の全道路への\n一律適用）専用——ルート確定後はルート自身の実進行方向・実到達時刻/実値から計算済みの\n`axis_difficulties`（`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを\n呼ばない。\n\n`material_id`はパスパラメータ（改善計画T411の実施: `wind`専用の固定パスをT423で\n材料id駆動へ一本化した）。`domain/dynamic_way_values.py: dynamic_way_value_materials()`\nに無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ\n必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は\nその材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]\nを使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は\nその材料が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。\n\n静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）\nとは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で\n合成する（`frontend/src/components/Map/dedicatedWayValueLayer.ts`参照）。\nタイル単位の値が地図表示専用のRedisキャッシュ（`dynamic_way_value_cache.py`）を経由する\nため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・向きバケットの\n範囲内では風グリッド・DBへの再問い合わせは発生しない。\n\n路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する\n（`region_service.py`の`_region_tile_semaphore`のコメント参照——MVTエンコードは\n伴わないが同じPostGISコネクションプールを取り合うため）。",
+        "description": "「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のway_idごとの\n値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient\n[backend/app/domain/gradient.py]）をまとめて返す軽量なJSONエンドポイント。この\nエンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は\nルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`\n（`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。\n\n`material_id`はパスパラメータ。`domain/dynamic_way_values.py: dynamic_way_value_materials()`\nに無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ\n必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は\nその材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]\nを使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は\nその材料が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。\n\n静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）\nとは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で\n合成する（`frontend/src/components/Map/dedicatedWayValueLayer.ts`参照）。\nタイル単位の値が地図表示専用のRedisキャッシュ（`dynamic_way_value_cache.py`）を経由する\nため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・向きバケットの\n範囲内では風グリッド・DBへの再問い合わせは発生しない。\n\n路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する\n（`region_service.py`の`_region_tile_semaphore`のコメント参照——MVTエンコードは\n伴わないが同じPostGISコネクションプールを取り合うため）。",
         "operationId": "region_dynamic_way_values_api_region_dynamic_way_values__material_id___z___x___y__get",
         "parameters": [
           {
@@ -4401,7 +4401,7 @@
           "precipitation_mm"
         ],
         "title": "WindGridPoint",
-        "description": "格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、\nforecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため。\n\n`times`自体はここには持たない（`WindGridResponse`参照、改善計画T203）。全地点が同じ\nforecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため\nhourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（実測約9割）を\n時刻文字列の重複が占めていた。\n\nprecipitation_mm（降水量、mm/h相当）はT183で追加。風の矢印と降水ナウキャストの延長\n予報（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている\n（モジュール冒頭のdocstring参照）。"
+        "description": "格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、\nforecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため。\n\n`times`自体はここには持たない（`WindGridResponse`参照）。全地点が同じ\nforecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため\nhourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（約9割）を\n時刻文字列の重複が占める。\n\nprecipitation_mm（降水量、mm/h相当）を持つ。風の矢印と降水ナウキャストの延長予報\n（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている\n（モジュール冒頭のdocstring参照）。"
       },
       "WindGridResponse": {
         "properties": {
@@ -4426,7 +4426,7 @@
           "points"
         ],
         "title": "WindGridResponse",
-        "description": "`/api/weather/wind-grid`・`wind-grid-detail`の応答本体（改善計画T203）。`times`は\n全格子点で共通の時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、\nインデックスは`times`と揃っている）。以前は`WindGridPoint`ごとに同じ`times`配列を\n複製しており、624地点では非圧縮応答の約54%（実測、gzip圧縮下でも約9%）を時刻文字列の\n重複が占めていた。全地点取得失敗等で`points`が空の場合は`times`も空になる。"
+        "description": "`/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の\n時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは\n`times`と揃っている）。`WindGridPoint`ごとに`times`を複製すると、624地点では\n非圧縮応答の約54%（gzip圧縮下でも約9%）を時刻文字列の重複が占める。全地点取得失敗等で\n`points`が空の場合は`times`も空になる。"
       }
     },
     "securitySchemes": {
