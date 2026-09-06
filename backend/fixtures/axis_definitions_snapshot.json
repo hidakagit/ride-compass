@@ -64,7 +64,7 @@
     {
       "definition": {
         "axis_id": "wind",
-        "category": "動的",
+        "category": "推定",
         "chip_label": null,
         "dedicated_way_value_layer": true,
         "default_weight": 0.26,
@@ -85,7 +85,7 @@
         "dynamic_way_value_needs_bearing": true,
         "dynamic_way_value_needs_speed": true,
         "dynamic_way_value_needs_time": true,
-        "icon_id": null,
+        "icon_id": "wind-flow",
         "is_published": true,
         "label": "風",
         "panel_hint": null,
@@ -160,11 +160,7 @@
         "default_weight": 0.2,
         "description": "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
         "display_band_labels_override": null,
-        "display_thresholds_override": [
-          1.0,
-          2.0,
-          4.0
-        ],
+        "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
         "dynamic_way_value_needs_time": false,
@@ -213,11 +209,7 @@
         "default_weight": 0.2,
         "description": "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
         "display_band_labels_override": null,
-        "display_thresholds_override": [
-          2.0,
-          3.0,
-          4.0
-        ],
+        "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
         "dynamic_way_value_needs_time": false,
@@ -281,11 +273,7 @@
         "default_weight": 0.08,
         "description": "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
         "display_band_labels_override": null,
-        "display_thresholds_override": [
-          0.133,
-          0.267,
-          0.5
-        ],
+        "display_thresholds_override": null,
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
         "dynamic_way_value_needs_time": false,
@@ -666,7 +654,71 @@
         "time_scope": "always"
       },
       "sort_order": 13
+    },
+    {
+      "definition": {
+        "axis_id": "openness",
+        "category": "推定",
+        "chip_label": "開放",
+        "dedicated_way_value_layer": false,
+        "default_weight": 0.0,
+        "description": "周囲に建物・樹木などの遮蔽物が少ない[開けている]道ほど難しい",
+        "display_band_labels_override": [
+          "市街地",
+          "住宅地",
+          "やや開けている",
+          "開けている",
+          "吹きさらし"
+        ],
+        "display_thresholds_override": [
+          -85.0,
+          -70.0,
+          -50.0,
+          -30.0
+        ],
+        "dynamic_way_value_needs_bearing": false,
+        "dynamic_way_value_needs_speed": false,
+        "dynamic_way_value_needs_time": false,
+        "icon_id": "layers",
+        "is_published": true,
+        "label": "開放度",
+        "panel_hint": "衛星画像の土地被覆データから、道路の周囲100mに建物や樹木がどれだけ多いかを推定した値です。河川敷や田園地帯など建物・樹木が無い道で高くなります。風の強い日に重みを上げて使う想定です。",
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              -100.0,
+              0.0
+            ],
+            [
+              -80.0,
+              30.0
+            ],
+            [
+              -20.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "trees_percent",
+              "required": false,
+              "weight": -1.0
+            },
+            {
+              "material": "built_percent",
+              "required": false,
+              "weight": -1.0
+            }
+          ]
+        },
+        "show_map_icon": true,
+        "time_scope": "always"
+      },
+      "sort_order": 14
     }
   ],
-  "revision": 45
+  "revision": 53
 }

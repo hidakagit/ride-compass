@@ -753,6 +753,101 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": ""
+    },
+    {
+      "axis_id": "openness",
+      "label": "開放度",
+      "category": "推定",
+      "primary_attribute_ids": [
+        "landcover"
+      ],
+      "icon_id": "layers",
+      "chip_label": "開放",
+      "panel_hint": "衛星画像の土地被覆データから、道路の周囲100mに建物や樹木がどれだけ多いかを推定した値です。河川敷や田園地帯など建物・樹木が無い道で高くなります。風の強い日に重みを上げて使う想定です。",
+      "show_map_icon": true,
+      "display": {
+        "kind": "ramp",
+        "label": "開放度",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "trees_pct",
+            "weight": -1.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "built_pct",
+            "weight": -1.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          -85.0,
+          -70.0,
+          -50.0,
+          -30.0
+        ],
+        "unit": "",
+        "note": ""
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "trees_percent",
+            "weight": -1.0,
+            "required": false
+          },
+          {
+            "material": "built_percent",
+            "weight": -1.0,
+            "required": false
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            -100.0,
+            0.0
+          ],
+          [
+            -80.0,
+            30.0
+          ],
+          [
+            -20.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": [
+        -85.0,
+        -70.0,
+        -50.0,
+        -30.0
+      ],
+      "display_band_labels_override": [
+        "市街地",
+        "住宅地",
+        "やや開けている",
+        "開けている",
+        "吹きさらし"
+      ],
+      "dedicated_way_value_layer": false,
+      "map_value_kind": "difficulty",
+      "map_value_unit": ""
     }
   ],
   "primary_attributes": [
@@ -855,6 +950,7 @@
     "car_stress": 0.2,
     "accident": 0.08,
     "night": 0.0,
-    "bicycle_infra_quality": 0.15
+    "bicycle_infra_quality": 0.15,
+    "openness": 0.0
   }
 }

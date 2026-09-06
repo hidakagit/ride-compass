@@ -32,6 +32,7 @@ describe("routeStyleModes", () => {
       "accident",
       "night",
       "bicycle_infra_quality",
+      "openness",
       "difficulty",
       "none",
     ]);
@@ -187,6 +188,7 @@ describe("routeStyleModes", () => {
       "accident",
       "night",
       "bicycle_infra_quality",
+      "openness",
       "difficulty",
       "none",
     ]);
@@ -203,6 +205,7 @@ describe("routeStyleModes", () => {
       "accident",
       "night",
       "bicycle_infra_quality",
+      "openness",
       "difficulty",
       "none",
     ]);
