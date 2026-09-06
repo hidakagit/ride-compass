@@ -2988,12 +2988,11 @@ export default function MapView({
       settleViewport();
       reportViewport();
     }
-    // T87実機確認で判明した不具合の対策その2: isSourceLoaded()がtrueになった直後の一瞬は
+    // isSourceLoaded()がtrueになった直後の一瞬は
     // querySourceFeatures()がまだ実際のフィーチャーを返さないタイミングがあり
     // （isSourceLoadedとタイルのパース完了の間に競合がある）、その瞬間にsourcedataイベントで
     // 再計算すると誤って"empty"と判定・確定してしまう。その後実際にフィーチャーが揃っても、
-    // 状態を変える追加のsourcedataイベントが来ないため、誤ったempty表示のまま固定されてしまう
-    // 不具合を実機で確認した（road_surfaceに実際は6,273件あるのに「データなし」のまま）。
+    // 状態を変える追加のsourcedataイベントが来ないため、誤ったempty表示のまま固定されうる。
     // "idle"（描画が一通り落ち着いた状態、sourcedataより後発で頻度は低い）でも継続的に
     // 再計算することで、この種のズレを取りこぼさず収束させる。
     // 注意: ここではsettleViewport（clearStaleTrackedSourceErrors）を呼ばない
@@ -3006,15 +3005,14 @@ export default function MapView({
     // 定義上ビューポートが実際に変わった時にしか発火しないため、そちらでのisSourceLoaded()の
     // trueは「新しいビューポートには（把握できる範囲で）問題が無い」という意味を持てるが、
     // "idle"でのtrueにはその保証が無く、進行中の実障害を「解除」してしまう
-    // （バックエンド障害中に"idle"で誤ってerrorが消え、"データなし"に化けるレビュー指摘で発覚）。
+    // （バックエンド障害中に"idle"で誤ってerrorが消え、"データなし"に化ける）。
     function handleIdleRecompute() {
       recomputeLayerDataStatus();
     }
 
     map.on("click", handleClick);
-    // 改善計画T403（改善計画T550で対象レイヤーをDETAIL_HIT_LAYER_IDへ変更）: ルート線専用
-    // （layer-scoped）。上のhandleClick（generic）とは独立して両方このイベントで発火する
-    // ため、handleClick冒頭のガードと対で機能する。
+    // ルート線専用（layer-scoped）。上のhandleClick（generic）とは独立して両方このイベントで
+    // 発火するため、handleClick冒頭のガードと対で機能する。
     map.on("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
     map.on("mousemove", handleMouseMove);
     map.on("zoom", handleZoom);
@@ -3061,9 +3059,8 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 位置が変わったら地図とマーカーを更新。改善計画T372: 出発地点マーカーはドラッグで
-  // 動かせる（draggable、実機フィードバック「赤ピンの移動方法が分かりにくい」を受けT366の
-  // ボタン武装方式から置き換え）。dragendでonOriginSet（page.tsx:
+  // 位置が変わったら地図とマーカーを更新。出発地点マーカーはドラッグで
+  // 動かせる（draggable）。dragendでonOriginSet（page.tsx:
   // setManualLocation）を呼び、位置・locationSourceを更新する。
   useEffect(() => {
     const map = mapRef.current;
