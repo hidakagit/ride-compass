@@ -81,6 +81,7 @@ from app.domain.attributes import (
     ElevationAttribute,
     WayAttributeCounts,
 )
+from app.domain.landcover import WayLandcover
 from app.domain.graph import (
     DirectedEdge,
     EdgeLike,
@@ -133,6 +134,7 @@ from app.infrastructure.road_graph_models import (
     RoadEdgeRow,
     RoadGraphTileRow,
     RoadNodeRow,
+    WayLandcoverRow,
 )
 
 logger = logging.getLogger("app.infrastructure.road_graph_repository")
@@ -1780,6 +1782,41 @@ class AttributeRepository(_SessionRepository):
             ],
         )
 
+    async def save_way_landcover(self, records: list[WayLandcover]) -> None:
+        if not records:
+            return
+        rows = [
+            {
+                "osm_way_id": r.osm_way_id,
+                "valid_pixels": r.percentages.valid_pixels,
+                "water_percent": r.percentages.water_percent,
+                "trees_percent": r.percentages.trees_percent,
+                "flooded_veg_percent": r.percentages.flooded_veg_percent,
+                "crops_percent": r.percentages.crops_percent,
+                "built_percent": r.percentages.built_percent,
+                "bare_percent": r.percentages.bare_percent,
+                "snow_ice_percent": r.percentages.snow_ice_percent,
+                "rangeland_percent": r.percentages.rangeland_percent,
+                "data_source": r.data_source,
+                "data_version": r.data_version,
+                "computed_at": r.computed_at,
+                "source_osm_import_run_id": r.source_osm_import_run_id,
+                "algorithm_version": r.algorithm_version,
+            }
+            for r in records
+        ]
+        await _bulk_upsert(
+            self._session,
+            WayLandcoverRow,
+            rows,
+            ["osm_way_id"],
+            [
+                "valid_pixels", "water_percent", "trees_percent", "flooded_veg_percent", "crops_percent",
+                "built_percent", "bare_percent", "snow_ice_percent", "rangeland_percent",
+                "data_source", "data_version", "computed_at", "source_osm_import_run_id", "algorithm_version",
+            ],
+        )
+
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         if not edge_ids:
             return {}
@@ -2168,6 +2205,9 @@ class RoadGraphRepository:
 
     async def save_elevation_attributes(self, attributes: list[ElevationAttribute]) -> None:
         await self.attributes.save_elevation_attributes(attributes)
+
+    async def save_way_landcover(self, records: list[WayLandcover]) -> None:
+        await self.attributes.save_way_landcover(records)
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         return await self.attributes.get_surface_attributes(edge_ids)

@@ -8,6 +8,7 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 何が難易度に寄与しているか分からなくなるため（docs/tasks/T624.md「方針転換」参照）。
 """
 
+from datetime import datetime
 from typing import Mapping
 
 from pydantic import BaseModel
@@ -69,3 +70,18 @@ def class_percentages(counts: Mapping[int, int]) -> LandcoverPercentages | None:
         snow_ice_percent=percent(LULC_SNOW_ICE),
         rangeland_percent=percent(LULC_RANGELAND),
     )
+
+
+class WayLandcover(BaseModel):
+    """`way_landcover`テーブル1行分（`LandcoverPercentages`にosm_way_id・系譜情報を
+    足した完全な行表現）。`EdgeMaterialBundle.landcover`（`domain/attributes.py`）の
+    型としても使う（`ElevationAttribute`と同じ「材料値＋系譜情報を1つのモデルで持つ」
+    構成）。"""
+
+    osm_way_id: int
+    percentages: LandcoverPercentages
+    data_source: str
+    data_version: str
+    computed_at: datetime
+    source_osm_import_run_id: int | None = None
+    algorithm_version: str | None = None

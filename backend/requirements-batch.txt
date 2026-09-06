@@ -1,5 +1,7 @@
-# PBF取込バッチ（app/batch/import_pbf.py）専用の追加依存。
-# Renderのwebサービスには不要のためrequirements.txtとは分離している
-# （バッチはデプロイ対象外。docs/osm-pbf-import.md参照）。
+# PBF取込バッチ（app/batch/import_pbf.py）・土地被覆バッチ（app/batch/
+# precompute_way_landcover.py）専用の追加依存。Renderのwebサービスには不要のため
+# requirements.txtとは分離している（バッチはデプロイ対象外。docs/osm-pbf-import.md参照）。
 -r requirements.txt
 osmium==4.1.1
+rasterio==1.5.1
+pyproj==3.7.2

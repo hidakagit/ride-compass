@@ -14,6 +14,7 @@ from sqlalchemy import insert, text
 
 from app.domain.attributes import ElevationAttribute, WayAttributeCounts
 from app.domain.graph import DirectedEdge, WaySpec, build_road_graph
+from app.domain.landcover import LULC_BUILT, LULC_TREES, LULC_WATER, WayLandcover, class_percentages
 from app.domain.region import BoundingBox
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*/route_designationsテーブルを登録するためのimport
@@ -616,6 +617,64 @@ async def test_elevation_attributes_upsert_overwrites_previous_value(road_graph_
 
     result = await road_graph_repository.get_elevation_attributes([edge_id])
     assert result[edge_id].start_elevation_m == 99.0
+
+
+async def test_save_way_landcover_with_empty_list_is_a_noop(road_graph_repository):
+    await road_graph_repository.save_way_landcover([])  # 例外を投げない
+
+
+async def test_save_way_landcover_roundtrip(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+
+    percentages = class_percentages({LULC_TREES: 30, LULC_BUILT: 20, LULC_WATER: 50})
+    assert percentages is not None
+    record = WayLandcover(
+        osm_way_id=100,
+        percentages=percentages,
+        data_source="esri-io-lulc",
+        data_version="2025",
+        computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        source_osm_import_run_id=None,
+        algorithm_version="v1-ring10-100",
+    )
+    await road_graph_repository.save_way_landcover([record])
+
+    row = (
+        await road_graph_session.execute(
+            text("SELECT trees_percent, built_percent, water_percent, valid_pixels FROM way_landcover WHERE osm_way_id = 100")
+        )
+    ).one()
+    assert row.trees_percent == 30.0
+    assert row.built_percent == 20.0
+    assert row.water_percent == 50.0
+    assert row.valid_pixels == 100
+
+
+async def test_save_way_landcover_upsert_overwrites_previous_value(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    first = class_percentages({LULC_TREES: 100})
+    second = class_percentages({LULC_BUILT: 100})
+    assert first is not None and second is not None
+    await road_graph_repository.save_way_landcover(
+        [WayLandcover(osm_way_id=100, percentages=first, data_source="esri-io-lulc", data_version="2025", computed_at=now)]
+    )
+    await road_graph_repository.save_way_landcover(
+        [WayLandcover(osm_way_id=100, percentages=second, data_source="esri-io-lulc", data_version="2025", computed_at=now)]
+    )
+
+    row = (
+        await road_graph_session.execute(
+            text("SELECT trees_percent, built_percent FROM way_landcover WHERE osm_way_id = 100")
+        )
+    ).one()
+    assert row.trees_percent == 0.0
+    assert row.built_percent == 100.0
 
 
 async def test_get_surface_attributes_returns_empty_dict_for_empty_input(road_graph_repository):
