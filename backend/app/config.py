@@ -171,9 +171,20 @@ class Settings(BaseSettings):
     # `min(4, os.cpu_count())`（コア数が少ない環境でも過剰にスレッドを起動しない）。
     tile_cache_load_max_concurrent: int = Field(default_factory=lambda: min(4, os.cpu_count() or 4))
 
+    # 土地被覆バッチ（app/batch/precompute_way_landcover.py）が読むEsri×Impact
+    # Observatory LULCのGeoTIFFファイルパス（カンマ区切り、複数ゾーン対応）。
+    # ラスタ自体はリポジトリにコミットせず手動取得する（docs/disaster-recovery.md参照）ため
+    # .envでのみ設定する。空文字列（未設定）はrefresh_derived.py経由の実行時のみ
+    # フェイルファストの対象になる（バッチを直接`--raster`引数付きで呼ぶ場合は無関係）。
+    lulc_raster_paths: str = ""
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return self.cors_allowed_origins.split(",")
+
+    @property
+    def lulc_raster_paths_list(self) -> list[str]:
+        return [p for p in self.lulc_raster_paths.split(",") if p]
 
 
 settings = Settings()
