@@ -2102,27 +2102,24 @@ interface MapViewProps {
   /** トンネル（一次属性、OSMのtunnelタグ）。designationと同じく路面と同じソースを
    * 再利用する独立レイヤー。 */
   showTunnel: boolean;
-  /** 一方通行（一次属性、OSM onewayタグ、改善計画T289）。tunnelと同じく路面と同じソースを
+  /** 一方通行（一次属性、OSM onewayタグ）。tunnelと同じく路面と同じソースを
    * 再利用する独立レイヤー。評価軸には組み込まない表示専用。 */
   showOneway: boolean;
-  /** way_id→wind_drag_ratio配信層（改善計画T405）。「評価軸」グループとしての風——designation/
+  /** way_id→wind_drag_ratio配信層。「評価軸」グループとしての風——designation/
    * tunnel/onewayと同じく路面と同じソースを再利用する独立レイヤーだが、値はタイルの
-   * プロパティではなくdedicatedWayValues（別経路のAPI、setFeatureStateで合成）から来る。
-   * T406（パネル構成再編）が完了するまでの暫定措置として、既存の「動的」グループへ
-   * 一時的なチップとして追加している（mapLayers.ts: windAxis参照）。 */
+   * プロパティではなくdedicatedWayValues（別経路のAPI、setFeatureStateで合成）から来る
+   * （mapLayers.ts: windAxis参照）。 */
   showWindAxis: boolean;
-  /** way_id→勾配（effective_gradient）配信層（改善計画T423）。windAxisと同型——「評価軸」
+  /** way_id→勾配（effective_gradient）配信層。windAxisと同型——「評価軸」
    * グループとしての勾配。 */
   showGradientAxis: boolean;
-  /** 改善計画T483: hooks/useDynamicWayValues.ts（改善計画T423で旧useWindAxisPenaltiesから
-   * 汎用化）が現在のビューポートに対して取得したway_id→値（風=wind_drag_ratio[m/s、
-   * 正=向かい風・負=追い風]、勾配=effective_gradient[%、正=登り・負=下り]）を、
-   * axisId→(way_id→値)の汎用Mapとしてまとめて受け取る（page.tsx: windAxisData.values/
-   * gradientAxisData.valuesを1つのMapへ統合して構築）。show{Wind,Gradient}Axisがtrueの
-   * 間、変化のたびにMapLibreのsetFeatureStateで路面タイルの地物へ差し込む
-   * （applyAxisFeatureStateValues参照）。以前はwindAxisPenalties/gradientAxisValuesという
-   * 軸ごとに別名のpropだったが、dedicatedWayValueDisplays（改善計画T473）と同じ理由
-   * （design-principles.md構造仕様3: 軸ごとにpropを新設しない）で統合した。未設定の軸idは
+  /** hooks/useDynamicWayValues.tsが現在のビューポートに対して取得したway_id→値
+   * （風=wind_drag_ratio[m/s、正=向かい風・負=追い風]、勾配=effective_gradient[%、
+   * 正=登り・負=下り]）を、axisId→(way_id→値)の汎用Mapとしてまとめて受け取る
+   * （page.tsx: windAxisData.values/gradientAxisData.valuesを1つのMapへ統合して構築）。
+   * show{Wind,Gradient}Axisがtrueの間、変化のたびにMapLibreのsetFeatureStateで
+   * 路面タイルの地物へ差し込む（applyAxisFeatureStateValues参照）。軸ごとに別名のpropを
+   * 新設せず（design-principles.md構造仕様3参照）汎用Mapへ統合してある。未設定の軸idは
    * 空Map扱い（get()がundefinedを返す）として処理される。 */
   dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<number, number>>;
   /** `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、
@@ -2132,93 +2129,91 @@ interface MapViewProps {
    * 難易度スケールの既定（dedicatedWayValueLayer.ts: DEFAULT_DEDICATED_WAY_VALUE_DISPLAY）
    * へフォールバックする。 */
   dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>;
-  /** `dedicated_way_value_layer`軸ごとのフェッチ進行中フラグ（改善計画T607、
-   * hooks/useDynamicWayValues.ts: loading）をaxisId→booleanの汎用Mapとして受け取る。
+  /** `dedicated_way_value_layer`軸ごとのフェッチ進行中フラグ
+   * （hooks/useDynamicWayValues.ts: loading）をaxisId→booleanの汎用Mapとして受け取る。
    * dedicatedWayValueDisplaysと同じ理由（design-principles.md構造仕様3: 軸ごとにpropを
    * 新設しない）で、windLoading/gradientLoadingのような別名propは持たない。未設定の軸idは
    * false（フェッチ中でない）扱い。 */
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>;
-  /** 改善計画T423: 環境グループの勾配gridFill。showGradientFillは
+  /** 環境グループの勾配gridFill。showGradientFillは
    * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
    * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDynamicWayValues.ts:
    * byTileをgradientGridFill.ts: gradientGridCellsFromTileResponsesで変換した値をそのまま
    * 渡す。 */
   showGradientFill: boolean;
   gradientFillGeojson: GeoJSON.FeatureCollection | undefined;
-  /** 事故（外部静的データソース T50、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
+  /** 事故（外部静的データソース、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
-  /** 停止要因POI（改善計画T54）。路面とは別の点データ用ベクタソースを使う。 */
+  /** 停止要因POI。路面とは別の点データ用ベクタソースを使う。 */
   showStopPoi: boolean;
-  /** 補給・休憩ポイントPOI（改善計画T101、コンビニ・自販機・トイレ・給水・駐輪場）。
+  /** 補給・休憩ポイントPOI（コンビニ・自販機・トイレ・給水・駐輪場）。
    * 停止要因POIと同じベクタソース（region-poi-tiles）を共有する独立レイヤー。 */
   showSupplyPoi: boolean;
-  /** 二次軸rampレイヤー（改善計画T145b）の表示フラグ。キーはaxisMapLayerId（"axis:accident"等、
+  /** 二次軸rampレイヤーの表示フラグ。キーはaxisMapLayerId（"axis:accident"等、
    * mapLayers.tsのMapLayerIdと同じ）。カタログ駆動のため個別のshow*フラグは持たない。 */
   axisVisibility: Record<string, boolean>;
   /** 2次（ramp軸、車の圧迫感を含む）のうち、材料（1次）が同時に表示されているためcasing
    * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:car_stress"/"axis:accident"等、
    * STATIC_OVERLAY_LAYERSのkeyと同じ）。page.tsx側がaxisMaterialLayerIdsとlayerVisibility
-   * から算出する（改善計画: 2次の下敷きの副作用対応、applySecondaryAxisCasingStyles参照）。 */
+   * から算出する（applySecondaryAxisCasingStyles参照）。 */
   secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
   /** 自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み軸
-   * （改善計画T63、STATIC_FILTER_AXES参照。事故のみ2軸を持ち、他は1軸。車の圧迫感[T292]は
+   * （STATIC_FILTER_AXES参照。事故のみ2軸を持ち、他は1軸。車の圧迫感は
    * axisVisibility側と同様RAMP_AXES由来のためここには手書きされていない）。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
-  /** 改善計画T352: ルート色分けモード一覧（axis-catalog由来、公開軸を無条件で動的に
-   * 含む）。page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的
-   * フォールバック）をそのまま渡す。 */
+  /** ルート色分けモード一覧（axis-catalog由来、公開軸を無条件で動的に含む）。
+   * page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的フォールバック）を
+   * そのまま渡す。 */
   routeStyleModes: readonly RouteStyleMode[];
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
   onRegionZoomHintChange: (tooWide: boolean) => void;
-  /** 改善計画T180: パン・ズーム確定（moveend/zoomend）のたびに現在のビューポート（bbox・
+  /** パン・ズーム確定（moveend/zoomend）のたびに現在のビューポート（bbox・
    * ズーム）を呼び出し側へ伝える。風の詳細格子（ヒートマップ用）のように「今見えている
    * 範囲だけ」を対象にフェッチしたいレイヤーが、page.tsx側でデバウンス・ズーム閾値判定
    * したうえで使う想定。onRegionZoomHintChangeと違い道路タイル固有の判定を持たない、
    * 汎用のビューポート通知（今後同種の「見えている範囲だけ取得」レイヤーが増えたら
    * 相乗りできる）。 */
   onViewportChange: (viewport: { west: number; south: number; east: number; north: number; zoom: number }) => void;
-  /** レイヤーごとのデータ取得状態（改善計画T87、loading/empty/error）。表示ONのレイヤーが
+  /** レイヤーごとのデータ取得状態（loading/empty/error）。表示ONのレイヤーが
    * 変わるたび・タイル取得の進行に応じて呼ばれる（値が変わらない限り呼ばない）。 */
   onLayerDataStatusChange: (status: LayerDataStatusByLayer) => void;
   refreshToken: number;
   /** 実験スロット（研究インターフェース改善 §10-3）。デバッグモードOFF時は呼び出し側が
    * 空配列を渡すため、通常利用ではレイヤーは作られない。 */
   experimentSlots: ExperimentSlot[];
-  /** 二次軸の汎用rampレイヤー一覧（改善計画T308）。呼び出し側（page.tsx）が
+  /** 二次軸の汎用rampレイヤー一覧。呼び出し側（page.tsx）が
    * useAxisCatalog経由で取得したもの（取得完了までとエラー時は静的フォールバック
    * RAMP_AXES）を渡す。軸スタジオでの新規公開軸もここへ含まれれば、再デプロイなしに
    * 地図レイヤーとして現れる。 */
   rampAxes: readonly RampAxis[];
-  /** axis_id→表示名の辞書（改善計画T320）。区間インスペクタ（axisInspectorPopup.ts）が
+  /** axis_id→表示名の辞書。区間インスペクタ（axisInspectorPopup.ts）が
    * 軸別内訳のラベルを表示するために使う。呼び出し側（page.tsx）がuseAxisCatalog経由で
-   * 取得したもの（取得完了までとエラー時は静的フォールバック）を渡す。以前はビルド時
-   * 静的なAXIS_LABELSを直接参照しており、軸スタジオで新規公開したGUI作成軸のラベルが
-   * 表示されず生のaxis_idがそのまま出ていた（動的なaxisLabelsが用意済みなのに
-   * 消費者が無かった配線漏れ）。 */
+   * 取得したもの（取得完了までとエラー時は静的フォールバック）を渡す。軸スタジオで
+   * 新規公開したGUI作成軸のラベルも動的に反映される。 */
   axisLabels: Record<string, string>;
-  /** 改善計画T550: 区間クリックで選択中の区間（controlled、page.tsx側のstate）。
+  /** 区間クリックで選択中の区間（controlled、page.tsx側のstate）。
    * nullの間はクリック地点マーカーを表示しない。地点・到達予想時刻・軸別内訳の表示は
    * すべてボトムシート側（RouteAxisProfile）が担う——このコンポーネントはクリック地点へ
    * マーカーを立てる・onRouteSegmentSelectで選択を通知するだけで、テキストポップアップは
-   * 一切出さない（旧routeSegmentChartPopup.tsのレーダーチャートポップアップは撤去済み）。 */
+   * 一切出さない。 */
   selectedRouteSegment: SelectedRouteSegment | null;
   /** ルート線クリック（handleRouteSegmentClick）で呼ばれる。呼び出し元（page.tsx）が
    * selectedRouteSegment stateへ格納し、上記propとして折り返される
    * （destination/waypointsと同じcontrolled propパターン）。 */
   onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
-  /** 改善計画T364: ユーザーが地図クリックで指定した経由地（起点→経由地1→...→起点の順で
+  /** ユーザーが地図クリックで指定した経由地（起点→経由地1→...→起点の順で
    * 通過する単一経路の生成に使う、page.tsx側のstate）。 */
   waypoints: Coordinates[];
   /** 空白地点クリック時の「経由地に追加」ボタン押下で呼ばれる。 */
   onWaypointAdd: (coordinates: Coordinates) => void;
   /** 経由地マーカークリックで呼ばれる（該当indexを削除）。 */
   onWaypointRemove: (index: number) => void;
-  /** 改善計画T365: 目的地（最大1点、指定時は起点に戻らず目的地で終わる片道ルートになる）。 */
+  /** 目的地（最大1点、指定時は起点に戻らず目的地で終わる片道ルートになる）。 */
   destination: Coordinates | null;
   /** trueの間は次の1タップだけ、地物ヒット判定を迂回して目的地を置く
    * （page.tsxの「目的地を設定」ボタン押下でtrueになり、配置後は自動的にfalseへ戻る）。 */
@@ -2227,12 +2222,11 @@ interface MapViewProps {
   onDestinationSet: (coordinates: Coordinates) => void;
   /** 目的地マーカークリックで呼ばれる（解除）。 */
   onDestinationClear: () => void;
-  /** 改善計画T365-2: 周回/目的地モードの切り替え（page.tsx: routeMode）。falseの間は
-   * 空白地点クリックでの経由地追加を行わない（従来どおり地物ヒット時のみ詳細ポップアップを
+  /** 周回/目的地モードの切り替え（page.tsx: routeMode）。falseの間は
+   * 空白地点クリックでの経由地追加を行わない（地物ヒット時のみ詳細ポップアップを
    * 表示する、周回モード中は地図上に経由地・目的地ピンを持たせない設計のため）。 */
   pinPlacementEnabled: boolean;
-  /** 改善計画T372（実機フィードバック「赤ピンの移動方法が分かりにくい」を受けT366の
-   * ボタン武装方式から再設計）: 出発地点マーカーをドラッグ&ドロップで動かした（dragend）
+  /** 出発地点マーカーをドラッグ&ドロップで動かした（dragend）
    * ときに呼ばれる（page.tsx: useLocation().setManualLocation）。地図アプリで一般的な
    * 「ピンをつかんで動かす」操作そのものなので説明用のUIを別途持たない。 */
   onOriginSet: (coordinates: Coordinates) => void;
