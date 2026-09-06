@@ -1213,7 +1213,36 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
 // サブレイヤーは常に非表示にする（=同時に両方は出ない）。ソースをまたいだ複数payloadの
 // 同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の別ソースとして
 // 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
-function applyDynamicWeatherState(
+// setTiles()は同じURLを渡しても無条件にソースをリロードし、読み込み済みのタイルを
+// 破棄して取得し直す（ラスタは特にPNGデコード・GPUテクスチャアップロードのコストが
+// 大きい）。dynamicWeatherは風・降水・雷等いずれか1要素の更新だけでも新しいオブジェクト
+// 参照になり、applyDynamicWeatherStateは全グループぶん毎回呼ばれるため、URLが前回から
+// 変わっていないソースまで巻き添えで再読み込みされる。ソースごとに前回適用したURLを
+// 覚えておき、変化が無ければsetTilesを呼ばない。
+const lastAppliedTileUrl = new WeakMap<object, string>();
+
+function setTilesIfChanged(source: maplibregl.RasterTileSource | maplibregl.VectorTileSource, url: string): void {
+  if (lastAppliedTileUrl.get(source) === url) return;
+  lastAppliedTileUrl.set(source, url);
+  source.setTiles([url]);
+}
+
+// gridFill/gridMark（GeoJSONSource）向けの同型ガード。setData()はネットワーク取得こそ
+// 無いが、渡したデータをワーカーへ送り直しインデックスを再構築させる点はsetTilesと同じ
+// 「無条件に再構築」挙動のため揃えておく。内容比較にJSON.stringifyを使うのは、
+// payloadが都度新しいオブジェクト参照で計算される（風グリッド・落雷位置等、都度数十〜
+// 数百点程度）ため参照比較では意味が無く、かつこの規模なら文字列化のコストは無視できる
+// ため。
+const lastAppliedGeojson = new WeakMap<object, string>();
+
+function setDataIfChanged(source: GeoJSONSource, geojson: GeoJSON.GeoJSON): void {
+  const serialized = JSON.stringify(geojson);
+  if (lastAppliedGeojson.get(source) === serialized) return;
+  lastAppliedGeojson.set(source, serialized);
+  source.setData(geojson);
+}
+
+export function applyDynamicWeatherState(
   map: MapLibreMap,
   id: DynamicWeatherLayerId,
   groupSpec: DynamicWeatherGroupSpec,
@@ -1230,7 +1259,7 @@ function applyDynamicWeatherState(
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "raster");
         if (payload?.kind === "rasterTile") {
           const rasterSource = map.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
-          rasterSource?.setTiles([payload.tileUrlTemplate]);
+          if (rasterSource) setTilesIfChanged(rasterSource, payload.tileUrlTemplate);
         }
         setLayerVisibility(map, layerId, visible && payload?.kind === "rasterTile");
       }
@@ -1238,7 +1267,7 @@ function applyDynamicWeatherState(
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
         if (payload?.kind === "gridFill") {
           const fillSource = map.getSource(sourceId) as GeoJSONSource | undefined;
-          fillSource?.setData(payload.geojson);
+          if (fillSource) setDataIfChanged(fillSource, payload.geojson);
         }
         setLayerVisibility(map, layerId, visible && payload?.kind === "gridFill");
       }
@@ -1246,7 +1275,7 @@ function applyDynamicWeatherState(
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "mark");
         if (payload?.kind === "gridMark") {
           const markSource = map.getSource(sourceId) as GeoJSONSource | undefined;
-          markSource?.setData(payload.geojson);
+          if (markSource) setDataIfChanged(markSource, payload.geojson);
         }
         setLayerVisibility(map, layerId, visible && payload?.kind === "gridMark");
       }
@@ -1254,7 +1283,7 @@ function applyDynamicWeatherState(
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");
         if (payload?.kind === "vectorTile") {
           const vectorSource = map.getSource(sourceId) as maplibregl.VectorTileSource | undefined;
-          vectorSource?.setTiles([payload.tileUrlTemplate]);
+          if (vectorSource) setTilesIfChanged(vectorSource, payload.tileUrlTemplate);
         }
         setLayerVisibility(map, layerId, visible && payload?.kind === "vectorTile");
       }
