@@ -1,6 +1,15 @@
 /* パネルのシェル（配色・ドラッグ・ヘッダー）はFloatingPanel.module.cssへ共通化済み。
    ここにはログ本文（.entries）専用のスタイルだけを残す。 */
 
+.levelSelect {
+  font-size: 0.7rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.2rem;
+}
+
 .clearButton {
   font-size: 0.7rem;
 }
