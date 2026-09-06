@@ -1,4 +1,5 @@
 import inspect
+from datetime import datetime, timezone
 
 import numpy as np
 import pytest
@@ -10,6 +11,7 @@ from app.domain.attributes import (
     ElevationAttribute,
     WayAttributeCounts,
 )
+from app.domain.landcover import LandcoverPercentages, WayLandcover
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -613,6 +615,30 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     # 全8軸（改善計画T347でbicycle_infra_quality追加）の重み合計1.23のうち
     # gradient(0.15)+wind(0.26)を除いた0.82ぶんが取得できている。
     assert result.covered_weight_fraction == pytest.approx(0.82 / 1.23, abs=0.001)
+
+
+def test_axis_inspector_breakdown_accepts_way_landcover_without_affecting_other_axes():
+    """T624: way_landcoverを渡しても既存軸のスコアは変わらない（開放度軸自体は
+    段階3[axis_admin API]で公開するまでAXIS_DEFINITIONSに存在せず、trees_percent/
+    built_percentはmaterials辞書に混ざるだけの未参照キーになる）。"""
+    landcover = WayLandcover(
+        osm_way_id=100,
+        percentages=LandcoverPercentages(
+            valid_pixels=500, water_percent=0, trees_percent=40.0, flooded_veg_percent=0,
+            crops_percent=0, built_percent=25.0, bare_percent=0, snow_ice_percent=0, rangeland_percent=35.0,
+        ),
+        data_source="esri-io-lulc", data_version="2025", computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    without_landcover = axis_inspector_breakdown(
+        highway="residential", tags={"surface": "asphalt"}, is_designated=False, way_counts=None,
+        accident_years_covered=0,
+    )
+    with_landcover = axis_inspector_breakdown(
+        highway="residential", tags={"surface": "asphalt"}, is_designated=False, way_counts=None,
+        accident_years_covered=0, way_landcover=landcover,
+    )
+
+    assert with_landcover.axes == without_landcover.axes
 
 
 def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_tags():

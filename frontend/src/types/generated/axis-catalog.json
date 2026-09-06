@@ -837,6 +837,11 @@
       "shared": false
     },
     {
+      "attr_id": "landcover",
+      "label": "開放度",
+      "shared": false
+    },
+    {
       "attr_id": "geometry",
       "label": "区間形状",
       "shared": true

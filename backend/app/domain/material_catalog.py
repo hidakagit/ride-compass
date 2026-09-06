@@ -70,6 +70,8 @@ class MaterialExtractionContext:
     accident_counts: dict[str, int]
     accident_years_covered: int
     designated_edge_ids: set[str]
+    landcover_trees_percent: dict[str, float]
+    landcover_built_percent: dict[str, float]
 
 
 MaterialExtractor = Callable[[MaterialExtractionContext], object]
@@ -203,6 +205,14 @@ class MaterialSpec(BaseModel):
 def _extract_gradient_percent(ctx: MaterialExtractionContext) -> float | None:
     attribute = ctx.elevation_attributes.get(ctx.edge_id)
     return attribute.average_grade if attribute is not None else None
+
+
+def _extract_landcover_trees_percent(ctx: MaterialExtractionContext) -> float | None:
+    return ctx.landcover_trees_percent.get(ctx.edge_id)
+
+
+def _extract_landcover_built_percent(ctx: MaterialExtractionContext) -> float | None:
+    return ctx.landcover_built_percent.get(ctx.edge_id)
 
 
 def _extract_surface_good(ctx: MaterialExtractionContext) -> bool | None:
@@ -516,6 +526,26 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property=None,
         tile_property_direction_dependent=True,
         reference_points=_wind_drag_ratio_reference_points(),
+    ),
+    "trees_percent": MaterialSpec(
+        material_id="trees_percent",
+        label="樹木被覆率",
+        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木被覆の割合(%)。",
+        dtype="numeric",
+        unit="%",
+        tile_property="trees_pct",
+        primary_attribute_id="landcover",
+        extractor=_extract_landcover_trees_percent,
+    ),
+    "built_percent": MaterialSpec(
+        material_id="built_percent",
+        label="建物被覆率",
+        description="衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物被覆の割合(%)。",
+        dtype="numeric",
+        unit="%",
+        tile_property="built_pct",
+        primary_attribute_id="landcover",
+        extractor=_extract_landcover_built_percent,
     ),
     "surface_good": MaterialSpec(
         material_id="surface_good",

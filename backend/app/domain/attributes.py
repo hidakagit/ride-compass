@@ -62,8 +62,8 @@ class WayAttributeCounts(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialBundle:
-    """Edge 1本ぶんの材料（surface・way_tags・件数・標高・指定路線）を1オブジェクトへ
-    束ねたもの。
+    """Edge 1本ぶんの材料（surface・way_tags・件数・標高・指定路線・土地被覆）を
+    1オブジェクトへ束ねたもの。
 
     `get_edge_materials_batch`は1回のJOINクエリで全材料を1行取得する。Edge単位で
     この1オブジェクトへ統合しているのは、材料を`surface_attributes`/
@@ -87,6 +87,12 @@ class EdgeMaterialBundle:
     attribute_counts: EdgeAttributeCounts | None
     elevation_attribute: ElevationAttribute | None
     is_designated: bool
+    # `way_landcover`（T624）のうち評価パイプラインへ配線済みの2列のみ（trees/built、
+    # 他6列はDBに保存済みだが本bundleへは未配線——「材料の登録」と「評価軸での利用」の
+    # 分離、docs/tasks/T624.md「段階2で配線する材料」参照）。同じway_landcover行が
+    # 無ければ2つとも同時にNone（片方だけ欠損することはない）。
+    landcover_trees_percent: float | None = None
+    landcover_built_percent: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +111,8 @@ class LegacyEdgeMaterialDicts:
     intersection_counts: dict[str, int]
     accident_counts: dict[str, float]
     designated_edge_ids: set[str]
+    landcover_trees_percent: dict[str, float]
+    landcover_built_percent: dict[str, float]
 
 
 def _none_if_nan(value: float) -> float | None:
@@ -175,6 +183,9 @@ class EdgeMaterialTable:
     stop_count: np.ndarray  # dtype=float64（int相当、NaN=欠損）
     intersection_count: np.ndarray  # dtype=float64
     is_designated: np.ndarray  # dtype=bool
+    landcover_present: np.ndarray  # dtype=bool
+    landcover_trees_percent: np.ndarray  # dtype=float64
+    landcover_built_percent: np.ndarray  # dtype=float64
     # Noneは「未指定」を表し、__post_init__がedge_ids全件を行indexとして自動算出する
     # （直接構築するテスト向けの便宜）。`from_bundles`はbundleが無いedge_idの行を
     # 意図的に含めない辞書を明示的に渡すため、空dict({})と「未指定」を区別する必要がある
@@ -214,6 +225,9 @@ class EdgeMaterialTable:
         stop_count = np.full(n, np.nan)
         intersection_count = np.full(n, np.nan)
         is_designated = np.zeros(n, dtype=bool)
+        landcover_present = np.zeros(n, dtype=bool)
+        landcover_trees_percent = np.full(n, np.nan)
+        landcover_built_percent = np.full(n, np.nan)
 
         row_index: dict[str, int] = {}
         for i, edge_id in enumerate(edge_ids):
@@ -225,6 +239,10 @@ class EdgeMaterialTable:
             surface[i] = bundle.surface
             way_tags[i] = bundle.way_tags
             is_designated[i] = bundle.is_designated
+            if bundle.landcover_trees_percent is not None and bundle.landcover_built_percent is not None:
+                landcover_present[i] = True
+                landcover_trees_percent[i] = bundle.landcover_trees_percent
+                landcover_built_percent[i] = bundle.landcover_built_percent
 
             counts = bundle.attribute_counts
             if counts is not None:
@@ -274,6 +292,9 @@ class EdgeMaterialTable:
             stop_count=stop_count,
             intersection_count=intersection_count,
             is_designated=is_designated,
+            landcover_present=landcover_present,
+            landcover_trees_percent=landcover_trees_percent,
+            landcover_built_percent=landcover_built_percent,
             _row_index=row_index,
         )
 
@@ -316,6 +337,8 @@ class EdgeMaterialTable:
             attribute_counts=self._reconstruct_attribute_counts(i),
             elevation_attribute=self._reconstruct_elevation_attribute(i, edge_id),
             is_designated=bool(self.is_designated[i]),
+            landcover_trees_percent=_none_if_nan(self.landcover_trees_percent[i]) if self.landcover_present[i] else None,
+            landcover_built_percent=_none_if_nan(self.landcover_built_percent[i]) if self.landcover_present[i] else None,
         )
 
     def __getitem__(self, edge_id: str) -> EdgeMaterialBundle:
@@ -343,6 +366,8 @@ class EdgeMaterialTable:
         intersection_counts: dict[str, int] = {}
         accident_counts: dict[str, float] = {}
         designated_edge_ids: set[str] = set()
+        landcover_trees_percent: dict[str, float] = {}
+        landcover_built_percent: dict[str, float] = {}
 
         for edge_id, i in self._row_index.items():
             surface_attributes[edge_id] = self.surface[i]
@@ -353,6 +378,9 @@ class EdgeMaterialTable:
                 stop_counts[edge_id] = int(self.stop_count[i])
                 intersection_counts[edge_id] = int(self.intersection_count[i])
                 accident_counts[edge_id] = float(self.accident_count[i])
+            if self.landcover_present[i]:
+                landcover_trees_percent[edge_id] = float(self.landcover_trees_percent[i])
+                landcover_built_percent[edge_id] = float(self.landcover_built_percent[i])
             elevation = self._reconstruct_elevation_attribute(i, edge_id)
             if elevation is not None:
                 elevation_attributes[edge_id] = elevation
@@ -365,6 +393,8 @@ class EdgeMaterialTable:
             intersection_counts=intersection_counts,
             accident_counts=accident_counts,
             designated_edge_ids=designated_edge_ids,
+            landcover_trees_percent=landcover_trees_percent,
+            landcover_built_percent=landcover_built_percent,
         )
 
 

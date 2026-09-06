@@ -848,6 +848,40 @@ async def test_get_way_attribute_counts_returns_none_when_row_missing(road_graph
     assert await road_graph_repository.get_way_attribute_counts(100) is None
 
 
+async def test_get_way_landcover_returns_row_when_present(road_graph_repository, road_graph_session):
+    """区間インスペクタ（開放度軸、改善計画T624）。way_landcoverに該当行があれば
+    WayLandcoverを返す。"""
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO way_landcover (osm_way_id, valid_pixels, water_percent, trees_percent, "
+            "flooded_veg_percent, crops_percent, built_percent, bare_percent, snow_ice_percent, "
+            "rangeland_percent, data_source, data_version, computed_at) "
+            "VALUES (100, 500, 0, 40.0, 0, 0, 25.0, 0, 0, 35.0, 'esri-io-lulc', '2025', now())"
+        )
+    )
+    await road_graph_session.commit()
+
+    result = await road_graph_repository.get_way_landcover(100)
+
+    assert result is not None
+    assert result.osm_way_id == 100
+    assert result.percentages.trees_percent == 40.0
+    assert result.percentages.built_percent == 25.0
+    assert result.data_version == "2025"
+
+
+async def test_get_way_landcover_returns_none_when_row_missing(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    await road_graph_session.commit()
+
+    assert await road_graph_repository.get_way_landcover(100) is None
+
+
 async def test_get_intersection_counts_returns_empty_dict_for_empty_input(road_graph_repository):
     assert await road_graph_repository.get_intersection_counts([]) == {}
 
@@ -1199,6 +1233,15 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
     await road_graph_repository.save_elevation_attributes([elevation])
     # designationはosm_way_id単位のため、fwd・bwd両方が該当する。
     await _insert_designation_attribute(road_graph_session, 100, "emergency_transport")
+    # way_landcoverもosm_way_id単位のため、designationと同じくfwd・bwd両方が該当する。
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO way_landcover (osm_way_id, valid_pixels, water_percent, trees_percent, "
+            "flooded_veg_percent, crops_percent, built_percent, bare_percent, snow_ice_percent, "
+            "rangeland_percent, data_source, data_version, computed_at) "
+            "VALUES (100, 500, 0, 40.0, 0, 0, 25.0, 0, 0, 35.0, 'esri-io-lulc', '2025', now())"
+        )
+    )
     await road_graph_session.commit()
 
     batch = await road_graph_repository.get_edge_materials_batch(
@@ -1222,6 +1265,12 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
     # designationはosm_way_id単位のためfwd・bwd両方。
     assert batch.materials[fwd_edge_id].is_designated is True
     assert batch.materials[bwd_edge_id].is_designated is True
+
+    # way_landcoverもosm_way_id単位のためfwd・bwd両方が同じ値を持つ。
+    assert batch.materials[fwd_edge_id].landcover_trees_percent == 40.0
+    assert batch.materials[fwd_edge_id].landcover_built_percent == 25.0
+    assert batch.materials[bwd_edge_id].landcover_trees_percent == 40.0
+    assert batch.materials[bwd_edge_id].landcover_built_percent == 25.0
 
 
 async def _mark_tile_cached(session, zoom: int, x: int, y: int) -> None:
@@ -1829,6 +1878,41 @@ async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_rep
     assert way_a_props["intersection_per_km"] > 0
     # 事故0件のwayはaccident_per_kmキー自体が省略される（NULLIFによるタイル軽量化）
     assert "accident_per_km" not in way_a_props
+
+
+async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
+    road_graph_repository, road_graph_session
+):
+    """way_landcoverのtrees_percent/built_percentがtrees_pct/built_pctとしてMVTへ
+    焼き込まれる（改善計画T624、段階2で配線する2列のみ）。行が無いwayはキー自体を
+    持たない。"""
+    import mapbox_vector_tile
+
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3}
+    await road_graph_repository.save_raw_ways([way_a, way_b], nodes)
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO way_landcover (osm_way_id, valid_pixels, water_percent, trees_percent, "
+            "flooded_veg_percent, crops_percent, built_percent, bare_percent, snow_ice_percent, "
+            "rangeland_percent, data_source, data_version, computed_at) "
+            "VALUES (100, 500, 0, 40.0, 0, 0, 25.0, 0, 0, 35.0, 'esri-io-lulc', '2025', now())"
+        )
+    )
+    await road_graph_session.commit()
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    decoded = mapbox_vector_tile.decode(tile)
+    features = {f["properties"]["osm_way_id"]: f["properties"] for f in decoded["road_surface"]["features"]}
+    assert features[100]["trees_pct"] == pytest.approx(40.0)
+    assert features[100]["built_pct"] == pytest.approx(25.0)
+    assert "trees_pct" not in features[101]
+    assert "built_pct" not in features[101]
 
 
 # --- get_way_ids_in_tile（改善計画T405→T414で作り直し、way_id→wind_penalty配信層の

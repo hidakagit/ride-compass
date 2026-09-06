@@ -59,6 +59,7 @@ export const PRIMARY_ATTRIBUTE_CHIP_LABELS: Record<string, string> = {
   intersection: "交差点",
   geometry: "区間形状",
   oneway: "一方通行",
+  landcover: "開放度",
 };
 
 // 一次属性→表示レイヤーIDの対応（Partial: キーが無い＝表示レイヤー無し）。highway/surfaceは
@@ -84,7 +85,9 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
 // car_stress軸の内部補正と公開軸bicycle_infra_qualityの両方が参照するため、
 // domain/registry_defaults.pyでshared=Trueとして登録されている）は一次属性としては
 // 存在するが、地図上に単独では表示しない（地図表示は評価軸bicycle_infra_quality側に
-// 委ねる。show_map_icon=falseのため専用レイヤーは持たない）。
+// 委ねる。show_map_icon=falseのため専用レイヤーは持たない）。landcover（trees_percent/
+// built_percentが参照する一次属性、T624）も同様に専用レイヤーは持たず、地図表示は
+// 開放度軸自身のramp表示（derive_ramp_inputsが自動導出）に委ねる。
 // PRIMARY_ATTRIBUTE_LAYER_IDSにキーが無いことが「未対応（漏れ）」なのか「意図的にレイヤー
 // 無し」なのかを区別できないため、後者をここへ明示する（ドリフト検知テスト参照）。
 export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
@@ -96,6 +99,7 @@ export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
   "motor_vehicle_access",
   "geometry",
   "cycleway",
+  "landcover",
 ]);
 
 /** 一次属性id列のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す

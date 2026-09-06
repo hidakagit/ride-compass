@@ -55,7 +55,7 @@ DEFAULT_MAX_TILES = 2_000
 # DBから新しい値を読み新規キャッシュされる——「一部のタイルだけ更新が反映されている
 # ように見える」形で症状が局所的になり気づきにくい。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = "4"
+TILE_MATERIALS_CACHE_VERSION = "5"
 
 
 class _LRUCache(Generic[_T]):

@@ -81,7 +81,7 @@ from app.domain.attributes import (
     ElevationAttribute,
     WayAttributeCounts,
 )
-from app.domain.landcover import WayLandcover
+from app.domain.landcover import LandcoverPercentages, WayLandcover
 from app.domain.graph import (
     DirectedEdge,
     EdgeLike,
@@ -350,9 +350,15 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         )::double precision AS stop_per_km,
                         NULLIF(
                             round((wc.intersection_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
-                        )::double precision AS intersection_per_km
+                        )::double precision AS intersection_per_km,
+                        -- 開放度軸（T624）の材料2件。way_landcoverの8列中、評価パイプラインへ
+                        -- 配線済みなのはこの2列のみ（他6列は生データとしてDBに保存済みだが
+                        -- 本タイルには未焼き込み、docs/tasks/T624.md「段階2で配線する材料」）。
+                        lc.trees_percent::double precision AS trees_pct,
+                        lc.built_percent::double precision AS built_pct
                     FROM osm_raw_ways w
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
+                    LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
                     LEFT JOIN LATERAL (
                         -- 指定路線（designation_attributes、match_designations.pyが埋める
                         -- osm_way_id単位の派生テーブル）をwayごとに主キーで引く。wayに相関
@@ -582,6 +588,16 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
 _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
     "SELECT length_m, accident_count, stop_count, intersection_count "
     "FROM way_attribute_counts WHERE osm_way_id = :osm_way_id"
+)
+
+# 区間インスペクタ（開放度軸）。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
+# 1行取得パターン。8列全て返す（区間インスペクタが将来他クラスの割合も表示する場合に
+# 備え、行自体は1回のSELECTで済ませる）。
+_WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
+    "SELECT valid_pixels, water_percent, trees_percent, flooded_veg_percent, crops_percent, "
+    "built_percent, bare_percent, snow_ice_percent, rangeland_percent, "
+    "data_source, data_version, computed_at, source_osm_import_run_id, algorithm_version "
+    "FROM way_landcover WHERE osm_way_id = :osm_way_id"
 )
 
 # 車ストレスの区間別判定内訳表示。get_way_tags_by_osm_way_idが使う。
@@ -1896,6 +1912,34 @@ class AttributeRepository(_SessionRepository):
             intersection_count=row.intersection_count,
         )
 
+    async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
+        """osm_way_id完全一致で土地被覆（way_landcover）の1行を返す（区間インスペクタの
+        開放度軸内訳）。行が無い場合はNone（バッチ未実行・ラスタ範囲外・画素不足）。
+        """
+        result = await self._session.execute(_WAY_LANDCOVER_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id})
+        row = result.first()
+        if row is None:
+            return None
+        return WayLandcover(
+            osm_way_id=osm_way_id,
+            percentages=LandcoverPercentages(
+                valid_pixels=row.valid_pixels,
+                water_percent=row.water_percent,
+                trees_percent=row.trees_percent,
+                flooded_veg_percent=row.flooded_veg_percent,
+                crops_percent=row.crops_percent,
+                built_percent=row.built_percent,
+                bare_percent=row.bare_percent,
+                snow_ice_percent=row.snow_ice_percent,
+                rangeland_percent=row.rangeland_percent,
+            ),
+            data_source=row.data_source,
+            data_version=row.data_version,
+            computed_at=row.computed_at,
+            source_osm_import_run_id=row.source_osm_import_run_id,
+            algorithm_version=row.algorithm_version,
+        )
+
     async def get_intersection_counts(
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
     ) -> dict[str, int]:
@@ -1982,10 +2026,10 @@ class AttributeRepository(_SessionRepository):
 
     async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
         """探索フェーズ（`RoadGraphEngine.prepare`）が必要とする材料一式（surface・
-        edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids）を
-        1回のJOINクエリへ統合して取得する。ボトルネックはラウンドトリップ回数ではなく
-        同じEdge集合に対してSQLAlchemy ORMの行構築を複数回繰り返すオーバーヘッドのため、
-        個別クエリの束ではなく1クエリへ統合する
+        edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids・
+        way_landcoverのtrees/built）を1回のJOINクエリへ統合して取得する。ボトルネックは
+        ラウンドトリップ回数ではなく同じEdge集合に対してSQLAlchemy ORMの行構築を複数回
+        繰り返すオーバーヘッドのため、個別クエリの束ではなく1クエリへ統合する
         （dev DB、71,791 Edgeで個別5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
         `graph_service.py`の`_build_search_materials_uncached`・
         `_get_or_build_tile_materials`の両方から呼ばれる。
@@ -1996,7 +2040,9 @@ class AttributeRepository(_SessionRepository):
         （bundle自体はedge_idsに含まれる全Edgeぶん必ず存在する）。attribute_counts・
         elevation_attributeは対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の
         判定に使う）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
-        designation_attributes行が1つでもあれば該当、の意味）。
+        designation_attributes行が1つでもあれば該当、の意味）。landcover_trees_percent/
+        landcover_built_percentはway_landcover行が無ければ2つとも同時にNone
+        （`WayLandcoverRow`のLEFT JOIN、`EdgeMaterialBundle`のdocstring参照）。
         """
         if not edge_ids:
             return EdgeMaterialsBatch(materials={})
@@ -2033,11 +2079,14 @@ class AttributeRepository(_SessionRepository):
                     ElevationAttributeRow.data_version,
                     ElevationAttributeRow.calculated_at,
                     designation_exists.label("is_designated"),
+                    WayLandcoverRow.trees_percent,
+                    WayLandcoverRow.built_percent,
                 )
                 .select_from(RoadEdgeRow)
                 .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
                 .outerjoin(EdgeAttributeCountsRow, EdgeAttributeCountsRow.edge_id == RoadEdgeRow.edge_id)
                 .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
+                .outerjoin(WayLandcoverRow, WayLandcoverRow.osm_way_id == RoadEdgeRow.osm_way_id)
                 .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
             )
             for row in await self._session.execute(stmt):
@@ -2073,6 +2122,8 @@ class AttributeRepository(_SessionRepository):
                     attribute_counts=attribute_counts,
                     elevation_attribute=elevation_attribute,
                     is_designated=bool(row.is_designated),
+                    landcover_trees_percent=row.trees_percent,
+                    landcover_built_percent=row.built_percent,
                 )
 
         return EdgeMaterialsBatch(materials=materials)
@@ -2222,6 +2273,9 @@ class RoadGraphRepository:
 
     async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
         return await self.attributes.get_way_attribute_counts(osm_way_id)
+
+    async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
+        return await self.attributes.get_way_landcover(osm_way_id)
 
     async def get_intersection_counts(
         self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M

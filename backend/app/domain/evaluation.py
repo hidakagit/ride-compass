@@ -32,6 +32,7 @@ from app.domain.axis_definitions import (
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import composite_difficulty, distance_weighted_difficulty_array
 from app.domain.graph import EdgeLike, RoadGraphLike
+from app.domain.landcover import WayLandcover
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
 from app.domain.night import night_materials
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
@@ -145,11 +146,15 @@ def axis_inspector_breakdown(
     is_designated: bool,
     way_counts: WayAttributeCounts | None,
     accident_years_covered: int,
+    way_landcover: WayLandcover | None = None,
     preference: RoutePreference | None = None,
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。`way_counts`は
     `RoadGraphRepository.get_way_attribute_counts`の戻り値で、Noneなら事故密度・
-    停止密度は算出不能（available=False）として扱う。
+    停止密度は算出不能（available=False）として扱う。`way_landcover`は
+    `RoadGraphRepository.get_way_landcover`の戻り値で、Noneなら開放度軸は
+    算出不能として扱う（評価パイプラインへ配線済みの2列[trees/built]のみ使う、
+    docs/tasks/T624.md「段階2で配線する材料」参照）。
     """
     weights = (preference or RoutePreference()).weights
 
@@ -193,6 +198,8 @@ def axis_inspector_breakdown(
         "lanes_count": lanes_count,
         "is_designated": is_designated,
         "motor_vehicle_no": motor_vehicle_no,
+        "trees_percent": way_landcover.percentages.trees_percent if way_landcover is not None else None,
+        "built_percent": way_landcover.percentages.built_percent if way_landcover is not None else None,
         **night_materials(tags),
     }
     scores, _ = evaluate_axes_scalar(materials)
@@ -622,6 +629,8 @@ def _evaluate_axes_bulk(
     accident_counts: dict[str, int] | None,
     accident_years_covered: int,
     designated_edge_ids: set[str] | None,
+    landcover_trees_percent: dict[str, float] | None = None,
+    landcover_built_percent: dict[str, float] | None = None,
 ) -> BulkAxisEvaluation:
     """`compute_edge_costs_bulk`と`build_static_edge_score_matrix`が共有する抽出フェーズ
     （`MATERIAL_CATALOG`のextractor宣言経由でEdge単位の辞書・タグアクセスをnumpy配列へ
@@ -639,6 +648,8 @@ def _evaluate_axes_bulk(
     intersection_counts = intersection_counts or {}
     accident_counts = accident_counts or {}
     designated_edge_ids = designated_edge_ids or set()
+    landcover_trees_percent = landcover_trees_percent or {}
+    landcover_built_percent = landcover_built_percent or {}
 
     edge_ids = list(graph.edges.keys())
     n = len(edge_ids)
@@ -739,6 +750,8 @@ def _evaluate_axes_bulk(
             accident_counts=accident_counts,
             accident_years_covered=accident_years_covered,
             designated_edge_ids=designated_edge_ids,
+            landcover_trees_percent=landcover_trees_percent,
+            landcover_built_percent=landcover_built_percent,
         )
         for spec in extractable_materials:
             value = spec.extractor(ctx)
@@ -923,6 +936,8 @@ def compute_edge_costs_bulk(
     weights: dict[str, float] | None = None,
     hard_filters: frozenset[str] | None = None,
     travel_speed_ms: float | None = None,
+    landcover_trees_percent: dict[str, float] | None = None,
+    landcover_built_percent: dict[str, float] | None = None,
 ) -> dict[str, EdgeCostResult]:
     """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
     算出する（`EvaluationService.evaluate_graph`専用）。
@@ -949,6 +964,7 @@ def compute_edge_costs_bulk(
     evaluation = _evaluate_axes_bulk(
         graph, elevation_attributes, surface_attributes, weather, travel_speed_ms, stop_counts, way_tags,
         intersection_counts, accident_counts, accident_years_covered, designated_edge_ids,
+        landcover_trees_percent, landcover_built_percent,
     )
     if not evaluation.edge_ids:
         return {}
@@ -1036,6 +1052,8 @@ def build_static_edge_score_matrix(
         intersection_counts = legacy.intersection_counts
         accident_counts = legacy.accident_counts
         designated_edge_ids = legacy.designated_edge_ids
+        landcover_trees_percent = legacy.landcover_trees_percent
+        landcover_built_percent = legacy.landcover_built_percent
     else:
         elevation_attributes = {
             edge_id: bundle.elevation_attribute
@@ -1056,10 +1074,19 @@ def build_static_edge_score_matrix(
             for edge_id, bundle in materials.items() if bundle.attribute_counts is not None
         }
         designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
+        landcover_trees_percent = {
+            edge_id: bundle.landcover_trees_percent
+            for edge_id, bundle in materials.items() if bundle.landcover_trees_percent is not None
+        }
+        landcover_built_percent = {
+            edge_id: bundle.landcover_built_percent
+            for edge_id, bundle in materials.items() if bundle.landcover_built_percent is not None
+        }
 
     evaluation = _evaluate_axes_bulk(
         graph, elevation_attributes, surface_attributes, None, None, stop_counts, way_tags,
         intersection_counts, accident_counts, accident_years_covered, designated_edge_ids,
+        landcover_trees_percent, landcover_built_percent,
     )
     axis_ids = list(evaluation.axis_arrays.keys())
     axis_scores = (

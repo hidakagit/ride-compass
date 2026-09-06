@@ -4,6 +4,7 @@ import time
 import pytest
 
 from app.domain.attributes import WayAttributeCounts
+from app.domain.landcover import WayLandcover
 from app.infrastructure import tile_cache
 from app.infrastructure.debug_log import get_stats, reset_stats
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -37,6 +38,9 @@ class FakeRegionRepository:
         # 区間インスペクタ（改善計画T146）用フェイク応答。
         self.way_attribute_counts_result: WayAttributeCounts | None = None
         self.way_attribute_counts_calls: list[int] = []
+        # 改善計画T624: 開放度軸（区間インスペクタ）用フェイク応答。
+        self.way_landcover_result: WayLandcover | None = None
+        self.way_landcover_calls: list[int] = []
         self.accident_years_covered_result: int = 3
         # 改善計画T340: 材料の実データ値一覧フェイク応答。
         self.distinct_material_values_result: list[str] = []
@@ -53,6 +57,12 @@ class FakeRegionRepository:
         if self._error is not None:
             raise self._error
         return self.way_attribute_counts_result
+
+    async def get_way_landcover(self, osm_way_id):
+        self.way_landcover_calls.append(osm_way_id)
+        if self._error is not None:
+            raise self._error
+        return self.way_landcover_result
 
     async def get_accident_years_covered(self):
         if self._error is not None:

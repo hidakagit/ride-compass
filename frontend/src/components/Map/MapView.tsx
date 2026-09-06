@@ -133,6 +133,15 @@ const GSI_RELIEF_MAX_ZOOM = 15;
 const GSI_RELIEF_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
 
+// 路面ベクタタイル（ROAD_TILE_SOURCE_ID）へ焼き込まれる生データの帰属表示。1つのMVTタイルへ
+// OSM（道路本体）・国土数値情報N10/N12（指定路線）・警察庁（事故密度）・Esri×Impact
+// Observatory×Microsoft（土地被覆、開放度軸[T624]）の4系統が混在するため、ソースは1つでも
+// 帰属表示は4者ぶんまとめて1文字列にする。
+const ROAD_TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a> / ' +
+  "国土数値情報（国土交通省） / 警察庁 / " +
+  '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)';
+
 // 路面のベクタタイル内のレイヤー名。バックエンド（infrastructure/vector_tile.pyの
 // ROAD_SURFACE_LAYER_NAME）と一致させる必要がある（export_openapi.pyが書き出す
 // generated/region-tile-config.jsonとregionTileConfig.test.tsの照合テストがドリフトを
@@ -1280,6 +1289,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       // 元から焼き込み済み、_ROAD_SURFACE_TILE_MVT_SQL参照）をfeature.idへ昇格させる
       // （バックエンド側のタイル内容・世代は変更不要）。
       promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" },
+      attribution: ROAD_TILE_ATTRIBUTION,
     });
     map.addLayer({
       id: ROAD_TILE_LAYER_ID,

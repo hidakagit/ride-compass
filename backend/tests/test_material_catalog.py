@@ -34,6 +34,8 @@ def _ctx(
     accident_counts: dict[str, int] | None = None,
     accident_years_covered: int = 1,
     designated_edge_ids: set[str] | None = None,
+    landcover_trees_percent: dict[str, float] | None = None,
+    landcover_built_percent: dict[str, float] | None = None,
 ) -> MaterialExtractionContext:
     e = edge or _edge()
     return MaterialExtractionContext(
@@ -48,6 +50,8 @@ def _ctx(
         accident_counts=accident_counts or {},
         accident_years_covered=accident_years_covered,
         designated_edge_ids=designated_edge_ids or set(),
+        landcover_trees_percent=landcover_trees_percent or {},
+        landcover_built_percent=landcover_built_percent or {},
     )
 
 
@@ -69,6 +73,16 @@ def test_gradient_percent_extracts_average_grade_and_missing_is_none():
     ctx = _ctx(elevation_attributes={"e1": attr})
     assert spec.extractor(ctx) == 4.5
     assert spec.extractor(_ctx()) is None
+
+
+def test_landcover_materials_extract_from_context_and_missing_is_none():
+    trees_spec = MATERIAL_CATALOG["trees_percent"]
+    built_spec = MATERIAL_CATALOG["built_percent"]
+    ctx = _ctx(landcover_trees_percent={"e1": 42.5}, landcover_built_percent={"e1": 30.0})
+    assert trees_spec.extractor(ctx) == 42.5
+    assert built_spec.extractor(ctx) == 30.0
+    assert trees_spec.extractor(_ctx()) is None
+    assert built_spec.extractor(_ctx()) is None
 
 
 def test_surface_good_missing_tag_is_none_not_false():

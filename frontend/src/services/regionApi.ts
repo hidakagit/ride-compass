@@ -73,7 +73,7 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // デプロイすること（逆順だと、新世代前提の凡例フィルタが全地物に一致し、対象レイヤーが
 // 一時的に全線「不明・他」表示になる。docs/architecture.md「Renderデプロイの反映確認」
 // 参照）。
-const ROAD_SURFACE_TILE_VERSION = "17";
+const ROAD_SURFACE_TILE_VERSION = "18";
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。オリジンは`tileBaseUrl()`
 // （lib/tileBaseUrl.ts: 既定はフロント自身のオリジン＝Next.jsのrewrites経由、

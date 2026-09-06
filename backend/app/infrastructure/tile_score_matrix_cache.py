@@ -72,7 +72,7 @@ _max_entries = DEFAULT_MAX_TILES
 # 対象外**——軸スタジオでの編集は上記のバージョン更新（デプロイを伴う）ではなく、
 # 下記`clear()`（`refresh_axis_definitions`経由の即時呼び出し）が担う。
 _CACHE_NAMESPACE = "score_matrix"
-TILE_SCORE_MATRIX_CACHE_VERSION = "4"
+TILE_SCORE_MATRIX_CACHE_VERSION = "5"
 
 
 def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:

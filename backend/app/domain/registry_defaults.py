@@ -87,6 +87,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(PrimaryAttributeSpec(attr_id="supply_poi", label="補給・休憩ポイント"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="accident_point", label="事故地点"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="intersection", label="交差点"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="landcover", label="開放度"))
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="geometry",

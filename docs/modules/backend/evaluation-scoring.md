@@ -220,6 +220,14 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
+- `trees_percent`/`built_percent`（[T624](../../tasks/T624.md)、開放度軸向け）はWay単位の
+  派生テーブル`way_landcover`（[静的道路属性・タイル配信](static-road-attributes.md)）が
+  持つ8列の割合材料のうち評価パイプラインへ配線済みの2列。`MaterialExtractionContext`は
+  他の件数系材料（`stop_counts`等）と同じ「1材料1辞書」の形（`landcover_trees_percent`/
+  `landcover_built_percent`、いずれも`edge_id→float`）で持ち、Way単位の値を
+  `road_edges.osm_way_id`経由でEdgeへ展開する。残り6列（water/flooded_veg/crops/bare/
+  snow_ice/rangeland）はテーブルには存在するが評価パイプラインへは未配線（材料として
+  登録すれば配線可能、バッチ再実行は不要）。
 - `raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/
   `count_per_km_extractor`という汎用extractorファクトリが用意されており、「単一タグの
   生値取得」「タグ値の単純一致判定」「数値パース」「件数/距離の密度計算」という

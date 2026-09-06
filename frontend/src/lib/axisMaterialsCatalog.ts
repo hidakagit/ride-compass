@@ -64,6 +64,20 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
     unit: "",
   },
   {
+    id: "trees_percent",
+    label: "樹木被覆率 - trees_percent",
+    description: "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木被覆の割合(%)。",
+    dtype: "numeric",
+    unit: "%",
+  },
+  {
+    id: "built_percent",
+    label: "建物被覆率 - built_percent",
+    description: "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物被覆の割合(%)。",
+    dtype: "numeric",
+    unit: "%",
+  },
+  {
     id: "surface_good",
     label: "舗装良否 - surface_good",
     description: "OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",

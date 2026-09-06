@@ -92,7 +92,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # frontend側のタイルURLバージョンクエリ（regionApi.tsのROAD_SURFACE_TILE_VERSION、
 # ブラウザキャッシュのバスト用）と対で上げる必要があり、export_openapi.pyが書き出す
 # generated/region-tile-config.jsonとregionApi.test.tsの照合テストがドリフトを検知する。
-ROAD_SURFACE_TILE_VERSION = "17"
+ROAD_SURFACE_TILE_VERSION = "18"
 
 # 停止要因POIタイルの世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・同じ運用
 # （フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
@@ -278,6 +278,7 @@ class RegionService:
                     fields["lookup"] = "not_found"
                     return None
                 way_counts = await self._repository.get_way_attribute_counts(osm_way_id)
+                way_landcover = await self._repository.get_way_landcover(osm_way_id)
                 accident_years_covered = await self._repository.get_accident_years_covered()
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"
@@ -293,7 +294,9 @@ class RegionService:
             fields["lookup"] = "ok"
             fields["way_counts_available"] = way_counts is not None
             highway, tags, is_designated = way_tags_result
-            return axis_inspector_breakdown(highway, tags, is_designated, way_counts, accident_years_covered, RoutePreference())
+            return axis_inspector_breakdown(
+                highway, tags, is_designated, way_counts, accident_years_covered, way_landcover, RoutePreference()
+            )
 
     async def get_accident_years_covered(self) -> int:
         """`GET /api/axis-catalog`が地図表示の実行時スケール定数

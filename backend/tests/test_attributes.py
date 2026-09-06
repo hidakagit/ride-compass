@@ -170,6 +170,8 @@ def _full_bundle(edge_id: str) -> EdgeMaterialBundle:
             calculated_at="2026-09-02T00:00:00+00:00",
         ),
         is_designated=True,
+        landcover_trees_percent=40.0,
+        landcover_built_percent=25.0,
     )
 
 
@@ -245,6 +247,22 @@ def test_edge_material_table_distinguishes_missing_elevation_row_from_row_with_n
     assert e2.elevation_attribute is None
 
 
+def test_edge_material_table_landcover_present_and_absent_roundtrip():
+    # T624: way_landcover行が無ければ2つとも同時にNone（片方だけ欠損しない、
+    # EdgeMaterialBundle.landcover_trees_percentのdocstring参照）。
+    table = EdgeMaterialTable.from_bundles(
+        ["e1", "e2"], {"e1": _full_bundle("e1"), "e2": _bare_bundle()},
+    )
+
+    e1 = table.get("e1")
+    assert e1.landcover_trees_percent == 40.0
+    assert e1.landcover_built_percent == 25.0
+
+    e2 = table.get("e2")
+    assert e2.landcover_trees_percent is None
+    assert e2.landcover_built_percent is None
+
+
 def test_edge_material_table_roundtrip_at_realistic_scale():
     """実データ規模相当（数万Edge）のfixtureで、全Edgeについて
     `table.get(edge_id) == 元のbundle`が成り立つことを確認する往復テスト（実装リスク節が
@@ -318,6 +336,14 @@ def test_edge_material_table_to_legacy_dicts_matches_manual_dict_construction():
         if bundle.attribute_counts is not None
     }
     expected_designated_edge_ids = {edge_id for edge_id, bundle in bundles.items() if bundle.is_designated}
+    expected_landcover_trees_percent = {
+        edge_id: bundle.landcover_trees_percent for edge_id, bundle in bundles.items()
+        if bundle.landcover_trees_percent is not None
+    }
+    expected_landcover_built_percent = {
+        edge_id: bundle.landcover_built_percent for edge_id, bundle in bundles.items()
+        if bundle.landcover_built_percent is not None
+    }
 
     assert legacy.elevation_attributes == expected_elevation_attributes
     assert legacy.surface_attributes == expected_surface_attributes
@@ -326,6 +352,8 @@ def test_edge_material_table_to_legacy_dicts_matches_manual_dict_construction():
     assert legacy.intersection_counts == expected_intersection_counts
     assert legacy.accident_counts == expected_accident_counts
     assert legacy.designated_edge_ids == expected_designated_edge_ids
+    assert legacy.landcover_trees_percent == expected_landcover_trees_percent
+    assert legacy.landcover_built_percent == expected_landcover_built_percent
 
 
 def test_edge_material_table_getitem_and_values_mimic_dict_interface():
