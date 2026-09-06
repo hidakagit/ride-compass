@@ -2565,13 +2565,11 @@ export default function MapView({
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
       applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
-    // 改善計画T425（ゼロベース網羅レビュー指摘）+T457（gradientFillGeojson分）+T483
-    // （dedicatedWayValues統合に伴いループ化）: WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID
-    // （評価軸グループの風・勾配）はプロパティではなくsetFeatureStateで色付けするため、
-    // map.setStyle()でレイヤー自体が作り直された後は明示的に再適用しないと無色のまま
-    // 残ってしまう（値自体は変わっていないため、通常の依存effectは再実行されない）。
-    // gradientFillGeojson（環境グループの勾配面塗り、geojson source）も同じ理由で
-    // 再適用が必要。
+    // WIND_AXIS_LAYER_ID/GRADIENT_AXIS_LAYER_ID（評価軸グループの風・勾配）はプロパティ
+    // ではなくsetFeatureStateで色付けするため、map.setStyle()でレイヤー自体が作り直された
+    // 後は明示的に再適用しないと無色のまま残ってしまう（値自体は変わっていないため、
+    // 通常の依存effectは再実行されない）。gradientFillGeojson（環境グループの勾配面塗り、
+    // geojson source）も同じ理由で再適用が必要。
     for (const [axisId, values] of dedicatedWayValues) {
       applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
     }
@@ -2599,11 +2597,10 @@ export default function MapView({
       onRegionZoomHintChangeRef.current
     );
 
-    // 改善計画T524（T518コードレビューP1指摘）: 以前はrouteLayerOnを見ずに無条件で
-    // drawBaseRoutes/drawSelectedOutlineを呼んでいたため、「ルート」チップをOFFにして
-    // 候補線・ハロー・矢印を隠していても、地図データの再読み込み（map.setStyle()経由で
-    // このredrawAllLayersが走る）で強制的に再表示されてしまっていた。直後のdetail-segments
-    // 分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
+    // applyRouteLayerVisibilityがrouteLayerOnを見て出し分けるため、「ルート」チップを
+    // OFFにして候補線・ハロー・矢印を隠している間は、地図データの再読み込み
+    // （map.setStyle()経由でこのredrawAllLayersが走る）でも再表示されない。
+    // 直後のdetail-segments分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
     const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
     applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selected?.segments));
     if (routes.length > 0) fitBoundsToRoutes(map, routes);
@@ -2616,8 +2613,8 @@ export default function MapView({
     }
   }, []);
 
-  // T87: レイヤーデータ状態（loading/empty/error）の状態管理・再計算はuseLayerDataStatus
-  // （改善計画T123）に集約されている。ここでは「今の表示ON/OFFフラグをどう読むか」だけを
+  // レイヤーデータ状態（loading/empty/error）の状態管理・再計算はuseLayerDataStatusに
+  // 集約されている。ここでは「今の表示ON/OFFフラグをどう読むか」だけを
   // 安定した関数として渡す（redrawPropsRef自体を渡さないのは、フック側をrefの内部構造に
   // 依存させないため）。
   const getLayerVisibility = useCallback(() => {
