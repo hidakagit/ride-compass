@@ -1,0 +1,58 @@
+{
+  "land": {
+    "min_zoom": 4,
+    "max_zoom": 10,
+    "zoom_use": "even",
+    "max_native_zoom": 11,
+    "verified": true
+  },
+  "rain_mesh": {
+    "min_zoom": 4,
+    "max_zoom": 10,
+    "zoom_use": "even",
+    "max_native_zoom": 11,
+    "verified": true
+  },
+  "inund": {
+    "min_zoom": 4,
+    "max_zoom": 10,
+    "zoom_use": "even",
+    "max_native_zoom": 11,
+    "verified": true
+  },
+  "flood": {
+    "min_zoom": 4,
+    "max_zoom": 10,
+    "zoom_use": "even",
+    "max_native_zoom": 11,
+    "verified": true
+  },
+  "hrpns": {
+    "min_zoom": 4,
+    "max_zoom": 10,
+    "zoom_use": "even",
+    "max_native_zoom": 10,
+    "verified": true
+  },
+  "thns": {
+    "min_zoom": 4,
+    "max_zoom": 8,
+    "zoom_use": "even",
+    "max_native_zoom": 9,
+    "verified": true
+  },
+  "trns": {
+    "min_zoom": 4,
+    "max_zoom": 8,
+    "zoom_use": "even",
+    "max_native_zoom": 9,
+    "verified": true
+  },
+  "sjfcstmap": {
+    "min_zoom": 4,
+    "max_zoom": 10,
+    "zoom_use": "even",
+    "max_native_zoom": 10,
+    "verified": false
+  }
+}

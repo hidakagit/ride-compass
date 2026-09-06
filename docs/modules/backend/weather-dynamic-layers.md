@@ -16,7 +16,7 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
+| domain | `jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
 | infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
@@ -108,13 +108,31 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 直接`TILE_NOT_FOUND`を積む。`get_cached`/`get`が`TileNotFound`を受け取った場合、
 `jma_tile.py`は上流へ再問い合わせせず即座に404を返す（レート制限も消費しない）。
 
+**要素ごとのズーム上限（`domain/jma_tile_specs.py`）**: 配信元は要素ごとに`zoomUse`
+（使用するズームの偶奇）と`maxNativeZoom`（画像が実在する最大ズーム）を持ち、**両方を
+突き合わせないと実データの無いズームを指す**。`effective_max_zoom()`が
+「`maxNativeZoom`以下で`zoomUse`の偶奇を満たす最大値」を導出し、MapLibreの`maxzoom`
+（frontendへは`jma-tile-config.json`として配る）とプリウォームの対象ズームの両方が
+この1箇所から決まる。
+
+| 要素 | zoomUse | maxNativeZoom | 導出される上限 |
+|---|---|---|---|
+| `land`・`rain_mesh`・`inund`・`flood`（キキクル） | even | 11 | 10 |
+| `hrpns`（降水ナウキャスト） | even | 10 | 10 |
+| `thns`・`trns`（雷・竜巻） | even | 9 | **8** |
+| `sjfcstmap`（線状降水帯予測マップ） | even | 10 | 10 |
+
+上限を超えるズームを指定すると、その要素のタイルは存在せず空タイル（334バイトのRGBA PNG、
+ベクタは0バイト）が返るため、地図から色が消える。`sjfcstmap`だけは配信元の設定ファイルを
+一次情報で確認できておらず（公式ページが設定を外部化していない）、同系統の`hrpns`と同じ値を
+暫定的に置いている（`JmaTileSpec.verified=False`）。
+
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、
 `next_run_time=datetime.now()`で起動直後にも即時実行）が、アプリの実運用範囲
 （`domain/wind_grid.py: WIND_GRID_BBOX`）ぶんのタイルをあらかじめ`JmaTileClient.get()`
-経由でRedisへ温める。対象ズームは各レイヤー自身の`maxzoom`（frontend:
-`MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）をそのまま使う——超過ズームはMapLibreが
-クライアント側で拡大表示するだけで追加の通信が発生しないため。雷/竜巻ナウキャストは
+経由でRedisへ温める。対象ズームは上記`effective_max_zoom()`が導出した上限まで——超過
+ズームはMapLibreがクライアント側で拡大表示するだけで追加の通信が発生しないため。雷/竜巻ナウキャストは
 未来方向の予報フレームを複数持つが、プリウォームは直近の実況フレーム（1件）のみを
 対象にする（キキクル・線状降水帯予測マップは元々未来フレームを持たないため対象外）。
 

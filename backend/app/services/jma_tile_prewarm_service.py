@@ -8,11 +8,10 @@
 
 **対象範囲の設計判断**:
 - 地理範囲は`WIND_GRID_BBOX`（関東本土、アプリの実運用範囲を表す既存定数）を流用する。
-- ズーム範囲は各レイヤー自身の`maxzoom`（frontend: `MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）
-  をそのまま使う——それを超えるズームではMapLibreがクライアント側でタイルを拡大表示する
-  だけで追加の通信が発生しないため、レイヤー自身のmaxzoomがプリウォームの実質的な上限になる。
-  flood（洪水キキクル）は他レイヤーと同じ`maxzoom=11`（frontend側で統一済み、トレードオフの
-  背景は`docs/tasks/T510.md`参照）。
+- ズーム範囲は`domain/jma_tile_specs.py: effective_max_zoom`が配信元仕様（`zoomUse`・
+  `maxNativeZoom`）から導出する。それを超えるズームではMapLibreがクライアント側でタイルを
+  拡大表示するだけで追加の通信が発生しないため、実データの上限がそのままプリウォームの
+  上限になる。frontendの`maxzoom`も同じ値を同じレジストリから受け取るため、両者がずれない。
 - キキクル3種・線状降水帯予測マップは未来方向のフレームを持たず「現在」の1エントリのみ
   （`riskMap.ts`のコメント参照）だが、雷/竜巻ナウキャストは最大60分先までの予測フレームを
   10分刻みで複数持つ（`thunderNowcast.ts`のコメント参照）。全フレームをプリウォームすると
@@ -27,6 +26,7 @@ import json
 import logging
 import time
 
+from app.domain.jma_tile_specs import max_zoom_for
 from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import JmaTileClient
@@ -46,13 +46,18 @@ _MAX_CONCURRENCY = 8
 
 
 class _PrewarmLayer:
-    def __init__(self, label: str, group: str, element_id: str, extension: str, max_zoom: int, target_times_path: str):
+    def __init__(self, label: str, group: str, element_id: str, extension: str, target_times_path: str):
         self.label = label
         self.group = group
         self.element_id = element_id
         self.extension = extension
-        self.max_zoom = max_zoom
         self.target_times_path = target_times_path
+
+    @property
+    def max_zoom(self) -> int:
+        """対象ズームの上限。`domain/jma_tile_specs.py`から導出し、ここでは持たない
+        （配信元の`zoomUse`・`maxNativeZoom`との突き合わせを1箇所に集めるため）。"""
+        return max_zoom_for(self.element_id) or _MIN_ZOOM
 
 
 _RISK_TARGET_TIMES = "bosai/jmatile/data/risk/targetTimes.json"
@@ -60,15 +65,16 @@ _RASRF_TARGET_TIMES = "bosai/jmatile/data/rasrf/targetTimes.json"
 _NOWC_TARGET_TIMES = "bosai/jmatile/data/nowc/targetTimes_N3.json"
 
 # frontend側のレイヤー定義（riskMap.ts/thunderNowcast.ts、MapView.tsx: DYNAMIC_WEATHER_
-# RENDERERS）と1対1対応させる。maxzoomはfloodのみ他レイヤーと合わせ11に統一している。
+# RENDERERS）と1対1対応させる。対象ズームは各要素の`max_zoom`（jma_tile_specs.pyが
+# 配信元仕様から導出）を使う。
 _LAYERS: tuple[_PrewarmLayer, ...] = (
-    _PrewarmLayer("キキクル・土砂", "risk", "land", "png", 11, _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・大雨", "risk", "rain_mesh", "png", 11, _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・浸水", "risk", "inund", "png", 11, _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・洪水", "risk", "flood", "pbf", 11, _RISK_TARGET_TIMES),
-    _PrewarmLayer("線状降水帯予測マップ", "rasrf", "sjfcstmap", "png", 10, _RASRF_TARGET_TIMES),
-    _PrewarmLayer("雷ナウキャスト", "nowc", "thns", "png", 10, _NOWC_TARGET_TIMES),
-    _PrewarmLayer("竜巻ナウキャスト", "nowc", "trns", "png", 10, _NOWC_TARGET_TIMES),
+    _PrewarmLayer("キキクル・土砂", "risk", "land", "png", _RISK_TARGET_TIMES),
+    _PrewarmLayer("キキクル・大雨", "risk", "rain_mesh", "png", _RISK_TARGET_TIMES),
+    _PrewarmLayer("キキクル・浸水", "risk", "inund", "png", _RISK_TARGET_TIMES),
+    _PrewarmLayer("キキクル・洪水", "risk", "flood", "pbf", _RISK_TARGET_TIMES),
+    _PrewarmLayer("線状降水帯予測マップ", "rasrf", "sjfcstmap", "png", _RASRF_TARGET_TIMES),
+    _PrewarmLayer("雷ナウキャスト", "nowc", "thns", "png", _NOWC_TARGET_TIMES),
+    _PrewarmLayer("竜巻ナウキャスト", "nowc", "trns", "png", _NOWC_TARGET_TIMES),
 )
 
 

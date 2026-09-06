@@ -89,6 +89,7 @@ import {
   type RampAxis,
 } from "@/components/Map/axisLayers";
 import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
+import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
 
@@ -189,6 +190,14 @@ const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 // ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
 // 「1グループ=複数の名前付きソース」を表現できる（単一ソースのグループは"main"という
 // 1キーだけを持つ）。
+/** 気象庁タイル要素のズーム範囲。値は`backend/app/domain/jma_tile_specs.py`が配信元仕様
+ * （`zoomUse`・`maxNativeZoom`）から導出したものを生成物経由で受け取る——ここで数値を
+ * 手書きすると、配信元が実データを持たないズームを指してしまう（[T633]）。 */
+function jmaZoomRange(elementId: keyof typeof jmaTileConfig): { minzoom: number; maxzoom: number } {
+  const spec = jmaTileConfig[elementId];
+  return { minzoom: spec.min_zoom, maxzoom: spec.max_zoom };
+}
+
 export function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark" | "vector") {
   const base = `region-dynamic-weather-${id}-${source}-${sub}`;
   return { sourceId: base, layerId: `${base}-main`, iconId: `${base}-icon` };
@@ -900,8 +909,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`,
         opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 10,
+        ...jmaZoomRange("hrpns"),
         attribution: "気象庁",
       },
       gridFill: {
@@ -919,8 +927,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png`,
         opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 10,
+        ...jmaZoomRange("sjfcstmap"),
         attribution: "気象庁",
       },
     },
@@ -951,16 +958,14 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
   // 重なった領域は混色になるが、危険度ゼロの領域は配信元のタイルが透明のため、平常時は
   // 7要素すべてONでも地図の見た目は変わらない。
   disaster: {
-    // キキクル（危険度分布）。zoom範囲はrisk.properties.xml（minZoom=4/maxZoom=14/
-    // maxNativeZoom=11）に合わせる。大雨は浸水・土砂双方を統合した指標のため、個別の
-    // 土砂・浸水より下に置く。
+    // キキクル（危険度分布）。ズーム範囲はjmaZoomRangeが配信元仕様から導出する。
+    // 大雨は浸水・土砂双方を統合した指標のため、個別の土砂・浸水より下に置く。
     heavyRain: {
       raster: {
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`,
         opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 11,
+        ...jmaZoomRange("rain_mesh"),
         attribution: "気象庁",
       },
     },
@@ -969,8 +974,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`,
         opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 11,
+        ...jmaZoomRange("land"),
         attribution: "気象庁",
       },
     },
@@ -979,8 +983,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`,
         opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 11,
+        ...jmaZoomRange("inund"),
         attribution: "気象庁",
       },
     },
@@ -993,8 +996,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`,
         opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 10,
+        ...jmaZoomRange("thns"),
         attribution: "気象庁",
       },
     },
@@ -1003,8 +1005,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         placeholderTileUrl:
           `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`,
         opacity: 0.65,
-        minzoom: 4,
-        maxzoom: 10,
+        ...jmaZoomRange("trns"),
         attribution: "気象庁",
       },
     },
@@ -1030,14 +1031,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // コメント「危険情報のみ」方針参照）。既存のminValueToShowフィルタ（gridFill/
         // gridMarkと共通のパターン）をそのまま流用する。
         minValueToShow: 0,
-        minzoom: 4,
-        // 配信元（JMA properties.xml）はmaxZoom=14まで持つが、他のJMA動的タイル系レイヤー
-        // （キキクル3種・線状降水帯予測マップ・雷/竜巻ナウキャスト、いずれもmaxzoom10〜11）と
-        // 揃えて11にする。ベクタタイルのためz11超過分はMapLibreがz11時点のジオメトリを
-        // クライアント側で拡大表示するだけで済み（ラスタと異なりボケない）、
-        // backend/app/services/jma_tile_prewarm_service.pyが定期的にRedisへ温める対象
-        // ズーム範囲を全レイヤーで揃えられる。
-        maxzoom: 11,
+        ...jmaZoomRange("flood"),
         attribution: "気象庁",
       },
     },

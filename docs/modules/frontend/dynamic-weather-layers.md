@@ -63,6 +63,12 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 `dynamicWeatherIds(id, source, sub)`が`region-dynamic-weather-${id}-${source}-${sub}`
 という命名規約でsource/layer idを機械的に決める（`-main`のみ、縁取り専用の別レイヤーは持たない）。
 
+JMAタイル系ソースの`minzoom`/`maxzoom`は`jmaZoomRange(elementId)`が
+`types/generated/jma-tile-config.json`から引く（正本は
+[気象・動的レイヤー](../backend/weather-dynamic-layers.md)の`domain/jma_tile_specs.py`）。
+配信元は要素ごとに実データを持つズームが異なり、上限を超えると空タイルが返って地図から色が
+消えるため、この値をスペック側へ直接書かない。
+
 `gridMark`（`DynamicWeatherMarkSpec`）の縁取りは、主層と別のsymbolレイヤーではなく
 `icon-halo-color`/`icon-halo-width`（SDFアイコンのpaintプロパティ、`icon-image`に
 `sdf: true`が必須）で1層にまとめる。MapLibreはレイヤーの上から順にシンボルを配置する

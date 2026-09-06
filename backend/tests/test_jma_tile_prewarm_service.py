@@ -1,6 +1,18 @@
 import json
 
+import pytest
+
 from app.services import jma_tile_prewarm_service as prewarm
+
+
+@pytest.fixture(autouse=True)
+def limit_prewarm_zoom(monkeypatch):
+    """対象ズームをz4の1枚だけに絞る。
+
+    実際の上限（`domain/jma_tile_specs.py`が配信元仕様から導出、要素により8〜10）まで
+    展開するとタイル数が数百枚になり、パス組み立ての検証には過剰なため。
+    """
+    monkeypatch.setattr(prewarm, "max_zoom_for", lambda element_id: 4)
 
 
 class FakeJmaTileClient:
@@ -65,7 +77,7 @@ def test_pick_current_entry_returns_none_for_empty_input():
 
 
 def test_tile_paths_for_layer_builds_expected_path_format():
-    layer = prewarm._PrewarmLayer("土砂", "risk", "land", "png", 4, "irrelevant")
+    layer = prewarm._PrewarmLayer("土砂", "risk", "land", "png", "irrelevant")
     entry = {"basetime": "20260829170000", "validtime": "20260829170000", "member": "immed0"}
 
     paths = prewarm._tile_paths_for_layer(layer, entry)
@@ -77,7 +89,7 @@ def test_tile_paths_for_layer_builds_expected_path_format():
 
 def test_tile_paths_for_layer_at_zoom4_covers_exactly_one_tile():
     """WIND_GRID_BBOX（関東本土）はzoom4では1タイルに収まる（改善計画T510の試算通り）。"""
-    layer = prewarm._PrewarmLayer("test", "risk", "land", "png", 4, "irrelevant")
+    layer = prewarm._PrewarmLayer("test", "risk", "land", "png", "irrelevant")
     entry = {"basetime": "1", "validtime": "1", "member": "immed0"}
 
     paths = prewarm._tile_paths_for_layer(layer, entry)
@@ -86,7 +98,7 @@ def test_tile_paths_for_layer_at_zoom4_covers_exactly_one_tile():
 
 
 def test_tile_paths_for_layer_nowc_uses_literal_member_none():
-    layer = prewarm._PrewarmLayer("test", "nowc", "thns", "png", 4, "irrelevant")
+    layer = prewarm._PrewarmLayer("test", "nowc", "thns", "png", "irrelevant")
     entry = {"basetime": "1", "validtime": "1"}  # nowcのエントリはmemberフィールドを持たない
 
     paths = prewarm._tile_paths_for_layer(layer, entry)
@@ -101,8 +113,8 @@ async def test_prewarm_jma_tiles_dedupes_shared_target_times_fetch(monkeypatch):
         prewarm,
         "_LAYERS",
         (
-            prewarm._PrewarmLayer("土砂", "risk", "land", "png", 4, risk_target_times),
-            prewarm._PrewarmLayer("大雨", "risk", "rain_mesh", "png", 4, risk_target_times),
+            prewarm._PrewarmLayer("土砂", "risk", "land", "png", risk_target_times),
+            prewarm._PrewarmLayer("大雨", "risk", "rain_mesh", "png", risk_target_times),
         ),
     )
     raw_entries = [
@@ -128,7 +140,7 @@ async def test_prewarm_jma_tiles_dedupes_shared_target_times_fetch(monkeypatch):
 async def test_prewarm_jma_tiles_skips_layer_when_target_times_fetch_fails(monkeypatch):
     risk_target_times = "bosai/jmatile/data/risk/targetTimes.json"
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "risk", "land", "png", 4, risk_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "risk", "land", "png", risk_target_times),)
     )
     fake = FakeJmaTileClient({risk_target_times: None})
 
@@ -147,7 +159,7 @@ async def test_prewarm_jma_tiles_for_nowc_skips_liden_only_entry(monkeypatch):
     同じくelement_idで絞り込むべきことをこのテストで検証する。"""
     nowc_target_times = "bosai/jmatile/data/nowc/targetTimes_N3.json"
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("雷ナウキャスト", "nowc", "thns", "png", 4, nowc_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("雷ナウキャスト", "nowc", "thns", "png", nowc_target_times),)
     )
     raw_entries = [
         {"basetime": "20260831165000", "validtime": "20260831165000", "elements": ["thns", "trns"]},
@@ -166,7 +178,7 @@ async def test_prewarm_jma_tiles_for_nowc_skips_liden_only_entry(monkeypatch):
 async def test_prewarm_jma_tiles_skips_layer_when_element_not_in_target_times(monkeypatch):
     risk_target_times = "bosai/jmatile/data/risk/targetTimes.json"
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("洪水", "risk", "flood", "pbf", 4, risk_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("洪水", "risk", "flood", "pbf", risk_target_times),)
     )
     raw_entries = [
         {"basetime": "1", "validtime": "1", "member": "immed0", "elements": ["land"]},  # floodを含まない

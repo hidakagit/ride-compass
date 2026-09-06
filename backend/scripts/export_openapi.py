@@ -47,6 +47,7 @@ from app.services.axis_registry_service import refresh_axis_definitions  # noqa:
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.dynamic_way_values import map_value_kind, map_value_unit  # noqa: E402
+from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
@@ -56,6 +57,7 @@ REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
+JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
 
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
@@ -202,6 +204,21 @@ def main() -> None:
     # 「値を合わせること」というコメントのみで手動複製していたため、他の生成物と同じ
     # 片側import方式へ揃える（APIレスポンス自体には間隔情報が含まれないため、フロント側は
     # このJSONから読む以外に値を知る手段がない設計にする）。
+    # 気象庁タイルの要素ごとのズーム範囲（domain/jma_tile_specs.py）。frontendの
+    # MapView.tsx: DYNAMIC_WEATHER_RENDERERSがmaxzoomを手書きせずここから受け取る。
+    _write_json(
+        JMA_TILE_CONFIG_PATH,
+        {
+            element_id: {
+                "min_zoom": spec.min_zoom,
+                "max_zoom": effective_max_zoom(spec),
+                "zoom_use": spec.zoom_use,
+                "max_native_zoom": spec.max_native_zoom,
+                "verified": spec.verified,
+            }
+            for element_id, spec in JMA_TILE_SPECS.items()
+        },
+    )
     _write_json(
         WIND_GRID_CONFIG_PATH,
         {
