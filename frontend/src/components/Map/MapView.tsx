@@ -2687,10 +2687,10 @@ export default function MapView({
     // 経由でMapLibre内部が初めて属性データを反映するタイミングで"maplibregl-compact"と
     // 同時に"maplibregl-compact-show"（展開状態＝「MapLibre | © OpenFreeMap」の全文表示）も
     // 付与される。ユーザーが一度でも地図をドラッグすればdragイベントで自動的に閉じるが、
-    // それまでの間は他のUI（レイヤーチップ等）と重なって読みにくい、という実機フィードバックの
-    // 原因になっていた。AttributionControl自身と同じイベント（styledata/sourcedata）を
-    // 購読し、都度コンパクト表示（アイコンのみ）へ揃える（「変わらないデータを更新」による
-    // setStyle再読み込み時の再発にも同じ仕組みで対応できる）。
+    // それまでの間は他のUI（レイヤーチップ等）と重なって読みにくくなる。AttributionControl
+    // 自身と同じイベント（styledata/sourcedata）を購読し、都度コンパクト表示
+    // （アイコンのみ）へ揃える（「変わらないデータを更新」によるsetStyle再読み込み時の
+    // 再発にも同じ仕組みで対応できる）。
     const attribEl = mapContainerRef.current?.querySelector(".maplibregl-ctrl-attrib");
     function collapseAttribution() {
       attribEl?.classList.remove("maplibregl-compact-show");
@@ -2698,14 +2698,13 @@ export default function MapView({
     map.on("styledata", collapseAttribution);
     map.on("sourcedata", collapseAttribution);
 
-    // MapLibre自体もコンテナの内蔵ResizeObserverでの自動追従を持つが、デバッグモード時に
-    // 実機で「地図が画面幅の一部にしか描画されず残りが黒くなる」不具合を確認した
-    // （キャンバスのCSS幅がコンテナ幅より狭い値に固定されたまま更新されない）。原因は
+    // MapLibre自体もコンテナの内蔵ResizeObserverでの自動追従を持つが、デバッグモード時は
     // デバッグログの流入（タイル要求ごとにdebugLog→DebugConsole再レンダー→自動スクロール、
-    // モバイル実機フィードバック対応T34のisMobile確定に伴うレイアウト変化と重なる）が
-    // 内蔵ResizeObserverの通知を取りこぼすことと推測されるが、根本原因の特定に関わらず
+    // モバイルのisMobile確定に伴うレイアウト変化と重なる）が内蔵ResizeObserverの通知を
+    // 取りこぼし、地図が画面幅の一部にしか描画されず残りが黒くなることがある
+    // （キャンバスのCSS幅がコンテナ幅より狭い値に固定されたまま更新されない）。
     // 「コンテナの実サイズ変化を検知したら明示的にmap.resize()する」独自の
-    // ResizeObserverを持たせるのが素直な対策のため、内蔵の自動追従に上乗せする形で追加する。
+    // ResizeObserverを、内蔵の自動追従に上乗せする形で持たせる。
     const resizeObserver = new ResizeObserver(() => {
       mapRef.current?.resize();
     });
@@ -2716,13 +2715,13 @@ export default function MapView({
     // （road_surfaceベクタソース）を再利用する依存関係があるため、そのソースを実際に作る
     // ensureRoadSurfaceTileLayerを先に呼ぶ必要がある。いずれも初回はmap.once("load", ...)への
     // 登録（実行はスタイル読み込み完了後）のため、ここでの呼び出し順がそのまま発火順になる。
-    // 以前はensureAllStaticOverlayLayers（elevationも含む）がensureRoadSurfaceTileLayerより
-    // 先だったため、designation等のaddLayerがソース未作成のまま実行され
-    // 「source "region-road-surface-tiles" not found」エラーが発生していた（実機フィードバックで
-    // 発覚）。標高を先に単独ensureしてから路面ソースを作ることで「標高が最背面、その上に路面」
-    // の意図を保ったまま直す（ensureAllStaticOverlayLayers内でelevationが二重に呼ばれるが
-    // 自身のガードで無害化される）。
-    // 改善計画T308: staticOverlayLayersはredrawPropsRef.current経由で読む（このeffectは
+    // ensureAllStaticOverlayLayersをensureRoadSurfaceTileLayerより先に呼ぶと、
+    // designation等のaddLayerがソース未作成のまま実行され
+    // 「source "region-road-surface-tiles" not found」エラーになる。標高を先に単独ensureして
+    // から路面ソースを作ることで「標高が最背面、その上に路面」の意図を保つ
+    // （ensureAllStaticOverlayLayers内でelevationが二重に呼ばれるが自身のガードで
+    // 無害化される）。
+    // staticOverlayLayersはredrawPropsRef.current経由で読む（このeffectは
     // マウント時のみ実行され、propsのrampAxesが後から変わっても再実行されないため。
     // 実行時フェッチで新しい軸が現れた場合の追従は、別途staticOverlayLayers変更時の
     // effectで対応する）。
@@ -2731,26 +2730,21 @@ export default function MapView({
     ensureAllStaticOverlayLayers(map, redrawPropsRef.current.staticOverlayLayers);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
-    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。改善計画T364
-    // （実機フィードバックで再設計、2026-08-27）: 当初はフィーチャーの有無を問わず常に
-    // ポップアップ+ボタンを出す2段階の操作にしていたが、「よりシンプルで視覚的な表現が
-    // いい」という指摘を受け、地物が無い空白地点のクリックはポップアップを介さず
-    // 即座にピンを追加する1段階の操作へ変更した。地物（道路・ルート等）クリックは
-    // 従来どおり詳細ポップアップのみを表示する（経由地追加ボタンは付けない、
-    // この使い分け自体はT364着手時のユーザー指示のまま維持）。改善計画T365:
-    // 「目的地を設定」ボタンで武装した直後の1タップだけは、地物ヒット判定を
-    // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。改善計画
-    // T365-2: 周回モード中（pinPlacementEnabled=false）は空白地点クリックでの経由地追加を
-    // 行わず、従来どおり地物ヒット時のみ詳細ポップアップを表示する（周回モードは距離指定の
-    // 8方位探索のみを扱い、地図上に経由地・目的地ピンを持たせない設計）。改善計画T372:
-    // 出発地点の指定はT366のボタン武装方式からドラッグ&ドロップ方式へ置き換えたため、
+    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。地物が無い空白地点の
+    // クリックはポップアップを介さず即座にピンを追加する1段階の操作にし、地物
+    // （道路・ルート等）クリックは詳細ポップアップのみを表示する（経由地追加ボタンは
+    // 付けない）。「目的地を設定」ボタンで武装した直後の1タップだけは、地物ヒット判定を
+    // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。周回モード中
+    // （pinPlacementEnabled=false）は空白地点クリックでの経由地追加を行わず、地物ヒット時
+    // のみ詳細ポップアップを表示する（周回モードは距離指定の8方位探索のみを扱い、地図上に
+    // 経由地・目的地ピンを持たせない設計）。出発地点の指定はドラッグ&ドロップ方式のため、
     // ここでの武装チェックは無い（出発地点マーカー自体のdragendハンドラ、下部のuseEffect参照）。
     function handleClick(e: MapMouseEvent) {
       if (destinationArmedRef.current) {
         onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
         return;
       }
-      // 改善計画T403: ルート線（当たり判定はDETAIL_HIT_LAYER_ID、改善計画T550）は下の
+      // ルート線（当たり判定はDETAIL_HIT_LAYER_ID）は下の
       // handleRouteSegmentClickという専用ハンドラを別途
       // map.on("click", DETAIL_HIT_LAYER_ID, ...)で登録している。MapLibreはmap全体の
       // genericな"click"（このhandleClick）とlayer-scopedな"click"を互いに独立して
@@ -2808,15 +2802,14 @@ export default function MapView({
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
 
-      // 区間インスペクタ（改善計画T146）はbuildRoadSurfacePopupHtml側でosm_way_idの
+      // 区間インスペクタはbuildRoadSurfacePopupHtml側でosm_way_idの
       // 有無だけを見て出しているため、配線側も同じ条件に揃える（道路以外のフィーチャーには
-      // osm_way_id自体が無い）。改善計画T292: 車ストレス専用の内訳ボタン（旧
-      // attachCarStressBreakdownHandler、レシピ上書き引数）は専用Pythonレシピの廃止に伴い
-      // 削除し、この区間インスペクタ（全軸の内訳、車の圧迫感を含む）へ一本化した。
+      // osm_way_id自体が無い）。車ストレス（車の圧迫感）専用の内訳ボタンは持たず、
+      // この区間インスペクタ（全軸の内訳、車の圧迫感を含む）へ一本化してある。
       if (roadSurfaceProperties.osm_way_id != null) {
         const popupElement = popupRef.current.getElement();
         if (popupElement) {
-          // 改善計画T320: axisLabelsはredrawPropsRef.current経由で読む（handleClickを
+          // axisLabelsはredrawPropsRef.current経由で読む（handleClickを
           // 登録するこのeffectはマウント時のみ実行され、propsの変化を再購読しないため。
           // GET /api/axis-catalogは非同期のため、マウント時点のクロージャでaxisLabelsを
           // 直接捕まえると、フェッチが解決した後もマウント時点の静的フォールバックの
