@@ -3099,15 +3099,14 @@ export default function MapView({
     runWhenStyleReady(map, applyLocation);
   }, [location, locationSource]);
 
-  // 改善計画T364: 経由地マーカーを更新（最大でも8件程度のため、差分更新はせず
+  // 経由地マーカーを更新（最大でも8件程度のため、差分更新はせず
   // 既存マーカーを全部remove→全部作り直す簡易実装）。現在地マーカー（#e11d48）とは
   // 別色（#2563eb）にし、番号付きの円形divで訪問順序を示す。クリックで即削除する
-  // （確認ダイアログなし、間違えてもすぐ打ち直せるため）。改善計画T372:
+  // （確認ダイアログなし、間違えてもすぐ打ち直せるため）。
   // touch-action:noneが無いと、地図をドラッグでパンしようとした指の起点がこの
   // マーカー要素に乗った場合、ブラウザがこの要素自身のタッチ挙動（既定=auto）を
   // 優先してしまいMapLibre側のパンジェスチャーとして確定しないことがある
-  // （実機フィードバック「地図上スクロールが効かないことがある」で発覚。
-  // .locateButtonが同じ理由で既に持っていた対策と同じもの）。
+  // （.locateButtonが同じ理由で既に持っている対策と同じもの）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3134,7 +3133,7 @@ export default function MapView({
     runWhenStyleReady(map, applyWaypointMarkers);
   }, [waypoints]);
 
-  // 改善計画T365: 目的地マーカーを更新（最大1点）。経由地の番号付き円とは見た目を変え、
+  // 目的地マーカーを更新（最大1点）。経由地の番号付き円とは見た目を変え、
   // 「終点」であることが一目で分かる旗アイコン(絵文字)にする。クリックで解除。
   useEffect(() => {
     const map = mapRef.current;
@@ -3147,7 +3146,7 @@ export default function MapView({
 
       const el = document.createElement("div");
       el.textContent = "🏁";
-      // 改善計画T372: touch-action:noneの理由は経由地マーカーと同じ（このコメント直上の
+      // touch-action:noneの理由は経由地マーカーと同じ（このコメント直上の
       // 経由地マーカーのuseEffect参照）。
       el.style.cssText =
         "font-size:28px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;";
@@ -3163,7 +3162,7 @@ export default function MapView({
     runWhenStyleReady(map, applyDestinationMarker);
   }, [destination]);
 
-  // 改善計画T550: 区間クリックで選択中の区間があれば、クリック地点へ軽量なマーカーのみを
+  // 区間クリックで選択中の区間があれば、クリック地点へ軽量なマーカーのみを
   // 立てる（テキストポップアップは出さない——地点・到達予想時刻・軸別内訳はボトムシート側
   // [RouteAxisProfile]が表示する）。destinationMarkerと同じcontrolled propパターン
   // （selectedRouteSegmentがnullになれば、page.tsx側の×ボタン操作・別候補への切り替え等
@@ -3179,7 +3178,7 @@ export default function MapView({
 
       const el = document.createElement("div");
       el.textContent = "📍";
-      // 改善計画T372: touch-action:noneの理由は経由地マーカーと同じ。
+      // touch-action:noneの理由は経由地マーカーと同じ。
       el.style.cssText =
         "font-size:26px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;";
       el.setAttribute("aria-label", "選択中の区間");
@@ -3195,15 +3194,13 @@ export default function MapView({
     runWhenStyleReady(map, applySelectedSegmentMarker);
   }, [selectedRouteSegment]);
 
-  // ルート候補のベース表示・選択中候補のハロー表示をまとめて更新する。改善計画T518:
-  // 以前はrouteLayerOn（地図上「ルート」チップ）を見ておらず、OFFにしても候補線・ハロー・
-  // 矢印が消えない不整合があった（ユーザー指摘「一般的にルートをOFFにしたら線すら
-  // 出ないとイメージする」）。改善計画T524（T518コードレビューP3指摘）: 元は候補線用・
-  // ハロー用の2つの別effectに分かれ、それぞれが同じif(routeLayerOn)分岐を手書きして
-  // いたため、redrawAllLayers側にも同じ分岐を書く必要があり、そちらだけrouteLayerOnの
-  // 反映漏れが起きた。両者をapplyRouteLayerVisibility（MapView.tsx上部で定義）へ
-  // 集約し、この1effectとredrawAllLayersの両方から同じ関数を呼ぶことで、呼び出し元が
-  // 増えても分岐の書き忘れが起きない構造にする。
+  // ルート候補のベース表示・選択中候補のハロー表示をまとめて更新する。候補線用・
+  // ハロー用に別々のeffectを持たせてそれぞれがif(routeLayerOn)分岐を手書きすると、
+  // redrawAllLayers側にも同じ分岐を書く必要が生じ、書き忘れるとrouteLayerOn（地図上
+  // 「ルート」チップ）をOFFにしても候補線・ハロー・矢印が消えない不整合になる。
+  // applyRouteLayerVisibility（MapView.tsx上部で定義）へ集約し、この1effectと
+  // redrawAllLayersの両方から同じ関数を呼ぶことで、呼び出し元が増えても分岐の
+  // 書き忘れが起きない構造にする。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
