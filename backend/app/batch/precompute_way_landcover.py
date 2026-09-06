@@ -26,10 +26,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
-import pyproj
-import rasterio
-import rasterio.errors
-import rasterio.features
 import shapely
 from shapely.geometry import LineString
 from shapely.geometry.base import BaseGeometry
@@ -83,6 +79,12 @@ def count_pixels_in_ring(dataset, ring: BaseGeometry) -> dict[int, int] | None:
     """開いているラスタ`dataset`（`ring`と同じCRS）から、`ring`内画素のクラス値
     ヒストグラムを返す。`ring`がラスタ範囲と重ならない場合はNone（このデータセットの
     対象外、呼び出し元が他のラスタを試すか諦める）。"""
+    # rasterioはrequirements-batch.txt限定の依存で本番webイメージには無いため、この
+    # モジュールをALGORITHM_VERSION参照のためだけにimportするderived_data_freshness.py
+    # 経由でもimportできるよう、ここでのみ読み込む（モジュール冒頭でimportしない）。
+    import rasterio.errors
+    import rasterio.features
+
     if ring.is_empty:
         return {}
     try:
@@ -131,6 +133,10 @@ class _RasterSource:
     EPSG:4326からそのラスタのCRSへの変換器を束ねる。"""
 
     def __init__(self, path: str):
+        # count_pixels_in_ringと同じ理由でここでのみimportする。
+        import pyproj
+        import rasterio
+
         self.dataset = rasterio.open(path)
         self._transformer = pyproj.Transformer.from_crs("EPSG:4326", self.dataset.crs, always_xy=True)
 
