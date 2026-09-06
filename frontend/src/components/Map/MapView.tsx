@@ -2284,17 +2284,17 @@ export default function MapView({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
-  // 改善計画T368: 現在マーカーへ適用済みのlocationSource（色を変える必要があるかの判定用、
+  // 現在マーカーへ適用済みのlocationSource（色を変える必要があるかの判定用、
   // 単なる位置更新（setLngLat）では色を変えられないmaplibregl.Markerの制約を踏まえ、
   // sourceが変わった場合だけ作り直す）。
   const appliedMarkerSourceRef = useRef<LocationSource | null>(null);
   const waypointMarkersRef = useRef<Marker[]>([]);
   const destinationMarkerRef = useRef<Marker | null>(null);
-  // 改善計画T550: 区間クリックのマーカー（destinationMarkerRefと同じcontrolled prop駆動
+  // 区間クリックのマーカー（destinationMarkerRefと同じcontrolled prop駆動
   // パターン、下部のuseEffect参照）。
   const selectedSegmentMarkerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
-  // 改善計画T308: 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
+  // 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
   const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
   const staticOverlayLayers = useMemo(
@@ -2307,9 +2307,9 @@ export default function MapView({
   );
   const layerDataSources = useMemo(() => buildLayerDataSources(rampAxes), [rampAxes]);
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(rampAxes), [rampAxes]);
-  // コードレビュー指摘の修正: isRoadSurfaceGroupVisibleが以前はビルド時静的
-  // ROAD_SURFACE_SHARED_LAYER_IDSを直接参照していたため、軸スタジオで新規公開したramp軸
-  // （road_surfaceタイルを共有する軸）が実行時フェッチに含まれていても対象外のままだった。
+  // isRoadSurfaceGroupVisibleへ渡すroadSurfaceSharedLayerIdsは、軸スタジオで新規公開した
+  // ramp軸（road_surfaceタイルを共有する軸）が実行時フェッチに含まれても対象になるよう、
+  // propsのrampAxesから毎回算出する。
   const roadSurfaceSharedLayerIds = useMemo(() => buildRoadSurfaceSharedLayerIds(rampAxes), [rampAxes]);
   // handleClick/handleMouseMove（地図初期化effect内、一度だけ登録されるクロージャ）が
   // 最新のinteractiveLayerIdsを読めるようにするref（onRegionZoomHintChangeRef等と同じ
@@ -2323,12 +2323,12 @@ export default function MapView({
   // 無言で空白のまま永久に止まる問題があった。スタイルが一度もreadyにならないまま
   // errorが起きた場合はユーザーへ可視のメッセージを出す。
   const [styleLoadFailed, setStyleLoadFailed] = useState(false);
-  // 改善計画T465: 「変わらないデータを更新」によるmap.setStyle()呼び出し中（新スタイルの
+  // 「変わらないデータを更新」によるmap.setStyle()呼び出し中（新スタイルの
   // "style.load"がまだ来ていない間）はtrue。__rcStyleReadyは一度trueになったら永久に
   // trueのまま（runWhenStyleReadyが頼る"load"は地図の生涯で一度しか発火しないため
   // リセットできない）ため、handleMapErrorのisFatal判定はこのrefも別途参照する
-  // （初回ロード成功後にsetStyle()が失敗してもstyleLoadFailedバナーが出なかった
-  // バグの修正、ゼロベース網羅レビュー指摘）。
+  // （そうしないと初回ロード成功後にsetStyle()が失敗してもstyleLoadFailedバナーが
+  // 出ない）。
   const styleReloadPendingRef = useRef(false);
   // 初期表示直後は基礎地図タイルの取得が終わるまで数秒間ほぼ白紙のまま何も見えず、
   // 初めて開いたユーザーには「壊れている」ように映りかねなかった。最初のidle
@@ -2337,19 +2337,19 @@ export default function MapView({
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
-  // 改善計画T364: handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
+  // handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
   // 最新のonWaypointAddを読めるようにするref（onRegionZoomHintChangeRefと同じパターン）。
   const onWaypointAddRef = useRef(onWaypointAdd);
   const onWaypointRemoveRef = useRef(onWaypointRemove);
-  // 改善計画T365: 同じ理由で目的地関連のコールバック・armed状態もrefで最新値を読む。
+  // 同じ理由で目的地関連のコールバック・armed状態もrefで最新値を読む。
   const onDestinationSetRef = useRef(onDestinationSet);
   const onDestinationClearRef = useRef(onDestinationClear);
   const destinationArmedRef = useRef(destinationArmed);
-  // 改善計画T365-2: 周回モード中は空白地点クリックでの経由地追加を行わない。
+  // 周回モード中は空白地点クリックでの経由地追加を行わない。
   const pinPlacementEnabledRef = useRef(pinPlacementEnabled);
-  // 改善計画T372: 出発地点マーカーのdragendコールバックもrefで最新値を読む。
+  // 出発地点マーカーのdragendコールバックもrefで最新値を読む。
   const onOriginSetRef = useRef(onOriginSet);
-  // 改善計画T550: handleRouteSegmentClick（地図初期化effect内で一度だけ登録）が最新の
+  // handleRouteSegmentClick（地図初期化effect内で一度だけ登録）が最新の
   // onRouteSegmentSelectを読めるようにするref（onWaypointAddRefと同じパターン）。
   const onRouteSegmentSelectRef = useRef(onRouteSegmentSelect);
   // trueの間、位置更新effect（下部）がmap.flyTo（カメラ移動）をスキップする。
