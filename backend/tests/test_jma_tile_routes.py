@@ -230,3 +230,113 @@ def test_jma_tile_proxy_does_not_cache_upstream_failures():
 
     assert response.status_code == 502
     assert "cache-control" not in response.headers
+
+
+def _tile_png(color):
+    """指定色で塗りつぶした256x256のPNG。"""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGBA", (256, 256), color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class InterpolatingFakeClient(FakeJmaTileClient):
+    """親タイルの`get()`と、補間結果の`store()`を観測できるフェイク。"""
+
+    def __init__(self, parent_result=None):
+        super().__init__(cached_result=None, fetch_result=None)
+        self._parent_result = parent_result
+        self.get_paths: list[str] = []
+        self.stored: list[tuple[str, str]] = []
+
+    async def get(self, path):
+        self.get_paths.append(path)
+        return self._parent_result
+
+    async def store(self, path, content, content_type):
+        self.stored.append((path, content_type))
+
+
+def test_jma_tile_proxy_interpolates_zoom_without_native_data():
+    # 大雨キキクルはzoomUse="even"のためz9に実データが無い。上流へ問い合わせる代わりに
+    # 親（z8）のタイルから該当象限を切り出して返す。
+    fake = InterpolatingFakeClient(parent_result=(_tile_png((255, 0, 0, 255)), "image/png"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/rain_mesh/9/455/201.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    # 親のパスはz8・座標は切り捨て（455//2=227、201//2=100）。
+    assert fake.get_paths == [
+        "bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/rain_mesh/8/227/100.png"
+    ]
+    # 上流への直接フェッチは行わない。
+    assert fake.fetch_calls == 0
+    # 補間結果は元のパスのキーでキャッシュへ書き戻す（次回は補間をやり直さない）。
+    assert fake.stored == [
+        ("bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/rain_mesh/9/455/201.png", "image/png")
+    ]
+
+
+def test_jma_tile_proxy_does_not_interpolate_zoom_with_native_data():
+    # z8は実データがあるため、補間せず通常のフェッチ経路を通る。
+    fake = InterpolatingFakeClient(parent_result=(_tile_png((0, 255, 0, 255)), "image/png"))
+    fake._fetch_result = (b"\x89PNG-native", "image/png")
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/rain_mesh/8/227/100.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.content == b"\x89PNG-native"
+    assert fake.get_paths == []
+    assert fake.stored == []
+
+
+def test_jma_tile_proxy_does_not_interpolate_vector_tiles():
+    # 洪水キキクルはベクタタイル（.pbf）で、MVTの再エンコードが必要なため対象外。
+    fake = InterpolatingFakeClient(parent_result=(b"parent-pbf", "application/x-protobuf"))
+    fake._fetch_result = (b"native-pbf", "application/x-protobuf")
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/flood/9/455/201.pbf"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.content == b"native-pbf"
+    assert fake.get_paths == []
+
+
+def test_jma_tile_proxy_falls_back_when_parent_tile_is_unavailable():
+    # 親タイルが取れない場合は補間せず、通常のフェッチ経路へ進む。
+    fake = InterpolatingFakeClient(parent_result=None)
+    fake._fetch_result = (b"\x89PNG-fallback", "image/png")
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/rain_mesh/9/455/201.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.content == b"\x89PNG-fallback"
+    assert fake.stored == []

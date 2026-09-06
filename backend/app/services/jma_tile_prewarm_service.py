@@ -26,7 +26,7 @@ import json
 import logging
 import time
 
-from app.domain.jma_tile_specs import max_zoom_for
+from app.domain.jma_tile_specs import JMA_TILE_SPECS, has_native_tile, max_zoom_for
 from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import JmaTileClient
@@ -108,7 +108,13 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", entry: dict) -> list[str]:
     # 直書きしているのと同じ理由）。risk/rasrfはエントリ自体にmemberを持つ。
     member = entry.get("member", "none") if layer.group != "nowc" else "none"
     paths = []
+    spec = JMA_TILE_SPECS.get(layer.element_id)
     for z in range(_MIN_ZOOM, layer.max_zoom + 1):
+        # 配信元が実データを持たないズーム（zoomUseの偶奇に合わない段）は温めても空タイル
+        # しか積まれない。要求されたときは親から補間するため（infrastructure/
+        # jma_tile_interpolation.py）、親側さえ温まっていればよい。
+        if spec is not None and not has_native_tile(spec, z):
+            continue
         for x, y in tiles_covering_bbox(_PREWARM_BBOX, z):
             paths.append(
                 f"bosai/jmatile/data/{layer.group}/{basetime}/{member}/{validtime}/surf/"

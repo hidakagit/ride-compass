@@ -1,14 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+import logging
+
 from app.api.cache_policy import IMMUTABLE_TILE, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
 from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
 from app.config import settings
+from app.domain.jma_tile_specs import source_zoom_for_interpolation
 from app.infrastructure.jma_tile_client import (
     JmaTileClient,
     JmaTileNotFoundError,
     TileNotFound,
     is_target_times_path,
 )
+from app.infrastructure.jma_tile_interpolation import crop_and_upscale, parse_tile_path
+
+logger = logging.getLogger("app.api.routers.jma_tile")
 
 router = APIRouter()
 
@@ -21,6 +27,36 @@ router = APIRouter()
 def _cache_control(path: str) -> str:
     policy = JMA_TARGET_TIMES if is_target_times_path(path) else IMMUTABLE_TILE
     return policy.header()
+
+
+async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> bytes | None:
+    """配信元が実データを持たないズームの要求に対し、親タイルから補間した画像を返す。
+
+    対象外（実データがあるズーム・タイル以外のパス・ベクタタイル）はNone。親タイルの取得は
+    `JmaTileClient.get()`を通すため、Redisキャッシュ・レート制限・上流への秒間上限が
+    そのまま効く。補間した結果は呼び出し元が元のパスのキーでキャッシュへ書き戻す。
+    """
+    coords = parse_tile_path(path)
+    if coords is None or coords.ext != "png":
+        # ベクタタイル（洪水キキクル）はMVTのジオメトリ再エンコードが必要なため対象外
+        # （docs/tasks/T641.md参照）。
+        return None
+    if source_zoom_for_interpolation(coords.element, coords.z) is None:
+        return None
+    parent = await jma_tile_client.get(coords.parent_path())
+    if parent is None:
+        return None
+    parent_content, _parent_content_type = parent
+    try:
+        return crop_and_upscale(parent_content, coords.quadrant)
+    except Exception as exc:  # noqa: BLE001 補間の失敗で地図表示自体を落とさない
+        logger.warning(
+            "JMAタイルの補間に失敗しました path=%s parent=%s error=%r",
+            path,
+            coords.parent_path(),
+            exc,
+        )
+        return None
 
 
 @router.get("/api/jma-tile/{path:path}")
@@ -49,6 +85,14 @@ async def jma_tile_proxy(
             content=content, media_type=content_type, headers={"Cache-Control": _cache_control(path)}
         )
     enforce_rate_limit(request, "jma-tile", settings.jma_tile_rate_limit_per_minute)
+    # 配信元が実データを持たないズームは、上流へ問い合わせても空タイルしか返らない。
+    # 親タイルから補間したものを、元のパスのキーでキャッシュへ書き戻して返す。
+    interpolated = await _interpolated_tile(jma_tile_client, path)
+    if interpolated is not None:
+        await jma_tile_client.store(path, interpolated, "image/png")
+        return Response(
+            content=interpolated, media_type="image/png", headers={"Cache-Control": _cache_control(path)}
+        )
     try:
         result = await jma_tile_client.fetch(path)
     except JmaTileNotFoundError:

@@ -75,3 +75,35 @@ def max_zoom_for(element_id: str) -> int | None:
     """要素idに対する実データ上限ズーム。未登録の要素はNone。"""
     spec = JMA_TILE_SPECS.get(element_id)
     return effective_max_zoom(spec) if spec is not None else None
+
+
+def has_native_tile(spec: JmaTileSpec, zoom: int) -> bool:
+    """そのズームに配信元の実データが存在するか。
+
+    `zoom_use`の偶奇に合わないズームは、配信元が200を返しても中身は空タイルになる。
+    """
+    if zoom < spec.min_zoom or zoom > effective_max_zoom(spec):
+        return False
+    if spec.zoom_use == "even":
+        return zoom % 2 == 0
+    if spec.zoom_use == "odd":
+        return zoom % 2 == 1
+    return True
+
+
+def source_zoom_for_interpolation(element_id: str, zoom: int) -> int | None:
+    """`zoom`のタイルを補間するために取得すべき親ズーム。補間が不要／不可能ならNone。
+
+    `zoom_use`が偶奇を限る要素では、実データを持つズームが1つおきに並ぶため、親は常に
+    `zoom - 1`（そこは必ず反対の偶奇になる）。親が`min_zoom`を下回る場合は補間できない
+    （拡大の元が無い）。上限を超えるズームはMapLibre側のoverzoomが担うため対象外。
+    """
+    spec = JMA_TILE_SPECS.get(element_id)
+    if spec is None or spec.zoom_use == "all":
+        return None
+    if zoom > effective_max_zoom(spec) or zoom < spec.min_zoom:
+        return None
+    if has_native_tile(spec, zoom):
+        return None
+    parent = zoom - 1
+    return parent if parent >= spec.min_zoom else None

@@ -18,7 +18,7 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 |---|---|
 | domain | `jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
-| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
 
 ## domain層: 2つの異なる役割
@@ -123,9 +123,25 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 | `sjfcstmap`（線状降水帯予測マップ） | even | 10 | 10 |
 
 上限を超えるズームを指定すると、その要素のタイルは存在せず空タイル（334バイトのRGBA PNG、
-ベクタは0バイト）が返るため、地図から色が消える。`sjfcstmap`だけは配信元の設定ファイルを
+ベクタは0バイト）が返るため、地図から色が消える。上限の内側にある「偶奇の合わないズーム」
+（キキクル・降水のz5/z7/z9、雷竜巻のz5/z7）も同じく空になるため、そちらは下記の補間で埋める。`sjfcstmap`だけは配信元の設定ファイルを
 一次情報で確認できておらず（公式ページが設定を外部化していない）、同系統の`hrpns`と同じ値を
 暫定的に置いている（`JmaTileSpec.verified=False`）。
+
+**配信元が持たないズームの補間（`infrastructure/jma_tile_interpolation.py`）**:
+MapLibreのソース設定は連続したズーム区間しか表現できず「偶数だけ使う」を伝えられないため、
+`jma_tile.py`が要求されたズームに実データが無い場合（`source_zoom_for_interpolation`が
+親ズームを返す場合）、1段上のタイルから該当象限を切り出して2倍に拡大した画像を返す。
+
+- 親タイルの取得は`JmaTileClient.get()`を通すため、Redisキャッシュ・レート制限・上流への
+  秒間上限がそのまま効く。補間結果は`JmaTileClient.store()`で**元のパスのキー**へ書き戻し、
+  2回目以降は補間をやり直さない。
+- **最近傍で拡大する**。キキクル・ナウキャストは危険度や強度を離散的な色で塗り分けており
+  凡例の色と1対1に対応するため、滑らかに拡大すると凡例のどの段階でもない中間色が地図に出る。
+- ラスタ（PNG）のみが対象。洪水キキクルはベクタタイルでMVTのジオメトリ再エンコードが必要
+  なため対象外（奇数ズームでは洪水線が出ないが、同じ領域にキキクル3種の面が出る）。
+- 親タイルが取得できない場合は補間せず通常のフェッチ経路へ進む（補間の失敗で地図表示
+  そのものを落とさない）。
 
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、

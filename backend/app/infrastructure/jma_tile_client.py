@@ -155,6 +155,18 @@ class JmaTileClient:
             raise JmaTileNotFoundError(path)
         return result
 
+    async def store(self, path: str, content: bytes, content_type: str) -> None:
+        """上流フェッチを伴わずに生成したタイルをキャッシュへ書き戻す。
+
+        奇数ズームの補間結果（`api/routers/jma_tile.py`）のように、上流に実体が無く
+        アプリ側で組み立てたタイルを、次回以降そのまま返せるようにするための入口。
+        書き込み先は`fetch`と同じ（`targetTimes*.json`はプロセス内、それ以外はRedis）。
+        """
+        if is_target_times_path(path):
+            _target_times_cache[path] = (content, content_type)
+        else:
+            await jma_tile_redis_cache.set(path, content, content_type)
+
     async def get(self, path: str) -> tuple[bytes, str] | None:
         """キャッシュ参照→ミスなら外部フェッチ、という従来通りの一括呼び出し。
         レート制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向け。
