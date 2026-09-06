@@ -3243,10 +3243,10 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModes, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・車ストレス・自転車インフラ・指定路線・トンネル・事故・停止要因POI・補給休憩POI
-  // （T101）は、いずれも「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替え
+  // 標高・車ストレス・自転車インフラ・指定路線・トンネル・事故・停止要因POI・補給休憩POIは、
+  // いずれも「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替え
   // のみ」という同型のレイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
-  // （改善計画T47 R-6の宣言的ループ化。setLayerVisibilityは同じ値の再設定でも副作用が無いため、
+  // （setLayerVisibilityは同じ値の再設定でも副作用が無いため、
   // いずれか1つのフラグが変わったときに他を再設定しても表示に影響しない）。
   useEffect(() => {
     const map = mapRef.current;
@@ -3269,7 +3269,7 @@ export default function MapView({
       staticOverlayLayers
     );
     applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
-    // T87: OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
+    // OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
     // 状態が更新されるようにするため）。
     recomputeLayerDataStatus();
@@ -3287,26 +3287,24 @@ export default function MapView({
     axisVisibility,
     secondaryAxisCasingLayerIds,
     recomputeLayerDataStatus,
-    // 改善計画T308: staticOverlayLayers/axisOverlayLayersが変わる（軸スタジオの実行時
+    // staticOverlayLayers/axisOverlayLayersが変わる（軸スタジオの実行時
     // フェッチで新しい軸が現れる）たびにsetStaticOverlayVisibility経由でensure()が
     // 再実行され、新しい軸のレイヤーもここで初めて登録される。
     staticOverlayLayers,
     axisOverlayLayers,
   ]);
 
-  // way_id→動的値配信層（風=wind_drag_ratio[改善計画T405]・勾配=effective_gradient
-  // [改善計画T423]）。hooks/useDynamicWayValues.tsが現在のビューポートに対して取得した値を
+  // way_id→動的値配信層（風=wind_drag_ratio・勾配=effective_gradient）。
+  // hooks/useDynamicWayValues.tsが現在のビューポートに対して取得した値を
   // MapLibreのsetFeatureStateへ反映する。上のSTATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの
   // 切替）とは別のeffectにする理由は動的気象レイヤーと同じ——dedicatedWayValuesはパン・
   // ズームのたびに変わりうる値のため、他のshow*系フラグ群と同居させると無関係な再実行が
   // 増える。showWindAxis/showGradientAxisがfalseの間も値自体はhooks側でenabled=falseにより
   // 空のMapへ戻るため、ここでは値をそのまま反映するだけで十分（非表示レイヤーへ
-  // feature-stateを設定しても表示には影響しない）。改善計画T483: 以前は風・勾配それぞれ
-  // 独立したeffectとして手書き複製されていたが、dedicatedWayValues（axisId→値の汎用Map）
-  // への統合に合わせ1つのループへまとめた（3件目の動的材料が増えても
-  // dedicatedWayValuesのキーを回すだけのためこのeffect自体の変更は不要）。
-  // 改善計画T432: 環境グループの風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ
-  // 統合したため、専用effectは持たず下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収されている。
+  // feature-stateを設定しても表示には影響しない）。dedicatedWayValues（axisId→値の汎用Map）を
+  // 1つのループで回すため、動的材料が増えてもこのeffect自体の変更は不要。環境グループの
+  // 風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ統合されているため、専用effectは
+  // 持たず下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収されている。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3317,17 +3315,15 @@ export default function MapView({
     });
   }, [dedicatedWayValues]);
 
-  // 改善計画T414/T423/T444: showWindAxis・showGradientAxisが両方falseへ揃った瞬間
+  // showWindAxis・showGradientAxisが両方falseへ揃った瞬間
   // （ルート確定・手動OFFいずれも含む）に、それまでの全道路ぶんのfeature-stateを明示的に
   // クリアする（clearRoadTileFeatureState参照）。`map.removeFeatureState({source,
-  // sourceLayer})`はMapLibreの仕様上キー単位の選択的削除ができずソース丸ごと消える
-  // ため、風・勾配が同時ON（T414設計、排他ドメインではない）の状態で片方だけをOFFにした
-  // 瞬間にこの関数を呼ぶと、まだONのままのもう片方の色分けまで巻き添えで消えてしまう
-  // （統合レビュー第2回で発覚した実バグ、修正前はshowWindAxis/showGradientAxisそれぞれ
-  // 独立したeffectから無条件に呼んでいた）。両方falseになるまでクリアを遅らせることで、
-  // 「まだONの軸を巻き添えにしない」かつ「最後の1つがOFFになったら必ずクリアされる」を
-  // 両立する。マウント直後（両フラグの初期値がfalse）にも走るが、その時点ではまだ
-  // setFeatureStateが1件も呼ばれていないため無害（空振り）。
+  // sourceLayer})`はMapLibreの仕様上キー単位の選択的削除ができずソース丸ごと消えるため、
+  // 風・勾配が同時ON（排他ドメインではない）の状態で片方だけをOFFにした瞬間にこの関数を
+  // 呼ぶと、まだONのままのもう片方の色分けまで巻き添えで消えてしまう。両方falseになるまで
+  // クリアを遅らせることで、「まだONの軸を巻き添えにしない」かつ「最後の1つがOFFになったら
+  // 必ずクリアされる」を両立する。マウント直後（両フラグの初期値がfalse）にも走るが、
+  // その時点ではまだsetFeatureStateが1件も呼ばれていないため無害（空振り）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !shouldClearDedicatedWayValueFeatureState(showWindAxis, showGradientAxis)) return;
@@ -3340,8 +3336,8 @@ export default function MapView({
     runWhenStyleReady(map, () => applyGradientFillGeojson(map, gradientFillGeojson));
   }, [gradientFillGeojson]);
 
-  // 動的気象レイヤー（降水ナウキャスト・風の矢印、改善計画T170/T171/T178、T183で降水延長予報を
-  // 追加してから再設計）。いずれもpayloadが地図上の時刻スライダー操作のたびに変わるため、
+  // 動的気象レイヤー（降水ナウキャスト・風の矢印）。いずれもpayloadが地図上の時刻
+  // スライダー操作のたびに変わるため、
   // 上のSTATIC_OVERLAY_LAYERS一括effect（依存が多く再実行コストの大きいshowX系フラグ群）とは
   // 分けた専用effectにまとめる（DYNAMIC_WEATHER_LAYER_IDSで回すため、要素が増えてもこの
   // effect自体は変わらない）。
@@ -3354,16 +3350,16 @@ export default function MapView({
     recomputeLayerDataStatus();
   }, [dynamicWeather, recomputeLayerDataStatus]);
 
-  // 自転車インフラ・指定路線・停止要因POI・補給休憩POI（T101）・事故（当事者/重大度）・
-  // 車の圧迫感を含むramp軸（改善計画T292でここへ合流）の絞り込み（改善計画T63）。
-  // 道路情報のフィルタ効果（下）と同じくvisibility/フィルタ式の差し替えのみで反映される。
+  // 自転車インフラ・指定路線・停止要因POI・補給休憩POI・事故（当事者/重大度）・
+  // 車の圧迫感を含むramp軸の絞り込み。道路情報のフィルタ効果（下）と同じく
+  // visibility/フィルタ式の差し替えのみで反映される。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
   }, [staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes]);
 
-  // 路面（道路の種類/路面の種類、改善計画T165）ON/OFF・凡例フィルタの切替は、いずれも
+  // 路面（道路の種類/路面の種類）ON/OFF・凡例フィルタの切替は、いずれも
   // visibility/paint/フィルタ式の差し替えのみで反映される（データ取得はMapLibreがパン/
   // ズームに応じて自動で行うため、明示的なfetchは不要）。色・太さ・線種は
   // showRoadSurface/showRoadTypeの組み合わせでapplyRoadLayerStateが都度再計算する
