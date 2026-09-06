@@ -37,6 +37,16 @@ _target_times_cache: TTLCache = TTLCache(maxsize=16, ttl=_TARGET_TIMES_TTL_SECON
 # 末尾がtargetTimes*.jsonという共通パターンを持つ。
 _TARGET_TIMES_PATTERN = re.compile(r"targetTimes[^/]*\.json$")
 
+
+def is_target_times_path(path: str) -> bool:
+    """パスが時刻一覧（targetTimes*.json）を指すかどうか。
+
+    タイル本体のURLは`basetime`/`validtime`を含み内容が確定して以後変化しないのに対し、
+    時刻一覧は同じURLのまま内容が更新される。この違いでキャッシュ戦略（保存先・TTL・
+    `api/routers/jma_tile.py`が返すHTTPキャッシュヘッダ）が分かれる。
+    """
+    return _TARGET_TIMES_PATTERN.search(path) is not None
+
 # JMA非公式APIへの実フェッチ（fetch）を秒間settings.jma_tile_upstream_
 # max_requests_per_second回までに抑える。`JmaTileClient`はリクエストごとに使い捨てで
 # インスタンス化される（api/dependencies.py: get_jma_tile_client、
@@ -77,7 +87,7 @@ class JmaTileClient:
         `jma_tile.py`がレート制限を適用する前にこれを呼び、ヒットすればレート制限を
         一切経由せず即座に返せるようにする。`TileNotFound`（確認済みの恒久404）が
         返ることもあり、その場合`jma_tile.py`は上流へ問い合わせずそのまま404を返す。"""
-        is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
+        is_target_times = is_target_times_path(path)
         with log_external_call("weather:jma-tile", path=path) as fields:
             if is_target_times:
                 cached = _target_times_cache.get(path)
@@ -100,7 +110,7 @@ class JmaTileClient:
         のため、`result="ok"`のまま記録しWARNINGを出さない。他の失敗はNoneを返す）。
         """
         await _wait_for_upstream_rate_limit()
-        is_target_times = _TARGET_TIMES_PATTERN.search(path) is not None
+        is_target_times = is_target_times_path(path)
         # not_found/resultは`with`ブロックの中で確定させ、実際のreturn/raiseは抜けた後で行う
         # （`log_external_call`はブロックを例外無しで抜けたときだけfields["result"]で
         # 成功/失敗を判定するため、404を非エラー扱いにするにはブロック内で例外を送出しない

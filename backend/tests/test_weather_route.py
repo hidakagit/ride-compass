@@ -599,3 +599,47 @@ def test_get_flood_forecast_is_rate_limited_per_client():
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
+
+
+def test_get_wind_grid_sets_cache_control():
+    # 風グリッドは約48時間ぶんの時刻配列を持ち、上流（Open-Meteo）の更新は1時間ごとの
+    # ため、数分の再利用で表示が古くならない。URLに時刻を含まないためimmutableにはしない。
+    from app.domain.wind_grid import WindGridPoint
+
+    grid = [
+        WindGridPoint(
+            latitude=35.68,
+            longitude=139.77,
+            wind_speed_ms=[2.5],
+            wind_direction_deg=[90.0],
+            precipitation_mm=[0.0],
+        )
+    ]
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(
+        None, wind_grid=grid, wind_times=["2026-08-20T12:00"]
+    )
+
+    try:
+        response = client.get("/api/weather/wind-grid")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=300"
+    assert "immutable" not in response.headers["cache-control"]
+
+
+def test_get_wind_grid_does_not_cache_total_failure():
+    # 全地点失敗（502）はキャッシュさせず次のリクエストで取り直させる。
+    from app.domain.wind_grid import generate_wind_grid_points
+
+    point_count = len(generate_wind_grid_points())
+    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
+
+    try:
+        response = client.get("/api/weather/wind-grid")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert "cache-control" not in response.headers

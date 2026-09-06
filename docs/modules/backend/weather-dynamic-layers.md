@@ -58,6 +58,12 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 `/api/weather`と`/api/weather/amedas`は取得失敗を502として明示的に伝える（表示の主対象に
 なりうる数値のため）。
 
+`/wind-grid`・`/wind-grid-detail`だけは成功応答へ`Cache-Control: public, max-age=300`を
+付ける。応答は約48時間ぶんの時刻配列を持ちどの時刻を描画するかはクライアントが選ぶうえ、
+上流（Open-Meteo）の更新は1時間ごとのため、数分の再利用で表示が古くならない。URLに時刻を
+含まず同じURLのまま内容が更新されるため`immutable`にはしない。502（全地点失敗）には
+付けない。
+
 ### JMAタイル系の共通プロキシ（`api/routers/jma_tile.py`）
 
 `GET /api/jma-tile/{path:path}`が降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・
@@ -65,10 +71,17 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 （`path`をそのまま気象庁側へ引き渡す）。認証は無し。`JmaTileClient`はキャッシュ戦略を
 2種類に分ける:
 
-| 対象 | キャッシュ方式 | TTL |
-|---|---|---|
-| `targetTimes*.json`（パス末尾判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 |
-| タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 |
+| 対象 | サーバー側キャッシュ方式 | TTL | 応答の`Cache-Control` |
+|---|---|---|---|
+| `targetTimes*.json`（`jma_tile_client.py: is_target_times_path`で判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 | `public, max-age=60` |
+| タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 | `public, max-age=1200, immutable` |
+| 404（`TileNotFound`） | 上記と同じキー・TTL | 20分 | `public, max-age=600` |
+| 502（上流障害） | 保存しない | — | 付けない |
+
+タイル本体のURLは`basetime`/`validtime`を含み内容が確定して以後変化しないため、`immutable`で
+ブラウザに再検証させない。MapLibreはズームレベルの跨ぎ・画面外へのパン・`setTiles`による
+ソース更新のたびに同じURLを引き直すため、この差が実リクエスト数に直結する。時刻一覧だけは
+同じURLのまま内容が更新されるため`immutable`にできない。
 
 **レート制限（300/分）の適用順序**: `jma_tile.py`は`JmaTileClient.get_cached(path)`で
 まずキャッシュのみを参照し、ヒットすればレート制限を一切経由せず返す。ミスのときだけ

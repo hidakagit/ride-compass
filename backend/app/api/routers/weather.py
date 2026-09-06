@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.api.dependencies import (
     enforce_rate_limit,
@@ -130,9 +130,18 @@ def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:
         raise HTTPException(status_code=502, detail="気象データの取得に失敗しました")
 
 
+# 風グリッドは応答トップレベルに約48時間ぶんの時刻配列を持ち、どの時刻を描画するかは
+# クライアント側が選ぶ。上流（Open-Meteo）の更新は1時間ごとのため、数分の再利用で表示が
+# 古くなることはない。JMAタイル（`jma_tile.py`）と違いURLに時刻を含まず同じURLのまま内容が
+# 更新されるため`immutable`にはできない。詳細格子はパン・ズームのたびに呼ばれうるので、
+# 同じ範囲へ戻ったときの再取得を抑える効果が大きい。
+_WIND_GRID_CACHE_CONTROL = "public, max-age=300"
+
+
 @router.get("/api/weather/wind-grid", response_model=WindGridResponse)
 async def get_wind_grid(
     http_request: Request,
+    response: Response,
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WindGridResponse:
     """風・降水延長予報の格子点マップ。
@@ -146,12 +155,14 @@ async def get_wind_grid(
     points = generate_wind_grid_points()
     times, grid = await weather_service.get_wind_grid(points)
     _reject_if_all_points_failed("wind-grid", points, grid)
+    response.headers["Cache-Control"] = _WIND_GRID_CACHE_CONTROL
     return WindGridResponse(times=times, points=[point for point in grid if point is not None])
 
 
 @router.get("/api/weather/wind-grid-detail", response_model=WindGridResponse)
 async def get_wind_grid_detail(
     http_request: Request,
+    response: Response,
     min_lon: float = Query(ge=-180, le=180),
     min_lat: float = Query(ge=-90, le=90),
     max_lon: float = Query(ge=-180, le=180),
@@ -180,4 +191,5 @@ async def get_wind_grid_detail(
         raise HTTPException(status_code=400, detail="表示範囲が広すぎます。ズームインしてください。")
     times, grid = await weather_service.get_wind_grid(points)
     _reject_if_all_points_failed("wind-grid-detail", points, grid)
+    response.headers["Cache-Control"] = _WIND_GRID_CACHE_CONTROL
     return WindGridResponse(times=times, points=[point for point in grid if point is not None])

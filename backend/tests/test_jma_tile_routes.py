@@ -164,3 +164,69 @@ def test_jma_tile_proxy_forwards_query_string_to_client():
     assert fake.requested_paths == [
         "bosai/jmatile/data/nowc/20260904120000/none/20260904120000/surf/liden/data.geojson?id=liden"
     ]
+
+
+def test_jma_tile_proxy_marks_tile_body_immutable():
+    # タイル本体のURLはbasetime/validtimeを含み内容が確定して以後変化しないため、
+    # ブラウザに再検証なしでキャッシュから返させる。
+    fake = FakeJmaTileClient(cached_result=(b"\x89PNG", "image/png"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=1200, immutable"
+
+
+def test_jma_tile_proxy_uses_short_cache_for_target_times():
+    # 時刻一覧だけは同じURLのまま内容が更新されるため、immutableにせず短命にする。
+    fake = FakeJmaTileClient(cached_result=(b"[]", "application/json"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get("/api/jma-tile/bosai/jmatile/data/nowc/targetTimes_N3.json")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=60"
+    assert "immutable" not in response.headers["cache-control"]
+
+
+def test_jma_tile_proxy_caches_not_found_responses():
+    # 恒久404（basetimeが確定した過去の一時点に対する結果）も再要求させない。
+    from app.infrastructure.jma_tile_client import JmaTileNotFoundError
+
+    fake = FakeJmaTileClient(cached_result=None, fetch_raises=JmaTileNotFoundError("boom"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/nowc/20260829170000/none/20260829170000/surf/hrpns/10/909/403.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == "public, max-age=600"
+
+
+def test_jma_tile_proxy_does_not_cache_upstream_failures():
+    # 上流障害は一時的なため、次のリクエストで取り直させる。
+    fake = FakeJmaTileClient(cached_result=None, fetch_result=None)
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert "cache-control" not in response.headers
