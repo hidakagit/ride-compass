@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDebugEnabled, useDebugLogEntries } from "@/hooks/useDebugLog";
-import { clearDebugLog } from "@/lib/debugLog";
+import { clearDebugLog, type DebugLogLevel } from "@/lib/debugLog";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import styles from "./DebugConsole.module.css";
 
@@ -12,6 +12,10 @@ interface DebugConsoleProps {
   open: boolean;
   onClose: () => void;
 }
+
+// info < warn < error の順で「この段階以上だけ表示」というしきい値フィルタにする
+// （個別レベルのON/OFFではなく段階選択にすることで、選択肢を3つの<select>に収める）。
+const LEVEL_ORDER: readonly DebugLogLevel[] = ["info", "warn", "error"];
 
 // デバッグモードON時のみ、地図の上に浮かべて表示するイベントログ。
 // マップの表示イベント（初期化・タイル/スタイル要求・パン/ズーム）と外部API呼び出し
@@ -25,11 +29,17 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
   const enabled = useDebugEnabled();
   const entries = useDebugLogEntries();
   const listRef = useRef<HTMLDivElement>(null);
+  const [minLevel, setMinLevel] = useState<DebugLogLevel>("info");
+
+  const visibleEntries = useMemo(
+    () => entries.filter((entry) => LEVEL_ORDER.indexOf(entry.level) >= LEVEL_ORDER.indexOf(minLevel)),
+    [entries, minLevel]
+  );
 
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [entries]);
+  }, [visibleEntries]);
 
   if (!enabled) return null;
 
@@ -37,19 +47,34 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
     <FloatingPanel
       open={open}
       onClose={onClose}
-      title={`デバッグログ[${entries.length}件]`}
+      title={`デバッグログ[${visibleEntries.length}/${entries.length}件]`}
       topRem={4.25}
       widthRem={22}
       maxHeightPx={420}
       headerButtons={
-        <button type="button" onClick={clearDebugLog} className={styles.clearButton}>
-          クリア
-        </button>
+        <>
+          <select
+            value={minLevel}
+            onChange={(e) => setMinLevel(e.target.value as DebugLogLevel)}
+            className={styles.levelSelect}
+            aria-label="表示するログレベルの下限"
+          >
+            <option value="info">すべて</option>
+            <option value="warn">警告以上</option>
+            <option value="error">エラーのみ</option>
+          </select>
+          <button type="button" onClick={clearDebugLog} className={styles.clearButton}>
+            クリア
+          </button>
+        </>
       }
     >
       <div ref={listRef} className={styles.entries}>
         {entries.length === 0 && <p className={styles.emptyMessage}>イベント待機中...[地図を操作するかAPIを呼び出してください]</p>}
-        {entries.map((entry) => (
+        {entries.length > 0 && visibleEntries.length === 0 && (
+          <p className={styles.emptyMessage}>条件に一致するログがありません[フィルタを「すべて」に戻すと{entries.length}件表示されます]</p>
+        )}
+        {visibleEntries.map((entry) => (
           <div key={entry.id} className={styles.entry} data-level={entry.level}>
             <span className={styles.entryTime}>{entry.time}</span> <span className={styles.entryCategory}>[{entry.category}]</span>{" "}
             <span className={styles.entryMessage}>{entry.message}</span>

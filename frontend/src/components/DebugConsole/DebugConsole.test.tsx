@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearDebugLog, debugLog, setDebugEnabled } from "@/lib/debugLog";
 import DebugConsole from "./DebugConsole";
@@ -32,7 +32,7 @@ describe("DebugConsole", () => {
 
     render(<DebugConsole open onClose={() => {}} />);
 
-    expect(screen.getByText("デバッグログ[1件]")).toBeInTheDocument();
+    expect(screen.getByText("デバッグログ[1/1件]")).toBeInTheDocument();
     expect(screen.getByText("タイル要求")).toBeInTheDocument();
     expect(screen.queryByText("システム状況")).not.toBeInTheDocument();
     expect(screen.queryByText(/engine/)).not.toBeInTheDocument();
@@ -42,11 +42,30 @@ describe("DebugConsole", () => {
     setDebugEnabled(true);
     act(() => debugLog("map", "タイル要求"));
     render(<DebugConsole open onClose={() => {}} />);
-    expect(screen.getByText("デバッグログ[1件]")).toBeInTheDocument();
+    expect(screen.getByText("デバッグログ[1/1件]")).toBeInTheDocument();
 
     act(() => screen.getByRole("button", { name: "クリア" }).click());
 
-    expect(screen.getByText("デバッグログ[0件]")).toBeInTheDocument();
+    expect(screen.getByText("デバッグログ[0/0件]")).toBeInTheDocument();
+  });
+
+  it("ログレベルの下限でフィルタできる", () => {
+    setDebugEnabled(true);
+    act(() => {
+      debugLog("map", "通常イベント", undefined, "info");
+      debugLog("weather", "警告イベント", undefined, "warn");
+      debugLog("weather", "失敗イベント", undefined, "error");
+    });
+    render(<DebugConsole open onClose={() => {}} />);
+    expect(screen.getByText("デバッグログ[3/3件]")).toBeInTheDocument();
+    expect(screen.getByText("通常イベント")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("表示するログレベルの下限"), { target: { value: "error" } });
+
+    expect(screen.getByText("デバッグログ[1/3件]")).toBeInTheDocument();
+    expect(screen.queryByText("通常イベント")).not.toBeInTheDocument();
+    expect(screen.queryByText("警告イベント")).not.toBeInTheDocument();
+    expect(screen.getByText("失敗イベント")).toBeInTheDocument();
   });
 
   it("閉じるボタンでonCloseが呼ばれる", () => {
