@@ -1,17 +1,28 @@
 /* パネルのシェル（配色・ドラッグ・ヘッダー）はFloatingPanel.module.cssへ共通化済み。
    ここにはログ本文（.entries）専用のスタイルだけを残す。 */
 
-.levelSelect {
+/* ブラウザ既定の外観（Androidだと白い角丸ボックス）のままだと、パネル本体のダーク配色から
+   浮いて見える。selectとbuttonの高さ・角丸・余白を揃え、appearance:noneでOS既定の
+   見た目を明示的に消す。 */
+.levelSelect,
+.clearButton {
+  appearance: none;
+  font: inherit;
   font-size: 0.7rem;
-  background: rgba(255, 255, 255, 0.08);
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.1);
   color: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 0.25rem;
-  padding: 0.05rem 0.2rem;
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
 }
 
-.clearButton {
-  font-size: 0.7rem;
+.levelSelect option {
+  /* selectを開いたときのドロップダウン自体は多くのブラウザでOS既定の配色になるが、
+     background-color/colorは指定しておくとAndroid Chrome等では反映される */
+  background: #111827;
+  color: #e5e7eb;
 }
 
 .entries {
