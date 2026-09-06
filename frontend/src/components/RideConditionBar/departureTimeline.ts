@@ -34,8 +34,8 @@ export function buildDepartureTimeline(anchor: Date): Date[] {
   return times;
 }
 
-/** DynamicLayerTimeSlider向けのラベル列。正時判定・ラベル間引きの規則は、T596まで
- * useDynamicWeatherLayers.tsが気象レイヤーの共有タイムライン向けに使っていたものと同じ
+/** DynamicLayerTimeSlider向けのラベル列。正時判定・ラベル間引きの規則は、
+ * useDynamicWeatherLayers.tsが気象レイヤーの共有タイムライン向けに使っているものと同じ
  * （formatDynamicFrameTime/dynamicWeather.test.ts参照）。 */
 export function buildDepartureFrames(timeline: readonly Date[]): DynamicLayerTimeSliderFrame[] {
   return timeline.map((time) => {

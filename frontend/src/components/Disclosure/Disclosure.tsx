@@ -4,7 +4,7 @@ import * as Accordion from "@radix-ui/react-accordion";
 import type { ReactNode } from "react";
 import styles from "./Disclosure.module.css";
 
-// ネイティブ<details>/<summary>の共通置き換え（T254、UIライブラリ導入Phase2）。
+// ネイティブ<details>/<summary>の共通置き換え。
 // 常に1項目だけを持つRadix Accordion（type="single" collapsible）として実装する
 // （複数セクションを排他制御するアコーディオン群ではなく、各セクションが独立して
 // 開閉する既存の<details>と同じ挙動を再現するのが目的のため）。
