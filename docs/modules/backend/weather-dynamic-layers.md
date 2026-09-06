@@ -58,11 +58,11 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 `/api/weather`と`/api/weather/amedas`は取得失敗を502として明示的に伝える（表示の主対象に
 なりうる数値のため）。
 
-`/wind-grid`・`/wind-grid-detail`だけは成功応答へ`Cache-Control: public, max-age=300`を
-付ける。応答は約48時間ぶんの時刻配列を持ちどの時刻を描画するかはクライアントが選ぶうえ、
-上流（Open-Meteo）の更新は1時間ごとのため、数分の再利用で表示が古くならない。URLに時刻を
-含まず同じURLのまま内容が更新されるため`immutable`にはしない。502（全地点失敗）には
-付けない。
+応答の`Cache-Control`は`api/cache_policy.py`の対応表が持つ（このモジュールのルーターは
+ヘッダを書かない）。`/wind-grid`系は`SHORT`（5分）——応答が約48時間ぶんの時刻配列を持ち
+どの時刻を描画するかはクライアントが選ぶうえ、上流（Open-Meteo）の更新は1時間ごとのため。
+警報・WBGT・洪水予報・アメダスは`VOLATILE`（2分）、`/api/weather`は`SHORT`。502は2xxでは
+ないためミドルウェアの対象外になる。
 
 ### JMAタイル系の共通プロキシ（`api/routers/jma_tile.py`）
 
@@ -77,6 +77,11 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 | タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 | `public, max-age=1200, immutable` |
 | 404（`TileNotFound`） | 上記と同じキー・TTL | 20分 | `public, max-age=600` |
 | 502（上流障害） | 保存しない | — | 付けない |
+
+`Cache-Control`の値自体は`api/cache_policy.py`（`IMMUTABLE_TILE`・`JMA_TARGET_TIMES`・
+`JMA_TILE_NOT_FOUND`）が持ち、このプロキシは1つのパスで性質の異なる3種類を返すため
+対応表では`HANDLER_MANAGED`とし、どれを使うかだけを`jma_tile.py`が選ぶ
+（[横断基盤](cross-cutting-infrastructure.md)「応答のCache-Control」参照）。
 
 タイル本体のURLは`basetime`/`validtime`を含み内容が確定して以後変化しないため、`immutable`で
 ブラウザに再検証させない。MapLibreはズームレベルの跨ぎ・画面外へのパン・`setTiles`による

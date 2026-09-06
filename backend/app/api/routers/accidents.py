@@ -29,8 +29,5 @@ async def region_accident_tile(
     validate_tile_coords(z, x, y)
     async with _accident_tile_semaphore:
         tile_bytes = await accident_service.get_accident_tile(z, x, y)
-    return Response(
-        content=tile_bytes,
-        media_type="application/vnd.mapbox-vector-tile",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+    # Cache-Controlはapi/cache_policy.pyの対応表（BATCH_TILE）がミドルウェアで付ける。
+    return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")

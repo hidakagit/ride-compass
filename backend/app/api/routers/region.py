@@ -54,15 +54,8 @@ async def region_road_surface_tile(
     # 原因になる。
     async with _region_tile_semaphore:
         tile_bytes = await region_service.get_road_surface_tile(z, x, y)
-    # ブラウザ側HTTPキャッシュを1時間許可する。路面データはPBF取込時にしか変わらないため、
-    # ページ再読み込み・再訪時の同一タイル再取得（＝バーストの主成分）を丸ごと省ける。
-    # サーバーからブラウザキャッシュは無効化できないため、取込・範囲拡大の反映遅れを
-    # 最大1時間に抑える値にする（サーバー側ディスクキャッシュの一括削除とは独立）。
-    return Response(
-        content=tile_bytes,
-        media_type="application/vnd.mapbox-vector-tile",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+    # Cache-Controlはapi/cache_policy.pyの対応表（BATCH_TILE）がミドルウェアで付ける。
+    return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
 
 
 @router.get("/api/region/poi-tiles/{z}/{x}/{y}.pbf")
@@ -82,11 +75,7 @@ async def region_poi_tile(
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
         tile_bytes = await region_service.get_poi_tile(z, x, y)
-    return Response(
-        content=tile_bytes,
-        media_type="application/vnd.mapbox-vector-tile",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+    return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
 
 
 @router.get("/api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}")

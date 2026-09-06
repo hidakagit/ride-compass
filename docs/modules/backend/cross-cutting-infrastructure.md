@@ -14,6 +14,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | ルート | `config.py` | 設定（`Settings`、環境変数） |
 | ルート | `version.py` | プロセス起動時刻（デプロイ確認用） |
 | api | `admin_auth.py` | 管理API共通の認可境界 |
+| api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
 | api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場・`enforce_rate_limit`集約 |
 | api/routers | `health.py` | `/health`・`/api/debug/stats`・`/api/debug/db-status` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
@@ -182,6 +183,38 @@ lifespanが起動時に主要なtimeout値[10.0/15.0]を事前ウォームアッ
 （1000バイト）以上の応答が対象。`compresslevel`は3（圧縮はイベントループ上で同期的に
 走るため、縮小率がほぼ変わらない高レベルは使わない）。`Vary: Accept-Encoding`は
 Starlette側が付与する。
+
+## 応答のCache-Control（`api/cache_policy.py`）
+
+`CachePolicyMiddleware`が全応答へ`Cache-Control`を付ける。パスとポリシーの対応表
+（`_ROUTE_POLICIES`）がこのファイルにあり、ルーター側はヘッダを書かない——方針が
+ルーター全体へ散らばると「どのAPIがどれだけキャッシュされるか」を一覧できなくなるため。
+
+| 規則 | 内容 |
+|---|---|
+| 引き方 | パスの前方一致。複数該当時は最長のパターンを採るため、表への追記順に依存しない |
+| 適用範囲 | 2xxのみ。エラー応答には付けない（一時的な失敗をキャッシュさせると障害が実際の復旧より長く尾を引く） |
+| ハンドラ優先 | ハンドラが自分で`Cache-Control`を設定した応答には触らない |
+| `immutable` | 「URLが同じなら内容も同じ」と保証できる場合のみ。ブラウザはリロード時の条件付きリクエストすら省くため、内容が更新されうるURLに付けると更新が届かなくなる |
+
+ポリシーは秒数の直書きではなく意味を持つ名前（`PERMANENT`・`IMMUTABLE_TILE`・`BATCH_TILE`・
+`BASEMAP`・`CATALOG`・`SHORT`・`VOLATILE`・`LIVE`・`NO_STORE`）で定義し、時間の調整は
+その定義1箇所で行う。同じ秒数でも意味が違うものは別の定数として持つ（片方だけを後から
+動かせるようにするため）。
+
+`/api/jma-tile/`だけは1つのパスで性質の異なる3種類（内容が確定して以後変化しないタイル
+本体・同じURLのまま更新される時刻一覧・恒久404）を返すため、表では`HANDLER_MANAGED`とし、
+どのポリシーを使うかを`jma_tile.py`が選ぶ。選択肢自体（`JMA_TARGET_TIMES`・
+`JMA_TILE_NOT_FOUND`）は`cache_policy.py`が持ち、キャッシュ時間の定義がこのファイルの外へ
+漏れないようにしてある。
+
+`tests/test_cache_policy.py`が全`APIRoute`と表を突き合わせ、表に無いルート（ポリシーの
+決め忘れ）とどの実ルートにも一致しないエントリ（リファクタで残った死んだエントリ）の
+両方を検出する。
+
+**暗黙の前提**: `POST /api/basemap/refresh`はサーバー側のファイルキャッシュしか消せず、
+利用者のブラウザが保持する分へは手が届かない。基礎地図の`max-age`（`BASEMAP`）は、その
+ボタンを押した効果が現れるまでの最大の遅れでもある。
 
 ## リクエストIDとアクセスログ（`request_log.py`）
 

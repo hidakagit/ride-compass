@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from app.api.cache_policy import IMMUTABLE_TILE, JMA_TARGET_TIMES, JMA_TILE_NOT_FOUND
 from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
 from app.config import settings
 from app.infrastructure.jma_tile_client import (
@@ -11,24 +12,15 @@ from app.infrastructure.jma_tile_client import (
 
 router = APIRouter()
 
-# タイル本体のURLは`basetime`/`validtime`を含み、内容が確定して以後変化しない。ブラウザは
-# MapLibreがタイルを再要求するたび（ズームレベルの跨ぎ・画面外へパンして戻る・`setTiles`に
-# よるソース更新）に同じURLを引き直すため、再検証なしでキャッシュから返せることが効く。
-# `max-age`は`jma_tile_redis_cache.py`のTTL（20分）と揃える——それを超えて生き残った
-# ブラウザキャッシュがbackend側の再取得より古くなることは無い（URLが変われば別エントリに
-# なる）が、揃えておくとキャッシュ層ごとの寿命を別々に考えなくて済む。
-_TILE_CACHE_CONTROL = "public, max-age=1200, immutable"
-# 時刻一覧だけは同じURLのまま内容が更新されるため`immutable`にできない。新しいフレームの
-# 発見が遅れないよう、`JmaTileClient`のプロセス内TTLCache（2分）より短くする。
-_TARGET_TIMES_CACHE_CONTROL = "public, max-age=60"
-# 確認済みの404も`basetime`が確定した過去の一時点に対する結果のため、再問い合わせしても
-# 変わらない（`jma_tile_redis_cache.py: TileNotFound`と同じ理由）。疎な格子状タイルでは
-# 404が正常系として多数発生するため、これを再要求させない効果はタイル本体と変わらない。
-_NOT_FOUND_CACHE_CONTROL = "public, max-age=600"
+# このプロキシは1つのパスで性質の異なる3種類（内容が確定して以後変化しないタイル本体・
+# 同じURLのまま更新される時刻一覧・恒久404）を返すため、`cache_policy.py`の対応表では
+# `HANDLER_MANAGED`とし、どのポリシーを使うかだけをここで選ぶ。キャッシュ時間そのものは
+# `cache_policy.py`が持つ。
 
 
 def _cache_control(path: str) -> str:
-    return _TARGET_TIMES_CACHE_CONTROL if is_target_times_path(path) else _TILE_CACHE_CONTROL
+    policy = JMA_TARGET_TIMES if is_target_times_path(path) else IMMUTABLE_TILE
+    return policy.header()
 
 
 @router.get("/api/jma-tile/{path:path}")
@@ -49,7 +41,7 @@ async def jma_tile_proxy(
         raise HTTPException(
             status_code=404,
             detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": _NOT_FOUND_CACHE_CONTROL},
+            headers={"Cache-Control": JMA_TILE_NOT_FOUND.header()},
         )
     if cached is not None:
         content, content_type = cached
@@ -65,7 +57,7 @@ async def jma_tile_proxy(
         raise HTTPException(
             status_code=404,
             detail="指定されたタイルは存在しません",
-            headers={"Cache-Control": _NOT_FOUND_CACHE_CONTROL},
+            headers={"Cache-Control": JMA_TILE_NOT_FOUND.header()},
         ) from None
     if result is None:
         # 上流障害は一時的なため、キャッシュさせず次のリクエストで取り直させる。

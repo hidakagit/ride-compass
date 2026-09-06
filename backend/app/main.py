@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.cache_policy import CachePolicyMiddleware
 from app.api.routers import api_router
 from app.config import settings
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -150,6 +151,9 @@ app.add_middleware(
 # CORSより外側・request_log_middlewareより内側に置く（アクセスログの所要時間に
 # 圧縮時間も含める）。
 app.add_middleware(ContentTypeGZipMiddleware)
+# 応答へのCache-Control付与(api/cache_policy.py、パスとポリシーの対応表は同ファイルが
+# 唯一の情報源)。ヘッダしか触らないため圧縮との前後関係は結果に影響しない。
+app.add_middleware(CachePolicyMiddleware)
 
 # 後から登録したミドルウェアが外側になる(リクエストIDの付与・アクセスログはCORS処理も
 # 含めた全体を計測・記録したいため、CORSより外側に置く)。
