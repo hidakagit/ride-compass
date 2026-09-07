@@ -23,7 +23,7 @@
 
 Road GraphのDirected Edgeへ標高属性（`ElevationAttribute`）を紐付ける。複数Edgeぶんの
 形状点（geometry）をまとめ、1回の`ElevationClient.get_elevations`呼び出しで国土地理院
-APIへ問い合わせる（改善計画T576）。計算ロジック自体はdomain層（`domain/attributes.py:
+APIへ問い合わせる。計算ロジック自体はdomain層（`domain/attributes.py:
 compute_elevation_attribute`）に委譲する。GSIへの同時リクエスト数の制限
 （`MAX_CONCURRENT_REQUESTS = 5`）は`ElevationClient`側（タイル単位）が持つ。
 
@@ -39,7 +39,7 @@ compute_elevation_attribute`）に委譲する。GSIへの同時リクエスト�
 GSIのDEMタイル（テキスト形式、256行×256列カンマ区切り、欠測は`"e"`）を範囲ごと取得し
 ローカルで双線形補間（`_bilinear_interpolate`）する。呼び出し側インターフェースは
 `get_elevation(client, point, refresh=False)`（1地点）と`get_elevations(client, points,
-refresh=False)`（複数地点、改善計画T576）。`get_elevation`は内部的に`get_elevations`
+refresh=False)`（複数地点）。`get_elevation`は内部的に`get_elevations`
 （要素数1）を呼ぶ薄いラッパー。`get_elevations`は地点ごとにasyncioタスクを生成せず、
 `DEM_TYPE_PRIORITY`を1ラウンドずつ進めながらそのラウンドで未取得のタイルだけをまとめて
 1回のフェッチへ束ねる（`_load_tile_grid`、同一タイルへの同時フェッチはsingle-flightで
@@ -100,7 +100,7 @@ cache-asideを迂回する——全道路網一括バッチはbboxに収まら�
 `RoadGraphEngine.evaluate_loops`が候補（方位）ごとに`asyncio.gather`で並列に本サービスを
 呼ぶために必要な保護。GSIへのHTTP問い合わせ（`_compute_attributes`→
 `ElevationClient.get_elevations`）自体はロック外で並列に走る（同時リクエスト数の制限は
-`ElevationClient.MAX_CONCURRENT_REQUESTS`がタイル単位で行う、改善計画T576）。
+`ElevationClient.MAX_CONCURRENT_REQUESTS`がタイル単位で行う）。
 
 `repository`指定時のもう一つの前提: `elevation_attributes`テーブルは
 `road_edges.edge_id`への外部キー（ON DELETE CASCADE）を持つため、渡す`graph`は事前に

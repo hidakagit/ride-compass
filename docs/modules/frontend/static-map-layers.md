@@ -14,6 +14,7 @@
 | `Map/roadFilterAxes.ts` | 路面レイヤー（路面の種類=`surface`・道路の種類=`highway`）の絞り込み軸・配色・太さ・線種 |
 | `Map/legendFilter.ts` | カテゴリ絞り込みの汎用機構（凡例フィルタ式の組み立て・AND束ね・要約文生成） |
 | `Map/primaryAttributes.ts` | 一次属性⇄二次軸の双方向導出（軸増減時の観測データ連動表示に使用） |
+| `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`とカテゴリによる除外を持つ |
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位3グループ（道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定 |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
@@ -119,12 +120,12 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 
 `page.tsx`の`layerDataStatus`（`overlayLayers`・`MapLayersPanel`の両方へ渡す1つの値）は、
 出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたものである
-（改善計画T608）:
+の2系統:
 
-- **`mapViewLayerDataStatus`**（改善計画T87、`MapView.tsx: buildLayerDataSources`）:
+- **`mapViewLayerDataStatus`**（`MapView.tsx: buildLayerDataSources`）:
   road/POI/事故/標高等、MapLibreが自身のタイル取得として実行するレイヤー。ソースイベント
   （`sourcedata`/`sourcedataloading`/`error`）から算出する。
-- **`dynamicWeatherDataStatus`**（改善計画T608、[動的気象レイヤー](dynamic-weather-layers.md)
+- **`dynamicWeatherDataStatus`**（[動的気象レイヤー](dynamic-weather-layers.md)
   「データ取得状態」節参照）: 降水ナウキャスト・風・災害（雷・竜巻・落雷・キキクル4種を
   1チップへまとめたグループ）。
   実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で行われ、結果を

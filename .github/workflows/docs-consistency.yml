@@ -46,4 +46,10 @@ jobs:
             SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      # 検知器そのものの回帰テスト。この検査が「機械的にブロックする」根拠になっている以上、
+      # 検知できない書き方が増えていないことを毎回確かめる（純python・1秒未満）。
+      - name: 検知器の回帰テスト
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest scripts/tests/test_review_checks.py -q
       - run: python scripts/review_checks.py docs --since ${{ steps.since.outputs.sha }}

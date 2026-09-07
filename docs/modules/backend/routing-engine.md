@@ -247,7 +247,7 @@ NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`�
 `NodeSpatialIndex`が`DEFAULT_MAX_ENTRIES`（64）、`SearchGraphStatics`（順方向・転置版
 とも）は`SEARCH_STATICS_MAX_ENTRIES`（16）と別立てにしてある**——1エントリがCSR構造
 一式（`indptr`/`indices`/`entry_edge_index`）を保持し他の2種より重いため、同じ上限を
-共有すると常駐メモリが不必要に大きくなりうる（改善計画T568、`/code-review`指摘）。
+共有すると常駐メモリが不必要に大きくなりうる。
 
 - **キー**: `LazyRoadGraph`・`SearchGraphStatics`（順方向・転置版とも）は
   `frozenset[(zoom,x,y)]`（bboxを覆うz12タイル集合）のみ。`NodeSpatialIndex`はこれに
@@ -508,7 +508,7 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   転置CSR（キー`v * node_count + u`、行・列を入れ替え）を返す
   （[T551](../../tasks/T551.md)、目的地からの後ろ向き木用。`edge_length_m`は向きに
   依存しないため`reverse`の値に関わらず同じ配列になる）。`indptr`/`indices`/
-  `entry_edge_index`はint32（改善計画T568。実データ規模のNode/Edge数はint32の値域に
+  `entry_edge_index`はint32（実データ規模のNode/Edge数はint32の値域に
   対して桁違いに小さい）。`from_index*node_count+to_index`の整列キー
   （`(pred, v)`のCSRエントリ位置検索用）はフィールドとして持たず、`indptr`/`indices`
   から`_reconstruct_entry_keys`が都度再構築する（タイル集合キーのプロセス内LRUが

@@ -92,7 +92,7 @@ Radix Popoverで開く。
 
 **暗黙の前提**: way_id単位の実データ本体（`dedicatedWayValues: ReadonlyMap<axisId,
 ReadonlyMap<wayId, value>>`）・フェッチ進行中フラグ（`dedicatedWayValueLoading:
-ReadonlyMap<axisId, boolean>`、改善計画T607）・表示宣言（`dedicatedWayValueDisplays:
+ReadonlyMap<axisId, boolean>`）・表示宣言（`dedicatedWayValueDisplays:
 ReadonlyMap<axisId, DedicatedWayValueDisplay>`）は、いずれも`MapView.tsx`の`MapViewProps`上で
 軸id→値の1つの汎用propにまとまっている（design-principles.md構造仕様3「軸ごとにpropを
 新設しない」）。`page.tsx`が`axisCatalog.axes`から`dedicatedWayValueLayer===true`の軸を

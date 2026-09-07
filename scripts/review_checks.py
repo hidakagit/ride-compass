@@ -33,13 +33,16 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime as dt
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tokenize
 from collections import defaultdict
 from pathlib import Path
 
@@ -73,16 +76,26 @@ GENERIC_BASENAMES = {
 # 唯一の定義元（scripts/pre-commit-docs-modules-history.shは2026-09-03のT561でこの関数を
 # 呼ぶだけの薄いラッパへ統合し、shell側に別定義のPATTERNを持たない）。
 NARRATIVE_PATTERN = re.compile(
-    r"以前は|従来は|旧「|旧『|旧T[0-9]|改善計画T[0-9]+で|改善計画T[0-9]+[:：]|T[0-9]{3,4}で"
+    # 「改善計画Txxx」は後ろに何が続いても経緯参照のため、区切り文字を要求しない
+    # （`で`/`：`だけを要求していたころは「改善計画T572。」「改善計画T87/T606」のような
+    # 句点・スラッシュ区切りが素通りしていた）。
+    r"以前は|従来は|旧「|旧『|旧T[0-9]|旧実装|旧デザイン|旧方式|改善計画T[0-9]+|T[0-9]{3,4}で"
     r"|T[0-9]{3,4}[:：]|実機報告|実機フィードバック|実機確認|実機指摘|実測で|判明した|発覚した"
-    r"|指摘を受け|フィードバックを受け|ユーザー指摘|ユーザー要望|ユーザー判断|方式ではなく"
-    r"|へ変更した|に変更した|を導入した|コードレビュー指摘|実バグ|UIレビュー|ゼロベース網羅"
+    r"|指摘を受け|フィードバックを受け|ユーザー指摘|ユーザー要望|ユーザー判断|ユーザーから"
+    r"|方式ではなく|していたのを|へ変更した|に変更した|を導入した|コードレビュー指摘|実バグ"
+    r"|UIレビュー|ゼロベース網羅"
 )
 # docs/comments.md「コメント方針」節が禁止するソースコード内の経緯コメント検出用。
 # docs/modules向けのNARRATIVE_PATTERNをそのまま流用する（定義元を分けない）。
 # コメント行以外（実装コード・文字列リテラル）を誤検出しないよう、行のコメント部分だけを
 # 抽出してから照合する（comment_only参照）。
-SOURCE_COMMENT_PATHSPECS = ("backend/app/*.py", "frontend/src/*.ts", "frontend/src/*.tsx")
+SOURCE_COMMENT_PATHSPECS = (
+    "backend/app/*.py",
+    "frontend/src/*.ts",
+    "frontend/src/*.tsx",
+    # CSS Modulesは設計意図を長文コメントで書く運用のため対象に含める。
+    "frontend/src/*.css",
+)
 
 
 def comment_only(line: str, path: str, jsx_state: dict[str, bool]) -> str:
@@ -97,8 +110,23 @@ def comment_only(line: str, path: str, jsx_state: dict[str, bool]) -> str:
     """
     stripped = line.strip()
     if path.endswith(".py"):
+        # `#`コメントだけを見る。docstringは行単位では判定できないため、呼び出し元が
+        # python_comment_lines()で行番号を先に絞り込む（この関数は絞り込み済みの行を受け取る）。
         idx = line.find("#")
-        return line[idx:] if idx != -1 else ""
+        return line[idx:] if idx != -1 else line
+    if path.endswith(".css"):
+        # CSSのコメントは`/* */`のみ（`//`はコメントではない）。複数行ブロックの継続行は
+        # jsx_stateと同じ方式で追う。
+        if jsx_state.get("in_css_comment"):
+            if "*/" in line:
+                jsx_state["in_css_comment"] = False
+            return line
+        idx = line.find("/*")
+        if idx == -1:
+            return ""
+        if "*/" not in line[idx:]:
+            jsx_state["in_css_comment"] = True
+        return line[idx:]
     # ts/tsx
     if jsx_state.get("in_jsx_comment"):
         if "*/}" in line:
@@ -114,11 +142,50 @@ def comment_only(line: str, path: str, jsx_state: dict[str, bool]) -> str:
     return line[idx:] if idx != -1 else ""
 
 
+def python_comment_lines(path: str) -> set[int] | None:
+    """`path`のうちコメント・docstringに属する行番号。解析できなければNone（全行を対象にする）。
+
+    Pythonの説明文は大半がdocstringにあるため、`#`だけを見ると経緯コメントの検知が
+    構造的に大きく取りこぼす。行単位のヒューリスティックでは三重引用符の開閉を追えない
+    （diffの追加行は連続していない）ため、ファイル全体を`ast`で解析して
+    module/class/functionのdocstringが占める行を求め、`tokenize`で`#`コメント行を足す。
+    """
+    try:
+        source = Path(path).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError, ValueError):
+        return None
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            lines.update(range(first.value.lineno, (first.value.end_lineno or first.value.lineno) + 1))
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type == tokenize.COMMENT:
+                lines.add(token.start[0])
+    except (tokenize.TokenError, IndentationError):
+        pass
+    return lines
+
+
 def find_source_narrative_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
     out = []
     for path, lines in source_lines.items():
         jsx_state: dict[str, bool] = {}
+        comment_linenos = python_comment_lines(path) if path.endswith(".py") else None
         for lineno, line in lines:
+            if comment_linenos is not None and lineno not in comment_linenos:
+                continue
             text = comment_only(line, path, jsx_state)
             if not text:
                 continue

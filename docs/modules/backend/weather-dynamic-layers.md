@@ -100,7 +100,7 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 呼ぶ。`JmaTileClient.get(path)`（`get_cached`→ミスなら`fetch`の一括呼び出し）はレート
 制限の適用順序を気にしない呼び出し元（プリウォームバッチ・テスト等）向けに残している。
 
-**フェイルステータスの使い分け（改善計画T603）**: `fetch`は上流の404を`JmaTileNotFoundError`
+**フェイルステータスの使い分け**: `fetch`は上流の404を`JmaTileNotFoundError`
 として送出し、`jma_tile.py`はこれを404（他の失敗は502）として返す。降水・浸水想定区域等の
 疎な格子状タイルは、ズームレベル・場所によって存在しないz/x/yが珍しくない正常系のため、
 タイムアウト・5xx等の実際の障害と同列に502・WARNINGログ・`/api/debug/stats`のerror集計へは
@@ -273,7 +273,7 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 URL書き換えは不要。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない
 静的データのため、TTL付きキャッシュも不要。
 
-**恒久404のキャッシュ（改善計画T605）**: 色別標高図の整備区域外（404）は珍しくない正常系
+**恒久404のキャッシュ**: 色別標高図の整備区域外（404）は珍しくない正常系
 （`elevation_client.py`のDEMタイル・`_CoverageGap`と同じ状況）で、他の失敗（タイムアウト・
 5xx等）と区別して502・WARNINGログ・`/api/debug/stats`のerror集計へは乗せない。確認済みの
 404は`ReliefTileNotFound`センチネルとしてプロセス内メモリのみ（上限付きLRU、キー=path）に

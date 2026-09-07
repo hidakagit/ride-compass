@@ -150,7 +150,7 @@ icon-sizeはズームのみに依存する。
    `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の
    `dynamicWeatherStatus(loading, error, payload !== undefined)`呼び出しを1行足す。
 
-## データ取得状態（改善計画T608）
+## データ取得状態
 
 3つのチップ付き動的気象レイヤー全てが、`useDynamicWeatherLayers.ts`の
 `dynamicWeatherStatus(loading, error, hasPayload)`という同じ純粋関数を通り、
@@ -160,7 +160,7 @@ computeLayerDataStatus`と同じ）。`loading`/`error`は各要素が既に持�
 （`usePolledFetch`の戻り値、風は`useWeatherGrid`）自身の値をそのまま渡し、`hasPayload`は
 選択中の共有時刻に対応するpayloadが`undefined`でないかで決まる。
 
-**改善計画T87（`MapView.tsx: buildLayerDataSources`、MapLibreのソースイベント）は
+**MapLibreのソースイベント経由の系統（`MapView.tsx: buildLayerDataSources`）は
 この9レイヤーの対象外**——実際の外部フェッチは自前のJSコード（`usePolledFetch`等）で
 行われ、結果を`map.getSource(id).setData(...)`/`setTiles(...)`で流し込むだけのため、
 MapLibre側のソースイベントはフェッチの待ち時間・失敗を観測できない（`kind`が
@@ -180,7 +180,7 @@ loading/errorをまとめ、`hasPayload`は7ソースのいずれか1つでも�
 trueとする。
 
 算出した`dynamicWeatherDataStatus`は`page.tsx`が`mapViewLayerDataStatus`
-（改善計画T87側）とマージして1つの`layerDataStatus`にし、`overlayLayers`
+（ソースイベント側）とマージして1つの`layerDataStatus`にし、`overlayLayers`
 （`MapOverlayControls`の状態ドット）・`MapLayersPanel`の両方へ渡す
 （[静的地図レイヤー](static-map-layers.md)「レイヤーのデータ取得状態」節参照）。
 

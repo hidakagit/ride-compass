@@ -237,7 +237,7 @@ page.tsx
 
 `dedicatedWayValues`は`MapViewProps`上、`ReadonlyMap<axisId, ReadonlyMap<wayId, value>>`
 という1つの汎用propにまとまっている（`dedicatedWayValueDisplays`・`dedicatedWayValueLoading`
-（`ReadonlyMap<axisId, boolean>`、改善計画T607）と同じく、design-principles.md構造仕様3
+（`ReadonlyMap<axisId, boolean>`）と同じく、design-principles.md構造仕様3
 「軸ごとにpropを新設しない」に沿う）。`useDynamicWayValues`自体はmaterialIdごとに
 個別インスタンス化する設計（デバウンス・レース対策がaxis間で独立している必要があるため）で、
 汎用propへまとまっているのはpage.tsxがMapViewへ渡す直前の形状だけである。feature-stateキーは
