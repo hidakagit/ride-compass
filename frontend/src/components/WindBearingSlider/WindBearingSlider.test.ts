@@ -28,4 +28,19 @@ describe("cardinalLabel", () => {
     expect(cardinalLabel(20)).toBe("北");
     expect(cardinalLabel(30)).toBe("北東");
   });
+
+  // 区分の境界はすべて上の区分へ倒す（half-up）。compass_label側は組み込みの偶数丸めを
+  // 使うとこの4点（22.5/112.5/202.5/292.5）だけ結果が変わるため、両側で同じ表を持つ。
+  it.each([
+    [22.5, "北東"],
+    [67.5, "東"],
+    [112.5, "南東"],
+    [157.5, "南"],
+    [202.5, "南西"],
+    [247.5, "西"],
+    [292.5, "北西"],
+    [337.5, "北"],
+  ])("rounds the %d degree boundary up to %s", (deg, expected) => {
+    expect(cardinalLabel(deg)).toBe(expected);
+  });
 });

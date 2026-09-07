@@ -2,6 +2,8 @@ import math
 
 import numpy as np
 
+import pytest
+
 from app.domain.geo import bearing_between, bearing_between_array, compass_label, haversine_distance_km
 from app.domain.route import Coordinates
 from tests.geo_fixtures import destination_point
@@ -68,6 +70,26 @@ def test_compass_label_cardinal_directions():
 def test_compass_label_wraps_around_360():
     assert compass_label(360) == "北"
     assert compass_label(-45 % 360) == "北西"
+
+
+# frontendの二重実装（WindBearingSlider.tsx: cardinalLabel）と丸め規則を突き合わせる
+# ドリフト検知。区分の境界はすべて上の区分へ倒す（half-up）——偶数丸めだと22.5°→「北」・
+# 67.5°→「東」のように、同じ境界でも角度によって上下どちらへ倒れるかが変わる。
+@pytest.mark.parametrize(
+    ("bearing_deg", "expected"),
+    [
+        (22.5, "北東"),
+        (67.5, "東"),
+        (112.5, "南東"),
+        (157.5, "南"),
+        (202.5, "南西"),
+        (247.5, "西"),
+        (292.5, "北西"),
+        (337.5, "北"),
+    ],
+)
+def test_compass_label_rounds_boundaries_half_up(bearing_deg, expected):
+    assert compass_label(bearing_deg) == expected
 
 
 def test_compass_label_rounds_to_nearest_direction():

@@ -39,8 +39,15 @@ COMPASS_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北
 
 
 def compass_label(bearing_deg: float) -> str:
-    """任意の角度（0=北、時計回り）を8方位のラベルに変換する。"""
-    index = round((bearing_deg % 360) / 45) % 8
+    """任意の角度（0=北、時計回り）を8方位のラベルに変換する。
+
+    区分の境界（22.5°・67.5°…）は上の区分へ倒す（half-up）。組み込みの`round`は
+    偶数丸めのため使わない——frontendの二重実装`cardinalLabel`
+    （WindBearingSlider.tsx）が`Math.round`（half-up）で、丸め規則が違うと境界の
+    4点（22.5/112.5/202.5/292.5）だけラベルが食い違う。両実装の境界値は
+    tests/test_geo.py・WindBearingSlider.test.tsが突き合わせる。
+    """
+    index = math.floor((bearing_deg % 360) / 45 + 0.5) % 8
     return COMPASS_LABELS[index]
 
 
