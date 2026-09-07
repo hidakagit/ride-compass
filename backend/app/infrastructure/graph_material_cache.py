@@ -54,7 +54,15 @@ DEFAULT_MAX_TILES = 2_000
 # DBから新しい値を読み新規キャッシュされる——「一部のタイルだけ更新が反映されている
 # ように見える」形で症状が局所的になり気づきにくい。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = "5"
+TILE_MATERIALS_CACHE_VERSION = "6"
+
+# 上の版が対応する`EdgeMaterialTable`の列構成の署名（列名を並べたもののSHA-1先頭12桁）。
+# `EdgeMaterialTable`は`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で
+# 持つ（`dataclasses._dataclass_setstate`がfieldsとstateをzipする）。列を足す・消す・
+# 並べ替えると、古いキャッシュを復元したときに後ろの列が欠けたまま実体化し、最初にその列へ
+# 触れた場所でAttributeErrorになる。ディスクキャッシュはデプロイをまたいで残るため、
+# 列を変えたら必ず版を上げること。`tests/test_graph_material_cache.py`が照合する。
+CACHED_TABLE_SIGNATURE = "e1616439664a"
 
 
 _tile_materials_cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)

@@ -214,3 +214,46 @@ class TestReadStats:
         graph_material_cache.set_tile_materials(12, 5, 6, self._sample_materials())
 
         assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
+
+
+def test_cached_table_signature_matches_current_columns():
+    """`EdgeMaterialTable`の列構成を変えたら`TILE_MATERIALS_CACHE_VERSION`を上げる。
+
+    このテーブルは`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で
+    持つ（`dataclasses._dataclass_setstate`がfieldsとstateをzipする）。列を1つ足すと
+    状態の長さが1つ足りなくなり、zipが短い方で止まるため**最後の列が設定されないまま**
+    インスタンスが復元される。ディスクキャッシュはデプロイをまたいで残るので、版を
+    上げ忘れると本番で最初にその列へ触れた場所がAttributeErrorで落ちる。
+    """
+    import dataclasses
+    import hashlib
+
+    from app.domain.attributes import EdgeMaterialTable
+    from app.infrastructure.graph_material_cache import CACHED_TABLE_SIGNATURE
+
+    names = ",".join(f.name for f in dataclasses.fields(EdgeMaterialTable))
+    signature = hashlib.sha1(names.encode()).hexdigest()[:12]
+    assert signature == CACHED_TABLE_SIGNATURE, (
+        "EdgeMaterialTableの列構成が変わっている。"
+        "TILE_MATERIALS_CACHE_VERSIONを上げ、CACHED_TABLE_SIGNATUREを"
+        f"'{signature}'へ更新すること（古いディスクキャッシュを復元できなくなるため）。"
+    )
+
+
+def test_old_pickle_with_fewer_columns_loses_the_last_column():
+    """列が1つ足りない状態から復元すると最後の列が欠ける、という壊れ方の実証。
+
+    版を上げ忘れたときに何が起きるかを固定する（上のテストが守っている前提そのもの）。
+    """
+    import dataclasses
+
+    from app.domain.attributes import EdgeMaterialTable
+
+    fields = dataclasses.fields(EdgeMaterialTable)
+    table = EdgeMaterialTable.from_bundles([], {})
+    truncated = table.__getstate__()[:-1]  # 旧版のpickle状態（列が1つ少ない）を模す
+
+    restored = object.__new__(EdgeMaterialTable)
+    restored.__setstate__(truncated)
+
+    assert not hasattr(restored, fields[-1].name)
