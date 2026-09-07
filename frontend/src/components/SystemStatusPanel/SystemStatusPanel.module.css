@@ -128,3 +128,17 @@
   padding: 0.1rem 0.4rem;
   font-size: 0.7rem;
 }
+
+/* 予報（MSM）の鮮度。配信が滞ると古い予報を配り続けるため、滞留時は枠線で目立たせる。 */
+.msmRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.msmRow[data-healthy="false"] {
+  border-color: var(--color-danger);
+}

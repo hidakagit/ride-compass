@@ -1190,6 +1190,7 @@ export interface components {
             rate_limit_rejections: {
                 [key: string]: number;
             };
+            msm: components["schemas"]["MsmFreshnessResponse"] | null;
         };
         /** DerivedDataFreshnessResponse */
         DerivedDataFreshnessResponse: {
@@ -1415,6 +1416,23 @@ export interface components {
         MaterialValuesResponse: {
             /** Values */
             values: components["schemas"]["MaterialValueEntry"][];
+        };
+        /**
+         * MsmFreshnessResponse
+         * @description 予報（MSM）の同期がどれだけ新しいか。配信元が止まると古い予報を配り続けるため、
+         *     ログ（WARNING）だけでなく外からも確認できるようにする。未同期のときはnull。
+         */
+        MsmFreshnessResponse: {
+            /** Last Run At */
+            last_run_at: string;
+            /** Data End At */
+            data_end_at: string;
+            /** Run Age Hours */
+            run_age_hours: number;
+            /** Remaining Hours */
+            remaining_hours: number;
+            /** Healthy */
+            healthy: boolean;
         };
         /**
          * PriorityCondition

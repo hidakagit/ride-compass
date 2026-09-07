@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -67,6 +68,83 @@ def update_interval_seconds(default: int = 3 * 60 * 60) -> int:
     保持すると新しいrunが出ても古い値を返し続ける）。未同期のときは既定値を返す。"""
     value = _load_json(_META_FILE).get("update_interval_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else default
+
+
+# 配信元のrun公開はrun初期時刻から3.5〜5時間遅れうる。その範囲で誤報しないよう、
+# 「3時間おきの更新を2本連続で落とした状態」を発報の境目にする。
+_STALE_RUN_THRESHOLD_HOURS = 6
+# 予報終端が現在時刻へ追いつくと風グリッドが読めなくなる（MsmUnavailableError）。
+# 実害が出る前に気づけるよう、半日ぶんの余裕を切ったところで発報する。
+_SHORT_HORIZON_THRESHOLD_HOURS = 12
+
+
+@dataclass(frozen=True)
+class MsmFreshness:
+    """配信元メタ情報から見た同期の鮮度。"""
+
+    last_run_at: datetime
+    data_end_at: datetime
+    run_age_hours: float
+    remaining_hours: float
+
+    @property
+    def run_is_stale(self) -> bool:
+        return self.run_age_hours >= _STALE_RUN_THRESHOLD_HOURS
+
+    @property
+    def horizon_is_short(self) -> bool:
+        return self.remaining_hours < _SHORT_HORIZON_THRESHOLD_HOURS
+
+    @property
+    def is_healthy(self) -> bool:
+        return not (self.run_is_stale or self.horizon_is_short)
+
+
+def freshness_from_meta(meta: dict, now: datetime | None = None) -> MsmFreshness | None:
+    """メタ情報から鮮度を組み立てる。必要な項目が欠けていればNone。"""
+    try:
+        last_run_at = datetime.fromtimestamp(int(meta["last_run_initialisation_time"]), JST)
+        data_end_at = datetime.fromtimestamp(int(meta["data_end_time"]), JST)
+    except (KeyError, TypeError, ValueError):
+        return None
+    current = now or datetime.now(JST)
+    return MsmFreshness(
+        last_run_at=last_run_at,
+        data_end_at=data_end_at,
+        run_age_hours=(current - last_run_at).total_seconds() / 3600,
+        remaining_hours=(data_end_at - current).total_seconds() / 3600,
+    )
+
+
+def freshness() -> MsmFreshness | None:
+    """同期済みメタ情報から見た現在の鮮度。未同期ならNone。"""
+    return freshness_from_meta(_load_json(_META_FILE))
+
+
+def warn_if_stale(freshness_value: MsmFreshness | None) -> None:
+    """配信が止まっている兆候をWARNINGで出す。
+
+    同期そのものは成功しても（配信元が新しいrunを出していなければETagで304になり）
+    「更新が来ていない」ことは件数からは分からない。アプリは古い予報を静かに配り続け、
+    予報終端が現在時刻へ追いついた瞬間に初めて風グリッドが失敗する。
+    """
+    if freshness_value is None:
+        logger.warning("MSMのメタ情報を読めないため鮮度を判定できません")
+        return
+    if freshness_value.run_is_stale:
+        logger.warning(
+            "MSMの最新runが古いままです 最新run=%s 経過=%.1f時間 しきい値=%d時間",
+            freshness_value.last_run_at.strftime("%Y-%m-%d %H:%M"),
+            freshness_value.run_age_hours,
+            _STALE_RUN_THRESHOLD_HOURS,
+        )
+    if freshness_value.horizon_is_short:
+        logger.warning(
+            "MSMの予報が尽きかけています 予報終端=%s 残り=%.1f時間 しきい値=%d時間",
+            freshness_value.data_end_at.strftime("%Y-%m-%d %H:%M"),
+            freshness_value.remaining_hours,
+            _SHORT_HORIZON_THRESHOLD_HOURS,
+        )
 
 
 def _chunk_number(timestamp: int, chunk_hours: int) -> int:
@@ -176,13 +254,16 @@ async def refresh(client: httpx.AsyncClient, horizon_hours: int | None = None) -
     _ETAGS_FILE.write_text(json.dumps({k: v for k, v in etags.items() if k in valid}), encoding="utf-8")
     await asyncio.to_thread(_prune, keep)
 
-    reference = datetime.fromtimestamp(int(meta["last_run_initialisation_time"]), JST)
-    logger.info(
-        "MSM同期完了 取得=%d件 最新run=%s 予報終端=%s",
-        downloaded,
-        reference.strftime("%Y-%m-%d %H:%M"),
-        datetime.fromtimestamp(int(meta["data_end_time"]), JST).strftime("%Y-%m-%d %H:%M"),
-    )
+    current = freshness_from_meta(meta, now=datetime.fromtimestamp(now, JST))
+    if current is not None:
+        logger.info(
+            "MSM同期完了 取得=%d件 最新run=%s 予報終端=%s 残り=%.1f時間",
+            downloaded,
+            current.last_run_at.strftime("%Y-%m-%d %H:%M"),
+            current.data_end_at.strftime("%Y-%m-%d %H:%M"),
+            current.remaining_hours,
+        )
+    warn_if_stale(current)
     return downloaded
 
 

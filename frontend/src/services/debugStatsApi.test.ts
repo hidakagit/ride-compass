@@ -35,6 +35,13 @@ describe("getDebugStats", () => {
         },
       },
       rate_limit_rejections: {},
+      msm: {
+        last_run_at: "2026-08-15T18:00:00+09:00",
+        data_end_at: "2026-08-17T00:00:00+09:00",
+        run_age_hours: 3.5,
+        remaining_hours: 29.5,
+        healthy: true,
+      },
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeResponse({ json: async () => stats })));
 

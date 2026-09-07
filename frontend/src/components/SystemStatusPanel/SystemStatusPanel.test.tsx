@@ -35,6 +35,13 @@ const BACKEND_STATS: DebugStats = {
     },
   },
   rate_limit_rejections: { "routes:generate": 2 },
+  msm: {
+    last_run_at: "2026-08-16T09:00:00+09:00",
+    data_end_at: "2026-08-17T19:00:00+09:00",
+    run_age_hours: 4.0,
+    remaining_hours: 30.0,
+    healthy: true,
+  },
 };
 
 const FRONTEND_VERSION: FrontendVersion = { commit: "def5678", started_at: "2026-08-16T09:00:00+00:00" };
@@ -112,5 +119,25 @@ describe("SystemStatusPanel", () => {
     await waitFor(() => expect(screen.getByText("abc1234")).toBeInTheDocument());
     screen.getByRole("button", { name: "システム状況を閉じる" }).click();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+  it("予報（MSM）の鮮度を表示し、滞留していれば警告を出す", async () => {
+    mockedGetDebugStats.mockResolvedValue({
+      ...BACKEND_STATS,
+      msm: { ...BACKEND_STATS.msm!, run_age_hours: 9.5, remaining_hours: 4.0, healthy: false },
+    });
+    mockedGetFrontendVersion.mockResolvedValue(FRONTEND_VERSION);
+    render(<SystemStatusPanel open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/予報の残り 4時間/)).toBeInTheDocument());
+    expect(screen.getByText(/配信が滞っています/)).toBeInTheDocument();
+  });
+
+  it("予報（MSM）が正常なら警告を出さない", async () => {
+    mockedGetDebugStats.mockResolvedValue(BACKEND_STATS);
+    mockedGetFrontendVersion.mockResolvedValue(FRONTEND_VERSION);
+    render(<SystemStatusPanel open onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/予報の残り 30時間/)).toBeInTheDocument());
+    expect(screen.queryByText(/配信が滞っています/)).not.toBeInTheDocument();
   });
 });

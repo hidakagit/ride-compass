@@ -202,3 +202,38 @@ async def test_refresh_removes_chunks_outside_the_forecast_window(msm_dir, froze
 
     assert not stale.exists()
     await client.aclose()
+
+
+async def test_refresh_warns_when_the_origin_stopped_publishing(msm_dir, frozen_now, monkeypatch, caplog):
+    # 配信元が新しいrunを出さなくても同期自体は成功する（ETagで304、取得0件）。件数からは
+    # 区別がつかないため、メタ情報の時刻でWARNINGを出せることを確認する。
+    import logging
+
+    monkeypatch.setattr(settings, "msm_base_url", "https://example.test/jma_msm")
+    stopped = _meta(frozen_now)  # 予報終端が現在時刻＝完全に尽きた状態
+    stopped["last_run_initialisation_time"] = frozen_now - 12 * 3600
+    origin = _FakeOrigin(stopped)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(origin.handler))
+
+    with caplog.at_level(logging.WARNING):
+        await msm_client.refresh(client, horizon_hours=1)
+
+    assert "最新runが古いままです" in caplog.text
+    assert "予報が尽きかけています" in caplog.text
+    await client.aclose()
+
+
+async def test_refresh_does_not_warn_while_the_origin_is_publishing_normally(msm_dir, frozen_now, monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(settings, "msm_base_url", "https://example.test/jma_msm")
+    healthy = _meta(frozen_now + 34 * 3600)  # 予報終端は34時間先
+    healthy["last_run_initialisation_time"] = frozen_now - 5 * 3600  # 公開遅れ5時間（実測の範囲内）
+    origin = _FakeOrigin(healthy)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(origin.handler))
+
+    with caplog.at_level(logging.WARNING):
+        await msm_client.refresh(client, horizon_hours=1)
+
+    assert caplog.text == ""
+    await client.aclose()

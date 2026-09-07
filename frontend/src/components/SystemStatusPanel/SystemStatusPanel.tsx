@@ -116,6 +116,19 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
           </div>
         </div>
 
+        {backend?.msm && (
+          <div className={styles.msmRow} data-healthy={backend.msm.healthy ? "true" : "false"}>
+            <span className={styles.versionLabel}>予報（MSM）</span>
+            <span className={styles.meta}>
+              最新run {formatStartedAt(backend.msm.last_run_at)}（{backend.msm.run_age_hours}時間前）・
+              予報の残り {backend.msm.remaining_hours}時間
+            </span>
+            {!backend.msm.healthy && (
+              <span className={styles.error}>配信が滞っています（バックエンドのWARNINGログを確認）</span>
+            )}
+          </div>
+        )}
+
         {externalEntries.length > 0 && (
           <>
             <div className={styles.sectionHeading}>外部サービス呼び出しサマリ</div>

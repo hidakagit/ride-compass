@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.config import settings
+from app.infrastructure.msm_client import freshness as msm_freshness
 from app.infrastructure.database import get_engine
 from app.infrastructure.debug_log import get_stats
 from app.infrastructure.migrate import list_pending_migrations
@@ -39,6 +40,17 @@ class ExternalCallStatsResponse(BaseModel):
     stale_fallback_used: int
 
 
+class MsmFreshnessResponse(BaseModel):
+    """予報（MSM）の同期がどれだけ新しいか。配信元が止まると古い予報を配り続けるため、
+    ログ（WARNING）だけでなく外からも確認できるようにする。未同期のときはnull。"""
+
+    last_run_at: str
+    data_end_at: str
+    run_age_hours: float
+    remaining_hours: float
+    healthy: bool
+
+
 class DebugStatsResponse(BaseModel):
     commit: str | None
     started_at: str
@@ -48,6 +60,7 @@ class DebugStatsResponse(BaseModel):
     # （msm:read・weather:jma-tile・basemap:openfreemap・region:road-surface-tile等）に対応する。
     external: dict[str, ExternalCallStatsResponse]
     rate_limit_rejections: dict[str, int]
+    msm: MsmFreshnessResponse | None
 
 # migration適用状況・データ投入バッチの最終実行状況・主要テーブル行数を1エンドポイントで
 # 確認できるようにする。「デプロイの反映確認」（/healthのcommit）と同じ思想の、DB版の反映確認。
@@ -103,7 +116,21 @@ def debug_stats() -> DebugStatsResponse:
         # routes.py側（RouteGenerateResponse.engine）とのリテラル重複による将来の乖離を避ける。
         engine=RoadGraphEngine.engine_name,
         debug_mode=settings.debug_mode,
+        msm=_msm_freshness_response(),
         **get_stats(),
+    )
+
+
+def _msm_freshness_response() -> MsmFreshnessResponse | None:
+    current = msm_freshness()
+    if current is None:
+        return None
+    return MsmFreshnessResponse(
+        last_run_at=current.last_run_at.isoformat(),
+        data_end_at=current.data_end_at.isoformat(),
+        run_age_hours=round(current.run_age_hours, 1),
+        remaining_hours=round(current.remaining_hours, 1),
+        healthy=current.is_healthy,
     )
 
 
