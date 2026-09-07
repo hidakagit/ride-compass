@@ -23,7 +23,7 @@ import {
   type DynamicWeatherFrame,
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
+import { fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame, jmaProxyUrl, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
@@ -209,13 +209,13 @@ export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: stri
 /** 降水ナウキャストのラスタタイルURLテンプレート（{z}/{x}/{y}はMapLibreが実際の値へ
  * 展開するプレースホルダ、置換せずそのまま埋め込む）。 */
 function nowcastTileUrlTemplate(frame: NowcastFrame): string {
-  return jmaProxyUrl(`/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/{z}/{x}/{y}.png`);
+  return jmaTileUrlTemplate({ group: "nowc", element: "hrpns", basetime: frame.basetime, member: "none", validtime: frame.validtime });
 }
 
 /** 降水短時間予報のラスタタイルURLテンプレート。ナウキャストと異なりmemberがURLパスに
  * そのまま入る（"immed"/"none"、fetchRasrfFrames参照）。 */
 function rasrfTileUrlTemplate(frame: RasrfFrame): string {
-  return jmaProxyUrl(`/jmatile/data/rasrf/${frame.basetime}/${frame.member}/${frame.validtime}/surf/rasrf/{z}/{x}/{y}.png`);
+  return jmaTileUrlTemplate({ group: "rasrf", element: "rasrf", basetime: frame.basetime, member: frame.member, validtime: frame.validtime });
 }
 
 export interface PrecipitationGridCellProperties {

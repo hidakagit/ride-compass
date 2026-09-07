@@ -9,7 +9,7 @@
 // 専用のfetch effectを持つ（他要素のuseMemoだけで完結する構成とは異なる）。
 
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
+import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaProxyUrl, jmaElementUrl } from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 
 export type LidenFrame = JmaNowcastFrame;
@@ -31,7 +31,10 @@ export function lidenFrames(frames: readonly LidenFrame[]): DynamicWeatherFrame<
 }
 
 function lidenGeojsonUrl(frame: LidenFrame): string {
-  return jmaProxyUrl(`/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/liden/data.geojson?id=liden`);
+  return jmaElementUrl(
+    { group: "nowc", element: "liden", basetime: frame.basetime, member: "none", validtime: frame.validtime },
+    "data.geojson?id=liden",
+  );
 }
 
 /** 落雷ごとの強弱を示す値を配信元が持たないため、DynamicWeatherMarkSpec.valueProperty

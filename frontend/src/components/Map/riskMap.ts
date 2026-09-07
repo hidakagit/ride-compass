@@ -37,8 +37,7 @@
 //   関連製品だが、洪水キキクルのみのスコープ外として未実装のまま残す。
 
 import { fetchJson } from "@/lib/fetchJson";
-import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { JMA_TILE_BASE_URL, parseValidtime, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
+import { parseValidtime, jmaProxyUrl, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
 const riskTargetTimesUrl = () => jmaProxyUrl("/jmatile/data/risk/targetTimes.json");
@@ -118,11 +117,14 @@ function tileUrlTemplate(
   // 他はすべてラスタタイル（.png）。
   extension: "png" | "pbf" = "png"
 ): string {
-  const path = `${JMA_TILE_BASE_URL}/jmatile/data/${group}/${ref.basetime}/${ref.member}/${ref.validtime}/surf/${elementId}/{z}/{x}/{y}.${extension}`;
-  // 常に絶対URLにする（オリジンはtileBaseUrl()に従う）。ベクタタイル（.pbf）はMapLibreが
-  // Web Worker内で取得するため相対パスでは解決できず、ラスタタイル（.png）もbackend直接
-  // 配信（NEXT_PUBLIC_TILE_BASE_URL）ではページと別オリジンになるため絶対URLが要る。
-  return `${tileBaseUrl()}${path}`;
+  return jmaTileUrlTemplate({
+    group,
+    element: elementId,
+    basetime: ref.basetime,
+    member: ref.member,
+    validtime: ref.validtime,
+    extension,
+  });
 }
 
 export function landRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {

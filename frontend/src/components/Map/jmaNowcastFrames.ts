@@ -29,6 +29,70 @@ export function jmaProxyUrl(path: string): string {
   return `${tileBaseUrl()}${JMA_TILE_BASE_URL}${path}`;
 }
 
+/** 配信元のタイルパスが持つ可変部分。 */
+export interface JmaTileTarget {
+  /** 配信系統。`targetTimes.json`の在り処もこれで決まる。 */
+  group: "risk" | "nowc" | "rasrf";
+  /** 要素id（`land`・`rain_mesh`・`hrpns`・`thns`等）。 */
+  element: string;
+  basetime: string;
+  /** risk/rasrfはエントリ自身が持つ値、nowcは常に"none"。 */
+  member: string;
+  validtime: string;
+  /** 洪水キキクルのみベクタタイル。 */
+  extension?: "png" | "pbf";
+}
+
+/** ソース初期化時の仮URLに使う、実在しない時刻。 */
+const PLACEHOLDER_TIME = "00000000000000";
+
+/**
+ * JMAタイルのURLテンプレート（`{z}/{x}/{y}`を含む絶対URL）。
+ *
+ * `.../data/<group>/<basetime>/<member>/<validtime>/surf/<element>/{z}/{x}/{y}.<ext>`という
+ * **配信元のパス構造を表す唯一の場所**。呼び出し側は系統と要素だけを渡す——構造を各所で
+ * 組み立てると、要素を1つ足すたびに同じ並びを書き写すことになる。
+ */
+export function jmaTileUrlTemplate(target: JmaTileTarget): string {
+  const extension = target.extension ?? "png";
+  return jmaElementUrl(target, `{z}/{x}/{y}.${extension}`);
+}
+
+/**
+ * 配信元の要素配下URL。`suffix`はタイル座標（`{z}/{x}/{y}.png`）とGeoJSON
+ * （`data.geojson?id=...`）で異なるが、そこまでのパス構造は共通のためここで組み立てる。
+ */
+export function jmaElementUrl(
+  target: Omit<JmaTileTarget, "extension">,
+  suffix: string,
+): string {
+  return jmaProxyUrl(
+    `/jmatile/data/${target.group}/${target.basetime}/${target.member}/${target.validtime}` +
+      `/surf/${target.element}/${suffix}`,
+  );
+}
+
+/**
+ * ソース初期化時のプレースホルダURL（`MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）。
+ *
+ * 実データが来る前にsourceを作るための仮の値で、`applyDynamicWeatherState`が本物のURLへ
+ * 差し替える。時刻部分は実在しない値のため、万一このまま要求されても配信元で404になる。
+ */
+export function jmaPlaceholderTileUrl(
+  group: JmaTileTarget["group"],
+  element: string,
+  extension?: JmaTileTarget["extension"],
+): string {
+  return jmaTileUrlTemplate({
+    group,
+    element,
+    basetime: PLACEHOLDER_TIME,
+    member: "none",
+    validtime: PLACEHOLDER_TIME,
+    extension,
+  });
+}
+
 export interface JmaNowcastFrame {
   basetime: string;
   validtime: string;

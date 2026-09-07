@@ -89,7 +89,7 @@ import {
 } from "@/components/Map/axisLayers";
 import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { useJmaTileIndex } from "@/hooks/useJmaTileIndex";
-import { jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
+import { jmaPlaceholderTileUrl } from "@/components/Map/jmaNowcastFrames";
 import { registerJmaTileProtocol, withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 import { debugLog } from "@/lib/debugLog";
@@ -909,7 +909,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // （`next dev`限定の想定、本番ビルドではStrict Modeの二重実行が発生しないため
         // 再現しない）。表示自体は次のpayload反映で自己回復するため実害は無い。
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/nowc/00000000000000/none/00000000000000/surf/hrpns/{z}/{x}/{y}.png`),
+          jmaPlaceholderTileUrl("nowc", "hrpns"),
         opacity: 0.65,
         ...jmaZoomRange("hrpns"),
         attribution: "気象庁",
@@ -927,7 +927,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     linearRainband: {
       raster: {
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/rasrf/00000000000000/none/00000000000000/surf/sjfcstmap/{z}/{x}/{y}.png`),
+          jmaPlaceholderTileUrl("rasrf", "sjfcstmap"),
         opacity: 0.65,
         ...jmaZoomRange("sjfcstmap"),
         attribution: "気象庁",
@@ -965,7 +965,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     heavyRain: {
       raster: {
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/risk/00000000000000/none/00000000000000/surf/rain_mesh/{z}/{x}/{y}.png`),
+          jmaPlaceholderTileUrl("risk", "rain_mesh"),
         opacity: 0.65,
         ...jmaZoomRange("rain_mesh"),
         attribution: "気象庁",
@@ -974,7 +974,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     landslide: {
       raster: {
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/risk/00000000000000/none/00000000000000/surf/land/{z}/{x}/{y}.png`),
+          jmaPlaceholderTileUrl("risk", "land"),
         opacity: 0.65,
         ...jmaZoomRange("land"),
         attribution: "気象庁",
@@ -983,7 +983,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     inundation: {
       raster: {
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/risk/00000000000000/none/00000000000000/surf/inund/{z}/{x}/{y}.png`),
+          jmaPlaceholderTileUrl("risk", "inund"),
         opacity: 0.65,
         ...jmaZoomRange("inund"),
         attribution: "気象庁",
@@ -996,7 +996,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     thunder: {
       raster: {
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/nowc/00000000000000/none/00000000000000/surf/thns/{z}/{x}/{y}.png`),
+          jmaPlaceholderTileUrl("nowc", "thns"),
         opacity: 0.65,
         ...jmaZoomRange("thns"),
         attribution: "気象庁",
@@ -1005,7 +1005,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     tornado: {
       raster: {
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/nowc/00000000000000/none/00000000000000/surf/trns/{z}/{x}/{y}.png`),
+          jmaPlaceholderTileUrl("nowc", "trns"),
         opacity: 0.65,
         ...jmaZoomRange("trns"),
         attribution: "気象庁",
@@ -1024,7 +1024,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // windowが無い環境ではこのプレースホルダURLの値自体は使われないため、その場合だけ
         // 絶対URL化を諦め相対URLへ戻す（実ブラウザでは常にwindowが存在する）。
         placeholderTileUrl:
-          jmaProxyUrl(`/jmatile/data/risk/00000000000000/none/00000000000000/surf/flood/{z}/{x}/{y}.pbf`),
+          jmaPlaceholderTileUrl("risk", "flood", "pbf"),
         sourceLayer: "flood",
         colorExpression: FLOOD_RISK_LINE_COLOR_EXPRESSION,
         lineWidthExpression: FLOOD_RISK_LINE_WIDTH_EXPRESSION,
