@@ -188,3 +188,88 @@ async def test_prewarm_jma_tiles_skips_layer_when_element_not_in_target_times(mo
     await prewarm.prewarm_jma_tiles(fake)
 
     assert fake.requested_paths == [risk_target_times]
+
+
+def _transparent_png():
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGBA", (256, 256), (0, 0, 0, 0)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _painted_png():
+    import io
+
+    from PIL import Image
+
+    image = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+    image.putpixel((8, 8), (242, 231, 0, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class IndexingFakeClient(FakeJmaTileClient):
+    """指定したタイルパスだけ「中身あり」を返すフェイク。"""
+
+    def __init__(self, target_times, painted_paths):
+        super().__init__(target_times)
+        self._painted = set(painted_paths)
+
+    async def get(self, path):
+        self.requested_paths.append(path)
+        if path in self._target_times:
+            raw = self._target_times[path]
+            return None if raw is None else (json.dumps(raw).encode(), "application/json")
+        content = _painted_png() if path in self._painted else _transparent_png()
+        return (content, "image/png")
+
+
+async def test_prewarm_records_only_non_empty_tiles(monkeypatch):
+    """在否インデックスには中身のあるタイルだけが載る（平常時は空のまま）。"""
+    risk_target_times = "bosai/jmatile/data/risk/targetTimes.json"
+    entries = [{"basetime": "20260907025000", "validtime": "20260907025000", "member": "immed0",
+                "elements": ["land"]}]
+    monkeypatch.setattr(
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "risk", "land", "png", risk_target_times),)
+    )
+    stored = {}
+
+    async def _capture(payload):
+        stored.update(payload)
+
+    monkeypatch.setattr(prewarm, "set_index", _capture)
+    # z4は1枚だけなので、その1枚を「中身あり」にする。
+    painted = "bosai/jmatile/data/risk/20260907025000/immed0/20260907025000/surf/land/4/14/6.png"
+    fake = IndexingFakeClient({risk_target_times: entries}, painted_paths=[painted])
+
+    await prewarm.prewarm_jma_tiles(fake)
+
+    assert stored["elements"]["land"]["basetime"] == "20260907025000"
+    assert stored["elements"]["land"]["zooms"] == {"4": [[14, 6]]}
+    # coverageはインデックスが網羅する範囲。この外はクライアントが従来どおり取得する。
+    assert stored["coverage"]["min_longitude"] == prewarm._PREWARM_BBOX.min_longitude
+
+
+async def test_prewarm_index_is_empty_when_all_tiles_are_blank(monkeypatch):
+    risk_target_times = "bosai/jmatile/data/risk/targetTimes.json"
+    entries = [{"basetime": "20260907025000", "validtime": "20260907025000", "member": "immed0",
+                "elements": ["land"]}]
+    monkeypatch.setattr(
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "risk", "land", "png", risk_target_times),)
+    )
+    stored = {}
+
+    async def _capture(payload):
+        stored.update(payload)
+
+    monkeypatch.setattr(prewarm, "set_index", _capture)
+    fake = IndexingFakeClient({risk_target_times: entries}, painted_paths=[])
+
+    await prewarm.prewarm_jma_tiles(fake)
+
+    # 要素自体は載る（basetimeを伝える必要があるため）が、座標は空。
+    assert stored["elements"]["land"]["zooms"] == {}

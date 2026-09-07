@@ -89,6 +89,9 @@ JMA_TILE_NOT_FOUND = CachePolicy(max_age_seconds=10 * 60)
 # 前方一致で引き、複数該当する場合は最も長いパターンを採る（表の記載順に依存しない）。
 _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     # 地図タイル系（1画面あたり数十〜数百枚が飛ぶ。キャッシュの有無が最も効く）
+    # 在否インデックスはプリウォーム（10分間隔）ごとに内容が変わる。古いものを掴むと
+    # 「中身があるのに取りに行かない」ことになるため短命にする。
+    ("/api/jma-tile-index", LIVE),
     ("/api/jma-tile/", HANDLER_MANAGED),
     ("/api/gsi-relief-tile/", PERMANENT),
     ("/api/basemap/refresh", NO_STORE),

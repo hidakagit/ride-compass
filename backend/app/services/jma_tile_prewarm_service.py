@@ -30,6 +30,8 @@ from app.domain.jma_tile_specs import JMA_TILE_SPECS, has_native_tile, max_zoom_
 from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import JmaTileClient
+from app.infrastructure.jma_tile_index import is_empty_tile, set_index
+from app.infrastructure.jma_tile_interpolation import parse_tile_path
 
 logger = logging.getLogger("app.services.jma_tile_prewarm_service")
 
@@ -123,6 +125,41 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", entry: dict) -> list[str]:
     return paths
 
 
+async def _store_index(
+    layer_entries: dict[str, dict], present: dict[str, dict[int, list[list[int]]]]
+) -> None:
+    """在否インデックスを組み立てて保存する。
+
+    クライアントは「自分が描こうとしている`basetime`と一致する要素だけ」インデックスを
+    信用する必要があるため、要素ごとに`basetime`/`validtime`/`member`を持たせる
+    （risk系・nowc系・rasrf系で更新タイミングが別々のため、1つの`basetime`では表せない）。
+    `coverage`はインデックスが網羅している地理範囲で、**この外のタイルについては在否が
+    不明なので従来どおり取得する**ことをクライアントへ伝える。
+    """
+    if not layer_entries:
+        return
+    payload = {
+        "coverage": {
+            "min_longitude": _PREWARM_BBOX.min_longitude,
+            "min_latitude": _PREWARM_BBOX.min_latitude,
+            "max_longitude": _PREWARM_BBOX.max_longitude,
+            "max_latitude": _PREWARM_BBOX.max_latitude,
+        },
+        "elements": {
+            element_id: {
+                "basetime": entry.get("basetime"),
+                "validtime": entry.get("validtime"),
+                "member": entry.get("member", "none"),
+                # ズームは文字列キー（JSONのオブジェクトキーは文字列のため、往復で型が
+                # 変わらないようにここで揃える）。
+                "zooms": {str(z): coords for z, coords in sorted(present.get(element_id, {}).items())},
+            }
+            for element_id, entry in layer_entries.items()
+        },
+    }
+    await set_index(payload)
+
+
 async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     """対象範囲のタイルを列挙し、`JmaTileClient.get()`で順に取得する（Redisへの書き込みは
     `get()`内部の副作用として自動的に起きる。プリウォーム専用の別書き込み経路は持たない）。
@@ -132,6 +169,7 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     target_times_cache: dict[str, list[dict] | None] = {}
     all_paths: list[str] = []
     skipped_labels: list[str] = []
+    layer_entries: dict[str, dict] = {}
 
     for layer in _LAYERS:
         if layer.target_times_path not in target_times_cache:
@@ -154,6 +192,7 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
         if entry is None:
             skipped_labels.append(layer.label)
             continue
+        layer_entries[layer.element_id] = entry
         all_paths.extend(_tile_paths_for_layer(layer, entry))
 
     if skipped_labels:
@@ -163,6 +202,10 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     errors = 0
     total_bytes = 0
     semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
+    # 在否インデックス（infrastructure/jma_tile_index.py）。取得したタイルが空かどうかを
+    # ここで判定して集める——プリウォームは既に全タイルを取得しているため、判定のための
+    # 追加の取得は発生しない。
+    present: dict[str, dict[int, list[list[int]]]] = {}
 
     async def _fetch_one(path: str) -> None:
         nonlocal fetched, errors, total_bytes
@@ -170,18 +213,26 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
             result = await client.get(path)
         if result is None:
             errors += 1
-        else:
-            fetched += 1
-            total_bytes += len(result[0])
+            return
+        fetched += 1
+        content = result[0]
+        total_bytes += len(content)
+        coords = parse_tile_path(path)
+        if coords is None or is_empty_tile(content, coords.ext):
+            return
+        present.setdefault(coords.element, {}).setdefault(coords.z, []).append([coords.x, coords.y])
 
     await asyncio.gather(*(_fetch_one(path) for path in all_paths))
+    await _store_index(layer_entries, present)
 
     elapsed_ms = round((time.monotonic() - started) * 1000)
+    non_empty = sum(len(coords) for zooms in present.values() for coords in zooms.values())
     logger.info(
-        "jma tile prewarm 完了 tiles=%d fetched=%d errors=%d total_bytes=%d elapsed_ms=%d",
+        "jma tile prewarm 完了 tiles=%d fetched=%d errors=%d non_empty=%d total_bytes=%d elapsed_ms=%d",
         len(all_paths),
         fetched,
         errors,
+        non_empty,
         total_bytes,
         elapsed_ms,
     )

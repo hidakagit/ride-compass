@@ -12,6 +12,7 @@ from app.infrastructure.jma_tile_client import (
     TileNotFound,
     is_target_times_path,
 )
+from app.infrastructure.jma_tile_index import get_index
 from app.infrastructure.jma_tile_interpolation import crop_and_upscale, parse_tile_path
 
 logger = logging.getLogger("app.api.routers.jma_tile")
@@ -57,6 +58,22 @@ async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> bytes
             exc,
         )
         return None
+
+
+@router.get("/api/jma-tile-index")
+async def jma_tile_index() -> dict:
+    """どのタイルに描くものがあるかの一覧（`infrastructure/jma_tile_index.py`）。
+
+    JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。クライアントはこれを1回
+    受け取り、載っていないタイルは要求しない。`available: false`のときは従来どおり
+    全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない）。
+
+    `coverage`の外は在否が不明のため、クライアントはその範囲のタイルを従来どおり取得する。
+    """
+    index = await get_index()
+    if index is None:
+        return {"available": False}
+    return {"available": True, **index}
 
 
 @router.get("/api/jma-tile/{path:path}")

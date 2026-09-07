@@ -21,6 +21,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
 | infrastructure | `migrate.py` | 最小マイグレーション機構（番号付きSQL） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
+| infrastructure | `redis_json_cache.py` | RedisへJSONで持つcache-asideの共通骨格 |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの固定窓レート制限 |
 | infrastructure | `request_log.py` | リクエストIDの付与、1リクエスト=1行のHTTPアクセスサマリログ |
@@ -151,6 +152,21 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 常時ログ出力には影響しない。`_LogRingBufferHandler`は各行を`(levelno, 整形済み文字列)`
 のタプルで保持し、`min_level`フィルタは整形済み文字列を`[LEVELNAME]`のような
 部分文字列でパースせずこの数値で判定する。
+
+## RedisのJSON cache-aside（`redis_json_cache.py`）
+
+「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
+未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を`get_json`/`set_json`の
+2関数へまとめたもの。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
+`simple_api_client.py: cached_fetch`がプロセス内`TTLCache`側で担っている役割の、Redis版。
+
+**fail-openが前提**: 扱うのはいずれも正本を持たないキャッシュのため、Redis障害・接続不能・
+壊れたエントリはすべて「未キャッシュ」（`get_json`はNone）へ倒し、呼び出し元が通常の取得
+経路へ進めるようにする。キャッシュの不調でアプリの機能を止めない。
+
+新しくRedisへ持つキャッシュはこれを使う。既存のRedisキャッシュ
+（`jma_tile_redis_cache`・`wind_forecast_cache`・`dynamic_way_value_cache`・
+`road_edge_geometry_cache`・`road_graph_tile_cache`）は各自の実装のまま動いている。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 

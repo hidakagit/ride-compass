@@ -18,7 +18,7 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 |---|---|
 | domain | `jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
-| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
 
 ## domain層: 2つの異なる役割
@@ -142,6 +142,19 @@ MapLibreのソース設定は連続したズーム区間しか表現できず「
   なため対象外（奇数ズームでは洪水線が出ないが、同じ領域にキキクル3種の面が出る）。
 - 親タイルが取得できない場合は補間せず通常のフェッチ経路へ進む（補間の失敗で地図表示
   そのものを落とさない）。
+
+**在否インデックス（`infrastructure/jma_tile_index.py`・`GET /api/jma-tile-index`）**:
+JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。`basetime`が10分ごとに変わり
+URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）では救えない。プリウォームが
+運用範囲のタイルを取得する過程で在否を判定し（**追加の取得は発生しない**）、Redisへ記録する。
+
+| 項目 | 内容 |
+|---|---|
+| 判定 | ラスタは全画素が透明か（`getchannel("A").getbbox()`）、ベクタは0バイトか |
+| 判定不能時 | **「中身あり」に倒す**（誤って空と判定すると危険情報が表示されなくなる） |
+| 保持 | `redis_json_cache`経由、固定キー1つにTTL20分。要素ごとに`basetime`が異なるためキーには含めず、ペイロード側の要素ごとに持たせる |
+| `coverage` | インデックスが網羅する地理範囲。**この外は在否が不明**のためクライアントは従来どおり取得する |
+| 未保存時 | `available: false`を返し、クライアントは従来どおり全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない） |
 
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、
