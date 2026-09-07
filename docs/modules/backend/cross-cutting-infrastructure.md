@@ -167,8 +167,9 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 壊れたエントリはすべて「未キャッシュ」（`get_json`はNone）へ倒し、呼び出し元が通常の取得
 経路へ進めるようにする。キャッシュの不調でアプリの機能を止めない。
 
-新しくRedisへ持つキャッシュはこれを使う。既存のRedisキャッシュ
-（`jma_tile_redis_cache`・`dynamic_way_value_cache`）は各自の実装のまま動いている。
+新しくRedisへ持つキャッシュはこれを使う。`jma_tile_index`・`dynamic_way_value_cache`が
+利用している。`jma_tile_redis_cache`だけは値がバイナリ（PNG/PBF）でJSON化に馴染まないため
+自前の実装を持つ（docs/caching.md「自前で骨格を書いてよい例外」）。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 

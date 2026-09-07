@@ -40,7 +40,8 @@ tile_persistent_cache.py`へも同じ内容をディスク永続化する（`gra
 ディスクキャッシュを丸ごと再構築してしまう。
 """
 
-from collections import OrderedDict
+
+from cachetools import LRUCache
 
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.infrastructure import tile_persistent_cache
@@ -49,8 +50,7 @@ from app.infrastructure import tile_persistent_cache
 # [関東圏]を想定するため、上限も揃える）。
 DEFAULT_MAX_TILES = 2_000
 
-_cache: "OrderedDict[tuple[int, int, int], StaticEdgeScoreMatrix]" = OrderedDict()
-_max_entries = DEFAULT_MAX_TILES
+_cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)
 
 # ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン。
 # パスへ埋め込むことで対応しない世代のファイルを読まないようにする。
@@ -79,9 +79,6 @@ def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
     """メモリLRUへ書き込み、上限超過分を退避する（`set()`・ディスクヒット時の
     再取り込みの両方から使う共通ロジック）。"""
     _cache[key] = matrix
-    _cache.move_to_end(key)
-    if len(_cache) > _max_entries:
-        _cache.popitem(last=False)
 
 
 def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) -> StaticEdgeScoreMatrix | None:
@@ -90,7 +87,6 @@ def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) 
     key = (zoom, x, y)
     value = _cache.get(key)
     if value is not None:
-        _cache.move_to_end(key)
         if read_stats is not None:
             read_stats["source"] = "memory"
         return value

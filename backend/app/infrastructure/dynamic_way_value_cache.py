@@ -22,16 +22,9 @@ TTLは呼び出し元（各材料のサービス）が渡す——風は気象�
 障害時も機能は止まらない（再計算コストが少し増えるだけ）。
 """
 
-import json
 import math
 
-from app.infrastructure.debug_log import error_type_label, log_external_call
-from app.infrastructure.redis_client import (
-    get_redis_client_or_none,
-    record_redis_failure,
-    record_redis_success,
-    redis_available,
-)
+from app.infrastructure.redis_json_cache import get_json, set_json
 
 _KEY_PREFIX = "dynway"
 
@@ -73,37 +66,15 @@ async def get_tile_values(
     None）に対応する`{way_id: 値}`を返す。
     未キャッシュ・Redis疎通不能・壊れたエントリはいずれもNoneへfail-openする（呼び出し元は
     実計算へ進む）。"""
-    if not redis_available():
-        return None
-    client = get_redis_client_or_none()
-    if client is None:
-        return None
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
-    with log_external_call(f"cache:dynway-{material_id}-redis") as fields:
-        try:
-            raw = await client.get(key)
-        except Exception as exc:  # noqa: BLE001 Redis障害は「未キャッシュ」へのfail-open対象
-            record_redis_failure()
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
-        record_redis_success()
-        if raw is None:
-            fields["result"] = "ok"
-            fields["cache"] = "miss"
-            return None
-        try:
-            parsed = json.loads(raw)
-            values = {int(way_id): float(value) for way_id, value in parsed.items()}
-        except (ValueError, TypeError, json.JSONDecodeError, AttributeError):
-            # 壊れたエントリ（手動編集等）は未キャッシュ扱いにする。
-            fields["result"] = "ok"
-            fields["cache"] = "miss"
-            return None
-        fields["result"] = "ok"
-        fields["cache"] = "hit"
-        return values
+    parsed = await get_json(key, category=f"cache:dynway-{material_id}-redis")
+    if parsed is None:
+        return None
+    try:
+        return {int(way_id): float(value) for way_id, value in parsed.items()}
+    except (ValueError, TypeError, AttributeError):
+        # 壊れたエントリ（フォーマット変更等）は未キャッシュ扱いにする。
+        return None
 
 
 async def set_tile_values(
@@ -120,21 +91,6 @@ async def set_tile_values(
     """新規に計算できた`{way_id: 値}`をRedisへ書き戻す（キャッシュの最適化であり、
     書き込み失敗はレスポンス自体の成否には関与しない。失敗時は抑制付きWARNINGで記録する
     だけに留める）。"""
-    if not redis_available():
-        return
-    client = get_redis_client_or_none()
-    if client is None:
-        return
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
-    payload = json.dumps({str(way_id): value for way_id, value in values.items()})
-    with log_external_call(f"cache:dynway-{material_id}-redis") as fields:
-        try:
-            await client.set(key, payload, ex=ttl_seconds)
-        except Exception as exc:  # noqa: BLE001 書き込み失敗は次回の実計算で自己修復する
-            record_redis_failure()
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-        else:
-            record_redis_success()
-            fields["result"] = "ok"
+    payload = {str(way_id): value for way_id, value in values.items()}
+    await set_json(key, payload, ttl_seconds=ttl_seconds, category=f"cache:dynway-{material_id}-redis")

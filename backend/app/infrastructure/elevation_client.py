@@ -1,7 +1,7 @@
 import asyncio
-from collections import OrderedDict
 
 import httpx
+from cachetools import LRUCache
 
 from app.domain.region import lonlat_to_tile_pixel
 from app.domain.route import Coordinates
@@ -19,7 +19,7 @@ DEM_TILE_SIZE = 256
 DEM_MISSING_MARKER = "e"
 DEM_TILE_CONTENT_TYPE = "text/plain; charset=utf-8"
 
-_tile_grid_cache: "OrderedDict[tuple[str, int, int], list[list[float | None]] | None]" = OrderedDict()
+_tile_grid_cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILE_GRIDS)
 
 # 異なるリクエスト（本番backendの並行route生成）が同時に同じ未取得タイルへ到達しても
 # 重複GET・重複パースにならないよう、同一タイルへの同時フェッチを1回へ束ねる（single-flight）。
@@ -27,12 +27,7 @@ _in_flight_tile_fetches: "dict[tuple[str, int, int], asyncio.Future[None]]" = {}
 
 
 def _remember_tile_grid(cache_key: tuple[str, int, int], grid: list[list[float | None]] | None) -> None:
-    """`_tile_grid_cache`への書き込み＋上限超過分の追い出しを一箇所へ集約する
-    （`graph_material_cache.py: _LRUCache.set`と同じ定型処理）。"""
     _tile_grid_cache[cache_key] = grid
-    _tile_grid_cache.move_to_end(cache_key)
-    if len(_tile_grid_cache) > DEFAULT_MAX_TILE_GRIDS:
-        _tile_grid_cache.popitem(last=False)
 
 
 class _CoverageGap:
@@ -144,9 +139,8 @@ class ElevationClient:
                 dem_type = DEM_TYPE_PRIORITY[dem_type_index[i]]
                 tile_x, tile_y, px, py = tile_coords[i]
                 cache_key = (dem_type, tile_x, tile_y)
+                # LRUCacheは参照した時点で最近使用として扱われるため、明示的な繰り上げは不要。
                 grid = _tile_grid_cache.get(cache_key)
-                if cache_key in _tile_grid_cache:
-                    _tile_grid_cache.move_to_end(cache_key)
                 elevation = _bilinear_interpolate(grid, px, py) if grid is not None else None
                 if elevation is not None:
                     results[i] = elevation

@@ -5,7 +5,7 @@ test_wind_way_service.pyと同じ流儀（FakeRepository・FakeRedis、実DB/Red
 import pytest
 
 from app.domain.gradient import GradientCalculator
-from app.infrastructure import dynamic_way_value_cache
+from app.infrastructure import dynamic_way_value_cache, redis_json_cache
 from app.services.gradient_way_service import GradientWayService
 
 Z, X, Y = 14, 14551, 6447
@@ -25,7 +25,7 @@ class FakeRedis:
 @pytest.fixture(autouse=True)
 def use_fake_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client_or_none", lambda: fake)
+    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 

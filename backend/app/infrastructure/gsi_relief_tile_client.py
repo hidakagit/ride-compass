@@ -1,7 +1,7 @@
 import asyncio
-from collections import OrderedDict
 
 import httpx
+from cachetools import LRUCache
 
 from app.infrastructure import tile_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
@@ -12,9 +12,9 @@ UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 # GSIホストの整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
 # プロセス内メモリのみに留める（tile_cache.pyの永続ファイルキャッシュへは書かない——
 # 将来GSI側の整備区域が広がった場合、プロセス再起動だけで再取得の機会が来るようにする）。
-# 上限付きLRU（elevation_client.py: _tile_grid_cacheと同じ設計、キー=path）。
+# 上限付きLRU（cachetools.LRUCache、キー=path。docs/caching.md参照）。
 _NOT_FOUND_MAX_ENTRIES = 2000
-_not_found_paths: "OrderedDict[str, None]" = OrderedDict()
+_not_found_paths: LRUCache = LRUCache(maxsize=_NOT_FOUND_MAX_ENTRIES)
 
 
 class ReliefTileNotFound:
@@ -27,9 +27,6 @@ RELIEF_TILE_NOT_FOUND = ReliefTileNotFound()
 
 def _remember_not_found(path: str) -> None:
     _not_found_paths[path] = None
-    _not_found_paths.move_to_end(path)
-    if len(_not_found_paths) > _NOT_FOUND_MAX_ENTRIES:
-        _not_found_paths.popitem(last=False)
 
 
 class GsiReliefTileClient:

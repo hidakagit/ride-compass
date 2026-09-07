@@ -1,6 +1,8 @@
 import httpx
 import pytest
 
+from cachetools import LRUCache
+
 from app.domain.route import Coordinates
 from app.infrastructure import elevation_client, tile_cache
 from app.infrastructure.elevation_client import DEM_TILE_SIZE, ElevationClient
@@ -178,7 +180,7 @@ async def test_tile_grid_cache_evicts_least_recently_used_beyond_cap(monkeypatch
     # 改善計画T575: 上限を超えたら最も長く使われていないタイルから追い出されることを
     # 確認する（本番でこの上限が無く関東全域のタイルを溜め込みOOMを起こした経緯は
     # docs/tasks/T575.md参照）。上限を2へ下げ、3タイル分の異なる地点へ問い合わせる。
-    monkeypatch.setattr(elevation_client, "DEFAULT_MAX_TILE_GRIDS", 2)
+    monkeypatch.setattr(elevation_client, "_tile_grid_cache", LRUCache(maxsize=2))
     client = ElevationClient()
     http_client = FakeHttpClient(elevation=1.0)
     # 互いに十分離れた3点＝3枚の異なるz14タイル（DEM_ZOOM=14）を踏む。

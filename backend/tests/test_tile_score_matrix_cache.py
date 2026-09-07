@@ -8,6 +8,8 @@
 import numpy as np
 import pytest
 
+from cachetools import LRUCache
+
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.infrastructure import tile_persistent_cache, tile_score_matrix_cache
 
@@ -84,7 +86,7 @@ class TestModuleLevelApi:
         assert tile_score_matrix_cache.size() == 0
 
     def test_lru_eviction_when_over_capacity(self, monkeypatch):
-        monkeypatch.setattr(tile_score_matrix_cache, "_max_entries", 2)
+        monkeypatch.setattr(tile_score_matrix_cache, "_cache", LRUCache(maxsize=2))
         tile_score_matrix_cache.set(12, 1, 1, _sample_matrix("e1"))
         tile_score_matrix_cache.set(12, 1, 2, _sample_matrix("e2"))
         tile_score_matrix_cache.set(12, 1, 3, _sample_matrix("e3"))  # (12,1,1)が立ち退く

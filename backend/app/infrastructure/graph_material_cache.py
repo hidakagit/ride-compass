@@ -22,13 +22,12 @@ road_edges/road_nodesの密度次第だが、対象が関東圏に留まる現�
 広がった場合はディスク容量側で別途検討する）。
 """
 
-from collections import OrderedDict
-from typing import Generic, TypeVar
+
+from cachetools import LRUCache
 
 from app.domain.attributes import SearchMaterials
 from app.infrastructure import tile_persistent_cache
 
-_T = TypeVar("_T")
 
 # 1タイルあたりの素材（Edge数百〜数千件分の辞書群）を想定した上限。関東圏（z12タイル
 # 数百枚規模）を余裕を持ってカバーできる値。
@@ -58,31 +57,7 @@ _CACHE_NAMESPACE = "materials"
 TILE_MATERIALS_CACHE_VERSION = "5"
 
 
-class _LRUCache(Generic[_T]):
-    def __init__(self, max_size: int):
-        self._max_size = max_size
-        self._data: OrderedDict[tuple[int, int, int], _T] = OrderedDict()
-
-    def get(self, key: tuple[int, int, int]) -> _T | None:
-        value = self._data.get(key)
-        if value is not None:
-            self._data.move_to_end(key)
-        return value
-
-    def set(self, key: tuple[int, int, int], value: _T) -> None:
-        self._data[key] = value
-        self._data.move_to_end(key)
-        if len(self._data) > self._max_size:
-            self._data.popitem(last=False)
-
-    def __len__(self) -> int:
-        return len(self._data)
-
-    def clear(self) -> None:
-        self._data.clear()
-
-
-_tile_materials_cache: _LRUCache[SearchMaterials] = _LRUCache(DEFAULT_MAX_TILES)
+_tile_materials_cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)
 # accident_years_coveredはbboxに依存しないグローバルな値（事故データの収録年数）のため、
 # タイル単位ではなく単一値としてキャッシュする。
 _accident_years_covered_cache: int | None = None
@@ -110,12 +85,12 @@ def get_tile_materials(
         return None
     if read_stats is not None:
         read_stats["source"] = "disk"
-    _tile_materials_cache.set((zoom, x, y), persisted)
+    _tile_materials_cache[(zoom, x, y)] = persisted
     return persisted
 
 
 def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials) -> None:
-    _tile_materials_cache.set((zoom, x, y), materials)
+    _tile_materials_cache[(zoom, x, y)] = materials
     tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, materials)
 
 

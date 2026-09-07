@@ -34,9 +34,10 @@ CSR構造一式（`indptr`/`indices`/`entry_edge_index`）を保持し他の2種
 `DEFAULT_MAX_ENTRIES`（64）を共有すると常駐メモリが不必要に大きくなりうる。
 """
 
-from collections import OrderedDict
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Generic, TypeVar
+
+from cachetools import LRUCache
 
 if TYPE_CHECKING:
     from app.domain.routing import LazyRoadGraph, NodeSpatialIndex, SearchGraphStatics
@@ -58,27 +59,30 @@ _V = TypeVar("_V")
 
 
 class _TileKeyedLru(Generic[_K, _V]):
-    """タイル集合キー（またはそれを含むタプル）のプロセス内LRU。get/set/pop/clear/sizeの
-    定型実装を4キャッシュ（lazy_graph・search_statics・reverse_search_statics・
-    routable_index）で共通化する。上限件数はモジュール変数`_max_entries`をテストが
-    monkeypatchできるよう、`set`呼び出しのたびに引数で受け取る（インスタンスに固定値を
-    持たせない）。
+    """タイル集合キー（またはそれを含むタプル）のプロセス内LRU。
+
+    立ち退き自体は`cachetools.LRUCache`が担い、ここは4キャッシュ（lazy_graph・
+    search_statics・reverse_search_statics・routable_index）が共有する薄い包みに徹する。
+    包みが要るのは、キーの条件一致でまとめて捨てる`pop_matching`（タイル集合の一部が
+    無効化されたときに、そのタイルを含むエントリだけを落とす）が必要なため。
+
+    上限件数は`set`呼び出しのたびに引数で受け取り、変わっていたら内部のLRUを作り直す
+    （上限はモジュール変数で、テストがmonkeypatchして立ち退きを検証する）。
     """
 
     def __init__(self) -> None:
-        self._entries: OrderedDict[_K, _V] = OrderedDict()
+        self._entries: LRUCache = LRUCache(maxsize=1)
 
     def get(self, key: _K) -> "_V | None":
-        value = self._entries.get(key)
-        if value is not None:
-            self._entries.move_to_end(key)
-        return value
+        return self._entries.get(key)
 
     def set(self, key: _K, value: _V, max_entries: int) -> None:
+        if self._entries.maxsize != max_entries:
+            kept = list(self._entries.items())[-max_entries:]
+            self._entries = LRUCache(maxsize=max_entries)
+            for kept_key, kept_value in kept:
+                self._entries[kept_key] = kept_value
         self._entries[key] = value
-        self._entries.move_to_end(key)
-        if len(self._entries) > max_entries:
-            self._entries.popitem(last=False)
 
     def pop(self, key: _K) -> None:
         self._entries.pop(key, None)
@@ -158,7 +162,7 @@ def invalidate_tile_set(tile_set: TileSet) -> None:
     `_reverse_search_statics_cache`・`_routable_index_cache`）すべてから破棄する。
 
     `_lazy_graph_cache`/`_search_statics_cache`/`_reverse_search_statics_cache`は
-    LRU上限に達すると独立にpopitem(last=False)で最古のエントリを追い出すため、同じ
+    LRU上限に達すると独立に最古のエントリを追い出すため、同じ
     `tile_set`が一方には残り他方からは既に消えている状態になりうる。この状態で再splitが
     挟まると、残った側の`LazyRoadGraph`（古いedge_id集合）と新しく取得した`graph`
     （新edge_id集合）の組み合わせで`domain/routing.py: build_search_graph_statics`が

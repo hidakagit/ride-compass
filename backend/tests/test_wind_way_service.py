@@ -20,7 +20,7 @@ from app.domain.region import tile_bounds_lonlat
 from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, WindGridPoint, nearest_grid_point
-from app.infrastructure import dynamic_way_value_cache
+from app.infrastructure import dynamic_way_value_cache, redis_json_cache
 from app.services.route_generator import JST
 from app.services.wind_way_service import WindWayService
 
@@ -42,7 +42,7 @@ class FakeRedis:
 @pytest.fixture(autouse=True)
 def use_fake_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(dynamic_way_value_cache, "get_redis_client_or_none", lambda: fake)
+    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 
