@@ -127,7 +127,7 @@ export interface paths {
          * Get Weather
          * @description 今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。
          *     常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
-         *     `GET /api/weather/amedas`が担うため、このエンドポイントはOpen-Meteoの値を
+         *     `GET /api/weather/amedas`が担うため、このエンドポイントは予報（MSM）の値を
          *     そのまま返す。
          */
         get: operations["get_weather_api_weather_get"];
