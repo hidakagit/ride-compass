@@ -62,7 +62,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   const [detailGrid, setDetailGrid] = useState<WindGridPoint[]>([]);
   const [detailSpacingDeg, setDetailSpacingDeg] = useState(WIND_GRID_SPACING_DEG);
 
-  // 再取得のたびにOpen-Meteo側の一時的な失敗（429等）で一部地点だけ抜け落ちることがあり、
+  // 再取得のたびに一部地点だけ抜け落ちることがあり、
   // そのまま置き換えると地図上に「その地点だけ塗られていない」穴ができる。前回成功していた
   // 地点を補って残すmergeWindGridKeepingStaleのため、trim前の生の状態をrefで持ち続ける
   // （grid自体はtrim後の表示用state、こちらは
@@ -76,7 +76,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
       try {
         const rawGrid = mergeWindGridKeepingStale(rawGridRef.current, await getWindGrid());
         rawGridRef.current = rawGrid;
-        // Open-Meteoのhourly.timeはその日の00:00始まりのため、そのままだと配列の前半に
+        // 時刻配列の先頭がフェッチからの経過で過去になると、そのままだと配列の前半に
         // 過去の時刻が並ぶ。過去の風・降水を振り返る用途はアプリの性質上無いため、
         // trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる。
         const trimmed = trimWindGridToCurrentAndFuture(rawGrid);

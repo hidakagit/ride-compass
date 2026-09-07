@@ -4,7 +4,7 @@ import type { AmedasObservation } from "@/types/weather";
 import WeatherPanel from "./WeatherPanel";
 
 // 改善計画T387フォローアップ（2026-08-29、方針「常設エリアは実測値、今日の見通しは予測値」）:
-// WeatherPanelはOpen-Meteo（WeatherConditions）ではなく最寄りアメダス観測所の実測値
+// WeatherPanelは予報（WeatherConditions）ではなく最寄りアメダス観測所の実測値
 // （AmedasObservation）を表示する。降水確率→実測降水量、天気アイコン→アメダス実測ベースの
 // 簡易分類（amedasWeatherIcon.ts）、日の出/日没チップを新規追加、突風はアメダスに
 // フィールド自体が無いため非表示（旧テストのwind_gusts_ms関連は削除）。

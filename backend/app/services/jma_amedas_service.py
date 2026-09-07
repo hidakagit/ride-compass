@@ -97,7 +97,7 @@ class JmaAmedasService:
         observation = await self._get_from_redis(station_id)
         if observation is None:
             return None
-        # 日の出/日没はJMA/Open-Meteoに問い合わせず、クエリ地点そのものに対してその場で
+        # 日の出/日没は外部に問い合わせず、クエリ地点そのものに対してその場で
         # ローカル計算する。最寄り観測所の位置ではなく
         # リクエストのpointを使う（観測所境界付近でのわずかなズレを避けるため、かつ
         # Redisキャッシュ済みの観測値と違い計算コストが無視できるほど軽いため都度計算で
@@ -239,7 +239,7 @@ class JmaAmedasService:
 def _first_value(pair: list | None) -> float | None:
     """JMAの[値, 品質フラグ]配列から値を取り出す。フィールド自体が無い観測所（雨量計のみ等）
     はNoneのまま返す（品質フラグの詳細な意味は判定せず、値の有無だけを見る簡略化——
-    他のJMA/Open-Meteo連携と同じ「取得できないのは正常」というfail-open方針に合わせる）。"""
+    他の外部連携と同じ「取得できないのは正常」というfail-open方針に合わせる）。"""
     if not pair:
         return None
     return pair[0]

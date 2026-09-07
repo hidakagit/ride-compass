@@ -2,7 +2,7 @@
 // （precipitationNowcast.tsと同型）。実際のフェッチ・地図への反映はpage.tsx/MapView.tsx
 // が行う。
 //
-// Open-Meteo REST API経由の地点評価（weather_client.py: get_forecast_many）と同じ仕組みで
+// 気象庁MSM（msm_client.py: read_series）を格子点へ補間した値を使い、
 // バックエンドが関東本土の固定格子点をサンプリングするAPI（GET /api/weather/wind-grid）を
 // フロントが叩き、MapLibre標準のsymbolレイヤー（矢印アイコンを独自定義、向き・長さ・色
 // すべて自由に設定可能）で描画する。
@@ -19,7 +19,7 @@ import {
 import type { WindGridPoint } from "@/types/weather";
 import windGridConfig from "@/types/generated/wind-grid-config.json";
 
-/** "YYYY-MM-DDTHH:MM"（Open-Meteoのtimezone=Asia/Tokyo指定によるJST・オフセット無し表記）を
+/** "YYYY-MM-DDTHH:MM"（backendがJST・オフセット無しで返す表記）を
  * JSTとして解釈するDateへ変換する。オフセット無しのままDateへ渡すとブラウザのローカル
  * タイムゾーンとして解釈されてしまう（日本国外の閲覧環境で時刻がずれる）ため、明示的に
  * +09:00を付与する。降水延長予報（precipitationNowcast.ts）も同じ格子点マップ由来の時刻を
@@ -28,8 +28,8 @@ export function parseJstTime(time: string): Date {
   return new Date(`${time}+09:00`);
 }
 
-/** Open-Meteoのhourly.timeは常にその日の00:00始まりのため、フェッチ時刻によっては
- * 半日近く過去の時刻が配列の前半を占める。gridを「現在時刻の属する時間帯」以降だけへ
+/** 時刻配列は通常「現在時刻の正時」から始まるが、フェッチから時間が経てば先頭が過去に
+ * なりうる。gridを「現在時刻の属する時間帯」以降だけへ
  * 切り詰め、スライダーの左端（index 0）が常に「現在」になるようにする。「現在」の
  * 定義は「最も近い時刻」ではなく「現在時刻以下で最も新しい時刻」（＝現在が属する1時間）
  * とする。最も近い時刻だと現在時刻が正時をわずかに過ぎただけで次の1時間へ丸められ、
@@ -57,7 +57,7 @@ export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], n
 
 /** 新しく取得した格子（next）に、前回の格子（previous）のうちnextに無い地点だけを
  * 補って返す。バックエンド（GET /api/weather/wind-grid・wind-grid-detail）は
- * Open-Meteo側の失敗（429等）で個別地点の取得に失敗すると、その地点をレスポンスから
+ * 個別地点の取得に失敗すると、その地点をレスポンスから
  * 丸ごと除外する「取得失敗は握りつぶす」方針（api/routers/weather.py参照）のため、
  * 再取得のたびにどの地点が欠けるかが変わりうる。前回成功していた地点をそのまま
  * 残すことで、1地点の一時的な失敗が地図上の「その場所だけ描画されていない」穴として

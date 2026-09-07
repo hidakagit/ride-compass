@@ -72,7 +72,7 @@ def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> tuple[str | N
     （例: "2026-08-29T05:12:00+09:00"）で返す。
 
     is_nightと違い市民薄明ではなく実際の日の出・日没（太陽の中心が地平線と一致する瞬間）を
-    返す——Open-Meteoのdaily.sunrise/sunsetと同じ定義に揃えるため。
+    返す——太陽の中心が地平線と一致する時刻（大気差を考慮）という一般的な定義に従う。
     極夜・白夜等、日の出/日没が定義できない緯度では(None, None)を返す。"""
     observer = Observer(latitude=coordinates.latitude, longitude=coordinates.longitude)
     try:

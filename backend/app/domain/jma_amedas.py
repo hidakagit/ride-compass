@@ -43,7 +43,7 @@ def apparent_temperature_from_amedas(
         e  = (rh/100) * 6.105 * exp(17.27*Ta / (237.7+Ta))   # 水蒸気圧[hPa]
 
     Ta=気温[℃]、rh=相対湿度[%]、ws=風速[m/s]、e=水蒸気圧[hPa]。新規外部依存を要しない
-    公知の標準式で、Open-Meteoのapparent_temperature（別の計算式によるモデル推定値）とは
+    公知の標準式で、数値予報モデルが出力する体感温度（別の計算式による推定値）とは
     厳密には一致しない近似値になる。3項目のいずれかがNone（センサー未搭載・欠測）なら
     Noneを返す。"""
     if temperature_c is None or humidity_percent is None or wind_speed_ms is None:
@@ -75,7 +75,7 @@ class AmedasObservation(BaseModel):
     # （晴れ/くもり/雨/雪、frontend側）が降水量と組み合わせて使う。
     sunshine_10min_minutes: float | None
     # 常設ヘッダーへ日の出/日没を表示するため持つ。
-    # JMA/Open-Meteoいずれにも問い合わせず、astralによるローカル天文計算
+    # 外部には問い合わせず、astralによるローカル天文計算
     # （domain/twilight.py: sunrise_sunset_jst）で求める。クエリ地点（最寄り観測所ではなく
     # リクエストのlatitude/longitudeそのもの）・当日（JST）の値。
     sunrise: str | None

@@ -124,7 +124,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
       await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
       expect(result.current.effectiveGrid).toEqual(result.current.detailGrid);
 
-      vi.mocked(getWindGridDetail).mockRejectedValueOnce(new Error("open-meteo 429"));
+      vi.mocked(getWindGridDetail).mockRejectedValueOnce(new Error("upstream error"));
       rerender({ viewport: { west: 139.71, south: 35.61, east: 139.81, north: 35.71, zoom: 13 } });
 
       await waitFor(() => expect(result.current.detailGrid).toHaveLength(0));

@@ -25,7 +25,7 @@ describe("getDebugStats", () => {
       engine: "road_graph",
       debug_mode: false,
       external: {
-        "weather:open-meteo": {
+        "msm:read": {
           calls: 79,
           errors: 1,
           cache_hits: 75,

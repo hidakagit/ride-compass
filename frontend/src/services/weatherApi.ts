@@ -26,7 +26,7 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
 }
 
 // 最寄りアメダス観測所の実測値。常設ヘッダー（WeatherPanel）が
-// getCurrentWeather（Open-Meteo、TodayOutlook専用）とは独立に呼ぶ。取得失敗時はbackendが
+// getCurrentWeather（MSM予報、TodayOutlook専用）とは独立に呼ぶ。取得失敗時はbackendが
 // 502を返す契約（backend/app/api/routers/weather.py: get_amedas参照）。
 export async function getAmedasObservation(point: Coordinates): Promise<AmedasObservation> {
   const params = new URLSearchParams({

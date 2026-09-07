@@ -36,9 +36,8 @@ AXIS_ID = "wind"
 
 # 道路タイル単位の風評価に使う格子間隔は、環境グループの風・降水延長予報表示が使う既定間隔
 # （`domain/wind_grid.py: WIND_GRID_DETAIL_SPACING_DEG`、≒2.2km）をそのまま流用する。
-# Open-Meteoが実際に使う気象モデル（JMA、best_match）の最良解像度が2km格子（LFM）のため、
-# これより細かい間隔を選んでもOpen-Meteo自身の補間値を刻むだけで実際の精度は上がらない一方、
-# 道路タイルをパンするたびに問い合わせる格子点数（Open-Meteoクォータ消費）だけが増える。
+# MSMの格子は約5km（緯度0.05度・経度0.0625度）で、これより細かい間隔を選んでも
+# 格子間を補間した値を刻むだけで実際の精度は上がらない。
 
 
 def _hour_bucket(at: datetime) -> str:
@@ -54,7 +53,7 @@ def _tile_center(bbox: BoundingBox) -> Coordinates:
 
 
 def _nearest_time_index(times: list[str], target: datetime) -> int | None:
-    """風グリッドのhourly時刻配列（Open-MeteoがJST基準の壁時計時刻をtzなし文字列で返す）から、
+    """風グリッドの時刻配列（JST基準の壁時計時刻をtzなし文字列で持つ）から、
     targetに最も近いindexを求める（weather_service.py:
     WeatherService._nearest_hourly_index/_within_hourly_rangeと同じ「最近傍だが範囲外は不可」
     という考え方を踏襲した簡易版）。targetがtz-awareならJSTへ変換してから比較する

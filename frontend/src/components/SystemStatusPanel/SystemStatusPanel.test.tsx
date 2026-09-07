@@ -16,7 +16,7 @@ const BACKEND_STATS: DebugStats = {
   engine: "road_graph",
   debug_mode: false,
   external: {
-    "weather:open-meteo": {
+    "msm:read": {
       calls: 10,
       errors: 1,
       cache_hits: 8,
@@ -55,7 +55,7 @@ describe("SystemStatusPanel", () => {
 
     await waitFor(() => expect(screen.getByText("abc1234")).toBeInTheDocument());
     expect(screen.getByText("def5678")).toBeInTheDocument();
-    expect(screen.getByText("weather:open-meteo")).toBeInTheDocument();
+    expect(screen.getByText("msm:read")).toBeInTheDocument();
     expect(screen.getByText(/429拒否: routes:generate 2件/)).toBeInTheDocument();
   });
 

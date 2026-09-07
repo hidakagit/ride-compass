@@ -29,7 +29,7 @@
 - **DB**: PostgreSQL + PostGIS。生OSM層（osm_raw_*）と派生グラフ（road_nodes/road_edges）を分離。
   migrationは `backend/migrations/` の番号付きSQLのみ（create_tablesへのALTER追記禁止）。
   本番はOracle Cloud自前ホスト（関東本土7都県投入済み）、devはネイティブPG18+PostGIS。
-- **外部サービス**: GSI標高API/色別標高図・Open-Meteo（天候）・
+- **外部サービス**: GSI標高API/色別標高図・気象庁MSM（予報、S3の静的ファイルを同期）・
   OpenFreeMap（地図タイル、バックエンドプロキシ＋キャッシュ経由）。経路計算自体は外部APIに
   依存しない（自前Road Graph、改善計画T462でopenrouteservice委譲を撤去）。
 

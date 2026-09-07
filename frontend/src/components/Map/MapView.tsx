@@ -990,7 +990,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
       },
     },
     // 雷ナウキャスト・竜巻発生確度ナウキャスト。降水ナウキャストと同じbosai/jmatile/
-    // data/nowc/系だが、60分より先の延長予報を持たない（Open-Meteo側に雷・竜巻に相当する
+    // data/nowc/系だが、60分より先の延長予報を持たない（MSM側に雷・竜巻に相当する
     // データが無いため）。プロダクトコード違い（thns/trns）だけの単純なrasterのみの
     // スペックで、gridFill/gridMarkは持たない。
     thunder: {
@@ -1097,7 +1097,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
           map.setPaintProperty(layerId, "fill-color", spec.gridFill.colorExpression);
           map.setPaintProperty(layerId, "fill-opacity", spec.gridFill.opacity);
         } else {
-          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
+          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "気象庁MSM / Open-Meteo" });
           map.addLayer({
             id: layerId,
             type: "fill",
@@ -1133,7 +1133,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
             // sdf:true必須。
             map.addImage(iconId, mark.createIcon(), { sdf: true });
           }
-          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "Open-Meteo" });
+          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "気象庁MSM / Open-Meteo" });
           // 縁取りは別レイヤーではなくicon-halo-*（主層と同じsymbolレイヤーのpaint
           // プロパティ）で表現する。別レイヤーの縁取りは、MapLibreがレイヤーの上から順に
           // シンボルを配置するため、先に置かれた主層と同位置・大きめの縁取り層が「衝突」として

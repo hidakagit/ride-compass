@@ -9,7 +9,7 @@ import {
   ThunderIcon,
 } from "@/components/Map/icons";
 
-// Open-MeteoのWMO天気コード（weather_code）+ is_dayから、天候ヘッダーの天気アイコン1個を
+// WMO天気コード（weather_code、backendが降水量・雲量・気温から導出）+ is_dayから、天候ヘッダーの天気アイコン1個を
 // 決める。weather_codeなら昼夜を問わず常に意味のある値（快晴/くもり/雨等）が取れる
 // （UV指数は夜間常に0.0になり情報価値が無い）。UV指数自体は数値としての価値が残るため
 // チップのtitle属性へ格下げする（WeatherPanel.tsx参照）。

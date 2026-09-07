@@ -45,7 +45,7 @@ class DebugStatsResponse(BaseModel):
     engine: str
     debug_mode: bool
     # カテゴリはinfrastructure/debug_log.pyのlog_external_call呼び出し元
-    # （weather:open-meteo・basemap:openfreemap・region:road-surface-tile等）に対応する。
+    # （msm:read・weather:jma-tile・basemap:openfreemap・region:road-surface-tile等）に対応する。
     external: dict[str, ExternalCallStatsResponse]
     rate_limit_rejections: dict[str, int]
 

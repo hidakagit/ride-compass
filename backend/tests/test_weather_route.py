@@ -592,7 +592,7 @@ def test_get_flood_forecast_is_rate_limited_per_client():
 
 
 def test_get_wind_grid_sets_cache_control():
-    # 風グリッドは約48時間ぶんの時刻配列を持ち、上流（Open-Meteo）の更新は1時間ごとの
+    # 風グリッドは数十時間ぶんの時刻配列を持ち、上流（MSM）の更新は3時間ごとの
     # ため、数分の再利用で表示が古くならない。URLに時刻を含まないためimmutableにはしない。
     from app.domain.wind_grid import WindGridPoint
 

@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
-// CIのE2Eスモークテストは「実バックエンド＋実外部API（openrouteservice/Open-Meteo/
+// CIのE2Eスモークテストは「実バックエンド＋実外部API（
 // OpenFreeMap）」には依存しない。APIコントラクトの正しさはCIのapi-contractジョブ
 // （OpenAPIドリフト検知）が別途担保しており、E2Eはフロントの画面挙動（生成→表示、
 // レイヤー切替）だけを決定的に検証する。バックエンドプロセスの起動・DB・APIキーが

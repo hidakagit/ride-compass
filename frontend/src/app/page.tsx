@@ -1172,9 +1172,9 @@ export default function Home() {
     setMapViewport(viewport);
   }, []);
 
-  // 今日の見通し（TodayOutlook向け、Open-Meteo予報）・最寄りアメダス実測値（WeatherPanel＝
+  // 今日の見通し（TodayOutlook向け、気象庁MSM予報）・最寄りアメダス実測値（WeatherPanel＝
   // 常設ヘッダー向け）・警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）のフェッチ・
-  // 状態管理（useWeatherConditionsが持つ。weather[Open-Meteo]とamedas[アメダス実測]は
+  // 状態管理（useWeatherConditionsが持つ。weather[MSM予報]とamedas[アメダス実測]は
   // 独立フェッチ）。locationReadyになるまで待ち、その後はlocationが変わるたびに
   // 再フェッチする。
   const {

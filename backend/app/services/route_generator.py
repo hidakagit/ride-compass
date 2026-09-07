@@ -80,7 +80,7 @@ TURNAROUND_POOL_FACTOR = 3
 TURNAROUND_POOL_MIN = 12
 TURNAROUND_POOL_MAX = 40
 
-# サーバーのローカル時刻＝Asia/Tokyoという簡易近似（Open-Meteoのhourlyもtimezone=Asia/Tokyo
+# サーバーのローカル時刻＝Asia/Tokyoという簡易近似（MSMの読み出しもAsia/Tokyo
 # 指定でnaiveなローカル時刻文字列を返すため整合している。詳細はdocs/architecture.md参照）。
 # 日本にDSTが無いことを利用して固定オフセットで表現し、追加依存（tzdata）なしで
 # datetimeをtz-awareにする。

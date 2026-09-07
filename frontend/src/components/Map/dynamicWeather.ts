@@ -5,7 +5,7 @@
 // 1. **格子単位は統一**: 全レイヤーが同じ固定ラティス（backend/app/domain/wind_grid.py:
 //    WIND_GRID_BBOX、フロント側の対応値はwindLayer.ts: WIND_GRID_SPACING_DEG/
 //    WIND_GRID_DETAIL_SPACING_DEG）を共有する。フェッチも共有（hooks/useWeatherGrid.ts、
-//    1回のOpen-Meteo呼び出しで全要素ぶんの値を取る）。
+//    1回のMSM読み出しで全要素ぶんの値を取る）。
 // 2. **表現は限られた種類のみ**: 格子中央にマークを出す（gridMark、風パターン）、
 //    格子を指定色で塗る（gridFill、雨パターン）、配信元が描画済みの画像を重ねる
 //    （rasterTile、気象庁ナウキャスト等）に加え、配信元がMapbox Vector Tile（.pbf）で
@@ -27,7 +27,7 @@
 //
 // **新しい動的要素を追加する1本道**:
 //   (1) バックエンド: wind_grid.pyのWindGridPointへ値フィールドを追加し、
-//       weather_client.pyのWIND_GRID_VARIABLESへOpen-Meteo変数を足す（フェッチは相乗り）
+//       msm_client.pyのFORECAST_VARIABLESへMSM変数を足す（同期・読み出しは相乗り）
 //   (2) データ層: 要素モジュールを新設し、フレーム列（DynamicWeatherFrame[]）と
 //       ペイロード関数（ref→DynamicWeatherRenderPayload）を実装する
 //   (3) MapView.tsx: DYNAMIC_WEATHER_RENDERERSへ描画スペック（raster/gridFill/gridMark/

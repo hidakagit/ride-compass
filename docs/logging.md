@@ -35,7 +35,7 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 `/api/debug/stats`の統計（呼び出し数・エラー数・キャッシュヒット率・平均/最大所要時間）にも
 自動集計される。
 
-- カテゴリ名は`ドメイン:サービス名`形式（例: `weather:open-meteo`, `elevation:gsi-dem`,
+- カテゴリ名は`ドメイン:サービス名`形式（例: `msm:read`, `elevation:gsi-dem`,
   `basemap:openfreemap`）。
 - キャッシュを挟む場合は`fields["cache"] = "hit" / "miss"`を必ず設定する（ヒット率集計の元）。
 - 結果は`fields["result"] = "ok" / "error" / その他の状態`を設定する。HTTPステータスは

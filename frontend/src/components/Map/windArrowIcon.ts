@@ -4,7 +4,7 @@
 // 集約する契約だが、アイコンの中身をCanvas座標で描く幾何計算はその契約の対象外の
 // 純粋関数であり、windLayer.ts等と同じ「DOM/MapLibre非依存のデータ/描画層」に属する）。
 
-// 風の矢印は、バックエンドの格子点マップAPI（GET /api/weather/wind-grid、Open-Meteo
+// 風の矢印は、バックエンドの格子点マップAPI（GET /api/weather/wind-grid、気象庁MSM
 // REST地点評価と同じ仕組み）が返す風向・風速をMapLibre標準のGeoJSON source + symbol
 // レイヤーで描画する。矢印アイコンは独自定義（createWindArrowIcon、白いシルエットを
 // sdf:trueで登録しicon-colorで着色）で、向き（icon-rotate）・長さ+太さ（icon-size、

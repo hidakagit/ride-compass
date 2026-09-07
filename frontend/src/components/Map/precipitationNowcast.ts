@@ -8,11 +8,11 @@
 // 表示するだけなら問題なく読み込める。
 //
 // 気象庁ナウキャスト（+60分が上限、JMA提供APIの仕様上の制約で回避不可）より先の時間帯を、
-// 風と共通の格子点マップ（windLayer.ts、自前実装・Open-Meteo REST API経由・約48時間先
+// 風と共通の格子点マップ（windLayer.ts、自前実装・気象庁MSM由来・1〜3日先
 // まで）が相乗りで返すprecipitation_mmを使って延長する。この延長予報とナウキャストの間に
 // 気象庁 降水短時間予報（rasrf、60分〜15時間先、数値予報モデルによる予測）を挿入し、
 // 3段構成にしている——rasrfの範囲まではJMA公式データ（精度が高い方から: ナウキャスト
-// [実況の外挿]→rasrf[数値予報モデル]）、それ以降はOpen-Meteoの粗いモデル予報という
+// [実況の外挿]→rasrf[数値予報モデル]）、それ以降はMSMの粗いモデル予報という
 // 優先順位。「降水」の地図チップ・時刻スライダーは1つのままとし、3ソースの統合をこの
 // ファイル（precipitationFrames）が担い、表示層（page.tsx/MapView.tsx）へはdynamicWeather.ts
 // の共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
@@ -248,10 +248,10 @@ function precipitationGridToCellFeatureCollection(
 /** 降水フレームの内部参照。sourceが"nowcast"なら気象庁ナウキャスト（実況〜60分先、
  * 5分刻み、レーダー実況の外挿）由来でindexはnowcastFrames内のindex、"rasrf"なら気象庁
  * 降水短時間予報（60分〜15時間先、数値予報モデルによる予測）由来で
- * indexはrasrfFrames内のindex、"extended"なら風と共通の格子点マップ（Open-Meteo経由、
+ * indexはrasrfFrames内のindex、"extended"なら風と共通の格子点マップ（MSM由来、
  * 15時間先以降・約48時間先まで・1時間刻み）由来でindexはそのgridのtimes/precipitation_mm
  * 内のindexを指す。3段は精度の性質が異なる（nowcast=実況外挿で直近ほど高信頼、
- * rasrf=数値予報モデルによる予測、extended=Open-Meteoの粗いモデル予報）。
+ * rasrf=数値予報モデルによる予測、extended=MSMの粗いモデル予報）。
  * precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrameのtimeしか
  * 見ない、ファイル冒頭のコメント参照）。 */
 export type PrecipitationFrameRef =

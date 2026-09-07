@@ -1,8 +1,8 @@
 import type { ReactElement } from "react";
 import { CloudIcon, MoonIcon, RaindropIcon, SnowflakeIcon, SunIcon } from "@/components/Map/icons";
 
-// 常設ヘッダーの天気アイコンはOpen-Meteoのweather_code（予報由来）ではなく
-// アメダス実測値ベースの簡易分類を使う。weatherCode.ts（Open-Meteo、6カテゴリ）と
+// 常設ヘッダーの天気アイコンは予報由来のweather_codeではなく
+// アメダス実測値ベースの簡易分類を使う。weatherCode.ts（予報のWMOコード、6カテゴリ）と
 // 違い、アメダスの速報値レスポンスには天気概況コードが実質使えない形でしか無い
 // （新設フィールドsunshine_10min_minutes[10分間日照時間]・precipitation_10min_mm
 // [10分間降水量]・temperature_cのみを根拠にする）ため、霧・雷雨は判別できず

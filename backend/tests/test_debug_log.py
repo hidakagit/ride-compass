@@ -139,7 +139,7 @@ def test_rate_limit_rejection_counted_and_warned(caplog):
 
 
 def test_error_type_label_uses_http_status_for_httpx_status_error():
-    request = httpx.Request("GET", "https://api.open-meteo.com/v1/forecast?latitude=35.6812&longitude=139.7671")
+    request = httpx.Request("GET", "https://example.test/v1/forecast?latitude=35.6812&longitude=139.7671")
     response = httpx.Response(429, request=request)
     exc = httpx.HTTPStatusError("Too Many Requests", request=request, response=response)
 

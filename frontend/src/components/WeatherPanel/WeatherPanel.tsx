@@ -9,8 +9,8 @@ interface WeatherPanelProps {
   error: string | null;
 }
 
-// 常設ヘッダーはOpen-Meteo（予報）ではなく最寄りアメダス観測所の実測値のみで構成する。
-// TodayOutlook（今日の見通し、Open-Meteo）とは独立にフェッチするため、Open-Meteoの
+// 常設ヘッダーは予報ではなく最寄りアメダス観測所の実測値のみで構成する。
+// TodayOutlook（今日の見通し、MSM予報）とは独立にフェッチするため、予報側の
 // 障害・遅延から表示が影響を受けない。
 //
 // アメダスは観測専用APIのため、降水確率・weather_code（予報由来）はそのままでは
@@ -62,7 +62,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
 
   return (
     // 気温・風向風速・降水量・天気アイコン・日の出日没をアイコン+数値だけの統計チップとして
-    // 1行に並べる（既存のOpen-Meteo版と同じスマホ最適化方針、WeatherPanel.module.css参照）。
+    // 1行に並べる（従来と同じスマホ最適化方針、WeatherPanel.module.css参照）。
     <div className={styles.row}>
       <span className={styles.stat} title={temperatureTitle}>
         <ThermometerIcon size={16} />

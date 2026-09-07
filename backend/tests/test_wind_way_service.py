@@ -270,7 +270,7 @@ async def test_repository_error_returns_empty_dict():
 
 async def test_at_none_defaults_to_now_without_raising():
     # WindWayServiceの既定時刻はdatetime.now(JST)（route_generator.pyのJSTと同じ簡易近似、
-    # Open-MeteoのhourlyがnaiveなJST文字列を返すことに整合させるため）。テストのwide_timesも
+    # 風グリッドの時刻配列がnaiveなJST文字列であることに整合させるため）。テストのwide_timesも
     # 同じ基準（JST）で「今日00:00〜翌日00:00」を用意し、テスト実行環境のタイムゾーンや
     # 実行時刻（23時台を含む）に依存せず必ず範囲内に収まるようにする（_nearest_time_indexは
     # 配列の最終時刻を超えると範囲外扱いにするため、今日の23:00までだと23時台に外れる）。

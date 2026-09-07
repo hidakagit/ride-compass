@@ -12,7 +12,7 @@ import type { components } from "@/types/generated/api";
 type Schemas = components["schemas"];
 
 // カテゴリはbackend/app/infrastructure/debug_log.pyのlog_external_call呼び出し元
-// （weather:open-meteo・basemap:openfreemap・region:road-surface-tile等）に対応する。
+// （msm:read・weather:jma-tile・basemap:openfreemap・region:road-surface-tile等）に対応する。
 export type ExternalCallStats = Schemas["ExternalCallStatsResponse"];
 export type DebugStats = Schemas["DebugStatsResponse"];
 

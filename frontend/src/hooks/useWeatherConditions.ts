@@ -18,13 +18,13 @@ import type { AmedasObservation, FloodForecasts, WbgtStatus, WeatherConditions, 
 import type { WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
 
 export interface UseWeatherConditionsResult {
-  /** 今日の見通し（TodayOutlook向け）。Open-Meteoの予報値（日次集計・weather_code・
+  /** 今日の見通し（TodayOutlook向け）。気象庁MSMの予報値（日次集計・weather_code・
    * UV指数等）で、常設ヘッダーはこれを参照しない（常設エリアは実測値、今日の見通しは
    * 予測値という方針分離）。 */
   weather: WeatherConditions | null;
   weatherLoading: boolean;
   weatherError: string | null;
-  /** 最寄りアメダス観測所の実測値（WeatherPanel＝常設ヘッダー向け）。Open-Meteoの成否・
+  /** 最寄りアメダス観測所の実測値（WeatherPanel＝常設ヘッダー向け）。予報側の成否・
    * 速度から独立してフェッチする。 */
   amedas: AmedasObservation | null;
   amedasLoading: boolean;
@@ -68,8 +68,8 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     Promise.resolve().then(() => fetchWeatherFor(location));
   }, [locationReady, location, fetchWeatherFor]);
 
-  // 最寄りアメダス観測所の実測値。weather（Open-Meteo）とは
-  // 独立したフェッチ・状態にすることで、常設ヘッダーの表示がOpen-Meteoの障害・遅延から
+  // 最寄りアメダス観測所の実測値。weather（MSM予報）とは
+  // 独立したフェッチ・状態にすることで、常設ヘッダーの表示が予報側の障害・遅延から
   // 影響を受けないようにする。
   const [amedas, setAmedas] = useState<AmedasObservation | null>(null);
   const [amedasLoading, setAmedasLoading] = useState(false);

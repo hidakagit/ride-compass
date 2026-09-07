@@ -187,7 +187,7 @@ describe("windLayer", () => {
 
     it("nextに無い地点はpreviousの値のまま残す（一時的な取得失敗で穴を開けない）", () => {
       const previous = [point(35, 139, 1), point(36, 140, 2)];
-      const next = [point(35, 139, 9)]; // (36,140)がOpen-Meteo側の失敗で欠落した想定
+      const next = [point(35, 139, 9)]; // (36,140)が取得失敗で欠落した想定
       const result = mergeWindGridKeepingStale(previous, next);
       expect(result).toHaveLength(2);
       expect(result.find((p) => p.latitude === 36)?.wind_speed_ms).toEqual([2]);

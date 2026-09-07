@@ -114,7 +114,7 @@ aws s3 cp --no-sign-request s3://io-10m-annual-lulc/<ゾーン>_<年>.tif .
 ## backend前段nginx（TLS・HTTP/3）の再構築
 
 本番VMのnginxはUbuntu配布版ではなくnginx.org公式パッケージ（1.30系、QUIC/HTTP/3同梱）で、
-設定は`/etc/nginx/conf.d/`（`ridecompass-backend.conf`・`openmeteo-proxy.conf`）にある。
+設定は`/etc/nginx/conf.d/`（`ridecompass-backend.conf`）にある。
 リポジトリ追加・パッケージ差し替え・server blockの全文・UDP 443開放（iptables＋OCI
 セキュリティリスト）の手順は[T580](tasks/T580.md)「VM側の作業手順」参照。TLS証明書は
 certbot（`sslip.io`ドメイン、HTTP-01）で、port 80のserver blockを残しておく必要がある。

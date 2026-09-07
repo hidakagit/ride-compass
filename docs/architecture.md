@@ -380,7 +380,7 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   体感温度はJMAが提供しないため、気温・湿度・風速からBOM（オーストラリア気象局）の
   Apparent Temperature式で自前計算する（`domain/jma_amedas.py:
   apparent_temperature_from_amedas`）。日照時間（`sunshine_10min_minutes`、frontend側の
-  簡易天気アイコン判定に使う）もRedisへ含める。日の出/日没はJMA/Open-Meteoに問い合わせず
+  簡易天気アイコン判定に使う）もRedisへ含める。日の出/日没は外部に問い合わせず
   astralによるローカル計算（`domain/twilight.py: sunrise_sunset_jst`）で、クエリ地点
   そのもの・当日（JST）の値を`get_nearest_observation`が都度計算して合成する
   （Redisにはキャッシュしない。計算コストが無視できるほど軽いため）。
@@ -714,7 +714,7 @@ RideCompass/
           （今日の降水確率最大・最大風速・気温レンジ・UV指数最大、今日の天気の流れ）。
           常設ヘッダーには項目を足さず、WarningBadgeと同じRadix Popoverパターンでタップ時
           のみ開く（T384調査「場所・季節を問わず常に意味を持つ値」だけに絞った日次見通し）。
-          データ源は引き続きOpen-Meteo（`weather`）のみで、予報専用パネルという位置づけ。
+          データ源は予報（`weather`）のみで、予報専用パネルという位置づけ。
           T385フォローアップ: UV指数最大値の追加（常設ヘッダーのtitle属性はスマホの
           タップでは実質見えないため、確実に見えるここへ追加）と、「今日の天気の流れ」
           （today_periods、現在時刻を含む2時間区間から2時間おき8コマ、時刻・天気アイコン・
@@ -801,8 +801,8 @@ GET /api/debug/stats   # 外部API呼び出し・キャッシュのカテゴリ�
                        # プロセス再起動でリセット
 Response 200:
 { "commit": null, "started_at": "2026-08-14T10:00:00+00:00", "engine": "road_graph", "debug_mode": false,
-  "external": { "weather:open-meteo": { "calls": 120, "errors": 8, "error_types": {"http_429": 6, "ConnectTimeout": 2},
-    "last_error_type": "http_429", "last_error_at": "2026-08-17T21:03:11+00:00",
+  "external": { "msm:read": { "calls": 120, "errors": 8, "error_types": {"MsmUnavailableError": 6, "OSError": 2},
+    "last_error_type": "MsmUnavailableError", "last_error_at": "2026-08-17T21:03:11+00:00",
     "last_success_at": "2026-08-17T21:04:02+00:00", "retried_calls": 15, "retry_attempts_total": 22,
     "stale_fallback_used": 3, "cache_hit_rate": 0.71, "avg_ms": 340, "max_ms": 4200 }, ... },
   "rate_limit_rejections": { ... } }
@@ -970,13 +970,13 @@ Response 200:
 # 「朝/午後/夜」等の意味づけラベルへの整形はbackendが持たずfrontend（TodayOutlook.tsx）が担う。
 # 判定ロジックはfrontend/weatherCode.tsに集約し、backendは生のweather_code/is_dayを
 # 素通しするだけ。
-Response 502（Open-Meteo呼び出し失敗時）:
+Response 502（MSMを読めない場合。同期未完了・予報終端が現在時刻へ追いついた等）:
 { "detail": "天候情報の取得に失敗しました" }
 Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 # 改善計画T387フォローアップ（2026-08-29）: 以前はここでアメダス実測値を上書きマージ
 # していたが、常設ヘッダー（WeatherPanel）がGET /api/weather/amedasを直接呼ぶよう分離
-# したため削除した。このエンドポイントは常にOpen-Meteoの値をそのまま返す
+# したため削除した。このエンドポイントは常に予報（気象庁MSM）の値を返す
 # （今日の見通しTodayOutlook専用）。
 
 GET /api/weather/amedas?latitude=...&longitude=...   # 最寄りアメダス観測所の直近観測値（改善計画T387、常設ヘッダー用）

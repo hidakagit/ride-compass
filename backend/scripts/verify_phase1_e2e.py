@@ -9,7 +9,7 @@
 
 GraphServiceは改善計画T222でPostGIS（repository）必須構成へ一本化済みのため、本スクリプトも
 PostGISのみで完結する（Overpassへ問い合わせる経路自体がコードから撤去済み）。天候
-（Open-Meteo）と標高（GSI）は実APIを呼ぶ。
+（MSMのローカルファイル）と標高（GSI）は実データを読む。
 """
 
 import asyncio

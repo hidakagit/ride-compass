@@ -42,7 +42,7 @@ async def get_weather(
 ) -> WeatherConditions:
     """今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。
     常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
-    `GET /api/weather/amedas`が担うため、このエンドポイントはOpen-Meteoの値を
+    `GET /api/weather/amedas`が担うため、このエンドポイントは予報（MSM）の値を
     そのまま返す。"""
     # Queryのge/leで範囲外の値をFastAPI層で弾く（Coordinatesへの委譲だと
     # pydantic.ValidationErrorが関数内から送出され、422ではなく未処理の500になる）。
