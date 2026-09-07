@@ -89,9 +89,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 chunk_started = time.perf_counter()
                 async with session_factory() as session:
                     repository = RoadGraphRepository(session)
-                    # use_cache=Falseの理由はdocs/modules/backend/elevation.md「事前計算
-                    # バッチ」節参照（全道路網一括バッチにRedis cache-asideの意味が無いため）。
-                    edges = await repository.get_edges_with_geometry(chunk, use_cache=False)
+                    edges = await repository.get_edges_with_geometry(chunk)
                     graph = RoadGraph(graph_version="batch-elevation", nodes={}, edges=edges)
 
                     service = ElevationAttributeService(client, http_client, repository=repository)

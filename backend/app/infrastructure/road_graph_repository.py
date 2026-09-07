@@ -104,7 +104,6 @@ from app.domain.traffic import (
     STOP_POI_KINDS,
     STOP_POI_MATCH_MAX_DISTANCE_M,
 )
-from app.infrastructure import road_edge_geometry_cache, road_graph_tile_cache
 from app.infrastructure.designation_models import DesignationAttributeRow
 from app.infrastructure.osm_way_tag_sql import (
     BICYCLE_NORMALIZED_SQL,
@@ -1134,47 +1133,22 @@ class DerivedGraphRepository(_SessionRepository):
 
         return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
 
-    async def get_edges_with_geometry(self, edge_ids: list[str], use_cache: bool = True) -> dict[str, DirectedEdge]:
+    async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
         """指定edge_idぶんだけ、実ジオメトリ込みのDirectedEdgeを取得する。
         `get_graph_topology_in_bbox`でgeometry抜きに読み込んだ探索用グラフから、
         Dijkstraで確定した経路（1候補あたり数十〜数百Edge）だけへ絞ってgeometryを
         取得し直す用途。bbox全件（数万〜十数万Edge）のdecodeを避けつつ、区間詳細
         表示に必要な実ジオメトリは確保する。
-
-        ルート生成のたびに呼ばれるホットパス（`RoadGraphEngine.evaluate_loops`が
-        候補ぶんをまとめて1リクエスト1回呼ぶ）のため、edge_id単位のRedis cache-aside
-        （`infrastructure/road_edge_geometry_cache.py`）をまず経由する。Redisで
-        判定できなかった分だけPostGISへ問い合わせ、取得できた分をRedisへ
-        書き戻す（road_graph_tile_cache.pyのget_cached_tiles/mark_fetchedと同じ構造）。
-
-        `use_cache=False`はRedis cache-asideを丸ごと迂回しPostGISへ
-        直接問い合わせる。全道路網一括バッチ（`precompute_elevation_attributes.py`）
-        のように対象がbboxに収まらず反復性も無い呼び出しでは、Redisへ大量書き込み
-        する意味が無いばかりか、TTL付きエントリで他の用途のキャッシュを追い出す
-        副作用がある（docs/tasks/T576.md参照）。
         """
         if not edge_ids:
             return {}
-        if not use_cache:
-            edges: dict[str, DirectedEdge] = {}
-            for id_chunk in _chunked(edge_ids, 50_000):
-                edge_stmt = select(RoadEdgeRow).where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
-                edge_rows = (await self._session.execute(edge_stmt)).scalars().all()
-                edges.update(await asyncio.to_thread(_edge_rows_to_directed_edges, edge_rows))
-            return edges
-        cached = await road_edge_geometry_cache.get_cached_edges(edge_ids)
-        remaining = [edge_id for edge_id in edge_ids if edge_id not in cached]
-        if not remaining:
-            return cached
-        edges = {}
-        for id_chunk in _chunked(remaining, 50_000):
+        edges: dict[str, DirectedEdge] = {}
+        for id_chunk in _chunked(edge_ids, 50_000):
             edge_stmt = select(RoadEdgeRow).where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
             edge_rows = (await self._session.execute(edge_stmt)).scalars().all()
-            partial = await asyncio.to_thread(_edge_rows_to_directed_edges, edge_rows)
-            edges.update(partial)
-        if edges:
-            await road_edge_geometry_cache.cache_edges(edges)
-        return cached | edges
+            edges.update(await asyncio.to_thread(_edge_rows_to_directed_edges, edge_rows))
+        return edges
+
 
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
         """bboxと交差する全ての主対象Way（`_primary_way_conditions`と同じ定義。
@@ -1325,13 +1299,6 @@ class DerivedGraphRepository(_SessionRepository):
         edge_upsert_started = time.monotonic()
         await _copy_upsert_road_edges(self._session, edges_to_save, now)
         edge_upsert_ms = round((time.monotonic() - edge_upsert_started) * 1000)
-        # このedge_idぶんのgeometry cache-aside（infrastructure/
-        # road_edge_geometry_cache.py）を無条件で無効化する。同じedge_idが再split後に
-        # 異なる形状で再利用されるケース（近傍Wayの分割変更で交差点位置がずれる等）に
-        # 備えた precise invalidation。実際にはDELETE→INSERTされなかった行
-        # （edges_to_saveに変化が無かったedge_id）ぶんも含むが、無効化しすぎても
-        # 次回アクセス時にPostGISから読み直してRedisへ書き戻すだけで実害は無い。
-        await road_edge_geometry_cache.invalidate_edges([edge.edge_id for edge in edges_to_save])
         total_ms = round((time.monotonic() - started) * 1000)
 
         # 高コスト処理のステージ別所要時間サマリ（docs/logging.md）。この経路は低頻度だが、
@@ -1562,24 +1529,16 @@ class RawOsmRepository(_SessionRepository):
         （タイル数ぶん個別に問い合わせるループを集約するため。半径10kmの起点1件で
         6回の個別往復が発生しうる）。
 
-        まずRedis（cache-aside、road_graph_tile_cache.py）で判定できる分は
-        PostGISへ問い合わせず即答する。Redisで判定できなかった（cold cache）タイルだけを
-        PostGISへ1クエリでまとめて問い合わせ、見つかった分をRedisへ書き戻す。
+        `road_graph_tiles`は1,000行規模の小さなテーブルで、この問い合わせ自体が数ミリ秒で
+        終わる（docs/caching.md「判断をキャッシュしてよい条件」参照）。
         """
         if not tiles:
             return set()
-        cached = await road_graph_tile_cache.get_cached_subset(zoom, tiles)
-        remaining = [tile for tile in tiles if tile not in cached]
-        if not remaining:
-            return cached
         stmt = select(RoadGraphTileRow.x, RoadGraphTileRow.y).where(
-            RoadGraphTileRow.zoom == zoom, tuple_(RoadGraphTileRow.x, RoadGraphTileRow.y).in_(remaining)
+            RoadGraphTileRow.zoom == zoom, tuple_(RoadGraphTileRow.x, RoadGraphTileRow.y).in_(tiles)
         )
         rows = (await self._session.execute(stmt)).all()
-        found = {(row.x, row.y) for row in rows}
-        if found:
-            await road_graph_tile_cache.mark_fetched(zoom, list(found))
-        return cached | found
+        return {(row.x, row.y) for row in rows}
 
     async def get_distinct_material_values(self, material_id: str) -> list[str]:
         """軸スタジオ（AxisComposer.tsx）の値入力UX向け。highway/surface/
@@ -2237,8 +2196,8 @@ class RoadGraphRepository:
     async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> LeanRoadGraph | None:
         return await self.graph.get_graph_topology_in_bbox(bbox)
 
-    async def get_edges_with_geometry(self, edge_ids: list[str], use_cache: bool = True) -> dict[str, DirectedEdge]:
-        return await self.graph.get_edges_with_geometry(edge_ids, use_cache=use_cache)
+    async def get_edges_with_geometry(self, edge_ids: list[str]) -> dict[str, DirectedEdge]:
+        return await self.graph.get_edges_with_geometry(edge_ids)
 
     async def is_split_up_to_date(self, bbox: BoundingBox) -> bool:
         return await self.graph.is_split_up_to_date(bbox)

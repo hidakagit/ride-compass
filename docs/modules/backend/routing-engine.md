@@ -13,7 +13,7 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`road_graph_tile_cache.py`・`road_edge_geometry_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
 
@@ -670,19 +670,21 @@ osm_way_tag_sql.py`の共有断片を`_ROAD_SURFACE_TILE_MVT_SQL`・`material_co
 ようになり、`precompute_edge_attribute_counts.py`単体実行のような参照先モデルを一切
 importしないプロセスで`NoReferencedTableError`を起こす。
 
-### Redis cache-aside層（3種、いずれもPostGIS/DBが正本でfail-open設計）
+### キャッシュ（ルート生成はRedisを使わない）
 
-| モジュール | キャッシュ対象 | TTL | 無効化 |
-|---|---|---|---|
-| `road_graph_tile_cache.py`（取得済みマーカー） | タイルの取込完了 | 24h | 明示的な無効化なし（一度立てば実質恒久、TTLは自己修復用） |
-| `road_graph_tile_cache.py`（split鮮度マーカー） | `is_split_up_to_date`の判定結果 | 1h | `save_graph`成功直後にmark、`import_pbf.py`の再importで`invalidate_split_fresh` |
-| `road_edge_geometry_cache.py` | edge_id単位の実ジオメトリ | 24h | `save_graph`が`new_edge_ids`を無条件delete（precise invalidation） |
+ルート生成の経路で使うキャッシュはプロセス内メモリとディスクだけで、Redisを経由しない。
 
-いずれも**Redis自体が疎通不能ならPostGIS単独の動作へfail-open**する（呼び出し元は
-Redis障害を意識しなくてよい）。取得済みマーカーはOverpassフォールバックを持たないため、
-これを失うと該当bboxのルート生成が「データ未整備」として拒否される（再取得の自動復旧
-手段が無い）——このためRedisを正本にできず、書き込みは常にPostGISが担いRedisは読み取り
-高速化の派生キャッシュに留める設計になっている。
+| 層 | 対象 | 実装 |
+|---|---|---|
+| プロセス内（件数上限LRU） | 探索用グラフ・タイル材料・静的スコア行列 | `search_graph_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py` |
+| ディスク | タイル材料・静的スコア行列（プロセス再起動をまたぐ） | `tile_persistent_cache.py` |
+| ディスク | 標高DEMタイル | `tile_cache.py` |
+
+タイルの取込完了判定（`road_graph_tiles`、1,000行規模）とsplit鮮度判定
+（`is_split_up_to_date`の空間クエリ）は、いずれも数ミリ秒で終わるためキャッシュせず毎回
+PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_geometry`）も同様に毎回読む。
+判断をキャッシュしない理由は[docs/caching.md](../../caching.md)参照——別プロセスのバッチが
+生データを書き換えるため、判断を保持すると危険側（「splitは最新」）で古い値を返しうる。
 
 ## API（`api/routers/routes.py`）
 

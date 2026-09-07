@@ -2,7 +2,7 @@
 
 `dynamic_way_value_cache.py`と同じ「正本を持たないcache-aside」設計（TTL付き）。
 
-**正本を持たない**: road_graph_tile_cache.pyと異なり、このキャッシュを失っても
+**正本を持たない**: このキャッシュを失っても
 「データ未整備で機能が壊れる」ことはない（JMAへ再フェッチすればよいだけ）。Redis障害時は
 `jma_tile_client.py`側が単に「未キャッシュ」として扱い実フェッチへ進むfail-open。
 

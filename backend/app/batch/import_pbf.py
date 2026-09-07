@@ -46,10 +46,6 @@ from app.domain.osm_adapter import POISpec, osm_node_to_poi_spec, osm_way_to_way
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox
 from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
-from app.infrastructure.road_graph_tile_cache import (
-    invalidate_split_fresh as invalidate_split_fresh_in_cache,
-    mark_fetched as mark_tiles_fetched_in_cache,
-)
 
 logger = logging.getLogger("app.batch.import_pbf")
 
@@ -275,14 +271,6 @@ async def _mark_tiles(conn: asyncpg.Connection, bbox: BoundingBox, fetched_at: d
         "ON CONFLICT (zoom, x, y) DO NOTHING",
         [(ROAD_GRAPH_TILE_ZOOM, x, y, fetched_at) for x, y in tiles],
     )
-    # PostGIS（正本）への書き込み直後にRedis（cache-aside、road_graph_tile_cache.py）も
-    # 温めておく。次回のルート生成リクエストがcold cacheでPostGISへ問い合わせ直す1回分を
-    # 省ける（失敗してもPostGIS側の正本は既に確定済みのため取込結果自体には影響しない）。
-    await mark_tiles_fetched_in_cache(ROAD_GRAPH_TILE_ZOOM, tiles)
-    # 同じタイルの再import（osm_raw_ways.updated_atが進む）でroad_edgesが生データより
-    # 古くなりうるため、is_split_up_to_dateのcache-aside（split鮮度マーカー）を無効化する。
-    # 初回import（マーカー自体がまだ無い）でも無害（存在しないキーのDELETEは単なるno-op）。
-    await invalidate_split_fresh_in_cache(ROAD_GRAPH_TILE_ZOOM, tiles)
     return len(tiles)
 
 

@@ -11,8 +11,7 @@ missしたときの第2段として使う——プロセス内メモリのみだ
 
 **シリアライズはpickleを使う**: 対象（`SearchMaterials`・`StaticEdgeScoreMatrix`）は
 Pydanticモデル・frozen dataclass・numpy配列が混在する構造で、JSON化に適さない
-（`road_edge_geometry_cache.py`がRedis向けにPydanticのJSON化を使うのとは対象の複雑さが
-異なる）。picklable性はテストで確認済み。
+。picklable性はテストで確認済み。
 
 **ファイル破損・部分書き込みはすべてキャッシュミス扱いにフォールバックする**
 （`tile_cache.py`の`get()`と同じ「壊れていたら未キャッシュ扱いにして呼び出し元に

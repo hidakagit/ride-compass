@@ -151,11 +151,10 @@ class Settings(BaseSettings):
     admin_basic_auth_username: str = ""
     admin_basic_auth_password: str = ""
 
-    # JMA気象データ（アメダス・降水ナウキャスト・MSM）の短命キャッシュと、
-    # road_graph_tilesタイル取得済みマーカーのcache-aside層（infrastructure/road_graph_tile_cache.py）
-    # が使う。いずれもTTL付きキャッシュ、またはPostGIS（正本）へフォールバック可能なcache-asideの
-    # ため、Redis側に永続化（RDB/AOF）設定は要らない設計にしてある（再起動・キャッシュ消失時は
-    # 次回アクセスで自己修復する。infrastructure/redis_client.pyのdocstring参照）。
+    # JMA気象データ（アメダス観測値・動的タイル・在否インデックス）の短命キャッシュが使う。
+    # いずれもTTL付きで、失っても外部から取り直せるため、Redis側に永続化（RDB/AOF）設定は
+    # 要らない設計にしてある（再起動・キャッシュ消失は次回アクセスで自己修復する。
+    # infrastructure/redis_client.pyのdocstring参照）。
     # 本番はOracle Cloud VM上にネイティブ（apt、PostgreSQLと同じ構成）で導入する想定。
     # backendコンテナは--network=hostで起動するため、この既定値（localhost）のまま
     # VM上のRedisへ到達できる（導入手順はdocs/architecture.md参照）。

@@ -44,9 +44,9 @@ Geofabrik/BBBike PBF抽出ファイル
   座標がbbox内かで直接判定する。
 - `--bbox`指定時の取込成功時のみ、その範囲の`road_graph_tiles`を「取得済み」マークする
   （`--bbox`省略時はマークしない——PBFヘッダのbboxは抽出ポリゴンの外接矩形にすぎず、
-  データが無い領域を誤マークしうるため）。マーク後は`road_graph_tile_cache`（Redis
-  cache-aside、[routing-engine.md](routing-engine.md)参照）も同時に温め、同じタイルの
-  再importでは`is_split_up_to_date`のsplit鮮度マーカーを無効化する。
+  データが無い領域を誤マークしうるため）。マーク先はPostGISの`road_graph_tiles`だけで、
+  web側のキャッシュへ手を伸ばすことはない（ルート生成側は毎回PostGISへ問い合わせる。
+  [routing-engine.md](routing-engine.md)・[docs/caching.md](../../caching.md)参照）。
 - ways/nodes/POIは1回のosmiumパスで同時に処理する（PBFの再読み込みを避ける）。node取込は
   タグを持つnodeのみ対象（大多数の形状点nodeはタグ辞書構築自体を省略）。
 - 新規DB（`osm_raw_ways`が空）への初回取込のみ、`geom`列のGiSTインデックスを取込完了後まで
