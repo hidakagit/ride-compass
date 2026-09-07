@@ -954,6 +954,27 @@
         }
       }
     },
+    "/api/jma-tile-index": {
+      "get": {
+        "summary": "Jma Tile Index",
+        "description": "どのタイルに描くものがあるかの一覧（`infrastructure/jma_tile_index.py`）。\n\nJMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。クライアントはこれを1回\n受け取り、載っていないタイルは要求しない。`available: false`のときは従来どおり\n全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない）。\n\n`coverage`の外は在否が不明のため、クライアントはその範囲のタイルを従来どおり取得する。",
+        "operationId": "jma_tile_index_api_jma_tile_index_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Jma Tile Index Api Jma Tile Index Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jma-tile/{path}": {
       "get": {
         "summary": "Jma Tile Proxy",
@@ -4401,7 +4422,7 @@
           "precipitation_mm"
         ],
         "title": "WindGridPoint",
-        "description": "格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、\nforecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため。\n\n`times`自体はここには持たない（`WindGridResponse`参照）。全地点が同じ\nforecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため\nhourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（約9割）を\n時刻文字列の重複が占める。\n\nprecipitation_mm（降水量、mm/h相当）を持つ。風の矢印と降水ナウキャストの延長予報\n（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている\n（モジュール冒頭のdocstring参照）。"
+        "description": "格子点1つぶんの時間別風向・風速・降水量。各配列は応答トップレベルの時刻列\n（JST・1時間刻み）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため。\n\n`times`自体はここには持たない（`WindGridResponse`参照）。全地点を同じ時刻列で\nまとめて読む（msm_client.read_series）ため時刻は全地点で共通であり、624地点ぶん\n複製すると応答サイズの大半（約9割）を時刻文字列の重複が占める。\n\nprecipitation_mm（降水量、mm/h相当）を持つ。風の矢印と降水ナウキャストの延長予報\n（+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている\n（モジュール冒頭のdocstring参照）。"
       },
       "WindGridResponse": {
         "properties": {

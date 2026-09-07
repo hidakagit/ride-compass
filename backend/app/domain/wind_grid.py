@@ -143,10 +143,9 @@ class WindGridPoint(BaseModel):
     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
     切り替えられるようにするため。
 
-    `times`自体はここには持たない（`WindGridResponse`参照）。全地点が同じ
-    forecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため
-    hourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（約9割）を
-    時刻文字列の重複が占める。
+    `times`自体はここには持たない（`WindGridResponse`参照）。全地点を同じ時刻列で
+    まとめて読む（msm_client.read_series）ため時刻は全地点で共通であり、624地点ぶん
+    複製すると応答サイズの大半（約9割）を時刻文字列の重複が占める。
 
     precipitation_mm（降水量、mm/h相当）を持つ。風の矢印と降水ナウキャストの延長予報
     （+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている

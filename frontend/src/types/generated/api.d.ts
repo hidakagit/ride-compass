@@ -447,6 +447,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jma-tile-index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Jma Tile Index
+         * @description どのタイルに描くものがあるかの一覧（`infrastructure/jma_tile_index.py`）。
+         *
+         *     JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。クライアントはこれを1回
+         *     受け取り、載っていないタイルは要求しない。`available: false`のときは従来どおり
+         *     全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない）。
+         *
+         *     `coverage`の外は在否が不明のため、クライアントはその範囲のタイルを従来どおり取得する。
+         */
+        get: operations["jma_tile_index_api_jma_tile_index_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jma-tile/{path}": {
         parameters: {
             query?: never;
@@ -1836,15 +1862,14 @@ export interface components {
         };
         /**
          * WindGridPoint
-         * @description 格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、
-         *     forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
+         * @description 格子点1つぶんの時間別風向・風速・降水量。各配列は応答トップレベルの時刻列
+         *     （JST・1時間刻み）とインデックスが揃っている。特定時刻1点へ収束させず
          *     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
          *     切り替えられるようにするため。
          *
-         *     `times`自体はここには持たない（`WindGridResponse`参照）。全地点が同じ
-         *     forecast_days・timezoneで一括取得される（weather_client.py: get_forecast_many）ため
-         *     hourly.timeは全地点で共通であり、624地点ぶん複製すると応答サイズの大半（約9割）を
-         *     時刻文字列の重複が占める。
+         *     `times`自体はここには持たない（`WindGridResponse`参照）。全地点を同じ時刻列で
+         *     まとめて読む（msm_client.read_series）ため時刻は全地点で共通であり、624地点ぶん
+         *     複製すると応答サイズの大半（約9割）を時刻文字列の重複が占める。
          *
          *     precipitation_mm（降水量、mm/h相当）を持つ。風の矢印と降水ナウキャストの延長予報
          *     （+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている
@@ -2481,6 +2506,28 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    jma_tile_index_api_jma_tile_index_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
                     };
                 };
             };
