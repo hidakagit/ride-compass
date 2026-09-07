@@ -12,7 +12,7 @@
 |---|---|
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`dynamic_way_values.py` |
 | services | `wind_way_service.py`・`gradient_way_service.py` |
-| infrastructure | `dynamic_way_value_cache.py` |
+| infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由） |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{material_id}/...`）・`dependencies.py`（`get_dynamic_way_value_service`） |
 
 勾配材料の入力（`elevation_attributes.average_grade`・`road_edges.bearing_deg`）を
@@ -104,19 +104,25 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
 
 ## キャッシュ（`infrastructure/dynamic_way_value_cache.py`）
 
-タイル単位の値を地図表示専用のRedisキャッシュへ格納する。キーは
-`_key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)` — `bearing_bucket(bearing_deg)`が
-向きを`BEARING_BUCKET_DEG`（5度）刻み、`speed_bucket(speed_kmh)`が想定速度を1km/h刻みで
-離散バケット化するため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・
-向きバケット・速度バケットの範囲内では風グリッド・DBへの再問い合わせは発生しない。
-速度に依存しない材料（勾配）は速度バケットをNone（`-`）にし、速度が変わってもキャッシュが
-分割されない。
+**キャッシュするのは勾配だけ**。風は「タイル中心1点の風を全wayへ配る」だけで計算が軽く、
+キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%）にとどまる一方、1エントリ
+190KBを保持することになるため、キャッシュせず都度計算する。勾配はway単位の計算で
+809msを節約できるためキャッシュする（[docs/caching.md](../../caching.md)
+「キャッシュしないという選択」参照）。
 
-値は`{way_id: 値}`のJSONオブジェクトで、風のように「タイル内全wayが同値」の場合も
-勾配のように「way単位で異なる値」の場合も同じ表現で吸収する。TTLは呼び出し元が渡す
-（風=`msm_client.update_interval_seconds()`＝配信元のrun更新間隔[3時間]、
-勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`＝24時間）。正本を持たないキャッシュで、Redis障害時はfail-open（未キャッシュとして
-扱い実計算へ進む）。
+保持層は**ディスク**（`tile_persistent_cache`＝diskcache）。失っても外部へは取りに行かず
+自前で再計算できるためRedisは使わず、1エントリが190KBでキーが
+(タイル×向き×速度×時刻)の組み合わせで増えるためプロセス内メモリにも置かない。
+
+キーは`_key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプル。
+`bearing_bucket(bearing_deg)`が向きを`BEARING_BUCKET_DEG`（5度）刻み、
+`speed_bucket(speed_kmh)`が想定速度を1km/h刻みで離散バケット化するため、パン・ズームで
+同じタイルが再び視界に入っても、同じバケットの範囲内ではDBへの再問い合わせも再計算も
+発生しない。速度に依存しない材料（勾配）は速度バケットをNoneにし、速度が変わっても
+キャッシュが分割されない。
+
+値は`{way_id: 値}`のdict。TTLは呼び出し元が渡す（勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`
+＝24時間）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
 
 ## サービス実装
 

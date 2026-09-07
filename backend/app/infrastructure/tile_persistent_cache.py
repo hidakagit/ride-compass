@@ -75,6 +75,38 @@ def use_directory(directory) -> None:
     CACHE_DIR = directory
 
 
+def get_by_key(key: tuple, stats: dict[str, object] | None = None) -> Any | None:
+    """任意のタプルキーで読む。キーの設計は呼び出し元が持つ（先頭要素をnamespaceにする）。
+
+    `stats`を渡すと読み出しの所要時間（ms）を`read_ms`へ書き込む。未キャッシュ・破損時は
+    `stats`へ何も書き込まない。
+    """
+    try:
+        started = time.monotonic()
+        value = cache().get(key)
+        read_ms = (time.monotonic() - started) * 1000
+    except Exception:  # noqa: BLE001 破損エントリ・SQLite障害はいずれも未キャッシュ扱いにする
+        logger.warning("tile persistent cache read failed key=%r, treating as cache miss", key, exc_info=True)
+        return None
+    if value is None:
+        return None
+    if stats is not None:
+        stats["read_ms"] = read_ms
+    return value
+
+
+def set_by_key(key: tuple, value: Any, *, tag: str | None = None, expire: float | None = None) -> None:
+    """任意のタプルキーで書く。`expire`（秒）を渡すとその時間で失効する。
+
+    書き込み失敗（ディスクフル・pickle化不能な値等）は握りつぶし、警告ログのみで
+    no-opにフォールバックする（キャッシュ書き込みの失敗が応答を止める理由にはならない）。
+    """
+    try:
+        cache().set(key, value, tag=tag, expire=expire)
+    except Exception as exc:  # noqa: BLE001 OSError（ディスクフル）・pickle化不能のいずれも吸収する
+        logger.warning("tile persistent cache write failed key=%r error=%r", key, exc, exc_info=True)
+
+
 def get(
     namespace: str, version: str, zoom: int, x: int, y: int, stats: dict[str, object] | None = None
 ) -> Any | None:

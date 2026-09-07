@@ -1,4 +1,4 @@
-"""動的＋向きあり材料の「way_id→値」配信専用のRedis cache-asideキャッシュ。
+"""動的＋向きあり材料の「way_id→値」配信専用のディスクキャッシュ。
 way_id別の動的値を配るレイヤーで、材料そのものの取得層とは別レイヤー。
 
 キーは`(material_id, z, x, y, 時刻バケット, 向きバケット, 速度バケット)`。値は
@@ -17,14 +17,20 @@ TTLは呼び出し元（各材料のサービス）が渡す——風は気象�
 標高由来の値でほぼ不変のため、材料ごとに異なる基準で決めてよい（このモジュール自体は
 特定のTTL値を持たない）。
 
-**正本を持たないキャッシュ**（jma_tile_redis_cache.pyと同じ性質）: 失っても呼び出し元が
-再計算すればよいだけで、失敗時はfail-open（未キャッシュとして扱い実計算へ進む）。Redis
-障害時も機能は止まらない（再計算コストが少し増えるだけ）。
+**置き場所がディスクである理由**: 失っても外部へ取りに行かず自前で再計算できるため
+Redisは使わない（docs/caching.md「Redisへ置くもの・置かないもの」）。一方で1エントリが
+9,500way規模で約190KBあり、キーが(タイル×向き×速度×時刻)の組み合わせで増えるため、
+プロセス内メモリにも置かない。実体をRAMの外へ置き、容量上限と退避をライブラリへ委ねる
+`tile_persistent_cache`（diskcache）が適する。
+
+**正本を持たないキャッシュ**: 失っても呼び出し元が再計算すればよいだけで、失敗時は
+fail-open（未キャッシュとして扱い実計算へ進む）。
 """
 
+import asyncio
 import math
 
-from app.infrastructure.redis_json_cache import get_json, set_json
+from app.infrastructure import tile_persistent_cache
 
 _KEY_PREFIX = "dynway"
 
@@ -52,10 +58,10 @@ def speed_bucket(speed_kmh: float) -> int:
 def _key(
     material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
     speed_kmh: float | None,
-) -> str:
-    bearing_token = str(bearing_bucket(bearing_deg)) if bearing_deg is not None else "-"
-    speed_token = str(speed_bucket(speed_kmh)) if speed_kmh is not None else "-"
-    return f"{_KEY_PREFIX}:{material_id}:{z}:{x}:{y}:{hour_bucket or '-'}:{bearing_token}:{speed_token}"
+) -> tuple:
+    bearing_token = bearing_bucket(bearing_deg) if bearing_deg is not None else None
+    speed_token = speed_bucket(speed_kmh) if speed_kmh is not None else None
+    return (_KEY_PREFIX, material_id, z, x, y, hour_bucket, bearing_token, speed_token)
 
 
 async def get_tile_values(
@@ -67,14 +73,7 @@ async def get_tile_values(
     未キャッシュ・Redis疎通不能・壊れたエントリはいずれもNoneへfail-openする（呼び出し元は
     実計算へ進む）。"""
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
-    parsed = await get_json(key, category=f"cache:dynway-{material_id}-redis")
-    if parsed is None:
-        return None
-    try:
-        return {int(way_id): float(value) for way_id, value in parsed.items()}
-    except (ValueError, TypeError, AttributeError):
-        # 壊れたエントリ（フォーマット変更等）は未キャッシュ扱いにする。
-        return None
+    return await asyncio.to_thread(tile_persistent_cache.get_by_key, key)
 
 
 async def set_tile_values(
@@ -92,5 +91,6 @@ async def set_tile_values(
     書き込み失敗はレスポンス自体の成否には関与しない。失敗時は抑制付きWARNINGで記録する
     だけに留める）。"""
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
-    payload = {str(way_id): value for way_id, value in values.items()}
-    await set_json(key, payload, ttl_seconds=ttl_seconds, category=f"cache:dynway-{material_id}-redis")
+    await asyncio.to_thread(
+        tile_persistent_cache.set_by_key, key, dict(values), tag=f"{_KEY_PREFIX}:{material_id}", expire=ttl_seconds
+    )

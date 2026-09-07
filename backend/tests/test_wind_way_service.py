@@ -195,7 +195,7 @@ async def test_adjacent_tiles_resolve_to_different_grid_points():
     assert weather_service_a.calls[0] != weather_service_b.calls[0]
 
 
-async def test_second_call_with_same_bearing_and_speed_bucket_is_served_from_cache():
+async def test_second_call_recomputes_without_caching():
     repository = FakeWayIdsRepository(way_ids=[1])
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
@@ -205,9 +205,9 @@ async def test_second_call_with_same_bearing_and_speed_bucket_is_served_from_cac
     second = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert first == second
-    # way_id一覧の取得（DBクエリ）は都度行うが、風グリッドの再取得はキャッシュヒットのため1回のみ。
+    # 風は計算が軽いため値をキャッシュしない（docs/caching.md）。同じ条件でも都度計算する。
     assert len(repository.calls) == 2
-    assert len(weather_service.calls) == 1
+    assert len(weather_service.calls) == 2
 
 
 async def test_different_bearing_bucket_recomputes():

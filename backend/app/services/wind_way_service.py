@@ -22,9 +22,7 @@ from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, nearest_grid_point
 from app.infrastructure.debug_log import log_external_call
-from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.infrastructure.msm_client import update_interval_seconds
 from app.services.route_generator import JST
 from app.services.weather_service import WeatherService
 
@@ -38,11 +36,6 @@ AXIS_ID = "wind"
 # （`domain/wind_grid.py: WIND_GRID_DETAIL_SPACING_DEG`、≒2.2km）をそのまま流用する。
 # MSMの格子は約5km（緯度0.05度・経度0.0625度）で、これより細かい間隔を選んでも
 # 格子間を補間した値を刻むだけで実際の精度は上がらない。
-
-
-def _hour_bucket(at: datetime) -> str:
-    """時刻を1時間バケットへ丸める（dynamic_way_value_cache.pyのキー参照）。"""
-    return at.strftime("%Y-%m-%dT%H")
 
 
 def _tile_center(bbox: BoundingBox) -> Coordinates:
@@ -122,37 +115,26 @@ class WindWayService:
                 return {}
             fields["way_count"] = len(way_ids)
 
-            hour_bucket = _hour_bucket(target)
-            cached = await get_tile_values(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
-            if cached is not None:
-                fields["cache_hit"] = len(way_ids)
-                fields["cache_status"] = "hit"
-                penalty = next(iter(cached.values()), 0.0)
-            else:
-                fields["cache_status"] = "miss"
+            # タイル中心1点の風から全wayへ同じ値を配るだけで計算が軽いため、値はキャッシュ
+            # しない（節約は1タイルあたり2.8ms＝応答の5%で、1エントリ190KBを保持するのに
+            # 見合わない。docs/caching.md「キャッシュしないという選択」参照）。
+            grid_point = nearest_grid_point(_tile_center(bbox), spacing_deg=WIND_GRID_DETAIL_SPACING_DEG)
+            times, points = await self._weather_service.get_wind_grid([grid_point])
+            wind_grid_point = points[0] if points else None
+            if wind_grid_point is None:
+                fields["wind_grid"] = "unavailable"
+                logger.warning("風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
+                return {}
+            index = _nearest_time_index(times, target)
+            if index is None:
+                fields["wind_grid"] = "out_of_range"
+                logger.warning("風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
+                return {}
 
-                grid_point = nearest_grid_point(_tile_center(bbox), spacing_deg=WIND_GRID_DETAIL_SPACING_DEG)
-                times, points = await self._weather_service.get_wind_grid([grid_point])
-                wind_grid_point = points[0] if points else None
-                if wind_grid_point is None:
-                    fields["wind_grid"] = "unavailable"
-                    logger.warning("風の評価軸配信の風グリッド取得に失敗 z=%d x=%d y=%d", z, x, y)
-                    return {}
-                index = _nearest_time_index(times, target)
-                if index is None:
-                    fields["wind_grid"] = "out_of_range"
-                    logger.warning("風の評価軸配信の時刻が風グリッド範囲外 z=%d x=%d y=%d", z, x, y)
-                    return {}
+            wind_speed = wind_grid_point.wind_speed_ms[index]
+            wind_direction = wind_grid_point.wind_direction_deg[index]
+            penalty = round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(speed_kmh)), 3)
+            fields["computed"] = len(way_ids)
 
-                wind_speed = wind_grid_point.wind_speed_ms[index]
-                wind_direction = wind_grid_point.wind_direction_deg[index]
-                penalty = round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(speed_kmh)), 3)
-                values = dict.fromkeys(way_ids, penalty)
-                await set_tile_values(
-                    material_id, z, x, y, hour_bucket, bearing_deg, values, update_interval_seconds(), speed_kmh
-                )
-                fields["computed"] = len(way_ids)
-
-            # 同じタイル内の全wayが同じ値を持つため、キャッシュhit/missいずれの経路も
-            # ここで1回だけbroadcastする。
+            # 同じタイル内の全wayが同じ値を持つため、ここで1回だけbroadcastする。
             return dict.fromkeys(way_ids, penalty)
