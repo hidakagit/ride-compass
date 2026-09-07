@@ -6,13 +6,28 @@
 // 2ファイル、雷/竜巻はN3の1ファイルに実況・予測が同居）は呼び出し元に残す。
 
 import { fetchJson } from "@/lib/fetchJson";
+import { tileBaseUrl } from "@/lib/tileBaseUrl";
 
 // JMA bosaiタイル系（時刻一覧JSON・ラスタタイルPNG）の共通ベースURL。
 // バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
 // `GET /api/jma-tile/{path}`）経由にすることで、JMAの非公式内部APIへの直接アクセスを
-// 避けつつ、同一オリジン（他のタイル系＝basemap/road-surface等と同じ理由、
-// next.config.tsのrewritesコメント参照）で配信する。
+// 避けつつ配信する。
 export const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
+
+/**
+ * JMAプロキシ配下のパスを、タイル本体と同じ配信オリジンの絶対URLにする。
+ *
+ * 時刻一覧（`targetTimes*.json`）・雷放電位置データ（GeoJSON）は、タイル本体と違って
+ * アプリ自身の`fetch()`で読む。**タイルURLは時刻一覧が返るまで確定しない**ため、ここで
+ * フロントのホスティングを経由すると往復1つぶんが初回表示のクリティカルパスへ直列に
+ * 乗る。タイルと同じ`tileBaseUrl()`（本番ではbackendのオリジン）を使って避ける。
+ *
+ * `tileBaseUrl()`は`window`を参照するため、モジュール読み込み時の定数ではなく
+ * 呼び出し時に評価する関数として提供する（SSRで空文字に固定されるのを避ける）。
+ */
+export function jmaProxyUrl(path: string): string {
+  return `${tileBaseUrl()}${JMA_TILE_BASE_URL}${path}`;
+}
 
 export interface JmaNowcastFrame {
   basetime: string;

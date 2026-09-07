@@ -38,13 +38,13 @@
 
 import { fetchJson } from "@/lib/fetchJson";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { JMA_TILE_BASE_URL, parseValidtime } from "@/components/Map/jmaNowcastFrames";
+import { JMA_TILE_BASE_URL, parseValidtime, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
-const RISK_TARGET_TIMES_URL = `${JMA_TILE_BASE_URL}/jmatile/data/risk/targetTimes.json`;
+const riskTargetTimesUrl = () => jmaProxyUrl("/jmatile/data/risk/targetTimes.json");
 // 線状降水帯予測マップ(sjfcstmap)は降水短時間予報(rasrf)と同じtargetTimes.jsonに
 // elements違いの別行として混在する。
-const RASRF_TARGET_TIMES_URL = `${JMA_TILE_BASE_URL}/jmatile/data/rasrf/targetTimes.json`;
+const rasrfTargetTimesUrl = () => jmaProxyUrl("/jmatile/data/rasrf/targetTimes.json");
 
 interface RawRiskTargetTime {
   basetime: string;
@@ -95,7 +95,7 @@ export interface CurrentRiskFrames {
 /** キキクル4種（土砂・大雨・浸水・洪水）の「現在」フレームをまとめて取得する（1回のfetchで
  * targetTimes.json自体は4種共通、要素ごとに最新エントリを個別に選ぶ）。 */
 export async function fetchCurrentRiskFrames(): Promise<CurrentRiskFrames> {
-  const raw = await fetchTargetTimes(RISK_TARGET_TIMES_URL, "危険度分布（キキクル）の時刻一覧");
+  const raw = await fetchTargetTimes(riskTargetTimesUrl(), "危険度分布（キキクル）の時刻一覧");
   return {
     land: toFrames(latestEntry(raw, "land")),
     heavyRain: toFrames(latestEntry(raw, "rain_mesh")),
@@ -106,7 +106,7 @@ export async function fetchCurrentRiskFrames(): Promise<CurrentRiskFrames> {
 
 /** 線状降水帯予測マップの「現在」フレームを取得する。 */
 export async function fetchLinearRainbandFrames(): Promise<DynamicWeatherFrame<RiskFrameRef>[]> {
-  const raw = await fetchTargetTimes(RASRF_TARGET_TIMES_URL, "線状降水帯予測マップの時刻一覧");
+  const raw = await fetchTargetTimes(rasrfTargetTimesUrl(), "線状降水帯予測マップの時刻一覧");
   return toFrames(latestEntry(raw, "sjfcstmap"));
 }
 

@@ -11,12 +11,12 @@
 // 生成した画像をそのまま重ねる）のみを持つ警告表示として扱う。
 
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
-import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
+import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 
 export type ThunderNowcastFrame = JmaNowcastFrame;
 
-const TARGET_TIMES_N3_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N3.json`;
+const targetTimesN3Url = () => jmaProxyUrl("/jmatile/data/nowc/targetTimes_N3.json");
 
 /** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。
  * targetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻(thns/trns)自体は10分おきにしか
@@ -24,7 +24,7 @@ const TARGET_TIMES_N3_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_
  * 持たず、thns/trnsのタイルが存在しない。elementsに"thns"（"trns"も常に同じエントリへ
  * 同居するため代表して"thns"だけ見ればよい）を含むエントリだけへ絞り込んでから使う。 */
 export async function fetchThunderNowcastFrames(): Promise<ThunderNowcastFrame[]> {
-  const raw = await fetchJmaTargetTimes(TARGET_TIMES_N3_URL, "雷ナウキャスト");
+  const raw = await fetchJmaTargetTimes(targetTimesN3Url(), "雷ナウキャスト");
   const withThunderData = raw.filter((t) => t.elements?.includes("thns"));
   const frames: ThunderNowcastFrame[] = withThunderData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));

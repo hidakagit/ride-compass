@@ -9,16 +9,16 @@
 // 専用のfetch effectを持つ（他要素のuseMemoだけで完結する構成とは異なる）。
 
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
-import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame } from "@/components/Map/jmaNowcastFrames";
+import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 
 export type LidenFrame = JmaNowcastFrame;
 
-const TARGET_TIMES_N3_URL = `${JMA_TILE_BASE_URL}/jmatile/data/nowc/targetTimes_N3.json`;
+const targetTimesN3Url = () => jmaProxyUrl("/jmatile/data/nowc/targetTimes_N3.json");
 
 /** liden（雷放電位置データ）のフレーム時刻一覧を取得する。 */
 export async function fetchLidenFrames(): Promise<LidenFrame[]> {
-  const raw = await fetchJmaTargetTimes(TARGET_TIMES_N3_URL, "雷放電位置データ");
+  const raw = await fetchJmaTargetTimes(targetTimesN3Url(), "雷放電位置データ");
   const withLidenData = raw.filter((t) => t.elements?.includes("liden"));
   const frames: LidenFrame[] = withLidenData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));
@@ -31,7 +31,7 @@ export function lidenFrames(frames: readonly LidenFrame[]): DynamicWeatherFrame<
 }
 
 function lidenGeojsonUrl(frame: LidenFrame): string {
-  return `${JMA_TILE_BASE_URL}/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/liden/data.geojson?id=liden`;
+  return jmaProxyUrl(`/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/liden/data.geojson?id=liden`);
 }
 
 /** 落雷ごとの強弱を示す値を配信元が持たないため、DynamicWeatherMarkSpec.valueProperty

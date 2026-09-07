@@ -249,5 +249,10 @@ trueとする。
   `new Request(url)`がWorkerのbase URLに対して解決できず例外になり、`rasterTile`も
   backend直接配信（`NEXT_PUBLIC_TILE_BASE_URL`）ではページと別オリジンになるため絶対URLが
   要る（`services/regionApi.ts`の`roadSurfaceTileUrl`等と同じ仕組み、
-  [静的レイヤー](static-map-layers.md)「タイルの配信元」参照）。`targetTimes`JSON等のアプリのfetch()で
-  読むデータは相対パスのまま。
+  [静的レイヤー](static-map-layers.md)「タイルの配信元」参照）。
+- **時刻一覧（`targetTimes*.json`）・雷放電位置データのGeoJSONも同じ配信オリジンへ揃える**。
+  これらはMapLibreではなくアプリ自身の`fetch()`で読むが、`jmaNowcastFrames.ts: jmaProxyUrl`
+  が`tileBaseUrl()`を適用して絶対URLにする。**タイルURLは時刻一覧が返るまで確定しない**
+  ため、ここでフロントのホスティングを経由すると往復1つぶんが初回表示のクリティカルパスへ
+  直列に乗る。`tileBaseUrl()`は`window`を参照するので、モジュール直下の定数ではなく
+  呼び出し時に評価する関数（`riskTargetTimesUrl()`等）として持つ。
