@@ -101,6 +101,8 @@ from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     INTERSECTION_MATCH_MAX_DISTANCE_M,
+    POI_CLUSTER_EPS_M,
+    POI_ON_EDGE_TOLERANCE_M,
     STOP_POI_KINDS,
     STOP_POI_MATCH_MAX_DISTANCE_M,
 )
@@ -515,36 +517,77 @@ _POI_TILE_MVT_SQL = text(
 # （dev環境で全POIの約17%が補給kind）。STOP_POI_KINDS（domain/traffic.py）で
 # フィルタする。
 # 停止要因POIを集計キー（`domain/traffic.py: POI_COUNT_KINDS`）へ写す式。取込時の`kind`を
-# そのまま使わず、ここで2点だけ組み替える: 信号付き横断歩道を`crossing`から切り出すこと、
-# 徐行（give_way）を一時停止へ畳むこと。生タグは`osm_raw_pois.tags`に全件残っているため、
-# キーの切り方を変えてもPBF再取込は要らず、集計バッチの再実行だけで済む。
+# そのまま使わず、信号の2通りの書かれ方を1つへまとめ、徐行を一時停止へ畳む。生タグは
+# `osm_raw_pois.tags`に全件残っているため、キーの切り方を変えてもPBF再取込は要らず、
+# 集計バッチの再実行だけで済む。
 # SQL本文へは`__POI_KIND__`の位置へ差し込む（f-stringにすると本文中の`{}`をすべて
 # エスケープする必要があり読みにくくなるため）。
 _POI_COUNT_KIND_EXPR = """CASE
-                WHEN p.kind = 'crossing' AND p.tags->>'crossing' LIKE '%signals%' THEN 'crossing_signals'
-                WHEN p.kind = 'give_way' THEN 'stop'
-                ELSE p.kind
-            END"""
+                    WHEN p.kind = 'traffic_signals' THEN 'signal'
+                    WHEN p.kind = 'crossing' AND p.tags->>'crossing' LIKE '%signals%' THEN 'signal'
+                    WHEN p.kind = 'crossing' THEN 'crossing'
+                    WHEN p.kind = 'level_crossing' THEN 'level_crossing'
+                    ELSE 'stop'
+                END"""
 
-# 種別別カウント（`edge_attribute_counts.poi_counts`）。距離判定の意味論は
-# `_STOP_POI_COUNTS_SQL`と同一で、種別を足し合わせると`stop_count`に一致する
-# （分解するだけで、数え方は変えない）。
+# 集計キー別のカウント本体。`osm_raw_pois`から次の3段で数える。
+#
+# 1. **そのwayの構成ノードだけ**を対象にする（`osm_node_id = ANY(node_ids)`）。距離だけで
+#    拾うと、交差する別の道に付いている信号・並行する歩道の横断歩道まで数えてしまう。
+# 2. **区間の始点にあるノードを除く**。交差点のノードは「入る区間」と「出る区間」の両方が
+#    持つため、両方が数えると1回の停止が2回になる。止まるのは区間を走り終えるところなので、
+#    到着側（終点側）の区間が持つ。有向Edgeのため逆向きの区間でも同じ規則が成り立つ。
+# 3. **同じキーの点を`eps`でまとめてから数える**。日本のOSMは1つの信号交差点を流入路ごと・
+#    横断歩道位置ごとの複数ノードで描くため、素直に数えると停止回数を上回る。
+#
+# `__EXCLUDE_NODE__`には「始点のOSMノードid」を返す式を差し込む（Edge単位はfrom_node、
+# Way単位は`node_ids`の先頭）。
+_POI_COUNTS_BODY = """
+        SELECT c.kind, count(DISTINCT c.cid) AS cnt
+        FROM (
+            SELECT __POI_KIND__ AS kind,
+                   ST_ClusterDBSCAN(ST_Transform(p.geom, 3857), eps := :cluster_eps_m, minpoints := 1)
+                       OVER (PARTITION BY __POI_KIND__) AS cid
+            FROM osm_raw_pois p
+            WHERE p.osm_node_id = ANY(__NODE_IDS__)
+              AND p.kind = ANY(:stop_kinds)
+              AND p.osm_node_id IS DISTINCT FROM __EXCLUDE_NODE__
+              __EXTRA_FILTER__
+        ) c
+        GROUP BY c.kind"""
+
+
+def _poi_counts_body(node_ids: str, exclude_node: str, extra_filter: str = "") -> str:
+    return (
+        _POI_COUNTS_BODY.replace("__POI_KIND__", _POI_COUNT_KIND_EXPR)
+        .replace("__NODE_IDS__", node_ids)
+        .replace("__EXCLUDE_NODE__", exclude_node)
+        .replace("__EXTRA_FILTER__", extra_filter)
+    )
+
+
+# Edge単位の種別別カウント。wayは複数の区間へ分割されるため、wayの構成ノードのうち
+# 「この区間の線上にあるもの」だけへ絞る（`ST_DWithin`の許容は浮動小数の誤差ぶん）。
 _POI_COUNTS_BY_KIND_SQL = text(
     """
     SELECT e.edge_id,
            COALESCE(jsonb_object_agg(t.kind, t.cnt) FILTER (WHERE t.kind IS NOT NULL), '{}'::jsonb) AS poi_counts
     FROM road_edges e
+    LEFT JOIN road_nodes fn ON fn.node_id = e.from_node_id
+    LEFT JOIN osm_raw_ways w ON w.osm_way_id = e.osm_way_id
     LEFT JOIN LATERAL (
-        SELECT __POI_KIND__ AS kind, COUNT(*) AS cnt
-        FROM osm_raw_pois p
-        WHERE p.geom && ST_Expand(e.geom, :max_distance_deg)
-          AND ST_DWithin(p.geom::geography, e.geom::geography, :max_distance_m)
-          AND p.kind = ANY(:stop_kinds)
-        GROUP BY 1
+    __BODY__
     ) t ON true
     WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
     GROUP BY e.edge_id
-    """.replace("__POI_KIND__", _POI_COUNT_KIND_EXPR)
+    """.replace(
+        "__BODY__",
+        _poi_counts_body(
+            "w.node_ids",
+            "fn.osm_node_id",
+            "AND ST_DWithin(p.geom::geography, e.geom::geography, :on_edge_tolerance_m)",
+        ),
+    )
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
 
@@ -767,15 +810,10 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
           AND p.kind = ANY(:stop_kinds)
     ) st ON true
     LEFT JOIN LATERAL (
-        SELECT jsonb_object_agg(t.kind, t.cnt) AS counts
+        SELECT jsonb_object_agg(t2.kind, t2.cnt) AS counts
         FROM (
-            SELECT __POI_KIND__ AS kind, COUNT(*) AS cnt
-            FROM osm_raw_pois p
-            WHERE p.geom && ST_Expand(w.geom, :stop_distance_deg)
-              AND ST_DWithin(p.geom::geography, w.geom::geography, :stop_distance_m)
-              AND p.kind = ANY(:stop_kinds)
-            GROUP BY 1
-        ) t
+    __WAY_POI_BODY__
+        ) t2
     ) pk ON true
     LEFT JOIN LATERAL (
         SELECT COUNT(*) AS cnt
@@ -796,7 +834,7 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
         source_accident_import_run_id = EXCLUDED.source_accident_import_run_id,
         source_osm_import_run_id = EXCLUDED.source_osm_import_run_id,
         algorithm_version = EXCLUDED.algorithm_version
-    """.replace("__POI_KIND__", _POI_COUNT_KIND_EXPR)
+    """.replace("__WAY_POI_BODY__", _poi_counts_body("w.node_ids", "w.node_ids[1]"))
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -> RoadGraph:
@@ -1882,23 +1920,33 @@ class AttributeRepository(_SessionRepository):
         return result
 
     async def get_poi_counts_by_kind(
-        self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
+        self,
+        edge_ids: list[str],
+        cluster_eps_m: float = POI_CLUSTER_EPS_M,
+        on_edge_tolerance_m: float = POI_ON_EDGE_TOLERANCE_M,
     ) -> dict[str, dict[str, int]]:
-        """指定edge_idそれぞれについて、停止要因POIの件数を集計キー別に返す
-        （`domain/traffic.py: POI_COUNT_KINDS`、`get_stop_poi_counts`と同じ距離判定）。
+        """指定edge_idそれぞれについて、停止要因の回数を集計キー別に返す
+        （`domain/traffic.py: POI_COUNT_KINDS`）。
 
-        評価軸が種別ごとの重みを持てるようにするための形で、値を足し合わせると
-        `get_stop_poi_counts`の合計に一致する。該当POIが0件のedgeは空辞書
-        （`get_stop_poi_counts`が0を返すのと同じく、キー自体は必ず結果に含まれる）。
+        数え方は`get_stop_poi_counts`（区間の線から一定距離内にある点の総数）とは異なり、
+        「その区間を走って実際に遭遇する停止」に近づけている——対象をそのwayの構成ノードへ
+        限り、区間の始点を除き、同じ場所の点をまとめてから数える（`_POI_COUNTS_BODY`の
+        コメント参照）。したがって両者の合計は一致しない。
+
+        該当が0件のedgeは空辞書（キー自体は必ず結果に含まれる）。呼び出し元は「行が無い＝
+        未集計（不明）」と「空辞書＝集計済みで0件」を区別する。
         """
         if not edge_ids:
             return {}
         result: dict[str, dict[str, int]] = {}
-        max_distance_deg = _meters_to_bbox_margin_deg(max_distance_m)
         for id_chunk in _chunked(edge_ids, 50_000):
             rows = await self._session.execute(
                 _POI_COUNTS_BY_KIND_SQL,
-                {"edge_ids": id_chunk, "max_distance_m": max_distance_m, "max_distance_deg": max_distance_deg},
+                {
+                    "edge_ids": id_chunk,
+                    "cluster_eps_m": cluster_eps_m,
+                    "on_edge_tolerance_m": on_edge_tolerance_m,
+                },
             )
             for edge_id, poi_counts in rows.all():
                 result[edge_id] = dict(poi_counts or {})
@@ -2204,6 +2252,7 @@ class AttributeRepository(_SessionRepository):
                 "stop_distance_deg": _meters_to_bbox_margin_deg(STOP_POI_MATCH_MAX_DISTANCE_M),
                 "intersection_distance_m": INTERSECTION_MATCH_MAX_DISTANCE_M,
                 "intersection_distance_deg": _meters_to_bbox_margin_deg(INTERSECTION_MATCH_MAX_DISTANCE_M),
+                "cluster_eps_m": POI_CLUSTER_EPS_M,
                 "source_accident_import_run_id": source_accident_import_run_id,
                 "source_osm_import_run_id": source_osm_import_run_id,
                 "algorithm_version": algorithm_version,
@@ -2301,9 +2350,9 @@ class RoadGraphRepository:
         return await self.attributes.get_stop_poi_counts(edge_ids, max_distance_m=max_distance_m)
 
     async def get_poi_counts_by_kind(
-        self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
+        self, edge_ids: list[str], cluster_eps_m: float = POI_CLUSTER_EPS_M
     ) -> dict[str, dict[str, int]]:
-        return await self.attributes.get_poi_counts_by_kind(edge_ids, max_distance_m=max_distance_m)
+        return await self.attributes.get_poi_counts_by_kind(edge_ids, cluster_eps_m=cluster_eps_m)
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)

@@ -50,18 +50,29 @@ STOP_POI_KINDS = frozenset(_HIGHWAY_STOP_KINDS.values()) | {"level_crossing"}
 # （`domain/material_catalog.py`の`poi_*_per_km`）はこの一覧から生成する。
 #
 # `StopPoiKind`（取込時の分類）と1対1ではない。分ける基準は「評価軸で違う重みを付けたいか」
-# だけで、次の2点で異なる:
-# - `crossing`は信号の有無で意味が変わるため`crossing_signals`と`crossing`へ分ける
-#   （日本のOSMは押しボタン式・歩車分離の信号を`highway=crossing`＋`crossing=traffic_signals`
-#   で表すため、`crossing`を一括で扱うと実質的な信号の半分が横断歩道に紛れる）
+# だけで、次の3点で異なる:
+# - 信号は`highway=traffic_signals`と`highway=crossing`＋`crossing=traffic_signals`の
+#   両方の書かれ方があり、どちらも同じ「止まる信号」のため`signal`へまとめる
+#   （分けずにまとめないと、押しボタン式・歩車分離の信号が横断歩道に紛れる）
+# - `crossing`のうち信号を伴わないものだけが`crossing`（ほぼ停止要因にならない）
 # - `give_way`は`stop`へ畳む（実データ上ほぼ存在せず、一時停止と重みを分ける意味が無い）
 POI_COUNT_KINDS: dict[str, str] = {
-    "traffic_signals": "信号",
-    "crossing_signals": "信号付き横断歩道",
+    "signal": "信号",
     "crossing": "横断歩道(信号なし)",
     "stop": "一時停止・徐行",
     "level_crossing": "踏切",
 }
+
+# 同じ場所にある同種の点を1つの停止としてまとめる距離（m）。日本のOSMは1つの信号交差点を
+# 流入路ごとの`highway=traffic_signals`と横断歩道位置の`highway=crossing`＋
+# `crossing=traffic_signals`という複数ノードで描くため、ノードを素直に数えると停止回数を
+# 上回る。集計時にこの距離でまとめてから数える。
+POI_CLUSTER_EPS_M = 40.0
+
+# POIノードが「その区間の上にある」と判定する許容距離（m）。判定はwayの構成ノードである
+# ことが主で、この距離は同じway内のどの区間に属するかを切り分けるためのもの
+# （ノードは区間の線上にあるため、浮動小数の誤差を吸収できれば足りる）。
+POI_ON_EDGE_TOLERANCE_M = 1.0
 
 
 def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:

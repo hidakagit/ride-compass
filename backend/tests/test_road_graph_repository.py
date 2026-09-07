@@ -666,56 +666,96 @@ async def test_get_stop_poi_counts_counts_nearby_pois(road_graph_repository, roa
     assert result[edge_id] == 2
 
 
-async def test_get_poi_counts_by_kind_splits_by_kind_and_sums_to_stop_count(
-    road_graph_repository, road_graph_session
-):
-    """種別別カウントは`get_stop_poi_counts`を分解したもので、合計が一致する。
+# 種別別カウント用の一直線のway（node 1→5）。信号を2つ隣り合わせに置いてクラスタ化を、
+# 両端に停止要因を置いて始点の除外を、それぞれ検証できるように配置する。
+# 緯度0.0001度 ≒ 11m、0.001度 ≒ 111m。
+POI_WAY_NODES = {
+    1: (35.7000, 139.7000),   # 信号（fwdの始点。fwdでは数えない）
+    2: (35.70010, 139.7000),  # 信号（node1から約11m＝40m以内なのでまとまる）
+    3: (35.7010, 139.7000),   # 横断歩道（信号なし）
+    4: (35.7020, 139.7000),   # 一時停止
+    5: (35.7030, 139.7000),   # 踏切（fwdの終点。fwdで数える）
+}
 
-    合計の一致は数え方を変えていないことの担保。分け方については、信号付き横断歩道が
-    `crossing`ではなく`crossing_signals`へ入ること（日本のOSMは押しボタン式・歩車分離の
-    信号をこの形で表すため、一括だと実質的な信号が横断歩道に紛れる）と、徐行が一時停止へ
-    畳まれることを固定する。
-    """
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph([way], nodes, graph_version="v1")
+
+async def _build_poi_way(road_graph_repository, road_graph_session):
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2, 3, 4, 5], highway="residential")
+    graph = build_road_graph([way], POI_WAY_NODES, graph_version="v1")
     await road_graph_repository.save_graph(graph)
-    edge_id = next(iter(graph.edges))
+    # 数え方がwayの構成ノード（osm_raw_ways.node_ids）に依存するため、Road Graphだけでなく
+    # 生wayも保存する。
+    await road_graph_repository.save_raw_ways([way], POI_WAY_NODES)
 
-    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE1)
+    signal = {"highway": "traffic_signals"}
+    crossing_with_signal = {"highway": "crossing", "crossing": "traffic_signals"}
+    await _insert_poi(road_graph_session, 1, "traffic_signals", *POI_WAY_NODES[1], tags=signal)
+    await _insert_poi(road_graph_session, 2, "crossing", *POI_WAY_NODES[2], tags=crossing_with_signal)
     await _insert_poi(
-        road_graph_session, 901, "crossing", *NODE1, tags={"highway": "crossing", "crossing": "traffic_signals"}
+        road_graph_session, 3, "crossing", *POI_WAY_NODES[3], tags={"highway": "crossing", "crossing": "marked"}
     )
-    await _insert_poi(road_graph_session, 902, "crossing", *NODE2, tags={"highway": "crossing", "crossing": "marked"})
-    await _insert_poi(road_graph_session, 903, "crossing", *NODE2)  # crossingタグ自体が無い
-    await _insert_poi(road_graph_session, 904, "give_way", *NODE2)
-    await _insert_poi(road_graph_session, 905, "convenience", *NODE1)  # 補給POIは対象外
+    await _insert_poi(road_graph_session, 4, "give_way", *POI_WAY_NODES[4])
+    await _insert_poi(road_graph_session, 5, "level_crossing", *POI_WAY_NODES[5])
+    # このwayの構成ノードではない停止要因（交差する別の道に付いた信号のつもり）。
+    # 距離だけで拾う数え方だと混入するが、構成ノードで絞るため数えてはいけない。
+    await _insert_poi(road_graph_session, 900, "traffic_signals", *POI_WAY_NODES[3])
     await road_graph_session.commit()
 
-    by_kind = await road_graph_repository.get_poi_counts_by_kind([edge_id], max_distance_m=30.0)
-    total = await road_graph_repository.get_stop_poi_counts([edge_id], max_distance_m=30.0)
-
-    assert by_kind[edge_id] == {
-        "traffic_signals": 1,
-        "crossing_signals": 1,
-        "crossing": 2,
-        "stop": 1,
-    }
-    assert sum(by_kind[edge_id].values()) == total[edge_id]
+    forward = next(e for e, edge in graph.edges.items() if edge.from_node_id == "osm-node-1")
+    backward = next(e for e, edge in graph.edges.items() if edge.from_node_id == "osm-node-5")
+    return forward, backward
 
 
-async def test_get_poi_counts_by_kind_edge_with_no_nearby_pois_is_empty_dict_not_missing(
-    road_graph_repository,
+async def test_get_poi_counts_by_kind_counts_only_nodes_of_this_way(
+    road_graph_repository, road_graph_session
 ):
-    """該当POIが0件でもedge_id自体は結果に含まれる（空辞書＝「集計済みで0件」）。
-    材料側はこの行の有無で「0件」と「不明」を区別する。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-    edge_id = next(iter(graph.edges))
+    """そのwayの構成ノードだけを数える（距離だけで拾うと、交差する別の道の信号まで入る）。
 
-    assert await road_graph_repository.get_poi_counts_by_kind([edge_id]) == {edge_id: {}}
+    併せて、信号の2通りの書かれ方（`highway=traffic_signals`と`highway=crossing`＋
+    `crossing=traffic_signals`）が同じ`signal`キーへ落ち、40m以内なら1回の停止として
+    まとまることを確認する。
+    """
+    forward, _ = await _build_poi_way(road_graph_repository, road_graph_session)
+
+    result = await road_graph_repository.get_poi_counts_by_kind([forward])
+
+    # node1（始点）は数えない。node2の信号は残るが、node1と40m以内のため同じ塊になり1回。
+    # node900は同じ座標にあるがこのwayの構成ノードではないため数えない。
+    assert result[forward] == {"signal": 1, "crossing": 1, "stop": 1, "level_crossing": 1}
+
+
+async def test_get_poi_counts_by_kind_excludes_the_start_node_of_the_edge(
+    road_graph_repository, road_graph_session
+):
+    """区間の始点にある停止要因は数えない（交差点のノードを前後の区間が二重に持つのを防ぐ）。
+
+    逆向きの区間では始点・終点が入れ替わるため、除外されるノードも入れ替わる。
+    """
+    forward, backward = await _build_poi_way(road_graph_repository, road_graph_session)
+
+    result = await road_graph_repository.get_poi_counts_by_kind([forward, backward])
+
+    # forwardの始点はnode1（信号）、終点はnode5（踏切）
+    assert result[forward]["level_crossing"] == 1
+    # backwardの始点はnode5（踏切）なので数えず、終点のnode1（信号）は数える
+    assert "level_crossing" not in result[backward]
+    assert result[backward]["signal"] == 1
+
+
+async def test_get_poi_counts_by_kind_does_not_cluster_points_beyond_eps(
+    road_graph_repository, road_graph_session
+):
+    """まとめる距離を縮めると、隣り合う信号が別々の停止として数えられる。
+
+    「1つの信号交差点を複数ノードで描く」への対処がクラスタ化であること自体を固定する
+    （既定の40mでは1回、5mでは2回）。
+    """
+    _, backward = await _build_poi_way(road_graph_repository, road_graph_session)
+
+    clustered = await road_graph_repository.get_poi_counts_by_kind([backward])
+    separated = await road_graph_repository.get_poi_counts_by_kind([backward], cluster_eps_m=5.0)
+
+    assert clustered[backward]["signal"] == 1
+    assert separated[backward]["signal"] == 2
 
 
 async def test_get_poi_counts_by_kind_returns_empty_dict_for_empty_input(road_graph_repository):
@@ -1789,8 +1829,11 @@ async def test_recompute_way_attribute_counts_computes_per_way_facts(
     await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
     await road_graph_repository.rebuild_raw_intersection_nodes()
 
-    # way_a近傍: 停止POI1件（signal）＋補給POI1件（除外されるべき）＋自転車事故1件
-    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE1)
+    # way_a近傍: 停止POI1件（signal）＋補給POI1件（除外されるべき）＋自転車事故1件。
+    # 種別別カウント（poi_counts）はwayの構成ノードだけを数えるため、信号はway_aの
+    # 2番目のノード（osm_node_id=2）に置く。stop_count（距離で数える従来の合計）は
+    # ノードidに関係なく拾うため、両者は同じPOIを別の数え方で見ることになる。
+    await _insert_poi(road_graph_session, 2, "traffic_signals", *NODE2)
     await _insert_poi(road_graph_session, 901, "convenience", *NODE1)
     await _insert_accident(road_graph_session, "acc-1", 2024, *NODE1, involves_bicycle=True)
     # 自転車が関与しない事故は数えない（bicycle_only=true相当で固定）
@@ -1815,9 +1858,12 @@ async def test_recompute_way_attribute_counts_computes_per_way_facts(
     }
     assert set(rows.keys()) == {100, 101, 102}
     _, length_m, accident_count, stop_count, intersection_count, poi_counts = rows[100]
-    # 種別別カウントはstop_countを分解したもので、合計が一致する（edge単位版と同じ意味論）。
-    assert poi_counts == {"traffic_signals": 1}
-    assert sum(poi_counts.values()) == stop_count
+    # 種別別カウント: way_aの構成ノード[1, 2]のうち先頭（node 1）は隣接wayとの二重計上を
+    # 避けるため数えず、node 2の信号だけを数える。
+    assert poi_counts == {"signal": 1}
+    # 同じ信号を、way_b/way_cは先頭ノード（node 2）として持つため数えない。
+    assert rows[101][5] == {}
+    assert rows[102][5] == {}
     assert length_m > 0
     assert accident_count == 1.0  # 自転車事故のみ・非死亡は重み1
     assert stop_count == 1  # convenienceは除外

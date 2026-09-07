@@ -300,9 +300,9 @@ def test_poi_density_materials_treat_a_missing_key_as_zero_but_a_missing_row_as_
     1つも無い道でその材料がNaNになり、それを使う軸ごと評価対象外になる。"""
     from app.domain.attributes import METRIC_GROUP_POI
 
-    spec = MATERIAL_CATALOG["poi_traffic_signals_per_km"]
+    spec = MATERIAL_CATALOG["poi_signal_per_km"]
     # 行があり、キーもある
-    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"traffic_signals": 2}}})) == 20.0
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"signal": 2}}})) == 20.0
     # 行はあるが、そのキーが無い＝0件
     assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"crossing": 3}}})) == 0.0
     # 行が空でも、行があること自体が「集計済み＝0件」を意味する
