@@ -13,42 +13,13 @@
 // 混ぜずここへ分離する）。
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AxisDefinitionResponse } from "@/types/route";
 import AxisComposer from "./AxisComposer";
+import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockResolvedValue({ materials: [] }),
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
-
-function baseDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
-  return {
-    axis_id: "gradient",
-    label: "勾配",
-    description: "",
-    category: "観測",
-    default_weight: 0.2,
-    is_published: false,
-    priority_overrides: [],
-    show_map_icon: true,
-    time_scope: "always",
-    dedicated_way_value_layer: false,
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
-    shape: {
-      kind: "breakpoint_linear",
-      terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
-      preprocess: "identity",
-      breakpoints: [
-        [0, 0],
-        [10, 100],
-      ],
-    },
-    display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
-    ...overrides,
-  };
-}
 
 describe("AxisComposer 材料カタログ0件時のフォールバック(T424)", () => {
   it("新規作成モードで材料カタログが0件でも、マウント直後にクラッシュせず空状態のエラーメッセージへフォールバックする", async () => {
@@ -67,7 +38,7 @@ describe("AxisComposer 材料カタログ0件時のフォールバック(T424)",
   });
 
   it("編集モードで材料カタログが0件でも、draftFromExisting()の初期化でクラッシュしない", async () => {
-    const editing = baseDefinition();
+    const editing = baseAxisDefinition();
     render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
     await waitFor(() => {

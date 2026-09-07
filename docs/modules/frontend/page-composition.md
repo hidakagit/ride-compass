@@ -19,7 +19,7 @@
 | lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts` |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
-| components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル。各パネルのCSS Modulesから`composes`で参照する） |
+| components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
 | components/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ29px四方のアイコンボタンで、タップしたポップオーバー内はドラッグ式タイムライン＋`input[type=datetime-local]`の直接指定[出発時刻]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
 | components/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |

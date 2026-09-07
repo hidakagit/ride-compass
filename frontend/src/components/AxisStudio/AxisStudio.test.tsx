@@ -6,7 +6,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AxisDefinitionResponse } from "@/types/route";
 import AxisStudio from "./AxisStudio";
 
 // 改善計画T304: 「編集ボタンを押した後にそのまま編集画面がポップアップ起動してほしい。
@@ -33,37 +32,7 @@ import {
   listAxisDefinitions,
   unpublishAxisDefinition,
 } from "@/services/axisAdminApi";
-
-function definition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
-  return {
-    axis_id: "gradient",
-    label: "勾配",
-    description: "",
-    category: "観測",
-    default_weight: 0.2,
-    is_published: false,
-    priority_overrides: [],
-    show_map_icon: true,
-    time_scope: "always",
-    dedicated_way_value_layer: false,
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
-    shape: {
-      kind: "breakpoint_linear",
-      terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
-      preprocess: "identity",
-      breakpoints: [
-        [0, 0],
-        [10, 100],
-      ],
-    },
-    // 改善計画T404: displayはAxisDefinitionResponseの必須フィールド（axis_display_for()の
-    // 計算結果）。gradient_percentはタイル非依存のためkind="none"が実際の値と一致する。
-    display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
-    ...overrides,
-  };
-}
+import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 
 describe("AxisStudio", () => {
   beforeEach(() => {
@@ -83,7 +52,7 @@ describe("AxisStudio", () => {
   it("マウント時に資格情報の入力を待たず軸一覧を読み込む", async () => {
     // 改善計画T305: /adminページ自体が既にBasic認証済みのため、この画面固有の
     // ユーザー名/パスワード入力欄はもう無い（回帰確認）。
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     render(<AxisStudio />);
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
@@ -92,7 +61,7 @@ describe("AxisStudio", () => {
   });
 
   it("「編集」を押すとその軸の内容で編集モーダルが即座に開く", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -106,7 +75,7 @@ describe("AxisStudio", () => {
   });
 
   it("「+ 新しい軸を作る」を押すと空のモーダルが開く", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition(), definition({ axis_id: "surface_q", label: "舗装状況" })]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition(), baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" })]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -122,7 +91,7 @@ describe("AxisStudio", () => {
   // 改善計画T332でウィザード化された後は、この項目は最終ステップ（地図表示・公開）に
   // あるため、表示名を入力して3ステップ分「次へ」を押してから確認する。
   it("フォームに地図上アイコン表示のON/OFFチェックボックスがあり、既定でONで、見出しに開発用のタスク番号表記が残っていない", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -139,7 +108,7 @@ describe("AxisStudio", () => {
   });
 
   it("モーダルを閉じるとダイアログが消え、一覧はそのまま残る", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -158,7 +127,7 @@ describe("AxisStudio", () => {
   // ウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、という
   // 3ステップに分かれている（改善計画T397でカード名を「ぴったり評価」へ変更）。
   it("「ぴったり評価」でcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -185,7 +154,7 @@ describe("AxisStudio", () => {
   // 改善計画T332（軸スタジオのウィザード化）: 表示名が空のまま「次へ」を押すと、
   // ステップは進まずエラーが表示される回帰テスト。
   it("ウィザードの1ステップ目で表示名が空のまま「次へ」を押すと進まずエラーが出る", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -199,7 +168,7 @@ describe("AxisStudio", () => {
 
   // 改善計画T332: 「戻る」で前のステップに戻っても入力済みの値は失われない回帰テスト。
   it("ウィザードで「次へ」→「戻る」しても表示名の入力内容が残る", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -223,7 +192,7 @@ describe("AxisStudio", () => {
   // この文言をステップ先頭の1箇所へ統合・短縮した（AxisComposer.tsx:
   // renderShapeParamsStep冒頭参照）。
   it("点数の詳細ステップにスコアの向きを説明する文言がある", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition()]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -242,8 +211,8 @@ describe("AxisStudio", () => {
   // 表示される回帰テスト。
   it("他axis_idを材料として参照する軸のサマリは、生の識別子ではなく参照先の表示名で表示される", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
-      definition({ axis_id: "highway_base", label: "highway基準値" }),
-      definition({
+      baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
+      baseAxisDefinition({
         axis_id: "car_stress",
         label: "車の圧迫感",
         shape: {
@@ -271,8 +240,8 @@ describe("AxisStudio", () => {
   // 削除しようとすると、参照元の名前と影響を明示する確認ダイアログが出る回帰テスト。
   it("他の軸から参照されている軸を削除しようとすると確認ダイアログが出て、キャンセルすれば削除されない", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
-      definition({ axis_id: "highway_base", label: "highway基準値" }),
-      definition({
+      baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
+      baseAxisDefinition({
         axis_id: "car_stress",
         label: "車の圧迫感",
         shape: {
@@ -300,8 +269,8 @@ describe("AxisStudio", () => {
 
   it("確認ダイアログでOKを押せば、参照されている軸でも削除される", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
-      definition({ axis_id: "highway_base", label: "highway基準値" }),
-      definition({
+      baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
+      baseAxisDefinition({
         axis_id: "car_stress",
         label: "車の圧迫感",
         shape: {
@@ -328,7 +297,7 @@ describe("AxisStudio", () => {
   });
 
   it("他の軸から参照されていない軸の削除は確認ダイアログを出さない", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([definition(), definition({ axis_id: "surface_q", label: "舗装状況" })]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition(), baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" })]);
     vi.mocked(deleteAxisDefinition).mockResolvedValue(undefined);
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
@@ -350,8 +319,8 @@ describe("AxisStudio", () => {
   // 別のアクセシブルネームのため、下記の「編集」ボタン不在の確認とは独立に共存する。
   it("下書きタブには編集・削除ボタンが、公開済みタブには表示だけ編集・非公開に戻すボタンが現れる", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
-      definition({ axis_id: "gradient", is_published: true }),
-      definition({ axis_id: "draft_axis", label: "下書き軸", is_published: false }),
+      baseAxisDefinition({ axis_id: "gradient", is_published: true }),
+      baseAxisDefinition({ axis_id: "draft_axis", label: "下書き軸", is_published: false }),
     ]);
     const user = userEvent.setup();
     render(<AxisStudio />);
@@ -370,7 +339,7 @@ describe("AxisStudio", () => {
 
   it("改善計画T501: 公開済み軸の「表示だけ編集」を押すと、その軸の内容で制限モードの編集モーダルが即座に開く", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
-      definition({ axis_id: "gradient", label: "勾配", is_published: true }),
+      baseAxisDefinition({ axis_id: "gradient", label: "勾配", is_published: true }),
     ]);
     const user = userEvent.setup();
     render(<AxisStudio />);
@@ -389,7 +358,7 @@ describe("AxisStudio", () => {
 
   it("「複製して新規作成」を押すと複製元の内容で新規作成モーダルが開く（axis_idは新規採番、is_publishedはfalseへ戻る）", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
-      definition({ axis_id: "gradient", label: "勾配", is_published: true, default_weight: 0.42 }),
+      baseAxisDefinition({ axis_id: "gradient", label: "勾配", is_published: true, default_weight: 0.42 }),
     ]);
     const user = userEvent.setup();
     render(<AxisStudio />);
@@ -410,9 +379,9 @@ describe("AxisStudio", () => {
     // リセットが無い、Checkbox関連のResizeObserverモックのみ）、絶対呼び出し回数ではなく
     // 「この操作の前後での差分」で検証する。
     vi.mocked(listAxisDefinitions)
-      .mockResolvedValueOnce([definition({ axis_id: "gradient", is_published: true })])
-      .mockResolvedValueOnce([definition({ axis_id: "gradient", is_published: false })]);
-    vi.mocked(unpublishAxisDefinition).mockResolvedValue(definition({ axis_id: "gradient", is_published: false }));
+      .mockResolvedValueOnce([baseAxisDefinition({ axis_id: "gradient", is_published: true })])
+      .mockResolvedValueOnce([baseAxisDefinition({ axis_id: "gradient", is_published: false })]);
+    vi.mocked(unpublishAxisDefinition).mockResolvedValue(baseAxisDefinition({ axis_id: "gradient", is_published: false }));
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -430,9 +399,9 @@ describe("AxisStudio", () => {
 
   it("ウィザードを最後まで完了して保存すると、createAxisDefinitionが呼ばれモーダルが閉じて一覧が再読み込みされる", async () => {
     vi.mocked(listAxisDefinitions)
-      .mockResolvedValueOnce([definition()])
-      .mockResolvedValueOnce([definition(), definition({ axis_id: "new_axis", label: "新軸" })]);
-    vi.mocked(createAxisDefinition).mockResolvedValue(definition({ axis_id: "new_axis", label: "新軸" }));
+      .mockResolvedValueOnce([baseAxisDefinition()])
+      .mockResolvedValueOnce([baseAxisDefinition(), baseAxisDefinition({ axis_id: "new_axis", label: "新軸" })]);
+    vi.mocked(createAxisDefinition).mockResolvedValue(baseAxisDefinition({ axis_id: "new_axis", label: "新軸" }));
     const user = userEvent.setup();
     render(<AxisStudio />);
 

@@ -3,35 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RideConditionBar, { clampSpeedKmh, formatDepartureLabel, toDatetimeLocalValue } from "./RideConditionBar";
+import { stubEmblaBrowserApis } from "@/testing/emblaBrowserApis";
 
-// 出発時刻ポップオーバーはDynamicLayerTimeSliderを内包する。EmblaCarouselがマウント時に
-// window.matchMedia/IntersectionObserver/ResizeObserverを無条件に呼ぶため、jsdom環境では
-// 未定義のままだと例外になる（DynamicLayerTimeSlider.test.tsxと同じ理由）。
-beforeEach(() => {
-  window.matchMedia = vi.fn().mockReturnValue({
-    matches: false,
-    media: "",
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-  } as unknown as MediaQueryList);
-
-  class IntersectionObserverMock {
-    observe = vi.fn();
-    unobserve = vi.fn();
-    disconnect = vi.fn();
-    takeRecords = vi.fn(() => []);
-  }
-  window.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver;
-
-  class ResizeObserverMock {
-    observe = vi.fn();
-    unobserve = vi.fn();
-    disconnect = vi.fn();
-  }
-  window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-});
+// 出発時刻ポップオーバーはDynamicLayerTimeSliderを内包するため、Emblaが要るAPIを用意する。
+beforeEach(stubEmblaBrowserApis);
 
 function Harness({ initialTime, onTime }: { initialTime: Date; onTime?: (t: Date) => void }) {
   const [time, setTime] = useState(initialTime);

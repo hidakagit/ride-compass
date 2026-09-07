@@ -15,27 +15,9 @@ import {
   type LayerDataSourceEntry,
   useLayerDataStatus,
 } from "./useLayerDataStatus";
+import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
 
-// MapView.dataStatus.test.tsのfakeMapと同じパターン（computeLayerDataStatusが読む3メソッドだけを
-// 持つフェイクmap）。querySourceFeaturesCallsを渡すと呼び出しごとの引数を記録する。
-function fakeMap(options: {
-  addedSourceIds?: readonly string[];
-  unloadedSourceIds?: readonly string[];
-  emptySourceLayers?: readonly { sourceId: string; sourceLayer: string }[];
-  querySourceFeaturesCalls?: { sourceId: string; sourceLayer: string }[];
-}): DataStatusMapLike {
-  const addedSourceIds = new Set(options.addedSourceIds ?? []);
-  const unloadedSourceIds = new Set(options.unloadedSourceIds ?? []);
-  const emptyKeys = new Set((options.emptySourceLayers ?? []).map((e) => `${e.sourceId}::${e.sourceLayer}`));
-  return {
-    getSource: (id: string) => (addedSourceIds.has(id) ? {} : undefined),
-    isSourceLoaded: (id: string) => !unloadedSourceIds.has(id),
-    querySourceFeatures: (id: string, { sourceLayer }: { sourceLayer: string }) => {
-      options.querySourceFeaturesCalls?.push({ sourceId: id, sourceLayer });
-      return emptyKeys.has(`${id}::${sourceLayer}`) ? [] : [{ type: "Feature" }];
-    },
-  };
-}
+const fakeMap = createFakeDataStatusMap([]);
 
 // road/carStress/tunnel/designationのように複数レイヤーが同じ(sourceId, sourceLayer)を
 // 共有する状況を模した最小の対応表。

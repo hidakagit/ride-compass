@@ -4,6 +4,7 @@ import { RAMP_AXES } from "./axisLayers";
 import { buildLayerDataSources, isRoadSurfaceGroupVisible } from "./MapView";
 import { buildRoadSurfaceSharedLayerIds } from "./mapLayers";
 import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLayerDataStatus";
+import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
 
 // ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
 // 入力に組み立てた結果。以前のLAYER_DATA_SOURCES/ROAD_SURFACE_SHARED_LAYER_IDS定数と
@@ -11,28 +12,7 @@ import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLaye
 const LAYER_DATA_SOURCES = buildLayerDataSources(RAMP_AXES);
 const ROAD_SURFACE_SHARED_LAYER_IDS = buildRoadSurfaceSharedLayerIds(RAMP_AXES);
 
-// computeLayerDataStatus（改善計画T87）が読む3メソッドだけを持つフェイクmap。
-// getSourceは「そのsourceが追加済みか」、isSourceLoadedは「保留中のタイル要求が無いか」、
-// querySourceFeaturesは「現在読み込み済みのタイル内のフィーチャー数」を模す。
-// querySourceFeaturesCallsを渡すと呼び出しごとの引数を記録する（メモ化の検証用）。
-function fakeMap(options: {
-  addedSourceIds?: readonly string[];
-  unloadedSourceIds?: readonly string[];
-  emptySourceLayers?: readonly { sourceId: string; sourceLayer: string }[];
-  querySourceFeaturesCalls?: { sourceId: string; sourceLayer: string }[];
-}) {
-  const addedSourceIds = new Set(options.addedSourceIds ?? LAYER_DATA_SOURCES.map((e) => e.sourceId));
-  const unloadedSourceIds = new Set(options.unloadedSourceIds ?? []);
-  const emptyKeys = new Set((options.emptySourceLayers ?? []).map((e) => `${e.sourceId}::${e.sourceLayer}`));
-  return {
-    getSource: (id: string) => (addedSourceIds.has(id) ? {} : undefined),
-    isSourceLoaded: (id: string) => !unloadedSourceIds.has(id),
-    querySourceFeatures: (id: string, { sourceLayer }: { sourceLayer: string }) => {
-      options.querySourceFeaturesCalls?.push({ sourceId: id, sourceLayer });
-      return emptyKeys.has(`${id}::${sourceLayer}`) ? [] : [{ type: "Feature" }];
-    },
-  };
-}
+const fakeMap = createFakeDataStatusMap(LAYER_DATA_SOURCES.map((e) => e.sourceId));
 
 function sourceIdFor(key: string): string {
   return LAYER_DATA_SOURCES.find((e) => e.key === key)!.sourceId;

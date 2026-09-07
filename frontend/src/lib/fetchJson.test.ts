@@ -1,16 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchJson } from "./fetchJson";
-
-function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({}),
-    headers: new Headers(),
-    ...overrides,
-  };
-}
+import { makeResponse } from "@/testing/fetchMocks";
 
 describe("fetchJson", () => {
   afterEach(() => {

@@ -1,0 +1,20 @@
+/*
+ * 値を1段ずつ増減する小さな枠線ボタン（−／＋、◀／▶）が共有する見た目。
+ *
+ * 枠線だけの控えめな見た目にして、隣にある主役の入力（スライダー・数値欄）より
+ * 目立たせない。
+ */
+
+.stepperButton {
+  flex-shrink: 0;
+  min-width: 1.6rem;
+  padding: 0.2rem 0.3rem;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}

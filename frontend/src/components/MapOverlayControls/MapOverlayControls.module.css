@@ -369,20 +369,7 @@
    （実機フィードバック「絞り込み条件が常時横に出てくると見にくい」への対応）。
    矢印の向きだけで開閉を示す小さいボタンにし、チップ本体より存在感を抑える。 */
 .expandToggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
-  flex-shrink: 0;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--color-neutral);
-  cursor: pointer;
-  touch-action: none;
-  pointer-events: auto;
+  composes: roundIconButton from "../ui/roundIconButton.module.css";
 }
 
 /* 全レイヤー一括OFFボタン（.clearAllButton）は地図下部中央の時刻スライダー隣へ移設した

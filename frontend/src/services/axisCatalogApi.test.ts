@@ -2,16 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import { getAxisCatalog } from "./axisCatalogApi";
-
-function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({}),
-    headers: new Headers(),
-    ...overrides,
-  };
-}
+import { makeResponse } from "@/testing/fetchMocks";
 
 describe("getAxisCatalog", () => {
   afterEach(() => {

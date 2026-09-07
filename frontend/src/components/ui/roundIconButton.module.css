@@ -1,0 +1,24 @@
+/*
+ * 地図の上に重ねる小さい丸アイコンボタンが共有する見た目。
+ *
+ * 親（.bottomControlRow・.wrapper）は`pointer-events: none`を敷いて地図の操作を
+ * 通すため、押せるボタン自身だけ`auto`へ戻す。`touch-action: none`は、ボタンの上での
+ * タッチが地図のパン・ズームへ流れてしまうのを止める。
+ */
+
+.roundIconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-neutral);
+  cursor: pointer;
+  touch-action: none;
+  pointer-events: auto;
+}

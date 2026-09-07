@@ -13,8 +13,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { AxisDefinitionResponse, AxisShape } from "@/types/route";
+import type { AxisShape } from "@/types/route";
 import AxisComposer from "./AxisComposer";
+import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 
 // AxisComposerが使うuseMaterialCatalog/useMaterialValuesの取得先。AxisStudio.test.tsxと
 // 同じ方針で、静的フォールバック（AXIS_MATERIAL_OPTIONS、lib/axisMaterialsCatalog.ts）で
@@ -25,37 +26,6 @@ vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
-
-function baseDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
-  return {
-    axis_id: "gradient",
-    label: "勾配",
-    description: "",
-    category: "観測",
-    default_weight: 0.2,
-    is_published: false,
-    priority_overrides: [],
-    show_map_icon: true,
-    time_scope: "always",
-    dedicated_way_value_layer: false,
-    dynamic_way_value_needs_time: false,
-    dynamic_way_value_needs_bearing: false,
-    dynamic_way_value_needs_speed: false,
-    shape: {
-      kind: "breakpoint_linear",
-      terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
-      preprocess: "identity",
-      breakpoints: [
-        [0, 0],
-        [10, 100],
-      ],
-    },
-    // 改善計画T404: displayはAxisDefinitionResponseの必須フィールド（axis_display_for()の
-    // 計算結果）。gradient_percentはタイル非依存のためkind="none"が実際の値と一致する。
-    display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
-    ...overrides,
-  };
-}
 
 function categoricalShape(material: string, mapping: Record<string, number>): AxisShape {
   return { kind: "categorical", material, mapping };
@@ -200,7 +170,7 @@ describe("AxisComposer", () => {
     it("「かけあわせ評価」(recipe_then_breakpoint_linear)を選ぶと材料セレクトが他の軸一覧になり、下ごしらえ・折れ点の編集UIは出ない", async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
-      const otherAxes = [baseDefinition({ axis_id: "wind", label: "風" })];
+      const otherAxes = [baseAxisDefinition({ axis_id: "wind", label: "風" })];
       render(
         <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={onSave} />,
       );
@@ -237,8 +207,8 @@ describe("AxisComposer", () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       const otherAxes = [
-        baseDefinition({ axis_id: "gradient", label: "勾配" }),
-        baseDefinition({ axis_id: "wind", label: "風" }),
+        baseAxisDefinition({ axis_id: "gradient", label: "勾配" }),
+        baseAxisDefinition({ axis_id: "wind", label: "風" }),
       ];
       render(
         <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={onSave} />,
@@ -390,7 +360,7 @@ describe("AxisComposer", () => {
   describe("priority_overridesの素通し保持（回帰テスト）", () => {
     it("編集フォームに欄を持たないpriority_overridesが、他フィールドの変更だけを経て編集前の値のまま保存される", async () => {
       const priorityOverrides = [{ material: "has_tunnel", equals: "true", value: -1000 }];
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         priority_overrides: priorityOverrides,
       });
       const onSave = vi.fn().mockResolvedValue(undefined);
@@ -418,7 +388,7 @@ describe("AxisComposer", () => {
     });
 
     it("priority_overridesが空配列の既存軸を編集しても、[]のまま保存され欠落しない", async () => {
-      const editing = baseDefinition({ priority_overrides: [] });
+      const editing = baseAxisDefinition({ priority_overrides: [] });
       const onSave = vi.fn().mockResolvedValue(undefined);
       const user = userEvent.setup();
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
@@ -560,7 +530,7 @@ describe("AxisComposer", () => {
     });
 
     it("既存軸のdisplay_band_labels_overrideが編集フォームへ初期反映される", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         display_thresholds_override: [2],
         display_band_labels_override: ["低い", "高い"],
       });
@@ -576,7 +546,7 @@ describe("AxisComposer", () => {
     });
 
     it("改善計画T513回帰テスト: 複製元のdisplay_band_labels_overrideは複製先へ引き継がずnullへリセットされる", async () => {
-      const source = baseDefinition({
+      const source = baseAxisDefinition({
         display_thresholds_override: [2],
         display_band_labels_override: ["低い", "高い"],
       });
@@ -618,7 +588,7 @@ describe("AxisComposer", () => {
     });
 
     it("編集中の軸がkind=noneの場合、地図表示用のデータ取得経路が無い旨の注記が出る", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
       });
       const user = userEvent.setup();
@@ -636,7 +606,7 @@ describe("AxisComposer", () => {
     });
 
     it("編集中の軸がkind=rampの場合、注記は出ない", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         display: {
           kind: "ramp",
           label: "勾配",
@@ -680,7 +650,7 @@ describe("AxisComposer", () => {
     });
 
     it("既存軸のdisplay_thresholds_overrideが編集フォームへ初期反映される", async () => {
-      const editing = baseDefinition({ display_thresholds_override: [1, 2, 4] });
+      const editing = baseAxisDefinition({ display_thresholds_override: [1, 2, 4] });
       const user = userEvent.setup();
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
@@ -694,7 +664,7 @@ describe("AxisComposer", () => {
     });
 
     it("改善計画T501回帰テスト: 複製元のdisplay_thresholds_overrideは複製先へ引き継がず自動計算(null)へリセットされる", async () => {
-      const source = baseDefinition({ axis_id: "gradient", display_thresholds_override: [-2, 2, 6, 10] });
+      const source = baseAxisDefinition({ axis_id: "gradient", display_thresholds_override: [-2, 2, 6, 10] });
       const user = userEvent.setup();
       render(<AxisComposer editing={null} duplicateFrom={source} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
@@ -713,7 +683,7 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("公開済み軸の表示専用フィールド編集(制限モード)", () => {
     it("ステッパー・戻る/次へボタンを出さず、表示専用フィールドの編集画面のみを表示する", async () => {
-      const editing = baseDefinition({ is_published: true });
+      const editing = baseAxisDefinition({ is_published: true });
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
       expect(screen.getByLabelText("地図チップの略称(chip_label)")).toBeInTheDocument();
@@ -724,7 +694,7 @@ describe("AxisComposer", () => {
     });
 
     it("表示専用フィールドだけを変更して保存すると、材料・計算式・重み・is_publishedは既存のまま送信される", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         is_published: true,
         default_weight: 0.42,
         icon_id: "old_icon",
@@ -751,7 +721,7 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("既存軸の編集読み込み(draftFromExisting往復)", () => {
     it("breakpoint_linear軸を編集で開くと、対応するカードが選択済みで係数・折れ点が反映される", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         shape: {
           kind: "breakpoint_linear",
           terms: [{ material: "gradient_percent", weight: 3.0, required: false }],
@@ -780,7 +750,7 @@ describe("AxisComposer", () => {
       // 改善計画T396: 保存済みkindは常にbreakpoint_linearへ統合済みのため、材料一覧に
       // 存在しない参照（wind、材料カタログには無くaxis_idの想定）を使い、構造判定
       // （draftFromExisting）が「他軸参照termsのみ」からこのカードを推定することを確認する。
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         shape: {
           kind: "breakpoint_linear",
           terms: [{ material: "wind", weight: 1.0, required: true }],
@@ -800,7 +770,7 @@ describe("AxisComposer", () => {
     });
 
     it("categorical(boolean材料)軸を編集で開くと、true/falseスコアが反映される", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         shape: categoricalShape("has_tunnel", { true: -30, false: 5 }),
       });
       const user = userEvent.setup();
@@ -815,7 +785,7 @@ describe("AxisComposer", () => {
     });
 
     it("categorical(多値材料)軸を編集で開くと、材料選択と値ごとのスコア行が反映される", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         shape: categoricalShape("tracktype", { separated: 80, none: -10 }),
       });
       const user = userEvent.setup();
@@ -840,7 +810,7 @@ describe("AxisComposer", () => {
     // breakpoint_linearとして保存されているため、編集で開くと（4カード化前と違い専用の
     // 判別は行わず）「なめらか評価」カードで開き、termsがそのまま反映される。
     it("boolean材料のみのterms（旧flag_sum相当）を編集で開くと、なめらか評価カードで係数が反映される", async () => {
-      const editing = baseDefinition({
+      const editing = baseAxisDefinition({
         shape: flagSumShape(
           [
             ["lit", -30],
@@ -1041,8 +1011,8 @@ describe("AxisComposer", () => {
     it("otherAxesを渡すと、公開軸全体の重み合計に対する割合が参考表示される", async () => {
       const user = userEvent.setup();
       const otherAxes = [
-        baseDefinition({ axis_id: "gradient", is_published: true, default_weight: 0.3 }),
-        baseDefinition({ axis_id: "wind", label: "風", is_published: true, default_weight: 0.1 }),
+        baseAxisDefinition({ axis_id: "gradient", is_published: true, default_weight: 0.3 }),
+        baseAxisDefinition({ axis_id: "wind", label: "風", is_published: true, default_weight: 0.1 }),
       ];
       render(
         <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={vi.fn()} />,

@@ -9,18 +9,9 @@ import type {
 } from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
 import { generateRoutes, previewRoute } from "./routeApi";
+import { makeResponse } from "@/testing/fetchMocks";
 
 vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
-
-function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({}),
-    headers: new Headers(),
-    ...overrides,
-  };
-}
 
 describe("routeApi", () => {
   afterEach(() => {

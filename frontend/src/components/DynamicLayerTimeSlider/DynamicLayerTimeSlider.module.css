@@ -164,17 +164,7 @@
    コンパクトな形にする（ドラッグ＝大まかな位置合わせ、こちらはピンポイントの1コマ単位
    調整という役割分担のため、主役の.rulerViewportより目立たせない）。 */
 .stepButton {
-  flex-shrink: 0;
-  min-width: 1.6rem;
-  padding: 0.2rem 0.3rem;
-  font-size: var(--font-size-md);
-  line-height: 1;
-  font-weight: 600;
-  color: var(--color-accent);
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  composes: stepperButton from "../ui/stepperButton.module.css";
   /* .timeHeaderと同じ理由（.panelコメント付近参照）。 */
   touch-action: none;
   pointer-events: auto;

@@ -55,9 +55,14 @@ DUPLICATION_BASELINE = HISTORY_DIR / "duplication.json"
 # --- 共通 -------------------------------------------------------------------
 
 IMPL_INCLUDE_PREFIXES = ("backend/app/", "frontend/src/")
+# frontend/src/testing/はテストだけが使う補助（フェイク・フィクスチャ）で、docs/modulesが
+# 記述する対象は実装モジュールのため、.test.と同じく除外する（置き場所と使い方は
+# docs/testing.md「パターン5」が持つ。backend側の同種の補助はbackend/tests/配下にあり、
+# IMPL_INCLUDE_PREFIXESがbackend/app/しか含まないため元から対象外）。
 IMPL_EXCLUDE_RE = re.compile(
     r"(\.test\.|\.spec\.|\.bench\.|/types/generated/|\.module\.css$|\.css$|\.d\.ts$"
-    r"|/__init__\.py$|/__pycache__/|\.json$|\.yml$|\.yaml$|\.md$|\.snap$)"
+    r"|/__init__\.py$|/__pycache__/|\.json$|\.yml$|\.yaml$|\.md$|\.snap$"
+    r"|^frontend/src/testing/)"
 )
 # 名前だけでは特定できないファイル名は「親ディレクトリ/名前」で照合する
 GENERIC_BASENAMES = {

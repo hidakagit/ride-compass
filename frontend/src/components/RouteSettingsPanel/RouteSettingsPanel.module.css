@@ -299,16 +299,7 @@
    （Map/recipeControls.module.css）と同じ考え方——BottomSheet/Dialogより確実に前面へ
    浮かせるためz-indexを揃える。 */
 .legendInfoPopover {
-  max-width: 16rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-float);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.4;
-  z-index: 60;
+  composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
 
 @media (max-width: 640px) {

@@ -126,3 +126,13 @@ DOM環境の構築コストはテストファイルごとにかかるため、�
 
 ファイル内の全テストが管理画面APIを叩く場合は、`admin_credentials`を毎テストの引数に
 書く代わりに、autouseの薄いフィクスチャで受ける（`test_health.py`等）。
+
+frontendは`frontend/src/testing/`が同じ役割を持つ。
+
+| モジュール | 中身 | 使う場面 |
+|---|---|---|
+| `fetchMocks.ts` | `makeResponse()` | `vi.stubGlobal("fetch", ...)`へ渡すレスポンス |
+| `emblaBrowserApis.ts` | `stubEmblaBrowserApis()` | Embla Carouselを含むコンポーネントの`beforeEach` |
+| `imageDataPolyfill.ts` | `installImageDataPolyfill()` | canvasのフォールバックで`ImageData`を返す実装 |
+| `axisDefinitionFixtures.ts` | `baseAxisDefinition()` | 軸スタジオのテストが土台に使う軸定義 |
+| `fakeDataStatusMap.ts` | `createFakeDataStatusMap()` | `computeLayerDataStatus`が読む3メソッドだけのフェイクmap |

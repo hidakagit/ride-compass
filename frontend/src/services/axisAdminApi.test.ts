@@ -8,21 +8,12 @@ import {
   unpublishAxisDefinition,
   updateAxisDefinition,
 } from "./axisAdminApi";
+import { makeResponse } from "@/testing/fetchMocks";
 
 // 軸CRUD管理APIクライアント（lib/fetchJson.tsのGET専用パターンとは別にadminFetchを自前実装、
 // axisAdminApi.tsのコメント参照）。AxisStudio.test.tsxはこのモジュール自体をモックしており
 // adminFetchの実装コードが一度も実行されていなかった（改善計画T331）ため、
 // lib/fetchJson.test.tsと同じ粒度でfetch呼び出しの組み立て・エラーハンドリングを検証する。
-
-function makeResponse(overrides: Partial<{ ok: boolean; status: number; json: () => Promise<unknown>; headers: Headers }>) {
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({}),
-    headers: new Headers(),
-    ...overrides,
-  };
-}
 
 const axisResponse: AxisDefinitionResponse = {
   axis_id: "surface_q",
