@@ -28,6 +28,10 @@ async def region_accident_tile(
     enforce_rate_limit(request, "accident-tile", settings.accident_tile_rate_limit_per_minute)
     validate_tile_coords(z, x, y)
     async with _accident_tile_semaphore:
-        tile_bytes = await accident_service.get_accident_tile(z, x, y)
-    # Cache-Controlはapi/cache_policy.pyの対応表（BATCH_TILE）がミドルウェアで付ける。
-    return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
+        tile = await accident_service.get_accident_tile(z, x, y)
+    # 一時的な失敗で返した空タイルだけはno-storeを明示する（region.py: _tile_responseと
+    # 同じ理由。通常はcache_policy.pyのBATCH_TILEがミドルウェアで付く）。
+    headers = None if tile.cacheable else {"Cache-Control": "no-store"}
+    return Response(
+        content=tile.content, media_type="application/vnd.mapbox-vector-tile", headers=headers
+    )

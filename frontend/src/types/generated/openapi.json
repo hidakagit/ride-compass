@@ -196,7 +196,7 @@
     "/api/weather": {
       "get": {
         "summary": "Get Weather",
-        "description": "今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。\n常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う\n`GET /api/weather/amedas`が担うため、このエンドポイントはOpen-Meteoの値を\nそのまま返す。",
+        "description": "今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。\n常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う\n`GET /api/weather/amedas`が担うため、このエンドポイントは予報（MSM）の値を\nそのまま返す。",
         "operationId": "get_weather_api_weather_get",
         "parameters": [
           {

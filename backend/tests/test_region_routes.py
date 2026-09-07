@@ -8,6 +8,7 @@ from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, Breakp
 from app.config import settings
 from app.domain.evaluation import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
+from app.services.tile_serving import TileResponse
 from app.main import app
 
 client = TestClient(app)
@@ -21,20 +22,23 @@ def clear_rate_limiter():
 
 
 class FakeRegionService:
-    def __init__(self, tile_bytes=b"\x00\x01\x02", axis_inspector_result=None):
+    def __init__(self, tile_bytes=b"\x00\x01\x02", axis_inspector_result=None, cacheable=True):
         self._tile_bytes = tile_bytes
         self._axis_inspector_result = axis_inspector_result
+        # 一時的な失敗（DB障害等）で空タイルを返した場合はFalse。ルーターが
+        # Cache-Control: no-storeを明示することの検証に使う。
+        self._cacheable = cacheable
         self.last_request = None
         self.last_poi_request = None
         self.last_axis_inspector_request = None
 
     async def get_road_surface_tile(self, z, x, y):
         self.last_request = (z, x, y)
-        return self._tile_bytes
+        return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
     async def get_poi_tile(self, z, x, y):
         self.last_poi_request = (z, x, y)
-        return self._tile_bytes
+        return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
     async def get_axis_inspector(self, osm_way_id):
         self.last_axis_inspector_request = osm_way_id
@@ -455,3 +459,46 @@ def test_region_road_surface_tile_is_gzipped_for_gzip_clients():
     assert response.headers["content-type"] == "application/vnd.mapbox-vector-tile"
     assert response.headers["cache-control"] == "public, max-age=3600"
     assert response.content == tile
+
+
+def test_road_surface_tile_is_cacheable_when_data_is_genuinely_absent():
+    # 取込範囲外は恒久的にデータが無いため、空タイルを長期キャッシュしてよい
+    # （api/cache_policy.pyのBATCH_TILEがミドルウェアで付く）。
+    fake = FakeRegionService(tile_bytes=b"", cacheable=True)
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/road-surface-tiles/12/3637/1612.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=3600"
+
+
+def test_road_surface_tile_is_not_cached_when_retrieval_failed_temporarily():
+    # DB障害・混雑で一時的に取れなかった空タイルを1時間キャッシュさせると、サーバーが
+    # 回復した後も利用者のブラウザにはその区画の空白が残り続ける（改善計画T643）。
+    fake = FakeRegionService(tile_bytes=b"", cacheable=False)
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/road-surface-tiles/12/3637/1612.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_poi_tile_is_not_cached_when_retrieval_failed_temporarily():
+    fake = FakeRegionService(tile_bytes=b"", cacheable=False)
+    app.dependency_overrides[get_region_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/poi-tiles/12/3637/1612.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"

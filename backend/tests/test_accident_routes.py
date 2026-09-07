@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_accident_service, get_region_service
 from app.config import settings
 from app.infrastructure import rate_limiter
+from app.services.tile_serving import TileResponse
 from app.main import app
 
 client = TestClient(app)
@@ -17,13 +18,16 @@ def clear_rate_limiter():
 
 
 class FakeAccidentService:
-    def __init__(self, tile_bytes=b"\x00\x01\x02"):
+    def __init__(self, tile_bytes=b"\x00\x01\x02", cacheable=True):
         self._tile_bytes = tile_bytes
+        # 一時的な失敗（DB障害等）で空タイルを返した場合はFalse。ルーターが
+        # Cache-Control: no-storeを明示することの検証に使う。
+        self._cacheable = cacheable
         self.last_request = None
 
     async def get_accident_tile(self, z, x, y):
         self.last_request = (z, x, y)
-        return self._tile_bytes
+        return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
 
 def test_region_accident_tile_returns_mvt_bytes():
@@ -113,3 +117,31 @@ def test_accident_tile_rate_limit_is_independent_from_road_tile_rate_limit():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
+
+
+def test_accident_tile_is_not_cached_when_retrieval_failed_temporarily():
+    # region.pyの路面/POIタイルと同じ理由（改善計画T643）。一時的な失敗で返した空タイルを
+    # 長期キャッシュさせると、サーバー回復後も利用者側に空白が残り続ける。
+    fake = FakeAccidentService(tile_bytes=b"", cacheable=False)
+    app.dependency_overrides[get_accident_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/accident-tiles/12/3637/1612.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_accident_tile_is_cacheable_when_data_is_genuinely_absent():
+    fake = FakeAccidentService(tile_bytes=b"", cacheable=True)
+    app.dependency_overrides[get_accident_service] = lambda: fake
+
+    try:
+        response = client.get("/api/region/accident-tiles/12/3637/1612.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=3600"

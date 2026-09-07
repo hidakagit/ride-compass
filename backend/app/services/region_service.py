@@ -10,7 +10,7 @@ from app.infrastructure.debug_log import error_type_label, log_external_call, lo
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
-from app.services.tile_serving import serve_cached_tile
+from app.services.tile_serving import TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.region")
 
@@ -191,7 +191,7 @@ class RegionService:
         z: int,
         x: int,
         y: int,
-    ) -> bytes:
+    ) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
             if self._repository is None:
                 # repository未接続。DB障害時のWARNING（_tile_from_repository側で既に
@@ -228,7 +228,7 @@ class RegionService:
             fetch_tile=fetch_tile,
         )
 
-    async def get_road_surface_tile(self, z: int, x: int, y: int) -> bytes:
+    async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:
         return await self._get_tile(
             repository_method="get_road_surface_tile_mvt",
             cache_path=_tile_cache_path(z, x, y),
@@ -240,7 +240,7 @@ class RegionService:
             y=y,
         )
 
-    async def get_poi_tile(self, z: int, x: int, y: int) -> bytes:
+    async def get_poi_tile(self, z: int, x: int, y: int) -> TileResponse:
         """停止要因POIレイヤー用のMVTタイルを返す。get_road_surface_tileと同じキャッシュ・
         カバレッジ判定・エラー処理を、対象データが違うだけの_get_tileへ共通化して使う。
         """

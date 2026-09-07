@@ -96,7 +96,7 @@ async def test_covered_tile_is_served_from_postgis():
     repository = FakeRegionRepository(covered=True)
     service = RegionService(repository=repository)
 
-    tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
 
     # PostGIS（ST_AsMVT）が生成したバイト列がそのまま返る（Python側で再エンコードしない）
     assert tile_bytes == b"fake-mvt-tile"
@@ -114,7 +114,7 @@ async def test_covered_tile_with_no_roads_caches_empty_mvt():
     repository = FakeRegionRepository(covered=True, tile=b"")
     service = RegionService(repository=repository)
 
-    tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
 
     assert tile_bytes == b""
     await service.get_road_surface_tile(Z, X, Y)
@@ -125,7 +125,7 @@ async def test_uncovered_tile_returns_empty_mvt_without_caching():
     repository = FakeRegionRepository(covered=False)
     service = RegionService(repository=repository)
 
-    tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
 
     assert isinstance(tile_bytes, bytes)
     # 空タイルはキャッシュされない（後からPBF取込された際に再生成できるようにする）ため、
@@ -138,7 +138,7 @@ async def test_postgis_error_returns_empty_mvt():
     repository = FakeRegionRepository(covered=True, error=RuntimeError("db down"))
     service = RegionService(repository=repository)
 
-    tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
 
     # DB障害時も空タイルへ安全側に倒す（Overpassフォールバックは改善計画T22で撤去済み）
     assert isinstance(tile_bytes, bytes)
@@ -149,7 +149,7 @@ async def test_no_repository_returns_empty_mvt():
     # 路面レイヤーは常に空タイルになる
     service = RegionService()
 
-    tile_bytes = await service.get_road_surface_tile(Z, X, Y)
+    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
 
     assert isinstance(tile_bytes, bytes)
 
@@ -163,7 +163,7 @@ async def test_poi_tile_covered_is_served_from_postgis_and_cached_independently_
     repository = FakeRegionRepository(covered=True, tile=b"fake-poi-tile")
     service = RegionService(repository=repository)
 
-    tile_bytes = await service.get_poi_tile(Z, X, Y)
+    tile_bytes = (await service.get_poi_tile(Z, X, Y)).content
 
     assert tile_bytes == b"fake-poi-tile"
     assert repository.poi_mvt_calls == [(Z, X, Y, (12, X >> 2, Y >> 2))]
@@ -181,7 +181,7 @@ async def test_poi_tile_uncovered_returns_empty_mvt_without_caching():
     repository = FakeRegionRepository(covered=False)
     service = RegionService(repository=repository)
 
-    tile_bytes = await service.get_poi_tile(Z, X, Y)
+    tile_bytes = (await service.get_poi_tile(Z, X, Y)).content
 
     assert isinstance(tile_bytes, bytes)
     await service.get_poi_tile(Z, X, Y)
@@ -191,7 +191,7 @@ async def test_poi_tile_uncovered_returns_empty_mvt_without_caching():
 async def test_poi_tile_no_repository_returns_empty_mvt():
     service = RegionService()
 
-    tile_bytes = await service.get_poi_tile(Z, X, Y)
+    tile_bytes = (await service.get_poi_tile(Z, X, Y)).content
 
     assert isinstance(tile_bytes, bytes)
 
@@ -470,3 +470,34 @@ async def test_accident_years_covered_db_error_is_counted_in_debug_stats():
     assert stats["errors"] == 1
     assert stats["error_types"] == {"RuntimeError": 1}
     reset_stats()
+
+
+async def test_postgis_error_marks_tile_as_not_cacheable():
+    # 改善計画T643: DB障害は一時的なため、返した空タイルをブラウザへ長期キャッシュさせない。
+    # サーバー側ファイルキャッシュには書かないので次のリクエストでは正しく生成されるが、
+    # ブラウザ側だけが空白のまま取り残される、という気づきにくい壊れ方を防ぐ。
+    repository = FakeRegionRepository(covered=True, error=RuntimeError("db down"))
+    service = RegionService(repository=repository)
+
+    tile = await service.get_road_surface_tile(Z, X, Y)
+
+    assert tile.cacheable is False
+
+
+async def test_uncovered_tile_stays_cacheable():
+    # 取込範囲外は恒久的にデータが無いため、空タイルを長期キャッシュしてよい。
+    repository = FakeRegionRepository(covered=False)
+    service = RegionService(repository=repository)
+
+    tile = await service.get_road_surface_tile(Z, X, Y)
+
+    assert tile.cacheable is True
+
+
+async def test_no_repository_stays_cacheable():
+    # repository未接続は設定由来で、プロセスが生きている間は変わらない。
+    service = RegionService(repository=None)
+
+    tile = await service.get_road_surface_tile(Z, X, Y)
+
+    assert tile.cacheable is True

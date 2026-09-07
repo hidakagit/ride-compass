@@ -32,7 +32,7 @@ async def test_tile_is_served_from_postgis_and_cached():
     repository = FakeAccidentRepository(tile=b"fake-accident-tile")
     service = AccidentService(repository=repository)
 
-    tile_bytes = await service.get_accident_tile(Z, X, Y)
+    tile_bytes = (await service.get_accident_tile(Z, X, Y)).content
 
     assert tile_bytes == b"fake-accident-tile"
     await service.get_accident_tile(Z, X, Y)
@@ -47,7 +47,7 @@ async def test_empty_tile_from_postgis_is_also_cached():
     repository = FakeAccidentRepository(tile=b"")
     service = AccidentService(repository=repository)
 
-    tile_bytes = await service.get_accident_tile(Z, X, Y)
+    tile_bytes = (await service.get_accident_tile(Z, X, Y)).content
 
     assert tile_bytes == b""
     await service.get_accident_tile(Z, X, Y)
@@ -58,7 +58,7 @@ async def test_postgis_error_returns_empty_mvt():
     repository = FakeAccidentRepository(error=RuntimeError("db down"))
     service = AccidentService(repository=repository)
 
-    tile_bytes = await service.get_accident_tile(Z, X, Y)
+    tile_bytes = (await service.get_accident_tile(Z, X, Y)).content
 
     assert isinstance(tile_bytes, bytes)
 
@@ -67,6 +67,6 @@ async def test_no_repository_returns_empty_mvt():
     # road_graph_use_repository無効（DBなし構成）ではrepository自体が注入されない
     service = AccidentService()
 
-    tile_bytes = await service.get_accident_tile(Z, X, Y)
+    tile_bytes = (await service.get_accident_tile(Z, X, Y)).content
 
     assert isinstance(tile_bytes, bytes)

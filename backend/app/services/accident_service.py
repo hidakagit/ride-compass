@@ -3,7 +3,7 @@ import logging
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.vector_tile import encode_empty_accident_tile
-from app.services.tile_serving import serve_cached_tile
+from app.services.tile_serving import TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.accident")
 
@@ -32,7 +32,7 @@ class AccidentService:
     def __init__(self, repository: AccidentTileQuery | None = None):
         self._repository = repository
 
-    async def get_accident_tile(self, z: int, x: int, y: int) -> bytes:
+    async def get_accident_tile(self, z: int, x: int, y: int) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
             if self._repository is None:
                 # repository未接続（road_graph_use_repository無効時）。データ未整備として

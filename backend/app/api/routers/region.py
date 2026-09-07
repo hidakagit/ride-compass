@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from app.api.dependencies import enforce_rate_limit, get_dynamic_way_value_service, get_region_service
+from app.services.tile_serving import TileResponse
 from app.api.routers._tile_validation import validate_tile_coords
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
@@ -30,6 +31,19 @@ router = APIRouter()
 _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
 
 
+def _tile_response(tile: TileResponse) -> Response:
+    """タイル応答を組み立てる。
+
+    通常は`api/cache_policy.py`の対応表（`BATCH_TILE`）がミドルウェアで`Cache-Control`を
+    付けるが、一時的な失敗で空タイルを返した場合だけは`no-store`を明示して、その空白が
+    利用者のブラウザへ1時間残らないようにする（`TileResponse`のdocstring参照）。
+    """
+    headers = None if tile.cacheable else {"Cache-Control": "no-store"}
+    return Response(
+        content=tile.content, media_type="application/vnd.mapbox-vector-tile", headers=headers
+    )
+
+
 def _check_tile_rate_limit(request: Request, prefix: str) -> None:
     """路面・POIタイル向けの`enforce_rate_limit`薄いラッパー。両タイルとも同じ
     上限値（settings.road_tile_rate_limit_per_minute）を使うが、キー・記録先の
@@ -53,9 +67,8 @@ async def region_road_surface_tile(
     # すぐ解放され、実質的に重い（PostGIS問い合わせを伴う）リクエストだけが待ち行列の
     # 原因になる。
     async with _region_tile_semaphore:
-        tile_bytes = await region_service.get_road_surface_tile(z, x, y)
-    # Cache-Controlはapi/cache_policy.pyの対応表（BATCH_TILE）がミドルウェアで付ける。
-    return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
+        tile = await region_service.get_road_surface_tile(z, x, y)
+    return _tile_response(tile)
 
 
 @router.get("/api/region/poi-tiles/{z}/{x}/{y}.pbf")
@@ -74,8 +87,8 @@ async def region_poi_tile(
     _check_tile_rate_limit(request, "poi-tile")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
-        tile_bytes = await region_service.get_poi_tile(z, x, y)
-    return Response(content=tile_bytes, media_type="application/vnd.mapbox-vector-tile")
+        tile = await region_service.get_poi_tile(z, x, y)
+    return _tile_response(tile)
 
 
 @router.get("/api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}")
