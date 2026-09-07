@@ -165,8 +165,8 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 経路へ進めるようにする。キャッシュの不調でアプリの機能を止めない。
 
 新しくRedisへ持つキャッシュはこれを使う。既存のRedisキャッシュ
-（`jma_tile_redis_cache`・`wind_forecast_cache`・`dynamic_way_value_cache`・
-`road_edge_geometry_cache`・`road_graph_tile_cache`）は各自の実装のまま動いている。
+（`jma_tile_redis_cache`・`dynamic_way_value_cache`・`road_edge_geometry_cache`・
+`road_graph_tile_cache`）は各自の実装のまま動いている。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 

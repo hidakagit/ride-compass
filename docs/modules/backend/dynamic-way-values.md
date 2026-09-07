@@ -12,7 +12,7 @@
 |---|---|
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`dynamic_way_values.py` |
 | services | `wind_way_service.py`・`gradient_way_service.py` |
-| infrastructure | `dynamic_way_value_cache.py`・`wind_forecast_cache.py` |
+| infrastructure | `dynamic_way_value_cache.py` |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{material_id}/...`）・`dependencies.py`（`get_dynamic_way_value_service`） |
 
 勾配材料の入力（`elevation_attributes.average_grade`・`road_edges.bearing_deg`）を
