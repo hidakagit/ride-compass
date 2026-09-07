@@ -243,16 +243,18 @@ trueとする。
   `MapView.tsx`内に`ensureGradientFillLayer`/`applyGradientFillGeojson`という独立実装を
   持つ。このモジュールの対象範囲は風・降水・雷・竜巻・キキクル・線状降水帯予測マップの
   みであり、勾配は含まない（勾配は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。
-- タイルURLテンプレート（`riskMap.ts: tileUrlTemplate`・`precipitationNowcast.ts`・
-  `thunderNowcast.ts`）は`lib/tileBaseUrl.ts: tileBaseUrl()`で常に絶対URLにする。
+- **JMAプロキシ配下のURLはすべて`jmaNowcastFrames.ts: jmaProxyUrl(path)`で組み立てる**
+  （タイルテンプレート・時刻一覧・GeoJSON・`DYNAMIC_WEATHER_RENDERERS`のプレースホルダの
+  区別なく）。配信オリジン（`lib/tileBaseUrl.ts: tileBaseUrl()`）を付けるかどうかを
+  呼び出し側の判断に委ねると、付け忘れた箇所だけがフロントのホスティング経由になる。
+  常に絶対URLにする理由:
   `vectorTile`（洪水キキクル）はMapLibreがWeb Worker内で取得するため相対パスだと
   `new Request(url)`がWorkerのbase URLに対して解決できず例外になり、`rasterTile`も
   backend直接配信（`NEXT_PUBLIC_TILE_BASE_URL`）ではページと別オリジンになるため絶対URLが
   要る（`services/regionApi.ts`の`roadSurfaceTileUrl`等と同じ仕組み、
   [静的レイヤー](static-map-layers.md)「タイルの配信元」参照）。
-- **時刻一覧（`targetTimes*.json`）・雷放電位置データのGeoJSONも同じ配信オリジンへ揃える**。
-  これらはMapLibreではなくアプリ自身の`fetch()`で読むが、`jmaNowcastFrames.ts: jmaProxyUrl`
-  が`tileBaseUrl()`を適用して絶対URLにする。**タイルURLは時刻一覧が返るまで確定しない**
-  ため、ここでフロントのホスティングを経由すると往復1つぶんが初回表示のクリティカルパスへ
-  直列に乗る。`tileBaseUrl()`は`window`を参照するので、モジュール直下の定数ではなく
-  呼び出し時に評価する関数（`riskTargetTimesUrl()`等）として持つ。
+  時刻一覧・GeoJSONはMapLibreではなくアプリ自身の`fetch()`で読むが、同じく絶対URLにする——
+  **タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると
+  往復1つぶんが初回表示のクリティカルパスへ直列に乗る。`tileBaseUrl()`は`window`を参照する
+  ので、モジュール直下の定数ではなく呼び出し時に評価する関数（`riskTargetTimesUrl()`等）
+  として持つ。

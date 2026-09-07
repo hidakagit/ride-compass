@@ -11,8 +11,7 @@
 // 生成した画像をそのまま重ねる）のみを持つ警告表示として扱う。
 
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
-import { JMA_TILE_BASE_URL, fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
-import { tileBaseUrl } from "@/lib/tileBaseUrl";
+import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaProxyUrl } from "@/components/Map/jmaNowcastFrames";
 
 export type ThunderNowcastFrame = JmaNowcastFrame;
 
@@ -38,7 +37,7 @@ export function thunderFrames(frames: readonly ThunderNowcastFrame[]): DynamicWe
 }
 
 function tileUrlTemplate(frame: ThunderNowcastFrame, product: "thns" | "trns"): string {
-  return `${tileBaseUrl()}${JMA_TILE_BASE_URL}/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/${product}/{z}/{x}/{y}.png`;
+  return jmaProxyUrl(`/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/${product}/{z}/{x}/{y}.png`);
 }
 
 /** thunderFramesが返したref（frames内のindex）から、雷ナウキャストの描画ペイロードを
