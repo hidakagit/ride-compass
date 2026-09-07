@@ -182,6 +182,9 @@ class EdgeAttributeCountsRow(Base):
     accident_count: Mapped[float] = mapped_column(Float, nullable=False)
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 停止要因POIの種別別カウント（domain/traffic.py: POI_COUNT_KINDSがキーの単一ソース）。
+    # 値を足し合わせるとstop_countに一致する。
+    poi_counts: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # 派生データの系譜追跡（migration 0024）。source_*_import_run_idは
     # このバッチ実行時点でのstatus='succeeded'なimport_runsのMAX(id)（高水位マーク、
@@ -234,6 +237,9 @@ class WayAttributeCountsRow(Base):
     accident_count: Mapped[float] = mapped_column(Float, nullable=False)
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 停止要因POIの種別別カウント（domain/traffic.py: POI_COUNT_KINDSがキーの単一ソース）。
+    # 値を足し合わせるとstop_countに一致する。
+    poi_counts: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # 派生データの系譜追跡（migration 0024）。EdgeAttributeCountsRowと同じ
     # 高水位マーク方式・同じ理由でForeignKey()を持たない素のInteger（コメントはそちら参照）。

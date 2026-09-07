@@ -294,6 +294,37 @@ def test_keyed_density_extractor_reads_the_named_key_from_the_metrics_group():
     assert extractor(_ctx(metrics=_counts(**{METRIC_KEY_ACCIDENT: 4}))) is None
 
 
+def test_poi_density_materials_treat_a_missing_key_as_zero_but_a_missing_row_as_unknown():
+    """0件のキーはjsonbから省かれるため、「そのEdgeの集計行が無い（不明）」と
+    「行はあるがそのキーが0件」を取り違えないことを固定する。取り違えると、信号が
+    1つも無い道でその材料がNaNになり、それを使う軸ごと評価対象外になる。"""
+    from app.domain.attributes import METRIC_GROUP_POI
+
+    spec = MATERIAL_CATALOG["poi_traffic_signals_per_km"]
+    # 行があり、キーもある
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"traffic_signals": 2}}})) == 20.0
+    # 行はあるが、そのキーが無い＝0件
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"crossing": 3}}})) == 0.0
+    # 行が空でも、行があること自体が「集計済み＝0件」を意味する
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {}}})) == 0.0
+    # 行そのものが無い＝不明
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {}})) is None
+    assert spec.extractor(_ctx()) is None
+
+
+def test_poi_density_materials_are_generated_from_the_kind_list():
+    """材料を1件ずつ手書きせずキー一覧から生成していることの実証（キーを増やしたときに
+    触るのが一覧だけで済む形になっているか）。"""
+    from app.domain.traffic import POI_COUNT_KINDS
+
+    generated = {m for m in MATERIAL_CATALOG if m.startswith("poi_") and m.endswith("_per_km")}
+    assert generated == {f"poi_{kind}_per_km" for kind in POI_COUNT_KINDS}
+    for kind, label in POI_COUNT_KINDS.items():
+        spec = MATERIAL_CATALOG[f"poi_{kind}_per_km"]
+        assert spec.dtype == "numeric"
+        assert label in spec.label
+
+
 def test_keyed_value_extractor_reads_without_dividing_by_distance():
     from app.domain.material_catalog import keyed_value_extractor
 

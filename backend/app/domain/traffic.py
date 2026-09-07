@@ -45,6 +45,25 @@ _HIGHWAY_STOP_KINDS: dict[str, StopPoiKind] = {
 STOP_POI_KINDS = frozenset(_HIGHWAY_STOP_KINDS.values()) | {"level_crossing"}
 
 
+# 停止要因の集計キー（`edge_attribute_counts.poi_counts`・`way_attribute_counts.poi_counts`の
+# jsonbキー）と、その日本語ラベル。**キーの単一ソース**で、材料
+# （`domain/material_catalog.py`の`poi_*_per_km`）はこの一覧から生成する。
+#
+# `StopPoiKind`（取込時の分類）と1対1ではない。分ける基準は「評価軸で違う重みを付けたいか」
+# だけで、次の2点で異なる:
+# - `crossing`は信号の有無で意味が変わるため`crossing_signals`と`crossing`へ分ける
+#   （日本のOSMは押しボタン式・歩車分離の信号を`highway=crossing`＋`crossing=traffic_signals`
+#   で表すため、`crossing`を一括で扱うと実質的な信号の半分が横断歩道に紛れる）
+# - `give_way`は`stop`へ畳む（実データ上ほぼ存在せず、一時停止と重みを分ける意味が無い）
+POI_COUNT_KINDS: dict[str, str] = {
+    "traffic_signals": "信号",
+    "crossing_signals": "信号付き横断歩道",
+    "crossing": "横断歩道(信号なし)",
+    "stop": "一時停止・徐行",
+    "level_crossing": "踏切",
+}
+
+
 def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:
     """信号・横断歩道・一時停止・踏切の分類（静的道路属性P1、計画書§2.2）。node取込の
     対象node判定にも使う（osm_adapter.py: osm_node_to_poi_spec、Noneを返すnodeは取込対象外）。

@@ -85,9 +85,9 @@ designations.py`実行後、およびOSM再取込後に再実行する必要が�
 ### 事前集計バッチ（`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`）
 
 いずれも新しいSQLを書かず、`RoadGraphRepository`の既存メソッド
-（`get_accident_counts`/`get_stop_poi_counts`/`get_intersection_counts`、および
-`rebuild_raw_intersection_nodes`/`recompute_way_attribute_counts`）をチャンク単位で
-呼び出すだけの薄いオーケストレーション。
+（`get_accident_counts`/`get_stop_poi_counts`/`get_poi_counts_by_kind`/
+`get_intersection_counts`、および`rebuild_raw_intersection_nodes`/
+`recompute_way_attribute_counts`）をチャンク単位で呼び出すだけの薄いオーケストレーション。
 
 | バッチ | 対象 | 母集団 | 実行順の依存 |
 |---|---|---|---|
@@ -98,6 +98,23 @@ Way単位版は地図タイルの母集団になる（`road_edges`はルート�
 ため）。両バッチとも`source_accident_import_run_id`/`source_osm_import_run_id`
 （実行時点の最新成功import run id）と`algorithm_version`（計算ロジック自体の版数、手動で
 上げる）を派生データの系譜として書き込む。
+
+#### 停止要因の種別別カウント（`poi_counts`）
+
+`edge_attribute_counts`・`way_attribute_counts`は停止要因POIの合計（`stop_count`）に加え、
+集計キー別の内訳をjsonb1列（`poi_counts`）で持つ。キーの単一ソースは
+`domain/traffic.py: POI_COUNT_KINDS`で、材料（`poi_*_per_km`）もカバレッジ宣言もこの一覧
+から生成する——キーを増やすときに触るのは一覧とSQLのCASE式だけで、migration・ORM・材料の
+追加は要らない。
+
+集計キーは取込時の`kind`と1対1ではない。`crossing`は信号の有無で
+`crossing_signals`と`crossing`へ分け、`give_way`は`stop`へ畳む。分類は取込時ではなく
+**集計時**に`osm_raw_pois.tags`から導出するため、キーの切り方を変えてもPBF再取込は要らず
+本バッチの再実行だけで反映できる。
+
+値は`stop_count`を分解したもので、合計は一致する（数え方は変えていない）。0件のキーは
+省いて持つため、材料側は「そのEdgeの行が無い（不明）」と「行はあるがキーが無い（0件）」を
+区別する（[評価・スコアリング](evaluation-scoring.md)「材料へ値を届ける」参照）。
 
 ### 派生データ再構築の単一エントリポイント（`refresh_derived.py`）
 

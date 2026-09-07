@@ -241,14 +241,19 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 | 窓口 | 形 | ここから生える材料 |
 |---|---|---|
 | `way_tags` | `{タグ名: 値}` | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
-| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `stop_count_per_km`・`intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent` |
+| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `stop_count_per_km`・`intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent`・`poi_*_per_km` |
 
 `metrics`の群（`domain/attributes.py`の`METRIC_GROUP_*`）はデータ源の単位で、`counts`
-（`edge_attribute_counts`の3列）・`landcover`（`way_landcover`の割合列）がある。保存形式が
+（`edge_attribute_counts`の3列）・`landcover`（`way_landcover`の割合列）・`poi`
+（`edge_attribute_counts.poi_counts`、停止要因の種別別カウント）がある。保存形式が
 列でもJSONBでも、contextへ載る時点でこの1つの形へ揃える（`edge_metrics_from_bundles`と
 `EdgeMaterialTable.to_legacy_dicts`が唯一の変換箇所）。
 
 `MaterialDType`は`numeric`/`boolean`/`categorical`の3種のままで、群を増やしても増えない。
+
+群の中には、キーが無いことを「不明」ではなく確定値として読むものがある。件数の集計
+（`poi`群）は行があれば載っていないキーを0件と確定できるため、
+`keyed_density_extractor(..., absent_key=0.0)`で読む。行そのものが無い場合は常に欠損。
 
 **フィールドを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、contextへ
 フィールドを足さず`metrics`の群にする。増えないもの（`elevation_attributes`・

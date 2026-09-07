@@ -38,6 +38,7 @@ from app.domain.attributes import (
     METRIC_KEY_INTERSECTION,
     METRIC_KEY_STOP,
     METRIC_KEY_TREES_PERCENT,
+    METRIC_GROUP_POI,
     EdgeKeyedMetrics,
     ElevationAttribute,
 )
@@ -45,6 +46,7 @@ from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.graph import EdgeLike
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
+from app.domain.traffic import POI_COUNT_KINDS
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
@@ -294,12 +296,20 @@ def keyed_value_extractor(group: str, key: str) -> MaterialExtractor:
     return _extract
 
 
-def keyed_density_extractor(group: str, key: str) -> MaterialExtractor:
+def keyed_density_extractor(group: str, key: str, *, absent_key: float | None = None) -> MaterialExtractor:
     """「数値の束から1つ取り出して1kmあたりへ正規化する」パターン
-    （stop_count_per_km/intersection_count_per_km等）。"""
+    （stop_count_per_km/intersection_count_per_km等）。
+
+    `absent_key`は「そのEdgeの行はあるがキーが無い」場合の値。件数の集計のように、行が
+    あれば載っていないキーを0件と確定できるものは`0.0`を渡す（0件のキーを省いて持つ形と、
+    「その材料は不明」を区別するため）。Edgeの行自体が無い場合は`absent_key`に関わらず欠損。
+    """
 
     def _extract(ctx: MaterialExtractionContext) -> float | None:
-        return _per_km(_metric(ctx, group, key), ctx.distance_km)
+        row = ctx.metrics.get(group, {}).get(ctx.edge_id)
+        if row is None:
+            return None
+        return _per_km(row.get(key, absent_key), ctx.distance_km)
 
     return _extract
 
@@ -880,6 +890,24 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property=None,
         extractor=raw_way_tag_extractor("tracktype", normalize=True),
     ),
+    # --- 停止要因POIの種別別密度。`domain/traffic.py: POI_COUNT_KINDS`から生成する ---
+    # 材料を1件ずつ手書きせず一覧から作るため、キーを増やすときに触るのはその一覧だけで済む。
+    # `tile_property=None`（タイルへは未焼き込み。地図のramp自動導出はこれらの材料を含む軸を
+    # 対象にできない）。
+    **{
+        f"poi_{kind}_per_km": MaterialSpec(
+            material_id=f"poi_{kind}_per_km",
+            label=f"{label}の密度(回/km)",
+            description=f"進行する道路上にある{label}の、1kmあたりの数。",
+            dtype="numeric",
+            unit="回/km",
+            tile_property=None,
+            primary_attribute_id="stop_poi",
+            extractor=keyed_density_extractor(METRIC_GROUP_POI, kind, absent_key=0.0),
+            reference_points=_STOP_COUNT_PER_KM_REFERENCE_POINTS,
+        )
+        for kind, label in POI_COUNT_KINDS.items()
+    },
 }
 
 

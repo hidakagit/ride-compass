@@ -514,6 +514,40 @@ _POI_TILE_MVT_SQL = text(
 # kindを絞らないこのCOUNTは停止密度へコンビニ・自販機を誤算入する
 # （dev環境で全POIの約17%が補給kind）。STOP_POI_KINDS（domain/traffic.py）で
 # フィルタする。
+# 停止要因POIを集計キー（`domain/traffic.py: POI_COUNT_KINDS`）へ写す式。取込時の`kind`を
+# そのまま使わず、ここで2点だけ組み替える: 信号付き横断歩道を`crossing`から切り出すこと、
+# 徐行（give_way）を一時停止へ畳むこと。生タグは`osm_raw_pois.tags`に全件残っているため、
+# キーの切り方を変えてもPBF再取込は要らず、集計バッチの再実行だけで済む。
+# SQL本文へは`__POI_KIND__`の位置へ差し込む（f-stringにすると本文中の`{}`をすべて
+# エスケープする必要があり読みにくくなるため）。
+_POI_COUNT_KIND_EXPR = """CASE
+                WHEN p.kind = 'crossing' AND p.tags->>'crossing' LIKE '%signals%' THEN 'crossing_signals'
+                WHEN p.kind = 'give_way' THEN 'stop'
+                ELSE p.kind
+            END"""
+
+# 種別別カウント（`edge_attribute_counts.poi_counts`）。距離判定の意味論は
+# `_STOP_POI_COUNTS_SQL`と同一で、種別を足し合わせると`stop_count`に一致する
+# （分解するだけで、数え方は変えない）。
+_POI_COUNTS_BY_KIND_SQL = text(
+    """
+    SELECT e.edge_id,
+           COALESCE(jsonb_object_agg(t.kind, t.cnt) FILTER (WHERE t.kind IS NOT NULL), '{}'::jsonb) AS poi_counts
+    FROM road_edges e
+    LEFT JOIN LATERAL (
+        SELECT __POI_KIND__ AS kind, COUNT(*) AS cnt
+        FROM osm_raw_pois p
+        WHERE p.geom && ST_Expand(e.geom, :max_distance_deg)
+          AND ST_DWithin(p.geom::geography, e.geom::geography, :max_distance_m)
+          AND p.kind = ANY(:stop_kinds)
+        GROUP BY 1
+    ) t ON true
+    WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
+    GROUP BY e.edge_id
+    """.replace("__POI_KIND__", _POI_COUNT_KIND_EXPR)
+).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
+
+
 _STOP_POI_COUNTS_SQL = text(
     """
     SELECT e.edge_id, COUNT(p.osm_node_id) AS stop_count
@@ -704,7 +738,7 @@ _REBUILD_RAW_INTERSECTION_NODES_SQL = text(
 _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
     """
     INSERT INTO way_attribute_counts
-        (osm_way_id, length_m, accident_count, stop_count, intersection_count, computed_at,
+        (osm_way_id, length_m, accident_count, stop_count, intersection_count, poi_counts, computed_at,
          source_accident_import_run_id, source_osm_import_run_id, algorithm_version)
     SELECT
         w.osm_way_id,
@@ -712,6 +746,7 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
         COALESCE(acc.cnt, 0),
         COALESCE(st.cnt, 0),
         COALESCE(ix.cnt, 0),
+        COALESCE(pk.counts, '{}'::jsonb),
         :computed_at,
         :source_accident_import_run_id,
         :source_osm_import_run_id,
@@ -732,6 +767,17 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
           AND p.kind = ANY(:stop_kinds)
     ) st ON true
     LEFT JOIN LATERAL (
+        SELECT jsonb_object_agg(t.kind, t.cnt) AS counts
+        FROM (
+            SELECT __POI_KIND__ AS kind, COUNT(*) AS cnt
+            FROM osm_raw_pois p
+            WHERE p.geom && ST_Expand(w.geom, :stop_distance_deg)
+              AND ST_DWithin(p.geom::geography, w.geom::geography, :stop_distance_m)
+              AND p.kind = ANY(:stop_kinds)
+            GROUP BY 1
+        ) t
+    ) pk ON true
+    LEFT JOIN LATERAL (
         SELECT COUNT(*) AS cnt
         FROM raw_intersection_nodes i
         WHERE i.geom && ST_Expand(w.geom, :intersection_distance_deg)
@@ -745,11 +791,12 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
         accident_count = EXCLUDED.accident_count,
         stop_count = EXCLUDED.stop_count,
         intersection_count = EXCLUDED.intersection_count,
+        poi_counts = EXCLUDED.poi_counts,
         computed_at = EXCLUDED.computed_at,
         source_accident_import_run_id = EXCLUDED.source_accident_import_run_id,
         source_osm_import_run_id = EXCLUDED.source_osm_import_run_id,
         algorithm_version = EXCLUDED.algorithm_version
-    """
+    """.replace("__POI_KIND__", _POI_COUNT_KIND_EXPR)
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -> RoadGraph:
@@ -1834,6 +1881,29 @@ class AttributeRepository(_SessionRepository):
                 result[edge_id] = stop_count
         return result
 
+    async def get_poi_counts_by_kind(
+        self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, dict[str, int]]:
+        """指定edge_idそれぞれについて、停止要因POIの件数を集計キー別に返す
+        （`domain/traffic.py: POI_COUNT_KINDS`、`get_stop_poi_counts`と同じ距離判定）。
+
+        評価軸が種別ごとの重みを持てるようにするための形で、値を足し合わせると
+        `get_stop_poi_counts`の合計に一致する。該当POIが0件のedgeは空辞書
+        （`get_stop_poi_counts`が0を返すのと同じく、キー自体は必ず結果に含まれる）。
+        """
+        if not edge_ids:
+            return {}
+        result: dict[str, dict[str, int]] = {}
+        max_distance_deg = _meters_to_bbox_margin_deg(max_distance_m)
+        for id_chunk in _chunked(edge_ids, 50_000):
+            rows = await self._session.execute(
+                _POI_COUNTS_BY_KIND_SQL,
+                {"edge_ids": id_chunk, "max_distance_m": max_distance_m, "max_distance_deg": max_distance_deg},
+            )
+            for edge_id, poi_counts in rows.all():
+                result[edge_id] = dict(poi_counts or {})
+        return result
+
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         """osm_way_id完全一致で(highway, tags, is_designated)を返す。
 
@@ -1998,7 +2068,8 @@ class AttributeRepository(_SessionRepository):
         「該当行なし」の扱い: surface・way_tagsはLEFT JOINでNone/{}を明示的に持つ
         （bundle自体はedge_idsに含まれる全Edgeぶん必ず存在する）。attribute_counts・
         elevation_attributeは対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の
-        判定に使う）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
+        判定に使う）。`poi_counts`はNOT NULL DEFAULT '{}'のため行があれば必ず辞書
+        （集計バッチ未実行の間は空辞書＝種別別の材料がすべて欠損）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
         designation_attributes行が1つでもあれば該当、の意味）。landcover_trees_percent/
         landcover_built_percentはway_landcover行が無ければ2つとも同時にNone
         （`WayLandcoverRow`のLEFT JOIN、`EdgeMaterialBundle`のdocstring参照）。
@@ -2027,6 +2098,7 @@ class AttributeRepository(_SessionRepository):
                     EdgeAttributeCountsRow.accident_count,
                     EdgeAttributeCountsRow.stop_count,
                     EdgeAttributeCountsRow.intersection_count,
+                    EdgeAttributeCountsRow.poi_counts,
                     ElevationAttributeRow.start_elevation_m,
                     ElevationAttributeRow.end_elevation_m,
                     ElevationAttributeRow.elevation_gain_m,
@@ -2051,6 +2123,7 @@ class AttributeRepository(_SessionRepository):
             for row in await self._session.execute(stmt):
                 attribute_counts = (
                     EdgeAttributeCounts(
+                        poi_counts=dict(row.poi_counts or {}),
                         accident_count=row.accident_count,
                         stop_count=row.stop_count,
                         intersection_count=row.intersection_count,
@@ -2226,6 +2299,11 @@ class RoadGraphRepository:
         self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
     ) -> dict[str, int]:
         return await self.attributes.get_stop_poi_counts(edge_ids, max_distance_m=max_distance_m)
+
+    async def get_poi_counts_by_kind(
+        self, edge_ids: list[str], max_distance_m: float = STOP_POI_MATCH_MAX_DISTANCE_M
+    ) -> dict[str, dict[str, int]]:
+        return await self.attributes.get_poi_counts_by_kind(edge_ids, max_distance_m=max_distance_m)
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)

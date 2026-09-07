@@ -40,6 +40,40 @@ class TestClassifyStopPoi:
         assert STOP_POI_KINDS == frozenset(get_args(StopPoiKind))
 
 
+class TestPoiCountKinds:
+    """集計キー（`POI_COUNT_KINDS`）と、それを作るSQLのCASE式が乖離しないことを固定する。
+
+    キーの一覧はPython側（材料の生成元）にあり、実際に値を作るのはSQLのCASE式のため、
+    片方だけ変えると「材料はあるが値が入らない」「値はあるが材料が無い」という静かな
+    壊れ方をする。
+    """
+
+    def test_every_imported_kind_reaches_a_count_key(self):
+        """取込対象の全kindが、いずれかの集計キーへ到達する（give_wayはstopへ畳む）。"""
+        from app.domain.traffic import POI_COUNT_KINDS, STOP_POI_KINDS
+
+        assert set(STOP_POI_KINDS) - {"give_way"} <= set(POI_COUNT_KINDS)
+
+    def test_sql_case_expression_only_produces_known_keys(self):
+        """SQLのCASE式が返すリテラルが、すべてPOI_COUNT_KINDSに存在する。"""
+        import re
+
+        from app.domain.traffic import POI_COUNT_KINDS
+        from app.infrastructure.road_graph_repository import _POI_COUNT_KIND_EXPR
+
+        produced = set(re.findall(r"THEN '([a-z_]+)'", _POI_COUNT_KIND_EXPR))
+        assert produced
+        assert produced <= set(POI_COUNT_KINDS)
+
+    def test_every_count_key_has_a_material(self):
+        """集計キーそれぞれに対応する材料が生成されている。"""
+        from app.domain.material_catalog import MATERIAL_CATALOG
+        from app.domain.traffic import POI_COUNT_KINDS
+
+        for kind in POI_COUNT_KINDS:
+            assert f"poi_{kind}_per_km" in MATERIAL_CATALOG
+
+
 class TestClassifySupplyPoi:
     def test_convenience_store(self):
         assert classify_supply_poi({"shop": "convenience"}) == "convenience"
