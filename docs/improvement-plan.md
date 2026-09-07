@@ -1017,5 +1017,5 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 ## レビュー基盤・検知の空白（2026-09-08・統合レビュー第5回より）
 
 - [x] [T656](tasks/T656.md). 経緯コメントの機械的検知の穴を塞ぐ（docstring・CSS・パターン） 規模S（2026-09-08完了。Pythonのdocstringをastで走査・CSS Modulesを対象化・「改善計画Txxx」の区切り要求を撤廃。拾えるようになったdocs/modulesの記載粒度違反20件と記載漏れ1件も是正し全件監査を違反なしへ。検知器の回帰テスト11件をCIへ追加、docs/comments.mdへ検知の限界を明記）
-- [ ] [T657](tasks/T657.md). backendの列挙・既定値をexport_openapiの生成物へ集約する 規模M
+- [x] [T657](tasks/T657.md). backendの列挙・既定値をexport_openapiの生成物へ集約する 規模M（2026-09-08完了。hard_filters・POI種別・ズーム範囲・材料カタログ・smoothness値ラベルの5系統を生成物へ載せ、frontendの手書き複製を片側importへ置換[axisMaterialsCatalog.tsは254→70行]。照合テストもテスト側のベタ書きをやめ生成物参照へ。途中でT655がタイル世代19へ上げた際のregionApi.ts更新漏れ[master上でテスト1件が落ちていた]を発見し、世代3種も生成物由来にして恒久解消）
 - [x] [T658](tasks/T658.md). 規模ウォッチの次閾値を確定し、反映経路を一方向にする 規模S（2026-09-08完了。road_graph_engine 1,100→2,200・MapView 3,200→3,700・page.tsx 1,900→2,400・AxisComposer 1,400→1,750。発火6件→0件。現在値の正本をsize_watch.jsonへ一本化し、書き戻し漏れの再発防止をcomplexity.mdへ明記）

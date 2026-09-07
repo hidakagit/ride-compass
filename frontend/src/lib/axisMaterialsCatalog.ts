@@ -1,9 +1,13 @@
+import generatedMaterials from "@/types/generated/material-catalog.json";
+
 // 軸スタジオの材料選択候補の静的フォールバック。
-// backend/app/domain/material_catalog.py: MATERIAL_CATALOGが正式な単一ソースで、
-// 軸コンポーザーは通常`hooks/useMaterialCatalog.ts`経由でGET /api/material-catalogから
-// 動的取得する。本定数は取得失敗時（オフライン・API未起動等）のフォールバックとしてのみ
-// 残す——新しい材料を増やす際にこのファイルの更新は必須ではない（動的取得が失敗した
-// 場合のみ古いまま表示される）。
+// backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一ソースで、軸コンポーザーは
+// 通常`hooks/useMaterialCatalog.ts`経由でGET /api/material-catalogから動的取得する。
+// 本定数は取得失敗時（オフライン・API未起動等）のフォールバック。
+//
+// **一覧は手書きせず生成物（material-catalog.json、export_openapi.pyが書き出す）から
+// 導出する**——手書きで持っていたころは、APIが落ちているときだけ選択肢が古いという
+// 気づく機会の無いドリフトが実際に発生していた（公開材料に対し1件欠落）。
 //
 // これはbackend側`compute_edge_axis_scores`/`compute_edge_costs_bulk`が組み立てる
 // 材料辞書のキーそのものであり、backend/app/domain/registry_defaults.pyの一次属性
@@ -40,209 +44,25 @@ export interface AxisMaterialOption {
   referencePoints?: readonly AxisMaterialReferencePoint[];
 }
 
-// backend/app/domain/material_catalog.py: MATERIAL_CATALOGのうちdisplay_only=Falseの
-// 材料（GET /api/material-catalogの公開レスポンスと同じ集合）と同じ内容。
-// 動的取得が失敗した場合のみこの一覧が使われるため、backend側の変更に追従できていなくても
-// 軸スタジオの選択肢が古くなるだけで実害はないが、削除済みの材料id（car_stress_level）や
-// display_only化された材料id（designation）を含んだままだと選択→保存時に
-// AxisDefinitionPayload._check_materials_are_knownの"unknown material(s)"エラーには
-// ならないものの選択肢として不適切なままになるため、削除・除外済みidだけは残さない。
-export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = [
-  {
-    id: "gradient_percent",
-    label: "勾配%（符号付き） - gradient_percent",
-    description: "国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
-    dtype: "numeric",
-    unit: "%",
-  },
-  {
-    id: "wind_drag_ratio",
-    label: "風の追加負荷(倍率) - wind_drag_ratio",
-    description:
-      "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分（時速20kmで無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。目安（時速20km）: 向かい風2m/s→0.85、4m/s→1.96、8m/s→4.95、追い風4m/s→-0.92、真横4m/s→0.23、走行速度と同じ追い風→-1.0。",
-    dtype: "numeric",
-    unit: "",
-  },
-  {
-    id: "trees_percent",
-    label: "樹木被覆率 - trees_percent",
-    description: "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木被覆の割合(%)。",
-    dtype: "numeric",
-    unit: "%",
-  },
-  {
-    id: "built_percent",
-    label: "建物被覆率 - built_percent",
-    description: "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物被覆の割合(%)。",
-    dtype: "numeric",
-    unit: "%",
-  },
-  {
-    id: "surface_good",
-    label: "舗装良否 - surface_good",
-    description: "OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "stop_count_per_km",
-    label: "停止密度(回/km) - stop_count_per_km",
-    description: "信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
-    dtype: "numeric",
-    unit: "",
-  },
-  {
-    id: "intersection_count_per_km",
-    label: "交差点密度(回/km) - intersection_count_per_km",
-    description: "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
-    dtype: "numeric",
-    unit: "",
-  },
-  {
-    id: "accident_count_per_km_year",
-    label: "事故密度(件/(km・年)) - accident_count_per_km_year",
-    description: "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
-    dtype: "numeric",
-    unit: "",
-  },
-  {
-    id: "lit",
-    label: "街灯あり - lit",
-    description: "OSMの街灯タグ(lit=yes)に該当する区間はtrue。タグ不在はfalse（街灯なし扱い）。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "has_tunnel",
-    label: "トンネル - has_tunnel",
-    description: "OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "bridge",
-    label: "橋・高架 - bridge",
-    description: "OSMの橋・高架タグ(bridge=yes)に該当する区間はtrue。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "motor_vehicle_no",
-    label: "自動車通行不可 - motor_vehicle_no",
-    description: "OSMのタグ(motor_vehicle=no)から判定した、自動車が通行できない区間かどうか。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "oneway",
-    label: "一方通行 - oneway",
-    description:
-      "OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "maxspeed_kmh",
-    label: "制限速度(km/h) - maxspeed_kmh",
-    description: "OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
-    dtype: "numeric",
-    unit: "",
-  },
-  {
-    id: "lanes_count",
-    label: "車線数 - lanes_count",
-    description: "OSMの車線数タグ(lanes)から解析した車線数。",
-    dtype: "numeric",
-    unit: "",
-  },
-  {
-    id: "highway",
-    label: "道路種別 - highway",
-    description: "OSMの道路種別タグ(highway)の生値（例: residential/primary/cycleway等）。値ごとに個別のスコアを設定できます。",
-    dtype: "categorical",
-    unit: "",
-  },
-  {
-    id: "surface",
-    label: "路面種別 - surface",
-    description: "OSMの路面種別タグ(surface)の生値（例: asphalt/gravel等）。良否(舗装良否)だけでなく種別ごとに細かくスコアを設定したい場合に使います。",
-    dtype: "categorical",
-    unit: "",
-  },
-  {
-    id: "highway_is_cycleway",
-    label: "道路種別が自転車道 - highway_is_cycleway",
-    description: "道路種別(highway)自体が自転車道(cycleway)かどうか。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "cycleway_has_track",
-    label: "自転車道(track)を併設 - cycleway_has_track",
-    description: "車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "cycleway_has_lane",
-    label: "自転車レーン(lane)を併設 - cycleway_has_lane",
-    description: "車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "cycleway_has_shared",
-    label: "バス共用等の自転車レーンを併設 - cycleway_has_shared",
-    description: "バス専用レーン共用など、簡易な自転車レーン(cycleway=shared_busway/shared_lane)を併設しているかどうか。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "is_designated",
-    label: "指定路線該当（真偽） - is_designated",
-    description: "緊急輸送道路・重要物流道路のいずれかに指定されているかどうか（種別は区別しません）。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "is_emergency_transport",
-    label: "緊急輸送道路該当[N10]（真偽） - is_emergency_transport",
-    description:
-      "緊急輸送道路[N10]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "is_critical_logistics",
-    label: "重要物流道路該当[N12]（真偽） - is_critical_logistics",
-    description:
-      "重要物流道路[N12]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
-    dtype: "boolean",
-    unit: "",
-  },
-  {
-    id: "smoothness",
-    label: "路面の状態 - smoothness",
-    description: "OSMの路面状態タグ(smoothness)の生値（excellent〜impassableの7段階）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
-    dtype: "categorical",
-    unit: "",
-  },
-  {
-    id: "tracktype",
-    label: "未舗装路グレード(tracktype) - tracktype",
-    description: "OSMの未舗装路グレードタグ(tracktype)の生値（grade1[良好]〜grade5[粗悪]）。",
-    dtype: "categorical",
-    unit: "",
-  },
-];
+// 生成物からフォールバック一覧を組み立てる。生成物はbackendの`axis_studio_materials()`
+// （`display_only=False`の公開材料）と1対1で、`GET /api/material-catalog`の応答と同じ集合。
+// 「値の目安」（referencePoints）は動的取得でのみ得られるためフォールバックには含めない。
+export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = generatedMaterials.map((m) => ({
+  id: m.material_id,
+  // backendの`MaterialSpec.full_label()`と同じ「論理名 - 物理名」形式。
+  label: `${m.label} - ${m.material_id}`,
+  description: m.description,
+  dtype: m.dtype as AxisMaterialDType,
+  unit: m.unit,
+}));
 
+/** 材料idの表示名（静的フォールバック側）。動的取得済みの一覧があるときは
+ * materialCatalogLabelを使う。 */
 export function materialLabel(materialId: string): string {
   return AXIS_MATERIAL_OPTIONS.find((m) => m.id === materialId)?.label ?? materialId;
 }
 
-/** 材料カタログ（呼び出し側がuseMaterialCatalog()を渡す、静的AXIS_MATERIAL_OPTIONSに
- * 限らない）からラベルを引く。カタログに無いmaterial_id（表示専用に格下げされた旧材料等）
- * はidそのものへフォールバックする。 */
+/** 材料idの表示名（動的取得した一覧から引く）。未知idはidをそのまま返す。 */
 export function materialCatalogLabel(materialId: string, materials: readonly AxisMaterialOption[]): string {
   return materials.find((m) => m.id === materialId)?.label ?? materialId;
 }

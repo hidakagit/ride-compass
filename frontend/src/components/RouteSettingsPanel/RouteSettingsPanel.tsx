@@ -9,6 +9,7 @@ import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import styles from "./RouteSettingsPanel.module.css";
 
 // 一般ユーザー向けルート設定画面。常に表示されるメインの操作面に置く。重み配分バー
@@ -23,14 +24,26 @@ import styles from "./RouteSettingsPanel.module.css";
 // （is_published=Trueのみ）。軸スタジオがDBへ追加した軸も、コード変更・再デプロイなしに
 // ここへ現れる（取得完了まで・失敗時は既存軸の静的フォールバックを使う）。
 
-// backend/app/domain/evaluation.py: DEFAULT_HARD_FILTERSと同じ3種。
-const HARD_FILTER_CHIPS: { key: string; label: string }[] = [
-  { key: "no_bicycle", label: "自転車通行禁止" },
-  { key: "motorway", label: "高速道路" },
-  { key: "trunk", label: "幹線道路(trunk)" },
-];
+// 0次ハードフィルタ。**キーと既定値はbackendが正**で、生成物
+// （route-generate-config.json、domain/evaluation.py由来）から受け取る——backendは
+// キー集合の完全一致を要求するため、手書きで複製すると4つ目を足した瞬間に
+// すべてのルート生成が422になる。表示ラベルはUIの語彙なのでここが持つ。
+const HARD_FILTER_LABELS: Record<string, string> = {
+  no_bicycle: "自転車通行禁止",
+  motorway: "高速道路",
+  trunk: "幹線道路(trunk)",
+};
 
-export const DEFAULT_HARD_FILTERS: HardFilterOverride = { no_bicycle: true, motorway: true, trunk: true };
+const HARD_FILTER_CHIPS: { key: string; label: string }[] = routeGenerateConfig.hard_filters.keys.map(
+  (key) => ({ key, label: HARD_FILTER_LABELS[key] ?? key }),
+);
+
+export const DEFAULT_HARD_FILTERS: HardFilterOverride = Object.fromEntries(
+  routeGenerateConfig.hard_filters.keys.map((key) => [
+    key,
+    routeGenerateConfig.hard_filters.defaults.includes(key),
+  ]),
+);
 
 // 重み配分バーの軸ごとの色分け。色自体に意味は持たせない識別用で、HSL色相環を実際の
 // 軸数で等分して割り当てる（軸数がいくつであっても衝突しない）。indexは常に

@@ -16,6 +16,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from typing import get_args
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -47,7 +48,11 @@ from app.services.axis_registry_service import refresh_axis_definitions  # noqa:
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.dynamic_way_values import map_value_kind, map_value_unit  # noqa: E402
+from app.domain.evaluation import DEFAULT_HARD_FILTERS, HARD_FILTER_HIGHWAY_TYPES  # noqa: E402
 from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
+from app.domain.material_catalog import axis_studio_materials  # noqa: E402
+from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
+from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
@@ -58,6 +63,8 @@ AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
 JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
+POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
+MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
@@ -115,7 +122,42 @@ def main() -> None:
                 "stop_poi_layer_name": STOP_POI_LAYER_NAME,
                 "tile_version": POI_TILE_VERSION,
             },
+            # 路面タイルを要求するズーム範囲。frontendのMapLibreソース設定
+            # （minzoom/maxzoom）とタイル要求のガードがこの値を使う。手書きで複製すると、
+            # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。
+            "road_tile_min_zoom": ROAD_TILE_MIN_ZOOM,
+            "road_tile_max_zoom": ROAD_TILE_MAX_ZOOM,
         },
+    )
+    # 停止要因POI・補給休憩POIのkind正準集合。frontendは色・ラベルを自分で持つが、
+    # **キーの一覧はここから引く**——backendが6種目を足したときfrontendのbaseFilterが
+    # 5値のままだと、その地物はフィルタに弾かれて地図から完全に消える（凡例にも出ないため
+    # 「データが無い」としか見えない）。
+    _write_json(
+        POI_KINDS_PATH,
+        {
+            "stop": sorted(STOP_POI_KINDS),
+            "supply": sorted(get_args(SupplyPoiKind)),
+        },
+    )
+    # 軸スタジオが選べる公開材料の一覧。frontendは`GET /api/material-catalog`が失敗した
+    # ときの静的フォールバックとして使う。手書きで複製していたころは、APIが落ちている
+    # ときだけ古い選択肢が出るという気づきにくいドリフトが実際に発生していた。
+    # value_labels（smoothness等の値→日本語ラベル）も含める——同じ対訳表をfrontendが
+    # 独自に持つと、地図のポップアップと軸スタジオで同じ値の呼び方が食い違う。
+    _write_json(
+        MATERIAL_CATALOG_PATH,
+        [
+            {
+                "material_id": spec.material_id,
+                "label": spec.label,
+                "description": spec.description,
+                "dtype": spec.dtype,
+                "unit": spec.unit,
+                "value_labels": dict(spec.value_labels) if spec.value_labels else None,
+            }
+            for spec in axis_studio_materials()
+        ],
     )
     # 改善計画T292: 車ストレスの専用Pythonレシピ（CarStressRecipe等）を廃止し、
     # AXIS_DEFINITIONSの内部軸5つ+公開軸1つの階層構造で再現するようにしたため、
@@ -240,6 +282,13 @@ def main() -> None:
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
+            # 0次ハードフィルタのキー一覧と既定値。backendは`_check_filter_keys`で
+            # **キー集合の完全一致**を要求するため、frontendが手書きで持っていると
+            # 4つ目を足した瞬間にすべてのルート生成が422になる。
+            "hard_filters": {
+                "keys": sorted({"no_bicycle", *HARD_FILTER_HIGHWAY_TYPES}),
+                "defaults": sorted(DEFAULT_HARD_FILTERS),
+            },
         },
     )
 

@@ -3,6 +3,7 @@ import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 interface PostRequestOptions {
   category: string;
@@ -73,7 +74,7 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // デプロイすること（逆順だと、新世代前提の凡例フィルタが全地物に一致し、対象レイヤーが
 // 一時的に全線「不明・他」表示になる。docs/architecture.md「Renderデプロイの反映確認」
 // 参照）。
-const ROAD_SURFACE_TILE_VERSION = "18";
+const ROAD_SURFACE_TILE_VERSION = regionTileConfig.road_surface.tile_version;
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。オリジンは`tileBaseUrl()`
 // （lib/tileBaseUrl.ts: 既定はフロント自身のオリジン＝Next.jsのrewrites経由、
@@ -84,19 +85,19 @@ export function roadSurfaceTileUrl(): string {
   return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${ROAD_SURFACE_TILE_VERSION}`;
 }
 
-// 事故レイヤー（外部静的データソース）のタイル世代。バックエンド側
-// （accident_service.pyのACCIDENT_TILE_VERSION）と対で更新すること。
-const ACCIDENT_TILE_VERSION = "1";
+// 事故レイヤー（外部静的データソース）のタイル世代。正はbackend
+// （accident_service.py: ACCIDENT_TILE_VERSION）で、生成物経由で受け取る。
+const ACCIDENT_TILE_VERSION = regionTileConfig.accident.tile_version;
 
 export function accidentTileUrl(): string {
   return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
 }
 
-// 停止要因POIレイヤーの世代。バックエンド（region_service.py: POI_TILE_VERSION）と対で
-// 上げる。ROAD_SURFACE_TILE_VERSIONと同じ理由（ブラウザHTTPキャッシュのバスト用）。
+// 停止要因POIレイヤーの世代。正はbackend（region_service.py: POI_TILE_VERSION）で、
+// 生成物経由で受け取る。用途はROAD_SURFACE_TILE_VERSIONと同じ（ブラウザHTTPキャッシュのバスト）。
 // stop_poiのみの1レイヤー構成（交差点密度は地図上の独立可視化レイヤーとしては提供しない、
 // staticAttributeLayers.ts参照）。
-const POI_TILE_VERSION = "3";
+const POI_TILE_VERSION = regionTileConfig.poi.tile_version;
 
 // 停止要因POIの地域レイヤーのベクタタイルURL。
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
@@ -105,10 +106,11 @@ export function poiTileUrl(): string {
   return `${tileBaseUrl()}${POI_TILE_PATH}?v=${POI_TILE_VERSION}`;
 }
 
-// バックエンド（domain/region.py）のROAD_TILE_MIN_ZOOM/MAX_ZOOMと一致させる。
-// POI/交差点密度レイヤーもT54で同じズーム範囲に準拠する（api/routers/region.py参照）。
-export const ROAD_TILE_MIN_ZOOM = 12;
-export const ROAD_TILE_MAX_ZOOM = 15;
+// 路面タイルを要求するズーム範囲。正はbackend（domain/region.py）で、生成物経由で受け取る
+// （手書きで複製すると、backendだけ広げてもフロントが要求せずレイヤーが黙って消える）。
+// POI/交差点密度レイヤーも同じズーム範囲に準拠する（api/routers/region.py参照）。
+export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
+export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 
 // 区間インスペクタ（改善計画T146）。地図上の道路クリックで得たosm_way_id（路面タイルの
 // MVTプロパティに含まれる識別子）から一次属性・全二次軸（車の圧迫感を含む）・合成コストを

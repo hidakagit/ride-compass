@@ -7,11 +7,13 @@ import {
   ACCIDENT_LEGEND,
   ACCIDENT_RADIUS_EXPRESSION,
   ACCIDENT_SEVERITY_LEGEND,
-  buildStaticFilterAxes,
   DESIGNATION_COLOR_EXPRESSION,
   DESIGNATION_LABELS,
   DESIGNATION_LEGEND,
   DESIGNATION_OPACITY_EXPRESSION,
+  ONEWAY_COLOR_EXPRESSION,
+  ONEWAY_LEGEND,
+  ONEWAY_OPACITY_EXPRESSION,
   STOP_POI_COLOR_EXPRESSION,
   STOP_POI_KINDS,
   STOP_POI_LABELS,
@@ -23,11 +25,10 @@ import {
   TUNNEL_COLOR_EXPRESSION,
   TUNNEL_LEGEND,
   TUNNEL_OPACITY_EXPRESSION,
-  ONEWAY_COLOR_EXPRESSION,
-  ONEWAY_LEGEND,
-  ONEWAY_OPACITY_EXPRESSION,
+  buildStaticFilterAxes,
 } from "./staticAttributeLayers";
 import { RAMP_AXES } from "./axisLayers";
+import poiKinds from "@/types/generated/poi-kinds.json";
 
 // 改善計画T292: 車ストレス（車の圧迫感）専用の凡例・色分け式（CAR_STRESS_LEGEND・
 // CAR_STRESS_COLOR_EXPRESSION・buildCarStressLegend・buildCarStressColorExpression）は
@@ -67,13 +68,22 @@ describe("staticAttributeLayers", () => {
     expect(fatalRadius).toBeGreaterThan(defaultRadius);
   });
 
-  // 改善計画T54: 停止要因POI・交差点密度。
-  it("停止要因POIの凡例キーはbackend/app/domain/traffic.pyのStopPoiKind5値+不明と一致する", () => {
+  // 停止要因POIの種別はbackend（domain/traffic.py: StopPoiKind）が正。**期待値を
+  // ここへ書き写すと片側の変更しか検知できない**ため、生成物（poi-kinds.json）と照合する。
+  // backendが6種目を足したのにフロントが5値のままだと、その地物はbaseFilterに弾かれて
+  // 地図から完全に消える（凡例にも出ないため「データが無い」としか見えない）。
+  it("停止要因POIの凡例キーは生成物のStopPoiKind＋不明と一致する", () => {
     const keys = STOP_POI_LEGEND.map((e) => e.key);
-    expect(new Set(keys)).toEqual(
-      new Set(["traffic_signals", "crossing", "stop", "give_way", "level_crossing", "unknown"]),
-    );
+    expect(new Set(keys)).toEqual(new Set([...poiKinds.stop, "unknown"]));
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("停止要因POIのbaseFilter用キー集合が生成物と一致する", () => {
+    expect(new Set(STOP_POI_KINDS)).toEqual(new Set(poiKinds.stop));
+  });
+
+  it("補給休憩POIのbaseFilter用キー集合が生成物と一致する", () => {
+    expect(new Set(SUPPLY_POI_KINDS)).toEqual(new Set(poiKinds.supply));
   });
 
   it("停止要因POIの凡例エントリごとに一意な色を持つ", () => {

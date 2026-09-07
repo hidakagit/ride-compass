@@ -94,6 +94,7 @@ import { registerJmaTileProtocol, withJmaTileProtocol } from "@/components/Map/j
 import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
+import materialCatalog from "@/types/generated/material-catalog.json";
 
 // 基礎地図のスタイルJSON。オリジンは`tileBaseUrl()`（lib/tileBaseUrl.ts: 既定はフロント
 // 自身のオリジン＝Next.jsのrewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）
@@ -2061,16 +2062,16 @@ interface RoadSurfacePopupProperties {
   designation?: string | null;
 }
 
-const SMOOTHNESS_LABELS: Record<string, string> = {
-  excellent: "非常に良い",
-  good: "良い",
-  intermediate: "普通",
-  bad: "悪い",
-  very_bad: "非常に悪い",
-  horrible: "劣悪",
-  very_horrible: "劣悪",
-  impassable: "通行不能",
-};
+// 路面状態（OSM smoothness）の値→表示名。正はbackend（domain/material_catalog.py:
+// MaterialSpec.value_labels）で、生成物経由で受け取る——手書きで持つと、同じ値を
+// 地図のポップアップと軸スタジオで別の呼び方をすることになる。
+// 生成JSONからTypeScriptが推論するのは各材料のリテラル型の合併のため、
+// 値ラベル辞書としてはRecordへ寄せる（キーは配信元のOSMタグ値で固定ではない）。
+const SMOOTHNESS_LABELS: Record<string, string> =
+  (materialCatalog.find((m) => m.material_id === "smoothness")?.value_labels as
+    | Record<string, string>
+    | null
+    | undefined) ?? {};
 
 function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
   const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];

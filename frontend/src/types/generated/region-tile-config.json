@@ -10,5 +10,7 @@
   "poi": {
     "stop_poi_layer_name": "stop_poi",
     "tile_version": "3"
-  }
+  },
+  "road_tile_min_zoom": 12,
+  "road_tile_max_zoom": 15
 }

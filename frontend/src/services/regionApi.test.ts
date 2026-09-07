@@ -34,14 +34,16 @@ describe("regionApi", () => {
     vi.unstubAllGlobals();
   });
 
-  it("ROAD_TILE_MIN_ZOOM/MAX_ZOOMはバックエンドのregion.pyと合わせた値", () => {
-    expect(ROAD_TILE_MIN_ZOOM).toBe(12);
-    expect(ROAD_TILE_MAX_ZOOM).toBe(15);
+  // 期待値をここへ書き写すとフロント側の変更しか検知できない。生成物と照合することで
+  // backend（domain/region.py）だけを広げた場合も落ちるようにする。
+  it("ROAD_TILE_MIN_ZOOM/MAX_ZOOMがbackend生成物と一致する", () => {
+    expect(ROAD_TILE_MIN_ZOOM).toBe(regionTileConfig.road_tile_min_zoom);
+    expect(ROAD_TILE_MAX_ZOOM).toBe(regionTileConfig.road_tile_max_zoom);
   });
 
   it("roadSurfaceTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=18`);
+    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
   });
 
   // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /
@@ -54,7 +56,7 @@ describe("regionApi", () => {
   });
 
   it("poiTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=3`);
+    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.poi.tile_version}`);
   });
 
   // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度
@@ -73,7 +75,7 @@ describe("regionApi", () => {
   });
 
   it("accidentTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(accidentTileUrl()).toBe(`${window.location.origin}/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=1`);
+    expect(accidentTileUrl()).toBe(`${window.location.origin}/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.accident.tile_version}`);
   });
 
   describe("fetchAxisInspector", () => {
@@ -298,13 +300,13 @@ describe("tileBaseUrl（NEXT_PUBLIC_TILE_BASE_URLによるタイル配信元の�
 
   it("環境変数が設定されていれば各タイルURLのオリジンがそのbackendになる（末尾スラッシュは除去）", () => {
     vi.stubEnv("NEXT_PUBLIC_TILE_BASE_URL", "https://backend.example.test/");
-    expect(roadSurfaceTileUrl()).toBe("https://backend.example.test/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=18");
-    expect(poiTileUrl()).toBe("https://backend.example.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=3");
-    expect(accidentTileUrl()).toBe("https://backend.example.test/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=1");
+    expect(roadSurfaceTileUrl()).toBe(`https://backend.example.test/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
+    expect(poiTileUrl()).toBe(`https://backend.example.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.poi.tile_version}`);
+    expect(accidentTileUrl()).toBe(`https://backend.example.test/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.accident.tile_version}`);
   });
 
   it("環境変数が空文字なら未設定と同じくフロント自身のオリジンを使う", () => {
     vi.stubEnv("NEXT_PUBLIC_TILE_BASE_URL", "");
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=18`);
+    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
   });
 });

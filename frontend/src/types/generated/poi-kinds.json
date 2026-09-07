@@ -1,0 +1,16 @@
+{
+  "stop": [
+    "crossing",
+    "give_way",
+    "level_crossing",
+    "stop",
+    "traffic_signals"
+  ],
+  "supply": [
+    "bicycle_parking",
+    "convenience",
+    "drinking_water",
+    "toilets",
+    "vending_machine"
+  ]
+}
