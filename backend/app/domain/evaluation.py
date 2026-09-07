@@ -44,6 +44,7 @@ from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionCont
 from app.domain.night import night_materials
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
+from app.domain.traffic import POI_COUNT_KINDS
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, wind_drag_ratio_array
 
@@ -181,6 +182,17 @@ def axis_inspector_breakdown(
             length_km = way_counts.length_m / 1000.0
 
     stop_per_km = stop_count / length_km if length_km and stop_count is not None else None
+    # 停止要因の種別別密度。`way_counts`の行があれば、載っていないキーは0件と確定できる
+    # （Edge単位の`keyed_density_extractor(absent_key=0.0)`と同じ意味論。ここで行の有無を
+    # 見ないと、信号が1つも無い道で材料がNaNになり、それを使う軸ごと算出不能になる）。
+    poi_per_km = {
+        f"poi_{kind}_per_km": (
+            (way_counts.poi_counts.get(kind, 0) / length_km)
+            if way_counts is not None and length_km
+            else None
+        )
+        for kind in POI_COUNT_KINDS
+    }
     intersection_per_km = intersection_count / length_km if length_km and intersection_count is not None else None
     accident_per_km_year = None
     if length_km and accident_count is not None and accident_years_covered > 0:
@@ -198,6 +210,7 @@ def axis_inspector_breakdown(
         "surface_good": surface_good,
         "stop_count_per_km": stop_per_km,
         "intersection_count_per_km": intersection_per_km,
+        **poi_per_km,
         "accident_count_per_km_year": accident_per_km_year,
         "highway": highway,
         **car_stress_bicycle_infra_flags,

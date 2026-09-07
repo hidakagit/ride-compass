@@ -86,6 +86,8 @@ class WayAttributeCounts(BaseModel):
     accident_count: float
     stop_count: int
     intersection_count: int
+    # 停止要因POIの種別別カウント（Edge単位版と同じ、`POI_COUNT_KINDS`がキーの単一ソース）。
+    poi_counts: dict[str, int] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
