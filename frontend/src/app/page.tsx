@@ -239,7 +239,18 @@ const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   },
   {
     label: "線状降水帯予測マップ（現在〜3時間先のみ）",
-    legend: [{ key: "linearRainband", label: "今後3時間以内に大雨のおそれ", color: "#ff0000", filter: UNUSED_LEGEND_FILTER }],
+    // 色は配信元タイルの実際の塗り色（rgb(255,40,0)）に合わせる。凡例と地図で色が
+    // 違うと、どの塗りがこの凡例に対応するのか読み取れない。
+    // 予測領域は格子単位で塗られ矩形に見えるため、形状も書いておく——降水ナウキャストの
+    // 細かい雨域と重なると、矩形の塗りが描画不具合のように見える。
+    legend: [
+      {
+        key: "linearRainband",
+        label: "今後3時間以内に大雨のおそれ（矩形の予測領域）",
+        color: "#ff2800",
+        filter: UNUSED_LEGEND_FILTER,
+      },
+    ],
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
