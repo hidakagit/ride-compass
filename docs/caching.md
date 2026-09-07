@@ -271,12 +271,12 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 焼き込み値（MVTのCASE式・材料タグ・domain純関数）を変えたら、対応する世代定数と生成物を
 **同一コミットで**上げる（CLAUDE.md「コミット時の同期ルール」）。
 
-## 機械的な強制（未実装、[T647](tasks/T647.md)）
+## 機械的な強制
 
-この方針は現時点では人が読んで守るだけで、機械的なチェックが無い。`get_redis_client_or_none`・
-`record_redis_failure`を`redis_client.py`・`redis_json_cache.py`以外で新たに使ったら
-`scripts/review_checks.py docs`（pre-commitとCIが実行）が違反として検出する形を予定して
-いる。例外に当たるモジュールは許可リストで免除し、理由をdocstringへ書く。
+`get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
+許可リスト外のファイルで新たに使うと、`scripts/review_checks.py docs`（pre-commitとCIが実行）が
+違反として検出する。許可リストは同スクリプトの`REDIS_SKELETON_ALLOWLIST`にあり、
+追加するときは理由をモジュールのdocstringへ書くこと。
 
 ## 関連
 

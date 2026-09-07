@@ -121,6 +121,35 @@ def find_source_narrative_violations(source_lines: dict[str, list[tuple[int, str
             if m:
                 out.append(f"{path}:{lineno}: 「{m.group(0)}」 {text.strip()[:80]}")
     return out
+# Redis cache-asideの骨格（可用性チェック→クライアント取得→計測→fail-open→成否記録）は
+# `redis_json_cache.py`の`get_json`/`set_json`が内包している。これを自前で書き直すと、
+# 写経ミス（`record_redis_failure`の呼び忘れ等）でRedis障害の検知だけが静かに欠ける
+# （アプリはfail-openのまま動き続けるため表に出ない）。docs/caching.md参照。
+REDIS_SKELETON_RE = re.compile(
+    r"(get_redis_client_or_none|record_redis_failure|record_redis_success|redis_available)"
+)
+# 骨格を自前で持ってよいファイル。増やすときは理由をモジュールのdocstringへ書くこと
+# （docs/caching.md「自前で骨格を書いてよい例外」）。
+REDIS_SKELETON_ALLOWLIST = {
+    "backend/app/infrastructure/redis_client.py",  # 骨格が使う接続・サーキットブレーカー本体
+    "backend/app/infrastructure/redis_json_cache.py",  # 骨格そのもの
+    "backend/app/infrastructure/jma_tile_redis_cache.py",  # 値がバイナリでJSON化に馴染まない
+}
+
+
+def find_redis_skeleton_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
+    """許可リスト外のファイルでRedis cache-asideの骨格を自前で書いていないか。"""
+    out = []
+    for path, lines in source_lines.items():
+        if path in REDIS_SKELETON_ALLOWLIST:
+            continue
+        for lineno, line in lines:
+            m = REDIS_SKELETON_RE.search(line)
+            if m:
+                out.append(f"{path}:{lineno}: `{m.group(0)}` を直接使っている（redis_json_cacheのget_json/set_jsonを使う）")
+    return out
+
+
 FILE_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_./@\-]+\.(?:py|ts|tsx|css|json|yml|yaml|sql|sh|md|js|mjs|toml|txt))`"
 )
@@ -348,6 +377,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
         source_lines = gather_added_source_lines(None)
         sections.append(("ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
                          find_source_narrative_violations(source_lines), True))
+        sections.append(("Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
+                         find_redis_skeleton_violations(source_lines), True))
         sections.append(("新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
                          find_undocumented_files(added, modules_text, files + added), True))
         if any(s == "docs/improvement-plan.md" or s.startswith("docs/tasks/") for s in staged):
