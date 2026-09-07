@@ -92,7 +92,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 # frontend側のタイルURLバージョンクエリ（regionApi.tsのROAD_SURFACE_TILE_VERSION、
 # ブラウザキャッシュのバスト用）と対で上げる必要があり、export_openapi.pyが書き出す
 # generated/region-tile-config.jsonとregionApi.test.tsの照合テストがドリフトを検知する。
-ROAD_SURFACE_TILE_VERSION = "18"
+ROAD_SURFACE_TILE_VERSION = "19"
 
 # 停止要因POIタイルの世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・同じ運用
 # （フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。

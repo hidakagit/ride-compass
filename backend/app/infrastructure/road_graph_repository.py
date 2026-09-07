@@ -100,6 +100,7 @@ from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
+    POI_COUNT_KINDS,
     INTERSECTION_MATCH_MAX_DISTANCE_M,
     POI_CLUSTER_EPS_M,
     POI_ON_EDGE_TOLERANCE_M,
@@ -266,6 +267,23 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #   キー省略し（大多数のwayが0のためタイルが軽くなる、tunnel/bridgeと同じ流儀）、
 #   フロントは欠損=0として扱う。二次軸スコア（レシピ依存の解釈）は引き続きフロント側で
 #   計算する。
+# 地図タイルへ焼き込む停止要因の種別別密度。列名は材料id（`poi_{kind}_per_km`）と同じにして
+# 対応を自明にする。MVTはjsonbを持てないため、ここだけキー一覧から列へ展開する
+# （手書きせず`POI_COUNT_KINDS`から生成するので、キーを増やしてもこの式は変わらない）。
+# 0件のキーはjsonbに載らないため0として読み、NULLIFでプロパティ自体を省く
+# （大多数のwayが0のためタイルが軽くなる。フロントは欠損=0として扱う既存の流儀）。
+_POI_TILE_COLUMNS_SQL = "".join(
+    f"""
+                        NULLIF(
+                            round(
+                                (COALESCE((wc.poi_counts->>'{kind}')::int, 0) * 1000.0
+                                 / NULLIF(wc.length_m, 0))::numeric, 1
+                            ), 0
+                        )::double precision AS poi_{kind}_per_km,"""
+    for kind in POI_COUNT_KINDS
+)
+
+
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         f"""
@@ -351,7 +369,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         )::double precision AS stop_per_km,
                         NULLIF(
                             round((wc.intersection_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
-                        )::double precision AS intersection_per_km,
+                        )::double precision AS intersection_per_km,{_POI_TILE_COLUMNS_SQL}
                         -- 開放度軸（T624）の材料2件。way_landcoverの8列中、評価パイプラインへ
                         -- 配線済みなのはこの2列のみ（他6列は生データとしてDBに保存済みだが
                         -- 本タイルには未焼き込み、docs/tasks/T624.md「段階2で配線する材料」）。

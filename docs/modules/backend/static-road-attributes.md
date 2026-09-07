@@ -135,6 +135,11 @@ Way単位版は地図タイルの母集団になる（`road_edges`はルート�
 無い（0件）」を区別する（[評価・スコアリング](evaluation-scoring.md)「材料へ値を届ける」
 参照）。
 
+地図タイルはjsonbを持てないため、Way単位の値はキーごとの列（`poi_{kind}_per_km`）へ展開して
+焼き込む。列名は材料idと同じで、こちらも`POI_COUNT_KINDS`から生成する——地図表示ルールの
+自動導出（`domain/axis_display.py: derive_ramp_inputs`）が材料の`tile_property`を辿るため、
+名前が一致していれば軸を組むだけで地図の色分けが付く。
+
 ### 派生データ再構築の単一エントリポイント（`refresh_derived.py`）
 
 `presplit_road_graph.py`・`precompute_road_node_degrees.py`・

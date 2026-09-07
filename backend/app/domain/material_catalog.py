@@ -892,8 +892,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     ),
     # --- 停止要因POIの種別別密度。`domain/traffic.py: POI_COUNT_KINDS`から生成する ---
     # 材料を1件ずつ手書きせず一覧から作るため、キーを増やすときに触るのはその一覧だけで済む。
-    # `tile_property=None`（タイルへは未焼き込み。地図のramp自動導出はこれらの材料を含む軸を
-    # 対象にできない）。
+    # タイル側のプロパティ名も同じ規則で生成しており（`_POI_TILE_COLUMNS_SQL`）、材料idと
+    # 一致するため地図のramp自動導出がそのまま効く。
     **{
         f"poi_{kind}_per_km": MaterialSpec(
             material_id=f"poi_{kind}_per_km",
@@ -901,7 +901,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             description=f"進行する道路上にある{label}の、1kmあたりの数。",
             dtype="numeric",
             unit="回/km",
-            tile_property=None,
+            tile_property=f"poi_{kind}_per_km",
             primary_attribute_id="stop_poi",
             extractor=keyed_density_extractor(METRIC_GROUP_POI, kind, absent_key=0.0),
             reference_points=_STOP_COUNT_PER_KM_REFERENCE_POINTS,

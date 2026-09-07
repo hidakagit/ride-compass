@@ -1884,7 +1884,10 @@ async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_rep
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
     await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
     await road_graph_repository.rebuild_raw_intersection_nodes()
-    await _insert_poi(road_graph_session, 900, "traffic_signals", *NODE1)
+    # 種別別カウント（poi_counts）はwayの構成ノードだけを数えるため、信号はway_aの
+    # 2番目のノード（osm_node_id=2）へ置く。stop_per_km（距離で数える従来の合計）は
+    # ノードidに関係なく拾うため、同じPOIが両方のプロパティへ別の数え方で現れる。
+    await _insert_poi(road_graph_session, 2, "traffic_signals", *NODE2)
     await road_graph_session.commit()
     await road_graph_repository.recompute_way_attribute_counts(
         [100, 101, 102], datetime.now(timezone.utc)
@@ -1903,6 +1906,12 @@ async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_rep
     assert way_a_props["intersection_per_km"] > 0
     # 事故0件のwayはaccident_per_kmキー自体が省略される（NULLIFによるタイル軽量化）
     assert "accident_per_km" not in way_a_props
+    # 種別別密度も同じ規則で焼き込まれる（材料idと同じプロパティ名、0はキー省略）。
+    assert way_a_props["poi_signal_per_km"] == pytest.approx(1000.0 / 147.0, rel=0.2)
+    assert "poi_crossing_per_km" not in way_a_props
+    assert "poi_stop_per_km" not in way_a_props
+    # way_b/way_cは同じ信号を先頭ノードとして持つため数えず、キー自体を持たない。
+    assert "poi_signal_per_km" not in features[101]
 
 
 async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
