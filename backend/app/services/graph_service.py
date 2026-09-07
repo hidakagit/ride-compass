@@ -393,7 +393,7 @@ class GraphService:
         tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
         materials_stage_started = time.monotonic()
         # タイルごとの読み込み内訳（メモリ/ディスク/DBのいずれを経由したか、ディスク経由
-        # ならread_ms/unpickle_ms/bytes）を集約し、リクエスト単位の1行INFOサマリへ載せる
+        # ならread_ms）を集約し、リクエスト単位の1行INFOサマリへ載せる
         # （docs/logging.mdの方針、以後の回帰をログ1行で追えるようにする）。
         materials_read_stats: list[dict[str, object]] = [{} for _ in tiles]
         # 逐次forループだとタイルごとのキャッシュ読み込み（ディスクフォールバック時の
@@ -434,19 +434,17 @@ class GraphService:
         # （infrastructure/search_graph_cache.py）。
         tile_set = frozenset((ROAD_GRAPH_TILE_ZOOM, x, y) for x, y in tiles)
 
-        # メモリ/ディスク/DBの内訳とディスク経由のread_ms/unpickle_ms/bytes合計を
-        # 1行INFOへまとめる（材料・スコア行列の両方）。
+        # メモリ/ディスク/DBの内訳とディスク経由の読み出し時間合計を1行INFOへまとめる
+        # （材料・スコア行列の両方）。
         all_stats = materials_read_stats + matrix_read_stats
         source_counts = Counter(str(stats.get("source", "db")) for stats in all_stats)
         total_read_ms = sum(float(stats.get("read_ms", 0.0)) for stats in all_stats)
-        total_unpickle_ms = sum(float(stats.get("unpickle_ms", 0.0)) for stats in all_stats)
-        total_bytes = sum(int(stats.get("bytes", 0)) for stats in all_stats)
         materials_ms = round((time.monotonic() - materials_stage_started) * 1000)
         logger.info(
             "_build_search_materials_from_tile_cache tiles=%d memory=%d disk=%d db=%d "
-            "disk_read_ms=%.1f disk_unpickle_ms=%.1f disk_bytes=%d materials_ms=%d",
+            "disk_read_ms=%.1f materials_ms=%d",
             len(tiles), source_counts.get("memory", 0), source_counts.get("disk", 0),
-            source_counts.get("db", 0), total_read_ms, total_unpickle_ms, total_bytes, materials_ms,
+            source_counts.get("db", 0), total_read_ms, materials_ms,
         )
 
         return (
@@ -472,7 +470,7 @@ class GraphService:
         # （残るCPUコストはPythonループのためGILで直列化され、コア数を増やして効くのは
         # I/O部分のみという前提。モジュール冒頭のコメント参照）。`read_stats`は
         # 呼び出し元が渡す出力用の辞書で、渡された場合のみ"source"（memory/disk/db）と
-        # ディスク経由時の内訳（read_ms/unpickle_ms/bytes）を書き込む。
+        # ディスク経由時の読み出し時間（read_ms）を書き込む。
         async with _tile_cache_load_semaphore:
             cached = await asyncio.to_thread(
                 graph_material_cache.get_tile_materials, ROAD_GRAPH_TILE_ZOOM, x, y, read_stats

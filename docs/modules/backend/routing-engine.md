@@ -433,7 +433,7 @@ Edge単位の軸別スコア算出も発生しない（`_get_or_build_tile_score
 加え、`infrastructure/tile_persistent_cache.py`へディスク永続化する（`backend/data/
 tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`と同じ考え方）。
 メモリmissでもディスクがあればDBへ問い合わせずに復元し、復元した値はメモリへも載せ直す。
-ディスク側の無効化はバージョン文字列をファイルパスへ埋め込む方式
+ディスク側の無効化はバージョン文字列をキーへ含める方式
 （`graph_material_cache.py: TILE_MATERIALS_CACHE_VERSION`・`tile_score_matrix_cache.py:
 TILE_SCORE_MATRIX_CACHE_VERSION`、いずれも`region_service.py: ROAD_SURFACE_TILE_VERSION`と
 同じ流儀）——PBF再取込・`presplit_road_graph.py`・関連precomputeバッチを実行したら手動で
@@ -677,7 +677,7 @@ importしないプロセスで`NoReferencedTableError`を起こす。
 | 層 | 対象 | 実装 |
 |---|---|---|
 | プロセス内（件数上限LRU） | 探索用グラフ・タイル材料・静的スコア行列 | `search_graph_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py` |
-| ディスク | タイル材料・静的スコア行列（プロセス再起動をまたぐ） | `tile_persistent_cache.py` |
+| ディスク | タイル材料・静的スコア行列（プロセス再起動をまたぐ） | `tile_persistent_cache.py`（`diskcache`の包み。容量上限とLRU退避をライブラリが持つ） |
 | ディスク | 標高DEMタイル | `tile_cache.py` |
 
 タイルの取込完了判定（`road_graph_tiles`、1,000行規模）とsplit鮮度判定

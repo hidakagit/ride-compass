@@ -9,139 +9,135 @@ missしたときの第2段として使う——プロセス内メモリのみだ
 デプロイのたびにコンテナを再起動するたびに、再起動後最初の利用者が毎回DB読み出し
 （29〜45秒規模、東京駅30km・16タイル）を負担することになる。
 
-**シリアライズはpickleを使う**: 対象（`SearchMaterials`・`StaticEdgeScoreMatrix`）は
-Pydanticモデル・frozen dataclass・numpy配列が混在する構造で、JSON化に適さない
-。picklable性はテストで確認済み。
+**保存の実体は`diskcache`**（SQLite＋ファイル）。容量上限
+（`settings.tile_persistent_cache_size_limit_mb`）・退避（least-recently-used）・複数
+プロセスからの安全な共有をライブラリが持つため、これらを自前で書かない
+（docs/caching.md参照）。32KBを超える値はライブラリがファイルへ、以下はSQLite内へ格納する。
 
-**ファイル破損・部分書き込みはすべてキャッシュミス扱いにフォールバックする**
+**シリアライズはpickle**（`diskcache`の既定）。対象はPydanticモデル・frozen dataclass・
+numpy配列が混在する構造で、JSON化に適さない。picklable性はテストで確認済み。
+
+**壊れたエントリ・書き込み失敗はすべてキャッシュミス扱いにフォールバックする**
 （`tile_cache.py`の`get()`と同じ「壊れていたら未キャッシュ扱いにして呼び出し元に
-再構築させる」方針）。pickleの壊れ方は`UnpicklingError`に限らず`EOFError`/
-`AttributeError`（クラス定義変更）/`ImportError`（モジュール移動）等、型を予測しきれない
-ため、読み込み時は意図的に`Exception`を広く捕捉する。
+再構築させる」方針）。キャッシュ書き込みの失敗がルート生成応答を止める理由にはならない。
 
-**無効化はバージョン文字列をファイルパスへ埋め込む方式**
-（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ流儀）。呼び出し側
-（`graph_material_cache.py`・`tile_score_matrix_cache.py`）がキャッシュ対象の種類ごとに
-独立したバージョン定数を持ち、PBF再取込・precomputeバッチ実行・構築ロジック変更時に
-手動で上げる（対応する定数のdocstring参照）。旧バージョンのファイルは新バージョンの
-パスから見えなくなるだけで、明示的な削除は行わない（`clear_namespace`/`clear_all`は
-テスト・即時無効化専用）。
+**無効化はバージョン文字列をキーへ含める方式**（`region_service.py:
+ROAD_SURFACE_TILE_VERSION`と同じ流儀）。呼び出し側がキャッシュ対象の種類ごとに独立した
+バージョン定数を持ち、PBF再取込・precomputeバッチ実行・構築ロジック変更時に手動で上げる。
+旧バージョンのエントリは`prune_stale_generations`が削除する（世代番号だけでは古い実体が
+残り続けるため。docs/caching.md「無効化」参照）。
 """
 
 import logging
-import os
-import pickle
-import shutil
 import time
-import uuid
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
+import diskcache
+
+from app.config import settings
 from app.infrastructure.tile_cache import DATA_DIR
 
 logger = logging.getLogger("app.infrastructure.tile_persistent_cache")
 
 CACHE_DIR = DATA_DIR / "tile_persistent_cache"
 
-
-def _tile_path(namespace: str, version: str, zoom: int, x: int, y: int) -> Path:
-    return CACHE_DIR / namespace / f"v{version}" / f"{zoom}_{x}_{y}.pkl"
+_cache: diskcache.Cache | None = None
 
 
-def _write_atomic(final_path: Path, write: Callable[[Path], None]) -> None:
-    """同じディレクトリへ一意な一時ファイルを書き、`os.replace`で最終パスへ差し替える
-    （`tile_cache.py: _write_atomic`と同じアトミック差し替え。対象がバイト列
-    [tile_cache.py]か任意のPythonオブジェクト[本モジュール]かで書き込み手段
-    ["write"コールバックの中身]が異なるため、モジュールをまたいだ共通化はせず
-    同じロジックをこちらにも持たせる——tile_cache.py自体はDEM/ベクタタイル専用の
-    既存モジュールとして変更しない）。
-    """
-    tmp_path = final_path.with_suffix(f"{final_path.suffix}.tmp-{uuid.uuid4().hex}")
-    write(tmp_path)
-    os.replace(tmp_path, final_path)
+def _tag(namespace: str, version: str) -> str:
+    """世代単位でまとめて扱えるようにするタグ。"""
+    return f"{namespace}:v{version}"
+
+
+def _key(namespace: str, version: str, zoom: int, x: int, y: int) -> tuple[str, str, int, int, int]:
+    return (namespace, version, zoom, x, y)
+
+
+def cache() -> diskcache.Cache:
+    """遅延生成した共有キャッシュ。同じディレクトリを複数プロセスから開いてよい。"""
+    global _cache
+    if _cache is None:
+        _cache = diskcache.Cache(
+            str(CACHE_DIR),
+            size_limit=settings.tile_persistent_cache_size_limit_mb * 1024 * 1024,
+            eviction_policy="least-recently-used",
+            tag_index=True,
+        )
+    return _cache
+
+
+def use_directory(directory) -> None:
+    """キャッシュ先ディレクトリを差し替える（テスト専用）。開いていたキャッシュは閉じる。"""
+    global _cache, CACHE_DIR
+    if _cache is not None:
+        _cache.close()
+        _cache = None
+    CACHE_DIR = directory
 
 
 def get(
     namespace: str, version: str, zoom: int, x: int, y: int, stats: dict[str, object] | None = None
 ) -> Any | None:
-    """キャッシュ済みならデシリアライズ済みの値を返す。未キャッシュ・破損時はNone。
+    """キャッシュ済みなら値を返す。未キャッシュ・破損時はNone。
 
-    `stats`を渡すと、ファイル読み込み・unpickleの所要時間（ms）と
-    バイト数を分けて書き込む（"read_ms"/"unpickle_ms"/"bytes"）——「pickleが遅い」のか
-    「ディスクI/Oが遅い」のかを本番ログから切り分けられるようにするための計測
-    （docs/logging.mdの方針どおりDEBUG時のイベントログへ載せる）。呼び出し元
-    （`graph_material_cache.py`・`tile_score_matrix_cache.py`）が更に上位（リクエスト
-    単位のINFOサマリ）へ集約する。未キャッシュ・破損時は`stats`へ何も書き込まない。
+    `stats`を渡すと読み出しの所要時間（ms）を`read_ms`へ書き込む。呼び出し元
+    （`graph_material_cache.py`・`tile_score_matrix_cache.py`）が更に上位（リクエスト単位の
+    INFOサマリ）へ集約する。未キャッシュ・破損時は`stats`へ何も書き込まない。
     """
-    path = _tile_path(namespace, version, zoom, x, y)
     try:
-        if not path.is_file():
-            return None
-        read_started = time.monotonic()
-        data = path.read_bytes()
-        read_ms = (time.monotonic() - read_started) * 1000
-        unpickle_started = time.monotonic()
-        value = pickle.loads(data)
-        unpickle_ms = (time.monotonic() - unpickle_started) * 1000
-        if stats is not None:
-            stats["read_ms"] = read_ms
-            stats["unpickle_ms"] = unpickle_ms
-            stats["bytes"] = len(data)
-        logger.debug(
-            "tile persistent cache hit namespace=%s version=%s zoom=%d x=%d y=%d "
-            "read_ms=%.1f unpickle_ms=%.1f bytes=%d",
-            namespace, version, zoom, x, y, read_ms, unpickle_ms, len(data),
-        )
-        return value
-    except Exception as exc:  # noqa: BLE001 破損ファイル・pickle形式の不整合(UnpicklingError/
-        # EOFError/AttributeError/ImportError等、壊れ方次第で例外の型が多岐にわたる)は
-        # すべて未キャッシュ扱いにフォールバックし、呼び出し元にDBから再構築させる
-        # （tile_cache.pyのget()と同じ方針。is_file()確認とread/unpickleの間に
-        # clear_namespace()[rmtree]と競合した場合もここに含まれる）。
+        started = time.monotonic()
+        value = cache().get(_key(namespace, version, zoom, x, y))
+        read_ms = (time.monotonic() - started) * 1000
+    except Exception:  # noqa: BLE001 破損エントリ・SQLite障害はいずれも未キャッシュ扱いにする
         logger.warning(
             "tile persistent cache read failed namespace=%s version=%s zoom=%d x=%d y=%d, treating as cache miss",
             namespace, version, zoom, x, y, exc_info=True,
         )
         return None
+    if value is None:
+        return None
+    if stats is not None:
+        stats["read_ms"] = read_ms
+    logger.debug(
+        "tile persistent cache hit namespace=%s version=%s zoom=%d x=%d y=%d read_ms=%.1f",
+        namespace, version, zoom, x, y, read_ms,
+    )
+    return value
 
 
 def set(namespace: str, version: str, zoom: int, x: int, y: int, value: Any) -> None:
     """呼び出し元は既にvalueをメモリキャッシュ・レスポンスに使える状態にあるため、
-    ディスク書き込み失敗（ディスクフル・権限エラー・pickle化不能な値等）はここで
-    握りつぶし、警告ログのみでno-opにフォールバックする（`tile_cache.py`の`set()`と
-    同じ方針。キャッシュ書き込みの失敗がルート生成応答を止める理由にはならない）。
-    """
+    書き込み失敗（ディスクフル・pickle化不能な値等）はここで握りつぶし、警告ログのみで
+    no-opにフォールバックする。"""
     try:
-        path = _tile_path(namespace, version, zoom, x, y)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_atomic(path, lambda p: p.write_bytes(pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)))
-    except Exception as exc:  # noqa: BLE001 OSError(ディスクフル/権限)・pickle化不能
-        # (PicklingError/TypeError/AttributeError等)のいずれもここで吸収する。
+        cache().set(_key(namespace, version, zoom, x, y), value, tag=_tag(namespace, version))
+    except Exception as exc:  # noqa: BLE001 OSError（ディスクフル）・pickle化不能のいずれも吸収する
         logger.warning(
             "tile persistent cache write failed namespace=%s version=%s zoom=%d x=%d y=%d error=%r",
             namespace, version, zoom, x, y, exc, exc_info=True,
         )
 
 
-def prune_stale_generations(namespace: str, keep_version: str) -> int:
-    """`namespace`配下のうち`keep_version`以外の世代ディレクトリを削除し、解放したバイト数を返す。
+def _delete_matching(predicate) -> int:
+    removed = 0
+    for key in list(cache().iterkeys()):
+        if isinstance(key, tuple) and len(key) == 5 and predicate(key):
+            if cache().delete(key):
+                removed += 1
+    return removed
 
-    キーへ世代を埋める方式は「参照先が新旧で別物になる」ことは保証するが、ディスクでは
-    **古い世代の実体が消えない**（TTLのある層と違い自然に失効しない）。世代を上げるたびに
-    実体が積み上がるため、現行世代だけを残すこの掃除が要る（docs/caching.md「無効化」参照）。
+
+def prune_stale_generations(namespace: str, keep_version: str) -> int:
+    """`namespace`配下のうち`keep_version`以外の世代を削除し、削除件数を返す。
+
+    容量上限に達すれば古いものから自動で退避されるが、世代を上げた直後は「もう誰も
+    読まないエントリ」が上限に達するまで居座る。世代交代のタイミングで明示的に捨てる。
     """
-    root = CACHE_DIR / namespace
-    if not root.is_dir():
+    try:
+        return _delete_matching(lambda key: key[0] == namespace and key[1] != keep_version)
+    except Exception:  # noqa: BLE001 掃除の失敗は容量上限の自動退避へ委ねる
+        logger.warning("tile persistent cache prune failed namespace=%s", namespace, exc_info=True)
         return 0
-    keep = f"v{keep_version}"
-    freed = 0
-    for entry in root.iterdir():
-        if not entry.is_dir() or entry.name == keep:
-            continue
-        freed += sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
-        shutil.rmtree(entry, ignore_errors=True)
-    return freed
 
 
 def clear_namespace(namespace: str) -> None:
@@ -151,9 +147,9 @@ def clear_namespace(namespace: str) -> None:
     （軸定義編集時の`tile_score_matrix_cache.clear()`等、バージョン文字列の手動更新では
     表現できないタイミングの無効化）が使う。
     """
-    shutil.rmtree(CACHE_DIR / namespace, ignore_errors=True)
+    _delete_matching(lambda key: key[0] == namespace)
 
 
 def clear_all() -> None:
     """テスト用。全namespaceを削除する。"""
-    shutil.rmtree(CACHE_DIR, ignore_errors=True)
+    cache().clear()

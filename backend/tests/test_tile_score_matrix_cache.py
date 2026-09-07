@@ -143,15 +143,17 @@ class TestDiskPersistence:
         finally:
             tile_score_matrix_cache.TILE_SCORE_MATRIX_CACHE_VERSION = old_version
 
-    def test_corrupted_disk_cache_file_falls_back_to_miss_without_raising(self):
-        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+    def test_disk_read_failure_falls_back_to_miss_without_raising(self, monkeypatch):
+        # 破損エントリ・SQLite障害のいずれも「未キャッシュ」へ倒し、呼び出し元へ例外を
+        # 伝播させないという契約を固定する。
+        matrix = _sample_matrix()
+        tile_score_matrix_cache.set(12, 5, 6, matrix)
         tile_score_matrix_cache._cache.clear()
-        path = tile_persistent_cache._tile_path(
-            tile_score_matrix_cache._CACHE_NAMESPACE,
-            tile_score_matrix_cache.TILE_SCORE_MATRIX_CACHE_VERSION,
-            12, 5, 6,
-        )
-        path.write_bytes(b"\x00corrupted")
+
+        def broken_get(*args, **kwargs):
+            raise ValueError("corrupted entry")
+
+        monkeypatch.setattr(tile_persistent_cache.cache(), "get", broken_get)
 
         assert tile_score_matrix_cache.get(12, 5, 6) is None
 
@@ -193,7 +195,7 @@ class TestReadStats:
         assert result is not None
         assert stats == {"source": "memory"}
 
-    def test_disk_hit_records_source_disk_with_read_and_unpickle_stats(self):
+    def test_disk_hit_records_source_disk_with_read_ms(self):
         tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
         tile_score_matrix_cache._cache.clear()
 
@@ -203,8 +205,6 @@ class TestReadStats:
         assert result is not None
         assert stats["source"] == "disk"
         assert stats["read_ms"] >= 0
-        assert stats["unpickle_ms"] >= 0
-        assert stats["bytes"] > 0
 
     def test_miss_leaves_stats_untouched(self):
         stats: dict[str, object] = {}

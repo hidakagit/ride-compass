@@ -39,7 +39,10 @@ def _use_temp_tile_persistent_cache_dir(tmp_path, monkeypatch):
     フィクスチャより先に反映される必要があるため、モジュールの先頭側に置く（pytestは
     同scope・同conftest内で宣言順に近い順序でautouseフィクスチャをセットアップする）。
     """
-    monkeypatch.setattr(tile_persistent_cache, "CACHE_DIR", tmp_path / "tile_persistent_cache")
+    original = tile_persistent_cache.CACHE_DIR
+    tile_persistent_cache.use_directory(tmp_path / "tile_persistent_cache")
+    yield
+    tile_persistent_cache.use_directory(original)
 
 
 @pytest.fixture(autouse=True)

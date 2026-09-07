@@ -83,7 +83,7 @@ def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
 
 def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) -> StaticEdgeScoreMatrix | None:
     """`read_stats`は`graph_material_cache.get_tile_materials`と同じ意味
-    （"source"="memory"/"disk"＋ディスク経由時の"read_ms"/"unpickle_ms"/"bytes"）。"""
+    （"source"="memory"/"disk"＋ディスク経由時の"read_ms"）。"""
     key = (zoom, x, y)
     value = _cache.get(key)
     if value is not None:

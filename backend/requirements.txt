@@ -14,6 +14,9 @@ geoalchemy2==0.16.0
 shapely==2.0.6
 astral==3.2
 cachetools==7.1.7
+# タイル材料・スコア行列のディスク永続キャッシュ（infrastructure/tile_persistent_cache.py）。
+# 容量上限・退避・複数プロセスからの共有をライブラリ側が持つ。
+diskcache==5.6.3
 # JMAタイルの奇数ズーム補間（infrastructure/jma_tile_interpolation.py）で親タイルを
 # 切り出して拡大するために使う。
 pillow==12.3.0

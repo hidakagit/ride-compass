@@ -133,17 +133,18 @@ class TestDiskPersistence:
         finally:
             graph_material_cache.TILE_MATERIALS_CACHE_VERSION = old_version
 
-    def test_corrupted_disk_cache_file_falls_back_to_miss_without_raising(self):
-        # T536・T537で「ローカルの単体テストは全green、本番の実際のデータで初めて例外」
-        # という手戻りが発生した教訓（docs/tasks/T538.md）を踏まえ、ディスクキャッシュ
-        # ファイルの破損もgraph_material_cache経由で例外を出さないことを確認する。
+    def test_disk_read_failure_falls_back_to_miss_without_raising(self, monkeypatch):
+        # 破損エントリ・SQLite障害のいずれも「未キャッシュ」へ倒し、呼び出し元へ例外を
+        # 伝播させないという契約を固定する（ローカルでは全greenでも本番の実データで
+        # 初めて例外、という手戻りを防ぐ）。
         materials = self._sample_materials()
         graph_material_cache.set_tile_materials(12, 5, 6, materials)
         graph_material_cache._tile_materials_cache.clear()
-        path = tile_persistent_cache._tile_path(
-            graph_material_cache._CACHE_NAMESPACE, graph_material_cache.TILE_MATERIALS_CACHE_VERSION, 12, 5, 6
-        )
-        path.write_bytes(b"\x00corrupted")
+
+        def broken_get(*args, **kwargs):
+            raise ValueError("corrupted entry")
+
+        monkeypatch.setattr(tile_persistent_cache.cache(), "get", broken_get)
 
         assert graph_material_cache.get_tile_materials(12, 5, 6) is None
 
@@ -167,7 +168,7 @@ class TestDiskPersistence:
 
 class TestReadStats:
     """改善計画T546（対応方針項目6）: get_tile_materialsの`read_stats`引数が、
-    メモリ/ディスクいずれを経由したかと、ディスク経由時のread_ms/unpickle_ms/bytesを
+    メモリ/ディスクいずれを経由したかと、ディスク経由時のread_msを
     正しく書き込むことを確認する。"""
 
     def setup_method(self):
@@ -190,7 +191,7 @@ class TestReadStats:
         assert result is not None
         assert stats == {"source": "memory"}
 
-    def test_disk_hit_records_source_disk_with_read_and_unpickle_stats(self):
+    def test_disk_hit_records_source_disk_with_read_ms(self):
         graph_material_cache.set_tile_materials(12, 5, 6, self._sample_materials())
         graph_material_cache._tile_materials_cache.clear()
 
@@ -200,8 +201,6 @@ class TestReadStats:
         assert result is not None
         assert stats["source"] == "disk"
         assert stats["read_ms"] >= 0
-        assert stats["unpickle_ms"] >= 0
-        assert stats["bytes"] > 0
 
     def test_miss_leaves_stats_untouched(self):
         stats: dict[str, object] = {}

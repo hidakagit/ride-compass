@@ -67,7 +67,7 @@ def get_tile_materials(
     zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None
 ) -> SearchMaterials | None:
     """`read_stats`を渡すと、"source"（memory/disk）と、ディスク経由時は
-    追加で"read_ms"/"unpickle_ms"/"bytes"（`tile_persistent_cache.get`参照）を書き込む
+    追加で"read_ms"（`tile_persistent_cache.get`参照）を書き込む
     （`graph_service.py`がリクエスト単位の1行INFOサマリへ集約する）。
     """
     cached = _tile_materials_cache.get((zoom, x, y))
