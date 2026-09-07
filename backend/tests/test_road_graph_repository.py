@@ -758,6 +758,56 @@ async def test_get_poi_counts_by_kind_does_not_cluster_points_beyond_eps(
     assert separated[backward]["signal"] == 2
 
 
+async def test_poi_counts_reach_the_material_extractor_end_to_end(
+    road_graph_repository, road_graph_session
+):
+    """DBのpoi_countsが、材料の値としてルート評価まで届くことを端から端まで確認する。
+
+    集計SQL・`edge_attribute_counts`の列・`get_edge_materials_batch`のSELECT・
+    `EdgeMaterialBundle`・`edge_metrics_from_bundles`・extractorのどこか1つでも
+    配線が抜けていると、軸が「データなし」になって静かに評価から外れる。実際に外れた
+    ことがあるため、途中の各層ではなく通しで固定する。
+    """
+    from app.domain.attributes import METRIC_GROUP_POI, edge_metrics_from_bundles
+    from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
+
+    forward, _ = await _build_poi_way(road_graph_repository, road_graph_session)
+    counts = await road_graph_repository.get_poi_counts_by_kind([forward])
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO edge_attribute_counts "
+            "(edge_id, accident_count, stop_count, intersection_count, poi_counts, computed_at) "
+            "VALUES (:edge_id, 0, 0, 0, CAST(:poi AS jsonb), now())"
+        ),
+        {"edge_id": forward, "poi": json.dumps(counts[forward])},
+    )
+    await road_graph_session.commit()
+
+    batch = await road_graph_repository.get_edge_materials_batch([forward])
+    bundle = batch.materials[forward]
+    assert bundle.attribute_counts is not None
+    assert bundle.attribute_counts.poi_counts == counts[forward]
+
+    metrics = edge_metrics_from_bundles(batch.materials)
+    assert metrics[METRIC_GROUP_POI][forward]["signal"] == 1.0
+
+    ctx = MaterialExtractionContext(
+        edge=None,  # poi系のextractorはedge_id・distance_km・metricsだけを見る
+        edge_id=forward,
+        way_tags={},
+        distance_km=0.1,
+        elevation_attributes={},
+        surface_attributes={},
+        designated_edge_ids=set(),
+        metrics=metrics,
+        accident_years_covered=1,
+    )
+    signal_density = MATERIAL_CATALOG["poi_signal_per_km"].extractor(ctx)
+    assert signal_density is not None and signal_density > 0
+    # 0件のキーは「不明」ではなく0（行があるため確定できる）。
+    assert MATERIAL_CATALOG["poi_level_crossing_per_km"].extractor(ctx) > 0
+
+
 async def test_get_poi_counts_by_kind_returns_empty_dict_for_empty_input(road_graph_repository):
     assert await road_graph_repository.get_poi_counts_by_kind([]) == {}
 

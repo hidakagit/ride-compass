@@ -680,7 +680,7 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
 # 扱う（0件と区別する。get_stop_poi_counts等の「edge_id自体は必ず含まれ0埋め」とは異なる
 # 単純な1行SELECTのため区別不要）。
 _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
-    "SELECT length_m, accident_count, stop_count, intersection_count "
+    "SELECT length_m, accident_count, stop_count, intersection_count, poi_counts "
     "FROM way_attribute_counts WHERE osm_way_id = :osm_way_id"
 )
 
@@ -2005,6 +2005,7 @@ class AttributeRepository(_SessionRepository):
             accident_count=row.accident_count,
             stop_count=row.stop_count,
             intersection_count=row.intersection_count,
+            poi_counts=dict(row.poi_counts or {}),
         )
 
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
