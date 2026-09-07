@@ -6,6 +6,7 @@ from app.domain.attributes import (
     EdgeMaterialTable,
     ElevationAttribute,
     compute_elevation_attribute,
+    edge_metrics_from_bundles,
     surface_by_edge_id,
 )
 from app.domain.graph import DirectedEdge, Node, RoadGraph
@@ -323,37 +324,16 @@ def test_edge_material_table_to_legacy_dicts_matches_manual_dict_construction():
     }
     expected_surface_attributes = {edge_id: bundle.surface for edge_id, bundle in bundles.items()}
     expected_way_tags = {edge_id: bundle.way_tags for edge_id, bundle in bundles.items()}
-    expected_stop_counts = {
-        edge_id: bundle.attribute_counts.stop_count for edge_id, bundle in bundles.items()
-        if bundle.attribute_counts is not None
-    }
-    expected_intersection_counts = {
-        edge_id: bundle.attribute_counts.intersection_count for edge_id, bundle in bundles.items()
-        if bundle.attribute_counts is not None
-    }
-    expected_accident_counts = {
-        edge_id: bundle.attribute_counts.accident_count for edge_id, bundle in bundles.items()
-        if bundle.attribute_counts is not None
-    }
     expected_designated_edge_ids = {edge_id for edge_id, bundle in bundles.items() if bundle.is_designated}
-    expected_landcover_trees_percent = {
-        edge_id: bundle.landcover_trees_percent for edge_id, bundle in bundles.items()
-        if bundle.landcover_trees_percent is not None
-    }
-    expected_landcover_built_percent = {
-        edge_id: bundle.landcover_built_percent for edge_id, bundle in bundles.items()
-        if bundle.landcover_built_percent is not None
-    }
 
     assert legacy.elevation_attributes == expected_elevation_attributes
     assert legacy.surface_attributes == expected_surface_attributes
     assert legacy.way_tags == expected_way_tags
-    assert legacy.stop_counts == expected_stop_counts
-    assert legacy.intersection_counts == expected_intersection_counts
-    assert legacy.accident_counts == expected_accident_counts
     assert legacy.designated_edge_ids == expected_designated_edge_ids
-    assert legacy.landcover_trees_percent == expected_landcover_trees_percent
-    assert legacy.landcover_built_percent == expected_landcover_built_percent
+    # 列指向（EdgeMaterialTable）とbundle直（edge_metrics_from_bundles）は同じ`metrics`を
+    # 作らなければならない。build_static_edge_score_matrixが入力の型によって
+    # どちらの経路も通るため、この一致が崩れると同じEdgeで結果が変わる。
+    assert legacy.metrics == edge_metrics_from_bundles(bundles)
 
 
 def test_edge_material_table_getitem_and_values_mimic_dict_interface():

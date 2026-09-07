@@ -26,11 +26,21 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 """
 
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Callable, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import (
+    METRIC_GROUP_COUNTS,
+    METRIC_GROUP_LANDCOVER,
+    METRIC_KEY_ACCIDENT,
+    METRIC_KEY_BUILT_PERCENT,
+    METRIC_KEY_INTERSECTION,
+    METRIC_KEY_STOP,
+    METRIC_KEY_TREES_PERCENT,
+    EdgeKeyedMetrics,
+    ElevationAttribute,
+)
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.graph import EdgeLike
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
@@ -65,13 +75,12 @@ class MaterialExtractionContext:
     distance_km: float
     elevation_attributes: dict[str, ElevationAttribute]
     surface_attributes: dict[str, str | None]
-    stop_counts: dict[str, int]
-    intersection_counts: dict[str, int]
-    accident_counts: dict[str, int]
-    accident_years_covered: int
     designated_edge_ids: set[str]
-    landcover_trees_percent: dict[str, float]
-    landcover_built_percent: dict[str, float]
+    # 数値の束（群名 -> edge_id -> {キー: 値}）。件数・土地被覆のような「材料と一緒に
+    # 増えるもの」はすべてここへ入れ、材料ごとのフィールドを増やさない。
+    metrics: Mapping[str, EdgeKeyedMetrics]
+    # 材料の数と無関係に1つで足りるスカラー（事故件数の年正規化に使う収録年数）。
+    accident_years_covered: int
 
 
 MaterialExtractor = Callable[[MaterialExtractionContext], object]
@@ -207,14 +216,6 @@ def _extract_gradient_percent(ctx: MaterialExtractionContext) -> float | None:
     return attribute.average_grade if attribute is not None else None
 
 
-def _extract_landcover_trees_percent(ctx: MaterialExtractionContext) -> float | None:
-    return ctx.landcover_trees_percent.get(ctx.edge_id)
-
-
-def _extract_landcover_built_percent(ctx: MaterialExtractionContext) -> float | None:
-    return ctx.landcover_built_percent.get(ctx.edge_id)
-
-
 def _extract_surface_good(ctx: MaterialExtractionContext) -> bool | None:
     return classify_osm_surface(ctx.surface_attributes.get(ctx.edge_id))
 
@@ -223,7 +224,7 @@ def _extract_surface(ctx: MaterialExtractionContext) -> str | None:
     return ctx.surface_attributes.get(ctx.edge_id)
 
 
-def _per_km(count: int | None, distance_km: float) -> float | None:
+def _per_km(count: float | None, distance_km: float) -> float | None:
     if count is None or distance_km <= 0:
         return None
     return count / distance_km
@@ -279,15 +280,26 @@ def way_tag_parser_extractor(parser: Callable[[dict[str, str]], int | None]) -> 
     return _extract
 
 
-def count_per_km_extractor(
-    counts_selector: Callable[[MaterialExtractionContext], dict[str, int]],
-) -> MaterialExtractor:
-    """「件数/距離の密度計算」パターン（stop_count_per_km/intersection_count_per_km等）。
-    counts_selectorはctxから該当する件数辞書（stop_counts/intersection_counts等）を
-    選び出す関数。"""
+def _metric(ctx: MaterialExtractionContext, group: str, key: str) -> float | None:
+    """`ctx.metrics`から1つの値を引く。群が無い・Edgeの行が無い・キーが無いはすべて欠損。"""
+    return (ctx.metrics.get(group, {}).get(ctx.edge_id) or {}).get(key)
+
+
+def keyed_value_extractor(group: str, key: str) -> MaterialExtractor:
+    """「数値の束から1つ取り出す」パターン（trees_percent/built_percent等）。"""
 
     def _extract(ctx: MaterialExtractionContext) -> float | None:
-        return _per_km(counts_selector(ctx).get(ctx.edge_id), ctx.distance_km)
+        return _metric(ctx, group, key)
+
+    return _extract
+
+
+def keyed_density_extractor(group: str, key: str) -> MaterialExtractor:
+    """「数値の束から1つ取り出して1kmあたりへ正規化する」パターン
+    （stop_count_per_km/intersection_count_per_km等）。"""
+
+    def _extract(ctx: MaterialExtractionContext) -> float | None:
+        return _per_km(_metric(ctx, group, key), ctx.distance_km)
 
     return _extract
 
@@ -295,7 +307,7 @@ def count_per_km_extractor(
 def _extract_accident_count_per_km_year(ctx: MaterialExtractionContext) -> float | None:
     if ctx.accident_years_covered <= 0:
         return None
-    per_km = _per_km(ctx.accident_counts.get(ctx.edge_id), ctx.distance_km)
+    per_km = _per_km(_metric(ctx, METRIC_GROUP_COUNTS, METRIC_KEY_ACCIDENT), ctx.distance_km)
     return per_km / ctx.accident_years_covered if per_km is not None else None
 
 
@@ -535,7 +547,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="%",
         tile_property="trees_pct",
         primary_attribute_id="landcover",
-        extractor=_extract_landcover_trees_percent,
+        extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_TREES_PERCENT),
     ),
     "built_percent": MaterialSpec(
         material_id="built_percent",
@@ -545,7 +557,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="%",
         tile_property="built_pct",
         primary_attribute_id="landcover",
-        extractor=_extract_landcover_built_percent,
+        extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_BUILT_PERCENT),
     ),
     "surface_good": MaterialSpec(
         material_id="surface_good",
@@ -566,7 +578,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="stop_per_km",
         primary_attribute_id="stop_poi",
-        extractor=count_per_km_extractor(lambda ctx: ctx.stop_counts),
+        extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_STOP),
         reference_points=_STOP_COUNT_PER_KM_REFERENCE_POINTS,
     ),
     "intersection_count_per_km": MaterialSpec(
@@ -576,7 +588,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
-        extractor=count_per_km_extractor(lambda ctx: ctx.intersection_counts),
+        extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION),
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
     ),
     "accident_count_per_km_year": MaterialSpec(

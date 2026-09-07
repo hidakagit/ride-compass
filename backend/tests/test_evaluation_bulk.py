@@ -11,7 +11,13 @@ from contextlib import contextmanager
 
 import pytest
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import (
+    METRIC_GROUP_COUNTS,
+    METRIC_KEY_ACCIDENT,
+    METRIC_KEY_INTERSECTION,
+    METRIC_KEY_STOP,
+    ElevationAttribute,
+)
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -281,6 +287,21 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
             designated_edge_ids.add(edge_id)
 
     graph = RoadGraph(graph_version="test", nodes=nodes, edges=edges)
+    # スカラー版（compute_edge_cost）はEdge1本ぶんの件数スカラーを、ベクトル版
+    # （compute_edge_costs_bulk）は`metrics`の件数群を受け取る。同じ値を両方の形で
+    # 渡し、出力が一致することをこのファイルの回帰テストが確かめる。
+    counts: dict[str, dict[str, float]] = {}
+    for edge_id in edges:
+        row = {}
+        if edge_id in stop_counts:
+            row[METRIC_KEY_STOP] = float(stop_counts[edge_id])
+        if edge_id in intersection_counts:
+            row[METRIC_KEY_INTERSECTION] = float(intersection_counts[edge_id])
+        if edge_id in accident_counts:
+            row[METRIC_KEY_ACCIDENT] = float(accident_counts[edge_id])
+        if row:
+            counts[edge_id] = row
+
     materials = dict(
         elevation_attributes=elevation_attributes,
         surface_attributes=surface_attributes,
@@ -289,6 +310,7 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
         intersection_counts=intersection_counts,
         accident_counts=accident_counts,
         designated_edge_ids=designated_edge_ids,
+        metrics={METRIC_GROUP_COUNTS: counts},
     )
     return graph, materials
 
@@ -332,10 +354,8 @@ def test_bulk_matches_scalar_for_every_edge(
         preference,
         weather=weather,
         travel_speed_ms=travel_speed_ms,
-        stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
-        intersection_counts=materials["intersection_counts"],
-        accident_counts=materials["accident_counts"],
+        metrics=materials["metrics"],
         accident_years_covered=3,
         designated_edge_ids=materials["designated_edge_ids"],
         penalty_strength=penalty_strength,
@@ -393,10 +413,8 @@ def test_bulk_hard_filters_override_matches_scalar(preference, hard_filters):
         materials["elevation_attributes"],
         materials["surface_attributes"],
         preference,
-        stop_counts=materials["stop_counts"],
         way_tags=materials["way_tags"],
-        intersection_counts=materials["intersection_counts"],
-        accident_counts=materials["accident_counts"],
+        metrics=materials["metrics"],
         accident_years_covered=3,
         designated_edge_ids=materials["designated_edge_ids"],
         weights=weights,

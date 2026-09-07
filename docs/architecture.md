@@ -1673,7 +1673,7 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 
 抽出ロジックは汎用パターン（単一タグ生値取得・タグ値一致判定・数値パース・件数密度計算）を
 パラメータ化したextractorファクトリ関数（`raw_way_tag_extractor`/`tag_equals_extractor`/
-`way_tag_parser_extractor`/`count_per_km_extractor`）で宣言的に組み立てる（`MaterialSpec`宣言の
+`way_tag_parser_extractor`/`keyed_value_extractor`/`keyed_density_extractor`）で宣言的に組み立てる（`MaterialSpec`宣言の
 場で`extractor=tag_equals_extractor("bridge", "yes")`のように直接呼ぶ）。優先順位付き分類等の
 複雑な組み合わせロジック（`bicycle_infra`）のみ専用関数を持つ。
 
