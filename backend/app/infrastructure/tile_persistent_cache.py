@@ -124,6 +124,26 @@ def set(namespace: str, version: str, zoom: int, x: int, y: int, value: Any) -> 
         )
 
 
+def prune_stale_generations(namespace: str, keep_version: str) -> int:
+    """`namespace`配下のうち`keep_version`以外の世代ディレクトリを削除し、解放したバイト数を返す。
+
+    キーへ世代を埋める方式は「参照先が新旧で別物になる」ことは保証するが、ディスクでは
+    **古い世代の実体が消えない**（TTLのある層と違い自然に失効しない）。世代を上げるたびに
+    実体が積み上がるため、現行世代だけを残すこの掃除が要る（docs/caching.md「無効化」参照）。
+    """
+    root = CACHE_DIR / namespace
+    if not root.is_dir():
+        return 0
+    keep = f"v{keep_version}"
+    freed = 0
+    for entry in root.iterdir():
+        if not entry.is_dir() or entry.name == keep:
+            continue
+        freed += sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+        shutil.rmtree(entry, ignore_errors=True)
+    return freed
+
+
 def clear_namespace(namespace: str) -> None:
     """指定namespace配下（全バージョン）を丸ごと削除する。
 

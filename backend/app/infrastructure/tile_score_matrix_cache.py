@@ -112,6 +112,11 @@ def set(zoom: int, x: int, y: int, matrix: StaticEdgeScoreMatrix) -> None:
     tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y, matrix)
 
 
+def prune_stale_disk_generations() -> int:
+    """ディスク永続化キャッシュから、現行世代以外のスコア行列を削除する（解放バイト数を返す）。"""
+    return tile_persistent_cache.prune_stale_generations(_CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION)
+
+
 def clear() -> None:
     """テスト用、および軸定義の内容が実際に変わった場合
     （`sync_disk_cache_with_axis_revision`）に呼ぶ。

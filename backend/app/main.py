@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -13,6 +14,7 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import close_all_http_clients, get_http_client
+from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware, unhandled_exception_handler
@@ -103,6 +105,24 @@ async def _sync_msm_job() -> None:
         logging.getLogger("ridecompass.msm_sync_scheduler").warning("MSMの定期同期に失敗しました", exc_info=True)
 
 
+async def _prune_stale_disk_generations_job() -> None:
+    """起動時に1回だけ、ディスク永続化キャッシュの古い世代を削除する。
+
+    世代番号は参照先を切り替えるだけで、ディスク上の古い実体は残り続ける
+    （docs/caching.md「無効化」参照）。世代を上げたコードがデプロイされた直後のこの
+    タイミングで掃除する。削除対象が大きい（数百MB規模）ことがあるためスレッドで実行する。
+    """
+    logger = logging.getLogger("ridecompass.tile_cache_prune")
+    try:
+        freed = 0
+        for prune in (graph_material_cache.prune_stale_disk_generations, tile_score_matrix_cache.prune_stale_disk_generations):
+            freed += await asyncio.to_thread(prune)
+        if freed:
+            logger.info("ディスク永続キャッシュの旧世代を削除しました freed_mb=%.1f", freed / 1e6)
+    except Exception:
+        logger.warning("ディスク永続キャッシュの旧世代削除に失敗しました", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # httpx.AsyncClientのウォームアップ:
@@ -150,6 +170,14 @@ async def lifespan(app: FastAPI):
         minutes=settings.msm_sync_interval_minutes,
         next_run_time=datetime.now(),
         id="sync_msm",
+    )
+    # ディスク永続キャッシュの旧世代掃除。起動直後に1回だけ実行する（世代を上げた
+    # デプロイの直後がこのタイミングに当たる）。
+    _scheduler.add_job(
+        _prune_stale_disk_generations_job,
+        trigger="date",
+        run_date=datetime.now(),
+        id="prune_stale_disk_generations",
     )
     _scheduler.start()
     yield

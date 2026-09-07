@@ -119,6 +119,11 @@ def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials) ->
     tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, materials)
 
 
+def prune_stale_disk_generations() -> int:
+    """ディスク永続化キャッシュから、現行世代以外のタイル材料を削除する（解放バイト数を返す）。"""
+    return tile_persistent_cache.prune_stale_generations(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION)
+
+
 def get_accident_years_covered() -> int | None:
     return _accident_years_covered_cache
 
