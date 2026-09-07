@@ -3,13 +3,16 @@
 asyncpg用DSN変換（import_pbf.py・import_accidents.py・match_designations.py・
 import_designations.py）、ファイルダウンロードの骨格（import_accidents.py・
 import_designations.py）、SQLAlchemyセッションファクトリの生成と後始末
-（precompute_*.py・presplit_road_graph.py）、チャンク分割・コマンドステータス件数パース
+（precompute_*.py・presplit_road_graph.py）、単純なCLI（--database-url/--dry-run）の
+起動処理、チャンク分割・コマンドステータス件数パース
 など、複数バッチが共通で必要とする処理をここへ集約する。
 """
 
+import argparse
+import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -51,6 +54,28 @@ async def batch_session_factory(database_url: str | None) -> AsyncIterator[async
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
         await engine.dispose()
+
+
+def run_simple_batch_cli(
+    argv: list[str] | None,
+    *,
+    description: str,
+    run_fn: Callable[[str | None, bool], Awaitable[int]],
+    dry_run_help: str = "件数のみログ出力しDBへ書き込まない",
+) -> int:
+    """`--database-url`と`--dry-run`だけを取るバッチの起動処理。
+
+    引数の解析・ログ設定・`asyncio.run`まで行い、`run_fn`の戻り値をそのまま終了コード
+    として返す。追加の引数を持つバッチ（`precompute_way_landcover.py`）は自前で
+    `ArgumentParser`を組む。
+    """
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
+    parser.add_argument("--dry-run", action="store_true", help=dry_run_help)
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    return asyncio.run(run_fn(args.database_url, args.dry_run))
 
 
 async def reap_stale_running_import_runs(conn: asyncpg.Connection, table: str) -> int:

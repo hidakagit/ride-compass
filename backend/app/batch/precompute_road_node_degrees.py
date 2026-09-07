@@ -25,8 +25,6 @@ road_edgesが変わった場合（PBF再取込等）は再実行が必要。
     --dry-runで対象件数のログのみ（DB書き込みなし）
 """
 
-import argparse
-import asyncio
 import logging
 import sys
 import time
@@ -36,7 +34,7 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.batch._common import batch_session_factory
+from app.batch._common import batch_session_factory, run_simple_batch_cli
 
 logger = logging.getLogger("app.batch.precompute_road_node_degrees")
 
@@ -66,13 +64,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="road_nodes.degree事前集計バッチ")
-    parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
-    parser.add_argument("--dry-run", action="store_true", help="件数のみログ出力しDBへ書き込まない")
-    args = parser.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run(args.database_url, args.dry_run))
+    return run_simple_batch_cli(argv, description="road_nodes.degree事前集計バッチ", run_fn=run)
 
 
 if __name__ == "__main__":

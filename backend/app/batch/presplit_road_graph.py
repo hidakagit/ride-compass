@@ -21,8 +21,6 @@ precompute_road_node_degrees.py等road_edges起点の派生計算の前提）。
     --dry-runで対象タイル数のログのみ（DB書き込みなし）
 """
 
-import argparse
-import asyncio
 import logging
 import sys
 import time
@@ -35,7 +33,7 @@ from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_bounds_lonlat
 from app.infrastructure.road_graph_models import RoadGraphTileRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.graph_service import GraphService
-from app.batch._common import batch_session_factory
+from app.batch._common import batch_session_factory, run_simple_batch_cli
 
 logger = logging.getLogger("app.batch.presplit_road_graph")
 
@@ -90,13 +88,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="交差点分割の事前実行バッチ")
-    parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
-    parser.add_argument("--dry-run", action="store_true", help="対象タイル数のみログ出力しDB書き込みを行わない")
-    args = parser.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run(args.database_url, args.dry_run))
+    return run_simple_batch_cli(argv, description="交差点分割の事前実行バッチ", run_fn=run, dry_run_help="対象タイル数のみログ出力しDB書き込みを行わない")
 
 
 if __name__ == "__main__":

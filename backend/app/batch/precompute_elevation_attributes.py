@@ -23,8 +23,6 @@ GSIへの外部呼び出しはタイル単位（近接するEdge・形状点は�
     --dry-runで対象件数のログのみ（DB書き込み・外部呼び出しなし）
 """
 
-import argparse
-import asyncio
 import logging
 import sys
 import time
@@ -33,7 +31,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.batch._common import batch_session_factory, chunked
+from app.batch._common import batch_session_factory, chunked, run_simple_batch_cli
 from app.config import settings
 from app.domain.graph import RoadGraph
 from app.infrastructure.elevation_client import ElevationClient
@@ -109,13 +107,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="elevation_attributes事前計算バッチ")
-    parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
-    parser.add_argument("--dry-run", action="store_true", help="件数のみログ出力し外部呼び出し・DB書き込みを行わない")
-    args = parser.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run(args.database_url, args.dry_run))
+    return run_simple_batch_cli(argv, description="elevation_attributes事前計算バッチ", run_fn=run, dry_run_help="件数のみログ出力し外部呼び出し・DB書き込みを行わない")
 
 
 if __name__ == "__main__":

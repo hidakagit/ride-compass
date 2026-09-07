@@ -24,8 +24,6 @@ accident_points/osm_raw_pois/osm_raw_waysのいずれかが変わった場合（
     --dry-runで対象件数のログのみ（DB書き込みなし）
 """
 
-import argparse
-import asyncio
 import logging
 import sys
 import time
@@ -33,7 +31,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, text
 
-from app.batch._common import batch_session_factory, chunked
+from app.batch._common import batch_session_factory, chunked, run_simple_batch_cli
 from app.config import settings
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -116,13 +114,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="way_attribute_counts事前集計バッチ")
-    parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
-    parser.add_argument("--dry-run", action="store_true", help="件数のみログ出力しDBへ書き込まない")
-    args = parser.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run(args.database_url, args.dry_run))
+    return run_simple_batch_cli(argv, description="way_attribute_counts事前集計バッチ", run_fn=run)
 
 
 if __name__ == "__main__":
