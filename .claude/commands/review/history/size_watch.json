@@ -32,10 +32,10 @@
   },
   "thresholds": {
     "backend/app/infrastructure/road_graph_repository.py": 2800,
-    "backend/app/services/road_graph_engine.py": 1100,
-    "frontend/src/components/Map/MapView.tsx": 3200,
-    "frontend/src/app/page.tsx": 1900,
-    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1400,
+    "backend/app/services/road_graph_engine.py": 2200,
+    "frontend/src/components/Map/MapView.tsx": 3700,
+    "frontend/src/app/page.tsx": 2400,
+    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1750,
     "docs/architecture.md": 3000
   }
 }

@@ -1018,4 +1018,4 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 - [ ] [T656](tasks/T656.md). 経緯コメントの機械的検知の穴を塞ぐ（docstring・CSS・パターン） 規模S
 - [ ] [T657](tasks/T657.md). backendの列挙・既定値をexport_openapiの生成物へ集約する 規模M
-- [ ] [T658](tasks/T658.md). 規模ウォッチの次閾値を確定し、反映経路を一方向にする 規模S
+- [x] [T658](tasks/T658.md). 規模ウォッチの次閾値を確定し、反映経路を一方向にする 規模S（2026-09-08完了。road_graph_engine 1,100→2,200・MapView 3,200→3,700・page.tsx 1,900→2,400・AxisComposer 1,400→1,750。発火6件→0件。現在値の正本をsize_watch.jsonへ一本化し、書き戻し漏れの再発防止をcomplexity.mdへ明記）

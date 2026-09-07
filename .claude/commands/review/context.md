@@ -90,22 +90,19 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エ�
 代表例:
 - `/api/routes/preview` の残置（Step3疎通確認用）
 - `page.tsx` / `MapView.tsx` の分割見送り（肥大化はcomplexity.mdの「規模ウォッチ」で
-  横断監視する。MapView.tsxのみ個別の閾値付きKEEPがあり、現在有効な閾値・発火状況は
-  直近のcomplexityレビュー（history/）とimprovement-plan.mdの該当タスク（T91→T123→T430）を
-  正として参照する。特定ファイル個別の閾値は原則新設せず、規模ウォッチの発火→
+  横断監視する。MapView.tsxのみ個別の閾値付きKEEPがあり、**現在有効な閾値の正本は
+  `history/size_watch.json`の`thresholds`**（タスクT91→T123→T430は登録時点の経緯記録）。特定ファイル個別の閾値は原則新設せず、規模ウォッチの発火→
   精査で判断する）
 - Repositoryファサードのフラット委譲契約（対称追加の規約。委譲メソッド削除の提案はT18で棄却済み）
 - wind_scoreのエンジン間の意味差（engineフィールドで識別する管理された不整合）
 - PBF取込バッチのasyncpg COPY直行（Repository迂回）
 - `AxisComposer.tsx`（規模ウォッチの発火が2026-08-27統合レビュー第8回で確認済み、
   T270新設[474行]から3日で1,123行[+137%]。改善計画T355で個別の閾値付きKEEPへ
-  昇格——churnが継続中のためすぐには分割せず監視のみ先行する運用。現在有効な閾値・
-  発火状況はimprovement-plan.mdのT355、直近のcomplexityレビュー（history/）を正として
-  参照する）
+  昇格——churnが継続中のためすぐには分割せず監視のみ先行する運用。**現在有効な閾値の
+  正本は`history/size_watch.json`**（T355は登録時点の経緯記録）
 - `road_graph_repository.py` / `road_graph_engine.py`（規模ウォッチの発火が2回連続で
-  行き場のないまま繰り返されたため、改善計画T357で個別の閾値付きKEEPへ昇格。現在有効な
-  閾値・発火状況はimprovement-plan.mdのT357、直近のcomplexityレビュー（history/）を
-  正として参照する）
+  行き場のないまま繰り返されたため、改善計画T357で個別の閾値付きKEEPへ昇格。**現在有効な
+  閾値の正本は`history/size_watch.json`**（T357は登録時点の経緯記録）
 
 ## タスク・レビュー履歴の基盤
 
