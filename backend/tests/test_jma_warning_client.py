@@ -7,7 +7,6 @@
 持たない。「リトライ」観点は「失敗時に再試行せず1回でNoneを返す」ことの確認に置き換える。
 """
 
-import httpx
 import pytest
 
 from app.infrastructure import jma_warning_client as jma_warning_client_module
@@ -16,50 +15,11 @@ from app.infrastructure.jma_warning_client import (
     fetch_municipality_code,
     fetch_warning_documents,
 )
-
-
-class FakeResponse:
-    def __init__(self, payload):
-        self._payload = payload
-
-    def raise_for_status(self):
-        pass
-
-    def json(self):
-        return self._payload
-
-
-class FakeHttpClient:
-    def __init__(self, payload):
-        self.call_count = 0
-        self._payload = payload
-        self.last_params = None
-
-    async def get(self, url, params=None, timeout=None):
-        self.call_count += 1
-        self.last_params = params
-        return FakeResponse(self._payload)
-
-
-class FailingHttpClient:
-    async def get(self, url, params=None, timeout=None):
-        raise httpx.RequestError("boom")
-
-
-class HttpStatusErrorResponse:
-    status_code = 500
-
-    def raise_for_status(self):
-        raise httpx.HTTPStatusError("500 Server Error", request=None, response=self)
-
-
-class HttpStatusErrorHttpClient:
-    def __init__(self):
-        self.call_count = 0
-
-    async def get(self, url, params=None, timeout=None):
-        self.call_count += 1
-        return HttpStatusErrorResponse()
+from tests.fake_api_http import (
+    FailingHttpClient,
+    FakeHttpClient,
+    HttpStatusErrorHttpClient,
+)
 
 
 @pytest.fixture(autouse=True)

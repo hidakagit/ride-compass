@@ -7,19 +7,9 @@ import pytest
 from app.domain.gradient import GradientCalculator
 from app.infrastructure import dynamic_way_value_cache, redis_json_cache
 from app.services.gradient_way_service import GradientWayService
+from tests.fake_redis import FakeRedis
 
 Z, X, Y = 14, 14551, 6447
-
-
-class FakeRedis:
-    def __init__(self):
-        self.store: dict[str, str] = {}
-
-    async def get(self, key):
-        return self.store.get(key)
-
-    async def set(self, key, value, ex=None):
-        self.store[key] = value
 
 
 @pytest.fixture(autouse=True)

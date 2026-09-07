@@ -2,35 +2,13 @@ import pytest
 
 from app.infrastructure import tile_cache
 from app.infrastructure.basemap_client import BasemapClient
+from tests.fake_tile_http import FakeHttpClient
 
 
 @pytest.fixture(autouse=True)
 def use_temp_cache_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
     yield
-
-
-class FakeResponse:
-    def __init__(self, content: bytes, content_type: str):
-        self.content = content
-        self.headers = {"content-type": content_type}
-
-    def raise_for_status(self):
-        pass
-
-
-class FakeHttpClient:
-    def __init__(self, content: bytes, content_type: str, raises=None):
-        self._content = content
-        self._content_type = content_type
-        self._raises = raises
-        self.requested_urls = []
-
-    async def get(self, url):
-        self.requested_urls.append(url)
-        if self._raises:
-            raise self._raises
-        return FakeResponse(self._content, self._content_type)
 
 
 async def test_get_rewrites_upstream_host_in_json_responses():

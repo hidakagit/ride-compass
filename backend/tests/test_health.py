@@ -1,4 +1,3 @@
-import base64
 from datetime import datetime
 
 import pytest
@@ -16,6 +15,7 @@ from tests.conftest import TEST_DATABASE_URL
 # route_designations/designation_attributes/accident_pointsテーブルがcreate_allで作られるよう、
 # test_road_graph_repository.pyと同じ「テストファイルごとに自己完結させる」idiom）。
 from app.infrastructure import accident_models, designation_models  # noqa: F401
+from tests.admin_auth import AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 
@@ -58,20 +58,9 @@ def test_health_reflects_git_commit_when_configured(monkeypatch):
 # --- /api/debug/db-status（改善計画T74「本番DBが置き去りになる」対策A） ---
 
 
-def _basic_auth_header(username: str, password: str) -> str:
-    encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return f"Basic {encoded}"
-
-
-# 改善計画T467: /api/debug/db-statusへrequire_admin_basic_authを追加したための認証ヘッダ
-# （test_axis_admin_routes.pyと同じパターン）。
-ADMIN_AUTH_HEADERS = {"Authorization": _basic_auth_header("admin-user", "secret-password")}
-
-
 @pytest.fixture(autouse=True)
-def admin_credentials(monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "admin-user")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "secret-password")
+def _always_admin_credentials(admin_credentials):
+    """このファイルのテストはすべて管理画面APIを叩くため、認証情報を常に入れる。"""
 
 
 def test_db_status_rejects_missing_credentials():
@@ -86,7 +75,7 @@ def test_db_status_reports_not_configured_when_repository_disabled(monkeypatch):
     # 他のDI（get_region_service等）と同じ既定安全側の分岐）。
     monkeypatch.setattr(settings, "road_graph_use_repository", False)
 
-    response = client.get("/api/debug/db-status", headers=ADMIN_AUTH_HEADERS)
+    response = client.get("/api/debug/db-status", headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"commit": None, "database_configured": False}
@@ -104,7 +93,7 @@ def test_db_status_returns_reachable_false_on_db_error(monkeypatch):
 
     monkeypatch.setattr(health_router, "get_engine", lambda: _BrokenEngine())
 
-    response = client.get("/api/debug/db-status", headers=ADMIN_AUTH_HEADERS)
+    response = client.get("/api/debug/db-status", headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     body = response.json()

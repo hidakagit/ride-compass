@@ -1,4 +1,3 @@
-import base64
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +12,7 @@ from app.domain.axis_definitions import (
     check_publish_immutability,
 )
 from app.main import app
+from tests.admin_auth import AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 
@@ -105,15 +105,9 @@ class FailingAxisRegistryAdminService(FakeAxisRegistryAdminService):
         raise _dbapi_error()
 
 
-def _basic_auth_header(username: str, password: str) -> str:
-    encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return f"Basic {encoded}"
-
-
 @pytest.fixture(autouse=True)
-def admin_credentials(monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "admin-user")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "secret-password")
+def _always_admin_credentials(admin_credentials):
+    """このファイルのテストはすべて管理画面APIを叩くため、認証情報を常に入れる。"""
 
 
 @pytest.fixture
@@ -136,9 +130,6 @@ def override_failing_service():
         app.dependency_overrides.clear()
 
 
-AUTH_HEADERS = {"Authorization": _basic_auth_header("admin-user", "secret-password")}
-
-
 # --- 認可（require_admin_basic_auth） ---
 
 
@@ -151,7 +142,7 @@ def test_list_rejects_missing_credentials(override_service):
 
 def test_list_rejects_wrong_credentials(override_service):
     response = client.get(
-        "/api/admin/axis-definitions", headers={"Authorization": _basic_auth_header("admin-user", "wrong")}
+        "/api/admin/axis-definitions", headers={"Authorization": basic_auth_header("admin-user", "wrong")}
     )
 
     assert response.status_code == 401

@@ -8,61 +8,15 @@
 Noneを返す（呼び出し元へ丸投げしない）」ことの確認に置き換える。
 """
 
-import httpx
 import pytest
 
 from app.infrastructure import wbgt_client as wbgt_client_module
 from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
-
-
-class FakeResponse:
-    def __init__(self, *, text=None, payload=None):
-        self._text = text
-        self._payload = payload
-
-    def raise_for_status(self):
-        pass
-
-    def json(self):
-        return self._payload
-
-    @property
-    def text(self):
-        return self._text
-
-
-class FakeHttpClient:
-    def __init__(self, *, text=None, payload=None):
-        self.call_count = 0
-        self._text = text
-        self._payload = payload
-        self.last_params = None
-
-    async def get(self, url, params=None, timeout=None):
-        self.call_count += 1
-        self.last_params = params
-        return FakeResponse(text=self._text, payload=self._payload)
-
-
-class FailingHttpClient:
-    async def get(self, url, params=None, timeout=None):
-        raise httpx.RequestError("boom")
-
-
-class HttpStatusErrorResponse:
-    status_code = 500
-
-    def raise_for_status(self):
-        raise httpx.HTTPStatusError("500 Server Error", request=None, response=self)
-
-
-class HttpStatusErrorHttpClient:
-    def __init__(self):
-        self.call_count = 0
-
-    async def get(self, url, params=None, timeout=None):
-        self.call_count += 1
-        return HttpStatusErrorResponse()
+from tests.fake_api_http import (
+    FailingHttpClient,
+    FakeHttpClient,
+    HttpStatusErrorHttpClient,
+)
 
 
 # 情報提供地点マスタCSVの1行サンプル。_parse_point_masterが読む列位置

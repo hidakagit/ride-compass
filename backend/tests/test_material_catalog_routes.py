@@ -1,4 +1,3 @@
-import base64
 from datetime import datetime, timezone
 
 import pytest
@@ -12,6 +11,7 @@ from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, Materi
 from app.main import app
 from app.services.material_coverage_service import build_material_coverage_report
 from app.services.region_service import RegionService
+from tests.admin_auth import AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 
@@ -229,19 +229,6 @@ def test_get_material_values_without_db_repository_returns_empty_list():
 COVERAGE_URL = "/api/admin/material-catalog/coverage"
 
 
-def _basic_auth_header(username: str, password: str) -> str:
-    return "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
-
-
-AUTH_HEADERS = {"Authorization": _basic_auth_header("admin-user", "secret-password")}
-
-
-@pytest.fixture
-def admin_credentials(monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "admin-user")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "secret-password")
-
-
 class FakeMaterialCoverageService:
     def __init__(self, counts: MaterialCoverageCounts | None = None, error: Exception | None = None):
         self._counts = counts
@@ -268,7 +255,7 @@ def test_get_material_coverage_requires_basic_auth(admin_credentials):
 
 
 def test_get_material_coverage_rejects_wrong_credentials(admin_credentials):
-    response = client.get(COVERAGE_URL, headers={"Authorization": _basic_auth_header("admin-user", "wrong")})
+    response = client.get(COVERAGE_URL, headers={"Authorization": basic_auth_header("admin-user", "wrong")})
 
     assert response.status_code == 401
 

@@ -109,3 +109,20 @@ DOM環境の構築コストはテストファイルごとにかかるため、�
    読み込みに行き、ページ遷移・`beforeEach`フックが軒並み30秒タイムアウトする事象を
    複数回実測した（2026-08-23）。workers=1へ絞ると同条件で安定して全green。
    CIはGitHub Actions側のジョブ専有リソースを前提に対象外（`process.env.CI`判定）。
+
+## パターン5: 外部クライアント・Redisのフェイクは共有モジュールから取る
+
+`backend/tests/`直下の次のモジュールが、複数のテストで同じ形になるフェイクを持つ。
+**新しいテストで同じものを書き写さず、ここからimportする**（ファイルごとに書き写すと、
+上流の契約が変わったときの直し漏れがそのまま残る）。
+
+| モジュール | 中身 | 使う場面 |
+|---|---|---|
+| `fake_tile_http.py` | `FakeResponse`・`FakeHttpClient` | タイル・バイナリをそのまま通すクライアント（`get(url)`だけを呼ぶもの） |
+| `fake_api_http.py` | 同名2つ＋`FailingHttpClient`・`HttpStatusErrorHttpClient` | `simple_api_client`経由でJSON/CSVを引くクライアント（`get(url, params, timeout)`） |
+| `fake_redis.py` | `FakeRedis`（`raise_on_get`/`raise_on_set`付き） | Redis cache-aside層。実Redis不要 |
+| `admin_auth.py` | `AUTH_HEADERS`・`basic_auth_header()` | 管理画面API。認証情報を入れるのは`conftest.py`の`admin_credentials`フィクスチャ |
+| `jma_area_fixtures.py` | 区域コード階層のサンプル＋`patch_area_lookup()` | 緯度経度→市区町村コード→area.jsonの順に引くサービス |
+
+ファイル内の全テストが管理画面APIを叩く場合は、`admin_credentials`を毎テストの引数に
+書く代わりに、autouseの薄いフィクスチャで受ける（`test_health.py`等）。

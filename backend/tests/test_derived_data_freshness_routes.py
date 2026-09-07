@@ -1,4 +1,3 @@
-import base64
 from datetime import datetime, timezone
 
 import pytest
@@ -10,23 +9,11 @@ from app.config import settings
 from app.infrastructure.derived_data_freshness import DerivedDataFreshnessCounts, GenerationFreshnessCounts
 from app.main import app
 from app.services.derived_data_freshness_service import build_freshness_report
+from tests.admin_auth import AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 
 FRESHNESS_URL = "/api/admin/derived-data/freshness"
-
-
-def _basic_auth_header(username: str, password: str) -> str:
-    return "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
-
-
-AUTH_HEADERS = {"Authorization": _basic_auth_header("admin-user", "secret-password")}
-
-
-@pytest.fixture
-def admin_credentials(monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "admin-user")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "secret-password")
 
 
 class FakeDerivedDataFreshnessService:
@@ -86,7 +73,7 @@ def test_get_derived_data_freshness_requires_basic_auth(admin_credentials):
 
 
 def test_get_derived_data_freshness_rejects_wrong_credentials(admin_credentials):
-    response = client.get(FRESHNESS_URL, headers={"Authorization": _basic_auth_header("admin-user", "wrong")})
+    response = client.get(FRESHNESS_URL, headers={"Authorization": basic_auth_header("admin-user", "wrong")})
 
     assert response.status_code == 401
 

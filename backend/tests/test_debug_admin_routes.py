@@ -1,4 +1,3 @@
-import base64
 import logging
 import uuid
 
@@ -8,22 +7,14 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.infrastructure.debug_control import get_recent_logs
 from app.main import app
+from tests.admin_auth import AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 
 
-def _basic_auth_header(username: str, password: str) -> str:
-    encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return f"Basic {encoded}"
-
-
-AUTH_HEADERS = {"Authorization": _basic_auth_header("admin-user", "secret-password")}
-
-
 @pytest.fixture(autouse=True)
-def admin_credentials(monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "admin-user")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "secret-password")
+def _always_admin_credentials(admin_credentials):
+    """このファイルのテストはすべて管理画面APIを叩くため、認証情報を常に入れる。"""
 
 
 @pytest.fixture(autouse=True)
@@ -52,7 +43,7 @@ def test_update_mode_rejects_wrong_credentials():
     response = client.post(
         "/api/admin/debug/mode",
         json={"enabled": True},
-        headers={"Authorization": _basic_auth_header("admin-user", "wrong")},
+        headers={"Authorization": basic_auth_header("admin-user", "wrong")},
     )
 
     assert response.status_code == 401

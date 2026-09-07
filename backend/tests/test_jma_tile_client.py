@@ -2,20 +2,8 @@ import pytest
 
 from app.infrastructure import jma_tile_client, jma_tile_redis_cache
 from app.infrastructure.jma_tile_client import JmaTileClient
-
-
-class FakeRedis:
-    """jma_tile_redis_cache.pyが使うコマンド（get/set）だけを実装したフェイク
-    （他のRedisキャッシュのテストと同じパターン）。"""
-
-    def __init__(self):
-        self.store: dict[str, str] = {}
-
-    async def get(self, key):
-        return self.store.get(key)
-
-    async def set(self, key, value, ex=None):
-        self.store[key] = value
+from tests.fake_tile_http import FakeHttpClient
+from tests.fake_redis import FakeRedis
 
 
 @pytest.fixture(autouse=True)
@@ -44,29 +32,6 @@ def no_real_upstream_rate_limit_wait(monkeypatch):
 
     monkeypatch.setattr(jma_tile_client.asyncio, "sleep", instant_sleep)
     yield
-
-
-class FakeResponse:
-    def __init__(self, content: bytes, content_type: str):
-        self.content = content
-        self.headers = {"content-type": content_type}
-
-    def raise_for_status(self):
-        pass
-
-
-class FakeHttpClient:
-    def __init__(self, content: bytes, content_type: str, raises=None):
-        self._content = content
-        self._content_type = content_type
-        self._raises = raises
-        self.requested_urls = []
-
-    async def get(self, url):
-        self.requested_urls.append(url)
-        if self._raises:
-            raise self._raises
-        return FakeResponse(self._content, self._content_type)
 
 
 async def test_get_passes_through_binary_tile_unmodified():

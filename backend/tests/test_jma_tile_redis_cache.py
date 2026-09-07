@@ -1,26 +1,7 @@
 import pytest
 
 from app.infrastructure import jma_tile_redis_cache
-
-
-class FakeRedis:
-    """jma_tile_redis_cache.pyが使うコマンド（get/set）だけを実装したフェイク
-    （他のRedisキャッシュのテストと同じパターン）。"""
-
-    def __init__(self, raise_on_get=None, raise_on_set=None):
-        self.store: dict[str, str] = {}
-        self._raise_on_get = raise_on_get
-        self._raise_on_set = raise_on_set
-
-    async def get(self, key):
-        if self._raise_on_get:
-            raise self._raise_on_get
-        return self.store.get(key)
-
-    async def set(self, key, value, ex=None):
-        if self._raise_on_set:
-            raise self._raise_on_set
-        self.store[key] = value
+from tests.fake_redis import FakeRedis
 
 
 async def test_set_then_get_roundtrip_preserves_binary_content(monkeypatch):

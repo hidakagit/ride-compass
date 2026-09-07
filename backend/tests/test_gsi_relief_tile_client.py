@@ -2,6 +2,7 @@ import pytest
 
 from app.infrastructure import gsi_relief_tile_client, tile_cache
 from app.infrastructure.gsi_relief_tile_client import GsiReliefTileClient, ReliefTileNotFound
+from tests.fake_tile_http import FakeHttpClient
 
 
 @pytest.fixture(autouse=True)
@@ -11,29 +12,6 @@ def use_temp_cache_dir(tmp_path, monkeypatch):
     # テスト間で漏れないよう毎回空にする（_target_times_cache.clear()と同じ理由）。
     gsi_relief_tile_client._not_found_paths.clear()
     yield
-
-
-class FakeResponse:
-    def __init__(self, content: bytes, content_type: str):
-        self.content = content
-        self.headers = {"content-type": content_type}
-
-    def raise_for_status(self):
-        pass
-
-
-class FakeHttpClient:
-    def __init__(self, content: bytes, content_type: str, raises=None):
-        self._content = content
-        self._content_type = content_type
-        self._raises = raises
-        self.requested_urls = []
-
-    async def get(self, url):
-        self.requested_urls.append(url)
-        if self._raises:
-            raise self._raises
-        return FakeResponse(self._content, self._content_type)
 
 
 async def test_get_passes_through_binary_content_unmodified():
