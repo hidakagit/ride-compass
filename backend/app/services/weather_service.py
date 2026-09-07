@@ -4,18 +4,23 @@ import httpx
 import numpy as np
 
 from app.domain.geo import compass_label
+from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
 from app.domain.wind import WindForecastSeries
 from app.domain.wind_grid import WindGridPoint
+from app.infrastructure import msm_client
+from app.infrastructure.msm_client import MsmUnavailableError
 from app.infrastructure.weather_client import WeatherClient
 
 
 class WeatherService:
     """地点の天候を取得する。
 
-    `get_conditions`は常に現在の気象を返す（呼び出し元は天気APIエンドポイント・
-    RoadGraphEngineの起点判定のみで、いずれも過去/未来時刻を渡さない）。
+    予報系のうち風・降水（`get_wind_grid`・`get_wind_forecast_series`）は気象庁MSMの
+    ローカルファイル（`infrastructure/msm_client.py`）から読む。`get_conditions`は
+    常に現在の気象を返す（呼び出し元は天気APIエンドポイント・RoadGraphEngineの起点判定
+    のみで、いずれも過去/未来時刻を渡さない）。
     """
 
     def __init__(self, client: WeatherClient, http_client: httpx.AsyncClient):
@@ -29,79 +34,63 @@ class WeatherService:
         return self._conditions_from_data(data)
 
     async def get_wind_forecast_series(self, point: Coordinates) -> WindForecastSeries | None:
-        """地点の時別風向・風速の予報系列（約48時間、1時間刻み、JSTのローカル時刻）を返す。
-        `get_conditions`と同じ`get_forecast`応答（同じキャッシュ）から取り出すため、直後に
-        呼んでも外部APIへの追加リクエストは発生しない。応答に系列が無い・形が崩れている
-        場合はNone（呼び出し元は出発時点のスナップショットへ倒す）。"""
-        data = await self._client.get_forecast(self._http_client, point)
-        if data is None:
-            return None
-        hourly = data.get("hourly") or {}
-        times = hourly.get("time")
-        speeds = hourly.get("wind_speed_10m")
-        directions = hourly.get("wind_direction_10m")
-        if not times or not speeds or not directions or len(times) != len(speeds) or len(times) != len(directions):
-            return None
-        if any(value is None for value in speeds) or any(value is None for value in directions):
-            return None
+        """地点の時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）を返す。
+        MSMのローカルファイルから読むため外部APIリクエストは発生しない。読めない場合は
+        None（呼び出し元は出発時点のスナップショットへ倒す）。"""
         try:
-            return WindForecastSeries(
-                times=[datetime.fromisoformat(t) for t in times],
-                speed_ms=np.asarray(speeds, dtype=float),
-                direction_deg=np.asarray(directions, dtype=float),
+            times, values = await msm_client.read_series(
+                np.array([point.latitude], dtype=float), np.array([point.longitude], dtype=float)
             )
-        except (ValueError, TypeError):
+        except (MsmUnavailableError, OSError, ValueError, KeyError):
             return None
+        if not times:
+            return None
+        speed, direction = wind_speed_and_direction(
+            values["wind_u_component_10m"][0], values["wind_v_component_10m"][0]
+        )
+        return WindForecastSeries(
+            times=[datetime.fromisoformat(t) for t in times],
+            speed_ms=speed,
+            direction_deg=direction,
+        )
 
     async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
         """複数地点の時間別風向・風速・降水量（+60分以降の延長予報）をまとめて取得する。
-        特定時刻1点へ収束させず、hourly配列全体（forecast_days=2分）をそのまま返す
+        特定時刻1点へ収束させず、予報期間ぶんの時系列をそのまま返す
         （domain/wind_grid.py: WindGridPointのdocstring参照）。
 
-        時刻配列は全地点で共通のため（同じforecast_days・timezoneで一括取得、
-        WindGridResponseのdocstring参照）、戻り値の先頭要素として1本だけ返す
-        （応答サイズ削減）。最初に見つかった有効な地点のtimesを採用する
-        （全地点失敗時は空リストになる）。"""
-        forecasts = await self._client.get_forecast_many(self._http_client, points)
-        times: list[str] = []
-        results: list[WindGridPoint | None] = []
-        for point in points:
-            data = forecasts.get(self._client.cache_key(point))
-            parsed = None if data is None else self._wind_grid_point_from_data(point, data)
-            if parsed is None:
-                results.append(None)
-                continue
-            point_times, wind_grid_point = parsed
-            if not times:
-                times = point_times
-            results.append(wind_grid_point)
-        return times, results
+        時刻配列は全地点で共通のため、戻り値の先頭要素として1本だけ返す（応答サイズ削減）。
+        MSMを読めない場合は時刻列を空、全地点をNoneとして返す（呼び出し元が502へ倒す）。"""
+        if not points:
+            return [], []
+        latitudes = np.array([point.latitude for point in points], dtype=float)
+        longitudes = np.array([point.longitude for point in points], dtype=float)
+        try:
+            times, values = await msm_client.read_series(latitudes, longitudes)
+        except (MsmUnavailableError, OSError, ValueError, KeyError):
+            return [], [None] * len(points)
+        if not times:
+            return [], [None] * len(points)
 
-    @staticmethod
-    def _wind_grid_point_from_data(point: Coordinates, data: dict) -> tuple[list[str], WindGridPoint] | None:
-        hourly = data.get("hourly")
-        if not hourly or not hourly.get("time"):
-            return None
-        times = hourly.get("time")
-        speeds = hourly.get("wind_speed_10m")
-        directions = hourly.get("wind_direction_10m")
-        precipitation = hourly.get("precipitation")
-        if (
-            not speeds
-            or not directions
-            or not precipitation
-            or len(speeds) != len(times)
-            or len(directions) != len(times)
-            or len(precipitation) != len(times)
-        ):
-            return None
-        return times, WindGridPoint(
-            latitude=point.latitude,
-            longitude=point.longitude,
-            wind_speed_ms=speeds,
-            wind_direction_deg=directions,
-            precipitation_mm=precipitation,
+        speed, direction = wind_speed_and_direction(
+            values["wind_u_component_10m"], values["wind_v_component_10m"]
         )
+        # 数万要素をPythonのループで丸めると地点数に比例して重くなるため、配列のまま
+        # まとめて丸めてからリストへ変換する。
+        speeds = np.round(speed, 2).tolist()
+        directions = np.round(direction, 1).tolist()
+        precipitations = np.round(values["precipitation"], 2).tolist()
+        results: list[WindGridPoint | None] = [
+            WindGridPoint(
+                latitude=point.latitude,
+                longitude=point.longitude,
+                wind_speed_ms=speeds[index],
+                wind_direction_deg=directions[index],
+                precipitation_mm=precipitations[index],
+            )
+            for index, point in enumerate(points)
+        ]
+        return times, results
 
     def _conditions_from_data(self, data: dict) -> WeatherConditions | None:
         hourly = data.get("hourly")

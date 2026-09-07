@@ -119,14 +119,15 @@ async def get_amedas(
 
 
 def _reject_if_all_points_failed(label: str, points: list, grid: list) -> None:
-    """全地点が取得失敗（Open-Meteo全滅、429常態化等）の場合のみ502で明示的に失敗を返す。
+    """全地点が取得失敗（MSMの同期が未完了・予報が現在時刻へ追いついていない等）の場合のみ
+    502で明示的に失敗を返す。
     `/api/weather`（単一地点）は取得失敗を502で返す設計のため、この非対称を解消する。
     1地点でも成功していれば部分結果を200で返す（1地点の失敗で全体を落とさない方針は
     維持）。`WeatherService.get_wind_grid`は常に`points`と同じ長さの結果（失敗地点は
     None）を返す契約のため、`grid`が空のまま（=呼び出し自体が行われていない等）の
     ケースは対象外にする（`grid and`のチェック）。"""
     if points and grid and all(point is None for point in grid):
-        logger.warning("%s: 全%d地点が取得失敗しました（Open-Meteo障害の可能性）", label, len(points))
+        logger.warning("%s: 全%d地点が取得失敗しました（MSM未同期の可能性）", label, len(points))
         raise HTTPException(status_code=502, detail="気象データの取得に失敗しました")
 
 

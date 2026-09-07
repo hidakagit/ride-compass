@@ -24,7 +24,7 @@ from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, nearest_grid_poin
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.infrastructure.weather_client import WIND_GRID_CACHE_TTL_SECONDS
+from app.infrastructure.msm_client import update_interval_seconds
 from app.services.route_generator import JST
 from app.services.weather_service import WeatherService
 
@@ -150,7 +150,7 @@ class WindWayService:
                 penalty = round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(speed_kmh)), 3)
                 values = dict.fromkeys(way_ids, penalty)
                 await set_tile_values(
-                    material_id, z, x, y, hour_bucket, bearing_deg, values, WIND_GRID_CACHE_TTL_SECONDS, speed_kmh
+                    material_id, z, x, y, hour_bucket, bearing_deg, values, update_interval_seconds(), speed_kmh
                 )
                 fields["computed"] = len(way_ids)
 

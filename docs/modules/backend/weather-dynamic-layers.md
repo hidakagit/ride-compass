@@ -2,9 +2,14 @@
 
 ## 責務
 
-Open-Meteo（気象一般・風グリッド）・気象庁（アメダス・警報/注意報・タイル系ナウキャスト・
-WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャッシュし、地点の天候・警報・
-地図タイルとして配信する。
+気象庁MSM（風・降水の予報）・Open-Meteo（今日の見通し）・気象庁（アメダス・警報/注意報・
+タイル系ナウキャスト・洪水予報）・環境省（WBGT）由来のデータを取得・キャッシュし、地点の
+天候・警報・地図タイルとして配信する。
+
+**予報と実測の住み分け**: 予報（風・降水の格子点マップ、ルート評価が使う時刻別の風）は
+気象庁MSMの前処理済みファイルをローカルへ同期して読む。実測（現在の気温・風速、降水
+ナウキャスト）と防災情報（警報・注意報・洪水・キキクル）は気象庁の公開APIから取る。
+MSMは数値予報モデルの出力で観測値・公式発表の代わりにはならないため、両者は統合しない。
 
 このモジュールが扱う情報は大きく2系統に分かれる:
 1. **バッジ系**（警報・WBGT・洪水予報・アメダス）: 出発地点1点に対する現在の警戒状態を
@@ -16,9 +21,9 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
-| infrastructure | `weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
 
 ## domain層: 2つの異なる役割
@@ -48,7 +53,7 @@ WBGT・洪水予報）・環境省（WBGT）由来のデータを取得・キャ
 | `GET /api/weather/wbgt` | 環境省WBGT | 空（200） | 30 |
 | `GET /api/weather/flood-forecast` | 河川洪水予報 | 空（200） | 30 |
 | `GET /api/weather/amedas` | 気象庁アメダス実測値（Redis読み取り専用） | 502 | 30 |
-| `GET /api/weather/wind-grid`・`/wind-grid-detail` | Open-Meteo風グリッド | 全滅時のみ502 | 20／30 |
+| `GET /api/weather/wind-grid`・`/wind-grid-detail` | 気象庁MSM（ローカルの`.om`ファイル） | 全滅時のみ502 | 20／30 |
 
 `/api/weather`は常設ヘッダー用ではなく、「今日の見通し」パネル（日次集計・2時間おき8コマの
 天気の流れ）専用。常設ヘッダー（気温・体感温度・風速風向の現在値）はアメダス実測を使う
@@ -59,8 +64,8 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 なりうる数値のため）。
 
 応答の`Cache-Control`は`api/cache_policy.py`の対応表が持つ（このモジュールのルーターは
-ヘッダを書かない）。`/wind-grid`系は`SHORT`（5分）——応答が約48時間ぶんの時刻配列を持ち
-どの時刻を描画するかはクライアントが選ぶうえ、上流（Open-Meteo）の更新は1時間ごとのため。
+ヘッダを書かない）。`/wind-grid`系は`SHORT`（5分）——応答が数十時間ぶんの時刻配列を持ち
+どの時刻を描画するかはクライアントが選ぶうえ、上流（MSM）の更新は3時間ごとのため。
 警報・WBGT・洪水予報・アメダスは`VOLATILE`（2分）、`/api/weather`は`SHORT`。502は2xxでは
 ないためミドルウェアの対象外になる。
 
@@ -179,8 +184,8 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 | メソッド | 用途 | 時刻 | daily/weather_code |
 |---|---|---|---|
 | `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 常に現在時刻 | 埋まる |
-| `get_wind_forecast_series(point)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻の風） | 時別風向・風速の系列（約48時間、JST）。`get_conditions`と同じ応答・キャッシュ | 対象外 |
-| `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 全hourly時系列（約48時間） | 対象外 |
+| `get_wind_forecast_series(point)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻の風） | 時別風向・風速の系列（JST）。MSMから読む | 対象外 |
+| `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
 
 ## その他のサービス
 
@@ -220,11 +225,10 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 ## レート制限（`config.py`）の設計方針
 
-風の格子点マップ（`wind_grid`＝20/分）は624地点をまとめて取得する重いエンドポイントの
-ため`/weather`（60/分）より低く抑える一方、詳細格子（`wind_grid_detail`＝30/分）は
-パン・ズームのたびに呼ばれうるためやや高め——ただし固定ラティス由来のキャッシュ共有
-（`domain/wind_grid.py: generate_wind_grid_detail_points`）により大半はOpen-Meteoへの
-新規リクエストを伴わない。警報・WBGT・洪水予報・アメダス（いずれも30/分）は「地点変更時
+風の格子点マップ（`wind_grid`＝20/分）は624地点ぶんの応答（数百KB）を組み立てる
+エンドポイントのため`/weather`（60/分）より低く抑える一方、詳細格子
+（`wind_grid_detail`＝30/分）はパン・ズームのたびに呼ばれうるためやや高め——1回あたりの
+地点数は`WIND_GRID_DETAIL_MAX_POINTS`で上限が掛かる。警報・WBGT・洪水予報・アメダス（いずれも30/分）は「地点変更時
 デバウンス起点で呼ばれる」という共通の呼び出しパターンを前提に揃えられている。
 
 ## シンプルな外部APIクライアントの共通ヘルパー（`simple_api_client.py`）
@@ -239,7 +243,7 @@ tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない�
 `UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、常に
 固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `fetch_municipality_code`は`AttributeError`も対象に
-含める）ため、`catch`引数で個別に指定できる。`weather_client.py`（tenacity再試行・2段キャッシュ）・
+含める）ため、`catch`引数で個別に指定できる。`weather_client.py`（tenacity再試行・stale fallback）・
 `jma_tile_client.py`/`elevation_client.py`/`basemap_client.py`/`gsi_relief_tile_client.py`
 （TTLCache以外のキャッシュバックエンド）は対象外のまま各自の実装を維持する。
 
@@ -269,27 +273,53 @@ URL書き換えは不要。地理院タイルは`basetime`/`validtime`のよう�
 場合、プロセス再起動だけで再取得の機会が来るようにするため）。`api/routers/gsi_relief_tile.py`
 は`ReliefTileNotFound`を受け取ると404（それ以外の`None`は502）を返す。
 
+## 気象庁MSMの同期と読み出し（`msm_client.py`・`domain/msm.py`）
+
+風・降水の予報はREST APIではなく、Open-MeteoがAWS Open Dataで公開している前処理済みの
+MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を参照するたびに外部APIを
+叩かないため、レート制限・クォータの制約を受けない。
+
+| 項目 | 内容 |
+|---|---|
+| 配信元 | `settings.msm_base_url`（既定はopenmeteo.s3.amazonaws.comのjma_msm） |
+| 同期対象 | `WIND_VARIABLES`（風の東西成分・南北成分・降水量）の、現在時刻から`msm_forecast_hours`先までを覆うチャンク |
+| チャンク | 変数ごとに日本全域・`chunk_time_length`時間ぶんを1ファイルにまとめたもの。1ファイル十数MB |
+| 保存先 | `backend/data/msm/`（本番はコンテナへマウントされるホスト側ディレクトリのため、デプロイをまたいで残る） |
+| 更新の検出 | ETagによる条件付きGET。内容が変わっていなければ304で転送自体が起きない |
+| 不要ファイル | 予報窓の外に出たチャンクは同期のたびに削除する |
+| 定期実行 | `main.py`のAPScheduler（`msm_sync_interval_minutes`、`next_run_time=now`で起動直後にも1回） |
+
+**格子の幾何を定数として持たない**: 緯度・経度の原点と間隔は、配信元が公開するメタ情報（S3上の static/meta.json）が
+持つbbox（`crs_wkt`）と実データ配列の形状から`MsmGrid.from_bbox_and_shape`が導出する。
+定数として書き写すと、配信元が格子を変更したときにここだけ古い値が残り、エラーにならない
+まま全地点の値が静かにずれる。チャンクの長さ・予報の終端・run更新間隔も同じメタ情報から取る。
+
+**補間**: アプリ側の格子点（0.1度間隔）はMSMの格子（緯度0.05度・経度0.0625度）と一致しない
+ため、周囲4点からの双一次補間で求める（`domain/msm.py: interpolate_points`）。最近傍だと
+アプリ側の格子の方が粗いぶん値が飛び飛びになる。風速・風向は東西/南北成分から求め
+（`wind_speed_and_direction`）、風向は「吹いてくる方位」で返す。
+
+**読めないときの振る舞い**: 同期が済んでいない・配信元の予報終端が現在時刻へ追いついた
+場合は`MsmUnavailableError`。`WeatherService.get_wind_grid`はこれを全地点Noneへ変換し、
+ルーターが502を返す（`_reject_if_all_points_failed`）。ルート評価の風
+（`get_wind_forecast_series`）はNoneを返し、呼び出し元が出発時点のスナップショットへ倒す。
+
+**予報の長さ**: MSMはrunごとに39時間先（00/12UTCのrunは78時間先）まで持ち、配信は
+run初期時刻から数時間遅れる。そのため現在時刻から先の長さはrunのタイミングによって
+変動し、`msm_forecast_hours`（48時間）に満たないことがある。応答の時刻配列はその時点で
+読める長さになり、フロントは配列長からスライダーの範囲を決める。
+
 ## Open-Meteo呼び出しの信頼性対策（`weather_client.py`）
 
-1. **リクエスト集約**: `get_forecast_many`が複数地点を1リクエストへまとめる（GET→POST化、
-   624地点でのURI長制限[414]回避を含む）。
-2. **tenacityによる再試行**: 429のみ`Retry-After`ヘッダを尊重、それ以外は指数バックオフ
+Open-Meteoは「今日の見通し」パネル（`/api/weather`、日次集計・weather_code・UV指数等）
+だけが使う。地点ごとの単発呼び出しのため、以下の対策を持つ。
+
+1. **tenacityによる再試行**: 429のみ`Retry-After`ヘッダを尊重、それ以外は指数バックオフ
    ＋ジッター（`RETRY_JITTER_RANGE`）で同時再試行の同期を避ける。`stop_after_attempt`
    （最大4回）と`stop_after_delay`（予算8秒）のOR。
-3. **2段キャッシュ（L1メモリ＋L2 Redis）**: `_wind_forecast_cache`（プロセス内）が
-   ミスした分だけ`wind_forecast_cache.py`（Redis）を引く。プロセス再起動をまたいで
-   生存する。
-4. **stale fallback**: 再試行を尽くしても失敗した地点は、TTL切れ後も
-   `WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS`（24時間）以内のキャッシュがあれば代用する。
-5. **変数を絞る**: `get_forecast_many`は`WIND_GRID_VARIABLES`（風速・風向・降水量のみ）に
-   限定する。`get_forecast`（単発、`/api/weather`用）は表示項目のため全変数を維持する。
-6. **応答エントリの対応付けは座標ベース**: Open-Meteoの複数地点応答は件数・順序がリクエストと
-   一致する保証が無い。位置（index）だけで対応付けると1件の省略だけで以降の全地点がズレて
-   誤った地点の天気を割り当ててしまうため、各エントリ自身が返す`latitude`/`longitude`
-   （Open-Meteoの複数地点応答の標準フィールド）で対応するリクエスト地点を引き直す。座標を
-   持たない/一致しないエントリ（テストフィクスチャ等）は位置対応へフォールバックする。
-   対応付けできなかった地点は`results[key] = None`になり、`fields["result"] = "error"`で
-   WARNINGログへ記録される（`missing_locations`件数付き、`log_external_call`参照）。
+2. **プロセス内TTLキャッシュ**: `_forecast_cache`（`CACHE_TTL_SECONDS`＝30分）。
+3. **stale fallback**: 再試行を尽くしても失敗した場合、TTL切れ後も
+   `STALE_FALLBACK_MAX_AGE_SECONDS`（3時間）以内のキャッシュがあれば代用する。
 
 `open_meteo_base_url`は本番では自前ホスト（Oracle Cloud VM）上のnginxリレープロキシへ
-向けられており、Render→Open-Meteo直叩きによる送信元IP共有問題を回避している。
+向けられており、送信元IP共有による429を回避している。

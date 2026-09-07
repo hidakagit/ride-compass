@@ -14,6 +14,7 @@ from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import close_all_http_clients, get_http_client
 from app.infrastructure.jma_tile_client import JmaTileClient
+from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware, unhandled_exception_handler
 from app.infrastructure.response_compression import ContentTypeGZipMiddleware
 from app.services.axis_registry_service import refresh_axis_definitions
@@ -90,6 +91,18 @@ async def _prewarm_jma_tile_job() -> None:
         logging.getLogger("ridecompass.jma_tile_prewarm_scheduler").warning("JMAタイルの定期プリウォームに失敗しました", exc_info=True)
 
 
+async def _sync_msm_job() -> None:
+    """定期バッチ本体。気象庁MSM（風・降水の予報）の.omファイルをローカルへ同期する
+    （infrastructure/msm_client.pyのdocstring参照）。風グリッド・ルート評価はこの
+    ローカルファイルだけを読むため、同期が止まるとデータは順次古くなり、予報終端が
+    現在時刻へ追いつくと風グリッドは502を返す。
+    """
+    try:
+        await refresh_msm(get_http_client(60.0))
+    except Exception:
+        logging.getLogger("ridecompass.msm_sync_scheduler").warning("MSMの定期同期に失敗しました", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # httpx.AsyncClientのウォームアップ:
@@ -128,6 +141,15 @@ async def lifespan(app: FastAPI):
         minutes=settings.jma_tile_prewarm_interval_minutes,
         next_run_time=datetime.now(),
         id="prewarm_jma_tile",
+    )
+    # MSM（風・降水の予報）の定期同期。next_run_time=nowで起動直後にも1回実行する。
+    # 初回はローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない。
+    _scheduler.add_job(
+        _sync_msm_job,
+        trigger="interval",
+        minutes=settings.msm_sync_interval_minutes,
+        next_run_time=datetime.now(),
+        id="sync_msm",
     )
     _scheduler.start()
     yield

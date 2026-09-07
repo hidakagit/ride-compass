@@ -12,7 +12,6 @@ from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, stop
 
 from app.config import settings
 from app.domain.route import Coordinates
-from app.infrastructure import wind_forecast_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
 # 天候は数km単位でしか変わらないため、標高キャッシュ（4桁）より粗い精度で丸める。
@@ -20,32 +19,10 @@ CACHE_PRECISION = 2
 # 標高と異なり天候は時間で変化するため、恒久キャッシュではなくTTLを設ける。
 CACHE_TTL_SECONDS = 30 * 60
 
-# 気象グリッド（風・降水延長予報、get_forecast_many）専用のTTL・フォールバック窓。
-# get_forecast（/api/weatherパネル、単発呼び出し）側はCACHE_TTL_SECONDS/
-# STALE_FALLBACK_MAX_AGE_SECONDSのまま変えない（こちらは値を変える理由が無い上、
-# DB永続化の対象もget_forecast_many側だけのため）。3時間はOpen-Meteoの予報モデル
-# 自体の更新頻度に対して十分な鮮度であり、かつ1日あたりの総フェッチ回数（＝クォータ
-# 消費）を大きく削減できる。Redis永続化（wind_forecast_cache.get_wind_forecast_many/
-# set_wind_forecast_many）によりプロセス再起動をまたいで生き残るため、フォールバック窓は
-# 24時間とし、Open-Meteo側の長時間障害への耐性を上げる。
-WIND_GRID_CACHE_TTL_SECONDS = 3 * 60 * 60
-WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
 
-# get_forecast（単一地点、/api/weatherの現在地パネル用）はcurrent/hourly全変数を表示に使うが、
-# get_forecast_many（風/降水延長予報の格子点マップ用、get_wind_gridが呼ぶ）は消費側を
-# 辿ると実際に使っているのはhourlyのwind_speed_10m/wind_direction_10m/precipitationのみ
-# （無料プランのクォータ按分は1地点あたり10変数超で増える仕組み・現状3変数のためこの
-# 絞り込みの効果は保たれる）。1回のリクエストが数百地点規模になり得るため、変数を絞ることで
-# Open-Meteo側のクォータ消費（変数数・期間に応じた按分カウント）とレスポンスサイズの両方を
-# 大きく削減できる。
-WIND_GRID_VARIABLES = "wind_speed_10m,wind_direction_10m,precipitation"
-
-# 本番（Render、共有の送信元IP）では、単発の/api/weather呼び出し（現在地表示）だけでも
-# Open-Meteo側の429 Too Many RequestsやConnectTimeout（TLSハンドシェイクの混雑による
-# ものとみられる接続タイムアウト）が発生し502になることがある。WindServiceのルート評価は
-# 元々区間ごとに個別リクエストしておりこれを悪化させていたためget_forecast_manyで
-# 1リクエストへ集約したが、単発呼び出し側の対策としてこちらも短いバックオフで数回だけ
-# 再試行する。再試行回数と1回あたりの待機を指数的に増やし、Open-Meteo側の抑制が
+# Open-Meteoは送信元IP単位でレート制限しており、単発の/api/weather呼び出しでも429
+# Too Many RequestsやConnectTimeout（TLSハンドシェイクの混雑による接続タイムアウト）が
+# 起きうる。短いバックオフで数回だけ再試行し、1回あたりの待機を指数的に増やして抑制が
 # 解けるまでの猶予を確保する。
 RETRY_STATUS_CODE = 429
 MAX_RETRIES = 4
@@ -64,10 +41,8 @@ RETRY_BUDGET_SECONDS = 8.0
 RETRY_JITTER_RANGE = (0.75, 1.25)
 # 再試行を尽くしても失敗した場合、TTL切れ後もこの秒数以内のキャッシュがあれば代用する
 # （502で天候欄を丸ごと空にするより、多少古い予報を出す方が実用的なため）。予報自体は
-# forecast_days=2分をまとめて保持しているため、number（現在気象）はやや古くなりうるが
-# hourly（ルート評価が使う区間ごとの時刻別値）は取得時刻に関わらず妥当な範囲を保つ。
-# get_forecast（単一地点、/api/weatherパネル）専用。get_forecast_many（風・降水延長予報の
-# 格子点マップ）はWIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS（モジュール冒頭）を使う。
+# forecast_days=2分をまとめて保持しているため、current（現在気象）はやや古くなりうるが、
+# hourly（今日の見通しが使う時刻別値）は取得時刻に関わらず妥当な範囲を保つ。
 STALE_FALLBACK_MAX_AGE_SECONDS = 3 * 60 * 60
 # 共有クライアントの既定タイムアウト（10秒）のままだと、ConnectTimeout1回の失敗だけで
 # 再試行の予算をほぼ使い切ってしまう。この呼び出しだけ短いタイムアウトへ上書きし、
@@ -75,15 +50,6 @@ STALE_FALLBACK_MAX_AGE_SECONDS = 3 * 60 * 60
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
 _forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
-# get_forecast_many専用のキャッシュ（上のWIND_GRID_VARIABLES参照）。_forecast_cacheと分けて
-# いるのは、キーを共有すると「get_forecast_manyが先に書いた風・降水のみの応答」を後から
-# get_forecastがキャッシュヒットとして読んでしまい、/api/weatherパネルの気温等が
-# 欠落したまま返る（黙って空欄になる）事故になり得るため。両者は変数セットが異なる
-# 別物として扱う。1プロセス内の高速な繰り返し参照を担うL1キャッシュで、プロセス再起動を
-# またいだ永続化はwind_forecast_cache.py（Redis）がL2として別途担う（get_forecast_many
-# 参照）。_forecast_cache（こちら）はRedis永続化の対象外のまま（/api/weatherは単発呼び出しで
-# 再起動時の再取得コストが小さく、永続化の効果が薄いため）。
-_wind_forecast_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
@@ -135,17 +101,8 @@ class WeatherClient:
     def cache_key(point: Coordinates) -> tuple[float, float]:
         return (round(point.latitude, CACHE_PRECISION), round(point.longitude, CACHE_PRECISION))
 
-    async def _fetch_json(
-        self, client: httpx.AsyncClient, params: dict, fields: dict, method: str = "GET"
-    ) -> object | None:
-        """再試行込みでOpen-Meteoを叩き、成功したらJSON本体を返す。失敗時はfieldsへ記録しNoneを返す
-        （呼び出し元は単一地点・複数地点どちらの形状（object/array）で解釈するかを判断する）。
-
-        method="POST"（風の格子点マップ用にget_forecast_manyが使う）は地点数が多い（数百件）と
-        request-URIがnginxの既定上限を超え414 Request-URI Too Largeになる（GETはクエリ文字列に
-        latitude/longitudeのカンマ区切りを載せる。624地点でPOST成功、同数のGETは414）。POSTは
-        フォームボディへ同じパラメータを載せるためURI長の制約を受けない。単一地点
-        （get_forecast）はパラメータが少なくURI長の心配が無いためGETのまま変更しない。
+    async def _fetch_json(self, client: httpx.AsyncClient, params: dict, fields: dict) -> object | None:
+        """再試行込みでOpen-Meteoを叩き、成功したらJSON本体を返す。失敗時はfieldsへ記録しNoneを返す。
 
         再試行はtenacityに委譲している。stop_after_attempt（MAX_RETRIES回まで）と
         stop_after_delay（RETRY_BUDGET_SECONDS秒を過ぎたら打ち切り）をORで組み合わせ、
@@ -155,10 +112,7 @@ class WeatherClient:
         """
 
         async def do_request() -> httpx.Response:
-            if method == "POST":
-                response = await client.post(settings.open_meteo_base_url, data=params, timeout=REQUEST_TIMEOUT)
-            else:
-                response = await client.get(settings.open_meteo_base_url, params=params, timeout=REQUEST_TIMEOUT)
+            response = await client.get(settings.open_meteo_base_url, params=params, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             return response
 
@@ -219,10 +173,7 @@ class WeatherClient:
                 # 「今日の見通し」パネル（日没・今日の降水確率最大・最大風速・気温レンジ・
                 # UV指数最大）用。current/hourlyの瞬間値と違い1日1個の値のため別枠のdaily
                 # パラメータで取る。forecast_days=2・timezone=Asia/Tokyoは既存のcurrent/hourlyと
-                # 共用のため、daily[0]がタイムゾーン基準の「今日」に一致する（get_forecast_many/
-                # WIND_GRID_VARIABLESには含めない。get_forecast_manyは地点数十〜数百件を
-                # 並列取得するため、1地点あたりの取得項目を増やすとクォータ消費への影響が大きく、
-                # 日次見通しはget_forecast（単一地点、この関数）でしか使わないため不要）。
+                # 共用のため、daily[0]がタイムゾーン基準の「今日」に一致する。
                 # uv_index_max: 現在値のuv_indexはWeatherPanelの天気アイコンtitleに格下げして
                 # あるが、title属性はスマホのタップでは実質見えないため、今日の見通しパネル
                 # （タップで確実に開くPopover）へ今日のUV最大値を別途持たせる。
@@ -243,155 +194,3 @@ class WeatherClient:
 
             _forecast_cache[key] = (time.time(), data)
             return data
-
-    async def get_forecast_many(
-        self, client: httpx.AsyncClient, points: list[Coordinates]
-    ) -> dict[tuple[float, float], dict | None]:
-        """複数地点の予報を、可能な限り1回のOpen-Meteo呼び出しにまとめて取得する。
-
-        風グリッド等の呼び出し元がまとめて数十〜数百地点ぶんweatherを個別リクエストすると、
-        本番（Render、共有の送信元IP）ではこれだけで429が常態化し天候取得が全滅しうる。
-        Open-Meteoは緯度経度をカンマ区切りで渡すと地点ごとの予報配列を1リクエストで返せる
-        ため、これを使ってリクエスト数自体を減らす。地点はcache_key（丸め精度
-        CACHE_PRECISION）単位で重複排除し、キャッシュ済みの地点はリクエストに含めない。
-
-        数百地点をまとめて渡すと、GET（クエリ文字列）では地点数によってはrequest-URIが
-        nginxの既定上限を超え414 Request-URI Too Largeになる（624地点で再現、288地点では
-        未発生）。そのためPOST（フォームボディ）で送る（_fetch_json参照）。
-
-        呼び出し元（`WeatherService.get_wind_grid`）が実際に使うのは
-        hourlyのwind_speed_10m/wind_direction_10m/precipitationのみのため、
-        get_forecast（単一地点、全変数）とは別にWIND_GRID_VARIABLESへ絞る。数百地点規模に
-        なるこの経路の変数を絞ることが、Open-Meteo側クォータ消費削減の効果が最も大きい
-        （get_forecastは単発呼び出しのため変数を絞っても効果が小さく、/api/weatherパネルの
-        表示項目を削ることになるためそのまま全変数を維持する）。キャッシュも_forecast_cacheとは
-        分離した_wind_forecast_cacheを使う（理由はモジュール冒頭のコメント参照）。
-
-        _wind_forecast_cacheはプロセス内メモリのためRenderのようなプラットフォームでの
-        プロセス再起動・コンテナ再作成のたびに消え、再起動直後のアクセスがOpen-Meteoへの
-        無駄な再取得（＝1日あたりのクォータ消費）を招く。wind_forecast_cache.py（Redis）へ
-        L2として永続化し、L1（メモリ）に無いキーだけL2を引いてから不足分だけ実際にフェッチする。
-        """
-        keys: list[tuple[float, float]] = []
-        seen: set[tuple[float, float]] = set()
-        for point in points:
-            key = self.cache_key(point)
-            if key not in seen:
-                seen.add(key)
-                keys.append(key)
-
-        results: dict[tuple[float, float], dict | None] = {}
-        now = time.time()
-        needs_lookup: list[tuple[float, float]] = []
-        for key in keys:
-            cached = _wind_forecast_cache.get(key)
-            if cached is not None and now - cached[0] < WIND_GRID_CACHE_TTL_SECONDS:
-                results[key] = cached[1]
-            else:
-                needs_lookup.append(key)
-
-        # メモリキャッシュ（L1）に無い/古い分だけ、プロセス再起動をまたいで永続化された
-        # Redis（L2、wind_forecast_cache.py）を引く（改善計画「Open-Meteo 429根本対策」④）。
-        # 見つかった分は新鮮・陳腐問わずL1へ書き戻し、以降のTTL判定・フォールバック判定を
-        # 既存のL1中心のロジックのまま使い回す（L2は「再起動直後にL1が空でも前回の値が
-        # 拾える」ための層で、1リクエスト内で繰り返し引く用途はL1が引き続き担う）。
-        if needs_lookup:
-            redis_hits = await wind_forecast_cache.get_wind_forecast_many(needs_lookup)
-            for key, cached in redis_hits.items():
-                _wind_forecast_cache[key] = cached
-
-        to_fetch: list[tuple[float, float]] = []
-        for key in needs_lookup:
-            cached = _wind_forecast_cache.get(key)
-            if cached is not None and now - cached[0] < WIND_GRID_CACHE_TTL_SECONDS:
-                results[key] = cached[1]
-            else:
-                to_fetch.append(key)
-
-        if to_fetch:
-            with log_external_call(
-                "weather:open-meteo", lat=to_fetch[0][0], lon=to_fetch[0][1], locations=len(to_fetch)
-            ) as fields:
-                fields["cache"] = "miss"
-                params = {
-                    "latitude": ",".join(str(lat) for lat, _lon in to_fetch),
-                    "longitude": ",".join(str(lon) for _lat, lon in to_fetch),
-                    "current": WIND_GRID_VARIABLES,
-                    "hourly": WIND_GRID_VARIABLES,
-                    "forecast_days": 2,
-                    "timezone": "Asia/Tokyo",
-                    "wind_speed_unit": "ms",
-                }
-
-                data = await self._fetch_json(client, params, fields, method="POST")
-                # 1地点のみのリクエストはOpen-Meteoが配列ではなく単一objectを返すため、
-                # 常に地点数ぶんの配列として扱えるようここで揃える。
-                entries = data if isinstance(data, list) else ([data] if data is not None else [])
-                newly_fetched: dict[tuple[float, float], tuple[float, dict]] = {}
-
-                # Open-Meteoが特定地点だけ省略して応答件数がリクエストより少なくなる場合、
-                # 応答順=リクエスト順という前提でzip(to_fetch, entries)のように位置対応させると、
-                # 途中の1件が省略されただけでそれ以降の全件が1つずつズレて誤った地点の天気を
-                # 割り当ててしまう。そのため各エントリ自身が返すlatitude/longitude
-                # （Open-Meteoの複数地点応答が持つ標準フィールド）で対応するリクエスト地点を
-                # 引き直すことで、応答順や件数がリクエストと食い違っても誤った地点への割り当てを
-                # 防ぐ。座標を持たない/どのリクエスト地点にも一致しないエントリ（テスト用
-                # フィクスチャ等）は、位置対応へフォールバックする。
-                to_fetch_set = set(to_fetch)
-                matched: set[tuple[float, float]] = set()
-                unmatched_entries: list[dict | None] = []
-                for entry in entries:
-                    key: tuple[float, float] | None = None
-                    if isinstance(entry, dict):
-                        entry_lat = entry.get("latitude")
-                        entry_lon = entry.get("longitude")
-                        if isinstance(entry_lat, (int, float)) and isinstance(entry_lon, (int, float)):
-                            candidate = (round(float(entry_lat), CACHE_PRECISION), round(float(entry_lon), CACHE_PRECISION))
-                            if candidate in to_fetch_set and candidate not in matched:
-                                key = candidate
-                    if key is None:
-                        unmatched_entries.append(entry)
-                        continue
-                    matched.add(key)
-                    # 失敗時（entry is None）は既存キャッシュを消さない。下のフォールバック
-                    # ループがそれを使えるようにするため（成功時のみ上書き）。
-                    if entry is not None:
-                        _wind_forecast_cache[key] = (now, entry)
-                        newly_fetched[key] = (now, entry)
-                    results[key] = entry
-
-                remaining_keys = [key for key in to_fetch if key not in matched]
-                for key, entry in zip(remaining_keys, unmatched_entries):
-                    matched.add(key)
-                    if entry is not None:
-                        _wind_forecast_cache[key] = (now, entry)
-                        newly_fetched[key] = (now, entry)
-                    results[key] = entry
-                # 上流の応答件数がリクエストと食い違う異常時は、対応しきれない残りをNone扱いにする。
-                still_missing = remaining_keys[len(unmatched_entries) :]
-                for key in still_missing:
-                    results[key] = None
-                if still_missing:
-                    fields["result"] = "error"
-                    fields["missing_locations"] = len(still_missing)
-
-                # 新規取得分をRedis（L2）へ書き戻す。プロセスが再起動しても次回はここから
-                # 拾えるようにする（改善計画「Open-Meteo 429根本対策」④）。書き込み失敗は
-                # レスポンス自体には影響しない（wind_forecast_cache.set_wind_forecast_many参照）。
-                if newly_fetched:
-                    await wind_forecast_cache.set_wind_forecast_many(newly_fetched)
-
-                # 再試行を尽くしても失敗した地点は、TTL切れ後もWIND_GRID_STALE_FALLBACK_MAX_
-                # AGE_SECONDS以内のキャッシュがあれば代用する（get_forecastと同じ方針）。
-                stale_fallback_count = 0
-                for key in to_fetch:
-                    if results.get(key) is not None:
-                        continue
-                    cached = _wind_forecast_cache.get(key)
-                    if cached is not None and now - cached[0] < WIND_GRID_STALE_FALLBACK_MAX_AGE_SECONDS:
-                        results[key] = cached[1]
-                        stale_fallback_count += 1
-                if stale_fallback_count:
-                    fields["fallback"] = f"stale_cache:{stale_fallback_count}"
-
-        return {key: results.get(key) for key in keys}

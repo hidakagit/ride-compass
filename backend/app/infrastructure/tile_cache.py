@@ -63,7 +63,7 @@ def set(path: str, content: bytes, content_type: str) -> None:
     # キャッシュ書き込みはあくまで高速化目的で、呼び出し元は取得済みのcontentを既に
     # 返せる状態にある。ディスクフル・権限エラー等（OSError）でここが失敗しても、
     # basemap/road-surfaceタイルの配信自体を丸ごと500にする理由にはならないため、
-    # 天候キャッシュ（wind_forecast_cache.py）と同じ「キャッシュ書き込み失敗は握りつぶす」
+    # 他のキャッシュ層（jma_tile_redis_cache.py等）と同じ「キャッシュ書き込み失敗は握りつぶす」
     # 方針に合わせ、警告ログのみでno-opにフォールバックする。
     try:
         key = cache_key(path)

@@ -1,6 +1,6 @@
 """JMA動的タイル（ラスタPNG・洪水ベクタPBF）本体のRedis cache-aside。
 
-`wind_forecast_cache.py`と同じ「正本を持たないcache-aside」設計（TTL付き）。
+`dynamic_way_value_cache.py`と同じ「正本を持たないcache-aside」設計（TTL付き）。
 
 **正本を持たない**: road_graph_tile_cache.pyと異なり、このキャッシュを失っても
 「データ未整備で機能が壊れる」ことはない（JMAへ再フェッチすればよいだけ）。Redis障害時は
@@ -8,7 +8,7 @@
 
 **バイナリの扱い**: `redis_client.py`は`decode_responses=True`（文字列前提）のため、
 PNG/PBFの生バイト列をそのまま保存できない。base64エンコードした文字列をJSONへ包んで
-1キーに保存する（`wind_forecast_cache.py`のJSON文字列パターンを踏襲）。
+1キーに保存する（`dynamic_way_value_cache.py`と同じJSON文字列パターン）。
 """
 
 import base64

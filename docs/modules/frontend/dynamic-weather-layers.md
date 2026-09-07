@@ -2,8 +2,8 @@
 
 ## 責務
 
-Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水ナウキャスト/降水短時間予報/
-延長予報・雷・竜巻・キキクル・線状降水帯予測マップ）を地図上に表示する共通機構と、
+気象庁由来の時刻変化する気象データ（MSM予報の風・降水延長予報、降水ナウキャスト/
+降水短時間予報・雷・竜巻・キキクル・線状降水帯予測マップ）を地図上に表示する共通機構と、
 各要素固有のデータ層。
 
 **対象ファイル**
@@ -137,8 +137,8 @@ icon-sizeはズームのみに依存する。
 
 ## 新しい動的要素を追加する1本道
 
-1. backend: `wind_grid.py`の`WindGridPoint`へ値フィールドを追加、`weather_client.py`の
-   `WIND_GRID_VARIABLES`へOpen-Meteo変数を足す（この経路は風・降水延長予報限定）
+1. backend: `wind_grid.py`の`WindGridPoint`へ値フィールドを追加、`msm_client.py`の
+   `WIND_VARIABLES`へMSM変数を足す（この経路は風・降水延長予報限定）
 2. データ層: 要素モジュールを新設し、フレーム列（`DynamicWeatherFrame[]`）とペイロード
    関数を実装する
 3. `MapView.tsx`: `DYNAMIC_WEATHER_RENDERERS`へ描画スペックを1エントリ追加する

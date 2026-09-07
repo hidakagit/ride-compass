@@ -46,19 +46,17 @@ class Settings(BaseSettings):
     # している。各値の根拠は以下の通り。
     #
     # /preview・/weatherは/generateほど高コストではないが、/weatherは外部API
-    # （Open-Meteo）の無料枠を消費する。
+    # （Open-Meteo、今日の見通し用）を消費する。
     preview_rate_limit_per_minute: int = 20
     weather_rate_limit_per_minute: int = 60
     # 風の格子点マップは1回で関東本土全域（約624地点、domain/wind_grid.py:
-    # WIND_GRID_SPACING_DEG=0.1度間隔）をまとめて取得する重いエンドポイントのため、
-    # /weather（1地点）より低めに絞る。TTLキャッシュ（weather_client.py、L1+L2の
-    # 2段構成・TTL 3時間）が効くため、同一クライアントの短時間の再取得
-    # （時刻スライダー操作等）はキャッシュヒットしOpen-Meteoへは行かない。
+    # WIND_GRID_SPACING_DEG=0.1度間隔）ぶんの応答を組み立てるエンドポイントのため、
+    # /weather（1地点）より低めに絞る。値はローカルのMSMファイルから読むため外部APIは
+    # 消費しないが、応答サイズ（数百KB）と直列化コストは地点数に比例する。
     wind_grid_rate_limit_per_minute: int = 20
-    # 詳細格子（ズームイン時の面表現用）。パン・ズームのたびに（デバウンス済み
-    # とはいえ）呼ばれうるためwind_gridより高めにするが、固定ラティス由来のキャッシュ共有
-    # （domain/wind_grid.py: generate_wind_grid_detail_points参照）により大半はOpen-Meteoへの
-    # 新規リクエストを伴わない軽い呼び出しになる想定。
+    # 詳細格子（ズームイン時の面表現用）。パン・ズームのたびに（デバウンス済みとはいえ）
+    # 呼ばれうるためwind_gridより高めにする。1回あたりの地点数は
+    # WIND_GRID_DETAIL_MAX_POINTSで上限が掛かる。
     wind_grid_detail_rate_limit_per_minute: int = 30
     # 警報・注意報バッジ。/weatherと同じ地点変更時デバウンス起点で呼ばれる
     # （1回の呼び出しでGSI逆ジオコーダ・JMA地域マスタ・JMA警報APIの最大3件を叩きうるが、
@@ -141,6 +139,17 @@ class Settings(BaseSettings):
     # プロキシ経由に切り替える（アクセスはOCIセキュリティリスト+iptablesの両方で
     # Renderのアウトバウンド範囲のみに制限済み）。
     open_meteo_base_url: str = "https://api.open-meteo.com/v1/forecast"
+
+    # 気象庁MSM（前処理済み.omファイル、CC-BY-4.0）の配信元。REST APIではなく静的
+    # ファイルのため、レート制限・クォータの制約を受けない（infrastructure/msm_client.py）。
+    msm_base_url: str = "https://openmeteo.s3.amazonaws.com/data/jma_msm"
+    # MSMの定期同期間隔。配信元のrun更新は3時間ごと（メタ情報のupdate_interval_seconds）
+    # だが公開はrun初期時刻から数時間遅れるため、更新の有無をこの間隔で確認する
+    # （内容が変わっていなければETagの条件付きGETで転送自体が起きない）。
+    msm_sync_interval_minutes: int = 30
+    # 風グリッド・ルート評価が要求する予報の長さ。runごとの予報時間（39時間、00/12UTCの
+    # runは78時間）を超える分は配信元のデータ終端で打ち切られる。
+    msm_forecast_hours: int = 48
 
     # 管理画面（/admin、軸スタジオの管理API/api/admin/axis-definitions）を保護するHTTP Basic
     # 認証の資格情報。空文字（既定）のときは常に拒否する（うっかり無保護

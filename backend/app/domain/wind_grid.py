@@ -1,15 +1,13 @@
 """風・降水（延長予報）の格子点マップ。
 
-Open-Meteo REST API経由の地点評価（`weather_client.get_forecast_many`、CC-BY-4.0・
-TTLキャッシュ/429リトライ込み）と同じ仕組みで格子点を自前サンプリングし、フロント側で
-MapLibre標準のsymbolレイヤー（アイコンを独自定義、向き・長さ・色すべて自由に設定可能）
-として描画する。
+気象庁MSM（`infrastructure/msm_client.py`、CC-BY-4.0）の格子を自前の格子点へ双一次補間で
+サンプリングし、フロント側でMapLibre標準のsymbolレイヤー（アイコンを独自定義、向き・
+長さ・色すべて自由に設定可能）として描画する。
 
 この格子点マップは風に加えて`precipitation`（降水量mm/h）も配信する。気象庁の降水
 ナウキャスト自体は+60分が上限（JMA提供APIの仕様上の制約であり回避不可）のため、
-+60分より先はこの格子（Open-Meteo・約48時間先まで・1時間刻み）が担う。1回のフェッチで
-風・降水延長予報の両方を賄うため、リクエスト数・Open-Meteoクォータ消費を増やさない
-（weather_client.py: WIND_GRID_VARIABLES参照）。
++60分より先はこの格子（MSM・1時間刻み。長さはrunごとの予報時間に従う）が担う。
+風・降水はMSMの同じ読み出しでまとめて得られる。
 
 このモジュール自体はexternal APIを叩かない純粋な座標生成のみを持つ（フェッチは
 services/weather_service.pyのget_wind_grid、APIエンドポイントはapi/routers/weather.py）。
@@ -28,13 +26,6 @@ WIND_GRID_BBOX: tuple[float, float, float, float] = (138.35, 34.85, 140.95, 37.2
 # 格子間隔（度）。関東本土bbox（経度2.6°×緯度2.35°）に対しこの間隔で約26×24=624点になる。
 # 格子間隔0.1°（緯度約11km・経度約9km）は、正方格子の最悪ケース（どの地点でも最寄り
 # 格子点までの距離が対角線の半分＝約7km以内）がズーム13の表示半径にほぼ収まる値として選んだ。
-#
-# 地点数が多い（624点）とGET（クエリ文字列）ではrequest-URIがnginxの既定上限を超え
-# 414 Request-URI Too Largeになるため、get_forecast_many側はPOST（フォームボディ）を使う
-# （weather_client.py参照）。1ユーザーあたりのOpen-Meteoリクエスト回数は密度に関わらず
-# 常に1回にまとまる設計（weather_client.get_forecast_many）で、30分TTLキャッシュにより
-# 全ユーザーで同じ格子点を使い回すため、密度を上げても429リスクは増えない
-# （初回＝キャッシュ切れ後最初の1回のレスポンス時間が伸びるだけ）。
 WIND_GRID_SPACING_DEG = 0.1
 
 
@@ -64,12 +55,10 @@ def nearest_grid_point(
 ) -> Coordinates:
     """任意の地点から、generate_wind_grid_pointsと同じ固定ラティス（bboxの原点基準、
     spacing_deg間隔）上の最寄り格子点を返す。way_id→動的値配信層（WindWayService）が、
-    タイル中心のような任意座標に対する風を求める際、新規の
-    任意地点をOpen-Meteoへ問い合わせず既存の固定格子点を再利用するために使う——
-    generate_wind_grid_detail_pointsのdocstringにある「原点を固定し常に同じ絶対座標の
-    格子点を生成する」というキャッシュ共有の理由がそのまま当てはまる（weather_client.py:
-    WeatherClient.cache_keyの丸め精度[小数2桁]は格子間隔[0.1度]より粗いため、この格子点は
-    generate_wind_grid_pointsが生成する格子点と同じキャッシュキーへ必ず一致する）。
+    タイル中心のような任意座標に対する風を求める際に使う。タイルごとに異なる座標で
+    問い合わせると、派生値キャッシュ（dynamic_way_value_cache.py）のキーが隣接タイル間で
+    ばらつき共有できなくなるため、常に同じ絶対座標の格子点へ丸める
+    （generate_wind_grid_detail_pointsのdocstringにある原点固定の理由と同じ）。
 
     範囲外の地点はbboxの端へクランプしてから最寄りを求める（呼び出し元がWIND_GRID_BBOX外の
     タイルを渡すことは想定していないが、境界付近での取りこぼしを避ける安全側の処理）。
@@ -85,8 +74,8 @@ def nearest_grid_point(
     )
 
 
-# 詳細格子は「表示中の範囲だけ」を対象にする（全域を常時この密度[0.1°間隔]で取得すると
-# 624点より遥かに多くなり、Open-Meteo・自バックエンドとも負荷が増すため）。
+# 詳細格子は「表示中の範囲だけ」を対象にする（全域を常時この密度[0.1°間隔]で計算すると
+# 624点より遥かに多くなり、応答サイズと計算量が増すため）。
 #
 # ここで最も重要な設計判断は、詳細格子の座標を「問い合わせbboxの角」からではなく
 # WIND_GRID_BBOXの原点（固定）からのオフセットで計算すること。閲覧地点をそのまま格子の
@@ -149,8 +138,8 @@ def generate_wind_grid_detail_points(
 
 
 class WindGridPoint(BaseModel):
-    """格子点1つぶんの時間別風向・風速・降水量。各配列はOpen-Meteoのhourly.time（Asia/Tokyo、
-    forecast_days=2分＝約48時間）とインデックスが揃っている。特定時刻1点へ収束させず
+    """格子点1つぶんの時間別風向・風速・降水量。各配列は応答トップレベルの時刻列
+    （JST・1時間刻み）とインデックスが揃っている。特定時刻1点へ収束させず
     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
     切り替えられるようにするため。
 

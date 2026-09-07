@@ -114,8 +114,8 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
 
 値は`{way_id: 値}`のJSONオブジェクトで、風のように「タイル内全wayが同値」の場合も
 勾配のように「way単位で異なる値」の場合も同じ表現で吸収する。TTLは呼び出し元が渡す
-（風=`WIND_GRID_CACHE_TTL_SECONDS`＝3時間、勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`＝
-24時間）。正本を持たないキャッシュで、Redis障害時はfail-open（未キャッシュとして
+（風=`msm_client.update_interval_seconds()`＝配信元のrun更新間隔[3時間]、
+勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`＝24時間）。正本を持たないキャッシュで、Redis障害時はfail-open（未キャッシュとして
 扱い実計算へ進む）。
 
 ## サービス実装

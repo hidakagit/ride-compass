@@ -1,7 +1,7 @@
 """dynamic_way_value_cache.py（改善計画T405→T414→T423で汎用化、動的＋向きあり材料の
 「way_id→値」配信のRedis cache-aside層）のテスト。旧test_wind_way_penalty_cache.py
 （風専用、`get_tile_penalty`/`set_tile_penalty`というスカラー1個のAPI）をT423で
-material_id駆動・`dict[way_id, float]`のAPIへ汎用化した。test_wind_forecast_cache.pyと
+material_id駆動・`dict[way_id, float]`のAPIへ汎用化した。Redisのcache-aside層と
 同じパターン（実Redisは使わず、get/setだけを実装したFakeRedisで検証）。
 """
 

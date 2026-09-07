@@ -1,5 +1,11 @@
+from datetime import datetime
+
+import numpy as np
+
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherPeriodOutlook
+from app.infrastructure import msm_client
+from app.infrastructure.msm_client import MsmUnavailableError
 from app.infrastructure.weather_client import WeatherClient
 from app.services.weather_service import WeatherService
 
@@ -95,9 +101,6 @@ class FakeWeatherClient:
 
     async def get_forecast(self, http_client, point):
         return self._data
-
-    async def get_forecast_many(self, http_client, points):
-        return {WeatherClient.cache_key(point): self._data for point in points}
 
     cache_key = staticmethod(WeatherClient.cache_key)
 
@@ -235,66 +238,76 @@ async def test_get_conditions_returns_none_when_forecast_unavailable():
     assert conditions is None
 
 
-async def test_get_wind_grid_returns_hourly_arrays_per_point():
+async def _fake_read_series(times, u, v, precipitation):
+    async def read_series(latitudes, longitudes, hours=None):
+        count = len(latitudes)
+        return times, {
+            "wind_u_component_10m": np.tile(np.array(u, dtype=float), (count, 1)),
+            "wind_v_component_10m": np.tile(np.array(v, dtype=float), (count, 1)),
+            "precipitation": np.tile(np.array(precipitation, dtype=float), (count, 1)),
+        }
+
+    return read_series
+
+
+async def test_get_wind_grid_builds_speed_and_direction_from_msm(monkeypatch):
+    # 北風（v=-1, u=0）は「北から吹いてくる」ため風向0度、風速1.0 m/s になる。
+    monkeypatch.setattr(
+        msm_client, "read_series", await _fake_read_series(["2026-08-13T20:00"], [0.0], [-1.0], [0.4])
+    )
     service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
 
     times, results = await service.get_wind_grid([POINT, OTHER_POINT])
 
-    assert times == SAMPLE_DATA["hourly"]["time"]
+    assert times == ["2026-08-13T20:00"]
     assert len(results) == 2
     assert results[0].latitude == POINT.latitude
     assert results[0].longitude == POINT.longitude
-    assert results[0].wind_speed_ms == SAMPLE_DATA["hourly"]["wind_speed_10m"]
-    assert results[0].wind_direction_deg == SAMPLE_DATA["hourly"]["wind_direction_10m"]
-    assert results[0].precipitation_mm == SAMPLE_DATA["hourly"]["precipitation"]
+    assert results[0].wind_speed_ms == [1.0]
+    assert results[0].wind_direction_deg == [0.0]
+    assert results[0].precipitation_mm == [0.4]
 
 
-async def test_get_wind_grid_returns_none_for_points_without_forecast():
-    class MissingSomeForecastsClient(FakeWeatherClient):
-        async def get_forecast_many(self, http_client, points):
-            return {WeatherClient.cache_key(points[0]): None, WeatherClient.cache_key(points[1]): SAMPLE_DATA}
+async def test_get_wind_grid_returns_all_none_when_msm_unavailable(monkeypatch):
+    async def unavailable(latitudes, longitudes, hours=None):
+        raise MsmUnavailableError("未同期")
 
-    service = WeatherService(MissingSomeForecastsClient(SAMPLE_DATA), http_client=None)
+    monkeypatch.setattr(msm_client, "read_series", unavailable)
+    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
 
     times, results = await service.get_wind_grid([POINT, OTHER_POINT])
 
-    assert results[0] is None
-    assert results[1] is not None
-    # 最初の地点が失敗しても、成功した2番目の地点のtimesが採用される。
-    assert times == SAMPLE_DATA["hourly"]["time"]
-
-
-async def test_get_wind_grid_returns_none_when_hourly_missing():
-    service = WeatherService(FakeWeatherClient({"current": SAMPLE_DATA["current"]}), http_client=None)
-
-    times, results = await service.get_wind_grid([POINT])
-
-    assert results[0] is None
     assert times == []
+    assert results == [None, None]
 
 
-async def test_get_wind_grid_returns_none_when_wind_fields_missing():
-    stale_data = {"hourly": {"time": ["2026-08-13T20:00"], "temperature_2m": [25.0]}}
-    service = WeatherService(FakeWeatherClient(stale_data), http_client=None)
+async def test_get_wind_grid_returns_empty_for_empty_points():
+    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
 
-    times, results = await service.get_wind_grid([POINT])
-
-    assert results[0] is None
-    assert times == []
+    assert await service.get_wind_grid([]) == ([], [])
 
 
-async def test_get_wind_grid_returns_none_when_precipitation_missing():
-    # T183: precipitationは風の2フィールドと同じく必須（3配列とも欠けると格子点全体をNoneにする）。
-    data_without_precipitation = {
-        "hourly": {
-            "time": ["2026-08-13T20:00"],
-            "wind_speed_10m": [3.0],
-            "wind_direction_10m": [60],
-        }
-    }
-    service = WeatherService(FakeWeatherClient(data_without_precipitation), http_client=None)
+async def test_get_wind_forecast_series_reads_msm(monkeypatch):
+    monkeypatch.setattr(
+        msm_client,
+        "read_series",
+        await _fake_read_series(["2026-08-13T20:00", "2026-08-13T21:00"], [3.0, 0.0], [0.0, 4.0], [0.0, 0.0]),
+    )
+    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
 
-    times, results = await service.get_wind_grid([POINT])
+    series = await service.get_wind_forecast_series(POINT)
 
-    assert results[0] is None
-    assert times == []
+    assert series.times == [datetime(2026, 8, 13, 20, 0), datetime(2026, 8, 13, 21, 0)]
+    # 西風（u=3）は270度、北風（v=4、北向きに吹く＝南から）は180度。
+    assert series.speed_ms.tolist() == [3.0, 4.0]
+    assert series.direction_deg.tolist() == [270.0, 180.0]
+
+
+async def test_get_wind_forecast_series_returns_none_when_msm_unavailable(monkeypatch):
+    async def unavailable(latitudes, longitudes, hours=None):
+        raise MsmUnavailableError("未同期")
+
+    monkeypatch.setattr(msm_client, "read_series", unavailable)
+    service = WeatherService(FakeWeatherClient(SAMPLE_DATA), http_client=None)
+
+    assert await service.get_wind_forecast_series(POINT) is None

@@ -9,7 +9,8 @@ from app.domain.evaluation import DynamicAxisRequestContext, RoutePreference, ev
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, estimate_passage_hours, kmh_to_ms, wind_drag_ratio
-from app.infrastructure import search_graph_cache
+from app.infrastructure import msm_client, search_graph_cache
+from app.infrastructure.msm_client import MsmUnavailableError
 from app.services.weather_service import WeatherService
 from tests.test_road_graph_engine import ORIGIN, _prepare_context, build_loop_graph, make_generator
 
@@ -139,35 +140,45 @@ class _Client:
         return self._data
 
 
-async def test_get_wind_forecast_series_parses_hourly_wind():
-    data = {
-        "hourly": {
-            "time": ["2026-09-05T00:00", "2026-09-05T01:00", "2026-09-05T02:00"],
-            "wind_speed_10m": [1.0, 2.0, 3.0],
-            "wind_direction_10m": [10.0, 20.0, 30.0],
-        }
-    }
-    service = WeatherService(_Client(data), http_client=None)
+async def test_get_wind_forecast_series_reads_msm(monkeypatch):
+    async def read_series(latitudes, longitudes, hours=None):
+        # 西風3、南風（北向き）4、東風5。
+        return (
+            ["2026-09-05T00:00", "2026-09-05T01:00", "2026-09-05T02:00"],
+            {
+                "wind_u_component_10m": np.array([[3.0, 0.0, -5.0]]),
+                "wind_v_component_10m": np.array([[0.0, 4.0, 0.0]]),
+                "precipitation": np.zeros((1, 3)),
+            },
+        )
+
+    monkeypatch.setattr(msm_client, "read_series", read_series)
+    service = WeatherService(_Client(None), http_client=None)
 
     series = await service.get_wind_forecast_series(ORIGIN)
 
     assert series is not None
     assert series.times[1] == datetime(2026, 9, 5, 1, 0)
-    assert series.speed_ms.tolist() == [1.0, 2.0, 3.0]
-    assert series.direction_deg.tolist() == [10.0, 20.0, 30.0]
+    assert series.speed_ms.tolist() == [3.0, 4.0, 5.0]
+    assert series.direction_deg.tolist() == [270.0, 180.0, 90.0]
 
 
-@pytest.mark.parametrize(
-    "data",
-    [
-        None,
-        {"hourly": {"time": ["2026-09-05T00:00"], "wind_speed_10m": [1.0], "wind_direction_10m": [1.0]}},  # 2点未満
-        {"hourly": {"time": ["2026-09-05T00:00", "2026-09-05T01:00"], "wind_speed_10m": [1.0, None], "wind_direction_10m": [1.0, 2.0]}},
-        {"hourly": {"time": ["2026-09-05T00:00", "2026-09-05T01:00"], "wind_speed_10m": [1.0, 2.0]}},
-    ],
-)
-async def test_get_wind_forecast_series_returns_none_for_unusable_data(data):
-    service = WeatherService(_Client(data), http_client=None)
+async def test_get_wind_forecast_series_returns_none_when_msm_unavailable(monkeypatch):
+    async def unavailable(latitudes, longitudes, hours=None):
+        raise MsmUnavailableError("未同期")
+
+    monkeypatch.setattr(msm_client, "read_series", unavailable)
+    service = WeatherService(_Client(None), http_client=None)
+
+    assert await service.get_wind_forecast_series(ORIGIN) is None
+
+
+async def test_get_wind_forecast_series_returns_none_for_empty_series(monkeypatch):
+    async def empty(latitudes, longitudes, hours=None):
+        return [], {}
+
+    monkeypatch.setattr(msm_client, "read_series", empty)
+    service = WeatherService(_Client(None), http_client=None)
 
     assert await service.get_wind_forecast_series(ORIGIN) is None
 
