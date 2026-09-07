@@ -1,36 +1,25 @@
 .panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  composes: panel from "../ui/adminPanel.module.css";
 }
 
 .heading {
-  font-weight: 700;
-  font-size: var(--font-size-md);
+  composes: heading from "../ui/adminPanel.module.css";
 }
 
 .hint {
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
-  margin: 0;
+  composes: hint from "../ui/adminPanel.module.css";
 }
 
 .error {
-  color: var(--color-danger);
-  font-size: var(--font-size-sm);
-  margin: 0;
+  composes: error from "../ui/adminPanel.module.css";
 }
 
 .controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
+  composes: controls from "../ui/adminPanel.module.css";
 }
 
 .summary {
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
+  composes: summary from "../ui/adminPanel.module.css";
 }
 
 .tableBlock {

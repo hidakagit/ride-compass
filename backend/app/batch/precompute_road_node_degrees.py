@@ -32,20 +32,18 @@ import sys
 import time
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.batch._common import batch_session_factory
 
 logger = logging.getLogger("app.batch.precompute_road_node_degrees")
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
-    engine = create_async_engine(database_url or settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
+    async with batch_session_factory(database_url) as session_factory:
         async with session_factory() as session:
             result = await session.execute(select(func.count()).select_from(RoadEdgeRow))
             edge_count = result.scalar_one()
@@ -65,8 +63,6 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
         logger.info("degree事前集計完了: elapsed=%.1fs", time.perf_counter() - started)
         return 0
-    finally:
-        await engine.dispose()
 
 
 def main(argv: list[str] | None = None) -> int:

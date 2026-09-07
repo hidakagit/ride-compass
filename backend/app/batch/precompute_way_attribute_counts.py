@@ -32,9 +32,8 @@ import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.batch._common import chunked
+from app.batch._common import batch_session_factory, chunked
 from app.config import settings
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -60,9 +59,7 @@ _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHE
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
-    engine = create_async_engine(database_url or settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
+    async with batch_session_factory(database_url) as session_factory:
         async with session_factory() as session:
             result = await session.execute(
                 select(OsmRawWayRow.osm_way_id)
@@ -116,8 +113,6 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             "事前集計完了: total=%d件 elapsed=%.1fs", total_written, time.perf_counter() - started
         )
         return 0
-    finally:
-        await engine.dispose()
 
 
 def main(argv: list[str] | None = None) -> int:

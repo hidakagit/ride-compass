@@ -32,7 +32,7 @@ from shapely.geometry.base import BaseGeometry
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.batch._common import chunked
+from app.batch._common import batch_session_factory, chunked
 from app.config import settings
 from app.domain.landcover import WayLandcover, class_percentages
 from app.infrastructure.road_graph_models import OsmRawWayRow, WayLandcoverRow
@@ -157,9 +157,7 @@ async def run(
     dry_run: bool,
 ) -> int:
     started = time.perf_counter()
-    engine = create_async_engine(database_url or settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
+    async with batch_session_factory(database_url) as session_factory:
         async with session_factory() as session:
             way_ids = await _fetch_target_way_ids(session, recompute)
 
@@ -241,8 +239,6 @@ async def run(
         finally:
             for source in sources:
                 source.close()
-    finally:
-        await engine.dispose()
 
 
 async def run_default(database_url: str | None, dry_run: bool) -> int:

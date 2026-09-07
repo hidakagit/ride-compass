@@ -33,7 +33,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.batch._common import chunked
+from app.batch._common import batch_session_factory, chunked
 from app.config import settings
 from app.domain.graph import RoadGraph
 from app.infrastructure.elevation_client import ElevationClient
@@ -67,9 +67,7 @@ async def _fetch_all_edge_ids(session: AsyncSession) -> list[str]:
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
-    engine = create_async_engine(database_url or settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
+    async with batch_session_factory(database_url) as session_factory:
         async with session_factory() as session:
             edge_ids = await _fetch_all_edge_ids(session)
 
@@ -110,8 +108,6 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             "標高属性事前計算完了: total=%d件 elapsed=%.1fs", total_computed, time.perf_counter() - started
         )
         return 0
-    finally:
-        await engine.dispose()
 
 
 def main(argv: list[str] | None = None) -> int:

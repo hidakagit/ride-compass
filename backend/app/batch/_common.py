@@ -2,18 +2,24 @@
 
 asyncpg用DSN変換（import_pbf.py・import_accidents.py・match_designations.py・
 import_designations.py）、ファイルダウンロードの骨格（import_accidents.py・
-import_designations.py）、チャンク分割・コマンドステータス件数パースなど、
-複数バッチが共通で必要とする処理をここへ集約する。
+import_designations.py）、SQLAlchemyセッションファクトリの生成と後始末
+（precompute_*.py・presplit_road_graph.py）、チャンク分割・コマンドステータス件数パース
+など、複数バッチが共通で必要とする処理をここへ集約する。
 """
 
 import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypeVar
 
 import asyncpg
 import httpx
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.config import settings
 
 _T = TypeVar("_T")
 
@@ -24,6 +30,27 @@ _T = TypeVar("_T")
 # 超えて走り続けるケース（全国規模のPBF取込等）を誤検知しないよう、通常の1回の実行時間
 # より十分長い値にする。
 _STALE_RUNNING_THRESHOLD = timedelta(hours=6)
+
+
+@asynccontextmanager
+async def batch_session_factory(database_url: str | None) -> AsyncIterator[async_sessionmaker]:
+    """バッチ用のセッションファクトリを作り、終了時にエンジンを必ず破棄する。
+
+    `precompute_*.py`・`presplit_road_graph.py`はいずれも「エンジンを作る→
+    `async_sessionmaker`を作る→処理→`finally`で`engine.dispose()`」という同じ前後を持つ。
+    バッチはリクエスト経路と違い自前でエンジンを持つ（`infrastructure/database.py`の
+    共有セッションファクトリはアプリ稼働中の接続プールを前提にしており、単発実行の
+    バッチが使うとプロセス終了時に破棄されない接続が残る）ため、この後始末を各バッチが
+    書いていた。
+
+    `expire_on_commit=False`はバッチ共通の前提——commit後もORMオブジェクトの属性へ
+    触れる（件数集計・ログ出力）ため。
+    """
+    engine = create_async_engine(database_url or settings.database_url)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
 
 
 async def reap_stale_running_import_runs(conn: asyncpg.Connection, table: str) -> int:

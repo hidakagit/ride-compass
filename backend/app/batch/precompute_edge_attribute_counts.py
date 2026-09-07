@@ -31,7 +31,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.batch._common import chunked
+from app.batch._common import batch_session_factory, chunked
 from app.config import settings
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -92,9 +92,7 @@ async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
-    engine = create_async_engine(database_url or settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
+    async with batch_session_factory(database_url) as session_factory:
         async with session_factory() as session:
             edge_ids = await _fetch_all_edge_ids(session)
 
@@ -154,8 +152,6 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             "事前集計完了: total=%d件 elapsed=%.1fs", total_written, time.perf_counter() - started
         )
         return 0
-    finally:
-        await engine.dispose()
 
 
 def main(argv: list[str] | None = None) -> int:

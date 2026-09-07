@@ -35,6 +35,7 @@ from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_bounds_lonlat
 from app.infrastructure.road_graph_models import RoadGraphTileRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.graph_service import GraphService
+from app.batch._common import batch_session_factory
 
 logger = logging.getLogger("app.batch.presplit_road_graph")
 
@@ -48,9 +49,7 @@ async def _fetch_all_tiles(session: AsyncSession, zoom: int) -> list[tuple[int, 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
-    engine = create_async_engine(database_url or settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
+    async with batch_session_factory(database_url) as session_factory:
         async with session_factory() as session:
             tiles = await _fetch_all_tiles(session, ROAD_GRAPH_TILE_ZOOM)
 
@@ -88,8 +87,6 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             rebuilt, skipped, time.perf_counter() - started,
         )
         return 0
-    finally:
-        await engine.dispose()
 
 
 def main(argv: list[str] | None = None) -> int:
