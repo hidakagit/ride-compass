@@ -25,7 +25,6 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.infrastructure.weather_client import WeatherClient
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
@@ -50,7 +49,7 @@ async def _run_once(label: str) -> None:
             elevation_service = ElevationAttributeService(
                 ElevationClient(), http_client, repository=RoadGraphRepository(elevation_session)
             )
-            weather_service = WeatherService(WeatherClient(), http_client)
+            weather_service = WeatherService()
             engine = RoadGraphEngine(
                 graph_service, elevation_service, weather_service, RoutePreference(),
             )

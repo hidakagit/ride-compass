@@ -1018,13 +1018,11 @@ async def test_candidate_accident_axis_is_absent_when_years_covered_is_zero():
 async def test_candidate_wind_axis_is_present_when_weather_available():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     weather = WeatherConditions(
-        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=5.0, wind_direction_deg=0.0,
-        wind_direction_label="北", wind_gusts_ms=None, precipitation_probability_percent=None,
-        precipitation_mm=None, uv_index=None, observed_at="t",
-        weather_code=None, is_day=None,
-        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
-        temperature_max_c=None, temperature_min_c=None,
-        uv_index_max=None, today_periods=[],
+        temperature_c=20.0, wind_speed_ms=5.0, wind_direction_deg=0.0,
+        wind_direction_label="北", precipitation_mm=None, observed_at="t",
+        weather_code=None, is_day=None, sunrise=None, sunset=None,
+        precipitation_max_mm=None, wind_speed_max_ms=None,
+        temperature_max_c=None, temperature_min_c=None, today_periods=[],
     )
     generator, _, _ = make_generator(graph, weather=weather)
 
@@ -1172,13 +1170,11 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
         )
     }
     weather = WeatherConditions(
-        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=5.0, wind_direction_deg=90.0,
-        wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
-        precipitation_mm=None, uv_index=None, observed_at="t",
-        weather_code=None, is_day=None,
-        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
-        temperature_max_c=None, temperature_min_c=None,
-        uv_index_max=None, today_periods=[],
+        temperature_c=20.0, wind_speed_ms=5.0, wind_direction_deg=90.0,
+        wind_direction_label="東", precipitation_mm=None, observed_at="t",
+        weather_code=None, is_day=None, sunrise=None, sunset=None,
+        precipitation_max_mm=None, wind_speed_max_ms=None,
+        temperature_max_c=None, temperature_min_c=None, today_periods=[],
     )
     preference = RoutePreference()
 
@@ -2227,13 +2223,11 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         edges={"e-fwd": edge_fwd, "e-bwd": edge_bwd},
     )
     weather = WeatherConditions(
-        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=8.0, wind_direction_deg=90.0,
-        wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
-        precipitation_mm=None, uv_index=None, observed_at="t",
-        weather_code=None, is_day=None,
-        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
-        temperature_max_c=None, temperature_min_c=None,
-        uv_index_max=None, today_periods=[],
+        temperature_c=20.0, wind_speed_ms=8.0, wind_direction_deg=90.0,
+        wind_direction_label="東", precipitation_mm=None, observed_at="t",
+        weather_code=None, is_day=None, sunrise=None, sunset=None,
+        precipitation_max_mm=None, wind_speed_max_ms=None,
+        temperature_max_c=None, temperature_min_c=None, today_periods=[],
     )
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 1.0, "surface_q": 0.0, "stop_density": 0.0,
@@ -2441,13 +2435,11 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         edges={"e-fwd": edge_fwd, "e-bwd": edge_bwd},
     )
     weather = WeatherConditions(
-        temperature_c=20.0, apparent_temperature_c=None, wind_speed_ms=8.0, wind_direction_deg=90.0,
-        wind_direction_label="東", wind_gusts_ms=None, precipitation_probability_percent=None,
-        precipitation_mm=None, uv_index=None, observed_at="t",
-        weather_code=None, is_day=None,
-        sunrise=None, sunset=None, precipitation_probability_max_percent=None, wind_speed_max_ms=None,
-        temperature_max_c=None, temperature_min_c=None,
-        uv_index_max=None, today_periods=[],
+        temperature_c=20.0, wind_speed_ms=8.0, wind_direction_deg=90.0,
+        wind_direction_label="東", precipitation_mm=None, observed_at="t",
+        weather_code=None, is_day=None, sunrise=None, sunset=None,
+        precipitation_max_mm=None, wind_speed_max_ms=None,
+        temperature_max_c=None, temperature_min_c=None, today_periods=[],
     )
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 1.0, "surface_q": 0.0, "stop_density": 0.0,

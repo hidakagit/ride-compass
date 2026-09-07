@@ -1,9 +1,9 @@
-"""シンプルな外部APIクライアント（TTLCacheのみ、tenacity再試行を持たない）が共有する
+"""シンプルな外部APIクライアント（TTLCacheのみ、再試行を持たない）が共有する
 「キャッシュ参照→fetch→エラー処理→キャッシュ書き戻し」の定型文。
 
 `jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`に
-一字一句同じ形でほぼ複製されていた8〜10行の骨格をここへ集約する。`weather_client.py`
-（tenacity再試行・2段キャッシュを持つ特殊経路）・`jma_tile_client.py`/`elevation_client.py`/
+一字一句同じ形でほぼ複製されていた8〜10行の骨格をここへ集約する。
+`jma_tile_client.py`/`elevation_client.py`/
 `basemap_client.py`（TTLCache以外のキャッシュバックエンドを使うため定型文の形が異なる）は
 対象外のまま各自の実装を維持する。
 """

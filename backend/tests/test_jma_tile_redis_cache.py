@@ -5,7 +5,7 @@ from app.infrastructure import jma_tile_redis_cache
 
 class FakeRedis:
     """jma_tile_redis_cache.pyが使うコマンド（get/set）だけを実装したフェイク
-    （test_weather_client_cache.py: FakeRedisと同じパターン）。"""
+    （他のRedisキャッシュのテストと同じパターン）。"""
 
     def __init__(self, raise_on_get=None, raise_on_set=None):
         self.store: dict[str, str] = {}

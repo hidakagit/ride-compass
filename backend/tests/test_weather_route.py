@@ -40,26 +40,21 @@ class FakeWeatherService:
 def test_get_weather_returns_conditions_on_success():
     conditions = WeatherConditions(
         temperature_c=24.6,
-        apparent_temperature_c=27.1,
         wind_speed_ms=2.5,
         wind_direction_deg=69,
         wind_direction_label="東",
-        wind_gusts_ms=4.8,
-        precipitation_probability_percent=60,
         precipitation_mm=0.5,
-        uv_index=6.2,
         observed_at="2026-08-13T21:15",
         weather_code=2,
         is_day=1,
         sunrise="2026-08-13T05:12",
         sunset="2026-08-13T18:41",
-        precipitation_probability_max_percent=80,
         wind_speed_max_ms=5.5,
         temperature_max_c=29.0,
+        precipitation_max_mm=None,
         temperature_min_c=23.0,
-        uv_index_max=8.5,
         today_periods=[
-            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_probability_percent=20),
+            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_mm=0.4),
         ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)
@@ -89,26 +84,21 @@ def test_get_weather_returns_502_when_unavailable():
 def test_get_weather_is_rate_limited_per_client():
     conditions = WeatherConditions(
         temperature_c=24.6,
-        apparent_temperature_c=27.1,
         wind_speed_ms=2.5,
         wind_direction_deg=69,
         wind_direction_label="東",
-        wind_gusts_ms=4.8,
-        precipitation_probability_percent=60,
         precipitation_mm=0.5,
-        uv_index=6.2,
         observed_at="2026-08-13T21:15",
         weather_code=2,
         is_day=1,
         sunrise="2026-08-13T05:12",
         sunset="2026-08-13T18:41",
-        precipitation_probability_max_percent=80,
         wind_speed_max_ms=5.5,
         temperature_max_c=29.0,
+        precipitation_max_mm=None,
         temperature_min_c=23.0,
-        uv_index_max=8.5,
         today_periods=[
-            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_probability_percent=20),
+            WeatherPeriodOutlook(period="12:00", weather_code=2, temperature_c=27.0, precipitation_mm=0.4),
         ],
     )
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(conditions)

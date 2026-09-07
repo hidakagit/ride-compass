@@ -1,50 +1,52 @@
-from datetime import datetime, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-import httpx
 import numpy as np
 
 from app.domain.geo import compass_label
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
-from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
+from app.domain.twilight import is_night, sunrise_sunset_jst
+from app.domain.weather import WeatherConditions, WeatherPeriodOutlook, derive_weather_code
 from app.domain.wind import WindForecastSeries
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmUnavailableError
-from app.infrastructure.weather_client import WeatherClient
+
+JST = ZoneInfo("Asia/Tokyo")
 
 
 class WeatherService:
-    """地点の天候を取得する。
+    """地点の天候・予報を気象庁MSM（`infrastructure/msm_client.py`）から読む。
 
-    予報系のうち風・降水（`get_wind_grid`・`get_wind_forecast_series`）は気象庁MSMの
-    ローカルファイル（`infrastructure/msm_client.py`）から読む。`get_conditions`は
-    常に現在の気象を返す（呼び出し元は天気APIエンドポイント・RoadGraphEngineの起点判定
-    のみで、いずれも過去/未来時刻を渡さない）。
+    `get_conditions`は現在（時系列の先頭＝現在時刻の正時）の気象と「今日の見通し」を返す
+    （呼び出し元は天気APIエンドポイントとRoadGraphEngineの起点判定のみで、いずれも
+    過去/未来時刻を渡さない）。日の出・日没は外部に問い合わせず`domain/twilight.py`で
+    計算する。
     """
 
-    def __init__(self, client: WeatherClient, http_client: httpx.AsyncClient):
-        self._client = client
-        self._http_client = http_client
+    async def _read_point(self, point: Coordinates) -> tuple[list[str], dict[str, np.ndarray]] | None:
+        try:
+            return await msm_client.read_series(
+                np.array([point.latitude], dtype=float), np.array([point.longitude], dtype=float)
+            )
+        except (MsmUnavailableError, OSError, ValueError, KeyError):
+            return None
 
     async def get_conditions(self, point: Coordinates) -> WeatherConditions | None:
-        data = await self._client.get_forecast(self._http_client, point)
-        if data is None:
+        result = await self._read_point(point)
+        if result is None or not result[0]:
             return None
-        return self._conditions_from_data(data)
+        return self._conditions_from_series(point, *result)
 
     async def get_wind_forecast_series(self, point: Coordinates) -> WindForecastSeries | None:
         """地点の時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）を返す。
         MSMのローカルファイルから読むため外部APIリクエストは発生しない。読めない場合は
         None（呼び出し元は出発時点のスナップショットへ倒す）。"""
-        try:
-            times, values = await msm_client.read_series(
-                np.array([point.latitude], dtype=float), np.array([point.longitude], dtype=float)
-            )
-        except (MsmUnavailableError, OSError, ValueError, KeyError):
+        result = await self._read_point(point)
+        if result is None or not result[0]:
             return None
-        if not times:
-            return None
+        times, values = result
         speed, direction = wind_speed_and_direction(
             values["wind_u_component_10m"][0], values["wind_v_component_10m"][0]
         )
@@ -92,150 +94,76 @@ class WeatherService:
         ]
         return times, results
 
-    def _conditions_from_data(self, data: dict) -> WeatherConditions | None:
-        hourly = data.get("hourly")
-        if not hourly or not hourly.get("time"):
-            return None
+    def _conditions_from_series(
+        self, point: Coordinates, times: list[str], values: dict[str, np.ndarray]
+    ) -> WeatherConditions:
+        """MSMの時系列（1地点ぶん）から「今日の見通し」パネル向けの値を組み立てる。
 
-        current = data.get("current")
-        if not current:
-            return None
+        時系列の先頭（現在時刻の正時）を現在値として扱い、日次の集計は同じJST暦日の
+        残り時間ぶんを対象にする（MSMは過去の時刻を返さないため、朝から見た「今日の最高
+        気温」と夕方から見た値は一致しない——これから走る人向けの見通しとして扱う）。
+        """
+        speed, direction = wind_speed_and_direction(
+            values["wind_u_component_10m"][0], values["wind_v_component_10m"][0]
+        )
+        temperature = values["temperature_2m"][0]
+        precipitation = values["precipitation"][0]
+        cloud_cover = values["cloud_cover"][0]
 
-        # Open-Meteoが200を返してもJSON形状が期待と食い違う（一時的なAPI障害・スキーマ変更等）
-        # 場合、直下の添字アクセスがKeyError/IndexErrorを送出しうる。ここで捕捉せず伝播させると
-        # 「取得失敗は握りつぶしてnull」という他の外部API（標高・路面）と同じ方針から外れ、
-        # 1件の異常レスポンスでルート生成全体が500になってしまう（`RoadGraphEngine.prepare`が
-        # 探索前に1回だけ取得し、Noneなら風・夜間評価なしで続行する設計のため）。
-        try:
-            observed_at = current["time"]
-            temperature = current["temperature_2m"]
-            wind_speed = current["wind_speed_10m"]
-            wind_direction = current["wind_direction_10m"]
-            # 突風・体感温度・UV指数・降水量は「current」自体に含めて取得済み
-            # （weather_client.py参照）のため、precipitation_probabilityと違いhourlyへの
-            # 近傍探索は不要。current側に無い場合（プロパティ欠落）はNoneへ倒す。
-            apparent_temperature = current.get("apparent_temperature")
-            wind_gusts = current.get("wind_gusts_10m")
-            precipitation = current.get("precipitation")
-            uv_index = current.get("uv_index")
-            weather_code = current.get("weather_code")
-            is_day = current.get("is_day")
-            precipitation_probability = self._hourly_value_near(hourly, observed_at, "precipitation_probability")
-            # 「今日の見通し」（daily、forecast_days=2のindex0=今日）。
-            daily = data.get("daily") or {}
-            sunrise = self._daily_index_value(daily, "sunrise", 0)
-            sunset = self._daily_index_value(daily, "sunset", 0)
-            precipitation_probability_max = self._daily_index_value(daily, "precipitation_probability_max", 0)
-            wind_speed_max = self._daily_index_value(daily, "wind_speed_10m_max", 0)
-            temperature_max = self._daily_index_value(daily, "temperature_2m_max", 0)
-            temperature_min = self._daily_index_value(daily, "temperature_2m_min", 0)
-            uv_index_max = self._daily_index_value(daily, "uv_index_max", 0)
-            # dailyの日次集約値だけでは「日中いつ頃崩れるか」が分からないため、
-            # hourlyから2時間おき8コマの代表時刻を抜き出す（_period_outlooks参照）。
-            today_periods = self._period_outlooks(hourly, observed_at)
-        except (KeyError, IndexError, TypeError):
-            return None
+        now = datetime.fromisoformat(times[0])
+        today = [index for index, t in enumerate(times) if datetime.fromisoformat(t).date() == now.date()]
+        sunrise, sunset = sunrise_sunset_jst(point, now.date())
 
         return WeatherConditions(
-            temperature_c=temperature,
-            apparent_temperature_c=apparent_temperature,
-            wind_speed_ms=wind_speed,
-            wind_direction_deg=wind_direction,
-            wind_direction_label=compass_label(wind_direction),
-            wind_gusts_ms=wind_gusts,
-            precipitation_probability_percent=precipitation_probability,
-            precipitation_mm=precipitation,
-            uv_index=uv_index,
-            observed_at=observed_at,
-            weather_code=weather_code,
-            is_day=is_day,
+            temperature_c=round(float(temperature[0]), 1),
+            wind_speed_ms=round(float(speed[0]), 1),
+            wind_direction_deg=round(float(direction[0]), 1),
+            wind_direction_label=compass_label(float(direction[0])),
+            precipitation_mm=round(float(precipitation[0]), 2),
+            observed_at=times[0],
+            weather_code=derive_weather_code(
+                float(precipitation[0]), float(cloud_cover[0]), float(temperature[0])
+            ),
+            is_day=0 if is_night(point, now.replace(tzinfo=JST)) else 1,
             sunrise=sunrise,
             sunset=sunset,
-            precipitation_probability_max_percent=precipitation_probability_max,
-            wind_speed_max_ms=wind_speed_max,
-            temperature_max_c=temperature_max,
-            temperature_min_c=temperature_min,
-            uv_index_max=uv_index_max,
-            today_periods=today_periods,
+            precipitation_max_mm=self._daily_max(precipitation, today),
+            wind_speed_max_ms=self._daily_max(speed, today),
+            temperature_max_c=self._daily_max(temperature, today),
+            temperature_min_c=self._daily_min(temperature, today),
+            today_periods=self._period_outlooks(times, values),
         )
 
     @staticmethod
-    def _within_hourly_range(times: list[str], target: str) -> bool:
-        if not times:
-            return False
-        target_dt = datetime.fromisoformat(target)
-        parsed = [datetime.fromisoformat(t) for t in times]
-        return min(parsed) <= target_dt <= max(parsed)
+    def _daily_max(series: np.ndarray, indices: list[int]) -> float | None:
+        return None if not indices else round(float(np.max(series[indices])), 1)
 
     @staticmethod
-    def _nearest_hourly_index(times: list[str], target: str) -> int | None:
-        if not times:
-            return None
-        target_dt = datetime.fromisoformat(target)
-        diffs = [abs((datetime.fromisoformat(t) - target_dt).total_seconds()) for t in times]
-        return diffs.index(min(diffs))
+    def _daily_min(series: np.ndarray, indices: list[int]) -> float | None:
+        return None if not indices else round(float(np.min(series[indices])), 1)
 
-    @classmethod
-    def _hourly_value_near(cls, hourly: dict, target_time: str, field: str):
-        index = cls._nearest_hourly_index(hourly.get("time", []), target_time)
-        values = hourly.get(field)
-        if index is None or not values or index >= len(values):
-            return None
-        return values[index]
-
-    @staticmethod
-    def _hourly_index_value(hourly: dict, field: str, index: int):
-        """hourly配列から既知のindexで値を引く（_period_outlooksが使う）。
-        対象時刻のindexが呼び出し元で既に確定しているため、_hourly_value_nearのように
-        改めて最近傍時刻を探し直す必要がない。フィールド自体が存在しない/配列が短い場合は
-        Noneへ倒す（新規追加パラメータのため既存キャッシュ済みレスポンスに含まれない
-        ケースを想定）。"""
-        values = hourly.get(field)
-        if not values or index >= len(values):
-            return None
-        return values[index]
-
-    @staticmethod
-    def _daily_index_value(daily: dict, field: str, index: int):
-        """daily配列から既知のindexで値を引く（_hourly_index_valueのdaily版）。
-        forecast_days=2・timezone=Asia/Tokyoのindex 0が「今日」に対応する。"""
-        values = daily.get(field)
-        if not values or index >= len(values):
-            return None
-        return values[index]
-
-    # 「今日の見通し」パネルの時間帯別コマ。現在時刻を2時間グリッド（0/2/4...時）へ
-    # 切り下げた時刻を起点に2時間おき8コマ、各コマの代表時刻をそのまま採用する。
-    # severity（重大度）で「その区間で最も荒れた時刻」を選ぶ判定はせず代表1時刻を
-    # そのまま使う。重大度ランキングはweather_code→アイコン判定と同種の「意味づけ」
-    # であり、frontend/weatherCode.tsへ集約する既存方針（backendは生の値を素通しする
-    # だけ）に合わせるため。既存の_nearest_hourly_index/_hourly_index_valueをそのまま
-    # 再利用できる利点もある。
     _PERIOD_SLOT_COUNT = 8
     _PERIOD_INTERVAL_HOURS = 2
 
     @classmethod
-    def _period_outlooks(cls, hourly: dict, observed_at: str) -> list[WeatherPeriodOutlook]:
-        now = datetime.fromisoformat(observed_at)
-        start_hour = now.hour - (now.hour % cls._PERIOD_INTERVAL_HOURS)
-        start = now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
-        times = hourly.get("time") or []
+    def _period_outlooks(cls, times: list[str], values: dict[str, np.ndarray]) -> list[WeatherPeriodOutlook]:
+        """現在時刻の正時を起点に2時間おきのコマを最大8つ返す。予報の終端に達したら
+        そこで打ち切る（コマ数はMSMのrunによって変動しうる）。"""
         results = []
-        for i in range(cls._PERIOD_SLOT_COUNT):
-            slot_time = start + timedelta(hours=cls._PERIOD_INTERVAL_HOURS * i)
-            target = slot_time.strftime("%Y-%m-%dT%H:%M")
-            index = cls._nearest_hourly_index(times, target) if cls._within_hourly_range(times, target) else None
-            weather_code = None if index is None else cls._hourly_index_value(hourly, "weather_code", index)
-            temperature = None if index is None else cls._hourly_index_value(hourly, "temperature_2m", index)
-            precipitation_probability = (
-                None if index is None else cls._hourly_index_value(hourly, "precipitation_probability", index)
-            )
+        for slot in range(cls._PERIOD_SLOT_COUNT):
+            index = slot * cls._PERIOD_INTERVAL_HOURS
+            if index >= len(times):
+                break
+            precipitation = float(values["precipitation"][0][index])
+            temperature = float(values["temperature_2m"][0][index])
             results.append(
                 WeatherPeriodOutlook(
-                    period=slot_time.strftime("%H:%M"),
-                    weather_code=weather_code,
-                    temperature_c=temperature,
-                    precipitation_probability_percent=precipitation_probability,
+                    period=datetime.fromisoformat(times[index]).strftime("%H:%M"),
+                    weather_code=derive_weather_code(
+                        precipitation, float(values["cloud_cover"][0][index]), temperature
+                    ),
+                    temperature_c=round(temperature, 1),
+                    precipitation_mm=round(precipitation, 2),
                 )
             )
         return results

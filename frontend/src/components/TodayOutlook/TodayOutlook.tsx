@@ -1,7 +1,7 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { RaindropIcon, SunIcon, ThermometerIcon, WindIcon } from "@/components/Map/icons";
+import { RaindropIcon, ThermometerIcon, WindIcon } from "@/components/Map/icons";
 import { getWeatherCodeDisplay } from "@/components/WeatherPanel/weatherCode";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
 import styles from "./TodayOutlook.module.css";
@@ -14,9 +14,9 @@ interface TodayOutlookProps {
 
 // 「今日の見通し」二次パネル。常設ヘッダー（.weatherStats）はどの季節・
 // 地域でも常に意味を持つ瞬間値（気温・風・降水量・天気アイコン）だけに絞り、
-// 「今日の降水確率最大・今日の最大風速・今日の気温レンジ・UV指数最大」という1日1個の
-// 値はタップで開く本パネルへ集約する（常設ヘッダーへ項目を足さず、個別ON/OFF設定も
-// 新設せず、既存のWarningBadgeListと同じPopoverパターンで済ませる）。
+// 「今日の最大降水量・今日の最大風速・今日の気温レンジ」という1日1個の値はタップで
+// 開く本パネルへ集約する（常設ヘッダーへ項目を足さず、個別ON/OFF設定も新設せず、
+// 既存のWarningBadgeListと同じPopoverパターンで済ませる）。
 // 日の出/日没は常設ヘッダー（WeatherPanel）で表示するため、ここには表示しない
 // （予報専用パネルという位置づけ）。
 
@@ -25,6 +25,12 @@ interface TodayOutlookProps {
 function formatPeriodLabel(period: string): string {
   const hour = Number.parseInt(period.slice(0, 2), 10);
   return Number.isNaN(hour) ? period : `${hour}時`;
+}
+
+// 予想降水量。降らない見込み（0.1mm未満）は「-」。単位はコマ単体で意味が読み取れるよう
+// 各コマへ付ける（横スクロールで見出しが画面外へ出るため）。
+function formatPrecipitation(mm: number): string {
+  return mm < 0.1 ? "-" : `${mm.toFixed(1)}mm`;
 }
 
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
@@ -41,9 +47,7 @@ function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
         {period.temperature_c != null ? `${Math.round(period.temperature_c)}℃` : "-"}
       </span>
       <span className={styles.periodPrecip}>
-        {period.precipitation_probability_percent != null
-          ? `${Math.round(period.precipitation_probability_percent)}%`
-          : "-"}
+        {period.precipitation_mm != null ? formatPrecipitation(period.precipitation_mm) : "-"}
       </span>
     </div>
   );
@@ -77,11 +81,10 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
 
   const hasFlow = weather.today_periods.length > 0;
   const hasAnyOutlookStat =
-    weather.precipitation_probability_max_percent != null ||
+    weather.precipitation_max_mm != null ||
     weather.wind_speed_max_ms != null ||
     weather.temperature_max_c != null ||
     weather.temperature_min_c != null ||
-    weather.uv_index_max != null ||
     hasFlow;
   // キャッシュ欠落等でdaily側が丸ごと無い場合は、トグル自体を出さない
   // （空のパネルを開けるだけの無意味なボタンを残さない）。
@@ -98,14 +101,14 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
         <Popover.Content className={styles.panel} side="bottom" align="start" sideOffset={6}>
           <p className={styles.title}>今日の見通し</p>
           <div className={styles.grid}>
-            {weather.precipitation_probability_max_percent != null && (
+            {weather.precipitation_max_mm != null && (
               <div className={styles.item}>
                 <RaindropIcon size={15} />
                 <span>
-                  <span className={styles.label}>降水確率（最大）</span>
+                  <span className={styles.label}>降水量（最大）</span>
                   <span className={styles.value}>
-                    {Math.round(weather.precipitation_probability_max_percent)}
-                    <span className={styles.unit}>%</span>
+                    {weather.precipitation_max_mm.toFixed(1)}
+                    <span className={styles.unit}>mm/h</span>
                   </span>
                 </span>
               </div>
@@ -131,15 +134,6 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
                     {weather.temperature_min_c != null && `${Math.round(weather.temperature_min_c)}℃〜`}
                     {weather.temperature_max_c != null && `${Math.round(weather.temperature_max_c)}℃`}
                   </span>
-                </span>
-              </div>
-            )}
-            {weather.uv_index_max != null && (
-              <div className={styles.item}>
-                <SunIcon size={15} />
-                <span>
-                  <span className={styles.label}>UV指数（最大）</span>
-                  <span className={styles.value}>{weather.uv_index_max.toFixed(1)}</span>
                 </span>
               </div>
             )}

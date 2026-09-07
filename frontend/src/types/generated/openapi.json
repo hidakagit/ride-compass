@@ -4085,10 +4085,6 @@
       "WeatherConditions": {
         "properties": {
           "temperature_c": {
-            "type": "number",
-            "title": "Temperature C"
-          },
-          "apparent_temperature_c": {
             "anyOf": [
               {
                 "type": "number"
@@ -4097,7 +4093,7 @@
                 "type": "null"
               }
             ],
-            "title": "Apparent Temperature C"
+            "title": "Temperature C"
           },
           "wind_speed_ms": {
             "type": "number",
@@ -4111,28 +4107,6 @@
             "type": "string",
             "title": "Wind Direction Label"
           },
-          "wind_gusts_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Wind Gusts Ms"
-          },
-          "precipitation_probability_percent": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Precipitation Probability Percent"
-          },
           "precipitation_mm": {
             "anyOf": [
               {
@@ -4143,17 +4117,6 @@
               }
             ],
             "title": "Precipitation Mm"
-          },
-          "uv_index": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Uv Index"
           },
           "observed_at": {
             "type": "string",
@@ -4203,7 +4166,7 @@
             ],
             "title": "Sunrise"
           },
-          "precipitation_probability_max_percent": {
+          "precipitation_max_mm": {
             "anyOf": [
               {
                 "type": "number"
@@ -4212,7 +4175,7 @@
                 "type": "null"
               }
             ],
-            "title": "Precipitation Probability Max Percent"
+            "title": "Precipitation Max Mm"
           },
           "wind_speed_max_ms": {
             "anyOf": [
@@ -4247,17 +4210,6 @@
             ],
             "title": "Temperature Min C"
           },
-          "uv_index_max": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Uv Index Max"
-          },
           "today_periods": {
             "items": {
               "$ref": "#/components/schemas/WeatherPeriodOutlook"
@@ -4269,24 +4221,19 @@
         "type": "object",
         "required": [
           "temperature_c",
-          "apparent_temperature_c",
           "wind_speed_ms",
           "wind_direction_deg",
           "wind_direction_label",
-          "wind_gusts_ms",
-          "precipitation_probability_percent",
           "precipitation_mm",
-          "uv_index",
           "observed_at",
           "weather_code",
           "is_day",
           "sunset",
           "sunrise",
-          "precipitation_probability_max_percent",
+          "precipitation_max_mm",
           "wind_speed_max_ms",
           "temperature_max_c",
           "temperature_min_c",
-          "uv_index_max",
           "today_periods"
         ],
         "title": "WeatherConditions"
@@ -4319,7 +4266,7 @@
             ],
             "title": "Temperature C"
           },
-          "precipitation_probability_percent": {
+          "precipitation_mm": {
             "anyOf": [
               {
                 "type": "number"
@@ -4328,7 +4275,7 @@
                 "type": "null"
               }
             ],
-            "title": "Precipitation Probability Percent"
+            "title": "Precipitation Mm"
           }
         },
         "type": "object",
@@ -4336,7 +4283,7 @@
           "period",
           "weather_code",
           "temperature_c",
-          "precipitation_probability_percent"
+          "precipitation_mm"
         ],
         "title": "WeatherPeriodOutlook",
         "description": "「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。periodは代表時刻の\n\"HH:MM\"文字列（weather_service.py: _period_outlooks参照。現在時刻を2時間単位の\nグリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。朝/午後/夜\nのような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの整形は\nfrontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.\nweather_codeと同じくfrontend側（weatherCode.ts）に集約する。"

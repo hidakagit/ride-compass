@@ -1792,23 +1792,15 @@ export interface components {
         /** WeatherConditions */
         WeatherConditions: {
             /** Temperature C */
-            temperature_c: number;
-            /** Apparent Temperature C */
-            apparent_temperature_c: number | null;
+            temperature_c: number | null;
             /** Wind Speed Ms */
             wind_speed_ms: number;
             /** Wind Direction Deg */
             wind_direction_deg: number;
             /** Wind Direction Label */
             wind_direction_label: string;
-            /** Wind Gusts Ms */
-            wind_gusts_ms: number | null;
-            /** Precipitation Probability Percent */
-            precipitation_probability_percent: number | null;
             /** Precipitation Mm */
             precipitation_mm: number | null;
-            /** Uv Index */
-            uv_index: number | null;
             /** Observed At */
             observed_at: string;
             /** Weather Code */
@@ -1819,16 +1811,14 @@ export interface components {
             sunset: string | null;
             /** Sunrise */
             sunrise: string | null;
-            /** Precipitation Probability Max Percent */
-            precipitation_probability_max_percent: number | null;
+            /** Precipitation Max Mm */
+            precipitation_max_mm: number | null;
             /** Wind Speed Max Ms */
             wind_speed_max_ms: number | null;
             /** Temperature Max C */
             temperature_max_c: number | null;
             /** Temperature Min C */
             temperature_min_c: number | null;
-            /** Uv Index Max */
-            uv_index_max: number | null;
             /** Today Periods */
             today_periods: components["schemas"]["WeatherPeriodOutlook"][];
         };
@@ -1848,8 +1838,8 @@ export interface components {
             weather_code: number | null;
             /** Temperature C */
             temperature_c: number | null;
-            /** Precipitation Probability Percent */
-            precipitation_probability_percent: number | null;
+            /** Precipitation Mm */
+            precipitation_mm: number | null;
         };
         /** WeatherWarnings */
         WeatherWarnings: {

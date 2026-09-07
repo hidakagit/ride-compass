@@ -62,7 +62,7 @@ def _prepare(msm_dir, now: int, data_end_time: int, value_at=lambda i, j, t: i *
     """`now`を含むチャンクを全変数ぶん書き、メタ情報を保存する。チャンク番号を返す。"""
     (msm_dir / "meta.json").write_text(json.dumps(_meta(data_end_time)), encoding="utf-8")
     chunk_number = msm_client._chunk_number(now, CHUNK_HOURS)
-    for variable in msm_client.WIND_VARIABLES:
+    for variable in msm_client.FORECAST_VARIABLES:
         _write_chunk(msm_dir / variable / f"chunk_{chunk_number}.om", value_at)
     return chunk_number
 
@@ -111,7 +111,7 @@ def test_read_series_truncates_at_data_end(msm_dir):
 def test_read_series_spans_consecutive_chunks(msm_dir):
     now = msm_client._chunk_start(100_000, CHUNK_HOURS)
     chunk = _prepare(msm_dir, now, data_end_time=now + 2 * CHUNK_HOURS * 3600)
-    for variable in msm_client.WIND_VARIABLES:
+    for variable in msm_client.FORECAST_VARIABLES:
         _write_chunk(msm_dir / variable / f"chunk_{chunk + 1}.om", lambda i, j, t: 1000 + t)
 
     times, values = msm_client._read_series_sync(np.array([30.0]), np.array([130.0]), hours=CHUNK_HOURS + 2, now=now)
@@ -167,10 +167,10 @@ async def test_refresh_downloads_chunks_and_records_etags(msm_dir, frozen_now, m
 
     downloaded = await msm_client.refresh(client, horizon_hours=1)
 
-    assert downloaded == len(msm_client.WIND_VARIABLES)
+    assert downloaded == len(msm_client.FORECAST_VARIABLES)
     assert json.loads((msm_dir / "meta.json").read_text(encoding="utf-8"))["chunk_time_length"] == CHUNK_HOURS
-    assert len(json.loads((msm_dir / "etags.json").read_text(encoding="utf-8"))) == len(msm_client.WIND_VARIABLES)
-    for variable in msm_client.WIND_VARIABLES:
+    assert len(json.loads((msm_dir / "etags.json").read_text(encoding="utf-8"))) == len(msm_client.FORECAST_VARIABLES)
+    for variable in msm_client.FORECAST_VARIABLES:
         assert list((msm_dir / variable).glob("chunk_*.om"))
     await client.aclose()
 
@@ -194,7 +194,7 @@ async def test_refresh_removes_chunks_outside_the_forecast_window(msm_dir, froze
     monkeypatch.setattr(settings, "msm_base_url", "https://example.test/jma_msm")
     origin = _FakeOrigin(_meta(2_000_000))
     client = httpx.AsyncClient(transport=httpx.MockTransport(origin.handler))
-    stale = msm_dir / msm_client.WIND_VARIABLES[0] / "chunk_1.om"  # 予報窓の外の古いチャンク
+    stale = msm_dir / msm_client.FORECAST_VARIABLES[0] / "chunk_1.om"  # 予報窓の外の古いチャンク
     stale.parent.mkdir(parents=True, exist_ok=True)
     stale.write_bytes(b"old")
 

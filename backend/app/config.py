@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # ない点に注意（タイル大量リクエストとAPI呼び出しをブラウザの同一オリジン接続数上限で
     # 競合させないための設計、詳細はfrontend/next.config.tsのコメント参照）。
     basemap_public_base_url: str = "http://localhost:3000/api/basemap"
-    # 調査用デバッグモード。有効にすると外部API呼び出し（Open-Meteo/Overpass/OpenFreeMap）
+    # 調査用デバッグモード。有効にすると外部API呼び出し（MSM配信元/Overpass/OpenFreeMap）
     # やタイルキャッシュのhit/missをイベント単位でDEBUGログに出力する（main.pyのlogging設定を参照）。
     debug_mode: bool = False
     # デプロイ先で実際にビルド・起動されたコミットのフルSHA（`GIT_COMMIT`環境変数、
@@ -45,8 +45,7 @@ class Settings(BaseSettings):
     # 環境（Render無料枠/ローカル/負荷試験）で調整したい運用値のため.envで上書き可能に
     # している。各値の根拠は以下の通り。
     #
-    # /preview・/weatherは/generateほど高コストではないが、/weatherは外部API
-    # （Open-Meteo、今日の見通し用）を消費する。
+    # /preview・/weatherは/generateほど高コストではない（いずれも外部APIを叩かない）。
     preview_rate_limit_per_minute: int = 20
     weather_rate_limit_per_minute: int = 60
     # 風の格子点マップは1回で関東本土全域（約624地点、domain/wind_grid.py:
@@ -130,15 +129,6 @@ class Settings(BaseSettings):
     # 定期プリウォームに対し、この値でも十分に間隔内へ収まる（1983/5≒397秒 < 600秒）よう
     # 控えめに設定した。
     jma_tile_upstream_max_requests_per_second: float = 5.0
-    # Open-Meteo Forecast APIの呼び出し先。既定は本家直叩き（ローカル開発用）。
-    # 本番（Render）はOpen-Meteo側が送信元IP単位でレート制限しており、Renderの共有
-    # アウトバウンドIPだと他テナントの分も巻き添えで429が常態化する不具合が確認された
-    # （weather_client.pyのdocstring参照）。対策として自前ホストのOracle Cloud VM
-    # （`ridecompass-postgis`、固定IP・専用、docs/osm-pbf-import.md参照）上にnginxで
-    # /v1/forecastのみを中継するリレープロキシを立て、Render側はこの環境変数で
-    # プロキシ経由に切り替える（アクセスはOCIセキュリティリスト+iptablesの両方で
-    # Renderのアウトバウンド範囲のみに制限済み）。
-    open_meteo_base_url: str = "https://api.open-meteo.com/v1/forecast"
 
     # 気象庁MSM（前処理済み.omファイル、CC-BY-4.0）の配信元。REST APIではなく静的
     # ファイルのため、レート制限・クォータの制約を受けない（infrastructure/msm_client.py）。

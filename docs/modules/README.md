@@ -55,7 +55,7 @@
 | [評価・スコアリング](backend/evaluation-scoring.md) | 0次フィルタ・軸別difficulty合成・材料カタログ |
 | [動的材料・way_id値配信](backend/dynamic-way-values.md) | 風・勾配のRedis配信層 |
 | [静的道路属性・タイル配信](backend/static-road-attributes.md) | OSM取込・MVTタイル配信 |
-| [気象・動的レイヤー](backend/weather-dynamic-layers.md) | 気象庁MSM予報・気象庁観測/防災データ・Open-Meteo |
+| [気象・動的レイヤー](backend/weather-dynamic-layers.md) | 気象庁MSM予報・気象庁観測/防災データ |
 | [標高](backend/elevation.md) | GSI DEMタイル |
 | [横断基盤](backend/cross-cutting-infrastructure.md) | DB・Redis・ログ・レート制限・ジョブ管理 |
 

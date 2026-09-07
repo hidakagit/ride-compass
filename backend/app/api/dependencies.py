@@ -30,7 +30,6 @@ from app.infrastructure.derived_data_freshness import DerivedDataFreshnessQuery
 from app.infrastructure.material_coverage import MaterialCoverageQuery
 from app.infrastructure.rate_limiter import check_rate_limit
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.infrastructure.weather_client import WeatherClient
 from app.services.accident_service import AccidentService
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.services.elevation_attribute_service import ElevationAttributeService
@@ -85,7 +84,7 @@ def enforce_rate_limit(request: Request, prefix: str, limit_per_minute: int) -> 
 
 
 def get_weather_service():
-    return WeatherService(WeatherClient(), get_http_client(10.0))
+    return WeatherService()
 
 
 def get_warning_service():

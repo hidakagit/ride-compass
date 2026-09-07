@@ -27,7 +27,6 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 from app.infrastructure.database import get_engine, get_session_factory  # noqa: E402
 from app.infrastructure.elevation_client import ElevationClient  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
-from app.infrastructure.weather_client import WeatherClient  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.elevation_attribute_service import ElevationAttributeService  # noqa: E402
 from app.services.evaluation_service import load_route_preference  # noqa: E402
@@ -68,7 +67,7 @@ async def main() -> int:
                 road_graph_engine = RoadGraphEngine(
                     graph_service,
                     elevation_attribute_service,
-                    WeatherService(WeatherClient(), http_client),
+                    WeatherService(),
                     route_preference,
                 )
                 generator = RouteGenerator(road_graph_engine)

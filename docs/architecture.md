@@ -21,7 +21,7 @@
 | ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **road_graph単一構成**（改善計画T462でopenrouteserviceエンジンを完全撤去、切替設定自体が廃止済み） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価を`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`EvaluationService`・`domain/routing.py`のscipy.sparse.csgraph Dijkstraを使う）へ委譲する。改善計画T236（経路品質比較、致命的な差異なし）・T241（道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て既定値を`road_graph`へ切り替え（改善計画T247、2026-08-23）、以降の運用実績を踏まえてopenrouteserviceエンジン・`config.py`の`routing_engine`設定自体を完全撤去した（改善計画T462、2026-08-31）。詳細は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)、撤去の経緯は下記「ルーティングエンジンの切り替え対応」節参照 |
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | **road_graph単一構成**（改善計画T462で切替設定を廃止） | Step3の疎通確認用エンドポイント。`dependencies.py: get_preview_builder`が`RoadGraphEngine.preview_segment`（評価軸重み付きコストで最短経路を1回探索、generateと同じコスト式）を組み立てる。`RoutingService`/`ORSClient`はT462で削除済み。previewはリクエストボディでの評価重み上書きに対応しない（既定値のみ使用） |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
-| 天候 | **気象庁MSM**（予報、`.om`ファイルをローカル同期）＋**Open-Meteo Forecast API**（今日の見通しのみ） | 風の格子点マップ・ルート評価の風は`WeatherService`の`get_wind_grid`/`get_wind_forecast_series`が`msm_client`経由でローカルのMSMから読む（外部APIリクエストは発生しない）。`get_conditions`は「今日の見通し」パネル用にOpen-Meteoの`current`＋`hourly`＋`daily`を1回で取得する |
+| 天候 | **気象庁MSM**（Open-MeteoがAWS Open Dataで公開する前処理済み`.om`ファイルをローカル同期。外部の気象予報APIには依存しない） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`msm_client`経由で読む。`get_wind_grid`/`get_wind_forecast_series`が風の格子点マップとルート評価の風を、`get_conditions`が「今日の見通し」パネル用の現在値・日次集計・時間帯別の流れを組み立てる（天気コードは雲量・降水・気温から導出、日の出/日没は`domain/twilight.py`で計算） |
 | 標高 | **国土地理院（GSI）標高API**（APIキー不要、日本国内限定） | `ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）がルートを距離連動の点数（約1km間隔・12〜32点、`sample_count_for_distance`）でサンプリングして問い合わせ、獲得標高・最高/最低標高・最大勾配を算出 |
 | 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして`GET /api/gsi-relief-tile/{path:path}`（`GsiReliefTileClient`、改善計画T572）経由で重ね描き。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
 | 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み（当初はOverpass API＋自前Python MVTエンコードだったが、PostGIS移行に伴い不要になった。経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照） |
@@ -112,12 +112,12 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 `msm_client.py`（[backend/app/infrastructure/msm_client.py](../backend/app/infrastructure/msm_client.py)）は、気象庁MSM（メソ数値予報モデル）の前処理済みデータ（Open-MeteoがAWS Open Dataで公開する`.om`形式、CC-BY-4.0）をローカルへ同期し、風の格子点マップ・ルート評価の風をそのファイルから直接読む。REST APIを叩かないためレート制限・クォータの制約を受けない。同期は`main.py`のAPScheduler（既定30分間隔）が担い、ETagの条件付きGETで内容が変わったチャンクだけを取得する（3変数・日本全域・約114時間ぶんで34MB程度）。格子の原点・間隔・チャンク長・予報終端は配信元の`static/meta.json`と実データの形状から導出し、定数として持たない。詳細は[docs/modules/backend/weather-dynamic-layers.md](modules/backend/weather-dynamic-layers.md)参照。
 
 ### 天候取得の設計と「地点＋時刻」対応（Step6）
-`WeatherClient`（[backend/app/infrastructure/weather_client.py](../backend/app/infrastructure/weather_client.py)）はOpen-Meteo Forecast APIから`current`（現在の気象）と`hourly`（`forecast_days=2`分の時間別予報：気温・風速・風向・降水確率・weather_code/is_day）、`get_forecast`（/api/weather用）はさらに`daily`（今日・明日の日次見通し：夜明け・日没・降水確率最大・最大風速・気温レンジ・UV指数最大、改善計画T385「今日の見通し」パネル用）を**1回のリクエストでまとめて取得**することを実機確認済み。hourlyのweather_code（T385フォローアップ）は「今日の見通し」パネルの天気の流れ（today_periods、観測時刻を含む2時間区間から2時間おき8コマ、T385フォローアップ2で固定6時始まりから現在時刻基準へ変更）が使う。標高と同じ「範囲でまとめて取得してキャッシュ」の原則を適用しているが、気象データは時間で変化するため**TTL付き**（`get_forecast`＝単一地点/api/weatherパネル用は30分、緯度経度は標高より粗い精度で丸める）にしている点が標高キャッシュとの違い。
+`WeatherService.get_conditions`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）は、MSMの時系列（1地点ぶん）の先頭を現在値として扱い、「今日の見通し」パネル用の値を組み立てる。天気コード（WMO相当）は`domain/weather.py: derive_weather_code`が降水量・雲量・気温から導き、日の出/日没は`domain/twilight.py`が天文計算で求める（いずれも外部への問い合わせを伴わない）。日次の集計（最高/最低気温・最大風速・最大降水量）は同じJST暦日の残り時間ぶんを対象にするため、朝に見た値と夕方に見た値は一致しない（これから走る人向けの見通しとして扱う）。時間帯別の流れ（today_periods）は現在時刻の正時から2時間おきに最大8コマで、予報の終端に達したらそこで打ち切る。
 
 `WeatherService.get_conditions(point, at: datetime | None = None)`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）は、`at=None`なら`current`ブロックを返し、未来時刻を渡すと`hourly`配列から最も近い時刻のデータを検索して返す。**Step6のUIでは`at`を渡さず現在地の現在の天候のみ表示するが**、この時刻指定インターフェースにより、将来「ルート上の各サンプル点＋推定通過時刻（`RouteCandidate`の距離・所要時間から按分計算できる）」を渡して「2時間後にその地点は雨か」を判定する拡張が、サービス層の設計変更なしで追加できる（ユーザー要望への対応）。既知の制約: `at`が取得済みhourly範囲（当日+翌日）を超える場合、現状は最も近い時刻を返してしまう（範囲外チェック未実装）ため、`at`を実際に使う機能を追加する際にガードを入れる必要がある。
 
 ### 方位ラベルの共通化（Step6）
-風向（Open-Meteoからは69°のような任意角度で返る）を8方位ラベルに変換する必要が生じたため、`route_generator.py`に8方位専用でハードコードされていた`DIRECTION_LABELS`辞書を廃止し、`domain/geo.py`の汎用関数`compass_label(bearing_deg: float) -> str`に統一した（周回ルート候補の方位ラベルも同じ関数を使う）。
+風向（69°のような任意角度で得られる）を8方位ラベルに変換する必要が生じたため、`route_generator.py`に8方位専用でハードコードされていた`DIRECTION_LABELS`辞書を廃止し、`domain/geo.py`の汎用関数`compass_label(bearing_deg: float) -> str`に統一した（周回ルート候補の方位ラベルも同じ関数を使う）。
 
 ### 風評価（`wind_score`）の設計（Step7）
 Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「地点＋時刻」対応にしておいたのは、まさにこのStep7のため。`WindService`（[backend/app/services/wind_service.py](../backend/app/services/wind_service.py)）は候補ルートのサンプル点列（`ElevationService`と同じ点集合。当初12点固定、現在は距離連動の約1km間隔・12〜32点）について、区間ごとに以下を行う。
@@ -128,7 +128,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 4. `domain/wind.py`の`headwind_component_ms(wind_speed_ms, wind_direction_deg, travel_bearing_deg)`＝`風速 × cos(風向 − 走行方位)`で区間ごとのペナルティを算出していた（`wind_direction_deg`は気象学の慣習で「風が吹いてくる方向」。走行方位と一致＝正面からの向かい風＝`cos(0)=1`で最大、180度差＝追い風＝`cos(180°)=-1`、90度差＝横風＝`cos(90°)=0`で走行への影響なし。進行方向に平行な風成分のみが影響するという物理的に妥当なモデル。後日追加: 改善計画T591/T599・2026-09-05で評価軸の正式な風の材料を走行速度依存の二乗則`wind_drag_ratio`[`wind_drag_ratio_array`]へ切替済み、`headwind_component_ms`・非推奨材料`wind_penalty`は撤去済み。詳細は[docs/modules/backend/dynamic-way-values.md](modules/backend/dynamic-way-values.md)参照）
 5. 区間距離で加重平均した値を`wind_score`（符号付きm/s、正=正味向かい風、負=正味追い風）として`RouteCandidate`にマージ
 
-天候取得に失敗した区間はスキップし、有効な区間が無い場合は`wind_score=None`（標高と同じ「取得失敗は握りつぶしてnull」方針）。既知の制約: 推定到達時刻の計算は「サーバーのローカル時刻＝Asia/Tokyoのその時刻」という簡易近似（Open-Meteoの`hourly`もタイムゾーン付きでなくAsia/Tokyoのnaiveなローカル時刻文字列を返すため整合はしている）。`wind_score`は正規化・重み付けされていない生の物理量で、`RouteCandidate`へそのまま残る（Step8時点の重み付け先だった`total_score`は改善計画T548で撤去済み、次節参照）。
+天候取得に失敗した区間はスキップし、有効な区間が無い場合は`wind_score=None`（標高と同じ「取得失敗は握りつぶしてnull」方針）。既知の制約: 推定到達時刻の計算は「サーバーのローカル時刻＝Asia/Tokyoのその時刻」という簡易近似（MSMの読み出しもJSTのnaiveなローカル時刻文字列を返すため整合はしている）。`wind_score`は正規化・重み付けされていない生の物理量で、`RouteCandidate`へそのまま残る（Step8時点の重み付け先だった`total_score`は改善計画T548で撤去済み、次節参照）。
 
 ### 路面評価（`road_score`）と総合スコア（`total_score`）の設計（Step8、**改善計画T548・2026-09-03で総合スコアリング部分を撤去**）
 道路特性（`road_weight`）はOSM/Overpassの実データ連携が将来課題として残っていたが、openrouteserviceの`extra_info`パラメータを調査した結果、`cycling-road`プロファイルが`extra_info: ["surface"]`に対応しており、Step4-7から既に呼んでいるルート取得リクエスト（`ORSClient.get_directions`）1回に相乗りする形で、追加APIコールなしに区間ごとの路面種別内訳（`properties.extras.surface.summary`、`{value, distance, amount}`の配列。`value`はOSMのsurfaceタグ相当の0-18の路面種別ID）が取得できることが分かった。これにより当初のスコアリング設計（距離・標高・風・道路の4要素）をStep8内でそのまま実装できた。
@@ -145,7 +145,7 @@ Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「
 ### 候補ルートの難易度可視化の設計（Step9）
 `total_score`は候補集合内の相対評価のため、数値だけでは「具体的にどこが走りにくいのか」が分からない。ユーザーからの要望で、候補選択時に地図上へ標高・風・路面を時系列（区間ごとの推定到達時刻）も考慮したレイヤーとして重ね描きし、走破の易しい/難しい区間を色分けする機能を追加した。
 
-- **データ取得方針**: Step5-7-8で候補ごとに12点サンプリングして取得していた標高・風・路面の生データは、集約値（`elevation_gain_m`等）だけを残して区間ごとの詳細を捨てていた。Step9はこれを**捨てずに`RouteCandidate.segments`として返す**だけで実現しており、追加のAPIコール（GSI/Open-Meteo/openrouteservice）は一切発生しない。
+- **データ取得方針**: Step5-7-8で候補ごとに12点サンプリングして取得していた標高・風・路面の生データは、集約値（`elevation_gain_m`等）だけを残して区間ごとの詳細を捨てていた。Step9はこれを**捨てずに`RouteCandidate.segments`として返す**だけで実現しており、追加のAPIコール（GSI等）は一切発生しない。
 - **サンプル点の共有化**: `ElevationService.get_profile`と`WindService.get_wind_score`はそれぞれ独立に`sample_line_coordinates`を呼んでいたが、区間ごとの標高・風・路面を1つの配列としてインデックス整合させるため、`route_generator.py`が`sample_line_points(geometry, SAMPLE_COUNT)`（新規、`domain/geo.py`。座標だけでなく元geometry内でのインデックスも返す）で一度だけ点を取得し、両サービスに共有するようリファクタした。シグネチャも`get_profile(points)` / `get_wind_profile(points, start_time)`に変更（`geometry`ではなく点列を直接受け取る）。
 - **路面の位置対応（2026-08-15、改善計画T21で撤去・置換）**: 当初はopenrouteserviceの`extras.surface.values`（`[[start_idx, end_idx, surface_id], ...]`）を`RouteSegment.surface_values`として保持し`surface_id_at_index`で求めていたが、現在はサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチして`classify_osm_surface`で判定する方式に統一済み（後述「ルーティングエンジンの切り替え対応」）。
 - **難易度の算出（絶対基準）**: `domain/difficulty.py`が、Step8の相対正規化とは異なり**絶対基準**（一般的なロードバイク走行の目安）で0-100点化する。`gradient_difficulty`（0-3%易しい〜9%以上激坂の区分的線形）、`wind_difficulty`（向かい風0-8m/sで0→100、追い風・無風は0）、`road_difficulty`（舗装路0・非舗装80、`domain/road.py`の`GOOD_SURFACE_IDS`と基準を統一）、`composite_difficulty`（重み付き平均、`None`の指標は除外して残りの重みで再正規化）。当時（Step9時点）は重みをStep8の旧`scoring.yaml`から`distance_weight`を除いた`elevation_weight`/`wind_weight`/`road_weight`のまま流用していたが、現在の重みの単一の情報源は`domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`（改善計画T316）である（旧`scoring.yaml`自体が改善計画T548で撤去済み）。地図の色分け・候補タブの並び順は「候補間の相対比較」ではなく「客観的にどこが大変か」を示す目的のため、Step8のような候補集合内正規化ではなく絶対基準を採用した（改善計画T548で候補タブの並び順もこの絶対基準＝`overall_difficulty`昇順へ統一）。
@@ -284,13 +284,13 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   絞り込んだ上で「異なるvalidtimeを複数持つ最新のbasetime」を選ぶ（`fetchRasrfFrames`）。
   ②+15時間より先（〜約48時間先）は上記の風と同じ格子点マップへ`precipitation`（mm/h）を
   相乗りさせ、`gridFill`表現（格子をセルとして塗る）で継ぎ足す。1回のフェッチで風・
-  延長予報の両方を賄うためOpen-Meteoクォータは増えない。各段は前段の最終フレームより
+  延長予報の両方を1回の読み出しで賄う。各段は前段の最終フレームより
   後の時刻だけを採用し、近い将来の二重表示を避ける（ナウキャスト→rasrf→延長予報の
   2つの境界とも同じロジック、`precipitationFrames`）。
 - **雷ナウキャスト・竜巻発生確度ナウキャスト（T204）**: [frontend/src/components/Map/thunderNowcast.ts](../frontend/src/components/Map/thunderNowcast.ts)が
   降水と同じbosai/jmatile/data/nowc/系（プロダクトコード`thns`＝雷・`trns`＝竜巻）を
   `rasterTile`表現のみで重ねる。降水と異なり`targetTimes_N3.json`1本に実況〜+60分の予測が
-  同居し（N1/N2のような分割が無い）、Open-Meteo側に相当するデータが無いため延長予報は
+  同居し（N1/N2のような分割が無い）、MSM側に相当するデータが無いため延長予報は
   持たない（60分より先は範囲外として描画しない、T184共通契約どおり）。雷・竜巻は同じ
   時刻一覧を共有しつつ、地図上は独立したON/OFFチップ2つに分ける（重ねると見分けにくいため）。
   「回避一択」の危険（設計判断は本節冒頭参照）のため評価軸には組み込まず警告表示のみ。
@@ -338,7 +338,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   探索コストは、Edgeごとの通過予定時刻（基準点からの直線距離×迂回率÷仮定巡航速度）で
   起点の時別予報から引き、往路/復路のレグごとに別のコスト配列を探索前に合成する
   （`docs/modules/backend/routing-engine.md`「レグ別コスト配列」）。
-- **Open-Meteo 429対策（T179・T194・T195。風・降水はT645でMSMへ移行し解消済み）**: 本番（Render、共有の送信元IP）でのOpen-Meteo
+- **Open-Meteo 429対策（T179・T194・T195。T645でMSMへ全面移行し、Open-Meteo依存自体が無くなったため解消済み）**: 本番（Render、共有の送信元IP）でのOpen-Meteo
   429常態化に対し、ユーザー提示の6段階ロードマップ（①複数座標の1リクエスト集約
   ②気象Gridの道路評価Gridからの分離③気象Gridの固定化④TTL付きDB永続キャッシュ⑤
   バックグラウンド更新⑥利用者増加時のOpen-Meteo自前運用）の実装到達点を調査・記録した
@@ -356,8 +356,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
 
 ### Redisキャッシュ基盤とJMAアメダス連携（改善計画T387）
 
-Open-Meteo（上記）に加え、JMA（気象庁）のアメダス観測値を扱うため、Redisを新規インフラ
-として導入した。Redisは「TTL付きキャッシュ、またはPostGIS/実データ源へのフォールバックが
+JMA（気象庁）のアメダス観測値を扱うため、Redisを新規インフラとして導入した。Redisは「TTL付きキャッシュ、またはPostGIS/実データ源へのフォールバックが
 必ず効くcache-aside」専用の層で、正本データを持たない（`app/infrastructure/
 redis_client.py`）。ローカル開発は`docker-compose.yml`のredisサービス、本番はOracle
 Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する想定（backendコンテナが
@@ -388,9 +387,9 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
 - **`GET /api/weather`と`GET /api/weather/amedas`は完全に独立**（2026-08-29、方針
   「常設エリアは実測値、今日の見通しは予測値」）: 当初は`/api/weather`が内部でアメダスの
   現在値を上書きマージしていたが、frontend側で常設ヘッダー（WeatherPanel、実測値専用）と
-  今日の見通し（TodayOutlook、Open-Meteo予報専用）のデータ取得自体を分離した
+  今日の見通し（TodayOutlook、予報専用）のデータ取得自体を分離した
   （`useWeatherConditions.ts`のweather/amedasが独立フェッチ）結果、`/api/weather`側の
-  マージは誰も参照しなくなったため削除した。`/api/weather`は常にOpen-Meteoの値をそのまま
+  マージは誰も参照しなくなったため削除した。`/api/weather`は常に予報（現在はMSM）の値を
   返す（TodayOutlook専用）。
 - **降水ナウキャスト・MSMのRedis化は見送り済み（2026-08-29）**: 当初はナウキャストの
   タイムスタンプ解決ヘルパー（`jma_tile_service.py`）とMSMのRedis保存スケルトン
@@ -413,14 +412,16 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   （[動的気象レイヤー](modules/backend/weather-dynamic-layers.md)「JMAタイル系の
   共通プロキシ」節参照）。正本を持たないcache-aside（JMAへ再フェッチ可能）で
   road_graph_tilesとは異なる。
-- **Open-Meteo全面代替の可否**: ルート評価（`WindService`、区間ごと・将来時刻の風速
+- **Open-Meteo全面代替の可否（T645で達成済み）**: ルート評価（`WindService`、区間ごと・将来時刻の風速
   風向）と風の格子点マップは、任意地点×任意時刻の予報が必要なためアメダス（観測専用）・
   ナウキャスト（降水のみ・60分先まで）では代替できず、MSM実装後に改めて検証する
   （候補はMSMのみだが[T389](tasks/T389.md)は保留中）。降水短時間予報（`jmatile/data/
   rasrf/`、無料・公式、15時間先まで確認済み）は[T407](tasks/T407.md)、線状降水帯予測マップ
   （`sjfcstmap`、無料・公式）はキキクルと合わせて[T410](tasks/T410.md)で実装済み
   （いずれも「動的気象レイヤー」節参照）。UV指数・weather_code相当のJMAプロダクトは
-  無料の代替が見つからずOpen-Meteo依存を継続している。
+  無料の代替が見つからずOpen-Meteo依存を継続していたが、T645でMSMのローカル同期へ移行し、
+  weather_code相当は雲量・降水・気温からの導出（`domain/weather.py: derive_weather_code`）
+  へ置き換え、UV指数は表示ごと廃止してOpen-Meteo依存を解消した。
 - **road_graph_tilesのRedis cache-aside（`app/infrastructure/road_graph_tile_cache.py`）**:
   `road_graph_tiles`（タイル取得済みマーカー、9章参照）はPostGIS上の一時的な揮発データの
   代表例だが、**PostGISを正本のまま維持し、Redisは読み取り高速化のための派生キャッシュに
@@ -580,8 +581,7 @@ RideCompass/
         evaluation_service.py           ✅ EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes, wind=None)でEdge Costを算出（Road Graph移行Phase 4、新規。Phase 5でload_route_preference()を追加。「完全移行」でwind引数を追加しRouteGeneratorから参照されるようになった）。改善計画T240で内部実装をcompute_edge_costs_bulk（domain/evaluation.py、numpyベクトル化）へ切り替え（シグネチャ・戻り値型は不変）
       infrastructure/
         elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
-        msm_client.py           ✅ 気象庁MSM（.omファイルのローカル同期＋読み出し）。風・降水の予報はすべてここ経由
-        weather_client.py       ✅ Open-Meteo Forecast API（今日の見通し専用。current+hourly+dailyをまとめて取得、TTLキャッシュ・tenacity再試行・stale fallback）
+        msm_client.py           ✅ 気象庁MSM（.omファイルのローカル同期＋読み出し）。予報系はすべてここ経由
         jma_warning_client.py    ✅ 改善計画T205: 国土地理院逆ジオコーダ（緯度経度→市区町村コード）・JMA地域マスタarea.json（24時間TTL）・JMA警報API r8（10分TTL）の3クライアント。いずれも失敗時はNoneを返す（tenacity再試行は無し）。TTLキャッシュは`cachetools.TTLCache`を使用（改善計画T244、flood/wbgtクライアントと同型のキャッシュ実装重複を解消）
         wbgt_client.py            ✅ 改善計画T174: 環境省WBGT情報提供地点マスタCSV（24時間TTL）・暑さ指数予測値WebAPI（1時間TTL、直近6時間の発表時刻を検索範囲とする連続期間指定）の2クライアント。サイト側の「自動化ツールからの高頻度アクセスは控えて」注記に配慮しtenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
         flood_client.py            ✅ 改善計画T212: JMA指定河川洪水予報API（10分TTL、全国分を1回のGETで取得）のクライアント。tenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
@@ -654,7 +654,7 @@ RideCompass/
       test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
     migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）。0009_designation_attributes_osm_way_id.sql: designation_attributesのキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways FK）へ変更（T74、DROP→再作成）
     data/                       ✅ 地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）。旧SQLite永続キャッシュ（ridecompass_cache.db）はT398でRedisへ移行し撤去済み
-    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で追加。astral（T173、暦計算・外部通信なし）・tenacity（Open-Meteo再試行、改善計画）を動的気象レイヤー関連で追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加。networkxは「完全移行」（Route Engine）時に追加したが、T220でDijkstra本体がscipy.sparse.csgraphへ移行した後もNetworkX版の関数群が実行時経路から呼ばれないまま残っていたため、改善計画T321（デッドコード監査）で依存ごと削除した
+    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で追加。astral（T173、暦計算・外部通信なし）を動的気象レイヤー関連で追加。omfiles（T645、気象庁MSMの.omファイル読み出し）を追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加。networkxは「完全移行」（Route Engine）時に追加したが、T220でDijkstra本体がscipy.sparse.csgraphへ移行した後もNetworkX版の関数群が実行時経路から呼ばれないまま残っていたため、改善計画T321（デッドコード監査）で依存ごと削除した
     Dockerfile                ✅
     .env.example              ✅
     pytest.ini                ✅ asyncio_mode = auto

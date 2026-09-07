@@ -54,7 +54,7 @@ def test_generate_wind_grid_detail_points_lattice_is_independent_of_query_bbox()
     # 格子点の絶対座標がbboxの角ではなく固定原点（WIND_GRID_BBOX）基準で決まることを、
     # 「小さいbboxの結果が、それを包含するより大きいbboxの結果に同じ座標で含まれる」
     # ことで確認する（＝2人のユーザーが少しずれた表示範囲を見ていても、重なる領域では
-    # 同じ絶対座標の格子点になり、weather_client.pyのcache_keyでキャッシュを共有できる）。
+    # 同じ絶対座標の格子点になる）。
     small = generate_wind_grid_detail_points((139.75, 35.75, 139.80, 35.80))
     large = generate_wind_grid_detail_points((139.70, 35.70, 139.90, 35.90))
 

@@ -1,6 +1,6 @@
 """flood_client.py（JMA指定河川洪水予報APIのクライアント）のテスト。
 
-weather_client.pyのテスト（test_weather_client_cache.py）と同じ観点（正常系のレスポンス
+他の外部APIクライアントのテストと同じ観点（正常系のレスポンス
 取得・キャッシュヒット・失敗時の挙動）を踏襲するが、このクライアントもjma_warning_client.pyと
 同じ理由（モジュールdocstring参照）でtenacity再試行を持たない。「リトライ」観点は
 「失敗時に再試行せず1回でNoneを返す」ことの確認に置き換える。

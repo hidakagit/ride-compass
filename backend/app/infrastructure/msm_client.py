@@ -36,9 +36,15 @@ _ETAGS_FILE = MSM_DIR / "etags.json"
 
 JST = ZoneInfo("Asia/Tokyo")
 
-# 風グリッド・ルート評価が使う変数。増やすと同期量がそのぶん増えるため、実際に消費する
-# ものだけを並べる。
-WIND_VARIABLES: tuple[str, ...] = ("wind_u_component_10m", "wind_v_component_10m", "precipitation")
+# 同期・読み出しの対象変数。増やすと同期量がそのぶん増えるため、実際に消費するものだけを
+# 並べる。風グリッドは風と降水を、今日の見通しは気温・雲量・降水・風を使う。
+FORECAST_VARIABLES: tuple[str, ...] = (
+    "wind_u_component_10m",
+    "wind_v_component_10m",
+    "precipitation",
+    "temperature_2m",
+    "cloud_cover",
+)
 
 
 class MsmUnavailableError(RuntimeError):
@@ -132,7 +138,7 @@ async def _download_chunk(client: httpx.AsyncClient, variable: str, chunk_number
 
 def _prune(keep: set[Path]) -> None:
     """予報に使わなくなった過去チャンクを消す。1ファイル十数MBのため放置すると増え続ける。"""
-    for variable in WIND_VARIABLES:
+    for variable in FORECAST_VARIABLES:
         directory = MSM_DIR / variable
         if not directory.is_dir():
             continue
@@ -156,7 +162,7 @@ async def refresh(client: httpx.AsyncClient, horizon_hours: int | None = None) -
     etags = _load_json(_ETAGS_FILE)
     downloaded = 0
     keep: set[Path] = set()
-    for variable in WIND_VARIABLES:
+    for variable in FORECAST_VARIABLES:
         for chunk_number in chunk_numbers:
             keep.add(_chunk_path(variable, chunk_number))
             if await _download_chunk(client, variable, chunk_number, etags):
@@ -166,7 +172,7 @@ async def refresh(client: httpx.AsyncClient, horizon_hours: int | None = None) -
     _META_FILE.write_text(json.dumps(meta), encoding="utf-8")
     # 消したチャンクのETagが残ると、次に同じ番号を引いたとき「変更なし」と誤判定して
     # 存在しないファイルを読みに行くため、保持するチャンクぶんだけを残す。
-    valid = {f"{variable}/{number}" for variable in WIND_VARIABLES for number in chunk_numbers}
+    valid = {f"{variable}/{number}" for variable in FORECAST_VARIABLES for number in chunk_numbers}
     _ETAGS_FILE.write_text(json.dumps({k: v for k, v in etags.items() if k in valid}), encoding="utf-8")
     await asyncio.to_thread(_prune, keep)
 
@@ -207,7 +213,7 @@ def _read_series_sync(
         raise MsmUnavailableError("MSMの予報データが現在時刻に追いついていません")
 
     # 形状は実データから読む（緯度・経度方向の格子点数を定数として持たないため）。
-    sample_path = _chunk_path(WIND_VARIABLES[0], _chunk_number(start, chunk_hours))
+    sample_path = _chunk_path(FORECAST_VARIABLES[0], _chunk_number(start, chunk_hours))
     if not sample_path.exists():
         raise MsmUnavailableError(f"MSMのチャンクが未同期です: {sample_path.name}")
     with OmFileReader(str(sample_path)) as reader:
@@ -215,7 +221,7 @@ def _read_series_sync(
     grid = _grid_from_meta(meta, n_lat, n_lon)
     i0, i1, j0, j1 = grid.slice_bounds(latitudes, longitudes)
 
-    series: dict[str, list[np.ndarray]] = {variable: [] for variable in WIND_VARIABLES}
+    series: dict[str, list[np.ndarray]] = {variable: [] for variable in FORECAST_VARIABLES}
     times: list[str] = []
     cursor = start
     while cursor < end:
@@ -223,7 +229,7 @@ def _read_series_sync(
         chunk_begin = _chunk_start(chunk_number, chunk_hours)
         t0 = (cursor - chunk_begin) // 3600
         t1 = min((end - chunk_begin) // 3600, chunk_hours)
-        for variable in WIND_VARIABLES:
+        for variable in FORECAST_VARIABLES:
             block = _read_block(variable, chunk_number, i0, i1, j0, j1, t0, t1)
             series[variable].append(interpolate_points(block, grid, i0, j0, latitudes, longitudes))
         times.extend(

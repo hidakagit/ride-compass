@@ -3,7 +3,7 @@
 `https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json`は全国の現在発表中/直近解除済みの
 指定河川洪水予報を1つの配列で返す（府県別・河川別に分かれておらず1回のGETで完結する）。
 jma_warning_client.pyと同じ理由（更新頻度がOpen-Meteoほど高くない、機械アクセス制限の
-明記なし）でtenacity再試行は設けず、TTLキャッシュのみで済ませる。取得失敗はNoneを返す。
+明記なし）で再試行は設けず、TTLキャッシュのみで済ませる。取得失敗はNoneを返す。
 """
 
 import httpx

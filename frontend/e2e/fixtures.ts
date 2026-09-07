@@ -91,24 +91,19 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
 export function weatherConditionsFixture(): WeatherConditions {
   return {
     temperature_c: 18.5,
-    apparent_temperature_c: null,
     wind_speed_ms: 2.1,
     wind_direction_deg: 90,
     wind_direction_label: "東",
-    wind_gusts_ms: null,
-    precipitation_probability_percent: 10,
     precipitation_mm: null,
-    uv_index: null,
     observed_at: new Date().toISOString(),
     weather_code: null,
     is_day: null,
     sunrise: null,
     sunset: null,
-    precipitation_probability_max_percent: null,
+    precipitation_max_mm: null,
     wind_speed_max_ms: null,
     temperature_max_c: null,
     temperature_min_c: null,
-    uv_index_max: null,
     today_periods: [],
   };
 }

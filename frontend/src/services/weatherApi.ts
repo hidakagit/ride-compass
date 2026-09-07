@@ -21,7 +21,7 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
   });
   const url = `${API_BASE_URL}/api/weather?${params}`;
   const data = await fetchJson<WeatherConditions>(url, { timeoutMs: 15000, category: "api:weather", errorLabel: "天候情報" });
-  debugLog("api:weather", "詳細", { precipitation_probability_percent: data.precipitation_probability_percent });
+  debugLog("api:weather", "詳細", { precipitation_mm: data.precipitation_mm });
   return data;
 }
 

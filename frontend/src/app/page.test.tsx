@@ -1036,24 +1036,19 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
   function makeWeather(temperature_c: number): WeatherConditions {
     return {
       temperature_c,
-      apparent_temperature_c: null,
       wind_speed_ms: 3,
       wind_direction_deg: 90,
       wind_direction_label: "東",
-      wind_gusts_ms: null,
-      precipitation_probability_percent: null,
       precipitation_mm: null,
-      uv_index: null,
       observed_at: "2026-08-25T12:00:00+09:00",
       weather_code: null,
       is_day: null,
       sunrise: null,
       sunset: null,
-      precipitation_probability_max_percent: null,
+      precipitation_max_mm: null,
       wind_speed_max_ms: null,
       temperature_max_c: null,
       temperature_min_c: null,
-      uv_index_max: null,
       today_periods: [],
     };
   }

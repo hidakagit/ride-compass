@@ -2,9 +2,10 @@
 
 ## 責務
 
-気象庁MSM（風・降水の予報）・Open-Meteo（今日の見通し）・気象庁（アメダス・警報/注意報・
-タイル系ナウキャスト・洪水予報）・環境省（WBGT）由来のデータを取得・キャッシュし、地点の
-天候・警報・地図タイルとして配信する。
+気象庁MSM（風・降水・気温等の予報）・気象庁（アメダス・警報/注意報・タイル系ナウキャスト・
+洪水予報）・環境省（WBGT）由来のデータを取得・キャッシュし、地点の天候・警報・地図タイル
+として配信する。外部の気象予報APIには依存しない（予報はMSMのファイルをローカルへ同期して
+読む）。
 
 **予報と実測の住み分け**: 予報（風・降水の格子点マップ、ルート評価が使う時刻別の風）は
 気象庁MSMの前処理済みファイルをローカルへ同期して読む。実測（現在の気温・風速、降水
@@ -23,14 +24,14 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 |---|---|
 | domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
-| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`weather_client.py`・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
 
 ## domain層: 2つの異なる役割
 
 | ファイル | 役割 | 消費側 |
 |---|---|---|
-| `weather.py` | Open-Meteo応答のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`） | `weather_service.py` |
+| `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`）と、降水量・雲量・気温からWMO天気コードを導く`derive_weather_code` | `weather_service.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換・体感温度計算（BOM式）・`AmedasObservation`モデル | `jma_amedas_service.py` |
 | `jma_area.py` | 緯度経度→JMA警報エリアコード（class20→class15→class10→office）の親子関係解決 | `warning_service.py`・`flood_service.py` |
 | `jma_warning.py` | JMA警報コード表・アクティブ警報抽出 | `warning_service.py` |
@@ -48,7 +49,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | エンドポイント | データ源 | fail時 | レート制限/分 |
 |---|---|---|---|
-| `GET /api/weather` | Open-Meteo（今日の見通し: 日次集計・weather_code・UV指数等） | 502 | 60 |
+| `GET /api/weather` | 気象庁MSM（今日の見通し: 日次集計・天気コード・時間帯別の流れ） | 502 | 60 |
 | `GET /api/weather/warnings` | 気象庁警報・注意報 | 空（200） | 30 |
 | `GET /api/weather/wbgt` | 環境省WBGT | 空（200） | 30 |
 | `GET /api/weather/flood-forecast` | 河川洪水予報 | 空（200） | 30 |
@@ -183,7 +184,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 | メソッド | 用途 | 時刻 | daily/weather_code |
 |---|---|---|---|
-| `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 常に現在時刻 | 埋まる |
+| `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 天気コードは雲量・降水・気温から導出、日の出/日没は`twilight.py`で計算 |
 | `get_wind_forecast_series(point)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻の風） | 時別風向・風速の系列（JST）。MSMから読む | 対象外 |
 | `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
 
@@ -234,7 +235,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 ## シンプルな外部APIクライアントの共通ヘルパー（`simple_api_client.py`）
 
 `jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`は
-tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない、または機械アクセスへの
+再試行を持たない（更新頻度が高くない、または機械アクセスへの
 配慮のためTTLキャッシュで呼び出し頻度自体を抑える設計）。これらが共有する
 「`TTLCache`参照→ミス時のみfetch→エラー処理→キャッシュ書き戻し」という骨格を
 `cached_fetch(cache, key, category, fetch, *, catch=..., **log_fields)`が1箇所へ
@@ -243,9 +244,9 @@ tenacity再試行を持たない（更新頻度がOpen-Meteoほど高くない�
 `UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、常に
 固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `fetch_municipality_code`は`AttributeError`も対象に
-含める）ため、`catch`引数で個別に指定できる。`weather_client.py`（tenacity再試行・stale fallback）・
-`jma_tile_client.py`/`elevation_client.py`/`basemap_client.py`/`gsi_relief_tile_client.py`
-（TTLCache以外のキャッシュバックエンド）は対象外のまま各自の実装を維持する。
+含める）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/`elevation_client.py`/
+`basemap_client.py`/`gsi_relief_tile_client.py`（TTLCache以外のキャッシュバックエンド）は
+対象外のまま各自の実装を維持する。
 
 ## 基礎地図プロキシ（`basemap_client.py`・`api/routers/basemap.py`）
 
@@ -308,18 +309,3 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 run初期時刻から数時間遅れる。そのため現在時刻から先の長さはrunのタイミングによって
 変動し、`msm_forecast_hours`（48時間）に満たないことがある。応答の時刻配列はその時点で
 読める長さになり、フロントは配列長からスライダーの範囲を決める。
-
-## Open-Meteo呼び出しの信頼性対策（`weather_client.py`）
-
-Open-Meteoは「今日の見通し」パネル（`/api/weather`、日次集計・weather_code・UV指数等）
-だけが使う。地点ごとの単発呼び出しのため、以下の対策を持つ。
-
-1. **tenacityによる再試行**: 429のみ`Retry-After`ヘッダを尊重、それ以外は指数バックオフ
-   ＋ジッター（`RETRY_JITTER_RANGE`）で同時再試行の同期を避ける。`stop_after_attempt`
-   （最大4回）と`stop_after_delay`（予算8秒）のOR。
-2. **プロセス内TTLキャッシュ**: `_forecast_cache`（`CACHE_TTL_SECONDS`＝30分）。
-3. **stale fallback**: 再試行を尽くしても失敗した場合、TTL切れ後も
-   `STALE_FALLBACK_MAX_AGE_SECONDS`（3時間）以内のキャッシュがあれば代用する。
-
-`open_meteo_base_url`は本番では自前ホスト（Oracle Cloud VM）上のnginxリレープロキシへ
-向けられており、送信元IP共有による429を回避している。

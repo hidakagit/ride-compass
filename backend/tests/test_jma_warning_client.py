@@ -1,7 +1,7 @@
 """jma_warning_client.py（JMA警報・注意報API、area.json、国土地理院逆ジオコーダの
 クライアント）のテスト。
 
-weather_client.pyのテスト（test_weather_client_cache.py）と同じ観点（正常系のレスポンス
+他の外部APIクライアントのテストと同じ観点（正常系のレスポンス
 取得・キャッシュヒット・失敗時の挙動）を踏襲するが、このクライアントもwbgt_client.pyと
 同じ理由（モジュールdocstring参照: 更新頻度がOpen-Meteoほど高くない）でtenacity再試行を
 持たない。「リトライ」観点は「失敗時に再試行せず1回でNoneを返す」ことの確認に置き換える。

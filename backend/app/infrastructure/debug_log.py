@@ -128,7 +128,7 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
         if retries:
             stats["retried_calls"] += 1
             stats["retry_attempts_total"] += retries
-        # weather_client.pyのSTALE_FALLBACK的な「取得失敗時に古いキャッシュで代用した」回数。
+        # 「取得失敗時に古いキャッシュで代用した」回数。
         fallback = fields.get("fallback")
         if isinstance(fallback, str) and fallback.startswith("stale_cache"):
             stats["stale_fallback_used"] += 1
