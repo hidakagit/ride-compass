@@ -25,13 +25,14 @@ accident_points/osm_raw_pois/osm_raw_waysのいずれかが変わった場合（
 """
 
 import logging
+import math
 import sys
 import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
 
-from app.batch._common import batch_session_factory, chunked, run_simple_batch_cli
+from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
 from app.config import settings
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -55,24 +56,28 @@ _LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
 _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
 
 
+def _target_way_ids_stmt():
+    return (
+        select(OsmRawWayRow.osm_way_id)
+        .where(OsmRawWayRow.geom.is_not(None))
+        .where(OsmRawWayRow.highway.is_not(None))
+    )
+
+
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
+    stmt = _target_way_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        async with session_factory() as session:
-            result = await session.execute(
-                select(OsmRawWayRow.osm_way_id)
-                .where(OsmRawWayRow.geom.is_not(None))
-                .where(OsmRawWayRow.highway.is_not(None))
-            )
-            way_ids = [row[0] for row in result.all()]
+        target_count = await count_targets(session_factory, stmt)
 
-        logger.info("対象way数: %d件（chunk_size=%d）", len(way_ids), CHUNK_SIZE)
+        logger.info("対象way数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
         if dry_run:
             logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
-        if not way_ids:
+        if target_count == 0:
             logger.warning("対象wayが0件のため更新をスキップします（osm_raw_waysが空の可能性）")
             return 0
+        total_chunks = math.ceil(target_count / CHUNK_SIZE)
 
         intersection_started = time.perf_counter()
         async with session_factory() as session:
@@ -86,8 +91,9 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
         now = datetime.now(timezone.utc)
         total_written = 0
-        chunks = chunked(way_ids, CHUNK_SIZE)
-        for chunk_index, chunk in enumerate(chunks):
+        chunk_index = -1
+        async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
+            chunk_index += 1
             chunk_started = time.perf_counter()
             async with session_factory() as session:
                 # run id取得はチャンクごとの直前で行う（precompute_edge_attribute_counts.py
@@ -103,7 +109,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             total_written += len(chunk)
             logger.info(
                 "chunk %d/%d 完了: %d件 source_accident_run_id=%s source_osm_run_id=%s elapsed=%.1fs",
-                chunk_index + 1, len(chunks), len(chunk), source_accident_run_id, source_osm_run_id,
+                chunk_index + 1, total_chunks, len(chunk), source_accident_run_id, source_osm_run_id,
                 time.perf_counter() - chunk_started,
             )
 

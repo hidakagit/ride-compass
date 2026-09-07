@@ -21,6 +21,7 @@ migration 0010適用後、本番でも初回実行が必須（`designation_attri
 """
 
 import logging
+import math
 import sys
 import time
 from datetime import datetime, timezone
@@ -29,7 +30,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.batch._common import batch_session_factory, chunked, run_simple_batch_cli
+from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
 from app.config import settings
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -55,9 +56,8 @@ _LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
 _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
 
 
-async def _fetch_all_edge_ids(session: AsyncSession) -> list[str]:
-    result = await session.execute(select(RoadEdgeRow.edge_id))
-    return [row[0] for row in result.all()]
+def _target_edge_ids_stmt():
+    return select(RoadEdgeRow.edge_id)
 
 
 async def _fetch_source_run_ids(session: AsyncSession) -> tuple[int | None, int | None]:
@@ -91,17 +91,18 @@ async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
+    stmt = _target_edge_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        async with session_factory() as session:
-            edge_ids = await _fetch_all_edge_ids(session)
+        target_count = await count_targets(session_factory, stmt)
 
-        logger.info("対象edge数: %d件（chunk_size=%d）", len(edge_ids), CHUNK_SIZE)
+        logger.info("対象edge数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
         if dry_run:
             logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
-        if not edge_ids:
+        if target_count == 0:
             logger.warning("対象edgeが0件のため更新をスキップします（road_edgesが空の可能性）")
             return 0
+        total_chunks = math.ceil(target_count / CHUNK_SIZE)
 
         now = datetime.now(timezone.utc)
 
@@ -112,8 +113,9 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         # 問題ない。**本バッチの実行前にprecompute_road_node_degrees.pyの実行が必須**
         # （road_nodes.degreeが未計算＝全行0のままだとintersection_countも全件0になる）。
         total_written = 0
-        chunks = chunked(edge_ids, CHUNK_SIZE)
-        for chunk_index, chunk in enumerate(chunks):
+        chunk_index = -1
+        async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
+            chunk_index += 1
             chunk_started = time.perf_counter()
             async with session_factory() as session:
                 # run id取得はチャンクごとに直前で行う。edge_ids全体の処理は長時間かかりうるため、
@@ -145,7 +147,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
             total_written += len(rows)
             logger.info(
                 "chunk %d/%d 完了: %d件 source_accident_run_id=%s source_osm_run_id=%s elapsed=%.1fs",
-                chunk_index + 1, len(chunks), len(rows), source_accident_run_id, source_osm_run_id,
+                chunk_index + 1, total_chunks, len(rows), source_accident_run_id, source_osm_run_id,
                 time.perf_counter() - chunk_started,
             )
 

@@ -19,6 +19,7 @@
 import argparse
 import asyncio
 import logging
+import math
 import re
 import sys
 import time
@@ -32,7 +33,7 @@ from shapely.geometry.base import BaseGeometry
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.batch._common import batch_session_factory, chunked
+from app.batch._common import batch_session_factory, count_targets, stream_id_chunks
 from app.config import settings
 from app.domain.landcover import WayLandcover, class_percentages
 from app.infrastructure.proj_data import pin_bundled_proj_data
@@ -104,8 +105,8 @@ def count_pixels_in_ring(dataset, ring: BaseGeometry) -> dict[int, int] | None:
     return {int(value): int(count) for value, count in zip(values, counts)}
 
 
-async def _fetch_target_way_ids(session: AsyncSession, recompute: bool) -> list[int]:
-    """対象way（geom・highwayを持つ）のosm_way_idを地理的順序で返す。`recompute=False`
+def _target_way_ids_stmt(recompute: bool):
+    """対象way（geom・highwayを持つ）のosm_way_idを地理的順序で選ぶselect。`recompute=False`
     （既定）では`way_landcover`に既に行があるwayをanti-joinで除外する増分実行
     （`precompute_elevation_attributes.py`と同じ考え方）。"""
     stmt = (
@@ -117,9 +118,7 @@ async def _fetch_target_way_ids(session: AsyncSession, recompute: bool) -> list[
         stmt = stmt.outerjoin(WayLandcoverRow, WayLandcoverRow.osm_way_id == OsmRawWayRow.osm_way_id).where(
             WayLandcoverRow.osm_way_id.is_(None)
         )
-    stmt = stmt.order_by(OsmRawWayRow.geom)
-    result = await session.execute(stmt)
-    return [row[0] for row in result.all()]
+    return stmt.order_by(OsmRawWayRow.geom)
 
 
 async def _fetch_way_geometries(session: AsyncSession, way_ids: list[int]) -> dict[int, LineString]:
@@ -160,17 +159,18 @@ async def run(
     dry_run: bool,
 ) -> int:
     started = time.perf_counter()
+    stmt = _target_way_ids_stmt(recompute)
     async with batch_session_factory(database_url) as session_factory:
-        async with session_factory() as session:
-            way_ids = await _fetch_target_way_ids(session, recompute)
+        target_count = await count_targets(session_factory, stmt)
 
-        logger.info("対象way数: %d件（chunk_size=%d）", len(way_ids), CHUNK_SIZE)
+        logger.info("対象way数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
         if dry_run:
             logger.info("dry-run完了: DB書き込み・ラスタ読み込みなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
-        if not way_ids:
+        if target_count == 0:
             logger.warning("対象wayが0件のため更新をスキップします（osm_raw_waysが空、または全件計算済みの可能性）")
             return 0
+        total_chunks = math.ceil(target_count / CHUNK_SIZE)
         if not raster_paths:
             raise ValueError("--rasterが1件も指定されていません（dry-run以外では必須）")
 
@@ -185,8 +185,9 @@ async def run(
             total_written = 0
             total_out_of_range = 0
             total_low_pixels = 0
-            chunks = chunked(way_ids, CHUNK_SIZE)
-            for chunk_index, chunk in enumerate(chunks):
+            chunk_index = -1
+            async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
+                chunk_index += 1
                 chunk_started = time.perf_counter()
                 async with session_factory() as session:
                     geometries = await _fetch_way_geometries(session, chunk)
@@ -229,7 +230,7 @@ async def run(
                 total_written += len(records)
                 logger.info(
                     "chunk %d/%d 完了: %d件書込（範囲外%d件・画素不足%d件） elapsed=%.1fs",
-                    chunk_index + 1, len(chunks), len(records), total_out_of_range, total_low_pixels,
+                    chunk_index + 1, total_chunks, len(records), total_out_of_range, total_low_pixels,
                     time.perf_counter() - chunk_started,
                 )
 

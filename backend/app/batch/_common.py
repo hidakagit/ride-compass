@@ -4,7 +4,7 @@ asyncpg用DSN変換（import_pbf.py・import_accidents.py・match_designations.p
 import_designations.py）、ファイルダウンロードの骨格（import_accidents.py・
 import_designations.py）、SQLAlchemyセッションファクトリの生成と後始末
 （precompute_*.py・presplit_road_graph.py）、単純なCLI（--database-url/--dry-run）の
-起動処理、チャンク分割・コマンドステータス件数パース
+起動処理、対象IDのストリーミング取得・コマンドステータス件数パース
 など、複数バッチが共通で必要とする処理をここへ集約する。
 """
 
@@ -20,6 +20,7 @@ from typing import TypeVar
 
 import asyncpg
 import httpx
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -101,9 +102,35 @@ def status_count(status: str) -> int:
         return 0
 
 
-def chunked(items: list[_T], size: int) -> list[list[_T]]:
-    """itemsをsize件ずつのチャンクへ分割する。"""
-    return [items[i : i + size] for i in range(0, len(items), size)]
+async def count_targets(session_factory: async_sessionmaker, stmt: Select) -> int:
+    """`stream_id_chunks`へ渡すのと同じselectの対象件数を数える。
+
+    ストリーミングは事前に総数を知らないため、進捗ログの分母とdry-runの出力はこの
+    1回のCOUNTから得る。`ORDER BY`は件数に影響せずソートのコストだけを足すので外す。
+    """
+    async with session_factory() as session:
+        result = await session.execute(select(func.count()).select_from(stmt.order_by(None).subquery()))
+        return int(result.scalar_one())
+
+
+async def stream_id_chunks(
+    session_factory: async_sessionmaker, stmt: Select, chunk_size: int
+) -> AsyncIterator[list[_T]]:
+    """selectの1列目を`chunk_size`件ずつ取り出す（対象IDをPython側へ全件は載せない）。
+
+    サーバーサイドカーソル（`stream_results`）で読み進めるため、対象が数百万件でも
+    プロセスのメモリ使用量は1チャンク分に留まる。`stmt`の`ORDER BY`はそのまま効く
+    （地理的順序で読むバッチが、近接するEdge/wayを同じチャンクへ集めてタイル・ラスタの
+    キャッシュを効かせるために使う）。
+
+    カーソルを持つ読み取り専用セッションを開いたまま呼び出し元へ制御を戻すため、
+    **チャンクの処理は必ず別セッションで行うこと**——同じセッションで書き込むと、
+    カーソルの属するトランザクションが書き込みごと長時間開いたままになる。
+    """
+    async with session_factory() as session:
+        result = await session.stream(stmt)
+        async for partition in result.partitions(chunk_size):
+            yield [row[0] for row in partition]
 
 
 def asyncpg_dsn(sqlalchemy_url: str) -> str:

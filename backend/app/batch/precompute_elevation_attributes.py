@@ -24,14 +24,15 @@ GSIへの外部呼び出しはタイル単位（近接するEdge・形状点は�
 """
 
 import logging
+import math
 import sys
 import time
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.batch._common import batch_session_factory, chunked, run_simple_batch_cli
+from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
 from app.config import settings
 from app.domain.graph import RoadGraph
 from app.infrastructure.elevation_client import ElevationClient
@@ -46,44 +47,44 @@ logger = logging.getLogger("app.batch.precompute_elevation_attributes")
 CHUNK_SIZE = 2_000
 
 
-async def _fetch_all_edge_ids(session: AsyncSession) -> list[str]:
-    """未計算のEdge idを地理的順序（`ORDER BY geom`）で返す。
+def _target_edge_ids_stmt():
+    """未計算のEdge idを地理的順序（`ORDER BY geom`）で選ぶselect。
 
     計算済み（`elevation_attributes`に行がある）Edgeはanti-joinで最初から除外する
     ——再実行時に計算済み分のgeometryを読み直さずに済む。地理的順序にする理由・
     anti-joinの詳細はdocs/modules/backend/elevation.md「事前計算バッチ」節参照。
     """
-    stmt = (
+    return (
         select(RoadEdgeRow.edge_id)
         .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
         .where(ElevationAttributeRow.edge_id.is_(None))
         .order_by(RoadEdgeRow.geom)
     )
-    result = await session.execute(stmt)
-    return [row[0] for row in result.all()]
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
+    stmt = _target_edge_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        async with session_factory() as session:
-            edge_ids = await _fetch_all_edge_ids(session)
+        target_count = await count_targets(session_factory, stmt)
 
-        logger.info("対象edge数: %d件（chunk_size=%d）", len(edge_ids), CHUNK_SIZE)
+        logger.info("対象edge数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
         if dry_run:
             logger.info("dry-run完了: DB書き込み・外部呼び出しなし elapsed=%.1fs", time.perf_counter() - started)
             return 0
-        if not edge_ids:
+        if target_count == 0:
             logger.warning("対象edgeが0件のため更新をスキップします（road_edgesが空の可能性）")
             return 0
+        total_chunks = math.ceil(target_count / CHUNK_SIZE)
 
         client = ElevationClient()
-        chunks = chunked(edge_ids, CHUNK_SIZE)
         total_computed = 0
         # ElevationClientはhttpx.AsyncClientを内部で持たない設計のため、TLSハンドシェイク
         # 再確立を避けてこのバッチ全体を通して1本のみ生成する。
         async with httpx.AsyncClient(timeout=15.0) as http_client:
-            for chunk_index, chunk in enumerate(chunks):
+            chunk_index = -1
+            async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
+                chunk_index += 1
                 chunk_started = time.perf_counter()
                 async with session_factory() as session:
                     repository = RoadGraphRepository(session)
@@ -96,7 +97,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 total_computed += len(computed)
                 logger.info(
                     "chunk %d/%d 完了: %d件（累計%d件） elapsed=%.1fs",
-                    chunk_index + 1, len(chunks), len(computed), total_computed,
+                    chunk_index + 1, total_chunks, len(computed), total_computed,
                     time.perf_counter() - chunk_started,
                 )
 

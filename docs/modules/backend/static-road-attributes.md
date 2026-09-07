@@ -14,7 +14,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_validation.py`・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須） |
-| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]）・`refresh_derived.py` |
+| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[precompute系4本が共有する対象IDのチャンク取得と件数]）・`refresh_derived.py` |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -83,6 +83,14 @@ DELETEごとスキップする（既存データを誤って全消しする事�
 designations.py`実行後、およびOSM再取込後に再実行する必要がある。
 
 ### 事前集計バッチ（`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`）
+
+対象IDは`_common.py: stream_id_chunks`がサーバーサイドカーソル（`stream_results`）で
+`CHUNK_SIZE`件ずつ読み進める（`precompute_elevation_attributes.py`・
+`precompute_way_landcover.py`も同じ）。数百万行が対象でもプロセスのメモリ使用量は
+1チャンク分に留まり、selectの`ORDER BY`（地理的順序で読む2本が使う）もそのまま効く。
+進捗ログの分母とdry-runの件数は`count_targets`の1回のCOUNTから得る。カーソルを持つ
+読み取りセッションは処理中ずっと開いたままになるため、チャンクの処理は必ず別セッションで
+行う。
 
 いずれも新しいSQLを書かず、`RoadGraphRepository`の既存メソッド
 （`get_accident_counts`/`get_stop_poi_counts`/`get_poi_counts_by_kind`/
