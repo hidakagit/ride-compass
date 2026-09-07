@@ -56,6 +56,7 @@ const PREFERENCE_AXIS_DESCRIPTIONS: Record<string, string> = {
   accident: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
   night: "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
   bicycle_infra_quality: "専用の自転車インフラ（分離自転車道・自転車レーン等）が整備されているほど易しい",
+  openness: "建物・樹木などの遮蔽物が多い(開けていない)ほど易しい。既定重み0(風の強い日に個別に上げる想定)",
 };
 
 // 区間難易度の重み（2次要素）8軸。SECONDARY_AXES（secondaryAxes.ts、地図チップ・
