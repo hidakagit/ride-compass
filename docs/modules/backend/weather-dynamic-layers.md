@@ -24,7 +24,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 |---|---|
 | domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
-| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
 
 ## domain層: 2つの異なる役割
@@ -81,7 +81,7 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 |---|---|---|---|
 | `targetTimes*.json`（`jma_tile_client.py: is_target_times_path`で判定） | プロセス内メモリ`TTLCache`（maxsize=16） | 2分 | `public, max-age=60` |
 | タイル本体（ラスタPNG・洪水キキクルのベクタPBF） | `jma_tile_redis_cache.py`（Redis cache-aside、正本を持たない） | 20分 | `public, max-age=1200, immutable` |
-| 404（`TileNotFound`） | 上記と同じキー・TTL | 20分 | `public, max-age=600` |
+| 描くものが無いタイル（`EmptyTile`。上流の404、または200で返った空タイル） | 上記と同じキー・TTL（実体ではなくフラグ） | 20分 | `public, max-age=600` |
 | 502（上流障害） | 保存しない | — | 付けない |
 
 `Cache-Control`の値自体は`api/cache_policy.py`（`IMMUTABLE_TILE`・`JMA_TARGET_TIMES`・
@@ -105,14 +105,21 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 疎な格子状タイルは、ズームレベル・場所によって存在しないz/x/yが珍しくない正常系のため、
 タイムアウト・5xx等の実際の障害と同列に502・WARNINGログ・`/api/debug/stats`のerror集計へは
 乗せない。`get`（プリウォームバッチ等、404と他の失敗を区別する必要が無い呼び出し元向け）は
-`JmaTileNotFoundError`をNoneへ揃えて返す（従来通り）。
+`JmaTileNotFoundError`を`EMPTY_TILE`へ揃えて返す（Noneは取得失敗だけを表す。平常時は
+空が大半のため、失敗と混ぜるとエラー件数が常に大きくなり本物の障害が埋もれる）。
 
-**恒久404のキャッシュ（改善計画T605）**: 確認済みの404は`basetime`/`validtime`が確定した
-過去の一時点への結果のため再フェッチしても変わらない。`fetch`が404を確認した時点で、
-タイル本体は`jma_tile_redis_cache.set_not_found`（`TILE_NOT_FOUND`センチネル、実際のタイルと
-同じキー・TTLで`{"not_found": true}`を保存）、`targetTimes*.json`はプロセス内`TTLCache`へ
-直接`TILE_NOT_FOUND`を積む。`get_cached`/`get`が`TileNotFound`を受け取った場合、
-`jma_tile.py`は上流へ再問い合わせせず即座に404を返す（レート制限も消費しない）。
+**「得るものが無い」の持ち方**: 上流は、データの無いタイルを404で返すことも、200で
+全画素が透明なタイル（334バイトのRGBA PNG）・0バイトのMVTで返すこともある。**どちらも
+利用者から見れば同じ**ため、サーバーは区別せず1つの事実として持つ——
+`jma_tile_redis_cache.set_empty`が実際のタイルと同じキー・TTLで`{"empty": true}`を保存し、
+`get`は`EMPTY_TILE`センチネルを返す。空だと分かったタイルは`set`も実体を保存せずこの
+フラグへ倒す（空の判定は`jma_tile_content.py: is_empty_tile`が唯一持ち、在否インデックスも
+同じ判定を使う）。`targetTimes*.json`はプロセス内`TTLCache`へ直接`EMPTY_TILE`を積む。
+
+`jma_tile.py`は`EmptyTile`を受け取ると上流へ再問い合わせせず即座に404を返す（レート制限も
+消費しない）。クライアント側（`jmaTileProtocol.ts`）は404も空タイルも透明タイルへ倒すため、
+200＋空タイルを返す必要はない。`basetime`/`validtime`が確定した過去の一時点への結果のため、
+この事実は再フェッチしても変わらない。
 
 **要素ごとのズーム上限（`domain/jma_tile_specs.py`）**: 配信元は要素ごとに`zoomUse`
 （使用するズームの偶奇）と`maxNativeZoom`（画像が実在する最大ズーム）を持ち、**両方を

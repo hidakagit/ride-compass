@@ -11,14 +11,13 @@ JMA動的タイルは疎で、平常時はほぼ全てのタイルが空であ�
 
 **正本を持たないキャッシュ**: 失っても機能は壊れない（インデックスが無ければクライアントは
 従来どおり全タイルを取りに行くだけ）。Redisとのやり取りは`redis_json_cache`の共通骨格へ
-委ね、このモジュールはキー設計・TTL・在否の判定だけを持つ。
+委ね、このモジュールはキー設計・TTLだけを持つ（在否の判定自体は`jma_tile_content.py`）。
 """
 
-import io
-
-from PIL import Image
-
+from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.redis_json_cache import get_json, set_json
+
+__all__ = ["get_index", "is_empty_tile", "set_index"]
 
 _LOG_CATEGORY = "cache:jma-tile-index"
 # 要素ごとに`basetime`が異なる（risk系・nowc系・rasrf系で別々に更新される）ため、
@@ -29,25 +28,6 @@ _LATEST_KEY = "jma:tile-index:latest"
 # プリウォーム間隔（10分）より長く取り、1回の遅延で即座に空にならないようにする
 # （`jma_tile_redis_cache.py`のタイル本体TTLと同じ考え方）。
 _TTL_SECONDS = 20 * 60
-
-
-def is_empty_tile(content: bytes, extension: str) -> bool:
-    """タイルに描くものが無いか。
-
-    ラスタは全画素が透明かどうかで判定する（`getchannel("A").getbbox()`は非透明領域の
-    外接矩形を返し、全て透明ならNone）。ベクタ（洪水キキクル）は空のMVTが0バイトで
-    配信されるため長さで判定する。
-
-    **判定できない場合は「中身あり」に倒す**——インデックスは「取りに行かなくてよい」の
-    判断に使うため、誤って空と判定すると危険情報が表示されなくなる。
-    """
-    if extension == "pbf":
-        return len(content) == 0
-    try:
-        with Image.open(io.BytesIO(content)) as image:
-            return image.convert("RGBA").getchannel("A").getbbox() is None
-    except Exception:  # noqa: BLE001 壊れた画像・未知の形式は「中身あり」扱いで取得を止めない
-        return False
 
 
 async def set_index(payload: dict) -> None:

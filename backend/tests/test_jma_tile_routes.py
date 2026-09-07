@@ -89,12 +89,12 @@ def test_jma_tile_proxy_returns_404_when_tile_not_found_upstream():
     assert response.status_code == 404
 
 
-def test_jma_tile_proxy_returns_404_from_cached_tile_not_found_without_fetching():
-    # 改善計画T605: get_cachedがTileNotFound（恒久404を確認済み）を返した場合、
+def test_jma_tile_proxy_returns_404_from_cached_empty_tile_without_fetching():
+    # get_cachedがEmptyTile（描くものが無いと確認済み）を返した場合、
     # レート制限もfetchも経由せず即座に404を返す。
-    from app.infrastructure.jma_tile_client import TileNotFound
+    from app.infrastructure.jma_tile_client import EmptyTile
 
-    fake = FakeJmaTileClient(cached_result=TileNotFound())
+    fake = FakeJmaTileClient(cached_result=EmptyTile())
     app.dependency_overrides[get_jma_tile_client] = lambda: fake
 
     try:

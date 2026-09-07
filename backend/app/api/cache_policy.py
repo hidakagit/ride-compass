@@ -80,7 +80,7 @@ HANDLER_MANAGED = CachePolicy(max_age_seconds=None, handler_managed=True)
 #: 短くする。
 JMA_TARGET_TIMES = CachePolicy(max_age_seconds=60)
 #: 気象庁タイルの恒久404。`basetime`が確定した過去の一時点に対する結果のため再問い合わせ
-#: しても変わらない（`jma_tile_redis_cache.py: TileNotFound`と同じ理由）。疎な格子状タイルでは
+#: しても変わらない（`jma_tile_redis_cache.py: EmptyTile`と同じ理由）。疎な格子状タイルでは
 #: 404が正常系として多数発生するため、再要求させない効果はタイル本体と変わらない。
 JMA_TILE_NOT_FOUND = CachePolicy(max_age_seconds=10 * 60)
 

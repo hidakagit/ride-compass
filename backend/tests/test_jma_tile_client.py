@@ -123,11 +123,14 @@ async def test_fetch_raises_not_found_for_404():
         await client.fetch("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
 
 
-async def test_get_returns_none_for_404_without_raising():
-    # 改善計画T603: 疎な格子状タイルでは特定のz/x/yが上流に存在しない（404）ことは
-    # 珍しくない正常系のため、get()（プリウォームバッチ等が使う）はJmaTileNotFoundErrorを
-    # 意識せずNoneへ揃える。
+async def test_get_returns_empty_tile_for_404_instead_of_raising_or_none():
+    # 疎な格子状タイルでは特定のz/x/yが上流に存在しない（404）ことは珍しくない正常系。
+    # get()（プリウォームバッチ等が使う）はJmaTileNotFoundErrorを意識せずに済むが、
+    # 取得失敗（None）とは区別できる必要がある——平常時はこれが大半のため、失敗として
+    # 数えるとエラー件数が常に大きくなり本物の障害が埋もれる。
     import httpx
+
+    from app.infrastructure.jma_tile_client import EmptyTile
 
     request = httpx.Request("GET", "https://www.jma.go.jp/x")
     response = httpx.Response(404, request=request)
@@ -139,16 +142,16 @@ async def test_get_returns_none_for_404_without_raising():
 
     result = await client.get("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
 
-    assert result is None
+    assert isinstance(result, EmptyTile)
 
 
 async def test_fetch_caches_404_so_a_later_get_cached_skips_upstream():
     # 改善計画T605: 恒久404（basetime/validtimeが確定した過去の一時点への結果）を
-    # キャッシュし、同じpathへの次回get_cachedが上流へ問い合わせずTileNotFoundを
+    # キャッシュし、同じpathへの次回get_cachedが上流へ問い合わせずEmptyTileを
     # 返せることを確認する。
     import httpx
 
-    from app.infrastructure.jma_tile_client import TileNotFound
+    from app.infrastructure.jma_tile_client import EmptyTile
 
     request = httpx.Request("GET", "https://www.jma.go.jp/x")
     response = httpx.Response(404, request=request)
@@ -163,13 +166,13 @@ async def test_fetch_caches_404_so_a_later_get_cached_skips_upstream():
         await client.fetch(path)
     cached = await client.get_cached(path)
 
-    assert isinstance(cached, TileNotFound)
+    assert isinstance(cached, EmptyTile)
 
 
 async def test_fetch_caches_404_for_target_times_path_too():
     import httpx
 
-    from app.infrastructure.jma_tile_client import TileNotFound
+    from app.infrastructure.jma_tile_client import EmptyTile
 
     request = httpx.Request("GET", "https://www.jma.go.jp/x")
     response = httpx.Response(404, request=request)
@@ -184,7 +187,7 @@ async def test_fetch_caches_404_for_target_times_path_too():
         await client.fetch(path)
     cached = await client.get_cached(path)
 
-    assert isinstance(cached, TileNotFound)
+    assert isinstance(cached, EmptyTile)
 
 
 async def test_404_is_not_counted_as_an_error_in_debug_stats():

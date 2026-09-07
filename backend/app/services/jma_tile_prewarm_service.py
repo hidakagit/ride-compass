@@ -30,6 +30,7 @@ from app.domain.jma_tile_specs import JMA_TILE_SPECS, has_native_tile, max_zoom_
 from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import JmaTileClient
+from app.infrastructure.jma_tile_client import EmptyTile
 from app.infrastructure.jma_tile_index import is_empty_tile, set_index
 from app.infrastructure.jma_tile_interpolation import parse_tile_path
 
@@ -174,7 +175,7 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     for layer in _LAYERS:
         if layer.target_times_path not in target_times_cache:
             raw = await client.get(layer.target_times_path)
-            if raw is None:
+            if raw is None or isinstance(raw, EmptyTile):
                 target_times_cache[layer.target_times_path] = None
             else:
                 content, _content_type = raw
@@ -199,6 +200,7 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
         logger.warning("jma tile prewarm: targetTimes取得/解析に失敗しスキップ labels=%s", skipped_labels)
 
     fetched = 0
+    empty = 0
     errors = 0
     total_bytes = 0
     semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
@@ -208,17 +210,23 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     present: dict[str, dict[int, list[list[int]]]] = {}
 
     async def _fetch_one(path: str) -> None:
-        nonlocal fetched, errors, total_bytes
+        nonlocal fetched, empty, errors, total_bytes
         async with semaphore:
             result = await client.get(path)
         if result is None:
             errors += 1
+            return
+        if isinstance(result, EmptyTile):
+            # 描くものが無いと確認済み（上流の404、または前回の取得で空と分かってフラグで
+            # 保持されているもの）。平常時はこれが大半のため、失敗として数えない。
+            empty += 1
             return
         fetched += 1
         content = result[0]
         total_bytes += len(content)
         coords = parse_tile_path(path)
         if coords is None or is_empty_tile(content, coords.ext):
+            empty += 1
             return
         present.setdefault(coords.element, {}).setdefault(coords.z, []).append([coords.x, coords.y])
 
@@ -228,9 +236,10 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     elapsed_ms = round((time.monotonic() - started) * 1000)
     non_empty = sum(len(coords) for zooms in present.values() for coords in zooms.values())
     logger.info(
-        "jma tile prewarm 完了 tiles=%d fetched=%d errors=%d non_empty=%d total_bytes=%d elapsed_ms=%d",
+        "jma tile prewarm 完了 tiles=%d fetched=%d empty=%d errors=%d non_empty=%d total_bytes=%d elapsed_ms=%d",
         len(all_paths),
         fetched,
+        empty,
         errors,
         non_empty,
         total_bytes,

@@ -7,9 +7,9 @@ from app.api.dependencies import enforce_rate_limit, get_jma_tile_client
 from app.config import settings
 from app.domain.jma_tile_specs import source_zoom_for_interpolation
 from app.infrastructure.jma_tile_client import (
+    EmptyTile,
     JmaTileClient,
     JmaTileNotFoundError,
-    TileNotFound,
     is_target_times_path,
 )
 from app.infrastructure.jma_tile_index import get_index
@@ -45,7 +45,9 @@ async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> bytes
     if source_zoom_for_interpolation(coords.element, coords.z) is None:
         return None
     parent = await jma_tile_client.get(coords.parent_path())
-    if parent is None:
+    if parent is None or isinstance(parent, EmptyTile):
+        # 親が空なら拡大しても空にしかならない。呼び出し元は上流フェッチへ進み、
+        # そこでも空・404なら404を返す。
         return None
     parent_content, _parent_content_type = parent
     try:
@@ -88,9 +90,9 @@ async def jma_tile_proxy(
     # 簡易な歯止め（basemap_proxyと同じ方針）は、実際に外部フェッチが発生する
     # ミス時のみ適用する。
     cached = await jma_tile_client.get_cached(path)
-    if isinstance(cached, TileNotFound):
-        # 恒久404（疎な格子状タイルでは珍しくない正常系）だと確認済みのため、
-        # 上流へ問い合わせ直さず即座に404を返す。
+    if isinstance(cached, EmptyTile):
+        # 描くものが無いと確認済みのため、上流へ問い合わせ直さず即座に404を返す
+        # （上流が404で返すか空タイルで返すかに関わらず、クライアントから見れば同じ）。
         raise HTTPException(
             status_code=404,
             detail="指定されたタイルは存在しません",

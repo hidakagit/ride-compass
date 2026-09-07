@@ -21,6 +21,7 @@ from app.infrastructure.redis_client import (
     record_redis_success,
     redis_available,
 )
+from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.tile_cache import cache_key
 
 _KEY_PREFIX = "jma:tile"
@@ -29,24 +30,36 @@ _KEY_PREFIX = "jma:tile"
 _TTL_SECONDS = 20 * 60
 
 
-class TileNotFound:
-    """指定パスのタイルが上流（JMA）に存在しないこと（404）を確認済みというキャッシュ済みの
-    事実を表すセンチネル（`elevation_client.py: _CoverageGap`と同じ設計）。
-    降水・浸水想定区域等の疎な格子状タイルでは、特定のz/x/yに対応するデータが無いのは
-    珍しくない正常系だが、basetime/validtimeが確定した過去の一時点に対する結果のため
-    再フェッチしても変わらない。実際のタイル内容と同じキー・TTLで保持し、次回以降は
-    上流へ問い合わせず即座に返せるようにする。"""
+class EmptyTile:
+    """このパスには描くものが無いと確認済み、というキャッシュ済みの事実を表すセンチネル
+    （`elevation_client.py: _CoverageGap`と同じ設計）。
+
+    上流の返し方には2通りある——404（タイル自体が存在しない）と、200で返るが全画素が
+    透明・0バイト。降水・浸水想定区域等の疎な格子状タイルではどちらも珍しくない正常系で、
+    **利用者から見れば同じ「得るものが無い」**である（クライアント側の
+    `jmaTileProtocol.ts`も両方を透明タイルへ倒している）。そのため区別せずこの1つの事実
+    として持つ。
+
+    basetime/validtimeが確定した過去の一時点に対する結果のため、再フェッチしても変わらない。
+    実際のタイル内容と同じキー・TTLで保持し、次回以降は上流へ問い合わせず即座に返せる
+    ようにする。"""
 
 
-TILE_NOT_FOUND = TileNotFound()
+EMPTY_TILE = EmptyTile()
+
+
+def _extension(path: str) -> str:
+    """`.../{z}/{x}/{y}.png`のような配信パスから拡張子だけを取り出す
+    （クエリ文字列付きのパスもそのままキーになるため、末尾から素直に切る）。"""
+    return path.rsplit(".", 1)[-1].split("?", 1)[0] if "." in path else ""
 
 
 def _key(path: str) -> str:
     return f"{_KEY_PREFIX}:{cache_key(path)}"
 
 
-async def get(path: str) -> tuple[bytes, str] | TileNotFound | None:
-    """Redisキャッシュ済みなら(内容, Content-Type)または`TILE_NOT_FOUND`を返す。
+async def get(path: str) -> tuple[bytes, str] | EmptyTile | None:
+    """Redisキャッシュ済みなら(内容, Content-Type)または`EMPTY_TILE`を返す。
     未キャッシュ・Redis障害時はNone（呼び出し元は通常のオンデマンドフェッチへ
     フォールバックする）。"""
     if not redis_available():
@@ -70,10 +83,10 @@ async def get(path: str) -> tuple[bytes, str] | TileNotFound | None:
             return None
         try:
             payload = json.loads(raw)
-            if payload.get("not_found"):
+            if payload.get("empty"):
                 fields["result"] = "ok"
                 fields["cache"] = "hit"
-                return TILE_NOT_FOUND
+                return EMPTY_TILE
             content = base64.b64decode(payload["body_b64"])
             content_type = payload["content_type"]
         except (ValueError, TypeError, KeyError):
@@ -88,7 +101,15 @@ async def get(path: str) -> tuple[bytes, str] | TileNotFound | None:
 
 async def set(path: str, content: bytes, content_type: str) -> None:
     """取得できたタイルをRedisへ書き戻す（キャッシュの最適化であり、書き込み失敗は
-    応答自体の成否に関与しない）。"""
+    応答自体の成否に関与しない）。
+
+    中身が空なら実体ではなく`EMPTY_TILE`と同じフラグで持つ。実体を保持しても
+    返す先が無い——クライアントは在否インデックス（`jma_tile_index.py`）を見て
+    空のタイルを要求しないため、保持した実体が使われるのは索引が届く前だけである。
+    """
+    if is_empty_tile(content, _extension(path)):
+        await set_empty(path)
+        return
     if not redis_available():
         return
     client = get_redis_client_or_none()
@@ -108,17 +129,17 @@ async def set(path: str, content: bytes, content_type: str) -> None:
             fields["result"] = "ok"
 
 
-async def set_not_found(path: str) -> None:
-    """上流の404（疎な格子状タイルでは珍しくない正常系）を確認したときに呼ぶ。`set()`と
-    同じTTL・fail-open方針で、次回以降の問い合わせを`TILE_NOT_FOUND`で即座に済ませられる
-    ようにする。"""
+async def set_empty(path: str) -> None:
+    """このパスに描くものが無いと確認したときに呼ぶ（上流の404、または200で返った空タイル。
+    疎な格子状タイルではどちらも珍しくない正常系）。`set()`と同じTTL・fail-open方針で、
+    次回以降の問い合わせを`EMPTY_TILE`で即座に済ませられるようにする。"""
     if not redis_available():
         return
     client = get_redis_client_or_none()
     if client is None:
         return
     with log_external_call("cache:jma-tile-redis", path=path) as fields:
-        payload = json.dumps({"not_found": True})
+        payload = json.dumps({"empty": True})
         try:
             await client.set(_key(path), payload, ex=_TTL_SECONDS)
         except Exception as exc:  # noqa: BLE001 書き込み失敗は次回フェッチで自己修復する
