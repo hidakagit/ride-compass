@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.batch._common import batch_session_factory, chunked
 from app.config import settings
 from app.domain.landcover import WayLandcover, class_percentages
+from app.infrastructure.proj_data import pin_bundled_proj_data
 from app.infrastructure.road_graph_models import OsmRawWayRow, WayLandcoverRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
@@ -82,6 +83,7 @@ def count_pixels_in_ring(dataset, ring: BaseGeometry) -> dict[int, int] | None:
     # rasterioはrequirements-batch.txt限定の依存で本番webイメージには無いため、この
     # モジュールをALGORITHM_VERSION参照のためだけにimportするderived_data_freshness.py
     # 経由でもimportできるよう、ここでのみ読み込む（モジュール冒頭でimportしない）。
+    pin_bundled_proj_data()
     import rasterio.errors
     import rasterio.features
 
@@ -134,6 +136,7 @@ class _RasterSource:
 
     def __init__(self, path: str):
         # count_pixels_in_ringと同じ理由でここでのみimportする。
+        pin_bundled_proj_data()
         import pyproj
         import rasterio
 

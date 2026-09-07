@@ -1,17 +1,9 @@
-import importlib.util
 import os
-from pathlib import Path as _Path
 
-# rasterioはPROJ_LIB/PROJ_DATAを見てPROJのデータベース（proj.db）を探す。この環境変数は
-# PostGIS等の別アプリが自分用に設定していることがあり、その場合はrasterioが要求するより
-# 古いレイアウトのproj.dbを指してCRSError（EPSGコード不明）になる。テストは実行機の
-# グローバル設定に依存させず、rasterio同梱のデータだけを見るよう固定する。
-_rasterio_spec = importlib.util.find_spec("rasterio")
-if _rasterio_spec is not None and _rasterio_spec.origin:
-    _bundled_proj = _Path(_rasterio_spec.origin).parent / "proj_data"
-    if _bundled_proj.is_dir():
-        os.environ["PROJ_LIB"] = str(_bundled_proj)
-        os.environ["PROJ_DATA"] = str(_bundled_proj)
+from app.infrastructure.proj_data import pin_bundled_proj_data
+
+# rasterioをimportする前に呼ぶ必要があるため、他のimportより先に置く。
+pin_bundled_proj_data()
 
 import pytest
 import pytest_asyncio

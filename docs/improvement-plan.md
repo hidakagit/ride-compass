@@ -973,7 +973,7 @@ T281を段階1・2の完了を理由に本文へ段階3を残したまま`[x]`�
 
 ## 開発機のテスト環境（2026-09-07・T632の全体テスト実行中に発覚）
 
-- [ ] [T638](tasks/T638.md). 開発機でPostgreSQL同梱のPROJとrasterioのPROJが衝突しテストが失敗する 規模S（起票のみ・対応未着手。test_precompute_way_landcover.pyの2件が常に赤くなり、本物の失敗と区別がつかない。CI・本番は影響なし）
+- [x] [T638](tasks/T638.md). 開発機でPostgreSQL同梱のPROJとrasterioのPROJが衝突しテストが失敗する 規模S（2026-09-08完了。infrastructure/proj_data.py: pin_bundled_proj_data()をconftestとバッチの遅延import前から呼ぶ。テストだけ直すとバッチの手動実行が同じCRSErrorで落ちたままだった）
 
 ## 「地図データを再読み込み」の責務分離（2026-09-07・ユーザー指摘「サーバ側の操作と、ブサウザ側の操作が1アクション内で混ざってしまっていて望ましくない設計。分離すべき」から）
 
