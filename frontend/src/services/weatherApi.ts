@@ -9,6 +9,7 @@ import type {
   WindGridResponse,
 } from "@/types/weather";
 import type { Bbox } from "@/components/Map/windLayer";
+import type { JmaTileIndexResponse } from "@/components/Map/jmaTileIndex";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
@@ -121,4 +122,18 @@ export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise
   const points = toWindGridPoints(data);
   debugLog("api:windGridDetail", "詳細", { points: points.length });
   return points;
+}
+
+/**
+ * JMA動的タイルの在否インデックス（`GET /api/jma-tile-index`）。
+ *
+ * 失敗しても呼び出し元（`useJmaTileIndex`）は`null`のまま動く——インデックスが無ければ
+ * タイルの間引きが効かないだけで、表示は従来どおり成立する。
+ */
+export async function fetchJmaTileIndex(): Promise<JmaTileIndexResponse> {
+  return fetchJson<JmaTileIndexResponse>(`${API_BASE_URL}/api/jma-tile-index`, {
+    timeoutMs: 15000,
+    category: "api:jma-tile-index",
+    errorLabel: "タイル在否インデックス",
+  });
 }

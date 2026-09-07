@@ -89,6 +89,8 @@ import {
   type RampAxis,
 } from "@/components/Map/axisLayers";
 import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
+import { useJmaTileIndex } from "@/hooks/useJmaTileIndex";
+import { registerJmaTileProtocol, withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
@@ -1074,7 +1076,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
         } else {
           map.addSource(sourceId, {
             type: "raster",
-            tiles: [spec.raster.placeholderTileUrl],
+            tiles: [withJmaTileProtocol(spec.raster.placeholderTileUrl)],
             tileSize: 256,
             minzoom: spec.raster.minzoom,
             maxzoom: spec.raster.maxzoom,
@@ -1178,7 +1180,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
         } else {
           map.addSource(sourceId, {
             type: "vector",
-            tiles: [vector.placeholderTileUrl],
+            tiles: [withJmaTileProtocol(vector.placeholderTileUrl)],
             minzoom: vector.minzoom,
             maxzoom: vector.maxzoom,
             attribution: vector.attribution,
@@ -1224,10 +1226,14 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
 // 覚えておき、変化が無ければsetTilesを呼ばない。
 const lastAppliedTileUrl = new WeakMap<object, string>();
 
+// この関数を通るのは動的気象レイヤー（JMAタイル）のソースだけのため、ここで
+// jmatile://スキームを付ける（jmaTileProtocol.tsが在否インデックスを見て、空と分かって
+// いるタイルをネットワークへ出さずに透明タイルで返す）。
 function setTilesIfChanged(source: maplibregl.RasterTileSource | maplibregl.VectorTileSource, url: string): void {
-  if (lastAppliedTileUrl.get(source) === url) return;
-  lastAppliedTileUrl.set(source, url);
-  source.setTiles([url]);
+  const tileUrl = withJmaTileProtocol(url);
+  if (lastAppliedTileUrl.get(source) === tileUrl) return;
+  lastAppliedTileUrl.set(source, tileUrl);
+  source.setTiles([tileUrl]);
 }
 
 // gridFill/gridMark（GeoJSONSource）向けの同型ガード。setData()はネットワーク取得こそ
@@ -2688,9 +2694,17 @@ export default function MapView({
       onChangeRef: onLayerDataStatusChangeRef,
     });
 
+  // JMA動的タイルの在否インデックスを定期取得し、空と分かっているタイルの要求を
+  // 間引く（jmaTileProtocol.ts）。取得できていない間は間引きが効かないだけで表示は成立する。
+  useJmaTileIndex();
+
   // 地図初期化
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+
+    // JMAタイルの在否インデックスによる要求の間引き（jmaTileProtocol.ts）。Mapを作る前に
+    // 登録する必要がある（スタイル適用時点でタイル要求が始まりうるため）。
+    registerJmaTileProtocol();
 
     // アンマウント後にidleイベントが届いてもsetStateしないためのガード
     // （BackendStatusのcancelledガードと同じ考え方）

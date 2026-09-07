@@ -81,7 +81,8 @@ describe("applyDynamicWeatherState（setTilesの冗長呼び出し防止）", ()
     applyDynamicWeatherState(map as never, "disaster", DYNAMIC_WEATHER_RENDERERS.disaster, groupState);
     applyDynamicWeatherState(map as never, "disaster", DYNAMIC_WEATHER_RENDERERS.disaster, { ...groupState });
 
-    expect(setTilesCalls).toEqual([["https://example.com/a.png"]]);
+    // jmatile://スキームが付く（jmaTileProtocol.tsが在否インデックスで要求を間引くため）。
+    expect(setTilesCalls).toEqual([["jmatile://https://example.com/a.png"]]);
   });
 
   it("tileUrlTemplateが変わればsetTilesが再度呼ばれる", () => {
@@ -95,7 +96,10 @@ describe("applyDynamicWeatherState（setTilesの冗長呼び出し防止）", ()
       heavyRain: { visible: true, payload: { kind: "rasterTile", tileUrlTemplate: "https://example.com/b.png" } },
     });
 
-    expect(setTilesCalls).toEqual([["https://example.com/a.png"], ["https://example.com/b.png"]]);
+    expect(setTilesCalls).toEqual([
+      ["jmatile://https://example.com/a.png"],
+      ["jmatile://https://example.com/b.png"],
+    ]);
   });
 
   it("gridMark（GeoJSONSource）も内容が変わらない限りsetDataは1回しか呼ばれない", () => {

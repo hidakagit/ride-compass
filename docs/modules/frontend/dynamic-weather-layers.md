@@ -15,6 +15,9 @@ Open-Meteo・気象庁由来の時刻変化する気象データ（風・降水�
 | `Map/lidenLayer.ts`・`lidenIcon.ts` | 雷放電位置データ（liden、実際の落雷地点）のフレーム列・GeoJSON取得・Canvas 2Dアイコン描画 |
 | `Map/windLayer.ts`・`windArrowIcon.ts` | 風の矢印（gridMark）の格子データ・Canvas 2Dアイコン描画 |
 | `Map/riskMap.ts` | キキクル・線状降水帯予測マップ（未来フレームを持たない特殊系） |
+| `Map/jmaTileIndex.ts` | 在否インデックスの解釈（URL解析・「空だと確認済み」の判定、純ロジック） |
+| `Map/jmaTileProtocol.ts` | `jmatile://`スキームのMapLibreプロトコル。空と分かっているタイルをネットワークへ出さずに透明タイルで返す |
+| `hooks/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ |
 | `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の6箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・雷放電位置データ・キキクル・線状降水帯予測マップ）が共有するフェッチ骨格の共通実装 |
@@ -62,6 +65,23 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 
 `dynamicWeatherIds(id, source, sub)`が`region-dynamic-weather-${id}-${source}-${sub}`
 という命名規約でsource/layer idを機械的に決める（`-main`のみ、縁取り専用の別レイヤーは持たない）。
+
+## 空タイル要求の間引き（在否インデックス）
+
+JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。`hooks/useJmaTileIndex.ts`が
+backendの`GET /api/jma-tile-index`（[気象・動的レイヤー](../backend/weather-dynamic-layers.md)
+「在否インデックス」節）を定期取得し、`Map/jmaTileProtocol.ts`が`maplibregl.addProtocol`で
+タイル要求を横取りする。「空だと確認済み」のタイルはネットワークへ出さず、透明PNG
+（ベクタは0バイトのMVT）を返す。
+
+そのためJMAタイルのURLは`jmatile://`スキームを付けた形でソースへ渡す
+（`MapView.tsx: setTilesIfChanged`と初期化時のプレースホルダの2箇所で付与）。
+
+**取りこぼしより空振りを選ぶ**: 判断がつかない場合（インデックス未取得・要素の`basetime`が
+要求と違う・インデックスの網羅範囲外・URLを解釈できない）は必ず「取りに行く」へ倒す。
+誤って省くと危険情報が地図から消えるため、省けるのは空だと確認済みの場合だけに限る。
+取得に失敗した応答（404を含む）も空タイルとして返す——MapLibreは失敗タイルを再試行しない
+ため、ここで例外にするとその位置が永久に空白になる。
 
 JMAタイル系ソースの`minzoom`/`maxzoom`は`jmaZoomRange(elementId)`が
 `types/generated/jma-tile-config.json`から引く（正本は
