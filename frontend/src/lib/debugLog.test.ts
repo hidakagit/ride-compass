@@ -27,6 +27,17 @@ describe("debugLog", () => {
       expect(isDebugEnabled()).toBe(false);
       expect(window.localStorage.getItem("ridecompass:debug-enabled")).toBe("0");
     });
+
+    it("localStorage.setItemが例外を投げても（プライベートブラウジング等）isDebugEnabledは更新される", () => {
+      const spy = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+        throw new DOMException("QuotaExceededError");
+      });
+
+      expect(() => setDebugEnabled(true)).not.toThrow();
+      expect(isDebugEnabled()).toBe(true);
+
+      spy.mockRestore();
+    });
   });
 
   describe("debugLog", () => {

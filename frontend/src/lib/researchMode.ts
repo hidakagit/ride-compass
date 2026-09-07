@@ -4,9 +4,11 @@
 // コンソールが出る」という絡みが生まれるため。
 // シングルトン＋購読の形はdebugLog.tsと同じ（useSyncExternalStoreから使う）。
 
+import { readStoredValue, writeStoredValue } from "@/lib/safeStorage";
+
 const STORAGE_KEY = "ridecompass:research-enabled";
 
-let enabled = typeof window !== "undefined" && window.localStorage.getItem(STORAGE_KEY) === "1";
+let enabled = readStoredValue(STORAGE_KEY) === "1";
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -19,14 +21,7 @@ export function isResearchEnabled(): boolean {
 
 export function setResearchEnabled(next: boolean): void {
   enabled = next;
-  if (typeof window !== "undefined") {
-    // プライベートブラウジング等で保存できなくても、このセッション内の有効化は成立させる
-    try {
-      window.localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
-    } catch {
-      // 保存不可は無視（次回訪問時に既定OFFへ戻るだけ）
-    }
-  }
+  writeStoredValue(STORAGE_KEY, next ? "1" : "0");
   notify();
 }
 

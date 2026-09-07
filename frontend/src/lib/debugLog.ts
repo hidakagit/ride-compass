@@ -2,6 +2,8 @@
 // フレームワーク非依存のシングルトンとして持つことで、Reactコンポーネントだけでなく
 // services/配下のfetchラッパーやMapView.tsxのmapイベントハンドラからも直接呼べるようにする。
 
+import { readStoredValue, writeStoredValue } from "@/lib/safeStorage";
+
 export type DebugLogLevel = "info" | "warn" | "error";
 
 export interface DebugLogEntry {
@@ -16,7 +18,7 @@ export interface DebugLogEntry {
 const STORAGE_KEY = "ridecompass:debug-enabled";
 const MAX_ENTRIES = 300;
 
-let enabled = typeof window !== "undefined" && window.localStorage.getItem(STORAGE_KEY) === "1";
+let enabled = readStoredValue(STORAGE_KEY) === "1";
 let entries: DebugLogEntry[] = [];
 let nextId = 1;
 const listeners = new Set<() => void>();
@@ -31,9 +33,7 @@ export function isDebugEnabled(): boolean {
 
 export function setDebugEnabled(next: boolean): void {
   enabled = next;
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
-  }
+  writeStoredValue(STORAGE_KEY, next ? "1" : "0");
   notify();
 }
 

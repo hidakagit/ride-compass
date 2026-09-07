@@ -16,7 +16,7 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
-| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts` |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts`・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |
@@ -118,6 +118,13 @@ localStorageへの保存・復元を1箇所に集約する。
   （`/admin`とのstate共有に使う）。
 - 読み書きの失敗（プライベートブラウジング等）はデフォルト値へのフォールバックとして
   握りつぶす。
+
+Reactの外（モジュール評価時に初期値を決めるシングルトン。`lib/debugLog.ts`・
+`lib/researchMode.ts`）は`useStoredState`を使えないため、`lib/safeStorage.ts`の
+`readStoredValue`/`writeStoredValue`を通す。サイトデータを全面ブロックした環境では
+`getItem`/`setItem`ではなく`window.localStorage`のゲッター自体がSecurityErrorを投げ、
+モジュール評価時にこれを浴びると例外を受け止める場所が無く、そのモジュールを読む
+ページ全体が描画されない。
 
 ## page.tsxが橋渡しする主なデータフロー
 
