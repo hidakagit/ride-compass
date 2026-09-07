@@ -12,6 +12,7 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
            improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の照合、
            history/・docs/tasks/ への死んだリンク（consistency.md「設計 ↔ 実装」節の機械的部分）
   size     規模ウォッチ（complexity.md）: 実装ファイル行数の上位と前回比・閾値発火
+  duplication コピペ検出（complexity.md）: jscpdでの完全一致クローンと前回比
   metrics  定量メトリクス（metrics.md）: cloc・churn・テスト件数・静的検査・依存関係
   trigger  周期レビューのトリガー判定（README.md「定期的なレビュー」節）
 
@@ -21,6 +22,8 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
   python scripts/review_checks.py docs --staged        # pre-commit用（ステージ済み変更に関係する項目のみ）
   python scripts/review_checks.py size                 # 現在値と前回比を表示
   python scripts/review_checks.py size --update        # 表示したうえで前回値ファイルを今回値へ更新
+  python scripts/review_checks.py duplication          # コピペ検出（npx経由でjscpd、数十秒）
+  python scripts/review_checks.py duplication --update # 表示したうえで前回値ファイルを更新
   python scripts/review_checks.py metrics --full       # テスト件数・tsc/eslint・npm auditも計測（数分）
   python scripts/review_checks.py trigger
 
@@ -47,6 +50,7 @@ MODULES_DIR = REPO_ROOT / "docs" / "modules"
 TASKS_DIR = REPO_ROOT / "docs" / "tasks"
 IMPROVEMENT_PLAN = REPO_ROOT / "docs" / "improvement-plan.md"
 SIZE_BASELINE = HISTORY_DIR / "size_watch.json"
+DUPLICATION_BASELINE = HISTORY_DIR / "duplication.json"
 
 # --- 共通 -------------------------------------------------------------------
 
@@ -612,6 +616,98 @@ def cmd_trigger(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- duplication ------------------------------------------------------------
+
+# jscpdへ渡す検出条件。小さすぎるとimport列・定型のガード節が大量に引っかかるため、
+# 「意味のあるまとまりが写された」と言える下限にする。
+JSCPD_MIN_LINES = 5
+JSCPD_MIN_TOKENS = 60
+JSCPD_IGNORE = ",".join([
+    "**/*.test.ts", "**/*.test.tsx", "**/*.bench.ts", "**/node_modules/**",
+    "**/types/generated/**", "**/__pycache__/**",
+])
+
+
+def cmd_duplication(args: argparse.Namespace) -> int:
+    """コピペ検出（jscpd）。前回値との差分を見て「新しい写経が増えたか」を判定する。
+
+    **これで捕まるのは完全一致のクローンだけ**である。「同じ決まりごとが各所で少しずつ
+    違う形に書かれている」型（設定値の直書き・組み立て規則の手書き）は原理的に検出
+    できないため、これだけを根拠に「写経は無い」と結論してはならない
+    （docs/tasks/T648.md参照）。
+    """
+    out_dir = REPO_ROOT / ".jscpd-report"
+    # Windowsのnpxはバッチファイル（npx.cmd）で、shell=Falseのsubprocessからは起動できない
+    # （WinError 193）。npm同梱のnpx-cli.jsをnodeで直接実行して、OS差を吸収する。
+    node = shutil.which("node")
+    npm = shutil.which("npm")
+    if node is None or npm is None:
+        print("## コピペ検出: スキップしました（node/npmが見つかりません）")
+        return 0
+    npx_cli = Path(npm).resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
+    if not npx_cli.exists():
+        print(f"## コピペ検出: スキップしました（npx-cli.jsが見つかりません: {npx_cli}）")
+        return 0
+    cmd = [
+        node, str(npx_cli), "--yes", "jscpd@4",
+        "--min-lines", str(JSCPD_MIN_LINES), "--min-tokens", str(JSCPD_MIN_TOKENS),
+        "--reporters", "json", "--output", str(out_dir), "--silent",
+        "--ignore", JSCPD_IGNORE, "backend/app", "frontend/src",
+    ]
+    try:
+        run(cmd, check=False, timeout=900)
+    except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        # npx未導入・ネットワーク不通の環境ではスキップする（pre-commit-api-contractが
+        # backend/.venv未検出時にスキップするのと同じ扱い）。
+        print(f"## コピペ検出: スキップしました（jscpdを実行できません: {exc}）")
+        return 0
+    report = out_dir / "jscpd-report.json"
+    if not report.exists():
+        print("## コピペ検出: スキップしました（jscpdのレポートが生成されませんでした）")
+        return 0
+    data = json.loads(read_text(report))
+    stats = data.get("statistics", {}).get("total", {})
+    duplicates = data.get("duplicates", [])
+    percentage = stats.get("percentage", 0.0)
+
+    baseline = json.loads(read_text(DUPLICATION_BASELINE)) if DUPLICATION_BASELINE.exists() else {}
+    prev_clones = baseline.get("clones")
+
+    print(f"## コピペ検出（jscpd、min-lines={JSCPD_MIN_LINES} min-tokens={JSCPD_MIN_TOKENS}）")
+    print(f"- クローン: {len(duplicates)}件"
+          + (f"（前回 {prev_clones}件 / {baseline.get('date', '-')}）" if prev_clones is not None else "（前回記録なし）"))
+    print(f"- 重複行: {stats.get('duplicatedLines', 0)}行 / {stats.get('lines', 0)}行（{percentage}%）")
+    print()
+    if duplicates:
+        print("| 行数 | 箇所A | 箇所B |")
+        print("|---:|---|---|")
+        for d in sorted(duplicates, key=lambda x: -x["lines"])[: args.top]:
+            a, b = d["firstFile"], d["secondFile"]
+            fa = str(Path(a["name"])).replace(os.sep, "/")
+            fb = str(Path(b["name"])).replace(os.sep, "/")
+            print(f"| {d['lines']} | `{fa}:{a['start']}` | `{fb}:{b['start']}` |")
+        print()
+
+    print("**この検出の限界**: 完全一致のクローンしか見つからない。設定値の直書き・組み立て規則の")
+    print("手書きのように「同じ決まりごとが少しずつ違う形で書かれている」型は捕まらない。")
+
+    if args.update:
+        DUPLICATION_BASELINE.write_text(
+            json.dumps({
+                "commit": git("rev-parse", "--short", "HEAD").strip(),
+                "date": dt.date.today().isoformat(),
+                "clones": len(duplicates),
+                "duplicated_lines": stats.get("duplicatedLines", 0),
+                "percentage": percentage,
+            }, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8", newline="\n",
+        )
+        print(f"\n（{DUPLICATION_BASELINE.relative_to(REPO_ROOT)} を更新しました）")
+    elif prev_clones is not None and len(duplicates) > prev_clones:
+        print(f"\n判定: **増加（{prev_clones} → {len(duplicates)}件）** → 増えた箇所を確認する")
+    return 0
+
+
 # --- main -------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -631,6 +727,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--since", help="churnの起点日（既定: history/ の直近metricsファイル日付）")
     p.add_argument("--full", action="store_true", help="テスト件数・tsc/eslint・npm audit も計測する（数分）")
     p.set_defaults(func=cmd_metrics)
+    p = sub.add_parser("duplication", help="コピペ検出（complexity.md）")
+    p.add_argument("--top", type=int, default=10, help="表に出す上位件数")
+    p.add_argument("--update", action="store_true", help="前回値ファイル（history/duplication.json）を今回値で更新する")
+    p.set_defaults(func=cmd_duplication)
     p = sub.add_parser("trigger", help="周期レビューのトリガー判定")
     p.set_defaults(func=cmd_trigger)
     args = parser.parse_args(argv)
