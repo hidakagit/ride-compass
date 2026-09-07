@@ -1,4 +1,4 @@
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import METRIC_GROUP_COUNTS, METRIC_KEY_ACCIDENT, METRIC_KEY_STOP, ElevationAttribute
 from app.domain.axis_definitions import default_axis_weights
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.services.evaluation_service import EvaluationService, load_route_preference
@@ -73,7 +73,7 @@ def test_evaluate_graph_passes_stop_counts_to_compute_edge_cost():
     service = EvaluationService(load_route_preference())
     no_stops = service.evaluate_graph(graph, elevation_attributes, surface_attributes, load_route_preference())["edge-1"]
     many_stops = service.evaluate_graph(
-        graph, elevation_attributes, surface_attributes, load_route_preference(), stop_counts={"edge-1": 4}
+        graph, elevation_attributes, surface_attributes, load_route_preference(), metrics={METRIC_GROUP_COUNTS: {"edge-1": {METRIC_KEY_STOP: 4}}}
     )["edge-1"]
 
     assert many_stops.difficulty > no_stops.difficulty
@@ -87,7 +87,7 @@ def test_evaluate_graph_missing_stop_counts_entry_is_none():
     graph = _make_graph(edge)
 
     service = EvaluationService(load_route_preference())
-    results = service.evaluate_graph(graph, {}, {}, load_route_preference(), stop_counts={})
+    results = service.evaluate_graph(graph, {}, {}, load_route_preference(), metrics={METRIC_GROUP_COUNTS: {}})
 
     assert results["edge-1"].difficulty is None
 
@@ -107,7 +107,7 @@ def test_evaluate_graph_passes_accident_counts_to_compute_edge_cost():
     )["edge-1"]
     many_accidents = service.evaluate_graph(
         graph, elevation_attributes, surface_attributes, load_route_preference(),
-        accident_counts={"edge-1": 10}, accident_years_covered=3,
+        metrics={METRIC_GROUP_COUNTS: {"edge-1": {METRIC_KEY_ACCIDENT: 10}}}, accident_years_covered=3,
     )["edge-1"]
 
     assert many_accidents.difficulty > no_accidents.difficulty
@@ -122,7 +122,7 @@ def test_evaluate_graph_missing_accident_counts_entry_is_none():
 
     service = EvaluationService(load_route_preference())
     results = service.evaluate_graph(
-        graph, {}, {}, load_route_preference(), accident_counts={}, accident_years_covered=3
+        graph, {}, {}, load_route_preference(), metrics={METRIC_GROUP_COUNTS: {}}, accident_years_covered=3
     )
 
     assert results["edge-1"].difficulty is None

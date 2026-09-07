@@ -220,19 +220,45 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
-- `trees_percent`/`built_percent`（[T624](../../tasks/T624.md)、開放度軸向け）はWay単位の
-  派生テーブル`way_landcover`（[静的道路属性・タイル配信](static-road-attributes.md)）が
-  持つ8列の割合材料のうち評価パイプラインへ配線済みの2列。`MaterialExtractionContext`は
-  他の件数系材料（`stop_counts`等）と同じ「1材料1辞書」の形（`landcover_trees_percent`/
-  `landcover_built_percent`、いずれも`edge_id→float`）で持ち、Way単位の値を
-  `road_edges.osm_way_id`経由でEdgeへ展開する。残り6列（water/flooded_veg/crops/bare/
-  snow_ice/rangeland）はテーブルには存在するが評価パイプラインへは未配線（材料として
-  登録すれば配線可能、バッチ再実行は不要）。
+- `trees_percent`/`built_percent`（開放度軸向け）はWay単位の派生テーブル`way_landcover`
+  （[静的道路属性・タイル配信](static-road-attributes.md)）が持つ8列の割合材料のうち
+  評価パイプラインへ配線済みの2列。Way単位の値を`road_edges.osm_way_id`経由でEdgeへ展開し、
+  `MaterialExtractionContext.metrics`の`landcover`群として渡す（下記「材料へ値を届ける」節）。
+  残り6列（water/flooded_veg/crops/bare/snow_ice/rangeland）はテーブルには存在するが
+  評価パイプラインへは未配線（材料として登録すれば配線可能、バッチ再実行は不要）。
 - `raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/
-  `count_per_km_extractor`という汎用extractorファクトリが用意されており、「単一タグの
-  生値取得」「タグ値の単純一致判定」「数値パース」「件数/距離の密度計算」という
-  パターンに収まる新規材料は専用のPython関数を書かず、これらへパラメータを渡すだけで
-  カタログへ登録できる。優先順位付き分類のような複雑なロジックは専用関数のままでよい。
+  `keyed_value_extractor`/`keyed_density_extractor`という汎用extractorファクトリが
+  用意されており、「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」
+  「数値の束から1つ取り出す」「同じく1kmあたりへ正規化する」というパターンに収まる
+  新規材料は専用のPython関数を書かず、これらへパラメータを渡すだけでカタログへ登録できる。
+  優先順位付き分類のような複雑なロジックは専用関数のままでよい。
+
+### 材料へ値を届ける（`MaterialExtractionContext`）
+
+extractorが受け取るcontextは、**材料の数が増えてもフィールドが増えない**形で設計する。
+束ねる窓口は2つある。
+
+| 窓口 | 形 | ここから生える材料 |
+|---|---|---|
+| `way_tags` | `{タグ名: 値}` | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
+| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `stop_count_per_km`・`intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent`・`poi_*_per_km` |
+
+`metrics`の群（`domain/attributes.py`の`METRIC_GROUP_*`）はデータ源の単位で、`counts`
+（`edge_attribute_counts`の3列）・`landcover`（`way_landcover`の割合列）・`poi`
+（`edge_attribute_counts.poi_counts`、停止要因の種別別カウント）がある。保存形式が
+列でもJSONBでも、contextへ載る時点でこの1つの形へ揃える（`edge_metrics_from_bundles`と
+`EdgeMaterialTable.to_legacy_dicts`が唯一の変換箇所）。
+
+`MaterialDType`は`numeric`/`boolean`/`categorical`の3種のままで、群を増やしても増えない。
+
+群の中には、キーが無いことを「不明」ではなく確定値として読むものがある。件数の集計
+（`poi`群）は行があれば載っていないキーを0件と確定できるため、
+`keyed_density_extractor(..., absent_key=0.0)`で読む。行そのものが無い場合は常に欠損。
+
+**フィールドを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、contextへ
+フィールドを足さず`metrics`の群にする。増えないもの（`elevation_attributes`・
+`surface_attributes`・`designated_edge_ids`・`accident_years_covered`）だけが独立した
+フィールドを持つ。
 
 ### 材料カタログのAPI（`api/routers/material_catalog.py`）
 

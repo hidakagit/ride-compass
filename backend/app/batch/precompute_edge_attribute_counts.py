@@ -78,6 +78,7 @@ async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
             "accident_count": stmt.excluded.accident_count,
             "stop_count": stmt.excluded.stop_count,
             "intersection_count": stmt.excluded.intersection_count,
+            "poi_counts": stmt.excluded.poi_counts,
             "computed_at": stmt.excluded.computed_at,
             "source_accident_import_run_id": stmt.excluded.source_accident_import_run_id,
             "source_osm_import_run_id": stmt.excluded.source_osm_import_run_id,
@@ -124,6 +125,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 stop_counts = await repository.get_stop_poi_counts(chunk)
                 accident_counts = await repository.get_accident_counts(chunk)
                 intersection_counts = await repository.get_intersection_counts(chunk)
+                poi_counts = await repository.get_poi_counts_by_kind(chunk)
 
                 rows = [
                     {
@@ -131,6 +133,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                         "accident_count": accident_counts.get(edge_id, 0.0),
                         "stop_count": stop_counts.get(edge_id, 0),
                         "intersection_count": intersection_counts.get(edge_id, 0),
+                        "poi_counts": poi_counts.get(edge_id, {}),
                         "computed_at": now,
                         "source_accident_import_run_id": source_accident_run_id,
                         "source_osm_import_run_id": source_osm_run_id,

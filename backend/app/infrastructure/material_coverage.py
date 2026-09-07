@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
+from app.domain.traffic import POI_COUNT_KINDS
 from app.infrastructure.osm_way_tag_sql import (
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
@@ -186,6 +187,17 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
         missing_semantics="unknown",
     ),
+    # 停止要因POIの種別別密度（`domain/traffic.py: POI_COUNT_KINDS`から生成）。値の置き場所は
+    # `stop_count_per_km`と同じ`edge_attribute_counts`の行で、行があれば載っていないキーは
+    # 0件と確定できる（欠損は行そのものの不在だけ）。
+    **{
+        f"poi_{kind}_per_km": EdgeMaterialCoverageSpec(
+            present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
+            source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
+            missing_semantics="unknown",
+        )
+        for kind in POI_COUNT_KINDS
+    },
     "accident_count_per_km_year": EdgeMaterialCoverageSpec(
         present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
         source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,

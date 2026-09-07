@@ -1120,7 +1120,7 @@ def test_dynamic_materials_agree_across_scalar_bulk_and_static_matrix_paths(spee
             edge_id: compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=travel_speed_ms)
             for edge_id, edge in graph.edges.items()
         }
-        bulk = _evaluate_axes_bulk(graph, {}, {}, weather, travel_speed_ms, None, None, None, None, 0, None)
+        bulk = _evaluate_axes_bulk(graph, {}, {}, weather, travel_speed_ms, None, 0, None)
         matrix = build_static_edge_score_matrix(graph, {})
         static_scores = {axis_id: matrix.axis_scores[:, i] for i, axis_id in enumerate(matrix.axis_ids)}
         assert all(np.all(np.isnan(arr)) for arr in static_scores.values())  # 動的軸の列は静的行列ではNaN

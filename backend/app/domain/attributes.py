@@ -4,11 +4,35 @@ from datetime import datetime, timezone
 from typing import Iterator, Mapping
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import RoadGraph, RoadGraphLike
 from app.domain.route import Coordinates
+
+
+# 材料へ数値を届けるための基本型。`edge_id → {キー: 値}`という1つの形へ揃え、
+# 材料の種類が増えてもMaterialExtractionContextのフィールドを増やさない
+# （`way_tags`が「文字列の束」1フィールドから任意個の材料を生やしているのと同じ形を、
+# 数値の束にも用意する。docs/modules/backend/evaluation-scoring.md「材料へ値を届ける」参照）。
+EdgeKeyedMetrics = Mapping[str, Mapping[str, float]]
+
+# 群（group）名。保存形式（JSONB1列／実カラム複数）が違っても、材料から見た形は同じ。
+METRIC_GROUP_COUNTS = "counts"
+METRIC_GROUP_LANDCOVER = "landcover"
+# 停止要因POIの種別別カウント。キーは`domain/traffic.py: POI_COUNT_KINDS`が単一ソースで、
+# 群の中身が増えてもこの定数は増えない。
+METRIC_GROUP_POI = "poi"
+
+# `METRIC_GROUP_COUNTS`のキー。`EdgeAttributeCounts`の3列に対応する。
+METRIC_KEY_ACCIDENT = "accident"
+METRIC_KEY_STOP = "stop"
+METRIC_KEY_INTERSECTION = "intersection"
+
+# `METRIC_GROUP_LANDCOVER`のキー。`way_landcover`の割合8列のうち評価パイプラインへ
+# 配線済みの2つ（残り6列は材料として登録すれば同じ群へ増やせる）。
+METRIC_KEY_TREES_PERCENT = "trees_percent"
+METRIC_KEY_BUILT_PERCENT = "built_percent"
 
 
 class ElevationAttribute(BaseModel):
@@ -46,6 +70,10 @@ class EdgeAttributeCounts(BaseModel):
     accident_count: float
     stop_count: int
     intersection_count: int
+    # 停止要因POIの種別別カウント（`domain/traffic.py: POI_COUNT_KINDS`がキーの単一ソース）。
+    # 値を足し合わせると`stop_count`に一致する。集計バッチ未実行のDBでは空辞書になり、
+    # 種別別の材料はすべて欠損として扱われる。
+    poi_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class WayAttributeCounts(BaseModel):
@@ -95,24 +123,52 @@ class EdgeMaterialBundle:
     landcover_built_percent: float | None = None
 
 
+def edge_metrics_from_bundles(
+    materials: Mapping[str, "EdgeMaterialBundle"],
+) -> dict[str, dict[str, dict[str, float]]]:
+    """`EdgeMaterialBundle`の集合から`MaterialExtractionContext.metrics`の形を組み立てる。
+
+    Bundleの列と群・キーの対応を知っている唯一の場所（`EdgeMaterialTable.to_legacy_dicts`が
+    列指向の同じ変換を持つ）。材料が1つ増えてもここは変わらず、変わるのは**データ源の群が
+    増えたとき**だけ。
+    """
+    counts: dict[str, dict[str, float]] = {}
+    landcover: dict[str, dict[str, float]] = {}
+    poi: dict[str, dict[str, float]] = {}
+    for edge_id, bundle in materials.items():
+        if bundle.attribute_counts is not None:
+            counts[edge_id] = {
+                METRIC_KEY_ACCIDENT: float(bundle.attribute_counts.accident_count),
+                METRIC_KEY_STOP: float(bundle.attribute_counts.stop_count),
+                METRIC_KEY_INTERSECTION: float(bundle.attribute_counts.intersection_count),
+            }
+            # 0件のキーはjsonbから省かれているため、行の有無で「不明」と「0件」を分ける
+            # （counts行があれば、載っていないキーは0件と確定できる）。
+            poi[edge_id] = {k: float(v) for k, v in bundle.attribute_counts.poi_counts.items()}
+        if bundle.landcover_trees_percent is not None and bundle.landcover_built_percent is not None:
+            landcover[edge_id] = {
+                METRIC_KEY_TREES_PERCENT: bundle.landcover_trees_percent,
+                METRIC_KEY_BUILT_PERCENT: bundle.landcover_built_percent,
+            }
+    return {METRIC_GROUP_COUNTS: counts, METRIC_GROUP_LANDCOVER: landcover, METRIC_GROUP_POI: poi}
+
+
 @dataclass(frozen=True, slots=True)
 class LegacyEdgeMaterialDicts:
     """`EdgeMaterialTable.to_legacy_dicts()`の戻り値。
 
     `_evaluate_axes_bulk`（`build_static_edge_score_matrix`が呼ぶ抽出フェーズ）が要求する
-    個別辞書引数の形そのもの。タイル読込時に1回だけ発生する変換であり、探索のホットパスには
-    乗らない（`domain/evaluation.py: build_static_edge_score_matrix`のdocstring参照）。
+    引数の形そのもの。件数・土地被覆のような「材料と一緒に増える数値」は個別のフィールドを
+    持たず`metrics`（群名 -> edge_id -> {キー: 値}）へまとめる。タイル読込時に1回だけ発生する
+    変換であり、探索のホットパスには乗らない（`domain/evaluation.py:
+    build_static_edge_score_matrix`のdocstring参照）。
     """
 
     elevation_attributes: dict[str, ElevationAttribute]
     surface_attributes: dict[str, str | None]
     way_tags: dict[str, dict[str, str]]
-    stop_counts: dict[str, int]
-    intersection_counts: dict[str, int]
-    accident_counts: dict[str, float]
     designated_edge_ids: set[str]
-    landcover_trees_percent: dict[str, float]
-    landcover_built_percent: dict[str, float]
+    metrics: dict[str, dict[str, dict[str, float]]]
 
 
 def _none_if_nan(value: float) -> float | None:
@@ -160,7 +216,7 @@ class EdgeMaterialTable:
     `get(edge_id)`は`_row_index`（edge_id→行index）を1回引いた後、対応する列から
     `EdgeMaterialBundle`をその場で組み立てて返す（探索フェーズが経路上のEdge[数百本]
     だけを引く用途、`road_graph_engine.py: context.materials.get(edge.edge_id)`）。
-    `to_legacy_dicts()`は全行を一括で`_evaluate_axes_bulk`向けの個別辞書へ変換する
+    `to_legacy_dicts()`は全行を一括で`_evaluate_axes_bulk`向けの引数の形へ変換する
     （`build_static_edge_score_matrix`がタイル読込時に1回だけ呼ぶ、ホットパスではない）。
     """
 
@@ -182,6 +238,9 @@ class EdgeMaterialTable:
     accident_count: np.ndarray  # dtype=float64
     stop_count: np.ndarray  # dtype=float64（int相当、NaN=欠損）
     intersection_count: np.ndarray  # dtype=float64
+    # 停止要因POIの種別別カウント。キーが可変のため数値列にできず、行ごとの辞書を
+    # object配列で持つ（`counts_present`が偽の行はNone）。
+    poi_counts: np.ndarray  # dtype=object
     is_designated: np.ndarray  # dtype=bool
     landcover_present: np.ndarray  # dtype=bool
     landcover_trees_percent: np.ndarray  # dtype=float64
@@ -224,6 +283,7 @@ class EdgeMaterialTable:
         accident_count = np.full(n, np.nan)
         stop_count = np.full(n, np.nan)
         intersection_count = np.full(n, np.nan)
+        poi_counts = np.empty(n, dtype=object)
         is_designated = np.zeros(n, dtype=bool)
         landcover_present = np.zeros(n, dtype=bool)
         landcover_trees_percent = np.full(n, np.nan)
@@ -250,6 +310,7 @@ class EdgeMaterialTable:
                 accident_count[i] = counts.accident_count
                 stop_count[i] = counts.stop_count
                 intersection_count[i] = counts.intersection_count
+                poi_counts[i] = counts.poi_counts
 
             elevation = bundle.elevation_attribute
             if elevation is not None:
@@ -291,6 +352,7 @@ class EdgeMaterialTable:
             accident_count=accident_count,
             stop_count=stop_count,
             intersection_count=intersection_count,
+            poi_counts=poi_counts,
             is_designated=is_designated,
             landcover_present=landcover_present,
             landcover_trees_percent=landcover_trees_percent,
@@ -305,6 +367,7 @@ class EdgeMaterialTable:
             accident_count=float(self.accident_count[i]),
             stop_count=int(self.stop_count[i]),
             intersection_count=int(self.intersection_count[i]),
+            poi_counts=dict(self.poi_counts[i] or {}),
         )
 
     def _reconstruct_elevation_attribute(self, i: int, edge_id: str) -> ElevationAttribute | None:
@@ -357,17 +420,15 @@ class EdgeMaterialTable:
         return len(self._row_index)
 
     def to_legacy_dicts(self) -> LegacyEdgeMaterialDicts:
-        """`_evaluate_axes_bulk`が要求する個別辞書群へ全行を一括変換する
+        """`_evaluate_axes_bulk`が要求する形へ全行を一括変換する
         （`build_static_edge_score_matrix`がタイル読込時に1回だけ呼ぶ）。"""
         elevation_attributes: dict[str, ElevationAttribute] = {}
         surface_attributes: dict[str, str | None] = {}
         way_tags: dict[str, dict[str, str]] = {}
-        stop_counts: dict[str, int] = {}
-        intersection_counts: dict[str, int] = {}
-        accident_counts: dict[str, float] = {}
         designated_edge_ids: set[str] = set()
-        landcover_trees_percent: dict[str, float] = {}
-        landcover_built_percent: dict[str, float] = {}
+        counts: dict[str, dict[str, float]] = {}
+        landcover: dict[str, dict[str, float]] = {}
+        poi: dict[str, dict[str, float]] = {}
 
         for edge_id, i in self._row_index.items():
             surface_attributes[edge_id] = self.surface[i]
@@ -375,12 +436,17 @@ class EdgeMaterialTable:
             if self.is_designated[i]:
                 designated_edge_ids.add(edge_id)
             if self.counts_present[i]:
-                stop_counts[edge_id] = int(self.stop_count[i])
-                intersection_counts[edge_id] = int(self.intersection_count[i])
-                accident_counts[edge_id] = float(self.accident_count[i])
+                counts[edge_id] = {
+                    METRIC_KEY_ACCIDENT: float(self.accident_count[i]),
+                    METRIC_KEY_STOP: float(self.stop_count[i]),
+                    METRIC_KEY_INTERSECTION: float(self.intersection_count[i]),
+                }
+                poi[edge_id] = {k: float(v) for k, v in (self.poi_counts[i] or {}).items()}
             if self.landcover_present[i]:
-                landcover_trees_percent[edge_id] = float(self.landcover_trees_percent[i])
-                landcover_built_percent[edge_id] = float(self.landcover_built_percent[i])
+                landcover[edge_id] = {
+                    METRIC_KEY_TREES_PERCENT: float(self.landcover_trees_percent[i]),
+                    METRIC_KEY_BUILT_PERCENT: float(self.landcover_built_percent[i]),
+                }
             elevation = self._reconstruct_elevation_attribute(i, edge_id)
             if elevation is not None:
                 elevation_attributes[edge_id] = elevation
@@ -389,12 +455,12 @@ class EdgeMaterialTable:
             elevation_attributes=elevation_attributes,
             surface_attributes=surface_attributes,
             way_tags=way_tags,
-            stop_counts=stop_counts,
-            intersection_counts=intersection_counts,
-            accident_counts=accident_counts,
             designated_edge_ids=designated_edge_ids,
-            landcover_trees_percent=landcover_trees_percent,
-            landcover_built_percent=landcover_built_percent,
+            metrics={
+                METRIC_GROUP_COUNTS: counts,
+                METRIC_GROUP_LANDCOVER: landcover,
+                METRIC_GROUP_POI: poi,
+            },
         )
 
 

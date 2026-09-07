@@ -8,7 +8,15 @@
 ことの証跡でもある。
 """
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import (
+    METRIC_GROUP_COUNTS,
+    METRIC_GROUP_LANDCOVER,
+    METRIC_KEY_ACCIDENT,
+    METRIC_KEY_BUILT_PERCENT,
+    METRIC_KEY_STOP,
+    METRIC_KEY_TREES_PERCENT,
+    ElevationAttribute,
+)
 from app.domain.graph import DirectedEdge
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
 
@@ -29,13 +37,9 @@ def _ctx(
     edge: DirectedEdge | None = None,
     elevation_attributes: dict[str, ElevationAttribute] | None = None,
     surface_attributes: dict[str, str | None] | None = None,
-    stop_counts: dict[str, int] | None = None,
-    intersection_counts: dict[str, int] | None = None,
-    accident_counts: dict[str, int] | None = None,
     accident_years_covered: int = 1,
     designated_edge_ids: set[str] | None = None,
-    landcover_trees_percent: dict[str, float] | None = None,
-    landcover_built_percent: dict[str, float] | None = None,
+    metrics: dict[str, dict[str, dict[str, float]]] | None = None,
 ) -> MaterialExtractionContext:
     e = edge or _edge()
     return MaterialExtractionContext(
@@ -45,14 +49,19 @@ def _ctx(
         distance_km=e.distance_m / 1000,
         elevation_attributes=elevation_attributes or {},
         surface_attributes=surface_attributes or {},
-        stop_counts=stop_counts or {},
-        intersection_counts=intersection_counts or {},
-        accident_counts=accident_counts or {},
-        accident_years_covered=accident_years_covered,
         designated_edge_ids=designated_edge_ids or set(),
-        landcover_trees_percent=landcover_trees_percent or {},
-        landcover_built_percent=landcover_built_percent or {},
+        metrics=metrics or {},
+        accident_years_covered=accident_years_covered,
     )
+
+
+def _counts(edge_id: str = "e1", **keys: float) -> dict[str, dict[str, dict[str, float]]]:
+    """`metrics`の件数群を1Edgeぶん組み立てるテスト用の糖衣。"""
+    return {METRIC_GROUP_COUNTS: {edge_id: dict(keys)}}
+
+
+def _landcover(edge_id: str = "e1", **keys: float) -> dict[str, dict[str, dict[str, float]]]:
+    return {METRIC_GROUP_LANDCOVER: {edge_id: dict(keys)}}
 
 
 def test_all_cataloged_extractors_run_without_error_on_minimal_and_missing_context():
@@ -78,7 +87,7 @@ def test_gradient_percent_extracts_average_grade_and_missing_is_none():
 def test_landcover_materials_extract_from_context_and_missing_is_none():
     trees_spec = MATERIAL_CATALOG["trees_percent"]
     built_spec = MATERIAL_CATALOG["built_percent"]
-    ctx = _ctx(landcover_trees_percent={"e1": 42.5}, landcover_built_percent={"e1": 30.0})
+    ctx = _ctx(metrics=_landcover(**{METRIC_KEY_TREES_PERCENT: 42.5, METRIC_KEY_BUILT_PERCENT: 30.0}))
     assert trees_spec.extractor(ctx) == 42.5
     assert built_spec.extractor(ctx) == 30.0
     assert trees_spec.extractor(_ctx()) is None
@@ -96,15 +105,15 @@ def test_surface_good_missing_tag_is_none_not_false():
 
 def test_stop_count_per_km_divides_by_distance():
     spec = MATERIAL_CATALOG["stop_count_per_km"]
-    ctx = _ctx(edge=_edge(), stop_counts={"e1": 2})
+    ctx = _ctx(edge=_edge(), metrics=_counts(**{METRIC_KEY_STOP: 2}))
     assert spec.extractor(ctx) == 2 / (100.0 / 1000)
 
 
 def test_accident_count_per_km_year_needs_years_covered():
     spec = MATERIAL_CATALOG["accident_count_per_km_year"]
-    ctx = _ctx(accident_counts={"e1": 4}, accident_years_covered=2)
+    ctx = _ctx(metrics=_counts(**{METRIC_KEY_ACCIDENT: 4}), accident_years_covered=2)
     assert spec.extractor(ctx) == (4 / 0.1) / 2
-    assert spec.extractor(_ctx(accident_counts={"e1": 4}, accident_years_covered=0)) is None
+    assert spec.extractor(_ctx(metrics=_counts(**{METRIC_KEY_ACCIDENT: 4}), accident_years_covered=0)) is None
 
 
 def test_lit_default_differs_between_missing_way_tags_and_missing_tag():
@@ -274,11 +283,53 @@ def test_way_tag_parser_extractor_delegates_to_parser_and_handles_missing_way_ta
     assert extractor(_ctx(way_tags=None)) is None
 
 
-def test_count_per_km_extractor_selects_correct_counts_dict():
-    from app.domain.material_catalog import count_per_km_extractor
+def test_keyed_density_extractor_reads_the_named_key_from_the_metrics_group():
+    from app.domain.material_catalog import keyed_density_extractor
 
-    extractor = count_per_km_extractor(lambda ctx: ctx.stop_counts)
-    assert extractor(_ctx(stop_counts={"e1": 4}, edge=_edge())) == 40.0  # 4件/0.1km
+    extractor = keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_STOP)
+    assert extractor(_ctx(metrics=_counts(**{METRIC_KEY_STOP: 4}), edge=_edge())) == 40.0  # 4件/0.1km
+    # 群そのものが無い・Edgeの行が無い・キーが無いは、いずれも欠損（例外にしない）。
+    assert extractor(_ctx()) is None
+    assert extractor(_ctx(metrics={METRIC_GROUP_COUNTS: {}})) is None
+    assert extractor(_ctx(metrics=_counts(**{METRIC_KEY_ACCIDENT: 4}))) is None
+
+
+def test_poi_density_materials_treat_a_missing_key_as_zero_but_a_missing_row_as_unknown():
+    """0件のキーはjsonbから省かれるため、「そのEdgeの集計行が無い（不明）」と
+    「行はあるがそのキーが0件」を取り違えないことを固定する。取り違えると、信号が
+    1つも無い道でその材料がNaNになり、それを使う軸ごと評価対象外になる。"""
+    from app.domain.attributes import METRIC_GROUP_POI
+
+    spec = MATERIAL_CATALOG["poi_signal_per_km"]
+    # 行があり、キーもある
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"signal": 2}}})) == 20.0
+    # 行はあるが、そのキーが無い＝0件
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"crossing": 3}}})) == 0.0
+    # 行が空でも、行があること自体が「集計済み＝0件」を意味する
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {}}})) == 0.0
+    # 行そのものが無い＝不明
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {}})) is None
+    assert spec.extractor(_ctx()) is None
+
+
+def test_poi_density_materials_are_generated_from_the_kind_list():
+    """材料を1件ずつ手書きせずキー一覧から生成していることの実証（キーを増やしたときに
+    触るのが一覧だけで済む形になっているか）。"""
+    from app.domain.traffic import POI_COUNT_KINDS
+
+    generated = {m for m in MATERIAL_CATALOG if m.startswith("poi_") and m.endswith("_per_km")}
+    assert generated == {f"poi_{kind}_per_km" for kind in POI_COUNT_KINDS}
+    for kind, label in POI_COUNT_KINDS.items():
+        spec = MATERIAL_CATALOG[f"poi_{kind}_per_km"]
+        assert spec.dtype == "numeric"
+        assert label in spec.label
+
+
+def test_keyed_value_extractor_reads_without_dividing_by_distance():
+    from app.domain.material_catalog import keyed_value_extractor
+
+    extractor = keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_TREES_PERCENT)
+    assert extractor(_ctx(metrics=_landcover(**{METRIC_KEY_TREES_PERCENT: 42.5}))) == 42.5
     assert extractor(_ctx()) is None
 
 

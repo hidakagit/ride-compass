@@ -1,4 +1,6 @@
-from app.domain.attributes import ElevationAttribute
+from typing import Mapping
+
+from app.domain.attributes import EdgeKeyedMetrics, ElevationAttribute
 from app.domain.evaluation import (
     EdgeCostResult,
     RoutePreference,
@@ -39,16 +41,14 @@ class EvaluationService:
         surface_attributes: dict[str, str | None],
         preference: RoutePreference,
         weather: WeatherConditions | None = None,
-        stop_counts: dict[str, int] | None = None,
         way_tags: dict[str, dict[str, str]] | None = None,
-        intersection_counts: dict[str, int] | None = None,
-        accident_counts: dict[str, int] | None = None,
         accident_years_covered: int = 0,
         designated_edge_ids: set[str] | None = None,
         penalty_strength: float = 1.0,
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
         travel_speed_ms: float | None = None,
+        metrics: Mapping[str, EdgeKeyedMetrics] | None = None,
     ) -> dict[str, EdgeCostResult]:
         # preferenceは呼び出し元が必ず明示的に渡す（self._preferenceを直接書き換えると
         # リクエスト間で共有される状態を汚染するため、呼び出し元がmodel_copyしたコピーを
@@ -62,7 +62,6 @@ class EvaluationService:
         # 個別ON/OFF上書き（既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
         # travel_speed_msは風の材料（走行速度依存）の算出に使う走行速度（m/s）。weatherを
         # 渡すときは必須で、省略するとcompute_edge_costs_bulkが即座に失敗する。
-        stop_counts = stop_counts or {}
         designated_edge_ids = designated_edge_ids or set()
         # RoutePreference自体がaxis_idキーの重み辞書を持つためそのまま渡す
         # （graph全体で1回だけ重みを解決する）。
@@ -76,10 +75,8 @@ class EvaluationService:
             surface_attributes,
             preference,
             weather=weather,
-            stop_counts=stop_counts,
             way_tags=way_tags,
-            intersection_counts=intersection_counts,
-            accident_counts=accident_counts,
+            metrics=metrics,
             accident_years_covered=accident_years_covered,
             designated_edge_ids=designated_edge_ids,
             penalty_strength=penalty_strength,
