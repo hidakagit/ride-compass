@@ -155,6 +155,9 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 ## RedisのJSON cache-aside（`redis_json_cache.py`）
 
+どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[docs/caching.md](../../caching.md)が
+正本で、ここは実装の説明に絞る。
+
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
 未キャッシュ扱い→成否をサーキットブレーカーへ記録」という定型文を`get_json`/`set_json`の
 2関数へまとめたもの。呼び出し元はキー設計・TTL・値の意味づけだけを持つ。
