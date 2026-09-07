@@ -57,6 +57,10 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
   `breakpoints`（折れ線、両端クランプ）。`evaluate_breakpoint_linear`は`np.interp`実装
   （x範囲外は両端値へクランプ、NaN混入時は明示的にNaNへ戻す後処理が必要——`np.interp`は
   NaNを正しく伝播しないため）。
+- `MaterialTerm.required`と欠損: `required=True`の材料が欠損すれば軸全体が欠損
+  （スカラーNone/配列NaN）。`required=False`の材料の欠損は寄与0として残りの項だけで
+  評価する。ただし全termが欠損した場合は、残る項が無く「寄与0の合計＝0」と「観測値が0」を
+  区別できないため、`required`の有無によらず軸全体が欠損になる。
 - `CategoricalShape`: 単一`material`の値を`mapping`（カテゴリ値→スコア）で引く。
   `evaluate_categorical`は配列入力を`np.searchsorted`の二分探索で解決する（O(要素数×
   log(キー数))、多値categorical材料での高速化）。

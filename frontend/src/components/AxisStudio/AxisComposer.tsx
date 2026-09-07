@@ -384,6 +384,69 @@ interface CategoricalRowDraft {
   score: number;
 }
 
+/** このフォームが値を組み立てるpayloadフィールド（実行時には使わないため型で持つ）。 */
+type EditedPayloadKey =
+  | "axis_id"
+  | "label"
+  | "description"
+  | "category"
+  | "default_weight"
+  | "shape"
+  | "is_published"
+  | "icon_id"
+  | "chip_label"
+  | "panel_hint"
+  | "show_map_icon"
+  | "display_thresholds_override"
+  | "display_band_labels_override";
+
+/** このフォームが編集欄を持たないpayloadフィールド。既存軸の値をそのまま送り返す
+ * （送らないとサーバー側の既定値で上書きされ、公開済み軸を非公開へ戻して軽微な編集を
+ * しただけでこの値が黙って失われる——エラーも警告も出ない静かなデータ破壊になる）。 */
+export const PASSTHROUGH_PAYLOAD_KEYS = [
+  "priority_overrides",
+  "time_scope",
+  "dedicated_way_value_layer",
+  "dynamic_way_value_needs_time",
+  "dynamic_way_value_needs_bearing",
+  "dynamic_way_value_needs_speed",
+] as const satisfies readonly (keyof AxisDefinitionPayload)[];
+
+type PassthroughPayloadKey = (typeof PASSTHROUGH_PAYLOAD_KEYS)[number];
+type PassthroughFields = Pick<AxisDefinitionPayload, PassthroughPayloadKey>;
+
+type AssertNever<T extends never> = T;
+
+/** payloadの全フィールドが`EditedPayloadKey`と`PASSTHROUGH_PAYLOAD_KEYS`のどちらかに
+ * 属し、かつ前者に実在しないキーが混じっていないことの静的検査。backendがフィールドを
+ * 足してどちらへも入れなければ、ここがneverでなくなり型エラーになる（payload側は
+ * 全フィールドが既定値付きのため、追加漏れは実行時には「既定値による静かな上書き」と
+ * してしか現れず、backendの検証もtscの必須プロパティ検査も素通りする）。 */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _PayloadKeyCoverage = [
+  AssertNever<Exclude<keyof AxisDefinitionPayload, EditedPayloadKey | PassthroughPayloadKey>>,
+  AssertNever<Exclude<EditedPayloadKey, keyof AxisDefinitionPayload>>,
+];
+
+/** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。 */
+const DEFAULT_PASSTHROUGH_FIELDS: PassthroughFields = {
+  priority_overrides: [],
+  time_scope: "always",
+  dedicated_way_value_layer: false,
+  dynamic_way_value_needs_time: false,
+  dynamic_way_value_needs_bearing: false,
+  dynamic_way_value_needs_speed: false,
+};
+
+function pickPassthroughFields(def: AxisDefinitionResponse): PassthroughFields {
+  const picked: Record<string, unknown> = { ...DEFAULT_PASSTHROUGH_FIELDS };
+  for (const key of PASSTHROUGH_PAYLOAD_KEYS) {
+    const value = def[key];
+    if (value !== undefined) picked[key] = value;
+  }
+  return picked as PassthroughFields;
+}
+
 interface Draft {
   axisId: string;
   label: string;
@@ -409,10 +472,6 @@ interface Draft {
   /** この軸のアイコンを地図上チップ・地図の見え方パネルに表示するかどうか。
    * 既定true（表示する）。 */
   showMapIcon: boolean;
-  /** priority_overrides（0次条件）はこのフォームに編集欄を持たないが、既存軸の値を
-   * payloadへ素通しして保持する（省くと、公開済み軸を非公開へ戻して軽微な編集を
-   * しただけでこの値が黙って失われる——エラーも警告も出ない静かなデータ破壊になる）。 */
-  priorityOverrides: AxisDefinitionResponse["priority_overrides"];
   /** 地図の色分けしきい値だけを差し替える軽量な上書き。未設定(null)は自動導出した
    * しきい値をそのまま使う。数値の配列を直接編集するシンプルなUIでこのフォームで
    * 直接編集できる（domain/axis_definitions.py:
@@ -423,22 +482,8 @@ interface Draft {
    * 決まらないと対応が取れないため、backend側のバリデーションと同じ制約をGUIでも
    * 先回りする）。要素数はdisplayThresholdsOverride.length+1と常に一致させる。 */
   displayBandLabelsOverride: string[] | null;
-  /** time_scopeもpriorityOverridesと同じ理由（このフォームに編集欄を持たないが、
-   * 既存軸の値をpayloadへ素通しして保持する）で追加。domain/axis_definitions.py:
-   * AxisDefinition.time_scopeのdocstring参照。 */
-  timeScope: AxisDefinitionResponse["time_scope"];
-  /** この軸が専用のway_id→値配信レイヤーを持つかの宣言。time_scopeと同じ理由（この
-   * フォームに編集欄を持たないが、既存軸の値をpayloadへ素通しして保持する）で追加。
-   * domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring
-   * 参照。 */
-  dedicatedWayValueLayer: boolean;
-  /** dedicatedWayValueLayerと同じ理由（このフォームに編集欄を持たないが、既存軸の値を
-   * payloadへ素通しして保持する）で追加。domain/axis_definitions.py:
-   * AxisDefinition.dynamic_way_value_needs_time/dynamic_way_value_needs_bearingの
-   * docstring参照。 */
-  dynamicWayValueNeedsTime: boolean;
-  dynamicWayValueNeedsBearing: boolean;
-  dynamicWayValueNeedsSpeed: boolean;
+  /** 編集欄を持たないpayloadフィールド（`PASSTHROUGH_PAYLOAD_KEYS`）の値。 */
+  passthrough: PassthroughFields;
 }
 
 function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
@@ -469,14 +514,9 @@ function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
     chipLabel: "",
     panelHint: "",
     showMapIcon: true,
-    priorityOverrides: [],
     displayThresholdsOverride: null,
     displayBandLabelsOverride: null,
-    timeScope: "always",
-    dedicatedWayValueLayer: false,
-    dynamicWayValueNeedsTime: false,
-    dynamicWayValueNeedsBearing: false,
-    dynamicWayValueNeedsSpeed: false,
+    passthrough: { ...DEFAULT_PASSTHROUGH_FIELDS },
   };
 }
 
@@ -494,14 +534,9 @@ function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonl
     chipLabel: def.chip_label ?? "",
     panelHint: def.panel_hint ?? "",
     showMapIcon: def.show_map_icon,
-    priorityOverrides: def.priority_overrides,
     displayThresholdsOverride: def.display_thresholds_override ?? null,
     displayBandLabelsOverride: def.display_band_labels_override ?? null,
-    timeScope: def.time_scope,
-    dedicatedWayValueLayer: def.dedicated_way_value_layer ?? false,
-    dynamicWayValueNeedsTime: def.dynamic_way_value_needs_time ?? false,
-    dynamicWayValueNeedsBearing: def.dynamic_way_value_needs_bearing ?? false,
-    dynamicWayValueNeedsSpeed: def.dynamic_way_value_needs_speed ?? false,
+    passthrough: pickPassthroughFields(def),
   };
   // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
   // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
@@ -802,6 +837,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       }
     }
     const payload: AxisDefinitionPayload = {
+      // 編集欄を持たないフィールドは既存値をそのまま送り返す（`PASSTHROUGH_PAYLOAD_KEYS`）。
+      // 編集値を後から重ねるため、ここでの展開順を入れ替えないこと。
+      ...draft.passthrough,
       axis_id: draft.axisId,
       label: draft.label.trim(),
       description: draft.description,
@@ -820,16 +858,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       panel_hint: draft.panelHint.trim() === "" ? null : draft.panelHint.trim(),
       // 地図上にアイコンを表示するかどうかのON/OFF（既定true）。
       show_map_icon: draft.showMapIcon,
-      // このフォームに編集欄を持たないフィールドも、既存値を素通しして送る（未送信＝
-      // サーバー側の既定値[空リスト/null]で上書きされ、既存軸の値が消えるのを防ぐ）。
-      priority_overrides: draft.priorityOverrides,
       display_thresholds_override: draft.displayThresholdsOverride,
       display_band_labels_override: draft.displayBandLabelsOverride,
-      time_scope: draft.timeScope,
-      dedicated_way_value_layer: draft.dedicatedWayValueLayer,
-      dynamic_way_value_needs_time: draft.dynamicWayValueNeedsTime,
-      dynamic_way_value_needs_bearing: draft.dynamicWayValueNeedsBearing,
-      dynamic_way_value_needs_speed: draft.dynamicWayValueNeedsSpeed,
     };
     setSaving(true);
     try {

@@ -1374,9 +1374,8 @@ class RoadGraphEngine:
         reverse_elevation_attributes = _reverse_elevation_attributes(
             edges_in_path, reverse_edges, elevation_attributes
         )
-        # 逆回りは復路だった区間を先に走るため、レグの割当ても逆順（先に走る側が往路配列）。
         reverse_candidate = self._build_candidate(
-            context, traced, reverse_edges, reverse_elevation_attributes, start_time, list(reversed(leg_of_edge))
+            context, traced, reverse_edges, reverse_elevation_attributes, start_time, _reverse_leg_assignment(leg_of_edge)
         )
         return _pick_better_candidate(forward_candidate, reverse_candidate)
 
@@ -1903,6 +1902,19 @@ def _route_composite_difficulty(candidate: RouteCandidate) -> float | None:
     if not candidate.segments:
         return None
     return distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in candidate.segments])
+
+
+def _reverse_leg_assignment(leg_of_edge: list[int]) -> list[int]:
+    """逆回り候補のレグ割当てを求める（先に走る側が往路配列）。
+
+    `context.legs`は走行順にレグ番号を振った時間帯別のコスト配列のため、Edge列の反転と
+    同時にレグ番号自体も`max_leg - leg`へ振り直す必要がある（並びだけを反転させると、
+    走り始めを帰着時刻の風、走り終わりを出発時刻の風で評価することになる）。
+    """
+    if not leg_of_edge:
+        return []
+    max_leg = max(leg_of_edge)
+    return [max_leg - leg for leg in reversed(leg_of_edge)]
 
 
 def _pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> RouteCandidate:

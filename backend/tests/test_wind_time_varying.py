@@ -10,6 +10,7 @@ from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, estimate_passage_hours, kmh_to_ms, wind_drag_ratio
 from app.infrastructure import search_graph_cache
+from app.services.road_graph_engine import _reverse_leg_assignment
 from tests.test_road_graph_engine import ORIGIN, _prepare_context, build_loop_graph, make_generator
 
 
@@ -308,3 +309,31 @@ def test_search_graph_cache_detour_ratio_roundtrip_and_invalidation():
     search_graph_cache.set_detour_ratio(TILE_SET, 1.21)
     search_graph_cache.clear()
     assert search_graph_cache.get_detour_ratio(TILE_SET) is None
+
+
+# --- 逆回り候補のレグ割当て（先に走る側が往路配列） ---
+
+
+def test_reverse_leg_assignment_puts_last_ridden_leg_first():
+    # 周回（往路3本・復路2本）を逆回りすると、元の復路を先に走るため往路配列(0)で評価する。
+    assert _reverse_leg_assignment([0, 0, 0, 1, 1]) == [0, 0, 1, 1, 1]
+
+
+def test_reverse_leg_assignment_is_non_decreasing_in_riding_order():
+    # レグ番号は走行順に振られるため、反転後も非減少でなければ時刻とレグが逆行する。
+    reversed_legs = _reverse_leg_assignment([0, 0, 1, 1, 2, 2])
+    assert reversed_legs == [0, 0, 1, 1, 2, 2]
+    assert all(a <= b for a, b in zip(reversed_legs, reversed_legs[1:]))
+
+
+def test_reverse_leg_assignment_keeps_single_leg_unchanged():
+    assert _reverse_leg_assignment([0, 0, 0]) == [0, 0, 0]
+
+
+def test_reverse_leg_assignment_handles_empty_path():
+    assert _reverse_leg_assignment([]) == []
+
+
+def test_reverse_leg_assignment_reverses_uneven_leg_lengths():
+    # レグごとのEdge数が異なっても、境界の位置が走行順で正しく入れ替わる。
+    assert _reverse_leg_assignment([0, 1, 1, 1]) == [0, 0, 0, 1]

@@ -13,8 +13,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { AxisShape } from "@/types/route";
-import AxisComposer from "./AxisComposer";
+import type { AxisDefinitionResponse, AxisShape } from "@/types/route";
+import AxisComposer, { PASSTHROUGH_PAYLOAD_KEYS } from "./AxisComposer";
 import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 
 // AxisComposerが使うuseMaterialCatalog/useMaterialValuesの取得先。AxisStudio.test.tsxと
@@ -385,6 +385,39 @@ describe("AxisComposer", () => {
       expect(payload.default_weight).toBeCloseTo(0.35);
       // 本題: このフォームに編集欄を持たないフィールドが編集前の値のまま渡ること。
       expect(payload.priority_overrides).toEqual(priorityOverrides);
+    });
+
+    it("編集欄を持たない素通しフィールドがすべて、他フィールドの変更だけを経て編集前の値のまま保存される", async () => {
+      // すべての素通し対象へ既定値と異なる値を入れる。素通しが1件でも落ちれば、
+      // その値はサーバー側の既定値相当（false/"always"/[]）へ静かに戻る。
+      const nonDefaultPassthrough: Partial<AxisDefinitionResponse> = {
+        priority_overrides: [{ material: "has_tunnel", equals: "true", value: -1000 }],
+        time_scope: "night_only",
+        dedicated_way_value_layer: true,
+        dynamic_way_value_needs_time: true,
+        dynamic_way_value_needs_bearing: true,
+        dynamic_way_value_needs_speed: true,
+      };
+      // 素通し対象が増えたらこのテストの入力も増やす（増やさないと既定値同士の比較になり
+      // 検出力が落ちるため、リストの網羅自体をここで固定する）。
+      expect([...PASSTHROUGH_PAYLOAD_KEYS].sort()).toEqual(Object.keys(nonDefaultPassthrough).sort());
+
+      const editing = baseAxisDefinition(nonDefaultPassthrough);
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+
+      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "改");
+      await clickNext(user); // basic -> shape_kind
+      await clickNext(user); // shape_kind -> shape_params
+      await clickNext(user); // shape_params -> display_publish
+      await user.click(screen.getByRole("button", { name: "更新する" }));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      for (const key of PASSTHROUGH_PAYLOAD_KEYS) {
+        expect(payload[key]).toEqual(editing[key]);
+      }
     });
 
     it("priority_overridesが空配列の既存軸を編集しても、[]のまま保存され欠落しない", async () => {

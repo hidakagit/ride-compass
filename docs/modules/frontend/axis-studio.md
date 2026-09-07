@@ -251,11 +251,13 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 - `axis_id`はユーザー入力欄を持たない。新規作成/複製時は`generateAxisId()`が
   `crypto.randomUUID()`（利用不可な非セキュアコンテキストでは`Math.random()`ベースの
   フォールバック）で自動採番する。編集時は既存の`axis_id`をそのまま使う。
-- このフォームに編集欄を持たないフィールド（`priority_overrides`・`time_scope`・
-  `dedicated_way_value_layer`・
-  `dynamic_way_value_needs_time`・`dynamic_way_value_needs_bearing`）も、既存軸の値を
-  draftへ素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
-  値が失われるため）。`display_thresholds_override`/`display_band_labels_override`は
+- このフォームに編集欄を持たないフィールド（正本は`AxisComposer.tsx`の
+  `PASSTHROUGH_PAYLOAD_KEYS`。ここには再掲しない）も、既存軸の値をdraftの`passthrough`へ
+  素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
+  値が失われるため）。フォームが値を組み立てるフィールドは`EDITED_PAYLOAD_KEYS`が持ち、
+  2つのリストが`AxisDefinitionPayload`の全フィールドを覆うことを型
+  （`_AllPayloadKeysCovered`）が静的に検査するため、backend側へフィールドが増えたときは
+  どちらかへ追加しないとtscが通らない。`display_thresholds_override`/`display_band_labels_override`は
   専用の編集UI（`display_publish`ステップの数値配列/文字列配列エディタ）を持つため、
   このリストには含まない。`display_band_labels_override`の編集欄は
   `display_thresholds_override`が有効（null以外）の間だけ現れ、段階数

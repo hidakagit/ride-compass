@@ -197,6 +197,96 @@ def test_evaluate_axis_array_priority_override_first_match_wins():
     assert result[0] == 1.0
 
 
+
+# --- 欠損の意味論（スカラー版⇄配列版のパリティ） ---
+
+
+def _all_optional_axis() -> AxisDefinition:
+    """全termがrequired=Falseの軸（openness相当）。
+
+    breakpointsは`total=0`のとき最悪値100になるよう置く——欠損を0とみなして評価すると
+    最悪帯の値が返るため、「全材料欠損」と「観測値が0」の区別が付かない場合に検知できる。
+    """
+    return AxisDefinition(
+        axis_id="all_optional",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="trees_percent", weight=-1.0, required=False),
+                MaterialTerm(material="built_percent", weight=-1.0, required=False),
+            ],
+            breakpoints=[(-100.0, 0.0), (0.0, 100.0)],
+        ),
+        default_weight=0.0,
+        label="テスト軸[全term非required]",
+        is_published=False,
+    )
+
+
+def test_evaluate_axis_array_all_materials_missing_is_nan_not_worst_value():
+    definition = _all_optional_axis()
+    materials = {"trees_percent": np.array([np.nan]), "built_percent": np.array([np.nan])}
+    result = evaluate_axis_array(definition, materials)
+    assert np.isnan(result[0])  # 0扱いで評価すると100（最悪帯）になる
+
+
+def test_evaluate_axis_scalar_all_materials_missing_is_none():
+    definition = _all_optional_axis()
+    assert evaluate_axis_scalar(definition, {}) is None
+
+
+def test_evaluate_axis_array_partial_missing_still_evaluates_remaining_terms():
+    definition = _all_optional_axis()
+    materials = {"trees_percent": np.array([50.0]), "built_percent": np.array([np.nan])}
+    result = evaluate_axis_array(definition, materials)
+    assert result[0] == pytest.approx(50.0)
+    assert result[0] == pytest.approx(evaluate_axis_scalar(definition, {"trees_percent": 50.0}))
+
+
+def test_evaluate_axis_array_all_materials_present_matches_scalar():
+    definition = _all_optional_axis()
+    materials = {"trees_percent": np.array([30.0]), "built_percent": np.array([20.0])}
+    result = evaluate_axis_array(definition, materials)
+    assert result[0] == pytest.approx(50.0)
+    assert result[0] == pytest.approx(evaluate_axis_scalar(definition, {"trees_percent": 30.0, "built_percent": 20.0}))
+
+
+def test_evaluate_axis_array_required_term_missing_stays_nan():
+    definition = AxisDefinition(
+        axis_id="one_required",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="trees_percent", weight=1.0, required=True),
+                MaterialTerm(material="built_percent", weight=1.0, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+        ),
+        default_weight=0.0,
+        label="テスト軸[required混在]",
+        is_published=False,
+    )
+    materials = {"trees_percent": np.array([np.nan]), "built_percent": np.array([40.0])}
+    assert np.isnan(evaluate_axis_array(definition, materials)[0])
+    assert evaluate_axis_scalar(definition, {"built_percent": 40.0}) is None
+
+
+def test_evaluate_axis_array_bool_material_term_has_no_missing_values():
+    """bool材料（bool_default="false"）はNaNを持たないため欠損マスクが常に偽になる。"""
+    definition = AxisDefinition(
+        axis_id="bool_term",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="motor_vehicle_no", weight=1.0, required=False)],
+            breakpoints=[(0.0, 100.0), (1.0, 0.0)],
+        ),
+        default_weight=0.0,
+        label="テスト軸[bool材料]",
+        is_published=False,
+    )
+    materials = {"motor_vehicle_no": np.array([True, False])}
+    result = evaluate_axis_array(definition, materials)
+    assert result[0] == pytest.approx(0.0)
+    assert result[1] == pytest.approx(100.0)
+
+
 # --- topological_axis_order / axis_dependencies ---
 
 

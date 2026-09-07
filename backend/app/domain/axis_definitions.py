@@ -47,7 +47,9 @@ class MaterialTerm(BaseModel):
 
     `required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。
     `required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の
-    「信号等のデータが主、交差点データは補助」という非対称な扱い）。
+    「信号等のデータが主、交差点データは補助」という非対称な扱い）。ただし全termの材料が
+    欠損した場合は、残りが1件も無く「寄与0の合計＝0」と「観測値が0」を区別できないため、
+    required有無によらず軸全体を欠損として扱う。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -677,13 +679,27 @@ def evaluate_axes_scalar(materials: Mapping[str, object]) -> tuple[dict[str, flo
     return scores, materials_with_axes
 
 
+def _missing_material_mask(values: np.ndarray) -> np.ndarray:
+    """材料配列の欠損マスク。
+
+    bool配列は`bool_default="false"`の材料（値が無いことを偽として畳んである）のため
+    欠損を持たない。それ以外の数値配列はNaNが欠損を表す。
+    """
+    if values.dtype == bool:
+        return np.zeros(values.shape, dtype=bool)
+    return np.isnan(values)
+
+
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.ndarray]) -> np.ndarray:
     """`evaluate_axis_scalar`の配列版（欠損=NaN、`compute_edge_costs_bulk`のベクトル化経路用）。
 
     `materials`は材料id→同一形状のnumpy配列（フラグ材料はbool配列、それ以外はfloat配列で
     欠損はNaN。categorical材料はdtype=object の文字列配列）。requiredな材料のNaNは演算で
     自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う（スカラー版の
-    None規約と対応）。
+    None規約と対応）。ただし全termの材料が欠損している要素はNaN（評価不能）を返す——
+    寄与が1件も無い状態へ「NaNは0とみなす」規則を適用すると「材料が1つも観測されて
+    いない」ことと「観測した結果が0だった」ことが区別できないため（スカラー版が
+    `total is None`でNoneを返すのと対応する）。
 
     `definition.priority_overrides`はshape計算の結果へ後から重ねる
     （`np.where`をpriority_overridesの逆順に重ねることで、先頭の条件が最終的に最優先になる
@@ -692,16 +708,21 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
         total: np.ndarray | None = None
+        all_missing: np.ndarray | None = None
         for term in shape.terms:
             values = materials[term.material]
+            missing = _missing_material_mask(values)
+            all_missing = missing if all_missing is None else all_missing & missing
             if not term.required:
-                values = np.where(np.isnan(values), 0.0, values)
+                values = np.where(missing, 0.0, values)
             contribution = values * term.weight
             total = contribution if total is None else total + contribution
         assert total is not None  # 定義上termsは1件以上
+        assert all_missing is not None
         if shape.preprocess == "abs":
             total = np.abs(total)
         result = np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
+        result = np.where(all_missing, np.nan, result)
     else:
         # CategoricalShape。`evaluate_categorical`は`values == key`という要素ごとの比較
         # のみでbool配列・str(dtype=object)配列のどちらも正しく動く（`bool配列 ==
