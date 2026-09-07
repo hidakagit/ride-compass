@@ -623,9 +623,11 @@ def cmd_trigger(args: argparse.Namespace) -> int:
 JSCPD_MIN_LINES = 5
 JSCPD_MIN_TOKENS = 60
 JSCPD_IGNORE = ",".join([
-    "**/*.test.ts", "**/*.test.tsx", "**/*.bench.ts", "**/node_modules/**",
-    "**/types/generated/**", "**/__pycache__/**",
+    "**/node_modules/**", "**/types/generated/**", "**/__pycache__/**", "**/.next/**",
 ])
+# テスト・スクリプトも対象に含める。実装だけを見ていると、同じ骨格がテスト側へ写された
+# ぶんを見落とす（外部APIクライアント・Redisキャッシュのテストが実際にそうなっている）。
+JSCPD_TARGETS = ["backend/app", "backend/tests", "backend/scripts", "frontend/src", "scripts"]
 
 
 def cmd_duplication(args: argparse.Namespace) -> int:
@@ -652,7 +654,7 @@ def cmd_duplication(args: argparse.Namespace) -> int:
         node, str(npx_cli), "--yes", "jscpd@4",
         "--min-lines", str(JSCPD_MIN_LINES), "--min-tokens", str(JSCPD_MIN_TOKENS),
         "--reporters", "json", "--output", str(out_dir), "--silent",
-        "--ignore", JSCPD_IGNORE, "backend/app", "frontend/src",
+        "--ignore", JSCPD_IGNORE, *JSCPD_TARGETS,
     ]
     try:
         run(cmd, check=False, timeout=900)
@@ -667,16 +669,25 @@ def cmd_duplication(args: argparse.Namespace) -> int:
         return 0
     data = json.loads(read_text(report))
     stats = data.get("statistics", {}).get("total", {})
-    duplicates = data.get("duplicates", [])
-    percentage = stats.get("percentage", 0.0)
+    all_duplicates = data.get("duplicates", [])
+    # 同一ファイル内の重複は数えない。写経とは「同じ理由で変わるものが分かれて書かれている」
+    # ことであり、1ファイル内に似たテストケースやアイコン定義が並ぶのはそれに当たらない
+    # （むしろ1件ずつ独立して読める方がよい）。ファイルをまたぐものだけを監視する。
+    duplicates = [d for d in all_duplicates if d["firstFile"]["name"] != d["secondFile"]["name"]]
+    within_file = len(all_duplicates) - len(duplicates)
+    duplicated_lines = sum(d["lines"] for d in duplicates)
+    total_lines = stats.get("lines", 0)
+    percentage = round(100 * duplicated_lines / total_lines, 2) if total_lines else 0.0
 
     baseline = json.loads(read_text(DUPLICATION_BASELINE)) if DUPLICATION_BASELINE.exists() else {}
     prev_clones = baseline.get("clones")
 
     print(f"## コピペ検出（jscpd、min-lines={JSCPD_MIN_LINES} min-tokens={JSCPD_MIN_TOKENS}）")
-    print(f"- クローン: {len(duplicates)}件"
+    print(f"- 対象: {' / '.join(JSCPD_TARGETS)}（テスト・スクリプトを含む）")
+    print(f"- ファイルをまたぐクローン: {len(duplicates)}件"
           + (f"（前回 {prev_clones}件 / {baseline.get('date', '-')}）" if prev_clones is not None else "（前回記録なし）"))
-    print(f"- 重複行: {stats.get('duplicatedLines', 0)}行 / {stats.get('lines', 0)}行（{percentage}%）")
+    print(f"- 重複行: {duplicated_lines}行 / {total_lines}行（{percentage}%）")
+    print(f"- 同一ファイル内の重複 {within_file}件は数えない（似たテストケース・アイコン定義の並びは写経ではない）")
     print()
     if duplicates:
         print("| 行数 | 箇所A | 箇所B |")
@@ -697,7 +708,7 @@ def cmd_duplication(args: argparse.Namespace) -> int:
                 "commit": git("rev-parse", "--short", "HEAD").strip(),
                 "date": dt.date.today().isoformat(),
                 "clones": len(duplicates),
-                "duplicated_lines": stats.get("duplicatedLines", 0),
+                "duplicated_lines": duplicated_lines,
                 "percentage": percentage,
             }, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8", newline="\n",
