@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 """app/batch/precompute_edge_attribute_counts.pyのrun()結合検証（改善計画T144）。
 チャンク分割自体の純粋ロジック検証はtests/test_batch_common.py（改善計画T467、
 _chunked実装統合に伴いテストも集約）。
@@ -111,3 +112,36 @@ class TestRunOrchestration:
         rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
         assert {r.source_accident_import_run_id for r in rows} == {accident_run_id}
         assert {r.source_osm_import_run_id for r in rows} == {osm_run_id}
+
+
+async def test_upsert_splits_statements_so_bind_parameters_stay_under_the_limit():
+    """1文のバインドパラメータがPostgreSQLの上限（32,767個）を超えないよう分割する。
+
+    列を1つ足すと1文へ載せられる行数が減る。行数を固定にしていたため、実際に
+    `poi_counts`を足したときに上限を超え、本番のバッチが最初のチャンクで落ちた。
+    """
+    from app.batch import precompute_edge_attribute_counts as batch
+
+    executed: list[int] = []
+
+    class _Session:
+        async def execute(self, stmt):
+            executed.append(len(stmt.compile().params))
+
+        async def commit(self):
+            pass
+
+    columns = {
+        "edge_id": "e", "accident_count": 0.0, "stop_count": 0, "intersection_count": 0,
+        "poi_counts": {}, "computed_at": datetime.now(timezone.utc),
+        "source_accident_import_run_id": None, "source_osm_import_run_id": None,
+        "algorithm_version": "v1",
+    }
+    rows = [dict(columns, edge_id=f"e{i}") for i in range(batch.CHUNK_SIZE)]
+
+    await batch._upsert_chunk(_Session(), rows)
+
+    assert executed, "1文も発行されていない"
+    assert max(executed) <= batch.MAX_BIND_PARAMS_PER_STATEMENT
+    # 全行が漏れなく載っている（分割で落ちていない）。
+    assert sum(n // len(columns) for n in executed) == len(rows)

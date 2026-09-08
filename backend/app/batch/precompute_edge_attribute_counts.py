@@ -41,9 +41,12 @@ logger = logging.getLogger("app.batch.precompute_edge_attribute_counts")
 # 大きいが、request向けのcommand_timeout=20秒（infrastructure/database.py参照）を受けない
 # 専用エンジン（バッチ・検証スクリプト共通の慣例、measure_axis_stats.py等参照）で動くため、
 # 大きめでも安全側。実測に応じて調整可能。
-# 1チャンクのUPSERT（列数×行数）がasyncpgのバインドパラメータ上限（32,767個/クエリ）を
-# 超えないよう、4,000行×8列=32,000で上限内に収まる値にする。
 CHUNK_SIZE = 4_000
+
+# PostgreSQLは1文あたりのバインドパラメータを32,767個までしか受け取れない。UPSERTは
+# 行数×列数ぶんのパラメータを使うため、**1文で送る行数は列数から導出する**
+# （固定値にすると、列を1つ足したときに静かに上限を超え、最初のチャンクで落ちる）。
+MAX_BIND_PARAMS_PER_STATEMENT = 32_767
 
 # 計算ロジック自体（半径・重み付け等）の版数。region_service.py: ROAD_SURFACE_TILE_VERSIONと
 # 同じ「パラメータを変えたら手動で上げる」運用。入力データの版数（source_*_import_run_id）
@@ -68,9 +71,21 @@ async def _fetch_source_run_ids(session: AsyncSession) -> tuple[int | None, int 
     return accident_run_id, osm_run_id
 
 
+def _max_rows_per_statement(rows: list[dict]) -> int:
+    """1文へ載せられる行数。列を増やすと減る（`MAX_BIND_PARAMS_PER_STATEMENT`参照）。"""
+    return max(1, MAX_BIND_PARAMS_PER_STATEMENT // len(rows[0]))
+
+
 async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
     if not rows:
         return
+    max_rows = _max_rows_per_statement(rows)
+    for start in range(0, len(rows), max_rows):
+        await _execute_upsert(session, rows[start : start + max_rows])
+    await session.commit()
+
+
+async def _execute_upsert(session: AsyncSession, rows: list[dict]) -> None:
     stmt = pg_insert(EdgeAttributeCountsRow).values(rows)
     stmt = stmt.on_conflict_do_update(
         index_elements=["edge_id"],
@@ -86,7 +101,6 @@ async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
         },
     )
     await session.execute(stmt)
-    await session.commit()
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
