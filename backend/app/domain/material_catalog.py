@@ -43,7 +43,6 @@ from app.domain.attributes import (
     ElevationAttribute,
 )
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
-from app.domain.graph import EdgeLike
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
 from app.domain.road import classify_osm_surface
 from app.domain.traffic import POI_COUNT_KINDS
@@ -66,13 +65,18 @@ class MaterialReferencePoint(BaseModel):
 
 @dataclass(frozen=True)
 class MaterialExtractionContext:
-    """`domain/evaluation.py: compute_edge_costs_bulk`の抽出フェーズがEdge単位に組み立てる
-    入力の束。`MaterialSpec.extractor`はこれを受け取り、その材料の
-    Edge1件分の生値（欠損はNone）を返す。way_tags以外のフィールドはcompute_edge_costs_bulk
-    側で`None`から`{}`/`set()`へ正規化済みの前提（呼び出し元でNoneチェック不要）。"""
+    """`MaterialSpec.extractor`が受け取る入力の束。1件（Edge1本、または区間インスペクタの
+    Way1本）ぶんの生データを表し、extractorはその材料の生値（欠損はNone）を返す。
+    way_tags以外のフィールドは呼び出し元で`None`から`{}`/`set()`へ正規化済みの前提
+    （extractor側でNoneチェック不要）。
 
-    edge: EdgeLike
+    Edge/Wayのどちらの粒度でも同じextractorを使えるよう、道路オブジェクトそのものではなく
+    **extractorが実際に読む値だけ**を持つ（`highway`のみ）。`edge_id`は`metrics`・
+    `elevation_attributes`・`surface_attributes`・`designated_edge_ids`を引くためのキーで、
+    Way粒度の呼び出しでは合成キー1件だけの辞書を渡す（`resolve_materials`参照）。"""
+
     edge_id: str
+    highway: str | None
     way_tags: dict[str, str] | None
     distance_km: float
     elevation_attributes: dict[str, ElevationAttribute]
@@ -391,7 +395,7 @@ _LANES_COUNT_REFERENCE_POINTS = [
 # way_tags依存の材料群: way_tags自体が欠損のときNoneを返す（車ストレス軸グループを
 # まとめて評価しない意図的な仕様のため、タグ個別の欠損とは区別する）。
 def _extract_highway(ctx: MaterialExtractionContext) -> str | None:
-    return ctx.edge.highway if ctx.way_tags is not None else None
+    return ctx.highway if ctx.way_tags is not None else None
 
 
 # 正規化フラグ材料群。cycleway/highway由来の判定条件（優先順位: track/highway=cycleway
@@ -404,22 +408,22 @@ def _extract_highway(ctx: MaterialExtractionContext) -> str | None:
 # 同じ材料を手組みするmaterials辞書へ`**bicycle_infra_flags(...)`で混ぜ込む）、ここでは
 # bulk抽出フェーズ（MaterialExtractionContext）向けの薄いラッパのみ持つ。
 def _extract_highway_is_cycleway(ctx: MaterialExtractionContext) -> bool | None:
-    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.highway)
     return None if flags is None else flags["highway_is_cycleway"]
 
 
 def _extract_cycleway_has_track(ctx: MaterialExtractionContext) -> bool | None:
-    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.highway)
     return None if flags is None else flags["cycleway_has_track"]
 
 
 def _extract_cycleway_has_lane(ctx: MaterialExtractionContext) -> bool | None:
-    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.highway)
     return None if flags is None else flags["cycleway_has_lane"]
 
 
 def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
-    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.highway)
     return None if flags is None else flags["cycleway_has_shared"]
 
 
@@ -429,7 +433,7 @@ def _extract_cycleway_has_shared(ctx: MaterialExtractionContext) -> bool | None:
 # 自体はbicycle_infra_flagsへ集約し、ここではbulk抽出フェーズ向けの薄いラッパのみ持つ
 # （上記4関数と同じ構成）。
 def _extract_shared_pedestrian_path(ctx: MaterialExtractionContext) -> bool | None:
-    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.edge.highway)
+    flags = bicycle_infra_flags_or_none(ctx.way_tags, ctx.highway)
     return None if flags is None else flags["shared_pedestrian_path"]
 
 
@@ -923,6 +927,32 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         for kind, label in POI_COUNT_KINDS.items()
     },
 }
+
+
+# --- 材料解決（extractor宣言 → 材料id→生値）。評価経路が3つ（Edge単位のスカラー・
+# Edge単位のベクトル化・Way単位の区間インスペクタ/軸スタジオプレビュー）あるが、
+# 「どの材料をどう抽出するか」を知っているのはこの1関数と`MATERIAL_CATALOG`だけにする
+# ——経路ごとに材料の一覧を手書きすると、材料を1つ増やしたときに一部の経路だけ取り残され、
+# その経路でだけ材料が欠損する（軸ごと算出不能になる）事故が起きるため。
+EXTRACTABLE_MATERIAL_IDS: tuple[str, ...] = tuple(
+    material_id for material_id, spec in MATERIAL_CATALOG.items() if spec.extractor is not None
+)
+
+
+def resolve_materials(ctx: MaterialExtractionContext) -> dict[str, object]:
+    """`ctx`が表す1件（Edge1本またはWay1本）の材料値を、extractorを持つ全材料について求める。
+
+    extractor未設定の材料（`EXTRACTABLE_MATERIAL_IDS`に含まれないもの。「トリガー付き
+    DEFER」設計原則9）はキー自体を含めない——スカラー評価（`evaluate_axis_scalar`）は
+    `materials.get(...)`で欠損として扱うため、キーの有無が欠損の表現になる
+    （ベクトル化経路は全材料ぶんの配列をNaN/Falseで確保する必要があり、そちらの都合は
+    `domain/evaluation.py: _evaluate_axes_bulk`が別に持つ）。
+    """
+    return {
+        spec.material_id: spec.extractor(ctx)
+        for spec in MATERIAL_CATALOG.values()
+        if spec.extractor is not None
+    }
 
 
 def axis_studio_materials() -> list[MaterialSpec]:

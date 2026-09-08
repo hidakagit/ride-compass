@@ -135,7 +135,7 @@ def test_evaluate_graph_uses_custom_route_preference():
     # 呼び出しごとに明示するのが実際の使われ方のため、テストもそれに合わせる
     # （コンストラクタへ渡すpreferenceは、evaluate_graphが必ず引数で上書きされるため
     # 現状は使われないが、__init__のシグネチャ上必須のためload_route_preference()を渡す）。
-    from app.domain.evaluation import RoutePreference
+    from app.domain.route_preference import RoutePreference
 
     edge = DirectedEdge(
         edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
@@ -180,7 +180,7 @@ def test_evaluation_service_config_file_defaults_match_explicit_matching_weights
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=6.0, data_source="t", calculated_at="t")}
     surface_attributes = {"edge-1": "gravel"}
 
-    from app.domain.evaluation import RoutePreference
+    from app.domain.route_preference import RoutePreference
 
     default_preference = load_route_preference()
     explicit_matching_preference = RoutePreference(

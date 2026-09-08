@@ -25,7 +25,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 - 母集団はWay単位（`osm_raw_ways`のページ単位抽選、`TABLESAMPLE SYSTEM`）で、**延長で
   重み付ける**。本数で数えると短い道が多数を占めて実際に走る距離の感覚と合わない。
   ページ単位の抽選のため地理的な偏りが残りうる点は、分布を「目安」として扱う前提で許容する。
-- 材料値の組み立ては区間インスペクタと同じ`domain/evaluation.py: way_scalar_materials`へ
+- 材料値の組み立ては区間インスペクタと同じ`domain/axis_inspector.py: way_scalar_materials`へ
   委ねる。同じ材料を2箇所で組み立てると、材料を増やしたときに片方だけ取り残される。
 - 抽選したサンプルは`cachetools.TTLCache`で保持する（初回1秒前後、2回目以降は即座）。
 - 返すのは**折れ点を通す前の生値**の分位とヒストグラムで、折れ点の当てはめはfrontendが行う
@@ -90,7 +90,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 ### `PriorityCondition`（0次条件）
 
 `material`の値が`equals`と一致する場合、shape評価をスキップし`value`をそのまま返す
-（探索除外のハードフィルタ`domain/evaluation.py: DEFAULT_HARD_FILTERS`とは別の仕組み）。
+（探索除外のハードフィルタ`domain/hard_filters.py: DEFAULT_HARD_FILTERS`とは別の仕組み）。
 
 ### 軸の階層
 

@@ -226,7 +226,7 @@ way_landcoverのtrees_percent/built_percent[T624]、Edge単位で
 （`RouteGenerator`）が候補0件として扱う。
 
 `_build_search_graph`は、`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
-NaN）へ動的軸（風、`domain/evaluation.py: evaluate_dynamic_axis_arrays`。材料id→evaluator
+NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_arrays`。材料id→evaluator
 関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
 ベクトルを適用し、`compose_costs_from_axis_matrix`・`compute_hard_filter_excluded`で
 コスト配列（`_RoadGraphContext.cost_list`、`lazy_graph.edge_ids`と同じ行順）を1回だけ
@@ -556,11 +556,12 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   同じ判定で弾ける。
 - `NodeSpatialIndex`/`build_node_spatial_index`/`find_nearest_node_indexed`:
   グリッドバケットによる最近傍ノード探索。
-- `compute_routable_node_ids`（`domain/evaluation.py`）: 最近傍ノード探索は「0次
+- `compute_routable_node_ids`（`domain/hard_filters.py`）: 最近傍ノード探索は「0次
   ハードフィルタを通過したEdgeが最低1本残るノード」だけに制限する（制限しないと孤立
   ノード——幹線道路にしか面していない駅等——が最近傍として選ばれ、経路探索が失敗しうる）。
   lazy評価ではEdgeコストを事前計算しないため、Hard Constraintだけを軽量に評価する
-  専用関数として`domain/evaluation.py`に置く（`domain/routing.py`側には持たない）。
+  専用関数として0次フィルタのモジュール（`domain/hard_filters.py`）に置く
+  （`domain/routing.py`側には持たない）。
   入力は`EdgeMaterialBundle`辞書ではなく、`StaticEdgeScoreMatrix`の生配列
   （`edge_ids`＋`compute_hard_filter_excluded`が返す`excluded`配列、`_build_search_graph`が
   コスト配列を`inf`にするのに使うのと同じ配列）——タイル材料キャッシュの復元コストと

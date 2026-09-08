@@ -247,7 +247,17 @@ def test_update_skips_self_comparison():
 
 
 PUBLISHED_AXIS_IDS = frozenset(
-    {"gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night", "bicycle_infra_quality"}
+    {
+        "gradient",
+        "wind",
+        "surface_q",
+        "stop_density",
+        "car_stress",
+        "accident",
+        "night",
+        "bicycle_infra_quality",
+        "openness",
+    }
 )
 
 

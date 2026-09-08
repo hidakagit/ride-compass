@@ -1,11 +1,8 @@
 from typing import Mapping
 
 from app.domain.attributes import EdgeKeyedMetrics, ElevationAttribute
-from app.domain.evaluation import (
-    EdgeCostResult,
-    RoutePreference,
-    compute_edge_costs_bulk,
-)
+from app.domain.evaluation import EdgeCostResult, compute_edge_costs_bulk
+from app.domain.route_preference import RoutePreference
 from app.domain.graph import RoadGraphLike
 from app.domain.weather import WeatherConditions
 

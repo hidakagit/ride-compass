@@ -7,17 +7,12 @@
 """
 
 import itertools
+import math
 from contextlib import contextmanager
 
 import pytest
 
-from app.domain.attributes import (
-    METRIC_GROUP_COUNTS,
-    METRIC_KEY_ACCIDENT,
-    METRIC_KEY_INTERSECTION,
-    METRIC_KEY_STOP,
-    ElevationAttribute,
-)
+from app.domain.attributes import ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -25,11 +20,21 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
+from app.domain.material_catalog import (
+    EXTRACTABLE_MATERIAL_IDS,
+    MATERIAL_CATALOG,
+    MaterialExtractionContext,
+    resolve_materials,
+)
+from app.domain.traffic import POI_COUNT_KINDS
 from app.domain.evaluation import (
-    RoutePreference,
+    _evaluate_axes_bulk,
+    compute_edge_axis_scores,
     compute_edge_cost,
     compute_edge_costs_bulk,
 )
+from app.domain.route_preference import RoutePreference
+from tests.metrics_fixtures import edge_metrics, merge_metrics
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
 from app.domain.wind import kmh_to_ms
@@ -150,6 +155,15 @@ _SYNTHETIC_AXES: dict[str, AxisDefinition] = {
 
 
 @contextmanager
+def _synthetic_axis_definitions_only(axes: dict[str, AxisDefinition]):
+    """AXIS_DEFINITIONSを`axes`だけへ差し替える（`_SYNTHETIC_AXES`を混ぜない）。"""
+    with axis_definitions_snapshot():
+        AXIS_DEFINITIONS.clear()
+        AXIS_DEFINITIONS.update(axes)
+        yield axes
+
+
+@contextmanager
 def _synthetic_axis_definitions(extra: dict[str, AxisDefinition] | None = None):
     """AXIS_DEFINITIONSの中身を一時的に合成軸セットへ差し替える（テスト終了後に復元）。
 
@@ -220,6 +234,8 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
     way_tags: dict[str, dict[str, str]] = {}
     intersection_counts: dict[str, int] = {}
     accident_counts: dict[str, int] = {}
+    landcover: dict[str, tuple[float, float]] = {}
+    poi_counts: dict[str, dict[str, float]] = {}
     designated_edge_ids: set[str] = set()
 
     combos = list(
@@ -250,6 +266,11 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
             tags["motor_vehicle"] = "no"
         if lit_val is not None:
             tags["lit"] = lit_val
+        # 単一タグ生値の材料（smoothness/tracktype）。11件・13件に1件はタグ自体が無い。
+        if idx % 11 != 4:
+            tags["smoothness"] = ["good", "bad", "excellent", "intermediate"][idx % 4]
+        if idx % 13 != 7:
+            tags["tracktype"] = ["grade1", "grade2", "grade3"][idx % 3]
         if tunnel_val is not None:
             tags["tunnel"] = tunnel_val
 
@@ -282,35 +303,43 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
             intersection_counts[edge_id] = idx % 3
         if idx % 6 != 3:
             accident_counts[edge_id] = idx % 4
+        # 土地被覆（openness軸の材料）。7件に1件は行自体が無い＝材料欠損。
+        if idx % 7 != 5:
+            landcover[edge_id] = (float(idx % 101), float((idx * 3) % 101))
+        # 停止要因POIの種別別カウント。8件に1件は未集計（行なし）、それ以外は一部の種別を
+        # 省いた辞書（載っていないキーは0件と確定できる、という意味論の確認も兼ねる）。
+        if idx % 8 != 6:
+            poi_counts[edge_id] = {kind: float((idx + i) % 3) for i, kind in enumerate(POI_COUNT_KINDS) if (idx + i) % 4}
         way_tags[edge_id] = tags
         if idx % 9 == 0:
             designated_edge_ids.add(edge_id)
 
     graph = RoadGraph(graph_version="test", nodes=nodes, edges=edges)
-    # スカラー版（compute_edge_cost）はEdge1本ぶんの件数スカラーを、ベクトル版
-    # （compute_edge_costs_bulk）は`metrics`の件数群を受け取る。同じ値を両方の形で
-    # 渡し、出力が一致することをこのファイルの回帰テストが確かめる。
-    counts: dict[str, dict[str, float]] = {}
-    for edge_id in edges:
-        row = {}
-        if edge_id in stop_counts:
-            row[METRIC_KEY_STOP] = float(stop_counts[edge_id])
-        if edge_id in intersection_counts:
-            row[METRIC_KEY_INTERSECTION] = float(intersection_counts[edge_id])
-        if edge_id in accident_counts:
-            row[METRIC_KEY_ACCIDENT] = float(accident_counts[edge_id])
-        if row:
-            counts[edge_id] = row
+    # スカラー版（compute_edge_cost）もベクトル版（compute_edge_costs_bulk）も、件数・
+    # 土地被覆・停止要因POIを**同じ1つの`metrics`**として受け取る（片方だけスカラー引数で
+    # 渡す形にすると、材料を1つ増やしたときに片方だけ取り残されても両方が同じ欠損値を
+    # 返して「一致した」と誤判定しうる）。
+    metrics = merge_metrics(
+        *(
+            edge_metrics(
+                edge_id,
+                stop=stop_counts.get(edge_id),
+                intersection=intersection_counts.get(edge_id),
+                accident=accident_counts.get(edge_id),
+                poi=poi_counts.get(edge_id),
+                trees=landcover.get(edge_id, (None, None))[0],
+                built=landcover.get(edge_id, (None, None))[1],
+            )
+            for edge_id in edges
+        )
+    )
 
     materials = dict(
         elevation_attributes=elevation_attributes,
         surface_attributes=surface_attributes,
-        stop_counts=stop_counts,
         way_tags=way_tags,
-        intersection_counts=intersection_counts,
-        accident_counts=accident_counts,
         designated_edge_ids=designated_edge_ids,
-        metrics={METRIC_GROUP_COUNTS: counts},
+        metrics=metrics,
     )
     return graph, materials
 
@@ -335,10 +364,8 @@ def test_bulk_matches_scalar_for_every_edge(
             weights=weights,
             weather=weather,
             travel_speed_ms=travel_speed_ms,
-            stop_count=materials["stop_counts"].get(edge_id),
             way_tags=materials["way_tags"].get(edge_id),
-            intersection_count=materials["intersection_counts"].get(edge_id),
-            accident_count=materials["accident_counts"].get(edge_id),
+            metrics=materials["metrics"],
             accident_years_covered=3,
             is_designated=edge_id in materials["designated_edge_ids"],
             penalty_strength=penalty_strength,
@@ -397,10 +424,8 @@ def test_bulk_hard_filters_override_matches_scalar(preference, hard_filters):
             materials["surface_attributes"].get(edge_id),
             preference,
             weights=weights,
-            stop_count=materials["stop_counts"].get(edge_id),
             way_tags=materials["way_tags"].get(edge_id),
-            intersection_count=materials["intersection_counts"].get(edge_id),
-            accident_count=materials["accident_counts"].get(edge_id),
+            metrics=materials["metrics"],
             accident_years_covered=3,
             is_designated=edge_id in materials["designated_edge_ids"],
             hard_filters=hard_filters,
@@ -566,3 +591,127 @@ def test_bulk_does_not_crash_on_categorical_axis_referencing_a_material_without_
     assert results["e0"].allowed is True
     assert results["e0"].difficulty is not None
     assert results["e0"].cost is not None
+
+
+def _single_material_axis(material_id: str) -> AxisDefinition:
+    """材料1つだけを見る合成軸。dtypeごとに、その材料の値がそのまま結果へ現れる最小の
+    shapeを選ぶ（材料が片方の経路へ届いていなければ、その軸だけが欠損して差が出る）。"""
+    dtype = MATERIAL_CATALOG[material_id].dtype
+    if dtype == "categorical":
+        # 実データに現れる値を網羅する必要はない（未登録値・欠損はどちらの経路でも
+        # 同じく「該当なし」になる）。値が届いているかどうかだけを見る。
+        return AxisDefinition(
+            axis_id=f"wiring_{material_id}",
+            shape=CategoricalShape(
+                material=material_id,
+                mapping={value: float(10 * (i + 1)) for i, value in enumerate(_CATEGORICAL_PROBE_VALUES[material_id])},
+            ),
+            default_weight=1.0,
+            label=material_id,
+            is_published=True,
+        )
+    breakpoints = [(0.0, 0.0), (1.0, 100.0)] if dtype == "boolean" else [(-100.0, 0.0), (100.0, 100.0)]
+    return AxisDefinition(
+        axis_id=f"wiring_{material_id}",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material=material_id)], breakpoints=breakpoints),
+        default_weight=1.0,
+        label=material_id,
+        is_published=True,
+    )
+
+
+# categorical材料の探り値（`_build_diverse_graph`が実際にタグへ入れる値のうち代表的なもの）。
+_CATEGORICAL_PROBE_VALUES: dict[str, tuple[str, ...]] = {
+    "highway": ("residential", "primary", "cycleway"),
+    "surface": ("asphalt", "gravel", "paved"),
+    "smoothness": ("good", "bad"),
+    "tracktype": ("grade1", "grade3"),
+}
+
+
+def test_every_extractable_material_reaches_both_paths():
+    """extractorを持つ全材料について、その材料だけを見る合成軸を作り、スカラー経路
+    （`compute_edge_axis_scores`）とベクトル経路（`_evaluate_axes_bulk`）が軸ごとに
+    一致することを確認する。
+
+    材料の解決はどちらの経路も`MATERIAL_CATALOG`のextractor宣言1つから行うが、
+    「経路ごとに材料の一覧を手書きする」形へ戻ると、片方の経路にだけ材料が届かず、
+    その材料を使う軸が**その経路でだけ**静かに欠損する。合成コストではなく軸ごとの
+    difficultyを突き合わせるのは、(1) 材料1件＝軸1本にして「どの材料か」を差の形で
+    特定できるようにするため、(2) 合成コストの比較は多数の軸を足し合わせる順序差
+    （Neumaier補償加算とPythonのfloat加算）で0.1程度の丸め差が出うるため。
+    """
+    graph, materials = _build_diverse_graph()
+    axes = {f"wiring_{m}": _single_material_axis(m) for m in EXTRACTABLE_MATERIAL_IDS}
+
+    with _synthetic_axis_definitions_only(axes):
+        scalar_scores = {
+            edge_id: compute_edge_axis_scores(
+                edge,
+                materials["elevation_attributes"].get(edge_id),
+                materials["surface_attributes"].get(edge_id),
+                way_tags=materials["way_tags"].get(edge_id),
+                metrics=materials["metrics"],
+                accident_years_covered=3,
+                is_designated=edge_id in materials["designated_edge_ids"],
+            )
+            for edge_id, edge in graph.edges.items()
+        }
+        bulk = _evaluate_axes_bulk(
+            graph,
+            materials["elevation_attributes"],
+            materials["surface_attributes"],
+            None,
+            None,
+            materials["way_tags"],
+            3,
+            materials["designated_edge_ids"],
+            materials["metrics"],
+        )
+
+    mismatches: list[str] = []
+    for row, edge_id in enumerate(bulk.edge_ids):
+        for axis_id, array in bulk.axis_arrays.items():
+            bulk_value = array[row]
+            scalar_value = scalar_scores[edge_id].get(axis_id)
+            if math.isnan(bulk_value):
+                if scalar_value is not None:
+                    mismatches.append(f"{axis_id}/{edge_id}: bulk=欠損 scalar={scalar_value}")
+            elif scalar_value is None:
+                mismatches.append(f"{axis_id}/{edge_id}: bulk={bulk_value} scalar=欠損")
+            # 値の一致は「欠損かどうか」に比べて緩い許容（1段階＝0.1）で見る。両経路は
+            # difficultyを小数1桁へ丸めるが、丸め前の値が.x5ちょうどに乗ると
+            # numpy（`round1_array`）とPython組み込み`round`で最後の桁が1つずれうる。
+            # 値そのものの厳密一致は`test_bulk_matches_scalar_for_every_edge`（合成コスト
+            # まで含めた突き合わせ）が担当し、ここは配線の有無を見る。
+            elif abs(bulk_value - scalar_value) > 0.1 + 1e-9:
+                mismatches.append(f"{axis_id}/{edge_id}: bulk={bulk_value} scalar={scalar_value}")
+    assert not mismatches, f"{len(mismatches)}件不一致: {mismatches[:5]}"
+
+
+def test_diverse_graph_actually_supplies_every_extractable_material():
+    """上のテストが空振り（全材料が両経路とも欠損で一致）にならないことの確認。
+
+    `_build_diverse_graph`が材料を1件も供給していない場合、両経路とも同じNaNを返して
+    「一致」してしまう。材料ごとに、少なくとも1本のEdgeで値が求まることを別途固定する。
+    """
+    graph, materials = _build_diverse_graph()
+    supplied: set[str] = set()
+    for edge_id, edge in graph.edges.items():
+        resolved = resolve_materials(
+            MaterialExtractionContext(
+                edge_id=edge_id,
+                highway=edge.highway,
+                way_tags=materials["way_tags"].get(edge_id),
+                distance_km=edge.distance_m / 1000,
+                elevation_attributes=materials["elevation_attributes"],
+                surface_attributes=materials["surface_attributes"],
+                designated_edge_ids=materials["designated_edge_ids"],
+                metrics=materials["metrics"],
+                accident_years_covered=3,
+            )
+        )
+        supplied.update(material_id for material_id, value in resolved.items() if value is not None)
+
+    missing = sorted(set(EXTRACTABLE_MATERIAL_IDS) - supplied)
+    assert not missing, f"パリティテストのグラフが値を1件も供給していない材料: {missing}"

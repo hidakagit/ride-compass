@@ -3,7 +3,8 @@ import logging
 import time
 
 from app.config import settings
-from app.domain.evaluation import AxisInspectorResult, RoutePreference, axis_inspector_breakdown
+from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
+from app.domain.route_preference import RoutePreference
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning

@@ -11,17 +11,22 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`・`difficulty.py`・`material_catalog.py`・`recipe.py` |
+| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ、Way単位の材料解決）・`difficulty.py`・`material_catalog.py`・`recipe.py` |
 | services | `evaluation_service.py`・`material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
+
+domainの5ファイルは**変更理由で分けてある**。`evaluation.py`が変わるのはコストの
+計算方法を変えるとき、`hard_filters.py`はフィルタを増減するとき、`route_preference.py`は
+APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動的材料を増やすとき、
+`axis_inspector.py`は区間インスペクタの内訳表示を変えるとき。
 
 `infrastructure/osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、
 [routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と本モジュールの
 `material_coverage.py`が共有する）は[routing-engine.md](routing-engine.md)が主管するため
 対象表には加えず参照のみ行う。
 
-## 0次ハードフィルタ（`domain/evaluation.py`）
+## 0次ハードフィルタ（`domain/hard_filters.py`）
 
 `DEFAULT_HARD_FILTERS: frozenset[str] = frozenset({"no_bicycle", "motorway", "trunk"})`。
 `is_edge_allowed(edge, hard_filters=None)`が、`hard_filters`省略時はこの既定集合（全
@@ -29,6 +34,11 @@
 上書きを持つ（`evaluation_service.py`が既定Noneを受け取り解決）。
 
 - highwayタグ由来（`motorway`/`trunk`）・`bicycle=no`タグ（`no_bicycle`）の2系統。
+  highway種別のフィルタは`HARD_FILTER_HIGHWAY_TYPES`（フィルタ名→対象highway値）が唯一の
+  レジストリで、スカラー版`is_edge_allowed`もベクトル版`compute_hard_filter_excluded`も
+  この辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
+  `highway_filter_flags`で、フィルタごとの専用引数・専用フィールドは持たない）。
+  フィルタを1件増やしても変わるのはこの辞書だけ。
   highwayタグが無い・way_tagsが未取得の場合は除外しない（判断材料が無いEdgeまで一律
   除外すると探索対象が過度に狭まるため、不明な場合は許可しSoft Constraint側へ委ねる）。
 - `max_average_grade_percent`（省略時None＝除外なし）が指定され、かつ
@@ -40,6 +50,29 @@
 軸単位の評価（[軸スタジオ](axis-studio.md)の`priority_overrides`、材料の値が一致すれば
 評価を優先確定する仕組み）とは別の概念——0次フィルタは道路そのものを探索グラフから
 除外する。
+
+## 材料解決の1本道（3つの評価経路が同じ宣言を読む）
+
+材料値の組み立ては`MATERIAL_CATALOG`のextractor宣言1つに集約され、
+`material_catalog.py: resolve_materials(ctx)`だけが「どの材料をどう抽出するか」を知る。
+評価経路は3つあるが、**どの経路も材料の一覧を持たない**。
+
+| 経路 | 入口 | 粒度 | `MaterialExtractionContext`の作り方 |
+|---|---|---|---|
+| スカラー | `evaluation.py: compute_edge_axis_scores` | Edge1本 | 引数の`metrics`等をそのまま1件の辞書として渡す |
+| ベクトル | `evaluation.py: _evaluate_axes_bulk` | Edge群 | Edgeごとにcontextを作り、`resolve_materials`と同じextractorをnumpy配列へ書き込む |
+| Way単位 | `axis_inspector.py: way_scalar_materials` | Way1本 | 合成キー`"way"`1件だけの辞書を作って渡す（区間インスペクタ・軸スタジオのプレビュー） |
+
+**暗黙の前提**: `MaterialExtractionContext`は道路オブジェクトそのものを持たず、extractorが
+実際に読む値（`highway`）だけを持つ。Edge/Wayという異なる粒度から同じextractorを
+呼べるのはこのためで、`EdgeLike`をフィールドに戻すとWay単位の経路が同じ宣言を使えなくなる。
+
+**この1本道が壊れたときに起きること**: 経路ごとに材料の一覧を手書きすると、材料を
+1件増やしたときに一部の経路だけ取り残され、その経路でだけ材料が欠損する（＝その材料を
+使う軸が丸ごと「データなし」になる）。合成コストは他の軸で決まるため、スカラー／ベクトルの
+突き合わせテストでも気付けない。`tests/test_evaluation_bulk.py:
+test_every_extractable_material_reaches_both_paths`が、材料1件＝軸1本の合成軸を全材料ぶん
+作って両経路を突き合わせることでこれを機械的に検出する。
 
 ## 材料の解決から合成コストまで（3段階）
 
@@ -86,7 +119,7 @@ evaluate_graph`（bbox全体を一括評価する経路）自体は本番のル�
   `MATERIAL_CATALOG`の`extractor`宣言を使いEdge単位の辞書・タグアクセスをnumpy配列へ
   落とし込み、`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を求める
   （`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の生フラグ
-  `is_motorway`/`is_trunk`/`no_bicycle`/`gradient_percent`も返す——`hard_filters`は
+  `highway_filter_flags`/`no_bicycle`/`gradient_percent`も返す——`hard_filters`は
   リクエストごとに変わりうるため、除外判定そのものはこの関数では確定させない）。
   動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`、風）は抽出ループを通らず、
   `evaluate_dynamic_material_arrays`（後述）がbearing配列・`weather`・`travel_speed_ms`から
@@ -334,7 +367,7 @@ OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`
 「タグ自体が未取得」をNoneへ倒すガード条件を1箇所に集約する（呼び出し元4箇所での重複
 ガード実装を避ける）。
 
-## RoutePreference（`domain/evaluation.py`）
+## RoutePreference（`domain/route_preference.py`）
 
 `weights: dict[str, float]`（axis_id→重み、既定値は`default_axis_weights()`）。
 バリデーションは公開軸（`is_published=True`）のキー集合の完全一致を要求する（内部軸は

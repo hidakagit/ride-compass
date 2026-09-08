@@ -32,7 +32,7 @@ import logging
 import os
 import time
 
-from app.domain.evaluation import RoutePreference
+from app.domain.route_preference import RoutePreference
 from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO

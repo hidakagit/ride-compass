@@ -265,7 +265,7 @@ def test_evaluate_axis_difficulties_all_none_inputs_yield_none_composite():
     # 改善計画T347: bicycle_infra_qualityが公開軸として加わった。
     weights = {axis_id: 1.0 for axis_id in
                ("gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night",
-                "bicycle_infra_quality")}
+                "bicycle_infra_quality", "openness")}
     result = evaluate_axis_difficulties({}, weights)
 
     assert all(value is None for value in result.axes.values())

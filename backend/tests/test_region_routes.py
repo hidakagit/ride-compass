@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_dedicated_way_value_service, get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.config import settings
-from app.domain.evaluation import AxisInspectorAxis, AxisInspectorResult
+from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
 from app.services.tile_serving import TileResponse
 from app.main import app

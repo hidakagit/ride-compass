@@ -303,6 +303,25 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         chip_label="自転車道",
         show_map_icon=False,
     ),
+    # 土地被覆（way_landcover）由来の材料を使う唯一の公開軸。この軸をフィクスチャへ
+    # 含めないと、`trees_percent`/`built_percent`を実際に評価する経路がテストから
+    # 消え、材料の配線が外れていても全経路が同じ「欠損」を返して一致してしまう。
+    "openness": AxisDefinition(
+        axis_id="openness",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="trees_percent", weight=-1.0),
+                MaterialTerm(material="built_percent", weight=-1.0),
+            ],
+            breakpoints=[(-100.0, 0.0), (-80.0, 30.0), (-20.0, 100.0)],
+        ),
+        default_weight=0.0,
+        label="開放度",
+        description="周囲に建物・樹木などの遮蔽物が少ない[開けている]道ほど難しい",
+        category="推定",
+        is_published=True,
+        chip_label="開放",
+    ),
 }
 
 

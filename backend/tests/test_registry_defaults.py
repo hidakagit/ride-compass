@@ -64,7 +64,7 @@ def test_default_axes_are_registered_without_conflict():
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert axis_ids == {
         "gradient", "wind", "surface_q", "stop_density", "accident", "car_stress", "night",
-        "bicycle_infra_quality",
+        "bicycle_infra_quality", "openness",
     }
 
 
@@ -231,6 +231,7 @@ def test_register_defaults_does_not_crash_when_a_builtin_axis_is_removed(monkeyp
     assert "gradient" not in axis_ids
     assert axis_ids == {
         "wind", "surface_q", "stop_density", "accident", "car_stress", "night", "bicycle_infra_quality",
+        "openness",
     }
 
 

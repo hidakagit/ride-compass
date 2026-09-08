@@ -14,11 +14,10 @@ import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
 from app.domain.errors import RoutingError
-from app.domain.evaluation import (
-    RoutePreference,
-    build_static_edge_score_matrix,
-    compute_hard_filter_excluded,
-)
+from app.domain.evaluation import build_static_edge_score_matrix
+from app.domain.hard_filters import compute_hard_filter_excluded
+from app.domain.route_preference import RoutePreference
+from tests.metrics_fixtures import edge_metrics
 from app.domain.geo import bearing_between, compass_label, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
@@ -1193,8 +1192,9 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
     segment = segments[0]
 
     oracle_axis_scores = compute_edge_axis_scores(
-        edge, elevation_attr, "gravel", weather=weather, stop_count=3, way_tags=way_tags["e1"],
-        intersection_count=2, accident_count=1.0, accident_years_covered=5, is_designated=True,
+        edge, elevation_attr, "gravel", weather=weather, way_tags=way_tags["e1"],
+        metrics=edge_metrics("e1", stop=3, intersection=2, accident=1.0),
+        accident_years_covered=5, is_designated=True,
         travel_speed_ms=kmh_to_ms(ASSUMED_SPEED_KMH),
     )
     _, oracle_difficulty = compute_cost_from_axis_scores(
@@ -1948,7 +1948,7 @@ def _build_context_score_fields(
     active_scopes = frozenset({"night_only"}) if night_active else frozenset()
     weights = preference.with_time_scope(active_scopes).weights
     hard_filter_excluded = compute_hard_filter_excluded(
-        score_matrix.is_motorway, score_matrix.is_trunk, score_matrix.no_bicycle, score_matrix.gradient_percent,
+        score_matrix.highway_filter_flags, score_matrix.no_bicycle, score_matrix.gradient_percent,
     )
     composer = road_graph_engine._LegCostComposer(
         score_matrix, weights, penalty_strength, hard_filter_excluded, weather, wind_series,

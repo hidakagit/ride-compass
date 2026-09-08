@@ -219,7 +219,7 @@ values = {
 符号の二重反転が相殺するため、`test_gradient.py: test_forward_and_backward_edge_agree`で
 検証済み）。`wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
 向かい風成分）と一致し、追い風が走行速度を超える領域も連続。引数はスカラー・配列どちらも
-受け付け（numpyのブロードキャスト）、`domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`が
+受け付け（numpyのブロードキャスト）、`domain/dynamic_materials.py: DYNAMIC_MATERIAL_EVALUATORS`が
 探索・区間表示の唯一の呼び出し元（[evaluation-scoring.md](evaluation-scoring.md)参照）。
 
 ## ルート確定後の風の評価

@@ -9,7 +9,8 @@ from app.api.dependencies import RouteGenerationSetup, _assemble_route_generatio
 from app.api.routers import routes as routes_module
 from app.api.routers.routes import _generate_semaphore
 from app.config import settings
-from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS
+from app.domain.route_preference import RoutePreference
 from app.domain.route import RouteCandidate
 from app.domain.wind import ASSUMED_SPEED_KMH
 from app.infrastructure import job_registry, rate_limiter
@@ -259,7 +260,7 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them(monkeypatch):
     route_preference = {
         "gradient": 0.5, "surface_q": 0.25, "wind": 0.2, "stop_density": 0.05,
         "car_stress": 0.0, "accident": 0.0,
-        "night": 0.0, "bicycle_infra_quality": 0.0,
+        "night": 0.0, "bicycle_infra_quality": 0.0, "openness": 0.0,
     }
 
     result = submit_and_await_done({**REQUEST_BODY, "route_preference": route_preference})
