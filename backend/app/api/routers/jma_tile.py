@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 
 import logging
 
@@ -62,8 +63,44 @@ async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> bytes
         return None
 
 
-@router.get("/api/jma-tile-index")
-async def jma_tile_index() -> dict:
+class JmaTileIndexCoverage(BaseModel):
+    """インデックスが網羅している地理範囲（プリウォームの対象bbox）。"""
+
+    min_longitude: float
+    min_latitude: float
+    max_longitude: float
+    max_latitude: float
+
+
+class JmaTileIndexElement(BaseModel):
+    """要素（risk系・nowc系・rasrf系）ごとの在否。
+
+    `basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために
+    使う（要素ごとに更新タイミングが異なり、1つの`basetime`では表せない）。
+    """
+
+    basetime: str | None = None
+    validtime: str | None = None
+    member: str = "none"
+    # ズーム（文字列キー）→ 中身のあるタイル座標[x, y]の一覧。JSONのオブジェクトキーは
+    # 文字列のため、生成側（`jma_tile_prewarm_service._store_index`）で揃えてある。
+    zooms: dict[str, list[list[int]]] = {}
+
+
+class JmaTileIndexResponse(BaseModel):
+    """`GET /api/jma-tile-index`の応答。
+
+    `available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は
+    いずれもNoneで、クライアントは従来どおり全タイルを取りに行く。
+    """
+
+    available: bool
+    coverage: JmaTileIndexCoverage | None = None
+    elements: dict[str, JmaTileIndexElement] | None = None
+
+
+@router.get("/api/jma-tile-index", response_model=JmaTileIndexResponse)
+async def jma_tile_index() -> JmaTileIndexResponse:
     """どのタイルに描くものがあるかの一覧（`infrastructure/jma_tile_index.py`）。
 
     JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。クライアントはこれを1回
@@ -74,8 +111,8 @@ async def jma_tile_index() -> dict:
     """
     index = await get_index()
     if index is None:
-        return {"available": False}
-    return {"available": True, **index}
+        return JmaTileIndexResponse(available=False)
+    return JmaTileIndexResponse(available=True, **index)
 
 
 @router.get("/api/jma-tile/{path:path}")

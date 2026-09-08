@@ -8,30 +8,14 @@
 // 網羅範囲外・URLを解釈できない）は必ず「取りに行く」へ倒す。誤って省くと危険情報が
 // 地図から消えるため、省けるのは「空だと確認済み」の場合だけに限る。
 
-/** backendの応答そのまま。`available: false`ならインデックス無し（従来どおり全取得）。 */
-export interface JmaTileIndexResponse {
-  available: boolean;
-  coverage?: {
-    min_longitude: number;
-    min_latitude: number;
-    max_longitude: number;
-    max_latitude: number;
-  };
-  elements?: Record<
-    string,
-    {
-      basetime: string | null;
-      validtime: string | null;
-      member: string;
-      /** ズーム（文字列）→ 中身のあるタイル座標 [x, y] の一覧。 */
-      zooms: Record<string, [number, number][]>;
-    }
-  >;
-}
+/** backendの応答そのまま（`api/routers/jma_tile.py: JmaTileIndexResponse`の生成型）。
+ * `available: false`ならインデックス無し（従来どおり全取得）。 */
+export type { JmaTileIndexResponse } from "@/types/route";
+import type { JmaTileIndexResponse as JmaTileIndexResponseType } from "@/types/route";
 
 /** 判定用に前処理した形。座標の線形探索を避けるためSetへ展開しておく。 */
 export interface JmaTileIndexLookup {
-  coverage: NonNullable<JmaTileIndexResponse["coverage"]>;
+  coverage: NonNullable<JmaTileIndexResponseType["coverage"]>;
   /** 要素id → { その要素のbasetime, "z/x/y"のSet } */
   elements: Map<string, { basetime: string; present: Set<string> }>;
 }
@@ -61,7 +45,7 @@ export function parseJmaTileUrl(url: string): JmaTileRef | null {
   };
 }
 
-export function buildJmaTileIndexLookup(response: JmaTileIndexResponse | null): JmaTileIndexLookup | null {
+export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | null): JmaTileIndexLookup | null {
   if (!response?.available || !response.coverage || !response.elements) return null;
   const elements = new Map<string, { basetime: string; present: Set<string> }>();
   for (const [elementId, entry] of Object.entries(response.elements)) {

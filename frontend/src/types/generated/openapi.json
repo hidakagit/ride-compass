@@ -965,9 +965,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Jma Tile Index Api Jma Tile Index Get"
+                  "$ref": "#/components/schemas/JmaTileIndexResponse"
                 }
               }
             }
@@ -3066,6 +3064,121 @@
         "type": "object",
         "title": "HardFilterOverride",
         "description": "0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。\nキーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/\n'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら\n全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。"
+      },
+      "JmaTileIndexCoverage": {
+        "properties": {
+          "min_longitude": {
+            "type": "number",
+            "title": "Min Longitude"
+          },
+          "min_latitude": {
+            "type": "number",
+            "title": "Min Latitude"
+          },
+          "max_longitude": {
+            "type": "number",
+            "title": "Max Longitude"
+          },
+          "max_latitude": {
+            "type": "number",
+            "title": "Max Latitude"
+          }
+        },
+        "type": "object",
+        "required": [
+          "min_longitude",
+          "min_latitude",
+          "max_longitude",
+          "max_latitude"
+        ],
+        "title": "JmaTileIndexCoverage",
+        "description": "インデックスが網羅している地理範囲（プリウォームの対象bbox）。"
+      },
+      "JmaTileIndexElement": {
+        "properties": {
+          "basetime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basetime"
+          },
+          "validtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validtime"
+          },
+          "member": {
+            "type": "string",
+            "title": "Member",
+            "default": "none"
+          },
+          "zooms": {
+            "additionalProperties": {
+              "items": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Zooms",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "title": "JmaTileIndexElement",
+        "description": "要素（risk系・nowc系・rasrf系）ごとの在否。\n\n`basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために\n使う（要素ごとに更新タイミングが異なり、1つの`basetime`では表せない）。"
+      },
+      "JmaTileIndexResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JmaTileIndexCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "elements": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JmaTileIndexElement"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elements"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "JmaTileIndexResponse",
+        "description": "`GET /api/jma-tile-index`の応答。\n\n`available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は\nいずれもNoneで、クライアントは従来どおり全タイルを取りに行く。"
       },
       "MaterialCatalogEntry": {
         "properties": {

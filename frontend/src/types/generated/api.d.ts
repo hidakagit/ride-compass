@@ -1318,6 +1318,61 @@ export interface components {
         HardFilterOverride: {
             [key: string]: boolean;
         };
+        /**
+         * JmaTileIndexCoverage
+         * @description インデックスが網羅している地理範囲（プリウォームの対象bbox）。
+         */
+        JmaTileIndexCoverage: {
+            /** Min Longitude */
+            min_longitude: number;
+            /** Min Latitude */
+            min_latitude: number;
+            /** Max Longitude */
+            max_longitude: number;
+            /** Max Latitude */
+            max_latitude: number;
+        };
+        /**
+         * JmaTileIndexElement
+         * @description 要素（risk系・nowc系・rasrf系）ごとの在否。
+         *
+         *     `basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために
+         *     使う（要素ごとに更新タイミングが異なり、1つの`basetime`では表せない）。
+         */
+        JmaTileIndexElement: {
+            /** Basetime */
+            basetime?: string | null;
+            /** Validtime */
+            validtime?: string | null;
+            /**
+             * Member
+             * @default none
+             */
+            member: string;
+            /**
+             * Zooms
+             * @default {}
+             */
+            zooms: {
+                [key: string]: number[][];
+            };
+        };
+        /**
+         * JmaTileIndexResponse
+         * @description `GET /api/jma-tile-index`の応答。
+         *
+         *     `available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は
+         *     いずれもNoneで、クライアントは従来どおり全タイルを取りに行く。
+         */
+        JmaTileIndexResponse: {
+            /** Available */
+            available: boolean;
+            coverage?: components["schemas"]["JmaTileIndexCoverage"] | null;
+            /** Elements */
+            elements?: {
+                [key: string]: components["schemas"]["JmaTileIndexElement"];
+            } | null;
+        };
         /** MaterialCatalogEntry */
         MaterialCatalogEntry: {
             /** Material Id */
@@ -2541,9 +2596,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JmaTileIndexResponse"];
                 };
             };
         };

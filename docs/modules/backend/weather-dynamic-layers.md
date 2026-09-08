@@ -168,6 +168,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 | 保持 | `redis_json_cache`経由、固定キー1つにTTL20分。要素ごとに`basetime`が異なるためキーには含めず、ペイロード側の要素ごとに持たせる |
 | `coverage` | インデックスが網羅する地理範囲。**この外は在否が不明**のためクライアントは従来どおり取得する |
 | 未保存時 | `available: false`を返し、クライアントは従来どおり全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない） |
+| 応答の型 | `JmaTileIndexResponse`（`api/routers/jma_tile.py`のPydanticモデル）。frontendは生成型をそのまま使い構造を手書きしない——組み立て（`_store_index`）と応答が別ファイルのため、構造の変更は「表示は正常なまま間引きだけが黙って効かなくなる」形でしか現れない |
 
 **定期プリウォーム（`services/jma_tile_prewarm_service.py`）**: `main.py`のAPScheduler
 （アメダスと同じ`interval`トリガー、`jma_tile_prewarm_interval_minutes`＝10分、

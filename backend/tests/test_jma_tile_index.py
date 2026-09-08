@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.api.dependencies import get_jma_tile_client
+from app.api.routers.jma_tile import JmaTileIndexElement, JmaTileIndexResponse
 from app.infrastructure.jma_tile_index import is_empty_tile
+from app.services.jma_tile_prewarm_service import _PREWARM_BBOX
 from app.main import app
 
 client = TestClient(app)
@@ -63,7 +65,8 @@ def test_index_endpoint_reports_unavailable_when_not_stored(monkeypatch):
 
     assert response.status_code == 200
     # インデックスが無いことで表示が欠けてはならない。クライアントは従来どおり全タイルを取る。
-    assert response.json() == {"available": False}
+    # coverage/elementsはレスポンスモデルの省略可能フィールドとしてnullで出る。
+    assert response.json() == {"available": False, "coverage": None, "elements": None}
 
 
 def test_index_endpoint_returns_stored_index(monkeypatch):
@@ -111,3 +114,50 @@ def test_index_endpoint_is_short_lived():
         app.dependency_overrides.clear()
 
     assert response.headers["cache-control"] == "public, max-age=60"
+
+
+# --- 生成側（プリウォーム）とレスポンスモデルのドリフト検知 ---
+
+
+def test_stored_index_payload_satisfies_the_response_model():
+    # インデックスの中身は`jma_tile_prewarm_service._store_index`が組み立て、Redisを
+    # 素通りしてこのエンドポイントの応答になる。両者は別ファイルで、間に型検査が無いと
+    # 構造の変更が「表示は正常なまま間引きだけが黙って効かなくなる」形で現れる
+    # （フロントは載っていないタイルを要求しないため、余分に取りに行く方向へ倒れる）。
+    # `_store_index`が実際に作る形をレスポンスモデルへ通し、片方だけ変わったら落ちるようにする。
+    payload = {
+        "coverage": {
+            "min_longitude": _PREWARM_BBOX.min_longitude,
+            "min_latitude": _PREWARM_BBOX.min_latitude,
+            "max_longitude": _PREWARM_BBOX.max_longitude,
+            "max_latitude": _PREWARM_BBOX.max_latitude,
+        },
+        "elements": {
+            "rain_mesh": {
+                "basetime": "20260907025000",
+                "validtime": "20260907025000",
+                "member": "immed0",
+                "zooms": {"10": [[909, 403]]},
+            }
+        },
+    }
+
+    model = JmaTileIndexResponse(available=True, **payload)
+
+    assert model.coverage is not None
+    assert model.coverage.min_longitude == _PREWARM_BBOX.min_longitude
+    assert model.elements is not None
+    assert model.elements["rain_mesh"].zooms == {"10": [[909, 403]]}
+    assert model.elements["rain_mesh"].member == "immed0"
+
+
+def test_response_model_defaults_match_the_generator_omissions():
+    # `_store_index`は`entry.get("basetime")`のようにキーが無ければNone、`member`は
+    # "none"を既定にする。モデル側の既定がこれとずれると、生成側が省いた項目の意味が
+    # 変わる（例: memberの既定が変わるとクライアントの世代一致判定が狂う）。
+    element = JmaTileIndexElement()
+
+    assert element.basetime is None
+    assert element.validtime is None
+    assert element.member == "none"
+    assert element.zooms == {}

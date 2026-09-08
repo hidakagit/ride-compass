@@ -70,7 +70,8 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 
 JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。`hooks/useJmaTileIndex.ts`が
 backendの`GET /api/jma-tile-index`（[気象・動的レイヤー](../backend/weather-dynamic-layers.md)
-「在否インデックス」節）を定期取得し、`Map/jmaTileProtocol.ts`が`maplibregl.addProtocol`で
+「在否インデックス」節。応答の型は`types/route.ts`が再exportする生成型
+`JmaTileIndexResponse`で、`Map/jmaTileIndex.ts`は構造を手書きしない）を定期取得し、`Map/jmaTileProtocol.ts`が`maplibregl.addProtocol`で
 タイル要求を横取りする。「空だと確認済み」のタイルはネットワークへ出さず、透明PNG
 （ベクタは0バイトのMVT）を返す。
 

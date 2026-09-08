@@ -91,6 +91,13 @@ export type MaterialCatalogEntry = Schemas["MaterialCatalogEntry"];
 export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
 export type MaterialReferencePointEntry = Schemas["MaterialReferencePointEntry"];
 
+// JMA動的タイルの在否インデックス。GET /api/jma-tile-indexのレスポンス。
+// 平常時に空タイルを取りに行かないための「どのタイルに中身があるか」の一覧
+// （components/Map/jmaTileIndex.tsが解釈する）。
+export type JmaTileIndexResponse = Schemas["JmaTileIndexResponse"];
+export type JmaTileIndexElement = Schemas["JmaTileIndexElement"];
+export type JmaTileIndexCoverage = Schemas["JmaTileIndexCoverage"];
+
 // 材料の実データ値一覧。GET /api/admin/material-catalog/{material_id}/valuesのレスポンス。
 // highway/surface/smoothnessのようなオープンエンドな多値材料向け。各値に日本語ラベル
 // (label)も付く（backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが
