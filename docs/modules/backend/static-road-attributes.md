@@ -75,12 +75,18 @@ Geofabrik/BBBike PBF抽出ファイル
 N12=素のGeoJSON）ため、`_KIND_SPECS`辞書がkindごとのURLテンプレート・source値・
 ZIP内メンバー名・パーサ関数を1箇所に対応させる。冪等性は自然キーが無いため
 「(kind, pref_code)単位でDELETE→INSERT」で担保し、パーサが0件を返した場合は
-DELETEごとスキップする（既存データを誤って全消しする事故を防ぐ）。
+DELETEごとスキップする（既存データを誤って全消しする事故を防ぐ）。ダウンロードした
+ZIPのローカル保存名はURL側のファイル名（`N10-15_08_GML.zip`のようにKSJの配信版数を
+含む）をそのまま使う——`download_to_path`は同名ファイルがあればHTTPごとスキップする
+ため、保存名が版数を含まないと新しい版のURLへ更新して再実行しても旧版をパースし続ける。
 
 `match_designations.py`が`route_designations`（線データ）を`osm_raw_ways`（全域自己完結）
 へバッファマッチし、`designation_attributes`（Way派生、複合PK `(osm_way_id, kind)`）へ
 書き込む事前計算バッチ。判定式・バッファ幅は`domain/designation.py`が正準。`import_
-designations.py`実行後、およびOSM再取込後に再実行する必要がある。
+designations.py`実行後、およびOSM再取込後に再実行する必要がある。書き込みは
+DELETE→INSERTで、**候補0件のkindはDELETEの対象から外す**——DELETEが全kindを一度に
+対象にする形のため、ガードをkind単位で持たないと、片方のkindだけ候補0件になったときに
+そのkindの行だけが静かに全消しされる。
 
 ### 事前集計バッチ（`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`）
 
@@ -96,6 +102,9 @@ designations.py`実行後、およびOSM再取込後に再実行する必要が�
 （`get_accident_counts`/`get_stop_poi_counts`/`get_poi_counts_by_kind`/
 `get_intersection_counts`、および`rebuild_raw_intersection_nodes`/
 `recompute_way_attribute_counts`）をチャンク単位で呼び出すだけの薄いオーケストレーション。
+書き込みも同様にリポジトリ側（`save_edge_attribute_counts`等→`_bulk_upsert`）へ委ねる
+——UPSERT1文へ載せる行数はバインドパラメータ上限（32,767個）を列数で割って決めるため、
+バッチが自前のINSERT文を持つとこの保護から外れ、列を1本足した時点で本番実行が落ちる。
 
 | バッチ | 対象 | 母集団 | 実行順の依存 |
 |---|---|---|---|
@@ -154,15 +163,18 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 
 `presplit_road_graph.py`・`precompute_road_node_degrees.py`・
 `precompute_edge_attribute_counts.py`・`precompute_elevation_attributes.py`・
-`precompute_way_attribute_counts.py`・`match_designations.py`（依存DAGは
+`precompute_way_attribute_counts.py`・`match_designations.py`・
+`precompute_way_landcover.py`（依存DAGは
 [docs/batch-pipeline-dependencies.md](../../batch-pipeline-dependencies.md)参照）を
 依存順に1コマンドで実行する薄いオーケストレーション。各段は既存バッチの`run`/
-`run_match`関数をそのまま呼ぶだけで新しいロジックは持たず、いずれか1段が例外を
-送出したら即座に停止し後続は実行しない。`import_pbf.py`・`import_accidents.py`・
+`run_match`/`run_default`関数をそのまま呼ぶだけで新しいロジックは持たず、いずれか1段が
+例外を送出するか非0の終了コードを返したら即座に停止し、後続を実行せずその終了コードを
+返す（disaster recovery手順はこのコマンドの終了コードで次工程へ進むかを判断する）。
+最終段`precompute_way_landcover.py`だけはラスタファイルを要するため`--skip-landcover`で
+その段だけスキップできる。`import_pbf.py`・`import_accidents.py`・
 `import_designations.py`（生データ取込そのもの）は対象外。
 
-### 派生データ鮮度台帳（`derived_data_freshness.py`・`derived_data_freshness_service.py`、
-）
+### 派生データ鮮度台帳（`derived_data_freshness.py`・`derived_data_freshness_service.py`）
 
 `edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`が参照している
 `source_*_import_run_id`（上記「事前集計バッチ」参照）を、対応する`*_import_runs`の
@@ -306,3 +318,8 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
   という概念自体を持たない（road_surfaceタイルとはカバレッジ判定の有無が異なる）。
 - **`designation_attributes`は`osm_raw_ways`基準（road_edgesの遅延構築に依存しない）**
   ——ルート生成履歴の無いエリアでも指定路線の地図表示・評価が機能する設計。
+- **`way_landcover`は「リング（道路周囲100m）を完全に含むラスタ」が1枚あるwayにしか
+  行を作らない**——複数ラスタにまたがるwayは、部分的に重なるラスタで割合を出すと
+  重なった側の土地被覆だけで100%を分け合う値になる。行が無い＝材料の欠損として扱い、
+  もっともらしい数値を書かない（ラスタ境界帯のwayを埋めるには、その帯を覆うラスタを
+  足して再実行する）。

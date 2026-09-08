@@ -31,9 +31,11 @@ def _clear_warming_tiles():
     # 改善計画T469: _last_warm_attempt（温め失敗後の再試行クールダウン）も同様。
     graph_service_module._warming_tiles.clear()
     graph_service_module._last_warm_attempt.clear()
+    graph_service_module._warm_tasks.clear()
     yield
     graph_service_module._warming_tiles.clear()
     graph_service_module._last_warm_attempt.clear()
+    graph_service_module._warm_tasks.clear()
 
 BBOX = BoundingBox(min_latitude=35.70, min_longitude=139.70, max_latitude=35.71, max_longitude=139.71)
 # ROAD_GRAPH_TILE_ZOOM(=12)においてBBOXはちょうど1タイルに収まる（[(3637, 1612)]）。
@@ -627,6 +629,29 @@ async def test_get_search_materials_for_bbox_survives_process_restart_via_disk_c
     assert fourth_score_matrix.edge_ids == third_score_matrix.edge_ids
 
 
+async def test_score_matrix_cache_miss_is_reported_as_computed_not_db():
+    """スコア行列のキャッシュmissは"db"ではなく"computed"として報告する。
+
+    スコア行列は既に読み込んだ材料から計算するだけでDBを読まない。材料側のDB問い合わせと
+    同じ"db"にすると、INFOサマリのmemory/disk/db内訳から「prepareが遅いのはDB問い合わせか
+    計算か」を切り分けられなくなる。
+    """
+    tile_score_matrix_cache.clear()
+    service, repository = await _seeded_service_with_materials()
+    materials = await service._get_or_build_tile_materials(*BBOX_TILE)
+
+    stats: dict[str, object] = {}
+    await service._get_or_build_tile_score_matrix(*BBOX_TILE, materials, 1, stats)
+    assert stats["source"] == "computed"
+
+    # 2回目は同じプロセス内メモリから返るため"memory"（計算は1回だけ）。
+    cached_stats: dict[str, object] = {}
+    await service._get_or_build_tile_score_matrix(*BBOX_TILE, materials, 1, cached_stats)
+    assert cached_stats["source"] == "memory"
+
+    tile_score_matrix_cache.clear()
+
+
 async def test_get_search_materials_for_bbox_accident_years_covered_is_cached_globally():
     service, repository = await _seeded_service_with_materials()
     repository._accident_years_covered = 5
@@ -861,6 +886,28 @@ async def test_maybe_warm_tile_cache_schedules_background_task_per_uncached_tile
     await asyncio.wait_for(started.wait(), timeout=1.0)
 
     assert warmed == [BBOX_TILE]
+
+
+async def test_maybe_warm_tile_cache_keeps_a_strong_reference_to_the_task(monkeypatch):
+    """起動した温めタスクへの強参照を保持し、完了したら解放する。
+
+    イベントループはタスクを弱参照でしか持たない。参照を捨てるとGCで実行中のタスクごと
+    消え、finallyの`_warming_tiles.discard`も走らないため、そのタイルはプロセスが
+    生きている限り温め対象から外れ続ける（毎回冷パスを通る）。
+    """
+    release = asyncio.Event()
+
+    async def fake_warm(x: int, y: int, attempted_at: float) -> None:
+        await release.wait()
+
+    monkeypatch.setattr(graph_service_module, "_warm_tile_cache_background", fake_warm)
+
+    graph_service_module._maybe_warm_tile_cache(BBOX)
+
+    assert len(graph_service_module._warm_tasks) == 1
+    release.set()
+    await asyncio.gather(*graph_service_module._warm_tasks)
+    assert graph_service_module._warm_tasks == set()
 
 
 async def test_maybe_warm_tile_cache_skips_tile_already_in_material_cache(monkeypatch):

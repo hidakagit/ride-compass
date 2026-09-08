@@ -102,6 +102,37 @@ class TestWriteMatches:
         assert row["data_version"] == "buffer20m"
         assert row["matched_route_designation_ids"] == [1]
 
+    async def test_keeps_rows_of_kinds_without_candidates(
+        self, designation_conn, road_graph_repository, road_graph_session, caplog
+    ):
+        """片方のkindだけcandidatesが0のとき、そのkindの既存行を消さない。
+
+        DELETEは`kind = ANY($1)`で全kindを対象にするため、ガードを全kind合算にしていると
+        「もう片方にcandidatesがある」だけでDELETEが走り、候補0件のkindの行だけが
+        静かに全消しされる（指定路線ベースのcar_stress補正が黙って外れる）。
+        """
+        way = WaySpec(osm_way_id=OSM_WAY_ID, node_ids=[1, 2], highway="residential")
+        await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
+        await road_graph_session.commit()
+        await _seed_designation_attribute(designation_conn, OSM_WAY_ID, "critical_logistics", ratio=0.7)
+
+        with caplog.at_level(logging.WARNING, logger="ridecompass.match_designations"):
+            await _write_matches(
+                designation_conn,
+                candidates=[(OSM_WAY_ID, "emergency_transport", 0.9, [1])],
+                matched=[(OSM_WAY_ID, "emergency_transport", 0.9, [1])],
+                data_version="buffer20m",
+            )
+
+        assert any("critical_logistics" in r.getMessage() for r in caplog.records)
+        kinds = [
+            r["kind"]
+            for r in await designation_conn.fetch(
+                "SELECT kind FROM designation_attributes WHERE osm_way_id = $1 ORDER BY kind", OSM_WAY_ID
+            )
+        ]
+        assert kinds == ["critical_logistics", "emergency_transport"]
+
     async def test_rolls_back_delete_when_insert_fails_midway(
         self, designation_conn, road_graph_repository, road_graph_session, monkeypatch
     ):

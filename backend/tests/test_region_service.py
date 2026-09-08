@@ -225,9 +225,33 @@ def _clear_graph_build_state():
     テスト間で汚染しないよう毎回クリアする。"""
     region_service_module._building_graph_tiles.clear()
     region_service_module._last_build_check.clear()
+    region_service_module._build_tasks.clear()
     yield
     region_service_module._building_graph_tiles.clear()
     region_service_module._last_build_check.clear()
+    region_service_module._build_tasks.clear()
+
+
+async def test_maybe_trigger_graph_build_keeps_a_strong_reference_to_the_task(monkeypatch):
+    """起動した構築タスクへの強参照を保持し、完了したら解放する。
+
+    参照を捨てるとイベントループの弱参照だけになり、GCで実行中のタスクごと消える。
+    finallyの`_building_graph_tiles.discard`が走らないため、そのz12タイルは以後
+    プロセス寿命の間ずっと構築対象から外れる。
+    """
+    release = asyncio.Event()
+
+    async def fake_build(ancestor_tile, checked_at):
+        await release.wait()
+
+    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
+
+    region_service_module._maybe_trigger_graph_build((12, 3637, 1612))
+
+    assert len(region_service_module._build_tasks) == 1
+    release.set()
+    await asyncio.gather(*region_service_module._build_tasks)
+    assert region_service_module._build_tasks == set()
 
 
 async def test_covered_tile_with_real_repository_triggers_background_graph_build(monkeypatch):

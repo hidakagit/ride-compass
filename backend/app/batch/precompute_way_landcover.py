@@ -8,8 +8,8 @@
 （`precompute_way_attribute_counts.py`と同じ理由）。
 
 ラスタファイルはリポジトリにコミットしない（手動取得、docs/disaster-recovery.md参照）。
-複数ファイルを渡した場合、各wayは重心を含む最初のファイルで処理する（`--recompute`
-無しなら`way_landcover`に未だ行が無いwayだけを対象にする増分実行）。
+複数ファイルを渡した場合、各wayは**リングを完全に含む**最初のファイルで処理する
+（`--recompute`無しなら`way_landcover`に未だ行が無いwayだけを対象にする増分実行）。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.precompute_way_landcover --raster <path>
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 import shapely
-from shapely.geometry import LineString
+from shapely.geometry import LineString, box
 from shapely.geometry.base import BaseGeometry
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -80,11 +80,13 @@ def build_ring(line: LineString, inner_m: float, outer_m: float) -> BaseGeometry
 def count_pixels_in_ring(dataset, ring: BaseGeometry) -> dict[int, int] | None:
     """開いているラスタ`dataset`（`ring`と同じCRS）から、`ring`内画素のクラス値
     ヒストグラムを返す。`ring`がラスタ範囲と重ならない場合はNone（このデータセットの
-    対象外、呼び出し元が他のラスタを試すか諦める）。"""
+    対象外、呼び出し元が他のラスタを試すか諦める）。
+
+    PROJデータの固定（`pin_bundled_proj_data`）は`_RasterSource.__init__`が済ませている
+    前提（way×ラスタごとに呼ぶとその回数だけstat syscallを発行するだけになる）。"""
     # rasterioはrequirements-batch.txt限定の依存で本番webイメージには無いため、この
     # モジュールをALGORITHM_VERSION参照のためだけにimportするderived_data_freshness.py
     # 経由でもimportできるよう、ここでのみ読み込む（モジュール冒頭でimportしない）。
-    pin_bundled_proj_data()
     import rasterio.errors
     import rasterio.features
 
@@ -140,10 +142,23 @@ class _RasterSource:
         import rasterio
 
         self.dataset = rasterio.open(path)
+        self._bounds = box(*self.dataset.bounds)
         self._transformer = pyproj.Transformer.from_crs("EPSG:4326", self.dataset.crs, always_xy=True)
 
     def to_raster_crs(self, line_wgs84: LineString) -> LineString:
         return LineString(self._transformer.itransform(line_wgs84.coords))
+
+    def contains(self, ring: BaseGeometry) -> bool:
+        """`ring`（このラスタのCRS）が範囲へ完全に収まるか。
+
+        一部だけ重なるラスタで割合を出すと、重なった側の土地被覆だけで100%を分け合う
+        「もっともらしい値」になり、NULLではないため鮮度台帳にも欠損として現れない。
+        画素数ではなく矩形の包含で判定するのは、リング形状のラスタライズ誤差に
+        依存させないため。"""
+        return self._bounds.contains(ring)
+
+    def intersects(self, ring: BaseGeometry) -> bool:
+        return self._bounds.intersects(ring)
 
     def close(self) -> None:
         self.dataset.close()
@@ -184,11 +199,15 @@ async def run(
             now = datetime.now(timezone.utc)
             total_written = 0
             total_out_of_range = 0
+            total_partial_coverage = 0
             total_low_pixels = 0
             chunk_index = -1
             async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
                 chunk_index += 1
                 chunk_started = time.perf_counter()
+                chunk_out_of_range = 0
+                chunk_partial_coverage = 0
+                chunk_low_pixels = 0
                 async with session_factory() as session:
                     geometries = await _fetch_way_geometries(session, chunk)
                     source_osm_import_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
@@ -198,18 +217,28 @@ async def run(
                         line = geometries.get(way_id)
                         if line is None:
                             continue
-                        percentages = None
+                        counts = None
+                        partially_covered = False
                         for source in sources:
                             ring = build_ring(source.to_raster_crs(line), inner_m, buffer_m)
+                            if not source.contains(ring):
+                                partially_covered = partially_covered or source.intersects(ring)
+                                continue
                             counts = count_pixels_in_ring(source.dataset, ring)
                             if counts is not None:
-                                percentages = class_percentages(counts)
                                 break
-                        else:
-                            total_out_of_range += 1
+                        if counts is None:
+                            # 1枚もリングを完全には覆えなかった。部分的にでも重なるラスタが
+                            # あった場合（ラスタ境界をまたぐway）と、どのラスタからも外れて
+                            # いる場合を区別して数える（前者はラスタの追加で解消できる）。
+                            if partially_covered:
+                                chunk_partial_coverage += 1
+                            else:
+                                chunk_out_of_range += 1
                             continue
+                        percentages = class_percentages(counts)
                         if percentages is None:
-                            total_low_pixels += 1
+                            chunk_low_pixels += 1
                             continue
                         records.append(
                             WayLandcover(
@@ -228,15 +257,19 @@ async def run(
                     await session.commit()
 
                 total_written += len(records)
+                total_out_of_range += chunk_out_of_range
+                total_partial_coverage += chunk_partial_coverage
+                total_low_pixels += chunk_low_pixels
                 logger.info(
-                    "chunk %d/%d 完了: %d件書込（範囲外%d件・画素不足%d件） elapsed=%.1fs",
-                    chunk_index + 1, total_chunks, len(records), total_out_of_range, total_low_pixels,
-                    time.perf_counter() - chunk_started,
+                    "chunk %d/%d 完了: %d件書込（範囲外%d件・境界またぎ%d件・画素不足%d件） elapsed=%.1fs",
+                    chunk_index + 1, total_chunks, len(records), chunk_out_of_range, chunk_partial_coverage,
+                    chunk_low_pixels, time.perf_counter() - chunk_started,
                 )
 
-            logger.info(
-                "土地被覆事前計算完了: 対象=%d件 書込=%d件 範囲外=%d件 画素不足=%d件 elapsed=%.1fs",
-                target_count, total_written, total_out_of_range, total_low_pixels,
+            log_completion = logger.warning if total_partial_coverage else logger.info
+            log_completion(
+                "土地被覆事前計算完了: 対象=%d件 書込=%d件 範囲外=%d件 境界またぎ=%d件 画素不足=%d件 elapsed=%.1fs",
+                target_count, total_written, total_out_of_range, total_partial_coverage, total_low_pixels,
                 time.perf_counter() - started,
             )
             return 0

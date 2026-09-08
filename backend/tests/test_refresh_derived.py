@@ -10,11 +10,13 @@ import pytest
 from app.batch import refresh_derived
 
 
-def _record_calls(monkeypatch, calls: list[str], *, fail_at: str | None = None):
+def _record_calls(monkeypatch, calls: list[str], *, fail_at: str | None = None, exit_code_at: str | None = None):
     async def _fake(label: str, database_url, dry_run):
         calls.append(label)
         if label == fail_at:
             raise RuntimeError(f"{label} failed")
+        if label == exit_code_at:
+            return 1
         return 0
 
     for label, module in [
@@ -96,6 +98,21 @@ async def test_run_stops_immediately_when_a_stage_fails(monkeypatch):
 
     # ④⑤⑥までは呼ばれ、⑥の失敗で⑦⑧⑨⑩は呼ばれない（fail-fast、部分的に古いデータの
     # まま後続段が進むのを避ける設計）。
+    assert calls == ["④presplit_road_graph", "⑤precompute_road_node_degrees", "⑥precompute_edge_attribute_counts"]
+
+
+async def test_run_stops_and_propagates_when_a_stage_returns_nonzero(monkeypatch):
+    """段が例外ではなく非0の終了コードを返した場合も後続を実行せず、そのコードを返す。
+
+    戻り値を捨てていると「派生データ再構築が完了しました」と出して終了コード0を返し、
+    disaster recovery手順が欠損した派生データのまま次工程へ進む。
+    """
+    calls: list[str] = []
+    _record_calls(monkeypatch, calls, exit_code_at="⑥precompute_edge_attribute_counts")
+
+    result = await refresh_derived.run(database_url=None, dry_run=False)
+
+    assert result == 1
     assert calls == ["④presplit_road_graph", "⑤precompute_road_node_degrees", "⑥precompute_edge_attribute_counts"]
 
 

@@ -34,7 +34,8 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 import asyncpg
 import httpx
@@ -77,9 +78,14 @@ VALUES ($1, $2, $3, '{}'::jsonb, $4, ST_SetSRID(ST_GeomFromWKB($5), 4326), $6)
 
 async def _download_zip(client: httpx.AsyncClient, kind: str, pref: str) -> Path | None:
     """都道府県別ZIPを直接取得しDATA_DIRへ保存する（骨格はapp/batch/_common.py:
-    download_to_pathへ共通化されている）。"""
-    dest = DATA_DIR / f"{kind}_{pref}.zip"
+    download_to_pathへ共通化されている）。
+
+    保存名はURL側のファイル名（`N10-15_08_GML.zip`のようにKSJの配信版数を含む）をその
+    まま使う。`download_to_path`は同名ファイルが既にあればHTTPアクセスごとスキップする
+    ため、保存名が版数を含まないと新しい版のURLへ更新して再実行しても旧版のZIPを
+    パースし続け、成功として記録される。"""
     url = _zip_url(kind, pref)
+    dest = DATA_DIR / _zip_file_name(url)
     return await download_to_path(
         client, url, dest, logger=logger, label="指定路線データ", context=f"kind={kind} pref={pref}"
     )
@@ -200,6 +206,12 @@ _KIND_SPECS: dict[str, _DesignationKindSpec] = {
 
 def _zip_url(kind: str, pref: str) -> str:
     return _KIND_SPECS[kind].url_template.format(pref=pref)
+
+
+def _zip_file_name(url: str) -> str:
+    """取得URLのパス末尾（`N10-15_08_GML.zip`）をローカル保存名として使う
+    （`_download_zip`のdocstring参照）。"""
+    return PurePosixPath(urlsplit(url).path).name
 
 
 def extract_features(zip_path: Path, kind: str, pref: str) -> list[tuple[str | None, list[tuple[float, float]]]]:

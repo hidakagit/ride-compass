@@ -347,11 +347,6 @@ async def run_import(
             await engine.dispose()
 
         conn = await asyncpg.connect(asyncpg_dsn(sqlalchemy_url))
-        # 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか確認し、
-        # あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
-        reaped = await reap_stale_running_import_runs(conn, "osm_import_runs")
-        if reaped:
-            logger.warning("クラッシュで取り残されたrunning状態のosm_import_runsを%d件failedへ遷移しました", reaped)
         run_id = None
         # 初回（空テーブル）取込時のみ、osm_raw_ways.geomのGiSTを取込完了後まで遅延して
         # 構築する。蓄積量に比例するGiST逐次挿入コスト（＋shared_buffers超過後のランダム
@@ -361,6 +356,15 @@ async def run_import(
         deferred_ways_index = False
         ways_index_ensured = False
         try:
+            # 前回実行がプロセスクラッシュでrunning状態のまま取り残されていないか確認し、
+            # あれば自己修復する（_common.py: reap_stale_running_import_runs参照）。
+            # connを閉じるfinallyの内側で行う（import_accidents.py・import_designations.pyと
+            # 同じ位置。tryの外に置くとここでの失敗時に接続がリークする）。
+            reaped = await reap_stale_running_import_runs(conn, "osm_import_runs")
+            if reaped:
+                logger.warning(
+                    "クラッシュで取り残されたrunning状態のosm_import_runsを%d件failedへ遷移しました", reaped
+                )
             run_id = await conn.fetchval(
                 "INSERT INTO osm_import_runs (pbf_name, pbf_timestamp, profile_hash, bbox, status, started_at) "
                 "VALUES ($1, $2, $3, $4, 'running', $5) RETURNING id",

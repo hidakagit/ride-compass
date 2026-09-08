@@ -85,6 +85,10 @@ _warming_tiles: set[tuple[int, int, int]] = set()
 # そもそもこのクールダウンへ到達しないため実質は失敗時の再試行間隔として働く）。
 _last_warm_attempt: dict[tuple[int, int, int], float] = {}
 _WARM_RECHECK_TTL_SECONDS = 300.0
+# 起動した温めタスクへの強参照。asyncio.create_taskの戻り値をどこも保持しないと、実行中の
+# タスクがGCで回収されうる（イベントループは弱参照でしか持たない）。回収されるとタスク内の
+# finallyも走らないため、そのタイルは_warming_tilesに残ったまま二度と温められなくなる。
+_warm_tasks: set[asyncio.Task] = set()
 
 
 def _maybe_warm_tile_cache(bbox: BoundingBox) -> None:
@@ -97,7 +101,9 @@ def _maybe_warm_tile_cache(bbox: BoundingBox) -> None:
         if last_attempt is not None and now - last_attempt < _WARM_RECHECK_TTL_SECONDS:
             continue
         _warming_tiles.add(tile)
-        asyncio.create_task(_warm_tile_cache_background(x, y, now))
+        task = asyncio.create_task(_warm_tile_cache_background(x, y, now))
+        _warm_tasks.add(task)
+        task.add_done_callback(_warm_tasks.discard)
 
 
 async def _warm_tile_cache_background(x: int, y: int, attempted_at: float) -> None:
@@ -437,14 +443,14 @@ class GraphService:
         # メモリ/ディスク/DBの内訳とディスク経由の読み出し時間合計を1行INFOへまとめる
         # （材料・スコア行列の両方）。
         all_stats = materials_read_stats + matrix_read_stats
-        source_counts = Counter(str(stats.get("source", "db")) for stats in all_stats)
+        source_counts = Counter(str(stats.get("source", "unknown")) for stats in all_stats)
         total_read_ms = sum(float(stats.get("read_ms", 0.0)) for stats in all_stats)
         materials_ms = round((time.monotonic() - materials_stage_started) * 1000)
         logger.info(
-            "_build_search_materials_from_tile_cache tiles=%d memory=%d disk=%d db=%d "
+            "_build_search_materials_from_tile_cache tiles=%d memory=%d disk=%d db=%d computed=%d "
             "disk_read_ms=%.1f materials_ms=%d",
             len(tiles), source_counts.get("memory", 0), source_counts.get("disk", 0),
-            source_counts.get("db", 0), total_read_ms, materials_ms,
+            source_counts.get("db", 0), source_counts.get("computed", 0), total_read_ms, materials_ms,
         )
 
         return (
@@ -470,7 +476,8 @@ class GraphService:
         # （残るCPUコストはPythonループのためGILで直列化され、コア数を増やして効くのは
         # I/O部分のみという前提。モジュール冒頭のコメント参照）。`read_stats`は
         # 呼び出し元が渡す出力用の辞書で、渡された場合のみ"source"（memory/disk/db）と
-        # ディスク経由時の読み出し時間（read_ms）を書き込む。
+        # ディスク経由時の読み出し時間（read_ms）を書き込む（スコア行列側はDBを読まない
+        # ためdbの代わりにcomputedを立てる。_get_or_build_tile_score_matrix参照）。
         async with _tile_cache_load_semaphore:
             cached = await asyncio.to_thread(
                 graph_material_cache.get_tile_materials, ROAD_GRAPH_TILE_ZOOM, x, y, read_stats
@@ -538,7 +545,10 @@ class GraphService:
             return cached
         matrix = build_static_edge_score_matrix(materials.graph, materials.materials, accident_years_covered)
         if read_stats is not None:
-            read_stats["source"] = "db"
+            # スコア行列は材料から計算するだけでDBを読まない（材料側の"db"と区別する。
+            # 混ぜるとサマリの内訳から「prepareが遅いのはDB問い合わせか計算か」を
+            # 切り分けられなくなる）。
+            read_stats["source"] = "computed"
         tile_score_matrix_cache.set(ROAD_GRAPH_TILE_ZOOM, x, y, matrix)
         return matrix
 
