@@ -50,6 +50,7 @@ import logging
 import time
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
+from typing import Any
 
 import shapely
 from geoalchemy2.shape import from_shape
@@ -687,6 +688,37 @@ _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
 # 区間インスペクタ（開放度軸）。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
 # 1行取得パターン。8列全て返す（区間インスペクタが将来他クラスの割合も表示する場合に
 # 備え、行自体は1回のSELECTで済ませる）。
+# 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る抽選サンプル。
+# `TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ広い範囲から拾える
+# （行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、管理画面の応答時間に
+# 収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を「目安」として扱う
+# 前提で許容する。
+_SAMPLE_WAY_MATERIALS_SQL = text(
+    """
+    SELECT
+        ST_Length(w.geom::geography) AS length_m,
+        w.highway,
+        w.tags,
+        wc.length_m AS counts_length_m,
+        wc.accident_count,
+        wc.stop_count,
+        wc.intersection_count,
+        wc.poi_counts,
+        lc.trees_percent,
+        lc.built_percent,
+        EXISTS(
+            SELECT 1 FROM designation_attributes da
+            WHERE da.osm_way_id = w.osm_way_id AND da.kind = ANY(:kinds)
+        ) AS is_designated
+    FROM osm_raw_ways w TABLESAMPLE SYSTEM (:sample_percent)
+    LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
+    LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
+    WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL
+    LIMIT :limit
+    """
+).bindparams(bindparam("kinds", type_=ARRAY(Text())))
+
+
 _WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
     "SELECT valid_pixels, water_percent, trees_percent, flooded_veg_percent, crops_percent, "
     "built_percent, bare_percent, snow_ice_percent, rangeland_percent, "
@@ -2008,6 +2040,22 @@ class AttributeRepository(_SessionRepository):
             poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
         )
 
+    async def sample_way_rows(self, sample_percent: float = 2.0, limit: int = 20_000) -> list[Any]:
+        """Way単位の材料の元データを抽選で取り、行をそのまま返す（軸スタジオの分布
+        プレビュー）。材料値への組み立ては呼び出し元（`axis_preview_service.py`）が
+        区間インスペクタと同じ`way_scalar_materials`で行う——ここで組み立てると
+        infrastructureが評価ドメインへ依存する。
+        """
+        rows = await self._session.execute(
+            _SAMPLE_WAY_MATERIALS_SQL,
+            {
+                "sample_percent": sample_percent,
+                "limit": limit,
+                "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
+            },
+        )
+        return list(rows)
+
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
         """osm_way_id完全一致で土地被覆（way_landcover）の1行を返す（区間インスペクタの
         開放度軸内訳）。行が無い場合はNone（バッチ未実行・ラスタ範囲外・画素不足）。
@@ -2378,6 +2426,9 @@ class RoadGraphRepository:
 
     async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
         return await self.attributes.get_way_attribute_counts(osm_way_id)
+
+    async def sample_way_rows(self, sample_percent: float = 2.0, limit: int = 20_000) -> list[Any]:
+        return await self.attributes.sample_way_rows(sample_percent, limit)
 
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
         return await self.attributes.get_way_landcover(osm_way_id)

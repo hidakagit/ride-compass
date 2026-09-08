@@ -24,6 +24,9 @@ import styles from "./AxisStudio.module.css";
 // FieldLabelが既に定義済みのものをそのまま流用する（同じ見た目・z-index対策を
 // 材料選択の情報アイコンでも二重定義せず共有するため）。
 import recipeControlStyles from "@/components/Map/recipeControls.module.css";
+import { useAxisValueDistribution } from "@/hooks/useAxisValueDistribution";
+import { DistributionPreview } from "./DistributionPreview";
+import { MaterialRangeHint } from "./MaterialRangeHint";
 
 // 軸コンポーザー。表示名→点数のつけ方を選ぶ→点数の詳細→地図表示・公開、という
 // 4ステップのウィザードで軸を組み立てる中核機能。既存の`AxisDefinition.shape`
@@ -691,6 +694,17 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       : undefined;
   const primaryMaterialReferencePoints = primaryMaterial?.referencePoints ?? [];
   const primaryTermWeight = draft.terms[0]?.weight ?? 1;
+  // 分布は「材料・重み・前処理」で決まり、折れ点では変わらない。折れ点を含めない
+  // キーで取得することで、折れ点のドラッグ中に通信が走らない。
+  const distributionTermsKey =
+    draft.shapeKind === "categorical"
+      ? ""
+      : JSON.stringify([draft.preprocess, draft.terms.map((t) => [t.material, t.weight, t.required])]);
+  const valueDistribution = useAxisValueDistribution(
+    distributionTermsKey !== "",
+    distributionTermsKey,
+    () => buildShape(draft, materialOptions),
+  );
   // 参考点の値域（曲線エディタの横軸固定・効き目プレビューに使う）。参考点が無ければ
   // undefinedのままで、曲線エディタは従来どおりbreakpoints自体から自動スケールする。
   const breakpointReferenceRange =
@@ -1159,6 +1173,10 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     ))}
                   </select>
                   <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
+                  <MaterialRangeHint
+                    materialId={term.material}
+                    unit={termOptions.find((m) => m.id === term.material)?.unit}
+                  />
                   {/* 典型的な係数の範囲（±10）に絞り、範囲外の値は数値欄から直接入力する想定にした。 */}
                   <SliderNumberField
                     label="係数"
@@ -1310,6 +1328,12 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                   breakpoints={draft.breakpoints}
                   onChangePoint={updateBreakpoint}
                   referenceRange={breakpointReferenceRange}
+                />
+                <DistributionPreview
+                  distribution={valueDistribution.distribution}
+                  breakpoints={draft.breakpoints}
+                  loading={valueDistribution.loading}
+                  error={valueDistribution.error}
                 />
                 {draft.breakpoints.map((bp, i) => (
                   <div key={i} className={styles.breakpointRow}>

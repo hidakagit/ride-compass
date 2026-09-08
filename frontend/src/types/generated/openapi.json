@@ -1309,6 +1309,53 @@
         }
       }
     },
+    "/api/admin/axis-definitions/preview-distribution": {
+      "post": {
+        "tags": [
+          "axis-admin"
+        ],
+        "summary": "Preview Axis Distribution",
+        "description": "編集中の`shape`で、実データの生値がどう分布するかを返す。\n\n軸スタジオは数値の入力欄を並べるだけでは折れ点の妥当性を判断できず、公開して地図と\nルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が\n満点に張り付くか」が編集中に分かる。",
+        "operationId": "preview_axis_distribution_api_admin_axis_definitions_preview_distribution_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AxisPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValueDistributionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
+    },
     "/api/axis-catalog": {
       "get": {
         "summary": "Get Axis Catalog",
@@ -1338,6 +1385,51 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MaterialCatalogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/material-catalog/{material_id}/distribution": {
+      "get": {
+        "summary": "Get Material Distribution",
+        "description": "材料の値が実データでどの範囲に散らばっているかを返す（軸スタジオ）。\n\n折れ点をどこへ置くかは、その材料が実際に取る値を知らないと決められない。カタログの\n`reference_points`はコードに書いた代表値で、実データの分布ではない。\n数値材料のみ対象で、真偽・カテゴリ材料は`available=false`を返す（分位に意味が無い）。",
+        "operationId": "get_material_distribution_api_admin_material_catalog__material_id__distribution_get",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "material_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Material Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialDistributionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2557,6 +2649,27 @@
         ],
         "title": "AxisInspectorResult"
       },
+      "AxisPreviewRequest": {
+        "properties": {
+          "shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreakpointLinearShape"
+              },
+              {
+                "$ref": "#/components/schemas/CategoricalShape"
+              }
+            ],
+            "title": "Shape"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shape"
+        ],
+        "title": "AxisPreviewRequest",
+        "description": "分布プレビューの入力。軸全体ではなく`shape`だけを受け取る——プレビューは\n保存前の編集中に呼ぶもので、ラベル等の書き込み用フィールドが揃っている必要はない。"
+      },
       "BreakpointLinearShape": {
         "properties": {
           "kind": {
@@ -3414,6 +3527,62 @@
         ],
         "title": "MaterialCoverageResponse"
       },
+      "MaterialDistributionResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "sample_ways": {
+            "type": "integer",
+            "title": "Sample Ways",
+            "default": 0
+          },
+          "total_km": {
+            "type": "number",
+            "title": "Total Km",
+            "default": 0.0
+          },
+          "quantiles": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Quantiles"
+          },
+          "bins": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "maxItems": 3,
+              "minItems": 3
+            },
+            "type": "array",
+            "title": "Bins"
+          },
+          "zero_share": {
+            "type": "number",
+            "title": "Zero Share",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "title": "MaterialDistributionResponse",
+        "description": "材料の値の分布（延長で重み付け）。`available=false`は数値材料でない・DB未接続。"
+      },
       "MaterialReferencePointEntry": {
         "properties": {
           "label": {
@@ -4215,6 +4384,59 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ValueDistributionResponse": {
+        "properties": {
+          "sample_ways": {
+            "type": "integer",
+            "title": "Sample Ways"
+          },
+          "total_km": {
+            "type": "number",
+            "title": "Total Km"
+          },
+          "quantiles": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Quantiles"
+          },
+          "bins": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "maxItems": 3,
+              "minItems": 3
+            },
+            "type": "array",
+            "title": "Bins"
+          },
+          "zero_share": {
+            "type": "number",
+            "title": "Zero Share"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sample_ways",
+          "total_km",
+          "quantiles",
+          "bins",
+          "zero_share"
+        ],
+        "title": "ValueDistributionResponse",
+        "description": "延長で重み付けた値の分布（`services/axis_preview_service.py`参照）。\n\n折れ点を通す前の**生値**を返し、折れ点の当てはめはフロント側が行う——折れ点を1つ\n動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、\n生値のヒストグラムがあればクライアントで正確に求まる。"
       },
       "WbgtStatus": {
         "properties": {

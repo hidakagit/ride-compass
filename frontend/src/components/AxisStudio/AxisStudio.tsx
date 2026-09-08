@@ -48,6 +48,11 @@ export default function AxisStudio() {
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
   const [unpublishingAxisId, setUnpublishingAxisId] = useState<string | null>(null);
+  // 「調整する」で一時的に下書きへ戻した軸。保存時に公開へ戻す。編集を中断した場合は
+  // 下書きのまま残るため、その事実を`notice`で必ず知らせる（黙って非公開になると
+  // 一般ユーザー向けの軸カタログから消えたことに気づけない）。
+  const [republishAxisId, setRepublishAxisId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   // 複製元。nullでなければAxisComposerを「新規作成」モードのままduplicateFromの内容で
   // 初期化する（axis_idは空のまま、is_publishedは常にfalseへ落とす——公開済み軸を
   // 複製しても複製先は下書きから始まる）。
@@ -76,6 +81,13 @@ export default function AxisStudio() {
   }, []);
 
   function closeComposer() {
+    if (republishAxisId !== null) {
+      setNotice(
+        `「調整する」で下書きへ戻したまま編集を終えました。この軸は一般ユーザーには表示されません。` +
+          `下書きタブで編集を保存すると公開へ戻ります。`,
+      );
+      setRepublishAxisId(null);
+    }
     setEditingAxisId(null);
     setDuplicateFrom(null);
     setCreatingNew(false);
@@ -85,10 +97,32 @@ export default function AxisStudio() {
     if (isNew) {
       await createAxisDefinition(payload);
     } else {
-      await updateAxisDefinition(payload.axis_id, payload);
+      // 「調整する」で一時的に下書きへ戻した軸は、保存と同時に公開へ戻す
+      // （公開済み軸は不変という原則は保ったまま、unpublish→更新→再公開という
+      // 正規の手順をボタン1つに畳んだもの）。
+      const republish = republishAxisId === payload.axis_id;
+      await updateAxisDefinition(payload.axis_id, republish ? { ...payload, is_published: true } : payload);
+      if (republish) setRepublishAxisId(null);
     }
     await reload();
     closeComposer();
+  }
+
+  async function handleAdjustPublished(def: AxisDefinitionResponse) {
+    // 公開済み軸の材料・計算式・折れ点を変えるには一度下書きへ戻す必要がある
+    // （backendの`check_publish_immutability`）。その手順をここで畳む。
+    setNotice(null);
+    setUnpublishingAxisId(def.axis_id);
+    try {
+      await unpublishAxisDefinition(def.axis_id);
+      await reload();
+      setRepublishAxisId(def.axis_id);
+      setEditingAxisId(def.axis_id);
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnpublishingAxisId(null);
+    }
   }
 
   function handleDuplicate(def: AxisDefinitionResponse) {
@@ -167,6 +201,7 @@ export default function AxisStudio() {
   return (
     <div className={styles.studio}>
       {listError && <p className={styles.errorText}>{listError}</p>}
+      {notice && <p className={styles.errorText}>{notice}</p>}
 
       {/* 下書きタブが既定表示。公開済みタブに削除ボタンは出さない（削除は先に
           「非公開に戻す」という導線を残す）。編集ボタンは「表示だけ編集」として、
@@ -222,6 +257,14 @@ export default function AxisStudio() {
                   title="材料・計算式・重みは変更できません。地図チップ・色分けしきい値等の表示専用フィールドのみ編集できます"
                 >
                   表示だけ編集
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAdjustPublished(def)}
+                  disabled={unpublishingAxisId === def.axis_id}
+                  title="材料・計算式・折れ点を変更します。編集中は一時的に下書きへ戻り、保存すると公開へ戻ります"
+                >
+                  調整する
                 </button>
                 <button type="button" onClick={() => handleDuplicate(def)}>
                   複製して新規作成

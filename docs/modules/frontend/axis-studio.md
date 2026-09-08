@@ -16,6 +16,15 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 |---|---|
 | `components/AxisStudio/AxisStudio.tsx` | トップレベル。一覧取得・作成/更新/削除/複製/非公開化の状態管理 |
 | `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
+| `components/AxisStudio/scoreDistribution.ts` | 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合と警告を求める純粋関数（DOM非依存、`DistributionPreview.tsx`が使う） |
+| `components/AxisStudio/DistributionPreview.tsx` | 折れ点の下に「この折れ点での得点分布」を出すパネル。満点への張り付き・0点への偏りを警告する |
+| `components/AxisStudio/DistributionPreview.module.css` | 上記2コンポーネント（`MaterialRangeHint`と共有）のスタイル |
+| `components/AxisStudio/MaterialRangeHint.tsx` | 材料選択行の下に、その材料が実データで取る値の分位（p50/p75/p90）を出す1行表示 |
+| `services/axisPreviewApi.ts` | 分布プレビューのAPIクライアント（`app/admin/api/axis-definitions/preview-distribution/`・`app/admin/api/material-distribution/[materialId]/`経由） |
+| `app/admin/api/axis-definitions/preview-distribution/route.ts` | `proxyToBackendAdmin`でbackend `POST /api/admin/axis-definitions/preview-distribution`へ転送する。初回はWayの抽選を伴うため転送タイムアウトを長く取る |
+| `app/admin/api/material-distribution/[materialId]/route.ts` | 同じくbackend `GET /api/admin/material-catalog/{material_id}/distribution`へ転送する |
+| `hooks/useAxisValueDistribution.ts` | 編集中のshapeの生値分布を取得。取得キーに折れ点を含めないため、折れ点のドラッグ中は通信しない |
+| `hooks/useMaterialDistribution.ts` | 材料1件の値の分布を取得。同じ材料を複数行が選んでも取得は1回で済むようモジュール内で結果を共有する |
 | `components/AxisStudio/breakpointTools.ts` | 折れ点の自動生成・区分線形補間・追加位置決定・ドラッグスナップ刻み幅算出（DOM非依存の純粋関数、`AxisComposer.tsx`が使う） |
 | `services/axisAdminApi.ts` | backend `axis_admin.py`への薄いHTTPラッパー（`listAxisDefinitions`・`createAxisDefinition`・`updateAxisDefinition`・`deleteAxisDefinition`・`unpublishAxisDefinition`） |
 | `app/admin/api/axis-definitions/route.ts`・`[axisId]/route.ts`・`[axisId]/unpublish/route.ts` | `axisAdminApi.ts`が叩くNext.js route handler群。`proxyToBackendAdmin`でbackend `/api/admin/axis-definitions`（一覧取得・作成/PUT更新/DELETE削除/POST非公開化）へそのまま転送する |
@@ -50,6 +59,26 @@ listAxisDefinitions() ──→ definitions（全軸）
   `AxisComposer`を制限モード（`editing.is_published`を見て自動判定、材料・計算式・
   重みのステップを一切出さず表示専用フィールドのみ編集できる1画面フォーム）で開く。
   材料・計算式・重みを変えたい場合は引き続き「複製して新規作成」に導線を残す。
+### 折れ点の効き方を実データで見せる
+
+折れ点の曲線エディタの下に、その折れ点で**実データの延長が得点帯へどう散らばるか**を出す。
+数値の入力欄だけでは折れ点の妥当性を判断できず、公開して地図とルートを見るまで結果が
+分からないため。満点への張り付きが半分を超える・0点が9割を超える場合は警告を添える。
+
+分布の取得と当てはめは役割を分ける。backendは**折れ点を通す前の生値**のヒストグラムだけを
+返し、折れ点の当てはめは`scoreDistribution.ts`がクライアントで行う——折れ点を1つ動かす
+たびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、生値の
+ヒストグラムがあればクライアントで正確に求まる。取得のキー（`useAxisValueDistribution`の
+`termsKey`）に折れ点を含めないのはこのため。
+
+### 公開済み軸の「調整する」
+
+公開済み軸の材料・計算式・折れ点を変えるには、backendの`check_publish_immutability`により
+一度下書きへ戻す必要がある。「調整する」ボタンはその手順（非公開化→編集→保存時に再公開）を
+1操作に畳む。編集を中断した場合は下書きのまま残るため、**その事実を必ず知らせる**
+（黙って非公開になると一般ユーザー向けの軸カタログから消えたことに気づけない）。
+材料・計算式を変えない表示専用の編集は従来どおり「表示だけ編集」を使う。
+
 - 削除前チェック: `axesReferencing(axisId, definitions)`が、削除しようとしている軸を
   他の軸が材料として参照していないか調べ、参照があれば確認ダイアログ（`window.confirm`）で
   警告する（一律拒否はしない、最終判断はユーザーに委ねる）。

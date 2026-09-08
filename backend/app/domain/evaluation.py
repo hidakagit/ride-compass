@@ -148,24 +148,23 @@ class AxisInspectorResult(BaseModel):
     covered_weight_fraction: float | None
 
 
-def axis_inspector_breakdown(
+def way_scalar_materials(
     highway: str | None,
     tags: dict[str, str],
     is_designated: bool,
     way_counts: WayAttributeCounts | None,
     accident_years_covered: int,
-    way_landcover: WayLandcover | None = None,
-    preference: RoutePreference | None = None,
-) -> AxisInspectorResult:
-    """区間インスペクタの内訳を算出する純関数。`way_counts`は
-    `RoadGraphRepository.get_way_attribute_counts`の戻り値で、Noneなら事故密度・
-    停止密度は算出不能（available=False）として扱う。`way_landcover`は
-    `RoadGraphRepository.get_way_landcover`の戻り値で、Noneなら開放度軸は
-    算出不能として扱う（評価パイプラインへ配線済みの2列[trees/built]のみ使う、
-    docs/tasks/T624.md「段階2で配線する材料」参照）。
-    """
-    weights = (preference or RoutePreference()).weights
+    trees_percent: float | None = None,
+    built_percent: float | None = None,
+) -> dict[str, object]:
+    """Way1本ぶんの材料値（材料id→スカラー）を組み立てる。
 
+    Way単位のデータだけで求まる材料が対象で、ルート文脈が要る材料（勾配・風）はNoneのまま
+    返す（欠損として扱われ、それを参照する軸はavailable=Falseになる）。土地被覆は評価
+    パイプラインへ配線済みの2値だけを受け取る（`way_landcover`の8列すべてではない）。区間インスペクタと
+    軸スタジオの分布プレビューが共有する——同じ材料を2箇所で組み立てると、材料を増やした
+    ときに片方だけ取り残される。
+    """
     surface_good = classify_osm_surface(tags.get("surface"))
     car_stress_bicycle_infra_flags = bicycle_infra_flags_or_none(tags, highway) or {}
     maxspeed_kmh = parse_maxspeed(tags)
@@ -217,10 +216,35 @@ def axis_inspector_breakdown(
         "lanes_count": lanes_count,
         "is_designated": is_designated,
         "motor_vehicle_no": motor_vehicle_no,
-        "trees_percent": way_landcover.percentages.trees_percent if way_landcover is not None else None,
-        "built_percent": way_landcover.percentages.built_percent if way_landcover is not None else None,
+        "trees_percent": trees_percent,
+        "built_percent": built_percent,
         **night_materials(tags),
     }
+    return materials
+
+
+def axis_inspector_breakdown(
+    highway: str | None,
+    tags: dict[str, str],
+    is_designated: bool,
+    way_counts: WayAttributeCounts | None,
+    accident_years_covered: int,
+    way_landcover: WayLandcover | None = None,
+    preference: RoutePreference | None = None,
+) -> AxisInspectorResult:
+    """区間インスペクタの内訳を算出する純関数。`way_counts`は
+    `RoadGraphRepository.get_way_attribute_counts`の戻り値で、Noneなら事故密度・
+    停止密度は算出不能（available=False）として扱う。`way_landcover`は
+    `RoadGraphRepository.get_way_landcover`の戻り値で、Noneなら開放度軸は
+    算出不能として扱う（評価パイプラインへ配線済みの2列[trees/built]のみ使う、
+    docs/tasks/T624.md「段階2で配線する材料」参照）。
+    """
+    weights = (preference or RoutePreference()).weights
+    materials = way_scalar_materials(
+        highway, tags, is_designated, way_counts, accident_years_covered,
+        way_landcover.percentages.trees_percent if way_landcover is not None else None,
+        way_landcover.percentages.built_percent if way_landcover is not None else None,
+    )
     scores, _ = evaluate_axes_scalar(materials)
 
     axes = [
