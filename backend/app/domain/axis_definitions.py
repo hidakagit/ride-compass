@@ -71,9 +71,12 @@ class BreakpointLinearShape(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["breakpoint_linear"] = "breakpoint_linear"
-    terms: list[MaterialTerm]
+    # 空を許すと下流の壊れ方が三者三様になる（スカラー版はNone、配列版はassert、
+    # `axis_display.py: derive_ramp_inputs`は`terms[0]`/`breakpoints[-1]`でIndexError）。
+    # 登録時点で弾く。
+    terms: list[MaterialTerm] = Field(min_length=1)
     preprocess: Literal["identity", "abs"] = "identity"
-    breakpoints: list[tuple[float, float]]
+    breakpoints: list[tuple[float, float]] = Field(min_length=1)
 
 
 class CategoricalShape(BaseModel):

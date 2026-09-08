@@ -63,7 +63,7 @@ export interface RiskFrameRef {
 
 async function fetchTargetTimes(url: string, label: string): Promise<RawRiskTargetTime[]> {
   const data = await fetchJson<unknown>(url, { timeoutMs: 15000, category: "api:jma-nowcast-times", errorLabel: label });
-  if (!Array.isArray(data)) throw new Error(`${label}の形式が想定と異なりません`);
+  if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
   return data as RawRiskTargetTime[];
 }
 

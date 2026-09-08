@@ -1383,7 +1383,11 @@ export default function Home() {
           routeMode === "destination" && destinationModePoints.length > 0
             ? Math.min(
                 MAX_DISTANCE_KM,
-                Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1,
+                // reduceの初期値0で畳む（`Math.max(...[])`は-Infinityを返し、
+                // distance_kmがnullとしてbackendへ渡って422になる）。
+                Math.ceil(
+                  destinationModePoints.reduce((max, p) => Math.max(max, haversineKm(location, p)), 0),
+                ) + 1,
               )
             : distanceKm,
         distanceToleranceKm: DISTANCE_TOLERANCE_KM,
@@ -1959,7 +1963,7 @@ export default function Home() {
           </aside>
         )}
 
-        {/* app-map-paneはpage.module.css側のモバイル向けMapLibre帰属表示オフセット規則
+        {/* app-map-paneはglobals.css側のMapLibre帰属表示（オフセット・配色）規則
             （.maplibregl-ctrl-bottom-*、globals.cssのapp-debug-console等と同じマーカークラスの
             手法）が参照するグローバルなマーカークラス。 */}
         <div ref={mapPaneRef} className={`${styles.mapPane} app-map-pane`}>

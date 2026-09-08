@@ -64,6 +64,11 @@ def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, 
         "cycleway_has_track": "track" in values,
         "cycleway_has_lane": "lane" in values,
         "cycleway_has_shared": any(v in ("share_busway", "shared_lane") for v in values),
+        # bicycle=permissiveは材料に数えない。OSMのaccess語彙でpermissiveは「所有者が
+        # いつでも撤回できる許可」であり、yes（法的に保証された通行権）・designated
+        # （自転車向けに指定された経路）と違って通行できる保証が続かない。
+        # 取込（batch/import_profile.yaml）はpermissiveも拾うが、それは判定基準を後から
+        # 変えられるよう生データ側を広く持つためで、この非対称は意図的なもの。
         "shared_pedestrian_path": highway in ("footway", "path") and tags.get("bicycle") in ("yes", "designated"),
     }
 

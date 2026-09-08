@@ -960,7 +960,7 @@
     },
     {
       "attr_id": "landcover",
-      "label": "開放度",
+      "label": "土地被覆",
       "shared": false
     },
     {

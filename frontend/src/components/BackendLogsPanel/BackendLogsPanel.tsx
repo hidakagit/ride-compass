@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card/Card";
 import { Input } from "@/components/ui/Input/Input";
 import { Button } from "@/components/ui/Button/Button";
@@ -34,12 +34,29 @@ export default function BackendLogsPanel() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // 「コピーしました」表示を戻すタイマー。アンマウント後にsetCopiedが走らないよう
+  // 保持してクリーンアップする。
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
+
   const handleCopy = () => {
     if (!lines) return;
-    navigator.clipboard.writeText(lines.join("\n")).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard
+      .writeText(lines.join("\n"))
+      .then(() => {
+        setCopied(true);
+        if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      })
+      // クリップボードは権限拒否・非セキュアコンテキストで失敗する。握り潰すと
+      // 「押しても何も起きない」だけになるため、失敗の理由をその場に出す。
+      .catch((err: unknown) => {
+        setError(`クリップボードへコピーできませんでした: ${err instanceof Error ? err.message : String(err)}`);
+      });
   };
 
   const handleFetch = () => {
