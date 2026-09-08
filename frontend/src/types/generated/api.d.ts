@@ -567,6 +567,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/axis-definitions/preview-distribution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Axis Distribution
+         * @description 編集中の`shape`で、実データの生値がどう分布するかを返す。
+         *
+         *     軸スタジオは数値の入力欄を並べるだけでは折れ点の妥当性を判断できず、公開して地図と
+         *     ルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が
+         *     満点に張り付くか」が編集中に分かる。
+         */
+        post: operations["preview_axis_distribution_api_admin_axis_definitions_preview_distribution_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/axis-catalog": {
         parameters: {
             query?: never;
@@ -593,6 +617,30 @@ export interface paths {
         };
         /** Get Material Catalog */
         get: operations["get_material_catalog_api_material_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/material-catalog/{material_id}/distribution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Material Distribution
+         * @description 材料の値が実データでどの範囲に散らばっているかを返す（軸スタジオ）。
+         *
+         *     折れ点をどこへ置くかは、その材料が実際に取る値を知らないと決められない。カタログの
+         *     `reference_points`はコードに書いた代表値で、実データの分布ではない。
+         *     数値材料のみ対象で、真偽・カテゴリ材料は`available=false`を返す（分位に意味が無い）。
+         */
+        get: operations["get_material_distribution_api_admin_material_catalog__material_id__distribution_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1110,6 +1158,15 @@ export interface components {
             covered_weight_fraction: number | null;
         };
         /**
+         * AxisPreviewRequest
+         * @description 分布プレビューの入力。軸全体ではなく`shape`だけを受け取る——プレビューは
+         *     保存前の編集中に呼ぶもので、ラベル等の書き込み用フィールドが揃っている必要はない。
+         */
+        AxisPreviewRequest: {
+            /** Shape */
+            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+        };
+        /**
          * BreakpointLinearShape
          * @description 区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。
          *
@@ -1441,6 +1498,39 @@ export interface components {
             edge_total: number;
             /** Materials */
             materials: components["schemas"]["MaterialCoverageEntry"][];
+        };
+        /**
+         * MaterialDistributionResponse
+         * @description 材料の値の分布（延長で重み付け）。`available=false`は数値材料でない・DB未接続。
+         */
+        MaterialDistributionResponse: {
+            /** Available */
+            available: boolean;
+            /**
+             * Sample Ways
+             * @default 0
+             */
+            sample_ways: number;
+            /**
+             * Total Km
+             * @default 0
+             */
+            total_km: number;
+            /** Quantiles */
+            quantiles?: {
+                [key: string]: number;
+            };
+            /** Bins */
+            bins?: [
+                number,
+                number,
+                number
+            ][];
+            /**
+             * Zero Share
+             * @default 0
+             */
+            zero_share: number;
         };
         /** MaterialReferencePointEntry */
         MaterialReferencePointEntry: {
@@ -1863,6 +1953,32 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * ValueDistributionResponse
+         * @description 延長で重み付けた値の分布（`services/axis_preview_service.py`参照）。
+         *
+         *     折れ点を通す前の**生値**を返し、折れ点の当てはめはフロント側が行う——折れ点を1つ
+         *     動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、
+         *     生値のヒストグラムがあればクライアントで正確に求まる。
+         */
+        ValueDistributionResponse: {
+            /** Sample Ways */
+            sample_ways: number;
+            /** Total Km */
+            total_km: number;
+            /** Quantiles */
+            quantiles: {
+                [key: string]: number;
+            };
+            /** Bins */
+            bins: [
+                number,
+                number,
+                number
+            ][];
+            /** Zero Share */
+            zero_share: number;
         };
         /** WbgtStatus */
         WbgtStatus: {
@@ -2848,6 +2964,39 @@ export interface operations {
             };
         };
     };
+    preview_axis_distribution_api_admin_axis_definitions_preview_distribution_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AxisPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueDistributionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_axis_catalog_api_axis_catalog_get: {
         parameters: {
             query?: never;
@@ -2884,6 +3033,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MaterialCatalogResponse"];
+                };
+            };
+        };
+    };
+    get_material_distribution_api_admin_material_catalog__material_id__distribution_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                material_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialDistributionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

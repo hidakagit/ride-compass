@@ -264,6 +264,17 @@ def get_preview_builder(
     return preview
 
 
+async def get_road_graph_repository():
+    """`RoadGraphRepository`を直接使いたい読み取り専用の管理API向け（軸スタジオの
+    分布プレビュー）。DBなし構成ではNoneを渡し、呼び出し元が503で返す。
+    """
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            yield RoadGraphRepository(session)
+    else:
+        yield None
+
+
 async def get_region_service():
     # PostGISのみを参照する（PBF取込済みの範囲外・DB障害時は空タイルを返す）。
     # road_graph_use_repository無効時（DBなし構成）はrepository自体を注入しないため、

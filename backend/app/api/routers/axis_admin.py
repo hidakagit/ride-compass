@@ -8,11 +8,15 @@
 
 from typing import Awaitable, Literal, TypeVar
 
+from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
+from app.api.dependencies import get_road_graph_repository
+from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services.axis_preview_service import axis_raw_value_distribution
 from app.api.dependencies import get_axis_registry_admin_service, implemented_dynamic_way_value_material_ids
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -451,3 +455,47 @@ async def unpublish_axis_definition(
         # 常に有効な形で守る。
         raise RuntimeError(f"axis_id={axis_id} のunpublish直後にgetが空を返しました（不変条件違反）")
     return _to_response(definition)
+
+
+class AxisPreviewRequest(BaseModel):
+    """分布プレビューの入力。軸全体ではなく`shape`だけを受け取る——プレビューは
+    保存前の編集中に呼ぶもので、ラベル等の書き込み用フィールドが揃っている必要はない。"""
+
+    shape: AxisShape
+
+
+class ValueDistributionResponse(BaseModel):
+    """延長で重み付けた値の分布（`services/axis_preview_service.py`参照）。
+
+    折れ点を通す前の**生値**を返し、折れ点の当てはめはフロント側が行う——折れ点を1つ
+    動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、
+    生値のヒストグラムがあればクライアントで正確に求まる。
+    """
+
+    sample_ways: int
+    total_km: float
+    quantiles: dict[str, float]
+    # (階級の下限, 上限, その階級が占める延長の割合)
+    bins: list[tuple[float, float, float]]
+    zero_share: float
+
+
+@router.post("/preview-distribution", dependencies=[Depends(require_admin_basic_auth)])
+async def preview_axis_distribution(
+    payload: AxisPreviewRequest,
+    repository: RoadGraphRepository | None = Depends(get_road_graph_repository),
+) -> ValueDistributionResponse:
+    """編集中の`shape`で、実データの生値がどう分布するかを返す。
+
+    軸スタジオは数値の入力欄を並べるだけでは折れ点の妥当性を判断できず、公開して地図と
+    ルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が
+    満点に張り付くか」が編集中に分かる。
+    """
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="DB未接続のため分布を算出できません"
+        )
+    distribution = await _guard_db_errors(
+        axis_raw_value_distribution(repository, payload.shape)
+    )
+    return ValueDistributionResponse(**asdict(distribution))

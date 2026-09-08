@@ -32,16 +32,23 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 上の2エンドポイントと異なり認可を要求する理由は`get_material_coverage`のdocstring参照。
 """
 
+from dataclasses import asdict
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import get_material_coverage_service, get_region_service
+from app.api.dependencies import (
+    get_material_coverage_service,
+    get_region_service,
+    get_road_graph_repository,
+)
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, axis_studio_materials, is_known_material
 from app.infrastructure.material_coverage import MissingSemantics, Population
+from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services.axis_preview_service import material_value_distribution
 from app.services.material_coverage_service import MaterialCoverageService
 from app.services.region_service import RegionService
 
@@ -111,6 +118,17 @@ class MaterialCoverageResponse(BaseModel):
     materials: list[MaterialCoverageEntry]
 
 
+class MaterialDistributionResponse(BaseModel):
+    """材料の値の分布（延長で重み付け）。`available=false`は数値材料でない・DB未接続。"""
+
+    available: bool
+    sample_ways: int = 0
+    total_km: float = 0.0
+    quantiles: dict[str, float] = Field(default_factory=dict)
+    bins: list[tuple[float, float, float]] = Field(default_factory=list)
+    zero_share: float = 0.0
+
+
 @router.get("/api/material-catalog", response_model=MaterialCatalogResponse)
 async def get_material_catalog() -> MaterialCatalogResponse:
     return MaterialCatalogResponse(
@@ -128,6 +146,30 @@ async def get_material_catalog() -> MaterialCatalogResponse:
             for m in axis_studio_materials()
         ]
     )
+
+
+@router.get(
+    "/api/admin/material-catalog/{material_id}/distribution",
+    dependencies=[Depends(require_admin_basic_auth)],
+)
+async def get_material_distribution(
+    material_id: str,
+    repository: RoadGraphRepository | None = Depends(get_road_graph_repository),
+) -> MaterialDistributionResponse:
+    """材料の値が実データでどの範囲に散らばっているかを返す（軸スタジオ）。
+
+    折れ点をどこへ置くかは、その材料が実際に取る値を知らないと決められない。カタログの
+    `reference_points`はコードに書いた代表値で、実データの分布ではない。
+    数値材料のみ対象で、真偽・カテゴリ材料は`available=false`を返す（分位に意味が無い）。
+    """
+    if not is_known_material(material_id):
+        raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
+    if repository is None:
+        return MaterialDistributionResponse(available=False)
+    distribution = await material_value_distribution(repository, material_id)
+    if distribution is None:
+        return MaterialDistributionResponse(available=False)
+    return MaterialDistributionResponse(available=True, **asdict(distribution))
 
 
 @router.get(

@@ -14,9 +14,27 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | レイヤー | ファイル |
 |---|---|
 | domain | `axis_definitions.py`・`axis_display.py`・`axis_templates.py`・`registry.py`・`registry_defaults.py` |
-| services | `axis_registry_service.py` |
+| services | `axis_registry_service.py`・`axis_preview_service.py` |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py`・`axis_definitions_snapshot.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
+
+## 分布プレビュー（`services/axis_preview_service.py`）
+
+軸スタジオが折れ点を編集している最中に、**その設定で実データがどう分布するか**を返す。
+
+- 母集団はWay単位（`osm_raw_ways`のページ単位抽選、`TABLESAMPLE SYSTEM`）で、**延長で
+  重み付ける**。本数で数えると短い道が多数を占めて実際に走る距離の感覚と合わない。
+  ページ単位の抽選のため地理的な偏りが残りうる点は、分布を「目安」として扱う前提で許容する。
+- 材料値の組み立ては区間インスペクタと同じ`domain/evaluation.py: way_scalar_materials`へ
+  委ねる。同じ材料を2箇所で組み立てると、材料を増やしたときに片方だけ取り残される。
+- 抽選したサンプルは`cachetools.TTLCache`で保持する（初回1秒前後、2回目以降は即座）。
+- 返すのは**折れ点を通す前の生値**の分位とヒストグラムで、折れ点の当てはめはfrontendが行う
+  （[軸スタジオ管理画面](../frontend/axis-studio.md)「折れ点の効き方を実データで見せる」参照）。
+
+| エンドポイント | 認可 | 内容 |
+|---|---|---|
+| `POST /api/admin/axis-definitions/preview-distribution` | Basic認証 | 編集中の`shape`の生値の分布 |
+| `GET /api/admin/material-catalog/{material_id}/distribution` | Basic認証 | 材料1件の値の分布（数値材料のみ、それ以外は`available=false`） |
 
 ## データモデル（`domain/axis_definitions.py`）
 
