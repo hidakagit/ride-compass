@@ -58,7 +58,7 @@ import asyncio
 import logging
 import math
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -96,6 +96,7 @@ from app.domain.route import (
 )
 from app.domain.twilight import is_night
 from app.domain.routing import (
+    LazyGraphEdgeMismatchError,
     LazyRoadGraph,
     NodeSpatialIndex,
     SearchGraphStatics,
@@ -545,7 +546,7 @@ class RoadGraphEngine:
         # 再split後の`lazy_graph`・`graph`不整合の検知・再構築は、直後の
         # `full_edge_row[edge_id] for edge_id in lazy_graph.edge_ids`が同種のKeyErrorに
         # 脆弱なため、`prepare`・`preview_segment`共通のこの経路で行う。
-        lazy_graph = await _ensure_lazy_graph_consistent(tile_set, lazy_graph, graph)
+        lazy_graph = await _ensure_lazy_graph_consistent(tile_set, lazy_graph, graph, full_edge_row)
         graph_ms = round((time.monotonic() - graph_started) * 1000)
 
         # lazy_graph.edge_ids（並行Edge解消後）の各行が`score_matrix`のどの行かの対応表。
@@ -1615,7 +1616,10 @@ async def _get_or_build_lazy_graph(
 
 
 async def _ensure_lazy_graph_consistent(
-    tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
+    tile_set: frozenset[tuple[int, int, int]] | None,
+    lazy_graph: LazyRoadGraph,
+    graph: RoadGraphLike,
+    score_matrix_rows: Container[str],
 ) -> LazyRoadGraph:
     """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを検証し、崩れていれば
     タイル集合キャッシュ3種を破棄して`lazy_graph`ごと`graph`から作り直す
@@ -1631,7 +1635,9 @@ async def _ensure_lazy_graph_consistent(
     以降このメソッドの戻り値を使うこと（引数の`lazy_graph`を使い続けると同じKeyError相当を
     再現する）。
     """
-    missing = await asyncio.to_thread(find_missing_lazy_graph_edge_id, lazy_graph, graph)
+    missing = await asyncio.to_thread(
+        find_missing_lazy_graph_edge_id, lazy_graph, graph, also_required_in=score_matrix_rows
+    )
     if missing is None:
         return lazy_graph
     if tile_set is not None:
@@ -1640,6 +1646,17 @@ async def _ensure_lazy_graph_consistent(
     lazy_graph = await asyncio.to_thread(build_lazy_road_graph, graph)
     if tile_set is not None:
         search_graph_cache.set_lazy_graph(tile_set, lazy_graph)
+    still_missing = await asyncio.to_thread(
+        find_missing_lazy_graph_edge_id, lazy_graph, graph, also_required_in=score_matrix_rows
+    )
+    if still_missing is not None:
+        # `graph`から作り直しても解消しない＝ずれているのは静的スコア行列側
+        # （材料とは別キャッシュ・別世代）。ここで黙って進むと`full_edge_row`引きが
+        # KeyErrorになり、原因の分からない500として現れる。
+        raise LazyGraphEdgeMismatchError(
+            f"score_matrix does not cover edge_id '{still_missing}' present in the rebuilt graph"
+            " (tile_score_matrix_cache is stale relative to graph_material_cache)"
+        )
     return lazy_graph
 
 

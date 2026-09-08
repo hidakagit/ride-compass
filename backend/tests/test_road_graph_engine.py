@@ -25,12 +25,12 @@ from app.domain.evaluation import (
 from app.domain.geo import bearing_between, compass_label, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
-from app.domain.routing import build_node_spatial_index
+from app.domain.routing import LazyGraphEdgeMismatchError, build_lazy_road_graph, build_node_spatial_index
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH, WindForecastSeries, kmh_to_ms
 from app.infrastructure import search_graph_cache
 from app.services import road_graph_engine
-from app.services.road_graph_engine import RoadGraphEngine
+from app.services.road_graph_engine import RoadGraphEngine, _ensure_lazy_graph_consistent
 from tests.geo_fixtures import destination_point
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO, RouteGenerator
 
@@ -1804,6 +1804,44 @@ async def test_prepare_rebuilds_stale_lazy_graph_after_resplit_cache_desync():
     # 破棄→再構築されたエントリが新たにキャッシュされている。
     assert search_graph_cache.lazy_graph_cache_size() == 1
     assert search_graph_cache.search_statics_cache_size() == 1
+
+
+async def test_ensure_lazy_graph_consistent_raises_when_score_matrix_does_not_cover_graph():
+    # lazy_graphのedge_idは`graph.edges`だけでなく静的スコア行列の行索引
+    # （`full_edge_row`、`score_matrix.edge_ids`由来で材料とは別キャッシュ・別世代）からも
+    # 引かれる。graph側が揃っていてもスコア行列側が古いと`full_edge_row`引きが
+    # KeyErrorになるため、原因の分かる例外へ倒す（graphから作り直しても解消しないため、
+    # 再構築ではなくfail-fastにする）。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    graph = RoadGraph(
+        graph_version="test", nodes={"a": node_a, "b": node_b},
+        edges={"e1": _edge("e1", "a", "b", coord_a, coord_b)},
+    )
+    lazy_graph = build_lazy_road_graph(graph)
+    stale_score_matrix_rows: dict[str, int] = {}  # 再splitでedge_idが変わり1本も覆えていない状態
+
+    with pytest.raises(LazyGraphEdgeMismatchError):
+        await _ensure_lazy_graph_consistent(None, lazy_graph, graph, stale_score_matrix_rows)
+
+
+async def test_ensure_lazy_graph_consistent_returns_as_is_when_both_collections_cover_it():
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    graph = RoadGraph(
+        graph_version="test", nodes={"a": node_a, "b": node_b},
+        edges={"e1": _edge("e1", "a", "b", coord_a, coord_b)},
+    )
+    lazy_graph = build_lazy_road_graph(graph)
+    score_matrix_rows = {edge_id: i for i, edge_id in enumerate(lazy_graph.edge_ids)}
+
+    result = await _ensure_lazy_graph_consistent(None, lazy_graph, graph, score_matrix_rows)
+
+    assert result is lazy_graph
 
 
 async def test_preview_segment_never_builds_or_caches_search_statics():

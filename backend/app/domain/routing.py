@@ -20,7 +20,7 @@ Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を�
 （仕様書33章）。ここで扱うのはRoad Graphのトポロジーと、既に計算済みのEdge Costのみ。
 """
 import math
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Container, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -276,7 +276,9 @@ class SearchGraphStatics:
     edge_length_m: np.ndarray
 
 
-def find_missing_lazy_graph_edge_id(lazy_graph: LazyRoadGraph, graph: RoadGraphLike) -> str | None:
+def find_missing_lazy_graph_edge_id(
+    lazy_graph: LazyRoadGraph, graph: RoadGraphLike, *, also_required_in: Container[str] | None = None
+) -> str | None:
     """`lazy_graph.edge_ids`のうち`graph.edges`に存在しない最初のedge_idを返す
     （無ければNone）。`lazy_graph.edge_ids`は`graph.edges`の部分集合である前提
     （同じ`graph`から`build_lazy_road_graph`で作られた場合は常に成り立つ）だが、
@@ -285,8 +287,20 @@ def find_missing_lazy_graph_edge_id(lazy_graph: LazyRoadGraph, graph: RoadGraphL
     edge_id再割当）された場合はこの前提が崩れうる。`build_search_graph_statics`の
     CSR構築を伴わない軽量版チェックで、`RoadGraphEngine._ensure_lazy_graph_consistent`
     （`prepare`・`preview_segment`共通）が呼ぶ。
+
+    `also_required_in`を渡すと、そちらにも存在することを併せて確認する。`lazy_graph`の
+    各edge_idは`graph.edges`だけでなく静的スコア行列の行索引（`road_graph_engine.py`の
+    `full_edge_row`、`score_matrix.edge_ids`由来で材料とは別キャッシュ）からも引かれる
+    ため、検証する集合を実際に消費する集合と一致させる。
     """
-    return next((edge_id for edge_id in lazy_graph.edge_ids if edge_id not in graph.edges), None)
+    return next(
+        (
+            edge_id
+            for edge_id in lazy_graph.edge_ids
+            if edge_id not in graph.edges or (also_required_in is not None and edge_id not in also_required_in)
+        ),
+        None,
+    )
 
 
 def build_search_graph_statics(

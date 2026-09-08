@@ -102,9 +102,9 @@ aws s3 cp --no-sign-request s3://io-10m-annual-lulc/<ゾーン>_<年>.tif .
 （他のプロセス——本番backend・PostgreSQL・OS自体——の分を必ず残すこと）。
 
 **稼働中DBへの定常運用（新規/被災環境のbootstrap直後を除く）で実行した場合は、
-完了後に`TILE_MATERIALS_CACHE_VERSION`（`infrastructure/graph_material_cache.py`）・
-`TILE_SCORE_MATRIX_CACHE_VERSION`（`infrastructure/tile_score_matrix_cache.py`）を
-同一コミットで上げてpushすること**（deploy-backend.ymlが`backend/**`変更を検知し
+完了後に`TILE_MATERIALS_CACHE_VERSION`（`infrastructure/graph_material_cache.py`）を
+同一コミットで上げてpushすること**（`TILE_SCORE_MATRIX_CACHE_VERSION`はこの値を含む
+複合世代のため、材料世代を上げれば自動的に追従する）（deploy-backend.ymlが`backend/**`変更を検知し
 本番backendを自動デプロイ、再起動でディスク永続キャッシュの新世代が有効になる）。
 上げないと、バッチ実行前に既にキャッシュ済みだったタイルはディスク経由で古いまま
 復元され続け、未訪問タイルだけ新しい値になる——「一部だけ更新されたように見える」

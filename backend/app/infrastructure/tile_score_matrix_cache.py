@@ -17,9 +17,11 @@ build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここ�
 tile_persistent_cache.py`へも同じ内容をディスク永続化する（`graph_material_cache.py`と
 同じ動機・設計、docs/tasks/T538.md）。無効化経路は2種類ある:
 
-1. **PBF再取込・precomputeバッチ・構築ロジック変更**: `TILE_SCORE_MATRIX_CACHE_VERSION`の
-   バージョン文字列を手動で上げる（`region_service.py: ROAD_SURFACE_TILE_VERSION`と
-   同じ流儀。コメント参照）。
+1. **PBF再取込・precomputeバッチ・構築ロジック変更**: `_SCORE_MATRIX_REVISION`を手動で
+   上げる（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ流儀。コメント参照）。
+   実際のキャッシュ世代`TILE_SCORE_MATRIX_CACHE_VERSION`はこれと材料側
+   （`graph_material_cache.TILE_MATERIALS_CACHE_VERSION`）の複合で、材料世代を上げれば
+   この行列も機械的に無効化される（この行列は材料からの派生物のため）。
 2. **軸定義編集（`refresh_axis_definitions`）**: バージョン文字列は据え置いたまま、
    `sync_disk_cache_with_axis_revision()`が軸定義の内容変化を検知した場合のみメモリ・
    ディスク両方のキャッシュを即座に削除する。軸編集はデプロイを伴わない実行時のAPI操作の
@@ -45,6 +47,7 @@ from cachetools import LRUCache
 
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.infrastructure import tile_persistent_cache
+from app.infrastructure.graph_material_cache import TILE_MATERIALS_CACHE_VERSION
 
 # graph_material_cache.pyのDEFAULT_MAX_TILESと同じ値（同じタイル粒度・同じ対象範囲
 # [関東圏]を想定するため、上限も揃える）。
@@ -72,7 +75,16 @@ _cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)
 # 対象外**——軸スタジオでの編集は上記のバージョン更新（デプロイを伴う）ではなく、
 # 下記`clear()`（`refresh_axis_definitions`経由の即時呼び出し）が担う。
 _CACHE_NAMESPACE = "score_matrix"
-TILE_SCORE_MATRIX_CACHE_VERSION = "7"
+# この行列の構築ロジック・入力（事前集計/派生データ）側の世代。上記のトリガーで手動で上げる。
+_SCORE_MATRIX_REVISION = "7"
+# 実際のキャッシュ世代は材料側（`graph_material_cache`）の世代との複合にする。この行列は
+# 材料から導出される派生物で、材料のedge_id集合が変われば必ず無効になるため——単独の
+# 文字列にすると、PBF再取込・presplitで材料世代だけを上げたときにスコア行列だけが古い
+# まま残り、`graph`には在るが`score_matrix.edge_ids`には無いedge_idが生じる
+# （`road_graph_engine.py`の`full_edge_row`引きがbbox単位でKeyErrorになり、ディスク
+# キャッシュを手で消すまでそのbboxのルート生成が復旧しない）。複合にしておけば材料世代を
+# 上げるだけでスコア行列側も機械的に無効化される。
+TILE_SCORE_MATRIX_CACHE_VERSION = f"{TILE_MATERIALS_CACHE_VERSION}-{_SCORE_MATRIX_REVISION}"
 
 
 def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:

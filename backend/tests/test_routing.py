@@ -458,6 +458,30 @@ def test_find_missing_lazy_graph_edge_id_detects_stale_lazy_graph_after_resplit(
     assert find_missing_lazy_graph_edge_id(lazy_graph, graph_v2) == "e1-v1"
 
 
+def test_find_missing_lazy_graph_edge_id_detects_edge_missing_from_consumer_collection():
+    # lazy_graphのedge_idは`graph.edges`だけでなく静的スコア行列の行索引
+    # （road_graph_engine.pyの`full_edge_row`、材料とは別キャッシュ・別世代）からも
+    # 引かれる。graph側が揃っていてもスコア行列側が古いとそちらでKeyErrorになるため、
+    # 消費する集合を検証対象へ含められることを確認する。
+    graph = _random_road_graph(seed=3)
+    lazy_graph = build_lazy_road_graph(graph)
+    stale_score_matrix_rows = {edge_id: i for i, edge_id in enumerate(lazy_graph.edge_ids[1:])}
+
+    assert find_missing_lazy_graph_edge_id(lazy_graph, graph) is None
+    assert (
+        find_missing_lazy_graph_edge_id(lazy_graph, graph, also_required_in=stale_score_matrix_rows)
+        == lazy_graph.edge_ids[0]
+    )
+
+
+def test_find_missing_lazy_graph_edge_id_passes_when_consumer_collection_covers_all():
+    graph = _random_road_graph(seed=4)
+    lazy_graph = build_lazy_road_graph(graph)
+    score_matrix_rows = {edge_id: i for i, edge_id in enumerate(lazy_graph.edge_ids)}
+
+    assert find_missing_lazy_graph_edge_id(lazy_graph, graph, also_required_in=score_matrix_rows) is None
+
+
 def test_build_search_graph_statics_raises_lazy_graph_edge_mismatch_error_when_stale():
     node_a, node_b = _node("a", 35.700, 139.700), _node("b", 35.701, 139.700)
     graph_v1 = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1-v1": _edge("e1-v1", "a", "b")})

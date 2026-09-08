@@ -437,7 +437,13 @@ tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`
 （`graph_material_cache.py: TILE_MATERIALS_CACHE_VERSION`・`tile_score_matrix_cache.py:
 TILE_SCORE_MATRIX_CACHE_VERSION`、いずれも`region_service.py: ROAD_SURFACE_TILE_VERSION`と
 同じ流儀）——PBF再取込・`presplit_road_graph.py`・関連precomputeバッチを実行したら手動で
-上げる（各定数のコメント・`docs/batch-pipeline-dependencies.md`参照）。軸定義編集
+上げる（各定数のコメント・`docs/batch-pipeline-dependencies.md`参照）。スコア行列側の世代は
+`f"{TILE_MATERIALS_CACHE_VERSION}-{_SCORE_MATRIX_REVISION}"`という複合で、材料世代を上げれば
+機械的に追従する——スコア行列は材料からの派生物で、材料の`edge_id`集合が変われば必ず
+無効になるため（片方だけ上がった状態だと、`graph`には在るが`score_matrix.edge_ids`には
+無い`edge_id`が生じ、`full_edge_row`引きがbbox単位でKeyErrorになる）。
+`_SCORE_MATRIX_REVISION`を単独で上げるのは、スコア行列の構築ロジック・入力だけが
+変わったときに限る。軸定義編集
 （`refresh_axis_definitions`、アプリ起動時にも必ず1回呼ばれる）は
 `tile_score_matrix_cache.sync_disk_cache_with_axis_revision(revision)`が
 `axis_registry_meta.revision`の変化を見て判定する別経路（バージョン文字列は据え置いた

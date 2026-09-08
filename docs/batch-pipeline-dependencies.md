@@ -102,9 +102,10 @@ tile_persistent_cache/`）へも永続化されるようになった。ディス
 再起動しても消えないため、④road_edges/road_nodes・⑤road_nodes.degree・⑥edge_attribute_
 counts・⑦elevation_attributes・⑨designation_attributes（`EdgeMaterialBundle.is_designated`
 経由）のいずれかを更新するバッチを実行したら、`graph_material_cache.py: TILE_MATERIALS_
-CACHE_VERSION`・`tile_score_matrix_cache.py: TILE_SCORE_MATRIX_CACHE_VERSION`（両方とも
-`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ「手動で上げる版数文字列」の運用）を
-手動で上げること。上げ忘れると、バッチ実行後もディスクキャッシュ経由で古いタイル材料・
+CACHE_VERSION`（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ「手動で上げる版数
+文字列」の運用）を手動で上げること。`tile_score_matrix_cache.py:
+TILE_SCORE_MATRIX_CACHE_VERSION`はこの値を含む複合世代のため追従する（スコア行列の
+構築ロジック・入力だけが変わった場合は同ファイルの`_SCORE_MATRIX_REVISION`を上げる）。上げ忘れると、バッチ実行後もディスクキャッシュ経由で古いタイル材料・
 スコア行列が次回デプロイ後も復元され続ける（⑧の`ROAD_SURFACE_TILE_VERSION`と同型の
 上げ忘れリスク。docs/tasks/T538.md参照）。
 
@@ -119,7 +120,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 | 生データの変化 | 再実行が必要なバッチ |
 |---|---|
-| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩（⑨は③の完了も前提）。あわせて`TILE_MATERIALS_CACHE_VERSION`/`TILE_SCORE_MATRIX_CACHE_VERSION`を手動で上げる（改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩（⑨は③の完了も前提）。あわせて`TILE_MATERIALS_CACHE_VERSION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合世代のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
 | 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
 | KSJ指定路線データ更新 | ③→⑨ |
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |
