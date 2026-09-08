@@ -12,8 +12,8 @@
 各スクリプトのdocstring・`import_profile.yaml`が正準（本ファイルはそれらの要約・
 横断的な依存関係の可視化）。
 
-**2026-08-30追記（改善計画T351）**: ⑤`precompute_edge_attribute_counts.py`・
-⑦`precompute_way_attribute_counts.py`・⑧`match_designations.py`が書き込む先
+**2026-08-30追記（改善計画T351）**: ⑥`precompute_edge_attribute_counts.py`・
+⑧`precompute_way_attribute_counts.py`・⑨`match_designations.py`が書き込む先
 （`edge_attribute_counts`/`way_attribute_counts`/`designation_attributes`）へ、
 実行時点の`accident_import_runs`/`osm_import_runs`の最新成功run id
 （`source_accident_import_run_id`/`source_osm_import_run_id`、高水位マーク）と

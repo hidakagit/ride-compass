@@ -33,6 +33,7 @@
 app/admin/page.tsx（独立URL、Basic認証保護下）
   ├─ タブ「軸スタジオ」: AxisStudio（本モジュール対象外）
   ├─ タブ「材料」　　　: MaterialCoveragePanel（材料ごとの欠損割合、本モジュール対象外）
+  ├─ タブ「鮮度」　　　: DerivedDataFreshnessPanel（派生データの鮮度台帳、本モジュール対象外）
   ├─ タブ「研究」　　　: ResearchPanel（読み取り専用表示）
   └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 
@@ -66,8 +67,9 @@ localStorage経由で`/`側へ共有される（`HeaderMenu`はデバッグロ�
 ## 研究モード（`HeaderMenu.tsx`でON/OFF、`useResearchEnabled()`で参照）
 
 ONにすると`page.tsx`側の`handleGenerate`が生成した結果が実験スロット（`page.tsx`の
-`experimentSlots`、最大3件）へ記録され、比較タブ（`ComparisonPanel`、「ルート選択」と
-並ぶ2つ目のタブ）・地図の重ね描き（`MapView`の`experimentSlots` prop）に使えるように
+`experimentSlots`、最大3件）へ記録され、比較タブ（`ComparisonPanel`、ルート結果の
+タブ列で候補タブ群の末尾に並ぶ。researchEnabledの間だけ現れる）・地図の重ね描き
+（`MapView`の`experimentSlots` prop）に使えるように
 なる——いずれも一般公開ページの機能として認証なしで直接利用できる（気軽に試せる比較
 機能という位置づけ）。評価軸の重み（`route_preference`）自体は一般向けルート設定画面
 （`RouteSettingsPanel`）が常時編集する状態で、研究モードON/OFFとは独立している。

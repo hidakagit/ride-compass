@@ -54,7 +54,8 @@ MaterialDType = Literal["numeric", "boolean", "categorical"]
 class MaterialReferencePoint(BaseModel):
     """軸スタジオの折れ点編集を助ける「値の目安」1点。材料の値域が
     直感的でない場合（風の材料等）に、換算式を知らなくても代表的な状況がどの値になるかを
-    示す。換算式自体はbackendだけが持ち、値はここで計算済みのものを持たせる（設計原則1、
+    示す。換算式自体はbackendだけが持ち、値はここで計算済みのものを持たせる
+    （design-principles.md構造仕様1、
     frontendはこの一覧をそのまま表示するのみ）。"""
 
     model_config = ConfigDict(frozen=True)
@@ -833,7 +834,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 2材料として個別に焼き込む。
         tile_property="is_emergency_transport",
         primary_attribute_id="designation",
-        # extractor未設定（is_designatedと同じ「トリガー付きDEFER」、設計原則9）。
+        # extractor未設定（is_designatedと同じトリガー付きDEFER。トリガーの運用は
+        # `.claude/commands/review/principles.md`「DEFER」節）。
         # is_designated（下記）と異なりどの内蔵軸からも参照されない——
         # car_stress_designation_adjustment内部軸は今後もis_designatedのみを使う
         # （特定路線かどうかだけで評価は判定する方針）。本材料は軸スタジオでユーザーが
@@ -943,7 +945,7 @@ def resolve_materials(ctx: MaterialExtractionContext) -> dict[str, object]:
     """`ctx`が表す1件（Edge1本またはWay1本）の材料値を、extractorを持つ全材料について求める。
 
     extractor未設定の材料（`EXTRACTABLE_MATERIAL_IDS`に含まれないもの。「トリガー付き
-    DEFER」設計原則9）はキー自体を含めない——スカラー評価（`evaluate_axis_scalar`）は
+    DEFER」）はキー自体を含めない——スカラー評価（`evaluate_axis_scalar`）は
     `materials.get(...)`で欠損として扱うため、キーの有無が欠損の表現になる
     （ベクトル化経路は全材料ぶんの配列をNaN/Falseで確保する必要があり、そちらの都合は
     `domain/evaluation.py: _evaluate_axes_bulk`が別に持つ）。

@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from app.domain.warning_levels import WarningBadgeLevel
 # 気象庁公式コード対応表（別表3）の全コード→名称。「レベルN」プレフィックスは
 # warning_level()がlevelフィールドとして別途表現するため、名称からは省いている
-# （設計原則2: 同じ情報を2箇所で別々に持たない）。42/45/46/47は※1（将来予約領域）で
+# （同じ情報を2箇所で別々に持たない）。42/45/46/47は※1（将来予約領域）で
 # 現時点では割り当てが無いため含めない。
 WARNING_CODE_NAMES: dict[str, str] = {
     "00": "解除",
@@ -86,7 +86,7 @@ def warning_level(code: str) -> WarningBadgeLevel:
     """コードから3段階の警戒レベル（バッジの色分けに使う）を導出する。
 
     レベルを別テーブルとして二重管理せず、名称文字列（「特別警報」「警報」を含むか）
-    から導出する（設計原則2）。"""
+    から導出する（片側import）。"""
     name = WARNING_CODE_NAMES.get(code, "")
     if "特別警報" in name:
         return "emergency_warning"

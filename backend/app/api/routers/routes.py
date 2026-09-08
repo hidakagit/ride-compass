@@ -32,7 +32,8 @@ logger = logging.getLogger("ridecompass.generate")
 # ルート生成距離の上限（km）。上限が無いとbboxが際限なく広がりタイル問い合わせが長時間
 # ハングしうる。30km規模までの検証実績を踏まえ、余裕を見つつも無制限は避ける値として
 # 100kmとする。この値はOpenAPI生成物経由でフロントへ渡す唯一の情報源にする
-# （設計原則1「OpenAPI生成物からの導出」、export_openapi.py:
+# （design-principles.md構造仕様1「フロントエンドとバックエンドの境界」: 上限値はbackendが
+#   唯一の正として持ち、frontendはOpenAPI生成物から読む。export_openapi.py:
 # ROUTE_GENERATE_CONFIG_PATH参照）。
 MAX_ROUTE_DISTANCE_KM = 100
 

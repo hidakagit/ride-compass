@@ -325,8 +325,12 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
         # （評価不能）にするが、フロント側のΣ(property×weight)expression
         # （buildAxisRampValueExpression）はタイルプロパティ欠損を寄与0として扱う
         # （coalesce）。required=Falseの材料は「欠損時は寄与0」が評価側の意味論そのものの
-        # ため両者は一致するが、required=Trueの材料ではこの2つの意味論が食い違い、本来
-        # 「評価不能」な区間が地図上では「評価済みで良好（緑）」に誤表示されうる
+        # ため**1つでも値がある限り**両者は一致するが、次の2つの場合は食い違い、本来
+        # 「評価不能」な区間が地図上では「評価済みで良好（緑）」に誤表示されうる:
+        # (a) required=Trueの材料が欠損している場合、(b) 全termがrequired=Falseで、その
+        # **全ての材料が欠損**している場合（評価側は軸全体を欠損とするが、地図側は全項を
+        # 0埋めして寄与0＝最良帯として塗る。全term required=Falseの軸[openness等]で
+        # 事前集計が未実施のwayが該当する）
         # （TileInputSpecには数値材料の「不明」表現手段が無い——has_unknown_fallbackは
         # 真偽値/N値カテゴリカル材料専用、buildAxisRampUnknownExpression参照）。
         # required=Trueの材料を一律に自動導出対象外とする案も検討したが、
@@ -404,7 +408,7 @@ def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
 
     `api/routers/axis_catalog.py`（GET /api/axis-catalog、実行時API）と
     `registry_defaults.py`（`export_openapi.py`向けのビルド時静的axis-catalog.json生成）
-    の両方がこの関数を共有する（片側import、設計原則2。軸ごとに手書きで重複させない）。
+    の両方がこの関数を共有する（片側import。軸ごとに手書きで重複させない）。
     """
     seen: dict[str, None] = {}
     visited: set[str] = set()

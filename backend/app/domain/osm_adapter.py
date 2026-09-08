@@ -75,10 +75,10 @@ ALLOWED_WAY_TAGS = frozenset(
         # bicycle_infra_flags）への反映は未実施（採用可否の判断は完了、実装は別タスクで
         # 検討、docs/static-road-attributes-plan.md §2.5参照）。
         "segregated",
-        # 街灯の有無。関東全域で全体1.1%・幹線道路4.8%と既採用tagの水準を上回るため保持する
-        # （詳細はstatic-road-attributes-plan.md §2.5参照）。取込コストはsegregatedと
-        # 同じくゼロ（既存way向けtags jsonbへ相乗り、新規node取込は不要）。評価軸・表示への
-        # 反映は別タスクで検討（本タグは保持のみ）。
+        # 街灯の有無。夜間軸（`night`）が材料`lit`として直接参照する
+        # （domain/material_catalog.py・axis_definitions）。**このタグを許可リストから外すと
+        # 材料が全区間で欠損し、夜間軸そのものが算出不能になる**。取込コストはsegregatedと
+        # 同じくゼロ（既存way向けtags jsonbへ相乗り、新規node取込は不要）。
         "lit",
     }
 )

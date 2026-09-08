@@ -48,8 +48,15 @@ FastAPI(lifespan=lifespan)
         │       （interval=jma_tile_prewarm_interval_minutes分＋next_run_time=nowで
         │       同様に起動直後にも即時実行、[動的気象レイヤー](weather-dynamic-layers.md)
         │       「定期プリウォーム」節参照）
+        ├─ (5) 同じくAPSchedulerで気象庁MSM（風・降水の予報）の.omファイル定期同期ジョブを
+        │       登録（interval=msm_sync_interval_minutes分＋next_run_time=now。初回は
+        │       ローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない）
+        └─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
+                （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
+                タイミングに当たる、docs/caching.md「無効化」参照）
         ▼
   CORSMiddleware → ContentTypeGZipMiddleware（応答のgzip圧縮）
+            → CachePolicyMiddleware（Cache-Control付与、下記「Cache-Controlの一元化」節）
             → request_log_middleware（リクエストID付与・アクセスログ、最も外側）
         ▼
   api_router（api/routers/__init__.py、全routerを集約）
@@ -111,8 +118,10 @@ road_graph一本のため、DATABASE_URLへの実接続なしで動く構成は�
 
 `check_rate_limit`→超過時の記録→`HTTPException(429)`という一連の処理を
 `enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。`weather.py`・
-`basemap.py`・`jma_tile.py`・`routes.py`の各routerがこれを共通に呼ぶ。`prefix`は
-レート制限キー・rejection集計カテゴリの両方を兼ねる。
+`basemap.py`・`jma_tile.py`・`gsi_relief_tile.py`・`accidents.py`・`routes.py`の各routerが
+これを直接呼び、`region.py`は路面・POI・専用way値配信で同じ上限を共有するため
+`_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。`prefix`はレート制限キー・
+rejection集計カテゴリの両方を兼ねる。
 
 ## 管理API共通の認可境界（`api/admin_auth.py`）
 

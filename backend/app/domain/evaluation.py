@@ -389,7 +389,7 @@ def _evaluate_axes_bulk(
     extractable_materials = [MATERIAL_CATALOG[material_id] for material_id in EXTRACTABLE_MATERIAL_IDS]
     # 配列はMATERIAL_CATALOG全材料ぶん確保する（抽出ループはextractable_materialsのみ
     # 回す＝extractor未設定材料[oneway/designation/is_emergency_transport/
-    # is_critical_logistics等、「トリガー付きDEFER」設計原則9]は既定値[NaN/False]の
+    # is_critical_logistics等、トリガー付きDEFER]は既定値[NaN/False]の
     # まま残る）。全材料ぶん確保しないと、そのような材料をMaterialTerm等で参照する
     # GUI作成軸（`_check_materials_are_known`はis_known_materialのみ検証しextractor
     # 有無は見ないため、軸スタジオから素朴に作成できてしまう）を評価した際に

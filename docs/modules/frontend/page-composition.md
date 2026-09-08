@@ -47,7 +47,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 |---|---|---|
 | ルート結果 | `routes`・`selectedRouteId`・`selectedRouteSegment`・`comparisonTabActive`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
 | 目的地モード | `waypoints`・`destination`・`destinationArmed`・`routeMode`・`distanceInput`・`maxRoutesInput` | なし |
-| ルート設定（評価の設定） | `weightOverrideEnabled`・`scoringWeights`・`routePreference`・`hardFilters` | localStorage（研究モード2件は`/admin`と共有キー）。`hardFilters`は復元時に`lib/hardFilterSync.ts: syncHardFilterKeys`で正本（`routeGenerateConfig.hard_filters`）のキー集合へ整合させる |
+| ルート設定（評価の設定） | `weightOverrideEnabled`・`routePreference`・`hardFilters` | localStorage。`hardFilters`は復元時に`lib/hardFilterSync.ts: syncHardFilterKeys`で正本（`routeGenerateConfig.hard_filters`）のキー集合へ整合させる |
 | 実験スロット | `experimentSlots` | なし |
 | 地図ビューポート | `mapViewport` | なし |
 | レイヤー表示 | `layerVisibility`・`lens`・`lensKeepAfterRoute`・`hiddenLegendKeysByMode` | localStorage |
@@ -66,13 +66,13 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）。出発時刻は`useDynamicWeatherLayers`の`dynamicLayerTargetTime`、想定速度は`assumedSpeedKmh`（いずれも地図右上の条件アイコン列`components/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
   │
   ├─→ 風:   [時刻]dynamicLayerTargetTime（useDynamicWeatherLayers由来）
-  │           │                              │
-  │           ├─→ 環境（面）: showWindPenaltyFill = showWindVector && !hasDetail
-  │           │     useDynamicWeatherLayers内でwindPenaltyPayload計算
+  │           │
+  │           ├─→ 環境: 矢印のみ（showWindVector = layerVisibility.windVector）。走行方位に
+  │           │     依存する面塗りは持たない（[地図: 動的気象レイヤー](dynamic-weather-layers.md)参照）
   │           └─→ 評価軸（線）: レンズがその軸を指している間だけ（下記の共通経路）
   │
   └─→ 勾配: （時刻非依存）
-              │                              │
+              │
               ├─→ 環境（面）: showGradientFill = layerVisibility.gradientFill && !hasDetail
               │     gradientGridCellsFromTileResponses(勾配軸のbyTile)
               └─→ 評価軸（線）: レンズがその軸を指している間だけ（下記の共通経路）
@@ -86,22 +86,25 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
     dedicatedWayValueVisibility = レイヤーID（`${axisId}Axis`）→ lens === axisId && lensBackgroundShown
 ```
 
-いずれも**ルート確定後（`hasDetail`）は環境・評価軸どちらの一律表現も終了**し、「生成した
-ルートの色分け」（`routeStyleModes.ts`由来のモード選択）へ委ねる契約になっている。設定UIは
-`TravelBearingControl`（地図右上、MapLibreのズーム+/−・回転コントロールの直下に置く
-アイコンボタン）1箇所へ集約されており、風・勾配いずれかの環境/評価軸表示が1つでもONの
-間だけ表示される（`showWindVector || showGradientFill || 専用way値配信軸のレンズが有効`、
-かつ`!hasDetail`）。中身は`RouteSettingsPanel`と同じ`WindBearingSlider`ダイヤルを
-Radix Popoverで開く。
+**ルート確定後（`hasDetail`）**、環境グループの面表示は終了する（`showGradientFill`が
+`!hasDetail`を含む）。評価軸グループの一律色分けは**`lensKeepAfterRoute`（既定ON）次第**で、
+ONの間はルート線の色分けと併せて周囲の道路も薄く塗り続ける（`lensBackgroundShown =
+!hasDetail || lensKeepAfterRoute`）。ルート線側の色分けは`routeStyleModes.ts`由来のモード
+選択が担う。
+
+走行方位の設定UIは`TravelBearingControl`（地図右上、MapLibreのズーム+/−・回転コントロールの
+直下に置くアイコンボタン）1箇所へ集約されており、出発時刻・想定速度と同じ「走行条件」の
+一部として**常時表示する**（表示条件を持たない）。中身は`RouteSettingsPanel`と同じ
+`WindBearingSlider`ダイヤルをRadix Popoverで開く。
 
 **暗黙の前提**: way_id単位の実データ本体（`dedicatedWayValues: ReadonlyMap<axisId,
 ReadonlyMap<wayId, value>>`）・フェッチ進行中フラグ（`dedicatedWayValueLoading:
 ReadonlyMap<axisId, boolean>`）・表示宣言（`dedicatedWayValueDisplays:
 ReadonlyMap<axisId, DedicatedWayValueDisplay>`）は、いずれも`MapView.tsx`の`MapViewProps`上で
 軸id→値の1つの汎用propにまとまっている（design-principles.md構造仕様3「軸ごとにpropを
-新設しない」）。`page.tsx`が`axisCatalog.axes`から`dedicatedWayValueLayer===true`の軸を
-横断的に抽出して構築するため、`dedicated_way_value_layer`軸が増えてもこれらのprop自体の
-変更は不要。一方`gradientFillGeojson`（タイル単位に集計済みの環境グループgridFill本体）は
+新設しない」）。`page.tsx`が`axisCatalog.dedicatedAxes`（軸カタログから抽出済みの
+専用way値配信軸一覧）を横断して構築するため、`dedicated_way_value_layer`軸が増えても
+これらのprop自体の変更は不要。一方`gradientFillGeojson`（タイル単位に集計済みの環境グループgridFill本体）は
 勾配専用の個別propのまま残っている——風は独立した空間フィールドを持たずgridFill表現自体を
 持たないため（[map-axis-coloring.md](map-axis-coloring.md)「gradientGridFill.ts」節参照）、
 風・勾配で対称な汎用化の対象にならない。
@@ -142,9 +145,10 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   2箇所で行う。
 - `layerVisibility`（`MapOverlayControls`/`MapLayersPanel`が共有）→ `MapView`の
   一次属性・気象・スポットの表示制御。
-- `lens`（レンズ、`LensControl`が唯一の入口）→ ルート前は`axisVisibility`/`showWindAxis`/
-  `showGradientAxis`（全道路の塗り）、ルート後は`MapView`の`routeStyleModeId`（ルート線）
-  へ同じ値から導出する（[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
+- `lens`（レンズ、`LensControl`が唯一の入口）→ 全道路の塗りは`axisVisibility`（ramp軸）と
+  `dedicatedWayValueVisibility`（専用way値配信軸）、ルート線は`MapView`の`routeStyleModeId`
+  へ、いずれも同じ1つの値から導出する（どちらもレイヤーID→booleanの汎用Recordで、軸ごとの
+  propを持たない。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
 - `RAMP_AXES`/`axisCatalog.rampAxes`・`DEDICATED_WAY_VALUE_AXES`/`axisCatalog.dedicatedAxes`
   → `buildMapLayers`/`buildStaticFilterAxes`/`buildRoadSurfaceSharedLayerIds`経由で
   レイヤー構成を組み立てる。
@@ -215,7 +219,7 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 タブ列の上には、条件変更後の未反映（`conditionsDirty`）を知らせるヒントに加え、
 経由地の無い目的地ルートで指定した地点が自転車で行ける道路に繋がっていなかったため
 backendが最寄りのアクセス可能な地点へ補正した場合のヒントを出す（`generatedConditions.
-destinationCorrected`、[T602](../../tasks/T602.md)）。補正時は地図上の目的地ピンも
+destinationCorrected`）。補正時は地図上の目的地ピンも
 `handleGenerate`が実際に使われた地点（`conditions.corrected_destination`）へ動かす
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 

@@ -14,7 +14,7 @@
 // rampの値は tile_inputs から組み立てる。数値材料はΣ property×weight（例: 停止密度 =
 // stop_per_km + 0.3×intersection_per_km、backend側の軸内係数
 // [domain/difficulty.py: UNSIGNALED_INTERSECTION_WEIGHT等]がカタログ経由で反映される
-// ——設計原則2: 片側import。フロントに同じ係数を手書きしない）。プロパティ欠損は
+// ——片側import。フロントに同じ係数を手書きしない）。プロパティ欠損は
 // タイル側が「0をNULLIFでキー省略」した結果なのでcoalesceで0へ倒す
 // （_ROAD_SURFACE_TILE_MVT_SQLのコメント参照）。
 // 真偽値材料（改善計画T278、例: 舗装質=surface_good、夜間=lit/has_tunnel）はMVTの
@@ -336,7 +336,7 @@ function lerpColor(a: string, b: string, t: number): string {
 
 /** RAMP_COLOR_ANCHORS（緑(0)→赤(1)）をt（0〜1の相対位置）で線形補間する共通ロジック。
  * rampColorForBand（段階index/bandCountからの離散色）がこれを経由することで、
- * アンカー定義（緑→黄→橙→赤の4点）を1箇所だけに保つ（設計原則2: 定数の片側import）。 */
+ * アンカー定義（緑→黄→橙→赤の4点）を1箇所だけに保つ（定数の片側import）。 */
 function rampColorForRatio(t: number): string {
   const clamped = Math.min(1, Math.max(0, t));
   for (let i = 0; i < RAMP_COLOR_ANCHORS.length - 1; i++) {
@@ -452,7 +452,7 @@ export function buildAxisRampColorExpression(axis: RampAxis): unknown[] {
 
 /** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。
  * buildAxisRampLegendとMapLayersPanel等の凡例UI・setStaticOverlayFiltersの絞り込みが
- * 同じ境界定義を共有する（片側importで揃える、設計原則2）。 */
+ * 同じ境界定義を共有する（片側importで揃える）。 */
 function axisRampBand(thresholds: readonly number[], index: number): { lower: number | null; upper: number | null } {
   return {
     lower: index === 0 ? null : thresholds[index - 1],

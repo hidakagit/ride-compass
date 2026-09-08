@@ -24,7 +24,7 @@ export function rangeStepLabel(lower: number | null, upper: number | null, unit:
 
 /** boundaries（昇順のしきい値配列、要素数=段階数-1）とcolors（段階数ぶん）から、
  * rangeStepLabelでラベル付けした凡例段階を組み立てる共通ロジック。dedicatedWayValueLayer.ts（風・勾配共通）が同じ「しきい値配列→段階ラベル+色」変換を必要とするため
- * ここへ集約する（設計原則2: 定数・変換ロジックの片側import）。
+ * ここへ集約する（定数・変換ロジックの片側import）。
  *
  * `labels`（省略可、colors.length件）を渡すと、数値レンジ表記の前に体感ラベルを添える
  * （例:「強い向かい風（2〜6m/s）」）。渡さない場合は数値レンジ表記のみ。

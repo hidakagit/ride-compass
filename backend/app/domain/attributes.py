@@ -191,9 +191,9 @@ class EdgeMaterialTable:
     なく列（numpy配列・リスト）として持つことで、pickle復元をEdge数に依存しない
     列単位の操作へ変える。
 
-    **正準定義は引き続き`EdgeMaterialBundle`1箇所**（設計原則4）。本クラスは軸定義
+    **正準定義は引き続き`EdgeMaterialBundle`1箇所**（design-principles.md構造仕様4）。本クラスは軸定義
     （`AXIS_DEFINITIONS`）も材料カタログ（`MATERIAL_CATALOG`）も一切知らない、
-    `EdgeMaterialBundle`と1対1の列指向ビューに過ぎない（設計原則3・8には触れない）。
+    `EdgeMaterialBundle`と1対1の列指向ビューに過ぎない（同構造仕様3・8には触れない）。
 
     列の設計（`from_bundles`/`get`が対称に扱う）:
     - `surface`: `str | None`をそのまま格納するobject配列（Noneは値として区別、

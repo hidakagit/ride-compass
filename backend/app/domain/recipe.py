@@ -72,7 +72,7 @@ def bicycle_infra_flags_or_none(tags: dict[str, str] | None, highway: str | None
     """`bicycle_infra_flags`を「データ欠損はNone」の規約に倒すラッパー。呼び出し元
     （material_catalog.pyのextractor・evaluation.py: compute_edge_axis_scores・
     road_graph_engine.pyの_build_segment_details）が同じガード条件を複数箇所で
-    手書きしないよう、ここへ1箇所へ集約する（設計原則1: 正準定義は1箇所）。
+    手書きしないよう、ここへ1箇所へ集約する（design-principles.md構造仕様4: 正準定義は1箇所）。
 
     `tags is None`（タグ自体が未取得）はNone。`bicycle_infra_flags`自体はhighway=Noneでも
     例外を投げず具体的なbool値を返す——highway="cycleway"かどうかの判定・cyclewayタグ由来の

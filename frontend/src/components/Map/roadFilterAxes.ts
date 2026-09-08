@@ -68,7 +68,7 @@ export interface RoadFilterAxis {
 // と色相が重なると、1次（観測された事実）と2次（推定された評価）が地図上で混同される
 // ため、評価色（緑・アンバー・オレンジ・赤の系統）を避けた中立色を使う（COLOR_SLATE/
 // COLOR_KHAKI）。COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（dedicatedWayValueLayer.tsと
-// 同じくそちらからimportする、設計原則2「定数の片側import」）。
+// 同じくそちらからimportする、定数の片側import）。
 
 // 1次の複数レイヤーを同時にONにしても、視覚的な重なりが何を意味するか読み取れなくなる
 // ことを避けるため、「不明・他」（そのタグ値が無い/未分類の区間、路面では2〜3割・
