@@ -22,7 +22,7 @@
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | **road_graph単一構成**（改善計画T462で切替設定を廃止） | Step3の疎通確認用エンドポイント。`dependencies.py: get_preview_builder`が`RoadGraphEngine.preview_segment`（評価軸重み付きコストで最短経路を1回探索、generateと同じコスト式）を組み立てる。`RoutingService`/`ORSClient`はT462で削除済み。previewはリクエストボディでの評価重み上書きに対応しない（既定値のみ使用） |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **気象庁MSM**（Open-MeteoがAWS Open Dataで公開する前処理済み`.om`ファイルをローカル同期。外部の気象予報APIには依存しない） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`msm_client`経由で読む。`get_wind_grid`/`get_wind_forecast_series`が風の格子点マップとルート評価の風を、`get_conditions`が「今日の見通し」パネル用の現在値・日次集計・時間帯別の流れを組み立てる（天気コードは雲量・降水・気温から導出、日の出/日没は`domain/twilight.py`で計算） |
-| 標高 | **国土地理院（GSI）標高API**（APIキー不要、日本国内限定） | `ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）がルートを距離連動の点数（約1km間隔・12〜32点、`sample_count_for_distance`）でサンプリングして問い合わせ、獲得標高・最高/最低標高・最大勾配を算出 |
+| 標高 | **国土地理院（GSI）DEMタイル**（APIキー不要、日本国内限定） | `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）がDEMタイルを取得し双線形補間、`ElevationAttributeService`（[backend/app/services/elevation_attribute_service.py](../backend/app/services/elevation_attribute_service.py)）がEdge単位の標高属性を求めて`elevation_attributes`へ永続化する（事前計算は`batch/precompute_elevation_attributes.py`）。ルート単位の獲得標高・最高/最低標高・最大勾配は`services/elevation_aggregation.py`が区間の属性から集約する |
 | 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして`GET /api/gsi-relief-tile/{path:path}`（`GsiReliefTileClient`、改善計画T572）経由で重ね描き。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
 | 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み（当初はOverpass API＋自前Python MVTエンコードだったが、PostGIS移行に伴い不要になった。経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照） |
 
@@ -49,7 +49,7 @@ Windows環境では `uvicorn --reload` はリローダー親プロセスとワ�
 - **タイルプロパティを削除する変更のデプロイ順序に注意**: backend・frontendは別サービスとして独立にデプロイされ、反映タイミングは同期しない（移行前後を通じて変わらない制約）。road-surface-tilesのプロパティ追加（v2〜v8）は常に後方互換だった（旧フロントは新プロパティを単に無視するだけ）が、v9（交通ストレスレシピ外出し基盤）は計算済みの`traffic_stress`プロパティを削除する初めての非互換変更。backendがv9を先に配信すると、まだ`["!", ["has","traffic_stress"]]`を使う旧フロントの凡例フィルタが全地物に一致し、交通ストレスレイヤーが全線「不明・他」（グレー）表示になる（数分〜デプロイ完了まで自己解消するが、その間は誤った見た目になる）。**frontendを先に（または同時に）デプロイし、backendのv9切替がfrontendの新実装より先に本番へ出ないようにする**こと。
 
 ### 周回ルート生成のアルゴリズムと既知の制約（Step4）
-`RouteGenerator`＋`OpenRouteServiceEngine`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)・[backend/app/services/openrouteservice_engine.py](../backend/app/services/openrouteservice_engine.py)、Step4当時は`route_generator.py`という単一ファイルだったが「ルーティングエンジンの切り替え対応」で戦略とエンジンに分離した）は、8方位それぞれについて「方位θの方向に半径R」「方位θ+45°の方向に半径R」の2経由地点を`domain/geo.py`の`destination_point`（球面三角法）で計算し、`[現在地, 経由地A, 経由地B, 現在地]`をopenrouteservice Directions APIに1回のリクエストで渡す。半径Rは`distance_km / 3`という固定ヒューリスティック。8方位分は`asyncio.gather`で並列実行し、失敗した方位はスキップする。
+`RouteGenerator`＋`OpenRouteServiceEngine`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)・`openrouteservice_engine.py`[T462で撤去済み]、Step4当時は`route_generator.py`という単一ファイルだったが「ルーティングエンジンの切り替え対応」で戦略とエンジンに分離した）は、8方位それぞれについて「方位θの方向に半径R」「方位θ+45°の方向に半径R」の2経由地点を`domain/geo.py`の`destination_point`（球面三角法）で計算し、`[現在地, 経由地A, 経由地B, 現在地]`をopenrouteservice Directions APIに1回のリクエストで渡す。半径Rは`distance_km / 3`という固定ヒューリスティック。8方位分は`asyncio.gather`で並列実行し、失敗した方位はスキップする。
 
 実機検証（王子駅付近、15km/30km指定）では8方位すべてが成功し、目標距離に対して+10〜+16%程度（許容差±5km以内）に収まった。ただし適応的な半径調整は行っていないため、道路網の形状次第では大きくずれる方位が出る可能性がある。将来の改善点:
 - 半径を反復調整して目標距離に近づける適応的探索
@@ -75,7 +75,7 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 [docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)参照。
 
 ### 標高計算のアルゴリズムと既知の制約（Step5）
-`ElevationService`（[backend/app/services/elevation_service.py](../backend/app/services/elevation_service.py)）は、各ルートのGeoJSON LineStringから始点・終点を含む点列（当初は12点固定。現在はエンジンが`sample_count_for_distance`で距離連動の約1km間隔・12〜32点を決めて渡す。Step9で点列を直接受け取るシグネチャへ変更）をサンプリングし、国土地理院の標高API（1リクエスト=1地点）に問い合わせる。獲得標高は連続区間の正の標高差の合計、最大勾配は`|標高差| / 水平距離`の最大値（%、水平距離は`haversine_distance_km`で算出）。標高が取得できない区間（海上・データ範囲外・通信エラー）は`None`として扱い、有効な点が2点未満なら標高関連フィールドはすべて`None`を返す（ルート自体は除外しない）。
+`ElevationService`（`elevation_service.py`。現在は`ElevationAttributeService`＋`elevation_aggregation.py`へ再編済み）は、各ルートのGeoJSON LineStringから始点・終点を含む点列（当初は12点固定。現在はエンジンが`sample_count_for_distance`で距離連動の約1km間隔・12〜32点を決めて渡す。Step9で点列を直接受け取るシグネチャへ変更）をサンプリングし、国土地理院の標高API（1リクエスト=1地点）に問い合わせる。獲得標高は連続区間の正の標高差の合計、最大勾配は`|標高差| / 水平距離`の最大値（%、水平距離は`haversine_distance_km`で算出）。標高が取得できない区間（海上・データ範囲外・通信エラー）は`None`として扱い、有効な点が2点未満なら標高関連フィールドはすべて`None`を返す（ルート自体は除外しない）。
 
 **パフォーマンス上の落とし穴（実機で発見・修正済み）**: 当初 `ElevationClient` がリクエストごとに新規`httpx.AsyncClient`を生成しておりTLSハンドシェイクを毎回やり直していたため、15km生成（8候補×12点=最大96リクエスト）に**約57秒**かかっていた。`httpx.AsyncClient`をFastAPIの依存性注入（`yield`付き）で1リクエストあたり1つ生成して使い回す形に直したところ**約7秒**まで短縮した。あわせて、同時リクエスト数を制限する`asyncio.Semaphore`が`get_profile`呼び出しごとに新規生成されており、意図していた「サービス全体で最大5並列」ではなく実質「候補ごとに最大5並列」（合計で最大40並列）になっていた点も、`ElevationService.__init__`でSemaphoreを1つだけ生成する形に修正した。
 
@@ -120,7 +120,7 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 風向（69°のような任意角度で得られる）を8方位ラベルに変換する必要が生じたため、`route_generator.py`に8方位専用でハードコードされていた`DIRECTION_LABELS`辞書を廃止し、`domain/geo.py`の汎用関数`compass_label(bearing_deg: float) -> str`に統一した（周回ルート候補の方位ラベルも同じ関数を使う）。
 
 ### 風評価（`wind_score`）の設計（Step7）
-Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「地点＋時刻」対応にしておいたのは、まさにこのStep7のため。`WindService`（[backend/app/services/wind_service.py](../backend/app/services/wind_service.py)）は候補ルートのサンプル点列（`ElevationService`と同じ点集合。当初12点固定、現在は距離連動の約1km間隔・12〜32点）について、区間ごとに以下を行う。
+Step6で`WeatherService.get_conditions(point, at: datetime | None = None)`を「地点＋時刻」対応にしておいたのは、まさにこのStep7のため。`WindService`（`wind_service.py`。現在は`domain/wind.py`＋`WeatherService`へ再編済み）（）は候補ルートのサンプル点列（`ElevationService`と同じ点集合。当初12点固定、現在は距離連動の約1km間隔・12〜32点）について、区間ごとに以下を行う。
 
 1. 起点からの累積距離 ÷ 仮定巡航速度（`ASSUMED_SPEED_KMH = 20.0`が既定値。リクエストの`assumed_speed_kmh`で5〜60km/hの範囲で指定できる）で推定到達時刻を計算
 2. 区間の進行方位を`domain/geo.py`の`bearing_between(a, b)`（新規追加、2点間の初期方位角を球面三角法で求める。`destination_point`の逆関数に相当）で算出
@@ -422,69 +422,23 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   無料の代替が見つからずOpen-Meteo依存を継続していたが、T645でMSMのローカル同期へ移行し、
   weather_code相当は雲量・降水・気温からの導出（`domain/weather.py: derive_weather_code`）
   へ置き換え、UV指数は表示ごと廃止してOpen-Meteo依存を解消した。
-- **road_graph_tilesのRedis cache-aside（`app/infrastructure/road_graph_tile_cache.py`）**:
-  `road_graph_tiles`（タイル取得済みマーカー、9章参照）はPostGIS上の一時的な揮発データの
-  代表例だが、**PostGISを正本のまま維持し、Redisは読み取り高速化のための派生キャッシュに
-  限定した**（フルRedis移行はしない）。理由: このマーカーはルート生成のゲーティングに
-  使われ、失うと該当bboxのルート生成が「データ未整備」として拒否される
-  （改善計画T22でOverpassフォールバックを撤去済みのため自動復旧手段が無い）。Redisは
-  永続化設定を持たない前提のキャッシュ層のため、ここを正本にすると再起動・エビクション
-  のたびに広範囲のルート生成が壊れる重大な後退になる。読み取り時にRedisへキーが
-  無ければPostGISへフォールバックし、見つかった分をRedisへ書き戻す。
-  - **性能**: `GraphService._ensure_tiles_cached`（ルート生成のリクエストごとに実行される
-    ホットパス）のPostGIS往復をRedisで肩代わりする狙い。実測（開発機、12タイル×30回）:
-    Redis疎通不能時は当初4,066ms/回という致命的な遅延が判明し（Windows環境、TCP接続
-    タイムアウトの既定値起因）、`redis_client.py`へ短い接続タイムアウト（0.2秒）と
-    サーキットブレーカー（直近失敗から10秒はRedis接続自体を試みない）を追加して
-    18ms/回（初回のみ約200ms、以降はPostGIS単体の実測約12ms/回相当）まで改善した。
-    Redis障害時にPostGIS単独より遅く・不安定になってはならないという設計上の要請から、
-    このタイムアウト・サーキットブレーカーは全JMA用途のRedisアクセスにも共通適用している。
-    Redis正常時の実測（本番OCI VM、同一手法・12タイル×30回、2026-08-29）:
-    PostGIS単体 平均1.03ms/回（中央値0.87ms）に対しRedisキャッシュヒット 平均0.17ms/回
-    （中央値0.16ms）で約5.9倍高速。開発機実測（約12ms/回）よりPostGIS単体自体が大幅に
-    速いのは、本番はアプリ・PostGIS・Redisが同一VM上（`--network=host`）でネットワーク
-    往復がほぼ無いため。詳細はdocs/tasks/T387.md参照。
-- **split鮮度マーカー・edge geometryのRedis cache-aside（改善計画T390）**: T387完了後の
-  ユーザー指示「評価ロジックで使う一時的なPostGISデータをRedis化できないか、DB全般を
-  見直して」を受け、PostGIS全読み取りパスを棚卸しした結果、road_graph_tilesと同じ
-  「in-processキャッシュ（`graph_material_cache.py`）がヒットする最速パスでも必ず
-  PostGISへ問い合わせる」性質を持つ2箇所を追加でRedis化した（本番実測、docs/tasks/
-  T390.md参照）:
-  1. **`is_split_up_to_date`**（`DerivedGraphRepository.is_split_up_to_date`）:
-     `GraphService._ensure_split_up_to_date`が`road_graph_tile_cache.py`の
-     split鮮度マーカー（`road:tile:split-fresh:{zoom}:{x}:{y}`、TTL 1時間）を介して
-     cache-aside化。bbox内の主対象Wayが1件でも未splitならFalseを返す判定のため
-     タイル単位でTrue/Falseへ分解できず、**覆う全タイルにマーカーが揃っている場合のみ
-     PostGISを省略する**（部分ヒットでは正しさを優先してPostGISへフォールバックする）。
-     本番実測（着手前・PostGIS単体）: 中央値1.52ms/回。デプロイ後の実効果
-     （Redisキャッシュヒット時）: 平均0.22ms/回（約7倍高速化、`get_cached_tiles`
-     [T387、0.17ms]と同水準）。
-  2. **`get_edges_with_geometry`**（`DerivedGraphRepository.get_edges_with_geometry`、
-     周回候補・経由地ルートの実ジオメトリ取得ホットパス。改善計画T531以降は
-     `RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんをまとめて1回だけ
-     呼ぶ）: edge_id単位で
-     `infrastructure/road_edge_geometry_cache.py`にcache-aside化（TTL 24時間）。
-     `DirectedEdge`（domain/graph.py）はshapelyジオメトリを含まないプレーンなPydantic
-     モデルのためJSON化するだけで済む。本番実測（着手前・PostGIS単体）: 100 edgesの
-     バッチで平均4.69ms/回（1リクエスト最大8回）。デプロイ後の実効果
-     （Redisキャッシュヒット時）: 平均1.37ms/回（約3.4倍高速化）。
-  - **無効化（正しさの担保）**: 両キャッシュともTTLは取りこぼしに対する自己修復用の
-    安全網に過ぎず、正しさは書き込み側のprecise invalidationが担う。
-    `GraphService.get_or_build_graph_with_attributes`が`save_graph`成功直後にそのbboxの
-    split鮮度マーカーを書き戻し、`DerivedGraphRepository.save_graph`が今回保存した
-    edge_idぶんのgeometryキャッシュを無条件で無効化する（同じedge_idが再split後に
-    異なる形状で再利用されるケースに備える）。`app/batch/import_pbf.py: _mark_tiles`は
-    PBF再importのたびに対象タイルのsplit鮮度マーカーを無効化する（`osm_raw_ways`が
-    変わりPostGIS側のroad_edgesが古くなりうるため、次回アクセスで確実にPostGISへ
-    再確認させる）。
-  - **設計上見送った箇所**: `graph_material_cache.py`（z12タイル単位の道路グラフ
-    トポロジ・材料一式、いわゆる「splitデータ」本体）は既に単一ワーカーのプロセス内
-    LRUキャッシュでカバー済みのため対象外とした。単一ワーカー稼働の現状でこれを
-    Redis化すると「ゼロコストのdict参照」を「ネットワーク往復」に変える純粋な悪化に
-    しかならない（T388のjob_registryと同じ「マルチワーカー化まではトリガー未到達」の
-    構図）。デプロイ再起動でこのプロセス内キャッシュが消える問題への対策としての価値は
-    あるが、`RoadGraphLike`はshapelyジオメトリ等を含み素直にシリアライズできないため
-    実装コストと釣り合わない。
+- **ルート生成の経路にRedisを置かない（[T652](tasks/T652.md)）**: 以前は
+  `road_graph_tiles`（取込完了マーカー）・split鮮度マーカー・edge geometryの3つを
+  Redis cache-asideで肩代わりしていたが、いずれも撤去しPostGISへ素直に問い合わせる。
+  ルート生成の呼び出し経路（router→`route_generator`→`road_graph_engine`→
+  `graph_service`→repository→天候）にRedisは現れない。
+  - **理由は速度ではなく構造**: split鮮度は「splitは最新」という危険側の判断を、単調で
+    ないまま保持していた。その正しさは別プロセスのバッチ（PBF取込・事前split）からの
+    push無効化に依存し、その無効化はfail-openのため失敗しても誰も気づけない。版をキーへ
+    入れる正攻法は、版を読むのに同じテーブルを引く必要があり成立しない。肩代わりして
+    いた時間は本番実測で1.1ms・5.8ms・75msで、ルート生成1回（13.9秒）に対する寄与は
+    0.2〜0.3秒だった。
+  - **タイル単位のキャッシュはプロセス内に残る**: `graph_material_cache.py`（z12タイル
+    単位の道路グラフトポロジ・材料一式）と`tile_score_matrix_cache.py`（静的スコア行列）
+    は単一ワーカーのプロセス内LRU＋ディスク永続化で、Redisを経由しない。単一ワーカー
+    稼働の現状でこれをRedis化すると「dict参照」を「ネットワーク往復」へ変える純粋な
+    悪化になる（[T388](tasks/T388.md)のjob_registryと同じ「マルチワーカー化まではトリガー
+    未到達」の構図）。
 
 ### ルーティングエンジンの切り替え対応（openrouteservice ⇄ Road Graph、2026-08-23〜2026-08-31の間存在した仕組み。改善計画T462でopenrouteserviceエンジンを完全撤去し、以降はroad_graphが唯一のエンジン）
 
@@ -500,12 +454,12 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
 
 | スコープ | 定義場所 | 内容 | 変更理由 |
 |---|---|---|---|
-| 取込スコープ | [backend/app/batch/import_profile.yaml](../backend/app/batch/import_profile.yaml) | trunk〜residential・cycleway・track等（footway/pedestrian/steps/service/motorway系は除外） | データ容量・表示/探索の少なくとも一方で使うか |
+| 取込スコープ | [backend/app/batch/import_profile.yaml](../backend/app/batch/import_profile.yaml) | trunk〜residential・cycleway・track等（footway/pedestrian/steps/service/motorway系は`roads`ルールでは除外）。ただし自転車歩行者共用道（`highway=footway/path` **かつ** 自転車通行可）は`shared_pedestrian_ways`ルールが別途拾う（河川敷サイクリングロード等） | データ容量・表示/探索の少なくとも一方で使うか |
 | ルーティング可否（Hard Constraint、〇次フィルタ） | `domain/evaluation.py: HARD_FILTER_HIGHWAY_TYPES`（改善計画T140、旧`DISALLOWED_HIGHWAY_TYPES`） | motorway/trunk系を自転車通行不可として探索から除外（`motorway`/`trunk`の2フィルタに命名分離、既定は両方有効） | 法規・実務判断（後述7章末尾参照） |
 | 表示グルーピング | [frontend/src/components/Map/roadFilterAxes.ts](../frontend/src/components/Map/roadFilterAxes.ts) `HIGHWAY_GROUPS` | 幹線/主要道/生活道路/自転車・歩行者道/農道・林道の5分類＋不明 | 地図の見やすさ |
 
 - **trunkは取り込むが走らせない**: 地図表示（幹線道路の把握・回避判断）のために取込対象だが、ルート探索ではHard Constraintで除外される。矛盾ではなく意図的な役割分担
-- **フロント凡例にはfootway/pedestrian/steps等の値も含まれる**が、これらは取込対象外のためタイルには現れない（Overpassフォールバックは改善計画T22で撤去済みのため、現れる経路自体が無い）。凡例定義を取込プロファイルへ機械的に合わせることはしない（取込スコープ変更時に凡例が壊れないことを優先）
+- **フロント凡例にはfootway/pedestrian/steps等の値も含まれる**。このうち自転車通行可のfootway/pathは`shared_pedestrian_ways`ルールで取り込まれるためタイルに現れるが、それ以外（pedestrian/steps/service等）は取込対象外のため現れない（Overpassフォールバックは改善計画T22で撤去済みのため、現れる経路自体が無い）。凡例定義を取込プロファイルへ機械的に合わせることはしない（取込スコープ変更時に凡例が壊れないことを優先）
 - いずれかを変更する場合はこの表と各定義場所のコメントを同時に更新すること
 
 **路面（surface）— 正準は1箇所、他はすべて追従:**
@@ -532,8 +486,9 @@ RideCompass/
       version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「デプロイの反映確認」で新規）
       api/
         admin_auth.py           ✅ 管理API共通の認可境界（`require_admin_basic_auth`、HTTP Basic認証）。元はaxis_admin.pyにのみ定義されていたが、改善計画T379でdebug_admin.pyも同じ認可を必要としたため複製を避けてここへ切り出した
-        dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ gsi_relief_tile.py（GET /api/gsi-relief-tile/{path}、改善計画T572、国土地理院 色別標高図タイルのプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/admin/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由。索引の効かないSELECT DISTINCTをタイル配信と同じ接続プール上で実行するため、GET /api/admin/material-catalog/coverageと同じくHTTP Basic認可要）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
+        cache_policy.py         ✅ HTTPキャッシュポリシー（`Cache-Control`）の一元管理（改善計画T632）。パスとポリシーの対応表`_ROUTE_POLICIES`を1箇所へ集め`CachePolicyMiddleware`が応答へ付与する。新規エンドポイントの追加漏れは`tests/test_cache_policy.py`が全ルート走査で機械的に検出する
+        dependencies.py        ✅ DI工場（`get_graph_service`・`get_region_service`等のDependsファクトリと、リクエストスコープ外で使う`open_route_generation_setup`）、`enforce_rate_limit`、`client_id`（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats, GET /api/debug/db-status[HTTP Basic認可要]）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ。GET /api/jma-tile-index＝在否インデックス、平常時に空タイルを取りに行かないための一覧）/ gsi_relief_tile.py（GET /api/gsi-relief-tile/{path}、改善計画T572、国土地理院 色別標高図タイルのプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/admin/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由。索引の効かないSELECT DISTINCTをタイル配信と同じ接続プール上で実行するため、GET /api/admin/material-catalog/coverageと同じくHTTP Basic認可要）/ accidents.py（GET /api/region/accident-tiles/{z}/{x}/{y}.pbf）/ derived_data_freshness.py（GET /api/admin/derived-data/freshness、HTTP Basic認可要。派生データの鮮度台帳）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`validate_tile_coords`）へ共通化した（レート制限は地域タイル系に限らず全router共通の`dependencies.py: enforce_rate_limit`が担い、このモジュールの対象外）
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・overall_difficulty・segments・axis_difficulties・axis_contributions・material_values含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み、改善計画T592でwind_score・road_score・max_gradient_percent（RouteSegmentDetailのgradient_percent・wind_penalty・road_surface_goodも同様）を削除しmaterial_valuesへ統合済み）
         weather.py               ✅ WeatherConditions
@@ -620,7 +575,7 @@ RideCompass/
       test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 折返し点候補プールからの逐次trace・`max_routes`件到達時の早期停止・失敗候補のスキップ・距離許容フィルタ・prepare/折返し点0件時の空返却・**評価が距離フィルタ通過候補だけに行われること**・`overall_difficulty`昇順ソート（同点は目標距離に近い順、改善計画T531。降順`total_score`ソートからの変更は改善計画T548）・engine_name公開
       test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 双方向の「車輪＋迂回路」状Road Graphフィクスチャによる折返し点選定（軸駆動ランキング・往路重複率ベースの間引き）・復路探索（往路コスト差し替え→復元）・距離許容フィルタ・経路探索失敗時のスキップ・標高/路面/風の集計・segments構築・graph_serviceへの問い合わせ（ジオメトリ取得）が距離フィルタ通過候補ぶん1回にまとまること・engine_name
       test_routing.py          ✅ `shortest_path_node_ids_lazy`/`path_to_edge_ids_lazy`（コスト最小経路・到達不能・始点=終点・Hard Constraint除外）・`build_node_spatial_index`/`find_nearest_node_indexed`・`concat_node_paths`に加え、改善計画T531の`build_shortest_path_tree`（一対全木、Python走査との実距離一致）・`tree_path_edge_indices`・`overlap_ratio`/`select_diverse_by_overlap`（多様性間引きの決定性）を検証
-      test_routes_generate.py ✅ get_route_generation_builderをDIでモックしたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429に加え、研究IF改善Phase 1で重み上書きの伝搬・conditionsエコー・上書きバリデーション422・既定値へのフォールバックの検証を追加）
+      test_routes_generate.py ✅ `open_route_generation_setup`（`dependencies.py`）を差し替えたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429に加え、研究IF改善Phase 1で重み上書きの伝搬・conditionsエコー・上書きバリデーション422・既定値へのフォールバックの検証を追加）
       test_elevation_client_cache.py ✅ 同一/近傍座標でのキャッシュ再利用・遠方座標での再取得
       test_weather_service.py ✅ 現在/指定時刻の天候取得、取得失敗時の扱い
       test_weather_client_cache.py ✅ TTL内キャッシュ再利用・失効後再取得・取得失敗時の扱い
@@ -1132,8 +1087,10 @@ AXIS_DEFINITIONS`のdefault_weight、改善計画T316）の重みは`/api/routes
 ボディでリクエスト単位に上書きできる（§10-1）。実際に適用された値はレスポンスの`conditions`に
 エコーされ（§10-6）、レスポンスJSONを保存すればそのまま再現条件になる。
 
-- 配線: `dependencies.py: get_route_generation_builder`がビルダー（`RouteGenerationSetup`を返す呼び出し可能）を
-  DIで供給し、エンドポイントが検証済みの上書き値（無ければNone→既定値）を渡して組み立てを完了する。
+- 配線: `dependencies.py: open_route_generation_setup`（`@asynccontextmanager`）が
+  検証済みの上書き値（無ければNone→既定値）を受け取り、独立したDBセッションの上で
+  `RouteGenerationSetup`を組み立てる（組み立て自体は純粋関数`_assemble_route_generation_setup`
+  へ一本化）。リクエストスコープ外で走るバックグラウンドジョブから呼ぶための形。
   `route_preference`側の既定値は軸スタジオでの公開軸・default_weight編集がサーバー再起動なしで
   即座に反映される（`AxisRegistryAdminService`の書き込み直後リフレッシュ、改善計画T221 Stage D）
 - 上書きは全フィールド必須・非負（部分指定でクラス既定値が黙って入る事故を防ぐ）
