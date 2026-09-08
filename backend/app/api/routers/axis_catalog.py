@@ -34,7 +34,7 @@ from pydantic import BaseModel
 
 from app.api.dependencies import get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisShape
-from app.domain.axis_display import axis_display_for, primary_attribute_ids_for
+from app.domain.axis_display import axis_display_for, primary_attribute_ids_for, raw_value_unit
 from app.domain.dynamic_way_values import MapValueKind, map_value_kind, map_value_unit
 from app.domain.registry import AxisDisplaySpec
 from app.services.region_service import RegionService
@@ -94,6 +94,10 @@ class AxisCatalogEntry(BaseModel):
     # これに従い、display_thresholds_overrideもこの1つのスケールで解釈する。
     map_value_kind: MapValueKind
     map_value_unit: str
+    # 折れ点を通す前の生値の単位（`domain/axis_display.py: raw_value_unit`）。
+    # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出し、
+    # 「◯◯/km」なら走行距離を掛けて経路全体の実数にする。
+    raw_value_unit: str | None
     # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
     # 必要とするクエリパラメータの宣言（domain/axis_definitions.py:
     # AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
@@ -158,6 +162,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
                 map_value_kind=map_value_kind(definition),
                 map_value_unit=map_value_unit(definition),
+                raw_value_unit=raw_value_unit(definition),
                 dynamic_way_value_needs_time=definition.dynamic_way_value_needs_time,
                 dynamic_way_value_needs_bearing=definition.dynamic_way_value_needs_bearing,
                 dynamic_way_value_needs_speed=definition.dynamic_way_value_needs_speed,

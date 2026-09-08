@@ -198,6 +198,9 @@ class LegCostArrays:
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
     contribution_arrays: dict[str, np.ndarray]
+    # 折れ点を通す前の生値（`full_edge_row`順）。静的スコア行列の列をそのまま指すため
+    # レグ間で同じ配列を共有する（風のようにレグごとに変わる値は持たない）。
+    axis_raw_arrays: dict[str, np.ndarray]
     # `full_edge_row`順の動的材料id→配列（`evaluate_dynamic_material_arrays`が返す全材料が
     # 対象、全行NaNの材料はキーを持たない）。区間表示・`material_values`の集計が、
     # 探索コストの合成と同じ動的入力から求めた値を読むために保持する。
@@ -228,6 +231,10 @@ class _LegCostComposer:
         lens_axis_id: str | None = None,
     ) -> None:
         self._score_matrix = score_matrix
+        self._axis_raw_arrays = {
+            axis_id: score_matrix.axis_raw_values[:, i]
+            for i, axis_id in enumerate(score_matrix.raw_axis_ids)
+        }
         self._static_axis_scores = {
             axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
         }
@@ -300,6 +307,7 @@ class _LegCostComposer:
             difficulty_array=difficulty_array,
             axis_arrays=published,
             contribution_arrays=contribution_arrays,
+            axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=material_arrays,
             passage_hours=passage,
         )
@@ -1482,6 +1490,7 @@ class RoadGraphEngine:
                 # 経路上のEdgeが何らかの理由で行を持たない防御的フォールバック。
                 axis_scores: dict[str, float] = {}
                 axis_contributions: dict[str, float] = {}
+                axis_raw_values: dict[str, float] = {}
                 composite_difficulty_value: float | None = None
                 material_values: dict[str, float] = static_material_values
             else:
@@ -1493,6 +1502,13 @@ class RoadGraphEngine:
                 axis_contributions = {
                     axis_id: float(arr[row])
                     for axis_id, arr in leg.contribution_arrays.items()
+                    if not math.isnan(arr[row])
+                }
+                # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
+                # （動的材料を参照する軸は行列側で除外済み）。
+                axis_raw_values = {
+                    axis_id: float(arr[row])
+                    for axis_id, arr in leg.axis_raw_arrays.items()
                     if not math.isnan(arr[row])
                 }
                 difficulty_value = leg.difficulty_array[row]
@@ -1532,6 +1548,7 @@ class RoadGraphEngine:
                     # axis_scoresは既にaxis_id→difficultyの汎用dict（データ無しの軸はキー自体を
                     # 持たない）のため、そのままRouteSegmentDetail.axis_difficultiesへ渡せる。
                     axis_difficulties=axis_scores,
+                    axis_raw_values=axis_raw_values,
                     axis_contributions=axis_contributions,
                     material_values=material_values,
                     difficulty=composite_difficulty_value,

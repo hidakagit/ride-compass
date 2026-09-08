@@ -8,6 +8,7 @@ from app.domain.axis_definitions import (
 from app.domain.axis_display import (
     axis_display_for,
     derive_ramp_inputs,
+    raw_value_unit,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
 from app.domain.registry import TileInputSpec
@@ -705,3 +706,122 @@ def test_axis_display_for_ignores_thresholds_override_when_auto_derivation_fails
     display = axis_display_for(definition)
 
     assert display.kind == "none"
+
+
+def _axis(shape, axis_id="synthetic_raw_value"):
+    return AxisDefinition(axis_id=axis_id, shape=shape, default_weight=0.1, label="テスト軸", category="観測")
+
+
+def test_raw_value_unit_returns_shared_unit_of_terms():
+    # stop_densityを模した合成軸: 単位の同じ材料（回/km）だけを正の重みで足したもの。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) == "回/km"
+
+
+def test_raw_value_unit_ignores_zero_weight_terms():
+    # 重み0の項は生値へ寄与しない。単位の一致判定にも数えない（数えると単位が
+    # 定まらなくなり、実際には出せる生値を出せなくなる）。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="gradient_percent", weight=0.0, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) == "回/km"
+
+
+def test_raw_value_unit_is_none_for_mixed_units():
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="gradient_percent", weight=1.0, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) is None
+
+
+def test_raw_value_unit_is_none_for_unitless_material():
+    # 真偽値材料（lit）は単位を持たない。単位の無い数字を人へ見せても意味を取れない。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[MaterialTerm(material="lit", weight=1.0, required=False)],
+            breakpoints=[(0.0, 0.0), (1.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) is None
+
+
+def test_raw_value_unit_is_none_when_summing_non_additive_units():
+    # 開放度を模した合成軸: 単位は%で揃っているが、母数の違う被覆率どうしの和は
+    # 何も表さない。単位が揃っているだけでは和の意味は保証されない。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="trees_percent", weight=1.0, required=False),
+                MaterialTerm(material="built_percent", weight=1.0, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) is None
+
+
+def test_raw_value_unit_allows_a_single_non_additive_term():
+    # 項が1つなら和ではない。勾配の「平均3.2%」は足し算をしていないので意味を持つ。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) == "%"
+
+
+def test_raw_value_unit_is_none_when_a_weight_is_negative():
+    # opennessを模した合成軸: 被覆率の和を符号反転して向きを揃えたもの。単位は%で
+    # 揃っているが、生値は常に負になり「開放度-45%」としか読めない。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="trees_percent", weight=-1.0, required=False),
+                MaterialTerm(material="built_percent", weight=-1.0, required=False),
+            ],
+            breakpoints=[(-100.0, 0.0), (-20.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) is None
+
+
+def test_raw_value_unit_is_none_for_categorical_shape():
+    definition = _axis(CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}))
+
+    assert raw_value_unit(definition) is None
+
+
+def test_published_axes_with_a_unit_can_show_their_raw_value():
+    # 実運用の軸で、単位が定まる軸が実際にあること（機構が空回りしていないこと）を
+    # 押さえる。どの軸が該当するかはDBの軸定義次第のため軸idまでは固定しない。
+    published = [d for d in AXIS_DEFINITIONS.values() if d.is_published]
+    assert any(raw_value_unit(definition) is not None for definition in published)

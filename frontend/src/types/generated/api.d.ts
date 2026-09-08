@@ -916,6 +916,8 @@ export interface components {
             map_value_kind: "difficulty" | "signed_material";
             /** Map Value Unit */
             map_value_unit: string;
+            /** Raw Value Unit */
+            raw_value_unit: string | null;
             /** Dynamic Way Value Needs Time */
             dynamic_way_value_needs_time: boolean;
             /** Dynamic Way Value Needs Bearing */
@@ -1671,6 +1673,10 @@ export interface components {
             axis_contributions?: {
                 [key: string]: number;
             };
+            /** Axis Raw Values */
+            axis_raw_values?: {
+                [key: string]: number;
+            };
             /** Material Values */
             material_values?: {
                 [key: string]: number;
@@ -1834,6 +1840,10 @@ export interface components {
             };
             /** Material Values */
             material_values?: {
+                [key: string]: number;
+            };
+            /** Axis Raw Values */
+            axis_raw_values?: {
                 [key: string]: number;
             };
             /** Difficulty */

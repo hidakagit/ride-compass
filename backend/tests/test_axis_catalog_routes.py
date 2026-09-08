@@ -211,3 +211,12 @@ def test_get_axis_catalog_includes_map_value_kind_and_unit():
     assert entries_by_id["gradient"]["map_value_unit"] == "%"
     assert entries_by_id["wind"]["map_value_kind"] == "difficulty"
     assert entries_by_id["wind"]["map_value_unit"] == ""
+
+
+def test_get_axis_catalog_includes_raw_value_unit():
+    # 得点の隣へ生値を出すための単位（domain/axis_display.py: raw_value_unit）。
+    # 停止密度は回/km、車の圧迫感は内部軸の合成で単位が定まらずnull。
+    response = client.get("/api/axis-catalog")
+    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+    assert entries_by_id["stop_density"]["raw_value_unit"] == "回/km"
+    assert entries_by_id["car_stress"]["raw_value_unit"] is None

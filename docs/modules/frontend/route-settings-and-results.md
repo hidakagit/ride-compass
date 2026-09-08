@@ -14,6 +14,7 @@
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路（地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
+| `components/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`・`totalUnitFor`）。「◯◯/km」の単位のときだけ走行距離を掛けて経路全体の実数を添える |
 | `components/RouteAxisProfile/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
 | `components/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
@@ -138,6 +139,13 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   （`RouteCandidate.axis_difficulties`、四捨五入）」の行で並べる。この候補を評価した重み
   （生成時点の`route_preference`）が0の軸は「未使用」バッジ付きで薄く残し、値が無い軸は
   「データなし」を示す。選択操作は持たない（地図の色分けは`LensControl`）。
+- **得点の隣の生値**: 難易度の右に、折れ点を通す前の生値を単位付きで添える
+  （`RouteCandidate.axis_raw_values` × `AxisCatalogEntry.raw_value_unit`、
+  `axisRawValue.ts: formatAxisRawValue`）。単位が「◯◯/km」なら候補の走行距離を掛けた
+  実数も続ける（例:「0.80回/km・約26回」）。得点0-100は目盛りの引き方に依存する相対評価
+  でしかなく、それだけでは軸単体で経路の良し悪しを判断できないため
+  （[設計原則](../../design-principles.md)11）。単位が定まらない軸（合成軸等）は
+  backendが`raw_value_unit`にnullを返すため何も出ない——意味を取れない数字は並べない。
 - **負荷（難易度×距離）**: `RouteCandidate.difficulty_load`を総合難易度の隣へ併記する
   （(i)で意味を説明する）。総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
   「難所を通っても短いルート」と「遠回りで易しいルート」を見比べるための値

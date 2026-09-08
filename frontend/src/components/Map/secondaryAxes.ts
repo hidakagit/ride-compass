@@ -65,6 +65,9 @@ export interface SecondaryAxisSummary {
   /** 地図がこの軸について塗る値の種類・単位（CatalogAxis.map_value_kind/map_value_unit）。 */
   mapValueKind?: MapValueKind;
   mapValueUnit?: string;
+  /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
+   * 軸だけが持ち、それ以外はnull。 */
+  rawValueUnit?: string | null;
 }
 
 // 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書

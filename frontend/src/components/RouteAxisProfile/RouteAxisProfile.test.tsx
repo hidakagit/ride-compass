@@ -5,7 +5,7 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import RouteAxisProfile from "./RouteAxisProfile";
 
 const AXES: PreferenceAxisDef[] = [
-  { axisId: "car_stress", label: "車の圧迫感", description: "車の通行量の説明", dedicatedWayValueLayer: false },
+  { axisId: "car_stress", label: "車の圧迫感", description: "車の通行量の説明", dedicatedWayValueLayer: false, rawValueUnit: "回/km" },
   { axisId: "wind", label: "風", description: "風の影響の説明", dedicatedWayValueLayer: true },
   { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
 ];
@@ -18,6 +18,8 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
     weights: { car_stress: 0.5, wind: 0.0, night: 0.5 },
     axisDifficulties: { car_stress: 72.4, night: 5.8 },
     axisContributions: { car_stress: 36.2, night: 2.9 },
+    axisRawValues: {},
+    distanceKm: 30,
     overallDifficulty: 46,
     difficultyLoad: null,
     axisColors: AXIS_COLORS,
@@ -112,5 +114,27 @@ describe("RouteAxisProfile", () => {
     await user.click(screen.getByRole("button", { name: "総合難易度の説明を表示" }));
 
     expect(await screen.findByText(/候補タブはこの値が小さい順に並びます/)).toBeInTheDocument();
+  });
+});
+
+describe("軸単体で判断するための生値", () => {
+  it("単位が定まる軸は、得点の隣に生値と経路全体の実数を出す", () => {
+    render(
+      <RouteAxisProfile
+        {...baseProps({
+          axisRawValues: { car_stress: 0.8 },
+          distanceKm: 32.5,
+        })}
+      />,
+    );
+
+    // 0.8回/km × 32.5km ≒ 26回。得点だけでは「多いか少ないか」を判断できない。
+    expect(screen.getByText("0.80回/km・約26回")).toBeInTheDocument();
+  });
+
+  it("単位が定まらない軸には何も出さない（意味を取れない数字を並べない）", () => {
+    render(<RouteAxisProfile {...baseProps({ axisRawValues: { night: 1.5 }, distanceKm: 30 })} />);
+
+    expect(screen.queryByText(/回\/km/)).not.toBeInTheDocument();
   });
 });

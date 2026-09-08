@@ -1,5 +1,6 @@
 import itertools
 
+import numpy as np
 import pytest
 
 from app.domain.axis_definitions import (
@@ -15,6 +16,7 @@ from app.domain.axis_definitions import (
     check_material_exclusivity,
     check_publish_immutability,
     is_cosmetic_only_update,
+    axis_raw_value_array,
     evaluate_axis_scalar,
 )
 from app.domain.recipe import bicycle_infra_flags, cycleway_values
@@ -443,3 +445,93 @@ def test_car_stress_motor_vehicle_no_adjustment_dominates_other_internal_axes():
 
     assert guard_value < 0
     assert abs(guard_value) > max_other_total
+
+
+# --- 折れ点を通す前の生値（軸単体で経路を判断するための絶対値、docs/tasks/T687.md） ---
+
+
+def test_axis_raw_value_array_returns_weighted_sum_before_breakpoints():
+    definition = AxisDefinition(
+        axis_id="synthetic_raw_sum",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+    materials = {
+        "stop_count_per_km": np.array([0.5, 8.0]),
+        "intersection_count_per_km": np.array([2.0, 10.0]),
+    }
+
+    raw = axis_raw_value_array(definition, materials)
+
+    # 折れ点（4回/kmで100点）で頭打ちになる得点と違い、生値は上限を持たない——
+    # 「満点に張り付いた区間どうしの優劣」も生値なら見分けられる。
+    assert raw is not None
+    np.testing.assert_allclose(raw, [1.1, 11.0])
+
+
+def test_axis_raw_value_array_applies_preprocess():
+    # 勾配は符号付き材料をabsしてから折れ点へ通す。生値も同じ前処理を経た値
+    # （そうしないと周回ルートの距離加重平均が自己打ち消しで0になる）。
+    definition = AxisDefinition(
+        axis_id="synthetic_raw_abs",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+
+    raw = axis_raw_value_array(definition, {"gradient_percent": np.array([-6.0, 6.0])})
+
+    assert raw is not None
+    np.testing.assert_allclose(raw, [6.0, 6.0])
+
+
+def test_axis_raw_value_array_is_nan_only_when_every_material_is_missing():
+    definition = AxisDefinition(
+        axis_id="synthetic_raw_missing",
+        shape=BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km", weight=1.0, required=False),
+                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+    materials = {
+        "stop_count_per_km": np.array([np.nan, np.nan]),
+        "intersection_count_per_km": np.array([2.0, np.nan]),
+    }
+
+    raw = axis_raw_value_array(definition, materials)
+
+    assert raw is not None
+    # 片方だけ欠損: required=Falseの規約どおり欠損を0として足す。両方欠損: 値が無い。
+    np.testing.assert_allclose(raw[0], 0.6)
+    assert np.isnan(raw[1])
+
+
+def test_axis_raw_value_array_is_none_for_categorical_shape():
+    definition = AxisDefinition(
+        axis_id="synthetic_raw_categorical",
+        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+
+    assert axis_raw_value_array(definition, {"surface_good": np.array([1.0])}) is None

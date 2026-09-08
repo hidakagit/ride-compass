@@ -5,11 +5,10 @@
 // 単体でレンダリングし（Dialog等の呼び出し元の関心事を持ち込まない）、ウィザードを
 // userEventで実際に操作してonSaveへ渡るpayloadを検証する。
 //
-// 最優先: コメント（AxisComposer.tsx 138-144行目付近）にある通り、priority_overrides
-// （改善計画T292、0次条件）は「以前はコードレビュー指摘まで黙って失われていた」という
-// 実データ消失バグの修正対象。このフォームに編集欄を持たないこのフィールドが、編集
-// フォームを経由しても元の値のままpayloadへ素通しされることを検証する回帰テストを
-// 最優先で書く。
+// 最優先の観点: このフォームが編集欄を持たないフィールド（AxisComposer.tsxの
+// PASSTHROUGH_PAYLOAD_KEYS、priority_overrides等）は、編集フォームを経由しても元の値の
+// ままpayloadへ素通しされる必要がある。送り返さないとサーバー側の既定値で上書きされ、
+// 公開済み軸を非公開へ戻して軽微な編集をしただけで値が黙って失われる。
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";

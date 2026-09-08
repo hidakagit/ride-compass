@@ -365,6 +365,7 @@ def make_segment(
     difficulty: float | None,
     axis_difficulties: dict[str, float] | None = None,
     axis_contributions: dict[str, float] | None = None,
+    axis_raw_values: dict[str, float] | None = None,
     material_values: dict[str, float] | None = None,
 ) -> RouteSegmentDetail:
     return RouteSegmentDetail(
@@ -377,6 +378,7 @@ def make_segment(
         difficulty=difficulty,
         axis_difficulties=axis_difficulties or {},
         axis_contributions=axis_contributions or {},
+        axis_raw_values=axis_raw_values or {},
         material_values=material_values or {},
     )
 
@@ -443,6 +445,26 @@ async def test_axis_difficulties_is_distance_weighted_average_of_segments():
     assert candidates[0].axis_difficulties["wind"] == 35.0
     # car_stressは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
     assert candidates[0].axis_difficulties["car_stress"] == 10.0
+
+
+async def test_axis_raw_values_is_distance_weighted_average_of_segments():
+    # 生値もaxis_difficultiesと同じ集約でルート全体へ載る。得点と違い上限が無く、
+    # 「◯◯/km」なら走行距離を掛けて経路全体の実数にできる。
+    engine = SegmentedFakeEngine(
+        {0: 30.0},
+        {
+            0: [
+                make_segment(1.0, 0.0, axis_raw_values={"stop_density": 4.0}),
+                make_segment(3.0, 100.0, axis_raw_values={"stop_density": 0.0}),
+            ]
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    # (4.0*1.0 + 0.0*3.0) / 4.0 = 1.0回/km
+    assert candidates[0].axis_raw_values["stop_density"] == 1.0
 
 
 async def test_axis_difficulties_is_empty_dict_when_segments_missing():

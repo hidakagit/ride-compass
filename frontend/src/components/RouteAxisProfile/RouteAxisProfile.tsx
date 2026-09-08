@@ -4,6 +4,7 @@ import InfoPopover from "@/components/Map/InfoPopover";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar from "./AxisContributionBar";
+import { formatAxisRawValue } from "./axisRawValue";
 import legendStyles from "@/components/RouteSettingsPanel/RouteSettingsPanel.module.css";
 import styles from "./RouteAxisProfile.module.css";
 
@@ -19,6 +20,12 @@ interface RouteAxisProfileProps {
    * 一致する）。backendは公開軸すべてにキーを返す（重み0の軸は値0.0）ため、値0の軸は
    * AxisContributionBar側で表示から除く（本コンポーネント側での絞り込みは行わない）。 */
   axisContributions: Record<string, number>;
+  /** RouteCandidate.axis_raw_values（axis_id→折れ点を通す前の生値）。単位が定まる軸だけが
+   * 値を持つ。得点は目盛りの引き方に依存する相対評価のため、軸単体で経路を判断するには
+   * この絶対値が要る。 */
+  axisRawValues: Record<string, number>;
+  /** 経路の走行距離（km）。単位が「◯◯/km」の軸で、生値から経路全体の実数を出すのに使う。 */
+  distanceKm: number | null;
   /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
   overallDifficulty: number | null;
   /** RouteCandidate.difficulty_load（総合難易度×距離km）。総合難易度が距離で正規化
@@ -38,6 +45,8 @@ const FALLBACK_DOT_COLOR = "#64748b";
 export default function RouteAxisProfile({
   axes,
   weights,
+  axisRawValues,
+  distanceKm,
   axisDifficulties,
   axisContributions,
   overallDifficulty,
@@ -95,6 +104,9 @@ export default function RouteAxisProfile({
         {axes.map((axis) => {
           const unused = (weights[axis.axisId] ?? 0) <= 0;
           const difficulty = axisDifficulties[axis.axisId];
+          // 得点の隣に、折れ点を通す前の生値を単位付きで添える。単位が定まらない軸
+          // （合成軸等）はbackendがrawValueUnitを返さないため何も出ない。
+          const rawText = formatAxisRawValue(axisRawValues[axis.axisId], axis.rawValueUnit, distanceKm);
           return (
             <li key={axis.axisId} className={styles.axisRow} data-unused={unused}>
               <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
@@ -109,6 +121,7 @@ export default function RouteAxisProfile({
                 {axis.description}
               </InfoPopover>
               <span className={styles.axisValue}>{difficulty == null ? "—" : Math.round(difficulty)}</span>
+              {rawText && <span className={styles.axisRawValue}>{rawText}</span>}
             </li>
           );
         })}

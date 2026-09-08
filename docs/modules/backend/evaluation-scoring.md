@@ -220,6 +220,13 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 | `overall_difficulty` | 距離加重平均（`distance_weighted_difficulty`） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
 | `difficulty_load` | 平均×距離合計（`difficulty_load`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
 
+同じ集約を軸の**生値**（折れ点を通す前の値、`BulkAxisEvaluation.axis_raw_arrays`）にも
+掛ける（`RouteSegmentDetail.axis_raw_values`→`merge_axis_raw_values`→
+`RouteCandidate.axis_raw_values`）。得点0-100は目盛りの引き方に依存する相対評価のため、
+軸単体で経路を判断するには絶対値が要る。生値を持つのは単位が定まる軸
+（[軸スタジオ](axis-studio.md)「生値の単位」節）だけで、かつリクエストごとに変わる
+材料（風等）を参照する軸は静的スコア行列へ載らないため対象外。
+
 `difficulty_load`は順位付けには使わず、平均と併せて判断材料として返す。difficultyが
 Noneの区間の扱いは平均と一致させる（区間ごとに積分して欠損を飛ばすと、データの無い区間が
 多いルートほど総量が小さく見えてしまうため、平均×全区間の距離合計で求める）。
@@ -235,6 +242,7 @@ MaterialSpec]`が単一ソース。
 |---|---|
 | `dtype` | `"numeric"`/`"boolean"`/`"categorical"` |
 | `unit` | 値の単位（凡例・比較パネル等の数値表示用、無次元・真偽値・カテゴリ値は空文字）。`GET /api/material-catalog`が配信し、frontendは単位を持たない（唯一の正） |
+| `additive` | 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。個数と、それを同じ距離で割った密度はTrue。%・km/h・倍率のような割合・率はFalse。`raw_value_unit`が2項以上の和を見せてよいかの判定に使う |
 | `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
 | `tile_property_needs_runtime_scale` | タイル側の生値と材料の値がスケール不一致（実行時に変動する係数での変換が必要）か。`derive_ramp_inputs`はこれがTrueの材料を含む軸のramp自動導出を拒否する |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |

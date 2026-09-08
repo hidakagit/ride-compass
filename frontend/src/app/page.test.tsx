@@ -128,6 +128,7 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         dynamic_way_value_needs_time: false,
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
+        raw_value_unit: null,
       },
     ],
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
@@ -418,6 +419,7 @@ function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate 
     difficulty_load: null,
     axis_difficulties: {},
     material_values: {},
+    axis_raw_values: {},
     axis_contributions: {},
     ...overrides,
   };
@@ -548,6 +550,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
                     distance_km: 0.5,
                     estimated_arrival_time: null,
                     axis_difficulties: {},
+                    axis_raw_values: {},
                     axis_contributions: {},
                     material_values: { wind_drag_ratio: 1.964 },
                     difficulty: null,

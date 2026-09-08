@@ -137,7 +137,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         ▼
   _with_overall_difficulty() → _with_axis_difficulties() → _with_axis_contributions()
         │  区間segmentsから距離加重でルート単位のoverall_difficulty・
-        │  axis_difficulties・axis_contributionsを集約
+        │  axis_difficulties・axis_contributions・axis_raw_valuesを集約
         ▼
   candidates.sort(overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾)
         │  先頭max_routes件へスライスし、idをroute-00..へ振り直す
@@ -584,7 +584,8 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   frontend`routeStyleModes.ts`がこの契約に依存する）・`RouteScoreComponent`・
   `RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
-  `merge_axis_contributions`・`merge_material_values`・`_merge_segment_bin`。
+  `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
+  `_merge_segment_bin`。
 
 ### `domain/geo.py`・`domain/errors.py`
 

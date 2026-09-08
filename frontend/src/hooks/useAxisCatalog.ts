@@ -130,6 +130,7 @@ function buildCatalog(
       displayBandLabelsOverride: entry.display_band_labels_override ?? undefined,
       mapValueKind: entry.map_value_kind,
       mapValueUnit: entry.map_value_unit,
+      rawValueUnit: entry.raw_value_unit ?? null,
     };
   });
   const catalogAxes = entries.map(toCatalogAxis);

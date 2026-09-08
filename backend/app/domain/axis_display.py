@@ -212,6 +212,45 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float, visited: fr
     return None
 
 
+def raw_value_unit(definition: AxisDefinition) -> str | None:
+    """軸の**生値**（折れ点を通す前の重み付き和）の単位。定まらない場合はNone。
+
+    ルート結果は得点（0〜100の相対評価）だけでは軸単体で経路を判断できない。生値を
+    その単位とともに添えると、他の軸を見ずに「多いか少ないか」を判断できる
+    （docs/tasks/T687.md参照）。
+
+    単位が定まる条件は次の3つ。重み0の項は生値へ寄与しないため判定から除く。
+
+    1. 材料が単位を持ち、複数あるならすべて一致する（異なる単位の材料を足した値には
+       単位が無い。例: 車の圧迫感は内部軸の合成）。
+    2. 重みがすべて正である（負の重みが混じると和は物理量の符号を反転したものになる）。
+    3. 項が2つ以上なら、全材料が`additive`（足し合わせて意味を持つ量）である。
+
+    3が要るのは、**単位が揃っていても和の意味は保証されない**ため。%・km/h・倍率のような
+    割合・率は、母数の違うものを足しても何も表さない（開放度の`樹木% + 建物%`が実例）。
+    足せるのは回・件・個のような個数と、それを同じ距離で割った密度だけ。項が1つのときは
+    そもそも和ではないので、この条件は課さない（勾配の「平均3.2%」は意味を持つ）。
+    """
+    shape = definition.shape
+    if not isinstance(shape, BreakpointLinearShape):
+        return None
+    specs = []
+    for term in shape.terms:
+        if term.weight == 0:
+            continue
+        if term.weight < 0:
+            return None
+        spec = MATERIAL_CATALOG.get(term.material)
+        if spec is None or not spec.unit:
+            return None
+        specs.append(spec)
+    if len({spec.unit for spec in specs}) != 1:
+        return None
+    if len(specs) > 1 and not all(spec.additive for spec in specs):
+        return None
+    return specs[0].unit
+
+
 def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = frozenset()) -> RampInputs | None:
     if definition.axis_id in _visited:
         return None

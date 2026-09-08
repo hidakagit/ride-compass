@@ -2100,6 +2100,17 @@
             "type": "string",
             "title": "Map Value Unit"
           },
+          "raw_value_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Value Unit"
+          },
           "dynamic_way_value_needs_time": {
             "type": "boolean",
             "title": "Dynamic Way Value Needs Time"
@@ -2132,6 +2143,7 @@
           "dedicated_way_value_layer",
           "map_value_kind",
           "map_value_unit",
+          "raw_value_unit",
           "dynamic_way_value_needs_time",
           "dynamic_way_value_needs_bearing",
           "dynamic_way_value_needs_speed"
@@ -3819,6 +3831,13 @@
             "type": "object",
             "title": "Axis Contributions"
           },
+          "axis_raw_values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Axis Raw Values"
+          },
           "material_values": {
             "additionalProperties": {
               "type": "number"
@@ -4193,6 +4212,13 @@
             },
             "type": "object",
             "title": "Material Values"
+          },
+          "axis_raw_values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Axis Raw Values"
           },
           "difficulty": {
             "anyOf": [

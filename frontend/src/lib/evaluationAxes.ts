@@ -42,6 +42,10 @@ export interface PreferenceAxisDef {
    * map_value_unit）。専用way値レイヤーの色式・凡例（dedicatedWayValueLayer.ts）が使う。 */
   mapValueKind?: MapValueKind;
   mapValueUnit?: string;
+  /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
+   * 軸だけが持つ。ルート結果が得点の隣に生値を出すために使う（軸単体で経路を判断できる
+   * ようにするため。得点は目盛りの引き方に依存する相対評価でしかない）。 */
+  rawValueUnit?: string | null;
 }
 
 // axis_idごとの説明文（1〜2文の要約）。ラベル自体は下記PREFERENCE_AXESが
@@ -79,6 +83,7 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
       displayBandLabelsOverride: axis.displayBandLabelsOverride,
       mapValueKind: axis.mapValueKind,
       mapValueUnit: axis.mapValueUnit,
+      rawValueUnit: axis.rawValueUnit ?? null,
     })
   ),
   {
@@ -88,6 +93,7 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
     dedicatedWayValueLayer: true,
     mapValueKind: "difficulty",
     mapValueUnit: "",
+    rawValueUnit: null,
   },
 ];
 

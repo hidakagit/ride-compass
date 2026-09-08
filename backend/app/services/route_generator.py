@@ -50,6 +50,7 @@ from app.domain.difficulty import difficulty_load, distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.geo import compass_label
 from app.domain.route import (
+    merge_axis_raw_values,
     Coordinates,
     RouteCandidate,
     merge_axis_contributions,
@@ -537,7 +538,12 @@ class RouteGenerator:
         if not candidate.segments:
             return candidate
         axis_difficulties = merge_axis_difficulties(candidate.segments)
-        return candidate.model_copy(update={"axis_difficulties": axis_difficulties})
+        # 生値も同じ集約で付ける（軸単体で経路を判断するための絶対値）。集約方法が
+        # 同じなので別の導線を作らない。
+        axis_raw_values = merge_axis_raw_values(candidate.segments)
+        return candidate.model_copy(
+            update={"axis_difficulties": axis_difficulties, "axis_raw_values": axis_raw_values}
+        )
 
     @staticmethod
     def _with_axis_contributions(candidate: RouteCandidate) -> RouteCandidate:
