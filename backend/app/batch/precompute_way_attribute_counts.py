@@ -37,7 +37,7 @@ from app.config import settings
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
-logger = logging.getLogger("app.batch.precompute_way_attribute_counts")
+logger = logging.getLogger("ridecompass.precompute_way_attribute_counts")
 
 # 1チャンクあたりのway数。precompute_edge_attribute_counts.pyと同じ理由で
 # request向けcommand_timeoutを受けない専用エンジンで動くため大きめでも安全側。

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.domain.warning_levels import WarningBadgeLevel
 # item.code → レベル（2〜5）。
 FLOOD_CODE_LEVELS: dict[str, int] = {
     "20": 2,
@@ -39,10 +40,9 @@ LEVEL_SUFFIXES: dict[int, str] = {
     5: "氾濫特別警報",
 }
 
-# WarningBadgeの4段階（WBGTと同じ語彙、advisory/warning/severe_warning/emergency_warning）
-# へレベル2〜5をそのまま対応させる。JMA警報の3段階とは異なる軸だが、バッジの見た目の
-# 語彙は共有できる（severe_warningは既に追加済み）。
-LEVEL_BADGE_LEVELS: dict[int, str] = {
+# 氾濫危険レベル2〜5をバッジの4段階（`WarningBadgeLevel`）へ対応させる。JMA警報の
+# 3段階とは異なる軸だが、バッジの見た目の語彙は共有する。
+LEVEL_BADGE_LEVELS: dict[int, WarningBadgeLevel] = {
     2: "advisory",
     3: "warning",
     4: "severe_warning",
@@ -54,7 +54,7 @@ class ActiveFloodForecast(BaseModel):
     river_code: str
     river_name: str
     level: int
-    badge_level: str
+    badge_level: WarningBadgeLevel
     label: str
     condition: str
     report_datetime: str

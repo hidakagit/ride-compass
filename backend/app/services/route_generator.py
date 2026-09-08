@@ -42,9 +42,10 @@
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any, Protocol
 
+from app.domain.time_zone import JST
 from app.domain.difficulty import difficulty_load, distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.geo import compass_label
@@ -82,9 +83,6 @@ TURNAROUND_POOL_MAX = 40
 
 # サーバーのローカル時刻＝Asia/Tokyoという簡易近似（MSMの読み出しもAsia/Tokyo
 # 指定でnaiveなローカル時刻文字列を返すため整合している。詳細はdocs/architecture.md参照）。
-# 日本にDSTが無いことを利用して固定オフセットで表現し、追加依存（tzdata）なしで
-# datetimeをtz-awareにする。
-JST = timezone(timedelta(hours=9))
 
 
 def turnaround_pool_size(max_routes: int) -> int:

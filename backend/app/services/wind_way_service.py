@@ -17,13 +17,13 @@ windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]
 import logging
 from datetime import datetime
 
+from app.domain.time_zone import JST
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_ancestor, tile_bounds_lonlat
 from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, nearest_grid_point
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.route_generator import JST
 from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.wind_way")

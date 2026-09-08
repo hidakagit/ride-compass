@@ -35,7 +35,7 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.graph_service import GraphService
 from app.batch._common import batch_session_factory, run_simple_batch_cli
 
-logger = logging.getLogger("app.batch.presplit_road_graph")
+logger = logging.getLogger("ridecompass.presplit_road_graph")
 
 
 async def _fetch_all_tiles(session: AsyncSession, zoom: int) -> list[tuple[int, int]]:

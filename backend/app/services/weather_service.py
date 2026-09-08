@@ -1,8 +1,8 @@
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import numpy as np
 
+from app.domain.time_zone import JST
 from app.domain.geo import compass_label
 from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
@@ -13,7 +13,6 @@ from app.domain.wind_grid import WindGridPoint
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmUnavailableError
 
-JST = ZoneInfo("Asia/Tokyo")
 
 
 class WeatherService:

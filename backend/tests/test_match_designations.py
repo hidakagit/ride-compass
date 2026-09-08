@@ -67,7 +67,7 @@ class TestWriteMatches:
         await road_graph_session.commit()
         await _seed_designation_attribute(designation_conn, OSM_WAY_ID, "emergency_transport")
 
-        with caplog.at_level(logging.WARNING, logger="app.batch.match_designations"):
+        with caplog.at_level(logging.WARNING, logger="ridecompass.match_designations"):
             elapsed = await _write_matches(designation_conn, candidates=[], matched=[], data_version="test")
 
         assert elapsed == 0.0

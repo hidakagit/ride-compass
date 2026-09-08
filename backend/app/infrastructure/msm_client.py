@@ -18,24 +18,23 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import httpx
 import numpy as np
 from omfiles import OmFileReader
 
+from app.domain.time_zone import JST
 from app.config import settings
 from app.domain.msm import MsmGrid, interpolate_points, parse_bbox
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
-logger = logging.getLogger("app.infrastructure.msm_client")
+logger = logging.getLogger("ridecompass.msm_client")
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 MSM_DIR = DATA_DIR / "msm"
 _META_FILE = MSM_DIR / "meta.json"
 _ETAGS_FILE = MSM_DIR / "etags.json"
 
-JST = ZoneInfo("Asia/Tokyo")
 
 # 同期・読み出しの対象変数。増やすと同期量がそのぶん増えるため、実際に消費するものだけを
 # 並べる。風グリッドは風と降水を、今日の見通しは気温・雲量・降水・風を使う。

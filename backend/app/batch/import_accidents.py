@@ -50,7 +50,7 @@ from app.infrastructure import accident_models  # noqa: F401  Base.metadataへ�
 from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 
-logger = logging.getLogger("app.batch.import_accidents")
+logger = logging.getLogger("ridecompass.import_accidents")
 
 HONHYO_URL_TEMPLATE = "https://www.npa.go.jp/publications/statistics/koutsuu/opendata/{year}/honhyo_{year}.csv"
 # backend/app/batch/import_accidents.py から見て backend/data/accidents/

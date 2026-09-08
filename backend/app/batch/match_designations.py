@@ -31,7 +31,7 @@ from app.batch._common import asyncpg_dsn
 from app.config import settings
 from app.domain.designation import DESIGNATION_BUFFER_WIDTH_M, DESIGNATION_IMPORT_KINDS, DESIGNATION_MATCH_MIN_RATIO
 
-logger = logging.getLogger("app.batch.match_designations")
+logger = logging.getLogger("ridecompass.match_designations")
 
 _KINDS = DESIGNATION_IMPORT_KINDS
 

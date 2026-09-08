@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.domain.warning_levels import WarningBadgeLevel
 # 熱中症予防運動指針の閾値（暑さ指数の値、以上/未満の境界）。
 # 21未満（ほぼ安全）はNoneを返す。
-_LEVEL_THRESHOLDS: list[tuple[float, str, str]] = [
+_LEVEL_THRESHOLDS: list[tuple[float, WarningBadgeLevel, str]] = [
     (31.0, "emergency_warning", "危険"),
     (28.0, "severe_warning", "厳重警戒"),
     (25.0, "warning", "警戒"),
@@ -24,7 +25,7 @@ _LEVEL_THRESHOLDS: list[tuple[float, str, str]] = [
 ]
 
 
-def wbgt_level(value: float) -> tuple[str, str] | None:
+def wbgt_level(value: float) -> tuple[WarningBadgeLevel, str] | None:
     """暑さ指数の値から(levelキー, 表示名)を返す。21未満（ほぼ安全）はNone。"""
     for threshold, level, label in _LEVEL_THRESHOLDS:
         if value >= threshold:

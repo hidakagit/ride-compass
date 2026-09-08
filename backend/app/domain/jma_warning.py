@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.domain.warning_levels import WarningBadgeLevel
 # 気象庁公式コード対応表（別表3）の全コード→名称。「レベルN」プレフィックスは
 # warning_level()がlevelフィールドとして別途表現するため、名称からは省いている
 # （設計原則2: 同じ情報を2箇所で別々に持たない）。42/45/46/47は※1（将来予約領域）で
@@ -81,7 +82,7 @@ CYCLING_RELEVANT_WARNING_CODES: frozenset[str] = frozenset(
 ACTIVE_STATUSES = frozenset({"発表", "継続"})
 
 
-def warning_level(code: str) -> str:
+def warning_level(code: str) -> WarningBadgeLevel:
     """コードから3段階の警戒レベル（バッジの色分けに使う）を導出する。
 
     レベルを別テーブルとして二重管理せず、名称文字列（「特別警報」「警報」を含むか）
@@ -97,7 +98,7 @@ def warning_level(code: str) -> str:
 class ActiveWarning(BaseModel):
     code: str
     name: str
-    level: str
+    level: WarningBadgeLevel
     additions: list[str]
 
 

@@ -172,7 +172,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
       ? weatherWarnings.warnings.map((warning) => ({
           id: warning.code,
           label: warning.name,
-          level: warning.level as WarningBadgeItem["level"],
+          level: warning.level,
           source: "jma",
           title: [
             warning.additions.length > 0 ? `付随事項: ${warning.additions.join("・")}` : null,
@@ -190,7 +190,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
             {
               id: "wbgt",
               label: `暑さ指数${wbgtStatus.label ?? ""}`,
-              level: wbgtStatus.level as WarningBadgeItem["level"],
+              level: wbgtStatus.level,
               source: "wbgt",
               title: `暑さ指数 ${wbgtStatus.value.toFixed(1)} / 取得できない場合は警戒レベルに関わらずバッジが表示されないことがあります`,
             },
@@ -200,7 +200,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     const floodItems: WarningBadgeItem[] = (floodForecasts?.forecasts ?? []).map((forecast) => ({
       id: `flood-${forecast.river_code}`,
       label: forecast.label,
-      level: forecast.badge_level as WarningBadgeItem["level"],
+      level: forecast.badge_level,
       source: "flood",
       title: `${forecast.condition} / 取得できない場合は氾濫予報が出ていてもバッジが表示されないことがあります`,
     }));

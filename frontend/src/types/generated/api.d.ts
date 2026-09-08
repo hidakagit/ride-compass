@@ -748,8 +748,11 @@ export interface components {
             river_name: string;
             /** Level */
             level: number;
-            /** Badge Level */
-            badge_level: string;
+            /**
+             * Badge Level
+             * @enum {string}
+             */
+            badge_level: "advisory" | "warning" | "severe_warning" | "emergency_warning";
             /** Label */
             label: string;
             /** Condition */
@@ -763,8 +766,11 @@ export interface components {
             code: string;
             /** Name */
             name: string;
-            /** Level */
-            level: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "advisory" | "warning" | "severe_warning" | "emergency_warning";
             /** Additions */
             additions: string[];
         };
@@ -1861,7 +1867,7 @@ export interface components {
         /** WbgtStatus */
         WbgtStatus: {
             /** Level */
-            level: string | null;
+            level: ("advisory" | "warning" | "severe_warning" | "emergency_warning") | null;
             /** Label */
             label: string | null;
             /** Value */

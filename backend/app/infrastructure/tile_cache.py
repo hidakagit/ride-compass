@@ -9,7 +9,7 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 CACHE_DIR = DATA_DIR / "tile_cache"
 
-logger = logging.getLogger("app.infrastructure.tile_cache")
+logger = logging.getLogger("ridecompass.tile_cache")
 
 
 def cache_key(path: str) -> str:

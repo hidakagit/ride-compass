@@ -139,7 +139,7 @@ from app.infrastructure.road_graph_models import (
     WayLandcoverRow,
 )
 
-logger = logging.getLogger("app.infrastructure.road_graph_repository")
+logger = logging.getLogger("ridecompass.road_graph_repository")
 
 CACHED_GRAPH_VERSION = "cached"
 

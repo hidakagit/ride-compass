@@ -1,13 +1,31 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.dependencies import get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.main import app
+from app.services.region_service import RegionService
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
 # スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def region_service_without_repository():
+    """このファイルの検証対象は軸カタログの内容で、DBの値は見ない。
+
+    `/api/axis-catalog`は`material_runtime_scales`（事故の収録年数）を出すためだけに
+    `RegionService`を経由する。実DBが繋がる環境ではリクエストごとに接続を開き、
+    `TestClient`のイベントループをまたいだasyncpg接続がGCされる際にキャンセル用の
+    コルーチンが未awaitのまま残る（`RuntimeWarning: coroutine 'Connection._cancel' was
+    never awaited`）。repositoryを注入しない形へ固定して、DBの有無でこのファイルの
+    経路が変わらないようにする。
+    """
+    app.dependency_overrides[get_region_service] = lambda: RegionService()
+    yield
+    app.dependency_overrides.pop(get_region_service, None)
 
 
 @pytest.fixture

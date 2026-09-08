@@ -24,14 +24,13 @@ sunrise-sunset.org（NOAA準拠の公開API）の実測値との突き合わせ�
 """
 
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 from astral import Observer
 from astral.sun import sun
 
+from app.domain.time_zone import JST
 from app.domain.route import Coordinates
 
-_JST = ZoneInfo("Asia/Tokyo")
 
 # at前後の探索範囲（日数）。市民薄明が定義できる緯度なら1日あれば足りるが、日付跨ぎの
 # 経度ずれ（上記docstring参照）を確実に吸収するため余裕を持たせる。
@@ -76,7 +75,7 @@ def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> tuple[str | N
     極夜・白夜等、日の出/日没が定義できない緯度では(None, None)を返す。"""
     observer = Observer(latitude=coordinates.latitude, longitude=coordinates.longitude)
     try:
-        s = sun(observer, date=on_date, tzinfo=_JST)
+        s = sun(observer, date=on_date, tzinfo=JST)
     except ValueError:
         return None, None
     return s["sunrise"].isoformat(), s["sunset"].isoformat()

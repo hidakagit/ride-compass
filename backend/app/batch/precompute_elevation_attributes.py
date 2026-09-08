@@ -40,7 +40,7 @@ from app.infrastructure.road_graph_models import ElevationAttributeRow, RoadEdge
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.elevation_attribute_service import ElevationAttributeService
 
-logger = logging.getLogger("app.batch.precompute_elevation_attributes")
+logger = logging.getLogger("ridecompass.precompute_elevation_attributes")
 
 # 他のprecomputeバッチ（edge_attribute_counts等、CHUNK_SIZE=5,000）より小さくしている。
 # こちらは外部HTTP呼び出しを伴うため、進捗ログを短い間隔で出し途中経過を追いやすくする。

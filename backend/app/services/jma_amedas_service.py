@@ -24,10 +24,10 @@ JMAの観測値エンドポイント（jma_amedas_client.fetch_observation_map�
 
 import logging
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import httpx
 
+from app.domain.time_zone import JST
 from app.domain.geo import LatLonPoint, haversine_distance_km
 from app.domain.jma_amedas import (
     AmedasObservation,
@@ -46,9 +46,8 @@ from app.infrastructure.redis_client import (
     redis_available,
 )
 
-logger = logging.getLogger("app.services.jma_amedas_service")
+logger = logging.getLogger("ridecompass.jma_amedas_service")
 
-_JST = ZoneInfo("Asia/Tokyo")
 _REDIS_KEY_PREFIX = "jma:amedas"
 _REDIS_TTL_SECONDS = 15 * 60
 # バッチ実行間隔（main.py参照）。上のモジュールdocstring「バッチ間隔」節を参照。
@@ -102,7 +101,7 @@ class JmaAmedasService:
         # リクエストのpointを使う（観測所境界付近でのわずかなズレを避けるため、かつ
         # Redisキャッシュ済みの観測値と違い計算コストが無視できるほど軽いため都度計算で
         # 問題ない）。
-        today = datetime.now(_JST).date()
+        today = datetime.now(JST).date()
         sunrise, sunset = sunrise_sunset_jst(point, today)
         return observation.model_copy(update={"sunrise": sunrise, "sunset": sunset})
 

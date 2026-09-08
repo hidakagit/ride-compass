@@ -21,7 +21,7 @@ from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, WindGridPoint, nearest_grid_point
 from app.infrastructure import dynamic_way_value_cache, redis_json_cache
-from app.services.route_generator import JST
+from app.domain.time_zone import JST
 from app.services.wind_way_service import WindWayService
 from tests.fake_redis import FakeRedis
 

@@ -64,6 +64,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
+from app.domain.time_zone import JST
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS, dynamic_axis_topological_order
 from app.domain.difficulty import distance_weighted_difficulty
@@ -122,7 +123,7 @@ from app.infrastructure import search_graph_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
-from app.services.route_generator import JST, LoopTurnaround, TracedLoop, candidate_identity
+from app.services.route_generator import LoopTurnaround, TracedLoop, candidate_identity
 from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。

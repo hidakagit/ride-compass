@@ -47,7 +47,7 @@ from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_
 from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 
-logger = logging.getLogger("app.batch.import_pbf")
+logger = logging.getLogger("ridecompass.import_pbf")
 
 # 1チャンク＝COPY 1回ぶんのway件数。大きいほどラウンドトリップが減るが、
 # メモリ使用量とキュー詰まり時の待ちが増える。

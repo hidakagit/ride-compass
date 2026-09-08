@@ -330,7 +330,7 @@ async def test_get_way_specs_with_closure_clamps_extent_of_a_long_primary_way(ro
     node_coords = {1: NODE1, 2: NODE2, 98: far_node, 99: beyond_far_node}
     await road_graph_repository.save_raw_ways(way_specs, node_coords)
 
-    with caplog.at_level(logging.WARNING, logger="app.infrastructure.road_graph_repository"):
+    with caplog.at_level(logging.WARNING, logger="ridecompass.road_graph_repository"):
         way_specs_out, _, primary_way_ids = await road_graph_repository.get_way_specs_with_closure(
             BBOX_AROUND_NODE1_2
         )

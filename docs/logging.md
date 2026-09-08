@@ -89,7 +89,11 @@ WARNINGへ昇格し、原因の内訳（どの段で減ったか）を同じ行�
 - uvicorn標準のアクセスログは本番（`backend/Dockerfile`）では`--no-access-log`で無効化済み。
   アクセスサマリは`ridecompass.access`ロガーの1行ログが正。ローカル`uvicorn`起動では
   両方出るが実害はない。
-- ロガー名は`ridecompass.<用途>`（`external` / `access` / `generate` / `startup`）。
-  新しい用途を増やす場合も同じ接頭辞を使う。
+- ロガー名は`ridecompass.<用途>`（`external` / `access` / `generate` / `startup`、
+  モジュール固有のものは`ridecompass.<モジュール名>`）。新しい用途を増やす場合も同じ
+  接頭辞を使う——接頭辞単位でレベルを制御したとき、別接頭辞のロガーだけが漏れるため。
+  `tests/test_canonical_constants.py`が`getLogger`の引数を走査して機械的に検査する
+  （外部ライブラリのロガーをレベル制御のために名指しする場合だけ`EXTERNAL_LIBRARY_LOGGERS`
+  で除外する）。
 - CPUバウンドの重い処理（グラフ構築・MVTエンコード等）を追加する場合も、外部APIと同様に
   所要時間を計測対象にする（過去にイベントループ停止の原因になった実績があるため）。

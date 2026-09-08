@@ -112,7 +112,7 @@ async def test_refresh_all_stations_warns_when_station_table_fetch_fails(monkeyp
     monkeypatch.setattr(jma_amedas_client, "fetch_station_table", lambda http_client: _async_return({}))
     service = JmaAmedasService(http_client=None)
 
-    with caplog.at_level("WARNING", logger="app.services.jma_amedas_service"):
+    with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
 
     assert count == 0
@@ -124,7 +124,7 @@ async def test_refresh_all_stations_warns_when_latest_observation_time_fetch_fai
     monkeypatch.setattr(jma_amedas_client, "fetch_latest_observation_time", lambda http_client: _async_return(None))
     service = JmaAmedasService(http_client=None)
 
-    with caplog.at_level("WARNING", logger="app.services.jma_amedas_service"):
+    with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
 
     assert count == 0
@@ -138,7 +138,7 @@ async def test_refresh_all_stations_warns_when_observation_map_fetch_fails(monke
     )
     service = JmaAmedasService(http_client=None)
 
-    with caplog.at_level("WARNING", logger="app.services.jma_amedas_service"):
+    with caplog.at_level("WARNING", logger="ridecompass.jma_amedas_service"):
         count = await service.refresh_all_stations()
 
     assert count == 0

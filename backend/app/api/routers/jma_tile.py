@@ -16,7 +16,7 @@ from app.infrastructure.jma_tile_client import (
 from app.infrastructure.jma_tile_index import get_index
 from app.infrastructure.jma_tile_interpolation import crop_and_upscale, parse_tile_path
 
-logger = logging.getLogger("app.api.routers.jma_tile")
+logger = logging.getLogger("ridecompass.routers.jma_tile")
 
 router = APIRouter()
 

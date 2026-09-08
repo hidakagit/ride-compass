@@ -36,7 +36,7 @@ from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.batch._common import batch_session_factory, run_simple_batch_cli
 
-logger = logging.getLogger("app.batch.precompute_road_node_degrees")
+logger = logging.getLogger("ridecompass.precompute_road_node_degrees")
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:

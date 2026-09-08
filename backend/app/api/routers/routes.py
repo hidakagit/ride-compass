@@ -6,6 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, RootModel, model_validator
 
+from app.domain.time_zone import JST
 from app.api.dependencies import (
     PreviewBuilder,
     client_id,
@@ -22,7 +23,7 @@ from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUME
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.services.route_generator import DEFAULT_MAX_ROUTES, JST, MAX_ROUTES
+from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
 
 router = APIRouter()
 logger = logging.getLogger("ridecompass.generate")

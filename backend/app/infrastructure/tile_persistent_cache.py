@@ -37,7 +37,7 @@ import diskcache
 from app.config import settings
 from app.infrastructure.tile_cache import DATA_DIR
 
-logger = logging.getLogger("app.infrastructure.tile_persistent_cache")
+logger = logging.getLogger("ridecompass.tile_persistent_cache")
 
 CACHE_DIR = DATA_DIR / "tile_persistent_cache"
 

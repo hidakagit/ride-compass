@@ -1627,6 +1627,12 @@
           },
           "badge_level": {
             "type": "string",
+            "enum": [
+              "advisory",
+              "warning",
+              "severe_warning",
+              "emergency_warning"
+            ],
             "title": "Badge Level"
           },
           "label": {
@@ -1666,6 +1672,12 @@
           },
           "level": {
             "type": "string",
+            "enum": [
+              "advisory",
+              "warning",
+              "severe_warning",
+              "emergency_warning"
+            ],
             "title": "Level"
           },
           "additions": {
@@ -4194,7 +4206,13 @@
           "level": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "advisory",
+                  "warning",
+                  "severe_warning",
+                  "emergency_warning"
+                ]
               },
               {
                 "type": "null"

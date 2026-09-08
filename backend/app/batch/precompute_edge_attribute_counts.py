@@ -35,7 +35,7 @@ from app.config import settings
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
-logger = logging.getLogger("app.batch.precompute_edge_attribute_counts")
+logger = logging.getLogger("ridecompass.precompute_edge_attribute_counts")
 
 # 1チャンクあたりのedge数。既存の per-request 呼び出し（ルート生成1回=数百edge程度）より
 # 大きいが、request向けのcommand_timeout=20秒（infrastructure/database.py参照）を受けない

@@ -44,7 +44,7 @@ from app.batch import (
     presplit_road_graph,
 )
 
-logger = logging.getLogger("app.batch.refresh_derived")
+logger = logging.getLogger("ridecompass.refresh_derived")
 
 # (ラベル, モジュール, 呼び出す関数名)。モジュール＋関数名の文字列で持ち実行時に
 # getattrする（モジュールロード時に関数オブジェクトを直接束ねると、テストが

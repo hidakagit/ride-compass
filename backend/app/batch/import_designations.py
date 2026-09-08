@@ -48,7 +48,7 @@ from app.infrastructure import designation_models  # noqa: F401  Base.metadata�
 from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 
-logger = logging.getLogger("app.batch.import_designations")
+logger = logging.getLogger("ridecompass.import_designations")
 
 # KSJの都道府県コード（JIS X 0401準拠の標準採番。domain/accident.pyのKANTO_PREFECTURE_CODES
 # はNPA独自採番で別物のため流用しない）。

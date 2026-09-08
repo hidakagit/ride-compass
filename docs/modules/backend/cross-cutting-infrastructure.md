@@ -13,6 +13,8 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | ルート | `main.py` | アプリ起動（lifespan）・ミドルウェア登録 |
 | ルート | `config.py` | 設定（`Settings`、環境変数） |
 | ルート | `version.py` | プロセス起動時刻（デプロイ確認用） |
+| domain | `time_zone.py` | 日本標準時（`JST`）の正準定義。時刻を扱う全モジュールがここを参照する |
+| domain | `warning_levels.py` | 警戒度バッジ4段階（`WarningBadgeLevel`）の正準定義。JMA警報・WBGT・河川氾濫予報が判定根拠は別々のまま同じ語彙を返す |
 | api | `admin_auth.py` | 管理API共通の認可境界 |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
 | api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場・`enforce_rate_limit`集約 |
