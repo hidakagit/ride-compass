@@ -153,9 +153,12 @@ CACHED_GRAPH_VERSION = "cached"
 # 既存の結果整合性の考え方（本クラスdocstringの`get_way_specs_with_closure`該当節参照）に乗せる。
 NEIGHBOR_EXTENT_MAX_MARGIN_M = 10_000.0
 
-# バルクUPSERT1文あたりの行数。asyncpgのプリペアド文パラメータ上限（32767個）を
-# 最も列数の多いテーブル（8列）でも十分下回るサイズにする。
+# バルクUPSERT1文あたりの行数の上限。実際に1文へ載せる行数は、これと「パラメータ上限
+# から列数で割った値」の小さい方（`_bulk_chunk_rows`）を使う——UPSERTは行数×列数ぶんの
+# パラメータを消費するため、行数だけを固定値で持つと列を足したときに静かに上限を超える。
 _BULK_CHUNK_ROWS = 1000
+# PostgreSQLが1文で受け取れるバインドパラメータの上限。
+MAX_BIND_PARAMS_PER_STATEMENT = 32_767
 # IN句・削除等でIDリストを分割するサイズ（1要素=1パラメータのため上限に余裕を持たせる）
 _ID_CHUNK_SIZE = 10_000
 
@@ -163,6 +166,11 @@ _ID_CHUNK_SIZE = 10_000
 def _chunked(items: list, size: int) -> Iterator[list]:
     for start in range(0, len(items), size):
         yield items[start : start + size]
+
+
+def _bulk_chunk_rows(rows: list[dict]) -> int:
+    """`rows`（同じ列構成の辞書のリスト）を1文へ何行ずつ載せるか（`_BULK_CHUNK_ROWS`参照）。"""
+    return max(1, min(_BULK_CHUNK_ROWS, MAX_BIND_PARAMS_PER_STATEMENT // len(rows[0])))
 
 
 async def create_tables(engine: AsyncEngine) -> None:
@@ -1005,7 +1013,9 @@ async def _bulk_upsert(
     取得しただけで無関係なWayを再送してしまうケース）で`updated_at`が無意味に進むのを防ぎ、
     鮮度判定（`is_split_up_to_date`）を安定させるために使う。
     """
-    for chunk in _chunked(rows, _BULK_CHUNK_ROWS):
+    if not rows:
+        return
+    for chunk in _chunked(rows, _bulk_chunk_rows(rows)):
         stmt = pg_insert(model).values(chunk)
         if update_columns:
             where_clause = None
@@ -1892,6 +1902,25 @@ class AttributeRepository(_SessionRepository):
             ],
         )
 
+    async def save_edge_attribute_counts(self, rows: list[dict]) -> None:
+        """`precompute_edge_attribute_counts.py`が組み立てた行をUPSERTする。
+
+        行の辞書のキーは`EdgeAttributeCountsRow`の列と1対1（バッチ側は集計結果を
+        そのまま辞書へ入れるだけで、SQLは持たない）。
+        """
+        if not rows:
+            return
+        await _bulk_upsert(
+            self._session,
+            EdgeAttributeCountsRow,
+            rows,
+            ["edge_id"],
+            [
+                "accident_count", "stop_count", "intersection_count", "poi_counts", "computed_at",
+                "source_accident_import_run_id", "source_osm_import_run_id", "algorithm_version",
+            ],
+        )
+
     async def save_way_landcover(self, records: list[WayLandcover]) -> None:
         if not records:
             return
@@ -2407,6 +2436,9 @@ class RoadGraphRepository:
 
     async def save_way_landcover(self, records: list[WayLandcover]) -> None:
         await self.attributes.save_way_landcover(records)
+
+    async def save_edge_attribute_counts(self, rows: list[dict]) -> None:
+        await self.attributes.save_edge_attribute_counts(rows)
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
         return await self.attributes.get_surface_attributes(edge_ids)

@@ -32,6 +32,10 @@ _GRAPH_CHECK_TTL_SECONDS = 300.0
 # graph_build_max_concurrentのコメント参照）。安価なis_split_up_to_date確認はここに
 # 含めない（このsemaphoreの後ろで待たされる必要が無い軽いクエリのため）。
 _graph_build_semaphore = asyncio.Semaphore(settings.graph_build_max_concurrent)
+# 起動した構築タスクへの強参照（graph_service.py: _warm_tasksと同じ理由——create_taskの
+# 戻り値をどこも保持しないと実行中のタスクがGCで回収され、finallyの_building_graph_tiles
+# .discardが走らないままそのタイルが恒久的に構築対象から外れる）。
+_build_tasks: set[asyncio.Task] = set()
 
 
 async def _build_graph_for_tile_background(ancestor_tile: tuple[int, int, int], checked_at: float) -> None:
@@ -78,7 +82,9 @@ def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
     if last_checked is not None and now - last_checked < _GRAPH_CHECK_TTL_SECONDS:
         return
     _building_graph_tiles.add(ancestor_tile)
-    asyncio.create_task(_build_graph_for_tile_background(ancestor_tile, now))
+    task = asyncio.create_task(_build_graph_for_tile_background(ancestor_tile, now))
+    _build_tasks.add(task)
+    task.add_done_callback(_build_tasks.discard)
 
 # road_surface・poi両タイルで共通のMVT MIMEタイプ。
 MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
