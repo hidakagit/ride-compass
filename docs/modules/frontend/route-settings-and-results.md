@@ -20,6 +20,7 @@
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`DEFAULT_ROUTE_PREFERENCE`（route_preference既定値） |
 | `lib/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
+| `lib/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/Map/recipeControls.tsx`（`FieldLabel`・`withAutoEnable`・`RecipePanelSection`） | 上書き有効化・情報アイコン付きラベルの共有UI部品 |
 
 ## RouteSettingsPanel.tsx（一般向けメイン設定面）

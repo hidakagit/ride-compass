@@ -47,7 +47,7 @@ Geolocation APIを扱うhookで、起点座標の取得に使う。
 |---|---|---|
 | ルート結果 | `routes`・`selectedRouteId`・`selectedRouteSegment`・`comparisonTabActive`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
 | 目的地モード | `waypoints`・`destination`・`destinationArmed`・`routeMode`・`distanceInput`・`maxRoutesInput` | なし |
-| 生成条件（研究） | `weightOverrideEnabled`・`scoringWeights`・`routePreference`・`hardFilters` | localStorage（研究モード2件は`/admin`と共有キー） |
+| ルート設定（評価の設定） | `weightOverrideEnabled`・`scoringWeights`・`routePreference`・`hardFilters` | localStorage（研究モード2件は`/admin`と共有キー）。`hardFilters`は復元時に`lib/hardFilterSync.ts: syncHardFilterKeys`で正本（`routeGenerateConfig.hard_filters`）のキー集合へ整合させる |
 | 実験スロット | `experimentSlots` | なし |
 | 地図ビューポート | `mapViewport` | なし |
 | レイヤー表示 | `layerVisibility`・`lens`・`lensKeepAfterRoute`・`hiddenLegendKeysByMode` | localStorage |
@@ -118,6 +118,10 @@ localStorageへの保存・復元を1箇所に集約する。
   （`/admin`とのstate共有に使う）。
 - 読み書きの失敗（プライベートブラウジング等）はデフォルト値へのフォールバックとして
   握りつぶす。
+
+保存する／しないの線引きは「その場で決まる値かどうか」で引く。出発地点・距離・目的地は
+毎回初期化し、ルート設定パネルが操作する評価の設定（重み・0次除外）は保存する——同じ
+パネルに並ぶ設定の片方だけが消えると、利用者は何が残るかを予測できない。
 
 Reactの外（モジュール評価時に初期値を決めるシングルトン。`lib/debugLog.ts`・
 `lib/researchMode.ts`）は`useStoredState`を使えないため、`lib/safeStorage.ts`の

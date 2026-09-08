@@ -79,6 +79,7 @@ import { gradientGridCellsFromTileResponses } from "@/components/Map/gradientGri
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
+import { syncHardFilterKeys } from "@/lib/hardFilterSync";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
@@ -153,7 +154,9 @@ const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
 const LENS_KEEP_AFTER_ROUTE_STORAGE_KEY = "ridecompass:lens-keep-after-route";
 
 // 「地図の見え方」（系統B）の設定はすべてlocalStorageへ保存し、リロード後も復元する。
-// 生成条件（系統A: 出発地点・距離・重み）は保存しない方針（毎回現在地・既定値から始める）。
+// 生成条件（系統A）のうち、ルート設定パネルが操作する評価の設定（重み・0次除外）も
+// 保存する——同じパネルで並んでいる設定の片方だけが消えると、利用者は何が残るか予測
+// できない。毎回初期化するのは「その場で決まる」出発地点・距離だけにする。
 const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
 // layerVisibility.routeは「候補線・ハロー・矢印・色分けレイヤー全体」を指す。過去に
 // 明示的にfalseへ変更・保存していた利用者は、更新後にルートを生成しても地図に候補線が
@@ -168,6 +171,10 @@ const MAP_SETTINGS_OPEN_STORAGE_KEY = "ridecompass:map-settings-open";
 // モバイル下部シート（「ルートを作る」/「地図の見え方」）の高さ。2シートは排他表示のため
 // 1つの値を共有する（BottomSheetのheightVh props参照）。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
+// ルート設定（系統A、RouteSettingsPanel・WeightPanelが操作する評価の設定）。
+const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled";
+const ROUTE_PREFERENCE_STORAGE_KEY = "ridecompass:route-preference";
+const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";
 
 // ramp軸（軸スタジオで増減しうる動的レイヤー）を除いた、ビルド時から固定のレイヤー集合の
 // 既定値。DEFAULT_LAYER_VISIBILITY（静的フォールバック全体）と、useStoredStateの
@@ -490,18 +497,33 @@ export default function Home() {
   // 設定画面（RouteSettingsPanel）とも共有する状態で、withAutoEnableにより、どちらの
   // パネルを操作してもこのフラグが自動でONになる。
   const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredJsonState(
-    "ridecompass:weight-override-enabled",
+    WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY,
     false
   );
   const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
-    "ridecompass:route-preference",
+    ROUTE_PREFERENCE_STORAGE_KEY,
     DEFAULT_ROUTE_PREFERENCE
   );
   // 0次ハードフィルタ。一般向けルート設定画面（RouteSettingsPanel）が
   // 常時操作するため、weightOverrideEnabledのような別トグルは持たず常にリクエストへ含める
   // （既定値はDEFAULT_HARD_FILTERS＝backendのDEFAULT_HARD_FILTERSと同じ全フィルタ有効で、
-  // 省略時と挙動が一致するため常時送信して問題ない）。
-  const [hardFilters, setHardFilters] = useState<HardFilterOverride>(DEFAULT_HARD_FILTERS);
+  // 省略時と挙動が一致するため常時送信して問題ない）。同じパネルが操作する
+  // routePreferenceと揃えて保存する。保存値に未知のキーが混じっていても、送信前に
+  // syncHardFilterKeysがbackendの現在のキー集合へ整合させる。
+  const [hardFilters, setHardFilters] = useStoredState<HardFilterOverride>(
+    HARD_FILTERS_STORAGE_KEY,
+    DEFAULT_HARD_FILTERS,
+    {
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => {
+        try {
+          return syncHardFilterKeys(JSON.parse(raw) as HardFilterOverride, DEFAULT_HARD_FILTERS);
+        } catch {
+          return null;
+        }
+      },
+    }
+  );
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
   // 直近MAX_EXPERIMENT_SLOTS件だけメモリ内に保持し、地図重ね描き・比較表に使う。
