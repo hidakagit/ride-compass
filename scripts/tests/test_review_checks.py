@@ -140,3 +140,50 @@ def test_task_status_kind_treats_deferred_as_closed_and_on_hold_as_open(tmp_path
 
     assert review_checks.task_status_kind(deferred) == "done"
     assert review_checks.task_status_kind(on_hold) == "open"
+
+
+# --- 未定義のCSSトークン検知 ---
+
+
+def test_css_var_def_re_matches_definitions_on_any_line():
+    # `re.MULTILINE`が無いと先頭行の定義しか拾えず、globals.cssの全トークンが
+    # 「未定義」として誤検知される（実装時に踏んだ）。
+    css = ":root {\n  --color-border: #e5e7eb;\n  --space-4: 1rem;\n}\n"
+    assert set(review_checks.CSS_VAR_DEF_RE.findall(css)) == {"--color-border", "--space-4"}
+
+
+def test_css_var_ref_re_ignores_references_with_fallback():
+    # `var(--x, #fff)`はフォールバックがあるため未定義でも壊れない。第2引数を持たない
+    # 参照だけを検知対象にする。
+    assert review_checks.CSS_VAR_REF_RE.findall("color: var(--color-text);") == ["--color-text"]
+    assert review_checks.CSS_VAR_REF_RE.findall("color: var(--color-accent, #2563eb);") == []
+
+
+def test_find_undefined_css_tokens_reports_only_undefined_ones(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "frontend" / "src" / "app").mkdir(parents=True)
+    (root / "frontend" / "src" / "app" / "globals.css").write_text(
+        ":root {\n  --foreground: #171717;\n}\n", encoding="utf-8"
+    )
+    target = root / "frontend" / "src" / "a.module.css"
+    target.write_text(
+        ".x {\n  color: var(--foreground);\n  fill: var(--color-text);\n}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    out = review_checks.find_undefined_css_tokens(["frontend/src/a.module.css"])
+
+    assert len(out) == 1
+    assert "--color-text" in out[0]
+    assert "a.module.css:3" in out[0]
+
+
+def test_find_undefined_css_tokens_accepts_tokens_defined_in_the_same_file(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "frontend" / "src" / "app").mkdir(parents=True)
+    (root / "frontend" / "src" / "app" / "globals.css").write_text(":root {\n}\n", encoding="utf-8")
+    target = root / "frontend" / "src" / "b.module.css"
+    target.write_text(".x {\n  --local: 4px;\n  gap: var(--local);\n}\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    assert review_checks.find_undefined_css_tokens(["frontend/src/b.module.css"]) == []

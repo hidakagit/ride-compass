@@ -365,6 +365,42 @@ def task_status_kind(task_path: Path) -> str | None:
     return None
 
 
+GLOBAL_TOKENS_CSS = "frontend/src/app/globals.css"
+# `var(--x, fallback)`はフォールバックがあるため未定義でも壊れない。第2引数を持たない
+# 参照だけを対象にする。
+CSS_VAR_REF_RE = re.compile(r"var\(\s*(--[A-Za-z0-9_-]+)\s*\)")
+CSS_VAR_DEF_RE = re.compile(r"^\s*(--[A-Za-z0-9_-]+)\s*:", re.MULTILINE)
+
+
+def find_undefined_css_tokens(files: list[str]) -> list[str]:
+    """定義の無いCSSカスタムプロパティ参照を返す。
+
+    `var(--color-text)`のように規約（`var(--color-*)`を使う）に従った見た目で通ってしまい、
+    実際には未定義で継承値へ落ちる。SVGの`fill`だと継承値＝黒に固定され、ダークモードで
+    文字が読めなくなる（改善計画T675）。フォールバック付き`var(--x, #fff)`は壊れないため
+    対象外。
+    """
+    tokens_path = REPO_ROOT / GLOBAL_TOKENS_CSS
+    if not tokens_path.exists():
+        return []
+    defined = set(CSS_VAR_DEF_RE.findall(read_text(tokens_path)))
+    out = []
+    for f in files:
+        if not f.endswith(".css") or f == GLOBAL_TOKENS_CSS:
+            continue
+        path = REPO_ROOT / f
+        if not path.exists():
+            continue
+        # そのファイル自身が定義するトークン（局所的な計算用）も定義済みとして扱う。
+        text = read_text(path)
+        local = set(CSS_VAR_DEF_RE.findall(text))
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for token in CSS_VAR_REF_RE.findall(line):
+                if token not in defined and token not in local:
+                    out.append(f"{f}:{lineno}: 未定義のCSSトークン `{token}`（定義は{GLOBAL_TOKENS_CSS}）")
+    return out
+
+
 def check_plan_vs_tasks() -> list[str]:
     violations: list[str] = []
     for lineno, line in enumerate(read_text(IMPROVEMENT_PLAN).splitlines(), 1):
@@ -464,6 +500,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
             sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
         md_staged = [s for s in staged if s.endswith(".md")]
         sections.append(("history/・docs/tasks への死んだリンク（ステージ済み.md）", check_dead_doc_links(md_staged), True))
+        sections.append(("未定義のCSSトークン（ステージ済み.css）",
+                         find_undefined_css_tokens([s for s in staged if s.endswith(".css")]), True))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files), True))
@@ -493,6 +531,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
         sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]
         sections.append(("history/・docs/tasks への死んだリンク（.claude・docs 全件）", check_dead_doc_links(md_files), True))
+        sections.append(("未定義のCSSトークン（全件）", find_undefined_css_tokens(files), True))
 
     total = 0
     for title, lines, counts in sections:

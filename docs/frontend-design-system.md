@@ -34,6 +34,12 @@
 | font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（既存`--font-size-sm`(0.8rem)とはわずかにズレるが、両者は別ファイルに閉じており実害なし） |
 | **color** | **`@theme`へ統合しない。** ダークモードが`globals.css`の`@media (prefers-color-scheme: dark)`内`:root`再定義に依存しており、`@theme`に入れると値が静的に固定されダークモード追従が壊れるため（T252の判断を踏襲）。`components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** |
 
+**存在しないトークン名は機械的に弾く**。`var(--color-text)`のように規約どおりの見た目でも
+定義が無ければ継承値へ落ち、SVGの`fill`だとダークモードで文字が読めなくなる。
+`scripts/review_checks.py`の「未定義のCSSトークン」チェックが、`globals.css`にも同一ファイル
+内にも定義の無い`var(--x)`参照（フォールバック無し）をpre-commitでブロックする
+（[T675](tasks/T675.md)）。
+
 `@theme`ブロックの値は`globals.css`の`:root`内`--radius-*`/`--shadow-float`定義と意図的に
 重複させている（`:root`側はunlayeredで既存CSS Modulesが依存しており、動かすことによる
 予期せぬCascade Layers影響を避けるため）。変更時は両方揃えて直すこと。

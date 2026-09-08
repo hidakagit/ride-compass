@@ -394,7 +394,7 @@
 }
 
 .curveDragLabel {
-  fill: var(--color-text);
+  fill: var(--foreground);
   font-size: 9px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -432,7 +432,7 @@
 
 .breakpointReferenceButton:hover {
   border-color: var(--color-accent, #2563eb);
-  color: var(--color-text);
+  color: var(--foreground);
 }
 
 .breakpointPreview {
