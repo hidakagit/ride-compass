@@ -13,9 +13,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
-from app.api.dependencies import get_axis_registry_admin_service
+from app.api.dependencies import get_axis_registry_admin_service, implemented_dynamic_way_value_material_ids
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
+    REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisCategory,
     AxisDefinition,
     AxisShape,
@@ -194,6 +195,51 @@ class AxisDefinitionPayload(AxisDefinitionFields):
                 f"display_band_labels_override must have {expected_band_count} entries "
                 f"(display_thresholds_override has {len(self.display_thresholds_override)} thresholds), "
                 f"got {len(self.display_band_labels_override)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_dynamic_and_static_materials_are_not_mixed(self) -> "AxisDefinitionPayload":
+        """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じshapeで混在させない。
+
+        動的軸はリクエストごとに`evaluate_dynamic_axis_arrays`（domain/evaluation.py）で
+        再評価され、そこへ渡るのは「タイル単位でキャッシュ済みの公開軸スコア」と「動的材料」
+        だけである。静的材料の配列は渡らないため、混在させた軸は`evaluate_axis_array`が
+        `materials[term.material]`でKeyErrorになり、`/api/routes/generate`ごと500になる
+        （GUI操作だけで全ルート生成が落ちる）。静的材料が必要なら、その部分を別の軸へ切り出し
+        （公開軸として評価され、動的軸からは軸参照で読める）合成する。
+        """
+        if not isinstance(self.shape, BreakpointLinearShape):
+            return self
+        materials = {term.material for term in self.shape.terms}
+        dynamic = materials & REQUEST_DYNAMIC_MATERIAL_IDS
+        # 軸参照（他の軸のaxis_id）は静的材料ではないため除く。
+        static = {m for m in materials if is_known_material(m)} - REQUEST_DYNAMIC_MATERIAL_IDS
+        if dynamic and static:
+            raise ValueError(
+                f"shape cannot mix request-time dynamic material(s) {sorted(dynamic)} with "
+                f"static material(s) {sorted(static)} (the dynamic evaluation path receives "
+                "only dynamic materials and published axis scores)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_dedicated_layer_is_implemented(self) -> "AxisDefinitionPayload":
+        """`dedicated_way_value_layer`は配信の実装があるaxis_idにだけ立てられる。
+
+        way_id→値の配信はPythonのサービス本体（`api/dependencies.py`の
+        `_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`）が必要で、軸スタジオでの宣言だけでは
+        配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
+        呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が
+        残り続けて「宣言したのに出ない」原因が分からなくなる）。
+        """
+        if not self.dedicated_way_value_layer:
+            return self
+        implemented = implemented_dynamic_way_value_material_ids()
+        if self.axis_id not in implemented:
+            raise ValueError(
+                f"dedicated_way_value_layer requires a registered delivery implementation for "
+                f"axis_id '{self.axis_id}' (implemented: {sorted(implemented)})"
             )
         return self
 

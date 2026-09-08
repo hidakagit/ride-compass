@@ -55,10 +55,14 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
     `AXIS_DEFINITIONS`はプロセス起動時・管理API書き込み直後にin-place
     更新される（`services/axis_registry_service.py`参照）ため、モジュール読み込み時の
     定数ではなく呼び出しの都度導出する関数にする（`axis_catalog.py: get_axis_catalog`と
-    同じ「プロセス内メモリへの都度アクセス」方式）。新しい動的＋向きあり材料を追加する
-    ときは、軸スタジオで`dedicated_way_value_layer=true`・
-    `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`を設定するだけで
-    ここへ自動的に反映される。
+    同じ「プロセス内メモリへの都度アクセス」方式）。軸スタジオでの
+    `dedicated_way_value_layer=true`・`dynamic_way_value_needs_time`/
+    `dynamic_way_value_needs_bearing`の設定はここへ自動的に反映される。
+
+    配信できる値があるかは別で、way_id→値を組み立てるサービス本体を
+    `api/dependencies.py`の`_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
+    （コード変更を伴う）。登録の無いaxis_idへこのフラグを立てることは書き込み時に
+    拒否される（`axis_admin.py: _check_dedicated_layer_is_implemented`）。
     """
     return {
         axis_id: DynamicWayValueMaterial(

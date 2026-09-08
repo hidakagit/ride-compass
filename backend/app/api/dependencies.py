@@ -291,15 +291,27 @@ async def get_region_service():
 # キー集合の部分集合である必要がある（後者に無いmaterial_idは下の
 # `if material_id not in dynamic_way_value_materials()`で先に弾かれる）。新しい材料を
 # 追加する際は、軸スタジオでの登録（dedicated_way_value_layer・needs_time/needs_bearing）
-# に加えてこのdictへも1エントリ登録すること——片方だけ更新すると`_build`がKeyErrorで
-# 即座に失敗する（fail-fast、無音の分岐漏れより検知しやすい設計。こちらはPythonの実装
-# 本体[コンストラクタ]の登録なので宣言だけでは代替できない）。
+# に加えてこのdictへも1エントリ登録すること（こちらはPythonの実装本体[コンストラクタ]の
+# 登録なので宣言だけでは代替できない）。
+# 軸スタジオでの登録だけが先行した軸は、ここに実装が無い＝配信できる値が無いため、
+# 未知のmaterial_idと同じく404で返す（`_dynamic_way_value_factory`）。500にすると
+# フロントの「データなし」フォールバックが効かず、その軸のタイルが全て失敗する。
+# 書き込み時点で弾く経路は`axis_admin.py`の`_check_dedicated_layer_is_implemented`。
 _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES: dict[
     str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
 ] = {
     "wind": lambda repository, weather_service: WindWayService(repository=repository, weather_service=weather_service),
     "gradient": lambda repository, weather_service: GradientWayService(repository=repository),
 }
+
+
+def implemented_dynamic_way_value_material_ids() -> frozenset[str]:
+    """way_id→動的値配信の実装（Pythonのサービス本体）が登録済みのmaterial_id。
+
+    軸スタジオは`dedicated_way_value_layer=true`の軸をGUIから作れるが、配信できる値は
+    ここに実装があるものだけ。書き込み時の検証（`axis_admin.py`）が参照する。
+    """
+    return frozenset(_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES)
 
 
 async def get_dynamic_way_value_service(
@@ -316,12 +328,13 @@ async def get_dynamic_way_value_service(
     get_region_serviceと同じ「road_graph_use_repository無効時はrepository自体を注入しない」
     パターン（DBなし構成では常に空dictを返す。到達可能性の説明もget_region_service参照）。
     """
-    if material_id not in dynamic_way_value_materials():
+    factory = _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES.get(material_id)
+    if material_id not in dynamic_way_value_materials() or factory is None:
         yield None
         return
 
     def _build(repository: RoadGraphRepository | None):
-        return _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES[material_id](repository, weather_service)
+        return factory(repository, weather_service)
 
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:

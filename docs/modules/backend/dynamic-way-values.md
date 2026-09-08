@@ -39,9 +39,17 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
 `dedicated_way_value_layer=True`の軸を抽出し、呼び出しの都度（モジュール定数ではなく
 関数として）導出する。`needs_time`/`needs_bearing`も軸自身のDBフィールド
 （`AxisDefinition.dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`）を
-そのまま使うため、新しい動的＋向きあり材料を追加するときは軸スタジオでの登録
+そのまま使うため、新しい動的＋向きあり材料を追加するときの軸スタジオでの登録
 （`dedicated_way_value_layer`・`dynamic_way_value_needs_time`/
-`dynamic_way_value_needs_bearing`）だけで、この関数の戻り値には自動的に反映される。
+`dynamic_way_value_needs_bearing`）はこの関数の戻り値へ自動的に反映される。
+
+ただし**配信できる値があるかは別**で、way_id→値を実際に組み立てるサービス本体を
+`api/dependencies.py`の`_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
+（コード変更を伴う）。登録の無い`axis_id`に`dedicated_way_value_layer`を立てることは
+書き込み時に拒否され（`axis_admin.py:
+_check_dedicated_layer_is_implemented`）、既存データ等で万一そうなっている場合も配信側は
+未知の`material_id`と同じく404を返す（500にするとフロントの「データなし」
+フォールバックが効かない）。
 
 - `needs_time`: 時刻（`at`クエリパラメータ）に依存するか。風=Yes（気象予報）、
   勾配=No（標高・道路の向きは時刻で変わらない）。
