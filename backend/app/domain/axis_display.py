@@ -219,19 +219,22 @@ def raw_value_unit(definition: AxisDefinition) -> str | None:
     その単位とともに添えると、他の軸を見ずに「多いか少ないか」を判断できる
     （docs/tasks/T687.md参照）。
 
-    単位が定まるのは、`terms`の材料の単位がすべて一致し、かつ重みがすべて正のときだけ。
+    単位が定まる条件は次の3つ。重み0の項は生値へ寄与しないため判定から除く。
 
-    - 異なる単位の材料を足し合わせた値には単位が無い（例: 車の圧迫感は内部軸の合成）。
-    - 負の重みが混じると和は物理量そのものではなくなる（例: 開放度は被覆率の和を符号
-      反転して「開けているほど小さい」向きへ揃えたもので、生値は常に負になる）。
+    1. 材料が単位を持ち、複数あるならすべて一致する（異なる単位の材料を足した値には
+       単位が無い。例: 車の圧迫感は内部軸の合成）。
+    2. 重みがすべて正である（負の重みが混じると和は物理量の符号を反転したものになる）。
+    3. 項が2つ以上なら、全材料が`additive`（足し合わせて意味を持つ量）である。
 
-    どちらの場合も数字を添えても読み手が意味を取れないため出さない。重み0の項は生値へ
-    寄与しないため判定から除く。
+    3が要るのは、**単位が揃っていても和の意味は保証されない**ため。%・km/h・倍率のような
+    割合・率は、母数の違うものを足しても何も表さない（開放度の`樹木% + 建物%`が実例）。
+    足せるのは回・件・個のような個数と、それを同じ距離で割った密度だけ。項が1つのときは
+    そもそも和ではないので、この条件は課さない（勾配の「平均3.2%」は意味を持つ）。
     """
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
         return None
-    units = set()
+    specs = []
     for term in shape.terms:
         if term.weight == 0:
             continue
@@ -240,10 +243,12 @@ def raw_value_unit(definition: AxisDefinition) -> str | None:
         spec = MATERIAL_CATALOG.get(term.material)
         if spec is None or not spec.unit:
             return None
-        units.add(spec.unit)
-    if len(units) != 1:
+        specs.append(spec)
+    if len({spec.unit for spec in specs}) != 1:
         return None
-    return units.pop()
+    if len(specs) > 1 and not all(spec.additive for spec in specs):
+        return None
+    return specs[0].unit
 
 
 def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = frozenset()) -> RampInputs | None:

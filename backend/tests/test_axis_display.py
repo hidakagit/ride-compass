@@ -769,6 +769,35 @@ def test_raw_value_unit_is_none_for_unitless_material():
     assert raw_value_unit(definition) is None
 
 
+def test_raw_value_unit_is_none_when_summing_non_additive_units():
+    # 開放度を模した合成軸: 単位は%で揃っているが、母数の違う被覆率どうしの和は
+    # 何も表さない。単位が揃っているだけでは和の意味は保証されない。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="trees_percent", weight=1.0, required=False),
+                MaterialTerm(material="built_percent", weight=1.0, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) is None
+
+
+def test_raw_value_unit_allows_a_single_non_additive_term():
+    # 項が1つなら和ではない。勾配の「平均3.2%」は足し算をしていないので意味を持つ。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) == "%"
+
+
 def test_raw_value_unit_is_none_when_a_weight_is_negative():
     # opennessを模した合成軸: 被覆率の和を符号反転して向きを揃えたもの。単位は%で
     # 揃っているが、生値は常に負になり「開放度-45%」としか読めない。

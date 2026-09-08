@@ -102,6 +102,12 @@ class MaterialSpec(BaseModel):
     # 値の単位（凡例・数値表示用の表記、無次元・真偽値・カテゴリ値は空文字）。地図の凡例が
     # 材料の生値を表示するときの単位の唯一の正（frontendは単位を持たない）。
     unit: str = ""
+    # 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。回・件・個の
+    # ような個数と、それを同じ距離で割った密度（回/km等）は足せる。%・km/h・倍率のような
+    # 割合・率は、母数の違うものを足しても何も表さないためFalseのまま。
+    # domain/axis_display.py: raw_value_unitは、2項以上の重み付き和の生値を利用者へ見せて
+    # よいかの判定にこれを使う（単位が揃っているだけでは和の意味は保証されない）。
+    additive: bool = False
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
     tile_property: str | None = None
@@ -587,6 +593,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
         dtype="numeric",
         unit="回/km",
+        additive=True,
         tile_property="stop_per_km",
         primary_attribute_id="stop_poi",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_STOP),
@@ -598,6 +605,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
         dtype="numeric",
         unit="回/km",
+        additive=True,
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION),
@@ -609,6 +617,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
         dtype="numeric",
         unit="件/(km・年)",
+        additive=True,
         # タイル側は年正規化前の"accident_per_km"（収録全年分の重み付き件数/km）。
         # 年正規化はAXIS_DEFINITIONS側の評価ロジックが行うため、ramp化する場合は
         # 閾値をタイル側のスケールへ再換算する必要がある。収録年数は実行時にDBから
@@ -905,6 +914,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             description=f"進行する道路上にある{label}の、1kmあたりの数。",
             dtype="numeric",
             unit="回/km",
+            additive=True,
             tile_property=f"poi_{kind}_per_km",
             primary_attribute_id="stop_poi",
             extractor=keyed_density_extractor(METRIC_GROUP_POI, kind, absent_key=0.0),
