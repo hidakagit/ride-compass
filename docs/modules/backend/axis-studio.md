@@ -191,6 +191,23 @@ axis_admin API経由の変更後にこのダンプを忘れると、以後のfre
 事前集計は欠損時0埋めが基本）だが、新規軸でrequired=True材料が実際にタグ欠損
 しやすい場合はこの不整合が顕在化しうる。
 
+### 生値の単位（`raw_value_unit`）
+
+同じ`axis_display.py`が、軸の**生値**（折れ点を通す前の`terms`重み付き和）の単位も導出する。
+`BreakpointLinearShape`で、重み0以外の全termが材料カタログ上で同じ`unit`を持ち、かつ
+重みがすべて正のときだけその単位を返す。それ以外は`None`:
+
+| 返さない場合 | 理由 |
+|---|---|
+| `CategoricalShape` | 折れ点を通す前の和という概念が無い |
+| 単位を持たない材料（真偽値・カテゴリ・無次元） | 添える単位が無い |
+| 異なる単位の混在（内部軸の合成） | 和が物理量にならない |
+| 負の重みを含む | 和は物理量の符号を反転したもの（開放度は被覆率の和を反転して向きを揃えており、生値は常に負） |
+
+`GET /api/axis-catalog`が`raw_value_unit`として配信し、
+[ルート設定・ルート結果（frontend）](../frontend/route-settings-and-results.md)が
+得点の隣へ生値を添えるのに使う。単位の無い数字は読み手が意味を取れないため出さない。
+
 ## 一次属性・二次軸レジストリ（`domain/registry.py`・`registry_defaults.py`、別系統）
 
 **`AXIS_DEFINITIONS`とは別の、並行するレジストリ機構**。`register_axis()`/

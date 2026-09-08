@@ -322,3 +322,25 @@ def test_cache_version_changes_when_materials_version_changes(monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(tile_score_matrix_cache)
+
+
+def test_score_matrix_column_signature_matches_current_columns():
+    """`StaticEdgeScoreMatrix`の列構成を変えたら`_SCORE_MATRIX_REVISION`を上げる。
+
+    この行列は`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で持つ。
+    列を1つ足すと古い状態は長さが足りず、最後の列が設定されないまま復元される。
+    ディスクキャッシュはデプロイをまたいで残るので、版を上げ忘れると本番で最初にその列へ
+    触れた場所がAttributeErrorで落ちる（`graph_material_cache`側と同じ歯止め）。
+    """
+    import dataclasses
+    import hashlib
+
+    from app.domain.evaluation import StaticEdgeScoreMatrix
+    from app.infrastructure.tile_score_matrix_cache import SCORE_MATRIX_COLUMN_SIGNATURE
+
+    names = ",".join(f.name for f in dataclasses.fields(StaticEdgeScoreMatrix))
+    signature = hashlib.sha1(names.encode()).hexdigest()[:12]
+    assert signature == SCORE_MATRIX_COLUMN_SIGNATURE, (
+        "StaticEdgeScoreMatrixの列構成が変わっている。_SCORE_MATRIX_REVISIONを上げ、"
+        f"SCORE_MATRIX_COLUMN_SIGNATUREを'{signature}'へ更新すること。"
+    )

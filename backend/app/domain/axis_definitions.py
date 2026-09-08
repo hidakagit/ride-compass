@@ -690,6 +690,45 @@ def _missing_material_mask(values: np.ndarray) -> np.ndarray:
     return np.isnan(values)
 
 
+def _breakpoint_raw_total_array(
+    shape: BreakpointLinearShape, materials: Mapping[str, np.ndarray]
+) -> tuple[np.ndarray, np.ndarray]:
+    """`terms`の重み付き和（`preprocess`まで適用）と、全termの材料が欠損している要素の
+    マスクを返す。折れ点を通す前の値で、`evaluate_axis_array`と`axis_raw_value_array`が
+    共有する。"""
+    total: np.ndarray | None = None
+    all_missing: np.ndarray | None = None
+    for term in shape.terms:
+        values = materials[term.material]
+        missing = _missing_material_mask(values)
+        all_missing = missing if all_missing is None else all_missing & missing
+        if not term.required:
+            values = np.where(missing, 0.0, values)
+        contribution = values * term.weight
+        total = contribution if total is None else total + contribution
+    assert total is not None  # 定義上termsは1件以上
+    assert all_missing is not None
+    if shape.preprocess == "abs":
+        total = np.abs(total)
+    return total, all_missing
+
+
+def axis_raw_value_array(
+    definition: AxisDefinition, materials: Mapping[str, np.ndarray]
+) -> np.ndarray | None:
+    """折れ点を通す前の生値（欠損=NaN）。`CategoricalShape`の軸はNoneを返す。
+
+    得点（0〜100）は目盛りの引き方に依存する相対評価のため、軸単体では経路の良し悪しを
+    判断できない。生値をその単位とともに添えると、他の軸を見ずに判断できる
+    （docs/tasks/T687.md参照）。
+    """
+    shape = definition.shape
+    if not isinstance(shape, BreakpointLinearShape):
+        return None
+    total, all_missing = _breakpoint_raw_total_array(shape, materials)
+    return np.where(all_missing, np.nan, total)
+
+
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.ndarray]) -> np.ndarray:
     """`evaluate_axis_scalar`の配列版（欠損=NaN、`compute_edge_costs_bulk`のベクトル化経路用）。
 
@@ -707,20 +746,7 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
     """
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
-        total: np.ndarray | None = None
-        all_missing: np.ndarray | None = None
-        for term in shape.terms:
-            values = materials[term.material]
-            missing = _missing_material_mask(values)
-            all_missing = missing if all_missing is None else all_missing & missing
-            if not term.required:
-                values = np.where(missing, 0.0, values)
-            contribution = values * term.weight
-            total = contribution if total is None else total + contribution
-        assert total is not None  # 定義上termsは1件以上
-        assert all_missing is not None
-        if shape.preprocess == "abs":
-            total = np.abs(total)
+        total, all_missing = _breakpoint_raw_total_array(shape, materials)
         result = np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
         result = np.where(all_missing, np.nan, result)
     else:

@@ -10,7 +10,7 @@ Edge単位のEvaluation Engineが同じ「難易度」の意味・スケール�
 正規化方式を発明せず、評価基準の食い違いも避ける。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Mapping
 
@@ -26,6 +26,7 @@ from app.domain.attributes import (
     edge_metrics_from_bundles,
 )
 from app.domain.axis_definitions import (
+    axis_raw_value_array,
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
     default_axis_weights,
@@ -36,6 +37,7 @@ from app.domain.axis_definitions import (
     time_scoped_weights,
     topological_axis_order,
 )
+from app.domain.axis_display import raw_value_unit
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import composite_difficulty, distance_weighted_difficulty_array
 from app.domain.graph import EdgeLike, RoadGraphLike
@@ -658,6 +660,9 @@ class BulkAxisEvaluation:
     mid_lat: np.ndarray
     mid_lon: np.ndarray
     axis_arrays: dict[str, np.ndarray]
+    # 折れ点を通す前の生値。単位が定まる軸（`axis_display.py: raw_value_unit`）だけを
+    # 持つ——単位の無い値を人へ見せても意味を取れないため、運ぶ必要が無い。
+    axis_raw_arrays: dict[str, np.ndarray]
 
 
 def _evaluate_axes_bulk(
@@ -704,6 +709,12 @@ def _evaluate_axes_bulk(
             for axis_id in topological_axis_order(AXIS_DEFINITIONS)
             if AXIS_DEFINITIONS[axis_id].is_published
         }
+        empty_raw_arrays = {
+            axis_id: np.array([])
+            for axis_id in empty_axis_arrays
+            if raw_value_unit(AXIS_DEFINITIONS[axis_id]) is not None
+            and not (set(AXIS_DEFINITIONS[axis_id].materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
+        }
         return BulkAxisEvaluation(
             edge_ids=[],
             distance_m=np.array([]),
@@ -715,6 +726,7 @@ def _evaluate_axes_bulk(
             mid_lat=np.array([]),
             mid_lon=np.array([]),
             axis_arrays=empty_axis_arrays,
+            axis_raw_arrays=empty_raw_arrays,
         )
     edges = [graph.edges[edge_id] for edge_id in edge_ids]
 
@@ -815,6 +827,7 @@ def _evaluate_axes_bulk(
     # スカラー版のフィルタと揃え、無駄な計算・将来の重み設定変更時の暗黙のリスクを
     # 無くす）。
     axis_arrays: dict[str, np.ndarray] = {}
+    axis_raw_arrays: dict[str, np.ndarray] = {}
     material_arrays_with_axes: dict[str, np.ndarray] = dict(material_arrays)
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
         definition = AXIS_DEFINITIONS[axis_id]
@@ -822,6 +835,13 @@ def _evaluate_axes_bulk(
         material_arrays_with_axes[axis_id] = arr
         if definition.is_published:
             axis_arrays[axis_id] = arr
+            # 動的材料（風）を参照する軸は対象外。静的スコア行列は`weather=None`で
+            # 組み立てるため生値がNaNになり、人へ見せる値にならない。
+            uses_dynamic = bool(set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
+            if not uses_dynamic and raw_value_unit(definition) is not None:
+                raw = axis_raw_value_array(definition, material_arrays_with_axes)
+                if raw is not None:
+                    axis_raw_arrays[axis_id] = raw
 
     return BulkAxisEvaluation(
         edge_ids=edge_ids,
@@ -834,6 +854,7 @@ def _evaluate_axes_bulk(
         mid_lat=mid_lat,
         mid_lon=mid_lon,
         axis_arrays=axis_arrays,
+        axis_raw_arrays=axis_raw_arrays,
     )
 
 
@@ -1049,6 +1070,11 @@ class StaticEdgeScoreMatrix:
     # Edge中点の緯度経度（`BulkAxisEvaluation.mid_lat`/`mid_lon`と同じ）。
     mid_lat: np.ndarray
     mid_lon: np.ndarray
+    # 折れ点を通す前の生値。単位が定まる軸だけを持つため`axis_ids`とは別の並びで、
+    # 対応する列は`raw_axis_ids`の順。軸単体で経路を判断するための絶対値
+    # （docs/tasks/T687.md参照）。
+    raw_axis_ids: list[str] = field(default_factory=list)
+    axis_raw_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
 
 
 def build_static_edge_score_matrix(
@@ -1096,10 +1122,18 @@ def build_static_edge_score_matrix(
         if axis_ids
         else np.empty((len(evaluation.edge_ids), 0))
     )
+    raw_axis_ids = list(evaluation.axis_raw_arrays.keys())
+    axis_raw_values = (
+        np.stack([evaluation.axis_raw_arrays[axis_id] for axis_id in raw_axis_ids], axis=1)
+        if raw_axis_ids
+        else np.empty((len(evaluation.edge_ids), 0))
+    )
     return StaticEdgeScoreMatrix(
         edge_ids=evaluation.edge_ids,
         axis_ids=axis_ids,
         axis_scores=axis_scores,
+        raw_axis_ids=raw_axis_ids,
+        axis_raw_values=axis_raw_values,
         distance_m=evaluation.distance_m,
         bearing_deg=evaluation.bearing_deg,
         is_motorway=evaluation.is_motorway,
@@ -1135,8 +1169,10 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
         return matrices[0]
 
     axis_ids = matrices[0].axis_ids
+    raw_axis_ids = matrices[0].raw_axis_ids
     all_edge_ids = [edge_id for matrix in matrices for edge_id in matrix.edge_ids]
     axis_scores = np.concatenate([matrix.axis_scores for matrix in matrices], axis=0)
+    axis_raw_values = np.concatenate([matrix.axis_raw_values for matrix in matrices], axis=0)
     distance_m = np.concatenate([matrix.distance_m for matrix in matrices])
     bearing_deg = np.concatenate([matrix.bearing_deg for matrix in matrices])
     is_motorway = np.concatenate([matrix.is_motorway for matrix in matrices])
@@ -1155,6 +1191,8 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
         edge_ids=final_edge_ids,
         axis_ids=axis_ids,
         axis_scores=axis_scores[final_indices],
+        raw_axis_ids=raw_axis_ids,
+        axis_raw_values=axis_raw_values[final_indices],
         distance_m=distance_m[final_indices],
         bearing_deg=bearing_deg[final_indices],
         is_motorway=is_motorway[final_indices],

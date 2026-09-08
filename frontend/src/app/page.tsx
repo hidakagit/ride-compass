@@ -1772,6 +1772,8 @@ export default function Home() {
                   weights={routeWeights}
                   axisDifficulties={route.axis_difficulties}
                   axisContributions={route.axis_contributions}
+                  axisRawValues={route.axis_raw_values}
+                  distanceKm={route.distance_km}
                   overallDifficulty={route.overall_difficulty}
                   difficultyLoad={route.difficulty_load ?? null}
                   axisColors={axisChipColors}

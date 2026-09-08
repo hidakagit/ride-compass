@@ -586,6 +586,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="停止密度(回/km)",
         description="信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
         dtype="numeric",
+        unit="回/km",
         tile_property="stop_per_km",
         primary_attribute_id="stop_poi",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_STOP),
@@ -596,6 +597,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="交差点密度(回/km)",
         description="接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
         dtype="numeric",
+        unit="回/km",
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION),
@@ -606,6 +608,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="事故密度(件/(km・年))",
         description="警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
         dtype="numeric",
+        unit="件/(km・年)",
         # タイル側は年正規化前の"accident_per_km"（収録全年分の重み付き件数/km）。
         # 年正規化はAXIS_DEFINITIONS側の評価ロジックが行うため、ramp化する場合は
         # 閾値をタイル側のスケールへ再換算する必要がある。収録年数は実行時にDBから
@@ -678,6 +681,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="制限速度(km/h)",
         description="OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
         dtype="numeric",
+        unit="km/h",
         tile_property="maxspeed_kmh",
         primary_attribute_id="maxspeed",
         extractor=way_tag_parser_extractor(parse_maxspeed),

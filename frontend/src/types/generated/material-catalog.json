@@ -44,7 +44,7 @@
     "label": "停止密度(回/km)",
     "description": "信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
     "dtype": "numeric",
-    "unit": "",
+    "unit": "回/km",
     "value_labels": null
   },
   {
@@ -52,7 +52,7 @@
     "label": "交差点密度(回/km)",
     "description": "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
     "dtype": "numeric",
-    "unit": "",
+    "unit": "回/km",
     "value_labels": null
   },
   {
@@ -60,7 +60,7 @@
     "label": "事故密度(件/(km・年))",
     "description": "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
     "dtype": "numeric",
-    "unit": "",
+    "unit": "件/(km・年)",
     "value_labels": null
   },
   {
@@ -108,7 +108,7 @@
     "label": "制限速度(km/h)",
     "description": "OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
     "dtype": "numeric",
-    "unit": "",
+    "unit": "km/h",
     "value_labels": null
   },
   {

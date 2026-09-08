@@ -29,6 +29,7 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     difficulty_load: null,
     axis_difficulties: {},
     material_values: {},
+    axis_raw_values: {},
     axis_contributions: {},
     ...overrides,
   };
@@ -174,6 +175,7 @@ function makeRoute(id: string): RouteCandidate {
     difficulty_load: null,
     axis_difficulties: {},
     material_values: {},
+    axis_raw_values: {},
     axis_contributions: {},
   };
 }

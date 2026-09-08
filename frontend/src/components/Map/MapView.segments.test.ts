@@ -20,6 +20,7 @@ function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail
     estimated_arrival_time: null,
     axis_difficulties: { gradient: 10, wind: 20, surface_q: 0, stop_density: 0 },
     material_values: { gradient_percent: 1.2, wind_drag_ratio: 0.5 },
+    axis_raw_values: {},
     axis_contributions: { gradient: 5, wind: 10, surface_q: 0, stop_density: 0 },
     difficulty: 12,
     ...overrides,
@@ -138,6 +139,7 @@ describe("restoreRouteSegmentProperties", () => {
     return {
       ...withoutGeometry(base),
       axis_difficulties: JSON.stringify(base.axis_difficulties) as unknown as Record<string, number>,
+      axis_raw_values: {},
       axis_contributions: JSON.stringify(base.axis_contributions) as unknown as Record<string, number>,
       material_values: JSON.stringify(base.material_values) as unknown as Record<string, number>,
       ...overrides,

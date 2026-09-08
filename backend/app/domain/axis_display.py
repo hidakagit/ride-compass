@@ -212,6 +212,40 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float, visited: fr
     return None
 
 
+def raw_value_unit(definition: AxisDefinition) -> str | None:
+    """軸の**生値**（折れ点を通す前の重み付き和）の単位。定まらない場合はNone。
+
+    ルート結果は得点（0〜100の相対評価）だけでは軸単体で経路を判断できない。生値を
+    その単位とともに添えると、他の軸を見ずに「多いか少ないか」を判断できる
+    （docs/tasks/T687.md参照）。
+
+    単位が定まるのは、`terms`の材料の単位がすべて一致し、かつ重みがすべて正のときだけ。
+
+    - 異なる単位の材料を足し合わせた値には単位が無い（例: 車の圧迫感は内部軸の合成）。
+    - 負の重みが混じると和は物理量そのものではなくなる（例: 開放度は被覆率の和を符号
+      反転して「開けているほど小さい」向きへ揃えたもので、生値は常に負になる）。
+
+    どちらの場合も数字を添えても読み手が意味を取れないため出さない。重み0の項は生値へ
+    寄与しないため判定から除く。
+    """
+    shape = definition.shape
+    if not isinstance(shape, BreakpointLinearShape):
+        return None
+    units = set()
+    for term in shape.terms:
+        if term.weight == 0:
+            continue
+        if term.weight < 0:
+            return None
+        spec = MATERIAL_CATALOG.get(term.material)
+        if spec is None or not spec.unit:
+            return None
+        units.add(spec.unit)
+    if len(units) != 1:
+        return None
+    return units.pop()
+
+
 def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = frozenset()) -> RampInputs | None:
     if definition.axis_id in _visited:
         return None

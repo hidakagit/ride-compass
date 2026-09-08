@@ -187,6 +187,13 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 | `overall_difficulty` | 距離加重平均（`distance_weighted_difficulty`） | 距離で正規化されるため、遠回りして難所を避けるほど下がる。候補の並び順はこの昇順 |
 | `difficulty_load` | 平均×距離合計（`difficulty_load`） | 距離が伸びればそのまま増える。「走り切るまでのしんどさ」に近く、遠回りが不利に出る |
 
+同じ集約を軸の**生値**（折れ点を通す前の値、`BulkAxisEvaluation.axis_raw_arrays`）にも
+掛ける（`RouteSegmentDetail.axis_raw_values`→`merge_axis_raw_values`→
+`RouteCandidate.axis_raw_values`）。得点0-100は目盛りの引き方に依存する相対評価のため、
+軸単体で経路を判断するには絶対値が要る。生値を持つのは単位が定まる軸
+（[軸スタジオ](axis-studio.md)「生値の単位」節）だけで、かつリクエストごとに変わる
+材料（風等）を参照する軸は静的スコア行列へ載らないため対象外。
+
 `difficulty_load`は順位付けには使わず、平均と併せて判断材料として返す。difficultyが
 Noneの区間の扱いは平均と一致させる（区間ごとに積分して欠損を飛ばすと、データの無い区間が
 多いルートほど総量が小さく見えてしまうため、平均×全区間の距離合計で求める）。

@@ -2099,6 +2099,17 @@
           "map_value_unit": {
             "type": "string",
             "title": "Map Value Unit"
+          },
+          "raw_value_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Value Unit"
           }
         },
         "type": "object",
@@ -2119,7 +2130,8 @@
           "display_band_labels_override",
           "dedicated_way_value_layer",
           "map_value_kind",
-          "map_value_unit"
+          "map_value_unit",
+          "raw_value_unit"
         ],
         "title": "AxisCatalogEntry"
       },
@@ -3804,6 +3816,13 @@
             "type": "object",
             "title": "Axis Contributions"
           },
+          "axis_raw_values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Axis Raw Values"
+          },
           "material_values": {
             "additionalProperties": {
               "type": "number"
@@ -4178,6 +4197,13 @@
             },
             "type": "object",
             "title": "Material Values"
+          },
+          "axis_raw_values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Axis Raw Values"
           },
           "difficulty": {
             "anyOf": [

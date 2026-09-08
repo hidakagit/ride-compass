@@ -63,6 +63,7 @@ function catalogResponse(
         dedicated_way_value_layer: dedicatedWayValueLayerByAxisId[axisId] ?? false,
         map_value_kind: "difficulty",
         map_value_unit: "",
+        raw_value_unit: null,
       };
     }),
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド

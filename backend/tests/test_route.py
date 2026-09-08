@@ -1,6 +1,11 @@
 import pytest
 
-from app.domain.route import RouteSegmentDetail, aggregate_segments_into_bins, merge_material_values
+from app.domain.route import (
+    RouteSegmentDetail,
+    aggregate_segments_into_bins,
+    merge_axis_raw_values,
+    merge_material_values,
+)
 
 
 def _segment(
@@ -238,3 +243,32 @@ def test_merge_material_values_omits_material_absent_from_every_segment():
     merged = merge_material_values(segments)
 
     assert set(merged.keys()) == {"wind_drag_ratio"}
+
+
+# merge_axis_raw_values（折れ点を通す前の生値の集約。merge_axis_difficultiesと同じ
+# 距離加重平均の共有実装を使う、docs/tasks/T687.md）。
+
+
+def test_merge_axis_raw_values_distance_weighted_average():
+    segments = [
+        _segment(0, distance_km=30.0, axis_raw_values={"stop_density": 0.5}),
+        _segment(1, distance_km=10.0, axis_raw_values={"stop_density": 2.5}),
+    ]
+
+    merged = merge_axis_raw_values(segments)
+
+    # (0.5*30 + 2.5*10) / 40 = 1.0回/km。これへ距離を掛けた「約40回」が利用者へ出る値。
+    assert merged["stop_density"] == pytest.approx(1.0)
+
+
+def test_merge_axis_raw_values_omits_axis_absent_from_every_segment():
+    # 単位が定まらない軸は生値を持たない。キー自体が現れないことで、frontendは
+    # 「出せる軸だけ出す」判定を値の有無だけで行える。
+    segments = [
+        _segment(0, distance_km=1.0, axis_raw_values={"stop_density": 1.0}),
+        _segment(1, distance_km=1.0, axis_raw_values={"stop_density": 1.0}),
+    ]
+
+    merged = merge_axis_raw_values(segments)
+
+    assert set(merged.keys()) == {"stop_density"}

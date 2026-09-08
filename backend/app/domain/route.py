@@ -54,6 +54,11 @@ class RouteSegmentDetail(BaseModel):
     # プロパティから導出、軸名のハードコード無し）。axis_difficultiesと同じ
     # 「値が無い材料はキーを持たない」規約。評価に使っていない軸の材料は出ない。
     material_values: dict[str, float] = Field(default_factory=dict)
+    # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ（`axis_display.py:
+    # raw_value_unit`）。得点（0-100）は目盛りの引き方に依存する相対評価のため、軸単体で
+    # 経路を判断するにはこの絶対値が要る。axis_difficultiesと同じ「データ無しはキーを
+    # 持たない」規約。
+    axis_raw_values: dict[str, float] = Field(default_factory=dict)
     difficulty: float | None = None
 
 
@@ -93,6 +98,10 @@ class RouteCandidate(BaseModel):
     # _with_axis_contributions`が付与する）。フロントの「内訳（重み付き寄与度）」表示は
     # このフィールドをそのまま使い、ルート設定の重みを使った独自再計算はしない。
     axis_contributions: dict[str, float] = Field(default_factory=dict)
+    # `RouteSegmentDetail.axis_raw_values`をルート全区間へ距離加重平均で集約したもの
+    # （`merge_axis_raw_values`）。単位は`GET /api/axis-catalog`の`raw_value_unit`が持ち、
+    # 「◯◯/km」なら走行距離を掛けて経路全体の実数（例: 止まる回数）にできる。
+    axis_raw_values: dict[str, float] = Field(default_factory=dict)
     # `RouteSegmentDetail.material_values`を候補全区間へ距離加重平均で集約したもの
     # （`merge_material_values`、`axis_difficulties`と同じ集約方法）。
     material_values: dict[str, float] = Field(default_factory=dict)
@@ -186,6 +195,13 @@ def merge_axis_difficulties(segments: list[RouteSegmentDetail]) -> dict[str, flo
     適用するだけで得られる（新しい計算式は不要、`route_generator.py`参照）。
     """
     return _merge_axis_value_dict(segments, lambda s: s.axis_difficulties)
+
+
+def merge_axis_raw_values(segments: list[RouteSegmentDetail]) -> dict[str, float]:
+    """`RouteSegmentDetail.axis_raw_values`をaxis_idごとに距離加重平均へ集約する
+    （`merge_axis_difficulties`と同じ集約方法）。単位が「◯◯/km」の軸なら、この値へ
+    走行距離を掛けると経路全体での実数（例: 止まる回数）になる。"""
+    return _merge_axis_value_dict(segments, lambda s: s.axis_raw_values)
 
 
 def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, float]:
