@@ -149,7 +149,6 @@ async def _current_bulk_upsert_save(session, graph, way_ids_to_replace: set[int]
     node_upsert+edge_upsertのみを、現行の`_bulk_upsert`（chunk=1000のON CONFLICT）で再現する。
     `_copy_based_save`と同じ範囲（DELETE抜き）で公平に比較するため、`save_graph`本体は
     呼ばずここで組み立て直す。"""
-    from shapely.geometry.base import BaseGeometry
     from geoalchemy2.shape import from_shape
 
     from app.infrastructure.road_graph_repository import _bulk_upsert, RoadNodeRow, RoadEdgeRow

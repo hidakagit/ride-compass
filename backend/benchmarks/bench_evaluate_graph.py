@@ -19,7 +19,7 @@ def run() -> list[BenchmarkResult]:
     from app.services.evaluation_service import EvaluationService, load_route_preference
 
     preference = load_route_preference()
-    service = EvaluationService(preference)
+    service = EvaluationService()
 
     results: list[BenchmarkResult] = []
     # (131, 131) ≈ 68,120エッジ（T219/T220基準）、(175, 175) ≈ 122,032エッジ（T224基準相当）。

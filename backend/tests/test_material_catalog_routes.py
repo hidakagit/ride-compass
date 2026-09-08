@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_material_coverage_service, get_region_service
-from app.config import settings
 from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app

@@ -31,7 +31,7 @@ import shapely
 from shapely.geometry import LineString, box
 from shapely.geometry.base import BaseGeometry
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch._common import batch_session_factory, count_targets, stream_id_chunks
 from app.config import settings

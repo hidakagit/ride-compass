@@ -97,7 +97,6 @@ class WindWayService:
             raise ValueError("WindWayService.get_way_valuesにはbearing_degが必須です")
         if speed_kmh is None:
             raise ValueError("WindWayService.get_way_valuesにはspeed_kmhが必須です")
-        material_id = self.material_id
         if self._repository is None:
             return {}
         target = at or datetime.now(JST)

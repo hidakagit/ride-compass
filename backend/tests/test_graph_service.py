@@ -4,7 +4,7 @@ import time
 import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialsBatch, SearchMaterials
-from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraph, RoadGraphLike, WaySpec
+from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache

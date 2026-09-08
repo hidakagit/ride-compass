@@ -15,7 +15,7 @@ from tests.conftest import TEST_DATABASE_URL
 # route_designations/designation_attributes/accident_pointsテーブルがcreate_allで作られるよう、
 # test_road_graph_repository.pyと同じ「テストファイルごとに自己完結させる」idiom）。
 from app.infrastructure import accident_models, designation_models  # noqa: F401
-from tests.admin_auth import AUTH_HEADERS, basic_auth_header
+from tests.admin_auth import AUTH_HEADERS
 
 client = TestClient(app)
 

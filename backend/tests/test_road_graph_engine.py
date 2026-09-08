@@ -14,8 +14,7 @@ import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
 from app.domain.errors import RoutingError
-from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
-from app.domain.evaluation import build_static_edge_score_matrix, compose_costs_from_axis_matrix
+from app.domain.evaluation import build_static_edge_score_matrix
 from app.domain.hard_filters import compute_hard_filter_excluded
 from app.domain.route_preference import RoutePreference
 from tests.metrics_fixtures import edge_metrics

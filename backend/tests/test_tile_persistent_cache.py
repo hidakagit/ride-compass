@@ -6,7 +6,6 @@ namespace分離）を通常のroundtripケースと同じ優先度でカバー�
 本番実測まで発覚しなかった不具合の教訓、docs/tasks/T538.md参照）。
 """
 
-import pickle
 
 import pytest
 

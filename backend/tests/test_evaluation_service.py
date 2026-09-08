@@ -25,7 +25,7 @@ def test_evaluate_graph_returns_result_per_edge():
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=2.0, data_source="t", calculated_at="t")}
     surface_attributes = {"edge-1": "asphalt"}
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     results = service.evaluate_graph(graph, elevation_attributes, surface_attributes, load_route_preference())
 
     assert set(results.keys()) == {"edge-1", "edge-2"}
@@ -42,7 +42,7 @@ def test_evaluate_graph_missing_attribute_entries_are_treated_as_none():
     )
     graph = _make_graph(edge)
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     results = service.evaluate_graph(
         graph, elevation_attributes={}, surface_attributes={}, preference=load_route_preference()
     )
@@ -55,7 +55,7 @@ def test_evaluate_graph_missing_attribute_entries_are_treated_as_none():
 def test_evaluate_graph_empty_graph_returns_empty_dict():
     graph = RoadGraph(graph_version="v1", nodes={}, edges={})
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     results = service.evaluate_graph(graph, {}, {}, load_route_preference())
 
     assert results == {}
@@ -70,7 +70,7 @@ def test_evaluate_graph_passes_stop_counts_to_compute_edge_cost():
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=0.0, data_source="t", calculated_at="t")}
     surface_attributes = {"edge-1": "asphalt"}
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     no_stops = service.evaluate_graph(graph, elevation_attributes, surface_attributes, load_route_preference())["edge-1"]
     many_stops = service.evaluate_graph(
         graph, elevation_attributes, surface_attributes, load_route_preference(), metrics={METRIC_GROUP_COUNTS: {"edge-1": {METRIC_KEY_STOP: 4}}}
@@ -86,7 +86,7 @@ def test_evaluate_graph_missing_stop_counts_entry_is_none():
     )
     graph = _make_graph(edge)
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     results = service.evaluate_graph(graph, {}, {}, load_route_preference(), metrics={METRIC_GROUP_COUNTS: {}})
 
     assert results["edge-1"].difficulty is None
@@ -101,7 +101,7 @@ def test_evaluate_graph_passes_accident_counts_to_compute_edge_cost():
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=0.0, data_source="t", calculated_at="t")}
     surface_attributes = {"edge-1": "asphalt"}
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     no_accidents = service.evaluate_graph(
         graph, elevation_attributes, surface_attributes, load_route_preference()
     )["edge-1"]
@@ -120,7 +120,7 @@ def test_evaluate_graph_missing_accident_counts_entry_is_none():
     )
     graph = _make_graph(edge)
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     results = service.evaluate_graph(
         graph, {}, {}, load_route_preference(), metrics={METRIC_GROUP_COUNTS: {}}, accident_years_covered=3
     )
@@ -145,7 +145,7 @@ def test_evaluate_graph_uses_custom_route_preference():
     elevation_attributes = {"edge-1": ElevationAttribute(edge_id="edge-1", average_grade=10.0, data_source="t", calculated_at="t")}
     surface_attributes = {"edge-1": "asphalt"}
 
-    service = EvaluationService(load_route_preference())
+    service = EvaluationService()
     default_preference = load_route_preference()
     elevation_only_preference = RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0})
 
@@ -169,12 +169,9 @@ def test_load_route_preference_matches_axis_definitions_defaults():
 
 
 def test_evaluation_service_config_file_defaults_match_explicit_matching_weights():
-    # 改称: 以前は`EvaluationService()`/`evaluate_graph()`の両方でpreference省略時に
-    # load_route_preference()へフォールバックする挙動を検証していたが、デッドコード監査で
-    # そのフォールバックを削除した（唯一の呼び出し元RoadGraphEngineは必ずpreferenceを
-    # 明示的に渡すため到達不能だった）。本テストの本来の意図（load_route_preference()の
-    # 重みが、公開軸の既定weightsを手で書き下したRoutePreferenceと一致すること）自体は
-    # 両者にload_route_preference()/明示的な重みをそれぞれ渡して維持する。
+    # 検証したいのは「load_route_preference()の重みが、公開軸の既定weightsを手で
+    # 書き下したRoutePreferenceと一致すること」。preferenceは`evaluate_graph`の引数
+    # としてのみ渡す（EvaluationServiceは状態を持たない）。
     edge = DirectedEdge(
         edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
         geometry=[[35.7, 139.7], [35.701, 139.701]], distance_m=100.0,
@@ -190,10 +187,10 @@ def test_evaluation_service_config_file_defaults_match_explicit_matching_weights
         weights={"gradient": 0.15, "surface_q": 0.19, "wind": 0.26, "stop_density": 0.20, "car_stress": 0.20}
     )
 
-    default_via_config = EvaluationService(default_preference).evaluate_graph(
+    default_via_config = EvaluationService().evaluate_graph(
         graph, elevation_attributes, surface_attributes, default_preference
     )["edge-1"]
-    explicit_matching_weights = EvaluationService(explicit_matching_preference).evaluate_graph(
+    explicit_matching_weights = EvaluationService().evaluate_graph(
         graph, elevation_attributes, surface_attributes, explicit_matching_preference
     )["edge-1"]
 

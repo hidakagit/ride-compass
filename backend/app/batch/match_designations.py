@@ -120,7 +120,6 @@ async def _write_matches(
     if not kinds_with_candidates:
         return 0.0
 
-    data_version_local = data_version
     insert_started = time.perf_counter()
     async with conn.transaction():
         await conn.execute(_DELETE_SQL, kinds_with_candidates)
@@ -129,7 +128,7 @@ async def _write_matches(
         await conn.executemany(
             _INSERT_SQL,
             [
-                (osm_way_id, kind, ratio, data_version_local, route_designation_ids, source_osm_import_run_id)
+                (osm_way_id, kind, ratio, data_version, route_designation_ids, source_osm_import_run_id)
                 for osm_way_id, kind, ratio, route_designation_ids in matched
                 if kind in kinds_with_candidates
             ],

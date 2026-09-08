@@ -1,11 +1,9 @@
 from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_derived_data_freshness_service
-from app.config import settings
 from app.infrastructure.derived_data_freshness import DerivedDataFreshnessCounts, GenerationFreshnessCounts
 from app.main import app
 from app.services.derived_data_freshness_service import build_freshness_report

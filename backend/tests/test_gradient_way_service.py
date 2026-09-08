@@ -5,7 +5,7 @@ test_wind_way_service.pyと同じ流儀（FakeRepository・FakeRedis、実DB/Red
 import pytest
 
 from app.domain.gradient import GradientCalculator
-from app.infrastructure import dynamic_way_value_cache, redis_json_cache
+from app.infrastructure import redis_json_cache
 from app.services.gradient_way_service import GradientWayService
 from tests.fake_redis import FakeRedis
 

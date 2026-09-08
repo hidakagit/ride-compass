@@ -13,7 +13,7 @@
 # 別定義を統合済み）。
 #
 # 実行順序（重要）: 安価なチェック（grepのみ）を先に、高価なチェック（backend python
-# 起動+npm、実測約12秒）を後に置く。逆順だと、backend/app変更とdocs/modules違反が
+# 起動+npm、実測約12秒）を後に置く。ruffはその中間（python起動のみ、npmを伴わない）。逆順だと、backend/app変更とdocs/modules違反が
 # 同じコミットに混在した場合、「経緯記述を直して再コミット」のたびに無関係な高価な
 # チェックまで毎回やり直しになる。安価な方を先に通しておけば、そのイテレーション中は
 # 高価なチェックへ到達しない。
@@ -24,4 +24,5 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 sh scripts/pre-commit-docs-consistency.sh
+sh scripts/pre-commit-ruff.sh
 sh scripts/pre-commit-api-contract.sh

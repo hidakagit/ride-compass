@@ -1,0 +1,19 @@
+# backendのPython lint設定（pytest.iniと同じく、pyproject.tomlを持たずツールごとの
+# 個別ファイルで持つ流儀に合わせる）。
+#
+# 選ぶルールはruffの既定（E4=import文の形式・E7=文の書き方・E9=構文/IOエラー・
+# F=pyflakes）に絞る。既定より広げていないのは、実測した違反数が
+# 「直す価値」に見合わないため:
+#   E501（行長）4,488件 — 日本語コメントの折り返し位置の問題で、コードの欠陥ではない
+#   ARG（未使用引数）300件 — Protocol実装・FastAPI依存性注入で意図的に受け取る引数が大半
+#   I（import順）109ファイル — 全ファイルへ差分が出るのに対し、得られるのは並び順の統一だけ
+# 実バグに近いルール群（B/SIM/C4等）は、既存違反を1件ずつ判断してから個別に足す。
+line-length = 120
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# rasterioより先にpin_bundled_proj_data()を呼ぶ必要があり、import順を動かせない
+# （ファイル冒頭のコメント参照）。
+"tests/conftest.py" = ["E402"]

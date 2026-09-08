@@ -31,7 +31,6 @@ import time
 
 from sqlalchemy import func, select
 
-from app.config import settings
 from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.batch._common import batch_session_factory, run_simple_batch_cli

@@ -14,7 +14,7 @@ from shapely.geometry import Point
 from sqlalchemy import insert, text
 
 from app.domain.attributes import ElevationAttribute, WayAttributeCounts
-from app.domain.graph import DirectedEdge, WaySpec, build_road_graph
+from app.domain.graph import WaySpec, build_road_graph
 from app.domain.landcover import LULC_BUILT, LULC_TREES, LULC_WATER, WayLandcover, class_percentages
 from app.domain.region import BoundingBox
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport

@@ -1,4 +1,3 @@
-import pytest
 
 from app.infrastructure import jma_tile_redis_cache
 from tests.fake_redis import FakeRedis

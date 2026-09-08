@@ -613,6 +613,8 @@ RideCompass/
     Dockerfile                ✅
     .env.example              ✅
     pytest.ini                ✅ asyncio_mode = auto
+    requirements-dev.txt      ✅ 改善計画T678: 開発・CIでのみ使う依存（ruff）。本番webイメージには入れない
+    ruff.toml                 ✅ 改善計画T678: Python lintの設定。選択ルールはruff既定（E4/E7/E9/F）——E501・ARG・Iは実測した違反数が直す価値に見合わないため広げていない（ファイル内のコメント参照）
   frontend/
     next.config.ts               ✅ `/api/basemap/*`と`/api/region/road-surface-tiles/*`、`/api/jma-tile/*`（改善計画T412）をバックエンドへプロキシするrewrites（同一オリジン維持、Step10・Step10改訂）
     src/

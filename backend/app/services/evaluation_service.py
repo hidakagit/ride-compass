@@ -28,9 +28,6 @@ class EvaluationService:
     向けに残るオーケストレーション層。
     """
 
-    def __init__(self, preference: RoutePreference):
-        self._preference = preference
-
     def evaluate_graph(
         self,
         graph: RoadGraphLike,
@@ -47,9 +44,9 @@ class EvaluationService:
         travel_speed_ms: float | None = None,
         metrics: Mapping[str, EdgeKeyedMetrics] | None = None,
     ) -> dict[str, EdgeCostResult]:
-        # preferenceは呼び出し元が必ず明示的に渡す（self._preferenceを直接書き換えると
-        # リクエスト間で共有される状態を汚染するため、呼び出し元がmodel_copyしたコピーを
-        # こちらへ渡す設計）。
+        # preferenceは呼び出し元が必ず明示的に渡す（インスタンスへ保持すると
+        # リクエスト間で共有される状態を汚染するため、呼び出し元がmodel_copyした
+        # コピーをこちらへ渡す設計）。
         # penalty_strength（T12 ADR原則1）はコスト式の割増率の強さを
         # 調整するリクエストパラメータ（既定1.0）。domain/evaluation.py:
         # compute_cost_from_axis_scores参照。
