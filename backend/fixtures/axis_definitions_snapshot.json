@@ -153,55 +153,6 @@
     },
     {
       "definition": {
-        "axis_id": "stop_density",
-        "category": "観測",
-        "chip_label": "停止密度",
-        "dedicated_way_value_layer": false,
-        "default_weight": 0.2,
-        "description": "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
-        "display_band_labels_override": null,
-        "display_thresholds_override": null,
-        "dynamic_way_value_needs_bearing": false,
-        "dynamic_way_value_needs_speed": false,
-        "dynamic_way_value_needs_time": false,
-        "icon_id": "density-stack",
-        "is_published": true,
-        "label": "停止密度",
-        "panel_hint": "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
-        "priority_overrides": [],
-        "shape": {
-          "breakpoints": [
-            [
-              0.0,
-              0.0
-            ],
-            [
-              4.0,
-              100.0
-            ]
-          ],
-          "kind": "breakpoint_linear",
-          "preprocess": "identity",
-          "terms": [
-            {
-              "material": "stop_count_per_km",
-              "required": true,
-              "weight": 1.0
-            },
-            {
-              "material": "intersection_count_per_km",
-              "required": false,
-              "weight": 0.3
-            }
-          ]
-        },
-        "show_map_icon": true,
-        "time_scope": "always"
-      },
-      "sort_order": 3
-    },
-    {
-      "definition": {
         "axis_id": "car_stress",
         "category": "推定",
         "chip_label": "圧迫感",
@@ -718,7 +669,89 @@
         "time_scope": "always"
       },
       "sort_order": 14
+    },
+    {
+      "definition": {
+        "axis_id": "axis_abdaded0be20",
+        "category": "推定",
+        "chip_label": null,
+        "dedicated_way_value_layer": false,
+        "default_weight": 0.2,
+        "description": "止まる回数（信号・踏切・一時停止）が少ないほど易しい。信号の無い横断歩道と交差点の多さは含みません。",
+        "display_band_labels_override": [
+          "500m以上で1回停止",
+          "250〜500mで1回停止",
+          "143〜250mで1回停止",
+          "83m〜143mで1回停止",
+          "83m以下で1回停止"
+        ],
+        "display_thresholds_override": [
+          2.0,
+          4.0,
+          7.0,
+          12.0
+        ],
+        "dynamic_way_value_needs_bearing": false,
+        "dynamic_way_value_needs_speed": false,
+        "dynamic_way_value_needs_time": false,
+        "icon_id": null,
+        "is_published": true,
+        "label": "停止密度",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.5,
+              20.0
+            ],
+            [
+              1.5,
+              50.0
+            ],
+            [
+              3.0,
+              75.0
+            ],
+            [
+              5.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "poi_signal_per_km",
+              "required": false,
+              "weight": 1.0
+            },
+            {
+              "material": "poi_level_crossing_per_km",
+              "required": false,
+              "weight": 1.5
+            },
+            {
+              "material": "poi_stop_per_km",
+              "required": false,
+              "weight": 0.3
+            },
+            {
+              "material": "poi_crossing_per_km",
+              "required": false,
+              "weight": 0.0
+            }
+          ]
+        },
+        "show_map_icon": true,
+        "time_scope": "always"
+      },
+      "sort_order": 15
     }
   ],
-  "revision": 53
+  "revision": 61
 }
