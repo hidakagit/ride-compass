@@ -674,7 +674,7 @@
       "definition": {
         "axis_id": "axis_abdaded0be20",
         "category": "推定",
-        "chip_label": null,
+        "chip_label": "停止密度",
         "dedicated_way_value_layer": false,
         "default_weight": 0.2,
         "description": "止まる回数（信号・踏切・一時停止）が少ないほど易しい。信号の無い横断歩道と交差点の多さは含みません。",
@@ -694,10 +694,10 @@
         "dynamic_way_value_needs_bearing": false,
         "dynamic_way_value_needs_speed": false,
         "dynamic_way_value_needs_time": false,
-        "icon_id": null,
+        "icon_id": "density-stack",
         "is_published": true,
         "label": "停止密度",
-        "panel_hint": null,
+        "panel_hint": "信号・踏切・一時停止が道路上でどれだけ密集しているかの目安です。信号の無い横断歩道と交差点は数えません。実際の位置は『停止要因』レイヤーで確認できます。",
         "priority_overrides": [],
         "shape": {
           "breakpoints": [
@@ -753,5 +753,5 @@
       "sort_order": 15
     }
   ],
-  "revision": 61
+  "revision": 62
 }
