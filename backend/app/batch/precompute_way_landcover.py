@@ -40,7 +40,7 @@ from app.infrastructure.proj_data import pin_bundled_proj_data
 from app.infrastructure.road_graph_models import OsmRawWayRow, WayLandcoverRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
-logger = logging.getLogger("app.batch.precompute_way_landcover")
+logger = logging.getLogger("ridecompass.precompute_way_landcover")
 
 CHUNK_SIZE = 5_000
 DEFAULT_BUFFER_M = 100.0
@@ -236,7 +236,7 @@ async def run(
 
             logger.info(
                 "土地被覆事前計算完了: 対象=%d件 書込=%d件 範囲外=%d件 画素不足=%d件 elapsed=%.1fs",
-                len(way_ids), total_written, total_out_of_range, total_low_pixels,
+                target_count, total_written, total_out_of_range, total_low_pixels,
                 time.perf_counter() - started,
             )
             return 0
