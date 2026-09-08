@@ -277,7 +277,7 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
   KeyErrorになり`/api/routes/generate`ごと失敗する。静的材料が必要なら別の軸へ切り出して
   軸参照で合成する。
 - `dedicated_way_value_layer`を立てられるのは、way_id→値配信の実装
-  （`api/dependencies.py`の`_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`）が登録済みの
+  （`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）が登録済みの
   `axis_id`だけ。宣言だけでは配信できる値が無い（配信側は実装の無い材料を未知の
   `material_id`と同じく404で返す）。
 

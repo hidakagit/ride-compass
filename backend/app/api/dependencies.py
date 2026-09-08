@@ -13,7 +13,7 @@ from typing import AsyncIterator, Awaitable, Callable
 from fastapi import Depends, HTTPException, Request
 
 from app.config import settings
-from app.domain.dynamic_way_values import dynamic_way_value_materials
+from app.domain.dynamic_way_values import dedicated_way_value_axes
 from app.domain.errors import RoutingError
 from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
 from app.domain.route import Coordinates, RouteSegment
@@ -292,23 +292,25 @@ async def get_region_service():
         yield RegionService()
 
 
-# material_id→サービスファクトリの登録テーブル。WindWayService/GradientWayServiceは
-# コンストラクタ依存が異なる（前者だけweather_serviceを追加で要求）ため、ファクトリは
-# repository・weather_serviceの両方を受け取り、必要な方だけ使う統一シグネチャにする。
-# 3つ目の動的材料を追加する際は、このdictへ1エントリ足すだけでよい
-# （dynamic_way_value_materials()自体の拡張[軸スタジオでの宣言のみで完結]とは別軸・
+# axis_id→サービスファクトリの登録テーブル（キーは軸id。材料idではない
+# ——サービスが返す生値の材料idは各サービスの`material_id`属性が別に持つ）。
+# WindWayService/GradientWayServiceはコンストラクタ依存が異なる（前者だけ
+# weather_serviceを追加で要求）ため、ファクトリはrepository・weather_serviceの
+# 両方を受け取り、必要な方だけ使う統一シグネチャにする。
+# 3つ目の専用way値配信軸を追加する際は、このdictへ、1エントリ足すだけでよい
+# （dedicated_way_value_axes()自体の拡張［軸スタジオでの宣言のみで完結］とは別軸・
 # 別タイミングで進められる。こちらはPython実装本体の登録のため常にコード変更を伴う）。
-# 注意: このdictのキー集合はdynamic_way_value_materials()（domain/dynamic_way_values.py）の
-# キー集合の部分集合である必要がある（後者に無いmaterial_idは下の
-# `if material_id not in dynamic_way_value_materials()`で先に弾かれる）。新しい材料を
+# 注意: このdictのキー集合はdedicated_way_value_axes()（domain/dynamic_way_values.py）の
+# キー集合の部分集合である必要がある（後者に無いaxis_idは下の
+# `if axis_id not in dedicated_way_value_axes()`で先に弾かれる）。新しい軸を
 # 追加する際は、軸スタジオでの登録（dedicated_way_value_layer・needs_time/needs_bearing）
-# に加えてこのdictへも1エントリ登録すること（こちらはPythonの実装本体[コンストラクタ]の
+# に加えてこのdictへも登録すること（こちらはPythonの実装本体［コンストラクタ］の
 # 登録なので宣言だけでは代替できない）。
 # 軸スタジオでの登録だけが先行した軸は、ここに実装が無い＝配信できる値が無いため、
-# 未知のmaterial_idと同じく404で返す（`_dynamic_way_value_factory`）。500にすると
+# 未知のaxis_idと同じく404で返す（`get_dedicated_way_value_service`）。500にすると
 # フロントの「データなし」フォールバックが効かず、その軸のタイルが全て失敗する。
 # 書き込み時点で弾く経路は`axis_admin.py`の`_check_dedicated_layer_is_implemented`。
-_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES: dict[
+_DEDICATED_WAY_VALUE_SERVICE_FACTORIES: dict[
     str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
 ] = {
     "wind": lambda repository, weather_service: WindWayService(repository=repository, weather_service=weather_service),
@@ -316,31 +318,31 @@ _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES: dict[
 }
 
 
-def implemented_dynamic_way_value_material_ids() -> frozenset[str]:
-    """way_id→動的値配信の実装（Pythonのサービス本体）が登録済みのmaterial_id。
+def implemented_dedicated_way_value_axis_ids() -> frozenset[str]:
+    """way_id→動的値配信の実装（Pythonのサービス本体）が登録済みのaxis_id。
 
     軸スタジオは`dedicated_way_value_layer=true`の軸をGUIから作れるが、配信できる値は
     ここに実装があるものだけ。書き込み時の検証（`axis_admin.py`）が参照する。
     """
-    return frozenset(_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES)
+    return frozenset(_DEDICATED_WAY_VALUE_SERVICE_FACTORIES)
 
 
-async def get_dynamic_way_value_service(
-    material_id: str,
+async def get_dedicated_way_value_service(
+    axis_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
 ):
-    """way_id→動的値配信層（風・勾配、「評価軸」グループ）の材料id駆動な単一の注入点。
-    `material_id`（パスパラメータ）を見て、DBセッションを1つだけ
-    開いた上でその材料に対応するサービスを組み立てる——router側でwind/gradient両方の
-    サービスをDependsするとリクエストごとにDBセッションが2重に開いてしまうため、
-    この関数自体が分岐して1セッションで済ませる。`material_id`が未知の場合はNoneを返し、
-    呼び出し元（region.py）が404を返す。
+    """way_id→動的値配信層（風・勾配、「評価軸」グループ）の軸id駆動な単一の注入点。
+    `axis_id`（パスパラメータ、ルーター側と同名でなければFastAPIが解決できない）を見て、
+    DBセッションを1つだけ開いた上でその軸に対応するサービスを組み立てる——router側で
+    wind/gradient両方のサービスをDependsするとリクエストごとにDBセッションが2重に開いて
+    しまうため、この関数自体が分岐して1セッションで済ませる。`axis_id`が未知の場合は
+    Noneを返し、呼び出し元（region.py）が404を返す。
 
     get_region_serviceと同じ「road_graph_use_repository無効時はrepository自体を注入しない」
     パターン（DBなし構成では常に空dictを返す。到達可能性の説明もget_region_service参照）。
     """
-    factory = _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES.get(material_id)
-    if material_id not in dynamic_way_value_materials() or factory is None:
+    factory = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES.get(axis_id)
+    if axis_id not in dedicated_way_value_axes() or factory is None:
         yield None
         return
 

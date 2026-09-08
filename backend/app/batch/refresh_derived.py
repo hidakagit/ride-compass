@@ -9,9 +9,10 @@
 実行順序（依存DAGどおり）: ④presplit_road_graph→⑤precompute_road_node_degrees→
 ⑥precompute_edge_attribute_counts→⑦precompute_elevation_attributes→
 ⑧precompute_way_attribute_counts→⑨match_designations→⑩precompute_way_landcover。
-いずれか1段が例外を送出したら即座に停止し後続を実行しない（各バッチは低頻度・人が
-監視して実行する運用のため、部分的に古いデータのまま後続段を進めるより、失敗にすぐ
-気づける方を優先する）。
+いずれか1段が例外を送出するか非0の終了コードを返したら即座に停止し、後続を実行せず
+その終了コードをそのまま返す（各バッチは低頻度・人が監視して実行する運用のため、
+部分的に古いデータのまま後続段を進めるより、失敗にすぐ気づける方を優先する。
+disaster recovery手順はこのコマンドの終了コードで次工程へ進むかを判断する）。
 
 各段は既存バッチの`run`/`run_match`関数をそのまま呼ぶだけで、新しいロジックは持たない
 （本バッチ自体は複数コマンドを畳む薄いオーケストレーションのみ）。⑩precompute_way_
@@ -71,7 +72,13 @@ async def run(database_url: str | None, dry_run: bool, skip_landcover: bool = Fa
             continue
         stage_started = time.perf_counter()
         logger.info("段階開始: %s", label)
-        await getattr(module, attr_name)(database_url, dry_run)
+        exit_code = await getattr(module, attr_name)(database_url, dry_run)
+        if exit_code != 0:
+            logger.error(
+                "段階失敗: %s exit_code=%s（後続の段は実行しません） elapsed=%.1fs",
+                label, exit_code, time.perf_counter() - stage_started,
+            )
+            return exit_code
         logger.info("段階完了: %s elapsed=%.1fs", label, time.perf_counter() - stage_started)
     logger.info("派生データ再構築が完了しました elapsed=%.1fs", time.perf_counter() - started)
     return 0

@@ -371,11 +371,12 @@ describe("MapOverlayControls", () => {
       expect(screen.queryByRole("button", { name: "スポット" })).not.toBeInTheDocument();
     });
 
-    it("windAxisはどのグループにも束ねられず、単独チップとしても出ない", () => {
+    it("専用way値配信軸はどのグループにも束ねられず、単独チップとしても出ない", () => {
       const layers: OverlayLayerChip[] = [
         { id: "route", label: "ルート", on: false },
         {
           id: "windAxis",
+          axisStudioLayer: true,
           label: "風（評価軸）",
           chipLabel: "風軸",
           on: false,

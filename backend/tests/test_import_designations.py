@@ -16,6 +16,7 @@ from app.batch.import_designations import (
     _parse_n10_gml,
     _parse_n12_geojson,
     _write_designations,
+    _zip_file_name,
     _zip_url,
     run_import,
 )
@@ -34,6 +35,16 @@ class TestKindSpecs:
         # 改善計画T75: kind集合の正準はDESIGNATION_IMPORT_KINDS（domain/designation.py）。
         # _KIND_SPECSはここに列挙されたkind全てをカバーしている必要がある。
         assert set(_KIND_SPECS.keys()) == set(DESIGNATION_IMPORT_KINDS)
+
+    def test_zip_file_name_keeps_ksj_release_version(self):
+        """ローカル保存名はKSJの配信版数（N10-15/N12-21）を含む。
+
+        `download_to_path`は同名ファイルがあればHTTPごとスキップするため、保存名が版数を
+        含まないと新しい版のURLへ更新して再実行しても旧版のZIPをパースし、ログ・
+        designation_import_runsともに成功として記録される。
+        """
+        assert _zip_file_name(_zip_url("emergency_transport", "13")) == "N10-15_13_GML.zip"
+        assert _zip_file_name(_zip_url("critical_logistics", "13")) == "N12-21_13_GML.zip"
 
     def test_zip_url_formats_prefecture_into_kind_specific_template(self):
         assert _zip_url("emergency_transport", "13") == (
@@ -291,7 +302,7 @@ class TestRunImportOrchestration:
     async def test_writes_route_designations_and_marks_run_succeeded(self, designation_conn, tmp_path, monkeypatch):
         monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
         self._patch_network_to_fail_fast(monkeypatch)
-        _write_n10_zip(tmp_path / "emergency_transport_13.zip", "13")
+        _write_n10_zip(tmp_path / "N10-15_13_GML.zip", "13")
 
         result = await run_import(TEST_DATABASE_URL, dry_run=False)
 
@@ -314,7 +325,7 @@ class TestRunImportOrchestration:
     async def test_dry_run_does_not_touch_db(self, designation_conn, tmp_path, monkeypatch):
         monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
         self._patch_network_to_fail_fast(monkeypatch)
-        _write_n10_zip(tmp_path / "emergency_transport_13.zip", "13")
+        _write_n10_zip(tmp_path / "N10-15_13_GML.zip", "13")
 
         result = await run_import(TEST_DATABASE_URL, dry_run=True)
 
@@ -335,7 +346,7 @@ class TestRunImportOrchestration:
     async def test_marks_run_failed_and_reraises_when_insert_fails(self, designation_conn, tmp_path, monkeypatch):
         monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
         self._patch_network_to_fail_fast(monkeypatch)
-        _write_n10_zip(tmp_path / "emergency_transport_13.zip", "13")
+        _write_n10_zip(tmp_path / "N10-15_13_GML.zip", "13")
 
         async def _boom(*args, **kwargs):
             raise RuntimeError("boom")

@@ -27,12 +27,10 @@ import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
-from app.config import settings
-from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, RoadEdgeRow
+from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.precompute_edge_attribute_counts")
@@ -42,11 +40,6 @@ logger = logging.getLogger("ridecompass.precompute_edge_attribute_counts")
 # 専用エンジン（バッチ・検証スクリプト共通の慣例、measure_axis_stats.py等参照）で動くため、
 # 大きめでも安全側。実測に応じて調整可能。
 CHUNK_SIZE = 4_000
-
-# PostgreSQLは1文あたりのバインドパラメータを32,767個までしか受け取れない。UPSERTは
-# 行数×列数ぶんのパラメータを使うため、**1文で送る行数は列数から導出する**
-# （固定値にすると、列を1つ足したときに静かに上限を超え、最初のチャンクで落ちる）。
-MAX_BIND_PARAMS_PER_STATEMENT = 32_767
 
 # 計算ロジック自体（半径・重み付け等）の版数。region_service.py: ROAD_SURFACE_TILE_VERSIONと
 # 同じ「パラメータを変えたら手動で上げる」運用。入力データの版数（source_*_import_run_id）
@@ -69,38 +62,6 @@ async def _fetch_source_run_ids(session: AsyncSession) -> tuple[int | None, int 
     accident_run_id = (await session.execute(_LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL)).scalar_one()
     osm_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
     return accident_run_id, osm_run_id
-
-
-def _max_rows_per_statement(rows: list[dict]) -> int:
-    """1文へ載せられる行数。列を増やすと減る（`MAX_BIND_PARAMS_PER_STATEMENT`参照）。"""
-    return max(1, MAX_BIND_PARAMS_PER_STATEMENT // len(rows[0]))
-
-
-async def _upsert_chunk(session: AsyncSession, rows: list[dict]) -> None:
-    if not rows:
-        return
-    max_rows = _max_rows_per_statement(rows)
-    for start in range(0, len(rows), max_rows):
-        await _execute_upsert(session, rows[start : start + max_rows])
-    await session.commit()
-
-
-async def _execute_upsert(session: AsyncSession, rows: list[dict]) -> None:
-    stmt = pg_insert(EdgeAttributeCountsRow).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["edge_id"],
-        set_={
-            "accident_count": stmt.excluded.accident_count,
-            "stop_count": stmt.excluded.stop_count,
-            "intersection_count": stmt.excluded.intersection_count,
-            "poi_counts": stmt.excluded.poi_counts,
-            "computed_at": stmt.excluded.computed_at,
-            "source_accident_import_run_id": stmt.excluded.source_accident_import_run_id,
-            "source_osm_import_run_id": stmt.excluded.source_osm_import_run_id,
-            "algorithm_version": stmt.excluded.algorithm_version,
-        },
-    )
-    await session.execute(stmt)
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
@@ -157,7 +118,8 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                     }
                     for edge_id in chunk
                 ]
-                await _upsert_chunk(session, rows)
+                await repository.save_edge_attribute_counts(rows)
+                await session.commit()
             total_written += len(rows)
             logger.info(
                 "chunk %d/%d 完了: %d件 source_accident_run_id=%s source_osm_run_id=%s elapsed=%.1fs",

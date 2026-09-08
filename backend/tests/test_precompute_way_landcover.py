@@ -75,6 +75,39 @@ def test_count_pixels_in_ring_returns_none_when_outside_raster():
         assert count_pixels_in_ring(ds, ring) is None
 
 
+def test_raster_source_rejects_rings_that_stick_out_of_the_raster(tmp_path):
+    """リングがラスタ範囲からはみ出すwayは、そのラスタの対象にしない。
+
+    一部だけ重なるラスタで割合を出すと、重なった側の土地被覆だけで100%を分け合う
+    「もっともらしい数値」が正規の行として入り、NULLでないため鮮度台帳にも現れない。
+    """
+    from app.batch.precompute_way_landcover import _RasterSource
+
+    raster_path = tmp_path / "bounds.tif"
+    transform = from_origin(382000, 3951800, 10, 10)  # x:[382000,383000] y:[3950800,3951800]
+    with rasterio.open(
+        raster_path, "w", driver="GTiff", height=100, width=100, count=1, dtype="uint8",
+        crs="EPSG:32654", transform=transform,
+    ) as ds:
+        ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
+
+    source = _RasterSource(str(raster_path))
+    try:
+        inside = build_ring(LineString([(382400, 3951300), (382500, 3951300)]), inner_m=10, outer_m=100)
+        assert source.contains(inside)
+
+        # 西端（x=382000）へ寄せた線。100mバッファがラスタの外へ出る。
+        straddling = build_ring(LineString([(382050, 3951300), (382150, 3951300)]), inner_m=10, outer_m=100)
+        assert not source.contains(straddling)
+        assert source.intersects(straddling)
+
+        far = build_ring(LineString([(0, 0), (0, 100)]), inner_m=10, outer_m=100)
+        assert not source.contains(far)
+        assert not source.intersects(far)
+    finally:
+        source.close()
+
+
 class TestRunIntegration:
     pytestmark = [
         pytest.mark.asyncio(loop_scope="module"),
@@ -138,6 +171,30 @@ class TestRunIntegration:
         result = await road_graph_session.execute(
             text("SELECT 1 FROM way_landcover WHERE osm_way_id = 101")
         )
+        assert result.first() is None
+
+    async def test_run_skips_way_whose_ring_straddles_the_raster_edge(
+        self, road_graph_repository, road_graph_session, tmp_path
+    ):
+        """リングがラスタ端をまたぐwayは行を作らない（偏った割合を書き込まない）。"""
+        way = WaySpec(osm_way_id=104, node_ids=[9, 10], highway="residential")
+        await road_graph_repository.save_raw_ways([way], {9: NODE1, 10: NODE2})
+        await road_graph_session.commit()
+
+        # NODE1/NODE2はEPSG:32654で概ね(382389,3951454)-(382481,3951563)。ラスタの南西端を
+        # そこへ合わせ、100mバッファが西・南へはみ出す配置にする。
+        raster_path = tmp_path / "edge.tif"
+        transform = from_origin(382450, 3952500, 10, 10)  # x:[382450,383450] y:[3951500,3952500]
+        with rasterio.open(
+            raster_path, "w", driver="GTiff", height=100, width=100, count=1, dtype="uint8",
+            crs="EPSG:32654", transform=transform,
+        ) as ds:
+            ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
+
+        exit_code = await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", False, False)
+        assert exit_code == 0
+
+        result = await road_graph_session.execute(text("SELECT 1 FROM way_landcover WHERE osm_way_id = 104"))
         assert result.first() is None
 
     async def test_run_dry_run_does_not_write(self, road_graph_repository, road_graph_session, tmp_path):

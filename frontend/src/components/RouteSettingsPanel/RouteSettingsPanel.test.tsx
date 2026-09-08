@@ -63,6 +63,9 @@ function catalogResponse(
         dedicated_way_value_layer: dedicatedWayValueLayerByAxisId[axisId] ?? false,
         map_value_kind: "difficulty",
         map_value_unit: "",
+        dynamic_way_value_needs_time: false,
+        dynamic_way_value_needs_bearing: false,
+        dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
       };
     }),

@@ -4,6 +4,7 @@
 // MapView.overlayFilters.test.tsと同じ「実際のMapLibre Mapが必要とするメソッドだけを
 // 持つフェイク」パターンを使う。
 import { describe, expect, it } from "vitest";
+import { DEDICATED_WAY_VALUE_AXES } from "@/components/Map/axisLayers";
 import { KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
 import {
   DEFAULT_ROAD_LINE_WIDTH,
@@ -189,18 +190,23 @@ describe("clearRoadTileFeatureState（改善計画T490）", () => {
   });
 });
 
-describe("shouldClearDedicatedWayValueFeatureState（風・勾配が両方OFFになったかの判定、改善計画T490）", () => {
-  it("両方OFFのときだけtrue", () => {
-    expect(shouldClearDedicatedWayValueFeatureState(false, false)).toBe(true);
+describe("shouldClearDedicatedWayValueFeatureState（専用way値配信軸が1つも表示されていないかの判定、改善計画T490）", () => {
+  it("全軸OFFのときだけtrue", () => {
+    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: false })).toBe(true);
+    expect(shouldClearDedicatedWayValueFeatureState({})).toBe(true);
   });
 
-  it("片方だけONならfalse（まだONの軸を巻き添えにしない）", () => {
-    expect(shouldClearDedicatedWayValueFeatureState(true, false)).toBe(false);
-    expect(shouldClearDedicatedWayValueFeatureState(false, true)).toBe(false);
+  it("1つでもONならfalse（まだONの軸を巻き添えにしない）", () => {
+    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: true, gradientAxis: false })).toBe(false);
+    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: true })).toBe(false);
+    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: true, gradientAxis: true })).toBe(false);
   });
 
-  it("両方ONならfalse", () => {
-    expect(shouldClearDedicatedWayValueFeatureState(true, true)).toBe(false);
+  // 3件目の軸が公開されても、既存2軸をOFFにした瞬間に3件目の色分けが巻き添えで消えない。
+  it("3件目の軸だけONでもfalse", () => {
+    expect(
+      shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: false, surface_tempAxis: true })
+    ).toBe(false);
   });
 });
 
@@ -241,7 +247,7 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
 describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensureが既存レイヤーの色式を再適用する、T587）", () => {
   it("windAxisレイヤーが既に存在する場合、dedicatedWayValueDisplaysの変更をline-colorへ再適用する", () => {
     const map = fakeMap();
-    const windEntry = buildStaticOverlayLayers([], undefined).find((l) => l.key === "windAxis")!;
+    const windEntry = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined).find((l) => l.key === "windAxis")!;
     // 1回目: axisCatalogのフェッチ未完了を想定（boundaries未設定）でレイヤーを新規作成する。
     windEntry.ensure(map as unknown as Parameters<typeof windEntry.ensure>[0]);
     expect(map.layers.has(windEntry.layerId)).toBe(true);
@@ -250,9 +256,11 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     // 2回目: フェッチ完了後の正しいboundariesでensureを再実行する（実際にはstaticOverlayLayers
     // のuseMemo再計算→effect再実行で起きる）。既存レイヤーがあってもsetPaintPropertyで
     // line-colorが更新されなければならない。
-    const windEntryAfter = buildStaticOverlayLayers([], new Map([["wind", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]])).find(
-      (l) => l.key === "windAxis"
-    )!;
+    const windEntryAfter = buildStaticOverlayLayers(
+      [],
+      DEDICATED_WAY_VALUE_AXES,
+      new Map([["wind", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]])
+    ).find((l) => l.key === "windAxis")!;
     windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
 
     const paintCalls = map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color");
@@ -261,7 +269,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
 
   it("gradientAxis/gradientFillレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
     const map = fakeMap();
-    const before = buildStaticOverlayLayers([], undefined);
+    const before = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined);
     const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
     const gradientFillEntry = before.find((l) => l.key === "gradientFill")!;
     gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
@@ -269,7 +277,11 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     expect(map.layers.has(gradientAxisEntry.layerId)).toBe(true);
     expect(map.layers.has(gradientFillEntry.layerId)).toBe(true);
 
-    const after = buildStaticOverlayLayers([], new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]]));
+    const after = buildStaticOverlayLayers(
+      [],
+      DEDICATED_WAY_VALUE_AXES,
+      new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]])
+    );
     const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
     const gradientFillEntryAfter = after.find((l) => l.key === "gradientFill")!;
     gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);
@@ -281,7 +293,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
 
   it("dedicatedWayValueLoadingの変更（フェッチ開始/完了）もwindAxis/gradientAxis/gradientFillのline-color/fill-colorへ再適用する（改善計画T607）", () => {
     const map = fakeMap();
-    const before = buildStaticOverlayLayers([], undefined, new Map([["wind", false], ["gradient", false]]));
+    const before = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined, new Map([["wind", false], ["gradient", false]]));
     const windEntry = before.find((l) => l.key === "windAxis")!;
     const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
     const gradientFillEntry = before.find((l) => l.key === "gradientFill")!;
@@ -289,7 +301,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
     gradientFillEntry.ensure(map as unknown as Parameters<typeof gradientFillEntry.ensure>[0]);
 
-    const after = buildStaticOverlayLayers([], undefined, new Map([["wind", true], ["gradient", true]]));
+    const after = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined, new Map([["wind", true], ["gradient", true]]));
     const windEntryAfter = after.find((l) => l.key === "windAxis")!;
     const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
     const gradientFillEntryAfter = after.find((l) => l.key === "gradientFill")!;

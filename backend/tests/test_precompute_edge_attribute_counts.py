@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 """app/batch/precompute_edge_attribute_counts.pyのrun()結合検証（改善計画T144）。
 チャンク分割自体の純粋ロジック検証はtests/test_batch_common.py（改善計画T467、
 _chunked実装統合に伴いテストも集約）。
@@ -8,12 +7,16 @@ ridecompass_test DB（conftest.pyのroad_graph_session/road_graph_repositoryフ�
 実接続が必要。接続できない環境ではフィクスチャがpytest.skip()する。
 """
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import select, text
 
-from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION, run
+from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION, CHUNK_SIZE, run
 from app.domain.graph import WaySpec, build_road_graph
+from app.infrastructure import accident_models  # noqa: F401  road_graph_sessionの後始末対象へaccident_*テーブルを登録するためのimport
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow
+from app.infrastructure.road_graph_repository import MAX_BIND_PARAMS_PER_STATEMENT, RoadGraphRepository
 from tests.conftest import TEST_DATABASE_URL
 
 NODE1 = (35.700, 139.700)
@@ -114,22 +117,34 @@ class TestRunOrchestration:
         assert {r.source_osm_import_run_id for r in rows} == {osm_run_id}
 
 
+async def test_upsert_is_delegated_to_the_repository_without_batch_local_sql():
+    """UPSERTはリポジトリの`save_edge_attribute_counts`（`_bulk_upsert`）へ委譲する。
+
+    このバッチのdocstringは「新しいSQLは書かない」と宣言している。自前のINSERT文を
+    持つと、パラメータ上限に応じた再分割（`road_graph_repository._bulk_chunk_rows`）の
+    ような共通の保護が片方だけ効かなくなる。1文あたりのバインドパラメータ上限を守る
+    こと自体の検証はtests/test_road_graph_repository.py側。
+    """
+    from app.batch import precompute_edge_attribute_counts as batch
+
+    assert not hasattr(batch, "_upsert_chunk")
+    assert not hasattr(batch, "_execute_upsert")
+    assert "pg_insert" not in batch.__dict__
+    assert hasattr(RoadGraphRepository, "save_edge_attribute_counts")
+
+
 async def test_upsert_splits_statements_so_bind_parameters_stay_under_the_limit():
-    """1文のバインドパラメータがPostgreSQLの上限（32,767個）を超えないよう分割する。
+    """このバッチが組み立てる行をUPSERTしても、1文のバインドパラメータが
+    PostgreSQLの上限（32,767個）を超えない。
 
     列を1つ足すと1文へ載せられる行数が減る。行数を固定にしていたため、実際に
     `poi_counts`を足したときに上限を超え、本番のバッチが最初のチャンクで落ちた。
     """
-    from app.batch import precompute_edge_attribute_counts as batch
-
     executed: list[int] = []
 
     class _Session:
         async def execute(self, stmt):
             executed.append(len(stmt.compile().params))
-
-        async def commit(self):
-            pass
 
     columns = {
         "edge_id": "e", "accident_count": 0.0, "stop_count": 0, "intersection_count": 0,
@@ -137,11 +152,11 @@ async def test_upsert_splits_statements_so_bind_parameters_stay_under_the_limit(
         "source_accident_import_run_id": None, "source_osm_import_run_id": None,
         "algorithm_version": "v1",
     }
-    rows = [dict(columns, edge_id=f"e{i}") for i in range(batch.CHUNK_SIZE)]
+    rows = [dict(columns, edge_id=f"e{i}") for i in range(CHUNK_SIZE)]
 
-    await batch._upsert_chunk(_Session(), rows)
+    await RoadGraphRepository(_Session()).save_edge_attribute_counts(rows)
 
     assert executed, "1文も発行されていない"
-    assert max(executed) <= batch.MAX_BIND_PARAMS_PER_STATEMENT
+    assert max(executed) <= MAX_BIND_PARAMS_PER_STATEMENT
     # 全行が漏れなく載っている（分割で落ちていない）。
     assert sum(n // len(columns) for n in executed) == len(rows)

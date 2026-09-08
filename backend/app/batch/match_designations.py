@@ -97,24 +97,33 @@ async def _write_matches(
     data_version: str,
     source_osm_import_run_id: int | None = None,
 ) -> float:
-    """DELETE→executemany INSERTを1トランザクションに括り、candidatesが0件のときは
-    DELETEごとスキップする（route_designationsが空[import未実行・取込失敗後]やバッファ
-    閾値不整合でcandidatesが0件のとき、既存designation_attributesを誤って全消しする
-    事故を防ぐため）。戻り値はinsert所要秒（スキップ時は0.0）。
+    """DELETE→executemany INSERTを1トランザクションに括り、**kindごとに**candidatesが
+    0件ならそのkindをDELETEの対象から外す（route_designationsが空[import未実行・取込
+    失敗後]やバッファ閾値不整合でcandidatesが0件のとき、既存designation_attributesを
+    誤って全消しする事故を防ぐため）。戻り値はinsert所要秒（全kindスキップ時は0.0）。
+
+    ガードをkind単位にするのは、DELETEが`kind = ANY($1)`で全kindを対象にするため
+    ——全kind合算で判定すると、片方のkindだけcandidatesが0になったとき、そのkindの
+    行だけが黙って全消しされる（もう片方のkindにcandidatesがあるので全体としては
+    スキップされない）。
 
     source_osm_import_run_idは派生データの系譜追跡用、呼び出し元（run_match）が
     実行時点の最新成功osm_import_runs.idを一度だけ取得し渡す。
     """
-    if not candidates:
+    kinds_with_candidates = [kind for kind in _KINDS if any(c[1] == kind for c in candidates)]
+    skipped_kinds = [kind for kind in _KINDS if kind not in kinds_with_candidates]
+    if skipped_kinds:
         logger.warning(
-            "マッチ候補が0件のため更新をスキップします（既存データは保持） candidates=0 matched=0"
+            "マッチ候補が0件のkindは更新をスキップします（既存データは保持） skipped_kinds=%s",
+            skipped_kinds,
         )
+    if not kinds_with_candidates:
         return 0.0
 
     data_version_local = data_version
     insert_started = time.perf_counter()
     async with conn.transaction():
-        await conn.execute(_DELETE_SQL, list(_KINDS))
+        await conn.execute(_DELETE_SQL, kinds_with_candidates)
         # 1行ずつconn.executeするとRTT×行数がそのまま実行時間に乗る（本番は遠隔DBのため
         # 特に顕著）。executemanyで1ラウンドトリップにバッチ化する。
         await conn.executemany(
@@ -122,6 +131,7 @@ async def _write_matches(
             [
                 (osm_way_id, kind, ratio, data_version_local, route_designation_ids, source_osm_import_run_id)
                 for osm_way_id, kind, ratio, route_designation_ids in matched
+                if kind in kinds_with_candidates
             ],
         )
     return time.perf_counter() - insert_started
@@ -162,14 +172,21 @@ async def run_match(database_url: str | None, dry_run: bool) -> int:
         data_version = f"buffer{DESIGNATION_BUFFER_WIDTH_M:.0f}m"
         insert_elapsed = await _write_matches(conn, candidates, matched, data_version, source_osm_import_run_id)
 
-        # candidates=0（_write_matches内でWARNING済み）はここでは重複ログしない。
-        # candidatesはあってもmatched=0（全てratio閾値未満）はWARNING（docs/logging.mdの
-        # 「候補0件はWARNING以上・原因内訳を同行に」規約）。
+        # スキップしたkind（_write_matches内でWARNING済み）はここでは重複ログしない。
+        # candidatesはあってもmatched=0のkindが1つでもあればWARNING（docs/logging.mdの
+        # 「候補0件はWARNING以上・原因内訳を同行に」規約。kind別の内訳を同じ行へ載せる）。
         if candidates:
-            log = logger.warning if not matched else logger.info
+            per_kind = {
+                kind: (sum(1 for c in candidates if c[1] == kind), sum(1 for m in matched if m[1] == kind))
+                for kind in _KINDS
+            }
+            has_empty_kind = any(candidates_n and not matched_n for candidates_n, matched_n in per_kind.values())
+            log = logger.warning if not matched or has_empty_kind else logger.info
             log(
-                "マッチング完了: candidates=%d matched=%d insert_elapsed=%.1fs elapsed=%.1fs",
-                len(candidates), len(matched), insert_elapsed, time.perf_counter() - started,
+                "マッチング完了: candidates=%d matched=%d per_kind=%s insert_elapsed=%.1fs elapsed=%.1fs",
+                len(candidates), len(matched),
+                {kind: f"c={c},m={m}" for kind, (c, m) in per_kind.items()},
+                insert_elapsed, time.perf_counter() - started,
             )
         return 0
     finally:

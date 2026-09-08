@@ -34,7 +34,7 @@ export interface LensControlProps {
   onKeepAfterRouteChange: (keep: boolean) => void;
   /** ルート確定済みか（ルート前は「ルート後のみ」バッジを出す）。 */
   hasDetail: boolean;
-  /** 現在のレンズのデータ取得状態（専用配信軸[windAxis/gradientAxis]がレンズの間のみ意味を
+  /** 現在のレンズのデータ取得状態（専用way値配信軸がレンズの間のみ意味を
    * 持つ。それ以外のレンズはこの失敗モードを持たないためundefined）。ピルへ小さな状態ドットを
    * 添える——道路の色分け自体は「取得失敗」と「本当にその範囲にデータが無い」のどちらも
    * 同じ無彩色になり見分けが付かないため。 */

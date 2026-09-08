@@ -106,7 +106,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`は`jmaZoomRange(elementId)`が
 |---|---|---|---|
 | `precipitationNowcast` | `main` | raster（60分以内）→raster（〜15時間）→gridFill（延長予報） | `precipitationNowcast.ts` |
 | `precipitationNowcast` | `linearRainband` | raster（sjfcstmap） | `riskMap.ts: fetchLinearRainbandFrames` |
-| `windVector` | `arrow` | gridMark | `windLayer.ts`（走行方位に依存しない矢印のみ。走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の`windAxis`が担う） |
+| `windVector` | `arrow` | gridMark | `windLayer.ts`（走行方位に依存しない矢印のみ。走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の専用way値配信軸が担う） |
 | `disaster` | `heavyRain`/`landslide`/`inundation` | raster | `riskMap.ts: fetchCurrentRiskFrames` |
 | `disaster` | `thunder`/`tornado` | raster | `thunderNowcast.ts`（1本のフレーム列を共有、プロダクトコードのみ相違） |
 | `disaster` | `flood` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |

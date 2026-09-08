@@ -8,7 +8,7 @@ repositoryあり/なしを切り替えるファクトリ関数群）の単体テ
 
 from app.api.dependencies import (
     get_accident_service,
-    get_dynamic_way_value_service,
+    get_dedicated_way_value_service,
     get_elevation_attribute_service,
     get_graph_service,
     get_region_service,
@@ -124,17 +124,18 @@ class TestGetAccidentService:
             await agen.aclose()
 
 
-class TestGetDynamicWayValueService:
-    """改善計画T460: material_id→サービスファクトリの登録テーブル
-    （_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES）が、以前のif material_id == "wind"ハードコード
-    分岐と同じ結果を返すことの回帰テスト。road_graph_use_repository無効化でDB接続を避け、
-    このファイルの他テストと同じ「実DB接続なしで直接呼び出す」方針を踏襲する。"""
+class TestGetDedicatedWayValueService:
+    """axis_id→サービスファクトリの登録テーブル
+    （_DEDICATED_WAY_VALUE_SERVICE_FACTORIES）が、登録済みの軸idごとに対応するサービスを
+    組み立て、未登録の軸idではNone（呼び出し元が404へ倒す）を返すことの回帰テスト。
+    road_graph_use_repository無効化でDB接続を避け、このファイルの他テストと同じ
+    「実DB接続なしで直接呼び出す」方針を踏襲する。"""
 
-    async def test_wind_material_id_yields_wind_way_service_with_weather_service(self, monkeypatch):
+    async def test_wind_axis_id_yields_wind_way_service_with_weather_service(self, monkeypatch):
         monkeypatch.setattr(settings, "road_graph_use_repository", False)
         weather_service = get_weather_service()
 
-        agen = get_dynamic_way_value_service("wind", weather_service=weather_service)
+        agen = get_dedicated_way_value_service("wind", weather_service=weather_service)
         try:
             service = await agen.__anext__()
             assert isinstance(service, WindWayService)
@@ -142,20 +143,20 @@ class TestGetDynamicWayValueService:
         finally:
             await agen.aclose()
 
-    async def test_gradient_material_id_yields_gradient_way_service(self, monkeypatch):
+    async def test_gradient_axis_id_yields_gradient_way_service(self, monkeypatch):
         monkeypatch.setattr(settings, "road_graph_use_repository", False)
 
-        agen = get_dynamic_way_value_service("gradient", weather_service=get_weather_service())
+        agen = get_dedicated_way_value_service("gradient", weather_service=get_weather_service())
         try:
             service = await agen.__anext__()
             assert isinstance(service, GradientWayService)
         finally:
             await agen.aclose()
 
-    async def test_unknown_material_id_yields_none(self, monkeypatch):
+    async def test_unknown_axis_id_yields_none(self, monkeypatch):
         monkeypatch.setattr(settings, "road_graph_use_repository", False)
 
-        agen = get_dynamic_way_value_service("rain", weather_service=get_weather_service())
+        agen = get_dedicated_way_value_service("rain", weather_service=get_weather_service())
         try:
             service = await agen.__anext__()
             assert service is None

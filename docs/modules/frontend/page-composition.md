@@ -69,24 +69,28 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
   │           │                              │
   │           ├─→ 環境（面）: showWindPenaltyFill = showWindVector && !hasDetail
   │           │     useDynamicWeatherLayers内でwindPenaltyPayload計算
-  │           └─→ 評価軸（線）: showWindAxis = layerVisibility.windAxis && !hasDetail
-  │                 useDynamicWayValues("wind", showWindAxis, mapViewport,
-  │                                     travelBearingDeg, dynamicLayerTargetTime)
+  │           └─→ 評価軸（線）: レンズがその軸を指している間だけ（下記の共通経路）
   │
   └─→ 勾配: （時刻非依存）
               │                              │
               ├─→ 環境（面）: showGradientFill = layerVisibility.gradientFill && !hasDetail
-              │     gradientGridCellsFromTileResponses(gradientAxisData.byTile)
-              └─→ 評価軸（線）: showGradientAxis = layerVisibility.gradientAxis && !hasDetail
-                    useDynamicWayValues("gradient", showGradientAxis || showGradientFill,
-                                        mapViewport, travelBearingDeg, undefined)
+              │     gradientGridCellsFromTileResponses(勾配軸のbyTile)
+              └─→ 評価軸（線）: レンズがその軸を指している間だけ（下記の共通経路）
+
+  評価軸（線）の共通経路（軸ごとの分岐を持たない）:
+    dedicatedFetchAxes = [レンズが指す専用way値配信軸（lensBackgroundShown中）]
+                       ∪ [showGradientFillなら勾配軸]
+    useDedicatedWayValues(dedicatedFetchAxes, mapViewport, travelBearingDeg,
+                          dynamicLayerTargetTime, assumedSpeedKmh)
+      → 時刻・想定速度は軸カタログのneedsTime/needsSpeedが立つ軸のリクエストにだけ載る
+    dedicatedWayValueVisibility = レイヤーID（`${axisId}Axis`）→ lens === axisId && lensBackgroundShown
 ```
 
 いずれも**ルート確定後（`hasDetail`）は環境・評価軸どちらの一律表現も終了**し、「生成した
 ルートの色分け」（`routeStyleModes.ts`由来のモード選択）へ委ねる契約になっている。設定UIは
 `TravelBearingControl`（地図右上、MapLibreのズーム+/−・回転コントロールの直下に置く
 アイコンボタン）1箇所へ集約されており、風・勾配いずれかの環境/評価軸表示が1つでもONの
-間だけ表示される（`showWindVector || showGradientFill || showWindAxis || showGradientAxis`、
+間だけ表示される（`showWindVector || showGradientFill || 専用way値配信軸のレンズが有効`、
 かつ`!hasDetail`）。中身は`RouteSettingsPanel`と同じ`WindBearingSlider`ダイヤルを
 Radix Popoverで開く。
 
@@ -141,8 +145,9 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 - `lens`（レンズ、`LensControl`が唯一の入口）→ ルート前は`axisVisibility`/`showWindAxis`/
   `showGradientAxis`（全道路の塗り）、ルート後は`MapView`の`routeStyleModeId`（ルート線）
   へ同じ値から導出する（[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
-- `RAMP_AXES`/`axisCatalog.rampAxes` → `buildMapLayers`/`buildStaticFilterAxes`/
-  `buildRoadSurfaceSharedLayerIds`経由でレイヤー構成を組み立てる。
+- `RAMP_AXES`/`axisCatalog.rampAxes`・`DEDICATED_WAY_VALUE_AXES`/`axisCatalog.dedicatedAxes`
+  → `buildMapLayers`/`buildStaticFilterAxes`/`buildRoadSurfaceSharedLayerIds`経由で
+  レイヤー構成を組み立てる。
 - `axisCatalog.secondaryAxes`（`primaryAttributeIds`）→ `secondaryAxisCasingLayerIds`
   （二次軸の下敷き表現、[静的レイヤー・道路表示](static-map-layers.md)参照）。
 - `travelBearingDeg`/`dynamicLayerTargetTime` → 環境/評価軸の風・勾配表現が共有する入力

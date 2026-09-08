@@ -28,10 +28,6 @@ from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.wind_way")
 
-# このサービスが担当する軸id（`api/dependencies.py: _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`の
-# キーと同じ）。
-AXIS_ID = "wind"
-
 # 道路タイル単位の風評価に使う格子間隔は、環境グループの風・降水延長予報表示が使う既定間隔
 # （`domain/wind_grid.py: WIND_GRID_DETAIL_SPACING_DEG`、≒2.2km）をそのまま流用する。
 # MSMの格子は約5km（緯度0.05度・経度0.0625度）で、これより細かい間隔を選んでも
@@ -69,6 +65,14 @@ class WindWayService:
         self._repository = repository
         self._weather_service = weather_service
 
+    # このサービスが担当する軸id。`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`の
+    # キー・`GET /api/region/dynamic-way-values/{axis_id}`のパスパラメータ・
+    # キャッシュの名前空間（`dynamic_way_value_cache.py`）の3つは常に同じ値でなければ
+    # ならない（`tests/test_dedicated_way_value_services.py`が登録キーとの一致を検査する）。
+    axis_id = "wind"
+
+    # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
+    # 軸定義のどの材料として評価するかを決める）。上の`axis_id`とは別の名前空間。
     material_id = "wind_drag_ratio"
 
     async def get_way_values(
@@ -85,7 +89,7 @@ class WindWayService:
         時計回り）。全道路共通の値として使う。型は`at`と揃え`float | None`にしている
         （router側`api/routers/region.py`の材料非依存な呼び出しインターフェースと
         一致させるため）が、風は常にbearing_degを必須とする材料
-        （`domain/dynamic_way_values.py: dynamic_way_value_materials()["wind"].needs_bearing`
+        （`domain/dynamic_way_values.py: dedicated_way_value_axes()["wind"].needs_bearing`
         =True）のため、Noneのまま到達したら即座に失敗させる（router側の422検証を
         すり抜けて呼ばれた場合の防御、無音でNoneを計算に渡さない）。
         """

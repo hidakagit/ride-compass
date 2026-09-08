@@ -13,19 +13,32 @@
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`dynamic_way_values.py` |
 | services | `wind_way_service.py`・`gradient_way_service.py` |
 | infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由） |
-| api | `region.py`（`GET /api/region/dynamic-way-values/{material_id}/...`）・`dependencies.py`（`get_dynamic_way_value_service`） |
+| api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`） |
 
 勾配材料の入力（`elevation_attributes.average_grade`・`road_edges.bearing_deg`）を
 DBから取り出す`infrastructure/road_graph_repository.py: get_way_gradient_inputs_in_tile`・
 `get_way_ids_in_tile`は[routing-engine.md](routing-engine.md)が主管するファイルに属する。
 
-## 材料登録と地図表示値（`domain/dynamic_way_values.py`）
+## 2つのidの名前空間（読む前の前提）
+
+この機構には名前の似た2つのidが出てくる。**混同すると無音の404・別の軸のキャッシュの
+読み書きになる**ため、常に区別する。
+
+| id | 何を指すか | 実体 | 出てくる場所 |
+|---|---|---|---|
+| **軸id** (`axis_id`) | 評価軸そのもの。例: `wind`・`gradient` | `axis_definitions.axis_id` | APIのパスパラメータ、`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`のキー、キャッシュの名前空間、各サービスの`axis_id`クラス属性 |
+| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent` | `material_catalog.py`のキー | 各サービスの`material_id`クラス属性、`transform_dedicated_way_values`の第2引数 |
+
+`tests/test_dedicated_way_value_services.py`が、登録キー＝`axis_id`属性であること・
+`material_id`が材料カタログの既知材料であること・2つが同じ値でないことを検査する。
+
+## 軸登録と地図表示値（`domain/dynamic_way_values.py`）
 
 ```python
-def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
+def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
     return {
-        axis_id: DynamicWayValueMaterial(
-            material_id=axis_id, label=definition.label,
+        axis_id: DedicatedWayValueAxis(
+            axis_id=axis_id, label=definition.label,
             needs_time=definition.dynamic_way_value_needs_time,
             needs_bearing=definition.dynamic_way_value_needs_bearing,
             needs_speed=definition.dynamic_way_value_needs_speed,
@@ -39,16 +52,16 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
 `dedicated_way_value_layer=True`の軸を抽出し、呼び出しの都度（モジュール定数ではなく
 関数として）導出する。`needs_time`/`needs_bearing`も軸自身のDBフィールド
 （`AxisDefinition.dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`）を
-そのまま使うため、新しい動的＋向きあり材料を追加するときの軸スタジオでの登録
+そのまま使うため、新しい専用way値配信軸を追加するときの軸スタジオでの登録
 （`dedicated_way_value_layer`・`dynamic_way_value_needs_time`/
 `dynamic_way_value_needs_bearing`）はこの関数の戻り値へ自動的に反映される。
 
 ただし**配信できる値があるかは別**で、way_id→値を実際に組み立てるサービス本体を
-`api/dependencies.py`の`_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
+`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
 （コード変更を伴う）。登録の無い`axis_id`に`dedicated_way_value_layer`を立てることは
 書き込み時に拒否され（`axis_admin.py:
 _check_dedicated_layer_is_implemented`）、既存データ等で万一そうなっている場合も配信側は
-未知の`material_id`と同じく404を返す（500にするとフロントの「データなし」
+未知の`axis_id`と同じく404を返す（500にするとフロントの「データなし」
 フォールバックが効かない）。
 
 - `needs_time`: 時刻（`at`クエリパラメータ）に依存するか。風=Yes（気象予報）、
@@ -60,6 +73,11 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
   材料`wind_drag_ratio`を参照する風軸で立てる（勾配=No）。
 - `dedicated_way_value_layer=True`の軸は現状wind/gradientの2軸のみ。
 
+3つの`needs_*`は`GET /api/axis-catalog`が`dynamic_way_value_needs_time`/
+`_needs_bearing`/`_needs_speed`としてそのまま公開し、frontendはどのクエリパラメータを
+どの軸のリクエストへ載せるかをこれだけから決める（軸idの分岐を持たない。
+[map-axis-coloring.md](../frontend/map-axis-coloring.md)参照）。
+
 同じモジュールが、軸について地図が塗る値の種類を軸定義から決める:
 
 | 関数 | 意味 |
@@ -68,24 +86,24 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 | `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_scalar`で評価（同じ生値は1回だけ評価）、`signed_material`は素通し |
 
-`api/dependencies.py: get_dynamic_way_value_service`内の`_DYNAMIC_WAY_VALUE_SERVICE_
-FACTORIES`は、material_id→サービス実装本体（`WindWayService`/`GradientWayService`）の
+`api/dependencies.py: get_dedicated_way_value_service`内の`_DEDICATED_WAY_VALUE_SERVICE_
+FACTORIES`は、軸id→サービス実装本体（`WindWayService`/`GradientWayService`）の
 組み立てを担う別のdict。こちらはPython実装本体（コンストラクタ）の登録のため軸スタジオの
-宣言だけでは代替できず、新しい材料を追加する際は引き続きコード変更が必要
-（`dynamic_way_value_materials()`側とは別軸・別タイミングで拡張できる）。
+宣言だけでは代替できず、新しい軸を追加する際は引き続きコード変更が必要
+（`dedicated_way_value_axes()`側とは別軸・別タイミングで拡張できる）。
 
 ## API（`api/routers/region.py`）
 
-`GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}?bearing_deg=&at=&speed_kmh=`
+`GET /api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}?bearing_deg=&at=&speed_kmh=`
 
 ```
-material_id → dynamic_way_value_materials().get(material_id)（無ければ404）
-            → needs_bearing かつ bearing_deg 省略 → 422
-            → needs_speed かつ speed_kmh 省略 → 422（それ以外の材料はspeed_kmhを無視）
-            → get_dynamic_way_value_service(material_id) が WindWayService/GradientWayService を組み立て
-            → service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)   … 材料の生値（キャッシュ対象）
-            → transform_dedicated_way_values(AXIS_DEFINITIONS[material_id], service.material_id, 生値)
-            → {way_id: 地図表示値} の辞書（JSON）
+axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
+        → needs_bearing かつ bearing_deg 省略 → 422
+        → needs_speed かつ speed_kmh 省略 → 422（それ以外の軸はspeed_kmhを無視）
+        → get_dedicated_way_value_service(axis_id) が WindWayService/GradientWayService を組み立て
+        → service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)   … 材料の生値（キャッシュ対象）
+        → transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, 生値)
+        → {way_id: 地図表示値} の辞書（JSON）
 ```
 
 - 応答は材料の生値ではなく**地図が塗る値**。`map_value_kind(definition)`が`difficulty`の軸
@@ -122,7 +140,8 @@ material_id → dynamic_way_value_materials().get(material_id)（無ければ404
 自前で再計算できるためRedisは使わず、1エントリが190KBでキーが
 (タイル×向き×速度×時刻)の組み合わせで増えるためプロセス内メモリにも置かない。
 
-キーは`_key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプル。
+キーは`_key(axis_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプル（第1要素は
+各サービスの`axis_id`属性がそのまま入る＝ルーティングキーと同じ名前空間）。
 `bearing_bucket(bearing_deg)`が向きを`BEARING_BUCKET_DEG`（5度）刻み、
 `speed_bucket(speed_kmh)`が想定速度を1km/h刻みで離散バケット化するため、パン・ズームで
 同じタイルが再び視界に入っても、同じバケットの範囲内ではDBへの再問い合わせも再計算も

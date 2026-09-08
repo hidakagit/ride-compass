@@ -164,6 +164,13 @@ export interface CatalogAxis {
   // ルート線色分けが同じスケールで解釈する。
   map_value_kind?: MapValueKind;
   map_value_unit?: string;
+  // 専用way値配信API（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
+  // 必要とするクエリパラメータの宣言（backend domain/axis_definitions.py:
+  // AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
+  // `dedicated_way_value_layer`がtrueの軸だけが意味を持つ。
+  dynamic_way_value_needs_time?: boolean;
+  dynamic_way_value_needs_bearing?: boolean;
+  dynamic_way_value_needs_speed?: boolean;
 }
 
 // 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、
@@ -243,6 +250,59 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
 /** MapLibreのlayer id（MapView内部） */
 export function axisLineLayerId(axisId: string): string {
   return `region-axis-${axisId}-line`;
+}
+
+/** 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
+ * ramp軸に対する`RampAxis`と同じ位置付けの、軸カタログ由来の地図向けビュー。
+ * この型があることで、レイヤー登録・カタログ・可視性・フェッチのすべてを軸idの
+ * ハードコードなしに導出できる（3件目の軸を軸スタジオで公開しただけで
+ * 地図に現れる。ただし配信実装本体はbackend側の登録が別途必要）。 */
+export interface DedicatedWayValueAxis {
+  axisId: string;
+  label: string;
+  /** 地図チップの略名（4文字以下）。未設定はlabelへフォールバック。 */
+  chipLabel?: string;
+  /** 軸自身の説明文（`AxisDefinition.panel_hint`）。 */
+  panelHint?: string;
+  /** 専用way値配信APIへ添えるクエリパラメータの宣言。`hooks/useDedicatedWayValues.ts`が
+   * 「どの軸のフェッチに時刻・想定速度を乗せるか」をaxis_idの分岐ではなくここから決める
+   * （乗せない入力は依存配列からも外れるため、時刻を動かしても時刻非依存の軸は再フェッチしない）。 */
+  needsTime: boolean;
+  needsBearing: boolean;
+  needsSpeed: boolean;
+}
+
+/** ビルド時静的json（CatalogAxis[]）・実行時APIのどちらからでも同じ形へ変換する共通関数
+ * （rampAxesFromCatalogAxesと同じ片側importの方針）。 */
+export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly CatalogAxis[]): DedicatedWayValueAxis[] {
+  return axes
+    .filter((axis) => axis.dedicated_way_value_layer)
+    .map((axis) => ({
+      axisId: axis.axis_id,
+      label: axis.label,
+      chipLabel: axis.chip_label ?? undefined,
+      panelHint: axis.panel_hint ?? undefined,
+      needsTime: axis.dynamic_way_value_needs_time ?? false,
+      needsBearing: axis.dynamic_way_value_needs_bearing ?? false,
+      needsSpeed: axis.dynamic_way_value_needs_speed ?? false,
+    }));
+}
+
+export const DEDICATED_WAY_VALUE_AXES: readonly DedicatedWayValueAxis[] = dedicatedWayValueAxesFromCatalogAxes(
+  axisCatalog.axes as CatalogAxis[]
+);
+
+/** mapLayers.ts のレイヤーID（visibility状態のキー）。ramp軸の`axis:${axisId}`とは
+ * 別の名前空間——同じ軸がramp・専用配信の両方を持ちうるため衝突させられない。 */
+export type DedicatedWayValueMapLayerId = `${string}Axis`;
+
+export function dedicatedWayValueMapLayerId(axisId: string): DedicatedWayValueMapLayerId {
+  return `${axisId}Axis`;
+}
+
+/** MapLibreのlayer id（MapView内部） */
+export function dedicatedWayValueLineLayerId(axisId: string): string {
+  return `region-${axisId}-axis-line`;
 }
 
 // 共有ランプ配色（低→高、緑→黄→橙→赤）のアンカー。全ramp軸が同じ配色系統を使うことで

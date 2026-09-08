@@ -3,7 +3,7 @@
 // Map/*.test.tsと違いjsdom環境が必要（既定のまま。node環境docblockを付けない）。
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
-import { RAMP_AXES, axisLineLayerId } from "@/components/Map/axisLayers";
+import { DEDICATED_WAY_VALUE_AXES, RAMP_AXES, axisLineLayerId } from "@/components/Map/axisLayers";
 import {
   DESIGNATION_LAYER_ID,
   GRADIENT_FILL_LAYER_ID,
@@ -18,7 +18,7 @@ import { buildStaticFilterAxes, type StaticFilterAxisId } from "./staticAttribut
 
 // ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
 // 入力に組み立てた結果。以前のSTATIC_OVERLAY_LAYERS/STATIC_FILTER_AXES定数と同じ内容。
-const STATIC_OVERLAY_LAYERS = buildStaticOverlayLayers(buildAxisOverlayLayers(RAMP_AXES));
+const STATIC_OVERLAY_LAYERS = buildStaticOverlayLayers(buildAxisOverlayLayers(RAMP_AXES), DEDICATED_WAY_VALUE_AXES);
 const STATIC_FILTER_AXES = buildStaticFilterAxes(RAMP_AXES);
 
 // setStaticOverlayFiltersが読む最小限のmapフェイク。__rcStyleReady=trueでrunWhenStyleReadyの

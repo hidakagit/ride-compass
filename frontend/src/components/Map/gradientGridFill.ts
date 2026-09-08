@@ -3,14 +3,19 @@
 // 勾配は本質的に道路（way）ごとの属性であり、道路と無関係な「勾配の面」という概念自体が
 // 存在しない（降水延長予報のような独立した空間フィールドを持たない）。そのため本実装は、
 // 評価軸グループ（線、dedicatedWayValueLayer.ts）向けに既にフェッチ済みのway単位の
-// effective_gradient値（hooks/useDynamicWayValues.ts: byTile、追加のAPI呼び出し無し）を、
+// effective_gradient値（hooks/useDedicatedWayValues.ts: byTile、追加のAPI呼び出し無し）を、
 // フェッチ元のタイル境界そのものを1セルとして集計（平均）した面表示へ変換する——道路が
 // 密なタイルほど「そのタイル周辺の道路網は平均してどれくらいの勾配か」を表す近似になる。
 
 import type { TileXY } from "./dynamicWayValues";
 import { tileBoundsLonLat } from "./dynamicWayValues";
 import { buildDedicatedWayValueColorExpression, type DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
-import type { TileDynamicWayValues } from "@/hooks/useDynamicWayValues";
+import type { TileDynamicWayValues } from "@/hooks/useDedicatedWayValues";
+
+/** このレイヤーが値を借りる専用way値配信軸のid。gridFillは専用way値配信の汎用機構では
+ * なく勾配固有の環境グループ表現のため、対象の軸をここで1箇所だけ名指しする
+ * （page.tsxのフェッチ対象決定・MapView.tsxの表示宣言の引き当ての両方がこれを使う）。 */
+export const GRADIENT_AXIS_ID = "gradient";
 
 export interface GradientGridCellProperties {
   gradientValue: number;

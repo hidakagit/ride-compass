@@ -29,8 +29,6 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.gradient_way")
 
-MATERIAL_ID = "gradient"
-
 # 勾配の入力（elevation_attributes.average_grade・road_edges.bearing_deg）は道路の向き・
 # 標高由来の値でほぼ不変のため、風のような気象データの新鮮さの制約は無い。DBへの
 # 再問い合わせ頻度を抑える目的だけの長めのTTL（24時間）にする——正本を持たない
@@ -40,8 +38,14 @@ GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
 
 
 class GradientWayService:
+    # このサービスが担当する軸id。`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`の
+    # キー・`GET /api/region/dynamic-way-values/{axis_id}`のパスパラメータ・
+    # キャッシュの名前空間（`dynamic_way_value_cache.py`）の3つは常に同じ値でなければ
+    # ならない（`tests/test_dedicated_way_value_services.py`が登録キーとの一致を検査する）。
+    axis_id = "gradient"
+
     # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
-    # 軸定義のどの材料として評価するかを決める）。
+    # 軸定義のどの材料として評価するかを決める）。上の`axis_id`とは別の名前空間。
     material_id = "gradient_percent"
 
     def __init__(self, repository: RoadGraphRepository | None):
@@ -55,7 +59,7 @@ class GradientWayService:
         倒す（他の動的配信層[wind_way_service.py]と同じグレースフルデグレード方針）。
 
         `at`・`speed_kmh`はrouter側の材料非依存な呼び出しインターフェース（`api/routers/region.py`の
-        `/dynamic-way-values/{material_id}/...`）と揃えるためだけに受け取り、勾配の計算
+        `/dynamic-way-values/{axis_id}/...`）と揃えるためだけに受け取り、勾配の計算
         自体には使わない（勾配は時刻・走行速度に依存しない、モジュールdocstring参照）。
 
         bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
@@ -73,7 +77,7 @@ class GradientWayService:
         ancestor_x, ancestor_y = tile_ancestor(z, x, y, ROAD_GRAPH_TILE_ZOOM)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
-            cached = await get_tile_values(MATERIAL_ID, z, x, y, None, bearing_deg)
+            cached = await get_tile_values(self.axis_id, z, x, y, None, bearing_deg)
             if cached is not None:
                 fields["cache_hit"] = len(cached)
                 fields["cache_status"] = "hit"
@@ -101,6 +105,6 @@ class GradientWayService:
                 way_id: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
                 for way_id, (gradient_percent, road_bearing_deg) in inputs.items()
             }
-            await set_tile_values(MATERIAL_ID, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS)
+            await set_tile_values(self.axis_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS)
             fields["computed"] = len(values)
             return values

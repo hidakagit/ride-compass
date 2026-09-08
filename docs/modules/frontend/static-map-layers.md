@@ -72,7 +72,7 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
     │  ← ROAD_MATERIAL_TRACK_LAYER_IDS（road+designation+tunnel+onewayの4本）を
     │    line-offsetで並列トラックへ分離（applyRoadMaterialTrackOffsets）
     ▼
-  windAxis → gradientAxis → gradientFill（評価軸/環境グループ、本モジュール対象外）
+  専用way値配信軸（軸カタログ順） → gradientFill（評価軸/環境グループ、本モジュール対象外）
     ▼
   accidents → stopPoi → supplyPoi（点データ、別ソース）
 ```
@@ -139,8 +139,8 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 ## 最上位グルーピング（道路/環境/スポット）
 
 `mapLayers.ts: mapOverlayGroupFor(layer)`がレイヤーIDを3グループへ分類する。
-`isAxisStudioLayer`（`dedicated_way_value_layer`軸[windAxis/gradientAxis]・ramp軸
-[`dataNature==="composite"`]）に該当するものは`undefined`（地図上チップ・サイドバーの
+`isAxisStudioLayer`（`dedicated_way_value_layer`軸[記述子の`axisStudioLayer`が立つ]・
+ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地図上チップ・サイドバーの
 どちらにも一切出さない——ルート設定パネルへ移設済み、[ページ構成](page-composition.md)参照）。
 
 **暗黙の前提**: `mapOverlayGroupFor`は`isAxisStudioLayer`を最初にチェックしてから
@@ -153,7 +153,7 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 カテゴリの絞り込み」節）。道路グループの線同士は`line-offset`による並行トラック
 （`applyRoadMaterialTrackOffsets`）で重ならずに並ぶ。
 
-軸スタジオ由来のレイヤー（`isAxisStudioLayer`、ramp軸・windAxis・gradientAxis）だけは
+軸スタジオ由来のレイヤー（`isAxisStudioLayer`、ramp軸・専用way値配信軸）だけは
 `page.tsx: handleLayerToggle`が1つだけ選べる状態を保つ。これらは同じ道路の同じ位置を
 それぞれの評価で塗り分けるため、重ねると後から描画した色が前の色を完全に覆い、並行
 トラックのように並べて見ることもできない。

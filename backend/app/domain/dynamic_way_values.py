@@ -1,17 +1,22 @@
-"""動的＋向きあり材料の「way_id→値」配信が対象とする材料の宣言。状態機械
+"""専用way値レイヤー（`dedicated_way_value_layer=True`の軸）が対象とする軸の宣言。状態機械
 （ルート未確定=ユーザー指定パラメータを全道路へ一律適用／ルート確定後=ルート自身の実値を
-ルート線のみへ適用）は材料非依存で、実際に何のパラメータ（時刻・向き・速度）を必要と
+ルート線のみへ適用）は軸非依存で、実際に何のパラメータ（時刻・向き・速度）を必要と
 するかだけをここで宣言する。
 
-`infrastructure/dynamic_way_value_cache.py`（キャッシュキーのbucket化要否）・
-`api/routers/region.py`（`GET /api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}`の
-クエリパラメータ必須/省略判定）の両方が`dynamic_way_value_materials()`を読む。
+**この層で扱うidは軸id（`axis_definitions.axis_id`）であり、材料id
+（`material_catalog.py`のキー、例: `wind_drag_ratio`）ではない。**両者は名前空間が
+異なる別概念で、配信サービスが返す生値の材料idは`WindWayService.material_id`等が
+別に持つ（`transform_dedicated_way_values`が軸定義の評価へ渡す先）。
 
-material_id→サービス実装本体（`WindWayService`/`GradientWayService`）の組み立ては別軸
-（`api/dependencies.py: _DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`）で、各材料の計算ロジック
+`infrastructure/dynamic_way_value_cache.py`（キャッシュキーのbucket化要否）・
+`api/routers/region.py`（`GET /api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}`の
+クエリパラメータ必須/省略判定）の両方が`dedicated_way_value_axes()`を読む。
+
+axis_id→サービス実装本体（`WindWayService`/`GradientWayService`）の組み立ては別軸
+（`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）で、各軸の計算ロジック
 自体は宣言的に導出できないPythonコードのまま残る。
 
-詳細はdocs/modules/backend/dynamic-way-values.md「材料登録と地図表示値」節参照。
+詳細はdocs/modules/backend/dynamic-way-values.md「軸登録と地図表示値」節参照。
 """
 
 from dataclasses import dataclass
@@ -35,8 +40,8 @@ MapValueKind = Literal["difficulty", "signed_material"]
 
 
 @dataclass(frozen=True)
-class DynamicWayValueMaterial:
-    material_id: str
+class DedicatedWayValueAxis:
+    axis_id: str
     label: str
     # 時刻（`at`クエリパラメータ）に依存するか。風=Yes（気象予報が時々刻々変わる）、
     # 勾配=No（標高・道路の向きは時刻で変わらない）。
@@ -50,7 +55,7 @@ class DynamicWayValueMaterial:
     needs_speed: bool
 
 
-def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
+def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
     """`AXIS_DEFINITIONS`から`dedicated_way_value_layer=True`の軸を抽出して導出する。
     `AXIS_DEFINITIONS`はプロセス起動時・管理API書き込み直後にin-place
     更新される（`services/axis_registry_service.py`参照）ため、モジュール読み込み時の
@@ -60,13 +65,13 @@ def dynamic_way_value_materials() -> dict[str, DynamicWayValueMaterial]:
     `dynamic_way_value_needs_bearing`の設定はここへ自動的に反映される。
 
     配信できる値があるかは別で、way_id→値を組み立てるサービス本体を
-    `api/dependencies.py`の`_DYNAMIC_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
+    `api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
     （コード変更を伴う）。登録の無いaxis_idへこのフラグを立てることは書き込み時に
     拒否される（`axis_admin.py: _check_dedicated_layer_is_implemented`）。
     """
     return {
-        axis_id: DynamicWayValueMaterial(
-            material_id=axis_id,
+        axis_id: DedicatedWayValueAxis(
+            axis_id=axis_id,
             label=definition.label,
             needs_time=definition.dynamic_way_value_needs_time,
             needs_bearing=definition.dynamic_way_value_needs_bearing,

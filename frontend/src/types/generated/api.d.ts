@@ -327,7 +327,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}": {
+    "/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}": {
         parameters: {
             query?: never;
             header?: never;
@@ -335,7 +335,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Region Dynamic Way Values
+         * Region Dedicated Way Values
          * @description 「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のway_idごとの
          *     値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
          *     [backend/app/domain/gradient.py]）をまとめて返す軽量なJSONエンドポイント。この
@@ -343,12 +343,14 @@ export interface paths {
          *     ルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`
          *     （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
          *
-         *     `material_id`はパスパラメータ。`domain/dynamic_way_values.py: dynamic_way_value_materials()`
-         *     に無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
+         *     パスパラメータは**軸id**（`axis_definitions.axis_id`、例: `wind`/`gradient`）で、
+         *     サービスが返す生値の材料id（`wind_drag_ratio`等、下の`service.material_id`）とは別の
+         *     名前空間である。`domain/dynamic_way_values.py: dedicated_way_value_axes()`に無い未知の
+         *     axis_idは404。`bearing_deg`（クエリパラメータ）はその軸が向きに依存する場合のみ
          *     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
-         *     その材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
+         *     その軸が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
          *     を使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は
-         *     その材料が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
+         *     その軸が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
          *
          *     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
          *     とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
@@ -361,7 +363,7 @@ export interface paths {
          *     （`region_service.py`の`_region_tile_semaphore`のコメント参照——MVTエンコードは
          *     伴わないが同じPostGISコネクションプールを取り合うため）。
          */
-        get: operations["region_dynamic_way_values_api_region_dynamic_way_values__material_id___z___x___y__get"];
+        get: operations["region_dedicated_way_values_api_region_dynamic_way_values__axis_id___z___x___y__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -916,6 +918,12 @@ export interface components {
             map_value_unit: string;
             /** Raw Value Unit */
             raw_value_unit: string | null;
+            /** Dynamic Way Value Needs Time */
+            dynamic_way_value_needs_time: boolean;
+            /** Dynamic Way Value Needs Bearing */
+            dynamic_way_value_needs_bearing: boolean;
+            /** Dynamic Way Value Needs Speed */
+            dynamic_way_value_needs_speed: boolean;
         };
         /** AxisCatalogResponse */
         AxisCatalogResponse: {
@@ -2554,7 +2562,7 @@ export interface operations {
             };
         };
     };
-    region_dynamic_way_values_api_region_dynamic_way_values__material_id___z___x___y__get: {
+    region_dedicated_way_values_api_region_dynamic_way_values__axis_id___z___x___y__get: {
         parameters: {
             query?: {
                 bearing_deg?: number | null;
@@ -2563,7 +2571,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                material_id: string;
+                axis_id: string;
                 z: number;
                 x: number;
                 y: number;

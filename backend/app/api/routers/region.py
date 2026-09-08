@@ -4,12 +4,12 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from app.api.dependencies import enforce_rate_limit, get_dynamic_way_value_service, get_region_service
+from app.api.dependencies import enforce_rate_limit, get_dedicated_way_value_service, get_region_service
 from app.services.tile_serving import TileResponse
 from app.api.routers._tile_validation import validate_tile_coords
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.dynamic_way_values import dynamic_way_value_materials, transform_dedicated_way_values
+from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_dedicated_way_values
 from app.domain.evaluation import AxisInspectorResult
 from app.services.region_service import RegionService
 
@@ -91,9 +91,9 @@ async def region_poi_tile(
     return _tile_response(tile)
 
 
-@router.get("/api/region/dynamic-way-values/{material_id}/{z}/{x}/{y}")
-async def region_dynamic_way_values(
-    material_id: str,
+@router.get("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}")
+async def region_dedicated_way_values(
+    axis_id: str,
     z: int,
     x: int,
     y: int,
@@ -101,7 +101,7 @@ async def region_dynamic_way_values(
     bearing_deg: float | None = None,
     at: datetime | None = None,
     speed_kmh: float | None = None,
-    service=Depends(get_dynamic_way_value_service),
+    service=Depends(get_dedicated_way_value_service),
 ) -> dict[int, float]:
     """「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のway_idごとの
     値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
@@ -110,12 +110,14 @@ async def region_dynamic_way_values(
     ルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`
     （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
 
-    `material_id`はパスパラメータ。`domain/dynamic_way_values.py: dynamic_way_value_materials()`
-    に無い未知のidは404。`bearing_deg`（クエリパラメータ）はその材料が向きに依存する場合のみ
+    パスパラメータは**軸id**（`axis_definitions.axis_id`、例: `wind`/`gradient`）で、
+    サービスが返す生値の材料id（`wind_drag_ratio`等、下の`service.material_id`）とは別の
+    名前空間である。`domain/dynamic_way_values.py: dedicated_way_value_axes()`に無い未知の
+    axis_idは404。`bearing_deg`（クエリパラメータ）はその軸が向きに依存する場合のみ
     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
-    その材料が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
+    その軸が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
     を使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は
-    その材料が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
+    その軸が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
 
     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
     とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
@@ -128,21 +130,21 @@ async def region_dynamic_way_values(
     （`region_service.py`の`_region_tile_semaphore`のコメント参照——MVTエンコードは
     伴わないが同じPostGISコネクションプールを取り合うため）。
     """
-    material = dynamic_way_value_materials().get(material_id)
-    if material is None or service is None:
-        raise HTTPException(status_code=404, detail="未知のmaterial_idです。")
-    if material.needs_bearing and bearing_deg is None:
-        raise HTTPException(status_code=422, detail="この材料にはbearing_degが必須です。")
-    if material.needs_speed and speed_kmh is None:
-        raise HTTPException(status_code=422, detail="この材料にはspeed_kmhが必須です。")
-    _check_tile_rate_limit(request, f"{material_id}-way-values")
+    axis = dedicated_way_value_axes().get(axis_id)
+    if axis is None or service is None:
+        raise HTTPException(status_code=404, detail="未知のaxis_idです。")
+    if axis.needs_bearing and bearing_deg is None:
+        raise HTTPException(status_code=422, detail="この軸にはbearing_degが必須です。")
+    if axis.needs_speed and speed_kmh is None:
+        raise HTTPException(status_code=422, detail="この軸にはspeed_kmhが必須です。")
+    _check_tile_rate_limit(request, f"{axis_id}-way-values")
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
         values = await service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)
     # サービスは材料の生値を返しキャッシュも生値のまま持つ。地図が塗る値（難易度か符号付き
     # 材料か）への変換は軸定義から都度行うため、軸スタジオでbreakpointsを変えても
     # キャッシュを捨てずに即座に反映される。
-    return transform_dedicated_way_values(AXIS_DEFINITIONS[material_id], service.material_id, values)
+    return transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, values)
 
 
 class AxisInspectorRequest(BaseModel):

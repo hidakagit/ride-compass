@@ -8,10 +8,13 @@ import { getAxisCatalog } from "@/services/axisCatalogApi";
 import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 import {
   AXIS_LABELS,
+  DEDICATED_WAY_VALUE_AXES,
   RAMP_AXES,
   axisLabelsFromCatalogAxes,
+  dedicatedWayValueAxesFromCatalogAxes,
   rampAxesFromCatalogAxes,
   type CatalogAxis,
+  type DedicatedWayValueAxis,
   type RampAxis,
 } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES, secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
@@ -33,6 +36,10 @@ export interface AxisCatalog {
   /** 地図のramp表示を持つ軸。フェッチ完了までとエラー時は静的
    * フォールバック（axisLayers.ts: RAMP_AXES）を返す。 */
   rampAxes: readonly RampAxis[];
+  /** 専用のway_id→値配信レイヤーを持つ軸（風・勾配）。レイヤー登録・カタログ・
+   * 可視性・フェッチの全てがこの一覧から導出される。フェッチ完了までとエラー時は
+   * 静的フォールバック（axisLayers.ts: DEDICATED_WAY_VALUE_AXES）。 */
+  dedicatedAxes: readonly DedicatedWayValueAxis[];
   /** axis_id→表示名の辞書（軸スタジオ公開軸を含む、フェッチ完了までは静的フォールバック）。 */
   axisLabels: Record<string, string>;
   /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む）。フェッチ完了までと
@@ -54,6 +61,7 @@ const FALLBACK_CATALOG: AxisCatalog = {
   axes: PREFERENCE_AXES,
   defaultWeights: STATIC_DEFAULT_WEIGHTS,
   rampAxes: RAMP_AXES,
+  dedicatedAxes: DEDICATED_WAY_VALUE_AXES,
   axisLabels: AXIS_LABELS,
   secondaryAxes: SECONDARY_AXES,
   routeStyleModes: ROUTE_STYLE_MODES,
@@ -100,6 +108,9 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     dedicated_way_value_layer: entry.dedicated_way_value_layer,
     map_value_kind: entry.map_value_kind,
     map_value_unit: entry.map_value_unit,
+    dynamic_way_value_needs_time: entry.dynamic_way_value_needs_time,
+    dynamic_way_value_needs_bearing: entry.dynamic_way_value_needs_bearing,
+    dynamic_way_value_needs_speed: entry.dynamic_way_value_needs_speed,
   };
 }
 
@@ -127,6 +138,7 @@ function buildCatalog(
     axes,
     defaultWeights,
     rampAxes: rampAxesFromCatalogAxes(catalogAxes, materialRuntimeScales),
+    dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(catalogAxes),
     axisLabels: axisLabelsFromCatalogAxes(catalogAxes),
     secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
     routeStyleModes: routeStyleModesFromCatalogAxes(catalogAxes),
