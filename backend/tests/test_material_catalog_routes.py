@@ -158,12 +158,31 @@ class FakeRegionServiceForMaterialValues:
         return self._values
 
 
-def test_get_material_values_returns_sorted_distinct_values_from_service():
+def values_url(material_id: str) -> str:
+    return f"/api/admin/material-catalog/{material_id}/values"
+
+
+def test_get_material_values_requires_basic_auth(admin_credentials):
+    # coverageと同じ理由（索引の効かないSELECT DISTINCTをタイル配信と同じ接続プール上で
+    # 実行する）でadminパス側に置いてある。認可の有無が両者でずれないよう突き合わせる。
+    response = client.get(values_url("highway"))
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
+
+
+def test_get_material_values_rejects_wrong_credentials(admin_credentials):
+    response = client.get(values_url("highway"), headers={"Authorization": basic_auth_header("admin-user", "wrong")})
+
+    assert response.status_code == 401
+
+
+def test_get_material_values_returns_sorted_distinct_values_from_service(admin_credentials):
     fake = FakeRegionServiceForMaterialValues(values=["cycleway", "primary", "residential"])
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/material-catalog/highway/values")
+        response = client.get(values_url("highway"), headers=AUTH_HEADERS)
     finally:
         app.dependency_overrides.clear()
 
@@ -181,20 +200,20 @@ def test_get_material_values_returns_sorted_distinct_values_from_service():
     assert fake.last_material_id == "highway"
 
 
-def test_get_material_values_unknown_material_id_is_404():
-    response = client.get("/api/material-catalog/not_a_real_material/values")
+def test_get_material_values_unknown_material_id_is_404(admin_credentials):
+    response = client.get(values_url("not_a_real_material"), headers=AUTH_HEADERS)
 
     assert response.status_code == 404
 
 
-def test_get_material_values_known_material_without_dynamic_support_returns_empty_list():
+def test_get_material_values_known_material_without_dynamic_support_returns_empty_list(admin_credentials):
     # 改善計画T340: tracktypeのように事前に閉じた値集合を持つ既知の材料は404にせず、
     # 空リストを返す（フロント側は空リスト→自由テキスト入力へフォールバックする）。
     fake = FakeRegionServiceForMaterialValues(values=[])
     app.dependency_overrides[get_region_service] = lambda: fake
 
     try:
-        response = client.get("/api/material-catalog/tracktype/values")
+        response = client.get(values_url("tracktype"), headers=AUTH_HEADERS)
     finally:
         app.dependency_overrides.clear()
 
@@ -203,7 +222,7 @@ def test_get_material_values_known_material_without_dynamic_support_returns_empt
     assert fake.last_material_id == "tracktype"
 
 
-def test_get_material_values_without_db_repository_returns_empty_list():
+def test_get_material_values_without_db_repository_returns_empty_list(admin_credentials):
     # DB未接続構成（RegionService()、repository=None）を明示的に強制する。
     # 以前は「このファイルのclientはdependency_overrides未設定→get_region_serviceの
     # 既定分岐（settings.road_graph_use_repository）に委ねる」という設計だったが、
@@ -215,7 +234,7 @@ def test_get_material_values_without_db_repository_returns_empty_list():
     app.dependency_overrides[get_region_service] = lambda: RegionService()
 
     try:
-        response = client.get("/api/material-catalog/smoothness/values")
+        response = client.get(values_url("smoothness"), headers=AUTH_HEADERS)
     finally:
         app.dependency_overrides.clear()
 

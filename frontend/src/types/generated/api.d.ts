@@ -601,7 +601,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/material-catalog/{material_id}/values": {
+    "/api/admin/material-catalog/{material_id}/values": {
         parameters: {
             query?: never;
             header?: never;
@@ -615,8 +615,13 @@ export interface paths {
          *     材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
          *     いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード
          *     方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。
+         *
+         *     利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない
+         *     `SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。
+         *     認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で
+         *     Basic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。
          */
-        get: operations["get_material_values_api_material_catalog__material_id__values_get"];
+        get: operations["get_material_values_api_admin_material_catalog__material_id__values_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2824,7 +2829,7 @@ export interface operations {
             };
         };
     };
-    get_material_values_api_material_catalog__material_id__values_get: {
+    get_material_values_api_admin_material_catalog__material_id__values_get: {
         parameters: {
             query?: never;
             header?: never;

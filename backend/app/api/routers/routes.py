@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, RootModel, model_validator
 
 from app.api.dependencies import (
@@ -38,6 +38,10 @@ MAX_ROUTE_DISTANCE_KM = 100
 # 上限を超えた分は待たせず429で即座に返し、ブラウザのリトライや連打で外部サービスへの
 # 負荷が積み上がることを防ぐ。
 _generate_semaphore = asyncio.Semaphore(settings.generate_max_concurrent)
+
+# 実行中のルート生成ジョブ（`create_task`の戻り値）。イベントループはタスクへの強参照を
+# 持たないため、ここで保持しないとGCが実行中のジョブごと回収しうる。
+_running_generate_tasks: set[asyncio.Task] = set()
 
 
 class RoutePreviewRequest(BaseModel):
@@ -266,15 +270,14 @@ class RouteGenerateJobStatusResponse(BaseModel):
 
 
 @router.post("/api/routes/generate", response_model=RouteGenerateJobCreatedResponse, status_code=202)
-async def generate_routes(request: RouteGenerateRequest, http_request: Request, background_tasks: BackgroundTasks) -> RouteGenerateJobCreatedResponse:
+async def generate_routes(request: RouteGenerateRequest, http_request: Request) -> RouteGenerateJobCreatedResponse:
     enforce_rate_limit(http_request, "generate", settings.generate_rate_limit_per_minute)
 
     # 同時実行数の上限に達している場合は待たせず即座に429を返す（外部サービスへの負荷が
-    # 積み上がるのを防ぐ）。`locked()`確認を`BackgroundTasks`経由でレスポンス送出後に
-    # 実行される`_run_generate_job`側でのみ行うと、間にHTTPレスポンス送出という実I/Oが
-    # 挟まり、複数リクエストがほぼ同時に届くと上限を超える数のジョブが202で受理されて
-    # しまうレースになる。`locked()`確認と`acquire()`をこのハンドラ内でawaitを挟まず
-    # 連続実行する
+    # 積み上がるのを防ぐ）。`locked()`確認を`_run_generate_job`側でのみ行うと、間に
+    # 起動待ちが挟まり、複数リクエストがほぼ同時に届くと上限を超える数のジョブが202で
+    # 受理されてしまうレースになる。`locked()`確認と`acquire()`をこのハンドラ内で
+    # awaitを挟まず連続実行する
     # （`asyncio.Semaphore.acquire()`は値が残っていれば内部の待機用awaitへ到達せず
     # 同期的に減算するため、この2行の間に他コルーチンが割り込む隙間は無い）ことで、
     # 「投稿時点で即429」という既定の挙動を隙間なく保証する。取得したセマフォは
@@ -288,7 +291,16 @@ async def generate_routes(request: RouteGenerateRequest, http_request: Request, 
     await _generate_semaphore.acquire()
 
     job_id = job_registry.create_job()
-    background_tasks.add_task(_run_generate_job, job_id, request)
+    # ジョブ本体は`BackgroundTasks`ではなく`create_task`で起動する。`BackgroundTasks`は
+    # レスポンス送出が完了してから実行されるため、送出中の失敗（クライアント切断・
+    # ミドルウェアの例外）でジョブが一度も起動せず、上で取得したセマフォを解放する
+    # finallyへ到達しない。`generate_max_concurrent`分だけこれが起きるとルート生成が
+    # プロセス再起動まで全断する（`/health`は正常を返すため外形監視にもかからない）。
+    task = asyncio.create_task(_run_generate_job(job_id, request))
+    # イベントループはタスクへの強参照を持たないため、参照を保持しないとGCが実行中の
+    # ジョブごと回収しうる（そのときもセマフォは解放されない）。
+    _running_generate_tasks.add(task)
+    task.add_done_callback(_running_generate_tasks.discard)
     return RouteGenerateJobCreatedResponse(job_id=job_id)
 
 
@@ -305,8 +317,8 @@ async def get_generate_job(job_id: str) -> RouteGenerateJobStatusResponse:
 
 
 async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
-    """`generate_routes`が`BackgroundTasks`経由でレスポンス送出後に実行するジョブ本体。
-    例外はここで捕捉してjob_registryへ記録する——`BackgroundTasks`の例外はどこにも
+    """`generate_routes`が`asyncio.create_task`で起動するジョブ本体。
+    例外はここで捕捉してjob_registryへ記録する——切り離されたタスクの例外はどこにも
     伝播せず、素通しするとサーバーログにしか残らずクライアントは永久にポーリングし
     続けることになる。
 

@@ -209,7 +209,7 @@ MaterialSpec]`が単一ソース。
 | `extractor` | `compute_edge_costs_bulk`の抽出フェーズへ載せる関数。`None`は「専用の計算経路を持つため汎用抽出の対象外」または「トリガー付きDEFER」（利用ニーズが出た時点で配線） |
 | `bool_default` | `dtype="boolean"`でextractorが欠損を返したときの配列上の扱い。`"false"`（タグ不在=非該当とみなす多数派）と`"nan"`（不明を非該当と混同しない少数派）の2種で、材料ごとに固定する（数値的に等価ではない） |
 | `display_only` | 軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）から除外し、地図表示専用に限定するか |
-| `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/material-catalog/{id}/values`が返す） |
+| `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/admin/material-catalog/{id}/values`が返す） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
 - 材料の「登録」（本カタログに載る）と「評価軸での利用」（`AxisDefinition.shape`が
@@ -265,7 +265,7 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
 | `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`/`unit`/`reference_points`のみ。`tile_property`等のbackend内部フィールドは含めない） |
-| `GET /api/material-catalog/{material_id}/values` | 不要 | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・未対応材料/DB未接続は空リスト） |
+| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・未対応材料/DB未接続は空リスト）。索引の効かない`SELECT DISTINCT`をタイル配信と同じ接続プール上で実行するため、`coverage`と同じく認可を課す |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 
 ## 材料の欠損割合（`infrastructure/material_coverage.py`・`services/material_coverage_service.py`）

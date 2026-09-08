@@ -1,6 +1,8 @@
+import inspect
 from contextlib import asynccontextmanager
 
 import pytest
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import RouteGenerationSetup, _assemble_route_generation_setup
@@ -353,6 +355,37 @@ def test_generate_routes_acquires_semaphore_before_scheduling_background_job(mon
 
     assert response.status_code == 202
     assert observed_semaphore_values == [settings.generate_max_concurrent - 1]
+    assert _generate_semaphore._value == settings.generate_max_concurrent
+
+
+def test_generate_routes_does_not_defer_job_start_to_response_lifecycle():
+    # ジョブ起動をレスポンス送出後（`BackgroundTasks`）へ委ねていないことの構造的確認。
+    # 委ねると、送出中の失敗（クライアント切断・ミドルウェアの例外）でジョブが一度も
+    # 起動せず、投稿時点で取得済みのセマフォを解放するfinallyへ到達しない。
+    # `generate_max_concurrent`回これが起きるとルート生成がプロセス再起動まで全断し、
+    # `/health`は正常を返すため外形監視にもかからない。
+    parameters = inspect.signature(routes_module.generate_routes).parameters
+
+    assert not any(parameter.annotation is BackgroundTasks for parameter in parameters.values())
+
+
+def test_generate_routes_keeps_a_reference_to_the_running_job_task(monkeypatch):
+    # `asyncio.create_task`の戻り値を保持しないとGCが実行中のジョブごと回収しうる
+    # （そのときもセマフォは解放されない）。ジョブ本体から見て自分のタスクが
+    # `_running_generate_tasks`に載っていることを確認する。
+    tracked_task_counts: list[int] = []
+
+    async def _fake_run_generate_job(job_id: str, request) -> None:
+        tracked_task_counts.append(len(routes_module._running_generate_tasks))
+        job_registry.set_done(job_id, None)
+        _generate_semaphore.release()
+
+    monkeypatch.setattr(routes_module, "_run_generate_job", _fake_run_generate_job)
+
+    response = client.post("/api/routes/generate", json=REQUEST_BODY)
+
+    assert response.status_code == 202
+    assert tracked_task_counts == [1]
     assert _generate_semaphore._value == settings.generate_max_concurrent
 
 

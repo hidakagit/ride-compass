@@ -533,7 +533,7 @@ RideCompass/
       api/
         admin_auth.py           ✅ 管理API共通の認可境界（`require_admin_basic_auth`、HTTP Basic認証）。元はaxis_admin.pyにのみ定義されていたが、改善計画T379でdebug_admin.pyも同じ認可を必要としたため複製を避けてここへ切り出した
         dependencies.py        ✅ DI工場（get_route_generator等のDependsファクトリ）とclient_id（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ gsi_relief_tile.py（GET /api/gsi-relief-tile/{path}、改善計画T572、国土地理院 色別標高図タイルのプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
+        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/basemap/refresh）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ）/ gsi_relief_tile.py（GET /api/gsi-relief-tile/{path}、改善計画T572、国土地理院 色別標高図タイルのプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/admin/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由。索引の効かないSELECT DISTINCTをタイル配信と同じ接続プール上で実行するため、GET /api/admin/material-catalog/coverageと同じくHTTP Basic認可要）/ accidents.py（GET /api/accidents/tiles/{z}/{x}/{y}.pbf）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック＋レート制限（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_validation.py`（`check_tile_rate_limit`/`validate_tile_coords`）へ共通化した
       domain/
         route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・overall_difficulty・segments・axis_difficulties・axis_contributions・material_values含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み、改善計画T592でwind_score・road_score・max_gradient_percent（RouteSegmentDetailのgradient_percent・wind_penalty・road_surface_goodも同様）を削除しmaterial_valuesへ統合済み）
         weather.py               ✅ WeatherConditions
@@ -727,7 +727,7 @@ RideCompass/
         WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
         DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
         DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
-        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: **改善計画T332で単一フォームから4ステップのウィザードへ再設計**（UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」への対応。ステップ順に「基本情報(basic)」表示名・説明・既定重み→「点数のつけ方を選ぶ(shape_kind)」→「点数の詳細を設定(shape_params)」選んだカードに応じた材料・折れ点等の入力→「地図表示・公開(display_publish)」show_map_icon・chip_label等。各ステップは`validateStep()`で個別に検証し、明示的な保存ボタンを押すまで`onSave`は呼ばれない。**「点数のつけ方を選ぶ」の中身は改善計画T396/T397（2026-08-29、shapeの2プリミティブ化節を参照）で作り直された**——保存時の`kind`は常に`breakpoint_linear`または`categorical`の2プリミティブへ正規化し、選択カードは技術名ではなく利用者視点の3枚「なめらか評価」（区分線形・旧flag_sumを吸収）・「ぴったり評価」（categorical）・「かけあわせ評価」（他軸を重みで組み合わせる、旧recipe_then_breakpoint_linear相当、内部軸参照という上級者向け用途のため`advanced`表示）へ整理した。T332時点の「4種のテンプレート（categorical/breakpoint_linear/flag_sum/recipe_then_breakpoint_linear）」という記述はT396/T397で古くなっている点に注意（改善計画T449で訂正）。）。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）。categorical材料の値入力欄は改善計画T340でhooks/useMaterialValues.ts（GET /api/material-catalog/{material_id}/values）＋lib/materialValueLabels.tsが「値の候補」セレクトを添える（値一覧が空の材料は従来どおり自由テキスト入力のみ、詳細は「軸スタジオの値入力UX改善」節参照）
+        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: **改善計画T332で単一フォームから4ステップのウィザードへ再設計**（UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」への対応。ステップ順に「基本情報(basic)」表示名・説明・既定重み→「点数のつけ方を選ぶ(shape_kind)」→「点数の詳細を設定(shape_params)」選んだカードに応じた材料・折れ点等の入力→「地図表示・公開(display_publish)」show_map_icon・chip_label等。各ステップは`validateStep()`で個別に検証し、明示的な保存ボタンを押すまで`onSave`は呼ばれない。**「点数のつけ方を選ぶ」の中身は改善計画T396/T397（2026-08-29、shapeの2プリミティブ化節を参照）で作り直された**——保存時の`kind`は常に`breakpoint_linear`または`categorical`の2プリミティブへ正規化し、選択カードは技術名ではなく利用者視点の3枚「なめらか評価」（区分線形・旧flag_sumを吸収）・「ぴったり評価」（categorical）・「かけあわせ評価」（他軸を重みで組み合わせる、旧recipe_then_breakpoint_linear相当、内部軸参照という上級者向け用途のため`advanced`表示）へ整理した。T332時点の「4種のテンプレート（categorical/breakpoint_linear/flag_sum/recipe_then_breakpoint_linear）」という記述はT396/T397で古くなっている点に注意（改善計画T449で訂正）。）。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）。categorical材料の値入力欄は改善計画T340でhooks/useMaterialValues.ts（GET /api/admin/material-catalog/{material_id}/values、同一オリジンのroute handler経由）＋lib/materialValueLabels.tsが「値の候補」セレクトを添える（値一覧が空の材料は従来どおり自由テキスト入力のみ、詳細は「軸スタジオの値入力UX改善」節参照）
       hooks/
         useIsMobile.ts             ✅ `MOBILE_BREAKPOINT_PX`=640。`globals.css`の`@media`とのズレをテストで自動検証（フロントエンドUX改善）
         useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
@@ -941,14 +941,17 @@ push型更新と同じ前提）で、ルート生成の型（`RouteGenerateRespo
 汎用モジュールにしてある（`result`は`Any`型、`api/routers/routes.py`との循環importを
 避けるため）。将来他の重い処理（例: 大規模バッチのオンデマンド実行）にも転用できる。
 
-実行にはFastAPIの`BackgroundTasks`（`asyncio.create_task`ではなく）を使う——本番の
-ASGIサーバーはレスポンス送出後にタスクを実行するため「即座に返す」要件を満たしつつ、
-`TestClient`はリクエストサイクル内でバックグラウンドタスクまで同期的に実行するため、
-テストが`asyncio.sleep`によるポーリング待ちを必要とせず決定的になる（`tests/
-test_routes_generate.py`参照）。
+実行には`asyncio.create_task`を使う（FastAPIの`BackgroundTasks`ではない）——
+`BackgroundTasks`はレスポンス送出が**完了してから**実行されるため、送出中の失敗
+（クライアント切断・ミドルウェアの例外）でジョブが一度も起動せず、投稿時点で取得済みの
+`_generate_semaphore`を解放するfinallyへ到達しない。`generate_max_concurrent`回これが
+起きるとルート生成がプロセス再起動まで全断する。生成したタスクは
+`_running_generate_tasks`（`api/routers/routes.py`）が参照を保持する——イベントループは
+タスクへの強参照を持たないため、保持しないとGCが実行中のジョブごと回収しうる。テストから
+ジョブの完了を待つ必要がある場合はこの集合をawaitする。
 
-バックグラウンドタスクはFastAPIのリクエストスコープ外（レスポンス送出後）で実行される
-ため、リクエストスコープのDBセッション（`Depends`経由）をそのまま使えない
+バックグラウンドタスクはFastAPIのリクエストスコープ外で実行されるため、
+リクエストスコープのDBセッション（`Depends`経由）をそのまま使えない
 （`graph_service.py: _warm_tile_cache_background`と同じ制約）。`api/dependencies.py:
 open_route_generation_setup`（`@asynccontextmanager`）が、既存のDI用ジェネレータ関数を
 `asynccontextmanager()`でラップして独立したセッションを開く（セッション開閉ロジックの
@@ -1677,7 +1680,7 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 場で`extractor=tag_equals_extractor("bridge", "yes")`のように直接呼ぶ）。優先順位付き分類等の
 複雑な組み合わせロジック（`bicycle_infra`）のみ専用関数を持つ。
 
-`GET /api/material-catalog/{material_id}/values`（認可不要）が、DBに実際に取り込まれている値の
+`GET /api/admin/material-catalog/{material_id}/values`（HTTP Basic認可要）が、DBに実際に取り込まれている値の
 一覧（`RawOsmRepository.get_distinct_material_values`、DB未接続時は空リストへグレースフル
 デグレード）を返し、`AxisComposer.tsx`の値入力欄（`hooks/useMaterialValues.ts`）が自由テキスト
 入力の隣に「値の候補」セレクトとして添える（値一覧が空の材料は従来どおり自由テキストのみ）。

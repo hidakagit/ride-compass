@@ -91,7 +91,7 @@ export type MaterialCatalogEntry = Schemas["MaterialCatalogEntry"];
 export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
 export type MaterialReferencePointEntry = Schemas["MaterialReferencePointEntry"];
 
-// 材料の実データ値一覧。GET /api/material-catalog/{material_id}/valuesのレスポンス。
+// 材料の実データ値一覧。GET /api/admin/material-catalog/{material_id}/valuesのレスポンス。
 // highway/surface/smoothnessのようなオープンエンドな多値材料向け。各値に日本語ラベル
 // (label)も付く（backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが
 // 単一ソース）。

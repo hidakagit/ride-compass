@@ -13,7 +13,7 @@ GUIから行わない（`domain/material_catalog.py`へのコード変更＋デ�
 このレスポンスから除外する。構造的なAND条件（"both"）を素朴なCategoricalShapeが
 正しく表現できず誤解を招くため。地図表示（`tile_property`経由）には影響しない。
 
-`GET /api/material-catalog/{material_id}/values`（同じく認可不要・読み取り専用）は、
+`GET /api/admin/material-catalog/{material_id}/values`（読み取り専用だがHTTP Basic認可要）は、
 highway/surface/smoothnessのようなOSMタグの生値でオープンエンドな材料について、DBに
 実際に取り込まれている値を動的取得し返す（`AxisComposer.tsx`の値入力欄がタグ生値を
 暗記して手入力せずに選べるようにする）。DB未接続構成（`road_graph_use_repository=False`）
@@ -130,7 +130,11 @@ async def get_material_catalog() -> MaterialCatalogResponse:
     )
 
 
-@router.get("/api/material-catalog/{material_id}/values", response_model=MaterialValuesResponse)
+@router.get(
+    "/api/admin/material-catalog/{material_id}/values",
+    response_model=MaterialValuesResponse,
+    dependencies=[Depends(require_admin_basic_auth)],
+)
 async def get_material_values(
     material_id: str,
     region_service: RegionService = Depends(get_region_service),
@@ -140,6 +144,11 @@ async def get_material_values(
     材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
     いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード
     方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。
+
+    利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない
+    `SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。
+    認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で
+    Basic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。
     """
     if not is_known_material(material_id):
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")

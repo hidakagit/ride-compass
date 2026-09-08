@@ -76,7 +76,7 @@ GUIから材料を追加・編集できない設計方針の下では実行時�
 **軸スタジオの値入力UX改善（改善計画T340）**: `highway`/`surface`/`smoothness`はOSMタグの
 生値でオープンエンドなため、`AxisComposer.tsx`の「値ごとのスコア」入力欄がタグ生値の
 暗記・手入力を要求するUX課題を抱えていた（2026-08-26ユーザー報告）。新設エンドポイント
-`GET /api/material-catalog/{material_id}/values`（`api/routers/material_catalog.py`、
+`GET /api/admin/material-catalog/{material_id}/values`（`api/routers/material_catalog.py`、
 認可不要）が、DBに実際に取り込まれている値の一覧（重複無し・ソート済み）を返す。DB読み取り
 は`RawOsmRepository.get_distinct_material_values`（`infrastructure/
 road_graph_repository.py`、単純な`SELECT DISTINCT`。surface/smoothnessは

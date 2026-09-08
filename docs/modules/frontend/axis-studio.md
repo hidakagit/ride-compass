@@ -22,11 +22,12 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」で2グループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。集計は「集計する」ボタン押下時のみ |
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
+| `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
 | `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。edge_attribute_counts・way_attribute_counts・designation_attributesの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）とelevation_attributesの完成度（別枠）を表示。集計は「集計する」ボタン押下時のみ |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
-| `hooks/useMaterialValues.ts` | `GET /api/material-catalog/{material_id}/values`取得。categorical材料の候補選択セレクトに使う実データ値一覧 |
+| `hooks/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`app/admin/api/material-values/[materialId]/`のroute handler経由）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
 | `lib/axisMaterialsCatalog.ts` | 材料選択候補の静的フォールバック（`AXIS_MATERIAL_OPTIONS`）。`materialCatalogLabel`/`formatMaterialValue`は軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
 | `components/Map/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
@@ -163,7 +164,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 選択した材料のdtypeで表示を切り替える:
 - `dtype="boolean"`: 該当時(true)/非該当時(false)の2スコア入力。
 - `dtype="categorical"`（例: highway/surface/smoothness）: 値ごとのスコア行。
-  `useMaterialValues(materialId)`が`GET /api/material-catalog/{id}/values`から実データ値
+  `useMaterialValues(materialId)`が`GET /api/admin/material-catalog/{id}/values`から実データ値
   一覧を取得できた場合、値は読み取り専用の候補選択（自由入力を許さない——タイプミスが
   「静かに一致しない行」として残る落とし穴を防ぐため）になる。候補一覧が空の材料
   （bicycle_infra等、動的値一覧に未対応）だけ自由テキスト入力のまま。
@@ -230,7 +231,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 | フック | 取得先 | フォールバック | 取得成功かつ0件のとき |
 |---|---|---|---|
 | `useMaterialCatalog()` | `GET /api/material-catalog` | `AXIS_MATERIAL_OPTIONS`（静的） | フォールバックへは留まらず**空配列をそのまま返す**（「未完了/失敗」と「成功したが0件」を区別する） |
-| `useMaterialValues(materialId)` | `GET /api/material-catalog/{id}/values` | 持たない（実データ値一覧はコード側で妥当な代替を用意できないため） | 空配列（＝呼び出し側は自由テキスト入力へフォールバック） |
+| `useMaterialValues(materialId)` | `GET /api/admin/material-catalog/{id}/values` | 持たない（実データ値一覧はコード側で妥当な代替を用意できないため） | 空配列（＝呼び出し側は自由テキスト入力へフォールバック） |
 
 **暗黙の前提**: `useMaterialValues`はpropが変わった直後の1レンダー中、前の材料の値一覧を
 一瞬でも引きずらないよう、`useEffect`ではなくレンダー中の同期比較（`state.materialId ===

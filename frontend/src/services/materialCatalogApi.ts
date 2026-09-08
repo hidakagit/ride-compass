@@ -15,12 +15,15 @@ export async function getMaterialCatalog(): Promise<MaterialCatalogResponse> {
 }
 
 // 材料の実データ値一覧取得。highway/surface/smoothnessのように
-// OSMタグの生値でオープンエンドな材料向け。認可不要の読み取り専用API。未知の材料idは
-// 404（fetchJsonがエラーとしてrejectする）、既知だが動的値一覧に対応していない材料・
-// DB未接続・DB障害はいずれも`{values: []}`（200）を返す（呼び出し側は空配列を
-// 「動的値一覧が使えない」の合図として自由テキスト入力へフォールバックする）。
+// OSMタグの生値でオープンエンドな材料向け。backendではBasic認証必須のadmin API
+// （GET /api/admin/material-catalog/{material_id}/values）で、materialCoverageApi.tsと
+// 同じく同一オリジンのroute handler（app/admin/api/material-values/[materialId]/、
+// lib/adminApiProxy.ts参照）を経由する。未知の材料idは404（fetchJsonがエラーとして
+// rejectする）、既知だが動的値一覧に対応していない材料・DB未接続・DB障害はいずれも
+// `{values: []}`（200）を返す（呼び出し側は空配列を「動的値一覧が使えない」の合図として
+// 自由テキスト入力へフォールバックする）。
 export async function getMaterialValues(materialId: string): Promise<MaterialValuesResponse> {
-  const url = `${API_BASE_URL}/api/material-catalog/${encodeURIComponent(materialId)}/values`;
+  const url = `/admin/api/material-values/${encodeURIComponent(materialId)}`;
   return fetchJson<MaterialValuesResponse>(url, {
     timeoutMs: 10000,
     category: "api:materialValues",
