@@ -146,7 +146,7 @@ async def test_refresh_all_stations_warns_when_observation_map_fetch_fails(monke
 
 
 async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeypatch):
-    fake_redis = _patch_client(monkeypatch)
+    _patch_client(monkeypatch)
     service = JmaAmedasService(http_client=None)
     # バッチ（定期実行想定）が先に全国分をキャッシュ済みという前提を再現する。
     await service.refresh_all_stations()

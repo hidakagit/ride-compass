@@ -33,7 +33,6 @@ from datetime import datetime, timezone
 from sqlalchemy import select, text
 
 from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
-from app.config import settings
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 

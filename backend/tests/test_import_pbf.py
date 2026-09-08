@@ -15,7 +15,7 @@ import pytest
 import pytest_asyncio
 from shapely import wkb as shapely_wkb
 
-from app.batch import import_pbf, pbf_source
+from app.batch import pbf_source
 from app.batch._common import asyncpg_dsn
 from app.batch.import_pbf import (
     build_poi_record,

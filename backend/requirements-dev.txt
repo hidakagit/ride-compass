@@ -1,0 +1,6 @@
+# 開発・CIでのみ使う依存（本番のwebイメージには入れない。requirements-batch.txtが
+# バッチ専用の依存を分けているのと同じ理由）。
+-r requirements.txt
+# Python lint。設定はruff.toml。CI（.github/workflows/ci.yml）とpre-commit
+# （scripts/pre-commit-ruff.sh）が同じバージョンを使う。
+ruff==0.16.6

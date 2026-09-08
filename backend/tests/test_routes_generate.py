@@ -406,7 +406,7 @@ def test_generate_job_status_returns_failed_with_generic_error_message(monkeypat
     @asynccontextmanager
     async def _raise_setup(*args, **kwargs):
         raise RuntimeError("生成中に想定外のエラー（本来ログにのみ残るべき内部詳細）")
-        yield  # noqa: このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
+        yield  # このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
 
     monkeypatch.setattr(routes_module, "open_route_generation_setup", _raise_setup)
 
@@ -431,7 +431,7 @@ def test_generate_job_failure_releases_concurrency_semaphore(monkeypatch):
     @asynccontextmanager
     async def _raise_setup(*args, **kwargs):
         raise RuntimeError("失敗")
-        yield  # noqa: このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
+        yield  # このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
 
     monkeypatch.setattr(routes_module, "open_route_generation_setup", _raise_setup)
 

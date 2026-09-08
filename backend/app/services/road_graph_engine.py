@@ -87,6 +87,7 @@ from app.domain.geo import (
     haversine_distance_km_array,
 )
 from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
+from app.domain.material_catalog import is_known_material
 from app.domain.region import BoundingBox
 from app.domain.route import (
     Coordinates,
@@ -1582,8 +1583,6 @@ def _active_material_ids(weights: Mapping[str, float], lens_axis_id: str | None 
     components/Map/routeStyleModes.ts: routeColorableModeFromAxis`のsigned_material分岐、
     符号[登り/下り]の情報を保つため難易度0-100へは変換しない）、重み0の軸をレンズに
     選んでも表示が欠けないようにする。"""
-    from app.domain.material_catalog import is_known_material
-
     material_ids: set[str] = set()
     for axis_id, weight in weights.items():
         if weight <= 0:

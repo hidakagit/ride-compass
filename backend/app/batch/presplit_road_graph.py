@@ -26,9 +26,8 @@ import sys
 import time
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_bounds_lonlat
 from app.infrastructure.road_graph_models import RoadGraphTileRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository

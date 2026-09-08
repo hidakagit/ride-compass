@@ -77,10 +77,12 @@ cd frontend && npx vitest list 2>&1 | tail -5
 ```bash
 cd frontend && npx tsc --noEmit 2>&1 | tail -20   # エラー件数
 cd frontend && npm run lint 2>&1 | tail -30        # warning/error件数
+cd backend && .venv/Scripts/python.exe -m ruff check app scripts benchmarks tests 2>&1 | tail -20
 ```
 
-backendは現状lintツール（ruff/flake8等）が未導入のため計測対象外——**DEFER
-（トリガー: backendへlintツールが導入された時点で本節へ追加する）**。
+backendのruffはCI・pre-commitが同じ設定（`backend/ruff.toml`）で常時ハードに止めるため、
+通常は0件のはず。0件でないときは「CIを通っていない変更が手元にある」か「選択ルールを
+広げた直後」のどちらかで、どちらかを記録する。
 
 ### 5. 依存関係
 

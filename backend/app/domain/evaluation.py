@@ -33,7 +33,6 @@ from app.domain.axis_definitions import (
     dynamic_axis_topological_order,
     evaluate_axes_scalar,
     evaluate_axis_array,
-    evaluate_axis_scalar,
     time_scoped_weights,
     topological_axis_order,
 )

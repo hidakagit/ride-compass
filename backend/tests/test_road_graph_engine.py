@@ -15,12 +15,9 @@ import pytest
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
 from app.domain.errors import RoutingError
 from app.domain.evaluation import (
-    DynamicAxisRequestContext,
     RoutePreference,
     build_static_edge_score_matrix,
-    compose_costs_from_axis_matrix,
     compute_hard_filter_excluded,
-    evaluate_dynamic_axis_arrays,
 )
 from app.domain.geo import bearing_between, compass_label, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph

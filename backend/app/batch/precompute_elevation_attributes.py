@@ -30,10 +30,8 @@ import time
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
-from app.config import settings
 from app.domain.graph import RoadGraph
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_models import ElevationAttributeRow, RoadEdgeRow

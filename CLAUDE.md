@@ -76,9 +76,9 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **修正→確認を繰り返す反復フェーズでは、変更に直接関係するテストファイルだけを絞り込んで
   実行する**（backend例: `pytest backend/tests/test_foo.py -q`、frontend例:
   `npx vitest run <該当ファイル> --pool=threads`）。バックエンド全体
-  （`pytest -q -m "not postgis"`）・フロントエンド全体（`npx vitest run`・
-  `tsc --noEmit`・`eslint`）のようなフルスイートは、**実装が安定し反復が収束した後の
-  最終検証として1回だけ**実行する。毎回の微修正のたびにフルスイートを回すと、
+  （`pytest -q -m "not postgis"`・`ruff check app scripts benchmarks tests`）・
+  フロントエンド全体（`npx vitest run`・`tsc --noEmit`・`eslint`）のような
+  フルスイートは、**実装が安定し反復が収束した後の最終検証として1回だけ**実行する。毎回の微修正のたびにフルスイートを回すと、
   「微修正→長いフルテスト→NG発見→修正→また長いフルテスト」という非効率なループに陥る。
 
 ## キャッシュ方針（必読）

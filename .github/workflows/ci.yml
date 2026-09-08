@@ -1,6 +1,7 @@
 # CI（docs/improvement-plan.md T1）。push / PR ごとに backend・frontend の全チェックを回す。
 #
-# - backend: pytest（PostGIS統合テスト込み）→ API契約のドリフト検知（改善計画T4）の順で
+# - backend: ruff（lint）→ pytest（PostGIS統合テスト込み）→ API契約のドリフト検知
+#   （改善計画T4）の順で
 #   1ジョブにまとめている（改善計画T350のcode-review対応で統合、2026-08-27。ジョブ分割時は
 #   postgresサービスコンテナがジョブごとに独立起動しGitHub Actions無償枠を余計に消費する
 #   ため）。PostGIS統合テスト（tests/conftest.py の road_graph_session）は postgis/postgis
@@ -91,6 +92,7 @@ jobs:
           cache-dependency-path: |
             backend/requirements.txt
             backend/requirements-batch.txt
+            backend/requirements-dev.txt
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -103,6 +105,10 @@ jobs:
       # osmiumが不要という理由でrequirements.txtと分離された経緯とは別の関心事。CIの
       # テスト実行はデプロイ物とは独立なので、ここでosmiumを入れてもRenderへは影響しない）。
       - run: pip install -r requirements-batch.txt
+      - run: pip install -r requirements-dev.txt
+      # lintはテストより先に置く（frontendジョブがeslint→tsc→vitestの順であるのと同じ、
+      # 実行の速いものから）。設定はbackend/ruff.toml。
+      - run: python -m ruff check app scripts benchmarks tests
       # -n auto（pytest-xdist、改善計画T233フォローアップ）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
       # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/testing.mdパターン2）
