@@ -17,7 +17,8 @@ from app.api.dependencies import (
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
-from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS
+from app.domain.route_preference import RoutePreference
 from app.domain.geo import haversine_distance_km
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment

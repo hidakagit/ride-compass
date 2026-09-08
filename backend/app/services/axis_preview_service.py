@@ -20,7 +20,7 @@ from cachetools import TTLCache
 
 from app.domain.attributes import WayAttributeCounts
 from app.domain.axis_definitions import AxisShape, BreakpointLinearShape
-from app.domain.evaluation import way_scalar_materials
+from app.domain.axis_inspector import way_scalar_materials
 from app.domain.material_catalog import material_dtype
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 

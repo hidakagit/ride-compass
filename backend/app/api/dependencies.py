@@ -15,7 +15,8 @@ from fastapi import Depends, HTTPException, Request
 from app.config import settings
 from app.domain.dynamic_way_values import dedicated_way_value_axes
 from app.domain.errors import RoutingError
-from app.domain.evaluation import DEFAULT_HARD_FILTERS, RoutePreference
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS
+from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository

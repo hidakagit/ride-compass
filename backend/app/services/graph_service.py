@@ -6,7 +6,11 @@ from dataclasses import replace
 
 from app.config import settings
 from app.domain.attributes import EdgeMaterialBundle, EdgeMaterialTable, SearchMaterials, surface_by_edge_id
-from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix, combine_static_edge_score_matrices
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    build_static_edge_score_matrix,
+    combine_static_edge_score_matrices,
+)
 from app.domain.graph import DirectedEdge, LeanEdge, LeanNode, LeanRoadGraph, RoadGraph, RoadGraphLike, build_road_graph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache

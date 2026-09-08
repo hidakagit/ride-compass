@@ -19,20 +19,19 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     time_scoped_weights,
 )
+from app.domain.axis_inspector import axis_inspector_breakdown
+from app.domain.dynamic_materials import compute_dynamic_edge_materials
 from app.domain.evaluation import (
-    RoutePreference,
-    axis_inspector_breakdown,
     build_static_edge_score_matrix,
     combine_static_edge_score_matrices,
     compose_costs_from_axis_matrix,
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_edge_cost,
-    compute_dynamic_edge_materials,
-    compute_hard_filter_excluded,
-    compute_routable_node_ids,
-    is_edge_allowed,
 )
+from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_node_ids, is_edge_allowed
+from app.domain.route_preference import RoutePreference
+from tests.metrics_fixtures import edge_metrics
 from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
@@ -327,8 +326,12 @@ def test_compute_edge_cost_more_stops_costs_more():
     elevation = _elevation_attr(0.0)
     surface = "asphalt"
 
-    no_stops = compute_edge_cost(edge, elevation, surface, RoutePreference(), stop_count=0)
-    many_stops = compute_edge_cost(edge, elevation, surface, RoutePreference(), stop_count=4)
+    no_stops = compute_edge_cost(
+        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, stop=0)
+    )
+    many_stops = compute_edge_cost(
+        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, stop=4)
+    )
 
     assert many_stops.difficulty > no_stops.difficulty
     assert many_stops.cost > no_stops.cost
@@ -418,7 +421,8 @@ def test_route_preference_weights_fill_defaults_and_reject_unknown_axis():
     assert preference.weights["gradient"] == 0.15  # 既定値で補完
     # 改善計画T347: bicycle_infra_qualityが公開軸として加わった。
     assert set(preference.weights) == {
-        "gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night", "bicycle_infra_quality",
+        "gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night",
+        "bicycle_infra_quality", "openness",
     }
 
     with pytest.raises(ValueError, match="unknown axis_id"):
@@ -564,12 +568,14 @@ def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
     preference = RoutePreference()
     way_tags = {"maxspeed": "50"}
 
+    metrics = edge_metrics(edge.edge_id, stop=2)
+
     direct = compute_edge_cost(
-        edge, elevation, surface, preference, way_tags=way_tags, stop_count=2, is_designated=True
+        edge, elevation, surface, preference, way_tags=way_tags, metrics=metrics, is_designated=True
     )
 
     axis_scores = compute_edge_axis_scores(
-        edge, elevation, surface, way_tags=way_tags, stop_count=2, is_designated=True
+        edge, elevation, surface, way_tags=way_tags, metrics=metrics, is_designated=True
     )
     composed_cost, composed_difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, preference.weights)
 
@@ -612,10 +618,10 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     assert result.covered_weight_fraction == pytest.approx(0.82 / 1.23, abs=0.001)
 
 
-def test_axis_inspector_breakdown_accepts_way_landcover_without_affecting_other_axes():
-    """T624: way_landcoverを渡しても既存軸のスコアは変わらない（開放度軸自体は
-    段階3[axis_admin API]で公開するまでAXIS_DEFINITIONSに存在せず、trees_percent/
-    built_percentはmaterials辞書に混ざるだけの未参照キーになる）。"""
+def test_axis_inspector_breakdown_way_landcover_feeds_openness_only():
+    """way_landcoverは開放度軸（trees_percent/built_percentを参照する唯一の公開軸）だけを
+    変え、他の軸のスコアには影響しない。土地被覆を渡さない場合、開放度は算出不能
+    （available=False）になる。"""
     landcover = WayLandcover(
         osm_way_id=100,
         percentages=LandcoverPercentages(
@@ -633,7 +639,14 @@ def test_axis_inspector_breakdown_accepts_way_landcover_without_affecting_other_
         accident_years_covered=0, way_landcover=landcover,
     )
 
-    assert with_landcover.axes == without_landcover.axes
+    def by_id(result):
+        return {axis.axis_id: axis for axis in result.axes}
+
+    assert by_id(without_landcover)["openness"].available is False
+    assert by_id(with_landcover)["openness"].available is True
+    others_with = [axis for axis in with_landcover.axes if axis.axis_id != "openness"]
+    others_without = [axis for axis in without_landcover.axes if axis.axis_id != "openness"]
+    assert others_with == others_without
 
 
 def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_tags():
@@ -862,8 +875,9 @@ def _assert_matrices_equal(a, b) -> None:
         left, right = getattr(a, name), getattr(b, name)
         both_nan = np.isnan(left) & np.isnan(right)
         assert ((left == right) | both_nan).all(), name
-    assert (a.is_motorway == b.is_motorway).all()
-    assert (a.is_trunk == b.is_trunk).all()
+    assert set(a.highway_filter_flags) == set(b.highway_filter_flags)
+    for name, flags_a in a.highway_filter_flags.items():
+        assert (flags_a == b.highway_filter_flags[name]).all()
     assert (a.no_bicycle == b.no_bicycle).all()
 
 
@@ -935,7 +949,7 @@ def test_compute_routable_node_ids_matches_hard_filter_excluded_from_score_matri
     table = EdgeMaterialTable.from_bundles(edge_ids, bundles)
     matrix = build_static_edge_score_matrix(graph, table)
     excluded = compute_hard_filter_excluded(
-        matrix.is_motorway, matrix.is_trunk, matrix.no_bicycle, matrix.gradient_percent,
+        matrix.highway_filter_flags, matrix.no_bicycle, matrix.gradient_percent,
     )
 
     routable = compute_routable_node_ids(graph, matrix.edge_ids, excluded)
@@ -1096,7 +1110,7 @@ def _bearing_graph() -> RoadGraph:
 
 def test_dynamic_material_evaluators_cover_every_request_dynamic_material():
     from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS
-    from app.domain.evaluation import DYNAMIC_MATERIAL_EVALUATORS
+    from app.domain.dynamic_materials import DYNAMIC_MATERIAL_EVALUATORS
 
     assert set(DYNAMIC_MATERIAL_EVALUATORS) == set(REQUEST_DYNAMIC_MATERIAL_IDS)
 
@@ -1106,7 +1120,8 @@ def test_dynamic_materials_agree_across_scalar_bulk_and_static_matrix_paths(spee
     """同じ風・同じ走行速度に対し、スカラー経路（compute_edge_axis_scores）・bulk経路
     （_evaluate_axes_bulk）・静的行列＋動的軸合成（build_static_edge_score_matrix→
     evaluate_dynamic_axis_arrays）が同じ軸difficultyを返す。"""
-    from app.domain.evaluation import DynamicAxisRequestContext, _evaluate_axes_bulk, evaluate_dynamic_axis_arrays
+    from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
+    from app.domain.evaluation import _evaluate_axes_bulk
 
     graph = _bearing_graph()
     weather = _wind(wind_speed_ms=6.0, wind_direction_deg=30.0)

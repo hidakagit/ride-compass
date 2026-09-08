@@ -43,8 +43,8 @@ def _ctx(
 ) -> MaterialExtractionContext:
     e = edge or _edge()
     return MaterialExtractionContext(
-        edge=e,
         edge_id=e.edge_id,
+        highway=e.highway,
         way_tags=way_tags,
         distance_km=e.distance_m / 1000,
         elevation_attributes=elevation_attributes or {},

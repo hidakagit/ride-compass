@@ -28,7 +28,7 @@ import logging
 import os
 import time
 
-from app.domain.evaluation import RoutePreference
+from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO
 from benchmarks._route_generation_service import assert_read_only_path, refresh_axis_registry, route_generator_session

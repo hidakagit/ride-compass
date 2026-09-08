@@ -455,7 +455,7 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
 | スコープ | 定義場所 | 内容 | 変更理由 |
 |---|---|---|---|
 | 取込スコープ | [backend/app/batch/import_profile.yaml](../backend/app/batch/import_profile.yaml) | trunk〜residential・cycleway・track等（footway/pedestrian/steps/service/motorway系は`roads`ルールでは除外）。ただし自転車歩行者共用道（`highway=footway/path` **かつ** 自転車通行可）は`shared_pedestrian_ways`ルールが別途拾う（河川敷サイクリングロード等） | データ容量・表示/探索の少なくとも一方で使うか |
-| ルーティング可否（Hard Constraint、〇次フィルタ） | `domain/evaluation.py: HARD_FILTER_HIGHWAY_TYPES`（改善計画T140、旧`DISALLOWED_HIGHWAY_TYPES`） | motorway/trunk系を自転車通行不可として探索から除外（`motorway`/`trunk`の2フィルタに命名分離、既定は両方有効） | 法規・実務判断（後述7章末尾参照） |
+| ルーティング可否（Hard Constraint、〇次フィルタ） | `domain/hard_filters.py: HARD_FILTER_HIGHWAY_TYPES`（改善計画T140、旧`DISALLOWED_HIGHWAY_TYPES`） | motorway/trunk系を自転車通行不可として探索から除外（`motorway`/`trunk`の2フィルタに命名分離、既定は両方有効） | 法規・実務判断（後述7章末尾参照） |
 | 表示グルーピング | [frontend/src/components/Map/roadFilterAxes.ts](../frontend/src/components/Map/roadFilterAxes.ts) `HIGHWAY_GROUPS` | 幹線/主要道/生活道路/自転車・歩行者道/農道・林道の5分類＋不明 | 地図の見やすさ |
 
 - **trunkは取り込むが走らせない**: 地図表示（幹線道路の把握・回避判断）のために取込対象だが、ルート探索ではHard Constraintで除外される。矛盾ではなく意図的な役割分担
@@ -707,7 +707,7 @@ RideCompass/
         materialCatalogApi.ts       ✅ 改善計画T277: getMaterialCatalog()。GET /api/material-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
         axisAdminApi.ts             ✅ 改善計画T270: listAxisDefinitions()/createAxisDefinition()/updateAxisDefinition()/deleteAxisDefinition()/unpublishAxisDefinition()。改善計画T305で呼び出し先を同一オリジンの`/admin/api/axis-definitions`（Next.js route handler、lib/adminApiProxy.ts参照）へ変更し、Authorizationヘッダの手動付与を撤去（ブラウザの認証キャッシュが自動付与するため）。PUT/DELETE対応が必要なためfetchJson[GET専用]ではなく自前実装。改善計画T277でshapeが参照する材料id（terms/flags/categoricalのmaterial）が未知の場合、backend側が422を返すようになった
       types/
-        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）・route-generate-config.json（`max_distance_km`、backend `api/routers/routes.py: MAX_ROUTE_DISTANCE_KM`が正準定義、改善計画T471。`max_routes`/`default_max_routes`[backend `route_generator.py: MAX_ROUTES`/`DEFAULT_MAX_ROUTES`が正準定義、改善計画T531]も同じ生成物に含まれる。`RouteForm.tsx`/`page.tsx`の上限ハードコードの重複を解消する片側import。0次ハードフィルタのキー一覧・既定値[backend `domain/evaluation.py: DEFAULT_HARD_FILTERS`が正準定義]も同じ生成物が持つ）・poi-kinds.json（停止要因POI・補給休憩POIのkind正準集合、backend `domain/traffic.py: StopPoiKind`/`SupplyPoiKind`が正準定義）・material-catalog.json（軸スタジオが選べる公開材料の一覧と値ラベル、backend `domain/material_catalog.py`が正準定義。`axisMaterialsCatalog.ts`の静的フォールバックと`MapView.tsx`の路面状態ラベルがここから導出される）等の付随生成物も同じ仕組みでドリフト検知される。**backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ変えても全テストが緑のまま通り、キー集合の完全一致を要求するAPIでは全リクエストが422になる等の形で本番に出る
+        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）・route-generate-config.json（`max_distance_km`、backend `api/routers/routes.py: MAX_ROUTE_DISTANCE_KM`が正準定義、改善計画T471。`max_routes`/`default_max_routes`[backend `route_generator.py: MAX_ROUTES`/`DEFAULT_MAX_ROUTES`が正準定義、改善計画T531]も同じ生成物に含まれる。`RouteForm.tsx`/`page.tsx`の上限ハードコードの重複を解消する片側import。0次ハードフィルタのキー一覧・既定値[backend `domain/hard_filters.py: DEFAULT_HARD_FILTERS`が正準定義]も同じ生成物が持つ）・poi-kinds.json（停止要因POI・補給休憩POIのkind正準集合、backend `domain/traffic.py: StopPoiKind`/`SupplyPoiKind`が正準定義）・material-catalog.json（軸スタジオが選べる公開材料の一覧と値ラベル、backend `domain/material_catalog.py`が正準定義。`axisMaterialsCatalog.ts`の静的フォールバックと`MapView.tsx`の路面状態ラベルがここから導出される）等の付随生成物も同じ仕組みでドリフト検知される。**backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ変えても全テストが緑のまま通り、キー集合の完全一致を要求するAPIでは全リクエストが422になる等の形で本番に出る
         route.ts                  ✅ generated/api.d.tsの再エクスポート＋GeoJSON型の補正（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等。手書きの型二重管理を廃止、改善計画T4）
         weather.ts                 ✅ 同上（WeatherConditions）
   docker-compose.yml            ✅ (frontend/backend/postgres)
@@ -803,7 +803,7 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
   # penalty_strength（改善計画T218・T12 ADR原則1）は
   # 0次ハードフィルタの勾配しきい値で、いずれもroad_graphエンジンのみに効く。
   # hard_filters（改善計画T266）は0次ハードフィルタ（`no_bicycle`/`motorway`/`trunk`、
-  # domain/evaluation.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
+  # domain/hard_filters.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
   # 「2次の重み」とは異なり、Falseにしたフィルタに該当する道路はコストを上げるのではなく
   # 探索グラフから除外しない＝候補に含める（0次＝スコア計算に一切登場しないハード制約）
 Response 202（ジョブを受理、即座に返る）:
@@ -2032,7 +2032,7 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 
 ### 〇次: ハード制約（改善計画T140）
 
-8軸の難易度計算に入る前段として、`domain/evaluation.py: is_edge_allowed`が対象Edgeを
+8軸の難易度計算に入る前段として、`domain/hard_filters.py: is_edge_allowed`が対象Edgeを
 探索グラフから丸ごと除外するかどうかを判定する（設計プロンプト「評価システムの層構造
 再設計」の〇次フィルタ、仕様書29章のHard Constraintと同じ概念）。**スコア・重みには
 一切登場しない**点が8軸との決定的な違い（該当Edgeは`EdgeCostResult.allowed=False`で
@@ -2645,7 +2645,7 @@ T413（2026-08-30）で地図上チップと同じ`mapOverlayGroupFor`を単一�
 
 道路をクリックした際に「一次属性→取得可能な軸のみのスコア→参考合成コスト」を表示する
 機能。`POST /api/region/axis-inspector`（§4参照）→`RegionService.get_axis_inspector`
-→`domain/evaluation.py: axis_inspector_breakdown`（純関数）という「クリック時にサーバーへ
+→`domain/axis_inspector.py: axis_inspector_breakdown`（純関数）という「クリック時にサーバーへ
 1回問い合わせ」パターンを採る（クライアント側での難易度式再実装はドリフトリスクがある
 ため見送り。改善計画T292で本エンドポイントへ統合・廃止された旧車ストレス内訳ボタン
 `POST /api/region/car-stress-breakdown`も同じパターンだった）。

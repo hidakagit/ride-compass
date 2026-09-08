@@ -70,15 +70,10 @@ from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERI
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.dynamic_way_values import map_value_kind
 from app.domain.errors import RoutingError
-from app.domain.evaluation import (
-    StaticEdgeScoreMatrix,
-    DynamicAxisRequestContext,
-    RoutePreference,
-    compose_costs_from_axis_matrix,
-    compute_hard_filter_excluded,
-    compute_routable_node_ids,
-    evaluate_dynamic_axis_arrays,
-)
+from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
+from app.domain.evaluation import StaticEdgeScoreMatrix, compose_costs_from_axis_matrix
+from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_node_ids
+from app.domain.route_preference import RoutePreference
 from app.domain.geo import (
     KM_PER_DEGREE_LATITUDE,
     bearing_between,
@@ -532,7 +527,7 @@ class RoadGraphEngine:
         preference = self._route_preference.with_time_scope(active_scopes)
         weights = preference.weights
         hard_filter_excluded = compute_hard_filter_excluded(
-            score_matrix.is_motorway, score_matrix.is_trunk, score_matrix.no_bicycle,
+            score_matrix.highway_filter_flags, score_matrix.no_bicycle,
             score_matrix.gradient_percent, self._hard_filters, self._max_average_grade_percent,
         )
         full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}

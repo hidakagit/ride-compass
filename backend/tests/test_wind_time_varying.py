@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
-from app.domain.evaluation import DynamicAxisRequestContext, RoutePreference, evaluate_dynamic_material_arrays
+from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_material_arrays
+from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, estimate_passage_hours, kmh_to_ms, wind_drag_ratio

@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from app.domain.evaluation import RoutePreference
+from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory

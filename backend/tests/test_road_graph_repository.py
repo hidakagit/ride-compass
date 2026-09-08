@@ -785,8 +785,8 @@ async def test_unaggregated_poi_counts_are_unknown_not_zero(road_graph_repositor
     assert forward not in metrics[METRIC_GROUP_POI]
 
     ctx = MaterialExtractionContext(
-        edge=None,
         edge_id=forward,
+        highway=None,
         way_tags={},
         distance_km=0.1,
         elevation_attributes={},
@@ -832,8 +832,8 @@ async def test_poi_counts_reach_the_material_extractor_end_to_end(
     assert metrics[METRIC_GROUP_POI][forward]["signal"] == 1.0
 
     ctx = MaterialExtractionContext(
-        edge=None,  # poi系のextractorはedge_id・distance_km・metricsだけを見る
         edge_id=forward,
+        highway=None,  # poi系のextractorはedge_id・distance_km・metricsだけを見る
         way_tags={},
         distance_km=0.1,
         elevation_attributes={},

@@ -10,7 +10,7 @@ from app.api.routers._tile_validation import validate_tile_coords
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_dedicated_way_values
-from app.domain.evaluation import AxisInspectorResult
+from app.domain.axis_inspector import AxisInspectorResult
 from app.services.region_service import RegionService
 
 router = APIRouter()

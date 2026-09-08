@@ -48,7 +48,8 @@ from app.services.axis_registry_service import refresh_axis_definitions  # noqa:
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.dynamic_way_values import map_value_kind, map_value_unit  # noqa: E402
-from app.domain.evaluation import DEFAULT_HARD_FILTERS, HARD_FILTER_HIGHWAY_TYPES  # noqa: E402
+from app.domain.evaluation import HARD_FILTER_HIGHWAY_TYPES  # noqa: E402
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import axis_studio_materials  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
