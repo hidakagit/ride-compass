@@ -176,6 +176,12 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   代替経路を生成する。`overall_difficulty`昇順（`generate_loops`と同じ規約）で
   `id="route-destination-00"`形式へ振り直し、`direction_label="目的地ルート"`を
   全件に付ける。
+  併せて`engine.select_shortest_distance_route`（距離だけで選ぶ、後述）を1本必ず含め、
+  `RouteCandidate.is_shortest_distance=True`を付けて**難易度順の外へ出し先頭へ固定**
+  する。軸設定に沿った候補が最短からどれだけ余分に走るかを読むための基準線であり、
+  難易度で沈むと基準として使えないため。軸最良の候補と同じ経路になった場合は候補を
+  増やさずその1本へ印を付ける。件数は`max_routes`を超えず、切るのは末尾（最も難易度の
+  高い候補）。
 - **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるためv1では対象にせず、
   従来どおり`trace_loop`で単一経路を生成する（`max_routes`は無視される。終点到達後に
   `id="route-destination"`/`direction_label="目的地ルート"`へ上書き、id採番はしない）。
@@ -353,6 +359,15 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
 連結）がそのまま最終候補になる（`tree_path_edge_indices`/`tree_path_edge_indices_to_source`
 で確定済み、候補ごとに失敗しうる探索が無い）ため、戻り値の`TracedLoop`一覧が
 `RouteGenerator._generate_destination_routes`にとってそのまま`evaluate_loops`への入力になる。
+
+### `select_shortest_distance_route`（距離だけの基準線）
+
+同じ前向き木・後ろ向き木の合成だが、コスト配列に`edge_length_m`をそのまま渡すため、
+軸の重みを一切使わない距離最短の経路が1本得られる。`select_via_nodes`の後に呼ぶ前提で、
+目的地の再スナップ結果（`destination_correction`）を引き継ぎ逆向きstaticsのキャッシュに
+乗る。経由Nodeは最短経路上のどのNodeでも同じ経路を表すため、そのうち往路長が全長の
+半分に最も近いものを選ぶ——他の候補と同じく往路レグ・復路レグへ概ね半分ずつ割れ、
+レグごとに時刻の異なる風の評価が候補間で揃う。
 
 ### `trace_loop`（経由地・目的地指定ルート）
 

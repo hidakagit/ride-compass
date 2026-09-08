@@ -246,6 +246,14 @@
   border-bottom-color: var(--color-accent-strong);
 }
 
+/* タブの距離の後ろに添える「最短からの超過km」。距離そのものより弱く見せる——主たる表記は
+   その候補自身の距離で、こちらは基準線との差という補助。 */
+.outcomeTabExtra {
+  margin-left: 0.25rem;
+  font-weight: 400;
+  color: var(--color-muted-strong);
+}
+
 .outcomeTabTrigger:disabled {
   color: var(--color-border);
   cursor: not-allowed;

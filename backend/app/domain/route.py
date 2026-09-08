@@ -105,6 +105,11 @@ class RouteCandidate(BaseModel):
     # `RouteSegmentDetail.material_values`を候補全区間へ距離加重平均で集約したもの
     # （`merge_material_values`、`axis_difficulties`と同じ集約方法）。
     material_values: dict[str, float] = Field(default_factory=dict)
+    # 距離だけで選んだ最短経路か（目的地モードのみ。周回は目標距離が距離を決めるため常にFalse）。
+    # フロントはこの候補の`distance_km`を基準に、他の候補が何km余分に走るかを出す。
+    # 軸設定に沿った候補と最短経路が同じ経路になることもあるため、複数の候補が同時に
+    # Trueになることは無い代わりに、1本もTrueが無い場合（最短経路を求められなかった）もある。
+    is_shortest_distance: bool = False
 
 
 # road_graphエンジンのsegmentsはEdge単位（交差点間、1候補あたり150〜230件、30km級）で

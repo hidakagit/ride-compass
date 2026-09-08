@@ -1234,6 +1234,73 @@ class RoadGraphEngine:
         )
         return traced
 
+    async def select_shortest_distance_route(
+        self, context: _RoadGraphContext, destination: Coordinates
+    ) -> TracedLoop | None:
+        """距離だけで選んだ最短経路を1本返す（軸の重みを一切使わない）。
+
+        `select_via_nodes`と同じ前向き木・後ろ向き木の合成だが、コスト配列に
+        `edge_length_m`をそのまま渡すため、得られるのは距離最短の経路になる。軸設定に
+        沿った候補が最短からどれだけ余分に走るかを示す基準として使う。
+
+        `select_via_nodes`の後に呼ぶ前提。目的地の再スナップ結果
+        （`context.destination_correction`）を引き継ぎ、逆向きstaticsのキャッシュに乗る。
+
+        経由Nodeは最短経路上のどのNodeでも同じ経路を表すため、そのうち往路長が全長の
+        半分に最も近いものを選ぶ——他の候補と同じく往路レグ・復路レグへ概ね半分ずつ
+        割れ、レグごとに時刻の異なる風の評価が候補間で揃う。
+        """
+        lazy_graph = context.lazy_graph
+        destination = context.destination_correction or destination
+        destination_node = find_nearest_node_indexed(context.node_index, destination)
+        if destination_node is None:
+            return None
+        destination_index = lazy_graph.node_id_to_index[destination_node]
+
+        started = time.monotonic()
+        reverse_statics, _ = await _get_or_build_reverse_search_statics(
+            context.tile_set, lazy_graph, context.graph
+        )
+        forward_tree = await asyncio.to_thread(
+            build_shortest_path_tree,
+            context.statics.csr, context.statics.edge_length_m, context.statics.edge_length_m,
+            context.origin_index,
+        )
+        backward_tree = await asyncio.to_thread(
+            build_shortest_path_tree,
+            reverse_statics.csr, reverse_statics.edge_length_m, reverse_statics.edge_length_m,
+            destination_index,
+        )
+        combined_length = forward_tree.length_m + backward_tree.length_m
+        reachable = np.isfinite(forward_tree.cost) & np.isfinite(backward_tree.cost)
+        if not np.any(reachable):
+            logger.warning(
+                "select_shortest_distance_route reachable=0 forward_reached=%d backward_reached=%d",
+                int(np.isfinite(forward_tree.cost).sum()), int(np.isfinite(backward_tree.cost).sum()),
+            )
+            return None
+
+        masked = np.where(reachable, combined_length, np.inf)
+        shortest_m = float(masked.min())
+        on_path = np.flatnonzero(masked <= shortest_m + 1.0)
+        via_index = int(on_path[np.argmin(np.abs(forward_tree.length_m[on_path] - shortest_m / 2))])
+
+        forward_edges = tree_path_edge_indices(forward_tree, lazy_graph, via_index)
+        backward_edges = tree_path_edge_indices_to_source(backward_tree, lazy_graph, via_index)
+        if forward_edges is None or backward_edges is None:
+            return None
+        edge_ids = [lazy_graph.edge_ids[index] for index in forward_edges + backward_edges]
+        if not edge_ids:
+            return None
+        distance_km = round(sum(context.graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
+        leg_of_edge = [0] * len(forward_edges) + [1] * len(backward_edges)
+
+        logger.info(
+            "select_shortest_distance_route shortest_km=%.1f edges=%d forward_edges=%d tree_ms=%d",
+            distance_km, len(edge_ids), len(forward_edges), round((time.monotonic() - started) * 1000),
+        )
+        return TracedLoop(bearing=None, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge)
+
     async def trace_loop_from_turnaround(self, context: _RoadGraphContext, turnaround: LoopTurnaround) -> TracedLoop:
         """往路（一対全木上の経路、`select_loop_turnarounds`で確定済み）に、往路と別の
         復路（折返し点→起点のA*）を継いで周回にする。

@@ -95,6 +95,7 @@ import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/lib/gpxExport";
+import { extraDistanceLabel, shortestDistanceKm } from "@/lib/routeTabLabel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -1638,6 +1639,8 @@ export default function Home() {
 
     const showComparisonTab = researchEnabled;
     const outerTabValue = comparisonTabActive ? "comparison" : (selectedRouteId ?? routes[0].id);
+    // 距離だけで選んだ基準線の距離km（目的地モードのみ持つ。周回・経由地ルートはnull）。
+    const shortestKm = shortestDistanceKm(routes);
     // RouteAxisProfileへは公開軸すべて（axisCatalog.axes）をそのまま渡し、絞り込みは行わない。
     // routeWeightsは重み<=0の軸を「未使用」バッジ付きで表示する判定にのみ使う（生成時点の重み
     // ＝generatedRoutePreference、未生成時のみライブなroutePreferenceへフォールバック）。
@@ -1690,10 +1693,17 @@ export default function Home() {
                       ルート(route-destination-00形式、前方一致)は経由地を伴わなければ
                       via-node方式で複数件になりうる——方位という概念は無いため「方向」は
                       付けないが、複数件を見分けられるよう順位番号は付ける。 */}
-                  {NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
-                    ? route.direction_label
-                    : `${index + 1}`}{" "}
+                  {route.is_shortest_distance
+                    ? "最短"
+                    : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
+                      ? route.direction_label
+                      : `${index + 1}`}{" "}
                   {route.distance_km.toFixed(1)} km
+                  {/* 最短経路から何km余分に走るか。軸設定に沿ったルートを走る対価であり、
+                      候補を見比べるこの場所に無いと、比較のたびにタブを開き直すことになる。 */}
+                  {extraDistanceLabel(route, shortestKm) && (
+                    <span className={styles.outcomeTabExtra}>{extraDistanceLabel(route, shortestKm)}</span>
+                  )}
                 </Tabs.Trigger>
               ))}
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験

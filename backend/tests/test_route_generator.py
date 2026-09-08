@@ -47,6 +47,7 @@ class FakeEngine:
         too_similar_bearings: set[int | None] = frozenset(),
         via_node_distances: list[float] | None = None,
         destination_correction: Coordinates | None = None,
+        shortest_distance_km: float | None = None,
     ):
         self._distances = distances_by_bearing
         self._prepare_result = prepare_result
@@ -61,6 +62,9 @@ class FakeEngine:
         # （bearing=None、Exceptionでなければ）を1件だけ返す後方互換の既定値にする——
         # 経由地・目的地指定ルートの既存テストの大半はこの1件だけを見ているため。
         self._via_node_distances = via_node_distances
+        # 距離だけで選んだ最短経路の距離。Noneは「最短経路を求められなかった」を表す
+        # （既定。既存テストの候補数・並び順を変えないため）。
+        self._shortest_distance_km = shortest_distance_km
         self.prepare_calls: list[tuple[Coordinates, float]] = []
         self.prepare_waypoints: list[Coordinates] | None = None
         self.select_calls: list[tuple[float, float, int]] = []
@@ -85,7 +89,13 @@ class FakeEngine:
         if distances is None:
             outcome = self._distances.get(None)
             distances = [] if outcome is None or isinstance(outcome, Exception) else [outcome]
-        return [TracedLoop(bearing=None, distance_km=d, data=None) for d in distances[:max_routes]]
+        return [TracedLoop(bearing=None, distance_km=d, data=[f"e{d}"]) for d in distances[:max_routes]]
+
+    async def select_shortest_distance_route(self, context, destination):
+        if self._shortest_distance_km is None:
+            return None
+        d = self._shortest_distance_km
+        return TracedLoop(bearing=None, distance_km=d, data=[f"e{d}"])
 
     async def select_loop_turnarounds(self, context, distance_km, distance_tolerance_km, pool_size):
         self.select_calls.append((distance_km, distance_tolerance_km, pool_size))
@@ -710,14 +720,25 @@ class DestinationSegmentedFakeEngine(FakeEngine):
     はsegmentsをbearingキーで引くため、bearingが常にNoneになる目的地ルート候補同士を
     区別できない——代わりにTracedLoop.dataの値をキーにする。"""
 
-    def __init__(self, via_node_traced: list[TracedLoop], segments_by_data: dict, **kwargs):
+    def __init__(
+        self,
+        via_node_traced: list[TracedLoop],
+        segments_by_data: dict,
+        shortest_traced: TracedLoop | None = None,
+        **kwargs,
+    ):
         super().__init__({}, **kwargs)
         self._via_node_traced = via_node_traced
         self._segments_by_data = segments_by_data
+        # 距離だけで選んだ最短経路。Noneは「求められなかった」（既定）。
+        self._shortest_traced = shortest_traced
 
     async def select_via_nodes(self, context, destination, max_routes):
         self.select_via_nodes_calls.append((destination, max_routes))
         return self._via_node_traced[:max_routes]
+
+    async def select_shortest_distance_route(self, context, destination):
+        return self._shortest_traced
 
     async def evaluate_loops(self, context, traced, start_time):
         self.evaluated_traced = traced
@@ -792,3 +813,94 @@ async def test_generate_via_waypoints_also_aggregates_axis_contributions():
     candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
 
     assert candidates[0].axis_contributions == {"wind": 40.0}
+
+
+# 最短距離ルート（距離だけで選んだ基準線、docs/tasks/T690.md）。
+
+
+async def test_generate_destination_routes_puts_shortest_distance_route_first():
+    # 最短経路は難易度が高くても先頭に固定する——他の候補が何km余分に走るかを読むための
+    # 基準線であり、難易度順に沈むと基準として使えない。
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
+        shortest_traced=TracedLoop(bearing=None, distance_km=18.0, data="shortest"),
+        segments_by_data={
+            "easy": [make_segment(22.0, 10.0)],
+            "shortest": [make_segment(18.0, 90.0)],
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=3
+    )
+
+    assert [c.distance_km for c in candidates] == [18.0, 22.0]
+    assert [c.is_shortest_distance for c in candidates] == [True, False]
+    # 好みのルートは最短より4.0km余分に走る、という読み方ができる。
+    assert candidates[1].distance_km - candidates[0].distance_km == 4.0
+
+
+async def test_generate_destination_routes_marks_existing_candidate_when_shortest_is_the_same_route():
+    # 軸設定に沿った候補と最短経路が同じ経路になることはある。そのとき候補を1本増やすと
+    # 同じ経路のタブが2枚並ぶため、既存の1本へ印を付けるだけにする。
+    same = TracedLoop(bearing=None, distance_km=18.0, data="same")
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[same, TracedLoop(bearing=None, distance_km=22.0, data="long")],
+        shortest_traced=TracedLoop(bearing=None, distance_km=18.0, data="same"),
+        segments_by_data={
+            "same": [make_segment(18.0, 30.0)],
+            "long": [make_segment(22.0, 10.0)],
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=3
+    )
+
+    assert len(candidates) == 2
+    assert [c.is_shortest_distance for c in candidates] == [True, False]
+    assert candidates[0].distance_km == 18.0
+
+
+async def test_generate_destination_routes_keeps_max_routes_when_shortest_is_added():
+    # 最短経路を足してもmax_routesは超えない。切るのは末尾（最も難易度の高い候補）で、
+    # 先頭に固定した最短経路は必ず残る。
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[
+            TracedLoop(bearing=None, distance_km=22.0, data="easy"),
+            TracedLoop(bearing=None, distance_km=25.0, data="hard"),
+        ],
+        shortest_traced=TracedLoop(bearing=None, distance_km=18.0, data="shortest"),
+        segments_by_data={
+            "easy": [make_segment(22.0, 10.0)],
+            "hard": [make_segment(25.0, 70.0)],
+            "shortest": [make_segment(18.0, 90.0)],
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=2
+    )
+
+    assert len(candidates) == 2
+    assert [c.distance_km for c in candidates] == [18.0, 22.0]
+    assert candidates[0].is_shortest_distance is True
+
+
+async def test_generate_destination_routes_without_shortest_route_marks_nothing():
+    # 最短経路を求められなかった場合でも候補は返す（基準線が無いだけ）。
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
+        segments_by_data={"easy": [make_segment(22.0, 10.0)]},
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=3
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].is_shortest_distance is False

@@ -30,6 +30,7 @@ function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
     axis_difficulties: {},
     material_values: {},
     axis_raw_values: {},
+    is_shortest_distance: false,
     axis_contributions: {},
     ...overrides,
   };
@@ -176,6 +177,7 @@ function makeRoute(id: string): RouteCandidate {
     axis_difficulties: {},
     material_values: {},
     axis_raw_values: {},
+    is_shortest_distance: false,
     axis_contributions: {},
   };
 }

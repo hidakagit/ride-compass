@@ -3844,6 +3844,11 @@
             },
             "type": "object",
             "title": "Material Values"
+          },
+          "is_shortest_distance": {
+            "type": "boolean",
+            "title": "Is Shortest Distance",
+            "default": false
           }
         },
         "type": "object",

@@ -86,6 +86,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       axis_difficulties: {},
       material_values: {},
       axis_raw_values: {},
+      is_shortest_distance: false,
       axis_contributions: {},
     });
   }

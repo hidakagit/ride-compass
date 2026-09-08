@@ -1681,6 +1681,11 @@ export interface components {
             material_values?: {
                 [key: string]: number;
             };
+            /**
+             * Is Shortest Distance
+             * @default false
+             */
+            is_shortest_distance: boolean;
         };
         /**
          * RouteGenerateJobCreatedResponse

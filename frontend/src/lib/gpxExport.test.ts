@@ -23,6 +23,7 @@ function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate 
     difficulty_load: null,
     axis_difficulties: {},
     axis_raw_values: {},
+    is_shortest_distance: false,
     axis_contributions: {},
     material_values: {},
     ...overrides,

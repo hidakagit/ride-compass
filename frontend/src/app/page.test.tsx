@@ -420,6 +420,7 @@ function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate 
     axis_difficulties: {},
     material_values: {},
     axis_raw_values: {},
+    is_shortest_distance: false,
     axis_contributions: {},
     ...overrides,
   };
@@ -808,6 +809,34 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: "1 20.3 km" })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: "2 22.1 km" })).toBeInTheDocument();
+    });
+  });
+
+  it("目的地ルートの最短経路タブは「最短」と示し、他の候補には最短からの超過kmを添える", async () => {
+    // 得点だけでは軸設定を強めるかどうかを決められない。対価（何km余分に走るか）を
+    // 候補を見比べる場所＝タブに出す（docs/tasks/T690.md）。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [
+        makeCandidate({
+          id: "route-destination-00",
+          direction_label: "目的地ルート",
+          distance_km: 18.0,
+          is_shortest_distance: true,
+        }),
+        makeCandidate({ id: "route-destination-01", direction_label: "目的地ルート", distance_km: 22.0 }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "最短 18.0 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "2 22.0 km +4.0" })).toBeInTheDocument();
     });
   });
 

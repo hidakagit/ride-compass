@@ -1454,6 +1454,47 @@ async def test_select_via_nodes_includes_shortest_route_as_top_candidate():
     assert all(t.bearing is None for t in traced)
 
 
+# 最短距離ルート（距離だけで選んだ基準線、docs/tasks/T690.md）。
+
+
+async def test_select_shortest_distance_route_ignores_axis_cost():
+    # 直線に近い経路（offset=0）をtrunkにして軸コストを高くし、遠回り（offset=3km）を
+    # residentialにする。軸の重みで選べば遠回りが勝つが、距離だけで選ぶ本メソッドは
+    # 短い方を返さなければならない——「最短からどれだけ余分に走るか」の基準線だから。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
+    for edge_id in ("e-0-out", "e-0-in"):
+        graph.edges[edge_id] = graph.edges[edge_id].model_copy(update={"highway": "trunk"})
+    for edge_id in ("e-1-out", "e-1-in"):
+        graph.edges[edge_id] = graph.edges[edge_id].model_copy(update={"highway": "residential"})
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    ranked = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=2)
+    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+
+    assert shortest is not None
+    assert shortest.data == ["e-0-out", "e-0-in"]
+    # 軸コストで選ぶ側は遠回り（trunkを避ける）を上位に置く＝両者が別経路であること。
+    assert ranked[0].data == ["e-1-out", "e-1-in"]
+    assert shortest.distance_km < ranked[0].distance_km
+
+
+async def test_select_shortest_distance_route_splits_legs_near_the_midpoint():
+    # 経由Nodeは最短経路上のどのNodeでも同じ経路になるが、往路・復路レグへ概ね半分ずつ
+    # 割れる位置を選ぶ（レグごとに時刻の異なる風の評価が他の候補と揃うため）。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0])
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+
+    assert shortest is not None
+    assert shortest.data == ["e-0-out", "e-0-in"]
+    assert shortest.leg_of_edge == [0, 1]
+
+
 async def test_select_via_nodes_excludes_routes_beyond_stretch_ratio():
     # offset=12kmの経路は直線比で約1.56倍（>ALTERNATIVE_MAX_STRETCH=1.3）に伸びるため
     # 候補から除外される。offset=5km（約1.06倍）は残る。

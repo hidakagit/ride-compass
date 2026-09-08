@@ -22,6 +22,8 @@
 - `trace_loop_from_turnaround(context, turnaround)`: 往路（折返し点まで）＋往路と別の
   復路（起点まで）の周回を引き、距離とエンジン固有の中間データを`TracedLoop`で返す。
   失敗はRoutingErrorをraiseする（その候補はスキップされる）
+- `select_shortest_distance_route(context, destination)`: 距離だけで選んだ最短経路1本
+  （軸の重みを使わない基準線）。
 - `select_via_nodes(context, destination, max_routes)`: 経由地の無い目的地ルート
   （起点→目的地）のvia-node方式代替経路選定。互いに異なる経路を最大
   `max_routes`件、`TracedLoop`（`bearing=None`）のリストで返す。両方向の一対全木の
@@ -156,6 +158,10 @@ class LoopRoutingEngine(Protocol):
     async def select_via_nodes(
         self, context: Any, destination: Coordinates, max_routes: int
     ) -> list[TracedLoop]: ...
+
+    async def select_shortest_distance_route(
+        self, context: Any, destination: Coordinates
+    ) -> TracedLoop | None: ...
 
     async def trace_loop(
         self,
@@ -430,6 +436,10 @@ class RouteGenerator:
         まで生成する。`generate_loops`のような候補ごとの再探索・失敗
         スキップが無い（`select_via_nodes`が確定済みの経路だけを返す）ぶん、
         `generate_loops`より単純な「選定→評価」の2段階になる。
+
+        距離だけで選んだ最短経路（`select_shortest_distance_route`）を基準線として必ず
+        1本含め、先頭へ固定する。軸設定に沿った候補が最短からどれだけ余分に走るかを、
+        利用者が対価として読めるようにするため。
         """
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
@@ -468,8 +478,24 @@ class RouteGenerator:
             )
             return []
 
+        # 距離だけで選んだ最短経路を基準線として必ず1本含める。軸設定に沿った候補と
+        # 同じ経路になることもあるため、その場合は候補を増やさず既存の1本へ印を付ける。
+        shortest = await self._engine.select_shortest_distance_route(context, destination)
+        shortest_index: int | None = None
+        if shortest is not None:
+            same = next((i for i, t in enumerate(traced) if t.data == shortest.data), None)
+            if same is None:
+                traced.append(shortest)
+                shortest_index = len(traced) - 1
+            else:
+                shortest_index = same
+
         evaluate_started = time.monotonic()
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
+        if shortest_index is not None:
+            candidates[shortest_index] = candidates[shortest_index].model_copy(
+                update={"is_shortest_distance": True}
+            )
         candidates = [self._with_overall_difficulty(c) for c in candidates]
         candidates = [self._with_axis_difficulties(c) for c in candidates]
         candidates = [self._with_axis_contributions(c) for c in candidates]
@@ -478,6 +504,12 @@ class RouteGenerator:
         candidates.sort(
             key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
         )
+        # 最短経路だけは難易度順の外へ出して先頭へ固定する（他の候補が何km余分に走るかを
+        # 読むための基準線であり、難易度で沈むと基準として使えない）。sortは安定なため
+        # 残りの難易度順は保たれる。max_routesを超えないよう末尾を切るが、先頭にいる
+        # 最短経路は必ず残る。
+        candidates.sort(key=lambda c: not c.is_shortest_distance)
+        candidates = candidates[:max_routes]
         candidates = [
             candidate.model_copy(update={"id": f"route-destination-{rank:02d}", "direction_label": "目的地ルート"})
             for rank, candidate in enumerate(candidates)
