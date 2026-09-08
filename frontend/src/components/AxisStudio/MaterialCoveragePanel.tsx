@@ -32,25 +32,30 @@ export function sortByMissingRatioDesc(entries: readonly MaterialCoverageEntry[]
   return [...entries].sort((a, b) => (b.missing_ratio ?? -1) - (a.missing_ratio ?? -1));
 }
 
+type MissingSemantics = NonNullable<MaterialCoverageEntry["missing_semantics"]>;
+
 // 「欠損時の扱い」でグループ分けする。欠損が「不明」（軸が評価対象外になる）の材料と、
 // タグ不在をそのまま確定値（非該当等）として評価する材料は、欠損割合の数字が同じでも
 // 意味が正反対のため、同じ表へ並べず見出しで分ける。
-const GROUPS: ReadonlyArray<{
-  semantics: NonNullable<MaterialCoverageEntry["missing_semantics"]>;
-  title: string;
-  hint: string;
-}> = [
-  {
-    semantics: "unknown",
+//
+// Recordで全semanticsを要求する（配列で持つと、3値目が増えたときに足し忘れても
+// 型エラーにならず、その材料が表にも件数にも現れないまま黙って消える）。
+const GROUP_BY_SEMANTICS: Record<MissingSemantics, { title: string; hint: string }> = {
+  unknown: {
     title: "評価に影響する欠損",
     hint: "元データが無い区間では、この材料を使う軸が評価対象外になる。",
   },
-  {
-    semantics: "definite",
+  definite: {
     title: "タグ不在を確定値として評価する材料（参考）",
     hint: "欠損は「該当なし」を意味し、評価に穴は開かない。",
   },
-];
+};
+
+// 表示順はGROUP_BY_SEMANTICSの宣言順（Object.keysは文字列キーの挿入順を保つ）。
+const GROUPS = (Object.keys(GROUP_BY_SEMANTICS) as MissingSemantics[]).map((semantics) => ({
+  semantics,
+  ...GROUP_BY_SEMANTICS[semantics],
+}));
 
 function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] }) {
   return (

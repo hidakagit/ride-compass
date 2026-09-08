@@ -842,7 +842,14 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
     setError(null);
     // basic・shape_paramsステップの検証を保存直前にも通す（ステップを戻って値を空へ
     // 書き換えてから、戻らずに保存を試みた場合の安全網）。
-    for (const target of STEPS) {
+    //
+    // 制限モード（公開済み軸）は表示専用フィールドのステップしか描画しないため、それ以外の
+    // ステップの検証で落とすと「入力欄が無いのにそこへ誘導される」行き止まりになる
+    // （公開済み軸は削除もできず、複製して作り直す以外に手が無くなる）。このモードで
+    // 編集できない値はそもそも書き換えようがないので、編集できるステップだけを検証する
+    // （不正な既存軸はbackend側の検証が最終的に弾く）。
+    const stepsToValidate: readonly Step[] = restrictedDisplayOnly ? ["display_publish"] : STEPS;
+    for (const target of stepsToValidate) {
       const err = validateStep(target);
       if (err) {
         setError(err);

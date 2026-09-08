@@ -45,6 +45,9 @@ elements:
         - path
       # "yes"はYAML 1.1のデフォルト解決規則でブール値として読まれてしまうため、
       # 文字列として保持するには引用符が必須（さもないとProfileErrorになる）。
+      # permissiveも取り込む（判定基準を後から変えられるよう生データを広く持つ）。
+      # 材料shared_pedestrian_pathの判定はyes/designatedのみで、この非対称は意図的
+      # （domain/recipe.py: bicycle_infra_flags参照）。
       bicycle:
         - "yes"
         - designated

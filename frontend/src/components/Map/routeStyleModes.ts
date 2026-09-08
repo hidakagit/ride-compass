@@ -123,11 +123,16 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind ?? "difficulty";
   const scale = valueScaleFor(kind);
   const boundaries = axis.display_thresholds_override ?? scale.defaultBoundaries;
-  if (kind === "signed_material" && axis.shape?.kind === "breakpoint_linear") {
+  // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
+  // （domain/dynamic_way_values.py）、その不変条件はカタログのJSONには現れない。
+  // 材料が引けないときは難易度モードへ倒す（塗れないより、軸の難易度で塗る方が近い）。
+  const signedMaterial =
+    axis.shape?.kind === "breakpoint_linear" ? axis.shape.terms[0]?.material : undefined;
+  if (kind === "signed_material" && signedMaterial) {
     return buildRangeSteppedMode({
       id: axis.axis_id,
       label: axis.label,
-      valueExpression: ["get", axis.shape.terms[0].material, ["get", "material_values"]],
+      valueExpression: ["get", signedMaterial, ["get", "material_values"]],
       boundaries,
       colorLow: scale.colorLow,
       colorHigh: scale.colorHigh,

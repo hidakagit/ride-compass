@@ -788,7 +788,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "cycleway_has_shared": MaterialSpec(
         material_id="cycleway_has_shared",
         label="バス共用等の自転車レーンを併設",
-        description="バス専用レーン共用など、簡易な自転車レーン(cycleway=shared_busway/shared_lane)を併設しているかどうか。",
+        description="バス専用レーン共用など、簡易な自転車レーン(cycleway=share_busway/shared_lane)を併設しているかどうか。",
         dtype="boolean",
         tile_property="cycleway_has_shared",
         bool_default="nan",

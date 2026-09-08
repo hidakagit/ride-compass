@@ -2695,6 +2695,7 @@
               "$ref": "#/components/schemas/MaterialTerm"
             },
             "type": "array",
+            "minItems": 1,
             "title": "Terms"
           },
           "preprocess": {
@@ -2721,6 +2722,7 @@
               "minItems": 2
             },
             "type": "array",
+            "minItems": 1,
             "title": "Breakpoints"
           }
         },

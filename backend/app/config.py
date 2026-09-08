@@ -160,6 +160,11 @@ class Settings(BaseSettings):
     # VM上のRedisへ到達できる（導入手順はdocs/architecture.md参照）。
     redis_url: str = "redis://localhost:6379/0"
 
+    # ディスク永続キャッシュ（infrastructure/tile_persistent_cache.py）の容量上限（MB）。
+    # 上限に達するとdiskcacheが古いものから退避する。関東の運用範囲でタイル材料1世代が
+    # 約310MBのため、2世代ぶんに余裕を持たせた値（本番VMのディスクは48GB）。
+    tile_persistent_cache_size_limit_mb: int = 1024
+
     # タイル材料キャッシュ（graph_material_cache.py・tile_score_matrix_cache.py）の
     # ディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）読み込みの
     # 同時実行数上限。案C1（列指向EdgeMaterialTable化）で残るCPUコストは`LeanEdge`等の
@@ -167,11 +172,6 @@ class Settings(BaseSettings):
     # ファイルI/O・numpy部分のみで、コア数に比例して線形に速くなるのは案C2（グラフ側も
     # 完全列指向化する将来の別タスク）まで進めた場合に限る。既定は
     # `min(4, os.cpu_count())`（コア数が少ない環境でも過剰にスレッドを起動しない）。
-    # ディスク永続キャッシュ（infrastructure/tile_persistent_cache.py）の容量上限（MB）。
-    # 上限に達するとdiskcacheが古いものから退避する。関東の運用範囲でタイル材料1世代が
-    # 約310MBのため、2世代ぶんに余裕を持たせた値（本番VMのディスクは48GB）。
-    tile_persistent_cache_size_limit_mb: int = 1024
-
     tile_cache_load_max_concurrent: int = Field(default_factory=lambda: min(4, os.cpu_count() or 4))
 
     # 土地被覆バッチ（app/batch/precompute_way_landcover.py）が読むEsri×Impact

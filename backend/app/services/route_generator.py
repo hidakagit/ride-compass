@@ -143,8 +143,8 @@ class LoopRoutingEngine(Protocol):
         self,
         origin: Coordinates,
         radius_km: float,
-        waypoints: list[Coordinates] | None = None,
         now: datetime | None = None,
+        waypoints: list[Coordinates] | None = None,
     ) -> Any | None: ...
 
     async def select_loop_turnarounds(
