@@ -135,8 +135,8 @@ export function formatDynamicFrameHourMinute(time: Date): string {
 /** 分のみ（2桁、0埋め、JST）。ルーラー目盛りラベルのうち、正時でない密な区間
  * （降水ナウキャストの5分刻み等）のコマ用。JSTはUTC+9:00ちょうどで分のずれが無いため、
  * getUTCMinutes()がそのまま
- * JSTの分と一致する（page.tsxのhourMark判定と同じ理由、実行環境のローカルタイムゾーンに
- * 左右されない）。 */
+ * JSTの分と一致する（departureTimeline.tsのhourMark判定と同じ理由、実行環境の
+ * ローカルタイムゾーンに左右されない）。 */
 export function formatDynamicFrameMinuteOnly(time: Date): string {
   return String(time.getUTCMinutes()).padStart(2, "0");
 }

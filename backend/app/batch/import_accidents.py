@@ -116,7 +116,9 @@ async def _download_year(client: httpx.AsyncClient, year: int) -> Path | None:
 
 def iter_kanto_rows(csv_path: Path, year: int) -> Iterator[tuple]:
     """CSVファイルを1行ずつ読み、関東7都県の行だけをステージング用タプルへ変換する
-    （全件をメモリへ展開しない）。列数不足・緯度経度が変換不能な行はカウントし、
+    （ファイル全体を一度に読み込まない。ただし現在の呼び出し元は結果を`list()`で受けて
+    COPYの件数に使うため、変換後のタプル列はメモリに載る）。列数不足・緯度経度が
+    変換不能な行はカウントし、
     最後にまとめてWARNINGを出す（1行ごとのログでバッチ全体のログが埋まらないようにする、
     かつ「欠損データを無理に補完しない」方針はdomain/accident.py側で担保済み）。
     """

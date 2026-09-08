@@ -378,7 +378,7 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
     比較になるため）スキップする。重複が見つかれば`AxisMaterialConflictError`を送出する
     （登録は行わない、呼び出し元の責務）。
 
-    現時点の`AXIS_DEFINITIONS`（8軸）には`registry.py`の`shared=True`相当（距離等、
+    現時点の`AXIS_DEFINITIONS`には`registry.py`の`shared=True`相当（距離等、
     複数軸が参照してよい共通コンテキスト）の材料が存在しないため、`shared`フラグは
     持たない。将来そうした材料が必要になった時点で`MaterialTerm`側への追加を検討する。
 

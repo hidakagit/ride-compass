@@ -3,8 +3,8 @@
 
 const LIDEN_ICON_SIZE_PX = 24;
 
-/** 単体の稲妻シルエット（icons.tsx: LidenIconと同じ形をCanvas 2Dで描いたもの）。
- * `sdf: true`で登録し、icon-colorで着色する（windArrowIcon.tsと同じ使い方）。 */
+/** 単体の稲妻シルエットをCanvas 2Dで描く。`sdf: true`で登録し、icon-colorで着色する
+ * （windArrowIcon.tsと同じ使い方）。 */
 export function createLidenIcon(): ImageData {
   const canvas = document.createElement("canvas");
   canvas.width = LIDEN_ICON_SIZE_PX;

@@ -9,10 +9,9 @@ import {
   ThunderIcon,
 } from "@/components/Map/icons";
 
-// WMO天気コード（weather_code、backendが降水量・雲量・気温から導出）+ is_dayから、天候ヘッダーの天気アイコン1個を
-// 決める。weather_codeなら昼夜を問わず常に意味のある値（快晴/くもり/雨等）が取れる
-// （UV指数は夜間常に0.0になり情報価値が無い）。UV指数自体は数値としての価値が残るため
-// チップのtitle属性へ格下げする（WeatherPanel.tsx参照）。
+// WMO天気コード（weather_code、backendが降水量・雲量・気温から導出）+ is_dayから、
+// 「今日の見通し」（TodayOutlook）の天気アイコン1個を決める。実測値ベースの常設ヘッダーは
+// 別の簡易分類を使う（amedasWeatherIcon.ts）。
 //
 // WMOコードの全パターンを個別に描き分けるのではなく、天候ヘッダーの小さい1アイコンに
 // 収まる粒度（6カテゴリ）へ意図的に粗く丸める（「晴れ時々くもり」等の細かい中間状態は

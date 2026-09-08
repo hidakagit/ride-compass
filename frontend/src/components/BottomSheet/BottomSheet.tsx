@@ -39,7 +39,8 @@ export function clampSheetHeightVh(vh: number): number {
   return Math.min(MAX_SHEET_HEIGHT_VH, Math.max(MIN_SHEET_HEIGHT_VH, vh));
 }
 
-// モバイル専用の部分高さシート（画面下部から最大70%程度せり上がる）。フルスクリーンの
+// モバイル専用の部分高さシート（画面下部からせり上がる。高さの範囲は
+// MIN_SHEET_HEIGHT_VH〜MAX_SHEET_HEIGHT_VH）。フルスクリーンの
 // 暗幕は意図的に敷かない（シート表示中も上に見えている地図をパン/ズームできる状態を
 // 保つ）。閉じる操作は✕ボタン・下スワイプ・呼び出し側のタブ再タップの3通り。シート外
 // タップでは閉じない——地図をぐりぐり操作しながら凡例を見たい、というシート外のタップ・

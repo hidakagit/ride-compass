@@ -73,9 +73,8 @@ const OVERALL_DIFFICULTY_ROW: MetricRow = {
 // 1件でも値を持つ軸だけを行として残す（RouteAxisProfile.tsxの「このルートで実際に
 // 評価できた軸だけ表示する」フィルタと同じ規約）。軸スタジオが軸を追加・削除する
 // たびにこの表の行も自動で増減する（ハードコードした軸id一覧を持たないため手動追記が
-// 不要）。風（wind）・舗装質（surface_q）の軸もここに含まれうるが、上記
-// PHYSICAL_METRIC_ROWSの風スコア・舗装率（生の物理量）とは単位・意味が異なる別情報の
-// ため、重複ではなく併存として扱う。
+// 不要）。同じ軸が参照する材料の生値（buildMaterialValueRowsの行）とは単位・意味が
+// 異なる別情報のため、重複ではなく併存として扱う。
 function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly PreferenceAxisDef[]): MetricRow[] {
   return axes
     .filter((axis) => slots.some((slot) => slot.topCandidate.axis_difficulties[axis.axisId] != null))

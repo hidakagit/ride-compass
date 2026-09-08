@@ -64,7 +64,7 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
   }, []);
 
   // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
-  // （react-hooks/set-state-in-effect対策、page.tsxのfetchWeatherForと同じ流儀）。
+  // （react-hooks/set-state-in-effect対策、useWeatherConditions.tsのfetchWeatherForと同じ流儀）。
   useEffect(() => {
     if (open) Promise.resolve().then(() => fetchAll());
   }, [open, fetchAll]);

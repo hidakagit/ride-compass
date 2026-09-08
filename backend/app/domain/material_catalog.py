@@ -718,7 +718,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="categorical",
         # OSMのhighwayタグ生値（motorway/trunk/primary/secondary/tertiary/residential/
         # living_street/unclassified/track/cycleway/path/footway等）。取込プロファイル
-        # （import_pbf.py: ALLOWED_HIGHWAY_TYPES）で許可された値のみ実際に現れる。
+        # （batch/import_profile.yamlのhighway許可リスト）で許可された値のみ実際に現れる。
         # 正準の閉じた値集合はこのプロジェクトで管理していない（OSMタグの生値のため）。
         tile_property="highway",
         primary_attribute_id="highway",

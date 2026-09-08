@@ -1258,9 +1258,10 @@ export default function Home() {
     }
     return [...byAxisId.values()];
   }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, showGradientFill]);
-  // 想定速度（ルート設定の入力欄）は走行速度に依存する軸（風）にも効く。未入力・不正値の
-  // 間は既定速度で配信を続ける。時刻・想定速度を実際にリクエストへ載せるかは軸カタログの
-  // 宣言（needsTime/needsSpeed）が決めるため、ここでは全軸共通の入力として渡すだけでよい。
+  // 想定速度（地図上のRideConditionBarの入力、値域の丸めはそちらのclampSpeedKmhが担う）は
+  // 走行速度に依存する軸（風）にも効く。時刻・想定速度を実際にリクエストへ載せるかは
+  // 軸カタログの宣言（needsTime/needsSpeed）が決めるため、ここでは全軸共通の入力として
+  // 渡すだけでよい。
   const dedicatedWayValueResults = useDedicatedWayValues(
     dedicatedFetchAxes,
     mapViewport,
@@ -1631,13 +1632,12 @@ export default function Home() {
   // タブ列。候補の切り替えとその候補の内訳表示（RouteAxisProfile）を、このタブ列自体が
   // 担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
   //
-  // showHeadingはrenderRouteSettingsSectionBodyと同じ理由（見出しの二重表示回避）で
-  // 使い分ける。デスクトップ（既定true）はこのセクション自身の見出し「ルート結果」＋
-  // renderRouteResultHeaderActions()（保存・GPX出力・ルートをクリア）をここで描画する。
-  // モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つためshowHeading=falseで
-  // 抑制し、同じrenderRouteResultHeaderActions()をBottomSheetのheaderAction propとして
-  // 呼び出し側（下のJSX）から渡す。総合難易度の説明はRouteAxisProfile側（総合難易度の
-  // 表示の隣）にあり、本ヘッダは操作アイコンのみを持つ。
+  // この関数は見出しを描画しない（中身だけを返す）。見出し「ルート結果」はデスクトップが
+  // Disclosureのsummary、モバイルがBottomSheetのtitleとして持つ。ヘッダの操作アイコン
+  // （保存・GPX出力・ルートをクリア）も同様に、renderRouteResultHeaderActions()を
+  // デスクトップはDisclosureのtrailing、モバイルはBottomSheetのheaderActionへ渡す。
+  // 総合難易度の説明はRouteAxisProfile側（総合難易度の表示の隣）にあり、
+  // 本ヘッダは操作アイコンのみを持つ。
   function renderRouteOutcomeSectionBody() {
     if (routes.length === 0) return null;
 
