@@ -72,7 +72,7 @@ interface MapLayersPanelProps {
 // サイドバーのグループ見出しは「道路/環境/スポット」（mapLayers.ts:
 // MAP_OVERLAY_GROUP_ORDER/LABELS、mapOverlayGroupFor）のみの1階層で、地図上チップ側
 // （MapOverlayControls.tsx）と同じ語彙を単一ソース（mapOverlayGroupFor）から使う
-// （複雑度平衡原則8「UI語彙のカタログ集約」）。中分類（category、
+// （UI語彙のカタログ集約）。中分類（category、
 // MAP_LAYER_CATEGORY_ORDER/LABELS）ごとの見出し（h2）は出さない——categoryはあくまで
 // 「道路」「環境」「スポット」各グループ内のレイヤー並び順を揃えるための内部キーとして
 // のみ使う。降水ナウキャスト等dataNature="dynamic"のレイヤー（帯単位の絞り込み機能を

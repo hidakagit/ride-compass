@@ -87,7 +87,7 @@ export type MapLayerKind = "static" | "dynamic";
 export type MapLayerCategory = "roadCondition" | "trafficSafety" | "terrain" | "amenity" | "weather" | "disaster";
 
 // カテゴリの表示順・見出し文言の単一ソース。MapLayersPanel.tsx・MapOverlayControls.tsxの
-// 両方が参照する（設計原則8: UI語彙のカタログ集約、片側importで揃える）。
+// 両方が参照する（UI語彙のカタログ集約、片側importで揃える）。
 export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
   "roadCondition",
   "trafficSafety",
@@ -201,7 +201,7 @@ export interface MapLayerDescriptor {
   /** ONにすると何が表示されるかの短い説明（チップのtitleに使う） */
   description: string;
   /** サイドバー設定パネル（MapLayersPanel）のセクション本文に出す説明文。descriptionより
-   * 詳しい判定基準・注意点を書く場所（カタログへ集約する方針、設計原則8）。未指定の
+   * 詳しい判定基準・注意点を書く場所（UI語彙のカタログ集約）。未指定の
    * レイヤー（道路情報・ルート等）はパネル側が独自の特殊なJSXを持つ。 */
   panelHint?: string;
   /** MapLayersPanel（サイドバー「地図の見え方」パネル）の一覧から、このレイヤーを
@@ -553,7 +553,7 @@ export function deriveFetchLayerStatus(
 // 要求されず、同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が
 // 既にあるズーム範囲外の間は、レイヤーのデータ状態表示を二重に出さないための判定に使う
 // （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
-// 定義。片方だけ更新して食い違うことを避けるため、設計原則8）。
+// 定義。片方だけ更新して食い違うことを避けるための単一ソース）。
 // buildMapLayers()と同じ理由で関数化してあり、テスト（axisLayers.test.ts、
 // MapView.dataStatus.test.ts）からbuildRoadSurfaceSharedLayerIds(RAMP_AXES)として直接呼べる。
 export function buildRoadSurfaceSharedLayerIds(

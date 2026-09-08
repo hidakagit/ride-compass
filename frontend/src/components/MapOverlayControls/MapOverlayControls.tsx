@@ -596,7 +596,7 @@ function ChipButton({
           <Icon />
           {/* 状態→CSSクラスの対訳表をコンポーネント内に持たず、LayerDataStatusの値と
               そろえたクラス名（MapOverlayControls.module.css: iconStatusDot_loading等）を
-              直接組み立てて参照する（LayerChip.tsxと同じ設計原則8）。 */}
+              直接組み立てて参照する（LayerChip.tsxと同じUI語彙のカタログ集約）。 */}
           {showStatusDot && dataStatus && (
             <span aria-hidden="true" className={`${styles.iconStatusDot} ${styles[`iconStatusDot_${dataStatus}`]}`} />
           )}

@@ -44,7 +44,7 @@ export default function LayerChip({ label, on, ariaLabel, dataStatus, onClick }:
     >
       {/* 状態→CSSクラスの対訳表をコンポーネント内に持たず、LayerDataStatusの値
           （"loading"/"empty"/"error"）とそろえたクラス名（LayerChip.module.css:
-          statusDot_loading等）を直接組み立てて参照する（設計原則8）。 */}
+          statusDot_loading等）を直接組み立てて参照する（UI語彙のカタログ集約）。 */}
       {showStatusDot && dataStatus && (
         <span aria-hidden="true" className={`${styles.statusDot} ${styles[`statusDot_${dataStatus}`]}`} />
       )}

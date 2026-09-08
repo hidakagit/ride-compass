@@ -2,8 +2,9 @@
 
 `domain/axis_definitions.py: AXIS_DEFINITIONS`をDBの内容と同期させる書き込み口。
 ルート生成の振る舞いを直接変えられるため、他のエンドポイントと異なり認可を要求する
-（require_admin_basic_auth）。GUI編集画面（Stage E）は本APIの上に構築する想定で
-スコープ外。
+（require_admin_basic_auth）。GUI編集画面（軸スタジオ、frontend `/admin`）はこのAPIの
+上に構築されており、軸の追加・更新・公開/非公開・削除はすべてこのAPIを通る
+（docs/modules/frontend/axis-studio.md参照）。
 """
 
 from typing import Awaitable, Literal, TypeVar
@@ -266,8 +267,8 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         bool値でも`True==1.0`/`False==0.0`として数値的に正しく計算される——
         CategoricalShapeのmapping.get(value)のような「想定外dtypeが静かに欠損化する」
         問題はBreakpointLinearShapeには無い。全termがboolean材料であることの構造上の
-        強制は無く、numeric/boolean混在も許容する（`car_stress_bicycle_infra_
-        adjustment`が実際にboolean材料4件をtermsに使い運用されている実績がある）。
+        強制は無く、numeric/boolean混在も許容する（公開軸`bicycle_infra_quality`が
+        boolean材料5件、`night`が2件をtermsに使う）。
 
         materialsは`MATERIAL_CATALOG`の材料idだけでなく、他の軸の
         axis_id（軸の階層構造、内部軸→公開軸）も指せる。軸参照はdtypeチェックの

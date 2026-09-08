@@ -30,7 +30,7 @@ import type { MapLayerId } from "./mapLayers";
 import { AXIS_RAMP_COLORS, COLOR_UNKNOWN, axisMapLayerId, buildAxisRampLegend, type RampAxis } from "./axisLayers";
 import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 
-// COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（設計原則2「定数の片側import」）。
+// COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（定数の片側import）。
 
 // このファイルのカテゴリ色は、対象によって2種類に分かれる。判定基準は「backendの2次軸の
 // 計算式が実際にこのカテゴリを重み付けの材料として使っているか」（各domain/*.pyの集計
@@ -130,7 +130,7 @@ const DESIGNATION_CATEGORIES: CategoryDef[] = [
   { key: "emergency_transport", label: "緊急輸送道路[N10]", color: AXIS_RAMP_COLORS[1] },
   { key: "critical_logistics", label: "重要物流道路[N12]", color: AXIS_RAMP_COLORS[2] },
   // 全角括弧（）は表示幅を取り地図表示エリアを圧迫するため半角[]へ統一する
-  // （設計原則12、docs/complexity-review-2026-08-16.md）。「緊急輸送道路 かつ
+  // （design-principles.md「UI仕様」: 表示幅を圧迫しない）。「緊急輸送道路 かつ
   // 重要物流道路」は共有語「道路」の重複表現を割愛し「緊急輸送 かつ 重要物流道路」へ
   // 短縮する。折り返し自体もCSS側で許可済み（MapOverlayControls.module.css:
   // .detailRowLabel）。

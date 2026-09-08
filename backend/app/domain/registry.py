@@ -28,7 +28,7 @@ class PrimaryAttributeSpec(BaseModel):
     `label`は一次属性のユーザー向け正式名称。地図チップ・サイドバー・研究タブが表示する
     「観測データ」側の名称の単一ソースで、`export_openapi.py`がaxis-catalog.jsonの
     `primary_attributes[]`へ書き出し、フロントはここから略名（4文字以下、地図チップ用）
-    への対応表だけを別途持つ（片側import、設計原則2）。
+    への対応表だけを別途持つ（片側import）。
 
     `attr_id`/`label`/`shared`のみを持つ（`export_openapi.py`が消費するのはこの3つだけ）。
     """

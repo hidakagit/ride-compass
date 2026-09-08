@@ -40,7 +40,7 @@ _HIGHWAY_STOP_KINDS: dict[str, StopPoiKind] = {
 # 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（convenience/
 # vending_machine等、SupplyPoiKind）が同じ`osm_raw_pois`テーブルへ入っているため、
 # kindを絞らないCOUNTは停止密度へコンビニ・自販機を誤算入する。停止密度系のSQL
-# （_STOP_POI_COUNTS_SQL等）は必ずこの集合でフィルタする（設計原則2: 片側import。
+# （_STOP_POI_COUNTS_SQL等）は必ずこの集合でフィルタする（片側import。
 # StopPoiKindのLiteral値と乖離しないようテストで照合する）。
 STOP_POI_KINDS = frozenset(_HIGHWAY_STOP_KINDS.values()) | {"level_crossing"}
 

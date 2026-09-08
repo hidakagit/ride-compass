@@ -203,8 +203,8 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   stopPoi: false,
   supplyPoi: false,
   accidents: false,
-  // 降水ナウキャスト。初期表示から地図を覆うと視界を圧迫するため既定OFF（設計原則12、
-  // 他の静的レイヤーと同じ「明示的にONにして初めて出る」規約）。
+  // 降水ナウキャスト。初期表示から地図を覆うと視界を圧迫するため既定OFF（design-principles.md「UI仕様」:
+  // 地図の視界を圧迫しない。他の静的レイヤーと同じ「明示的にONにして初めて出る」規約）。
   precipitationNowcast: false,
   // 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
@@ -2032,8 +2032,8 @@ export default function Home() {
             onLegendAxisSetHidden={setHiddenLegendKeysForAxis}
           />
 
-          {/* 地図下部中央の行。全レイヤー一括OFFボタンを置く（設計原則12: 地図の視界を
-              圧迫しない）。 */}
+          {/* 地図下部中央の行。全レイヤー一括OFFボタンを置く（design-principles.md「UI仕様」:
+              地図の視界を圧迫しない）。 */}
           <div ref={bottomControlRowRef} className={styles.bottomControlRow}>
             <button
               type="button"
