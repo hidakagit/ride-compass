@@ -80,6 +80,11 @@ import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
+import {
+  buildGenerateRequest,
+  generationConditionsKey,
+  type GenerationInput,
+} from "@/lib/generationRequest";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
@@ -459,28 +464,14 @@ export default function Home() {
   // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
   // （フィールド比較の列挙より差分検知の漏れが出にくい）。
   const [generatedConditions, setGeneratedConditions] = useState<{
-    latitude: number;
-    longitude: number;
-    distanceKm: number;
-    maxRoutes: number;
-    assumedSpeedKmh: number;
-    // 候補件数入力が生成結果に反映される条件だったか（周回モード、または経由地の無い
-    // 目的地モード）。経由地を伴う目的地モードはbackendが件数を無視するため、
-    // conditionsDirtyの比較対象から外す。
-    maxRoutesRelevant: boolean;
-    weightsKey: string;
-    // 目的地モードで生成した場合はdistanceKmが地図上のピンからの自動算出値になり、
-    // distanceInput（RouteFormが表示しない値）とは無関係になるため、conditionsDirtyの
-    // 距離比較はloopモードで生成したときだけ行う。
-    routeMode: RouteMode;
-    // 目的地モードで生成した経由地・目的地のスナップショット（JSON文字列化して比較、
-    // weightsKeyと同じ方式）。生成後に経由地を追加・削除・移動した変更もconditionsDirtyが
-    // 検知できるようにする。
-    waypointsKey: string;
+    // 生成に実際に送ったpayloadから導出した比較キー（lib/generationRequest.ts:
+    // generationConditionsKey）。現在のフォーム値から同じ関数で作ったキーと突き合わせる
+    // だけでconditionsDirtyが決まるため、比較したいフィールドを個別に持たない。
+    key: string;
     // 経由地の無い目的地ルートで、指定した目的地がメインの道路網から孤立していたため
     // backendが最寄りのアクセス可能な地点へ補正した場合true
     // （conditions.corrected_destination）。表示中の候補がこの補正を経て生成された
-    // ことを示すヒントの表示条件に使う。
+    // ことを示すヒントの表示条件に使う（比較には使わない）。
     destinationCorrected: boolean;
   } | null>(null);
   // 表示中のルートを実際に生成した瞬間のroute_preference（重み）。routePreference自体は
@@ -1391,86 +1382,85 @@ export default function Home() {
     return [];
   }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
 
-  // 生成条件のうち重み設定の比較キー（上書き無効時はnull＝バックエンド既定値を表す）。
-  const currentWeightsKey = JSON.stringify({
-    weights: weightOverrideEnabled ? { routePreference } : null,
-    // hard_filtersは常時送信するため、上書き系のようなnull分岐を持たず常に比較対象へ
-    // 含める。
-    hardFilters,
-  });
+  // 現在のフォーム値から生成リクエストの入力一式を組み立てる。生成時（handleGenerate）と
+  // dirty判定の両方がこの1つの関数を通るため、送る値を足したときに比較側へ足し忘れる形の
+  // 欠陥が起きない（lib/generationRequest.ts参照）。
+  const buildCurrentGenerationInput = useCallback(
+    (distanceKm: number): GenerationInput => {
+      const destinationModePoints =
+        routeMode === "destination" ? [...waypoints, ...(destination ? [destination] : [])] : [];
+      return {
+        origin: location,
+        // 目的地モードでは距離をRouteForm（distanceKm=0固定）から受け取らず、地図上の
+        // 経由地・目的地から自動算出する。distance_kmはbackendのbbox見積り半径のほか、
+        // 「起点から近すぎる=distance_km未満」バリデーション（routes.py:
+        // _check_waypoints_within_range）の基準にもなるため、実際に指定した点の最遠距離を
+        // 必ず上回る値にする（+1kmの余裕、MAX_DISTANCE_KMで頭打ち）。
+        distanceKm:
+          routeMode === "destination" && destinationModePoints.length > 0
+            ? Math.min(
+                MAX_DISTANCE_KM,
+                Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1,
+              )
+            : distanceKm,
+        distanceToleranceKm: DISTANCE_TOLERANCE_KM,
+        maxRoutes: Number(maxRoutesInput),
+        assumedSpeedKmh,
+        startTime: dynamicLayerTargetTime,
+        penaltyStrength: 1.0,
+        hardFilters,
+        lensAxisId: lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? lens : null,
+        // 軸カタログ未取得のままキー整合を行うと静的フォールバック（既存軸）に合わせて
+        // 書き換えてしまうため、その場合はroute_preference自体を省略しbackendの既定値
+        // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）へ委ねる。
+        routePreference:
+          weightOverrideEnabled && axisCatalog.loaded
+            ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
+            : null,
+        // 周回モードでは経由地・目的地の値が残っていても送らない（モード切り替え自体は
+        // 値を消さないため、地図上にピンが残っていても周回モード中は無視する）。
+        waypoints: routeMode === "destination" ? waypoints : [],
+        destination: routeMode === "destination" ? destination : null,
+        maxRoutesRelevant: routeMode === "loop" || waypoints.length === 0,
+      };
+    },
+    [
+      routeMode,
+      waypoints,
+      destination,
+      location,
+      maxRoutesInput,
+      assumedSpeedKmh,
+      dynamicLayerTargetTime,
+      hardFilters,
+      lens,
+      weightOverrideEnabled,
+      axisCatalog.loaded,
+      axisCatalog.defaultWeights,
+      routePreference,
+    ],
+  );
 
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
   // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する）
   const conditionsDirty =
     generatedConditions != null &&
     routes.length > 0 &&
-    (location.latitude !== generatedConditions.latitude ||
-      location.longitude !== generatedConditions.longitude ||
-      routeMode !== generatedConditions.routeMode ||
-      (generatedConditions.routeMode === "loop" && Number(distanceInput) !== generatedConditions.distanceKm) ||
-      (generatedConditions.maxRoutesRelevant && Number(maxRoutesInput) !== generatedConditions.maxRoutes) ||
-      assumedSpeedKmh !== generatedConditions.assumedSpeedKmh ||
-      (generatedConditions.routeMode === "destination" &&
-        JSON.stringify({ waypoints, destination }) !== generatedConditions.waypointsKey) ||
-      currentWeightsKey !== generatedConditions.weightsKey);
+    generationConditionsKey(buildCurrentGenerationInput(Number(distanceInput))) !== generatedConditions.key;
 
   async function handleGenerate(distanceKm: number) {
     setLoading(true);
     setGenerationProgress(null);
     setErrorMessage(null);
     try {
-      // 送信直前にキー整合を補正する。RouteSettingsPanelがマウント済みならこの時点で
-      // 既にキーは一致しており synced は null になる。axisCatalog.defaultWeights自体が
-      // まだ軸スタジオの現在状態を反映していない（axisCatalog.loaded===false、未取得・
-      // 取得失敗）場合、この同期は静的フォールバック（既存7軸）に合わせてroutePreferenceを
-      // 書き換えてしまい、実際の公開軸集合とは無関係な値になる。この場合はroute_preference
-      // 自体を省略し、backend側の既定値（load_route_preference、常に最新の
-      // AXIS_DEFINITIONS由来）に委ねる方が安全。
-      const syncedRoutePreference = axisCatalog.loaded
-        ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
-        : null;
-      // 周回モードでは経由地・目的地の値が残っていても送らない（モード切り替え自体は
-      // 値を消さないため、地図上にピンが残っていても周回モード中は無視する。地図表示も
-      // routeMode==="destination"のときだけ、page.tsx→MapView.tsx参照）。
-      // 目的地モードでは距離をRouteForm（distanceKm=0固定）から受け取らず、地図上の
-      // 経由地・目的地から自動算出する。distance_kmはbackendのbbox見積り半径のほか、
-      // 「起点から近すぎる=distance_km未満」バリデーション（routes.py:
-      // _check_waypoints_within_range）の基準にもなるため、実際に指定した点の最遠距離を
-      // 必ず上回る値にする（+1kmの余裕、MAX_DISTANCE_KMで頭打ち）。
-      const destinationModePoints = routeMode === "destination" ? [...waypoints, ...(destination ? [destination] : [])] : [];
-      const effectiveDistanceKm =
-        routeMode === "destination"
-          ? Math.min(MAX_DISTANCE_KM, Math.ceil(Math.max(...destinationModePoints.map((p) => haversineKm(location, p)))) + 1)
-          : distanceKm;
-      // 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数文字列
-      // 以外にはなり得ないため、そのままNumber化して使う。
-      const effectiveMaxRoutes = Number(maxRoutesInput);
-      const effectiveAssumedSpeed = assumedSpeedKmh;
-      const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        distance_km: effectiveDistanceKm,
-        distance_tolerance_km: DISTANCE_TOLERANCE_KM,
-        route_type: "loop",
-        penalty_strength: 1.0,
-        // hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が常時操作する対象の
-        // ため、weightOverrideEnabledのような上書き専用トグルを介さず常に送る（既定値は
-        // backendのDEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
-        hard_filters: hardFilters,
-        // RouteGenerateRequest.max_routesは既定値を持つがrequired
-        // （distance_tolerance_km/penalty_strengthと同じ扱い）のため、モードに関わらず
-        // 常に送る。経由地を伴う目的地ルートはbackendが常に1件へ固定し値を無視する。
-        max_routes: effectiveMaxRoutes,
-        assumed_speed_kmh: effectiveAssumedSpeed,
-        start_time: dynamicLayerTargetTime.toISOString(),
-        // レンズが軸を要求していれば、重み0でも区間表示のため風の時変化合成を行う（backend）。
-        ...(lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? { lens_axis_id: lens } : {}),
-        ...(weightOverrideEnabled && syncedRoutePreference ? { route_preference: syncedRoutePreference } : {}),
-        // 目的地モードのときだけ経由地・目的地を送る（backend側の分岐はapi/routers/
-        // routes.py参照）。
-        ...(routeMode === "destination" && waypoints.length > 0 ? { waypoints } : {}),
-        ...(routeMode === "destination" && destination ? { destination } : {}),
-      }, setGenerationProgress);
+      // 送るpayloadとdirty判定の比較キーを同じ入力から導出する（lib/generationRequest.ts）。
+      // 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数文字列以外には
+      // なり得ないため、buildCurrentGenerationInput側でそのままNumber化して使う。
+      const generationInput = buildCurrentGenerationInput(distanceKm);
+      const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes(
+        buildGenerateRequest(generationInput),
+        setGenerationProgress,
+      );
       // backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上のピンも実際に
       // 使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの終点が
       // ずれて見える）。
@@ -1489,17 +1479,13 @@ export default function Home() {
       // dirty判定の基準は「いま表示している候補を作った条件」。エラー時は既存候補が
       // 残るため更新しない（tryの成功パスでのみ更新する）
       setGeneratedConditions({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        distanceKm: effectiveDistanceKm,
-        maxRoutes: effectiveMaxRoutes,
-        assumedSpeedKmh: effectiveAssumedSpeed,
-        maxRoutesRelevant: routeMode === "loop" || (routeMode === "destination" && waypoints.length === 0),
-        weightsKey: currentWeightsKey,
-        routeMode,
-        // 補正があった場合は補正後の地点で比較する（地図上のピンも補正後の地点へ
+        // 補正があった場合は補正後の地点でキーを作る（地図上のピンも補正後の地点へ
         // 動かしているため、conditionsDirtyが直後に誤ってtrueにならないように揃える）。
-        waypointsKey: JSON.stringify({ waypoints, destination: conditions.corrected_destination ?? destination }),
+        key: generationConditionsKey(
+          conditions.corrected_destination
+            ? { ...generationInput, destination: conditions.corrected_destination }
+            : generationInput,
+        ),
         destinationCorrected: Boolean(conditions.corrected_destination),
       });
       setGeneratedRoutePreference(conditions.route_preference);

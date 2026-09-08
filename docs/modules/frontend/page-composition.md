@@ -16,7 +16,7 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
-| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts`・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ） |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts`・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |
@@ -193,6 +193,15 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 タブ列自身が横スクロールする。`routes`・`selectedRouteId`・
 `comparisonTabActive`・`generatedConditions`・`generatedRoutePreference`に加え
 `experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
+
+`conditionsDirty`（表示中の候補を作った条件と現在のフォーム値のずれ）は、
+`lib/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを
+同じ入力（`GenerationInput`）から導出する**ため、payloadへフィールドを足したときに比較側へ
+足し忘れることが起きない。比較から外すのは`IGNORED_WHEN_COMPARING`に理由付きで列挙した
+ものだけで、現在は`lens_axis_id`（地図の見え方の選択で候補の選定には影響しない）。
+経由地を伴う目的地ルートでは`max_routes`も外す（backendが値を無視するため）。
+キーは並び順に依存しない形でJSON化する——`hard_filters`・`route_preference`は保存値からの
+復元やキー整合の補完でプロパティの並びが変わりうるため。
 
 タブ列の上には、条件変更後の未反映（`conditionsDirty`）を知らせるヒントに加え、
 経由地の無い目的地ルートで指定した地点が自転車で行ける道路に繋がっていなかったため
