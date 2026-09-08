@@ -87,3 +87,56 @@ class TestCssModules:
 
 def test_css_is_in_pathspecs():
     assert any("css" in spec for spec in review_checks.SOURCE_COMMENT_PATHSPECS)
+
+# --- docs/tasks の「状態:」行の分類（improvement-plan.mdの[x]/[ ]との照合の土台） ---
+
+
+_task_file_seq = 0
+
+
+def _task_file(tmp_path, body: str):
+    # 1テスト内で複数作るため名前を重複させない（同名だと後の書き込みが前のを上書きし、
+    # 先に作ったパスを検証しているつもりで後の内容を見ることになる）。
+    global _task_file_seq
+    _task_file_seq += 1
+    path = tmp_path / f"T{900 + _task_file_seq}.md"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_task_status_kind_reads_a_line_starting_with_the_marker(tmp_path):
+    done = _task_file(tmp_path, """# T999
+
+規模S。
+
+状態: 完了（2026-09-08）
+""")
+    assert review_checks.task_status_kind(done) == "done"
+
+    open_ = _task_file(tmp_path, """# T999
+
+規模S。
+
+状態: 未着手（起票のみ）
+""")
+    assert review_checks.task_status_kind(open_) == "open"
+
+
+def test_task_status_kind_returns_none_when_the_marker_is_not_at_line_head(tmp_path):
+    # 実際にすり抜けた形。規模と同じ行へ畳むと照合対象から外れ、[x]との不一致が
+    # 検知されないまま残る（この戻り値がNoneのときcheck_plan_vs_tasksが違反を上げる）。
+    folded = _task_file(tmp_path, """# T999
+
+規模S。状態: 完了（2026-09-08）。
+""")
+    assert review_checks.task_status_kind(folded) is None
+
+
+def test_task_status_kind_treats_deferred_as_closed_and_on_hold_as_open(tmp_path):
+    # 「見送り」は今後もやらない確定判断でimprovement-plan側は[x]、トリガー待ちの
+    # 「保留」は[ ]（CLAUDE.md「コミット時の同期ルール」6番の用語法）。
+    deferred = _task_file(tmp_path, "状態: 見送り（ユーザー判断で現状維持）")
+    on_hold = _task_file(tmp_path, "状態: 保留（トリガー成立まで着手しない）")
+
+    assert review_checks.task_status_kind(deferred) == "done"
+    assert review_checks.task_status_kind(on_hold) == "open"

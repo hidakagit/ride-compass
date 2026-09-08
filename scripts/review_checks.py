@@ -9,7 +9,8 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
            backend/app・frontend/src のソースコードコメントの経緯記述（docs/comments.md、
            --staged/--sinceでは追加行のみ違反として数える。フルスキャンではT567完了までの
            既存分が大量にあるため参考件数のみで違反に数えない）、
-           improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の照合、
+           improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の照合（行頭が
+           「状態:」であること自体も違反として見る）、
            history/・docs/tasks/ への死んだリンク（consistency.md「設計 ↔ 実装」節の機械的部分）
   size     規模ウォッチ（complexity.md）: 実装ファイル行数の上位と前回比・閾値発火
   duplication コピペ検出（complexity.md）: jscpdでの完全一致クローンと前回比
@@ -341,9 +342,11 @@ def find_undocumented_files(candidates: list[str], modules_text: str, all_files:
     return out
 
 
-# 「見送り」「保留」はトリガー待ちで improvement-plan 側も [ ] のままにする運用（例: T422）のため open 扱い
-OPEN_STATUS_WORDS = ("未着手", "着手中", "進行中", "保留", "見送り", "調査中", "中断", "作業中")
-CLOSED_STATUS_WORDS = ("完了", "撤回", "取り下げ", "却下", "廃止")
+# トリガー待ち（improvement-plan側も [ ] のまま）は「保留」で表す。
+OPEN_STATUS_WORDS = ("未着手", "着手中", "進行中", "保留", "調査中", "中断", "作業中")
+# 「見送り」は「今後もやらない確定判断」でimprovement-plan側は[x]にする
+# （CLAUDE.md「コミット時の同期ルール」6番の用語法。トリガー待ちと混ぜない）。
+CLOSED_STATUS_WORDS = ("完了", "撤回", "取り下げ", "却下", "廃止", "見送り")
 # 「存在しないこと自体」を記録している参照（T356: 2026-08-26のcomplexityレビュー結果が保存されなかった件）
 KNOWN_MISSING_HISTORY = {"2026-08-26_complexity.md"}
 
@@ -362,8 +365,8 @@ def task_status_kind(task_path: Path) -> str | None:
     return None
 
 
-def check_plan_vs_tasks() -> tuple[list[str], list[str]]:
-    violations, infos = [], []
+def check_plan_vs_tasks() -> list[str]:
+    violations: list[str] = []
     for lineno, line in enumerate(read_text(IMPROVEMENT_PLAN).splitlines(), 1):
         m = PLAN_LINE_RE.match(line)
         if not m:
@@ -375,12 +378,15 @@ def check_plan_vs_tasks() -> tuple[list[str], list[str]]:
             continue
         kind = task_status_kind(task_path)
         if kind is None:
-            infos.append(f"docs/tasks/T{num}.md: 「状態:」行なし（照合不能）")
+            violations.append(
+                f"docs/tasks/T{num}.md: 行頭が「状態:」の行が無く[x]/[ ]と照合できない"
+                "（`規模S。状態: 完了（…）` のように規模と同じ行へ書くと検出されない）"
+            )
         elif checked and kind == "open":
             violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [x] だが docs/tasks/T{num}.md の「状態:」行は未完了のまま")
         elif not checked and kind == "done":
             violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [ ] だが docs/tasks/T{num}.md の「状態:」行は完了")
-    return violations, infos
+    return violations
 
 
 def check_dead_doc_links(md_files: list[str]) -> list[str]:
@@ -454,7 +460,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
         sections.append(("新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
                          find_undocumented_files(added, modules_text, files + added), True))
         if any(s == "docs/improvement-plan.md" or s.startswith("docs/tasks/") for s in staged):
-            v, _ = check_plan_vs_tasks()
+            v = check_plan_vs_tasks()
             sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
         md_staged = [s for s in staged if s.endswith(".md")]
         sections.append(("history/・docs/tasks への死んだリンク（ステージ済み.md）", check_dead_doc_links(md_staged), True))
@@ -483,9 +489,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
             sections.append(("ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
                              find_source_narrative_violations(all_source_lines), False))
         sections.append((title, find_undocumented_files(added, modules_text, files), True))
-        v, infos = check_plan_vs_tasks()
+        v = check_plan_vs_tasks()
         sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
-        sections.append(("docs/tasks の「状態:」行なし（参考）", infos, False))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]
         sections.append(("history/・docs/tasks への死んだリンク（.claude・docs 全件）", check_dead_doc_links(md_files), True))
 
