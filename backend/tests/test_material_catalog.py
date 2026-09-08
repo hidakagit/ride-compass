@@ -306,8 +306,10 @@ def test_poi_density_materials_treat_a_missing_key_as_zero_but_a_missing_row_as_
     # 行はあるが、そのキーが無い＝0件
     assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {"crossing": 3}}})) == 0.0
     # 行が空でも、行があること自体が「集計済み＝0件」を意味する
+    assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {}, "e1": {}})) is None
     assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {"e1": {}}})) == 0.0
-    # 行そのものが無い＝不明
+    # 行そのものが無い＝未集計（不明）。集計前のDBで全区間が「停止要因ゼロ＝最も易しい」と
+    # 評価されると、ルート選択が静かに歪むため、ここを取り違えてはいけない。
     assert spec.extractor(_ctx(metrics={METRIC_GROUP_POI: {}})) is None
     assert spec.extractor(_ctx()) is None
 

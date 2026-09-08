@@ -758,6 +758,46 @@ async def test_get_poi_counts_by_kind_does_not_cluster_points_beyond_eps(
     assert separated[backward]["signal"] == 2
 
 
+async def test_unaggregated_poi_counts_are_unknown_not_zero(road_graph_repository, road_graph_session):
+    """集計前（poi_countsがNULL）は「0件」ではなく「未集計」として材料を欠損にする。
+
+    ここを0として読むと、集計バッチを流す前のDBで全区間が「停止要因ゼロ＝最も易しい」と
+    評価され、ルート選択が静かに歪む（実際に本番で起きた）。
+    """
+    from app.domain.attributes import METRIC_GROUP_POI, edge_metrics_from_bundles
+    from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
+
+    forward, _ = await _build_poi_way(road_graph_repository, road_graph_session)
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO edge_attribute_counts "
+            "(edge_id, accident_count, stop_count, intersection_count, poi_counts, computed_at) "
+            "VALUES (:edge_id, 0, 0, 0, NULL, now())"
+        ),
+        {"edge_id": forward},
+    )
+    await road_graph_session.commit()
+
+    batch = await road_graph_repository.get_edge_materials_batch([forward])
+    assert batch.materials[forward].attribute_counts.poi_counts is None
+
+    metrics = edge_metrics_from_bundles(batch.materials)
+    assert forward not in metrics[METRIC_GROUP_POI]
+
+    ctx = MaterialExtractionContext(
+        edge=None,
+        edge_id=forward,
+        way_tags={},
+        distance_km=0.1,
+        elevation_attributes={},
+        surface_attributes={},
+        designated_edge_ids=set(),
+        metrics=metrics,
+        accident_years_covered=1,
+    )
+    assert MATERIAL_CATALOG["poi_signal_per_km"].extractor(ctx) is None
+
+
 async def test_poi_counts_reach_the_material_extractor_end_to_end(
     road_graph_repository, road_graph_session
 ):
