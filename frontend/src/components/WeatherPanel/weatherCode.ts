@@ -18,6 +18,11 @@ import {
 // アイコンでは判別困難で、かえって視認性を落とすため）。
 export type WeatherCodeCategory = "clear" | "cloudy" | "fog" | "rain" | "snow" | "thunderstorm";
 
+// backendが実際に返すのは0/1/2/3（雲量4段階）・61/63/65（雨3段階）・71/73/75（雪3段階）の
+// 10値だけ（domain/weather.py: derive_weather_code。霧・雷雨はMSMの配信変数から判定できない
+// ため返さない）。残りはWMO標準の対応表としてそのまま持つ——導出ロジックが変わって新しい
+// コードが返るようになったとき、未知コードのフォールバック（下の`?? "cloudy"`）で
+// 雨や雪までくもり扱いになるのを避けるため。
 const CATEGORY_BY_CODE: Record<number, WeatherCodeCategory> = {
   0: "clear",
   1: "clear",
@@ -74,7 +79,11 @@ export interface WeatherCodeDisplay {
 }
 
 /** weather_code・is_dayから天気アイコン+ラベルを決める。weather_codeが無い（null）場合は
- * 何も表示すべきでないためnullを返す（呼び出し元はチップ自体を出さない）。 */
+ * 何も表示すべきでないためnullを返す（呼び出し元はチップ自体を出さない）。
+ *
+ * `isDay`は「快晴」の昼夜アイコン切替にだけ効く。現在の唯一の呼び出し元（TodayOutlook）は
+ * コマ単位のis_dayを持たないため1固定で渡しており、夜側（MoonIcon）へは到達しない
+ * （コマ単位のis_dayが取れるようになったときに繋ぐ口として残す、TodayOutlook.tsx参照）。 */
 export function getWeatherCodeDisplay(weatherCode: number | null, isDay: number | null): WeatherCodeDisplay | null {
   if (weatherCode == null) return null;
   const category = CATEGORY_BY_CODE[weatherCode] ?? "cloudy";

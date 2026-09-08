@@ -145,7 +145,7 @@ icon-sizeはズームのみに依存する。
 3. `MapView.tsx`: `DYNAMIC_WEATHER_RENDERERS`へ描画スペックを1エントリ追加する
    （既存グループへ名前付きソースを1つ追加する場合も同じ辞書内へ足すだけでよい）
 4. `mapLayers.ts`: 地図チップを追加し、`MapLayerId`・`dynamicWeather.ts`の
-   `CHIP_DYNAMIC_WEATHER_LAYER_IDS`へ1行足す
+   `DYNAMIC_WEATHER_LAYER_IDS`へ1行足す
 5. `hooks/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
    `dynamicWeather`オブジェクトへの追加（3〜4と違い自動反映の仕組みは無い、手書き作業）。
    `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の

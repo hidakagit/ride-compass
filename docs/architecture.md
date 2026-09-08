@@ -700,9 +700,7 @@ RideCompass/
         axisMaterialsCatalog.ts      ✅ 改善計画T270で新設、T277でGET /api/material-catalogの取得失敗時フォールバックへ役割縮小。軸コンポーザーの材料選択候補（既存9件のスナップショット）。単一の情報源はbackend/app/domain/material_catalog.py: MATERIAL_CATALOGへ移行済みで、通常利用時はこのファイルの更新不要（動的取得が失敗した場合のみ古いまま表示される）
       services/
         healthApi.ts             ✅
-        routeApi.ts               ✅ previewRoute() / generateRoutes()。previewRouteは`/api/routes/preview`
-                                    （Step3の疎通確認用エンドポイント）向けのクライアント関数で、
-                                    現状どのUIコンポーネントからも呼ばれていない（テストのみが参照）
+        routeApi.ts               ✅ generateRoutes()（ジョブ投稿＋ポーリング）
         weatherApi.ts             ✅ getCurrentWeather()
         regionApi.ts               ✅ roadSurfaceTileUrl() / ROAD_TILE_MIN_ZOOM/MAX_ZOOM / refreshBasemapCache()（Step10改訂。路面がタイル化されJSON型を持たなくなったため`types/region.ts`は削除済み）
         axisCatalogApi.ts           ✅ 改善計画T269: getAxisCatalog()。GET /api/axis-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
@@ -765,8 +763,7 @@ Response 200:
   "rate_limit_rejections": { ... } }
 
 POST /api/routes/preview   # Step3: 単一区間のルート取得確認用（暫定エンドポイント。デバッグ・疎通確認用に残置。
-                           # フロントエンドの実運用UIからは呼ばれない。frontend/src/services/routeApi.ts:
-                           # previewRoute()は用意されているが未使用）
+                           # フロントエンドからは呼ばれない——クライアント関数も改善計画T677で撤去した）
 Request:
 { "origin": {"latitude":35.7597,"longitude":139.7387}, "destination": {"latitude":35.71,"longitude":139.75} }
 Response 200:

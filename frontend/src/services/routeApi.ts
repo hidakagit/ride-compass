@@ -4,8 +4,6 @@ import type {
   RouteGenerateJobCreatedResponse,
   RouteGenerateJobStatusResponse,
   RouteGenerateRequest,
-  RoutePreviewRequest,
-  RouteSegment,
 } from "@/types/route";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
@@ -74,10 +72,6 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
   }
   debugLog("api:route", "成功", { path, durationMs, requestId });
   return data;
-}
-
-export async function previewRoute(request: RoutePreviewRequest): Promise<RouteSegment> {
-  return postJson<RouteSegment>("/api/routes/preview", request, 15000);
 }
 
 export interface GenerateRoutesResult {

@@ -4,11 +4,9 @@ import type {
   GenerationConditions,
   RouteCandidate,
   RouteGenerateRequest,
-  RoutePreviewRequest,
-  RouteSegment,
 } from "@/types/route";
 import { debugLog } from "@/lib/debugLog";
-import { generateRoutes, previewRoute } from "./routeApi";
+import { generateRoutes } from "./routeApi";
 import { makeResponse } from "@/testing/fetchMocks";
 
 vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
@@ -18,33 +16,20 @@ describe("routeApi", () => {
     vi.unstubAllGlobals();
   });
 
-  describe("previewRoute", () => {
-    const request: RoutePreviewRequest = {
-      origin: { latitude: 35.0, longitude: 139.0 },
-      destination: { latitude: 35.1, longitude: 139.1 },
+  // POST共通の骨格（postJson）のエラー経路。本番から呼ばれるgenerateRoutesの
+  // ジョブ投稿段階を通して検証する（同じpostJsonを経由する）。
+  describe("postJson（generateRoutesのジョブ投稿段階を通した検証）", () => {
+    const request: RouteGenerateRequest = {
+      latitude: 35.0,
+      longitude: 139.0,
+      distance_km: 30,
+      distance_tolerance_km: 5,
+      route_type: "loop",
+      penalty_strength: 1.0,
+      max_routes: 8,
       assumed_speed_kmh: 20,
+      start_time: "2026-09-05T09:30:00+09:00",
     };
-
-    it("成功時はレスポンスのJSONをそのまま返し、URLとmethodを検証する", async () => {
-      const segment: RouteSegment = {
-        distance_km: 12.3,
-        duration_minutes: 45,
-        geometry: { type: "LineString", coordinates: [] },
-      };
-      const fetchMock = vi.fn().mockResolvedValue(
-        makeResponse({
-          json: async () => segment,
-        }),
-      );
-      vi.stubGlobal("fetch", fetchMock);
-
-      const result = await previewRoute(request);
-
-      expect(result).toEqual(segment);
-      const [url, options] = fetchMock.mock.calls[0];
-      expect(String(url)).toContain("/api/routes/preview");
-      expect(options.method).toBe("POST");
-    });
 
     it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
       const headers = new Headers({ "x-request-id": "req-123" });
@@ -60,7 +45,7 @@ describe("routeApi", () => {
         ),
       );
 
-      await expect(previewRoute(request)).rejects.toThrow("エラー詳細[req: req-123]");
+      await expect(generateRoutes(request)).rejects.toThrow("エラー詳細[req: req-123]");
     });
 
     it("x-request-idヘッダが無い場合はメッセージに(req: ...)が付かない", async () => {
@@ -76,9 +61,9 @@ describe("routeApi", () => {
         ),
       );
 
-      await expect(previewRoute(request)).rejects.toThrow("エラー詳細");
+      await expect(generateRoutes(request)).rejects.toThrow("エラー詳細");
       try {
-        await previewRoute(request);
+        await generateRoutes(request);
         throw new Error("should have thrown");
       } catch (e) {
         expect((e as Error).message).toBe("エラー詳細");
@@ -100,7 +85,7 @@ describe("routeApi", () => {
         ),
       );
 
-      await expect(previewRoute(request)).rejects.toThrow("リクエストに失敗しました[HTTP 502]");
+      await expect(generateRoutes(request)).rejects.toThrow("リクエストに失敗しました[HTTP 502]");
     });
 
     // 2026-08-24回帰テスト: fetch()自体が失敗する場合（タイムアウト・通信エラー）は
@@ -111,7 +96,7 @@ describe("routeApi", () => {
       const timeoutError = new DOMException("The operation was aborted.", "TimeoutError");
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError));
 
-      await expect(previewRoute(request)).rejects.toThrow(timeoutError.message);
+      await expect(generateRoutes(request)).rejects.toThrow(timeoutError.message);
       expect(debugLog).toHaveBeenCalledWith(
         "api:route",
         expect.stringContaining("タイムアウト"),
@@ -124,7 +109,7 @@ describe("routeApi", () => {
       const networkError = new TypeError("Failed to fetch");
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError));
 
-      await expect(previewRoute(request)).rejects.toThrow("Failed to fetch");
+      await expect(generateRoutes(request)).rejects.toThrow("Failed to fetch");
       expect(debugLog).toHaveBeenCalledWith(
         "api:route",
         "失敗 (通信エラー)",

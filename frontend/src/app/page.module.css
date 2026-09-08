@@ -119,13 +119,6 @@
   transform: rotate(45deg);
 }
 
-/* 開閉を持たないブロックの見出し（blockSummaryと同じ見た目に揃える） */
-.blockHeading {
-  font-weight: bold;
-  font-size: var(--font-size-md);
-  margin: 0 0 var(--space-2);
-}
-
 .blockBody {
   display: flex;
   flex-direction: column;
@@ -136,22 +129,6 @@
 .dirtyHint {
   color: var(--color-warning-strong);
   font-size: var(--font-size-sm);
-  margin: 0;
-}
-
-/* デスクトップ専用の「ルート結果」見出し行（改善計画T545フォローアップ）。モバイルは
-   BottomSheet自体のtitle="ルート結果"が見出しを兼ねるため showHeading=false で
-   出さない（renderRouteOutcomeSectionBodyのコメント参照）。見出しは左、情報アイコン・
-   「ルートをクリア」は右（ユーザー指摘「ヘッダの右上小さくでいい」）。 */
-.outcomeSectionHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-bottom: 0.3rem;
-}
-
-.outcomeSectionHeader h2 {
   margin: 0;
 }
 

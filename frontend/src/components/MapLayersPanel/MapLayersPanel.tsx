@@ -302,24 +302,12 @@ export default function MapLayersPanel({
     );
   }
 
+  // 路面の2レイヤーだけが専用の絞り込み軸（色／太さ）を持ち、それ以外は標準構成
+  // （panelHint＋OFF案内＋絞り込み軸）で足りる。
   function renderSectionBody(layer: MapLayerDescriptor) {
-    switch (layer.id) {
-      case "designation":
-      case "tunnel":
-      case "oneway":
-      case "stopPoi":
-      case "supplyPoi":
-      case "accidents":
-        return renderStandardSectionBody(layer);
-      case "roadSurface":
-        return renderRoadAxisSectionBody(layer, roadColorAxis, "色");
-      case "roadType":
-        return renderRoadAxisSectionBody(layer, roadWidthAxis, "太さ");
-      default:
-        // axis:${string}（ramp軸、car_stressを含む）はdesignation等と同じ標準構成
-        // （panelHint＋OFF案内＋絞り込み軸）で足りるため、個別caseを持たずデフォルトで拾う。
-        return renderStandardSectionBody(layer);
-    }
+    if (layer.id === "roadSurface") return renderRoadAxisSectionBody(layer, roadColorAxis, "色");
+    if (layer.id === "roadType") return renderRoadAxisSectionBody(layer, roadWidthAxis, "太さ");
+    return renderStandardSectionBody(layer);
   }
 
   // レイヤー1件分のセクション（見出し＋ON/OFFチップ＋設定本文）。カテゴリ単位・kind単位
