@@ -15,14 +15,14 @@
 | `Map/legendFilter.ts` | カテゴリ絞り込みの汎用機構（凡例フィルタ式の組み立て・AND束ね・要約文生成） |
 | `Map/primaryAttributes.ts` | 一次属性⇄二次軸の双方向導出（軸増減時の観測データ連動表示に使用） |
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`とカテゴリによる除外を持つ |
-| `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位3グループ（道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定 |
+| `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `Map/axisInspectorPopup.ts` | 区間インスペクタ（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）のポップアップHTML組み立て |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代定数） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄） |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
-| `components/MapOverlayControls/` | 地図上チップ（フローティングUI） |
+| `components/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループの開閉キー（`group:<グループ>`）は`MAP_OVERLAY_GROUP_ORDER`から生成・逆引きし、キー文字列を手で並べない——グループを増やしたとき見出しが「グループ本体」と認識されず2件目以降がチップ列から消えるのを防ぐ |
 | `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
 | `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品。中身はchildrenで呼び出し側が渡す（`MapLayersPanel`・`RouteSettingsPanel`・`RouteAxisProfile`で共用） |

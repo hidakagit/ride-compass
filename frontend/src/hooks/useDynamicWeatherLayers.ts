@@ -143,6 +143,7 @@ export function useDynamicWeatherLayers({
     data: rawNowcastFrames,
     loading: nowcastLoading,
     error: nowcastError,
+    hasFetched: nowcastHasFetched,
   } = usePolledFetch(fetchNowcastFrames, EMPTY_NOWCAST_FRAMES, {
     enabled: showPrecipitationNowcast,
     intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
@@ -170,6 +171,7 @@ export function useDynamicWeatherLayers({
     data: rawThunderNowcastFrames,
     loading: thunderNowcastLoading,
     error: thunderNowcastError,
+    hasFetched: thunderNowcastHasFetched,
   } = usePolledFetch(fetchThunderNowcastFrames, EMPTY_THUNDER_NOWCAST_FRAMES, {
     enabled: fetchThunderFrames,
     intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
@@ -187,6 +189,7 @@ export function useDynamicWeatherLayers({
     data: rawLidenNowcastFrames,
     loading: lidenNowcastLoading,
     error: lidenNowcastError,
+    hasFetched: lidenNowcastHasFetched,
   } = usePolledFetch(fetchLidenFrames, EMPTY_LIDEN_FRAMES, {
     enabled: fetchLidenFramesEnabled,
     intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
@@ -203,6 +206,7 @@ export function useDynamicWeatherLayers({
     data: currentRiskFrames,
     loading: currentRiskLoading,
     error: currentRiskError,
+    hasFetched: currentRiskHasFetched,
   } = usePolledFetch(
     fetchCurrentRiskFrames,
     EMPTY_CURRENT_RISK_FRAMES,
@@ -220,6 +224,7 @@ export function useDynamicWeatherLayers({
     data: linearRainbandFrames,
     loading: linearRainbandLoading,
     error: linearRainbandError,
+    hasFetched: linearRainbandHasFetched,
   } = usePolledFetch(
     fetchLinearRainbandFrames,
     EMPTY_RISK_FRAMES,
@@ -234,6 +239,7 @@ export function useDynamicWeatherLayers({
     effectiveGridSpacingDeg,
     loading: windLoading,
     error: windError,
+    hasFetched: windHasFetched,
   } = useWeatherGrid(showWindVector || showPrecipitationNowcast, mapViewport);
 
   // 各要素のフレーム列（データ層、dynamicWeather.ts: DynamicWeatherFrame[]）。表示層は
@@ -407,11 +413,14 @@ export function useDynamicWeatherLayers({
   // ソースが地図に何かしら描画できていればloading/errorとしない。
   const dynamicWeatherDataStatus = useMemo(
     () => ({
-      windVector: deriveFetchLayerStatus(windLoading, windError, windPayload !== undefined),
+      windVector: deriveFetchLayerStatus(windLoading, windError, windPayload !== undefined, windHasFetched),
+      // グループのhasFetchedはOR——loading/errorと同じく「いずれかのソースが取得を
+      // 終えていれば、そのグループについては値の有無を語ってよい」とする。
       precipitationNowcast: deriveFetchLayerStatus(
         nowcastLoading || linearRainbandLoading,
         nowcastError ?? linearRainbandError,
-        precipitationPayload !== undefined || linearRainbandPayload !== undefined
+        precipitationPayload !== undefined || linearRainbandPayload !== undefined,
+        nowcastHasFetched || linearRainbandHasFetched
       ),
       disaster: deriveFetchLayerStatus(
         thunderNowcastLoading || lidenNowcastLoading || currentRiskLoading,
@@ -422,7 +431,8 @@ export function useDynamicWeatherLayers({
           landslideRiskPayload !== undefined ||
           heavyRainRiskPayload !== undefined ||
           inundationRiskPayload !== undefined ||
-          floodRiskPayload !== undefined
+          floodRiskPayload !== undefined,
+        thunderNowcastHasFetched || lidenNowcastHasFetched || currentRiskHasFetched
       ),
     }),
     [
@@ -448,6 +458,12 @@ export function useDynamicWeatherLayers({
       heavyRainRiskPayload,
       inundationRiskPayload,
       floodRiskPayload,
+      windHasFetched,
+      nowcastHasFetched,
+      linearRainbandHasFetched,
+      thunderNowcastHasFetched,
+      lidenNowcastHasFetched,
+      currentRiskHasFetched,
     ]
   );
 

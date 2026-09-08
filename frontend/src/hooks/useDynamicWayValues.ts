@@ -42,9 +42,13 @@ export interface UseDynamicWayValuesResult {
    * ネットワークエラー）したか。falseは「本当にその範囲にway_idが無い」場合と区別する
    * （fetchDynamicWayValuesのerrorをタイル横断でOR集約する）。 */
   error: boolean;
+  /** 一度でも取得を試みて完了したか（成否は問わない）。`enabled: false`の間はfalseのまま。
+   * 「まだ取りに行っていない」と「取得したが値が無かった」を呼び出し側が区別するために使う
+   * （`mapLayers.ts: deriveFetchLayerStatus`）。 */
+  hasFetched: boolean;
 }
 
-const EMPTY_RESULT: UseDynamicWayValuesResult = { values: new Map(), byTile: [], loading: false, error: false };
+const EMPTY_RESULT: UseDynamicWayValuesResult = { values: new Map(), byTile: [], loading: false, error: false, hasFetched: false };
 
 /** enabled中、現在のビューポート（デバウンス済み）を覆う道路タイル分をまとめて取得し、
  * way_id→値のMapへ統合して返す。連続する呼び出しの間に古いリクエストが後から解決しても
@@ -97,6 +101,7 @@ export function useDynamicWayValues(
         byTile: tiles.map((tile, index) => ({ tile, values: responses[index].values })),
         loading: false,
         error: responses.some((response) => response.error),
+        hasFetched: true,
       });
     });
     return () => {

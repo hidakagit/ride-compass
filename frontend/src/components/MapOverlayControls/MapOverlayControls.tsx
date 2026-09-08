@@ -118,7 +118,7 @@ function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   for (const group of MAP_OVERLAY_GROUP_ORDER) {
     const members = layers.filter((layer) => mapOverlayGroupFor(layer) === group);
     if (members.length > 0) {
-      groups.push({ key: `group:${group}`, members });
+      groups.push({ key: groupExpandKey(group), members });
     }
   }
   for (const layer of layers) {
@@ -183,9 +183,22 @@ const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot fon
 // だけビューポート内へ押し戻すことで、パネル自身が必ずこの最小幅ぶんは画面内に収まる
 // ようにする（下記toggleExpanded参照）。
 const MIN_PANEL_WIDTH_PX = 160;
+// グループ本体の開閉キーとその逆引き。正本は`MAP_OVERLAY_GROUP_ORDER`で、キー文字列を
+// 手で並べない——4つ目のグループを足したとき、ここと逆引きの両方が自動で追従する
+// （追従しないと、そのグループの見出しが「グループ本体」と認識されず2件目以降が
+// 地図チップ列から黙って消える）。
+function groupExpandKey(group: MapOverlayGroup): string {
+  return `group:${group}`;
+}
+
+/** 開閉キー（`group:road`等）からグループを引く。グループ本体でないキーはundefined。 */
+function groupFromExpandKey(key: string): MapOverlayGroup | undefined {
+  return MAP_OVERLAY_GROUP_ORDER.find((group) => groupExpandKey(group) === key);
+}
+
 // グループ本体の開閉キー（下記toggleExpandedのコメント参照）。floatingパネルを持たない
 // ため排他制御の対象外にする。
-const GROUP_VISIBILITY_KEYS = new Set(["group:road", "group:environment", "group:spot"]);
+const GROUP_VISIBILITY_KEYS = new Set(MAP_OVERLAY_GROUP_ORDER.map(groupExpandKey));
 
 // グループの開閉・表示項目の設定をlocalStorageへ永続化する（時間経過で変動する要素以外は
 // 次回訪問時も同じ状態を保つ）。page.tsxのlayerVisibility（各レイヤーのON/OFF自体）は
@@ -825,7 +838,7 @@ export default function MapOverlayControls({
   // legendDetailsの有無だけで判定すると▶自体が消えて案内文を開けなくなる。単独チップ側
   // （本ファイル末尾のcanExpand= hasLegendDetails || Boolean(layer.summary)）と同じ
   // 判定へ揃える）。
-  function renderRawMemberTile(member: OverlayLayerChip, groupTint: "road" | "environment" | "spot") {
+  function renderRawMemberTile(member: OverlayLayerChip, groupTint: MapOverlayGroup) {
     const key = `member:${member.id}`;
     const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
@@ -877,10 +890,10 @@ export default function MapOverlayControls({
 
   // メンバー増加で展開直後に画面下端を超えて見切れることを避けるため、Ⓘの設定パネル
   // （renderVisibilitySettings）で非表示に選んだメンバーはここで除外する。groupTint/scopeは
-  // 常に同じグループ値（"road"|"environment"|"spot"のいずれか）を渡すため1引数に統合してある。
+  // 常に同じグループ値（`MapOverlayGroup`）を渡すため1引数に統合してある。
   function renderObservedMemberRows(
     members: readonly OverlayLayerChip[],
-    group: "road" | "environment" | "spot"
+    group: MapOverlayGroup
   ): ReactElement[] {
     return orderObservedMembers(members)
       .filter((member) => !hiddenIds.has(`${group}:${member.id}`))
@@ -1045,8 +1058,7 @@ export default function MapOverlayControls({
           // ▼矢印の見た目だけを持ち、内訳は描画しない（renderObservedMemberRowsを別途
           // sibling要素として返す）。3グループとも見た目・挙動が完全に同一のため、
           // 1つの分岐にまとめる。
-          const flatGroup =
-            group.key === "group:road" ? "road" : group.key === "group:environment" ? "environment" : group.key === "group:spot" ? "spot" : undefined;
+          const flatGroup = groupFromExpandKey(group.key);
           if (flatGroup) {
             const RepresentativeIcon = MAP_OVERLAY_GROUP_ICONS[flatGroup];
             const isExpanded = expandedIds.has(group.key);

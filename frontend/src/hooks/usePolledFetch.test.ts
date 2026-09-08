@@ -22,6 +22,42 @@ describe("usePolledFetch", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("hasFetchedは初回フェッチの完了で立つ（enabled=falseの間はfalseのまま）", async () => {
+    // 「まだ取りに行っていない」と「取得したが空だった」を呼び出し側が区別するための入力
+    // （mapLayers.ts: deriveFetchLayerStatus）。無いと未取得が「データがありません」になる。
+    const fetcher = vi.fn().mockResolvedValue("result-1");
+
+    const { result } = renderHook(() =>
+      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト" }),
+    );
+
+    expect(result.current.hasFetched).toBe(false);
+    await waitFor(() => expect(result.current.hasFetched).toBe(true));
+  });
+
+  it("フェッチが失敗してもhasFetchedは立つ（試みた事実を表すため）", async () => {
+    const fetcher = vi.fn().mockRejectedValue(new Error("失敗"));
+
+    const { result } = renderHook(() =>
+      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト" }),
+    );
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.hasFetched).toBe(true);
+  });
+
+  it("enabled=falseの間はhasFetchedがfalseのまま", async () => {
+    const fetcher = vi.fn().mockResolvedValue("result-1");
+
+    const { result } = renderHook(() =>
+      usePolledFetch(fetcher, "initial", { enabled: false, intervalMs: 100000, label: "テスト" }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(result.current.hasFetched).toBe(false);
+  });
+
   it("enabled=falseの間はフェッチせず、初期値のまま", async () => {
     const fetcher = vi.fn().mockResolvedValue("result-1");
 

@@ -49,6 +49,10 @@ export interface UseWeatherGridResult {
   /** 粗い格子の取得に失敗したときのメッセージ（詳細格子側の失敗は補助的な機能のため
    * サイレントにフォールバックするだけで、ここには反映されない）。 */
   error: string | null;
+  /** 粗い格子を一度でも取得し終えたか（成否は問わない）。`enabled: false`の間はfalseのまま。
+   * 「まだ取りに行っていない」と「取得したが空だった」を呼び出し側が区別するために使う
+   * （`mapLayers.ts: deriveFetchLayerStatus`）。 */
+  hasFetched: boolean;
 }
 
 /** 風の矢印・延長降水予報（T183）が共有する格子点マップのフェッチ・状態管理。
@@ -59,6 +63,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   const [grid, setGrid] = useState<WindGridPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasFetched, setHasFetched] = useState(false);
   const [detailGrid, setDetailGrid] = useState<WindGridPoint[]>([]);
   const [detailSpacingDeg, setDetailSpacingDeg] = useState(WIND_GRID_SPACING_DEG);
 
@@ -87,6 +92,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "気象格子データの取得に失敗しました");
       } finally {
+        if (!cancelled) setHasFetched(true);
         if (!cancelled && isFirstLoad) setLoading(false);
       }
     };
@@ -168,5 +174,5 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   const effectiveGrid = detailGrid.length > 0 ? detailGrid : grid;
   const effectiveGridSpacingDeg = detailGrid.length > 0 ? detailSpacingDeg : WIND_GRID_SPACING_DEG;
 
-  return { grid, detailGrid, effectiveGrid, effectiveGridSpacingDeg, loading, error };
+  return { grid, detailGrid, effectiveGrid, effectiveGridSpacingDeg, loading, error, hasFetched };
 }

@@ -58,6 +58,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       effectiveGrid: [],
       effectiveGridSpacingDeg: 0.05,
       loading: false,
+      hasFetched: true,
       error: null,
     });
   }
@@ -72,7 +73,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
     await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
     await waitFor(() => expect(fetchLinearRainbandFrames).toHaveBeenCalled());
     await waitFor(() => expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe("empty"));
-    expect(result.current.dynamicWeatherDataStatus.disaster).toBe("empty");
+    await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("empty"));
   });
 
   it("キキクル（現在のリスク分布）の取得失敗が、災害チップ1つ分のdynamicWeatherDataStatusへ反映される", async () => {
@@ -130,6 +131,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
         effectiveGrid: [],
         effectiveGridSpacingDeg: 0.05,
         loading: false,
+        hasFetched: true,
         error: "wind grid boom",
       });
 
@@ -138,12 +140,15 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       await waitFor(() => expect(result.current.dynamicWeatherDataStatus.windVector).toBe("error"));
     });
 
-    it("OFF中のレイヤーにも値は計算されるが（表示側がon/layerVisibilityで抑制するため）害はない", () => {
+    it("OFF中のレイヤーは取得を試みていないため状態を持たない（emptyと断定しない）", () => {
+      // OFFの間はフェッチ自体が走らない（enabled: false）。ここをemptyにすると
+      // 「この範囲に表示できるデータがありません」と読めてしまい、配線ミスで
+      // フェッチが走っていない状態と区別が付かなくなる。
       stubHappyPath();
 
       const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
 
-      expect(result.current.dynamicWeatherDataStatus.disaster).toBe("empty");
+      expect(result.current.dynamicWeatherDataStatus.disaster).toBeUndefined();
     });
   });
 

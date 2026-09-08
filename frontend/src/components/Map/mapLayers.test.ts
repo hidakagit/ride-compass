@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { buildMapLayers, buildRoadSurfaceSharedLayerIds, isAxisStudioLayer, mapOverlayGroupFor } from "./mapLayers";
+import {
+  buildMapLayers,
+  buildRoadSurfaceSharedLayerIds,
+  deriveFetchLayerStatus,
+  isAxisStudioLayer,
+  mapOverlayGroupFor,
+} from "./mapLayers";
 
 describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
   it("isAxisStudioLayer: windAxis/gradientAxisはaxis_idのハードコード比較ではなくDEDICATED_WAY_VALUE_LAYER_IDS（軸データ由来）でtrueになる", () => {
@@ -52,5 +58,33 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
       expect(mapOverlayGroupFor(byId.disaster)).toBe("environment");
       expect(mapOverlayGroupFor(byId.precipitationNowcast)).toBe("environment");
     });
+  });
+});
+
+
+// --- deriveFetchLayerStatus（"empty"は「読込済みだが値なし」だけを指す） ---
+
+describe("deriveFetchLayerStatus", () => {
+  it("まだ取りに行っていない間は状態を返さない（未取得を「データがありません」と断定しない）", () => {
+    // レイヤーを有効化した直後や、配線ミスでフェッチ自体が走っていない状態がここに該当する。
+    expect(deriveFetchLayerStatus(false, null, false, false)).toBeUndefined();
+  });
+
+  it("取得を終えて値が無ければempty", () => {
+    expect(deriveFetchLayerStatus(false, null, false, true)).toBe("empty");
+  });
+
+  it("取得を終えて値があれば状態を返さない", () => {
+    expect(deriveFetchLayerStatus(false, null, true, true)).toBeUndefined();
+  });
+
+  it("読込中はloading（取得済みかどうかによらない）", () => {
+    expect(deriveFetchLayerStatus(true, null, false, false)).toBe("loading");
+    expect(deriveFetchLayerStatus(true, null, false, true)).toBe("loading");
+  });
+
+  it("エラーが最優先", () => {
+    expect(deriveFetchLayerStatus(true, "failed", true, true)).toBe("error");
+    expect(deriveFetchLayerStatus(false, "failed", false, false)).toBe("error");
   });
 });

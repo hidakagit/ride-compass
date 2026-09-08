@@ -562,14 +562,21 @@ export const LAYER_DATA_STATUS_LABELS: Record<LayerDataStatus, string> = {
 /** loading/error/payloadの有無からLayerDataStatusを1つ決める（エラー中 > 読込中 > 読込済み
  * だが値なし。正常時はundefined＝キー自体を持たない）。実際の外部フェッチが自前のJSコードで
  * 完結し、結果を`map.getSource(id).setData(...)`等で流し込むだけのレイヤー（MapLibreの
- * sourcedata/errorイベントを経由しない、`computeLayerDataStatus`の対象外）が共通して使う。 */
+ * sourcedata/errorイベントを経由しない、`computeLayerDataStatus`の対象外）が共通して使う。
+ *
+ * `hasFetched`は「一度でも取得を試みて完了したか」。まだ取りに行っていない間を`"empty"`
+ * （＝「この範囲に表示できるデータがありません」）にすると、レイヤーを有効化した直後や、
+ * 配線ミスでフェッチ自体が走っていない状態が「データが無い」と読めてしまう。`"empty"`は
+ * 上記のとおり「読込済みだが値なし」だけを指す。 */
 export function deriveFetchLayerStatus(
   loading: boolean,
   error: string | null,
-  hasPayload: boolean
+  hasPayload: boolean,
+  hasFetched: boolean
 ): LayerDataStatus | undefined {
   if (error) return "error";
   if (loading) return "loading";
+  if (!hasFetched) return undefined;
   if (!hasPayload) return "empty";
   return undefined;
 }

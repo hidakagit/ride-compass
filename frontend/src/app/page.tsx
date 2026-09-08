@@ -1315,14 +1315,16 @@ export default function Home() {
       return deriveFetchLayerStatus(
         windAxisData.loading,
         windAxisData.error ? "fetch-failed" : null,
-        windAxisData.values.size > 0
+        windAxisData.values.size > 0,
+        windAxisData.hasFetched
       );
     }
     if (showGradientAxis) {
       return deriveFetchLayerStatus(
         gradientAxisData.loading,
         gradientAxisData.error ? "fetch-failed" : null,
-        gradientAxisData.values.size > 0
+        gradientAxisData.values.size > 0,
+        gradientAxisData.hasFetched
       );
     }
     return undefined;
@@ -1332,9 +1334,11 @@ export default function Home() {
     windAxisData.loading,
     windAxisData.error,
     windAxisData.values,
+    windAxisData.hasFetched,
     gradientAxisData.loading,
     gradientAxisData.error,
     gradientAxisData.values,
+    gradientAxisData.hasFetched,
   ]);
   // `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、いずれも
   // 軸カタログ由来）を、axisId→宣言の汎用MapとしてMapView・凡例へ配線する。軸ごとの

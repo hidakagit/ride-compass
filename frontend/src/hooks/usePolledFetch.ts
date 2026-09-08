@@ -10,6 +10,10 @@ export interface UsePolledFetchResult<T> {
   loading: boolean;
   /** 直近の取得失敗メッセージ（成功時はnullへ戻る）。使わない呼び出し側は無視してよい。 */
   error: string | null;
+  /** 一度でも取得を試みて完了したか（成否は問わない）。`enabled: false`の間はfalseのまま。
+   * 「まだ取りに行っていない」と「取得したが空だった」を呼び出し側が区別するために使う
+   * （`mapLayers.ts: deriveFetchLayerStatus`）。 */
+  hasFetched: boolean;
 }
 
 export interface UsePolledFetchOptions {
@@ -38,6 +42,7 @@ export function usePolledFetch<T>(
   const [data, setData] = useState<T>(initialValue);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasFetched, setHasFetched] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -55,7 +60,10 @@ export function usePolledFetch<T>(
         debugLog(debugLogCategory, `${label}の読み込みに失敗`, { error: message }, "warn");
         setError(message);
       } finally {
-        if (!cancelled && isFirstLoad) setLoading(false);
+        if (!cancelled) {
+          setHasFetched(true);
+          if (isFirstLoad) setLoading(false);
+        }
       }
     };
     Promise.resolve().then(() => load(true));
@@ -66,5 +74,5 @@ export function usePolledFetch<T>(
     };
   }, [enabled, intervalMs, fetcher, label, debugLogCategory]);
 
-  return { data, loading, error };
+  return { data, loading, error, hasFetched };
 }

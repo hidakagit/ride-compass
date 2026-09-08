@@ -180,7 +180,9 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
   windAxis/gradientAxisを指す間だけ`error`/`loading`/`values`の有無から
   `deriveFetchLayerStatus`（`mapLayers.ts`、動的気象レイヤーと共有する判定関数）で
   `LayerDataStatus`を1つ算出し、`LensControl`のピルへ小さな状態ドット（`LayerChip`と
-  同じ視覚表現）として表示する。
+  同じ視覚表現）として表示する。判定には`hasFetched`（一度でも取得を試みて完了したか）も
+  渡す——`"empty"`（「この範囲に表示できるデータがありません」）は「読込済みだが値なし」
+  だけを指し、まだ取りに行っていない状態はどの`LayerDataStatus`にも当てはめない。
 
 `materialId`（"wind"/"gradient"）ごとに呼び出し側（`page.tsx`）が別々にこのフックを
 インスタンス化する。連続する呼び出しの間に古いリクエストが後から解決しても新しい結果を
