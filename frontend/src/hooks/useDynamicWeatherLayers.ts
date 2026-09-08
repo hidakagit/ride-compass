@@ -101,7 +101,7 @@ export interface UseDynamicWeatherLayersResult {
   setDynamicLayerTargetTime: (time: Date) => void;
   /** 共有時刻を現在時刻に戻す。 */
   handleDynamicLayerNow: () => void;
-  /** windAxis（評価軸グループの風、backend API）が同じ[時刻]を共有するために
+  /** 評価軸グループの風（専用way値配信、backend API）が同じ[時刻]を共有するために
    * 公開する共有時刻そのもの（`at`クエリパラメータに使う）。 */
   dynamicLayerTargetTime: Date;
 }

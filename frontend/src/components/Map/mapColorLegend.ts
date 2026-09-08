@@ -5,7 +5,7 @@
 // 読み手（LegendEntryのfilter述語によるカテゴリ絞り込み）ではなく見せるためだけの
 // 軽量な型を持つ。ramp軸の凡例（axisLayers.ts: buildAxisRampLegend）はMapLayersPanel・
 // MapOverlayControlsの絞り込み機構と共有するLegendEntry（filter必須）を返すが、
-// windAxis/gradientAxisにはそのような絞り込み機構自体が無いため、意味の無いfilterを
+// 専用way値配信軸にはそのような絞り込み機構自体が無いため、意味の無いfilterを
 // 捏造せずに済むこの専用の軽量型を使う。
 
 export interface MapColorLegendBand {

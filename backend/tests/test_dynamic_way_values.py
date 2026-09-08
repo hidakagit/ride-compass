@@ -1,9 +1,9 @@
-"""domain/dynamic_way_values.py: dynamic_way_value_materials()宣言のテスト
+"""domain/dynamic_way_values.py: dedicated_way_value_axes()宣言のテスト
 （改善計画T423、T458でAXIS_DEFINITIONS由来の動的導出へ変更）。"""
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.domain.dynamic_way_values import (
-    dynamic_way_value_materials,
+    dedicated_way_value_axes,
     map_value_kind,
     map_value_unit,
     transform_dedicated_way_values,
@@ -38,9 +38,9 @@ def test_derives_only_dedicated_way_value_layer_axes():
         AXIS_DEFINITIONS.clear()
         AXIS_DEFINITIONS.update(fake_definitions)
 
-        materials = dynamic_way_value_materials()
+        axes = dedicated_way_value_axes()
 
-        assert set(materials) == {"wind", "gradient"}
+        assert set(axes) == {"wind", "gradient"}
 
 
 def test_wind_needs_time_and_bearing(monkeypatch):
@@ -49,7 +49,7 @@ def test_wind_needs_time_and_bearing(monkeypatch):
         _axis("wind", dedicated_way_value_layer=True, dynamic_way_value_needs_time=True, dynamic_way_value_needs_bearing=True),
     )
 
-    wind = dynamic_way_value_materials()["wind"]
+    wind = dedicated_way_value_axes()["wind"]
 
     assert wind.needs_time is True
     assert wind.needs_bearing is True
@@ -62,15 +62,15 @@ def test_gradient_needs_bearing_only(monkeypatch):
         _axis("gradient", dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True),
     )
 
-    gradient = dynamic_way_value_materials()["gradient"]
+    gradient = dedicated_way_value_axes()["gradient"]
 
     assert gradient.needs_time is False
     assert gradient.needs_bearing is True
 
 
-def test_material_id_matches_dict_key():
-    for key, material in dynamic_way_value_materials().items():
-        assert material.material_id == key
+def test_axis_id_matches_dict_key():
+    for key, axis in dedicated_way_value_axes().items():
+        assert axis.axis_id == key
 
 
 def test_map_value_kind_is_signed_material_only_for_single_abs_term_axes():

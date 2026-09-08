@@ -86,14 +86,23 @@ class AxisCatalogEntry(BaseModel):
     # 「専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
     # 地図上で視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
     # axis_definitions.py: AxisDefinition.dedicated_way_value_layerのdocstring参照）。
-    # RouteSettingsPanel.tsx（mapColorLayerIdFor）・mapLayers.ts（isAxisStudioLayer）が、
-    # axis_idの文字列比較ではなくこのフィールドで判定する。
+    # フロント（axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes）が、axis_idの
+    # 文字列比較ではなくこのフィールドで地図レイヤー・フェッチ対象を導出する。
     dedicated_way_value_layer: bool
     # 地図がこの軸について塗る値の種類と単位（domain/dynamic_way_values.py: map_value_kind/
     # map_value_unit）。ルート確定前の専用way値配信・ルート確定後のルート線色分けの両方が
     # これに従い、display_thresholds_overrideもこの1つのスケールで解釈する。
     map_value_kind: MapValueKind
     map_value_unit: str
+    # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
+    # 必要とするクエリパラメータの宣言（domain/axis_definitions.py:
+    # AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
+    # `dedicated_way_value_layer=false`の軸では意味を持たない。フロント
+    # （hooks/useDedicatedWayValues.ts）が「どの軸のフェッチに時刻・想定速度を添えるか」を
+    # axis_idのハードコード分岐ではなくこの宣言から導出するために必要。
+    dynamic_way_value_needs_time: bool
+    dynamic_way_value_needs_bearing: bool
+    dynamic_way_value_needs_speed: bool
 
 
 class AxisCatalogResponse(BaseModel):
@@ -149,6 +158,9 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
                 map_value_kind=map_value_kind(definition),
                 map_value_unit=map_value_unit(definition),
+                dynamic_way_value_needs_time=definition.dynamic_way_value_needs_time,
+                dynamic_way_value_needs_bearing=definition.dynamic_way_value_needs_bearing,
+                dynamic_way_value_needs_speed=definition.dynamic_way_value_needs_speed,
             )
             for definition in AXIS_DEFINITIONS.values()
             if definition.is_published

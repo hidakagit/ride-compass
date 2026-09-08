@@ -26,11 +26,12 @@
 
 import {
   axisMapLayerId,
+  dedicatedWayValueMapLayerId,
   type AxisMapLayerId,
-  type CatalogAxis,
+  type DedicatedWayValueAxis,
+  type DedicatedWayValueMapLayerId,
   type RampAxis,
 } from "./axisLayers";
-import axisCatalog from "@/types/generated/axis-catalog.json";
 
 export type MapLayerId =
   | "elevation"
@@ -51,25 +52,11 @@ export type MapLayerId =
   // 風の矢印。関東本土全域の固定格子点サンプリング（GeoJSON source + symbolレイヤー）。
   // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
-  // way_id→wind_drag_ratio配信層。評価軸としての風——道路自身の向きではなくユーザー
-  // 指定の走行方位から計算したwind_drag_ratioをway単位でsetFeatureState経由で線色分けする、
-  // windVector（面・矢印、探索用）とは独立の見せ方。地図上チップには出さず、ルート設定
-  // パネル（RouteSettingsPanel.tsx）から起動する。category/dataNatureの値自体は
-  // windVectorと同じkind="static"・dataNature="dynamic"のまま（値は時間で変わるが、
-  // 表示方式はvisibility切替のみの常設レイヤーという性質はwindVectorと同じ）。
-  // `isAxisStudioLayer`がid="windAxis"を特別扱いして、地図上チップ
-  // （MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）どちらにも
-  // 現れないようにする。
-  | "windAxis"
   // 環境グループの勾配面表示。windVectorに相当する「向きに依存する材料の環境グループ
   // 表現」だが、勾配には風のような独立した空間フィールド（矢印で表すベクトル場）が
   // 無いため矢印表示は持たず、gridFill（タイル境界をセルとする面表示、
   // gradientGridFill.ts）のみを持つ。
   | "gradientFill"
-  // way_id→勾配（effective_gradient）配信層。windAxisと同型——道路自身の向きが本質的に
-  // 必要という点が風とは異なる性質だが、配信・setFeatureState連携の枠組み自体は
-  // windAxisと共有する（dynamicWayValues.ts）。
-  | "gradientAxis"
   // 災害。雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ（落雷）・キキクル
   // 4種（土砂災害・大雨・浸水・洪水）の7要素を1つのチップへまとめたグループで、7要素は
   // MapView.tsxのDYNAMIC_WEATHER_RENDERERSの名前付きソースとして同時に描画する。
@@ -79,7 +66,13 @@ export type MapLayerId =
   | "disaster"
   // 二次軸の汎用rampレイヤー。backendレジストリ生成物（axis-catalog.json）の
   // kind="ramp"軸から自動生成されるためIDは動的（axisLayers.ts: axisMapLayerId参照）。
-  | AxisMapLayerId;
+  | AxisMapLayerId
+  // 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
+  // ramp軸と同じく軸カタログから自動生成され、IDも動的（axisLayers.ts:
+  // dedicatedWayValueMapLayerId参照）。地図上チップ（MapOverlayControls.tsx）・
+  // サイドバー（MapLayersPanel.tsx）のどちらにも現れず（isAxisStudioLayer）、表示ON/OFFの
+  // 唯一の起動導線は地図上部中央のLensControl（レンズ）。
+  | DedicatedWayValueMapLayerId;
 
 // kindは「選択中ルートにひもづくデータか、地域に固定で選択候補に関係なく重ね描きする
 // データか」を表す（dynamic=route、選択中候補が変わるたびに描き直す。static=それ以外、
@@ -117,13 +110,13 @@ export type MapLayerDataNature = "raw" | "composite" | "dynamic";
  * - road（道路）: 道路の純粋な属性のみ（道路種別・路面種別・指定路線・トンネル・一方通行）
  * - environment（環境）: 標高／降水ナウキャスト・風（矢印）・雷・竜巻等の面レイヤー
  * - spot（スポット）: 停止要因POI・補給POI・事故地点等の点レイヤー
- * 評価軸（car_stress等・windAxis）はこの3グループのどれにも属さず、地図上チップとして
+ * 評価軸（ramp軸・専用way値配信軸）はこの3グループのどれにも属さず、地図上チップとして
  * 出さない——評価軸はルートの有無に応じて「重み配分を検討する材料」「生成済みルートを
  * 分析する材料」と役割が変わる道具であり、道路・環境・スポットのようにルートの状態に
  * 関係なく意味が一定な「地図そのものの見え方」設定とは性質が異なるため。評価軸の色分けは
  * ルート未確定時はルート設定パネル（RouteSettingsPanel.tsx）の軸ごとの行から、ルート
  * 確定後は「地図の色分け」（RouteAxisProfile.tsx、routeStyleModes.ts参照）から、
- * それぞれ起動する。軸スタジオ由来のレイヤー（ramp軸・windAxis）を地図UIの3グループ
+ * それぞれ起動する。軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）を地図UIの3グループ
  * 判定から除外する判定は`isAxisStudioLayer`（下記）が担う。 */
 export type MapOverlayGroup = "road" | "environment" | "spot";
 
@@ -143,32 +136,27 @@ export const MAP_OVERLAY_GROUP_CHIP_LABELS: Record<MapOverlayGroup, string> = {
 /** チップの表示順（道路→環境→スポット）。 */
 export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = ["road", "environment", "spot"];
 
-// 専用のway_id→動的値配信層を持つ軸（軸データのdedicated_way_value_layer、
-// domain/axis_definitions.py参照）のMapLayerIdを、axis_idのハードコード比較ではなく
-// ビルド時静的axis-catalog.json（RAMP_AXES/AXIS_LABELS等と同じ「片側import」の
-// 静的フォールバック生成物、useAxisCatalog.tsが実行時APIを取得完了するまでの間・
-// 軸スタジオ非対応の純粋関数から使う値）から導出する。レイヤーIDの命名規約
-// （`${axis_id}Axis`、windAxis/gradientAxisの実例で確認済み）に従い文字列を組み立て、
-// 実際にMapLayerIdとして配線済みのものだけを残す（未配線のIDが混入しても無視される）。
-const DEDICATED_WAY_VALUE_LAYER_IDS: ReadonlySet<string> = new Set(
-  (axisCatalog.axes as CatalogAxis[])
-    .filter((axis) => axis.dedicated_way_value_layer)
-    .map((axis) => `${axis.axis_id}Axis`)
-);
-
 /** 軸スタジオ由来のレイヤーか。ramp軸（dataNature==="composite"）・専用way_id→動的値
- * 配信層を持つ軸（DEDICATED_WAY_VALUE_LAYER_IDS、上記）は、地図上チップ
- * （MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）の両方が、この判定を
+ * 配信層を持つ軸（`axisStudioLayer`、buildMapLayersが軸カタログから生成する際に立てる）は、
+ * 地図上チップ（MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）の両方が、この判定を
  * 使ってこれらのレイヤーを描画対象から除外する（mapOverlayGroupForが返すundefinedは
  * 「route等、単独チップとして出す」ものと「軸スタジオ由来のため地図UIには一切出さない」
- * ものの2種類が混在するため、区別に使う専用の判定）。 */
-export function isAxisStudioLayer(layer: { id: MapLayerId; dataNature?: MapLayerDataNature }): boolean {
-  return DEDICATED_WAY_VALUE_LAYER_IDS.has(layer.id) || layer.dataNature === "composite";
+ * ものの2種類が混在するため、区別に使う専用の判定）。
+ *
+ * 判定をレイヤーIDの集合ではなく記述子自身のフラグで行うのは、実行時カタログ（軸スタジオで
+ * 新規公開された軸を含む）から生成した記述子と、ビルド時静的json由来のID集合とが食い違うと
+ * 、新規軸だけが地図チップへ漏れ出るため。 */
+export function isAxisStudioLayer(layer: {
+  id: MapLayerId;
+  dataNature?: MapLayerDataNature;
+  axisStudioLayer?: boolean;
+}): boolean {
+  return layer.axisStudioLayer === true || layer.dataNature === "composite";
 }
 
 /** レイヤー1件が属するMapOverlayGroupを判定する。category/
  * dataNatureの既存フィールドだけで機械的に判定できるが、軸スタジオ由来のレイヤー
- * （isAxisStudioLayer、windAxis・ramp軸）は明示的に対象外（undefined）にする——
+ * （isAxisStudioLayer、ramp軸・専用way値配信軸）は明示的に対象外（undefined）にする——
  * category値だけを見ると「道路」「スポット」「環境」のいずれかに紛れ込んでしまうため
  * （例: car_stressのcategory="trafficSafety"はaccidents等と同じ値）、category判定の
  * 前に必ず除外する。route等、どのグループにも属さないレイヤーもundefinedを返す。 */
@@ -176,6 +164,7 @@ export function mapOverlayGroupFor(layer: {
   id: MapLayerId;
   category?: MapLayerCategory;
   dataNature?: MapLayerDataNature;
+  axisStudioLayer?: boolean;
 }): MapOverlayGroup | undefined {
   if (isAxisStudioLayer(layer)) return undefined;
   if (layer.category === "roadCondition") return "road";
@@ -195,6 +184,9 @@ export interface MapLayerDescriptor {
    * （サイドバー見出し・条件サマリ・チップのtitle）で示すため、意味の省略は許容する。 */
   chipLabel?: string;
   kind: MapLayerKind;
+  /** 軸スタジオの軸から生成したレイヤーか（専用way値配信軸）。ramp軸は
+   * dataNature==="composite"で同じ判定を受けるためこのフラグを持たない（isAxisStudioLayer参照）。 */
+  axisStudioLayer?: boolean;
   /** 地図上チップ・サイドバーどちらの最上位グルーピング（mapOverlayGroupFor）も、
    * これ自体（roadCondition/trafficSafety/terrain/amenity/weather）を入力の一部として
    * 使う。合わせてサイドバーの表示順（MAP_LAYER_CATEGORY_ORDER）・地図上チップの
@@ -231,7 +223,10 @@ export interface MapLayerDescriptor {
 // 実行時に取得したrampAxes（軸スタジオの公開軸を含む）から呼べる。テスト
 // （axisLayers.test.ts、MapLayersPanel.test.tsx）からはbuildMapLayers(RAMP_AXES)として
 // 直接呼べる。
-export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayerDescriptor[] {
+export function buildMapLayers(
+  rampAxes: readonly RampAxis[],
+  dedicatedAxes: readonly DedicatedWayValueAxis[],
+): readonly MapLayerDescriptor[] {
   return [
   {
     id: "elevation",
@@ -442,34 +437,6 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "「風」の「地図で色分け」ボタンから道路の色分けとして別途確認できます。",
   },
   {
-    // way_id→wind_drag_ratio配信層。上のwindVector（格子点・矢印表示、探索用の「環境」
-    // 表現）とは独立した評価軸としての表現——ユーザー指定の走行方位と最寄りの風グリッド値
-    // からwind_drag_ratioを計算し、backendのRedis配信層（タイル単位キー）・新設APIを
-    // 経由してMapLibreのsetFeatureStateで道路線そのものを色分けする。表示ON/OFFの唯一の
-    // 起動導線は地図上部中央のLensControl（レンズ）——label/chipLabel/descriptionは
-    // isAxisStudioLayerによりMapOverlayControls/MapLayersPanelの表示対象からは除外される。
-    // このエントリが実際に使われているのは、(1) MapLayerId型の定義そのものと、(2)
-    // road_surfaceタイル（promoteId付きway_id）を共有するレイヤーとして
-    // buildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
-    // （MapView.tsx: isRoadSurfaceGroupVisible→updateRoadZoomHint、「表示範囲が広すぎます」
-    // バナー）の対象にすることの2点のみ。
-    id: "windAxis",
-    label: "風（評価軸）",
-    chipLabel: "風軸",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "指定した時刻・向きで進んだ場合の向かい風/追い風の強さを視界内の全道路へ一律に線色分け表示",
-    panelHint:
-      "ONにすると地図下部のコンパススライダーが使えるようになります。指定した時刻・" +
-      "走行方位（向き）と、各道路の最寄りの風予報格子点の風向・風速から、向かい風/追い風の" +
-      "強さを計算して視界内の全道路を一律に色分けします（道路自身の向きは" +
-      "計算に使いません——実際にどちらへ走るかはユーザーが指定する値のため）。赤に近いほど" +
-      "向かい風が強く、緑に近いほど追い風が強いことを表します。ルートを生成・選択すると、" +
-      "この一律の色分けは終了し、代わりに「地図の色分け」の「風」で、ルート自身の実際の" +
-      "進行方向・到達時刻に基づく色分けをルート線だけに適用できます。",
-  },
-  {
     // 環境グループの勾配面表示。windVectorと異なり独立した空間フィールドを持たないため
     // （gradientGridFill.tsのモジュールdocstring参照）、矢印は無くgridFillのみ。
     id: "gradientFill",
@@ -485,26 +452,25 @@ export function buildMapLayers(rampAxes: readonly RampAxis[]): readonly MapLayer
       "タイル単位の面で色分けします。「評価軸」グループの「勾配」（線）と" +
       "同じ向きの指定を共有します。",
   },
-  {
-    // way_id→勾配（effective_gradient）配信層。上のgradientFill（タイル単位の面表示、
-    // 探索用の「環境」表現）とは独立した評価軸としての表現——windAxisと同型（表示ON/OFFの
-    // 唯一の起動導線はLensControl）。windAxis同様buildRoadSurfaceSharedLayerIds（下記）
-    // にも含める——実際の用途はwindAxisのコメント参照。
-    id: "gradientAxis",
-    label: "勾配（評価軸）",
-    chipLabel: "勾配軸",
-    kind: "static",
-    category: "terrain",
-    dataNature: "dynamic",
-    description: "指定した走行方位で進んだ場合の実効勾配を視界内の全道路へ一律に線色分け表示",
-    panelHint:
-      "ONにすると地図下部のコンパススライダーが使えるようになります。指定した走行方位と、" +
-      "各道路自身の勾配・向きから、その方向へ走った場合の実効的な勾配を計算して視界内の" +
-      "全道路を一律に色分けします。登るほど赤に、下るほど青に近づきます。" +
-      "「環境」グループの「勾配」（面塗り）と同じ向きの指定を共有します。ルートを生成・" +
-      "選択すると、この一律の色分けは終了し、代わりに「地図の色分け」の「勾配」" +
-      "で、ルート自身の実際の進行方向に基づく色分けをルート線だけに適用できます。",
-  },
+  // 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
+  // ramp軸と同じく軸カタログから自動生成する。label/chipLabel/panelHintはこの記述子が
+  // 地図UIに現れない（isAxisStudioLayer）ため実際には表示されないが、他の記述子と同じ
+  // 型を満たすため軸自身のデータから埋める（軸ごとの手書き文言をここへ持たない）。
+  // このエントリの実際の用途は、(1) MapLayerIdとしての存在、(2) road_surfaceタイルを
+  // 共有するレイヤーとしてbuildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
+  // （「表示範囲が広すぎます」バナー）の対象にすることの2点。
+  ...dedicatedAxes.map(
+    (axis): MapLayerDescriptor => ({
+      id: dedicatedWayValueMapLayerId(axis.axisId),
+      label: `${axis.label}（評価軸）`,
+      chipLabel: axis.chipLabel,
+      kind: "static",
+      dataNature: "dynamic",
+      axisStudioLayer: true,
+      description: `${axis.label}を視界内の全道路へ一律に線色分け表示`,
+      panelHint: axis.panelHint,
+    }),
+  ),
   {
     // 災害（雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ・キキクル4種）。
     // 7要素を1つのチップでまとめてON/OFFし、MapView.tsxのDYNAMIC_WEATHER_RENDERERSが
@@ -590,22 +556,22 @@ export function deriveFetchLayerStatus(
 // 定義。片方だけ更新して食い違うことを避けるため、設計原則8）。
 // buildMapLayers()と同じ理由で関数化してあり、テスト（axisLayers.test.ts、
 // MapView.dataStatus.test.ts）からbuildRoadSurfaceSharedLayerIds(RAMP_AXES)として直接呼べる。
-export function buildRoadSurfaceSharedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {
+export function buildRoadSurfaceSharedLayerIds(
+  rampAxes: readonly RampAxis[],
+  dedicatedAxes: readonly DedicatedWayValueAxis[],
+): readonly MapLayerId[] {
   return [
     "roadType",
     "roadSurface",
     "designation",
     "tunnel",
     "oneway",
-    // way_id→wind_drag_ratio/勾配配信層（評価軸としての風・勾配）も同じroad_surfaceタイル
+    // 専用way値配信軸（評価軸としての風・勾配等）も同じroad_surfaceタイル
     // （ソース）を再利用する独立レイヤーのため、ズーム範囲外判定（regionZoomTooWide）は
     // ここに含める。ただしデータ自体（wind_drag_ratio/勾配値）はタイルのプロパティでは
     // なく別経路のfetchで来るため、loading/empty/error状態表示（useLayerDataStatus）の
-    // 対象には含めていない（MapView.tsx: getLayerVisibility参照。地図上チップとしては
-    // 出さずルート設定パネルへ移設したが、この対象外の判断自体は変わらない）。風・勾配は
-    // 対称の機構のため両方をここに含める。
-    "windAxis",
-    "gradientAxis",
+    // 対象には含めていない（MapView.tsx: getLayerVisibility参照）。
+    ...dedicatedAxes.map((axis) => dedicatedWayValueMapLayerId(axis.axisId)),
     // 二次軸rampレイヤー（car_stress等）も同じroad_surfaceタイルへ焼き込まれた
     // プロパティを読む。
     ...rampAxes.map((axis) => axisMapLayerId(axis.axisId)),

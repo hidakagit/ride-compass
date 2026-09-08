@@ -88,7 +88,7 @@ interface MapLayersPanelProps {
 // パネルが地図自体の制御」という役割分担のため。そちらは見出し＋本文の見た目として
 // このファイルの.group/.groupTitleを再利用しているため、このファイル自身はもう
 // 使っていなくてもクラス定義は残す）。
-// 軸スタジオが作る評価軸（car_stress等・windAxis）のセクションはこのパネルに無い
+// 軸スタジオが作る評価軸（ramp軸・専用way値配信軸）のセクションはこのパネルに無い
 // （評価軸チップ自体を地図UIから撤去しルート設定パネル[RouteSettingsPanel.tsx]へ
 // 移設したため）——軸スタジオ由来のレイヤー（isAxisStudioLayer、mapLayers.ts）は
 // mapOverlayGroupForが常にundefinedを返すため、下記の「道路」「環境」「スポット」列挙

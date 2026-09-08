@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { DEDICATED_WAY_VALUE_AXES, dedicatedWayValueMapLayerId } from "./axisLayers";
 import {
   buildMapLayers,
   buildRoadSurfaceSharedLayerIds,
@@ -9,9 +10,13 @@ import {
 } from "./mapLayers";
 
 describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
-  it("isAxisStudioLayer: windAxis/gradientAxisはaxis_idのハードコード比較ではなくDEDICATED_WAY_VALUE_LAYER_IDS（軸データ由来）でtrueになる", () => {
-    expect(isAxisStudioLayer({ id: "windAxis" })).toBe(true);
-    expect(isAxisStudioLayer({ id: "gradientAxis" })).toBe(true);
+  it("isAxisStudioLayer: 専用way値配信軸の記述子は、axis_idのハードコード比較ではなく軸カタログ由来のフラグでtrueになる", () => {
+    const layers = buildMapLayers([], DEDICATED_WAY_VALUE_AXES);
+    for (const axis of DEDICATED_WAY_VALUE_AXES) {
+      const descriptor = layers.find((layer) => layer.id === dedicatedWayValueMapLayerId(axis.axisId));
+      expect(descriptor).toBeDefined();
+      expect(isAxisStudioLayer(descriptor!)).toBe(true);
+    }
   });
 
   it("isAxisStudioLayer: dataNature===\"composite\"（ramp軸）もtrue", () => {
@@ -23,18 +28,40 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     expect(isAxisStudioLayer({ id: "roadType", dataNature: "raw" })).toBe(false);
   });
 
-  // 改善計画T446: windAxisのみ含みgradientAxisを含まない非対称のまま残っていた回帰テスト。
-  // 両方ともroad_surfaceタイル（promoteId付きway_id）を共有する専用way_id配信層のため、
-  // regionZoomTooWide判定（MapView.tsx: isRoadSurfaceGroupVisible）の対象として対称に
+  // 専用way値配信軸（dedicated_way_value_layer=true）はどれも同じroad_surfaceタイル
+  // （promoteId付きway_id）を共有するため、regionZoomTooWide判定
+  // （MapView.tsx: isRoadSurfaceGroupVisible）の対象として軸の件数に関係なく全件が
   // 含まれていなければならない。
-  it("buildRoadSurfaceSharedLayerIds: windAxis/gradientAxisを対称に含む", () => {
-    const ids = buildRoadSurfaceSharedLayerIds([]);
-    expect(ids).toContain("windAxis");
-    expect(ids).toContain("gradientAxis");
+  it("buildRoadSurfaceSharedLayerIds: 専用way値配信軸を件数によらず全件含む", () => {
+    const ids = buildRoadSurfaceSharedLayerIds([], DEDICATED_WAY_VALUE_AXES);
+    for (const axis of DEDICATED_WAY_VALUE_AXES) {
+      expect(ids).toContain(dedicatedWayValueMapLayerId(axis.axisId));
+    }
+    expect(DEDICATED_WAY_VALUE_AXES.map((axis) => axis.axisId)).toEqual(
+      expect.arrayContaining(["wind", "gradient"])
+    );
+  });
+
+  // 3件目の軸を軸スタジオで公開したときに、地図レイヤーの登録・ズーム範囲外判定・
+  // 地図UIからの除外がすべて自動で追従すること（軸ごとのハードコードが残っていないこと）。
+  it("軸スタジオで公開した3件目の専用way値配信軸へ自動追従する", () => {
+    const extended = [
+      ...DEDICATED_WAY_VALUE_AXES,
+      { axisId: "surface_temp", label: "路面温度", needsTime: true, needsBearing: false, needsSpeed: false },
+    ];
+    const layerId = dedicatedWayValueMapLayerId("surface_temp");
+
+    const descriptor = buildMapLayers([], extended).find((layer) => layer.id === layerId);
+    expect(descriptor).toBeDefined();
+    // 地図上チップ・サイドバーの両方から除外される（レンズだけが起動導線）。
+    expect(isAxisStudioLayer(descriptor!)).toBe(true);
+    expect(mapOverlayGroupFor(descriptor!)).toBeUndefined();
+    // 「表示範囲が広すぎます」判定の対象にも含まれる。
+    expect(buildRoadSurfaceSharedLayerIds([], extended)).toContain(layerId);
   });
 
   describe("災害チップ（雷・竜巻・落雷・キキクル4種を1つへ統合）", () => {
-    const layers = buildMapLayers([]);
+    const layers = buildMapLayers([], DEDICATED_WAY_VALUE_AXES);
     const byId = Object.fromEntries(layers.map((layer) => [layer.id, layer]));
 
     it("category=\"disaster\"・dataNature=\"dynamic\"のMapLayerDescriptorを1つだけ持つ", () => {

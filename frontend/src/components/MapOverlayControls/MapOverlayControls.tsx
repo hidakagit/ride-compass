@@ -72,6 +72,10 @@ export interface OverlayLayerChip {
   /** mapOverlayGroupFor()がcategoryと合わせて最上位グループ（道路/環境/スポット）を
    * 判定するために使う。mapLayers.ts: MapLayerDescriptor.dataNatureをそのまま渡す。 */
   dataNature?: MapLayerDataNature;
+  /** 軸スタジオ由来のレイヤーか（isAxisStudioLayer）。mapLayers.ts:
+   * MapLayerDescriptor.axisStudioLayerをそのまま渡す——渡し漏れると専用way値配信軸が
+   * 単独チップとして地図上へ現れてしまう。 */
+  axisStudioLayer?: boolean;
   /** 「表示する項目を選ぶ」設定パネル（renderVisibilitySettings）で、この項目の行に
    * 個別の情報アイコンを出し、押すと表示する説明文。mapLayers.ts:
    * MapLayerDescriptor.panelHintをそのまま渡す。未設定なら情報アイコン自体を出さない。
@@ -106,7 +110,7 @@ interface ChipGroup {
 
 // レイヤーをmapOverlayGroupFor()（mapLayers.ts）で最上位グループ（道路/環境/スポット）へ
 // 束ね、どのグループにも属さないレイヤー（route等）は元の並び順のまま末尾へ単独チップ
-// として追加する。ただし軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・windAxis）は
+// として追加する。ただし軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・専用way値配信軸）は
 // mapOverlayGroupForがundefinedを返す点ではroute等と同じだが、ルート設定パネルへ移設し
 // 地図UIには一切出さないため、単独チップとしても出さないよう明示的に除外する
 // （undefinedだけだとroute等と区別できず単独チップとして復活してしまう）。表示順は
@@ -141,16 +145,11 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   accidents: AccidentIcon,
   precipitationNowcast: RaindropIcon,
   windVector: WindIcon,
-  // way_id→wind_drag_ratio配信層（評価軸としての風）。専用アイコンは持たず、同じ風の
-  // データを扱うwindVectorと同じWindIconを流用する。このチップ自体は地図上に出ないが、
-  // RouteSettingsPanel側がこのIcon辞書を引き続き参照しうるため残す。
-  windAxis: WindIcon,
-  // 勾配の環境グループ面表示・評価軸配信層。専用アイコンは持たず、同じ地形データを扱う
-  // elevation（標高図）と同じElevationIconを流用する（windVector/windAxisがWindIconを
-  // 共有するのと同じパターン）。gradientAxisも同じ理由でチップとしては地図上に出ないが、
-  // RouteSettingsPanel側の参照に備えてRecordを完全に埋める。
+  // 勾配の環境グループ面表示。専用アイコンは持たず、同じ地形データを扱うelevation（標高図）と
+  // 同じElevationIconを流用する（windVectorがWindIconを共有するのと同じパターン）。
+  // 専用way値配信軸（評価軸としての風・勾配）は地図上チップとして出ないため、この辞書に
+  // 項目を持たない（引けなかった場合の既定はAxisRampIcon）。
   gradientFill: ElevationIcon,
-  gradientAxis: ElevationIcon,
   // 災害（雷・竜巻・落雷・キキクル4種を1チップへまとめたグループ）。個々の要素を表す
   // アイコン（ThunderIcon/TornadoIcon/LidenIcon）ではなく、防災情報全体を表すShieldIconを
   // 使う。

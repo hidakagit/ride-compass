@@ -8,13 +8,13 @@ import {
   type LayerDataStatusByLayer,
   type MapLayerId,
 } from "@/components/Map/mapLayers";
-import { RAMP_AXES } from "@/components/Map/axisLayers";
+import { DEDICATED_WAY_VALUE_AXES, RAMP_AXES } from "@/components/Map/axisLayers";
 import { buildStaticFilterAxes } from "@/components/Map/staticAttributeLayers";
 
 // 改善計画T308: 実運用ではpage.tsxがaxisCatalog（useAxisCatalog）由来のrampAxesを
 // build*()へ渡すが、テストではビルド時静的フォールバック（RAMP_AXES、既存7軸）で十分。
-const MAP_LAYERS = buildMapLayers(RAMP_AXES);
-const ROAD_SURFACE_SHARED_LAYER_IDS = buildRoadSurfaceSharedLayerIds(RAMP_AXES);
+const MAP_LAYERS = buildMapLayers(RAMP_AXES, DEDICATED_WAY_VALUE_AXES);
+const ROAD_SURFACE_SHARED_LAYER_IDS = buildRoadSurfaceSharedLayerIds(RAMP_AXES, DEDICATED_WAY_VALUE_AXES);
 const STATIC_FILTER_AXES = buildStaticFilterAxes(RAMP_AXES);
 import MapLayersPanel from "./MapLayersPanel";
 import styles from "./MapLayersPanel.module.css";

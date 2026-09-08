@@ -3,7 +3,7 @@ from collections import defaultdict
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_dynamic_way_value_service, get_region_service
+from app.api.dependencies import get_dedicated_way_value_service, get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.config import settings
 from app.domain.evaluation import AxisInspectorAxis, AxisInspectorResult
@@ -268,9 +268,9 @@ class FakeDynamicWayValueService:
         ("gradient", "gradient_percent", None, {"1": 2.0, "2": -1.5}),
     ],
 )
-def test_region_dynamic_way_values_returns_map_values_json(axis_id, material_id, speed_kmh, expected):
+def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh, expected):
     fake = FakeDynamicWayValueService(values={1: 2.0, 2: -1.5}, material_id=material_id)
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     params = {"bearing_deg": 90}
     if speed_kmh is not None:
@@ -287,8 +287,8 @@ def test_region_dynamic_way_values_returns_map_values_json(axis_id, material_id,
 
 
 @pytest.mark.parametrize("material_id", ["wind", "gradient"])
-def test_region_dynamic_way_values_requires_bearing_deg_query_param(material_id):
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: FakeDynamicWayValueService()
+def test_region_dedicated_way_values_requires_bearing_deg_query_param(material_id):
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
 
     try:
         response = client.get(f"/api/region/dynamic-way-values/{material_id}/14/14551/6447")
@@ -300,10 +300,10 @@ def test_region_dynamic_way_values_requires_bearing_deg_query_param(material_id)
 
 # 改善計画T450: needs_bearing=Falseの材料は現状（wind/gradientともTrue）存在しないため、
 # この分岐（bearing_deg省略でも422にならない）が未テストのまま宣言されていた。改善計画
-# T458: dynamic_way_value_materials()はAXIS_DEFINITIONSから毎回導出する関数になった
+# T458: dedicated_way_value_axes()はAXIS_DEFINITIONSから毎回導出する関数になった
 # （固定dictではないためmonkeypatch.setitemで直接差し込めない）ため、region.py側が
 # 読むAXIS_DEFINITIONS自体へダミー軸をmonkeypatchで差し込む。
-def test_region_dynamic_way_values_needs_bearing_false_does_not_require_bearing_deg(monkeypatch):
+def test_region_dedicated_way_values_needs_bearing_false_does_not_require_bearing_deg(monkeypatch):
     dummy_axis = AxisDefinition(
         axis_id="dummy_no_bearing",
         shape=BreakpointLinearShape(terms=[MaterialTerm(material="gradient_percent")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
@@ -315,7 +315,7 @@ def test_region_dynamic_way_values_needs_bearing_false_does_not_require_bearing_
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_no_bearing", dummy_axis)
     fake = FakeDynamicWayValueService(values={1: 1.0})
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
         response = client.get("/api/region/dynamic-way-values/dummy_no_bearing/14/14551/6447")
@@ -326,7 +326,7 @@ def test_region_dynamic_way_values_needs_bearing_false_does_not_require_bearing_
     assert fake.last_request == (14, 14551, 6447, None, None, None)
 
 
-def test_region_dynamic_way_values_needs_speed_requires_speed_kmh_and_passes_it(monkeypatch):
+def test_region_dedicated_way_values_needs_speed_requires_speed_kmh_and_passes_it(monkeypatch):
     dummy_axis = AxisDefinition(
         axis_id="dummy_needs_speed",
         shape=BreakpointLinearShape(terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (5.0, 100.0)]),
@@ -338,7 +338,7 @@ def test_region_dynamic_way_values_needs_speed_requires_speed_kmh_and_passes_it(
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_needs_speed", dummy_axis)
     fake = FakeDynamicWayValueService(values={1: 2.5}, material_id="wind_drag_ratio")
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
         missing = client.get("/api/region/dynamic-way-values/dummy_needs_speed/14/14551/6447", params={"bearing_deg": 0})
@@ -354,17 +354,17 @@ def test_region_dynamic_way_values_needs_speed_requires_speed_kmh_and_passes_it(
     assert fake.last_request == (14, 14551, 6447, None, 0.0, 25.0)
 
 
-def test_region_dynamic_way_values_unknown_material_id_returns_404():
-    # dependency_overridesを使わず実際のget_dynamic_way_value_serviceを通す
+def test_region_dedicated_way_values_unknown_axis_id_returns_404():
+    # dependency_overridesを使わず実際のget_dedicated_way_value_serviceを通す
     # （material_idバリデーション自体の検証、改善計画T423のT411実施部分）。
     response = client.get("/api/region/dynamic-way-values/rain/14/14551/6447", params={"bearing_deg": 0})
 
     assert response.status_code == 404
 
 
-def test_region_dynamic_way_values_wind_passes_at_query_param():
+def test_region_dedicated_way_values_wind_passes_at_query_param():
     fake = FakeDynamicWayValueService()
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
         response = client.get(
@@ -378,10 +378,10 @@ def test_region_dynamic_way_values_wind_passes_at_query_param():
     assert fake.last_request[3].isoformat() == "2026-08-30T09:00:00"
 
 
-def test_region_dynamic_way_values_gradient_does_not_require_at_query_param():
+def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
     # 勾配は時刻に依存しないため、atを省略しても200（wind同様Noneが渡るだけ）。
     fake = FakeDynamicWayValueService()
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: fake
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
         response = client.get("/api/region/dynamic-way-values/gradient/14/14551/6447", params={"bearing_deg": 0})
@@ -392,8 +392,8 @@ def test_region_dynamic_way_values_gradient_does_not_require_at_query_param():
     assert fake.last_request == (14, 14551, 6447, None, 0.0, None)
 
 
-def test_region_dynamic_way_values_rejects_too_low_zoom():
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: FakeDynamicWayValueService()
+def test_region_dedicated_way_values_rejects_too_low_zoom():
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
 
     try:
         response = client.get(
@@ -405,9 +405,9 @@ def test_region_dynamic_way_values_rejects_too_low_zoom():
     assert response.status_code == 400
 
 
-def test_region_dynamic_way_values_rate_limit_is_independent_from_road_surface_tile_rate_limit():
+def test_region_dedicated_way_values_rate_limit_is_independent_from_road_surface_tile_rate_limit():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
-    app.dependency_overrides[get_dynamic_way_value_service] = lambda: FakeDynamicWayValueService()
+    app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
 
     try:
         for _ in range(settings.road_tile_rate_limit_per_minute):

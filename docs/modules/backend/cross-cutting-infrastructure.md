@@ -87,7 +87,7 @@ FastAPI(lifespan=lifespan)
 使うか」を制御する。`GraphService`（[ルート生成エンジン](routing-engine.md)が使う）は
 **このフラグに関わらず常にrepository必須**（DB接続必須。ルート生成エンジンは
 road_graph一本のため、DATABASE_URLへの実接続なしで動く構成は存在しない）。一方
-`get_region_service`・`get_accident_service`・`get_dynamic_way_value_service`・
+`get_region_service`・`get_accident_service`・`get_dedicated_way_value_service`・
 `get_elevation_attribute_service`（いずれも`api/dependencies.py`）は、このフラグを
 **個別に見て**Falseならrepository自体を注入せず、空タイル・空dict等のグレースフル
 デグレードへ倒す（`else: yield None`/`yield RegionService()`のパターンが複数箇所に

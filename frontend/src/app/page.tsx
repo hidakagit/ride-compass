@@ -27,7 +27,13 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import { RAMP_AXES, axisMapLayerId, buildAxisRampLegend } from "@/components/Map/axisLayers";
+import {
+  RAMP_AXES,
+  axisMapLayerId,
+  buildAxisRampLegend,
+  dedicatedWayValueMapLayerId,
+  type DedicatedWayValueAxis,
+} from "@/components/Map/axisLayers";
 import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
 import type { LegendEntry } from "@/components/Map/legendFilter";
@@ -74,8 +80,8 @@ import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/win
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
-import { useDynamicWayValues } from "@/hooks/useDynamicWayValues";
-import { gradientGridCellsFromTileResponses } from "@/components/Map/gradientGridFill";
+import { dedicatedWayValuesFor, useDedicatedWayValues } from "@/hooks/useDedicatedWayValues";
+import { GRADIENT_AXIS_ID, gradientGridCellsFromTileResponses } from "@/components/Map/gradientGridFill";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
@@ -185,7 +191,7 @@ const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";
 // 既定値。DEFAULT_LAYER_VISIBILITY（静的フォールバック全体）と、useStoredStateの
 // deserialize（下記）がaxisCatalog.loaded===true時に組み立てる「実行時カタログ由来の
 // キー集合」の両方が、この固定部分を共通の土台として使う。
-const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`> = {
+const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}` | `${string}Axis`> = {
   elevation: false,
   // 「道路情報」（road）は論理2レイヤー（roadType/roadSurface）。旧保存値（road:
   // boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。
@@ -202,11 +208,8 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   precipitationNowcast: false,
   // 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
-  // way_id→wind_drag_ratio配信層（評価軸としての風）。同じ理由で既定OFF。
-  windAxis: false,
-  // 環境グループの勾配gridFill・way_id→勾配配信層。同じ理由で既定OFF。
+  // 環境グループの勾配gridFill。同じ理由で既定OFF。
   gradientFill: false,
-  gradientAxis: false,
   // 災害（雷・竜巻・落雷・キキクル4種）。他の気象レイヤーとは異なり既定ONにする——
   // 防災級の情報はユーザー操作を待たず表示すべき（予兆があってからチップをONにするのでは
   // 手遅れ）という理由で、チップというUI要素は持たせつつ既定表示にしておく。危険度ゼロの
@@ -266,7 +269,7 @@ const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
-// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（windAxis、
+// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（風の評価軸、
 // 走行方位に対する向かい風/追い風）とは別の配色系統のため、「地図の色の凡例」との混同を
 // 避けて「矢印（風速）」と明示する。
 const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
@@ -874,10 +877,13 @@ export default function Home() {
   // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。handleLayerToggle
   // （直下）が排他ドメイン判定のためmapLayers全体を参照するため、overlayLayers組み立て
   // （後方）より前で定義する。
-  const mapLayers = useMemo(() => buildMapLayers(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
+  const mapLayers = useMemo(
+    () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes),
+    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes]
+  );
   const roadSurfaceSharedLayerIds = useMemo(
-    () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes),
-    [axisCatalog.rampAxes]
+    () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes, axisCatalog.dedicatedAxes),
+    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes]
   );
 
   // 「推定指標をONにすると材料の観測データレイヤーも連動ON」するカスケードは持たない。
@@ -894,7 +900,7 @@ export default function Home() {
   // `line-offset`による並行トラック（MapView.tsx: applyRoadMaterialTrackOffsets）で
   // 重ならずに並ぶ。
   //
-  // 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・windAxis・gradientAxis）だけは
+  // 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・専用way値配信軸）だけは
   // 1つだけ選べる状態を保つ。これらは同じ道路の同じ位置をそれぞれの評価で塗り分けるため、
   // 重ねると後から描画した色が前の色を完全に覆い、並行トラックのように並べて見ることも
   // できない（地図上チップではなくルート設定パネル・レンズから操作する）。
@@ -1093,7 +1099,7 @@ export default function Home() {
       disaster: disasterLegendDetails,
     };
     return mapLayers.map((layer) => {
-        // windAxis（way_id→wind_drag_ratio配信層）・ramp軸（axis:${string}）は
+        // 専用way値配信軸（`${axisId}Axis`）・ramp軸（`axis:${string}`）は
         // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
         // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
         // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
@@ -1138,6 +1144,7 @@ export default function Home() {
           // 地図上チップのカテゴリ束ね（MapOverlayControls.tsx）用。
           category: layer.category,
           dataNature: layer.dataNature,
+          axisStudioLayer: layer.axisStudioLayer,
           // 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
           panelHint: layer.panelHint,
           // レイヤーのデータ取得状態。LayerChip（サイドバー）と同じくOFF中の抑制は
@@ -1213,16 +1220,11 @@ export default function Home() {
 
   // 動的材料の状態別表現契約の[時刻,向き]のうち「向き」は、風・勾配で単一の共有state
   // （travelBearingDeg、実際の進行方向という1つの概念を表す）を使う。「環境」グループの
-  // 勾配gridFill・評価軸としての風/勾配（windAxis/gradientAxis）のいずれもこの1つの値を
+  // 勾配gridFill・評価軸としての風/勾配（専用way値配信軸）のいずれもこの1つの値を
   // 共有する。設定UIは地図上のTravelBearingControl（`components/TravelBearingControl/`）
   // 1箇所に集約されている。
   const [travelBearingDeg, setTravelBearingDeg] = useState(0);
 
-  // way_id→wind_drag_ratio配信層。評価軸としての風——上のuseDynamicWeatherLayers（「環境」
-  // グループの矢印表示）とは独立したフェッチだが、[時刻,向き]の入力（dynamicLayerTargetTime・
-  // travelBearingDeg）は共有する。mapViewportは同じMapView.tsx: onViewportChange経由の
-  // 値を共有する。
-  //
   // レンズが全道路の塗りとして有効な間（ルート前、またはルート後も残す設定）。ルート確定後
   // （hasDetail）は、視界内の全道路への一律色分けというこの機能の役割自体を終了し、ルート
   // 自身の実際の進行方向・到達時刻を使う routeStyleModes.ts の routeColorableModeFromAxis へ委ねる
@@ -1236,101 +1238,81 @@ export default function Home() {
       ),
     [axisCatalog.rampAxes, lens, lensBackgroundShown],
   );
-  const showWindAxis = lens === "wind" && lensBackgroundShown;
-  // 想定速度（ルート設定の入力欄）は風のレンズ（走行速度依存の材料）にも効く。未入力・不正値の
-  // 間は既定速度で配信を続ける。
-  const lensSpeedKmh = assumedSpeedKmh;
-  const windAxisData = useDynamicWayValues(
-    "wind",
-    showWindAxis,
+  // 環境グループの勾配gridFill（面）。評価軸グループの線とは別チップのまま。
+  const showGradientFill = layerVisibility.gradientFill && !hasDetail;
+  // 専用way値配信軸（`dedicated_way_value_layer=true`、現状: 風・勾配）のうち、いま
+  // フェッチすべき軸。レンズが指している軸（ルート前の全道路一律色分け）に加え、環境
+  // グループの勾配gridFillがONの間は勾配も対象にする——gridFillは評価軸グループの線とは
+  // 独立にON/OFFできるが、値は同じway単位データをタイル単位で集計するだけで作れるため
+  // （gradientGridFill.tsのモジュールdocstring参照）、フェッチは1本で両方の表現を賄う。
+  // 「勾配」という軸idをここで名指しするのは、gridFillが専用way値配信の汎用機構ではなく
+  // 勾配固有の環境グループレイヤーだから（レンズ側の経路には軸ごとの分岐が無い）。
+  const dedicatedFetchAxes = useMemo(() => {
+    const byAxisId = new Map<string, DedicatedWayValueAxis>();
+    const lensAxis = axisCatalog.dedicatedAxes.find((axis) => axis.axisId === lens);
+    if (lensAxis && lensBackgroundShown) byAxisId.set(lensAxis.axisId, lensAxis);
+    if (showGradientFill) {
+      const gradientAxis = axisCatalog.dedicatedAxes.find((axis) => axis.axisId === GRADIENT_AXIS_ID);
+      if (gradientAxis) byAxisId.set(gradientAxis.axisId, gradientAxis);
+    }
+    return [...byAxisId.values()];
+  }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, showGradientFill]);
+  // 想定速度（ルート設定の入力欄）は走行速度に依存する軸（風）にも効く。未入力・不正値の
+  // 間は既定速度で配信を続ける。時刻・想定速度を実際にリクエストへ載せるかは軸カタログの
+  // 宣言（needsTime/needsSpeed）が決めるため、ここでは全軸共通の入力として渡すだけでよい。
+  const dedicatedWayValueResults = useDedicatedWayValues(
+    dedicatedFetchAxes,
     mapViewport,
     travelBearingDeg,
     dynamicLayerTargetTime,
-    lensSpeedKmh
+    assumedSpeedKmh
   );
-
-  // way_id→勾配（effective_gradient）配信層。windAxisと同型だが、勾配は時刻に依存しない
-  // ためdynamicLayerTargetTimeを共有しない。向き（travelBearingDeg）は風と共有する
-  // （上記の統合コメント参照）。「環境」グループ（gradientFill、gridFill面表示）・評価軸
-  // としての勾配（gradientAxis）が同じ1つの入力（向き）を共有する。表示のON/OFF自体は
-  // 別チップのまま。
-  const showGradientFill = layerVisibility.gradientFill && !hasDetail;
-  const showGradientAxis = lens === "gradient" && lensBackgroundShown;
-  // 環境（面）・評価軸（線）どちらかがONの間だけフェッチする（表示中のものだけ叩く方針）。
-  // gradientFillはgradientAxisとは独立に、フェッチ済みのway単位データをタイル単位で集計
-  // するだけで作れる（gradientGridFill.tsのモジュールdocstring参照、追加のAPI呼び出し
-  // 不要）ため、フェッチ自体は1本で両方の表現を賄う。
-  const gradientAxisData = useDynamicWayValues(
-    "gradient",
-    showGradientAxis || showGradientFill,
-    mapViewport,
-    travelBearingDeg,
-    undefined
+  // レイヤーID（`${axisId}Axis`）→表示フラグ。レンズに選ばれた専用配信軸だけON
+  // （axisVisibilityと同じ形。MapViewは軸ごとのpropを持たない）。
+  const dedicatedWayValueVisibility = useMemo(
+    () =>
+      Object.fromEntries(
+        axisCatalog.dedicatedAxes.map((axis) => [
+          dedicatedWayValueMapLayerId(axis.axisId),
+          lens === axis.axisId && lensBackgroundShown,
+        ]),
+      ),
+    [axisCatalog.dedicatedAxes, lens, lensBackgroundShown],
   );
   const gradientFillPayload = useMemo(
-    () => (showGradientFill ? gradientGridCellsFromTileResponses(gradientAxisData.byTile) : undefined),
-    [showGradientFill, gradientAxisData.byTile]
+    () =>
+      showGradientFill
+        ? gradientGridCellsFromTileResponses(dedicatedWayValuesFor(dedicatedWayValueResults, GRADIENT_AXIS_ID).byTile)
+        : undefined,
+    [showGradientFill, dedicatedWayValueResults]
   );
-  // dedicatedWayValueDisplaysと同じ理由（design-principles.md構造仕様3: 軸ごとにpropを
-  // 新設しない）で、axisId→(way_id→値)の汎用Mapへ統合する。useDynamicWayValues自体は
-  // materialIdごとに個別インスタンス化する設計（デバウンス・レース対策がaxis間で
-  // 独立している必要があるため、hooks/useDynamicWayValues.ts参照）のままで、統合するのは
-  // MapViewへ渡す直前のprop形状だけ。
+  // MapViewへは軸id→値／軸id→フェッチ進行中の汎用Mapとして渡す
+  // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）。MapView側はこれを使い、
+  // まだ値を受け取っていないwayを「取得中」（COLOR_LOADING）と「取得済みだが値が無い」
+  // （COLOR_NO_DATA）で塗り分ける。
   const dedicatedWayValues = useMemo(
-    () =>
-      new Map<string, ReadonlyMap<number, number>>([
-        ["wind", windAxisData.values],
-        ["gradient", gradientAxisData.values],
-      ]),
-    [windAxisData.values, gradientAxisData.values]
+    () => new Map([...dedicatedWayValueResults].map(([axisId, result]) => [axisId, result.values])),
+    [dedicatedWayValueResults]
   );
-  // dedicatedWayValuesと同じ理由（design-principles.md構造仕様3）で、フェッチ進行中
-  // フラグもaxisId→booleanの汎用Mapへ統合する（windLoading/gradientLoadingのような
-  // 別名propは持たない）。MapView側はこれを使い、まだ値を受け取っていないwayを
-  // 「取得中」（COLOR_LOADING）と「取得済みだが値が無い」（COLOR_NO_DATA）で塗り分ける。
   const dedicatedWayValueLoading = useMemo(
-    () =>
-      new Map<string, boolean>([
-        ["wind", windAxisData.loading],
-        ["gradient", gradientAxisData.loading],
-      ]),
-    [windAxisData.loading, gradientAxisData.loading]
+    () => new Map([...dedicatedWayValueResults].map(([axisId, result]) => [axisId, result.loading])),
+    [dedicatedWayValueResults]
   );
-  // レンズが専用配信軸（windAxis/gradientAxis）を指している間だけ、そのフェッチの
-  // loading/empty/errorをLensControlのピルへ渡す（road_surface等の経路
-  // [useLayerDataStatus]はこれらのfetchを観測できないため、deriveFetchLayerStatusで
-  // 動的気象レイヤーと同じ判定を共有する）。ramp軸・総合難易度・なしはこの失敗モードを
-  // 持たないためundefinedのまま。
+  // レンズが専用配信軸を指している間だけ、そのフェッチのloading/empty/errorをLensControlの
+  // ピルへ渡す（road_surface等の経路[useLayerDataStatus]はこれらのfetchを観測できないため、
+  // deriveFetchLayerStatusで動的気象レイヤーと同じ判定を共有する）。ramp軸・総合難易度・
+  // なしはこの失敗モードを持たないためundefinedのまま。
   const lensFetchStatus = useMemo<LayerDataStatus | undefined>(() => {
-    if (showWindAxis) {
-      return deriveFetchLayerStatus(
-        windAxisData.loading,
-        windAxisData.error ? "fetch-failed" : null,
-        windAxisData.values.size > 0,
-        windAxisData.hasFetched
-      );
-    }
-    if (showGradientAxis) {
-      return deriveFetchLayerStatus(
-        gradientAxisData.loading,
-        gradientAxisData.error ? "fetch-failed" : null,
-        gradientAxisData.values.size > 0,
-        gradientAxisData.hasFetched
-      );
-    }
-    return undefined;
-  }, [
-    showWindAxis,
-    showGradientAxis,
-    windAxisData.loading,
-    windAxisData.error,
-    windAxisData.values,
-    windAxisData.hasFetched,
-    gradientAxisData.loading,
-    gradientAxisData.error,
-    gradientAxisData.values,
-    gradientAxisData.hasFetched,
-  ]);
+    if (!axisCatalog.dedicatedAxes.some((axis) => axis.axisId === lens)) return undefined;
+    if (!lensBackgroundShown) return undefined;
+    const result = dedicatedWayValuesFor(dedicatedWayValueResults, lens);
+    return deriveFetchLayerStatus(
+      result.loading,
+      result.error ? "fetch-failed" : null,
+      result.values.size > 0,
+      result.hasFetched
+    );
+  }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, dedicatedWayValueResults]);
   // `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、いずれも
   // 軸カタログ由来）を、axisId→宣言の汎用MapとしてMapView・凡例へ配線する。軸ごとの
   // useMemo・propは持たない（design-principles.md構造仕様3）。
@@ -1981,8 +1963,8 @@ export default function Home() {
             showDesignation={layerVisibility.designation}
             showTunnel={layerVisibility.tunnel}
             showOneway={layerVisibility.oneway}
-            showWindAxis={showWindAxis}
-            showGradientAxis={showGradientAxis}
+            dedicatedWayValueVisibility={dedicatedWayValueVisibility}
+            dedicatedAxes={axisCatalog.dedicatedAxes}
             dedicatedWayValues={dedicatedWayValues}
             dedicatedWayValueDisplays={dedicatedWayValueDisplays}
             dedicatedWayValueLoading={dedicatedWayValueLoading}

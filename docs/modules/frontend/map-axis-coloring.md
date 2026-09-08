@@ -22,21 +22,22 @@
 | `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。`dedicatedWayValueLegend`が使う |
 | `components/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `Map/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定） |
-| `Map/MapView.tsx`（windAxis/gradientAxis/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
-| `hooks/useDynamicWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得） |
+| `Map/MapView.tsx`（専用way値配信軸/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
+| `Map/axisLayers.ts`（`DedicatedWayValueAxis`関連のみ） | 軸カタログ→専用way値配信軸一覧の変換（`dedicatedWayValueAxesFromCatalogAxes`）とレイヤーIDの導出（`dedicatedWayValueMapLayerId`/`dedicatedWayValueLineLayerId`） |
+| `hooks/useDedicatedWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得、全軸を1つのフックで賄う） |
 | `services/axisAdminApi.ts`・`regionApi.ts`（`fetchDynamicWayValues`のみ） | backend APIラッパー |
 
 **`MapView.tsx`は路面タイル・動的気象（降水/風の矢印/雷/竜巻）・POI等のロジックも持つ
 ファイルで、それらは[地図: 静的レイヤー・道路表示](static-map-layers.md)・
-[地図: 動的気象レイヤー](dynamic-weather-layers.md)の管轄。本ドキュメントはwindAxis/
-gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に関わる箇所のみを扱う。**
+[地図: 動的気象レイヤー](dynamic-weather-layers.md)の管轄。本ドキュメントは専用way値
+配信軸/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に関わる箇所のみを扱う。**
 
 ## ルート確定前後で同じスケール（3つの表示、1つの表示宣言）
 
 ```
                           [評価軸グループ（線）]                [環境グループ（面、勾配のみ）]
 ルート未確定  ── setFeatureState経由の値 ──┐   ┌── gridFill（勾配=タイル平均。風は対象外）
-              （useDynamicWayValues、      │   │
+              （useDedicatedWayValues、    │   │
                backendが軸定義で評価した   │   │
                地図表示値）                 ▼   ▼
                                   同じ表示宣言（種類・単位・しきい値・段階ラベル）
@@ -57,7 +58,9 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 
 | 判定 | 使う軸データ属性 | 関数・場所 |
 |---|---|---|
-| 専用way_id配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `page.tsx`が`axisCatalog.axes`の`dedicatedWayValueLayer`フィールドを直接参照（専用のヘルパー関数は持たない） |
+| 専用way_id配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、`useAxisCatalog`の`dedicatedAxes`として配る |
+| 地図レイヤーID・MapLibre layer id | 軸id（文字列合成） | `axisLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）・`dedicatedWayValueLineLayerId`（`region-${axisId}-axis-line`） |
+| フェッチに時刻／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
 
@@ -68,7 +71,8 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 
 **レンズ状態は1つ**（`page.tsx: lens`、`"none" | "difficulty" | axis_id`。localStorage
 キーは`ridecompass:route-style-mode`）。ルート前は全道路（ramp軸は`axisVisibility`、
-専用配信は`showWindAxis`/`showGradientAxis`）、ルート後はルート線（`MapView`の
+専用配信は`dedicatedWayValueVisibility`。どちらもレイヤーID→booleanの汎用Recordで、
+軸ごとのpropを持たない）、ルート後はルート線（`MapView`の
 `routeStyleModeId`）をこの1つの値から導出する。ルート後も全道路の塗りを残すかは
 `lensKeepAfterRoute`（既定ON）。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
 載せ、重み0でもbackendが区間表示のため風の時変化合成（風に依存する軸の場合）・
@@ -152,16 +156,22 @@ gradientAxis/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に
 ため、`COLOR_LOADING`/`COLOR_NO_DATA`の分岐が実際の描画へ現れることは無い
 （feature自体が存在しないタイルは透明のまま）。
 
-## useDynamicWayValues.ts（フェッチ・状態管理）
+## useDedicatedWayValues.ts（フェッチ・状態管理）
 
 viewportをデバウンス（500ms）してから、表示中のタイル範囲ぶんをまとめて1回の
 リクエストで取得する（パン・ズームのたびに個別way_idを都度問い合わせない）。
 **`bearingDeg`（走行方位）もviewportと同じ500msでデバウンスする**——コンパススライダー
 （`WindBearingSlider`）はドラッグ中`onChange`を連続発火するため、素の値を依存配列に
 入れるとドラッグ1回で「可視タイル数×連続イベント数」ぶんのfetchが発生してしまうため。
-`enabled=false`の間はfetchせず結果も空へ戻す。
+`speedKmh`（想定速度、入力欄）も同じ理由でデバウンスする。
 
-戻り値は4種類:
+**取得対象の軸は配列で受け取り、1つのフックが全軸ぶんを賄う**。Reactのフック規則により
+実行時に増減しうる軸の件数だけフックを呼ぶことはできないため、軸ごとのインスタンス化は
+しない。`axes`は呼び出し側がuseMemoで安定した参照を渡す契約（依存配列に直接入る）。
+対象が0件の間はfetchせず結果も空へ戻す。
+
+戻り値は`ReadonlyMap<axisId, DedicatedWayValuesResult>`で、`dedicatedWayValuesFor(results,
+axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。1軸ぶんの結果は5種類:
 
 - `values: ReadonlyMap<number, number>`（way_id→値、複数タイル統合済み）——評価軸
   グループの`setFeatureState`にそのまま使える。
@@ -177,17 +187,20 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
   backendが正常応答で空オブジェクトを返した場合（対象範囲に本当にway_idが無い）は
   `false`のまま。地図の色分け自体は「取得失敗」と「本当に空」のどちらも同じ無彩色
   （`COLOR_NO_DATA`）になり見分けが付かないため、`page.tsx`が`lens`が
-  windAxis/gradientAxisを指す間だけ`error`/`loading`/`values`の有無から
+  専用way値配信軸を指す間だけ`error`/`loading`/`values`の有無から
   `deriveFetchLayerStatus`（`mapLayers.ts`、動的気象レイヤーと共有する判定関数）で
   `LayerDataStatus`を1つ算出し、`LensControl`のピルへ小さな状態ドット（`LayerChip`と
   同じ視覚表現）として表示する。判定には`hasFetched`（一度でも取得を試みて完了したか）も
   渡す——`"empty"`（「この範囲に表示できるデータがありません」）は「読込済みだが値なし」
   だけを指し、まだ取りに行っていない状態はどの`LayerDataStatus`にも当てはめない。
+- `hasFetched: boolean`（上記の判定に使う）。
 
-`materialId`（"wind"/"gradient"）ごとに呼び出し側（`page.tsx`）が別々にこのフックを
-インスタンス化する。連続する呼び出しの間に古いリクエストが後から解決しても新しい結果を
-上書きしないよう、リクエストの世代（`seq`、複数タイルの`Promise.all`をまたぐカウンタ）で
-最新のものだけを反映する。
+**軸ごとの再フェッチ判定**: 軸id・その軸へ載せるクエリパラメータ（`needsTime`なら時刻、
+`needsSpeed`なら想定速度）・向き・対象タイル集合からリクエストキーを作り、キーが変わって
+いない軸は再フェッチしない。時刻に依存しない軸（勾配）は時刻スライダーを動かしても
+キーが変わらないため、風だけが再取得される。連続する呼び出しの間に古いリクエストが後から
+解決しても新しい結果を上書きしないよう、リクエストの世代（`seq`、複数タイルの
+`Promise.all`をまたぐカウンタ）で最新のものだけを反映する。
 
 ## MapView.tsx側の配線
 
@@ -196,34 +209,35 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 
 ```
 page.tsx
-  ├─ useDynamicWayValues("wind", showWindAxis, viewport, travelBearingDeg, targetTime)
-  │     → windAxisData.values / .loading (ReadonlyMap<wayId, value> / boolean)
-  ├─ useDynamicWayValues("gradient", showGradientAxis||showGradientFill, viewport, travelBearingDeg, undefined)
-  │     → gradientAxisData.values / .loading / gradientFillPayload(gradientGridCellsFromTileResponses経由)
-  ├─ dedicatedWayValues = Map(["wind", windAxisData.values], ["gradient", gradientAxisData.values])
-  ├─ dedicatedWayValueLoading = Map(["wind", windAxisData.loading], ["gradient", gradientAxisData.loading])
+  ├─ dedicatedFetchAxes = [レンズが指す専用配信軸] ∪ [gradientFillがONなら勾配軸]
+  ├─ useDedicatedWayValues(dedicatedFetchAxes, viewport, travelBearingDeg, targetTime, assumedSpeedKmh)
+  │     → ReadonlyMap<axisId, {values, byTile, loading, error, hasFetched}>
+  ├─ dedicatedWayValues        = そのMapのvaluesだけを写したMap<axisId, Map<wayId, value>>
+  ├─ dedicatedWayValueLoading  = 同じくloadingだけを写したMap<axisId, boolean>
+  ├─ gradientFillPayload       = 勾配軸のbyTileをgradientGridCellsFromTileResponsesへ
   ▼
 <MapView dedicatedWayValues={...} dedicatedWayValueLoading={...} gradientFillGeojson={...} .../>
-  ├─ makeEnsureDedicatedWayValueLayer(layerId, colorExpression)（色式はdedicatedWayValueDisplays・
+  ├─ buildStaticOverlayLayers(..., dedicatedAxes, ...)がdedicatedAxesをmapし、軸ごとに
+  │     makeEnsureDedicatedWayValueLayer(layerId, colorExpression)（色式はdedicatedWayValueDisplays・
   │     dedicatedWayValueLoadingから）
-  │     → windAxis/gradientAxisレイヤーをroad_surfaceタイルの独立レイヤーとして初回のみ追加
+  │     → 各軸の線レイヤーをroad_surfaceタイルの独立レイヤーとして初回のみ追加
   │       （ensureRoadSurfaceTileLayerが先にpromoteId付きsourceを用意している前提）
   ├─ dedicatedWayValuesのエントリを1つのeffectでループし、各軸へ
   │   applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values)
   │     → map.setFeatureState({source, sourceLayer, id: wayId}, {[key]: value}) を全way分実行
   └─ clearRoadTileFeatureState(map)
-        → showWindAxis・showGradientAxisが両方falseへ揃った瞬間、setFeatureStateした
+        → dedicatedWayValueVisibilityの値がすべてfalseへ揃った瞬間、setFeatureStateした
           全道路ぶんの値を明示的にクリアする1つのeffectに統合されている
           （`map.removeFeatureState`はsource/sourceLayer単位で全キーを一括で消す
-          MapLibre仕様のため、風・勾配のどちらか一方だけがOFFになった時点でクリアすると
-          もう片方の色分けまで巻き添えで消える。両方falseになるまで待つガードで防ぐ。
+          MapLibre仕様のため、いずれか1軸だけがOFFになった時点でクリアすると
+          まだONの軸の色分けまで巻き添えで消える。全てfalseになるまで待つガードで防ぐ。
           判定条件自体は`shouldClearDedicatedWayValueFeatureState`という
-          純粋関数が持つ）
+          軸の件数に依存しない全称判定の純粋関数が持つ）
 ```
 
 - `promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" }`（`ensureRoadSurfaceTileLayer`）が
   MVTフィーチャーへ安定したidを持たせる前提条件——これが無いと`setFeatureState`が使えない。
-- `windAxis`/`gradientAxis`のensure関数は`ROAD_TILE_LAYER_ID`（路面本体）と同じ
+- 専用way値配信軸のensure関数は`ROAD_TILE_LAYER_ID`（路面本体）と同じ
   `ROAD_TILE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を共有する独立レイヤーとして追加される
   （`designation`/`tunnel`/`oneway`と同型の構成）。
 - `dedicatedWayValues`はパン・ズームのたびに変わりうる値のため、「表示ON/OFF」を担う
@@ -240,9 +254,9 @@ page.tsx
 `dedicatedWayValues`は`MapViewProps`上、`ReadonlyMap<axisId, ReadonlyMap<wayId, value>>`
 という1つの汎用propにまとまっている（`dedicatedWayValueDisplays`・`dedicatedWayValueLoading`
 （`ReadonlyMap<axisId, boolean>`）と同じく、design-principles.md構造仕様3
-「軸ごとにpropを新設しない」に沿う）。`useDynamicWayValues`自体はmaterialIdごとに
-個別インスタンス化する設計（デバウンス・レース対策がaxis間で独立している必要があるため）で、
-汎用propへまとまっているのはpage.tsxがMapViewへ渡す直前の形状だけである。feature-stateキーは
+「軸ごとにpropを新設しない」に沿う）。`useDedicatedWayValues`も軸の配列を受け取る1つの
+フックで、軸ごとのフック呼び出しを持たない（Reactのフック規則により、実行時に増減しうる
+軸の件数だけフックを呼ぶことはできないため）。feature-stateキーは
 `dedicatedWayValueFeatureStateKey(axisId)`で軸idから機械的に導出するため、軸ごとの対応表は
 持たない。
 
@@ -252,7 +266,28 @@ page.tsx
 `windVector`（矢印表示、環境グループの探索用表現）とは完全に独立した見せ方であり、
 同じ`[時刻/向き]`入力を共有するだけで、レイヤー・ソース・フェッチ経路はすべて別individual。
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う`DYNAMIC_WEATHER_RENDERERS`汎用機構
-（風の矢印・降水ナウキャスト等）とは異なり、windAxis/gradientAxisは`mapLayers.ts:
+（風の矢印・降水ナウキャスト等）とは異なり、専用way値配信軸は`mapLayers.ts:
 isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）・サイドバー
 （`MapLayersPanel.tsx`）のどちらにも一切現れない。表示ON/OFFの起動導線は地図上部中央の
 `LensControl`のみが持つ（本ファイル冒頭「対象ファイル」参照）。
+
+## 3件目の軸を公開したときに自動で追従する範囲
+
+`dedicated_way_value_layer=true`の軸を軸スタジオで公開すると、frontend側は
+`useAxisCatalog`の`dedicatedAxes`経由で以下がすべて自動で増える（このモジュールの
+ファイルを編集する必要は無い）。
+
+| 追従するもの | 導出元 |
+|---|---|
+| `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | `buildMapLayers(rampAxes, dedicatedAxes)` |
+| MapLibreの線レイヤー登録・色式の再適用 | `buildStaticOverlayLayers(..., dedicatedAxes, ...)` |
+| 表示ON/OFF（レンズ選択） | `page.tsx: dedicatedWayValueVisibility` |
+| 「表示範囲が広すぎます」判定の対象 | `buildRoadSurfaceSharedLayerIds(rampAxes, dedicatedAxes)` |
+| way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`needsTime`/`needsSpeed` |
+| feature-stateキー・色式・凡例 | `dedicatedWayValueFeatureStateKey`/`dedicatedWayValueColorExpression`/`dedicatedWayValueLegend` |
+
+**追従しないもの**: 値を組み立てるbackendのサービス本体（`_DEDICATED_WAY_VALUE_SERVICE_
+FACTORIES`への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。
+未登録の軸へこのフラグを立てる書き込み自体がbackendで拒否される。環境グループの
+勾配gridFill（`gradientGridFill.ts`）も汎用機構ではなく勾配固有のレイヤーのままで、
+対象の軸idは`GRADIENT_AXIS_ID`が1箇所だけ名指しする。

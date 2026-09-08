@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { RAMP_AXES } from "./axisLayers";
 import { buildLayerDataSources, isRoadSurfaceGroupVisible } from "./MapView";
+import { DEDICATED_WAY_VALUE_AXES } from "./axisLayers";
 import { buildRoadSurfaceSharedLayerIds } from "./mapLayers";
 import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLayerDataStatus";
 import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
@@ -10,7 +11,7 @@ import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
 // 入力に組み立てた結果。以前のLAYER_DATA_SOURCES/ROAD_SURFACE_SHARED_LAYER_IDS定数と
 // 同じ内容。
 const LAYER_DATA_SOURCES = buildLayerDataSources(RAMP_AXES);
-const ROAD_SURFACE_SHARED_LAYER_IDS = buildRoadSurfaceSharedLayerIds(RAMP_AXES);
+const ROAD_SURFACE_SHARED_LAYER_IDS = buildRoadSurfaceSharedLayerIds(RAMP_AXES, DEDICATED_WAY_VALUE_AXES);
 
 const fakeMap = createFakeDataStatusMap(LAYER_DATA_SOURCES.map((e) => e.sourceId));
 
@@ -185,7 +186,10 @@ describe("isRoadSurfaceGroupVisible", () => {
   // に軸スタジオの公開軸を含む拡張カタログを渡せば正しく解消することを確認する。
   it("buildRoadSurfaceSharedLayerIdsは軸スタジオの新規公開軸（拡張カタログ）にも追従する", () => {
     const extraAxis = { ...RAMP_AXES[0], axisId: "new_gui_axis", label: "新規GUI軸" };
-    const extendedRoadSurfaceSharedLayerIds = buildRoadSurfaceSharedLayerIds([...RAMP_AXES, extraAxis]);
+    const extendedRoadSurfaceSharedLayerIds = buildRoadSurfaceSharedLayerIds(
+      [...RAMP_AXES, extraAxis],
+      DEDICATED_WAY_VALUE_AXES
+    );
     expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, extendedRoadSurfaceSharedLayerIds)).toBe(true);
   });
 });

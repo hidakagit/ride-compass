@@ -140,9 +140,8 @@ export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspecto
 // 不要）。バージョンクエリを持たない（road-surface-tilesと異なりブラウザHTTPキャッシュに
 // 乗せない想定の軽量JSON、値自体はbackend側のRedis TTLで新鮮さを管理するため）。
 //
-// 改善計画T423（T411の実施）: エンドポイントパスを`wind`固定から`{material_id}`駆動へ
-// 一本化したのに合わせ、フロント側の関数も`fetchWindWayPenalties`から材料id引数を取る
-// `fetchDynamicWayValues`へ汎用化した。
+// エンドポイントパスは軸id駆動（`/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}`）で、
+// 軸ごとの関数を持たない。
 const DYNAMIC_WAY_VALUES_PATH = "/api/region/dynamic-way-values";
 
 export interface DynamicWayValuesResult {
@@ -165,7 +164,7 @@ export interface DynamicWayValuesResult {
  * 必須クエリパラメータとして渡す。`at`は環境グループ（矢印・gridFill）と共有する時刻
  * （省略時はbackend側が現在時刻を使う。勾配は時刻に依存しないため常に省略）。 */
 export async function fetchDynamicWayValues(
-  materialId: string,
+  axisId: string,
   z: number,
   x: number,
   y: number,
@@ -175,10 +174,10 @@ export async function fetchDynamicWayValues(
 ): Promise<DynamicWayValuesResult> {
   const params = new URLSearchParams({ bearing_deg: String(bearingDeg) });
   if (at) params.set("at", at.toISOString());
-  // 走行速度に依存する材料（needs_speed）だけがbackend側で使う。他の材料へ渡しても無視される。
+  // 走行速度に依存する軸（needs_speed）だけがbackend側で使う。他の軸へ渡しても無視される。
   if (speedKmh !== undefined && Number.isFinite(speedKmh)) params.set("speed_kmh", String(speedKmh));
-  const url = `${API_BASE_URL}${DYNAMIC_WAY_VALUES_PATH}/${materialId}/${z}/${x}/${y}?${params.toString()}`;
-  const logCategory = `api:${materialId}-way-values`;
+  const url = `${API_BASE_URL}${DYNAMIC_WAY_VALUES_PATH}/${axisId}/${z}/${x}/${y}?${params.toString()}`;
+  const logCategory = `api:${axisId}-way-values`;
   const startedAt = performance.now();
   debugLog(logCategory, "リクエスト開始", { url });
   try {

@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { gradientFillColorExpression, gradientGridCellsFromTileResponses } from "./gradientGridFill";
 import { COLOR_LOADING, COLOR_NO_DATA } from "./valueScale";
-import type { TileDynamicWayValues } from "@/hooks/useDynamicWayValues";
+import type { TileDynamicWayValues } from "@/hooks/useDedicatedWayValues";
 
 describe("gradientGridFill（改善計画T423: 環境グループの勾配面表示）", () => {
   describe("gradientGridCellsFromTileResponses", () => {

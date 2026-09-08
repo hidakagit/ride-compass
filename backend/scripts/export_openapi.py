@@ -221,6 +221,9 @@ def main() -> None:
                     "dedicated_way_value_layer": AXIS_DEFINITIONS[axis.axis_id].dedicated_way_value_layer,
                     "map_value_kind": map_value_kind(AXIS_DEFINITIONS[axis.axis_id]),
                     "map_value_unit": map_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
+                    "dynamic_way_value_needs_time": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_time,
+                    "dynamic_way_value_needs_bearing": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_bearing,
+                    "dynamic_way_value_needs_speed": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_speed,
                 }
                 for axis in all_axes()
             ],
