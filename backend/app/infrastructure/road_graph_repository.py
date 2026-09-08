@@ -2005,7 +2005,7 @@ class AttributeRepository(_SessionRepository):
             accident_count=row.accident_count,
             stop_count=row.stop_count,
             intersection_count=row.intersection_count,
-            poi_counts=dict(row.poi_counts or {}),
+            poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
         )
 
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
@@ -2190,7 +2190,7 @@ class AttributeRepository(_SessionRepository):
             for row in await self._session.execute(stmt):
                 attribute_counts = (
                     EdgeAttributeCounts(
-                        poi_counts=dict(row.poi_counts or {}),
+                        poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
                         accident_count=row.accident_count,
                         stop_count=row.stop_count,
                         intersection_count=row.intersection_count,

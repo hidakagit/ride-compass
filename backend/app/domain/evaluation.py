@@ -185,11 +185,10 @@ def axis_inspector_breakdown(
     # 停止要因の種別別密度。`way_counts`の行があれば、載っていないキーは0件と確定できる
     # （Edge単位の`keyed_density_extractor(absent_key=0.0)`と同じ意味論。ここで行の有無を
     # 見ないと、信号が1つも無い道で材料がNaNになり、それを使う軸ごと算出不能になる）。
+    poi_counts = way_counts.poi_counts if way_counts is not None else None
     poi_per_km = {
         f"poi_{kind}_per_km": (
-            (way_counts.poi_counts.get(kind, 0) / length_km)
-            if way_counts is not None and length_km
-            else None
+            (poi_counts.get(kind, 0) / length_km) if poi_counts is not None and length_km else None
         )
         for kind in POI_COUNT_KINDS
     }

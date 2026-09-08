@@ -255,6 +255,10 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 （`poi`群）は行があれば載っていないキーを0件と確定できるため、
 `keyed_density_extractor(..., absent_key=0.0)`で読む。行そのものが無い場合は常に欠損。
 
+この「行の有無」は**集計済みかどうか**を表す。`poi`群では、DB側の列がNULL（未集計）なら
+群へ行を作らず、材料を欠損にする。集計前を0件として読むと、全区間が「停止要因ゼロ＝
+最も易しい」と評価されてルート選択が静かに歪む。
+
 **フィールドを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、contextへ
 フィールドを足さず`metrics`の群にする。増えないもの（`elevation_attributes`・
 `surface_attributes`・`designated_edge_ids`・`accident_years_covered`）だけが独立した

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Iterator, Mapping
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import RoadGraph, RoadGraphLike
@@ -71,9 +71,10 @@ class EdgeAttributeCounts(BaseModel):
     stop_count: int
     intersection_count: int
     # 停止要因POIの種別別カウント（`domain/traffic.py: POI_COUNT_KINDS`がキーの単一ソース）。
-    # 値を足し合わせると`stop_count`に一致する。集計バッチ未実行のDBでは空辞書になり、
-    # 種別別の材料はすべて欠損として扱われる。
-    poi_counts: dict[str, int] = Field(default_factory=dict)
+    # **Noneは「未集計」**で、種別別の材料はすべて欠損（軸は算出不能）になる。空辞書は
+    # 「集計済みで0件」で、材料は0になる。この2つを取り違えると、集計前のDBで全区間が
+    # 「停止要因ゼロ＝最も易しい」と評価され、ルート選択が静かに歪む。
+    poi_counts: dict[str, int] | None = None
 
 
 class WayAttributeCounts(BaseModel):
@@ -86,8 +87,8 @@ class WayAttributeCounts(BaseModel):
     accident_count: float
     stop_count: int
     intersection_count: int
-    # 停止要因POIの種別別カウント（Edge単位版と同じ、`POI_COUNT_KINDS`がキーの単一ソース）。
-    poi_counts: dict[str, int] = Field(default_factory=dict)
+    # 停止要因POIの種別別カウント（Edge単位版と同じ、Noneは未集計）。
+    poi_counts: dict[str, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,9 +145,10 @@ def edge_metrics_from_bundles(
                 METRIC_KEY_STOP: float(bundle.attribute_counts.stop_count),
                 METRIC_KEY_INTERSECTION: float(bundle.attribute_counts.intersection_count),
             }
-            # 0件のキーはjsonbから省かれているため、行の有無で「不明」と「0件」を分ける
-            # （counts行があれば、載っていないキーは0件と確定できる）。
-            poi[edge_id] = {k: float(v) for k, v in bundle.attribute_counts.poi_counts.items()}
+            # 未集計（None）なら行自体を作らず、材料を欠損にする。空辞書は集計済みで
+            # 0件を意味し、載っていないキーは0として読める。
+            if bundle.attribute_counts.poi_counts is not None:
+                poi[edge_id] = {k: float(v) for k, v in bundle.attribute_counts.poi_counts.items()}
         if bundle.landcover_trees_percent is not None and bundle.landcover_built_percent is not None:
             landcover[edge_id] = {
                 METRIC_KEY_TREES_PERCENT: bundle.landcover_trees_percent,
@@ -369,7 +371,7 @@ class EdgeMaterialTable:
             accident_count=float(self.accident_count[i]),
             stop_count=int(self.stop_count[i]),
             intersection_count=int(self.intersection_count[i]),
-            poi_counts=dict(self.poi_counts[i] or {}),
+            poi_counts=None if self.poi_counts[i] is None else dict(self.poi_counts[i]),
         )
 
     def _reconstruct_elevation_attribute(self, i: int, edge_id: str) -> ElevationAttribute | None:
@@ -443,7 +445,8 @@ class EdgeMaterialTable:
                     METRIC_KEY_STOP: float(self.stop_count[i]),
                     METRIC_KEY_INTERSECTION: float(self.intersection_count[i]),
                 }
-                poi[edge_id] = {k: float(v) for k, v in (self.poi_counts[i] or {}).items()}
+                if self.poi_counts[i] is not None:
+                    poi[edge_id] = {k: float(v) for k, v in self.poi_counts[i].items()}
             if self.landcover_present[i]:
                 landcover[edge_id] = {
                     METRIC_KEY_TREES_PERCENT: float(self.landcover_trees_percent[i]),
