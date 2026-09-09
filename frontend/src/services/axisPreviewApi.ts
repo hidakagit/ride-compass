@@ -1,6 +1,7 @@
 import type { ValueDistribution } from "@/components/AxisStudio/scoreDistribution";
 import { debugLog } from "@/lib/debugLog";
 import { formatErrorDetail } from "@/lib/apiError";
+import { DISTRIBUTION_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 // 軸スタジオの分布プレビュー（backend/app/services/axis_preview_service.py）のクライアント。
 // axisAdminApi.tsと同じく同一オリジンのNext.js route handler経由で、Basic認証情報は
@@ -10,8 +11,6 @@ import { formatErrorDetail } from "@/lib/apiError";
 // サーバー側のキャッシュに当たる）。編集の手応えを損なわないよう、呼び出し側が
 // デバウンスしてから呼ぶ前提。
 
-const PREVIEW_TIMEOUT_MS = 60000;
-
 export interface MaterialDistribution extends ValueDistribution {
   available: boolean;
 }
@@ -20,7 +19,7 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
   const startedAt = performance.now();
   let response: Response;
   try {
-    response = await fetch(path, { ...init, signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS) });
+    response = await fetch(path, { ...init, signal: AbortSignal.timeout(DISTRIBUTION_API_TIMEOUT_MS) });
   } catch (error) {
     debugLog("api:axisPreview", "失敗 (通信エラー)", { path, error: String(error) }, "error");
     throw new Error("分布の取得に失敗しました（通信エラー）");

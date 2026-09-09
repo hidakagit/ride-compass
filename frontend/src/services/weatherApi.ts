@@ -13,6 +13,7 @@ import type { JmaTileIndexResponse } from "@/components/Map/jmaTileIndex";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 export async function getCurrentWeather(point: Coordinates): Promise<WeatherConditions> {
   const params = new URLSearchParams({
@@ -20,7 +21,7 @@ export async function getCurrentWeather(point: Coordinates): Promise<WeatherCond
     longitude: String(point.longitude),
   });
   const url = `${API_BASE_URL}/api/weather?${params}`;
-  const data = await fetchJson<WeatherConditions>(url, { timeoutMs: 15000, category: "api:weather", errorLabel: "天候情報" });
+  const data = await fetchJson<WeatherConditions>(url, { timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:weather", errorLabel: "天候情報" });
   debugLog("api:weather", "詳細", { precipitation_mm: data.precipitation_mm });
   return data;
 }
@@ -34,7 +35,7 @@ export async function getAmedasObservation(point: Coordinates): Promise<AmedasOb
     longitude: String(point.longitude),
   });
   const url = `${API_BASE_URL}/api/weather/amedas?${params}`;
-  return fetchJson<AmedasObservation>(url, { timeoutMs: 15000, category: "api:amedas", errorLabel: "アメダス観測値" });
+  return fetchJson<AmedasObservation>(url, { timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:amedas", errorLabel: "アメダス観測値" });
 }
 
 // 警報・注意報バッジ。取得失敗時もbackend側が空のwarningsで200を返す
@@ -47,7 +48,7 @@ export async function getWeatherWarnings(point: Coordinates): Promise<WeatherWar
   });
   const url = `${API_BASE_URL}/api/weather/warnings?${params}`;
   return fetchJson<WeatherWarnings>(url, {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:weatherWarnings",
     errorLabel: "警報・注意報",
   });
@@ -62,7 +63,7 @@ export async function getWbgtStatus(point: Coordinates): Promise<WbgtStatus> {
     longitude: String(point.longitude),
   });
   const url = `${API_BASE_URL}/api/weather/wbgt?${params}`;
-  return fetchJson<WbgtStatus>(url, { timeoutMs: 15000, category: "api:wbgt", errorLabel: "暑さ指数" });
+  return fetchJson<WbgtStatus>(url, { timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:wbgt", errorLabel: "暑さ指数" });
 }
 
 // 河川氾濫予報バッジ。地点解決失敗・取得失敗のいずれもbackend側が
@@ -75,7 +76,7 @@ export async function getFloodForecasts(point: Coordinates): Promise<FloodForeca
   });
   const url = `${API_BASE_URL}/api/weather/flood-forecast?${params}`;
   return fetchJson<FloodForecasts>(url, {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:floodForecast",
     errorLabel: "河川氾濫予報",
   });
@@ -94,7 +95,7 @@ function toWindGridPoints(response: WindGridResponse): WindGridPoint[] {
 // （backend/app/api/routers/weather.py: get_wind_grid参照）。
 export async function getWindGrid(): Promise<WindGridPoint[]> {
   const url = `${API_BASE_URL}/api/weather/wind-grid`;
-  const data = await fetchJson<WindGridResponse>(url, { timeoutMs: 15000, category: "api:windGrid", errorLabel: "風データ" });
+  const data = await fetchJson<WindGridResponse>(url, { timeoutMs: DEFAULT_API_TIMEOUT_MS, category: "api:windGrid", errorLabel: "風データ" });
   const points = toWindGridPoints(data);
   debugLog("api:windGrid", "詳細", { points: points.length });
   return points;
@@ -115,7 +116,7 @@ export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise
   });
   const url = `${API_BASE_URL}/api/weather/wind-grid-detail?${params}`;
   const data = await fetchJson<WindGridResponse>(url, {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:windGridDetail",
     errorLabel: "風データ(詳細)",
   });
@@ -132,7 +133,7 @@ export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise
  */
 export async function fetchJmaTileIndex(): Promise<JmaTileIndexResponse> {
   return fetchJson<JmaTileIndexResponse>(`${API_BASE_URL}/api/jma-tile-index`, {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:jma-tile-index",
     errorLabel: "タイル在否インデックス",
   });

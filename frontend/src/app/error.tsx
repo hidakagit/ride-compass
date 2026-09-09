@@ -31,7 +31,7 @@ export default function Error({
       }}
     >
       <h2>予期しないエラーが発生しました</h2>
-      <p style={{ color: "#666" }}>
+      <p style={{ color: "var(--color-muted)" }}>
         画面の表示中に問題が発生しました。再試行しても解決しない場合は、ページを再読み込みしてください。
       </p>
       <button onClick={() => retry()} style={{ padding: "0.5rem 1rem" }}>

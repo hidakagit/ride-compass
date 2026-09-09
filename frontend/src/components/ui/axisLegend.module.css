@@ -1,0 +1,29 @@
+/*
+ * 軸ごとの寄与を色で示す帯グラフと、その凡例ドット。
+ *
+ * 「重み配分」の設定UI（RouteSettingsPanel）と、ルート結果・区間詳細の内訳表示
+ * （RouteAxisProfile／AxisContributionBar）が同じ表現を共有する。
+ *
+ * 色は軸idではなくインラインstyleで与える——軸は軸スタジオで増減するため、軸id固定の
+ * CSSセレクタでは追従できない。
+ */
+
+.stackBar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--color-surface-2);
+}
+
+.stackSegment {
+  height: 100%;
+}
+
+.legendDot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

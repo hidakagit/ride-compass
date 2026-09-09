@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/Map/InfoPopover";
-import recipeControlStyles from "@/components/Map/recipeControls.module.css";
+import infoButtonStyles from "@/components/ui/infoButton.module.css";
+import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { getMaterialCoverage } from "@/services/materialCoverageApi";
 import type { MaterialCoverageEntry, MaterialCoverageResponse } from "@/types/route";
 import styles from "./MaterialCoveragePanel.module.css";
@@ -123,9 +124,9 @@ export default function MaterialCoveragePanel() {
       <div className={styles.headingRow}>
         <div className={styles.heading}>材料ごとの欠損割合</div>
         <InfoPopover
-          triggerClassName={recipeControlStyles.infoButton}
+          triggerClassName={infoButtonStyles.infoButton}
           triggerAriaLabel="欠損割合の見方"
-          contentClassName={recipeControlStyles.infoTooltip}
+          contentClassName={floatingPopoverStyles.floatingPopover}
         >
           <p className={styles.popoverParagraph}>
             材料の元データ（OSMタグ、またはEdge単位の派生テーブルの行）を持たない区間の割合。母集団はWay=

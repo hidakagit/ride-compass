@@ -5,7 +5,7 @@
   /* 下部タブバー（page.module.css）のすぐ上に乗せる。タブバー自体はシート表示中も
      見えたまま＝タブの切り替え・再タップでの開閉ができる（globals.cssのトークン参照）。 */
   bottom: var(--mobile-tabbar-height);
-  z-index: 45;
+  z-index: var(--z-bottom-sheet);
   /* 高さはBottomSheet.tsxのheightVh（初期値50vh、ハンドルドラッグ/キー操作で
      20〜80vhの範囲で可変）をインラインstyleで指定する。以前は65vh→50vh固定
      （モバイル実機フィードバック対応T41）だったが、「ちょうどいい高さ」は人により違うため

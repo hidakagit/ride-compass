@@ -102,6 +102,35 @@
      .sheetのbottomオフセットと一致させ、シートがタブバーの上にぴったり乗るようにする
      （モバイル実機フィードバック対応T34）。 */
   --mobile-tabbar-height: 3.5rem;
+
+  /* 重なり順の共通スケール。**画面全体で重なり合う層はここに列挙した6段しか無い**
+   * ——各module.cssが素の数値を持つと、相互関係が各ファイルのコメントでしか表現されず、
+   * 新しい層を足したときに既存のどれより上/下なのかを確かめる手立てが無くなる
+   * （Radix PortalでDOM上はbody直下へ出る要素同士は、記述順ではなくこの値だけで前後が
+   * 決まる）。1つの部品の内側だけで重なる要素（読み込みオーバーレイ・sticky列見出し等）は
+   * このスケールの対象外で、素の小さい値のままでよい。 */
+  --z-map-control: 20;
+  --z-map-popup: 25;
+  --z-map-detail: 30;
+  --z-bottom-sheet: 45;
+  --z-header-popover: 46;
+  --z-floating-panel: 50;
+  --z-top-popover: 60;
+
+  /* ログ・稼働状況の重大度色。**固定ダークな面（FloatingPanel・ログ本文）の上でだけ使う**
+   * ため、ライト/ダークで切り替えない（--color-danger等のテーマトークンは明るい面向けの
+   * 濃さで、暗い面では沈んで読めない）。 */
+  --color-log-error: #f87171;
+  --color-log-warning: #fbbf24;
+  --color-log-info: #60a5fa;
+
+  /* MapLibre自身のコントロール（ズーム+/−・回転）の実寸。アプリが地図右上へ足す
+   * ボタンは、テーマトークンではなくこの値へ揃えることで「MapLibreのボタン列の続き」
+   * として見える（components/ui/mapCtrlButton.module.css参照）。 */
+  --map-ctrl-button-size: 29px;
+  --map-ctrl-margin: 10px;
+  --map-ctrl-stack-top: 6.5rem;
+  --map-ctrl-stack-gap: 4px;
 }
 
 /* かつては--background/--foreground以外のトークンをダークモードで再定義せず常に固定色
@@ -347,13 +376,11 @@
   padding: var(--space-2) var(--space-3);
 }
 
-/* 既定は個別のz-index指定が無くDOM順で積み重なるため、MapOverlayControls側の
-   アイコンボタン列（z-index: 20、MapOverlayControls.module.cssの.wrapper）が地図キャンバス内の
-   ポップアップより前面に出て文字が隠れてしまう（実機フィードバック「ツールチップ背景が微妙、
-   ボタンより前面に出てほしい」）。.wrapperより上、詳細パネル（.detailPanel、z-index: 30）
-   より下に置く。 */
+/* 既定は個別のz-index指定が無くDOM順で積み重なるため、地図上の操作系
+   （--z-map-control）が地図キャンバス内のポップアップより前面に出て文字が隠れてしまう。
+   操作系より上、詳細パネル（--z-map-detail）より下に置く。 */
 .maplibregl-popup {
-  z-index: 25;
+  z-index: var(--z-map-popup);
 }
 
 /* closeボタンはbutton要素のため、上のグローバルbutton既定（padding: var(--space-2)

@@ -1,4 +1,5 @@
 import { getMessages, requestJson } from "@/lib/fetchJson";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 // backendの直近ログ取得API（GET /api/admin/debug/logs）のクライアント。
 // axisAdminApi.tsと同じ理由で、同一オリジンのNext.js route handler
@@ -35,7 +36,7 @@ export async function getRecentLogs(params: GetRecentLogsParams = {}): Promise<s
   const path = queryString ? `${API_BASE_URL}?${queryString}` : API_BASE_URL;
 
   const lines = await requestJson<string[]>(path, {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:debugAdminLogs",
     messages: getMessages("ログ"),
     startLabel: `GET ${path}`,

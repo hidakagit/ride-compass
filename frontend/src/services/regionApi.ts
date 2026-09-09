@@ -4,6 +4,7 @@ import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { requestOk, type ApiResponse } from "@/lib/fetchJson";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 interface PostRequestOptions {
   category: string;
@@ -21,7 +22,7 @@ interface PostRequestOptions {
 // 側、lib/fetchJson.ts参照）を使い、成功ログだけ呼び出し側が出す。
 function postAndCheckOk(
   path: string,
-  { category, errorLabel, body, timeoutMs = 15000 }: PostRequestOptions,
+  { category, errorLabel, body, timeoutMs = DEFAULT_API_TIMEOUT_MS }: PostRequestOptions,
 ): Promise<ApiResponse> {
   return requestOk(`${API_BASE_URL}${path}`, {
     method: "POST",
@@ -158,7 +159,7 @@ export async function fetchDynamicWayValues(
     // （x-request-idのログ記録もこれで揃う——独自実装だった頃はここだけrequestIdを
     // 残さず、失敗時にサーバーログと突き合わせできなかった）。
     const { response, durationMs, requestId } = await requestOk(url, {
-      timeoutMs: 15000,
+      timeoutMs: DEFAULT_API_TIMEOUT_MS,
       category: logCategory,
       messages: { failure: "道路の色分けの取得に失敗しました", parseFailure: "道路の色分けの解析に失敗しました" },
     });

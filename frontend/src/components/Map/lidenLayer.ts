@@ -11,6 +11,7 @@
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
 import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaElementUrl } from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 export type LidenFrame = JmaNowcastFrame;
 
@@ -51,7 +52,7 @@ export async function fetchLidenGeojson(
   const frame = frames[ref];
   if (!frame) return undefined;
   const geojson = await fetchJson<GeoJSON.FeatureCollection>(lidenGeojsonUrl(frame), {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:liden",
     errorLabel: "雷放電位置データ",
   });

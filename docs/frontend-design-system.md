@@ -34,6 +34,34 @@
 | font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（既存`--font-size-sm`(0.8rem)とはわずかにズレるが、両者は別ファイルに閉じており実害なし） |
 | **color** | **`@theme`へ統合しない。** ダークモードが`globals.css`の`@media (prefers-color-scheme: dark)`内`:root`再定義に依存しており、`@theme`に入れると値が静的に固定されダークモード追従が壊れるため（T252の判断を踏襲）。`components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** |
 
+### 重なり順（z-index）
+
+画面全体で重なり合う層は`globals.css`の`:root`にある7段のトークンがすべてで、各
+`*.module.css`は素の数値を持たない。Radix Portalで`document.body`直下へ出る要素同士は、
+記述順ではなくこの値だけで前後が決まるため、**新しい浮動UIを足すときは既存のどの層より
+上/下なのかをこの表で決める**。
+
+| トークン | 値 | 層 |
+|---|---|---|
+| `--z-map-control` | 20 | 地図に重ねる操作系（チップ列・現在地ボタン・走行条件列） |
+| `--z-map-popup` | 25 | MapLibreのポップアップ |
+| `--z-map-detail` | 30 | 地図内の詳細パネル |
+| `--z-bottom-sheet` | 45 | モバイルのBottomSheet・下部タブバー |
+| `--z-header-popover` | 46 | ヘッダー由来のポップオーバー（メニュー・警報バッジ・今日の見通し） |
+| `--z-floating-panel` | 50 | 開発者向けFloatingPanel・`ui/Dialog` |
+| `--z-top-popover` | 60 | 開いた時点で必ず見えるべき浮きパネル（`ui/floatingPopover`・レンズ一覧・走行条件） |
+
+1つの部品の内側だけで重なる要素（読み込みオーバーレイ・sticky列見出し等）はこのスケールの
+対象外で、素の小さい値のままでよい。
+
+### 固定ダークな面の上の色
+
+開発者向けFloatingPanel（`SystemStatusPanel`・`DebugConsole`）とログ本文
+（`BackendLogsPanel`）はテーマに追従しない暗い面のため、重大度色は`--color-danger`等の
+テーマトークンではなく`--color-log-error`/`--color-log-warning`/`--color-log-info`
+（ライト/ダークで切り替えない固定値）を使う。テーマトークンは明るい面向けの濃さで、
+暗い面では沈んで読めなくなる。
+
 **存在しないトークン名は機械的に弾く**。`var(--color-text)`のように規約どおりの見た目でも
 定義が無ければ継承値へ落ち、SVGの`fill`だとダークモードで文字が読めなくなる。
 `scripts/review_checks.py`の「未定義のCSSトークン」チェックが、`globals.css`にも同一ファイル
@@ -58,6 +86,24 @@
 | `Card` | 単一のシンプルなラッパー。`bg-[var(--color-surface-2)] rounded-md p-2`（既存の`legendCard`/`admin.card`と同一実装に合わせた） |
 | `Dialog` | Radix Dialogのラップ（Root/Trigger/Content）。`title`必須propsでアクセシブル名を型で強制 |
 | `Checkbox` | Radix Checkboxのラップ |
+
+CSSのみの共有スタイル（コンポーネントを介さず、各`*.module.css`から`composes`で取り込む）:
+
+| ファイル | 概要 |
+|---|---|
+| `adminPanel.module.css` | 管理画面パネルの外枠（見出し・補足文・操作列）と一覧表のシェル |
+| `floatingPopover.module.css` | 情報アイコンから開く浮きパネル |
+| `infoButton.module.css` | 見出し・ラベル脇の(i)トリガー（開いている間はアクセント色） |
+| `roundIconButton.module.css` | 地図に重ねる小さい丸アイコンボタン |
+| `mapCtrlButton.module.css` | MapLibre純正コントロールの続きに見える29px四方ボタン |
+| `stepperButton.module.css` | 値を1段ずつ増減する枠線ボタン |
+| `statusDot.module.css` | データ取得状態の3表現（点滅／中空／danger） |
+| `axisLegend.module.css` | 軸の寄与を示す帯グラフと凡例ドット |
+
+**別コンポーネントの`*.module.css`を直接importして借りない**。CSS Modulesは存在しない
+クラス名に対して`undefined`を返すため、貸し手側の改名が無スタイルのまま本番へ出る
+（tscもlintも止めない）。共有したい見た目は上表のように`components/ui/`へ出し、双方が
+`composes`で取り込む。
 
 いずれも`class-variance-authority`（variant管理）+ `clsx`/`tailwind-merge`（`frontend/src/lib/cn.ts`の
 `cn()`ヘルパー）を使うshadcn/ui方式（npmパッケージ導入ではなくコピー&オウン）。

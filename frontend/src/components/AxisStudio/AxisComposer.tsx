@@ -19,10 +19,8 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette";
 import styles from "./AxisStudio.module.css";
-// 情報アイコン(ⓘ)ポップオーバーのCSS（.infoButton/.infoTooltip）はrecipeControls.tsxの
-// FieldLabelが既に定義済みのものをそのまま流用する（同じ見た目・z-index対策を
-// 材料選択の情報アイコンでも二重定義せず共有するため）。
-import recipeControlStyles from "@/components/Map/recipeControls.module.css";
+import infoButtonStyles from "@/components/ui/infoButton.module.css";
+import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { useAxisValueDistribution } from "@/hooks/useAxisValueDistribution";
 import { DistributionPreview } from "./DistributionPreview";
 import { MaterialRangeHint } from "./MaterialRangeHint";
@@ -85,9 +83,9 @@ function shapeKindOption(kind: ShapeKind): ShapeKindOption {
 function InfoPopoverButton({ ariaLabel, description }: { ariaLabel: string; description: string }) {
   return (
     <InfoPopover
-      triggerClassName={recipeControlStyles.infoButton}
+      triggerClassName={infoButtonStyles.infoButton}
       triggerAriaLabel={ariaLabel}
-      contentClassName={recipeControlStyles.infoTooltip}
+      contentClassName={floatingPopoverStyles.floatingPopover}
     >
       {description}
     </InfoPopover>

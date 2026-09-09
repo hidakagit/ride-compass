@@ -16,10 +16,10 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
-| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`cn.ts`・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数） |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`cn.ts`・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
-| components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |
+| components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）・`infoButton.module.css`（見出し脇の(i)トリガー）・`mapCtrlButton.module.css`（MapLibre純正コントロールの続きに見える29px四方ボタン）・`statusDot.module.css`（データ取得状態の3表現）・`axisLegend.module.css`（軸の寄与を示す帯グラフと凡例ドット）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
 | components/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ29px四方のアイコンボタンで、タップしたポップオーバー内はドラッグ式タイムライン＋`input[type=datetime-local]`の直接指定[出発時刻]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
 | components/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
@@ -28,6 +28,11 @@
 URL`）とNext.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
 ネットワークのURLになりうるため別変数）。`useLocation.ts`はブラウザのGeolocation APIを
 扱うhookで、起点座標の取得に使う。
+
+タイムアウトは`apiTimeouts.ts`の名前付き定数（既定15秒・状態確認5秒・カタログ10秒・
+分布プレビュー60秒・管理画面の重い集計90秒）から選ぶ。**同じ呼び出しのブラウザ側
+クライアントとNext.js route handler（backendへの転送）は必ず同じ定数を共有する**
+——別々に持つと片方だけ延ばしてももう片方が先に打ち切って症状が変わらない。
 
 `fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`クライアントが共有するfetch骨格と
 エラー正規化。骨格は「fetch→通信エラーのtry/catch→`response.ok`確認→エラーボディ解析→

@@ -1,0 +1,46 @@
+/*
+ * データ取得状態を示す小さなドットの視覚表現。
+ *
+ * 3状態を色の違いではなく形（塗りつぶし＝取得中で点滅／中空＝データ0件／danger＝失敗）で
+ * 区別するため、色覚や暗所でも読み取れる。地図チップ（LayerChip）・地図アイコンチップ
+ * （MapOverlayControls）・レンズ一覧（LensControl）が共有する。
+ *
+ * クラス名の接尾辞はmapLayers.ts: LayerDataStatusの値（"loading"/"empty"/"error"）と
+ * そろえてあり、呼び出し側は`styles[`statusDot_${dataStatus}`]`で動的に参照する
+ * ——状態→視覚表現の対訳表をコンポーネント内に持たないため（設計原則8）。
+ *
+ * 置き場所（絶対配置か行内か・余白）は呼び出し側のCSS Modulesが`composes`と併せて足す。
+ */
+
+.statusDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.statusDot_loading {
+  background: currentColor;
+  opacity: 0.5;
+  animation: rc-status-dot-pulse 1.2s ease-in-out infinite;
+}
+
+.statusDot_empty {
+  background: transparent;
+  border: 1px solid currentColor;
+  opacity: 0.7;
+}
+
+.statusDot_error {
+  background: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+@keyframes rc-status-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}

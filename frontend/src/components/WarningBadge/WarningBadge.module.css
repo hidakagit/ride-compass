@@ -23,7 +23,7 @@
 
 /* 詳細パネル（Popover.Content）。recipeControls.module.cssの.infoTooltip・MapLibre
  * ポップアップと同じ「フローティングカード」の見た目（背景・枠線・影）に揃える。
- * z-index:46はBottomSheet（45）より前面、開発者向けFloatingPanel（50）より背面という
+ * --z-header-popoverはBottomSheetより前面、開発者向けFloatingPanelより背面という
  * 位置づけ（他のPopover利用箇所と同じ値）。 */
 .detailPanel {
   max-width: min(90vw, 20rem);
@@ -34,7 +34,7 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   padding: var(--space-2) var(--space-3);
-  z-index: 46;
+  z-index: var(--z-header-popover);
 }
 
 .detailList {

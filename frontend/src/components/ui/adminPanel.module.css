@@ -5,8 +5,8 @@
  * 「見出し＋補足文＋操作列＋本体」という同じ構成を持つ。各パネルのCSS Modulesから
  * `composes`で参照し、クラス名は呼び出し側のまま保つ（コンポーネント側の変更が要らない）。
  *
- * パネル固有の見た目（表・トグル・列幅等）は各パネルのCSS Modulesに残す。ここへ置くのは
- * 3パネルすべてで同一だったものだけ。
+ * パネル固有の見た目（トグル・列幅・バッジ等）は各パネルのCSS Modulesに残す。ここへ置くのは
+ * 複数のパネルで同一だったものだけ。
  */
 
 .panel {
@@ -42,4 +42,38 @@
 .summary {
   color: var(--color-muted);
   font-size: var(--font-size-sm);
+}
+
+/* 一覧表の外枠。横スクロールを表自身ではなくこのラッパーへ持たせ、狭い画面でもパネル全体が
+   横に伸びないようにする。 */
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-sm);
+}
+
+/* 表本体。セルの縦揃え（内容が1行か複数行か）はパネルごとに違うため、ここでは指定せず
+   呼び出し側が`.table th, .table td`へ足す。 */
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+.table thead th {
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
 }

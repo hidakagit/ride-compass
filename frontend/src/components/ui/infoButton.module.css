@@ -1,0 +1,26 @@
+/*
+ * 見出し・ラベルの脇に置く(i)アイコンのトリガーボタン。
+ *
+ * Map/InfoPopover.tsxへ`triggerClassName`として渡す前提で、開いている間
+ * （`aria-expanded="true"`）はアクセント色へ変わる。フォーム項目のラベル脇・軸スタジオの
+ * 材料説明・ルート結果の軸一覧が共有する。
+ *
+ * 区切り線や固定幅が要る場合（凡例チップの中で他要素と枠を共有する等）は、呼び出し側の
+ * CSS Modulesが`composes`と併せて足す。
+ */
+
+.infoButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.infoButton[aria-expanded="true"] {
+  color: var(--color-accent-strong);
+}

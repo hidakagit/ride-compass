@@ -1,12 +1,12 @@
 /* 地図（page.module.cssの.mapPane、position:relative）に重ねる。デスクトップ・モバイルとも
    常に左上（以前はモバイルのみ下部タブバー付近へ寄せていたが、アイコン化して縦一列に
    圧縮したことで常時左上に置いても地図の視界を大きく妨げなくなったため統一した）。
-   z-indexは現在地ボタン（20）と同じ層。モバイルのBottomSheet（z:45）より下。 */
+   重なり順は現在地ボタンと同じ--z-map-control。モバイルのBottomSheetより下。 */
 .wrapper {
   position: absolute;
   top: var(--space-3);
   left: var(--space-3);
-  z-index: 20;
+  z-index: var(--z-map-control);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -25,7 +25,7 @@
 }
 
 /* 改善計画T374フォローアップ（実機確認、ユーザー報告「スマホでは動いていない」）:
-   .wrapperはz-index 20でモバイルの.mobileTabBar（z-index 45、画面下部固定、下記
+   .wrapperは--z-map-controlでモバイルの.mobileTabBar（--z-bottom-sheet、画面下部固定、下記
    .mobileTabBarのコメント参照）より意図して下に配置されているため、.chipRowViewportの
    中身が伸びきると「下を表示」ボタンがタブバーの表示域まで達し、スタッキング上タブバー
    配下に完全に隠れて押せなくなっていた（Playwright実機確認で発覚）。.chipRowViewport側の
@@ -228,46 +228,27 @@
   cursor: default;
 }
 
-/* レイヤーのデータ取得状態を示す小さなドット（改善計画T87/T606）。LayerChip.module.css
-   の.statusDot系と同じ「塗りつぶし/中空/点滅」の3表現をアイコン右上へ絶対配置する
-   （テキストチップと違いアイコンの左に余白を割けないため）。クラス名はmapLayers.ts:
-   LayerDataStatusの値（"loading"/"empty"/"error"）とそろえてあり、MapOverlayControls.tsx
-   側は`styles[`iconStatusDot_${dataStatus}`]`で動的に参照する。 */
+/* データ取得状態のドット（共通の見た目はui/statusDot.module.css）。テキストチップと違い
+   アイコンの左に余白を割けないため、アイコン右上へ絶対配置する。 */
 .iconStatusDot {
+  composes: statusDot from "../ui/statusDot.module.css";
   position: absolute;
   top: 0.15rem;
   right: 0.15rem;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
 }
 
 .iconStatusDot_loading {
-  background: currentColor;
-  opacity: 0.5;
-  animation: rc-overlay-chip-pulse 1.2s ease-in-out infinite;
+  composes: statusDot_loading from "../ui/statusDot.module.css";
 }
 
 .iconStatusDot_empty {
-  background: transparent;
-  border: 1px solid currentColor;
-  opacity: 0.7;
+  composes: statusDot_empty from "../ui/statusDot.module.css";
 }
 
 .iconStatusDot_error {
-  background: var(--color-danger);
-  border: 1px solid var(--color-danger);
+  composes: statusDot_error from "../ui/statusDot.module.css";
 }
 
-@keyframes rc-overlay-chip-pulse {
-  0%,
-  100% {
-    opacity: 0.25;
-  }
-  50% {
-    opacity: 0.85;
-  }
-}
 
 /* 最上位グループ（道路/環境/スポット、改善計画T406で「観測/推定/動的」から再編、T418で
    評価軸グループを撤去）の色分け（実機フィードバック「それぞれのタイル及びそのグループ
@@ -449,7 +430,7 @@
 .detailPanel {
   composes: detailPanelBase;
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-map-detail);
 }
 
 /* legendDetailsが無いとき（描く凡例が無い）だけの案内文（例:「ズームインすると
