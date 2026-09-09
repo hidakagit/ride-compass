@@ -1,9 +1,12 @@
 {
   "stop": [
+    "barrier",
     "crossing",
     "give_way",
     "level_crossing",
+    "railway_crossing",
     "stop",
+    "traffic_calming",
     "traffic_signals"
   ],
   "supply": [

@@ -148,3 +148,75 @@ class TestDefaultProfile:
             rule = matching_rule(profile, "node", {"amenity": amenity})
             assert rule is not None, f"amenity={amenity} should match"
             assert rule.target == "osm_raw_pois"
+
+    def test_barrier_and_traffic_calming_nodes_match(self):
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        for barrier in ("cycle_barrier", "bollard", "gate", "lift_gate", "block", "turnstile"):
+            assert matching_rule(profile, "node", {"barrier": barrier}) is not None, barrier
+        # 停止要因にならない車止め値は取り込まない（段差・料金所・塀の開口部）。
+        for barrier in ("kerb", "toll_booth", "entrance", "fence"):
+            assert matching_rule(profile, "node", {"barrier": barrier}) is None, barrier
+        for calming in ("hump", "bump", "chicane", "choker"):
+            assert matching_rule(profile, "node", {"traffic_calming": calming}) is not None, calming
+        assert matching_rule(profile, "node", {"traffic_calming": "island"}) is None
+
+    def test_railway_crossings_match_both_road_and_path(self):
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        for railway in ("level_crossing", "crossing", "tram_level_crossing", "tram_crossing"):
+            rule = matching_rule(profile, "node", {"railway": railway})
+            assert rule is not None, railway
+            assert rule.target == "osm_raw_pois"
+        assert matching_rule(profile, "node", {"railway": "switch"}) is None
+
+
+class TestProfileMatchesClassifier:
+    """プロファイル（どのnodeをPBFから拾うか）とdomain側の分類器（拾ったnodeをどのkindへ
+    分類するか）が食い違わないことを固定する。
+
+    取込は「プロファイルで拾う→分類器がkindを返す→osm_raw_poisへ書く」の順で、**分類器が
+    Noneを返したnodeは黙って捨てられる**（osm_adapter.py: osm_node_to_poi_spec）。そのため
+    プロファイルにルールを足しただけでは何も取り込まれず、逆に分類器だけ足してもPBFから
+    そのnodeが流れてこない。どちらの片側変更もテストが赤くならなければ気づけないため、
+    ここで両方向を突き合わせる。
+    """
+
+    def _node_tag_combinations(self, rule: ElementRule) -> list[dict[str, str]]:
+        """ルールが受理するタグ辞書の代表例（値リストの直積）。"""
+        keys = sorted(rule.match)
+        value_lists = [rule.match[k] if rule.match[k] != "*" else ["*"] for k in keys]
+        combos: list[dict[str, str]] = [{}]
+        for key, values in zip(keys, value_lists, strict=True):
+            combos = [{**combo, key: value} for combo in combos for value in values]
+        return combos
+
+    def test_every_node_the_profile_takes_is_classified(self):
+        from app.domain.osm_adapter import osm_node_to_poi_spec
+
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        for rule in profile.rules:
+            if rule.element_type != "node":
+                continue
+            for tags in self._node_tag_combinations(rule):
+                spec = osm_node_to_poi_spec({"id": 1, "tags": tags, "lat": 35.0, "lon": 139.0})
+                assert spec is not None, f"{rule.name}: {tags} はプロファイルが拾うのに分類できない"
+
+    def test_every_classified_kind_reaches_the_stop_poi_count(self):
+        """停止要因として分類したkindが、集計対象の集合（STOP_POI_KINDS）に必ず入る。"""
+        from app.domain.osm_adapter import osm_node_to_poi_spec
+        from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind, classify_supply_poi
+
+        supply_kinds = set(SupplyPoiKind.__args__)
+        profile = load_profile(DEFAULT_PROFILE_PATH)
+        seen: set[str] = set()
+        for rule in profile.rules:
+            if rule.element_type != "node":
+                continue
+            for tags in self._node_tag_combinations(rule):
+                spec = osm_node_to_poi_spec({"id": 1, "tags": tags, "lat": 35.0, "lon": 139.0})
+                assert spec is not None
+                seen.add(spec.kind)
+                if classify_supply_poi(tags) is None:
+                    assert spec.kind in STOP_POI_KINDS, f"{tags} のkind={spec.kind}が集計対象外"
+        # 補給POIと停止要因POIの両方を1度は通っていること（片方だけの取り違え検知）。
+        assert seen & supply_kinds
+        assert seen & set(STOP_POI_KINDS)

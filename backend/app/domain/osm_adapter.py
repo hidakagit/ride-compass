@@ -118,11 +118,24 @@ def osm_ways_to_way_specs(raw_ways: list[dict]) -> list[WaySpec]:
     return [spec for spec in specs if spec is not None]
 
 
-# 信号・横断歩道・一時停止・踏切・補給休憩ポイント(T101)のnode取込で保持するタグの
-# 許可リスト（静的道路属性P1）。highway/railway/shop/amenityは分類根拠そのものだが、
-# 値をそのまま保持しておくと将来の分類精緻化（例: crossing=uncontrolled/traffic_signalsの
-# 区別）を再取込無しに遡って行える（ALLOWED_WAY_TAGSと同じ「生タグ保持」の考え方）。
-ALLOWED_NODE_TAGS = frozenset({"highway", "railway", "crossing", "shop", "amenity"})
+# node取込で保持するタグの許可リスト（静的道路属性P1）。**分類根拠のタグは値まで残す**
+# ——将来の分類精緻化（例: crossing=uncontrolled/traffic_signalsの区別、barrierの種類別重み）を
+# 再取込無しに遡って行えるようにするため（ALLOWED_WAY_TAGSと同じ「生タグ保持」の考え方）。
+# bicycle/accessは車止めが併せ持つ通行可否（`barrier=gate`+`bicycle=yes`は実質素通しできる等）で、
+# 集計側でこれを使い分けたくなったときに再取込が要らないよう最初から保持する。
+ALLOWED_NODE_TAGS = frozenset(
+    {
+        "highway",
+        "railway",
+        "crossing",
+        "shop",
+        "amenity",
+        "barrier",
+        "traffic_calming",
+        "bicycle",
+        "access",
+    }
+)
 
 
 class POISpec(BaseModel):
@@ -143,8 +156,8 @@ class POISpec(BaseModel):
 
 def osm_node_to_poi_spec(raw_node: dict) -> POISpec | None:
     """`{"id": int, "tags": dict, "lat": float, "lon": float}`形式のnode要素をPOISpecへ
-    変換する。停止要因（信号・横断歩道・一時停止・踏切）・補給休憩ポイント(T101:
-    コンビニ・自販機・トイレ・給水・駐輪場)のいずれにも該当しないnode（大多数の形状点）は
+    変換する。停止要因（信号・横断歩道・一時停止・踏切・車止め・減速構造）・補給休憩ポイント
+    （コンビニ・自販機・トイレ・給水・駐輪場）のいずれにも該当しないnode（大多数の形状点）は
     Noneを返す（osm_raw_poisは分類できたnodeだけを保持する、road_graph_models.py:
     OsmRawPoiRow参照）。2つの分類はタグ名が独立している（highway/railway vs shop/amenity）
     ため優先順位を考慮せず、いずれか一致した方をそのまま使う。

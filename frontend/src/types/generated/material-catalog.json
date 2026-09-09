@@ -303,5 +303,13 @@
     "dtype": "numeric",
     "unit": "回/km",
     "value_labels": null
+  },
+  {
+    "material_id": "poi_barrier_per_km",
+    "label": "車止め・減速構造の密度(回/km)",
+    "description": "進行する道路上にある車止め・減速構造の、1kmあたりの数。",
+    "dtype": "numeric",
+    "unit": "回/km",
+    "value_labels": null
   }
 ]

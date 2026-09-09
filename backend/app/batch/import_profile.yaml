@@ -65,12 +65,64 @@ elements:
         - stop
         - give_way
     target: osm_raw_pois
-  # 静的道路属性P1: 踏切。
-  - name: railway_level_crossings
+  # 静的道路属性P1: 踏切。level_crossingは車道が線路を渡る踏切、crossingは歩道・自転車道が
+  # 渡る踏切で、自転車にとってはどちらも「線路を渡るため止まる/徐行する点」。路面電車側
+  # （tram_*）も同じ扱い。
+  - name: railway_crossings
     element_type: node
     match:
       railway:
         - level_crossing
+        - crossing
+        - tram_level_crossing
+        - tram_crossing
+    target: osm_raw_pois
+  # 車止め・ゲート類。河川敷サイクリングロード等で自転車を降車・停止させる最大の要因で、
+  # 値の選定基準と外したもの（kerb・toll_booth等）はdomain/traffic.py:
+  # _BARRIER_STOP_VALUESのコメント参照。ここの値一覧はそちらと一致させること
+  # （tests/test_import_profile.pyが検証する。プロファイルだけ増やしても分類器がNoneを
+  # 返せば取り込まれない）。
+  - name: barrier_nodes
+    element_type: node
+    match:
+      barrier:
+        - cycle_barrier
+        - bollard
+        - gate
+        - lift_gate
+        - swing_gate
+        - sliding_gate
+        - bump_gate
+        - hampshire_gate
+        - kissing_gate
+        - wicket_gate
+        - stile
+        - turnstile
+        - block
+        - chain
+        - rope
+        - log
+        - planter
+        - height_restrictor
+        - motorcycle_barrier
+        # "yes"はYAML 1.1でブール値に解決されるため引用符が必須
+        # （shared_pedestrian_waysのbicycleと同じ理由）。
+        - "yes"
+    target: osm_raw_pois
+  # 減速構造（ハンプ・狭さく等）。停止ではなく減速のため車止めとは別kindで持つ。
+  - name: traffic_calming_nodes
+    element_type: node
+    match:
+      traffic_calming:
+        - hump
+        - bump
+        - table
+        - cushion
+        - chicane
+        - choker
+        - mini_bumps
+        - rumble_strip
+        - "yes"
     target: osm_raw_pois
   # 改善計画T101（補給・休憩ポイントPOIレイヤー）: コンビニ。shopとamenityは別タグキーの
   # ためOR条件になり1ルールのANDマッチでは表現できず、下のsupply_amenity_nodesと分けている

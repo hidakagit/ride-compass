@@ -4,6 +4,9 @@ services/derived_data_freshness_service.py）のDB非依存テスト。
 
 from datetime import datetime, timezone
 
+from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION as EDGE_ALGORITHM_VERSION
+from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as WAY_ALGORITHM_VERSION
+from app.batch.precompute_way_landcover import ALGORITHM_VERSION as LANDCOVER_ALGORITHM_VERSION
 from app.infrastructure.derived_data_freshness import (
     GENERATION_FRESHNESS_SPECS,
     DerivedDataFreshnessCounts,
@@ -21,7 +24,7 @@ def _edge_counts(
     accident_null: int = 0,
     osm_min: int | None = 10,
     osm_null: int = 0,
-    algorithm_version_min: str | None = "v1",
+    algorithm_version_min: str | None = EDGE_ALGORITHM_VERSION,
     algorithm_version_null: int = 0,
     row_count: int = 5,
 ) -> GenerationFreshnessCounts:
@@ -42,6 +45,7 @@ def _edge_counts(
 
 
 def _way_counts(**kwargs) -> GenerationFreshnessCounts:
+    kwargs.setdefault("algorithm_version_min", WAY_ALGORITHM_VERSION)
     counts = _edge_counts(**kwargs)
     return GenerationFreshnessCounts(
         table_name="way_attribute_counts",
@@ -70,7 +74,7 @@ def _landcover_counts(
     *,
     osm_min: int | None = 10,
     osm_null: int = 0,
-    algorithm_version_min: str | None = "v1-ring10-100",
+    algorithm_version_min: str | None = LANDCOVER_ALGORITHM_VERSION,
     algorithm_version_null: int = 0,
     row_count: int = 5,
 ) -> GenerationFreshnessCounts:

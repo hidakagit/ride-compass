@@ -59,6 +59,18 @@ Geofabrik/BBBike PBF抽出ファイル
 `target`テーブル）として定義する。取込コア（`import_pbf.py`）自身はこの語彙を解釈する
 だけで、新しい取込対象を増やす際はルール追加＋対応するwriter実装で行う。
 
+**プロファイルのルールと`domain/traffic.py`の分類器は対で意味を持つ。** 取込は
+「プロファイルで拾う→分類器が`kind`を返す→`osm_raw_pois`へ書く」の順で、分類器が`None`を
+返したnodeは黙って捨てられる（`osm_adapter.py: osm_node_to_poi_spec`）。したがって
+**プロファイルへルールを足しただけでは1件も取り込まれない**（逆に分類器だけ足しても
+PBFからそのnodeが流れてこない）。両方向の一致は`tests/test_import_profile.py`が固定する。
+
+取り込むnodeのタグは許可リスト（`osm_adapter.py: ALLOWED_NODE_TAGS`）で絞る。分類根拠の
+タグ（`highway`/`railway`/`barrier`/`traffic_calming`）に加え、車止めが併せ持つ通行可否
+（`bicycle`/`access`）も残す——集計側で使い分けたくなったときにPBF再取込が要らないように
+するため。取込対象の種類を変えるとPBF再取込（数時間）が要る一方、集計キーの切り方は
+バッチ再実行（数分）で変えられるので、**取込は迷ったら広めに取り、絞り込みは集計側で行う**。
+
 ### 事故データ取込（`import_accidents.py`）
 
 警察庁交通事故統計オープンデータの本票CSV（`honhyo_{year}.csv`）を年号から組み立てた
@@ -126,7 +138,10 @@ Way単位版は地図タイルの母集団になる（`road_edges`はルート�
 
 集計キーは取込時の`kind`と1対1ではない。信号は`highway=traffic_signals`と
 `highway=crossing`＋`crossing=traffic_signals`の2通りで書かれるためどちらも`signal`へまとめ、
-信号を伴わない横断歩道だけが`crossing`、`give_way`は`stop`へ畳む。分類は取込時ではなく
+信号を伴わない横断歩道だけが`crossing`、`give_way`は`stop`へ畳む。踏切は車道用
+（`level_crossing`）と歩道・自転車道用（`railway_crossing`）を`level_crossing`へ、車止め
+（`barrier`）と減速構造（`traffic_calming`）を`barrier`へまとめる——いずれも自転車から見て
+同じ止まり方で、重みを分ける根拠がまだ無い。分類は取込時ではなく
 **集計時**に`osm_raw_pois.tags`から導出するため、キーの切り方を変えてもPBF再取込は要らず
 本バッチの再実行だけで反映できる。
 
@@ -298,10 +313,14 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | `traffic.py` | 停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、交差点判定の空間マッチ半径・次数しきい値 |
 | `osm_adapter.py` | OSMタグ解釈（許可リストタグ・oneway方向解決等）。PBF取込・Overpassランタイム経路の両方が同じ意味論で解釈するための単一ソース |
 
-`traffic.py: classify_stop_poi`はrailway=level_crossingとhighway系タグが同一nodeに
-付く場合railway側を優先する（踏切は信号・横断歩道より自転車にとって一時停止の法的
-義務が強いため）。`classify_supply_poi`はコンビニ/自販機/トイレ/給水/駐輪場を分類する
-（タグ名の名前空間がstop系と独立しているため優先順位判定は不要）。
+`traffic.py: classify_stop_poi`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切
+（`railway=*`）・車止め（`barrier=*`）・減速構造（`traffic_calming=*`）を分類する。複数の
+タグが同一nodeに付きうるため優先順位は railway → highway → barrier → traffic_calming で、
+止まる度合いが強い方を先に見る（踏切は信号・横断歩道より自転車にとって一時停止の法的
+義務が強い）。車止めは値の網羅ではなく「進行を物理的に妨げる点か」で選び、段差
+（`kerb`）・料金所（`toll_booth`）・塀の開口部（`entrance`）等は対象外
+（`_BARRIER_STOP_VALUES`）。`classify_supply_poi`はコンビニ/自販機/トイレ/給水/駐輪場を
+分類する（タグ名の名前空間がstop系と独立しているため優先順位判定は不要）。
 
 ## 暗黙の前提
 

@@ -4,7 +4,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_derived_data_freshness_service
-from app.infrastructure.derived_data_freshness import DerivedDataFreshnessCounts, GenerationFreshnessCounts
+from app.infrastructure.derived_data_freshness import (
+    GENERATION_FRESHNESS_SPECS,
+    DerivedDataFreshnessCounts,
+    GenerationFreshnessCounts,
+)
 from app.main import app
 from app.services.derived_data_freshness_service import build_freshness_report
 from tests.admin_auth import AUTH_HEADERS, basic_auth_header
@@ -26,6 +30,13 @@ class FakeDerivedDataFreshnessService:
         return build_freshness_report(self._counts, datetime(2026, 9, 4, tzinfo=timezone.utc))
 
 
+# 「鮮度が最新」を表すフェイクは、版数を書き写さず実装側の仕様から取る
+# （書き写すと版数を上げるたびにこのテストが偽の失敗を出す）。
+_CURRENT_ALGORITHM_VERSIONS = {
+    spec.table_name: spec.algorithm_version_current for spec in GENERATION_FRESHNESS_SPECS
+}
+
+
 def _fresh_counts() -> DerivedDataFreshnessCounts:
     def _generation(table_name: str, sources: dict[str, int]) -> GenerationFreshnessCounts:
         return GenerationFreshnessCounts(
@@ -33,7 +44,7 @@ def _fresh_counts() -> DerivedDataFreshnessCounts:
             row_count=5,
             source_min=sources,
             source_null_count=dict.fromkeys(sources, 0),
-            algorithm_version_min="v1" if "source_accident_import_run_id" in sources else None,
+            algorithm_version_min=_CURRENT_ALGORITHM_VERSIONS[table_name],
             algorithm_version_null_count=0,
         )
 
@@ -96,7 +107,7 @@ def test_get_derived_data_freshness_returns_report(admin_credentials):
     ]
     edge_entry = body["generations"][0]
     assert edge_entry["is_stale"] is False
-    assert edge_entry["algorithm_version"]["current_version"] == "v1"
+    assert edge_entry["algorithm_version"]["current_version"] == _CURRENT_ALGORITHM_VERSIONS["edge_attribute_counts"]
     designation_entry = body["generations"][2]
     assert designation_entry["algorithm_version"] is None
     assert len(designation_entry["sources"]) == 1

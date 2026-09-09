@@ -44,7 +44,7 @@ CHUNK_SIZE = 4_000
 # 計算ロジック自体（半径・重み付け等）の版数。region_service.py: ROAD_SURFACE_TILE_VERSIONと
 # 同じ「パラメータを変えたら手動で上げる」運用。入力データの版数（source_*_import_run_id）
 # とは別軸で、入力が同じでもロジック変更時は再計算が要ることを判別可能にするために持つ。
-ALGORITHM_VERSION = "v1"
+ALGORITHM_VERSION = "v2"
 
 _LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
     "SELECT MAX(id) FROM accident_import_runs WHERE status = 'succeeded'"
