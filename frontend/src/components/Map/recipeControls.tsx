@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import * as Popover from "@radix-ui/react-popover";
 import Disclosure from "@/components/Disclosure/Disclosure";
-import { InfoIcon } from "./icons";
+import InfoPopover from "./InfoPopover";
 import LayerChip from "./LayerChip";
 import styles from "./recipeControls.module.css";
 
@@ -100,29 +98,16 @@ export function FieldLabel({
    * ui/Dialog/Dialog.tsxのhideTitleと同じ既存パターン。 */
   hideLabel?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <span className={className ? `${styles.fieldLabel} ${className}` : styles.fieldLabel}>
-        {hideLabel ? <span className="sr-only">{label}</span> : label}
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            className={styles.infoButton}
-            aria-label={`${label}の説明を${open ? "隠す" : "表示"}`}
-          >
-            <InfoIcon />
-          </button>
-        </Popover.Trigger>
-      </span>
-      {/* Portalでdocument.body直下へ描画する（呼び出し側がoverflow-y:autoの
-          サイドバー・BottomSheet内にあっても、その祖先要素のoverflowでクリップされない
-          ようにするため）。 */}
-      <Popover.Portal>
-        <Popover.Content className={styles.infoTooltip} side="bottom" align="start" sideOffset={6}>
-          {description}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <InfoPopover
+      triggerClassName={styles.infoButton}
+      triggerAriaLabel={`${label}の説明`}
+      contentClassName={styles.infoTooltip}
+      label={label}
+      labelClassName={className ? `${styles.fieldLabel} ${className}` : styles.fieldLabel}
+      hideLabel={hideLabel}
+    >
+      {description}
+    </InfoPopover>
   );
 }

@@ -49,6 +49,7 @@ import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   LENS_DIFFICULTY_ID,
+  LENS_NEUTRAL_COLOR,
   LENS_NONE_ID,
   getRouteStyleMode,
   isRouteStyleModeId,
@@ -104,7 +105,7 @@ import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
-import { useStoredState, useStoredJsonState } from "@/hooks/useStoredState";
+import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hooks/useStoredState";
 import { generateRoutes, type GenerationProgress } from "@/services/routeApi";
 import type {
   Coordinates,
@@ -482,9 +483,9 @@ export default function Home() {
   // （一般ユーザーには影響しない）。route_preference/routePreference自体は一般向けルート
   // 設定画面（RouteSettingsPanel）とも共有する状態で、withAutoEnableにより、どちらの
   // パネルを操作してもこのフラグが自動でONになる。
-  const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredJsonState(
+  const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredBooleanState(
     WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY,
-    false
+    false,
   );
   const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
     ROUTE_PREFERENCE_STORAGE_KEY,
@@ -649,10 +650,7 @@ export default function Home() {
     setLens(LENS_DIFFICULTY_ID);
   }, [routeStyleModes, lens, setLens]);
   // ルート確定後も周囲の道路（全道路の塗り）を残すか。
-  const [lensKeepAfterRoute, setLensKeepAfterRoute] = useStoredState<boolean>(LENS_KEEP_AFTER_ROUTE_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => (raw === "true" ? true : raw === "false" ? false : null),
-  });
+  const [lensKeepAfterRoute, setLensKeepAfterRoute] = useStoredBooleanState(LENS_KEEP_AFTER_ROUTE_STORAGE_KEY, true);
   // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
   // 両系統を管理できる。「文字列の配列」の形のエントリだけ復元時に採用する。
@@ -679,39 +677,9 @@ export default function Home() {
   );
   // 「ルートを作る」セクションの開閉（デスクトップのみ。主機能のためデフォルト開）。
   // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない。
-  const [generateOpen, setGenerateOpen] = useStoredState(GENERATE_OPEN_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => {
-      try {
-        const parsed = JSON.parse(raw);
-        return typeof parsed === "boolean" ? parsed : null;
-      } catch {
-        return null;
-      }
-    },
-  });
-  const [outcomeOpen, setOutcomeOpen] = useStoredState(OUTCOME_OPEN_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => {
-      try {
-        const parsed = JSON.parse(raw);
-        return typeof parsed === "boolean" ? parsed : null;
-      } catch {
-        return null;
-      }
-    },
-  });
-  const [mapSettingsOpen, setMapSettingsOpen] = useStoredState(MAP_SETTINGS_OPEN_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => {
-      try {
-        const parsed = JSON.parse(raw);
-        return typeof parsed === "boolean" ? parsed : null;
-      } catch {
-        return null;
-      }
-    },
-  });
+  const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
+  const [outcomeOpen, setOutcomeOpen] = useStoredBooleanState(OUTCOME_OPEN_STORAGE_KEY, true);
+  const [mapSettingsOpen, setMapSettingsOpen] = useStoredBooleanState(MAP_SETTINGS_OPEN_STORAGE_KEY, true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // モバイルで開いている下部シート（「ルートを作る」/「地図の見え方」の排他表示、または
   // どちらも閉じたnull＝地図全面表示）。デスクトップでは使わない。
@@ -1324,7 +1292,7 @@ export default function Home() {
     return axisCatalog.axes.map((axis) => ({
       id: axis.axisId,
       label: axis.label,
-      color: axisChipColors[axis.axisId] ?? "#64748b",
+      color: axisChipColors[axis.axisId] ?? LENS_NEUTRAL_COLOR,
       description: axis.description,
       unused: (weights[axis.axisId] ?? 0) <= 0,
       routeOnly: !rampAxisIds.has(axis.axisId) && !axis.dedicatedWayValueLayer,

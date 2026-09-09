@@ -5,7 +5,13 @@ import { useState } from "react";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, type LayerDataStatus } from "@/components/Map/mapLayers";
-import { LENS_DIFFICULTY_ID, LENS_NONE_ID, type LensId } from "@/components/Map/routeStyleModes";
+import {
+  FIXED_LENS_LABELS,
+  LENS_DIFFICULTY_ID,
+  LENS_NEUTRAL_COLOR,
+  LENS_NONE_ID,
+  type LensId,
+} from "@/components/Map/routeStyleModes";
 import styles from "./LensControl.module.css";
 
 export interface LensOption {
@@ -41,8 +47,6 @@ export interface LensControlProps {
   dataStatus?: LayerDataStatus;
 }
 
-const DIFFICULTY_COLOR = "#64748b";
-
 // レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが「今のレンズ」の表示と
 // 切替を兼ね、タップでポップオーバー（単一選択の一覧＋ルート後の扱い）を開く。
 // 「地図の見え方」パネルにはレンズの項目を置かない（入口はここ1つ、T590「UI設計の基準」2）。
@@ -61,11 +65,9 @@ export default function LensControl({
   const [open, setOpen] = useState(false);
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
   const current =
-    lens === LENS_NONE_ID
-      ? { label: "なし", color: DIFFICULTY_COLOR }
-      : lens === LENS_DIFFICULTY_ID
-        ? { label: "総合難易度", color: DIFFICULTY_COLOR }
-        : (axisOptions.find((option) => option.id === lens) ?? { label: lens, color: DIFFICULTY_COLOR });
+    FIXED_LENS_LABELS[lens] !== undefined
+      ? { label: FIXED_LENS_LABELS[lens], color: LENS_NEUTRAL_COLOR }
+      : (axisOptions.find((option) => option.id === lens) ?? { label: lens, color: LENS_NEUTRAL_COLOR });
   const used = axisOptions.filter((option) => !option.unused);
   const unused = axisOptions.filter((option) => option.unused);
 
@@ -143,8 +145,8 @@ export default function LensControl({
           <Popover.Content className={styles.content} side="bottom" align="center" sideOffset={6} collisionPadding={8}>
             <p className={styles.heading}>レンズ（地図を何で塗るか）</p>
             <ul className={styles.list} role="radiogroup" aria-label="レンズ">
-              {renderOption(LENS_NONE_ID, "なし", DIFFICULTY_COLOR)}
-              {renderOption(LENS_DIFFICULTY_ID, "総合難易度", DIFFICULTY_COLOR)}
+              {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
+              {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR)}
               {used.length > 0 && <li className={styles.groupLabel}>評価に使用中</li>}
               {used.map(renderAxis)}
               {unused.length > 0 && <li className={styles.groupLabel}>未使用</li>}

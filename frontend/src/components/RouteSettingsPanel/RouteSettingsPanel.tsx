@@ -141,7 +141,7 @@ export default function RouteSettingsPanel({
         </button>
         <InfoPopover
           triggerClassName={styles.legendInfoButton}
-          triggerAriaLabel={`${axis.label}の説明を表示`}
+          triggerAriaLabel={`${axis.label}の説明`}
           contentClassName={styles.legendInfoPopover}
         >
           {axis.description}
@@ -311,7 +311,7 @@ export default function RouteSettingsPanel({
               「重み配分」だけの短い表記にする。 */}
           <InfoPopover
             triggerClassName={styles.stackBarLegendTrigger}
-            triggerAriaLabel="重み配分の凡例を表示"
+            triggerAriaLabel="重み配分の凡例"
             contentClassName={styles.legendInfoPopover}
           >
             <p className={styles.stackBarLegendHint}>帯の境界をドラッグして配分を調整できます。</p>

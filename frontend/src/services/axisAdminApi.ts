@@ -1,6 +1,5 @@
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
-import { debugLog } from "@/lib/debugLog";
-import { formatErrorDetail } from "@/lib/apiError";
+import { requestJson } from "@/lib/fetchJson";
 
 // 評価軸定義のCRUD管理API（backend/app/api/routers/axis_admin.py）のクライアント。
 // 同一オリジンのNext.js route handler（frontend/src/app/admin/api/axis-definitions/配下、
@@ -10,57 +9,22 @@ import { formatErrorDetail } from "@/lib/apiError";
 // 挙動）。route handler側がサーバー環境変数からbackend宛のAuthorizationヘッダを組み立てて
 // 転送するため、backend向けの資格情報がブラウザ側に一切露出しない。
 //
-// GET系のfetchJson（POSTのみ対象外、lib/fetchJson.tsのコメント参照）は使わず、CRUD全
-// メソッドをここで自前実装する（routeApi.ts: postJsonと同型の通信エラーハンドリングを
-// PUT/DELETEにも揃える必要があるため）。
+// CRUD全メソッドが共通骨格（lib/fetchJson.ts: requestJson）を通る。DELETEの204は
+// requestJson側がundefinedを返す。
 
 const API_BASE_URL = "/admin/api/axis-definitions";
 
-async function adminFetch<T>(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<T> {
-  const startedAt = performance.now();
-  debugLog("api:axisAdmin", `${method} ${path}`, body ? { body } : undefined);
-
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch (error) {
-    debugLog(
-      "api:axisAdmin",
-      "失敗 (通信エラー)",
-      { path, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) },
-      "error",
-    );
-    throw error instanceof Error ? error : new Error(`リクエストに失敗しました: ${String(error)}`);
-  }
-  const durationMs = Math.round(performance.now() - startedAt);
-  const requestId = response.headers.get("x-request-id");
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    debugLog("api:axisAdmin", `失敗 (HTTP ${response.status})`, { path, durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `リクエストに失敗しました[HTTP ${response.status}]`;
-    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
-  }
-
-  if (response.status === 204) {
-    debugLog("api:axisAdmin", "成功", { path, durationMs, requestId });
-    return undefined as T;
-  }
-
-  let data: T;
-  try {
-    data = await response.json();
-  } catch {
-    debugLog("api:axisAdmin", "失敗 (不正なレスポンス)", { path, durationMs, requestId }, "error");
-    throw new Error("サーバーからの応答の解析に失敗しました");
-  }
-  debugLog("api:axisAdmin", "成功", { path, durationMs, requestId });
-  return data;
+function adminFetch<T>(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<T> {
+  return requestJson<T>(path, {
+    method,
+    body,
+    timeoutMs: 15000,
+    category: "api:axisAdmin",
+    messages: { failure: "リクエストに失敗しました", parseFailure: "サーバーからの応答の解析に失敗しました" },
+    startLabel: `${method} ${path}`,
+    ...(body !== undefined ? { requestMeta: { body } } : {}),
+    logMeta: { path },
+  });
 }
 
 export function listAxisDefinitions(): Promise<AxisDefinitionResponse[]> {

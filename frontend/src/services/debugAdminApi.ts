@@ -1,5 +1,4 @@
-import { debugLog } from "@/lib/debugLog";
-import { formatErrorDetail } from "@/lib/apiError";
+import { getMessages, requestJson } from "@/lib/fetchJson";
 
 // backendの直近ログ取得API（GET /api/admin/debug/logs）のクライアント。
 // axisAdminApi.tsと同じ理由で、同一オリジンのNext.js route handler
@@ -35,24 +34,15 @@ export async function getRecentLogs(params: GetRecentLogsParams = {}): Promise<s
   const queryString = query.toString();
   const path = queryString ? `${API_BASE_URL}?${queryString}` : API_BASE_URL;
 
-  debugLog("api:debugAdminLogs", `GET ${path}`);
-  let response: Response;
-  try {
-    response = await fetch(path, { signal: AbortSignal.timeout(15000) });
-  } catch (error) {
-    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    debugLog("api:debugAdminLogs", "失敗 (通信エラー)", { path, error: detail }, "error");
-    throw new Error(`ログの取得に失敗しました: ${detail}`);
-  }
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    const detail = formatErrorDetail(errorBody?.detail) ?? `ログの取得に失敗しました[HTTP ${response.status}]`;
-    debugLog("api:debugAdminLogs", "失敗", { path, status: response.status, detail }, "error");
-    throw new Error(detail);
-  }
-
-  const lines = (await response.json()) as string[];
-  debugLog("api:debugAdminLogs", "成功", { count: lines.length });
+  const lines = await requestJson<string[]>(path, {
+    timeoutMs: 15000,
+    category: "api:debugAdminLogs",
+    messages: getMessages("ログ"),
+    startLabel: `GET ${path}`,
+    logMeta: { path },
+    // このパネルは例外のmessageをそのまま画面へ出す（BackendLogsPanel.tsx）ため、
+    // 通信エラーも「何の取得に失敗したか」が分かる文言へ包む。
+    wrapNetworkError: true,
+  });
   return lines;
 }

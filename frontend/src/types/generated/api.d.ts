@@ -360,7 +360,7 @@ export interface paths {
          *     範囲内では風グリッド・DBへの再問い合わせは発生しない。
          *
          *     路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
-         *     （`region_service.py`の`_region_tile_semaphore`のコメント参照——MVTエンコードは
+         *     （本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは
          *     伴わないが同じPostGISコネクションプールを取り合うため）。
          */
         get: operations["region_dedicated_way_values_api_region_dynamic_way_values__axis_id___z___x___y__get"];

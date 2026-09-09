@@ -10,9 +10,8 @@ import {
   snapToStep,
   type BreakpointShape,
 } from "./breakpointTools";
-import * as Popover from "@radix-ui/react-popover";
 import { FieldLabel } from "@/components/Map/recipeControls";
-import { InfoIcon } from "@/components/Map/icons";
+import InfoPopover from "@/components/Map/InfoPopover";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMaterialValues } from "@/hooks/useMaterialValues";
@@ -84,20 +83,14 @@ function shapeKindOption(kind: ShapeKind): ShapeKindOption {
  * FieldLabelをそのまま流用せずラベル文言を持たない専用の小型トリガーにする（行ごとに
  * 毎回同じ文言を繰り返し表示すると煩雑なため）。 */
 function InfoPopoverButton({ ariaLabel, description }: { ariaLabel: string; description: string }) {
-  const [open, setOpen] = useState(false);
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <button type="button" className={recipeControlStyles.infoButton} aria-label={`${ariaLabel}を${open ? "隠す" : "表示"}`}>
-          <InfoIcon />
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content className={recipeControlStyles.infoTooltip} side="bottom" align="start" sideOffset={6}>
-          {description}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <InfoPopover
+      triggerClassName={recipeControlStyles.infoButton}
+      triggerAriaLabel={ariaLabel}
+      contentClassName={recipeControlStyles.infoTooltip}
+    >
+      {description}
+    </InfoPopover>
   );
 }
 

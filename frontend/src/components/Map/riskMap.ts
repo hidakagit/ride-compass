@@ -36,14 +36,12 @@
 //   `inland_flood`（内水氾濫、`level`1〜2でtexture塗り）・`flood_riskline`も存在する
 //   関連製品だが、洪水キキクルのみのスコープ外として未実装のまま残す。
 
-import { fetchJson } from "@/lib/fetchJson";
-import { parseValidtime, jmaProxyUrl, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
+import { fetchJmaTargetTimes, parseValidtime, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
-const riskTargetTimesUrl = () => jmaProxyUrl("/jmatile/data/risk/targetTimes.json");
 // 線状降水帯予測マップ(sjfcstmap)は降水短時間予報(rasrf)と同じtargetTimes.jsonに
-// elements違いの別行として混在する。
-const rasrfTargetTimesUrl = () => jmaProxyUrl("/jmatile/data/rasrf/targetTimes.json");
+// elements違いの別行として混在する（precipitationNowcast.tsも同じファイルを読むが、
+// 見る行が違うためフェッチは別々に行う）。
 
 interface RawRiskTargetTime {
   basetime: string;
@@ -59,12 +57,6 @@ export interface RiskFrameRef {
   basetime: string;
   validtime: string;
   member: string;
-}
-
-async function fetchTargetTimes(url: string, label: string): Promise<RawRiskTargetTime[]> {
-  const data = await fetchJson<unknown>(url, { timeoutMs: 15000, category: "api:jma-nowcast-times", errorLabel: label });
-  if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
-  return data as RawRiskTargetTime[];
 }
 
 /** rawの中から指定elementIdを含む最新の1件を返す（無ければnull）。全エントリが
@@ -94,7 +86,7 @@ export interface CurrentRiskFrames {
 /** キキクル4種（土砂・大雨・浸水・洪水）の「現在」フレームをまとめて取得する（1回のfetchで
  * targetTimes.json自体は4種共通、要素ごとに最新エントリを個別に選ぶ）。 */
 export async function fetchCurrentRiskFrames(): Promise<CurrentRiskFrames> {
-  const raw = await fetchTargetTimes(riskTargetTimesUrl(), "危険度分布（キキクル）の時刻一覧");
+  const raw = await fetchJmaTargetTimes<RawRiskTargetTime>("risk", "危険度分布（キキクル）");
   return {
     land: toFrames(latestEntry(raw, "land")),
     heavyRain: toFrames(latestEntry(raw, "rain_mesh")),
@@ -105,7 +97,7 @@ export async function fetchCurrentRiskFrames(): Promise<CurrentRiskFrames> {
 
 /** 線状降水帯予測マップの「現在」フレームを取得する。 */
 export async function fetchLinearRainbandFrames(): Promise<DynamicWeatherFrame<RiskFrameRef>[]> {
-  const raw = await fetchTargetTimes(rasrfTargetTimesUrl(), "線状降水帯予測マップの時刻一覧");
+  const raw = await fetchJmaTargetTimes<RawRiskTargetTime>("rasrf", "線状降水帯予測マップ");
   return toFrames(latestEntry(raw, "sjfcstmap"));
 }
 

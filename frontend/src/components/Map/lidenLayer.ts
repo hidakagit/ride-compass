@@ -9,16 +9,15 @@
 // 専用のfetch effectを持つ（他要素のuseMemoだけで完結する構成とは異なる）。
 
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaProxyUrl, jmaElementUrl } from "@/components/Map/jmaNowcastFrames";
+import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaElementUrl } from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 
 export type LidenFrame = JmaNowcastFrame;
 
-const targetTimesN3Url = () => jmaProxyUrl("/jmatile/data/nowc/targetTimes_N3.json");
 
 /** liden（雷放電位置データ）のフレーム時刻一覧を取得する。 */
 export async function fetchLidenFrames(): Promise<LidenFrame[]> {
-  const raw = await fetchJmaTargetTimes(targetTimesN3Url(), "雷放電位置データ");
+  const raw = await fetchJmaTargetTimes("nowc_N3", "雷放電位置データ");
   const withLidenData = raw.filter((t) => t.elements?.includes("liden"));
   const frames: LidenFrame[] = withLidenData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));

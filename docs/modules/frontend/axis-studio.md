@@ -250,10 +250,12 @@ listAxisDefinitions() ──→ definitions（全軸）
 
 ## 材料説明ポップオーバー
 
-`InfoPopoverButton`/`MaterialInfoButton`（`AxisComposer.tsx`内で定義、Radix Popover使用）が、
-材料選択欄の隣に(ⓘ)アイコンを置き、backend `material_catalog.py: MaterialSpec.description`を
-ポップオーバー表示する。ポップオーバーのCSS自体は`recipeControls.module.css`
-（`FieldLabel`用に定義済みのもの）を流用し、二重定義しない。
+`InfoPopoverButton`/`MaterialInfoButton`（`AxisComposer.tsx`内で定義）が、材料選択欄の隣に
+(ⓘ)アイコンを置き、backend `material_catalog.py: MaterialSpec.description`をポップオーバー
+表示する。外枠（開閉state・Radix Popover・開閉に追随するアクセシブル名）は共通部品
+`Map/InfoPopover.tsx`が持ち、ここはラベル文言を持たない小型トリガーとしての薄いラッパー。
+ポップオーバーのCSS自体も`recipeControls.module.css`（`FieldLabel`用に定義済みのもの）を
+流用し、二重定義しない。
 
 ## useMaterialCatalog.ts / useMaterialValues.ts（材料カタログhook）
 

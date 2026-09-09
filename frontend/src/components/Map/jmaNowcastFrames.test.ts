@@ -21,7 +21,7 @@ describe("fetchJmaTargetTimes", () => {
       vi.fn(() => Promise.resolve(jsonResponse(raw)))
     );
 
-    const result = await fetchJmaTargetTimes("https://example.test/targetTimes.json", "雷ナウキャスト");
+    const result = await fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト");
     expect(result).toEqual(raw);
   });
 
@@ -31,7 +31,7 @@ describe("fetchJmaTargetTimes", () => {
       vi.fn(() => Promise.resolve(jsonResponse(null, false, 503)))
     );
 
-    await expect(fetchJmaTargetTimes("https://example.test/targetTimes.json", "雷ナウキャスト")).rejects.toThrow(
+    await expect(fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト")).rejects.toThrow(
       "雷ナウキャストの時刻一覧の取得に失敗しました[HTTP 503]"
     );
   });
@@ -42,7 +42,7 @@ describe("fetchJmaTargetTimes", () => {
       vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" })))
     );
 
-    await expect(fetchJmaTargetTimes("https://example.test/targetTimes.json", "雷ナウキャスト")).rejects.toThrow(
+    await expect(fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト")).rejects.toThrow(
       "雷ナウキャストの時刻一覧の形式が想定と異なります"
     );
   });

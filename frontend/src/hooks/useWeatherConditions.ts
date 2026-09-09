@@ -5,7 +5,7 @@
 // 「locationReadyになるまで待ち、location変更のたびに再フェッチする」という同じ形の
 // effectを持ち、警告バッジ3種は失敗時も例外を投げず「警告なし」（null/空配列）として
 // backend契約どおり静かに扱う点まで共通のため、1フックにまとめてある。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getAmedasObservation,
   getCurrentWeather,
@@ -14,7 +14,7 @@ import {
   getWeatherWarnings,
 } from "@/services/weatherApi";
 import type { Coordinates } from "@/types/route";
-import type { AmedasObservation, FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings } from "@/types/weather";
+import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 import type { WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
 
 export interface UseWeatherConditionsResult {
@@ -38,134 +38,81 @@ export interface UseWeatherConditionsResult {
  * DEFAULT_LOCATION、Geolocationが成功すると実際の現在地でも1回走る、useLocation.ts参照）。
  * 各フェッチはリクエストごとに連番を振り、「一番最後に投げたリクエストの結果か」を
  * 確認してから反映する（古い応答が新しい応答を上書きしないようにする）。 */
+interface LocationFetchState<T> {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+}
+
+/** 「locationReadyになるまで待ち、locationが変わるたびに再フェッチし、**最後に投げた
+ * リクエストの結果だけ**を反映する」という共通形。本ファイルの5つのフェッチが同じ骨格を
+ * 持つため1箇所へ集約する（連番ガードを写経すると、1つだけガードを書き落としても
+ * 「稀に古い応答が新しい応答を上書きする」という再現しにくい形でしか現れない）。
+ *
+ * 失敗しても直前に取得済みのデータは保持する（取得済みの表示を消さず、`error`を添えて
+ * 呼び出し側に判断させる）。失敗時に表示ごと消したい呼び出し元は`error`を見て自分で
+ * nullへ倒す。 */
+function useLocationFetch<T>(
+  fetcher: (location: Coordinates) => Promise<T>,
+  location: Coordinates,
+  locationReady: boolean,
+): LocationFetchState<T> {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const latestRequestId = useRef(0);
+
+  // fetcherは呼び出し側でモジュールスコープの関数を渡す想定（毎レンダー新しい関数を
+  // 渡すと再フェッチが止まらなくなる）。
+  const fetcherRef = useRef(fetcher);
+  useEffect(() => {
+    fetcherRef.current = fetcher;
+  }, [fetcher]);
+
+  useEffect(() => {
+    if (!locationReady) return;
+    // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
+    // 経由で実行する（他のフックと同じreact-hooks/set-state-in-effect対策）。
+    Promise.resolve().then(() => {
+      const requestId = ++latestRequestId.current;
+      setLoading(true);
+      setError(null);
+      fetcherRef.current(location)
+        .then((result) => {
+          if (requestId !== latestRequestId.current) return;
+          setData(result);
+        })
+        .catch((cause: unknown) => {
+          if (requestId !== latestRequestId.current) return;
+          setError(cause instanceof Error ? cause.message : "不明なエラーが発生しました");
+        })
+        .finally(() => {
+          if (requestId !== latestRequestId.current) return;
+          setLoading(false);
+        });
+    });
+  }, [locationReady, location]);
+
+  return { data, loading, error };
+}
+
 export function useWeatherConditions(location: Coordinates, locationReady: boolean): UseWeatherConditionsResult {
-  const [weather, setWeather] = useState<WeatherConditions | null>(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-  const [weatherError, setWeatherError] = useState<string | null>(null);
+  // 今日の見通し（MSM予報）。取得に失敗しても直前の値は残し、errorを添えて表示側
+  // （TodayOutlook）に判断させる。
+  const weather = useLocationFetch(getCurrentWeather, location, locationReady);
+  // 最寄りアメダス観測所の実測値。weather（MSM予報）とは独立したフェッチ・状態にすることで、
+  // 常設ヘッダーの表示が予報側の障害・遅延から影響を受けないようにする。
+  const amedas = useLocationFetch(getAmedasObservation, location, locationReady);
 
-  const latestWeatherRequestId = useRef(0);
-  const fetchWeatherFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestWeatherRequestId.current;
-    setWeatherLoading(true);
-    setWeatherError(null);
-    getCurrentWeather(next)
-      .then((conditions) => {
-        if (requestId !== latestWeatherRequestId.current) return;
-        setWeather(conditions);
-      })
-      .catch((error: unknown) => {
-        if (requestId !== latestWeatherRequestId.current) return;
-        setWeatherError(error instanceof Error ? error.message : "不明なエラーが発生しました");
-      })
-      .finally(() => {
-        if (requestId !== latestWeatherRequestId.current) return;
-        setWeatherLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchWeatherFor(location));
-  }, [locationReady, location, fetchWeatherFor]);
-
-  // 最寄りアメダス観測所の実測値。weather（MSM予報）とは
-  // 独立したフェッチ・状態にすることで、常設ヘッダーの表示が予報側の障害・遅延から
-  // 影響を受けないようにする。
-  const [amedas, setAmedas] = useState<AmedasObservation | null>(null);
-  const [amedasLoading, setAmedasLoading] = useState(false);
-  const [amedasError, setAmedasError] = useState<string | null>(null);
-
-  const latestAmedasRequestId = useRef(0);
-  const fetchAmedasFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestAmedasRequestId.current;
-    setAmedasLoading(true);
-    setAmedasError(null);
-    getAmedasObservation(next)
-      .then((observation) => {
-        if (requestId !== latestAmedasRequestId.current) return;
-        setAmedas(observation);
-      })
-      .catch((error: unknown) => {
-        if (requestId !== latestAmedasRequestId.current) return;
-        setAmedasError(error instanceof Error ? error.message : "不明なエラーが発生しました");
-      })
-      .finally(() => {
-        if (requestId !== latestAmedasRequestId.current) return;
-        setAmedasLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchAmedasFor(location));
-  }, [locationReady, location, fetchAmedasFor]);
-
-  // 警報・注意報バッジ。通信エラー時は例外を投げるだけで、警報なし
-  // （空配列）として静かに扱う（バックエンド自体が失敗時に空warningsを返す契約のため、
-  // これは主にネットワーク到達不能等の場合）。
-  const [weatherWarnings, setWeatherWarnings] = useState<WeatherWarnings | null>(null);
-  const latestWarningsRequestId = useRef(0);
-  const fetchWarningsFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestWarningsRequestId.current;
-    getWeatherWarnings(next)
-      .then((result) => {
-        if (requestId !== latestWarningsRequestId.current) return;
-        setWeatherWarnings(result);
-      })
-      .catch(() => {
-        if (requestId !== latestWarningsRequestId.current) return;
-        setWeatherWarnings(null);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchWarningsFor(location));
-  }, [locationReady, location, fetchWarningsFor]);
-
-  // WBGT警告バッジ。提供期間外（11〜3月）・取得失敗・「ほぼ安全」の
-  // いずれもbackend契約どおりlevel=nullとして静かに扱う。
-  const [wbgtStatus, setWbgtStatus] = useState<WbgtStatus | null>(null);
-  const latestWbgtRequestId = useRef(0);
-  const fetchWbgtFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestWbgtRequestId.current;
-    getWbgtStatus(next)
-      .then((result) => {
-        if (requestId !== latestWbgtRequestId.current) return;
-        setWbgtStatus(result);
-      })
-      .catch(() => {
-        if (requestId !== latestWbgtRequestId.current) return;
-        setWbgtStatus(null);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchWbgtFor(location));
-  }, [locationReady, location, fetchWbgtFor]);
-
-  // 河川氾濫予報バッジ。他の警告バッジと同じ「取得失敗・対象河川なしは
-  // forecasts=[]として静かに扱う」方式。
-  const [floodForecasts, setFloodForecasts] = useState<FloodForecasts | null>(null);
-  const latestFloodRequestId = useRef(0);
-  const fetchFloodForecastsFor = useCallback((next: Coordinates) => {
-    const requestId = ++latestFloodRequestId.current;
-    getFloodForecasts(next)
-      .then((result) => {
-        if (requestId !== latestFloodRequestId.current) return;
-        setFloodForecasts(result);
-      })
-      .catch(() => {
-        if (requestId !== latestFloodRequestId.current) return;
-        setFloodForecasts(null);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    Promise.resolve().then(() => fetchFloodForecastsFor(location));
-  }, [locationReady, location, fetchFloodForecastsFor]);
+  // 警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）。いずれも取得失敗を例外として
+  // 見せず「警告なし」として静かに扱う（backend自体が失敗時に空の結果を返す契約のため、
+  // ここへ来るのは主にネットワーク到達不能等）。表示側へは失敗時にnullを渡す。
+  const warnings = useLocationFetch(getWeatherWarnings, location, locationReady);
+  const wbgt = useLocationFetch(getWbgtStatus, location, locationReady);
+  const flood = useLocationFetch(getFloodForecasts, location, locationReady);
+  const weatherWarnings = warnings.error ? null : warnings.data;
+  const wbgtStatus = wbgt.error ? null : wbgt.data;
+  const floodForecasts = flood.error ? null : flood.data;
 
   const warningBadgeItems = useMemo<WarningBadgeItem[]>(() => {
     const jmaItems: WarningBadgeItem[] = weatherWarnings
@@ -208,12 +155,12 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
   }, [weatherWarnings, wbgtStatus, floodForecasts]);
 
   return {
-    weather,
-    weatherLoading,
-    weatherError,
-    amedas,
-    amedasLoading,
-    amedasError,
+    weather: weather.data,
+    weatherLoading: weather.loading,
+    weatherError: weather.error,
+    amedas: amedas.data,
+    amedasLoading: amedas.loading,
+    amedasError: amedas.error,
     warningBadgeItems,
   };
 }

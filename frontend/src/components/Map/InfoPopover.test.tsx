@@ -10,7 +10,7 @@ import InfoPopover from "./InfoPopover";
 describe("InfoPopover", () => {
   it("初期状態では中身を表示しない", () => {
     render(
-      <InfoPopover triggerClassName="trigger" triggerAriaLabel="説明を表示" contentClassName="content">
+      <InfoPopover triggerClassName="trigger" triggerAriaLabel="説明" contentClassName="content">
         中身のテキスト
       </InfoPopover>
     );
@@ -20,7 +20,7 @@ describe("InfoPopover", () => {
   it("トリガーをクリックするとchildrenがポップオーバーとして表示される", async () => {
     const user = userEvent.setup();
     render(
-      <InfoPopover triggerClassName="trigger" triggerAriaLabel="説明を表示" contentClassName="content">
+      <InfoPopover triggerClassName="trigger" triggerAriaLabel="説明" contentClassName="content">
         中身のテキスト
       </InfoPopover>
     );

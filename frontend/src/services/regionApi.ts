@@ -2,7 +2,7 @@ import type { AxisInspectorResult } from "@/types/traffic";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { debugLog } from "@/lib/debugLog";
-import { formatErrorDetail } from "@/lib/apiError";
+import { requestOk, type ApiResponse } from "@/lib/fetchJson";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 interface PostRequestOptions {
@@ -15,49 +15,24 @@ interface PostRequestOptions {
   timeoutMs?: number;
 }
 
-// 改善計画T470: fetchAxisInspector・refreshBasemapCacheが、fetch()自体の失敗（通信エラー）→
-// !response.okの判定→エラーボディ解析→整形したErrorをthrow、という同じ約20行のPOST用骨格を
-// 独立に持っていた（lib/fetchJson.tsのGET専用ラッパーと同型だが、POSTはボディ・成功時の
-// レスポンス解釈が呼び出しごとに異なるため、GET側のfetchJsonとは別に本ファイル内へ持つ——
-// routeApi.ts: postJsonと同じ判断）。成功時のレスポンス本体解析・成功ログのfields組み立ては
-// 呼び出し側ごとに異なる（fetchAxisInspectorはJSONボディを持ちcompositeを追加ログするが
-// refreshBasemapCacheはボディ無しでレスポンス本体も読まない）ため、ここでは「fetch→
-// 通信エラー処理→ok確認→失敗時throw」までを共通化し、成功時のResponseはそのまま返す。
-async function postAndCheckOk(
+// POST系は成功時のレスポンス本体の解釈・成功ログのfieldsが呼び出しごとに異なる
+// （fetchAxisInspectorはJSONボディからcompositeを追加ログするが、refreshBasemapCacheは
+// ボディ自体を読まない）ため、共通骨格のうち`requestOk`（成功時のResponseをそのまま返す
+// 側、lib/fetchJson.ts参照）を使い、成功ログだけ呼び出し側が出す。
+function postAndCheckOk(
   path: string,
   { category, errorLabel, body, timeoutMs = 15000 }: PostRequestOptions,
-): Promise<{ response: Response; durationMs: number; requestId: string | null }> {
-  const startedAt = performance.now();
-  const url = `${API_BASE_URL}${path}`;
-  debugLog(category, "リクエスト開始", body !== undefined ? { url, body } : { url });
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      ...(body !== undefined ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (error) {
-    debugLog(
-      category,
-      "失敗 (通信エラー)",
-      { durationMs: Math.round(performance.now() - startedAt), error: error instanceof Error ? error.message : String(error) },
-      "error",
-    );
-    throw error instanceof Error ? error : new Error(`${errorLabel}に失敗しました`);
-  }
-  const durationMs = Math.round(performance.now() - startedAt);
-  // バックエンドが全リクエストに付与するリクエストID(backend/app/infrastructure/request_log.py)。
-  const requestId = response.headers.get("x-request-id");
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    debugLog(category, `失敗 (HTTP ${response.status})`, { durationMs, requestId, errorBody }, "error");
-    const detail = formatErrorDetail(errorBody?.detail) ?? `${errorLabel}に失敗しました[HTTP ${response.status}]`;
-    throw new Error(requestId ? `${detail}[req: ${requestId}]` : detail);
-  }
-  return { response, durationMs, requestId };
+): Promise<ApiResponse> {
+  return requestOk(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    body,
+    timeoutMs,
+    category,
+    // GET系の「◯◯の取得に失敗しました」とは違い、POSTは操作の動詞をerrorLabelへ含める
+    // （「地図キャッシュの更新」「内訳取得」）。
+    messages: { failure: `${errorLabel}に失敗しました`, parseFailure: `${errorLabel}に失敗しました` },
+    ...(body !== undefined ? { requestMeta: { body } } : {}),
+  });
 }
 
 const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
@@ -178,28 +153,21 @@ export async function fetchDynamicWayValues(
   if (speedKmh !== undefined && Number.isFinite(speedKmh)) params.set("speed_kmh", String(speedKmh));
   const url = `${API_BASE_URL}${DYNAMIC_WAY_VALUES_PATH}/${axisId}/${z}/${x}/${y}?${params.toString()}`;
   const logCategory = `api:${axisId}-way-values`;
-  const startedAt = performance.now();
-  debugLog(logCategory, "リクエスト開始", { url });
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    const durationMs = Math.round(performance.now() - startedAt);
-    if (!response.ok) {
-      debugLog(logCategory, `失敗 (HTTP ${response.status})`, { durationMs }, "error");
-      return { values: {}, error: true };
-    }
+    // 例外を投げない契約のためcatchで受けるが、fetch〜ok確認までは共通骨格を通す
+    // （x-request-idのログ記録もこれで揃う——独自実装だった頃はここだけrequestIdを
+    // 残さず、失敗時にサーバーログと突き合わせできなかった）。
+    const { response, durationMs, requestId } = await requestOk(url, {
+      timeoutMs: 15000,
+      category: logCategory,
+      messages: { failure: "道路の色分けの取得に失敗しました", parseFailure: "道路の色分けの解析に失敗しました" },
+    });
     const data = (await response.json()) as Record<string, number>;
-    debugLog(logCategory, "成功", { durationMs, wayCount: Object.keys(data).length });
+    debugLog(logCategory, "成功", { durationMs, requestId, wayCount: Object.keys(data).length });
     return { values: data, error: false };
-  } catch (error) {
-    debugLog(
-      logCategory,
-      "失敗 (通信エラー)",
-      {
-        durationMs: Math.round(performance.now() - startedAt),
-        error: error instanceof Error ? error.message : String(error),
-      },
-      "error",
-    );
+  } catch {
+    // 失敗の内訳（通信エラー/タイムアウト/HTTPエラー）は`requestOk`が既にdebugLogへ
+    // 記録済みのため、ここでは重ねて記録しない。
     return { values: {}, error: true };
   }
 }

@@ -25,7 +25,7 @@
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループの開閉キー（`group:<グループ>`）は`MAP_OVERLAY_GROUP_ORDER`から生成・逆引きし、キー文字列を手で並べない——グループを増やしたとき見出しが「グループ本体」と認識されず2件目以降がチップ列から消えるのを防ぐ |
 | `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
-| `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品。中身はchildrenで呼び出し側が渡す（`MapLayersPanel`・`RouteSettingsPanel`・`RouteAxisProfile`で共用） |
+| `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。`MapLayersPanel`・`RouteSettingsPanel`・`RouteAxisProfile`・`recipeControls.tsx: FieldLabel`・軸スタジオの材料説明が共用し、(i)→Popoverの組み立てを自前で持つ箇所は無い |
 | `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`MapLayersPanel`・`RouteAxisProfile`・`MapOverlayControls`の▶パネルで共用） |
 
 ## タイルの配信元（`lib/tileBaseUrl.ts`）

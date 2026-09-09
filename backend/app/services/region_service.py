@@ -11,7 +11,7 @@ from app.infrastructure.debug_log import error_type_label, log_external_call, lo
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
-from app.services.tile_serving import TileResponse, serve_cached_tile
+from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.region")
 
@@ -88,7 +88,6 @@ def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
     task.add_done_callback(_build_tasks.discard)
 
 # road_surface・poi両タイルで共通のMVT MIMEタイプ。
-MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 
 # タイル内容の世代。パスへ世代を含めることで、プロパティ追加前に保存された旧タイルを
 # キャッシュヒットさせない（旧世代のファイルは「変わらないデータを更新」のclear_allで
