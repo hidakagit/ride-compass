@@ -239,6 +239,7 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         estimated_arrival_time=first.estimated_arrival_time,
         axis_difficulties=merge_axis_difficulties(segments),
         axis_contributions=merge_axis_contributions(segments),
+        axis_raw_values=merge_axis_raw_values(segments),
         material_values=merge_material_values(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     )

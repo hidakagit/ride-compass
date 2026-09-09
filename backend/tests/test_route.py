@@ -249,6 +249,46 @@ def test_merge_material_values_omits_material_absent_from_every_segment():
 # 距離加重平均の共有実装を使う、docs/tasks/T687.md）。
 
 
+def test_aggregate_segments_into_bins_carries_every_dict_field():
+    """`RouteSegmentDetail`へ辞書フィールドを足したのに`_merge_segment_bin`へ書き足すのを
+    忘れると、APIからは「そのフィールドだけ空」に見える（他は正常なので気づきにくい）。
+    フィールド一覧をモデルから引いて機械的に検出する——`_merge_segment_bin`は表示用の
+    区間を作り直す場所で、足し忘れが型でも例外でも現れない。"""
+    dict_fields = [
+        name
+        for name, field in RouteSegmentDetail.model_fields.items()
+        if field.annotation == dict[str, float]
+    ]
+    assert dict_fields, "辞書フィールドが1つも見つからない（この検査自体が空回りしている）"
+
+    segments = [
+        _segment(0, distance_km=0.2, **{name: {"probe": 1.0} for name in dict_fields}),
+        _segment(1, distance_km=0.2, **{name: {"probe": 3.0} for name in dict_fields}),
+    ]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    missing = [name for name in dict_fields if not getattr(bins[0], name)]
+    assert not missing, f"_merge_segment_binが引き継いでいないフィールド: {missing}"
+
+
+def test_aggregate_segments_into_bins_carries_axis_raw_values():
+    # ビン化は表示用の区間を作り直すため、集約する値を1つ足し忘れるとAPIからは
+    # 「そのフィールドだけ空」に見える（本番で生値が全区間空になった実障害の回帰、
+    # docs/tasks/T687.md）。axis_difficultiesが出ているのにaxis_raw_valuesだけ空、
+    # という形で表面化する。
+    segments = [
+        _segment(0, distance_km=0.3, axis_difficulties={"stop_density": 80.0}, axis_raw_values={"stop_density": 4.0}),
+        _segment(1, distance_km=0.1, axis_difficulties={"stop_density": 20.0}, axis_raw_values={"stop_density": 0.0}),
+    ]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    assert len(bins) == 1
+    # (4.0*0.3 + 0.0*0.1) / 0.4 = 3.0
+    assert bins[0].axis_raw_values["stop_density"] == pytest.approx(3.0)
+
+
 def test_merge_axis_raw_values_distance_weighted_average():
     segments = [
         _segment(0, distance_km=30.0, axis_raw_values={"stop_density": 0.5}),

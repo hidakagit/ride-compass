@@ -604,7 +604,10 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
-  `_merge_segment_bin`。
+  `_merge_segment_bin`。**`_merge_segment_bin`は表示用の区間を組み直す場所のため、
+  `RouteSegmentDetail`へ辞書フィールドを足したらここへも集約を書き足す**（足し忘れは
+  型でも例外でも現れず、APIからは「そのフィールドだけ空」に見える。辞書フィールドを
+  モデルから引いて全て引き継がれているかを`tests/test_route.py`が機械的に検査する）。
 
 ### `domain/geo.py`・`domain/errors.py`
 
