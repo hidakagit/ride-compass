@@ -32,9 +32,11 @@ from pydantic import BaseModel, ConfigDict
 
 from app.domain.attributes import (
     METRIC_GROUP_COUNTS,
+    METRIC_GROUP_GEOMETRY,
     METRIC_GROUP_LANDCOVER,
     METRIC_KEY_ACCIDENT,
     METRIC_KEY_BUILT_PERCENT,
+    METRIC_KEY_CURVATURE,
     METRIC_KEY_INTERSECTION,
     METRIC_KEY_STOP,
     METRIC_KEY_TREES_PERCENT,
@@ -367,6 +369,13 @@ _STOP_COUNT_PER_KM_REFERENCE_POINTS = [
     MaterialReferencePoint(label="多い", value=5.0),
 ]
 
+# 目安の値（軸スタジオの材料選択で「この材料はどのくらいの値を取るか」を示す代表点）。
+_CURVATURE_DEG_PER_KM_REFERENCE_POINTS = [
+    MaterialReferencePoint(label="ほぼ直線", value=0.0),
+    MaterialReferencePoint(label="普通", value=100.0),
+    MaterialReferencePoint(label="くねくね", value=900.0),
+]
+
 _INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS = [
     MaterialReferencePoint(label="少ない", value=1.0),
     MaterialReferencePoint(label="普通", value=3.0),
@@ -615,6 +624,25 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="intersection",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION),
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
+    ),
+    "curvature_deg_per_km": MaterialSpec(
+        material_id="curvature_deg_per_km",
+        label="蛇行の強さ(度/km)",
+        description="道の折れ線に沿った方位変化の累積を1kmあたりに直した値。直線は0で、"
+        "つづら折りほど大きい。交差点での右左折ではなく道そのものの曲がり方を表す。",
+        dtype="numeric",
+        unit="度/km",
+        # 同じ距離あたりの量どうしなので足し合わせられる（示量／示強の区別、
+        # domain/axis_display.py: raw_value_unit）。
+        additive=True,
+        # タイルは`osm_raw_ways`単位で焼くのに対し、蛇行はEdge単位（`road_edges`）で
+        # 持つため、way単位の集計を別途用意しないと焼き込めない。地図レイヤーを持たない
+        # 軸は勾配・風にも既にあり（`axis_display_for`がkind="none"を返す）、ルート探索と
+        # ルート結果の表示には影響しない。
+        tile_property=None,
+        primary_attribute_id="curvature",
+        extractor=keyed_value_extractor(METRIC_GROUP_GEOMETRY, METRIC_KEY_CURVATURE),
+        reference_points=_CURVATURE_DEG_PER_KM_REFERENCE_POINTS,
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",

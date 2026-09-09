@@ -203,6 +203,11 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
         missing_semantics="unknown",
     ),
+    "curvature_deg_per_km": EdgeMaterialCoverageSpec(
+        present_count_sql="SELECT count(*) FROM road_edges WHERE curvature_deg_per_km IS NOT NULL",
+        source="road_edges.curvature_deg_per_km（precompute_edge_curvatureの計算済み値）の有無",
+        missing_semantics="unknown",
+    ),
     "trees_percent": WayMaterialCoverageSpec(
         missing_condition="NOT EXISTS (SELECT 1 FROM way_landcover lc WHERE lc.osm_way_id = w.osm_way_id)",
         source="way_landcover（precompute_way_landcoverの計算済み行）の有無",

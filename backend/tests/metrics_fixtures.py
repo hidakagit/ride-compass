@@ -8,10 +8,12 @@
 
 from app.domain.attributes import (
     METRIC_GROUP_COUNTS,
+    METRIC_GROUP_GEOMETRY,
     METRIC_GROUP_LANDCOVER,
     METRIC_GROUP_POI,
     METRIC_KEY_ACCIDENT,
     METRIC_KEY_BUILT_PERCENT,
+    METRIC_KEY_CURVATURE,
     METRIC_KEY_INTERSECTION,
     METRIC_KEY_STOP,
     METRIC_KEY_TREES_PERCENT,
@@ -44,6 +46,7 @@ def edge_metrics(
     poi: dict[str, float] | None = None,
     trees: float | None = None,
     built: float | None = None,
+    curvature: float | None = None,
 ) -> Metrics:
     """Edge1本ぶんの`metrics`。値を1つも指定しない群は行自体を持たない
     （「未集計」＝その群由来の材料はすべて欠損、という既存の意味論）。"""
@@ -56,6 +59,8 @@ def edge_metrics(
     landcover = landcover_row(trees, built)
     if landcover:
         metrics[METRIC_GROUP_LANDCOVER] = {edge_id: landcover}
+    if curvature is not None:
+        metrics[METRIC_GROUP_GEOMETRY] = {edge_id: {METRIC_KEY_CURVATURE: float(curvature)}}
     return metrics
 
 

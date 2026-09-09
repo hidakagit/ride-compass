@@ -964,6 +964,11 @@
       "shared": false
     },
     {
+      "attr_id": "curvature",
+      "label": "道の曲がり",
+      "shared": false
+    },
+    {
       "attr_id": "geometry",
       "label": "区間形状",
       "shared": true

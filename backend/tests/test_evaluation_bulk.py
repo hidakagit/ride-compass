@@ -236,6 +236,7 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
     accident_counts: dict[str, int] = {}
     landcover: dict[str, tuple[float, float]] = {}
     poi_counts: dict[str, dict[str, float]] = {}
+    curvatures: dict[str, float] = {}
     designated_edge_ids: set[str] = set()
 
     combos = list(
@@ -306,6 +307,9 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
         # 土地被覆（openness軸の材料）。7件に1件は行自体が無い＝材料欠損。
         if idx % 7 != 5:
             landcover[edge_id] = (float(idx % 101), float((idx * 3) % 101))
+        # 蛇行（度/km）。9件に1件は未計算＝材料欠損。
+        if idx % 9 != 4:
+            curvatures[edge_id] = float((idx * 37) % 1200)
         # 停止要因POIの種別別カウント。8件に1件は未集計（行なし）、それ以外は一部の種別を
         # 省いた辞書（載っていないキーは0件と確定できる、という意味論の確認も兼ねる）。
         if idx % 8 != 6:
@@ -329,6 +333,7 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
                 poi=poi_counts.get(edge_id),
                 trees=landcover.get(edge_id, (None, None))[0],
                 built=landcover.get(edge_id, (None, None))[1],
+                curvature=curvatures.get(edge_id),
             )
             for edge_id in edges
         )

@@ -15,7 +15,7 @@
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
-| batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
+| batch | `precompute_road_node_degrees.py`・`precompute_edge_curvature.py`・`presplit_road_graph.py` |
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `rustworkx`のA*で経路計算する。
 Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リクエスト時ベクトル計算」方式で
@@ -742,6 +742,20 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
 実装済みで、本バッチはそれを呼び出すだけ。**`precompute_edge_attribute_counts.py`より
 先に実行する必要がある**（`intersection_count`がこのバッチの書く`degree`列を参照する
 ため）。
+
+## batch: `precompute_edge_curvature.py`
+
+`road_edges.curvature_deg_per_km`（蛇行の強さ＝折れ線の方位変化の累積÷km）の事前計算。
+`build_road_graph`がsplit時に`domain/geo.py: curvature_deg_per_km`で算出して保存するため
+新規Edgeは埋まるが、**既存行は再splitされるまでNULLのまま**なので列追加後の実行が必須。
+NULLは「未計算」であって0（まっすぐ）ではない。
+
+計算はPostGISの`ST_Azimuth`で完結させPythonへ行を持ち出さない（本番500万行規模）。
+**geographyへキャストして呼ぶこと**——geometry（4326）のままだと経度・緯度をそのまま
+x/yとして扱う平面計算になり、緯度による経度の縮みを無視して`bearing_between`（球面
+三角法）と食い違う。同じ列を2通りで埋めるため、定義がずれると同じEdgeに2つの値が
+生まれる（`tests/test_precompute_edge_curvature.py`が両者の一致を許容差付きで固定する。
+球と回転楕円体の差ぶんは残るため厳密一致ではない）。
 
 ## batch: `presplit_road_graph.py`
 

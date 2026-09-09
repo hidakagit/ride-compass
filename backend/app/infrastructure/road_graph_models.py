@@ -141,6 +141,10 @@ class RoadEdgeRow(Base):
     # build_road_graphが算出し、探索時の風評価（DYNAMIC_MATERIAL_EVALUATORS）が
     # geometry decodeを経由せずこの列だけで完結できるようにする。
     bearing_deg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 折れ線の蛇行の強さ（度/km、domain/geo.py: curvature_deg_per_km）。NULLは「未計算」で
+    # 0（まっすぐ）ではない——既存行は再splitまでNULLのままで、app/batch/
+    # precompute_edge_curvature.pyが埋める。
+    curvature_deg_per_km: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

@@ -4,7 +4,13 @@ import numpy as np
 
 import pytest
 
-from app.domain.geo import bearing_between, bearing_between_array, compass_label, haversine_distance_km
+from app.domain.geo import (
+    bearing_between,
+    bearing_between_array,
+    compass_label,
+    curvature_deg_per_km,
+    haversine_distance_km,
+)
 from app.domain.route import Coordinates
 from tests.geo_fixtures import destination_point
 
@@ -97,3 +103,35 @@ def test_compass_label_rounds_to_nearest_direction():
     assert compass_label(69) == "東"
     # 20度は 北東(45) より 北(0) に近い（0との差20 < 45との差25）
     assert compass_label(20) == "北"
+
+
+def test_curvature_is_zero_for_a_straight_line_and_large_for_a_zigzag():
+    straight = [(35.700, 139.700), (35.710, 139.700), (35.720, 139.700)]
+    zigzag = [(35.700, 139.700), (35.701, 139.701), (35.702, 139.700), (35.703, 139.701)]
+
+    assert curvature_deg_per_km(straight, 2224.0) == pytest.approx(0.0, abs=0.5)
+    assert curvature_deg_per_km(zigzag, 450.0) > 100
+
+
+def test_curvature_is_practically_the_same_in_both_directions():
+    """蛇行は方位変化の絶対値の累積のため、fwd/bwdのEdgeは実質同じ値になる。
+
+    厳密には一致しない——大圏航路ではA→Bの初期方位とB→Aの逆方位がずれるため
+    （`build_road_graph`がbearing_forward/backwardを+180度の反転ではなく別々に求めて
+    いるのと同じ理由）。ずれは相対1e-4未満で、度/kmの目盛りでは無視できる。
+    """
+    points = [(35.700, 139.700), (35.701, 139.701), (35.702, 139.700), (35.703, 139.701)]
+
+    forward = curvature_deg_per_km(points, 450.0)
+    backward = curvature_deg_per_km(list(reversed(points)), 450.0)
+
+    assert forward == pytest.approx(backward, rel=1e-4)
+
+
+def test_curvature_is_none_when_it_cannot_be_measured():
+    """頂点3点未満・距離0は0ではなくNone（「まっすぐ」と「測れない」を混同しない——
+    0にすると未計算の区間が「まっすぐな良い道」として評価に混ざる）。"""
+    assert curvature_deg_per_km([(35.70, 139.70), (35.71, 139.70)], 1112.0) is None
+    assert curvature_deg_per_km([(35.70, 139.70), (35.71, 139.70), (35.72, 139.70)], 0.0) is None
+    # 連続する同一頂点は方位が定まらないため間引く（残り2点になればNone）。
+    assert curvature_deg_per_km([(35.70, 139.70), (35.70, 139.70), (35.70, 139.70)], 100.0) is None

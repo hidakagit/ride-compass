@@ -5,7 +5,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from app.domain.geo import LatLonPoint, bearing_between, haversine_distance_km
+from app.domain.geo import LatLonPoint, bearing_between, curvature_deg_per_km, haversine_distance_km
 
 
 class Node(BaseModel):
@@ -41,6 +41,10 @@ class DirectedEdge(BaseModel):
     # この値だけで完結できるようにするための事前計算値（そのため既定値Noneを許容しつつ、
     # build_road_graph経由の生成では必ず値を持つ）。
     bearing_deg: float | None = None
+    # 折れ線の蛇行の強さ（度/km、domain/geo.py: curvature_deg_per_km）。bearing_degと
+    # 同じくbuild_road_graphがgeometryから算出する事前計算値で、探索・評価がgeometryを
+    # decodeせずに読めるようにする。Noneは「測れない」（頂点3点未満・距離0）で0ではない。
+    curvature_deg_per_km: float | None = None
 
 
 class RoadGraph(BaseModel):
@@ -89,6 +93,7 @@ class EdgeLike(Protocol):
     osm_way_id: int | None
     highway: str | None
     bearing_deg: float | None
+    curvature_deg_per_km: float | None
 
 
 @runtime_checkable
@@ -136,12 +141,13 @@ class LeanEdge:
     osm_way_id: int | None = None
     highway: str | None = None
     bearing_deg: float | None = None
+    curvature_deg_per_km: float | None = None
 
 
 def _rebuild_lean_road_graph(
     graph_version: str,
     node_rows: list[tuple[str, float, float, int | None]],
-    edge_rows: list[tuple[str, str, str, float, int | None, str | None, float | None]],
+    edge_rows: list[tuple[str, str, str, float, int | None, str | None, float | None, float | None]],
 ) -> "LeanRoadGraph":
     """`LeanRoadGraph.__reduce__`が指すpickle復元関数。列（生のtuple列）から
     `LeanNode`/`LeanEdge`をコンストラクタ呼び出しで作り直す——デフォルトのpickle復元
@@ -159,8 +165,9 @@ def _rebuild_lean_road_graph(
         edge_id: LeanEdge(
             edge_id=edge_id, from_node_id=from_id, to_node_id=to_id, geometry=[],
             distance_m=distance_m, osm_way_id=osm_way_id, highway=highway, bearing_deg=bearing_deg,
+            curvature_deg_per_km=curvature,
         )
-        for edge_id, from_id, to_id, distance_m, osm_way_id, highway, bearing_deg in edge_rows
+        for edge_id, from_id, to_id, distance_m, osm_way_id, highway, bearing_deg, curvature in edge_rows
     }
     return LeanRoadGraph(graph_version=graph_version, nodes=nodes, edges=edges)
 
@@ -188,7 +195,8 @@ class LeanRoadGraph:
         """
         node_rows = [(n.node_id, n.latitude, n.longitude, n.osm_node_id) for n in self.nodes.values()]
         edge_rows = [
-            (e.edge_id, e.from_node_id, e.to_node_id, e.distance_m, e.osm_way_id, e.highway, e.bearing_deg)
+            (e.edge_id, e.from_node_id, e.to_node_id, e.distance_m, e.osm_way_id, e.highway,
+             e.bearing_deg, e.curvature_deg_per_km)
             for e in self.edges.values()
         ]
         return (_rebuild_lean_road_graph, (self.graph_version, node_rows, edge_rows))
@@ -350,6 +358,8 @@ def build_road_graph(
             end_point = LatLonPoint(*coordinates[-1])
             bearing_forward = bearing_between(start_point, end_point)
             bearing_backward = bearing_between(end_point, start_point)
+            # 蛇行は方位変化の絶対値の累積のため、進行方向を反転しても同じ値になる。
+            curvature = curvature_deg_per_km(coordinates, distance_m)
 
             if way.direction != "backward":
                 edge_id = f"way-{way_key}-seg{segment_index}-fwd"
@@ -362,6 +372,7 @@ def build_road_graph(
                     osm_way_id=way.osm_way_id,
                     highway=way.highway,
                     bearing_deg=bearing_forward,
+                    curvature_deg_per_km=curvature,
                 )
 
             if way.direction != "forward":
@@ -375,6 +386,7 @@ def build_road_graph(
                     osm_way_id=way.osm_way_id,
                     highway=way.highway,
                     bearing_deg=bearing_backward,
+                    curvature_deg_per_km=curvature,
                 )
 
     return LeanRoadGraph(graph_version=graph_version or _new_graph_version(), nodes=graph_nodes, edges=edges)

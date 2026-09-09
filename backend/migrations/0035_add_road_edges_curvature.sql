@@ -1,0 +1,11 @@
+-- road_edgesへ「蛇行の強さ」（度/km、domain/geo.py: curvature_deg_per_km）を持たせる。
+-- 折れ線の頂点ごとの方位変化を積み上げ距離kmで割った値で、直線は0・つづら折りほど大きい。
+--
+-- NULLは「未計算」であって「まっすぐ(0)」ではない。既存行は再splitされるまでNULLのままの
+-- ため、適用後は app/batch/precompute_edge_curvature.py の実行が必須
+-- （NOT NULL DEFAULT 0 にすると未計算を「まっすぐ」と読んでしまい、評価が静かに歪む。
+-- 同じ形の障害をdocs/tasks/T655.mdで起こしている）。
+--
+-- 本番500万行の再計算はこのmigrationでは行わない（デプロイ時に自動適用されるため、
+-- 長時間のUPDATEをここへ置くとデプロイが詰まる）。バッチで別途流す。
+ALTER TABLE road_edges ADD COLUMN IF NOT EXISTS curvature_deg_per_km double precision;

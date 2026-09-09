@@ -56,6 +56,14 @@
     "value_labels": null
   },
   {
+    "material_id": "curvature_deg_per_km",
+    "label": "蛇行の強さ(度/km)",
+    "description": "道の折れ線に沿った方位変化の累積を1kmあたりに直した値。直線は0で、つづら折りほど大きい。交差点での右左折ではなく道そのものの曲がり方を表す。",
+    "dtype": "numeric",
+    "unit": "度/km",
+    "value_labels": null
+  },
+  {
     "material_id": "accident_count_per_km_year",
     "label": "事故密度(件/(km・年))",
     "description": "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",

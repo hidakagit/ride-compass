@@ -23,6 +23,8 @@ METRIC_GROUP_LANDCOVER = "landcover"
 # 停止要因POIの種別別カウント。キーは`domain/traffic.py: POI_COUNT_KINDS`が単一ソースで、
 # 群の中身が増えてもこの定数は増えない。
 METRIC_GROUP_POI = "poi"
+# Edge自身のジオメトリから求まる量（DBの事前集計テーブルではなくroad_edgesの列が出所）。
+METRIC_GROUP_GEOMETRY = "geometry"
 
 # `METRIC_GROUP_COUNTS`のキー。`EdgeAttributeCounts`の3列に対応する。
 METRIC_KEY_ACCIDENT = "accident"
@@ -33,6 +35,9 @@ METRIC_KEY_INTERSECTION = "intersection"
 # 配線済みの2つ（残り6列は材料として登録すれば同じ群へ増やせる）。
 METRIC_KEY_TREES_PERCENT = "trees_percent"
 METRIC_KEY_BUILT_PERCENT = "built_percent"
+
+# `METRIC_GROUP_GEOMETRY`のキー。
+METRIC_KEY_CURVATURE = "curvature"
 
 
 class ElevationAttribute(BaseModel):
@@ -124,6 +129,9 @@ class EdgeMaterialBundle:
     # 無ければ2つとも同時にNone（片方だけ欠損することはない）。
     landcover_trees_percent: float | None = None
     landcover_built_percent: float | None = None
+    # 折れ線の蛇行の強さ（度/km、`road_edges.curvature_deg_per_km`）。Noneは未計算で
+    # 0（まっすぐ）ではない。
+    curvature_deg_per_km: float | None = None
 
 
 def edge_metrics_from_bundles(
@@ -138,6 +146,7 @@ def edge_metrics_from_bundles(
     counts: dict[str, dict[str, float]] = {}
     landcover: dict[str, dict[str, float]] = {}
     poi: dict[str, dict[str, float]] = {}
+    geometry: dict[str, dict[str, float]] = {}
     for edge_id, bundle in materials.items():
         if bundle.attribute_counts is not None:
             counts[edge_id] = {
@@ -154,7 +163,14 @@ def edge_metrics_from_bundles(
                 METRIC_KEY_TREES_PERCENT: bundle.landcover_trees_percent,
                 METRIC_KEY_BUILT_PERCENT: bundle.landcover_built_percent,
             }
-    return {METRIC_GROUP_COUNTS: counts, METRIC_GROUP_LANDCOVER: landcover, METRIC_GROUP_POI: poi}
+        if bundle.curvature_deg_per_km is not None:
+            geometry[edge_id] = {METRIC_KEY_CURVATURE: bundle.curvature_deg_per_km}
+    return {
+        METRIC_GROUP_COUNTS: counts,
+        METRIC_GROUP_LANDCOVER: landcover,
+        METRIC_GROUP_POI: poi,
+        METRIC_GROUP_GEOMETRY: geometry,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +265,8 @@ class EdgeMaterialTable:
     landcover_present: np.ndarray  # dtype=bool
     landcover_trees_percent: np.ndarray  # dtype=float64
     landcover_built_percent: np.ndarray  # dtype=float64
+    # 折れ線の蛇行の強さ（度/km）。NaNは未計算で0（まっすぐ）ではない。
+    curvature_deg_per_km: np.ndarray  # dtype=float64
     # Noneは「未指定」を表し、__post_init__がedge_ids全件を行indexとして自動算出する
     # （直接構築するテスト向けの便宜）。`from_bundles`はbundleが無いedge_idの行を
     # 意図的に含めない辞書を明示的に渡すため、空dict({})と「未指定」を区別する必要がある
@@ -292,6 +310,7 @@ class EdgeMaterialTable:
         landcover_present = np.zeros(n, dtype=bool)
         landcover_trees_percent = np.full(n, np.nan)
         landcover_built_percent = np.full(n, np.nan)
+        curvature_deg_per_km = np.full(n, np.nan)
 
         row_index: dict[str, int] = {}
         for i, edge_id in enumerate(edge_ids):
@@ -307,6 +326,8 @@ class EdgeMaterialTable:
                 landcover_present[i] = True
                 landcover_trees_percent[i] = bundle.landcover_trees_percent
                 landcover_built_percent[i] = bundle.landcover_built_percent
+            if bundle.curvature_deg_per_km is not None:
+                curvature_deg_per_km[i] = bundle.curvature_deg_per_km
 
             counts = bundle.attribute_counts
             if counts is not None:
@@ -361,6 +382,7 @@ class EdgeMaterialTable:
             landcover_present=landcover_present,
             landcover_trees_percent=landcover_trees_percent,
             landcover_built_percent=landcover_built_percent,
+            curvature_deg_per_km=curvature_deg_per_km,
             _row_index=row_index,
         )
 
@@ -433,6 +455,7 @@ class EdgeMaterialTable:
         counts: dict[str, dict[str, float]] = {}
         landcover: dict[str, dict[str, float]] = {}
         poi: dict[str, dict[str, float]] = {}
+        geometry: dict[str, dict[str, float]] = {}
 
         for edge_id, i in self._row_index.items():
             surface_attributes[edge_id] = self.surface[i]
@@ -452,6 +475,8 @@ class EdgeMaterialTable:
                     METRIC_KEY_TREES_PERCENT: float(self.landcover_trees_percent[i]),
                     METRIC_KEY_BUILT_PERCENT: float(self.landcover_built_percent[i]),
                 }
+            if not math.isnan(self.curvature_deg_per_km[i]):
+                geometry[edge_id] = {METRIC_KEY_CURVATURE: float(self.curvature_deg_per_km[i])}
             elevation = self._reconstruct_elevation_attribute(i, edge_id)
             if elevation is not None:
                 elevation_attributes[edge_id] = elevation
@@ -465,6 +490,7 @@ class EdgeMaterialTable:
                 METRIC_GROUP_COUNTS: counts,
                 METRIC_GROUP_LANDCOVER: landcover,
                 METRIC_GROUP_POI: poi,
+                METRIC_GROUP_GEOMETRY: geometry,
             },
         )
 

@@ -88,6 +88,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(PrimaryAttributeSpec(attr_id="accident_point", label="事故地点"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="intersection", label="交差点"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="landcover", label="土地被覆"))
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="curvature", label="道の曲がり"))
     register_primary_attribute(
         PrimaryAttributeSpec(
             attr_id="geometry",

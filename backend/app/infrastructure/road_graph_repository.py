@@ -937,6 +937,7 @@ def _edge_rows_to_directed_edges(edge_rows: Iterable[RoadEdgeRow]) -> dict[str, 
             osm_way_id=row.osm_way_id,
             highway=row.highway,
             bearing_deg=row.bearing_deg,
+            curvature_deg_per_km=row.curvature_deg_per_km,
         )
         for row, line in zip(edge_rows, edge_lines)
     }
@@ -978,6 +979,7 @@ def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> Le
             osm_way_id=row.osm_way_id,
             highway=row.highway,
             bearing_deg=row.bearing_deg,
+            curvature_deg_per_km=row.curvature_deg_per_km,
         )
         for row in edge_rows
     }
@@ -1052,18 +1054,21 @@ _MERGE_ROAD_NODES_SQL = (
 _STAGE_ROAD_EDGES_DDL = (
     "CREATE TEMP TABLE IF NOT EXISTS _stage_road_edges "
     "(edge_id text, from_node_id text, to_node_id text, geom_wkb bytea, "
-    "distance_m float8, osm_way_id bigint, highway text, bearing_deg float8) ON COMMIT DROP"
+    "distance_m float8, osm_way_id bigint, highway text, bearing_deg float8, "
+    "curvature_deg_per_km float8) ON COMMIT DROP"
 )
 _MERGE_ROAD_EDGES_SQL = (
     "INSERT INTO road_edges "
-    "(edge_id, from_node_id, to_node_id, geom, distance_m, osm_way_id, highway, bearing_deg, updated_at) "
+    "(edge_id, from_node_id, to_node_id, geom, distance_m, osm_way_id, highway, bearing_deg, "
+    "curvature_deg_per_km, updated_at) "
     "SELECT edge_id, from_node_id, to_node_id, ST_GeomFromWKB(geom_wkb, 4326), "
-    "distance_m, osm_way_id, highway, bearing_deg, $1 "
+    "distance_m, osm_way_id, highway, bearing_deg, curvature_deg_per_km, $1 "
     "FROM _stage_road_edges "
     "ON CONFLICT (edge_id) DO UPDATE SET "
     "from_node_id = EXCLUDED.from_node_id, to_node_id = EXCLUDED.to_node_id, geom = EXCLUDED.geom, "
     "distance_m = EXCLUDED.distance_m, osm_way_id = EXCLUDED.osm_way_id, highway = EXCLUDED.highway, "
-    "bearing_deg = EXCLUDED.bearing_deg, updated_at = EXCLUDED.updated_at"
+    "bearing_deg = EXCLUDED.bearing_deg, curvature_deg_per_km = EXCLUDED.curvature_deg_per_km, "
+    "updated_at = EXCLUDED.updated_at"
 )
 
 
@@ -1118,6 +1123,7 @@ async def _copy_upsert_road_edges(session: AsyncSession, edges: Iterable[EdgeLik
             edge.osm_way_id,
             edge.highway,
             edge.bearing_deg,
+            edge.curvature_deg_per_km,
         )
         for edge in edges
     ]
@@ -1131,7 +1137,7 @@ async def _copy_upsert_road_edges(session: AsyncSession, edges: Iterable[EdgeLik
         records=records,
         columns=[
             "edge_id", "from_node_id", "to_node_id", "geom_wkb",
-            "distance_m", "osm_way_id", "highway", "bearing_deg",
+            "distance_m", "osm_way_id", "highway", "bearing_deg", "curvature_deg_per_km",
         ],
     )
     await conn.execute(_MERGE_ROAD_EDGES_SQL, now)
@@ -1256,6 +1262,7 @@ class DerivedGraphRepository(_SessionRepository):
             RoadEdgeRow.osm_way_id,
             RoadEdgeRow.highway,
             RoadEdgeRow.bearing_deg,
+            RoadEdgeRow.curvature_deg_per_km,
         ).where(func.ST_Intersects(RoadEdgeRow.geom, envelope))
         edge_rows = (await self._session.execute(edge_stmt)).all()
         if not edge_rows:
