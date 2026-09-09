@@ -273,3 +273,29 @@ async def test_prewarm_index_is_empty_when_all_tiles_are_blank(monkeypatch):
 
     # 要素自体は載る（basetimeを伝える必要があるため）が、座標は空。
     assert stored["elements"]["land"]["zooms"] == {}
+
+
+def test_interpolated_zooms_are_derived_from_parent(monkeypatch):
+    """補間で埋めるズーム（奇数段）も在否インデックスへ載る。
+
+    載せないと、クライアントは「インデックスに無い＝空」と見なして取りに来ず
+    （`jma_tile_index.ts`）、補間が一度も動かないまま危険度がそのズームだけ消える。
+    """
+    monkeypatch.setattr(prewarm, "max_zoom_for", lambda element_id: 10)
+
+    filled = prewarm._with_interpolated_zooms("land", {4: [[14, 6]], 6: [[57, 25]]})
+
+    # z5はz4の、z7はz6の4象限。実データのあるズーム（偶数）は元のまま。
+    assert filled[4] == [[14, 6]]
+    assert filled[5] == [[28, 12], [28, 13], [29, 12], [29, 13]]
+    assert filled[6] == [[57, 25]]
+    assert filled[7] == [[114, 50], [114, 51], [115, 50], [115, 51]]
+    # 親（z8）に中身が無いズームは補間しても空のため載せない。
+    assert 9 not in filled
+
+
+def test_interpolated_zooms_stay_empty_when_nothing_is_present(monkeypatch):
+    """平常時（どのズームにも中身が無い）は空のまま——取りに行かせない効果を保つ。"""
+    monkeypatch.setattr(prewarm, "max_zoom_for", lambda element_id: 10)
+
+    assert prewarm._with_interpolated_zooms("land", {}) == {}
