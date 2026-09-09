@@ -113,20 +113,41 @@ export interface RawJmaTargetTime {
   elements?: string[];
 }
 
-/** 気象庁の時刻一覧JSON（targetTimes_*.json）を取得する。labelはエラーメッセージに使う
- * 対象名（例:「降水ナウキャスト」「雷ナウキャスト」）。
+/** 時刻一覧JSON（`targetTimes*.json`）の在り処。**配信元のパス構造を知る唯一の場所**で、
+ * タイル本体（`jmaTileUrlTemplate`）と対になる。nowc系だけは要素グループごとに
+ * N1（降水実況）・N2（降水予測）・N3（雷・竜巻）の3ファイルへ分かれる。 */
+const JMA_TARGET_TIMES_PATHS = {
+  nowc_N1: "/jmatile/data/nowc/targetTimes_N1.json",
+  nowc_N2: "/jmatile/data/nowc/targetTimes_N2.json",
+  nowc_N3: "/jmatile/data/nowc/targetTimes_N3.json",
+  risk: "/jmatile/data/risk/targetTimes.json",
+  rasrf: "/jmatile/data/rasrf/targetTimes.json",
+} as const;
+
+export type JmaTargetTimesId = keyof typeof JMA_TARGET_TIMES_PATHS;
+
+export function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
+  return jmaProxyUrl(JMA_TARGET_TIMES_PATHS[id]);
+}
+
+/** 気象庁の時刻一覧JSONを取得する。`label`はエラーメッセージに使う対象名（例:
+ * 「降水ナウキャスト」「雷ナウキャスト」。「の時刻一覧」は本関数が付ける）。
+ *
+ * 行の形は系統ごとに違う（nowcはelements有無、risk/rasrfはmember必須等）ため、
+ * 呼び出し側が期待する行型を型引数で指定する——検証するのは「配列であること」までで、
+ * 個々のフィールドの解釈は呼び出し側の責務。
  *
  * 共通のfetchJson（lib/fetchJson.ts、通信エラー・HTTPエラー・解析エラーを全て
  * debugLogへ記録する）経由にすることで、fetch()自体の失敗（タイムアウト・通信エラー）が
  * どこにもログされない穴を防ぐ。 */
-export async function fetchJmaTargetTimes(url: string, label: string): Promise<RawJmaTargetTime[]> {
-  const data = await fetchJson<unknown>(url, {
+export async function fetchJmaTargetTimes<T = RawJmaTargetTime>(id: JmaTargetTimesId, label: string): Promise<T[]> {
+  const data = await fetchJson<unknown>(jmaTargetTimesUrl(id), {
     timeoutMs: 15000,
     category: "api:jma-nowcast-times",
     errorLabel: `${label}の時刻一覧`,
   });
   if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
-  return data as RawJmaTargetTime[];
+  return data as T[];
 }
 
 /** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。実況フレームが1件も無ければ

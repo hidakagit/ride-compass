@@ -2,12 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 
-// デッドコード監査（2026-08-25）回帰テスト: layerVisibility永続化ホワイトリストの静的固定
-// バグ修正。以前はuseStoredStateのdeserializeが常にDEFAULT_LAYER_VISIBILITY（ビルド時
-// 静的7軸ぶんのキー）だけを走査していたため、軸スタジオで新規公開されたGUI作成軸
-// （axis:xxx）のON/OFF保存値が復元時に黙って捨てられていた。ここでは、GUI作成軸を含む
-// カタログをGET /api/axis-catalogのモックで返し、localStorageにその軸をONにした保存値を
-// 仕込んだ状態でHomeをマウントし、カタログ取得完了後にON状態が復元されることを確認する。
+// layerVisibility（地図チップ・サイドバーから操作するレイヤーのON/OFF）の永続化・復元の
+// 検証。軸スタジオ由来のレイヤーはここに含まれず、表示はレンズ（lens）だけが決める。
 //
 // page.tsxは地図・位置情報・天候等の重いコンポーネント/フックを多数使うため、本テストの
 // 関心事（layerVisibilityの永続化・復元）に無関係なものはすべて軽量スタブへ差し替える。
@@ -146,9 +142,9 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
     vi.mocked(getAxisCatalog).mockReset();
   });
 
-  it("GUI作成軸をONにした保存値は、カタログ取得完了後に復元される（実バグ修正の回帰テスト）", async () => {
+  it("軸スタジオ由来のレイヤーはlayerVisibilityにもチップにも現れない（表示はレンズだけが決める）", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-    // 「GUI作成軸をONにしてリロードした」状態を模した保存値。
+    // 軸レイヤーのON/OFFを持っていた頃の保存値が残っている状態を模す。
     window.localStorage.setItem(
       LAYER_VISIBILITY_STORAGE_KEY,
       JSON.stringify({ route: true, "axis:gui_created_axis": true }),
@@ -156,13 +152,11 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
 
     render(<Home />);
 
-    // カタログ取得（axisCatalog.loaded===true）完了後、layerVisibilityの復元effectが
-    // 実行時カタログ由来のキー集合で再実行され、axis:gui_created_axisがONとして
-    // 復元される（このJSONに現れる時点でmapLayersにも含まれていることが分かる）。
-    await waitFor(() => {
-      const text = screen.getByTestId("overlay-layers").textContent ?? "";
-      expect(text).toContain('["axis:gui_created_axis",true]');
-    });
+    await screen.findByRole("button", { name: "toggle:route" });
+    // 旧保存値があってもチップ一覧には現れない（＝「全レイヤー一括OFF」が押しても
+    // 何も変わらない項目を数えることもない）。
+    const text = screen.getByTestId("overlay-layers").textContent ?? "";
+    expect(text).not.toContain("axis:gui_created_axis");
   });
 
   it("route:false（T518以前の意味で保存された値）は移行後trueとしてlocalStorageへも" +
@@ -181,38 +175,16 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
       expect((JSON.parse(stored ?? "{}") as { route?: boolean }).route).toBe(true);
     });
   });
-
-  it("保存値が無ければGUI作成軸は既定でOFFのまま", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-
-    render(<Home />);
-
-    // 保存値が無い場合、layerVisibilityは初期値（DEFAULT_LAYER_VISIBILITY）のまま変わらない
-    // ため、ビルド時静的集合に含まれないaxis:gui_created_axisはキー自体が無い
-    // （JSON.stringifyでnullになる=truthyではない）。少なくとも「ONとして復元される」
-    // という誤りは起きないことを確認する。
-    await waitFor(() => {
-      const text = screen.getByTestId("overlay-layers").textContent ?? "";
-      expect(text).toContain('"axis:gui_created_axis"');
-    });
-    const text = screen.getByTestId("overlay-layers").textContent ?? "";
-    const layers = JSON.parse(text) as Array<[string, boolean | null]>;
-    const guiAxisEntry = layers.find(([id]) => id === "axis:gui_created_axis");
-    expect(guiAxisEntry?.[1]).not.toBe(true);
-  });
 });
 
 // ============================================================================
 // 地図上チップ（道路/環境/スポット）は複数同時にONにできる。重なって読みにくくなった
-// 場合は各チップの▶パネルで絞り込む。軸スタジオ由来のレイヤー（ramp軸・windAxis・
-// gradientAxis）だけは、同じ道路の同じ位置を塗り分けて重ねる意味が無いため1つだけ選べる
-// 状態を保つ。この判定はpage.tsx: handleLayerToggleにあるため、ここでは上のdescribe
-// ブロックと同じくMapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶonToggleが実際の
+// 場合は各チップの▶パネルで絞り込む。ここでは上のdescribeブロックと同じく
+// MapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶonToggleが実際の
 // handleLayerToggleへ届くことを利用して検証する（スタブはlayers.idごとにtoggle:${id}という
 // 名前のボタンを描画し、押すとonToggle(id, !on)を呼ぶ）。
-// getAxisCatalogは解決させない（実行時カタログが未取得の間の静的フォールバックRAMP_AXESの
-// ままレイヤーカタログを固定するため。解決させるとテストの axes: [] が実カタログとして
-// 上書きされ、axis:car_stress等の二次軸レイヤー自体が消えてしまう）。
+// getAxisCatalogは解決させない（実行時カタログが未取得の間の静的フォールバックのまま
+// レイヤーカタログを固定するため）。
 describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -227,37 +199,6 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
     const layers = JSON.parse(text) as Array<[string, boolean]>;
     return new Map(layers);
   }
-
-  it("道路は単独ドメイン: 道路をONにしても評価軸（ramp軸）はOFFにならない", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {})); // 解決させない（静的フォールバックのまま固定）
-    render(<Home />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:axis:car_stress" }));
-    expect(overlayLayersOnMap().get("axis:car_stress")).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "toggle:roadType" }));
-    const afterRoadOn = overlayLayersOnMap();
-    expect(afterRoadOn.get("roadType")).toBe(true);
-    // T418で道路と評価軸の排他ドメイン共有を廃止したため、両方ONのまま保たれる
-    expect(afterRoadOn.get("axis:car_stress")).toBe(true);
-  });
-
-  it("軸スタジオ由来のレイヤー同士は排他: 別の評価軸をONにすると前の評価軸はOFFになるが、道路には影響しない", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:axis:car_stress" }));
-    const afterCarStressOn = overlayLayersOnMap();
-    expect(afterCarStressOn.get("roadType")).toBe(true); // 道路は影響を受けない
-    expect(afterCarStressOn.get("axis:car_stress")).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "toggle:windAxis" }));
-    const afterWindAxisOn = overlayLayersOnMap();
-    expect(afterWindAxisOn.get("axis:car_stress")).toBe(false); // 軸スタジオ由来同士は排他
-    expect(afterWindAxisOn.get("windAxis")).toBe(true);
-    expect(afterWindAxisOn.get("roadType")).toBe(true); // 道路ドメインは引き続き無関係
-  });
 
   it("同じグループのレイヤーを複数同時にONにできる（環境: 標高図・降水・災害）", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
@@ -286,7 +227,7 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
     expect(after.get("accidents")).toBe(true);
   });
 
-  it("ルートはどの排他ドメインにも属さない: 道路/評価軸のON操作と無関係にON/OFFできる", async () => {
+  it("ルートは他のレイヤーのON操作と無関係にON/OFFできる", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
@@ -294,10 +235,9 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
     expect(overlayLayersOnMap().get("route")).toBe(true);
 
     fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:axis:car_stress" }));
-    const afterBothToggled = overlayLayersOnMap();
+    fireEvent.click(screen.getByRole("button", { name: "toggle:stopPoi" }));
     // route自体はどちらの操作の影響も受けずONのまま
-    expect(afterBothToggled.get("route")).toBe(true);
+    expect(overlayLayersOnMap().get("route")).toBe(true);
   });
 
   // 災害チップは他の環境グループ気象レイヤー（既定OFF）と異なり、防災級の情報を
@@ -399,7 +339,6 @@ import type { AmedasObservation, WeatherConditions, WeatherWarnings, WbgtStatus,
 // generateRoutesは実I/O（fetch）を伴うため、既存の他サービスモックと同じくvi.fn()化する。
 vi.mock("@/services/routeApi", () => ({
   generateRoutes: vi.fn(),
-  previewRoute: vi.fn(),
 }));
 
 // ComparisonPanel.test.tsxのmakeCandidate/makeSlotと同じ形の最小フィクスチャ

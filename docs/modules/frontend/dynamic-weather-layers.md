@@ -19,7 +19,7 @@
 | `Map/jmaTileProtocol.ts` | `jmatile://`スキームのMapLibreプロトコル。空と分かっているタイルをネットワークへ出さずに透明タイルで返す |
 | `hooks/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
-| `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ |
+| `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ。定期取得は`usePolledFetch`（粗い風格子を含む全系統）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す |
 | `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の6箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・雷放電位置データ・キキクル・線状降水帯予測マップ）が共有するフェッチ骨格の共通実装 |
 | `components/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`components/TodayOutlook/TodayOutlook.tsx`・`components/WarningBadge/WarningBadge.tsx` | UI |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
@@ -145,7 +145,7 @@ icon-sizeはズームのみに依存する。
 3. `MapView.tsx`: `DYNAMIC_WEATHER_RENDERERS`へ描画スペックを1エントリ追加する
    （既存グループへ名前付きソースを1つ追加する場合も同じ辞書内へ足すだけでよい）
 4. `mapLayers.ts`: 地図チップを追加し、`MapLayerId`・`dynamicWeather.ts`の
-   `CHIP_DYNAMIC_WEATHER_LAYER_IDS`へ1行足す
+   `DYNAMIC_WEATHER_LAYER_IDS`へ1行足す
 5. `hooks/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
    `dynamicWeather`オブジェクトへの追加（3〜4と違い自動反映の仕組みは無い、手書き作業）。
    `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の

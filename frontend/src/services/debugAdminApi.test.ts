@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getRecentLogs } from "./debugAdminApi";
+import { makeResponse } from "@/testing/fetchMocks";
 
 // backendの直近ログ取得API（GET /api/admin/debug/logs、改善計画T379・T517）のクライアント。
 // lib/fetchJson.test.tsと同じ粒度で、クエリ文字列の組み立て・エラーハンドリングを検証する。
@@ -9,8 +10,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// 共通骨格（lib/fetchJson.ts: requestOk）がx-request-idを読むため、Responseの体裁を
+// 満たすmakeResponseを使う（素のオブジェクトだとheaders.getで落ちる）。
 function stubFetch(response: { ok: boolean; status?: number; json: () => Promise<unknown> }) {
-  const fetchMock = vi.fn().mockResolvedValue(response);
+  const fetchMock = vi.fn().mockResolvedValue(makeResponse(response));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }

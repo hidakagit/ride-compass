@@ -31,6 +31,10 @@ export type RouteStyleModeId = "difficulty" | "none" | (string & {});
  * 以外は公開軸のaxis_id。ルート前は全道路（rampタイル・専用配信）、ルート後はルート線
  * （`axis_difficulties`）を同じ識別子で塗る。 */
 export type LensId = RouteStyleModeId;
+/** レンズの中立色。「なし」「総合難易度」のようにどの軸にも紐づかないレンズと、
+ * 軸色が未設定の軸のフォールバックで使う（候補線の非選択色と同じ）。 */
+export const LENS_NEUTRAL_COLOR = "#64748b";
+
 export const LENS_NONE_ID: LensId = "none";
 export const LENS_DIFFICULTY_ID: LensId = "difficulty";
 
@@ -176,7 +180,14 @@ const NONE_MODE: RouteStyleMode = {
   id: LENS_NONE_ID,
   label: "なし",
   legend: [],
-  colorExpression: ["to-color", "#64748b"],
+  colorExpression: ["to-color", LENS_NEUTRAL_COLOR],
+};
+
+/** 軸に紐づかない固定レンズの表示名。`LensControl`のピル・一覧はここから引く
+ * （同じ語彙をUI側でも直書きすると、モード名を変えたときに片方だけ古いまま残る）。 */
+export const FIXED_LENS_LABELS: Record<string, string> = {
+  [LENS_NONE_ID]: NONE_MODE.label,
+  [LENS_DIFFICULTY_ID]: DIFFICULTY_MODE.label,
 };
 
 // 公開軸すべて（axis-catalog由来、動的）＋difficulty（総合難易度、固定）＋NONE_MODEを

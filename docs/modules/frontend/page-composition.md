@@ -26,9 +26,25 @@
 
 `apiBaseUrl.ts`/`backendInternalUrl.ts`はブラウザからのfetch先（`NEXT_PUBLIC_API_BASE_
 URL`）とNext.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
-ネットワークのURLになりうるため別変数）。`fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`
-クライアントが共有するfetchラッパーとエラー正規化。`useLocation.ts`はブラウザの
-Geolocation APIを扱うhookで、起点座標の取得に使う。
+ネットワークのURLになりうるため別変数）。`useLocation.ts`はブラウザのGeolocation APIを
+扱うhookで、起点座標の取得に使う。
+
+`fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`クライアントが共有するfetch骨格と
+エラー正規化。骨格は「fetch→通信エラーのtry/catch→`response.ok`確認→エラーボディ解析→
+`x-request-id`付きのErrorをthrow→各段階でdebugLog記録」の7段で、**呼び出しごとに違うのは
+メソッド・成功時のボディ解釈・エラー文言の3点だけ**:
+
+| 入口 | 戻り値 | 使う場面 |
+|---|---|---|
+| `requestJson<T>` | 応答をJSONとして解釈（204は`undefined`） | 大半のクライアント |
+| `requestOk` | 成功時の`Response`そのもの（成功ログは呼び出し側） | 成功ログのfieldsが呼び出しごとに違う場合 |
+| `fetchJson<T>` | `requestJson`のGET向け糖衣 | 文言を`errorLabel`から「◯◯の取得/解析に失敗しました」で組み立てる |
+
+**暗黙の前提**: 骨格を各クライアントへ写経すると、片方だけ改良された非対称が静かに生まれる
+（タイムアウト判別と`error.cause`のログがPOST系1箇所にしか無い状態が実際に生まれていた）。
+通信エラー時に元のErrorをそのまま投げるか`messages.failure`で包み直すかだけは
+`wrapNetworkError`で選ぶ——例外のmessageをそのまま画面へ出す呼び出し元
+（`BackendLogsPanel`）だけが包む側を使う。
 
 ## 主な構成要素（import元）
 

@@ -70,7 +70,7 @@ export default function RouteAxisProfile({
             <span className={styles.scoreLabel}>/100 総合難易度</span>
             <InfoPopover
               triggerClassName={legendStyles.legendInfoButton}
-              triggerAriaLabel="総合難易度の説明を表示"
+              triggerAriaLabel="総合難易度の説明"
               contentClassName={legendStyles.legendInfoPopover}
             >
               <p>距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。</p>
@@ -82,7 +82,7 @@ export default function RouteAxisProfile({
               <span className={styles.scoreLabel}>負荷（難易度×距離）</span>
               <InfoPopover
                 triggerClassName={legendStyles.legendInfoButton}
-                triggerAriaLabel="負荷の説明を表示"
+                triggerAriaLabel="負荷の説明"
                 contentClassName={legendStyles.legendInfoPopover}
               >
                 <p>
@@ -115,7 +115,7 @@ export default function RouteAxisProfile({
               {difficulty == null && <span className={styles.badge}>データなし</span>}
               <InfoPopover
                 triggerClassName={legendStyles.legendInfoButton}
-                triggerAriaLabel={`${axis.label}の説明を表示`}
+                triggerAriaLabel={`${axis.label}の説明`}
                 contentClassName={legendStyles.legendInfoPopover}
               >
                 {axis.description}

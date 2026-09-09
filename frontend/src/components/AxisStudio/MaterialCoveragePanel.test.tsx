@@ -136,7 +136,7 @@ describe("MaterialCoveragePanel", () => {
     expect(screen.queryByText(/距離加重ではない/)).not.toBeInTheDocument();
 
     await act(async () => {
-      await user.click(screen.getByRole("button", { name: "欠損割合の見方" }));
+      await user.click(screen.getByRole("button", { name: "欠損割合の見方を表示" }));
     });
 
     expect(screen.getByText(/距離加重ではない/)).toBeInTheDocument();

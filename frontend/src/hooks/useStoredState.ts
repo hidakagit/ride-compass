@@ -116,3 +116,24 @@ export function useStoredJsonState<T>(
     },
   });
 }
+
+// 真偽値1個のuseStoredState。パネルの開閉・トグルのようにbooleanだけを保存する用途で、
+// 呼び出し側がserialize/deserializeを毎回書かずに済むようにする。**保存値の型まで確かめる**
+// ——`useStoredJsonState`は`JSON.parse`の結果をそのまま返すため、手で書き換えられた
+// `"3"`や`"null"`がbooleanとして流れ込みうる。
+export function useStoredBooleanState(
+  key: string,
+  defaultValue: boolean,
+): [boolean, (value: boolean | ((prev: boolean) => boolean)) => void, (value: boolean) => void] {
+  return useStoredState<boolean>(key, defaultValue, {
+    serialize: (v) => JSON.stringify(v),
+    deserialize: (raw) => {
+      try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === "boolean" ? parsed : null;
+      } catch {
+        return null;
+      }
+    },
+  });
+}

@@ -13,7 +13,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、開放度評価軸の材料）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
-| api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_validation.py`・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須） |
+| api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須） |
 | batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[precompute系4本が共有する対象IDのチャンク取得と件数]）・`refresh_derived.py` |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは

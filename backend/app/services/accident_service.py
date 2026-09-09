@@ -3,11 +3,10 @@ import logging
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.vector_tile import encode_empty_accident_tile
-from app.services.tile_serving import TileResponse, serve_cached_tile
+from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.accident")
 
-ACCIDENT_TILE_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 
 # タイル内容の世代。region_service.pyのROAD_SURFACE_TILE_VERSIONと同じ理由
 # （プロパティを追加した将来、URLを変えて旧世代タイルのブラウザキャッシュを踏まないため）。
@@ -55,7 +54,7 @@ class AccidentService:
             y=y,
             cache_path=_tile_cache_path(z, x, y),
             empty_tile=encode_empty_accident_tile(),
-            content_type=ACCIDENT_TILE_CONTENT_TYPE,
+            content_type=MVT_CONTENT_TYPE,
             external_call_name="accident:tile",
             fetch_tile=fetch_tile,
         )

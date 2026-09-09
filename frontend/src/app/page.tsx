@@ -28,7 +28,6 @@ import {
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import {
-  RAMP_AXES,
   axisMapLayerId,
   buildAxisRampLegend,
   dedicatedWayValueMapLayerId,
@@ -50,6 +49,7 @@ import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   LENS_DIFFICULTY_ID,
+  LENS_NEUTRAL_COLOR,
   LENS_NONE_ID,
   getRouteStyleMode,
   isRouteStyleModeId,
@@ -105,7 +105,7 @@ import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useLocation } from "@/hooks/useLocation";
-import { useStoredState, useStoredJsonState } from "@/hooks/useStoredState";
+import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hooks/useStoredState";
 import { generateRoutes, type GenerationProgress } from "@/services/routeApi";
 import type {
   Coordinates,
@@ -188,10 +188,8 @@ const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled
 const ROUTE_PREFERENCE_STORAGE_KEY = "ridecompass:route-preference";
 const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";
 
-// ramp軸（軸スタジオで増減しうる動的レイヤー）を除いた、ビルド時から固定のレイヤー集合の
-// 既定値。DEFAULT_LAYER_VISIBILITY（静的フォールバック全体）と、useStoredStateの
-// deserialize（下記）がaxisCatalog.loaded===true時に組み立てる「実行時カタログ由来の
-// キー集合」の両方が、この固定部分を共通の土台として使う。
+// 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。軸スタジオ由来のレイヤーは
+// 含まない（DEFAULT_LAYER_VISIBILITY参照）。
 const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}` | `${string}Axis`> = {
   elevation: false,
   // 「道路情報」（road）は論理2レイヤー（roadType/roadSurface）。旧保存値（road:
@@ -222,16 +220,10 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   route: true,
 };
 
-const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
-  ...FIXED_LAYER_VISIBILITY_DEFAULTS,
-  // 二次軸rampレイヤー。backendレジストリ生成物（axis-catalog.json）のkind="ramp"軸から
-  // 自動生成されるため、個別の行を手書きせずカタログから導出する
-  // （新しい軸が増えてもこのファイルの編集は不要）。既定はすべてOFF。
-  // これは実行時カタログ未取得時の静的フォールバック（RAMP_AXES＝axisLayers.tsのビルド時
-  // スナップショット）であり、軸スタジオで新規公開された軸のキーはここには含まれない
-  // （フェッチ完了後の扱いはuseStoredStateのdeserialize、下記参照）。
-  ...Object.fromEntries(RAMP_AXES.map((axis) => [axisMapLayerId(axis.axisId), false])),
-};
+// 軸スタジオ由来のレイヤー（ramp軸`axis:${string}`・専用way値配信軸`${string}Axis`）の
+// キーは持たない。これらの表示はレンズ（lens→axisVisibility）だけが決めており、
+// ON/OFFの入口も地図チップ・サイドバーのどちらにも無い（mapLayers.ts: isAxisStudioLayer）。
+const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = { ...FIXED_LAYER_VISIBILITY_DEFAULTS };
 
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
@@ -491,9 +483,9 @@ export default function Home() {
   // （一般ユーザーには影響しない）。route_preference/routePreference自体は一般向けルート
   // 設定画面（RouteSettingsPanel）とも共有する状態で、withAutoEnableにより、どちらの
   // パネルを操作してもこのフラグが自動でONになる。
-  const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredJsonState(
+  const [weightOverrideEnabled, setWeightOverrideEnabled] = useStoredBooleanState(
     WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY,
-    false
+    false,
   );
   const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
     ROUTE_PREFERENCE_STORAGE_KEY,
@@ -550,11 +542,10 @@ export default function Home() {
   // かつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、残りの設定は
   // 活かしてデフォルトで埋める）。
   //
-  // axisCatalog.loadedを見て、未フェッチ時はビルド時静的軸集合（DEFAULT_LAYER_VISIBILITY）、
-  // フェッチ完了後は実行時カタログ（axisCatalog.rampAxes）ベースのキー集合を走査する
-  // ことで、軸スタジオで新規公開された軸（axis:xxx等）のON/OFF保存値も復元できる。
-  // reloadKeyにaxisCatalog.loadedを渡すことで、マウント直後（静的集合で復元）→
-  // フェッチ完了後（実行時集合で再復元）の2段階復元にしている（useStoredState.ts参照）。
+  // reloadKeyにaxisCatalog.loadedを渡し、マウント直後とカタログ取得完了後の2段階で復元する
+  // （useStoredState.ts参照）。キー集合自体はカタログに依存しないが、下の「route:falseの
+  // 意味変更」移行が1回目の復元で書き戻した値を、2回目の復元がそのまま読み直せるように
+  // 揃えている。
   const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
     LAYER_VISIBILITY_STORAGE_KEY,
     DEFAULT_LAYER_VISIBILITY,
@@ -569,12 +560,7 @@ export default function Home() {
           return null;
         }
         if (typeof parsed !== "object" || parsed === null) return null;
-        const next: MapLayerVisibility = axisCatalog.loaded
-          ? {
-              ...FIXED_LAYER_VISIBILITY_DEFAULTS,
-              ...Object.fromEntries(axisCatalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), false])),
-            }
-          : { ...DEFAULT_LAYER_VISIBILITY };
+        const next: MapLayerVisibility = { ...DEFAULT_LAYER_VISIBILITY };
         const parsedRecord = parsed as Record<string, unknown>;
         // 「道路情報」（road）の論理分割（roadType/roadSurface）に伴う旧保存値の移行。
         // 旧形式（road: boolean、新キーが無い）が残っていれば両方の新キーへ引き継ぐ
@@ -639,10 +625,18 @@ export default function Home() {
   // （rampタイル・専用配信）、ルート後はルート線を同じ識別子で塗る。生成・クリア・候補切替を
   // またいで保持する。保存形式はJSON化しない生文字列（isRouteStyleModeIdによる妥当性検証が
   // JSON.parseを兼ねる）。軸スタジオでunpublishされた軸idは総合難易度へ倒す。
+  // reloadKeyにaxisCatalog.loadedを渡す理由はlayerVisibilityと同じ。deserializeの妥当性判定が
+  // 実行時カタログ（routeStyleModes）に依存するため、カタログ取得前の1回だけで判定すると、
+  // ビルド後に公開された軸をレンズに選んでいた利用者の保存値が「未知のid」として捨てられ、
+  // 再訪のたびに無言で総合難易度へ戻る。
   const [lens, setLens] = useStoredState<LensId>(
     ROUTE_STYLE_MODE_STORAGE_KEY,
     DEFAULT_ROUTE_STYLE_MODE_ID,
-    { serialize: (v) => v, deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null) },
+    {
+      serialize: (v) => v,
+      reloadKey: axisCatalog.loaded,
+      deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null),
+    },
   );
   const routeStyleModes = axisCatalog.routeStyleModes;
   useEffect(() => {
@@ -656,10 +650,7 @@ export default function Home() {
     setLens(LENS_DIFFICULTY_ID);
   }, [routeStyleModes, lens, setLens]);
   // ルート確定後も周囲の道路（全道路の塗り）を残すか。
-  const [lensKeepAfterRoute, setLensKeepAfterRoute] = useStoredState<boolean>(LENS_KEEP_AFTER_ROUTE_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => (raw === "true" ? true : raw === "false" ? false : null),
-  });
+  const [lensKeepAfterRoute, setLensKeepAfterRoute] = useStoredBooleanState(LENS_KEEP_AFTER_ROUTE_STORAGE_KEY, true);
   // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
   // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
   // 両系統を管理できる。「文字列の配列」の形のエントリだけ復元時に採用する。
@@ -686,39 +677,9 @@ export default function Home() {
   );
   // 「ルートを作る」セクションの開閉（デスクトップのみ。主機能のためデフォルト開）。
   // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない。
-  const [generateOpen, setGenerateOpen] = useStoredState(GENERATE_OPEN_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => {
-      try {
-        const parsed = JSON.parse(raw);
-        return typeof parsed === "boolean" ? parsed : null;
-      } catch {
-        return null;
-      }
-    },
-  });
-  const [outcomeOpen, setOutcomeOpen] = useStoredState(OUTCOME_OPEN_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => {
-      try {
-        const parsed = JSON.parse(raw);
-        return typeof parsed === "boolean" ? parsed : null;
-      } catch {
-        return null;
-      }
-    },
-  });
-  const [mapSettingsOpen, setMapSettingsOpen] = useStoredState(MAP_SETTINGS_OPEN_STORAGE_KEY, true, {
-    serialize: (v) => JSON.stringify(v),
-    deserialize: (raw) => {
-      try {
-        const parsed = JSON.parse(raw);
-        return typeof parsed === "boolean" ? parsed : null;
-      } catch {
-        return null;
-      }
-    },
-  });
+  const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
+  const [outcomeOpen, setOutcomeOpen] = useStoredBooleanState(OUTCOME_OPEN_STORAGE_KEY, true);
+  const [mapSettingsOpen, setMapSettingsOpen] = useStoredBooleanState(MAP_SETTINGS_OPEN_STORAGE_KEY, true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // モバイルで開いている下部シート（「ルートを作る」/「地図の見え方」の排他表示、または
   // どちらも閉じたnull＝地図全面表示）。デスクトップでは使わない。
@@ -907,21 +868,9 @@ export default function Home() {
   // できない（地図上チップではなくルート設定パネル・レンズから操作する）。
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
-      setLayerVisibility((prev) => {
-        const next: MapLayerVisibility = { ...prev, [id]: on };
-        if (on) {
-          const layer = mapLayers.find((l) => l.id === id);
-          if (layer && isAxisStudioLayer(layer)) {
-            for (const other of mapLayers) {
-              if (other.id === id) continue;
-              if (isAxisStudioLayer(other)) next[other.id] = false;
-            }
-          }
-        }
-        return next;
-      });
+      setLayerVisibility((prev) => ({ ...prev, [id]: on }));
     },
-    [setLayerVisibility, mapLayers],
+    [setLayerVisibility],
   );
 
   // レンズを選ぶと、地図上の「ルート」チップ（layerVisibility.route）がOFFなら自動でONにする
@@ -1099,12 +1048,14 @@ export default function Home() {
       windVector: WIND_LEGEND_DETAILS,
       disaster: disasterLegendDetails,
     };
-    return mapLayers.map((layer) => {
-        // 専用way値配信軸（`${axisId}Axis`）・ramp軸（`axis:${string}`）は
-        // isAxisStudioLayerによりMapOverlayControls自体がチップとして描画しない
-        // （評価軸はルート設定パネルへ移設済み、mapLayers.ts参照）ため、このoverlayLayers
-        // 配列に含めるのは「全レイヤー一括OFF」ボタン（handleClearAllLayers、下記）が
-        // layerVisibilityへ引き続きアクセスできるようにするためだけの目的になった。
+    // 専用way値配信軸（`${axisId}Axis`）・ramp軸（`axis:${string}`）は除く。これらの
+    // 表示はレンズ（lens→axisVisibility）だけが決めており、layerVisibility側の値は
+    // 表示に影響しない。チップとしても描画されない（評価軸はルート設定パネルへ移設済み、
+    // mapLayers.ts: isAxisStudioLayer）ため、ここに含めると「全レイヤー一括OFF」が
+    // 何も変えない項目を数えることになる。
+    return mapLayers
+      .filter((layer) => !isAxisStudioLayer(layer))
+      .map((layer) => {
         // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
         // 1箇所で決める（無効化理由が増えても1本追加するだけでdisabled/titleの両方に
         // 反映される）。
@@ -1258,9 +1209,10 @@ export default function Home() {
     }
     return [...byAxisId.values()];
   }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, showGradientFill]);
-  // 想定速度（ルート設定の入力欄）は走行速度に依存する軸（風）にも効く。未入力・不正値の
-  // 間は既定速度で配信を続ける。時刻・想定速度を実際にリクエストへ載せるかは軸カタログの
-  // 宣言（needsTime/needsSpeed）が決めるため、ここでは全軸共通の入力として渡すだけでよい。
+  // 想定速度（地図上のRideConditionBarの入力、値域の丸めはそちらのclampSpeedKmhが担う）は
+  // 走行速度に依存する軸（風）にも効く。時刻・想定速度を実際にリクエストへ載せるかは
+  // 軸カタログの宣言（needsTime/needsSpeed）が決めるため、ここでは全軸共通の入力として
+  // 渡すだけでよい。
   const dedicatedWayValueResults = useDedicatedWayValues(
     dedicatedFetchAxes,
     mapViewport,
@@ -1340,7 +1292,7 @@ export default function Home() {
     return axisCatalog.axes.map((axis) => ({
       id: axis.axisId,
       label: axis.label,
-      color: axisChipColors[axis.axisId] ?? "#64748b",
+      color: axisChipColors[axis.axisId] ?? LENS_NEUTRAL_COLOR,
       description: axis.description,
       unused: (weights[axis.axisId] ?? 0) <= 0,
       routeOnly: !rampAxisIds.has(axis.axisId) && !axis.dedicatedWayValueLayer,
@@ -1631,13 +1583,12 @@ export default function Home() {
   // タブ列。候補の切り替えとその候補の内訳表示（RouteAxisProfile）を、このタブ列自体が
   // 担う——RouteAxisProfileはタブの中身（Tabs.Content）としてのみ現れる。
   //
-  // showHeadingはrenderRouteSettingsSectionBodyと同じ理由（見出しの二重表示回避）で
-  // 使い分ける。デスクトップ（既定true）はこのセクション自身の見出し「ルート結果」＋
-  // renderRouteResultHeaderActions()（保存・GPX出力・ルートをクリア）をここで描画する。
-  // モバイルはBottomSheet自体がtitle="ルート結果"の見出しを持つためshowHeading=falseで
-  // 抑制し、同じrenderRouteResultHeaderActions()をBottomSheetのheaderAction propとして
-  // 呼び出し側（下のJSX）から渡す。総合難易度の説明はRouteAxisProfile側（総合難易度の
-  // 表示の隣）にあり、本ヘッダは操作アイコンのみを持つ。
+  // この関数は見出しを描画しない（中身だけを返す）。見出し「ルート結果」はデスクトップが
+  // Disclosureのsummary、モバイルがBottomSheetのtitleとして持つ。ヘッダの操作アイコン
+  // （保存・GPX出力・ルートをクリア）も同様に、renderRouteResultHeaderActions()を
+  // デスクトップはDisclosureのtrailing、モバイルはBottomSheetのheaderActionへ渡す。
+  // 総合難易度の説明はRouteAxisProfile側（総合難易度の表示の隣）にあり、
+  // 本ヘッダは操作アイコンのみを持つ。
   function renderRouteOutcomeSectionBody() {
     if (routes.length === 0) return null;
 

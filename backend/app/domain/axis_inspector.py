@@ -40,7 +40,7 @@ class AxisInspectorResult(BaseModel):
     # 取得可能な軸だけの加重平均（`composite_difficulty`と同じ「データ無しは除外し
     # 残りの重みで再正規化」方針）。1つも取得できなければNone。
     composite_difficulty: float | None
-    # 全8軸の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
+    # 公開軸全体の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
     # 「◯%相当の軸のみで算出」という参考値である旨を示すために使う。
     covered_weight_fraction: float | None
 

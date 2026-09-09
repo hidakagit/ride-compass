@@ -1,14 +1,14 @@
-"""地域タイル系エンドポイント（路面・POI・事故）で共通の座標検証。
+"""地域タイル系エンドポイント（路面・POI・事故）で共通のHTTP層。
 
-region.py（路面/POIタイル）とaccidents.py（事故タイル）が同じズーム範囲チェック・
-`2**z`座標範囲チェックを個別に実装するのを避けるため、共有可能な形へ切り出した。
-レート制限は地域タイル系に限らず全router共通の`app.api.dependencies.enforce_rate_limit`
-を使う（本モジュールの対象外）。
+region.py（路面/POIタイル）とaccidents.py（事故タイル）が、座標検証と応答の組み立てを
+それぞれ個別に実装するのを避けるため共有する。レート制限は地域タイル系に限らず全router
+共通の`app.api.dependencies.enforce_rate_limit`を使う（本モジュールの対象外）。
 """
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
+from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse
 
 
 def validate_tile_coords(z: int, x: int, y: int) -> None:
@@ -25,3 +25,14 @@ def validate_tile_coords(z: int, x: int, y: int) -> None:
     tile_index_max = 2**z
     if not (0 <= x < tile_index_max) or not (0 <= y < tile_index_max):
         raise HTTPException(status_code=400, detail="タイル座標が範囲外です。")
+
+
+def tile_response(tile: TileResponse) -> Response:
+    """タイル応答を組み立てる。
+
+    通常は`api/cache_policy.py`の対応表（`BATCH_TILE`）がミドルウェアで`Cache-Control`を
+    付けるが、一時的な失敗で空タイルを返した場合だけは`no-store`を明示して、その空白が
+    利用者のブラウザへ1時間残らないようにする（`TileResponse`のdocstring参照）。
+    """
+    headers = None if tile.cacheable else {"Cache-Control": "no-store"}
+    return Response(content=tile.content, media_type=MVT_CONTENT_TYPE, headers=headers)

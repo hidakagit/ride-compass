@@ -49,10 +49,11 @@ export default function DerivedDataFreshnessPanel() {
     <Card className={styles.panel}>
       <div className={styles.heading}>派生データ鮮度台帳</div>
       <p className={styles.hint}>
-        edge_attribute_counts・way_attribute_counts・designation_attributes・way_landcoverが参照している生データの世代
-        （取込run）が、最新の成功済み取込より古いままではないかを機械判定する。elevation_attributesは
-        source_*_import_run_id列を持たないため世代比較ではなく完成度（road_edgesとの行数差分）のみ表示する
-        ——鮮度ではない点に注意。DB全体の走査を伴うため集計には時間がかかる（ボタン押下時のみ実行）。
+        下の表に並ぶ各テーブルが参照している生データの世代（取込run）が、最新の成功済み取込より
+        古いままではないかを機械判定する（対象はbackendのGENERATION_FRESHNESS_SPECSが決めるため、
+        テーブルが増減しても表は自動で追従する）。source_*_import_run_id列を持たないテーブルは
+        世代比較ではなく完成度（road_edgesとの行数差分）のみ表示する——鮮度ではない点に注意。
+        DB全体の走査を伴うため集計には時間がかかる（ボタン押下時のみ実行）。
       </p>
       <div className={styles.controls}>
         <Button onClick={handleFetch} disabled={loading}>

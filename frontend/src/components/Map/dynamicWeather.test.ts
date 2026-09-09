@@ -4,7 +4,6 @@
 // ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
 import {
-  CHIP_DYNAMIC_WEATHER_LAYER_IDS,
   DYNAMIC_WEATHER_LAYER_IDS,
   formatDynamicFrameTime,
   frameIndexForTime,
@@ -125,16 +124,12 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
     });
   });
 
-  describe("CHIP_DYNAMIC_WEATHER_LAYER_IDS", () => {
+  describe("DYNAMIC_WEATHER_LAYER_IDS", () => {
     it("災害系7要素は\"disaster\"チップ1つに集約されている", () => {
-      expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).toContain("disaster");
+      expect(DYNAMIC_WEATHER_LAYER_IDS).toContain("disaster");
       for (const removed of ["landslideRisk", "heavyRainRisk", "inundationRisk", "floodRisk", "thunderNowcast", "tornadoNowcast", "liden"]) {
-        expect(CHIP_DYNAMIC_WEATHER_LAYER_IDS).not.toContain(removed);
+        expect(DYNAMIC_WEATHER_LAYER_IDS).not.toContain(removed);
       }
-    });
-
-    it("DYNAMIC_WEATHER_LAYER_IDSはCHIP_DYNAMIC_WEATHER_LAYER_IDSと同じ（常時マウント・チップ無しの要素を持たない）", () => {
-      expect(DYNAMIC_WEATHER_LAYER_IDS).toEqual(CHIP_DYNAMIC_WEATHER_LAYER_IDS);
     });
   });
 });

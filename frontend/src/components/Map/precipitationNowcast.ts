@@ -23,8 +23,7 @@ import {
   type DynamicWeatherFrame,
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame, jmaProxyUrl, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
-import { fetchJson } from "@/lib/fetchJson";
+import { fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
 import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
@@ -35,8 +34,6 @@ export type NowcastFrame = JmaNowcastFrame;
 // の import パスを変えずに使えるよう再エクスポートする。
 export { parseValidtime, trimToCurrentAndFuture };
 
-const targetTimesN1Url = () => jmaProxyUrl("/jmatile/data/nowc/targetTimes_N1.json");
-const targetTimesN2Url = () => jmaProxyUrl("/jmatile/data/nowc/targetTimes_N2.json");
 
 // 気象庁 降水短時間予報（rasrf）。ナウキャスト（実況の外挿、60分先が上限）とは異なり
 // 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する。
@@ -53,7 +50,6 @@ const targetTimesN2Url = () => jmaProxyUrl("/jmatile/data/nowc/targetTimes_N2.js
 // 組み合わせになりうるため、**必ずelements.includes("rasrf")で絞り込んでから**
 // 「異なるvalidtimeの種類数が複数ある最新のbasetime」を選ぶ（絞り込み後は同一
 // (basetime, validtime, member)にrasrf行が高々1つのため、複数行の優先順位付けは不要）。
-const rasrfTargetTimesUrl = () => jmaProxyUrl("/jmatile/data/rasrf/targetTimes.json");
 
 interface RawRasrfTargetTime {
   basetime: string;
@@ -91,13 +87,7 @@ function latestFullRunFrames(raw: readonly RawRasrfTargetTime[], member: string)
  * validtimeの範囲が重ならない設計だが、念のためvalidtime重複時は
  * より詳細なimmed側を優先する（Map.setで後勝ちにするため、noneを先に積む）。 */
 export async function fetchRasrfFrames(): Promise<RasrfFrame[]> {
-  const data = await fetchJson<unknown>(rasrfTargetTimesUrl(), {
-    timeoutMs: 15000,
-    category: "api:jma-nowcast-times",
-    errorLabel: "降水短時間予報の時刻一覧",
-  });
-  if (!Array.isArray(data)) throw new Error("降水短時間予報の時刻一覧の形式が想定と異なります");
-  const raw = data as RawRasrfTargetTime[];
+  const raw = await fetchJmaTargetTimes<RawRasrfTargetTime>("rasrf", "降水短時間予報");
 
   const byValidtime = new Map<string, RasrfFrame>();
   for (const e of latestFullRunFrames(raw, "none")) {
@@ -113,8 +103,8 @@ export async function fetchRasrfFrames(): Promise<RasrfFrame[]> {
  * 失敗しても、もう片方が使えるなら部分的な時系列を返す（両方失敗したときだけ例外）。 */
 export async function fetchNowcastFrames(): Promise<NowcastFrame[]> {
   const results = await Promise.allSettled([
-    fetchJmaTargetTimes(targetTimesN1Url(), "降水ナウキャスト"),
-    fetchJmaTargetTimes(targetTimesN2Url(), "降水ナウキャスト"),
+    fetchJmaTargetTimes("nowc_N1", "降水ナウキャスト"),
+    fetchJmaTargetTimes("nowc_N2", "降水ナウキャスト"),
   ]);
   const [n1, n2] = results;
   if (n1.status === "rejected" && n2.status === "rejected") {

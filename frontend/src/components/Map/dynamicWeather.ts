@@ -32,7 +32,7 @@
 //       ペイロード関数（ref→DynamicWeatherRenderPayload）を実装する
 //   (3) MapView.tsx: DYNAMIC_WEATHER_RENDERERSへ描画スペック（raster/gridFill/gridMark/
 //       vectorTileの宣言と配色・アイコン）を1エントリ追加する
-//   (4) mapLayers.ts: 地図チップを追加し、MapLayerId・CHIP_DYNAMIC_WEATHER_LAYER_IDSへ
+//   (4) mapLayers.ts: 地図チップを追加し、MapLayerId・DYNAMIC_WEATHER_LAYER_IDSへ
 //       1行足す
 //
 // このファイル自体はDOM/MapLibreを知らない純粋なデータ層（windLayer.ts等と同じ方針）。
@@ -43,7 +43,7 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 // page.tsxのdynamicWeather組み立ての両方がこの配列を見る）。新しい要素を追加するときは
 // ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。全要素が
 // チップ（layerVisibility）でON/OFFする（常時マウント・チップ無しの要素は持たない）。
-export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
+export const DYNAMIC_WEATHER_LAYER_IDS = [
   "precipitationNowcast",
   "windVector",
   // 災害。雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）・雷放電位置データ
@@ -55,7 +55,6 @@ export const CHIP_DYNAMIC_WEATHER_LAYER_IDS = [
   "disaster",
 ] as const satisfies readonly MapLayerId[];
 
-export const DYNAMIC_WEATHER_LAYER_IDS = CHIP_DYNAMIC_WEATHER_LAYER_IDS;
 export type DynamicWeatherLayerId = (typeof DYNAMIC_WEATHER_LAYER_IDS)[number];
 
 /** フレーム1つぶんの描画内容。表示層はこのkindだけで描画方法を決める（データソースの
@@ -135,8 +134,8 @@ export function formatDynamicFrameHourMinute(time: Date): string {
 /** 分のみ（2桁、0埋め、JST）。ルーラー目盛りラベルのうち、正時でない密な区間
  * （降水ナウキャストの5分刻み等）のコマ用。JSTはUTC+9:00ちょうどで分のずれが無いため、
  * getUTCMinutes()がそのまま
- * JSTの分と一致する（page.tsxのhourMark判定と同じ理由、実行環境のローカルタイムゾーンに
- * 左右されない）。 */
+ * JSTの分と一致する（departureTimeline.tsのhourMark判定と同じ理由、実行環境の
+ * ローカルタイムゾーンに左右されない）。 */
 export function formatDynamicFrameMinuteOnly(time: Date): string {
   return String(time.getUTCMinutes()).padStart(2, "0");
 }

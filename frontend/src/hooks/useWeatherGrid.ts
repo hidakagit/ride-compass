@@ -7,7 +7,7 @@
 // 延長降水予報アイコンは同じ格子点データを共有でき、enabledをどちらか一方でもONなら
 // trueにして呼び出すだけで両機能ぶんのフェッチを1本化できる（呼び出し側はpage.tsxが
 // 表示用に個別のFeatureCollectionへ変換する、windLayer.ts/precipitationNowcast.ts参照）。
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   clampWindDetailBbox,
   mergeWindGridKeepingStale,
@@ -20,11 +20,15 @@ import {
 import type { WindGridPoint } from "@/types/weather";
 import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { usePolledFetch } from "@/hooks/usePolledFetch";
 
 // バックエンド側のTTLキャッシュ（weather_client.py: WIND_GRID_CACHE_TTL_SECONDS）に合わせた
 // 間隔で再取得する。これより短い間隔で再取得してもキャッシュヒットするだけで新しいデータは
 // 得られず、624地点ぶんの応答（約0.9MB）を無駄に再ダウンロードするだけになる。
 const WEATHER_GRID_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000;
+// usePolledFetchの初期値。毎レンダー新しい配列を渡すとdataの参照が無用に変わるため、
+// モジュールスコープの1つを共有する。
+const EMPTY_GRID: WindGridPoint[] = [];
 // パン・ズームのたびに（デバウンス済みとはいえ）呼ばれうるため、道路情報の絞り込み等の
 // LEGEND_FILTER_DEBOUNCE_MSより長め。地図フィルタの再適用と違いネットワーク往復を伴うため、
 // より鷹揚な間隔にしている（値自体はuseDebouncedValue.ts:
@@ -60,49 +64,37 @@ export interface UseWeatherGridResult {
  * ものだけ叩く」方針）。mapViewportはズームインしたときだけ詳細格子を追加取得するために
  * 使う（WIND_DETAIL_MIN_ZOOM未満では取得しない）。 */
 export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null): UseWeatherGridResult {
-  const [grid, setGrid] = useState<WindGridPoint[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasFetched, setHasFetched] = useState(false);
-  const [detailGrid, setDetailGrid] = useState<WindGridPoint[]>([]);
-  const [detailSpacingDeg, setDetailSpacingDeg] = useState(WIND_GRID_SPACING_DEG);
-
   // 再取得のたびに一部地点だけ抜け落ちることがあり、
   // そのまま置き換えると地図上に「その地点だけ塗られていない」穴ができる。前回成功していた
   // 地点を補って残すmergeWindGridKeepingStaleのため、trim前の生の状態をrefで持ち続ける
-  // （grid自体はtrim後の表示用state、こちらは
-  // マージ専用の内部状態）。
+  // （gridはtrim後の表示用、こちらはマージ専用の内部状態）。
   const rawGridRef = useRef<WindGridPoint[]>([]);
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    const load = async (isFirstLoad: boolean) => {
-      if (isFirstLoad) setLoading(true);
-      try {
-        const rawGrid = mergeWindGridKeepingStale(rawGridRef.current, await getWindGrid());
-        rawGridRef.current = rawGrid;
-        // 時刻配列の先頭がフェッチからの経過で過去になると、そのままだと配列の前半に
-        // 過去の時刻が並ぶ。過去の風・降水を振り返る用途はアプリの性質上無いため、
-        // trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる。
-        const trimmed = trimWindGridToCurrentAndFuture(rawGrid);
-        if (cancelled) return;
-        setGrid(trimmed);
-        setError(null);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "気象格子データの取得に失敗しました");
-      } finally {
-        if (!cancelled) setHasFetched(true);
-        if (!cancelled && isFirstLoad) setLoading(false);
-      }
-    };
-    Promise.resolve().then(() => load(true));
-    const intervalId = window.setInterval(() => load(false), WEATHER_GRID_REFRESH_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [enabled]);
+  // 粗い格子の定期取得。「即座に1回→intervalMsごと→cancelledで古い応答を捨てる」という
+  // 骨格はusePolledFetchと同型のため、そちらへ委ねる（骨格を写経すると、片方だけ
+  // エラーログを持つといった非対称が生まれる）。マージ・trimという本フック固有の処理だけを
+  // fetcherの中へ置く。
+  const fetchCoarseGrid = useCallback(async () => {
+    const rawGrid = mergeWindGridKeepingStale(rawGridRef.current, await getWindGrid());
+    rawGridRef.current = rawGrid;
+    // 時刻配列の先頭がフェッチからの経過で過去になると、そのままだと配列の前半に
+    // 過去の時刻が並ぶ。過去の風・降水を振り返る用途はアプリの性質上無いため、
+    // trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる。
+    return trimWindGridToCurrentAndFuture(rawGrid);
+  }, []);
+  const {
+    data: grid,
+    loading,
+    error,
+    hasFetched,
+  } = usePolledFetch<WindGridPoint[]>(fetchCoarseGrid, EMPTY_GRID, {
+    enabled,
+    intervalMs: WEATHER_GRID_REFRESH_INTERVAL_MS,
+    label: "気象格子データ",
+    debugLogCategory: "api:windGrid",
+  });
+
+  const [detailGrid, setDetailGrid] = useState<WindGridPoint[]>([]);
+  const [detailSpacingDeg, setDetailSpacingDeg] = useState(WIND_GRID_SPACING_DEG);
 
   // ズームインして狭い範囲を見ているときだけ、現在のビューポートに交差する密な格子を取得する。
   const debouncedMapViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);

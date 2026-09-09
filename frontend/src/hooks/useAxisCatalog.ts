@@ -24,7 +24,7 @@ import {
   type RouteStyleMode,
 } from "@/components/Map/routeStyleModes";
 
-// ビルド時静的生成物（既存7軸の既定重み、開発中のフォールバック用）。
+// ビルド時静的生成物（ビルド時点の公開軸の既定重み、開発中のフォールバック用）。
 // GET /api/axis-catalogはこれと同じ形の情報をDBの最新内容から動的に返す。
 const STATIC_DEFAULT_WEIGHTS: RoutePreferenceWeights = axisCatalogStatic.preference_defaults;
 
@@ -49,7 +49,7 @@ export interface AxisCatalog {
    * エラー時は静的フォールバック（routeStyleModes.ts: ROUTE_STYLE_MODES）。 */
   routeStyleModes: readonly RouteStyleMode[];
   /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを表す。
-   * falseの間（未取得・取得失敗）は他フィールドが静的フォールバック（ビルド時の既存7軸
+   * falseの間（未取得・取得失敗）は他フィールドが静的フォールバック（ビルド時点の公開軸の
    * スナップショット）である可能性があるため、呼び出し側が「軸スタジオの現在の公開軸集合と
    * 一致している」ことを要求する処理（route_preferenceのキー整合等）では、このフラグで
    * 未確定状態を区別しなければならない。取得成功時にaxesが0件（全軸非公開）であっても
@@ -199,7 +199,7 @@ export function __resetAxisCatalogStoreForTests(): void {
 
 /** 軸カタログ。マウント時に一度`GET /api/axis-catalog`を取得し、軸スタジオがDBへ
  * 追加・公開した軸を反映する（is_publishedの切替も含め、再デプロイ不要で即座に
- * 反映される）。取得完了までとエラー時は静的な既存7軸カタログ（フォールバック）を
+ * 反映される）。取得完了までとエラー時はビルド時点の静的カタログ（フォールバック）を
  * 返すため、呼び出し側は常に何かしらの一覧を受け取れる（loading状態を個別に扱う
  * 必要がない）。
  *
@@ -218,7 +218,7 @@ export function useAxisCatalog(): AxisCatalog {
         // 取得成功時はaxesが空でもそのままbuildCatalogへ渡す（フェッチ未完了・失敗時のみ
         // FALLBACK_CATALOGに留まる、という区別に一本化する——「まだ取得中/取得失敗」と
         // 「取得成功したが軸が0件（全軸非公開）」を同一視すると、軸スタジオで全軸を
-        // 非公開にしても静的フォールバックの既存7軸が表示され続けてしまう）。
+        // 非公開にしても静的フォールバックの軸が表示され続けてしまう）。
         publishCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
       })
       .catch(() => {

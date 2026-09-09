@@ -119,13 +119,6 @@
   transform: rotate(45deg);
 }
 
-/* 開閉を持たないブロックの見出し（blockSummaryと同じ見た目に揃える） */
-.blockHeading {
-  font-weight: bold;
-  font-size: var(--font-size-md);
-  margin: 0 0 var(--space-2);
-}
-
 .blockBody {
   display: flex;
   flex-direction: column;
@@ -136,22 +129,6 @@
 .dirtyHint {
   color: var(--color-warning-strong);
   font-size: var(--font-size-sm);
-  margin: 0;
-}
-
-/* デスクトップ専用の「ルート結果」見出し行（改善計画T545フォローアップ）。モバイルは
-   BottomSheet自体のtitle="ルート結果"が見出しを兼ねるため showHeading=false で
-   出さない（renderRouteOutcomeSectionBodyのコメント参照）。見出しは左、情報アイコン・
-   「ルートをクリア」は右（ユーザー指摘「ヘッダの右上小さくでいい」）。 */
-.outcomeSectionHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-bottom: 0.3rem;
-}
-
-.outcomeSectionHeader h2 {
   margin: 0;
 }
 
@@ -410,8 +387,7 @@
 .locateButton {
   position: absolute;
   right: var(--space-3);
-  /* MapLibreの既定のアトリビューション表示（右下）と重ならないよう間隔を空ける。
-     デバッグモード表示中はpage.tsxがDebugConsoleの高さぶんインラインstyleで上書きする。 */
+  /* MapLibreの既定のアトリビューション表示（右下）と重ならないよう間隔を空ける。 */
   bottom: 2.5rem;
   z-index: 20;
   width: 44px;
@@ -458,11 +434,8 @@
 }
 
 /* スマホ幅ではMapLibreの帰属表示が右下のコンパクトなⓘボタンになり、bottom: 2.5remの
-   現在地ボタンと重なって欠けて見える（実機スクリーンショットで確認）。ⓘボタンの上へ退避する。
-   さらに画面下部に固定の.mobileTabBar（--mobile-tabbar-height）が乗るため、その分も
-   底上げする（モバイル実機フィードバック対応T34）。デバッグモード時はpage.tsxの
-   インラインstyle（DebugConsoleの高さ基準、こちらも同じくタブバー分を加算済み）が
-   これより優先される。 */
+   現在地ボタンと重なって欠けて見える。ⓘボタンの上へ退避する。さらに画面下部に固定の
+   .mobileTabBar（--mobile-tabbar-height）が乗るため、その分も底上げする。 */
 @media (max-width: 640px) {
   .locateButton {
     bottom: calc(5rem + var(--mobile-tabbar-height));

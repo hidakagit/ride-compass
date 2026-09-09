@@ -1061,8 +1061,8 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
 // 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
 // パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMark/vectorのうち
 // 実際に指定されているものだけを追加する。
-// spec.*.colorExpression等はDYNAMIC_WEATHER_RENDERERS呼び出し元（MapView.tsx本体、
-// page.tsx）が軸スタジオ由来の動的なしきい値から組み立てることがある。そのため
+// spec.*.colorExpression等は呼び出し元（MapView.tsx本体）が軸スタジオ由来の動的な
+// しきい値から組み立てることがある。そのため
 // groupSpecが変わるたびにこの関数が呼ばれる前提で、レイヤーが既に存在する場合も
 // 各paintプロパティをsetPaintPropertyで再適用する（addLayer時の値で固定させない）。
 export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {

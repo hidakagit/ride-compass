@@ -63,7 +63,7 @@ const PREFERENCE_AXIS_DESCRIPTIONS: Record<string, string> = {
   openness: "建物・樹木などの遮蔽物が多い(開けていない)ほど易しい。既定重み0(風の強い日に個別に上げる想定)",
 };
 
-// 区間難易度の重み（2次要素）8軸。SECONDARY_AXES（secondaryAxes.ts、地図チップ・
+// 区間難易度の重み（2次要素）。SECONDARY_AXES（secondaryAxes.ts、地図チップ・
 // 地図の見え方パネルの推定グループが共有する単一ソース）をそのままなぞって並び順・
 // ラベルを導出することで、「この重みは地図のどの軸に対応するか」が名前と並びだけで
 // 分かるようにする（片側import、新しい軸が増えてもこのファイルの変更は不要）。windは

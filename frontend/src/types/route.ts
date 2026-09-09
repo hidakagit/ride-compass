@@ -80,23 +80,18 @@ export type AxisCatalogResponse = Schemas["AxisCatalogResponse"];
 // 軸スタジオが使う評価軸定義のCRUD型。/api/admin/axis-definitions。
 export type AxisDefinitionPayload = Schemas["AxisDefinitionPayload"];
 export type AxisDefinitionResponse = Schemas["AxisDefinitionResponse"];
-export type MaterialTerm = Schemas["MaterialTerm"];
 export type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
 export type CategoricalShape = Schemas["CategoricalShape"];
 export type AxisShape = BreakpointLinearShape | CategoricalShape;
 
 // 材料カタログ。GET /api/material-catalogのレスポンス。軸スタジオの
 // 材料選択候補を、材料自体の追加時にコード変更・再デプロイだけで反映する。
-export type MaterialCatalogEntry = Schemas["MaterialCatalogEntry"];
 export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
-export type MaterialReferencePointEntry = Schemas["MaterialReferencePointEntry"];
 
 // JMA動的タイルの在否インデックス。GET /api/jma-tile-indexのレスポンス。
 // 平常時に空タイルを取りに行かないための「どのタイルに中身があるか」の一覧
 // （components/Map/jmaTileIndex.tsが解釈する）。
 export type JmaTileIndexResponse = Schemas["JmaTileIndexResponse"];
-export type JmaTileIndexElement = Schemas["JmaTileIndexElement"];
-export type JmaTileIndexCoverage = Schemas["JmaTileIndexCoverage"];
 
 // 材料の実データ値一覧。GET /api/admin/material-catalog/{material_id}/valuesのレスポンス。
 // highway/surface/smoothnessのようなオープンエンドな多値材料向け。各値に日本語ラベル
@@ -112,8 +107,5 @@ export type MaterialCoverageResponse = Schemas["MaterialCoverageResponse"];
 
 // 派生データ鮮度台帳。GET /api/admin/derived-data/freshness（Basic認証必須、
 // 管理画面「鮮度」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
-export type SourceFreshnessEntry = Schemas["SourceFreshnessEntry"];
-export type AlgorithmVersionFreshnessEntry = Schemas["AlgorithmVersionFreshnessEntry"];
 export type GenerationFreshnessEntry = Schemas["GenerationFreshnessEntry"];
-export type ElevationCompletenessEntry = Schemas["ElevationCompletenessEntry"];
 export type DerivedDataFreshnessResponse = Schemas["DerivedDataFreshnessResponse"];

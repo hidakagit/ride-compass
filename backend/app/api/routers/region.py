@@ -5,8 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from app.api.dependencies import enforce_rate_limit, get_dedicated_way_value_service, get_region_service
-from app.services.tile_serving import TileResponse
-from app.api.routers._tile_validation import validate_tile_coords
+from app.api.routers._tile_http import tile_response, validate_tile_coords
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_dedicated_way_values
@@ -29,19 +28,6 @@ router = APIRouter()
 # 共有する（プール上限15接続に対し、独立semaphoreを追加すると2種のタイルの同時実行数の
 # 合計がプール上限を超えうる）。
 _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
-
-
-def _tile_response(tile: TileResponse) -> Response:
-    """タイル応答を組み立てる。
-
-    通常は`api/cache_policy.py`の対応表（`BATCH_TILE`）がミドルウェアで`Cache-Control`を
-    付けるが、一時的な失敗で空タイルを返した場合だけは`no-store`を明示して、その空白が
-    利用者のブラウザへ1時間残らないようにする（`TileResponse`のdocstring参照）。
-    """
-    headers = None if tile.cacheable else {"Cache-Control": "no-store"}
-    return Response(
-        content=tile.content, media_type="application/vnd.mapbox-vector-tile", headers=headers
-    )
 
 
 def _check_tile_rate_limit(request: Request, prefix: str) -> None:
@@ -68,7 +54,7 @@ async def region_road_surface_tile(
     # 原因になる。
     async with _region_tile_semaphore:
         tile = await region_service.get_road_surface_tile(z, x, y)
-    return _tile_response(tile)
+    return tile_response(tile)
 
 
 @router.get("/api/region/poi-tiles/{z}/{x}/{y}.pbf")
@@ -88,7 +74,7 @@ async def region_poi_tile(
     validate_tile_coords(z, x, y)
     async with _region_tile_semaphore:
         tile = await region_service.get_poi_tile(z, x, y)
-    return _tile_response(tile)
+    return tile_response(tile)
 
 
 @router.get("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}")
@@ -127,7 +113,7 @@ async def region_dedicated_way_values(
     範囲内では風グリッド・DBへの再問い合わせは発生しない。
 
     路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
-    （`region_service.py`の`_region_tile_semaphore`のコメント参照——MVTエンコードは
+    （本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは
     伴わないが同じPostGISコネクションプールを取り合うため）。
     """
     axis = dedicated_way_value_axes().get(axis_id)

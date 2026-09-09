@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.dependencies import enforce_rate_limit, get_accident_service
-from app.api.routers._tile_validation import validate_tile_coords
+from app.api.routers._tile_http import tile_response, validate_tile_coords
 from app.config import settings
 from app.services.accident_service import AccidentService
 
@@ -24,14 +24,9 @@ async def region_accident_tile(
     accident_service: AccidentService = Depends(get_accident_service),
 ) -> Response:
     # 認証なしで叩ける事故タイルへの簡易な歯止め・座標検証（routers/region.pyと共有、
-    # _tile_validation.py参照）。
+    # _tile_http.py参照）。
     enforce_rate_limit(request, "accident-tile", settings.accident_tile_rate_limit_per_minute)
     validate_tile_coords(z, x, y)
     async with _accident_tile_semaphore:
         tile = await accident_service.get_accident_tile(z, x, y)
-    # 一時的な失敗で返した空タイルだけはno-storeを明示する（region.py: _tile_responseと
-    # 同じ理由。通常はcache_policy.pyのBATCH_TILEがミドルウェアで付く）。
-    headers = None if tile.cacheable else {"Cache-Control": "no-store"}
-    return Response(
-        content=tile.content, media_type="application/vnd.mapbox-vector-tile", headers=headers
-    )
+    return tile_response(tile)

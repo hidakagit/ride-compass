@@ -1692,8 +1692,9 @@ class RawOsmRepository(_SessionRepository):
 
         正規化は`infrastructure/osm_way_tag_sql.py`の共有断片（`_ROAD_SURFACE_TILE_MVT_SQL`
         [RoadSurfaceTileQuery]・`material_coverage.py`と共通）を使う（surface/smoothnessは
-        `lower(btrim(...))`、highwayは生値のまま——OSM取込プロファイル[`batch/import_pbf.py:
-        ALLOWED_HIGHWAY_TYPES`]で既に許可リスト化された正準値のため正規化不要）。単純な
+        `lower(btrim(...))`、highwayは生値のまま——OSM取込プロファイル
+        [`batch/import_profile.yaml`のhighway許可リスト]で既に許可リスト化された正準値の
+        ため正規化不要）。単純な
         `SELECT DISTINCT`で足りる
         （複雑な優先順位付き分類を要する材料はこの対象外、
         material_catalog.pyのdisplay_only/dtype="categorical"のうち事前に閉じた値集合を

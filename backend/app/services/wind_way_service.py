@@ -43,9 +43,8 @@ def _tile_center(bbox: BoundingBox) -> Coordinates:
 
 def _nearest_time_index(times: list[str], target: datetime) -> int | None:
     """風グリッドの時刻配列（JST基準の壁時計時刻をtzなし文字列で持つ）から、
-    targetに最も近いindexを求める（weather_service.py:
-    WeatherService._nearest_hourly_index/_within_hourly_rangeと同じ「最近傍だが範囲外は不可」
-    という考え方を踏襲した簡易版）。targetがtz-awareならJSTへ変換してから比較する
+    targetに最も近いindexを求める（「最近傍だが、どの時刻からも離れすぎていれば不可」）。
+    targetがtz-awareならJSTへ変換してから比較する
     （tzinfoを剥がすだけだとJSTとの時差ぶんズレる）。範囲外（風グリッドがまだ届いていない
     遠い未来・過去）はNoneを返し、呼び出し元は「不明」として扱う。"""
     if not times:

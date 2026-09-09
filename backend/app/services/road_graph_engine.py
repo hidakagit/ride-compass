@@ -1707,7 +1707,7 @@ async def _ensure_lazy_graph_consistent(
     `_lazy_graph_cache`と`_search_statics_cache`はLRU上限に達すると独立に最古のエントリを
     追い出すため、再split（`save_graph`のedge_id再割当）を挟むと「`lazy_graph`はキャッシュ
     ヒットで古いまま」という状態が起こりうる。放置すると、直後の
-    `cost_by_edge_id[edge_id] for edge_id in lazy_graph.edge_ids`（`_build_search_graph`）や
+    `full_edge_row[edge_id] for edge_id in lazy_graph.edge_ids`（`_build_search_graph`）や
     `domain/routing.py: build_search_graph_statics`が同種のKeyErrorを起こす。この関数は
     `domain/routing.py: find_missing_lazy_graph_edge_id`（CSR構築を伴わない軽量版チェック）
     で不整合の有無だけを先に確認し、無ければ`lazy_graph`をそのまま返す。呼び出し側は
