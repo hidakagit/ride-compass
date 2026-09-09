@@ -1379,6 +1379,34 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
     assert batch.materials[bwd_edge_id].landcover_built_percent == 25.0
 
 
+async def test_get_edge_materials_batch_carries_curvature_from_road_edges(
+    road_graph_repository, road_graph_session
+):
+    """蛇行は派生テーブルではなくroad_edgesの列。save_graphが書いた値がbundleまで届くこと。
+
+    モデルへ列を足してもこのSELECTへ通し忘れると、材料は静かに欠損したまま軸だけが増える
+    （実際に本番で「軸はカタログに出るのに値が来ない」形で発覚した、docs/tasks/T691.md）。
+    頂点3点以上のwayでないと蛇行は定義できないため、3ノードのwayで組む。
+    """
+    way = WaySpec(osm_way_id=300, node_ids=[1, 2, 3], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3}
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    edge_ids = list(graph.edges.keys())
+    batch = await road_graph_repository.get_edge_materials_batch(edge_ids)
+
+    measured = {
+        edge_id: graph.edges[edge_id].curvature_deg_per_km
+        for edge_id in edge_ids
+        if graph.edges[edge_id].curvature_deg_per_km is not None
+    }
+    assert measured, "この構成で蛇行が1本も求まっていない（テストが空振りしている）"
+    for edge_id, expected in measured.items():
+        assert batch.materials[edge_id].curvature_deg_per_km == pytest.approx(expected)
+
+
 async def _mark_tile_cached(session, zoom: int, x: int, y: int) -> None:
     """road_graph_tilesへ直接INSERT（UPSERT）する。改善計画: リポジトリの`mark_tile_cached`
     （実行時コードから未使用のため削除済み。書き込みは`app/batch/import_pbf.py`の

@@ -2265,6 +2265,7 @@ class AttributeRepository(_SessionRepository):
                     designation_exists.label("is_designated"),
                     WayLandcoverRow.trees_percent,
                     WayLandcoverRow.built_percent,
+                    RoadEdgeRow.curvature_deg_per_km,
                 )
                 .select_from(RoadEdgeRow)
                 .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
@@ -2309,6 +2310,7 @@ class AttributeRepository(_SessionRepository):
                     is_designated=bool(row.is_designated),
                     landcover_trees_percent=row.trees_percent,
                     landcover_built_percent=row.built_percent,
+                    curvature_deg_per_km=row.curvature_deg_per_km,
                 )
 
         return EdgeMaterialsBatch(materials=materials)

@@ -44,7 +44,8 @@ DEFAULT_MAX_TILES = 2_000
 #   - 交差点分割の事前バッチ（app/batch/presplit_road_graph.py）
 #   - SearchMaterialsが読む事前集計・派生データを更新するprecomputeバッチ
 #     （precompute_edge_attribute_counts.py・precompute_elevation_attributes.py・
-#     precompute_road_node_degrees.py・precompute_way_attribute_counts.py）
+#     precompute_road_node_degrees.py・precompute_way_attribute_counts.py・
+#     precompute_edge_curvature.py）
 #   - `EdgeMaterialBundle`・`SearchMaterials`自体の構築ロジック変更
 #     （domain/attributes.py・services/graph_service.py: _get_or_build_tile_materials）
 #
