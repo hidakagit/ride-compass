@@ -751,7 +751,63 @@
         "time_scope": "always"
       },
       "sort_order": 15
+    },
+    {
+      "definition": {
+        "axis_id": "curvature",
+        "category": "観測",
+        "chip_label": "蛇行",
+        "dedicated_way_value_layer": false,
+        "default_weight": 0.1,
+        "description": "道そのものの曲がり方。折れ線の方位変化を1kmあたりに直した値で、直線的な道ほど小さく、つづら折りほど大きい。交差点での右左折の回数そのものではありません。",
+        "display_band_labels_override": null,
+        "display_thresholds_override": null,
+        "dynamic_way_value_needs_bearing": false,
+        "dynamic_way_value_needs_speed": false,
+        "dynamic_way_value_needs_time": false,
+        "icon_id": null,
+        "is_published": true,
+        "label": "蛇行",
+        "panel_hint": null,
+        "priority_overrides": [],
+        "shape": {
+          "breakpoints": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              100.0,
+              25.0
+            ],
+            [
+              300.0,
+              50.0
+            ],
+            [
+              600.0,
+              75.0
+            ],
+            [
+              1000.0,
+              100.0
+            ]
+          ],
+          "kind": "breakpoint_linear",
+          "preprocess": "identity",
+          "terms": [
+            {
+              "material": "curvature_deg_per_km",
+              "required": false,
+              "weight": 1.0
+            }
+          ]
+        },
+        "show_map_icon": false,
+        "time_scope": "always"
+      },
+      "sort_order": 16
     }
   ],
-  "revision": 62
+  "revision": 64
 }
