@@ -37,35 +37,51 @@
   margin: 0;
 }
 
-/* 軸別難易度の一覧（公開軸すべて、軸カタログ順）。重み0の軸は薄く残す。 */
+/* 軸別難易度の一覧（公開軸すべて、軸カタログ順）。重み0の軸は薄く残す。
+   列（色ドット・ラベル・(i)・得点・生値）を軸をまたいで縦に揃えるため、行ではなく一覧側を
+   グリッドにし、各行は`display: contents`で自分の箱を持たない——行ごとにグリッドを作ると
+   列幅が行ごとに決まってしまい揃わない。ラベル列だけが伸縮し、右側の3列は最も広い行に
+   合わせて全行同じ幅になる。 */
 .axisList {
   list-style: none;
   margin: var(--space-2) 0 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.axisRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: center;
-  gap: 0.4rem;
+  /* 列間はサイドバー幅（約225px）に9軸ぶんの列が収まる下限。広げるとラベルが省略される。 */
+  gap: 2px 0.3rem;
   font-size: var(--font-size-sm);
 }
 
-.axisRow[data-unused="true"] {
+.axisRow {
+  display: contents;
+}
+
+/* `display: contents`の行は自分の箱を持たないためopacityが効かない。セルごとに掛ける
+   （セルは重ならないため見た目は行全体へ掛けたのと同じ）。 */
+.axisRow[data-unused="true"] > * {
   opacity: 0.55;
 }
 
+/* ラベルだけが伸縮する列。パネル幅に収まらない軸名は省略記号で畳み、全体はtitleで読める。 */
 .axisLabel {
-  flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+}
+
+.axisLabelText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .badge {
-  font-size: 0.68rem;
-  padding: 0 0.35rem;
+  font-size: 0.65rem;
+  padding: 0 0.25rem;
   border-radius: 3px;
   background: var(--color-warning-soft, rgba(217, 119, 6, 0.15));
   color: var(--color-warning-strong, #b45309);
@@ -85,4 +101,5 @@
   color: var(--color-muted-strong);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-align: right;
 }

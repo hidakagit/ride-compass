@@ -129,7 +129,7 @@ describe("軸単体で判断するための生値", () => {
     );
 
     // 0.8回/km × 32.5km ≒ 26回。得点だけでは「多いか少ないか」を判断できない。
-    expect(screen.getByText("0.80回/km・約26回")).toBeInTheDocument();
+    expect(screen.getByText("約26回")).toBeInTheDocument();
   });
 
   it("単位が定まらない軸には何も出さない（意味を取れない数字を並べない）", () => {

@@ -110,9 +110,15 @@ export default function RouteAxisProfile({
           return (
             <li key={axis.axisId} className={styles.axisRow} data-unused={unused}>
               <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
-              <span className={styles.axisLabel}>{axis.label}</span>
-              {unused && <span className={styles.badge}>未使用</span>}
-              {difficulty == null && <span className={styles.badge}>データなし</span>}
+              {/* ラベルとバッジは1つの列に入れる（列を軸をまたいで揃えるため、行ではなく
+                  一覧側がグリッドになっている。RouteAxisProfile.module.css参照）。 */}
+              <span className={styles.axisLabel}>
+                <span className={styles.axisLabelText} title={axis.label}>
+                  {axis.label}
+                </span>
+                {unused && <span className={styles.badge}>未使用</span>}
+                {difficulty == null && <span className={styles.badge}>データなし</span>}
+              </span>
               <InfoPopover
                 triggerClassName={legendStyles.legendInfoButton}
                 triggerAriaLabel={`${axis.label}の説明`}
@@ -121,7 +127,8 @@ export default function RouteAxisProfile({
                 {axis.description}
               </InfoPopover>
               <span className={styles.axisValue}>{difficulty == null ? "—" : Math.round(difficulty)}</span>
-              {rawText && <span className={styles.axisRawValue}>{rawText}</span>}
+              {/* 生値の列は値が無い軸でも空のまま置く——省くとその行だけ列がずれる。 */}
+              <span className={styles.axisRawValue}>{rawText}</span>
             </li>
           );
         })}
