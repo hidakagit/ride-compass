@@ -15,9 +15,9 @@ describe("totalUnitFor", () => {
 });
 
 describe("formatAxisRawValue", () => {
-  it("距離あたりの単位なら、経路全体の実数だけを出す", () => {
-    // 0.8回/km × 32.5km ≒ 26回。密度そのものは隣の得点を決めている当の値のため繰り返さない。
-    expect(formatAxisRawValue(0.8, "回/km", 32.5)).toBe("約26回");
+  it("距離あたりの単位なら、経路全体の実数を添える", () => {
+    // 0.8回/km × 32.5km ≒ 26回
+    expect(formatAxisRawValue(0.8, "回/km", 32.5)).toBe("0.80回/km・約26回");
   });
 
   it("距離あたりでない単位は実数を添えない", () => {
@@ -30,7 +30,7 @@ describe("formatAxisRawValue", () => {
     expect(formatAxisRawValue(0.08, "回/km", null)).toBe("0.08回/km");
   });
 
-  it("実数が1回に満たなければ密度のまま出す（丸めて「約0回」と言い切らない）", () => {
+  it("実数が1回に満たなければ添えない（「約0回」は情報にならない）", () => {
     expect(formatAxisRawValue(0.01, "回/km", 20)).toBe("0.01回/km");
   });
 

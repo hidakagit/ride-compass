@@ -126,8 +126,9 @@ export default function RouteAxisProfile({
                 {axis.description}
               </InfoPopover>
               <span className={styles.axisValue}>{difficulty == null ? "—" : Math.round(difficulty)}</span>
-              {/* 生値の列は値が無い軸でも空のまま置く——省くとその行だけ列がずれる。 */}
-              <span className={styles.axisRawValue}>{rawText}</span>
+              {/* 生値は行の2段目（値のある軸だけ）。1段目の列を占めないため軸名が省略されず、
+                  右端で揃うので軸をまたいで読み比べられる。 */}
+              {rawText && <span className={styles.axisRawValue}>{rawText}</span>}
             </li>
           );
         })}

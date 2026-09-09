@@ -13,11 +13,8 @@ export function totalUnitFor(unit: string): string | null {
 
 /**
  * 表示文を組み立てる。`rawValue`は距離加重平均の生値、`distanceKm`は経路の走行距離。
- *
- * 距離あたりの単位（`◯◯/km`）なら**経路全体の実数だけ**を出す（`約26回`）。密度そのものは
- * 得点を決めている当の値で、隣に得点が並んでいる以上は繰り返しになる——利用者が読みたいのは
- * 「結局何回止まるのか」であり、一覧の列幅もその1つぶんで済む。距離を掛けられない単位
- * （`%`等）は生値をそのまま単位付きで出す。
+ * 距離あたりの単位のときだけ実数（約N回）を添える——「%」のような量は距離を掛けても
+ * 意味を持たないため。
  */
 export function formatAxisRawValue(
   rawValue: number | undefined,
@@ -26,13 +23,12 @@ export function formatAxisRawValue(
 ): string | null {
   if (rawValue == null || !unit) return null;
   const perDistance = totalUnitFor(unit);
-  if (perDistance === null || distanceKm == null || distanceKm <= 0) {
-    return `${formatNumber(rawValue)}${unit}`;
-  }
+  const head = `${formatNumber(rawValue)}${unit}`;
+  if (perDistance === null || distanceKm == null || distanceKm <= 0) return head;
   const total = rawValue * distanceKm;
-  // 四捨五入して0になる量は「0回」と言い切らず密度のまま出す（丸めで消したことを隠さない）。
-  if (total < 0.5) return `${formatNumber(rawValue)}${unit}`;
-  return `約${Math.round(total)}${perDistance}`;
+  // 1未満まで細かく出しても行動は変わらないため、四捨五入して「約」を付ける。
+  if (total < 0.5) return head;
+  return `${head}・約${Math.round(total)}${perDistance}`;
 }
 
 function formatNumber(value: number): string {

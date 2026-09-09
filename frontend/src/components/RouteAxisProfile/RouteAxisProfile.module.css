@@ -47,7 +47,7 @@
   margin: var(--space-2) 0 0;
   padding: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   /* 列間はサイドバー幅（約225px）に9軸ぶんの列が収まる下限。広げるとラベルが省略される。 */
   gap: 2px 0.3rem;
@@ -95,13 +95,17 @@
   font-weight: 500;
 }
 
-/* 得点の隣に添える生値（例:「0.8回/km・約26回」）。得点より弱く見せる——主たる指標は
-   得点で、こちらは軸単体で判断するための補助。折り返すと行が崩れるため折り返さない。 */
+/* 生値（例:「0.80回/km・約26回」）は行の2段目へ置き、右端で揃える。1段目へ並べると
+   単位（`件/(km・年)`等）の文字数ぶん列を占め、9軸ぶんがサイドバー幅に収まらず軸名が
+   省略される——単位を削るのは情報を落とすことなので、段を分けて幅の取り合いから外す。
+   得点より弱く見せる: 主たる指標は得点で、こちらは軸単体で判断するための補助。 */
 .axisRawValue {
+  grid-column: 2 / -1;
+  text-align: right;
+  margin-top: -3px;
   color: var(--color-muted-strong);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  text-align: right;
 }
 
 /* 軸ごとの色ドット・説明の(i)ボタン・そのポップオーバー。「重み配分」の凡例
