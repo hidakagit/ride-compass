@@ -5,8 +5,12 @@ import io
 import pytest
 from PIL import Image
 
+import mapbox_vector_tile
+from shapely.geometry import LineString
+
 from app.infrastructure.jma_tile_interpolation import (
     crop_and_upscale,
+    crop_and_upscale_mvt,
     parse_tile_path,
 )
 
@@ -114,3 +118,78 @@ def test_crop_and_upscale_preserves_transparency():
 
     with Image.open(io.BytesIO(result)) as image:
         assert image.convert("RGBA").getpixel((128, 128))[3] == 0
+
+
+_EXTENT = 4096
+
+
+def _mvt(*lines: list[tuple[int, int]]) -> bytes:
+    """タイル内座標で線を持つMVT。座標系はデコード結果と同じy軸上向き。"""
+    return mapbox_vector_tile.encode(
+        [
+            {
+                "name": "flood",
+                "features": [
+                    {"geometry": LineString(coords), "properties": {"level": index + 1}}
+                    for index, coords in enumerate(lines)
+                ],
+            }
+        ],
+        default_options={"extents": _EXTENT},
+    )
+
+
+def _levels(tile: bytes) -> list[int]:
+    if not tile:
+        return []
+    decoded = mapbox_vector_tile.decode(tile)
+    return sorted(f["properties"]["level"] for f in decoded["flood"]["features"])
+
+
+@pytest.mark.parametrize(
+    ("quadrant", "expected_levels"),
+    [
+        # 親の左下（南西）に短い線1（level=1）、右上（北東）に短い線2（level=2）を置く。
+        # quadrantはタイルXY（y=0が北）のため、南西は(0,1)・北東は(1,0)。
+        ((0, 1), [1]),
+        ((1, 0), [2]),
+        ((0, 0), []),
+        ((1, 1), []),
+    ],
+)
+def test_crop_and_upscale_mvt_picks_the_requested_quadrant(quadrant, expected_levels):
+    """タイルXYのyは南向き、MVTのデコード座標は北向き。上下の取り違えを固定する。"""
+    parent = _mvt(
+        [(100, 100), (500, 500)],
+        [(_EXTENT - 500, _EXTENT - 500), (_EXTENT - 100, _EXTENT - 100)],
+    )
+
+    assert _levels(crop_and_upscale_mvt(parent, quadrant)) == expected_levels
+
+
+def test_crop_and_upscale_mvt_doubles_coordinates_within_the_quadrant():
+    # 南西象限いっぱいに対角線を引くと、切り出し後は子タイルいっぱいの対角線になる。
+    parent = _mvt([(0, 0), (_EXTENT // 2, _EXTENT // 2)])
+
+    decoded = mapbox_vector_tile.decode(crop_and_upscale_mvt(parent, (0, 1)))
+    coordinates = decoded["flood"]["features"][0]["geometry"]["coordinates"]
+
+    assert coordinates[0] == [0, 0]
+    # 境界に接する線はクリップの余白ぶんだけはみ出す（タイルの継ぎ目で途切れないため）。
+    assert coordinates[-1][0] >= _EXTENT
+    assert coordinates[-1][1] >= _EXTENT
+
+
+def test_crop_and_upscale_mvt_returns_empty_tile_when_nothing_intersects():
+    # 親に地物があっても象限に掛からなければ0バイト（＝地物なし）。
+    parent = _mvt([(0, 0), (100, 100)])
+
+    assert crop_and_upscale_mvt(parent, (1, 0)) == b""
+
+
+def test_crop_and_upscale_mvt_keeps_properties():
+    parent = _mvt([(0, 0), (_EXTENT, _EXTENT)])
+
+    decoded = mapbox_vector_tile.decode(crop_and_upscale_mvt(parent, (0, 1)))
+
+    assert decoded["flood"]["features"][0]["properties"] == {"level": 1}

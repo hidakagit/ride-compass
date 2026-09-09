@@ -26,7 +26,12 @@ import json
 import logging
 import time
 
-from app.domain.jma_tile_specs import JMA_TILE_SPECS, has_native_tile, max_zoom_for
+from app.domain.jma_tile_specs import (
+    JMA_TILE_SPECS,
+    has_native_tile,
+    max_zoom_for,
+    source_zoom_for_interpolation,
+)
 from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import JmaTileClient
@@ -126,6 +131,34 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", entry: dict) -> list[str]:
     return paths
 
 
+def _with_interpolated_zooms(
+    element_id: str, zooms: dict[int, list[list[int]]]
+) -> dict[int, list[list[int]]]:
+    """実データの無いズーム（補間で埋める段）の在否を、親ズームの結果から補う。
+
+    **インデックスは「載っていないタイルは空」とクライアントへ伝える**（`jma_tile_index.ts`）。
+    プリウォームは実データのあるズームしか温めないため、補間で埋めるズームをそのまま
+    載せずにおくと、クライアントはそこを一律「空」と見なして取りに来なくなり、
+    補間（`jma_tile_interpolation.py`）が一度も動かない。
+
+    補間結果が空になるのは親が空のときだけなので、**親に中身のあるタイルの4象限**を
+    そのまま子ズームの中身ありとして載せればよい（追加の取得は発生しない）。
+    """
+    if not zooms:
+        return zooms
+    filled = dict(zooms)
+    for zoom in range(min(zooms) + 1, (max_zoom_for(element_id) or 0) + 1):
+        if source_zoom_for_interpolation(element_id, zoom) is None:
+            continue
+        parents = filled.get(zoom - 1)
+        if not parents:
+            continue
+        filled[zoom] = [
+            [x * 2 + dx, y * 2 + dy] for x, y in parents for dx in (0, 1) for dy in (0, 1)
+        ]
+    return filled
+
+
 async def _store_index(
     layer_entries: dict[str, dict], present: dict[str, dict[int, list[list[int]]]]
 ) -> None:
@@ -152,8 +185,14 @@ async def _store_index(
                 "validtime": entry.get("validtime"),
                 "member": entry.get("member", "none"),
                 # ズームは文字列キー（JSONのオブジェクトキーは文字列のため、往復で型が
-                # 変わらないようにここで揃える）。
-                "zooms": {str(z): coords for z, coords in sorted(present.get(element_id, {}).items())},
+                # 変わらないようにここで揃える）。補間で埋めるズームは親から補う
+                # （`_with_interpolated_zooms`参照）。
+                "zooms": {
+                    str(z): coords
+                    for z, coords in sorted(
+                        _with_interpolated_zooms(element_id, present.get(element_id, {})).items()
+                    )
+                },
             }
             for element_id, entry in layer_entries.items()
         },

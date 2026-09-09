@@ -5,6 +5,8 @@ from app.api.dependencies import get_jma_tile_client
 from app.config import settings
 from app.infrastructure import rate_limiter
 from app.main import app
+import mapbox_vector_tile
+from shapely.geometry import LineString
 
 client = TestClient(app)
 
@@ -243,6 +245,14 @@ def _tile_png(color):
     return buffer.getvalue()
 
 
+def _tile_mvt(coordinates: list[tuple[int, int]]) -> bytes:
+    """1本の線だけを持つMVT（親タイルのフェイク）。"""
+    return mapbox_vector_tile.encode(
+        [{"name": "flood", "features": [{"geometry": LineString(coordinates), "properties": {"level": 3}}]}],
+        default_options={"extents": 4096},
+    )
+
+
 class InterpolatingFakeClient(FakeJmaTileClient):
     """親タイルの`get()`と、補間結果の`store()`を観測できるフェイク。"""
 
@@ -306,10 +316,12 @@ def test_jma_tile_proxy_does_not_interpolate_zoom_with_native_data():
     assert fake.stored == []
 
 
-def test_jma_tile_proxy_does_not_interpolate_vector_tiles():
-    # 洪水キキクルはベクタタイル（.pbf）で、MVTの再エンコードが必要なため対象外。
-    fake = InterpolatingFakeClient(parent_result=(b"parent-pbf", "application/x-protobuf"))
-    fake._fetch_result = (b"native-pbf", "application/x-protobuf")
+def test_jma_tile_proxy_interpolates_vector_tiles():
+    # 洪水キキクル（ベクタ）もラスタ3種と同じズームで消えないよう、親から切り出して返す。
+    # Content-Typeは親タイルのものをそのまま引き継ぐ。
+    parent = _tile_mvt([(0, 0), (4096, 4096)])
+    fake = InterpolatingFakeClient(parent_result=(parent, "binary/octet-stream"))
+    fake._fetch_result = (b"native-pbf", "binary/octet-stream")
     app.dependency_overrides[get_jma_tile_client] = lambda: fake
 
     try:
@@ -320,8 +332,39 @@ def test_jma_tile_proxy_does_not_interpolate_vector_tiles():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.content == b"native-pbf"
-    assert fake.get_paths == []
+    assert response.content != b"native-pbf"
+    assert response.headers["content-type"].startswith("binary/octet-stream")
+    assert fake.get_paths == [
+        "bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/flood/8/227/100.pbf"
+    ]
+    assert fake.stored == [
+        (
+            "bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/flood/9/455/201.pbf",
+            "binary/octet-stream",
+        )
+    ]
+    # 切り出した結果がMVTとしてデコードでき、属性が引き継がれている。
+    decoded = mapbox_vector_tile.decode(response.content)
+    assert [f["properties"]["level"] for f in decoded["flood"]["features"]] == [3]
+
+
+def test_jma_tile_proxy_returns_empty_vector_tile_when_quadrant_has_no_feature():
+    # 親に地物があっても要求された象限に掛からなければ0バイト（＝地物なし）を返す。
+    # 配信元の404と同じ意味で、キャッシュへ書き戻して次回以降の上流問い合わせを省く。
+    parent = _tile_mvt([(0, 0), (100, 0)])
+    fake = InterpolatingFakeClient(parent_result=(parent, "binary/octet-stream"))
+    app.dependency_overrides[get_jma_tile_client] = lambda: fake
+
+    try:
+        # z9のx=455,y=201 → 親z8(227,100)の象限(1,1)＝南東。上記の線は南西端にしか無い。
+        response = client.get(
+            "/api/jma-tile/bosai/jmatile/data/risk/20260906191000/immed0/20260906191000/surf/flood/9/455/201.pbf"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.content == b""
 
 
 def test_jma_tile_proxy_falls_back_when_parent_tile_is_unavailable():
