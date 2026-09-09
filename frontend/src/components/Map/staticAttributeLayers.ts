@@ -67,6 +67,14 @@ export interface CategoryDef {
   key: string;
   label: string;
   color: string;
+  /** 同じ凡例エントリ・同じ色で扱うbackend側の別値。**利用者から見て区別する意味が無い
+   * 分類**（例: 車道用の踏切と歩道・自転車道用の踏切）を、凡例の行数を増やさずに
+   * まとめるために使う。色分け式・label対訳表には各値がそのまま載る。 */
+  aliasKeys?: readonly string[];
+}
+
+function categoryKeys(category: CategoryDef): string[] {
+  return [category.key, ...(category.aliasKeys ?? [])];
 }
 
 // 「文字列列挙プロパティ→(label対訳表・凡例・match色分け式)の3点セット」の共通ビルダー。
@@ -80,13 +88,16 @@ function buildCategoricalLayerDefs(
   categories: readonly CategoryDef[],
   unknownLabel: string,
 ): { labels: Record<string, string>; legend: LegendEntry[]; colorExpression: unknown[]; opacityExpression: unknown[] } {
-  const labels = Object.fromEntries(categories.map((c) => [c.key, c.label]));
+  const labels = Object.fromEntries(categories.flatMap((c) => categoryKeys(c).map((key) => [key, c.label])));
   const legend: LegendEntry[] = [
     ...categories.map((c) => ({
       key: c.key,
       label: c.label,
       color: c.color,
-      filter: ["==", ["get", property], c.key],
+      filter:
+        c.aliasKeys === undefined
+          ? ["==", ["get", property], c.key]
+          : ["any", ...categoryKeys(c).map((key) => ["==", ["get", property], key])],
     })),
     {
       key: "unknown",
@@ -99,7 +110,7 @@ function buildCategoricalLayerDefs(
   const colorExpression: unknown[] = [
     "match",
     ["coalesce", ["get", property], ""],
-    ...categories.flatMap((c) => [c.key, c.color]),
+    ...categories.flatMap((c) => [c.aliasKeys === undefined ? c.key : categoryKeys(c), c.color]),
     COLOR_UNKNOWN,
   ];
   // 「不明・他」（該当タグ無し）を目立たなくし、分類情報を持つ区間だけを浮き上がらせる
@@ -108,7 +119,7 @@ function buildCategoricalLayerDefs(
   const opacityExpression: unknown[] = [
     "match",
     ["coalesce", ["get", property], ""],
-    ...categories.flatMap((c) => [c.key, KNOWN_LINE_OPACITY]),
+    ...categories.flatMap((c) => [c.aliasKeys === undefined ? c.key : categoryKeys(c), KNOWN_LINE_OPACITY]),
     FALLBACK_LINE_OPACITY,
   ];
   return { labels, legend, colorExpression, opacityExpression };
@@ -273,14 +284,19 @@ export const ACCIDENT_SEVERITY_LEGEND: LegendEntry[] = [
   },
 ];
 
-// 停止要因POI（信号・横断歩道・一時停止・踏切）。backend/app/domain/traffic.py:
-// StopPoiKindの5値（traffic_signals/crossing/stop/give_way/level_crossing）と1:1対応。
+// 停止要因POI（信号・横断歩道・一時停止・踏切・車止め・減速構造）。
+// backend/app/domain/traffic.py: StopPoiKindと1:1対応で、キーの網羅は生成物
+// （poi-kinds.json）との照合テストが強制する（staticAttributeLayers.test.ts）。
+// 踏切は車道用（level_crossing）と歩道・自転車道用（railway_crossing）を1つの凡例へ
+// まとめる（aliasKeys）——利用者から見れば同じ「線路を渡る点」で、地図上で区別する意味が無い。
 const STOP_POI_CATEGORIES: CategoryDef[] = [
   { key: "traffic_signals", label: "信号", color: COLOR_NEUTRAL_INDIGO },
   { key: "crossing", label: "横断歩道", color: "#2563eb" },
   { key: "stop", label: "一時停止", color: COLOR_NEUTRAL_STONE },
   { key: "give_way", label: "徐行", color: COLOR_NEUTRAL_PINK },
-  { key: "level_crossing", label: "踏切", color: "#7c3aed" },
+  { key: "level_crossing", label: "踏切", color: "#7c3aed", aliasKeys: ["railway_crossing"] },
+  { key: "barrier", label: "車止め・ゲート", color: "#ea580c" },
+  { key: "traffic_calming", label: "ハンプ・狭さく", color: "#0d9488" },
 ];
 
 // osm_raw_pois.kindは取込時にclassify_stop_poiで5値のいずれかへ分類済みのため実際には
@@ -314,8 +330,10 @@ export const SUPPLY_POI_LEGEND: LegendEntry[] = supplyPoiDefs.legend;
 export const SUPPLY_POI_COLOR_EXPRESSION: unknown[] = supplyPoiDefs.colorExpression;
 
 // stopPoi/supplyPoiレイヤーのbaseFilter（上記参照）用、kind値の一覧。
-export const STOP_POI_KINDS: readonly string[] = STOP_POI_CATEGORIES.map((c) => c.key);
-export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.map((c) => c.key);
+// エイリアス（同じ凡例へまとめたbackend側の別値）も含める——ここから漏れた値は
+// baseFilterに弾かれて地図から完全に消える。
+export const STOP_POI_KINDS: readonly string[] = STOP_POI_CATEGORIES.flatMap(categoryKeys);
+export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.flatMap(categoryKeys);
 
 // 絞り込みUIの生成に使う、絞り込み可能な各静的レイヤーの軸カタログ。
 // 1レイヤーに複数軸を持つのは事故（当事者×重大度）のみ。layerIdはmapLayers.tsのMapLayerIdと

@@ -100,12 +100,13 @@ elements:
     match:
       highway: "*"          # タグの存在のみ要求（値は任意）。値のリスト指定も可
     target: osm_raw_ways     # 書き込み先（コード側に対応するwriterを実装）
-  # --- 将来の拡張例（現時点では実装しない） ---
-  # - name: drinking_water
+  # nodeの取込（停止要因・補給休憩POI）もこの語彙で書く。実際のルール一覧は
+  # app/batch/import_profile.yaml 本体を参照（本節は語彙の説明のため抜粋のみ）。
+  # - name: supply_amenity_nodes
   #   element_type: node
   #   match:
   #     amenity: ["drinking_water"]
-  #   target: osm_raw_pois   # 新規テーブル＋writerを追加して有効化
+  #   target: osm_raw_pois
 ```
 
 - `match`は「タグ名→許容値（`"*"`は存在のみ）」のANDマッチ。現状の要件（`way["highway"]`）を表現でき、将来の要素追加も同じ語彙で書ける

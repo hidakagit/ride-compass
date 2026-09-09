@@ -553,7 +553,8 @@ _POI_COUNT_KIND_EXPR = """CASE
                     WHEN p.kind = 'traffic_signals' THEN 'signal'
                     WHEN p.kind = 'crossing' AND p.tags->>'crossing' LIKE '%signals%' THEN 'signal'
                     WHEN p.kind = 'crossing' THEN 'crossing'
-                    WHEN p.kind = 'level_crossing' THEN 'level_crossing'
+                    WHEN p.kind IN ('level_crossing', 'railway_crossing') THEN 'level_crossing'
+                    WHEN p.kind IN ('barrier', 'traffic_calming') THEN 'barrier'
                     ELSE 'stop'
                 END"""
 

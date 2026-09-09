@@ -1013,7 +1013,7 @@ Response 429（同一クライアントIPから1分あたり120リクエスト�
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
 
 GET /api/region/poi-tiles/{z}/{x}/{y}.pbf   # 停止要因POI・交差点密度の点データ（T54、7章参照）。road-surface-tilesと同じズーム範囲・同じPostGIS第一系統
-Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`poi`。各地物（Point）は`kind`（traffic_signals/crossing/stop/give_way/level_crossing、停止要因）または`degree`（接続路数、交差点密度）を持つ
+Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`poi`。各地物（Point）は`kind`（停止要因の種別。正準集合は`domain/traffic.py: StopPoiKind`で、生成物`poi-kinds.json`経由でフロントへ渡す）または`degree`（接続路数、交差点密度）を持つ
 Response 400/429: road-surface-tilesと同じ規約
 
 GET /api/region/accident-tiles/{z}/{x}/{y}.pbf   # 警察庁交通事故統計オープンデータの発生地点（T50、7章参照）。`AccidentService`が担当し road-surface-tiles/poi-tiles とは別系統
@@ -1232,8 +1232,9 @@ maxspeed・lanes・指定路線由来の部分は既にT138で車ストレス側
 
 続く改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）で、交差点密度
 （旧`intersection_weight`）の独立軸を廃止し停止密度側へ統合した。`domain/difficulty.py:
-stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に加え、次数3以上のタグなし
-交差点の密度を低い重み（0.3、signal等を1.0とした相対値）で加算する（8軸→7軸）。
+stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・踏切・車止め・減速構造）の
+密度に加え、次数3以上のタグなし交差点の密度を低い重み（0.3、signal等を1.0とした相対値）で
+加算する（8軸→7軸）。
 ルート単位の交差点密度（`RouteCandidate.intersection_density`）は改善計画T431でフロント
 エンド末端消費者ゼロを確認した上で削除済み。
 
@@ -1274,7 +1275,7 @@ stop_difficulty`が、信号・横断歩道・一時停止・踏切の密度に�
 | 標高（勾配） | `gradient` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
 | 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
 | 風 | `wind` | 0.26 | `wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存） | `domain/wind.py`（`wind_drag_ratio_array`） |
-| 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
+| 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切・車止め・減速構造、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
 | 車ストレス | `car_stress` | 0.20 | 0-4（T353以前は自転車インフラ込みで1-5） | 推定（改善計画T292で`axis_definitions`の内部軸5つ+公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
 | 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
 | 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |

@@ -70,12 +70,24 @@ describe("staticAttributeLayers", () => {
 
   // 停止要因POIの種別はbackend（domain/traffic.py: StopPoiKind）が正。**期待値を
   // ここへ書き写すと片側の変更しか検知できない**ため、生成物（poi-kinds.json）と照合する。
-  // backendが6種目を足したのにフロントが5値のままだと、その地物はbaseFilterに弾かれて
+  // backendが1種足したのにフロントが古いままだと、その地物はbaseFilterに弾かれて
   // 地図から完全に消える（凡例にも出ないため「データが無い」としか見えない）。
-  it("停止要因POIの凡例キーは生成物のStopPoiKind＋不明と一致する", () => {
+  // 凡例の行は種別と1:1ではない（利用者から見て区別する意味の無い種別はaliasKeysで
+  // 1行へまとめる）ため、ここで網羅を見るのは「全種別が色・ラベルを持つか」。
+  it("生成物のStopPoiKind全種が色分けとラベルを持つ", () => {
+    expect(new Set(Object.keys(STOP_POI_LABELS))).toEqual(new Set(poiKinds.stop));
+    const styled = STOP_POI_COLOR_EXPRESSION.flatMap((item) =>
+      typeof item === "string" ? [item] : Array.isArray(item) ? (item as string[]) : [],
+    );
+    for (const kind of poiKinds.stop) {
+      expect(styled).toContain(kind);
+    }
+  });
+
+  it("停止要因POIの凡例キーは重複しない", () => {
     const keys = STOP_POI_LEGEND.map((e) => e.key);
-    expect(new Set(keys)).toEqual(new Set([...poiKinds.stop, "unknown"]));
     expect(new Set(keys).size).toBe(keys.length);
+    expect(keys).toContain("unknown");
   });
 
   it("停止要因POIのbaseFilter用キー集合が生成物と一致する", () => {
