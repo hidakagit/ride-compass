@@ -20,6 +20,7 @@
 // backend向けの資格情報はブラウザへ一切露出しない。
 
 import { BACKEND_INTERNAL_URL } from "@/lib/backendInternalUrl";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 function backendAuthHeader(): string | null {
   const username = process.env.ADMIN_BASIC_AUTH_USERNAME ?? "";
@@ -28,7 +29,7 @@ function backendAuthHeader(): string | null {
   return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
 }
 
-const DEFAULT_TIMEOUT_MS = 15000;
+
 
 export interface ProxyToBackendAdminOptions {
   /** backendへの転送タイムアウト（省略時15秒）。全表走査を伴う集計API等、既定より長く
@@ -67,7 +68,7 @@ export async function proxyToBackendAdmin(
         ...(hasBody ? { "Content-Type": "application/json" } : {}),
       },
       body: hasBody ? await request.text() : undefined,
-      signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_API_TIMEOUT_MS),
     });
   } catch (error) {
     return Response.json(

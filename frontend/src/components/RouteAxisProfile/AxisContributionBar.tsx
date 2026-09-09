@@ -1,9 +1,6 @@
 "use client";
 
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-// RouteSettingsPanelの「重み配分」帯グラフ（.stackBar/.stackSegment）と同じ表現・
-// 同じCSS classをそのまま流用する。
-import stackBarStyles from "@/components/RouteSettingsPanel/RouteSettingsPanel.module.css";
 import styles from "./AxisContributionBar.module.css";
 
 interface AxisContributionBarProps {
@@ -43,14 +40,14 @@ export default function AxisContributionBar({ axes, contributions, axisColors }:
 
   return (
     <div className={styles.wrap}>
-      <div className={stackBarStyles.stackBar}>
+      <div className={styles.stackBar}>
         {rows.map((axis) => {
           const value = Math.min(100, Math.max(0, contributions[axis.axisId]));
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
           return (
             <div
               key={axis.axisId}
-              className={stackBarStyles.stackSegment}
+              className={styles.stackSegment}
               style={{ width: `${value}%`, background: color }}
               title={`${axis.label} ${value.toFixed(1)}`}
             />

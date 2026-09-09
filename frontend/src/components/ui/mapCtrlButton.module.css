@@ -1,0 +1,31 @@
+/*
+ * 地図右上のMapLibre純正コントロール（ズーム+/−・回転）の続きとして見えるボタン。
+ *
+ * アプリの浮動UI（現在地ボタン等のcolor-surfaceトークン）ではなく、MapLibreの
+ * .maplibregl-ctrl-group自身の見た目——白背景・角丸4px・薄いリング状のbox-shadow・
+ * 29px四方・ダークグレーのアイコン——へ寸分たがわず揃える。**テーマトークンを使わず
+ * 固定色なのは意図的**で、MapLibre側がテーマに追従しないため、追従させると同じ列に
+ * 並んだボタンだけが色違いになる。寸法はglobals.cssの--map-ctrl-*（縦積みの位置計算にも
+ * 使うため各ファイルでの直書きを避ける）。
+ *
+ * 置き場所（絶対配置かflexの通常配置か）は呼び出し側のCSS Modulesが足す。
+ */
+
+.mapCtrlButton {
+  width: var(--map-ctrl-button-size);
+  height: var(--map-ctrl-button-size);
+  border-radius: 4px;
+  border: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.mapCtrlButton[data-state="open"] {
+  box-shadow: 0 0 2px 2px #0096ff;
+}

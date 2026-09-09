@@ -5,7 +5,7 @@
   top: var(--space-3);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 20;
+  z-index: var(--z-map-control);
   max-width: min(14rem, calc(100% - 7rem));
 }
 
@@ -67,46 +67,28 @@
   flex-shrink: 0;
 }
 
-/* レンズのデータ取得状態を示す小さなドット。クラス名はmapLayers.ts: LayerDataStatusの値
-   （"loading"/"empty"/"error"）とそろえ、LensControl.tsx側は`styles[`statusDot_${dataStatus}`]`
-   で動的に参照する（LayerChip.module.cssと同じ設計、状態→視覚表現の対訳表をコンポーネント
-   内に持たない）。 */
+/* データ取得状態のドット（共通の見た目はui/statusDot.module.css）。一覧の各行で
+   ラベルと横並びになるため、flexで縮まないようにする。 */
 .statusDot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
+  composes: statusDot from "../ui/statusDot.module.css";
   flex-shrink: 0;
 }
 
 .statusDot_loading {
-  background: currentColor;
-  opacity: 0.5;
-  animation: rc-lens-status-pulse 1.2s ease-in-out infinite;
+  composes: statusDot_loading from "../ui/statusDot.module.css";
 }
 
 .statusDot_empty {
-  background: transparent;
-  border: 1px solid currentColor;
-  opacity: 0.7;
+  composes: statusDot_empty from "../ui/statusDot.module.css";
 }
 
 .statusDot_error {
-  background: var(--color-danger);
-  border: 1px solid var(--color-danger);
+  composes: statusDot_error from "../ui/statusDot.module.css";
 }
 
-@keyframes rc-lens-status-pulse {
-  0%,
-  100% {
-    opacity: 0.25;
-  }
-  50% {
-    opacity: 0.85;
-  }
-}
 
 .content {
-  z-index: 40;
+  z-index: var(--z-top-popover);
   width: min(18rem, calc(100vw - 1.5rem));
   max-height: 70vh;
   overflow-y: auto;

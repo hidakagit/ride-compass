@@ -1,9 +1,9 @@
 /*
  * 情報アイコンから開く小さな浮きパネルが共有する見た目。
  *
- * `z-index: 60`は、BottomSheet（45）・Dialog（50）より確実に前面へ出すための値。
- * この種のパネルは「開いた時点で必ず見えている」ことが目的のため、画面内で最大の
- * z-indexを持つ層より上に置く。
+ * 重なり順はスケールの最上段（`--z-top-popover`、globals.css）。この種のパネルは
+ * 「開いた時点で必ず見えている」ことが目的のため、BottomSheet・Dialogを含む
+ * どの層よりも上に置く。
  */
 
 .floatingPopover {
@@ -16,5 +16,5 @@
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   line-height: 1.4;
-  z-index: 60;
+  z-index: var(--z-top-popover);
 }

@@ -5,7 +5,6 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar from "./AxisContributionBar";
 import { formatAxisRawValue } from "./axisRawValue";
-import legendStyles from "@/components/RouteSettingsPanel/RouteSettingsPanel.module.css";
 import styles from "./RouteAxisProfile.module.css";
 
 interface RouteAxisProfileProps {
@@ -69,9 +68,9 @@ export default function RouteAxisProfile({
             <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
             <span className={styles.scoreLabel}>/100 総合難易度</span>
             <InfoPopover
-              triggerClassName={legendStyles.legendInfoButton}
+              triggerClassName={styles.infoButton}
               triggerAriaLabel="総合難易度の説明"
-              contentClassName={legendStyles.legendInfoPopover}
+              contentClassName={styles.infoPopover}
             >
               <p>距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。</p>
             </InfoPopover>
@@ -81,9 +80,9 @@ export default function RouteAxisProfile({
               <span className={styles.scoreValue}>{Math.round(difficultyLoad)}</span>
               <span className={styles.scoreLabel}>負荷（難易度×距離）</span>
               <InfoPopover
-                triggerClassName={legendStyles.legendInfoButton}
+                triggerClassName={styles.infoButton}
                 triggerAriaLabel="負荷の説明"
-                contentClassName={legendStyles.legendInfoPopover}
+                contentClassName={styles.infoPopover}
               >
                 <p>
                   総合難易度は距離で割った平均のため、遠回りして難所を避けるほど下がります。
@@ -109,7 +108,7 @@ export default function RouteAxisProfile({
           const rawText = formatAxisRawValue(axisRawValues[axis.axisId], axis.rawValueUnit, distanceKm);
           return (
             <li key={axis.axisId} className={styles.axisRow} data-unused={unused}>
-              <span aria-hidden="true" className={legendStyles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
+              <span aria-hidden="true" className={styles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
               {/* ラベルとバッジは1つの列に入れる（列を軸をまたいで揃えるため、行ではなく
                   一覧側がグリッドになっている。RouteAxisProfile.module.css参照）。 */}
               <span className={styles.axisLabel}>
@@ -120,9 +119,9 @@ export default function RouteAxisProfile({
                 {difficulty == null && <span className={styles.badge}>データなし</span>}
               </span>
               <InfoPopover
-                triggerClassName={legendStyles.legendInfoButton}
+                triggerClassName={styles.infoButton}
                 triggerAriaLabel={`${axis.label}の説明`}
-                contentClassName={legendStyles.legendInfoPopover}
+                contentClassName={styles.infoPopover}
               >
                 {axis.description}
               </InfoPopover>

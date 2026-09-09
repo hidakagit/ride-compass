@@ -103,3 +103,17 @@
   white-space: nowrap;
   text-align: right;
 }
+
+/* 軸ごとの色ドット・説明の(i)ボタン・そのポップオーバー。「重み配分」の凡例
+   （RouteSettingsPanel）と同じ共通部品を使う。 */
+.legendDot {
+  composes: legendDot from "../ui/axisLegend.module.css";
+}
+
+.infoButton {
+  composes: infoButton from "../ui/infoButton.module.css";
+}
+
+.infoPopover {
+  composes: floatingPopover from "../ui/floatingPopover.module.css";
+}

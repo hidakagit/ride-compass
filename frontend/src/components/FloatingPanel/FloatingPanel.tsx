@@ -76,7 +76,7 @@ export default function FloatingPanel({
       // Rndの既定style（position:"absolute"）だとページスクロールに追従してしまうため、
       // 元のCSS（.panel { position: fixed }）と同じ「常にビューポート基準」の浮遊挙動を
       // 保つためfixedへ上書きする（Rnd内部でstyleは最後にspreadされ上書きできる）。
-      style={{ position: "fixed", zIndex: 50 }}
+      style={{ position: "fixed", zIndex: "var(--z-floating-panel)" }}
     >
       {/* app-floating-panelはglobals.css側のモバイル向けタップ領域ルール
           （.app-sidebar button, .app-floating-panel button）が参照するグローバルなマーカー

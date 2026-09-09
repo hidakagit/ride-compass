@@ -49,34 +49,17 @@
 }
 
 .tableWrap {
-  overflow-x: auto;
-  border: 1px solid var(--color-border-muted);
-  border-radius: var(--radius-sm);
+  composes: tableWrap from "../ui/adminPanel.module.css";
 }
 
 .table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: var(--font-size-sm);
+  composes: table from "../ui/adminPanel.module.css";
 }
 
+/* 割合セル（数値＋バー）が縦に2段あるため、行内の他セルは中央で揃える。 */
 .table th,
 .table td {
-  text-align: left;
   vertical-align: middle;
-  padding: 0.3rem 0.5rem;
-  border-bottom: 1px solid var(--color-border-muted);
-}
-
-.table thead th {
-  background: var(--color-surface-2);
-  color: var(--color-muted);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.table tbody tr:last-child td {
-  border-bottom: none;
 }
 
 /* 材料名が2行に折り返す高さを使い、割合（数値＋バー）と「欠損 / 総数」を縦に重ねて

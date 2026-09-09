@@ -335,7 +335,7 @@
   bottom: var(--space-3);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 20;
+  z-index: var(--z-map-control);
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -344,7 +344,7 @@
   pointer-events: none;
 }
 
-/* スマホ幅では画面下部に固定の.mobileTabBar（--mobile-tabbar-height、z-index:45）が乗り、
+/* スマホ幅では画面下部に固定の.mobileTabBar（--mobile-tabbar-height、--z-bottom-sheet）が乗り、
    その下に隠れてしまう（実機フィードバック「下部パネルメニューとスライダーバーが被って
    隠れてしまう」）。.locateButton/.locateErrorと同じ底上げパターンで、タブバーの高さぶん
    持ち上げる。 */
@@ -354,17 +354,16 @@
   }
 }
 
-/* 走行条件バー（出発時刻・想定速度）。TravelBearingControl.module.css: .trigger
-   （29px四方、top: 6.5rem・right: 10px）の直下へ、同じ29px四方のアイコンボタンを
-   4px間隔で積む。地図上部中央のレンズピルとは別の列にすることで、狭いスマホ幅でも
-   レンズの横に収めようとして地図の視界を圧迫しないようにする。top/rightの値は
-   TravelBearingControl.module.cssの値と結合しているため、あちらを変える際は
-   ここも合わせて調整すること。 */
+/* 走行条件バー（出発時刻・想定速度）。TravelBearingControlのボタンの直下へ、同じ
+   見た目のアイコンボタンを積む列。地図上部中央のレンズピルとは別の列にすることで、
+   狭いスマホ幅でもレンズの横に収めようとして地図の視界を圧迫しないようにする。
+   位置はTravelBearingControlと同じ--map-ctrl-*から計算するため、あちらのtop/rightを
+   変えてもこの列は自動で追従する。 */
 .rideConditionColumn {
   position: absolute;
-  top: calc(6.5rem + 29px + 4px);
-  right: 10px;
-  z-index: 20;
+  top: calc(var(--map-ctrl-stack-top) + var(--map-ctrl-button-size) + var(--map-ctrl-stack-gap));
+  right: var(--map-ctrl-margin);
+  z-index: var(--z-map-control);
   pointer-events: none;
 }
 
@@ -389,7 +388,7 @@
   right: var(--space-3);
   /* MapLibreの既定のアトリビューション表示（右下）と重ならないよう間隔を空ける。 */
   bottom: 2.5rem;
-  z-index: 20;
+  z-index: var(--z-map-control);
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -419,7 +418,7 @@
   position: absolute;
   right: var(--space-3);
   bottom: 6.25rem;
-  z-index: 20;
+  z-index: var(--z-map-control);
   max-width: 220px;
   background: var(--color-surface);
   color: var(--color-danger);
@@ -466,7 +465,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 45;
+  z-index: var(--z-bottom-sheet);
   height: var(--mobile-tabbar-height);
   display: flex;
   border-top: 1px solid var(--color-border);

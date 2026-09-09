@@ -1,5 +1,6 @@
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 import { requestJson } from "@/lib/fetchJson";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 // 評価軸定義のCRUD管理API（backend/app/api/routers/axis_admin.py）のクライアント。
 // 同一オリジンのNext.js route handler（frontend/src/app/admin/api/axis-definitions/配下、
@@ -18,7 +19,7 @@ function adminFetch<T>(path: string, method: "GET" | "POST" | "PUT" | "DELETE", 
   return requestJson<T>(path, {
     method,
     body,
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:axisAdmin",
     messages: { failure: "リクエストに失敗しました", parseFailure: "サーバーからの応答の解析に失敗しました" },
     startLabel: `${method} ${path}`,

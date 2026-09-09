@@ -7,6 +7,7 @@
 
 import { fetchJson } from "@/lib/fetchJson";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 // JMA bosaiタイル系（時刻一覧JSON・ラスタタイルPNG）の共通ベースURL。
 // バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
@@ -142,7 +143,7 @@ export function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
  * どこにもログされない穴を防ぐ。 */
 export async function fetchJmaTargetTimes<T = RawJmaTargetTime>(id: JmaTargetTimesId, label: string): Promise<T[]> {
   const data = await fetchJson<unknown>(jmaTargetTimesUrl(id), {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:jma-nowcast-times",
     errorLabel: `${label}の時刻一覧`,
   });

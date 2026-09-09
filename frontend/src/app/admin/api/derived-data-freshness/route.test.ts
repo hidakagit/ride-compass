@@ -9,7 +9,8 @@ vi.mock("@/lib/adminApiProxy", () => ({
 }));
 
 import { proxyToBackendAdmin } from "@/lib/adminApiProxy";
-import { FRESHNESS_PROXY_TIMEOUT_MS, GET } from "./route";
+import { DEFAULT_API_TIMEOUT_MS, HEAVY_ADMIN_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { GET } from "./route";
 
 describe("GET /admin/api/derived-data-freshness", () => {
   it("proxyToBackendAdminへ/api/admin/derived-data/freshnessと延長タイムアウトで委譲する", async () => {
@@ -20,9 +21,11 @@ describe("GET /admin/api/derived-data-freshness", () => {
     const response = await GET(request);
 
     expect(proxyToBackendAdmin).toHaveBeenCalledWith(request, "/api/admin/derived-data/freshness", {
-      timeoutMs: FRESHNESS_PROXY_TIMEOUT_MS,
+      timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS,
     });
-    expect(FRESHNESS_PROXY_TIMEOUT_MS).toBeGreaterThan(15000);
+    // ブラウザ側のクライアント（services/derivedDataFreshnessApi.ts）と同じ定数であることが、
+    // 「片方だけ延ばしても症状が変わらない」状態を防ぐ。
+    expect(HEAVY_ADMIN_API_TIMEOUT_MS).toBeGreaterThan(DEFAULT_API_TIMEOUT_MS);
     expect(response).toBe(sentinelResponse);
   });
 });

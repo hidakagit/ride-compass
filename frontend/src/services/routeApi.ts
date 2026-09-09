@@ -8,6 +8,7 @@ import type {
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson, requestJson } from "@/lib/fetchJson";
+import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 /** ルート生成系のPOST。エラー文言はエンドポイントごとに動詞が変わる（生成・取得等）ため
  * 「リクエストに失敗しました」で統一し、詳細はbackendのdetailに委ねる。 */
@@ -67,7 +68,7 @@ function sleep(ms: number): Promise<void> {
  * （lib/fetchJson.ts、他のGET系APIクライアントと同じパターン）を使う。 */
 function pollGenerationJob(jobId: string): Promise<RouteGenerateJobStatusResponse> {
   return fetchJson<RouteGenerateJobStatusResponse>(`${API_BASE_URL}/api/routes/generate/${jobId}`, {
-    timeoutMs: 15000,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:route",
     errorLabel: "ルート生成の状態",
     requestMeta: { jobId },
@@ -83,7 +84,7 @@ export async function generateRoutes(
   onProgress?: (progress: GenerationProgress) => void,
 ): Promise<GenerateRoutesResult> {
   const { job_id: jobId } = await postJson<RouteGenerateJobCreatedResponse>(
-    "/api/routes/generate", request, 15000,
+    "/api/routes/generate", request, DEFAULT_API_TIMEOUT_MS,
   );
   const startedAt = performance.now();
   let consecutivePollFailures = 0;

@@ -81,20 +81,9 @@
 }
 
 /* 見出し脇の凡例ポップオーバー開閉トリガー。.legendInfoButtonと違い凡例チップ内の
-   他要素と枠を共有しないため、border-leftを持たない単独のアイコンボタンにする。 */
+   他要素と枠を共有しないため、区切り線・固定幅を足さない素の(i)ボタンのまま使う。 */
 .stackBarLegendTrigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--color-muted);
-  padding: 0;
-  cursor: pointer;
-}
-
-.stackBarLegendTrigger[aria-expanded="true"] {
-  color: var(--color-accent-strong);
+  composes: infoButton from "../ui/infoButton.module.css";
 }
 
 /* 帯グラフの操作説明（ドラッグで配分調整できる旨）。見出し自体には出さずここへ集約する。 */
@@ -141,18 +130,11 @@
 }
 
 .stackBar {
-  display: flex;
-  height: 10px;
-  border-radius: 5px;
-  overflow: hidden;
-  background: var(--color-surface-2);
+  composes: stackBar from "../ui/axisLegend.module.css";
 }
 
 .stackSegment {
-  height: 100%;
-  /* 改善計画T320: 色自体はRouteSettingsPanel.tsx側（stackBarColorForIndex、実際の軸数で
-     色相環を等分するHSL式）からインラインstyleとして与える（軸id固定のCSSセレクタでは
-     軸スタジオで増減する軸に追従できないため）。 */
+  composes: stackSegment from "../ui/axisLegend.module.css";
 }
 
 /* 隣り合う2区間の境界をドラッグして配分し直すハンドル。実際の当たり判定（幅16px・
@@ -272,32 +254,16 @@
 }
 
 .legendDot {
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  flex-shrink: 0;
+  composes: legendDot from "../ui/axisLegend.module.css";
 }
 
+/* 凡例チップの中で他要素と枠を共有するため、共通の(i)ボタンへ区切り線と固定幅を足す。 */
 .legendInfoButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  composes: infoButton from "../ui/infoButton.module.css";
   width: 1.7rem;
-  border: none;
   border-left: 1px solid var(--color-border-muted);
-  background: transparent;
-  color: var(--color-muted);
-  padding: 0;
-  cursor: pointer;
 }
 
-.legendInfoButton[aria-expanded="true"] {
-  color: var(--color-accent-strong);
-}
-
-/* Popover.Content（Portalでdocument.body直下）。FieldLabelのinfoTooltip
-   （Map/recipeControls.module.css）と同じ考え方——BottomSheet/Dialogより確実に前面へ
-   浮かせるためz-indexを揃える。 */
 .legendInfoPopover {
   composes: floatingPopover from "../ui/floatingPopover.module.css";
 }

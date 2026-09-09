@@ -9,7 +9,8 @@ vi.mock("@/lib/adminApiProxy", () => ({
 }));
 
 import { proxyToBackendAdmin } from "@/lib/adminApiProxy";
-import { COVERAGE_PROXY_TIMEOUT_MS, GET } from "./route";
+import { DEFAULT_API_TIMEOUT_MS, HEAVY_ADMIN_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { GET } from "./route";
 
 describe("GET /admin/api/material-coverage", () => {
   it("proxyToBackendAdminへ/api/admin/material-catalog/coverageと延長タイムアウトで委譲する", async () => {
@@ -20,9 +21,11 @@ describe("GET /admin/api/material-coverage", () => {
     const response = await GET(request);
 
     expect(proxyToBackendAdmin).toHaveBeenCalledWith(request, "/api/admin/material-catalog/coverage", {
-      timeoutMs: COVERAGE_PROXY_TIMEOUT_MS,
+      timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS,
     });
-    expect(COVERAGE_PROXY_TIMEOUT_MS).toBeGreaterThan(15000);
+    // ブラウザ側のクライアント（services/materialCoverageApi.ts）と同じ定数であることが、
+    // 「片方だけ延ばしても症状が変わらない」状態を防ぐ。
+    expect(HEAVY_ADMIN_API_TIMEOUT_MS).toBeGreaterThan(DEFAULT_API_TIMEOUT_MS);
     expect(response).toBe(sentinelResponse);
   });
 });

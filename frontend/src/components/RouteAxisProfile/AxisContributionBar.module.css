@@ -22,12 +22,20 @@
   font-size: var(--font-size-sm);
 }
 
+/* 帯グラフは「重み配分」の設定UI（RouteSettingsPanel）と同じ表現を共有する。 */
+.stackBar {
+  composes: stackBar from "../ui/axisLegend.module.css";
+}
+
+.stackSegment {
+  composes: stackSegment from "../ui/axisLegend.module.css";
+}
+
+/* 行内に折り返して並ぶ凡例のため、共通のドットより一回り小さくする。 */
 .legendDot {
-  display: inline-block;
+  composes: legendDot from "../ui/axisLegend.module.css";
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 
 .legendLabel {

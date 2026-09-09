@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { fetchJson } from "@/lib/fetchJson";
 import type { components } from "@/types/generated/api";
+import { STATUS_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 // APIの型はbackendのOpenAPIスキーマから生成した generated/api.d.ts を正とし、
 // このファイルは再エクスポートのみを持つ（手書きの二重管理をしない）。
@@ -18,7 +19,7 @@ export type DebugStats = Schemas["DebugStatsResponse"];
 
 export async function getDebugStats(): Promise<DebugStats> {
   return fetchJson<DebugStats>(`${API_BASE_URL}/api/debug/stats`, {
-    timeoutMs: 5000,
+    timeoutMs: STATUS_API_TIMEOUT_MS,
     category: "api:debug-stats",
     errorLabel: "システム状況",
   });

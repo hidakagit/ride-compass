@@ -10,7 +10,8 @@ import { cn } from "@/lib/cn";
 //
 // titleを必須propsにすることでアクセシブルな名前を型で強制する(Disclosure/LayerChipと
 // 同じ既存方針)。hideTitle指定時はTailwind組み込みのsr-onlyで視覚的にのみ隠す。
-// z-indexは既存のBottomSheet(45)より上、地図UIより確実に前面に出るTailwindのz-50を使う。
+// 重なり順はglobals.cssのスケール（--z-floating-panel）。BottomSheetより上、
+// 情報ポップオーバー（--z-top-popover、Dialogの中から開く）より下。
 
 export const DialogRoot = RadixDialog.Root;
 
@@ -24,10 +25,10 @@ interface DialogContentProps {
 export function DialogContent({ title, hideTitle, children, className }: DialogContentProps) {
   return (
     <RadixDialog.Portal>
-      <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+      <RadixDialog.Overlay className="fixed inset-0 z-[var(--z-floating-panel)] bg-black/40" />
       <RadixDialog.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[min(90vw,28rem)] -translate-x-1/2 -translate-y-1/2",
+          "fixed left-1/2 top-1/2 z-[var(--z-floating-panel)] w-[min(90vw,28rem)] -translate-x-1/2 -translate-y-1/2",
           "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-float)]",
           "text-[var(--foreground)]",
           className

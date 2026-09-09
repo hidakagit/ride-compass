@@ -46,13 +46,13 @@
 /* エラー・警告は背景も薄く色付けし、一覧をざっと流し読みしても目に留まるようにする
    （levelはlib/debugLog.tsのDebugLogLevel、失敗系メッセージにのみ付与） */
 .entry[data-level="error"] {
-  border-left-color: #f87171;
-  background: rgba(248, 113, 113, 0.08);
+  border-left-color: var(--color-log-error);
+  background: color-mix(in srgb, var(--color-log-error) 8%, transparent);
 }
 
 .entry[data-level="warn"] {
-  border-left-color: #fbbf24;
-  background: rgba(251, 191, 36, 0.08);
+  border-left-color: var(--color-log-warning);
+  background: color-mix(in srgb, var(--color-log-warning) 8%, transparent);
 }
 
 .entryTime,
@@ -61,7 +61,7 @@
 }
 
 .entryCategory {
-  color: #60a5fa;
+  color: var(--color-log-info);
 }
 
 .entryMessage {
@@ -69,10 +69,10 @@
 }
 
 .entry[data-level="error"] .entryMessage {
-  color: #f87171;
+  color: var(--color-log-error);
   font-weight: 600;
 }
 
 .entry[data-level="warn"] .entryMessage {
-  color: #fbbf24;
+  color: var(--color-log-warning);
 }
