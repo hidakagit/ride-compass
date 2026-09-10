@@ -31,8 +31,14 @@ export function formatAxisRawValue(
   return `${head}・約${Math.round(total)}${perDistance}`;
 }
 
+// 生値のスケールは軸ごとに違う（停止密度は回/kmで0〜5、事故密度は件/(km・年)で0〜0.5）。
+// 固定の小数桁だと桁の小さい軸で「0.00」に潰れ、値の無い道と区別できなくなる。
+// 大きい値は桁を落とし、小さい値は有効数字2桁を残す。
 function formatNumber(value: number): string {
-  if (Math.abs(value) >= 10) return value.toFixed(0);
-  if (Math.abs(value) >= 1) return value.toFixed(1);
-  return value.toFixed(2);
+  const magnitude = Math.abs(value);
+  if (magnitude >= 10) return value.toFixed(0);
+  if (magnitude >= 1) return value.toFixed(1);
+  if (magnitude === 0) return "0";
+  // 有効数字2桁（末尾の0は落とす）。0.08 → "0.08"、0.041 → "0.041"、0.0041 → "0.0041"
+  return String(Number(value.toPrecision(2)));
 }

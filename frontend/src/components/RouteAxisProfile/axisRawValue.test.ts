@@ -17,7 +17,7 @@ describe("totalUnitFor", () => {
 describe("formatAxisRawValue", () => {
   it("距離あたりの単位なら、経路全体の実数を添える", () => {
     // 0.8回/km × 32.5km ≒ 26回
-    expect(formatAxisRawValue(0.8, "回/km", 32.5)).toBe("0.80回/km・約26回");
+    expect(formatAxisRawValue(0.8, "回/km", 32.5)).toBe("0.8回/km・約26回");
   });
 
   it("距離あたりでない単位は実数を添えない", () => {
@@ -28,6 +28,16 @@ describe("formatAxisRawValue", () => {
     expect(formatAxisRawValue(15.4, "回/km", null)).toBe("15回/km");
     expect(formatAxisRawValue(3.2, "回/km", null)).toBe("3.2回/km");
     expect(formatAxisRawValue(0.08, "回/km", null)).toBe("0.08回/km");
+  });
+
+  // 統合レビュー第6回の指摘I-5: 1未満を一律小数2桁で出していたため、桁の小さい軸
+  // （事故密度は件/(km・年)で代表点0.02/0.1/0.3）の実データが「0.00」に潰れ、
+  // 値の無い道と区別できなくなっていた。有効数字2桁を残す。
+  it("桁の小さい軸でも値が0へ潰れない", () => {
+    expect(formatAxisRawValue(0.041, "件/(km・年)", 32.5)).toBe("0.041件/(km・年)");
+    expect(formatAxisRawValue(0.0041, "件/(km・年)", 32.5)).toBe("0.0041件/(km・年)");
+    // 本当に0のときだけ0と出る。
+    expect(formatAxisRawValue(0, "件/(km・年)", 32.5)).toBe("0件/(km・年)");
   });
 
   it("実数が1回に満たなければ添えない（「約0回」は情報にならない）", () => {

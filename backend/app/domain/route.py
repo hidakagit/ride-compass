@@ -1,8 +1,10 @@
+import math
+
 from typing import Callable
 
 from pydantic import BaseModel, Field
 
-from app.domain.difficulty import distance_weighted_difficulty
+from app.domain.difficulty import distance_weighted_difficulty, weighted_mean_by_distance
 
 
 class Coordinates(BaseModel):
@@ -172,24 +174,40 @@ def _concat_segment_geometries(segments: list[RouteSegmentDetail]) -> dict | Non
     return {"type": "LineString", "coordinates": coordinates}
 
 
+def _round_significant(value: float, digits: int = 4) -> float:
+    """有効数字`digits`桁へ丸める（値のスケールに依存しない丸め）。
+
+    0〜100のdifficultyと違い、物理量の生値・材料値はスケールが軸ごとに違う
+    （事故密度は`件/(km・年)`で有効域0〜0.5、停止密度は`回/km`で0〜5）。
+    固定の小数桁で丸めると、桁の小さい軸で値がまるごと潰れる。
+    """
+    if value == 0.0 or not math.isfinite(value):
+        return value
+    return round(value, -int(math.floor(math.log10(abs(value)))) + (digits - 1))
+
+
 def _merge_axis_value_dict(
     segments: list[RouteSegmentDetail],
     field_getter: Callable[[RouteSegmentDetail], dict[str, float]],
+    round_value: Callable[[float], float] = lambda v: round(v, 1),
 ) -> dict[str, float]:
-    """複数の`RouteSegmentDetail`が持つaxis_id→float辞書（`field_getter`で指定）を、
-    axis_idごとに距離加重平均へ集約する共通ロジック（`merge_axis_difficulties`/
-    `merge_axis_contributions`の共有実装）。
-    渡されたsegments群のどの区間にも無いaxis_idは結果にも含めない
-    （両フィールドと同じ「データ無しはキーを持たない」規約）。
+    """複数の`RouteSegmentDetail`が持つキー→float辞書（`field_getter`で指定）を、
+    キーごとに距離加重平均へ集約する共通ロジック（`merge_axis_difficulties`/
+    `merge_axis_contributions`/`merge_axis_raw_values`/`merge_material_values`の共有実装）。
+    渡されたsegments群のどの区間にも無いキーは結果にも含めない
+    （各フィールド共通の「データ無しはキーを持たない」規約）。
+
+    `round_value`は集約後の丸め方。**0〜100のdifficulty系と、スケールが軸ごとに違う
+    物理量（生値・材料値）とで必要な粒度が違う**ため、呼び出し側が指定する。
     """
     axis_ids = {axis_id for s in segments for axis_id in field_getter(s)}
     merged: dict[str, float] = {}
     for axis_id in axis_ids:
-        value = distance_weighted_difficulty(
+        value = weighted_mean_by_distance(
             [(field_getter(s).get(axis_id), s.distance_km) for s in segments]
         )
         if value is not None:
-            merged[axis_id] = value
+            merged[axis_id] = round_value(value)
     return merged
 
 
@@ -206,7 +224,7 @@ def merge_axis_raw_values(segments: list[RouteSegmentDetail]) -> dict[str, float
     """`RouteSegmentDetail.axis_raw_values`をaxis_idごとに距離加重平均へ集約する
     （`merge_axis_difficulties`と同じ集約方法）。単位が「◯◯/km」の軸なら、この値へ
     走行距離を掛けると経路全体での実数（例: 止まる回数）になる。"""
-    return _merge_axis_value_dict(segments, lambda s: s.axis_raw_values)
+    return _merge_axis_value_dict(segments, lambda s: s.axis_raw_values, _round_significant)
 
 
 def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, float]:
@@ -223,7 +241,7 @@ def merge_material_values(segments: list[RouteSegmentDetail]) -> dict[str, float
     """`RouteSegmentDetail.material_values`を材料idごとに距離加重平均へ集約する。
     `merge_axis_difficulties`と同じ集約方法（`_merge_axis_value_dict`共有実装）。
     """
-    return _merge_axis_value_dict(segments, lambda s: s.material_values)
+    return _merge_axis_value_dict(segments, lambda s: s.material_values, _round_significant)
 
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:

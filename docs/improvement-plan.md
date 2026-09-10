@@ -1085,7 +1085,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 
 - [x] [T696](tasks/T696.md). 目的地モードの「最短」ルートが0次ハードフィルタを迂回する問題を直す 規模S〜M（統合レビュー第6回 I-2、最優先・唯一のP0級の実害。2026-09-10完了。距離木のコスト配列へ0次フィルタのinf化を適用[`_LegCostComposer.lazy_hard_filter_excluded`]。欠陥を仕様として固定していたテストを3本へ整理し、修正を外すと落ちることを確認。backend 1,735 passed）
 - [x] [T697](tasks/T697.md). 負の生値を持つ軸で分布プレビューが嘘の分布と正反対の助言を出す問題を直す 規模M（統合レビュー第6回 I-6。2026-09-10完了。ヒストグラムの階級をデータの値域から決める形へ[0は常に範囲へ含める]、zero_shareをv==0へ、sample_ways=0を空状態として言葉で示す。axis_preview_serviceのbackendテストを13件新設[従来0件]し下限0固定へ戻すと落ちることを確認。backend 1,751 passed・frontend 1,146 passed）
-- [ ] [T698](tasks/T698.md). 生値の精度をdifficulty用の丸めから分離する 規模M（統合レビュー第6回 I-5。0〜100用のround(total,1)を流用しており、事故密度[有効域0〜0.5件/(km・年)]が「0.00」と表示され事故ゼロの道と区別できない。T687の目的が成立していない）
+- [x] [T698](tasks/T698.md). 生値の精度をdifficulty用の丸めから分離する 規模M（統合レビュー第6回 I-5。2026-09-10完了。weighted_mean_by_distance[丸めない]を切り出し、difficulty系は小数1桁・生値/材料値は有効数字4桁へ。frontendの表示も1未満は有効数字2桁を残す形へ。backend 1,754 passed・frontend 1,147 passed）
 - [ ] [T699](tasks/T699.md). 蛇行軸の配線を最後まで通す（3箇所の欠けが互いの検知を打ち消している） 規模M（統合レビュー第6回 I-4。refresh_derivedの_STAGES未登録／カバレッジ診断がroad_edgesでなくway_geometryを見る／EdgeMaterialTable.get()の材料復元漏れ。どれか1つでも正しければ気づけた）
 
 ### 第2段: 検知の空白を埋める

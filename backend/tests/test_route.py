@@ -272,6 +272,46 @@ def test_aggregate_segments_into_bins_carries_every_dict_field():
     assert not missing, f"_merge_segment_binが引き継いでいないフィールド: {missing}"
 
 
+def test_axis_raw_values_keep_precision_for_small_scale_axes():
+    # 統合レビュー第6回の指摘I-5: 生値の集約が0〜100のdifficulty向けの丸め（小数1桁）を
+    # 流用しており、桁の小さい軸で値がまるごと潰れていた。公開軸accidentの単位は
+    # 件/(km・年)で、material_catalogの代表点は少ない=0.02／普通=0.1／多い=0.3。
+    # 実データの典型値（0.03〜0.15）が「0.0」か「0.1」にしかならず、
+    # 0.05未満はすべて0.0＝事故ゼロの道と区別できなくなっていた。
+    segments = [
+        _segment(0, distance_km=0.3, axis_raw_values={"accident": 0.04}),
+        _segment(1, distance_km=0.1, axis_raw_values={"accident": 0.04}),
+    ]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    assert bins[0].axis_raw_values["accident"] == pytest.approx(0.04)
+
+
+def test_axis_raw_values_round_to_significant_digits_not_fixed_decimals():
+    # 丸めは値のスケールに依存しない（有効数字）。桁の大きい軸でも小さい軸でも
+    # 同じ相対精度が残る。
+    small = aggregate_segments_into_bins(
+        [_segment(0, distance_km=0.4, axis_raw_values={"a": 0.0123456})], bin_distance_km=0.5
+    )
+    large = aggregate_segments_into_bins(
+        [_segment(0, distance_km=0.4, axis_raw_values={"a": 1234.5678})], bin_distance_km=0.5
+    )
+
+    assert small[0].axis_raw_values["a"] == pytest.approx(0.01235)
+    assert large[0].axis_raw_values["a"] == pytest.approx(1235.0)
+
+
+def test_axis_difficulties_still_round_to_one_decimal():
+    # difficultyは0〜100の相対評価で、小数1桁より細かくしても判断は変わらない。
+    # 生値側の丸めを変えてもこちらは据え置き。
+    segments = [_segment(0, distance_km=0.4, axis_difficulties={"wind": 12.3456})]
+
+    bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
+
+    assert bins[0].axis_difficulties["wind"] == pytest.approx(12.3)
+
+
 def test_aggregate_segments_into_bins_carries_axis_raw_values():
     # ビン化は表示用の区間を作り直すため、集約する値を1つ足し忘れるとAPIからは
     # 「そのフィールドだけ空」に見える（本番で生値が全区間空になった実障害の回帰、

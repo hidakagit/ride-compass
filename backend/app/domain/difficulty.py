@@ -67,12 +67,17 @@ def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> fl
     return round(total, 1)
 
 
-def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> float | None:
-    """(区間difficulty, 区間distance_km)のリストから距離加重平均を求める。ルート単位の
-    絶対基準集約値（研究インターフェース改善 §10-7）。difficultyがNoneの区間は除外し
-    残りの距離で再正規化する（composite_difficultyと同じ考え方）。1つも有効な区間が
-    無い、または距離の合計が0ならNone。"""
-    available = [(difficulty, distance) for difficulty, distance in segments if difficulty is not None]
+def weighted_mean_by_distance(segments: list[tuple[float | None, float]]) -> float | None:
+    """(区間の値, 区間distance_km)のリストから距離加重平均を求める（**丸めない**）。
+
+    値がNoneの区間は除外し残りの距離で再正規化する（composite_difficultyと同じ考え方）。
+    1つも有効な区間が無い、または距離の合計が0ならNone。
+
+    丸めを含まないのは、difficulty（0〜100）と物理量の生値（スケールが軸ごとに違う）で
+    必要な粒度が違うため——固定の小数桁で丸めると桁の小さい軸で値がまるごと潰れる。
+    丸め方は呼び出し側が決める（`distance_weighted_difficulty`／`domain/route.py`参照）。
+    """
+    available = [(value, distance) for value, distance in segments if value is not None]
     if not available:
         return None
 
@@ -80,8 +85,14 @@ def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> 
     if distance_sum <= 0:
         return None
 
-    total = sum(difficulty * distance for difficulty, distance in available) / distance_sum
-    return round(total, 1)
+    return sum(value * distance for value, distance in available) / distance_sum
+
+
+def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> float | None:
+    """(区間difficulty, 区間distance_km)のリストから距離加重平均を求める。ルート単位の
+    絶対基準集約値（研究インターフェース改善 §10-7）。0〜100のdifficulty向けに小数1桁へ丸める。"""
+    mean = weighted_mean_by_distance(segments)
+    return None if mean is None else round(mean, 1)
 
 
 def difficulty_load(segments: list[tuple[float | None, float]]) -> float | None:
