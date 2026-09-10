@@ -1112,5 +1112,5 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 
 - [ ] [T714](tasks/T714.md). precompute系バッチの長時間トランザクションを観測できるようにする 規模S（統合レビュー第6回）— トリガー: 本番でidle in transaction起因のテーブル肥大化、またはidle_in_transaction_session_timeoutによる中断が実際に観測された時点。T660の実測根拠（peak 55.9MB→1.1MB）が上回るため方式は変えない
 - [ ] [T715](tasks/T715.md). 数値入力プリミティブ（NumberField/SliderNumberField）を共有部品へ出す 規模S（統合レビュー第6回、T713より分離）— トリガー: 3箇所目の「制御された数値入力が入力途中を食う」問題が出た時点。現在2箇所でUXが異なり、どちらへ寄せるかが決まらない
-- [ ] [T717](tasks/T717.md). 本番へprecompute_edge_curvatureを適用し蛇行軸の欠損を解消する 規模S（[T699](tasks/T699.md)から分離。コードの配線は完了済みで、本番DBへのバッチ適用とTILE_MATERIALS_CACHE_VERSIONの引き上げが残る）
+- [x] [T717](tasks/T717.md). 本番へprecompute_edge_curvatureを適用し蛇行軸の欠損を解消する 規模S（[T699](tasks/T699.md)から分離。2026-09-11完了。着手時点でバッチは適用済みで、本番504.7万件すべてが計算済み［欠損は測れない2件のみ］であることを本番DBへ直接問い合わせて確認。適用時刻を特定できないためTILE_MATERIALS_CACHE_VERSIONは上げる側に倒して10→11）
 - [ ] [T716](tasks/T716.md). domain/material_catalog.pyへ規模ウォッチの個別閾値を設定する 規模S（統合レビュー第6回。1,003行で「1,000行の新規超過」に発火。宣言的カタログで成長が材料数に比例するため(c)閾値付きKEEPと判断。**提案値1,400行はユーザー承認が要る**）
