@@ -33,6 +33,7 @@
   "thresholds": {
     "backend/app/infrastructure/road_graph_repository.py": 2800,
     "backend/app/services/road_graph_engine.py": 2200,
+    "backend/app/domain/material_catalog.py": 1400,
     "frontend/src/components/Map/MapView.tsx": 3700,
     "frontend/src/app/page.tsx": 2400,
     "frontend/src/components/AxisStudio/AxisComposer.tsx": 1750,
