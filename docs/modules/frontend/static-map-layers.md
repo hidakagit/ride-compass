@@ -13,7 +13,7 @@
 | `Map/staticAttributeLayers.ts` | 指定路線・トンネル・一方通行・停止要因POI・補給休憩POI・事故の色分け定義、絞り込み軸カタログ`buildStaticFilterAxes` |
 | `Map/roadFilterAxes.ts` | 路面レイヤー（路面の種類=`surface`・道路の種類=`highway`）の絞り込み軸・配色・太さ・線種 |
 | `Map/legendFilter.ts` | カテゴリ絞り込みの汎用機構（凡例フィルタ式の組み立て・AND束ね・要約文生成） |
-| `Map/primaryAttributes.ts` | 一次属性⇄二次軸の双方向導出（軸増減時の観測データ連動表示に使用） |
+| `Map/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`とカテゴリによる除外を持つ |
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
@@ -60,7 +60,9 @@ backendから取り、タイル本体はrewrites経由に戻る。
 DOM/MapLibreを一切知らない。
 
 ```
-buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背面→前面）を決める:
+buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
+                         dedicatedWayValueDisplays?, dedicatedWayValueLoading?)
+が描画順（＝重なり順、背面→前面）を決める:
 
   elevation（標高ラスタ）
     │
@@ -119,8 +121,8 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 `LayerChip.module.css`側と同じ設計。
 
 `page.tsx`の`layerDataStatus`（`overlayLayers`・`MapLayersPanel`の両方へ渡す1つの値）は、
-出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたものである
-の2系統:
+出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたもので、
+内訳は次の2系統:
 
 - **`mapViewLayerDataStatus`**（`MapView.tsx: buildLayerDataSources`）:
   road/POI/事故/標高等、MapLibreが自身のタイル取得として実行するレイヤー。ソースイベント
@@ -219,6 +221,11 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 見て区別する意味の無い種別（車道用の踏切と歩道・自転車道用の踏切）は`CategoryDef.aliasKeys`で
 1行へまとめる。色分け式・ラベル対訳表には各種別がそのまま載るため、地図の見た目と
 ポップアップの語彙は種別ごとに正しく出る。
+
+路面ポップアップ（`MapView.tsx: buildRoadSurfacePopupHtml`）の`smoothness`の値→表示名も
+同じ考え方で、正本はbackendの`material_catalog.py: MaterialSpec.value_labels`。生成物
+（`material-catalog.json`）から引く（手書きで持つと、同じ値を地図のポップアップと
+軸スタジオで別の呼び方をすることになる）。
 
 | レイヤー | ソース | 独立/共有 |
 |---|---|---|

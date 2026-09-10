@@ -16,7 +16,7 @@
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
 
-domainの5ファイルは**変更理由で分けてある**。`evaluation.py`が変わるのはコストの
+domainのファイルは**変更理由で分けてある**。`evaluation.py`が変わるのはコストの
 計算方法を変えるとき、`hard_filters.py`はフィルタを増減するとき、`route_preference.py`は
 APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動的材料を増やすとき、
 `axis_inspector.py`は区間インスペクタの内訳表示を変えるとき。

@@ -32,7 +32,7 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
-| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。edge_attribute_counts・way_attribute_counts・designation_attributesの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）とelevation_attributesの完成度（別枠）を表示。集計は「集計する」ボタン押下時のみ |
+| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）とelevation_attributesの完成度（別枠）を表示。集計は「集計する」ボタン押下時のみ |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
@@ -218,8 +218,8 @@ listAxisDefinitions() ──→ definitions（全軸）
   スマホ幅でも横スクロールなしで収める）。欠損の判定根拠（`source`）は材料セルの`title`
   （ホバー表示）に置く。
 - 母集団の定義・件数ベースであること・判定根拠の見方といった補足は、見出し脇の(i)
-  （`Map/InfoPopover`＋`recipeControls.module.css`の`infoButton`/`infoTooltip`、
-  `AxisComposer`の材料説明と同じ見た目）へ畳み、常時表示の説明文は各グループ1行だけにする。
+  （`Map/InfoPopover`＋`@/components/ui/`のポップオーバーCSS、`AxisComposer`の材料説明と
+  同じ見た目）へ畳み、常時表示の説明文は各グループ1行だけにする。
 - `excluded_reason`を持つ材料（集計対象外）は表に含めず、`<details>`の折りたたみ一覧へ
   理由つきで出す。
 - 集計はDB全体の走査を伴うため、タブを開いたとき自動では実行せず「集計する」ボタン押下時
@@ -234,10 +234,11 @@ listAxisDefinitions() ──→ definitions（全軸）
 `MaterialCoveragePanel`（完成度、値がNULL/未取得か）とは別の切り口——行は存在するが、
 参照している生データの世代が最新の取込より古いままではないか、という鮮度を見る。
 
-- `generations`（edge_attribute_counts・way_attribute_counts・designation_attributes）は
-  テーブルごとに小さな表を並べる（比較対象・最新取込run・反映済み最古run・NULL件数・
-  鮮度バッジ）。`algorithm_version`はedge/wayのみ表内に行として追加（designationは
-  対象外のため出さない）。テーブル名の隣に行数と鮮度不整合の有無（バッジ）を出す。
+- `generations`（対象テーブルはbackendの`derived_data_freshness.py:
+  GENERATION_FRESHNESS_SPECS`が決める。frontendは返ってきた行を並べるだけで、対象を
+  手書きしない）はテーブルごとに小さな表を並べる（比較対象・最新取込run・反映済み最古run・
+  NULL件数・鮮度バッジ）。`algorithm_version`はレスポンスが持つテーブルにだけ行として
+  追加する。テーブル名の隣に行数と鮮度不整合の有無（バッジ）を出す。
 - `elevation`（`road_edges`との行数差分）は世代比較ではなく完成度のため、上記とは別枠で
   「完成度（鮮度ではない）」と明記して表示する。
 - 集計はDB全体の走査を伴うため、`MaterialCoveragePanel`と同じく「集計する」ボタン押下時
@@ -258,8 +259,8 @@ listAxisDefinitions() ──→ definitions（全軸）
 (ⓘ)アイコンを置き、backend `material_catalog.py: MaterialSpec.description`をポップオーバー
 表示する。外枠（開閉state・Radix Popover・開閉に追随するアクセシブル名）は共通部品
 `Map/InfoPopover.tsx`が持ち、ここはラベル文言を持たない小型トリガーとしての薄いラッパー。
-ポップオーバーのCSS自体も`recipeControls.module.css`（`FieldLabel`用に定義済みのもの）を
-流用し、二重定義しない。
+ポップオーバーのCSS自体は共有部品の`@/components/ui/infoButton.module.css`・
+`floatingPopover.module.css`をそのままimportし、二重定義しない。
 
 ## useMaterialCatalog.ts / useMaterialValues.ts（材料カタログhook）
 
@@ -290,10 +291,10 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 - このフォームに編集欄を持たないフィールド（正本は`AxisComposer.tsx`の
   `PASSTHROUGH_PAYLOAD_KEYS`。ここには再掲しない）も、既存軸の値をdraftの`passthrough`へ
   素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
-  値が失われるため）。フォームが値を組み立てるフィールドは`EDITED_PAYLOAD_KEYS`が持ち、
-  2つのリストが`AxisDefinitionPayload`の全フィールドを覆うことを型
-  （`_AllPayloadKeysCovered`）が静的に検査するため、backend側へフィールドが増えたときは
-  どちらかへ追加しないとtscが通らない。`display_thresholds_override`/`display_band_labels_override`は
+  値が失われるため）。フォームが値を組み立てるフィールドは型`EditedPayloadKey`が持ち、
+  2つのリストが`AxisDefinitionPayload`の全フィールドを覆うことを型`_PayloadKeyCoverage`が
+  静的に検査するため、backend側へフィールドが増えたときはどちらかへ追加しないとtscが
+  通らない。`display_thresholds_override`/`display_band_labels_override`は
   専用の編集UI（`display_publish`ステップの数値配列/文字列配列エディタ）を持つため、
   このリストには含まない。`display_band_labels_override`の編集欄は
   `display_thresholds_override`が有効（null以外）の間だけ現れ、段階数

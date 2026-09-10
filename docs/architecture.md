@@ -505,7 +505,7 @@ RideCompass/
         traffic.py                     ✅ 静的道路属性P1: classify_stop_poi、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル。改善計画T347: `classify_bicycle_infrastructure`（7値分類、改善計画T150で「交通ストレス」から改称）は評価軸・地図表示のどちらからも参照されなくなったため削除。改善計画T431: `distance_weighted_stop_density`/`distance_weighted_intersection_density`/`distance_weighted_bicycle_infra_score`/`is_dedicated_bicycle_infra`（旧`RouteCandidate`個別フィールド集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み。区間ごとの評価軸（axis_difficulties）は`domain/evaluation.py`が直接材料合成する
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT（7章参照）。改善計画T431: `distance_weighted_accident_density`（旧`RouteCandidate.accident_density`集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
-        evaluation.py                  ✅ RoutePreference（7軸の重み、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。動的材料（風）はcompute_dynamic_edge_materials／DYNAMIC_MATERIAL_EVALUATORSがwind.pyの関数から求める。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
+        evaluation.py                  ✅ RoutePreference（axis_idキーの重み辞書、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。動的材料（風）はcompute_dynamic_edge_materials／DYNAMIC_MATERIAL_EVALUATORSがwind.pyの関数から求める。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
         axis_templates.py                ✅ 改善計画T221 Stage A/T239、T396で2プリミティブへ再編: evaluate_breakpoint_linear（連続演算、旧evaluate_flag_sum/evaluate_recipe_then_breakpoint_linearを統合）・evaluate_categorical（離散演算）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
         axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
         material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。改善計画T337で評価軸・地図表示のどちらからも未使用だったcycleway_class材料を削除し24→23材料（MVTタイルのcycleway_classプロパティ・`domain/recipe.py: cycleway_class`関数も同時に削除、ROAD_SURFACE_TILE_VERSION対上げ）。改善計画T338でdisplay_onlyフィールドを追加しdesignation材料を軸スタジオの選択肢（`GET /api/material-catalog`）から除外（`axis_studio_materials()`、地図表示には影響しない）。改善計画T339で単純パターンのextractorを汎用ファクトリ（raw_way_tag_extractor/tag_equals_extractor/way_tag_parser_extractor/count_per_km_extractor）へ置き換え、実証用にtracktype材料を追加し23→24材料（専用のPython関数を書かず宣言のみで抽出可能にできることを実証、「材料抽出の宣言駆動化」節参照）。改善計画T338フォローアップ（2026-08-26、ユーザー指摘）でdesignationを正規化フラグ材料is_emergency_transport[N10]/is_critical_logistics[N12]へも分解し24→26材料へ拡張（bicycle_infra→cycleway_has_track等[T336]と同じ設計思想、「表示専用材料の除外」節参照）。改善計画T347で7値categorical材料`bicycle_infra`自体（`classify_bicycle_infrastructure`の分類結果を保持していた、材料としては使用者無し）を削除し26→25材料。同時に`highway_is_cycleway`の`primary_attribute_id`を`highway`から`cycleway`へ再割当て（4フラグ材料全てが`cycleway`一次属性を共有する形に統一し、`highway`はcar_stress_highway_base専用のまま非共有を維持）、4フラグ材料全てへ`bool_default="nan"`を追加（ベクトル化評価経路`compute_edge_costs_bulk`が欠落値を`False`へ丸めて「データ無し」を「確認済みでインフラ無し」と誤判定していた回帰を修正、`surface_good`の既存踏襲）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
@@ -640,13 +640,13 @@ RideCompass/
         Map/jmaNowcastFrames.ts        ✅ 改善計画T204: JMAナウキャスト系（降水・雷/竜巻）に共通する時刻一覧の取得・整形（fetchJmaTargetTimes/trimToCurrentAndFuture/parseValidtime）。precipitationNowcast.tsから抽出、両ファイルが単一の情報源として参照
         Map/thunderNowcast.ts          ✅ 改善計画T204: 雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）のデータ層。両者は共有の時刻一覧（targetTimes_N3.json）を使うが独立したON/OFFチップに分ける
         Map/riskMap.ts                 ✅ 改善計画T410: キキクル（土砂land・大雨rain_mesh・浸水inund）・線状降水帯予測マップ（sjfcstmap）のタイル・時刻取得データ層。全て「現在のみ」のスナップショット（未来フレームを持たない）。改善計画T432でキキクル3種は「防災」カテゴリとして共有タイムラインと無関係な常時マウントへ、線状降水帯予測マップは「降水」チップ傘下（現在〜3時間先のみisWithinFutureWindowで重畳）へそれぞれ再分類
-        Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と2次→1次/1次→2次の双方向導出（片側import、設計原則2）
+        Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と、二次軸→一次属性の導出（片側import、設計原則2）
         RideConditionBar/            ✅ 改善計画T596・T611: 地図下部の条件バー（出発時刻・想定速度のチップ＋ポップオーバー）。出発時刻は気象レイヤーの表示時刻と同じstate。出発時刻はドラッグ式タイムライン（DynamicLayerTimeSlider）＋`input[type=datetime-local]`の直接指定
         LensControl/LensControl.tsx  ✅ 改善計画T595: 地図の色分け（レンズ）の入口を1箇所へ統合したピル型コントロール（地図上部中央）。ルート前は全道路、ルート後はルート線を同じ凡例で塗る。重み0の軸も「未使用」表示で選べる
         MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
         BackendStatus.tsx        ✅
         RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
-        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとのチェックボックス＋重みスライダー・重み配分の積み上げバー）。常時表示。route_preference（weightOverrideEnabled）はpage.tsxとlocalStorage経由で状態を共有し、withAutoEnableで操作すると自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T418: 各軸の行末尾に「この条件で地図を色分け」トグル（`renderMapColorToggle`）を追加し、地図上チップから撤去した評価軸の色分け起動をこのパネルへ移設した。専用の表示レイヤーを持つ軸（kind="ramp"、`catalog.secondaryAxes`のlayerId）・専用way値配信軸（`dedicated_way_value_layer=true`、レイヤーIDは`${axisId}Axis`として軸idから導出）だけがトグルを持ち、持たない軸とルート確定後の風・勾配は押せない案内表示になる
+        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとの凡例チップ［有効/無効の切替］・重み配分の積み上げバー［境界のドラッグ・矢印キーで隣接2軸の重みを移し替える］）。常時表示。route_preference（weightOverrideEnabled）はpage.tsxとlocalStorage経由で状態を共有し、withAutoEnableで操作すると自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T595: 地図の色分け（レンズ）の起動導線はこのパネルには無く、地図上部中央の`LensControl`だけが持つ
         RouteAxisProfile/RouteAxisProfile.tsx ✅ 改善計画T402: 選択中ルートの`RouteCandidate.axis_difficulties`
           を軸ごとの横棒グラフ一覧で表示（レーダーチャートは不採用）。軸の並び順・ラベルは
           useAxisCatalog().axesから取得しハードコード辞書は持たない。バー色は
@@ -692,7 +692,7 @@ RideCompass/
         useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
         useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）。改善計画T270でJSON直列化の薄いラッパー`useStoredJsonState`を追加（page.tsx/admin/page.tsx間の評価重みstate共有に使う）。改善計画T321（デッドコード監査）: `reloadKey`オプションを追加。`layerVisibility`の`deserialize`がビルド時静的な軸集合しか走査せず軸スタジオ公開軸のON状態がリロードで消える実バグがあったため、`axisCatalog.loaded`を`reloadKey`に渡すことで「マウント直後は静的フォールバック集合、カタログ取得完了後は実行時軸集合」の2段階でlocalStorageから再復元できるようにした（page.tsx側の対応、下記1831行目周辺参照）
         useWeatherGrid.ts               ✅ 改善計画T183フォローアップ: 風・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子切替を集約（元page.tsx内の風専用ロジックを共有可能な形へ抽出）
-        useAxisCatalog.ts               ✅ 改善計画T269: マウント時にGET /api/axis-catalogを1回取得。取得完了まで/失敗時は既存7軸の静的フォールバック（axis-catalog.json＋evaluationAxes.tsの手書きラベル）を返す
+        useAxisCatalog.ts               ✅ 改善計画T269: マウント時にGET /api/axis-catalogを1回取得。取得完了まで/失敗時はビルド時点の公開軸の静的フォールバック（axis-catalog.json）を返す
         useMaterialCatalog.ts           ✅ 改善計画T277: マウント時にGET /api/material-catalogを1回取得。取得完了まで/失敗時はlib/axisMaterialsCatalog.tsの静的9件をフォールバックとして返す（useAxisCatalog.tsと同型のパターン）。改善計画T321（デッドコード監査）: `response.materials.length > 0`ガードが「取得中/失敗」と「取得成功0件」を同一視し後者でも静的フォールバックが残り続けるT318と同型のバグとして残存していたため、useAxisCatalog.tsと同じ形へ修正
       lib/
         debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
@@ -1202,7 +1202,7 @@ interface WeatherConditions {
 
 ---
 
-## 7. 静的道路属性と7軸評価モデル（P0/P1、外部静的データソースT50/T51）
+## 7. 静的道路属性と評価軸モデル（P0/P1、外部静的データソースT50/T51）
 
 Step8時点の評価（距離・標高・風・路面の4指標）に加え、OSMタグ・警察庁事故統計・国土数値情報
 （KSJ）を材料とした指標を追加し、区間難易度（`RoutePreference`）・地図の静的レイヤーの
@@ -1261,7 +1261,7 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 いずれも削除した。`RouteCandidate.bicycle_infra_score`（ルート集約統計）も改善計画T431で
 `ComparisonPanel`が`axis_difficulties`駆動へ移行したことで末端消費者ゼロになり削除済み。
 
-### 8軸の一覧と重み
+### 評価軸の算出元と重み
 
 `domain/difficulty.py: evaluate_axis_difficulties`が材料値の辞書と重み辞書から軸別difficulty・
 合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する（改善計画T221 Stage B/Cで
@@ -1270,16 +1270,24 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 `domain/axis_definitions.py: AXIS_DEFINITIONS`の`default_weight`（改善計画T316で
 `route_preference.yaml`の手書きミラーを撤廃、軸スタジオが唯一の情報源になった）：
 
-| 軸 | axis_id（重み辞書のキー） | 既定値 | 生値の単位 | 算出元 |
-|---|---|---|---|---|
-| 標高（勾配） | `gradient` | 0.15 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
-| 路面 | `surface_q` | 0.19 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
-| 風 | `wind` | 0.26 | `wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存） | `domain/wind.py`（`wind_drag_ratio_array`） |
-| 停止密度（交差点密度込み） | `stop_density` | 0.20 | 回/km | P1（信号・横断歩道・一時停止・踏切・車止め・減速構造、`osm_raw_pois`。T149で旧`intersection_weight`0.05を合算） |
-| 車ストレス | `car_stress` | 0.20 | 0-4（T353以前は自転車インフラ込みで1-5） | 推定（改善計画T292で`axis_definitions`の内部軸5つ+公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
-| 事故密度 | `accident` | 0.08 | 件/(km・年) | T50（警察庁交通事故統計） |
-| 夜間 | `night` | 0.0 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
-| 自転車インフラ | `bicycle_infra_quality` | 0.15 | -4.0〜0.0（4フラグ材料の重み付き和） | 改善計画T347で独立公開軸化、T353で正規化フラグ材料4件（`highway_is_cycleway`等）を直接参照する構成へ再設計。`show_map_icon=false`のため専用地図レイヤーなし |
+公開されている軸の一覧・`axis_id`・既定重みは`axis_definitions`テーブル（軸スタジオが
+唯一の書き込み口）が持ち、ここには再掲しない——軸はGUIから増減し、コード変更を伴わない
+（`GET /api/axis-catalog`・`backend/fixtures/axis_definitions_snapshot.json`で現物を確認できる）。
+下表は**軸ごとの算出元と背景**、つまりDBの行だけからは辿れない情報を残すためのもの。
+`axis_id`はGUIで作った軸では自動採番のため軸名と一致しない（停止密度が該当する）。
+
+| 軸 | 生値の単位 | 算出元 |
+|---|---|---|
+| 勾配 | %（区間勾配） | Step5（`ElevationService`/`ElevationAttribute`） |
+| 舗装質 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
+| 風 | `wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存） | `domain/wind.py`（`wind_drag_ratio_array`） |
+| 停止密度（交差点密度込み） | 回/km | P1（信号・横断歩道・一時停止・踏切・車止め・減速構造、`osm_raw_pois`。T149で旧`intersection_weight`を合算） |
+| 車の圧迫感 | 0-4 | 推定（改善計画T292で`axis_definitions`の内部軸＋公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
+| 事故密度 | 件/(km・年) | T50（警察庁交通事故統計） |
+| 夜間 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
+| 自転車インフラ | 負の値域（正規化フラグ材料の重み付き和） | 改善計画T347で独立公開軸化、T353で正規化フラグ材料（`highway_is_cycleway`等）を直接参照する構成へ再設計。`show_map_icon=false`のため専用地図レイヤーなし |
+| 開放度 | %（樹冠・建物被覆） | 改善計画T624（`way_landcover`、`trees_percent`/`built_percent`） |
+| 蛇行 | 度/km | 改善計画T691（折れ線の方位変化の累積÷km、`domain/geo.py: curvature_deg_per_km`） |
 
 重みのキーは改善計画T221 Stage Bで旧`elevation_weight`等のフィールド名からaxis_idへ統一した
 （`RoutePreference`はaxis_idキーの重み辞書`weights`を持ち、既定値は
@@ -1289,8 +1297,8 @@ APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキ�
 
 旧`scoring.yaml`（total_score・候補集合内相対評価）は**改善計画T401**でdistance/difficultyの
 2指標へ単純化され、その後**改善計画T548（2026-09-03）で総合スコアリング機構自体が撤去**された。
-現在の候補タブの並び順は`overall_difficulty`（この8軸すべてを`RoutePreference.weights`で
-重み付け合成した値）の昇順で、8軸全てが軸スタジオで設定した重みどおりに反映される（P1着手
+現在の候補タブの並び順は`overall_difficulty`（公開軸すべてを`RoutePreference.weights`で
+重み付け合成した値）の昇順で、公開軸は例外なく軸スタジオで設定した重みどおりに反映される（P1着手
 時点では距離・標高・風・路面の4指標のみを候補順位に使うというスコープ判断だったが、「候補は
 軸スタジオで決めた尺度で比較されるべき」というユーザー方針を受けT401で撤回・一本化し、
 「並び順はoverall_difficultyのみでよい」というさらなるユーザー判断を受けT548でtotal_score
@@ -2022,7 +2030,7 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 宣言する」形（Stage Aの4テンプレートで全軸のシグネチャが標準化されたため可能になった）で
 実現している。表示レジストリと評価定義の軸ID集合は`test_registry_defaults.py`が機械的に
 突き合わせる。改善計画T320により、軸を追加するときに本レジストリへの個別登録は不要になった
-——上記「8軸の一覧と重み」の1本道（コスト計算側、中心はAXIS_DEFINITIONSへの1エントリ）
+——上記「評価軸の算出元と重み」の1本道（コスト計算側、中心は軸定義への1エントリ）
 だけで、表示レジストリ（`axis-catalog.json`）側も`_register_axes()`の走査により自動反映される。
 
 `domain/recipe_definition.py`（T141、`Recipe`/`RecipeComponents`等でレシピをJSON/DB
@@ -2408,7 +2416,7 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   完全に別経路のJSONエンドポイント。
   フロントは`ROAD_TILE_SOURCE_ID`のvector sourceへ`promoteId: { [ROAD_TILE_SOURCE_LAYER]:
   "osm_way_id" }`を設定し、既存の`osm_way_id`プロパティをMapLibreの`feature.id`へ昇格させる。
-  `hooks/useWindAxisPenalties.ts`が現在のビューポート（500msデバウンス）を覆う道路タイル分を
+  `hooks/useDedicatedWayValues.ts`が現在のビューポート（デバウンス後）を覆う道路タイル分を
   まとめてfetchし（`dynamicWayValues.ts: tilesCoveringViewport`）、`MapView.tsx`が
   `map.setFeatureState({source, sourceLayer, id: wayId}, {windValue: value})`で道路タイル
   の地物へ後から値を差し込む。色分けは`["feature-state","windValue"]`を読むMapLibre
@@ -2416,10 +2424,9 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   配色・単位は軸カタログの`map_value_kind`/`map_value_unit`/`display_thresholds_override`
   から`valueScale.ts`が決め、ルート確定後のルート線色分けと同じスケールになる）。
 
-**ルート確定後**: パラメータ指定UI（コンパススライダー・上記の風の評価軸の一律色分け）は終了する
-（`page.tsx`が`hasDetail`で`dedicatedWayValueVisibility`の各値をfalseへ倒し、
-`RouteSettingsPanel.tsx: renderMapColorToggle`が風の色分けトグルを「地図表示なし」の
-案内表示へ切り替える[改善計画T418]。`MapView.tsx: clearRoadTileFeatureState`
+**ルート確定後**: 上記の風の評価軸の一律色分けは終了する
+（`page.tsx`が`hasDetail`で`dedicatedWayValueVisibility`の各値をfalseへ倒す。
+`MapView.tsx: clearRoadTileFeatureState`
 （改善計画T440で`clearWindAxisFeatureState`/`clearGradientAxisFeatureState`という
 重複した2関数を統合したもの）が`map.removeFeatureState`でそれまでの全道路ぶんの
 feature-stateを明示的にクリアする）。
@@ -2486,9 +2493,10 @@ effective_gradient`）。道路の向きと指定方向のなす角度に応じ�
   へ抽出し、色式・凡例は`dedicatedWayValueLayer.ts`（風・勾配共通、軸カタログの表示宣言
   `DedicatedWayValueDisplay`だけから組み立てる）と`valueScale.ts`（種類ごとの既定
   しきい値・配色、ルート確定後の`routeStyleModes.ts`と共有）が持つ。フェッチ本体は`services/regionApi.ts:
-  fetchDynamicWayValues(materialId, ...)`・状態管理は`hooks/useDynamicWayValues.ts:
-  useDynamicWayValues(materialId, ...)`として統合した（旧`fetchWindWayPenalties`/
-  `useWindAxisPenalties`を汎用化、風・勾配どちらもこの1本のフック・1本のfetch関数を使う）。
+  fetchDynamicWayValues(axisId, ...)`（1タイル1軸ぶん）・状態管理は
+  `hooks/useDedicatedWayValues.ts: useDedicatedWayValues(axes, ...)`（専用way値配信軸の
+  一覧を受け取り、軸ごとの結果を`ReadonlyMap`で返す）として統合してある。風・勾配
+  どちらもこの1本のフック・1本のfetch関数を使い、軸ごとの分岐を持たない。
 
 **環境グループの勾配gridFill（面表示）**: 風のgridFillは矢印と共有の独立した気象グリッド
 （道路と無関係な空間フィールド）から作れたが、勾配にはそのような独立フィールドが無い
@@ -2562,14 +2570,13 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
   （ライブな）重みをそのまま使うと、生成後に重みだけ変更（再生成せず）した場合に、
   表示中のルートの実際の評価内容とメニューがズレるため（`page.tsx`:
   `generatedRoutePreference`）。
-- プレルート側（ルート設定パネルの「地図で色分け」トグル・地図上チップグルーピング）の
-  同種のaxis_idハードコード分岐（`RouteSettingsPanel.tsx: mapColorLayerIdFor`・
-  `mapLayers.ts: isAxisStudioLayer`）も、新設した`AxisDefinition.
-  dedicated_way_value_layer`（この軸が専用のway_id→値配信レイヤーを持つかの宣言）で
-  判定するよう置き換えた。`isAxisStudioLayer`は`mapOverlayGroupFor`という広く呼ばれる
-  純粋関数の内部で使われるため、ライブなaxis-catalogを動的注入する設計は見送り、
-  `RAMP_AXES`/`AXIS_LABELS`と同じ「ビルド時静的axis-catalog.jsonからの片側import」
-  パターン（`DEDICATED_WAY_VALUE_LAYER_IDS`）に揃えた。
+- プレルート側（地図上チップのグルーピング）の同種のaxis_idハードコード分岐
+  （`mapLayers.ts: isAxisStudioLayer`）も、`AxisDefinition.dedicated_way_value_layer`
+  （この軸が専用のway_id→値配信レイヤーを持つかの宣言）で判定する。
+  `isAxisStudioLayer`は`mapOverlayGroupFor`という広く呼ばれる純粋関数の内部で使われる
+  ため、ライブなaxis-catalogを動的注入する設計は採らず、`RAMP_AXES`/`AXIS_LABELS`と同じ
+  「ビルド時静的axis-catalog.jsonからの片側import」パターン
+  （`axisLayers.ts: DEDICATED_WAY_VALUE_AXES`）に揃えてある。
 
 ### 地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）と一次/二次命名（改善計画T163〜T169）
 
@@ -2652,11 +2659,11 @@ T413（2026-08-30）で地図上チップと同じ`mapOverlayGroupFor`を単一�
 
 `way_attribute_counts`（T145b、レジストリ駆動の二次軸ランプレイヤーと同じテーブル）から
 その道路（Way）1本分の長さ・事故/停止/交差点カウントを取得し、car_stress・surface_q・
-stop_density・accident・night・bicycle_infra_qualityの6軸（`AXIS_DEFINITIONS`の公開軸のうち
-gradient/windを除く。bicycle_infra_qualityは正規化フラグ材料4件（改善計画T353）を直接参照するが、
-これも単独wayのtags/highwayだけで算出可能なため引き続き対象に含まれる）を算出する。gradient・windは単独wayでは算出できない
+stop_density・accident・night・bicycle_infra_quality等（公開軸のうちgradient/windを除く。
+bicycle_infra_qualityは正規化フラグ材料を直接参照するが、これも単独wayのtags/highwayだけで
+算出可能なため引き続き対象に含まれる）を算出する。gradient・windは単独wayでは算出できない
 （ルート文脈が必要）ため`AxisInspectorAxis.available=false`で常に返し、`composite_difficulty`は
-取得できた軸だけの加重平均（`covered_weight_fraction`が全8軸重みに対する充足率を示す参考値）。
+取得できた軸だけの加重平均（`covered_weight_fraction`が公開軸の重み合計に対する充足率を示す参考値）。
 
 ### 地図タイル閲覧起点の道路グラフ構築（T59）
 

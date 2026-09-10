@@ -140,8 +140,11 @@ localStorageへの保存・復元を1箇所に集約する。
 - 保存は「setter呼び出しのたびに即書き込む」方式（`autoSave`省略時true）。
 - `reloadKey`: 復元処理を再実行させたい追加の依存値。`deserialize`はrefへ退避しない
   （`reloadKey`が変わった際、その時点の最新の`deserialize`クロージャで再復元する）。例:
-  `layerVisibility`は`axisCatalog.loaded`を`reloadKey`にし、マウント直後（静的フォール
-  バック集合で復元）→フェッチ完了後（実行時集合で再復元）の2段階復元にしている。
+  `layerVisibility`は`axisCatalog.loaded`を`reloadKey`にする。キー集合自体は
+  `DEFAULT_LAYER_VISIBILITY`固定でカタログに依存しないが、1回目の復元が書き戻した
+  移行後の値を2回目の復元がそのまま読み直せるよう揃えている（`page.tsx`の同箇所の
+  コメント参照）。レンズの選択（`lens`）は`deserialize`が実行時カタログの
+  `routeStyleModes`を参照するため、こちらは2段階復元が意味を持つ。
 - `useStoredJsonState`は`JSON.stringify`/`JSON.parse`を既定にした薄いラッパー
   （`/admin`とのstate共有に使う）。
 - 読み書きの失敗（プライベートブラウジング等）はデフォルト値へのフォールバックとして

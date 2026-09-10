@@ -62,7 +62,8 @@ z=15にも対応するが14でも取得できる）。
 データのため）。パース済みグリッド（256×256の`float|None`二次元配列）はさらにプロセス内
 メモリ（`_tile_grid_cache`）にも保持し、1リクエスト内で近接する複数のサンプル点が同じ
 タイルを共有する場合にファイル読み出し・パースを都度繰り返さないようにする。`_tile_grid_cache`
-は上限つきLRU（`DEFAULT_MAX_TILE_GRIDS`、`graph_material_cache.py: _LRUCache`と同じ設計）。
+は上限つきLRU（`cachetools.LRUCache`、上限は`DEFAULT_MAX_TILE_GRIDS`。プロセス内キャッシュを
+`cachetools`へ統一する方針どおりで、`graph_material_cache.py`のタイル材料キャッシュと同じ）。
 上限に達すると最も長く使われていないタイルから追い出されるが、ファイル層（`tile_cache.py`）
 は上限なく永続化済みのため、追い出されてもネットワーク呼び出し無しのローカル再パースだけで
 復元できる。
@@ -82,10 +83,9 @@ Attributeを確認し（`get_elevation_attributes`）、既に永続化済みな
 `CHUNK_SIZE`件ずつ読み進め、Python側へ全件を載せない）——`ElevationClient`の
 プロセス内タイルグリッドキャッシュ（`_tile_grid_cache`）が
 近接するEdgeで同じDEMタイルを共有できるようにするため（DB取得順は地理的に無関係なため、
-順序を変えないとLRU上限に達するたびディスクからの再パースが多発する）。また本バッチが読むgeometry
-（`RoadGraphRepository.get_edges_with_geometry`）は`use_cache=False`でRedis
-cache-asideを迂回する——全道路網一括バッチはbboxに収まらず反復性も無いため、Redisへ
-書き込む意味が無いばかりか、他の用途のキャッシュを追い出す副作用がある。
+順序を変えないとLRU上限に達するたびディスクからの再パースが多発する）。geometryの取得
+（`RoadGraphRepository.get_edges_with_geometry`）はDBへ直接問い合わせる——全道路網一括
+バッチはbboxに収まらず反復性も無いため、Redisを挟んでも書き込むだけで再利用されない。
 
 **暗黙の前提（モジュール間の隠れた依存）**: このバッチが対象Edgeに対して実行されて
 いない、または`elevation_attributes.average_grade`がNULLのままだと、
@@ -116,7 +116,7 @@ cache-asideを迂回する——全道路網一括バッチはbboxに収まら�
 [バッチ事前計算＋探索時参照]
 precompute_elevation_attributes.py（オフライン、CHUNK_SIZE=2000）
   → _fetch_all_edge_ids（未計算Edgeのみanti-join、地理的順序=ORDER BY geom）
-  → RoadGraphRepository.get_edges_with_geometry（use_cache=False、Redisを迂回）
+  → RoadGraphRepository.get_edges_with_geometry（DBへ直接問い合わせる）
   → ElevationAttributeService.get_attributes_for_graph
        → repository.get_elevation_attributes（既存分をスキップ）
        → 未計算分のみ ElevationAttributeService._compute_attributes が

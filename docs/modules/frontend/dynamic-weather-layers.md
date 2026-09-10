@@ -144,7 +144,7 @@ icon-sizeはズームのみに依存する。
 ## 新しい動的要素を追加する1本道
 
 1. backend: `wind_grid.py`の`WindGridPoint`へ値フィールドを追加、`msm_client.py`の
-   `WIND_VARIABLES`へMSM変数を足す（この経路は風・降水延長予報限定）
+   `FORECAST_VARIABLES`へMSM変数を足す（この経路は風・降水延長予報限定）
 2. データ層: 要素モジュールを新設し、フレーム列（`DynamicWeatherFrame[]`）とペイロード
    関数を実装する
 3. `MapView.tsx`: `DYNAMIC_WEATHER_RENDERERS`へ描画スペックを1エントリ追加する
@@ -154,20 +154,23 @@ icon-sizeはズームのみに依存する。
 5. `hooks/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
    `dynamicWeather`オブジェクトへの追加（3〜4と違い自動反映の仕組みは無い、手書き作業）。
    `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の
-   `dynamicWeatherStatus(loading, error, payload !== undefined)`呼び出しを1行足す。
+   `deriveFetchLayerStatus(loading, error, payload !== undefined, hasFetched)`呼び出しを
+   1行足す。
 
 ## データ取得状態
 
-3つのチップ付き動的気象レイヤー全てが、`useDynamicWeatherLayers.ts`の
-`dynamicWeatherStatus(loading, error, hasPayload)`という同じ純粋関数を通り、
-`LayerDataStatus`（"loading"/"empty"/"error"、`mapLayers.ts`）を1つ返す
-（判定順序はエラー中 > 読込中 > 読込済みだが値なし、`useLayerDataStatus.ts:
-computeLayerDataStatus`と同じ）。`loading`/`error`は各要素が既に持つフェッチフック
-（`usePolledFetch`の戻り値、風は`useWeatherGrid`）自身の値をそのまま渡し、`hasPayload`は
-選択中の共有時刻に対応するpayloadが`undefined`でないかで決まる。
+`DYNAMIC_WEATHER_LAYER_IDS`のチップ全てが、`useDynamicWeatherLayers.ts`から
+`mapLayers.ts: deriveFetchLayerStatus(loading, error, hasPayload, hasFetched)`という同じ
+純粋関数を通り、`LayerDataStatus`（"loading"/"empty"/"error"、`mapLayers.ts`）を1つ返す
+（判定順序はエラー中 > 読込中 > 未取得[undefined] > 読込済みだが値なし、
+`useLayerDataStatus.ts: computeLayerDataStatus`と同じ）。`loading`/`error`は各要素が既に
+持つフェッチフック（`usePolledFetch`の戻り値、風は`useWeatherGrid`）自身の値をそのまま
+渡し、`hasPayload`は選択中の共有時刻に対応するpayloadが`undefined`でないかで決まる。
+`hasFetched`は一度でも取得が完了したかで、初回取得前を「値なし（empty）」と誤って
+見せないために要る。
 
 **MapLibreのソースイベント経由の系統（`MapView.tsx: buildLayerDataSources`）は
-この9レイヤーの対象外**——実際の外部フェッチは自前のJSコード（`usePolledFetch`等）で
+動的気象レイヤーの対象外**——実際の外部フェッチは自前のJSコード（`usePolledFetch`等）で
 行われ、結果を`map.getSource(id).setData(...)`/`setTiles(...)`で流し込むだけのため、
 MapLibre側のソースイベントはフェッチの待ち時間・失敗を観測できない（`kind`が
 raster/vectorTile[実タイル取得がMapLibre自身の責務]であっても、フレーム一覧
@@ -246,8 +249,8 @@ trueとする。
   計算元と実際に塗る値の元が別グリッドである点は初見では見落としやすい。
 - `gradientFill`（勾配の面塗り）は`page.tsx`のコメント上`windVector`と同じ「環境グループ」
   という語彙で呼ばれるが、`DYNAMIC_WEATHER_RENDERERS`汎用機構には統合されておらず、
-  `MapView.tsx`内に`ensureGradientFillLayer`/`applyGradientFillGeojson`という独立実装を
-  持つ。このモジュールの対象範囲は風・降水・雷・竜巻・キキクル・線状降水帯予測マップの
+  `MapView.tsx`内に`makeEnsureGradientFillLayer`/`applyGradientFillGeojson`という独立
+  実装を持つ。このモジュールの対象範囲は風・降水・雷・竜巻・キキクル・線状降水帯予測マップの
   みであり、勾配は含まない（勾配は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。
 - **JMAプロキシ配下のURLはすべて`jmaNowcastFrames.ts: jmaProxyUrl(path)`で組み立てる**
   （タイルテンプレート・時刻一覧・GeoJSON・`DYNAMIC_WEATHER_RENDERERS`のプレースホルダの
@@ -262,5 +265,6 @@ trueとする。
   時刻一覧・GeoJSONはMapLibreではなくアプリ自身の`fetch()`で読むが、同じく絶対URLにする——
   **タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると
   往復1つぶんが初回表示のクリティカルパスへ直列に乗る。`tileBaseUrl()`は`window`を参照する
-  ので、モジュール直下の定数ではなく呼び出し時に評価する関数（`riskTargetTimesUrl()`等）
-  として持つ。
+  ので、モジュール直下の定数ではなく呼び出し時に評価する関数
+  （`jmaNowcastFrames.ts: jmaTargetTimesUrl(id)`。パス自体は同ファイルの
+  `JMA_TARGET_TIMES_PATHS`が要素idごとに1箇所で持つ）として持つ。

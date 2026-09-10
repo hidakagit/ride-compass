@@ -144,8 +144,9 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 
 page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）が組み立てる候補ごとの
 タブ（方向・距離のみを表示。総合難易度の点数はタブ内では繰り返さない）の中身として、
-候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`をルート設定の重み>0の軸のみへ
-絞り込んで渡す。
+候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`へ公開軸すべてを渡す——重み0の軸を
+落とすと、直下の「未使用」バッジ（この候補を評価した重みが0だったことを示す）が構造的に
+出せなくなる。
 
 - **軸別難易度の一覧**: 公開軸すべて（軸カタログ順）を「色ドット＋ラベル＋(i)説明＋難易度
   （`RouteCandidate.axis_difficulties`、四捨五入）＋生値」の行で並べる。
@@ -160,9 +161,9 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 - **生値（行の2段目）**: 折れ点を通す前の生値を、その軸の行の2段目へ右端揃えで置く
   （`RouteCandidate.axis_raw_values` × `AxisCatalogEntry.raw_value_unit`、
   `axisRawValue.ts: formatAxisRawValue`）。単位が「◯◯/km」なら候補の走行距離を掛けた
-  実数も続ける（例:「0.80回/km・約26回」）。**1段目へ並べない**のは、単位
-  （`件/(km・年)`等）の文字数ぶん列を占め、9軸ぶんがサイドバー幅に収まらず軸名が省略
-  されるため——単位を削るのは情報を落とすことなので、段を分けて幅の取り合いから外す。
+  実数も続ける（例:「0.8回/km・約26回」）。**1段目へ並べない**のは、単位
+  （`件/(km・年)`等）の文字数ぶん列を占め、公開軸を並べるとサイドバー幅に収まらず軸名が
+  省略されるため——単位を削るのは情報を落とすことなので、段を分けて幅の取り合いから外す。
   得点0-100は目盛りの引き方に依存する相対評価
   でしかなく、それだけでは軸単体で経路の良し悪しを判断できないため
   （[設計原則](../../design-principles.md)11）。単位が定まらない軸（合成軸等）は
@@ -222,19 +223,18 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 
 - 研究モードの実験スロット比較表。表示順は
   (1) ルート属性（距離・獲得標高。材料ではないため`material_values`には乗らない固定行）→
-  (2) 材料値の生値行（`RouteCandidate.material_values`から動的生成。重み>0の軸が参照する
+  (2) 材料値の行（`RouteCandidate.material_values`から動的生成。重み>0の軸が参照する
   材料id→値の辞書で、いずれかのスロットが値を持つ材料だけを行にする。ラベル・単位は
   `materials`[page.tsxが`useMaterialCatalog()`を渡す]から引く、
   `lib/axisMaterialsCatalog.ts: materialCatalogLabel`/`formatMaterialValue`共用）→
-  (3) 個別軸の生値行（`axisLabels`・`axes`をpage.tsxから受け取り、
+  (3) 軸ごとの難易度の行（`axisLabels`・`axes`をpage.tsxから受け取り、
   `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
   (4) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。各列は各回の
   `ExperimentSlot.topCandidate`（生成直後の`overall_difficulty`最小候補で固定、
   [ページ全体構成・状態管理](page-composition.md)参照）。page.tsxが渡す`axes`は、
   表示中のいずれかの実験スロットで生成時点の重み（`ExperimentSlot.conditions.
   route_preference`）が>0だった軸に絞り込み済み——現在のライブな`routePreference`
-  （「今」の設定）は使わない。旧・風スコア/舗装率の固定行（`RouteCandidate.wind_score`/
-  `road_score`直接参照）は材料値の生値行へ置き換えた。
+  （「今」の設定）は使わない。
 
 ## RouteForm.tsx・useRouteFormSubmit.ts
 

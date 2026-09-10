@@ -238,7 +238,7 @@ axis_admin API経由の変更後にこのダンプを忘れると、以後のfre
 
 frontendの静的フォールバック（[軸スタジオ管理画面（frontend）](../frontend/axis-studio.md)・
 [地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)の`RAMP_AXES`・
-`DEDICATED_WAY_VALUE_LAYER_IDS`等）は、この`axis-catalog.json`（ビルド時スナップショット）
+`DEDICATED_WAY_VALUE_AXES`等）は、この`axis-catalog.json`（ビルド時スナップショット）
 を経由するため、**軸スタジオでの変更は次の再デプロイまでこれらの静的値には反映されない**
 （`GET /api/axis-catalog`という実行時APIには即座に反映されるため、実行時フェッチが完了
 すればアプリ全体としては最終的に正しい状態になるが、フェッチ完了までの間・フェッチ失敗時は

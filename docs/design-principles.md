@@ -48,8 +48,9 @@
 4. **概念の正準定義はbackend domain層に1箇所**。他所（SQL・フロント）はバインド・生成・
    検証テストで追従する構造とし、手書きコピーを持たない。
    （`docs/design-review-2026-08-15.md`原則1参照）
-5. **同名フィールドの意味をエンジン間・境界間で変えない**。やむを得ない場合は
-   wind_score方式（docs明記＋識別フィールド＋両側の型コメント）を必須とする。
+5. **同名フィールドの意味をエンジン間・境界間で変えない**。やむを得ない場合は、
+   docsへの明記＋レスポンスの識別フィールド（受け手がどちらの意味かを判別できるもの）＋
+   両側の型コメント、の3点をそろえることを必須とする。
    （`docs/design-review-2026-08-15.md`原則2参照）
 6. **生データと派生データを分ける。派生は常に再生成可能な構造とし、導出できるものを
    テーブルに実体化しない**（実測で必要と示された場合のみ例外）。
@@ -67,7 +68,7 @@
 9. **軸カタログはbackendからfrontendへの片側importのみで流れる**。`axis-catalog.json`
    （`export_openapi.py`がビルド時にDBから書き出す静的生成物）は、frontend側で
    (a) 実行時API（`GET /api/axis-catalog`）フェッチ完了までの一時的なフォールバック、
-   (b) ビルド時にしか導出できない定数（`DEDICATED_WAY_VALUE_LAYER_IDS`等）の生成源、
+   (b) ビルド時にしか導出できない定数（`axisLayers.ts: DEDICATED_WAY_VALUE_AXES`等）の生成源、
    の2用途にのみ使う。frontendからbackend側の生成物へ書き戻す経路は持たない
    （`docs/modules/frontend/axis-studio.md`・`map-axis-coloring.md`・
    `static-map-layers.md`参照）。
