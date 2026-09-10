@@ -16,6 +16,7 @@ from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
     BreakpointLinearShape,
+    CategoricalShape,
     MaterialTerm,
     time_scoped_weights,
 )
@@ -28,7 +29,10 @@ from app.domain.evaluation import (
     compute_cost_from_axis_scores,
     compute_edge_axis_scores,
     compute_edge_cost,
+    has_route_facing_raw_value,
 )
+from app.domain.axis_display import raw_value_unit
+from app.domain import evaluation as evaluation_module
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_node_ids, is_edge_allowed
 from app.domain.route_preference import RoutePreference
 from tests.metrics_fixtures import edge_metrics
@@ -784,6 +788,56 @@ def test_build_static_edge_score_matrix_for_empty_graph_matches_axis_ids_of_none
     assert len(nonempty_matrix.axis_ids) > 0
     assert empty_matrix.axis_ids == nonempty_matrix.axis_ids
     assert empty_matrix.axis_scores.shape == (0, len(nonempty_matrix.axis_ids))
+    # 生値の列（raw_axis_ids）も同じ理由で揃っている必要がある。列を決める述語は
+    # 空タイル分岐と通常分岐で別々に書かれていた（`has_route_facing_raw_value`へ集約済み）。
+    # 片側だけ変えるとタイルをまたいだnp.concatenateが失敗するか、ずれた列で合成される。
+    assert len(nonempty_matrix.raw_axis_ids) > 0
+    assert empty_matrix.raw_axis_ids == nonempty_matrix.raw_axis_ids
+    assert empty_matrix.axis_raw_values.shape == (0, len(nonempty_matrix.raw_axis_ids))
+
+
+def test_has_route_facing_raw_value_excludes_dynamic_material_axes(monkeypatch):
+    """生値の列に載せるかの述語のうち、**動的材料の除外**を直接確かめる。
+
+    この分岐は現在の材料カタログでは一度も効かない——唯一の動的材料`wind_drag_ratio`は
+    単位を持たず、単位の条件で先に落ちるため。ここでは単位を持つ材料を一時的に動的扱いへ
+    差し替え、除外が効くこと自体を固定する（片方の条件だけを消しても気づけるように）。
+
+    静的スコア行列は`weather=None`で組み立てるので、動的材料の生値はNaNになる。
+    人へ見せる値にならない列を作ると、タイルごとの列数は揃っていても中身が全部NaNになる。
+    """
+    axis = AxisDefinition(
+        axis_id="synthetic_raw",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="curvature_deg_per_km", weight=1.0)],
+            breakpoints=[(0.0, 0.0), (200.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="合成: 単位のある軸",
+        category="観測",
+    )
+
+    # 単位は定まるので、静的材料のままなら列に載る。
+    assert raw_value_unit(axis) is not None
+    assert has_route_facing_raw_value(axis) is True
+
+    # 同じ軸でも、参照する材料がリクエスト時決定（動的）になれば載らない。
+    monkeypatch.setattr(evaluation_module, "REQUEST_DYNAMIC_MATERIAL_IDS", frozenset({"curvature_deg_per_km"}))
+    assert has_route_facing_raw_value(axis) is False
+
+
+def test_has_route_facing_raw_value_excludes_axes_without_a_unit():
+    # 単位が定まらない軸（複数材料の重み付き結合等）は、数字を添えても読み手が意味を取れない。
+    categorical_axis = AxisDefinition(
+        axis_id="synthetic_categorical",
+        shape=CategoricalShape(material="surface_good", mapping={"true": 0.0, "false": 80.0}),
+        default_weight=0.1,
+        label="合成: カテゴリ軸",
+        category="観測",
+    )
+
+    assert raw_value_unit(categorical_axis) is None
+    assert has_route_facing_raw_value(categorical_axis) is False
 
 
 def test_combine_static_edge_score_matrices_handles_empty_tile_mixed_with_nonempty_tile():

@@ -30,6 +30,34 @@ class TestClassifyStopPoi:
     def test_unrelated_highway_value_is_none(self):
         assert classify_stop_poi({"highway": "residential"}) is None
 
+    def test_barrier_values_are_classified(self):
+        # T654で追加したkind。分類器側にテストが無いと、_BARRIER_STOP_VALUESを増減しても
+        # 取込プロファイル側さえ変えなければどのテストも赤くならない。
+        for value in ["cycle_barrier", "bollard", "gate", "lift_gate", "stile", "block", "chain"]:
+            assert classify_stop_poi({"barrier": value}) == "barrier", value
+
+    def test_traffic_calming_values_are_classified(self):
+        for value in ["hump", "bump", "table", "cushion", "chicane", "rumble_strip"]:
+            assert classify_stop_poi({"traffic_calming": value}) == "traffic_calming", value
+
+    def test_barrier_values_deliberately_left_out_are_not_stop_factors(self):
+        """`_BARRIER_STOP_VALUES`から**意図的に外した**値（traffic.pyのコメント参照）。
+
+        ここを固定しないと、`kerb`のような「該当件数が多いが停止要因として識別力が無い」値を
+        足しても分類器のテストは1件も落ちず、停止密度だけが実データで跳ね上がる。
+        """
+        for value in ["kerb", "toll_booth", "entrance", "fence", "wall", "guard_rail", "jersey_barrier"]:
+            assert classify_stop_poi({"barrier": value}) is None, value
+
+    def test_traffic_calming_values_deliberately_left_out(self):
+        # island（中央島）・noは進行を妨げない。
+        for value in ["island", "no"]:
+            assert classify_stop_poi({"traffic_calming": value}) is None, value
+
+    def test_railway_takes_priority_over_barrier(self):
+        # 踏切に車止めが併設されている点。止まる理由としては踏切の方が強い。
+        assert classify_stop_poi({"railway": "level_crossing", "barrier": "gate"}) == "level_crossing"
+
     def test_stop_poi_kinds_matches_literal_values(self):
         """STOP_POI_KINDS（SQL側kindフィルタの正準集合、改善計画T145b実装中に発見した
         補給POI誤算入バグの修正）がStopPoiKindのLiteral値と乖離しないことを確認する。"""

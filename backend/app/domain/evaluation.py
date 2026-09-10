@@ -41,6 +41,7 @@ from app.domain.attributes import (
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
+    AxisDefinition,
     axis_raw_value_array,
     evaluate_axes_scalar,
     evaluate_axis_array,
@@ -275,6 +276,23 @@ def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
     return total + compensation
 
 
+def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
+    """その軸の生値を静的スコア行列の列として持つか。
+
+    空タイル（列だけを揃える分岐）と通常のタイルが**別々にこの条件を書く**と、片方だけ
+    変えた瞬間に列数・列順が食い違い、`combine_static_edge_score_matrices`の
+    `np.concatenate`がタイルをまたいで失敗する（またはずれた列で合成される）。
+    T536と同型の壊れ方をするため、述語はここ1箇所だけが持つ。
+
+    - 単位が定まらない軸（`raw_value_unit`がNone）は、数字を添えても読み手が意味を取れない。
+    - 動的材料（風）を参照する軸は対象外——静的スコア行列は`weather=None`で組み立てるため
+      生値がNaNになり、人へ見せる値にならない。
+    """
+    if raw_value_unit(definition) is None:
+        return False
+    return not (set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
+
+
 @dataclass(frozen=True, slots=True)
 class BulkAxisEvaluation:
     """`compute_edge_costs_bulk`の抽出＋計算フェーズ（`_evaluate_axes_bulk`）の結果。
@@ -356,8 +374,7 @@ def _evaluate_axes_bulk(
         empty_raw_arrays = {
             axis_id: np.array([])
             for axis_id in empty_axis_arrays
-            if raw_value_unit(AXIS_DEFINITIONS[axis_id]) is not None
-            and not (set(AXIS_DEFINITIONS[axis_id].materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
+            if has_route_facing_raw_value(AXIS_DEFINITIONS[axis_id])
         }
         return BulkAxisEvaluation(
             edge_ids=[],
@@ -478,10 +495,7 @@ def _evaluate_axes_bulk(
         material_arrays_with_axes[axis_id] = arr
         if definition.is_published:
             axis_arrays[axis_id] = arr
-            # 動的材料（風）を参照する軸は対象外。静的スコア行列は`weather=None`で
-            # 組み立てるため生値がNaNになり、人へ見せる値にならない。
-            uses_dynamic = bool(set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
-            if not uses_dynamic and raw_value_unit(definition) is not None:
+            if has_route_facing_raw_value(definition):
                 raw = axis_raw_value_array(definition, material_arrays_with_axes)
                 if raw is not None:
                     axis_raw_arrays[axis_id] = raw

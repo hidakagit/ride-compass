@@ -21,6 +21,14 @@ import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 // 十分なため失敗させておく（実HTTPは呼ばない）。getMaterialValues（改善計画T340）も
 // 失敗させ、値入力欄が既定の自由テキストのままになることをこのファイルの既存テストが
 // 引き続き検証する（候補選択セレクトのテストはAxisComposer.materialValues.test.tsx参照）。
+// 分布プレビューの2フック（useAxisValueDistribution/useMaterialDistribution）は
+// マウント直後にフェッチする。モックしないとテストが実HTTPを発火する
+// （このファイル冒頭が掲げる「実HTTPは呼ばない」方針どおり、ここで塞ぐ）。
+vi.mock("@/services/axisPreviewApi", () => ({
+  fetchAxisValueDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  fetchMaterialDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+}));
+
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
@@ -357,35 +365,6 @@ describe("AxisComposer", () => {
   // 最優先の回帰テスト: priority_overrides の素通し保持
   // ============================================================
   describe("priority_overridesの素通し保持（回帰テスト）", () => {
-    it("編集フォームに欄を持たないpriority_overridesが、他フィールドの変更だけを経て編集前の値のまま保存される", async () => {
-      const priorityOverrides = [{ material: "has_tunnel", equals: "true", value: -1000 }];
-      const editing = baseAxisDefinition({
-        priority_overrides: priorityOverrides,
-      });
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
-
-      // 「基本情報」ステップでラベルと重みだけを変更する。shape・display系の欄には触れない。
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "改");
-      const weightInput = screen.getByRole("spinbutton", { name: "既定重み(default_weight)" });
-      await user.clear(weightInput);
-      await user.type(weightInput, "0.35");
-
-      await clickNext(user); // basic -> shape_kind
-      await clickNext(user); // shape_kind -> shape_params
-      await clickNext(user); // shape_params -> display_publish
-      await user.click(screen.getByRole("button", { name: "更新する" }));
-
-      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-      const [payload, isNew] = onSave.mock.calls[0];
-      expect(isNew).toBe(false);
-      expect(payload.label).toBe("勾配改");
-      expect(payload.default_weight).toBeCloseTo(0.35);
-      // 本題: このフォームに編集欄を持たないフィールドが編集前の値のまま渡ること。
-      expect(payload.priority_overrides).toEqual(priorityOverrides);
-    });
-
     it("編集欄を持たない素通しフィールドがすべて、他フィールドの変更だけを経て編集前の値のまま保存される", async () => {
       // すべての素通し対象へ既定値と異なる値を入れる。素通しが1件でも落ちれば、
       // その値はサーバー側の既定値相当（false/"always"/[]）へ静かに戻る。
@@ -406,14 +385,22 @@ describe("AxisComposer", () => {
       const user = userEvent.setup();
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
 
+      // 「基本情報」ステップでラベルと重みだけを変更する。shape・display系の欄には触れない。
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "改");
+      const weightInput = screen.getByRole("spinbutton", { name: "既定重み(default_weight)" });
+      await user.clear(weightInput);
+      await user.type(weightInput, "0.35");
       await clickNext(user); // basic -> shape_kind
       await clickNext(user); // shape_kind -> shape_params
       await clickNext(user); // shape_params -> display_publish
       await user.click(screen.getByRole("button", { name: "更新する" }));
 
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-      const [payload] = onSave.mock.calls[0];
+      const [payload, isNew] = onSave.mock.calls[0];
+      // 触った欄はちゃんと変わる（素通しの確認が「何も変わっていないだけ」にならないように）。
+      expect(isNew).toBe(false);
+      expect(payload.label).toBe("勾配改");
+      expect(payload.default_weight).toBeCloseTo(0.35);
       for (const key of PASSTHROUGH_PAYLOAD_KEYS) {
         expect(payload[key]).toEqual(editing[key]);
       }

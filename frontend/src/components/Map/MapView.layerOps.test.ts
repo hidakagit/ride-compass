@@ -26,6 +26,7 @@ import {
   ensureDynamicWeatherLayer,
   shouldClearDedicatedWayValueFeatureState,
   ensureLayerFromSpec,
+  dynamicWeatherIds,
 } from "./MapView";
 
 // __rcStyleReady=trueでrunWhenStyleReadyの即時実行分岐を通す
@@ -36,6 +37,7 @@ function fakeMap() {
   const paintCalls: { layerId: string; name: string; value: unknown }[] = [];
   const layoutCalls: { layerId: string; name: string; value: unknown }[] = [];
   const filterCalls: { layerId: string; filter: unknown }[] = [];
+  const images = new Set<string>();
   const setFeatureStateCalls: { target: unknown; state: unknown }[] = [];
   const removeFeatureStateCalls: { target: unknown }[] = [];
   return {
@@ -54,6 +56,8 @@ function fakeMap() {
     setPaintProperty: (layerId: string, name: string, value: unknown) => paintCalls.push({ layerId, name, value }),
     setLayoutProperty: (layerId: string, name: string, value: unknown) => layoutCalls.push({ layerId, name, value }),
     setFilter: (layerId: string, filter: unknown) => filterCalls.push({ layerId, filter }),
+    hasImage: (id: string) => images.has(id),
+    addImage: (id: string) => images.add(id),
     setFeatureState: (target: unknown, state: unknown) => setFeatureStateCalls.push({ target, state }),
     removeFeatureState: (target: unknown) => removeFeatureStateCalls.push({ target }),
   };
@@ -322,22 +326,83 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
   });
 });
 
-describe("ensureDynamicWeatherLayer（gridFill/gridMark/vectorのcolorExpressionを既存レイヤーへ再適用する、T587）", () => {
-  it("gridFillレイヤーが既に存在する場合、colorExpression/opacityの変更をsetPaintPropertyで反映する", () => {
-    const map = fakeMap();
-    const specA = { windVector: { penaltyFill: { gridFill: { valueProperty: "v", colorExpression: ["literal", "a"], opacity: 0.4 } } } };
-    const specB = { windVector: { penaltyFill: { gridFill: { valueProperty: "v", colorExpression: ["literal", "b"], opacity: 0.6 } } } };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ensureDynamicWeatherLayer(map as any, "windVector", specA.windVector as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ensureDynamicWeatherLayer(map as any, "windVector", specB.windVector as any);
+describe("ensureDynamicWeatherLayer（既存レイヤーへspecの変更を再適用する）", () => {
+  // ソース名は`DYNAMIC_WEATHER_RENDERERS`の実際のキー（windVectorなら"arrow"）を使う。
+  // 撤去済みの名前を`as any`で作ると、レイヤーidが実在しないものになり、実装が本当に
+  // 対象のレイヤーを更新しているかを確かめられない。
+  const gridFillSpec = (color: string, opacity: number) => ({
+    arrow: {
+      gridFill: {
+        valueProperty: "speed",
+        colorExpression: ["literal", color] as never,
+        opacity,
+      },
+    },
+  });
 
-    const fillColorCalls = map.paintCalls.filter((c) => c.name === "fill-color");
-    expect(fillColorCalls).toHaveLength(1);
-    expect(fillColorCalls[0].value).toEqual(["literal", "b"]);
-    const fillOpacityCalls = map.paintCalls.filter((c) => c.name === "fill-opacity");
-    expect(fillOpacityCalls).toHaveLength(1);
-    expect(fillOpacityCalls[0].value).toBe(0.6);
+  it("gridFillレイヤーが既に存在する場合、colorExpression/opacityの変更を再適用する", () => {
+    const map = fakeMap();
+    const { layerId } = dynamicWeatherIds("windVector", "arrow", "fill");
+
+    ensureDynamicWeatherLayer(map as never, "windVector", gridFillSpec("a", 0.4) as never);
+    ensureDynamicWeatherLayer(map as never, "windVector", gridFillSpec("b", 0.6) as never);
+
+    expect(map.layers.has(layerId)).toBe(true);
+    expect(paintValue(map, layerId, "fill-color")).toEqual(["literal", "b"]);
+    expect(paintValue(map, layerId, "fill-opacity")).toBe(0.6);
+  });
+
+  it("minValueToShow由来のfilterも再適用する（色だけ追随して間引き条件が古いままにならない）", () => {
+    const map = fakeMap();
+    const { layerId } = dynamicWeatherIds("windVector", "arrow", "fill");
+    const withThreshold = (minValueToShow: number | undefined) => ({
+      arrow: {
+        gridFill: {
+          valueProperty: "speed",
+          colorExpression: ["literal", "a"] as never,
+          opacity: 0.4,
+          minValueToShow,
+        },
+      },
+    });
+
+    ensureDynamicWeatherLayer(map as never, "windVector", withThreshold(1) as never);
+    ensureDynamicWeatherLayer(map as never, "windVector", withThreshold(5) as never);
+
+    const lastFilter = [...map.filterCalls].reverse().find((c) => c.layerId === layerId);
+    expect(lastFilter?.filter).toEqual([">", ["to-number", ["get", "speed"]], 5]);
+
+    // しきい値が外れたらfilterも外れる（古い条件で間引き続けない）。
+    ensureDynamicWeatherLayer(map as never, "windVector", withThreshold(undefined) as never);
+    const clearedFilter = [...map.filterCalls].reverse().find((c) => c.layerId === layerId);
+    expect(clearedFilter?.filter).toBeUndefined();
+  });
+
+  it("gridMarkのicon-size式もlayoutとして再適用する", () => {
+    const map = fakeMap();
+    const { layerId } = dynamicWeatherIds("windVector", "arrow", "mark");
+    const mark = (maxScale: number) => ({
+      arrow: {
+        gridMark: {
+          createIcon: () => ({ width: 1, height: 1, data: new Uint8ClampedArray(4) }),
+          colorExpression: ["literal", "a"] as never,
+          valueProperty: "speed",
+          minScale: 0.5,
+          maxScale,
+          maxValueForFullScale: 15,
+          haloColor: "#fff",
+          haloWidth: 1,
+        },
+      },
+    });
+
+    ensureDynamicWeatherLayer(map as never, "windVector", mark(1.5) as never);
+    ensureDynamicWeatherLayer(map as never, "windVector", mark(3) as never);
+
+    const iconSize = [...map.layoutCalls].reverse().find((c) => c.layerId === layerId && c.name === "icon-size");
+    expect(iconSize).toBeDefined();
+    // visibilityは表示ON/OFFの状態そのものなので再適用しない。
+    expect(map.layoutCalls.some((c) => c.name === "visibility")).toBe(false);
   });
 });
 

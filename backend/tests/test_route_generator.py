@@ -477,6 +477,31 @@ async def test_axis_raw_values_is_distance_weighted_average_of_segments():
     assert candidates[0].axis_raw_values["stop_density"] == 1.0
 
 
+async def test_axis_raw_values_keep_precision_for_small_scale_axes():
+    """ルート全体へ載せる段でも、桁の小さい軸の値が潰れないこと。
+
+    区間の集約（`aggregate_segments_into_bins`）側は`tests/test_route.py`が押さえているが、
+    ここは候補1本ぶんへまとめる別の経路（`merge_axis_raw_values`）。有効域が0〜0.5の
+    `accident`（件/(km・年)）は、小数1桁へ丸めると0.05未満が全部0.0になり
+    「事故ゼロの道」と見分けが付かなくなる。
+    """
+    engine = SegmentedFakeEngine(
+        {0: 30.0},
+        {
+            0: [
+                make_segment(1.0, 0.0, axis_raw_values={"accident": 0.042}),
+                make_segment(3.0, 100.0, axis_raw_values={"accident": 0.018}),
+            ]
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
+
+    # (0.042*1.0 + 0.018*3.0) / 4.0 = 0.024
+    assert candidates[0].axis_raw_values["accident"] == pytest.approx(0.024)
+
+
 async def test_axis_difficulties_is_empty_dict_when_segments_missing():
     generator, _ = make_generator({b: 30.0 for b in BEARINGS})
 

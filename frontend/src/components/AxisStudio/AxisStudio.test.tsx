@@ -21,6 +21,14 @@ vi.mock("@/services/axisAdminApi", () => ({
 }));
 // AxisComposerが使うuseMaterialCatalogの取得先。フォールバック（静的9材料）で十分なため
 // 失敗させておく。
+// 分布プレビューの2フック（useAxisValueDistribution/useMaterialDistribution）は
+// マウント直後にフェッチする。モックしないとテストが実HTTPを発火する
+// （このファイル冒頭が掲げる「実HTTPは呼ばない」方針どおり、ここで塞ぐ）。
+vi.mock("@/services/axisPreviewApi", () => ({
+  fetchAxisValueDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  fetchMaterialDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+}));
+
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),

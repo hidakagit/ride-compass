@@ -288,7 +288,7 @@ describe("applyRouteLayerVisibility（「ルート」チップの表示切替を
     expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("none");
   });
 
-  it("routeLayerOn=falseで隠した後、再度trueで呼ぶとvisibleへ戻す" +
+  it("routeLayerOn=falseのまま呼び直してもnoneのまま" +
     "（redrawAllLayers経由でも「ルート」チップOFFの状態を維持できることの直接的な検証）", () => {
     const map = fakeMap();
     const routes = [makeRoute("a")];
@@ -301,5 +301,18 @@ describe("applyRouteLayerVisibility（「ルート」チップの表示切替を
 
     expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("none");
     expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("none");
+  });
+
+  it("routeLayerOn=falseで隠した後、再度trueで呼ぶとvisibleへ戻る", () => {
+    const map = fakeMap();
+    const routes = [makeRoute("a")];
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], true, routes, "a");
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], false, routes, "a");
+    map.layoutCalls.length = 0;
+
+    applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], true, routes, "a");
+
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("visible");
   });
 });

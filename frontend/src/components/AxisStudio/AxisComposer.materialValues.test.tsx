@@ -11,6 +11,14 @@ import AxisComposer from "./AxisComposer";
 // 変更したため、モック応答も{value, label}形式にする（frontend側の翻訳表は撤去済み）。
 // さらなるフォローアップ2: backendが返すlabelは「論理名 - 物理名」形式
 // （MaterialSpec.value_label、例: "住宅街の道路 - residential"）。
+// 分布プレビューの2フック（useAxisValueDistribution/useMaterialDistribution）は
+// マウント直後にフェッチする。モックしないとテストが実HTTPを発火する
+// （このファイル冒頭が掲げる「実HTTPは呼ばない」方針どおり、ここで塞ぐ）。
+vi.mock("@/services/axisPreviewApi", () => ({
+  fetchAxisValueDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  fetchMaterialDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+}));
+
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   getMaterialValues: vi.fn(async (materialId: string) => {

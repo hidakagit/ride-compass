@@ -202,5 +202,26 @@ def test_derive_weather_code(precipitation, cloud_cover, temperature, expected):
     assert derive_weather_code(precipitation, cloud_cover, temperature) == expected
 
 
+def test_derive_weather_code_only_returns_the_documented_codes():
+    """docstringが宣言する10値以外を返さないことを、値域を広く掃いて確かめる。
+
+    frontendの`weatherCode.ts`はこの10値を前提に対訳表を持ち、未知コードは
+    「くもり」へ倒す（雨や雪が黙ってくもりになる）。導出ロジックを変えて新しいコードが
+    返るようになったら、frontend側の表も同時に更新する必要がある。
+    """
+    documented = {0, 1, 2, 3, 61, 63, 65, 71, 73, 75}
+
+    seen = set()
+    for precipitation in [None, 0.0, 0.05, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0]:
+        for cloud_cover in [None, 0.0, 5.0, 20.0, 30.0, 60.0, 70.0, 84.9, 85.0, 100.0]:
+            for temperature in [None, -20.0, -5.0, -1.0, 0.0, 0.5, 5.0, 20.0, 40.0]:
+                seen.add(derive_weather_code(precipitation, cloud_cover, temperature))
+
+    assert seen - {None} <= documented
+    # 掃いた入力で全10値が実際に出ることも見る（片方だけの包含では、返す値が減っても
+    # 気づけない——frontendに使われない対訳表の行が残る）。
+    assert documented <= seen
+
+
 def test_derive_weather_code_returns_none_without_cloud_cover():
     assert derive_weather_code(0.0, None, 20.0) is None

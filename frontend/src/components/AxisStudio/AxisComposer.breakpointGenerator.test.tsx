@@ -9,6 +9,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import AxisComposer from "./AxisComposer";
 
+// 分布プレビューの2フック（useAxisValueDistribution/useMaterialDistribution）は
+// マウント直後にフェッチする。モックしないとテストが実HTTPを発火する
+// （このファイル冒頭が掲げる「実HTTPは呼ばない」方針どおり、ここで塞ぐ）。
+vi.mock("@/services/axisPreviewApi", () => ({
+  fetchAxisValueDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  fetchMaterialDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+}));
+
 vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialCatalog: vi.fn().mockResolvedValue({
     materials: [
