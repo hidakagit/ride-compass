@@ -30,7 +30,7 @@ export interface UseLocationResult {
 // マウント時取得（最大8秒かかりうる）とボタンからの取得は非同期に並走しうるため、後から
 // 発行したリクエストの結果を、先に発行したが遅れて返ってきたリクエストの結果が上書きして
 // しまわないよう、リクエストごとに連番を振り「一番最後に発行したリクエストの結果か」を
-// 確認してから反映する（useWeatherConditions.tsのfetchWeatherForで使っているのと同じ手法）。
+// 確認してから反映する（useWeatherConditions.tsのuseLocationFetchで使っているのと同じ手法）。
 export function useLocation(): UseLocationResult {
   const [location, setLocation] = useState<Coordinates>(DEFAULT_LOCATION);
   const [locationSource, setLocationSource] = useState<LocationSource>("default");
@@ -46,7 +46,7 @@ export function useLocation(): UseLocationResult {
   useEffect(() => {
     if (!navigator.geolocation) {
       // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
-      // （react-hooks/set-state-in-effect対策、useWeatherConditions.tsのfetchWeatherForと同じ流儀）。
+      // （react-hooks/set-state-in-effect対策、useWeatherConditions.tsのuseLocationFetchと同じ流儀）。
       Promise.resolve().then(() => setLocationReady(true));
       return;
     }

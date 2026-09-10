@@ -7,7 +7,8 @@
 import logging
 from datetime import datetime, timedelta
 
-from app.infrastructure.msm_client import JST, freshness_from_meta, warn_if_stale
+from app.domain.time_zone import JST
+from app.infrastructure.msm_client import freshness_from_meta, warn_if_stale
 
 
 def _meta(*, run_at: datetime, end_at: datetime) -> dict:

@@ -314,9 +314,9 @@ describe("MapOverlayControls", () => {
   // - 道路: category==="roadCondition"
   // - 環境: category==="terrain"||"weather"
   // - スポット: category==="trafficSafety"||"amenity"
-  // - 軸スタジオ由来のレイヤー（isAxisStudioLayer、dataNature==="composite"またはid===
-  //   "windAxis"）はどのグループにも属さず、単独チップとしても出ない（下記
-  //   「軸スタジオ由来レイヤーの撤去（改善計画T418）」参照）
+  // - 軸スタジオ由来のレイヤー（isAxisStudioLayer、レイヤー記述子のaxisStudioLayerフラグ
+  //   またはdataNature==="composite"で判定する）はどのグループにも属さず、単独チップ
+  //   としても出ない（下記「軸スタジオ由来レイヤーの撤去（改善計画T418）」参照）
   // - それ以外どれにも該当しない（category未指定、route等）は単独チップのまま
   describe("最上位グループ束ね（改善計画T406/T418）", () => {
     function groupedLayers(): OverlayLayerChip[] {

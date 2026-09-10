@@ -87,7 +87,6 @@ def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
     _build_tasks.add(task)
     task.add_done_callback(_build_tasks.discard)
 
-# road_surface・poi両タイルで共通のMVT MIMEタイプ。
 
 # タイル内容の世代。パスへ世代を含めることで、プロパティ追加前に保存された旧タイルを
 # キャッシュヒットさせない（旧世代のファイルは「変わらないデータを更新」のclear_allで

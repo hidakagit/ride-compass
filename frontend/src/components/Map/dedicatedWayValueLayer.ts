@@ -7,7 +7,7 @@
 // （種類・単位・しきい値・段階ラベル）だけから色式と凡例を組み立てる。
 //
 // 実際のfetch（services/regionApi.ts: fetchDynamicWayValues）・状態管理
-// （hooks/useDynamicWayValues.ts）・DOM/MapLibre操作（MapView.tsx: map.setFeatureState）は
+// （hooks/useDedicatedWayValues.ts）・DOM/MapLibre操作（MapView.tsx: map.setFeatureState）は
 // 別ファイルが持ち、このファイルはMapLibreインスタンスを一切知らない純粋関数のみを持つ。
 
 import { buildRangeLegendBands, type MapColorLegendBand } from "./mapColorLegend";

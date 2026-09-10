@@ -218,10 +218,9 @@ export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと同じ構成）だが、
 // 色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
-// 環境グループの勾配gridFill。矢印gridMarkと同時表示する必要が無く（gradientGridFill.tsの
-// モジュールdocstring参照）DYNAMIC_WEATHER_RENDERERS汎用機構へ乗せる制約は無いが、
-// page.tsx側の配線（useDynamicWayValues由来の別系統フック）まで作り直す統合コストが
-// 見合わないため、bespokeなensure/apply関数のまま据え置く。
+// 環境グループの勾配gridFill。値の出所がDYNAMIC_WEATHER_RENDERERS汎用機構（気象グリッド）
+// ではなくuseDedicatedWayValues（way単位の値をタイル単位で集計する、gradientGridFill.tsの
+// モジュールdocstring参照）のため、bespokeなensure/apply関数を持つ。
 const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
 // exportはテスト専用（MapView.overlayFilters.test.ts）。
 export const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
@@ -1400,7 +1399,7 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
   };
 }
 
-// useDynamicWayValues（hooks）が取得した{way_id: 値}をMapLibreのsetFeatureStateで
+// useDedicatedWayValues（hooks）が取得した{way_id: 値}をMapLibreのsetFeatureStateで
 // 地物へ差し込む。パン・ズームで
 // 表示範囲が変わり、直前に取得した一部のway_idが最新の応答に含まれなくなっても、
 // 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
@@ -1447,10 +1446,10 @@ export function shouldClearDedicatedWayValueFeatureState(
   return !Object.values(dedicatedWayValueVisibility).some(Boolean);
 }
 
-// 環境グループの勾配gridFill。風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ
-// 乗っているが（下のapplyGradientFillGeojsonのコメント参照）、勾配gridFillは独立した
-// 空間フィールドを持たないため（gradientGridFill.tsのモジュールdocstring参照）、この
-// 汎用機構には乗せずensure/apply専用関数のまま残している。
+// 環境グループの勾配gridFill。DYNAMIC_WEATHER_RENDERERS汎用機構には乗せず、ensure/apply
+// 専用関数のまま持つ——汎用機構が扱うのは道路と無関係な空間フィールド（気象グリッド）で、
+// 勾配は道路（way）ごとの属性から作るため独立したフィールドを持たない
+// （gradientGridFill.tsのモジュールdocstring参照）。
 // makeEnsureDedicatedWayValueLayer呼び出し（専用way値配信軸）と同じくファクトリ化し、
 // 軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で受け取る。
 // 表示宣言は実行時フェッチで後から変わりうるため、レイヤーが既に存在する場合も
@@ -3409,9 +3408,7 @@ export default function MapView({
   // 増える。どの軸も表示されていない間も値自体はhooks側でenabled=falseにより
   // 空のMapへ戻るため、ここでは値をそのまま反映するだけで十分（非表示レイヤーへ
   // feature-stateを設定しても表示には影響しない）。dedicatedWayValues（axisId→値の汎用Map）を
-  // 1つのループで回すため、動的材料が増えてもこのeffect自体の変更は不要。環境グループの
-  // 風penalty gridFillはDYNAMIC_WEATHER_RENDERERS汎用機構へ統合されているため、専用effectは
-  // 持たず下のDYNAMIC_WEATHER_LAYER_IDSループへ吸収されている。
+  // 1つのループで回すため、動的材料が増えてもこのeffect自体の変更は不要。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;

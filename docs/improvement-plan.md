@@ -1101,7 +1101,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 ### 第3段: P2/P3を型ごとに束ねたもの
 
 - [x] [T707](tasks/T707.md). docs乖離の一括是正（architecture.md・design-principles.md・docs/modules全15ファイル） 規模M（2026-09-10完了。対象26件のうち1件はT699で解消済み、残り25件を実施。個数を語る表現はT671方針どおり数を書かない形へ。7章の軸表は軸の一覧そのものを載せるのをやめ「算出元と背景」に絞った[DBが唯一の正本でGUIから増減するため]）
-- [ ] [T708](tasks/T708.md). 削除・改名された事実を語るコメントを一掃する 規模M（統合レビュー第6回、対象21件。useDynamicWayValuesが6箇所[うち2箇所は本範囲の新設ファイル]・撤去済みの風の面塗り/評価軸グループ/観測・推定グループ・renderMapColorToggle等）
+- [x] [T708](tasks/T708.md). 削除・改名された事実を語るコメントを一掃する 規模M（統合レビュー第6回、対象21件。useDynamicWayValuesが6箇所[うち2箇所は本範囲の新設ファイル]・撤去済みの風の面塗り/評価軸グループ/観測・推定グループ・renderMapColorToggle等）
 - [x] [T709](tasks/T709.md). コード自身が述べる契約と実装の不一致を是正する 規模M（2026-09-10完了。対象18件すべて実施。raw_value_unitへ「重みが1」条件を追加し停止密度の「回/km」表示を撤回、usePolledFetchのhasFetchedをenabled切替でリセット、hard_filters既定値を生成物由来へ、クリップボードの同期例外を捕捉、sample_way_rowsを型付きへ等）
 - [x] [T710](tasks/T710.md). テストの空白と偽陽性を是正する 規模M（2026-09-10完了。生成物とaxis_definitions_snapshot.jsonを突き合わせるテストを新設[恒真の解消]、生値の列を決める述語をhas_route_facing_raw_valueへ集約し列一致を固定、barrier/traffic_calmingの分類と意図的な除外値を固定、weather_codeの契約を両側に表として持たせ、分布プレビュー2エンドポイントのルーター層テストを新設、実HTTPを発火していた5ファイルへモック追加）
 - [x] [T711](tasks/T711.md). UI/CSSの重複と未定義トークンを是正する 規模M（2026-09-10完了。未定義トークン7種を定義または撤去し、冗長なフォールバック19箇所も一掃して「テーマトークンにフォールバックを付けない」を規約化。ダークの--color-warning-strongを8.5:1へ、自作チェックボックス2箇所を共有ui/Checkboxへ、直接importの借用CSSを解消、未参照SVG 5件を削除）

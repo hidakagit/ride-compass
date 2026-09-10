@@ -43,7 +43,7 @@ export function useAxisValueDistribution(
   useEffect(() => {
     let cancelled = false;
     // setStateの同期呼び出しを避けてマイクロタスク経由で実行する
-    // （useDynamicWayValuesと同じreact-hooks/set-state-in-effect対策）。
+    // （useDedicatedWayValuesと同じreact-hooks/set-state-in-effect対策）。
     Promise.resolve().then(async () => {
       if (cancelled) return;
       if (!enabled || !debouncedKey) {

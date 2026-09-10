@@ -18,19 +18,12 @@ import { getAxisCatalog } from "@/services/axisCatalogApi";
 import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
 import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 
-// 改善計画T418: 軸ごとの「地図で色分け」トグル（renderMapColorToggle）検証用に、
-// display.kindを呼び出し側で選べるよう拡張した（従来は全軸kind="none"固定だった）。
-// 改善計画T440: dedicatedWayValueLayerByAxisIdも同様に呼び出し側で選べるようにした
-// （専用way_id配信層を持つ軸[wind/gradient]のテストが、この軸データを直接指定できる
-// ようにするため——axis_idのハードコード比較ではなく軸データで判定する設計に合わせた）。
-function catalogResponse(
-  axisIds: string[],
-  kindByAxisId: Record<string, "none" | "ramp"> = {},
-  dedicatedWayValueLayerByAxisId: Record<string, boolean> = {},
-): AxisCatalogResponse {
+// GET /api/axis-catalogの応答を軸id一覧から組み立てるヘルパ。このパネルのテストは
+// 軸の表示宣言（display.kind・dedicated_way_value_layer）を見ないため、どちらも固定値。
+function catalogResponse(axisIds: string[]): AxisCatalogResponse {
   return {
     axes: axisIds.map((axisId) => {
-      const kind = kindByAxisId[axisId] ?? "none";
+      const kind = "none" as const;
       return {
         axis_id: axisId,
         label: `ラベル[${axisId}]`,
@@ -42,7 +35,7 @@ function catalogResponse(
         // 同様に必須（値はnull許容）となった。改善計画T318でshow_map_icon（真偽値、
         // null不可）も必須フィールドに加わった。このテストはどれも内容を検証しないため
         // kind="none"・空配列・null・trueで済ませる（kind="ramp"のtile_inputs/thresholdsは
-        // renderMapColorToggleがlayerIdの有無しか見ないため空でよい）。
+        // このテストはtile_inputs/thresholdsの内容を見ないため空でよい）。
         display: {
           kind,
           label: `ラベル[${axisId}]`,
@@ -60,7 +53,7 @@ function catalogResponse(
         shape: { kind: "breakpoint_linear", terms: [{ material: "gradient_percent", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
         display_thresholds_override: null,
         display_band_labels_override: null,
-        dedicated_way_value_layer: dedicatedWayValueLayerByAxisId[axisId] ?? false,
+        dedicated_way_value_layer: false,
         map_value_kind: "difficulty",
         map_value_unit: "",
         dynamic_way_value_needs_time: false,

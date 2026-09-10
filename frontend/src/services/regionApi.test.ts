@@ -137,7 +137,7 @@ describe("regionApi", () => {
       vi.mocked(debugLog).mockClear();
     });
 
-    it("material_id・z/x/y・bearing_degを含むURLへGETし、{way_id: 値}のJSONをそのまま返す", async () => {
+    it("axis_id・z/x/y・bearing_degを含むURLへGETし、{way_id: 値}のJSONをそのまま返す", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -158,7 +158,7 @@ describe("regionApi", () => {
       expect(result).toEqual({ values: { "1": 2.34, "2": -1.5 }, error: false });
     });
 
-    it("material_idが変わればパスも変わる（改善計画T423、材料id駆動のエンドポイント統一）", async () => {
+    it("axis_idが変わればパスも変わる（軸id駆動のエンドポイント統一）", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,

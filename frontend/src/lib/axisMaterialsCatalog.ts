@@ -6,8 +6,8 @@ import generatedMaterials from "@/types/generated/material-catalog.json";
 // 本定数は取得失敗時（オフライン・API未起動等）のフォールバック。
 //
 // **一覧は手書きせず生成物（material-catalog.json、export_openapi.pyが書き出す）から
-// 導出する**——手書きで持っていたころは、APIが落ちているときだけ選択肢が古いという
-// 気づく機会の無いドリフトが実際に発生していた（公開材料に対し1件欠落）。
+// 導出する**——手書きだと、APIが落ちているときにだけ選択肢が古いというドリフトが
+// 起き、通常経路では気づけない。
 //
 // これはbackend側`compute_edge_axis_scores`/`compute_edge_costs_bulk`が組み立てる
 // 材料辞書のキーそのものであり、backend/app/domain/registry_defaults.pyの一次属性

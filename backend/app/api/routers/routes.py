@@ -70,7 +70,7 @@ async def preview_route(
 class RoutePreferenceWeights(RootModel[dict[str, float]]):
     """Edge評価・区間難易度（絶対評価、evaluate_graph/難易度合成）の重み。
     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
-    `domain/evaluation.py: RoutePreference`と同じ。
+    `domain/route_preference.py: RoutePreference`と同じ。
 
     軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの
     改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、
@@ -82,7 +82,7 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
     def _check_axis_keys(self) -> "RoutePreferenceWeights":
         # AXIS_DEFINITIONSには内部軸（is_published=False、他の公開軸から参照される
         # 専用の推定軸）も含まれるため、一般ユーザー向けAPIの上書き対象は公開軸のみへ
-        # 絞る（domain/evaluation.py: RoutePreference._validate_and_fill_weightsと
+        # 絞る（domain/route_preference.py: RoutePreference._validate_and_fill_weightsと
         # 同じ絞り込み）。
         expected = {axis_id for axis_id, definition in AXIS_DEFINITIONS.items() if definition.is_published}
         actual = self.root.keys()
@@ -149,7 +149,7 @@ class RouteGenerateRequest(BaseModel):
     # （最悪でも距離2倍。domain/evaluation.py: compute_cost_from_axis_scores参照）。
     penalty_strength: float = Field(ge=0, default=1.0)
     # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
-    # 除外なし。domain/evaluation.py: is_edge_allowed参照）。
+    # 除外なし。domain/hard_filters.py: is_edge_allowed参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)
     # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
     # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS）。

@@ -315,7 +315,7 @@ describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: 
 // 特に無防備だった以下2点をここで追加する。実装（page.tsx）自体は変更しない。
 //   1. handleGenerate（ルート生成ボタンのハンドラ）の「0件成功」「例外による失敗」
 //      「研究モードでのスロット記録」の3分岐。
-//   2. fetchWeatherFor/fetchWarningsFor/fetchWbgtFor/fetchFloodForecastsForが持つ
+//   2. useWeatherConditions.tsのuseLocationFetch（気象・警報・暑さ指数・洪水の各fetch）が持つ
 //      「リクエストIDで古い応答を捨てる」競合対策（page.tsx冒頭のlatestXxxRequestId ref参照）。
 //
 // 上のdescribeブロックのvi.mock群はファイル全体（このファイルの静的`import Home from
@@ -402,7 +402,7 @@ function defaultUseLocationDouble() {
 // 持ち、コミット後にeffect経由で最新のsetterをモジュール変数latestLocationSetterへ記録する
 // （レンダー中の代入はReactの純粋性ルールに反するため、必ずuseEffect内で行う）。
 // テスト側はact()経由でこのsetterを呼び、location変更→依存effect再実行を発火させる
-// （これによりfetchWeatherFor等が2回目の呼び出しを行う状況を再現する）。
+// （これによりuseLocationFetchの各fetchが2回目の呼び出しを行う状況を再現する）。
 let latestLocationSetter: ((next: { latitude: number; longitude: number }) => void) | null = null;
 function useStatefulLocationDouble() {
   const [location, setLocation] = useState({ latitude: 35.0, longitude: 139.0 });
@@ -570,7 +570,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     window.localStorage.clear();
     vi.mocked(generateRoutes).mockReset();
     vi.mocked(getAxisCatalog).mockReset();
-    // このdescribeブロックのHomeマウントもfetchWeatherFor等（5並列fetch、改善計画T387
+    // このdescribeブロックのHomeマウントもuseLocationFetch経由の5並列fetch（改善計画T387
     // フォローアップでamedasが独立フェッチに加わった）を必ず1回ずつ発火させる
     // （renderFreshHomeがexposeWeatherPanel等を指定していないため未使用のレスポンスとして
     // 握りつぶされるだけだが、getCurrentWeather等は下の「並列fetchの競合対策」

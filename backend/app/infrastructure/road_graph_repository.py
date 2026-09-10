@@ -703,14 +703,7 @@ _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
     "FROM way_attribute_counts WHERE osm_way_id = :osm_way_id"
 )
 
-# 区間インスペクタ（開放度軸）。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
-# 1行取得パターン。8列全て返す（区間インスペクタが将来他クラスの割合も表示する場合に
-# 備え、行自体は1回のSELECTで済ませる）。
-# 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る抽選サンプル。
-# `TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ広い範囲から拾える
-# （行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、管理画面の応答時間に
-# 収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を「目安」として扱う
-# 前提で許容する。
+
 @dataclass(frozen=True, slots=True)
 class WayMaterialSampleRow:
     """`sample_way_rows`が返す1行（軸スタジオの分布プレビューの母集団）。
@@ -733,6 +726,11 @@ class WayMaterialSampleRow:
     is_designated: bool
 
 
+# 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る抽選サンプル。
+# `TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ広い範囲から拾える
+# （行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、管理画面の応答時間に
+# 収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を「目安」として扱う
+# 前提で許容する。
 _SAMPLE_WAY_MATERIALS_SQL = text(
     """
     SELECT
@@ -766,6 +764,8 @@ _WAY_CURVATURE_BY_OSM_WAY_ID_SQL = text(
 )
 
 
+# 区間インスペクタ（開放度軸）。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
+# 1行取得パターン。表示に使うクラス以外も含めて全列を1回のSELECTで取る。
 _WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
     "SELECT valid_pixels, water_percent, trees_percent, flooded_veg_percent, crops_percent, "
     "built_percent, bare_percent, snow_ice_percent, rangeland_percent, "

@@ -38,7 +38,7 @@ function averageOf(values: Record<string, number>): number | null {
   return numbers.reduce((sum, v) => sum + v, 0) / numbers.length;
 }
 
-/** タイルごとのway単位effective_gradient応答（useDynamicWayValues: byTile）を、タイル境界を
+/** タイルごとのway単位effective_gradient応答（useDedicatedWayValues: byTile）を、タイル境界を
  * 1セルとする正方形（実際は経緯度矩形）のFeatureCollectionへ変換する。1way以上の値を持つ
  * タイルだけをセルとして含む（値が1件も無いタイル[取込範囲外・カバレッジ内0件]はスキップし、
  * precipitationGridToCellFeatureCollectionと同じ「1点の欠損で全体を落とさない」方針）。 */

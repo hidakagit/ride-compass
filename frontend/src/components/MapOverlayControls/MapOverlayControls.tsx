@@ -174,7 +174,7 @@ const PANEL_GAP_PX = 8;
 // 画面下端からのはみ出し対策（下記toggleExpanded参照）をJS側で計算するために数値でも
 // 持つ必要がある）。
 const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot font-size 16pxベース）
-// 内訳パネルの最小幅。画面右端に近いタイル（例: 推定グループ末尾の軸）の▼/▶を押すと、
+// 内訳パネルの最小幅。画面右端に近いタイル（グループ末尾のメンバー等）の▼/▶を押すと、
 // rect.right基準のleftが既にビューポート右端に近く、この最小幅すら確保できないまま
 // panelRect.leftを
 // 使ってしまい、パネルがビューポート外へはみ出して読めなくなっていた。leftをこの分
@@ -539,12 +539,12 @@ function ChipButton({
    * "down"（▼→▲、行の直下へ通常のドキュメントフローで展開）と"right"（▶→▽回転、
    * document.bodyへポータルしてposition: fixedで行の右に浮かせる。個々のメンバータイル・
    * 単独チップ（ルート等）の凡例展開はこちら）は自身がpanelContentを描画する。
-   * "flat"（観測グループ本体、▼→▲）は、独立カード（サブフレーム）に閉じ込めず、地図の
+   * "flat"（グループ見出しチップ本体、▼→▲）は、独立カード（サブフレーム）に閉じ込めず、地図の
    * チップ列と地続きに展開する。矢印の見た目は"down"と同じだが、自身は内訳を描画しない。
    * 呼び出し元（MapOverlayControls本体）がこのボタンの直後にメンバーをchipRowの直接の
    * 子として差し込む。 */
   expandDirection?: "right" | "down" | "flat";
-  /** 観測グループ本体だけに立てる印。true のときは隣接する▶/▼の丸トグルボタン自体を
+  /** グループ見出しチップ本体だけに立てる印。true のときは隣接する▶/▼の丸トグルボタン自体を
    * 描画せず、本体ボタンのactive見た目とaria-expandedで開閉状態を表す。本体タップは
    * 元々onTapにtoggleExpandedと同じ関数を渡しているため、押下対象は変わらない
    * （挙動はそのまま、見た目と意味づけだけを変える）。単独チップ（ON/OFFと凡例展開が
@@ -756,7 +756,7 @@ export default function MapOverlayControls({
         const rect = row.getBoundingClientRect();
         const top = anchor === "down" ? rect.bottom + PANEL_GAP_PX : rect.top;
         const rawLeft = anchor === "down" ? rect.left : rect.right + PANEL_GAP_PX;
-        // 画面右端からのはみ出し対策。画面右端に近いタイル（推定グループ末尾の軸等）だと
+        // 画面右端からのはみ出し対策。画面右端に近いタイル（グループ末尾のメンバー等）だと
         // rawLeftが既にビューポート
         // 右端に近く、下のmaxWidth計算のMath.max(160, ...)フロアにより最小幅160pxが
         // 強制されてもleft自体を動かさないままだとパネルがビューポート外へはみ出して
@@ -822,11 +822,11 @@ export default function MapOverlayControls({
     pageChipRowForward();
   }, chipRowHasMore);
 
-  // 観測グループの1メンバー。推定グループの軸タイルと同じ「アイコン+略名の四角タイル+
+  // グループの1メンバー。「アイコン+略名の四角タイル+
   // 隣に付随する凡例展開ボタン」をChipButtonの再利用で表す（見た目を全要素で統一する）。
-  // 観測グループ自体は▼縦積み（ChipButtonのexpandDirection="down"）のため、メンバー
+  // グループ見出し自体は▼縦積み（ChipButtonのexpandDirection="flat"）のため、メンバー
   // 個々の凡例は▶で右へ展開する（縦に並んだ他のメンバーと重ならないよう、グループ本体と
-  // 直交する向きにする）。凡例を持つメンバーはON/OFFに関わらず常に▶が付く（推定グループの
+  // 直交する向きにする）。凡例を持つメンバーはON/OFFに関わらず常に▶が付く（単独チップの
   // 軸タイルがON/OFFに関わらず▼を出すのと揃える。legendDetailsはレイヤー定義由来の固定
   // 内容でありON/OFFで内容が変わらないため、OFF中に「オンにすると何が出るか」を先に
   // 確認できる利点もある）。
@@ -1005,7 +1005,7 @@ export default function MapOverlayControls({
   }
 
   // グループ見出しをタップしたとき（展開↔折りたたみのどちらの向きでも）、開いたままの
-  // 凡例（上のrenderGroupLegendToggle）があれば閉じる。展開後は凡例ボタン自体を描画しない
+  // 凡例（renderVisibilitySettings）があれば閉じる。展開後は凡例ボタン自体を描画しない
   // ため見た目には現れないが、開いたままのbooleanを放置すると、後で見出しを再度タップして
   // 折りたたみに戻したときに、ユーザーがⓘを押していないのに凡例が開いたまま再出現して
   // しまう（stateがexpandedIdsに残り続けるため）。見出しタップのたびに明示的に閉じることで
@@ -1060,8 +1060,8 @@ export default function MapOverlayControls({
                 Icon={RepresentativeIcon}
                 label={label}
                 chipLabel={chipLabel}
-                // 評価軸グループと同じ理由（上のコメント参照）でactiveは無視され、見出しの
-                // active見た目は展開状態(isExpanded)から決まる。
+                // 見出しチップは地図への反映を持たない（メンバーのON/OFFはそれぞれのタイルが
+                // 決める）ため、activeは常にfalse。見た目のactiveは展開状態(isExpanded)が決める。
                 active={false}
                 title={`${label}[${group.members.length}件をタップで一覧]`}
                 onTap={() => {
@@ -1081,10 +1081,11 @@ export default function MapOverlayControls({
                 }}
               />
             );
-            // 評価軸グループと同じ理由（上のコメント参照）で、折りたたみ中だけ見出しの脇に
-            // 「アイコンの意味」凡例の入口を出し、展開後は消す。ラッパーdivのkeyは折りたたみ/
-            // 展開のどちらでも同じ値に固定し、headerのDOMノードを保つ（評価軸グループと
-            // 同じ理由）。展開時は元どおりメンバーを縦積みするため.observedExpandedColumn
+            // 折りたたみ中だけ見出しの脇に「表示する項目を選ぶ」の入口を出し、展開後は消す
+            // （展開すればメンバーが見えるため、同じ内容の入口を二重に置かない）。ラッパーdivの
+            // keyは折りたたみ/展開のどちらでも同じ値に固定し、headerのDOMノードを保つ——
+            // keyが変わるとChipButtonが作り直され、開閉のたびにフォーカスが外れる。
+            // 展開時はメンバーを縦積みするため.observedExpandedColumn
             // （chipRowと同じcolumn flex）、折りたたみ時は見出し+凡例トグルの横並びのため
             // .headerLegendRowを使う。
             return [

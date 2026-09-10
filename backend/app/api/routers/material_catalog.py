@@ -29,7 +29,7 @@ highway/surface/smoothnessのようなOSMタグの生値でオープンエンド
 `GET /api/admin/material-catalog/coverage`（Basic認証必須）は、材料ごとの欠損割合
 （元データ[タグ・派生テーブル行]が無いWay/Edgeの割合）を全材料ぶん返す管理画面向けの
 集計API（`services/material_coverage_service.py`・`infrastructure/material_coverage.py`）。
-上の2エンドポイントと異なり認可を要求する理由は`get_material_coverage`のdocstring参照。
+認可を要求する理由は`get_material_coverage`のdocstring参照。
 """
 
 from dataclasses import asdict
@@ -209,7 +209,7 @@ async def get_material_coverage(
 ) -> MaterialCoverageResponse:
     """全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。
 
-    同じ材料カタログの読み取りAPIでも、上の2エンドポイントと異なりBasic認証を要求する:
+    読み取り専用のAPIだがBasic認証を要求する:
     osm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると
     繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
     DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。

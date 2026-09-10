@@ -155,9 +155,8 @@ export async function fetchDynamicWayValues(
   const url = `${API_BASE_URL}${DYNAMIC_WAY_VALUES_PATH}/${axisId}/${z}/${x}/${y}?${params.toString()}`;
   const logCategory = `api:${axisId}-way-values`;
   try {
-    // 例外を投げない契約のためcatchで受けるが、fetch〜ok確認までは共通骨格を通す
-    // （x-request-idのログ記録もこれで揃う——独自実装だった頃はここだけrequestIdを
-    // 残さず、失敗時にサーバーログと突き合わせできなかった）。
+    // 例外を投げない契約のためcatchで受けるが、fetch〜ok確認までは共通骨格（requestOk）を
+    // 通す——x-request-idの記録もこれで揃い、失敗時にサーバーログと突き合わせられる。
     const { response, durationMs, requestId } = await requestOk(url, {
       timeoutMs: DEFAULT_API_TIMEOUT_MS,
       category: logCategory,
