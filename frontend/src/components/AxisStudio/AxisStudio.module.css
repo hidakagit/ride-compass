@@ -41,9 +41,9 @@
 }
 
 .tabTrigger[data-state="active"] {
-  color: var(--color-accent, #2563eb);
+  color: var(--color-accent);
   background: var(--color-accent-bg);
-  border-bottom-color: var(--color-accent, #2563eb);
+  border-bottom-color: var(--color-accent);
 }
 
 .list {
@@ -106,8 +106,8 @@
    取り消せない操作（削除）だけ枠線・文字色を--color-dangerにして他の2ボタンと区別する。
    背景は塗りつぶさない（一覧の並び操作で毎回目に入るため、常時警告色で塗ると煩わしい）。 */
 .deleteButton {
-  border-color: var(--color-danger, #dc2626);
-  color: var(--color-danger, #dc2626);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .deleteButton:disabled {
@@ -151,7 +151,7 @@
 .field input,
 .field select {
   font-size: var(--font-size-md);
-  color: var(--foreground, inherit);
+  color: var(--foreground);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
@@ -236,6 +236,13 @@
   cursor: default;
 }
 
+/* .termRow（flex-wrap: wrap）の中で、実データの分位表示に1行を丸ごと使わせる。
+   操作要素（select・スライダー・チェックボックス・削除）と同じ行に混ぜると、狭幅で
+   不規則に折り返して読めなくなる。 */
+.termRowHint {
+  flex-basis: 100%;
+}
+
 .inlineCheckbox {
   display: inline-flex;
   align-items: center;
@@ -271,7 +278,7 @@
 }
 
 .errorText {
-  color: var(--color-danger, #c0392b);
+  color: var(--color-danger);
   font-size: var(--font-size-sm);
 }
 
@@ -300,7 +307,7 @@
 }
 
 .shapeKindOptionSelected {
-  border-color: var(--color-accent, #2563eb);
+  border-color: var(--color-accent);
   background: var(--color-surface-2);
 }
 
@@ -368,22 +375,22 @@
 
 .curveLine {
   fill: none;
-  stroke: var(--color-accent, #2563eb);
+  stroke: var(--color-accent);
   stroke-width: 2;
 }
 
 .curvePoint {
-  fill: var(--color-accent, #2563eb);
+  fill: var(--color-accent);
   cursor: grab;
 }
 
 .curvePoint:focus-visible {
-  outline: 2px solid var(--color-accent, #2563eb);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
 .curveGridline {
-  stroke: var(--color-border, #e2e8f0);
+  stroke: var(--color-border);
   stroke-width: 1;
   stroke-dasharray: 2 2;
 }
@@ -431,7 +438,7 @@
 }
 
 .breakpointReferenceButton:hover {
-  border-color: var(--color-accent, #2563eb);
+  border-color: var(--color-accent);
   color: var(--foreground);
 }
 

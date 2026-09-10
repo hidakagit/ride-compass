@@ -1171,10 +1171,6 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     ))}
                   </select>
                   <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
-                  <MaterialRangeHint
-                    materialId={term.material}
-                    unit={termOptions.find((m) => m.id === term.material)?.unit}
-                  />
                   {/* 典型的な係数の範囲（±10）に絞り、範囲外の値は数値欄から直接入力する想定にした。 */}
                   <SliderNumberField
                     label="係数"
@@ -1199,6 +1195,13 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                   >
                     削除
                   </button>
+                  {/* 実データの分位は行の末尾で1行を占有させる（.termRowHintがflex-basis:100%）。
+                      操作要素の間へ挟むと、狭幅の折り返しで説明文とスライダーが混ざる。 */}
+                  <MaterialRangeHint
+                    className={styles.termRowHint}
+                    materialId={term.material}
+                    unit={termOptions.find((m) => m.id === term.material)?.unit}
+                  />
                 </div>
               );
             })}

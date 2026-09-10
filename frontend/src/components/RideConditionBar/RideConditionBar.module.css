@@ -25,7 +25,7 @@
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--foreground);
-  box-shadow: var(--shadow-md, 0 6px 20px rgba(0, 0, 0, 0.2));
+  box-shadow: var(--shadow-float);
 }
 
 /* 出発時刻のポップオーバー用。中身のDynamicLayerTimeSlider自身が枠・背景・影を持つ

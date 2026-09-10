@@ -380,7 +380,7 @@ export function SunIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 天気アイコン（天候ヘッダ）: 夜間の快晴。三日月 */
+/** 天気アイコン（天候ヘッダ）: 夜間の晴れ。三日月 */
 export function MoonIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

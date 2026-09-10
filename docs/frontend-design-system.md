@@ -31,7 +31,7 @@
 | spacing | `--space-1〜4`（0.25/0.5/0.75/1rem）はTailwind既定のスペーシングスケールと数値一致（T251調査）。`@theme`への追加登録は不要、`gap-2`等がそのまま既存トークンと揃う |
 | radius | `--radius-sm/md/lg`（6px/10px/16px）を`globals.css`の`@theme`へ追加登録済み。`rounded-sm/md/lg`で使える |
 | shadow | `--shadow-float`を`@theme`へ`--shadow-float`として追加登録済み。`shadow-float`で使える |
-| font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（既存`--font-size-sm`(0.8rem)とはわずかにズレるが、両者は別ファイルに閉じており実害なし） |
+| font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（既存の`--font-size-xs`/`sm`/`md`とはわずかにズレるが、両者は別ファイルに閉じており実害なし）。`*.module.css`側は素の`rem`ではなくこの3段のトークンを使う |
 | **color** | **`@theme`へ統合しない。** ダークモードが`globals.css`の`@media (prefers-color-scheme: dark)`内`:root`再定義に依存しており、`@theme`に入れると値が静的に固定されダークモード追従が壊れるため（T252の判断を踏襲）。`components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** |
 
 ### 重なり順（z-index）
@@ -67,6 +67,13 @@
 `scripts/review_checks.py`の「未定義のCSSトークン」チェックが、`globals.css`にも同一ファイル
 内にも定義の無い`var(--x)`参照（フォールバック無し）をpre-commitでブロックする
 （[T675](tasks/T675.md)）。
+
+**テーマトークンにフォールバック（`var(--x, 既定値)`）を付けないこと。** 上のチェックは
+フォールバック付きの参照を「意図的な既定値」とみなして見逃すため、未定義のまま複数箇所へ
+広がる（同じトークン名なのに参照ごとに実効値が違う、という状態になる）。フォールバックを
+使ってよいのは、呼び出し側がインラインstyleで実行時に注入する変数
+（`--width-swatch-color`・`--bottom-control-row-height`等、定義がCSSに無いのが正しいもの）
+だけ。
 
 `@theme`ブロックの値は`globals.css`の`:root`内`--radius-*`/`--shadow-float`定義と意図的に
 重複させている（`:root`側はunlayeredで既存CSS Modulesが依存しており、動かすことによる

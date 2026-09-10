@@ -116,7 +116,7 @@
 .groupLabel {
   margin-top: 0.4rem;
   padding: 0.15rem 0;
-  font-size: var(--font-size-xs, 0.72rem);
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   letter-spacing: 0.04em;
 }
@@ -140,12 +140,12 @@
 }
 
 .optionButton[data-checked="true"] {
-  background: var(--color-accent-soft, rgba(37, 99, 235, 0.12));
+  background: var(--color-accent-soft);
   font-weight: 600;
 }
 
 .optionButton:hover {
-  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+  background: var(--color-surface-hover);
 }
 
 .optionLabel {
@@ -153,12 +153,7 @@
 }
 
 .badge {
-  font-size: 0.68rem;
-  padding: 0 0.35rem;
-  border-radius: 3px;
-  background: var(--color-warning-soft, rgba(217, 119, 6, 0.15));
-  color: var(--color-warning-strong, #b45309);
-  white-space: nowrap;
+  composes: unusedBadge from "../ui/unusedBadge.module.css";
 }
 
 .keepRow {

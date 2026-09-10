@@ -40,9 +40,9 @@
 }
 
 .tabTrigger[data-state="active"] {
-  color: var(--color-accent, #2563eb);
+  color: var(--color-accent);
   background: var(--color-accent-bg);
-  border-bottom-color: var(--color-accent, #2563eb);
+  border-bottom-color: var(--color-accent);
 }
 
 .tabPanel {

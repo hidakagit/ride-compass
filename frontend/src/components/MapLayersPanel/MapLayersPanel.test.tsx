@@ -127,9 +127,13 @@ describe("MapLayersPanel", () => {
     // （MapLayersPanel.tsx: layers.length === 0のグループを描画しない分岐）。
     expect(groupHeadings).toEqual(["道路", "スポット"]);
 
-    // 中分類（category）の見出しは出ない（.groupTitleはこのパネル自身はもう使わない、
-    // page.tsx側の「生成したルートの色分け」だけが同じクラスを再利用している）。
-    expect(container.querySelectorAll(`.${styles.groupTitle}`).length).toBe(0);
+    // 中分類（category）の見出しは出ない。h3はレイヤー1件ぶんの折りたたみ見出し
+    // （Disclosure）だけが使うので、レイヤーセクション数と一致するはず——中分類の見出しが
+    // 復活すればこの数が増える（旧`.groupTitle`の存在確認は、クラス自体が消えると
+    // `.undefined`を数えて常に0件になり、何も検出しなくなるため使わない）。
+    expect(container.querySelectorAll("h3").length).toBe(
+      container.querySelectorAll("[id^='map-layer-section-']").length,
+    );
 
     // 各セクションに安定したDOM id（layerSectionDomId）が振られている（openSection参照）
     expect(container.querySelector("#map-layer-section-roadType")).toBeInTheDocument();

@@ -12,6 +12,7 @@ import {
   LENS_NONE_ID,
   type LensId,
 } from "@/components/Map/routeStyleModes";
+import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import styles from "./LensControl.module.css";
 
 export interface LensOption {
@@ -153,10 +154,10 @@ export default function LensControl({
               {unused.map(renderAxis)}
             </ul>
             <label className={styles.keepRow}>
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={keepAfterRoute}
-                onChange={(event) => onKeepAfterRouteChange(event.target.checked)}
+                onCheckedChange={onKeepAfterRouteChange}
+                aria-label="ルート後も周囲の道路を薄く塗る"
               />
               ルート後も周囲の道路を薄く塗る
             </label>

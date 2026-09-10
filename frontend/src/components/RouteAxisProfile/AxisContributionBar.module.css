@@ -9,7 +9,7 @@
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px var(--space-2, 0.5rem);
+  gap: 2px var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;

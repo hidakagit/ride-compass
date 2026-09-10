@@ -963,19 +963,11 @@ export default function MapOverlayControls({
                   const isInfoOpen = openInfoKeys.has(infoKey);
                   const row = (
                     <li key={item.key} className={styles.detailRow}>
-                      <button
-                        type="button"
-                        onClick={() => toggleHidden(hiddenKey, item.layerId, item.on)}
-                        aria-pressed={!isHidden}
+                      <Checkbox
+                        checked={!isHidden}
+                        onCheckedChange={() => toggleHidden(hiddenKey, item.layerId, item.on)}
                         aria-label={`${item.label}を${isHidden ? "表示する" : "表示しない"}`}
-                        className={
-                          isHidden
-                            ? styles.visibilityCheckbox
-                            : `${styles.visibilityCheckbox} ${styles.visibilityCheckboxChecked}`
-                        }
-                      >
-                        {isHidden ? "" : "✓"}
-                      </button>
+                      />
                       <item.Icon size={16} />
                       <span className={styles.detailRowLabel}>{item.label}</span>
                       {item.description && (

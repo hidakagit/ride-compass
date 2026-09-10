@@ -54,8 +54,11 @@ const CATEGORY_BY_CODE: Record<number, WeatherCodeCategory> = {
   99: "thunderstorm",
 };
 
+// ラベルはamedasWeatherIcon.tsのCATEGORY_LABELと同じ語彙にそろえる——ヘッダー（アメダス
+// 実測）と真下の「今日の見通し」（MSM予報）が、同じSunIconに対して別の呼び方をすると
+// 「別のことを言っている」と読める。
 const CATEGORY_LABEL: Record<WeatherCodeCategory, string> = {
-  clear: "快晴",
+  clear: "晴れ",
   cloudy: "くもり",
   fog: "霧",
   rain: "雨",
@@ -63,7 +66,7 @@ const CATEGORY_LABEL: Record<WeatherCodeCategory, string> = {
   thunderstorm: "雷雨",
 };
 
-// 「快晴」以外は昼夜で見た目を変えない（くもり・雨・雪・霧・雷雨は昼夜どちらでも同じ
+// 「晴れ」以外は昼夜で見た目を変えない（くもり・雨・雪・霧・雷雨は昼夜どちらでも同じ
 // アイコンで十分伝わり、6カテゴリ×2でアイコン数を倍にするほどの価値が無いため）。
 const ICON_BY_CATEGORY: Record<Exclude<WeatherCodeCategory, "clear">, (props: { size?: number }) => ReactElement> = {
   cloudy: CloudIcon,
@@ -81,7 +84,7 @@ export interface WeatherCodeDisplay {
 /** weather_code・is_dayから天気アイコン+ラベルを決める。weather_codeが無い（null）場合は
  * 何も表示すべきでないためnullを返す（呼び出し元はチップ自体を出さない）。
  *
- * `isDay`は「快晴」の昼夜アイコン切替にだけ効く。現在の唯一の呼び出し元（TodayOutlook）は
+ * `isDay`は「晴れ」の昼夜アイコン切替にだけ効く。現在の唯一の呼び出し元（TodayOutlook）は
  * コマ単位のis_dayを持たないため1固定で渡しており、夜側（MoonIcon）へは到達しない
  * （コマ単位のis_dayが取れるようになったときに繋ぐ口として残す、TodayOutlook.tsx参照）。 */
 export function getWeatherCodeDisplay(weatherCode: number | null, isDay: number | null): WeatherCodeDisplay | null {

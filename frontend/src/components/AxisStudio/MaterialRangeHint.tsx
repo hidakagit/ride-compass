@@ -9,7 +9,16 @@ import styles from "./DistributionPreview.module.css";
 /** 表示する分位。中央値と上側だけを出す（下側は0に張り付く材料が多く情報量が無い）。 */
 const SHOWN = ["p50", "p75", "p90"] as const;
 
-export function MaterialRangeHint({ materialId, unit }: { materialId: string; unit?: string }) {
+export function MaterialRangeHint({
+  materialId,
+  unit,
+  className,
+}: {
+  materialId: string;
+  unit?: string;
+  /** 置き場所（行内での回り込み等）は呼び出し側が足す。この部品は中身だけを持つ。 */
+  className?: string;
+}) {
   const { distribution } = useMaterialDistribution(materialId);
   if (!distribution?.available) return null;
   const parts = SHOWN.filter((q) => distribution.quantiles[q] !== undefined).map(
@@ -17,7 +26,7 @@ export function MaterialRangeHint({ materialId, unit }: { materialId: string; un
   );
   if (parts.length === 0) return null;
   return (
-    <p className={styles.quantiles}>
+    <p className={className ? `${styles.quantiles} ${className}` : styles.quantiles}>
       実データ: {parts.join("  ")}
       {unit ? ` (${unit})` : ""}
       {distribution.zero_share > 0 ? `  ゼロ${Math.round(distribution.zero_share * 100)}%` : ""}

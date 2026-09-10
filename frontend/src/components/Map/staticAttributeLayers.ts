@@ -62,6 +62,7 @@ import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 const COLOR_NEUTRAL_INDIGO = "#4f46e5";
 const COLOR_NEUTRAL_STONE = "#78716c";
 const COLOR_NEUTRAL_PINK = "#be185d";
+const COLOR_NEUTRAL_SLATE = "#475569";
 
 export interface CategoryDef {
   key: string;
@@ -295,7 +296,7 @@ const STOP_POI_CATEGORIES: CategoryDef[] = [
   { key: "stop", label: "一時停止", color: COLOR_NEUTRAL_STONE },
   { key: "give_way", label: "徐行", color: COLOR_NEUTRAL_PINK },
   { key: "level_crossing", label: "踏切", color: "#7c3aed", aliasKeys: ["railway_crossing"] },
-  { key: "barrier", label: "車止め・ゲート", color: "#ea580c" },
+  { key: "barrier", label: "車止め・ゲート", color: COLOR_NEUTRAL_SLATE },
   { key: "traffic_calming", label: "ハンプ・狭さく", color: "#0d9488" },
 ];
 

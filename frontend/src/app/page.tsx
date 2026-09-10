@@ -55,11 +55,6 @@ import {
   isRouteStyleModeId,
   type LensId,
 } from "@/components/Map/routeStyleModes";
-// 「ルート設定」見出し（renderRouteSectionBody）の見た目に、MapLayersPanel側の既存
-// スタイルをそのまま再利用する（CSS Modulesはクラス名の対訳表を返すだけのため、別
-// コンポーネントからのimportでも問題なく使える。同じ見た目のUIをここだけのために複製
-// しない）。
-import layerPanelStyles from "@/components/MapLayersPanel/MapLayersPanel.module.css";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type DestinationButtonState, type RouteMode } from "@/components/RouteForm/RouteForm";
 import { useRouteFormSubmit } from "@/components/RouteForm/useRouteFormSubmit";
@@ -1522,7 +1517,7 @@ export default function Home() {
   // からのみ呼ばれ、見出しは持たない（呼び出し元コンテナが持つ、上記コメント参照）。
   function renderRouteSettingsSectionBody() {
     return (
-      <div className={layerPanelStyles.group}>
+      <div className={styles.settingsGroup}>
         <RouteSettingsPanel
           hardFilters={hardFilters}
           onHardFiltersChange={setHardFilters}

@@ -506,3 +506,12 @@
   font-weight: 700;
   background: var(--color-accent-bg);
 }
+
+/* サイドバーの「ルート設定」区分（renderRouteSettingsSectionBody）。同じ区分が続くときだけ
+   区切り線を引く。以前は貸し手側のクラスを直接importして借りていたが、
+   docs/frontend-design-system.md「別コンポーネントの*.module.cssを直接importして借りない」
+   のとおり、使う側が自分で持つ。 */
+.settingsGroup + .settingsGroup {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-1);
+}

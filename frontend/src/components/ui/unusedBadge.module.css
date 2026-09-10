@@ -1,0 +1,16 @@
+/*
+ * 「未使用」バッジ。この候補を評価した重みが0だった軸に添える小さなラベル。
+ *
+ * ルート結果の軸別内訳（RouteAxisProfile）と、地図の色分け選択（LensControl）の両方が
+ * 同じ意味で出す——別々に書くと、片方だけ字送りや余白を変えたときに「同じ意味の
+ * ラベルなのに見た目が違う」状態になる。
+ */
+
+.unusedBadge {
+  font-size: var(--font-size-xs);
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: var(--color-warning-soft);
+  color: var(--color-warning-strong);
+  white-space: nowrap;
+}

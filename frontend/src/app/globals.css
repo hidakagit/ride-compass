@@ -31,11 +31,19 @@
   /* 共通デザイントークン。各コンポーネントの*.module.cssから参照する。 */
   --color-surface: #ffffff;
   --color-danger: #dc2626;
+  /* 危険の面（エラー行の下敷き）。--color-dangerの薄い版。 */
+  --color-danger-muted: #fee2e2;
   --color-success: #16a34a;
   --color-warning: #f59e0b;
   --color-warning-strong: #b45309;
+  /* 警告の面（バッジ・注意書きの下敷き）。--color-warningの薄い版。 */
+  --color-warning-soft: rgba(217, 119, 6, 0.15);
   --color-accent: #2563eb;
   --color-accent-bg: #eff6ff;
+  /* 選択中の行の面（不透明な--color-accent-bgと違い、下の面へ重ねて使う）。 */
+  --color-accent-soft: rgba(37, 99, 235, 0.12);
+  /* ホバー中の面。地の色に依存せず「少し沈む」を表す。 */
+  --color-surface-hover: rgba(0, 0, 0, 0.05);
   --color-muted: #666666;
   --color-muted-strong: #888888;
   --color-border: #e5e7eb;
@@ -91,6 +99,7 @@
   --space-3: 0.75rem;
   --space-4: 1rem;
 
+  --font-size-xs: 0.75rem;
   --font-size-sm: 0.8rem;
   --font-size-md: 0.85rem;
 
@@ -152,6 +161,14 @@
     --color-accent-bg: #16233d;
     --color-muted: #a1a1a6;
     --color-muted-strong: #c7c7cc;
+    /* ライトの#b45309は暗いサーフェス（--color-surface）上で約2.85:1しか出ず、
+     * 0.65rem級の小さい文字ではWCAG AAの4.5:1に届かない。明るい側へ振って8.5:1にする。 */
+    --color-warning-strong: #fbbf24;
+    --color-warning-soft: rgba(251, 191, 36, 0.18);
+    --color-accent-soft: rgba(96, 165, 250, 0.18);
+    --color-danger-muted: #4a1d1d;
+    /* 暗い面の上では「沈む」ではなく「浮く」方向でホバーを表す。 */
+    --color-surface-hover: rgba(255, 255, 255, 0.07);
     --color-border: #3a3a3d;
     --color-border-strong: #505054;
     --color-border-muted: #38383b;
@@ -191,6 +208,7 @@
     --space-3: 0.55rem;
     --space-4: 0.75rem;
 
+    --font-size-xs: 0.7rem;
     --font-size-sm: 0.75rem;
     --font-size-md: 0.8rem;
   }

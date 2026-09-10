@@ -492,7 +492,7 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      await user.click(screen.getByRole("button", { name: "指定路線を表示しない" }));
+      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示しない" }));
       await user.click(screen.getByRole("button", { name: "道路" }));
       expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "道路の種類" })).toBeInTheDocument(); // 他は影響なし
@@ -504,7 +504,7 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} onToggle={onToggle} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      await user.click(screen.getByRole("button", { name: "指定路線を表示しない" }));
+      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示しない" }));
       expect(onToggle).toHaveBeenCalledWith("designation", false);
     });
 
@@ -514,10 +514,10 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} onToggle={onToggle} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      await user.click(screen.getByRole("button", { name: "指定路線を表示しない" }));
+      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示しない" }));
       onToggle.mockClear();
 
-      await user.click(screen.getByRole("button", { name: "指定路線を表示する" }));
+      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示する" }));
       expect(onToggle).not.toHaveBeenCalled();
     });
 
@@ -579,7 +579,7 @@ describe("MapOverlayControls", () => {
       const { unmount } = render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      await user.click(screen.getByRole("button", { name: "道路の種類を表示しない" }));
+      await user.click(screen.getByRole("checkbox", { name: "道路の種類を表示しない" }));
       await user.click(screen.getByRole("button", { name: "道路" }));
       expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "true");
       expect(screen.queryByRole("button", { name: "道路の種類" })).not.toBeInTheDocument();

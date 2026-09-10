@@ -487,54 +487,14 @@
   font-size: var(--font-size-sm);
 }
 
-/* 表示する項目を選ぶ設定パネル（改善計画T181、renderVisibilitySettings）のチェックボックス。
-   MapOverlayControls全体がネイティブフォームコントロール（input type="checkbox"等）を
-   使わずbutton+aria-pressedで統一している（ChipButton参照）ため、ここも同じ考え方で
-   自作のチェックボックス風ボタンにする。 */
-.visibilityCheckbox {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
-  flex-shrink: 0;
-  padding: 0;
-  border-radius: 0.25rem;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: transparent;
-  font-size: 0.7rem;
-  line-height: 1;
-  cursor: pointer;
-  touch-action: none;
-  pointer-events: auto;
-}
-
-.visibilityCheckboxChecked {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #ffffff;
-}
-
 /* 改善計画T334: 「表示する項目を選ぶ」設定パネルの各行、右端に置く個別の情報アイコン。
    .expandToggle（グループ見出し脇の情報アイコン、1.6rem）より小さく、.visibilityCheckbox
    （1.1rem）と近いサイズにして行の中で主張しすぎないようにする。.detailRowLabelが
    flex:1のため、後続要素であるこのボタンは自然と行の右端に押し出される。 */
 .visibilityInfoButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  composes: roundIconButton from "../ui/roundIconButton.module.css";
   width: 1.2rem;
   height: 1.2rem;
-  flex-shrink: 0;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--color-neutral);
-  cursor: pointer;
-  touch-action: none;
-  pointer-events: auto;
 }
 
 .visibilityInfoButtonActive {

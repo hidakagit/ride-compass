@@ -36,7 +36,7 @@ function formatPrecipitation(mm: number): string {
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
   // today_periodsは昼夜どちらのコマも含みうる（現在時刻を含む区間から2時間毎）が、
   // is_dayをコマ単位では取得していないため、
-  // isDayは便宜的に常に1固定で渡す（「快晴」カテゴリの昼夜アイコン切替のみに影響し、
+  // isDayは便宜的に常に1固定で渡す（「晴れ」カテゴリの昼夜アイコン切替のみに影響し、
   // 実害は小さいと判断。weather_code自体の判定ロジックはweatherCode.ts参照）。
   const display = getWeatherCodeDisplay(period.weather_code, 1);
   return (
