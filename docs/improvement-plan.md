@@ -1078,7 +1078,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 ### 第0段: 安全網の回復（他のすべてに先行する）
 
 - [ ] [T693](tasks/T693.md). CIの生成物ドリフト検知を回復し、静的軸カタログを再生成する 規模M（統合レビュー第6回 I-1(a)＋I-3、**最優先**。`working-directory: backend`の継承でpathspecがマッチせず常にexit 0だった。**実施順序が固定**——export_openapiへdescription/raw_value_unit追加→PREFERENCE_AXIS_DESCRIPTIONS撤去→再生成→CI修正→意図的に壊して落ちることを確認）
-- [ ] [T694](tasks/T694.md). masterのCIを緑に戻す（蛇行の一次属性がフロントの対応表に無い） 規模S（統合レビュー第6回 I-1(b)、**最優先**。run 855〜859が5回連続failure。T691がcurvatureを追加した際のprimaryAttributes.tsへの登録漏れで、ドリフト検知テストは設計どおり鳴っている）
+- [x] [T694](tasks/T694.md). masterのCIを緑に戻す（蛇行の一次属性がフロントの対応表に無い） 規模S（統合レビュー第6回 I-1(b)、最優先。2026-09-10完了。curvatureをPRIMARY_ATTRIBUTES_WITHOUT_LAYERと略名表へ登録。5回連続failureだったfrontendジョブが1,144 passedへ。略名表そのものの撤去はT695）
 - [ ] [T695](tasks/T695.md). 一次属性の手書き対応表を整理する（略名表は本番の消費者ゼロ） 規模S（統合レビュー第6回、T694の後。PRIMARY_ATTRIBUTE_CHIP_LABELSは参照が自身のテストとコメントのみ＝削除。LAYER_IDS/WITHOUT_LAYERは値域がフロント固有のため維持）
 
 ### 第1段: 利用者に届いている誤り
