@@ -48,33 +48,35 @@ export interface PreferenceAxisDef {
   rawValueUnit?: string | null;
 }
 
-// axis_idごとの説明文（1〜2文の要約）。ラベル自体は下記PREFERENCE_AXESが
-// SECONDARY_AXES（地図と共有する軸カタログ）から導出するため、ここには持たない。
-const PREFERENCE_AXIS_DESCRIPTIONS: Record<string, string> = {
-  gradient: "登り坂の急さが小さいほど易しい",
-  surface_q: "舗装路であるほど易しい",
-  wind: "向かい風が弱いほど易しい",
-  stop_density: "信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
-  car_stress:
-    "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数・自転車インフラの指標で、信号や交差点の頻度は含まない(別軸)",
-  accident: "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
-  night: "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
-  bicycle_infra_quality: "専用の自転車インフラ（分離自転車道・自転車レーン等）が整備されているほど易しい",
-  openness: "建物・樹木などの遮蔽物が多い(開けていない)ほど易しい。既定重み0(風の強い日に個別に上げる想定)",
-};
 
-// 区間難易度の重み（2次要素）。SECONDARY_AXES（secondaryAxes.ts、地図チップ・
-// 地図の見え方パネルの推定グループが共有する単一ソース）をそのままなぞって並び順・
-// ラベルを導出することで、「この重みは地図のどの軸に対応するか」が名前と並びだけで
-// 分かるようにする（片側import、新しい軸が増えてもこのファイルの変更は不要）。windは
-// 対応する軸がSECONDARY_AXESに無いため（表示カタログ未登録、動的データ由来でレイヤーを
-// 持たない）末尾へ別途追加する。
+// 重み一覧は公開軸すべてを対象にする。並び順・ラベルはSECONDARY_AXES（secondaryAxes.ts、
+// 地図チップ・地図の見え方パネルの推定グループが共有する単一ソース）をそのままなぞり、
+// 「この重みは地図のどの軸に対応するか」が名前と並びだけで分かるようにする（片側import）。
+//
+// SECONDARY_AXESは地図チップに出す軸だけへ絞り込まれている（category="動的"・
+// show_map_icon=false の軸が落ちる）。**地図チップに出すかどうかと、重みを設定できるか
+// どうかは別の判断**のため、落ちた公開軸はカタログの並び順のまま後ろへ足す——前者の都合で
+// 後者を落とすと、軸スタジオで地図アイコンをOFFにした軸が重み一覧からも消える。
+type CatalogAxisEntry = (typeof axisCatalog.axes)[number];
+
+function preferenceAxisFromCatalog(axis: CatalogAxisEntry): PreferenceAxisDef {
+  return {
+    axisId: axis.axis_id,
+    label: axis.label,
+    description: axis.description ?? "",
+    dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
+    mapValueKind: axis.map_value_kind as MapValueKind | undefined,
+    mapValueUnit: axis.map_value_unit,
+    rawValueUnit: axis.raw_value_unit ?? null,
+  };
+}
+
 export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
   ...SECONDARY_AXES.map(
     (axis): PreferenceAxisDef => ({
       axisId: axis.axisId,
       label: axis.label,
-      description: PREFERENCE_AXIS_DESCRIPTIONS[axis.axisId] ?? "",
+      description: axis.description,
       // SECONDARY_AXESはkind='ramp'軸に限らない——gradientはkind="none"（材料がタイル
       // 非依存）でありながらdedicated_way_value_layer=trueという組み合わせが実在するため、
       // SECONDARY_AXES側のdedicatedWayValueLayerフィールドをそのまま引き継ぐ。
@@ -86,15 +88,9 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
       rawValueUnit: axis.rawValueUnit ?? null,
     })
   ),
-  {
-    axisId: "wind",
-    label: "風",
-    description: PREFERENCE_AXIS_DESCRIPTIONS.wind,
-    dedicatedWayValueLayer: true,
-    mapValueKind: "difficulty",
-    mapValueUnit: "",
-    rawValueUnit: null,
-  },
+  ...axisCatalog.axes
+    .filter((axis) => !SECONDARY_AXES.some((secondary) => secondary.axisId === axis.axis_id))
+    .map(preferenceAxisFromCatalog),
 ];
 
 // 軸の分類（観測/推定/動的）は一般向けルート設定画面（RouteSettingsPanel）の表示では

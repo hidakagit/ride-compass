@@ -111,6 +111,12 @@ export interface CatalogAxis {
   // routeStyleModesFromCatalogAxes（routeStyleModes.ts）が公開軸のルート色分けモードの
   // ラベルとして使う。
   label: string;
+  // 軸自身の説明文（1〜2文の要約、GET /api/axis-catalogのdescriptionと同じ値）。
+  // ルート設定パネルの重み一覧が軸の説明として出す。
+  description?: string;
+  // 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
+  // 軸だけが持つ。ルート結果が得点の隣に生値を出すために使う。
+  raw_value_unit?: string | null;
   // コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的）。display.category
   // （地図レイヤーパネルのグルーピング用「terrain」「trafficSafety」等、別語彙）とは
   // 異なる概念。secondaryAxes.tsが「動的」軸（wind等、専用の動的UIを別途持つため

@@ -23,12 +23,19 @@ import {
   rampColorForBand,
 } from "./axisLayers";
 import { buildMapLayers, buildRoadSurfaceSharedLayerIds } from "./mapLayers";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 
 describe("axisLayers", () => {
-  it("カタログのkind=ramp軸（accident・stop_density）が取り込まれている", () => {
-    const ids = RAMP_AXES.map((axis) => axis.axisId);
-    expect(ids).toContain("accident");
-    expect(ids).toContain("stop_density");
+  // 軸idを名指しせずカタログと突き合わせるのは、公開軸の集合が軸スタジオ（DB）で決まり
+  // 生成物の再取り込みで変わるため（停止密度の軸idはGUI作成軸のため固定値でもない）。
+  it("カタログのkind=ramp軸がすべて取り込まれている", () => {
+    const ids = RAMP_AXES.map((axis) => axis.axisId).sort();
+    const catalogRampIds = (axisCatalog.axes as CatalogAxis[])
+      .filter((axis) => axis.display?.kind === "ramp")
+      .map((axis) => axis.axis_id)
+      .sort();
+    expect(catalogRampIds.length).toBeGreaterThan(0);
+    expect(ids).toEqual(catalogRampIds);
   });
 
   it("各ramp軸はしきい値が昇順で、tile_inputsを1つ以上持つ", () => {
@@ -40,13 +47,20 @@ describe("axisLayers", () => {
     }
   });
 
-  it("停止密度の値expressionはタグなし交差点の重み（backend正準値0.3）を反映する", () => {
-    const stopDensity = RAMP_AXES.find((axis) => axis.axisId === "stop_density")!;
-    const expression = buildAxisRampValueExpression(stopDensity);
-    // ["+", ["*", ["coalesce",["get","stop_per_km"],0], 1], ["*", ..., 0.3]]
+  it("複数入力の軸の値expressionは+で束ね、各項へカタログの重みをそのまま載せる", () => {
+    // 真偽値材料・N値文字列材料・自己変換材料は項の形が変わる（weightを使わない）ため、
+    // 素の数値材料だけで構成された軸を選ぶ。
+    const multiInput = RAMP_AXES.find(
+      (axis) =>
+        axis.tileInputs.length > 1 &&
+        axis.tileInputs.every((input) => !input.boolean && !input.categories && !input.breakpoints)
+    );
+    expect(multiInput, "数値材料のみで構成されたtile_inputs 2つ以上のramp軸がカタログに無い").toBeTruthy();
+    const expression = buildAxisRampValueExpression(multiInput!);
+    // ["+", ["*", ["coalesce",["get",<property>],0], <weight>], ...]
     expect(expression[0]).toBe("+");
     const weights = (expression.slice(1) as unknown[][]).map((term) => term[2]);
-    expect(weights).toEqual([1.0, 0.3]);
+    expect(weights).toEqual(multiInput!.tileInputs.map((input) => input.weight));
   });
 
   it("単一入力の軸（事故密度）は+で包まず単項のexpressionになる", () => {

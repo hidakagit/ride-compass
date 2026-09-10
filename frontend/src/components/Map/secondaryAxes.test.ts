@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { secondaryAxesFromCatalogAxes, SECONDARY_AXES } from "./secondaryAxes";
 import type { CatalogAxis } from "./axisLayers";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 
 describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
   it("既存軸（静的フォールバック）はchip_label/icon_idが軸自身のデータから反映される", () => {
@@ -133,8 +134,15 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       expect(axes.some((axis) => axis.axisId === "gradient")).toBe(true);
     });
 
-    it("既存軸（静的フォールバック）にはcategory=動的の軸が含まれない（windは推定指標チップグループに出ない）", () => {
-      expect(SECONDARY_AXES.some((axis) => axis.axisId === "wind")).toBe(false);
+    // 実データ側の確認。軸idを名指しせずcategoryで見るのは、どの軸が「動的」かが
+    // 軸スタジオの設定（DB）で決まり、生成物の再取り込みで変わりうるため。
+    it("既存軸（静的フォールバック）にcategory=動的の軸は含まれない", () => {
+      const dynamicAxisIds = (axisCatalog.axes as CatalogAxis[])
+        .filter((axis) => axis.category === "動的")
+        .map((axis) => axis.axis_id);
+      for (const axisId of dynamicAxisIds) {
+        expect(SECONDARY_AXES.some((axis) => axis.axisId === axisId)).toBe(false);
+      }
     });
 
     it("category=動的以外の軸はdisplay!==nullかつshow_map_icon!==falseであれば除外されない", () => {

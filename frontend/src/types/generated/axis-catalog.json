@@ -3,6 +3,7 @@
     {
       "axis_id": "gradient",
       "label": "勾配",
+      "description": "登り坂の急さが小さいほど易しい",
       "category": "観測",
       "primary_attribute_ids": [
         "elevation"
@@ -63,6 +64,7 @@
       "dedicated_way_value_layer": true,
       "map_value_kind": "signed_material",
       "map_value_unit": "%",
+      "raw_value_unit": "%",
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": true,
       "dynamic_way_value_needs_speed": false
@@ -70,9 +72,10 @@
     {
       "axis_id": "wind",
       "label": "風",
-      "category": "動的",
+      "description": "向かい風が弱いほど易しい",
+      "category": "推定",
       "primary_attribute_ids": [],
-      "icon_id": null,
+      "icon_id": "wind-flow",
       "chip_label": null,
       "panel_hint": null,
       "show_map_icon": true,
@@ -126,6 +129,7 @@
       "dedicated_way_value_layer": true,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "raw_value_unit": null,
       "dynamic_way_value_needs_time": true,
       "dynamic_way_value_needs_bearing": true,
       "dynamic_way_value_needs_speed": true
@@ -133,6 +137,7 @@
     {
       "axis_id": "surface_q",
       "label": "舗装質",
+      "description": "舗装路であるほど易しい",
       "category": "観測",
       "primary_attribute_ids": [
         "surface"
@@ -177,93 +182,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
-      "dynamic_way_value_needs_time": false,
-      "dynamic_way_value_needs_bearing": false,
-      "dynamic_way_value_needs_speed": false
-    },
-    {
-      "axis_id": "stop_density",
-      "label": "停止密度",
-      "category": "観測",
-      "primary_attribute_ids": [
-        "stop_poi",
-        "intersection"
-      ],
-      "icon_id": "density-stack",
-      "chip_label": "停止密度",
-      "panel_hint": "信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。実際の位置は「停止要因」レイヤーで確認できます。",
-      "show_map_icon": true,
-      "display": {
-        "kind": "ramp",
-        "label": "停止密度",
-        "category": "trafficSafety",
-        "tile_inputs": [
-          {
-            "property": "stop_per_km",
-            "weight": 1.0,
-            "boolean": false,
-            "true_value": 0.0,
-            "false_value": 0.0,
-            "has_unknown_fallback": false,
-            "categories": null,
-            "breakpoints": null,
-            "needs_runtime_scale": false
-          },
-          {
-            "property": "intersection_per_km",
-            "weight": 0.3,
-            "boolean": false,
-            "true_value": 0.0,
-            "false_value": 0.0,
-            "has_unknown_fallback": false,
-            "categories": null,
-            "breakpoints": null,
-            "needs_runtime_scale": false
-          }
-        ],
-        "thresholds": [
-          1.0,
-          2.0,
-          4.0
-        ],
-        "unit": "",
-        "note": ""
-      },
-      "shape": {
-        "kind": "breakpoint_linear",
-        "terms": [
-          {
-            "material": "stop_count_per_km",
-            "weight": 1.0,
-            "required": true
-          },
-          {
-            "material": "intersection_count_per_km",
-            "weight": 0.3,
-            "required": false
-          }
-        ],
-        "preprocess": "identity",
-        "breakpoints": [
-          [
-            0.0,
-            0.0
-          ],
-          [
-            4.0,
-            100.0
-          ]
-        ]
-      },
-      "display_thresholds_override": [
-        1.0,
-        2.0,
-        4.0
-      ],
-      "display_band_labels_override": null,
-      "dedicated_way_value_layer": false,
-      "map_value_kind": "difficulty",
-      "map_value_unit": "",
+      "raw_value_unit": null,
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -271,6 +190,7 @@
     {
       "axis_id": "car_stress",
       "label": "車の圧迫感",
+      "description": "推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
       "category": "推定",
       "primary_attribute_ids": [
         "highway",
@@ -415,8 +335,6 @@
           }
         ],
         "thresholds": [
-          2.0,
-          3.0,
           4.0
         ],
         "unit": "",
@@ -463,15 +381,12 @@
           ]
         ]
       },
-      "display_thresholds_override": [
-        2.0,
-        3.0,
-        4.0
-      ],
+      "display_thresholds_override": null,
       "display_band_labels_override": null,
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "raw_value_unit": null,
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -479,6 +394,7 @@
     {
       "axis_id": "accident",
       "label": "事故密度",
+      "description": "事故密度(件/(km・年)、警察庁統計)が低いほど易しい",
       "category": "推定",
       "primary_attribute_ids": [
         "accident_point"
@@ -505,8 +421,6 @@
           }
         ],
         "thresholds": [
-          0.133,
-          0.267,
           0.5
         ],
         "unit": "",
@@ -533,15 +447,12 @@
           ]
         ]
       },
-      "display_thresholds_override": [
-        0.133,
-        0.267,
-        0.5
-      ],
+      "display_thresholds_override": null,
       "display_band_labels_override": null,
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "raw_value_unit": "件/(km・年)",
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -549,6 +460,7 @@
     {
       "axis_id": "night",
       "label": "夜間",
+      "description": "街灯なし・トンネルが少ないほど易しい。既定重み0(夜間ライドを重視する場合に個別に上げる想定)",
       "category": "観測",
       "primary_attribute_ids": [
         "lit",
@@ -624,6 +536,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "raw_value_unit": null,
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -631,6 +544,7 @@
     {
       "axis_id": "bicycle_infra_quality",
       "label": "自転車インフラ",
+      "description": "専用の自転車インフラ（分離自転車道・自転車レーン等、河川敷サイクリングロード等の自転車通行可の歩行者道を含む）が整備されているほど易しい。",
       "category": "推定",
       "primary_attribute_ids": [
         "cycleway"
@@ -774,6 +688,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "raw_value_unit": null,
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -781,6 +696,7 @@
     {
       "axis_id": "openness",
       "label": "開放度",
+      "description": "周囲に建物・樹木などの遮蔽物が少ない[開けている]道ほど難しい",
       "category": "推定",
       "primary_attribute_ids": [
         "landcover"
@@ -872,6 +788,228 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "raw_value_unit": null,
+      "dynamic_way_value_needs_time": false,
+      "dynamic_way_value_needs_bearing": false,
+      "dynamic_way_value_needs_speed": false
+    },
+    {
+      "axis_id": "axis_abdaded0be20",
+      "label": "停止密度",
+      "description": "止まる回数（信号・踏切・一時停止）が少ないほど易しい。信号の無い横断歩道と交差点の多さは含みません。",
+      "category": "推定",
+      "primary_attribute_ids": [
+        "stop_poi"
+      ],
+      "icon_id": "density-stack",
+      "chip_label": "停止密度",
+      "panel_hint": "信号・踏切・一時停止が道路上でどれだけ密集しているかの目安です。信号の無い横断歩道と交差点は数えません。実際の位置は『停止要因』レイヤーで確認できます。",
+      "show_map_icon": true,
+      "display": {
+        "kind": "ramp",
+        "label": "停止密度",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "poi_signal_per_km",
+            "weight": 1.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "poi_level_crossing_per_km",
+            "weight": 1.5,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "poi_stop_per_km",
+            "weight": 0.3,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          },
+          {
+            "property": "poi_crossing_per_km",
+            "weight": 0.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          2.0,
+          4.0,
+          7.0,
+          12.0
+        ],
+        "unit": "",
+        "note": ""
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "poi_signal_per_km",
+            "weight": 1.0,
+            "required": false
+          },
+          {
+            "material": "poi_level_crossing_per_km",
+            "weight": 1.5,
+            "required": false
+          },
+          {
+            "material": "poi_stop_per_km",
+            "weight": 0.3,
+            "required": false
+          },
+          {
+            "material": "poi_crossing_per_km",
+            "weight": 0.0,
+            "required": false
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.5,
+            20.0
+          ],
+          [
+            1.5,
+            50.0
+          ],
+          [
+            3.0,
+            75.0
+          ],
+          [
+            5.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": [
+        2.0,
+        4.0,
+        7.0,
+        12.0
+      ],
+      "display_band_labels_override": [
+        "500m以上で1回停止",
+        "250〜500mで1回停止",
+        "143〜250mで1回停止",
+        "83m〜143mで1回停止",
+        "83m以下で1回停止"
+      ],
+      "dedicated_way_value_layer": false,
+      "map_value_kind": "difficulty",
+      "map_value_unit": "",
+      "raw_value_unit": "回/km",
+      "dynamic_way_value_needs_time": false,
+      "dynamic_way_value_needs_bearing": false,
+      "dynamic_way_value_needs_speed": false
+    },
+    {
+      "axis_id": "curvature",
+      "label": "蛇行",
+      "description": "道そのものの曲がり方。折れ線の方位変化を1kmあたりに直した値で、直線的な道ほど小さく、つづら折りほど大きい。交差点での右左折の回数そのものではありません。",
+      "category": "観測",
+      "primary_attribute_ids": [
+        "curvature"
+      ],
+      "icon_id": null,
+      "chip_label": "蛇行",
+      "panel_hint": null,
+      "show_map_icon": false,
+      "display": {
+        "kind": "ramp",
+        "label": "蛇行",
+        "category": "trafficSafety",
+        "tile_inputs": [
+          {
+            "property": "curvature_deg_per_km",
+            "weight": 1.0,
+            "boolean": false,
+            "true_value": 0.0,
+            "false_value": 0.0,
+            "has_unknown_fallback": false,
+            "categories": null,
+            "breakpoints": null,
+            "needs_runtime_scale": false
+          }
+        ],
+        "thresholds": [
+          100.0,
+          300.0,
+          600.0,
+          1000.0
+        ],
+        "unit": "",
+        "note": ""
+      },
+      "shape": {
+        "kind": "breakpoint_linear",
+        "terms": [
+          {
+            "material": "curvature_deg_per_km",
+            "weight": 1.0,
+            "required": false
+          }
+        ],
+        "preprocess": "identity",
+        "breakpoints": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            100.0,
+            25.0
+          ],
+          [
+            300.0,
+            50.0
+          ],
+          [
+            600.0,
+            75.0
+          ],
+          [
+            1000.0,
+            100.0
+          ]
+        ]
+      },
+      "display_thresholds_override": null,
+      "display_band_labels_override": null,
+      "dedicated_way_value_layer": false,
+      "map_value_kind": "difficulty",
+      "map_value_unit": "",
+      "raw_value_unit": "度/km",
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -978,11 +1116,12 @@
     "gradient": 0.15,
     "wind": 0.26,
     "surface_q": 0.19,
-    "stop_density": 0.2,
     "car_stress": 0.2,
     "accident": 0.08,
     "night": 0.0,
     "bicycle_infra_quality": 0.15,
-    "openness": 0.0
+    "openness": 0.0,
+    "axis_abdaded0be20": 0.2,
+    "curvature": 0.1
   }
 }

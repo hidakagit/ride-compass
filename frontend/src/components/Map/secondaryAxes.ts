@@ -28,6 +28,9 @@ export interface SecondaryAxisSummary {
   axisId: string;
   /** 正式名（サイドバー・研究タブで使う）。axis-catalog.json由来 */
   label: string;
+  /** 軸自身の説明文（1〜2文の要約）。ルート設定パネルの重み一覧が出す。
+   * 軸を1本足したときにfrontend側へ説明文を書き足さずに済むよう、軸自身のデータを引く。 */
+  description: string;
   /** 地図チップの略名（4文字以下、確定命名表どおり） */
   chipLabel: string;
   /** 対応する表示レイヤー。無ければ専用レイヤーを持たない軸(薄字表示) */
@@ -117,6 +120,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
     .map((axis) => ({
       axisId: axis.axis_id,
       label: axis.display!.label,
+      description: axis.description ?? "",
       chipLabel: axis.chip_label ?? axis.display!.label,
       layerId: layerIdFor(axis),
       primaryAttributeIds: axis.primary_attribute_ids ?? [],
@@ -127,6 +131,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
       mapValueKind: axis.map_value_kind,
       mapValueUnit: axis.map_value_unit,
+      rawValueUnit: axis.raw_value_unit ?? null,
     }));
 }
 

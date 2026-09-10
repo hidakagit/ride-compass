@@ -47,6 +47,7 @@ from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
+from app.domain.axis_display import raw_value_unit  # noqa: E402
 from app.domain.dynamic_way_values import map_value_kind, map_value_unit  # noqa: E402
 from app.domain.evaluation import HARD_FILTER_HIGHWAY_TYPES  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
@@ -194,6 +195,11 @@ def main() -> None:
                     # （GET /api/axis-catalog: AxisCatalogEntry.label）と揃えるため
                     # 独立したトップレベルフィールドとして書き出す。
                     "label": AXIS_DEFINITIONS[axis.axis_id].label,
+                    # 実行時API（GET /api/axis-catalog: AxisCatalogEntry.description）と同じ
+                    # 説明文。これが無いとフォールバック側だけが軸ごとの説明文を手書きで
+                    # 持つことになり、軸を1本足すたびにfrontendのコード変更が要る
+                    # （docs/design-principles.md 構造仕様2）。
+                    "description": AXIS_DEFINITIONS[axis.axis_id].description,
                     # コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的、domain/
                     # axis_definitions.py: AxisDefinition.category）を書き出す。これが無いと
                     # フロント側でwind（category="動的"）を推定指標チップグループから除外
@@ -222,6 +228,9 @@ def main() -> None:
                     "dedicated_way_value_layer": AXIS_DEFINITIONS[axis.axis_id].dedicated_way_value_layer,
                     "map_value_kind": map_value_kind(AXIS_DEFINITIONS[axis.axis_id]),
                     "map_value_unit": map_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
+                    # 実行時API（AxisCatalogEntry.raw_value_unit）と同じ、折れ点を通す前の
+                    # 生値の単位。ルート結果が得点の隣に生値を出すために要る。
+                    "raw_value_unit": raw_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
                     "dynamic_way_value_needs_time": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_time,
                     "dynamic_way_value_needs_bearing": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_bearing,
                     "dynamic_way_value_needs_speed": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_speed,

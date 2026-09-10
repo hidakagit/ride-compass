@@ -20,19 +20,11 @@ const windAxis = AXES.find((a) => a.axis_id === "wind")!;
 const surfaceQAxis = AXES.find((a) => a.axis_id === "surface_q")!;
 
 describe("routeStyleModes", () => {
-  it("公開軸すべて（動的）+ difficulty（総合難易度）+ none（レンズなし）を定義し、既定は総合難易度", () => {
-    // 改善計画T549: supports_route_coloring撤去により、以前は対象外だったstop_density・
-    // car_stress・accident・night・bicycle_infra_quality等も無条件で対象になる。
+  // 軸idを名指しせずカタログ順をそのまま期待するのは、公開軸の集合が軸スタジオ（DB）で
+  // 決まり生成物の再取り込みで変わるため（GUI作成軸のidは固定値ですらない）。
+  it("公開軸すべて（カタログ順）+ difficulty（総合難易度）+ none（レンズなし）を定義する", () => {
     expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual([
-      "gradient",
-      "wind",
-      "surface_q",
-      "stop_density",
-      "car_stress",
-      "accident",
-      "night",
-      "bicycle_infra_quality",
-      "openness",
+      ...AXES.map((axis) => axis.axis_id),
       "difficulty",
       "none",
     ]);
@@ -181,14 +173,7 @@ describe("routeStyleModes", () => {
     const axesWithoutGradient = AXES.filter((axis) => axis.axis_id !== "gradient");
     const modes = routeStyleModesFromCatalogAxes(axesWithoutGradient);
     expect(modes.map((m) => m.id)).toEqual([
-      "wind",
-      "surface_q",
-      "stop_density",
-      "car_stress",
-      "accident",
-      "night",
-      "bicycle_infra_quality",
-      "openness",
+      ...axesWithoutGradient.map((axis) => axis.axis_id),
       "difficulty",
       "none",
     ]);
@@ -198,14 +183,7 @@ describe("routeStyleModes", () => {
     const axesWithoutSurfaceQ = AXES.filter((axis) => axis.axis_id !== "surface_q");
     const modes = routeStyleModesFromCatalogAxes(axesWithoutSurfaceQ);
     expect(modes.map((m) => m.id)).toEqual([
-      "gradient",
-      "wind",
-      "stop_density",
-      "car_stress",
-      "accident",
-      "night",
-      "bicycle_infra_quality",
-      "openness",
+      ...axesWithoutSurfaceQ.map((axis) => axis.axis_id),
       "difficulty",
       "none",
     ]);

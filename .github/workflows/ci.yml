@@ -125,7 +125,11 @@ jobs:
         working-directory: frontend
       - run: npm run generate:api
         working-directory: frontend
+      # working-directoryはリポジトリルートを明示する。ジョブ既定（backend）のままだと
+      # pathspecが`backend/frontend/src/types/generated/`へ解決され、マッチ0件＝差分なしと
+      # して常にexit 0になり、ドリフトを一切検知しない。
       - run: git diff --exit-code -- frontend/src/types/generated/
+        working-directory: .
 
   frontend:
     runs-on: ubuntu-latest
