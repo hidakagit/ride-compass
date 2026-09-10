@@ -762,7 +762,9 @@ NULLは「未計算」であって0（まっすぐ）ではない。
 
 計算はPostGISの`ST_Azimuth`で完結させPythonへ行を持ち出さない（本番500万行規模）。
 SQL本体は`road_graph_repository.py`が持ち、way単位版（`precompute_way_curvature.py`）と
-測り方を共有する。バッチは`edge_id`順のウィンドウで呼ぶだけ。
+測り方を共有する。バッチは対象edge_idを`stream_id_chunks`（サーバーサイドカーソル）で
+切り出して渡すだけで、`distance_m = 0`のEdgeは度/kmを測れないため対象外（NULL＝
+算出不能のまま残す）。`refresh_derived.py`の⑫段として他の派生バッチと一緒に実行される。
 
 **geographyへキャストして呼ぶこと**——geometry（4326）のままだと経度・緯度をそのまま
 x/yとして扱う平面計算になり、緯度による経度の縮みを無視して`bearing_between`（球面

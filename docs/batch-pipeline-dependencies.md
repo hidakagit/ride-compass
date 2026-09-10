@@ -57,6 +57,10 @@
          （`--data-version`+`--recompute`）でも再実行が要る
 ⑪ precompute_way_curvature.py          osm_raw_ways.geom → way_geometry
       └─ ①（osm_raw_ways更新）の後に再実行が必要（road_edges非依存）
+
+【第2グループの続き（④の後であればよく、⑤〜⑪との前後関係なし）】
+⑫ precompute_edge_curvature.py         road_edges.geom → road_edges.curvature_deg_per_km
+      └─ ④の後に再実行が必要。⑤〜⑦とも⑧〜⑪とも順序制約が無いため末尾に置く
 ```
 
 `precompute_elevation_attributes.py`のみ、`ElevationAttributeService.get_attributes_for_graph`
@@ -78,9 +82,10 @@
 | ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
 | ⑪ | `precompute_way_curvature.py` | `osm_raw_ways`（geom非NULL全件） | `way_geometry`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を測り直す） |
 | ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
+| ⑫ | `precompute_edge_curvature.py` | `road_edges`（`distance_m > 0`の全件、ジオメトリ） | `road_edges.curvature_deg_per_km`（同一表のUPDATE） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・再split） | 全件測り直し、安全（`distance_m = 0`のEdgeは測れずNULLのまま） |
 
-全10バッチともUPSERTまたはDELETE→INSERT（トランザクション内、0件時はDELETEもスキップ）で
-単純な再実行は安全。冪等性の唯一の例外は①のノード座標（DO NOTHING）。④はタイル単位で
+全12バッチともUPSERT・DELETE→INSERT・同一表のUPDATE（いずれもトランザクション内、
+0件時はDELETEもスキップ）で単純な再実行は安全。冪等性の唯一の例外は①のノード座標（DO NOTHING）。④はタイル単位で
 `is_split_up_to_date`により未split分だけへスコープを絞るため、全件洗い替えではない。
 
 ## 3. ランタイム側の読み取り元
@@ -91,6 +96,7 @@
 | `way_attribute_counts` | `services/region_service.py` | 道路サーフェスタイルMVT生成 |
 | `designation_attributes` | `domain/evaluation.py`等の評価系 | 指定路線の評価軸（car_stress補正） |
 | `road_nodes.degree` | ランタイムでは直接使われない | ⑥の`intersection_count`計算専用の中間データ |
+| `road_edges.curvature_deg_per_km` | `infrastructure/graph_material_cache.py`経由で`services/road_graph_engine.py`（`prepare`） | 評価軸算出（蛇行）。Way単位の`way_geometry`は地図タイル・区間インスペクタ・分布プレビュー専用で、ルート評価はこの列だけを読む |
 
 `api/routers/health.py`の`/health`（`_KEY_TABLES`）が`osm_raw_ways`/`route_designations`/
 `designation_attributes`等の0件検知で「バッチ未実行」を検出する仕組みを既に持つ
@@ -104,7 +110,7 @@
 tile_persistent_cache/`）へも永続化されるようになった。ディスク側はデプロイでプロセスが
 再起動しても消えないため、④road_edges/road_nodes・⑤road_nodes.degree・⑥edge_attribute_
 counts・⑦elevation_attributes・⑨designation_attributes（`EdgeMaterialBundle.is_designated`
-経由）のいずれかを更新するバッチを実行したら、`graph_material_cache.py: TILE_MATERIALS_
+経由）・⑫road_edges.curvature_deg_per_kmのいずれかを更新するバッチを実行したら、`graph_material_cache.py: TILE_MATERIALS_
 CACHE_VERSION`（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ「手動で上げる版数
 文字列」の運用）を手動で上げること。`tile_score_matrix_cache.py:
 TILE_SCORE_MATRIX_CACHE_VERSION`はこの値を含む複合世代のため追従する（スコア行列の
@@ -123,7 +129,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 | 生データの変化 | 再実行が必要なバッチ |
 |---|---|
-| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪（⑨は③の完了も前提）。あわせて`ROAD_SURFACE_TILE_VERSION`（⑧・⑩・⑪の値をタイルへ焼くため）と`TILE_MATERIALS_CACHE_VERSION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合世代のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。あわせて`ROAD_SURFACE_TILE_VERSION`（⑧・⑩・⑪の値をタイルへ焼くため）と`TILE_MATERIALS_CACHE_VERSION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合世代のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
 | 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
 | KSJ指定路線データ更新 | ③→⑨ |
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |
@@ -131,8 +137,9 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 ## 統合エントリポイント（改善計画T281段階2、実装済み）
 
-`python -m app.batch.refresh_derived`が④〜⑪（本ファイルの依存順序どおり、①〜③の生データ
-取込は対象外）を1コマンドで実行する。⑩precompute_way_landcoverだけラスタファイルの
+`python -m app.batch.refresh_derived`が④〜⑫（本ファイルの依存順序どおり、①〜③の生データ
+取込は対象外）を1コマンドで実行する。`app/batch/precompute_*.py`のファイル一覧と
+`_STAGES`の突き合わせを`tests/test_refresh_derived.py`が行い、登録漏れを機械的に止める。⑩precompute_way_landcoverだけラスタファイルの
 手動取得を要するため、未整備の環境では`--skip-landcover`でこの段だけスキップできる。詳細は
 [docs/modules/backend/static-road-attributes.md](modules/backend/static-road-attributes.md)
 「派生データ再構築の単一エントリポイント」参照。

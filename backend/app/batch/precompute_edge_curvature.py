@@ -6,7 +6,8 @@ NULLは「未計算」であって0（まっすぐ）ではない——0で埋�
 「まっすぐな良い道」として評価に混ざる。
 
 計算はPostGISで完結しPythonへ行を持ち出さない（本番500万行規模のため）。SQLは
-`road_graph_repository.py`が持ち（way単位版と測り方を共有する）、ここは呼ぶだけ。
+`road_graph_repository.py`が持ち（way単位版と測り方を共有する）、ここは対象edge_idを
+チャンクで切り出して呼ぶだけ。
 road_edgesが変わった場合（PBF再取込・再split）は再実行が必要。
 
 実行方法（backendディレクトリから）:
@@ -16,30 +17,32 @@ road_edgesが変わった場合（PBF再取込・再split）は再実行が必�
 """
 
 import logging
+import math
 import sys
 import time
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
-from app.batch._common import batch_session_factory, run_simple_batch_cli
+from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
 from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.precompute_edge_curvature")
 
-# 1文で全件更新すると本番規模では長時間ロックを取り続けるため、edge_idの範囲で分割する。
+# 1文で全件更新すると本番規模では長時間ロックを取り続けるため、対象edge_idを分割する。
 CHUNK_SIZE = 200_000
+
+
+def _target_edge_ids_stmt():
+    # 長さ0のEdgeは度/kmを測れないため対象外（NULL＝算出不能のまま残す）。
+    return select(RoadEdgeRow.edge_id).where(RoadEdgeRow.distance_m > 0)
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
+    stmt = _target_edge_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        async with session_factory() as session:
-            edge_count = (
-                await session.execute(
-                    select(func.count()).select_from(RoadEdgeRow).where(RoadEdgeRow.distance_m > 0)
-                )
-            ).scalar_one()
+        edge_count = await count_targets(session_factory, stmt)
 
         logger.info("対象road_edges: %d件（%d件ずつ更新）", edge_count, CHUNK_SIZE)
         if dry_run:
@@ -48,18 +51,22 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         if edge_count == 0:
             logger.warning("road_edgesが0件のため更新をスキップします")
             return 0
+        total_chunks = math.ceil(edge_count / CHUNK_SIZE)
 
         updated = 0
-        for offset in range(0, edge_count, CHUNK_SIZE):
+        chunk_index = -1
+        async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
+            chunk_index += 1
             chunk_started = time.perf_counter()
             async with session_factory() as session:
                 repository = RoadGraphRepository(session)
-                rowcount = await repository.recompute_edge_curvature(CHUNK_SIZE, offset)
+                rowcount = await repository.recompute_edge_curvature(chunk)
                 await session.commit()
             updated += rowcount
             logger.info(
-                "更新 %d/%d件 chunk_ms=%d",
-                updated, edge_count, round((time.perf_counter() - chunk_started) * 1000),
+                "chunk %d/%d 完了: 累計%d/%d件 chunk_ms=%d",
+                chunk_index + 1, total_chunks, updated, edge_count,
+                round((time.perf_counter() - chunk_started) * 1000),
             )
 
         logger.info("蛇行の事前計算完了: %d件 elapsed=%.1fs", updated, time.perf_counter() - started)

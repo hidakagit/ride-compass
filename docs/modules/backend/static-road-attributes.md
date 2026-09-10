@@ -14,7 +14,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須） |
-| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_curvature.py`（wayの折れ線から測る蛇行のway単位事前集計）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[precompute系4本が共有する対象IDのチャンク取得と件数]）・`refresh_derived.py` |
+| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_curvature.py`（wayの折れ線から測る蛇行のway単位事前集計）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[precompute系6本が共有する対象IDのチャンク取得と件数]）・`refresh_derived.py` |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -191,17 +191,23 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 できない（`way_attribute_counts`と同じ理由）。wayの折れ線はwayをEdgeへ切り出す交差点の
 頂点も含むため、way単位の値はそのwayのEdgeの延長加重平均以上になる。
 
-行が無いのが「未計算」、列がNULLが「算出不能」（頂点1点・長さ0）。頂点2点の折れ線は
-直線として0を入れる（NULLではない）。
+行が無いのが「未計算」、列がNULLが「算出不能」（頂点1点・長さ0・`geom`がNULL）。
+頂点2点の折れ線は直線として0を入れる（NULLではない）。この2状態を保つため、バッチは
+`osm_raw_ways`全行を対象にする——測れないwayを対象から外すと「算出不能」が「未計算」と
+見分けられなくなり、再実行しても埋まらないwayを追い続けることになる。
 
 ### 派生データ再構築の単一エントリポイント（`refresh_derived.py`）
 
 `presplit_road_graph.py`・`precompute_road_node_degrees.py`・
 `precompute_edge_attribute_counts.py`・`precompute_elevation_attributes.py`・
 `precompute_way_attribute_counts.py`・`match_designations.py`・
-`precompute_way_landcover.py`・`precompute_way_curvature.py`（依存DAGは
+`precompute_way_landcover.py`・`precompute_way_curvature.py`・
+`precompute_edge_curvature.py`（依存DAGは
 [docs/batch-pipeline-dependencies.md](../../batch-pipeline-dependencies.md)参照）を
-依存順に1コマンドで実行する薄いオーケストレーション。各段は既存バッチの`run`/
+依存順に1コマンドで実行する薄いオーケストレーション。`app/batch/precompute_*.py`の
+ファイル一覧と登録済みの段（`_STAGES`）の突き合わせを`tests/test_refresh_derived.py`が
+行い、precomputeバッチを足したときの登録漏れ（そのバッチが埋める列だけ再構築されないまま
+完了ログが出る）を機械的に止める。各段は既存バッチの`run`/
 `run_match`/`run_default`関数をそのまま呼ぶだけで新しいロジックは持たず、いずれか1段が
 例外を送出するか非0の終了コードを返したら即座に停止し、後続を実行せずその終了コードを
 返す（disaster recovery手順はこのコマンドの終了コードで次工程へ進むかを判断する）。

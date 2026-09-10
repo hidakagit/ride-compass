@@ -1,4 +1,5 @@
 import pickle
+from dataclasses import MISSING, fields
 
 from app.domain.attributes import (
     EdgeAttributeCounts,
@@ -173,6 +174,7 @@ def _full_bundle(edge_id: str) -> EdgeMaterialBundle:
         is_designated=True,
         landcover_trees_percent=40.0,
         landcover_built_percent=25.0,
+        curvature_deg_per_km=125.5,
     )
 
 
@@ -246,6 +248,46 @@ def test_edge_material_table_distinguishes_missing_elevation_row_from_row_with_n
 
     e2 = table.get("e2")
     assert e2.elevation_attribute is None
+
+
+def test_full_bundle_fixture_fills_every_bundle_field():
+    """`_full_bundle`が`EdgeMaterialBundle`の全フィールドを既定値と異なる値で埋めている
+    ことを型（dataclassのフィールド一覧）から機械的に確かめる。
+
+    往復テストは`table.get(edge_id) == 元のbundle`で列指向変換の漏れを捕まえるが、
+    fixtureがそのフィールドを既定値（None）のままにしていると、`from_bundles`と`get()`の
+    どちらが落としても等しくなってしまい何も検出しない。フィールドが増えたときに
+    fixtureの更新漏れをここで落とし、往復テストの検出力を保つ。
+    """
+    bundle = _full_bundle("e1")
+
+    unfilled = [
+        f.name
+        for f in fields(EdgeMaterialBundle)
+        if getattr(bundle, f.name) is None
+        or (f.default is not MISSING and getattr(bundle, f.name) == f.default)
+    ]
+
+    assert unfilled == []
+
+
+def test_edge_material_table_curvature_present_and_absent_roundtrip():
+    # NaN（未計算）とNoneの往復。0（まっすぐ）は有効値のためNoneへ潰さない。
+    table = EdgeMaterialTable.from_bundles(
+        ["e1", "e2", "e3"],
+        {
+            "e1": _full_bundle("e1"),
+            "e2": _bare_bundle(),
+            "e3": EdgeMaterialBundle(
+                surface=None, way_tags={}, attribute_counts=None, elevation_attribute=None,
+                is_designated=False, curvature_deg_per_km=0.0,
+            ),
+        },
+    )
+
+    assert table.get("e1").curvature_deg_per_km == 125.5
+    assert table.get("e2").curvature_deg_per_km is None
+    assert table.get("e3").curvature_deg_per_km == 0.0
 
 
 def test_edge_material_table_landcover_present_and_absent_roundtrip():

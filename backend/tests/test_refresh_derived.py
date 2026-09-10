@@ -5,6 +5,8 @@
 検証する。
 """
 
+from pathlib import Path
+
 import pytest
 
 from app.batch import refresh_derived
@@ -26,6 +28,7 @@ def _record_calls(monkeypatch, calls: list[str], *, fail_at: str | None = None, 
         ("⑦precompute_elevation_attributes", refresh_derived.precompute_elevation_attributes),
         ("⑧precompute_way_attribute_counts", refresh_derived.precompute_way_attribute_counts),
         ("⑪precompute_way_curvature", refresh_derived.precompute_way_curvature),
+        ("⑫precompute_edge_curvature", refresh_derived.precompute_edge_curvature),
     ]:
         monkeypatch.setattr(
             module, "run", lambda db, dr, _label=label: _fake(_label, db, dr)
@@ -58,6 +61,7 @@ async def test_run_calls_all_stages_in_dependency_order(monkeypatch):
         "⑨match_designations",
         "⑩precompute_way_landcover",
         "⑪precompute_way_curvature",
+        "⑫precompute_edge_curvature",
     ]
 
 
@@ -75,6 +79,7 @@ async def test_run_propagates_database_url_and_dry_run_to_every_stage(monkeypatc
         ("elevation", refresh_derived.precompute_elevation_attributes),
         ("way_counts", refresh_derived.precompute_way_attribute_counts),
         ("way_curvature", refresh_derived.precompute_way_curvature),
+        ("edge_curvature", refresh_derived.precompute_edge_curvature),
     ]:
         monkeypatch.setattr(module, "run", lambda db, dr, _label=label: _fake(_label, db, dr))
     monkeypatch.setattr(
@@ -90,7 +95,7 @@ async def test_run_propagates_database_url_and_dry_run_to_every_stage(monkeypatc
         (label, "postgresql://example", True)
         for label in [
             "presplit", "degrees", "edge_counts", "elevation", "way_counts", "match",
-            "landcover", "way_curvature",
+            "landcover", "way_curvature", "edge_curvature",
         ]
     ]
 
@@ -137,4 +142,27 @@ async def test_run_skip_landcover_omits_only_that_stage(monkeypatch):
         "⑧precompute_way_attribute_counts",
         "⑨match_designations",
         "⑪precompute_way_curvature",
+        "⑫precompute_edge_curvature",
     ]
+
+
+def test_every_precompute_batch_module_is_registered_as_a_stage():
+    """`app/batch/precompute_*.py`の全ファイルが`_STAGES`に登録されていること。
+
+    段を手書きで列挙するテストだけだと、新しいprecomputeバッチを足したときに
+    `_STAGES`への登録漏れとテストの列挙漏れが同時に起き、「派生データ再構築の単一
+    エントリポイント」が黙ってそのバッチを飛ばす（列は埋まらないまま完了ログが出る）。
+    ファイル一覧を正としてつき合わせ、登録し忘れをその場で落とす。
+    """
+    batch_dir = Path(refresh_derived.__file__).parent
+    on_disk = {path.stem for path in batch_dir.glob("precompute_*.py")}
+    registered = {module.__name__.rsplit(".", 1)[-1] for _, module, _ in refresh_derived._STAGES}
+
+    assert on_disk - registered == set()
+
+
+def test_every_stage_names_an_existing_callable():
+    """`_STAGES`は関数名を文字列で持つ（monkeypatchを効かせるため）ので、綴りの誤りは
+    実行時までエラーにならない。全段について実行前に解決できることを確かめる。"""
+    for label, module, attr_name in refresh_derived._STAGES:
+        assert callable(getattr(module, attr_name, None)), f"{label}: {attr_name}が無い"

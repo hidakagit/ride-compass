@@ -203,15 +203,13 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
         missing_semantics="unknown",
     ),
-    # 蛇行はEdge単位（road_edges、ルート評価が読む）とWay単位（way_geometry、地図タイル・
-    # 区間インスペクタ・分布プレビューが読む）の両方にある。母集団がosm_raw_ways全域である
-    # Way側で数える（trees_percentがway_landcoverを見るのと同じ）。
-    "curvature_deg_per_km": WayMaterialCoverageSpec(
-        missing_condition=(
-            "NOT EXISTS (SELECT 1 FROM way_geometry wg "
-            "WHERE wg.osm_way_id = w.osm_way_id AND wg.curvature_deg_per_km IS NOT NULL)"
-        ),
-        source="way_geometry.curvature_deg_per_km（precompute_way_curvatureの計算済み値）の有無",
+    # 蛇行はEdge単位（road_edges）とWay単位（way_geometry）の両方にある。ルート評価が
+    # 読むのはEdge単位の方で、そちらが欠けると軸が重み再正規化で薄まり無警告のまま
+    # 評価から抜けるため、カバレッジも評価が実際に読む列を数える。列は`road_edges`
+    # 自身が持つので、他のedge材料と違い派生テーブルではなく母集団そのものを数える。
+    "curvature_deg_per_km": EdgeMaterialCoverageSpec(
+        present_count_sql="SELECT count(*) FROM road_edges WHERE curvature_deg_per_km IS NOT NULL",
+        source="road_edges.curvature_deg_per_km（precompute_edge_curvatureの計算済み値）の有無",
         missing_semantics="unknown",
     ),
     "trees_percent": WayMaterialCoverageSpec(

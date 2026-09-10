@@ -7,14 +7,14 @@ ridecompass_test DB（conftest.pyのroad_graph_session/road_graph_repositoryフ�
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import insert, text
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import WaySpec, build_road_graph
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*テーブルを登録するためのimport
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageQuery
-from app.infrastructure.road_graph_models import EdgeAttributeCountsRow
+from app.infrastructure.road_graph_models import EdgeAttributeCountsRow, WayGeometryRow
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -113,6 +113,19 @@ async def test_edge_materials_are_counted_over_road_edges_using_derived_table_ro
             computed_at=datetime.now(timezone.utc),
         )
     )
+    # 蛇行だけは`road_edges`自身の列。Way側（way_geometry）は全way埋まっている状態を作り、
+    # Edge側は片方だけNULL（未計算）に戻す——両者が食い違う状況を作ることで、
+    # 「ルート評価が実際に読むEdge側で数えている」ことを固定する（Way側で数えていると
+    # 欠損0件と報告され、評価は算出不能のまま気づけない）。
+    await road_graph_session.execute(
+        insert(WayGeometryRow).values(
+            osm_way_id=100, curvature_deg_per_km=120.0, computed_at=datetime.now(timezone.utc),
+        )
+    )
+    await road_graph_session.execute(
+        text("UPDATE road_edges SET curvature_deg_per_km = NULL WHERE edge_id = :edge_id"),
+        {"edge_id": edge_ids[1]},
+    )
     await road_graph_session.commit()
 
     counts = await MaterialCoverageQuery(road_graph_session).get_material_coverage_counts()
@@ -124,3 +137,4 @@ async def test_edge_materials_are_counted_over_road_edges_using_derived_table_ro
     assert missing["stop_count_per_km"] == 1
     assert missing["intersection_count_per_km"] == 1
     assert missing["accident_count_per_km_year"] == 1
+    assert missing["curvature_deg_per_km"] == 1

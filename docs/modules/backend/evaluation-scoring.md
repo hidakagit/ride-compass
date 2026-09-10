@@ -337,8 +337,11 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 | 母集団 | 対象 | 判定 |
 |---|---|---|
 | `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式、`infrastructure/osm_way_tag_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM osm_raw_ways AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
-| `"edge"` | `road_edges`全行 | `present_count_sql`（派生テーブル側の「値あり行数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま「値ありEdge数」として使いJOINを省く |
+| `"edge"` | `road_edges`全行 | `present_count_sql`（「値ありEdge数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま使いJOINを省く。`curvature_deg_per_km`は`road_edges`自身の列のため母集団を直接数える |
 
+- 同じ材料がEdge単位とWay単位の両方に存在する場合（`curvature_deg_per_km`）は、**ルート評価が
+  実際に読む側**で数える。読まない側で数えると、評価が算出不能なまま「欠損0%」と報告される
+  （欠損した軸は重み再正規化で薄まるだけで警告を出さないため、この画面が唯一の気づき口になる）。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
   通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——`bool_default="nan"`

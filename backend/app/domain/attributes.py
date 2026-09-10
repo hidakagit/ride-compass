@@ -428,6 +428,7 @@ class EdgeMaterialTable:
             is_designated=bool(self.is_designated[i]),
             landcover_trees_percent=_none_if_nan(self.landcover_trees_percent[i]) if self.landcover_present[i] else None,
             landcover_built_percent=_none_if_nan(self.landcover_built_percent[i]) if self.landcover_present[i] else None,
+            curvature_deg_per_km=_none_if_nan(self.curvature_deg_per_km[i]),
         )
 
     def __getitem__(self, edge_id: str) -> EdgeMaterialBundle:

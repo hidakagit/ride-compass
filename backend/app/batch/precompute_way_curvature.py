@@ -44,7 +44,9 @@ _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHE
 
 
 def _target_way_ids_stmt():
-    return select(OsmRawWayRow.osm_way_id).where(OsmRawWayRow.geom.is_not(None))
+    # geomの有無で対象を絞らない。測れないwayもNULLの行を作ることで、`WayGeometryRow`が
+    # 宣言する「行が無い＝未計算、列がNULL＝算出不能」の2状態が成立する。
+    return select(OsmRawWayRow.osm_way_id)
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:

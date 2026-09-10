@@ -105,6 +105,32 @@ async def test_two_point_way_is_zero_not_missing(road_graph_repository, road_gra
     assert stored[301] > 100
 
 
+async def test_way_without_geometry_gets_a_row_with_null(road_graph_repository, road_graph_session):
+    """geomがNULLのwayも行を作り、値だけNULLにする。
+
+    `WayGeometryRow`は「行が無い＝未計算、列がNULL＝算出不能」の2状態を宣言している。
+    測れないwayを対象から外すと、算出不能なwayが未計算と見分けられなくなり、再実行しても
+    埋まらないwayを追い続けることになる。
+    """
+    await _seed(road_graph_repository, road_graph_session)
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO osm_raw_ways "
+            "(osm_way_id, highway, tags, node_ids, geom, direction, updated_at) "
+            "VALUES (303, 'residential', '{}'::jsonb, ARRAY[1, 2], NULL, 'both', now()) "
+            "ON CONFLICT (osm_way_id) DO NOTHING"
+        )
+    )
+    await road_graph_session.commit()
+
+    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+
+    await road_graph_session.rollback()
+    stored = await _stored(road_graph_session)
+    assert 303 in stored, "geomがNULLのwayの行が作られていない（未計算と区別できない）"
+    assert stored[303] is None
+
+
 async def test_run_dry_run_writes_nothing(road_graph_repository, road_graph_session):
     await _seed(road_graph_repository, road_graph_session)
 

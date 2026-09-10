@@ -892,15 +892,16 @@ def _curvature_total_cte_sql(source: str, id_column: str, geom_column: str) -> s
 
 
 # road_edges.curvature_deg_per_kmの再計算（app/batch/precompute_edge_curvature.py）。
-# edge_idの範囲で分割して呼ぶ（1文で全件更新すると本番規模では長時間ロックを取り続ける）。
+# 対象edge_idのチャンクを受け取って更新する（1文で全件更新すると本番規模では長時間
+# ロックを取り続ける）。チャンクの切り出しはバッチ側の`stream_id_chunks`
+# （サーバーサイドカーソル）が行う——LIMIT/OFFSETで切ると、後ろのチャンクほど読み捨てる
+# 行数が増え、全体では対象行数の2乗に比例したタプルを走査することになる。
 _RECOMPUTE_EDGE_CURVATURE_SQL = text(
     f"""
     WITH target AS (
         SELECT edge_id, geom, distance_m
         FROM road_edges
-        WHERE distance_m > 0
-        ORDER BY edge_id
-        LIMIT :limit OFFSET :offset
+        WHERE edge_id = ANY(:edge_ids) AND distance_m > 0
     ),
     {_curvature_total_cte_sql("target", "edge_id", "geom")}
     UPDATE road_edges e
@@ -909,18 +910,20 @@ _RECOMPUTE_EDGE_CURVATURE_SQL = text(
     LEFT JOIN curvature_total ON curvature_total.id = t.edge_id
     WHERE e.edge_id = t.edge_id
     """
-)
+).bindparams(bindparam("edge_ids", type_=ARRAY(Text())))
 
 
 # way_geometry.curvature_deg_per_kmの再計算（app/batch/precompute_way_curvature.py）。
 # 母集団はosm_raw_ways全域で、road_edges（ルート生成時に遅延構築される）に依存しない。
-# 長さ0のwayは測れないためNULLのまま行だけ作る（行の有無＝計算したかどうか）。
+# 測れないway（長さ0・geomがNULL）はNULLのまま行だけ作る——`WayGeometryRow`が宣言する
+# 「行が無い＝未計算、列がNULL＝算出不能」の2状態を成立させるため、ここで行を作らない
+# 条件（geomのNULL判定等）を足さないこと。
 _RECOMPUTE_WAY_CURVATURE_SQL = text(
     f"""
     WITH target AS (
         SELECT w.osm_way_id, w.geom, ST_Length(w.geom::geography) AS length_m
         FROM osm_raw_ways w
-        WHERE w.osm_way_id = ANY(:osm_way_ids) AND w.geom IS NOT NULL
+        WHERE w.osm_way_id = ANY(:osm_way_ids)
     ),
     {_curvature_total_cte_sql("target", "osm_way_id", "geom")}
     INSERT INTO way_geometry (
@@ -2478,12 +2481,11 @@ class AttributeRepository(_SessionRepository):
             },
         )
 
-    async def recompute_edge_curvature(self, limit: int, offset: int) -> int:
-        """`edge_id`順のウィンドウ（limit/offset）で`road_edges.curvature_deg_per_km`を
-        測り直す。更新した行数を返す（`app/batch/precompute_edge_curvature.py`）。"""
-        result = await self._session.execute(
-            _RECOMPUTE_EDGE_CURVATURE_SQL, {"limit": limit, "offset": offset}
-        )
+    async def recompute_edge_curvature(self, edge_ids: list[str]) -> int:
+        """指定edge_idの`road_edges.curvature_deg_per_km`を測り直す。更新した行数を返す
+        （`app/batch/precompute_edge_curvature.py`）。長さ0のEdgeは測れないため対象外
+        （NULL＝算出不能のまま残す）。"""
+        result = await self._session.execute(_RECOMPUTE_EDGE_CURVATURE_SQL, {"edge_ids": edge_ids})
         return result.rowcount or 0
 
     async def recompute_way_curvature(
@@ -2658,8 +2660,8 @@ class RoadGraphRepository:
             osm_way_ids, computed_at, source_accident_import_run_id, source_osm_import_run_id, algorithm_version
         )
 
-    async def recompute_edge_curvature(self, limit: int, offset: int) -> int:
-        return await self.attributes.recompute_edge_curvature(limit, offset)
+    async def recompute_edge_curvature(self, edge_ids: list[str]) -> int:
+        return await self.attributes.recompute_edge_curvature(edge_ids)
 
     async def recompute_way_curvature(
         self,

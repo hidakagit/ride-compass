@@ -1086,7 +1086,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 - [x] [T696](tasks/T696.md). 目的地モードの「最短」ルートが0次ハードフィルタを迂回する問題を直す 規模S〜M（統合レビュー第6回 I-2、最優先・唯一のP0級の実害。2026-09-10完了。距離木のコスト配列へ0次フィルタのinf化を適用[`_LegCostComposer.lazy_hard_filter_excluded`]。欠陥を仕様として固定していたテストを3本へ整理し、修正を外すと落ちることを確認。backend 1,735 passed）
 - [x] [T697](tasks/T697.md). 負の生値を持つ軸で分布プレビューが嘘の分布と正反対の助言を出す問題を直す 規模M（統合レビュー第6回 I-6。2026-09-10完了。ヒストグラムの階級をデータの値域から決める形へ[0は常に範囲へ含める]、zero_shareをv==0へ、sample_ways=0を空状態として言葉で示す。axis_preview_serviceのbackendテストを13件新設[従来0件]し下限0固定へ戻すと落ちることを確認。backend 1,751 passed・frontend 1,146 passed）
 - [x] [T698](tasks/T698.md). 生値の精度をdifficulty用の丸めから分離する 規模M（統合レビュー第6回 I-5。2026-09-10完了。weighted_mean_by_distance[丸めない]を切り出し、difficulty系は小数1桁・生値/材料値は有効数字4桁へ。frontendの表示も1未満は有効数字2桁を残す形へ。backend 1,754 passed・frontend 1,147 passed）
-- [ ] [T699](tasks/T699.md). 蛇行軸の配線を最後まで通す（3箇所の欠けが互いの検知を打ち消している） 規模M（統合レビュー第6回 I-4。refresh_derivedの_STAGES未登録／カバレッジ診断がroad_edgesでなくway_geometryを見る／EdgeMaterialTable.get()の材料復元漏れ。どれか1つでも正しければ気づけた）
+- [x] [T699](tasks/T699.md). 蛇行軸の配線を最後まで通す（3箇所の欠けが互いの検知を打ち消している） 規模M（2026-09-10完了。_STAGESへ⑫precompute_edge_curvatureを登録しファイル一覧との突き合わせテストを追加、カバレッジをroad_edges側で集計、EdgeMaterialTable.get()の復元漏れを型駆動の往復テストごと修正。派生3件[OFFSETページング→stream_id_chunks、way_geometryの2状態契約、graph_material_cacheの列挙]も同時に解消。本番バッチ適用は未実施でT699本文へ記載）
 
 ### 第2段: 検知の空白を埋める
 
@@ -1112,4 +1112,5 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 
 - [ ] [T714](tasks/T714.md). precompute系バッチの長時間トランザクションを観測できるようにする 規模S（統合レビュー第6回）— トリガー: 本番でidle in transaction起因のテーブル肥大化、またはidle_in_transaction_session_timeoutによる中断が実際に観測された時点。T660の実測根拠（peak 55.9MB→1.1MB）が上回るため方式は変えない
 - [ ] [T715](tasks/T715.md). 数値入力プリミティブ（NumberField/SliderNumberField）を共有部品へ出す 規模S（統合レビュー第6回、T713より分離）— トリガー: 3箇所目の「制御された数値入力が入力途中を食う」問題が出た時点。現在2箇所でUXが異なり、どちらへ寄せるかが決まらない
+- [ ] [T717](tasks/T717.md). 本番へprecompute_edge_curvatureを適用し蛇行軸の欠損を解消する 規模S（[T699](tasks/T699.md)から分離。コードの配線は完了済みで、本番DBへのバッチ適用とTILE_MATERIALS_CACHE_VERSIONの引き上げが残る）
 - [ ] [T716](tasks/T716.md). domain/material_catalog.pyへ規模ウォッチの個別閾値を設定する 規模S（統合レビュー第6回。1,003行で「1,000行の新規超過」に発火。宣言的カタログで成長が材料数に比例するため(c)閾値付きKEEPと判断。**提案値1,400行はユーザー承認が要る**）

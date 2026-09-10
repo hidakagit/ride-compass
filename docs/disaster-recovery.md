@@ -20,10 +20,11 @@ CLAUDE.md「コミット時の同期ルール」・[deployment-sync.md](deployme
 ```
 
 `refresh_derived.py`（`app/batch/refresh_derived.py`）は依存DAG
-（[batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)）の④〜⑩
+（[batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)）の④〜⑫
 （`presplit_road_graph`→`precompute_road_node_degrees`→
 `precompute_edge_attribute_counts`→`precompute_elevation_attributes`→
-`precompute_way_attribute_counts`→`match_designations`→`precompute_way_landcover`）を
+`precompute_way_attribute_counts`→`match_designations`→`precompute_way_landcover`→
+`precompute_way_curvature`→`precompute_edge_curvature`）を
 依存順に1コマンドで実行する。①〜③（生データ取込そのもの）は対象外——個別のファイル・
 年次・kind指定を要するため。⑩`precompute_way_landcover`だけラスタファイルの手動取得
 （下記「4. refresh_derived.py」節参照）を要するため、未整備の環境では`--skip-landcover`で
