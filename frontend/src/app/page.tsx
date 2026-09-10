@@ -1348,7 +1348,12 @@ export default function Home() {
         startTime: dynamicLayerTargetTime,
         penaltyStrength: 1.0,
         hardFilters,
-        lensAxisId: lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? lens : null,
+        // 軸カタログ未取得のまま軸idを送ると、backendは存在しない軸idを黙って無視する
+        // （road_graph_engine.py: AXIS_DEFINITIONS.get(lens_axis_id)、422にはならない）。
+        // route_preferenceと同じく、カタログが未確定の間は送らない——選んだ軸で塗られない
+        // 事実が手掛かり無しで起きるのを避ける（失敗自体はRouteSettingsPanelが表示する）。
+        lensAxisId:
+          axisCatalog.loaded && lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? lens : null,
         // 軸カタログ未取得のままキー整合を行うと静的フォールバック（既存軸）に合わせて
         // 書き換えてしまうため、その場合はroute_preference自体を省略しbackendの既定値
         // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）へ委ねる。

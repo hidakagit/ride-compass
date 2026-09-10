@@ -82,6 +82,51 @@ describe("RouteSettingsPanel", () => {
     __resetAxisCatalogStoreForTests();
   });
 
+  describe("軸カタログの取得失敗", () => {
+    // 取得できていない間、重み配分は編集できるがhandleGenerateが送信時に省略するため、
+    // 黙って捨てられていることに気づけない（実験結果を取り違える）。
+    it("失敗を利用者へ見せ、再試行で通常表示へ戻る", async () => {
+      vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
+
+      render(
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={{ gradient: 0.5 }}
+          onRoutePreferenceChange={vi.fn()}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+        />,
+      );
+
+      const notice = await screen.findByText(/軸一覧を取得できませんでした/);
+      expect(notice).toBeTruthy();
+
+      vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse(["gradient", "surface_q"]));
+      await userEvent.click(screen.getByRole("button", { name: "再試行" }));
+
+      await waitFor(() => expect(screen.queryByText(/軸一覧を取得できませんでした/)).toBeNull());
+    });
+
+    it("取得成功時は何も出さない", async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
+
+      render(
+        <RouteSettingsPanel
+          hardFilters={DEFAULT_HARD_FILTERS}
+          onHardFiltersChange={vi.fn()}
+          routePreference={{ gradient: 0.5, surface_q: 0.5 }}
+          onRoutePreferenceChange={vi.fn()}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
+      expect(screen.queryByText(/軸一覧を取得できませんでした/)).toBeNull();
+    });
+  });
+
   it("カタログから消えた軸（unpublish後）のキーをroutePreferenceから取り除く", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
     const onRoutePreferenceChange = vi.fn();

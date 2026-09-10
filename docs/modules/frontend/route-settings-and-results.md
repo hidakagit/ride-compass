@@ -87,8 +87,8 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 構造的に起こらない）。同時に飛んでいる（未解決の）フェッチはモジュールレベル変数
 `inFlightCatalogFetch`で重複排除する。永続キャッシュはしない（軸スタジオでの公開操作を
 再デプロイなしに反映するため、後続の別マウント[モバイルのBottomSheetを開き直す等]では
-改めて最新を取得する）が、フェッチ失敗時は共有ストアを書き換えない（他の呼び出し元が
-既に取得済みの正常なカタログを、失敗した側の再フェッチが巻き戻すことはない）。
+改めて最新を取得する）が、フェッチ失敗時は取得済みの正常なカタログを巻き戻さない
+（他の呼び出し元が既に取得していれば、失敗した側の再フェッチはストアを書き換えない）。
 
 **暗黙の前提（`loaded`フラグの意味）**: `AxisCatalog.loaded`は「取得成功し他フィールドが
 実際のDB由来の値であること」を表す。`loaded=false`（未取得/失敗）の間は他フィールドが
@@ -96,6 +96,17 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 いなければならない」処理（`route_preference`のキー整合等）ではこのフラグで未確定状態を
 区別しなければならない。取得成功時に軸が0件（全軸非公開）であっても`loaded=true`になる
 （0件も確定した実際の状態のため）。
+
+`loaded`と対になる`failed`は「取得を試みて失敗し、まだ一度も成功していない」を表す
+（未取得=両方false／成功=`loaded`のみ／失敗=`failed`のみ）。この状態でも重み配分は
+編集できてしまうが、`page.tsx: handleGenerate`は`loaded`ガードにより`route_preference`と
+`lens_axis_id`を送らず、backendの既定配分で探索される。黙って捨てると「重みを変えたのに
+結果が変わらない」を実験の差だと取り違えるため、`RouteSettingsPanel`が失敗の表示と
+再試行導線（`retryAxisCatalogFetch`、成功済みなら何もしない）を出す。
+
+`lens_axis_id`にも同じガードを掛けるのは、backendが存在しない軸idを422にせず黙って
+無視する（`services/road_graph_engine.py`の`AXIS_DEFINITIONS.get(lens_axis_id)`）ため——
+送ってしまうと「選んだ軸で塗られない」が手掛かり無しで起きる。
 
 ## WindBearingSlider.tsx（走行方位ダイヤル）／TravelBearingControl.tsx（地図上の入口）
 

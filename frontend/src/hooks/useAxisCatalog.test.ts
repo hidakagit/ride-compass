@@ -9,7 +9,7 @@ vi.mock("@/services/axisCatalogApi", () => ({
 }));
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { __resetAxisCatalogStoreForTests, useAxisCatalog } from "./useAxisCatalog";
+import { __resetAxisCatalogStoreForTests, retryAxisCatalogFetch, useAxisCatalog } from "./useAxisCatalog";
 
 // 改善計画T527: フェッチ結果をモジュールレベルの共有ストアへ変更したため、前のテストの
 // 解決済みカタログが次のテストの初期値へ持ち越されないよう、テストごとにリセットする。
@@ -143,6 +143,39 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     expect(result.current.rampAxes.every((axis) => axis.axisId !== "gui_published_axis")).toBe(true);
   });
 
+  it("フェッチ失敗はfailed=trueとして表面化する（未取得[両方false]と区別できる）", async () => {
+    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("network error"));
+
+    const { result } = renderHook(() => useAxisCatalog());
+
+    await waitFor(() => expect(result.current.failed).toBe(true));
+    expect(result.current.loaded).toBe(false);
+  });
+
+  it("retryAxisCatalogFetchは再取得し、成功すればfailedが下りてカタログが入れ替わる", async () => {
+    vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
+    const { result } = renderHook(() => useAxisCatalog());
+    await waitFor(() => expect(result.current.failed).toBe(true));
+
+    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
+    retryAxisCatalogFetch();
+
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.failed).toBe(false);
+    expect(result.current.axes).toHaveLength(2);
+  });
+
+  it("取得成功後のretryAxisCatalogFetchは再取得しない（既に確定しているため）", async () => {
+    vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
+    const { result } = renderHook(() => useAxisCatalog());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
+
+    retryAxisCatalogFetch();
+
+    expect(vi.mocked(getAxisCatalog).mock.calls.length).toBe(callsBefore);
+  });
+
   it("コードレビュー指摘の修正確認: 同時にマウントされた複数の呼び出し元は1回のフェッチを共有する", async () => {
     // page.tsx・RouteSettingsPanel.tsxが同時にuseAxisCatalog()を呼ぶ初回描画のシナリオ
     // （以前は呼び出し元の数だけGET /api/axis-catalogが同時に飛んでいた）。
@@ -201,6 +234,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     // secondの再フェッチが失敗しても、firstが既に取得していた2軸のカタログのまま
     // （静的フォールバックの7軸へ巻き戻らない）。
     expect(first.result.current.loaded).toBe(true);
+    expect(first.result.current.failed).toBe(false);
     expect(first.result.current.axes).toHaveLength(2);
     expect(second.result.current.axes).toHaveLength(2);
   });

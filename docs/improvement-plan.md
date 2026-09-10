@@ -1094,7 +1094,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 - [x] [T701](tasks/T701.md). 「表示範囲が広すぎます」の案内を軸レイヤーへ配線する 規模S〜M（2026-09-10完了。isRoadSurfaceGroupVisibleの第1引数をpropsの形[RoadSurfaceGroupState]へ変え、軸の表示状態を渡さないとコンパイルが通らない形で合流を強制。矛盾コメント2箇所を整理し、static-map-layers.mdへ案内の節を新設）
 - [x] [T702](tasks/T702.md). nextを16.3.4へ更新する（critical 1件の解消） 規模S（統合レビュー第6回 I-9の分割。2026-09-10完了。critical 2→1・high 3→0。推移依存のhigh 2件もnpm audit fix[--forceなし]で解消し直接依存の版は不変。残るcriticalはmaplibre-glのみでT703へ分離済み）
 - [ ] [T703](tasks/T703.md). maplibre-glを6系へ更新する（XSS Sanitizer Bypass、CVSS 10） 規模M（統合レビュー第6回 I-9の分割）— トリガー: 一般公開の意思決定、またはT702完了後に独立タスクとして着手できる余力ができた時点。**到達経路は実在する**（ポップアップに出るOSMタグは第三者が編集できる）
-- [ ] [T704](tasks/T704.md). 軸カタログ取得失敗を利用者に見せる（重み設定が無言で捨てられる） 規模S〜M（統合レビュー第6回 I-10。フェッチは1回きりで再試行せず、失敗すると重みが省略されbackend既定値で探索されるが画面に何も出ない。研究フェーズでは実験結果を取り違える）
+- [x] [T704](tasks/T704.md). 軸カタログ取得失敗を利用者に見せる（重み設定が無言で捨てられる） 規模S〜M（2026-09-10完了。AxisCatalogへfailedを追加し、RouteSettingsPanelが失敗表示と再試行導線[retryAxisCatalogFetch]を出す。lensAxisIdにもloadedガードを掛け、backendが未知の軸idを黙って無視する非対称を解消）
 - [ ] [T705](tasks/T705.md). review_checks.pyの検知範囲を広げる（検知器自身の適用範囲の穴） 規模M（統合レビュー第6回、T693の後。NARRATIVE_PATTERNに時制表現が無い／未定義CSSトークン検知が.tsxとフォールバック付き参照を見ない／死んだ参照がファイル名しか見ない。T656・T675の直後に別の穴から再発している）
 - [ ] [T706](tasks/T706.md). CIが検証するNodeと本番が動かすNodeを揃える 規模S（統合レビュー第6回。CI 22 / Dockerfile 20で、package.jsonにenginesが無く機械的に止まらない）
 

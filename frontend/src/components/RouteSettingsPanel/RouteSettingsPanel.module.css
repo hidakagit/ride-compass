@@ -287,3 +287,34 @@
   padding: 0.2rem 0.6rem;
   cursor: pointer;
 }
+
+/* 軸カタログの取得失敗。重み配分の編集はできてしまうが送信時に省略されるため、
+   何が起きるかを先に見せる。 */
+.catalogErrorNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  color: var(--color-warning-strong);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.catalogErrorRetry {
+  flex: none;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--color-warning-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-warning-strong);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.catalogErrorRetry:hover {
+  background: var(--color-warning);
+  color: var(--color-surface);
+}

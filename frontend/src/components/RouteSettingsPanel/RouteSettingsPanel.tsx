@@ -6,7 +6,7 @@ import InfoPopover from "@/components/Map/InfoPopover";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
-import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -302,6 +302,21 @@ export default function RouteSettingsPanel({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* 軸カタログを取得できていない間、重み配分は編集できるが送信時に省略され
+          （page.tsx: handleGenerateの`axisCatalog.loaded`ガード）、backendの既定配分で
+          探索される。黙って捨てると「重みを変えたのに結果が変わらない」を実験の差だと
+          取り違えるため、何が起きるかと再試行導線を先に見せる。 */}
+      {catalog.failed && (
+        <p className={styles.catalogErrorNotice} role="status">
+          <span>
+            軸一覧を取得できませんでした。このまま生成すると重み配分は反映されず、
+            サーバー既定の配分で探索します。
+          </span>
+          <button type="button" className={styles.catalogErrorRetry} onClick={retryAxisCatalogFetch}>
+            再試行
+          </button>
+        </p>
+      )}
       <div className={styles.stackBarWrap}>
         <div className={styles.stackBarHeader}>
           <p className={styles.sectionLabel}>重み配分</p>

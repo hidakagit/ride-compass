@@ -78,6 +78,7 @@ vi.mock("@/services/axisCatalogApi", () => ({
 }));
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
+import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
 import Home from "./page";
 
@@ -601,6 +602,58 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         expect.anything(),
       );
     });
+  });
+
+  // 軸カタログが未確定（取得失敗）の間は、カタログ由来の識別子（route_preference・
+  // lens_axis_id）を送らない。backendは存在しない軸idを422にせず黙って無視するため、
+  // 送ってしまうと「選んだ軸で塗られない」が手掛かり無しで起きる。
+  it("軸カタログの取得に失敗した状態ではlens_axis_id/route_preferenceを送らない", async () => {
+    const user = userEvent.setup();
+    // ビルド時静的カタログに実在する軸をレンズとして保存済みにする（未知idなら
+    // page.tsx側のフォールバックで総合難易度へ戻り、このテストが恒真になる）。
+    const staticAxisId = axisCatalogStatic.axes[0].axis_id;
+    window.localStorage.setItem("ridecompass:route-style-mode", staticAxisId);
+    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("network error"));
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => expect(generateRoutes).toHaveBeenCalled());
+    // generationRequest.tsはnullのフィールドをキーごと省く（`lens_axis_id`が
+    // undefined＝送っていない）。同ファイルのテストと同じ確かめ方。
+    const request = vi.mocked(generateRoutes).mock.calls[0][0];
+    expect(request.lens_axis_id).toBeUndefined();
+    expect(request.route_preference).toBeUndefined();
+    window.localStorage.clear();
+  });
+
+  it("軸カタログの取得に成功していればlens_axis_idを送る", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("ridecompass:route-style-mode", "gui_created_axis");
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({ lens_axis_id: "gui_created_axis" }),
+        expect.anything(),
+      );
+    });
+    window.localStorage.clear();
   });
 
   it("生成リクエストに巡航速度(assumed_speed_kmh)の既定値と出発時刻(start_time)を含める", async () => {

@@ -55,6 +55,13 @@ export interface AxisCatalog {
    * 未確定状態を区別しなければならない。取得成功時にaxesが0件（全軸非公開）であっても
    * trueになる（0件も確定した実際の状態のため）。 */
   loaded: boolean;
+  /** GET /api/axis-catalogの取得を試みて失敗し、まだ一度も成功していないことを表す。
+   * `loaded`とは同時にtrueにならない（未取得=両方false、成功=loadedのみ、失敗=failedのみ）。
+   * この状態では他フィールドが静的フォールバックのため、`loaded`を要求する処理
+   * （route_preference・lens_axis_idの送信）は黙って省略される。利用者へ何も知らせないと
+   * 「重みを設定したのに反映されない」ことに気づけないため、UIはこのフラグで失敗と
+   * 再試行導線を見せる（RouteSettingsPanel.tsx）。 */
+  failed: boolean;
 }
 
 const FALLBACK_CATALOG: AxisCatalog = {
@@ -66,6 +73,7 @@ const FALLBACK_CATALOG: AxisCatalog = {
   secondaryAxes: SECONDARY_AXES,
   routeStyleModes: ROUTE_STYLE_MODES,
   loaded: false,
+  failed: false,
 };
 
 /** GET /api/axis-catalogのAxisCatalogEntry（displayが必ず非null）を、axisLayers.ts/
@@ -145,6 +153,7 @@ function buildCatalog(
     secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
     routeStyleModes: routeStyleModesFromCatalogAxes(catalogAxes),
     loaded: true,
+    failed: false,
   };
 }
 
@@ -199,6 +208,33 @@ export function __resetAxisCatalogStoreForTests(): void {
   inFlightCatalogFetch = null;
 }
 
+function loadAxisCatalog(): void {
+  fetchAxisCatalogDeduped()
+    .then((response) => {
+      // 取得成功時はaxesが空でもそのままbuildCatalogへ渡す（フェッチ未完了・失敗時のみ
+      // 静的フォールバックに留まる、という区別に一本化する——「まだ取得中/取得失敗」と
+      // 「取得成功したが軸が0件（全軸非公開）」を同一視すると、軸スタジオで全軸を
+      // 非公開にしても静的フォールバックの軸が表示され続けてしまう）。
+      publishCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
+    })
+    .catch(() => {
+      // 他の呼び出し元が既に取得済みの正常なカタログは、この呼び出し元だけの失敗で
+      // 巻き戻さない。まだ一度も成功していない場合だけ、失敗したことをUIへ見せられるよう
+      // フラグを立てる（フェッチ自体の記録はfetchJsonがdebugLogへ済ませている）。
+      if (!sharedCatalog.loaded && !sharedCatalog.failed) {
+        publishCatalog({ ...sharedCatalog, failed: true });
+      }
+    });
+}
+
+/** 軸カタログの取得をやり直す（`failed`状態からの明示的な再試行導線用）。
+ * 既に成功していれば何もしない。再取得中は`failed`を下ろし、UIが「取得中」へ戻る。 */
+export function retryAxisCatalogFetch(): void {
+  if (sharedCatalog.loaded) return;
+  publishCatalog({ ...sharedCatalog, failed: false });
+  loadAxisCatalog();
+}
+
 /** 軸カタログ。マウント時に一度`GET /api/axis-catalog`を取得し、軸スタジオがDBへ
  * 追加・公開した軸を反映する（is_publishedの切替も含め、再デプロイ不要で即座に
  * 反映される）。取得完了までとエラー時はビルド時点の静的カタログ（フォールバック）を
@@ -215,19 +251,7 @@ export function __resetAxisCatalogStoreForTests(): void {
  * このフックはそれを消費しない。 */
 export function useAxisCatalog(): AxisCatalog {
   useEffect(() => {
-    fetchAxisCatalogDeduped()
-      .then((response) => {
-        // 取得成功時はaxesが空でもそのままbuildCatalogへ渡す（フェッチ未完了・失敗時のみ
-        // FALLBACK_CATALOGに留まる、という区別に一本化する——「まだ取得中/取得失敗」と
-        // 「取得成功したが軸が0件（全軸非公開）」を同一視すると、軸スタジオで全軸を
-        // 非公開にしても静的フォールバックの軸が表示され続けてしまう）。
-        publishCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
-      })
-      .catch(() => {
-        // 取得失敗時は共有ストアを書き換えない（fetchJsonが既にdebugLogへ記録済み。
-        // 他の呼び出し元が既に取得済みの正常なカタログを、この呼び出し元だけの
-        // 失敗で巻き戻さないため）。
-      });
+    loadAxisCatalog();
   }, []);
 
   return useSyncExternalStore(subscribeToCatalog, getCatalogSnapshot, getCatalogServerSnapshot);
