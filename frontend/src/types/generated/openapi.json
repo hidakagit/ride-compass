@@ -1485,7 +1485,7 @@
     "/api/admin/material-catalog/coverage": {
       "get": {
         "summary": "Get Material Coverage",
-        "description": "全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。\n\n同じ材料カタログの読み取りAPIでも、上の2エンドポイントと異なりBasic認証を要求する:\nosm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると\n繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。\nDB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。",
+        "description": "全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。\n\n読み取り専用のAPIだがBasic認証を要求する:\nosm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると\n繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。\nDB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。",
         "operationId": "get_material_coverage_api_admin_material_catalog_coverage_get",
         "responses": {
           "200": {
@@ -4101,7 +4101,7 @@
         },
         "type": "object",
         "title": "RoutePreferenceWeights",
-        "description": "Edge評価・区間難易度（絶対評価、evaluate_graph/難易度合成）の重み。\nキーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、\n`domain/evaluation.py: RoutePreference`と同じ。\n\n軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの\n改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、\n既知の全axis_idを明示することを検証で強制する（上書きするなら全軸を明示する、\nという方針）。値は非負。"
+        "description": "Edge評価・区間難易度（絶対評価、evaluate_graph/難易度合成）の重み。\nキーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、\n`domain/route_preference.py: RoutePreference`と同じ。\n\n軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの\n改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、\n既知の全axis_idを明示することを検証で強制する（上書きするなら全軸を明示する、\nという方針）。値は非負。"
       },
       "RoutePreviewRequest": {
         "properties": {

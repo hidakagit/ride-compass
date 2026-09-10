@@ -691,7 +691,7 @@ export interface paths {
          * Get Material Coverage
          * @description 全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。
          *
-         *     同じ材料カタログの読み取りAPIでも、上の2エンドポイントと異なりBasic認証を要求する:
+         *     読み取り専用のAPIだがBasic認証を要求する:
          *     osm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると
          *     繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
          *     DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
@@ -1771,7 +1771,7 @@ export interface components {
          * RoutePreferenceWeights
          * @description Edge評価・区間難易度（絶対評価、evaluate_graph/難易度合成）の重み。
          *     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
-         *     `domain/evaluation.py: RoutePreference`と同じ。
+         *     `domain/route_preference.py: RoutePreference`と同じ。
          *
          *     軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの
          *     改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、
