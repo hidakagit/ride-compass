@@ -38,6 +38,33 @@ function dist(bins: [number, number, number][]): ValueDistribution {
 }
 
 describe("scoreBands", () => {
+  // 統合レビュー第6回の指摘I-6: 生値が負になる軸（openness等）でbackendが下限0の
+  // 階級を返していたため、全量が1本の階級へ潰れ「100点 100%」＋「上限を高くしろ」という
+  // 事実と正反対の助言が出ていた。backend側で階級の下限をデータ下端から取るようにした
+  // ため、負の値域でも折れ点どおりに振り分けられる。
+  it("負の値域の階級を折れ点どおりに振り分ける", () => {
+    const breakpoints: [number, number][] = [
+      [-100, 0],
+      [-80, 30],
+      [-20, 100],
+    ];
+    const bands = scoreBands(
+      dist([
+        [-160, -140, 0.25], // 中央-150 → 下限クランプで0点
+        [-90, -70, 0.25], // 中央-80 → 30点（1-25の外、26-50）
+        [-30, -10, 0.25], // 中央-20 → 100点
+        [-10, 0, 0.25], // 中央-5 → 上限クランプで100点
+      ]),
+      breakpoints,
+    );
+    const share = (label: string) => bands.find((b) => b.label === label)!.share;
+    expect(share("0点")).toBeCloseTo(0.25);
+    expect(share("26-50")).toBeCloseTo(0.25);
+    expect(share("100点")).toBeCloseTo(0.5);
+    // 全量が満点へ張り付いていないこと（誤った助言の起点になっていた状態）。
+    expect(share("100点")).toBeLessThan(1);
+  });
+
   it("生値の階級を折れ点で得点帯へ振り分け、延長の割合を保つ", () => {
     const bands = scoreBands(
       dist([

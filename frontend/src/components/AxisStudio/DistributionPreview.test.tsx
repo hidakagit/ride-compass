@@ -14,6 +14,23 @@ function dist(bins: [number, number, number][]): ValueDistribution {
 }
 
 describe("DistributionPreview", () => {
+  // 統合レビュー第6回の指摘I-6: ルート文脈が要る材料（勾配・風）はWay単位では値が
+  // 定まらず、抽選した道が1本も値を持たない。以前は全帯0.0%のバーと「0本（0km）」を
+  // 出しており「分布はあるが全部0」と読めてしまっていた。
+  it("抽選した道が1本も値を持たないときは、分布を出せない理由を言葉で示す", () => {
+    const empty: ValueDistribution = {
+      sample_ways: 0,
+      total_km: 0,
+      quantiles: {},
+      bins: [],
+      zero_share: 0,
+    };
+    render(<DistributionPreview distribution={empty} breakpoints={BP} loading={false} error={null} />);
+
+    expect(screen.getByText(/値が定まらない/)).toBeInTheDocument();
+    expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
+  });
+
   it("読込中・分布なし・失敗をそれぞれ言葉で示す（黙って空にしない）", () => {
     const { rerender } = render(
       <DistributionPreview distribution={null} breakpoints={BP} loading error={null} />,

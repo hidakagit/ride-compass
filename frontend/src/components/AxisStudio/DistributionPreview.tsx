@@ -33,6 +33,14 @@ export function DistributionPreview({ distribution, breakpoints, loading, error 
         <p className={styles.note}>実データを集計中…</p>
       ) : !distribution ? (
         <p className={styles.note}>材料を選ぶと、実データでの分布が出ます。</p>
+      ) : distribution.sample_ways === 0 ? (
+        // 抽選した道が1本も値を持たない状態。ルート文脈が要る材料（勾配・風）は
+        // Way単位では値が定まらないため、この軸では常にここへ来る。
+        // 全帯0.0%のバーと「0本（0km）」を出すと「分布はあるが全部0」と読めてしまう。
+        <p className={styles.note}>
+          この軸の材料はWay単位では値が定まらないため（ルートの走行方向・時刻が要る材料など）、
+          実データでの分布を出せません。
+        </p>
       ) : (
         <>
           <p className={styles.note}>

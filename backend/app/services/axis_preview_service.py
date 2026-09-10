@@ -42,12 +42,17 @@ HISTOGRAM_BINS = 60
 
 @dataclass(frozen=True, slots=True)
 class ValueDistribution:
-    """延長で重み付けた分布。`bins`は`(下限, 上限, その階級が占める延長の割合)`。"""
+    """延長で重み付けた分布。`bins`は`(下限, 上限, その階級が占める延長の割合)`。
+
+    `bins`の範囲はデータの値域から決まり、**負の生値を持つ軸では下限も負になる**
+    （0は常に範囲へ含む）。消費側が「下限は常に0」を前提にしないこと。
+    """
 
     sample_ways: int
     total_km: float
     quantiles: dict[str, float]
     bins: list[tuple[float, float, float]]
+    # 値がちょうど0である延長の割合（負の値は含まない）。
     zero_share: float
 
 
@@ -126,19 +131,33 @@ def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
         quantiles[targets[index][0]] = round(ordered[-1][1], 3)
         index += 1
 
-    upper = max(ordered[-1][1], quantiles["p99"])
-    # 上端の外れ値でヒストグラムが潰れないよう、p99の少し上までを描画範囲にする。
-    upper = quantiles["p99"] * 1.2 if quantiles["p99"] > 0 else max(upper, 1.0)
-    width = upper / HISTOGRAM_BINS if upper > 0 else 1.0
+    # 描画範囲は**データの値域から決める**。下限を0に固定すると、生値が負になる軸
+    # （termsの重みがすべて負の軸。`openness`・`bicycle_infra_quality`・`night`が該当し、
+    # うち2つは公開済み）で全サンプルが階級0へ潰れ、「1本だけの棒＝全量が同じ値」という
+    # 実態と異なる分布になる。0は常に範囲へ含める（「値0の道がどれだけあるか」は
+    # 折れ点を当てる際の基準になるため、片側に寄ったデータでも0の位置を見せる）。
+    lower = min(0.0, ordered[0][1])
+    # 上端の外れ値でヒストグラムが潰れないよう、p99の少し上までを描画範囲にする
+    # （下端側は分位を持たないためデータ下端をそのまま使う）。
+    upper = quantiles["p99"] * 1.2 if quantiles["p99"] > 0 else max(0.0, ordered[-1][1])
+    span = upper - lower
+    if span <= 0:
+        # 全サンプルが同じ値（かつ0）のとき。幅0だと除算できないため名目上の1を置く。
+        span = 1.0
+        upper = lower + span
+    width = span / HISTOGRAM_BINS
     buckets = [0.0] * HISTOGRAM_BINS
     for m, value in ordered:
-        i = min(HISTOGRAM_BINS - 1, int(value / width)) if width > 0 else 0
+        i = min(HISTOGRAM_BINS - 1, int((value - lower) / width))
         buckets[max(0, i)] += m
     bins = [
-        (round(i * width, 4), round((i + 1) * width, 4), round(b / total_m, 5))
+        (round(lower + i * width, 4), round(lower + (i + 1) * width, 4), round(b / total_m, 5))
         for i, b in enumerate(buckets)
     ]
-    zero_share = sum(m for m, v in ordered if v <= 0) / total_m
+    # 「ゼロ」は値がちょうど0であること。`v <= 0`にすると負の生値を持つ軸で
+    # 「下り勾配の道」「開けていない道」まで0として数えられ、表示（「ゼロX%」）が
+    # 意味と食い違う。
+    zero_share = sum(m for m, v in ordered if v == 0) / total_m
     return ValueDistribution(
         sample_ways=len(pairs),
         total_km=round(total_m / 1000, 1),
