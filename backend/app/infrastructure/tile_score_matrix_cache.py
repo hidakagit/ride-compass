@@ -76,7 +76,7 @@ _cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)
 # 下記`clear()`（`refresh_axis_definitions`経由の即時呼び出し）が担う。
 _CACHE_NAMESPACE = "score_matrix"
 # この行列の構築ロジック・入力（事前集計/派生データ）側の世代。上記のトリガーで手動で上げる。
-_SCORE_MATRIX_REVISION = "9"
+_SCORE_MATRIX_REVISION = "10"
 
 # 上の版が対応する`StaticEdgeScoreMatrix`の列構成の署名（列名を並べたもののSHA-1先頭12桁）。
 # この行列は`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で持つ
@@ -84,7 +84,7 @@ _SCORE_MATRIX_REVISION = "9"
 # 古いキャッシュを復元したときに後ろの列が欠けたまま実体化し、最初にその列へ触れた場所で
 # AttributeErrorになる。ディスクキャッシュはデプロイをまたいで残るため、列を変えたら必ず
 # 版を上げること。`tests/test_tile_score_matrix_cache.py`が照合する。
-SCORE_MATRIX_COLUMN_SIGNATURE = "118e4ccf784a"
+SCORE_MATRIX_COLUMN_SIGNATURE = "81d37633c8d2"
 # 実際のキャッシュ世代は材料側（`graph_material_cache`）の世代との複合にする。この行列は
 # 材料から導出される派生物で、材料のedge_id集合が変われば必ず無効になるため——単独の
 # 文字列にすると、PBF再取込・presplitで材料世代だけを上げたときにスコア行列だけが古い

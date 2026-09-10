@@ -67,6 +67,7 @@ import numpy as np
 from app.domain.time_zone import JST
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS, dynamic_axis_topological_order
+from app.domain.axis_display import axis_material_shares
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.dynamic_way_values import map_value_kind
 from app.domain.errors import RoutingError
@@ -202,9 +203,10 @@ class LegCostArrays:
     # 折れ点を通す前の生値（`full_edge_row`順）。静的スコア行列の列をそのまま指すため
     # レグ間で同じ配列を共有する（風のようにレグごとに変わる値は持たない）。
     axis_raw_arrays: dict[str, np.ndarray]
-    # `full_edge_row`順の動的材料id→配列（`evaluate_dynamic_material_arrays`が返す全材料が
-    # 対象、全行NaNの材料はキーを持たない）。区間表示・`material_values`の集計が、
-    # 探索コストの合成と同じ動的入力から求めた値を読むために保持する。
+    # `full_edge_row`順の材料id→配列。動的材料（`evaluate_dynamic_material_arrays`が返す
+    # 全材料が対象、全行NaNの材料はキーを持たない）と、内訳表示用の静的材料
+    # （`route_facing_material_ids`、静的スコア行列の列）の両方を持つ。区間表示・
+    # `material_values`の集計が、探索コストの合成と同じ入力から求めた値を読むために保持する。
     material_arrays: dict[str, np.ndarray]
     # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
     passage_hours: np.ndarray | None
@@ -235,6 +237,11 @@ class _LegCostComposer:
         self._axis_raw_arrays = {
             axis_id: score_matrix.axis_raw_values[:, i]
             for i, axis_id in enumerate(score_matrix.raw_axis_ids)
+        }
+        # 内訳として見せる静的材料の値（`route_facing_material_ids`の列をそのまま指す）。
+        self._static_material_arrays = {
+            material_id: score_matrix.material_values[:, i]
+            for i, material_id in enumerate(score_matrix.material_ids)
         }
         self._static_axis_scores = {
             axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
@@ -312,9 +319,14 @@ class _LegCostComposer:
         )
         cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
         material_arrays = {
-            material_id: resolved[material_id]
-            for material_id in REQUEST_DYNAMIC_MATERIAL_IDS
-            if material_id in resolved and not np.all(np.isnan(resolved[material_id]))
+            # 静的材料は静的スコア行列の列をそのまま指すためレグ間で共有する
+            # （動的材料と違いレグごとに変わらない）。
+            **self._static_material_arrays,
+            **{
+                material_id: resolved[material_id]
+                for material_id in REQUEST_DYNAMIC_MATERIAL_IDS
+                if material_id in resolved and not np.all(np.isnan(resolved[material_id]))
+            },
         }
         leg = LegCostArrays(
             label=label,
@@ -1679,6 +1691,10 @@ def _active_material_ids(weights: Mapping[str, float], lens_axis_id: str | None 
         if definition is None:
             continue
         material_ids.update(m for m in definition.materials if is_known_material(m))
+        # 軸参照を辿った先の材料（合成軸の内訳、`axis_material_shares`）。
+        # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
+        # 内部軸を経由する軸の内訳が1件も運ばれない。
+        material_ids.update(entry.material_id for entry in axis_material_shares(definition))
     if lens_axis_id is not None:
         lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
         if lens_definition is not None and map_value_kind(lens_definition) == "signed_material":

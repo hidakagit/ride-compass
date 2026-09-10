@@ -218,6 +218,18 @@ axis_admin API経由の変更後にこのダンプを忘れると、以後のfre
 [ルート設定・ルート結果（frontend）](../frontend/route-settings-and-results.md)が
 得点の隣へ生値を添えるのに使う。単位の無い数字は読み手が意味を取れないため出さない。
 
+### 材料単位への分解（`material_breakdown`）
+
+上の表で`None`になる軸は、代わりに`axis_material_shares`が軸を**材料まで分解**し、
+材料ごとの絶対量を並べられるようにする（同じ`axis_display.py`）。軸参照は葉の材料まで
+再帰的に辿り、途中の軸の得点は内訳に含めない。並びは各階層で正規化した重みの積の降順で、
+重み0の材料は含めない。参照材料が1件へ分解される軸は分解しない（軸単位の生値で足りる
+うえ、`shape.preprocess`が材料単位では効かない）。導出の根拠と、値の運搬・表示の詳細は
+[評価・スコアリング](evaluation-scoring.md)「ルート単位の集約」節を参照。
+
+`GET /api/axis-catalog`が`material_breakdown`として、材料id・表示名・型・単位・
+正規化重みの並びで配信する（フロントは材料の対応表も並べ替えも持たない）。
+
 ## 一次属性・二次軸レジストリ（`domain/registry.py`・`registry_defaults.py`、別系統）
 
 **`AXIS_DEFINITIONS`とは別の、並行するレジストリ機構**。`register_axis()`/

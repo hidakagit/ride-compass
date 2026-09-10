@@ -4,7 +4,11 @@ import InfoPopover from "@/components/Map/InfoPopover";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar from "./AxisContributionBar";
-import { formatAxisRawValue } from "./axisRawValue";
+import {
+  DEFAULT_BREAKDOWN_VISIBLE,
+  formatAxisRawValue,
+  formatMaterialBreakdown,
+} from "./axisRawValue";
 import styles from "./RouteAxisProfile.module.css";
 
 interface RouteAxisProfileProps {
@@ -23,6 +27,10 @@ interface RouteAxisProfileProps {
    * 値を持つ。得点は目盛りの引き方に依存する相対評価のため、軸単体で経路を判断するには
    * この絶対値が要る。 */
   axisRawValues: Record<string, number>;
+  /** RouteCandidate.material_values（材料id→距離加重平均の値）。生値の単位が定まらない軸は、
+   * 軸の内訳（PreferenceAxisDef.materialBreakdown）が挙げる材料の値をここから引いて出す。
+   * 真偽値材料は0/1で運ばれるため、平均がそのまま該当区間の延長割合になる。 */
+  materialValues: Record<string, number>;
   /** 経路の走行距離（km）。単位が「◯◯/km」の軸で、生値から経路全体の実数を出すのに使う。 */
   distanceKm: number | null;
   /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
@@ -45,6 +53,7 @@ export default function RouteAxisProfile({
   axes,
   weights,
   axisRawValues,
+  materialValues,
   distanceKm,
   axisDifficulties,
   axisContributions,
@@ -106,6 +115,14 @@ export default function RouteAxisProfile({
           // 得点の隣に、折れ点を通す前の生値を単位付きで添える。単位が定まらない軸
           // （合成軸等）はbackendがrawValueUnitを返さないため何も出ない。
           const rawText = formatAxisRawValue(axisRawValues[axis.axisId], axis.rawValueUnit, distanceKm);
+          // 単位が定まらない軸は、材料まで分解した内訳を代わりに出す（backendが
+          // materialBreakdownで並び順ごと返すため、ここでは並べ替えない）。行数を増やさない
+          // よう既定は先頭2件までで、残りは軸の説明ポップオーバーへ回す。
+          const breakdownTexts = (axis.materialBreakdown ?? [])
+            .map((entry) => formatMaterialBreakdown(entry, materialValues[entry.materialId]))
+            .filter((text): text is string => text !== null);
+          const visibleBreakdown = breakdownTexts.slice(0, DEFAULT_BREAKDOWN_VISIBLE);
+          const hiddenBreakdown = breakdownTexts.slice(DEFAULT_BREAKDOWN_VISIBLE);
           return (
             <li key={axis.axisId} className={styles.axisRow} data-unused={unused}>
               <span aria-hidden="true" className={styles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
@@ -124,11 +141,17 @@ export default function RouteAxisProfile({
                 contentClassName={styles.infoPopover}
               >
                 {axis.description}
+                {hiddenBreakdown.length > 0 && (
+                  <span className={styles.infoBreakdown}>{`この軸の内訳（続き）: ${hiddenBreakdown.join("・")}`}</span>
+                )}
               </InfoPopover>
               <span className={styles.axisValue}>{difficulty == null ? "—" : Math.round(difficulty)}</span>
               {/* 生値は行の2段目（値のある軸だけ）。1段目の列を占めないため軸名が省略されず、
                   右端で揃うので軸をまたいで読み比べられる。 */}
               {rawText && <span className={styles.axisRawValue}>{rawText}</span>}
+              {!rawText && visibleBreakdown.length > 0 && (
+                <span className={styles.axisRawValue}>{visibleBreakdown.join("・")}</span>
+              )}
             </li>
           );
         })}

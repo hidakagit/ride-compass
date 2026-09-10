@@ -15,7 +15,7 @@
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/routeTabLabel.ts` | 候補タブの「最短からの超過km」を組み立てる純関数（`shortestDistanceKm`・`extraDistanceLabel`）。タブ列自体はpage.tsxが組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
-| `components/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`・`totalUnitFor`）。「◯◯/km」の単位のときだけ走行距離を掛けて経路全体の実数を添える |
+| `components/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`・`totalUnitFor`）。「◯◯/km」の単位のときだけ走行距離を掛けて経路全体の実数を添える。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`と、行に出す既定件数`DEFAULT_BREAKDOWN_VISIBLE`も持つ |
 | `components/RouteAxisProfile/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
 | `components/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
@@ -166,8 +166,18 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   省略されるため——単位を削るのは情報を落とすことなので、段を分けて幅の取り合いから外す。
   得点0-100は目盛りの引き方に依存する相対評価
   でしかなく、それだけでは軸単体で経路の良し悪しを判断できないため
-  （[設計原則](../../design-principles.md)11）。単位が定まらない軸（合成軸等）は
-  backendが`raw_value_unit`にnullを返すため何も出ない——意味を取れない数字は並べない。
+  （[設計原則](../../design-principles.md)11）。
+- **内訳（単位が定まらない軸の2段目）**: `raw_value_unit`がnullの軸は、代わりに材料まで
+  分解した絶対量を同じ2段目へ並べる（`AxisCatalogEntry.material_breakdown` ×
+  `RouteCandidate.material_values`、`axisRawValue.ts: formatMaterialBreakdown`）。
+  表記は材料の型で決まり、軸ごとの対応表を持たない——numericは距離加重平均＋単位
+  （「制限速度 42km/h」）、booleanは該当区間の延長割合（「街灯あり 68%」。値が0/1で
+  運ばれるため平均がそのまま割合になる）。**並べ替えはしない**: backendが正規化重みの
+  降順で返す並びをそのまま先頭から使う。既定で行に出すのは`DEFAULT_BREAKDOWN_VISIBLE`件
+  （2件）までで、残りは軸の説明ポップオーバーへ回す——軸1本あたり最大5件あり、常に全件
+  並べると走行中に見る画面としての情報量を超えるため（[設計原則](../../design-principles.md)
+  「走行中に見るかを基準に情報量を絞る」）。値が来ない材料（categorical材料は数値列に
+  載らない）は飛ばす。
 - **負荷（難易度×距離）**: `RouteCandidate.difficulty_load`を総合難易度の隣へ併記する
   （(i)で意味を説明する）。総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
   「難所を通っても短いルート」と「遠回りで易しいルート」を見比べるための値

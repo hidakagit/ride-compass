@@ -87,6 +87,7 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     label: entry.label,
     description: entry.description,
     raw_value_unit: entry.raw_value_unit,
+    material_breakdown: entry.material_breakdown,
     category: entry.category,
     display: {
       kind: entry.display.kind,

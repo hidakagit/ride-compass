@@ -117,6 +117,15 @@ export interface CatalogAxis {
   // 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
   // 軸だけが持つ。ルート結果が得点の隣に生値を出すために使う。
   raw_value_unit?: string | null;
+  // 生値の単位が定まらない軸の内訳（GET /api/axis-catalogのmaterial_breakdown）。
+  // 材料まで分解した並びで、正規化重みの降順。フロントは並べ替えを持たず先頭から出す。
+  material_breakdown?: readonly {
+    material_id: string;
+    label: string;
+    dtype: string;
+    unit: string;
+    share: number;
+  }[];
   // コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的）。display.category
   // （地図レイヤーパネルのグルーピング用「terrain」「trafficSafety」等、別語彙）とは
   // 異なる概念。secondaryAxes.tsが「動的」軸（wind等、専用の動的UIを別途持つため

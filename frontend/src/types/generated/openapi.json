@@ -2117,6 +2117,13 @@
             ],
             "title": "Raw Value Unit"
           },
+          "material_breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/AxisMaterialBreakdownEntry"
+            },
+            "type": "array",
+            "title": "Material Breakdown"
+          },
           "dynamic_way_value_needs_time": {
             "type": "boolean",
             "title": "Dynamic Way Value Needs Time"
@@ -2150,6 +2157,7 @@
           "map_value_kind",
           "map_value_unit",
           "raw_value_unit",
+          "material_breakdown",
           "dynamic_way_value_needs_time",
           "dynamic_way_value_needs_bearing",
           "dynamic_way_value_needs_speed"
@@ -2666,6 +2674,40 @@
           "covered_weight_fraction"
         ],
         "title": "AxisInspectorResult"
+      },
+      "AxisMaterialBreakdownEntry": {
+        "properties": {
+          "material_id": {
+            "type": "string",
+            "title": "Material Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "dtype": {
+            "type": "string",
+            "title": "Dtype"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "share": {
+            "type": "number",
+            "title": "Share"
+          }
+        },
+        "type": "object",
+        "required": [
+          "material_id",
+          "label",
+          "dtype",
+          "unit",
+          "share"
+        ],
+        "title": "AxisMaterialBreakdownEntry",
+        "description": "合成軸の内訳1件（材料と、その材料が軸の生値に占める割合）。"
       },
       "AxisPreviewRequest": {
         "properties": {

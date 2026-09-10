@@ -19,6 +19,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
     axisDifficulties: { car_stress: 72.4, night: 5.8 },
     axisContributions: { car_stress: 36.2, night: 2.9 },
     axisRawValues: {},
+    materialValues: {},
     distanceKm: 30,
     overallDifficulty: 46,
     difficultyLoad: null,
@@ -136,5 +137,102 @@ describe("軸単体で判断するための生値", () => {
     render(<RouteAxisProfile {...baseProps({ axisRawValues: { night: 1.5 }, distanceKm: 30 })} />);
 
     expect(screen.queryByText(/回\/km/)).not.toBeInTheDocument();
+  });
+
+  it("単位が定まらない軸は、材料まで分解した内訳を得点の隣に出す（既定は2件まで）", async () => {
+    // 真偽値材料の値は0/1で運ばれるため、距離加重平均がそのまま延長割合になる。
+    const axes: PreferenceAxisDef[] = [
+      {
+        axisId: "night",
+        label: "夜間",
+        description: "夜間の暗さの説明",
+        dedicatedWayValueLayer: false,
+        rawValueUnit: null,
+        materialBreakdown: [
+          { materialId: "lit", label: "街灯あり", dtype: "boolean", unit: "", share: 0.5 },
+          { materialId: "has_tunnel", label: "トンネル", dtype: "boolean", unit: "", share: 0.5 },
+          { materialId: "maxspeed_kmh", label: "制限速度", dtype: "numeric", unit: "km/h", share: 0.2 },
+        ],
+      },
+    ];
+
+    render(
+      <RouteAxisProfile
+        {...baseProps({
+          axes,
+          weights: { night: 0.5 },
+          axisDifficulties: { night: 40 },
+          axisContributions: { night: 20 },
+          materialValues: { lit: 0.68, has_tunnel: 0.02, maxspeed_kmh: 42.3 },
+        })}
+      />
+    );
+
+    const item = within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem")[0];
+    expect(item).toHaveTextContent("街灯あり 68%・トンネル 2%");
+    // 3件目は行に出さず、軸の説明ポップオーバーへ回す。
+    expect(item).not.toHaveTextContent("制限速度 42km/h");
+    await userEvent.click(screen.getByRole("button", { name: "夜間の説明を表示" }));
+    expect(screen.getByText(/制限速度 42km\/h/)).toBeInTheDocument();
+  });
+
+  it("単位が定まる軸は内訳ではなく従来どおり軸単位の生値を出す", () => {
+    const axes: PreferenceAxisDef[] = [
+      {
+        axisId: "gradient",
+        label: "勾配",
+        description: "勾配の説明",
+        dedicatedWayValueLayer: true,
+        rawValueUnit: "%",
+        materialBreakdown: [],
+      },
+    ];
+
+    render(
+      <RouteAxisProfile
+        {...baseProps({
+          axes,
+          weights: { gradient: 0.5 },
+          axisDifficulties: { gradient: 30 },
+          axisContributions: { gradient: 15 },
+          axisRawValues: { gradient: 3.2 },
+        })}
+      />
+    );
+
+    const item = within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem")[0];
+    expect(item).toHaveTextContent("3.2%");
+  });
+
+  it("値が来ない材料（categorical等）は内訳から飛ばす", () => {
+    const axes: PreferenceAxisDef[] = [
+      {
+        axisId: "car_stress",
+        label: "車の圧迫感",
+        description: "説明",
+        dedicatedWayValueLayer: false,
+        rawValueUnit: null,
+        materialBreakdown: [
+          { materialId: "highway", label: "道路種別", dtype: "categorical", unit: "", share: 0.2 },
+          { materialId: "maxspeed_kmh", label: "制限速度", dtype: "numeric", unit: "km/h", share: 0.2 },
+        ],
+      },
+    ];
+
+    render(
+      <RouteAxisProfile
+        {...baseProps({
+          axes,
+          weights: { car_stress: 0.5 },
+          axisDifficulties: { car_stress: 60 },
+          axisContributions: { car_stress: 30 },
+          materialValues: { maxspeed_kmh: 42.3 },
+        })}
+      />
+    );
+
+    const item = within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem")[0];
+    expect(item).toHaveTextContent("制限速度 42km/h");
+    expect(item).not.toHaveTextContent("道路種別");
   });
 });

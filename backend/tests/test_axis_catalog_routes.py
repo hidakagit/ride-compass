@@ -223,3 +223,27 @@ def test_get_axis_catalog_includes_raw_value_unit():
     # 停止密度は材料ごとに重みを変えて足す（交差点は0.3倍）ため、和は「回/km」では
     # 読めない——生値の単位はnullになる。
     assert entries_by_id["stop_density"]["raw_value_unit"] is None
+
+
+def test_get_axis_catalog_includes_material_breakdown():
+    # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない、
+    # docs/tasks/T689.md）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
+    response = client.get("/api/axis-catalog")
+
+    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
+    # 単位が定まる軸は分解しない（軸単位の生値で足りる）。
+    assert entries_by_id["gradient"]["material_breakdown"] == []
+    night = entries_by_id["night"]["material_breakdown"]
+    assert [entry["material_id"] for entry in night] == ["lit", "has_tunnel"]
+    assert [entry["dtype"] for entry in night] == ["boolean", "boolean"]
+    assert [entry["share"] for entry in night] == [0.5, 0.5]
+    # 軸参照を辿った先の材料が並ぶ（内部軸の得点は内訳に出さない）。
+    car_stress = entries_by_id["car_stress"]["material_breakdown"]
+    assert [entry["material_id"] for entry in car_stress] == [
+        "highway", "maxspeed_kmh", "lanes_count", "is_designated", "motor_vehicle_no",
+    ]
+    assert entries_by_id["car_stress"]["raw_value_unit"] is None
+    # 材料の表示名・単位はbackendが返す（フロントは対応表を持たない）。
+    maxspeed = next(entry for entry in car_stress if entry["material_id"] == "maxspeed_kmh")
+    assert maxspeed["unit"] == "km/h"
+    assert maxspeed["label"]

@@ -33,13 +33,58 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.api.dependencies import get_region_service
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisShape
-from app.domain.axis_display import axis_display_for, primary_attribute_ids_for, raw_value_unit
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisDefinition, AxisShape
+from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.axis_display import (
+    axis_display_for,
+    axis_material_shares,
+    primary_attribute_ids_for,
+    raw_value_unit,
+)
 from app.domain.dynamic_way_values import MapValueKind, map_value_kind, map_value_unit
 from app.domain.registry import AxisDisplaySpec
 from app.services.region_service import RegionService
 
 router = APIRouter()
+
+
+def _material_breakdown(definition: AxisDefinition) -> list["AxisMaterialBreakdownEntry"]:
+    """軸の内訳（材料まで分解した絶対量の並び）。カタログに無い材料は落とす。
+
+    categorical材料（`highway`等）も含めて返す——値ごとの延長割合を運ぶ器はまだ無い
+    （[T718](docs/tasks/T718.md)）が、内訳の並び自体は軸定義から決まるため、
+    運搬側の都合で並びを変えると軸定義との対応が読めなくなる。値が来ない材料を
+    フロントが飛ばす形にする。
+    """
+    entries = []
+    for share in axis_material_shares(definition):
+        spec = MATERIAL_CATALOG.get(share.material_id)
+        if spec is None:
+            continue
+        entries.append(
+            AxisMaterialBreakdownEntry(
+                material_id=share.material_id,
+                label=spec.label,
+                dtype=spec.dtype,
+                unit=spec.unit or "",
+                share=round(share.share, 4),
+            )
+        )
+    return entries
+
+
+class AxisMaterialBreakdownEntry(BaseModel):
+    """合成軸の内訳1件（材料と、その材料が軸の生値に占める割合）。"""
+
+    material_id: str
+    #: 材料の表示名（`MaterialSpec.label`）。フロントは対応表を持たない。
+    label: str
+    #: 値の型。`numeric`＝距離加重平均＋単位、`boolean`＝該当区間の延長割合。
+    dtype: str
+    #: numeric材料の単位。真偽値材料は空文字。
+    unit: str
+    #: 各階層で正規化した重みの積（0〜1）。並び順の根拠を画面側でも示せるよう返す。
+    share: float
 
 
 class AxisCatalogEntry(BaseModel):
@@ -98,6 +143,11 @@ class AxisCatalogEntry(BaseModel):
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出し、
     # 「◯◯/km」なら走行距離を掛けて経路全体の実数にする。
     raw_value_unit: str | None
+    # 生値の単位が定まらない軸の内訳（`domain/axis_display.py: axis_material_shares`）。
+    # 得点だけでは軸単体で経路を判断できないため、材料まで分解して較正に依存しない
+    # 絶対の事実を出す。単位が定まる軸（`raw_value_unit`が非null）は分解せず空配列。
+    # 並びは正規化重みの降順で、フロントは先頭から順に出す（並べ替えを持たない）。
+    material_breakdown: list[AxisMaterialBreakdownEntry]
     # 専用way値配信（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
     # 必要とするクエリパラメータの宣言（domain/axis_definitions.py:
     # AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
@@ -163,6 +213,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 map_value_kind=map_value_kind(definition),
                 map_value_unit=map_value_unit(definition),
                 raw_value_unit=raw_value_unit(definition),
+                material_breakdown=_material_breakdown(definition),
                 dynamic_way_value_needs_time=definition.dynamic_way_value_needs_time,
                 dynamic_way_value_needs_bearing=definition.dynamic_way_value_needs_bearing,
                 dynamic_way_value_needs_speed=definition.dynamic_way_value_needs_speed,

@@ -929,6 +929,8 @@ export interface components {
             map_value_unit: string;
             /** Raw Value Unit */
             raw_value_unit: string | null;
+            /** Material Breakdown */
+            material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
             /** Dynamic Way Value Needs Time */
             dynamic_way_value_needs_time: boolean;
             /** Dynamic Way Value Needs Bearing */
@@ -1177,6 +1179,22 @@ export interface components {
             composite_difficulty: number | null;
             /** Covered Weight Fraction */
             covered_weight_fraction: number | null;
+        };
+        /**
+         * AxisMaterialBreakdownEntry
+         * @description 合成軸の内訳1件（材料と、その材料が軸の生値に占める割合）。
+         */
+        AxisMaterialBreakdownEntry: {
+            /** Material Id */
+            material_id: string;
+            /** Label */
+            label: string;
+            /** Dtype */
+            dtype: string;
+            /** Unit */
+            unit: string;
+            /** Share */
+            share: number;
         };
         /**
          * AxisPreviewRequest

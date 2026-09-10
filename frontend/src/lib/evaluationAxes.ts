@@ -8,6 +8,7 @@
 import type { RoutePreferenceWeights } from "@/types/route";
 import type { MapValueKind } from "@/components/Map/valueScale";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
+import type { AxisMaterialBreakdown } from "@/components/Map/secondaryAxes";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 区間難易度の重み（route_preference）の既定値。「既定値に戻す」ボタンの起点、および
@@ -46,6 +47,9 @@ export interface PreferenceAxisDef {
    * 軸だけが持つ。ルート結果が得点の隣に生値を出すために使う（軸単体で経路を判断できる
    * ようにするため。得点は目盛りの引き方に依存する相対評価でしかない）。 */
   rawValueUnit?: string | null;
+  /** 生値の単位が定まらない軸の内訳（GET /api/axis-catalogのmaterial_breakdown）。
+   * 材料まで分解した絶対量の並びで、正規化重みの降順。単位が定まる軸は空配列。 */
+  materialBreakdown?: readonly AxisMaterialBreakdown[];
 }
 
 
@@ -68,6 +72,13 @@ function preferenceAxisFromCatalog(axis: CatalogAxisEntry): PreferenceAxisDef {
     mapValueKind: axis.map_value_kind as MapValueKind | undefined,
     mapValueUnit: axis.map_value_unit,
     rawValueUnit: axis.raw_value_unit ?? null,
+    materialBreakdown: (axis.material_breakdown ?? []).map((entry) => ({
+      materialId: entry.material_id,
+      label: entry.label,
+      dtype: entry.dtype,
+      unit: entry.unit,
+      share: entry.share,
+    })),
   };
 }
 
@@ -86,6 +97,7 @@ export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
       mapValueKind: axis.mapValueKind,
       mapValueUnit: axis.mapValueUnit,
       rawValueUnit: axis.rawValueUnit ?? null,
+      materialBreakdown: axis.materialBreakdown ?? [],
     })
   ),
   ...axisCatalog.axes

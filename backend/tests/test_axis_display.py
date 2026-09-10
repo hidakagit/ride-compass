@@ -7,6 +7,7 @@ from app.domain.axis_definitions import (
 )
 from app.domain.axis_display import (
     axis_display_for,
+    axis_material_shares,
     derive_ramp_inputs,
     raw_value_unit,
 )
@@ -864,3 +865,119 @@ def test_published_axes_with_a_unit_can_show_their_raw_value():
     # 押さえる。どの軸が該当するかはDBの軸定義次第のため軸idまでは固定しない。
     published = [d for d in AXIS_DEFINITIONS.values() if d.is_published]
     assert any(raw_value_unit(definition) is not None for definition in published)
+
+
+# --- 材料単位への分解（axis_material_shares、T689） ---
+
+
+def _linear_axis(axis_id: str, terms: list[tuple[str, float]], *, published: bool = True) -> AxisDefinition:
+    return AxisDefinition(
+        axis_id=axis_id,
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material=material, weight=weight, required=False) for material, weight in terms],
+            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label=axis_id,
+        is_published=published,
+    )
+
+
+def test_single_material_axis_is_not_decomposed():
+    # 分解しても情報が増えず、shape.preprocess（勾配のabs）が材料単位では効かないため、
+    # 呼び出し側はraw_value_unitによる軸単位の生値をそのまま使う。
+    assert axis_material_shares(_linear_axis("a", [("gradient_percent", 1.0)])) == []
+
+
+def test_zero_weight_materials_are_excluded():
+    # 得点に一切寄与しない材料を「事実」として出すと誤読を招く。
+    shares = axis_material_shares(_linear_axis("a", [("lit", 1.0), ("has_tunnel", 0.0), ("surface_good", 1.0)]))
+
+    assert [entry.material_id for entry in shares] == ["lit", "surface_good"]
+
+
+def test_shares_are_normalized_within_a_shape():
+    # 停止密度と同じ重み構成（1 / 1.5 / 0.3）。
+    shares = axis_material_shares(
+        _linear_axis("a", [("lit", 1.0), ("has_tunnel", 1.5), ("surface_good", 0.3)])
+    )
+
+    assert [entry.material_id for entry in shares] == ["has_tunnel", "lit", "surface_good"]
+    assert [round(entry.share, 3) for entry in shares] == [0.536, 0.357, 0.107]
+    assert round(sum(entry.share for entry in shares), 6) == 1.0
+
+
+def test_negative_weights_are_compared_by_absolute_value():
+    # 夜間（lit=-50・has_tunnel=+50）は符号が違っても占める割合は等しい。
+    shares = axis_material_shares(_linear_axis("a", [("lit", -50.0), ("has_tunnel", 50.0)]))
+
+    assert [round(entry.share, 3) for entry in shares] == [0.5, 0.5]
+
+
+def test_axis_references_are_followed_down_to_materials(monkeypatch):
+    # 車の圧迫感と同じ構成: 内部軸を経由しても、結果に現れるのは葉の材料だけ
+    # （途中の軸の得点は較正依存のため内訳へ出さない）。
+    inner_a = _linear_axis("inner_a", [("maxspeed_kmh", 1.0)], published=False)
+    inner_b = AxisDefinition(
+        axis_id="inner_b",
+        shape=CategoricalShape(material="highway", mapping={"residential": 2.0}),
+        default_weight=0.0,
+        label="inner_b",
+        is_published=False,
+    )
+    monkeypatch.setitem(AXIS_DEFINITIONS, inner_a.axis_id, inner_a)
+    monkeypatch.setitem(AXIS_DEFINITIONS, inner_b.axis_id, inner_b)
+
+    shares = axis_material_shares(_linear_axis("outer", [("inner_a", 1.0), ("inner_b", 1.0)]))
+
+    assert [entry.material_id for entry in shares] == ["maxspeed_kmh", "highway"]
+    assert [round(entry.share, 3) for entry in shares] == [0.5, 0.5]
+    # 深さは同率の並び替えに使う（内部軸を1段経由しているのでどちらも1）。
+    assert [entry.depth for entry in shares] == [1, 1]
+
+
+def test_inner_weights_are_normalized_per_level(monkeypatch):
+    # 内側の重みは外側とスケールが違う（内部軸のbreakpointsが非線形変換のため）。
+    # 階層ごとに正規化してから掛けることで、葉まで一貫した割合になる。
+    inner = _linear_axis("inner", [("lit", 3.0), ("has_tunnel", 1.0)], published=False)
+    monkeypatch.setitem(AXIS_DEFINITIONS, inner.axis_id, inner)
+
+    shares = axis_material_shares(_linear_axis("outer", [("inner", 1.0), ("surface_good", 1.0)]))
+
+    # 外側で inner:surface_good = 50:50、内側で lit:has_tunnel = 75:25。
+    assert {entry.material_id: round(entry.share, 3) for entry in shares} == {
+        "surface_good": 0.5,
+        "lit": 0.375,
+        "has_tunnel": 0.125,
+    }
+
+
+def test_same_material_reached_twice_is_kept_once(monkeypatch):
+    # 同じ物理量を2回並べても情報が増えない。最初に現れた1件だけを残す。
+    inner = _linear_axis("inner", [("lit", 1.0)], published=False)
+    monkeypatch.setitem(AXIS_DEFINITIONS, inner.axis_id, inner)
+
+    shares = axis_material_shares(_linear_axis("outer", [("lit", 1.0), ("inner", 1.0), ("has_tunnel", 1.0)]))
+
+    assert [entry.material_id for entry in shares] == ["lit", "has_tunnel"]
+
+
+def test_circular_axis_reference_terminates(monkeypatch):
+    # 循環はtopological_axis_orderが読み込み時に拒否するが、この関数単体でも無限再帰しない。
+    a = _linear_axis("cycle_a", [("cycle_b", 1.0), ("lit", 1.0)], published=False)
+    b = _linear_axis("cycle_b", [("cycle_a", 1.0), ("has_tunnel", 1.0)], published=False)
+    monkeypatch.setitem(AXIS_DEFINITIONS, a.axis_id, a)
+    monkeypatch.setitem(AXIS_DEFINITIONS, b.axis_id, b)
+
+    shares = axis_material_shares(a)
+
+    assert sorted(entry.material_id for entry in shares) == ["has_tunnel", "lit"]
+
+
+def test_ties_keep_definition_order():
+    # 同率のときは探索の浅い順、さらに同じなら定義順（terms の並び）。
+    shares = axis_material_shares(
+        _linear_axis("a", [("has_tunnel", 1.0), ("lit", 1.0), ("surface_good", 1.0)])
+    )
+
+    assert [entry.material_id for entry in shares] == ["has_tunnel", "lit", "surface_good"]

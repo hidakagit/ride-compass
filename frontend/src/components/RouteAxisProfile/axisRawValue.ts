@@ -42,3 +42,24 @@ function formatNumber(value: number): string {
   // 有効数字2桁（末尾の0は落とす）。0.08 → "0.08"、0.041 → "0.041"、0.0041 → "0.0041"
   return String(Number(value.toPrecision(2)));
 }
+
+/** 既定で得点の隣へ出す内訳の件数。残りは軸の説明ポップオーバーへ回す。 */
+export const DEFAULT_BREAKDOWN_VISIBLE = 2;
+
+/**
+ * 内訳1件を人が読める文へ整える（例:「街灯あり 68%」「制限速度 42km/h」）。
+ *
+ * 表記は材料の型から決まり、軸ごとの対応表を持たない。真偽値材料の値は0/1で運ばれる
+ * （backendの`route_facing_material_ids`）ため、距離加重平均がそのまま該当区間の
+ * 延長割合になる。値が来ない材料（categorical材料は数値列に載らない）はnullを返し、
+ * 呼び出し側が飛ばす。
+ */
+export function formatMaterialBreakdown(
+  entry: { label: string; dtype: string; unit: string },
+  value: number | undefined,
+): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  if (entry.dtype === "boolean") return `${entry.label} ${Math.round(value * 100)}%`;
+  if (entry.dtype !== "numeric") return null;
+  return `${entry.label} ${formatNumber(value)}${entry.unit}`;
+}

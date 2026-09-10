@@ -65,6 +65,7 @@
       "map_value_kind": "signed_material",
       "map_value_unit": "%",
       "raw_value_unit": "%",
+      "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": true,
       "dynamic_way_value_needs_speed": false
@@ -130,6 +131,7 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": null,
+      "material_breakdown": [],
       "dynamic_way_value_needs_time": true,
       "dynamic_way_value_needs_bearing": true,
       "dynamic_way_value_needs_speed": true
@@ -183,6 +185,7 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": null,
+      "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -387,6 +390,43 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": null,
+      "material_breakdown": [
+        {
+          "material_id": "highway",
+          "label": "道路種別",
+          "dtype": "categorical",
+          "unit": "",
+          "share": 0.2
+        },
+        {
+          "material_id": "maxspeed_kmh",
+          "label": "制限速度(km/h)",
+          "dtype": "numeric",
+          "unit": "km/h",
+          "share": 0.2
+        },
+        {
+          "material_id": "lanes_count",
+          "label": "車線数",
+          "dtype": "numeric",
+          "unit": "",
+          "share": 0.2
+        },
+        {
+          "material_id": "is_designated",
+          "label": "指定路線該当（真偽）",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.2
+        },
+        {
+          "material_id": "motor_vehicle_no",
+          "label": "自動車通行不可",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.2
+        }
+      ],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -453,6 +493,7 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": "件/(km・年)",
+      "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -537,6 +578,22 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": null,
+      "material_breakdown": [
+        {
+          "material_id": "lit",
+          "label": "街灯あり",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.5
+        },
+        {
+          "material_id": "has_tunnel",
+          "label": "トンネル",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.5
+        }
+      ],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -689,6 +746,43 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": null,
+      "material_breakdown": [
+        {
+          "material_id": "highway_is_cycleway",
+          "label": "道路種別が自転車道",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.2667
+        },
+        {
+          "material_id": "cycleway_has_track",
+          "label": "自転車道(track)を併設",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.2667
+        },
+        {
+          "material_id": "shared_pedestrian_path",
+          "label": "歩行者自転車共用道",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.2667
+        },
+        {
+          "material_id": "cycleway_has_lane",
+          "label": "自転車レーン(lane)を併設",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.1333
+        },
+        {
+          "material_id": "cycleway_has_shared",
+          "label": "バス共用等の自転車レーンを併設",
+          "dtype": "boolean",
+          "unit": "",
+          "share": 0.0667
+        }
+      ],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -789,6 +883,22 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": null,
+      "material_breakdown": [
+        {
+          "material_id": "trees_percent",
+          "label": "樹木被覆率",
+          "dtype": "numeric",
+          "unit": "%",
+          "share": 0.5
+        },
+        {
+          "material_id": "built_percent",
+          "label": "建物被覆率",
+          "dtype": "numeric",
+          "unit": "%",
+          "share": 0.5
+        }
+      ],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -929,6 +1039,29 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": null,
+      "material_breakdown": [
+        {
+          "material_id": "poi_level_crossing_per_km",
+          "label": "踏切の密度(回/km)",
+          "dtype": "numeric",
+          "unit": "回/km",
+          "share": 0.5357
+        },
+        {
+          "material_id": "poi_signal_per_km",
+          "label": "信号の密度(回/km)",
+          "dtype": "numeric",
+          "unit": "回/km",
+          "share": 0.3571
+        },
+        {
+          "material_id": "poi_stop_per_km",
+          "label": "一時停止・徐行の密度(回/km)",
+          "dtype": "numeric",
+          "unit": "回/km",
+          "share": 0.1071
+        }
+      ],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
@@ -1010,6 +1143,7 @@
       "map_value_kind": "difficulty",
       "map_value_unit": "",
       "raw_value_unit": "度/km",
+      "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false

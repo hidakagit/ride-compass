@@ -47,7 +47,7 @@ from app.domain.axis_definitions import (
     evaluate_axis_array,
     topological_axis_order,
 )
-from app.domain.axis_display import raw_value_unit
+from app.domain.axis_display import axis_material_shares, raw_value_unit
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import composite_difficulty, distance_weighted_difficulty_array
 from app.domain.dynamic_materials import (
@@ -293,6 +293,41 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     return not (set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
 
 
+def route_facing_material_ids() -> list[str]:
+    """内訳として経路へ運ぶ材料id（安定順）。
+
+    単位が定まらない軸（合成軸・真偽値やカテゴリの材料を持つ軸）は`axis_raw_arrays`へ
+    載らず、得点だけしか出せない。材料まで分解すれば較正に依存しない絶対の事実を出せる
+    （`axis_display.py: axis_material_shares`、docs/tasks/T689.md参照）ため、分解された
+    葉の材料を軸の生値と同じ形で列として持つ。
+
+    `has_route_facing_raw_value`と同じ理由でこの述語は**ここ1箇所だけが持つ**——空タイル
+    （列だけを揃える分岐）と通常のタイルが別々に条件を書くと、片方だけ変えた瞬間に
+    列数・列順が食い違い、`combine_static_edge_score_matrices`の`np.concatenate`が
+    タイルをまたいで失敗する（またはずれた列で合成される）。
+
+    対象外:
+
+    - categorical材料（`highway`等）。列は数値行列のため文字列を載せられない。
+      値ごとの延長割合は別の器が要る（[T718](docs/tasks/T718.md)）。
+    - 動的材料（風）。静的スコア行列は`weather=None`で組み立てるため全行NaNになる。
+    - 分解しない軸（参照材料が1件）。軸単位の生値（`axis_raw_arrays`）で足りる。
+    """
+    seen: dict[str, None] = {}
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        definition = AXIS_DEFINITIONS[axis_id]
+        if not definition.is_published:
+            continue
+        for entry in axis_material_shares(definition):
+            spec = MATERIAL_CATALOG.get(entry.material_id)
+            if spec is None or spec.dtype == "categorical":
+                continue
+            if entry.material_id in REQUEST_DYNAMIC_MATERIAL_IDS:
+                continue
+            seen.setdefault(entry.material_id, None)
+    return list(seen)
+
+
 @dataclass(frozen=True, slots=True)
 class BulkAxisEvaluation:
     """`compute_edge_costs_bulk`の抽出＋計算フェーズ（`_evaluate_axes_bulk`）の結果。
@@ -325,6 +360,9 @@ class BulkAxisEvaluation:
     # 折れ点を通す前の生値。単位が定まる軸（`axis_display.py: raw_value_unit`）だけを
     # 持つ——単位の無い値を人へ見せても意味を取れないため、運ぶ必要が無い。
     axis_raw_arrays: dict[str, np.ndarray]
+    # 内訳として見せる材料の値（`route_facing_material_ids`の材料だけ）。真偽値材料は
+    # 0/1のfloatで持ち、距離加重平均が「該当区間の延長割合」になる。
+    material_value_arrays: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def _evaluate_axes_bulk(
@@ -387,6 +425,9 @@ def _evaluate_axes_bulk(
             mid_lon=np.array([]),
             axis_arrays=empty_axis_arrays,
             axis_raw_arrays=empty_raw_arrays,
+            material_value_arrays={
+                material_id: np.array([]) for material_id in route_facing_material_ids()
+            },
         )
     edges = [graph.edges[edge_id] for edge_id in edge_ids]
 
@@ -500,6 +541,12 @@ def _evaluate_axes_bulk(
                 if raw is not None:
                     axis_raw_arrays[axis_id] = raw
 
+    material_value_arrays = {
+        material_id: material_arrays[material_id].astype(float, copy=False)
+        for material_id in route_facing_material_ids()
+        if material_id in material_arrays
+    }
+
     return BulkAxisEvaluation(
         edge_ids=edge_ids,
         distance_m=distance_m,
@@ -511,6 +558,7 @@ def _evaluate_axes_bulk(
         mid_lon=mid_lon,
         axis_arrays=axis_arrays,
         axis_raw_arrays=axis_raw_arrays,
+        material_value_arrays=material_value_arrays,
     )
 
 
@@ -705,6 +753,10 @@ class StaticEdgeScoreMatrix:
     # （docs/tasks/T687.md参照）。
     raw_axis_ids: list[str] = field(default_factory=list)
     axis_raw_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
+    # 内訳として見せる材料の値。対応する列は`material_ids`の順
+    # （`route_facing_material_ids`が列の集合と並びの唯一の定義元）。
+    material_ids: list[str] = field(default_factory=list)
+    material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
 
 
 def build_static_edge_score_matrix(
@@ -758,12 +810,20 @@ def build_static_edge_score_matrix(
         if raw_axis_ids
         else np.empty((len(evaluation.edge_ids), 0))
     )
+    material_ids = list(evaluation.material_value_arrays.keys())
+    material_values = (
+        np.stack([evaluation.material_value_arrays[material_id] for material_id in material_ids], axis=1)
+        if material_ids
+        else np.empty((len(evaluation.edge_ids), 0))
+    )
     return StaticEdgeScoreMatrix(
         edge_ids=evaluation.edge_ids,
         axis_ids=axis_ids,
         axis_scores=axis_scores,
         raw_axis_ids=raw_axis_ids,
         axis_raw_values=axis_raw_values,
+        material_ids=material_ids,
+        material_values=material_values,
         distance_m=evaluation.distance_m,
         bearing_deg=evaluation.bearing_deg,
         highway_filter_flags=evaluation.highway_filter_flags,
@@ -799,9 +859,11 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
 
     axis_ids = matrices[0].axis_ids
     raw_axis_ids = matrices[0].raw_axis_ids
+    material_ids = matrices[0].material_ids
     all_edge_ids = [edge_id for matrix in matrices for edge_id in matrix.edge_ids]
     axis_scores = np.concatenate([matrix.axis_scores for matrix in matrices], axis=0)
     axis_raw_values = np.concatenate([matrix.axis_raw_values for matrix in matrices], axis=0)
+    material_values = np.concatenate([matrix.material_values for matrix in matrices], axis=0)
     distance_m = np.concatenate([matrix.distance_m for matrix in matrices])
     bearing_deg = np.concatenate([matrix.bearing_deg for matrix in matrices])
     # フィルタ名の集合は全タイルで同じ（`_evaluate_axes_bulk`が
@@ -826,6 +888,8 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
         axis_scores=axis_scores[final_indices],
         raw_axis_ids=raw_axis_ids,
         axis_raw_values=axis_raw_values[final_indices],
+        material_ids=material_ids,
+        material_values=material_values[final_indices],
         distance_m=distance_m[final_indices],
         bearing_deg=bearing_deg[final_indices],
         highway_filter_flags={name: flags[final_indices] for name, flags in highway_filter_flags.items()},

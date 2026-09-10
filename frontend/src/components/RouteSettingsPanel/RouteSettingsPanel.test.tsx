@@ -60,6 +60,7 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
+  material_breakdown: [],
       };
     }),
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド

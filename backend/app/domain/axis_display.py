@@ -50,6 +50,7 @@ auto-derive自体は成功しても、`derive_ramp_inputs`が返す`thresholds`�
 軽量な数値配列）で上書きする（`axis_display_for()`参照）。
 """
 
+from dataclasses import dataclass
 from itertools import combinations
 from typing import cast
 
@@ -252,6 +253,77 @@ def raw_value_unit(definition: AxisDefinition) -> str | None:
     if len(specs) > 1 and not all(spec.additive for spec in specs):
         return None
     return specs[0].unit
+
+
+@dataclass(frozen=True, slots=True)
+class AxisMaterialShare:
+    """軸が参照する材料1件と、それが軸の生値に占める正規化重み。"""
+
+    material_id: str
+    #: 各階層で `|w| / Σ|w|` を取り、根から葉まで掛け合わせた値（0〜1）。
+    share: float
+    #: 根の軸からの探索の深さ（直接のtermが0）。同率の並び替えに使う。
+    depth: int
+
+
+def _shape_terms(definition: AxisDefinition) -> list[tuple[str, float]]:
+    """shapeの参照先を `(材料idまたは軸id, 重み)` の列で返す。
+
+    `CategoricalShape`は単一の参照先を持ち重みの概念が無いため、重み1の1項として扱う。
+    """
+    shape = definition.shape
+    if isinstance(shape, BreakpointLinearShape):
+        return [(term.material, term.weight) for term in shape.terms]
+    return [(shape.material, 1.0)]
+
+
+def axis_material_shares(definition: AxisDefinition) -> list[AxisMaterialShare]:
+    """軸を材料まで再帰的に分解し、正規化重みの降順（同率は浅い順・定義順）で返す。
+
+    得点（0〜100）は目盛りの引き方に依存する相対評価のため、軸単体では経路を判断できない。
+    単位が定まる軸は生値を添えれば足りるが（`raw_value_unit`）、単位が定まらない軸
+    （合成軸・真偽値やカテゴリの材料を持つ軸）はそれができない。材料まで降りれば、
+    どの軸も「較正に依存しない絶対の事実」を出せる（docs/tasks/T689.md参照）。
+
+    **辿る先は必ず材料**で、途中の軸の得点は結果に含めない。得点を内訳へ混ぜると、
+    この関数が解こうとしている「較正依存の数字しか出せない」問題が入れ子で再発する。
+
+    **重みは階層ごとに正規化してから掛ける。** 生の重みを階層をまたいで掛けても意味が無い
+    （内部軸の`breakpoints`・`mapping`は非線形変換のため、外側の重み1.0と内側の重み1.0は
+    別のスケール）。一方、同じshapeの中のtermどうしは比較可能である——重み付き和が得点として
+    意味を持つよう作者が重みを決めていることが前提だから。したがって各階層で
+    `|w| / Σ|w|`を取ってから掛け合わせれば、葉まで一貫した「占める割合」になる。
+
+    重み0の項は除く（得点に一切寄与しないものを事実として出すと誤読を招く）。同じ材料へ
+    別経路から到達した場合は最初の1件だけを残す（同じ物理量を2回出しても情報が増えない）。
+
+    **参照先が1件へ分解される軸は空リストを返す。** 呼び出し側は`raw_value_unit`による
+    軸単位の生値をそのまま使う。分解しても情報が増えないうえ、`shape.preprocess`
+    （勾配の`"abs"`）が材料単位では効かず、登りと下りが相殺されて平均がほぼ0になるため。
+    """
+    shares: dict[str, AxisMaterialShare] = {}
+
+    def walk(current: AxisDefinition, inherited: float, depth: int, visited: frozenset[str]) -> None:
+        if current.axis_id in visited:
+            return
+        next_visited = visited | {current.axis_id}
+        terms = [(ref, weight) for ref, weight in _shape_terms(current) if weight != 0.0]
+        total = sum(abs(weight) for _, weight in terms)
+        if total == 0:
+            return
+        for ref, weight in terms:
+            share = inherited * abs(weight) / total
+            referenced_axis = AXIS_DEFINITIONS.get(ref)
+            if referenced_axis is not None:
+                walk(referenced_axis, share, depth + 1, next_visited)
+            elif ref not in shares:
+                shares[ref] = AxisMaterialShare(material_id=ref, share=share, depth=depth)
+
+    walk(definition, 1.0, 0, frozenset())
+    if len(shares) <= 1:
+        return []
+    # 挿入順（＝定義順の深さ優先）を保つ安定ソートのため、キーは share と depth だけにする。
+    return sorted(shares.values(), key=lambda entry: (-entry.share, entry.depth))
 
 
 def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = frozenset()) -> RampInputs | None:

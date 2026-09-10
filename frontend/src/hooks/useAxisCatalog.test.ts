@@ -42,6 +42,7 @@ function catalogResponse(): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
+  material_breakdown: [],
       },
       // 軸スタジオで公開されたばかりの新規GUI軸（複数材料の重み付き結合、kind=ramp）。
       // ビルド時静的axis-catalog.jsonには存在しない、実行時APIだけが返す想定。
@@ -85,6 +86,7 @@ function catalogResponse(): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
+  material_breakdown: [],
       },
     ],
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド

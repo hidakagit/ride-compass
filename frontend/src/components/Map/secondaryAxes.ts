@@ -70,6 +70,20 @@ export interface SecondaryAxisSummary {
   /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
    * 軸だけが持ち、それ以外はnull。 */
   rawValueUnit?: string | null;
+  /** 生値の単位が定まらない軸の内訳（CatalogAxis.material_breakdown）。材料まで分解した
+   * 絶対量の並びで、正規化重みの降順。単位が定まる軸は空配列。 */
+  materialBreakdown?: readonly AxisMaterialBreakdown[];
+}
+
+/** 内訳1件（材料と、それが軸の生値に占める割合）。 */
+export interface AxisMaterialBreakdown {
+  materialId: string;
+  label: string;
+  /** `numeric`＝距離加重平均＋単位、`boolean`＝該当区間の延長割合。 */
+  dtype: string;
+  /** numeric材料の単位。真偽値材料は空文字。 */
+  unit: string;
+  share: number;
 }
 
 // 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
@@ -132,6 +146,13 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       mapValueKind: axis.map_value_kind,
       mapValueUnit: axis.map_value_unit,
       rawValueUnit: axis.raw_value_unit ?? null,
+      materialBreakdown: (axis.material_breakdown ?? []).map((entry) => ({
+        materialId: entry.material_id,
+        label: entry.label,
+        dtype: entry.dtype,
+        unit: entry.unit,
+        share: entry.share,
+      })),
     }));
 }
 

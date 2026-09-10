@@ -794,6 +794,11 @@ def test_build_static_edge_score_matrix_for_empty_graph_matches_axis_ids_of_none
     assert len(nonempty_matrix.raw_axis_ids) > 0
     assert empty_matrix.raw_axis_ids == nonempty_matrix.raw_axis_ids
     assert empty_matrix.axis_raw_values.shape == (0, len(nonempty_matrix.raw_axis_ids))
+    # 内訳の材料列（material_ids）も同じ理由で揃っている必要がある
+    # （列を決める述語は`route_facing_material_ids`へ集約してある）。
+    assert len(nonempty_matrix.material_ids) > 0
+    assert empty_matrix.material_ids == nonempty_matrix.material_ids
+    assert empty_matrix.material_values.shape == (0, len(nonempty_matrix.material_ids))
 
 
 def test_has_route_facing_raw_value_excludes_dynamic_material_axes(monkeypatch):
@@ -1244,3 +1249,56 @@ def test_faster_travel_speed_raises_wind_drag_ratio_axis_difficulty():
         slow = compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=kmh_to_ms(10.0))
         fast = compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=kmh_to_ms(30.0))
     assert fast["axis_wind_drag_ratio"] / slow["axis_wind_drag_ratio"] == pytest.approx(2.3, abs=0.05)
+
+
+# --- 内訳の材料列（T689） ---
+
+
+def test_route_facing_material_ids_excludes_undecomposable_and_categorical_materials():
+    from app.domain.evaluation import route_facing_material_ids
+
+    material_ids = route_facing_material_ids()
+
+    # 分解する軸の葉の材料は載る（夜間・停止密度・開放度）。
+    assert "lit" in material_ids
+    assert "trees_percent" in material_ids
+    # 軸参照を辿った先の材料も載る（車の圧迫感の内部軸経由）。
+    assert "maxspeed_kmh" in material_ids
+    # 1材料へ分解される軸の材料は載らない（軸単位の生値で足りる）。
+    assert "gradient_percent" not in material_ids
+    assert "curvature_deg_per_km" not in material_ids
+    # categorical材料は数値行列へ載らない（値ごとの延長割合は別の器が要る）。
+    assert "highway" not in material_ids
+    # 動的材料は静的スコア行列では全行NaNになるため載らない。
+    assert "wind_drag_ratio" not in material_ids
+
+
+def test_boolean_breakdown_materials_are_carried_as_zero_or_one():
+    # 真偽値材料は0/1のfloatで運ぶ。距離加重平均がそのまま「該当区間の延長割合」になる
+    # ため、割合を出すための専用の機構を持たずに済む。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
+            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
+        },
+        edges={"edge-1": _edge()},
+    )
+    materials = {
+        "edge-1": EdgeMaterialBundle(
+            surface="asphalt",
+            way_tags={"lit": "yes", "tunnel": "yes"},
+            attribute_counts=None,
+            elevation_attribute=None,
+            is_designated=False,
+        )
+    }
+
+    matrix = build_static_edge_score_matrix(graph, materials)
+
+    values = {
+        material_id: matrix.material_values[0, i]
+        for i, material_id in enumerate(matrix.material_ids)
+    }
+    assert values["lit"] == 1.0
+    assert values["has_tunnel"] == 1.0

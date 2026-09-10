@@ -48,6 +48,7 @@ from app.services.axis_registry_service import refresh_axis_definitions  # noqa:
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.axis_display import raw_value_unit  # noqa: E402
+from app.api.routers.axis_catalog import _material_breakdown as material_breakdown_for  # noqa: E402
 from app.domain.dynamic_way_values import map_value_kind, map_value_unit  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
@@ -230,6 +231,12 @@ def main() -> None:
                     # 実行時API（AxisCatalogEntry.raw_value_unit）と同じ、折れ点を通す前の
                     # 生値の単位。ルート結果が得点の隣に生値を出すために要る。
                     "raw_value_unit": raw_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
+                    # 同じく実行時API（AxisCatalogEntry.material_breakdown）と揃える。
+                    # 単位が定まらない軸の内訳を材料まで分解した並び。
+                    "material_breakdown": [
+                        entry.model_dump()
+                        for entry in material_breakdown_for(AXIS_DEFINITIONS[axis.axis_id])
+                    ],
                     "dynamic_way_value_needs_time": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_time,
                     "dynamic_way_value_needs_bearing": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_bearing,
                     "dynamic_way_value_needs_speed": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_speed,
