@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   PRIMARY_ATTRIBUTES,
-  PRIMARY_ATTRIBUTE_CHIP_LABELS,
   PRIMARY_ATTRIBUTE_LABELS,
   PRIMARY_ATTRIBUTE_LAYER_IDS,
   PRIMARY_ATTRIBUTES_WITHOUT_LAYER,
@@ -14,19 +13,6 @@ import {
 } from "./primaryAttributes";
 
 describe("primaryAttributes", () => {
-  it("カタログの全一次属性が略名カタログ（4文字以下）に存在する", () => {
-    for (const attr of PRIMARY_ATTRIBUTES) {
-      const chipLabel = PRIMARY_ATTRIBUTE_CHIP_LABELS[attr.attrId];
-      expect(chipLabel, `${attr.attrId}の略名が無い`).toBeTruthy();
-      expect(chipLabel.length).toBeLessThanOrEqual(4);
-    }
-  });
-
-  it("略名は一意である", () => {
-    const labels = Object.values(PRIMARY_ATTRIBUTE_CHIP_LABELS);
-    expect(new Set(labels).size).toBe(labels.length);
-  });
-
   // ドリフト検知: 全一次属性が「表示レイヤーを持つ」か「意図的にレイヤー無しと明示」の
   // どちらかであること。両方に無い（対応表への追加漏れ）を防ぐ。
   it("カタログの全一次属性が表示レイヤーを持つか、レイヤー無しと明示されている", () => {

@@ -36,7 +36,7 @@ export interface SecondaryAxisSummary {
   /** 対応する表示レイヤー。無ければ専用レイヤーを持たない軸(薄字表示) */
   layerId?: MapLayerId;
   /** 改善計画T308: この軸が参照する材料の一次属性id一覧（primaryAttributes.ts:
-   * PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキーと同じ名前空間）。
+   * PRIMARY_ATTRIBUTE_LAYER_IDSのキーと同じ名前空間）。
    * 実行時APIのprimary_attribute_idsをそのまま反映する。ビルド時静的フォールバックは
    * この情報を持たないため空配列（取得完了までの一時的な機能低下、致命的ではない）。 */
   primaryAttributeIds: readonly string[];

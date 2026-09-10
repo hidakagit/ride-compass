@@ -1,8 +1,7 @@
 // 一次属性（生データ）のカタログ。
 //
 // 一次属性の正式名（label）はaxis-catalog.jsonのprimary_attributes[]が単一ソース。
-// このファイルが独自に持つのは、UI固有の対応（地図チップの略名・対応する表示レイヤーID）
-// だけ（片側import）。
+// このファイルが独自に持つのは、UI固有の対応（対応する表示レイヤーID）だけ（片側import）。
 //
 // 「2次軸→材料の一次属性一覧」（推定指標レイヤーON時の観測データレイヤー連動ON・
 // 推定グループの展開UIに材料一覧を出す）は、backendのGET /api/axis-catalogが軸ごとに
@@ -36,32 +35,6 @@ export const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = (
 export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntries(
   PRIMARY_ATTRIBUTES.map((attr) => [attr.attrId, attr.label]),
 );
-
-// 地図チップの略名（4文字以下）。正式名（上記）とは別に、地図上は文字数に応じて
-// チップ幅が伸びる制約（MapOverlayControls.module.css: .iconChip）があるため短縮する。
-// 全一次属性ぶんを持つ（レイヤーの有無に関わらず、材料一覧表示で薄字ラベルとして
-// 使うため）。
-export const PRIMARY_ATTRIBUTE_CHIP_LABELS: Record<string, string> = {
-  highway: "道路種別",
-  lanes: "車線数",
-  maxspeed: "制限速度",
-  cycleway: "インフラ",
-  surface: "路面",
-  bicycle_access: "自転車",
-  motor_vehicle_access: "車両可否",
-  lit: "街灯",
-  tunnel: "トンネル",
-  designation: "指定路線",
-  elevation: "標高",
-  stop_poi: "停止要因",
-  supply_poi: "補給休憩",
-  accident_point: "事故地点",
-  intersection: "交差点",
-  geometry: "区間形状",
-  oneway: "一方通行",
-  landcover: "開放度",
-  curvature: "蛇行",
-};
 
 // 一次属性→表示レイヤーIDの対応（Partial: キーが無い＝表示レイヤー無し）。highway/surfaceは
 // 「道路情報」（road）から分割された論理2レイヤー（roadType/roadSurface、物理描画は
