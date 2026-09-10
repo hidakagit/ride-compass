@@ -247,6 +247,7 @@ class _LegCostComposer:
         self.start = start
         self.speed_kmh = speed_kmh
         self._lazy_row_index = lazy_row_index
+        self._lazy_hard_filter_excluded: np.ndarray | None = None
         self._lens_axis_id = lens_axis_id
         # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
         # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
@@ -258,6 +259,19 @@ class _LegCostComposer:
             weights.get(axis_id, 0.0) > 0 or axis_id == lens_axis_id for axis_id in wind_dependent_axes
         )
         self._cache: dict[tuple, LegCostArrays] = {}
+
+    @property
+    def lazy_hard_filter_excluded(self) -> np.ndarray:
+        """0次フィルタ除外フラグを`lazy_graph.edge_ids`の行順（`build_shortest_path_tree`へ
+        渡す配列と同じ行順）で返す。
+
+        `compose`が作る`cost_list`は除外Edgeを`inf`にした状態でこの行順へ並べ替えてあり、
+        探索から見た通行可否はそのコスト配列だけが表しているため、コストを使わず距離だけで
+        木を張る経路（`select_shortest_distance_route`）は同じ除外を自分で適用する必要がある。
+        """
+        if self._lazy_hard_filter_excluded is None:
+            self._lazy_hard_filter_excluded = self._hard_filter_excluded[self._lazy_row_index]
+        return self._lazy_hard_filter_excluded
 
     def compose(
         self,
@@ -1239,9 +1253,16 @@ class RoadGraphEngine:
     ) -> TracedLoop | None:
         """距離だけで選んだ最短経路を1本返す（軸の重みを一切使わない）。
 
-        `select_via_nodes`と同じ前向き木・後ろ向き木の合成だが、コスト配列に
-        `edge_length_m`をそのまま渡すため、得られるのは距離最短の経路になる。軸設定に
-        沿った候補が最短からどれだけ余分に走るかを示す基準として使う。
+        `select_via_nodes`と同じ前向き木・後ろ向き木の合成だが、コスト配列に実距離を
+        渡すため、得られるのは距離最短の経路になる。軸設定に沿った候補が最短からどれだけ
+        余分に走るかを示す基準として使う。
+
+        **軸の重みは使わないが、0次フィルタ（`no_bicycle`・`motorway`・`trunk`・
+        `max_average_grade_percent`）は使う**——これらは好みではなく通行可否・走行可否の
+        表明であり、距離を優先する経路でも越えてよいものではない。除外Edgeのコストを
+        `inf`にすることで表現する（`_LegCostComposer.lazy_hard_filter_excluded`、
+        軸コスト経路で`cost_list`が`inf`になっているのと同じ意味）。実距離の積算に使う
+        `edge_length_m`は素のまま渡し、経路長は除外の有無に関わらず実距離で測る。
 
         `select_via_nodes`の後に呼ぶ前提。目的地の再スナップ結果
         （`context.destination_correction`）を引き継ぎ、逆向きstaticsのキャッシュに乗る。
@@ -1261,14 +1282,19 @@ class RoadGraphEngine:
         reverse_statics, _ = await _get_or_build_reverse_search_statics(
             context.tile_set, lazy_graph, context.graph
         )
+        excluded = context.composer.lazy_hard_filter_excluded
         forward_tree = await asyncio.to_thread(
             build_shortest_path_tree,
-            context.statics.csr, context.statics.edge_length_m, context.statics.edge_length_m,
+            context.statics.csr,
+            np.where(excluded, np.inf, context.statics.edge_length_m),
+            context.statics.edge_length_m,
             context.origin_index,
         )
         backward_tree = await asyncio.to_thread(
             build_shortest_path_tree,
-            reverse_statics.csr, reverse_statics.edge_length_m, reverse_statics.edge_length_m,
+            reverse_statics.csr,
+            np.where(excluded, np.inf, reverse_statics.edge_length_m),
+            reverse_statics.edge_length_m,
             destination_index,
         )
         combined_length = forward_tree.length_m + backward_tree.length_m

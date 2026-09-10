@@ -1458,26 +1458,56 @@ async def test_select_via_nodes_includes_shortest_route_as_top_candidate():
 
 
 async def test_select_shortest_distance_route_ignores_axis_cost():
-    # 直線に近い経路（offset=0）をtrunkにして軸コストを高くし、遠回り（offset=3km）を
-    # residentialにする。軸の重みで選べば遠回りが勝つが、距離だけで選ぶ本メソッドは
-    # 短い方を返さなければならない——「最短からどれだけ余分に走るか」の基準線だから。
+    # 直線に近い経路（offset=0）を砂利にして軸コストを高くし、遠回り（offset=3km）を
+    # 舗装にする。砂利は通行可否の問題ではない（0次フィルタの対象外）ため、距離だけで
+    # 選ぶ本メソッドは短い方を返さなければならない——「最短からどれだけ余分に走るか」の
+    # 基準線だから。
     graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
-    for edge_id in ("e-0-out", "e-0-in"):
-        graph.edges[edge_id] = graph.edges[edge_id].model_copy(update={"highway": "trunk"})
-    for edge_id in ("e-1-out", "e-1-in"):
-        graph.edges[edge_id] = graph.edges[edge_id].model_copy(update={"highway": "residential"})
-    generator, _, _ = make_generator(graph)
+    surface_attributes = {
+        "e-0-out": "gravel", "e-0-in": "gravel",
+        "e-1-out": "asphalt", "e-1-in": "asphalt",
+    }
+    generator, _, _ = make_generator(graph, surface_attributes=surface_attributes)
     engine = generator._engine
     context = await _prepare_destination_context(generator, DESTINATION_20KM)
 
-    ranked = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=2)
     shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
 
     assert shortest is not None
     assert shortest.data == ["e-0-out", "e-0-in"]
-    # 軸コストで選ぶ側は遠回り（trunkを避ける）を上位に置く＝両者が別経路であること。
-    assert ranked[0].data == ["e-1-out", "e-1-in"]
-    assert shortest.distance_km < ranked[0].distance_km
+
+
+async def test_select_shortest_distance_route_respects_hard_filters():
+    # 0次フィルタ（通行可否・走行可否の表明）は距離を優先する経路でも越えない。
+    # 直線に近い経路（offset=0）をtrunk＝通行不可にすると、最短経路は遠回り（offset=3km）
+    # になる。軸コストを使わないことと、通れない道を通ってよいことは別である。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
+    for edge_id in ("e-0-out", "e-0-in"):
+        graph.edges[edge_id] = graph.edges[edge_id].model_copy(update={"highway": "trunk"})
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+
+    assert shortest is not None
+    assert shortest.data == ["e-1-out", "e-1-in"]
+
+
+async def test_select_shortest_distance_route_uses_hard_filters_from_the_request():
+    # 同じグラフでも、リクエストがtrunkフィルタを外していればtrunk経由の最短が返る
+    # （既定値ではなくリクエスト時点の0次フィルタ設定に従っていることの確認）。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
+    for edge_id in ("e-0-out", "e-0-in"):
+        graph.edges[edge_id] = graph.edges[edge_id].model_copy(update={"highway": "trunk"})
+    generator, _, _ = make_generator(graph, hard_filters=frozenset())
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+
+    assert shortest is not None
+    assert shortest.data == ["e-0-out", "e-0-in"]
 
 
 async def test_select_shortest_distance_route_splits_legs_near_the_midpoint():

@@ -364,8 +364,18 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
 
 ### `select_shortest_distance_route`（距離だけの基準線）
 
-同じ前向き木・後ろ向き木の合成だが、コスト配列に`edge_length_m`をそのまま渡すため、
-軸の重みを一切使わない距離最短の経路が1本得られる。`select_via_nodes`の後に呼ぶ前提で、
+同じ前向き木・後ろ向き木の合成だが、コスト配列に実距離を渡すため、
+軸の重みを一切使わない距離最短の経路が1本得られる。
+
+**軸の重みは使わないが、0次フィルタ（`no_bicycle`・`motorway`・`trunk`・
+`max_average_grade_percent`）は使う**——これらは好みではなく通行可否・走行可否の表明で、
+距離を優先する経路でも越えてよいものではない。除外Edgeのコストを`inf`にすることで表現する
+（`_LegCostComposer.lazy_hard_filter_excluded`が`hard_filter_excluded`を
+`lazy_graph.edge_ids`の行順へ並べ替えて返す。軸コスト経路で`cost_list`が`inf`になっているのと
+同じ意味）。実距離の積算に使う`edge_length_m`は素のまま渡すため、経路長は除外の有無に
+関わらず実距離で測る。
+
+`select_via_nodes`の後に呼ぶ前提で、
 目的地の再スナップ結果（`destination_correction`）を引き継ぎ逆向きstaticsのキャッシュに
 乗る。経由Nodeは最短経路上のどのNodeでも同じ経路を表すため、そのうち往路長が全長の
 半分に最も近いものを選ぶ——他の候補と同じく往路レグ・復路レグへ概ね半分ずつ割れ、
