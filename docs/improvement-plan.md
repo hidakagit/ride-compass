@@ -1096,7 +1096,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 - [ ] [T703](tasks/T703.md). maplibre-glを6系へ更新する（XSS Sanitizer Bypass、CVSS 10） 規模M（統合レビュー第6回 I-9の分割）— トリガー: 一般公開の意思決定、またはT702完了後に独立タスクとして着手できる余力ができた時点。**到達経路は実在する**（ポップアップに出るOSMタグは第三者が編集できる）
 - [x] [T704](tasks/T704.md). 軸カタログ取得失敗を利用者に見せる（重み設定が無言で捨てられる） 規模S〜M（2026-09-10完了。AxisCatalogへfailedを追加し、RouteSettingsPanelが失敗表示と再試行導線[retryAxisCatalogFetch]を出す。lensAxisIdにもloadedガードを掛け、backendが未知の軸idを黙って無視する非対称を解消）
 - [ ] [T705](tasks/T705.md). review_checks.pyの検知範囲を広げる（検知器自身の適用範囲の穴） 規模M（統合レビュー第6回、T693の後。NARRATIVE_PATTERNに時制表現が無い／未定義CSSトークン検知が.tsxとフォールバック付き参照を見ない／死んだ参照がファイル名しか見ない。T656・T675の直後に別の穴から再発している）
-- [ ] [T706](tasks/T706.md). CIが検証するNodeと本番が動かすNodeを揃える 規模S（統合レビュー第6回。CI 22 / Dockerfile 20で、package.jsonにenginesが無く機械的に止まらない）
+- [x] [T706](tasks/T706.md). CIが検証するNodeと本番が動かすNodeを揃える 規模S（統合レビュー第6回。CI 22 / Dockerfile 20で、package.jsonにenginesが無く機械的に止まらない）
 
 ### 第3段: P2/P3を型ごとに束ねたもの
 
