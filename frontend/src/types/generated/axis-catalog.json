@@ -928,7 +928,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
-      "raw_value_unit": "回/km",
+      "raw_value_unit": null,
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false

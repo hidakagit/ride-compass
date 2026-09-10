@@ -735,7 +735,24 @@ def _axis(shape, axis_id="synthetic_raw_value"):
 
 
 def test_raw_value_unit_returns_shared_unit_of_terms():
-    # stop_densityを模した合成軸: 単位の同じ材料（回/km）だけを正の重みで足したもの。
+    # 単位の同じ材料（回/km）を、そのままの重み（1.0）で足したもの。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="intersection_count_per_km", weight=1.0, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) == "回/km"
+
+
+def test_raw_value_unit_is_none_when_a_weight_is_not_one():
+    # 生値はΣ(材料値 × weight)。重みが1でない項があると材料の値をスケールし直した量に
+    # なり、材料の単位では読めない（「1kmあたり1.5回として数えた踏切」を含む和は、
+    # 実際の回/kmではない）。本番の停止密度がこの形。
     definition = _axis(
         BreakpointLinearShape(
             terms=[
@@ -746,7 +763,7 @@ def test_raw_value_unit_returns_shared_unit_of_terms():
         )
     )
 
-    assert raw_value_unit(definition) == "回/km"
+    assert raw_value_unit(definition) is None
 
 
 def test_raw_value_unit_ignores_zero_weight_terms():

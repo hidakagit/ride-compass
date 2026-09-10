@@ -267,9 +267,8 @@ export default function MapLayersPanel({
   }
 
   // designation/tunnel/oneway/stopPoi/accidents（car_stressもaxis:${string}経由で
-  // ここへ合流）は「panelHint文＋OFF案内＋絞り込み軸」という同型JSXの標準レイヤー
-  // （elevationはpanelHintのみ・road/routeは専用UIを持つ真に特殊なレイヤーのため
-  // この関数の対象外）。
+  // ここへ合流）は「データ状態＋OFF案内＋絞り込み軸」という同型JSXの標準レイヤー
+  // （road/routeは専用UIを持つ真に特殊なレイヤーのためこの関数の対象外）。
   function renderStandardSectionBody(layer: MapLayerDescriptor) {
     return (
       <>
@@ -303,7 +302,7 @@ export default function MapLayersPanel({
   }
 
   // 路面の2レイヤーだけが専用の絞り込み軸（色／太さ）を持ち、それ以外は標準構成
-  // （panelHint＋OFF案内＋絞り込み軸）で足りる。
+  // （データ状態＋OFF案内＋絞り込み軸）で足りる。
   function renderSectionBody(layer: MapLayerDescriptor) {
     if (layer.id === "roadSurface") return renderRoadAxisSectionBody(layer, roadColorAxis, "色");
     if (layer.id === "roadType") return renderRoadAxisSectionBody(layer, roadWidthAxis, "太さ");

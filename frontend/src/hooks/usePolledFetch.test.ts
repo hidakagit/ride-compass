@@ -141,6 +141,25 @@ describe("usePolledFetch", () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it("enabledがfalseへ戻るとhasFetchedもfalseへ戻る", async () => {
+    // hasFetchedは「取りに行った結果、値が無かった」（empty表示）と「まだ取りに行って
+    // いない」を分ける唯一の手掛かり（deriveFetchLayerStatus）。trueのまま残すと、
+    // レイヤーを消しただけの状態が「データなし」と表示されうる。
+    const fetcher = vi.fn().mockResolvedValue("result-1");
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        usePolledFetch(fetcher, "initial", { enabled, intervalMs: 100000, label: "テスト" }),
+      { initialProps: { enabled: true } },
+    );
+
+    await waitFor(() => expect(result.current.hasFetched).toBe(true));
+
+    rerender({ enabled: false });
+
+    expect(result.current.hasFetched).toBe(false);
+  });
+
   it("アンマウント後は古いフェッチの解決結果を反映しない", async () => {
     let resolveFetch: (value: string) => void = () => {};
     const fetcher = vi.fn().mockReturnValue(

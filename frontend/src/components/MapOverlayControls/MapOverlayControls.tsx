@@ -709,7 +709,7 @@ export default function MapOverlayControls({
   // 再表示）はチップを選べるようにするだけで、レイヤーを自動でONにはしない
   // （「隠す/出す」はチップの見た目の設定であり、ON/OFFの意思決定はユーザーが個別に行う
   // という既存方針、member.onはこの関数の外＝呼び出し元のonTapが唯一の変更経路のまま）。
-  function toggleHidden(hiddenKey: string, layerId: MapLayerId | undefined, isOn: boolean | undefined) {
+  function toggleHidden(hiddenKey: string, layerId: MapLayerId, isOn: boolean | undefined) {
     const isCurrentlyHidden = hiddenIds.has(hiddenKey);
     setHiddenIds((prev) => {
       const next = new Set(prev);
@@ -720,7 +720,7 @@ export default function MapOverlayControls({
       }
       return next;
     });
-    if (!isCurrentlyHidden && layerId && isOn) {
+    if (!isCurrentlyHidden && isOn) {
       onToggle(layerId, false);
     }
   }
@@ -915,10 +915,10 @@ export default function MapOverlayControls({
       key: string;
       Icon: (props: { size?: number }) => ReactElement;
       label: string;
-      /** 対応するレイヤーID（あれば）。非表示に選んだ瞬間そのレイヤーがONならOFFにするために使う
-       * （toggleHidden参照）。推定グループの専用レイヤーを持たない軸（勾配・舗装質・夜間）は
-       * undefinedのまま渡す。 */
-      layerId?: MapLayerId;
+      /** 対応するレイヤーID。非表示に選んだ瞬間そのレイヤーがONならOFFにするために使う
+       * （toggleHidden参照）。この設定パネルへ並ぶのは地図チップを持つレイヤーだけなので
+       * 必ず値がある。 */
+      layerId: MapLayerId;
       on?: boolean;
       /** 行の右側に個別の情報アイコンを出し、押すと表示する説明文。未設定なら情報
        * アイコン自体を出さない。 */

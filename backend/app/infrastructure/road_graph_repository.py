@@ -49,6 +49,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -710,6 +711,28 @@ _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
 # （行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、管理画面の応答時間に
 # 収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を「目安」として扱う
 # 前提で許容する。
+@dataclass(frozen=True, slots=True)
+class WayMaterialSampleRow:
+    """`sample_way_rows`が返す1行（軸スタジオの分布プレビューの母集団）。
+
+    SQLの列別名と1対1で、値の解釈はしない。生の`Row`を返すと列別名がinfrastructureの
+    外側の暗黙の契約になり、SQLを編集しても型では何も落ちない。
+    """
+
+    length_m: float | None
+    highway: str | None
+    tags: dict[str, str] | None
+    counts_length_m: float | None
+    accident_count: float | None
+    stop_count: int | None
+    intersection_count: int | None
+    poi_counts: dict[str, int] | None
+    trees_percent: float | None
+    built_percent: float | None
+    curvature_deg_per_km: float | None
+    is_designated: bool
+
+
 _SAMPLE_WAY_MATERIALS_SQL = text(
     """
     SELECT
@@ -2185,11 +2208,13 @@ class AttributeRepository(_SessionRepository):
             poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
         )
 
-    async def sample_way_rows(self, sample_percent: float = 2.0, limit: int = 20_000) -> list[Any]:
-        """Way単位の材料の元データを抽選で取り、行をそのまま返す（軸スタジオの分布
-        プレビュー）。材料値への組み立ては呼び出し元（`axis_preview_service.py`）が
-        区間インスペクタと同じ`way_scalar_materials`で行う——ここで組み立てると
-        infrastructureが評価ドメインへ依存する。
+    async def sample_way_rows(
+        self, sample_percent: float = 2.0, limit: int = 20_000
+    ) -> list[WayMaterialSampleRow]:
+        """Way単位の材料の元データを抽選で取る（軸スタジオの分布プレビュー）。材料値への
+        組み立ては呼び出し元（`axis_preview_service.py`）が区間インスペクタと同じ
+        `way_scalar_materials`で行う——ここで組み立てるとinfrastructureが評価ドメインへ
+        依存する。
         """
         rows = await self._session.execute(
             _SAMPLE_WAY_MATERIALS_SQL,
@@ -2199,7 +2224,23 @@ class AttributeRepository(_SessionRepository):
                 "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
             },
         )
-        return list(rows)
+        return [
+            WayMaterialSampleRow(
+                length_m=row.length_m,
+                highway=row.highway,
+                tags=row.tags,
+                counts_length_m=row.counts_length_m,
+                accident_count=row.accident_count,
+                stop_count=row.stop_count,
+                intersection_count=row.intersection_count,
+                poi_counts=row.poi_counts,
+                trees_percent=row.trees_percent,
+                built_percent=row.built_percent,
+                curvature_deg_per_km=row.curvature_deg_per_km,
+                is_designated=row.is_designated,
+            )
+            for row in rows
+        ]
 
     async def get_way_curvature(self, osm_way_id: int) -> float | None:
         """osm_way_id完全一致で蛇行（way_geometry）の値を返す（区間インスペクタの蛇行軸）。
@@ -2336,8 +2377,8 @@ class AttributeRepository(_SessionRepository):
         「該当行なし」の扱い: surface・way_tagsはLEFT JOINでNone/{}を明示的に持つ
         （bundle自体はedge_idsに含まれる全Edgeぶん必ず存在する）。attribute_counts・
         elevation_attributeは対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の
-        判定に使う）。`poi_counts`はNOT NULL DEFAULT '{}'のため行があれば必ず辞書
-        （集計バッチ未実行の間は空辞書＝種別別の材料がすべて欠損）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
+        判定に使う）。`poi_counts`はNULL許容で、行があってもNULLでありうる
+        （NULL＝種別別の集計が未実行、空辞書＝集計済みで0件）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
         designation_attributes行が1つでもあれば該当、の意味）。landcover_trees_percent/
         landcover_built_percentはway_landcover行が無ければ2つとも同時にNone
         （`WayLandcoverRow`のLEFT JOIN、`EdgeMaterialBundle`のdocstring参照）。
@@ -2607,9 +2648,14 @@ class RoadGraphRepository:
         return await self.attributes.get_stop_poi_counts(edge_ids, max_distance_m=max_distance_m)
 
     async def get_poi_counts_by_kind(
-        self, edge_ids: list[str], cluster_eps_m: float = POI_CLUSTER_EPS_M
+        self,
+        edge_ids: list[str],
+        cluster_eps_m: float = POI_CLUSTER_EPS_M,
+        on_edge_tolerance_m: float = POI_ON_EDGE_TOLERANCE_M,
     ) -> dict[str, dict[str, int]]:
-        return await self.attributes.get_poi_counts_by_kind(edge_ids, cluster_eps_m=cluster_eps_m)
+        return await self.attributes.get_poi_counts_by_kind(
+            edge_ids, cluster_eps_m=cluster_eps_m, on_edge_tolerance_m=on_edge_tolerance_m
+        )
 
     async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)

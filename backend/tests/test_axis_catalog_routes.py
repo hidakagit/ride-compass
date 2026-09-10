@@ -215,8 +215,11 @@ def test_get_axis_catalog_includes_map_value_kind_and_unit():
 
 def test_get_axis_catalog_includes_raw_value_unit():
     # 得点の隣へ生値を出すための単位（domain/axis_display.py: raw_value_unit）。
-    # 停止密度は回/km、車の圧迫感は内部軸の合成で単位が定まらずnull。
+    # 勾配は単一材料をそのまま使うので%、車の圧迫感は内部軸の合成で単位が定まらずnull。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-    assert entries_by_id["stop_density"]["raw_value_unit"] == "回/km"
+    assert entries_by_id["gradient"]["raw_value_unit"] == "%"
     assert entries_by_id["car_stress"]["raw_value_unit"] is None
+    # 停止密度は材料ごとに重みを変えて足す（交差点は0.3倍）ため、和は「回/km」では
+    # 読めない——生値の単位はnullになる。
+    assert entries_by_id["stop_density"]["raw_value_unit"] is None

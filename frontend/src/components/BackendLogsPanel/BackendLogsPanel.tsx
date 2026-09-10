@@ -25,6 +25,11 @@ function parseLogLevel(line: string): LogLevelName | null {
 // 認証情報の入力欄は持たない（axisAdminApi.tsと同じ理由、debugAdminApi.tsのコメント参照）。
 // 取得は開いたとき自動ではなく「取得」ボタン押下時のみ（SystemStatusPanelと同じ、
 // プロセス内スナップショットのためポーリング不要）。
+function describeCopyFailure(err: unknown): string {
+  const detail = err instanceof Error ? err.message : String(err);
+  return `クリップボードへコピーできませんでした（httpsまたはlocalhostでのみ利用できます）: ${detail}`;
+}
+
 export default function BackendLogsPanel() {
   const [contains, setContains] = useState("");
   const [minLevel, setMinLevel] = useState<LogLevelName | "">("WARNING");
@@ -33,6 +38,7 @@ export default function BackendLogsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   // 「コピーしました」表示を戻すタイマー。アンマウント後にsetCopiedが走らないよう
   // 保持してクリーンアップする。
@@ -45,18 +51,23 @@ export default function BackendLogsPanel() {
 
   const handleCopy = () => {
     if (!lines) return;
-    navigator.clipboard
-      .writeText(lines.join("\n"))
-      .then(() => {
-        setCopied(true);
-        if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
-        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-      })
-      // クリップボードは権限拒否・非セキュアコンテキストで失敗する。握り潰すと
-      // 「押しても何も起きない」だけになるため、失敗の理由をその場に出す。
-      .catch((err: unknown) => {
-        setError(`クリップボードへコピーできませんでした: ${err instanceof Error ? err.message : String(err)}`);
-      });
+    setCopyError(null);
+    // Clipboard APIは[SecureContext]のため、httpのIPアクセス等では`navigator.clipboard`
+    // 自体がundefinedになる。`.catch()`はPromiseの拒否しか捕まえないので、プロパティ
+    // アクセスの同期TypeErrorはtryで受けないとボタンが無反応のままになる。
+    try {
+      navigator.clipboard
+        .writeText(lines.join("\n"))
+        .then(() => {
+          setCopied(true);
+          if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
+          copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+        })
+        // 権限拒否で失敗する場合もある。握り潰すと「押しても何も起きない」だけになる。
+        .catch((err: unknown) => setCopyError(describeCopyFailure(err)));
+    } catch (err) {
+      setCopyError(describeCopyFailure(err));
+    }
   };
 
   const handleFetch = () => {
@@ -125,6 +136,8 @@ export default function BackendLogsPanel() {
               {copied ? "コピーしました" : "ログ全体をコピー"}
             </Button>
           </div>
+          {/* ログ取得の失敗（error）とは原因も対処も別なので、同じ行へ混ぜない。 */}
+          {copyError && <p className={styles.error}>{copyError}</p>}
           <div className={styles.logBody}>
             {lines.map((line, i) => (
               <div key={i} className={styles.logLine} data-level={parseLogLevel(line)}>

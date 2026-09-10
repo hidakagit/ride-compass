@@ -43,7 +43,8 @@ class DirectedEdge(BaseModel):
     bearing_deg: float | None = None
     # 折れ線の蛇行の強さ（度/km、domain/geo.py: curvature_deg_per_km）。bearing_degと
     # 同じくbuild_road_graphがgeometryから算出する事前計算値で、探索・評価がgeometryを
-    # decodeせずに読めるようにする。Noneは「測れない」（頂点3点未満・距離0）で0ではない。
+    # decodeせずに読めるようにする。Noneは「測れない」（頂点1点以下・距離0）で0ではない
+    # ——頂点2点の折れ線は直線として0を持つ（domain/geo.pyのdocstring参照）。
     curvature_deg_per_km: float | None = None
 
 

@@ -267,10 +267,15 @@ def get_preview_builder(
 
 async def get_road_graph_repository():
     """`RoadGraphRepository`を直接使いたい読み取り専用の管理API向け（軸スタジオの
-    分布プレビュー）。DBなし構成ではNoneを渡し、呼び出し元が503で返す。
+    分布プレビュー・材料値一覧）。DBなし構成ではNoneを渡し、呼び出し元が503で返す。
+
+    `get_session_factory()`（タイル配信と共有、command_timeout=20）ではなく
+    `get_route_generation_session_factory()`（command_timeout=180）を使う。利用者は
+    いずれも全表走査寄りの管理APIで、タイル配信保護用の短いタイムアウトでキャンセル
+    されると集計が最後まで走らない（`get_material_coverage_service`と同じ理由）。
     """
     if settings.road_graph_use_repository:
-        async with get_session_factory()() as session:
+        async with get_route_generation_session_factory()() as session:
             yield RoadGraphRepository(session)
     else:
         yield None

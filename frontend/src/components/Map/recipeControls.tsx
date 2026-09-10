@@ -79,7 +79,7 @@ export function withAutoEnable<T>(
 // フィールドラベル+情報アイコン。タップでも確実に開くクリック式の開閉ボタン
 // （MapOverlayControlsのaria-expanded凡例トグルと同じ規約）。説明本体はRadix Popoverで
 // フローティング表示する——トリガー位置基準のためDOM上の配置形（div直後 vs テーブル行内等）
-// に依存せず、開閉状態もこのコンポーネント自身が持つため呼び出し側は`description`を
+// に依存しない。開閉状態は`InfoPopover`が持つため、呼び出し側は`description`を
 // 渡すだけでよい。`className`は任意の追加クラス（highway別基準値テーブル内では
 // nowrap/flex-shrink:0を打ち消して折り返しを許可する必要があり、呼び出し側の
 // module.cssでその上書きクラスを定義してここへ渡す）。

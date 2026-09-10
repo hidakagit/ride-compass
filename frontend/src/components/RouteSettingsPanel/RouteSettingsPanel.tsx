@@ -298,7 +298,12 @@ export default function RouteSettingsPanel({
   // 既定で閉じるが、既に既定値から変更済みの場合は「変更していることに気づかず開けない」
   // 事故を避けるため既定で開く（defaultOpenはuncontrolledのDisclosureの初期値としてのみ
   // 効く。以降の開閉はユーザー操作に委ねる）。
-  const hardFilterCustomized = HARD_FILTER_CHIPS.some(({ key }) => (hardFilters[key] ?? true) !== true);
+  // 未設定キーの既定値はDEFAULT_HARD_FILTERS（生成物由来）から引く。`?? true`で埋めると、
+  // backendが既定OFFのフィルタを足した瞬間、何も操作していないのに「変更あり」になり、
+  // チップも押していないのにONで表示される。
+  const hardFilterCustomized = HARD_FILTER_CHIPS.some(
+    ({ key }) => (hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]) !== DEFAULT_HARD_FILTERS[key],
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -439,9 +444,14 @@ export default function RouteSettingsPanel({
             <LayerChip
               key={key}
               label={label}
-              on={hardFilters[key] ?? true}
+              on={hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]}
               ariaLabel={`${label}を除外`}
-              onClick={() => onHardFiltersChange({ ...hardFilters, [key]: !(hardFilters[key] ?? true) })}
+              onClick={() =>
+                onHardFiltersChange({
+                  ...hardFilters,
+                  [key]: !(hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]),
+                })
+              }
             />
           ))}
         </div>

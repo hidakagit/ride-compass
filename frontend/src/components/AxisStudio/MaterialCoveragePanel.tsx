@@ -40,7 +40,9 @@ type MissingSemantics = NonNullable<MaterialCoverageEntry["missing_semantics"]>;
 // 意味が正反対のため、同じ表へ並べず見出しで分ける。
 //
 // Recordで全semanticsを要求する（配列で持つと、3値目が増えたときに足し忘れても
-// 型エラーにならず、その材料が表にも件数にも現れないまま黙って消える）。
+// 型エラーにならず、その材料が表にも件数にも現れないまま黙って消える）。型で塞げない
+// のはnull（集計対象の材料には付かないはずの値）だけで、そちらは下の未分類グループが
+// 拾う——どちらの経路でも「表から消える」が起きないようにする。
 const GROUP_BY_SEMANTICS: Record<MissingSemantics, { title: string; hint: string }> = {
   unknown: {
     title: "評価に影響する欠損",
@@ -118,6 +120,12 @@ export default function MaterialCoveragePanel() {
 
   const covered = report ? sortByMissingRatioDesc(report.materials.filter((m) => m.excluded_reason === null)) : [];
   const excluded = report ? report.materials.filter((m) => m.excluded_reason !== null) : [];
+  // 集計対象なのにmissing_semanticsがどのグループにも該当しない材料。本来は起きないが、
+  // 黙って表から消えるとカバレッジ画面が「欠損0件」に見えるため、拾って明示する。
+  const groupedSemantics = new Set<string>(GROUPS.map((group) => group.semantics));
+  const ungrouped = covered.filter(
+    (entry) => entry.missing_semantics === null || !groupedSemantics.has(entry.missing_semantics),
+  );
 
   return (
     <Card className={styles.panel}>
@@ -163,6 +171,15 @@ export default function MaterialCoveragePanel() {
               </section>
             );
           })}
+          {ungrouped.length > 0 && (
+            <section className={styles.group} aria-label="欠損時の扱いが不明な材料">
+              <div className={styles.groupTitle}>欠損時の扱いが不明な材料</div>
+              <p className={styles.hint}>
+                集計対象なのにmissing_semanticsが付いていない。backend側の宣言漏れの可能性がある。
+              </p>
+              <CoverageTable entries={ungrouped} />
+            </section>
+          )}
           {excluded.length > 0 && (
             <details className={styles.excluded}>
               <summary>集計対象外の材料（{excluded.length}件）</summary>

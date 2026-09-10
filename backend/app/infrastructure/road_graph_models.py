@@ -187,7 +187,8 @@ class EdgeAttributeCountsRow(Base):
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # 停止要因POIの種別別カウント（domain/traffic.py: POI_COUNT_KINDSがキーの単一ソース）。
-    # 値を足し合わせるとstop_countに一致する。
+    # 数え方がstop_countとは異なるため、値の合計はstop_countに一致しない
+    # （get_poi_counts_by_kindのdocstring参照）。
     poi_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # 派生データの系譜追跡（migration 0024）。source_*_import_run_idは
@@ -242,7 +243,8 @@ class WayAttributeCountsRow(Base):
     stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # 停止要因POIの種別別カウント（domain/traffic.py: POI_COUNT_KINDSがキーの単一ソース）。
-    # 値を足し合わせるとstop_countに一致する。
+    # 数え方がstop_countとは異なるため、値の合計はstop_countに一致しない
+    # （get_poi_counts_by_kindのdocstring参照）。
     poi_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # 派生データの系譜追跡（migration 0024）。EdgeAttributeCountsRowと同じ

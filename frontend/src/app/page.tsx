@@ -836,9 +836,7 @@ export default function Home() {
   );
 
   // MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes（実行時フェッチ、
-  // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。handleLayerToggle
-  // （直下）が排他ドメイン判定のためmapLayers全体を参照するため、overlayLayers組み立て
-  // （後方）より前で定義する。
+  // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
   const mapLayers = useMemo(
     () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes),
     [axisCatalog.rampAxes, axisCatalog.dedicatedAxes]
@@ -862,10 +860,9 @@ export default function Home() {
   // `line-offset`による並行トラック（MapView.tsx: applyRoadMaterialTrackOffsets）で
   // 重ならずに並ぶ。
   //
-  // 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・専用way値配信軸）だけは
-  // 1つだけ選べる状態を保つ。これらは同じ道路の同じ位置をそれぞれの評価で塗り分けるため、
-  // 重ねると後から描画した色が前の色を完全に覆い、並行トラックのように並べて見ることも
-  // できない（地図上チップではなくルート設定パネル・レンズから操作する）。
+  // 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・専用way値配信軸）は地図上チップ
+  // にもサイドバーにも現れず、layerVisibilityの対象外——表示ON/OFFはレンズ（LensControl）
+  // が単独で持つ（同じ道路の同じ位置を塗り分けるため重ねられず、レンズが常に1つだけ選ぶ）。
   const handleLayerToggle = useCallback(
     (id: MapLayerId, on: boolean) => {
       setLayerVisibility((prev) => ({ ...prev, [id]: on }));

@@ -44,6 +44,16 @@ export function usePolledFetch<T>(
   const [error, setError] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
 
+  // enabledが切り替わったら`hasFetched`を「まだ取りに行っていない」へ戻す（レンダー中に
+  // 前回値と比べて調整する形。effect内でsetStateすると1フレーム古い値で描画される）。
+  // trueのまま残すと、レイヤーを消しただけの状態をderiveFetchLayerStatusが
+  // 「取りに行った結果、値が無かった」（empty）として扱う。
+  const [previousEnabled, setPreviousEnabled] = useState(enabled);
+  if (previousEnabled !== enabled) {
+    setPreviousEnabled(enabled);
+    setHasFetched(false);
+  }
+
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
