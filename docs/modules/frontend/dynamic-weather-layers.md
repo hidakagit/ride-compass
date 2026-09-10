@@ -202,7 +202,7 @@ trueとする。
   スライダーとは連動しない——チップがONの間、選択中の共有時刻に関わらず`frames[0]`
   （現在値）があれば表示する。同じ`disaster`チップの雷・竜巻・落雷はスライダーに連動
   するため、1つのチップの中で連動する要素としない要素が同居する。
-  `page.tsx: FIXED_LAYER_VISIBILITY_DEFAULTS`は他のweatherレイヤー（既定OFF）と異なり
+  `page.tsx: DEFAULT_LAYER_VISIBILITY`は他のweatherレイヤー（既定OFF）と異なり
   `disaster`を既定`true`にしている（防災級の情報はユーザー操作を待たず表示すべきという
   理由）。地図上チップは複数同時にONにできるため、他の環境レイヤー（降水・風・標高図）を
   選んでも災害情報は地図に残る。

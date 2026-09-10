@@ -152,11 +152,19 @@ def test_css_var_def_re_matches_definitions_on_any_line():
     assert set(review_checks.CSS_VAR_DEF_RE.findall(css)) == {"--color-border", "--space-4"}
 
 
-def test_css_var_ref_re_ignores_references_with_fallback():
-    # `var(--x, #fff)`はフォールバックがあるため未定義でも壊れない。第2引数を持たない
-    # 参照だけを検知対象にする。
+def test_css_var_ref_re_matches_references_with_and_without_fallback():
+    # フォールバックは未定義であることを隠すだけで、トークン名の綴り違いはそのまま残る
+    # （docs/frontend-design-system.md「テーマトークンにフォールバックを付けないこと」）。
     assert review_checks.CSS_VAR_REF_RE.findall("color: var(--color-text);") == ["--color-text"]
-    assert review_checks.CSS_VAR_REF_RE.findall("color: var(--color-accent, #2563eb);") == []
+    assert review_checks.CSS_VAR_REF_RE.findall("color: var(--color-accent, #2563eb);") == ["--color-accent"]
+
+
+def test_css_var_ref_re_ignores_wildcards_and_runtime_interpolation():
+    # 説明文中の`var(--color-*)`や、実行時に名前を合成する`var(--color-${variant})`を
+    # 参照として拾うと、存在しないトークン名（`--color-`）が毎回違反になる。
+    assert review_checks.CSS_VAR_REF_RE.findall("色は必ずvar(--color-*)を使う") == []
+    assert review_checks.CSS_VAR_REF_RE.findall("`bg-[var(--color-${variant})]`") == []
+    assert review_checks.CSS_VAR_REF_RE.findall('"bg-[var(--color-accent)]"') == ["--color-accent"]
 
 
 def test_find_undefined_css_tokens_reports_only_undefined_ones(tmp_path, monkeypatch):
@@ -187,3 +195,114 @@ def test_find_undefined_css_tokens_accepts_tokens_defined_in_the_same_file(tmp_p
     monkeypatch.setattr(review_checks, "REPO_ROOT", root)
 
     assert review_checks.find_undefined_css_tokens(["frontend/src/b.module.css"]) == []
+
+
+def _css_root(tmp_path, globals_css: str):
+    (tmp_path / "frontend" / "src" / "app").mkdir(parents=True)
+    (tmp_path / "frontend" / "src" / "app" / "globals.css").write_text(globals_css, encoding="utf-8")
+    return tmp_path
+
+
+def test_find_undefined_css_tokens_scans_tsx(tmp_path, monkeypatch):
+    # .tsxはTailwindの任意値記法（`bg-[var(--x)]`）でトークンを参照するが、
+    # 検知が.cssしか見ていないと綴り違いが素通りする。
+    root = _css_root(tmp_path, ":root {\n  --color-accent: #2563eb;\n}\n")
+    (root / "frontend" / "src" / "C.tsx").write_text(
+        'const a = "bg-[var(--color-accent)]";\nconst b = "text-[var(--color-acccent)]";\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    out = review_checks.find_undefined_css_tokens(["frontend/src/C.tsx"])
+
+    assert len(out) == 1, out
+    assert "--color-acccent" in out[0] and "C.tsx:2" in out[0]
+
+
+def test_find_undefined_css_tokens_reports_undefined_even_with_fallback(tmp_path, monkeypatch):
+    root = _css_root(tmp_path, ":root {\n}\n")
+    (root / "frontend" / "src" / "d.module.css").write_text(
+        ".x {\n  font-size: var(--font-size-xs, 0.72rem);\n}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    out = review_checks.find_undefined_css_tokens(["frontend/src/d.module.css"])
+
+    assert len(out) == 1 and "--font-size-xs" in out[0], out
+
+
+def test_find_undefined_css_tokens_accepts_tokens_set_at_runtime_from_tsx(tmp_path, monkeypatch):
+    # `style["--width-swatch-color"] = color`のように.tsxが実行時に設定するトークンは
+    # CSS側からは定義が見えない。母集団（all_files）から拾って定義済みとして扱う。
+    root = _css_root(tmp_path, ":root {\n}\n")
+    (root / "frontend" / "src" / "W.tsx").write_text(
+        'style["--width-swatch-color"] = color;\n', encoding="utf-8"
+    )
+    (root / "frontend" / "src" / "w.module.css").write_text(
+        ".x {\n  background: var(--width-swatch-color, #888);\n}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    files = ["frontend/src/W.tsx", "frontend/src/w.module.css"]
+    assert review_checks.find_undefined_css_tokens(["frontend/src/w.module.css"], files) == []
+    # 母集団を渡さなければ「未定義」として出る＝all_filesが効いていることの確認。
+    assert len(review_checks.find_undefined_css_tokens(["frontend/src/w.module.css"])) == 1
+
+
+# --- docs/modules の死んだ識別子参照 ---
+
+
+def test_dead_identifier_refs_catches_renamed_symbols():
+    doc_lines = {"docs/modules/x.md": [
+        (1, "`page.tsx: FIXED_LAYER_VISIBILITY_DEFAULTS`は既定ONにしている"),
+        (2, "`buildAxisOverlayLayers`が軸ごとのレイヤーを組み立てる"),
+    ]}
+    out = review_checks.find_dead_identifier_refs(doc_lines, "const DEFAULT_LAYER_VISIBILITY = {};\nbuildAxisOverlayLayers()")
+    assert len(out) == 1, out
+    assert "FIXED_LAYER_VISIBILITY_DEFAULTS" in out[0] and ":1:" in out[0]
+
+
+def test_dead_identifier_refs_ignores_plain_english_words():
+    # 説明文の強調（`hidden`・`boolean`）まで識別子として扱うと、実装にその綴りが
+    # 無いだけで違反になる。
+    doc_lines = {"docs/modules/x.md": [(1, "`hidden`のとき`boolean`として扱う")]}
+    assert review_checks.find_dead_identifier_refs(doc_lines, "") == []
+
+
+def test_looks_like_identifier_accepts_code_shaped_names_only():
+    for token in ("evaluate_graph", "buildAxisOverlayLayers", "MapView", "RAMP_AXES"):
+        assert review_checks.looks_like_identifier(token), token
+    for token in ("hidden", "boolean", "true"):
+        assert not review_checks.looks_like_identifier(token), token
+
+
+# --- 経緯コメントの時制表現 ---
+
+
+def test_narrative_pattern_catches_past_tense_phrases():
+    # 「〜だった頃は」「〜ていたころは」は過去の状態を語る＝経緯。
+    for text in ("独自実装だった頃はここだけrequestIdを残さず", "手書きで持っていたころは選択肢が古かった"):
+        assert review_checks.NARRATIVE_PATTERN.search(text), text
+
+
+def test_narrative_pattern_does_not_flag_tokoro_wa():
+    # 「今のところは」は`たところ`であって`たころ`ではない（誤検出しない）。
+    for text in ("今のところは1箇所だけで足りる", "見たところは同じ形をしている"):
+        assert not review_checks.NARRATIVE_PATTERN.search(text), text
+
+
+def test_source_corpus_excludes_test_bodies_but_keeps_helpers(tmp_path, monkeypatch):
+    # テスト本体が旧名を文字列として持っていると、改名の取り残しが「実在する」と
+    # 判定されて素通りする（この検知器自身の回帰テストで実際に起きた）。一方で
+    # テスト専用ヘルパーは、docs/modulesが「本番コードに置かずテスト側に持つ」ことを
+    # 明記して名指しする対象のため母集団に残す。
+    root = tmp_path
+    (root / "backend" / "tests").mkdir(parents=True)
+    (root / "backend" / "tests" / "test_x.py").write_text("OLD_NAME = 1\n", encoding="utf-8")
+    (root / "backend" / "tests" / "geo_fixtures.py").write_text("def destination_point():\n    pass\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    corpus = review_checks.source_corpus(["backend/tests/test_x.py", "backend/tests/geo_fixtures.py"])
+
+    assert "OLD_NAME" not in corpus
+    assert "destination_point" in corpus

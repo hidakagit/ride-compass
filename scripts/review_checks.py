@@ -85,6 +85,9 @@ NARRATIVE_PATTERN = re.compile(
     r"|指摘を受け|フィードバックを受け|ユーザー指摘|ユーザー要望|ユーザー判断|ユーザーから"
     r"|方式ではなく|していたのを|へ変更した|に変更した|を導入した|コードレビュー指摘|実バグ"
     r"|UIレビュー|ゼロベース網羅"
+    # 「〜だった頃は」「〜ていたころは」という時制表現も、過去の状態を語る＝経緯にあたる。
+    # 直前に`た`を要求することで「今のところは」（`たところ`）を誤検出しない。
+    r"|た頃|たころ"
 )
 # docs/comments.md「コメント方針」節が禁止するソースコード内の経緯コメント検出用。
 # docs/modules向けのNARRATIVE_PATTERNをそのまま流用する（定義元を分けない）。
@@ -299,6 +302,69 @@ def find_dead_file_refs(doc_lines: dict[str, list[tuple[int, str]]], files: list
     return out
 
 
+# docs/modulesがバッククォートで名指しする識別子（関数・定数・型・フック名）。
+# `road_graph_repository.py: sample_way_rows`のような「ファイル名: 識別子」形式も拾う。
+DOC_IDENT_RE = re.compile(r"`([A-Za-z_][A-Za-z0-9_]{2,})`")
+DOC_QUALIFIED_IDENT_RE = re.compile(
+    r"`[A-Za-z0-9_./\-]+\.(?:py|ts|tsx|css):\s*([A-Za-z_][A-Za-z0-9_]{2,})`"
+)
+SOURCE_CORPUS_PREFIXES = ("backend/", "frontend/src/", "scripts/")
+SOURCE_CORPUS_SUFFIXES = (".py", ".ts", ".tsx", ".css", ".sql", ".sh", ".mjs", ".js")
+# テストケース本体は母集団から外す。docs/modulesが名指しするのは実装の識別子で、
+# テストが古い名前を文字列やアサーションとして持っているだけで「実在する」と判定されると、
+# 改名の取り残しを見逃す（この検知器自身の回帰テストが旧名を持つため、実際にそうなる）。
+# テスト専用ヘルパー（`tests/geo_fixtures.py`・`frontend/src/testing/`・conftest.py）は
+# 母集団に残す——docs/modulesが「本番コードには置かずテスト側に持つ」ことを明記して
+# 名指しする対象で、これらを外すと正しい記述が違反になる。
+SOURCE_CORPUS_EXCLUDE_RE = re.compile(
+    r"(\.test\.|\.spec\.|\.bench\.|(?:^|/)test_[^/]*\.py$|/__pycache__/)"
+)
+
+
+def looks_like_identifier(token: str) -> bool:
+    """バッククォート内の語が「コードの識別子」の形をしているか。
+
+    英単語1語（`hidden`・`boolean`等、説明文の強調）を識別子として扱うと、実装に
+    その綴りが無いだけで違反になる。スネークケース・大小混在（camel/Pascal）・
+    全大文字のいずれかであることを要求して、説明文の強調と区別する。
+    """
+    if "_" in token:
+        return True
+    if token.isupper():
+        return True
+    return any(c.islower() for c in token) and any(c.isupper() for c in token)
+
+
+def source_corpus(files: list[str]) -> str:
+    """識別子の実在判定に使うソース全文（実装・スクリプト）。"""
+    parts = []
+    for f in files:
+        if not f.startswith(SOURCE_CORPUS_PREFIXES) or not f.endswith(SOURCE_CORPUS_SUFFIXES):
+            continue
+        if SOURCE_CORPUS_EXCLUDE_RE.search(f):
+            continue
+        path = REPO_ROOT / f
+        if path.exists():
+            parts.append(read_text(path))
+    return "\n".join(parts)
+
+
+def find_dead_identifier_refs(doc_lines: dict[str, list[tuple[int, str]]], corpus: str) -> list[str]:
+    """docs/modulesが名指しする識別子のうち、実装のどこにも綴りが無いもの。
+
+    ファイル名の実在（find_dead_file_refs）だけでは、ファイルは残ったまま中の関数・定数が
+    改名・削除された参照を検出できない。綴りの単純な包含判定で、改名の取り残しを拾う。
+    """
+    out = []
+    for doc, lines in doc_lines.items():
+        for lineno, line in lines:
+            tokens = set(DOC_IDENT_RE.findall(line)) | set(DOC_QUALIFIED_IDENT_RE.findall(line))
+            for token in sorted(tokens):
+                if looks_like_identifier(token) and token not in corpus:
+                    out.append(f"{doc}:{lineno}: `{token}` が実装に存在しない")
+    return out
+
+
 def find_narrative_violations(doc_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
     out = []
     for doc, lines in doc_lines.items():
@@ -366,27 +432,53 @@ def task_status_kind(task_path: Path) -> str | None:
 
 
 GLOBAL_TOKENS_CSS = "frontend/src/app/globals.css"
-# `var(--x, fallback)`はフォールバックがあるため未定義でも壊れない。第2引数を持たない
-# 参照だけを対象にする。
-CSS_VAR_REF_RE = re.compile(r"var\(\s*(--[A-Za-z0-9_-]+)\s*\)")
+# `var(--x)`と`var(--x, fallback)`の両方を参照として扱う。フォールバックは未定義を
+# 隠すだけで、テーマトークンにフォールバックを付けない規約（docs/frontend-design-system.md）
+# にも反する。終端に`,`か`)`を要求することで、`var(--color-*)`というワイルドカード表記や
+# `var(--color-${variant})`という実行時合成を参照と誤認しない。
+CSS_VAR_REF_RE = re.compile(r"var\(\s*(--[A-Za-z0-9_-]+)\s*[,)]")
 CSS_VAR_DEF_RE = re.compile(r"^\s*(--[A-Za-z0-9_-]+)\s*:", re.MULTILINE)
+# .ts/.tsxが実行時にelementのstyleへ設定するトークン（トークンそのものだけを引用符で
+# 囲んだ文字列リテラル）。CSS側からはこれも定義済みとして扱う。`bg-[var(--color-accent)]`の
+# ように長い文字列の一部として現れる参照は、引用符が密着しないためここには入らない。
+CSS_VAR_RUNTIME_DEF_RE = re.compile(r"[\"\'](--[A-Za-z0-9_-]+)[\"\']")
+# CSS Modulesだけでなく、Tailwindの任意値記法（`bg-[var(--color-accent)]`）でトークンを
+# 参照する.ts/.tsxも対象にする。
+CSS_TOKEN_SCAN_SUFFIXES = (".css", ".ts", ".tsx")
 
 
-def find_undefined_css_tokens(files: list[str]) -> list[str]:
+def css_runtime_defined_tokens(files: list[str]) -> set[str]:
+    """.ts/.tsxが実行時に設定するCSSカスタムプロパティ名の集合。"""
+    out: set[str] = set()
+    for f in files:
+        if not f.endswith((".ts", ".tsx")):
+            continue
+        path = REPO_ROOT / f
+        if path.exists():
+            out |= set(CSS_VAR_RUNTIME_DEF_RE.findall(read_text(path)))
+    return out
+
+
+def find_undefined_css_tokens(files: list[str], all_files: list[str] | None = None) -> list[str]:
     """定義の無いCSSカスタムプロパティ参照を返す。
 
     `var(--color-text)`のように規約（`var(--color-*)`を使う）に従った見た目で通ってしまい、
     実際には未定義で継承値へ落ちる。SVGの`fill`だと継承値＝黒に固定され、ダークモードで
-    文字が読めなくなる（改善計画T675）。フォールバック付き`var(--x, #fff)`は壊れないため
-    対象外。
+    文字が読めなくなる（改善計画T675）。フォールバック付き`var(--x, #fff)`も対象に含める:
+    値としては壊れないが、未定義であること自体が隠れたままトークン名の綴り違いが残り、
+    同じ役割の色が複数の実効値を持つ状態になる。
+
+    `all_files`は実行時設定トークンを集める母集団（省略時は`files`）。CSS側からは
+    定義が見えないため、走査対象が一部（ステージ済みファイル等）でも母集団は全体を渡す。
     """
     tokens_path = REPO_ROOT / GLOBAL_TOKENS_CSS
     if not tokens_path.exists():
         return []
     defined = set(CSS_VAR_DEF_RE.findall(read_text(tokens_path)))
+    defined |= css_runtime_defined_tokens(all_files if all_files is not None else files)
     out = []
     for f in files:
-        if not f.endswith(".css") or f == GLOBAL_TOKENS_CSS:
+        if not f.endswith(CSS_TOKEN_SCAN_SUFFIXES) or f == GLOBAL_TOKENS_CSS:
             continue
         path = REPO_ROOT / f
         if not path.exists():
@@ -487,6 +579,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
         doc_lines = {k: v for k, v in doc_lines.items() if not k.endswith("README.md")}
         added = [l for l in git("diff", "--cached", "--name-only", "--diff-filter=A").splitlines() if l]
         sections.append(("docs/modules の死んだ参照（ステージ済み追加行）", find_dead_file_refs(doc_lines, files + added), True))
+        sections.append(("docs/modules の死んだ識別子参照（ステージ済み追加行）",
+                         find_dead_identifier_refs(doc_lines, source_corpus(files + added)), True))
         sections.append(("docs/modules の記載粒度違反（ステージ済み追加行）", find_narrative_violations(doc_lines), True))
         source_lines = gather_added_source_lines(None)
         sections.append(("ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
@@ -500,11 +594,14 @@ def cmd_docs(args: argparse.Namespace) -> int:
             sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
         md_staged = [s for s in staged if s.endswith(".md")]
         sections.append(("history/・docs/tasks への死んだリンク（ステージ済み.md）", check_dead_doc_links(md_staged), True))
-        sections.append(("未定義のCSSトークン（ステージ済み.css）",
-                         find_undefined_css_tokens([s for s in staged if s.endswith(".css")]), True))
+        sections.append(("未定義のCSSトークン（ステージ済み.css/.ts/.tsx）",
+                         find_undefined_css_tokens(
+                             [s for s in staged if s.endswith(CSS_TOKEN_SCAN_SUFFIXES)], files + added), True))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files), True))
+        sections.append(("docs/modules の死んだ識別子参照（全件）",
+                         find_dead_identifier_refs(doc_lines, source_corpus(files)), True))
         sections.append(("docs/modules の記載粒度違反（全件）", find_narrative_violations(doc_lines), True))
         sections.append(("docs/modules の Txxx リンク（参考、README「記載粒度」節は1リンクまで許可）",
                          count_task_links(doc_lines), False))
@@ -531,7 +628,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
         sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]
         sections.append(("history/・docs/tasks への死んだリンク（.claude・docs 全件）", check_dead_doc_links(md_files), True))
-        sections.append(("未定義のCSSトークン（全件）", find_undefined_css_tokens(files), True))
+        sections.append(("未定義のCSSトークン（全件）", find_undefined_css_tokens(files, files), True))
 
     total = 0
     for title, lines, counts in sections:
