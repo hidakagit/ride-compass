@@ -65,7 +65,7 @@ def test_access_level_policy():
 
     assert _access_level("GET", "/api/basemap/tiles/1", 200) == logging.DEBUG
     assert _access_level("GET", "/api/region/road-surface-tiles/14/1/1.pbf", 200) == logging.DEBUG
-    assert _access_level("POST", "/api/basemap/refresh", 200) == logging.INFO
+    assert _access_level("POST", "/api/admin/basemap/refresh", 200) == logging.INFO
     assert _access_level("POST", "/api/routes/generate", 200) == logging.INFO
     assert _access_level("POST", "/api/routes/generate", 400) == logging.WARNING
     assert _access_level("POST", "/api/routes/generate", 429) == logging.DEBUG

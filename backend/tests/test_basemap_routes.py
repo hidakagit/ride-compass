@@ -5,8 +5,11 @@ from app.api.dependencies import get_basemap_client
 from app.config import settings
 from app.infrastructure import rate_limiter, tile_cache
 from app.main import app
+from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 
 client = TestClient(app)
+
+REFRESH_PATH = "/api/admin/basemap/refresh"
 
 
 @pytest.fixture(autouse=True)
@@ -62,25 +65,23 @@ def test_basemap_proxy_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_basemap_refresh_clears_tile_cache(tmp_path, monkeypatch):
+def test_basemap_refresh_clears_tile_cache(tmp_path, monkeypatch, admin_credentials):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
     tile_cache.set("styles/liberty", b"cached", "application/json")
 
-    response = client.post("/api/basemap/refresh")
+    response = client.post(REFRESH_PATH, auth=(ADMIN_USERNAME, ADMIN_PASSWORD))
 
     assert response.status_code == 200
     assert tile_cache.get("styles/liberty") is None
 
 
-def test_basemap_refresh_is_rate_limited_per_client(tmp_path, monkeypatch):
-    # 改善計画T329: docs/testing.mdパターン1（上限-1件はrate_limiterを直接埋め、実HTTPは
-    # 境界の1〜2回に絞る）に反し上限回数分すべて実HTTPループしていたのを是正
-    # （test_basemap_proxy_is_rate_limited_per_clientと同じ形に揃える）。
+def test_basemap_refresh_requires_admin_auth(tmp_path, monkeypatch, admin_credentials):
+    # 全利用者のタイルキャッシュを消す操作のため、認可の外から叩けてはならない
+    # （T639でこのエンドポイントを一般公開UIから管理画面へ移した理由そのもの）。
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
+    tile_cache.set("styles/liberty", b"cached", "application/json")
 
-    for _ in range(settings.basemap_refresh_rate_limit_per_minute - 1):
-        rate_limiter.check_rate_limit("basemap-refresh:testclient", settings.basemap_refresh_rate_limit_per_minute)
-    assert client.post("/api/basemap/refresh").status_code == 200
-    response = client.post("/api/basemap/refresh")
+    response = client.post(REFRESH_PATH)
 
-    assert response.status_code == 429
+    assert response.status_code == 401
+    assert tile_cache.get("styles/liberty") is not None

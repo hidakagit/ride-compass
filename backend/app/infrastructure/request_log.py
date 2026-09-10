@@ -81,7 +81,7 @@ def _access_level(method: str, path: str, status_code: int) -> int:
     if status_code >= 400:
         return logging.WARNING
     # DEBUGへ落とすのは高頻度なタイル**取得**(GET)のみ。同じプレフィックス配下でも
-    # 状態を変える操作(POST /api/basemap/refresh のキャッシュ全消去等)は常時INFOで残す。
+    # 状態を変える操作(POST /api/admin/basemap/refresh のキャッシュ全消去等)は常時INFOで残す。
     if method == "GET" and path.startswith(HIGH_FREQUENCY_PATH_PREFIXES):
         return logging.DEBUG
     return logging.INFO

@@ -36,9 +36,9 @@ def test_every_policy_entry_matches_a_real_route():
 
 
 def test_policy_for_path_prefers_the_longest_prefix():
-    # 表への追記順に依存しないことの保証（/api/basemap/refreshは/api/basemap/より長い）。
-    assert policy_for_path("/api/basemap/refresh").header() == "no-store"
-    assert policy_for_path("/api/basemap/planet/14/1/2.pbf").header() == "public, max-age=600"
+    # 表への追記順に依存しないことの保証（/api/weather/amedasは/api/weatherより長い）。
+    assert policy_for_path("/api/weather/amedas").header() == "public, max-age=120"
+    assert policy_for_path("/api/weather?lat=35&lon=139").header() == "public, max-age=300"
 
 
 def test_policy_for_path_returns_none_for_unknown_path():

@@ -172,13 +172,3 @@ export async function fetchDynamicWayValues(
   }
 }
 
-export async function refreshBasemapCache(): Promise<void> {
-  // 以前はtry/catchも!response.okのチェックも無く、ネットワークエラー時は
-  // 未処理のPromise rejectionになり、失敗時に呼び出し元(MapView.tsx)へ何も伝わらず
-  // 「変わらないデータを更新」ボタンが無反応に見えていた（改善計画T328で発見・修正）。
-  const { durationMs, requestId } = await postAndCheckOk("/api/basemap/refresh", {
-    category: "api:basemap-refresh",
-    errorLabel: "地図キャッシュの更新",
-  });
-  debugLog("api:basemap-refresh", "成功", { durationMs, requestId });
-}

@@ -10,6 +10,7 @@ import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel"
 import AxisStudio from "@/components/AxisStudio/AxisStudio";
 import MaterialCoveragePanel from "@/components/AxisStudio/MaterialCoveragePanel";
 import DerivedDataFreshnessPanel from "@/components/AxisStudio/DerivedDataFreshnessPanel";
+import TileCachePanel from "@/components/AxisStudio/TileCachePanel";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import styles from "./admin.module.css";
 
@@ -54,6 +55,7 @@ export default function AdminPage() {
 
         <Tabs.Content className={styles.tabPanel} value="freshness">
           <DerivedDataFreshnessPanel />
+          <TileCachePanel />
         </Tabs.Content>
 
         <Tabs.Content className={styles.tabPanel} value="research">

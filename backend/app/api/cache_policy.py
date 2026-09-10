@@ -55,9 +55,10 @@ PERMANENT = CachePolicy(max_age_seconds=24 * 60 * 60, immutable=True)
 IMMUTABLE_TILE = CachePolicy(max_age_seconds=20 * 60, immutable=True)
 #: 取込バッチが走るまで変化しないタイル（路面・事故・POI）。
 BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
-#: 基礎地図（OpenFreeMap）。「変わらないデータを更新」ボタン（`POST /api/basemap/refresh`）
-#: はサーバー側のファイルキャッシュしか消せずブラウザの保持分へ手が届かないため、押した
-#: 効果がこの`max-age`ぶん遅れて現れる。押す頻度と表示速度の釣り合いで10分にしてある。
+#: 基礎地図（OpenFreeMap）。管理画面のタイルキャッシュ全消去
+#: （`POST /api/admin/basemap/refresh`）はサーバー側のファイルキャッシュしか消せず
+#: ブラウザの保持分へ手が届かないため、消した効果が各利用者の画面へ現れるのはこの
+#: `max-age`ぶん遅れる。押す頻度と表示速度の釣り合いで10分にしてある。
 BASEMAP = CachePolicy(max_age_seconds=10 * 60)
 #: コード変更＋デプロイでしか変わらないカタログ、およびDB取込頻度が月単位の値一覧。
 CATALOG = CachePolicy(max_age_seconds=60 * 60)
@@ -94,7 +95,6 @@ _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/jma-tile-index", LIVE),
     ("/api/jma-tile/", HANDLER_MANAGED),
     ("/api/gsi-relief-tile/", PERMANENT),
-    ("/api/basemap/refresh", NO_STORE),
     ("/api/basemap/", BASEMAP),
     ("/api/region/road-surface-tiles/", BATCH_TILE),
     ("/api/region/accident-tiles/", BATCH_TILE),
@@ -124,7 +124,7 @@ def policy_for_path(path: str) -> CachePolicy | None:
     """パスに対応するポリシーを返す（該当が無ければNone）。
 
     複数のパターンが前方一致する場合は最長のものを採るため、表への追記順を気にしなくてよい
-    （例: `/api/basemap/refresh`は`/api/basemap/`より長いので必ず前者が勝つ）。
+    （例: `/api/weather/amedas`は`/api/weather`より長いので必ず前者が勝つ）。
     """
     best: tuple[int, CachePolicy] | None = None
     for prefix, policy in _ROUTE_POLICIES:

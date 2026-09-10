@@ -1,0 +1,23 @@
+.panel {
+  composes: panel from "../ui/adminPanel.module.css";
+}
+
+.heading {
+  composes: heading from "../ui/adminPanel.module.css";
+}
+
+.hint {
+  composes: hint from "../ui/adminPanel.module.css";
+}
+
+.error {
+  composes: error from "../ui/adminPanel.module.css";
+}
+
+.controls {
+  composes: controls from "../ui/adminPanel.module.css";
+}
+
+.summary {
+  composes: summary from "../ui/adminPanel.module.css";
+}

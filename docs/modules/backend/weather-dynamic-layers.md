@@ -270,8 +270,10 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 `settings.basemap_public_base_url`へ書き換えて返すが、キャッシュには書き換え前の内容を
 `basemap-raw/`接頭辞のキーで保存し、書き換えは返す直前に毎回行う（設定変更がキャッシュを
 消さずに即座に反映される）。バイナリ（スプライト・グリフ・タイル）は無加工でパスそのままの
-キーに保存する。`POST /api/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も含めた
-ファイルキャッシュ全体を消す。
+キーに保存する。`POST /api/admin/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も
+含めたファイルキャッシュ全体を消す。全利用者へ影響するため管理API認可境界
+（`require_admin_basic_auth`）の内側に置き、入口は管理画面`/admin`の「鮮度」タブ
+（`TileCachePanel.tsx`）だけに持つ。
 
 ## 色別標高図タイルプロキシ（`gsi_relief_tile_client.py`・`api/routers/gsi_relief_tile.py`）
 

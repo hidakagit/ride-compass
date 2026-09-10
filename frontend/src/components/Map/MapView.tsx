@@ -24,7 +24,6 @@ import {
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
   poiTileUrl,
-  refreshBasemapCache,
   roadSurfaceTileUrl,
 } from "@/services/regionApi";
 import {
@@ -3512,43 +3511,25 @@ export default function MapView({
     recomputeLayerDataStatus,
   ]);
 
-  // 「変わらないデータを更新」ボタン: 基礎地図タイル・路面ベクタタイルのキャッシュをクリアして
-  // スタイルを再読み込みする。setStyle()はカスタムレイヤーを消すため、style.load後に
-  // redrawAllLayersで全て描き直す（タイルソースは再取得不要。キャッシュがクリアされているため
-  // 次のタイル要求で自動的に新しいタイルが生成される）。
+  // 「地図の表示を再描画」ボタン: スタイルを取り直して地図を組み直す（押した人の地図
+  // インスタンスだけに閉じた操作で、サーバー側のタイルキャッシュには触れない）。
+  // setStyle()はカスタムレイヤーを消すため、style.load後にredrawAllLayersで全て描き直す。
   useEffect(() => {
     const map = mapRef.current;
     if (!map || refreshToken === 0) return;
-    // refreshTokenが短時間に連続変化した場合（連打）、複数の
-    // refreshBasemapCache→setStyle呼び出しが重なることへのガード。
-    // MapLibreは新しいsetStyle呼び出しで前のスタイル読み込みを
-    // 打ち切りうるため、1回目のstyle.loadリスナーが発火せずredrawAllLayersが一度も
-    // 呼ばれない可能性があった。既に進行中（style.load未確定）ならこの呼び出しは
-    // スキップする——非同期の待ち合わせに入る前、この同期区間のうちにフラグを立てる
-    // ことで、rapidに連続発火したeffect同士が両方ともガードを素通りする窓を閉じる。
+    // refreshTokenが短時間に連続変化した場合（連打）、複数のsetStyle呼び出しが重なることへの
+    // ガード。MapLibreは新しいsetStyle呼び出しで前のスタイル読み込みを打ち切りうるため、
+    // 1回目のstyle.loadリスナーが発火せずredrawAllLayersが一度も呼ばれない可能性がある。
+    // 既に進行中（style.load未確定）ならこの呼び出しはスキップする。
     if (styleReloadPendingRef.current) return;
     styleReloadPendingRef.current = true;
 
-    (async () => {
-      try {
-        await refreshBasemapCache();
-        map.once("style.load", () => {
-          styleReloadPendingRef.current = false;
-          redrawAllLayers(map);
-        });
-        map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
-      } catch (error) {
-        // refreshBasemapCacheは失敗しうるため、未処理のPromise rejectionになるのを
-        // 防ぐ必要がある。
-        styleReloadPendingRef.current = false; // 失敗時も解放し、次のrefreshTokenで再試行できるようにする
-        debugLog(
-          "map:error",
-          `basemap refresh failed: ${error instanceof Error ? error.message : String(error)}`,
-          undefined,
-          "error",
-        );
-      }
-    })();
+    map.once("style.load", () => {
+      styleReloadPendingRef.current = false;
+      redrawAllLayers(map);
+    });
+    // クエリでスタイルURLを変えることで、ブラウザのHTTPキャッシュではなく取り直しにする。
+    map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
   }, [refreshToken, redrawAllLayers]);
 
   return (

@@ -8,7 +8,8 @@
 - region.py: /api/region/road-surface-tiles/{z}/{x}/{y}.pbf（地域路面レイヤー）
 - accidents.py: /api/region/accident-tiles/{z}/{x}/{y}.pbf（外部静的データソース T50。
   警察庁交通事故統計レイヤー）
-- basemap.py: /api/basemap/{path}, /api/basemap/refresh（基礎地図プロキシ）
+- basemap.py: /api/basemap/{path}（基礎地図プロキシ）, /api/admin/basemap/refresh
+  （タイルファイルキャッシュの全消去、Basic認証必須）
 - jma_tile.py: /api/jma-tile/{path}（JMA動的タイル系レイヤーのプロキシ、改善計画T412。
   降水ナウキャスト・降水短時間予報・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップが
   対象。basemap.pyと同じ「pathを丸ごとプロキシ」方式）

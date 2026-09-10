@@ -107,10 +107,6 @@ class Settings(BaseSettings):
     # 待たされても実害が無く1で十分（複数エリアへの構築要求は順番に処理される）。
     graph_build_max_concurrent: int = 1
     basemap_rate_limit_per_minute: int = 300
-    # refreshはbasemap/road-tile両方のディスクキャッシュを一括削除する破壊的操作のため、
-    # 通常のbasemapプロキシより厳しい上限にする（連打されるとキャッシュが常に温まらず、
-    # Overpass/OpenFreeMapへの実問い合わせが毎回発生し続けてしまう）。
-    basemap_refresh_rate_limit_per_minute: int = 6
     # JMA動的タイル系レイヤーのプロキシ。降水ナウキャスト・rasrf・
     # 雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップの各タイル・時刻一覧をまとめて
     # 経由するため、basemapと同水準の上限にする。

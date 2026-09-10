@@ -35,6 +35,9 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）とelevation_attributesの完成度（別枠）を表示。集計は「集計する」ボタン押下時のみ |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
+| `components/AxisStudio/TileCachePanel.tsx` | 「鮮度」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
+| `services/basemapAdminApi.ts` | `TileCachePanel`が使うAPIクライアント（`app/admin/api/basemap-refresh/`経由） |
+| `app/admin/api/basemap-refresh/route.ts` | `basemapAdminApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `POST /api/admin/basemap/refresh`へ転送する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
 | `hooks/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`app/admin/api/material-values/[materialId]/`のroute handler経由）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
@@ -244,6 +247,21 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 集計はDB全体の走査を伴うため、`MaterialCoveragePanel`と同じく「集計する」ボタン押下時
   のみ実行する。認証情報の入力欄は持たない（`/admin`のBasic認証セッションをroute handler
   経由で再利用する）。
+
+## TileCachePanel.tsx（「鮮度」タブの2枚目）
+
+`POST /admin/api/basemap-refresh`（backend `POST /api/admin/basemap/refresh`）を呼び、
+サーバーが持つタイルのファイルキャッシュ（`tile_cache`。基礎地図のプロキシ結果と
+路面・事故・POIのベクタタイルが同じ場所を共有する）を全消去する。
+`DerivedDataFreshnessPanel`が「古いかどうかを見る」のに対し、こちらは「古いものを捨てる」
+操作側のため同じタブに並べる。
+
+影響は押した人だけでなく**全利用者**に及ぶ（次のタイル要求で作り直されるまで、外部
+サービスへの実問い合わせやタイル生成が走る）。この操作が管理API認可境界の内側にしか
+入口を持たないことが、`/`側の「地図の表示を再描画」ボタン（押した人の地図インスタンス
+だけを組み直す純粋なクライアント操作）と分かれている理由。押しても管理者自身の画面は
+変わらない（この画面は地図を持たない）ため、消したこと自体と、各利用者へ反映されるのが
+既存タイルの`Cache-Control`（基礎地図は10分）が切れた後であることを結果表示で伝える。
 
 ## 材料が0件のときの防御
 

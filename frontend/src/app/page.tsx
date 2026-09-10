@@ -1751,17 +1751,19 @@ export default function Home() {
     );
   }
 
-  // 「地図の見え方」の中身。地図インスタンス（refreshToken）に紐づく「地図データを
-  // 再読み込み」ボタンをここに置く（デバッグログ切替はヘッダーのアイコンボタン、
+  // 「地図の見え方」の中身。地図インスタンス（refreshToken）に紐づく「地図の表示を
+  // 再描画」ボタンをここに置く（デバッグログ切替はヘッダーのアイコンボタン、
   // 下記header参照）。
   function renderMapSettingsSectionBody() {
     return (
       <Card>
-        {/* 基礎地図・道路情報タイルのキャッシュ更新は日常操作ではない運用ボタン。
-            このページが持つ地図インスタンス（refreshToken）に紐づくため、/adminへは
-            移設せずここに残す。 */}
+        {/* このページが持つ地図インスタンスだけを描き直す（refreshToken）。押した人の
+            画面にしか影響しない純粋なクライアント操作で、サーバー側のタイルキャッシュには
+            触れない（そちらは全利用者へ影響するため/adminのTileCachePanelにある）。
+            ページ全体を再読み込みすると生成済みのルート候補が消えるため、地図だけを
+            描き直す入口をここに残す。 */}
         <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
-          地図データを再読み込み
+          地図の表示を再描画
         </button>
         <MapLayersPanel
           layerVisibility={layerVisibility}

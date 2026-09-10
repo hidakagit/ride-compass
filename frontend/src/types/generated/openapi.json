@@ -932,10 +932,11 @@
         }
       }
     },
-    "/api/basemap/refresh": {
+    "/api/admin/basemap/refresh": {
       "post": {
         "summary": "Basemap Refresh",
-        "operationId": "basemap_refresh_api_basemap_refresh_post",
+        "description": "サーバー側のタイルファイルキャッシュを全消去する（管理画面`/admin`「鮮度」タブから使う）。\n\n基礎地図タイルと路面ベクタタイルは同じファイルキャッシュを共有しているため、この\n一括クリアで両方とも消える。影響は押した人だけでなく**全利用者**に及ぶ（次のタイル要求で\n作り直されるまで、外部サービスへの実問い合わせやタイル生成が走る）ため、\naxis_admin.py/debug_admin.pyと同じ管理API認可境界（require_admin_basic_auth）の内側に置く。\n\n各利用者の画面へ反映されるのは、ブラウザが持つ既存タイルの`Cache-Control`が切れた後\n（`api/cache_policy.py`のBASEMAP: 10分）。",
+        "operationId": "basemap_refresh_api_admin_basemap_refresh_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -946,12 +947,17 @@
                     "type": "string"
                   },
                   "type": "object",
-                  "title": "Response Basemap Refresh Api Basemap Refresh Post"
+                  "title": "Response Basemap Refresh Api Admin Basemap Refresh Post"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
       }
     },
     "/api/jma-tile-index": {

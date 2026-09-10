@@ -245,7 +245,7 @@ page.tsx
 - `dedicatedWayValues`はパン・ズームのたびに変わりうる値のため、「表示ON/OFF」を担う
   一括effect（`STATIC_OVERLAY_LAYERS`ループ）とは別の専用effectで反映する（無関係な
   再実行を避けるため）。
-- **`map.setStyle()`（「変わらないデータを更新」ボタン経由の基礎地図キャッシュクリア）は
+- **`map.setStyle()`（「地図の表示を再描画」ボタン経由のスタイル取り直し）は
   カスタムレイヤーを全て消すため、`redrawAllLayers`が全レイヤーを再構築する。この際
   `dedicatedWayValues`の値自体は変わっていないため通常の依存effectは再実行されないが、
   `redrawAllLayers`が`applyAxisFeatureStateValues`を明示的に再呼び出しすることで、
