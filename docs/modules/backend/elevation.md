@@ -79,7 +79,7 @@ Road Graphの全Edgeに対して`ElevationAttributeService`をあらかじめ実
 Attributeを確認し（`get_elevation_attributes`）、既に永続化済みならGSIへ問い合わせない
 ——本バッチは再実行しても未計算分だけを埋める形で安全に再実行できる。`_target_edge_ids_stmt`
 自体もanti-joinで計算済みEdgeを最初から除外し、かつ地理的順序（`ORDER BY geom`）で
-選ぶ（この対象IDは`_common.py: stream_id_chunks`がサーバーサイドカーソルで
+選ぶ（この対象IDは`_common.py: run_chunked_precompute`→`stream_id_chunks`がサーバーサイドカーソルで
 `CHUNK_SIZE`件ずつ読み進め、Python側へ全件を載せない）——`ElevationClient`の
 プロセス内タイルグリッドキャッシュ（`_tile_grid_cache`）が
 近接するEdgeで同じDEMタイルを共有できるようにするため（DB取得順は地理的に無関係なため、

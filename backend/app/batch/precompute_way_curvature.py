@@ -20,14 +20,12 @@ osm_raw_waysが変わった場合（PBF再取込）は再実行し、タイル�
 """
 
 import logging
-import math
 import sys
-import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
 
-from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
+from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
@@ -50,40 +48,26 @@ def _target_way_ids_stmt():
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
-    started = time.perf_counter()
     stmt = _target_way_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        target_count = await count_targets(session_factory, stmt)
-
-        logger.info("対象way数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
-        if dry_run:
-            logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
-            return 0
-        if target_count == 0:
-            logger.warning("対象wayが0件のため更新をスキップします（osm_raw_waysが空の可能性）")
-            return 0
-        total_chunks = math.ceil(target_count / CHUNK_SIZE)
-
         now = datetime.now(timezone.utc)
-        total_written = 0
-        chunk_index = -1
-        async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
-            chunk_index += 1
-            chunk_started = time.perf_counter()
+
+        async def handle_chunk(chunk: list[int]) -> int:
             async with session_factory() as session:
                 source_osm_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
                 repository = RoadGraphRepository(session)
                 await repository.recompute_way_curvature(chunk, now, source_osm_run_id, ALGORITHM_VERSION)
                 await session.commit()
-            total_written += len(chunk)
-            logger.info(
-                "chunk %d/%d 完了: %d件 source_osm_run_id=%s elapsed=%.1fs",
-                chunk_index + 1, total_chunks, len(chunk), source_osm_run_id,
-                time.perf_counter() - chunk_started,
-            )
+            logger.info("系譜: source_osm_run_id=%s", source_osm_run_id)
+            return len(chunk)
 
-        logger.info("事前集計完了: total=%d件 elapsed=%.1fs", total_written, time.perf_counter() - started)
-        return 0
+        return await run_chunked_precompute(
+            session_factory, stmt, CHUNK_SIZE, handle_chunk,
+            logger=logger,
+            target_label="対象way数",
+            empty_warning="対象wayが0件のため更新をスキップします（osm_raw_waysが空の可能性）",
+            dry_run=dry_run,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

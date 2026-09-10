@@ -854,7 +854,7 @@ async def test_get_poi_counts_by_kind_returns_empty_dict_for_empty_input(road_gr
 
 async def test_get_stop_poi_counts_edge_with_no_nearby_pois_is_zero_not_missing(road_graph_repository):
     """該当POIが0件でもedge_id自体はNoneではなく0として結果に含まれる
-    （EvaluationServiceが「データ無し(None)」と「0件」を区別する前提）。"""
+    （評価側が「データ無し(None)」と「0件」を区別する前提）。"""
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     nodes = {1: NODE1, 2: NODE2}
     graph = build_road_graph([way], nodes, graph_version="v1")

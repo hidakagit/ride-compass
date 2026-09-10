@@ -17,7 +17,7 @@ from app.api.dependencies import (
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
-from app.domain.hard_filters import DEFAULT_HARD_FILTERS
+from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference
 from app.domain.geo import haversine_distance_km
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH
@@ -68,7 +68,7 @@ async def preview_route(
 
 
 class RoutePreferenceWeights(RootModel[dict[str, float]]):
-    """Edge評価・区間難易度（絶対評価、EvaluationService/難易度合成）の重み。
+    """Edge評価・区間難易度（絶対評価、evaluate_graph/難易度合成）の重み。
     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
     `domain/evaluation.py: RoutePreference`と同じ。
 
@@ -105,14 +105,14 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
 
 class HardFilterOverride(RootModel[dict[str, bool]]):
     """0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。
-    キーはdomain/evaluation.py: DEFAULT_HARD_FILTERSと同じ（'no_bicycle'/'motorway'/
+    キーはdomain/hard_filters.py: HARD_FILTER_NAMESと同じ（'no_bicycle'/'motorway'/
     'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら
     全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。
     """
 
     @model_validator(mode="after")
     def _check_filter_keys(self) -> "HardFilterOverride":
-        expected = DEFAULT_HARD_FILTERS
+        expected = HARD_FILTER_NAMES
         actual = set(self.root.keys())
         if actual != expected:
             missing = sorted(expected - actual)
@@ -132,7 +132,7 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
 
     @classmethod
     def from_frozenset(cls, active: frozenset[str]) -> "HardFilterOverride":
-        return cls({name: name in active for name in sorted(DEFAULT_HARD_FILTERS)})
+        return cls({name: name in active for name in sorted(HARD_FILTER_NAMES)})
 
 
 class RouteGenerateRequest(BaseModel):

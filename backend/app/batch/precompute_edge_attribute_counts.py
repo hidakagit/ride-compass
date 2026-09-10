@@ -21,15 +21,13 @@ migration 0010適用後、本番でも初回実行が必須（`designation_attri
 """
 
 import logging
-import math
 import sys
-import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
+from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
@@ -65,20 +63,8 @@ async def _fetch_source_run_ids(session: AsyncSession) -> tuple[int | None, int 
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
-    started = time.perf_counter()
     stmt = _target_edge_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        target_count = await count_targets(session_factory, stmt)
-
-        logger.info("対象edge数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
-        if dry_run:
-            logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
-            return 0
-        if target_count == 0:
-            logger.warning("対象edgeが0件のため更新をスキップします（road_edgesが空の可能性）")
-            return 0
-        total_chunks = math.ceil(target_count / CHUNK_SIZE)
-
         now = datetime.now(timezone.utc)
 
         # get_intersection_countsはroad_nodes.degree（DB全体から見た真のグローバル次数、
@@ -87,11 +73,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         # チャンク分割しても、accident_count/stop_countと同じチャンク単位の呼び出しで
         # 問題ない。**本バッチの実行前にprecompute_road_node_degrees.pyの実行が必須**
         # （road_nodes.degreeが未計算＝全行0のままだとintersection_countも全件0になる）。
-        total_written = 0
-        chunk_index = -1
-        async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
-            chunk_index += 1
-            chunk_started = time.perf_counter()
+        async def handle_chunk(chunk: list[str]) -> int:
             async with session_factory() as session:
                 # run id取得はチャンクごとに直前で行う。edge_ids全体の処理は長時間かかりうるため、
                 # 開始前に1回だけ取得すると、途中で別プロセスのimport_accidents.py/
@@ -120,17 +102,19 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 ]
                 await repository.save_edge_attribute_counts(rows)
                 await session.commit()
-            total_written += len(rows)
             logger.info(
-                "chunk %d/%d 完了: %d件 source_accident_run_id=%s source_osm_run_id=%s elapsed=%.1fs",
-                chunk_index + 1, total_chunks, len(rows), source_accident_run_id, source_osm_run_id,
-                time.perf_counter() - chunk_started,
+                "系譜: source_accident_run_id=%s source_osm_run_id=%s",
+                source_accident_run_id, source_osm_run_id,
             )
+            return len(rows)
 
-        logger.info(
-            "事前集計完了: total=%d件 elapsed=%.1fs", total_written, time.perf_counter() - started
+        return await run_chunked_precompute(
+            session_factory, stmt, CHUNK_SIZE, handle_chunk,
+            logger=logger,
+            target_label="対象edge数",
+            empty_warning="対象edgeが0件のため更新をスキップします（road_edgesが空の可能性）",
+            dry_run=dry_run,
         )
-        return 0
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,15 +1,31 @@
-"""app/batch/precompute_elevation_attributes.pyの純粋ロジック検証（改善計画T331残り5項目）。
+"""precompute系バッチが共通ドライバをそのまま使っていることの確認。
 
-対象IDの取得（サーバーサイドカーソルによるチャンク分割）の実装・テストは
-app/batch/_common.py: stream_id_chunks（tests/test_batch_common.py）にある。ここでは、
-このバッチが自前実装を持たず共通実装をそのままimportして使っていること（同期ペアの片側だけ
-更新して実体がズレる事故の再発防止）のみを確認する。DB接続・外部HTTP呼び出し自体は
+対象IDのチャンク分割・進捗ログ・dry-run/0件の扱いは`app/batch/_common.py`の
+`run_chunked_precompute`（実装のテストは`tests/test_batch_common.py`）が持つ。ここでは
+各バッチが自前のドライバを書き直していないこと（同じ骨格が写経で増え、片方だけ直されて
+体裁や0件時の扱いがズレる事故の再発防止）だけを確認する。DB接続・外部HTTP呼び出し自体は
 実DB/実APIが要るため対象外（他のbatchスクリプトのテストと同じ切り分け方針）。
 """
 
-from app.batch._common import stream_id_chunks as common_stream_id_chunks
-from app.batch.precompute_elevation_attributes import stream_id_chunks
+import pytest
+
+from app.batch import (
+    precompute_edge_attribute_counts,
+    precompute_elevation_attributes,
+    precompute_way_attribute_counts,
+    precompute_way_curvature,
+)
+from app.batch._common import run_chunked_precompute as common_run_chunked_precompute
 
 
-def test_stream_id_chunks_is_the_shared_common_implementation():
-    assert stream_id_chunks is common_stream_id_chunks
+@pytest.mark.parametrize(
+    "module",
+    [
+        precompute_edge_attribute_counts,
+        precompute_elevation_attributes,
+        precompute_way_attribute_counts,
+        precompute_way_curvature,
+    ],
+)
+def test_uses_the_shared_chunked_precompute_driver(module):
+    assert module.run_chunked_precompute is common_run_chunked_precompute

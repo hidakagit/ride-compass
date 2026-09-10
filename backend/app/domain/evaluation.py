@@ -601,7 +601,7 @@ def compute_edge_costs_bulk(
     metrics: Mapping[str, EdgeKeyedMetrics] | None = None,
 ) -> dict[str, EdgeCostResult]:
     """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
-    算出する（`EvaluationService.evaluate_graph`専用）。
+    算出する（`evaluation_service.evaluate_graph`専用）。
 
     抽出＋計算フェーズは`_evaluate_axes_bulk`（`build_static_edge_score_matrix`と共有）、
     重み付き合成フェーズは`compose_costs_from_axis_matrix`（同じく共有）が担う薄い

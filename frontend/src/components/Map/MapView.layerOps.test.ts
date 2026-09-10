@@ -25,6 +25,7 @@ import {
   clearRoadTileFeatureState,
   ensureDynamicWeatherLayer,
   shouldClearDedicatedWayValueFeatureState,
+  ensureLayerFromSpec,
 } from "./MapView";
 
 // __rcStyleReady=trueでrunWhenStyleReadyの即時実行分岐を通す
@@ -33,6 +34,8 @@ function fakeMap() {
   const layers = new Set<string>();
   const sources = new Set<string>();
   const paintCalls: { layerId: string; name: string; value: unknown }[] = [];
+  const layoutCalls: { layerId: string; name: string; value: unknown }[] = [];
+  const filterCalls: { layerId: string; filter: unknown }[] = [];
   const setFeatureStateCalls: { target: unknown; state: unknown }[] = [];
   const removeFeatureStateCalls: { target: unknown }[] = [];
   return {
@@ -40,6 +43,8 @@ function fakeMap() {
     layers,
     sources,
     paintCalls,
+    layoutCalls,
+    filterCalls,
     setFeatureStateCalls,
     removeFeatureStateCalls,
     getLayer: (id: string) => (layers.has(id) ? {} : undefined),
@@ -47,6 +52,8 @@ function fakeMap() {
     getSource: (id: string) => (sources.has(id) ? {} : undefined),
     addSource: (id: string) => sources.add(id),
     setPaintProperty: (layerId: string, name: string, value: unknown) => paintCalls.push({ layerId, name, value }),
+    setLayoutProperty: (layerId: string, name: string, value: unknown) => layoutCalls.push({ layerId, name, value }),
+    setFilter: (layerId: string, filter: unknown) => filterCalls.push({ layerId, filter }),
     setFeatureState: (target: unknown, state: unknown) => setFeatureStateCalls.push({ target, state }),
     removeFeatureState: (target: unknown) => removeFeatureStateCalls.push({ target }),
   };
@@ -331,5 +338,90 @@ describe("ensureDynamicWeatherLayer（gridFill/gridMark/vectorのcolorExpression
     const fillOpacityCalls = map.paintCalls.filter((c) => c.name === "fill-opacity");
     expect(fillOpacityCalls).toHaveLength(1);
     expect(fillOpacityCalls[0].value).toBe(0.6);
+  });
+});
+
+describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適用する）", () => {
+  // T587は色式の再適用だけを直したため、filter・layoutが初回の値で固定される取り残しが
+  // 残っていた。ensure系がspecを組み立ててこの1関数へ渡す形にすることで、
+  // 「色は追随するのに間引き条件とサイズ曲線だけ古い」という片側の取り残しが起きない。
+  const attributeEntry = () =>
+    buildStaticOverlayLayers([], [], undefined).find((l) => l.key === "designation")!;
+
+  it("既存レイヤーにはpaintだけでなくlayout・filterも再適用する", () => {
+    const map = fakeMap();
+    map.layers.add("test-layer");
+
+    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
+      id: "test-layer",
+      type: "symbol",
+      source: "s",
+      layout: { "icon-size": 2, visibility: "none" },
+      paint: { "icon-opacity": 0.5 },
+      filter: [">", ["get", "v"], 1] as never,
+    });
+
+    expect(map.paintCalls).toEqual([{ layerId: "test-layer", name: "icon-opacity", value: 0.5 }]);
+    // visibilityは表示ON/OFFの状態そのもの（specが持つのは追加時の初期値）なので上書きしない。
+    expect(map.layoutCalls).toEqual([{ layerId: "test-layer", name: "icon-size", value: 2 }]);
+    expect(map.filterCalls).toEqual([{ layerId: "test-layer", filter: [">", ["get", "v"], 1] }]);
+  });
+
+  it("specがfilterを持たなくなったら、残っているfilterをundefinedで外す", () => {
+    const map = fakeMap();
+    map.layers.add("test-layer");
+
+    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
+      id: "test-layer",
+      type: "line",
+      source: "s",
+      paint: { "line-width": 1 },
+    });
+
+    expect(map.filterCalls).toEqual([{ layerId: "test-layer", filter: undefined }]);
+  });
+
+  it("filterを持てないraster等には触らない（MapLibreのstyle検証が弾くため）", () => {
+    const map = fakeMap();
+    map.layers.add("raster-layer");
+
+    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
+      id: "raster-layer",
+      type: "raster",
+      source: "s",
+      paint: { "raster-opacity": 0.4 },
+    });
+
+    expect(map.filterCalls).toEqual([]);
+  });
+
+  it("レイヤーがまだ無ければaddLayerし、再適用は呼ばない", () => {
+    const map = fakeMap();
+
+    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
+      id: "new-layer",
+      type: "line",
+      source: "s",
+      paint: { "line-width": 1 },
+    });
+
+    expect(map.layers.has("new-layer")).toBe(true);
+    expect(map.paintCalls).toEqual([]);
+    expect(map.filterCalls).toEqual([]);
+  });
+
+  it("一次属性レイヤー（designation等）も再適用の対象になっている", () => {
+    // T587の横展開漏れだった経路。ファクトリがensureLayerFromSpecを通るため、
+    // 個別に再適用を書かなくても既存レイヤーへ色式・不透明度式が届く。
+    const map = fakeMap();
+    const entry = attributeEntry();
+    entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+    expect(map.paintCalls).toEqual([]);
+
+    entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+
+    const names = map.paintCalls.filter((c) => c.layerId === entry.layerId).map((c) => c.name);
+    expect(names).toContain("line-color");
+    expect(names).toContain("line-opacity");
   });
 });

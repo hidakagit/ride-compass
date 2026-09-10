@@ -49,8 +49,7 @@ from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERS
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.axis_display import raw_value_unit  # noqa: E402
 from app.domain.dynamic_way_values import map_value_kind, map_value_unit  # noqa: E402
-from app.domain.evaluation import HARD_FILTER_HIGHWAY_TYPES  # noqa: E402
-from app.domain.hard_filters import DEFAULT_HARD_FILTERS
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import axis_studio_materials  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
@@ -299,7 +298,7 @@ def main() -> None:
             # **キー集合の完全一致**を要求するため、frontendが手書きで持っていると
             # 4つ目を足した瞬間にすべてのルート生成が422になる。
             "hard_filters": {
-                "keys": sorted({"no_bicycle", *HARD_FILTER_HIGHWAY_TYPES}),
+                "keys": sorted(HARD_FILTER_NAMES),
                 "defaults": sorted(DEFAULT_HARD_FILTERS),
             },
         },

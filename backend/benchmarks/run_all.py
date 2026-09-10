@@ -36,7 +36,7 @@ def main() -> None:
     print_report(
         "3/4 RoadGraphEngine trace phase: nearest-node + Dijkstra x 8 bearings", bench_route_trace.run()
     )
-    print_report("4/4 EvaluationService.evaluate_graph: car_stress判定ホットパス", bench_evaluate_graph.run())
+    print_report("4/4 evaluation_service.evaluate_graph: car_stress判定ホットパス", bench_evaluate_graph.run())
 
     print(f"\nTotal wall time: {time.perf_counter() - started:.1f} s")
 

@@ -25,14 +25,13 @@ accident_points/osm_raw_pois/osm_raw_waysのいずれかが変わった場合（
 """
 
 import logging
-import math
 import sys
 import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
 
-from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
+from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
@@ -64,36 +63,22 @@ def _target_way_ids_stmt():
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
-    started = time.perf_counter()
     stmt = _target_way_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        target_count = await count_targets(session_factory, stmt)
-
-        logger.info("対象way数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
-        if dry_run:
-            logger.info("dry-run完了: DB書き込みなし elapsed=%.1fs", time.perf_counter() - started)
-            return 0
-        if target_count == 0:
-            logger.warning("対象wayが0件のため更新をスキップします（osm_raw_waysが空の可能性）")
-            return 0
-        total_chunks = math.ceil(target_count / CHUNK_SIZE)
-
-        intersection_started = time.perf_counter()
-        async with session_factory() as session:
-            repository = RoadGraphRepository(session)
-            await repository.rebuild_raw_intersection_nodes()
-            await session.commit()
-        logger.info(
-            "raw_intersection_nodes全再構築完了: elapsed=%.1fs",
-            time.perf_counter() - intersection_started,
-        )
+        if not dry_run:
+            intersection_started = time.perf_counter()
+            async with session_factory() as session:
+                repository = RoadGraphRepository(session)
+                await repository.rebuild_raw_intersection_nodes()
+                await session.commit()
+            logger.info(
+                "raw_intersection_nodes全再構築完了: elapsed=%.1fs",
+                time.perf_counter() - intersection_started,
+            )
 
         now = datetime.now(timezone.utc)
-        total_written = 0
-        chunk_index = -1
-        async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
-            chunk_index += 1
-            chunk_started = time.perf_counter()
+
+        async def handle_chunk(chunk: list[int]) -> int:
             async with session_factory() as session:
                 # run id取得はチャンクごとの直前で行う（precompute_edge_attribute_counts.py
                 # と同種の対応、同ファイルのコメント参照）。各チャンクが実際に読んだ
@@ -105,17 +90,19 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                     chunk, now, source_accident_run_id, source_osm_run_id, ALGORITHM_VERSION
                 )
                 await session.commit()
-            total_written += len(chunk)
             logger.info(
-                "chunk %d/%d 完了: %d件 source_accident_run_id=%s source_osm_run_id=%s elapsed=%.1fs",
-                chunk_index + 1, total_chunks, len(chunk), source_accident_run_id, source_osm_run_id,
-                time.perf_counter() - chunk_started,
+                "系譜: source_accident_run_id=%s source_osm_run_id=%s",
+                source_accident_run_id, source_osm_run_id,
             )
+            return len(chunk)
 
-        logger.info(
-            "事前集計完了: total=%d件 elapsed=%.1fs", total_written, time.perf_counter() - started
+        return await run_chunked_precompute(
+            session_factory, stmt, CHUNK_SIZE, handle_chunk,
+            logger=logger,
+            target_label="対象way数",
+            empty_warning="対象wayが0件のため更新をスキップします（osm_raw_waysが空の可能性）",
+            dry_run=dry_run,
         )
-        return 0
 
 
 def main(argv: list[str] | None = None) -> int:

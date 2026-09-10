@@ -91,3 +91,42 @@ describe("jmaProxyUrl", () => {
     );
   });
 });
+
+describe("fetchJmaTargetTimes（同一idの未解決フェッチを共有する）", () => {
+  // rasrfは降水短時間予報と線状降水帯予測マップの2箇所が独立に取りに行く。重複排除が
+  // 無いと、降水チップをONにするたび同じURLへの往復が2回発生する。
+  it("同時に呼ばれた同じidは1回のfetchで済む", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => [{ basetime: "20260910T000000Z", validtime: "20260910T000000Z" }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [a, b] = await Promise.all([
+      fetchJmaTargetTimes("rasrf", "降水短時間予報"),
+      fetchJmaTargetTimes("rasrf", "線状降水帯予測マップ"),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(a).toEqual(b);
+    vi.unstubAllGlobals();
+  });
+
+  it("解決後の呼び出しは改めて取りに行く（時刻一覧は数分で更新されるため保持しない）", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => [],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchJmaTargetTimes("rasrf", "降水短時間予報");
+    await fetchJmaTargetTimes("rasrf", "降水短時間予報");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+});

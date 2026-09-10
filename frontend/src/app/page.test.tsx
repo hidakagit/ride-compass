@@ -242,7 +242,7 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
   });
 
   // 災害チップは他の環境グループ気象レイヤー（既定OFF）と異なり、防災級の情報を
-  // ユーザー操作を待たず表示するため既定ONにする（FIXED_LAYER_VISIBILITY_DEFAULTS参照）。
+  // ユーザー操作を待たず表示するため既定ONにする（DEFAULT_LAYER_VISIBILITY参照）。
   it("災害チップは既定でON", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);

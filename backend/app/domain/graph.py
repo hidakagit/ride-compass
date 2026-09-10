@@ -41,9 +41,10 @@ class DirectedEdge(BaseModel):
     # この値だけで完結できるようにするための事前計算値（そのため既定値Noneを許容しつつ、
     # build_road_graph経由の生成では必ず値を持つ）。
     bearing_deg: float | None = None
-    # 折れ線の蛇行の強さ（度/km、domain/geo.py: curvature_deg_per_km）。bearing_degと
-    # 同じくbuild_road_graphがgeometryから算出する事前計算値で、探索・評価がgeometryを
-    # decodeせずに読めるようにする。Noneは「測れない」（頂点1点以下・距離0）で0ではない
+    # 折れ線の蛇行の強さ（度/km、domain/geo.py: curvature_deg_per_km）。build_road_graphが
+    # geometryから算出し`road_edges`へ書き込むための値で、**書き込み経路専用**——評価は
+    # `EdgeMaterialBundle.curvature_deg_per_km`（材料の取得経路）から読むため、探索グラフ
+    # （EdgeLike/LeanEdge）へは載せない。Noneは「測れない」（頂点1点以下・距離0）で0ではない
     # ——頂点2点の折れ線は直線として0を持つ（domain/geo.pyのdocstring参照）。
     curvature_deg_per_km: float | None = None
 
@@ -94,7 +95,6 @@ class EdgeLike(Protocol):
     osm_way_id: int | None
     highway: str | None
     bearing_deg: float | None
-    curvature_deg_per_km: float | None
 
 
 @runtime_checkable
@@ -142,13 +142,17 @@ class LeanEdge:
     osm_way_id: int | None = None
     highway: str | None = None
     bearing_deg: float | None = None
+    # `build_road_graph`が算出し`save_graph`が`road_edges`へ書き込むための値（書き込み経路
+    # 専用）。`EdgeLike`には持たせない——探索・評価はこの値を読まず、評価が使う蛇行は
+    # `EdgeMaterialBundle.curvature_deg_per_km`（材料の取得経路）から来る。DBから読み直す
+    # 経路（`_topology_rows_to_road_graph`・pickle復元）は載せないためNoneになる。
     curvature_deg_per_km: float | None = None
 
 
 def _rebuild_lean_road_graph(
     graph_version: str,
     node_rows: list[tuple[str, float, float, int | None]],
-    edge_rows: list[tuple[str, str, str, float, int | None, str | None, float | None, float | None]],
+    edge_rows: list[tuple[str, str, str, float, int | None, str | None, float | None]],
 ) -> "LeanRoadGraph":
     """`LeanRoadGraph.__reduce__`が指すpickle復元関数。列（生のtuple列）から
     `LeanNode`/`LeanEdge`をコンストラクタ呼び出しで作り直す——デフォルトのpickle復元
@@ -166,9 +170,8 @@ def _rebuild_lean_road_graph(
         edge_id: LeanEdge(
             edge_id=edge_id, from_node_id=from_id, to_node_id=to_id, geometry=[],
             distance_m=distance_m, osm_way_id=osm_way_id, highway=highway, bearing_deg=bearing_deg,
-            curvature_deg_per_km=curvature,
         )
-        for edge_id, from_id, to_id, distance_m, osm_way_id, highway, bearing_deg, curvature in edge_rows
+        for edge_id, from_id, to_id, distance_m, osm_way_id, highway, bearing_deg in edge_rows
     }
     return LeanRoadGraph(graph_version=graph_version, nodes=nodes, edges=edges)
 
@@ -197,7 +200,7 @@ class LeanRoadGraph:
         node_rows = [(n.node_id, n.latitude, n.longitude, n.osm_node_id) for n in self.nodes.values()]
         edge_rows = [
             (e.edge_id, e.from_node_id, e.to_node_id, e.distance_m, e.osm_way_id, e.highway,
-             e.bearing_deg, e.curvature_deg_per_km)
+             e.bearing_deg)
             for e in self.edges.values()
         ]
         return (_rebuild_lean_road_graph, (self.graph_version, node_rows, edge_rows))

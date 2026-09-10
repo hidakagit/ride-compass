@@ -183,9 +183,12 @@ const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled
 const ROUTE_PREFERENCE_STORAGE_KEY = "ridecompass:route-preference";
 const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";
 
-// 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。軸スタジオ由来のレイヤーは
-// 含まない（DEFAULT_LAYER_VISIBILITY参照）。
-const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}` | `${string}Axis`> = {
+// 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。
+//
+// 軸スタジオ由来のレイヤー（ramp軸`axis:${string}`・専用way値配信軸`${string}Axis`）の
+// キーは持たない。これらの表示はレンズ（lens→axisVisibility）だけが決めており、
+// ON/OFFの入口も地図チップ・サイドバーのどちらにも無い（mapLayers.ts: isAxisStudioLayer）。
+const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   elevation: false,
   // 「道路情報」（road）は論理2レイヤー（roadType/roadSurface）。旧保存値（road:
   // boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。
@@ -214,11 +217,6 @@ const FIXED_LAYER_VISIBILITY_DEFAULTS: Omit<MapLayerVisibility, `axis:${string}`
   // useDynamicWeatherLayers.ts参照）。
   route: true,
 };
-
-// 軸スタジオ由来のレイヤー（ramp軸`axis:${string}`・専用way値配信軸`${string}Axis`）の
-// キーは持たない。これらの表示はレンズ（lens→axisVisibility）だけが決めており、
-// ON/OFFの入口も地図チップ・サイドバーのどちらにも無い（mapLayers.ts: isAxisStudioLayer）。
-const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = { ...FIXED_LAYER_VISIBILITY_DEFAULTS };
 
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。

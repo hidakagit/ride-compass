@@ -603,6 +603,10 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `RoadGraphLike`（Protocol）で構造的型付けする`LeanNode`/`LeanEdge`/`LeanRoadGraph`
   （dataclass、探索専用の高速版。Pydanticのバリデーション・内部簿記コストを避けるため
   探索フェーズに限りdataclassを使う）が並存する。
+  `curvature_deg_per_km`は`EdgeLike`（探索が読む契約）には**無い**——
+  `build_road_graph`が算出して`save_graph`が`road_edges`へ書き込むための書き込み経路専用の
+  値で、評価は`EdgeMaterialBundle`から読む。DBから読み直す経路（`get_graph_topology_in_bbox`・
+  pickle復元）は載せず、タイルあたり数万〜十数万Edgeぶんの転送とpickle列を省く。
 - `WaySpec`、`build_road_graph`（決定論的な内部ID生成: `osm-node-<id>`/
   `way-<id>-seg<n>-fwd/bwd`。`_split_points`が交差点/次数≥2のノードで分割する）。
 

@@ -11,6 +11,7 @@ import_designations.py）、SQLAlchemyセッションファクトリの生成と
 import argparse
 import asyncio
 import logging
+import math
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -131,6 +132,59 @@ async def stream_id_chunks(
         result = await session.stream(stmt)
         async for partition in result.partitions(chunk_size):
             yield [row[0] for row in partition]
+
+
+async def run_chunked_precompute(
+    session_factory: async_sessionmaker,
+    stmt: Select,
+    chunk_size: int,
+    handle_chunk: Callable[[list], Awaitable[int]],
+    *,
+    logger: logging.Logger,
+    target_label: str,
+    empty_warning: str,
+    dry_run: bool,
+    dry_run_note: str = "DB書き込みなし",
+) -> int:
+    """precompute系バッチのドライバ。対象件数のログ → dry-runの早期return → 0件の警告 →
+    `stream_id_chunks`ループ → チャンクごとの進捗ログ、までを引き受ける。
+
+    バッチごとに違うのは`handle_chunk`（1チャンクぶんの実処理、書き込んだ件数を返す）と
+    ログの文言だけ。この骨格を各バッチへ写すと、進捗ログの体裁や0件時の扱いがバッチごとに
+    ずれ、後から直すときに全部を追う必要が出る。
+
+    ループの外側で資源を持ちたい場合（HTTPクライアント等）は、呼び出し側が`async with`で
+    囲んでこの関数をawaitすればよい。**ループ内に固有の関心事（範囲外判定・部分被覆の
+    集計等）を持つバッチは無理にこの器へ入れない**——`handle_chunk`が返す件数1つでは
+    表せない進捗を持つため、そちらは自前のループのままでよい。
+
+    戻り値はバッチの終了コード（常に0。失敗は例外で表す）。
+    """
+    started = time.perf_counter()
+    target_count = await count_targets(session_factory, stmt)
+    logger.info("%s: %d件（chunk_size=%d）", target_label, target_count, chunk_size)
+    if dry_run:
+        logger.info("dry-run完了: %s elapsed=%.1fs", dry_run_note, time.perf_counter() - started)
+        return 0
+    if target_count == 0:
+        logger.warning("%s", empty_warning)
+        return 0
+
+    total_chunks = math.ceil(target_count / chunk_size)
+    total_written = 0
+    chunk_index = -1
+    async for chunk in stream_id_chunks(session_factory, stmt, chunk_size):
+        chunk_index += 1
+        chunk_started = time.perf_counter()
+        written = await handle_chunk(chunk)
+        total_written += written
+        logger.info(
+            "chunk %d/%d 完了: %d件（累計%d件） elapsed=%.1fs",
+            chunk_index + 1, total_chunks, written, total_written,
+            time.perf_counter() - chunk_started,
+        )
+    logger.info("事前集計完了: total=%d件 elapsed=%.1fs", total_written, time.perf_counter() - started)
+    return 0
 
 
 def asyncpg_dsn(sqlalchemy_url: str) -> str:

@@ -1,6 +1,5 @@
 import type { ValueDistribution } from "@/components/AxisStudio/scoreDistribution";
-import { debugLog } from "@/lib/debugLog";
-import { formatErrorDetail } from "@/lib/apiError";
+import { requestJson } from "@/lib/fetchJson";
 import { DISTRIBUTION_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 // 軸スタジオの分布プレビュー（backend/app/services/axis_preview_service.py）のクライアント。
@@ -15,38 +14,30 @@ export interface MaterialDistribution extends ValueDistribution {
   available: boolean;
 }
 
-async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const startedAt = performance.now();
-  let response: Response;
-  try {
-    response = await fetch(path, { ...init, signal: AbortSignal.timeout(DISTRIBUTION_API_TIMEOUT_MS) });
-  } catch (error) {
-    debugLog("api:axisPreview", "失敗 (通信エラー)", { path, error: String(error) }, "error");
-    throw new Error("分布の取得に失敗しました（通信エラー）");
-  }
-  const durationMs = Math.round(performance.now() - startedAt);
-  if (!response.ok) {
-    debugLog("api:axisPreview", `失敗 (HTTP ${response.status})`, { path, durationMs }, "error");
-    const body = await response.json().catch(() => null);
-    const detail = formatErrorDetail((body as { detail?: unknown } | null)?.detail);
-    throw new Error(detail ?? `分布の取得に失敗しました（HTTP ${response.status}）`);
-  }
-  debugLog("api:axisPreview", "成功", { path, durationMs });
-  return (await response.json()) as T;
-}
+const DISTRIBUTION_MESSAGES = {
+  failure: "分布の取得に失敗しました",
+  parseFailure: "分布の解析に失敗しました",
+};
 
 /** 編集中のshapeで、折れ点を通す前の生値がどう分布するかを取る。 */
 export async function fetchAxisValueDistribution(shape: unknown): Promise<ValueDistribution> {
-  return getJson<ValueDistribution>("/admin/api/axis-definitions/preview-distribution", {
+  return requestJson<ValueDistribution>("/admin/api/axis-definitions/preview-distribution", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ shape }),
+    body: { shape },
+    timeoutMs: DISTRIBUTION_API_TIMEOUT_MS,
+    category: "api:axisPreview",
+    messages: DISTRIBUTION_MESSAGES,
   });
 }
 
 /** 1材料の値が実データでどの範囲に散らばっているかを取る。 */
 export async function fetchMaterialDistribution(materialId: string): Promise<MaterialDistribution> {
-  return getJson<MaterialDistribution>(
+  return requestJson<MaterialDistribution>(
     `/admin/api/material-distribution/${encodeURIComponent(materialId)}`,
+    {
+      timeoutMs: DISTRIBUTION_API_TIMEOUT_MS,
+      category: "api:axisPreview",
+      messages: DISTRIBUTION_MESSAGES,
+    },
   );
 }

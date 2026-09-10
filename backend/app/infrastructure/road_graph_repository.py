@@ -1109,7 +1109,6 @@ def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> Le
             osm_way_id=row.osm_way_id,
             highway=row.highway,
             bearing_deg=row.bearing_deg,
-            curvature_deg_per_km=row.curvature_deg_per_km,
         )
         for row in edge_rows
     }
@@ -1392,7 +1391,6 @@ class DerivedGraphRepository(_SessionRepository):
             RoadEdgeRow.osm_way_id,
             RoadEdgeRow.highway,
             RoadEdgeRow.bearing_deg,
-            RoadEdgeRow.curvature_deg_per_km,
         ).where(func.ST_Intersects(RoadEdgeRow.geom, envelope))
         edge_rows = (await self._session.execute(edge_stmt)).all()
         if not edge_rows:
@@ -2122,7 +2120,7 @@ class AttributeRepository(_SessionRepository):
 
         road_graphエンジンのcompute_edge_cost（探索コスト自体）で使う。get_surface_attributes
         と同じ「edge_idリストを渡して辞書で受け取る」形。指定edge_idは（該当POIが0件でも）
-        必ず結果に含まれる＝Noneではなく0として扱えることをEvaluationService側が前提にする。
+        必ず結果に含まれる＝Noneではなく0として扱えることを評価側（evaluation_service.evaluate_graph）が前提にする。
         """
         if not edge_ids:
             return {}

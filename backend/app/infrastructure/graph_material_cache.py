@@ -55,7 +55,7 @@ DEFAULT_MAX_TILES = 2_000
 # DBから新しい値を読み新規キャッシュされる——「一部のタイルだけ更新が反映されている
 # ように見える」形で症状が局所的になり気づきにくい。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = "9"
+TILE_MATERIALS_CACHE_VERSION = "10"
 
 # 上の版が対応する`EdgeMaterialTable`の列構成の署名（列名を並べたもののSHA-1先頭12桁）。
 # `EdgeMaterialTable`は`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で

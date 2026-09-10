@@ -24,14 +24,12 @@ GSIへの外部呼び出しはタイル単位（近接するEdge・形状点は�
 """
 
 import logging
-import math
 import sys
-import time
 
 import httpx
 from sqlalchemy import select
 
-from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
+from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.domain.graph import RoadGraph
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_models import ElevationAttributeRow, RoadEdgeRow
@@ -61,29 +59,14 @@ def _target_edge_ids_stmt():
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
-    started = time.perf_counter()
     stmt = _target_edge_ids_stmt()
     async with batch_session_factory(database_url) as session_factory:
-        target_count = await count_targets(session_factory, stmt)
-
-        logger.info("対象edge数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
-        if dry_run:
-            logger.info("dry-run完了: DB書き込み・外部呼び出しなし elapsed=%.1fs", time.perf_counter() - started)
-            return 0
-        if target_count == 0:
-            logger.warning("対象edgeが0件のため更新をスキップします（road_edgesが空の可能性）")
-            return 0
-        total_chunks = math.ceil(target_count / CHUNK_SIZE)
-
         client = ElevationClient()
-        total_computed = 0
         # ElevationClientはhttpx.AsyncClientを内部で持たない設計のため、TLSハンドシェイク
         # 再確立を避けてこのバッチ全体を通して1本のみ生成する。
         async with httpx.AsyncClient(timeout=15.0) as http_client:
-            chunk_index = -1
-            async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
-                chunk_index += 1
-                chunk_started = time.perf_counter()
+
+            async def handle_chunk(chunk: list[str]) -> int:
                 async with session_factory() as session:
                     repository = RoadGraphRepository(session)
                     edges = await repository.get_edges_with_geometry(chunk)
@@ -91,18 +74,16 @@ async def run(database_url: str | None, dry_run: bool) -> int:
 
                     service = ElevationAttributeService(client, http_client, repository=repository)
                     computed = await service.get_attributes_for_graph(graph)
+                return len(computed)
 
-                total_computed += len(computed)
-                logger.info(
-                    "chunk %d/%d 完了: %d件（累計%d件） elapsed=%.1fs",
-                    chunk_index + 1, total_chunks, len(computed), total_computed,
-                    time.perf_counter() - chunk_started,
-                )
-
-        logger.info(
-            "標高属性事前計算完了: total=%d件 elapsed=%.1fs", total_computed, time.perf_counter() - started
-        )
-        return 0
+            return await run_chunked_precompute(
+                session_factory, stmt, CHUNK_SIZE, handle_chunk,
+                logger=logger,
+                target_label="対象edge数",
+                empty_warning="対象edgeが0件のため更新をスキップします（road_edgesが空の可能性）",
+                dry_run=dry_run,
+                dry_run_note="DB書き込み・外部呼び出しなし",
+            )
 
 
 def main(argv: list[str] | None = None) -> int:

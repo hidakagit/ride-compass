@@ -131,6 +131,10 @@ export function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
   return jmaProxyUrl(JMA_TARGET_TIMES_PATHS[id]);
 }
 
+// 未解決のフェッチだけをidごとに共有する（useAxisCatalog.tsのinFlightCatalogFetchと同じ
+// 重複排除。解決したら即座に捨てる）。
+const inFlightTargetTimes = new Map<JmaTargetTimesId, Promise<unknown[]>>();
+
 /** 気象庁の時刻一覧JSONを取得する。`label`はエラーメッセージに使う対象名（例:
  * 「降水ナウキャスト」「雷ナウキャスト」。「の時刻一覧」は本関数が付ける）。
  *
@@ -140,15 +144,31 @@ export function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
  *
  * 共通のfetchJson（lib/fetchJson.ts、通信エラー・HTTPエラー・解析エラーを全て
  * debugLogへ記録する）経由にすることで、fetch()自体の失敗（タイムアウト・通信エラー）が
- * どこにもログされない穴を防ぐ。 */
+ * どこにもログされない穴を防ぐ。
+ *
+ * 同じidを同時に取りに行く呼び出し元（`rasrf`は降水短時間予報と線状降水帯予測マップの
+ * 2箇所）は、未解決のフェッチを共有して往復を1回に畳む。解決後はキャッシュしない——
+ * 時刻一覧は数分で更新され、古い値を返すと表示が止まる。エラー文言に載る`label`は
+ * 先に呼んだ側のものになる（どちらも同じURLの同じ失敗を指すため実害はない）。 */
 export async function fetchJmaTargetTimes<T = RawJmaTargetTime>(id: JmaTargetTimesId, label: string): Promise<T[]> {
-  const data = await fetchJson<unknown>(jmaTargetTimesUrl(id), {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:jma-nowcast-times",
-    errorLabel: `${label}の時刻一覧`,
-  });
-  if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
-  return data as T[];
+  const existing = inFlightTargetTimes.get(id);
+  if (existing) return (await existing) as T[];
+
+  const request = (async () => {
+    const data = await fetchJson<unknown>(jmaTargetTimesUrl(id), {
+      timeoutMs: DEFAULT_API_TIMEOUT_MS,
+      category: "api:jma-nowcast-times",
+      errorLabel: `${label}の時刻一覧`,
+    });
+    if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
+    return data as unknown[];
+  })();
+  inFlightTargetTimes.set(id, request);
+  try {
+    return (await request) as T[];
+  } finally {
+    if (inFlightTargetTimes.get(id) === request) inFlightTargetTimes.delete(id);
+  }
 }
 
 /** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。実況フレームが1件も無ければ

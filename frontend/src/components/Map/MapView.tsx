@@ -386,6 +386,45 @@ function runWhenStyleReady(map: MapLibreMap, fn: () => void) {
   });
 }
 
+/** レイヤーが無ければ追加し、既にあれば**spec側の設定をすべて再適用する**。
+ *
+ * ensure系が「既にあれば何もしない」で早期returnすると、addLayer時の値がそのまま固定され、
+ * 後から入力（軸カタログ由来の色式・しきい値由来のfilter・サイズ曲線）が変わっても追随
+ * しない。追加と再適用を同じspecから行うことで、「色は追随するのにfilterだけ古い」という
+ * 片側だけの取り残しが起こりえない形にする——ensure関数ごとに再適用を書く形だと、
+ * 新しいプロパティを足したときに書き足し忘れても何も落ちない。
+ *
+ * `visibility`だけは再適用しない。specが持つのは追加時の初期値で、実際の表示ON/OFFは
+ * `setStaticOverlayVisibility`等が別に管理する状態のため、上書きすると利用者の選択が消える。
+ */
+export function ensureLayerFromSpec(map: MapLibreMap, spec: maplibregl.AddLayerObject) {
+  if (!map.getLayer(spec.id)) {
+    map.addLayer(spec);
+    return;
+  }
+  const withProps = spec as unknown as {
+    paint?: Record<string, unknown>;
+    layout?: Record<string, unknown>;
+    filter?: unknown;
+  };
+  for (const [name, value] of Object.entries(withProps.paint ?? {})) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setPaintProperty(spec.id, name, value as any);
+  }
+  for (const [name, value] of Object.entries(withProps.layout ?? {})) {
+    if (name === "visibility") continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setLayoutProperty(spec.id, name, value as any);
+  }
+  // filterはraster/background/hillshadeでは設定できない（MapLibreがstyle検証で弾く）ため、
+  // 持ちうる型のときだけ触る。specがfilterキーを失った場合（しきい値がnullへ変わった等）は
+  // undefinedで明示的に外す——残しておくと絞り込みだけが古い条件のまま効き続ける。
+  if (spec.type !== "raster" && spec.type !== "background" && spec.type !== "hillshade") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.setFilter(spec.id, (withProps.filter ?? undefined) as any);
+  }
+}
+
 // MapView.routes.test.tsの「ルート」チップ表示切替テスト向けにexport。
 // excludeSelectedはrouteToFeatureCollection側のdocコメント参照。
 export function drawBaseRoutes(
@@ -1070,9 +1109,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
       if (!spec) continue;
       if (spec.raster) {
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "raster");
-        if (map.getSource(sourceId)) {
-          map.setPaintProperty(layerId, "raster-opacity", spec.raster.opacity);
-        } else {
+        if (!map.getSource(sourceId)) {
           map.addSource(sourceId, {
             type: "raster",
             tiles: [withJmaTileProtocol(spec.raster.placeholderTileUrl)],
@@ -1081,102 +1118,92 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
             maxzoom: spec.raster.maxzoom,
             attribution: spec.raster.attribution,
           });
-          map.addLayer({
-            id: layerId,
-            type: "raster",
-            source: sourceId,
-            paint: { "raster-opacity": spec.raster.opacity },
-            layout: { visibility: "none" },
-          });
         }
+        ensureLayerFromSpec(map, {
+          id: layerId,
+          type: "raster",
+          source: sourceId,
+          paint: { "raster-opacity": spec.raster.opacity },
+          layout: { visibility: "none" },
+        });
       }
       if (spec.gridFill) {
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
-        if (map.getSource(sourceId)) {
-          map.setPaintProperty(layerId, "fill-color", spec.gridFill.colorExpression);
-          map.setPaintProperty(layerId, "fill-opacity", spec.gridFill.opacity);
-        } else {
+        if (!map.getSource(sourceId)) {
           map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "気象庁MSM / Open-Meteo" });
-          map.addLayer({
-            id: layerId,
-            type: "fill",
-            source: sourceId,
-            layout: { visibility: "none" },
-            paint: {
-              "fill-color": spec.gridFill.colorExpression,
-              "fill-opacity": spec.gridFill.opacity,
-            },
-            // filterキー自体を「値がundefinedのまま持たせる」と、MapLibreのstyle検証が
-            // 「filterには配列が必要」というエラーを出す（キーの有無ではなく値の型で
-            // 判定するため）。minValueToShowが無い場合はキーごと省略する。
-            ...(spec.gridFill.minValueToShow != null
-              ? {
-                  filter: [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow] as maplibregl.ExpressionSpecification,
-                }
-              : {}),
-          });
         }
+        ensureLayerFromSpec(map, {
+          id: layerId,
+          type: "fill",
+          source: sourceId,
+          layout: { visibility: "none" },
+          paint: {
+            "fill-color": spec.gridFill.colorExpression,
+            "fill-opacity": spec.gridFill.opacity,
+          },
+          // filterキー自体を「値がundefinedのまま持たせる」と、MapLibreのstyle検証が
+          // 「filterには配列が必要」というエラーを出す（キーの有無ではなく値の型で
+          // 判定するため）。minValueToShowが無い場合はキーごと省略する。
+          ...(spec.gridFill.minValueToShow != null
+            ? {
+                filter: [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow] as maplibregl.ExpressionSpecification,
+              }
+            : {}),
+        });
       }
       if (spec.gridMark) {
         const mark = spec.gridMark;
         const { sourceId, layerId, iconId } = dynamicWeatherIds(id, source, "mark");
-        if (map.getSource(sourceId)) {
-          map.setPaintProperty(layerId, "icon-color", mark.colorExpression);
-          map.setPaintProperty(layerId, "icon-halo-color", mark.haloColor);
-          map.setPaintProperty(layerId, "icon-halo-width", mark.haloWidth);
-        } else {
-          if (!map.hasImage(iconId)) {
-            // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
-            // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
-            // 範囲では実用上問題ない簡易的な使い方）。icon-halo-*（縁取り）paintプロパティも
-            // sdf:true必須。
-            map.addImage(iconId, mark.createIcon(), { sdf: true });
-          }
-          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "気象庁MSM / Open-Meteo" });
-          // 縁取りは別レイヤーではなくicon-halo-*（主層と同じsymbolレイヤーのpaint
-          // プロパティ）で表現する。別レイヤーの縁取りは、MapLibreがレイヤーの上から順に
-          // シンボルを配置するため、先に置かれた主層と同位置・大きめの縁取り層が「衝突」として
-          // 全て落ちる（icon-allow-overlap: falseのため）。1層にまとめれば主層自身の衝突判定
-          // （密なズームで格子点を間引く）に縁取りが自動的に追従する。
-          map.addLayer({
-            id: layerId,
-            type: "symbol",
-            source: sourceId,
-            layout: {
-              "icon-image": iconId,
-              "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
-              "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
-              "icon-allow-overlap": false,
-              "icon-ignore-placement": false,
-              // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。
-              "icon-size": zoomAndPropertyIconSizeExpression(
-                mark.valueProperty,
-                mark.minScale,
-                mark.maxScale,
-                mark.maxValueForFullScale,
-                1
-              ),
-              visibility: "none",
-            },
-            paint: {
-              "icon-color": mark.colorExpression,
-              "icon-opacity": 1,
-              "icon-halo-color": mark.haloColor,
-              "icon-halo-width": mark.haloWidth,
-            },
-            ...(mark.minValueToShow != null
-              ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
-              : {}),
-          });
+        if (!map.hasImage(iconId)) {
+          // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
+          // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
+          // 範囲では実用上問題ない簡易的な使い方）。icon-halo-*（縁取り）paintプロパティも
+          // sdf:true必須。
+          map.addImage(iconId, mark.createIcon(), { sdf: true });
         }
+        if (!map.getSource(sourceId)) {
+          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "気象庁MSM / Open-Meteo" });
+        }
+        // 縁取りは別レイヤーではなくicon-halo-*（主層と同じsymbolレイヤーのpaint
+        // プロパティ）で表現する。別レイヤーの縁取りは、MapLibreがレイヤーの上から順に
+        // シンボルを配置するため、先に置かれた主層と同位置・大きめの縁取り層が「衝突」として
+        // 全て落ちる（icon-allow-overlap: falseのため）。1層にまとめれば主層自身の衝突判定
+        // （密なズームで格子点を間引く）に縁取りが自動的に追従する。
+        ensureLayerFromSpec(map, {
+          id: layerId,
+          type: "symbol",
+          source: sourceId,
+          layout: {
+            "icon-image": iconId,
+            "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
+            "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
+            "icon-allow-overlap": false,
+            "icon-ignore-placement": false,
+            // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。
+            "icon-size": zoomAndPropertyIconSizeExpression(
+              mark.valueProperty,
+              mark.minScale,
+              mark.maxScale,
+              mark.maxValueForFullScale,
+              1
+            ),
+            visibility: "none",
+          },
+          paint: {
+            "icon-color": mark.colorExpression,
+            "icon-opacity": 1,
+            "icon-halo-color": mark.haloColor,
+            "icon-halo-width": mark.haloWidth,
+          },
+          ...(mark.minValueToShow != null
+            ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
+            : {}),
+        });
       }
       if (spec.vector) {
         const vector = spec.vector;
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");
-        if (map.getSource(sourceId)) {
-          map.setPaintProperty(layerId, "line-color", vector.colorExpression);
-          map.setPaintProperty(layerId, "line-width", vector.lineWidthExpression);
-        } else {
+        if (!map.getSource(sourceId)) {
           map.addSource(sourceId, {
             type: "vector",
             tiles: [withJmaTileProtocol(vector.placeholderTileUrl)],
@@ -1184,25 +1211,25 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
             maxzoom: vector.maxzoom,
             attribution: vector.attribution,
           });
-          map.addLayer({
-            id: layerId,
-            type: "line",
-            source: sourceId,
-            "source-layer": vector.sourceLayer,
-            paint: {
-              "line-color": vector.colorExpression,
-              "line-width": vector.lineWidthExpression,
-            },
-            layout: { visibility: "none" },
-            // gridFill/gridMarkと同じ理由（上記参照）でminValueToShow未設定時はfilterキー
-            // 自体を省略する。
-            ...(vector.minValueToShow != null && vector.valueProperty
-              ? {
-                  filter: [">", ["to-number", ["get", vector.valueProperty]], vector.minValueToShow] as maplibregl.ExpressionSpecification,
-                }
-              : {}),
-          });
         }
+        ensureLayerFromSpec(map, {
+          id: layerId,
+          type: "line",
+          source: sourceId,
+          "source-layer": vector.sourceLayer,
+          paint: {
+            "line-color": vector.colorExpression,
+            "line-width": vector.lineWidthExpression,
+          },
+          layout: { visibility: "none" },
+          // gridFill/gridMarkと同じ理由（上記参照）でminValueToShow未設定時はfilterキー
+          // 自体を省略する。
+          ...(vector.minValueToShow != null && vector.valueProperty
+            ? {
+                filter: [">", ["to-number", ["get", vector.valueProperty]], vector.minValueToShow] as maplibregl.ExpressionSpecification,
+              }
+            : {}),
+        });
       }
     }
   };
@@ -1356,12 +1383,7 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
   return (map: MapLibreMap) => {
     ensureRoadSurfaceTileLayer(map);
     const applyData = () => {
-      if (map.getLayer(layerId)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        map.setPaintProperty(layerId, "line-color", colorExpression as any);
-        return;
-      }
-      map.addLayer({
+      ensureLayerFromSpec(map, {
         id: layerId,
         type: "line",
         source: ROAD_TILE_SOURCE_ID,
@@ -1570,8 +1592,7 @@ function makeEnsureAttributeLineLayer(
 ): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     const applyData = () => {
-      if (map.getLayer(layerId)) return;
-      map.addLayer({
+      ensureLayerFromSpec(map, {
         id: layerId,
         type: "line",
         source: ROAD_TILE_SOURCE_ID,
@@ -1582,8 +1603,6 @@ function makeEnsureAttributeLineLayer(
           "line-width": 3,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           "line-opacity": opacityExpression as any,
-          // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
-          "line-offset": 0,
         },
         layout: { visibility: "none" },
       });
@@ -1707,12 +1726,7 @@ function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
     runWhenStyleReady(map, () => {
       const layerId = axisLineLayerId(axis.axisId);
       const colorExpression = buildAxisRampColorExpression(axis);
-      if (map.getLayer(layerId)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        map.setPaintProperty(layerId, "line-color", colorExpression as any);
-        return;
-      }
-      map.addLayer({
+      ensureLayerFromSpec(map, {
         id: layerId,
         type: "line",
         source: ROAD_TILE_SOURCE_ID,

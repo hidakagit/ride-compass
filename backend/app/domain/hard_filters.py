@@ -30,9 +30,16 @@ HARD_FILTER_HIGHWAY_TYPES: dict[str, frozenset[str]] = {
     "trunk": frozenset({"trunk", "trunk_link"}),
 }
 
+# 0次フィルタの名前の全体（APIの`hard_filters`が受け付けるキー集合の正本）。highway由来の
+# フィルタは上のレジストリから導き、それ以外（タグ由来の`no_bicycle`）だけをここへ書く。
+# **フィルタを増やすときに書き換えるのはこの2箇所だけ**——キー集合を別の場所で組み立て
+# 直すと、片方だけ増えた瞬間にすべてのルート生成が422になる（キー完全一致の検証のため）。
+HARD_FILTER_NAMES: frozenset[str] = frozenset({"no_bicycle", *HARD_FILTER_HIGHWAY_TYPES})
+
 # 現時点の既定レシピは全フィルタを常時有効にする（is_edge_allowedの`hard_filters`
-# 省略時のデフォルト値としても使う）。
-DEFAULT_HARD_FILTERS: frozenset[str] = frozenset({"no_bicycle", "motorway", "trunk"})
+# 省略時のデフォルト値としても使う）。「受け付けるキー」と「既定でONのキー」は別の概念で、
+# 今はたまたま一致している。
+DEFAULT_HARD_FILTERS: frozenset[str] = HARD_FILTER_NAMES
 
 
 def is_edge_allowed(

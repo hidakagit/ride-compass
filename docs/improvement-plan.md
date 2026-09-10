@@ -1105,7 +1105,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 - [x] [T709](tasks/T709.md). コード自身が述べる契約と実装の不一致を是正する 規模M（2026-09-10完了。対象18件すべて実施。raw_value_unitへ「重みが1」条件を追加し停止密度の「回/km」表示を撤回、usePolledFetchのhasFetchedをenabled切替でリセット、hard_filters既定値を生成物由来へ、クリップボードの同期例外を捕捉、sample_way_rowsを型付きへ等）
 - [ ] [T710](tasks/T710.md). テストの空白と偽陽性を是正する 規模M（統合レビュー第6回、対象9件。実運用で到達しない入力を固定・両辺が同じ生成物由来で恒真・撤去済みspec形状をas anyで検証・raw_axis_idsの参照が0件・AxisComposerのテストが実HTTPを発火）
 - [x] [T711](tasks/T711.md). UI/CSSの重複と未定義トークンを是正する 規模M（2026-09-10完了。未定義トークン7種を定義または撤去し、冗長なフォールバック19箇所も一掃して「テーマトークンにフォールバックを付けない」を規約化。ダークの--color-warning-strongを8.5:1へ、自作チェックボックス2箇所を共有ui/Checkboxへ、直接importの借用CSSを解消、未参照SVG 5件を削除）
-- [ ] [T712](tasks/T712.md). ensure*関数の再適用強制と、共通骨格の写経取り残しを片付ける 規模M（統合レビュー第6回、対象9件。T587の横展開漏れ2箇所はファクトリ側で強制する形へ／precompute骨格が5本へ写経／axisPreviewApi・healthApiの取り残し）
+- [x] [T712](tasks/T712.md). ensure*関数の再適用強制と、共通骨格の写経取り残しを片付ける 規模M（2026-09-10完了。ensureLayerFromSpecでspecからの再適用を構造的に強制しfilter・layoutの取り残しも解消、_common.pyへrun_chunked_precomputeを新設し4本を移行、axisPreviewApi/healthApi/JMA時刻一覧の重複排除、EvaluationServiceを関数化、hard_filtersのキー集合の正本を新設、curvatureを探索グラフの読み出し経路から撤去）
 - [ ] [T713](tasks/T713.md). AxisComposer.tsxから折れ点エディタとpayload変換を抽出する 規模M（統合レビュー第6回、**優先度低**。1,793行で閾値1,750を43行超過。純増がフォームUIの成長ではなくpayload往復変換由来のため、T355のKEEPの前提が今回の増分には当てはまらない）
 
 ### DEFER（トリガー未到達）・閾値の承認待ち
