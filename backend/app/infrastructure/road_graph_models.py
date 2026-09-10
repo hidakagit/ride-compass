@@ -287,6 +287,33 @@ class WayLandcoverRow(Base):
     algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class WayGeometryRow(Base):
+    """Way単位の形状由来スカラー（`osm_raw_ways.geom`の折れ線そのものから測る値）。
+    現在の中身は蛇行の強さ1列。バッチは`app/batch/precompute_way_curvature.py`、
+    migration 0036で実テーブルは作成済み（ORMモデルはミラー、EdgeAttributeCountsRowの
+    同種コメント参照）。
+
+    `road_edges.curvature_deg_per_km`（Edge単位、ルート評価が読む）と並存する:
+    road_edgesはルート生成時に遅延構築されるため地図表示・軸スタジオの母集団にできない
+    （WayAttributeCountsRowと同じ理由）。同じ材料をwayの折れ線へ測るため、wayを
+    Edgeへ切り出す交差点頂点の折れも含み、値はEdge単位の延長加重平均以上になる。
+
+    行が無い＝未計算、列がNULL＝算出不能（頂点1点・長さ0）。
+    """
+
+    __tablename__ = "way_geometry"
+
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
+    )
+    curvature_deg_per_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 派生データの系譜追跡。EdgeAttributeCountsRowと同じ高水位マーク方式・同じ理由で
+    # ForeignKey()を持たない素のInteger（コメントはそちら参照）。
+    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 class OsmImportRunRow(Base):
     """PBF取込バッチ（app/batch/import_pbf.py）の実行記録。
 

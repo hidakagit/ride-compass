@@ -70,7 +70,8 @@ def curvature_deg_per_km(coordinates: Sequence[tuple[float, float]], distance_m:
     直線は0、つづら折りほど大きい。
     進行方向を反転しても同じ値になるため、fwd/bwdのEdgeは同じ値を持つ。
 
-    頂点が3点未満・距離0の折れ線は方位変化を定義できないためNoneを返す（0ではない——
+    頂点2点の折れ線は直線であり、曲がりが無いという測定結果として0を返す。
+    頂点1点以下・距離0は方位そのものが定義できないためNoneを返す（0ではない——
     「曲がっていない」と「測れない」を混同すると、材料の欠損が「まっすぐ」として
     評価に混ざる）。連続する同一頂点は方位が定まらないため間引く。
     """
@@ -80,7 +81,7 @@ def curvature_deg_per_km(coordinates: Sequence[tuple[float, float]], distance_m:
     for point in coordinates:
         if not points or points[-1] != point:
             points.append(point)
-    if len(points) < 3:
+    if len(points) < 2:
         return None
     bearings = [
         bearing_between(LatLonPoint(*points[i]), LatLonPoint(*points[i + 1]))

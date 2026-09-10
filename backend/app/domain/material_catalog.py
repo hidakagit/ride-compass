@@ -635,11 +635,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 同じ距離あたりの量どうしなので足し合わせられる（示量／示強の区別、
         # domain/axis_display.py: raw_value_unit）。
         additive=True,
-        # タイルは`osm_raw_ways`単位で焼くのに対し、蛇行はEdge単位（`road_edges`）で
-        # 持つため、way単位の集計を別途用意しないと焼き込めない。地図レイヤーを持たない
-        # 軸は勾配・風にも既にあり（`axis_display_for`がkind="none"を返す）、ルート探索と
-        # ルート結果の表示には影響しない。
-        tile_property=None,
+        # タイルへはway単位の事前集計（`way_geometry`、wayの折れ線そのものから測った値）を
+        # 焼く。ルート評価が読むEdge単位の値とは粒度が違い、wayをEdgeへ切り出す交差点頂点の
+        # 折れも含むぶん大きくなる。
+        tile_property="curvature_deg_per_km",
         primary_attribute_id="curvature",
         extractor=keyed_value_extractor(METRIC_GROUP_GEOMETRY, METRIC_KEY_CURVATURE),
         reference_points=_CURVATURE_DEG_PER_KM_REFERENCE_POINTS,

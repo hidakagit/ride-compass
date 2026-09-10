@@ -2067,6 +2067,52 @@ async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
     assert "built_pct" not in features[101]
 
 
+async def test_get_road_surface_tile_mvt_encodes_way_curvature(road_graph_repository, road_graph_session):
+    """way_geometryの蛇行がcurvature_deg_per_kmとしてMVTへ焼き込まれる。これが無いと
+    材料のtile_propertyが空振りし、蛇行軸の地図レイヤーが静かに消える。0と行の無いwayは
+    キー自体を持たない（accident_per_km等と同じNULLIFの流儀、フロントは欠損を0として読む）。
+    """
+    import mapbox_vector_tile
+
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
+    way_c = WaySpec(osm_way_id=102, node_ids=[1, 3], highway="residential")
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3}
+    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO way_geometry (osm_way_id, curvature_deg_per_km, computed_at) "
+            "VALUES (100, 253.7, now()), (102, 0, now())"
+        )
+    )
+    await road_graph_session.commit()
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    decoded = mapbox_vector_tile.decode(tile)
+    features = {f["properties"]["osm_way_id"]: f["properties"] for f in decoded["road_surface"]["features"]}
+    assert features[100]["curvature_deg_per_km"] == pytest.approx(253.7)
+    assert "curvature_deg_per_km" not in features[101]
+    assert "curvature_deg_per_km" not in features[102]
+
+
+async def test_get_way_curvature_reads_way_geometry(road_graph_repository, road_graph_session):
+    """区間インスペクタが引く1行取得。行が無いwayはNone（未計算とまっすぐを区別する）。"""
+    await road_graph_repository.save_raw_ways(
+        [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")], {1: NODE1, 2: NODE2}
+    )
+    await road_graph_session.execute(
+        text("INSERT INTO way_geometry (osm_way_id, curvature_deg_per_km, computed_at) VALUES (100, 42.5, now())")
+    )
+    await road_graph_session.commit()
+
+    assert await road_graph_repository.get_way_curvature(100) == pytest.approx(42.5)
+    assert await road_graph_repository.get_way_curvature(999) is None
+
+
 # --- get_way_ids_in_tile（改善計画T405→T414で作り直し、way_id→wind_penalty配信層の
 # way_id取得。旧get_way_bearings_in_tileはT414で道路自身の向きの計算が不要になったため、
 # より単純なway_id一覧の取得へ置き換えた）---

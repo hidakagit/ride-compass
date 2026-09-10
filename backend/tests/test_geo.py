@@ -128,10 +128,16 @@ def test_curvature_is_practically_the_same_in_both_directions():
     assert forward == pytest.approx(backward, rel=1e-4)
 
 
+def test_curvature_of_two_point_line_is_zero():
+    """頂点2点は直線＝曲がり0。SQL側（precompute_edge_curvature.py・
+    precompute_way_curvature.py）が同じ折れ線へ0を入れるため、片方だけがNoneだと
+    同じ列に2つの定義が生まれる。"""
+    assert curvature_deg_per_km([(35.70, 139.70), (35.71, 139.70)], 1112.0) == 0.0
+
+
 def test_curvature_is_none_when_it_cannot_be_measured():
-    """頂点3点未満・距離0は0ではなくNone（「まっすぐ」と「測れない」を混同しない——
+    """距離0・実質1点は0ではなくNone（「まっすぐ」と「測れない」を混同しない——
     0にすると未計算の区間が「まっすぐな良い道」として評価に混ざる）。"""
-    assert curvature_deg_per_km([(35.70, 139.70), (35.71, 139.70)], 1112.0) is None
     assert curvature_deg_per_km([(35.70, 139.70), (35.71, 139.70), (35.72, 139.70)], 0.0) is None
-    # 連続する同一頂点は方位が定まらないため間引く（残り2点になればNone）。
+    # 連続する同一頂点は方位が定まらないため間引く（残り1点になればNone）。
     assert curvature_deg_per_km([(35.70, 139.70), (35.70, 139.70), (35.70, 139.70)], 100.0) is None

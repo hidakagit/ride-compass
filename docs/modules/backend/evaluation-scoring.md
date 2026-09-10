@@ -287,8 +287,9 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 `metrics`の群（`domain/attributes.py`の`METRIC_GROUP_*`）はデータ源の単位で、`counts`
 （`edge_attribute_counts`の3列）・`landcover`（`way_landcover`の割合列）・`poi`
 （`edge_attribute_counts.poi_counts`、停止要因の種別別カウント）・`geometry`
-（`road_edges`の列。Edge自身の折れ線から求まる量で、事前集計テーブルではなくEdge行が
-出所）がある。保存形式が
+（折れ線そのものから求まる量。Edge粒度の呼び出しでは`road_edges`の列が、Way粒度の
+呼び出し［区間インスペクタ・軸スタジオの分布プレビュー、`way_scalar_materials`］では
+`way_geometry`の列が出所になる）がある。保存形式が
 列でもJSONBでも、contextへ載る時点でこの1つの形へ揃える（`edge_metrics_from_bundles`と
 `EdgeMaterialTable.to_legacy_dicts`が唯一の変換箇所）。
 

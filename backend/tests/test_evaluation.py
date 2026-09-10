@@ -19,7 +19,7 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     time_scoped_weights,
 )
-from app.domain.axis_inspector import axis_inspector_breakdown
+from app.domain.axis_inspector import axis_inspector_breakdown, way_scalar_materials
 from app.domain.dynamic_materials import compute_dynamic_edge_materials
 from app.domain.evaluation import (
     build_static_edge_score_matrix,
@@ -647,6 +647,22 @@ def test_axis_inspector_breakdown_way_landcover_feeds_openness_only():
     others_with = [axis for axis in with_landcover.axes if axis.axis_id != "openness"]
     others_without = [axis for axis in without_landcover.axes if axis.axis_id != "openness"]
     assert others_with == others_without
+
+
+def test_way_scalar_materials_carries_curvature():
+    """way単位の蛇行（way_geometry）が材料まで届く。区間インスペクタ・軸スタジオの分布
+    プレビューはEdge単位の値を見ないため、ここが切れると両方から静かに消える。
+    未計算（None）は0ではなく欠損として扱う。"""
+    common = dict(
+        highway="residential", tags={"surface": "asphalt"}, is_designated=False,
+        way_counts=None, accident_years_covered=0,
+    )
+
+    with_value = way_scalar_materials(**common, curvature_deg_per_km=250.0)
+    without_value = way_scalar_materials(**common)
+
+    assert with_value["curvature_deg_per_km"] == 250.0
+    assert without_value.get("curvature_deg_per_km") is None
 
 
 def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_tags():

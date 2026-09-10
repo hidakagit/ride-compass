@@ -626,6 +626,28 @@ def test_axis_display_for_returns_none_kind_when_not_derivable():
     assert display.thresholds == []
 
 
+def test_curvature_axis_gets_a_map_lens():
+    """蛇行はway単位の事前集計（way_geometry）をタイルへ焼くため、地図レイヤーを持つ。
+    材料の`tile_property`が外れるとkind="none"（ルート結果だけの軸）へ静かに戻る。"""
+    definition = AxisDefinition(
+        axis_id="curvature",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="curvature_deg_per_km", weight=1.0)],
+            breakpoints=[(0.0, 0.0), (100.0, 25.0), (1000.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="蛇行",
+        category="観測",
+        is_published=True,
+    )
+
+    display = axis_display_for(definition)
+
+    assert display.kind == "ramp"
+    assert display.tile_inputs == [TileInputSpec(property="curvature_deg_per_km", weight=1.0)]
+    assert display.thresholds
+
+
 def test_axis_display_for_derives_gui_created_axis_display():
     # 改善計画T308の目的そのもの: 軸スタジオ（GUI）が作る典型的な軸（複数材料の重み付き
     # 結合）は、手書きoverride無しでもramp表示が導出される。

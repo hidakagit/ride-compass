@@ -25,6 +25,7 @@ def _record_calls(monkeypatch, calls: list[str], *, fail_at: str | None = None, 
         ("⑥precompute_edge_attribute_counts", refresh_derived.precompute_edge_attribute_counts),
         ("⑦precompute_elevation_attributes", refresh_derived.precompute_elevation_attributes),
         ("⑧precompute_way_attribute_counts", refresh_derived.precompute_way_attribute_counts),
+        ("⑪precompute_way_curvature", refresh_derived.precompute_way_curvature),
     ]:
         monkeypatch.setattr(
             module, "run", lambda db, dr, _label=label: _fake(_label, db, dr)
@@ -56,6 +57,7 @@ async def test_run_calls_all_stages_in_dependency_order(monkeypatch):
         "⑧precompute_way_attribute_counts",
         "⑨match_designations",
         "⑩precompute_way_landcover",
+        "⑪precompute_way_curvature",
     ]
 
 
@@ -72,6 +74,7 @@ async def test_run_propagates_database_url_and_dry_run_to_every_stage(monkeypatc
         ("edge_counts", refresh_derived.precompute_edge_attribute_counts),
         ("elevation", refresh_derived.precompute_elevation_attributes),
         ("way_counts", refresh_derived.precompute_way_attribute_counts),
+        ("way_curvature", refresh_derived.precompute_way_curvature),
     ]:
         monkeypatch.setattr(module, "run", lambda db, dr, _label=label: _fake(_label, db, dr))
     monkeypatch.setattr(
@@ -85,7 +88,10 @@ async def test_run_propagates_database_url_and_dry_run_to_every_stage(monkeypatc
 
     assert seen == [
         (label, "postgresql://example", True)
-        for label in ["presplit", "degrees", "edge_counts", "elevation", "way_counts", "match", "landcover"]
+        for label in [
+            "presplit", "degrees", "edge_counts", "elevation", "way_counts", "match",
+            "landcover", "way_curvature",
+        ]
     ]
 
 
@@ -130,4 +136,5 @@ async def test_run_skip_landcover_omits_only_that_stage(monkeypatch):
         "⑦precompute_elevation_attributes",
         "⑧precompute_way_attribute_counts",
         "⑨match_designations",
+        "⑪precompute_way_curvature",
     ]

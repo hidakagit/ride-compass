@@ -55,6 +55,8 @@
                                         しない） → way_landcover
       └─ ①（osm_raw_ways更新）の後に再実行が必要。ラスタ自体の年次更新
          （`--data-version`+`--recompute`）でも再実行が要る
+⑪ precompute_way_curvature.py          osm_raw_ways.geom → way_geometry
+      └─ ①（osm_raw_ways更新）の後に再実行が必要（road_edges非依存）
 ```
 
 `precompute_elevation_attributes.py`のみ、`ElevationAttributeService.get_attributes_for_graph`
@@ -74,6 +76,7 @@
 | ⑦ | `precompute_elevation_attributes.py` | `road_edges`（ジオメトリ） + GSI DEM API | `elevation_attributes` | ④でroad_edgesが存在すること | road_edges変化時（新規Edge追加・PBF再取込） | **増分実行可能**（未計算Edgeのみ計算） |
 | ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`region_service.py`の`ROAD_SURFACE_TILE_VERSION`を上げてタイルキャッシュを陳腐化させること**（コード中に明記） | UPSERT、安全 |
 | ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
+| ⑪ | `precompute_way_curvature.py` | `osm_raw_ways`（geom非NULL全件） | `way_geometry`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を測り直す） |
 | ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
 
 全10バッチともUPSERTまたはDELETE→INSERT（トランザクション内、0件時はDELETEもスキップ）で
@@ -120,7 +123,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 | 生データの変化 | 再実行が必要なバッチ |
 |---|---|
-| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩（⑨は③の完了も前提）。あわせて`TILE_MATERIALS_CACHE_VERSION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合世代のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪（⑨は③の完了も前提）。あわせて`ROAD_SURFACE_TILE_VERSION`（⑧・⑩・⑪の値をタイルへ焼くため）と`TILE_MATERIALS_CACHE_VERSION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合世代のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
 | 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
 | KSJ指定路線データ更新 | ③→⑨ |
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |
@@ -128,7 +131,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 ## 統合エントリポイント（改善計画T281段階2、実装済み）
 
-`python -m app.batch.refresh_derived`が④〜⑩（本ファイルの依存順序どおり、①〜③の生データ
+`python -m app.batch.refresh_derived`が④〜⑪（本ファイルの依存順序どおり、①〜③の生データ
 取込は対象外）を1コマンドで実行する。⑩precompute_way_landcoverだけラスタファイルの
 手動取得を要するため、未整備の環境では`--skip-landcover`でこの段だけスキップできる。詳細は
 [docs/modules/backend/static-road-attributes.md](modules/backend/static-road-attributes.md)

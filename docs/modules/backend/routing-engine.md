@@ -751,11 +751,15 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
 NULLは「未計算」であって0（まっすぐ）ではない。
 
 計算はPostGISの`ST_Azimuth`で完結させPythonへ行を持ち出さない（本番500万行規模）。
+SQL本体は`road_graph_repository.py`が持ち、way単位版（`precompute_way_curvature.py`）と
+測り方を共有する。バッチは`edge_id`順のウィンドウで呼ぶだけ。
+
 **geographyへキャストして呼ぶこと**——geometry（4326）のままだと経度・緯度をそのまま
 x/yとして扱う平面計算になり、緯度による経度の縮みを無視して`bearing_between`（球面
-三角法）と食い違う。同じ列を2通りで埋めるため、定義がずれると同じEdgeに2つの値が
-生まれる（`tests/test_precompute_edge_curvature.py`が両者の一致を許容差付きで固定する。
-球と回転楕円体の差ぶんは残るため厳密一致ではない）。
+三角法）と食い違う。同じ列を2通り（split時のPython・バッチのSQL）で埋めるため、
+定義がずれると同じEdgeに2つの値が生まれる。頂点2点の折れ線は両方とも0
+（直線＝曲がり0）で、Noneではない。`tests/test_precompute_edge_curvature.py`が
+両者の一致を許容差付きで固定する（球と回転楕円体の差ぶんは残るため厳密一致ではない）。
 
 ## batch: `presplit_road_graph.py`
 

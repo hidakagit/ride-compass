@@ -7,6 +7,9 @@
 
 ridecompass_test DB（conftest.pyのroad_graph_session/road_graph_repositoryフィクスチャ）への
 実接続が必要。接続できない環境ではフィクスチャがpytest.skip()する。
+
+測り方のSQLは`road_graph_repository.py`がway単位版（`precompute_way_curvature.py`）と
+共有する。
 """
 
 import logging
@@ -24,8 +27,9 @@ pytestmark = [
     pytest.mark.postgis,
 ]
 
-# 直線（方位変化なし）とジグザグ（頂点ごとに折り返す）を並べる。
+# 直線（方位変化なし）とジグザグ（頂点ごとに折り返す）と、頂点2点のEdgeを並べる。
 STRAIGHT_NODES = {1: (35.700, 139.700), 2: (35.710, 139.700), 3: (35.720, 139.700)}
+TWO_POINT_NODES = {21: (35.700, 139.900), 22: (35.710, 139.900)}
 ZIGZAG_NODES = {
     11: (35.700, 139.800),
     12: (35.701, 139.801),
@@ -42,8 +46,11 @@ async def _seed(road_graph_repository, road_graph_session) -> None:
     ways = [
         WaySpec(osm_way_id=200, node_ids=[1, 2, 3], highway="residential"),
         WaySpec(osm_way_id=201, node_ids=[11, 12, 13, 14, 15], highway="residential"),
+        WaySpec(osm_way_id=202, node_ids=[21, 22], highway="residential"),
     ]
-    graph = build_road_graph(ways, {**STRAIGHT_NODES, **ZIGZAG_NODES}, graph_version="v1")
+    graph = build_road_graph(
+        ways, {**STRAIGHT_NODES, **ZIGZAG_NODES, **TWO_POINT_NODES}, graph_version="v1"
+    )
     await road_graph_repository.save_graph(graph)
     await road_graph_session.commit()
 
@@ -76,6 +83,30 @@ async def test_run_matches_the_python_definition(road_graph_repository, road_gra
         assert abs(sql_value - python_value) <= allowed, (
             f"{edge_id}: SQL={sql_value} とPython={python_value} が食い違う"
         )
+
+
+async def test_two_point_edge_is_zero_on_both_sides(road_graph_repository, road_graph_session):
+    """頂点2点のEdgeは、split時のPythonもバッチのSQLも0（直線＝曲がり0）。
+    片方だけがNoneだと、再splitのたびに「まっすぐな道」と「材料欠損」が入れ替わる。"""
+    await _seed(road_graph_repository, road_graph_session)
+    python_values = {
+        edge_id: value
+        for edge_id, value in (await _curvature_by_edge_id(road_graph_session)).items()
+        if edge_id.startswith("way-202")
+    }
+    assert python_values and all(v == pytest.approx(0.0, abs=0.5) for v in python_values.values())
+
+    await road_graph_session.execute(text("UPDATE road_edges SET curvature_deg_per_km = NULL"))
+    await road_graph_session.commit()
+    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+
+    await road_graph_session.rollback()
+    sql_values = {
+        edge_id: value
+        for edge_id, value in (await _curvature_by_edge_id(road_graph_session)).items()
+        if edge_id.startswith("way-202")
+    }
+    assert sql_values == pytest.approx(python_values, abs=0.5)
 
 
 async def test_straight_way_is_zero_and_zigzag_is_large(road_graph_repository, road_graph_session):

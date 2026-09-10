@@ -383,10 +383,18 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- 配線済みなのはこの2列のみ（他6列は生データとしてDBに保存済みだが
                         -- 本タイルには未焼き込み、docs/tasks/T624.md「段階2で配線する材料」）。
                         lc.trees_percent::double precision AS trees_pct,
-                        lc.built_percent::double precision AS built_pct
+                        lc.built_percent::double precision AS built_pct,
+                        -- 蛇行（度/km）。wayの折れ線そのものから測った事前集計値
+                        -- （way_geometry）で、レシピに依存しない静的な事実のため
+                        -- 上記の密度と同じく生値のまま焼く。0はNULLIFでキーを省く
+                        -- （まっすぐな道が多数のためタイルが軽くなる。フロントは欠損を
+                        -- 0として読む既存の流儀）。
+                        NULLIF(round(wg.curvature_deg_per_km::numeric, 1), 0)::double precision
+                            AS curvature_deg_per_km
                     FROM osm_raw_ways w
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
                     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
+                    LEFT JOIN way_geometry wg ON wg.osm_way_id = w.osm_way_id
                     LEFT JOIN LATERAL (
                         -- 指定路線（designation_attributes、match_designations.pyが埋める
                         -- osm_way_id単位の派生テーブル）をwayごとに主キーで引く。wayに相関
@@ -715,6 +723,7 @@ _SAMPLE_WAY_MATERIALS_SQL = text(
         wc.poi_counts,
         lc.trees_percent,
         lc.built_percent,
+        wg.curvature_deg_per_km,
         EXISTS(
             SELECT 1 FROM designation_attributes da
             WHERE da.osm_way_id = w.osm_way_id AND da.kind = ANY(:kinds)
@@ -722,10 +731,16 @@ _SAMPLE_WAY_MATERIALS_SQL = text(
     FROM osm_raw_ways w TABLESAMPLE SYSTEM (:sample_percent)
     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
+    LEFT JOIN way_geometry wg ON wg.osm_way_id = w.osm_way_id
     WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL
     LIMIT :limit
     """
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
+
+
+_WAY_CURVATURE_BY_OSM_WAY_ID_SQL = text(
+    "SELECT curvature_deg_per_km FROM way_geometry WHERE osm_way_id = :osm_way_id"
+)
 
 
 _WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
@@ -837,6 +852,95 @@ _REBUILD_RAW_INTERSECTION_NODES_SQL = text(
 # 対象geometryだけがedge→way全体になる。`&&`前置・LATERALの流儀も既存クエリを踏襲。
 # 事故はbicycle_only=true相当（involves_bicycleのみ）で固定する（edge版の実際の呼び出しが
 # 常に既定値trueであるのと同じ判断、EdgeAttributeCountsRowのdocstring参照）。
+# 折れ線の「蛇行の強さ」を測るCTE。`source`（id・geomを持つCTEの名前）の各行について、
+# 頂点ごとの方位変化の合計（度）を`curvature_total(id, deg)`として返す。
+#
+# Edge単位（road_edges）とWay単位（way_geometry）の両方が同じ材料
+# `curvature_deg_per_km`を埋めるため、測り方はここ1箇所だけに置く
+# （`domain/geo.py: curvature_deg_per_km`と同じ定義。片方だけを直すと同じ材料に
+# 2つの定義が生まれる）。
+#
+# geographyへキャストしてST_Azimuthを呼ぶ。geometry（4326）のままだと経度・緯度を
+# そのままx/yとして扱う平面計算になり、緯度による経度の縮みを無視して`bearing_between`
+# （球面三角法）と食い違う。
+# 連続する同一頂点はST_AzimuthがNULLを返すため自然に間引かれ、頂点2点の折れ線は
+# 方位変化が1つも無いので合計0になる（直線＝曲がり0、`curvature_deg_per_km`と同じ）。
+def _curvature_total_cte_sql(source: str, id_column: str, geom_column: str) -> str:
+    return f"""
+    curvature_vertex AS (
+        SELECT s.{id_column} AS id, (dp.path)[1] AS i, dp.geom AS point
+        FROM {source} s, LATERAL ST_DumpPoints(s.{geom_column}) dp
+    ),
+    curvature_leg AS (
+        SELECT id, i,
+               degrees(ST_Azimuth(
+                   point::geography,
+                   LEAD(point) OVER (PARTITION BY id ORDER BY i)::geography
+               )) AS az
+        FROM curvature_vertex
+    ),
+    curvature_turn AS (
+        SELECT id, abs(az - LEAD(az) OVER (PARTITION BY id ORDER BY i)) AS raw_delta
+        FROM curvature_leg
+        WHERE az IS NOT NULL
+    ),
+    curvature_total AS (
+        SELECT id, COALESCE(SUM(LEAST(raw_delta, 360 - raw_delta)), 0) AS deg
+        FROM curvature_turn
+        GROUP BY id
+    )"""
+
+
+# road_edges.curvature_deg_per_kmの再計算（app/batch/precompute_edge_curvature.py）。
+# edge_idの範囲で分割して呼ぶ（1文で全件更新すると本番規模では長時間ロックを取り続ける）。
+_RECOMPUTE_EDGE_CURVATURE_SQL = text(
+    f"""
+    WITH target AS (
+        SELECT edge_id, geom, distance_m
+        FROM road_edges
+        WHERE distance_m > 0
+        ORDER BY edge_id
+        LIMIT :limit OFFSET :offset
+    ),
+    {_curvature_total_cte_sql("target", "edge_id", "geom")}
+    UPDATE road_edges e
+    SET curvature_deg_per_km = COALESCE(curvature_total.deg, 0) / (e.distance_m / 1000)
+    FROM target t
+    LEFT JOIN curvature_total ON curvature_total.id = t.edge_id
+    WHERE e.edge_id = t.edge_id
+    """
+)
+
+
+# way_geometry.curvature_deg_per_kmの再計算（app/batch/precompute_way_curvature.py）。
+# 母集団はosm_raw_ways全域で、road_edges（ルート生成時に遅延構築される）に依存しない。
+# 長さ0のwayは測れないためNULLのまま行だけ作る（行の有無＝計算したかどうか）。
+_RECOMPUTE_WAY_CURVATURE_SQL = text(
+    f"""
+    WITH target AS (
+        SELECT w.osm_way_id, w.geom, ST_Length(w.geom::geography) AS length_m
+        FROM osm_raw_ways w
+        WHERE w.osm_way_id = ANY(:osm_way_ids) AND w.geom IS NOT NULL
+    ),
+    {_curvature_total_cte_sql("target", "osm_way_id", "geom")}
+    INSERT INTO way_geometry (
+        osm_way_id, curvature_deg_per_km, computed_at, source_osm_import_run_id, algorithm_version
+    )
+    SELECT t.osm_way_id,
+           CASE WHEN t.length_m > 0
+                THEN COALESCE(curvature_total.deg, 0) / (t.length_m / 1000) END,
+           :computed_at, :source_osm_import_run_id, :algorithm_version
+    FROM target t
+    LEFT JOIN curvature_total ON curvature_total.id = t.osm_way_id
+    ON CONFLICT (osm_way_id) DO UPDATE SET
+        curvature_deg_per_km = EXCLUDED.curvature_deg_per_km,
+        computed_at = EXCLUDED.computed_at,
+        source_osm_import_run_id = EXCLUDED.source_osm_import_run_id,
+        algorithm_version = EXCLUDED.algorithm_version
+    """
+).bindparams(bindparam("osm_way_ids", type_=ARRAY(BigInteger())))
+
+
 _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
     """
     INSERT INTO way_attribute_counts
@@ -2094,6 +2198,14 @@ class AttributeRepository(_SessionRepository):
         )
         return list(rows)
 
+    async def get_way_curvature(self, osm_way_id: int) -> float | None:
+        """osm_way_id完全一致で蛇行（way_geometry）の値を返す（区間インスペクタの蛇行軸）。
+        行が無い（バッチ未実行）・列がNULL（頂点1点・長さ0で算出不能）はいずれもNone。
+        """
+        result = await self._session.execute(_WAY_CURVATURE_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id})
+        row = result.first()
+        return None if row is None else row.curvature_deg_per_km
+
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
         """osm_way_id完全一致で土地被覆（way_landcover）の1行を返す（区間インスペクタの
         開放度軸内訳）。行が無い場合はNone（バッチ未実行・ラスタ範囲外・画素不足）。
@@ -2366,6 +2478,39 @@ class AttributeRepository(_SessionRepository):
             },
         )
 
+    async def recompute_edge_curvature(self, limit: int, offset: int) -> int:
+        """`edge_id`順のウィンドウ（limit/offset）で`road_edges.curvature_deg_per_km`を
+        測り直す。更新した行数を返す（`app/batch/precompute_edge_curvature.py`）。"""
+        result = await self._session.execute(
+            _RECOMPUTE_EDGE_CURVATURE_SQL, {"limit": limit, "offset": offset}
+        )
+        return result.rowcount or 0
+
+    async def recompute_way_curvature(
+        self,
+        osm_way_ids: list[int],
+        computed_at: datetime,
+        source_osm_import_run_id: int | None = None,
+        algorithm_version: str | None = None,
+    ) -> None:
+        """指定osm_way_idの`way_geometry`（way単位の形状由来スカラー）を測り直しUPSERTする
+        （`app/batch/precompute_way_curvature.py`）。
+
+        source_osm_import_run_id/algorithm_versionはrecompute_way_attribute_countsと同じ
+        系譜追跡用で、呼び出し元が全チャンクへ同じ値を渡す想定。
+        """
+        if not osm_way_ids:
+            return
+        await self._session.execute(
+            _RECOMPUTE_WAY_CURVATURE_SQL,
+            {
+                "osm_way_ids": osm_way_ids,
+                "computed_at": computed_at,
+                "source_osm_import_run_id": source_osm_import_run_id,
+                "algorithm_version": algorithm_version,
+            },
+        )
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -2473,6 +2618,9 @@ class RoadGraphRepository:
     async def sample_way_rows(self, sample_percent: float = 2.0, limit: int = 20_000) -> list[Any]:
         return await self.attributes.sample_way_rows(sample_percent, limit)
 
+    async def get_way_curvature(self, osm_way_id: int) -> float | None:
+        return await self.attributes.get_way_curvature(osm_way_id)
+
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
         return await self.attributes.get_way_landcover(osm_way_id)
 
@@ -2508,6 +2656,20 @@ class RoadGraphRepository:
     ) -> None:
         await self.attributes.recompute_way_attribute_counts(
             osm_way_ids, computed_at, source_accident_import_run_id, source_osm_import_run_id, algorithm_version
+        )
+
+    async def recompute_edge_curvature(self, limit: int, offset: int) -> int:
+        return await self.attributes.recompute_edge_curvature(limit, offset)
+
+    async def recompute_way_curvature(
+        self,
+        osm_way_ids: list[int],
+        computed_at: datetime,
+        source_osm_import_run_id: int | None = None,
+        algorithm_version: str | None = None,
+    ) -> None:
+        await self.attributes.recompute_way_curvature(
+            osm_way_ids, computed_at, source_osm_import_run_id, algorithm_version
         )
 
     # --- 表示用MVT（RoadSurfaceTileQuery） ---
