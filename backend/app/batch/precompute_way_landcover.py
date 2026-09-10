@@ -18,6 +18,7 @@
 
 import argparse
 import asyncio
+import hashlib
 import logging
 import math
 import re
@@ -30,7 +31,7 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString, box
 from shapely.geometry.base import BaseGeometry
-from sqlalchemy import select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch._common import batch_session_factory, count_targets, stream_id_chunks
@@ -107,18 +108,46 @@ def count_pixels_in_ring(dataset, ring: BaseGeometry) -> dict[int, int] | None:
     return {int(value): int(count) for value, count in zip(values, counts)}
 
 
-def _target_way_ids_stmt(recompute: bool):
+def raster_set_fingerprint(raster_paths: list[str]) -> str:
+    """ラスタ構成の指紋（ファイル名の集合から決まる短い文字列）。
+
+    「値なし」の行はこの構成でそう確定したという意味しか持たない——ラスタを1枚足せば、
+    境界またぎ・範囲外だったwayは値を持ちうる。指紋が変われば増分実行がその行を対象へ
+    戻すことで、ラスタ追加後の取りこぼしを防ぐ。順序には依存させない（同じ集合を
+    どの順で渡しても同じ指紋になる）。
+    """
+    joined = "\n".join(sorted(Path(path).name for path in raster_paths))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
+
+
+def _target_way_ids_stmt(recompute: bool, raster_set: str | None = None, algorithm: str | None = None):
     """対象way（geom・highwayを持つ）のosm_way_idを地理的順序で選ぶselect。`recompute=False`
-    （既定）では`way_landcover`に既に行があるwayをanti-joinで除外する増分実行
-    （`precompute_elevation_attributes.py`と同じ考え方）。"""
+    （既定）では既に結果を持つwayをanti-joinで除外する増分実行
+    （`precompute_elevation_attributes.py`と同じ考え方）。
+
+    除外するのは「値を持つ行があるway」と「今回と同じラスタ構成・同じアルゴリズムで
+    値なしと確定済みのway」。値なしの行を持っていても、ラスタ構成かアルゴリズムが
+    変われば結果が変わりうるため対象へ戻す（`raster_set_fingerprint`参照）。
+    """
     stmt = (
         select(OsmRawWayRow.osm_way_id)
         .where(OsmRawWayRow.geom.is_not(None))
         .where(OsmRawWayRow.highway.is_not(None))
     )
     if not recompute:
-        stmt = stmt.outerjoin(WayLandcoverRow, WayLandcoverRow.osm_way_id == OsmRawWayRow.osm_way_id).where(
-            WayLandcoverRow.osm_way_id.is_(None)
+        stmt = stmt.outerjoin(
+            WayLandcoverRow, WayLandcoverRow.osm_way_id == OsmRawWayRow.osm_way_id
+        ).where(
+            or_(
+                WayLandcoverRow.osm_way_id.is_(None),
+                and_(
+                    WayLandcoverRow.trees_percent.is_(None),
+                    or_(
+                        WayLandcoverRow.source_raster_set.is_distinct_from(raster_set),
+                        WayLandcoverRow.algorithm_version.is_distinct_from(algorithm),
+                    ),
+                ),
+            )
         )
     return stmt.order_by(OsmRawWayRow.geom)
 
@@ -174,7 +203,11 @@ async def run(
     dry_run: bool,
 ) -> int:
     started = time.perf_counter()
-    stmt = _target_way_ids_stmt(recompute)
+    # 増分実行の対象判定に指紋・アルゴリズム版が要るため、ラスタが要らないdry-runでも
+    # 先に決める（`--raster`無しのdry-runは指紋が空集合になり、値なし行を全件対象と数える）。
+    version = algorithm_version(inner_m, buffer_m)
+    raster_set = raster_set_fingerprint(raster_paths)
+    stmt = _target_way_ids_stmt(recompute, raster_set, version)
     async with batch_session_factory(database_url) as session_factory:
         target_count = await count_targets(session_factory, stmt)
 
@@ -193,7 +226,6 @@ async def run(
         if not resolved_data_version:
             raise ValueError("--data-versionが未指定で、ファイル名からも推定できませんでした")
 
-        version = algorithm_version(inner_m, buffer_m)
         sources = [_RasterSource(path) for path in raster_paths]
         try:
             now = datetime.now(timezone.utc)
@@ -213,6 +245,24 @@ async def run(
                     source_osm_import_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
 
                     records: list[WayLandcover] = []
+
+                    def no_value_record(way_id: int) -> WayLandcover:
+                        """「この構成では値なし」を表す行（割合列はNULL）。
+
+                        行を残さないと増分実行が毎回同じwayをラスタ読み込みからやり直す。
+                        材料としての扱いは行が無い場合と同じ欠損のまま。
+                        """
+                        return WayLandcover(
+                            osm_way_id=way_id,
+                            percentages=None,
+                            data_source=DATA_SOURCE,
+                            data_version=resolved_data_version,
+                            computed_at=now,
+                            source_osm_import_run_id=source_osm_import_run_id,
+                            algorithm_version=version,
+                            source_raster_set=raster_set,
+                        )
+
                     for way_id in chunk:
                         line = geometries.get(way_id)
                         if line is None:
@@ -235,10 +285,12 @@ async def run(
                                 chunk_partial_coverage += 1
                             else:
                                 chunk_out_of_range += 1
+                            records.append(no_value_record(way_id))
                             continue
                         percentages = class_percentages(counts)
                         if percentages is None:
                             chunk_low_pixels += 1
+                            records.append(no_value_record(way_id))
                             continue
                         records.append(
                             WayLandcover(
@@ -249,6 +301,7 @@ async def run(
                                 computed_at=now,
                                 source_osm_import_run_id=source_osm_import_run_id,
                                 algorithm_version=version,
+                                source_raster_set=raster_set,
                             )
                         )
 
@@ -256,19 +309,23 @@ async def run(
                     await repository.save_way_landcover(records)
                     await session.commit()
 
-                total_written += len(records)
+                # 「書込」は値を持つ行の件数。値なしの行（範囲外・境界またぎ・画素不足）も
+                # 同じUPSERTで書くが、内訳の3件数と二重に数えないよう分けて出す。
+                chunk_written = len(records) - chunk_out_of_range - chunk_partial_coverage - chunk_low_pixels
+                total_written += chunk_written
                 total_out_of_range += chunk_out_of_range
                 total_partial_coverage += chunk_partial_coverage
                 total_low_pixels += chunk_low_pixels
                 logger.info(
-                    "chunk %d/%d 完了: %d件書込（範囲外%d件・境界またぎ%d件・画素不足%d件） elapsed=%.1fs",
-                    chunk_index + 1, total_chunks, len(records), chunk_out_of_range, chunk_partial_coverage,
+                    "chunk %d/%d 完了: %d件書込（値なしで記録: 範囲外%d件・境界またぎ%d件・画素不足%d件） elapsed=%.1fs",
+                    chunk_index + 1, total_chunks, chunk_written, chunk_out_of_range, chunk_partial_coverage,
                     chunk_low_pixels, time.perf_counter() - chunk_started,
                 )
 
             log_completion = logger.warning if total_partial_coverage else logger.info
             log_completion(
-                "土地被覆事前計算完了: 対象=%d件 書込=%d件 範囲外=%d件 境界またぎ=%d件 画素不足=%d件 elapsed=%.1fs",
+                "土地被覆事前計算完了: 対象=%d件 書込=%d件 値なしで記録（範囲外=%d件 境界またぎ=%d件 "
+                "画素不足=%d件） elapsed=%.1fs",
                 target_count, total_written, total_out_of_range, total_partial_coverage, total_low_pixels,
                 time.perf_counter() - started,
             )

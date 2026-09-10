@@ -653,6 +653,28 @@ def test_axis_inspector_breakdown_way_landcover_feeds_openness_only():
     assert others_with == others_without
 
 
+def test_axis_inspector_breakdown_treats_no_value_landcover_row_as_missing():
+    """割合がNULLの行（そのラスタ構成では値なし、T688）は、行が無い場合と同じ欠損。
+
+    行を残すのは増分実行が毎回やり直さないためで、材料としての意味は変えない。
+    ここが区別されないと、開放度が「算出不能」ではなく0として評価される。
+    """
+    no_value = WayLandcover(
+        osm_way_id=100,
+        percentages=None,
+        data_source="esri-io-lulc", data_version="2025", computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        source_raster_set="deadbeefdeadbeef",
+    )
+
+    result = axis_inspector_breakdown(
+        highway="residential", tags={"surface": "asphalt"}, is_designated=False, way_counts=None,
+        accident_years_covered=0, way_landcover=no_value,
+    )
+
+    openness = next(axis for axis in result.axes if axis.axis_id == "openness")
+    assert openness.available is False
+
+
 def test_way_scalar_materials_carries_curvature():
     """way単位の蛇行（way_geometry）が材料まで届く。区間インスペクタ・軸スタジオの分布
     プレビューはEdge単位の値を見ないため、ここが切れると両方から静かに消える。

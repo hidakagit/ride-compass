@@ -80,9 +80,13 @@ class WayLandcover(BaseModel):
     `landcover_trees_percent`/`landcover_built_percent`）で、系譜情報は運ばない。"""
 
     osm_way_id: int
-    percentages: LandcoverPercentages
+    #: Noneは「計算済み・値なし」（ラスタ範囲外・境界またぎ・有効画素不足）。行が無い場合と
+    #: 材料としての扱いは同じ（どちらも欠損）で、増分実行がやり直さないために行を残す。
+    percentages: LandcoverPercentages | None
     data_source: str
     data_version: str
     computed_at: datetime
     source_osm_import_run_id: int | None = None
     algorithm_version: str | None = None
+    #: 「値なし」と確定させたときのラスタ構成の指紋（`percentages`がNoneの行でのみ意味を持つ）。
+    source_raster_set: str | None = None

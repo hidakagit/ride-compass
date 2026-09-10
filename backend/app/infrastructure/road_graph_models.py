@@ -259,6 +259,10 @@ class WayLandcoverRow(Base):
     （開放度評価軸の材料）。地図タイル母集団はosm_raw_ways全域のため
     way_attribute_countsと同じくWay単位（Edge単位ではない）。
 
+    割合8列とvalid_pixelsがNULLの行は「計算済み・値なし」（ラスタ範囲外・境界またぎ・
+    有効画素不足）を表す。行が無い場合と読み出し側での扱いは同じ（いずれもLEFT JOINで
+    NULLになる）が、増分実行が毎回やり直すのを避けるために行自体は残す。
+
     8列は互いに独立な数値材料（domain/material_catalog.py参照）で、Python側での
     クラス分類（どれが「遮蔽」か）は行わない——分類は評価軸のterms（重み付き線形結合）が
     表現する（domain/landcover.pyのモジュールdocstring参照）。バッチは
@@ -271,15 +275,15 @@ class WayLandcoverRow(Base):
     osm_way_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
     )
-    valid_pixels: Mapped[int] = mapped_column(Integer, nullable=False)
-    water_percent: Mapped[float] = mapped_column(Float, nullable=False)
-    trees_percent: Mapped[float] = mapped_column(Float, nullable=False)
-    flooded_veg_percent: Mapped[float] = mapped_column(Float, nullable=False)
-    crops_percent: Mapped[float] = mapped_column(Float, nullable=False)
-    built_percent: Mapped[float] = mapped_column(Float, nullable=False)
-    bare_percent: Mapped[float] = mapped_column(Float, nullable=False)
-    snow_ice_percent: Mapped[float] = mapped_column(Float, nullable=False)
-    rangeland_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    water_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trees_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flooded_veg_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crops_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    built_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bare_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    snow_ice_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rangeland_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     data_source: Mapped[str] = mapped_column(String, nullable=False)
     data_version: Mapped[str] = mapped_column(String, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -287,6 +291,10 @@ class WayLandcoverRow(Base):
     # ForeignKey()を持たない素のInteger（コメントはそちら参照）。
     source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 「計算済み・値なし」（割合列がNULL）と確定させたときのラスタ構成の指紋。
+    # ラスタを足せば境界またぎ・範囲外のwayは値を持ちうるため、指紋が変われば増分実行が
+    # その行を対象へ戻す。値を持つ行では意味を持たない。
+    source_raster_set: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class WayGeometryRow(Base):

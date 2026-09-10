@@ -110,6 +110,24 @@ DELETE→INSERTで、**候補0件のkindはDELETEの対象から外す**——DE
 読み取りセッションは処理中ずっと開いたままになるため、チャンクの処理は必ず別セッションで
 行う。
 
+### `way_landcover`の「未計算」と「計算済み・値なし」（`precompute_way_landcover.py`）
+
+割合8列と`valid_pixels`はNULL可で、**NULLは「計算済み・値なし」**を意味する
+（ラスタ範囲外・境界またぎ・有効画素不足）。読み出しはいずれもLEFT JOINで列を参照するため、
+NULL列は行が無い場合と同じ欠損として扱われる——材料としての意味は変わらない。
+
+行を残すのは**増分実行が同じwayを毎回やり直さないため**。行が無いと、結果が毎回同じ
+「値なし」であるにも関わらず実行のたびにラスタ読み込みからやり直す。
+
+ただし「値なし」は**そのラスタ構成での結論でしかない**。1枚足せば、境界またぎ・範囲外
+だったwayは値を持ちうる。行には`source_raster_set`（`raster_set_fingerprint`が
+ファイル名の集合から作る指紋、順序に依存しない）を残し、増分実行は
+「値を持つ行があるway」と「今回と同じ指紋・同じ`algorithm_version`で値なしと確定済みのway」
+だけを除外する。指紋かアルゴリズム版が変われば、値なしの行は対象へ戻る。
+
+`data_version`をこの判定に使わないのは、先頭ラスタのファイル名から推定する値で、
+ラスタを足しても変わらないことがあるため（構成の変化を表さない）。
+
 いずれも新しいSQLを書かず、`RoadGraphRepository`の既存メソッド
 （`get_accident_counts`/`get_stop_poi_counts`/`get_poi_counts_by_kind`/
 `get_intersection_counts`、および`rebuild_raw_intersection_nodes`/

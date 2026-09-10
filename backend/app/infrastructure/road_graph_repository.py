@@ -769,7 +769,8 @@ _WAY_CURVATURE_BY_OSM_WAY_ID_SQL = text(
 _WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
     "SELECT valid_pixels, water_percent, trees_percent, flooded_veg_percent, crops_percent, "
     "built_percent, bare_percent, snow_ice_percent, rangeland_percent, "
-    "data_source, data_version, computed_at, source_osm_import_run_id, algorithm_version "
+    "data_source, data_version, computed_at, source_osm_import_run_id, algorithm_version, "
+    "source_raster_set "
     "FROM way_landcover WHERE osm_way_id = :osm_way_id"
 )
 
@@ -2061,23 +2062,26 @@ class AttributeRepository(_SessionRepository):
     async def save_way_landcover(self, records: list[WayLandcover]) -> None:
         if not records:
             return
+        # percentagesがNoneの行は「計算済み・値なし」。割合列をNULLで書くことで、
+        # 増分実行が同じwayを毎回やり直すのを避ける。
         rows = [
             {
                 "osm_way_id": r.osm_way_id,
-                "valid_pixels": r.percentages.valid_pixels,
-                "water_percent": r.percentages.water_percent,
-                "trees_percent": r.percentages.trees_percent,
-                "flooded_veg_percent": r.percentages.flooded_veg_percent,
-                "crops_percent": r.percentages.crops_percent,
-                "built_percent": r.percentages.built_percent,
-                "bare_percent": r.percentages.bare_percent,
-                "snow_ice_percent": r.percentages.snow_ice_percent,
-                "rangeland_percent": r.percentages.rangeland_percent,
+                "valid_pixels": r.percentages.valid_pixels if r.percentages else None,
+                "water_percent": r.percentages.water_percent if r.percentages else None,
+                "trees_percent": r.percentages.trees_percent if r.percentages else None,
+                "flooded_veg_percent": r.percentages.flooded_veg_percent if r.percentages else None,
+                "crops_percent": r.percentages.crops_percent if r.percentages else None,
+                "built_percent": r.percentages.built_percent if r.percentages else None,
+                "bare_percent": r.percentages.bare_percent if r.percentages else None,
+                "snow_ice_percent": r.percentages.snow_ice_percent if r.percentages else None,
+                "rangeland_percent": r.percentages.rangeland_percent if r.percentages else None,
                 "data_source": r.data_source,
                 "data_version": r.data_version,
                 "computed_at": r.computed_at,
                 "source_osm_import_run_id": r.source_osm_import_run_id,
                 "algorithm_version": r.algorithm_version,
+                "source_raster_set": r.source_raster_set,
             }
             for r in records
         ]
@@ -2090,6 +2094,7 @@ class AttributeRepository(_SessionRepository):
                 "valid_pixels", "water_percent", "trees_percent", "flooded_veg_percent", "crops_percent",
                 "built_percent", "bare_percent", "snow_ice_percent", "rangeland_percent",
                 "data_source", "data_version", "computed_at", "source_osm_import_run_id", "algorithm_version",
+                "source_raster_set",
             ],
         )
 
@@ -2258,22 +2263,29 @@ class AttributeRepository(_SessionRepository):
             return None
         return WayLandcover(
             osm_way_id=osm_way_id,
-            percentages=LandcoverPercentages(
-                valid_pixels=row.valid_pixels,
-                water_percent=row.water_percent,
-                trees_percent=row.trees_percent,
-                flooded_veg_percent=row.flooded_veg_percent,
-                crops_percent=row.crops_percent,
-                built_percent=row.built_percent,
-                bare_percent=row.bare_percent,
-                snow_ice_percent=row.snow_ice_percent,
-                rangeland_percent=row.rangeland_percent,
+            # 割合列がNULLの行は「計算済み・値なし」。呼び出し側からは行が無い場合と同じ
+            # 欠損として扱えるよう、percentages自体をNoneで返す。
+            percentages=(
+                None
+                if row.trees_percent is None
+                else LandcoverPercentages(
+                    valid_pixels=row.valid_pixels,
+                    water_percent=row.water_percent,
+                    trees_percent=row.trees_percent,
+                    flooded_veg_percent=row.flooded_veg_percent,
+                    crops_percent=row.crops_percent,
+                    built_percent=row.built_percent,
+                    bare_percent=row.bare_percent,
+                    snow_ice_percent=row.snow_ice_percent,
+                    rangeland_percent=row.rangeland_percent,
+                )
             ),
             data_source=row.data_source,
             data_version=row.data_version,
             computed_at=row.computed_at,
             source_osm_import_run_id=row.source_osm_import_run_id,
             algorithm_version=row.algorithm_version,
+            source_raster_set=row.source_raster_set,
         )
 
     async def get_intersection_counts(

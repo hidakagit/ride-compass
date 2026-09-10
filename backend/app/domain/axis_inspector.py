@@ -136,16 +136,18 @@ def axis_inspector_breakdown(
     """区間インスペクタの内訳を算出する純関数。`way_counts`は
     `RoadGraphRepository.get_way_attribute_counts`の戻り値で、Noneなら事故密度・
     停止密度は算出不能（available=False）として扱う。`way_landcover`は
-    `RoadGraphRepository.get_way_landcover`の戻り値で、Noneなら開放度軸は
-    算出不能として扱う（評価パイプラインへ配線済みの2列[trees/built]のみ使う、
+    `RoadGraphRepository.get_way_landcover`の戻り値で、Noneまたは`percentages`がNone
+    （そのラスタ構成では値なし）なら開放度軸は算出不能として扱う（評価パイプラインへ配線済みの2列[trees/built]のみ使う、
     docs/tasks/T624.md「段階2で配線する材料」参照）。`curvature_deg_per_km`は
     `RoadGraphRepository.get_way_curvature`の戻り値で、Noneなら蛇行軸は算出不能。
     """
     weights = (preference or RoutePreference()).weights
+    # 行はあるが割合がNULL（そのラスタ構成では値なし）の場合も、行が無い場合と同じ欠損。
+    landcover_percentages = way_landcover.percentages if way_landcover is not None else None
     materials = way_scalar_materials(
         highway, tags, is_designated, way_counts, accident_years_covered,
-        way_landcover.percentages.trees_percent if way_landcover is not None else None,
-        way_landcover.percentages.built_percent if way_landcover is not None else None,
+        landcover_percentages.trees_percent if landcover_percentages is not None else None,
+        landcover_percentages.built_percent if landcover_percentages is not None else None,
         curvature_deg_per_km,
     )
     scores, _ = evaluate_axes_scalar(materials)
