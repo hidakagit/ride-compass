@@ -1,6 +1,6 @@
 {
-  "date": "2026-09-08",
-  "commit": "3749bdcf",
+  "date": "2026-09-10",
+  "commit": "87f7333e",
   "top": [
     "backend/app/domain/evaluation.py",
     "backend/app/domain/material_catalog.py",
@@ -11,24 +11,24 @@
     "frontend/src/app/page.tsx",
     "frontend/src/components/AxisStudio/AxisComposer.tsx",
     "frontend/src/components/Map/MapView.tsx",
-    "frontend/src/components/Map/icons.tsx",
+    "frontend/src/components/Map/mapLayers.ts",
     "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx"
   ],
   "files": {
-    "frontend/src/components/Map/MapView.tsx": 3530,
-    "docs/architecture.md": 2718,
-    "backend/app/infrastructure/road_graph_repository.py": 2297,
-    "frontend/src/app/page.tsx": 2198,
-    "backend/app/services/road_graph_engine.py": 1981,
-    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1741,
-    "backend/app/domain/evaluation.py": 1255,
-    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx": 1165,
-    "backend/app/domain/material_catalog.py": 890,
-    "backend/app/domain/routing.py": 812,
-    "backend/app/domain/axis_definitions.py": 718,
-    "frontend/src/components/Map/icons.tsx": 610,
-    "frontend/src/components/Map/mapLayers.ts": 606,
-    "backend/app/services/graph_service.py": 568
+    "frontend/src/components/Map/MapView.tsx": 3545,
+    "backend/app/infrastructure/road_graph_repository.py": 2699,
+    "docs/architecture.md": 2682,
+    "frontend/src/app/page.tsx": 2159,
+    "backend/app/services/road_graph_engine.py": 2089,
+    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1793,
+    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx": 1175,
+    "backend/app/domain/material_catalog.py": 1003,
+    "backend/app/domain/routing.py": 826,
+    "backend/app/domain/evaluation.py": 822,
+    "backend/app/domain/axis_definitions.py": 768,
+    "backend/app/services/graph_service.py": 582,
+    "frontend/src/components/Map/mapLayers.ts": 579,
+    "frontend/src/components/Map/icons.tsx": 578
   },
   "thresholds": {
     "backend/app/infrastructure/road_graph_repository.py": 2800,
