@@ -28,6 +28,7 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     CategoricalShape,
     PriorityCondition,
+    referenced_materials,
 )
 from app.domain.axis_display import axis_display_for
 from app.domain.material_catalog import is_known_material, material_dtype
@@ -207,24 +208,27 @@ class AxisDefinitionPayload(AxisDefinitionFields):
     def _check_dynamic_and_static_materials_are_not_mixed(self) -> "AxisDefinitionPayload":
         """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じshapeで混在させない。
 
-        動的軸はリクエストごとに`evaluate_dynamic_axis_arrays`（domain/evaluation.py）で
+        動的軸はリクエストごとに`evaluate_dynamic_axis_arrays`（domain/dynamic_materials.py）で
         再評価され、そこへ渡るのは「タイル単位でキャッシュ済みの公開軸スコア」と「動的材料」
         だけである。静的材料の配列は渡らないため、混在させた軸は`evaluate_axis_array`が
-        `materials[term.material]`でKeyErrorになり、`/api/routes/generate`ごと500になる
+        `materials[...]`でKeyErrorになり、`/api/routes/generate`ごと500になる
         （GUI操作だけで全ルート生成が落ちる）。静的材料が必要なら、その部分を別の軸へ切り出し
         （公開軸として評価され、動的軸からは軸参照で読める）合成する。
+
+        参照材料の導出は`AxisDefinition.materials`と同じ`referenced_materials`を使う
+        （shapeの種別を問わず、`priority_overrides`が参照する材料も含む）。動的軸かどうかを
+        判定する`_axes_depending_on_materials`が同じ導出を根拠にしているため、ここだけ
+        `shape.terms`に絞ると検証を素通りした軸が実行時に落ちる。
         """
-        if not isinstance(self.shape, BreakpointLinearShape):
-            return self
-        materials = {term.material for term in self.shape.terms}
+        materials = set(referenced_materials(self.shape, self.priority_overrides))
         dynamic = materials & REQUEST_DYNAMIC_MATERIAL_IDS
         # 軸参照（他の軸のaxis_id）は静的材料ではないため除く。
         static = {m for m in materials if is_known_material(m)} - REQUEST_DYNAMIC_MATERIAL_IDS
         if dynamic and static:
             raise ValueError(
-                f"shape cannot mix request-time dynamic material(s) {sorted(dynamic)} with "
-                f"static material(s) {sorted(static)} (the dynamic evaluation path receives "
-                "only dynamic materials and published axis scores)"
+                f"axis cannot mix request-time dynamic material(s) {sorted(dynamic)} with "
+                f"static material(s) {sorted(static)} in shape/priority_overrides "
+                "(the dynamic evaluation path receives only dynamic materials and published axis scores)"
             )
         return self
 

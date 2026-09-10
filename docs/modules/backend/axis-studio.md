@@ -275,12 +275,16 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
   検証する。
 - `priority_overrides[*].material`も既知材料/軸参照であること（未知の場合、0次条件が
   無警告のまま一切発動しなくなるため）。
-- リクエスト時に評価される動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じ
-  shapeへ混在させないこと。動的軸の再評価経路（`domain/evaluation.py:
+- リクエスト時に評価される動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じ軸で
+  混在させないこと。動的軸の再評価経路（`domain/dynamic_materials.py:
   evaluate_dynamic_axis_arrays`）へ渡るのは「タイル単位でキャッシュ済みの公開軸スコア」と
   「動的材料」だけで、静的材料の配列は渡らない——混在させた軸は`evaluate_axis_array`が
   KeyErrorになり`/api/routes/generate`ごと失敗する。静的材料が必要なら別の軸へ切り出して
   軸参照で合成する。
+  参照材料の導出は`AxisDefinition.materials`と同じ`referenced_materials`
+  （`domain/axis_definitions.py`）を使い、**shapeの種別を問わず`priority_overrides`が
+  参照する材料も含める**。動的軸かどうかを判定する`_axes_depending_on_materials`が
+  同じ導出を根拠にしているため、検証側だけ`shape.terms`に絞ると素通りした軸が実行時に落ちる。
 - `dedicated_way_value_layer`を立てられるのは、way_id→値配信の実装
   （`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）が登録済みの
   `axis_id`だけ。宣言だけでは配信できる値が無い（配信側は実装の無い材料を未知の

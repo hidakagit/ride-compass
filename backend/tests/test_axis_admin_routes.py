@@ -209,6 +209,61 @@ def test_create_returns_422_when_dynamic_and_static_materials_are_mixed(override
     assert "cannot mix" in response.text
 
 
+def test_create_returns_422_when_static_material_comes_via_priority_overrides(override_service):
+    # 統合レビュー第6回の指摘I-7: 混在の判定はshape.termsだけでなくpriority_overridesも
+    # 見る。動的軸かどうかを決める_axes_depending_on_materialsがAxisDefinition.materials
+    # （terms＋priority_overrides）を根拠にしているため、ここだけtermsに絞ると
+    # 検証を素通りした軸が実行時にKeyErrorで落ちる。
+    payload = {
+        **_PAYLOAD,
+        "shape": {
+            "kind": "breakpoint_linear",
+            "terms": [{"material": "wind_drag_ratio", "weight": 1.0, "required": True}],
+            "preprocess": "identity",
+            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
+        },
+        "priority_overrides": [{"material": "motor_vehicle_no", "equals": "true", "value": 0.0}],
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "cannot mix" in response.text
+    assert "motor_vehicle_no" in response.text
+
+
+def test_create_returns_422_when_categorical_shape_mixes_dynamic_via_priority_overrides(override_service):
+    # 同じくI-7: CategoricalShapeの軸も検証対象（以前はshapeの種別で早期returnしていた）。
+    payload = {
+        **_PAYLOAD,
+        "shape": {"kind": "categorical", "material": "highway", "mapping": {"primary": 50.0}},
+        "priority_overrides": [{"material": "wind_drag_ratio", "equals": "1.0", "value": 0.0}],
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+    assert "cannot mix" in response.text
+
+
+def test_create_allows_static_material_in_priority_overrides_for_static_axis(override_service):
+    # 静的材料どうしの組み合わせは対象外（動的材料が1件も無ければ混在ではない）。
+    payload = {
+        **_PAYLOAD,
+        "shape": {
+            "kind": "breakpoint_linear",
+            "terms": [{"material": "gradient_percent", "weight": 1.0, "required": True}],
+            "preprocess": "identity",
+            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
+        },
+        "priority_overrides": [{"material": "motor_vehicle_no", "equals": "true", "value": 0.0}],
+    }
+
+    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
+
+    assert response.status_code == 201, response.text
+
+
 def test_create_allows_dynamic_material_alone(override_service):
     # 動的材料だけの軸（現行のwind軸と同じ形）は通す。
     payload = {

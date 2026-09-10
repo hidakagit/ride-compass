@@ -31,7 +31,7 @@
 `np.round`）。
 """
 
-from typing import Annotated, Literal, Mapping, Union
+from typing import Annotated, Literal, Mapping, Sequence, Union
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
@@ -127,6 +127,28 @@ class PriorityCondition(BaseModel):
     material: str
     equals: str
     value: float
+
+
+def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[PriorityCondition]") -> list[str]:
+    """`shape`と`priority_overrides`が参照する材料id・軸idの一覧（重複を除き順序は安定）。
+
+    `AxisDefinition.materials`と、書き込み時の検証（`api/routers/axis_admin.py`の
+    バリデータ）の**両方がこれを使う**。片方が`shape.terms`だけを見て他方が
+    `priority_overrides`も見る、という状態になると、検証を素通りした軸が
+    実行時に落ちる（`priority_overrides`経由の静的材料が動的軸へ紛れ込み、
+    `evaluate_axis_array`が`materials[override.material]`でKeyErrorになる）。
+    """
+    if isinstance(shape, BreakpointLinearShape):
+        shape_materials = [term.material for term in shape.terms]
+    else:
+        shape_materials = [shape.material]
+    override_materials = [cond.material for cond in priority_overrides]
+    # 順序を安定させつつ重複を除く（同じ材料をpriority_overridesとshapeの両方が
+    # 参照するケース、例: motor_vehicle_noを他のtermでも使う場合を許容するため）。
+    seen: dict[str, None] = {}
+    for m in [*shape_materials, *override_materials]:
+        seen.setdefault(m, None)
+    return list(seen)
 
 
 class AxisDefinition(BaseModel):
@@ -270,17 +292,7 @@ class AxisDefinition(BaseModel):
         `priority_overrides`が参照する材料も含む）。呼び出し側が材料か軸かを
         区別する必要がある場合は`material_catalog.is_known_material`で判別する
         （`check_material_exclusivity`参照）。"""
-        if isinstance(self.shape, BreakpointLinearShape):
-            shape_materials = [term.material for term in self.shape.terms]
-        else:
-            shape_materials = [self.shape.material]
-        override_materials = [cond.material for cond in self.priority_overrides]
-        # 順序を安定させつつ重複を除く（同じ材料をpriority_overridesとshapeの両方が
-        # 参照するケース、例: motor_vehicle_noを他のtermでも使う場合を許容するため）。
-        seen: dict[str, None] = {}
-        for m in [*shape_materials, *override_materials]:
-            seen.setdefault(m, None)
-        return list(seen)
+        return referenced_materials(self.shape, self.priority_overrides)
 
 
 # `axis_definitions`DBテーブルが唯一の正本で、起動時（app/services/
