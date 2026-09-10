@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { RAMP_AXES } from "./axisLayers";
+import { axisMapLayerId, dedicatedWayValueMapLayerId, RAMP_AXES } from "./axisLayers";
 import { buildLayerDataSources, isRoadSurfaceGroupVisible } from "./MapView";
 import { DEDICATED_WAY_VALUE_AXES } from "./axisLayers";
 import { buildRoadSurfaceSharedLayerIds } from "./mapLayers";
@@ -141,55 +141,86 @@ describe("clearStaleTrackedSourceErrors", () => {
 });
 
 describe("isRoadSurfaceGroupVisible", () => {
-  // レビュー指摘: 以前はregionZoomTooWideがroad（現roadType/roadSurface）のvisibilityだけを
-  // 見ていたため、road自体はOFFのままaxis:car_stress等だけONで表示範囲が広すぎる場合に、
-  // ズーム範囲外の案内が一切出ない不整合があった。road_surfaceタイルを共有する
-  // 6レイヤー（roadType/roadSurface/axis:car_stress/designation/tunnel/oneway、
-  // 改善計画T165でroadが論理2レイヤーへ分割、T289でonewayを追加、T347でbicycleInfraを
-  // 削除）のいずれか1つでもONならtrueを返すことを確認する。
-  it("roadType/roadSurface/axis:car_stress/designation/tunnel/onewayのいずれか1つでもONならtrue", () => {
-    expect(isRoadSurfaceGroupVisible({ roadType: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ roadSurface: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ "axis:car_stress": true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ designation: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ tunnel: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ oneway: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+  // road_surfaceタイルを共有するレイヤーが1つでも表示ONなら、ズーム範囲外の案内
+  // （regionZoomTooWide）の対象になる。road自体がOFFでも、同じタイルを読む軸レイヤーだけ
+  // ONの状態は起こりうる（レンズで軸を1本だけ選んだ状態）。
+  const ALL_OFF = {
+    showRoadType: false,
+    showRoadSurface: false,
+    showDesignation: false,
+    showTunnel: false,
+    showOneway: false,
+    axisVisibility: {},
+    dedicatedWayValueVisibility: {},
+  } as const;
+
+  it("静的5レイヤーのいずれか1つでもONならtrue", () => {
+    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showRoadType: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showRoadSurface: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showDesignation: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showTunnel: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showOneway: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
   });
 
-  it("6レイヤーすべてOFF（road_surfaceを共有しない他レイヤーがONでも）ならfalse", () => {
+  // 本番の配線と同じ形で渡す: page.tsxのaxisVisibility/dedicatedWayValueVisibilityは
+  // どちらもレイヤーidキー（axisMapLayerId / dedicatedWayValueMapLayerId）のRecordで、
+  // 静的5レイヤーとは別のpropとして届く。この2つを渡さないと呼び出せない引数の形に
+  // なっているため、片方だけ配線した状態は型で落ちる。
+  it("静的レイヤーが全てOFFでも、ramp軸レイヤーがONならtrue（レンズで軸だけ選んだ状態）", () => {
+    const rampAxis = RAMP_AXES[0];
+    expect(
+      isRoadSurfaceGroupVisible(
+        { ...ALL_OFF, axisVisibility: { [axisMapLayerId(rampAxis.axisId)]: true } },
+        buildRoadSurfaceSharedLayerIds(RAMP_AXES, DEDICATED_WAY_VALUE_AXES),
+      ),
+    ).toBe(true);
+  });
+
+  it("静的レイヤーが全てOFFでも、専用way値配信軸レイヤーがONならtrue", () => {
+    const dedicatedAxis = DEDICATED_WAY_VALUE_AXES[0];
     expect(
       isRoadSurfaceGroupVisible(
         {
-          roadType: false,
-          roadSurface: false,
-          "axis:car_stress": false,
-          stopPoi: true,
-          accidents: true,
+          ...ALL_OFF,
+          dedicatedWayValueVisibility: { [dedicatedWayValueMapLayerId(dedicatedAxis.axisId)]: true },
         },
+        buildRoadSurfaceSharedLayerIds(RAMP_AXES, DEDICATED_WAY_VALUE_AXES),
+      ),
+    ).toBe(true);
+  });
+
+  it("road_surfaceタイルを共有しないレイヤー（POI・事故）がONでもfalse", () => {
+    expect(
+      isRoadSurfaceGroupVisible(
+        { ...ALL_OFF, axisVisibility: { stopPoi: true, accidents: true } },
         ROAD_SURFACE_SHARED_LAYER_IDS,
       ),
     ).toBe(false);
   });
 
-  it("空のvisibilityオブジェクトはfalse", () => {
-    expect(isRoadSurfaceGroupVisible({}, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(false);
+  it("すべてOFFならfalse", () => {
+    expect(isRoadSurfaceGroupVisible(ALL_OFF, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(false);
   });
 
-  it("コードレビュー指摘の修正確認: 第2引数のリストに含まれる軸だけが対象になる（軸スタジオが\n" +
-    "公開した新規ramp軸を反映した実行時リストを渡せることの回帰テスト）", () => {
-    expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, ["axis:new_gui_axis"])).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(false);
+  it("第2引数のリストに含まれる軸だけが対象になる", () => {
+    const onlyNewAxis = { ...ALL_OFF, axisVisibility: { "axis:new_gui_axis": true } };
+    expect(isRoadSurfaceGroupVisible(onlyNewAxis, ["axis:new_gui_axis"])).toBe(true);
+    expect(isRoadSurfaceGroupVisible(onlyNewAxis, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(false);
   });
 
-  // 上のテストが示す「静的フォールバック（RAMP_AXES）だけではnew_gui_axisが含まれない」
-  // という既知のズレは、実行時経路（buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes)）
-  // に軸スタジオの公開軸を含む拡張カタログを渡せば正しく解消することを確認する。
+  // ビルド時静的フォールバック（RAMP_AXES）に含まれない軸スタジオの公開軸も、実行時
+  // カタログから算出したリストを渡せば対象になる。
   it("buildRoadSurfaceSharedLayerIdsは軸スタジオの新規公開軸（拡張カタログ）にも追従する", () => {
     const extraAxis = { ...RAMP_AXES[0], axisId: "new_gui_axis", label: "新規GUI軸" };
     const extendedRoadSurfaceSharedLayerIds = buildRoadSurfaceSharedLayerIds(
       [...RAMP_AXES, extraAxis],
       DEDICATED_WAY_VALUE_AXES
     );
-    expect(isRoadSurfaceGroupVisible({ "axis:new_gui_axis": true }, extendedRoadSurfaceSharedLayerIds)).toBe(true);
+    expect(
+      isRoadSurfaceGroupVisible(
+        { ...ALL_OFF, axisVisibility: { "axis:new_gui_axis": true } },
+        extendedRoadSurfaceSharedLayerIds,
+      ),
+    ).toBe(true);
   });
 });

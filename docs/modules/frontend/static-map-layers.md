@@ -136,6 +136,27 @@ buildStaticOverlayLayers(axisOverlayLayers) が描画順（＝重なり順、背
 両者はキーが重ならない（`buildLayerDataSources`は動的気象レイヤーを含まない）ため、
 マージの優先順位を気にする必要はない。
 
+## 「表示範囲が広すぎます」の案内（`regionZoomTooWide`）
+
+road_surfaceベクタタイルは`ROAD_TILE_MIN_ZOOM`未満ではタイル自体が要求されないため、
+そのズームでは道路が一本も塗られない。「データが無い地域」と区別できるよう案内を出す。
+
+対象は**road_surfaceタイルを共有する全レイヤー**で、一覧は`mapLayers.ts:
+buildRoadSurfaceSharedLayerIds(rampAxes, dedicatedAxes)`が唯一の情報源
+（静的5レイヤー［roadType/roadSurface/designation/tunnel/oneway］＋ramp軸＋
+専用way値配信軸）。判定は`MapView.tsx: isRoadSurfaceGroupVisible`が行い、
+`updateRoadZoomHint`が現在のズームと閾値を比較して`onRegionZoomHintChange`へ通知する。
+サイドバー（`MapLayersPanel.tsx`）はこの案内が出ている間、同じ一覧に載るレイヤーの
+状態ドットを抑制する（同じ事象を二重に出さないため）。
+
+`isRoadSurfaceGroupVisible`の第1引数は表示状態のRecordではなく**propsの形そのもの**
+（`RoadSurfaceGroupState`: 静的5レイヤーの個別boolean＋`axisVisibility`＋
+`dedicatedWayValueVisibility`）を受け取り、レイヤーidキーへの合流を関数の中で行う。
+軸レイヤーの表示状態は`page.tsx`からレイヤーidキーのRecordとして別propで届くため、
+呼び出し側で組み立てる形にすると合流し忘れても型が通り、対象一覧が挙げる軸レイヤーidが
+常にundefined＝案内が一度も出ない状態になる。呼び出しは3箇所
+（`redrawAllLayers`・`handleZoom`・路面レイヤー状態のeffect）ある。
+
 ## 最上位グルーピング（道路/環境/スポット）
 
 `mapLayers.ts: mapOverlayGroupFor(layer)`がレイヤーIDを3グループへ分類する。

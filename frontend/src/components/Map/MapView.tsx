@@ -1967,10 +1967,36 @@ export function setStaticOverlayFilters(
 // ROAD_SURFACE_SHARED_LAYER_IDSを直接参照すると、軸スタジオで新規公開したramp軸を
 // 低ズームでONにしても「表示範囲が広すぎます」の案内が出ないまま何も表示されない状態に
 // なるため、呼び出し元がpropsのrampAxesから実行時に算出したリストを渡す。
+//
+// 第1引数は表示状態のRecordではなく**propsの形そのもの**を受け取り、レイヤーidキーへの
+// 合流をこの関数の中で行う。静的5レイヤーは個別のbooleanで、軸レイヤーはレイヤーidキーの
+// Recordで来るため、呼び出し側で組み立てる形にすると軸のRecordを合流し忘れても型が通り、
+// 第2引数が挙げる軸レイヤーidが常にundefined＝案内が一度も出ない状態になる。
+export interface RoadSurfaceGroupState {
+  showRoadType: boolean;
+  showRoadSurface: boolean;
+  showDesignation: boolean;
+  showTunnel: boolean;
+  showOneway: boolean;
+  /** ramp軸レイヤーの表示状態。キーは`axisMapLayerId`（"axis:car_stress"等）。 */
+  axisVisibility: Readonly<Record<string, boolean>>;
+  /** 専用way値配信軸レイヤーの表示状態。キーは`dedicatedWayValueMapLayerId`。 */
+  dedicatedWayValueVisibility: Readonly<Record<string, boolean>>;
+}
+
 export function isRoadSurfaceGroupVisible(
-  visibility: Partial<Record<MapLayerId, boolean>>,
+  state: RoadSurfaceGroupState,
   roadSurfaceSharedLayerIds: readonly MapLayerId[],
 ): boolean {
+  const visibility: Record<string, boolean> = {
+    roadType: state.showRoadType,
+    roadSurface: state.showRoadSurface,
+    designation: state.showDesignation,
+    tunnel: state.showTunnel,
+    oneway: state.showOneway,
+    ...state.dedicatedWayValueVisibility,
+    ...state.axisVisibility,
+  };
   return roadSurfaceSharedLayerIds.some((id) => visibility[id]);
 }
 
@@ -2642,11 +2668,13 @@ export default function MapView({
       map,
       isRoadSurfaceGroupVisible(
         {
-          roadType: showRoadType,
-          roadSurface: showRoadSurface,
-          designation: showDesignation,
-          tunnel: showTunnel,
-          oneway: showOneway,
+          showRoadType,
+          showRoadSurface,
+          showDesignation,
+          showTunnel,
+          showOneway,
+          axisVisibility,
+          dedicatedWayValueVisibility,
         },
         roadSurfaceSharedLayerIds
       ),
@@ -2943,17 +2971,21 @@ export default function MapView({
         showDesignation,
         showTunnel,
         showOneway,
+        axisVisibility,
+        dedicatedWayValueVisibility,
         roadSurfaceSharedLayerIds,
       } = redrawPropsRef.current;
       updateRoadZoomHint(
         map,
         isRoadSurfaceGroupVisible(
           {
-            roadType: showRoadType,
-            roadSurface: showRoadSurface,
-            designation: showDesignation,
-            tunnel: showTunnel,
-            oneway: showOneway,
+            showRoadType,
+            showRoadSurface,
+            showDesignation,
+            showTunnel,
+            showOneway,
+            axisVisibility,
+            dedicatedWayValueVisibility,
           },
           roadSurfaceSharedLayerIds
         ),
@@ -3427,10 +3459,9 @@ export default function MapView({
   // showRoadSurface/showRoadTypeの組み合わせでapplyRoadLayerStateが都度再計算する
   // （固定ではなくなった、applyRoadLayerStateのコメント参照）。
   // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するdesignation/
-  // tunnelのON/OFFでも変わりうるため、依存配列に含めてこれらの
-  // フラグが変わるたびにも再評価する（road自体はOFFのままdesignation等だけONで表示範囲が
-  // 広すぎる場合にも案内を出すため）。ramp軸（車の圧迫感・停止密度・事故密度等）は
-  // このチェックの対象外（既知の制約）。
+  // tunnel、およびramp軸・専用way値配信軸のON/OFFでも変わりうるため、いずれも依存配列に
+  // 含めてフラグが変わるたびに再評価する（road自体はOFFのままdesignation等や軸レイヤー
+  // だけONで表示範囲が広すぎる場合にも案内を出すため）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3445,11 +3476,13 @@ export default function MapView({
       map,
       isRoadSurfaceGroupVisible(
         {
-          roadType: showRoadType,
-          roadSurface: showRoadSurface,
-          designation: showDesignation,
-          tunnel: showTunnel,
-          oneway: showOneway,
+          showRoadType,
+          showRoadSurface,
+          showDesignation,
+          showTunnel,
+          showOneway,
+          axisVisibility,
+          dedicatedWayValueVisibility,
         },
         roadSurfaceSharedLayerIds
       ),
@@ -3462,6 +3495,8 @@ export default function MapView({
     showDesignation,
     showTunnel,
     showOneway,
+    axisVisibility,
+    dedicatedWayValueVisibility,
     roadHiddenKeysByMode,
     roadSurfaceSharedLayerIds,
     recomputeLayerDataStatus,
