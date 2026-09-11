@@ -408,6 +408,37 @@
   pointer-events: none;
 }
 
+/* 実データの分布（曲線エディタの背景）。折れ点・格子線より薄くして、操作対象である
+   折れ点が埋もれないようにする。 */
+.curveDistributionBar {
+  fill: var(--color-muted);
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.curveQuantileLine {
+  stroke: var(--color-muted);
+  stroke-width: 1;
+  stroke-dasharray: 1 3;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.curveQuantileLabel {
+  fill: var(--color-muted);
+  font-size: 7px;
+  pointer-events: none;
+}
+
+/* 表示範囲の外にある延長の割合。見落とすと「分布は全部見えている」と読めてしまうため、
+   分位ラベルより強い色にする。 */
+.curveOffRangeLabel {
+  fill: var(--foreground);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 .breakpointGeneratorRow {
   display: flex;
   align-items: center;

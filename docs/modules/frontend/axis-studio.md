@@ -16,6 +16,8 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 |---|---|
 | `components/AxisStudio/AxisStudio.tsx` | トップレベル。一覧取得・作成/更新/削除/複製/非公開化の状態管理 |
 | `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
+| `components/AxisStudio/BreakpointCurveEditor.tsx` | 折れ点をドラッグ・矢印キーで調整できるSVGの曲線エディタ。背景へ実データの分布を重ねる |
+| `components/AxisStudio/curveDistributionOverlay.ts` | 曲線エディタの背景へ分布を重ねるための純粋関数（DOM非依存。階級のクリップ・按分、分位線、表示範囲外の割合） |
 | `components/AxisStudio/scoreDistribution.ts` | 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合と警告を求める純粋関数（DOM非依存、`DistributionPreview.tsx`が使う） |
 | `components/AxisStudio/DistributionPreview.tsx` | 折れ点の下に「この折れ点での得点分布」を出すパネル。満点への張り付き・0点への偏りを警告する |
 | `components/AxisStudio/DistributionPreview.module.css` | 上記2コンポーネント（`MaterialRangeHint`と共有）のスタイル |
@@ -77,6 +79,19 @@ listAxisDefinitions() ──→ definitions（全軸）
 抽選した道が1本も値を持たない（`sample_ways=0`）ときは、全帯0%のバーではなく理由を言葉で
 出す。ルート文脈が要る材料（走行方向・時刻に依存する勾配・風）はWay単位では値が定まらず、
 その軸ではこの状態が常態のため——0%のバーを並べると「分布はあるが全部0」と読めてしまう。
+
+同じ分布を**曲線エディタの背景へも重ねる**（`curveDistributionOverlay.ts`）。得点帯ごとの
+割合（上記のパネル）は「結果がどう散らばるか」を答えるが、「**曲線のどの部分が効いて
+いるか**」は答えない——値が集中する帯の外側で折れ点を動かしても結果は変わらず、集中する
+帯の中で急にすると大きく変わる。曲線エディタの横軸は折れ点を通す前の生値で、backendが
+返す階級・分位と同じ量のため、そのまま重ねられる。
+
+- 階級が表示範囲をまたぐときは**幅に比例して按分**する。丸ごと入れる／落とすと範囲の端で
+  割合が跳ねる。
+- 分位線は`p10`/`p50`/`p90`の3本に絞る（全6分位を出すと線だらけになる）。
+- **表示範囲の外にある延長は割合として画面に残す**。黙って切ると「分布は全部見えている」と
+  読めてしまい、折れ点が実データの範囲と合っていないこと自体——この重ね描きが一番伝えたい
+  こと——が画面から消える。ごく僅か（`OFF_RANGE_NOTICE_THRESHOLD`未満）のときは出さない。
 
 ### 公開済み軸の「調整する」
 
@@ -176,7 +191,8 @@ listAxisDefinitions() ──→ definitions（全軸）
   （`AxisComposer.tsx: primaryMaterial`）。参考点の生値は折れ点の横軸（`weight`を掛け、
   `preprocess="abs"`なら絶対値を取った後の値）へ変換してから使う
   （`toBreakpointX`、backend: `evaluate_axis_scalar`の`total`計算と同じ変換）。
-- `BreakpointCurveEditor`: SVGでbreakpointsをドラッグ・矢印キー調整できる曲線プレビュー。
+- `BreakpointCurveEditor`（`BreakpointCurveEditor.tsx`）: SVGでbreakpointsをドラッグ・
+  矢印キー調整できる曲線プレビュー。
   同じ`draft.breakpoints` stateを数値入力行と共有し、常に同期する。`referenceRange`
   （参考点の値域）を渡すとその範囲＋10%余白へ横軸を固定する——参考点が無い材料は
   従来どおりbreakpoints自体の値から自動スケールする。目盛り線・ドラッグ中の値ラベル
