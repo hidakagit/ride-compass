@@ -140,31 +140,39 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     ),
     "stop_density": AxisDefinition(
         axis_id="stop_density",
+        # 本番の停止密度軸と同じ形（種別別のPOI密度4件、横断歩道は重み0）。軸idだけは
+        # テストの読みやすさのため`stop_density`のままにしてある（本番はGUI採番のid）。
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km"),
-                MaterialTerm(
-                    material="intersection_count_per_km",
-                    weight=_UNSIGNALED_INTERSECTION_WEIGHT,
-                    required=False,
-                ),
+                MaterialTerm(material="poi_signal_per_km", weight=1.0, required=False),
+                MaterialTerm(material="poi_level_crossing_per_km", weight=1.5, required=False),
+                MaterialTerm(material="poi_stop_per_km", weight=0.3, required=False),
+                # 信号を伴わない横断歩道は、道なりに走る自転車の停止要因にならない。
+                MaterialTerm(material="poi_crossing_per_km", weight=0.0, required=False),
             ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+            breakpoints=[(0.0, 0.0), (0.5, 20.0), (1.5, 50.0), (3.0, 75.0), (5.0, 100.0)],
         ),
         default_weight=0.20,
         label="停止密度",
-        description="信号・横断歩道・一時停止・踏切・交差点(次数3以上の分岐点、低い重み)が少ないほど易しい",
-        category="観測",
+        description="止まる回数（信号・踏切・一時停止）が少ないほど易しい。信号の無い横断歩道と交差点の多さは含みません。",
+        category="推定",
         is_published=True,
         icon_id="density-stack",
         chip_label="停止密度",
-        panel_hint="信号・横断歩道・一時停止・踏切等の停止要因が、沿線でどれだけ密集しているかの目安です。"
-        "実際の位置は「停止要因」レイヤーで確認できます。",
+        panel_hint="信号・踏切・一時停止が道路上でどれだけ密集しているかの目安です。"
+        "信号の無い横断歩道と交差点は数えません。実際の位置は『停止要因』レイヤーで確認できます。",
         # 改善計画T404: derive_ramp_inputsが自動導出したtile_inputsをそのまま使い、
         # 色分けの段階だけをdisplay_thresholds_override（軽量な数値配列）で細かく刻む
         # （旧display_override[tile_inputsまで含む生JSON上書き]は廃止方針、本番DBも
         # T404で同じ内容へ移行済み。docs/tasks/T404.md参照）。
-        display_thresholds_override=[1.0, 2.0, 4.0],
+        display_thresholds_override=[2.0, 4.0, 7.0, 12.0],
+        display_band_labels_override=[
+            "500m以上で1回停止",
+            "250〜500mで1回停止",
+            "143〜250mで1回停止",
+            "83m〜143mで1回停止",
+            "83m以下で1回停止",
+        ],
     ),
     "car_stress_highway_base": AxisDefinition(
         axis_id="car_stress_highway_base",

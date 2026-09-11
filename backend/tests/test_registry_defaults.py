@@ -68,12 +68,17 @@ def test_default_axes_are_registered_without_conflict():
     }
 
 
-def test_intersection_density_is_not_a_standalone_axis():
-    """交差点密度は単独軸を持たず、stop_density軸のinputsへ吸収する
-    （設計プロンプト改訂2026-08-18「現行9軸からの帰属先」、改善計画T149で実装済み）。"""
+def test_intersection_density_is_not_a_standalone_axis_nor_a_stop_density_input():
+    """交差点密度は単独軸を持たず、停止密度の材料でもない。
+
+    次数3以上の分岐点を数えたもので、信号の有無とは無関係にグラフの形だけから出ている。
+    T字路でも曲がれば止まり十字路でも直進なら止まらないため、「停止」の代理としては弱い。
+    停止密度は種別別のPOI密度（信号・踏切・一時停止）で組み直され、交差点密度は
+    その材料から外れている（docs/tasks/T655.md「交差点密度の扱い」）。
+    """
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert "intersection_density" not in axis_ids
-    assert _axis("stop_density").inputs == ["stop_poi", "intersection"]
+    assert _axis("stop_density").inputs == ["stop_poi"]
 
 
 def test_safety_and_bicycle_infra_axes_are_deliberately_not_registered():
@@ -183,7 +188,7 @@ def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
     対象からは外し専用テスト（test_car_stress_ramp_display）で検証する。"""
     assert _axis("gradient").display.kind == "none"
     assert _axis("stop_density").display.kind == "ramp"
-    assert _axis("stop_density").display.thresholds == [1.0, 2.0, 4.0]
+    assert _axis("stop_density").display.thresholds == [2.0, 4.0, 7.0, 12.0]
     assert _axis("accident").display.kind == "ramp"
     # 改善計画T404: 旧display_override時代の閾値[0.4, 0.8, 1.5]はタイル生値（年正規化前、
     # 収録3年分）のスケールだった。derive_ramp_inputsの自動導出＋display_thresholds_

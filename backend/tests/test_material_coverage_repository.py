@@ -134,7 +134,6 @@ async def test_edge_materials_are_counted_over_road_edges_using_derived_table_ro
     assert counts.way_total == 1
     assert counts.edge_total == 2
     assert missing["gradient_percent"] == 1
-    assert missing["stop_count_per_km"] == 1
     assert missing["intersection_count_per_km"] == 1
     assert missing["accident_count_per_km_year"] == 1
     assert missing["curvature_deg_per_km"] == 1

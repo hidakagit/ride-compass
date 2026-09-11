@@ -455,7 +455,7 @@ def test_axis_raw_value_array_returns_weighted_sum_before_breakpoints():
         axis_id="synthetic_raw_sum",
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="poi_signal_per_km", weight=1.0),
                 MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -465,7 +465,7 @@ def test_axis_raw_value_array_returns_weighted_sum_before_breakpoints():
         category="観測",
     )
     materials = {
-        "stop_count_per_km": np.array([0.5, 8.0]),
+        "poi_signal_per_km": np.array([0.5, 8.0]),
         "intersection_count_per_km": np.array([2.0, 10.0]),
     }
 
@@ -503,7 +503,7 @@ def test_axis_raw_value_array_is_nan_only_when_every_material_is_missing():
         axis_id="synthetic_raw_missing",
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km", weight=1.0, required=False),
+                MaterialTerm(material="poi_signal_per_km", weight=1.0, required=False),
                 MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -513,7 +513,7 @@ def test_axis_raw_value_array_is_nan_only_when_every_material_is_missing():
         category="観測",
     )
     materials = {
-        "stop_count_per_km": np.array([np.nan, np.nan]),
+        "poi_signal_per_km": np.array([np.nan, np.nan]),
         "intersection_count_per_km": np.array([2.0, np.nan]),
     }
 

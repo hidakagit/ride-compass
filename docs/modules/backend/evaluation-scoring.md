@@ -316,7 +316,7 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 | 窓口 | 形 | ここから生える材料 |
 |---|---|---|
 | `way_tags` | `{タグ名: 値}` | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
-| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `stop_count_per_km`・`intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent`・`poi_*_per_km`・`curvature_deg_per_km` |
+| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent`・`poi_*_per_km`・`curvature_deg_per_km` |
 
 `metrics`の群（`domain/attributes.py`の`METRIC_GROUP_*`）はデータ源の単位で、`counts`
 （`edge_attribute_counts`の3列）・`landcover`（`way_landcover`の割合列）・`poi`

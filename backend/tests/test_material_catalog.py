@@ -103,12 +103,6 @@ def test_surface_good_missing_tag_is_none_not_false():
     assert spec.extractor(_ctx()) is None
 
 
-def test_stop_count_per_km_divides_by_distance():
-    spec = MATERIAL_CATALOG["stop_count_per_km"]
-    ctx = _ctx(edge=_edge(), metrics=_counts(**{METRIC_KEY_STOP: 2}))
-    assert spec.extractor(ctx) == 2 / (100.0 / 1000)
-
-
 def test_accident_count_per_km_year_needs_years_covered():
     spec = MATERIAL_CATALOG["accident_count_per_km_year"]
     ctx = _ctx(metrics=_counts(**{METRIC_KEY_ACCIDENT: 4}), accident_years_covered=2)

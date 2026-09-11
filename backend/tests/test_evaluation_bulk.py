@@ -101,7 +101,7 @@ _SYNTHETIC_AXES: dict[str, AxisDefinition] = {
         axis_id="stop_density",
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km"),
+                MaterialTerm(material="poi_signal_per_km"),
                 MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],

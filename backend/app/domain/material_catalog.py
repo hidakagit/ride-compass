@@ -38,7 +38,6 @@ from app.domain.attributes import (
     METRIC_KEY_BUILT_PERCENT,
     METRIC_KEY_CURVATURE,
     METRIC_KEY_INTERSECTION,
-    METRIC_KEY_STOP,
     METRIC_KEY_TREES_PERCENT,
     METRIC_GROUP_POI,
     EdgeKeyedMetrics,
@@ -147,7 +146,7 @@ class MaterialSpec(BaseModel):
     # この材料の由来となる一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.ts:
     # PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキー）。材料id（例:
-    # bicycle_infra・maxspeed_kmh・stop_count_per_km）と一次属性id（例: cycleway・
+    # bicycle_infra・maxspeed_kmh・poi_signal_per_km）と一次属性id（例: cycleway・
     # maxspeed・stop_poi）は名前が異なる別の名前空間のため、対応が自明でない材料には
     # 明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ由来のwind_drag_ratio、
     # 一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが軸ごとにこれを解決して
@@ -310,7 +309,7 @@ def keyed_value_extractor(group: str, key: str) -> MaterialExtractor:
 
 def keyed_density_extractor(group: str, key: str, *, absent_key: float | None = None) -> MaterialExtractor:
     """「数値の束から1つ取り出して1kmあたりへ正規化する」パターン
-    （stop_count_per_km/intersection_count_per_km等）。
+    （intersection_count_per_km/poi_signal_per_km等）。
 
     `absent_key`は「そのEdgeの行はあるがキーが無い」場合の値。件数の集計のように、行が
     あれば載っていないキーを0件と確定できるものは`0.0`を渡す（0件のキーを省いて持つ形と、
@@ -362,7 +361,7 @@ _GRADIENT_PERCENT_REFERENCE_POINTS = [
     MaterialReferencePoint(label="激坂", value=15.0),
 ]
 
-_STOP_COUNT_PER_KM_REFERENCE_POINTS = [
+_POI_COUNT_PER_KM_REFERENCE_POINTS = [
     MaterialReferencePoint(label="少ない", value=0.5),
     MaterialReferencePoint(label="普通", value=2.0),
     MaterialReferencePoint(label="多い", value=5.0),
@@ -599,18 +598,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 「路面タグ不明」を「路面が悪い」と混同しないための唯一の例外（他のboolean材料は
         # bool_default既定の"false"のまま）。
         bool_default="nan",
-    ),
-    "stop_count_per_km": MaterialSpec(
-        material_id="stop_count_per_km",
-        label="停止密度(回/km)",
-        description="信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
-        dtype="numeric",
-        unit="回/km",
-        additive=True,
-        tile_property="stop_per_km",
-        primary_attribute_id="stop_poi",
-        extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_STOP),
-        reference_points=_STOP_COUNT_PER_KM_REFERENCE_POINTS,
     ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
@@ -950,7 +937,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             tile_property=f"poi_{kind}_per_km",
             primary_attribute_id="stop_poi",
             extractor=keyed_density_extractor(METRIC_GROUP_POI, kind, absent_key=0.0),
-            reference_points=_STOP_COUNT_PER_KM_REFERENCE_POINTS,
+            reference_points=_POI_COUNT_PER_KM_REFERENCE_POINTS,
         )
         for kind, label in POI_COUNT_KINDS.items()
     },

@@ -164,8 +164,8 @@ export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
 // （ROAD_TILE_SOURCE_LAYERと同じくregion-tile-config.json経由でドリフト検知、
 // regionApi.test.ts参照）。同じpoi-tilesタイルにバックエンドは交差点密度（intersection）も
 // 焼き込んでいるが、地図上の独立可視化レイヤーとしては提供しない（道が何本交わっているかは
-// 道路網を見れば分かり、可視化としての追加情報が薄いため。ルーティング材料の
-// intersection_weightとしては引き続き使う）ためフロント側では参照しない。
+// 道路網を見れば分かり、可視化としての追加情報が薄いため。材料
+// `intersection_count_per_km`としては軸スタジオから引き続き選べる）ためフロント側では参照しない。
 export const STOP_POI_SOURCE_LAYER = "stop_poi";
 
 const ROUTES_SOURCE_ID = "route-candidates";

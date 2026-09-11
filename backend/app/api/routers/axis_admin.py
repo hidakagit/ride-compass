@@ -261,7 +261,7 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         複製しない。
 
         あわせて、材料のdtype（numeric/boolean/categorical）がshape種別の前提と
-        一致するかも検証する（`CategoricalShape`にnumeric材料[例: stop_count_per_km]を
+        一致するかも検証する（`CategoricalShape`にnumeric材料[例: maxspeed_kmh]を
         指定すると、`axis_templates.evaluate_categorical`はmapping.get(value, None)で
         マッピング済みキーしか引けないため、想定外dtypeの値は常にNone/NaNとなり、
         その軸は全Edgeで恒久的に欠損扱いになる——エラーもログも一切出ないまま）。

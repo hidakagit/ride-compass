@@ -177,18 +177,13 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source="elevation_attributes.average_grade（precompute_elevation_attributesの計算済み行）の有無",
         missing_semantics="unknown",
     ),
-    "stop_count_per_km": EdgeMaterialCoverageSpec(
-        present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
-        source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
-        missing_semantics="unknown",
-    ),
     "intersection_count_per_km": EdgeMaterialCoverageSpec(
         present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
         source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
         missing_semantics="unknown",
     ),
-    # 停止要因POIの種別別密度（`domain/traffic.py: POI_COUNT_KINDS`から生成）。値の置き場所は
-    # `stop_count_per_km`と同じ`edge_attribute_counts`の行で、行があれば載っていないキーは
+    # 停止要因POIの種別別密度（`domain/traffic.py: POI_COUNT_KINDS`から生成）。値は
+    # `edge_attribute_counts`の行が持つJSONBのキーで、行があれば載っていないキーは
     # 0件と確定できる（欠損は行そのものの不在だけ）。
     **{
         f"poi_{kind}_per_km": EdgeMaterialCoverageSpec(

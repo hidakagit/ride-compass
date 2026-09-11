@@ -11,10 +11,9 @@
 // `useAxisCatalog`経由で即座に反映される。docs/decisions/
 // t308-axis-map-display-auto-derivation.md参照）。
 //
-// rampの値は tile_inputs から組み立てる。数値材料はΣ property×weight（例: 停止密度 =
-// stop_per_km + 0.3×intersection_per_km、backend側の軸内係数
-// [domain/difficulty.py: UNSIGNALED_INTERSECTION_WEIGHT等]がカタログ経由で反映される
-// ——片側import。フロントに同じ係数を手書きしない）。プロパティ欠損は
+// rampの値は tile_inputs から組み立てる。数値材料はΣ property×weight（例: 停止密度は
+// 停止要因POIの種別別密度[poi_signal_per_km等]の重み付き和。重みは軸定義が持ち、
+// カタログ経由で届く——片側import。フロントに同じ係数を手書きしない）。プロパティ欠損は
 // タイル側が「0をNULLIFでキー省略」した結果なのでcoalesceで0へ倒す
 // （_ROAD_SURFACE_TILE_MVT_SQLのコメント参照）。
 // 真偽値材料（改善計画T278、例: 舗装質=surface_good、夜間=lit/has_tunnel）はMVTの

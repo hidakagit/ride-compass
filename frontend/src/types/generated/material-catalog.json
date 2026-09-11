@@ -40,14 +40,6 @@
     "value_labels": null
   },
   {
-    "material_id": "stop_count_per_km",
-    "label": "停止密度(回/km)",
-    "description": "信号・一時停止・踏切など、進行を妨げる要因の1kmあたりの発生回数。",
-    "dtype": "numeric",
-    "unit": "回/km",
-    "value_labels": null
-  },
-  {
     "material_id": "intersection_count_per_km",
     "label": "交差点密度(回/km)",
     "description": "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",

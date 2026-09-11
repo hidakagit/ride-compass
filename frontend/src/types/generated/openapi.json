@@ -620,7 +620,7 @@
     "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Region Poi Tile",
-        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ\n使われていたosm_raw_poisの可視化（ルーティング材料のintersection_weightとしては\n`get_intersection_counts`等を引き続き使う）。路面タイルと同じ歯止め・同時実行制御を\nそのまま流用する。",
+        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ\n使われていたosm_raw_poisの可視化（材料`intersection_count_per_km`の集計には\n`get_intersection_counts`等を引き続き使う）。路面タイルと同じ歯止め・同時実行制御を\nそのまま流用する。",
         "operationId": "region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get",
         "parameters": [
           {

@@ -408,13 +408,9 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
         # 事前集計が未実施のwayが該当する）
         # （TileInputSpecには数値材料の「不明」表現手段が無い——has_unknown_fallbackは
         # 真偽値/N値カテゴリカル材料専用、buildAxisRampUnknownExpression参照）。
-        # required=Trueの材料を一律に自動導出対象外とする案も検討したが、
-        # stop_density（`stop_count_per_km`がrequired=True）を含め意図的に許容する設計と
-        # してテスト化済み（test_single_term_breakpoint_linear_reuses_breakpoints_as_
-        # thresholds・test_multi_term_breakpoint_linear_derives_ramp_with_coarser_
-        # thresholds・test_axis_display_for_derives_gui_created_axis_display参照）ため、
-        # 既存の挙動を変えない。実務上は「必須材料がway単位の事前集計で欠損する」ケース
-        # 自体が稀（way_attribute_countsは欠損時0埋めが基本）なため実害は限定的だが、
+        # required=Trueの材料を持つ軸も自動導出の対象にする（gradient・accident等、
+        # 公開軸の多くが該当する）。実務上は「必須材料がway単位の事前集計で欠損する」
+        # ケース自体が稀（way_attribute_countsは欠損時0埋めが基本）なため実害は限定的だが、
         # GUI作成軸でrequired=True材料が実際にタグ欠損しやすい場合は、この不整合を
         # 認識した上で運用すること（現時点で個別の軸だけ回避する手段は無い）。
         tile_inputs = []

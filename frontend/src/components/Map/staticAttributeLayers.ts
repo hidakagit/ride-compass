@@ -14,7 +14,7 @@
 // （region-accident-tiles）は点データのためそれぞれ別ソース（MapView.tsx参照）になる。
 // 交差点密度（次数3以上のroad_node）はバックエンドのpoi-tilesが引き続き焼き込むが、
 // 道路網を見れば概ね自明という判断で地図上の独立可視化レイヤーとしては提供しない
-// （ルーティング材料のintersection_weightとしては引き続き使う）。
+// （材料`intersection_count_per_km`としては軸スタジオから引き続き選べる）。
 // 各レイヤーの絞り込みはSTATIC_FILTER_AXES（ファイル末尾）にカタログ化し、
 // legendFilter.tsの汎用機構（roadFilterAxes.tsの「路面」レイヤーと同じbuildLegendFilterExpression/
 // buildCombinedLegendFilterExpression）をそのまま流用する。属性値のカテゴリをそのまま絞り込み軸に
@@ -37,9 +37,9 @@ import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 // ロジックで確認できる）で、UIの見た目だけで決めない。
 //
 // (A) 純粋な分類（順序を持たない）: 停止要因POIの種別（信号/横断歩道/一時停止/徐行/踏切）は
-// backend/app/infrastructure/road_graph_repository.pyのstop_per_km集計が全種別を等しく
-// カウントしており（kind別の重み差なし）、補給POIの種類は非安全指標でどの2次軸の材料にも
-// なっていない。どちらも「観測された事実の種類」を区別するだけで、どちらが強い/弱いという
+// 種別ごとの重みを軸定義（axis_definitionsテーブル、軸スタジオで編集する）が持ち、
+// コード側に固定の順序が無い——運用で重みを入れ替えられるため、フロントへ順序を焼き込むと
+// 軸の定義と食い違う。補給POIの種類は非安全指標でどの2次軸の材料にもなっていない。どちらも「観測された事実の種類」を区別するだけで、どちらが強い/弱いという
 // 順序を持たない。2次のramp軸（車の圧迫感・停止密度・事故密度等、axisLayers.ts:
 // AXIS_RAMP_COLORSの緑〜赤の評価配色）と紛らわしくならないよう、評価配色を含まない
 // 中立色（藍・灰茶・桃など）を使う。各カテゴリ群は互いに独立した凡例・レイヤーのため、

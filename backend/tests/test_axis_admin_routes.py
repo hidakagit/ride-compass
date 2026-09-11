@@ -324,15 +324,14 @@ def test_create_returns_422_when_breakpoint_linear_shape_breakpoints_not_ascendi
 
 
 def test_create_returns_422_when_categorical_shape_uses_numeric_material(override_service):
-    # レビュー指摘の修正確認: CategoricalShape/FlagSumShapeはboolean材料前提だが、
-    # 以前は材料の存在チェックのみでdtypeを見ておらず、numeric材料（例:
-    # stop_count_per_km）を指定しても素通りしていた（evaluate_categoricalが常に
-    # None/NaNを返す=軸が恒久的に欠損扱いになる無言のバグ）。
+    # CategoricalShape/FlagSumShapeはboolean材料前提。numeric材料を渡すと
+    # evaluate_categoricalのmapping.get(value)が常にNone/NaNを返し、その軸が
+    # 恒久的に欠損扱いになる（エラーもログも出ない）ため、登録時に弾く。
     payload = {
         **_PAYLOAD,
         "shape": {
             "kind": "categorical",
-            "material": "stop_count_per_km",
+            "material": "maxspeed_kmh",
             "mapping": {"true": 0.0, "false": 80.0},
         },
     }
@@ -340,7 +339,7 @@ def test_create_returns_422_when_categorical_shape_uses_numeric_material(overrid
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
 
     assert response.status_code == 422
-    assert "stop_count_per_km" in response.text
+    assert "maxspeed_kmh" in response.text
 
 
 def test_create_returns_422_when_breakpoint_linear_shape_uses_categorical_material(override_service):

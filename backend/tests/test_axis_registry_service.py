@@ -403,7 +403,7 @@ async def test_update_replaces_definition_and_keeps_sort_order(road_graph_sessio
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("test_axis", default_weight=0.1))
     # sort_order維持の確認用ダミー（材料はtest_axisと衝突しないよう分ける、改善計画T268）。
-    await repository.upsert(_definition("second", material="stop_count_per_km"), sort_order=99)
+    await repository.upsert(_definition("second", material="poi_signal_per_km"), sort_order=99)
     await repository.commit()
     _, original_sort_order = await repository.get("test_axis")
 
@@ -464,7 +464,7 @@ async def test_delete_removes_definition_and_refreshes_process_cache(road_graph_
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("test_axis"))
     # 最後の1軸削除ガードに引っかからないための2軸目（材料は衝突しないよう分ける、改善計画T268）。
-    await service.create(_definition("other_axis", material="stop_count_per_km"))
+    await service.create(_definition("other_axis", material="poi_signal_per_km"))
 
     await service.delete("test_axis")
 

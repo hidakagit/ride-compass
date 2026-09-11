@@ -159,6 +159,7 @@ class FakeGraphService:
         elevation_attributes_for_search: dict | None = None,
         edges_with_geometry: dict | None = None,
         tile_set: frozenset[tuple[int, int, int]] | None = None,
+        poi_counts: dict | None = None,
     ):
         self._graph = graph
         # 改善計画T537: search_graph_cache（探索用グラフ・索引のタイル集合キーLRU）の
@@ -170,6 +171,9 @@ class FakeGraphService:
         self._stop_counts = stop_counts or {}
         self._way_tags = way_tags or {}
         self._intersection_counts = intersection_counts or {}
+        # 停止要因POIの種別別カウント（T655以降、停止密度軸が読むのはこちら）。
+        # 未指定のedge_idは空辞書＝「集計済みで0件」を返す（Noneの「未集計」とは別）。
+        self._poi_counts = poi_counts or {}
         self._accident_counts = accident_counts or {}
         self._accident_years_covered = accident_years_covered
         self._designated_edge_ids = designated_edge_ids or set()
@@ -257,6 +261,7 @@ class FakeGraphService:
                 accident_count=self._accident_counts.get(edge_id, 0),
                 stop_count=self._stop_counts.get(edge_id, 0),
                 intersection_count=self._intersection_counts.get(edge_id, 0),
+                poi_counts=self._poi_counts.get(edge_id, {}),
             )
             for edge_id in edge_ids
         }
@@ -328,11 +333,12 @@ def make_generator(
     wind_series: WindForecastSeries | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     lens_axis_id: str | None = None,
+    poi_counts: dict | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
         graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
         accident_counts, accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
-        edges_with_geometry, tile_set,
+        edges_with_geometry, tile_set, poi_counts,
     )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
@@ -911,8 +917,9 @@ async def test_candidate_aggregates_surface_axis_from_path_edges():
 async def test_candidate_aggregates_stop_density_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    stop_counts = {edge_ids[0]: 3, f"{edge_ids[0]}-rev": 3}
-    generator, _, _ = make_generator(graph, stop_counts=stop_counts)
+    # 停止密度が読むのは種別別のPOI密度（T655で旧`stop_count`の一括カウントから移行）。
+    poi_counts = {edge_ids[0]: {"signal": 3}, f"{edge_ids[0]}-rev": {"signal": 3}}
+    generator, _, _ = make_generator(graph, poi_counts=poi_counts)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
@@ -963,21 +970,24 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
     assert segment_with_track is not None
 
 
-async def test_candidate_aggregates_intersection_density_from_path_edges():
+async def test_intersection_density_does_not_contribute_to_stop_density():
+    """交差点密度は停止密度へ寄与しない。
+
+    停止密度の材料は停止要因POIの種別別密度だけで、次数3以上の分岐点を数えた
+    `intersection_count_per_km`は含まない（分岐点の数は信号の有無と無関係にグラフの形
+    だけから出るため、停止の代理にならない）。
+    """
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    intersection_counts = {edge_ids[0]: 2, f"{edge_ids[0]}-rev": 2}
+    intersection_counts = {edge_ids[0]: 20, f"{edge_ids[0]}-rev": 20}
     generator, _, _ = make_generator(graph, intersection_counts=intersection_counts)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
 
-    # 改善計画T149: 交差点密度は独立軸を持たずstop_density側へ低い重みで吸収される
-    # （旧intersection_difficultyは廃止）。
-    segment_with_intersections = next(
-        s for s in candidate.segments if s.axis_difficulties.get("stop_density", 0) > 0
-    )
-    assert segment_with_intersections.difficulty is not None
+    # 交差点がいくつあっても停止密度は0のまま（停止要因POIの集計行はあり全キー0件）。
+    # `get(..., 0)`のような既定値で受けると軸が欠損しても素通りするため、キー参照で取る。
+    assert all(s.axis_difficulties["stop_density"] == 0.0 for s in candidate.segments)
 
 
 async def test_candidate_aggregates_accident_density_from_path_edges():

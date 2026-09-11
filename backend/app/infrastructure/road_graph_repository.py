@@ -510,7 +510,7 @@ _WAY_GRADIENT_INPUTS_IN_TILE_SQL = text(
 # カバレッジ判定（road_graph_tilesのz12祖先タイルマーク）を再利用しつつ、対象データソースが
 # 別テーブルの点データのため道路（way）とは独立のクエリにする。osm_raw_pois内のkindタグを
 # そのまま焼き込むだけ（GiST索引を使うST_Intersects、_STOP_POI_COUNTS_SQLと同じテーブル）。
-# ルーティング材料のintersection_weightは`_INTERSECTION_COUNTS_SQL`が独立に計算する。
+# 材料`intersection_count_per_km`の値は`_INTERSECTION_COUNTS_SQL`が独立に計算する。
 _POI_TILE_MVT_SQL = text(
     """
     WITH coverage AS (

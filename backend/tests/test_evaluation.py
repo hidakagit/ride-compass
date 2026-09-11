@@ -330,11 +330,12 @@ def test_compute_edge_cost_more_stops_costs_more():
     elevation = _elevation_attr(0.0)
     surface = "asphalt"
 
+    # 停止密度は種別別のPOI密度で評価する（T655で旧`stop_count`の一括カウントから移行）。
     no_stops = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, stop=0)
+        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, poi={"signal": 0})
     )
     many_stops = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, stop=4)
+        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, poi={"signal": 4})
     )
 
     assert many_stops.difficulty > no_stops.difficulty
@@ -591,14 +592,19 @@ def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
 
 
 def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
-    """way_counts（length_m, accident_count, stop_count, intersection_count）がある場合、
-    car_stress/surface_q/stop_density/accident/nightが算出され、gradient/windは
-    ルート文脈が無いため常にavailable=Falseになる。"""
+    """way_countsがある場合、car_stress/surface_q/stop_density/accident/nightが算出され、
+    gradient/windはルート文脈が無いため常にavailable=Falseになる。
+
+    停止密度が要るのは`poi_counts`（種別別、T655）で、旧`stop_count`ではない。
+    """
     result = axis_inspector_breakdown(
         highway="residential",
         tags={"surface": "asphalt", "lit": "yes"},
         is_designated=False,
-        way_counts=WayAttributeCounts(length_m=1000.0, accident_count=2.0, stop_count=4, intersection_count=6),
+        way_counts=WayAttributeCounts(
+            length_m=1000.0, accident_count=2.0, stop_count=4, intersection_count=6,
+            poi_counts={"signal": 4},
+        ),
         accident_years_covered=2,
     )
 

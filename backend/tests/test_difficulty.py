@@ -89,50 +89,62 @@ def test_surface_q_axis_missing_material_is_none():
 
 
 def test_stop_density_axis_zero_density_is_easiest():
-    assert (
-        evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"stop_count_per_km": 0.0}) == 0.0
-    )
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"poi_signal_per_km": 0.0}) == 0.0
 
 
 def test_stop_density_axis_increases_with_density():
-    assert (
-        evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"stop_count_per_km": 2.0}) == 50.0
-    )
+    # 折れ点(0.5,20)-(1.5,50)の途中。信号1.0回/km → 20 + (1.0-0.5)/(1.5-0.5)*(50-20) = 35.0
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"poi_signal_per_km": 1.0}) == 35.0
 
 
 def test_stop_density_axis_caps_at_100_for_high_density():
-    assert (
-        evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"stop_count_per_km": 10.0}) == 100.0
-    )
+    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"poi_signal_per_km": 10.0}) == 100.0
 
 
 def test_stop_density_axis_missing_stop_count_is_none():
     assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {}) is None
 
 
-def test_stop_density_axis_intersection_count_defaults_to_no_contribution():
+def test_stop_density_axis_absent_kind_defaults_to_no_contribution():
     definition = AXIS_DEFINITIONS["stop_density"]
-    with_intersection_absent = evaluate_axis_scalar(definition, {"stop_count_per_km": 2.0})
-    with_intersection_none = evaluate_axis_scalar(
-        definition, {"stop_count_per_km": 2.0, "intersection_count_per_km": None}
+    only_signal = evaluate_axis_scalar(definition, {"poi_signal_per_km": 1.0})
+    signal_with_none_crossing = evaluate_axis_scalar(
+        definition, {"poi_signal_per_km": 1.0, "poi_level_crossing_per_km": None}
     )
-    assert with_intersection_absent == with_intersection_none
+    assert only_signal == signal_with_none_crossing
 
 
-def test_stop_density_axis_intersection_count_adds_weighted_contribution():
-    # 改善計画T149: タグなし交差点は0.3倍の重みでstop_countへ加算される
-    # (2.0 + 2.0*0.3=2.6)/4.0*100 = 65.0
-    value = evaluate_axis_scalar(
-        AXIS_DEFINITIONS["stop_density"],
-        {"stop_count_per_km": 2.0, "intersection_count_per_km": 2.0},
+def test_stop_density_axis_weights_level_crossing_above_signal():
+    """踏切は信号より待たされるため重みが大きい（信号1.0に対し踏切1.5）。"""
+    definition = AXIS_DEFINITIONS["stop_density"]
+
+    signal = evaluate_axis_scalar(definition, {"poi_signal_per_km": 1.0})
+    level_crossing = evaluate_axis_scalar(definition, {"poi_level_crossing_per_km": 1.0})
+
+    assert level_crossing > signal
+
+
+def test_stop_density_axis_ignores_unsignalized_crossings():
+    """信号を伴わない横断歩道は重み0——道なりに走る自転車の停止要因にならないため。
+
+    T655の実測では停止要因の59.6%が横断歩道で、これを等しく数えていたことが
+    「全wayが難易度100に張り付く」主因だった。重み0はGUI（軸スタジオ）で設定されており、
+    コード側に横断歩道を特別扱いする分岐は無い。
+    """
+    definition = AXIS_DEFINITIONS["stop_density"]
+
+    without_crossing = evaluate_axis_scalar(definition, {"poi_signal_per_km": 1.0})
+    with_many_crossings = evaluate_axis_scalar(
+        definition, {"poi_signal_per_km": 1.0, "poi_crossing_per_km": 20.0}
     )
-    assert value == 65.0
+
+    assert with_many_crossings == without_crossing
 
 
 def test_stop_density_axis_combined_still_caps_at_100():
     value = evaluate_axis_scalar(
         AXIS_DEFINITIONS["stop_density"],
-        {"stop_count_per_km": 4.0, "intersection_count_per_km": 10.0},
+        {"poi_signal_per_km": 4.0, "poi_level_crossing_per_km": 10.0},
     )
     assert value == 100.0
 
@@ -232,8 +244,7 @@ def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
         "gradient_percent": 6.0,
         "wind_drag_ratio": 4.0,
         "surface_good": True,
-        "stop_count_per_km": 2.0,
-        "intersection_count_per_km": 1.0,
+        "poi_signal_per_km": 2.0,
         # 改善計画T292: car_stressは内部軸4つ+公開軸1つの階層構造になったため、
         # 単一のcar_stress_level材料ではなくhighwayを渡す（highway基準値=2、
         # 他の補正材料[maxspeed_kmh/lanes_count/is_designated/motor_vehicle_no]は

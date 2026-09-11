@@ -1,4 +1,9 @@
-from app.domain.attributes import METRIC_GROUP_COUNTS, METRIC_KEY_ACCIDENT, METRIC_KEY_STOP, ElevationAttribute
+from app.domain.attributes import (
+    METRIC_GROUP_COUNTS,
+    METRIC_GROUP_POI,
+    METRIC_KEY_ACCIDENT,
+    ElevationAttribute,
+)
 from app.domain.axis_definitions import default_axis_weights
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.services.evaluation_service import evaluate_graph, load_route_preference
@@ -58,7 +63,7 @@ def test_evaluate_graph_empty_graph_returns_empty_dict():
     assert results == {}
 
 
-def test_evaluate_graph_passes_stop_counts_to_compute_edge_cost():
+def test_evaluate_graph_passes_poi_counts_to_compute_edge_cost():
     edge = DirectedEdge(
         edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
         geometry=[[35.7, 139.7], [35.701, 139.701]], distance_m=1000.0,
@@ -69,7 +74,9 @@ def test_evaluate_graph_passes_stop_counts_to_compute_edge_cost():
 
     no_stops = evaluate_graph(graph, elevation_attributes, surface_attributes, load_route_preference())["edge-1"]
     many_stops = evaluate_graph(
-        graph, elevation_attributes, surface_attributes, load_route_preference(), metrics={METRIC_GROUP_COUNTS: {"edge-1": {METRIC_KEY_STOP: 4}}}
+        graph, elevation_attributes, surface_attributes, load_route_preference(),
+        # 停止密度は種別別のPOI密度で評価する（T655で旧`stop_count`の一括カウントから移行）。
+        metrics={METRIC_GROUP_POI: {"edge-1": {"signal": 4}}},
     )["edge-1"]
 
     assert many_stops.difficulty > no_stops.difficulty

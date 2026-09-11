@@ -151,14 +151,12 @@ def test_multi_term_breakpoint_linear_derives_ramp_with_coarser_thresholds():
     # 差し替える設計へ移行した（下のtest_axis_display_for_combines_auto_derived_
     # tile_inputs_with_thresholds_override参照）。本関数自体（derive_ramp_inputs）は
     # 変わらず粗いthresholdsを返す。
-    # stop_densityを模した合成軸: 材料stop_count_per_km(weight=1.0)+
-    # intersection_count_per_km(weight=0.3、旧UNSIGNALED_INTERSECTION_WEIGHT定数の値。
-    # T350でAXIS_DEFINITIONS撤去に伴い定数自体は撤去したためここへ直接書く)。
+    # 複数材料の重み付き結合を持つ合成軸。
     definition = AxisDefinition(
         axis_id="synthetic_stop_density",
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km"),
+                MaterialTerm(material="poi_signal_per_km"),
                 MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -171,7 +169,7 @@ def test_multi_term_breakpoint_linear_derives_ramp_with_coarser_thresholds():
 
     assert ramp is not None
     assert ramp.tile_inputs == [
-        TileInputSpec(property="stop_per_km", weight=1.0),
+        TileInputSpec(property="poi_signal_per_km", weight=1.0),
         TileInputSpec(property="intersection_per_km", weight=0.3),
     ]
     assert ramp.thresholds == [4.0]
@@ -687,7 +685,7 @@ def test_axis_display_for_combines_auto_derived_tile_inputs_with_thresholds_over
         axis_id="synthetic_stop_density_with_thresholds_override",
         shape=BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km"),
+                MaterialTerm(material="poi_signal_per_km"),
                 MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -702,7 +700,7 @@ def test_axis_display_for_combines_auto_derived_tile_inputs_with_thresholds_over
 
     assert display.kind == "ramp"
     assert display.tile_inputs == [
-        TileInputSpec(property="stop_per_km", weight=1.0),
+        TileInputSpec(property="poi_signal_per_km", weight=1.0),
         TileInputSpec(property="intersection_per_km", weight=0.3),
     ]
     # 自動導出のみだと[4.0]（1段階）だが、display_thresholds_overrideで4段階へ差し替わる。
@@ -740,7 +738,7 @@ def test_raw_value_unit_returns_shared_unit_of_terms():
     definition = _axis(
         BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="poi_signal_per_km", weight=1.0),
                 MaterialTerm(material="intersection_count_per_km", weight=1.0, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -757,7 +755,7 @@ def test_raw_value_unit_is_none_when_a_weight_is_not_one():
     definition = _axis(
         BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="poi_signal_per_km", weight=1.0),
                 MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -773,7 +771,7 @@ def test_raw_value_unit_ignores_zero_weight_terms():
     definition = _axis(
         BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="poi_signal_per_km", weight=1.0),
                 MaterialTerm(material="gradient_percent", weight=0.0, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -787,7 +785,7 @@ def test_raw_value_unit_is_none_for_mixed_units():
     definition = _axis(
         BreakpointLinearShape(
             terms=[
-                MaterialTerm(material="stop_count_per_km", weight=1.0),
+                MaterialTerm(material="poi_signal_per_km", weight=1.0),
                 MaterialTerm(material="gradient_percent", weight=1.0, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],

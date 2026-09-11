@@ -113,7 +113,7 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     # realistic_axis_fixtures.py参照）を組み合わせる。
     stop_density_display = entries_by_id["stop_density"]["display"]
     assert stop_density_display["kind"] == "ramp"
-    assert stop_density_display["thresholds"] == [1.0, 2.0, 4.0]
+    assert stop_density_display["thresholds"] == [2.0, 4.0, 7.0, 12.0]
 
     # surface_qは手書きoverrideが無いためderive_ramp_inputsによる自動導出。
     surface_q_display = entries_by_id["surface_q"]["display"]
@@ -163,7 +163,8 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
 
     assert set(entries_by_id["gradient"]["primary_attribute_ids"]) == {"elevation"}
     assert set(entries_by_id["surface_q"]["primary_attribute_ids"]) == {"surface"}
-    assert set(entries_by_id["stop_density"]["primary_attribute_ids"]) == {"stop_poi", "intersection"}
+    # 交差点密度はT655で停止密度の材料から外れた（docs/tasks/T655.md「交差点密度の扱い」）。
+    assert set(entries_by_id["stop_density"]["primary_attribute_ids"]) == {"stop_poi"}
     assert set(entries_by_id["night"]["primary_attribute_ids"]) == {"lit", "tunnel"}
     assert set(entries_by_id["accident"]["primary_attribute_ids"]) == {"accident_point"}
     # car_stress: AxisDefinition.materialsは内部軸id(car_stress_highway_base等)を返すため

@@ -355,7 +355,9 @@ async def test_axis_inspector_computes_available_axes_from_way_tags_and_counts()
     repository = FakeRegionRepository()
     repository.way_tags_by_osm_way_id_result = ("residential", {"surface": "asphalt"}, False)
     repository.way_attribute_counts_result = WayAttributeCounts(
-        length_m=1000.0, accident_count=2.0, stop_count=4, intersection_count=6
+        length_m=1000.0, accident_count=2.0, stop_count=4, intersection_count=6,
+        # 停止密度が読むのは種別別のPOI件数（T655）。
+        poi_counts={"signal": 4},
     )
     repository.accident_years_covered_result = 2
     service = RegionService(repository=repository)
