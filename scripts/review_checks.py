@@ -363,6 +363,45 @@ def looks_like_identifier(token: str) -> bool:
     return any(c.islower() for c in token) and any(c.isupper() for c in token)
 
 
+# --- architecture.md（「現状の姿」を書く文書。docs/modulesとは基準が違う） -------
+#
+# docs/modulesの検知器をそのまま当てない。architecture.mdは「なぜその選択をしたか」
+# 「何を試して駄目だったか」を書く文書で、経緯の記述自体は正当（maplibre-glの
+# バージョン固定のように、コードからは導けずドキュメントだけが持つ事実がある）。
+# 一方で**撤去済みのものを、撤去したと書かずに名指しする**のは読み手を誤らせる
+# ——それが実在すると読める（docs/tasks/T723.md）。
+#
+# したがって判定は「実在しない名前を、撤去等の断りなく書いているか」に限る。
+# 断りを入れれば通る＝「もう無いものを名指しするなら、無いと同じ行に書く」という
+# 編集上の規則そのもので、読み手にとっても有用。
+ARCHITECTURE_DOC = "docs/architecture.md"
+ARCHITECTURE_REMOVED_MARKER_RE = re.compile(
+    r"撤去|削除|廃止|統合|改称|改名|移行|置き換え|置換|旧|かつて|当時|やめ|無くな|消滅"
+    r"|に変更|へ変更|再編|切り出|分離|時点で"
+)
+# リポジトリのファイルではないもの。外部APIのパス（気象庁の`targetTimes.json`等）と、
+# 他プロジェクトのファイル名を引用している箇所は実在判定の対象外。
+ARCHITECTURE_EXTERNAL_REFS = frozenset({
+    "targetTimes.json", "targetTimes_N1/N2.json", "targetTimes_N3.json", "static/meta.json",
+})
+
+
+def find_undeclared_dead_refs(
+    doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str
+) -> list[str]:
+    """architecture.mdが、実在しない名前を撤去等の断りなく名指ししている箇所。"""
+    filtered = {
+        doc: [(no, line) for no, line in lines if not ARCHITECTURE_REMOVED_MARKER_RE.search(line)]
+        for doc, lines in doc_lines.items()
+    }
+    out = [
+        v for v in find_dead_file_refs(filtered, files)
+        if not any(f"`{ext}`" in v for ext in ARCHITECTURE_EXTERNAL_REFS)
+    ]
+    out.extend(find_dead_identifier_refs(filtered, corpus))
+    return sorted(out)
+
+
 def source_corpus(files: list[str]) -> str:
     """識別子の実在判定に使うソース全文（実装・スクリプト）。"""
     parts = []
@@ -617,6 +656,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_redis_skeleton_violations(source_lines), True))
         sections.append(("素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
                          find_bare_basemodel_violations(source_lines), True))
+        arch_lines = diff_added_lines(ARCHITECTURE_DOC)
+        sections.append(("architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
+                         find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added)), True))
         sections.append(("新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
                          find_undocumented_files(added, modules_text, files + added), True))
         if any(s == "docs/improvement-plan.md" or s.startswith("docs/tasks/") for s in staged):
@@ -654,6 +696,13 @@ def cmd_docs(args: argparse.Namespace) -> int:
             sections.append(("ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
                              find_source_narrative_violations(all_source_lines), False))
         sections.append((title, find_undocumented_files(added, modules_text, files), True))
+        arch_path = REPO_ROOT / ARCHITECTURE_DOC
+        sections.append((
+            "architecture.md が撤去済みの名前を断りなく名指し（参考、全件。新規分の強制は--staged参照）",
+            find_undeclared_dead_refs(
+                {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))},
+                files, source_corpus(files),
+            ), False))
         sections.append(("素のBaseModel継承（全件、docs/tasks/T721.md参照）",
                          find_bare_basemodel_violations({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))

@@ -343,3 +343,50 @@ def test_bare_basemodel_allowlist_covers_the_definition_of_strict_model_itself()
     rows = {"backend/app/domain/strict_model.py": [(1, "class StrictModel(BaseModel):")]}
 
     assert review_checks.find_bare_basemodel_violations(rows) == []
+
+
+# --- architecture.md の「断りなき名指し」（T723） ---
+
+
+def _arch(lines):
+    return {"docs/architecture.md": list(enumerate(lines, 1))}
+
+
+def test_undeclared_dead_ref_reports_a_name_stated_as_current():
+    lines = ["評価は`totally_gone_symbol`が担当する。"]
+
+    out = review_checks.find_undeclared_dead_refs(_arch(lines), [], "")
+
+    assert len(out) == 1
+    assert "totally_gone_symbol" in out[0]
+
+
+def test_undeclared_dead_ref_accepts_a_name_declared_as_removed():
+    """「もう無い」と同じ行に書いてあれば通す。
+
+    architecture.mdは経緯も書く文書で、撤去済みのものを名指しすること自体は正当。
+    誤らせるのは「撤去したと書かずに名指しする」ことだけ。
+    """
+    lines = [
+        "`totally_gone_symbol`はT462で撤去済み。",
+        "`another_gone_symbol`はかつて使っていたが、現在は別の仕組みへ移行した。",
+    ]
+
+    assert review_checks.find_undeclared_dead_refs(_arch(lines), [], "") == []
+
+
+def test_undeclared_dead_ref_ignores_external_api_paths():
+    """気象庁APIのパスはリポジトリのファイルではないため実在判定の対象外。"""
+    lines = ["ナウキャストは`targetTimes.json`1本に実況〜+60分の予測が入る。"]
+
+    assert review_checks.find_undeclared_dead_refs(_arch(lines), [], "") == []
+
+
+def test_undeclared_dead_ref_accepts_names_that_exist():
+    lines = ["`live_symbol`が担当する（`app/live_file.py`）。"]
+
+    out = review_checks.find_undeclared_dead_refs(
+        _arch(lines), ["backend/app/live_file.py"], "def live_symbol():"
+    )
+
+    assert out == []
