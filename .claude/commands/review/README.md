@@ -26,8 +26,9 @@ AIによる継続的なコード・設計レビューの基盤。単発のレビ
 ```
 
 機械的なチェック（docs/modulesの死んだ参照・記載漏れ・記載粒度、improvement-planと
-docs/tasksの状態照合、規模ウォッチ、定量メトリクス、トリガー判定）はリポジトリ直下の
-`scripts/review_checks.py`（`docs`/`size`/`metrics`/`trigger`サブコマンド）が担い、
+docs/tasksの状態照合、規模ウォッチ、定量メトリクス、トリガー判定、ガードの実効性監査）は
+リポジトリ直下の`scripts/review_checks.py`
+（`docs`/`size`/`metrics`/`duplication`/`trigger`/`mutate`サブコマンド）が担い、
 各レンズはその出力を読んで判断だけを行う。`docs --staged`はpre-commit
 （`scripts/pre-commit-docs-consistency.sh`）からも呼ばれる。
 
@@ -38,6 +39,13 @@ pre-commit経路とCI経路が同じ集合を強制することと、表に宣�
 繋がれていることの両方を機械で固定してある（`scripts/tests/test_review_checks.py`と、
 `cmd_docs`が実行時に行う配線の自己申告）。片側にしか無い検知器は「手元では止まるのに
 CIでは素通り」になる。
+
+検知器が**実際に鳴るか**は`review_checks.py mutate`が確かめる（わざと違反を1件入れて
+落ちるかを、pre-commit経路・CI経路の両方で試す。使い捨てworktree内で完結し、呼び出し元の
+作業ツリーは変更しない。約20秒、`docs-consistency.yml`が毎push実行）。検知器は鳴らなく
+なっても静かに0件を出し続けるため、**「検知器がある」ことと「鳴る」ことは分けて確かめる**。
+検知器を足したときはその検知器だけが拾う違反の作り方を`guard_probe_mutations`へ1件足す
+（足さないとテストが落ちる）。
 
 ## 各レビューの役割
 

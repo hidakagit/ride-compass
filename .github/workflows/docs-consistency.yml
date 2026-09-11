@@ -52,4 +52,11 @@ jobs:
         run: |
           python -m pip install --quiet pytest
           python -m pytest scripts/tests/test_review_checks.py -q
+      # 検知器が「ある」ことと「鳴る」ことは別物。わざと違反を入れて本当に落ちるかを
+      # pre-commit経路・CI経路の両方で試す（使い捨てworktree内で完結、約20秒）。
+      - name: ガードの実効性監査
+        run: |
+          git config --global user.email "guard@local"
+          git config --global user.name "guard"
+          python scripts/review_checks.py mutate
       - run: python scripts/review_checks.py docs --since ${{ steps.since.outputs.sha }}

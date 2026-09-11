@@ -43,9 +43,11 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tokenize
 from collections import defaultdict
 from pathlib import Path
+from typing import Callable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REVIEW_DIR = REPO_ROOT / ".claude" / "commands" / "review"
@@ -787,7 +789,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
     for key, title, lines in sections:
         counts = mode in DETECTOR_ENFORCEMENT[key]
         mark = f"{len(lines)}件" if lines else "0件"
-        print(f"## {title}: {mark}")
+        # `--keys`は検知器キーを見出しへ出す（`mutate`が節と検知器を機械的に対応づけるため）。
+        label = f"[{key}] {title}" if args.keys else title
+        print(f"## {label}: {mark}")
         for l in lines:
             print(f"  - {l}")
         if counts:
@@ -1128,6 +1132,166 @@ def cmd_duplication(args: argparse.Namespace) -> int:
 
 # --- main -------------------------------------------------------------------
 
+# --- mutate（ガードの実効性監査） -------------------------------------------
+#
+# 検知器は、鳴らなくなっても静かに「0件」を出し続ける。CIのpathspecが解決先を外していて
+# 常にexit 0だった実績・`--staged`分岐にしか無い検知器がCIから抜けていた実績があり、
+# **「検知器がある」ことと「検知器が鳴る」ことは別物**である。わざと違反を1件入れて
+# 本当に落ちるかを、pre-commit経路（`--staged`）とCI経路（`--since`）の両方で確かめる。
+#
+# 検査は**使い捨てのworktreeの中だけ**で行い、呼び出し元の作業ツリーは一切変更しない
+# （並行セッションが同じツリーを触りうる、CLAUDE.md「作業ツリーの安全」）。編集中の
+# 検知器を試せるよう、追跡ファイルの未コミット変更だけはworktreeへ持ち込む。
+#
+# `DETECTOR_ENFORCEMENT`が強制すると宣言する検知器に違反の作り方が無ければNO-CASEとして
+# 落とす——検知器を足したときにここへ1件足すことを、この監査自身が要求する。
+
+GUARD_PROBE_TS = "frontend/src/lib/zzzGuardProbe.ts"
+GUARD_PROBE_PY = "backend/app/services/zzz_guard_probe.py"
+# 実在しない識別子の綴りは実行時に組み立てる。このファイル自身が実在判定のコーパス
+# （`source_corpus`はscripts/も読む）に入っているため、綴りをそのまま書くと
+# 「実装に存在する名前」になってしまい、実在判定の検知器が鳴らない。
+GUARD_PROBE_IDENT = "zzz" + "GuardProbe" + "Ident"
+
+
+def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
+    """検知器キー → その検知器だけが拾うはずの違反を1件作る手順。"""
+    module_doc = next(
+        p for p in sorted((wt / "docs/modules").rglob("*.md")) if p.name != "README.md"
+    )
+    arch = wt / ARCHITECTURE_DOC
+    plan = wt / "docs/improvement-plan.md"
+
+    def append(path: Path, text: str) -> None:
+        path.write_text(read_text(path) + text, encoding="utf-8")
+
+    def write(rel: str, text: str) -> None:
+        path = wt / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def flip_plan_checkbox() -> None:
+        text = read_text(plan)
+        m = re.search(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)", text, re.M)
+        if m is None:
+            raise RuntimeError("docs/improvement-plan.md に未完了行が無く、状態照合を試せない")
+        flipped = m.group(0).replace("- [ ]", "- [x]")
+        plan.write_text(text[: m.start()] + flipped + text[m.end():], encoding="utf-8")
+
+    return {
+        "dead_file_refs": lambda: append(module_doc, "\n存在しない`Map/zzzGuardProbeFile.ts`を参照する。\n"),
+        "dead_identifier_refs": lambda: append(module_doc, f"\n`{GUARD_PROBE_IDENT}`が処理する。\n"),
+        "narrative": lambda: append(module_doc, "\n以前はこの方式ではなく別の形だった。\n"),
+        "dead_doc_links": lambda: append(module_doc, "\n詳細は[T9999](../../tasks/T9999.md)参照。\n"),
+        "undeclared_dead_refs": lambda: append(arch, f"\n`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n"),
+        "plan_vs_tasks": flip_plan_checkbox,
+        "source_narrative": lambda: write(
+            GUARD_PROBE_TS, "// 改善計画T999でこの形に変更した。\nexport const zzzGuardProbe = 1;\n"),
+        "undocumented_files": lambda: write(GUARD_PROBE_TS, "export const zzzGuardProbe = 1;\n"),
+        "undefined_css_tokens": lambda: write(
+            GUARD_PROBE_TS, 'export const zzzGuardProbe = "var(--zzz-guard-probe-token)";\n'),
+        "redis_skeleton": lambda: write(
+            GUARD_PROBE_PY,
+            "from app.infrastructure.redis_client import get_redis_client_or_none\n\n\n"
+            "async def zzz_guard_probe():\n    return get_redis_client_or_none()\n"),
+        "bare_basemodel": lambda: write(
+            GUARD_PROBE_PY,
+            "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
+    }
+
+
+def probe_section_count(stdout: str, key: str) -> int | None:
+    """`docs --keys`の出力から、その検知器の節が報告した件数を読む。節が無ければNone。"""
+    m = re.search(rf"^## \[{re.escape(key)}\] .*: (\d+)件$", stdout, re.M)
+    return int(m.group(1)) if m else None
+
+
+def cmd_mutate(args: argparse.Namespace) -> int:
+    declared = sorted(k for k, modes in DETECTOR_ENFORCEMENT.items() if modes)
+    if args.case:
+        if args.case not in DETECTOR_ENFORCEMENT:
+            print(f"未知の検知器キー: {args.case}（既知: {', '.join(sorted(DETECTOR_ENFORCEMENT))}）")
+            return 2
+        declared = [args.case]
+
+    tmp = Path(tempfile.mkdtemp(prefix="rc-guard-"))
+    wt = tmp / "wt"
+    rows: list[tuple[str, str, str, str]] = []
+    try:
+        git("worktree", "add", "--detach", "--quiet", str(wt), "HEAD")
+
+        def wt_run(*cmd: str) -> subprocess.CompletedProcess:
+            return subprocess.run(cmd, cwd=str(wt), capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace")
+
+        # 編集中の検知器を試せるよう、追跡ファイルの未コミット変更をworktreeへ持ち込む。
+        diff = git("diff", "HEAD")
+        if diff.strip():
+            applied = subprocess.run(
+                ["git", "apply", "-"], cwd=str(wt), input=diff, capture_output=True,
+                text=True, encoding="utf-8", errors="replace")
+            if applied.returncode != 0:
+                print("## 未コミット変更をworktreeへ適用できませんでした（追跡ファイルのみ対象）")
+                print(applied.stderr.strip()[:400])
+                return 1
+        wt_run("git", "add", "-A")
+        wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
+               "commit", "-q", "-m", "guard audit base", "--no-verify")
+        base = wt_run("git", "rev-parse", "HEAD").stdout.strip()
+        mutations = guard_probe_mutations(wt)
+
+        for key in declared:
+            mutate = mutations.get(key)
+            if mutate is None:
+                rows.append((key, "NO-CASE", "-", "違反の作り方が未定義（guard_probe_mutationsへ1件足す）"))
+                continue
+            for mode, label in (("staged", "pre-commit"), ("since", "CI")):
+                if mode not in DETECTOR_ENFORCEMENT[key]:
+                    rows.append((key, "SKIP", label, "この経路では強制しない宣言"))
+                    continue
+                wt_run("git", "reset", "-q", "--hard", base)
+                wt_run("git", "clean", "-fdq")
+                try:
+                    mutate()
+                except Exception as exc:  # noqa: BLE001 違反を作れないこと自体を結果として出す
+                    rows.append((key, "SETUP-FAIL", label, str(exc)[:80]))
+                    continue
+                wt_run("git", "add", "-A")
+                check = ["--staged"]
+                if mode == "since":
+                    wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
+                           "commit", "-q", "-m", "guard audit probe", "--no-verify")
+                    check = ["--since", base]
+                proc = wt_run(sys.executable, "scripts/review_checks.py", "docs", "--keys", *check)
+                found = probe_section_count(proc.stdout, key)
+                if found is None:
+                    rows.append((key, "MISS", label, "この経路の検査項目に存在しない"))
+                elif found == 0:
+                    rows.append((key, "MISS", label, "検査はあるが0件（見逃し）"))
+                elif proc.returncode == 0:
+                    rows.append((key, "WARN", label, f"{found}件検知するがexit 0（参考扱い）"))
+                else:
+                    rows.append((key, "PASS", label, f"{found}件 exit={proc.returncode}"))
+    finally:
+        git("worktree", "remove", "--force", str(wt), check=False)
+        shutil.rmtree(tmp, ignore_errors=True)
+        git("worktree", "prune", check=False)
+
+    print("## ガードの実効性監査（わざと違反を入れて落ちるか）")
+    print()
+    print("| 検知器 | 経路 | 判定 | 詳細 |")
+    print("|---|---|---|---|")
+    for key, verdict, label, detail in rows:
+        print(f"| `{key}` | {label} | {verdict} | {detail} |")
+    print()
+    bad = [r for r in rows if r[1] not in ("PASS", "SKIP")]
+    if bad:
+        print(f"鳴らない検知器 {len(bad)}件。検知器があることと鳴ることは別物のため、これは違反として扱う。")
+        return 1
+    print(f"全{len(rows)}件PASS（検知器は実際に鳴る）")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1136,7 +1300,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("docs", help="docs/modules・improvement-plan・history の機械的整合性チェック")
     p.add_argument("--since", help="記載漏れ・ソースコード経緯コメントのチェックをこのref以降の追加分へ限定する")
     p.add_argument("--staged", action="store_true", help="pre-commit用: ステージ済み変更に関係する項目のみ")
+    p.add_argument("--keys", action="store_true", help="見出しへ検知器キーを出す（mutateが節を対応づけるため）")
     p.set_defaults(func=cmd_docs)
+    p = sub.add_parser("mutate", help="ガードの実効性監査（わざと違反を入れて落ちるか試す）")
+    p.add_argument("--case", help="この検知器キーだけを試す（既定: 全件）")
+    p.set_defaults(func=cmd_mutate)
     p = sub.add_parser("size", help="規模ウォッチ（complexity.md）")
     p.add_argument("--top", type=int, default=5)
     p.add_argument("--update", action="store_true", help="前回値ファイル（history/size_watch.json）を今回値で更新する")

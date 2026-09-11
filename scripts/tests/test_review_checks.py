@@ -447,3 +447,36 @@ def test_identifier_exists_does_not_lowercase_camel_case_names():
     # 小文字化の緩和はSCREAMING_SNAKE_CASEだけに効かせる。
     assert not review_checks.identifier_exists("WindService", "windservice")
     assert not review_checks.identifier_exists("WINDSERVICE", "windservice")
+
+
+# --- ガードの実効性監査（mutate） -------------------------------------------
+
+
+def test_every_enforced_detector_has_a_way_to_produce_a_violation():
+    # 検知器を足したら、その検知器だけが拾う違反の作り方も足す。無いと`mutate`が
+    # その検知器を一度も試せず、鳴らなくなっても気づけない。
+    enforced = {k for k, modes in review_checks.DETECTOR_ENFORCEMENT.items() if modes}
+    probes = set(review_checks.guard_probe_mutations(review_checks.REPO_ROOT))
+
+    assert enforced <= probes, f"違反の作り方が無い検知器: {sorted(enforced - probes)}"
+
+
+def test_probe_section_count_reads_the_keyed_heading():
+    out = "## [redis_skeleton] Redis骨格の自前実装（docs/caching.md参照）: 2件\n"
+
+    assert review_checks.probe_section_count(out, "redis_skeleton") == 2
+    assert review_checks.probe_section_count(out, "narrative") is None
+
+
+def test_probe_section_count_distinguishes_zero_from_a_missing_section():
+    # 「検査はあるが0件（見逃し）」と「検査項目自体が無い」は別の失敗のため区別する。
+    assert review_checks.probe_section_count("## [narrative] 記載粒度違反（全件）: 0件\n", "narrative") == 0
+    assert review_checks.probe_section_count("", "narrative") is None
+
+
+def test_guard_probe_identifier_is_not_spelled_out_in_this_repository():
+    # このファイル自身が実在判定のコーパスに入るため、綴りをそのまま書くと
+    # 「実装に存在する名前」になり、実在判定の検知器が鳴らなくなる。
+    corpus = review_checks.source_corpus(review_checks.git_files())
+
+    assert review_checks.GUARD_PROBE_IDENT not in corpus
