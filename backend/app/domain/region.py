@@ -1,6 +1,6 @@
 import math
 
-from pydantic import BaseModel
+from app.domain.strict_model import StrictModel
 
 # 路面の地域レイヤーは標準的なXYZベクタタイル（MapLibreのvector source）として配信する。
 # ズームレベルでタイルの細かさ・生成範囲を制御することで、ビューポートの対角距離を
@@ -21,7 +21,7 @@ ROAD_TILE_MAX_ZOOM = 15
 ROAD_GRAPH_TILE_ZOOM = 12
 
 
-class BoundingBox(BaseModel):
+class BoundingBox(StrictModel):
     min_latitude: float
     min_longitude: float
     max_latitude: float

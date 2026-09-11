@@ -11,7 +11,7 @@ from typing import Awaitable, Literal, TypeVar
 
 from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -34,6 +34,7 @@ from app.domain.axis_display import axis_display_for
 from app.domain.material_catalog import is_known_material, material_dtype
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
+from app.domain.strict_model import StrictModel
 
 router = APIRouter(prefix="/api/admin/axis-definitions", tags=["axis-admin"])
 
@@ -61,7 +62,7 @@ async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
         ) from exc
 
 
-class AxisDefinitionFields(BaseModel):
+class AxisDefinitionFields(StrictModel):
     """`AxisDefinitionPayload`（書き込み）・`AxisDefinitionResponse`（読み取り）が
     共有するフィールド定義のみを持つ基底クラス。
 
@@ -462,14 +463,14 @@ async def unpublish_axis_definition(
     return _to_response(definition)
 
 
-class AxisPreviewRequest(BaseModel):
+class AxisPreviewRequest(StrictModel):
     """分布プレビューの入力。軸全体ではなく`shape`だけを受け取る——プレビューは
     保存前の編集中に呼ぶもので、ラベル等の書き込み用フィールドが揃っている必要はない。"""
 
     shape: AxisShape
 
 
-class ValueDistributionResponse(BaseModel):
+class ValueDistributionResponse(StrictModel):
     """延長で重み付けた値の分布（`services/axis_preview_service.py`参照）。
 
     折れ点を通す前の**生値**を返し、折れ点の当てはめはフロント側が行う——折れ点を1つ

@@ -28,7 +28,7 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 
 from app.domain.attributes import (
     METRIC_GROUP_COUNTS,
@@ -48,11 +48,12 @@ from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_ma
 from app.domain.road import classify_osm_surface
 from app.domain.traffic import POI_COUNT_KINDS
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
+from app.domain.strict_model import StrictModel
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
 
 
-class MaterialReferencePoint(BaseModel):
+class MaterialReferencePoint(StrictModel):
     """軸スタジオの折れ点編集を助ける「値の目安」1点。材料の値域が
     直感的でない場合（風の材料等）に、換算式を知らなくても代表的な状況がどの値になるかを
     示す。換算式自体はbackendだけが持ち、値はここで計算済みのものを持たせる
@@ -94,7 +95,7 @@ class MaterialExtractionContext:
 MaterialExtractor = Callable[[MaterialExtractionContext], object]
 
 
-class MaterialSpec(BaseModel):
+class MaterialSpec(StrictModel):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     material_id: str

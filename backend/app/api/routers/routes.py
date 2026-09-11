@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, RootModel, model_validator
+from pydantic import Field, RootModel, model_validator
 
 from app.domain.time_zone import JST
 from app.api.dependencies import (
@@ -25,6 +25,7 @@ from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
+from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 logger = logging.getLogger("ridecompass.generate")
@@ -47,7 +48,7 @@ _generate_semaphore = asyncio.Semaphore(settings.generate_max_concurrent)
 _running_generate_tasks: set[asyncio.Task] = set()
 
 
-class RoutePreviewRequest(BaseModel):
+class RoutePreviewRequest(StrictModel):
     origin: Coordinates
     destination: Coordinates
     # 仮定巡航速度（km/h、所要時間の算出に使う）。省略時は既定値。
@@ -135,7 +136,7 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
         return cls({name: name in active for name in sorted(HARD_FILTER_NAMES)})
 
 
-class RouteGenerateRequest(BaseModel):
+class RouteGenerateRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     distance_km: float = Field(gt=0, le=MAX_ROUTE_DISTANCE_KM)
@@ -202,7 +203,7 @@ def _resolve_start_time(value: datetime | None) -> datetime:
     return value.astimezone(JST)
 
 
-class GenerationConditions(BaseModel):
+class GenerationConditions(StrictModel):
     """この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。
 
     route_preference は「リクエストで上書きされた値」または「既定値」のうち実際に
@@ -241,7 +242,7 @@ class GenerationConditions(BaseModel):
     generated_at: str
 
 
-class RouteGenerateResponse(BaseModel):
+class RouteGenerateResponse(StrictModel):
     routes: list[RouteCandidate]
     # ルート生成に使ったエンジンの識別子。現状は常に"road_graph"（`RouteGenerator.
     # engine_name`がroad_graph_engine.pyのクラス属性から決まる）。
@@ -254,7 +255,7 @@ class RouteGenerateResponse(BaseModel):
     no_candidates_reason: str | None = None
 
 
-class RouteGenerateJobCreatedResponse(BaseModel):
+class RouteGenerateJobCreatedResponse(StrictModel):
     """`POST /api/routes/generate`の応答。
 
     冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒規模）が
@@ -266,7 +267,7 @@ class RouteGenerateJobCreatedResponse(BaseModel):
     job_id: str
 
 
-class RouteGenerateJobStatusResponse(BaseModel):
+class RouteGenerateJobStatusResponse(StrictModel):
     status: job_registry.JobStatus
     result: RouteGenerateResponse | None = None
     error: str | None = None

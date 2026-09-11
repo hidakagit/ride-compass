@@ -36,7 +36,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -51,16 +51,17 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_preview_service import material_value_distribution
 from app.services.material_coverage_service import MaterialCoverageService
 from app.services.region_service import RegionService
+from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 
 
-class MaterialReferencePointEntry(BaseModel):
+class MaterialReferencePointEntry(StrictModel):
     label: str
     value: float
 
 
-class MaterialCatalogEntry(BaseModel):
+class MaterialCatalogEntry(StrictModel):
     material_id: str
     # 「論理名 - 物理名」形式（MaterialSpec.full_label、例: "道路種別 - highway"）。
     # 論理名だけでは物理名(material_id)が分からないため併記する。
@@ -76,11 +77,11 @@ class MaterialCatalogEntry(BaseModel):
     reference_points: list[MaterialReferencePointEntry]
 
 
-class MaterialCatalogResponse(BaseModel):
+class MaterialCatalogResponse(StrictModel):
     materials: list[MaterialCatalogEntry]
 
 
-class MaterialValueEntry(BaseModel):
+class MaterialValueEntry(StrictModel):
     value: str
     # 「論理名 - 物理名」形式（例: "自転車専用道 - cycleway"）。ラベル対訳表に無い値は
     # valueと同じ文字列（MaterialSpec.value_labelのフォールバック、新しいOSMタグ値が
@@ -88,11 +89,11 @@ class MaterialValueEntry(BaseModel):
     label: str
 
 
-class MaterialValuesResponse(BaseModel):
+class MaterialValuesResponse(StrictModel):
     values: list[MaterialValueEntry]
 
 
-class MaterialCoverageEntry(BaseModel):
+class MaterialCoverageEntry(StrictModel):
     material_id: str
     label: str
     dtype: MaterialDType
@@ -111,14 +112,14 @@ class MaterialCoverageEntry(BaseModel):
     excluded_reason: str | None
 
 
-class MaterialCoverageResponse(BaseModel):
+class MaterialCoverageResponse(StrictModel):
     computed_at: datetime
     way_total: int
     edge_total: int
     materials: list[MaterialCoverageEntry]
 
 
-class MaterialDistributionResponse(BaseModel):
+class MaterialDistributionResponse(StrictModel):
     """材料の値の分布（延長で重み付け）。`available=false`は数値材料でない・DB未接続。"""
 
     available: bool

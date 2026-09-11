@@ -1746,6 +1746,7 @@
             "title": "Report Datetime"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "river_code",
@@ -1786,6 +1787,7 @@
             "title": "Additions"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "code",
@@ -1825,6 +1827,7 @@
             "title": "Is Stale"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "owner",
@@ -1957,6 +1960,7 @@
             "title": "Sunset"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "station_id",
@@ -2137,6 +2141,7 @@
             "title": "Dynamic Way Value Needs Speed"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "axis_id",
@@ -2182,6 +2187,7 @@
             "default": {}
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "axes"
@@ -2337,6 +2343,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "axis_id",
@@ -2499,6 +2506,7 @@
             "$ref": "#/components/schemas/AxisDisplaySpec"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "axis_id",
@@ -2554,6 +2562,7 @@
             "default": ""
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "kind",
@@ -2588,6 +2597,7 @@
             "title": "Available"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "axis_id",
@@ -2604,6 +2614,7 @@
             "title": "Osm Way Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "osm_way_id"
@@ -2664,6 +2675,7 @@
             "title": "Covered Weight Fraction"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "highway",
@@ -2706,6 +2718,7 @@
             "default": {}
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "material_id",
@@ -2731,6 +2744,7 @@
             "title": "Shape"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "shape"
@@ -2782,6 +2796,7 @@
             "title": "Breakpoints"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "terms",
@@ -2810,6 +2825,7 @@
             "title": "Mapping"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "material",
@@ -2833,6 +2849,7 @@
             "title": "Longitude"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "latitude",
@@ -2847,6 +2864,7 @@
             "title": "Enabled"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "enabled"
@@ -2860,6 +2878,7 @@
             "title": "Debug Mode"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "debug_mode"
@@ -2916,6 +2935,7 @@
             ]
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "commit",
@@ -2945,6 +2965,7 @@
             "$ref": "#/components/schemas/ElevationCompletenessEntry"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "computed_at",
@@ -2964,6 +2985,7 @@
             "title": "Uncalculated Count"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "road_edges_total",
@@ -3065,6 +3087,7 @@
             "title": "Stale Fallback Used"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "calls",
@@ -3095,6 +3118,7 @@
             "title": "Forecasts"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "forecasts"
@@ -3192,6 +3216,7 @@
             "title": "Generated At"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "latitude",
@@ -3244,6 +3269,7 @@
             "title": "Is Stale"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "table_name",
@@ -3294,6 +3320,7 @@
             "title": "Max Latitude"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "min_longitude",
@@ -3348,6 +3375,7 @@
             "default": {}
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "JmaTileIndexElement",
         "description": "要素（risk系・nowc系・rasrf系）ごとの在否。\n\n`basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために\n使う（要素ごとに更新タイミングが異なり、1つの`basetime`では表せない）。"
@@ -3383,6 +3411,7 @@
             "title": "Elements"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "available"
@@ -3425,6 +3454,7 @@
             "title": "Reference Points"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "material_id",
@@ -3446,6 +3476,7 @@
             "title": "Materials"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "materials"
@@ -3550,6 +3581,7 @@
             "title": "Excluded Reason"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "material_id",
@@ -3588,6 +3620,7 @@
             "title": "Materials"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "computed_at",
@@ -3646,6 +3679,7 @@
             "default": 0.0
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "available"
@@ -3664,6 +3698,7 @@
             "title": "Value"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "label",
@@ -3688,6 +3723,7 @@
             "default": true
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "material"
@@ -3706,6 +3742,7 @@
             "title": "Label"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "value",
@@ -3723,6 +3760,7 @@
             "title": "Values"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "values"
@@ -3752,6 +3790,7 @@
             "title": "Healthy"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "last_run_at",
@@ -3778,6 +3817,7 @@
             "title": "Value"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "material",
@@ -3919,6 +3959,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
@@ -3936,6 +3977,7 @@
             "title": "Job Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "job_id"
@@ -3977,6 +4019,7 @@
             "title": "Error"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "status"
@@ -4117,6 +4160,7 @@
             "title": "Start Time"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "latitude",
@@ -4153,6 +4197,7 @@
             "title": "No Candidates Reason"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "routes",
@@ -4185,6 +4230,7 @@
             "default": 20.0
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "origin",
@@ -4208,6 +4254,7 @@
             "title": "Geometry"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "distance_km",
@@ -4312,6 +4359,7 @@
             "title": "Difficulty"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "start_latitude",
@@ -4365,6 +4413,7 @@
             "title": "Is Stale"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "label",
@@ -4451,6 +4500,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "property"
@@ -4533,6 +4583,7 @@
             "title": "Zero Share"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "sample_ways",
@@ -4597,6 +4648,7 @@
             "title": "Observed At"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "level",
@@ -4742,6 +4794,7 @@
             "title": "Today Periods"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "temperature_c",
@@ -4802,6 +4855,7 @@
             "title": "Precipitation Mm"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "period",
@@ -4844,6 +4898,7 @@
             "title": "Warnings"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "area_name",
@@ -4884,6 +4939,7 @@
             "title": "Precipitation Mm"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "latitude",
@@ -4912,6 +4968,7 @@
             "title": "Points"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "times",

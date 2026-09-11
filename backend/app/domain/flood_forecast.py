@@ -14,9 +14,9 @@ JMA警報（jma_warning.py）と異なり、このAPIはstatus文字列（"発�
 
 from __future__ import annotations
 
-from pydantic import BaseModel
 
 from app.domain.warning_levels import WarningBadgeLevel
+from app.domain.strict_model import StrictModel
 # item.code → レベル（2〜5）。
 FLOOD_CODE_LEVELS: dict[str, int] = {
     "20": 2,
@@ -50,7 +50,7 @@ LEVEL_BADGE_LEVELS: dict[int, WarningBadgeLevel] = {
 }
 
 
-class ActiveFloodForecast(BaseModel):
+class ActiveFloodForecast(StrictModel):
     river_code: str
     river_name: str
     level: int

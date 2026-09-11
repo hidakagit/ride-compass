@@ -34,15 +34,16 @@
 from typing import Annotated, Literal, Mapping, Sequence, Union
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
 )
+from app.domain.strict_model import StrictModel
 
 
-class MaterialTerm(BaseModel):
+class MaterialTerm(StrictModel):
     """区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。
 
     `required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。
@@ -59,7 +60,7 @@ class MaterialTerm(BaseModel):
     required: bool = True
 
 
-class BreakpointLinearShape(BaseModel):
+class BreakpointLinearShape(StrictModel):
     """区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。
 
     合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・
@@ -79,7 +80,7 @@ class BreakpointLinearShape(BaseModel):
     breakpoints: list[tuple[float, float]] = Field(min_length=1)
 
 
-class CategoricalShape(BaseModel):
+class CategoricalShape(StrictModel):
     """カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
 
     `mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype="categorical"材料、
@@ -105,7 +106,7 @@ AxisShape = BreakpointLinearShape | CategoricalShape
 AxisCategory = Literal["観測", "推定", "動的"]
 
 
-class PriorityCondition(BaseModel):
+class PriorityCondition(StrictModel):
     """0次条件: 探索除外のハードフィルタ（`domain/evaluation.py:
     DEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、
     **評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算
@@ -151,7 +152,7 @@ def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[Prior
     return list(seen)
 
 
-class AxisDefinition(BaseModel):
+class AxisDefinition(StrictModel):
     """1つの評価軸の宣言（ADRの`AxisDefinition`スキーマ）。
 
     `default_weight`はAPIリクエストで上書きされなかった場合の既定の合成重み

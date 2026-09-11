@@ -11,9 +11,9 @@ r8警報API（jma_warning_client.py）が返す電文配列の全件を走査す
 
 from __future__ import annotations
 
-from pydantic import BaseModel
 
 from app.domain.warning_levels import WarningBadgeLevel
+from app.domain.strict_model import StrictModel
 # 気象庁公式コード対応表（別表3）の全コード→名称。「レベルN」プレフィックスは
 # warning_level()がlevelフィールドとして別途表現するため、名称からは省いている
 # （同じ情報を2箇所で別々に持たない）。42/45/46/47は※1（将来予約領域）で
@@ -95,7 +95,7 @@ def warning_level(code: str) -> WarningBadgeLevel:
     return "advisory"
 
 
-class ActiveWarning(BaseModel):
+class ActiveWarning(StrictModel):
     code: str
     name: str
     level: WarningBadgeLevel

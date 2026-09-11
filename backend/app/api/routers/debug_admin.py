@@ -9,11 +9,11 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.config import settings
 from app.infrastructure.debug_control import get_recent_logs, set_debug_mode
+from app.domain.strict_model import StrictModel
 
 router = APIRouter(prefix="/api/admin/debug", tags=["debug-admin"], dependencies=[Depends(require_admin_basic_auth)])
 
@@ -29,11 +29,11 @@ _LOG_LEVEL_NUMBERS: dict[str, int] = {
 }
 
 
-class DebugModeRequest(BaseModel):
+class DebugModeRequest(StrictModel):
     enabled: bool
 
 
-class DebugModeResponse(BaseModel):
+class DebugModeResponse(StrictModel):
     debug_mode: bool
 
 

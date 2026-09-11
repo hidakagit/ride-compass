@@ -29,7 +29,6 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 import numpy as np
-from pydantic import BaseModel
 
 from app.domain.attributes import (
     EdgeKeyedMetrics,
@@ -70,9 +69,10 @@ from app.domain.material_catalog import (
 from app.domain.route_preference import RoutePreference
 from app.domain.recipe import tag_value_is
 from app.domain.weather import WeatherConditions
+from app.domain.strict_model import StrictModel
 
 
-class EdgeCostResult(BaseModel):
+class EdgeCostResult(StrictModel):
     """Edge Costの算出結果。
 
     difficultyは0-100（大きいほど走りにくい、domain/difficulty.pyと同じ絶対基準）。

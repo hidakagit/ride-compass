@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
 
 import logging
 
@@ -14,6 +13,7 @@ from app.infrastructure.jma_tile_client import (
     is_target_times_path,
 )
 from app.infrastructure.jma_tile_index import get_index
+from app.domain.strict_model import StrictModel
 from app.infrastructure.jma_tile_interpolation import (
     crop_and_upscale,
     crop_and_upscale_mvt,
@@ -71,7 +71,7 @@ async def _interpolated_tile(jma_tile_client: JmaTileClient, path: str) -> tuple
         return None
 
 
-class JmaTileIndexCoverage(BaseModel):
+class JmaTileIndexCoverage(StrictModel):
     """インデックスが網羅している地理範囲（プリウォームの対象bbox）。"""
 
     min_longitude: float
@@ -80,7 +80,7 @@ class JmaTileIndexCoverage(BaseModel):
     max_latitude: float
 
 
-class JmaTileIndexElement(BaseModel):
+class JmaTileIndexElement(StrictModel):
     """要素（risk系・nowc系・rasrf系）ごとの在否。
 
     `basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために
@@ -95,7 +95,7 @@ class JmaTileIndexElement(BaseModel):
     zooms: dict[str, list[list[int]]] = {}
 
 
-class JmaTileIndexResponse(BaseModel):
+class JmaTileIndexResponse(StrictModel):
     """`GET /api/jma-tile-index`の応答。
 
     `available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は

@@ -14,17 +14,17 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_derived_data_freshness_service
 from app.services.derived_data_freshness_service import DerivedDataFreshnessService
+from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 
 
-class SourceFreshnessEntry(BaseModel):
+class SourceFreshnessEntry(StrictModel):
     label: str
     run_table: str
     latest_available_run_id: int | None
@@ -33,7 +33,7 @@ class SourceFreshnessEntry(BaseModel):
     is_stale: bool
 
 
-class AlgorithmVersionFreshnessEntry(BaseModel):
+class AlgorithmVersionFreshnessEntry(StrictModel):
     owner: str
     current_version: str
     oldest_version: str | None
@@ -41,7 +41,7 @@ class AlgorithmVersionFreshnessEntry(BaseModel):
     is_stale: bool
 
 
-class GenerationFreshnessEntry(BaseModel):
+class GenerationFreshnessEntry(StrictModel):
     table_name: str
     row_count: int
     sources: list[SourceFreshnessEntry]
@@ -49,12 +49,12 @@ class GenerationFreshnessEntry(BaseModel):
     is_stale: bool
 
 
-class ElevationCompletenessEntry(BaseModel):
+class ElevationCompletenessEntry(StrictModel):
     road_edges_total: int
     uncalculated_count: int
 
 
-class DerivedDataFreshnessResponse(BaseModel):
+class DerivedDataFreshnessResponse(StrictModel):
     computed_at: str
     generations: list[GenerationFreshnessEntry]
     elevation: ElevationCompletenessEntry

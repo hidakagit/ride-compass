@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import httpx
-from pydantic import BaseModel
 
 from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.time_zone import JST
@@ -13,13 +12,14 @@ from app.domain.route import Coordinates
 from app.domain.wbgt import is_within_provision_period, wbgt_level
 from app.domain.wbgt_points import nearest_point
 from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
+from app.domain.strict_model import StrictModel
 
 # 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
 # 検索する（1〜2時間の遅延は起こりうる前提で余裕を持たせる）。
 _FORECAST_SEARCH_WINDOW_HOURS = 6
 
 
-class WbgtStatus(BaseModel):
+class WbgtStatus(StrictModel):
     level: WarningBadgeLevel | None
     label: str | None
     value: float | None

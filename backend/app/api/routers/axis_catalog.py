@@ -30,7 +30,6 @@
 """
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 
 from app.api.dependencies import get_region_service
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisDefinition, AxisShape
@@ -44,6 +43,7 @@ from app.domain.axis_display import (
 from app.domain.dynamic_way_values import MapValueKind, map_value_kind, map_value_unit
 from app.domain.registry import AxisDisplaySpec
 from app.services.region_service import RegionService
+from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 
@@ -74,7 +74,7 @@ def _material_breakdown(definition: AxisDefinition) -> list["AxisMaterialBreakdo
     return entries
 
 
-class AxisMaterialBreakdownEntry(BaseModel):
+class AxisMaterialBreakdownEntry(StrictModel):
     """合成軸の内訳1件（材料と、その材料が軸の生値に占める割合）。"""
 
     material_id: str
@@ -93,7 +93,7 @@ class AxisMaterialBreakdownEntry(BaseModel):
     value_labels: dict[str, str] = {}
 
 
-class AxisCatalogEntry(BaseModel):
+class AxisCatalogEntry(StrictModel):
     axis_id: str
     label: str
     description: str
@@ -165,7 +165,7 @@ class AxisCatalogEntry(BaseModel):
     dynamic_way_value_needs_speed: bool
 
 
-class AxisCatalogResponse(BaseModel):
+class AxisCatalogResponse(StrictModel):
     axes: list[AxisCatalogEntry]
     # 実行時にしか決まらないスケール定数（`GET /api/axis-catalog`が
     # リクエスト毎に1回だけDBから解決する「たまにしか変わらないグローバル定数」）。

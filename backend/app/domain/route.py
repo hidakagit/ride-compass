@@ -3,23 +3,24 @@ from collections import defaultdict
 
 from typing import Callable
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from app.domain.difficulty import distance_weighted_difficulty, weighted_mean_by_distance
+from app.domain.strict_model import StrictModel
 
 
-class Coordinates(BaseModel):
+class Coordinates(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
 
 
-class RouteSegment(BaseModel):
+class RouteSegment(StrictModel):
     distance_km: float
     duration_minutes: float
     geometry: dict
 
 
-class RouteSegmentDetail(BaseModel):
+class RouteSegmentDetail(StrictModel):
     """周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
 
     符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:
@@ -70,7 +71,7 @@ class RouteSegmentDetail(BaseModel):
     difficulty: float | None = None
 
 
-class RouteCandidate(BaseModel):
+class RouteCandidate(StrictModel):
     """`overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均
     （domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の
     比較にも使える絶対基準（研究インターフェース改善 §10-7）。候補タブの並び順は

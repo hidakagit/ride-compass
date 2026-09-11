@@ -2,7 +2,7 @@
 
 import math
 
-from pydantic import BaseModel
+from app.domain.strict_model import StrictModel
 
 # JMAアメダスのwindDirectionは0=静穏、1〜16が16方位（1=北北東からcode*22.5度で時計回りに
 # 進み、16=北[360度=0度]で一周する）という特有の割当のため、domain/geo.pyの8方位
@@ -52,7 +52,7 @@ def apparent_temperature_from_amedas(
     return temperature_c + 0.33 * vapor_pressure - 0.70 * wind_speed_ms - 4.00
 
 
-class AmedasObservation(BaseModel):
+class AmedasObservation(StrictModel):
     """最寄りアメダス観測所の直近観測値。
 
     突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない

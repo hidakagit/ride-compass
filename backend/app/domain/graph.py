@@ -3,12 +3,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel
 
 from app.domain.geo import LatLonPoint, bearing_between, curvature_deg_per_km, haversine_distance_km
+from app.domain.strict_model import StrictModel
 
 
-class Node(BaseModel):
+class Node(StrictModel):
     """道路ネットワーク上の接続点（交差点・分岐点・行き止まり等）。
 
     シェイプポイント（Way形状を構成するだけで接続点ではない中間点）はNode化せず、
@@ -21,7 +21,7 @@ class Node(BaseModel):
     osm_node_id: int | None = None
 
 
-class DirectedEdge(BaseModel):
+class DirectedEdge(StrictModel):
     """経路探索の基本単位となる、方向を持つ道路区間（仕様書8-10章）。
 
     A→BとB→Aは別のEdgeとして扱う。road_edgesの責務は道路ネットワークそのものの表現に
@@ -49,7 +49,7 @@ class DirectedEdge(BaseModel):
     curvature_deg_per_km: float | None = None
 
 
-class RoadGraph(BaseModel):
+class RoadGraph(StrictModel):
     """Node/DirectedEdgeからなる道路ネットワーク（仕様書6章）。
 
     graph_versionは過剰なバージョン管理機構を導入せず、生成時刻ベースの単純な識別子に

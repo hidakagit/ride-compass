@@ -226,6 +226,34 @@ def find_redis_skeleton_violations(source_lines: dict[str, list[tuple[int, str]]
     return out
 
 
+# Pydanticの`extra`の既定は`ignore`で、モデルが知らないフィールドは例外にならず捨てられる。
+# フィールドを消した・改名したときの取り残しが「値は入らないがテストは通る」という無言の形で
+# 残るため、backend/app配下のモデルは`StrictModel`（extra="forbid"）を継承する
+# （docs/tasks/T721.md、app/domain/strict_model.py）。
+BARE_BASEMODEL_RE = re.compile(r"^class\s+(\w+)\s*\(\s*BaseModel\s*\)\s*:")
+# 素のBaseModelを使ってよいファイル。増やすときは理由をそのモジュールのdocstringへ書くこと。
+BARE_BASEMODEL_ALLOWLIST = {
+    "backend/app/domain/strict_model.py",  # StrictModel自身の定義
+}
+
+
+def find_bare_basemodel_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
+    """backend/app配下で`StrictModel`ではなく素の`BaseModel`を継承しているモデル。"""
+    out = []
+    for path, lines in source_lines.items():
+        if not path.startswith("backend/app/") or path in BARE_BASEMODEL_ALLOWLIST:
+            continue
+        for lineno, line in lines:
+            m = BARE_BASEMODEL_RE.match(line)
+            if m:
+                out.append(
+                    f"{path}:{lineno}: `{m.group(1)}`が素のBaseModelを継承している"
+                    "（StrictModelを継承する。外部ペイロードを直接受ける場合のみ"
+                    "extra=\"ignore\"を明示して理由を書く）"
+                )
+    return out
+
+
 FILE_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_./@\-]+\.(?:py|ts|tsx|css|json|yml|yaml|sql|sh|md|js|mjs|toml|txt))`"
 )
@@ -587,6 +615,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_source_narrative_violations(source_lines), True))
         sections.append(("Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
                          find_redis_skeleton_violations(source_lines), True))
+        sections.append(("素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
+                         find_bare_basemodel_violations(source_lines), True))
         sections.append(("新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
                          find_undocumented_files(added, modules_text, files + added), True))
         if any(s == "docs/improvement-plan.md" or s.startswith("docs/tasks/") for s in staged):
@@ -624,6 +654,12 @@ def cmd_docs(args: argparse.Namespace) -> int:
             sections.append(("ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
                              find_source_narrative_violations(all_source_lines), False))
         sections.append((title, find_undocumented_files(added, modules_text, files), True))
+        sections.append(("素のBaseModel継承（全件、docs/tasks/T721.md参照）",
+                         find_bare_basemodel_violations({
+                             rel(p): list(enumerate(read_text(p).splitlines(), 1))
+                             for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
+                             if p.exists()
+                         }), True))
         v = check_plan_vs_tasks()
         sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]

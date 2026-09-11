@@ -4,16 +4,17 @@
 APIが受け取る形を変えるときで、Edge Costの計算方法を変えるときではない。
 """
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     default_axis_weights,
     time_scoped_weights,
 )
+from app.domain.strict_model import StrictModel
 
 
-class RoutePreference(BaseModel):
+class RoutePreference(StrictModel):
     """Evaluation Engineが使う重み（仕様書27章）。
 
     `weights`はaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`のキー）をキーとする

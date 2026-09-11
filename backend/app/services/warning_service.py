@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import httpx
-from pydantic import BaseModel
 
 from app.domain.jma_area import ResolvedArea, resolve_area
 from app.domain.jma_warning import ActiveWarning, extract_active_warnings
@@ -13,9 +12,10 @@ from app.infrastructure.jma_warning_client import (
     fetch_municipality_code,
     fetch_warning_documents,
 )
+from app.domain.strict_model import StrictModel
 
 
-class WeatherWarnings(BaseModel):
+class WeatherWarnings(StrictModel):
     area_name: str | None
     report_datetime: str | None
     warnings: list[ActiveWarning]

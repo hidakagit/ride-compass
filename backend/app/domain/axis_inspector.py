@@ -5,7 +5,6 @@ Edge単位の評価（`domain/evaluation.py`）とは入力の粒度が違う（
 だけで、材料の解決は同じ`MATERIAL_CATALOG`のextractor宣言（`resolve_materials`）を通る。
 """
 
-from pydantic import BaseModel
 
 from app.domain.attributes import (
     METRIC_GROUP_COUNTS,
@@ -24,16 +23,17 @@ from app.domain.difficulty import composite_difficulty
 from app.domain.landcover import WayLandcover
 from app.domain.material_catalog import MaterialExtractionContext, resolve_materials
 from app.domain.route_preference import RoutePreference
+from app.domain.strict_model import StrictModel
 
 
-class AxisInspectorAxis(BaseModel):
+class AxisInspectorAxis(StrictModel):
     axis_id: str
     difficulty: float | None
     weight: float
     available: bool
 
 
-class AxisInspectorResult(BaseModel):
+class AxisInspectorResult(StrictModel):
     highway: str | None
     tags: dict[str, str]
     is_designated: bool

@@ -2,7 +2,6 @@ import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
 
 from app.api.dependencies import enforce_rate_limit, get_dedicated_way_value_service, get_region_service
 from app.api.routers._tile_http import tile_response, validate_tile_coords
@@ -11,6 +10,7 @@ from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_dedicated_way_values
 from app.domain.axis_inspector import AxisInspectorResult
 from app.services.region_service import RegionService
+from app.domain.strict_model import StrictModel
 
 router = APIRouter()
 
@@ -133,7 +133,7 @@ async def region_dedicated_way_values(
     return transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, values)
 
 
-class AxisInspectorRequest(BaseModel):
+class AxisInspectorRequest(StrictModel):
     osm_way_id: int
 
 

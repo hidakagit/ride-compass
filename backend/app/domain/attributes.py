@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 from typing import Iterator, Mapping
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
 
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import RoadGraph, RoadGraphLike
 from app.domain.route import Coordinates
+from app.domain.strict_model import StrictModel
 
 
 # 材料へ数値を届けるための基本型。`edge_id → {キー: 値}`という1つの形へ揃え、
@@ -39,7 +39,7 @@ METRIC_KEY_BUILT_PERCENT = "built_percent"
 METRIC_KEY_CURVATURE = "curvature"
 
 
-class ElevationAttribute(BaseModel):
+class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性（仕様書15章）。Edge本体（domain/graph.py）とは独立して保持する。
 
     average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。
@@ -61,7 +61,7 @@ class ElevationAttribute(BaseModel):
     calculated_at: str
 
 
-class EdgeAttributeCounts(BaseModel):
+class EdgeAttributeCounts(StrictModel):
     """Edge単位の事前集計カウント（`edge_attribute_counts`）。事故密度・停止密度・
     交差点密度の評価材料（domain/difficulty.py参照）で、事前計算済みの値をそのまま
     読むことで探索フェーズのDBアクセス（PostGIS空間結合）を避ける。
@@ -70,10 +70,6 @@ class EdgeAttributeCounts(BaseModel):
     ACCIDENT_FATAL_WEIGHT参照）。bicycle_only=trueで集計済みの値のみ保持する
     （road_graph_models.py: EdgeAttributeCountsRowのdocstring参照）。
     """
-
-    # 未知のフィールドを黙って捨てない。列を1つ減らしたとき、古い名前で値を渡し続ける
-    # 呼び出し元が「渡したつもりで既定値のまま」動き続け、テストも素通りするため。
-    model_config = ConfigDict(extra="forbid")
 
     accident_count: float
     intersection_count: int
@@ -84,7 +80,7 @@ class EdgeAttributeCounts(BaseModel):
     poi_counts: dict[str, int] | None = None
 
 
-class WayAttributeCounts(BaseModel):
+class WayAttributeCounts(StrictModel):
     """区間インスペクタ用のway単位集計（`way_attribute_counts`テーブル）。
 
     `EdgeAttributeCounts`と同じカウントに、per_km換算へ使う`length_m`を加えたもの。

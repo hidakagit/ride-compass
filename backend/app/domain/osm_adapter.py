@@ -7,10 +7,10 @@ OSM（Overpass由来のWay/Nodeデータ）の語彙（`tags`辞書、`oneway`�
 切り替えたりしても、影響範囲はこのファイル（と対応するAdapter）に限定される。
 """
 
-from pydantic import BaseModel
 
 from app.domain.graph import WaySpec
 from app.domain.traffic import classify_stop_poi, classify_supply_poi
+from app.domain.strict_model import StrictModel
 
 # OSMのoneway値のうち「逆方向への通行不可」を意味するもの。
 ONEWAY_FORWARD_ONLY = {"yes", "true", "1"}
@@ -138,7 +138,7 @@ ALLOWED_NODE_TAGS = frozenset(
 )
 
 
-class POISpec(BaseModel):
+class POISpec(StrictModel):
     """信号・横断歩道・一時停止・踏切・補給休憩ポイント(T101)等、道路脇のnodeの取込単位
     （静的道路属性P1）。
 

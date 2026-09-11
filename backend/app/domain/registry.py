@@ -19,10 +19,11 @@ docstring参照）。
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
+from app.domain.strict_model import StrictModel
 
 
-class PrimaryAttributeSpec(BaseModel):
+class PrimaryAttributeSpec(StrictModel):
     """一次属性の宣言。
 
     `label`は一次属性のユーザー向け正式名称。地図チップ・サイドバー・研究タブが表示する
@@ -38,7 +39,7 @@ class PrimaryAttributeSpec(BaseModel):
     shared: bool = False
 
 
-class TileInputSpec(BaseModel):
+class TileInputSpec(StrictModel):
     """地図表示（ramp）が読むMVTタイルプロパティ。
 
     数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre
@@ -116,7 +117,7 @@ class TileInputSpec(BaseModel):
         return dict(sorted(value.items()))
 
 
-class AxisDisplaySpec(BaseModel):
+class AxisDisplaySpec(StrictModel):
     """二次軸の地図レイヤー表示宣言（「事実はタイルに、解釈はクライアントに」）。
 
     - kind="ramp": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を
@@ -135,7 +136,7 @@ class AxisDisplaySpec(BaseModel):
     note: str = ""
 
 
-class AxisSpec(BaseModel):
+class AxisSpec(StrictModel):
     """二次軸の宣言。`inputs`は参照する一次属性の`attr_id`リスト（`register_axis`が
     登録済みの一次属性であることを検証する）。`display`は地図レイヤー表示の宣言
     （未指定は「表示宣言なし」でkind="none"相当）。"""

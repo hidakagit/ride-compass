@@ -15,6 +15,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | ルート | `version.py` | プロセス起動時刻（デプロイ確認用） |
 | domain | `time_zone.py` | 日本標準時（`JST`）の正準定義。時刻を扱う全モジュールがここを参照する |
 | domain | `warning_levels.py` | 警戒度バッジ4段階（`WarningBadgeLevel`）の正準定義。JMA警報・WBGT・河川氾濫予報が判定根拠は別々のまま同じ語彙を返す |
+| domain | `strict_model.py` | 全Pydanticモデルの基底（`StrictModel`）。未知のフィールドを黙って捨てず例外にする |
 | api | `admin_auth.py` | 管理API共通の認可境界 |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
 | api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場・`enforce_rate_limit`集約 |
@@ -31,6 +32,26 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計 |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
+
+## Pydanticモデルの基底（`domain/strict_model.py`）
+
+`extra`の既定は`ignore`で、モデルが知らないフィールドは例外にならず捨てられる。
+フィールドを消した・改名したときの取り残しが「値は入らないがテストは通る」という
+無言の形で残り、APIリクエストではtypoしたフィールドが黙って無視されて
+「指定したのに効かない」として利用者に出る。
+
+このリポジトリのモデルは**すべて自前のコードが明示キーワードで組み立てる**——外部API
+（JMA・OSM）のJSONは一度dictで受けて必要な値だけを取り出しており、提供側のペイロードが
+そのままモデルへ流れ込む経路は無い。そのため`extra="forbid"`で一律に締められる。
+
+- `backend/app/`配下のモデルは`StrictModel`を継承する。素の`BaseModel`継承は
+  `scripts/review_checks.py`の`find_bare_basemodel_violations`が検出する。
+- 派生側が`frozen=True`等を指定しても`extra`は引き継がれる（Pydantic v2が親子の
+  `model_config`をマージする）。
+- 環境変数を読む`config.py: Settings`だけは対象外。プロセスの環境変数には無関係なものが
+  常に含まれるため`extra="ignore"`でなければ起動しない。
+- 新たに外部ペイロードを直接`model_validate`する経路を作る場合は、そのモデルで
+  `extra="ignore"`を明示的に上書きし理由をその場に書く。
 
 ## アプリ起動（`main.py`）
 

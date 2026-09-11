@@ -54,7 +54,6 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import cast
 
-from pydantic import BaseModel
 
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -64,9 +63,10 @@ from app.domain.axis_definitions import (
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
 from app.domain.registry import AxisDisplaySpec, TileInputSpec
+from app.domain.strict_model import StrictModel
 
 
-class RampInputs(BaseModel):
+class RampInputs(StrictModel):
     tile_inputs: list[TileInputSpec]
     thresholds: list[float]
 

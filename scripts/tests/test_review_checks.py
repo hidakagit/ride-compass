@@ -306,3 +306,40 @@ def test_source_corpus_excludes_test_bodies_but_keeps_helpers(tmp_path, monkeypa
 
     assert "OLD_NAME" not in corpus
     assert "destination_point" in corpus
+
+
+# --- 素のBaseModel継承（T721） ---
+
+
+def test_bare_basemodel_is_reported_only_under_backend_app():
+    """backend/app配下だけを対象にする。
+
+    テスト・スクリプト側のモデルまで縛ると、検知器の回帰テスト自体が違反になる
+    （このファイルがまさにそう）。
+    """
+    lines = [(1, "class Foo(BaseModel):")]
+
+    assert review_checks.find_bare_basemodel_violations({"backend/app/domain/foo.py": lines})
+    assert review_checks.find_bare_basemodel_violations({"backend/tests/test_foo.py": lines}) == []
+    assert review_checks.find_bare_basemodel_violations({"frontend/src/foo.py": lines}) == []
+
+
+def test_bare_basemodel_accepts_strict_model_and_other_bases():
+    rows = {
+        "backend/app/domain/foo.py": [
+            (1, "class A(StrictModel):"),
+            (2, "class B(StrictModel, Generic[T]):"),
+            (3, "class C(BaseSettings):"),
+            # 多重継承でBaseModelを含む形は、意図がある（Genericの併用等）とみなして拾わない。
+            # 検知の狙いは「既定のまま素で書いた」ケース。
+            (4, "class D(BaseModel, Generic[T]):"),
+        ]
+    }
+
+    assert review_checks.find_bare_basemodel_violations(rows) == []
+
+
+def test_bare_basemodel_allowlist_covers_the_definition_of_strict_model_itself():
+    rows = {"backend/app/domain/strict_model.py": [(1, "class StrictModel(BaseModel):")]}
+
+    assert review_checks.find_bare_basemodel_violations(rows) == []

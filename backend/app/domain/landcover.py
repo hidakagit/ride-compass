@@ -11,7 +11,7 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 from datetime import datetime
 from typing import Mapping
 
-from pydantic import BaseModel
+from app.domain.strict_model import StrictModel
 
 LULC_WATER = 1
 LULC_TREES = 2
@@ -31,7 +31,7 @@ LULC_INVALID_VALUES = frozenset({0, LULC_CLOUDS})
 MIN_VALID_PIXELS = 20
 
 
-class LandcoverPercentages(BaseModel):
+class LandcoverPercentages(StrictModel):
     """`way_landcover`の割合8列＋`valid_pixels`と1対1のモデル。"""
 
     valid_pixels: int
@@ -72,7 +72,7 @@ def class_percentages(counts: Mapping[int, int]) -> LandcoverPercentages | None:
     )
 
 
-class WayLandcover(BaseModel):
+class WayLandcover(StrictModel):
     """`way_landcover`テーブル1行分（`LandcoverPercentages`にosm_way_id・系譜情報を
     足した完全な行表現）。バッチ（`precompute_way_landcover.py`）の書き込みと、区間
     インスペクタ（`domain/axis_inspector.py`）のWay1本ぶんの入力に使う。評価経路の

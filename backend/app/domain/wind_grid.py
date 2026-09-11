@@ -15,9 +15,9 @@ services/weather_service.pyのget_wind_grid、APIエンドポイントはapi/rou
 
 import math
 
-from pydantic import BaseModel
 
 from app.domain.route import Coordinates
+from app.domain.strict_model import StrictModel
 
 # 関東本土7都県（離島除く）のbbox。scripts/collect_jartic.pyのDEFAULT_BBOXと同じ範囲値だが、
 # あちらはバッチスクリプト専用の定数でapp本体からは独立しているため、誤って結合させないよう
@@ -137,7 +137,7 @@ def generate_wind_grid_detail_points(
     return points
 
 
-class WindGridPoint(BaseModel):
+class WindGridPoint(StrictModel):
     """格子点1つぶんの時間別風向・風速・降水量。各配列は応答トップレベルの時刻列
     （JST・1時間刻み）とインデックスが揃っている。特定時刻1点へ収束させず
     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
@@ -158,7 +158,7 @@ class WindGridPoint(BaseModel):
     precipitation_mm: list[float]
 
 
-class WindGridResponse(BaseModel):
+class WindGridResponse(StrictModel):
     """`/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の
     時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは
     `times`と揃っている）。`WindGridPoint`ごとに`times`を複製すると、624地点では

@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import httpx
-from pydantic import BaseModel
 
 from app.domain.flood_forecast import ActiveFloodForecast, extract_active_flood_forecast
 from app.domain.jma_area import resolve_area
 from app.domain.route import Coordinates
 from app.infrastructure.flood_client import fetch_flood_documents
 from app.infrastructure.jma_warning_client import fetch_area_data, fetch_municipality_code
+from app.domain.strict_model import StrictModel
 
 
-class FloodForecasts(BaseModel):
+class FloodForecasts(StrictModel):
     forecasts: list[ActiveFloodForecast]
 
 

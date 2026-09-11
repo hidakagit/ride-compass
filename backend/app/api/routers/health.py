@@ -1,7 +1,6 @@
 import logging
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -12,6 +11,7 @@ from app.infrastructure.debug_log import get_stats
 from app.infrastructure.migrate import list_pending_migrations
 from app.services.road_graph_engine import RoadGraphEngine
 from app.version import STARTED_AT
+from app.domain.strict_model import StrictModel
 
 logger = logging.getLogger("ridecompass.health")
 
@@ -20,7 +20,7 @@ router = APIRouter()
 
 # `infrastructure/debug_log.py: get_stats()`が組み立てるdictの実際の構造に対応する
 # Pydanticモデル（OpenAPI経由でfrontendの型を生成する）。
-class ExternalCallStatsResponse(BaseModel):
+class ExternalCallStatsResponse(StrictModel):
     calls: int
     errors: int
     cache_hits: int
@@ -40,7 +40,7 @@ class ExternalCallStatsResponse(BaseModel):
     stale_fallback_used: int
 
 
-class MsmFreshnessResponse(BaseModel):
+class MsmFreshnessResponse(StrictModel):
     """予報（MSM）の同期がどれだけ新しいか。配信元が止まると古い予報を配り続けるため、
     ログ（WARNING）だけでなく外からも確認できるようにする。未同期のときはnull。"""
 
@@ -51,7 +51,7 @@ class MsmFreshnessResponse(BaseModel):
     healthy: bool
 
 
-class DebugStatsResponse(BaseModel):
+class DebugStatsResponse(StrictModel):
     commit: str | None
     started_at: str
     engine: str

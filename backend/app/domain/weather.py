@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from app.domain.strict_model import StrictModel
 
 # 天気コードの導出しきい値。MSMは天気そのものを配信しないため、降水量・雲量・気温から
 # WMO天気コード相当へ落とす（値の意味・アイコンへの変換はfrontend側weatherCode.tsに集約
@@ -39,7 +39,7 @@ def derive_weather_code(
     return 3
 
 
-class WeatherPeriodOutlook(BaseModel):
+class WeatherPeriodOutlook(StrictModel):
     """「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。periodは代表時刻の
     "HH:MM"文字列（weather_service.py: _period_outlooks参照。現在時刻を2時間単位の
     グリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。朝/午後/夜
@@ -55,7 +55,7 @@ class WeatherPeriodOutlook(BaseModel):
     precipitation_mm: float | None
 
 
-class WeatherConditions(BaseModel):
+class WeatherConditions(StrictModel):
     temperature_c: float | None
     wind_speed_ms: float
     wind_direction_deg: float
