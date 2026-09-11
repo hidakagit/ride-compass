@@ -1,5 +1,10 @@
 # RideCompass ゼロベース網羅レビュー 指摘一覧
 
+> このファイルは、レビュー基盤（`.claude/commands/review/`）ができる前の置き場に残る
+> **当時のレビュー結果**。現在のレビュー結果は`.claude/commands/review/history/`に入る。
+> ここでの指摘を踏まえて確定した原則は[docs/design-principles.md](design-principles.md)が
+> 唯一の正本で、このファイル末尾の原則一覧は当時のもの（[T724](tasks/T724.md)）。
+
 - 実施日: 2026-08-30
 - 対象: master(コミット470bf32)相当の全ソース(review-zero-baseブランチ、review-temp worktree)
 - 方式: 9領域に分割し、各領域を専用エージェントが8観点(正しさ×3・再利用性・簡素化・効率性・抽象度・CLAUDE.md規約)で網羅レビュー

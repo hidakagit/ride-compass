@@ -1,5 +1,10 @@
 # 全体設計レビュー（2026-08-15）
 
+> このファイルは、レビュー基盤（`.claude/commands/review/`）ができる前の置き場に残る
+> **当時のレビュー結果**。現在のレビュー結果は`.claude/commands/review/history/`に入る。
+> ここでの指摘を踏まえて確定した原則は[docs/design-principles.md](design-principles.md)が
+> 唯一の正本で、このファイル末尾の原則一覧は当時のもの（[T724](tasks/T724.md)）。
+
 大規模変更（OSM PBF取込・PostGIS化・路面フィルタ再構成ほか、init以降の全35コミット）後に実施した、
 コードベース全体の設計レビューの記録。改善の実行計画は [improvement-plan.md](improvement-plan.md) を参照。
 

@@ -18,6 +18,10 @@
 [.claude/commands/review/principles.md](../.claude/commands/review/principles.md)
 「判断原則」節に集約する（2026-08-31、仕様と進め方の分離をユーザーが指示）。
 
+非技術者向けに同じ構造を専門用語なしで説明したものが
+[how-route-scoring-works-plainly.md](how-route-scoring-works-plainly.md)にある
+（観測データ→材料→評価軸→合成の4段階と、なぜその分け方が拡張性に効くか）。
+
 ---
 
 ## 構造仕様（最重要、RideCompass固有のアーキテクチャ契約）

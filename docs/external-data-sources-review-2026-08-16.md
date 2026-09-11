@@ -1,5 +1,10 @@
 # 外部静的データソースの設計検討（調査報告・2026-08-16）
 
+> このファイルは、レビュー基盤（`.claude/commands/review/`）ができる前の置き場に残る
+> **当時のレビュー結果**。現在のレビュー結果は`.claude/commands/review/history/`に入る。
+> ここでの指摘を踏まえて確定した原則は[docs/design-principles.md](design-principles.md)が
+> 唯一の正本で、このファイル末尾の原則一覧は当時のもの（[T724](tasks/T724.md)）。
+
 [roadbike_ridability_data_sources.md](../roadbike_ridability_data_sources.md)（外部API・オープンデータの収集結果）を、
 現行アーキテクチャ（[architecture.md](architecture.md)・[static-road-attributes-plan.md](static-road-attributes-plan.md)）に
 突き合わせ、「組み込めるか」「目的（ロードバイクの走りやすさ評価）に合致するか」を判定した。

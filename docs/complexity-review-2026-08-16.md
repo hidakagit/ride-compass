@@ -1,5 +1,10 @@
 # 複雑度平衡レビュー（2026-08-16・第4回）
 
+> このファイルは、レビュー基盤（`.claude/commands/review/`）ができる前の置き場に残る
+> **当時のレビュー結果**。現在のレビュー結果は`.claude/commands/review/history/`に入る。
+> ここでの指摘を踏まえて確定した原則は[docs/design-principles.md](design-principles.md)が
+> 唯一の正本で、このファイル末尾の原則一覧は当時のもの（[T724](tasks/T724.md)）。
+
 [complexity-review-2026-08-15.md](complexity-review-2026-08-15.md)（第2回・複雑度平衡）・
 [research-interface-review-2026-08-15.md](research-interface-review-2026-08-15.md)（第3回・研究IF）に続く
 全体レビューの記録。実行計画は [improvement-plan.md](improvement-plan.md) の「第4回レビュー対応」節（T43〜T47）を参照。
