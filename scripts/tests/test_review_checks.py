@@ -390,3 +390,45 @@ def test_undeclared_dead_ref_accepts_names_that_exist():
     )
 
     assert out == []
+
+
+# --- 検知器の配線（pre-commit経路とCI経路の一致） ---------------------------
+#
+# `.git/hooks/pre-commit`は各clone・各コンテナで手動インストールする前提のため、
+# 常に走る安全網はCI（docs-consistency.yml、`docs --since`）側にしかない。
+# 片方の経路にしか繋がっていない検知器は「手元では止まるのにCIでは素通り」になる。
+
+
+def test_precommit_and_ci_enforce_the_same_detectors():
+    staged = {k for k, modes in review_checks.DETECTOR_ENFORCEMENT.items() if "staged" in modes}
+    since = {k for k, modes in review_checks.DETECTOR_ENFORCEMENT.items() if "since" in modes}
+
+    assert staged == since, (
+        "pre-commit（--staged）とCI（--since）で強制する検知器が食い違っている: "
+        f"pre-commitのみ={sorted(staged - since)} / CIのみ={sorted(since - staged)}"
+    )
+
+
+def test_unwired_detectors_reports_a_declared_but_missing_detector():
+    declared = {k for k, modes in review_checks.DETECTOR_ENFORCEMENT.items() if "since" in modes}
+
+    assert review_checks.unwired_detectors("since", declared) == []
+    assert review_checks.unwired_detectors("since", declared - {"redis_skeleton"}) == ["redis_skeleton"]
+
+
+def test_unwired_detectors_ignores_detectors_not_enforced_in_that_mode():
+    # task_linksはどの経路でも参考表示のみ。繋がっていなくても違反にしない。
+    assert "task_links" not in review_checks.unwired_detectors("full", set())
+
+
+def test_detector_allowlists_only_name_existing_files():
+    # 許可リストが消えたファイルを指し続けると、検知器はそのぶん静かに緩む。
+    for name in ("REDIS_SKELETON_ALLOWLIST", "BARE_BASEMODEL_ALLOWLIST"):
+        for path in getattr(review_checks, name):
+            assert (review_checks.REPO_ROOT / path).exists(), f"{name}が存在しないファイルを指している: {path}"
+
+
+def test_redis_skeleton_allowlist_covers_the_batched_hash_cache():
+    # 全国約1,300観測所をpipelineでHashへ一括読み書きする（get_json/set_jsonでは表現
+    # できない）。docs/caching.md「自前で骨格を書いてよい例外」に当たる。
+    assert "backend/app/services/jma_amedas_service.py" in review_checks.REDIS_SKELETON_ALLOWLIST

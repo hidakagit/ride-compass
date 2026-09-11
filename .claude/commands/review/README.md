@@ -31,6 +31,14 @@ docs/tasksの状態照合、規模ウォッチ、定量メトリクス、トリ�
 各レンズはその出力を読んで判断だけを行う。`docs --staged`はpre-commit
 （`scripts/pre-commit-docs-consistency.sh`）からも呼ばれる。
 
+`.git/hooks/pre-commit`は各clone・各コンテナで手動インストールする前提のため、常に走る
+安全網はCI（`docs-consistency.yml`、`docs --since`）側にしかない。どの検知器をどの経路で
+exit codeへ含めるかは`review_checks.py`の`DETECTOR_ENFORCEMENT`が唯一の正本で、
+pre-commit経路とCI経路が同じ集合を強制することと、表に宣言した検知器が各分岐へ実際に
+繋がれていることの両方を機械で固定してある（`scripts/tests/test_review_checks.py`と、
+`cmd_docs`が実行時に行う配線の自己申告）。片側にしか無い検知器は「手元では止まるのに
+CIでは素通り」になる。
+
 ## 各レビューの役割
 
 | コマンド | 問い | 主な使いどころ |

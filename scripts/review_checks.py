@@ -210,6 +210,10 @@ REDIS_SKELETON_ALLOWLIST = {
     "backend/app/infrastructure/redis_client.py",  # 骨格が使う接続・サーキットブレーカー本体
     "backend/app/infrastructure/redis_json_cache.py",  # 骨格そのもの
     "backend/app/infrastructure/jma_tile_redis_cache.py",  # 値がバイナリでJSON化に馴染まない
+    # 全国約1,300観測所をpipelineでHashへ一括読み書きする（get_json/set_jsonの単一キー
+    # JSON読み書きでは表現できない）。docs/caching.md「自前で骨格を書いてよい例外」の
+    # 「mget/pipelineによる一括読み書き」に当たり、fail-openと失敗の記録は満たしている。
+    "backend/app/services/jma_amedas_service.py",
 }
 
 
@@ -634,57 +638,105 @@ def gather_added_source_lines(base_ref: str | None) -> dict[str, list[tuple[int,
     return out
 
 
+# 検知器ごとに、どの実行経路で「違反」として数える（exit codeへ入れる）か。
+#
+# `--staged`（pre-commitフック）と`--since`（CIのdocs-consistency.yml）は**同じ集合**を
+# 強制しなければならない。片側にしか無い検知器は「ローカルでは止まるのにCIでは素通り」に
+# なり、フックを手動インストールしていないセッション・コンテナからは無検査で入る。
+# この一致は`scripts/tests/test_review_checks.py`が固定し、実際の配線漏れは下の
+# `cmd_docs`が実行時に自己申告する（表に足しただけで各分岐へ繋いでいない場合に落ちる）。
+#
+# `full`（範囲指定なしの全件スキャン）だけは既存分が残る検知器を参考表示に留める。
+DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
+    "dead_file_refs": frozenset({"staged", "since", "full"}),
+    "dead_identifier_refs": frozenset({"staged", "since", "full"}),
+    "narrative": frozenset({"staged", "since", "full"}),
+    # 既存分の一掃（T567）が終わるまで、全件スキャンでは参考表示に留める。
+    "source_narrative": frozenset({"staged", "since"}),
+    "redis_skeleton": frozenset({"staged", "since", "full"}),
+    "bare_basemodel": frozenset({"staged", "since", "full"}),
+    # 既存分の棚卸し（T724）が終わるまで、全件スキャンでは参考表示に留める。
+    "undeclared_dead_refs": frozenset({"staged", "since"}),
+    "undocumented_files": frozenset({"staged", "since", "full"}),
+    "plan_vs_tasks": frozenset({"staged", "since", "full"}),
+    "dead_doc_links": frozenset({"staged", "since", "full"}),
+    "undefined_css_tokens": frozenset({"staged", "since", "full"}),
+    # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
+    "task_links": frozenset(),
+}
+
+
+def unwired_detectors(mode: str, wired: set[str]) -> list[str]:
+    """`mode`で強制すると宣言されているのに、その経路へ繋がれていない検知器。
+
+    表へ足しただけ・分岐から外しただけでは件数0のまま静かに素通りするため、
+    表と配線のずれ自体を違反として扱う。
+    """
+    return sorted(k for k, modes in DETECTOR_ENFORCEMENT.items() if mode in modes and k not in wired)
+
+
 def cmd_docs(args: argparse.Namespace) -> int:
     files = git_files()
     all_docs = module_docs()
     modules_text = "\n".join(read_text(p) for p in all_docs)
-    sections: list[tuple[str, list[str], bool]] = []  # (見出し, 行, 違反として数えるか)
+    mode = "staged" if args.staged else ("since" if args.since else "full")
+    sections: list[tuple[str, str, list[str]]] = []  # (検知器キー, 見出し, 行)
 
     if args.staged:
         staged = [l for l in git("diff", "--cached", "--name-only").splitlines() if l]
         doc_lines = diff_added_lines("docs/modules/*.md")
         doc_lines = {k: v for k, v in doc_lines.items() if not k.endswith("README.md")}
         added = [l for l in git("diff", "--cached", "--name-only", "--diff-filter=A").splitlines() if l]
-        sections.append(("docs/modules の死んだ参照（ステージ済み追加行）", find_dead_file_refs(doc_lines, files + added), True))
-        sections.append(("docs/modules の死んだ識別子参照（ステージ済み追加行）",
-                         find_dead_identifier_refs(doc_lines, source_corpus(files + added)), True))
-        sections.append(("docs/modules の記載粒度違反（ステージ済み追加行）", find_narrative_violations(doc_lines), True))
+        sections.append(("dead_file_refs", "docs/modules の死んだ参照（ステージ済み追加行）",
+                         find_dead_file_refs(doc_lines, files + added)))
+        sections.append(("dead_identifier_refs", "docs/modules の死んだ識別子参照（ステージ済み追加行）",
+                         find_dead_identifier_refs(doc_lines, source_corpus(files + added))))
+        sections.append(("narrative", "docs/modules の記載粒度違反（ステージ済み追加行）",
+                         find_narrative_violations(doc_lines)))
         source_lines = gather_added_source_lines(None)
-        sections.append(("ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
-                         find_source_narrative_violations(source_lines), True))
-        sections.append(("Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
-                         find_redis_skeleton_violations(source_lines), True))
-        sections.append(("素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
-                         find_bare_basemodel_violations(source_lines), True))
+        sections.append(("source_narrative", "ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
+                         find_source_narrative_violations(source_lines)))
+        sections.append(("redis_skeleton", "Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
+                         find_redis_skeleton_violations(source_lines)))
+        sections.append(("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
+                         find_bare_basemodel_violations(source_lines)))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
-        sections.append(("architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
-                         find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added)), True))
-        sections.append(("新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
-                         find_undocumented_files(added, modules_text, files + added), True))
-        if any(s == "docs/improvement-plan.md" or s.startswith("docs/tasks/") for s in staged):
-            v = check_plan_vs_tasks()
-            sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
+        sections.append(("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
+                         find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added))))
+        sections.append(("undocumented_files", "新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
+                         find_undocumented_files(added, modules_text, files + added)))
+        sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
+                         check_plan_vs_tasks()))
         md_staged = [s for s in staged if s.endswith(".md")]
-        sections.append(("history/・docs/tasks への死んだリンク（ステージ済み.md）", check_dead_doc_links(md_staged), True))
-        sections.append(("未定義のCSSトークン（ステージ済み.css/.ts/.tsx）",
+        sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（ステージ済み.md）",
+                         check_dead_doc_links(md_staged)))
+        sections.append(("undefined_css_tokens", "未定義のCSSトークン（ステージ済み.css/.ts/.tsx）",
                          find_undefined_css_tokens(
-                             [s for s in staged if s.endswith(CSS_TOKEN_SCAN_SUFFIXES)], files + added), True))
+                             [s for s in staged if s.endswith(CSS_TOKEN_SCAN_SUFFIXES)], files + added)))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
-        sections.append(("docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files), True))
-        sections.append(("docs/modules の死んだ識別子参照（全件）",
-                         find_dead_identifier_refs(doc_lines, source_corpus(files)), True))
-        sections.append(("docs/modules の記載粒度違反（全件）", find_narrative_violations(doc_lines), True))
-        sections.append(("docs/modules の Txxx リンク（参考、README「記載粒度」節は1リンクまで許可）",
-                         count_task_links(doc_lines), False))
+        sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
+        sections.append(("dead_identifier_refs", "docs/modules の死んだ識別子参照（全件）",
+                         find_dead_identifier_refs(doc_lines, source_corpus(files))))
+        sections.append(("narrative", "docs/modules の記載粒度違反（全件）", find_narrative_violations(doc_lines)))
+        sections.append(("task_links", "docs/modules の Txxx リンク（参考、README「記載粒度」節は1リンクまで許可）",
+                         count_task_links(doc_lines)))
+        arch_path = REPO_ROOT / ARCHITECTURE_DOC
         if args.since:
             added = [l for l in git("diff", "--diff-filter=A", "--name-only", f"{args.since}..HEAD").splitlines() if l]
             title = f"新規実装ファイルの docs/modules 記載漏れ（{args.since} 以降の新規ファイル）"
-            # ソースコードの経緯コメントはT567（既存分の一掃）完了までフルスキャンだと大量に
-            # 残るため、--sinceで新規追加分だけに絞れる場合のみ違反件数（exit code）に含める
-            # （CI向け。undocumented-filesの--sinceスコープ限定と同じ考え方）。
-            source_title = f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/comments.md参照）"
-            sections.append((source_title, find_source_narrative_violations(gather_added_source_lines(args.since)), True))
+            # 経緯コメント・architecture.mdの断りなき名指しはいずれも既存分が残る
+            # （T567・T724）。--sinceで新規追加分だけに絞れる場合のみ違反件数へ含める。
+            source_lines = gather_added_source_lines(args.since)
+            sections.append((
+                "source_narrative",
+                f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/comments.md参照）",
+                find_source_narrative_violations(source_lines)))
+            sections.append((
+                "undeclared_dead_refs",
+                f"architecture.md が撤去済みの名前を断りなく名指し（{args.since} 以降の追加行）",
+                find_undeclared_dead_refs(
+                    diff_added_lines(ARCHITECTURE_DOC, args.since), files, source_corpus(files))))
         else:
             added = files
             title = "実装ファイルの docs/modules 記載漏れ（全件）"
@@ -693,30 +745,34 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 for p in (REPO_ROOT / f for f in files if is_impl_file(f))
                 if p.exists()
             }
-            sections.append(("ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
-                             find_source_narrative_violations(all_source_lines), False))
-        sections.append((title, find_undocumented_files(added, modules_text, files), True))
-        arch_path = REPO_ROOT / ARCHITECTURE_DOC
-        sections.append((
-            "architecture.md が撤去済みの名前を断りなく名指し（参考、全件。新規分の強制は--staged参照）",
-            find_undeclared_dead_refs(
-                {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))},
-                files, source_corpus(files),
-            ), False))
-        sections.append(("素のBaseModel継承（全件、docs/tasks/T721.md参照）",
+            source_lines = all_source_lines
+            sections.append(("source_narrative", "ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
+                             find_source_narrative_violations(all_source_lines)))
+            sections.append((
+                "undeclared_dead_refs",
+                "architecture.md が撤去済みの名前を断りなく名指し（参考、全件。新規分の強制は--staged/--since参照）",
+                find_undeclared_dead_refs(
+                    {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))},
+                    files, source_corpus(files))))
+        sections.append(("undocumented_files", title, find_undocumented_files(added, modules_text, files)))
+        sections.append(("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
+                         find_redis_skeleton_violations(source_lines)))
+        sections.append(("bare_basemodel", "素のBaseModel継承（全件、docs/tasks/T721.md参照）",
                          find_bare_basemodel_violations({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
                              if p.exists()
-                         }), True))
-        v = check_plan_vs_tasks()
-        sections.append(("improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致", v, True))
+                         })))
+        sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
+                         check_plan_vs_tasks()))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]
-        sections.append(("history/・docs/tasks への死んだリンク（.claude・docs 全件）", check_dead_doc_links(md_files), True))
-        sections.append(("未定義のCSSトークン（全件）", find_undefined_css_tokens(files, files), True))
+        sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（.claude・docs 全件）",
+                         check_dead_doc_links(md_files)))
+        sections.append(("undefined_css_tokens", "未定義のCSSトークン（全件）", find_undefined_css_tokens(files, files)))
 
     total = 0
-    for title, lines, counts in sections:
+    for key, title, lines in sections:
+        counts = mode in DETECTOR_ENFORCEMENT[key]
         mark = f"{len(lines)}件" if lines else "0件"
         print(f"## {title}: {mark}")
         for l in lines:
@@ -724,6 +780,15 @@ def cmd_docs(args: argparse.Namespace) -> int:
         if counts:
             total += len(lines)
     print()
+
+    # 表で「この経路で強制する」と宣言した検知器が、実際にこの分岐へ繋がれているか。
+    # 繋ぎ忘れると件数0のまま静かに素通りするため、表と配線のずれ自体を違反として扱う。
+    unwired = unwired_detectors(mode, {key for key, _, _ in sections})
+    if unwired:
+        print(f"## 配線されていない検知器（{mode}）: {', '.join(unwired)}")
+        print("DETECTOR_ENFORCEMENTが強制すると宣言しているが、この経路のsectionsへ繋がれていない。")
+        return 1
+
     if total:
         print(f"違反 {total}件（docs/modules/README.md「記載粒度」節・consistency.md「設計 ↔ 実装」節を参照して是正）")
         return 1
