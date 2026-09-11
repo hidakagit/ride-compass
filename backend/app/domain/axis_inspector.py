@@ -16,7 +16,6 @@ from app.domain.attributes import (
     METRIC_KEY_BUILT_PERCENT,
     METRIC_KEY_CURVATURE,
     METRIC_KEY_INTERSECTION,
-    METRIC_KEY_STOP,
     METRIC_KEY_TREES_PERCENT,
     WayAttributeCounts,
 )
@@ -79,7 +78,6 @@ def way_scalar_materials(
     if way_counts is not None:
         counts[_WAY_SCOPE_KEY] = {
             METRIC_KEY_ACCIDENT: float(way_counts.accident_count),
-            METRIC_KEY_STOP: float(way_counts.stop_count),
             METRIC_KEY_INTERSECTION: float(way_counts.intersection_count),
         }
         # 未集計（None）なら行自体を作らず、種別別の材料を欠損にする（空辞書は集計済みで

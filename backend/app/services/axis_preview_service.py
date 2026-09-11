@@ -71,7 +71,6 @@ async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dic
             counts = WayAttributeCounts(
                 length_m=row.counts_length_m,
                 accident_count=row.accident_count,
-                stop_count=row.stop_count,
                 intersection_count=row.intersection_count,
                 poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
             )

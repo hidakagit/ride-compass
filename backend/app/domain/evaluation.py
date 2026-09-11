@@ -710,7 +710,7 @@ def compute_edge_costs_bulk(
     よく、この関数自体の変更は不要。スカラー版`compute_edge_cost`は削除せず、本関数との
     出力一致を検証する回帰テストのオラクルとして残す。
 
-    `stop_count`/`intersection_count`/`accident_count`は実データ上ゼロ以上の整数
+    `intersection_count`/`accident_count`は実データ上ゼロ以上の整数
     （PostGIS事前集計、`domain/attributes.py: EdgeAttributeCounts`）であることを前提とし、
     「負値ならNone」という防御的ガードはここでは再現しない（実データでは到達しない
     分岐のため、ベクトル化の単純さを優先した）。

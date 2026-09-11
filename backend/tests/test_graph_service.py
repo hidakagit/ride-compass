@@ -522,7 +522,7 @@ async def _seeded_service_with_materials() -> tuple[GraphService, FakeRoadGraphR
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
     repository.edge_attribute_counts = {
-        "way-100-seg0-fwd": EdgeAttributeCounts(accident_count=1.0, stop_count=2, intersection_count=3),
+        "way-100-seg0-fwd": EdgeAttributeCounts(accident_count=1.0, intersection_count=3),
     }
     repository.way_tags = {"way-100-seg0-fwd": {"highway": "residential"}}
     repository.designated_edge_ids = {"way-100-seg0-fwd"}
@@ -552,7 +552,7 @@ async def test_get_search_materials_for_bbox_builds_materials_on_first_call():
     bundle = materials.materials[edge_id]
     assert bundle.surface == "asphalt"
     counts = bundle.attribute_counts
-    assert (counts.accident_count, counts.stop_count, counts.intersection_count) == (1.0, 2, 3)
+    assert (counts.accident_count, counts.intersection_count) == (1.0, 3)
     assert bundle.way_tags == {"highway": "residential"}
     assert bundle.is_designated
 

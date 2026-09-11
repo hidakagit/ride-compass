@@ -109,7 +109,7 @@ async def test_edge_materials_are_counted_over_road_edges_using_derived_table_ro
     # 事前集計: 片方のEdgeにのみ行がある。
     await road_graph_session.execute(
         insert(EdgeAttributeCountsRow).values(
-            edge_id=edge_ids[0], accident_count=0.0, stop_count=0, intersection_count=0,
+            edge_id=edge_ids[0], accident_count=0.0, intersection_count=0,
             computed_at=datetime.now(timezone.utc),
         )
     )

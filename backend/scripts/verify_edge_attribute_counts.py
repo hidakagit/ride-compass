@@ -1,5 +1,5 @@
 """edge_attribute_counts（改善計画T144の事前集計テーブル）の値が、都度クエリ
-（`RoadGraphRepository.get_accident_counts`/`get_stop_poi_counts`/`get_intersection_counts`）と
+（`RoadGraphRepository.get_accident_counts`/`get_intersection_counts`）と
 一致することを検証する。
 
 `app/batch/precompute_edge_attribute_counts.py`実行後、dev機・本番の両方でこのスクリプトを
@@ -11,7 +11,7 @@
 get_intersection_countsが「渡されたedge_ids集合内だけで完結するローカルな次数」を返す設計で
 小サンプルの都度クエリが本来の次数を過小評価したため全edge_idsを1回のクエリに渡す特別扱いが
 必要だったが、road_nodes.degree参照へ変更後は呼び出し元の集合に依存しない決定的な値になり、
-accident_count/stop_countと同じく小サンプルの都度クエリと直接比較できる。
+accident_countと同じく小サンプルの都度クエリと直接比較できる。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\verify_edge_attribute_counts.py
@@ -60,7 +60,6 @@ async def main(database_url: str | None = None, sample_size: int = DEFAULT_SAMPL
             precomputed_by_id = {row.edge_id: row for row in sample_rows}
 
             repository = RoadGraphRepository(session)
-            live_stop_counts = await repository.get_stop_poi_counts(sample_edge_ids)
             live_accident_counts = await repository.get_accident_counts(sample_edge_ids)
             live_intersection_counts = await repository.get_intersection_counts(sample_edge_ids)
     finally:
@@ -68,12 +67,9 @@ async def main(database_url: str | None = None, sample_size: int = DEFAULT_SAMPL
 
     for edge_id in sample_edge_ids:
         precomputed = precomputed_by_id[edge_id]
-        live_stop = live_stop_counts.get(edge_id, 0)
         live_intersection = live_intersection_counts.get(edge_id, 0)
         live_accident = live_accident_counts.get(edge_id, 0.0)
 
-        if precomputed.stop_count != live_stop:
-            mismatches.append(f"{edge_id}: stop_count precomputed={precomputed.stop_count} live={live_stop}")
         if precomputed.intersection_count != live_intersection:
             mismatches.append(
                 f"{edge_id}: intersection_count precomputed={precomputed.intersection_count} live={live_intersection}"

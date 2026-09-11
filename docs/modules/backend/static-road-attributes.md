@@ -129,7 +129,7 @@ NULL列は行が無い場合と同じ欠損として扱われる——材料と�
 ラスタを足しても変わらないことがあるため（構成の変化を表さない）。
 
 いずれも新しいSQLを書かず、`RoadGraphRepository`の既存メソッド
-（`get_accident_counts`/`get_stop_poi_counts`/`get_poi_counts_by_kind`/
+（`get_accident_counts`/`get_poi_counts_by_kind`/
 `get_intersection_counts`、および`rebuild_raw_intersection_nodes`/
 `recompute_way_attribute_counts`）をチャンク単位で呼び出すだけの薄いオーケストレーション。
 書き込みも同様にリポジトリ側（`save_edge_attribute_counts`等→`_bulk_upsert`）へ委ねる
@@ -148,8 +148,8 @@ Way単位版は地図タイルの母集団になる（`road_edges`はルート�
 
 #### 停止要因の種別別カウント（`poi_counts`）
 
-`edge_attribute_counts`・`way_attribute_counts`は停止要因POIの合計（`stop_count`）に加え、
-集計キー別の内訳をjsonb1列（`poi_counts`）で持つ。キーの単一ソースは
+`edge_attribute_counts`・`way_attribute_counts`は停止要因POIを集計キー別に数え、
+その内訳をjsonb1列（`poi_counts`）で持つ。キーの単一ソースは
 `domain/traffic.py: POI_COUNT_KINDS`で、材料（`poi_*_per_km`）もカバレッジ宣言もこの一覧
 から生成する——キーを増やすときに触るのは一覧とSQLのCASE式だけで、migration・ORM・材料の
 追加は要らない。
@@ -163,9 +163,9 @@ Way単位版は地図タイルの母集団になる（`road_edges`はルート�
 **集計時**に`osm_raw_pois.tags`から導出するため、キーの切り方を変えてもPBF再取込は要らず
 本バッチの再実行だけで反映できる。
 
-**数え方は`stop_count`とは異なり、合計も一致しない。** `stop_count`が「線から一定距離内に
-ある点の総数」なのに対し、`poi_counts`は「その区間を走って実際に遭遇する停止の回数」へ
-近づけるため、次の3段で数える。
+**数え方は「その区間を走って実際に遭遇する停止の回数」へ近づける。** 線から一定距離内に
+ある点を素朴に数えると、走る道の上に無い点や、1つの信号交差点を描く複数ノードまで数えて
+しまう。次の3段で数える。
 
 1. **そのwayの構成ノードだけ**を数える（`osm_raw_pois.osm_node_id = ANY(osm_raw_ways.node_ids)`）。
    距離だけで拾うと、交差する別の道に付いている信号・並行する歩道の横断歩道まで入る。

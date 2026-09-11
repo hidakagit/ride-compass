@@ -10,7 +10,7 @@ get_intersection_countsが呼び出し元のedge_ids集合やチャンク分割�
 `DerivedGraphRepository.recompute_node_degrees`が実装済み・チューニング済み
 （新しいSQLを二重に持たない、既存の各precomputeバッチと同じ規約）。本バッチは
 そのメソッドを呼び出すだけ。road_edgesの2倍行（from/to）をUNIONしてGROUP BYするだけの
-単一SQLで完結し、accident_count/stop_countのようなPostGIS空間結合を伴わないため、
+単一SQLで完結し、accident_countのようなPostGIS空間結合を伴わないため、
 precompute_edge_attribute_counts.pyのようなチャンク分割は不要（本番207,767件規模でも
 単一UPDATE...FROMで十分高速、実行時ログのelapsedで実測する）。
 

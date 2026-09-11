@@ -52,7 +52,7 @@ class OsmRawPoiRow(Base):
     保持する（osm_adapter.py: osm_node_to_poi_spec）。
 
     geomへの空間索引は必要（空間索引を張らないosm_raw_nodesとは逆）。
-    road_edgesとのST_DWithin空間結合（AttributeRepository.get_stop_poi_counts等、
+    road_edgesとのST_DWithin空間結合（AttributeRepository.get_accident_counts等、
     静的道路属性P1）で使う、この用途で初めて生まれる空間検索アクセスパターンのため。
     """
 
@@ -184,10 +184,9 @@ class EdgeAttributeCountsRow(Base):
         String, ForeignKey("road_edges.edge_id", ondelete="CASCADE"), primary_key=True
     )
     accident_count: Mapped[float] = mapped_column(Float, nullable=False)
-    stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # 停止要因POIの種別別カウント（domain/traffic.py: POI_COUNT_KINDSがキーの単一ソース）。
-    # 数え方がstop_countとは異なるため、値の合計はstop_countに一致しない
+    # 「その区間を走って実際に遭遇する停止」に近づけた数え方
     # （get_poi_counts_by_kindのdocstring参照）。
     poi_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -240,10 +239,9 @@ class WayAttributeCountsRow(Base):
     )
     length_m: Mapped[float] = mapped_column(Float, nullable=False)
     accident_count: Mapped[float] = mapped_column(Float, nullable=False)
-    stop_count: Mapped[int] = mapped_column(Integer, nullable=False)
     intersection_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # 停止要因POIの種別別カウント（domain/traffic.py: POI_COUNT_KINDSがキーの単一ソース）。
-    # 数え方がstop_countとは異なるため、値の合計はstop_countに一致しない
+    # 「その区間を走って実際に遭遇する停止」に近づけた数え方
     # （get_poi_counts_by_kindのdocstring参照）。
     poi_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

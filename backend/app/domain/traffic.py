@@ -12,17 +12,12 @@ domain/evaluation.pyの軸材料合成が直接参照する。
 
 from typing import Literal
 
-# 信号・横断歩道・一時停止・踏切のnode空間マッチ用スナップ半径（静的道路属性P1）。
-# AttributeRepository.get_stop_poi_counts（デフォルト引数、GraphService.get_stop_poi_counts
-# はこのデフォルトを暗黙使用）がこの定数をimportして参照する。
-STOP_POI_MATCH_MAX_DISTANCE_M = 15.0
-
 # 交差点（次数3以上のroad_node）の空間マッチ用半径（静的道路属性P1残り、intersectionDensity）。
-# road_nodeは信号等のPOIと違い必ずEdgeの端点に位置するが、Edge単位（LEFT JOIN）で
-# Edge geometry全体に対して距離判定するため、端点ちょうどではなくEdge沿いに近接する
-# 交差点も拾えるよう、STOP_POI_MATCH_MAX_DISTANCE_Mより大きめの「物理的な道路網特徴への
-# スナップ許容量」を採用する（domain/accident.py: ACCIDENT_MATCH_MAX_DISTANCE_Mと同じ30m。
-# 値が一致するのは意図的で、片方だけ変える場合は意図的な差別化かどうかを検討すること）。
+# road_nodeは必ずEdgeの端点に位置するが、Edge単位（LEFT JOIN）でEdge geometry全体に対して
+# 距離判定するため、端点ちょうどではなくEdge沿いに近接する交差点も拾えるだけの
+# 「物理的な道路網特徴へのスナップ許容量」を採る（domain/accident.py:
+# ACCIDENT_MATCH_MAX_DISTANCE_Mと同じ30m。値が一致するのは意図的で、片方だけ変える場合は
+# 意図的な差別化かどうかを検討すること）。
 INTERSECTION_MATCH_MAX_DISTANCE_M = 30.0
 
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。

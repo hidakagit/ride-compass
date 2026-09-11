@@ -480,7 +480,7 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
           kind: "ramp",
           label: "停止密度",
           category: "trafficSafety",
-          tile_inputs: [{ property: "stop_per_km", weight: 1.0 }],
+          tile_inputs: [{ property: "poi_signal_per_km", weight: 1.0 }],
           thresholds: [1.0],
           unit: "回/km",
           note: "",

@@ -13,7 +13,7 @@ from app.domain.attributes import (
     METRIC_GROUP_LANDCOVER,
     METRIC_KEY_ACCIDENT,
     METRIC_KEY_BUILT_PERCENT,
-    METRIC_KEY_STOP,
+    METRIC_KEY_INTERSECTION,
     METRIC_KEY_TREES_PERCENT,
     ElevationAttribute,
 )
@@ -280,8 +280,8 @@ def test_way_tag_parser_extractor_delegates_to_parser_and_handles_missing_way_ta
 def test_keyed_density_extractor_reads_the_named_key_from_the_metrics_group():
     from app.domain.material_catalog import keyed_density_extractor
 
-    extractor = keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_STOP)
-    assert extractor(_ctx(metrics=_counts(**{METRIC_KEY_STOP: 4}), edge=_edge())) == 40.0  # 4件/0.1km
+    extractor = keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION)
+    assert extractor(_ctx(metrics=_counts(**{METRIC_KEY_INTERSECTION: 4}), edge=_edge())) == 40.0  # 4件/0.1km
     # 群そのものが無い・Edgeの行が無い・キーが無いは、いずれも欠損（例外にしない）。
     assert extractor(_ctx()) is None
     assert extractor(_ctx(metrics={METRIC_GROUP_COUNTS: {}})) is None

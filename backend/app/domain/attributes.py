@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Iterator, Mapping
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import RoadGraph, RoadGraphLike
@@ -26,9 +26,8 @@ METRIC_GROUP_POI = "poi"
 # Edge自身のジオメトリから求まる量（DBの事前集計テーブルではなくroad_edgesの列が出所）。
 METRIC_GROUP_GEOMETRY = "geometry"
 
-# `METRIC_GROUP_COUNTS`のキー。`EdgeAttributeCounts`の3列に対応する。
+# `METRIC_GROUP_COUNTS`のキー。`EdgeAttributeCounts`のカウント列に対応する。
 METRIC_KEY_ACCIDENT = "accident"
-METRIC_KEY_STOP = "stop"
 METRIC_KEY_INTERSECTION = "intersection"
 
 # `METRIC_GROUP_LANDCOVER`のキー。`way_landcover`の割合8列のうち評価パイプラインへ
@@ -72,8 +71,11 @@ class EdgeAttributeCounts(BaseModel):
     （road_graph_models.py: EdgeAttributeCountsRowのdocstring参照）。
     """
 
+    # 未知のフィールドを黙って捨てない。列を1つ減らしたとき、古い名前で値を渡し続ける
+    # 呼び出し元が「渡したつもりで既定値のまま」動き続け、テストも素通りするため。
+    model_config = ConfigDict(extra="forbid")
+
     accident_count: float
-    stop_count: int
     intersection_count: int
     # 停止要因POIの種別別カウント（`domain/traffic.py: POI_COUNT_KINDS`がキーの単一ソース）。
     # **Noneは「未集計」**で、種別別の材料はすべて欠損（軸は算出不能）になる。空辞書は
@@ -85,12 +87,11 @@ class EdgeAttributeCounts(BaseModel):
 class WayAttributeCounts(BaseModel):
     """区間インスペクタ用のway単位集計（`way_attribute_counts`テーブル）。
 
-    `EdgeAttributeCounts`と同じ3カウントに、per_km換算へ使う`length_m`を加えたもの。
+    `EdgeAttributeCounts`と同じカウントに、per_km換算へ使う`length_m`を加えたもの。
     """
 
     length_m: float
     accident_count: float
-    stop_count: int
     intersection_count: int
     # 停止要因POIの種別別カウント（Edge単位版と同じ、Noneは未集計）。
     poi_counts: dict[str, int] | None = None
@@ -151,7 +152,6 @@ def edge_metrics_from_bundles(
         if bundle.attribute_counts is not None:
             counts[edge_id] = {
                 METRIC_KEY_ACCIDENT: float(bundle.attribute_counts.accident_count),
-                METRIC_KEY_STOP: float(bundle.attribute_counts.stop_count),
                 METRIC_KEY_INTERSECTION: float(bundle.attribute_counts.intersection_count),
             }
             # 未集計（None）なら行自体を作らず、材料を欠損にする。空辞書は集計済みで
@@ -256,8 +256,7 @@ class EdgeMaterialTable:
     elevation_calculated_at: list[str | None]
     counts_present: np.ndarray  # dtype=bool
     accident_count: np.ndarray  # dtype=float64
-    stop_count: np.ndarray  # dtype=float64（int相当、NaN=欠損）
-    intersection_count: np.ndarray  # dtype=float64
+    intersection_count: np.ndarray  # dtype=float64（int相当、NaN=欠損）
     # 停止要因POIの種別別カウント。キーが可変のため数値列にできず、行ごとの辞書を
     # object配列で持つ（`counts_present`が偽の行はNone）。
     poi_counts: np.ndarray  # dtype=object
@@ -303,7 +302,6 @@ class EdgeMaterialTable:
         elevation_calculated_at: list[str | None] = [None] * n
         counts_present = np.zeros(n, dtype=bool)
         accident_count = np.full(n, np.nan)
-        stop_count = np.full(n, np.nan)
         intersection_count = np.full(n, np.nan)
         poi_counts = np.empty(n, dtype=object)
         is_designated = np.zeros(n, dtype=bool)
@@ -333,7 +331,6 @@ class EdgeMaterialTable:
             if counts is not None:
                 counts_present[i] = True
                 accident_count[i] = counts.accident_count
-                stop_count[i] = counts.stop_count
                 intersection_count[i] = counts.intersection_count
                 poi_counts[i] = counts.poi_counts
 
@@ -375,7 +372,6 @@ class EdgeMaterialTable:
             elevation_calculated_at=elevation_calculated_at,
             counts_present=counts_present,
             accident_count=accident_count,
-            stop_count=stop_count,
             intersection_count=intersection_count,
             poi_counts=poi_counts,
             is_designated=is_designated,
@@ -391,7 +387,6 @@ class EdgeMaterialTable:
             return None
         return EdgeAttributeCounts(
             accident_count=float(self.accident_count[i]),
-            stop_count=int(self.stop_count[i]),
             intersection_count=int(self.intersection_count[i]),
             poi_counts=None if self.poi_counts[i] is None else dict(self.poi_counts[i]),
         )
@@ -466,7 +461,6 @@ class EdgeMaterialTable:
             if self.counts_present[i]:
                 counts[edge_id] = {
                     METRIC_KEY_ACCIDENT: float(self.accident_count[i]),
-                    METRIC_KEY_STOP: float(self.stop_count[i]),
                     METRIC_KEY_INTERSECTION: float(self.intersection_count[i]),
                 }
                 if self.poi_counts[i] is not None:

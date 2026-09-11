@@ -315,12 +315,12 @@ def test_compute_edge_cost_without_wind_ignores_wind_weight():
     assert result.difficulty == 0.0
 
 
-def test_compute_edge_cost_without_stop_count_ignores_stop_weight():
+def test_compute_edge_cost_without_poi_counts_ignores_stop_weight():
     edge = _edge(distance_m=100.0)
     elevation = _elevation_attr(0.0)
     surface = "asphalt"
 
-    result = compute_edge_cost(edge, elevation, surface, RoutePreference())  # stop_countを渡さない
+    result = compute_edge_cost(edge, elevation, surface, RoutePreference())  # metricsを渡さない
 
     assert result.difficulty == 0.0
 
@@ -330,7 +330,7 @@ def test_compute_edge_cost_more_stops_costs_more():
     elevation = _elevation_attr(0.0)
     surface = "asphalt"
 
-    # 停止密度は種別別のPOI密度で評価する（T655で旧`stop_count`の一括カウントから移行）。
+    # 停止密度は停止要因POIの種別別密度で評価する。
     no_stops = compute_edge_cost(
         edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, poi={"signal": 0})
     )
@@ -573,7 +573,7 @@ def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
     preference = RoutePreference()
     way_tags = {"maxspeed": "50"}
 
-    metrics = edge_metrics(edge.edge_id, stop=2)
+    metrics = edge_metrics(edge.edge_id, intersection=2)
 
     direct = compute_edge_cost(
         edge, elevation, surface, preference, way_tags=way_tags, metrics=metrics, is_designated=True
@@ -595,14 +595,14 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     """way_countsがある場合、car_stress/surface_q/stop_density/accident/nightが算出され、
     gradient/windはルート文脈が無いため常にavailable=Falseになる。
 
-    停止密度が要るのは`poi_counts`（種別別、T655）で、旧`stop_count`ではない。
+    停止密度が要るのは種別別の`poi_counts`。
     """
     result = axis_inspector_breakdown(
         highway="residential",
         tags={"surface": "asphalt", "lit": "yes"},
         is_designated=False,
         way_counts=WayAttributeCounts(
-            length_m=1000.0, accident_count=2.0, stop_count=4, intersection_count=6,
+            length_m=1000.0, accident_count=2.0, intersection_count=6,
             poi_counts={"signal": 4},
         ),
         accident_years_covered=2,
@@ -950,7 +950,7 @@ def _diverse_graph_and_bundles(n: int) -> tuple[RoadGraph, dict[str, EdgeMateria
                 surface="asphalt",
                 way_tags={"highway": "residential", "bicycle": "no" if i % 20 == 0 else "yes"},
                 attribute_counts=EdgeAttributeCounts(
-                    accident_count=float(i % 3), stop_count=i % 4, intersection_count=i % 2
+                    accident_count=float(i % 3), intersection_count=i % 2
                 ),
                 elevation_attribute=ElevationAttribute(
                     edge_id=edge_id, average_grade=(i % 11) - 5, data_source="test", calculated_at="t",
@@ -971,7 +971,7 @@ def _diverse_graph_and_bundles(n: int) -> tuple[RoadGraph, dict[str, EdgeMateria
         else:
             bundles[edge_id] = EdgeMaterialBundle(
                 surface=None, way_tags={"motor_vehicle": "no"},
-                attribute_counts=EdgeAttributeCounts(accident_count=0.0, stop_count=0, intersection_count=0),
+                attribute_counts=EdgeAttributeCounts(accident_count=0.0, intersection_count=0),
                 elevation_attribute=None, is_designated=(i % 7 == 0),
             )
     return graph, bundles

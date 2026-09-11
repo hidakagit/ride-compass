@@ -101,7 +101,7 @@ def test_stop_density_axis_caps_at_100_for_high_density():
     assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"poi_signal_per_km": 10.0}) == 100.0
 
 
-def test_stop_density_axis_missing_stop_count_is_none():
+def test_stop_density_axis_without_any_poi_density_is_none():
     assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {}) is None
 
 

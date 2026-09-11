@@ -69,9 +69,9 @@ async def test_edge_attribute_counts_reflects_fresh_generation_when_run_ids_matc
     for edge_id in edge_ids:
         await road_graph_session.execute(
             text(
-                "INSERT INTO edge_attribute_counts (edge_id, accident_count, stop_count, intersection_count, "
+                "INSERT INTO edge_attribute_counts (edge_id, accident_count, intersection_count, "
                 "computed_at, source_accident_import_run_id, source_osm_import_run_id, algorithm_version) "
-                "VALUES (:edge_id, 0, 0, 0, now(), :accident_run_id, :osm_run_id, 'v1')"
+                "VALUES (:edge_id, 0, 0, now(), :accident_run_id, :osm_run_id, 'v1')"
             ),
             {"edge_id": edge_id, "accident_run_id": accident_run_id, "osm_run_id": osm_run_id},
         )
@@ -99,9 +99,9 @@ async def test_edge_attribute_counts_reflects_stale_generation_when_newer_osm_ru
     for edge_id in edge_ids:
         await road_graph_session.execute(
             text(
-                "INSERT INTO edge_attribute_counts (edge_id, accident_count, stop_count, intersection_count, "
+                "INSERT INTO edge_attribute_counts (edge_id, accident_count, intersection_count, "
                 "computed_at, source_osm_import_run_id, algorithm_version) "
-                "VALUES (:edge_id, 0, 0, 0, now(), :osm_run_id, 'v1')"
+                "VALUES (:edge_id, 0, 0, now(), :osm_run_id, 'v1')"
             ),
             {"edge_id": edge_id, "osm_run_id": old_osm_run_id},
         )
@@ -128,8 +128,8 @@ async def test_way_attribute_counts_null_source_run_id_is_counted(road_graph_rep
     await road_graph_session.commit()
     await road_graph_session.execute(
         text(
-            "INSERT INTO way_attribute_counts (osm_way_id, length_m, accident_count, stop_count, "
-            "intersection_count, computed_at) VALUES (200, 500.0, 0, 0, 0, now())"
+            "INSERT INTO way_attribute_counts (osm_way_id, length_m, accident_count, "
+            "intersection_count, computed_at) VALUES (200, 500.0, 0, 0, now())"
         )
     )
     await road_graph_session.commit()

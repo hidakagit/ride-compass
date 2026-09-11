@@ -230,7 +230,6 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
     edges: dict[str, DirectedEdge] = {}
     elevation_attributes: dict[str, ElevationAttribute] = {}
     surface_attributes: dict[str, str | None] = {}
-    stop_counts: dict[str, int] = {}
     way_tags: dict[str, dict[str, str]] = {}
     intersection_counts: dict[str, int] = {}
     accident_counts: dict[str, int] = {}
@@ -298,8 +297,6 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
             )
         if idx % 4 != 0:
             surface_attributes[edge_id] = ["asphalt", "paved", "gravel", "unknown_surface", None][idx % 5]
-        if idx % 3 != 1:
-            stop_counts[edge_id] = idx % 5
         if idx % 5 != 2:
             intersection_counts[edge_id] = idx % 3
         if idx % 6 != 3:
@@ -327,7 +324,6 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
         *(
             edge_metrics(
                 edge_id,
-                stop=stop_counts.get(edge_id),
                 intersection=intersection_counts.get(edge_id),
                 accident=accident_counts.get(edge_id),
                 poi=poi_counts.get(edge_id),

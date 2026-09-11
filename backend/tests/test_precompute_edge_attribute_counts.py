@@ -59,7 +59,6 @@ class TestRunOrchestration:
         rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
         assert len(rows) == 2  # 双方向2edge
         assert {r.accident_count for r in rows} == {0.0}
-        assert {r.stop_count for r in rows} == {0}
         assert {r.intersection_count for r in rows} == {0}
         assert all(r.computed_at is not None for r in rows)
         # 派生データの系譜追跡（改善計画T351）: import_runsが1件も無い環境ではsource_*が
@@ -147,7 +146,7 @@ async def test_upsert_splits_statements_so_bind_parameters_stay_under_the_limit(
             executed.append(len(stmt.compile().params))
 
     columns = {
-        "edge_id": "e", "accident_count": 0.0, "stop_count": 0, "intersection_count": 0,
+        "edge_id": "e", "accident_count": 0.0, "intersection_count": 0,
         "poi_counts": {}, "computed_at": datetime.now(timezone.utc),
         "source_accident_import_run_id": None, "source_osm_import_run_id": None,
         "algorithm_version": "v1",

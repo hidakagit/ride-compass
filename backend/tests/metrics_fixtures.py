@@ -15,7 +15,6 @@ from app.domain.attributes import (
     METRIC_KEY_BUILT_PERCENT,
     METRIC_KEY_CURVATURE,
     METRIC_KEY_INTERSECTION,
-    METRIC_KEY_STOP,
     METRIC_KEY_TREES_PERCENT,
 )
 
@@ -24,11 +23,10 @@ Metrics = dict[str, dict[str, dict[str, float]]]
 
 def counts_row(
     accident: float | None = None,
-    stop: float | None = None,
     intersection: float | None = None,
 ) -> dict[str, float]:
     """件数群の1行。Noneのキーは載せない（「そのキーだけ不明」を表す）。"""
-    row = {METRIC_KEY_ACCIDENT: accident, METRIC_KEY_STOP: stop, METRIC_KEY_INTERSECTION: intersection}
+    row = {METRIC_KEY_ACCIDENT: accident, METRIC_KEY_INTERSECTION: intersection}
     return {key: float(value) for key, value in row.items() if value is not None}
 
 
@@ -41,7 +39,6 @@ def edge_metrics(
     edge_id: str,
     *,
     accident: float | None = None,
-    stop: float | None = None,
     intersection: float | None = None,
     poi: dict[str, float] | None = None,
     trees: float | None = None,
@@ -51,7 +48,7 @@ def edge_metrics(
     """Edge1本ぶんの`metrics`。値を1つも指定しない群は行自体を持たない
     （「未集計」＝その群由来の材料はすべて欠損、という既存の意味論）。"""
     metrics: Metrics = {}
-    counts = counts_row(accident, stop, intersection)
+    counts = counts_row(accident, intersection)
     if counts:
         metrics[METRIC_GROUP_COUNTS] = {edge_id: counts}
     if poi is not None:

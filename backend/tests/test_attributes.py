@@ -157,7 +157,7 @@ def _full_bundle(edge_id: str) -> EdgeMaterialBundle:
     return EdgeMaterialBundle(
         surface="asphalt",
         way_tags={"highway": "residential", "surface": "asphalt"},
-        attribute_counts=EdgeAttributeCounts(accident_count=1.5, stop_count=2, intersection_count=3),
+        attribute_counts=EdgeAttributeCounts(accident_count=1.5, intersection_count=3),
         elevation_attribute=ElevationAttribute(
             edge_id=edge_id,
             start_elevation_m=10.1,
@@ -328,7 +328,7 @@ def test_edge_material_table_roundtrip_at_realistic_scale():
                 surface="gravel" if i % 8 == 3 else None,
                 way_tags={"bicycle": "no"} if i % 16 == 3 else {},
                 attribute_counts=EdgeAttributeCounts(
-                    accident_count=float(i % 5), stop_count=i % 3, intersection_count=i % 2
+                    accident_count=float(i % 5), intersection_count=i % 2
                 ),
                 elevation_attribute=None,
                 is_designated=(i % 32 == 3),

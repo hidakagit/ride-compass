@@ -75,14 +75,14 @@ def test_evaluate_graph_passes_poi_counts_to_compute_edge_cost():
     no_stops = evaluate_graph(graph, elevation_attributes, surface_attributes, load_route_preference())["edge-1"]
     many_stops = evaluate_graph(
         graph, elevation_attributes, surface_attributes, load_route_preference(),
-        # 停止密度は種別別のPOI密度で評価する（T655で旧`stop_count`の一括カウントから移行）。
+        # 停止密度は停止要因POIの種別別密度で評価する。
         metrics={METRIC_GROUP_POI: {"edge-1": {"signal": 4}}},
     )["edge-1"]
 
     assert many_stops.difficulty > no_stops.difficulty
 
 
-def test_evaluate_graph_missing_stop_counts_entry_is_none():
+def test_evaluate_graph_missing_counts_entry_is_none():
     edge = DirectedEdge(
         edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
         geometry=[[35.7, 139.7], [35.701, 139.701]], distance_m=50.0,

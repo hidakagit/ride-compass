@@ -502,7 +502,7 @@ RideCompass/
         osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
         attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
         recipe.py                      ✅ 改善計画T122: タグ由来の材料タグを正規化する純関数群（parse_lanes/parse_maxspeed/cycleway_values/tag_value_is/bicycle_infra_flags[T336]）。旧`RoadSuitabilityRecipe`等の専用Pythonレシピ採点構造（clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/validate_threshold_order）は改善計画T292でcar_stress軸をAXIS_DEFINITIONSの内部軸階層へ再設計した際に削除済み。cycleway_class関数は改善計画T337で削除済み（唯一の呼び出し元だった同名材料が評価軸・地図表示のどちらからも未使用だったため）。改善計画T347: `bicycle_infra_flags_or_none(tags, highway)`（tagsがNone、またはhighwayがNoneかつ全フラグFalseの場合のみNoneを返す「データ欠落＝unknown」判定を一箇所に集約）を追加。material_catalog.py/evaluation.py/openrouteservice_engine.py/road_graph_engine.pyの4箇所が個別に手書きしていた同等の判定（旧`classify_bicycle_infrastructure`のhighway=None最終catch-all分岐を暗黙に踏襲していたが、フラグベースの新ロジックへ移行した際に4箇所とも独自に再実装が必要になっていた）をこの1関数へ統一
-        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi、STOP_POI_MATCH_MAX_DISTANCE_M/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル。改善計画T347: `classify_bicycle_infrastructure`（7値分類、改善計画T150で「交通ストレス」から改称）は評価軸・地図表示のどちらからも参照されなくなったため削除。改善計画T431: `distance_weighted_stop_density`/`distance_weighted_intersection_density`/`distance_weighted_bicycle_infra_score`/`is_dedicated_bicycle_infra`（旧`RouteCandidate`個別フィールド集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み。区間ごとの評価軸（axis_difficulties）は`domain/evaluation.py`が直接材料合成する
+        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi、STOP_POI_KINDS/POI_COUNT_KINDS/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル。改善計画T347: `classify_bicycle_infrastructure`（7値分類、改善計画T150で「交通ストレス」から改称）は評価軸・地図表示のどちらからも参照されなくなったため削除。改善計画T431: `distance_weighted_stop_density`/`distance_weighted_intersection_density`/`distance_weighted_bicycle_infra_score`/`is_dedicated_bicycle_infra`（旧`RouteCandidate`個別フィールド集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み。区間ごとの評価軸（axis_difficulties）は`domain/evaluation.py`が直接材料合成する
         accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT（7章参照）。改善計画T431: `distance_weighted_accident_density`（旧`RouteCandidate.accident_density`集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み
         designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
         evaluation.py                  ✅ RoutePreference（axis_idキーの重み辞書、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。動的材料（風）はcompute_dynamic_edge_materials／DYNAMIC_MATERIAL_EVALUATORSがwind.pyの関数から求める。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
@@ -995,8 +995,8 @@ Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリ
   参照する材料タグ`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`と、night軸が
   参照する`lit`（`shoulder`は改善計画T122でP1実測0.0%の死に補正と判明し撤去済み。かつて安全度
   レシピが使っていたが軸自体はT148で削除、`lit`のみT139でnight軸へ転用され現在も使用中）、
-  改善計画T145bが追加したkm正規化密度3種`accident_per_km`/`stop_per_km`/`intersection_per_km`
-  （P0/P1/T51/T74/T90/T292/T145b、現行タイル世代v16。7章参照）プロパティを持つ。
+  km正規化密度`accident_per_km`/`intersection_per_km`と、停止要因POIの種別別密度
+  `poi_*_per_km`（P0/P1/T51/T74/T90/T292/T145b/T655。7章参照）プロパティを持つ。
   車の圧迫感の最終値は（改善計画T292以降）タイルへ焼き込まず、フロントエンド
   （`axisLayers.ts`の汎用ramp機構、他の推定軸=停止密度・事故密度等と同じ経路。旧
   `carStressExpression.ts`は専用実装を廃止し統合済み）と
@@ -2070,10 +2070,10 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
 
 ### 停止密度・車ストレス・自転車インフラ・交差点密度（P1、OSM由来）
 
-- **停止密度**: `osm_raw_pois`（`domain/traffic.py: classify_stop_poi`が
-  traffic_signals/crossing/stop/give_way/level_crossingへ分類、`STOP_POI_MATCH_MAX_DISTANCE_M
-  =15m`でEdge/サンプル点へ空間マッチ）。集約は`distance_weighted_stop_density`
-  （合計count÷合計distance_km）。
+- **停止密度**: `osm_raw_pois`を`domain/traffic.py: POI_COUNT_KINDS`の集計キー別に数えた
+  種別別密度（`poi_*_per_km`）を材料にする。数え方は「そのwayの構成ノードだけ」「区間の
+  始点を数えない」「同じキーの点を40mでまとめる」の3段（`road_graph_repository.py:
+  _POI_COUNTS_BODY`、docs/modules/backend/static-road-attributes.md参照）。
 - **車ストレス**（改善計画T150で「交通ストレス」から改称）: 改善計画T292で専用Pythonレシピを
   廃止し、`axis_definitions`（T350でDB専有化済み）上の内部軸5つ+公開軸1つの宣言的な
   階層構造で再実装した。内部軸（いずれも`is_published=False`、他の軸から参照される専用の
@@ -2139,7 +2139,7 @@ categorical）に統一する。地図表示・API応答向けの人間可読な
 `bicycle_infra`の7値分類がこの再検証により実際に削除できた例）。
 
 いずれも`AttributeRepository`（`road_graph_repository.py`）のEdge集合を渡すメソッド
-（`get_stop_poi_counts`・`get_way_tags`・`get_intersection_counts`）で提供する
+（`get_poi_counts_by_kind`・`get_way_tags`・`get_intersection_counts`）で提供する
 （RoadGraphEngineが使う）。サンプル点列を渡すKNN空間マッチ版（`get_nearest_stop_poi_counts`
 等、openrouteserviceエンジン専用）は改善計画T462のエンジン撤去に伴い削除した。
 `get_way_tags_by_osm_way_id`（T90、
@@ -2305,8 +2305,9 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    材料タグ（`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`。`cycleway_class`は
    改善計画T337で、`bicycle_infra`は改善計画T347で削除済み）と、night軸が参照する`lit`、改善計画T145b（下記
    「レジストリ駆動の二次軸ランプレイヤー」参照）が
-   追加した`way_attribute_counts`由来のkm正規化密度3種（`accident_per_km`/`stop_per_km`/
-   `intersection_per_km`、0はNULLIFでプロパティ自体を省略）をLineString地物へ追加
+   追加した`way_attribute_counts`由来のkm正規化密度（`accident_per_km`/
+   `intersection_per_km`と停止要因POIの種別別密度`poi_*_per_km`、0はNULLIFでプロパティ
+   自体を省略）をLineString地物へ追加
    （P1・T51・T145bで拡張）。世代v2=surface/highway追加、
    v3=surface正準拡充、v4=P0静的属性追加、v5=T51 designationプロパティ追加、
    v6=T74 designationのosm_way_id基準化・3値化（`both`追加）、
@@ -2327,7 +2328,12 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    プロパティを追加。プロパティ追加のみでデプロイ順序制約なし）、**v16=T347。地図表示の
    専用レイヤー廃止・評価軸側の公開軸`bicycle_infra_quality`への置き換えに伴い、
    評価軸・地図表示のどちらからも未参照になった`bicycle_infra`プロパティを削除**
-   （v14と同じく非互換変更だが未使用のためデプロイ順序制約なし、現行）。
+   （v14と同じく非互換変更だが未使用のためデプロイ順序制約なし）。v17〜v23の内訳は
+   本節へ追従できていない（現行値の正本は`region_service.py:
+   ROAD_SURFACE_TILE_VERSION`と生成物`region-tile-config.json`）。**v24=T719。
+   停止密度が種別別密度`poi_*_per_km`だけを材料にする形へ移った結果、読み手の無くなった
+   `stop_per_km`プロパティを削除**（v14/v16と同じく非互換変更だが未使用のため
+   デプロイ順序制約なし、現行）。
 2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
    `osm_raw_pois`の点データを`kind`プロパティ付きで焼き込む1レイヤー（`stop_poi`）構成。
    停止要因（信号・横断歩道・一時停止・踏切）に加え、T101で補給・休憩ポイント
@@ -2354,7 +2360,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 上記10レイヤーとは別に、`domain/registry_defaults.py`の二次軸レジストリ（T137）から
 自動生成される「ランプ」レイヤー（accident/stop_density軸、現状2種）がある。設計方針は
 「**事実はタイルに、解釈はクライアントに**」: レシピ非依存の事実（`way_attribute_counts`由来の
-`accident_per_km`/`stop_per_km`/`intersection_per_km`、上記road-surface-tiles v12参照）は
+`accident_per_km`/`intersection_per_km`/`poi_*_per_km`）は
 全ユーザー共有キャッシュのタイルへサーバー側で焼き込み、二次軸スコアへの変換（重み・
 しきい値・凡例）はクライアント側のMapLibre expressionで行う（レシピ依存の解釈をキャッシュ
 共有タイルへ焼き込めないという制約と、accident/stop_density軸の入力データがタイル外に

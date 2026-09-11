@@ -149,7 +149,6 @@ class FakeGraphService:
         self,
         graph: RoadGraph | None,
         surface_attributes: dict | None = None,
-        stop_counts: dict | None = None,
         stop_data_available: bool = True,
         way_tags: dict | None = None,
         intersection_counts: dict | None = None,
@@ -168,10 +167,9 @@ class FakeGraphService:
         # get_search_materials_for_bboxの戻り値3つ目に使う。
         self._tile_set = tile_set
         self._surface_attributes = surface_attributes or {}
-        self._stop_counts = stop_counts or {}
         self._way_tags = way_tags or {}
         self._intersection_counts = intersection_counts or {}
-        # 停止要因POIの種別別カウント（T655以降、停止密度軸が読むのはこちら）。
+        # 停止要因POIの種別別カウント（停止密度軸が読むのはこちら）。
         # 未指定のedge_idは空辞書＝「集計済みで0件」を返す（Noneの「未集計」とは別）。
         self._poi_counts = poi_counts or {}
         self._accident_counts = accident_counts or {}
@@ -250,16 +248,14 @@ class FakeGraphService:
         return {edge_id: self._edges_with_geometry[edge_id] for edge_id in edge_ids if edge_id in self._edges_with_geometry}
 
     async def get_edge_attribute_counts(self, edge_ids):
-        # 改善計画T218: get_stop_poi_counts（旧実装）と同じ「stop_data_available=Falseは
-        # repository未注入を模す」規約を踏襲する。edge_attribute_countsは一度バックフィル
-        # されれば対象の全Edgeに行を持つ（0件はゼロとして明示的に持つ、行自体が
-        # 欠けることはない）ため、get_stop_poi_countsと同じ「指定edge_idは全件存在」の形。
+        # `stop_data_available=False`はrepository未注入を模す。edge_attribute_countsは
+        # 一度バックフィルされれば対象の全Edgeに行を持つ（0件はゼロとして明示的に持つ、
+        # 行自体が欠けることはない）ため、指定edge_idは全件存在する形にする。
         if not self._stop_data_available:
             return {}
         return {
             edge_id: EdgeAttributeCounts(
                 accident_count=self._accident_counts.get(edge_id, 0),
-                stop_count=self._stop_counts.get(edge_id, 0),
                 intersection_count=self._intersection_counts.get(edge_id, 0),
                 poi_counts=self._poi_counts.get(edge_id, {}),
             )
@@ -279,7 +275,7 @@ class FakeGraphService:
         return {edge_id for edge_id in edge_ids if edge_id in self._designated_edge_ids}
 
     async def get_elevation_attributes(self, edge_ids):
-        # 改善計画T218a: 探索コストが読む事前計算済みgradient（get_stop_poi_counts等と
+        # 探索コストが読む事前計算済みgradient（他の事前集計と
         # 同じ「指定edge_idのうち持っているものだけ返す」パターン）。
         return {
             edge_id: self._elevation_attributes_for_search[edge_id]
@@ -315,7 +311,6 @@ def make_generator(
     *,
     elevation_attributes: dict | None = None,
     surface_attributes: dict | None = None,
-    stop_counts: dict | None = None,
     stop_data_available: bool = True,
     way_tags: dict | None = None,
     intersection_counts: dict | None = None,
@@ -336,7 +331,7 @@ def make_generator(
     poi_counts: dict | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
-        graph, surface_attributes, stop_counts, stop_data_available, way_tags, intersection_counts,
+        graph, surface_attributes, stop_data_available, way_tags, intersection_counts,
         accident_counts, accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
         edges_with_geometry, tile_set, poi_counts,
     )
@@ -917,7 +912,7 @@ async def test_candidate_aggregates_surface_axis_from_path_edges():
 async def test_candidate_aggregates_stop_density_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    # 停止密度が読むのは種別別のPOI密度（T655で旧`stop_count`の一括カウントから移行）。
+    # 停止密度が読むのは種別別のPOI密度（`poi_counts`）。
     poi_counts = {edge_ids[0]: {"signal": 3}, f"{edge_ids[0]}-rev": {"signal": 3}}
     generator, _, _ = make_generator(graph, poi_counts=poi_counts)
 
@@ -930,7 +925,7 @@ async def test_candidate_aggregates_stop_density_from_path_edges():
 
 async def test_candidate_stop_density_axis_is_zero_without_any_stop_pois():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    generator, _, _ = make_generator(graph)  # stop_counts未指定（=repository注入済み・実測0件）
+    generator, _, _ = make_generator(graph)  # poi_counts未指定（=repository注入済み・実測0件）
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
@@ -1168,7 +1163,7 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
     elevation_attr = ElevationAttribute(
         edge_id="e1", average_grade=6.0, data_source="test", calculated_at="t"
     )
-    counts = EdgeAttributeCounts(accident_count=1.0, stop_count=3, intersection_count=2)
+    counts = EdgeAttributeCounts(accident_count=1.0, intersection_count=2)
     materials = {
         "e1": EdgeMaterialBundle(
             surface="gravel", way_tags=way_tags["e1"], attribute_counts=counts,
@@ -1203,7 +1198,7 @@ async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
 
     oracle_axis_scores = compute_edge_axis_scores(
         edge, elevation_attr, "gravel", weather=weather, way_tags=way_tags["e1"],
-        metrics=edge_metrics("e1", stop=3, intersection=2, accident=1.0),
+        metrics=edge_metrics("e1", intersection=2, accident=1.0),
         accident_years_covered=5, is_designated=True,
         travel_speed_ms=kmh_to_ms(ASSUMED_SPEED_KMH),
     )

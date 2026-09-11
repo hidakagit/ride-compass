@@ -1,7 +1,7 @@
 """edge_attribute_countsの事前集計バッチ。
 
 事故密度・停止密度（タグなし交差点込み、T149）のPostGIS空間結合は、既存の
-`RoadGraphRepository.get_accident_counts`/`get_stop_poi_counts`/`get_intersection_counts`が
+`RoadGraphRepository.get_accident_counts`/`get_intersection_counts`/`get_poi_counts_by_kind`が
 既に正しく実装・チューニング済み（GiST索引を使う`&&`前置フィルタ等、各メソッドのdocstring
 参照）。本バッチは同じメソッドを`road_edges`全件に対してチャンク単位で呼び出し、結果を
 `edge_attribute_counts`へUPSERTするだけで、新しいSQLは書かない（正確性・パフォーマンス
@@ -70,7 +70,7 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         # get_intersection_countsはroad_nodes.degree（DB全体から見た真のグローバル次数、
         # precompute_road_node_degrees.pyが事前計算）を参照するため、呼び出し元の集合に
         # 依存しない決定的な値を返す。road_edgesを空間的な連続性を考慮せず任意順に
-        # チャンク分割しても、accident_count/stop_countと同じチャンク単位の呼び出しで
+        # チャンク分割しても、accident_countと同じチャンク単位の呼び出しで
         # 問題ない。**本バッチの実行前にprecompute_road_node_degrees.pyの実行が必須**
         # （road_nodes.degreeが未計算＝全行0のままだとintersection_countも全件0になる）。
         async def handle_chunk(chunk: list[str]) -> int:
@@ -81,7 +81,6 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                 # run idがずれる（match_designations.pyの同種の対応と同じ狙い）。
                 source_accident_run_id, source_osm_run_id = await _fetch_source_run_ids(session)
                 repository = RoadGraphRepository(session)
-                stop_counts = await repository.get_stop_poi_counts(chunk)
                 accident_counts = await repository.get_accident_counts(chunk)
                 intersection_counts = await repository.get_intersection_counts(chunk)
                 poi_counts = await repository.get_poi_counts_by_kind(chunk)
@@ -90,7 +89,6 @@ async def run(database_url: str | None, dry_run: bool) -> int:
                     {
                         "edge_id": edge_id,
                         "accident_count": accident_counts.get(edge_id, 0.0),
-                        "stop_count": stop_counts.get(edge_id, 0),
                         "intersection_count": intersection_counts.get(edge_id, 0),
                         "poi_counts": poi_counts.get(edge_id, {}),
                         "computed_at": now,
