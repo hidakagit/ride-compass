@@ -33,7 +33,7 @@
 `maplibre-gl` の最新メジャー（v6系）は、Web Worker のスクリプトURLを `new URL(`./${file}`, import.meta.url)` という動的テンプレートリテラルで解決する実装になっており、Next.js のバンドラ（Turbopack / Webpack のいずれも）がこれを静的解析できず、Workerが実際には空のページを読み込んでしまい、スタイル処理・タイル取得が永久に止まる（`isStyleLoaded()` が `true` にならない）現象を実機で確認した。回避策として `maplibre-gl` を `^5.24.0`（自己参照Blob方式のWorkerを使う、Next.js/Webpackとの互換実績が豊富なメジャーバージョン）に固定している。将来 v6系対応が改善された場合はアップグレードを検討する（追随の可否と、6系へ上げなくてもXSS到達経路を塞げることは[docs/tasks/T703.md](tasks/T703.md)。2026-09-11に6.9.0の配布物でこの制約が現在も有効であることを再確認した）。
 
 ### バックエンド運用上の注意（Windows: `uvicorn --reload` の多重プロセス）
-Windows環境では `uvicorn --reload` はリローダー親プロセスとワーカー子プロセス（`multiprocessing.spawn`）に分かれる。親プロセスだけを `taskkill` すると子プロセスが孤児化して同じポートに残り続け、古い設定（環境変数など）のまま応答し続けることがある。`.env` を編集後にAPIの挙動が変わらない場合は、`netstat -ano | findstr :8000` で該当ポートを握っている全PIDを確認し、それら全てを `taskkill /F /PID <PID>` で終了してから起動し直すこと。また `.env` の変更は `--reload` のファイル監視対象外のため、変更後は必ずプロセスの完全な再起動が必要。また、複数ファイルを短時間に連続編集すると `WatchFiles` の再読み込みが1回分しか発火せず、古いコードのまま動き続けることが実機で確認された（`404 Not Found` になる等）。挙動が古いままに見える場合は一度プロセスを完全に再起動すること。
+Windows環境では `uvicorn --reload` はリローダー親プロセスとワーカー子プロセス（`multiprocessing.spawn`）に分かれる。親プロセスだけを `taskkill` すると子プロセスが孤児化して同じポートに残り続け、古い設定（環境変数など）のまま応答し続けることがある。`.env` を編集後にAPIの挙動が変わらない場合は、`netstat -ano | findstr :8000` で該当ポートを握っている全PIDを確認し、それら全てを `taskkill /F /PID <PID>` で終了してから起動し直すこと。また `.env` の変更は `--reload` のファイル監視対象外のため、変更後は必ずプロセスの完全な再起動が必要。また、複数ファイルを短時間に連続編集すると `watchfiles`（uvicornのリローダーが使うライブラリ）の再読み込みが1回分しか発火せず、古いコードのまま動き続けることが実機で確認された（`404 Not Found` になる等）。挙動が古いままに見える場合は一度プロセスを完全に再起動すること。
 
 ### デプロイの反映確認（backend/frontendで注入元が異なる点に注意）
 デプロイ（`git push`からのビルド完了）が実際にサービスへ反映されたかを、デプロイ操作をしたブラウザ以外（別端末・CLI・監視ツール等）からでも確認できるようにするため、バックエンド・フロントエンドの両方にデプロイ識別情報を返すエンドポイントを用意している。改善計画T263（backendのOracle Cloud VM移行）により、**backendとfrontendで`commit`の注入元が異なる**点に注意（frontendは今もRender上で稼働、backendのみ移行済み）。
@@ -77,7 +77,7 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 ### 標高計算のアルゴリズムと既知の制約（Step5）
 `ElevationService`（`elevation_service.py`。現在は`ElevationAttributeService`＋`elevation_aggregation.py`へ再編済み）は、各ルートのGeoJSON LineStringから始点・終点を含む点列（当初は12点固定。現在はエンジンが`sample_count_for_distance`で距離連動の約1km間隔・12〜32点を決めて渡す。Step9で点列を直接受け取るシグネチャへ変更）をサンプリングし、国土地理院の標高API（1リクエスト=1地点）に問い合わせる。獲得標高は連続区間の正の標高差の合計、最大勾配は`|標高差| / 水平距離`の最大値（%、水平距離は`haversine_distance_km`で算出）。標高が取得できない区間（海上・データ範囲外・通信エラー）は`None`として扱い、有効な点が2点未満なら標高関連フィールドはすべて`None`を返す（ルート自体は除外しない）。
 
-**パフォーマンス上の落とし穴（実機で発見・修正済み）**: 当初 `ElevationClient` がリクエストごとに新規`httpx.AsyncClient`を生成しておりTLSハンドシェイクを毎回やり直していたため、15km生成（8候補×12点=最大96リクエスト）に**約57秒**かかっていた。`httpx.AsyncClient`をFastAPIの依存性注入（`yield`付き）で1リクエストあたり1つ生成して使い回す形に直したところ**約7秒**まで短縮した。あわせて、同時リクエスト数を制限する`asyncio.Semaphore`が`get_profile`呼び出しごとに新規生成されており、意図していた「サービス全体で最大5並列」ではなく実質「候補ごとに最大5並列」（合計で最大40並列）になっていた点も、`ElevationService.__init__`でSemaphoreを1つだけ生成する形に修正した。
+**パフォーマンス上の落とし穴（実機で発見・修正済み）**: 当初 `ElevationClient` がリクエストごとに新規`httpx.AsyncClient`を生成しておりTLSハンドシェイクを毎回やり直していたため、15km生成（8候補×12点=最大96リクエスト）に**約57秒**かかっていた。`httpx.AsyncClient`をFastAPIの依存性注入（`yield`付き）で1リクエストあたり1つ生成して使い回す形に直したところ**約7秒**まで短縮した。あわせて、同時リクエスト数を制限する`asyncio.Semaphore`が当時の`get_profile`呼び出しごとに新規生成されており、意図していた「サービス全体で最大5並列」ではなく実質「候補ごとに最大5並列」（合計で最大40並列）になっていた点も、`ElevationService.__init__`でSemaphoreを1つだけ生成する形に修正した。
 
 ### 標高DEMタイルキャッシュ（改善計画T10、`elevation_client.py`）
 `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）は、以前はGSI点標高API（`getelevation.php`、1リクエスト=1地点）を緯度経度4桁丸めのSQLiteキャッシュ（`cache_db.py`の`elevation_cache`テーブル）でラップしていたが、T218aでRoad Graph全体（数万エッジ）へ標高を付与する必要が生じ、点API逐次呼び出しでは非現実的な回数（実測: 480エッジに対し2,880回）の外部呼び出しが必要になると判明した。T10でGSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt`、z=14固定）を範囲ごと取得しローカルで双線形補間する方式へ切り替えた。**当初は`dem`（サフィックス無し）がDEM5A/5B/5C/10Bを統合しGSIサーバー側で優先順位フォールバックすると判断していたが、2026-08-23の再検証（ユーザー指摘）で誤りと判明**——実タイル比較の結果、`dem`はDEM5A等を統合したものではなくDEM10B相当の別データセット（z=15で404、DEM10Bの公式最大ズーム14と一致）であり、同一タイルで`dem5a`と異なる値を返すことを都心部で確認した。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立にクエリでき非対応エリアではタイル丸ごと404を返すため、アプリ側で`DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")`の順に多段フォールバックする（`elevation_client.py`）。タイル本文（256行×256列のカンマ区切り、単位m、欠測は`"e"`）は`infrastructure/tile_cache.py`（基礎地図・路面タイルと共通のファイルキャッシュ、TTL無し。DEMは不変データのため）へ永続化し、さらにプロセス内メモリ（`_tile_grid_cache`、パース済みグリッド）にも保持する。呼び出し側インターフェース（`get_elevation(client, point, refresh=False) -> float | None`）はT10前後で変わらない。旧`elevation_cache`テーブル・`get_elevation`/`set_elevation`（`cache_db.py`）は削除済み。
@@ -1629,8 +1629,6 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 `thresholds`を自動導出する。**安全に自動導出できるケースに限定する**設計:
 
 - `CategoricalShape`（真偽値材料1件）: 2値の中間点を閾値とする2段階ramp。
-- `FlagSumShape`（真偽値フラグN件）: 達成しうる合計値（部分和の全組合せ、cap適用後）の
-  隣接中間点を閾値とする（例: night軸の2フラグ×50点→部分和{0,50,100}→閾値[25,75]）。
 - `BreakpointLinearShape`で単一材料・weight=1.0・preprocess="identity"の場合のみ:
   既存breakpointsのx値（先頭除く）をそのまま閾値に流用。
 
@@ -1811,7 +1809,7 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
 
 #### `time_scope`/`supports_route_coloring`の追加（改善計画T352、2026-08-28）
 
-`road_graph_engine.py`/`openrouteservice_engine.py`のT173ロジック（市民薄明の外なら
+`road_graph_engine.py`のT173ロジック（市民薄明の外なら
 `night`軸の重みそのまま、日中なら0倍）とfrontend `routeStyleModes.ts`の`RouteStyleModeId`
 （`"wind"`固定）が、それぞれ`"night"`/`"wind"`というaxis_idを直接ハードコード分岐して
 いた。これを`AxisDefinition`の2つの宣言的フィールドへ汎用化した
@@ -1949,7 +1947,7 @@ stop_density/accidentの3軸が実際に不要になったことを確認した�
 登録簿を提供する。`register_axis()`は、登録しようとする軸の`inputs`（参照する一次属性の
 `attr_id`一覧）のうち`shared=False`のものが既存の別軸と重複していれば
 `AxisInputConflictError`を送出する「排他制約の機械的チェック」が設計の核（T142実装中に
-`surface_q`軸の`transform_fn`誤参照を実際に検出した実績がある）。
+`surface_q`軸が別の軸の一次属性を誤って参照していたのを実際に検出した実績がある）。
 
 **軸の登録は`AXIS_DEFINITIONS`の走査で行い、軸id・軸の数をコードへ書かない**
 （`domain/registry_defaults.py: _register_axes()`、判定は`is_published`という軸横断の
@@ -2459,7 +2457,7 @@ value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う
 
 **T440（軸スタジオのデータを唯一の正としてルート結果の色分けを完全に駆動する）**:
 T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成される一方、
-"gradient"/"road"/"difficulty"は`STATIC_MODES`という固定配列としてフロントに直書き
+"gradient"/"road"/"difficulty"は撤去済みの`STATIC_MODES`という固定配列としてフロントに直書き
 されたままだった（表示する/しないの判定・しきい値・ラベル・色のいずれも軸スタジオの
 データを見ていなかった）。T440はこれを解消し、以下の設計へ全面的に作り直した:
 

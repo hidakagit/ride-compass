@@ -392,14 +392,44 @@ ARCHITECTURE_EXTERNAL_REFS = frozenset({
 })
 
 
+def paragraphs_with_removal_marker(doc: str) -> set[int]:
+    """撤去等の断りを含む段落に属する行番号（空行区切り、ディスク上の実体を読む）。
+
+    判定の単位は物理行ではなく段落にする。この文書は編集の都合で1文が複数行へ
+    折り返されるため、行で見ると「名前」と「撤去済み」が別の行へ落ちただけで違反になる
+    ——読み手が受け取る単位は段落であって、折り返し位置ではない。
+    """
+    path = REPO_ROOT / doc
+    if not path.exists():
+        return set()
+    marked: set[int] = set()
+    start, buffer = 1, []
+    for lineno, line in enumerate(read_text(path).splitlines(), 1):
+        if line.strip():
+            if not buffer:
+                start = lineno
+            buffer.append(line)
+            continue
+        if buffer and ARCHITECTURE_REMOVED_MARKER_RE.search("\n".join(buffer)):
+            marked.update(range(start, start + len(buffer)))
+        buffer = []
+    if buffer and ARCHITECTURE_REMOVED_MARKER_RE.search("\n".join(buffer)):
+        marked.update(range(start, start + len(buffer)))
+    return marked
+
+
 def find_undeclared_dead_refs(
     doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str
 ) -> list[str]:
     """architecture.mdが、実在しない名前を撤去等の断りなく名指ししている箇所。"""
-    filtered = {
-        doc: [(no, line) for no, line in lines if not ARCHITECTURE_REMOVED_MARKER_RE.search(line)]
-        for doc, lines in doc_lines.items()
-    }
+    filtered = {}
+    for doc, lines in doc_lines.items():
+        marked = paragraphs_with_removal_marker(doc)
+        filtered[doc] = [
+            (no, line)
+            for no, line in lines
+            if not ARCHITECTURE_REMOVED_MARKER_RE.search(line) and no not in marked
+        ]
     out = [
         v for v in find_dead_file_refs(filtered, files)
         if not any(f"`{ext}`" in v for ext in ARCHITECTURE_EXTERNAL_REFS)
@@ -670,8 +700,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "source_narrative": frozenset({"staged", "since"}),
     "redis_skeleton": frozenset({"staged", "since", "full"}),
     "bare_basemodel": frozenset({"staged", "since", "full"}),
-    # 既存分の棚卸し（T724）が終わるまで、全件スキャンでは参考表示に留める。
-    "undeclared_dead_refs": frozenset({"staged", "since"}),
+    "undeclared_dead_refs": frozenset({"staged", "since", "full"}),
     "undocumented_files": frozenset({"staged", "since", "full"}),
     "plan_vs_tasks": frozenset({"staged", "since", "full"}),
     "dead_doc_links": frozenset({"staged", "since", "full"}),

@@ -480,3 +480,30 @@ def test_guard_probe_identifier_is_not_spelled_out_in_this_repository():
     corpus = review_checks.source_corpus(review_checks.git_files())
 
     assert review_checks.GUARD_PROBE_IDENT not in corpus
+
+
+def test_removal_marker_applies_to_the_whole_paragraph(tmp_path, monkeypatch):
+    # この文書は1文が複数行へ折り返される。行で見ると「名前」と「撤去済み」が別の行へ
+    # 落ちただけで違反になり、実測では違反47件のうち41件がこの形だった。
+    root = tmp_path
+    (root / "docs").mkdir()
+    (root / "docs" / "architecture.md").write_text(
+        "旧`zzzGone`は\n撤去済みである。\n\n`zzzAlive`が現在の実装で値を組み立てる。\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    marked = review_checks.paragraphs_with_removal_marker("docs/architecture.md")
+
+    assert marked == {1, 2}, "撤去の断りがある段落の全行が対象になる"
+    assert 4 not in marked, "断りの無い別段落まで巻き込まない"
+
+
+def test_removal_marker_does_not_leak_across_a_blank_line(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "docs").mkdir()
+    (root / "docs" / "architecture.md").write_text(
+        "この機構は撤去済み。\n\n`zzzStillNamed`が値を組み立てる。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    assert review_checks.paragraphs_with_removal_marker("docs/architecture.md") == {1}
