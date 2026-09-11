@@ -1648,9 +1648,10 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 一覧（`RawOsmRepository.get_distinct_material_values`、DB未接続時は空リストへグレースフル
 デグレード）を返し、`AxisComposer.tsx`の値入力欄（`hooks/useMaterialValues.ts`）が自由テキスト
 入力の隣に「値の候補」セレクトとして添える（値一覧が空の材料は従来どおり自由テキストのみ）。
-日本語ラベルはbackend側では持たず、frontend側`lib/materialValueLabels.ts`が単一の情報源
-（highway/surfaceは`roadFilterAxes.ts`のHIGHWAY_GROUPS/SURFACE_GROUPSから導出、smoothnessは
-OSM標準8値を新規定義、未知の値・材料idはタグ値そのまま表示するフォールバック）。
+各値の日本語ラベルは`domain/material_catalog.py: MaterialSpec.value_labels`が単一の情報源で、
+`GET /api/material-catalog`の`value_labels`として配信される（frontend側は
+`lib/evaluationAxes.ts`が受け取るだけで対訳表を持たない）。未知の値はタグ値そのままを
+表示するフォールバック。
 
 `GET /api/admin/material-catalog/coverage`（Basic認証必須、改善計画T577）が材料ごとの
 欠損割合（元データ[OSMタグ・派生テーブル行]を持たないWay/Edgeの割合と、欠損を不明値と
