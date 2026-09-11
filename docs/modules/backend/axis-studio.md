@@ -17,6 +17,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | services | `axis_registry_service.py`・`axis_preview_service.py` |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py`・`axis_definitions_snapshot.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
+| scripts | `measure_axis_saturation.py` |
 
 ## 分布プレビュー（`services/axis_preview_service.py`）
 
@@ -45,6 +46,21 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `POST /api/admin/axis-definitions/preview-distribution` | Basic認証 | 編集中の`shape`の生値の分布 |
 | `GET /api/admin/material-catalog/{material_id}/distribution` | Basic認証 | 材料1件の値の分布（数値材料のみ、それ以外は`available=false`） |
 
+
+## 飽和の計測（`scripts/measure_axis_saturation.py`）
+
+折れ点が実データの分布と合っていないと、難易度が全区間でほぼ同じ値になる。そうなると
+重みをいくら上げてもルートが変わらない——**症状はエラーではなく「重みが効かない」という
+無言の形**で出るため、ヘルスチェックにも例外にも現れない。
+
+公開軸ごとに、延長で重み付けた難易度の分位点と、上端（95以上）・下端（5以下）が占める
+延長の割合を出す単発スクリプト。母集団と材料の組み立ては分布プレビューと同じ経路を使い、
+違いは**折れ点を通した後の難易度**を見る点にある（飽和は折れ点の当て方の問題なので、
+生値の分布だけでは判断できない）。
+
+軸の難易度は`domain/axis_definitions.py: evaluate_axes_scalar`で得る。個々の軸へ
+`evaluate_axis_scalar`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
+「材料が欠損」として現れてしまう。
 ## データモデル（`domain/axis_definitions.py`）
 
 ### `AxisDefinition`（1軸の宣言、`frozen=True`）
