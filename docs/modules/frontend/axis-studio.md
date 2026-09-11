@@ -16,6 +16,7 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 |---|---|
 | `components/AxisStudio/AxisStudio.tsx` | トップレベル。一覧取得・作成/更新/削除/複製/非公開化の状態管理 |
 | `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
+| `components/AxisStudio/axisDraft.ts` | Draft（フォームの内部状態）とbackendのpayloadの相互変換。`buildShape`・`draftFromExisting`・`pickPassthroughFields`・`PASSTHROUGH_PAYLOAD_KEYS`。変更理由はbackendのpayloadスキーマで、フォームUIの増減とは独立している |
 | `components/AxisStudio/BreakpointCurveEditor.tsx` | 折れ点をドラッグ・矢印キーで調整できるSVGの曲線エディタ。背景へ実データの分布を重ねる |
 | `components/AxisStudio/curveDistributionOverlay.ts` | 曲線エディタの背景へ分布を重ねるための純粋関数（DOM非依存。階級のクリップ・按分、分位線、表示範囲外の割合） |
 | `components/AxisStudio/scoreDistribution.ts` | 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合と警告を求める純粋関数（DOM非依存、`DistributionPreview.tsx`が使う） |
@@ -147,6 +148,21 @@ listAxisDefinitions() ──→ definitions（全軸）
 `draftFromExisting`が読み込んだ既存値のまま素通しで保存される。backend側は
 `is_cosmetic_only_update`でこの差分が表示専用フィールドのみであることを再検証する
 （[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)参照）。
+
+### Draft⇔payloadの変換は別ファイル（`axisDraft.ts`）
+
+`Draft`（フォームの内部状態）とbackendの`AxisDefinitionPayload`の相互変換
+（`emptyDraft`・`draftFromExisting`・`draftFromDuplicate`・`buildShape`・
+`pickPassthroughFields`と、素通しキーのカバレッジ型）は`AxisComposer.tsx`から分けてある。
+**変更理由が違う**——こちらはbackendのpayloadスキーマが変わったときに動き、
+`AxisComposer.tsx`はフォーム項目が増減したときに動く。
+
+`breakpointTools.ts`・`scoreDistribution.ts`・`curveDistributionOverlay.ts`と同じDOM非依存の
+純ロジックで、コンポーネントを起動せず直接テストできる（`axisDraft.test.ts`）。同じ性質は
+フォームを操作する`AxisComposer.test.tsx`でも押さえているが、そちらは導線の検証と混ざる。
+
+`Draft`は「今は選ばれていないkindの入力値」も保持する（kindを切り替えて戻したときに
+打ち直しにならないようにするため）。保存時に`buildShape`が選択中のkindぶんだけを取り出す。
 
 ### `shape_kind`ステップの3カード（フロントUI専用の分類）
 
@@ -322,7 +338,7 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 - `axis_id`はユーザー入力欄を持たない。新規作成/複製時は`generateAxisId()`が
   `crypto.randomUUID()`（利用不可な非セキュアコンテキストでは`Math.random()`ベースの
   フォールバック）で自動採番する。編集時は既存の`axis_id`をそのまま使う。
-- このフォームに編集欄を持たないフィールド（正本は`AxisComposer.tsx`の
+- このフォームに編集欄を持たないフィールド（正本は`axisDraft.ts`の
   `PASSTHROUGH_PAYLOAD_KEYS`。ここには再掲しない）も、既存軸の値をdraftの`passthrough`へ
   素通しして保存時に再送する（未送信だとサーバー側の既定値で上書きされ、既存軸の
   値が失われるため）。フォームが値を組み立てるフィールドは型`EditedPayloadKey`が持ち、

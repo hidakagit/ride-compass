@@ -1109,7 +1109,7 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 - [x] [T710](tasks/T710.md). テストの空白と偽陽性を是正する 規模M（2026-09-10完了。生成物とaxis_definitions_snapshot.jsonを突き合わせるテストを新設[恒真の解消]、生値の列を決める述語をhas_route_facing_raw_valueへ集約し列一致を固定、barrier/traffic_calmingの分類と意図的な除外値を固定、weather_codeの契約を両側に表として持たせ、分布プレビュー2エンドポイントのルーター層テストを新設、実HTTPを発火していた5ファイルへモック追加）
 - [x] [T711](tasks/T711.md). UI/CSSの重複と未定義トークンを是正する 規模M（2026-09-10完了。未定義トークン7種を定義または撤去し、冗長なフォールバック19箇所も一掃して「テーマトークンにフォールバックを付けない」を規約化。ダークの--color-warning-strongを8.5:1へ、自作チェックボックス2箇所を共有ui/Checkboxへ、直接importの借用CSSを解消、未参照SVG 5件を削除）
 - [x] [T712](tasks/T712.md). ensure*関数の再適用強制と、共通骨格の写経取り残しを片付ける 規模M（2026-09-10完了。ensureLayerFromSpecでspecからの再適用を構造的に強制しfilter・layoutの取り残しも解消、_common.pyへrun_chunked_precomputeを新設し4本を移行、axisPreviewApi/healthApi/JMA時刻一覧の重複排除、EvaluationServiceを関数化、hard_filtersのキー集合の正本を新設、curvatureを探索グラフの読み出し経路から撤去）
-- [ ] [T713](tasks/T713.md). AxisComposer.tsxから折れ点エディタとpayload変換を抽出する 規模M（統合レビュー第6回、**優先度低**。1,793行で閾値1,750を43行超過。純増がフォームUIの成長ではなくpayload往復変換由来のため、T355のKEEPの前提が今回の増分には当てはまらない）
+- [x] [T713](tasks/T713.md). AxisComposer.tsxから折れ点エディタとpayload変換を抽出する 規模M（2026-09-11完了。折れ点エディタはT600で先に抽出済み[同ファイルへ分布の重ね描きを足すため]、本タスクでDraft⇔payload変換群をaxisDraft.tsへ。1,793→1,374行で閾値1,750に376行の余裕。「コンポーネントを起動せず直接テストできる」副次効果もaxisDraft.test.ts 9件として実現。数値入力プリミティブの共有部品化は起票時から任意扱いでT715へ独立起票済み）
 
 ### DEFER（トリガー未到達）・閾値の承認待ち
 

@@ -13,7 +13,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AxisDefinitionResponse, AxisShape } from "@/types/route";
-import AxisComposer, { PASSTHROUGH_PAYLOAD_KEYS } from "./AxisComposer";
+import AxisComposer from "./AxisComposer";
+import { PASSTHROUGH_PAYLOAD_KEYS } from "./axisDraft";
 import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 
 // AxisComposerが使うuseMaterialCatalog/useMaterialValuesの取得先。AxisStudio.test.tsxと
