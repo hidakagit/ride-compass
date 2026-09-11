@@ -18,6 +18,7 @@
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
+| `Map/popupEscape.ts` | ポップアップHTMLへOSMタグの生値を埋め込む前のエスケープ（`labelOrEscapedRaw`。対訳表に載る値は素通し、フォールバック側だけ潰す） |
 | `Map/axisInspectorPopup.ts` | 区間インスペクタ（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）のポップアップHTML組み立て |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代定数） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄） |
@@ -250,6 +251,20 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 次数3以上の`road_node`はバックエンドのPOIタイルに焼き込まれているが、専用レイヤーを
 持たない（材料`intersection_count_per_km`としては軸スタジオから引き続き選べるが、
 現在この材料を使う公開軸は無い）。
+
+## ポップアップへOSMタグの生値を出すときはエスケープする
+
+ポップアップの値は`osm_raw_ways`/`osm_raw_pois`のタグ由来＝**第三者が編集できるデータ**で、
+対訳表に載らない値は生のまま文字列へ入る（`SMOOTHNESS_LABELS`・`DESIGNATION_LABELS`・
+停止要因/補給POIのラベル辞書はいずれも`?? 生値`のフォールバックを持つ）。
+組み立てた文字列は`Popup.setHTML()`へ渡り、そこでMapLibreの`DOM.sanitize()`が走る。
+
+そのサニタイザにはバイパスが報告されており（修正版はv6系で、Next.jsのバンドラが
+Workerのスクリプトを解決できず地図が描画されないため上げられない——
+[architecture.md](../../architecture.md)「フロントエンド実装上の注意」）、
+**ライブラリのサニタイザ1枚に安全性を預けない**。埋め込む前に`popupEscape.ts`の
+`labelOrEscapedRaw`を通す。対訳表に載る値は固定の文言なので素通しでよく、
+エスケープが要るのはフォールバック側だけ——その判断を1関数へ集約してある。
 
 ## 本モジュールとの関係が薄いファイル
 

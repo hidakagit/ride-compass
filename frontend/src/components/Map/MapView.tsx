@@ -74,6 +74,7 @@ import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
+import { labelOrEscapedRaw } from "./popupEscape";
 import {
   DYNAMIC_WEATHER_LAYER_IDS,
   type DynamicWeatherGroupState,
@@ -2129,10 +2130,10 @@ const SMOOTHNESS_LABELS: Record<string, string> =
 function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
   const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];
   if (properties.smoothness) {
-    rows.push(`路面状態: ${SMOOTHNESS_LABELS[properties.smoothness] ?? properties.smoothness}`);
+    rows.push(`路面状態: ${labelOrEscapedRaw(SMOOTHNESS_LABELS, properties.smoothness)}`);
   }
   if (properties.designation) {
-    rows.push(DESIGNATION_LABELS[properties.designation] ?? properties.designation);
+    rows.push(labelOrEscapedRaw(DESIGNATION_LABELS, properties.designation));
   }
   if (properties.tunnel) rows.push("トンネル");
   if (properties.bridge) rows.push("橋・高架");
@@ -2164,7 +2165,7 @@ interface PoiPopupProperties {
 }
 
 function buildPoiPopupHtml(prefix: string, labels: Record<string, string>, properties: PoiPopupProperties): string {
-  const label = properties.kind ? (labels[properties.kind] ?? properties.kind) : "不明";
+  const label = properties.kind ? labelOrEscapedRaw(labels, properties.kind) : "不明";
   return `<div style="${POPUP_BODY_STYLE}">${prefix}: ${label}</div>`;
 }
 
