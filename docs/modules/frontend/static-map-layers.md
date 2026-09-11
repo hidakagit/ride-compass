@@ -69,7 +69,7 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
     │
   axisOverlayLayers（二次ramp軸: car_stress・stop_density・accident等）
     │  ← 「材料が同時に表示されているときだけ」太く半透明な下敷きにする
-    │    （applySecondaryAxisCasingStyles）
+    │    （buildAxisOverlayLayersの第2引数casingLayerKeys）
     ▼
   designation → tunnel → oneway
     │  ← ROAD_MATERIAL_TRACK_LAYER_IDS（road+designation+tunnel+onewayの4本）を
@@ -103,7 +103,7 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 （`MATERIAL_TRACK_OFFSET_STEP`=2px）・1次レイヤーの太さ（`DEFAULT_ROAD_LINE_WIDTH`=3px）
 から、二次軸の下敷き幅（`SECONDARY_AXIS_CASING_WIDTH`）が式として算出される。
 
-## 二次軸の下敷き表現（`applySecondaryAxisCasingStyles`）
+## 二次軸の下敷き表現（`buildAxisOverlayLayers`の`casingLayerKeys`）
 
 二次(ramp)軸は「その材料（対応する一次属性の表示レイヤー）が1つでも同時に表示されて
 いるとき」だけ太く半透明な下敷きになる。材料が1つも表示されていなければ通常の太さ・
@@ -111,6 +111,15 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 `axisCatalog.secondaryAxes`（実行時カタログ）の`primaryAttributeIds`から行い、
 `MapView.tsx`は渡された`secondaryAxisCasingLayerIds`（キー集合）をそのまま使うだけの
 汎用描画係のまま保たれている。
+
+**暗黙の前提**: 下敷きかどうかは`makeEnsureAxisRampLayer`が組み立てる**レイヤーspecの
+`line-width`/`line-opacity`そのもの**として持ち、specの外から`setPaintProperty`で
+上書きする形は取らない。`ensureLayerFromSpec`はレイヤーが既にあるときspecのpaintを
+丸ごと再適用するため、spec外で太さを決めると、以後どこかで`ensure()`が呼ばれた時点
+（`setStaticOverlayFilters`はレイヤーごとに`ensure()`を呼ぶ）にspec側の値へ無条件で
+巻き戻り、材料が1つも表示されていない軸まで太く半透明のまま描かれる。この結びつきは
+`MapView.layerOps.test.ts`の「レイヤー追加後にensureが再度呼ばれても下敷きの有無が
+巻き戻らない」で固定してある。
 
 ## レイヤーのデータ取得状態（`ChipButton`/`LayerChip`共通のドット表現）
 

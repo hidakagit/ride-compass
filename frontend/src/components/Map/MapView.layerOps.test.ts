@@ -4,7 +4,7 @@
 // MapView.overlayFilters.test.tsと同じ「実際のMapLibre Mapが必要とするメソッドだけを
 // 持つフェイク」パターンを使う。
 import { describe, expect, it } from "vitest";
-import { DEDICATED_WAY_VALUE_AXES } from "@/components/Map/axisLayers";
+import { DEDICATED_WAY_VALUE_AXES, axisLineLayerId, axisMapLayerId, type RampAxis } from "@/components/Map/axisLayers";
 import { KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
 import {
   DEFAULT_ROAD_LINE_WIDTH,
@@ -20,7 +20,7 @@ import {
   TUNNEL_LAYER_ID,
   applyAxisFeatureStateValues,
   applyRoadMaterialTrackOffsets,
-  applySecondaryAxisCasingStyles,
+  buildAxisOverlayLayers,
   buildStaticOverlayLayers,
   clearRoadTileFeatureState,
   ensureDynamicWeatherLayer,
@@ -40,17 +40,22 @@ function fakeMap() {
   const images = new Set<string>();
   const setFeatureStateCalls: { target: unknown; state: unknown }[] = [];
   const removeFeatureStateCalls: { target: unknown }[] = [];
+  const addedSpecs: { id: string; paint?: Record<string, unknown> }[] = [];
   return {
     __rcStyleReady: true,
     layers,
     sources,
+    addedSpecs,
     paintCalls,
     layoutCalls,
     filterCalls,
     setFeatureStateCalls,
     removeFeatureStateCalls,
     getLayer: (id: string) => (layers.has(id) ? {} : undefined),
-    addLayer: (spec: { id: string }) => layers.add(spec.id),
+    addLayer: (spec: { id: string; paint?: Record<string, unknown> }) => {
+      addedSpecs.push(spec);
+      layers.add(spec.id);
+    },
     getSource: (id: string) => (sources.has(id) ? {} : undefined),
     addSource: (id: string) => sources.add(id),
     setPaintProperty: (layerId: string, name: string, value: unknown) => paintCalls.push({ layerId, name, value }),
@@ -138,45 +143,66 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
   });
 });
 
-describe("applySecondaryAxisCasingStyles（二次軸の下敷き表現、改善計画T490）", () => {
-  const axisOverlayLayers = [
-    { key: "car_stress", layerId: "region-axis-car_stress-line", ensure: () => {} },
-    { key: "stop_density", layerId: "region-axis-stop_density-line", ensure: () => {} },
-  ];
+function rampAxisStub(axisId: string): RampAxis {
+  return {
+    axisId,
+    label: axisId,
+    category: "trafficSafety",
+    tileInputs: [{ property: `${axisId}_per_km`, weight: 1 }],
+    thresholds: [1, 2, 3],
+    unit: "件/km",
+    note: "",
+  };
+}
+
+describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers）", () => {
+  const CAR_STRESS = axisMapLayerId("car_stress");
+  const STOP_DENSITY = axisMapLayerId("stop_density");
+  const rampAxes = [rampAxisStub("car_stress"), rampAxisStub("stop_density")];
+
+  function addedPaint(map: ReturnType<typeof fakeMap>, layerId: string, name: string): unknown {
+    return map.addedSpecs.find((spec) => spec.id === layerId)?.paint?.[name];
+  }
 
   it("材料が同時表示中の軸だけ太く半透明の下敷きスタイルになる", () => {
     const map = fakeMap();
-    map.addLayer({ id: "region-axis-car_stress-line" });
-    map.addLayer({ id: "region-axis-stop_density-line" });
 
-    applySecondaryAxisCasingStyles(
-      map as unknown as Parameters<typeof applySecondaryAxisCasingStyles>[0],
-      new Set(["car_stress"]),
-      axisOverlayLayers
-    );
+    for (const layer of buildAxisOverlayLayers(rampAxes, new Set([CAR_STRESS]))) {
+      layer.ensure(map as unknown as Parameters<typeof layer.ensure>[0]);
+    }
 
-    expect(paintValue(map, "region-axis-car_stress-line", "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
-    expect(paintValue(map, "region-axis-car_stress-line", "line-opacity")).toBe(SECONDARY_AXIS_CASING_OPACITY);
+    expect(addedPaint(map, axisLineLayerId("car_stress"), "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
+    expect(addedPaint(map, axisLineLayerId("car_stress"), "line-opacity")).toBe(SECONDARY_AXIS_CASING_OPACITY);
     // 材料が表示されていないstop_densityは通常の太さ・不透明度のまま。
-    expect(paintValue(map, "region-axis-stop_density-line", "line-width")).toBe(DEFAULT_ROAD_LINE_WIDTH);
-    expect(paintValue(map, "region-axis-stop_density-line", "line-opacity")).toBe(KNOWN_LINE_OPACITY);
+    expect(addedPaint(map, axisLineLayerId("stop_density"), "line-width")).toBe(DEFAULT_ROAD_LINE_WIDTH);
+    expect(addedPaint(map, axisLineLayerId("stop_density"), "line-opacity")).toBe(KNOWN_LINE_OPACITY);
   });
 
-  it("地図に追加されていない軸レイヤーはスキップする", () => {
+  // 下敷きの太さ・不透明度をspecの外から別途setPaintPropertyする形にすると、以後どこかで
+  // ensure()が呼ばれた時点（絞り込みの再適用はレイヤーごとにensureを呼ぶ）にspec側の値へ
+  // 無条件で巻き戻り、材料が1つも表示されていない軸まで太く半透明のまま描かれる。
+  it("レイヤー追加後にensureが再度呼ばれても下敷きの有無が巻き戻らない", () => {
     const map = fakeMap();
-    // car_stressのみ追加、stop_densityは未追加。
+    const layers = buildAxisOverlayLayers(rampAxes, new Set<string>());
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
 
-    map.addLayer({ id: "region-axis-car_stress-line" });
-    applySecondaryAxisCasingStyles(
-      map as unknown as Parameters<typeof applySecondaryAxisCasingStyles>[0],
-      new Set(["car_stress", "stop_density"]),
-      axisOverlayLayers
-    );
+    // 2回目以降はensureLayerFromSpecがsetPaintPropertyでspecを再適用する経路を通る。
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
 
-    expect(map.paintCalls.map((c) => c.layerId)).toEqual([
-      "region-axis-car_stress-line",
-      "region-axis-car_stress-line",
-    ]);
+    for (const axisId of ["car_stress", "stop_density"]) {
+      expect(paintValue(map, axisLineLayerId(axisId), "line-width")).toBe(DEFAULT_ROAD_LINE_WIDTH);
+      expect(paintValue(map, axisLineLayerId(axisId), "line-opacity")).toBe(KNOWN_LINE_OPACITY);
+    }
+  });
+
+  it("材料が表示中の軸はensureを繰り返しても下敷きのまま", () => {
+    const map = fakeMap();
+    const layers = buildAxisOverlayLayers(rampAxes, new Set([CAR_STRESS, STOP_DENSITY]));
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
+
+    expect(paintValue(map, axisLineLayerId("car_stress"), "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
+    expect(paintValue(map, axisLineLayerId("stop_density"), "line-opacity")).toBe(SECONDARY_AXIS_CASING_OPACITY);
   });
 });
 

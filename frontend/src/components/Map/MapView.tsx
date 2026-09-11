@@ -1720,7 +1720,13 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 // visibility切替のみ」パターンだが、axis（軸スタジオのしきい値・色定義）は実行時
 // フェッチで後から変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで
 // 再適用する。
-function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
+//
+// 下敷き表現（useCasing: 材料が同時表示中なら太く半透明、そうでなければ1次と同じ太さ・
+// 不透明度）もこのspecの一部として持つ。`ensureLayerFromSpec`はレイヤーが既にあるとき
+// specのpaintを丸ごと再適用するため、太さ・不透明度をspecの外から別途setPaintPropertyする
+// 形にすると、以後どこかでensureが呼ばれた時点（絞り込みの再適用等）に無条件でspec側の値へ
+// 巻き戻る。
+function makeEnsureAxisRampLayer(axis: RampAxis, useCasing: boolean): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     runWhenStyleReady(map, () => {
       const layerId = axisLineLayerId(axis.axisId);
@@ -1733,8 +1739,8 @@ function makeEnsureAxisRampLayer(axis: RampAxis): (map: MapLibreMap) => void {
         paint: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           "line-color": colorExpression as any,
-          "line-width": SECONDARY_AXIS_CASING_WIDTH,
-          "line-opacity": SECONDARY_AXIS_CASING_OPACITY,
+          "line-width": useCasing ? SECONDARY_AXIS_CASING_WIDTH : DEFAULT_ROAD_LINE_WIDTH,
+          "line-opacity": useCasing ? SECONDARY_AXIS_CASING_OPACITY : KNOWN_LINE_OPACITY,
         },
         layout: { visibility: "none" },
       });
@@ -1748,12 +1754,26 @@ type OverlayLayerEntry = { key: string; layerId: string; ensure: (map: MapLibreM
 // 増減しうる）を反映できるよう関数化してある。呼び出し側（コンポーネント内、useMemo経由）が
 // rampAxesを渡す。テスト（MapView.overlayFilters.test.ts等）から
 // build*(RAMP_AXES)として直接呼べるようexportしている。
-export function buildAxisOverlayLayers(rampAxes: readonly RampAxis[]): readonly OverlayLayerEntry[] {
-  return rampAxes.map((axis) => ({
-    key: axisMapLayerId(axis.axisId) as string,
-    layerId: axisLineLayerId(axis.axisId),
-    ensure: makeEnsureAxisRampLayer(axis),
-  }));
+//
+// 2次（ramp軸）を太く半透明な下敷きにするのは、その材料（1次）が同時に表示されている
+// ときだけにする。材料が1つも表示されていなければ下に隠すものが無いため、通常の太さ・
+// 不透明度（1次と同じ、DEFAULT_ROAD_LINE_WIDTH/KNOWN_LINE_OPACITY）に戻す（常に太く
+// 半透明にすると、道路網が密な都市部では下敷きの重なりだけで地図全体がぼやけて
+// 見えてしまう）。casingLayerKeysは、どの2次レイヤーの材料が現在表示中かをpage.tsx側
+// （axisMaterialLayerIds）が判定して渡す（このファイルはレイヤー固有の材料関係を
+// 知らない汎用描画係のまま、という方針を保つ）。キーはaxisMapLayerId（"axis:car_stress"等）。
+export function buildAxisOverlayLayers(
+  rampAxes: readonly RampAxis[],
+  casingLayerKeys: ReadonlySet<string> = new Set()
+): readonly OverlayLayerEntry[] {
+  return rampAxes.map((axis) => {
+    const key = axisMapLayerId(axis.axisId) as string;
+    return {
+      key,
+      layerId: axisLineLayerId(axis.axisId),
+      ensure: makeEnsureAxisRampLayer(axis, casingLayerKeys.has(key)),
+    };
+  });
 }
 
 // map.addLayer()はbeforeId省略時にレイヤースタックの最上位へ積み上げるため、この配列の
@@ -1810,34 +1830,6 @@ export function buildStaticOverlayLayers(
   ];
 }
 
-// 2次（ramp軸）を太く半透明な下敷きにするのは、その材料（1次）が同時に表示されている
-// ときだけにする。材料が1つも表示されていなければ下に隠すものが無いため、通常の太さ・
-// 不透明度（1次と同じ、DEFAULT_ROAD_LINE_WIDTH/KNOWN_LINE_OPACITY）に戻す（常に太く
-// 半透明にすると、道路網が密な都市部では下敷きの重なりだけで地図全体がぼやけて
-// 見えてしまう）。casingLayerKeysは、どの2次レイヤーの材料が現在表示中かをpage.tsx側
-// （axisMaterialLayerIds）が判定して渡す（このファイルはレイヤー固有の材料関係を
-// 知らない汎用描画係のまま、という方針を保つ）。axisOverlayLayersは「2次（ramp軸）のうち
-// 下敷きの対象」そのもの——STATIC_OVERLAY_LAYERSのramp軸部分と同一集合のため、呼び出し側が
-// buildAxisOverlayLayers(rampAxes)の結果を渡す。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export function applySecondaryAxisCasingStyles(
-  map: MapLibreMap,
-  casingLayerKeys: ReadonlySet<string>,
-  axisOverlayLayers: readonly OverlayLayerEntry[]
-) {
-  runWhenStyleReady(map, () => {
-    for (const target of axisOverlayLayers) {
-      if (!map.getLayer(target.layerId)) continue;
-      const useCasing = casingLayerKeys.has(target.key);
-      map.setPaintProperty(target.layerId, "line-width", useCasing ? SECONDARY_AXIS_CASING_WIDTH : DEFAULT_ROAD_LINE_WIDTH);
-      map.setPaintProperty(
-        target.layerId,
-        "line-opacity",
-        useCasing ? SECONDARY_AXIS_CASING_OPACITY : KNOWN_LINE_OPACITY
-      );
-    }
-  });
-}
 
 type StaticOverlayKey = string;
 
@@ -2251,7 +2243,7 @@ interface MapViewProps {
   /** 2次（ramp軸、車の圧迫感を含む）のうち、材料（1次）が同時に表示されているためcasing
    * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:car_stress"/"axis:accident"等、
    * STATIC_OVERLAY_LAYERSのkeyと同じ）。page.tsx側がaxisMaterialLayerIdsとlayerVisibility
-   * から算出する（applySecondaryAxisCasingStyles参照）。 */
+   * から算出する（buildAxisOverlayLayers参照）。 */
   secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
    * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
@@ -2391,8 +2383,17 @@ export default function MapView({
   const selectedSegmentMarkerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   // 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
-  // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。
-  const axisOverlayLayers = useMemo(() => buildAxisOverlayLayers(rampAxes), [rampAxes]);
+  // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。下敷き表現の有無
+  // （secondaryAxisCasingLayerIds）もレイヤーspecの一部のため、材料の表示が切り替わった
+  // ときもここから作り直す。
+  const secondaryAxisCasingKeys = useMemo(
+    () => new Set(secondaryAxisCasingLayerIds),
+    [secondaryAxisCasingLayerIds]
+  );
+  const axisOverlayLayers = useMemo(
+    () => buildAxisOverlayLayers(rampAxes, secondaryAxisCasingKeys),
+    [rampAxes, secondaryAxisCasingKeys]
+  );
   const staticOverlayLayers = useMemo(
     () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes, dedicatedWayValueDisplays, dedicatedWayValueLoading),
     [axisOverlayLayers, dedicatedAxes, dedicatedWayValueDisplays, dedicatedWayValueLoading]
@@ -2476,12 +2477,10 @@ export default function MapView({
     showStopPoi,
     showSupplyPoi,
     axisVisibility,
-    secondaryAxisCasingLayerIds,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
     staticOverlayLayers,
-    axisOverlayLayers,
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     axisLabels,
@@ -2556,12 +2555,10 @@ export default function MapView({
       showStopPoi,
       showSupplyPoi,
       axisVisibility,
-      secondaryAxisCasingLayerIds,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
       staticOverlayLayers,
-      axisOverlayLayers,
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
       axisLabels,
@@ -2588,11 +2585,9 @@ export default function MapView({
     showStopPoi,
     showSupplyPoi,
     axisVisibility,
-    secondaryAxisCasingLayerIds,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     staticOverlayLayers,
-    axisOverlayLayers,
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     experimentSlots,
@@ -2628,12 +2623,10 @@ export default function MapView({
       showStopPoi,
       showSupplyPoi,
       axisVisibility,
-      secondaryAxisCasingLayerIds,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
       staticOverlayLayers,
-      axisOverlayLayers,
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
       dedicatedWayValues,
@@ -2655,7 +2648,6 @@ export default function MapView({
       },
       staticOverlayLayers
     );
-    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
     for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
       applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
     }
@@ -3375,7 +3367,6 @@ export default function MapView({
       },
       staticOverlayLayers
     );
-    applySecondaryAxisCasingStyles(map, new Set(secondaryAxisCasingLayerIds), axisOverlayLayers);
     // OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
     // 状態が更新されるようにするため）。
@@ -3391,13 +3382,11 @@ export default function MapView({
     showStopPoi,
     showSupplyPoi,
     axisVisibility,
-    secondaryAxisCasingLayerIds,
     recomputeLayerDataStatus,
-    // staticOverlayLayers/axisOverlayLayersが変わる（軸スタジオの実行時
-    // フェッチで新しい軸が現れる）たびにsetStaticOverlayVisibility経由でensure()が
-    // 再実行され、新しい軸のレイヤーもここで初めて登録される。
+    // staticOverlayLayersが変わる（軸スタジオの実行時フェッチで新しい軸が現れる・
+    // 材料の表示切替でramp軸の下敷き表現が変わる）たびにsetStaticOverlayVisibility経由で
+    // ensure()が再実行され、新しい軸のレイヤーもここで初めて登録される。
     staticOverlayLayers,
-    axisOverlayLayers,
   ]);
 
   // way_id→動的値配信層（風=wind_drag_ratio・勾配=effective_gradient）。
