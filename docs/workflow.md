@@ -20,8 +20,9 @@ flowchart TD
     J -->|No| I
     J -->|Yes| K[フルスイート1回]
     K --> L[同一コミットの同期ペアを確認\nOpenAPI/architecture.md/\nタイル世代/axis_definitions等]
-    L --> M[毎タスク完了時の即時チェック5件\nCLAUDE.md参照]
-    M --> N[improvement-plan.md・Txxx.md更新]
+    L --> M[検査器を通す\nreview_checks.py docs]
+    M --> M2[人が見る2点\n共有パターンの全消費者\n本文に残る未起票の派生]
+    M2 --> N[improvement-plan.md・Txxx.md更新]
     N --> O[push直前にfetch→競合確認→push]
     O --> P{周期レビューの\nトリガーに該当するか}
     P -->|Yes| Q["review/README.mdの閾値へ\n/review:all + /code-review提案"]
@@ -71,18 +72,17 @@ flowchart TD
 OpenAPI生成物／`docs/architecture.md`／MVTタイル世代定数／`axis_definitions`の
 変更経路（migrationではなくAPI経由）／本番DBのデータ移行順序。
 
-### 4. 完了と判定する直前（毎タスク、その場で・安価）
+### 4. 完了と判定する直前
 
-CLAUDE.md「コミット時の同期ルール」節末尾の5項目を必ずその場でチェックする
-（周期レビューまで待たない。周期レビュー側だけに置くと次のレビューまで気づけない）:
-
-1. 分割元タスク（複数のTxxxへ分割するタスク）なら、子タスクの未起票フォローアップが
-   残っていないか
-2. 共有フィールド・パターンを変更/廃止したなら、リポジトリ全体で全消費者をgrepしたか
-3. docs/modules/\*.mdを変更したなら、経緯記述・死んだ参照が紛れていないか
-4. 新規ファイルを追加したなら、対応するdocs/modules/\*.mdの対象ファイル表へ追記したか
-5. 自分が書いた/変更したソースコードのコメントに経緯記述が紛れていないか
-   （docs/comments.md参照）
+- **docs・タスク台帳・ソースコードの整合性**は`scripts/review_checks.py docs`が落とす
+  （pre-commitとCIが自動で走る。強制範囲の正本は同ファイルの`DETECTOR_ENFORCEMENT`で、
+  ここにも CLAUDE.md にも書き写さない）。
+- **人が見るしかないのは2点だけ**: ①共有フィールド・パターンを変更/廃止したときの全消費者
+  grep（取り残しと、変更後の契約との両立の両方）、②タスクを`[x]`化するときに本文へ残って
+  いる未実施の派生を別Txxxへ起票すること。どちらも実行したgrepと観測値をコミット
+  メッセージへ残す。
+- **直し方そのものはCLAUDE.md「修正の原則」節に従う**（範囲は性質から導く／検証は別の
+  入力で行う／緩和は影響を測ってから入れる／「効いている」を見てから完了にする）。
 
 ### 5. push直前
 
