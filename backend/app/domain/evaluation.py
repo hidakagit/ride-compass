@@ -328,6 +328,30 @@ def route_facing_material_ids() -> list[str]:
     return list(seen)
 
 
+def route_facing_categorical_material_ids() -> list[str]:
+    """内訳として経路へ運ぶcategorical材料id（安定順）。
+
+    `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、
+    列は別に持つ（`StaticEdgeScoreMatrix.categorical_material_values`）。区間ごとの値を
+    ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`
+    （docs/tasks/T718.md参照）。
+
+    述語をここ1箇所に置く理由は`has_route_facing_raw_value`と同じ——空タイル（列だけを
+    揃える分岐）と通常のタイルが別々に条件を書くと列がずれる。
+    """
+    seen: dict[str, None] = {}
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        definition = AXIS_DEFINITIONS[axis_id]
+        if not definition.is_published:
+            continue
+        for entry in axis_material_shares(definition):
+            spec = MATERIAL_CATALOG.get(entry.material_id)
+            if spec is None or spec.dtype != "categorical":
+                continue
+            seen.setdefault(entry.material_id, None)
+    return list(seen)
+
+
 @dataclass(frozen=True, slots=True)
 class BulkAxisEvaluation:
     """`compute_edge_costs_bulk`の抽出＋計算フェーズ（`_evaluate_axes_bulk`）の結果。
@@ -363,6 +387,9 @@ class BulkAxisEvaluation:
     # 内訳として見せる材料の値（`route_facing_material_ids`の材料だけ）。真偽値材料は
     # 0/1のfloatで持ち、距離加重平均が「該当区間の延長割合」になる。
     material_value_arrays: dict[str, np.ndarray] = field(default_factory=dict)
+    # 内訳として見せるcategorical材料の値（文字列のobject配列）。数値と同じ行列へは
+    # 載せられないため別に持つ。
+    categorical_material_arrays: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def _evaluate_axes_bulk(
@@ -427,6 +454,10 @@ def _evaluate_axes_bulk(
             axis_raw_arrays=empty_raw_arrays,
             material_value_arrays={
                 material_id: np.array([]) for material_id in route_facing_material_ids()
+            },
+            categorical_material_arrays={
+                material_id: np.array([], dtype=object)
+                for material_id in route_facing_categorical_material_ids()
             },
         )
     edges = [graph.edges[edge_id] for edge_id in edge_ids]
@@ -546,6 +577,11 @@ def _evaluate_axes_bulk(
         for material_id in route_facing_material_ids()
         if material_id in material_arrays
     }
+    categorical_material_arrays = {
+        material_id: material_arrays[material_id]
+        for material_id in route_facing_categorical_material_ids()
+        if material_id in material_arrays
+    }
 
     return BulkAxisEvaluation(
         edge_ids=edge_ids,
@@ -559,6 +595,7 @@ def _evaluate_axes_bulk(
         axis_arrays=axis_arrays,
         axis_raw_arrays=axis_raw_arrays,
         material_value_arrays=material_value_arrays,
+        categorical_material_arrays=categorical_material_arrays,
     )
 
 
@@ -757,6 +794,10 @@ class StaticEdgeScoreMatrix:
     # （`route_facing_material_ids`が列の集合と並びの唯一の定義元）。
     material_ids: list[str] = field(default_factory=list)
     material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
+    # 内訳として見せるcategorical材料の値（文字列のobject配列、列は
+    # `categorical_material_ids`の順）。数値の行列へは載せられないため別に持つ。
+    categorical_material_ids: list[str] = field(default_factory=list)
+    categorical_material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0), dtype=object))
 
 
 def build_static_edge_score_matrix(
@@ -816,6 +857,15 @@ def build_static_edge_score_matrix(
         if material_ids
         else np.empty((len(evaluation.edge_ids), 0))
     )
+    categorical_material_ids = list(evaluation.categorical_material_arrays.keys())
+    categorical_material_values = (
+        np.stack(
+            [evaluation.categorical_material_arrays[material_id] for material_id in categorical_material_ids],
+            axis=1,
+        )
+        if categorical_material_ids
+        else np.empty((len(evaluation.edge_ids), 0), dtype=object)
+    )
     return StaticEdgeScoreMatrix(
         edge_ids=evaluation.edge_ids,
         axis_ids=axis_ids,
@@ -824,6 +874,8 @@ def build_static_edge_score_matrix(
         axis_raw_values=axis_raw_values,
         material_ids=material_ids,
         material_values=material_values,
+        categorical_material_ids=categorical_material_ids,
+        categorical_material_values=categorical_material_values,
         distance_m=evaluation.distance_m,
         bearing_deg=evaluation.bearing_deg,
         highway_filter_flags=evaluation.highway_filter_flags,
@@ -860,10 +912,14 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
     axis_ids = matrices[0].axis_ids
     raw_axis_ids = matrices[0].raw_axis_ids
     material_ids = matrices[0].material_ids
+    categorical_material_ids = matrices[0].categorical_material_ids
     all_edge_ids = [edge_id for matrix in matrices for edge_id in matrix.edge_ids]
     axis_scores = np.concatenate([matrix.axis_scores for matrix in matrices], axis=0)
     axis_raw_values = np.concatenate([matrix.axis_raw_values for matrix in matrices], axis=0)
     material_values = np.concatenate([matrix.material_values for matrix in matrices], axis=0)
+    categorical_material_values = np.concatenate(
+        [matrix.categorical_material_values for matrix in matrices], axis=0
+    )
     distance_m = np.concatenate([matrix.distance_m for matrix in matrices])
     bearing_deg = np.concatenate([matrix.bearing_deg for matrix in matrices])
     # フィルタ名の集合は全タイルで同じ（`_evaluate_axes_bulk`が
@@ -890,6 +946,8 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
         axis_raw_values=axis_raw_values[final_indices],
         material_ids=material_ids,
         material_values=material_values[final_indices],
+        categorical_material_ids=categorical_material_ids,
+        categorical_material_values=categorical_material_values[final_indices],
         distance_m=distance_m[final_indices],
         bearing_deg=bearing_deg[final_indices],
         highway_filter_flags={name: flags[final_indices] for name, flags in highway_filter_flags.items()},

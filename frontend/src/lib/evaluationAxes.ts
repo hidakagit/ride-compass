@@ -78,6 +78,8 @@ function preferenceAxisFromCatalog(axis: CatalogAxisEntry): PreferenceAxisDef {
       dtype: entry.dtype,
       unit: entry.unit,
       share: entry.share,
+      // 生成json由来のため値ごとに別のリテラル型になる。対訳表としての形は同じ。
+      valueLabels: (entry.value_labels ?? {}) as Record<string, string>,
     })),
   };
 }

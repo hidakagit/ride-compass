@@ -1195,6 +1195,13 @@ export interface components {
             unit: string;
             /** Share */
             share: number;
+            /**
+             * Value Labels
+             * @default {}
+             */
+            value_labels: {
+                [key: string]: string;
+            };
         };
         /**
          * AxisPreviewRequest
@@ -1710,6 +1717,12 @@ export interface components {
             material_values?: {
                 [key: string]: number;
             };
+            /** Material Category Shares */
+            material_category_shares?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
             /**
              * Is Shortest Distance
              * @default false
@@ -1875,6 +1888,10 @@ export interface components {
             /** Material Values */
             material_values?: {
                 [key: string]: number;
+            };
+            /** Material Categories */
+            material_categories?: {
+                [key: string]: string;
             };
             /** Axis Raw Values */
             axis_raw_values?: {

@@ -84,6 +84,8 @@ export interface AxisMaterialBreakdown {
   /** numeric材料の単位。真偽値材料は空文字。 */
   unit: string;
   share: number;
+  /** categorical材料の「タグ生値→論理名」対訳（他の型では空）。フロントは対応表を持たない。 */
+  valueLabels?: Readonly<Record<string, string>>;
 }
 
 // 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
@@ -152,6 +154,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
         dtype: entry.dtype,
         unit: entry.unit,
         share: entry.share,
+        valueLabels: entry.value_labels ?? {},
       })),
     }));
 }

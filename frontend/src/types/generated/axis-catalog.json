@@ -396,35 +396,63 @@
           "label": "道路種別",
           "dtype": "categorical",
           "unit": "",
-          "share": 0.2
+          "share": 0.2,
+          "value_labels": {
+            "motorway": "高速道路",
+            "motorway_link": "高速道路の連絡路",
+            "trunk": "幹線道路",
+            "trunk_link": "幹線道路の連絡路",
+            "primary": "主要幹線道路",
+            "primary_link": "主要幹線道路の連絡路",
+            "secondary": "地方主要道",
+            "secondary_link": "地方主要道の連絡路",
+            "tertiary": "地方道",
+            "tertiary_link": "地方道の連絡路",
+            "unclassified": "未区分の道路",
+            "residential": "住宅街の道路",
+            "living_street": "生活道路（歩車共存）",
+            "service": "施設内通路",
+            "road": "種別不明の道路",
+            "cycleway": "自転車専用道",
+            "path": "小道・遊歩道",
+            "footway": "歩道",
+            "pedestrian": "歩行者専用道路",
+            "bridleway": "乗馬道",
+            "steps": "階段",
+            "track": "農道・林道"
+          }
         },
         {
           "material_id": "maxspeed_kmh",
           "label": "制限速度(km/h)",
           "dtype": "numeric",
           "unit": "km/h",
-          "share": 0.2
+          "share": 0.2,
+          "value_labels": {}
         },
         {
           "material_id": "lanes_count",
           "label": "車線数",
           "dtype": "numeric",
           "unit": "",
-          "share": 0.2
+          "share": 0.2,
+          "value_labels": {}
         },
         {
           "material_id": "is_designated",
           "label": "指定路線該当（真偽）",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.2
+          "share": 0.2,
+          "value_labels": {}
         },
         {
           "material_id": "motor_vehicle_no",
           "label": "自動車通行不可",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.2
+          "share": 0.2,
+          "value_labels": {}
         }
       ],
       "dynamic_way_value_needs_time": false,
@@ -584,14 +612,16 @@
           "label": "街灯あり",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.5
+          "share": 0.5,
+          "value_labels": {}
         },
         {
           "material_id": "has_tunnel",
           "label": "トンネル",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.5
+          "share": 0.5,
+          "value_labels": {}
         }
       ],
       "dynamic_way_value_needs_time": false,
@@ -752,35 +782,40 @@
           "label": "道路種別が自転車道",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.2667
+          "share": 0.2667,
+          "value_labels": {}
         },
         {
           "material_id": "cycleway_has_track",
           "label": "自転車道(track)を併設",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.2667
+          "share": 0.2667,
+          "value_labels": {}
         },
         {
           "material_id": "shared_pedestrian_path",
           "label": "歩行者自転車共用道",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.2667
+          "share": 0.2667,
+          "value_labels": {}
         },
         {
           "material_id": "cycleway_has_lane",
           "label": "自転車レーン(lane)を併設",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.1333
+          "share": 0.1333,
+          "value_labels": {}
         },
         {
           "material_id": "cycleway_has_shared",
           "label": "バス共用等の自転車レーンを併設",
           "dtype": "boolean",
           "unit": "",
-          "share": 0.0667
+          "share": 0.0667,
+          "value_labels": {}
         }
       ],
       "dynamic_way_value_needs_time": false,
@@ -889,14 +924,16 @@
           "label": "樹木被覆率",
           "dtype": "numeric",
           "unit": "%",
-          "share": 0.5
+          "share": 0.5,
+          "value_labels": {}
         },
         {
           "material_id": "built_percent",
           "label": "建物被覆率",
           "dtype": "numeric",
           "unit": "%",
-          "share": 0.5
+          "share": 0.5,
+          "value_labels": {}
         }
       ],
       "dynamic_way_value_needs_time": false,
@@ -1045,21 +1082,24 @@
           "label": "踏切の密度(回/km)",
           "dtype": "numeric",
           "unit": "回/km",
-          "share": 0.5357
+          "share": 0.5357,
+          "value_labels": {}
         },
         {
           "material_id": "poi_signal_per_km",
           "label": "信号の密度(回/km)",
           "dtype": "numeric",
           "unit": "回/km",
-          "share": 0.3571
+          "share": 0.3571,
+          "value_labels": {}
         },
         {
           "material_id": "poi_stop_per_km",
           "label": "一時停止・徐行の密度(回/km)",
           "dtype": "numeric",
           "unit": "回/km",
-          "share": 0.1071
+          "share": 0.1071,
+          "value_labels": {}
         }
       ],
       "dynamic_way_value_needs_time": false,

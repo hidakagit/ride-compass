@@ -63,3 +63,23 @@ export function formatMaterialBreakdown(
   if (entry.dtype !== "numeric") return null;
   return `${entry.label} ${formatNumber(value)}${entry.unit}`;
 }
+
+/**
+ * categorical材料の内訳1件（例:「住宅街の道 62%」）。
+ *
+ * 出すのは**最も延長の長い値**1つだけ。backendが割合の降順で返すので先頭を取る
+ * （フロントは並べ替えを持たない）。「幹線道路が◯%」のように複数の値をまとめた形には
+ * しない——どの値を幹線とみなすかという判断表をフロントが持つことになり、軸を1本足すと
+ * 表の更新が要る状態に戻るため。ラベルはbackendが返す対訳（`valueLabels`）を引き、
+ * 未登録の値はタグ生値をそのまま出す（新しいOSMタグ値が現れても壊れない）。
+ */
+export function formatCategoryBreakdown(
+  entry: { label: string; valueLabels?: Readonly<Record<string, string>> },
+  shares: Readonly<Record<string, number>> | undefined,
+): string | null {
+  const top = Object.entries(shares ?? {})[0];
+  if (top === undefined) return null;
+  const [value, share] = top;
+  if (!Number.isFinite(share)) return null;
+  return `${entry.valueLabels?.[value] ?? value} ${Math.round(share * 100)}%`;
+}

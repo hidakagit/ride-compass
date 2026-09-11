@@ -7,6 +7,7 @@ import AxisContributionBar from "./AxisContributionBar";
 import {
   DEFAULT_BREAKDOWN_VISIBLE,
   formatAxisRawValue,
+  formatCategoryBreakdown,
   formatMaterialBreakdown,
 } from "./axisRawValue";
 import styles from "./RouteAxisProfile.module.css";
@@ -31,6 +32,9 @@ interface RouteAxisProfileProps {
    * 軸の内訳（PreferenceAxisDef.materialBreakdown）が挙げる材料の値をここから引いて出す。
    * 真偽値材料は0/1で運ばれるため、平均がそのまま該当区間の延長割合になる。 */
   materialValues: Record<string, number>;
+  /** RouteCandidate.material_category_shares（categorical材料id→{値: 延長割合}）。
+   * 数値として平均できない材料の内訳はここから引く。 */
+  materialCategoryShares: Record<string, Record<string, number>>;
   /** 経路の走行距離（km）。単位が「◯◯/km」の軸で、生値から経路全体の実数を出すのに使う。 */
   distanceKm: number | null;
   /** RouteCandidate.overall_difficulty（内訳の合計、絶対基準0-100）。 */
@@ -54,6 +58,7 @@ export default function RouteAxisProfile({
   weights,
   axisRawValues,
   materialValues,
+  materialCategoryShares,
   distanceKm,
   axisDifficulties,
   axisContributions,
@@ -119,7 +124,11 @@ export default function RouteAxisProfile({
           // materialBreakdownで並び順ごと返すため、ここでは並べ替えない）。行数を増やさない
           // よう既定は先頭2件までで、残りは軸の説明ポップオーバーへ回す。
           const breakdownTexts = (axis.materialBreakdown ?? [])
-            .map((entry) => formatMaterialBreakdown(entry, materialValues[entry.materialId]))
+            .map((entry) =>
+              entry.dtype === "categorical"
+                ? formatCategoryBreakdown(entry, materialCategoryShares[entry.materialId])
+                : formatMaterialBreakdown(entry, materialValues[entry.materialId])
+            )
             .filter((text): text is string => text !== null);
           const visibleBreakdown = breakdownTexts.slice(0, DEFAULT_BREAKDOWN_VISIBLE);
           const hiddenBreakdown = breakdownTexts.slice(DEFAULT_BREAKDOWN_VISIBLE);

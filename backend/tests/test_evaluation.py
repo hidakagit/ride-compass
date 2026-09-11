@@ -821,6 +821,12 @@ def test_build_static_edge_score_matrix_for_empty_graph_matches_axis_ids_of_none
     assert len(nonempty_matrix.material_ids) > 0
     assert empty_matrix.material_ids == nonempty_matrix.material_ids
     assert empty_matrix.material_values.shape == (0, len(nonempty_matrix.material_ids))
+    # categorical材料の列（`route_facing_categorical_material_ids`）も同じ理由で揃える。
+    assert len(nonempty_matrix.categorical_material_ids) > 0
+    assert empty_matrix.categorical_material_ids == nonempty_matrix.categorical_material_ids
+    assert empty_matrix.categorical_material_values.shape == (
+        0, len(nonempty_matrix.categorical_material_ids)
+    )
 
 
 def test_has_route_facing_raw_value_excludes_dynamic_material_axes(monkeypatch):
@@ -1324,3 +1330,42 @@ def test_boolean_breakdown_materials_are_carried_as_zero_or_one():
     }
     assert values["lit"] == 1.0
     assert values["has_tunnel"] == 1.0
+
+
+# --- 内訳のcategorical材料（T718） ---
+
+
+def test_route_facing_categorical_material_ids_holds_only_categorical_leaves():
+    from app.domain.evaluation import route_facing_categorical_material_ids, route_facing_material_ids
+
+    categorical = route_facing_categorical_material_ids()
+
+    # 車の圧迫感が内部軸経由で参照するhighway（categorical）。
+    assert "highway" in categorical
+    # 数値・真偽値の列とは重ならない（同じ材料を2つの器で運ばない）。
+    assert not set(categorical) & set(route_facing_material_ids())
+
+
+def test_categorical_breakdown_material_is_carried_as_its_raw_value():
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={
+            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
+            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
+        },
+        edges={"edge-1": _edge()},
+    )
+    materials = {
+        "edge-1": EdgeMaterialBundle(
+            surface="asphalt", way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False
+        )
+    }
+
+    matrix = build_static_edge_score_matrix(graph, materials)
+
+    values = {
+        material_id: matrix.categorical_material_values[0, i]
+        for i, material_id in enumerate(matrix.categorical_material_ids)
+    }
+    # `_edge()`のhighwayがそのまま列へ載る（数値へ変換しない）。
+    assert values["highway"] == graph.edges["edge-1"].highway

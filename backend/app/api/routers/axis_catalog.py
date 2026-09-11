@@ -68,6 +68,7 @@ def _material_breakdown(definition: AxisDefinition) -> list["AxisMaterialBreakdo
                 dtype=spec.dtype,
                 unit=spec.unit or "",
                 share=round(share.share, 4),
+                value_labels=dict(spec.value_labels) if spec.dtype == "categorical" else {},
             )
         )
     return entries
@@ -85,6 +86,11 @@ class AxisMaterialBreakdownEntry(BaseModel):
     unit: str
     #: 各階層で正規化した重みの積（0〜1）。並び順の根拠を画面側でも示せるよう返す。
     share: float
+    #: categorical材料の「タグ生値→論理名」対訳（`MaterialSpec.value_labels`）。
+    #: ルート結果は`material_category_shares`の値をこれで日本語にする。他の型では空。
+    #: 軸スタジオが使う`value_label()`の「論理名 - 物理名」形式にしないのは、走行中に見る
+    #: 画面へ物理名を並べても読み手の判断が増えないため。
+    value_labels: dict[str, str] = {}
 
 
 class AxisCatalogEntry(BaseModel):

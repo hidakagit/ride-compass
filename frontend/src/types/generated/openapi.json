@@ -2696,6 +2696,14 @@
           "share": {
             "type": "number",
             "title": "Share"
+          },
+          "value_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Value Labels",
+            "default": {}
           }
         },
         "type": "object",
@@ -3895,6 +3903,16 @@
             "type": "object",
             "title": "Material Values"
           },
+          "material_category_shares": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Material Category Shares"
+          },
           "is_shortest_distance": {
             "type": "boolean",
             "title": "Is Shortest Distance",
@@ -4267,6 +4285,13 @@
             },
             "type": "object",
             "title": "Material Values"
+          },
+          "material_categories": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Material Categories"
           },
           "axis_raw_values": {
             "additionalProperties": {

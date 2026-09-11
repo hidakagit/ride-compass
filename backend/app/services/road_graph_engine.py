@@ -208,6 +208,9 @@ class LegCostArrays:
     # （`route_facing_material_ids`、静的スコア行列の列）の両方を持つ。区間表示・
     # `material_values`の集計が、探索コストの合成と同じ入力から求めた値を読むために保持する。
     material_arrays: dict[str, np.ndarray]
+    # `full_edge_row`順のcategorical材料id→値の配列（静的スコア行列の列をそのまま指すため
+    # レグ間で共有する）。区間表示の内訳が値ごとの延長割合を出すために保持する。
+    categorical_material_arrays: dict[str, np.ndarray]
     # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
     passage_hours: np.ndarray | None
 
@@ -242,6 +245,12 @@ class _LegCostComposer:
         self._static_material_arrays = {
             material_id: score_matrix.material_values[:, i]
             for i, material_id in enumerate(score_matrix.material_ids)
+        }
+        # 同じくcategorical材料（値が文字列のため別の列で運ぶ、
+        # `route_facing_categorical_material_ids`）。
+        self._categorical_material_arrays = {
+            material_id: score_matrix.categorical_material_values[:, i]
+            for i, material_id in enumerate(score_matrix.categorical_material_ids)
         }
         self._static_axis_scores = {
             axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
@@ -336,6 +345,7 @@ class _LegCostComposer:
             contribution_arrays=contribution_arrays,
             axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=material_arrays,
+            categorical_material_arrays=self._categorical_material_arrays,
             passage_hours=passage,
         )
         self._cache[key] = leg
@@ -1599,6 +1609,7 @@ class RoadGraphEngine:
                 axis_raw_values: dict[str, float] = {}
                 composite_difficulty_value: float | None = None
                 material_values: dict[str, float] = static_material_values
+                material_categories: dict[str, str] = {}
             else:
                 axis_scores = {
                     axis_id: float(arr[row])
@@ -1626,6 +1637,13 @@ class RoadGraphEngine:
                         for material_id in active_material_ids
                         if (value := _material_value_at(leg, material_id, row)) is not None
                     },
+                }
+                # categorical材料は数値として平均できないため、区間ごとの値をそのまま持ち、
+                # ルート集約側（merge_material_category_shares）で延長割合へ畳む。
+                material_categories = {
+                    material_id: str(raw)
+                    for material_id, array in leg.categorical_material_arrays.items()
+                    if material_id in active_material_ids and (raw := array[row]) is not None
                 }
 
             elapsed_hours = cumulative_km / self._assumed_speed_kmh
@@ -1657,6 +1675,7 @@ class RoadGraphEngine:
                     axis_raw_values=axis_raw_values,
                     axis_contributions=axis_contributions,
                     material_values=material_values,
+                    material_categories=material_categories,
                     difficulty=composite_difficulty_value,
                 )
             )

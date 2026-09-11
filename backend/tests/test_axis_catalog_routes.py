@@ -247,3 +247,9 @@ def test_get_axis_catalog_includes_material_breakdown():
     maxspeed = next(entry for entry in car_stress if entry["material_id"] == "maxspeed_kmh")
     assert maxspeed["unit"] == "km/h"
     assert maxspeed["label"]
+    # categorical材料は「タグ生値→論理名」の対訳を添える（フロントは対応表を持たない）。
+    highway = next(entry for entry in car_stress if entry["material_id"] == "highway")
+    assert highway["dtype"] == "categorical"
+    assert highway["value_labels"]["residential"]
+    # 他の型では空（走行中に見る画面へ不要なデータを載せない）。
+    assert maxspeed["value_labels"] == {}

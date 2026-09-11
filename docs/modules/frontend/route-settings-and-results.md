@@ -15,7 +15,7 @@
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/routeTabLabel.ts` | 候補タブの「最短からの超過km」を組み立てる純関数（`shortestDistanceKm`・`extraDistanceLabel`）。タブ列自体はpage.tsxが組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
-| `components/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`・`totalUnitFor`）。「◯◯/km」の単位のときだけ走行距離を掛けて経路全体の実数を添える。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`と、行に出す既定件数`DEFAULT_BREAKDOWN_VISIBLE`も持つ |
+| `components/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`・`totalUnitFor`）。「◯◯/km」の単位のときだけ走行距離を掛けて経路全体の実数を添える。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`（numeric/boolean）・`formatCategoryBreakdown`（categorical、最も延長の長い値）と、行に出す既定件数`DEFAULT_BREAKDOWN_VISIBLE`も持つ |
 | `components/RouteAxisProfile/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
 | `components/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
@@ -172,7 +172,12 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   `RouteCandidate.material_values`、`axisRawValue.ts: formatMaterialBreakdown`）。
   表記は材料の型で決まり、軸ごとの対応表を持たない——numericは距離加重平均＋単位
   （「制限速度 42km/h」）、booleanは該当区間の延長割合（「街灯あり 68%」。値が0/1で
-  運ばれるため平均がそのまま割合になる）。**並べ替えはしない**: backendが正規化重みの
+  運ばれるため平均がそのまま割合になる）、categoricalは**最も延長の長い値**のラベルと割合
+  （「住宅街の道 62%」、`RouteCandidate.material_category_shares` ×
+  `AxisCatalogEntry.material_breakdown[].value_labels`、`formatCategoryBreakdown`）。
+  categoricalで2件目以降を出さないのは、「幹線道路が◯%」のように複数の値をまとめるには
+  どの値を幹線とみなすかという判断表が要り、それをフロントが持つと軸を1本足すたびに表の
+  更新が要る状態へ戻るため。ラベルはbackendが返す対訳を引き、未登録の値はタグ生値のまま出す。**並べ替えはしない**: backendが正規化重みの
   降順で返す並びをそのまま先頭から使う。既定で行に出すのは`DEFAULT_BREAKDOWN_VISIBLE`件
   （2件）までで、残りは軸の説明ポップオーバーへ回す——軸1本あたり最大5件あり、常に全件
   並べると走行中に見る画面としての情報量を超えるため（[設計原則](../../design-principles.md)

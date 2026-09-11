@@ -245,8 +245,13 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 `route_facing_material_ids`が唯一の定義元）→`RouteSegmentDetail.material_values`→
 `merge_material_values`→`RouteCandidate.material_values`。真偽値材料は0/1のfloatで持つため、
 距離加重平均がそのまま「該当区間の延長割合」になり、割合専用の機構を持たずに済む。
-categorical材料は数値列に載せられないため対象外（値ごとの延長割合は
-[T718](../../tasks/T718.md)）。
+categorical材料は数値列に載せられないため、対になる別の列で運ぶ:
+`StaticEdgeScoreMatrix.categorical_material_ids`/`categorical_material_values`
+（文字列のobject配列、列を決める述語は`route_facing_categorical_material_ids`）→
+`RouteSegmentDetail.material_categories`（区間ごとの値）→
+`merge_material_category_shares`（距離加重で「値ごとの延長割合」へ畳む。分母はその材料の値を
+持つ区間だけで、値の無い区間は分母にも入れない）→`RouteCandidate.material_category_shares`。
+真偽値材料を0/1で運んで平均が割合になるのと同じ考え方を、値が3つ以上ある材料へ広げたもの。
 
 **丸めは値の種類で分ける**。距離加重平均そのものは`weighted_mean_by_distance`
 （`domain/difficulty.py`、丸めない）が求め、丸め方は呼び出し側が決める——

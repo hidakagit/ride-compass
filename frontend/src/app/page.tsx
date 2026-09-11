@@ -1716,6 +1716,7 @@ export default function Home() {
                   axisContributions={route.axis_contributions}
                   axisRawValues={route.axis_raw_values}
                   materialValues={route.material_values}
+                  materialCategoryShares={route.material_category_shares}
                   distanceKm={route.distance_km}
                   overallDifficulty={route.overall_difficulty}
                   difficultyLoad={route.difficulty_load ?? null}

@@ -1,4 +1,5 @@
 import math
+from collections import defaultdict
 
 from typing import Callable
 
@@ -56,6 +57,11 @@ class RouteSegmentDetail(BaseModel):
     # プロパティから導出、軸名のハードコード無し）。axis_difficultiesと同じ
     # 「値が無い材料はキーを持たない」規約。評価に使っていない軸の材料は出ない。
     material_values: dict[str, float] = Field(default_factory=dict)
+    # categorical材料id→この区間の値（例: highway→"residential"）。数値の
+    # `material_values`と同じ材料の内訳（docs/tasks/T689.md）だが、値が文字列のため器を
+    # 分ける。ルート集約では距離加重で「値ごとの延長割合」へ畳む
+    # （`merge_material_category_shares`）。
+    material_categories: dict[str, str] = Field(default_factory=dict)
     # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ（`axis_display.py:
     # raw_value_unit`）。得点（0-100）は目盛りの引き方に依存する相対評価のため、軸単体で
     # 経路を判断するにはこの絶対値が要る。axis_difficultiesと同じ「データ無しはキーを
@@ -107,6 +113,11 @@ class RouteCandidate(BaseModel):
     # `RouteSegmentDetail.material_values`を候補全区間へ距離加重平均で集約したもの
     # （`merge_material_values`、`axis_difficulties`と同じ集約方法）。
     material_values: dict[str, float] = Field(default_factory=dict)
+    # categorical材料id→{値: その値が占める延長割合(0〜1)}。
+    # `RouteSegmentDetail.material_categories`を距離加重で畳んだもの
+    # （`merge_material_category_shares`）。合成軸の内訳のうち、数値として平均できない
+    # 材料をこちらで出す。
+    material_category_shares: dict[str, dict[str, float]] = Field(default_factory=dict)
     # 距離だけで選んだ最短経路か（目的地モードのみ。周回は目標距離が距離を決めるため常にFalse）。
     # フロントはこの候補の`distance_km`を基準に、他の候補が何km余分に走るかを出す。
     # 軸設定に沿った候補と最短経路が同じ経路になることもあるため、複数の候補が同時に
@@ -242,6 +253,33 @@ def merge_material_values(segments: list[RouteSegmentDetail]) -> dict[str, float
     `merge_axis_difficulties`と同じ集約方法（`_merge_axis_value_dict`共有実装）。
     """
     return _merge_axis_value_dict(segments, lambda s: s.material_values, _round_significant)
+
+
+def merge_material_category_shares(segments: list[RouteSegmentDetail]) -> dict[str, dict[str, float]]:
+    """`RouteSegmentDetail.material_categories`を材料idごとに「値→延長割合」へ畳む。
+
+    数値材料の`merge_material_values`（距離加重平均）に対応するcategorical版。真偽値材料を
+    0/1で運んで平均が割合になるのと同じ考え方を、値が3つ以上ある材料へ広げたもの。
+    分母はその材料の値を持つ区間の距離合計で、値の無い区間は分母にも入れない
+    （「観測できた範囲でどの値が多いか」を表す）。
+    """
+    totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for segment in segments:
+        distance_km = segment.distance_km or 0.0
+        if distance_km <= 0:
+            continue
+        for material_id, value in segment.material_categories.items():
+            totals[material_id][value] += distance_km
+    shares: dict[str, dict[str, float]] = {}
+    for material_id, by_value in totals.items():
+        total = sum(by_value.values())
+        if total <= 0:
+            continue
+        shares[material_id] = {
+            value: round(distance / total, 4)
+            for value, distance in sorted(by_value.items(), key=lambda item: (-item[1], item[0]))
+        }
+    return shares
 
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:

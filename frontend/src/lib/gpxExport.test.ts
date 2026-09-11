@@ -26,6 +26,7 @@ function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate 
     is_shortest_distance: false,
     axis_contributions: {},
     material_values: {},
+    material_category_shares: {},
     ...overrides,
   };
 }

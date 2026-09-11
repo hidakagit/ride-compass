@@ -20,6 +20,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
     axisContributions: { car_stress: 36.2, night: 2.9 },
     axisRawValues: {},
     materialValues: {},
+    materialCategoryShares: {},
     distanceKm: 30,
     overallDifficulty: 46,
     difficultyLoad: null,
@@ -204,7 +205,49 @@ describe("軸単体で判断するための生値", () => {
     expect(item).toHaveTextContent("3.2%");
   });
 
-  it("値が来ない材料（categorical等）は内訳から飛ばす", () => {
+  it("categorical材料は最も延長の長い値のラベルと割合を出す", () => {
+    const axes: PreferenceAxisDef[] = [
+      {
+        axisId: "car_stress",
+        label: "車の圧迫感",
+        description: "説明",
+        dedicatedWayValueLayer: false,
+        rawValueUnit: null,
+        materialBreakdown: [
+          {
+            materialId: "highway",
+            label: "道路種別",
+            dtype: "categorical",
+            unit: "",
+            share: 0.2,
+            valueLabels: { residential: "住宅街の道", secondary: "主要な道" },
+          },
+          { materialId: "maxspeed_kmh", label: "制限速度", dtype: "numeric", unit: "km/h", share: 0.2 },
+        ],
+      },
+    ];
+
+    render(
+      <RouteAxisProfile
+        {...baseProps({
+          axes,
+          weights: { car_stress: 0.5 },
+          axisDifficulties: { car_stress: 60 },
+          axisContributions: { car_stress: 30 },
+          materialValues: { maxspeed_kmh: 42.3 },
+          // backendが割合の降順で返す（フロントは並べ替えを持たない）。
+          materialCategoryShares: { highway: { residential: 0.62, secondary: 0.38 } },
+        })}
+      />
+    );
+
+    const item = within(screen.getByRole("list", { name: "軸別難易度" })).getAllByRole("listitem")[0];
+    expect(item).toHaveTextContent("住宅街の道 62%・制限速度 42km/h");
+    // 2件目以降の値は出さない（どの値を束ねるかの判断表をフロントが持たないため）。
+    expect(item).not.toHaveTextContent("主要な道");
+  });
+
+  it("値が来ないcategorical材料は内訳から飛ばす", () => {
     const axes: PreferenceAxisDef[] = [
       {
         axisId: "car_stress",

@@ -125,6 +125,8 @@ export interface CatalogAxis {
     dtype: string;
     unit: string;
     share: number;
+    // categorical材料の「タグ生値→論理名」対訳。他の型では空。
+    value_labels?: Record<string, string>;
   }[];
   // コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的）。display.category
   // （地図レイヤーパネルのグルーピング用「terrain」「trafficSafety」等、別語彙）とは

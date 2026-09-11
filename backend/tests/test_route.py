@@ -4,6 +4,7 @@ from app.domain.route import (
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_axis_raw_values,
+    merge_material_category_shares,
     merge_material_values,
 )
 
@@ -352,3 +353,49 @@ def test_merge_axis_raw_values_omits_axis_absent_from_every_segment():
     merged = merge_axis_raw_values(segments)
 
     assert set(merged.keys()) == {"stop_density"}
+
+
+# merge_material_category_shares（categorical材料の内訳。数値材料の距離加重平均に対応する
+# 「値ごとの延長割合」、docs/tasks/T718.md）。
+
+
+def test_merge_material_category_shares_is_distance_weighted():
+    segments = [
+        _segment(0, distance_km=6.0, material_categories={"highway": "residential"}),
+        _segment(1, distance_km=3.0, material_categories={"highway": "secondary"}),
+        _segment(2, distance_km=1.0, material_categories={"highway": "residential"}),
+    ]
+
+    shares = merge_material_category_shares(segments)
+
+    assert shares["highway"] == {"residential": 0.7, "secondary": 0.3}
+
+
+def test_merge_material_category_shares_orders_by_share_descending():
+    # フロントは並べ替えを持たず先頭を「最も延長の長い値」として出す。
+    segments = [
+        _segment(0, distance_km=1.0, material_categories={"highway": "primary"}),
+        _segment(1, distance_km=5.0, material_categories={"highway": "residential"}),
+    ]
+
+    shares = merge_material_category_shares(segments)
+
+    assert list(shares["highway"]) == ["residential", "primary"]
+
+
+def test_merge_material_category_shares_excludes_segments_without_a_value():
+    # 値の無い区間は分母にも入れない（「観測できた範囲でどの値が多いか」を表す）。
+    segments = [
+        _segment(0, distance_km=3.0, material_categories={"highway": "residential"}),
+        _segment(1, distance_km=7.0, material_categories={}),
+    ]
+
+    shares = merge_material_category_shares(segments)
+
+    assert shares["highway"] == {"residential": 1.0}
+
+
+def test_merge_material_category_shares_omits_material_absent_from_every_segment():
+    segments = [_segment(0, distance_km=1.0, material_categories={})]
+
+    assert merge_material_category_shares(segments) == {}

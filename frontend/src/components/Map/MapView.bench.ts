@@ -53,6 +53,7 @@ function makeSegments(count: number): RouteSegmentDetail[] {
         night: (i * 41) % 100,
       },
       material_values: { gradient_percent: (i % 10) - 5, wind_drag_ratio: (i % 7) - 3 },
+      material_categories: {},
       axis_raw_values: {},
       axis_contributions: {
         gradient: (i * 7) % 100,
@@ -85,6 +86,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
       difficulty_load: null,
       axis_difficulties: {},
       material_values: {},
+      material_category_shares: {},
       axis_raw_values: {},
       is_shortest_distance: false,
       axis_contributions: {},
