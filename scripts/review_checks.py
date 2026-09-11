@@ -11,7 +11,8 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
            既存分が大量にあるため参考件数のみで違反に数えない）、
            improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の照合（行頭が
            「状態:」であること自体も違反として見る）、
-           history/・docs/tasks/ への死んだリンク（consistency.md「設計 ↔ 実装」節の機械的部分）
+           history/・docs/tasks/ への死んだリンク（consistency.md「設計 ↔ 実装」節の機械的部分）。
+           どの検知器をどの経路で強制するかの正本は`DETECTOR_ENFORCEMENT`（ここは要約）
   size     規模ウォッチ（complexity.md）: 実装ファイル行数の上位と前回比・閾値発火
   duplication コピペ検出（complexity.md）: jscpdでの完全一致クローンと前回比
   metrics  定量メトリクス（metrics.md）: cloc・churn・テスト件数・静的検査・依存関係
@@ -527,7 +528,7 @@ def find_undocumented_files(candidates: list[str], modules_text: str, all_files:
 # トリガー待ち（improvement-plan側も [ ] のまま）は「保留」で表す。
 OPEN_STATUS_WORDS = ("未着手", "着手中", "進行中", "保留", "調査中", "中断", "作業中")
 # 「見送り」は「今後もやらない確定判断」でimprovement-plan側は[x]にする
-# （CLAUDE.md「コミット時の同期ルール」6番の用語法。トリガー待ちと混ぜない）。
+# （CLAUDE.md「コミット時の同期ルール」節の用語法。トリガー待ちと混ぜない）。
 CLOSED_STATUS_WORDS = ("完了", "撤回", "取り下げ", "却下", "廃止", "見送り")
 # 「存在しないこと自体」を記録している参照（T356: 2026-08-26のcomplexityレビュー結果が保存されなかった件）
 KNOWN_MISSING_HISTORY = {"2026-08-26_complexity.md"}
@@ -545,6 +546,64 @@ def task_status_kind(task_path: Path) -> str | None:
                 return "done"
             return "open"
     return None
+
+
+# タスクの残りを置く節の見出し（「## 派生」「## 残課題」「## フォローアップ」等）。
+# 同じ語は実装メモの散文にも現れるため、判定の単位は地の文ではなく見出しにする
+# （単位ごとの検出件数の実測はdocs/tasks/T751.md）。
+LEFTOVER_HEADING_RE = re.compile(
+    r"^#{2,4}\s.*(派生|積み残し|フォローアップ|残課題|残作業|未検討|やり残|次のステップ)")
+# その節が「別のタスクへ渡した」「今後もやらない」のどちらかを述べていれば、拾われなくなる
+# 残りではない。受け皿の番号はリンク形式でなく素の言及でも数える——番号さえあれば追える。
+TASK_MENTION_RE = re.compile(r"T\d{3,4}")
+LEFTOVER_SETTLED_RE = re.compile(r"見送り|起票しない|新規タスク化はせず|やらない|対応しない|不要と判断")
+MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s")
+
+
+def newly_closed_task_numbers(base_ref: str | None) -> list[str]:
+    """improvement-plan.md の差分で、この差分によって`- [x]`になったタスク番号。
+
+    差分の前から`- [x]`だったものは除く（節の並べ替え・文言修正で行が動いただけの
+    完了済みエントリを毎回蒸し返さないため）。
+    """
+    diff_args = ["diff", "--cached"] if base_ref is None else ["diff", f"{base_ref}..HEAD"]
+    was_closed, now_closed = set(), set()
+    for line in git(*diff_args, "--", str(IMPROVEMENT_PLAN.relative_to(REPO_ROOT))).splitlines():
+        body = line[1:]
+        m = TASK_LINK_RE.search(body)
+        if not m or "- [x]" not in body:
+            continue
+        if line.startswith("-") and not line.startswith("---"):
+            was_closed.add(m.group(1))
+        elif line.startswith("+") and not line.startswith("+++"):
+            now_closed.add(m.group(1))
+    return sorted(now_closed - was_closed)
+
+
+def find_unfiled_deferrals(base_ref: str | None) -> list[str]:
+    """`[x]`にしたタスクの、残りを置く節が別タスクへ渡されていない箇所。
+
+    `[ ]`→`[x]`の瞬間だけを見る。機械抽出は`- [ ]`行しか見ないため、本文に埋もれた残りが
+    以後拾われなくなるのはこの瞬間に確定する。判定は参考出力に留める——節が完了済みの
+    フォローアップの記録であることもあり、どちらかは人にしか分からない。
+    """
+    out = []
+    for num in newly_closed_task_numbers(base_ref):
+        path = TASKS_DIR / f"T{num}.md"
+        if not path.exists():
+            continue
+        lines = read_text(path).splitlines()
+        for i, line in enumerate(lines):
+            if not LEFTOVER_HEADING_RE.match(line):
+                continue
+            j = i + 1
+            while j < len(lines) and not MARKDOWN_HEADING_RE.match(lines[j]):
+                j += 1
+            body = "\n".join(lines[i:j])
+            if TASK_MENTION_RE.search(body) or LEFTOVER_SETTLED_RE.search(body):
+                continue
+            out.append(f"docs/tasks/T{num}.md:{i + 1}: {line.strip()[:90]}")
+    return out
 
 
 GLOBAL_TOKENS_CSS = "frontend/src/app/globals.css"
@@ -707,6 +766,9 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "undefined_css_tokens": frozenset({"staged", "since", "full"}),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
+    # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
+    # 人にしか分からない（docs/tasks/T751.md）。[x]化の瞬間に目へ入れるのが目的。
+    "unfiled_deferrals": frozenset(),
 }
 
 
@@ -751,6 +813,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_undocumented_files(added, modules_text, files + added)))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
                          check_plan_vs_tasks()))
+        sections.append(("unfiled_deferrals", "[x]化したタスクの、別タスクへ渡していない残り（参考、人が判断する）",
+                         find_unfiled_deferrals(None)))
         md_staged = [s for s in staged if s.endswith(".md")]
         sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（ステージ済み.md）",
                          check_dead_doc_links(md_staged)))
@@ -809,6 +873,11 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          })))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
                          check_plan_vs_tasks()))
+        if args.since:
+            sections.append((
+                "unfiled_deferrals",
+                f"[x]化したタスクの、別タスクへ渡していない残り（{args.since} 以降、参考、人が判断する）",
+                find_unfiled_deferrals(args.since)))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]
         sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（.claude・docs 全件）",
                          check_dead_doc_links(md_files)))

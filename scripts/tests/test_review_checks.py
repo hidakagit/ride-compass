@@ -134,7 +134,7 @@ def test_task_status_kind_returns_none_when_the_marker_is_not_at_line_head(tmp_p
 
 def test_task_status_kind_treats_deferred_as_closed_and_on_hold_as_open(tmp_path):
     # 「見送り」は今後もやらない確定判断でimprovement-plan側は[x]、トリガー待ちの
-    # 「保留」は[ ]（CLAUDE.md「コミット時の同期ルール」6番の用語法）。
+    # 「保留」は[ ]（CLAUDE.md「コミット時の同期ルール」節の用語法）。
     deferred = _task_file(tmp_path, "状態: 見送り（ユーザー判断で現状維持）")
     on_hold = _task_file(tmp_path, "状態: 保留（トリガー成立まで着手しない）")
 
@@ -507,3 +507,43 @@ def test_removal_marker_does_not_leak_across_a_blank_line(tmp_path, monkeypatch)
     monkeypatch.setattr(review_checks, "REPO_ROOT", root)
 
     assert review_checks.paragraphs_with_removal_marker("docs/architecture.md") == {1}
+
+
+# --- [x]化したタスクに残る、別タスクへ渡していない残り ---
+
+
+def _plan_and_task(tmp_path, monkeypatch, task_body: str):
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "T900.md").write_text(task_body, encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_checks, "TASKS_DIR", tmp_path / "docs" / "tasks")
+    monkeypatch.setattr(review_checks, "newly_closed_task_numbers", lambda base: ["900"])
+
+
+def test_unfiled_deferrals_reports_a_leftover_section_without_a_task_number(tmp_path, monkeypatch):
+    _plan_and_task(tmp_path, monkeypatch, "# T900\n\n## 派生（関連指摘）\n\n- あとで直す箇所がある。\n")
+
+    assert review_checks.find_unfiled_deferrals(None) == [
+        "docs/tasks/T900.md:3: ## 派生（関連指摘）"
+    ]
+
+
+def test_unfiled_deferrals_accepts_a_bare_task_number_as_the_destination(tmp_path, monkeypatch):
+    _plan_and_task(tmp_path, monkeypatch, "# T900\n\n## 残課題\n\n- T901へ分離した。\n")
+
+    assert review_checks.find_unfiled_deferrals(None) == []
+
+
+def test_unfiled_deferrals_accepts_a_stated_decision_not_to_file(tmp_path, monkeypatch):
+    _plan_and_task(tmp_path, monkeypatch, "# T900\n\n## 積み残し\n\n- 効果が薄いため見送り。\n")
+
+    assert review_checks.find_unfiled_deferrals(None) == []
+
+
+def test_unfiled_deferrals_stops_the_section_at_the_next_heading(tmp_path, monkeypatch):
+    # 次の見出し以降のTxxx言及を巻き込むと、無関係な番号で黙って解消扱いになる。
+    _plan_and_task(
+        tmp_path, monkeypatch,
+        "# T900\n\n## 派生\n\n- あとで直す。\n\n## 検証結果\n\nT901のテストで確認した。\n")
+
+    assert len(review_checks.find_unfiled_deferrals(None)) == 1
