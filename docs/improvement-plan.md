@@ -1096,7 +1096,8 @@ CIのドリフト検知が空振り＋masterが5回連続赤）。実施順序�
 - [x] [T700](tasks/T700.md). 軸スタジオのバリデータ非対称を是正する（GUI操作で全ルート生成が500になりうる） 規模S（統合レビュー第6回 I-7。2026-09-10完了。参照材料の導出をreferenced_materialsへ切り出しAxisDefinition.materialsとバリデータで共有。回帰テスト3件を追加し旧実装で落ちることを確認。backend 1,738 passed）
 - [x] [T701](tasks/T701.md). 「表示範囲が広すぎます」の案内を軸レイヤーへ配線する 規模S〜M（2026-09-10完了。isRoadSurfaceGroupVisibleの第1引数をpropsの形[RoadSurfaceGroupState]へ変え、軸の表示状態を渡さないとコンパイルが通らない形で合流を強制。矛盾コメント2箇所を整理し、static-map-layers.mdへ案内の節を新設）
 - [x] [T702](tasks/T702.md). nextを16.3.4へ更新する（critical 1件の解消） 規模S（統合レビュー第6回 I-9の分割。2026-09-10完了。critical 2→1・high 3→0。推移依存のhigh 2件もnpm audit fix[--forceなし]で解消し直接依存の版は不変。残るcriticalはmaplibre-glのみでT703へ分離済み）
-- [ ] [T703](tasks/T703.md). maplibre-glを6系へ更新する（XSS Sanitizer Bypass、CVSS 10） 規模M（統合レビュー第6回 I-9の分割）— トリガー: 一般公開の意思決定、またはT702完了後に独立タスクとして着手できる余力ができた時点。**到達経路は実在する**（ポップアップに出るOSMタグは第三者が編集できる）
+- [ ] [T703](tasks/T703.md). ポップアップのXSS到達経路を塞ぐ（maplibre-gl `DOM.sanitize()` バイパス、CVSS 10） 規模S＋M（統合レビュー第6回 I-9の分割。2026-09-11に記載を全面見直し——起票時の「6系へ更新する」は初日からarchitecture.mdに記録されている制約[v6のWorker URLをNext.jsが解決できず地図が描画されない]と矛盾しており、6.9.0でも制約が有効であることを配布物で再確認した。到達経路はポップアップの3箇所に特定済みで、**6系へ上げなくても自前エスケープで実害を消せる**[段階1・規模S]。6系更新は段階2へ分離）
+- [ ] [T722](tasks/T722.md). 依存のピン留めの理由を、そのピンから辿れるようにする 規模S（T703の記載見直しで露見。制約は初日から書かれていたが、タスク・package.jsonのどちらからも辿れずタスク提案時に存在しないのと同じだった）
 - [x] [T704](tasks/T704.md). 軸カタログ取得失敗を利用者に見せる（重み設定が無言で捨てられる） 規模S〜M（2026-09-10完了。AxisCatalogへfailedを追加し、RouteSettingsPanelが失敗表示と再試行導線[retryAxisCatalogFetch]を出す。lensAxisIdにもloadedガードを掛け、backendが未知の軸idを黙って無視する非対称を解消）
 - [x] [T705](tasks/T705.md). review_checks.pyの検知範囲を広げる（検知器自身の適用範囲の穴） 規模M（統合レビュー第6回、T693の後。NARRATIVE_PATTERNに時制表現が無い／未定義CSSトークン検知が.tsxとフォールバック付き参照を見ない／死んだ参照がファイル名しか見ない。T656・T675の直後に別の穴から再発している）
 - [x] [T706](tasks/T706.md). CIが検証するNodeと本番が動かすNodeを揃える 規模S（統合レビュー第6回。CI 22 / Dockerfile 20で、package.jsonにenginesが無く機械的に止まらない）
