@@ -1030,24 +1030,16 @@ Response 401（認証情報が無い・誤っている場合）:
 
 ## 5. ルート生成アルゴリズム（仕様書7-11章より）
 
-### Step4-5-7-8-9で実装済み
-1. 現在地を中心に、指定距離から逆算した探索半径を設定（`distance_km / 3`の固定ヒューリスティック）
-2. 8方向に方角を分割し、各方向について球面三角法で2つの経由地点（θ方向・θ+45°方向、半径R）を計算
-3. `[現在地, 経由地A, 経由地B, 現在地]` をopenrouteserviceに1回のリクエストで問い合わせ、周回ルートを取得（8方位分は並列実行）
-4. 合計距離が許容範囲外の候補を除外し、目標距離に近い順にソート
-5. 残った候補それぞれについて、国土地理院APIから獲得標高・最高/最低標高・最大勾配を算出（距離連動サンプリング＝約1km間隔・12〜32点、並列取得）
-6. 残った候補それぞれについて、区間ごとの推定到達時刻（仮定巡航速度から逆算）の風を`WeatherService.get_conditions(point, at=...)`から取得し、進行方位との関係から`wind_score`を算出（標高と同じ距離連動サンプリング、並列取得）。詳細は「風評価（`wind_score`）の設計（Step7）」を参照
-7. 各候補について、openrouteserviceの`extra_info=surface`から`road_score`（舗装率）を算出し、距離の近さ・獲得標高・`wind_score`・`road_score`を候補集合内でmin-max正規化した上で重み付け合成した`total_score`を算出、`total_score`降順に並べ替え。詳細は「路面評価（`road_score`）と総合スコア（`total_score`）の設計（Step8）」を参照
-8. 5-6で使った標高・風の生データと、7で使った路面のインデックス範囲データから、区間ごとの詳細（`segments`）を構築し各候補にマージ。詳細は「候補ルートの難易度可視化の設計（Step9）」を参照
+### 現状
 
-### 将来実装予定
-9. 半径を適応的に調整して距離精度を高める（現在は固定ヒューリスティックのみ、上記「既知の制約」を参照）
-10. 候補地点を道路網の実データ（PostGIS上のRoad Graph等）から選ぶ、候補数を増やす（現在は幾何学的な計算のみ）。Step10でOverpass APIを導入したのは「候補ルートに紐づかない地域全体の路面表示」のためであり、この項目（周回ルート生成そのものの候補地点選定）とは目的が異なる点に注意（Overpass自体は改善計画T222でGraphServiceのDBなし構成撤去に伴いコードから削除済み、現在はPostGIS第一系統のみ）
+周回・経由地・目的地の各生成戦略と、road_graphエンジン（自前Road Graph＋`rustworkx`の
+lazy A*、タイル単位のスコア行列とレグ別コスト配列）の実装は
+[docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)が正本。
 
-風評価（`wind_score`）はStep7で実装済み。「風評価（`wind_score`）の設計（Step7）」を参照。序盤/中盤/終盤で風負荷の重みを変える拡張（帰路の向かい風を重視）は設計上考慮するが、MVPでは必須としない（現状は区間距離での単純な加重平均のみ）。
-
-総合スコアリング（Step8の`total_score`算出機構）が使っていた`scoring.yaml`は
-**改善計画T548（2026-09-03）で撤去済み**（前節「路面評価と総合スコアの設計（Step8）」参照）。
+8方位ぶんの経由地点を球面三角法で作りopenrouteserviceへ問い合わせていた候補生成、および
+候補集合内でmin-max正規化して合成していた`wind_score`・`road_score`・`total_score`はいずれも撤去済み
+（改善計画T462でroad_graphエンジンへ一本化、重みを持っていた`scoring.yaml`はT548で撤去済み）。
+当時の各Stepが何を実装したかは[decisions/step-log.md](decisions/step-log.md)が記録している。
 
 ### 評価重みのリクエスト上書きと評価モデル研究時の構成（研究インターフェース改善 Phase 1）
 
@@ -1182,24 +1174,18 @@ Step8時点の評価（距離・標高・風・路面の4指標）に加え、OS
 旧scoring.yaml（total_score、改善計画T548で撤去済み）には含めない（stop_weightと同じ
 スコープ判断、後述）。
 
-自転車インフラは改善計画T138（評価システムの層構造再設計）で独立軸（`infra_weight`）を
-廃止し車ストレス側へ統合済み（9軸→8軸。当時の車ストレス判定（旧`car_closeness()`、
-改善計画T292で内部軸`car_stress_bicycle_infra_adjustment`へ再設計）のcycleway補正が既に
-自転車インフラの情報を反映しているため、独立に同じ情報を二重に持たない設計）。
-ルート集約統計（`bicycle_infra_score`、専用インフラ区間の距離加重率%）は改善計画T431で
-フロントエンド末端消費者ゼロを確認した上で削除済み（`axis_difficulties["bicycle_infra_quality"]`
-が正）。区間ごとの生値（`RouteSegmentDetail.bicycle_infra`、7値分類）は改善計画T347で削除した
-（下記「自転車インフラの独立公開軸化」節参照）。
+**自転車インフラは独立した公開軸を持たず、車ストレス側へ統合している**（8軸）。車ストレスの
+cycleway補正（内部軸`car_stress_bicycle_infra_adjustment`）が既に自転車インフラの情報を
+反映しており、独立軸にすると同じ情報を二重に数えることになるため。
+ルート集約統計`bicycle_infra_score`・区間ごとの生値`RouteSegmentDetail.bicycle_infra`はいずれも撤去済みで、
+`axis_difficulties["bicycle_infra_quality"]`が正（下記「自転車インフラの独立公開軸化」節参照）。
 
-続く改善計画T139で、安全度軸（旧`safety_weight`）自体を廃止した。highway・cycleway・
-maxspeed・lanes・指定路線由来の部分は既にT138で車ストレス側へ吸収済みのため重複実装せず、
-街灯・トンネル由来の部分のみ`domain/night.py: night_difficulty`として独立させた
-（night軸の既定重み0.0で運用。街灯・トンネルを気にするユーザーが研究モードで
-個別に重みを上げる想定）。事故実績は元から独立軸（`accident`）のため変更なし。
-`domain/safety.py`・`safety_recipe.yaml`・関連API・地図の安全度レイヤーは表示用途
-（研究モードの内訳確認等）として一時的に残置していたが、本番投入前で移行リスクが
-無いことを踏まえ、改善計画T148で削除した（跡地はrecipe.pyの判定プリミティブ・
-`lit`タイルプロパティ等、車ストレス・night軸に転用済みのためそのまま残る）。
+**安全度も独立した軸を持たない。** highway・cycleway・maxspeed・lanes・指定路線由来の部分は
+車ストレスが持ち、街灯・トンネル由来の部分は`domain/night.py: night_difficulty`が持つ
+（night軸の既定重みは0.0。街灯・トンネルを気にするユーザーが研究モードで個別に重みを上げる
+想定）。事故実績は元から独立軸（`accident`）。
+`domain/safety.py`・`safety_recipe.yaml`・`POST /api/region/safety-breakdown`・地図の安全度レイヤーは撤去済み
+（跡地の`recipe.py`判定プリミティブ・`lit`タイルプロパティは車ストレス・night軸へ転用済みのため残る）。
 
 続く改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）で、交差点密度
 （旧`intersection_weight`）の独立軸を廃止し停止密度側へ統合した。`domain/difficulty.py:
@@ -1965,35 +1951,18 @@ stop_density/accidentの3軸が実際に不要になったことを確認した�
 `AxisInputConflictError`を送出する「排他制約の機械的チェック」が設計の核（T142実装中に
 `surface_q`軸の`transform_fn`誤参照を実際に検出した実績がある）。
 
-**改善計画T320: `domain/registry_defaults.py: _register_axes()`を軸id直書きの手動列挙から
-AXIS_DEFINITIONS走査へ一本化した**。以前は`gradient`/`surface_q`/`stop_density`/
-`car_stress`/`accident`/`night`の6軸を1軸ずつ`if axis_id in AXIS_DEFINITIONS: register_axis(
-AxisSpec(axis_id="gradient", ...))`のように手書きしており（`wind`は意図的に未登録）、
-①組み込み軸がAXIS_DEFINITIONSから削除されるとKeyErrorでビルドが落ちる、②軸スタジオが
-新規追加した軸はこの一覧に含まれず`axis-catalog.json`（ビルド時静的生成物）へ永遠に現れない
-——という2つの不整合があった（後者は`scripts/export_openapi.py`側の別ループ
-`_auto_ramp_axes`で部分的に穴埋めしていたが、これ自体が同じロジックの二重実装という
-別の問題だった）。現在は`AXIS_DEFINITIONS.items()`を走査し、公開軸すべて（`wind`も含む、
-軸id・軸の数を一切コードへ書かずに）を登録する。`inputs`・`display`は
+**軸の登録は`AXIS_DEFINITIONS`の走査で行い、軸id・軸の数をコードへ書かない**
+（`domain/registry_defaults.py: _register_axes()`、判定は`is_published`という軸横断の
+性質だけ）。軸idを手で列挙する形にすると、①組み込み軸がDB側から消えたときKeyErrorで
+ビルドが落ちる、②軸スタジオが新規追加した軸が一覧に載らず`axis-catalog.json`
+（ビルド時静的生成物）へ永遠に現れない、の2つが起きる。`inputs`・`display`は
 `domain/axis_display.py: primary_attribute_ids_for()`・`axis_display_for()`
 （`GET /api/axis-catalog`が実行時に同じ軸へ対して呼ぶのと同一の純粋関数、片側import）
-から導出するため、ビルド時静的生成物と実行時APIの計算ロジックが完全に一致する。
-`export_openapi.py`側の`_auto_ramp_axes`は構造的に不要になったため削除した。
-`AxisSpec.transform_fn`/`output_range`/`description`フィールド（いずれも実行時経路の
-どこからも参照されておらず、`axis-catalog.json`へも書き出されていなかった死蔵フィールド）
-も削除した。各軸の`AxisDisplaySpec.label`は`AXIS_DEFINITIONS[axis_id].label`
-（Stage DでDB化・軸スタジオでGUI編集可能な方）に統合済み。ただし`register_defaults()`
-自体はビルド時・テストのみ実行されアプリ起動時には呼ばれないため、軸スタジオでのDB上の
-編集はこの参照を経由して`axis-catalog.json`側へ動的反映されるわけではない
-（`GET /api/axis-catalog`という実行時APIには即座に反映される、下記Stage D節参照）。
+から導出するため、ビルド時静的生成物と実行時APIの計算ロジックが分岐しない。
 
-**改善計画T321（デッドコード監査）: `PrimaryAttributeSpec`の`ingest_fn`/`source`/`geometry`/
-`dtype`/`update_cadence`/`description`フィールドを削除した**。上記の`AxisSpec.transform_fn`
-等と全く同型の死蔵フィールドで、`ingest_fn`はモジュールパス文字列を持つだけで実際に
-`importlib`等で解決する経路が存在せず、他の5フィールドも唯一の消費者`export_openapi.py`が
-`attr_id`/`label`/`shared`の3つしか書き出していなかった。連動して`Geometry`/`DType`/
-`UpdateCadence`のLiteral型エイリアス（この5フィールド専用）も削除した。単体取得関数
-`get_primary_attribute`/`get_axis`（実行時参照ゼロ、テストのみ使用）も同時に削除した。
+ただし`register_defaults()`自体はビルド時・テストのみ実行されアプリ起動時には呼ばれない
+ため、軸スタジオでのDB上の編集がこの参照を経由して`axis-catalog.json`側へ動的反映される
+わけではない（`GET /api/axis-catalog`という実行時APIには即座に反映される、下記Stage D節参照）。
 
 **本レジストリ（`registry.py`）が駆動するのは表示メタデータのみ**。コスト計算側は
 改善計画T221 Stage B/Cで`domain/axis_definitions.py: AXIS_DEFINITIONS`（軸定義データ＋
@@ -2122,24 +2091,6 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 レイヤー」節参照）専用。地図表示は同じ属性を`road-surface-tiles`
 （highway・surface同様プロパティとして焼き込み。車ストレス）と、点データの
 `poi-tiles`（停止要因・交差点密度、後述）で提供する。
-
-### 安全度（改善計画: 安全度レシピ、T148で削除）
-
-車ストレスとは別に、事故・怪我リスクの客観的な目安を表す軸として`domain/safety.py:
-safety_breakdown`（車ストレスと同じ構造、街灯・トンネル補正付き、1-4の整数）を新設して
-いたが、改善計画T139で難易度合成からは外れ、以後は表示専用の別軸として残置していた。
-本番投入前で移行リスクが無いことを踏まえ、改善計画T148で`domain/safety.py`・
-`safety_recipe.yaml`・関連API（`POST /api/region/safety-breakdown`）・地図の安全度レイヤー
-（`frontend/src/components/Map/safetyExpression.ts`）・調整UI
-（`frontend/src/components/SafetyRecipePanel/`）を一括削除した。街灯・トンネル補正は
-T139時点で既に`domain/night.py: night_difficulty`として独立済みのため、削除による評価軸の
-欠落は無い。当時`recipeControls.tsx`（`LevelPicker`/`AdjustmentStepper`/`FieldLabel`）・
-`recipeExpression.ts`・`recipe.py`（判定プリミティブ）は車ストレス軸の実装として
-そのまま残っていたが、改善計画T292で車ストレス自体が専用Pythonレシピを廃止したことに伴い、
-`CarStressRecipePanel.tsx`ごと`recipeExpression.ts`は削除。`recipeControls.tsx`は
-`RouteSettingsPanel`等が引き続き使う`RecipePanelSection`/`withAutoEnable`/`FieldLabel`のみ残し、
-車ストレス専用だった`LevelPicker`/`AdjustmentStepper`等は削除。`recipe.py`は材料タグ正規化
-の純関数群のみ残る（詳細は上記「停止密度・車ストレス...」節参照）。
 
 ### 事故密度（T50、警察庁交通事故統計オープンデータ）
 

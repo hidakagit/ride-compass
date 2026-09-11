@@ -432,3 +432,18 @@ def test_redis_skeleton_allowlist_covers_the_batched_hash_cache():
     # 全国約1,300観測所をpipelineでHashへ一括読み書きする（get_json/set_jsonでは表現
     # できない）。docs/caching.md「自前で骨格を書いてよい例外」に当たる。
     assert "backend/app/services/jma_amedas_service.py" in review_checks.REDIS_SKELETON_ALLOWLIST
+
+
+def test_identifier_exists_accepts_env_var_spelling_of_a_settings_field():
+    # `.env`で設定する環境変数名は、実装側にはpydantic Settingsの小文字フィールドとして
+    # しか現れない。大文字の綴りだけを探すと、設定可能な環境変数を名指しするたび違反になる。
+    corpus = "weather_rate_limit_per_minute: int = 60"
+
+    assert review_checks.identifier_exists("WEATHER_RATE_LIMIT_PER_MINUTE", corpus)
+    assert not review_checks.identifier_exists("REMOVED_RATE_LIMIT_PER_MINUTE", corpus)
+
+
+def test_identifier_exists_does_not_lowercase_camel_case_names():
+    # 小文字化の緩和はSCREAMING_SNAKE_CASEだけに効かせる。
+    assert not review_checks.identifier_exists("WindService", "windservice")
+    assert not review_checks.identifier_exists("WINDSERVICE", "windservice")

@@ -420,6 +420,19 @@ def source_corpus(files: list[str]) -> str:
     return "\n".join(parts)
 
 
+def identifier_exists(token: str, corpus: str) -> bool:
+    """その綴りが実装にあるか。
+
+    SCREAMING_SNAKE_CASEの名前は小文字形も見る。`.env`で設定する環境変数名
+    （`WEATHER_RATE_LIMIT_PER_MINUTE`等）は、実装側にはpydantic Settingsの小文字
+    フィールド（`weather_rate_limit_per_minute`）としてしか現れないため、
+    大文字の綴りだけを探すと設定可能な環境変数を名指しするたびに違反になる。
+    """
+    if token in corpus:
+        return True
+    return token.isupper() and "_" in token and token.lower() in corpus
+
+
 def find_dead_identifier_refs(doc_lines: dict[str, list[tuple[int, str]]], corpus: str) -> list[str]:
     """docs/modulesが名指しする識別子のうち、実装のどこにも綴りが無いもの。
 
@@ -431,7 +444,7 @@ def find_dead_identifier_refs(doc_lines: dict[str, list[tuple[int, str]]], corpu
         for lineno, line in lines:
             tokens = set(DOC_IDENT_RE.findall(line)) | set(DOC_QUALIFIED_IDENT_RE.findall(line))
             for token in sorted(tokens):
-                if looks_like_identifier(token) and token not in corpus:
+                if looks_like_identifier(token) and not identifier_exists(token, corpus):
                     out.append(f"{doc}:{lineno}: `{token}` が実装に存在しない")
     return out
 
