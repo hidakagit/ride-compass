@@ -331,6 +331,22 @@ async def measure_one_to_all(context, lazy_graph, csr, cost_list, bearing, edge_
         f"states={csr.node_count} reached={node_reached}"
     )
 
+    dump_path = os.environ.get("T790_DUMP")
+    if dump_path:
+        # 探索に必要な配列だけを外へ出す（実装基盤の比較を、DB接続もアプリの依存も無い
+        # 隔離した環境で行えるようにするため）。
+        np.savez_compressed(
+            dump_path,
+            indptr=csr.indptr, indices=csr.indices, entry_edge=csr.entry_edge_index,
+            cost=np.asarray(cost_list, dtype=np.float64),
+            length_m=np.asarray(context.statics.edge_length_m, dtype=np.float64),
+            edge_from=np.asarray(edge_from_list, dtype=np.int64),
+            edge_to=np.asarray(edge_to_list, dtype=np.int64),
+            bearing=np.asarray(bearing, dtype=np.float64),
+            origin_index=np.int64(origin_index), node_count=np.int64(csr.node_count),
+        )
+        print(f"探索用の配列を書き出しました: {dump_path}")
+
     # 時刻依存コストを一対全木へ入れる場合の見積もり。scipyは静的な重みしか扱えないため、
     # ここだけは全状態を自前で回すことになる（周回生成の基盤がこの木の上に載っている）。
     full = _edge_astar(
