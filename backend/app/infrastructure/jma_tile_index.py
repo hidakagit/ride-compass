@@ -14,10 +14,9 @@ JMA動的タイルは疎で、平常時はほぼ全てのタイルが空であ�
 委ね、このモジュールはキー設計・TTLだけを持つ（在否の判定自体は`jma_tile_content.py`）。
 """
 
-from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.redis_json_cache import get_json, set_json
 
-__all__ = ["get_index", "is_empty_tile", "set_index"]
+__all__ = ["get_index", "set_index"]
 
 _LOG_CATEGORY = "cache:jma-tile-index"
 # 要素ごとに`basetime`が異なる（risk系・nowc系・rasrf系で別々に更新される）ため、

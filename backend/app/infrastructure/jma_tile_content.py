@@ -4,7 +4,8 @@
 ずれると危険側（危険情報を表示しない）へ倒れるため、判定はここ1箇所だけに置く。
 
 - `jma_tile_redis_cache.py`: 空だと分かったタイルは実体ではなくフラグで持つ
-- `jma_tile_index.py`: クライアントへ「取りに行かなくてよい」と伝える在否インデックス
+- `jma_tile_prewarm_service.py`: クライアントへ「取りに行かなくてよい」と伝える
+  在否インデックス（`jma_tile_index.py`）へ記録する側
 """
 
 import io

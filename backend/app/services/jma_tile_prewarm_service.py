@@ -36,7 +36,8 @@ from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.jma_tile_client import EmptyTile
-from app.infrastructure.jma_tile_index import is_empty_tile, set_index
+from app.infrastructure.jma_tile_content import is_empty_tile
+from app.infrastructure.jma_tile_index import set_index
 from app.infrastructure.jma_tile_interpolation import parse_tile_path
 
 logger = logging.getLogger("ridecompass.jma_tile_prewarm_service")

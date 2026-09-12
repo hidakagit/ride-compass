@@ -8,7 +8,7 @@ from PIL import Image
 
 from app.api.dependencies import get_jma_tile_client
 from app.api.routers.jma_tile import JmaTileIndexElement, JmaTileIndexResponse
-from app.infrastructure.jma_tile_index import is_empty_tile
+from app.infrastructure.jma_tile_content import is_empty_tile
 from app.services.jma_tile_prewarm_service import _PREWARM_BBOX
 from app.main import app
 

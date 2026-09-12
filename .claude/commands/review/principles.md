@@ -216,7 +216,14 @@ Findingsの件数から**機械的に**算出する（主観採点はしない�
       - **レンズ構造（overall/complexity/consistency/ui）そのものを、ドメイン構造
         （backend/frontend等）へ置き換えてはならない**（経緯は_history.md同項参照）。
    e. **集約**: 全シャード完了後、指摘を重複統合し、severity順に並べて標準Findings
-      フォーマットへ統合する。
+      フォーマットへ統合する。**severityに関わらず、全Findingの個票（Evidence・Impact・
+      Root Cause・Recommendation）を`history/`のファイルへ残す**——シャードの出力は
+      Agentの実行結果でファイルとして残らないため、「個票はシャードの出力にある」と
+      書いた時点で失われる。件数が多くて本体へ入れにくい場合は、シャードの出力を
+      そのまま`history/YYYY-MM-DD_<review-type>_shards.md`へ連結して保存し、結果ファイル
+      からリンクする（読み物として整える必要は無い。**起票したタスクが「対象はこの節」と
+      指せれば足りる**）。件数だけを書いて中身を残さないと、そのタスクを閉じるときに
+      「全部やった」と言えるかどうかを判定できない。
    f. **後片付け**: `git branch -D review-<レンズ名>-baseline`で一時ブランチを削除する。
 5. 標準フォーマットで結果をまとめ、`history/YYYY-MM-DD_<review-type>.md` として保存する
    （命名・記載項目は [history/README.md](history/README.md) 参照）。**スコアサマリの値を

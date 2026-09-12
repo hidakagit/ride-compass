@@ -672,9 +672,9 @@ def evaluate_axes_scalar(materials: Mapping[str, object]) -> tuple[dict[str, flo
     """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価する共通ループ
     （コードレビュー指摘の修正: 同じ「`topological_axis_order`で依存順に並べ、
     `evaluate_axis_scalar`の結果を次の軸のmaterialとして混ぜ込みながら進め、公開軸だけを
-    返す」という組み立てが`compute_edge_axis_scores`/`axis_inspector_breakdown`
-    [domain/evaluation.py]・`evaluate_axis_difficulties`[domain/difficulty.py]の3箇所に
-    重複していたための共通化）。
+    返す」という組み立てを、`compute_edge_axis_scores`[domain/evaluation.py]・
+    `axis_inspector_breakdown`[domain/axis_inspector.py]・`evaluate_axis_difficulties`
+    [domain/difficulty.py]が共有する）。
 
     戻り値は`(公開軸のみのdifficulty辞書, 評価済みの内部軸も含む全materials辞書)`。
     前者は内部軸（`is_published=False`）を含まないが、値が算出不能だった公開軸は
