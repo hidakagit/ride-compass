@@ -249,3 +249,17 @@ def test_combining_forward_and_backward_trees_includes_the_turn_at_the_junction(
     assert lazy_graph.edge_ids[junction.backward_state[center]] == "C-E"
     # Nodeごとのコストを単に足すとターンぶんが抜ける（この関数が解いている問題）。
     assert forward.node_cost[center] + backward.node_cost[center] == pytest.approx(200.0)
+
+
+def test_turn_expanded_tree_length_counts_every_edge_on_a_shallow_path():
+    """深さ2の経路（他に深い枝が無い）でも、始点の区間の長さが積算から落ちない。"""
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "V", "D")}
+    edges = {
+        "S-V": _edge("S-V", "S", "V", 0.0, distance_m=300.0),
+        "V-D": _edge("V-D", "V", "D", 0.0, distance_m=400.0),
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+    lazy_graph, _, tree = _tree_for(graph, "S", TurnCostSpec())
+
+    assert tree.node_length_m[lazy_graph.node_id_to_index["V"]] == 300.0
+    assert tree.node_length_m[lazy_graph.node_id_to_index["D"]] == 700.0

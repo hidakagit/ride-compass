@@ -1033,15 +1033,21 @@ def build_turn_expanded_tree(
 
     reached = np.isfinite(state_cost)
     has_pred = reached & (predecessor >= 0)
-    accumulated = np.where(reached, np.asarray(edge_length_m, dtype=float), 0.0)
-    ancestor = np.where(has_pred, predecessor, np.arange(state_count))
+    # ポインタジャンプの不変条件「accumulated[v]はvからancestor[v]までの距離」を保つため、
+    # 木の根（始点の区間）の親として長さ0の番兵を置く。番兵が無いと根が自分自身を指し、
+    # 根の区間の長さが積算から落ちる（深さ2の経路で最後の1区間しか数えない）。
+    sentinel = state_count
+    accumulated = np.zeros(state_count + 1)
+    accumulated[:state_count] = np.where(reached, np.asarray(edge_length_m, dtype=float), 0.0)
+    ancestor = np.full(state_count + 1, sentinel, dtype=np.int64)
+    ancestor[:state_count] = np.where(has_pred, predecessor, sentinel)
     for _ in range(64):  # 木の深さ2^64までの安全弁（実際はlog2(深さ)回で収束する）
         next_ancestor = ancestor[ancestor]
         if np.array_equal(next_ancestor, ancestor):
             break
-        accumulated = accumulated + np.where(ancestor == np.arange(state_count), 0.0, accumulated[ancestor])
+        accumulated = accumulated + accumulated[ancestor]
         ancestor = next_ancestor
-    state_length_m = np.where(reached, accumulated, np.nan)
+    state_length_m = np.where(reached, accumulated[:state_count], np.nan)
 
     # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
     incoming = structure.edge_from if reverse else structure.edge_to

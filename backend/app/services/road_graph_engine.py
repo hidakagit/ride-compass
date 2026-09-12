@@ -102,7 +102,13 @@ from app.domain.routing import (
     build_lazy_road_graph,
     build_node_spatial_index,
     build_search_graph_statics,
-    build_shortest_path_tree,
+    NodeJunction,
+    TurnExpandedStructure,
+    TurnExpandedTree,
+    build_turn_expanded_structure,
+    build_turn_expanded_tree,
+    combine_forward_backward_at_nodes,
+    edge_bearings,
     concat_node_paths,
     find_missing_lazy_graph_edge_id,
     find_nearest_node_indexed,
@@ -112,8 +118,9 @@ from app.domain.routing import (
     pareto_layer_index,
     select_diverse_by_overlap,
     shortest_path_node_ids_lazy,
-    tree_path_edge_indices,
-    tree_path_edge_indices_to_source,
+    turn_expanded_path_edge_indices,
+    turn_expanded_path_from_state,
+    turn_expanded_path_from_state_to_source,
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH, ROUTE_DETOUR_RATIO, WindForecastSeries, estimate_passage_hours, kmh_to_ms
@@ -407,6 +414,9 @@ class _RoadGraphContext:
     # domain/routing.py: SearchGraphStatics参照）。build_shortest_path_treeへは
     # cost_listをそのまま渡す（内部でnp.asarray済みのため、同じ内容を2つ持たない）。
     statics: SearchGraphStatics
+    # 状態＝有向Edge・辺＝ターンの遷移構造（`statics.csr`から導く。起点にもコストにも
+    # 依存しないためリクエスト内で共有する）。
+    turn_structure: TurnExpandedStructure
     # origin_nodeのlazy_graph上のNode index（一対全木の起点）。
     origin_index: int
     # `select_via_nodes`が目的地からの後ろ向き木（転置CSR）をタイル集合キーで
@@ -746,6 +756,17 @@ class RoadGraphEngine:
             len(search.graph.edges), statics_ms, statics_cached,
         )
 
+        turn_started = time.monotonic()
+        turn_structure = await asyncio.to_thread(
+            build_turn_expanded_structure,
+            statics.csr, search.lazy_graph, edge_bearings(search.graph, search.lazy_graph),
+        )
+        logger.info(
+            "prepare turn_structure build states=%d transitions=%d turn_ms=%d",
+            turn_structure.state_count, len(turn_structure.target_state),
+            round((time.monotonic() - turn_started) * 1000),
+        )
+
         return _RoadGraphContext(
             graph=search.graph,
             materials=search.materials,
@@ -762,6 +783,7 @@ class RoadGraphEngine:
             node_lon=search.node_lon,
             night_active=search.night_active,
             statics=statics,
+            turn_structure=turn_structure,
             origin_index=search.lazy_graph.node_id_to_index[origin_node],
             tile_set=search.tile_set,
         )
@@ -947,19 +969,21 @@ class RoadGraphEngine:
 
         tree_started = time.monotonic()
         tree = await asyncio.to_thread(
-            build_shortest_path_tree,
-            statics.csr, context.legs[0].cost_list, statics.edge_length_m, context.origin_index, cost_limit,
+            build_turn_expanded_tree,
+            context.turn_structure, np.asarray(context.legs[0].cost_list), statics.edge_length_m,
+            _origin_states(statics, context.origin_index), kmh_to_ms(context.composer.speed_kmh),
+            statics.csr.node_count, cost_limit=cost_limit,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
-        length = tree.length_m
+        length = tree.node_length_m
         in_ring = (length >= ring_lower_m) & (length <= ring_upper_m)
         in_ring[context.origin_index] = False
         ring = np.flatnonzero(in_ring)
         if len(ring) == 0:
             logger.info(
                 "select_turnarounds ring_nodes=0 reached=%d ring_km=[%.1f,%.1f] tree_ms=%d",
-                int(np.isfinite(tree.cost).sum()), ring_lower_m / 1000, ring_upper_m / 1000, tree_ms,
+                int(np.isfinite(tree.node_cost).sum()), ring_lower_m / 1000, ring_upper_m / 1000, tree_ms,
             )
             return []
 
@@ -976,7 +1000,7 @@ class RoadGraphEngine:
         context.legs = [context.legs[0], inbound]
         if self._penalty_strength > 0:
             with np.errstate(invalid="ignore", divide="ignore"):
-                difficulty = (tree.cost[ring] / ring_length - 1.0) / self._penalty_strength * 100.0
+                difficulty = (tree.node_cost[ring] / ring_length - 1.0) / self._penalty_strength * 100.0
             difficulty = np.where(np.isfinite(difficulty), difficulty, 0.0)
         else:
             # P=0はコスト＝距離（難易度を一切考慮しない）なので全候補同点。
@@ -1031,7 +1055,7 @@ class RoadGraphEngine:
 
         def outbound_edges(node_index: int) -> list[int] | None:
             if node_index not in outbound_cache:
-                outbound_cache[node_index] = tree_path_edge_indices(tree, lazy_graph, node_index)
+                outbound_cache[node_index] = turn_expanded_path_edge_indices(tree, node_index)
             return outbound_cache[node_index]
 
         # 近接判定は、緯度経度を起点基準の平面km座標へ1回だけ変換し（東京規模のbboxでは
@@ -1097,7 +1121,7 @@ class RoadGraphEngine:
         """目的地ルート（起点→目的地、経由地無し）のvia-node方式で、互いに異なる経路を
         最大`max_routes`件返す。周回のretraceペナルティ付き復路探索
         （`trace_loop_from_turnaround`）とは異なり、起点からの前向き木・目的地からの
-        後ろ向き木（CSRの転置、`_get_or_build_reverse_search_statics`）を各1回求めれば、
+        後ろ向き木（遷移の向きを反転した辺基準の木）を各1回求めれば、
         どのNode（via-node）を経由する経路も両木の経路復元だけで確定するため、候補ごとの
         追加探索が発生しない。
 
@@ -1126,15 +1150,19 @@ class RoadGraphEngine:
         destination_index = lazy_graph.node_id_to_index[destination_node]
 
         tree_started = time.monotonic()
+        speed_ms = kmh_to_ms(context.composer.speed_kmh)
         forward_tree = await asyncio.to_thread(
-            build_shortest_path_tree,
-            context.statics.csr, context.legs[0].cost_list, context.statics.edge_length_m, context.origin_index,
+            build_turn_expanded_tree,
+            context.turn_structure, np.asarray(context.legs[0].cost_list), context.statics.edge_length_m,
+            _origin_states(context.statics, context.origin_index), speed_ms, context.statics.csr.node_count,
         )
 
-        if not np.isfinite(forward_tree.cost[destination_index]):
+        if not np.isfinite(forward_tree.node_cost[destination_index]):
             corrected_node = find_nearest_node_indexed(
                 context.node_index, destination,
-                predicate=lambda node_id: np.isfinite(forward_tree.cost[lazy_graph.node_id_to_index[node_id]]),
+                predicate=lambda node_id: np.isfinite(
+                    forward_tree.node_cost[lazy_graph.node_id_to_index[node_id]]
+                ),
             )
             if corrected_node is None:
                 logger.warning(
@@ -1153,12 +1181,9 @@ class RoadGraphEngine:
                 destination.latitude, destination.longitude,
             )
 
-        reverse_statics, reverse_statics_cached = await _get_or_build_reverse_search_statics(
-            context.tile_set, lazy_graph, context.graph
-        )
         # 迂回率は前向き木（起点から1km以上先の到達Node）の実測中央値を使い、学習値として保存する。
-        reached = np.flatnonzero(np.isfinite(forward_tree.cost) & (forward_tree.length_m >= 1000.0))
-        detour_ratio_median = _median_detour_ratio(context, reached, forward_tree.length_m[reached])
+        reached = np.flatnonzero(np.isfinite(forward_tree.node_cost) & (forward_tree.node_length_m >= 1000.0))
+        detour_ratio_median = _median_detour_ratio(context, reached, forward_tree.node_length_m[reached])
         inbound_detour_ratio = _learn_detour_ratio(context, detour_ratio_median)
         # 後ろ向き木は目的地へ向かうレグ: 目的地を基準点に、到着予定時刻を
         # 「起点〜目的地の直線距離×迂回率÷仮定速度」に置いて合成する。
@@ -1168,13 +1193,22 @@ class RoadGraphEngine:
         inbound = context.composer.compose("inbound", destination, arrival_hours, -1, detour_ratio=inbound_detour_ratio)
         context.legs = [context.legs[0], inbound]
         backward_tree = await asyncio.to_thread(
-            build_shortest_path_tree,
-            reverse_statics.csr, inbound.cost_list, reverse_statics.edge_length_m, destination_index,
+            build_turn_expanded_tree,
+            context.turn_structure, np.asarray(inbound.cost_list), context.statics.edge_length_m,
+            _destination_states(context.turn_structure, destination_index), speed_ms,
+            context.statics.csr.node_count, reverse=True,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
-        combined_cost = forward_tree.cost + backward_tree.cost
-        combined_length = forward_tree.length_m + backward_tree.length_m
+        # Nodeで単に前向き＋後ろ向きを足すと、そのNodeで曲がる費用が抜ける。
+        junction = combine_forward_backward_at_nodes(
+            context.turn_structure, forward_tree, backward_tree, speed_ms, context.statics.csr.node_count
+        )
+        # 目的地そのものを経由Nodeとする経路（＝経由せず直行する経路）も候補に含める。
+        # junctionは「入る区間×出る区間」の対で作るため、そこで終わる経路は現れない。
+        _add_terminal_candidate(junction, forward_tree, destination_index)
+        combined_cost = junction.cost
+        combined_length = junction.length_m
         reachable = np.isfinite(combined_cost)
         if not np.any(reachable):
             # 改善計画docs/logging.md「候補0件はWARNINGへ昇格し、原因の内訳を同じ行に含める」:
@@ -1182,12 +1216,11 @@ class RoadGraphEngine:
             # （前向きのみ0なら起点側、後ろ向きのみ0なら目的地側の孤立を疑える）。
             logger.warning(
                 "select_via_nodes reachable=0 forward_reached=%d backward_reached=%d "
-                "destination_reached_by_forward=%s origin_reached_by_backward=%s "
-                "tree_ms=%d reverse_statics_cached=%s",
-                int(np.isfinite(forward_tree.cost).sum()), int(np.isfinite(backward_tree.cost).sum()),
-                bool(np.isfinite(forward_tree.cost[destination_index])),
-                bool(np.isfinite(backward_tree.cost[context.origin_index])),
-                tree_ms, reverse_statics_cached,
+                "destination_reached_by_forward=%s origin_reached_by_backward=%s tree_ms=%d",
+                int(np.isfinite(forward_tree.node_cost).sum()), int(np.isfinite(backward_tree.node_cost).sum()),
+                bool(np.isfinite(forward_tree.node_cost[destination_index])),
+                bool(np.isfinite(backward_tree.node_cost[context.origin_index])),
+                tree_ms,
             )
             return []
 
@@ -1227,8 +1260,16 @@ class RoadGraphEngine:
 
         def full_edges(node_index: int) -> list[int] | None:
             if node_index not in full_edges_cache:
-                forward_edges = tree_path_edge_indices(forward_tree, lazy_graph, node_index)
-                backward_edges = tree_path_edge_indices_to_source(backward_tree, lazy_graph, node_index)
+                forward_state = int(junction.forward_state[node_index])
+                backward_state = int(junction.backward_state[node_index])
+                forward_edges = (
+                    turn_expanded_path_from_state(forward_tree, forward_state) if forward_state >= 0 else None
+                )
+                # backward_stateが-1なのは目的地そのものを指す場合で、後ろ向きの区間は無い。
+                backward_edges = (
+                    turn_expanded_path_from_state_to_source(backward_tree, backward_state)
+                    if backward_state >= 0 else []
+                )
                 if forward_edges is None or backward_edges is None:
                     full_edges_cache[node_index] = None
                 else:
@@ -1265,9 +1306,9 @@ class RoadGraphEngine:
 
         logger.info(
             "select_via_nodes reachable=%d within_stretch=%d examined=%d selected=%d max_routes=%d "
-            "best_km=%.1f detour_ratio_median=%.2f tree_ms=%d reverse_statics_cached=%s",
+            "best_km=%.1f detour_ratio_median=%.2f tree_ms=%d",
             int(reachable.sum()), len(candidates), len(ranked), len(traced), max_routes,
-            best_length_m / 1000, detour_ratio_median, tree_ms, reverse_statics_cached,
+            best_length_m / 1000, detour_ratio_median, tree_ms,
         )
         return traced
 
@@ -1302,42 +1343,46 @@ class RoadGraphEngine:
         destination_index = lazy_graph.node_id_to_index[destination_node]
 
         started = time.monotonic()
-        reverse_statics, _ = await _get_or_build_reverse_search_statics(
-            context.tile_set, lazy_graph, context.graph
-        )
         excluded = context.composer.lazy_hard_filter_excluded
+        distance_cost = np.where(excluded, np.inf, context.statics.edge_length_m)
+        # 距離最短の基準線のため、ターンの費用は加えない（速度0で換算＝加算量0）。
         forward_tree = await asyncio.to_thread(
-            build_shortest_path_tree,
-            context.statics.csr,
-            np.where(excluded, np.inf, context.statics.edge_length_m),
-            context.statics.edge_length_m,
-            context.origin_index,
+            build_turn_expanded_tree,
+            context.turn_structure, distance_cost, context.statics.edge_length_m,
+            _origin_states(context.statics, context.origin_index), 0.0, context.statics.csr.node_count,
         )
         backward_tree = await asyncio.to_thread(
-            build_shortest_path_tree,
-            reverse_statics.csr,
-            np.where(excluded, np.inf, reverse_statics.edge_length_m),
-            reverse_statics.edge_length_m,
-            destination_index,
+            build_turn_expanded_tree,
+            context.turn_structure, distance_cost, context.statics.edge_length_m,
+            _destination_states(context.turn_structure, destination_index), 0.0,
+            context.statics.csr.node_count, reverse=True,
         )
-        combined_length = forward_tree.length_m + backward_tree.length_m
-        reachable = np.isfinite(forward_tree.cost) & np.isfinite(backward_tree.cost)
+        junction = combine_forward_backward_at_nodes(
+            context.turn_structure, forward_tree, backward_tree, 0.0, context.statics.csr.node_count
+        )
+        combined_length = junction.length_m
+        reachable = np.isfinite(junction.cost)
         if not np.any(reachable):
             logger.warning(
                 "select_shortest_distance_route reachable=0 forward_reached=%d backward_reached=%d",
-                int(np.isfinite(forward_tree.cost).sum()), int(np.isfinite(backward_tree.cost).sum()),
+                int(np.isfinite(forward_tree.node_cost).sum()), int(np.isfinite(backward_tree.node_cost).sum()),
             )
             return None
 
         masked = np.where(reachable, combined_length, np.inf)
         shortest_m = float(masked.min())
         on_path = np.flatnonzero(masked <= shortest_m + 1.0)
-        via_index = int(on_path[np.argmin(np.abs(forward_tree.length_m[on_path] - shortest_m / 2))])
+        via_index = int(on_path[np.argmin(np.abs(forward_tree.node_length_m[on_path] - shortest_m / 2))])
 
-        forward_edges = tree_path_edge_indices(forward_tree, lazy_graph, via_index)
-        backward_edges = tree_path_edge_indices_to_source(backward_tree, lazy_graph, via_index)
-        if forward_edges is None or backward_edges is None:
+        forward_state = int(junction.forward_state[via_index])
+        backward_state = int(junction.backward_state[via_index])
+        if forward_state < 0:
             return None
+        forward_edges = turn_expanded_path_from_state(forward_tree, forward_state)
+        backward_edges = (
+            turn_expanded_path_from_state_to_source(backward_tree, backward_state)
+            if backward_state >= 0 else []
+        )
         edge_ids = [lazy_graph.edge_ids[index] for index in forward_edges + backward_edges]
         if not edge_ids:
             return None
@@ -1872,24 +1917,32 @@ async def _get_or_build_search_statics(
     return statics, False
 
 
-async def _get_or_build_reverse_search_statics(
-    tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
-) -> tuple[SearchGraphStatics, bool]:
-    """目的地からの後ろ向き木用の転置CSR（`domain/routing.py: SearchGraphStatics`、
-    `reverse=True`）を、`_get_or_build_search_statics`と同じタイル集合キーでキャッシュする。
-    目的地ルートのvia-node方式選定（`select_via_nodes`）だけが呼ぶ——
-    周回生成・`preview_segment`は後ろ向き木を使わないため構築しない。`lazy_graph`は
-    呼び出し元（`prepare`）が`_ensure_lazy_graph_consistent`で検証済みのものである前提
-    （`_get_or_build_search_statics`と同じ契約、再構築ロジックは持たない）。
+def _origin_states(statics: SearchGraphStatics, node_index: int) -> np.ndarray:
+    """`node_index`から出る有向Edge（＝辺基準の木の始点となる状態）。"""
+    csr = statics.csr
+    return csr.entry_edge_index[csr.indptr[node_index]:csr.indptr[node_index + 1]].astype(np.int64)
+
+
+def _add_terminal_candidate(
+    junction: NodeJunction, forward: TurnExpandedTree, destination_index: int
+) -> None:
+    """目的地そのものを経由Nodeとする候補（＝どこも経由せず目的地で終わる経路）を足す。
+
+    `combine_forward_backward_at_nodes`は「入る区間×出る区間」の対でNodeを繋ぐため、
+    そこで終わる経路は現れない。後ろ向きの区間が無いことは`backward_state=-1`で表す。
     """
-    if tile_set is not None:
-        cached = search_graph_cache.get_reverse_search_statics(tile_set)
-        if cached is not None:
-            return cached, True
-    statics = await asyncio.to_thread(build_search_graph_statics, lazy_graph, graph, reverse=True)
-    if tile_set is not None:
-        search_graph_cache.set_reverse_search_statics(tile_set, statics)
-    return statics, False
+    state = int(forward.node_best_state[destination_index])
+    if state < 0:
+        return
+    junction.cost[destination_index] = forward.node_cost[destination_index]
+    junction.length_m[destination_index] = forward.node_length_m[destination_index]
+    junction.forward_state[destination_index] = state
+    junction.backward_state[destination_index] = -1
+
+
+def _destination_states(structure: TurnExpandedStructure, node_index: int) -> np.ndarray:
+    """`node_index`へ入る有向Edge（＝逆向きの辺基準木の始点となる状態）。"""
+    return np.flatnonzero(structure.edge_to == node_index)
 
 
 def _median_detour_ratio(context: _RoadGraphContext, node_indices: np.ndarray, length_m: np.ndarray) -> float:

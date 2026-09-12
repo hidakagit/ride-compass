@@ -1618,18 +1618,6 @@ async def test_select_via_nodes_is_deterministic_for_tied_candidates():
     assert [t.data for t in first] == [t.data for t in second]
 
 
-async def test_select_via_nodes_caches_reverse_search_statics_by_tile_set():
-    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0])
-    tile_set = frozenset({(12, 100, 200)})
-    generator, _, _ = make_generator(graph, tile_set=tile_set)
-    engine = generator._engine
-    context = await _prepare_destination_context(generator, DESTINATION_20KM)
-
-    assert search_graph_cache.reverse_search_statics_cache_size() == 0
-    await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=1)
-    assert search_graph_cache.reverse_search_statics_cache_size() == 1
-
-
 async def test_select_via_nodes_returns_empty_when_destination_is_unreachable():
     # 起点側("o"-"x")と目的地側("d"-"y")が互いに繋がっていない2つの連結成分。
     # 目的地はNode自体は存在する（スナップは成功する）が、起点から到達不能。
@@ -2036,8 +2024,10 @@ def _build_context_score_fields(
         composer=composer,
         legs=[composer.compose("outbound", origin, 0.0, +1)],
         # 一対全木用（これらのテストはselect_loop_turnaroundsを経由しないため
-        # statics=None・origin_index=0のダミーでよい）。tile_set=Noneも同じ理由。
+        # statics=None・turn_structure=None・origin_index=0のダミーでよい）。
+        # tile_set=Noneも同じ理由。
         statics=None,
+        turn_structure=None,
         origin_index=0,
         tile_set=None,
         full_edge_row=full_edge_row,
