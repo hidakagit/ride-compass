@@ -92,7 +92,12 @@ import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/lib/gpxExport";
-import { extraDistanceLabel, shortestDistanceKm } from "@/lib/routeTabLabel";
+import {
+  SPLICED_ROUTE_ID_PREFIX,
+  extraDistanceLabel,
+  isSplicedRoute,
+  shortestDistanceKm,
+} from "@/lib/routeTabLabel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -1464,7 +1469,7 @@ export default function Home() {
       }
       // 生成の上限（max_routes）とは別枠で足す——上限は「生成が何本探すか」の指定で、
       // 利用者が作った組み合わせを押し出す理由が無い。
-      const unique = { ...spliced, id: `${spliced.id}-${routes.length}` };
+      const unique = { ...spliced, id: `${SPLICED_ROUTE_ID_PREFIX}-${routes.length}` };
       setRoutes([...routes, unique]);
       setSelectedRouteId(unique.id);
       setSpliceTargetId(null);
@@ -1742,9 +1747,11 @@ export default function Home() {
                       付けないが、複数件を見分けられるよう順位番号は付ける。 */}
                   {route.is_shortest_distance
                     ? "最短"
-                    : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
-                      ? route.direction_label
-                      : `${index + 1}`}{" "}
+                    : isSplicedRoute(route)
+                      ? "合成"
+                      : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
+                        ? route.direction_label
+                        : `${index + 1}`}{" "}
                   {route.distance_km.toFixed(1)} km
                   {/* 最短経路から何km余分に走るか。軸設定に沿ったルートを走る対価であり、
                       候補を見比べるこの場所に無いと、比較のたびにタブを開き直すことになる。 */}

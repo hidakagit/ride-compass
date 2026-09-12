@@ -846,6 +846,30 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
+  it("区間を乗り換えて作った候補のタブは「合成」と示す", async () => {
+    // 合成ルートは並び順（overall_difficulty昇順）の外へ追加されるため順位番号が意味を
+    // 持たない。生成候補と同じ「順位番号 距離」で並ぶと、一覧の中で見分けられない
+    // （docs/tasks/T621.md）。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [
+        makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート", distance_km: 18.0 }),
+        makeCandidate({ id: "route-spliced-1", direction_label: "組み合わせたルート", distance_km: 19.5 }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "合成 19.5 km" })).toBeInTheDocument();
+    });
+  });
+
   it("T592フォローアップ: 研究モード中は区間クリック詳細に材料値(material_values)を表示する", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
