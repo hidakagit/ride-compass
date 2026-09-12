@@ -12,6 +12,8 @@ from app.infrastructure.jma_tile_client import (
     JmaTileNotFoundError,
     is_target_times_path,
 )
+from pydantic import ValidationError
+
 from app.infrastructure.jma_tile_index import get_index
 from app.domain.strict_model import StrictModel
 from app.infrastructure.jma_tile_interpolation import (
@@ -120,7 +122,14 @@ async def jma_tile_index() -> JmaTileIndexResponse:
     index = await get_index()
     if index is None:
         return JmaTileIndexResponse(available=False)
-    return JmaTileIndexResponse(available=True, **index)
+    try:
+        return JmaTileIndexResponse(available=True, **index)
+    except ValidationError as exc:
+        # Redisに残っているのは**過去のコードが書いた形**で、鍵にも版が無い。今のモデルと
+        # 食い違えば`**index`は例外になる——それを外へ出すと、インデックスが無いときより
+        # 悪い（500で地図が出ない）。fail-openの契約どおり「無い」へ倒す。
+        logger.warning("JMAタイル在否インデックスの形が現在のモデルと一致しません error=%r", exc)
+        return JmaTileIndexResponse(available=False)
 
 
 @router.get("/api/jma-tile/{path:path}")

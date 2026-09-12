@@ -244,9 +244,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   // categorical材料でも動的値一覧に対応していない場合[bicycle_infra等]は空配列が返り、
   // 呼び出し先の入力欄は自由テキストのままになる）。
   const selectedCategoricalDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
-  const categoricalMaterialValues = useMaterialValues(
-    selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null,
-  );
+  const { values: categoricalMaterialValues, unavailable: categoricalValuesUnavailable } =
+    useMaterialValues(selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null);
   // 折れ点の自動生成フォーム（範囲＋形の3入力）の下書き。draft.breakpointsとは別の
   // 使い捨て入力欄で、「生成」を押すまでdraft.breakpointsへは反映しない。
   const [generatorZeroValue, setGeneratorZeroValue] = useState(0);
@@ -1017,7 +1016,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     description={
                       (categoricalMaterialValues.length > 0
                         ? "値は下の候補（実データに含まれる値）から選びます。"
-                        : "値は元データのタグ値と完全に一致する文字列で入力します。") +
+                        : categoricalValuesUnavailable
+                          ? "候補を取得できませんでした（DBへ接続できないか、集計が時間内に終わりませんでした）。値は元データのタグ値と完全に一致する文字列で入力します。"
+                          : "値は元データのタグ値と完全に一致する文字列で入力します。") +
                       "ここに設定していない値の区間は評価対象外（データなし扱い）になります。"
                     }
                   />

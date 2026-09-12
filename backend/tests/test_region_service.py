@@ -443,17 +443,19 @@ async def test_material_values_returns_repository_result():
     assert repository.distinct_material_values_calls == ["highway"]
 
 
-async def test_material_values_no_repository_returns_empty_list():
+async def test_material_values_without_a_repository_are_unavailable_not_empty():
+    # 「候補が無い」と「候補を出せなかった」を区別する。両方を空リストへ倒すと、
+    # DBのタイムアウトが「この材料には値が無い」として静かに表示される。
     service = RegionService()
 
-    assert await service.get_material_values("highway") == []
+    assert await service.get_material_values("highway") is None
 
 
-async def test_material_values_db_error_returns_empty_list():
+async def test_material_values_db_error_is_unavailable_not_empty():
     repository = FakeRegionRepository(error=RuntimeError("db down"))
     service = RegionService(repository=repository)
 
-    assert await service.get_material_values("highway") == []
+    assert await service.get_material_values("highway") is None
 
 
 async def test_material_values_db_error_is_counted_in_debug_stats():

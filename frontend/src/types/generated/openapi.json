@@ -1446,7 +1446,7 @@
     "/api/admin/material-catalog/{material_id}/values": {
       "get": {
         "summary": "Get Material Values",
-        "description": "材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は\nいずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード\n方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。\n\n利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない\n`SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。\n認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で\nBasic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。",
+        "description": "材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）は`available=true`の空リスト、\nDB未接続・DB障害・タイムアウトは`available=false`を返す\n（`RegionService.get_material_values`参照。「候補が無い」と「候補を出せなかった」を\n画面が区別できるようにするため、両方を空リストへ倒さない）。\n\n利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない\n`SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。\n認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で\nBasic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。",
         "operationId": "get_material_values_api_admin_material_catalog__material_id__values_get",
         "security": [
           {
@@ -3752,6 +3752,11 @@
       },
       "MaterialValuesResponse": {
         "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available",
+            "default": true
+          },
           "values": {
             "items": {
               "$ref": "#/components/schemas/MaterialValueEntry"
@@ -3765,7 +3770,8 @@
         "required": [
           "values"
         ],
-        "title": "MaterialValuesResponse"
+        "title": "MaterialValuesResponse",
+        "description": "`available=False`は「候補を出せなかった」（DB未接続・DB障害・タイムアウト）。\n`available=True`で`values`が空なら「取得できたが値が無い」。画面はこの2つを\n区別して出す（区別しないと、DBのタイムアウトが「値が無い」として静かに表示される）。"
       },
       "MsmFreshnessResponse": {
         "properties": {

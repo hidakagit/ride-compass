@@ -120,6 +120,21 @@ class JmaAmedasService:
         record_redis_success()
         if not fields:
             return None
+        try:
+            return self._observation_from_fields(station_id, fields)
+        except (KeyError, ValueError) as exc:
+            # Hashには版が無く、中身は**過去のコードが書いた形**である。必須フィールドが
+            # 欠けた・型が変わった状態を無条件に展開すると、キャッシュの不整合が
+            # 「観測値が無い」ではなく500になって外へ出る。fail-openの契約どおり倒す。
+            log_throttled_warning(
+                "cache:jma-amedas-redis",
+                "[cache:jma-amedas-redis] 保存済みの観測値の形が現在のモデルと一致しません"
+                " station_id=%s error=%r", station_id, exc,
+            )
+            return None
+
+    @staticmethod
+    def _observation_from_fields(station_id: str, fields: dict) -> AmedasObservation:
         return AmedasObservation(
             station_id=station_id,
             station_name=fields["station_name"],

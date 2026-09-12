@@ -328,17 +328,20 @@ class RegionService:
             fields["years_covered"] = years
             return years
 
-    async def get_material_values(self, material_id: str) -> list[str]:
+    async def get_material_values(self, material_id: str) -> list[str] | None:
         """軸スタジオ（AxisComposer.tsx）の値入力UX向け。指定した材料id
         （highway/surface/smoothness、`infrastructure/road_graph_repository.py:
         _MATERIAL_VALUE_COLUMN_EXPR`参照）についてDBへ実際に取り込まれている値の一覧を
-        返す。`repository`未注入・DB例外はいずれも空リストへ倒す（get_axis_inspectorと
-        同じグレースフルデグレード方針。空リストは呼び出し元routerが「未知の材料id」と
-        区別できるよう、材料idの妥当性自体はrouter側`is_known_material`が事前に検証する
-        前提）。
+        返す。
+
+        **取得できなかったとき（`repository`未注入・DB例外・タイムアウト）はNone**、
+        取得できて値が無いときは空リストを返す。両方を空リストへ倒すと、画面は
+        「候補が無い」と「候補を出せなかった」を区別できず、DBのタイムアウトが
+        「この材料には値が無い」として静かに表示される
+        （`get_axis_inspector`と同じグレースフルデグレード方針だが、**結果の区別は残す**）。
         """
         if self._repository is None:
-            return []
+            return None
         with log_external_call("region:material-values", material_id=material_id) as fields:
             try:
                 values = await self._repository.get_distinct_material_values(material_id)
@@ -350,6 +353,6 @@ class RegionService:
                     "region:material-values", "材料値一覧のPostGIS読み取りに失敗 material_id=%s error=%r",
                     material_id, exc,
                 )
-                return []
+                return None
             fields["value_count"] = len(values)
             return values

@@ -152,7 +152,7 @@ class FakeRegionServiceForMaterialValues:
         self._values = values if values is not None else []
         self.last_material_id: str | None = None
 
-    async def get_material_values(self, material_id: str) -> list[str]:
+    async def get_material_values(self, material_id: str) -> list[str] | None:
         self.last_material_id = material_id
         return self._values
 
@@ -190,6 +190,7 @@ def test_get_material_values_returns_sorted_distinct_values_from_service(admin_c
     # （MaterialSpec.value_labels、地図の絞り込みUIのグルーピングとは独立の1値1ラベル）。
     # さらなるフォローアップ2: 「論理名 - 物理名」形式。
     assert response.json() == {
+        "available": True,
         "values": [
             {"value": "cycleway", "label": "自転車専用道 - cycleway"},
             {"value": "primary", "label": "主要幹線道路 - primary"},
@@ -207,7 +208,7 @@ def test_get_material_values_unknown_material_id_is_404(admin_credentials):
 
 def test_get_material_values_known_material_without_dynamic_support_returns_empty_list(admin_credentials):
     # 改善計画T340: tracktypeのように事前に閉じた値集合を持つ既知の材料は404にせず、
-    # 空リストを返す（フロント側は空リスト→自由テキスト入力へフォールバックする）。
+    # available=trueの空リストを返す（フロント側は自由テキスト入力へフォールバックする）。
     fake = FakeRegionServiceForMaterialValues(values=[])
     app.dependency_overrides[get_region_service] = lambda: fake
 
@@ -217,11 +218,11 @@ def test_get_material_values_known_material_without_dynamic_support_returns_empt
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"values": []}
+    assert response.json() == {"available": True, "values": []}
     assert fake.last_material_id == "tracktype"
 
 
-def test_get_material_values_without_db_repository_returns_empty_list(admin_credentials):
+def test_get_material_values_without_db_repository_is_unavailable(admin_credentials):
     # DB未接続構成（RegionService()、repository=None）を明示的に強制する。
     # 以前は「このファイルのclientはdependency_overrides未設定→get_region_serviceの
     # 既定分岐（settings.road_graph_use_repository）に委ねる」という設計だったが、
@@ -238,7 +239,8 @@ def test_get_material_values_without_db_repository_returns_empty_list(admin_cred
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {"values": []}
+    # DB未接続は「候補を出せなかった」——「値が無い」と同じ形にしない。
+    assert response.json() == {"available": False, "values": []}
 
 
 # --- 材料ごとの欠損割合（GET /api/admin/material-catalog/coverage、Basic認証必須） ---

@@ -90,6 +90,12 @@ class MaterialValueEntry(StrictModel):
 
 
 class MaterialValuesResponse(StrictModel):
+    """`available=False`は「候補を出せなかった」（DB未接続・DB障害・タイムアウト）。
+    `available=True`で`values`が空なら「取得できたが値が無い」。画面はこの2つを
+    区別して出す（区別しないと、DBのタイムアウトが「値が無い」として静かに表示される）。
+    """
+
+    available: bool = True
     values: list[MaterialValueEntry]
 
 
@@ -184,9 +190,10 @@ async def get_material_values(
 ) -> MaterialValuesResponse:
     """材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
     未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
-    材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）・DB未接続・DB障害は
-    いずれも空リストを返す（`RegionService.get_material_values`のグレースフルデグレード
-    方針、`infrastructure/road_graph_repository.py: _MATERIAL_VALUE_COLUMN_EXPR`参照）。
+    材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）は`available=true`の空リスト、
+    DB未接続・DB障害・タイムアウトは`available=false`を返す
+    （`RegionService.get_material_values`参照。「候補が無い」と「候補を出せなかった」を
+    画面が区別できるようにするため、両方を空リストへ倒さない）。
 
     利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない
     `SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。
@@ -196,6 +203,8 @@ async def get_material_values(
     if not is_known_material(material_id):
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
     values = await region_service.get_material_values(material_id)
+    if values is None:
+        return MaterialValuesResponse(available=False, values=[])
     spec = MATERIAL_CATALOG[material_id]
     return MaterialValuesResponse(values=[MaterialValueEntry(value=v, label=spec.value_label(v)) for v in values])
 
