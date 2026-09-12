@@ -2052,12 +2052,60 @@ export function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatB
   return bounds;
 }
 
-function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[]) {
+// ルート全体を収めるときの基本余白（全辺）。地図の縁に候補線が貼り付かない程度の値。
+const ROUTE_FIT_BASE_PADDING_PX = 40;
+// フィット後に必ず残す可視領域の幅・高さ。覆っているUIが大きいとき（モバイルで
+// ボトムシートを上限まで伸ばした場合等）に、padding同士が地図の縦・横を食い尽くして
+// MapLibreが破綻したズームを算出するのを防ぐ。
+const ROUTE_FIT_MIN_VISIBLE_PX = 80;
+
+/** 地図キャンバスの上に重なるUIで覆われている辺ごとの高さ(px)。 */
+export interface RouteFitObscuredPx {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+}
+
+/** 覆われている高さを基本余白へ足したフィット用paddingを返す。対向する2辺の合計が
+ * 地図の幅・高さを食い尽くす場合は、可視領域がROUTE_FIT_MIN_VISIBLE_PX残るところまで
+ * その2辺を同じ比率で縮める。 */
+export function computeRouteFitPadding(
+  obscured: RouteFitObscuredPx | undefined,
+  canvas: { width: number; height: number }
+): { top: number; bottom: number; left: number; right: number } {
+  const base = ROUTE_FIT_BASE_PADDING_PX;
+  const padding = {
+    top: base + (obscured?.top ?? 0),
+    bottom: base + (obscured?.bottom ?? 0),
+    left: base + (obscured?.left ?? 0),
+    right: base + (obscured?.right ?? 0),
+  };
+
+  const shrink = (a: number, b: number, size: number): [number, number] => {
+    const available = Math.max(0, size - ROUTE_FIT_MIN_VISIBLE_PX);
+    const total = a + b;
+    if (total <= available) return [a, b];
+    const ratio = total > 0 ? available / total : 0;
+    return [a * ratio, b * ratio];
+  };
+
+  [padding.top, padding.bottom] = shrink(padding.top, padding.bottom, canvas.height);
+  [padding.left, padding.right] = shrink(padding.left, padding.right, canvas.width);
+  return padding;
+}
+
+function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[], obscured?: RouteFitObscuredPx) {
   if (routes.length === 0) return;
 
   const bounds = computeRouteBounds(routes);
 
-  runWhenStyleReady(map, () => map.fitBounds(bounds, { padding: 40 }));
+  runWhenStyleReady(map, () => {
+    const canvas = map.getCanvas();
+    map.fitBounds(bounds, {
+      padding: computeRouteFitPadding(obscured, { width: canvas.clientWidth, height: canvas.clientHeight }),
+    });
+  });
 }
 
 function formatRoad(good: boolean | null): string {
@@ -2356,6 +2404,11 @@ interface MapViewProps {
    * ときに呼ばれる（page.tsx: useLocation().setManualLocation）。地図アプリで一般的な
    * 「ピンをつかんで動かす」操作そのものなので説明用のUIを別途持たない。 */
   onOriginSet: (coordinates: Coordinates) => void;
+  /** 地図キャンバスの上に重なるUI（モバイルの下部タブバー・ボトムシート）で覆われている
+   * 辺ごとの高さ(px)。ルート生成直後のフィットで、覆われた領域の中へルートが収まって
+   * しまうのを防ぐ。MapViewはシート・タブバーの存在を知らないため、レイアウトを持つ
+   * 呼び出し側（page.tsx）が算出して渡す。 */
+  routeFitObscuredPx?: RouteFitObscuredPx;
 }
 
 export default function MapView({
@@ -2406,6 +2459,7 @@ export default function MapView({
   onDestinationClear,
   pinPlacementEnabled,
   onOriginSet,
+  routeFitObscuredPx,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -2487,6 +2541,9 @@ export default function MapView({
   const pinPlacementEnabledRef = useRef(pinPlacementEnabled);
   // 出発地点マーカーのdragendコールバックもrefで最新値を読む。
   const onOriginSetRef = useRef(onOriginSet);
+  // フィットは「候補一覧が変わったとき」だけに限る（下部のuseEffect参照）ため、覆われて
+  // いる高さの変化（シートの開閉・高さドラッグ）でフィットをやり直さないようrefで読む。
+  const routeFitObscuredPxRef = useRef(routeFitObscuredPx);
   // handleRouteSegmentClick（地図初期化effect内で一度だけ登録）が最新の
   // onRouteSegmentSelectを読めるようにするref（onWaypointAddRefと同じパターン）。
   const onRouteSegmentSelectRef = useRef(onRouteSegmentSelect);
@@ -2567,6 +2624,10 @@ export default function MapView({
   useEffect(() => {
     onOriginSetRef.current = onOriginSet;
   }, [onOriginSet]);
+
+  useEffect(() => {
+    routeFitObscuredPxRef.current = routeFitObscuredPx;
+  }, [routeFitObscuredPx]);
 
   useEffect(() => {
     onRouteSegmentSelectRef.current = onRouteSegmentSelect;
@@ -2729,7 +2790,7 @@ export default function MapView({
     // 直後のdetail-segments分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
     const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
     applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selected?.segments));
-    if (routes.length > 0) fitBoundsToRoutes(map, routes);
+    if (routes.length > 0) fitBoundsToRoutes(map, routes, routeFitObscuredPxRef.current);
     drawExperimentSlots(map, experimentSlots);
 
     if (routeLayerOn && selected?.segments) {
@@ -3355,7 +3416,7 @@ export default function MapView({
     if (!map) return;
 
     if (routes.length > 0) {
-      fitBoundsToRoutes(map, routes);
+      fitBoundsToRoutes(map, routes, routeFitObscuredPxRef.current);
     }
   }, [routes]);
 
