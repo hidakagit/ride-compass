@@ -823,9 +823,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "source_narrative": frozenset({"staged", "since"}),
     "redis_skeleton": frozenset({"staged", "since", "full"}),
     "bare_basemodel": frozenset({"staged", "since", "full"}),
-    # 既存分の一掃（T739）が終わるまで、全件スキャンでは参考表示に留める
-    # （source_narrativeと同じ扱い）。新規分は--staged/--sinceが止める。
-    "undeclared_dead_refs": frozenset({"staged", "since"}),
+    "undeclared_dead_refs": frozenset({"staged", "since", "full"}),
     # 免除した段落の中身は常に参考表示（0件で黙らないためのもので、ブロックはしない）。
     "undeclared_dead_refs_exempted": frozenset(),
     "undocumented_files": frozenset({"staged", "since", "full"}),
@@ -936,7 +934,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
             arch_all = {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))}
             sections.append((
                 "undeclared_dead_refs",
-                "architecture.md が撤去済みの名前を断りなく名指し（参考、全件。新規分の強制は--staged/--since参照）",
+                "architecture.md が撤去済みの名前を断りなく名指し（全件）",
                 find_undeclared_dead_refs(arch_all, files, source_corpus(files))))
             sections.append((
                 "undeclared_dead_refs_exempted",
