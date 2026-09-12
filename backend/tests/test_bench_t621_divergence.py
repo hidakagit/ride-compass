@@ -4,7 +4,12 @@
 Edge id列から分岐点を求める部分は接続無しで固定できる。
 """
 
-from benchmarks._divergence import DivergencePoint, divergence_points, spliced_path
+from benchmarks._divergence import (
+    DivergencePoint,
+    differing_stretches,
+    divergence_points,
+    spliced_path,
+)
 from benchmarks.bench_t621_divergence import _cumulative_km, _difference_km, _is_connected, _redundancy
 
 
@@ -154,3 +159,26 @@ def test_redundancy_measures_how_different_the_two_markers_routes_are():
     assert len(points) == 2
     # 早い方はpを走りbを走らない、遅い方はその逆。差はp(0.3km)+b(2.0km)
     assert _redundancy(_GRAPH, displayed, paths, points) == [2.3]
+
+
+def test_no_differing_stretch_when_both_paths_use_the_same_roads():
+    assert differing_stretches(["a", "b", "c"], ["a", "b", "c"]) == []
+
+
+def test_differing_stretch_covers_the_edges_the_other_path_avoids():
+    assert differing_stretches(["a", "b", "c"], ["a", "x", "c"]) == [(1, 2)]
+
+
+def test_paths_that_weave_produce_one_stretch_per_divergence():
+    # bとdで相手と別の道になり、その間のcとeは共有する
+    displayed = ["a", "b", "c", "d", "e"]
+    target = ["a", "p", "c", "q", "e"]
+
+    stretches = differing_stretches(displayed, target)
+
+    assert stretches == [(1, 2), (3, 4)]
+    assert len(stretches) == len(divergence_points(displayed, {"B": target}))
+
+
+def test_a_stretch_running_to_the_end_is_closed_at_the_last_edge():
+    assert differing_stretches(["a", "b", "c"], ["a"]) == [(1, 3)]
