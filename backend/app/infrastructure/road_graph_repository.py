@@ -102,7 +102,6 @@ from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     POI_COUNT_KINDS,
-    INTERSECTION_MATCH_MAX_DISTANCE_M,
     POI_CLUSTER_EPS_M,
     POI_ON_EDGE_TOLERANCE_M,
     STOP_POI_KINDS,
@@ -271,7 +270,7 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #   依存しない静的な事実のため、「最終値を焼かない」上記方針と矛盾しない（レシピ変更で
 #   タイルキャッシュが無効化されることはない。無効化が必要になるのはaccident_points/
 #   osm_raw_pois/osm_raw_waysの再取込時のみで、その場合はprecompute_way_attribute_counts
-#   →タイル世代対上げで反映する）。km正規化は評価軸の実入力（stop_difficultyはper-km値）
+#   →タイル世代対上げで反映する）。km正規化は評価軸の実入力（停止密度の材料はper-km値）
 #   と意味論を揃えるためで、way長への依存も除ける。0・極短way（length_m<=0）はNULLIFで
 #   キー省略し（大多数のwayが0のためタイルが軽くなる、tunnel/bridgeと同じ流儀）、
 #   フロントは欠損=0として扱う。二次軸スコア（レシピ依存の解釈）は引き続きフロント側で
@@ -812,35 +811,27 @@ def _meters_to_bbox_margin_deg(max_distance_m: float) -> float:
 
 # 静的道路属性P1残り（intersectionDensity）。「次数3以上のNode」を交差点とみなす。
 #
-# get_accident_countsと同じ「edge単位で独立な空間近傍カウント」の
-# 意味論へ揃えるため、交差点の次数は`road_nodes.degree`（DB全体から見た真のグローバル
-# 次数、backend/app/batch/precompute_road_node_degrees.pyが事前計算）を参照する
-# （呼び出し元のedge_ids集合やチャンク分割から完全に独立するため、呼び出し順序や
-# 集合の違いによる次数のブレが生じない）。
+# 「この区間を走ると通る交差点」を数える。`build_road_graph`はwayが共有するノード
+# （＝交差点になりうるノード）で必ず区間を切るため、交差点は区間の内部には現れず必ず端点に
+# 来る。空間的な近傍探索は要らず、終点のノードが交差点かどうかだけで決まる。
 #
-# road_nodesとのJOINは`ST_DWithin(geom::geography, ...)`だけに頼らず、必ず`&&`
-# （バウンディングボックス重なり、GiST索引を素直に使う）を先に効かせてからST_DWithinで
-# 精密に絞り込む。`geom::geography`へキャストしたST_DWithinはGiST索引を使わない全件
-# Seq Scan + Nested Loopになりうる（road_nodes 25,608件で単純な1点問い合わせが
-# 132msかかることをEXPLAIN ANALYZEで確認済み）、複数点をまとめて処理すると数秒〜数十秒に
-# 劣化する。`&&`はgeometry型の演算子で確実にインデックスを使うため（本ファイルの既存クエリも
-# `geom && bbox`で索引を使わせており、ST_DWithin(geography)単体には頼っていない）、
-# まずこれで候補を数件程度まで絞ってから
-# ST_DWithinで正確な距離判定をする。
+# 数えるのは終点だけにする。1つの交差点は「手前の区間の終点」と「次の区間の始点」の
+# 両方に現れるため、両端を数えるとルートに沿って二重に積まれる（停止要因POIが始点の
+# ノードを除くのと同じ規則）。距離で数えていたときは、隣を平行に走る別の道路の交差点まで
+# 計上されていた。
+#
+# 次数は`road_nodes.degree`（DB全体から見た真のグローバル次数、
+# `precompute_road_node_degrees.py`が事前計算）を参照する。呼び出し元のedge_ids集合や
+# チャンク分割からは独立する。
 _INTERSECTION_COUNTS_SQL = text(
     """
-    WITH local_edges AS (
-        SELECT edge_id, geom
-        FROM road_edges
-        WHERE edge_id = ANY(CAST(:edge_ids AS text[]))
-    )
-    SELECT le.edge_id, COUNT(rn.node_id) AS intersection_count
-    FROM local_edges le
+    SELECT e.edge_id, COUNT(rn.node_id) AS intersection_count
+    FROM road_edges e
     LEFT JOIN road_nodes rn
-        ON rn.geom && ST_Expand(le.geom, :max_distance_deg)
-        AND ST_DWithin(rn.geom::geography, le.geom::geography, :max_distance_m)
+        ON rn.node_id = e.to_node_id
         AND rn.degree >= :degree_threshold
-    GROUP BY le.edge_id
+    WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
+    GROUP BY e.edge_id
     """
 )
 
@@ -1010,8 +1001,7 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
     LEFT JOIN LATERAL (
         SELECT COUNT(*) AS cnt
         FROM raw_intersection_nodes i
-        WHERE i.geom && ST_Expand(w.geom, :intersection_distance_deg)
-          AND ST_DWithin(i.geom::geography, w.geom::geography, :intersection_distance_m)
+        WHERE i.osm_node_id = ANY(w.node_ids)
     ) ix ON true
     WHERE w.osm_way_id = ANY(CAST(:osm_way_ids AS bigint[]))
       AND w.geom IS NOT NULL
@@ -2278,19 +2268,15 @@ class AttributeRepository(_SessionRepository):
         )
 
     async def get_intersection_counts(
-        self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
+        self, edge_ids: list[str]
     ) -> dict[str, int]:
-        """指定edge_idそれぞれについて、`max_distance_m`以内にある交差点（次数
-        `INTERSECTION_DEGREE_THRESHOLD`以上のroad_node）の件数を返す（intersectionDensity）。
-        road_graphエンジンのcompute_edge_cost（探索コスト自体）で使う。
-        get_accident_countsと同じ「edge_idリストを渡して辞書で受け取る」形で、指定edge_idは
-        （0件でも）必ず結果に含まれる。
+        """指定edge_idそれぞれについて、**その区間を走ると通る**交差点（次数
+        `INTERSECTION_DEGREE_THRESHOLD`以上のノード）の件数を返す。終点が交差点なら1、
+        でなければ0になる。road_graphエンジンのcompute_edge_cost（探索コスト自体）で使う。
+        edge_idリストを渡して辞書で受け取る形で、指定edge_idは（0件でも）必ず結果に含まれる。
 
-        次数は`road_nodes.degree`（DB全体から見た真のグローバル次数、
-        backend/app/batch/precompute_road_node_degrees.pyが事前計算）を参照する。
-        呼び出し元が渡すedge_ids集合やチャンク分割に依存しないため、同一edge_idを異なる順序・
-        異なる集合で渡しても常に同じ結果を返す（get_accident_countsと
-        揃った「edge単位で独立な空間近傍カウント」の意味論）。
+        呼び出し元が渡すedge_ids集合やチャンク分割には依存しないため、同一edge_idを
+        異なる順序・異なる集合で渡しても常に同じ結果を返す。
         """
         if not edge_ids:
             return {}
@@ -2298,12 +2284,7 @@ class AttributeRepository(_SessionRepository):
         for id_chunk in _chunked(edge_ids, 50_000):
             rows = await self._session.execute(
                 _INTERSECTION_COUNTS_SQL,
-                {
-                    "edge_ids": id_chunk,
-                    "max_distance_m": max_distance_m,
-                    "max_distance_deg": _meters_to_bbox_margin_deg(max_distance_m),
-                    "degree_threshold": INTERSECTION_DEGREE_THRESHOLD,
-                },
+                {"edge_ids": id_chunk, "degree_threshold": INTERSECTION_DEGREE_THRESHOLD},
             )
             for edge_id, intersection_count in rows.all():
                 result[edge_id] = intersection_count
@@ -2508,8 +2489,6 @@ class AttributeRepository(_SessionRepository):
                 "fatal_weight": ACCIDENT_FATAL_WEIGHT,
                 "accident_distance_m": ACCIDENT_MATCH_MAX_DISTANCE_M,
                 "accident_distance_deg": _meters_to_bbox_margin_deg(ACCIDENT_MATCH_MAX_DISTANCE_M),
-                "intersection_distance_m": INTERSECTION_MATCH_MAX_DISTANCE_M,
-                "intersection_distance_deg": _meters_to_bbox_margin_deg(INTERSECTION_MATCH_MAX_DISTANCE_M),
                 "cluster_eps_m": POI_CLUSTER_EPS_M,
                 "source_accident_import_run_id": source_accident_import_run_id,
                 "source_osm_import_run_id": source_osm_import_run_id,
@@ -2668,9 +2647,9 @@ class RoadGraphRepository:
         return await self.attributes.get_way_landcover(osm_way_id)
 
     async def get_intersection_counts(
-        self, edge_ids: list[str], max_distance_m: float = INTERSECTION_MATCH_MAX_DISTANCE_M
+        self, edge_ids: list[str]
     ) -> dict[str, int]:
-        return await self.attributes.get_intersection_counts(edge_ids, max_distance_m=max_distance_m)
+        return await self.attributes.get_intersection_counts(edge_ids)
 
     async def get_accident_counts(
         self, edge_ids: list[str], bicycle_only: bool = True, max_distance_m: float = ACCIDENT_MATCH_MAX_DISTANCE_M
