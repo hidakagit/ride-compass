@@ -1,6 +1,9 @@
+from typing import get_args, get_origin
+
 import pytest
 
 from app.domain.route import (
+    BIN_DROPPED_DICT_FIELDS,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_axis_raw_values,
@@ -250,27 +253,50 @@ def test_merge_material_values_omits_material_absent_from_every_segment():
 # 距離加重平均の共有実装を使う、docs/tasks/T687.md）。
 
 
+def _dict_fields_of_segment() -> dict[str, type]:
+    """`RouteSegmentDetail`の辞書フィールド名→値の型。
+
+    値の型で絞らない（`dict[str, float]`だけを見ていたころ、`material_categories`
+    [`dict[str, str]`]が母集団から外れ、引き継がれていないことに気づけなかった）。
+    """
+    out = {}
+    for name, field in RouteSegmentDetail.model_fields.items():
+        if get_origin(field.annotation) is dict:
+            out[name] = get_args(field.annotation)[1]
+    return out
+
+
 def test_aggregate_segments_into_bins_carries_every_dict_field():
     """`RouteSegmentDetail`へ辞書フィールドを足したのに`_merge_segment_bin`へ書き足すのを
     忘れると、APIからは「そのフィールドだけ空」に見える（他は正常なので気づきにくい）。
     フィールド一覧をモデルから引いて機械的に検出する——`_merge_segment_bin`は表示用の
-    区間を作り直す場所で、足し忘れが型でも例外でも現れない。"""
-    dict_fields = [
-        name
-        for name, field in RouteSegmentDetail.model_fields.items()
-        if field.annotation == dict[str, float]
-    ]
+    区間を作り直す場所で、足し忘れが型でも例外でも現れない。
+
+    意図的に引き継がないものは`BIN_DROPPED_DICT_FIELDS`が理由つきで宣言する。
+    """
+    dict_fields = _dict_fields_of_segment()
     assert dict_fields, "辞書フィールドが1つも見つからない（この検査自体が空回りしている）"
+    carried = {name: vtype for name, vtype in dict_fields.items() if name not in BIN_DROPPED_DICT_FIELDS}
+
+    def probe(vtype, n):
+        return {"probe": "residential" if vtype is str else float(n)}
 
     segments = [
-        _segment(0, distance_km=0.2, **{name: {"probe": 1.0} for name in dict_fields}),
-        _segment(1, distance_km=0.2, **{name: {"probe": 3.0} for name in dict_fields}),
+        _segment(0, distance_km=0.2, **{name: probe(v, 1) for name, v in dict_fields.items()}),
+        _segment(1, distance_km=0.2, **{name: probe(v, 3) for name, v in dict_fields.items()}),
     ]
 
     bins = aggregate_segments_into_bins(segments, bin_distance_km=0.5)
 
-    missing = [name for name in dict_fields if not getattr(bins[0], name)]
+    missing = [name for name in carried if not getattr(bins[0], name)]
     assert not missing, f"_merge_segment_binが引き継いでいないフィールド: {missing}"
+    dropped = [name for name in BIN_DROPPED_DICT_FIELDS if getattr(bins[0], name)]
+    assert not dropped, f"引き継がないと宣言したのに値が入っている: {dropped}"
+
+
+def test_bin_dropped_dict_fields_only_names_fields_that_exist():
+    # 落とす理由だけが残り続けるのを防ぐ（モデル側から消えたら宣言も要らない）。
+    assert set(BIN_DROPPED_DICT_FIELDS) <= set(_dict_fields_of_segment())
 
 
 def test_axis_raw_values_keep_precision_for_small_scale_axes():

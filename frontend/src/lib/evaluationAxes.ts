@@ -7,6 +7,7 @@
 // preference_defaultsとキー集合を突き合わせる。
 import type { RoutePreferenceWeights } from "@/types/route";
 import type { MapValueKind } from "@/components/Map/valueScale";
+import type { CatalogAxis } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import type { AxisMaterialBreakdown } from "@/components/Map/secondaryAxes";
 import axisCatalog from "@/types/generated/axis-catalog.json";
@@ -53,7 +54,7 @@ export interface PreferenceAxisDef {
 }
 
 
-// 重み一覧は公開軸すべてを対象にする。並び順・ラベルはSECONDARY_AXES（secondaryAxes.ts、
+// 重み一覧は公開軸すべてを対象にする。並び順はSECONDARY_AXES（secondaryAxes.ts、
 // 地図チップ・地図の見え方パネルの推定グループが共有する単一ソース）をそのままなぞり、
 // 「この重みは地図のどの軸に対応するか」が名前と並びだけで分かるようにする（片側import）。
 //
@@ -61,14 +62,20 @@ export interface PreferenceAxisDef {
 // show_map_icon=false の軸が落ちる）。**地図チップに出すかどうかと、重みを設定できるか
 // どうかは別の判断**のため、落ちた公開軸はカタログの並び順のまま後ろへ足す——前者の都合で
 // 後者を落とすと、軸スタジオで地図アイコンをOFFにした軸が重み一覧からも消える。
-type CatalogAxisEntry = (typeof axisCatalog.axes)[number];
+//
+// **SECONDARY_AXESからは並び順だけを取り、中身は必ずカタログから組み立てる**。
+// 並びの由来ごとに別の組み立てを書くと、片方にだけフィールドを書き足した状態が
+// 型検査を通ってしまう（`PreferenceAxisDef`のフィールドはすべてoptionalのため）。
 
-function preferenceAxisFromCatalog(axis: CatalogAxisEntry): PreferenceAxisDef {
+/** カタログ1件を重み一覧の1行へ。実行時API経路（useAxisCatalog）と共有する唯一の変換。 */
+export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef {
   return {
     axisId: axis.axis_id,
     label: axis.label,
     description: axis.description ?? "",
     dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
+    displayThresholdsOverride: axis.display_thresholds_override ?? undefined,
+    displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
     mapValueKind: axis.map_value_kind as MapValueKind | undefined,
     mapValueUnit: axis.map_value_unit,
     rawValueUnit: axis.raw_value_unit ?? null,
@@ -84,28 +91,19 @@ function preferenceAxisFromCatalog(axis: CatalogAxisEntry): PreferenceAxisDef {
   };
 }
 
-export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = [
-  ...SECONDARY_AXES.map(
-    (axis): PreferenceAxisDef => ({
-      axisId: axis.axisId,
-      label: axis.label,
-      description: axis.description,
-      // SECONDARY_AXESはkind='ramp'軸に限らない——gradientはkind="none"（材料がタイル
-      // 非依存）でありながらdedicated_way_value_layer=trueという組み合わせが実在するため、
-      // SECONDARY_AXES側のdedicatedWayValueLayerフィールドをそのまま引き継ぐ。
-      dedicatedWayValueLayer: axis.dedicatedWayValueLayer ?? false,
-      displayThresholdsOverride: axis.displayThresholdsOverride,
-      displayBandLabelsOverride: axis.displayBandLabelsOverride,
-      mapValueKind: axis.mapValueKind,
-      mapValueUnit: axis.mapValueUnit,
-      rawValueUnit: axis.rawValueUnit ?? null,
-      materialBreakdown: axis.materialBreakdown ?? [],
-    })
-  ),
-  ...axisCatalog.axes
-    .filter((axis) => !SECONDARY_AXES.some((secondary) => secondary.axisId === axis.axis_id))
-    .map(preferenceAxisFromCatalog),
-];
+const SECONDARY_AXIS_ORDER = new Map(SECONDARY_AXES.map((axis, index) => [axis.axisId, index]));
+
+export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = (axisCatalog.axes as CatalogAxis[])
+  .map((axis, catalogIndex) => ({ axis, catalogIndex }))
+  .sort((a, b) => {
+    const orderA = SECONDARY_AXIS_ORDER.get(a.axis.axis_id);
+    const orderB = SECONDARY_AXIS_ORDER.get(b.axis.axis_id);
+    if (orderA !== undefined && orderB !== undefined) return orderA - orderB;
+    if (orderA !== undefined) return -1;
+    if (orderB !== undefined) return 1;
+    return a.catalogIndex - b.catalogIndex;
+  })
+  .map(({ axis }) => preferenceAxisFromCatalog(axis));
 
 // 軸の分類（観測/推定/動的）は一般向けルート設定画面（RouteSettingsPanel）の表示では
 // 使わず、公開済みの軸をフラットな1本のリストとして扱う。分類データ自体（backend側の

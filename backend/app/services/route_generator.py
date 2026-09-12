@@ -57,7 +57,6 @@ from app.domain.route import (
     RouteCandidate,
     merge_axis_contributions,
     merge_axis_difficulties,
-    merge_material_category_shares,
     merge_material_values,
 )
 
@@ -589,14 +588,11 @@ class RouteGenerator:
 
     @staticmethod
     def _with_material_values(candidate: RouteCandidate) -> RouteCandidate:
-        """segmentsの材料値（数値・categorical）をルート全区間へ集約する。
-        `_with_axis_difficulties`と同じ構造。"""
+        """segmentsの数値材料をルート全区間へ集約する。`_with_axis_difficulties`と同じ構造。"""
         if not candidate.segments:
             return candidate
-        return candidate.model_copy(
-            update={
-                "material_values": merge_material_values(candidate.segments),
-                # categorical材料は平均できないため、値ごとの延長割合へ畳む。
-                "material_category_shares": merge_material_category_shares(candidate.segments),
-            }
-        )
+        # categorical材料の延長割合はここでは触らない。`candidate.segments`は既に
+        # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない——エンジンが
+        # ビニングの前に計算して`RouteCandidate`へ載せている
+        # （`domain/route.py: BIN_DROPPED_DICT_FIELDS`）。
+        return candidate.model_copy(update={"material_values": merge_material_values(candidate.segments)})

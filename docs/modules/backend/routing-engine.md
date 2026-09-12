@@ -619,10 +619,18 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   frontend`routeStyleModes.ts`がこの契約に依存する）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
-  `_merge_segment_bin`。**`_merge_segment_bin`は表示用の区間を組み直す場所のため、
-  `RouteSegmentDetail`へ辞書フィールドを足したらここへも集約を書き足す**（足し忘れは
-  型でも例外でも現れず、APIからは「そのフィールドだけ空」に見える。辞書フィールドを
-  モデルから引いて全て引き継がれているかを`tests/test_route.py`が機械的に検査する）。
+  `merge_material_category_shares`・`_merge_segment_bin`。**`_merge_segment_bin`は表示用の
+  区間を組み直す場所のため、`RouteSegmentDetail`へ辞書フィールドを足したらここへも集約を
+  書き足す**（足し忘れは型でも例外でも現れず、APIからは「そのフィールドだけ空」に見える）。
+  引き継がない辞書フィールドは`BIN_DROPPED_DICT_FIELDS`が理由つきで宣言し、それ以外が
+  すべて引き継がれていることを`tests/test_route.py`が**値の型を問わずに**検査する
+  （`dict[str, float]`のように値型で母集団を絞ると、`dict[str, str]`のフィールドが
+  検査から静かに外れる）。
+- **categorical材料の延長割合はビニングより前に畳む**。ビンの代表値を1つ選ぶ形だと割合が
+  500m単位へ量子化されるため、`road_graph_engine`が`aggregate_segments_into_bins`の前に
+  `merge_material_category_shares`を呼び、結果を`RouteCandidate`へ載せる。
+  `route_generator`の後段はこの値に触らない（触ると、区間側が空になっている以上
+  必ず`{}`で上書きされる）。
 
 ### `domain/geo.py`・`domain/errors.py`
 

@@ -91,6 +91,7 @@ from app.domain.route import (
     RouteSegment,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
+    merge_material_category_shares,
 )
 from app.domain.twilight import is_night
 from app.domain.routing import (
@@ -1555,6 +1556,10 @@ class RoadGraphEngine:
         geometry = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time, leg_of_edge)
+        # categorical材料の延長割合はEdge単位のsegmentsから畳む。ビンの代表値を1つ選ぶ形だと
+        # 割合が500m単位へ量子化されるため、集約より前に計算する
+        # （`domain/route.py: BIN_DROPPED_DICT_FIELDS`参照）。
+        material_category_shares = merge_material_category_shares(segments)
         # APIレスポンスとして返すsegmentsは約500m単位に集約する（Edge単位のままだと
         # 30km級で150〜230件になりペイロード・フロント描画コストが嵩む）。
         segments = aggregate_segments_into_bins(segments)
@@ -1564,6 +1569,7 @@ class RoadGraphEngine:
             distance_km=traced.distance_km,
             geometry=geometry,
             segments=segments,
+            material_category_shares=material_category_shares,
             **elevation_stats,
         )
 

@@ -929,3 +929,30 @@ async def test_generate_destination_routes_without_shortest_route_marks_nothing(
 
     assert len(candidates) == 1
     assert candidates[0].is_shortest_distance is False
+
+
+async def test_material_category_shares_survive_the_post_processing_steps():
+    """categorical材料の延長割合は、エンジンがビニング前に計算して候補へ載せる。
+
+    `_with_material_values`が`candidate.segments`（＝約500m単位へ畳んだ後）から
+    計算し直すと、区間側の`material_categories`は畳むときに落としてあるため必ず空に
+    なる。ここで見るのは「後段が上書きしない」ことそのもの。
+    """
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[TracedLoop(bearing=None, distance_km=20.0, data="a")],
+        segments_by_data={"a": [make_segment(20.0, 50.0)]},
+    )
+    shares = {"highway": {"residential": 0.62, "secondary": 0.38}}
+    original = engine.evaluate_loops
+
+    async def evaluate_with_shares(context, traced, start_time):
+        return [c.model_copy(update={"material_category_shares": shares}) for c in await original(context, traced, start_time)]
+
+    engine.evaluate_loops = evaluate_with_shares
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=1
+    )
+
+    assert candidates[0].material_category_shares == shares

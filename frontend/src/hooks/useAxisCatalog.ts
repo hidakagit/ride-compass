@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import { PREFERENCE_AXES } from "@/lib/evaluationAxes";
+import { PREFERENCE_AXES, preferenceAxisFromCatalog } from "@/lib/evaluationAxes";
 import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
 import { getAxisCatalog } from "@/services/axisCatalogApi";
 import axisCatalogStatic from "@/types/generated/axis-catalog.json";
@@ -130,21 +130,12 @@ function buildCatalog(
   materialRuntimeScales: Readonly<Record<string, number>>,
 ): AxisCatalog {
   const defaultWeights: RoutePreferenceWeights = {};
-  const axes: PreferenceAxisDef[] = entries.map((entry) => {
-    defaultWeights[entry.axis_id] = entry.default_weight;
-    return {
-      axisId: entry.axis_id,
-      label: entry.label,
-      description: entry.description,
-      dedicatedWayValueLayer: entry.dedicated_way_value_layer,
-      displayThresholdsOverride: entry.display_thresholds_override ?? undefined,
-      displayBandLabelsOverride: entry.display_band_labels_override ?? undefined,
-      mapValueKind: entry.map_value_kind,
-      mapValueUnit: entry.map_value_unit,
-      rawValueUnit: entry.raw_value_unit ?? null,
-    };
-  });
+  for (const entry of entries) defaultWeights[entry.axis_id] = entry.default_weight;
   const catalogAxes = entries.map(toCatalogAxis);
+  // 静的フォールバック（evaluationAxes.ts: PREFERENCE_AXES）と同じ変換を使う。
+  // 別々に組み立てると、片方にだけフィールドを書き足した状態が型検査を通ってしまう
+  // （`PreferenceAxisDef`のフィールドはすべてoptionalのため）。
+  const axes: PreferenceAxisDef[] = catalogAxes.map(preferenceAxisFromCatalog);
   return {
     axes,
     defaultWeights,

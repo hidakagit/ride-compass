@@ -3,7 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PREFERENCE_AXES } from "./evaluationAxes";
+import type { PreferenceAxisDef } from "./evaluationAxes";
+import { PREFERENCE_AXES, preferenceAxisFromCatalog } from "./evaluationAxes";
+import type { CatalogAxis } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
@@ -110,5 +112,63 @@ describe("evaluationAxes", () => {
     }
     // gradientは実際にdedicated_way_value_layer=trueを持つ代表例（回帰の直接検知）。
     expect(PREFERENCE_AXES.find((axis) => axis.axisId === "gradient")?.dedicatedWayValueLayer).toBe(true);
+  });
+
+  // 実行時API経路（useAxisCatalog: buildCatalog）と静的フォールバック（PREFERENCE_AXES）が
+  // 同じ変換を通ることを固定する。別々に組み立てていたころ、実行時経路だけ
+  // materialBreakdownを落とし、静的経路の一部だけdisplayThresholdsOverrideを落としていた
+  // ——PreferenceAxisDefのフィールドがすべてoptionalのため型検査では現れない。
+  it("同じカタログ1件からは、どの経路でも同じPreferenceAxisDefができる", () => {
+    const catalogAxes = axisCatalog.axes as CatalogAxis[];
+    expect(catalogAxes.length).toBeGreaterThan(0);
+
+    for (const axis of catalogAxes) {
+      const fromStatic = PREFERENCE_AXES.find((entry) => entry.axisId === axis.axis_id);
+      expect(fromStatic, `axisId(${axis.axis_id})が静的フォールバックに無い`).toBeDefined();
+      expect(fromStatic).toEqual(preferenceAxisFromCatalog(axis));
+    }
+  });
+
+  // 経路が1本になった以上、両経路の一致だけでは「その1本がフィールドを落とした」ことを
+  // 見つけられない。カタログ側に値がある軸について、変換後にも値が残ることを見る。
+  it("カタログが値を持つフィールドは変換後も落ちない", () => {
+    const catalogAxes = axisCatalog.axes as CatalogAxis[];
+    const checks: { field: string; has: (axis: CatalogAxis) => boolean; kept: (def: PreferenceAxisDef) => boolean }[] = [
+      {
+        field: "display_thresholds_override",
+        has: (axis) => (axis.display_thresholds_override?.length ?? 0) > 0,
+        kept: (def) => (def.displayThresholdsOverride?.length ?? 0) > 0,
+      },
+      {
+        field: "display_band_labels_override",
+        has: (axis) => (axis.display_band_labels_override?.length ?? 0) > 0,
+        kept: (def) => (def.displayBandLabelsOverride?.length ?? 0) > 0,
+      },
+      {
+        field: "material_breakdown",
+        has: (axis) => (axis.material_breakdown?.length ?? 0) > 0,
+        kept: (def) => (def.materialBreakdown?.length ?? 0) > 0,
+      },
+      {
+        field: "raw_value_unit",
+        has: (axis) => Boolean(axis.raw_value_unit),
+        kept: (def) => Boolean(def.rawValueUnit),
+      },
+    ];
+
+    for (const check of checks) {
+      const withValue = catalogAxes.filter(check.has);
+      // 検査が空回りしていないこと（カタログに実例が1つも無ければ、この検査は何も守らない）。
+      expect(withValue.length, `${check.field}を持つ軸がカタログに無い`).toBeGreaterThan(0);
+      for (const axis of withValue) {
+        expect(check.kept(preferenceAxisFromCatalog(axis)), `${axis.axis_id}の${check.field}が落ちている`).toBe(true);
+      }
+    }
+  });
+
+  // 並び順はSECONDARY_AXESをなぞり、そこに無い公開軸はカタログ順で後ろへ足す。
+  it("PREFERENCE_AXESは公開軸を1つも落とさない", () => {
+    const catalogIds = (axisCatalog.axes as CatalogAxis[]).map((axis) => axis.axis_id).sort();
+    expect(PREFERENCE_AXES.map((axis) => axis.axisId).sort()).toEqual(catalogIds);
   });
 });

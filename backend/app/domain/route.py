@@ -283,6 +283,18 @@ def merge_material_category_shares(segments: list[RouteSegmentDetail]) -> dict[s
     return shares
 
 
+# ビンへ畳むときに引き継がない辞書フィールドと、その理由。
+# `tests/test_route.py`がモデル側から辞書フィールドを引き、この宣言に無いものが
+# 落ちていないかを検査する（足し忘れは型でも例外でも現れないため）。
+BIN_DROPPED_DICT_FIELDS: dict[str, str] = {
+    # categorical材料は平均できず、ビンの代表値を1つ選ぶと延長割合が500m単位へ量子化される。
+    # ルート全体の割合（`RouteCandidate.material_category_shares`）はEdge単位のsegmentsから
+    # 畳む必要があるため、`road_graph_engine`がビニングの前に計算する。区間単位の値には
+    # 消費者がいない。
+    "material_categories": "ビン代表値では延長割合が歪むため、ビニング前に候補全体の割合へ畳む",
+}
+
+
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
     first, last = segments[0], segments[-1]
     return RouteSegmentDetail(

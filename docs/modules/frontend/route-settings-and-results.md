@@ -43,6 +43,12 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 
 - 軸の一覧・既定重みは`useAxisCatalog`経由（取得完了まで・失敗時は既存軸の静的
   フォールバック）。軸スタジオでの追加が再デプロイなしに反映される。
+- **カタログ1件→`PreferenceAxisDef`の変換は`evaluationAxes.ts: preferenceAxisFromCatalog`
+  1本**で、実行時API経路と静的フォールバックの両方がこれを通る。並び順だけを
+  `SECONDARY_AXES`からなぞり、中身は必ずカタログから組み立てる——経路ごとに組み立てを
+  書くと、片方にだけフィールドを書き足した状態が型検査を通ってしまう
+  （`PreferenceAxisDef`のフィールドはすべてoptional）。カタログ側に値がある
+  フィールドが変換後も残ることは`evaluationAxes.test.ts`が検査する。
 - カテゴリ（観測/推定/動的）によるグルーピング表示は行わない。軸スタジオは常に
   `category="推定"`固定で軸を作るため、フラットな1本のリストで表示する。
 - 重み配分バー（帯グラフ、`stackBarOuter`/`stackBarHandle`）は表示専用ではなく、
