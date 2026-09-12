@@ -216,8 +216,10 @@
 .outcomeTabs {
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
+  /* 2カラムの高さを揃える。左の一覧だけ低く終わると、その下に触れない余白が残る。 */
+  align-items: stretch;
   gap: var(--space-2);
+  min-height: 0;
 }
 
 .outcomeTabPanes {
@@ -330,12 +332,16 @@
    シートを押し上げないよう、狭幅では上限を付けて中をスクロールさせる——横スクロールと違い
    縦スクロールはシート自体の操作と同じ向きで、溢れに気づける。 */
 @media (max-width: 640px) {
-  .outcomeTabBar {
-    max-height: 11rem;
+  /* 下部シートの高さいっぱいまで2カラムを伸ばし、余った高さは候補一覧が使う
+     （固定の上限を置くと、シートに余白があっても一覧はそれ以上伸びない）。
+     はみ出す候補は一覧の中を縦スクロールさせる。 */
+  .outcomeTabs {
+    flex: 1 1 auto;
   }
 
   .outcomeTabList {
     overflow-y: auto;
+    min-height: 0;
   }
 }
 

@@ -110,8 +110,9 @@ export default function RouteAxisProfile({
       {overallDifficulty != null && (
         <div className={styles.scores}>
           <span className={styles.scoreItem}>
+            <span className={styles.scoreLabel}>総合難易度</span>
             <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
-            <span className={styles.scoreLabel}>/100 総合難易度</span>
+            <span className={styles.scoreLabel}>/100</span>
             <InfoPopover
               triggerClassName={styles.infoButton}
               triggerAriaLabel="総合難易度の説明"
@@ -122,8 +123,10 @@ export default function RouteAxisProfile({
           </span>
           {difficultyLoad != null && (
             <span className={styles.scoreItem}>
+              {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
+                  ぶんだけ縦を食うため、見出しは短い語に留める。 */}
+              <span className={styles.scoreLabel}>負荷</span>
               <span className={styles.scoreValue}>{Math.round(difficultyLoad)}</span>
-              <span className={styles.scoreLabel}>負荷（難易度×距離）</span>
               <InfoPopover
                 triggerClassName={styles.infoButton}
                 triggerAriaLabel="負荷の説明"

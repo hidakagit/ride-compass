@@ -10,8 +10,10 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-4);
-  margin: 6px 2px var(--space-1);
+  /* 狭い右カラムでは2つの指標が1行ずつ折り返す。数値を大きく積むと縦を食うため、
+     ラベルを先に置いた1行の形にして詰める。 */
+  gap: 2px var(--space-3);
+  margin: 2px 2px var(--space-1);
 }
 
 .scoreItem {
@@ -22,8 +24,8 @@
 }
 
 .scoreValue {
-  font-size: 1.25rem;
-  font-weight: 500;
+  font-size: 1.05rem;
+  font-weight: 600;
 }
 
 .scoreLabel {
