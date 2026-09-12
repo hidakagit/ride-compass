@@ -15,7 +15,7 @@
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/routeTabLabel.ts` | 候補タブの「最短からの超過km」を組み立てる純関数（`shortestDistanceKm`・`extraDistanceLabel`）と、区間を乗り換えて作った候補の判定（`isSplicedRoute`・`SPLICED_ROUTE_ID_PREFIX`）。**合成も素の結果と本質的に区別せず**、並び順は生成候補と同じ規約に乗せ（`lib/routeSplice.ts: insertByDifficulty`）、見分けだけをタブの名前（「合成」）で付ける。**接頭辞はbackendが付ける値で、判定と組み立ての両方がこの1つを使う**——別々に書くと片方だけ変えたときに合成ルートが一覧で見分けられなくなる（型でも例外でも現れない）。タブ列自体はpage.tsxが組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
-| `components/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`・`totalUnitFor`）。「◯◯/km」の単位のときだけ走行距離を掛けて経路全体の実数を添える。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`（numeric/boolean）・`formatCategoryBreakdown`（categorical、最も延長の長い値）と、行に出す既定件数`DEFAULT_BREAKDOWN_VISIBLE`も持つ |
+| `components/RouteAxisProfile/axisRawValue.ts` | 軸の生値（折れ点を通す前）を単位付きの表示文へ整える純関数（`formatAxisRawValue`・`totalUnitFor`）。「◯◯/km」の単位のときだけ走行距離を掛けて経路全体の実数を添える。単位が定まらない軸の内訳1件を整える`formatMaterialBreakdown`（numeric/boolean）・`formatCategoryBreakdown`（categorical、最も延長の長い値）も持つ |
 | `components/RouteAxisProfile/AxisContributionBar.tsx` | 「重み付き寄与度」内訳の表示部品（積み上げ1本バー＋凡例）。ルート全体の内訳（RouteAxisProfile）・区間クリック詳細（page.tsx: selectedRouteSegment）の両方から共用する |
 | `components/ComparisonPanel/ComparisonPanel.tsx`・`types/experimentSlot.ts`（`ExperimentSlot`型・`MAX_EXPERIMENT_SLOTS`） | 研究モードの実験スロット比較表 |
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
@@ -153,19 +153,31 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）が組み立てる候補ごとの
 タブ（方向・距離のみを表示。総合難易度の点数はタブ内では繰り返さない）の中身として、
 候補1件につき1つ表示する。呼び出し側（page.tsx）は`axes`へ公開軸すべてを渡す——重み0の軸を
-落とすと、直下の「未使用」バッジ（この候補を評価した重みが0だったことを示す）が構造的に
-出せなくなる。
+落とすと、下記の「未使用の軸」行（この候補を評価した重みが0だった軸が何本あるかを示す）が
+構造的に出せなくなる。
 
-- **軸別難易度の一覧**: 公開軸すべて（軸カタログ順）を「色ドット＋ラベル＋(i)説明＋難易度
+一覧の縦の長さは公開軸の本数に比例して伸びる。比例の対象と係数の両方を下げてあり、
+どちらも軸が増えたときに効く: 比例の対象は「重みが入っている軸」だけ（重み0は畳む）で、
+1行あたりの高さは「生値を持つ軸だけが2段目を持つ」（材料内訳は行に出さない）。
+
+- **軸別難易度の一覧**: 重みが入っている軸（軸カタログ順）を「色ドット＋ラベル＋(i)説明＋難易度
   （`RouteCandidate.axis_difficulties`、四捨五入）＋生値」の行で並べる。
   **(i)と難易度は軸をまたいで縦に揃える**——行ごとにflexで並べると、軸名の長さで
   右側の位置が行ごとにずれて読み比べられない。一覧側を4列のグリッドにし、各行は
   `display: contents`で自分の箱を持たない（行ごとにグリッドを作ると列幅も行ごとに
   決まってしまう）。生値は`grid-column: 2 / -1`で2段目へ回し、値のある軸だけ描く。
   `data-unused`の薄さは行ではなくセルへ掛ける（`display: contents`の要素にはopacityが
-  効かない）。この候補を評価した重み
-  （生成時点の`route_preference`）が0の軸は「未使用」バッジ付きで薄く残し、値が無い軸は
-  「データなし」を示す。選択操作は持たない（地図の色分けは`LensControl`）。
+  効かない）。値が無い軸は「データなし」を示す。選択操作は持たない
+  （地図の色分けは`LensControl`）。
+- **未使用の軸（重み0）の折りたたみ**: この候補を評価した重み（生成時点の
+  `route_preference`）が0の軸は、一覧の末尾の「未使用の軸 N本」という開閉行1本へまとめる
+  （既定は畳んだ状態）。本数は残るため「消さずに薄くする」
+  （[設計原則](../../design-principles.md)「UI仕様」）は畳んだ後も成り立つ。**畳む条件は
+  重みだけで決める**——値が無い軸（「データなし」）はユーザーの選択ではないため畳まない
+  （読みたい軸が黙って隠れない）。開閉行は`<li>`＋素のbutton（`aria-expanded`）で、
+  共通の`Disclosure`は使わない: Radix Accordionが挟むRoot/Item/Header/Contentが`<ul>`の
+  直下へ入ると一覧のマークアップが壊れ、開いた軸行が別のグリッドへ移って列が使用中の軸と
+  揃わなくなる。開いた行は同じグリッドの中に並ぶため列は揃ったまま。
 - **生値（行の2段目）**: 折れ点を通す前の生値を、その軸の行の2段目へ右端揃えで置く
   （`RouteCandidate.axis_raw_values` × `AxisCatalogEntry.raw_value_unit`、
   `axisRawValue.ts: formatAxisRawValue`）。単位が「◯◯/km」なら候補の走行距離を掛けた
@@ -175,9 +187,11 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   得点0-100は目盛りの引き方に依存する相対評価
   でしかなく、それだけでは軸単体で経路の良し悪しを判断できないため
   （[設計原則](../../design-principles.md)11）。
-- **内訳（単位が定まらない軸の2段目）**: `raw_value_unit`がnullの軸は、代わりに材料まで
-  分解した絶対量を同じ2段目へ並べる（`AxisCatalogEntry.material_breakdown` ×
+- **内訳（軸の説明ポップオーバー）**: 材料まで分解した絶対量は、行ではなく軸の(i)説明
+  ポップオーバーへ「この軸の内訳: ...」として全件置く（`AxisCatalogEntry.material_breakdown` ×
   `RouteCandidate.material_values`、`axisRawValue.ts: formatMaterialBreakdown`）。
+  パネルの行に出せる物理量は軸1本につき生値1つまでで、材料値の一覧は区間の詳細が持つ
+  （[設計原則](../../design-principles.md)「数値は3層で見せる」）。
   表記は材料の型で決まり、軸ごとの対応表を持たない——numericは距離加重平均＋単位
   （「制限速度 42km/h」）、booleanは該当区間の延長割合（「街灯あり 68%」。値が0/1で
   運ばれるため平均がそのまま割合になる）、categoricalは**最も延長の長い値**のラベルと割合
@@ -185,12 +199,9 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   `AxisCatalogEntry.material_breakdown[].value_labels`、`formatCategoryBreakdown`）。
   categoricalで2件目以降を出さないのは、「幹線道路が◯%」のように複数の値をまとめるには
   どの値を幹線とみなすかという判断表が要り、それをフロントが持つと軸を1本足すたびに表の
-  更新が要る状態へ戻るため。ラベルはbackendが返す対訳を引き、未登録の値はタグ生値のまま出す。**並べ替えはしない**: backendが正規化重みの
-  降順で返す並びをそのまま先頭から使う。既定で行に出すのは`DEFAULT_BREAKDOWN_VISIBLE`件
-  （2件）までで、残りは軸の説明ポップオーバーへ回す——軸1本あたり最大5件あり、常に全件
-  並べると走行中に見る画面としての情報量を超えるため（[設計原則](../../design-principles.md)
-  「走行中に見るかを基準に情報量を絞る」）。値が来ない材料（categorical材料は数値列に
-  載らない）は飛ばす。
+  更新が要る状態へ戻るため。ラベルはbackendが返す対訳を引き、未登録の値はタグ生値のまま
+  出す。**並べ替えはしない**: backendが正規化重みの降順で返す並びをそのまま使う。
+  値が来ない材料（categorical材料は数値列に載らない）は飛ばす。
 - **負荷（難易度×距離）**: `RouteCandidate.difficulty_load`を総合難易度の隣へ併記する
   （(i)で意味を説明する）。総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
   「難所を通っても短いルート」と「遠回りで易しいルート」を見比べるための値

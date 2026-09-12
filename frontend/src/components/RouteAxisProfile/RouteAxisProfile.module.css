@@ -117,9 +117,44 @@
   composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
 
-/* 既定表示に入り切らなかった内訳。説明文の続きとして1段落ぶん空けて置く。 */
+/* 材料まで分解した内訳。説明文の続きとして1段落ぶん空けて置く。 */
 .infoBreakdown {
   display: block;
   margin-top: var(--space-2);
   color: var(--color-muted);
+}
+
+/* 重み0の軸をまとめる開閉行。グリッドの1行を丸ごと使う（`display: contents`のままだと
+   ボタンが1列目だけに入り、他の軸の色ドット列の幅で潰れる）。開いた後の軸行は同じ
+   グリッドの中に並ぶため、列は使用中の軸と揃ったままになる。 */
+.unusedGroupRow {
+  display: contents;
+}
+
+.unusedToggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: var(--space-1);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-muted-strong);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.unusedChevron {
+  flex-shrink: 0;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid var(--color-neutral);
+  border-bottom: 2px solid var(--color-neutral);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.unusedChevron[data-open="true"] {
+  transform: rotate(45deg);
 }

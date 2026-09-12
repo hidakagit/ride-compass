@@ -43,11 +43,9 @@ function formatNumber(value: number): string {
   return String(Number(value.toPrecision(2)));
 }
 
-/** 既定で得点の隣へ出す内訳の件数。残りは軸の説明ポップオーバーへ回す。 */
-export const DEFAULT_BREAKDOWN_VISIBLE = 2;
-
 /**
- * 内訳1件を人が読める文へ整える（例:「街灯あり 68%」「制限速度 42km/h」）。
+ * 内訳1件を人が読める文へ整える（例:「街灯あり 68%」「制限速度 42km/h」）。出す先は
+ * 軸の説明ポップオーバーで、パネルの行には出さない（設計原則「数値は3層で見せる」）。
  *
  * 表記は材料の型から決まり、軸ごとの対応表を持たない。真偽値材料の値は0/1で運ばれる
  * （backendの`route_facing_material_ids`）ため、距離加重平均がそのまま該当区間の
