@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION as EDGE_ALGORITHM_VERSION
 from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as WAY_ALGORITHM_VERSION
 from app.batch.precompute_way_landcover import ALGORITHM_VERSION as LANDCOVER_ALGORITHM_VERSION
+from app.infrastructure import derived_data_freshness
 from app.infrastructure.derived_data_freshness import (
+    ALGORITHM_VERSION_NOT_IN_LEDGER,
     GENERATION_FRESHNESS_SPECS,
     DerivedDataFreshnessCounts,
     GenerationFreshnessCounts,
@@ -88,6 +90,23 @@ def _landcover_counts(
     )
 
 
+def _default_counts(spec, *, latest: int = 10) -> GenerationFreshnessCounts:
+    """specの宣言どおりの「鮮度に問題が無い」状態。
+
+    テーブルごとの固定値を書き並べず、`GENERATION_FRESHNESS_SPECS`から組み立てる——
+    書き並べると、台帳へ1件足したときにこのヘルパだけが取り残され、
+    `build_freshness_report`のzip(strict=True)が落ちるまで気づけない。
+    """
+    return GenerationFreshnessCounts(
+        table_name=spec.table_name,
+        row_count=5,
+        source_min={source.source_column: latest for source in spec.sources},
+        source_null_count={source.source_column: 0 for source in spec.sources},
+        algorithm_version_min=spec.algorithm_version_current,
+        algorithm_version_null_count=0,
+    )
+
+
 def _counts(
     *,
     edge=None,
@@ -99,12 +118,15 @@ def _counts(
     road_edges_total: int = 5,
     elevation_uncalculated_count: int = 0,
 ) -> DerivedDataFreshnessCounts:
+    overrides = {
+        counts.table_name: counts
+        for counts in (edge, way, designation, landcover)
+        if counts is not None
+    }
     return DerivedDataFreshnessCounts(
-        generations=(
-            edge or _edge_counts(),
-            way or _way_counts(),
-            designation or _designation_counts(),
-            landcover or _landcover_counts(),
+        generations=tuple(
+            overrides.get(spec.table_name) or _default_counts(spec)
+            for spec in GENERATION_FRESHNESS_SPECS
         ),
         latest_succeeded_run_id={"accident_import_runs": latest_accident, "osm_import_runs": latest_osm},
         road_edges_total=road_edges_total,
@@ -115,21 +137,53 @@ def _counts(
 # --- 宣言テーブルの構造 ---
 
 
-def test_generation_freshness_specs_cover_exactly_the_four_tables():
-    assert [spec.table_name for spec in GENERATION_FRESHNESS_SPECS] == [
-        "edge_attribute_counts",
-        "way_attribute_counts",
-        "designation_attributes",
-        "way_landcover",
-    ]
+def test_every_batch_declaring_an_algorithm_version_is_in_the_ledger():
+    """`ALGORITHM_VERSION`を宣言する事前計算バッチが、世代台帳に載っているか。
+
+    母集団を`app/batch/precompute_*.py`側から引く。台帳に並ぶテーブル名を書き写す形だと、
+    新しいバッチが台帳へ載らなくても「今ある4件が今ある4件と一致する」で通ってしまい、
+    その派生テーブルの陳腐化が管理画面から見えないまま残る。
+    """
+    import pathlib
+    import re
+
+    batch_dir = pathlib.Path(derived_data_freshness.__file__).resolve().parents[1] / "batch"
+    declaring = {
+        path.stem
+        for path in sorted(batch_dir.glob("precompute_*.py"))
+        if re.search(r"^ALGORITHM_VERSION\s*=", path.read_text(encoding="utf-8"), re.M)
+    }
+    in_ledger = {
+        spec.algorithm_version_owner.split(".", 1)[0]
+        for spec in GENERATION_FRESHNESS_SPECS
+        if spec.algorithm_version_owner is not None
+    }
+
+    unregistered = declaring - in_ledger - set(ALGORITHM_VERSION_NOT_IN_LEDGER)
+
+    assert not unregistered, (
+        f"{sorted(unregistered)}がALGORITHM_VERSIONを宣言しているのに世代台帳に無い。"
+        "GENERATION_FRESHNESS_SPECSへ追加するか、載せない理由を"
+        "ALGORITHM_VERSION_NOT_IN_LEDGERへ書くこと。"
+    )
 
 
-def test_only_edge_way_and_landcover_specs_have_algorithm_version():
-    by_table = {spec.table_name: spec for spec in GENERATION_FRESHNESS_SPECS}
-    assert by_table["edge_attribute_counts"].algorithm_version_current is not None
-    assert by_table["way_attribute_counts"].algorithm_version_current is not None
-    assert by_table["designation_attributes"].algorithm_version_current is None
-    assert by_table["way_landcover"].algorithm_version_current is not None
+def test_the_exclusion_list_does_not_name_batches_that_are_gone():
+    # 除外の理由だけが残り続けるのを防ぐ（母集団側から消えたら除外も要らない）。
+    in_ledger = {
+        spec.algorithm_version_owner.split(".", 1)[0]
+        for spec in GENERATION_FRESHNESS_SPECS
+        if spec.algorithm_version_owner is not None
+    }
+
+    assert not (set(ALGORITHM_VERSION_NOT_IN_LEDGER) & in_ledger)
+
+
+def test_algorithm_version_value_and_owner_are_declared_together():
+    # 片方だけ埋まっていると、集計SQLはalgorithm_version列を読むのに画面がどのバッチの
+    # 責任かを示せない（またはその逆）。どちらが欠けても鮮度の読み手が迷子になる。
+    for spec in GENERATION_FRESHNESS_SPECS:
+        assert (spec.algorithm_version_current is None) == (spec.algorithm_version_owner is None), spec.table_name
 
 
 def test_build_generation_freshness_sql_has_one_column_pair_per_source():
@@ -232,4 +286,4 @@ def test_report_carries_elevation_completeness_separately_from_generation_entrie
     assert report.elevation.road_edges_total == 100
     assert report.elevation.uncalculated_count == 7
     assert report.computed_at == COMPUTED_AT
-    assert len(report.generations) == 4
+    assert len(report.generations) == len(GENERATION_FRESHNESS_SPECS)

@@ -238,8 +238,12 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 `edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`が参照している
 `source_*_import_run_id`（上記「事前集計バッチ」参照）を、対応する`*_import_runs`の
 最新成功run（`MAX(id) WHERE status='succeeded'`）と突き合わせ、テーブルに実際反映
-されている世代が古いままではないかを機械判定する（`edge_attribute_counts`/
-`way_attribute_counts`は`algorithm_version`の不一致も検知）。`elevation_attributes`は
+されている世代が古いままではないかを機械判定する（`algorithm_version`を持つテーブルは
+その不一致も検知する）。台帳に載せる対象は`GENERATION_FRESHNESS_SPECS`の宣言だが、
+その**網羅性は`app/batch/precompute_*.py`側から引いて検査する**——`ALGORITHM_VERSION`を
+宣言するバッチが台帳に無ければテストが落ちる。台帳に並ぶ名前を書き写す形の検査だと、
+新しいバッチが載らなくても「今あるものが今あるものと一致する」で通ってしまい、その
+派生テーブルの陳腐化が管理画面から見えないまま残る。`elevation_attributes`は
 この列を持たないため（[elevation.md](elevation.md)参照）、世代比較ではなく`road_edges`
 との行数差分による完成度のみを別枠で扱う。`GET /api/admin/derived-data/freshness`
 （Basic認証必須）が`/admin`「鮮度」タブ（[axis-studio.md](../frontend/axis-studio.md)）へ

@@ -1748,7 +1748,16 @@ function makeEnsureAxisRampLayer(axis: RampAxis, useCasing: boolean): (map: MapL
   };
 }
 
-type OverlayLayerEntry = { key: string; layerId: string; ensure: (map: MapLibreMap) => void };
+// interactive: クリック・カーソル判定（handleClick/handleMouseMove）の対象にするか。
+// レイヤーを足すときにその場で答えさせるため必須にしてある——別の一覧で「対象外のkey」を
+// 数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
+// クリック可能を示すのに実際は何も起きない」という不整合が静かに増える。
+type OverlayLayerEntry = {
+  key: string;
+  layerId: string;
+  ensure: (map: MapLibreMap) => void;
+  interactive: boolean;
+};
 
 // 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、実行時フェッチで
 // 増減しうる）を反映できるよう関数化してある。呼び出し側（コンポーネント内、useMemo経由）が
@@ -1772,6 +1781,8 @@ export function buildAxisOverlayLayers(
       key,
       layerId: axisLineLayerId(axis.axisId),
       ensure: makeEnsureAxisRampLayer(axis, casingLayerKeys.has(key)),
+      // 内訳ポップアップ（axisInspectorPopup等）に対応する専用表示を持たない。
+      interactive: false,
     };
   });
 }
@@ -1801,11 +1812,12 @@ export function buildStaticOverlayLayers(
   const gradientDisplay = dedicatedWayValueDisplays?.get(GRADIENT_AXIS_ID);
   const gradientLoading = dedicatedWayValueLoading?.get(GRADIENT_AXIS_ID) ?? false;
   return [
-    { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer },
+    // ラスタタイルのため地物クリック判定が効かない。
+    { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer, interactive: false },
     ...axisOverlayLayers,
-    { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION) },
-    { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION) },
-    { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION) },
+    { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION), interactive: true },
+    { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION), interactive: true },
+    { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION), interactive: true },
     // 専用way値配信軸（評価軸グループとしての風・勾配等）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。keyはmapLayers.tsのMapLayerIdと同じ値でなければならない
@@ -1821,12 +1833,14 @@ export function buildStaticOverlayLayers(
           dedicatedWayValueLoading?.get(axis.axisId) ?? false
         )
       ),
+      interactive: true,
     })),
     // 環境グループの勾配gridFill（タイル境界セル）。
-    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientDisplay, gradientLoading) },
-    { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer },
-    { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer },
-    { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer },
+    // 専用ポップアップを持たず、クリック時はhandleClickの早期returnガードで「何もしない」。
+    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientDisplay, gradientLoading), interactive: false },
+    { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer, interactive: true },
+    { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer, interactive: true },
+    { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer, interactive: true },
   ];
 }
 
@@ -1880,29 +1894,19 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
 // 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
 
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
-// STATIC_OVERLAY_LAYERSからelevation（ラスタタイルのため地物クリック判定が効かない）を
-// 除いたものに、STATIC_OVERLAY_LAYERSの対象外であるDETAIL_HIT_LAYER_ID（ルート詳細区間の
-// 当たり判定専用レイヤー。幅6pxの見た目の線DETAIL_LAYER_ID自体はモバイルでタップしづらいため、
-// 幅24pxの当たり判定専用レイヤーを別に持つ）・ROAD_TILE_LAYER_ID（路面）を加える。
-// handleClick/handleMouseMoveの両方が同じ対象レイヤー一覧を参照する必要があり、
-// STATIC_OVERLAY_LAYERSとも一致させる必要がある——レイヤー追加時にどこか1箇所だけ
-// 追記漏れすると「ポップアップは出るがカーソルが変わらない」等の非対称な劣化が
-// 検知されず残るため、この関数へ集約する。
-// 二次軸rampレイヤーはクリック時の内訳ポップアップ（axisInspectorPopup等）に
-// 対応する専用表示を持たないため、elevationと同様にクリック判定から除外する。
+// 各レイヤーが自分で宣言した`interactive`から導く（対象外のkeyをここで数え上げない、
+// OverlayLayerEntryのコメント参照）。これへSTATIC_OVERLAY_LAYERSの対象外である
+// DETAIL_HIT_LAYER_ID（ルート詳細区間の当たり判定専用レイヤー。幅6pxの見た目の線
+// DETAIL_LAYER_ID自体はモバイルでタップしづらいため、幅24pxの当たり判定専用レイヤーを
+// 別に持つ）・ROAD_TILE_LAYER_ID（路面）を加える。handleClick/handleMouseMoveの両方が
+// この同じ一覧を参照する必要があり、片方だけ増減すると「ポップアップは出るがカーソルが
+// 変わらない」という非対称な劣化になるため、この関数へ集約する。
 // exportはテスト専用（MapView.overlayFilters.test.ts）。
 export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
   return [
     DETAIL_HIT_LAYER_ID,
     ROAD_TILE_LAYER_ID,
-    ...staticOverlayLayers.filter(
-      // "gradientFill"（環境グループの勾配gridFill）は専用ポップアップを持たず、
-      // クリック時は下記handleClickの早期returnガードで「何もしない」設計のため、
-      // ここでも除外する。除外しないままだと、handleMouseMoveのカーソル判定（同じ
-      // interactiveLayerIdsを参照）がこのレイヤー上でpointerカーソルを出し、
-      // 「カーソルはクリック可能を示すのに実際は何も起きない」という不整合になる。
-      (layer) => layer.key !== "elevation" && layer.key !== "gradientFill" && !layer.key.startsWith("axis:"),
-    ).map((layer) => layer.layerId),
+    ...staticOverlayLayers.filter((layer) => layer.interactive).map((layer) => layer.layerId),
   ];
 }
 

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION
 from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION
+from app.batch.precompute_way_curvature import ALGORITHM_VERSION as _CURVATURE_ALGORITHM_VERSION
 from app.batch.precompute_way_landcover import ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION
 
 
@@ -77,7 +78,19 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
         algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_way_landcover.ALGORITHM_VERSION",
     ),
+    GenerationFreshnessSpec(
+        table_name="way_geometry",
+        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
+        algorithm_version_current=_CURVATURE_ALGORITHM_VERSION,
+        algorithm_version_owner="precompute_way_curvature.ALGORITHM_VERSION",
+    ),
 )
+
+# `ALGORITHM_VERSION`を宣言しているのに世代台帳へ載せない事前計算バッチと、その理由。
+# 空でよい状態が正常で、`tests/test_derived_data_freshness.py`が
+# `app/batch/precompute_*.py`側から母集団を引いて突き合わせる——宣言だけ増えて台帳へ
+# 載らないと、その派生テーブルの陳腐化が管理画面から見えないまま残る。
+ALGORITHM_VERSION_NOT_IN_LEDGER: dict[str, str] = {}
 
 
 def build_generation_freshness_sql(spec: GenerationFreshnessSpec):

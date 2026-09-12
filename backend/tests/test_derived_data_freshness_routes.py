@@ -30,45 +30,27 @@ class FakeDerivedDataFreshnessService:
         return build_freshness_report(self._counts, datetime(2026, 9, 4, tzinfo=timezone.utc))
 
 
-# 「鮮度が最新」を表すフェイクは、版数を書き写さず実装側の仕様から取る
-# （書き写すと版数を上げるたびにこのテストが偽の失敗を出す）。
-_CURRENT_ALGORITHM_VERSIONS = {
-    spec.table_name: spec.algorithm_version_current for spec in GENERATION_FRESHNESS_SPECS
-}
+# 「鮮度が最新」を表すフェイクは、台帳の宣言そのものから組み立てる（テーブルを書き並べると
+# 台帳へ1件足したときにここだけ取り残され、build_freshness_reportのzip(strict=True)が
+# 落ちるまで気づけない。版数を書き写す形も同じで、上げるたび偽の失敗を出す）。
+_LATEST_RUN_ID = {"accident_import_runs": 10, "osm_import_runs": 20}
 
 
 def _fresh_counts() -> DerivedDataFreshnessCounts:
-    def _generation(table_name: str, sources: dict[str, int]) -> GenerationFreshnessCounts:
+    def _generation(spec) -> GenerationFreshnessCounts:
+        sources = {source.source_column: _LATEST_RUN_ID[source.run_table] for source in spec.sources}
         return GenerationFreshnessCounts(
-            table_name=table_name,
+            table_name=spec.table_name,
             row_count=5,
             source_min=sources,
             source_null_count=dict.fromkeys(sources, 0),
-            algorithm_version_min=_CURRENT_ALGORITHM_VERSIONS[table_name],
+            algorithm_version_min=spec.algorithm_version_current,
             algorithm_version_null_count=0,
         )
 
     return DerivedDataFreshnessCounts(
-        generations=(
-            _generation(
-                "edge_attribute_counts",
-                {"source_accident_import_run_id": 10, "source_osm_import_run_id": 20},
-            ),
-            _generation(
-                "way_attribute_counts",
-                {"source_accident_import_run_id": 10, "source_osm_import_run_id": 20},
-            ),
-            _generation("designation_attributes", {"source_osm_import_run_id": 20}),
-            GenerationFreshnessCounts(
-                table_name="way_landcover",
-                row_count=5,
-                source_min={"source_osm_import_run_id": 20},
-                source_null_count={"source_osm_import_run_id": 0},
-                algorithm_version_min="v1-ring10-100",
-                algorithm_version_null_count=0,
-            ),
-        ),
-        latest_succeeded_run_id={"accident_import_runs": 10, "osm_import_runs": 20},
+        generations=tuple(_generation(spec) for spec in GENERATION_FRESHNESS_SPECS),
+        latest_succeeded_run_id=dict(_LATEST_RUN_ID),
         road_edges_total=100,
         elevation_uncalculated_count=3,
     )
@@ -99,18 +81,19 @@ def test_get_derived_data_freshness_returns_report(admin_credentials):
     assert response.status_code == 200
     body = response.json()
     assert body["computed_at"].startswith("2026-09-04")
+    # 応答は台帳の宣言をその順で返す（並びもテーブル名も台帳側から取る）。
     assert [g["table_name"] for g in body["generations"]] == [
-        "edge_attribute_counts",
-        "way_attribute_counts",
-        "designation_attributes",
-        "way_landcover",
+        spec.table_name for spec in GENERATION_FRESHNESS_SPECS
     ]
-    edge_entry = body["generations"][0]
-    assert edge_entry["is_stale"] is False
-    assert edge_entry["algorithm_version"]["current_version"] == _CURRENT_ALGORITHM_VERSIONS["edge_attribute_counts"]
-    designation_entry = body["generations"][2]
-    assert designation_entry["algorithm_version"] is None
-    assert len(designation_entry["sources"]) == 1
+    by_table = {g["table_name"]: g for g in body["generations"]}
+    for spec in GENERATION_FRESHNESS_SPECS:
+        entry = by_table[spec.table_name]
+        assert entry["is_stale"] is False
+        assert len(entry["sources"]) == len(spec.sources)
+        if spec.algorithm_version_current is None:
+            assert entry["algorithm_version"] is None
+        else:
+            assert entry["algorithm_version"]["current_version"] == spec.algorithm_version_current
     assert body["elevation"] == {"road_edges_total": 100, "uncalculated_count": 3}
 
 
