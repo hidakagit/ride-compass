@@ -32,7 +32,14 @@ from app.domain.geo import bearing_between, haversine_distance_km, haversine_dis
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
 from app.domain.route_preference import RoutePreference
-from app.domain.routing import find_nearest_node_indexed, shortest_path_node_ids_lazy
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
+
+from app.domain.routing import (
+    build_shortest_path_tree,
+    find_nearest_node_indexed,
+    shortest_path_node_ids_lazy,
+)
 from app.infrastructure.database import get_route_generation_session_factory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.road_graph_engine import PREVIEW_BBOX_MARGIN_KM, _bbox_covering_points
@@ -235,6 +242,129 @@ def _path_length_km(path_edges: list[int], length_m: list[float]) -> float:
     return sum(length_m[edge_index] for edge_index in path_edges) / 1000.0
 
 
+def _build_edge_expanded_csr(
+    indptr: np.ndarray, indices: np.ndarray, entry_edge: np.ndarray, cost: np.ndarray,
+    bearing: np.ndarray, edge_from: np.ndarray, edge_to: np.ndarray, origin_edges: np.ndarray,
+    speed_ms: float, turn_enabled: bool,
+) -> tuple[csr_matrix, int]:
+    """有向区間を状態、ターンを辺として展開したCSRを組む（一対全木をscipyで張るため）。
+
+    行=遷移元の有向区間、列=遷移先の有向区間、値=遷移先の区間コスト＋ターンの費用。最後の
+    1行は仮想の始点で、起点から出る区間へその区間のコストで繋ぐ（複数の始点状態に別々の初期
+    コストを与えるため）。0次フィルタで除外された区間（コストinf）への遷移は落とす。
+    """
+    edge_count = len(edge_to)
+    out_start = indptr[edge_to]
+    out_count = (indptr[edge_to + 1] - out_start).astype(np.int64)
+    total = int(out_count.sum())
+    row_start = np.zeros(edge_count + 1, dtype=np.int64)
+    np.cumsum(out_count, out=row_start[1:])
+
+    source = np.repeat(np.arange(edge_count, dtype=np.int64), out_count)
+    entry_index = np.repeat(out_start.astype(np.int64), out_count) + (
+        np.arange(total, dtype=np.int64) - np.repeat(row_start[:edge_count], out_count)
+    )
+    target = entry_edge[entry_index].astype(np.int64)
+    target_head = indices[entry_index].astype(np.int64)
+
+    if turn_enabled:
+        delta = (bearing[target] - bearing[source] + 180.0) % 360.0 - 180.0
+        is_uturn = target_head == edge_from[source]
+        turn_seconds = np.where(
+            is_uturn, TURN_SECONDS_UTURN,
+            np.where(np.abs(delta) <= STRAIGHT_MAX_DEG, 0.0,
+                     np.where(delta < 0, TURN_SECONDS_LEFT, TURN_SECONDS_RIGHT)),
+        )
+    else:
+        turn_seconds = np.zeros(total)
+    weight = cost[target] + turn_seconds * speed_ms
+
+    keep = np.isfinite(weight)
+    source = source[keep]
+    target = target[keep]
+    weight = weight[keep]
+    origin_edges = origin_edges[np.isfinite(cost[origin_edges])]
+
+    # 仮想始点（行番号edge_count）を末尾へ足す。
+    source = np.concatenate([source, np.full(len(origin_edges), edge_count, dtype=np.int64)])
+    target = np.concatenate([target, origin_edges.astype(np.int64)])
+    weight = np.concatenate([weight, cost[origin_edges]])
+
+    order = np.argsort(source, kind="stable")
+    source = source[order]
+    target = target[order]
+    weight = weight[order]
+    new_indptr = np.zeros(edge_count + 2, dtype=np.int64)
+    np.cumsum(np.bincount(source, minlength=edge_count + 1), out=new_indptr[1:])
+    matrix = csr_matrix((weight, target, new_indptr), shape=(edge_count + 1, edge_count + 1))
+    return matrix, len(weight)
+
+
+async def measure_one_to_all(context, lazy_graph, csr, cost_list, bearing, edge_from_list, edge_to_list,
+                             origin_index: int, speed_ms: float) -> None:
+    """一対全木（周回生成の基盤）を、状態＝ノードと状態＝有向区間で張り比べる。"""
+    indptr = csr.indptr.astype(np.int64)
+    indices = csr.indices.astype(np.int64)
+    entry_edge = csr.entry_edge_index.astype(np.int64)
+    cost_arr = np.asarray(cost_list, dtype=np.float64)
+    bearing_arr = np.asarray(bearing, dtype=np.float64)
+    edge_from_arr = np.asarray(edge_from_list, dtype=np.int64)
+    edge_to_arr = np.asarray(edge_to_list, dtype=np.int64)
+    origin_edges = entry_edge[indptr[origin_index]:indptr[origin_index + 1]]
+
+    started = time.perf_counter()
+    node_tree = build_shortest_path_tree(csr, cost_list, context.statics.edge_length_m, origin_index)
+    node_tree_ms = (time.perf_counter() - started) * 1000
+    node_reached = int(np.isfinite(node_tree.cost).sum())
+    print(
+        f"\n[一対全木 状態=ノード 現行 scipy] elapsed_ms={node_tree_ms:.0f} "
+        f"states={csr.node_count} reached={node_reached}"
+    )
+
+    for turn_enabled in (False, True):
+        started = time.perf_counter()
+        matrix, transition_count = _build_edge_expanded_csr(
+            indptr, indices, entry_edge, cost_arr, bearing_arr, edge_from_arr, edge_to_arr,
+            origin_edges, speed_ms, turn_enabled,
+        )
+        build_ms = (time.perf_counter() - started) * 1000
+        started = time.perf_counter()
+        distances = scipy_dijkstra(matrix, directed=True, indices=len(edge_to_arr))
+        tree_ms = (time.perf_counter() - started) * 1000
+        reached = int(np.isfinite(distances[:-1]).sum())
+        memory_mb = (matrix.data.nbytes + matrix.indices.nbytes + matrix.indptr.nbytes) / 1024 / 1024
+        label = "ターン費用あり" if turn_enabled else "ターン費用なし"
+        print(
+            f"[一対全木 状態=有向区間 {label}] build_ms={build_ms:.0f} dijkstra_ms={tree_ms:.0f} "
+            f"states={len(edge_to_arr)} transitions={transition_count} reached={reached} "
+            f"csr_mb={memory_mb:.1f}"
+        )
+        if not turn_enabled:
+            # ターンの費用が無ければ、有向区間の木から導いたNodeごとの最小コストは
+            # ノードの木と一致するはず（実装の正しさの確認）。
+            per_node = np.full(csr.node_count, np.inf)
+            np.minimum.at(per_node, edge_to_arr, distances[:-1])
+            both = np.isfinite(per_node) & np.isfinite(node_tree.cost)
+            if both.any():
+                diff = np.abs(per_node[both] - node_tree.cost[both])
+                signed = per_node[both] - node_tree.cost[both]
+                worse = int((signed > 1e-6).sum())
+                better = int((signed < -1e-6).sum())
+                print(
+                    f"  ノードの木との一致: 共通到達Node={int(both.sum())} "
+                    f"最大差={diff.max():.3f} 平均差={diff.mean():.5f} "
+                    f"有向区間の方が高い={worse}件 低い={better}件"
+                )
+                if worse or better:
+                    index = int(np.argmax(np.abs(signed)))
+                    node_index = int(np.flatnonzero(both)[index])
+                    print(
+                        f"  最大差のNode index={node_index} "
+                        f"有向区間={per_node[node_index]:.1f} ノード={node_tree.cost[node_index]:.1f} "
+                        f"入次数={int((edge_to_arr == node_index).sum())}"
+                    )
+
+
 async def main() -> None:
     straight_km = haversine_distance_km(ORIGIN, DESTINATION)
     print(f"origin={ORIGIN} destination={DESTINATION} straight_km={straight_km:.1f} (T790段階1)")
@@ -385,6 +515,11 @@ async def main() -> None:
             f"path_edges={len(plain_result['path_edges'])} "
             f"path_km={_path_length_km(plain_result['path_edges'], length_list):.2f} "
             f"cost={plain_result['cost']:.0f} turns={plain_result['turns']}"
+        )
+
+        await measure_one_to_all(
+            context, lazy_graph, csr, cost_list, bearing, edge_from_list, edge_to_list,
+            origin_index, speed_ms,
         )
 
 
