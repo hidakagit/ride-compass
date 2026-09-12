@@ -12,12 +12,30 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _SPEC = importlib.util.spec_from_file_location(
     "review_checks", Path(__file__).resolve().parents[1] / "review_checks.py"
 )
 review_checks = importlib.util.module_from_spec(_SPEC)
 sys.modules["review_checks"] = review_checks
 _SPEC.loader.exec_module(review_checks)
+
+
+@pytest.fixture(autouse=True)
+def _clear_repo_wide_caches():
+    """リポジトリ全体を読むキャッシュをテストごとに落とす。
+
+    `identifier_exists`は引数の`corpus`以外に、`Settings`のフィールド名とimport文が
+    持ち込む名前（どちらもリポジトリ全体から集める）も見る。一時リポジトリを差し込む
+    テストと実リポジトリを見るテストが同じプロセスで走るため、キャッシュが残ると
+    **テストの実行順で結果が変わる**。
+    """
+    review_checks.settings_field_names.cache_clear()
+    review_checks.imported_names.cache_clear()
+    yield
+    review_checks.settings_field_names.cache_clear()
+    review_checks.imported_names.cache_clear()
 
 
 def _violations(path: str, lines: list[tuple[int, str]]) -> list[str]:
@@ -640,7 +658,12 @@ def _settings_py(tmp_path, monkeypatch, body: str):
     (tmp_path / "backend" / "app").mkdir(parents=True, exist_ok=True)
     (tmp_path / "backend" / "app" / "config.py").write_text(body, encoding="utf-8")
     monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    # identifier_existsは引数のcorpus以外にリポジトリ全体も見る（Settingsフィールド・
+    # import文）。実リポジトリの内容が漏れ込むとこのテストの判定が変わるため、
+    # 母集団もこの一時リポジトリへ差し替えてキャッシュを落とす。
+    monkeypatch.setattr(review_checks, "git_files", lambda: ["backend/app/config.py"])
     review_checks.settings_field_names.cache_clear()
+    review_checks.imported_names.cache_clear()
 
 
 def test_env_var_names_are_rescued_by_the_settings_field(tmp_path, monkeypatch):
@@ -650,6 +673,7 @@ def test_env_var_names_are_rescued_by_the_settings_field(tmp_path, monkeypatch):
         assert review_checks.identifier_exists("WEATHER_RATE_LIMIT_PER_MINUTE", "")
     finally:
         review_checks.settings_field_names.cache_clear()
+        review_checks.imported_names.cache_clear()
 
 
 def test_a_constant_is_not_rescued_just_because_a_module_shares_its_lowercase_name(tmp_path, monkeypatch):
@@ -660,6 +684,7 @@ def test_a_constant_is_not_rescued_just_because_a_module_shares_its_lowercase_na
         assert not review_checks.identifier_exists("AXIS_DEFINITIONS", "from app.domain import axis_definitions")
     finally:
         review_checks.settings_field_names.cache_clear()
+        review_checks.imported_names.cache_clear()
 
 
 # --- 段落判定の内容は、行番号の出所と同じものを読む ---
@@ -982,3 +1007,47 @@ def test_records_of_the_time_among_the_review_docs_are_exempt(tmp_path, monkeypa
 def test_agent_tool_names_are_not_project_identifiers(tmp_path, monkeypatch):
     assert _review_doc(tmp_path, monkeypatch, "context.md",
                        "- 結果は`ReportFindings`で報告する。\n") == []
+
+
+# --- import文が持ち込む名前の救済（テストだけが使う外部API） ---
+
+
+def _identifier_repo(tmp_path, monkeypatch, files: dict[str, str]):
+    for name, body in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    # `imported_names`は`git ls-files`で母集団を取る（`git_files`を経由しない）。
+    listing = "\n".join(files)
+    monkeypatch.setattr(review_checks, "git", lambda *a, **k: listing if a[:1] == ("ls-files",) else "")
+    monkeypatch.setattr(review_checks, "git_files", lambda: list(files))
+    review_checks.imported_names.cache_clear()
+    review_checks.settings_field_names.cache_clear()
+
+
+def test_a_name_only_imported_by_a_test_counts_as_existing(tmp_path, monkeypatch):
+    """テスト本体はcorpusから外しているため、テストだけが使う外部APIが「存在しない」になる。"""
+    try:
+        _identifier_repo(tmp_path, monkeypatch, {
+            "frontend/src/x.test.ts": 'import { createExpression } from "@maplibre/maplibre-gl-style-spec";\n',
+        })
+        corpus = review_checks.source_corpus(review_checks.git_files())
+        assert "createExpression" not in corpus  # corpusには入らない
+        assert review_checks.identifier_exists("createExpression", corpus)
+    finally:
+        review_checks.imported_names.cache_clear()
+        review_checks.settings_field_names.cache_clear()
+
+
+def test_an_old_name_left_in_a_test_body_is_still_reported(tmp_path, monkeypatch):
+    """救済はimport文に限る。アサーションや文字列に残る旧名は改名の取り残しのまま。"""
+    try:
+        _identifier_repo(tmp_path, monkeypatch, {
+            "backend/tests/test_x.py": 'def test_x():\n    assert row["zzz_old_field"] == 1\n',
+        })
+        corpus = review_checks.source_corpus(review_checks.git_files())
+        assert not review_checks.identifier_exists("zzz_old_field", corpus)
+    finally:
+        review_checks.imported_names.cache_clear()
+        review_checks.settings_field_names.cache_clear()

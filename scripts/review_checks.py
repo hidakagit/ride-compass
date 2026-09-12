@@ -527,6 +527,40 @@ def settings_field_names() -> frozenset[str]:
     return frozenset(SETTINGS_FIELD_RE.findall(read_text(path)))
 
 
+# import文が持ち込む名前（`from x import y`・`import {y} from "x"`のy）。テスト本体は
+# corpusから外しているため、**テストだけが使う外部APIの名前**（式評価器・テストクライアント
+# 等）が「実装に存在しない」と判定される。import文に現れる名前は、自前か依存先かを問わず
+# 解決できる実在の名前なので救済する——テスト本体の**アサーションや文字列**に残る旧名は
+# import文には現れないため、改名の取り残しを見逃す側には効かない（docs/tasks/T722.md）。
+IMPORTED_NAME_RE = re.compile(
+    r"^\s*from\s+[\w.]+\s+import\s+([^\n#]+)"
+    r"|^\s*import\s+([\w.,\s]+)$"
+    r"|^\s*import\s*\{([^}]*)\}\s*from"
+    r"|^\s*import\s+(\w+)\s*,?\s*(?:\{[^}]*\})?\s*from",
+    re.M,
+)
+
+
+@functools.cache
+def imported_names() -> frozenset[str]:
+    # `REPO_ROOT`がgit管理下でない場合（テストが一時ディレクトリを差し込む）は空集合。
+    # 救済が減る＝検知が厳しくなる方向なので、見逃しには倒れない。
+    names: set[str] = set()
+    for f in (line for line in git("ls-files", check=False).splitlines() if line):
+        if not f.endswith((".py", ".ts", ".tsx")) or "/types/generated/" in f:
+            continue
+        path = REPO_ROOT / f
+        if not path.exists():
+            continue
+        for m in IMPORTED_NAME_RE.finditer(read_text(path)):
+            blob = next((g for g in m.groups() if g), "")
+            for part in blob.replace("(", " ").replace(")", " ").split(","):
+                token = part.strip().split(" as ")[0].strip().rsplit(".", 1)[-1].strip()
+                if re.fullmatch(r"[A-Za-z_]\w*", token):
+                    names.add(token)
+    return frozenset(names)
+
+
 def identifier_exists(token: str, corpus: str) -> bool:
     """その綴りが実装にあるか。
 
@@ -536,8 +570,12 @@ def identifier_exists(token: str, corpus: str) -> bool:
     `axis_definitions.py`に一致してしまうように、**撤去しても常に存在する**定数が
     大量にできる（実測: 文書が名指しするSCREAMING_SNAKE定数173件のうち32件が、
     緩和のせいで検知不能だった。救済が要るのは10件だけ）。
+
+    import文に現れる名前も救済する（`IMPORTED_NAME_RE`の項参照）。
     """
     if token in corpus:
+        return True
+    if token in imported_names():
         return True
     return token.isupper() and "_" in token and token.lower() in settings_field_names()
 
