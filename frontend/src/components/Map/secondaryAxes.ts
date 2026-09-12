@@ -75,6 +75,25 @@ export interface SecondaryAxisSummary {
   materialBreakdown?: readonly AxisMaterialBreakdown[];
 }
 
+/** カタログの`material_breakdown`をフロントの命名（camelCase）へ移す。
+ *
+ * 軸のビューモデルを組み立てる箇所が複数ある（`secondaryAxesFromCatalogAxes`・
+ * `evaluationAxes.ts: preferenceAxisFromCatalog`）ため、この変換だけを共有する
+ * ——フィールドを1つ足したときに片方だけ取り残されるのを防ぐ。 */
+export function materialBreakdownFromCatalog(
+  entries: CatalogAxis["material_breakdown"],
+): AxisMaterialBreakdown[] {
+  return (entries ?? []).map((entry) => ({
+    materialId: entry.material_id,
+    label: entry.label,
+    dtype: entry.dtype,
+    unit: entry.unit,
+    share: entry.share,
+    // 生成json由来のため値ごとに別のリテラル型になる。対訳表としての形は同じ。
+    valueLabels: (entry.value_labels ?? {}) as Record<string, string>,
+  }));
+}
+
 /** 内訳1件（材料と、それが軸の生値に占める割合）。 */
 export interface AxisMaterialBreakdown {
   materialId: string;
@@ -148,14 +167,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       mapValueKind: axis.map_value_kind,
       mapValueUnit: axis.map_value_unit,
       rawValueUnit: axis.raw_value_unit ?? null,
-      materialBreakdown: (axis.material_breakdown ?? []).map((entry) => ({
-        materialId: entry.material_id,
-        label: entry.label,
-        dtype: entry.dtype,
-        unit: entry.unit,
-        share: entry.share,
-        valueLabels: entry.value_labels ?? {},
-      })),
+      materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
     }));
 }
 

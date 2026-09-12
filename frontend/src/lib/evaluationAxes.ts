@@ -10,6 +10,7 @@ import type { MapValueKind } from "@/components/Map/valueScale";
 import type { CatalogAxis } from "@/components/Map/axisLayers";
 import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import type { AxisMaterialBreakdown } from "@/components/Map/secondaryAxes";
+import { materialBreakdownFromCatalog } from "@/components/Map/secondaryAxes";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 区間難易度の重み（route_preference）の既定値。「既定値に戻す」ボタンの起点、および
@@ -79,15 +80,7 @@ export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef 
     mapValueKind: axis.map_value_kind as MapValueKind | undefined,
     mapValueUnit: axis.map_value_unit,
     rawValueUnit: axis.raw_value_unit ?? null,
-    materialBreakdown: (axis.material_breakdown ?? []).map((entry) => ({
-      materialId: entry.material_id,
-      label: entry.label,
-      dtype: entry.dtype,
-      unit: entry.unit,
-      share: entry.share,
-      // 生成json由来のため値ごとに別のリテラル型になる。対訳表としての形は同じ。
-      valueLabels: (entry.value_labels ?? {}) as Record<string, string>,
-    })),
+    materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
   };
 }
 

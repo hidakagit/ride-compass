@@ -113,7 +113,13 @@ describe("maxBarShare", () => {
 describe("表示範囲が潰れているとき", () => {
   // visibleBarsだけがxMax <= xMinで早期returnし、offRangeShareが分岐していなかった。
   // overlap(-∞, xMin)とoverlap(xMax, ∞)が同じ区間を二重に数え、合計が1を超えていた。
-  const distribution = { bins: [[0, 10, 1] as [number, number, number]], quantiles: {} };
+  const distribution = {
+    sample_ways: 1,
+    total_km: 1,
+    quantiles: {},
+    bins: [[0, 10, 1] as [number, number, number]],
+    zero_share: 0,
+  };
 
   it("範囲内の棒は出ず、範囲外の割合の合計は1を超えない", () => {
     expect(visibleBars(distribution, 8, 2)).toEqual([]);

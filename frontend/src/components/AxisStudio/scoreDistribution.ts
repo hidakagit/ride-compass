@@ -4,15 +4,13 @@
 // （折れ点を1つ動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の
 // 写像でしかなく、生値のヒストグラムがあればクライアントで正確に求まる）。
 
-/** backendが返す生値の分布（`services/axisPreviewApi.ts`のレスポンスと同じ形）。 */
-export interface ValueDistribution {
-  sample_ways: number;
-  total_km: number;
-  quantiles: Record<string, number>;
-  /** [階級の下限, 上限, その階級が占める延長の割合] */
-  bins: [number, number, number][];
-  zero_share: number;
-}
+/** `GET /api/admin/material-catalog/{material_id}/distribution`の応答本体。
+ *
+ * backendの`ValueDistributionResponse`をそのまま使う（手書きで写すと、フィールドを足した
+ * ときに片側だけ古くなる。`bins`は[階級の下限, 上限, その階級が占める延長の割合]）。 */
+import type { components } from "@/types/generated/api";
+
+export type ValueDistribution = components["schemas"]["ValueDistributionResponse"];
 
 export interface ScoreBand {
   label: string;

@@ -25,10 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.domain.attributes import WayAttributeCounts  # noqa: E402
 from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axes_scalar  # noqa: E402
-from app.domain.axis_inspector import way_scalar_materials  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
+from app.services import axis_preview_service  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
 
@@ -39,26 +38,6 @@ SATURATION_THRESHOLD = 95.0
 FLOOR_THRESHOLD = 5.0
 
 _QUANTILES = [("p10", 0.10), ("p50", 0.50), ("p90", 0.90), ("p99", 0.99)]
-
-
-def weighted_quantiles(pairs: list[tuple[float, float]]) -> dict[str, float]:
-    """`(長さm, 値)`から延長で重み付けた分位点を返す。"""
-    if not pairs:
-        return {}
-    total_m = sum(m for m, _ in pairs)
-    ordered = sorted(pairs, key=lambda p: p[1])
-    result: dict[str, float] = {}
-    acc = 0.0
-    index = 0
-    for length_m, value in ordered:
-        acc += length_m
-        while index < len(_QUANTILES) and acc / total_m >= _QUANTILES[index][1]:
-            result[_QUANTILES[index][0]] = round(value, 1)
-            index += 1
-    while index < len(_QUANTILES):
-        result[_QUANTILES[index][0]] = round(ordered[-1][1], 1)
-        index += 1
-    return result
 
 
 def share_at_or_above(pairs: list[tuple[float, float]], threshold: float) -> float:
@@ -76,36 +55,6 @@ def share_at_or_below(pairs: list[tuple[float, float]], threshold: float) -> flo
     return sum(m for m, value in pairs if value <= threshold) / total_m
 
 
-async def _load_sample(
-    repository: RoadGraphRepository, sample_percent: float, limit: int
-) -> list[tuple[float, dict[str, object]]]:
-    rows = await repository.sample_way_rows(sample_percent, limit)
-    accident_years = await repository.get_accident_years_covered()
-    sample: list[tuple[float, dict[str, object]]] = []
-    for row in rows:
-        if not row.length_m or row.length_m <= 0:
-            continue
-        counts = None
-        if row.counts_length_m is not None:
-            counts = WayAttributeCounts(
-                length_m=row.counts_length_m,
-                accident_count=row.accident_count,
-                intersection_count=row.intersection_count,
-                poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
-            )
-        sample.append(
-            (
-                float(row.length_m),
-                way_scalar_materials(
-                    row.highway, dict(row.tags or {}), bool(row.is_designated),
-                    counts, accident_years, row.trees_percent, row.built_percent,
-                    row.curvature_deg_per_km,
-                ),
-            )
-        )
-    return sample
-
-
 async def run(axis_filter: str | None, sample_percent: float, limit: int) -> int:
     engine = create_async_engine(settings.database_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -113,7 +62,8 @@ async def run(axis_filter: str | None, sample_percent: float, limit: int) -> int
         async with session_factory() as session:
             # 軸定義はDBが唯一の正本。Python側に既定値は無いため先に読み込む。
             await refresh_axis_definitions(AxisDefinitionRepository(session))
-            sample = await _load_sample(RoadGraphRepository(session), sample_percent, limit)
+            sample = await axis_preview_service.load_way_sample(
+                RoadGraphRepository(session), sample_percent, limit)
     finally:
         await engine.dispose()
 
@@ -149,7 +99,7 @@ async def run(axis_filter: str | None, sample_percent: float, limit: int) -> int
         if not pairs:
             print(f"{axis_id:<28} {'0.0%':>7}  （全区間で材料が欠損）")
             continue
-        q = weighted_quantiles(pairs)
+        q = axis_preview_service.weighted_quantiles(pairs, _QUANTILES, digits=1)
         high = share_at_or_above(pairs, SATURATION_THRESHOLD)
         low = share_at_or_below(pairs, FLOOR_THRESHOLD)
         print(

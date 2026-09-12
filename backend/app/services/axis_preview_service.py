@@ -56,11 +56,16 @@ class ValueDistribution:
     zero_share: float
 
 
-async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dict[str, object]]]:
-    cached = _sample_cache.get("sample")
-    if cached is not None:
-        return cached
-    rows = await repository.sample_way_rows(SAMPLE_PERCENT, SAMPLE_LIMIT)
+async def load_way_sample(
+    repository: RoadGraphRepository, sample_percent: float, limit: int
+) -> list[tuple[float, dict[str, object]]]:
+    """way標本を`(延長m, 材料辞書)`の並びで返す。
+
+    分布プレビュー（このサービス）と飽和度の実測スクリプト
+    （`backend/scripts/measure_axis_saturation.py`）が同じ標本の作り方を使う。
+    材料の解決経路が増えたときに片方だけ取り残されないよう、組み立てはここ1箇所に置く。
+    """
+    rows = await repository.sample_way_rows(sample_percent, limit)
     accident_years = await repository.get_accident_years_covered()
     sample: list[tuple[float, dict[str, object]]] = []
     for row in rows:
@@ -84,6 +89,40 @@ async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dic
                 ),
             )
         )
+    return sample
+
+
+def weighted_quantiles(
+    pairs: list[tuple[float, float]], targets: list[tuple[str, float]], digits: int
+) -> dict[str, float]:
+    """`(延長m, 値)`から延長で重み付けた分位点を返す（`targets`は比率の昇順）。
+
+    値の並びを1回走査しながら累積比が各目標へ達した時点の値を採る。目標と丸め桁だけを
+    引数にして、走査そのものは1つに保つ。
+    """
+    if not pairs:
+        return {}
+    total_m = sum(m for m, _ in pairs)
+    ordered = sorted(pairs, key=lambda p: p[1])
+    result: dict[str, float] = {}
+    acc = 0.0
+    index = 0
+    for length_m, value in ordered:
+        acc += length_m
+        while index < len(targets) and acc / total_m >= targets[index][1]:
+            result[targets[index][0]] = round(value, digits)
+            index += 1
+    while index < len(targets):
+        result[targets[index][0]] = round(ordered[-1][1], digits)
+        index += 1
+    return result
+
+
+async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dict[str, object]]]:
+    cached = _sample_cache.get("sample")
+    if cached is not None:
+        return cached
+    sample = await load_way_sample(repository, SAMPLE_PERCENT, SAMPLE_LIMIT)
     _sample_cache["sample"] = sample
     logger.info("軸プレビューのサンプルを取得 ways=%d", len(sample))
     return sample
@@ -117,18 +156,8 @@ def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
         return ValueDistribution(0, 0.0, {}, [], 0.0)
     total_m = sum(m for m, _ in pairs)
     ordered = sorted(pairs, key=lambda p: p[1])
-    quantiles: dict[str, float] = {}
     targets = [("p10", 0.10), ("p25", 0.25), ("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("p99", 0.99)]
-    acc = 0.0
-    index = 0
-    for m, value in ordered:
-        acc += m
-        while index < len(targets) and acc / total_m >= targets[index][1]:
-            quantiles[targets[index][0]] = round(value, 3)
-            index += 1
-    while index < len(targets):
-        quantiles[targets[index][0]] = round(ordered[-1][1], 3)
-        index += 1
+    quantiles = weighted_quantiles(pairs, targets, digits=3)
 
     # 描画範囲は**データの値域から決める**。下限を0に固定すると、生値が負になる軸
     # （termsの重みがすべて負の軸。`openness`・`bicycle_infra_quality`・`night`が該当し、

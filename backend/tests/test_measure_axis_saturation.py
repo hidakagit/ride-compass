@@ -9,11 +9,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
+from app.services.axis_preview_service import weighted_quantiles  # noqa: E402
 from measure_axis_saturation import (  # noqa: E402
+    _QUANTILES,
     share_at_or_above,
     share_at_or_below,
-    weighted_quantiles,
 )
+
+
+def _quantiles(pairs):
+    """このスクリプトが使う目標・丸め桁での分位点（共有実装を通す）。"""
+    return weighted_quantiles(pairs, _QUANTILES, digits=1)
 
 
 def test_quantiles_weight_by_length_not_by_way_count():
@@ -24,19 +30,19 @@ def test_quantiles_weight_by_length_not_by_way_count():
     """
     pairs = [(10.0, 0.0), (10.0, 0.0), (10.0, 0.0), (10_000.0, 100.0)]
 
-    assert weighted_quantiles(pairs)["p50"] == 100.0
+    assert _quantiles(pairs)["p50"] == 100.0
 
 
 def test_quantiles_fill_the_upper_tail_with_the_largest_value():
     """累積が最後の要素で打ち切られても、上側の分位点が欠けない。"""
-    result = weighted_quantiles([(1.0, 3.0), (1.0, 7.0)])
+    result = _quantiles([(1.0, 3.0), (1.0, 7.0)])
 
     assert set(result) == {"p10", "p50", "p90", "p99"}
     assert result["p99"] == 7.0
 
 
 def test_quantiles_of_an_empty_sample_are_empty():
-    assert weighted_quantiles([]) == {}
+    assert _quantiles([]) == {}
 
 
 def test_shares_are_measured_in_length_and_are_inclusive_of_the_threshold():
