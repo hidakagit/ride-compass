@@ -113,8 +113,12 @@ def numba_tree(indptr, indices, entry_edge, cost_bins, length_m, edge_from, edge
             parent = (i - 1) // 2
             if heap_key[parent] <= heap_key[i]:
                 break
-            tk = heap_key[parent]; heap_key[parent] = heap_key[i]; heap_key[i] = tk
-            tv = heap_val[parent]; heap_val[parent] = heap_val[i]; heap_val[i] = tv
+            tk = heap_key[parent]
+            heap_key[parent] = heap_key[i]
+            heap_key[i] = tk
+            tv = heap_val[parent]
+            heap_val[parent] = heap_val[i]
+            heap_val[i] = tv
             i = parent
         size += 1
 
@@ -136,8 +140,12 @@ def numba_tree(indptr, indices, entry_edge, cost_bins, length_m, edge_from, edge
                 smallest = right
             if smallest == i:
                 break
-            tk = heap_key[smallest]; heap_key[smallest] = heap_key[i]; heap_key[i] = tk
-            tv = heap_val[smallest]; heap_val[smallest] = heap_val[i]; heap_val[i] = tv
+            tk = heap_key[smallest]
+            heap_key[smallest] = heap_key[i]
+            heap_key[i] = tk
+            tv = heap_val[smallest]
+            heap_val[smallest] = heap_val[i]
+            heap_val[i] = tv
             i = smallest
 
         if g > best[state]:
@@ -175,8 +183,12 @@ def numba_tree(indptr, indices, entry_edge, cost_bins, length_m, edge_from, edge
                     parent = (i - 1) // 2
                     if heap_key[parent] <= heap_key[i]:
                         break
-                    tk = heap_key[parent]; heap_key[parent] = heap_key[i]; heap_key[i] = tk
-                    tv = heap_val[parent]; heap_val[parent] = heap_val[i]; heap_val[i] = tv
+                    tk = heap_key[parent]
+                    heap_key[parent] = heap_key[i]
+                    heap_key[i] = tk
+                    tv = heap_val[parent]
+                    heap_val[parent] = heap_val[i]
+                    heap_val[i] = tv
                     i = parent
                 size += 1
     return best, popped

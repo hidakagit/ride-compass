@@ -30,7 +30,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
 from app.domain.errors import RoutingError
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
 
@@ -824,3 +824,162 @@ def concat_node_paths(paths: list[list[str]]) -> list[str]:
     for path in paths[1:]:
         combined.extend(path[1:])
     return combined
+
+
+# --- ターン展開（状態＝有向Edge、辺＝ターン） ---
+
+
+@dataclass(frozen=True)
+class TurnCostSpec:
+    """ターン1回の時間損失（秒）と、直進とみなす方位差の上限（度）。
+
+    費用を秒で持ち、探索へ渡すときに巡航速度でm換算する（探索のコストが距離の単位のため、
+    「右折1回＝何m遠回りするのと同じか」として距離と直接比較できる）。
+    """
+
+    left_seconds: float = 2.0
+    right_seconds: float = 12.0
+    uturn_seconds: float = 60.0
+    straight_max_deg: float = 30.0
+
+
+DEFAULT_TURN_COST = TurnCostSpec()
+
+
+@dataclass
+class TurnExpandedStructure:
+    """有向Edgeを状態、ターンを辺として見た構造。
+
+    `CsrGraphStructure`と同じくEdgeの重みは持たない（リクエストごとに変わるため）。グラフを
+    物理的に作り直さず、遷移は`CsrGraphStructure`から導く——ターンの費用はノード側の性質
+    （方位差・信号の有無）だけで決まり、状態の数を増やさずに表せる。行＝遷移元の状態
+    （`LazyRoadGraph.edge_ids`の添字）、列＝遷移先の状態で、起点には依存しないため
+    `CsrGraphStructure`と同じキーでキャッシュできる。
+    """
+
+    state_count: int
+    # 状態ごとの遷移範囲。長さ state_count + 1。
+    indptr: np.ndarray
+    # 遷移先の状態（`LazyRoadGraph.edge_ids`の添字）。
+    target_state: np.ndarray
+    # 遷移ごとのターンの時間損失（秒）。
+    turn_seconds: np.ndarray
+    # 状態（有向Edge）の始点・終点Node index。
+    edge_from: np.ndarray
+    edge_to: np.ndarray
+
+
+def edge_bearings(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:
+    """`lazy_graph.edge_ids`順の方位（度）。`Edge.bearing_deg`（折れ線から求めた実際の向き）を
+    使い、持たないEdgeだけ両端のNode座標から補う。"""
+    bearings = np.zeros(len(lazy_graph.edge_ids))
+    for index, edge_id in enumerate(lazy_graph.edge_ids):
+        edge = graph.edges.get(edge_id)
+        value = edge.bearing_deg if edge is not None else None
+        if value is None and edge is not None:
+            from_node = graph.nodes.get(edge.from_node_id)
+            to_node = graph.nodes.get(edge.to_node_id)
+            if from_node is not None and to_node is not None:
+                value = bearing_between(from_node, to_node)
+        bearings[index] = 0.0 if value is None else float(value)
+    return bearings
+
+
+def turn_seconds_for(
+    from_bearing: np.ndarray, to_bearing: np.ndarray, is_uturn: np.ndarray, spec: TurnCostSpec
+) -> np.ndarray:
+    """遷移ごとのターンの時間損失（秒）。方位差の符号で左右を分ける（負＝反時計回り＝左折）。"""
+    delta = (to_bearing - from_bearing + 180.0) % 360.0 - 180.0
+    turning = np.where(delta < 0, spec.left_seconds, spec.right_seconds)
+    return np.where(
+        is_uturn, spec.uturn_seconds, np.where(np.abs(delta) <= spec.straight_max_deg, 0.0, turning)
+    )
+
+
+def build_turn_expanded_structure(
+    csr: CsrGraphStructure,
+    lazy_graph: LazyRoadGraph,
+    bearing_deg: np.ndarray,
+    spec: TurnCostSpec = DEFAULT_TURN_COST,
+) -> TurnExpandedStructure:
+    """`CsrGraphStructure`から、状態＝有向Edgeの遷移構造を組む。
+
+    状態`e`の遷移先は「`e`の終点Nodeから出る有向Edge」で、遷移の数は
+    Σ(入次数×出次数)。`e`の始点へ戻る遷移はUターンとして扱う（禁止はしない——袋小路からの
+    折り返しに必要なため、費用で抑える）。
+    """
+    state_count = len(lazy_graph.edge_ids)
+    edge_from = np.zeros(state_count, dtype=np.int64)
+    edge_to = np.zeros(state_count, dtype=np.int64)
+    for (tail, head), edge_index in lazy_graph.edge_index_by_node_pair.items():
+        edge_from[edge_index] = tail
+        edge_to[edge_index] = head
+
+    indptr64 = csr.indptr.astype(np.int64)
+    out_start = indptr64[edge_to]
+    out_count = indptr64[edge_to + 1] - out_start
+    total = int(out_count.sum())
+    new_indptr = np.zeros(state_count + 1, dtype=np.int64)
+    np.cumsum(out_count, out=new_indptr[1:])
+
+    source = np.repeat(np.arange(state_count, dtype=np.int64), out_count)
+    entry_index = np.repeat(out_start, out_count) + (
+        np.arange(total, dtype=np.int64) - np.repeat(new_indptr[:state_count], out_count)
+    )
+    target_state = csr.entry_edge_index[entry_index].astype(np.int64)
+    is_uturn = csr.indices[entry_index].astype(np.int64) == edge_from[source]
+    turn_seconds = turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
+
+    return TurnExpandedStructure(
+        state_count=state_count, indptr=new_indptr, target_state=target_state,
+        turn_seconds=turn_seconds, edge_from=edge_from, edge_to=edge_to,
+    )
+
+
+def build_turn_expanded_csr(
+    structure: TurnExpandedStructure,
+    edge_cost: np.ndarray,
+    origin_edge_indices: np.ndarray,
+    speed_ms: float,
+) -> csr_matrix:
+    """一対全木用のscipy CSRを組む。値は「遷移先の区間のコスト＋ターンの費用」。
+
+    末尾の1行は仮想の始点で、起点から出る区間へその区間のコスト自身で繋ぐ（複数の始点状態へ
+    別々の初期コストを与えるため）。行数・列数はともに`state_count + 1`で、仮想始点の状態
+    index は`state_count`。0次フィルタで除外された区間（コストが無限大）への遷移は落とす
+    ——scipyは無限大を「辺が無い」ではなく「非常に大きい重み」として扱うため。
+    """
+    state_count = structure.state_count
+    source = np.repeat(np.arange(state_count, dtype=np.int64), np.diff(structure.indptr))
+    weight = edge_cost[structure.target_state] + structure.turn_seconds * speed_ms
+    target = structure.target_state
+
+    finite = np.isfinite(weight)
+    source = source[finite]
+    target = target[finite]
+    weight = weight[finite]
+
+    origin_edges = origin_edge_indices[np.isfinite(edge_cost[origin_edge_indices])]
+    source = np.concatenate([source, np.full(len(origin_edges), state_count, dtype=np.int64)])
+    target = np.concatenate([target, origin_edges.astype(np.int64)])
+    weight = np.concatenate([weight, edge_cost[origin_edges]])
+
+    order = np.argsort(source, kind="stable")
+    indptr = np.zeros(state_count + 2, dtype=np.int64)
+    np.cumsum(np.bincount(source, minlength=state_count + 1), out=indptr[1:])
+    return csr_matrix(
+        (weight[order], target[order], indptr), shape=(state_count + 1, state_count + 1)
+    )
+
+
+def node_costs_from_state_costs(
+    state_cost: np.ndarray, structure: TurnExpandedStructure, node_count: int
+) -> np.ndarray:
+    """状態（有向Edge）ごとの到達コストを、Nodeごとの最小コストへ畳む。
+
+    起点Nodeだけは「起点へ戻ってくるコスト」になる（状態＝有向Edgeの空間には「まだ走って
+    いない状態」が無いため）。起点のコストを0として扱いたい呼び出し元は自分で上書きする。
+    """
+    per_node = np.full(node_count, np.inf)
+    np.minimum.at(per_node, structure.edge_to, state_cost[: structure.state_count])
+    return per_node
