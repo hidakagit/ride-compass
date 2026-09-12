@@ -43,7 +43,12 @@ from app.batch.profile import ImportProfile, load_profile, matching_rule
 from app.config import settings
 from app.domain.graph import WaySpec
 from app.domain.osm_adapter import POISpec, osm_node_to_poi_spec, osm_way_to_way_spec
-from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tiles_covering_bbox
+from app.domain.region import (
+    ROAD_GRAPH_TILE_ZOOM,
+    BoundingBox,
+    parse_bbox,
+    tiles_covering_bbox,
+)
 from app.infrastructure.migrate import apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 
@@ -110,19 +115,6 @@ class Chunk:
     ways: list[tuple] = field(default_factory=list)
     nodes: list[tuple] = field(default_factory=list)
     pois: list[tuple] = field(default_factory=list)
-
-
-def parse_bbox(text: str) -> BoundingBox:
-    """CLIの--bbox（"min_lat,min_lon,max_lat,max_lon"）をBoundingBoxへ変換する。"""
-    parts = [float(p) for p in text.split(",")]
-    if len(parts) != 4:
-        raise ValueError("--bboxは min_lat,min_lon,max_lat,max_lon の4値が必要です")
-    min_lat, min_lon, max_lat, max_lon = parts
-    if min_lat >= max_lat or min_lon >= max_lon:
-        raise ValueError("--bboxはmin < maxとなる範囲が必要です")
-    return BoundingBox(
-        min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon
-    )
 
 
 def way_in_bbox(coords: dict[int, tuple[float, float]], bbox: BoundingBox | None) -> bool:

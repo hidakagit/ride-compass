@@ -61,6 +61,11 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 軸の難易度は`domain/axis_definitions.py: evaluate_axes_scalar`で得る。個々の軸へ
 `evaluate_axis_scalar`を直接当てると、他の軸を材料にする合成軸（車の圧迫感）が
 「材料が欠損」として現れてしまう。
+
+**分布は地域で大きく変わる**。全域の抽選標本では市街地の偏りが平均に埋もれるため、
+`--bbox`（`min_lat,min_lon,max_lat,max_lon`）でその地域だけを母集団にできる。bbox指定時は
+抽選（`TABLESAMPLE`）を併用しない——表全体のページから抽選するため、狭い範囲を重ねると
+当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで落ちる。
 ## データモデル（`domain/axis_definitions.py`）
 
 ### `AxisDefinition`（1軸の宣言、`frozen=True`）

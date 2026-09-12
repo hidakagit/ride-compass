@@ -10,9 +10,13 @@
 
 延長で重み付ける（本数で数えると短い道が多数を占め、実際に走る距離の感覚と合わない）。
 
+**分布は地域で大きく変わる**ため、全域の平均だけを見ると市街地の偏りが消える。
+`--bbox`で範囲を絞れば、その地域だけの分布を見られる（抽選は使わず範囲内を全件取る）。
+
 実行方法（backendディレクトリから）:
     python scripts/measure_axis_saturation.py
     python scripts/measure_axis_saturation.py --axis stop_density --sample-percent 5
+    python scripts/measure_axis_saturation.py --bbox 35.65,139.72,35.71,139.80
 """
 
 import argparse
@@ -26,6 +30,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 
 from app.config import settings  # noqa: E402
 from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axes_scalar  # noqa: E402
+from app.domain.region import BoundingBox, parse_bbox  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
 from app.services import axis_preview_service  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
@@ -55,7 +60,12 @@ def share_at_or_below(pairs: list[tuple[float, float]], threshold: float) -> flo
     return sum(m for m, value in pairs if value <= threshold) / total_m
 
 
-async def run(axis_filter: str | None, sample_percent: float, limit: int) -> int:
+async def run(
+    axis_filter: str | None,
+    sample_percent: float,
+    limit: int,
+    bbox: BoundingBox | None,
+) -> int:
     engine = create_async_engine(settings.database_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
@@ -63,7 +73,7 @@ async def run(axis_filter: str | None, sample_percent: float, limit: int) -> int
             # 軸定義はDBが唯一の正本。Python側に既定値は無いため先に読み込む。
             await refresh_axis_definitions(AxisDefinitionRepository(session))
             sample = await axis_preview_service.load_way_sample(
-                RoadGraphRepository(session), sample_percent, limit)
+                RoadGraphRepository(session), sample_percent, limit, bbox)
     finally:
         await engine.dispose()
 
@@ -72,8 +82,14 @@ async def run(axis_filter: str | None, sample_percent: float, limit: int) -> int
         return 1
 
     total_km = sum(m for m, _ in sample) / 1000.0
+    scope = (
+        f"TABLESAMPLE {sample_percent}%"
+        if bbox is None
+        else f"bbox {bbox.min_latitude},{bbox.min_longitude},"
+             f"{bbox.max_latitude},{bbox.max_longitude}"
+    )
     print(f"母集団: way {len(sample):,}本 / 総延長 {total_km:,.1f}km "
-          f"(TABLESAMPLE {sample_percent}%, limit {limit:,})")
+          f"({scope}, limit {limit:,})")
     print(f"{'軸':<28} {'算出率':>7} {'p10':>7} {'p50':>7} {'p90':>7} {'p99':>7}  上端／下端")
     print("-" * 86)
 
@@ -127,8 +143,12 @@ def main() -> int:
     parser.add_argument("--axis", default=None, help="この軸だけを測る（既定: 公開軸すべて）")
     parser.add_argument("--sample-percent", type=float, default=2.0, help="TABLESAMPLEの抽選率")
     parser.add_argument("--limit", type=int, default=20_000, help="サンプルway数の上限")
+    parser.add_argument(
+        "--bbox", default=None,
+        help="この範囲だけを測る（min_lat,min_lon,max_lat,max_lon。抽選は使わない）")
     args = parser.parse_args()
-    return asyncio.run(run(args.axis, args.sample_percent, args.limit))
+    bbox = parse_bbox(args.bbox) if args.bbox else None
+    return asyncio.run(run(args.axis, args.sample_percent, args.limit, bbox))
 
 
 if __name__ == "__main__":

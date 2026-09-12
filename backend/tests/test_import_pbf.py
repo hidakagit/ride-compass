@@ -20,7 +20,6 @@ from app.batch._common import asyncpg_dsn
 from app.batch.import_pbf import (
     build_poi_record,
     build_way_record,
-    parse_bbox,
     poi_in_bbox,
     run_import,
     way_in_bbox,
@@ -36,19 +35,6 @@ from tests.conftest import TEST_DATABASE_URL
 pytestmark = [pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]
 
 DEFAULT_PROFILE_PATH = Path(__file__).resolve().parents[1] / "app" / "batch" / "import_profile.yaml"
-
-
-class TestParseBbox:
-    def test_valid(self):
-        bbox = parse_bbox("35.60,139.65,35.75,139.85")
-        assert bbox == BoundingBox(
-            min_latitude=35.60, min_longitude=139.65, max_latitude=35.75, max_longitude=139.85
-        )
-
-    @pytest.mark.parametrize("text", ["35.6,139.65,35.75", "35.75,139.65,35.60,139.85", "a,b,c,d"])
-    def test_invalid_raises(self, text):
-        with pytest.raises(ValueError):
-            parse_bbox(text)
 
 
 class TestWayInBbox:

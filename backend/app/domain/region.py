@@ -28,6 +28,23 @@ class BoundingBox(StrictModel):
     max_longitude: float
 
 
+def parse_bbox(text: str) -> BoundingBox:
+    """CLIの--bbox（"min_lat,min_lon,max_lat,max_lon"）をBoundingBoxへ変換する。
+
+    緯度経度の順序はCLI間で揃える（片方だけ経度先にすると、値が入れ替わっても4値の
+    数として通ってしまい、黙って別の場所を指す）。
+    """
+    parts = [float(p) for p in text.split(",")]
+    if len(parts) != 4:
+        raise ValueError("--bboxは min_lat,min_lon,max_lat,max_lon の4値が必要です")
+    min_lat, min_lon, max_lat, max_lon = parts
+    if min_lat >= max_lat or min_lon >= max_lon:
+        raise ValueError("--bboxはmin < maxとなる範囲が必要です")
+    return BoundingBox(
+        min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon
+    )
+
+
 def tile_bounds_lonlat(z: int, x: int, y: int) -> BoundingBox:
     """標準的なXYZスライピータイル（Web Mercator）のz/x/yから、そのタイルが覆う緯度経度の範囲を求める。"""
     n = 2**z

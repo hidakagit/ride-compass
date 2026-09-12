@@ -2267,3 +2267,55 @@ async def test_get_way_gradient_inputs_in_tile_excludes_edges_outside_tile(road_
     )
 
     assert result == {}
+
+
+async def test_sample_way_rows_without_bbox_covers_every_area(road_graph_repository):
+    """抽選100%なら全域が対象。bbox指定の効果を見る前提を固定する。"""
+    await road_graph_repository.save_raw_ways(
+        [
+            WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential"),
+            WaySpec(osm_way_id=101, node_ids=[3, 4], highway="residential"),
+        ],
+        {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4},
+    )
+
+    rows = await road_graph_repository.sample_way_rows(sample_percent=100.0)
+
+    assert len(rows) == 2
+
+
+async def test_sample_way_rows_with_bbox_excludes_ways_outside_it(road_graph_repository):
+    """bboxを渡すとその範囲内のwayだけが母集団になる。
+
+    全域の平均だけを見ると市街地の偏りが消えるため、地域を絞って測れることが
+    `measure_axis_saturation.py`の前提になっている。
+    """
+    await road_graph_repository.save_raw_ways(
+        [
+            WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential"),
+            WaySpec(osm_way_id=101, node_ids=[3, 4], highway="residential"),
+        ],
+        {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4},
+    )
+
+    rows = await road_graph_repository.sample_way_rows(bbox=BBOX_AROUND_NODE1_2)
+
+    assert len(rows) == 1
+    assert rows[0].highway == "residential"
+    assert rows[0].length_m is not None and rows[0].length_m > 0
+
+
+async def test_sample_way_rows_with_bbox_does_not_thin_the_sample_by_sample_percent(
+    road_graph_repository,
+):
+    """bbox指定時は抽選率を無視する。併用すると標本が範囲の広さと無関係に消える。"""
+    await road_graph_repository.save_raw_ways(
+        [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")],
+        {1: NODE1, 2: NODE2},
+    )
+
+    rows = await road_graph_repository.sample_way_rows(
+        sample_percent=0.0001, bbox=BBOX_AROUND_NODE1_2
+    )
+
+    assert len(rows) == 1
