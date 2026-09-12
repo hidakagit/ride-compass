@@ -21,12 +21,12 @@
 
 import { BACKEND_INTERNAL_URL } from "@/lib/backendInternalUrl";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
 
 function backendAuthHeader(): string | null {
-  const username = process.env.ADMIN_BASIC_AUTH_USERNAME ?? "";
-  const password = process.env.ADMIN_BASIC_AUTH_PASSWORD ?? "";
-  if (username === "" || password === "") return null;
-  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+  const credentials = adminBasicAuthCredentials();
+  if (credentials === null) return null;
+  return `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64")}`;
 }
 
 

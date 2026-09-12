@@ -8,20 +8,24 @@ import { proxyToBackendAdmin } from "./adminApiProxy";
 // （改善計画T331）。lib/fetchJson.test.tsと同じ粒度でBasic認証ヘッダの組み立て・転送・
 // エラーハンドリングを検証する。
 
-const ORIGINAL_ENV = { ...process.env };
+// 資格情報は`@/lib/adminBasicAuth`が唯一の読み取り口で、その環境変数依存は
+// `src/lib/adminBasicAuth.test.ts`が純関数として検証する。ここでモックするのは、
+// `process.env`がテストファイルをまたいで共有されるため（pool: vmThreads）、環境変数を
+// 立て下ろしすると並行実行中の別ファイルの期待値を静かに書き換えるため
+// （docs/testing.md「環境変数に依存する挙動のテスト」参照）。
+let credentials: { username: string; password: string } | null = null;
+vi.mock("@/lib/adminBasicAuth", () => ({ adminBasicAuthCredentials: () => credentials }));
 
 function resetEnv() {
-  delete process.env.ADMIN_BASIC_AUTH_USERNAME;
-  delete process.env.ADMIN_BASIC_AUTH_PASSWORD;
+  credentials = null;
 }
 
 function setCreds() {
-  process.env.ADMIN_BASIC_AUTH_USERNAME = "admin";
-  process.env.ADMIN_BASIC_AUTH_PASSWORD = "s3cret";
+  credentials = { username: "admin", password: "s3cret" };
 }
 
 afterEach(() => {
-  process.env = { ...ORIGINAL_ENV };
+  credentials = null;
   vi.unstubAllGlobals();
 });
 
@@ -41,8 +45,8 @@ describe("proxyToBackendAdmin", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("USERNAMEのみ設定（PASSWORD未設定）でも500を返す", async () => {
-      process.env.ADMIN_BASIC_AUTH_USERNAME = "admin";
+    it("片方だけ設定された状態（資格情報としては未設定）でも500を返す", async () => {
+      credentials = null;
       const response = await proxyToBackendAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
       expect(response.status).toBe(500);
     });

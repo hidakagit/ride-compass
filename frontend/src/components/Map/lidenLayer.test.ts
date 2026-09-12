@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchLidenFrames, fetchLidenGeojson, lidenFrames, LIDEN_MARK_VALUE_PROPERTY } from "./lidenLayer";
+// タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
+// `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
+// テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
+// `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
+vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
+
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body, headers: new Headers() };

@@ -1,7 +1,3 @@
-// ユーザー報告（2026-08-31）を受けた修正でtileUrlTemplate（pbf分岐）が
-// window.location.originを参照するようになったため、既定のDOM環境（happy-dom）で
-// 実行する（regionApi.test.tsのroadSurfaceTileUrl等と同じ理由でnode環境docblockを
-// 外した）。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchCurrentRiskFrames,
@@ -14,6 +10,12 @@ import {
   RISK_LEVEL_COLORS,
 } from "./riskMap";
 import { parseValidtime } from "./jmaNowcastFrames";
+// タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
+// `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
+// テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
+// `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
+vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
+
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body, headers: new Headers() };
@@ -108,35 +110,33 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
     it("landRenderPayloadはrisk/{basetime}/{member}/{validtime}/surf/land/... を返す", () => {
       expect(landRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/{z}/{x}/{y}.png`,
+        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/{z}/{x}/{y}.png`,
       });
     });
 
     it("heavyRainRenderPayloadは要素コードrain_mesh（imageType定義に準拠）を使う", () => {
       expect(heavyRainRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/rain_mesh/{z}/{x}/{y}.png`,
+        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/rain_mesh/{z}/{x}/{y}.png`,
       });
     });
 
     it("inundationRenderPayloadは要素コードinundを使う", () => {
       expect(inundationRenderPayload(ref)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png`,
+        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png`,
       });
     });
 
-    // 改善計画T416: 洪水キキクルは他3種と異なりkind="vectorTile"・拡張子.pbf
-    // （実機確認: risk.properties.xmlのimageType id="flood" type="pbf"）。
-    // ユーザー報告（2026-08-31、"Failed to construct 'Request'"でマップ全体が表示されなく
-    // なった）: ベクタタイルはMapLibreがWeb Worker内で取得するため、相対パスのままだと
-    // URL解決に失敗する（regionApi.ts: roadSurfaceTileUrl等と同じ理由）。pbfのみ
-    // window.location.originを付与した絶対URLを返すよう修正した（他3種のラスタタイルは
-    // メインスレッドのImage読み込みのため相対のままで問題ない）。
+    // 洪水キキクルは他3種と異なりkind="vectorTile"・拡張子.pbf（risk.properties.xmlの
+    // imageType id="flood" type="pbf"）。ベクタタイルはMapLibreがWeb Worker内で取得する
+    // ため、配信オリジンを付けた絶対URLでなければURL解決に失敗する（他3種のラスタタイルは
+    // メインスレッドのImage読み込みのため相対でも動く）。オリジンの付き方自体は
+    // `tileBaseUrl`の担当で、ここではその先のパス構造だけを見る。
     it("floodRenderPayloadはkind=vectorTile・拡張子.pbfで要素コードfloodを使う", () => {
       expect(floodRenderPayload(ref)).toEqual({
         kind: "vectorTile",
-        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/flood/{z}/{x}/{y}.pbf`,
+        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/flood/{z}/{x}/{y}.pbf`,
       });
     });
 
@@ -144,7 +144,7 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
       const sjfcstRef = { basetime: "20260829165000", validtime: "20260829165000", member: "none" };
       expect(linearRainbandRenderPayload(sjfcstRef)).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: `${window.location.origin}/api/jma-tile/bosai/jmatile/data/rasrf/20260829165000/none/20260829165000/surf/sjfcstmap/{z}/{x}/{y}.png`,
+        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/rasrf/20260829165000/none/20260829165000/surf/sjfcstmap/{z}/{x}/{y}.png`,
       });
     });
   });
