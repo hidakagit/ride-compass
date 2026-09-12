@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
 
 // /admin（軸スタジオ・研究/開発者ツール、改善計画T270）のルーティング境界での認可
 // （改善計画T272）。Next.js 16でmiddleware.tsはproxy.tsへ改称された（本ファイル名は
@@ -33,8 +34,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function proxy(request: NextRequest): NextResponse {
-  const expectedUsername = process.env.ADMIN_BASIC_AUTH_USERNAME ?? "";
-  const expectedPassword = process.env.ADMIN_BASIC_AUTH_PASSWORD ?? "";
+  const expected = adminBasicAuthCredentials();
 
   const unauthorized = () =>
     new NextResponse("認証が必要です", {
@@ -42,7 +42,7 @@ export function proxy(request: NextRequest): NextResponse {
       headers: { "WWW-Authenticate": `Basic realm="${REALM}"` },
     });
 
-  if (expectedUsername === "" || expectedPassword === "") return unauthorized();
+  if (expected === null) return unauthorized();
 
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Basic ")) return unauthorized();
@@ -58,7 +58,7 @@ export function proxy(request: NextRequest): NextResponse {
   const username = decoded.slice(0, separatorIndex);
   const password = decoded.slice(separatorIndex + 1);
 
-  if (!safeEqual(username, expectedUsername) || !safeEqual(password, expectedPassword)) return unauthorized();
+  if (!safeEqual(username, expected.username) || !safeEqual(password, expected.password)) return unauthorized();
 
   return NextResponse.next();
 }

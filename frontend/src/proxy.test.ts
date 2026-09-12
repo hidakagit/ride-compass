@@ -2,7 +2,7 @@
 // /admin配下を保護するBasic認証ミドルウェア（proxy.ts）のテスト。DOM操作は不要なため
 // node環境で実行する（vitest.config.mts参照）。
 import { NextRequest } from "next/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "./proxy";
 
 const ADMIN_URL = "https://example.com/admin";
@@ -17,35 +17,25 @@ function requestWithAuth(authorization?: string): NextRequest {
   });
 }
 
-// テスト間でprocess.envを汚染しないよう、都度退避・復元する。
-const ORIGINAL_ENV = { ...process.env };
-
-function resetEnv() {
-  delete process.env.ADMIN_BASIC_AUTH_USERNAME;
-  delete process.env.ADMIN_BASIC_AUTH_PASSWORD;
-}
+// 資格情報は`@/lib/adminBasicAuth`が唯一の読み取り口で、その環境変数依存は
+// `src/lib/adminBasicAuth.test.ts`が純関数として検証する。ここでモックするのは、
+// `process.env`がテストファイルをまたいで共有されるため（pool: vmThreads）、環境変数を
+// 立て下ろしすると並行実行中の別ファイルの期待値を静かに書き換えるため
+// （docs/testing.md「環境変数に依存する挙動のテスト」参照）。
+let credentials: { username: string; password: string } | null = null;
+vi.mock("@/lib/adminBasicAuth", () => ({ adminBasicAuthCredentials: () => credentials }));
 
 afterEach(() => {
-  process.env = { ...ORIGINAL_ENV };
+  credentials = null;
 });
 
 describe("proxy", () => {
-  describe("環境変数未設定（安全側デフォルト）", () => {
-    beforeEach(() => resetEnv());
-
-    it("ADMIN_BASIC_AUTH_USERNAME/PASSWORDが両方未設定のとき401を返す", () => {
-      const response = proxy(requestWithAuth(basicAuthHeader("admin", "secret")));
-      expect(response.status).toBe(401);
+  describe("資格情報が未設定（安全側デフォルト）", () => {
+    beforeEach(() => {
+      credentials = null;
     });
 
-    it("ADMIN_BASIC_AUTH_USERNAMEのみ設定（PASSWORD未設定）のとき401を返す", () => {
-      process.env.ADMIN_BASIC_AUTH_USERNAME = "admin";
-      const response = proxy(requestWithAuth(basicAuthHeader("admin", "secret")));
-      expect(response.status).toBe(401);
-    });
-
-    it("ADMIN_BASIC_AUTH_PASSWORDのみ設定（USERNAME未設定）のとき401を返す", () => {
-      process.env.ADMIN_BASIC_AUTH_PASSWORD = "secret";
+    it("資格情報が無いときは、正しく見える認証ヘッダが来ても401を返す", () => {
       const response = proxy(requestWithAuth(basicAuthHeader("admin", "secret")));
       expect(response.status).toBe(401);
     });
@@ -56,11 +46,9 @@ describe("proxy", () => {
     });
   });
 
-  describe("環境変数設定済みでの認証チェック", () => {
+  describe("資格情報設定済みでの認証チェック", () => {
     beforeEach(() => {
-      resetEnv();
-      process.env.ADMIN_BASIC_AUTH_USERNAME = "admin";
-      process.env.ADMIN_BASIC_AUTH_PASSWORD = "s3cret";
+      credentials = { username: "admin", password: "s3cret" };
     });
 
     it("Authorizationヘッダが無い場合401", () => {

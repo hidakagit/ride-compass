@@ -118,7 +118,9 @@ listAxisDefinitions() ──→ definitions（全軸）
   route handler（`app/admin/api/axis-definitions/`配下、`lib/adminApiProxy.ts:
   proxyToBackendAdmin`）経由で、ブラウザの認証キャッシュがそのまま転送される。backend宛の
   資格情報はサーバー側route handlerがサーバー環境変数から組み立てるため、ブラウザには
-  一切露出しない。`proxyToBackendAdmin`は軸CRUD専用ではなく、「開発者」タブの
+  一切露出しない。読み取りと「片方だけ設定された状態は未設定として扱う」判断は
+  `lib/adminBasicAuth.ts`が1箇所で持ち、`proxy.ts`（画面の保護）と`adminApiProxy.ts`
+  （backendへの転送）の双方が同じ結果を見る。`proxyToBackendAdmin`は軸CRUD専用ではなく、「開発者」タブの
   バックエンドログ表示パネル（`app/admin/api/debug/logs/`）・「材料」タブの欠損割合
   （`app/admin/api/material-coverage/`）とも共有する汎用プロキシ（転送タイムアウトは
   既定15秒、`timeoutMs`オプションで呼び出し元route handlerが延長できる）。

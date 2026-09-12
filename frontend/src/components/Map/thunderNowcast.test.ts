@@ -9,6 +9,12 @@ import {
   TORNADO_POTENTIAL_LEVELS,
 } from "./thunderNowcast";
 import { trimToCurrentAndFuture } from "./jmaNowcastFrames";
+// タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
+// `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
+// テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
+// `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
+vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
+
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body, headers: new Headers() };

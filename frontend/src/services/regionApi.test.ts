@@ -4,6 +4,11 @@ import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 // 成功・失敗時のdebugLogの呼び出し回数・ラベルを直接アサートするためモックする。
 vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
+// タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
+// `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
+// テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
+// `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
+vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.test" }));
 import {
   ACCIDENT_TILE_SOURCE_LAYER,
   ROAD_TILE_SOURCE_LAYER,
@@ -38,9 +43,9 @@ describe("regionApi", () => {
     expect(ROAD_TILE_MAX_ZOOM).toBe(regionTileConfig.road_tile_max_zoom);
   });
 
-  it("roadSurfaceTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
+  it("roadSurfaceTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
+    expect(roadSurfaceTileUrl()).toBe(`https://tiles.test/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
   });
 
   // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /
@@ -52,8 +57,8 @@ describe("regionApi", () => {
     expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(regionTileConfig.road_surface.tile_version);
   });
 
-  it("poiTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(poiTileUrl()).toBe(`${window.location.origin}/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.poi.tile_version}`);
+  it("poiTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
+    expect(poiTileUrl()).toBe(`https://tiles.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.poi.tile_version}`);
   });
 
   // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度
@@ -71,8 +76,8 @@ describe("regionApi", () => {
     expect(tileVersionFromUrl(accidentTileUrl())).toBe(regionTileConfig.accident.tile_version);
   });
 
-  it("accidentTileUrlはwindow.location.originとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(accidentTileUrl()).toBe(`${window.location.origin}/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.accident.tile_version}`);
+  it("accidentTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
+    expect(accidentTileUrl()).toBe(`https://tiles.test/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.accident.tile_version}`);
   });
 
   describe("fetchAxisInspector", () => {
@@ -227,20 +232,3 @@ describe("regionApi", () => {
 
 });
 
-describe("tileBaseUrl（NEXT_PUBLIC_TILE_BASE_URLによるタイル配信元の切替）", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("環境変数が設定されていれば各タイルURLのオリジンがそのbackendになる（末尾スラッシュは除去）", () => {
-    vi.stubEnv("NEXT_PUBLIC_TILE_BASE_URL", "https://backend.example.test/");
-    expect(roadSurfaceTileUrl()).toBe(`https://backend.example.test/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
-    expect(poiTileUrl()).toBe(`https://backend.example.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.poi.tile_version}`);
-    expect(accidentTileUrl()).toBe(`https://backend.example.test/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.accident.tile_version}`);
-  });
-
-  it("環境変数が空文字なら未設定と同じくフロント自身のオリジンを使う", () => {
-    vi.stubEnv("NEXT_PUBLIC_TILE_BASE_URL", "");
-    expect(roadSurfaceTileUrl()).toBe(`${window.location.origin}/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
-  });
-});

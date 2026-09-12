@@ -824,6 +824,49 @@ def find_undefined_css_tokens(files: list[str], all_files: list[str] | None = No
     return out
 
 
+# --- テストが書き換える環境変数を、他の実装も読んでいる ------------------------
+#
+# frontendのvitestは`pool: "vmThreads"`で走るため、`process.env`はテストファイルをまたいで
+# 共有される。あるテストが環境変数を立てている間に別ファイルが同じ変数を読むと、後者の
+# 期待値が静かに変わる（フルスイートでだけ落ちるテストになる。docs/tasks/T777.md）。
+# 「そのテストが対象にしている実装」だけが読む変数なら、立てても他へ波及しないので許す。
+
+TEST_ENV_WRITE_RE = re.compile(
+    r"""(?:process\.env\.([A-Z][A-Z0-9_]*)\s*=|delete\s+process\.env\.([A-Z][A-Z0-9_]*)"""
+    r"""|vi\.stubEnv\(\s*["']([A-Z][A-Z0-9_]*)["']|process\.env\s*=)"""
+)
+IMPL_ENV_READ_RE = re.compile(r"process\.env\.([A-Z][A-Z0-9_]*)")
+
+
+def find_cross_file_env_writes(files: list[str]) -> list[str]:
+    """テストが書き換える環境変数を、そのテスト自身の対象以外の実装も読んでいる箇所。"""
+    fronts = [f for f in files if f.startswith("frontend/src/") and f.endswith((".ts", ".tsx"))]
+    impls = [f for f in fronts if not TEST_FILE_RE.search(f)]
+    readers: dict[str, set[str]] = {}
+    for f in impls:
+        for name in IMPL_ENV_READ_RE.findall(read_text(REPO_ROOT / f)):
+            readers.setdefault(name, set()).add(f)
+    out: list[str] = []
+    for f in sorted(f for f in fronts if TEST_FILE_RE.search(f)):
+        text = read_text(REPO_ROOT / f)
+        subject = f.replace(".test.tsx", ".tsx").replace(".test.ts", ".ts")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            m = TEST_ENV_WRITE_RE.search(line)
+            if m is None:
+                continue
+            name = m.group(1) or m.group(2) or m.group(3)
+            if name is None:  # `process.env = {...}`（丸ごと差し替え）は常に他ファイルへ波及する
+                out.append(f"{f}:{lineno}: `process.env`ごと差し替えている（ファイル間で共有されるため他のテストの期待値を変える）")
+                continue
+            others = sorted(readers.get(name, set()) - {subject})
+            if others:
+                out.append(
+                    f"{f}:{lineno}: `{name}`を書き換えているが、{others[0]}も読む"
+                    "（読む側をモックするか、判断を引数で受ける純関数へ出す。docs/testing.md参照）"
+                )
+    return out
+
+
 def check_plan_vs_tasks() -> list[str]:
     violations: list[str] = []
     for lineno, line in enumerate(read_text(IMPROVEMENT_PLAN).splitlines(), 1):
@@ -1210,6 +1253,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "removed_axis_mentions": frozenset({"staged", "since", "full"}),
     "doc_constant_drift": frozenset({"staged", "since", "full"}),
     "review_doc_dead_refs": frozenset({"staged", "since", "full"}),
+    "cross_file_env_writes": frozenset({"staged", "since", "full"}),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -1280,6 +1324,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_doc_constant_drift(files + added, scope=md_staged)))
         sections.append(("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（ステージ済み）",
                          find_review_doc_dead_refs(files + added, scope=md_staged)))
+        sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
+                         find_cross_file_env_writes(files + added)))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
@@ -1366,6 +1412,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 "review_doc_dead_refs",
                 f"レビュー手順書の死んだ識別子参照（{args.since} 以降に変更された.md）",
                 find_review_doc_dead_refs(files, scope=changed)))
+            sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
+                             find_cross_file_env_writes(files)))
         else:
             sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
                              find_vacuous_test_loops(files)))
@@ -1375,6 +1423,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                              find_doc_constant_drift(files)))
             sections.append(("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（全件）",
                              find_review_doc_dead_refs(files)))
+            sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（全件、docs/testing.md参照）",
+                             find_cross_file_env_writes(files)))
 
     total = 0
     for key, title, lines in sections:

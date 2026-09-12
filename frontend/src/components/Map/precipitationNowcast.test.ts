@@ -12,6 +12,12 @@ import {
 } from "./precipitationNowcast";
 import { parseJstTime, WIND_GRID_SPACING_DEG } from "./windLayer";
 import type { WindGridPoint } from "@/types/weather";
+// タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
+// `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
+// テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
+// `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
+vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
+
 
 const N1 = [
   { basetime: "20260820030000", validtime: "20260820030000" },

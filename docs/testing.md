@@ -175,3 +175,36 @@ for (const color of expressionColors) { expect(legendColors.has(color)).toBe(tru
 `scripts/review_checks.py`の`vacuous_test_loops`がこの形を検出し、pre-commitとCIがブロック
 する。空でないことの主張は**同じテストの中**に置く（別のテストにある主張は、このテストが
 空振りしないことの根拠にならない）。
+
+## パターン7: 環境変数に依存する挙動のテスト → 判断を純関数へ出し、テストは環境変数に触らない
+
+frontendのvitestは`pool: "vmThreads"`で走るため、**`process.env`はテストファイルをまたいで
+共有される**。モジュール状態と違い、あるファイルが立てた環境変数は並行実行中の別ファイルからも
+見える。実装が環境変数を「呼び出しのたびに」読む設計（SSRでの参照を避けるために意図してそう
+している）だと、別ファイルの期待値がその場で変わる——**単体では通るのにフルスイートでだけ
+落ちるテスト**になり、しかも毎回同じ顔で落ちないため本物の退行を隠す。
+
+`afterEach`で戻しても足りない。戻すまでの間に別ファイルが読むうえ、`process.env`ごと
+差し替える（`process.env = { ...ORIGINAL }`）と`vi.stubEnv`の復元も壊れる。
+
+**判断を、環境変数を引数で受ける純関数へ出す**。環境変数を読むのは分岐を持たない薄い関数だけに
+し、テストはその純関数を呼ぶ（`lib/tileBaseUrl.ts: resolveTileBaseUrl`・
+`lib/adminBasicAuth.ts: resolveAdminBasicAuth`）。
+
+```ts
+export function tileBaseUrl(): string {
+  return resolveTileBaseUrl(process.env.NEXT_PUBLIC_TILE_BASE_URL, origin());
+}
+export function resolveTileBaseUrl(configured: string | undefined, origin: string | null): string { ... }
+```
+
+その値を**使う側**のテスト（URLの組み立て等）は、読み取り口のモジュールをモックして固定する。
+
+```ts
+vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
+```
+
+`scripts/review_checks.py`の`cross_file_env_writes`が「テストが書き換える環境変数を、その
+テスト自身の対象以外の実装も読んでいる」場合と`process.env`ごとの差し替えを検出し、
+pre-commitとCIがブロックする。自分のテスト対象だけが読む環境変数（`app/api/version/route.ts`の
+`RENDER_GIT_COMMIT`等）は、他へ波及しないため対象外。
