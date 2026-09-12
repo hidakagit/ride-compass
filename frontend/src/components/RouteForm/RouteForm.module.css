@@ -161,6 +161,24 @@
   padding: 0.3rem 0.5rem;
 }
 
+/* チップ内の状態文言。アイコンだけだと3状態を見分けられない（モバイルにツールチップが
+   無い）ため、短い文言を並べる。 */
+.destinationChipText {
+  font-size: 0.8rem;
+  margin-left: 0.3rem;
+}
+
+/* 設定済みのときだけ出る解除ボタン（経由地チップの✕と同じ役割）。 */
+.destinationClearButton {
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.2rem;
+  line-height: 1;
+}
+
 .destinationChipArmed {
   background: var(--color-accent);
   border-color: var(--color-accent);

@@ -435,17 +435,13 @@ export default function Home() {
     setDestinationArmed(false);
   }, []);
   const handleDestinationClear = useCallback(() => setDestination(null), []);
-  // ボタン1個で「未設定→武装→設定済み→解除」を一巡させる。武装中に同じボタンを押すと
-  // キャンセルできる。
+  // チップは「指定する／置き直す」だけを担い、押すたびに武装する（武装中に押すと
+  // キャンセル）。設定済みから武装しても目的地は残したままで、地図タップが置き換えになる
+  // ——生成後に目的地を変えたいとき、解除してから指定し直す手順を踏ませないため。
+  // 解除は別ボタン（onDestinationClear、経由地チップの✕と同じ形）。
   const handleDestinationButtonClick = useCallback(() => {
-    if (destinationArmed) {
-      setDestinationArmed(false);
-    } else if (destination) {
-      setDestination(null);
-    } else {
-      setDestinationArmed(true);
-    }
-  }, [destinationArmed, destination]);
+    setDestinationArmed((armed) => !armed);
+  }, []);
   const destinationState: DestinationButtonState = destinationArmed ? "armed" : destination ? "set" : "unset";
 
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
@@ -1652,6 +1648,7 @@ export default function Home() {
           onWaypointsClear={handleWaypointsClear}
           destinationState={destinationState}
           onDestinationButtonClick={handleDestinationButtonClick}
+          onDestinationClear={handleDestinationClear}
           weightsPanel={renderRouteSettingsSectionBody()}
         />
       </>

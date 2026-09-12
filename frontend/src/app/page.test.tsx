@@ -758,7 +758,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "目的地" }));
 
     expect(
-      screen.getByRole("button", { name: "地図をタップして目的地を指定（タップでキャンセル）" })
+      screen.getByRole("button", { name: "地図をタップして目的地を指定（もう一度押すとキャンセル）" })
     ).toBeInTheDocument();
   });
 
@@ -773,6 +773,23 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "目的地" }));
 
     expect(screen.getByRole("button", { name: "目的地を解除" })).toBeInTheDocument();
+  });
+
+  // 生成後に目的地を変えたいとき、解除してから指定し直す2段階を踏ませない（T761）。
+  it("設定済みのチップを押すと目的地を残したまま武装し、もう一度押すと設定済みへ戻る", async () => {
+    const user = userEvent.setup();
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+
+    await user.click(screen.getByRole("button", { name: "目的地を変更（地図をタップして置き直す）" }));
+    expect(screen.getByText("地図をタップ")).toBeInTheDocument();
+
+    // 目的地は消えていない（押下が解除ではなく武装であることの確認）。
+    await user.click(screen.getByRole("button", { name: "地図をタップして目的地を指定（もう一度押すとキャンセル）" }));
+    expect(screen.getByText("目的地を変更")).toBeInTheDocument();
   });
 
   it("改善計画T602: backendが目的地を補正した場合、案内を表示し次回生成では補正後の地点を送る", async () => {

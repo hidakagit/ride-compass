@@ -27,6 +27,8 @@ interface RouteFormProps {
   waypointCount: number;
   onWaypointsClear: () => void;
   destinationState: DestinationButtonState;
+  /** 設定済みの目的地を消す（チップ本体は「指定する／置き直す」だけを担う）。 */
+  onDestinationClear: () => void;
   onDestinationButtonClick: () => void;
   /** 「重みづけ」タブの中身（RouteSettingsPanelを含む要素一式）。「ルート設定」区分は
    * 「生成条件」（本コンポーネントの距離・候補数等）と「重みづけ」の2タブへ分ける。
@@ -48,6 +50,7 @@ export default function RouteForm({
   waypointCount,
   onWaypointsClear,
   destinationState,
+  onDestinationClear,
   onDestinationButtonClick,
   weightsPanel,
 }: RouteFormProps) {
@@ -59,11 +62,15 @@ export default function RouteForm({
     onMaxRoutesChange(String(next));
   }
 
+  // モバイルにツールチップは無いため、状態は文言そのもので示す（titleやaria-labelだけに
+  // 頼ると「次に何をすればよいか」が画面から読めない）。
+  const destinationButtonText =
+    destinationState === "set" ? "目的地を変更" : destinationState === "armed" ? "地図をタップ" : "目的地を指定";
   const destinationButtonLabel =
     destinationState === "set"
-      ? "目的地を解除"
+      ? "目的地を変更（地図をタップして置き直す）"
       : destinationState === "armed"
-        ? "地図をタップして目的地を指定（タップでキャンセル）"
+        ? "地図をタップして目的地を指定（もう一度押すとキャンセル）"
         : "目的地を設定（地図をタップ）";
   const destinationButtonClassName =
     destinationState === "set"
@@ -143,8 +150,19 @@ export default function RouteForm({
                   title={destinationButtonLabel}
                   className={destinationButtonClassName}
                 >
-                  🏁
+                  🏁<span className={styles.destinationChipText}>{destinationButtonText}</span>
                 </button>
+                {destinationState === "set" && (
+                  <button
+                    type="button"
+                    onClick={onDestinationClear}
+                    aria-label="目的地を解除"
+                    title="目的地を解除"
+                    className={styles.destinationClearButton}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             )}
             {maxRoutesRelevant && (

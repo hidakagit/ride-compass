@@ -16,6 +16,7 @@ function ControlledRouteForm({
   waypointCount = 0,
   onWaypointsClear = vi.fn(),
   destinationState = "unset",
+  onDestinationClear = () => {},
   onDestinationButtonClick = vi.fn(),
 }: {
   initialDistance?: string;
@@ -24,6 +25,7 @@ function ControlledRouteForm({
   waypointCount?: number;
   onWaypointsClear?: () => void;
   destinationState?: DestinationButtonState;
+  onDestinationClear?: () => void;
   onDestinationButtonClick?: () => void;
 }) {
   const [distance, setDistance] = useState(initialDistance);
@@ -41,6 +43,7 @@ function ControlledRouteForm({
       onWaypointsClear={onWaypointsClear}
       destinationState={destinationState}
       onDestinationButtonClick={onDestinationButtonClick}
+      onDestinationClear={onDestinationClear}
       weightsPanel={<p>重みづけタブの中身（テスト用ダミー）</p>}
     />
   );
@@ -111,6 +114,32 @@ describe("RouteForm", () => {
       expect(screen.queryByRole("slider", { name: "距離" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" })).toBeInTheDocument();
       expect(screen.getByText("8件")).toBeInTheDocument();
+    });
+
+    // モバイルにツールチップは無いため、3状態はチップの文言そのもので見分けられる必要がある。
+    it("目的地チップは未設定・タップ待ち・設定済みを文言で示す", () => {
+      const { rerender } = render(<ControlledRouteForm initialRouteMode="destination" />);
+      expect(screen.getByText("目的地を指定")).toBeInTheDocument();
+
+      rerender(<ControlledRouteForm initialRouteMode="destination" destinationState="armed" />);
+      expect(screen.getByText("地図をタップ")).toBeInTheDocument();
+
+      rerender(<ControlledRouteForm initialRouteMode="destination" destinationState="set" />);
+      expect(screen.getByText("目的地を変更")).toBeInTheDocument();
+    });
+
+    it("設定済みのときだけ解除ボタンが出て、押すとonDestinationClearが呼ばれる", async () => {
+      const user = userEvent.setup();
+      const onDestinationClear = vi.fn();
+      const { rerender } = render(<ControlledRouteForm initialRouteMode="destination" />);
+      expect(screen.queryByRole("button", { name: "目的地を解除" })).not.toBeInTheDocument();
+
+      rerender(
+        <ControlledRouteForm initialRouteMode="destination" destinationState="set" onDestinationClear={onDestinationClear} />
+      );
+      await user.click(screen.getByRole("button", { name: "目的地を解除" }));
+
+      expect(onDestinationClear).toHaveBeenCalledTimes(1);
     });
 
     it("経由地クリアボタンでonWaypointsClearが呼ばれる", async () => {
