@@ -199,6 +199,11 @@ const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled";
 const ROUTE_PREFERENCE_STORAGE_KEY = "ridecompass:route-preference";
 const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";
+// 「条件」タブの入力値。場所（目的地・経由地のピン）は持たない——行くたびに変わるうえ、
+// 古いピンが残っていると気づかないまま生成してしまう。
+const ROUTE_MODE_STORAGE_KEY = "ridecompass:route-mode";
+const DISTANCE_STORAGE_KEY = "ridecompass:distance-km";
+const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
 
 // 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。
 //
@@ -414,7 +419,10 @@ export default function Home() {
   // モード切り替え自体は経由地・目的地の値を消さない（周回モードへ切り替えても地図上のピンは
   // 保持し、目的地モードへ戻れば復元される。地図への表示・追加受付だけがモードで変わる、
   // handleGenerate/MapView.tsxのpinPlacementEnabled参照）。
-  const [routeMode, setRouteMode] = useState<RouteMode>("loop");
+  const [routeMode, setRouteMode] = useStoredState<RouteMode>(ROUTE_MODE_STORAGE_KEY, "loop", {
+    serialize: (mode) => mode,
+    deserialize: (raw) => (raw === "loop" || raw === "destination" ? raw : null),
+  });
   const handleRouteModeChange = useCallback(
     (mode: RouteMode) => {
       setRouteMode(mode);
@@ -429,7 +437,7 @@ export default function Home() {
         setDestinationArmed(false);
       }
     },
-    [destination, waypoints.length]
+    [destination, waypoints.length, setRouteMode]
   );
 
   const handleDestinationSet = useCallback((point: Coordinates) => {
@@ -456,11 +464,29 @@ export default function Home() {
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
   // 出すため。
-  const [distanceInput, setDistanceInput] = useState("30");
+  const [distanceInput, setDistanceInput] = useStoredState(DISTANCE_STORAGE_KEY, "30", {
+    serialize: (value) => value,
+    // 保存値はUIの範囲内の数値だけを受け入れる（範囲外・壊れた値は既定値のまま扱う）。
+    // スライダーの範囲が縮んだ後でも、範囲外の距離が復元されて送信されることはない。
+    deserialize: (raw) => {
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_distance_km ? raw : null;
+    },
+  });
   // 周回候補の上限件数（backend: RouteGenerateRequest.max_routes、1〜15）。距離入力と
   // 同じくstring stateのまま保持し、送信時にNumber化する。目的地モードでは経由地が無い
   // 場合のみ意味を持つ（経由地を伴うとbackendが常に1件へ固定し無視する、RouteForm.tsx参照）。
-  const [maxRoutesInput, setMaxRoutesInput] = useState(String(routeGenerateConfig.default_max_routes));
+  const [maxRoutesInput, setMaxRoutesInput] = useStoredState(
+    MAX_ROUTES_STORAGE_KEY,
+    String(routeGenerateConfig.default_max_routes),
+    {
+      serialize: (value) => value,
+      deserialize: (raw) => {
+        const parsed = Number(raw);
+        return Number.isInteger(parsed) && parsed >= 1 && parsed <= routeGenerateConfig.max_routes ? raw : null;
+      },
+    },
+  );
   // 「ルート生成」ボタン（「ルート設定」見出し行、RouteForm.tsxのタブとは別位置）の
   // 検証・送信ロジック。handleGenerateは関数宣言のため巻き上げにより以降で定義されていても
   // 参照できる。

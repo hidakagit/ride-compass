@@ -600,6 +600,52 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     latestLocationSetter = null;
   });
 
+  // 「条件」タブの入力値（周回/目的地・距離・候補数）は次に開いたときも引き継ぐ
+  // （毎回直す手間がそのまま毎回かかっていた）。保存値が範囲外・壊れているときは既定値のまま。
+  it("保存された距離・候補数が生成リクエストへ反映される", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("ridecompass:distance-km", "55");
+    window.localStorage.setItem("ridecompass:max-routes", "3");
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({ distance_km: 55, max_routes: 3 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("範囲外の保存値は既定値のまま扱う", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("ridecompass:distance-km", "9999");
+    window.localStorage.setItem("ridecompass:max-routes", "0");
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate()],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(generateRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({ distance_km: 30, max_routes: 8 }),
+        expect.anything(),
+      );
+    });
+  });
+
   it("改善計画T531: 生成リクエストに候補件数(max_routes)の既定値を含める", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({

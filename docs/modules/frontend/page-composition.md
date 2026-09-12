@@ -74,8 +74,12 @@ stateは`page.tsx`の`useState`に集約し、子コンポーネントへはprop
 
 | 永続化 | 判断基準 | 代表例 |
 |---|---|---|
-| `localStorage` | 利用者が自分で決めた設定で、次に開いたときも同じであってほしいもの | 評価の設定（`routePreference`・`hardFilters`）、レイヤー表示（`layerVisibility`・`lens`）、パネル開閉 |
-| なし | そのセッション限りの結果・一時的な入力・地図の見え方 | 生成結果（`routes`・`selectedRouteId`）、目的地モードの入力、地図ビューポート、データ取得状態 |
+| `localStorage` | 利用者が自分で決めた設定で、次に開いたときも同じであってほしいもの | 評価の設定（`routePreference`・`hardFilters`）、生成条件の入力（`routeMode`・距離・候補数）、レイヤー表示（`layerVisibility`・`lens`）、パネル開閉、下部シートの高さ |
+| なし | そのセッション限りの結果・場所の指定・地図の見え方 | 生成結果（`routes`・`selectedRouteId`）、目的地・経由地のピン、地図ビューポート、データ取得状態 |
+
+**場所（目的地・経由地のピン）は保存しない**——行くたびに変わるうえ、古いピンが残っていると
+気づかないまま生成してしまう。保存した生成条件の入力値は、復元時にUIが受け付ける範囲内かを
+検査し、外れていれば既定値のまま扱う（スライダーの範囲が縮んだ後でも範囲外の値が送られない）。
 
 復元時の注意が要るのは、**正本がbackend側にある設定**だけである。`hardFilters`は
 `lib/hardFilterSync.ts: syncHardFilterKeys`が、保存済みの値を正本
