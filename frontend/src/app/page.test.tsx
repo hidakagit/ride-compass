@@ -475,6 +475,9 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
               <button onClick={() => props.onDestinationSet({ latitude: 35.681, longitude: 139.767 })}>
                 テスト用に目的地を設定
               </button>
+              <button onClick={() => props.onDestinationSet({ latitude: 35.9, longitude: 139.9 })}>
+                テスト用に目的地を別の地点へ動かす
+              </button>
               <button onClick={() => props.onWaypointAdd({ latitude: 35.682, longitude: 139.768 })}>
                 テスト用に経由地を追加
               </button>
@@ -867,6 +870,75 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: "2 19.5 km 合成" })).toBeInTheDocument();
     });
+  });
+
+  it("区間の乗り換えは、表示中の候補を作った条件のまま評価する", async () => {
+    // 合成結果は素の結果と区別せず同じ並びへ差し込まれる。いまのフォーム値で評価すると、
+    // 生成後に条件を変えてから合成したときに、比較できない値で順位が決まる
+    // （docs/tasks/T621.md）。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({
+          id: "route-destination-00",
+          direction_label: "目的地ルート",
+          distance_km: 18.0,
+          edge_ids: ["s", "a1", "m", "a2", "e"],
+        }),
+        makeCandidate({
+          id: "route-destination-01",
+          direction_label: "目的地ルート",
+          distance_km: 19.0,
+          edge_ids: ["s", "b1", "m", "b2", "e"],
+        }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+
+    // 生成後に目的地を動かす（フォーム値だけが変わり、表示中の候補は古い条件のまま）
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を別の地点へ動かす" }));
+
+    await user.selectOptions(screen.getByLabelText("比較相手"), "route-destination-01");
+    await user.click(screen.getByRole("button", { name: /1本目の区間/ }));
+    await user.click(screen.getByRole("button", { name: /候補へ追加/ }));
+
+    await waitFor(() => expect(vi.mocked(generateRoutes)).toHaveBeenCalledTimes(2));
+    const spliceRequest = vi.mocked(generateRoutes).mock.calls[1][0];
+    expect(spliceRequest.spliced_edge_ids).toEqual(["s", "b1", "m", "a2", "e"]);
+    // 動かした後の目的地Bではなく、生成に使った目的地Aで評価される
+    expect(spliceRequest.destination).toEqual({ latitude: 35.681, longitude: 139.767 });
+  });
+
+  it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
+    // 表示中の候補を作った生成で判定する。いまの目的地ピンで判定すると、周回モードへ
+    // 戻した後もピンが残っている間は操作面が出て、合成リクエストがdestination無しになり
+    // backendに弾かれる（docs/tasks/T621.md）。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
+        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    // 目的地ピンだけ置いて、周回モードのまま生成する
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+
+    expect(screen.queryByLabelText("比較相手")).toBeNull();
   });
 
   it("T592フォローアップ: 研究モード中は区間クリック詳細に材料値(material_values)を表示する", async () => {

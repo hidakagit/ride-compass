@@ -481,6 +481,12 @@ export default function Home() {
     // （conditions.corrected_destination）。表示中の候補がこの補正を経て生成された
     // ことを示すヒントの表示条件に使う（比較には使わない）。
     destinationCorrected: boolean;
+    // 生成に実際に送った入力そのもの。区間の乗り換え（docs/tasks/T621.md）で合成した
+    // 経路も**同じ条件で**評価するために使う——合成結果は素の結果と本質的に区別せず、
+    // 同じ並びへ差し込まれるため、条件が違うと比較できない値で順位が決まる。
+    // エコー（`conditions`）ではなく入力を持つのは、エコーが`lens_axis_id`を含まない
+    // ため（区間表示用の軸評価が候補ごとに食い違う）。
+    input: GenerationInput;
   } | null>(null);
   // 表示中のルートを実際に生成した瞬間のroute_preference（重み）。routePreference自体は
   // ルート設定パネルが常時編集するライブなstateのため、生成後に再生成せず重みだけ変更すると、
@@ -1452,8 +1458,10 @@ export default function Home() {
   // 既存候補と同じ経路で行う（構造仕様1・10）。
   async function handleApplySplice() {
     if (!selectedCandidate || !spliceTarget || spliceTakenIndexes.length === 0) return;
-    const destinationPoint = destination;
-    if (!destinationPoint) return;
+    // 表示中の候補を作った条件をそのまま使う。いまのフォーム値を使うと、生成後に重みを
+    // 変えてから合成したときに、その1本だけ別条件で評価された候補が同じ並びへ入る。
+    const generatedInput = generatedConditions?.input;
+    if (!generatedInput) return;
     setSplicing(true);
     setErrorMessage(null);
     try {
@@ -1462,9 +1470,8 @@ export default function Home() {
         spliceTarget.edge_ids,
         spliceTakenIndexes.map((index) => spliceStretches[index]).filter(Boolean),
       );
-      const generationInput = buildCurrentGenerationInput(Number(distanceInput));
       const { routes: candidates } = await generateRoutes(
-        { ...buildGenerateRequest(generationInput), spliced_edge_ids: edgeIds },
+        { ...buildGenerateRequest(generatedInput), spliced_edge_ids: edgeIds },
         setGenerationProgress,
       );
       const spliced = candidates[0];
@@ -1532,6 +1539,10 @@ export default function Home() {
             : generationInput,
         ),
         destinationCorrected: Boolean(conditions.corrected_destination),
+        // 補正があった場合は補正後の地点を持つ（実際に探索された地点）。
+        input: conditions.corrected_destination
+          ? { ...generationInput, destination: conditions.corrected_destination }
+          : generationInput,
       });
       setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
@@ -1781,8 +1792,13 @@ export default function Home() {
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
               {/* 区間の乗り換え（docs/tasks/T621.md）。対象は目的地ルートのみ——周回は
-                  起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。 */}
-              {destination && route.id === selectedRouteId && routes.length > 1 && (
+                  起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。
+                  条件は**表示中の候補を作った生成**で見る。いまの目的地ピンで見ると、
+                  周回モードへ切り替えた後もピンが残っている間は操作面が出てしまい、
+                  合成リクエストがdestination無しになって弾かれる。 */}
+              {generatedConditions?.input.destination &&
+                route.id === selectedRouteId &&
+                routes.length > 1 && (
                 <RouteSplicePanel
                   displayed={route}
                   targets={routes.filter((other) => other.id !== route.id)}
