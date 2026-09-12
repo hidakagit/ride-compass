@@ -37,46 +37,7 @@
   margin: 0;
 }
 
-/* 寄与のバーに出ない軸（値が無い軸・重み0の軸）を折り返して並べるチップ行。1軸1行の
-   一覧は持たない——軸ごとの詳細はバーの凡例チップから開く（AxisContributionBar）ため、
-   ここは「バーに出ない軸の存在を示す」だけの行で、公開軸が増えても折り返しで伸びる。 */
-.leftovers {
-  list-style: none;
-  margin: var(--space-1) 0 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-.leftoverItem {
-  display: inline-flex;
-  align-items: center;
-}
-
-.leftoverItem[data-unused="true"] {
-  opacity: 0.55;
-}
-
-.leftoverTrigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: var(--color-muted-strong);
-  cursor: pointer;
-}
-
-.badge {
-  composes: unusedBadge from "../ui/unusedBadge.module.css";
-}
-
-/* 軸の詳細（凡例チップ・チップ行のどちらから開いても同じ中身）。 */
+/* 凡例チップを押して開く軸の詳細。 */
 .detailHeading {
   display: block;
   font-weight: 500;
@@ -100,43 +61,11 @@
   color: var(--color-muted);
 }
 
-/* 軸ごとの色ドット・説明の(i)ボタン・そのポップオーバー。「重み配分」の凡例
-   （RouteSettingsPanel）と同じ共通部品を使う。 */
-.legendDot {
-  composes: legendDot from "../ui/axisLegend.module.css";
-}
-
+/* 総合難易度・負荷の(i)ボタンとそのポップオーバー。 */
 .infoButton {
   composes: infoButton from "../ui/infoButton.module.css";
 }
 
 .infoPopover {
   composes: floatingPopover from "../ui/floatingPopover.module.css";
-}
-
-/* 重み0の軸をまとめる開閉ボタン（チップ行の中に他のチップと並ぶ）。 */
-.unusedToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-muted-strong);
-  font: inherit;
-  cursor: pointer;
-}
-
-.unusedChevron {
-  flex-shrink: 0;
-  width: 0.4rem;
-  height: 0.4rem;
-  border-right: 2px solid var(--color-neutral);
-  border-bottom: 2px solid var(--color-neutral);
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
-}
-
-.unusedChevron[data-open="true"] {
-  transform: rotate(45deg);
 }

@@ -7,19 +7,15 @@
 }
 
 .legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  composes: legendChips from "../ui/axisLegend.module.css";
 }
 
-.legendItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: var(--font-size-sm);
+.legendChip {
+  composes: legendChip from "../ui/axisLegend.module.css";
+}
+
+.legendChipBody {
+  composes: legendChipBody from "../ui/axisLegend.module.css";
 }
 
 /* 帯グラフは「重み配分」の設定UI（RouteSettingsPanel）と同じ表現を共有する。 */
@@ -47,18 +43,14 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 凡例チップを詳細の入口にする場合のトリガー。チップの見た目（ドット＋ラベル＋数値）は
-   静的な凡例と同じにし、押せることは下線で示す。 */
+/* 詳細を開けるチップのトリガー。押せないチップと同じ枠・同じ内側の余白にし、
+   差は(i)の有無と輪郭の濃さだけにする。 */
 .legendTrigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: inherit;
+  composes: legendChipBody from "../ui/axisLegend.module.css";
   cursor: pointer;
+}
+
+.legendTrigger svg {
   color: var(--color-muted);
 }
 

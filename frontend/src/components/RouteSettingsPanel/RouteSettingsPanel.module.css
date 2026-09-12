@@ -225,31 +225,14 @@
 /* 凡例チップ1件＝「色ドット+ラベル（タップで有効/無効）」「(i)説明文」
    「地図で色分けアイコン（対応軸のみ）」を1つの枠に収めた複合ボタン群。外枠1つを共有し、
    内部はborder-leftで区切ることでLayerChipのpill形状を踏襲しつつ複数の押下領域を持たせる。 */
+/* 無効（重み0）の軸の薄さも共有側が持つ。ドットの色自体は帯グラフと同じ色を保つ
+   （再度有効にしたときにどの帯になるか予測できるように）。 */
 .legendChip {
-  display: inline-flex;
-  align-items: stretch;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  overflow: hidden;
-}
-
-/* 無効（重み0）の軸は輪郭を弱めて一覧内での優先度を下げる。ドットの色自体は
-   帯グラフと同じ色を保つ（再度有効にしたときにどの帯になるか予測できるように）。 */
-.legendChip[data-checked="false"] {
-  opacity: 0.55;
+  composes: legendChip from "../ui/axisLegend.module.css";
 }
 
 .legendToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  border: none;
-  background: transparent;
-  color: var(--foreground);
-  padding: 0.3rem 0.5rem 0.3rem 0.65rem;
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
+  composes: legendChipBody from "../ui/axisLegend.module.css";
   cursor: pointer;
 }
 
@@ -269,10 +252,6 @@
 }
 
 @media (max-width: 640px) {
-  .legendToggle {
-    padding: 0.25rem 0.4rem 0.25rem 0.55rem;
-  }
-
   .legendInfoButton {
     width: 1.5rem;
   }

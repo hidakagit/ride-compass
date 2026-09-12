@@ -1,5 +1,5 @@
 /*
- * 軸ごとの寄与を色で示す帯グラフと、その凡例ドット。
+ * 軸ごとの寄与を色で示す帯グラフと、その下に折り返して並ぶ軸チップ。
  *
  * 「重み配分」の設定UI（RouteSettingsPanel）と、ルート結果・区間詳細の内訳表示
  * （RouteAxisProfile／AxisContributionBar）が同じ表現を共有する。
@@ -26,4 +26,48 @@
   height: 0.6rem;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* 帯グラフの下に折り返して並ぶ軸チップ。「重み配分」の設定UIと、ルート結果の内訳が同じ形を
+   共有する——同じ軸が画面によって違う形に見えると、設定した軸と結果に出ている軸が
+   同じものだと読み取れない。押せない軸（設定では常に押せる、結果では評価に使っていない軸）は
+   輪郭ごと薄くする。 */
+.legendChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendChip {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.legendChip[data-checked="false"] {
+  opacity: 0.55;
+}
+
+.legendChipBody {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  padding: 0.3rem 0.5rem 0.3rem 0.65rem;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .legendChipBody {
+    padding: 0.25rem 0.4rem 0.25rem 0.55rem;
+  }
 }

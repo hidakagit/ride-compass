@@ -1,9 +1,6 @@
 "use client";
 
-import { useState } from "react";
-
 import InfoPopover from "@/components/Map/InfoPopover";
-import { InfoIcon } from "@/components/Map/icons";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar from "./AxisContributionBar";
@@ -49,13 +46,11 @@ interface RouteAxisProfileProps {
   axisColors: Record<string, string>;
 }
 
-const FALLBACK_DOT_COLOR = "#64748b";
-
 // ルート結果の「総合難易度＋重み付き寄与度の積み上げバー」を表示する読み取り専用の部品。
 // 軸ごとの詳細（軸別難易度・生値・材料内訳・説明）は一覧を作らず、バーの凡例チップを
 // 押して開く。地図の色分け（レンズ）の選択はここでは行わない（入口は地図上の凡例ピル
-// `LensControl`だけ）。寄与が出ない軸は、重み0なら畳んだ1行へまとめて本数を残し、
-// 値が無いだけの軸はチップのまま残す（消さずに薄くする）。
+// `LensControl`だけ）。チップはルート設定パネルの「重み配分」と同じ形で、評価に使って
+// いない軸（重み0）は押せない薄いチップとして残す（消さずに薄くする）。
 export default function RouteAxisProfile({
   axes,
   weights,
@@ -77,16 +72,11 @@ export default function RouteAxisProfile({
     return value != null && value !== 0;
   });
 
-  // 寄与のバーに出ない軸の行き先を2つに分ける。重み0（ユーザー自身が使わないと決めた軸）は
-  // 畳んで本数だけを残し、値が無いだけの軸は畳まずチップのまま残す——後者はユーザーの
-  // 選択ではないため、読みたい軸が黙って隠れないようにする（設計原則「消さずに薄くする」）。
-  const leftoverAxes = axes.filter((axis) => !contributionRows.includes(axis));
-  const unusedAxes = leftoverAxes.filter((axis) => (weights[axis.axisId] ?? 0) <= 0);
-  const valuelessAxes = leftoverAxes.filter((axis) => (weights[axis.axisId] ?? 0) > 0);
-  const [unusedOpen, setUnusedOpen] = useState(false);
-
-  // 凡例チップ・残りチップのどちらから開いても同じ中身にする（軸の詳細の出どころは1つ）。
+  // 評価に使っていない軸（重み0）はチップを押せなくして区別する——詳細を返さない軸の
+  // チップをAxisContributionBarが押せない形で描く。チップ自体は消さず薄く残るため、
+  // 「消さずに薄くする」（設計原則「UI仕様」）はそのまま成り立つ。
   const renderAxisDetail = (axis: PreferenceAxisDef) => {
+    if ((weights[axis.axisId] ?? 0) <= 0) return null;
     const difficulty = axisDifficulties[axis.axisId];
     // 折れ点を通す前の生値。単位が定まらない軸（合成軸等）はbackendがrawValueUnitを
     // 返さないため何も出ない。
@@ -114,26 +104,6 @@ export default function RouteAxisProfile({
       </>
     );
   };
-
-  const renderLeftoverChip = (axis: PreferenceAxisDef, showNoData: boolean) => (
-    <li key={axis.axisId} className={styles.leftoverItem} data-unused={!showNoData}>
-      <InfoPopover
-        triggerClassName={styles.leftoverTrigger}
-        triggerAriaLabel={`${axis.label}の詳細`}
-        contentClassName={styles.infoPopover}
-        triggerContent={
-          <>
-            <span aria-hidden="true" className={styles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
-            <span>{axis.label}</span>
-            {showNoData && <span className={styles.badge}>データなし</span>}
-            <InfoIcon size={12} />
-          </>
-        }
-      >
-        {renderAxisDetail(axis)}
-      </InfoPopover>
-    </li>
-  );
 
   return (
     <div className={styles.wrap}>
@@ -170,6 +140,7 @@ export default function RouteAxisProfile({
           {contributionRows.length > 0 ? (
             <AxisContributionBar
               axes={contributionRows}
+              legendAxes={axes}
               contributions={axisContributions}
               axisColors={axisColors}
               renderDetail={renderAxisDetail}
@@ -178,25 +149,6 @@ export default function RouteAxisProfile({
             <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>
           )}
         </div>
-      )}
-      {(valuelessAxes.length > 0 || unusedAxes.length > 0) && (
-        <ul className={styles.leftovers} aria-label="寄与が出ていない軸">
-          {valuelessAxes.map((axis) => renderLeftoverChip(axis, true))}
-          {unusedAxes.length > 0 && (
-            <li className={styles.leftoverItem}>
-              <button
-                type="button"
-                className={styles.unusedToggle}
-                aria-expanded={unusedOpen}
-                onClick={() => setUnusedOpen((open) => !open)}
-              >
-                <span aria-hidden="true" className={styles.unusedChevron} data-open={unusedOpen} />
-                {`未使用の軸 ${unusedAxes.length}本`}
-              </button>
-            </li>
-          )}
-          {unusedOpen && unusedAxes.map((axis) => renderLeftoverChip(axis, false))}
-        </ul>
       )}
     </div>
   );

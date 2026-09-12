@@ -29,9 +29,9 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
   };
 }
 
-/** 寄与が出ていない軸のチップ行（重み0の開閉ボタンを含む）。 */
-function leftovers() {
-  return within(screen.getByRole("list", { name: "寄与が出ていない軸" })).getAllByRole("listitem");
+/** 軸チップ（押せる／押せないの両方）。 */
+function chips() {
+  return within(screen.getByRole("list")).getAllByRole("listitem");
 }
 
 describe("RouteAxisProfile", () => {
@@ -50,44 +50,33 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByText("車の通行量の説明")).toBeInTheDocument();
   });
 
-  it("重み0の軸は「未使用の軸 N本」へ畳み、開くと同じ詳細を開けるチップになる", async () => {
-    const user = userEvent.setup();
+  it("公開軸すべてをチップとして並べ、評価に使っていない軸（重み0）は押せないチップで残す", () => {
+    // ルート設定パネルの「重み配分」と同じチップの形。押せるかどうかが、その軸を評価に
+    // 使ったかどうかの区別になる。
     render(<RouteAxisProfile {...baseProps()} />);
 
-    const toggle = screen.getByRole("button", { name: "未使用の軸 1本" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("button", { name: "風の詳細を表示" })).not.toBeInTheDocument();
-
-    await user.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await user.click(screen.getByRole("button", { name: "風の詳細を表示" }));
-    expect(await screen.findByText("風の影響の説明")).toBeInTheDocument();
+    const items = chips();
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("車の圧迫感"),
+      expect.stringContaining("風"),
+      expect.stringContaining("夜間"),
+    ]);
+    expect(items[1]).toHaveAttribute("data-checked", "false");
+    expect(within(items[1]).queryByRole("button")).not.toBeInTheDocument();
+    expect(items[0]).toHaveAttribute("data-checked", "true");
+    expect(within(items[0]).getByRole("button", { name: "車の圧迫感の詳細を表示" })).toBeInTheDocument();
   });
 
-  it("重みが入っていても寄与が出ない軸は畳まず、「データなし」のチップとして残す", () => {
-    // 畳む条件は重みだけで決める——値が来ないのはユーザーの選択ではないため、
-    // 読みたい軸が黙って隠れないようにする。
+  it("重みが入っていれば、寄与の値が来ない軸のチップも押せる（詳細が「データなし」を示す）", async () => {
+    const user = userEvent.setup();
     render(<RouteAxisProfile {...baseProps({ weights: { car_stress: 0.5, wind: 0.2, night: 0.5 } })} />);
 
-    expect(screen.queryByRole("button", { name: /未使用の軸/ })).not.toBeInTheDocument();
-    const items = leftovers();
-    expect(items).toHaveLength(1);
-    expect(items[0]).toHaveTextContent("風");
-    expect(items[0]).toHaveTextContent("データなし");
-  });
+    const wind = chips()[1];
+    expect(wind).toHaveAttribute("data-checked", "true");
 
-  it("全軸に寄与が出ていればチップ行自体を出さない", () => {
-    render(
-      <RouteAxisProfile
-        {...baseProps({
-          weights: { car_stress: 0.5, wind: 0.2, night: 0.5 },
-          axisContributions: { car_stress: 36.2, wind: 10, night: 2.9 },
-        })}
-      />
-    );
+    await user.click(within(wind).getByRole("button", { name: "風の詳細を表示" }));
 
-    expect(screen.queryByRole("list", { name: "寄与が出ていない軸" })).not.toBeInTheDocument();
+    expect(await screen.findByText("データなし")).toBeInTheDocument();
   });
 
   it("地図の色分け（レンズ）を選ぶボタンを持たない（入口は地図上の凡例ピルだけ）", () => {
@@ -96,21 +85,22 @@ describe("RouteAxisProfile", () => {
     expect(screen.queryByRole("button", { name: /で地図を色分け/ })).not.toBeInTheDocument();
   });
 
-  it("axisContributionsが空のときは内訳セクションだけ案内文を表示し、軸のチップは残る", () => {
+  it("axisContributionsが空のときは案内文だけを表示する（帯も凡例も描かない）", () => {
     render(<RouteAxisProfile {...baseProps({ axisContributions: {} })} />);
 
     expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
-    expect(leftovers().length).toBeGreaterThan(0);
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
-  it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、内訳バーからは除外され畳んだ行に入る", () => {
+  it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、帯には出ずチップの数値も出ない", () => {
     const { container } = render(
       <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 36.2, wind: 0, night: 2.9 } })} />
     );
 
     const segments = container.querySelectorAll('[class*="stackSegment"]');
     expect(segments).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "未使用の軸 1本" })).toBeInTheDocument();
+    expect(chips()[1]).toHaveTextContent("風");
+    expect(chips()[1]).toHaveAttribute("data-checked", "false");
   });
 
   it("内訳バーは積み上げ1本バー（RouteSettingsPanel.module.cssのstackBar/stackSegmentを流用）として描画される", () => {

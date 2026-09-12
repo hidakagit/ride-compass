@@ -21,9 +21,14 @@ interface AxisContributionBarProps {
   /** 軸id→色ドットの色（呼び出し側のRouteAxisProfile/RouteSettingsPanelと共通の
    * 配色から渡す。同じ軸は常に同じ色になるようにするため）。 */
   axisColors: Record<string, string>;
-  /** 凡例チップを押したときに開く、その軸の詳細。渡さない間チップは押せない静的な凡例の
-   * まま（区間クリック詳細のように、軸ごとの詳細を持たない呼び出し側がある）。 */
-  renderDetail?: (axis: PreferenceAxisDef) => ReactNode;
+  /** 凡例に並べる軸。省略すると帯グラフに出る軸だけになる。公開軸すべてを渡せば、
+   * 寄与が出ない軸（評価に使っていない・値が無い）も薄いチップとして残る。 */
+  legendAxes?: readonly PreferenceAxisDef[];
+  /** 凡例チップを押したときに開く、その軸の詳細。nullを返した軸のチップは押せない
+   * （結果パネルでは「評価に使っていない軸」がこれにあたる）。prop自体を省略すると
+   * どのチップも押せない静的な凡例のまま（区間クリック詳細のように、軸ごとの詳細を
+   * 持たない呼び出し側がある）。 */
+  renderDetail?: (axis: PreferenceAxisDef) => ReactNode | null;
 }
 
 const FALLBACK_COLOR = "#94a3b8";
@@ -37,6 +42,7 @@ export default function AxisContributionBar({
   axes,
   contributions,
   axisColors,
+  legendAxes,
   renderDetail,
 }: AxisContributionBarProps) {
   // 値0（重み0の軸は常にちょうど0.0になる、backend: compose_costs_from_axis_matrix参照）は
@@ -66,36 +72,37 @@ export default function AxisContributionBar({
         })}
       </div>
       <ul className={styles.legend}>
-        {rows.map((axis) => {
+        {(legendAxes ?? rows).map((axis) => {
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
-          const chip = (
+          const value = contributions[axis.axisId];
+          const detail = renderDetail?.(axis) ?? null;
+          const body = (
             <>
               <span aria-hidden="true" className={styles.legendDot} style={{ background: color }} />
               <span className={styles.legendLabel}>{axis.label}</span>
-              <span className={styles.legendValue}>{contributions[axis.axisId].toFixed(1)}</span>
-            </>
-          );
-          // チップ全体が押せることを、このアプリで「押すと説明が出る」を表している(i)で示す
-          // （下線だけでは押せると気づかれない）。
-          const trigger = (
-            <>
-              {chip}
-              <InfoIcon size={12} />
+              {value != null && value !== 0 && <span className={styles.legendValue}>{value.toFixed(1)}</span>}
             </>
           );
           return (
-            <li key={axis.axisId} className={styles.legendItem}>
-              {renderDetail ? (
+            <li key={axis.axisId} className={styles.legendChip} data-checked={detail !== null}>
+              {detail === null ? (
+                <span className={styles.legendChipBody}>{body}</span>
+              ) : (
                 <InfoPopover
                   triggerClassName={styles.legendTrigger}
                   triggerAriaLabel={`${axis.label}の詳細`}
                   contentClassName={styles.legendPopover}
-                  triggerContent={trigger}
+                  // チップ全体が押せることを、このアプリで「押すと説明が出る」を表している
+                  // (i)で示す（押せる／押せないの差が輪郭の濃さだけでは伝わらない）。
+                  triggerContent={
+                    <>
+                      {body}
+                      <InfoIcon size={12} />
+                    </>
+                  }
                 >
-                  {renderDetail(axis)}
+                  {detail}
                 </InfoPopover>
-              ) : (
-                chip
               )}
             </li>
           );
