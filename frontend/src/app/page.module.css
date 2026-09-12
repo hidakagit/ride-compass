@@ -176,6 +176,23 @@
   cursor: not-allowed;
 }
 
+/* 「ルート設定」見出し行の操作枠（条件変更の印＋「ルート生成」ボタン）。 */
+.routeSectionHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 生成条件が表示中の候補とずれていることの印。モバイルの「ルート結果」タブに出る
+   ドットと同じ意味・同じ色で、押すべきボタンの隣に置く。 */
+.dirtyDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-warning-strong);
+  flex-shrink: 0;
+}
+
 .emptyHint {
   margin: 0;
   font-size: var(--font-size-sm);

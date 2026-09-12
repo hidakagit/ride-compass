@@ -270,11 +270,14 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 `Tabs.Root`（`@radix-ui/react-tabs`）で`RouteForm`自身がホストする。両タブとも
 `forceMount`で常時マウントし表示だけ`data-state`で切り替える（`RouteSettingsPanel`が
 ローカルstate[`lastWeights`等]を持つため、タブ切替のたびにアンマウントすると失われる。
-page.module.cssの`.outcomeTabPanel`と同じ方式）。「ルート生成」ボタン・検証エラー表示は
+page.module.cssの`.outcomeTabPanel`と同じ方式）。「ルート生成」ボタンは
 `RouteForm`の外（`page.tsx`の「ルート設定」見出し行、デスクトップは`Disclosure`の
 `trailing`・モバイルは`BottomSheet`の`headerAction`、「ルート結果」見出し行の
 `renderRouteResultHeaderActions`と同じ場所）に置き、どちらのタブを見ていても押せる
-（`page.tsx: renderRouteSectionHeaderActions`）。検証・送信ロジック自体は
+（`page.tsx: renderRouteSectionHeaderActions`）。検証エラーは本文でもボタンの隣でもなく
+「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
+フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
+印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は
 `useRouteFormSubmit`（`distance`・`maxRoutes`・`routeMode`・`waypointCount`・
 `destinationState`・`onGenerate`を受け取り`{error, handleSubmit}`を返す）へ切り出し、
 `page.tsx`がヘッダーのボタンから直接呼ぶ。`isMaxRoutesRelevant(routeMode, waypointCount)`

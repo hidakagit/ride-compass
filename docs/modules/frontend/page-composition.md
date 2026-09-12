@@ -197,8 +197,12 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   `Disclosure`折りたたみで、開閉状態は`generateOpen`・`outcomeOpen`・`mapSettingsOpen`
   （localStorage）で永続化する。「ルート設定」「ルート結果」の見出し行はどちらも
   `trailing`に操作枠を持つ（前者は`renderRouteSectionHeaderActions()`の「ルート生成」
-  ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」は候補が無い間は
-  本文に案内文だけを出す。
+  ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」は候補が無い間、
+  `renderRouteOutcomeEmptyState()`が生成前・生成中・失敗（検証エラー・APIエラー・候補0件）を
+  出し分ける。**生成に関するフィードバックの置き場はここ1箇所**——「ルート生成」は見出し行の
+  ボタンで本文を畳んだままでも押せるため、押した結果を「ルート設定」本文へ出すと操作している
+  場所から見えない。失敗時は`outcomeOpen`を開き、モバイル向けに`hasUnseenResults`も立てる
+  （シートは排他表示のため勝手に開かず、タブのドットで知らせる）。
 - モバイル: 下部タブバー（ルート設定/ルート結果/地図の見え方）+`BottomSheet`（3枚が
   `mobileSheet`で排他表示、高さ`mobileSheetHeightVh`を共有）。デスクトップと同じく
   「ルート設定」シートは`RouteForm`（内部で「生成条件」「重みづけ」の2タブへさらに

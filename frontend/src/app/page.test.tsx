@@ -615,6 +615,39 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
   // 軸カタログが未確定（取得失敗）の間は、カタログ由来の識別子（route_preference・
   // lens_axis_id）を送らない。backendは存在しない軸idを422にせず黙って無視するため、
   // 送ってしまうと「選んだ軸で塗られない」が手掛かり無しで起きる。
+  // 生成に関するフィードバックの置き場は「ルート結果」欄1箇所（T758）。「ルート生成」は
+  // 見出し行のボタンで、設定本文を畳んだままでも押せるため、押した結果を本文へ出すと
+  // 操作している場所から見えない。
+  it("候補0件のとき、結果欄は生成前の案内文へ戻らず理由を出す", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [],
+      conditions: makeConditions(),
+      engine: "road_graph",
+      noCandidatesReason: "条件が厳しすぎて候補がありません",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => expect(screen.getByText("条件が厳しすぎて候補がありません")).toBeInTheDocument());
+    expect(screen.queryByText("「ルート生成」を押すと候補がここに並びます")).not.toBeInTheDocument();
+  });
+
+  it("生成が失敗したときも文言は1箇所（結果欄）にだけ出る", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("ルート生成の要求が多すぎます"));
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => expect(screen.getAllByText("ルート生成の要求が多すぎます")).toHaveLength(1));
+    // 失敗した後の結果欄は「まだ押していない」案内へ戻らない。
+    expect(screen.queryByText("「ルート生成」を押すと候補がここに並びます")).not.toBeInTheDocument();
+  });
+
   it("軸カタログの取得に失敗した状態ではlens_axis_id/route_preferenceを送らない", async () => {
     const user = userEvent.setup();
     // ビルド時静的カタログに実在する軸をレンズとして保存済みにする（未知idなら

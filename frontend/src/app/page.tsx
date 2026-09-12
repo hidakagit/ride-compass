@@ -1549,6 +1549,7 @@ export default function Home() {
         // バックエンドが原因を特定できた場合はそれを表示する（routeApi.ts:
         // generateRoutes参照）。特定できない場合のみ汎用文言。
         setErrorMessage(noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
+        notifyRouteOutcome();
       } else if (researchEnabled) {
         // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
         // 通常操作から隠す方針、§14。ログ表示のデバッグモードとは独立）。
@@ -1577,11 +1578,26 @@ export default function Home() {
       // ここでも記録する（多層防御）。
       debugLog("api:route", "ルート生成ハンドラで例外", { error: message }, "error");
       setErrorMessage(message);
+      notifyRouteOutcome();
     } finally {
       setLoading(false);
       setGenerationProgress(null);
     }
   }
+
+  // 生成の結果（候補・失敗のいずれも）は「ルート結果」欄でしか見えないため、そこへ
+  // 目を向けさせる。デスクトップは畳まれていると本文ごと見えないので開き、モバイルは
+  // タブのドットで知らせる（シートは排他表示のため勝手に開かない）。
+  const notifyRouteOutcome = useCallback(() => {
+    setOutcomeOpen(true);
+    setHasUnseenResults(true);
+  }, [setOutcomeOpen]);
+
+  // 入力の検証エラー（useRouteFormSubmit）も同じ扱いにする——「ルート生成」を押した
+  // 結果であることは変わらず、出し先も同じ（renderRouteOutcomeEmptyState）。
+  useEffect(() => {
+    if (routeFormSubmit.error) notifyRouteOutcome();
+  }, [routeFormSubmit.error, notifyRouteOutcome]);
 
   // 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。queued（同時実行数
   // 上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
@@ -1599,9 +1615,16 @@ export default function Home() {
   // 切り替えずに押せるようにする。
   function renderRouteSectionHeaderActions() {
     return (
-      <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
-        {loading ? (generationProgressLabel ?? "生成中...") : "ルート生成"}
-      </Button>
+      <div className={styles.routeSectionHeaderActions}>
+        {/* 「条件が変更されています」は結果欄の先頭にも出るが、条件を変えている本人は
+            設定側を見ている。押すべきボタンの隣でも同じことを知らせる。 */}
+        {conditionsDirty && (
+          <span className={styles.dirtyDot} role="img" aria-label="条件が変更されています" title="条件が変更されています" />
+        )}
+        <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
+          {loading ? (generationProgressLabel ?? "生成中...") : "ルート生成"}
+        </Button>
+      </div>
     );
   }
 
@@ -1612,8 +1635,10 @@ export default function Home() {
   function renderRouteSectionBody() {
     return (
       <>
-        {routeFormSubmit.error && <ErrorText>{routeFormSubmit.error}</ErrorText>}
-        {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
+        {/* 生成に関するフィードバック（検証エラー・APIエラー・候補0件・生成中）はここには
+            出さない。「ルート生成」ボタンは見出し行にあり本文を畳んだままでも押せるため、
+            押した結果を本文の中に出すと操作している場所から見えない。出し先は
+            renderRouteOutcomeEmptyState（「ルート結果」欄）に一本化する。 */}
         <RouteForm
           distance={distanceInput}
           onDistanceChange={setDistanceInput}
@@ -1629,6 +1654,20 @@ export default function Home() {
         />
       </>
     );
+  }
+
+  // 「ルート結果」欄に候補が無いときの中身。生成前・生成中・失敗（検証エラー・APIエラー・
+  // 候補0件）を出し分ける単一の置き場で、デスクトップ（Disclosure）・モバイル（BottomSheet）の
+  // 両方から呼ぶ。候補0件で生成前の案内文へ戻ると「押したのに何も起きていない」ように見える。
+  function renderRouteOutcomeEmptyState() {
+    if (loading) {
+      return <p className={styles.emptyHint}>{generationProgressLabel ?? "生成中..."}</p>;
+    }
+    const failure = routeFormSubmit.error ?? errorMessage;
+    if (failure) {
+      return <ErrorText>{failure}</ErrorText>;
+    }
+    return <p className={styles.emptyHint}>「ルート生成」を押すと候補がここに並びます</p>;
   }
 
   // 一般ユーザー向けルート設定。0次(除外)・軸選択・重みを生成前に調整できる、常時表示の
@@ -2036,11 +2075,7 @@ export default function Home() {
                   open={outcomeOpen}
                   onOpenChange={setOutcomeOpen}
                 >
-                  {routes.length > 0 ? (
-                    renderRouteOutcomeSectionBody()
-                  ) : (
-                    <p className={styles.emptyHint}>「ルート生成」を押すと候補がここに並びます</p>
-                  )}
+                  {routes.length > 0 ? renderRouteOutcomeSectionBody() : renderRouteOutcomeEmptyState()}
                 </Disclosure>
 
                 {/* 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
@@ -2292,7 +2327,7 @@ export default function Home() {
             {routes.length > 0 ? (
               renderRouteOutcomeSectionBody()
             ) : (
-              <p className={styles.emptyHint}>「ルート生成」を押すと候補がここに並びます</p>
+              renderRouteOutcomeEmptyState()
             )}
           </BottomSheet>
 
