@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   differingStretches,
+  insertByDifficulty,
   pairedStretches,
   spliceEdgeIds,
   stretchCoordinateRange,
@@ -123,5 +124,58 @@ describe("pairedStretches", () => {
     // 片側だけ描くと、地図上の帯と実際に差し替わる道がずれる。
     // 相手が途中で終わる（表示中だけが先へ進む）と、相手側に対応する区間が無い。
     expect(pairedStretches(["a", "b"], ["a"])).toEqual([]);
+  });
+});
+
+describe("insertByDifficulty", () => {
+  const route = (overall: number | null, shortest = false) => ({
+    overall_difficulty: overall,
+    is_shortest_distance: shortest,
+  });
+
+  it("難易度順の正しい位置へ差し込む", () => {
+    const routes = [route(20), route(30), route(40)];
+
+    expect(insertByDifficulty(routes, route(35)).map((r) => r.overall_difficulty)).toEqual([
+      20, 30, 35, 40,
+    ]);
+  });
+
+  it("最も易しければ先頭へ", () => {
+    expect(
+      insertByDifficulty([route(20), route(30)], route(10)).map((r) => r.overall_difficulty),
+    ).toEqual([10, 20, 30]);
+  });
+
+  it("先頭固定の最短経路は追い越さない", () => {
+    // 最短経路は難易度順の外にある基準線。追い越すと基準として読めなくなる
+    const routes = [route(50, true), route(20), route(30)];
+
+    expect(insertByDifficulty(routes, route(10)).map((r) => r.overall_difficulty)).toEqual([
+      50, 10, 20, 30,
+    ]);
+  });
+
+  it("算出不能（null）の候補より前に入る", () => {
+    expect(
+      insertByDifficulty([route(20), route(null)], route(30)).map((r) => r.overall_difficulty),
+    ).toEqual([20, 30, null]);
+  });
+
+  it("算出不能な合成結果は末尾へ", () => {
+    expect(
+      insertByDifficulty([route(20), route(30)], route(null)).map((r) => r.overall_difficulty),
+    ).toEqual([20, 30, null]);
+  });
+
+  it("小数1桁で比較する（backendの規約と同じ）", () => {
+    // 20.04と20.0は同点扱い。安定な差し込みで既存候補の後ろへ置く
+    expect(
+      insertByDifficulty([route(20.0), route(21.0)], route(20.04)).map((r) => r.overall_difficulty),
+    ).toEqual([20.0, 20.04, 21.0]);
+  });
+
+  it("候補が1本も無くても差し込める", () => {
+    expect(insertByDifficulty([], route(20)).map((r) => r.overall_difficulty)).toEqual([20]);
   });
 });

@@ -846,9 +846,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
-  it("区間を乗り換えて作った候補のタブは「合成」と示す", async () => {
-    // 合成ルートは並び順（overall_difficulty昇順）の外へ追加されるため順位番号が意味を
-    // 持たない。生成候補と同じ「順位番号 距離」で並ぶと、一覧の中で見分けられない
+  it("区間を乗り換えて作った候補は順位番号のまま、名前で「合成」と示す", async () => {
+    // 素の結果と本質的に区別しないため並び順は同じ規約に乗せ、見分けだけ名前で付ける
     // （docs/tasks/T621.md）。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
@@ -866,7 +865,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "合成 19.5 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "2 19.5 km 合成" })).toBeInTheDocument();
     });
   });
 

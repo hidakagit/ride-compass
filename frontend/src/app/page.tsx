@@ -64,7 +64,12 @@ import RouteSettingsPanel, {
 } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/components/RouteSplicePanel/RouteSplicePanel";
-import { pairedStretches, spliceEdgeIds, stretchCoordinateRange } from "@/lib/routeSplice";
+import {
+  insertByDifficulty,
+  pairedStretches,
+  spliceEdgeIds,
+  stretchCoordinateRange,
+} from "@/lib/routeSplice";
 import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
@@ -1467,10 +1472,12 @@ export default function Home() {
         setErrorMessage("組み合わせたルートを評価できませんでした");
         return;
       }
-      // 生成の上限（max_routes）とは別枠で足す——上限は「生成が何本探すか」の指定で、
+      // 素の結果と本質的に区別しないため、生成候補と同じ並び順の規約へ乗せる
+      // （lib/routeSplice.ts: insertByDifficulty）。見分けはタブの名前で付ける。
+      // max_routesによる切り詰めはしない——上限は「生成が何本探すか」の指定で、
       // 利用者が作った組み合わせを押し出す理由が無い。
       const unique = { ...spliced, id: `${SPLICED_ROUTE_ID_PREFIX}-${routes.length}` };
-      setRoutes([...routes, unique]);
+      setRoutes(insertByDifficulty(routes, unique));
       setSelectedRouteId(unique.id);
       setSpliceTargetId(null);
       setSpliceTakenIndexes([]);
@@ -1747,12 +1754,13 @@ export default function Home() {
                       付けないが、複数件を見分けられるよう順位番号は付ける。 */}
                   {route.is_shortest_distance
                     ? "最短"
-                    : isSplicedRoute(route)
-                      ? "合成"
-                      : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
-                        ? route.direction_label
-                        : `${index + 1}`}{" "}
+                    : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
+                      ? route.direction_label
+                      : `${index + 1}`}{" "}
                   {route.distance_km.toFixed(1)} km
+                  {/* 区間を乗り換えて作った候補。並び順は生成候補と同じ規約に乗せ
+                      （insertByDifficulty）、見分けは名前で付ける。 */}
+                  {isSplicedRoute(route) && <span className={styles.outcomeTabExtra}>合成</span>}
                   {/* 最短経路から何km余分に走るか。軸設定に沿ったルートを走る対価であり、
                       候補を見比べるこの場所に無いと、比較のたびにタブを開き直すことになる。 */}
                   {extraDistanceLabel(route, shortestKm) && (
