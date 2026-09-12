@@ -35,6 +35,7 @@ function fakeMap() {
     addSource: (id: string) => sources.add(id),
     setFilter: (layerId: string, filter: unknown) => setFilterCalls.push({ layerId, filter }),
     setPaintProperty: () => {},
+    setLayoutProperty: () => {},
     setFilterCalls,
   };
 }
@@ -129,5 +130,48 @@ describe("buildInteractiveLayerIds（改善計画T478）", () => {
   it("designation等の通常の道路属性レイヤーは引き続きinteractiveLayerIdsに含まれる（road_surfaceと同じ道路属性を持つため専用ポップアップが機能する）", () => {
     const ids = buildInteractiveLayerIds(STATIC_OVERLAY_LAYERS);
     expect(ids).toContain(DESIGNATION_LAYER_ID);
+  });
+});
+
+// 表示ON/OFFのたびに走る`ensure`（setStaticOverlayVisibilityが全レイヤーへ呼ぶ）が、
+// 凡例のON/OFFから組み立てた絞り込みを巻き戻していた（paintについて同じ構造をT712で
+// 直したが、filterに残っていた）。`ensure`は表示切替のたびに走るため、症状は
+// 「チップを切り替えると絞り込みが勝手に戻る」という形で出る。
+describe("凡例フィルタはensureの再実行で巻き戻らない", () => {
+  it("フィルタ適用後にlayer.ensure(map)を呼んでも、setFilterが上書きされない", () => {
+    const map = fakeMap();
+    setStaticOverlayFilters(
+      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
+      hiddenKeys({ designation: ["emergency_transport"] }),
+      STATIC_OVERLAY_LAYERS,
+      STATIC_FILTER_AXES,
+    );
+    const applied = map.setFilterCalls.filter((call) => call.layerId === DESIGNATION_LAYER_ID);
+    expect(applied.length).toBe(1);
+    expect(applied[0].filter).toBeDefined();
+
+    const designation = STATIC_OVERLAY_LAYERS.find((layer) => layer.key === "designation")!;
+    designation.ensure(map as unknown as Parameters<typeof designation.ensure>[0]);
+
+    expect(map.setFilterCalls.filter((call) => call.layerId === DESIGNATION_LAYER_ID)).toEqual(applied);
+  });
+
+  it("ramp軸レイヤーでも同じ", () => {
+    const map = fakeMap();
+    const axis = RAMP_AXES[0];
+    setStaticOverlayFilters(
+      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
+      hiddenKeys({}),
+      STATIC_OVERLAY_LAYERS,
+      STATIC_FILTER_AXES,
+    );
+    const layerId = axisLineLayerId(axis.axisId);
+    const applied = map.setFilterCalls.filter((call) => call.layerId === layerId);
+    expect(applied.length).toBe(1);
+
+    const entry = STATIC_OVERLAY_LAYERS.find((layer) => layer.layerId === layerId)!;
+    entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+
+    expect(map.setFilterCalls.filter((call) => call.layerId === layerId)).toEqual(applied);
   });
 });

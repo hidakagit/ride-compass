@@ -121,6 +121,13 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 `MapView.layerOps.test.ts`の「レイヤー追加後にensureが再度呼ばれても下敷きの有無が
 巻き戻らない」で固定してある。
 
+**絞り込み（`filter`）はspecへ畳めない**——凡例のON/OFFという実行時の状態から
+`setStaticOverlayFilters`が組み立てるもので、`ensure`側はレイヤー固有の材料関係を知らない
+汎用描画係のままにしておきたい。そこで**どちらが持ち主かを呼び出し側が宣言する**
+（`ensureLayerFromSpec`の`specOwnsFilter`、必須引数）。キーの有無から推測する形だと、
+「自分の持ち物だが今は条件なし」と「外側が管理しているので触るな」が区別できず、後者を
+前者として扱った瞬間に利用者の絞り込みが表示ON/OFFのたびに巻き戻る。
+
 ## レイヤーのデータ取得状態（`ChipButton`/`LayerChip`共通のドット表現）
 
 `MapOverlayControls`の`ChipButton`は、サイドバー（`MapLayersPanel`）が使う`LayerChip.tsx`と

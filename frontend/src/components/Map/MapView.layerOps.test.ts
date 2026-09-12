@@ -450,7 +450,7 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
       layout: { "icon-size": 2, visibility: "none" },
       paint: { "icon-opacity": 0.5 },
       filter: [">", ["get", "v"], 1] as never,
-    });
+    }, { specOwnsFilter: true });
 
     expect(map.paintCalls).toEqual([{ layerId: "test-layer", name: "icon-opacity", value: 0.5 }]);
     // visibilityは表示ON/OFFの状態そのもの（specが持つのは追加時の初期値）なので上書きしない。
@@ -458,7 +458,7 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
     expect(map.filterCalls).toEqual([{ layerId: "test-layer", filter: [">", ["get", "v"], 1] }]);
   });
 
-  it("specがfilterを持たなくなったら、残っているfilterをundefinedで外す", () => {
+  it("持ち主のときは、specがfilterを持たなくなったら残っているfilterをundefinedで外す", () => {
     const map = fakeMap();
     map.layers.add("test-layer");
 
@@ -467,9 +467,27 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
       type: "line",
       source: "s",
       paint: { "line-width": 1 },
-    });
+    }, { specOwnsFilter: true });
 
     expect(map.filterCalls).toEqual([{ layerId: "test-layer", filter: undefined }]);
+  });
+
+  // 表示ON/OFFのたびに走るensureが、凡例のON/OFFから外側が与えた絞り込みを巻き戻して
+  // いた（paintについて同じ構造をT712で直したが、filterに残っていた）。
+  it("持ち主でないときは、外側が設定した絞り込みに一切触らない", () => {
+    const map = fakeMap();
+    map.layers.add("test-layer");
+
+    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
+      id: "test-layer",
+      type: "line",
+      source: "s",
+      paint: { "line-width": 1 },
+    }, { specOwnsFilter: false });
+
+    expect(map.filterCalls).toEqual([]);
+    // paint・layoutの再適用（この関数の本来の役目）は止めない。
+    expect(map.paintCalls).toEqual([{ layerId: "test-layer", name: "line-width", value: 1 }]);
   });
 
   it("filterを持てないraster等には触らない（MapLibreのstyle検証が弾くため）", () => {
@@ -481,7 +499,7 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
       type: "raster",
       source: "s",
       paint: { "raster-opacity": 0.4 },
-    });
+    }, { specOwnsFilter: true });
 
     expect(map.filterCalls).toEqual([]);
   });
@@ -494,7 +512,7 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
       type: "line",
       source: "s",
       paint: { "line-width": 1 },
-    });
+    }, { specOwnsFilter: true });
 
     expect(map.layers.has("new-layer")).toBe(true);
     expect(map.paintCalls).toEqual([]);

@@ -395,8 +395,18 @@ function runWhenStyleReady(map: MapLibreMap, fn: () => void) {
  *
  * `visibility`だけは再適用しない。specが持つのは追加時の初期値で、実際の表示ON/OFFは
  * `setStaticOverlayVisibility`等が別に管理する状態のため、上書きすると利用者の選択が消える。
+ *
+ * `filter`は**どちらが持ち主かをspec側が宣言できない**——「キーが無い」が
+ * 「自分の持ち物だが今は条件なし」と「外側が管理しているので触るな」の両方を意味しうる。
+ * 呼び出し側が`specOwnsFilter`で答える（必須引数にしてあるのは、レイヤーを足すときに
+ * その場で答えさせるため）。`false`のレイヤーは`setStaticOverlayFilters`が凡例の
+ * ON/OFFから組み立てて与えており、ここで触ると利用者の絞り込みが巻き戻る。
  */
-export function ensureLayerFromSpec(map: MapLibreMap, spec: maplibregl.AddLayerObject) {
+export function ensureLayerFromSpec(
+  map: MapLibreMap,
+  spec: maplibregl.AddLayerObject,
+  { specOwnsFilter }: { specOwnsFilter: boolean },
+) {
   if (!map.getLayer(spec.id)) {
     map.addLayer(spec);
     return;
@@ -415,10 +425,11 @@ export function ensureLayerFromSpec(map: MapLibreMap, spec: maplibregl.AddLayerO
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     map.setLayoutProperty(spec.id, name, value as any);
   }
-  // filterはraster/background/hillshadeでは設定できない（MapLibreがstyle検証で弾く）ため、
-  // 持ちうる型のときだけ触る。specがfilterキーを失った場合（しきい値がnullへ変わった等）は
+  // filterはraster/background/hillshadeでは設定できない（MapLibreがstyle検証で弾く）。
+  // 持ち主のときは、specがfilterキーを失った場合（しきい値がnullへ変わった等）に
   // undefinedで明示的に外す——残しておくと絞り込みだけが古い条件のまま効き続ける。
-  if (spec.type !== "raster" && spec.type !== "background" && spec.type !== "hillshade") {
+  const canHaveFilter = spec.type !== "raster" && spec.type !== "background" && spec.type !== "hillshade";
+  if (specOwnsFilter && canHaveFilter) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     map.setFilter(spec.id, (withProps.filter ?? undefined) as any);
   }
@@ -1118,13 +1129,14 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
             attribution: spec.raster.attribution,
           });
         }
+        // specOwnsFilter: 動的気象レイヤーのspecが絞り込みの持ち主（外から与える経路が無い）。
         ensureLayerFromSpec(map, {
           id: layerId,
           type: "raster",
           source: sourceId,
           paint: { "raster-opacity": spec.raster.opacity },
           layout: { visibility: "none" },
-        });
+        }, { specOwnsFilter: true });
       }
       if (spec.gridFill) {
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
@@ -1148,7 +1160,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
                 filter: [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow] as maplibregl.ExpressionSpecification,
               }
             : {}),
-        });
+        }, { specOwnsFilter: true });
       }
       if (spec.gridMark) {
         const mark = spec.gridMark;
@@ -1197,7 +1209,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
           ...(mark.minValueToShow != null
             ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
             : {}),
-        });
+        }, { specOwnsFilter: true });
       }
       if (spec.vector) {
         const vector = spec.vector;
@@ -1228,7 +1240,7 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
                 filter: [">", ["to-number", ["get", vector.valueProperty]], vector.minValueToShow] as maplibregl.ExpressionSpecification,
               }
             : {}),
-        });
+        }, { specOwnsFilter: true });
       }
     }
   };
@@ -1382,6 +1394,8 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
   return (map: MapLibreMap) => {
     ensureRoadSurfaceTileLayer(map);
     const applyData = () => {
+      // specOwnsFilter: 専用way値レイヤーはSTATIC_FILTER_AXESの対象外で、外から絞り込みを
+      // 与える経路が無い。
       ensureLayerFromSpec(map, {
         id: layerId,
         type: "line",
@@ -1393,7 +1407,7 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
           "line-width": DEFAULT_ROAD_LINE_WIDTH,
         },
         layout: { visibility: "none" },
-      });
+      }, { specOwnsFilter: true });
     };
     runWhenStyleReady(map, applyData);
   };
@@ -1584,6 +1598,8 @@ export function applyRoadMaterialTrackOffsets(
 // makeEnsureAxisRampLayer/makeEnsureDedicatedWayValueLayerと同じ「1ファクトリ+N呼び出し」
 // パターンで共通化する。プロパティは該当区間のみ値を持ち、未該当はプロパティ欠落として
 // 各色式のcoalesce/case式が灰色（designation）・中立色（tunnel/oneway）に倒す。
+// specOwnsFilter=false: このレイヤーの絞り込みは凡例のON/OFFから`setStaticOverlayFilters`が
+// 組み立てて与える。ここで触ると、表示ON/OFFのたびに走る`ensure`が利用者の絞り込みを巻き戻す。
 function makeEnsureAttributeLineLayer(
   layerId: string,
   colorExpression: unknown[],
@@ -1604,7 +1620,7 @@ function makeEnsureAttributeLineLayer(
           "line-opacity": opacityExpression as any,
         },
         layout: { visibility: "none" },
-      });
+      }, { specOwnsFilter: false });
     };
     runWhenStyleReady(map, applyData);
   };
@@ -1726,6 +1742,8 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 // specのpaintを丸ごと再適用するため、太さ・不透明度をspecの外から別途setPaintPropertyする
 // 形にすると、以後どこかでensureが呼ばれた時点（絞り込みの再適用等）に無条件でspec側の値へ
 // 巻き戻る。
+// specOwnsFilter=false: ramp軸の凡例フィルタも`setStaticOverlayFilters`が持つ
+// （`makeEnsureAttributeLineLayer`と同じ）。
 function makeEnsureAxisRampLayer(axis: RampAxis, useCasing: boolean): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     runWhenStyleReady(map, () => {
@@ -1743,7 +1761,7 @@ function makeEnsureAxisRampLayer(axis: RampAxis, useCasing: boolean): (map: MapL
           "line-opacity": useCasing ? SECONDARY_AXIS_CASING_OPACITY : KNOWN_LINE_OPACITY,
         },
         layout: { visibility: "none" },
-      });
+      }, { specOwnsFilter: false });
     });
   };
 }
