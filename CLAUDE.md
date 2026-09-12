@@ -147,9 +147,9 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   着手前に`docs/design-principles.md`の構造仕様3・8（1本道の追加点）がこの新しい機構にも
   適用されるかを点検し、適用されるなら軸ごとのファイル・関数・定数・propを新設しない
   汎用設計にする**（新しい種類の機構を作る時にだけ点検が漏れやすい）。
-- **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、対応するタイル世代
-  定数（`ROAD_SURFACE_TILE_VERSION`等）と生成物（region-tile-config.json）を同一コミットで
-  上げる。
+- **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、生成物
+  （region-tile-config.json）を同一コミットで再生成する（タイル世代そのものは焼き込みSQLから
+  導出されるため手で上げない。`app/infrastructure/cache_identity.py`参照）。
 - **評価軸（`axis_definitions`テーブル）の新規追加・削除・既存軸の`shape_params`調整は、
   すべて`axis_admin`のAPI（軸スタジオのGUI、または直接API呼び出し。新規追加=POST、
   削除=unpublish→DELETE、公開軸の調整=unpublish→PUT→republish）経由で行う。

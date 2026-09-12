@@ -285,10 +285,14 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
   鮮度確認（`is_split_up_to_date`）は絞らない——鮮度確認と実構築を別セッションに分けて
   いるのは、1セッションを保持したままsemaphore待ちにすると密集した未構築エリアへの
   一斉アクセスでDBコネクションプールが枯渇するため。
-- **タイル世代**（`ROAD_SURFACE_TILE_VERSION`・`POI_TILE_VERSION`）: MVTプロパティを
-  追加・削除するたびに上げる。パスへ世代を含めることで旧世代のキャッシュ済みタイルを
-  ヒットさせない。frontend側のタイルURLバージョンクエリ（`regionApi.ts`）と対で上げる
-  必要があり、`export_openapi.py`が書き出す生成物とのドリフト検知テストで担保する。
+- **タイル世代**（`ROAD_SURFACE_TILE_VERSION`・`POI_TILE_VERSION`・
+  `ACCIDENT_TILE_VERSION`）: 焼き込むMVT生成SQLの隣（`road_graph_repository.py`・
+  `accident_repository.py`）で`infrastructure/cache_identity.py`が導出する。SQLの署名が
+  鍵に入るため、プロパティを足す・消す・式を変えると世代が自動で変わり、旧世代の
+  キャッシュ済みタイルにヒットしない。手で上げるのはSQLが読むテーブルの中身を作り直した
+  ときだけ。frontendへは`export_openapi.py`が書き出す生成物経由で渡り、ドリフト検知
+  テストが照合する。プロパティ削除を伴う変更はfrontendのデプロイより先に本番へ出さない
+  （旧フロントの凡例フィルタが全地物に一致し、対象レイヤーが一時的に「不明・他」になる）。
 - `get_axis_inspector(osm_way_id)`（区間インスペクタ）: クリックされたフィーチャーの
   `osm_way_id`で該当行を完全一致で引き直す（緯度経度からの空間マッチ最近傍だと、
   交差点付近で実際にクリックされたフィーチャーとは別の道路を拾いうるため採用しない）。

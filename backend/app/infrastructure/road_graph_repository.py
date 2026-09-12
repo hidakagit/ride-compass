@@ -108,6 +108,7 @@ from app.domain.traffic import (
     POI_ON_EDGE_TOLERANCE_M,
     STOP_POI_KINDS,
 )
+from app.infrastructure.cache_identity import POI_REVISION, ROAD_SURFACE_REVISION, cache_identity
 from app.infrastructure.designation_models import DesignationAttributeRow
 from app.infrastructure.osm_way_tag_sql import (
     BICYCLE_NORMALIZED_SQL,
@@ -601,6 +602,14 @@ def _poi_counts_body(node_ids: str, exclude_node: str, extra_filter: str = "") -
 
 # Edge単位の種別別カウント。wayは複数の区間へ分割されるため、wayの構成ノードのうち
 # 「この区間の線上にあるもの」だけへ絞る（`ST_DWithin`の許容は浮動小数の誤差ぶん）。
+# タイルURL・キャッシュパスへ入る世代。焼き込むSQLから署名を導出するため、プロパティを
+# 足す・消す・式を変えれば鍵が自動で変わる（手で上げるのはSQLが読むテーブルの中身を作り
+# 直したときだけ。cache_identity.pyのリビジョンのコメント参照）。frontendへは
+# export_openapi.pyがgenerated/region-tile-config.json経由で渡す。
+ROAD_SURFACE_TILE_VERSION = cache_identity(ROAD_SURFACE_REVISION, _ROAD_SURFACE_TILE_MVT_SQL)
+POI_TILE_VERSION = cache_identity(POI_REVISION, _POI_TILE_MVT_SQL)
+
+
 _POI_COUNTS_BY_KIND_SQL = text(
     """
     SELECT e.edge_id,

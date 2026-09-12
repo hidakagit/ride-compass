@@ -78,7 +78,7 @@
 | ⑤ | `precompute_road_node_degrees.py` | `road_edges`（from/to node） | `road_nodes.degree`（全件洗い替え） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・トポロジ変更） | 全件洗い替え、安全 |
 | ⑥ | `precompute_edge_attribute_counts.py` | `road_edges`全件 + `accident_points` + `osm_raw_pois` + `road_nodes.degree` | `edge_attribute_counts`（edge_id主キーでUPSERT） | **⑤の後**（未実行だと全edgeでintersection_count=0） | `accident_points`/`osm_raw_pois`/`road_edges`のいずれか変化時 | 全件再計算、増分無し |
 | ⑦ | `precompute_elevation_attributes.py` | `road_edges`（ジオメトリ） + GSI DEM API | `elevation_attributes` | ④でroad_edgesが存在すること | road_edges変化時（新規Edge追加・PBF再取込） | **増分実行可能**（未計算Edgeのみ計算） |
-| ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`region_service.py`の`ROAD_SURFACE_TILE_VERSION`を上げてタイルキャッシュを陳腐化させること**（コード中に明記） | UPSERT、安全 |
+| ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`cache_identity.py`の`ROAD_SURFACE_REVISION`を上げてタイルキャッシュを陳腐化させること**——焼き込むSQLは変わらないまま、SQLが読むテーブルの中身だけが変わるため、鍵の署名側は動かない | UPSERT、安全 |
 | ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
 | ⑪ | `precompute_way_curvature.py` | `osm_raw_ways`（geom非NULL全件） | `way_geometry`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を測り直す） |
 | ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
@@ -110,13 +110,14 @@
 tile_persistent_cache/`）へも永続化されるようになった。ディスク側はデプロイでプロセスが
 再起動しても消えないため、④road_edges/road_nodes・⑤road_nodes.degree・⑥edge_attribute_
 counts・⑦elevation_attributes・⑨designation_attributes（`EdgeMaterialBundle.is_designated`
-経由）・⑫road_edges.curvature_deg_per_kmのいずれかを更新するバッチを実行したら、`graph_material_cache.py: TILE_MATERIALS_
-CACHE_VERSION`（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ「手動で上げる版数
-文字列」の運用）を手動で上げること。`tile_score_matrix_cache.py:
-TILE_SCORE_MATRIX_CACHE_VERSION`はこの値を含む複合世代のため追従する（スコア行列の
-構築ロジック・入力だけが変わった場合は同ファイルの`_SCORE_MATRIX_REVISION`を上げる）。上げ忘れると、バッチ実行後もディスクキャッシュ経由で古いタイル材料・
-スコア行列が次回デプロイ後も復元され続ける（⑧の`ROAD_SURFACE_TILE_VERSION`と同型の
-上げ忘れリスク。docs/tasks/T538.md参照）。
+経由）・⑫road_edges.curvature_deg_per_kmのいずれかを更新するバッチを実行したら、
+`cache_identity.py`の`MATERIAL_REVISION`を手動で上げること。材料の列構成は変わらないまま
+読み先のデータだけが変わるため、鍵の署名側は動かない——ここが導出で捕まえられない唯一の
+次元である。`TILE_SCORE_MATRIX_CACHE_VERSION`は材料側の世代を含む複合のため追従する
+（同じ材料・同じ列から違う値を作るようになった場合は`SCORE_MATRIX_REVISION`を上げる）。
+上げ忘れると、バッチ実行後もディスクキャッシュ経由で古いタイル材料・スコア行列が次回
+デプロイ後も復元され続ける（⑧の`ROAD_SURFACE_REVISION`と同型の上げ忘れリスク。
+docs/tasks/T538.md参照）。
 
 **改善計画T546追記**: `TILE_MATERIALS_CACHE_VERSION`は`"2"`（`graph_material_cache`が
 保持する`SearchMaterials.materials`を`EdgeMaterialBundle`辞書から列指向の
@@ -129,7 +130,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 | 生データの変化 | 再実行が必要なバッチ |
 |---|---|
-| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。あわせて`ROAD_SURFACE_TILE_VERSION`（⑧・⑩・⑪の値をタイルへ焼くため）と`TILE_MATERIALS_CACHE_VERSION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合世代のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。あわせて`cache_identity.py`の`ROAD_SURFACE_REVISION`（⑧・⑩・⑪の値をタイルへ焼くため）と`MATERIAL_REVISION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
 | 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
 | KSJ指定路線データ更新 | ③→⑨ |
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |

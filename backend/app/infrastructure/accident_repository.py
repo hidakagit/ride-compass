@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.region import BoundingBox
+from app.infrastructure.cache_identity import ACCIDENT_REVISION, cache_identity
 from app.infrastructure.vector_tile import ACCIDENT_LAYER_NAME, TILE_EXTENT
 
 # ST_AsMVTは集約関数のため、対象0行でもクエリ自体は1行（値NULL）を返す
@@ -30,6 +31,11 @@ _ACCIDENT_TILE_MVT_SQL = text(
     WHERE mvt.geom IS NOT NULL
     """
 )
+
+
+# タイルURL・キャッシュパスへ入る世代。焼き込むSQLから署名を導出する
+# （手で上げる条件はcache_identity.pyのACCIDENT_REVISIONのコメント参照）。
+ACCIDENT_TILE_VERSION = cache_identity(ACCIDENT_REVISION, _ACCIDENT_TILE_MVT_SQL)
 
 
 class AccidentTileQuery:

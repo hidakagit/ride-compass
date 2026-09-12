@@ -9,9 +9,8 @@ elevation_attributes/designated_edge_ids）をここへキャッシュする。�
 `infrastructure/tile_persistent_cache.py`（`TILE_MATERIALS_CACHE_VERSION`参照）へも
 同じ内容をディスク永続化する。デプロイのたびにプロセスが再起動されても、ディスク
 キャッシュが残っていればDB読み出しを経由せず復元できる（冷パスは29〜45秒規模かかる
-ため、これを避ける）。ディスク側の無効化はバージョン文字列を手動で上げる方式
-（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ流儀、`TILE_MATERIALS_CACHE_VERSION`
-のコメント参照）。
+ため、これを避ける）。ディスク側の無効化は`TILE_MATERIALS_CACHE_VERSION`（列構成から
+導出した鍵、`infrastructure/cache_identity.py`参照）で行う。
 
 LRUで上限件数を設ける（無制限にすると全国規模まで対象が広がった場合にメモリを
 際限なく消費するため）。1タイル（z12、日本付近で1辺約10km）あたりの素材サイズは
@@ -25,8 +24,9 @@ road_edges/road_nodesの密度次第だが、対象が関東圏に留まる現�
 
 from cachetools import LRUCache
 
-from app.domain.attributes import SearchMaterials
+from app.domain.attributes import EdgeMaterialTable, SearchMaterials
 from app.infrastructure import tile_persistent_cache
+from app.infrastructure.cache_identity import MATERIAL_REVISION, cache_identity
 
 
 # 1タイルあたりの素材（Edge数百〜数千件分の辞書群）を想定した上限。関東圏（z12タイル
@@ -34,36 +34,11 @@ from app.infrastructure import tile_persistent_cache
 DEFAULT_MAX_TILES = 2_000
 
 # ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン。
-# パスへ埋め込むことで対応しない世代のファイルを読まないようにする
-# （region_service.py: ROAD_SURFACE_TILE_VERSIONと同じ流儀）。
-#
-# 以下を実行したときはこの値を手動で上げること（`app/batch/refresh_derived.py`
-# ［disaster-recovery.md参照］はPBF再取込を除く下記バッチ一式を1コマンドで実行するため、
-# これを実行した場合も同様に上げること）:
-#   - PBF再取込（app/batch/import_pbf.py）
-#   - 交差点分割の事前バッチ（app/batch/presplit_road_graph.py）
-#   - SearchMaterialsが読む事前集計・派生データを更新するprecomputeバッチ
-#     （precompute_edge_attribute_counts.py・precompute_elevation_attributes.py・
-#     precompute_road_node_degrees.py・precompute_way_attribute_counts.py・
-#     precompute_edge_curvature.py）
-#   - `EdgeMaterialBundle`・`SearchMaterials`自体の構築ロジック変更
-#     （domain/attributes.py・services/graph_service.py: _get_or_build_tile_materials）
-#
-# 上げないと、バッチ実行前に既にメモリ・ディスクへキャッシュ済みだったタイルは、
-# プロセス再起動をまたいでも（ディスク経由で）古いまま復元され続ける。バッチ実行
-# より前に一度もアクセスされたことのないタイルだけが、バッチ後の初回アクセス時に
-# DBから新しい値を読み新規キャッシュされる——「一部のタイルだけ更新が反映されている
-# ように見える」形で症状が局所的になり気づきにくい。
+# パスへ埋め込むことで対応しない世代のファイルを読まないようにする。
+# `EdgeMaterialTable`の列構成から署名を導出するため、列を足す・消す・並べ替えると鍵が
+# 自動で変わる（手で上げる条件はcache_identity.pyのMATERIAL_REVISIONのコメント参照）。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = "12"
-
-# 上の版が対応する`EdgeMaterialTable`の列構成の署名（列名を並べたもののSHA-1先頭12桁）。
-# `EdgeMaterialTable`は`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で
-# 持つ（`dataclasses._dataclass_setstate`がfieldsとstateをzipする）。列を足す・消す・
-# 並べ替えると、古いキャッシュを復元したときに後ろの列が欠けたまま実体化し、最初にその列へ
-# 触れた場所でAttributeErrorになる。ディスクキャッシュはデプロイをまたいで残るため、
-# 列を変えたら必ず版を上げること。`tests/test_graph_material_cache.py`が照合する。
-CACHED_TABLE_SIGNATURE = "35e0a21445a5"
+TILE_MATERIALS_CACHE_VERSION = cache_identity(MATERIAL_REVISION, EdgeMaterialTable)
 
 
 _tile_materials_cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)

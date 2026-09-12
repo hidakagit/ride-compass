@@ -13,7 +13,7 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py` |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`precompute_edge_curvature.py`・`presplit_road_graph.py` |
 
@@ -465,15 +465,17 @@ tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`
 メモリmissでもディスクがあればDBへ問い合わせずに復元し、復元した値はメモリへも載せ直す。
 ディスク側の無効化はバージョン文字列をキーへ含める方式
 （`graph_material_cache.py: TILE_MATERIALS_CACHE_VERSION`・`tile_score_matrix_cache.py:
-TILE_SCORE_MATRIX_CACHE_VERSION`、いずれも`region_service.py: ROAD_SURFACE_TILE_VERSION`と
-同じ流儀）——PBF再取込・`presplit_road_graph.py`・関連precomputeバッチを実行したら手動で
-上げる（各定数のコメント・`docs/batch-pipeline-dependencies.md`参照）。スコア行列側の世代は
-`f"{TILE_MATERIALS_CACHE_VERSION}-{_SCORE_MATRIX_REVISION}"`という複合で、材料世代を上げれば
-機械的に追従する——スコア行列は材料からの派生物で、材料の`edge_id`集合が変われば必ず
-無効になるため（片方だけ上がった状態だと、`graph`には在るが`score_matrix.edge_ids`には
-無い`edge_id`が生じ、`full_edge_row`引きがbbox単位でKeyErrorになる）。
-`_SCORE_MATRIX_REVISION`を単独で上げるのは、スコア行列の構築ロジック・入力だけが
-変わったときに限る。軸定義編集
+TILE_SCORE_MATRIX_CACHE_VERSION`）。この文字列は`infrastructure/cache_identity.py`が
+「手で書くリビジョン＋形の署名」として組み立てる——pickleする`dataclass`の列構成が署名に
+入るため、列を足す・消す・並べ替えると鍵が自動で変わり、古いキャッシュを復元して最後の列が
+欠けたまま実体化する事故が起きない。手で上げるのは、形は同じまま読み先のデータを作り直した
+とき（PBF再取込・`presplit_road_graph.py`・関連precomputeバッチ、
+`docs/batch-pipeline-dependencies.md`参照）。スコア行列側の鍵は材料側の世代も材料に含める
+複合で、材料世代を上げれば機械的に追従する——スコア行列は材料からの派生物で、材料の
+`edge_id`集合が変われば必ず無効になるため（片方だけ上がった状態だと、`graph`には在るが
+`score_matrix.edge_ids`には無い`edge_id`が生じ、`full_edge_row`引きがbbox単位で
+KeyErrorになる）。`cache_identity.SCORE_MATRIX_REVISION`を単独で上げるのは、同じ材料・
+同じ列から違う値を作るようになったときに限る。軸定義編集
 （`refresh_axis_definitions`、アプリ起動時にも必ず1回呼ばれる）は
 `tile_score_matrix_cache.sync_disk_cache_with_axis_revision(revision)`が
 `axis_registry_meta.revision`の変化を見て判定する別経路（バージョン文字列は据え置いた
@@ -799,9 +801,10 @@ x/yとして扱う平面計算になり、緯度による経度の縮みを無�
   追加する場合は、同じロックを取らない限りこの前提が崩れることに注意。
 - **`graph_material_cache`・`tile_score_matrix_cache`はプロセス内メモリLRU＋
   `tile_persistent_cache.py`によるディスク永続化の2段構成**——ディスクの無効化は
-  `TILE_MATERIALS_CACHE_VERSION`/`TILE_SCORE_MATRIX_CACHE_VERSION`のバージョン文字列を
-  手動で上げる方式（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ流儀）。上げ忘れると
-  デプロイでプロセスが再起動しても対象タイルがディスク経由で古い値のまま返り続ける
+  `TILE_MATERIALS_CACHE_VERSION`/`TILE_SCORE_MATRIX_CACHE_VERSION`のバージョン文字列で行う
+  （`infrastructure/cache_identity.py`が列構成の署名から導出する）。形が変わらないまま
+  読み先のデータを作り直したときだけは手で上げる必要があり、上げ忘れるとデプロイで
+  プロセスが再起動しても対象タイルがディスク経由で古い値のまま返り続ける
   （`docs/batch-pipeline-dependencies.md`「3. ランタイム側の読み取り元」参照）。
 - **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列）は
   `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集

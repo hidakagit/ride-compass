@@ -1,16 +1,15 @@
 import logging
 
 from app.domain.region import tile_bounds_lonlat
-from app.infrastructure.accident_repository import AccidentTileQuery
+from app.infrastructure.accident_repository import ACCIDENT_TILE_VERSION, AccidentTileQuery
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.accident")
 
 
-# タイル内容の世代。region_service.pyのROAD_SURFACE_TILE_VERSIONと同じ理由
-# （プロパティを追加した将来、URLを変えて旧世代タイルのブラウザキャッシュを踏まないため）。
-ACCIDENT_TILE_VERSION = "1"
+# タイル内容の世代は焼き込むSQLの隣（accident_repository.py）で導出する。ここは
+# キャッシュパスの組み立てだけを持つ。
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:

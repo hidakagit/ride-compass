@@ -17,11 +17,11 @@ build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここ�
 tile_persistent_cache.py`へも同じ内容をディスク永続化する（`graph_material_cache.py`と
 同じ動機・設計、docs/tasks/T538.md）。無効化経路は2種類ある:
 
-1. **PBF再取込・precomputeバッチ・構築ロジック変更**: `_SCORE_MATRIX_REVISION`を手動で
-   上げる（`region_service.py: ROAD_SURFACE_TILE_VERSION`と同じ流儀。コメント参照）。
-   実際のキャッシュ世代`TILE_SCORE_MATRIX_CACHE_VERSION`はこれと材料側
-   （`graph_material_cache.TILE_MATERIALS_CACHE_VERSION`）の複合で、材料世代を上げれば
-   この行列も機械的に無効化される（この行列は材料からの派生物のため）。
+1. **列構成・材料世代・構築ロジックの変化**: `TILE_SCORE_MATRIX_CACHE_VERSION`が
+   `StaticEdgeScoreMatrix`の列構成と材料側の世代
+   （`graph_material_cache.TILE_MATERIALS_CACHE_VERSION`）から導出されるため、列を変えても
+   材料世代を上げても機械的に無効化される。同じ材料・同じ列から違う値を作るようになった
+   ときだけ`cache_identity.SCORE_MATRIX_REVISION`を手で上げる。
 2. **軸定義編集（`refresh_axis_definitions`）**: バージョン文字列は据え置いたまま、
    `sync_disk_cache_with_axis_revision()`が軸定義の内容変化を検知した場合のみメモリ・
    ディスク両方のキャッシュを即座に削除する。軸編集はデプロイを伴わない実行時のAPI操作の
@@ -47,6 +47,7 @@ from cachetools import LRUCache
 
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.infrastructure import tile_persistent_cache
+from app.infrastructure.cache_identity import SCORE_MATRIX_REVISION, cache_identity
 from app.infrastructure.graph_material_cache import TILE_MATERIALS_CACHE_VERSION
 
 # graph_material_cache.pyのDEFAULT_MAX_TILESと同じ値（同じタイル粒度・同じ対象範囲
@@ -58,41 +59,20 @@ _cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)
 # ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン。
 # パスへ埋め込むことで対応しない世代のファイルを読まないようにする。
 #
-# 以下を実行したときはこの値を手動で上げること:
-#   - PBF再取込（app/batch/import_pbf.py）
-#   - 交差点分割の事前バッチ（app/batch/presplit_road_graph.py）
-#   - `StaticEdgeScoreMatrix`が読む事前集計・派生データを更新するprecomputeバッチ
-#     （precompute_edge_attribute_counts.py・precompute_elevation_attributes.py・
-#     precompute_road_node_degrees.py・precompute_way_attribute_counts.py）
-#   - `build_static_edge_score_matrix`自体の計算式変更（domain/evaluation.py）
-#
-# `app/batch/refresh_derived.py`（disaster-recovery.md参照）はPBF再取込を除く上記
-# バッチ一式を1コマンドで実行するため、これを実行した場合も同様に上げること。
-# 上げ忘れると、実行前に既にキャッシュ済みだったタイルはディスク経由で古いまま
-# 復元され続け、未訪問タイルだけが新しい値になる（症状が局所的で気づきにくい）。
+# 鍵は材料側の世代との複合にする。この行列は材料から導出される派生物で、材料のedge_id集合が
+# 変われば必ず無効になるため——単独の文字列にすると、PBF再取込・presplitで材料世代だけを
+# 上げたときにスコア行列だけが古いまま残り、`graph`には在るが`score_matrix.edge_ids`には
+# 無いedge_idが生じる（`road_graph_engine.py`の`full_edge_row`引きがbbox単位でKeyErrorに
+# なり、ディスクキャッシュを手で消すまでそのbboxのルート生成が復旧しない）。
+# `StaticEdgeScoreMatrix`の列構成も署名に入るため、列を変えれば鍵が自動で変わる
+# （手で上げる条件はcache_identity.pyのSCORE_MATRIX_REVISIONのコメント参照）。
 #
 # **軸定義（axis_definitionsテーブル）の追加・削除・shape_params調整はこの世代管理の
-# 対象外**——軸スタジオでの編集は上記のバージョン更新（デプロイを伴う）ではなく、
-# 下記`clear()`（`refresh_axis_definitions`経由の即時呼び出し）が担う。
+# 対象外**——軸スタジオでの編集はデプロイを伴わないため、下記`clear()`
+# （`refresh_axis_definitions`経由の即時呼び出し）が担う。
 _CACHE_NAMESPACE = "score_matrix"
-# この行列の構築ロジック・入力（事前集計/派生データ）側の世代。上記のトリガーで手動で上げる。
-_SCORE_MATRIX_REVISION = "11"
-
-# 上の版が対応する`StaticEdgeScoreMatrix`の列構成の署名（列名を並べたもののSHA-1先頭12桁）。
-# この行列は`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で持つ
-# （`dataclasses._dataclass_setstate`がfieldsとstateをzipする）。列を足す・消す・並べ替えると
-# 古いキャッシュを復元したときに後ろの列が欠けたまま実体化し、最初にその列へ触れた場所で
-# AttributeErrorになる。ディスクキャッシュはデプロイをまたいで残るため、列を変えたら必ず
-# 版を上げること。`tests/test_tile_score_matrix_cache.py`が照合する。
-SCORE_MATRIX_COLUMN_SIGNATURE = "28adc22b6d54"
-# 実際のキャッシュ世代は材料側（`graph_material_cache`）の世代との複合にする。この行列は
-# 材料から導出される派生物で、材料のedge_id集合が変われば必ず無効になるため——単独の
-# 文字列にすると、PBF再取込・presplitで材料世代だけを上げたときにスコア行列だけが古い
-# まま残り、`graph`には在るが`score_matrix.edge_ids`には無いedge_idが生じる
-# （`road_graph_engine.py`の`full_edge_row`引きがbbox単位でKeyErrorになり、ディスク
-# キャッシュを手で消すまでそのbboxのルート生成が復旧しない）。複合にしておけば材料世代を
-# 上げるだけでスコア行列側も機械的に無効化される。
-TILE_SCORE_MATRIX_CACHE_VERSION = f"{TILE_MATERIALS_CACHE_VERSION}-{_SCORE_MATRIX_REVISION}"
+TILE_SCORE_MATRIX_CACHE_VERSION = cache_identity(
+    SCORE_MATRIX_REVISION, TILE_MATERIALS_CACHE_VERSION, StaticEdgeScoreMatrix)
 
 
 def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:

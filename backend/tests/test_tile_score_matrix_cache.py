@@ -298,47 +298,17 @@ class TestSyncDiskCacheWithAxisRevision:
 # --- キャッシュ世代の従属関係（材料世代が変わればスコア行列も無効になる） ---
 
 
-def test_cache_version_is_derived_from_the_materials_cache_version():
-    # この行列は材料（graph_material_cache）からの派生物のため、材料世代が変われば
-    # 必ず無効になる必要がある。世代文字列が材料世代を含んでいれば、材料側だけを上げた
-    # ときもディスクのパスが変わって機械的にmissする（片方だけ上げた際に
-    # 「graphには在るがscore_matrix.edge_idsには無いedge_id」が生じるのを防ぐ）。
-    assert tile_score_matrix_cache.TILE_SCORE_MATRIX_CACHE_VERSION == (
-        f"{graph_material_cache.TILE_MATERIALS_CACHE_VERSION}-{tile_score_matrix_cache._SCORE_MATRIX_REVISION}"
-    )
-
-
 def test_cache_version_changes_when_materials_version_changes(monkeypatch):
-    # 材料世代を上げる操作（PBF再取込・presplit等）だけを行っても、この行列の世代が
-    # 追従することを、モジュール再読み込みで確認する。
+    # この行列は材料（graph_material_cache）からの派生物のため、材料世代が変われば必ず
+    # 無効になる必要がある。片方だけ変わると「graphには在るがscore_matrix.edge_idsには
+    # 無いedge_id」が生じ、そのbboxのルート生成がディスクキャッシュを手で消すまで復旧しない。
     import importlib
 
-    monkeypatch.setattr(graph_material_cache, "TILE_MATERIALS_CACHE_VERSION", "999")
+    before = tile_score_matrix_cache.TILE_SCORE_MATRIX_CACHE_VERSION
+    monkeypatch.setattr(graph_material_cache, "TILE_MATERIALS_CACHE_VERSION", "999-zzz")
     reloaded = importlib.reload(tile_score_matrix_cache)
     try:
-        assert reloaded.TILE_SCORE_MATRIX_CACHE_VERSION.startswith("999-")
+        assert reloaded.TILE_SCORE_MATRIX_CACHE_VERSION != before
     finally:
         monkeypatch.undo()
         importlib.reload(tile_score_matrix_cache)
-
-
-def test_score_matrix_column_signature_matches_current_columns():
-    """`StaticEdgeScoreMatrix`の列構成を変えたら`_SCORE_MATRIX_REVISION`を上げる。
-
-    この行列は`@dataclass(frozen=True, slots=True)`で、pickleの状態を**列の位置**で持つ。
-    列を1つ足すと古い状態は長さが足りず、最後の列が設定されないまま復元される。
-    ディスクキャッシュはデプロイをまたいで残るので、版を上げ忘れると本番で最初にその列へ
-    触れた場所がAttributeErrorで落ちる（`graph_material_cache`側と同じ歯止め）。
-    """
-    import dataclasses
-    import hashlib
-
-    from app.domain.evaluation import StaticEdgeScoreMatrix
-    from app.infrastructure.tile_score_matrix_cache import SCORE_MATRIX_COLUMN_SIGNATURE
-
-    names = ",".join(f.name for f in dataclasses.fields(StaticEdgeScoreMatrix))
-    signature = hashlib.sha1(names.encode()).hexdigest()[:12]
-    assert signature == SCORE_MATRIX_COLUMN_SIGNATURE, (
-        "StaticEdgeScoreMatrixの列構成が変わっている。_SCORE_MATRIX_REVISIONを上げ、"
-        f"SCORE_MATRIX_COLUMN_SIGNATUREを'{signature}'へ更新すること。"
-    )

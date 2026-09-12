@@ -440,7 +440,7 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
 - PostGIS側のMVT生成SQL（`road_graph_repository.py`）は正準集合をバインドパラメータとして直接参照（二重定義なし）
 - フロントの表示グループ（`roadFilterAxes.ts: SURFACE_GROUPS`）は、`backend/scripts/export_openapi.py` が書き出す `frontend/src/types/generated/surface-tags.json` と `roadFilterAxes.test.ts` で突き合わせて整合を検証する（「表示グループの全タグ＝正準分類済みタグ全体」「舗装系グループはgoodのみ・未舗装系はbadのみ」。CIのapi-contractジョブがドリフト検知）
 - 「石畳・敷石」グループのみgood/bad混在の意図的な中立グループ（材質として同類のため。色も良し悪しを示さない紫）
-- タグ集合を変更したら路面タイルの世代（`region_service.py: _tile_cache_path` と `regionApi.ts: ROAD_SURFACE_TILE_VERSION` の対）を上げること（surface_goodの焼き込み値が変わるため）
+- タグ集合を変更したら`export_openapi.py`を再実行して`region-tile-config.json`を更新すること（焼き込みSQLが変わり路面タイルの世代が自動で変わるため、frontendへ届ける生成物を追従させる）
 - ルート評価（`surface_q`軸のdifficulty）もこの正準集合に統一済み（改善計画T21、2026-08-15）。以前はopenrouteserviceエンジンだけ数値ID語彙の別定義を持っていたが、ORS産geometryのサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチしてこの正準集合で判定する方式へ置き換え、数値ID語彙は削除した（詳細は「ルーティングエンジンの切り替え対応」）
 
 ---
@@ -2179,8 +2179,7 @@ T350のDB設計書レビューで、`edge_attribute_counts`/`way_attribute_count
   単体実行時のテストフィクスチャ等——で`Base.metadata.sorted_tables`/`create_all`が
   `NoReferencedTableError`を起こすことを実機確認したため）。
 - **`algorithm_version`**（`edge_attribute_counts`・`way_attribute_counts`・`way_landcover`）: 計算
-  ロジック自体（半径・重み付け等のパラメータ）の版数。`region_service.py:
-  ROAD_SURFACE_TILE_VERSION`と同じ「パラメータを変えたら手動で上げる」文字列定数で、各バッチ
+  ロジック自体（半径・重み付け等のパラメータ）の版数。「パラメータを変えたら手動で上げる」文字列定数で、各バッチ
   モジュール自身が持つ（`precompute_edge_attribute_counts.py`/
   `precompute_way_attribute_counts.py`/`precompute_way_landcover.py`の`ALGORITHM_VERSION`）。
   `way_landcover`は`designation_attributes`と異なりバッファ幅を表す`data_version`列
@@ -2250,9 +2249,9 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    プロパティを追加。プロパティ追加のみでデプロイ順序制約なし）、**v16=T347。地図表示の
    専用レイヤー廃止・評価軸側の公開軸`bicycle_infra_quality`への置き換えに伴い、
    評価軸・地図表示のどちらからも未参照になった`bicycle_infra`プロパティを削除**
-   （v14と同じく非互換変更だが未使用のためデプロイ順序制約なし）。v17〜v23の内訳は
-   本節へ追従できていない（現行値の正本は`region_service.py:
-   ROAD_SURFACE_TILE_VERSION`と生成物`region-tile-config.json`）。**v24=T719。
+   （v14と同じく非互換変更だが未使用のためデプロイ順序制約なし）。v17以降の内訳は
+   本節へ追従していない（現行値の正本は生成物`region-tile-config.json`。世代は焼き込みSQLから
+   導出されるため、この一覧を人が維持する必要はもう無い）。**v24=T719。
    停止密度が種別別密度`poi_*_per_km`だけを材料にする形へ移った結果、読み手の無くなった
    `stop_per_km`プロパティを削除**（v14/v16と同じく非互換変更だが未使用のため
    デプロイ順序制約なし、現行）。
@@ -2272,10 +2271,10 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    専用リポジトリ`infrastructure/accident_repository.py`が担当し、`region_service.py`とは
    別系統（データソースがOSM派生グラフではなく`accident_points`のため）。
 
-いずれもタイル世代はプロパティ追加のたびに上げ、`regionApi.ts`側の対応する定数
-（`ROAD_SURFACE_TILE_VERSION`/`POI_TILE_VERSION`/`ACCIDENT_TILE_VERSION`）とドリフト検知
-テスト（`regionApi.test.ts`、`export_openapi.py`が書き出す
-`generated/region-tile-config.json`との照合）で同期を保証する。
+いずれもタイル世代は焼き込みSQLから導出される（`app/infrastructure/cache_identity.py`）
+ため、プロパティを足す・消す・式を変えれば自動で変わる。frontendへは`export_openapi.py`が
+書き出す`generated/region-tile-config.json`が届け、ドリフト検知テスト
+（`regionApi.test.ts`）が照合する。
 
 ### レジストリ駆動の二次軸ランプレイヤー（改善計画T145b）
 

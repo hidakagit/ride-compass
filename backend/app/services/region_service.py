@@ -8,7 +8,11 @@ from app.domain.route_preference import RoutePreference
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
-from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.road_graph_repository import (
+    POI_TILE_VERSION,
+    ROAD_SURFACE_TILE_VERSION,
+    RoadGraphRepository,
+)
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
@@ -88,20 +92,9 @@ def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
     task.add_done_callback(_build_tasks.discard)
 
 
-# タイル内容の世代。パスへ世代を含めることで、プロパティ追加前に保存された旧タイルを
-# キャッシュヒットさせない（旧世代のファイルは「変わらないデータを更新」のclear_allで
-# まとめて消える）。プロパティ削除を伴う世代は、対応するfrontend（regionApi.ts）の
-# デプロイより先に本番へ出さないこと（旧フロントの凡例フィルタが全地物に一致し、
-# 対象レイヤーが一時的に「不明・他」表示になる）。MVTへ実際に焼き込まれるプロパティは
-# `infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`が正本。
-# frontend側のタイルURLバージョンクエリ（regionApi.tsのROAD_SURFACE_TILE_VERSION、
-# ブラウザキャッシュのバスト用）と対で上げる必要があり、export_openapi.pyが書き出す
-# generated/region-tile-config.jsonとregionApi.test.tsの照合テストがドリフトを検知する。
-ROAD_SURFACE_TILE_VERSION = "24"
-
-# 停止要因POIタイルの世代。ROAD_SURFACE_TILE_VERSIONと同じ理由・同じ運用
-# （フロントのregionApi.ts: POI_TILE_VERSIONと対で上げる）。
-POI_TILE_VERSION = "4"
+# タイル内容の世代は焼き込むSQLの隣（road_graph_repository.py）で導出する。ここは
+# キャッシュパスの組み立てだけを持ち、export_openapi.pyはこのモジュール経由で受け取る
+# （generated/region-tile-config.json、regionApi.test.tsの照合テストがドリフトを検知する）。
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
