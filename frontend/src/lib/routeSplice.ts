@@ -101,3 +101,28 @@ export function stretchCoordinateRange(
   if (start === undefined || end === undefined || end < start) return null;
   return { start, end };
 }
+
+
+/** 表示中の候補の区間と、それに対応する相手側の区間の組。 */
+export interface PairedStretch {
+  displayed: RouteStretch;
+  target: RouteStretch;
+}
+
+/**
+ * 2本が別々の道を通る区間を、表示中の側と相手側で対応づけて返す。
+ *
+ * 表示中の候補が共有ノードXで分かれてYで戻るなら、相手もXからYまでを別の道で進む——
+ * その間の相手のEdgeは定義上どれも表示中の候補に無いため、区間は同じ本数・同じ順で
+ * 現れる。本数が食い違ったら対応づけを諦める（片側だけ描くと、地図上の帯と実際に
+ * 差し替わる道がずれる）。
+ */
+export function pairedStretches(
+  displayed: readonly string[],
+  target: readonly string[],
+): PairedStretch[] {
+  const onDisplayed = differingStretches(displayed, target);
+  const onTarget = differingStretches(target, displayed);
+  if (onDisplayed.length !== onTarget.length) return [];
+  return onDisplayed.map((stretch, index) => ({ displayed: stretch, target: onTarget[index] }));
+}

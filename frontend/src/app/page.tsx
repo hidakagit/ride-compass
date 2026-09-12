@@ -63,6 +63,8 @@ import RouteSettingsPanel, {
   stackBarColorForIndex,
 } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
+import RouteSplicePanel from "@/components/RouteSplicePanel/RouteSplicePanel";
+import { pairedStretches, spliceEdgeIds, stretchCoordinateRange } from "@/lib/routeSplice";
 import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
 import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
@@ -343,6 +345,12 @@ export default function Home() {
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // 区間の乗り換え（docs/tasks/T621.md）。比較相手と、相手の道を選んだ区間の位置。
+  // 区間の位置はstretchesの添字で持つ——edge_idsの位置で持つと、候補が入れ替わったときに
+  // 別の場所を指したまま残る。
+  const [spliceTargetId, setSpliceTargetId] = useState<string | null>(null);
+  const [spliceTakenIndexes, setSpliceTakenIndexes] = useState<number[]>([]);
+  const [splicing, setSplicing] = useState(false);
   // 地図上でクリックされた区間（MapView.tsx: handleRouteSegmentClickがクリック地点の
   // 座標とともに設定するcontrolled state）。non-nullの間、「ルート結果」タブはルート
   // 全体の内訳の代わりにこの区間の内訳を表示する（下記renderRouteOutcomeSectionBody
@@ -722,6 +730,29 @@ export default function Home() {
   // スコープ外）。
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
+
+  // 区間の乗り換え（docs/tasks/T621.md）の導出値。表示中の候補と比較相手の
+  // edge_idsの集合演算だけで求まる（軸の計算式は持たない。構造仕様1）。
+  const spliceTarget = routes.find((r) => r.id === spliceTargetId) ?? null;
+  const splicePairs =
+    selectedCandidate && spliceTarget
+      ? pairedStretches(selectedCandidate.edge_ids, spliceTarget.edge_ids)
+      : [];
+  const spliceStretches = splicePairs.map((pair) => pair.displayed);
+  // 地図へ渡す帯は相手側の形。選んでいない区間も「乗り換えるとこの道になる」を破線で示す。
+  // Edgeと座標の対応が取れない区間は描かない——ずれた場所へ帯を描くより描かないほうがよい。
+  const spliceStretchFeatures = spliceTarget
+    ? splicePairs.flatMap((pair, index) => {
+        const range = stretchCoordinateRange(spliceTarget.edge_point_offsets, pair.target);
+        if (!range) return [];
+        const coordinates = (spliceTarget.geometry.coordinates as GeoJSON.Position[]).slice(
+          range.start,
+          range.end + 1,
+        );
+        if (coordinates.length < 2) return [];
+        return [{ index, taken: spliceTakenIndexes.includes(index), coordinates }];
+      })
+    : [];
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
   const isMobile = useIsMobile();
@@ -1406,6 +1437,47 @@ export default function Home() {
     routes.length > 0 &&
     generationConditionsKey(buildCurrentGenerationInput(Number(distanceInput))) !== generatedConditions.key;
 
+  // 選んだ区間を相手の道へ差し替えた経路を、backendで評価し直して候補一覧へ加える
+  // （docs/tasks/T621.md）。frontendは経路の組み立てだけを行い、評価はbackendが
+  // 既存候補と同じ経路で行う（構造仕様1・10）。
+  async function handleApplySplice() {
+    if (!selectedCandidate || !spliceTarget || spliceTakenIndexes.length === 0) return;
+    const destinationPoint = destination;
+    if (!destinationPoint) return;
+    setSplicing(true);
+    setErrorMessage(null);
+    try {
+      const edgeIds = spliceEdgeIds(
+        selectedCandidate.edge_ids,
+        spliceTarget.edge_ids,
+        spliceTakenIndexes.map((index) => spliceStretches[index]).filter(Boolean),
+      );
+      const generationInput = buildCurrentGenerationInput(Number(distanceInput));
+      const { routes: candidates } = await generateRoutes(
+        { ...buildGenerateRequest(generationInput), spliced_edge_ids: edgeIds },
+        setGenerationProgress,
+      );
+      const spliced = candidates[0];
+      if (!spliced) {
+        setErrorMessage("組み合わせたルートを評価できませんでした");
+        return;
+      }
+      // 生成の上限（max_routes）とは別枠で足す——上限は「生成が何本探すか」の指定で、
+      // 利用者が作った組み合わせを押し出す理由が無い。
+      const unique = { ...spliced, id: `${spliced.id}-${routes.length}` };
+      setRoutes([...routes, unique]);
+      setSelectedRouteId(unique.id);
+      setSpliceTargetId(null);
+      setSpliceTakenIndexes([]);
+      setSelectedRouteSegment(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
+    } finally {
+      setSplicing(false);
+      setGenerationProgress(null);
+    }
+  }
+
   async function handleGenerate(distanceKm: number) {
     setLoading(true);
     setGenerationProgress(null);
@@ -1427,6 +1499,9 @@ export default function Home() {
       }
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
+      // 候補集合が入れ替わると、区間の位置も比較相手も意味を失う。
+      setSpliceTargetId(null);
+      setSpliceTakenIndexes([]);
       // 新しい候補集合に対して、それより前にクリックしていた区間の選択を引き継がない
       // （同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも意味を
       // 失うため）。
@@ -1745,6 +1820,30 @@ export default function Home() {
                   axisColors={axisChipColors}
                 />
               )}
+              {/* 区間の乗り換え（docs/tasks/T621.md）。対象は目的地ルートのみ——周回は
+                  起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。 */}
+              {destination && route.id === selectedRouteId && routes.length > 1 && (
+                <RouteSplicePanel
+                  displayed={route}
+                  targets={routes.filter((other) => other.id !== route.id)}
+                  targetId={spliceTargetId}
+                  onSelectTarget={(id) => {
+                    setSpliceTargetId(id);
+                    setSpliceTakenIndexes([]);
+                  }}
+                  stretches={spliceStretches}
+                  takenIndexes={spliceTakenIndexes}
+                  onToggleStretch={(index) =>
+                    setSpliceTakenIndexes((current) =>
+                      current.includes(index)
+                        ? current.filter((value) => value !== index)
+                        : [...current, index],
+                    )
+                  }
+                  onApply={handleApplySplice}
+                  applying={splicing}
+                />
+              )}
             </Tabs.Content>
           ))}
           {showComparisonTab && (
@@ -1941,6 +2040,7 @@ export default function Home() {
         <div ref={mapPaneRef} className={`${styles.mapPane} app-map-pane`}>
           <MapView
             routes={routes}
+            spliceStretches={spliceStretchFeatures}
             selectedRouteId={selectedRouteId}
             location={location}
             locationSource={locationSource}
