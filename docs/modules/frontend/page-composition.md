@@ -281,8 +281,9 @@ BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.l
 （`domain/difficulty.py:
 composite_difficulty`と同じ考え方で軸の重みを反映した寄与度をバー長に、生の
 `axis_difficulties`値をバー色に使う。この一覧は選択操作を持たない読み取り専用）・
-軸別難易度の一覧（重みが入っている軸を並べ、重み0は「未使用の軸 N本」の開閉行へ畳み、
-値なしは「データなし」として残す）を持つ。地図の色分け（レンズ）を選ぶ操作はここには無い（`LensControl`）。
+軸ごとの詳細（軸別難易度・生値・材料内訳・説明）を開く凡例チップを持つ。1軸1行の一覧は
+持たず、寄与が出ない軸だけがバーの下のチップ行に残る（重み0は「未使用の軸 N本」へ畳み、
+値なしは「データなし」のチップ）。地図の色分け（レンズ）を選ぶ操作はここには無い（`LensControl`）。
 
 `ComparisonPanel`へ渡す`axes`は、表示中のいずれかの実験スロットで生成時点の重み
 （`ExperimentSlot.conditions.route_preference`）が>0だった軸に絞り込む（現在のライブな

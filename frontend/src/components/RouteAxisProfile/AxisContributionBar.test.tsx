@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import AxisContributionBar from "./AxisContributionBar";
@@ -92,6 +93,31 @@ describe("AxisContributionBar", () => {
     );
 
     expect(container.firstChild).toBeNull();
+  });
+
+  it("renderDetailを渡すと凡例チップが押せる詳細の入口になる", async () => {
+    const user = userEvent.setup();
+    render(
+      <AxisContributionBar
+        axes={AXES}
+        contributions={{ car_stress: 30, night: 5 }}
+        axisColors={AXIS_COLORS}
+        renderDetail={(axis) => <span>{`${axis.label}の詳細本文`}</span>}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
+
+    expect(await screen.findByText("車の圧迫感の詳細本文")).toBeInTheDocument();
+  });
+
+  it("renderDetailを渡さない呼び出し側（軸ごとの詳細を持たない区間詳細）では押せる要素を作らない", () => {
+    render(
+      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />
+    );
+
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
   });
 
   it("値が0-100の範囲外でもクランプする", () => {

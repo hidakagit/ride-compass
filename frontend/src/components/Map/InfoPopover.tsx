@@ -17,6 +17,10 @@ interface InfoPopoverProps {
   /** trueの場合、見出し文言はsr-onlyで視覚的にのみ隠す（アイコン単体の見た目にしたい
    * 呼び出し側向け。アクセシブル名は`triggerAriaLabel`が担うため読み上げは変わらない）。 */
   hideLabel?: boolean;
+  /** トリガーボタンの中身。省略時は(i)アイコン。凡例チップのように、見出しそのものを
+   * 押させたい呼び出し側が差し替える（アクセシブル名は`triggerAriaLabel`が担うため
+   * 中身を変えても読み上げは変わらない）。 */
+  triggerContent?: ReactNode;
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
   sideOffset?: number;
@@ -34,6 +38,7 @@ export default function InfoPopover({
   label,
   labelClassName,
   hideLabel,
+  triggerContent,
   side = "bottom",
   align = "start",
   sideOffset = 6,
@@ -47,7 +52,7 @@ export default function InfoPopover({
         className={triggerClassName}
         aria-label={`${triggerAriaLabel}を${open ? "隠す" : "表示"}`}
       >
-        <InfoIcon />
+        {triggerContent ?? <InfoIcon />}
       </button>
     </Popover.Trigger>
   );

@@ -1,5 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
+import InfoPopover from "@/components/Map/InfoPopover";
+import { InfoIcon } from "@/components/Map/icons";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import styles from "./AxisContributionBar.module.css";
 
@@ -18,6 +21,9 @@ interface AxisContributionBarProps {
   /** 軸id→色ドットの色（呼び出し側のRouteAxisProfile/RouteSettingsPanelと共通の
    * 配色から渡す。同じ軸は常に同じ色になるようにするため）。 */
   axisColors: Record<string, string>;
+  /** 凡例チップを押したときに開く、その軸の詳細。渡さない間チップは押せない静的な凡例の
+   * まま（区間クリック詳細のように、軸ごとの詳細を持たない呼び出し側がある）。 */
+  renderDetail?: (axis: PreferenceAxisDef) => ReactNode;
 }
 
 const FALLBACK_COLOR = "#94a3b8";
@@ -27,7 +33,12 @@ const FALLBACK_COLOR = "#94a3b8";
  * （ボトムシート側）の両方が同じこのコンポーネントを使う——値の出どころごとに別の
  * 表現は持たない。contributionsが1件も無ければ何も描画しない（呼び出し側の空状態
  * 文言に委ねる）。 */
-export default function AxisContributionBar({ axes, contributions, axisColors }: AxisContributionBarProps) {
+export default function AxisContributionBar({
+  axes,
+  contributions,
+  axisColors,
+  renderDetail,
+}: AxisContributionBarProps) {
   // 値0（重み0の軸は常にちょうど0.0になる、backend: compose_costs_from_axis_matrix参照）は
   // 除外する。キーが無い（欠損データ）場合と同じ「表示すべき寄与が無い」として扱うが、
   // 負の値（クランプ前）は0ではないため除外しない——0-100範囲外のクランプ自体は
@@ -57,11 +68,35 @@ export default function AxisContributionBar({ axes, contributions, axisColors }:
       <ul className={styles.legend}>
         {rows.map((axis) => {
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
-          return (
-            <li key={axis.axisId} className={styles.legendItem}>
+          const chip = (
+            <>
               <span aria-hidden="true" className={styles.legendDot} style={{ background: color }} />
               <span className={styles.legendLabel}>{axis.label}</span>
               <span className={styles.legendValue}>{contributions[axis.axisId].toFixed(1)}</span>
+            </>
+          );
+          // チップ全体が押せることを、このアプリで「押すと説明が出る」を表している(i)で示す
+          // （下線だけでは押せると気づかれない）。
+          const trigger = (
+            <>
+              {chip}
+              <InfoIcon size={12} />
+            </>
+          );
+          return (
+            <li key={axis.axisId} className={styles.legendItem}>
+              {renderDetail ? (
+                <InfoPopover
+                  triggerClassName={styles.legendTrigger}
+                  triggerAriaLabel={`${axis.label}の詳細`}
+                  contentClassName={styles.legendPopover}
+                  triggerContent={trigger}
+                >
+                  {renderDetail(axis)}
+                </InfoPopover>
+              ) : (
+                chip
+              )}
             </li>
           );
         })}

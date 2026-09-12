@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import InfoPopover from "@/components/Map/InfoPopover";
+import { InfoIcon } from "@/components/Map/icons";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar from "./AxisContributionBar";
@@ -50,10 +51,11 @@ interface RouteAxisProfileProps {
 
 const FALLBACK_DOT_COLOR = "#64748b";
 
-// ルート結果の「総合難易度＋重み付き寄与度の積み上げバー」と「軸別難易度の一覧」を表示する
-// 読み取り専用の部品。地図の色分け（レンズ）の選択はここでは行わない（入口は地図上の凡例
-// ピル`LensControl`だけ）。評価に使っていない軸（重み0）は畳んだ1行へまとめ、本数だけを
-// 残す（消さずに薄くする）。
+// ルート結果の「総合難易度＋重み付き寄与度の積み上げバー」を表示する読み取り専用の部品。
+// 軸ごとの詳細（軸別難易度・生値・材料内訳・説明）は一覧を作らず、バーの凡例チップを
+// 押して開く。地図の色分け（レンズ）の選択はここでは行わない（入口は地図上の凡例ピル
+// `LensControl`だけ）。寄与が出ない軸は、重み0なら畳んだ1行へまとめて本数を残し、
+// 値が無いだけの軸はチップのまま残す（消さずに薄くする）。
 export default function RouteAxisProfile({
   axes,
   weights,
@@ -75,21 +77,21 @@ export default function RouteAxisProfile({
     return value != null && value !== 0;
   });
 
-  // 一覧の縦の長さは公開軸の本数に比例して伸びる。比例の対象を「公開軸すべて」から
-  // 「この候補を評価した重みが入っている軸」へ移すため、重み0の軸は畳んだ1行へまとめる。
-  // どちらの組も軸カタログの並び順のまま（並べ替えは持たない）。
-  const usedAxes = axes.filter((axis) => (weights[axis.axisId] ?? 0) > 0);
-  const unusedAxes = axes.filter((axis) => (weights[axis.axisId] ?? 0) <= 0);
+  // 寄与のバーに出ない軸の行き先を2つに分ける。重み0（ユーザー自身が使わないと決めた軸）は
+  // 畳んで本数だけを残し、値が無いだけの軸は畳まずチップのまま残す——後者はユーザーの
+  // 選択ではないため、読みたい軸が黙って隠れないようにする（設計原則「消さずに薄くする」）。
+  const leftoverAxes = axes.filter((axis) => !contributionRows.includes(axis));
+  const unusedAxes = leftoverAxes.filter((axis) => (weights[axis.axisId] ?? 0) <= 0);
+  const valuelessAxes = leftoverAxes.filter((axis) => (weights[axis.axisId] ?? 0) > 0);
   const [unusedOpen, setUnusedOpen] = useState(false);
 
-  const renderAxisRow = (axis: PreferenceAxisDef, unused: boolean) => {
+  // 凡例チップ・残りチップのどちらから開いても同じ中身にする（軸の詳細の出どころは1つ）。
+  const renderAxisDetail = (axis: PreferenceAxisDef) => {
     const difficulty = axisDifficulties[axis.axisId];
-    // 得点の隣に、折れ点を通す前の生値を単位付きで添える。単位が定まらない軸
-    // （合成軸等）はbackendがrawValueUnitを返さないため何も出ない。
+    // 折れ点を通す前の生値。単位が定まらない軸（合成軸等）はbackendがrawValueUnitを
+    // 返さないため何も出ない。
     const rawText = formatAxisRawValue(axisRawValues[axis.axisId], axis.rawValueUnit, distanceKm);
-    // 材料まで分解した内訳は軸の説明ポップオーバーへ置く。パネルの行に出せる物理量は
-    // 軸1本につき生値1つまでで、材料値の一覧は区間の詳細が持つ（設計原則「数値は3層で
-    // 見せる」）。backendがmaterialBreakdownで並び順ごと返すため、ここでは並べ替えない。
+    // backendがmaterialBreakdownで並び順ごと返すため、ここでは並べ替えない。
     const breakdownTexts = (axis.materialBreakdown ?? [])
       .map((entry) =>
         entry.dtype === "categorical"
@@ -98,33 +100,40 @@ export default function RouteAxisProfile({
       )
       .filter((text): text is string => text !== null);
     return (
-      <li key={axis.axisId} className={styles.axisRow} data-unused={unused}>
-        <span aria-hidden="true" className={styles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
-        {/* ラベルとバッジは1つの列に入れる（列を軸をまたいで揃えるため、行ではなく
-            一覧側がグリッドになっている。RouteAxisProfile.module.css参照）。 */}
-        <span className={styles.axisLabel}>
-          <span className={styles.axisLabelText} title={axis.label}>
-            {axis.label}
-          </span>
-          {difficulty == null && <span className={styles.badge}>データなし</span>}
+      <>
+        <span className={styles.detailHeading}>{axis.label}</span>
+        <span className={styles.detailScore}>
+          {/* 重みを掛ける前の、この軸単体の難易度。チップの数字（重み付き寄与度）とは別物。 */}
+          {difficulty == null ? "データなし" : `軸別難易度 ${Math.round(difficulty)}/100`}
         </span>
-        <InfoPopover
-          triggerClassName={styles.infoButton}
-          triggerAriaLabel={`${axis.label}の説明`}
-          contentClassName={styles.infoPopover}
-        >
-          {axis.description}
-          {breakdownTexts.length > 0 && (
-            <span className={styles.infoBreakdown}>{`この軸の内訳: ${breakdownTexts.join("・")}`}</span>
-          )}
-        </InfoPopover>
-        <span className={styles.axisValue}>{difficulty == null ? "—" : Math.round(difficulty)}</span>
-        {/* 生値は行の2段目（値のある軸だけ）。1段目の列を占めないため軸名が省略されず、
-            右端で揃うので軸をまたいで読み比べられる。 */}
-        {rawText && <span className={styles.axisRawValue}>{rawText}</span>}
-      </li>
+        {rawText && <span className={styles.detailValue}>{rawText}</span>}
+        {breakdownTexts.length > 0 && (
+          <span className={styles.detailValue}>{`この軸の内訳: ${breakdownTexts.join("・")}`}</span>
+        )}
+        <span className={styles.detailDescription}>{axis.description}</span>
+      </>
     );
   };
+
+  const renderLeftoverChip = (axis: PreferenceAxisDef, showNoData: boolean) => (
+    <li key={axis.axisId} className={styles.leftoverItem} data-unused={!showNoData}>
+      <InfoPopover
+        triggerClassName={styles.leftoverTrigger}
+        triggerAriaLabel={`${axis.label}の詳細`}
+        contentClassName={styles.infoPopover}
+        triggerContent={
+          <>
+            <span aria-hidden="true" className={styles.legendDot} style={{ background: axisColors[axis.axisId] ?? FALLBACK_DOT_COLOR }} />
+            <span>{axis.label}</span>
+            {showNoData && <span className={styles.badge}>データなし</span>}
+            <InfoIcon size={12} />
+          </>
+        }
+      >
+        {renderAxisDetail(axis)}
+      </InfoPopover>
+    </li>
+  );
 
   return (
     <div className={styles.wrap}>
@@ -159,32 +168,36 @@ export default function RouteAxisProfile({
             </span>
           )}
           {contributionRows.length > 0 ? (
-            <AxisContributionBar axes={contributionRows} contributions={axisContributions} axisColors={axisColors} />
+            <AxisContributionBar
+              axes={contributionRows}
+              contributions={axisContributions}
+              axisColors={axisColors}
+              renderDetail={renderAxisDetail}
+            />
           ) : (
             <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>
           )}
         </div>
       )}
-      <ul className={styles.axisList} aria-label="軸別難易度">
-        {usedAxes.map((axis) => renderAxisRow(axis, false))}
-        {unusedAxes.length > 0 && (
-          // 重み0の軸は既定で畳む。何本あるかは残すため、設計原則「消さずに薄くする」は
-          // 畳んだ後も成り立つ。畳む条件は重みだけで決める——値が無い軸（「データなし」）は
-          // ユーザーの選択ではないため畳まない。
-          <li className={styles.unusedGroupRow}>
-            <button
-              type="button"
-              className={styles.unusedToggle}
-              aria-expanded={unusedOpen}
-              onClick={() => setUnusedOpen((open) => !open)}
-            >
-              <span aria-hidden="true" className={styles.unusedChevron} data-open={unusedOpen} />
-              {`未使用の軸 ${unusedAxes.length}本`}
-            </button>
-          </li>
-        )}
-        {unusedOpen && unusedAxes.map((axis) => renderAxisRow(axis, true))}
-      </ul>
+      {(valuelessAxes.length > 0 || unusedAxes.length > 0) && (
+        <ul className={styles.leftovers} aria-label="寄与が出ていない軸">
+          {valuelessAxes.map((axis) => renderLeftoverChip(axis, true))}
+          {unusedAxes.length > 0 && (
+            <li className={styles.leftoverItem}>
+              <button
+                type="button"
+                className={styles.unusedToggle}
+                aria-expanded={unusedOpen}
+                onClick={() => setUnusedOpen((open) => !open)}
+              >
+                <span aria-hidden="true" className={styles.unusedChevron} data-open={unusedOpen} />
+                {`未使用の軸 ${unusedAxes.length}本`}
+              </button>
+            </li>
+          )}
+          {unusedOpen && unusedAxes.map((axis) => renderLeftoverChip(axis, false))}
+        </ul>
+      )}
     </div>
   );
 }

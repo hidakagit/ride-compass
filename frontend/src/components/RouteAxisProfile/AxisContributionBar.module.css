@@ -46,3 +46,26 @@
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* 凡例チップを詳細の入口にする場合のトリガー。チップの見た目（ドット＋ラベル＋数値）は
+   静的な凡例と同じにし、押せることは下線で示す。 */
+.legendTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  color: var(--color-muted);
+}
+
+.legendTrigger[aria-expanded="true"] .legendLabel {
+  color: var(--color-accent-strong);
+}
+
+.legendPopover {
+  composes: floatingPopover from "../ui/floatingPopover.module.css";
+}

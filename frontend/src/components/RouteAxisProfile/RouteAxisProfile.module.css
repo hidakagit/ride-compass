@@ -37,70 +37,67 @@
   margin: 0;
 }
 
-/* 軸別難易度の一覧（公開軸すべて、軸カタログ順）。重み0の軸は薄く残す。
-   列（色ドット・ラベル・(i)・得点・生値）を軸をまたいで縦に揃えるため、行ではなく一覧側を
-   グリッドにし、各行は`display: contents`で自分の箱を持たない——行ごとにグリッドを作ると
-   列幅が行ごとに決まってしまい揃わない。ラベル列だけが伸縮し、右側の3列は最も広い行に
-   合わせて全行同じ幅になる。 */
-.axisList {
+/* 寄与のバーに出ない軸（値が無い軸・重み0の軸）を折り返して並べるチップ行。1軸1行の
+   一覧は持たない——軸ごとの詳細はバーの凡例チップから開く（AxisContributionBar）ため、
+   ここは「バーに出ない軸の存在を示す」だけの行で、公開軸が増えても折り返しで伸びる。 */
+.leftovers {
   list-style: none;
-  margin: var(--space-2) 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  /* 列間はサイドバー幅（約225px）に9軸ぶんの列が収まる下限。広げるとラベルが省略される。 */
-  gap: 2px 0.3rem;
+  gap: 2px var(--space-2);
   font-size: var(--font-size-sm);
 }
 
-.axisRow {
-  display: contents;
+.leftoverItem {
+  display: inline-flex;
+  align-items: center;
 }
 
-/* `display: contents`の行は自分の箱を持たないためopacityが効かない。セルごとに掛ける
-   （セルは重ならないため見た目は行全体へ掛けたのと同じ）。 */
-.axisRow[data-unused="true"] > * {
+.leftoverItem[data-unused="true"] {
   opacity: 0.55;
 }
 
-/* ラベルだけが伸縮する列。パネル幅に収まらない軸名は省略記号で畳み、全体はtitleで読める。 */
-.axisLabel {
-  min-width: 0;
-  display: flex;
+.leftoverTrigger {
+  display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  overflow: hidden;
-}
-
-.axisLabelText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--color-muted-strong);
+  cursor: pointer;
 }
 
 .badge {
   composes: unusedBadge from "../ui/unusedBadge.module.css";
 }
 
-.axisValue {
-  min-width: 2rem;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+/* 軸の詳細（凡例チップ・チップ行のどちらから開いても同じ中身）。 */
+.detailHeading {
+  display: block;
   font-weight: 500;
 }
 
-/* 生値（例:「0.80回/km・約26回」）は行の2段目へ置き、右端で揃える。1段目へ並べると
-   単位（`件/(km・年)`等）の文字数ぶん列を占め、9軸ぶんがサイドバー幅に収まらず軸名が
-   省略される——単位を削るのは情報を落とすことなので、段を分けて幅の取り合いから外す。
-   得点より弱く見せる: 主たる指標は得点で、こちらは軸単体で判断するための補助。 */
-.axisRawValue {
-  grid-column: 2 / -1;
-  text-align: right;
-  margin-top: -3px;
+.detailScore {
+  display: block;
+  margin-top: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.detailValue {
+  display: block;
   color: var(--color-muted-strong);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+}
+
+.detailDescription {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--color-muted);
 }
 
 /* 軸ごとの色ドット・説明の(i)ボタン・そのポップオーバー。「重み配分」の凡例
@@ -117,31 +114,16 @@
   composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
 
-/* 材料まで分解した内訳。説明文の続きとして1段落ぶん空けて置く。 */
-.infoBreakdown {
-  display: block;
-  margin-top: var(--space-2);
-  color: var(--color-muted);
-}
-
-/* 重み0の軸をまとめる開閉行。グリッドの1行を丸ごと使う（`display: contents`のままだと
-   ボタンが1列目だけに入り、他の軸の色ドット列の幅で潰れる）。開いた後の軸行は同じ
-   グリッドの中に並ぶため、列は使用中の軸と揃ったままになる。 */
-.unusedGroupRow {
-  display: contents;
-}
-
+/* 重み0の軸をまとめる開閉ボタン（チップ行の中に他のチップと並ぶ）。 */
 .unusedToggle {
-  grid-column: 1 / -1;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  margin-top: var(--space-1);
   padding: 0;
   border: none;
   background: transparent;
   color: var(--color-muted-strong);
-  font-size: var(--font-size-sm);
+  font: inherit;
   cursor: pointer;
 }
 

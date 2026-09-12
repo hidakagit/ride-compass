@@ -29,62 +29,65 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
   };
 }
 
-/** 軸の行だけを取る（重み0の軸をまとめる開閉行は同じ<ul>の中にあるため除く）。 */
-function axisRows() {
-  return within(screen.getByRole("list", { name: "軸別難易度" }))
-    .getAllByRole("listitem")
-    .filter((item) => item.hasAttribute("data-unused"));
+/** 寄与が出ていない軸のチップ行（重み0の開閉ボタンを含む）。 */
+function leftovers() {
+  return within(screen.getByRole("list", { name: "寄与が出ていない軸" })).getAllByRole("listitem");
 }
 
 describe("RouteAxisProfile", () => {
-  it("重みが入っている軸を軸カタログの並び順で一覧し、値が無い軸は「データなし」として残す", () => {
-    render(<RouteAxisProfile {...baseProps()} />);
+  it("軸を1行ずつ並べる一覧は持たず、寄与度の凡例チップが軸ごとの詳細の入口になる", async () => {
+    const user = userEvent.setup();
+    render(<RouteAxisProfile {...baseProps({ axisRawValues: { car_stress: 0.8 }, distanceKm: 32.5 })} />);
 
-    const items = axisRows();
-    expect(items.map((item) => item.textContent)).toEqual([
-      expect.stringContaining("車の圧迫感"),
-      expect.stringContaining("夜間"),
-    ]);
-    expect(items[0]).toHaveAttribute("data-unused", "false");
-    expect(items[0]).toHaveTextContent("72");
-    expect(items[1]).toHaveTextContent("6");
+    expect(screen.queryByRole("list", { name: "軸別難易度" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
+
+    // 重みを掛ける前の軸単体の難易度。チップの数字（重み付き寄与度36.2）とは別物。
+    expect(await screen.findByText("軸別難易度 72/100")).toBeInTheDocument();
+    // 0.8回/km × 32.5km ≒ 26回。得点だけでは「多いか少ないか」を判断できない。
+    expect(screen.getByText("0.8回/km・約26回")).toBeInTheDocument();
+    expect(screen.getByText("車の通行量の説明")).toBeInTheDocument();
   });
 
-  it("重み0の軸は既定で畳み、本数だけを残す（開くと軸カタログの並び順で現れる）", async () => {
+  it("重み0の軸は「未使用の軸 N本」へ畳み、開くと同じ詳細を開けるチップになる", async () => {
     const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps({ weights: { car_stress: 0.5, wind: 0, night: 0 } })} />);
+    render(<RouteAxisProfile {...baseProps()} />);
 
-    const toggle = screen.getByRole("button", { name: "未使用の軸 2本" });
+    const toggle = screen.getByRole("button", { name: "未使用の軸 1本" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(axisRows().map((item) => item.textContent)).toEqual([expect.stringContaining("車の圧迫感")]);
+    expect(screen.queryByRole("button", { name: "風の詳細を表示" })).not.toBeInTheDocument();
 
     await user.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    const items = axisRows();
-    expect(items.map((item) => item.textContent)).toEqual([
-      expect.stringContaining("車の圧迫感"),
-      expect.stringContaining("風"),
-      expect.stringContaining("夜間"),
-    ]);
-    expect(items[1]).toHaveAttribute("data-unused", "true");
-    expect(items[2]).toHaveAttribute("data-unused", "true");
+    await user.click(screen.getByRole("button", { name: "風の詳細を表示" }));
+    expect(await screen.findByText("風の影響の説明")).toBeInTheDocument();
   });
 
-  it("重みが全軸に入っていれば畳む行自体を出さない", () => {
+  it("重みが入っていても寄与が出ない軸は畳まず、「データなし」のチップとして残す", () => {
+    // 畳む条件は重みだけで決める——値が来ないのはユーザーの選択ではないため、
+    // 読みたい軸が黙って隠れないようにする。
     render(<RouteAxisProfile {...baseProps({ weights: { car_stress: 0.5, wind: 0.2, night: 0.5 } })} />);
 
     expect(screen.queryByRole("button", { name: /未使用の軸/ })).not.toBeInTheDocument();
-    expect(axisRows()).toHaveLength(3);
+    const items = leftovers();
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent("風");
+    expect(items[0]).toHaveTextContent("データなし");
   });
 
-  it("値が無いだけの軸は畳まない（畳む条件は重みだけで決める）", () => {
-    // 「データなし」はユーザーの選択ではないため、読みたい軸が黙って隠れることがない。
-    render(<RouteAxisProfile {...baseProps({ weights: { car_stress: 0.5, wind: 0.2, night: 0.5 }, axisDifficulties: {} })} />);
+  it("全軸に寄与が出ていればチップ行自体を出さない", () => {
+    render(
+      <RouteAxisProfile
+        {...baseProps({
+          weights: { car_stress: 0.5, wind: 0.2, night: 0.5 },
+          axisContributions: { car_stress: 36.2, wind: 10, night: 2.9 },
+        })}
+      />
+    );
 
-    expect(screen.queryByRole("button", { name: /未使用の軸/ })).not.toBeInTheDocument();
-    expect(axisRows()).toHaveLength(3);
-    expect(axisRows()[0]).toHaveTextContent("データなし");
+    expect(screen.queryByRole("list", { name: "寄与が出ていない軸" })).not.toBeInTheDocument();
   });
 
   it("地図の色分け（レンズ）を選ぶボタンを持たない（入口は地図上の凡例ピルだけ）", () => {
@@ -93,14 +96,14 @@ describe("RouteAxisProfile", () => {
     expect(screen.queryByRole("button", { name: /で地図を色分け/ })).not.toBeInTheDocument();
   });
 
-  it("axisContributionsが空のときは内訳セクションだけ案内文を表示し、軸一覧は残る", () => {
+  it("axisContributionsが空のときは内訳セクションだけ案内文を表示し、軸のチップは残る", () => {
     render(<RouteAxisProfile {...baseProps({ axisContributions: {} })} />);
 
     expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
-    expect(axisRows()).toHaveLength(2);
+    expect(leftovers().length).toBeGreaterThan(0);
   });
 
-  it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、内訳バーからは除外され軸一覧には残る", () => {
+  it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、内訳バーからは除外され畳んだ行に入る", () => {
     const { container } = render(
       <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 36.2, wind: 0, night: 2.9 } })} />
     );
@@ -140,15 +143,6 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByText("46")).toBeInTheDocument();
   });
 
-  it("各軸に(i)説明ポップオーバーが付き、クリックするとaxis.descriptionを表示する", async () => {
-    const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps()} />);
-
-    await user.click(screen.getByRole("button", { name: "車の圧迫感の説明を表示" }));
-
-    expect(await screen.findByText("車の通行量の説明")).toBeInTheDocument();
-  });
-
   it("総合難易度に説明ポップオーバーが付く", async () => {
     const user = userEvent.setup();
     render(<RouteAxisProfile {...baseProps()} />);
@@ -159,28 +153,18 @@ describe("RouteAxisProfile", () => {
   });
 });
 
-describe("軸単体で判断するための生値", () => {
-  it("単位が定まる軸は、得点の隣に生値と経路全体の実数を出す", () => {
-    render(
-      <RouteAxisProfile
-        {...baseProps({
-          axisRawValues: { car_stress: 0.8 },
-          distanceKm: 32.5,
-        })}
-      />,
-    );
-
-    // 0.8回/km × 32.5km ≒ 26回。得点だけでは「多いか少ないか」を判断できない。
-    expect(screen.getByText("0.8回/km・約26回")).toBeInTheDocument();
-  });
-
-  it("単位が定まらない軸には何も出さない（意味を取れない数字を並べない）", () => {
+describe("軸単体で判断するための物理量（詳細ポップオーバーの中身）", () => {
+  it("単位が定まらない軸には生値を出さない（意味を取れない数字を並べない）", async () => {
+    const user = userEvent.setup();
     render(<RouteAxisProfile {...baseProps({ axisRawValues: { night: 1.5 }, distanceKm: 30 })} />);
 
+    await user.click(screen.getByRole("button", { name: "夜間の詳細を表示" }));
+
+    expect(await screen.findByText("夜間の暗さの説明")).toBeInTheDocument();
     expect(screen.queryByText(/回\/km/)).not.toBeInTheDocument();
   });
 
-  it("材料まで分解した内訳は行に出さず、軸の説明ポップオーバーへ全件置く", async () => {
+  it("単位が定まらない軸は、材料まで分解した内訳を全件出す", async () => {
     // 真偽値材料の値は0/1で運ばれるため、距離加重平均がそのまま延長割合になる。
     const axes: PreferenceAxisDef[] = [
       {
@@ -209,17 +193,12 @@ describe("軸単体で判断するための生値", () => {
       />
     );
 
-    // パネルの行に出せる物理量は軸1本につき生値1つまで（設計原則「数値は3層で見せる」）。
-    const item = axisRows()[0];
-    expect(item).not.toHaveTextContent("街灯あり 68%");
-    expect(item).not.toHaveTextContent("制限速度 42km/h");
-
-    await userEvent.click(screen.getByRole("button", { name: "夜間の説明を表示" }));
+    await userEvent.click(screen.getByRole("button", { name: "夜間の詳細を表示" }));
 
     expect(screen.getByText("この軸の内訳: 街灯あり 68%・トンネル 2%・制限速度 42km/h")).toBeInTheDocument();
   });
 
-  it("単位が定まる軸は内訳ではなく従来どおり軸単位の生値を出す", () => {
+  it("単位が定まる軸は内訳ではなく軸単位の生値を出す", async () => {
     const axes: PreferenceAxisDef[] = [
       {
         axisId: "gradient",
@@ -243,7 +222,9 @@ describe("軸単体で判断するための生値", () => {
       />
     );
 
-    expect(axisRows()[0]).toHaveTextContent("3.2%");
+    await userEvent.click(screen.getByRole("button", { name: "勾配の詳細を表示" }));
+
+    expect(screen.getByText("3.2%")).toBeInTheDocument();
   });
 
   it("categorical材料は最も延長の長い値のラベルと割合を出す", async () => {
@@ -282,7 +263,7 @@ describe("軸単体で判断するための生値", () => {
       />
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の説明を表示" }));
+    await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
 
     expect(screen.getByText("この軸の内訳: 住宅街の道 62%・制限速度 42km/h")).toBeInTheDocument();
     // 2件目以降の値は出さない（どの値を束ねるかの判断表をフロントが持たないため）。
@@ -316,7 +297,7 @@ describe("軸単体で判断するための生値", () => {
       />
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の説明を表示" }));
+    await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
 
     expect(screen.getByText("この軸の内訳: 制限速度 42km/h")).toBeInTheDocument();
     expect(screen.queryByText(/道路種別/)).not.toBeInTheDocument();
