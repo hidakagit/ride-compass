@@ -999,3 +999,26 @@ async def test_generate_destination_routes_still_pins_the_shortest_when_two_are_
 
     assert [c.distance_km for c in candidates] == [18.0, 22.0]
     assert candidates[0].is_shortest_distance is True
+
+
+async def test_evaluate_loops_returning_a_different_count_is_rejected():
+    # 戦略層は`TracedLoop.data`の中身を知らないため、候補とtracedを位置で対応づける。
+    # 件数がずれると位置指定が別の候補を指し、最短経路の印が静かに入れ替わる。
+    class MiscountingEngine(DestinationSegmentedFakeEngine):
+        async def evaluate_loops(self, context, traced, start_time):
+            candidates = await super().evaluate_loops(context, traced, start_time)
+            return candidates[:-1]  # 1本落とす
+
+    engine = MiscountingEngine(
+        via_node_traced=[
+            TracedLoop(bearing=None, distance_km=22.0, data="easy"),
+            TracedLoop(bearing=None, distance_km=25.0, data="hard"),
+        ],
+        segments_by_data={"easy": [make_segment(22.0, 10.0)], "hard": [make_segment(25.0, 70.0)]},
+    )
+    generator = RouteGenerator(engine)
+
+    with pytest.raises(RoutingError, match="evaluate_loopsの戻り値が入力と対応していません"):
+        await generator.generate_via_waypoints(
+            ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=3
+        )
