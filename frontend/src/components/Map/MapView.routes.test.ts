@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RouteCandidate } from "@/types/route";
 import {
   OUTLINE_LAYER_ID,
+  computeRouteFitPadding,
   ROUTE_ARROW_HALO_LAYER_ID,
   ROUTE_ARROW_LAYER_ID,
   ROUTES_LAYER_ID,
@@ -316,5 +317,34 @@ describe("applyRouteLayerVisibility（「ルート」チップの表示切替を
 
     expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
     expect(layoutValue(map, OUTLINE_LAYER_ID, "visibility")).toBe("visible");
+  });
+});
+
+describe("computeRouteFitPadding", () => {
+  const canvas = { width: 390, height: 812 };
+
+  it("覆いが無ければ全辺が基本余白のまま", () => {
+    expect(computeRouteFitPadding(undefined, canvas)).toEqual({ top: 40, bottom: 40, left: 40, right: 40 });
+  });
+
+  it("覆われている高さが該当する辺の余白へ足される", () => {
+    // モバイルの下部タブバー(56px)＋シート50vh(406px)に覆われている想定
+    expect(computeRouteFitPadding({ bottom: 462 }, canvas)).toEqual({ top: 40, bottom: 502, left: 40, right: 40 });
+  });
+
+  it("対向する2辺が地図の高さを食い尽くす場合は可視領域が残るまで縮める", () => {
+    // 覆い800px + 基本余白40px*2 = 880pxは高さ812pxを超える
+    const padding = computeRouteFitPadding({ bottom: 800 }, canvas);
+
+    expect(padding.top + padding.bottom).toBeCloseTo(812 - 80);
+    // 縮めても上下の比率（40 : 840）は保つ
+    expect(padding.bottom / padding.top).toBeCloseTo(840 / 40);
+  });
+
+  it("横方向も同じ規則で縮める", () => {
+    const padding = computeRouteFitPadding({ left: 400, right: 400 }, canvas);
+
+    expect(padding.left + padding.right).toBeCloseTo(390 - 80);
+    expect(padding.left).toBeCloseTo(padding.right);
   });
 });
