@@ -382,10 +382,10 @@ def looks_like_identifier(token: str) -> bool:
 # 断りを入れれば通る＝「もう無いものを名指しするなら、無いと同じ行に書く」という
 # 編集上の規則そのもので、読み手にとっても有用。
 ARCHITECTURE_DOC = "docs/architecture.md"
-ARCHITECTURE_REMOVED_MARKER_RE = re.compile(
-    r"撤去|削除|廃止|統合|改称|改名|移行|置き換え|置換|旧|かつて|当時|やめ|無くな|消滅"
-    r"|に変更|へ変更|再編|切り出|分離|時点で"
-)
+# 「この名前はもう無い」と明示的に断っている語だけを免除の根拠にする。判定の単位が段落で
+# ある以上、語彙が広いほど段落1つぶんがまとめて対象外になる——「統合」「移行」「分離」の
+# ような設計変更を述べるだけの語まで入れると、現役の名前を語る段落まで免除される。
+ARCHITECTURE_REMOVED_MARKER_RE = re.compile(r"撤去|削除済|廃止|かつて|旧")
 # リポジトリのファイルではないもの。外部APIのパス（気象庁の`targetTimes.json`等）と、
 # 他プロジェクトのファイル名を引用している箇所は実在判定の対象外。
 ARCHITECTURE_EXTERNAL_REFS = frozenset({
@@ -431,12 +431,38 @@ def find_undeclared_dead_refs(
             for no, line in lines
             if not ARCHITECTURE_REMOVED_MARKER_RE.search(line) and no not in marked
         ]
+    return _dead_refs_of(filtered, files, corpus)
+
+
+def _dead_refs_of(
+    doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str
+) -> list[str]:
     out = [
-        v for v in find_dead_file_refs(filtered, files)
+        v for v in find_dead_file_refs(doc_lines, files)
         if not any(f"`{ext}`" in v for ext in ARCHITECTURE_EXTERNAL_REFS)
     ]
-    out.extend(find_dead_identifier_refs(filtered, corpus))
+    out.extend(find_dead_identifier_refs(doc_lines, corpus))
     return sorted(out)
+
+
+def find_dead_refs_inside_exempted_paragraphs(
+    doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str
+) -> list[str]:
+    """免除した段落の中に残っている、実在しない名前。
+
+    段落単位の免除は「その段落のどこかに撤去の断りがある」だけを見ており、
+    **その名前が断られているか**は見ていない。免除した中身を黙って捨てると、
+    検知器の0件が「死んだ参照が無い」と読まれる。常に参考として出す。
+    """
+    inside = {}
+    for doc, lines in doc_lines.items():
+        marked = paragraphs_with_removal_marker(doc)
+        inside[doc] = [
+            (no, line)
+            for no, line in lines
+            if no in marked and not ARCHITECTURE_REMOVED_MARKER_RE.search(line)
+        ]
+    return _dead_refs_of(inside, files, corpus)
 
 
 def source_corpus(files: list[str]) -> str:
@@ -759,7 +785,11 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "source_narrative": frozenset({"staged", "since"}),
     "redis_skeleton": frozenset({"staged", "since", "full"}),
     "bare_basemodel": frozenset({"staged", "since", "full"}),
-    "undeclared_dead_refs": frozenset({"staged", "since", "full"}),
+    # 既存分の一掃（T739）が終わるまで、全件スキャンでは参考表示に留める
+    # （source_narrativeと同じ扱い）。新規分は--staged/--sinceが止める。
+    "undeclared_dead_refs": frozenset({"staged", "since"}),
+    # 免除した段落の中身は常に参考表示（0件で黙らないためのもので、ブロックはしない）。
+    "undeclared_dead_refs_exempted": frozenset(),
     "undocumented_files": frozenset({"staged", "since", "full"}),
     "plan_vs_tasks": frozenset({"staged", "since", "full"}),
     "dead_doc_links": frozenset({"staged", "since", "full"}),
@@ -809,6 +839,10 @@ def cmd_docs(args: argparse.Namespace) -> int:
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
         sections.append(("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
                          find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added))))
+        sections.append((
+            "undeclared_dead_refs_exempted",
+            "architecture.md の免除した段落の中に残る実在しない名前（参考、ステージ済み追加行）",
+            find_dead_refs_inside_exempted_paragraphs(arch_lines, files + added, source_corpus(files + added))))
         sections.append(("undocumented_files", "新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
                          find_undocumented_files(added, modules_text, files + added)))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
@@ -840,11 +874,15 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 "source_narrative",
                 f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/comments.md参照）",
                 find_source_narrative_violations(source_lines)))
+            arch_since = diff_added_lines(ARCHITECTURE_DOC, args.since)
             sections.append((
                 "undeclared_dead_refs",
                 f"architecture.md が撤去済みの名前を断りなく名指し（{args.since} 以降の追加行）",
-                find_undeclared_dead_refs(
-                    diff_added_lines(ARCHITECTURE_DOC, args.since), files, source_corpus(files))))
+                find_undeclared_dead_refs(arch_since, files, source_corpus(files))))
+            sections.append((
+                "undeclared_dead_refs_exempted",
+                f"architecture.md の免除した段落の中に残る実在しない名前（参考、{args.since} 以降の追加行）",
+                find_dead_refs_inside_exempted_paragraphs(arch_since, files, source_corpus(files))))
         else:
             added = files
             title = "実装ファイルの docs/modules 記載漏れ（全件）"
@@ -856,12 +894,15 @@ def cmd_docs(args: argparse.Namespace) -> int:
             source_lines = all_source_lines
             sections.append(("source_narrative", "ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
                              find_source_narrative_violations(all_source_lines)))
+            arch_all = {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))}
             sections.append((
                 "undeclared_dead_refs",
                 "architecture.md が撤去済みの名前を断りなく名指し（参考、全件。新規分の強制は--staged/--since参照）",
-                find_undeclared_dead_refs(
-                    {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))},
-                    files, source_corpus(files))))
+                find_undeclared_dead_refs(arch_all, files, source_corpus(files))))
+            sections.append((
+                "undeclared_dead_refs_exempted",
+                "architecture.md の免除した段落の中に残る実在しない名前（参考、全件）",
+                find_dead_refs_inside_exempted_paragraphs(arch_all, files, source_corpus(files))))
         sections.append(("undocumented_files", title, find_undocumented_files(added, modules_text, files)))
         sections.append(("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
                          find_redis_skeleton_violations(source_lines)))

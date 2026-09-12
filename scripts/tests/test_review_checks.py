@@ -547,3 +547,33 @@ def test_unfiled_deferrals_stops_the_section_at_the_next_heading(tmp_path, monke
         "# T900\n\n## 派生\n\n- あとで直す。\n\n## 検証結果\n\nT901のテストで確認した。\n")
 
     assert len(review_checks.find_unfiled_deferrals(None)) == 1
+
+
+# --- 免除した段落の中身を参考として出す ---
+
+
+def _arch_doc(tmp_path, monkeypatch, text: str):
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "architecture.md").write_text(text, encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    return {"docs/architecture.md": list(enumerate(text.splitlines(), 1))}
+
+
+def test_exempted_paragraph_still_reports_its_dead_names_as_reference(tmp_path, monkeypatch):
+    # 段落単位の免除は「その段落のどこかに撤去の断りがあるか」しか見ていない。
+    # 別の名前について撤去を断っている段落の中で、実在しない名前を現在形で語れる。
+    doc = _arch_doc(
+        tmp_path, monkeypatch,
+        "`zzzGoneThing`は撤去済み。\n絞り込みは`zzzStillNamedThing`のみが担う。\n")
+
+    assert review_checks.find_undeclared_dead_refs(doc, [], "") == []
+    exempted = review_checks.find_dead_refs_inside_exempted_paragraphs(doc, [], "")
+    assert len(exempted) == 1
+    assert "zzzStillNamedThing" in exempted[0]
+
+
+def test_design_change_words_alone_do_not_exempt_a_paragraph(tmp_path, monkeypatch):
+    # 「統合」「移行」「分離」は設計変更を述べるだけで、その名前が無くなったとは言っていない。
+    doc = _arch_doc(tmp_path, monkeypatch, "car_stressへ統合した。`zzzStillNamedThing`が値を組み立てる。\n")
+
+    assert len(review_checks.find_undeclared_dead_refs(doc, [], "")) == 1
