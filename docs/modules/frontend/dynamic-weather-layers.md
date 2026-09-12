@@ -75,6 +75,10 @@ backendの`GET /api/jma-tile-index`（[気象・動的レイヤー](../backend/w
 タイル要求を横取りする。「空だと確認済み」のタイルはネットワークへ出さず、透明PNG
 （ベクタは0バイトのMVT）を返す。
 
+**この空PNGは1x1で、MapLibreが`tileSize`ぶんへ引き伸ばす。不透明な画素が1つでも入ると
+タイル全面がその色で塗られ、空タイルは全ズーム・全座標で返るため地図全体が塗り潰される。**
+`jmaTileProtocol.test.ts`が画素を復号して不透明度0を検査する。
+
 そのためJMAタイルのURLは`jmatile://`スキームを付けた形でソースへ渡す
 （`MapView.tsx: setTilesIfChanged`と初期化時のプレースホルダの2箇所で付与）。
 
