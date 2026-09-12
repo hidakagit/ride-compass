@@ -1496,7 +1496,7 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   ベースの値をそのまま計算した後方互換値）へ変換した。`useAxisCatalog.ts`が
   マウント時の`GET /api/axis-catalog`取得結果からこれらを`useMemo`で算出し、
   取得完了/失敗時は静的フォールバックを返す（`useMaterialCatalog.ts`と同型のパターン、
-  T269の踏襲）。`page.tsx`/`MapView.tsx`/`MapLayersPanel.tsx`/`MapOverlayControls.tsx`は
+  T269の踏襲）。`page.tsx`/`MapView.tsx`/`MapOverlayControls.tsx`は
   これらをpropとして受け取るよう変更（`MapView.tsx`はマップ初期化useEffectが一度しか
   走らない制約のため、`redrawPropsRef`/`interactiveLayerIdsRef`という「refで最新値を
   参照するクロージャ」パターンで対応）。これにより、軸スタジオで新規公開した軸が
@@ -1600,8 +1600,7 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
 
 - 判定・除外は1箇所に集約: `secondaryAxes.ts: secondaryAxesFromCatalogAxes()`の
   フィルタへ`axis.show_map_icon !== false`を足すだけで、`show_map_icon=false`の軸は
-  地図上チップ（`MapOverlayControls.tsx`）・地図の見え方パネル（`MapLayersPanel.tsx`）
-  の両方から丸ごと除外される。専用レイヤーの有無（`display.kind`）に関わらず一律に効く
+  地図上チップ（`MapOverlayControls.tsx`）から丸ごと除外される。専用レイヤーの有無（`display.kind`）に関わらず一律に効く
   ため、kind別の分岐を新設する必要が無い。
 - `show_map_icon=true`のまま専用レイヤーを持たない軸（例: gradient）は、以前は
   無効化タイルのツールチップ・展開パネルに`proxy_hint`の文言を出していたが、その表示は

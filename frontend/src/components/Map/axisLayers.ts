@@ -62,7 +62,7 @@ export interface RampAxis {
   thresholds: readonly number[];
   unit: string;
   note: string;
-  /** 改善計画T310: 地図の見え方パネル向けの噛み砕いた説明文（軸自身のデータ）。
+  /** 地図上のレイヤー一覧向けの噛み砕いた説明文（軸自身のデータ）。
    * 未設定はnote（開発者向け実装メモ）へフォールバック（mapLayers.ts参照）。 */
   panelHint?: string;
   /** 改善計画T310: 地図チップのアイコン（axisIconPalette.tsxのicon_id）。未設定は
@@ -70,7 +70,7 @@ export interface RampAxis {
   iconId?: string;
   /** 改善計画: 地図チップの略名（4文字以下、確定命名表どおり、CatalogAxis.chip_label由来）。
    * 未設定はlabel（正式名）へフォールバック（mapLayers.ts参照）。以前はこのフィールド自体が
-   * 無く、ramp軸駆動の地図チップ（推定グループの軸タイル・地図の見え方パネル双方）が
+   * 無く、ramp軸駆動の地図チップ（推定グループの軸タイル）が
    * 常にlabelへフォールバックし続けていた（実機フィードバック「推定軸のアイコングループも
    * 観測アイコングループのようなサイズにして、他と同じく4文字略字までアイコン含めたい」で
    * 発覚、2026-08-27）。 */
@@ -149,8 +149,8 @@ export interface CatalogAxis {
   icon_id?: string | null;
   chip_label?: string | null;
   panel_hint?: string | null;
-  // 改善計画T318: falseならこの軸を地図上チップ・地図の見え方パネルの両方から丸ごと
-  // 除外する（secondaryAxes.ts: secondaryAxesFromCatalogAxes()参照）。未設定は
+  // falseならこの軸を地図上チップから丸ごと除外する
+  // （secondaryAxes.ts: secondaryAxesFromCatalogAxes()参照）。未設定は
   // 「表示する」（true相当）として扱う——ビルド時静的json（axis-catalog.json）は
   // backendが必ずtrue/falseを返すため実質常に値を持つが、型上はoptionalにしておく。
   show_map_icon?: boolean;

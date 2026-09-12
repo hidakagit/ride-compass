@@ -56,7 +56,7 @@ export interface PreferenceAxisDef {
 
 
 // 重み一覧は公開軸すべてを対象にする。並び順はSECONDARY_AXES（secondaryAxes.ts、
-// 地図チップ・地図の見え方パネルの推定グループが共有する単一ソース）をそのままなぞり、
+// 地図チップの推定グループが共有する単一ソース）をそのままなぞり、
 // 「この重みは地図のどの軸に対応するか」が名前と並びだけで分かるようにする（片側import）。
 //
 // SECONDARY_AXESは地図チップに出す軸だけへ絞り込まれている（show_map_icon=false の軸が

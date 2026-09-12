@@ -16,7 +16,7 @@ interface BottomSheetProps {
    * 「ルート結果」シートのrenderRouteResultHeaderActions参照）。 */
   headerAction?: React.ReactNode;
   children: React.ReactNode;
-  /** シートの高さ（vh）。「ルートを作る」「地図の見え方」の2シートは排他表示のため、
+  /** シートの高さ（vh）。シートは排他表示のため、
    * 呼び出し側（page.tsx）が1つの値を共有して持ち、どちらを開いても直前の高さを保つ。 */
   heightVh: number;
   /** ドラッグ・キー操作の途中も含めて随時呼ばれる（見た目の即時反映用）。 */

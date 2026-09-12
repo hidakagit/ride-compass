@@ -200,19 +200,10 @@ export interface MapLayerDescriptor {
   dataNature?: MapLayerDataNature;
   /** ONにすると何が表示されるかの短い説明（チップのtitleに使う） */
   description: string;
-  /** サイドバー設定パネル（MapLayersPanel）のセクション本文に出す説明文。descriptionより
-   * 詳しい判定基準・注意点を書く場所（UI語彙のカタログ集約）。未指定の
-   * レイヤー（道路情報・ルート等）はパネル側が独自の特殊なJSXを持つ。 */
+  /** 地図上チップ（MapOverlayControls）の「表示する項目を選ぶ」パネルで、項目の情報
+   * アイコンから出す説明文。descriptionより詳しい判定基準・注意点を書く場所
+   * （UI語彙のカタログ集約）。 */
   panelHint?: string;
-  /** MapLayersPanel（サイドバー「地図の見え方」パネル）の一覧から、このレイヤーを
-   * 除外するか。既定false（掲載する）。dataNature="dynamic"（帯単位の絞り込み機能を
-   * 持たない）と同じ理由——ON/OFFの単純な切替しか提供せず、絞り込み・凡例等サイドバー
-   * 掲載の価値が無い場合に立てる。elevation（標高図、ラスタタイル）が実例——地図上チップ
-   * （MapOverlayControls）のON/OFFで用途は完結しており、そちらだけを唯一の入口とする。
-   * dataNature自体を再利用しない理由: dataNatureは「データの性質」（生/合成/時々刻々
-   * 変わる）を表す別概念のフィールドで、elevationは静的なラスタタイルのため"dynamic"に
-   * 当てはめると意味が食い違う。 */
-  hideFromLayersPanel?: boolean;
 }
 
 // ramp軸のpanelHintは軸自身のデータ（axis.panelHint、AXIS_DEFINITIONS.panel_hint）から
@@ -221,8 +212,7 @@ export interface MapLayerDescriptor {
 
 // ramp軸部分はbuildMapLayers(rampAxes)として関数化してあり、hooks/useAxisCatalog.tsが
 // 実行時に取得したrampAxes（軸スタジオの公開軸を含む）から呼べる。テスト
-// （axisLayers.test.ts、MapLayersPanel.test.tsx）からはbuildMapLayers(RAMP_AXES)として
-// 直接呼べる。
+// （axisLayers.test.ts）からはbuildMapLayers(RAMP_AXES)として直接呼べる。
 export function buildMapLayers(
   rampAxes: readonly RampAxis[],
   dedicatedAxes: readonly DedicatedWayValueAxis[],
@@ -235,12 +225,8 @@ export function buildMapLayers(
     kind: "static",
     category: "terrain",
     description: "国土地理院の色別標高図を重ねる",
+    // ラスタタイルのため他レイヤーのような凡例ベースの絞り込みを持たず、操作はON/OFFだけ。
     panelHint: "国土地理院の色別標高図を重ねる",
-    // ラスタタイルのため他レイヤーのような凡例ベースの絞り込みができず、
-    // MapLayersPanel.tsxのrenderSectionBody（case "elevation"）も説明文のみで設定項目を
-    // 一切持たない。ON/OFF自体は地図上チップ（MapOverlayControls）側で完結しているため、
-    // サイドバー「地図の見え方」パネルへ重複掲載する意味が無い。
-    hideFromLayersPanel: true,
   },
   {
     // 「道路の種類」「路面の種類」は一次属性1つ=1レイヤーの原則に合わせた論理2レイヤー。

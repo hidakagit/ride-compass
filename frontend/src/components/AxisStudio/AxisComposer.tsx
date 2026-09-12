@@ -1228,7 +1228,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
         <div className={styles.shapeGroup}>
           <SectionLabel
             label="地図チップ表示要素(任意)"
-            description="いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、地図の見え方パネルの説明は説明(description)がそれぞれ代わりに使われる）。"
+            description="いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、レイヤー一覧の説明は説明(description)がそれぞれ代わりに使われる）。"
           />
           <label className={styles.inlineCheckbox}>
             <Checkbox
@@ -1236,7 +1236,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
               onCheckedChange={(next) => setDraft((d) => ({ ...d, showMapIcon: next }))}
               aria-label="地図上にアイコンを表示する(show_map_icon)"
             />
-            地図上にアイコンを表示する(show_map_icon)（オフにすると地図上チップ・地図の見え方パネルのどちらにもこの軸が現れなくなります）
+            地図上にアイコンを表示する(show_map_icon)（オフにすると地図上チップにこの軸が現れなくなります）
           </label>
           <div className={styles.field}>
             <FieldLabel label="アイコン(icon_id)" description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。" />
@@ -1273,7 +1273,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           </div>
 
           <label className={styles.fieldFull}>
-            地図の見え方パネル向け説明文(panel_hint)
+            地図のレイヤー一覧向け説明文(panel_hint)
             <textarea
               value={draft.panelHint}
               onChange={(e) => setDraft((d) => ({ ...d, panelHint: e.target.value }))}

@@ -25,7 +25,7 @@ import {
   type MapOverlayGroup,
 } from "@/components/Map/mapLayers";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
-import WidthSwatch from "@/components/MapLayersPanel/WidthSwatch";
+import WidthSwatch from "@/components/Map/WidthSwatch";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import {
@@ -236,7 +236,7 @@ interface PanelRect {
 // 例:「道路の種類」）は、実寸の太さバーで示す（WidthSwatch.tsxと同じ理由）。バー自体も
 // entry.colorで塗る（道路の種類も濃淡パレット（COLOR_HIGHWAY_*）を持つため、凡例と
 // 地図の見た目を一致させる。路面の種類等widthを持たないカテゴリは色ドット）。
-// WidthSwatch（MapLayersPanel）をそのまま使うことで、拡大率（WidthSwatch.tsx:
+// WidthSwatchをそのまま使うことで、拡大率（WidthSwatch.tsx:
 // DISPLAY_SCALE）を含め太さバーの描画を1箇所に集約する。
 function renderLegendSwatch(entry: LegendEntry) {
   if (entry.width === undefined) {

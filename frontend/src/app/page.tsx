@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
-import { Card } from "@/components/ui/Card/Card";
 import { Button } from "@/components/ui/Button/Button";
 import MapView, { type RouteFitObscuredPx } from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
@@ -12,16 +11,15 @@ import {
   ClearAllLayersIcon,
   ClearRoutesIcon,
   DownloadIcon,
-  MapAppearanceIcon,
+  RedrawMapIcon,
+  RouteEditIcon,
   RouteIcon,
   RouteSettingsIcon,
   SaveIcon,
 } from "@/components/Map/icons";
-import MapLayersPanel from "@/components/MapLayersPanel/MapLayersPanel";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
   buildMapLayers,
-  buildRoadSurfaceSharedLayerIds,
   deriveFetchLayerStatus,
   isAxisStudioLayer,
   type LayerDataStatus,
@@ -175,7 +173,8 @@ const LEGEND_FILTER_DEBOUNCE_MS = 400;
 const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
 const LENS_KEEP_AFTER_ROUTE_STORAGE_KEY = "ridecompass:lens-keep-after-route";
 
-// 「地図の見え方」（系統B）の設定はすべてlocalStorageへ保存し、リロード後も復元する。
+// 地図の見え方（系統B、レイヤーのON/OFF・絞り込み・レンズ）の設定はすべてlocalStorageへ
+// 保存し、リロード後も復元する。
 // 生成条件（系統A）のうち、ルート設定パネルが操作する評価の設定（重み・0次除外）も
 // 保存する——同じパネルで並んでいる設定の片方だけが消えると、利用者は何が残るか予測
 // できない。毎回初期化するのは「その場で決まる」出発地点・距離だけにする。
@@ -189,9 +188,9 @@ const ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY = "ridecompass:route-layer-meanin
 const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
-const MAP_SETTINGS_OPEN_STORAGE_KEY = "ridecompass:map-settings-open";
-// モバイル下部シート（「ルートを作る」/「地図の見え方」）の高さ。2シートは排他表示のため
-// 1つの値を共有する（BottomSheetのheightVh props参照）。
+const ROUTE_EDIT_OPEN_STORAGE_KEY = "ridecompass:route-edit-open";
+// モバイル下部シートの高さ。シートは排他表示のため1つの値を共有する
+// （BottomSheetのheightVh props参照）。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
 // ルート設定（系統A、RouteSettingsPanelが操作する評価の設定）。
 const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled";
@@ -327,17 +326,17 @@ const DISASTER_LEGEND_DETAILS_BASE: readonly LegendFilterSummaryAxis[] = [
 // ROUTE_SETTINGS_SHEET_TITLE_ID/ROUTE_OUTCOME_SHEET_TITLE_IDを別途持つ）。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 const OUTCOME_SECTION_TITLE_ID = "outcome-section-title";
-const MAP_SETTINGS_SECTION_TITLE_ID = "map-settings-section-title";
+const ROUTE_EDIT_SECTION_TITLE_ID = "route-edit-section-title";
 // 候補タブ列のvalue体系: 候補はroute id、比較は"comparison"、先頭固定の「保存済み」は
 // SAVED_ROUTES_TAB_VALUE（保存機能の実装まではタブ自体を描画しない）。
 const SAVED_ROUTES_TAB_VALUE = "saved";
-// モバイルの「地図の見え方」シート見出しのDOM id。
-const MAP_SETTINGS_SHEET_TITLE_ID = "map-settings-sheet-title";
+// モバイルの「ルート編集」シート見出しのDOM id。
+const ROUTE_EDIT_SHEET_TITLE_ID = "route-edit-sheet-title";
 // モバイルの「ルート設定」「ルート結果」シート見出しのDOM id。
 const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
 const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
-type MobileSheet = "routeSettings" | "routeOutcome" | "map" | null;
+type MobileSheet = "routeSettings" | "routeOutcome" | "routeEdit" | null;
 
 export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
@@ -695,10 +694,10 @@ export default function Home() {
   // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない。
   const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
   const [outcomeOpen, setOutcomeOpen] = useStoredBooleanState(OUTCOME_OPEN_STORAGE_KEY, true);
-  const [mapSettingsOpen, setMapSettingsOpen] = useStoredBooleanState(MAP_SETTINGS_OPEN_STORAGE_KEY, true);
+  const [routeEditOpen, setRouteEditOpen] = useStoredBooleanState(ROUTE_EDIT_OPEN_STORAGE_KEY, true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  // モバイルで開いている下部シート（「ルートを作る」/「地図の見え方」の排他表示、または
-  // どちらも閉じたnull＝地図全面表示）。デスクトップでは使わない。
+  // モバイルで開いている下部シート（排他表示、またはどれも閉じたnull＝地図全面表示）。
+  // デスクトップでは使わない。
   const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
   // ドラッグ中は毎フレームstateだけ更新し（見た目の即時反映）、保存はドラッグ確定時の
   // commitMobileSheetHeightのみで行う（毎フレーム書き込みを避けるためautoSave: false）。
@@ -844,25 +843,13 @@ export default function Home() {
     },
     [setHiddenLegendKeysByMode],
   );
-  // 道路情報・道路情報以外の絞り込み可能レイヤーの「すべて表示/すべて隠す」一括操作
-  // （1軸分の非表示キー全体の置き換え）。個別チェックはtoggleHiddenLegendKeyをそのまま使う
-  // （絞り込みは即時反映。レイヤーの自動ONはMapLayersPanel側が担う）。実装
-  // （setHiddenLegendKeysByModeの更新ロジック）自体はこの1箇所へまとめ、呼び出し側の型
-  // （RoadFilterAxisId/StaticFilterAxisId）だけを分けたラッパーを2つ持つことで、実装の
-  // 重複を無くしつつ誤った軸idの取り違えを防ぐ型安全性は維持する。
+  // 凡例カテゴリの「すべて表示/すべて隠す」一括操作（1軸分の非表示キー全体の置き換え）。
+  // 個別チェックはtoggleHiddenLegendKeyをそのまま使う（絞り込みは即時反映）。
   const setHiddenLegendKeysForAxis = useCallback(
     (axisId: string, hiddenKeys: string[]) => {
       setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
     },
     [setHiddenLegendKeysByMode],
-  );
-  const handleRoadAxisSetHidden = useCallback(
-    (axisId: RoadFilterAxisId, hiddenKeys: string[]) => setHiddenLegendKeysForAxis(axisId, hiddenKeys),
-    [setHiddenLegendKeysForAxis],
-  );
-  const handleStaticFilterAxisSetHidden = useCallback(
-    (axisId: StaticFilterAxisId, hiddenKeys: string[]) => setHiddenLegendKeysForAxis(axisId, hiddenKeys),
-    [setHiddenLegendKeysForAxis],
   );
   const handleRouteLegendToggle = useCallback(
     (key: string) => toggleHiddenLegendKey(lens, key),
@@ -901,10 +888,6 @@ export default function Home() {
   // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
   const mapLayers = useMemo(
     () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes),
-    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes]
-  );
-  const roadSurfaceSharedLayerIds = useMemo(
-    () => buildRoadSurfaceSharedLayerIds(axisCatalog.rampAxes, axisCatalog.dedicatedAxes),
     [axisCatalog.rampAxes, axisCatalog.dedicatedAxes]
   );
 
@@ -1130,9 +1113,7 @@ export default function Home() {
           : (staticFilterSummaries[layer.id]?.summary ?? null);
         const legendDetails =
           legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails;
-        // 動的グループ（降水ナウキャスト・風・雷・竜巻）は絞り込み機能を持たないため
-        // 「地図の見え方」パネルの行自体を持たない（MapLayersPanel.tsx参照）。地図上チップの
-        // ▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
+        // 地図上チップの▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
         // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
         // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
         // （panelHintは推定/観測/動的の全メンバーへ渡すが、常時表示にはしない）。
@@ -1191,7 +1172,7 @@ export default function Home() {
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
   const handleMobileTabClick = useCallback(
-    (sheet: "routeSettings" | "routeOutcome" | "map") => {
+    (sheet: Exclude<MobileSheet, null>) => {
       setMobileSheet((prev) => (prev === sheet ? null : sheet));
       // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
       if (sheet === "routeOutcome") setHasUnseenResults(false);
@@ -1829,35 +1810,6 @@ export default function Home() {
           </div>
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
-              {/* 区間の乗り換え（docs/tasks/T621.md）。対象は目的地ルートのみ——周回は
-                  起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。
-                  条件は**表示中の候補を作った生成**で見る。いまの目的地ピンで見ると、
-                  周回モードへ切り替えた後もピンが残っている間は操作面が出てしまい、
-                  合成リクエストがdestination無しになって弾かれる。 */}
-              {generatedConditions?.input.destination &&
-                route.id === selectedRouteId &&
-                routes.length > 1 && (
-                <RouteSplicePanel
-                  displayed={route}
-                  targets={routes.filter((other) => other.id !== route.id)}
-                  targetId={spliceTargetId}
-                  onSelectTarget={(id) => {
-                    setSpliceTargetId(id);
-                    setSpliceTakenIndexes([]);
-                  }}
-                  stretches={spliceStretches}
-                  takenIndexes={spliceTakenIndexes}
-                  onToggleStretch={(index) =>
-                    setSpliceTakenIndexes((current) =>
-                      current.includes(index)
-                        ? current.filter((value) => value !== index)
-                        : [...current, index],
-                    )
-                  }
-                  onApply={handleApplySplice}
-                  applying={splicing}
-                />
-              )}
               {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
                   内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳（AxisContributionBar、
                   ルート全体の内訳と同じ表示部品）を表示する。地図側のDETAIL_LAYER_ID/
@@ -1943,38 +1895,41 @@ export default function Home() {
     );
   }
 
-  // 「地図の見え方」の中身。地図インスタンス（refreshToken）に紐づく「地図の表示を
-  // 再描画」ボタンをここに置く（デバッグログ切替はヘッダーのアイコンボタン、
-  // 下記header参照）。
-  function renderMapSettingsSectionBody() {
+  // 「ルート編集」の中身。生成結果から派生して新しいルートを作る操作だけを置く
+  // （見るのはルート結果パネル、docs/tasks/T769.md）。対象は目的地ルートのみ——周回は
+  // 起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。条件は
+  // **表示中の候補を作った生成**で見る。いまの目的地ピンで見ると、周回モードへ切り替えた
+  // 後もピンが残っている間は操作面が出てしまい、合成リクエストがdestination無しになって
+  // 弾かれる。
+  function canSpliceDisplayedRoute(): boolean {
+    return Boolean(generatedConditions?.input.destination) && routes.length > 1 && selectedCandidate !== null;
+  }
+
+  function renderRouteEditSectionBody() {
+    if (!canSpliceDisplayedRoute() || selectedCandidate === null) {
+      return <p className={styles.emptyHint}>目的地を決めて候補が2件以上出ると、区間を乗り換えて新しいルートを作れます</p>;
+    }
     return (
-      <Card>
-        {/* このページが持つ地図インスタンスだけを描き直す（refreshToken）。押した人の
-            画面にしか影響しない純粋なクライアント操作で、サーバー側のタイルキャッシュには
-            触れない（そちらは全利用者へ影響するため/adminのTileCachePanelにある）。
-            ページ全体を再読み込みすると生成済みのルート候補が消えるため、地図だけを
-            描き直す入口をここに残す。 */}
-        <button type="button" onClick={() => setRefreshToken((v) => v + 1)} className={styles.refreshButton}>
-          地図の表示を再描画
-        </button>
-        <MapLayersPanel
-          layerVisibility={layerVisibility}
-          onLayerToggle={handleLayerToggle}
-          roadHiddenKeysByMode={roadHiddenKeysByMode}
-          onRoadLegendToggle={toggleHiddenLegendKey}
-          onRoadAxisSetHidden={handleRoadAxisSetHidden}
-          staticFilterHiddenKeysByAxis={staticLegendHiddenKeysByAxis}
-          onStaticFilterLegendToggle={toggleHiddenLegendKey}
-          onStaticFilterAxisSetHidden={handleStaticFilterAxisSetHidden}
-          regionZoomTooWide={regionZoomTooWide}
-          layerDataStatus={layerDataStatus}
-          hasHiddenFilters={hasHiddenFilters}
-          onClearAllFilters={handleClearAllFilters}
-          mapLayers={mapLayers}
-          roadSurfaceSharedLayerIds={roadSurfaceSharedLayerIds}
-          staticFilterAxes={staticFilterAxes}
-        />
-      </Card>
+      <RouteSplicePanel
+        displayed={selectedCandidate}
+        targets={routes.filter((other) => other.id !== selectedCandidate.id)}
+        targetId={spliceTargetId}
+        onSelectTarget={(id) => {
+          setSpliceTargetId(id);
+          setSpliceTakenIndexes([]);
+        }}
+        stretches={spliceStretches}
+        takenIndexes={spliceTakenIndexes}
+        onToggleStretch={(index) =>
+          setSpliceTakenIndexes((current) =>
+            current.includes(index)
+              ? current.filter((value) => value !== index)
+              : [...current, index],
+          )
+        }
+        onApply={handleApplySplice}
+        applying={splicing}
+      />
     );
   }
 
@@ -2031,8 +1986,8 @@ export default function Home() {
             {!sidebarCollapsed && (
               <>
                 {/* サイドバーはモバイルの下部タブと同じ「ルート設定（生成ボタンで反映）／
-                    ルート結果（読むだけ）／地図の見え方（即時反映）」の3区分・同じ順序。
-                    各区分は独立して開閉し、開閉状態はlocalStorageへ保存する。 */}
+                    ルート結果（読むだけ）／ルート編集（結果から派生して作る）」の3区分・
+                    同じ順序。各区分は独立して開閉し、開閉状態はlocalStorageへ保存する。 */}
                 <Disclosure
                   className={styles.blockSection}
                   headerClassName={styles.blockHeaderRow}
@@ -2077,24 +2032,24 @@ export default function Home() {
                   {routes.length > 0 ? renderRouteOutcomeSectionBody() : renderRouteOutcomeEmptyState()}
                 </Disclosure>
 
-                {/* 地図の見え方: レイヤーのON/OFF・凡例・絞り込み・色分けの設定はすべてここ。
-                    地図の上（MapOverlayControls）にはON/OFFチップと適用中の条件の1行サマリだけを
-                    残し、詳細は地図に重ねない（地図の視界を優先）。 */}
+                {/* ルート編集: 生成結果から派生して新しいルートを作る操作だけを置く。
+                    レイヤーのON/OFF・凡例・絞り込みは地図の上（MapOverlayControls）と
+                    地図下部の一括操作行が持ち、サイドバーには置かない。 */}
                 <Disclosure
                   className={styles.blockSection}
                   triggerClassName={styles.blockSummary}
                   bodyClassName={styles.blockBody}
-                  id={MAP_SETTINGS_SECTION_TITLE_ID}
+                  id={ROUTE_EDIT_SECTION_TITLE_ID}
                   summary={
                     <>
                       <span aria-hidden="true" className={styles.blockChevron} />
-                      地図の見え方
+                      ルート編集
                     </>
                   }
-                  open={mapSettingsOpen}
-                  onOpenChange={setMapSettingsOpen}
+                  open={routeEditOpen}
+                  onOpenChange={setRouteEditOpen}
                 >
-                  {renderMapSettingsSectionBody()}
+                  {renderRouteEditSectionBody()}
                 </Disclosure>
               </>
             )}
@@ -2210,6 +2165,20 @@ export default function Home() {
             >
               <ClearAllFiltersIcon size={14} />
             </button>
+            {/* このページが持つ地図インスタンスだけを描き直す（refreshToken）。押した人の
+                画面にしか影響しない純粋なクライアント操作で、サーバー側のタイルキャッシュには
+                触れない（そちらは全利用者へ影響するため/adminのTileCachePanelにある）。
+                ページ全体を再読み込みすると生成済みのルート候補が消えるため、地図だけを
+                描き直す入口をここへ残す。 */}
+            <button
+              type="button"
+              onClick={() => setRefreshToken((v) => v + 1)}
+              aria-label="地図の表示を再描画する"
+              title="地図の表示を再描画する"
+              className={styles.clearAllButton}
+            >
+              <RedrawMapIcon size={14} />
+            </button>
           </div>
 
           {/* 走行方位（風・勾配の評価に使う向き）。出発時刻・想定速度と同じ走行条件の一部として
@@ -2302,12 +2271,14 @@ export default function Home() {
             </button>
             <button
               type="button"
-              aria-pressed={mobileSheet === "map"}
-              onClick={() => handleMobileTabClick("map")}
-              className={mobileSheet === "map" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton}
+              aria-pressed={mobileSheet === "routeEdit"}
+              onClick={() => handleMobileTabClick("routeEdit")}
+              className={
+                mobileSheet === "routeEdit" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
+              }
             >
-              <MapAppearanceIcon />
-              <span className={styles.tabLabel}>地図の見え方</span>
+              <RouteEditIcon />
+              <span className={styles.tabLabel}>ルート編集</span>
             </button>
           </nav>
 
@@ -2342,15 +2313,15 @@ export default function Home() {
           </BottomSheet>
 
           <BottomSheet
-            open={mobileSheet === "map"}
+            open={mobileSheet === "routeEdit"}
             onClose={() => setMobileSheet(null)}
-            title="地図の見え方"
-            titleId={MAP_SETTINGS_SHEET_TITLE_ID}
+            title="ルート編集"
+            titleId={ROUTE_EDIT_SHEET_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
             onHeightCommit={commitMobileSheetHeight}
           >
-            {renderMapSettingsSectionBody()}
+            {renderRouteEditSectionBody()}
           </BottomSheet>
         </>
       )}

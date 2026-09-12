@@ -194,7 +194,7 @@ trueとする。
 
 算出した`dynamicWeatherDataStatus`は`page.tsx`が`mapViewLayerDataStatus`
 （ソースイベント側）とマージして1つの`layerDataStatus`にし、`overlayLayers`
-（`MapOverlayControls`の状態ドット）・`MapLayersPanel`の両方へ渡す
+（`MapOverlayControls`の状態ドット）へ渡す
 （[静的地図レイヤー](static-map-layers.md)「レイヤーのデータ取得状態」節参照）。
 
 ## キキクル・線状降水帯予測マップ（特殊系）

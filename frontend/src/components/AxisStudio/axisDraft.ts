@@ -138,7 +138,7 @@ export interface Draft {
   iconId: string;
   chipLabel: string;
   panelHint: string;
-  /** この軸のアイコンを地図上チップ・地図の見え方パネルに表示するかどうか。
+  /** この軸のアイコンを地図上チップに表示するかどうか。
    * 既定true（表示する）。 */
   showMapIcon: boolean;
   /** 地図の色分けしきい値だけを差し替える軽量な上書き。未設定(null)は自動導出した

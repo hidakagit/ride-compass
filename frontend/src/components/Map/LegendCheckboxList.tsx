@@ -1,7 +1,7 @@
 "use client";
 
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import WidthSwatch from "@/components/MapLayersPanel/WidthSwatch";
+import WidthSwatch from "@/components/Map/WidthSwatch";
 import type { LegendEntry } from "./legendFilter";
 
 interface LegendCheckboxListProps {

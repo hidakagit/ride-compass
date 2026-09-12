@@ -4,7 +4,7 @@
 
 `app/page.tsx`がアプリのコンポジションルート兼状態ハブ。地図（`MapView`）・ルート設定/
 結果パネル（`RouteSettingsPanel`・`RouteForm`・`RouteAxisProfile`）・地図
-オーバーレイ制御（`MapOverlayControls`・`MapLayersPanel`）・研究モードの比較表
+オーバーレイ制御（`MapOverlayControls`）・研究モードの比較表
 （`ComparisonPanel`）を1つのReactツリーへ束ね、状態を集約する。Next.jsのApp Router
 フレームワークファイル（レイアウト・エラーバウンダリ）と、特定の機能モジュールに
 属さない横断的なlib/hooks/UI基盤もここで扱う。
@@ -60,7 +60,7 @@ URL`）とNext.js route handlerからのサーバー間fetch先を区別する�
 | 種別 | コンポーネント |
 |---|---|
 | 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
-| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`MapLayersPanel`（サイドバー）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
+| 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
 | ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
 | ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補ごとのタブ自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
 | 研究モード | `ComparisonPanel`（実験スロット比較表） |
@@ -173,7 +173,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   キー整合補正 → ルート生成リクエスト。整合補正は`RouteSettingsPanel`のマウント時
   （`useEffect`）と、`handleGenerate`内（送信直前、パネル未マウント経路の穴埋め）の
   2箇所で行う。
-- `layerVisibility`（`MapOverlayControls`/`MapLayersPanel`が共有）→ `MapView`の
+- `layerVisibility`（`MapOverlayControls`が持つ）→ `MapView`の
   一次属性・気象・スポットの表示制御。
 - `lens`（レンズ、`LensControl`が唯一の入口）→ 全道路の塗りは`axisVisibility`（ramp軸）と
   `dedicatedWayValueVisibility`（専用way値配信軸）、ルート線は`MapView`の`routeStyleModeId`
@@ -193,8 +193,8 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 テストで検証）で分岐する:
 
 - デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ3区分
-  「ルート設定 / ルート結果 / 地図の見え方」を同じ順序で縦積み。各区分は独立した
-  `Disclosure`折りたたみで、開閉状態は`generateOpen`・`outcomeOpen`・`mapSettingsOpen`
+  「ルート設定 / ルート結果 / ルート編集」を同じ順序で縦積み。各区分は独立した
+  `Disclosure`折りたたみで、開閉状態は`generateOpen`・`outcomeOpen`・`routeEditOpen`
   （localStorage）で永続化する。「ルート設定」「ルート結果」の見出し行はどちらも
   `trailing`に操作枠を持つ（前者は`renderRouteSectionHeaderActions()`の「ルート生成」
   ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」は候補が無い間、
@@ -203,7 +203,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   ボタンで本文を畳んだままでも押せるため、押した結果を「ルート設定」本文へ出すと操作している
   場所から見えない。失敗時は`outcomeOpen`を開き、モバイル向けに`hasUnseenResults`も立てる
   （シートは排他表示のため勝手に開かず、タブのドットで知らせる）。
-- モバイル: 下部タブバー（ルート設定/ルート結果/地図の見え方）+`BottomSheet`（3枚が
+- モバイル: 下部タブバー（ルート設定/ルート結果/ルート編集）+`BottomSheet`（3枚が
   `mobileSheet`で排他表示、高さ`mobileSheetHeightVh`を共有）。デスクトップと同じく
   「ルート設定」シートは`RouteForm`（内部で「生成条件」「重みづけ」の2タブへさらに
   分け、`RouteSettingsPanel`を「重みづけ」タブの中身として受け取る）を描画し、

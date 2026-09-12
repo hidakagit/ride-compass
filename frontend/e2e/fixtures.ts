@@ -62,7 +62,7 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     min_elevation_m: 10,
     max_elevation_m: 45,
     // 選択中候補の区間色分け線（MapView.tsx: DETAIL_LAYER_ID）は区間が無いと描かれない。
-    // 地図の見え方に関わる検証（縁取り等）が成り立つよう、最小限の2区間を持たせる。
+    // 地図の描画に関わる検証（縁取り等）が成り立つよう、最小限の2区間を持たせる。
     segments: [
       makeSegment(0, [
         [139.7387, 35.7597],
@@ -225,7 +225,7 @@ export async function installApiMocks(page: Page): Promise<void> {
 export const MOBILE_VIEWPORT = { width: 390, height: 812 };
 
 /** モバイルの下部タブバーが持つシート。値はタブのラベル兼シートのアクセシブル名。 */
-export type MobileSheetName = "ルート設定" | "ルート結果" | "地図の見え方";
+export type MobileSheetName = "ルート設定" | "ルート結果" | "ルート編集";
 
 /**
  * localStorageの初期値を流し込む（goto前に呼ぶ）。保存される画面状態（レイヤーのON/OFF・

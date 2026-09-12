@@ -50,7 +50,7 @@ export interface LensControlProps {
 
 // レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが「今のレンズ」の表示と
 // 切替を兼ね、タップでポップオーバー（単一選択の一覧＋ルート後の扱い）を開く。
-// 「地図の見え方」パネルにはレンズの項目を置かない（入口はここ1つ、T590「UI設計の基準」2）。
+// サイドバーにはレンズの項目を置かない（入口はここ1つ、T590「UI設計の基準」2）。
 export default function LensControl({
   lens,
   onLensChange,

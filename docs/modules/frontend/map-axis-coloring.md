@@ -274,8 +274,7 @@ page.tsx
 同じ`[時刻/向き]`入力を共有するだけで、レイヤー・ソース・フェッチ経路はすべて別individual。
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う`DYNAMIC_WEATHER_RENDERERS`汎用機構
 （風の矢印・降水ナウキャスト等）とは異なり、専用way値配信軸は`mapLayers.ts:
-isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）・サイドバー
-（`MapLayersPanel.tsx`）のどちらにも一切現れない。表示ON/OFFの起動導線は地図上部中央の
+isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に一切現れない。表示ON/OFFの起動導線は地図上部中央の
 `LensControl`のみが持つ（本ファイル冒頭「対象ファイル」参照）。
 
 ## 3件目の軸を公開したときに自動で追従する範囲

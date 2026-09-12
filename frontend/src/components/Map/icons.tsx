@@ -506,13 +506,30 @@ export function InfoIcon({ size = 14 }: IconProps) {
   );
 }
 
-/** 地図の見え方（モバイル下部タブ）: 積み重なったレイヤーを表す菱形+2本の折れ線 */
-export function MapAppearanceIcon({ size = 16 }: IconProps) {
+/** 地図の再描画: 閉じかけた円弧と矢じり。地図インスタンスだけを描き直す操作を表す。 */
+export function RedrawMapIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M10 2.5 17.5 7 10 11.5 2.5 7 10 2.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M2.5 10.8 10 15.3 17.5 10.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2.5 14.3 10 18.8 17.5 14.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M16 10a6 6 0 1 1-1.8-4.3"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path d="M16.4 2.6v3.6h-3.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** ルート編集（モバイル下部タブ・サイドバー）: 分岐点で2本へ分かれる線。この画面が持つ
+ * 操作が「分岐点で区間を乗り換える」ことそのものを表す。 */
+export function RouteEditIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M2.5 10h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M6.5 10 10 4.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.5 10 10 15.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="6.5" cy="10" r="1.8" fill="currentColor" />
     </svg>
   );
 }

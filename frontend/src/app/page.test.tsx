@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 
@@ -11,7 +11,6 @@ import type { AxisCatalogResponse } from "@/types/route";
 // スタブにして、テストからlayerVisibilityの実効値を検証できるようにする。
 
 vi.mock("@/components/Map/MapView", () => ({ default: () => null }));
-vi.mock("@/components/MapLayersPanel/MapLayersPanel", () => ({ default: () => null }));
 vi.mock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
 vi.mock("@/components/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
 vi.mock("@/components/WarningBadge/WarningBadge", () => ({ default: () => null }));
@@ -991,6 +990,54 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.queryByLabelText("比較相手")).toBeNull();
   });
 
+  it("区間の乗り換えはルート結果ではなくルート編集にあり、結果側には残らない", async () => {
+    // ルート結果は生成結果を見る画面、ルート編集はそこから派生して作る画面
+    // （docs/tasks/T769.md）。下部シートを低く保つため、結果側に作る操作を混ぜない。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-destination-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
+        makeCandidate({ id: "route-destination-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+
+    const outcome = document.getElementById("outcome-section-title") as HTMLElement;
+    expect(within(outcome).queryByLabelText("比較相手")).toBeNull();
+    const routeEdit = document.getElementById("route-edit-section-title") as HTMLElement;
+    expect(within(routeEdit).getByLabelText("比較相手")).toBeInTheDocument();
+  });
+
+  it("乗り換えできる条件が揃っていないルート編集は、何が要るかを示す", async () => {
+    // 空のパネルを出すと「壊れている」と読まれる。周回生成では候補が2件あっても
+    // 乗り換えできない（起点へ戻る制約）。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
+        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+
+    const routeEdit = document.getElementById("route-edit-section-title") as HTMLElement;
+    expect(within(routeEdit).getByText(/目的地を決めて候補が2件以上出ると/)).toBeInTheDocument();
+  });
+
   it("地図の一括操作は、レイヤーのON/OFFと絞り込みを別々に戻す", async () => {
     // どちらも「まとめて元に戻す」だが対象が違う（レイヤーを消す／隠した項目を戻す）。
     // 同じバツ印だと区別できないため、対象を形で示すアイコンを別々に持つ。
@@ -1011,6 +1058,16 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => expect(clearFilters).toBeDisabled());
     // レイヤー側の一括OFFは別のボタンとして残る
     expect(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" })).toBeInTheDocument();
+  });
+
+  it("地図の再描画は地図側の一括操作行にあり、サイドバーには無い", async () => {
+    // 地図インスタンスを描き直す操作のため、地図の「まとめて元に戻す」行に置く
+    // （docs/tasks/T769.md。サイドバーの「地図の見え方」パネルは撤去した）。
+    const HomeFresh = await renderFreshHome();
+    render(<HomeFresh />);
+
+    expect(screen.getByRole("button", { name: "地図の表示を再描画する" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "地図の表示を再描画" })).toBeNull();
   });
 
   it("絞り込みが無ければ解除ボタンは押せない", async () => {

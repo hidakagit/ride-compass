@@ -4,7 +4,7 @@
 
 タイル焼き込み済みの静的道路属性（路面・道路種別・指定路線・トンネル・一方通行・停止
 要因POI・補給休憩POI・事故）と二次(ramp)軸の汎用色分けレイヤーを地図上に表示し、チップ
-（`MapOverlayControls`）・サイドバー（`MapLayersPanel`）から表示/絞り込みを操作する。
+（`MapOverlayControls`）から表示/絞り込みを操作する。
 
 地図下部中央の一括操作行（`page.tsx: bottomControlRow`）は「まとめて元に戻す」操作を
 並べる。**レイヤーのON/OFFと凡例の絞り込みは別の状態のため、戻す操作も別々に要る**
@@ -29,10 +29,10 @@
 | `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代定数） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄） |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループの開閉キー（`group:<グループ>`）は`MAP_OVERLAY_GROUP_ORDER`から生成・逆引きし、キー文字列を手で並べない——グループを増やしたとき見出しが「グループ本体」と認識されず2件目以降がチップ列から消えるのを防ぐ |
-| `components/MapLayersPanel/`（`WidthSwatch.tsx`含む） | サイドバー版のレイヤー切替パネル |
-| `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`MapLayersPanel`・`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
-| `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。`MapLayersPanel`・`RouteSettingsPanel`・`RouteAxisProfile`・`recipeControls.tsx: FieldLabel`・軸スタジオの材料説明が共用し、(i)→Popoverの組み立てを自前で持つ箇所は無い |
-| `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`MapLayersPanel`・`RouteAxisProfile`・`MapOverlayControls`の▶パネルで共用） |
+| `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`RouteSettingsPanel`・`page.tsx`のルート色分けセクションで共用） |
+| `Map/WidthSwatch.tsx` | 凡例の「太さ」見本（実寸を`DISPLAY_SCALE`倍して描く）。`LegendCheckboxList`・`MapOverlayControls`が共用する |
+| `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。`RouteSettingsPanel`・`RouteAxisProfile`・`recipeControls.tsx: FieldLabel`・軸スタジオの材料説明が共用し、(i)→Popoverの組み立てを自前で持つ箇所は無い |
+| `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`RouteAxisProfile`・`MapOverlayControls`の▶パネルで共用） |
 
 ## タイルの配信元（`lib/tileBaseUrl.ts`）
 
@@ -143,14 +143,13 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 
 ## レイヤーのデータ取得状態（`ChipButton`/`LayerChip`共通のドット表現）
 
-`MapOverlayControls`の`ChipButton`は、サイドバー（`MapLayersPanel`）が使う`LayerChip.tsx`と
-同じ`LayerDataStatus`（`mapLayers.ts`、"loading"/"empty"/"error"）を受け取り、
+`MapOverlayControls`の`ChipButton`は、`LayerChip.tsx`と同じ`LayerDataStatus`（`mapLayers.ts`、"loading"/"empty"/"error"）を受け取り、
 「表示ON かつ dataStatus が設定されている」間だけアイコン右上へ小さな状態ドットを描画する
 （`on`/`active`がfalseの間は出さない）。クラス名は`LayerDataStatus`の値とそろえて
 （`MapOverlayControls.module.css: .iconStatusDot_loading`等）動的に組み立てる点も
 `LayerChip.module.css`側と同じ設計。
 
-`page.tsx`の`layerDataStatus`（`overlayLayers`・`MapLayersPanel`の両方へ渡す1つの値）は、
+`page.tsx`の`layerDataStatus`（`overlayLayers`へ渡す値）は、
 出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたもので、
 内訳は次の2系統:
 
@@ -178,9 +177,6 @@ buildRoadSurfaceSharedLayerIds(rampAxes, dedicatedAxes)`が唯一の情報源
 （静的5レイヤー［roadType/roadSurface/designation/tunnel/oneway］＋ramp軸＋
 専用way値配信軸）。判定は`MapView.tsx: isRoadSurfaceGroupVisible`が行い、
 `updateRoadZoomHint`が現在のズームと閾値を比較して`onRegionZoomHintChange`へ通知する。
-サイドバー（`MapLayersPanel.tsx`）はこの案内が出ている間、同じ一覧に載るレイヤーの
-状態ドットを抑制する（同じ事象を二重に出さないため）。
-
 `isRoadSurfaceGroupVisible`の第1引数は表示状態のRecordではなく**propsの形そのもの**
 （`RoadSurfaceGroupState`: 静的5レイヤーの個別boolean＋`axisVisibility`＋
 `dedicatedWayValueVisibility`）を受け取り、レイヤーidキーへの合流を関数の中で行う。
@@ -216,9 +212,8 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 
 `LegendFilterSummaryAxis.axisId`（`legendFilter.ts`）を持つ軸だけがユーザー操作で
 絞り込める。`axisId`は非表示キーの保存先（`page.tsx: hiddenLegendKeysByMode`のキー）を
-指し、サイドバー（`MapLayersPanel`）と地図上チップの▶パネル（`MapOverlayControls`）の
-どちらから操作しても同じIDの同じ状態を書き換える。どちらも描画には同じ
-`LegendCheckboxList`を使う。
+指し、地図上チップの▶パネル（`MapOverlayControls`）がこのIDの状態を書き換える。
+描画には`LegendCheckboxList`を使う。
 
 `axisId`を持たない軸は読み取り専用の凡例として描画される。配信元が色を焼き込み済みの
 ラスタタイル（降水ナウキャスト・風・災害の危険度凡例）がこれにあたり、カテゴリ単位で
