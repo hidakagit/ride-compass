@@ -782,6 +782,12 @@ export default function Home() {
   // 重なる気象タイムラインパネル（下記.bottomControlRow）の占有高さを知らず、パネル表示中に
   // 一番下のアイコンチップがパネルの裏へ隠れてしまう不具合への対応。共通の祖先（.mapPane）へ
   // 実測高さをCSS変数として反映し、MapOverlayControls.module.cssの.wrapper側で読む。
+  // 地図へピンを置けるのは「ルート設定」を見ている間だけ。ルート結果を見ているときは
+  // 候補線を選ぼうとして少し外すたびに経由地が増えてしまう——生成に関わる操作は
+  // 「ルート生成」ボタンがある場所でだけ受け付ける。モバイルはシートの排他表示、
+  // デスクトップは区分の開閉が「見ているか」にあたる。
+  const routeSettingsActive = isMobile ? mobileSheet === "routeSettings" : generateOpen;
+
   const mapPaneRef = useRef<HTMLDivElement>(null);
   const bottomControlRowRef = useRef<HTMLDivElement>(null);
   useElementHeightCssVar(bottomControlRowRef, mapPaneRef, "--bottom-control-row-height");
@@ -2155,10 +2161,10 @@ export default function Home() {
             onWaypointAdd={handleWaypointAdd}
             onWaypointRemove={handleWaypointRemove}
             destination={routeMode === "destination" ? destination : null}
-            destinationArmed={routeMode === "destination" && destinationArmed}
+            destinationArmed={routeMode === "destination" && routeSettingsActive && destinationArmed}
             onDestinationSet={handleDestinationSet}
             onDestinationClear={handleDestinationClear}
-            pinPlacementEnabled={routeMode === "destination"}
+            pinPlacementEnabled={routeMode === "destination" && routeSettingsActive}
             onOriginSet={setManualLocation}
             routeFitObscuredPx={routeFitObscuredPx}
           />

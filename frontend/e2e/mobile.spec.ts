@@ -34,3 +34,23 @@ test("モバイル: 観測値の取得に失敗してもヘッダーが幅に収
   expect(menu).not.toBeNull();
   expect((menu?.x ?? 0) + (menu?.width ?? 0)).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 });
+
+// 生成に関わる操作は「ルート生成」ボタンがある場所でだけ受け付ける。ルート結果で候補線を
+// 選ぼうとして外すたびに経由地が増えるのを防ぐ（T781）。
+test("モバイル: ルート結果を見ている間は地図タップでピンが置かれない", async ({ page }) => {
+  await openMobileApp(page);
+
+  const settings = await openMobileSheet(page, "ルート設定");
+  await settings.getByRole("button", { name: "目的地", exact: true }).click();
+  await page.locator(".app-map-pane canvas").click({ position: { x: 180, y: 150 } });
+  await expect(settings.getByText("目的地を変更")).toBeVisible();
+
+  const outcome = await openMobileSheet(page, "ルート結果");
+  await page.locator(".app-map-pane canvas").click({ position: { x: 220, y: 200 } });
+  await page.waitForTimeout(400);
+  await expect(outcome.getByText(/📍/)).toHaveCount(0);
+
+  const settingsAgain = await openMobileSheet(page, "ルート設定");
+  await page.locator(".app-map-pane canvas").click({ position: { x: 240, y: 220 } });
+  await expect(settingsAgain.getByText(/📍\s*1/)).toBeVisible({ timeout: 5000 });
+});
