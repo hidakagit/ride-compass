@@ -182,13 +182,19 @@ export const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
 export const ROUTE_ARROW_LAYER_ID = "route-arrow";
 const SPLICE_SOURCE_ID = "route-splice-stretches";
 export const SPLICE_LAYER_ID = "route-splice-stretches-line";
-const DETAIL_SOURCE_ID = "route-detail-segments";
-const DETAIL_LAYER_ID = "route-detail-segments-line";
+export const DETAIL_SOURCE_ID = "route-detail-segments";
+export const DETAIL_LAYER_ID = "route-detail-segments-line";
 // DETAIL_LAYER_ID（見た目の線、幅6px）そのものはモバイルでタップしづらいため、同じ
 // DETAIL_SOURCE_IDを参照する当たり判定専用の太い（幅24px）・見えない（line-opacity:0）
 // レイヤー。クリックイベント・カーソル変更（interactiveLayerIds）はこちらへ登録し、見た目の
 // 線幅・色は変えない（drawDetailSegments・buildInteractiveLayerIds参照）。
 const DETAIL_HIT_LAYER_ID = "route-detail-segments-hit";
+// 色分け線・比較スロット線の下へ敷く縁取り。線の色はレンズ配色・スロット色で変わるため、
+// 縁は線色にも背景にも依存しない一定の暗色にする。これが無いと、同系色の面レイヤー
+// （災害・降水・標高図等）が背景に来たときに線の輪郭が消える。
+const ROUTE_LINE_CASING_COLOR = "rgba(15, 23, 42, 0.8)";
+export const DETAIL_CASING_LAYER_ID = "route-detail-segments-casing";
+const SLOTS_CASING_LAYER_ID = "experiment-slots-casing";
 const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
@@ -683,7 +689,7 @@ function ensureRouteArrowLayer(map: MapLibreMap) {
 // 矢印ハローをbeforeIdに指定する。
 function keepRouteArrowsAboveDetailSegments(map: MapLibreMap) {
   if (!map.getLayer(ROUTE_ARROW_HALO_LAYER_ID)) return;
-  for (const layerId of [DETAIL_LAYER_ID, DETAIL_HIT_LAYER_ID]) {
+  for (const layerId of [DETAIL_CASING_LAYER_ID, DETAIL_LAYER_ID, DETAIL_HIT_LAYER_ID]) {
     if (map.getLayer(layerId)) map.moveLayer(layerId, ROUTE_ARROW_HALO_LAYER_ID);
   }
 }
@@ -710,6 +716,16 @@ function drawExperimentSlots(map: MapLibreMap, slots: ExperimentSlot[]) {
       return;
     }
     map.addSource(SLOTS_SOURCE_ID, { type: "geojson", data });
+    // 色分け線と同じ理由の縁取り（スロット色は緑・橙・紫で、緑は面レイヤーに埋もれる）。
+    map.addLayer(
+      {
+        id: SLOTS_CASING_LAYER_ID,
+        type: "line",
+        source: SLOTS_SOURCE_ID,
+        paint: { "line-color": ROUTE_LINE_CASING_COLOR, "line-width": 7, "line-opacity": 0.85 },
+      },
+      map.getLayer(DETAIL_CASING_LAYER_ID) ? DETAIL_CASING_LAYER_ID : map.getLayer(DETAIL_LAYER_ID) ? DETAIL_LAYER_ID : undefined
+    );
     map.addLayer(
       {
         id: SLOTS_LAYER_ID,
@@ -722,7 +738,7 @@ function drawExperimentSlots(map: MapLibreMap, slots: ExperimentSlot[]) {
           "line-opacity": 0.85,
         },
       },
-      map.getLayer(DETAIL_LAYER_ID) ? DETAIL_LAYER_ID : undefined
+      map.getLayer(DETAIL_CASING_LAYER_ID) ? DETAIL_CASING_LAYER_ID : map.getLayer(DETAIL_LAYER_ID) ? DETAIL_LAYER_ID : undefined
     );
   };
 
@@ -731,7 +747,7 @@ function drawExperimentSlots(map: MapLibreMap, slots: ExperimentSlot[]) {
 
 // ルートレイヤー（有向・選択中ルート基準のデータ。風・勾配）は、選択中候補にのみ
 // 動的に重ね描きする。色分けモード・凡例フィルタの切替はスタイル式の差し替えのみ。
-function drawDetailSegments(
+export function drawDetailSegments(
   map: MapLibreMap,
   segments: RouteSegmentDetail[],
   mode: RouteStyleMode,
@@ -748,6 +764,16 @@ function drawDetailSegments(
       // 進行方向矢印（ROUTE_ARROW_HALO_LAYER_ID/ROUTE_ARROW_LAYER_ID）より
       // 下に置く（keepRouteArrowsAboveDetailSegments参照）。
       const beforeId = map.getLayer(ROUTE_ARROW_HALO_LAYER_ID) ? ROUTE_ARROW_HALO_LAYER_ID : undefined;
+      // 縁取りを先に追加して色分け線の下へ置く（同じbeforeIdなら先に追加した方が下になる）。
+      map.addLayer(
+        {
+          id: DETAIL_CASING_LAYER_ID,
+          type: "line",
+          source: DETAIL_SOURCE_ID,
+          paint: { "line-color": ROUTE_LINE_CASING_COLOR, "line-width": 10, "line-opacity": 1 },
+        },
+        beforeId
+      );
       map.addLayer(
         {
           id: DETAIL_LAYER_ID,
@@ -776,9 +802,11 @@ function drawDetailSegments(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filterExpression = buildLegendFilterExpression(mode.legend, hiddenLegendKeys) as any;
     map.setFilter(DETAIL_LAYER_ID, filterExpression);
-    // 当たり判定レイヤーも同じfilterを適用する（非表示カテゴリの区間は見た目どおり
-    // クリックもできないようにする）。
+    // 縁取り・当たり判定レイヤーも同じfilterを適用する（非表示カテゴリの区間は見た目どおり
+    // 縁だけ残らず、クリックもできないようにする）。
+    map.setFilter(DETAIL_CASING_LAYER_ID, filterExpression);
     map.setFilter(DETAIL_HIT_LAYER_ID, filterExpression);
+    setLayerVisibility(map, DETAIL_CASING_LAYER_ID, true);
     setLayerVisibility(map, DETAIL_LAYER_ID, true);
     setLayerVisibility(map, DETAIL_HIT_LAYER_ID, true);
   };
@@ -788,6 +816,7 @@ function drawDetailSegments(
 
 function hideDetailSegments(map: MapLibreMap) {
   runWhenStyleReady(map, () => {
+    setLayerVisibility(map, DETAIL_CASING_LAYER_ID, false);
     setLayerVisibility(map, DETAIL_LAYER_ID, false);
     setLayerVisibility(map, DETAIL_HIT_LAYER_ID, false);
   });

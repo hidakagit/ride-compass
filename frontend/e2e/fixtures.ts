@@ -25,6 +25,25 @@ const ROUTE_PREFERENCE = {
 };
 
 // backend/app/domain/route.py RouteCandidate相当の最小フィクスチャ（1候補）。
+function makeSegment(index: number, coordinates: [number, number][]) {
+  return {
+    geometry: { type: "LineString" as const, coordinates },
+    start_latitude: coordinates[0][1],
+    start_longitude: coordinates[0][0],
+    end_latitude: coordinates[coordinates.length - 1][1],
+    end_longitude: coordinates[coordinates.length - 1][0],
+    cumulative_distance_km: index * 10,
+    distance_km: 10,
+    estimated_arrival_time: null,
+    axis_difficulties: { gradient: 10 + index * 20 },
+    material_values: {},
+    material_categories: {},
+    axis_raw_values: {},
+    axis_contributions: { gradient: 5 },
+    difficulty: 20 + index * 30,
+  };
+}
+
 // geometryは往復可能な閉じたループの体裁のみ整える（実座標としての精度は問わない）。
 function makeRouteCandidate(id: string, directionLabel: string, distanceKm: number): RouteCandidate {
   return {
@@ -42,7 +61,18 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     elevation_gain_m: 120,
     min_elevation_m: 10,
     max_elevation_m: 45,
-    segments: null,
+    // 選択中候補の区間色分け線（MapView.tsx: DETAIL_LAYER_ID）は区間が無いと描かれない。
+    // 地図の見え方に関わる検証（縁取り等）が成り立つよう、最小限の2区間を持たせる。
+    segments: [
+      makeSegment(0, [
+        [139.7387, 35.7597],
+        [139.75, 35.765],
+      ]),
+      makeSegment(1, [
+        [139.75, 35.765],
+        [139.7387, 35.7597],
+      ]),
+    ],
     overall_difficulty: 35,
     difficulty_load: null,
     axis_difficulties: {},

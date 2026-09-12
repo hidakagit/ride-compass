@@ -8,6 +8,9 @@ import { DEDICATED_WAY_VALUE_AXES, axisLineLayerId, axisMapLayerId, type RampAxi
 import { KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
 import {
   DEFAULT_ROAD_LINE_WIDTH,
+  DETAIL_CASING_LAYER_ID,
+  DETAIL_LAYER_ID,
+  drawDetailSegments,
   DESIGNATION_LAYER_ID,
   MATERIAL_TRACK_OFFSET_STEP,
   ONEWAY_LAYER_ID,
@@ -532,5 +535,46 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
     const names = map.paintCalls.filter((c) => c.layerId === entry.layerId).map((c) => c.name);
     expect(names).toContain("line-color");
     expect(names).toContain("line-opacity");
+  });
+});
+
+describe("区間色分け線の縁取り（T770）", () => {
+  const MODE = {
+    id: "difficulty",
+    label: "総合難易度",
+    colorExpression: ["literal", "#16a34a"] as unknown as maplibregl.ExpressionSpecification,
+    legend: [],
+  };
+
+  function drawOnce() {
+    const map = fakeMap();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    drawDetailSegments(map as any, [], MODE as any, []);
+    return map;
+  }
+
+  it("縁取りは色分け線より先に追加される（＝下に描かれる）", () => {
+    const map = drawOnce();
+    const ids = map.addedSpecs.map((spec) => spec.id);
+
+    expect(ids).toContain(DETAIL_CASING_LAYER_ID);
+    expect(ids.indexOf(DETAIL_CASING_LAYER_ID)).toBeLessThan(ids.indexOf(DETAIL_LAYER_ID));
+  });
+
+  it("縁取りは色分け線より太く、線色に依存しない一定色で描く", () => {
+    const map = drawOnce();
+    const casing = map.addedSpecs.find((spec) => spec.id === DETAIL_CASING_LAYER_ID);
+    const line = map.addedSpecs.find((spec) => spec.id === DETAIL_LAYER_ID);
+
+    expect(Number(casing?.paint?.["line-width"])).toBeGreaterThan(Number(line?.paint?.["line-width"]));
+    expect(typeof casing?.paint?.["line-color"]).toBe("string");
+  });
+
+  it("凡例で非表示にしたカテゴリの縁だけが残らないよう、同じfilterを適用する", () => {
+    const map = drawOnce();
+    const casingFilter = map.filterCalls.find((c) => c.layerId === DETAIL_CASING_LAYER_ID);
+    const lineFilter = map.filterCalls.find((c) => c.layerId === DETAIL_LAYER_ID);
+
+    expect(casingFilter?.filter).toEqual(lineFilter?.filter);
   });
 });
