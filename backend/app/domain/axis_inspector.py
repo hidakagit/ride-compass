@@ -65,6 +65,7 @@ def way_scalar_materials(
     trees_percent: float | None = None,
     built_percent: float | None = None,
     curvature_deg_per_km: float | None = None,
+    surface: str | None = None,
 ) -> dict[str, object]:
     """Way1本ぶんの材料値（材料id→スカラー）を組み立てる。
 
@@ -108,7 +109,10 @@ def way_scalar_materials(
             distance_km=length_m / 1000 if length_m > 0 else 0.0,
             # 勾配はWay単体では算出不能（ルート文脈が要る）ため空のまま渡す。
             elevation_attributes={},
-            surface_attributes={_WAY_SCOPE_KEY: tags.get("surface")},
+            # 舗装は`osm_raw_ways.surface`の専用列で、tags jsonbには入らない
+            # （`domain/osm_adapter.py: ALLOWED_WAY_TAGS`がhighway/surface/onewayを
+            # 除いている）。tagsから読むと材料が常に欠損する。
+            surface_attributes={_WAY_SCOPE_KEY: surface},
             designated_edge_ids={_WAY_SCOPE_KEY} if is_designated else set(),
             metrics={
                 METRIC_GROUP_COUNTS: counts,
@@ -135,6 +139,7 @@ def axis_inspector_breakdown(
     way_landcover: WayLandcover | None = None,
     preference: RoutePreference | None = None,
     curvature_deg_per_km: float | None = None,
+    surface: str | None = None,
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。`way_counts`は
     `RoadGraphRepository.get_way_attribute_counts`の戻り値で、Noneなら事故密度・
@@ -152,6 +157,7 @@ def axis_inspector_breakdown(
         landcover_percentages.trees_percent if landcover_percentages is not None else None,
         landcover_percentages.built_percent if landcover_percentages is not None else None,
         curvature_deg_per_km,
+        surface,
     )
     scores, _ = evaluate_axes_scalar(materials)
 

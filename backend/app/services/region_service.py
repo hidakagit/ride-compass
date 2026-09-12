@@ -292,10 +292,10 @@ class RegionService:
                 return None
             fields["lookup"] = "ok"
             fields["way_counts_available"] = way_counts is not None
-            highway, tags, is_designated = way_tags_result
+            highway, tags, is_designated, surface = way_tags_result
             return axis_inspector_breakdown(
                 highway, tags, is_designated, way_counts, accident_years_covered, way_landcover,
-                RoutePreference(), curvature_deg_per_km,
+                RoutePreference(), curvature_deg_per_km, surface,
             )
 
     async def get_accident_years_covered(self) -> int:

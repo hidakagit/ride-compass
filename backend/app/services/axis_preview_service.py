@@ -89,7 +89,7 @@ async def load_way_sample(
                 way_scalar_materials(
                     row.highway, dict(row.tags or {}), bool(row.is_designated),
                     counts, accident_years, row.trees_percent, row.built_percent,
-                    row.curvature_deg_per_km,
+                    row.curvature_deg_per_km, row.surface,
                 ),
             )
         )

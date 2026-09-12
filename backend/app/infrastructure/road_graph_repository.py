@@ -742,6 +742,8 @@ class WayMaterialSampleRow:
     length_m: float | None
     highway: str | None
     tags: dict[str, str] | None
+    # 舗装は専用列。tags jsonbには入らない（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`）。
+    surface: str | None
     counts_length_m: float | None
     accident_count: float | None
     intersection_count: int | None
@@ -759,6 +761,7 @@ _SAMPLE_WAY_MATERIALS_TEMPLATE = """
         ST_Length(w.geom::geography) AS length_m,
         w.highway,
         w.tags,
+        w.surface,
         wc.length_m AS counts_length_m,
         wc.accident_count,
         wc.intersection_count,
@@ -819,6 +822,7 @@ _WAY_TAGS_BY_OSM_WAY_ID_SQL = text(
     SELECT
         w.highway,
         w.tags,
+        w.surface,
         EXISTS(
             SELECT 1 FROM designation_attributes d
             WHERE d.osm_way_id = w.osm_way_id AND d.kind = ANY(:kinds)
@@ -2171,8 +2175,10 @@ class AttributeRepository(_SessionRepository):
                 result[edge_id] = dict(poi_counts or {})
         return result
 
-    async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
-        """osm_way_id完全一致で(highway, tags, is_designated)を返す。
+    async def get_way_tags_by_osm_way_id(
+        self, osm_way_id: int
+    ) -> tuple[str | None, dict[str, str], bool, str | None] | None:
+        """osm_way_id完全一致で(highway, tags, is_designated, surface)を返す。
 
         空間マッチ（半径内最近傍）は、交差点付近など複数の道路が近接する場所で、実際に
         クリックされたMVTフィーチャー（`_ROAD_SURFACE_TILE_MVT_SQL`が同じosm_way_idを
@@ -2189,7 +2195,7 @@ class AttributeRepository(_SessionRepository):
         row = result.first()
         if row is None:
             return None
-        return (row.highway, row.tags or {}, row.is_designated)
+        return (row.highway, row.tags or {}, row.is_designated, row.surface)
 
     async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
         """osm_way_id完全一致で事前集計（way_attribute_counts）の1行を返す（区間インスペクタ）。
@@ -2243,6 +2249,7 @@ class AttributeRepository(_SessionRepository):
                 length_m=row.length_m,
                 highway=row.highway,
                 tags=row.tags,
+                surface=row.surface,
                 counts_length_m=row.counts_length_m,
                 accident_count=row.accident_count,
                 intersection_count=row.intersection_count,
@@ -2659,7 +2666,9 @@ class RoadGraphRepository:
             edge_ids, cluster_eps_m=cluster_eps_m, on_edge_tolerance_m=on_edge_tolerance_m
         )
 
-    async def get_way_tags_by_osm_way_id(self, osm_way_id: int) -> tuple[str | None, dict[str, str], bool] | None:
+    async def get_way_tags_by_osm_way_id(
+        self, osm_way_id: int
+    ) -> tuple[str | None, dict[str, str], bool, str | None] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)
 
     async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:

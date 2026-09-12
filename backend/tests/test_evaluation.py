@@ -591,6 +591,20 @@ def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
 # --- axis_inspector_breakdown（区間インスペクタ、改善計画T146） ---
 
 
+def test_way_scalar_materials_reads_surface_from_dedicated_column_not_tags():
+    """舗装は`osm_raw_ways.surface`の専用列で、tags jsonbには入らない
+    （`domain/osm_adapter.py: ALLOWED_WAY_TAGS`がhighway/surface/onewayを除いている）。
+    tags側へ入れても材料にはならず、専用列から渡したときだけ解決される。
+    """
+    from_column = way_scalar_materials(
+        "residential", {}, False, None, accident_years_covered=2, surface="asphalt"
+    )
+    assert from_column["surface_good"] is not None
+
+    from_tags = way_scalar_materials("residential", {"surface": "asphalt"}, False, None, accident_years_covered=2)
+    assert from_tags["surface_good"] is None
+
+
 def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     """way_countsがある場合、car_stress/surface_q/stop_density/accident/nightが算出され、
     gradient/windはルート文脈が無いため常にavailable=Falseになる。
@@ -599,7 +613,8 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     """
     result = axis_inspector_breakdown(
         highway="residential",
-        tags={"surface": "asphalt", "lit": "yes"},
+        tags={"lit": "yes"},
+        surface="asphalt",
         is_designated=False,
         way_counts=WayAttributeCounts(
             length_m=1000.0, accident_count=2.0, intersection_count=6,
@@ -641,11 +656,11 @@ def test_axis_inspector_breakdown_way_landcover_feeds_openness_only():
         data_source="esri-io-lulc", data_version="2025", computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     without_landcover = axis_inspector_breakdown(
-        highway="residential", tags={"surface": "asphalt"}, is_designated=False, way_counts=None,
+        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
         accident_years_covered=0,
     )
     with_landcover = axis_inspector_breakdown(
-        highway="residential", tags={"surface": "asphalt"}, is_designated=False, way_counts=None,
+        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
         accident_years_covered=0, way_landcover=landcover,
     )
 
@@ -673,7 +688,7 @@ def test_axis_inspector_breakdown_treats_no_value_landcover_row_as_missing():
     )
 
     result = axis_inspector_breakdown(
-        highway="residential", tags={"surface": "asphalt"}, is_designated=False, way_counts=None,
+        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
         accident_years_covered=0, way_landcover=no_value,
     )
 
@@ -686,7 +701,7 @@ def test_way_scalar_materials_carries_curvature():
     プレビューはEdge単位の値を見ないため、ここが切れると両方から静かに消える。
     未計算（None）は0ではなく欠損として扱う。"""
     common = dict(
-        highway="residential", tags={"surface": "asphalt"}, is_designated=False,
+        highway="residential", tags={}, surface="asphalt", is_designated=False,
         way_counts=None, accident_years_covered=0,
     )
 
@@ -733,7 +748,8 @@ def test_axis_inspector_breakdown_way_counts_none_marks_count_based_axes_unavail
     引き続き算出できる。"""
     result = axis_inspector_breakdown(
         highway="residential",
-        tags={"surface": "asphalt"},
+        tags={},
+        surface="asphalt",
         is_designated=False,
         way_counts=None,
         accident_years_covered=3,
