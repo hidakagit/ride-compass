@@ -240,3 +240,75 @@ describe("BottomSheet 高さ調整（改善計画T331）", () => {
     });
   });
 });
+
+// 開いた時点で中身に合う高さへ合わせる（シートが中身より高いと、そのぶん地図が隠れたまま
+// 空白を見せることになる）。実寸はレイアウトを持たない環境では取れないため、
+// clientHeight/scrollHeightを差し替えて検証する。
+describe("BottomSheet（開いたときに中身の高さへ合わせる）", () => {
+  // 高さ指定を外したときの実測（naturalHeightOf）を再現する。レイアウトを持たない環境では
+  // getBoundingClientRectが常に0を返すため、高さ指定が"auto"の間だけ中身なりの高さを返す。
+  function withStubbedMetrics(naturalHeightPx: number, run: () => void) {
+    const client = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 406 });
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.style.height === "auto" ? naturalHeightPx : 406;
+      return { height, width: 390, top: 0, left: 0, right: 390, bottom: height, x: 0, y: 0, toJSON: () => ({}) };
+    };
+    try {
+      run();
+    } finally {
+      if (client) Object.defineProperty(HTMLElement.prototype, "clientHeight", client);
+      HTMLElement.prototype.getBoundingClientRect = rect;
+    }
+  }
+
+  function renderWithHeight(onHeightChange: (vh: number) => void) {
+    render(
+      <BottomSheet
+        open
+        onClose={() => {}}
+        title="テストシート"
+        titleId="test-sheet-title"
+        heightVh={50}
+        onHeightChange={onHeightChange}
+        onHeightCommit={() => {}}
+      >
+        <p>中身</p>
+      </BottomSheet>,
+    );
+  }
+
+  it("中身がシートより低ければ、その高さまで縮める", () => {
+    const onHeightChange = vi.fn();
+    window.innerHeight = 812;
+    // 中身なりの高さ302px → 812pxの37.2% → 38vh（切り上げ）
+    withStubbedMetrics(302, () => renderWithHeight(onHeightChange));
+
+    expect(onHeightChange).toHaveBeenCalledWith(38);
+  });
+
+  it("中身が上限を超えても上限までしか広げない（地図を完全には隠さない）", () => {
+    const onHeightChange = vi.fn();
+    window.innerHeight = 812;
+    withStubbedMetrics(5000, () => renderWithHeight(onHeightChange));
+
+    expect(onHeightChange).toHaveBeenCalledWith(MAX_SHEET_HEIGHT_VH);
+  });
+
+  it("中身が下限より低くても、下限までしか縮めない", () => {
+    const onHeightChange = vi.fn();
+    window.innerHeight = 812;
+    withStubbedMetrics(60, () => renderWithHeight(onHeightChange));
+
+    expect(onHeightChange).toHaveBeenCalledWith(MIN_SHEET_HEIGHT_VH);
+  });
+
+  it("実寸が取れない実行では高さを触らない", () => {
+    const onHeightChange = vi.fn();
+    window.innerHeight = 812;
+    renderWithHeight(onHeightChange);
+
+    expect(onHeightChange).not.toHaveBeenCalled();
+  });
+});
