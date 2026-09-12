@@ -24,6 +24,7 @@
 | `lib/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
 | `lib/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/Map/recipeControls.tsx`（`FieldLabel`・`withAutoEnable`） | 上書き有効化・情報アイコン付きラベルの共有UI部品 |
+| `components/Map/MapView.tsx`（`SPLICE_LAYER_ID`関連箇所のみ） | 比較相手が別の道を通る区間を地図へ帯で描く（`drawSpliceStretches`・`hideSpliceStretches`・`spliceStretchesToFeatureCollection`）。選んでいない区間は破線、選んだ区間は実線・太めで、選んだ側を最前面へ回す——未選択の帯が上に重なると差し替えた先が隠れて変化が見えない。`line-dasharray`がfeature式を受け付ける版に依存するため、`MapView.splice.test.ts`がstyle-specの評価器で検査する（[T621](../../tasks/T621.md)） |
 
 ## RouteSettingsPanel.tsx（一般向けメイン設定面）
 
