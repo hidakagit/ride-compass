@@ -109,3 +109,17 @@ describe("maxBarShare", () => {
     expect(maxBarShare([{ from: 0, to: 1, share: 0.2 }, { from: 1, to: 2, share: 0.5 }])).toBe(0.5);
   });
 });
+
+describe("表示範囲が潰れているとき", () => {
+  // visibleBarsだけがxMax <= xMinで早期returnし、offRangeShareが分岐していなかった。
+  // overlap(-∞, xMin)とoverlap(xMax, ∞)が同じ区間を二重に数え、合計が1を超えていた。
+  const distribution = { bins: [[0, 10, 1] as [number, number, number]], quantiles: {} };
+
+  it("範囲内の棒は出ず、範囲外の割合の合計は1を超えない", () => {
+    expect(visibleBars(distribution, 8, 2)).toEqual([]);
+
+    const { below, above } = offRangeShare(distribution, 8, 2);
+
+    expect(below + above).toBeCloseTo(1, 10);
+  });
+});

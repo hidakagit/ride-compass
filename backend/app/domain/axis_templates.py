@@ -13,11 +13,10 @@ topological_axis_order`が依存順の評価を担う）。
 
 各関数はスカラー（Python float/bool/int）とnumpy配列の両方を受け付ける。スカラー入力には
 Pythonのfloat/boolを、配列入力には同じ形状のnumpy配列を返す（欠損値はNaNで表現・伝播する）。
-`domain/difficulty.py`・`domain/night.py`の各`*_difficulty`関数（1エッジずつ呼ばれる
-スカラー経路、Noneガードは呼び出し側が担う）と、`evaluation_service.evaluate_graph`の
-ベクトル化された一括経路の両方が同じ実装を共有することで、「軸のロジックは
-1箇所にまとめる」という設計原則（`docs/complexity-review-2026-08-16.md`）をベクトル化後も
-維持する。
+スカラー経路（`evaluate_axis_scalar`、1エッジずつ呼ばれる）とベクトル化された一括経路
+（`evaluate_axis_array`、`evaluation_service.evaluate_graph`が使う）の両方がこの実装を
+共有することで、「軸のロジックは1箇所にまとめる」という設計原則
+（`docs/complexity-review-2026-08-16.md`）をベクトル化後も維持する。
 """
 
 from __future__ import annotations

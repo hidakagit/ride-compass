@@ -80,11 +80,16 @@ export function offRangeShare(
   if (!distribution) return { below: 0, above: 0 };
   let below = 0;
   let above = 0;
+  // 表示範囲が潰れている（折れ点が1点に集中した等）ときは、範囲内が無いので全量が範囲外。
+  // `visibleBars`と同じ条件でここでも分岐する——片方だけ分岐すると、
+  // `overlap(-∞, xMin)`と`overlap(xMax, ∞)`が同じ区間を二重に数え、割合の合計が1を超える。
+  const degenerate = xMax <= xMin;
   for (const [from, to, share] of distribution.bins) {
     const width = to - from;
-    if (width <= 0) {
+    if (degenerate || width <= 0) {
       if (from < xMin) below += share;
       else if (from > xMax) above += share;
+      else if (degenerate) above += share;
       continue;
     }
     below += share * (overlap(from, to, -Infinity, xMin) / width);

@@ -32,8 +32,13 @@ HARD_FILTER_HIGHWAY_TYPES: dict[str, frozenset[str]] = {
 
 # 0次フィルタの名前の全体（APIの`hard_filters`が受け付けるキー集合の正本）。highway由来の
 # フィルタは上のレジストリから導き、それ以外（タグ由来の`no_bicycle`）だけをここへ書く。
-# **フィルタを増やすときに書き換えるのはこの2箇所だけ**——キー集合を別の場所で組み立て
-# 直すと、片方だけ増えた瞬間にすべてのルート生成が422になる（キー完全一致の検証のため）。
+# **キー集合を別の場所で組み立て直さないこと**——片方だけ増えた瞬間にすべてのルート生成が
+# 422になる（キー完全一致の検証のため）。
+#
+# highway種別のフィルタを増やすなら`HARD_FILTER_HIGHWAY_TYPES`へ1行足すだけで済む
+# （`is_edge_allowed`はレジストリを回すため判定側は無変更）。タグ由来のフィルタを増やす
+# 場合はここへ名前を足すのに加え、`is_edge_allowed`へ判定を1本書く必要がある
+# （`no_bicycle`が唯一の実例）。
 HARD_FILTER_NAMES: frozenset[str] = frozenset({"no_bicycle", *HARD_FILTER_HIGHWAY_TYPES})
 
 # 現時点の既定レシピは全フィルタを常時有効にする（is_edge_allowedの`hard_filters`
