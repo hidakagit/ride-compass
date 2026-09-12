@@ -37,7 +37,7 @@ from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates
 from app.domain.time_zone import JST
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO
-from benchmarks._divergence import divergence_points, spliced_path
+from benchmarks._divergence import differing_stretches, divergence_points, spliced_path
 from benchmarks._route_generation_service import (
     assert_read_only_path,
     refresh_axis_registry,
@@ -101,6 +101,8 @@ def _report(graph, paths: dict[str, list[str]]) -> None:
     spliced_connected = 0
     marker_counts: list[int] = []
     differences: list[float] = []
+    stretch_counts: list[int] = []
+    stretch_lengths: list[float] = []
 
     for label, displayed in paths.items():
         others = {other: path for other, path in paths.items() if other != label}
@@ -115,6 +117,13 @@ def _report(graph, paths: dict[str, list[str]]) -> None:
                 spliced_total += 1
                 spliced_connected += _is_connected(graph, path)
         differences.extend(_redundancy(graph, displayed, paths, points))
+        for target, other in others.items():
+            lengths = [
+                sum(graph.edges[edge_id].distance_m for edge_id in displayed[start:end]) / 1000.0
+                for start, end in differing_stretches(displayed, other)
+            ]
+            stretch_counts.append(len(lengths))
+            stretch_lengths.extend(lengths)
 
     print(
         f"\n=== マーカー個数: 最小{min(marker_counts)} 最大{max(marker_counts)} "
@@ -130,6 +139,21 @@ def _report(graph, paths: dict[str, list[str]]) -> None:
         print(f"=== 同じ乗り換え先を持つ隣り合うマーカーが生む経路の違い（{len(differences)}組）")
         for label, count in buckets:
             print(f"    {label}: {count}組 ({count / len(differences):.0%})")
+
+    if stretch_lengths:
+        print(
+            f"=== 相手が別の道を通る区間: 1ペアあたり最小{min(stretch_counts)} "
+            f"最大{max(stretch_counts)} 平均{sum(stretch_counts) / len(stretch_counts):.1f}個"
+        )
+        buckets = [
+            ("0.2km未満（路地1本分）", sum(length < 0.2 for length in stretch_lengths)),
+            ("0.2〜1km", sum(0.2 <= length < 1.0 for length in stretch_lengths)),
+            ("1〜5km", sum(1.0 <= length < 5.0 for length in stretch_lengths)),
+            ("5km以上", sum(length >= 5.0 for length in stretch_lengths)),
+        ]
+        print(f"=== その区間の長さ（{len(stretch_lengths)}区間）")
+        for label, count in buckets:
+            print(f"    {label}: {count}区間 ({count / len(stretch_lengths):.0%})")
 
 
 async def main() -> None:
