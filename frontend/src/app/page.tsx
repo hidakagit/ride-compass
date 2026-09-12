@@ -727,6 +727,18 @@ export default function Home() {
       },
     },
   );
+  // 利用者が自分でシートの高さを決めたか。決めた後は中身に合わせた自動調整をやめ、その
+  // 高さを使い続ける（保存値があること自体が「決めた」の証跡——自動調整はonHeightChange
+  // までで保存しないため、保存値はドラッグ/キー操作の確定でしか生まれない）。
+  const [sheetHeightChosen, setSheetHeightChosen] = useState(false);
+  useIsomorphicLayoutEffect(() => {
+    try {
+      setSheetHeightChosen(window.localStorage.getItem(MOBILE_SHEET_HEIGHT_STORAGE_KEY) != null);
+    } catch {
+      // localStorageを使えない環境では「決めていない」（自動調整のまま）で構わない。
+    }
+  }, []);
+
   const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
   // レイヤーごとのデータ取得状態。MapViewが実際のタイル取得結果（sourcedata/
   // sourcedataloading/errorイベント）から算出する（動的気象レイヤーを除く、下記
@@ -1204,6 +1216,14 @@ export default function Home() {
       setMobileSheetHeightVh(vh);
     },
     [setMobileSheetHeightVh],
+  );
+
+  const handleMobileSheetHeightCommit = useCallback(
+    (vh: number) => {
+      setSheetHeightChosen(true);
+      commitMobileSheetHeight(vh);
+    },
+    [commitMobileSheetHeight],
   );
 
   // MapViewからのビューポート通知（MapView.tsx: onViewportChange参照）。
@@ -2360,7 +2380,9 @@ export default function Home() {
               headerAction={renderRouteSectionHeaderActions()}
               heightVh={mobileSheetHeightVh}
               onHeightChange={handleMobileSheetHeightChange}
-              onHeightCommit={commitMobileSheetHeight}
+              onHeightCommit={handleMobileSheetHeightCommit}
+              autoFitHeight={!sheetHeightChosen}
+              fitKey={settingsTab}
             >
               {renderRouteSectionBody()}
             </BottomSheet>
@@ -2374,7 +2396,8 @@ export default function Home() {
             headerAction={routes.length > 0 ? renderRouteResultHeaderActions() : undefined}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={commitMobileSheetHeight}
+            onHeightCommit={handleMobileSheetHeightCommit}
+            autoFitHeight={!sheetHeightChosen}
           >
             {routes.length > 0 ? (
               renderRouteOutcomeSectionBody()
@@ -2390,7 +2413,8 @@ export default function Home() {
             titleId={ROUTE_EDIT_SHEET_TITLE_ID}
             heightVh={mobileSheetHeightVh}
             onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={commitMobileSheetHeight}
+            onHeightCommit={handleMobileSheetHeightCommit}
+            autoFitHeight={!sheetHeightChosen}
           >
             {renderRouteEditSectionBody()}
           </BottomSheet>

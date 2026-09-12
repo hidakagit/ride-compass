@@ -263,8 +263,11 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
     }
   }
 
-  function renderWithHeight(onHeightChange: (vh: number) => void) {
-    render(
+  function renderWithHeight(
+    onHeightChange: (vh: number) => void,
+    options: { autoFitHeight?: boolean; fitKey?: string } = {},
+  ) {
+    return render(
       <BottomSheet
         open
         onClose={() => {}}
@@ -273,6 +276,8 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
         heightVh={50}
         onHeightChange={onHeightChange}
         onHeightCommit={() => {}}
+        autoFitHeight={options.autoFitHeight}
+        fitKey={options.fitKey}
       >
         <p>中身</p>
       </BottomSheet>,
@@ -302,6 +307,44 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
     withStubbedMetrics(60, () => renderWithHeight(onHeightChange));
 
     expect(onHeightChange).toHaveBeenCalledWith(MIN_SHEET_HEIGHT_VH);
+  });
+
+  // 利用者が自分で高さを決めた後は、中身に合わせた調整をしない（地図を広く見るために
+  // わざと低くしたシートが、中身の都合で戻されないようにする）。
+  it("autoFitHeight=falseなら中身に合わせない", () => {
+    const onHeightChange = vi.fn();
+    window.innerHeight = 812;
+
+    withStubbedMetrics(302, () => renderWithHeight(onHeightChange, { autoFitHeight: false }));
+
+    expect(onHeightChange).not.toHaveBeenCalled();
+  });
+
+  // 開いている間は合わせ直さないのが既定だが、タブを切り替えて中身が別物になった場合だけは
+  // 合わせ直す（切り替えた先の中身が、開いた時点の高さに収まらないままになるため）。
+  it("fitKeyが変わると合わせ直す", () => {
+    const onHeightChange = vi.fn();
+    window.innerHeight = 812;
+
+    withStubbedMetrics(302, () => {
+      const { rerender } = renderWithHeight(onHeightChange, { fitKey: "generate" });
+      expect(onHeightChange).toHaveBeenCalledTimes(1);
+      rerender(
+        <BottomSheet
+          open
+          onClose={() => {}}
+          title="テストシート"
+          titleId="test-sheet-title"
+          heightVh={50}
+          onHeightChange={onHeightChange}
+          onHeightCommit={() => {}}
+          fitKey="weights"
+        >
+          <p>中身</p>
+        </BottomSheet>,
+      );
+      expect(onHeightChange).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("実寸が取れない実行では高さを触らない", () => {

@@ -24,6 +24,14 @@ interface BottomSheetProps {
   onHeightChange: (vh: number) => void;
   /** ドラッグ終了・キー操作確定時にのみ呼ばれる（永続化用。ドラッグ中の連続書き込みを避ける）。 */
   onHeightCommit: (vh: number) => void;
+  /** 中身に合わせた高さの自動調整を行うか（既定true）。利用者が自分で高さを決めた後は
+   * falseにして、その高さをそのまま使う——地図を広く見るためにわざと低くしたシートが
+   * 中身の都合で戻されると、決めた高さを保てない。 */
+  autoFitHeight?: boolean;
+  /** 自動調整をやり直す区切り。開いている間は合わせ直さないのが既定だが、この値が
+   * 変わったときは中身が別物になったとみなして合わせ直す（タブの切替等、利用者自身が
+   * 別の内容へ移った場合）。 */
+  fitKey?: string;
 }
 
 const SWIPE_CLOSE_THRESHOLD_PX = 60;
@@ -72,6 +80,8 @@ export default function BottomSheet({
   heightVh,
   onHeightChange,
   onHeightCommit,
+  autoFitHeight = true,
+  fitKey,
 }: BottomSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -80,12 +90,14 @@ export default function BottomSheet({
   // 開いた時点の中身にちょうど合う高さへ合わせる。シートが中身より高いと、そのぶん地図が
   // 隠れたまま空白を見せることになる（設計原則「地図表示エリアを最大限確保する」）。
   // **開いている間は合わせ直さない**——候補の切り替え・区間クリックのたびに地図の見える
-  // 範囲が動くと、地図を見ながらの操作が落ち着かないため。合わせた結果はドラッグで
-  // 上書きでき、その値は次に開くまで有効。
+  // 範囲が動くと、地図を見ながらの操作が落ち着かないため。例外はfitKeyが変わったときだけで、
+  // これは利用者自身が別の内容へ移った合図として扱う。
+  // **利用者が自分で高さを決めた後（autoFitHeight=false）は一切合わせない**——決めた高さが
+  // 中身の都合で戻ると、地図を広く見るために低くしておくことができない。
   // レイアウトを持たない実行（実寸が取れない環境）では何もしない——シート自身の高さが
   // 0のときはヘッダ・ハンドルぶんの差分も求まらず、合わせる先が出せない。
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || !autoFitHeight) return;
     const sheet = sheetRef.current;
     const body = bodyRef.current;
     if (!sheet || !body) return;
@@ -93,7 +105,7 @@ export default function BottomSheet({
     const needed = naturalHeightOf(sheet);
     if (viewportHeight <= 0 || sheet.clientHeight <= 0 || needed <= 0) return;
     onHeightChange(clampSheetHeightVh(Math.ceil((needed / viewportHeight) * 100)));
-  }, [open, onHeightChange]);
+  }, [open, onHeightChange, autoFitHeight, fitKey]);
   // ハンドルの縦ドラッグによる高さ変更。ドラッグ開始時点の高さを起点に、指の移動量(vh換算)を
   // 足し込む。pointerIdで対象を絞るのは、まれに複数指が絡んだ場合に別指のmove/upで誤反応
   // しないようにするため。
