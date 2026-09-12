@@ -8,8 +8,8 @@ test("モバイル: ルート生成→「ルート結果」シートに候補が
   await generateRoutes(page, { distanceKm: 20 });
 
   const outcome = await openMobileSheet(page, "ルート結果");
-  await expect(outcome.getByRole("tab", { name: /^1 20\.3 km/ })).toBeVisible();
-  await expect(outcome.getByRole("tab", { name: /^2 19\.8 km/ })).toBeVisible();
+  await expect(outcome.getByRole("tab", { name: /^1 20\.3km/ })).toBeVisible();
+  await expect(outcome.getByRole("tab", { name: /^2 19\.8km/ })).toBeVisible();
 });
 
 // ヘッダーの溢れは、要素自体はariaツリーに存在するため役割・名前ベースの検査では

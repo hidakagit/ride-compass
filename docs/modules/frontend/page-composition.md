@@ -62,7 +62,7 @@ URL`）とNext.js route handlerからのサーバー間fetch先を区別する�
 | 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
 | ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
-| ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補ごとのタブ自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
+| ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補の一覧（縦タブ）自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
 | 研究モード | `ComparisonPanel`（実験スロット比較表） |
 | レイアウト | `BottomSheet`（モバイル下部シート） |
 
@@ -197,7 +197,14 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   `Disclosure`折りたたみで、開閉状態は`generateOpen`・`outcomeOpen`・`routeEditOpen`
   （localStorage）で永続化する。「ルート設定」「ルート結果」の見出し行はどちらも
   `trailing`に操作枠を持つ（前者は`renderRouteSectionHeaderActions()`の「ルート生成」
-  ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」は候補が無い間、
+  ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」の候補一覧は**左の縦タブ**
+  （`Tabs.Root orientation="vertical"`）で、右に選択中候補の中身が並ぶ2カラム——横並びの
+  タブは候補が増えると列が表示幅を超えて伸び、溢れた候補が存在ごと見えなくなる。
+  行は「順位・距離・総合難易度（数値と長さ）」を持ち、一覧の中で最も
+  距離が短い候補には「最短」を添える——並び順は総合難易度の昇順なので「最も易しい」は
+  先頭だが、「最も短い」は別の軸で、行を開かずに見比べられる必要がある。狭幅では一覧に
+  高さの上限を付けて中を縦スクロールさせる（下部シートを候補数で押し上げないため）。
+  「ルート結果」は候補が無い間、
   `renderRouteOutcomeEmptyState()`が生成前・生成中・失敗（検証エラー・APIエラー・候補0件）を
   出し分ける。**生成に関するフィードバックの置き場はここ1箇所**——「ルート生成」は見出し行の
   ボタンで本文を畳んだままでも押せるため、押した結果を「ルート設定」本文へ出すと操作している

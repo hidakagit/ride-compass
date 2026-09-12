@@ -211,26 +211,38 @@
 /* ルート結果パネルのタブ（候補ごと＋比較）。省スペース化のため、候補一覧・全体プロファイル・
    比較表を縦積みではなくタブ切り替えで1画面に収める。見た目はadmin.module.cssの.tabs系
    （下線インジケータ方式）と揃える。 */
+/* 候補一覧（左の縦タブ）＋選択中候補の中身（右）の2カラム。横並びのタブだと8件で
+   必要幅が表示幅の3倍近くになり、溢れた候補が存在ごと見えなくなるため縦へ倒した。 */
 .outcomeTabs {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: flex-start;
   gap: var(--space-2);
+}
+
+.outcomeTabPanes {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .outcomeTabBar {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+  align-items: stretch;
+  flex: 0 0 auto;
+  /* 左カラムの幅。候補行の「順位・距離・総合難易度」が折り返さずに読める最小限に留め、
+     残りは右の中身へ回す。 */
+  width: 10rem;
+  border-right: 1px solid var(--color-border);
 }
 
 /* 改善計画T545: 候補ごとのタブ＋比較タブがこの1列に並ぶため、候補数（最大15件、
    改善計画T531: RouteGenerateRequest.max_routes＋経由地/目的地ルート）ぶんで画面幅を
    超えうる。タブ列自身だけを横スクロールさせる（ページ全体は横スクロールさせない）。 */
+/* 候補一覧（1行1候補の縦並び）。横並びだと8件で必要幅が表示幅の3倍近くになり、溢れた候補が
+   存在ごと見えなくなる。縦なら行数が増えても各行の中身（距離・総合難易度）が読める。 */
 .outcomeTabList {
   display: flex;
-  gap: var(--space-2);
-  overflow-x: auto;
+  flex-direction: column;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -240,19 +252,65 @@
    2行に分けていたが、点数はタブの中身（RouteAxisProfileのスコア行）に既に出ているため
    タブでは繰り返さない）。 */
 .outcomeTabTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
   flex-shrink: 0;
   white-space: nowrap;
   font-size: var(--font-size-sm);
   font-weight: 700;
   color: var(--color-muted);
-  padding: 0.4rem 0.5rem;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  padding: 0.35rem 0.5rem;
+  /* 選択中の印は行の左端（縦並びでは下線が行の区切りと紛らわしい）。 */
+  border-left: 3px solid transparent;
+  text-align: left;
 }
 
 .outcomeTabTrigger[data-state="active"] {
   color: var(--color-accent-strong);
-  border-bottom-color: var(--color-accent-strong);
+  border-left-color: var(--color-accent-strong);
+  background: var(--color-surface-2);
+}
+
+/* 行の左側（順位・距離・補助表記）。右側の総合難易度と衝突しないよう、溢れはここで畳む。 */
+.outcomeTabMain {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 行の右側の総合難易度。数値だけだと並びの中での位置が読み取りにくいため、長さも添える。 */
+.outcomeTabScore {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+
+/* 目盛りの器。幅を固定しないと、中のバーの%が0幅に対して解決されて何も見えない。 */
+.outcomeTabScoreTrack {
+  width: 1.5rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--color-border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.outcomeTabScoreBar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-accent);
+  opacity: 0.7;
+}
+
+.outcomeTabScoreValue {
+  font-weight: 400;
+  color: var(--color-muted-strong);
+  font-variant-numeric: tabular-nums;
 }
 
 /* タブの距離の後ろに添える「最短からの超過km」。距離そのものより弱く見せる——主たる表記は
@@ -266,6 +324,19 @@
 .outcomeTabTrigger:disabled {
   color: var(--color-border);
   cursor: not-allowed;
+}
+
+/* スマホの下部シートは低いほどよい（docs/tasks/T778.md）。候補が増えても一覧の高さで
+   シートを押し上げないよう、狭幅では上限を付けて中をスクロールさせる——横スクロールと違い
+   縦スクロールはシート自体の操作と同じ向きで、溢れに気づける。 */
+@media (max-width: 640px) {
+  .outcomeTabBar {
+    max-height: 11rem;
+  }
+
+  .outcomeTabList {
+    overflow-y: auto;
+  }
 }
 
 .outcomeTabPanel {

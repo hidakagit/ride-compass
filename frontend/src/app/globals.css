@@ -344,7 +344,9 @@
   /* 以前は340pxだったが、レイヤー操作を地図上（MapOverlayControls）へ移して
      サイドバーの中身が減ったため、地図の視界を優先して縮小した。
      デスクトップ専用（モバイルは下部タブバー＋部分シートへ置換済み、T34） */
-  width: 280px;
+  /* ルート結果が「左に候補一覧・右にその中身」の2カラムになったぶんを足した幅
+     （page.module.cssの.outcomeTabs）。狭いままだと右の中身が1語ずつ折り返す。 */
+  width: 380px;
   flex-shrink: 0;
   overflow-y: auto;
   border-right: 1px solid var(--color-border);

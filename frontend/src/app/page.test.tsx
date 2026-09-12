@@ -844,8 +844,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: "1 30.1 km" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "2 31.4 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^1 30\.1km/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^2 31\.4km/ })).toBeInTheDocument();
     });
   });
 
@@ -865,8 +865,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: "1 20.3 km" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "2 22.1 km" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^1 20\.3km/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^2 22\.1km/ })).toBeInTheDocument();
     });
   });
 
@@ -893,8 +893,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: "最短 18.0 km" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "2 22.0 km +4.0" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^最短 18\.0km/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^2 22\.0km \+4\.0/ })).toBeInTheDocument();
     });
   });
 
@@ -916,8 +916,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "2 19.5 km 合成" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^2 19\.5km 合成/ })).toBeInTheDocument();
     });
   });
 
@@ -950,7 +950,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
     // 生成後に目的地を動かす（フォーム値だけが変わり、表示中の候補は古い条件のまま）
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を別の地点へ動かす" }));
@@ -985,7 +985,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // 目的地ピンだけ置いて、周回モードのまま生成する
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
     expect(screen.queryByLabelText("比較相手")).toBeNull();
   });
@@ -1008,7 +1008,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
     const outcome = document.getElementById("outcome-section-title") as HTMLElement;
     expect(within(outcome).queryByLabelText("比較相手")).toBeNull();
@@ -1032,7 +1032,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     render(<HomeFresh />);
 
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "1 18.0 km" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
     const routeEdit = document.getElementById("route-edit-section-title") as HTMLElement;
     expect(within(routeEdit).getByText(/目的地を決めて候補が2件以上出ると/)).toBeInTheDocument();

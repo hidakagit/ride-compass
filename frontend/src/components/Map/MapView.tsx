@@ -172,6 +172,9 @@ export const STOP_POI_SOURCE_LAYER = "stop_poi";
 const ROUTES_SOURCE_ID = "route-candidates";
 // 「ルート」チップOFF時の完全非表示検証（MapView.layerOps.test.ts）向けにexport。
 export const ROUTES_LAYER_ID = "route-candidates-line";
+// 未選択候補の線は細く（2.5px）、走行中のスマホでは指で狙えない。見た目の線とは別に
+// 透明な太い線を重ね、地図から候補を選べるようにする（DETAIL_HIT_LAYER_IDと同じ手法）。
+export const ROUTES_HIT_LAYER_ID = "route-candidates-hit";
 const OUTLINE_SOURCE_ID = "route-selected-outline";
 export const OUTLINE_LAYER_ID = "route-selected-outline-line";
 // 周回ルートの採用向き（順回り/逆回り）を示す矢印。8候補すべてに出すと輻輳するため専用
@@ -302,7 +305,7 @@ export function routesToFeatureCollection(
   // 残って見える」。薄いハロー（drawSelectedOutline、opacity 0.25）は選択中候補を常時
   // 識別できるようにする別の意図的な表現のため、そちらは除外の対象にしない。
   excludeSelected = false
-): GeoJSON.FeatureCollection<GeoJSON.LineString, { selected: boolean }> {
+): GeoJSON.FeatureCollection<GeoJSON.LineString, { selected: boolean; routeId: string }> {
   // 選択中の候補が他の線に隠れないよう、配列の最後（最前面）に描画されるようにする
   const ordered = [...routes]
     .filter((route) => !excludeSelected || route.id !== selectedRouteId)
@@ -312,7 +315,8 @@ export function routesToFeatureCollection(
     type: "FeatureCollection",
     features: ordered.map((route) => ({
       type: "Feature",
-      properties: { selected: route.id === selectedRouteId },
+      // routeIdは地図から候補を選ぶための識別子（下記ROUTES_HIT_LAYER_IDのクリック）。
+      properties: { selected: route.id === selectedRouteId, routeId: route.id },
       geometry: route.geometry,
     })),
   };
@@ -481,11 +485,18 @@ export function drawBaseRoutes(
           "line-opacity": ["case", ["get", "selected"], 1, 0.65],
         },
       });
+      map.addLayer({
+        id: ROUTES_HIT_LAYER_ID,
+        type: "line",
+        source: ROUTES_SOURCE_ID,
+        paint: { "line-width": 18, "line-opacity": 0 },
+      });
     }
     // 「ルート」チップOFFで隠した後、再度ONにしたときに再表示されるよう、
     // 更新のたびにvisibility="visible"を明示する（addLayer直後は既定でvisibleだが、
     // hideBaseRoutesでnoneにした後の再表示はこの明示が無いと戻らない）。
     setLayerVisibility(map, ROUTES_LAYER_ID, true);
+    setLayerVisibility(map, ROUTES_HIT_LAYER_ID, true);
   };
 
   runWhenStyleReady(map, applyData);
@@ -567,7 +578,10 @@ export function hideSpliceStretches(map: MapLibreMap) {
 }
 
 export function hideBaseRoutes(map: MapLibreMap) {
-  runWhenStyleReady(map, () => setLayerVisibility(map, ROUTES_LAYER_ID, false));
+  runWhenStyleReady(map, () => {
+    setLayerVisibility(map, ROUTES_LAYER_ID, false);
+    setLayerVisibility(map, ROUTES_HIT_LAYER_ID, false);
+  });
 }
 
 // 選択中候補を常時識別できるよう、色分けレイヤーの下に薄いハローを敷く
@@ -2493,6 +2507,9 @@ interface MapViewProps {
    * selectedRouteSegment stateへ格納し、上記propとして折り返される
    * （destination/waypointsと同じcontrolled propパターン）。 */
   onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
+  /** 地図上の候補線を押したときの候補切り替え。一覧（ルート結果の縦タブ）と地図の
+   * どちらからでも選べるようにする。 */
+  onRouteSelect: (routeId: string) => void;
   /** ユーザーが地図クリックで指定した経由地（起点→経由地1→...→起点の順で
    * 通過する単一経路の生成に使う、page.tsx側のstate）。 */
   waypoints: Coordinates[];
@@ -2564,6 +2581,7 @@ export default function MapView({
   axisLabels,
   selectedRouteSegment,
   onRouteSegmentSelect,
+  onRouteSelect,
   waypoints,
   onWaypointAdd,
   onWaypointRemove,
@@ -2661,6 +2679,7 @@ export default function MapView({
   // handleRouteSegmentClick（地図初期化effect内で一度だけ登録）が最新の
   // onRouteSegmentSelectを読めるようにするref（onWaypointAddRefと同じパターン）。
   const onRouteSegmentSelectRef = useRef(onRouteSegmentSelect);
+  const onRouteSelectRef = useRef(onRouteSelect);
   // trueの間、位置更新effect（下部）がmap.flyTo（カメラ移動）をスキップする。
   // ドラッグ操作自体で既にその地点が画面内に見えているため、setManualLocation経由で
   // location/locationSourceが更新された直後に不要なカメラ移動（ズームリセットを含む）を
@@ -2746,6 +2765,10 @@ export default function MapView({
   useEffect(() => {
     onRouteSegmentSelectRef.current = onRouteSegmentSelect;
   }, [onRouteSegmentSelect]);
+
+  useEffect(() => {
+    onRouteSelectRef.current = onRouteSelect;
+  }, [onRouteSelect]);
 
   useEffect(() => {
     redrawPropsRef.current = {
@@ -3062,11 +3085,12 @@ export default function MapView({
       // （ルート線は常にroad_surfaceタイルより上に重ねて描画される、drawDetailSegments参照）。
       // ルート線がヒットした場合はここで即座に抜け、一般道路網側の判定・ポップアップ表示を
       // 一切行わない。
-      if (
-        map.getLayer(DETAIL_HIT_LAYER_ID) &&
-        map.queryRenderedFeatures(e.point, { layers: [DETAIL_HIT_LAYER_ID] }).length > 0
-      ) {
-        return;
+      // 候補線（ROUTES_HIT_LAYER_ID）も同じ理由で専用ハンドラ（handleCandidateClick）を
+      // 持つため、一般道路網向けのポップアップは開かない。
+      for (const hitLayerId of [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID]) {
+        if (map.getLayer(hitLayerId) && map.queryRenderedFeatures(e.point, { layers: [hitLayerId] }).length > 0) {
+          return;
+        }
       }
       // 環境グループの勾配gridFill（GRADIENT_FILL_LAYER_ID）は専用ポップアップを持たず、
       // buildInteractiveLayerIdsの対象からも除外されている。ガード無しでは下の汎用
@@ -3137,6 +3161,15 @@ export default function MapView({
     // 先読み登録しても安全。feature.properties（RouteSegmentDetailのgeometry除いた形、
     // segmentsToFeatureCollectionが焼き込み済み）をそのまま使い、サーバーへの新規リクエストは
     // 発生させない。
+    // 候補線（当たり判定はROUTES_HIT_LAYER_ID）を押したら、その候補を選ぶ。選択中候補は
+    // DETAIL_LAYER_ID側が区間の詳細を持つため、こちらは未選択候補への乗り換えだけを担う。
+    function handleCandidateClick(e: MapLayerMouseEvent) {
+      const routeId = e.features?.[0]?.properties?.routeId;
+      if (typeof routeId !== "string") return;
+      popupRef.current?.remove();
+      onRouteSelectRef.current(routeId);
+    }
+
     function handleRouteSegmentClick(e: MapLayerMouseEvent) {
       const feature = e.features?.[0];
       if (!feature) return;
@@ -3327,6 +3360,7 @@ export default function MapView({
     // ルート線専用（layer-scoped）。上のhandleClick（generic）とは独立して両方このイベントで
     // 発火するため、handleClick冒頭のガードと対で機能する。
     map.on("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
+    map.on("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
     map.on("mousemove", handleMouseMove);
     map.on("zoom", handleZoom);
     map.on("load", handleLoad);
@@ -3349,6 +3383,7 @@ export default function MapView({
       map.off("sourcedata", collapseAttribution);
       map.off("click", handleClick);
       map.off("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
+      map.off("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
       map.off("load", handleLoad);

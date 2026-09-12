@@ -36,3 +36,15 @@ export function extraDistanceLabel(
   if (extra < 0.05) return null;
   return `+${extra.toFixed(1)}`;
 }
+
+/**
+ * 一覧の中で最も距離が短い候補のid。候補が1件以下ならnull（比べる相手が無い）。
+ *
+ * 目的地モードの`is_shortest_distance`（backendが基準線として付ける）とは別に、周回モードを
+ * 含むどの一覧でも「最短はどれか」を一覧の中だけで決められるようにする——一覧を見ただけで
+ * 分かることが目的で、並び順（総合難易度の昇順）とは別の軸だから印が要る。
+ */
+export function shortestDistanceRouteId(routes: readonly { id: string; distance_km: number }[]): string | null {
+  if (routes.length < 2) return null;
+  return routes.reduce((best, route) => (route.distance_km < best.distance_km ? route : best)).id;
+}

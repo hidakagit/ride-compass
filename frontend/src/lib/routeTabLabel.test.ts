@@ -5,6 +5,7 @@ import {
   extraDistanceLabel,
   isSplicedRoute,
   shortestDistanceKm,
+  shortestDistanceRouteId,
 } from "./routeTabLabel";
 
 const SHORTEST = { distance_km: 18.0, is_shortest_distance: true };
@@ -58,5 +59,22 @@ describe("isSplicedRoute", () => {
   it("backendが付ける接頭辞と、フロントが組み立てるidが同じ1つの値から出る", () => {
     // 別々に書くと、片方だけ変えたときに合成ルートが一覧で見分けられなくなる
     expect(SPLICED_ROUTE_ID_PREFIX).toBe("route-spliced");
+  });
+});
+
+describe("shortestDistanceRouteId", () => {
+  it("一覧の中で最も距離が短い候補のidを返す", () => {
+    const routes = [
+      { id: "a", distance_km: 20.3 },
+      { id: "b", distance_km: 16.3 },
+      { id: "c", distance_km: 21.4 },
+    ];
+
+    expect(shortestDistanceRouteId(routes)).toBe("b");
+  });
+
+  it("候補が1件以下なら比べる相手が無いのでnull", () => {
+    expect(shortestDistanceRouteId([{ id: "a", distance_km: 20 }])).toBeNull();
+    expect(shortestDistanceRouteId([])).toBeNull();
   });
 });

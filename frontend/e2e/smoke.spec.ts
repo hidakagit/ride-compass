@@ -19,8 +19,8 @@ test("ルート生成→候補一覧の表示", async ({ page }) => {
   // モック応答の2候補（北・南方向）が候補タブに表示されることを確認する。候補は
   // 「ルート結果」のタブ（Radix Tabs.Trigger、role=tab）で、ラベルは順位番号付きの
   // 「1 20.3 km」形式（順位番号＋距離、page.tsx参照）。
-  await expect(page.getByRole("tab", { name: /^1 20\.3 km/ })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /^2 19\.8 km/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^1 20\.3km/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^2 19\.8km/ })).toBeVisible();
 });
 
 test("地図レイヤーのON/OFF切替", async ({ page }) => {

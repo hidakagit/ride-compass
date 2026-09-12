@@ -352,3 +352,11 @@ describe("computeRouteFitPadding", () => {
     expect(padding.left).toBeCloseTo(padding.right);
   });
 });
+
+describe("候補featureのproperties（地図から候補を選ぶための識別子）", () => {
+  it("各featureに候補idを載せる（ROUTES_HIT_LAYER_IDのクリックがこれで候補を特定する）", () => {
+    const collection = routesToFeatureCollection([makeCandidate({ id: "a" }), makeCandidate({ id: "b" })], "a");
+
+    expect(collection.features.map((f) => f.properties.routeId).sort()).toEqual(["a", "b"]);
+  });
+});

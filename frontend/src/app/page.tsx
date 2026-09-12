@@ -102,6 +102,7 @@ import {
   extraDistanceLabel,
   isSplicedRoute,
   shortestDistanceKm,
+  shortestDistanceRouteId,
 } from "@/lib/routeTabLabel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
@@ -433,6 +434,13 @@ export default function Home() {
     setDestination(point);
     setDestinationArmed(false);
   }, []);
+  // 地図上の候補線から候補を選ぶ。一覧（縦タブ）での切り替えと同じく、前の候補で
+  // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま残るため）。
+  const handleRouteSelectFromMap = useCallback((routeId: string) => {
+    setSelectedRouteSegment(null);
+    setSelectedRouteId(routeId);
+  }, []);
+
   const handleDestinationClear = useCallback(() => setDestination(null), []);
   // チップは「指定する／置き直す」だけを担い、押すたびに武装する（武装中に押すと
   // キャンセル）。設定済みから武装しても目的地は残したままで、地図タップが置き換えになる
@@ -1730,6 +1738,7 @@ export default function Home() {
     const outerTabValue = comparisonTabActive ? "comparison" : (selectedRouteId ?? routes[0].id);
     // 距離だけで選んだ基準線の距離km（目的地モードのみ持つ。周回・経由地ルートはnull）。
     const shortestKm = shortestDistanceKm(routes);
+    const shortestRouteId = shortestDistanceRouteId(routes);
     // RouteAxisProfileへは公開軸すべて（axisCatalog.axes）をそのまま渡し、絞り込みは行わない。
     // routeWeightsは重み<=0の軸を「未使用」バッジ付きで表示する判定にのみ使う（生成時点の重み
     // ＝generatedRoutePreference、未生成時のみライブなroutePreferenceへフォールバック）。
@@ -1751,6 +1760,10 @@ export default function Home() {
         )}
         <Tabs.Root
           className={styles.outcomeTabs}
+          // 候補は横並びのタブだと幅に収まらず（8件で列の必要幅が表示幅の3倍近くになる）、
+          // 溢れた候補が存在ごと見えなくなる。1行1候補の縦並びにして、行の中へ距離と
+          // 総合難易度を並べる——横幅の制約から外れるぶん、タブを開かずに見比べられる。
+          orientation="vertical"
           value={outerTabValue}
           onValueChange={(value) => {
             // 候補タブ・比較タブいずれへ切り替えても、他候補でクリックしていた区間の
@@ -1782,20 +1795,45 @@ export default function Home() {
                       ルート(route-destination-00形式、前方一致)は経由地を伴わなければ
                       via-node方式で複数件になりうる——方位という概念は無いため「方向」は
                       付けないが、複数件を見分けられるよう順位番号は付ける。 */}
-                  {route.is_shortest_distance
-                    ? "最短"
-                    : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
-                      ? route.direction_label
-                      : `${index + 1}`}{" "}
-                  {route.distance_km.toFixed(1)} km
-                  {/* 区間を乗り換えて作った候補。並び順は生成候補と同じ規約に乗せ
-                      （insertByDifficulty）、見分けは名前で付ける。 */}
-                  {isSplicedRoute(route) && <span className={styles.outcomeTabExtra}>合成</span>}
-                  {/* 最短経路から何km余分に走るか。軸設定に沿ったルートを走る対価であり、
-                      候補を見比べるこの場所に無いと、比較のたびにタブを開き直すことになる。 */}
-                  {extraDistanceLabel(route, shortestKm) && (
-                    <span className={styles.outcomeTabExtra}>{extraDistanceLabel(route, shortestKm)}</span>
-                  )}
+                  <span className={styles.outcomeTabMain}>
+                    {route.is_shortest_distance
+                      ? "最短"
+                      : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
+                        ? route.direction_label
+                        : `${index + 1}`}{" "}
+                    {route.distance_km.toFixed(1)}km
+                    {/* 区間を乗り換えて作った候補。並び順は生成候補と同じ規約に乗せ
+                        （insertByDifficulty）、見分けは名前で付ける。 */}
+                    {isSplicedRoute(route) && <span className={styles.outcomeTabExtra}>合成</span>}
+                    {/* 最短経路から何km余分に走るか。軸設定に沿ったルートを走る対価であり、
+                        候補を見比べるこの場所に無いと、比較のたびにタブを開き直すことになる。 */}
+                    {extraDistanceLabel(route, shortestKm) && (
+                      <span className={styles.outcomeTabExtra}>{extraDistanceLabel(route, shortestKm)}</span>
+                    )}
+                    {/* 並び順は総合難易度の昇順なので「最も易しい」は先頭だが、「最も短い」は
+                        別の軸のため一覧の中で印を付ける（目的地モードは順位の位置に
+                        backend由来の「最短」が出るため、そちらでは重ねない）。 */}
+                    {!route.is_shortest_distance && route.id === shortestRouteId && (
+                      <span className={styles.outcomeTabExtra}>最短</span>
+                    )}
+                  </span>
+                  {/* 総合難易度。タブを開かずに候補どうしを見比べられるよう、数値と長さの
+                      両方で出す（数値だけだと並びの中の位置が読み取りにくい）。 */}
+                  {/* 算出できなかった候補（overall_difficultyがnull）は、長さを描かず
+                      「—」だけ出す——0と欠損を同じ見た目にしない。 */}
+                  <span className={styles.outcomeTabScore}>
+                    <span className={styles.outcomeTabScoreTrack}>
+                      {route.overall_difficulty !== null && (
+                        <span
+                          className={styles.outcomeTabScoreBar}
+                          style={{ width: `${route.overall_difficulty}%` }}
+                        />
+                      )}
+                    </span>
+                    <span className={styles.outcomeTabScoreValue}>
+                      {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty)}
+                    </span>
+                  </span>
                 </Tabs.Trigger>
               ))}
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
@@ -1808,6 +1846,8 @@ export default function Home() {
               )}
             </Tabs.List>
           </div>
+          {/* 右カラム。選ばれている候補の中身だけがここに出る（Radixが他を[hidden]にする）。 */}
+          <div className={styles.outcomeTabPanes}>
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
               {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
@@ -1890,6 +1930,7 @@ export default function Home() {
               />
             </Tabs.Content>
           )}
+          </div>
         </Tabs.Root>
       </>
     );
@@ -2106,6 +2147,7 @@ export default function Home() {
             axisLabels={axisCatalog.axisLabels}
             selectedRouteSegment={selectedRouteSegment}
             onRouteSegmentSelect={setSelectedRouteSegment}
+            onRouteSelect={handleRouteSelectFromMap}
             // 周回モード中は地図上のピンを表示・追加受付しない（モード切り替え自体は
             // waypoints/destination state自体を消さないため、目的地モードへ戻れば
             // 復元される）。

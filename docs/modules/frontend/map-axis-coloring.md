@@ -105,6 +105,11 @@
   全軸の重み付き合成コストそのものを表示するため、軸スタジオと同期する対象にならない。
 - `NONE_MODE`（レンズなし）: ルート線を単色（候補線の非選択色）で描き、凡例を持たない。
 - `DEFAULT_ROUTE_STYLE_MODE_ID`は`"difficulty"`（総合難易度）。
+- **候補線からの選択**: 未選択候補の線（`ROUTES_LAYER_ID`、細い参考線）には透明で太い
+  当たり判定（`ROUTES_HIT_LAYER_ID`）を重ね、押された地物の`routeId`プロパティで候補を
+  切り替える（`MapViewProps.onRouteSelect`）——一覧と地図のどちらからでも選べるようにする。
+  選択中候補の区間詳細（`DETAIL_HIT_LAYER_ID`）とは別のハンドラで、一般道路網向けの
+  ポップアップは両方の当たり判定をガードして開かない。
 - **地図上の重ね順**（`MapView.tsx: drawDetailSegments`・`keepRouteArrowsAboveDetailSegments`）:
   選択中候補の区間色分け線（`DETAIL_LAYER_ID`、幅6px・不透明）とその縁取り
   （`DETAIL_CASING_LAYER_ID`、幅10px）・当たり判定線
