@@ -133,6 +133,14 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 「自分の持ち物だが今は条件なし」と「外側が管理しているので触るな」が区別できず、後者を
 前者として扱った瞬間に利用者の絞り込みが表示ON/OFFのたびに巻き戻る。
 
+## 初期表示の覆い（`initialTilesLoading`）
+
+最初の数秒はタイルが揃わず地図がほぼ白紙のため、`MapView`が「地図を読み込み中…」の
+覆いを重ねる。外すのはMapLibreの最初の`idle`だが、**`idle`は表示中のすべての取得が
+落ち着くまで来ない**——取得が終わらないソースが1つでもあると、基礎地図が描けていても
+覆いが残り続け、白紙で固まったように見える。覆いの役目は最初の白紙を隠すことなので、
+`idle`が来なくても`INITIAL_TILES_OVERLAY_MAX_MS`で外す。
+
 ## レイヤーのデータ取得状態（`ChipButton`/`LayerChip`共通のドット表現）
 
 `MapOverlayControls`の`ChipButton`は、サイドバー（`MapLayersPanel`）が使う`LayerChip.tsx`と

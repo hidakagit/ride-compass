@@ -44,3 +44,26 @@ test("地図レイヤーのON/OFF切替", async ({ page }) => {
   await roadTypeChip.click();
   await expect(roadTypeChip).toHaveAttribute("aria-pressed", String(!initiallyOn));
 });
+
+// 初期表示の覆い（「地図を読み込み中…」）はMapLibreの"idle"で外すが、idleは表示中の
+// すべての取得が落ち着くまで来ない。取得が終わらないソースが1つでもあると、地図が
+// 描けていても覆いが残り「壊れている」ように見える（T756）。
+test("タイル取得が終わらなくても地図の覆いは外れる", async ({ page }) => {
+  await page.route("**/api/basemap/**", (route) =>
+    route.fulfill({
+      json: {
+        version: 8,
+        sources: { slow: { type: "raster", tiles: ["https://slow.invalid/{z}/{x}/{y}.png"], tileSize: 256 } },
+        layers: [{ id: "slow", type: "raster", source: "slow" }],
+      },
+    })
+  );
+  // 応答しない（fulfillもabortもしない）ことで取得を宙吊りにする。
+  await page.route("https://slow.invalid/**", () => {});
+
+  await page.goto("/");
+
+  const overlay = page.getByText("地図を読み込み中…");
+  await expect(overlay).toBeVisible({ timeout: 5000 });
+  await expect(overlay).toBeHidden({ timeout: 12_000 });
+});
