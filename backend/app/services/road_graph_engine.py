@@ -1412,6 +1412,47 @@ class RoadGraphEngine:
         )
         return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge)
 
+    def build_traced_from_edge_ids(self, context: _RoadGraphContext, edge_ids: list[str]) -> TracedLoop:
+        """クライアントが組み立てたEdge id列を、評価できる経路として検証して`TracedLoop`にする。
+
+        区間の乗り換え（docs/tasks/T621.md）で使う。フロントは候補の`edge_ids`から
+        「Aの前半＋Bの後半」を作って送り返すため、**このグラフに実在し・順につながり・
+        起点から始まる**ことをここで確かめる（送られた列をそのまま信じると、評価は成功する
+        のに経路として成立しないルートが候補一覧へ並ぶ）。
+
+        レグはこの経路自身の距離の半分で切る。合成経路はvia-nodeを持たないため前向き木・
+        後ろ向き木の境目が無く、レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の
+        近似が入れ替わる点として中間を採る。
+        """
+        graph = context.graph
+        if not edge_ids:
+            raise RoutingError("経路が空です")
+        unknown = [edge_id for edge_id in edge_ids if edge_id not in graph.edges]
+        if unknown:
+            raise RoutingError(
+                f"経路に未知のEdgeが含まれています count={len(unknown)} first={unknown[0]}"
+            )
+        edges = [graph.edges[edge_id] for edge_id in edge_ids]
+        if edges[0].from_node_id != context.origin_node:
+            raise RoutingError(
+                f"経路が起点から始まっていません expected={context.origin_node} actual={edges[0].from_node_id}"
+            )
+        for index, (current, following) in enumerate(zip(edges, edges[1:])):
+            if current.to_node_id != following.from_node_id:
+                raise RoutingError(
+                    f"経路がつながっていません index={index} "
+                    f"to_node={current.to_node_id} next_from_node={following.from_node_id}"
+                )
+
+        total_m = sum(edge.distance_m for edge in edges)
+        leg_of_edge, travelled_m = [], 0.0
+        for edge in edges:
+            leg_of_edge.append(0 if travelled_m < total_m / 2 else 1)
+            travelled_m += edge.distance_m
+        return TracedLoop(
+            bearing=None, distance_km=round(total_m / 1000, 2), data=edge_ids, leg_of_edge=leg_of_edge
+        )
+
     def is_loop_too_similar(
         self, context: _RoadGraphContext, candidate: TracedLoop, accepted: list[TracedLoop]
     ) -> bool:
@@ -1568,6 +1609,7 @@ class RoadGraphEngine:
             **candidate_identity(traced.bearing),
             distance_km=traced.distance_km,
             geometry=geometry,
+            edge_ids=[edge.edge_id for edge in edges_in_path],
             segments=segments,
             material_category_shares=material_category_shares,
             **elevation_stats,

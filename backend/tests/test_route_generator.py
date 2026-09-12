@@ -14,6 +14,7 @@ from app.domain.errors import RoutingError
 from app.domain.geo import compass_label
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.services.route_generator import (
+    TURNAROUND_RADIUS_RATIO,
     LoopTurnaround,
     RouteGenerator,
     TracedLoop,
@@ -48,6 +49,7 @@ class FakeEngine:
         via_node_distances: list[float] | None = None,
         destination_correction: Coordinates | None = None,
         shortest_distance_km: float | None = None,
+        build_traced_error: Exception | None = None,
     ):
         self._distances = distances_by_bearing
         self._prepare_result = prepare_result
@@ -65,6 +67,9 @@ class FakeEngine:
         # 距離だけで選んだ最短経路の距離。Noneは「最短経路を求められなかった」を表す
         # （既定。既存テストの候補数・並び順を変えないため）。
         self._shortest_distance_km = shortest_distance_km
+        # build_traced_from_edge_idsが送られた列を成立しないと判定した体を取るテスト用。
+        self._build_traced_error = build_traced_error
+        self.build_traced_calls: list[list[str]] = []
         self.prepare_calls: list[tuple[Coordinates, float]] = []
         self.prepare_waypoints: list[Coordinates] | None = None
         self.select_calls: list[tuple[float, float, int]] = []
@@ -133,6 +138,12 @@ class FakeEngine:
             )
             for t in traced
         ]
+
+    def build_traced_from_edge_ids(self, context, edge_ids):
+        self.build_traced_calls.append(edge_ids)
+        if self._build_traced_error is not None:
+            raise self._build_traced_error
+        return TracedLoop(bearing=None, distance_km=len(edge_ids) * 1.0, data=list(edge_ids))
 
 
 def make_generator(distances_by_bearing, **kwargs) -> tuple[RouteGenerator, FakeEngine]:
@@ -1022,3 +1033,68 @@ async def test_evaluate_loops_returning_a_different_count_is_rejected():
         await generator.generate_via_waypoints(
             ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=3
         )
+
+
+# 区間の乗り換え（docs/tasks/T621.md）: クライアントが組み立てた経路を、探索をやり直さず
+# 既存候補と同じ評価経路へ通す。
+async def test_generate_spliced_route_evaluates_the_given_path_as_one_candidate():
+    generator, engine = make_generator({})
+
+    candidates = await generator.generate_spliced_route(
+        ORIGIN, DESTINATION, distance_km=10.0, edge_ids=["e1", "e2", "e3"]
+    )
+
+    assert [c.id for c in candidates] == ["route-spliced"]
+    assert candidates[0].direction_label == "組み合わせたルート"
+    assert candidates[0].distance_km == 3.0
+    assert engine.build_traced_calls == [["e1", "e2", "e3"]]
+    # 探索はやり直さない
+    assert engine.select_calls == []
+    assert engine.select_via_nodes_calls == []
+
+
+async def test_generate_spliced_route_prepares_the_same_area_as_destination_routes():
+    generator, engine = make_generator({})
+
+    await generator.generate_spliced_route(ORIGIN, DESTINATION, distance_km=10.0, edge_ids=["e1"])
+
+    assert engine.prepare_calls == [(ORIGIN, 10.0 * TURNAROUND_RADIUS_RATIO)]
+    assert engine.prepare_waypoints == [DESTINATION]
+
+
+async def test_generate_spliced_route_returns_empty_with_reason_when_no_context():
+    generator, _ = make_generator({}, prepare_result=None)
+
+    candidates = await generator.generate_spliced_route(
+        ORIGIN, DESTINATION, distance_km=10.0, edge_ids=["e1"]
+    )
+
+    assert candidates == []
+    assert "道路データが未整備" in generator.last_no_candidates_reason
+
+
+async def test_generate_spliced_route_propagates_a_path_that_does_not_hold_together():
+    # 成立しない列を黙って評価すると、経路になっていないルートが候補一覧へ並ぶ。
+    generator, _ = make_generator({}, build_traced_error=RoutingError("経路がつながっていません"))
+
+    with pytest.raises(RoutingError, match="経路がつながっていません"):
+        await generator.generate_spliced_route(
+            ORIGIN, DESTINATION, distance_km=10.0, edge_ids=["e1", "e9"]
+        )
+
+
+async def test_generate_spliced_route_runs_the_same_aggregation_as_other_candidates():
+    # 構造仕様10: 合成結果も既存候補と同じ評価経路を通す（前半・後半の値を混ぜない）。
+    engine = SegmentedFakeEngine({}, {None: [
+        make_segment(12.0, 40.0, axis_difficulties={"gradient": 30.0}),
+        make_segment(8.0, 60.0, axis_difficulties={"gradient": 80.0}),
+    ]})
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_spliced_route(
+        ORIGIN, DESTINATION, distance_km=10.0, edge_ids=["e1", "e2"]
+    )
+
+    # 距離加重平均: 総合 (40*12+60*8)/20、軸別 (30*12+80*8)/20
+    assert candidates[0].overall_difficulty == pytest.approx(48.0)
+    assert candidates[0].axis_difficulties["gradient"] == pytest.approx(50.0)

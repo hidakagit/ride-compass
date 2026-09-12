@@ -39,6 +39,10 @@
   `TracedLoop.data`の中身を知らないため、どの候補がどの`TracedLoop`由来かを位置以外で
   突き合わせられない（`_generate_destination_routes`が最短経路へ印を付けるのに使う）。
   契約は`RouteGenerator._evaluate_and_aggregate`が件数で検査する
+- `build_traced_from_edge_ids(context, edge_ids)`: クライアントが組み立てたEdge id列を、
+  このグラフで評価できる経路として検証して`TracedLoop`にする（区間の乗り換え、
+  docs/tasks/T621.md）。実在・連結・起点の確認はグラフを知るエンジンの責務で、
+  成立しない列は`RoutingError`で落とす
 - `is_loop_too_similar(context, candidate, accepted)`: `candidate`が`accepted`
   （距離フィルタ・本判定を既に通過した候補群）のいずれかと、周回全体（往路＋復路、
   進行方向は無視）でエンジン固有の閾値を超えて重複するか。
@@ -441,6 +445,57 @@ class RouteGenerator:
             "prepare_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
             self.engine_name, origin_label, len(waypoints), destination is not None, distance_km, traced.distance_km,
             prepare_ms, trace_ms, evaluate_ms, total_ms,
+        )
+        return candidates
+
+    async def generate_spliced_route(
+        self,
+        origin: Coordinates,
+        destination: Coordinates,
+        distance_km: float,
+        edge_ids: list[str],
+        start_time: datetime | None = None,
+    ) -> list[RouteCandidate]:
+        """クライアントが区間を差し替えて組み立てた経路を、既存候補と同じ経路で評価し直す。
+
+        探索はやり直さない（経路は確定済み）が、`prepare`は通る——評価は
+        `_RoadGraphContext`のコスト配列から読むため（design-principles.md 構造仕様10:
+        Edgeコストは一度だけ計算し、探索と表示が同じ値を共有する）。前半・後半の値を
+        混ぜる近似にすると、その共有が壊れる。
+        """
+        radius_km = distance_km * TURNAROUND_RADIUS_RATIO
+        started = time.monotonic()
+        origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
+        self.last_no_candidates_reason = None
+        self.last_destination_correction = None
+
+        start_time = start_time or datetime.now(JST)
+        context = await self._engine.prepare(origin, radius_km, waypoints=[destination], now=start_time)
+        prepare_ms = round((time.monotonic() - started) * 1000)
+        if context is None:
+            logger.warning(
+                "generate(spliced) engine=%s origin=%s edges=%d -> no context prepare_ms=%d",
+                self.engine_name, origin_label, len(edge_ids), prepare_ms,
+            )
+            self.last_no_candidates_reason = (
+                f"起点{origin_label}付近の道路データが未整備のため、ルートを組み立てられませんでした。"
+            )
+            return []
+
+        traced = self._engine.build_traced_from_edge_ids(context, edge_ids)
+
+        evaluate_started = time.monotonic()
+        candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
+        candidates = [
+            candidate.model_copy(update={"id": "route-spliced", "direction_label": "組み合わせたルート"})
+            for candidate in candidates
+        ]
+        evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)
+        logger.info(
+            "generate(spliced) engine=%s origin=%s edges=%d -> distance_km=%.1f "
+            "prepare_ms=%d evaluate_ms=%d total_ms=%d",
+            self.engine_name, origin_label, len(edge_ids), traced.distance_km,
+            prepare_ms, evaluate_ms, round((time.monotonic() - started) * 1000),
         )
         return candidates
 

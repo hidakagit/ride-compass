@@ -1734,6 +1734,8 @@ export interface components {
                     [key: string]: number;
                 };
             };
+            /** Edge Ids */
+            edge_ids?: string[];
             /**
              * Is Shortest Distance
              * @default false
@@ -1809,6 +1811,8 @@ export interface components {
             lens_axis_id?: string | null;
             /** Start Time */
             start_time?: string | null;
+            /** Spliced Edge Ids */
+            spliced_edge_ids?: string[] | null;
         };
         /** RouteGenerateResponse */
         RouteGenerateResponse: {

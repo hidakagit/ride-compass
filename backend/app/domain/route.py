@@ -119,6 +119,11 @@ class RouteCandidate(StrictModel):
     # （`merge_material_category_shares`）。合成軸の内訳のうち、数値として平均できない
     # 材料をこちらで出す。
     material_category_shares: dict[str, dict[str, float]] = Field(default_factory=dict)
+    # 経路を構成するEdge idの列（起点から順）。フロントは候補どうしの共通部分を集合演算で
+    # 求め、別の道を通る区間を出すのに使う（区間の乗り換え、docs/tasks/T621.md）。
+    # backendはステートレスのため、乗り換え後の経路もこのidの列で受け取って評価し直す。
+    # エンジンが経路をEdgeの列として持たない場合は空のまま。
+    edge_ids: list[str] = Field(default_factory=list)
     # 距離だけで選んだ最短経路か（目的地モードのみ。周回は目標距離が距離を決めるため常にFalse）。
     # フロントはこの候補の`distance_km`を基準に、他の候補が何km余分に走るかを出す。
     # 軸設定に沿った候補と最短経路が同じ経路になることもあるため、複数の候補が同時に

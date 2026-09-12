@@ -5,7 +5,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Card } from "@/components/ui/Card/Card";
 import { Button } from "@/components/ui/Button/Button";
-import MapView from "@/components/Map/MapView";
+import MapView, { type RouteFitObscuredPx } from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllLayersIcon,
@@ -99,6 +99,7 @@ import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
+import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hooks/useStoredState";
 import { generateRoutes, type GenerationProgress } from "@/services/routeApi";
@@ -732,6 +733,29 @@ export default function Home() {
   const mapPaneRef = useRef<HTMLDivElement>(null);
   const bottomControlRowRef = useRef<HTMLDivElement>(null);
   useElementHeightCssVar(bottomControlRowRef, mapPaneRef, "--bottom-control-row-height");
+
+  // 地図キャンバスはモバイルの下部タブバー・ボトムシートの下にも描画されている
+  // （page.module.css .mobileTabBar参照）ため、ルート生成直後のフィットが既定の余白だけ
+  // だと、ルート全体がシートの裏へ収まって1本も見えない。覆われている高さをMapViewへ渡す。
+  // タブバーの高さはCSS（--mobile-tabbar-height）が正のため実測し、シートは高さ自体を
+  // vhで持っている（BottomSheet）ためビューポート高から換算する。
+  const mobileTabBarRef = useRef<HTMLElement>(null);
+  const [mobileViewportMetrics, setMobileViewportMetrics] = useState({ tabBarPx: 0, innerHeightPx: 0 });
+  useIsomorphicLayoutEffect(() => {
+    const measure = () =>
+      setMobileViewportMetrics({
+        tabBarPx: mobileTabBarRef.current?.getBoundingClientRect().height ?? 0,
+        innerHeightPx: window.innerHeight,
+      });
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [isMobile]);
+  const routeFitObscuredPx = useMemo<RouteFitObscuredPx | undefined>(() => {
+    if (!isMobile) return undefined;
+    const sheetPx = mobileSheet ? (mobileViewportMetrics.innerHeightPx * mobileSheetHeightVh) / 100 : 0;
+    return { bottom: mobileViewportMetrics.tabBarPx + sheetPx };
+  }, [isMobile, mobileSheet, mobileSheetHeightVh, mobileViewportMetrics]);
 
   // 路面の2軸（路面の種類・道路の種類）は互いに独立なので常に両方同時に効かせる
   // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
@@ -1972,6 +1996,7 @@ export default function Home() {
             onDestinationClear={handleDestinationClear}
             pinPlacementEnabled={routeMode === "destination"}
             onOriginSet={setManualLocation}
+            routeFitObscuredPx={routeFitObscuredPx}
           />
 
           <LensControl
@@ -2064,7 +2089,7 @@ export default function Home() {
           コメント参照）。 */}
       {isMobile && (
         <>
-          <nav className={styles.mobileTabBar} aria-label="パネル切り替え">
+          <nav ref={mobileTabBarRef} className={styles.mobileTabBar} aria-label="パネル切り替え">
             <button
               type="button"
               aria-pressed={mobileSheet === "routeSettings"}

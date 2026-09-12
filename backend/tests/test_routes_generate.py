@@ -476,6 +476,9 @@ def _lightweight_route_generation_setup(preference_override=None):
         # 事故を避けるため全フィールド必須（routes.py: RoutePreferenceWeights参照）
         {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
         {"route_preference": {"elevation_weight": 0.5}},
+        # 区間の乗り換え（docs/tasks/T621.md）: 合成の対象は目的地ルートだけ。
+        {"spliced_edge_ids": ["e-0", "e-1"]},
+        {"spliced_edge_ids": []},
     ],
 )
 def test_generate_routes_rejects_invalid_request_body(overrides):
@@ -511,3 +514,48 @@ def test_generate_routes_passes_and_echoes_max_routes_override(monkeypatch):
 
     assert conditions["max_routes"] == 3
     assert generator.received_max_routes == 3
+
+
+def test_generate_routes_with_spliced_edge_ids_evaluates_the_given_path_only(monkeypatch):
+    # 区間の乗り換え（docs/tasks/T621.md）: 探索をやり直さず、送られた経路だけを評価する。
+    # 生成と同じコスト曲線のため別エンドポイントにせず同じジョブ機構（202＋ポーリング）へ載る。
+    class SplicingGenerator:
+        engine_name = "fake-engine"
+        last_no_candidates_reason = None
+        last_destination_correction = None
+
+        def __init__(self):
+            self.spliced_calls: list[list[str]] = []
+            self.other_calls: list[str] = []
+
+        async def generate_spliced_route(self, *, origin, destination, distance_km, edge_ids, start_time):
+            self.spliced_calls.append(edge_ids)
+            return [RouteCandidate(
+                id="route-spliced", direction_label="組み合わせたルート", distance_km=12.3,
+                geometry={"type": "LineString", "coordinates": []}, edge_ids=edge_ids,
+            )]
+
+        async def generate_loops(self, **kwargs):
+            self.other_calls.append("loops")
+            return []
+
+        async def generate_via_waypoints(self, **kwargs):
+            self.other_calls.append("via_waypoints")
+            return []
+
+    generator = SplicingGenerator()
+    monkeypatch.setattr(
+        routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], generator=generator)
+    )
+
+    result = submit_and_await_done({
+        **REQUEST_BODY,
+        "destination": {"latitude": 35.80, "longitude": 139.80},
+        "spliced_edge_ids": ["e-0", "e-1", "e-2"],
+    })
+
+    assert [route["id"] for route in result["routes"]] == ["route-spliced"]
+    assert result["routes"][0]["edge_ids"] == ["e-0", "e-1", "e-2"]
+    assert generator.spliced_calls == [["e-0", "e-1", "e-2"]]
+    # 探索経路は呼ばれない
+    assert generator.other_calls == []
