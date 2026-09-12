@@ -195,6 +195,11 @@ const DETAIL_HIT_LAYER_ID = "route-detail-segments-hit";
 const ROUTE_LINE_CASING_COLOR = "rgba(15, 23, 42, 0.8)";
 export const DETAIL_CASING_LAYER_ID = "route-detail-segments-casing";
 const SLOTS_CASING_LAYER_ID = "experiment-slots-casing";
+// 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。覆いは最初の数秒の白紙を
+// 隠すためのもので、それを過ぎても残ると、描けている地図を隠して壊れているように見せる。
+// MapLibreの"idle"は表示中のすべての取得が落ち着くまで来ないため、外部データ
+// （既定ONの災害タイル等）が遅いセッションでは待ち続けてしまう。
+const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
@@ -3333,9 +3338,12 @@ export default function MapView({
     map.on("sourcedata", handleTrackedSourceData);
     map.on("idle", handleIdleRecompute);
     map.once("idle", handleFirstIdle);
+    // "idle"が来なくても上限で覆いを外す（INITIAL_TILES_OVERLAY_MAX_MSのコメント参照）。
+    const initialOverlayTimer = window.setTimeout(handleFirstIdle, INITIAL_TILES_OVERLAY_MAX_MS);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(initialOverlayTimer);
       resizeObserver.disconnect();
       map.off("styledata", collapseAttribution);
       map.off("sourcedata", collapseAttribution);
