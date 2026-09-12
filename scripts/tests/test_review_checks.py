@@ -614,3 +614,32 @@ def test_npx_cli_path_returns_none_when_nothing_matches(tmp_path):
     shim.write_text("", encoding="utf-8")
 
     assert review_checks.npx_cli_path(str(shim)) is None
+
+
+# --- SCREAMING_SNAKE定数の小文字化緩和 ---
+
+
+def _settings_py(tmp_path, monkeypatch, body: str):
+    (tmp_path / "backend" / "app").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "backend" / "app" / "config.py").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    review_checks.settings_field_names.cache_clear()
+
+
+def test_env_var_names_are_rescued_by_the_settings_field(tmp_path, monkeypatch):
+    # .envで設定する環境変数名は、実装側にはSettingsの小文字フィールドとしてしか現れない。
+    _settings_py(tmp_path, monkeypatch, "class Settings(BaseSettings):\n    weather_rate_limit_per_minute: int = 30\n")
+    try:
+        assert review_checks.identifier_exists("WEATHER_RATE_LIMIT_PER_MINUTE", "")
+    finally:
+        review_checks.settings_field_names.cache_clear()
+
+
+def test_a_constant_is_not_rescued_just_because_a_module_shares_its_lowercase_name(tmp_path, monkeypatch):
+    # corpus全体で小文字形を探していたころ、`AXIS_DEFINITIONS`はモジュール名
+    # `axis_definitions.py`に一致して常に「実在する」と判定されていた（撤去しても鳴らない）。
+    _settings_py(tmp_path, monkeypatch, "class Settings(BaseSettings):\n    database_url: str = ''\n")
+    try:
+        assert not review_checks.identifier_exists("AXIS_DEFINITIONS", "from app.domain import axis_definitions")
+    finally:
+        review_checks.settings_field_names.cache_clear()

@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import ast
 import datetime as dt
+import functools
 import io
 import json
 import os
@@ -479,17 +480,33 @@ def source_corpus(files: list[str]) -> str:
     return "\n".join(parts)
 
 
+SETTINGS_CONFIG_PY = "backend/app/config.py"
+# `Settings`のフィールド定義行（`    weather_rate_limit_per_minute: int = 30`）。
+SETTINGS_FIELD_RE = re.compile(r"^\s{4}([a-z][a-z0-9_]*)\s*:", re.MULTILINE)
+
+
+@functools.cache
+def settings_field_names() -> frozenset[str]:
+    """pydantic `Settings`のフィールド名。環境変数名の小文字形はここにしか現れない。"""
+    path = REPO_ROOT / SETTINGS_CONFIG_PY
+    if not path.exists():
+        return frozenset()
+    return frozenset(SETTINGS_FIELD_RE.findall(read_text(path)))
+
+
 def identifier_exists(token: str, corpus: str) -> bool:
     """その綴りが実装にあるか。
 
-    SCREAMING_SNAKE_CASEの名前は小文字形も見る。`.env`で設定する環境変数名
-    （`WEATHER_RATE_LIMIT_PER_MINUTE`等）は、実装側にはpydantic Settingsの小文字
-    フィールド（`weather_rate_limit_per_minute`）としてしか現れないため、
-    大文字の綴りだけを探すと設定可能な環境変数を名指しするたびに違反になる。
+    `.env`で設定する環境変数名（`WEATHER_RATE_LIMIT_PER_MINUTE`等）は、実装側には
+    pydantic `Settings`の小文字フィールドとしてしか現れない。そこだけを救済する
+    ——corpus全体で小文字形を探すと、`AXIS_DEFINITIONS`がモジュール名
+    `axis_definitions.py`に一致してしまうように、**撤去しても常に存在する**定数が
+    大量にできる（実測: 文書が名指しするSCREAMING_SNAKE定数173件のうち32件が、
+    緩和のせいで検知不能だった。救済が要るのは10件だけ）。
     """
     if token in corpus:
         return True
-    return token.isupper() and "_" in token and token.lower() in corpus
+    return token.isupper() and "_" in token and token.lower() in settings_field_names()
 
 
 def find_dead_identifier_refs(doc_lines: dict[str, list[tuple[int, str]]], corpus: str) -> list[str]:
