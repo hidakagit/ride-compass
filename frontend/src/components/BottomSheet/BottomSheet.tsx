@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import styles from "./BottomSheet.module.css";
 
 interface BottomSheetProps {
@@ -16,8 +16,9 @@ interface BottomSheetProps {
    * 「ルート結果」シートのrenderRouteResultHeaderActions参照）。 */
   headerAction?: React.ReactNode;
   children: React.ReactNode;
-  /** シートの高さ（vh）。シートは排他表示のため、
-   * 呼び出し側（page.tsx）が1つの値を共有して持ち、どちらを開いても直前の高さを保つ。 */
+  /** シートの高さ（vh）。シートは排他表示のため、呼び出し側（page.tsx）が1つの値を
+   * 共有して持つ。開いた時点で中身に合う高さへ合わせ直すため（下記useLayoutEffect）、
+   * この値は「いま表示している高さ」であって利用者の恒久的な設定ではない。 */
   heightVh: number;
   /** ドラッグ・キー操作の途中も含めて随時呼ばれる（見た目の即時反映用）。 */
   onHeightChange: (vh: number) => void;
@@ -37,6 +38,18 @@ const HEIGHT_KEY_STEP_VH = 5;
 
 export function clampSheetHeightVh(vh: number): number {
   return Math.min(MAX_SHEET_HEIGHT_VH, Math.max(MIN_SHEET_HEIGHT_VH, vh));
+}
+
+/** 中身がそのまま並んだときのシートの高さ。高さ指定を一時的に外して実測する——
+ * `scrollHeight`は中身が箱より低いと箱の高さを返し、子要素の合算は中身側のflexが
+ * 引き伸ばされている場合に箱の高さへ一致してしまうため、どちらも縮める判断に使えない。
+ * 読み書きは同じレイアウト処理の中で完結するため、途中の高さが描画されることはない。 */
+function naturalHeightOf(sheet: HTMLElement): number {
+  const specified = sheet.style.height;
+  sheet.style.height = "auto";
+  const natural = sheet.getBoundingClientRect().height;
+  sheet.style.height = specified;
+  return natural;
 }
 
 // モバイル専用の部分高さシート（画面下部からせり上がる。高さの範囲は
@@ -60,7 +73,27 @@ export default function BottomSheet({
   onHeightChange,
   onHeightCommit,
 }: BottomSheetProps) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 開いた時点の中身にちょうど合う高さへ合わせる。シートが中身より高いと、そのぶん地図が
+  // 隠れたまま空白を見せることになる（設計原則「地図表示エリアを最大限確保する」）。
+  // **開いている間は合わせ直さない**——候補の切り替え・区間クリックのたびに地図の見える
+  // 範囲が動くと、地図を見ながらの操作が落ち着かないため。合わせた結果はドラッグで
+  // 上書きでき、その値は次に開くまで有効。
+  // レイアウトを持たない実行（実寸が取れない環境）では何もしない——シート自身の高さが
+  // 0のときはヘッダ・ハンドルぶんの差分も求まらず、合わせる先が出せない。
+  useLayoutEffect(() => {
+    if (!open) return;
+    const sheet = sheetRef.current;
+    const body = bodyRef.current;
+    if (!sheet || !body) return;
+    const viewportHeight = window.innerHeight;
+    const needed = naturalHeightOf(sheet);
+    if (viewportHeight <= 0 || sheet.clientHeight <= 0 || needed <= 0) return;
+    onHeightChange(clampSheetHeightVh(Math.ceil((needed / viewportHeight) * 100)));
+  }, [open, onHeightChange]);
   // ハンドルの縦ドラッグによる高さ変更。ドラッグ開始時点の高さを起点に、指の移動量(vh換算)を
   // 足し込む。pointerIdで対象を絞るのは、まれに複数指が絡んだ場合に別指のmove/upで誤反応
   // しないようにするため。
@@ -145,6 +178,7 @@ export default function BottomSheet({
     // 見た目自体はstyles.sheetに任せつつ、このマーカークラスだけ併用している
     // （FloatingPanelの.app-floating-panelと同じ手法）。
     <div
+      ref={sheetRef}
       className={`${styles.sheet} app-bottom-sheet`}
       role="dialog"
       aria-labelledby={titleId}
@@ -181,7 +215,12 @@ export default function BottomSheet({
       {/* シート内容のスクロールがシート全体の下スワイプ判定（handleTouchStart/
           handleTouchEnd）まで届かないよう、ここでbubbleを止める。止めないと、
           スクロールで指を大きく動かしただけで「下スワイプで閉じる」と誤認されてしまう。 */}
-      <div className={styles.body} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+      <div
+        ref={bodyRef}
+        className={styles.body}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
+      >
         {children}
       </div>
     </div>
