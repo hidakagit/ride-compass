@@ -1416,12 +1416,23 @@ def cmd_size(args: argparse.Namespace) -> int:
     print(f"発火 {len(fired)}件: " + (", ".join(fired) if fired else "なし")
           + "（発火したファイルは complexity.md「規模ウォッチ」節に従い KEEP/分割/閾値付きKEEP へ分類する）")
 
+    # 前回も発火して、個別閾値も付いていないファイル。分類（KEEP/分割/閾値付きKEEP）の
+    # いずれも実行されなかったということで、安全弁が鳴りっぱなしになっている
+    # （「結果ファイルへ次閾値を書いただけで`thresholds`へ書き戻さない」が実際の失敗の形）。
+    stuck = [f for f in fired if f in set(baseline.get("fired", [])) and f not in thresholds]
+    if stuck:
+        print()
+        print(f"## 2回連続で発火し、個別閾値も付いていない: {', '.join(stuck)}")
+        print("前回の分類が`thresholds`へ書き戻されていないか、分割が実行されていない。"
+              "どちらかを行うまで毎回同じファイルが発火し続ける（complexity.md「規模ウォッチ」節）。")
+
     if args.update:
         new = {
             "date": dt.date.today().isoformat(),
             "commit": git("rev-parse", "--short", "HEAD").strip(),
             "top": sorted(cur_top),
             "files": {f: counts[f] for f in watched if f in counts},
+            "fired": sorted(fired),
             "thresholds": thresholds,
         }
         SIZE_BASELINE.write_text(json.dumps(new, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

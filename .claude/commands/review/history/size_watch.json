@@ -37,6 +37,10 @@
     "frontend/src/components/Map/MapView.tsx": 3700,
     "frontend/src/app/page.tsx": 2400,
     "frontend/src/components/AxisStudio/AxisComposer.tsx": 1750,
-    "docs/architecture.md": 3000
-  }
+    "docs/architecture.md": 3000,
+    "backend/app/domain/evaluation.py": 1150
+  },
+  "fired": [
+    "backend/app/domain/evaluation.py"
+  ]
 }
