@@ -1,5 +1,6 @@
 "use client";
 
+import InfoPopover from "@/components/Map/InfoPopover";
 import type { RouteStretch } from "@/lib/routeSplice";
 import type { RouteCandidate } from "@/types/route";
 import styles from "./RouteSplicePanel.module.css";
@@ -39,12 +40,20 @@ export default function RouteSplicePanel({
 
   return (
     <section className={styles.panel} aria-labelledby="splice-heading">
-      <h3 className={styles.heading} id="splice-heading">
-        区間の乗り換え
-      </h3>
-      <p className={styles.lead}>
-        他の候補が別の道を通る区間を、このルートに取り込めます。
-      </p>
+      <div className={styles.headingRow}>
+        <h3 className={styles.heading} id="splice-heading">
+          区間の乗り換え
+        </h3>
+        {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
+        <InfoPopover
+          triggerClassName={styles.headingInfo}
+          triggerAriaLabel="区間の乗り換えの説明"
+          contentClassName={styles.headingInfoPopover}
+        >
+          他の候補が別の道を通る区間を、このルートに取り込めます。比較相手を選ぶと、その区間が
+          地図にオレンジの帯で出ます。選ぶと実線に変わります。
+        </InfoPopover>
+      </div>
       <div className={styles.head}>
         <label htmlFor="splice-target">比較相手</label>
         <select
@@ -64,17 +73,10 @@ export default function RouteSplicePanel({
 
       {unavailable ? (
         <p className={styles.note}>この候補は経路のEdge情報を持たないため、区間を出せません。</p>
-      ) : targetId === null ? (
-        <p className={styles.note}>
-          比較相手を選ぶと、その候補が別の道を通る区間が地図にオレンジの帯で出ます。
-        </p>
-      ) : stretches.length === 0 ? (
+      ) : targetId === null ? null : stretches.length === 0 ? (
         <p className={styles.note}>この2本は同じ道を通ります。</p>
       ) : (
         <>
-          <p className={styles.note}>
-            地図のオレンジの帯が乗り換えられる区間です。選ぶと実線に変わります。
-          </p>
           <ul className={styles.rows}>
             {stretches.map((stretch, index) => (
               <li key={`${stretch.start}-${stretch.end}`}>

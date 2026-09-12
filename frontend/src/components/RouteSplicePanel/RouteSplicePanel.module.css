@@ -14,10 +14,18 @@
   font-weight: 600;
 }
 
-.lead {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-muted);
+.headingRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.headingInfo {
+  composes: infoButton from "../ui/infoButton.module.css";
+}
+
+.headingInfoPopover {
+  composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
 
 .head {

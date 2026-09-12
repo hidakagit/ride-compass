@@ -33,8 +33,9 @@ describe("RouteSplicePanel", () => {
   it("比較相手を選ぶまでは区間を出さない", () => {
     render(<RouteSplicePanel {...baseProps()} />);
 
-    expect(screen.getByText(/比較相手を選ぶと/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /区間/ })).toBeNull();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    // 使い方は画面へ書かず、見出し脇の(i)の奥に置く。
+    expect(screen.getByRole("button", { name: /^区間の乗り換えの説明を/ })).toBeInTheDocument();
   });
 
   it("相手を選ぶとその候補が親へ渡る", async () => {

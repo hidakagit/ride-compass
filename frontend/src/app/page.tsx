@@ -1818,7 +1818,7 @@ export default function Home() {
     return (
       <>
         {conditionsDirty && (
-          <p className={styles.dirtyHint}>条件が変更されています。「ルート生成」を押すと反映されます</p>
+          <p className={styles.dirtyHint}>条件が変更されています</p>
         )}
         {/* 指定した目的地が自転車で行ける道路につながっていなかったため、backendが
             最寄りのアクセス可能な地点へ補正して生成した場合の案内（地図上のピンも
