@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from typing import TypeVar
 
 import numpy as np
-import rustworkx as rx
 from numba import njit
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
@@ -38,30 +37,17 @@ from app.domain.route import Coordinates
 
 @dataclass
 class LazyRoadGraph:
-    """探索グラフのrustworkx表現。
+    """探索グラフのトポロジ表現。
 
-    Edgeコストを事前計算しない——トポロジのみを保持し、探索中に実際に訪れたEdgeに
-    対してのみ`edge_cost_fn`が都度呼ばれる（lazy評価）。合成グリッドグラフ
-    （nodes=139,876 edges=558,008規模）でA*は全Edgeの2.79%しか評価せずに済む
-    （bbox全体のコストを事前に一括計算してからCSRを構築する方式は、この無駄な
-    事前計算そのものが`prepare_ms`の支配的コストになる）。
-
-    Node/Edgeのpayloadはいずれも整数index（`add_nodes_from(range(n))`・
-    `add_edge(u, v, edge_index)`）にしてある。rustworkxの`astar_shortest_path`は
-    `goal_fn`/`edge_cost_fn`/`estimate_cost_fn`へノード・Edgeの**payload**（rustworkx内部の
-    生indexではない）を渡す仕様のため、payload自体を「配列の添字として直接使える整数」に
-    しておくことで、呼び出し元（`shortest_path_node_ids_lazy`の呼び出し元、
-    `road_graph_engine.py`）は`cost_list.__getitem__`のような素のlistインデックスアクセスを
-    そのままcost_fn/estimate_cost_fnとして渡せる——探索中に一切Pythonの関数フレームを
-    作らずに済む（辞書キャッシュ経由のPythonコールバックだとA* 24本で8.3〜17.7秒
-    かかるが、素のlist.__getitem__に置き換えると0.37秒に短縮する）。文字列edge_id/node_idは、
-    経路確定後の変換（`path_to_edge_ids_lazy`・戻り値のNode ID列）でのみ使う。
+    Node・Edgeとも整数index（`index_to_node_id`・`edge_ids`の添字）で扱い、文字列の
+    node_id/edge_idは経路確定後の変換でのみ使う。コストは持たない——リクエストごとに変わる
+    ため、探索へは別に合成した配列を渡す。並行Edge（同一Node間の複数Edge）はコスト最小の
+    1本へ解消済み（`edge_index_by_node_pair`）。
     """
 
-    py_graph: rx.PyDiGraph
     node_id_to_index: dict[str, int]
     index_to_node_id: list[str]
-    # edge_index（py_graphのEdge payload、= 下記edge_idsの添字）→ edge_id。
+    # edge_index（下記edge_idsの添字）→ edge_id。
     edge_ids: list[str]
     # (from_index, to_index) -> edge_index。並行Edge解消後の実際に採用されたペアのみ持つ。
     edge_index_by_node_pair: dict[tuple[int, int], int]
@@ -70,19 +56,16 @@ class LazyRoadGraph:
 def build_lazy_road_graph(
     graph: RoadGraphLike, edge_cost_by_id: Mapping[str, float] | None = None
 ) -> LazyRoadGraph:
-    """`graph`のトポロジからrustworkxの`PyDiGraph`を構築する（Hard Constraint自体は
-    評価しない。除外は呼び出し元がcost=math.infで表現する）。
+    """`graph`のトポロジから`LazyRoadGraph`を構築する（Hard Constraint自体は評価しない。
+    除外は呼び出し元がcost=math.infで表現する）。
 
-    Node/Edge payloadは整数index（`LazyRoadGraph`のdocstring参照）。`edge_cost_by_id`
+    `edge_cost_by_id`
     （edge_id→コスト、省略可）を渡すと、並行Edge（同一Node間の複数Edge）は**cost最小の
     Edgeを採用**する。省略時（コストがまだ判明していない場面、主にテスト）は、
     edge_idの昇順で先頭を採用する決定的な選択にフォールバックする。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
-
-    py_graph = rx.PyDiGraph()
-    py_graph.add_nodes_from(range(len(node_ids)))
 
     # edge_idの昇順で処理する（複数の並行Edgeのうちどれを「先に登場した」とみなすかの
     # 決定的な基準、cost比較が同点の場合のタイブレークにも使う）。
@@ -109,87 +92,15 @@ def build_lazy_road_graph(
     edge_index_by_node_pair: dict[tuple[int, int], int] = {}
     for pair, edge_id in best_by_pair.items():
         edge_index = len(edge_ids)
-        py_graph.add_edge(pair[0], pair[1], edge_index)
         edge_ids.append(edge_id)
         edge_index_by_node_pair[pair] = edge_index
 
     return LazyRoadGraph(
-        py_graph=py_graph,
         node_id_to_index=node_id_to_index,
         index_to_node_id=node_ids,
         edge_ids=edge_ids,
         edge_index_by_node_pair=edge_index_by_node_pair,
     )
-
-
-def shortest_path_node_ids_lazy(
-    lazy_graph: LazyRoadGraph,
-    start_node_id: str,
-    end_node_id: str,
-    edge_cost_fn: Callable[[int], float],
-    estimate_cost_fn: Callable[[int], float],
-) -> list[str] | None:
-    """`start_node_id`から`end_node_id`までの最小コスト経路をNode ID列で返す
-    （rustworkxのA*）。
-
-    `edge_cost_fn`/`estimate_cost_fn`は、`LazyRoadGraph`のNode/Edge payloadである
-    **整数index**（Edge index/Node index、それぞれ`lazy_graph.edge_ids`/
-    `lazy_graph.index_to_node_id`の添字）を受け取る。典型的には呼び出し元が
-    `cost_list.__getitem__`のような素のlistインデックスアクセスをそのまま渡す
-    （探索中にPythonの関数フレームを作らない、`LazyRoadGraph`のdocstring参照）。
-    Hard Constraintで除外されるEdgeは`edge_cost_fn`が`math.inf`を返すことで通行不能を
-    表現する（コストは探索前に判明しているため、この除外自体は`build_lazy_road_graph`
-    より前の時点でコスト配列へ焼き込まれている）。`estimate_cost_fn`は目的地までの
-    下界推定（admissibleヒューリスティック、直線距離）を返す。経路が存在しない場合は
-    Noneを返す。
-    """
-    if start_node_id == end_node_id:
-        return [start_node_id] if start_node_id in lazy_graph.node_id_to_index else None
-
-    start_index = lazy_graph.node_id_to_index.get(start_node_id)
-    end_index = lazy_graph.node_id_to_index.get(end_node_id)
-    if start_index is None or end_index is None:
-        return None
-
-    def goal_fn(node_index: int) -> bool:
-        return node_index == end_index
-
-    try:
-        path_indices = rx.astar_shortest_path(
-            lazy_graph.py_graph, start_index, goal_fn, edge_cost_fn, estimate_cost_fn
-        )
-    except rx.NoPathFound:
-        return None
-    if len(path_indices) == 0:
-        return None
-
-    # rustworkxは`math.inf`を「通行不能」ではなく「非常に高いが有効なコスト」として
-    # 扱うため、他に到達手段が無ければinfコストのEdgeを含む経路でもそのまま返してくる
-    # （他の有限コスト経路が存在する限りはそちらが優先されるため、このチェックは
-    # finite経路が本当に存在しない場合にのみNoneへ倒す）。経路確定後に合計コストを
-    # 検算し、無限大ならHard Constraintで実質到達不能だったとみなす。
-    total_cost = 0.0
-    for u, v in zip(path_indices, path_indices[1:]):
-        edge_index = lazy_graph.edge_index_by_node_pair[(u, v)]
-        total_cost += edge_cost_fn(edge_index)
-    if not math.isfinite(total_cost):
-        return None
-
-    return [lazy_graph.index_to_node_id[i] for i in path_indices]
-
-
-def path_to_edge_indices_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[int]:
-    """Node ID列を、それらを結ぶEdgeのindex列（`lazy_graph.edge_ids`の添字）へ変換する。"""
-    return [
-        lazy_graph.edge_index_by_node_pair[(lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])]
-        for u, v in zip(path_node_ids, path_node_ids[1:])
-    ]
-
-
-def path_to_edge_ids_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[str]:
-    """Node ID列を、それらを結ぶEdgeのID列へ変換する。"""
-    return [lazy_graph.edge_ids[i] for i in path_to_edge_indices_lazy(lazy_graph, path_node_ids)]
-
 
 # --- 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
 
@@ -330,155 +241,6 @@ def build_search_graph_statics(
         count=len(lazy_graph.edge_ids),
     )
     return SearchGraphStatics(csr=build_csr_structure(lazy_graph, reverse=reverse), edge_length_m=edge_length_m)
-
-
-@dataclass
-class ShortestPathTree:
-    """起点からの一対全最短経路木。配列はいずれも`LazyRoadGraph.
-    index_to_node_id`と同じNode index順。"""
-
-    source_index: int
-    # 起点からの最小コスト（`edge_cost`の和）。到達不能（コストinf・cost_limit超過含む）はinf。
-    cost: np.ndarray
-    # 木の親Node index。起点・到達不能は-1。
-    predecessor: np.ndarray
-    # 木に沿った（＝最小コスト経路の）実距離（m）の積算。到達不能はNaN、起点は0。
-    length_m: np.ndarray
-    # `predecessor`のPython list版。`tree_path_edge_indices`が数千Nodeぶんの経路復元で
-    # numpyスカラーの取り出しを繰り返すのを避ける（実データ規模で約2倍速い）。一対全木は
-    # 折返し点選定のたびに必ずこの経路復元で使われるため、遅延構築にする利点が無く
-    # 構築時にtolist()する。
-    predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
-
-    def is_reached(self, node_index: int) -> bool:
-        return bool(np.isfinite(self.cost[node_index]))
-
-
-def build_shortest_path_tree(
-    structure: CsrGraphStructure,
-    edge_cost: Sequence[float] | np.ndarray,
-    edge_length_m: np.ndarray,
-    source_index: int,
-    cost_limit: float = np.inf,
-) -> ShortestPathTree:
-    """起点`source_index`からの一対全Dijkstra（scipy.sparse.csgraph、前任者付き）を行い、
-    前任者木に沿った実距離も積算して返す。
-
-    `edge_cost`/`edge_length_m`は`LazyRoadGraph.edge_ids`と同じ行順の配列。`math.inf`の
-    コストは通行不能（0次フィルタ除外）を表し、scipyはそのEdge経由の到達をinfとして
-    扱う（`shortest_path_node_ids_lazy`の検算と同じ意味論）。`cost_limit`はこのコストを
-    超えるNodeの探索を打ち切る上限（scipyの`limit`、リングより外側の探索を省く用途。
-    `cost >= distance`の不変条件[`_build_estimate_cost_fn`参照]により「実距離の上限×
-    (1+P)」が安全な上限になる）。
-
-    実距離の積算は、`(pred[v], v)`のCSRエントリ位置を整列キーへの`searchsorted`で
-    一括検索した後、ポインタジャンプ（`acc[v] += acc[anc[v]]; anc[v] = anc[anc[v]]`を
-    木の深さのlog2回だけ繰り返す）でベクトル演算する。素朴にcost昇順のPythonループで
-    加算すると開発機の合成グリッド（14万Node）で1.2秒、numpyスカラーのループでは8.6秒
-    かかるのに対し、この方式は0.2秒。
-    """
-    n = structure.node_count
-    data = np.asarray(edge_cost, dtype=float)[structure.entry_edge_index]
-    matrix = csr_matrix((data, structure.indices, structure.indptr), shape=(n, n))
-    cost, predecessor = scipy_dijkstra(
-        matrix, directed=True, indices=source_index, return_predecessors=True, limit=cost_limit
-    )
-    predecessor = predecessor.astype(np.int64)
-    predecessor[predecessor < 0] = -1  # scipyのセンチネル（-9999）を-1へ正規化
-    length_m = _accumulate_tree_lengths(
-        structure, predecessor, np.asarray(edge_length_m, dtype=float), source_index, cost
-    )
-    return ShortestPathTree(
-        source_index=source_index, cost=cost, predecessor=predecessor, length_m=length_m,
-        predecessor_list=predecessor.tolist(),
-    )
-
-
-def _reconstruct_entry_keys(structure: CsrGraphStructure) -> np.ndarray:
-    """CSRエントリ順の`from_index * node_count + to_index`（昇順）を`indptr`/`indices`から
-    再構築する（永続フィールドとして持たない理由は`CsrGraphStructure`のdocstring参照）。
-    `node_count`の2乗がint32の値域を超えうる（実データ規模で14万Node→約196億）ため、
-    キーの計算自体はint64で行う——`indptr`/`indices`のdtype変更とは独立に、この整列キー
-    自体は常にint64のまま。
-    """
-    n = structure.node_count
-    rows = np.repeat(np.arange(n, dtype=np.int64), np.diff(structure.indptr))
-    return rows * n + structure.indices.astype(np.int64)
-
-
-def _accumulate_tree_lengths(
-    structure: CsrGraphStructure, predecessor: np.ndarray, edge_length_m: np.ndarray, source_index: int,
-    cost: np.ndarray,
-) -> np.ndarray:
-    """`predecessor >= 0`ではなく`np.isfinite(cost)`を到達判定の正本にする。使用中の
-    scipy 1.18.1では両者は一致するが、infコストで打ち切られたEdgeの先へも前任者
-    ポインタを書きうる別バージョンに対する契約保証——コストが確定した「到達済み」
-    集合だけを実距離の積算対象にする。
-    """
-    n = structure.node_count
-    reached = np.isfinite(cost)
-    has_pred = reached & (predecessor >= 0)
-    child = np.flatnonzero(has_pred)
-    edge_to_child = np.zeros(n)
-    if len(child):
-        entry_keys = _reconstruct_entry_keys(structure)
-        positions = np.searchsorted(entry_keys, predecessor[child] * n + child)
-        edge_to_child[child] = edge_length_m[structure.entry_edge_index[positions]]
-    ancestor = np.where(has_pred, predecessor, np.arange(n))
-    accumulated = edge_to_child.copy()
-    for _ in range(64):  # 木の深さ2^64までの安全弁（実際はlog2(深さ)回で収束する）
-        next_ancestor = ancestor[ancestor]
-        if np.array_equal(next_ancestor, ancestor):
-            break
-        accumulated = accumulated + accumulated[ancestor]
-        ancestor = next_ancestor
-    reached = reached.copy()
-    reached[source_index] = True
-    return np.where(reached, accumulated, np.nan)
-
-
-def tree_path_edge_indices(tree: ShortestPathTree, lazy_graph: LazyRoadGraph, target_index: int) -> list[int] | None:
-    """一対全木上の起点→`target_index`の経路を、`LazyRoadGraph`のEdge index列で返す
-    （同じコスト配列でA*をかけ直しても同じ経路になるため、往路の再探索は不要）。
-    到達不能ならNone、起点自身なら空リスト。"""
-    if not tree.is_reached(target_index):
-        return None
-    edge_indices: list[int] = []
-    current = int(target_index)
-    pair_index = lazy_graph.edge_index_by_node_pair
-    predecessor = tree.predecessor_list
-    source = tree.source_index
-    while current != source:
-        parent = predecessor[current]
-        edge_indices.append(pair_index[(parent, current)])
-        current = parent
-    edge_indices.reverse()
-    return edge_indices
-
-
-def tree_path_edge_indices_to_source(
-    tree: ShortestPathTree, lazy_graph: LazyRoadGraph, start_index: int
-) -> list[int] | None:
-    """`build_csr_structure(..., reverse=True)`から組んだ木（後ろ向き木、`tree.source_index`が
-    目的地）で、`start_index`から目的地までの経路を、実グラフの有向Edge（`start_index`→…→
-    `tree.source_index`の順）のEdge index列で返す。転置CSR上の
-    `predecessor[X]=P`は実グラフの`X→P`という辺を表すため、`tree_path_edge_indices`
-    （前向き木・`(parent, current)`順でEdge検索し最後に反転）とはEdge検索の引数順が逆
-    （`(current, parent)`）で、経路は既に`start→source`の順に積み上がるため反転は不要。
-    到達不能ならNone、`start_index`自身が`tree.source_index`なら空リスト。"""
-    if not tree.is_reached(start_index):
-        return None
-    edge_indices: list[int] = []
-    current = int(start_index)
-    pair_index = lazy_graph.edge_index_by_node_pair
-    predecessor = tree.predecessor_list
-    source = tree.source_index
-    while current != source:
-        parent = predecessor[current]
-        edge_indices.append(pair_index[(current, parent)])
-        current = parent
-    return edge_indices
-
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
     """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重割合
@@ -813,19 +575,6 @@ def find_nearest_node_indexed(
             break
         radius += 1
     return nearest_node_id
-
-
-def concat_node_paths(paths: list[list[str]]) -> list[str]:
-    """複数区間（例: 起点→経由地A、経由地A→経由地B、...）のNode ID列を1本に連結する。
-    隣接する区間の境界ノード（前区間の終端＝次区間の始端）が重複しないようにする。
-    """
-    if not paths:
-        return []
-    combined = list(paths[0])
-    for path in paths[1:]:
-        combined.extend(path[1:])
-    return combined
-
 
 # --- ターン展開（状態＝有向Edge、辺＝ターン） ---
 

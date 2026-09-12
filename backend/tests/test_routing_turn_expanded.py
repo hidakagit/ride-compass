@@ -9,7 +9,6 @@ from app.domain.routing import (
     TurnCostSpec,
     build_csr_structure,
     build_lazy_road_graph,
-    build_shortest_path_tree,
     build_turn_expanded_csr,
     build_turn_expanded_structure,
     build_turn_expanded_tree,
@@ -103,27 +102,24 @@ def test_turn_expanded_structure_transition_count_matches_in_times_out_degree():
     assert int(structure.indptr[-1]) == len(structure.target_state)
 
 
-def test_one_to_all_matches_node_based_tree_when_turns_are_free():
-    """ターンの費用が0なら、状態＝有向Edgeの木から導いたNodeごとの最小コストは、
-    状態＝Nodeの木と一致する（起点Nodeを除く。起点は「戻ってくるコスト」になるため）。"""
+def test_one_to_all_gives_the_distance_along_the_path_when_turns_are_free():
+    """ターンの費用が0なら、Nodeごとのコストは経路上の区間の長さの和になる。"""
     graph = _crossroads()
     free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, csr, structure = _structure_for(graph, free)
     cost = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
 
     origin_index = lazy_graph.node_id_to_index["S"]
-    node_tree = build_shortest_path_tree(
-        csr, cost.tolist(), np.array([float(graph.edges[e].distance_m) for e in lazy_graph.edge_ids]), origin_index
-    )
     origin_edges = csr.entry_edge_index[csr.indptr[origin_index]:csr.indptr[origin_index + 1]]
     matrix = build_turn_expanded_csr(structure, cost, origin_edges, SPEED_MS)
     state_cost = scipy_dijkstra(matrix, directed=True, indices=structure.state_count)
     per_node = node_costs_from_state_costs(state_cost, structure, csr.node_count)
 
-    for node_id, node_index in lazy_graph.node_id_to_index.items():
-        if node_index == origin_index:
-            continue
-        assert per_node[node_index] == node_tree.cost[node_index], f"{node_id}のコストが一致しない"
+    assert per_node[lazy_graph.node_id_to_index["C"]] == 100.0
+    for node_id in ("N", "E", "W"):
+        assert per_node[lazy_graph.node_id_to_index[node_id]] == 200.0
+    # 起点は「戻ってくるコスト」になる（状態の空間に「まだ走っていない」が無いため）。
+    assert per_node[origin_index] == 200.0
 
 
 def test_expensive_right_turn_makes_the_search_avoid_it():
