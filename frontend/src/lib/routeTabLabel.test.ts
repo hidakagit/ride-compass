@@ -1,6 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { extraDistanceLabel, shortestDistanceKm } from "./routeTabLabel";
+import {
+  SPLICED_ROUTE_ID_PREFIX,
+  extraDistanceLabel,
+  isSplicedRoute,
+  shortestDistanceKm,
+} from "./routeTabLabel";
 
 const SHORTEST = { distance_km: 18.0, is_shortest_distance: true };
 const LONGER = { distance_km: 22.0, is_shortest_distance: false };
@@ -34,5 +39,24 @@ describe("extraDistanceLabel", () => {
 
   it("最短と同じ経路でなくても距離が同じなら出さない", () => {
     expect(extraDistanceLabel({ distance_km: 18.0 }, 18.0)).toBeNull();
+  });
+});
+
+describe("isSplicedRoute", () => {
+  it("区間を乗り換えて作った候補を見分ける", () => {
+    expect(isSplicedRoute({ id: `${SPLICED_ROUTE_ID_PREFIX}-0` })).toBe(true);
+    expect(isSplicedRoute({ id: `${SPLICED_ROUTE_ID_PREFIX}-12` })).toBe(true);
+  });
+
+  it("生成候補は合成として扱わない", () => {
+    // 生成候補を合成と誤判定すると、順位番号が「合成」に化けて並び順が読めなくなる
+    expect(isSplicedRoute({ id: "route-00" })).toBe(false);
+    expect(isSplicedRoute({ id: "route-destination-00" })).toBe(false);
+    expect(isSplicedRoute({ id: "route-waypoints" })).toBe(false);
+  });
+
+  it("backendが付ける接頭辞と、フロントが組み立てるidが同じ1つの値から出る", () => {
+    // 別々に書くと、片方だけ変えたときに合成ルートが一覧で見分けられなくなる
+    expect(SPLICED_ROUTE_ID_PREFIX).toBe("route-spliced");
   });
 });
