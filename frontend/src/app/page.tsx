@@ -1936,11 +1936,13 @@ export default function Home() {
               表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
               DebugConsole自体はposition:fixedのFloatingPanelベースで自己完結しており、
               JSXツリー上のどこに置いても見た目は変わらない。 */}
-          <HeaderMenu
-            debugEnabled={debugEnabled}
-            debugConsoleOpen={debugConsoleOpen}
-            onToggleDebugConsole={() => setDebugConsoleOpen((v) => !v)}
-          />
+          <div className={styles.headerMenuSlot}>
+            <HeaderMenu
+              debugEnabled={debugEnabled}
+              debugConsoleOpen={debugConsoleOpen}
+              onToggleDebugConsole={() => setDebugConsoleOpen((v) => !v)}
+            />
+          </div>
         </div>
       </header>
       <DebugConsole open={debugConsoleOpen} onClose={() => setDebugConsoleOpen(false)} />

@@ -44,6 +44,11 @@ interface LocationFetchState<T> {
   error: string | null;
 }
 
+// 取得しっぱなしにせず一定間隔で取り直す。アメダスは10分ごとの観測値で、警報・注意報は
+// 随時更新されるため、開いたままの画面が古い値のまま固定されるのを防ぐ。一度きりだと
+// 通信の一時的な失敗がそのセッション中ずっと表示に残り続けることにもなる。
+const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
 /** 「locationReadyになるまで待ち、locationが変わるたびに再フェッチし、**最後に投げた
  * リクエストの結果だけ**を反映する」という共通形。本ファイルの5つのフェッチが同じ骨格を
  * 持つため1箇所へ集約する（連番ガードを写経すると、1つだけガードを書き落としても
@@ -71,26 +76,36 @@ function useLocationFetch<T>(
 
   useEffect(() => {
     if (!locationReady) return;
-    // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
-    // 経由で実行する（他のフックと同じreact-hooks/set-state-in-effect対策）。
-    Promise.resolve().then(() => {
+    let disposed = false;
+    const run = () => {
       const requestId = ++latestRequestId.current;
       setLoading(true);
-      setError(null);
       fetcherRef.current(location)
         .then((result) => {
-          if (requestId !== latestRequestId.current) return;
+          if (disposed || requestId !== latestRequestId.current) return;
           setData(result);
+          // 取り直せたら前回の失敗表示は役目を終える。
+          setError(null);
         })
         .catch((cause: unknown) => {
-          if (requestId !== latestRequestId.current) return;
+          if (disposed || requestId !== latestRequestId.current) return;
           setError(cause instanceof Error ? cause.message : "不明なエラーが発生しました");
         })
         .finally(() => {
-          if (requestId !== latestRequestId.current) return;
+          if (disposed || requestId !== latestRequestId.current) return;
           setLoading(false);
         });
+    };
+    // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
+    // 経由で実行する（他のフックと同じreact-hooks/set-state-in-effect対策）。
+    Promise.resolve().then(() => {
+      if (!disposed) run();
     });
+    const timer = setInterval(run, WEATHER_REFRESH_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
   }, [locationReady, location]);
 
   return { data, loading, error };

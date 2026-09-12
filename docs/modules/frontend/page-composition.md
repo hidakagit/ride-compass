@@ -36,7 +36,7 @@ URL`）とNext.js route handlerからのサーバー間fetch先を区別する�
 
 `fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`クライアントが共有するfetch骨格と
 エラー正規化。骨格は「fetch→通信エラーのtry/catch→`response.ok`確認→エラーボディ解析→
-`x-request-id`付きのErrorをthrow→各段階でdebugLog記録」の7段で、**呼び出しごとに違うのは
+`ApiError`をthrow→各段階でdebugLog記録」の7段で、**呼び出しごとに違うのは
 メソッド・成功時のボディ解釈・エラー文言の3点だけ**:
 
 | 入口 | 戻り値 | 使う場面 |
@@ -44,6 +44,10 @@ URL`）とNext.js route handlerからのサーバー間fetch先を区別する�
 | `requestJson<T>` | 応答をJSONとして解釈（204は`undefined`） | 大半のクライアント |
 | `requestOk` | 成功時の`Response`そのもの（成功ログは呼び出し側） | 成功ログのfieldsが呼び出しごとに違う場合 |
 | `fetchJson<T>` | `requestJson`のGET向け糖衣 | 文言を`errorLabel`から「◯◯の取得/解析に失敗しました」で組み立てる |
+
+`ApiError`は`x-request-id`とHTTPステータスを**属性として**持ち、`message`には入れない。
+リクエストIDは開発者向け（debugLog・`BackendLogsPanel`）の情報で、画面へ出す文言に混ぜると
+利用者に意味が無いまま長くなり、狭い幅のレイアウト（常設ヘッダー）を溢れさせる。
 
 **暗黙の前提**: 骨格を各クライアントへ写経すると、片方だけ改良された非対称が静かに生まれる
 （タイムアウト判別と`error.cause`のログがPOST系1箇所にしか無い状態が実際に生まれていた）。

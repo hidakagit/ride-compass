@@ -208,6 +208,6 @@ describe("getWindGridDetail", () => {
       ),
     );
 
-    await expect(getWindGridDetail(bbox, 0.02)).rejects.toThrow("表示範囲が広すぎます。ズームインしてください。[req: req-999]");
+    await expect(getWindGridDetail(bbox, 0.02)).rejects.toThrow("表示範囲が広すぎます。ズームインしてください。");
   });
 });

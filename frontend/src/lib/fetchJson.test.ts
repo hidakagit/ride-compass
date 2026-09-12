@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchJson } from "./fetchJson";
+import { ApiError, fetchJson } from "./fetchJson";
 import { makeResponse } from "@/testing/fetchMocks";
 
 describe("fetchJson", () => {
@@ -17,16 +17,24 @@ describe("fetchJson", () => {
     expect(result).toEqual(payload);
   });
 
-  it("ok:falseかつdetailが文字列の場合はそのdetailとx-request-idからエラーメッセージを組み立てる", async () => {
+  it("ok:falseかつdetailが文字列の場合はそのdetailだけをメッセージにし、x-request-idはエラーの属性として持つ", async () => {
     const headers = new Headers({ "x-request-id": "req-123" });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(makeResponse({ ok: false, status: 500, json: async () => ({ detail: "エラー詳細" }), headers })),
     );
 
-    await expect(fetchJson("https://example.test/api/x", { timeoutMs: 5000, category: "api:test", errorLabel: "テスト" })).rejects.toThrow(
-      "エラー詳細[req: req-123]",
-    );
+    const error = await fetchJson("https://example.test/api/x", {
+      timeoutMs: 5000,
+      category: "api:test",
+      errorLabel: "テスト",
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    // 画面へ出る文言（message）にはリクエストIDを混ぜない。
+    expect((error as ApiError).message).toBe("エラー詳細");
+    expect((error as ApiError).requestId).toBe("req-123");
+    expect((error as ApiError).status).toBe(500);
   });
 
   it("ok:falseかつdetailが無い場合はerrorLabelから組み立てたフォールバックメッセージになる", async () => {

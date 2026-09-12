@@ -78,6 +78,19 @@
   margin-left: auto;
 }
 
+/* メニュー（⋮）だけは、バッジと違ってスクロールアウトを許容できない——研究モードの
+   切り替えはこのメニューにしか無く、狭い幅で画面外へ出ると到達する手段が消える
+   （.weatherHeaderの横スクロール自体が見た目に現れないため、そこにあると気づけない）。
+   .weatherStatsと同じ手法で、こちらは右端へ貼り付ける。 */
+.headerMenuSlot {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  display: flex;
+  align-items: center;
+}
+
 .toggleButton {
   align-self: flex-start;
 }
