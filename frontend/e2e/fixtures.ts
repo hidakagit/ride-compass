@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
@@ -185,4 +185,70 @@ export async function installApiMocks(page: Page): Promise<void> {
   await page.route("**/api/region/road-surface-tiles/**", (route) =>
     route.fulfill({ status: 204, body: Buffer.alloc(0) })
   );
+}
+
+// ここから下は「UIを見たい場所まで進める」導線のヘルパー。テストごとに書き直すと、
+// UIの中身とは無関係な段取り（シートを開く・生成の完了を待つ）で落ちて時間を使うため、
+// 1箇所へ集約する（docs/tasks/T768.md）。
+
+/** スマホ縦持ち相当。useIsMobile（MOBILE_BREAKPOINT_PX=640）のモバイル分岐に入る幅。 */
+export const MOBILE_VIEWPORT = { width: 390, height: 812 };
+
+/** モバイルの下部タブバーが持つシート。値はタブのラベル兼シートのアクセシブル名。 */
+export type MobileSheetName = "ルート設定" | "ルート結果" | "地図の見え方";
+
+/**
+ * localStorageの初期値を流し込む（goto前に呼ぶ）。保存される画面状態（レイヤーのON/OFF・
+ * シートの高さ・重みづけ等、page.tsxのStorage key定数）は、クリックで作らずここで与える。
+ * 値はuseStoredStateのserializeが書く形式そのもの（キーによって生文字列とJSONがある）。
+ */
+export async function seedStoredState(page: Page, entries: Record<string, string>): Promise<void> {
+  await page.addInitScript((items) => {
+    for (const [key, value] of Object.entries(items)) {
+      window.localStorage.setItem(key, value);
+    }
+  }, entries);
+}
+
+/**
+ * モバイル幅でアプリを開く（APIモックの登録・ビューポート設定・goto）。
+ * 呼んだ直後は、まだクリックが効かない（ハイドレーション前の）可能性がある——
+ * 操作はopenMobileSheet等のヘルパー経由で行う。
+ */
+export async function openMobileApp(
+  page: Page,
+  { storedState }: { storedState?: Record<string, string> } = {}
+): Promise<void> {
+  await installApiMocks(page);
+  await page.setViewportSize(MOBILE_VIEWPORT);
+  if (storedState) await seedStoredState(page, storedState);
+  await page.goto("/");
+}
+
+/**
+ * 下部シートを開く（既に開いていれば何もしない）。タブの再タップは閉じる操作なので、
+ * 開閉状態を見てから押す。ハイドレーション前のクリックは画面に何も起こさないため、
+ * 「押して開くまで」を再試行する（固定のwaitForTimeoutを置かない）。
+ */
+export async function openMobileSheet(page: Page, name: MobileSheetName) {
+  const sheet = page.getByRole("dialog", { name });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) {
+      await page.getByRole("button", { name, exact: true }).click();
+    }
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 30_000 });
+  return sheet;
+}
+
+/**
+ * 「ルート設定」シートから距離を指定してルートを生成し、完了まで待つ。生成中は
+ * ボタン文言が「生成中...」へ変わるため、「ルート生成」が再び押せることが完了の合図。
+ */
+export async function generateRoutes(page: Page, { distanceKm = 20 }: { distanceKm?: number } = {}) {
+  const sheet = await openMobileSheet(page, "ルート設定");
+  await sheet.getByLabel("距離").fill(String(distanceKm));
+  await sheet.getByRole("button", { name: "ルート生成" }).click();
+  await expect(sheet.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 60_000 });
+  return sheet;
 }

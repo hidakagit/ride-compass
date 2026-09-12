@@ -1765,6 +1765,30 @@ export default function Home() {
           </div>
           {routes.map((route) => (
             <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
+              {/* 区間の乗り換え（docs/tasks/T621.md）。対象は目的地ルートのみ——周回は
+                  起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。 */}
+              {destination && route.id === selectedRouteId && routes.length > 1 && (
+                <RouteSplicePanel
+                  displayed={route}
+                  targets={routes.filter((other) => other.id !== route.id)}
+                  targetId={spliceTargetId}
+                  onSelectTarget={(id) => {
+                    setSpliceTargetId(id);
+                    setSpliceTakenIndexes([]);
+                  }}
+                  stretches={spliceStretches}
+                  takenIndexes={spliceTakenIndexes}
+                  onToggleStretch={(index) =>
+                    setSpliceTakenIndexes((current) =>
+                      current.includes(index)
+                        ? current.filter((value) => value !== index)
+                        : [...current, index],
+                    )
+                  }
+                  onApply={handleApplySplice}
+                  applying={splicing}
+                />
+              )}
               {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
                   内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳（AxisContributionBar、
                   ルート全体の内訳と同じ表示部品）を表示する。地図側のDETAIL_LAYER_ID/
@@ -1818,30 +1842,6 @@ export default function Home() {
                   overallDifficulty={route.overall_difficulty}
                   difficultyLoad={route.difficulty_load ?? null}
                   axisColors={axisChipColors}
-                />
-              )}
-              {/* 区間の乗り換え（docs/tasks/T621.md）。対象は目的地ルートのみ——周回は
-                  起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。 */}
-              {destination && route.id === selectedRouteId && routes.length > 1 && (
-                <RouteSplicePanel
-                  displayed={route}
-                  targets={routes.filter((other) => other.id !== route.id)}
-                  targetId={spliceTargetId}
-                  onSelectTarget={(id) => {
-                    setSpliceTargetId(id);
-                    setSpliceTakenIndexes([]);
-                  }}
-                  stretches={spliceStretches}
-                  takenIndexes={spliceTakenIndexes}
-                  onToggleStretch={(index) =>
-                    setSpliceTakenIndexes((current) =>
-                      current.includes(index)
-                        ? current.filter((value) => value !== index)
-                        : [...current, index],
-                    )
-                  }
-                  onApply={handleApplySplice}
-                  applying={splicing}
                 />
               )}
             </Tabs.Content>
