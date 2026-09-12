@@ -7,6 +7,7 @@
 実行: backend/.venv/Scripts/python.exe -m pytest scripts/tests/test_review_checks.py -q
 """
 
+import argparse
 import importlib.util
 import sys
 from pathlib import Path
@@ -412,8 +413,24 @@ def test_precommit_and_ci_enforce_the_same_detectors():
 def test_unwired_detectors_reports_a_declared_but_missing_detector():
     declared = {k for k, modes in review_checks.DETECTOR_ENFORCEMENT.items() if "since" in modes}
 
-    assert review_checks.unwired_detectors("since", declared) == []
+    # 「表から作った集合を表と突き合わせる」assertは恒真で何も守らないため置かない。
+    # 見るのは関数の仕事そのもの（宣言から配線済みを引いた差）だけにする。
     assert review_checks.unwired_detectors("since", declared - {"redis_skeleton"}) == ["redis_skeleton"]
+
+
+def test_cmd_docs_fails_when_a_declared_detector_is_not_wired(monkeypatch, capsys):
+    """表へ足しただけ・分岐から外しただけの検知器を、実行経路として落とす。
+
+    `unwired_detectors`が正しく差を返すことと、`cmd_docs`がその差を違反として扱うことは
+    別物である。宣言だけ増えても件数0のまま静かに素通りするのが、この検査の防ぐ壊れ方。
+    """
+    monkeypatch.setitem(review_checks.DETECTOR_ENFORCEMENT, "zzz_never_wired", frozenset({"staged"}))
+
+    exit_code = review_checks.cmd_docs(
+        argparse.Namespace(staged=True, since=None, keys=False))
+
+    assert exit_code == 1
+    assert "zzz_never_wired" in capsys.readouterr().out
 
 
 def test_unwired_detectors_ignores_detectors_not_enforced_in_that_mode():

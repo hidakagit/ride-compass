@@ -101,10 +101,9 @@ describe("evaluationAxes", () => {
         axis.dedicated_way_value_layer ?? false,
       ])
     );
+    // 除外は置かない。地図チップに出ない軸（wind等）こそ
+    // dedicated_way_value_layer=trueの実例で、**検証したい対象そのもの**である。
     for (const axis of PREFERENCE_AXES) {
-      // windはaxis-catalog.json（表示カタログ）に対応軸を持たないため対象外
-      // （PreferenceAxisDef側の個別追加エントリで直接true指定している）。
-      if (AXES_WITHOUT_MAP_LAYER.includes(axis.axisId)) continue;
       expect(
         axis.dedicatedWayValueLayer,
         `axisId(${axis.axisId})のdedicatedWayValueLayerが一致しない`

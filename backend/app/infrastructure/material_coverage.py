@@ -207,14 +207,23 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source="road_edges.curvature_deg_per_km（precompute_edge_curvatureの計算済み値）の有無",
         missing_semantics="unknown",
     ),
+    # `way_landcover`は「行が無い＝未計算」と「列がNULL＝算出不能（ラスタ範囲外等）」を
+    # 区別する（migration 0037）。**行の有無だけで数えると、値がNULLの行を「データあり」と
+    # 数えてしまう**ため、列のNULLも欠損として数える。
     "trees_percent": WayMaterialCoverageSpec(
-        missing_condition="NOT EXISTS (SELECT 1 FROM way_landcover lc WHERE lc.osm_way_id = w.osm_way_id)",
-        source="way_landcover（precompute_way_landcoverの計算済み行）の有無",
+        missing_condition=(
+            "NOT EXISTS (SELECT 1 FROM way_landcover lc"
+            " WHERE lc.osm_way_id = w.osm_way_id AND lc.trees_percent IS NOT NULL)"
+        ),
+        source="way_landcover.trees_percent（precompute_way_landcoverの計算済み値）の有無",
         missing_semantics="unknown",
     ),
     "built_percent": WayMaterialCoverageSpec(
-        missing_condition="NOT EXISTS (SELECT 1 FROM way_landcover lc WHERE lc.osm_way_id = w.osm_way_id)",
-        source="way_landcover（precompute_way_landcoverの計算済み行）の有無",
+        missing_condition=(
+            "NOT EXISTS (SELECT 1 FROM way_landcover lc"
+            " WHERE lc.osm_way_id = w.osm_way_id AND lc.built_percent IS NOT NULL)"
+        ),
+        source="way_landcover.built_percent（precompute_way_landcoverの計算済み値）の有無",
         missing_semantics="unknown",
     ),
 }
