@@ -178,7 +178,7 @@ const MAP_SETTINGS_OPEN_STORAGE_KEY = "ridecompass:map-settings-open";
 // モバイル下部シート（「ルートを作る」/「地図の見え方」）の高さ。2シートは排他表示のため
 // 1つの値を共有する（BottomSheetのheightVh props参照）。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
-// ルート設定（系統A、RouteSettingsPanel・WeightPanelが操作する評価の設定）。
+// ルート設定（系統A、RouteSettingsPanelが操作する評価の設定）。
 const WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY = "ridecompass:weight-override-enabled";
 const ROUTE_PREFERENCE_STORAGE_KEY = "ridecompass:route-preference";
 const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";

@@ -1372,9 +1372,8 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 フロントは`hooks/useAxisCatalog.ts`がマウント時に1回取得し、取得完了まで・失敗時は
 既存8軸の静的フォールバック（`axis-catalog.json`の`preference_defaults`＋
 `evaluationAxes.ts`の手書きラベル）を返す。一般向けルート設定画面
-（`components/RouteSettingsPanel/`）がこのhookを使う。研究モードの`WeightPanel`は
-本タスクの時点では旧`axis-catalog.json`静的読み込みのまま（T270でWeightPanel自体を
-置き換える際に統合する想定）。
+（`components/RouteSettingsPanel/`）がこのhookを使う。研究モードの`WeightPanel`（撤去済み）は
+本タスクの時点では旧`axis-catalog.json`静的読み込みのままだった。
 
 ### 材料カタログの正式レジストリ化（改善計画T277〜T340・T290）
 
@@ -1542,8 +1541,8 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
 - **`AxisDefinition`（`axis_definitions.py`）へ`icon_id`/`chip_label`/`panel_hint`
   （いずれも`str | None`）・`display_override`（`registry.py: AxisDisplaySpec
   | None`、地図ramp表示のtile_inputs/thresholds/unit/noteをまとめて上書きする既存の型を
-  再利用）を追加した。既存6軸（gradient/surface_q/night/stop_density/car_stress/
-  accident）はこれらを自軸のエントリへ直接記述する（`label`/`description`と同じ、
+  再利用）を追加した。当時の既存軸（gradient/surface_q/night/stop_density［axis_idは廃止］/
+  car_stress/accident）はこれらを自軸のエントリへ直接記述する（`label`/`description`と同じ、
   軸自身の宣言データとして単一ソース化）。`car_stress`の`display_override`は内部軸5つの
   カテゴリカルmapping/breakpointsを参照するため、`AXIS_DEFINITIONS`辞書リテラルの
   構築中に自分自身を参照できない制約を避けて、共有定数（`_CAR_STRESS_HIGHWAY_BASE_

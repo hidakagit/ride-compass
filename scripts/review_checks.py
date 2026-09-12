@@ -408,12 +408,18 @@ def doc_text_at(doc: str, revision: str | None) -> str:
     return git("show", f"{revision}:{doc}", check=False)
 
 
+# 箇条書き・番号付きリストの項目の先頭。空行を挟まず別の話題が並ぶため、ここで区切らないと
+# 1項目の撤去の断りがリスト全体を免除してしまう（docs/tasks/T743.md）。
+LIST_ITEM_START_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s")
+
+
 def paragraphs_with_removal_marker(doc: str, revision: str | None = None) -> set[int]:
-    """撤去等の断りを含む段落に属する行番号（空行区切り）。
+    """撤去等の断りを含む段落に属する行番号。
 
     判定の単位は物理行ではなく段落にする。この文書は編集の都合で1文が複数行へ
     折り返されるため、行で見ると「名前」と「撤去済み」が別の行へ落ちただけで違反になる
-    ——読み手が受け取る単位は段落であって、折り返し位置ではない。
+    ——読み手が受け取る単位は段落であって、折り返し位置ではない。段落の切れ目は空行と、
+    リスト項目の先頭（空行を挟まず別の話題が並ぶ書き方のため）。
 
     `revision`は行番号の出所（`""`＝インデックス、`"HEAD"`、Noneなら作業ツリー）。
     """
@@ -422,17 +428,23 @@ def paragraphs_with_removal_marker(doc: str, revision: str | None = None) -> set
         return set()
     marked: set[int] = set()
     start, buffer = 1, []
-    for lineno, line in enumerate(text.splitlines(), 1):
-        if line.strip():
-            if not buffer:
-                start = lineno
-            buffer.append(line)
-            continue
+
+    def flush() -> None:
         if buffer and ARCHITECTURE_REMOVED_MARKER_RE.search("\n".join(buffer)):
             marked.update(range(start, start + len(buffer)))
-        buffer = []
-    if buffer and ARCHITECTURE_REMOVED_MARKER_RE.search("\n".join(buffer)):
-        marked.update(range(start, start + len(buffer)))
+
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            flush()
+            buffer = []
+            continue
+        if buffer and LIST_ITEM_START_RE.match(line):
+            flush()
+            buffer, start = [], lineno
+        if not buffer:
+            start = lineno
+        buffer.append(line)
+    flush()
     return marked
 
 
@@ -543,6 +555,48 @@ def find_dead_identifier_refs(doc_lines: dict[str, list[tuple[int, str]]], corpu
             for token in sorted(tokens):
                 if looks_like_identifier(token) and not identifier_exists(token, corpus):
                     out.append(f"{doc}:{lineno}: `{token}` が実装に存在しない")
+    return out
+
+
+# レビュー手順書（.claude/commands/）は全レビューが最初に読む。撤去済みの機構を現行として
+# 記述していると、その陳腐化がすべてのレビューへ伝播する（docs/tasks/T743.md）。
+REVIEW_COMMAND_DOC_PREFIX = ".claude/commands/"
+# 記録として残す文書（当時の名前をそのまま持つ）。
+REVIEW_COMMAND_DOC_EXEMPT = ("/history/", "/_history.md")
+# Claude Codeのツール名・ツール入力のフィールド名。プロジェクトの実装には存在しない。
+AGENT_TOOL_NAMES = frozenset({
+    "ReportFindings", "Grep", "Glob", "Read", "Edit", "Write", "Bash", "Task", "TodoWrite",
+    "AskUserQuestion", "failure_scenario", "short_summary",
+})
+
+
+def review_command_docs(files: list[str]) -> list[str]:
+    return [
+        f for f in files
+        if f.startswith(REVIEW_COMMAND_DOC_PREFIX) and f.endswith(".md")
+        and not any(part in f for part in REVIEW_COMMAND_DOC_EXEMPT)
+    ]
+
+
+def find_review_doc_dead_refs(files: list[str], scope: list[str] | None = None) -> list[str]:
+    """レビュー手順書が名指しする識別子のうち、実装に存在しないもの。
+
+    段落に撤去の断りがあれば免除する（architecture.mdと同じ単位）——「旧`total_score`は
+    撤去済み」と書くのは正しい記述で、名前を出さずには書けない。
+    """
+    corpus = source_corpus(files)
+    targets = review_command_docs(files if scope is None else scope)
+    out: list[str] = []
+    for doc in sorted(targets):
+        path = REPO_ROOT / doc
+        if not path.exists():
+            continue
+        exempt = paragraphs_with_removal_marker(doc)
+        lines = [(n, l) for n, l in enumerate(read_text(path).splitlines(), 1) if n not in exempt]
+        for hit in find_dead_identifier_refs({doc: lines}, corpus):
+            if any(f"`{name}`" in hit for name in AGENT_TOOL_NAMES):
+                continue
+            out.append(hit)
     return out
 
 
@@ -1117,6 +1171,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "vacuous_test_loops": frozenset({"staged", "since", "full"}),
     "removed_axis_mentions": frozenset({"staged", "since", "full"}),
     "doc_constant_drift": frozenset({"staged", "since", "full"}),
+    "review_doc_dead_refs": frozenset({"staged", "since", "full"}),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -1185,6 +1240,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_removed_axis_mentions(files + added, scope=staged + added)))
         sections.append(("doc_constant_drift", "文書が書いた定数値と実装のずれ（ステージ済み.md）",
                          find_doc_constant_drift(files + added, scope=md_staged)))
+        sections.append(("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（ステージ済み）",
+                         find_review_doc_dead_refs(files + added, scope=md_staged)))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
@@ -1267,6 +1324,10 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 "doc_constant_drift",
                 f"文書が書いた定数値と実装のずれ（{args.since} 以降に変更された.md）",
                 find_doc_constant_drift(files, scope=changed)))
+            sections.append((
+                "review_doc_dead_refs",
+                f"レビュー手順書の死んだ識別子参照（{args.since} 以降に変更された.md）",
+                find_review_doc_dead_refs(files, scope=changed)))
         else:
             sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
                              find_vacuous_test_loops(files)))
@@ -1274,6 +1335,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                              find_removed_axis_mentions(files)))
             sections.append(("doc_constant_drift", "文書が書いた定数値と実装のずれ（全件）",
                              find_doc_constant_drift(files)))
+            sections.append(("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（全件）",
+                             find_review_doc_dead_refs(files)))
 
     total = 0
     for key, title, lines in sections:
@@ -1657,6 +1720,7 @@ def cmd_duplication(args: argparse.Namespace) -> int:
 
 GUARD_PROBE_TS = "frontend/src/lib/zzzGuardProbe.ts"
 GUARD_PROBE_TEST_TS = "frontend/src/lib/zzzGuardProbe.test.ts"
+REVIEW_CONTEXT_DOC = ".claude/commands/review/context.md"
 GUARD_PROBE_PY = "backend/app/services/zzz_guard_probe.py"
 # 実在しない識別子の綴りは実行時に組み立てる。このファイル自身が実在判定のコーパス
 # （`source_corpus`はscripts/も読む）に入っているため、綴りをそのまま書くと
@@ -1773,6 +1837,8 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "bare_basemodel": lambda: write(
             GUARD_PROBE_PY,
             "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
+        "review_doc_dead_refs": lambda: append(
+            wt / REVIEW_CONTEXT_DOC, f"\n- `{GUARD_PROBE_IDENT}`が評価の値を組み立てる。\n"),
         "doc_constant_drift": lambda: append(
             module_doc, f"\n`{drifted_constant_probe(wt)}`（999999）がこの値を決める。\n"),
         "removed_axis_mentions": lambda: append(

@@ -929,3 +929,56 @@ def test_records_of_the_time_are_exempt_from_constant_drift(tmp_path, monkeypatc
     (tmp_path / "docs" / "tasks" / "T1.md").write_text("`_JOB_TTL_SECONDS`（300）だった。\n", encoding="utf-8")
     monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
     assert review_checks.find_doc_constant_drift(["backend/app/x.py", "docs/tasks/T1.md"]) == []
+
+
+# --- レビュー手順書の死んだ識別子参照 / 段落の切れ目 ---
+
+
+def test_a_list_item_does_not_exempt_its_siblings(tmp_path, monkeypatch):
+    """空行を挟まないリストでは、1項目の撤去の断りがリスト全体を免除してはいけない。"""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "architecture.md").write_text(
+        "1. `zzzA`は撤去済み。\n2. `zzzB`が値を組み立てる。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    assert review_checks.paragraphs_with_removal_marker("docs/architecture.md") == {1}
+
+
+def test_a_wrapped_list_item_is_still_one_unit(tmp_path, monkeypatch):
+    """1項目が複数行へ折り返される書き方は、折り返し位置で切らない。"""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "architecture.md").write_text(
+        "- `zzzA`は\n  撤去済み。\n- `zzzB`が値を組み立てる。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    assert review_checks.paragraphs_with_removal_marker("docs/architecture.md") == {1, 2}
+
+
+def _review_doc(tmp_path, monkeypatch, name: str, body: str, source: str = "") -> list[str]:
+    doc = tmp_path / ".claude" / "commands" / "review" / name
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text(body, encoding="utf-8")
+    (tmp_path / "backend" / "app").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "backend" / "app" / "x.py").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    return review_checks.find_review_doc_dead_refs(
+        [f".claude/commands/review/{name}", "backend/app/x.py"])
+
+
+def test_a_review_doc_naming_something_gone_is_reported(tmp_path, monkeypatch):
+    hits = _review_doc(tmp_path, monkeypatch, "context.md", "- `zzzGoneThing`が評価の値を組み立てる。\n")
+    assert len(hits) == 1 and "zzzGoneThing" in hits[0]
+
+
+def test_a_review_doc_that_declares_the_removal_is_exempt(tmp_path, monkeypatch):
+    assert _review_doc(tmp_path, monkeypatch, "context.md",
+                       "- `zzzGoneThing`は撤去済み。\n") == []
+
+
+def test_records_of_the_time_among_the_review_docs_are_exempt(tmp_path, monkeypatch):
+    """`_history.md`・`history/`は当時の名前をそのまま持つ記録。"""
+    assert _review_doc(tmp_path, monkeypatch, "_history.md",
+                       "- `zzzGoneThing`が評価の値を組み立てる。\n") == []
+
+
+def test_agent_tool_names_are_not_project_identifiers(tmp_path, monkeypatch):
+    assert _review_doc(tmp_path, monkeypatch, "context.md",
+                       "- 結果は`ReportFindings`で報告する。\n") == []

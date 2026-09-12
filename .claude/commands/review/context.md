@@ -1,6 +1,6 @@
 # RideCompass プロジェクト固有レビューコンテキスト
 
-最終更新: 2026-08-27
+最終更新: 2026-09-12
 
 レビュー実行時に参照するプロジェクト固有情報。詳細仕様の写しではなく
 「レビューの判断に必要な構造・思想・履歴」のみを置く。
@@ -14,8 +14,9 @@
 
 ## アプリケーションの目的
 
-サイクリング向け**周回ルート生成**アプリ。現在地＋目標距離から8方位の周回候補を生成し、
-標高・風・路面・交通ストレス等で評価して比較・選択できる。
+サイクリング向け**周回ルート生成**アプリ。現在地＋目標距離から周回候補を生成し
+（折返し点は方位を固定せず、公開軸の重み駆動で選ぶ。`services/road_graph_engine.py`の
+モジュールdocstring参照）、標高・風・路面・車の圧迫感等で評価して比較・選択できる。
 現フェーズは**評価モデルの研究・精査を優先**（一般公開前のプロトタイプ、個人開発・低利用規模）。
 
 ## 構成（現状の姿は docs/architecture.md が正、経緯は docs/decisions/）
@@ -39,20 +40,19 @@
    `LoopRoutingEngine` ポート（`prepare` / `trace_loop` / `evaluate_loops` の3段階）経由で
    `RoadGraphEngine`（自前Road Graph + Dijkstra、唯一のエンジン実装）へ委譲。
    評価は距離フィルタ通過後の候補のみ（棄却済み候補への無駄な標高取得等を避ける）。
-2. **評価の2系統**（混同注意）: `scoring.yaml` = 候補集合内の**相対**評価（total_score、
-   リクエスト間比較不可）／ `route_preference.yaml` = 区間・Edgeの**絶対**評価
-   （difficulty・探索コスト）。研究UIの実験間比較にtotal_scoreを出さないのは意図的。
+2. **評価は絶対評価1系統**: 区間・Edgeごとのdifficultyと探索コストを、軸定義
+   （`axis_definitions`テーブル）の重みから求める。候補集合内の相対スコア（旧`total_score`）は
+   撤去済み——リクエスト間で比較できない値を研究UIの実験間比較へ出さないため。
 3. **地図レイヤー**: 路面等の静的属性はPostGIS `ST_AsMVT` でMVT生成1系統
    （Overpassフォールバックは撤去済み。カバレッジ外は空タイル＋WARNING）。
    標高はGSIラスタタイル直接参照。
-4. **評価軸の追加は1本道**: 取込（import_profile.yaml / ALLOWED_WAY_TAGS）→ domain純関数 →
-   共通合成 → route_preference.yaml → AttributeRepository＋ファサード対称委譲 →
-   フロントはカタログ編集のみ。エンジンファイルに軸固有の知識を書かない。
-   **軸の数・一覧はarchitecture.md §7を正として都度参照する（本ファイルに書かない）。**
-   交通ストレス・安全度は「レシピ付き軸」（判定レシピをYAML/リクエスト上書き可能な形へ
-   外出しし、タイルへは材料タグのみ焼き込み、最終値はフロントのMapLibre expressionが計算）
-   であり、追加経路が通常軸の1本道より大きい（変更コスト表G'参照。共通基盤はT122/T123で
-   整備中）。
+4. **評価軸の追加は1本道**: 軸はDBの行データ（`axis_definitions`テーブル）で、
+   軸スタジオのGUI/APIから追加・公開する。材料が新しい場合だけ取込
+   （import_profile.yaml / ALLOWED_WAY_TAGS）とdomain側の材料宣言が要る。
+   エンジン・フロントのファイルに軸固有の分岐を書かない。**この1本道の具体的な追加点は
+   docs/design-principles.md構造仕様3・8が正**（軸ごとのファイル・関数・定数・propを
+   新設しない設計になっているかの点検もそこにある）。軸の数・一覧は本ファイルに書かず、
+   生成物`axis-catalog.json`または`axis_definitions_snapshot.json`を都度参照する。
 
 ## 正準定義と同期機構（レビュー最重点）
 
@@ -64,12 +64,10 @@
   ドリフト検知テスト必須（MVTレイヤー名・タイル世代等は対応済み）。
 - SQLのCASE式（MVTプロパティ）と `domain/traffic.py` 純関数は突き合わせDB統合テストで
   二重実装ドリフトを検知する方式。
-- フロントの語彙・色・凡例は宣言的カタログ5系統に集約
-  （mapLayers / roadFilterAxes / routeStyleModes / staticAttributeLayers / evaluationAxes）。
-  コンポーネント内にRecordリテラルの対訳表を作らない。
-- レシピ付き軸のPython⇔MapLibre expression二重実装は、export_openapi.pyが書き出す
-  生成フィクスチャ（traffic-stress/safety-test-cases.json・*-recipe.json）と照合テストで
-  同期を担保する（同期バグはこの照合が無い「糊」でのみ発生した実績: T120・T121-a）。
+- フロントの語彙・色・凡例は`components/Map/`の宣言的カタログ（`mapLayers.ts`・
+  `roadFilterAxes.ts`・`routeStyleModes.ts`等）に集約する。コンポーネント内にRecordリテラルの
+  対訳表を作らない。軸由来の語彙はbackendの生成物（`axis-catalog.json`）から組み立て、
+  フロントに同じ値を手書きしない（片側import）。
 
 ## 設計原則（正）
 
@@ -94,7 +92,6 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エ�
   `history/size_watch.json`の`thresholds`**（タスクT91→T123→T430は登録時点の経緯記録）。特定ファイル個別の閾値は原則新設せず、規模ウォッチの発火→
   精査で判断する）
 - Repositoryファサードのフラット委譲契約（対称追加の規約。委譲メソッド削除の提案はT18で棄却済み）
-- wind_scoreのエンジン間の意味差（engineフィールドで識別する管理された不整合）
 - PBF取込バッチのasyncpg COPY直行（Repository迂回）
 - `AxisComposer.tsx`（規模ウォッチの発火が2026-08-27統合レビュー第8回で確認済み、
   T270新設[474行]から3日で1,123行[+137%]。改善計画T355で個別の閾値付きKEEPへ
@@ -133,9 +130,8 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エ�
 - ルート生成エンジンはroad_graph一本（2026-08-31のT462でopenrouteserviceエンジンを完全撤去、
   `routing_engine`設定自体が無くなった）。
 - 進行中/未着手タスクの一覧はimprovement-plan.mdを都度参照する（本ファイルには転記しない）。
-- トリガー待ちDEFER: T10（DEMタイル化）・T11（segmentsビン化）・T12（Road Graphスケール設計ADR）。
-- UIは「研究モード」（localStorage `ridecompass:research-enabled`、WeightPanel・ComparisonPanel等）と
-  一般ユーザー向けUIの2層。将来的に一般公開UIへ発展させる可能性を持つ。
+- UIは「研究モード」（`lib/researchMode.ts`、localStorage `ridecompass:research-enabled`で
+  切り替える追加UI）と一般ユーザー向けUIの2層。将来的に一般公開UIへ発展させる可能性を持つ。
 
 ## 設計書と実装の乖離の見方
 
