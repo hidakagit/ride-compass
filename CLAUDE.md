@@ -11,7 +11,7 @@ improvement-plan.md自体はチェックボックス付きリンクの一覧（�
 設計原則（RideCompass固有の仕様）は docs/design-principles.md が唯一の正本（常に最新）。
 新しい仕組みを作る前は必ず読むこと。判断原則・進め方は
 .claude/commands/review/principles.md「判断原則」節、機能単位の設計は
-docs/modules/README.md（backend8・frontend7の全15モジュール、実コードのみを根拠に記述）
+docs/modules/README.md（モジュール単位、実コードのみを根拠に記述）
 を参照。**改善計画のタスクに限らず、既存モジュールへの修正・追加に着手する際は、
 対象となるdocs/modules/*.mdを必ず先に精読し、記載と実装の乖離（未記載のファイル・
 古くなった記述）を見つけたら同一コミットで修正すること**（サンプリング読みで済ませない

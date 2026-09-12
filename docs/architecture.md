@@ -447,247 +447,49 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
 
 ## 2. ディレクトリ構成
 
-```
-RideCompass/
-  docs/
-    architecture.md          ✅
-  backend/
-    app/
-      main.py                ✅ FastAPI app, CORS
-      config.py               ✅ pydantic-settings（.env読込、basemap_public_base_url含む）。routing_engine（"openrouteservice" | "road_graph"、既定road_graph。改善計画T247で既定値をopenrouteserviceから切替）を「ルーティングエンジンの切り替え対応」で追加。git_commit（デプロイワークフローが注入するGIT_COMMIT、ローカルはnull。改善計画T263でRender自動注入のRENDER_GIT_COMMITから改称）を「デプロイの反映確認」で追加
-      version.py               ✅ STARTED_AT（プロセス起動時刻、インポート時に一度だけ評価）。/healthのデプロイ確認用（「デプロイの反映確認」で新規）
-      api/
-        admin_auth.py           ✅ 管理API共通の認可境界（`require_admin_basic_auth`、HTTP Basic認証）。元はaxis_admin.pyにのみ定義されていたが、改善計画T379でdebug_admin.pyも同じ認可を必要としたため複製を避けてここへ切り出した
-        cache_policy.py         ✅ HTTPキャッシュポリシー（`Cache-Control`）の一元管理（改善計画T632）。パスとポリシーの対応表`_ROUTE_POLICIES`を1箇所へ集め`CachePolicyMiddleware`が応答へ付与する。新規エンドポイントの追加漏れは`tests/test_cache_policy.py`が全ルート走査で機械的に検出する
-        dependencies.py        ✅ DI工場（`get_graph_service`・`get_region_service`等のDependsファクトリと、リクエストスコープ外で使う`open_route_generation_setup`）、`enforce_rate_limit`、`client_id`（per-IPレート制限キー）。旧routes.pyの分割（改善計画T5）
-        routers/               ✅ エンドポイント群（main.pyはrouters/__init__.pyのapi_routerをinclude）。health.py（GET /health, GET /api/debug/stats, GET /api/debug/db-status[HTTP Basic認可要]）/ routes.py（POST /api/routes/preview, POST /api/routes/generate。per-IPレート制限＋同時実行数ガード付き）/ weather.py（GET /api/weather、GET /api/weather/wind-grid・wind-grid-detail＝T178フォローアップ・T180・T183・T185、動的気象レイヤー参照）/ region.py（GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf）/ basemap.py（GET /api/basemap/{path}, POST /api/admin/basemap/refresh＝タイルファイルキャッシュの全消去。全利用者へ影響するためHTTP Basic認可要[T639]）/ jma_tile.py（GET /api/jma-tile/{path}、改善計画T412、JMA動的タイル系のプロキシ。GET /api/jma-tile-index＝在否インデックス、平常時に空タイルを取りに行かないための一覧）/ gsi_relief_tile.py（GET /api/gsi-relief-tile/{path}、改善計画T572、国土地理院 色別標高図タイルのプロキシ）/ axis_admin.py（/api/admin/axis-definitionsのCRUD、改善計画T221 Stage D、HTTP Basic認可要[T272]）/ axis_catalog.py（GET /api/axis-catalog、改善計画T269、認可不要）/ material_catalog.py（GET /api/material-catalog、改善計画T277、認可不要。GET /api/admin/material-catalog/{material_id}/values＝改善計画T340、highway/surface/smoothnessの実データ値一覧、DB読み取りはRegionService.get_material_values経由。索引の効かないSELECT DISTINCTをタイル配信と同じ接続プール上で実行するため、GET /api/admin/material-catalog/coverageと同じくHTTP Basic認可要）/ accidents.py（GET /api/region/accident-tiles/{z}/{x}/{y}.pbf）/ derived_data_freshness.py（GET /api/admin/derived-data/freshness、HTTP Basic認可要。派生データの鮮度台帳）/ debug_admin.py（/api/admin/debug、改善計画T379、HTTP Basic認可要。debug_modeのランタイム切替[POST /mode]・現在値確認[GET /mode]・直近ログ取得[GET /logs]、本番でSSHせずに一時的なDEBUGログ調査を行うための運用API）。レート制限・同時実行の上限値はconfig.pyのSettingsへ外部化済み（.envで上書き可）。改善計画T321（デッドコード監査）: ズーム範囲・座標範囲チェック（`math.sinh`のOverflowError回避が根拠）がaccidents.py/region.pyへ別々に手書きされ表記が乖離していたため、`_tile_http.py`（`validate_tile_coords`・タイル応答を組み立てる`tile_response`）へ共通化した（レート制限は地域タイル系に限らず全router共通の`dependencies.py: enforce_rate_limit`が担い、このモジュールの対象外）
-      domain/
-        route.py               ✅ Coordinates, RouteSegment, RouteSegmentDetail（Step9）, RouteCandidate（標高・overall_difficulty・segments・axis_difficulties・axis_contributions・material_values含む。改善計画T431でstop_density等旧来の軸1対1固定フィールド5個を削除済み、改善計画T548でtotal_score・score_breakdown・RouteScoreComponentを削除済み、改善計画T592でwind_score・road_score・max_gradient_percent（RouteSegmentDetailのgradient_percent・wind_penalty・road_surface_goodも同様）を削除しmaterial_valuesへ統合済み）
-        weather.py               ✅ WeatherConditions
-        errors.py               ✅ RoutingError
-        geo.py                   ✅ haversine_distance_km, haversine_distance_km_array, compass_label, bearing_between（destination_pointは改善計画T531で本番コードから未参照になったため、改善計画T555でtests/geo_fixtures.pyのテスト専用ヘルパーへ移動。sample_indices/sample_line_coordinates/sample_line_pointsはOpenRouteServiceEngine専用だったため改善計画T462の撤去に伴い削除済み）
-        road.py                   ✅ classify_osm_surface, GOOD_OSM_SURFACE_TAGS, BAD_OSM_SURFACE_TAGS（両エンジン共通の唯一の路面判定語彙。distance_weighted_road_scoreは改善計画T592でroad_score撤去に伴い削除済み）
-        difficulty.py             ✅ gradient_difficulty, wind_difficulty, road_difficulty, composite_difficulty（Step9。scoring.py/normalize_min_maxは改善計画T548で撤去済み）
-        wind.py                   ✅ wind_drag_ratio_array（相対風速の二乗則、走行速度依存）・estimate_passage_hours
-        region.py                 ✅ BoundingBox, tile_bounds_lonlat, ROAD_TILE_MIN_ZOOM/MAX_ZOOM（Step10改訂。標高グリッド・snap_cells・bbox対角距離関連は撤去済み）。ROAD_GRAPH_TILE_ZOOM, tiles_covering_bbox（Road Graphのタイル単位キャッシュ用、新規）
-        graph.py                    ✅ Node, DirectedEdge, RoadGraph, WaySpec, build_road_graph（Road Graph移行Phase 1、新規。Phase 2でOSMタグ解釈を分離しWaySpec契約に一本化。Phase 3でWaySpec.surfaceを追加）
-        osm_adapter.py               ✅ OSM Way（tags辞書）→WaySpecへの変換（Road Graph移行Phase 2、新規。OSM Adapter/Importer）
-        attributes.py                 ✅ ElevationAttribute, SurfaceAttribute, compute_elevation_attribute, build_surface_attributes（Road Graph移行Phase 3、新規）
-        recipe.py                      ✅ 改善計画T122: タグ由来の材料タグを正規化する純関数群（parse_lanes/parse_maxspeed/cycleway_values/tag_value_is/bicycle_infra_flags[T336]）。旧`RoadSuitabilityRecipe`等の専用Pythonレシピ採点構造（clamp_level/threshold_adjustment/cycleway_adjustment/flag_adjustment/validate_threshold_order）は改善計画T292でcar_stress軸をAXIS_DEFINITIONSの内部軸階層へ再設計した際に削除済み。cycleway_class関数は改善計画T337で削除済み（唯一の呼び出し元だった同名材料が評価軸・地図表示のどちらからも未使用だったため）。改善計画T347: `bicycle_infra_flags_or_none(tags, highway)`（tagsがNone、またはhighwayがNoneかつ全フラグFalseの場合のみNoneを返す「データ欠落＝unknown」判定を一箇所に集約）を追加。material_catalog.py/evaluation.py/openrouteservice_engine.py/road_graph_engine.pyの4箇所が個別に手書きしていた同等の判定（旧`classify_bicycle_infrastructure`のhighway=None最終catch-all分岐を暗黙に踏襲していたが、フラグベースの新ロジックへ移行した際に4箇所とも独自に再実装が必要になっていた）をこの1関数へ統一
-        traffic.py                     ✅ 静的道路属性P1: classify_stop_poi、STOP_POI_KINDS/POI_COUNT_KINDS/INTERSECTION_MATCH_MAX_DISTANCE_M/INTERSECTION_DEGREE_THRESHOLD（7章参照）。材料タグ正規化はrecipe.pyへ切り出し済み（改善計画T122）。専用レシピ（旧car_stress_breakdown/car_stress_level）は改善計画T292でAXIS_DEFINITIONSの軸階層へ再設計済み（domain/axis_definitions.py参照）。classify_supply_poi（コンビニ・自販機・トイレ・給水・駐輪場、改善計画T101、表示専用でEdge Costには組み込まない）も同ファイル。改善計画T347: `classify_bicycle_infrastructure`（7値分類、改善計画T150で「交通ストレス」から改称）は評価軸・地図表示のどちらからも参照されなくなったため削除。改善計画T431: `distance_weighted_stop_density`/`distance_weighted_intersection_density`/`distance_weighted_bicycle_infra_score`/`is_dedicated_bicycle_infra`（旧`RouteCandidate`個別フィールド集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み。区間ごとの評価軸（axis_difficulties）は`domain/evaluation.py`が直接材料合成する
-        accident.py                     ✅ 外部静的データソースT50: ACCIDENT_MATCH_MAX_DISTANCE_M, KANTO_PREFECTURE_CODES（NPA採番）, ACCIDENT_FATAL_WEIGHT（7章参照）。改善計画T431: `distance_weighted_accident_density`（旧`RouteCandidate.accident_density`集約用）はフロントエンド末端消費者ゼロを確認した上で削除済み
-        designation.py                   ✅ 外部静的データソースT51: DESIGNATION_BUFFER_WIDTH_M/DESIGNATION_MATCH_MIN_RATIO/DESIGNATION_IMPORT_KINDS/CAR_STRESS_DESIGNATION_KINDS（7章参照）
-        evaluation.py                  ✅ RoutePreference（axis_idキーの重み辞書、7章参照）, EdgeCostResult, is_edge_allowed, compute_edge_cost（Road Graph移行Phase 4、新規。Evaluation Engine）。動的材料（風）はcompute_dynamic_edge_materials／DYNAMIC_MATERIAL_EVALUATORSがwind.pyの関数から求める。compute_edge_costs_bulk（改善計画T240、evaluate_graphのnumpyベクトル化本体、抽出フェーズ＋計算フェーズの2段。scalar版compute_edge_costは回帰テストオラクルとして存続）
-        axis_templates.py                ✅ 改善計画T221 Stage A/T239、T396で2プリミティブへ再編: evaluate_breakpoint_linear（連続演算、旧evaluate_flag_sum/evaluate_recipe_then_breakpoint_linearを統合）・evaluate_categorical（離散演算）。スカラー・numpy配列の両方を受け付ける。round1_array（T240、Python組み込みround()とビット単位で一致させる配列丸め、compute_edge_costs_bulkの最終cost/difficultyのみに使用）も同居
-        axis_definitions.py              ✅ 改善計画T221 Stage B/C: 評価軸の定義データAXIS_DEFINITIONS（axis_id・材料・shape・shape_params・default_weight。breakpoints等の変換パラメータの単一ソース）と、定義を読んでスコアを返す汎用評価関数evaluate_axis_scalar/evaluate_axis_array。既存テンプレート＋既存材料で表現できる新しい軸は定義データの追加だけでスカラー/配列両経路へ同時反映される（7章参照）
-        material_catalog.py              ✅ 改善計画T277: 材料（MaterialTerm.material等が参照するid）の正式レジストリMaterialSpec/MATERIAL_CATALOG（material_id・label・dtype[numeric/boolean/categorical、T290でcategorical追加]・内部専用tile_property/tile_property_needs_runtime_scale[T278追加]）。改善計画T290で9→20材料へ拡張（MVTタイル焼き込み済みだが評価軸未使用の生データを網羅登録、categorical材料は登録のみで評価軸未対応）。改善計画T336で自転車インフラの正規化フラグ材料4件（highway_is_cycleway/cycleway_has_track/cycleway_has_lane/cycleway_has_shared）を追加し20→24材料（tile_property非依存、抽出は`domain/recipe.py: bicycle_infra_flags`が単一ソース）。改善計画T337で評価軸・地図表示のどちらからも未使用だったcycleway_class材料を削除し24→23材料（MVTタイルのcycleway_classプロパティ・`domain/recipe.py: cycleway_class`関数も同時に削除、ROAD_SURFACE_TILE_VERSION対上げ）。改善計画T338でdisplay_onlyフィールドを追加しdesignation材料を軸スタジオの選択肢（`GET /api/material-catalog`）から除外（`axis_studio_materials()`、地図表示には影響しない）。改善計画T339で単純パターンのextractorを汎用ファクトリ（raw_way_tag_extractor/tag_equals_extractor/way_tag_parser_extractor/count_per_km_extractor）へ置き換え、実証用にtracktype材料を追加し23→24材料（専用のPython関数を書かず宣言のみで抽出可能にできることを実証、「材料抽出の宣言駆動化」節参照）。改善計画T338フォローアップ（2026-08-26、ユーザー指摘）でdesignationを正規化フラグ材料is_emergency_transport[N10]/is_critical_logistics[N12]へも分解し24→26材料へ拡張（bicycle_infra→cycleway_has_track等[T336]と同じ設計思想、「表示専用材料の除外」節参照）。改善計画T347で7値categorical材料`bicycle_infra`自体（`classify_bicycle_infrastructure`の分類結果を保持していた、材料としては使用者無し）を削除し26→25材料。同時に`highway_is_cycleway`の`primary_attribute_id`を`highway`から`cycleway`へ再割当て（4フラグ材料全てが`cycleway`一次属性を共有する形に統一し、`highway`はcar_stress_highway_base専用のまま非共有を維持）、4フラグ材料全てへ`bool_default="nan"`を追加（ベクトル化評価経路`compute_edge_costs_bulk`が欠落値を`False`へ丸めて「データ無し」を「確認済みでインフラ無し」と誤判定していた回帰を修正、`surface_good`の既存踏襲）。材料の追加はコード変更＋デプロイのみ、GUIからの追加・編集・削除は不可（「材料カタログの正式レジストリ化」節参照）
-        axis_display.py                  ✅ 改善計画T278: derive_ramp_inputs()。AXIS_DEFINITIONSの軸とMATERIAL_CATALOGから地図ramp表示（tile_inputs/thresholds）を自動導出する（安全に導出できるCategorical/FlagSum/単一材料BreakpointLinearのみ、詳細は「地図表示ルール（kind=ramp）の自動導出」節参照）
-        difficulty.py                    ✅ AxisDifficulties（axis_idキーの軸別difficulty辞書＋composite、T221 Stage Bでdict化）, evaluate_axis_difficulties（AXIS_DEFINITIONSをループする薄い関数）, accident_difficulty/gradient_difficulty等の軸別difficulty互換ラッパ（Noneガード・負値ガードのみ担い変換はaxis_definitions.pyへ委譲）。composite_difficulty/distance_weighted_difficultyも同居（7章参照）
-        night.py                         ✅ 改善計画T139: night_difficulty（街灯なし・トンネルの難易度変換、7章参照）。T221 Stage B/Cでnight_materials（lit/tunnelタグ→材料フラグ解決）へ再編、加点値はaxis_definitions.pyのnight軸定義へ移動
-        twilight.py                      ✅ 改善計画T173: is_night（astralライブラリで市民薄明を判定、動的気象レイヤー参照）
-        wind_grid.py                     ✅ 改善計画T178フォローアップ・T183: 風・降水延長予報の格子点マップ（固定格子生成、外部API非依存の純粋座標計算。動的気象レイヤー参照）
-        jma_warning.py                    ✅ 改善計画T205: JMA警報コード対応表（気象庁公式コード表を典拠）とサイクリング関連種別への絞り込み、3段階レベル導出、電文kinds配列からのActiveWarning抽出
-        jma_area.py                        ✅ 改善計画T205: 市区町村コード→JMA警報エリア（class20/class10/office）の解決（area.jsonの親子関係を辿る）
-        wbgt.py                            ✅ 改善計画T174: 暑さ指数（WBGT）の値→4段階＋非表示の判定（環境省「熱中症予防運動指針」を典拠）、提供期間（4〜10月）判定
-        wbgt_points.py                     ✅ 改善計画T174: 情報提供地点（アメダス観測所ベース、約840地点）への最近傍点探索
-        flood_forecast.py                  ✅ 改善計画T212: JMA指定河川洪水予報のコード対応表（気象庁公式コード表を典拠、item.code自体が発表/継続/警報解除/完全解除を区別）とレベル2〜5→バッジ4段階への対応、電文からのActiveFloodForecast抽出
-        routing.py                     ✅ `LazyRoadGraph`/`build_lazy_road_graph`・`shortest_path_node_ids_lazy`/`path_to_edge_ids_lazy`（rustworkx A*、lazy評価、Node/Edge payloadは整数index、改善計画T536）。改善計画T531で`CsrGraphStructure`/`build_csr_structure`・`SearchGraphStatics`/`build_search_graph_statics`・`ShortestPathTree`/`build_shortest_path_tree`（起点からの一対全Dijkstra、scipy.sparse.csgraph、周回の折返し点選定に使う）・`tree_path_edge_indices`・`overlap_ratio`/`select_diverse_by_overlap`（往路重複率ベースの多様性間引き）を新設し、旧`SparseRoadGraph`/`build_sparse_graph`/`shortest_path_node_ids_sparse`/`path_to_edge_ids_sparse`/`routable_node_ids`（T220、scipy.sparse.csgraph版）を撤去。`build_node_spatial_index`/`find_nearest_node_indexed`・`concat_node_paths`は変更なし
-      services/
-        route_generator.py     ✅ `RouteGenerator`（周回生成戦略、エンジン非依存）＋`LoopRoutingEngine`（Protocol）＋`TracedLoop`/`LoopTurnaround`。改善計画T531で8方位固定を撤廃し、`select_loop_turnarounds`（軸重み駆動の折返し点選定、エンジンへ委譲）→`trace_loop_from_turnaround`→距離許容フィルタ→`overall_difficulty`昇順（改善計画T548、旧`RouteScorer`降順ソートを置換）上位`max_routes`件（既定8・上限15）というフロンティア方式へ転換。経路計算・評価はエンジンへ委譲（設計レビュー対応でポート分割）。改善計画T364で経由地指定ルート専用の`generate_via_waypoints`を追加（本体は無変更）。改善計画T551で経由地の無い目的地ルート（起点→目的地のみ）をvia-node方式（前向き木＋後ろ向き木、`RoadGraphEngine.select_via_nodes`）で`max_routes`件まで生成する`_generate_destination_routes`を追加（経由地を伴う目的地ルートは従来どおり`trace_loop`で1件のまま）
-        road_graph_engine.py   ✅ `RoadGraphEngine`。Road Graph + Evaluation Engine + Route Engine（domain/routing.py）で経路・評価を行うエンジン（「完全移行」の実装をポート化、改善計画T462でopenrouteserviceエンジンを撤去し唯一のエンジン実装になった）。改善計画T531で`select_loop_turnarounds`（一対全木からの折返し点選定）・`trace_loop_from_turnaround`（往路Edge＋逆方向Edgeのコストを一時的に差し替えて探索する復路A*）を新設。実ジオメトリ取得（`get_edges_with_geometry`）は距離フィルタ通過候補ぶんをまとめて`evaluate_loops`側で1回だけ行う
-        weather_service.py     ✅ 「地点＋時刻」で天候を取得（Step6）。RoadGraphEngineからは出発時点・起点付近の風を取得する用途で（「完全移行」）呼ばれる
-        warning_service.py     ✅ 改善計画T205: 緯度経度→市区町村→JMA警報エリアの解決とr8警報APIの電文配列集約でWeatherWarningsを組み立てる。地点解決・警報取得のどこで失敗しても空応答（警報なし）を返す
-        wbgt_service.py         ✅ 改善計画T174: 緯度経度→最寄りWBGT地点の解決と予測値APIの取得でWbgtStatusを組み立てる。提供期間外・地点解決失敗・取得失敗・「ほぼ安全」のいずれもlevel=nullを返す
-        flood_service.py         ✅ 改善計画T212: T205のjma_area.resolve_areaを再利用した地点解決と洪水予報APIの電文集約でFloodForecastsを組み立てる。地点解決・取得のどこで失敗しても空応答を返す
-        region_service.py          ✅ get_road_surface_tile(z,x,y)で路面ベクタタイル(PBF)を生成・tile_cacheに永続化（Step10改訂。標高はGSIラスタタイルとしてgsi_relief_tile_client.py[改善計画T572]経由でバックエンドがプロキシ・キャッシュする）。get_poi_tile(z,x,y)で停止要因POI・交差点密度の点タイルを生成（T54）。カバレッジ内タイル配信のたびにz12祖先タイルの道路グラフ未構築・古さを確認しバックグラウンド構築を起動（T59、7章参照）
-        accident_service.py          ✅ 事故点のタイル生成（accident_repository.py経由）。region_service.pyとは別系統（外部静的データソースT50、7章参照）
-        graph_service.py            ✅ GraphService.get_or_build_graph_with_attributes(bbox)でPostGIS（`repository`必須）からRoad Graphを取得・構築（Road Graph移行Phase 1〜3、新規）。「完全移行」でRouteGeneratorから実際に参照されるようになった。当初はrepository未接続時にOverpassから都度構築するDBなし構成を持っていたが、改善計画T222で撤去済み（本番・dev環境は常にrepositoryを注入するため未到達だった）。改善計画T321（デッドコード監査）: T219のタイルキャッシュ導入でホットパスが`_build_search_materials_from_tile_cache`へ移った後、`lean`引数と依存する分岐が実行時到達不能のまま残っていたため削除。T248の材料取得統合（`get_edge_materials_batch`）後に呼び出し元を失っていた素通しラッパー4本（`get_way_tags`/`get_edge_attribute_counts`/`get_elevation_attributes`/`get_designated_edge_ids`）も削除
-        elevation_aggregation.py    ✅ 改善計画T321（デッドコード監査）: 標高集約（獲得標高・最高/最低標高・最大勾配）の最終集約ロジック（sum_or_none/min_or_none/max_or_none）を`elevation_service.py`と`road_graph_engine.py: _aggregate_elevation`の二重実装から切り出して共通化
-        tile_serving.py             ✅ 改善計画T321（デッドコード監査）: タイル配信（キャッシュ確認→fetch_tile→キャッシュ書込/空タイルフォールバック）の骨格を`region_service.py: _get_tile`と`accident_service.py: get_accident_tile`の二重実装から切り出して共通化
-        elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graph(graph)でEdge単位の標高属性（形状点をGSI APIへ問い合わせ）を算出（Road Graph移行Phase 3、新規）。「完全移行」でRouteGeneratorから、確定した経路上のEdgeだけに絞って呼ばれるようになった（性能上の理由、decisions/road-graph-migration.md参照）
-        evaluation_service.py           ✅ EvaluationService.evaluate_graph(graph, elevation_attributes, surface_attributes, wind=None)でEdge Costを算出（Road Graph移行Phase 4、新規。Phase 5でload_route_preference()を追加。「完全移行」でwind引数を追加しRouteGeneratorから参照されるようになった）。改善計画T240で内部実装をcompute_edge_costs_bulk（domain/evaluation.py、numpyベクトル化）へ切り替え（シグネチャ・戻り値型は不変）
-      infrastructure/
-        elevation_client.py     ✅ 国土地理院標高API（共有コネクション＋緯度経度メモ化キャッシュ）
-        msm_client.py           ✅ 気象庁MSM（.omファイルのローカル同期＋読み出し）。予報系はすべてここ経由
-        jma_warning_client.py    ✅ 改善計画T205: 国土地理院逆ジオコーダ（緯度経度→市区町村コード）・JMA地域マスタarea.json（24時間TTL）・JMA警報API r8（10分TTL）の3クライアント。いずれも失敗時はNoneを返す（tenacity再試行は無し）。TTLキャッシュは`cachetools.TTLCache`を使用（改善計画T244、flood/wbgtクライアントと同型のキャッシュ実装重複を解消）
-        wbgt_client.py            ✅ 改善計画T174: 環境省WBGT情報提供地点マスタCSV（24時間TTL）・暑さ指数予測値WebAPI（1時間TTL、直近6時間の発表時刻を検索範囲とする連続期間指定）の2クライアント。サイト側の「自動化ツールからの高頻度アクセスは控えて」注記に配慮しtenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
-        flood_client.py            ✅ 改善計画T212: JMA指定河川洪水予報API（10分TTL、全国分を1回のGETで取得）のクライアント。tenacity再試行は無し。TTLキャッシュは`cachetools.TTLCache`使用（改善計画T244）
-        vector_tile.py               ✅ 路面データをMVT（Mapbox Vector Tile）にエンコード（Web Mercator投影、Step10改訂）
-        tile_cache.py               ✅ 地図タイル・路面ベクタタイル共通のファイルキャッシュ（パスをSHA-256でフラット化、Step10。T398でDATA_DIR定数の定義元になった）
-        basemap_client.py           ✅ OpenFreeMapタイル/スタイルJSONのプロキシ＋URL書き換え（Step10）
-        gsi_relief_tile_client.py   ✅ 改善計画T572: 国土地理院 色別標高図タイルのプロキシ。basemap_client.pyと同じ「pathを丸ごとプロキシ＋tile_cache.pyの永続ファイルキャッシュ」方式（URL書き換え・TTL分岐は不要）
-        jma_tile_client.py           ✅ 改善計画T412: JMA動的タイル系（降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップ）のプロキシ。basemap_client.pyと同じpath丸ごとプロキシ方式だが、タイル本体はjma_tile_redis_cache.py（Redis cache-aside、T510でtile_cache.pyから移行）・targetTimes*.jsonはTTLCache（2分）とキャッシュ戦略を分岐する。get_cached（キャッシュのみ参照）/fetch（外部フェッチのみ）/get（両方の一括呼び出し）の3メソッドへ分割し、jma_tile.py側がget_cachedのヒット判定をレート制限より先に行えるようにした（T510、429の直接原因への対応）
-        jma_tile_redis_cache.py      ✅ 改善計画T510: JMAタイル本体（ラスタPNG・洪水キキクルのベクタPBF）のRedis cache-aside。dynamic_way_value_cache.pyと同じfail-open設計、TTL20分、値はbase64化してJSON文字列としてRedisへ保存する（redis_client.pyがdecode_responses=Trueのため生バイト列を直接保存できない）
-        rate_limiter.py              ✅ プロセス内メモリのみの固定窓レート制限（`check_rate_limit`）。認証なしで叩ける`/api/region/road-surface-tiles/*`（120req/min）・`/api/basemap/*`（300req/min）に`api/routes.py`から適用し、超過時は429を返す
-        debug_log.py                  ✅ `log_external_call`（contextmanager）。外部API呼び出し・タイルキャッシュアクセスの開始/完了/失敗をカテゴリ単位でDEBUGログに出力する。`settings.debug_mode`（`main.py`のlogging設定）がFalseの間は実質無出力
-        debug_control.py             ✅ 改善計画T379。`set_debug_mode`（`settings.debug_mode`とルートロガーのレベルをランタイムで切替、`.env`は書き換えず再起動不要）と、ルートロガーへ追加するリングバッファ`logging.Handler`（直近最大1000件を保持、`get_recent_logs`で`limit`/`contains`絞り込み取得）。`api/routers/debug_admin.py`から呼ばれる。本番でSSHせずにdebug_modeの一時有効化・DEBUGログ取得を行うための運用機構（T318の調査で判明した運用上のボトルネックへの対応）
-        database.py                  ✅ SQLAlchemy非同期エンジン・セッションファクトリ（Road Graph移行「永続化」、新規。DB未接続でも既存機能に影響なし）。`get_engine`/`get_session_factory`（command_timeout=20、元は路面タイル配信のハング検知用）と、road_graphエンジンの経路生成専用`get_route_generation_engine`/`get_route_generation_session_factory`（command_timeout=180、改善計画T243）の2系統のエンジンを持つ。未splitエリアの初回タッチ時に発生しうる重い再構築が前者の短いタイムアウトでキャンセルされる本番実測不具合への対応
-        migrate.py                   ✅ 最小マイグレーション機構（`apply_pending_migrations`。改善計画T17、decisions/pre-static-attributes-gate.md 決定3）。`../migrations/`配下の番号付きSQLを`schema_migrations`テーブルで適用管理する。`create_tables`（新規DB向けの基本スキーマのみ）とは役割分離。標準ブートストラップ順は`create_tables()`→`apply_pending_migrations()`（import_pbf.py等）で、0001〜0009は`CREATE TABLE IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS`を徹底しこの順序を前提に設計されているが、0010〜0019はこの規約が崩れて素の`CREATE TABLE`/`ADD COLUMN`になっており、新規DBでは`create_tables()`が先に同じテーブル・カラムを作るため0010で`DuplicateTableError`となり以降が未適用のまま中断する欠陥があった（改善計画T321のデッドコード監査で発見、フレッシュDBでの実機検証は誰も踏んでいなかった）。改善計画T321で0010〜0019にも`IF NOT EXISTS`を追加して修正済み（フレッシュDBで19件全適用・axis_definitions 13行のシード投入まで実機検証済み）
-        road_graph_models.py         ✅ road_nodes/road_edges/elevation_attributes/surface_attributesのSQLAlchemy ORMモデル（PostGIS Geometry型、Road Graph移行「永続化」、新規）。OsmRawNodeRow/OsmRawWayRow（生OSMデータ、配列型+GINインデックス）を「根本修正」で追加
-        road_graph_repository.py     ✅ 責務別4リポジトリ＋ファサード（改善計画T6で分割）: RawOsmRepository（生OSM層・タイルマーカー）/ DerivedGraphRepository（road_nodes/edges・split_at鮮度判定）/ AttributeRepository（標高・路面属性）/ RoadSurfaceTileQuery（表示用MVT）/ RoadGraphRepository（既存公開APIを保つファサード、DI注入点）。**書き込みメソッドはcommitせず、サービス層が操作のまとまりごとにcommit()を呼ぶ規約**（トランザクション境界の詳細はモジュールdocstring参照）。save_raw_ways/get_way_specs_with_closureは「根本修正」で追加、save_graphはway_ids_to_replaceによるdelete-then-reinsert対応。save_graphは改善計画T245でステージ別所要時間（node_upsert_ms/delete_ms/edge_upsert_ms/total_ms）のINFOログを追加（本番実測でDELETE段の想定外の長時間化を検知したが原因未特定のまま、次回発生時にログで追跡できるようにするため）。改善計画T246で真因（`NOT (edge_id = ANY(new_edge_ids))`除外条件をチャンクごとに毎回再評価していた）を特定し、除外対象を一時テーブル（PK付き）へ1回だけ投入しNOT EXISTS（反結合）で参照する形へ変更、あわせてこの操作専用に`SET LOCAL work_mem`を引き上げ。本番DBのグローバルwork_memも4MB→16MBへ変更済み（`postgresql.conf`、SSH経由）。改善計画T321（デッドコード監査）: `RawOsmRepository.is_tile_cached`/`mark_tile_cached`とその委譲メソッドを削除。実際にタイル取得済みマークを書くのは`app/batch/import_pbf.py: _mark_tiles`（生asyncpgのON CONFLICT DO NOTHING）のみで、削除した2メソッド（ORM UPSERT版、競合時にfetched_atを更新する点で挙動が異なっていた）は実行時未使用の重複実装だった
-        valhalla_client.py        ⬜ 将来
-        osm_repository.py            ⬜（road_graph_repository.pyが実質この役割を担う）
-        accident_repository.py       ✅ AccidentTileQuery（事故点のMVT生成、accident_points専用。road_graph_repository.pyとは別系統）
-        designation_models.py        ✅ route_designations/designation_attributes/designation_import_runsのSQLAlchemy ORMモデル（外部静的データソースT51）
-        search_graph_cache.py        ✅ `LazyRoadGraph`・`SearchGraphStatics`（一対全最短経路木用CSR構造＋Edge実距離配列）・`NodeSpatialIndex`を、覆うz12タイル集合をキーにプロセス内LRU（上限64件）でキャッシュする探索・索引構築キャッシュ
-        tile_persistent_cache.py     ✅ `graph_material_cache`・`tile_score_matrix_cache`のプロセス内メモリLRUに加えるディスク永続化層（`backend/data/tile_persistent_cache/`）。無効化はバージョン文字列をファイルパスへ埋め込む方式で手動管理する
-        tile_score_matrix_cache.py   ✅ タイル単位の`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列）をプロセス内LRUでキャッシュする。軸定義編集時は`axis_registry_meta.revision`の変化を見て無効化を判定する専用経路を持つ（`graph_material_cache`とは別枠）
-      batch/                    ✅ PostGIS事前取込バッチ群（`.venv\Scripts\python.exe -m app.batch.<module>`で実行、いずれも--dry-run対応）
-        _common.py                ✅ asyncpg_dsn（SQLAlchemy URL→asyncpg DSN変換）, download_to_path（ZIP/CSV取得の共通骨格）。4バッチが参照する共通ヘルパ（改善計画T80）
-        import_pbf.py              ✅ OSM PBF→osm_raw_ways/osm_raw_nodes/osm_raw_pois取込（Road Graph移行「永続化」、詳細はdocs/osm-pbf-import.md）
-        import_accidents.py         ✅ 警察庁交通事故統計本票CSV→accident_points取込（外部静的データソースT50、7章参照）
-        import_designations.py       ✅ 国土数値情報N10/N12→route_designations取込（外部静的データソースT51、7章参照）
-        match_designations.py         ✅ route_designations→osm_raw_waysバッファマッチ事前計算（designation_attributes、外部静的データソースT51、改善計画T74で対象をroad_edgesからosm_raw_waysへ変更、7章参照）
-        presplit_road_graph.py        ✅ 取込済み全z12タイル（`road_graph_tiles`）のうちsplit未済のものへ`GraphService.get_or_build_graph_with_attributes`（実行時の遅延構築と同じ再構築経路）を1件ずつ順に適用する冪等バッチ（並列化しない）
-    scripts/                    ✅ 単発実行の検証・計測スクリプト群（`.venv\Scripts\python.exe scripts\<module>.py`で実行、batch/と違いDB書き込みを伴わない読み取り専用が主）。verify_postgis_phase0.py（Phase 0検証）/ apply_migrations.py（migrate.pyの手動起動）/ check_db_connection.py（接続確認）/ export_openapi.py（OpenAPIスキーマ・フロント契約フィクスチャの書き出し）/ measure_tag_coverage.py（改善計画T102、PBF直読みのタグ付与率実測）。改善計画T292で専用Pythonレシピ（car_stress_level等）を廃止したのに伴い、車ストレスのcalibration研究スクリプト3本（measure_axis_stats.py・measure_axis_correlation.py・analyze_jartic_calibration.py）は削除した。collect_jartic.py（改善計画T53、JARTIC WFS収集）も、唯一の消費先だったanalyze_jartic_calibration.py削除後は較正データを読む者がいない無意味な処理になっていたため改善計画T321（デッドコード監査）で削除した
-    tests/
-      test_health.py          ✅ status/started_at（ISO8601）の検証、commitがGIT_COMMIT未設定時null・設定時はその値を反映すること（「デプロイの反映確認」で追加）
-      test_geo.py             ✅ haversine_distance_km / compass_label / bearing_betweenの検証（座標生成にtests/geo_fixtures.pyのdestination_pointを使う）
-      test_routes_preview.py  ✅ get_preview_builderをDIでモックしたAPIテスト。per-IPレート制限（20回/分）の429検証を追加
-      test_route_generator.py ✅ RouteGenerator（周回生成戦略、エンジン非依存）の検証: 折返し点候補プールからの逐次trace・`max_routes`件到達時の早期停止・失敗候補のスキップ・距離許容フィルタ・prepare/折返し点0件時の空返却・**評価が距離フィルタ通過候補だけに行われること**・`overall_difficulty`昇順ソート（同点は目標距離に近い順、改善計画T531。降順`total_score`ソートからの変更は改善計画T548）・engine_name公開
-      test_road_graph_engine.py ✅ RoadGraphEngineのエンドツーエンド検証（RouteGenerator経由）: 双方向の「車輪＋迂回路」状Road Graphフィクスチャによる折返し点選定（軸駆動ランキング・往路重複率ベースの間引き）・復路探索（往路コスト差し替え→復元）・距離許容フィルタ・経路探索失敗時のスキップ・標高/路面/風の集計・segments構築・graph_serviceへの問い合わせ（ジオメトリ取得）が距離フィルタ通過候補ぶん1回にまとまること・engine_name
-      test_routing.py          ✅ `shortest_path_node_ids_lazy`/`path_to_edge_ids_lazy`（コスト最小経路・到達不能・始点=終点・Hard Constraint除外）・`build_node_spatial_index`/`find_nearest_node_indexed`・`concat_node_paths`に加え、改善計画T531の`build_shortest_path_tree`（一対全木、Python走査との実距離一致）・`tree_path_edge_indices`・`overlap_ratio`/`select_diverse_by_overlap`（多様性間引きの決定性）を検証
-      test_routes_generate.py ✅ `open_route_generation_setup`（`dependencies.py`）を差し替えたAPIテスト（engineフィールドの返却・per-IPレート制限の429・同時実行上限の429に加え、研究IF改善Phase 1で重み上書きの伝搬・conditionsエコー・上書きバリデーション422・既定値へのフォールバックの検証を追加）
-      test_elevation_client_cache.py ✅ 同一/近傍座標でのキャッシュ再利用・遠方座標での再取得
-      test_weather_service.py ✅ 現在/指定時刻の天候取得、取得失敗時の扱い
-      test_weather_client_cache.py ✅ TTL内キャッシュ再利用・失効後再取得・取得失敗時の扱い
-      test_weather_route.py   ✅ /api/weatherのDIモックテスト。per-IPレート制限（60回/分）の429検証を追加
-      test_wind.py             ✅ wind_drag_ratio_array（向かい風/追い風/横風/無風・速度依存・1次元式との一致・連続性）とheadwind_component_msの検証
-      test_road.py             ✅ classify_osm_surface（OSMタグ基準、両エンジン共通）の検証。不明路面の「分母から除外・None判定」（設計レビュー対応）の検証を含む
-      test_difficulty.py      ✅ gradient/wind/road_difficultyの閾値・composite_difficultyの再正規化の検証
-      test_axis_templates.py   ✅ 改善計画T239、T396で2プリミティブへ再編: 連続演算（区分線形補間、boolean材料の重み付き和も含む）・離散演算（カテゴリ→定数）のスカラー/配列両モードの一致・NaN伝播の検証
-      test_region.py           ✅ tile_bounds_lonlatの検証（zoom0で全世界を覆う・隣接タイルの境界一致など、Step10改訂）。tiles_covering_bboxの検証（単一/複数タイル・世界端でのクランプ）を追加（Road Graphのタイル単位キャッシュ導入時、新規）
-      test_region_service.py  ✅ RegionService.get_road_surface_tileのタイルキャッシュ利用/未キャッシュ時の挙動の検証（Step10改訂）
-      test_region_routes.py   ✅ /api/region/road-surface-tiles/{z}/{x}/{y}.pbfのDIモックテスト・ズーム範囲外リクエストの400（Step10改訂）
-      test_graph.py            ✅ build_road_graphのWay分割（交差点/端点/形状点）・direction処理・内部ID/OSM IDの分離・距離計算の検証（Road Graph移行Phase 1、新規。Phase 2でWaySpec契約に合わせて更新）
-      test_osm_adapter.py      ✅ osm_way_to_way_specのonewayタグ解釈（yes/-1/大文字小文字・空白/未知の値）・highway受け渡し・ノード数不足時の除外の検証（Road Graph移行Phase 2、新規。Phase 3でsurfaceタグ受け渡しの検証を追加）
-      test_attributes.py       ✅ compute_elevation_attribute（登り/下り/混在/欠損値/有効点不足）・build_surface_attributes（osm_way_id対応/未知way/way_id無し）の検証（Road Graph移行Phase 3、新規）
-      test_elevation_attribute_service.py ✅ ElevationAttributeService.get_attributes_for_graphのDIモックテスト（複数Edge独立性・欠損値・空グラフ）（Road Graph移行Phase 3、新規）
-      test_evaluation.py       ✅ is_edge_allowed（Hard Constraint）・compute_edge_cost（平坦舗装/激坂未舗装の比較・属性欠損時のフォールバック・重み変更）の検証（Road Graph移行Phase 4、新規）。compute_dynamic_edge_materials（向かい風/追い風・走行速度必須）・風の3経路[スカラー/bulk/静的行列＋動的軸合成]一致の検証を含む
-      test_evaluation_bulk.py  ✅ 改善計画T240: compute_edge_cost（Edge毎）とcompute_edge_costs_bulk（numpyベクトル化）の全Edge一致（highway種別・タグ組み合わせ・欠損データパターンを網羅する合成グラフ、wind/max_average_grade_percent/penalty_strengthの組み合わせ）の検証。実データ（dev DB、東京都心12万Edge超）での追加突き合わせもT240完了条件として実施済み（テストファイル外、improvement-plan.md参照）
-      test_evaluation_service.py ✅ EvaluationService.evaluate_graphのDIモックテスト（Hard Constraint除外・属性欠損・空グラフ・カスタムRoutePreference）（Road Graph移行Phase 4、新規。Phase 5でload_route_preference（既定パス/カスタムパス）・設定ファイル経由デフォルトの検証を追加）
-      test_graph_service.py   ✅ GraphService.build_graph_with_surface_tags_for_bboxのDIモックテスト（Road Graph移行Phase 1、新規）。get_or_build_graph_with_attributesのタイル単位キャッシュ動作（単一/複数タイル・部分キャッシュ・一部タイル取得失敗）の検証を追加
-      test_vector_tile.py      ✅ encode_road_surface_tileのデコード可能性・座標範囲・surface_goodプロパティ・2点未満のway除外の検証（Step10改訂）
-      test_msm.py                 ✅ MSM格子の幾何導出・双一次補間・風速風向変換（純関数、外部I/Oなし）
-      test_msm_client.py          ✅ MSMの同期（httpx.MockTransportでETag条件付きGET・不要チャンク削除）と読み出し（実際の.omファイルを書いて検証）
-      test_basemap_client.py  ✅ BasemapClientのプロキシ・URL書き換え・キャッシュ利用の検証（Step10）
-      test_basemap_routes.py  ✅ /api/basemap/{path}, /api/basemap/refreshのDIモックテスト（Step10）。basemap/refreshのper-IPレート制限（6回/分）の429検証を追加
-      test_jma_tile_client.py ✅ 改善計画T412: JmaTileClientのプロキシ・キャッシュ戦略の分岐（タイル本体=Redis cache-aside／targetTimes*.json=TTLCache）の検証。T510でget_cached/fetch/getの3メソッド分割の検証を追加
-      test_jma_tile_redis_cache.py ✅ 改善計画T510: jma_tile_redis_cacheのget/set往復・fail-open（Redis障害/未接続/壊れたエントリ）の検証。フェイクRedis使用、実I/Oなし
-      test_jma_tile_prewarm_service.py ✅ 改善計画T510: targetTimes.jsonからの現在エントリ選定（risk/rasrf=element絞り込み、nowc=直近実況優先）・タイル列挙・プリウォーム本体の重複フェッチ回避の検証
-      test_jma_tile_routes.py ✅ 改善計画T412: /api/jma-tile/{path}のDIモックテスト。502エラー・per-IPレート制限（300回/分）の429検証。T510でキャッシュヒットがレート制限を消費しないことの検証を追加
-      test_tile_cache.py      ✅ ファイルキャッシュのパスフラット化・パストラバーサル耐性の検証（Step10）
-      test_rate_limiter.py     ✅ check_rate_limitの固定窓レート制限（上限内許可・超過拒否・クライアント単位の独立性・ウィンドウ経過後のリセット）の検証。_sweep（アクセス途絶クライアントの定期削除、メモリリーク対策）の検証を追加
-      test_migrate.py          ✅ apply_pending_migrationsの検証: 新規ファイルの適用・記録、2回目呼び出しでの冪等（再実行なし）、一部ファイルが適用済みの場合に残りだけ適用されること（改善計画T17）
-    migrations/                 ✅ 番号付きSQLファイル（`infrastructure/migrate.py`が適用。改善計画T17）。列追加・インデックス・データバックフィルはここへファイルを1つ足して行う。`create_tables`への追記は禁止（decisions/pre-static-attributes-gate.md 決定3）。0001_legacy_backfill_and_indexes.sql: 旧create_tables内にあったALTER/インデックス/バックフィルの移設（内容無変更）。0006_add_accident_points.sql: accident_points/accident_import_runs（T50）。0007_add_route_designations.sql: route_designations/designation_attributes/designation_import_runs（T51）。0008_stale_way_partial_index.sql: is_split_up_to_date用の部分GiST索引（T68、性能対策）。0009_designation_attributes_osm_way_id.sql: designation_attributesのキーをedge_id（road_edges FK）からosm_way_id（osm_raw_ways FK）へ変更（T74、DROP→再作成）
-    data/                       ✅ 地図タイル/路面ベクタタイル共通キャッシュ（tile_cache/）の保存先。gitignore対象（Step10）。旧SQLite永続キャッシュ（ridecompass_cache.db）はT398でRedisへ移行し撤去済み
-    requirements.txt          ✅ mapbox-vector-tile追加（路面のMVTエンコード用、Step10改訂）。sqlalchemy/asyncpg/geoalchemy2/shapelyをRoad Graph移行「永続化」で追加。astral（T173、暦計算・外部通信なし）を動的気象レイヤー関連で追加。omfiles（T645、気象庁MSMの.omファイル読み出し）を追加。cachetools（改善計画T244、flood/jma_warning/wbgt各クライアントが個別実装していたTTLキャッシュを標準ライブラリへ統一）を追加。networkxは「完全移行」（Route Engine）時に追加したが、T220でDijkstra本体がscipy.sparse.csgraphへ移行した後もNetworkX版の関数群が実行時経路から呼ばれないまま残っていたため、改善計画T321（デッドコード監査）で依存ごと削除した
-    Dockerfile                ✅
-    .env.example              ✅
-    pytest.ini                ✅ asyncio_mode = auto
-    requirements-dev.txt      ✅ 改善計画T678: 開発・CIでのみ使う依存（ruff）。本番webイメージには入れない
-    ruff.toml                 ✅ 改善計画T678: Python lintの設定。選択ルールはruff既定（E4/E7/E9/F）——E501・ARG・Iは実測した違反数が直す価値に見合わないため広げていない（ファイル内のコメント参照）
-  frontend/
-    next.config.ts               ✅ `/api/basemap/*`と`/api/region/road-surface-tiles/*`、`/api/jma-tile/*`（改善計画T412）をバックエンドへプロキシするrewrites（同一オリジン維持、Step10・Step10改訂）
-    src/
-      proxy.ts                   ✅ 改善計画T272: `/admin`ルーティング境界のHTTP Basic認証（Next.js 16の`middleware.ts`改称後の規約名、frontend/AGENTS.md参照）。環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORD未設定時は常に到達不可
-      app/
-        page.tsx               ✅ 左サイドバー（折りたたみ可）＋右地図の2ペインレイアウト統括。位置情報state・天候取得もここで保持。改善計画T270で研究・開発者セクションを/adminへ移設済み（地図インスタンスに紐づく「地図データを再読み込み」ボタンのみ「開発者」に残る）。改善計画T597: サイドバー中身はデスクトップ・モバイル共通で「ルート設定/ルート結果/地図の見え方」の3区分Disclosureに揃える。地図の色分け（レンズ）の入口は地図上部中央の`LensControl`1箇所のみで、サイドバー側には置かない（改善計画T595）
-        layout.tsx              ✅
-        admin/page.tsx           ✅ 改善計画T270: 軸スタジオ・研究・開発者ツールをまとめた独立URLの管理画面。権限制御（改善計画T272、2026-08-24完了）は`src/proxy.ts`がこのルーティング境界（`/admin/:path*`）でHTTP Basic認証を敷く。研究モードの評価重みstateはlocalStorage経由でpage.tsxと共有する（useStoredJsonStateのstorageKey、hooks/参照）
-        admin/api/axis-definitions/route.ts, [axisId]/route.ts, [axisId]/unpublish/route.ts
-                                   ✅ 改善計画T305で新設。軸CRUD管理APIの同一オリジンproxy（lib/adminApiProxy.ts本体、「管理画面の権限制御」節参照）。`/admin/:path*`に含まれるためproxy.tsのBasic認証ゲートを自動的に通り、ブラウザが/admin読込時の認証情報を自動転送する
-        api/version/route.ts    ✅ GET /api/version。RENDER_GIT_COMMIT（frontendは今もRender稼働のため据え置き）/起動時刻を返すRoute Handler（force-dynamic）。バックエンドの/healthと対になるデプロイ確認用（「デプロイの反映確認」で新規）
-      components/
-        Map/MapView.tsx         ✅ 地図描画に専念（controlled props）。全候補ベース表示・選択中ハロー・動的レイヤー（風、選択中候補のみ）・地域レイヤー（標高＝GSIラスタタイル/路面＝自前ベクタタイル、いずれもMapLibreのtile sourceとして常設、同時表示可）の構成（Step4, Step9, UI再構成, Step10, Step10改訂）
-        LocationControl/LocationControl.tsx ✅ 現在地表示・手動緯度経度入力フォーム（UI再構成、MapViewから分離）
-        Map/mapLayers.ts        ✅ 地図レイヤーのカタログ（id/label/kind/description、単一ソース）。チップ行とサイドバーのセクション枠はこの列挙で描画（UI再構成 第2段で新規）
-        MapOverlayControls/MapOverlayControls.tsx ✅ 地図上のON/OFFチップ行＋▶で開く凡例内訳パネル（レイヤー固有の知識を持たない汎用描画係。UI再構成 第2段で全面書き換え、旧⚙ボタン・RoadFilterDialogは廃止。凡例パネルは実機フィードバックを受け位置ズレ・展開挙動を反復修正済み）
-        Map/staticAttributeLayers.ts ✅ P1/T50/T51の静的レイヤー色分け・凡例・絞り込み軸カタログ（DESIGNATION/TUNNEL/ONEWAY/STOP_POI/SUPPLY_POI/ACCIDENT、STATIC_FILTER_AXES。7章参照）。buildCategoricalLayerDefsで同型3組を共通化（T82）。car_stressを含むramp軸（停止密度・事故密度等）の凡例はRAMP_AXES（axisLayers.ts）から自動合流し、STATIC_FILTER_AXESへの手書きは不要（改善計画T292でcar_stress分の手書きエントリを廃止）。改善計画T347: BICYCLE_INFRA（専用地図レイヤー）は評価軸bicycle_infra_qualityへの置き換えに伴い削除
-        Map/icons.tsx              ✅ 地図上チップ用の自作SVGアイコン群（レイヤー数増加に伴う新規）
-        Map/useLayerDataStatus.ts   ✅ 改善計画T123: レイヤーデータ状態（loading/empty/error、改善計画T87）の算出・追跡（computeLayerDataStatus/clearStaleTrackedSourceErrors＋状態管理フック）。MapView.tsxから抽出（2026-08-17レビューDEFER(a)の履行）
-        Map/dynamicWeather.ts        ✅ 改善計画T184: 動的気象レイヤー（風・降水）の共通契約（表現3種・共有タイムライン・範囲外非描画・追加4ステップの1本道。DOM/MapLibre非依存の純粋データ層。「動的気象レイヤー」節参照）
-        Map/windLayer.ts             ✅ 改善計画T178フォローアップ・T183・T185・T198: 風の格子点マップのデータ層（フレーム変換・色スケール・詳細格子間隔のズーム依存化。wind-grid-config.jsonの間隔定数をimportし手動同期を廃止）
-        Map/precipitationNowcast.ts   ✅ 改善計画T171・T183: 気象庁降水ナウキャスト（実況〜+60分）＋延長予報（+60分以降、風と共通の格子点マップへ相乗り）のデータ層
-        Map/jmaNowcastFrames.ts        ✅ 改善計画T204: JMAナウキャスト系（降水・雷/竜巻）に共通する時刻一覧の取得・整形（fetchJmaTargetTimes/trimToCurrentAndFuture/parseValidtime）。precipitationNowcast.tsから抽出、両ファイルが単一の情報源として参照
-        Map/thunderNowcast.ts          ✅ 改善計画T204: 雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）のデータ層。両者は共有の時刻一覧（targetTimes_N3.json）を使うが独立したON/OFFチップに分ける
-        Map/riskMap.ts                 ✅ 改善計画T410: キキクル（土砂land・大雨rain_mesh・浸水inund）・線状降水帯予測マップ（sjfcstmap）のタイル・時刻取得データ層。全て「現在のみ」のスナップショット（未来フレームを持たない）。改善計画T432でキキクル3種は「防災」カテゴリとして共有タイムラインと無関係な常時マウントへ、線状降水帯予測マップは「降水」チップ傘下（現在〜3時間先のみisWithinFutureWindowで重畳）へそれぞれ再分類
-        Map/primaryAttributes.ts       ✅ 改善計画T163〜T168: 一次属性カタログ（axis-catalog.jsonのprimary_attributesが単一の情報源）と、二次軸→一次属性の導出（片側import、設計原則2）
-        RideConditionBar/            ✅ 改善計画T596・T611: 地図下部の条件バー（出発時刻・想定速度のチップ＋ポップオーバー）。出発時刻は気象レイヤーの表示時刻と同じstate。出発時刻はドラッグ式タイムライン（DynamicLayerTimeSlider）＋`input[type=datetime-local]`の直接指定
-        LensControl/LensControl.tsx  ✅ 改善計画T595: 地図の色分け（レンズ）の入口を1箇所へ統合したピル型コントロール（地図上部中央）。ルート前は全道路、ルート後はルート線を同じ凡例で塗る。重み0の軸も「未使用」表示で選べる
-        MapLayersPanel/          ✅ サイドバーのレイヤー設定パネル（MapLayersPanel.tsx: kind別グループ＋レイヤーごとの表示スイッチ・凡例・panelHint説明文（T84カタログ集約） / RoadFilterEditor.tsx: 路面絞り込みの下書き→適用編集 / WidthSwatch.tsx: 太さプレビュー）。旧MapLegendPanel＋旧RoadFilterDialogの統合置き換え（UI再構成 第2段）
-        BackendStatus.tsx        ✅
-        RouteForm/RouteForm.tsx  ✅ 距離入力＋生成ボタン（Step4）
-        RouteSettingsPanel/RouteSettingsPanel.tsx ✅ 改善計画T267: 一般ユーザー向けルート設定（0次の除外チップ・軸ごとの凡例チップ［有効/無効の切替］・重み配分の積み上げバー［境界のドラッグ・矢印キーで隣接2軸の重みを移し替える］）。常時表示。route_preference（weightOverrideEnabled）はpage.tsxとlocalStorage経由で状態を共有し、withAutoEnableで操作すると自動的に上書きが有効になる。hard_filtersは常時送信（省略時と同じ既定値のため挙動は変わらない）。改善計画T306: 当初のT267設計は軸を観測/推定/動的の3カテゴリへ見出し付きでグルーピング表示していたが、T305で軸スタジオのGUI作成軸がcategory="推定"固定になった結果「観測/動的グループはコード内蔵の既定軸のみ」という非対称が生まれたため撤去し、公開済み軸をフラットな1本のリストで表示する構成へ変更した（category自体はbackend側に残置、§「軸カタログ公開API・表示名のDB化」参照）。プリセットボタン（「バランス」等）は2026-08-27に撤去済み（重み配分の根拠が不明瞭なため、ユーザー判断）。改善計画T595: 地図の色分け（レンズ）の起動導線はこのパネルには無く、地図上部中央の`LensControl`だけが持つ
-        RouteAxisProfile/RouteAxisProfile.tsx ✅ 改善計画T402: 選択中ルートの`RouteCandidate.axis_difficulties`
-          を軸ごとの横棒グラフ一覧で表示（レーダーチャートは不採用）。軸の並び順・ラベルは
-          useAxisCatalog().axesから取得しハードコード辞書は持たない。バー色は
-          Map/axisLayers.tsのrampColorForBand(Math.round(value), 101)を再利用し地図の段階配色
-          （緑→黄→橙→赤）と一致させる。既存のBottomSheet（page.tsx: routeProfileOpen、
-          mobileSheetの3タブ排他ドメインとは独立）から開く導線
-        WeatherPanel/WeatherPanel.tsx ✅ 気温・風向風速・降水量・天気アイコン・日の出/日没
-          表示（Step6、改善計画T387フォローアップで大幅刷新）。改善計画T387フォローアップ
-          （2026-08-29、方針「常設エリアは実測値、今日の見通しは予測値」）: データ源を
-          Open-Meteo（`GET /api/weather`、旧`WeatherConditions`）から最寄りアメダス観測所の
-          実測値（`GET /api/weather/amedas`、`AmedasObservation`）へ切替え、TodayOutlookとは
-          独立にフェッチする（`useWeatherConditions.ts`のamedas/amedasLoading/amedasError）。
-          これにより常設ヘッダーの表示がOpen-Meteoの障害・遅延から影響を受けなくなった。
-          降水確率（予報）はアメダスに相当データが無いため実測降水量（mm/10分）へ意味を
-          変更、天気アイコンはOpen-Meteoのweather_codeではなくアメダスの日照時間
-          （sunshine_10min_minutes）・降水量・気温から晴れ/くもり/雨/雪を簡易判定する
-          専用ロジック（同ディレクトリのamedasWeatherIcon.ts、weatherCode.tsとは別物・
-          霧雷雨は判別不可）。突風はアメダスの速報値レスポンスに突風フィールドが存在しない
-          （実データ確認済み）ため非表示。日の出/日没チップを新規追加（予報不要のため
-          backend側でastralによるローカル計算、TodayOutlookから移設）。
-        TodayOutlook/TodayOutlook.tsx ✅ 改善計画T385: 「今日の見通し」二次パネル
-          （今日の降水確率最大・最大風速・気温レンジ・UV指数最大、今日の天気の流れ）。
-          常設ヘッダーには項目を足さず、WarningBadgeと同じRadix Popoverパターンでタップ時
-          のみ開く（T384調査「場所・季節を問わず常に意味を持つ値」だけに絞った日次見通し）。
-          データ源は予報（`weather`）のみで、予報専用パネルという位置づけ。
-          T385フォローアップ: UV指数最大値の追加（常設ヘッダーのtitle属性はスマホの
-          タップでは実質見えないため、確実に見えるここへ追加）と、「今日の天気の流れ」
-          （today_periods、現在時刻を含む2時間区間から2時間おき8コマ、時刻・天気アイコン・
-          気温・降水確率を横スクロール可能な帯で表示。weatherCode.tsのアイコン判定を再利用）
-          を追加した。T385フォローアップ2: パネル幅を15.5rem→19rem（スマホ横幅を塞ぎ切らない
-          範囲で拡張）。T387フォローアップ（2026-08-29）: 日の出/日没は常設ヘッダー
-          （WeatherPanel）へ移設したため本パネルから撤去。取得失敗（error）時は警戒色の
-          トリガーで気づけるようにした（旧実装はweather===nullを「取得失敗」「読み込み中」
-          「意味のある値が無い」の区別なく同じ扱い＝トグル非表示にしていた）。
-        WarningBadge/WarningBadge.tsx ✅ 改善計画T205・T174・T212: 警報・注意報バッジ（地図レイヤーではなくバッジで表現する警告表示の共通コンポーネント）。JMA固有の型に依存しない汎用item形で、T174（WBGT警告）・T212（河川氾濫予報）も同じコンポーネントを再利用する。levelは4段階（advisory/warning/severe_warning/emergency_warning）で、JMA警報は3段階のみ・WBGT/河川氾濫予報は4段階全て使う
-        DebugPanel/DebugPanel.tsx    ✅ デバッグモードON/OFFチェックボックス（フロントエンドUX改善）。改善計画T270で表示場所を/adminへ移設（コンポーネント自体はメインページ非依存のため変更なし）
-        DebugConsole/DebugConsole.tsx ✅ デバッグモードON時、地図イベント・外部API呼び出しログを表示（フロントエンドUX改善）。改善計画T270で/adminへ移設
-        AxisStudio/               ✅ 改善計画T270（T221 Stage E）: 軸スタジオ本体（/admin専用）。AxisStudio.tsx: 一覧取得・作成・更新・削除・非公開化の状態管理（/admin/api/axis-definitions、改善計画T305で同一オリジンproxy化。編集・複製・新規作成はcomponents/ui/Dialogのモーダルで開く） / AxisComposer.tsx: **改善計画T332で単一フォームから4ステップのウィザードへ再設計**（UIレビュー2026-08-25のF-2「変換テンプレート4択が数式的な語彙のまま」への対応。ステップ順に「基本情報(basic)」表示名・説明・既定重み→「点数のつけ方を選ぶ(shape_kind)」→「点数の詳細を設定(shape_params)」選んだカードに応じた材料・折れ点等の入力→「地図表示・公開(display_publish)」show_map_icon・chip_label等。各ステップは`validateStep()`で個別に検証し、明示的な保存ボタンを押すまで`onSave`は呼ばれない。**「点数のつけ方を選ぶ」の中身は改善計画T396/T397（2026-08-29、shapeの2プリミティブ化節を参照）で作り直された**——保存時の`kind`は常に`breakpoint_linear`または`categorical`の2プリミティブへ正規化し、選択カードは技術名ではなく利用者視点の3枚「なめらか評価」（区分線形・旧flag_sumを吸収）・「ぴったり評価」（categorical）・「かけあわせ評価」（他軸を重みで組み合わせる、旧recipe_then_breakpoint_linear相当、内部軸参照という上級者向け用途のため`advanced`表示）へ整理した。T332時点の「4種のテンプレート（categorical/breakpoint_linear/flag_sum/recipe_then_breakpoint_linear）」という記述はT396/T397で古くなっている点に注意（改善計画T449で訂正）。）。axis_id（改善計画T305で自動採番へ変更、入力欄なし）・category（同じくaxis_id経由で作る軸は常に「推定」固定、入力欄なし）は非表示。材料候補は改善計画T277でhooks/useMaterialCatalog.ts（GET /api/material-catalog、backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一の情報源）から動的取得する形へ置き換え済み（取得失敗時はlib/axisMaterialsCatalog.tsの静的9件へフォールバック）。categorical材料の値入力欄は改善計画T340でhooks/useMaterialValues.ts（GET /api/admin/material-catalog/{material_id}/values、同一オリジンのroute handler経由）＋lib/materialValueLabels.tsが「値の候補」セレクトを添える（値一覧が空の材料は従来どおり自由テキスト入力のみ、詳細は「軸スタジオの値入力UX改善」節参照）
-      hooks/
-        useIsMobile.ts             ✅ `MOBILE_BREAKPOINT_PX`=640。`globals.css`の`@media`とのズレをテストで自動検証（フロントエンドUX改善）
-        useLocation.ts              ✅ 現在地取得・手動入力・現在地への再取得（`handleLocateMe`）の状態を集約（UI再構成でMapViewから分離）
-        useDebugLog.ts               ✅ `useDebugEnabled()`。`lib/debugLog.ts`の`localStorage`永続化フラグをReact stateとして購読
-        useIsomorphicLayoutEffect.ts  ✅ SSR時の警告回避用ヘルパー
-        useStoredState.ts              ✅ localStorage永続化付きuseState（page.tsxの保存付き状態を抽出。改善計画T47 R-6の閾値到達時対応）。改善計画T270でJSON直列化の薄いラッパー`useStoredJsonState`を追加（page.tsx/admin/page.tsx間の評価重みstate共有に使う）。改善計画T321（デッドコード監査）: `reloadKey`オプションを追加。`layerVisibility`の`deserialize`がビルド時静的な軸集合しか走査せず軸スタジオ公開軸のON状態がリロードで消える実バグがあったため、`axisCatalog.loaded`を`reloadKey`に渡すことで「マウント直後は静的フォールバック集合、カタログ取得完了後は実行時軸集合」の2段階でlocalStorageから再復元できるようにした（page.tsx側の対応、下記1831行目周辺参照）
-        useWeatherGrid.ts               ✅ 改善計画T183フォローアップ: 風・延長降水予報が共有する格子点マップのフェッチ・穴あき対策マージ・詳細格子切替を集約（元page.tsx内の風専用ロジックを共有可能な形へ抽出）
-        useAxisCatalog.ts               ✅ 改善計画T269: マウント時にGET /api/axis-catalogを1回取得。取得完了まで/失敗時はビルド時点の公開軸の静的フォールバック（axis-catalog.json）を返す
-        useMaterialCatalog.ts           ✅ 改善計画T277: マウント時にGET /api/material-catalogを1回取得。取得完了まで/失敗時はlib/axisMaterialsCatalog.tsの静的9件をフォールバックとして返す（useAxisCatalog.tsと同型のパターン）。改善計画T321（デッドコード監査）: `response.materials.length > 0`ガードが「取得中/失敗」と「取得成功0件」を同一視し後者でも静的フォールバックが残り続けるT318と同型のバグとして残存していたため、useAxisCatalog.tsと同じ形へ修正
-      lib/
-        debugLog.ts                ✅ デバッグモードのON/OFF状態（`localStorage`永続化）とログ出力本体。`services/`配下の各fetchラッパー・`MapView.tsx`から呼ばれる（フロントエンドUX改善）
-        adminApiProxy.ts            ✅ 改善計画T305で新設（旧adminToken.ts・useAdminCredentials.tsは撤去）: 軸CRUD管理APIのサーバー側プロキシ本体。`app/admin/api/axis-definitions/`配下の各route handlerから呼ばれ、サーバー環境変数ADMIN_BASIC_AUTH_USERNAME/PASSWORDからbackend宛Authorizationヘッダを組み立てて転送する（「管理画面の権限制御」節参照）
-        axisMaterialsCatalog.ts      ✅ 改善計画T270で新設、T277でGET /api/material-catalogの取得失敗時フォールバックへ役割縮小。軸コンポーザーの材料選択候補（既存9件のスナップショット）。単一の情報源はbackend/app/domain/material_catalog.py: MATERIAL_CATALOGへ移行済みで、通常利用時はこのファイルの更新不要（動的取得が失敗した場合のみ古いまま表示される）
-      services/
-        healthApi.ts             ✅
-        routeApi.ts               ✅ generateRoutes()（ジョブ投稿＋ポーリング）
-        weatherApi.ts             ✅ getCurrentWeather()
-        regionApi.ts               ✅ roadSurfaceTileUrl() / ROAD_TILE_MIN_ZOOM/MAX_ZOOM / refreshBasemapCache()（Step10改訂。路面がタイル化されJSON型を持たなくなったため`types/region.ts`は削除済み）
-        axisCatalogApi.ts           ✅ 改善計画T269: getAxisCatalog()。GET /api/axis-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
-        materialCatalogApi.ts       ✅ 改善計画T277: getMaterialCatalog()。GET /api/material-catalog（認可不要）のクライアント関数、fetchJson共通ヘルパー経由
-        axisAdminApi.ts             ✅ 改善計画T270: listAxisDefinitions()/createAxisDefinition()/updateAxisDefinition()/deleteAxisDefinition()/unpublishAxisDefinition()。改善計画T305で呼び出し先を同一オリジンの`/admin/api/axis-definitions`（Next.js route handler、lib/adminApiProxy.ts参照）へ変更し、Authorizationヘッダの手動付与を撤去（ブラウザの認証キャッシュが自動付与するため）。PUT/DELETE対応が必要なためfetchJson[GET専用]ではなく自前実装。改善計画T277でshapeが参照する材料id（terms/flags/categoricalのmaterial）が未知の場合、backend側が422を返すようになった
-      types/
-        generated/                 ✅ backendのOpenAPIスキーマからの生成物（openapi.json＝backend/scripts/export_openapi.pyが出力、api.d.ts＝npm run generate:apiが生成）。コミット対象で、CIのapi-contractジョブがドリフトを検知する。axis-catalog.json（一次属性・二次軸カタログ、T145b/T163）・wind-grid-config.json（風格子間隔・上限点数、改善計画T198）・route-generate-config.json（`max_distance_km`、backend `api/routers/routes.py: MAX_ROUTE_DISTANCE_KM`が正準定義、改善計画T471。`max_routes`/`default_max_routes`[backend `route_generator.py: MAX_ROUTES`/`DEFAULT_MAX_ROUTES`が正準定義、改善計画T531]も同じ生成物に含まれる。`RouteForm.tsx`/`page.tsx`の上限ハードコードの重複を解消する片側import。0次ハードフィルタのキー一覧・既定値[backend `domain/hard_filters.py: DEFAULT_HARD_FILTERS`が正準定義]も同じ生成物が持つ）・poi-kinds.json（停止要因POI・補給休憩POIのkind正準集合、backend `domain/traffic.py: StopPoiKind`/`SupplyPoiKind`が正準定義）・material-catalog.json（軸スタジオが選べる公開材料の一覧と値ラベル、backend `domain/material_catalog.py`が正準定義。`axisMaterialsCatalog.ts`の静的フォールバックと`MapView.tsx`の路面状態ラベルがここから導出される）等の付随生成物も同じ仕組みでドリフト検知される。**backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ変えても全テストが緑のまま通り、キー集合の完全一致を要求するAPIでは全リクエストが422になる等の形で本番に出る
-        route.ts                  ✅ generated/api.d.tsの再エクスポート＋GeoJSON型の補正（Coordinates, RouteSegment, RouteSegmentDetail, RouteCandidate等。手書きの型二重管理を廃止、改善計画T4）
-        weather.ts                 ✅ 同上（WeatherConditions）
-  docker-compose.yml            ✅ (frontend/backend/postgres)
-  .env.example                  ✅
-  .gitignore                    ✅
-```
+トップは`backend/`（FastAPI）・`frontend/`（Next.js）・`docs/`・`scripts/`（リポジトリ横断の
+CI/pre-commitスクリプト）。**個々のファイルがどのモジュールの責務かは
+[docs/modules/README.md](modules/README.md)の対象ファイル表を見る**——そちらは
+`scripts/review_checks.py`が「実装ファイルがどこにも載っていない」状態を機械的に検出するため、
+新しいファイルが増えても静かに古くならない。ここでは層の役割と、層をまたぐときの約束だけを示す。
 
-未実装のドメイン/サービス/インフラ層は、実際に使うStepに到達してから作成する方針（中途半端な空スタブは作らない）。
+### backend（`backend/app/`）
+
+依存の向きは `api → services → domain` と `api → services → infrastructure` の一方向で、
+`domain`はどの層にも依存しない。
+
+- **`api/`**: HTTPの境界。`routers/`がエンドポイント、`dependencies.py`がDI工場と
+  レート制限、`admin_auth.py`が管理APIの認可境界、`cache_policy.py`が`Cache-Control`を
+  一元管理する（新規エンドポイントの追加漏れは`tests/test_cache_policy.py`が全ルート走査で
+  検出する）。タイル系エンドポイントが共有する座標検証と応答組み立ては`_tile_http.py`。
+- **`domain/`**: 外部I/Oを持たない純粋なロジックと語彙の正本。評価軸・材料・一次属性の
+  レジストリ、スコアリング、地理計算、気象の判定ロジックが属する。**「同じ概念の定義が
+  2箇所にある」状態をここで解消する**のが層の役割で、SQL・タイル・frontendはここが持つ
+  定義から導出する。
+- **`services/`**: ユースケースの組み立て。ルート生成、タイル配信、気象取得のように
+  「複数のinfrastructureとdomainを束ねて1つの応答を作る」処理が属する。
+- **`infrastructure/`**: DB・外部API・キャッシュ・ログといった外側との接続。キャッシュの
+  鍵の組み立ては`cache_identity.py`が唯一の正本（「無効化」の節参照）。
+- **`batch/`**: PBF取込と事前計算。`refresh_derived.py`がPBF再取込を除く一式を1コマンドで
+  実行し、登録漏れは`app/batch/precompute_*.py`をglobで引くテストが検出する。
+
+`backend/migrations/`はDDLのみを管理する（評価軸の行データはAPI経由で変更する。
+CLAUDE.md「コミット時の同期ルール」参照）。`backend/scripts/`は運用・生成スクリプトで、
+`export_openapi.py`がfrontend向けの生成物を書き出す。
+
+### frontend（`frontend/src/`）
+
+- **`app/`**: Next.js App Routerのページとroute handler（`/admin`配下の管理APIプロキシを含む）。
+- **`components/`**: 機能単位のディレクトリ（`Map/`・`AxisStudio/`・`MapLayersPanel/`等）。
+- **`hooks/`・`lib/`**: 画面をまたぐ状態・ユーティリティ。
+- **`services/`**: backend APIを叩く薄い層。
+- **`types/generated/`**: `export_openapi.py`の出力（OpenAPIスキーマと、軸カタログ・
+  材料カタログ・タイル世代等の付随生成物）。コミット対象で、CIの`api-contract`ジョブが
+  ドリフトを検知する。
+
+**backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ
+変えても全テストが緑のまま通り、キー集合の完全一致を要求するAPIでは全リクエストが422に
+なる等の形で本番に出る。必要な値は`types/generated/`経由の片側importで受け取る。
 
 ---
 
@@ -1551,9 +1353,9 @@ developer-research-tools.md参照）。
 check_material_exclusivity`が同じ原則を計算系へ移植し、`AxisRegistryAdminService.create`/
 `update`（管理API書き込み経路）の冒頭で呼ぶ。既存軸が使用中の材料を新軸が黙って再利用し
 評価の二重計上が混入する事故を構造的に防ぐ（`AxisMaterialConflictError`、`ValueError`の
-サブクラスのため管理APIは自動的に409を返す）。現行8軸の材料には`registry.py`の
-`shared=True`相当（複数軸が参照してよい共通コンテキスト）が存在しないため`shared`
-フラグは持たせていない。
+サブクラスのため管理APIは自動的に409を返す）。公開軸の材料には`registry.py`の
+`shared=True`相当（複数軸が参照してよい共通コンテキスト）に当たるものが無いため、`shared`
+フラグは持たせていない——共有してよい材料が現れたら、この排他チェックの前提から見直す。
 
 ### 軸カタログ公開API・表示名のDB化（改善計画T269）
 
@@ -1583,11 +1385,9 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 `MaterialTerm.material`等の文字列id）の単一の情報源。各材料は`material_id`・`label`・
 `dtype`（"numeric"|"boolean"|"categorical"）に加え、内部専用の`tile_property`
 （MVTタイルへの焼き込み済みプロパティ名、地図レイヤーのramp自動生成に使う）・
-`display_only`（軸スタジオの選択肢から除外、地図表示には影響しない。
-現状`designation`のみ該当）を持つ。全26材料（うち`categorical`は`highway`・`surface`・
-`designation`・`smoothness`・`tracktype`の5件。`bicycle_infra`は改善計画T347で正規化フラグ
-材料[`highway_is_cycleway`・`cycleway_has_track`・`cycleway_has_lane`・`cycleway_has_shared`]へ
-分解され材料としては撤去済み）。**材料自体をGUIから追加・編集・削除する
+`display_only`（真なら軸スタジオの選択肢から除外する。地図表示には影響しない）を持つ。
+登録済み材料の全件は生成物`material-catalog.json`（`domain/material_catalog.py`が正本）で
+引ける。**材料自体をGUIから追加・編集・削除する
 経路は無い**（ユーザー方針、増減は引き続きコード変更＋デプロイのみ）。
 
 公開エンドポイント`GET /api/material-catalog`（認可不要、`material_id`/`label`/`dtype`のみ）を
@@ -1634,7 +1434,7 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 
 それ以外（複数材料の重み付き結合・abs前処理・他の軸を参照する材料・実行時スケール変換が
 必要な材料を含む軸）は`None`を返し自動導出対象外のまま（地図に出ない、既存軸を壊さない
-安全側の判断）。現行8軸では`surface_q`（材料`surface_good`、以前はkind="none"に手書き
+安全側の判断）。T278の時点の公開軸では`surface_q`（材料`surface_good`、以前はkind="none"に手書き
 固定していたが「既存の道路情報レイヤーと重複するため出したくない」という理由は
 UI側の表示/非表示切替で運用する方針へ変更）・`night`（材料`lit`・`has_tunnel`、
 以前はkind="bespoke"でフロントにexpressionが無く実質レイヤー無し）の2軸が対象になり、

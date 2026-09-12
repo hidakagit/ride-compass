@@ -64,17 +64,19 @@ URL`）とNext.js route handlerからのサーバー間fetch先を区別する�
 
 ## page.tsxの状態管理
 
-| 分類 | state | 永続化 |
+stateは`page.tsx`の`useState`に集約し、子コンポーネントへはpropsで渡す（子が独自に
+同じ状態を持たない）。全件の一覧は`page.tsx`を読むのが正で、ここでは**永続化するかどうかの
+判断基準**だけを示す——一覧を書き写すと、stateを1つ足したときにこの節だけが古くなる。
+
+| 永続化 | 判断基準 | 代表例 |
 |---|---|---|
-| ルート結果 | `routes`・`selectedRouteId`・`selectedRouteSegment`・`comparisonTabActive`・`hasUnseenResults`・`loading`・`generationProgress`・`errorMessage`・`generatedConditions`・`generatedRoutePreference` | なし |
-| 目的地モード | `waypoints`・`destination`・`destinationArmed`・`routeMode`・`distanceInput`・`maxRoutesInput` | なし |
-| ルート設定（評価の設定） | `weightOverrideEnabled`・`routePreference`・`hardFilters` | localStorage。`hardFilters`は復元時に`lib/hardFilterSync.ts: syncHardFilterKeys`で正本（`routeGenerateConfig.hard_filters`）のキー集合へ整合させる |
-| 実験スロット | `experimentSlots` | なし |
-| 地図ビューポート | `mapViewport` | なし |
-| レイヤー表示 | `layerVisibility`・`lens`・`lensKeepAfterRoute`・`hiddenLegendKeysByMode` | localStorage |
-| パネル開閉 | `generateOpen`・`sidebarCollapsed`・`mobileSheet`・`mobileSheetHeightVh` | 一部localStorage |
-| 地図状態 | `regionZoomTooWide`・`layerDataStatus`・`refreshToken`・`debugConsoleOpen` | なし |
-| 動的パラメータ | `travelBearingDeg` | なし |
+| `localStorage` | 利用者が自分で決めた設定で、次に開いたときも同じであってほしいもの | 評価の設定（`routePreference`・`hardFilters`）、レイヤー表示（`layerVisibility`・`lens`）、パネル開閉 |
+| なし | そのセッション限りの結果・一時的な入力・地図の見え方 | 生成結果（`routes`・`selectedRouteId`）、目的地モードの入力、地図ビューポート、データ取得状態 |
+
+復元時の注意が要るのは、**正本がbackend側にある設定**だけである。`hardFilters`は
+`lib/hardFilterSync.ts: syncHardFilterKeys`が、保存済みの値を正本
+（`routeGenerateConfig.hard_filters`）のキー集合へ整合させてから使う——キー集合の完全一致を
+要求するAPIのため、フィルタが増減した後の古い保存値をそのまま送ると全リクエストが422になる。
 
 ## 動的材料（風・勾配）の状態別表現契約
 

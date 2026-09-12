@@ -71,7 +71,8 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
   必要とする）。
 - `needs_speed`: 想定速度（`speed_kmh`クエリパラメータ）に依存するか。走行速度依存の
   材料`wind_drag_ratio`を参照する風軸で立てる（勾配=No）。
-- `dedicated_way_value_layer=True`の軸は現状wind/gradientの2軸のみ。
+- `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、立てた軸はコード変更
+  なしにこの配信経路へ載る（現在はwind・gradientが該当する）。
 
 3つの`needs_*`は`GET /api/axis-catalog`が`dynamic_way_value_needs_time`/
 `_needs_bearing`/`_needs_speed`としてそのまま公開し、frontendはどのクエリパラメータを

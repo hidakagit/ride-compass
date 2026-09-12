@@ -1,35 +1,19 @@
 """全ルータの組み立て（main.pyはこのapi_routerだけをincludeする）。
 
-エンドポイントは関心ごとに分割している（改善計画T5。旧api/routes.pyの単一ファイルから分割）:
-- health.py: /health, /api/debug/stats（デプロイ確認・運用統計）、
-  /api/debug/db-status（本番DB置き去り対策A: migration適用状況・データ投入バッチ実行状況、改善計画T74）
-- routes.py: /api/routes/preview, /api/routes/generate（ルート生成）
-- weather.py: /api/weather, /api/weather/wind-grid（風の格子点マップ、改善計画T178フォローアップ）
-- region.py: /api/region/road-surface-tiles/{z}/{x}/{y}.pbf（地域路面レイヤー）
-- accidents.py: /api/region/accident-tiles/{z}/{x}/{y}.pbf（外部静的データソース T50。
-  警察庁交通事故統計レイヤー）
-- basemap.py: /api/basemap/{path}（基礎地図プロキシ）, /api/admin/basemap/refresh
-  （タイルファイルキャッシュの全消去、Basic認証必須）
-- jma_tile.py: /api/jma-tile/{path}（JMA動的タイル系レイヤーのプロキシ、改善計画T412。
-  降水ナウキャスト・降水短時間予報・雷/竜巻ナウキャスト・キキクル・線状降水帯予測マップが
-  対象。basemap.pyと同じ「pathを丸ごとプロキシ」方式）
-- gsi_relief_tile.py: /api/gsi-relief-tile/{path}（国土地理院 色別標高図タイルのプロキシ、
-  改善計画T572。basemap.pyと同じ「pathを丸ごとプロキシ＋永続ファイルキャッシュ」方式）
-- axis_admin.py: /api/admin/axis-definitions（評価軸定義のCRUD管理API、改善計画T221
-  Stage D。共有トークンheaderによる認可が必要）
-- axis_catalog.py: /api/axis-catalog（評価軸カタログの読み取り専用API、改善計画T269。
-  認可不要。一般向けルート設定画面がGUI編集済みの軸を再デプロイなしに取得するために使う）
-- material_catalog.py: /api/material-catalog（材料カタログの読み取り専用API、改善計画T277。
-  認可不要。軸スタジオの材料選択候補を、材料自体の追加はコード変更のみのまま動的取得させる）、
-  /api/admin/material-catalog/coverage（材料ごとの欠損割合の集計、HTTP Basic認証必須。
-  全表走査を伴うため管理画面専用）
-- debug_admin.py: /api/admin/debug（debug_modeのランタイム切替・直近ログ取得、改善計画
-  T379。axis_admin.pyと同じHTTP Basic認証が必要。本番でSSHせずに一時的なDEBUGログ
-  取得を行うための運用API）
-- derived_data_freshness.py: /api/admin/derived-data/freshness（派生データ鮮度台帳、
-  改善計画T571。HTTP Basic認証必須。edge_attribute_counts/way_attribute_counts/
-  designation_attributesが参照する生データ世代の鮮度不整合とelevation_attributesの
-  完成度を返す、material_catalog.pyのcoverageエンドポイントとは別の切り口）
+エンドポイントは関心ごとにモジュールへ分割してある。**どのモジュールがどのパスを持つかは
+下のinclude一覧と各モジュールのdocstringが正本**で、ここへ写し取った索引は持たない
+（写すと、パスを1本足したときにこのdocstringだけが古くなる。実際の全パスは
+`/docs`のOpenAPIか`backend/scripts/export_openapi.py`の出力で引ける）。
+
+分割の基準は「外部との境界の種類」で、次の4系統がある:
+
+- **アプリのユースケース**（ルート生成・気象）
+- **タイル配信**（自前生成の路面/POI/事故と、外部タイルのプロキシ）——プロキシ系は
+  「pathを丸ごと転送し永続ファイルキャッシュへ載せる」という同じ骨格を共有する
+- **カタログの読み取り**（評価軸・材料。認可不要で、GUI編集済みの定義を再デプロイなしに
+  frontendへ渡す）
+- **管理API**（`/api/admin/...`。すべてHTTP Basic認証が必要で、認可境界は
+  `api/admin_auth.py: require_admin_basic_auth`に1本化してある）
 
 DI工場（サービスの組み立て）はapi/dependencies.pyに集約している。
 """

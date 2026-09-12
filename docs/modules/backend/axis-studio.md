@@ -201,7 +201,7 @@ axis_admin API経由の変更後にこのダンプを忘れると、以後のfre
 | `BreakpointLinearShape`で`preprocess="identity"`かつboolean材料混在なし | できる（breakpointsのx値をそのまま流用） |
 | `preprocess="abs"`を含む軸 | **できない**（実装しないと確定済み。方向依存材料[風・勾配]を含む軸は別の制約でも弾かれるため二重に対象外） |
 | タイル非依存材料・方向依存材料（`tile_property_direction_dependent`）を含む軸 | できない |
-| 他の軸を参照する`MaterialTerm`を含む軸 | 参照先を再帰的に解決できれば可（`_resolve_referenced_axis_tile_input`、car_stressの5内部軸が実例）。2段階以上のネストは非対応 |
+| 他の軸を参照する`MaterialTerm`を含む軸 | 参照先を再帰的に解決できれば可（`_resolve_referenced_axis_tile_input`、car_stressが参照する内部軸が実例）。2段階以上のネストは非対応 |
 
 `axis_display_for(definition)`の優先順位: ①自動導出成功＋`display_thresholds_override`
 設定済みなら両方を組み合わせる、②自動導出成功のみなら自動導出のしきい値をそのまま使う、
