@@ -16,7 +16,7 @@ export interface MapColorLegendBand {
 /** 段階ラベル（例: 「-2%未満」「-2〜2%」「10%以上」）。axisLayers.ts: axisRampBandLabelと
  * 同じ表記規則（未満/以上/〜）を、RampAxis型に依存せずunit文字列を直接受け取る形で
  * 共有する。 */
-export function rangeStepLabel(lower: number | null, upper: number | null, unit: string): string {
+function rangeStepLabel(lower: number | null, upper: number | null, unit: string): string {
   if (lower === null) return `${upper}${unit}未満`;
   if (upper === null) return `${lower}${unit}以上`;
   return `${lower}〜${upper}${unit}`;

@@ -1,39 +1,5 @@
-/* 研究タブの評価重み上書きUI（WeightPanel）・一般向けルート設定画面（RouteSettingsPanel）
-   が共有する上書きUI部品のスタイル（改善計画: 安全度レシピ、T113でCarStressRecipePanel
-   専用に実装したものを2つ目のレシピ登場を機に汎用化）。改善計画T292: 車ストレス専用の
-   3レシピパネルの廃止に伴い、それらだけが使っていたスタイル（.levelPicker・.stepper・
-   .referenceSection等）は削除した。 */
-
-/* RecipePanelSection（研究タブ各パネルの最上位の折りたたみ）。MapLayersPanel.module.cssの
-   .layerSection/.layerHeader/.layerTitle/.chevron/.layerBody/.mutedHintをcomposesでそのまま
-   再利用し、地図側のレイヤー折りたたみ（T38）と同一の見た目・挙動にする（改善計画:
-   研究タブのレイアウト改善）。 */
-.panelSection {
-  composes: layerSection from "../MapLayersPanel/MapLayersPanel.module.css";
-}
-
-.panelHeader {
-  composes: layerHeader from "../MapLayersPanel/MapLayersPanel.module.css";
-}
-
-.panelTitle {
-  composes: layerTitle from "../MapLayersPanel/MapLayersPanel.module.css";
-}
-
-.panelChevron {
-  composes: chevron from "../MapLayersPanel/MapLayersPanel.module.css";
-}
-
-.panelBody {
-  composes: layerBody from "../MapLayersPanel/MapLayersPanel.module.css";
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.panelOffHint {
-  composes: mutedHint from "../MapLayersPanel/MapLayersPanel.module.css";
-}
+/* 一般向けルート設定画面（RouteSettingsPanel）・軸スタジオが共有する上書きUI部品の
+   スタイル。 */
 
 /* ラベル文言+情報アイコンボタンの並び。 */
 .fieldLabel {

@@ -13,7 +13,7 @@ import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 // バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
 // `GET /api/jma-tile/{path}`）経由にすることで、JMAの非公式内部APIへの直接アクセスを
 // 避けつつ配信する。
-export const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
+const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
 
 /**
  * JMAプロキシ配下のパスを、タイル本体と同じ配信オリジンの絶対URLにする。
@@ -127,7 +127,7 @@ const JMA_TARGET_TIMES_PATHS = {
 
 export type JmaTargetTimesId = keyof typeof JMA_TARGET_TIMES_PATHS;
 
-export function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
+function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
   return jmaProxyUrl(JMA_TARGET_TIMES_PATHS[id]);
 }
 

@@ -27,7 +27,7 @@ interface LayerChipProps {
 // 押下状態の表示・キーボード操作（Space/Enter）はRadix Toggleへ委譲する。ただし
 // 押下状態自体は呼び出し側（`on` prop）が完全に外部管理しており、このコンポーネントは
 // 内部状態を一切持たない（Toggleの`onPressedChange`は使わず生の`onClick`のみを渡す）。
-// `<summary>`内で使う呼び出し側（RecipePanelSection等）が
+// `<summary>`内で使う呼び出し側（`Disclosure`のtrailing等）が
 // `event.preventDefault()`で親のdetails開閉を止めることがあるため、内部トグルロジックに
 // 依存すると`composeEventHandlers`の仕様上（defaultPrevented時は内部ハンドラをスキップ）
 // 押下が反映されないケースが生まれてしまう。生のonClickだけを使うことでこれを避ける。

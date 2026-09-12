@@ -54,7 +54,7 @@ export interface DedicatedWayValuesResult {
   hasFetched: boolean;
 }
 
-export const EMPTY_DEDICATED_WAY_VALUES_RESULT: DedicatedWayValuesResult = {
+const EMPTY_DEDICATED_WAY_VALUES_RESULT: DedicatedWayValuesResult = {
   values: new Map(),
   byTile: [],
   loading: false,

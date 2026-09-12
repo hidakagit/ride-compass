@@ -64,11 +64,3 @@ class RoutePreference(StrictModel):
         if overridden == self.weights:
             return self
         return RoutePreference(weights=overridden)
-
-
-# 区間インスペクタ。「一次属性→二次軸→三次合成コスト」をレジストリのaxis-catalog.jsonが
-# 持つラベル・単位と対で、単独でクリックされたway（ルート文脈が無い）について算出する
-# （詳細はdocs/modules/backend/evaluation-scoring.md参照）。「事実はタイルに、解釈は
-# クライアントに」という他の経路の方針とは異なり、ここでの合成コストはクリックのたびに
-# 1回計算するだけの参照用途で共有キャッシュに乗らないため、サーバー側で正確に計算して
-# よい（タイル焼き込みの制約は適用されない）。

@@ -161,11 +161,6 @@ def main() -> None:
             for spec in axis_studio_materials()
         ],
     )
-    # 改善計画T292: 車ストレスの専用Pythonレシピ（CarStressRecipe等）を廃止し、
-    # AXIS_DEFINITIONSの内部軸5つ+公開軸1つの階層構造で再現するようにしたため、
-    # レシピ既定値・Python⇔JS相互検証フィクスチャ（旧traffic-stress-recipe.json・
-    # traffic-stress-test-cases.json・road-suitability-recipe.json・
-    # motor-vehicle-density-recipe.json）の生成は廃止した。
     # 二次軸カタログ（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
     # レジストリ（domain/registry_defaults.py）の全軸と表示宣言（AxisDisplaySpec）を
     # 書き出し、フロントの汎用レイヤーファクトリ（axisLayers.ts）がkind="ramp"の軸から

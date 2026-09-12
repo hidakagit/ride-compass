@@ -52,8 +52,3 @@ export function useMaterialDistribution(materialId: string | undefined): Materia
 
   return result;
 }
-
-/** テスト用。取得済みの共有結果を捨てる。 */
-export function clearMaterialDistributionCache(): void {
-  cache.clear();
-}

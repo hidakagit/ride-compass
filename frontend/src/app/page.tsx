@@ -1515,16 +1515,14 @@ export default function Home() {
   // からのみ呼ばれ、見出しは持たない（呼び出し元コンテナが持つ、上記コメント参照）。
   function renderRouteSettingsSectionBody() {
     return (
-      <div className={styles.settingsGroup}>
-        <RouteSettingsPanel
-          hardFilters={hardFilters}
-          onHardFiltersChange={setHardFilters}
-          routePreference={routePreference}
-          onRoutePreferenceChange={setRoutePreference}
-          overrideEnabled={weightOverrideEnabled}
-          onOverrideEnabledChange={setWeightOverrideEnabled}
-        />
-      </div>
+      <RouteSettingsPanel
+        hardFilters={hardFilters}
+        onHardFiltersChange={setHardFilters}
+        routePreference={routePreference}
+        onRoutePreferenceChange={setRoutePreference}
+        overrideEnabled={weightOverrideEnabled}
+        onOverrideEnabledChange={setWeightOverrideEnabled}
+      />
     );
   }
 

@@ -11,7 +11,7 @@ import maplibregl from "maplibre-gl";
 import { buildJmaTileIndexLookup, isKnownEmptyTile, type JmaTileIndexLookup, type JmaTileIndexResponse } from "@/components/Map/jmaTileIndex";
 
 /** タイルURLへ付けるスキーム。`jmatile://https://host/...`の形になる。 */
-export const JMA_TILE_PROTOCOL = "jmatile";
+const JMA_TILE_PROTOCOL = "jmatile";
 
 /** 1x1の完全に透明なPNG。空と分かっているタイルの代わりに返す。 */
 const TRANSPARENT_PNG = Uint8Array.from(
