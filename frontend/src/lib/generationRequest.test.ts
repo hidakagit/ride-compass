@@ -33,6 +33,19 @@ describe("buildGenerateRequest", () => {
     expect(request.start_time).toBe(BASE.startTime.toISOString());
   });
 
+  // 上の`toBeUndefined()`が「省略された」ことを意味するには、値があれば載る対の確認が要る
+  // （どちらも載らない実装でも、負の側だけなら通る）。
+  it("lens_axis_id・route_preferenceは値があれば載る", () => {
+    const request = buildGenerateRequest({
+      ...BASE,
+      lensAxisId: "car_stress",
+      routePreference: { gradient: 0.5 },
+    });
+
+    expect(request.lens_axis_id).toBe("car_stress");
+    expect(request.route_preference).toEqual({ gradient: 0.5 });
+  });
+
   it("目的地モードの経由地・目的地を載せる", () => {
     const destination = { latitude: 35.7, longitude: 139.8 };
     const request = buildGenerateRequest({ ...BASE, waypoints: [destination], destination });

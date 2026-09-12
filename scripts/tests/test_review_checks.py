@@ -689,3 +689,153 @@ def test_paragraph_marker_reads_the_index_not_the_working_tree(tmp_path, monkeyp
 
     assert from_index == {3}
     assert from_worktree == {1}
+
+
+# --- 空の母集団でも通るテストのループ ---
+
+
+def _vacuous(tmp_path, monkeypatch, name: str, body: str) -> list[str]:
+    (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / name).write_text(body, encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    return review_checks.find_vacuous_test_loops([name])
+
+
+def test_vacuous_loop_over_a_filtered_population_is_reported(tmp_path, monkeypatch):
+    hits = _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("something", () => {
+  const picked = items.filter((i) => i.kind === "gone");
+  for (const i of picked) {
+    expect(i.ok).toBe(true);
+  }
+});
+""")
+    assert len(hits) == 1 and "picked" in hits[0]
+
+
+def test_a_non_empty_assertion_in_the_same_test_clears_it(tmp_path, monkeypatch):
+    assert _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("something", () => {
+  const picked = items.filter((i) => i.kind === "gone");
+  expect(picked.length).toBeGreaterThan(0);
+  for (const i of picked) {
+    expect(i.ok).toBe(true);
+  }
+});
+""") == []
+
+
+def test_vitest_message_argument_does_not_hide_the_non_empty_assertion(tmp_path, monkeypatch):
+    """`expect(値, "説明")`の第2引数付きも空でないことの主張として数える。"""
+    assert _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("something", () => {
+  const picked = items.filter((i) => i.kind === "gone");
+  expect(picked.length, "実例が無い").toBeGreaterThan(0);
+  for (const i of picked) {
+    expect(i.ok).toBe(true);
+  }
+});
+""") == []
+
+
+def test_the_guard_must_be_inside_the_same_test(tmp_path, monkeypatch):
+    """別のテストで空でないことを確かめても、このテストが空振りしないことにはならない。"""
+    hits = _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("other", () => {
+  expect(picked.length).toBeGreaterThan(0);
+});
+
+it("something", () => {
+  const picked = items.filter((i) => i.kind === "gone");
+  for (const i of picked) {
+    expect(i.ok).toBe(true);
+  }
+});
+""")
+    assert len(hits) == 1
+
+
+def test_a_filter_split_across_a_method_chain_is_still_seen(tmp_path, monkeypatch):
+    """束縛が`.filter(...)`を次の行へ折り返す書き方（鎖の継続は括弧で区切られない）。"""
+    hits = _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("something", () => {
+  const ids = (catalog.axes as CatalogAxis[])
+    .filter((axis) => axis.category === "gone")
+    .map((axis) => axis.axis_id);
+  for (const id of ids) {
+    expect(KNOWN.includes(id)).toBe(false);
+  }
+});
+""")
+    assert len(hits) == 1 and "ids" in hits[0]
+
+
+def test_python_comprehension_population_is_reported(tmp_path, monkeypatch):
+    hits = _vacuous(tmp_path, monkeypatch, "tests/test_x.py", """
+def test_something():
+    picked = [m for m, s in SPECS.items() if isinstance(s, Way)]
+    for material_id in picked:
+        assert material_id in sql
+""")
+    assert len(hits) == 1 and "picked" in hits[0]
+
+
+def test_python_truthiness_assert_counts_as_the_guard(tmp_path, monkeypatch):
+    assert _vacuous(tmp_path, monkeypatch, "tests/test_x.py", """
+def test_something():
+    picked = [m for m, s in SPECS.items() if isinstance(s, Way)]
+    assert picked, "1件も無い"
+    for material_id in picked:
+        assert material_id in sql
+""") == []
+
+
+def test_a_population_that_was_never_narrowed_is_not_reported(tmp_path, monkeypatch):
+    """絞り込みを経ていない一覧は、空になりうる母集団ではない（誤検知を防ぐ）。"""
+    assert _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("something", () => {
+  for (const axis of RAMP_AXES) {
+    expect(axis.id).toBeTruthy();
+  }
+});
+""") == []
+
+
+def test_a_loop_without_assertions_is_not_reported(tmp_path, monkeypatch):
+    """組み立てのためのループは検査ではないので対象外。"""
+    assert _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("something", () => {
+  const picked = items.filter((i) => i.kind === "gone");
+  for (const i of picked) {
+    seen.push(i);
+  }
+  expect(seen).toEqual([]);
+});
+""") == []
+
+
+def test_a_template_literal_message_does_not_swallow_the_rest_of_the_line(tmp_path, monkeypatch):
+    """行内で閉じるテンプレートリテラルを潰すときに、同じ行の残りまで落としてはいけない。"""
+    assert _vacuous(tmp_path, monkeypatch, "x.test.ts", """
+it("something", () => {
+  const picked = items.filter((i) => i.kind === "gone");
+  expect(picked.length, `${field}の実例が無い`).toBeGreaterThan(0);
+  for (const i of picked) {
+    expect(i.ok).toBe(true);
+  }
+});
+""") == []
+
+
+def test_sample_code_inside_a_string_literal_is_not_a_test_loop(tmp_path, monkeypatch):
+    """検知器自身のテストは「違反の例」を文字列として持つ。実行されないコード片で鳴らない。"""
+    body = (
+        "def test_detector():\n"
+        "    sample = '''\n"
+        "    picked = [x for x in xs if x]\n"
+        "    for x in picked:\n"
+        "        assert x\n"
+        "    '''\n"
+        "    assert detect(sample)\n"
+    )
+    assert _vacuous(tmp_path, monkeypatch, "tests/test_x.py", body) == []

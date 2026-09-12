@@ -108,45 +108,33 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
     expect(axes.some((axis) => axis.axisId === "unset_axis")).toBe(true);
   });
 
-  // コードレビュー指摘の修正（secondaryAxes.tsのコメント参照）: T308でaxis_display_for()が
-  // 全公開軸に対して常に非nullを返すようになった結果、`display !== null`だけのフィルタでは
-  // category="動的"（wind等、複数材料から合成した推定指標ではなく生の外部データそのもの）を
-  // 除外できなくなっていた不具合の回帰テスト。
-  describe("「動的」軸除外フィルタ（コードレビュー指摘の修正）", () => {
-    it("category=動的の軸は推定指標グループの一覧から除外される", () => {
-      const catalogAxes: CatalogAxis[] = [
-        {
-          axis_id: "wind",
-          label: "風",
-          category: "動的",
-          display: { kind: "none", label: "風", category: "weather", tile_inputs: [], thresholds: [], unit: "", note: "" },
-        },
-        {
-          axis_id: "gradient",
-          label: "勾配",
-          category: "推定",
-          display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
-        },
-      ];
-
-      const axes = secondaryAxesFromCatalogAxes(catalogAxes);
-      expect(axes.some((axis) => axis.axisId === "wind")).toBe(false);
-      expect(axes.some((axis) => axis.axisId === "gradient")).toBe(true);
-    });
-
-    // 実データ側の確認。軸idを名指しせずcategoryで見るのは、どの軸が「動的」かが
-    // 軸スタジオの設定（DB）で決まり、生成物の再取り込みで変わりうるため。
-    it("既存軸（静的フォールバック）にcategory=動的の軸は含まれない", () => {
-      const dynamicAxisIds = (axisCatalog.axes as CatalogAxis[])
-        .filter((axis) => axis.category === "動的")
-        .map((axis) => axis.axis_id);
-      for (const axisId of dynamicAxisIds) {
-        expect(SECONDARY_AXES.some((axis) => axis.axisId === axisId)).toBe(false);
+  // 地図向けの一覧から軸を外す唯一のスイッチは`show_map_icon`（軸スタジオから設定する）。
+  // 軸id・categoryをコード側で名指しする除外を足すと、軸スタジオ側で値が変わった時点で
+  // 黙って効かなくなるため、除外の経路はこれ1本に保つ。
+  describe("show_map_icon による除外（実データ）", () => {
+    it("show_map_icon===falseの既存軸は一覧から落ち、それ以外の表示可能な軸は残る", () => {
+      const catalogAxes = axisCatalog.axes as CatalogAxis[];
+      const hidden = catalogAxes.filter((axis) => axis.show_map_icon === false);
+      const shown = catalogAxes.filter((axis) => axis.display !== null && axis.show_map_icon !== false);
+      // 母集団が空だとこのテストは何も確かめずに緑になる。どちらかが0件になったら
+      // 「除外が効いている」の確認が消えた合図なので、フィクスチャではなく実データ側を見直す。
+      expect(hidden.length).toBeGreaterThan(0);
+      expect(shown.length).toBeGreaterThan(0);
+      for (const axis of hidden) {
+        expect(SECONDARY_AXES.some((entry) => entry.axisId === axis.axis_id)).toBe(false);
+      }
+      for (const axis of shown) {
+        expect(SECONDARY_AXES.some((entry) => entry.axisId === axis.axis_id)).toBe(true);
       }
     });
 
-    it("category=動的以外の軸はdisplay!==nullかつshow_map_icon!==falseであれば除外されない", () => {
+    it("displayを持たない軸（非公開）は一覧から落ちる", () => {
       const catalogAxes: CatalogAxis[] = [
+        {
+          axis_id: "unpublished_axis",
+          label: "非公開軸",
+          display: null,
+        },
         {
           axis_id: "car_stress",
           label: "車の圧迫感",
@@ -155,7 +143,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       ];
 
       const axes = secondaryAxesFromCatalogAxes(catalogAxes);
-      expect(axes.some((axis) => axis.axisId === "car_stress")).toBe(true);
+      expect(axes.map((axis) => axis.axisId)).toEqual(["car_stress"]);
     });
   });
 });

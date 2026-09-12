@@ -136,3 +136,27 @@ frontendは`frontend/src/testing/`が同じ役割を持つ。
 | `imageDataPolyfill.ts` | `installImageDataPolyfill()` | canvasのフォールバックで`ImageData`を返す実装 |
 | `axisDefinitionFixtures.ts` | `baseAxisDefinition()` | 軸スタジオのテストが土台に使う軸定義 |
 | `fakeDataStatusMap.ts` | `createFakeDataStatusMap()` | `computeLayerDataStatus`が読む3メソッドだけのフェイクmap |
+
+## パターン6: 絞り込んだ母集団をループするテストは、空でないことを確かめる
+
+実データ・生成物・定数表から条件で絞った一覧をループして要素ごとに検査する形は、
+**母集団が0件になった瞬間に何も確かめないまま緑になる**。絞り込みの条件が実データ側の変化
+（軸の設定変更・生成物の再取り込み・凡例の入れ替え）で当てはまらなくなっても、テストは
+落ちずに黙る。
+
+```python
+picked = [m for m, s in SPECS.items() if isinstance(s, WayMaterialCoverageSpec)]
+assert picked, "way材料のカバレッジ仕様が1件も無い"   # これが無いと下のループは空振りしうる
+for material_id in picked:
+    assert f" AS {material_id}" in sql
+```
+
+```ts
+const expressionColors = COLOR_EXPRESSION.filter((i) => typeof i === "string" && i.startsWith("#"));
+expect(expressionColors.length).toBeGreaterThan(0);
+for (const color of expressionColors) { expect(legendColors.has(color)).toBe(true); }
+```
+
+`scripts/review_checks.py`の`vacuous_test_loops`がこの形を検出し、pre-commitとCIがブロック
+する。空でないことの主張は**同じテストの中**に置く（別のテストにある主張は、このテストが
+空振りしないことの根拠にならない）。

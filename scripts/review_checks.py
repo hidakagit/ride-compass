@@ -756,6 +756,155 @@ def check_plan_vs_tasks() -> list[str]:
     return violations
 
 
+# --- テストの空振り（絞り込んだ母集団が空でも通るループ） ---------------------
+#
+# 母集団が0件のとき、要素ごとのアサーションは1回も走らずテストは緑になる。緑であることが
+# 「検査した」の証拠にならないため、母集団が空でないことを同じテストの中で確かめる。
+
+TEST_FILE_RE = re.compile(r"(^|/)(test_[\w]+\.py|[\w.-]+\.test\.tsx?)$")
+PY_FOR_RE = re.compile(r"^(\s*)for\s+[\w, ()]+\s+in\s+(.+?):\s*(#.*)?$")
+TS_FOR_RE = re.compile(r"^(\s*)for\s+\(const\s+[\w, {}\[\]]+\s+of\s+(.+?)\)\s*\{\s*$")
+# 「絞り込みを経て作られた」ことの印。空になりうる母集団はここから生まれる。
+NARROWING_RE = re.compile(r"\.filter\(|\bfilter\(|\bif\b[^\n]*\bfor\b|\bfor\b[^\n]*\bif\b")
+PY_TEST_DEF_RE = re.compile(r"^\s*(async\s+)?def\s+test_\w+")
+TS_TEST_DEF_RE = re.compile(r"^\s*(it|test)(\.\w+)?\(")
+ASSERTION_RE = re.compile(r"\bassert\b|expect\(")
+
+
+def _nonempty_assertion_re(name: str) -> re.Pattern[str]:
+    """`name`が空でないことを主張しているアサーションの形。"""
+    n = re.escape(name)
+    return re.compile(
+        rf"assert\s+len\(\s*{n}\s*\)\s*(>\s*0|>=\s*1|[!=]=\s*[1-9])"
+        rf"|assert\s+{n}\s*(,|$)"
+        # vitestの`expect(値, "失敗時の説明")`第2引数も許す。
+        rf"|expect\(\s*{n}\s*(,[^)]*)?\)\s*\.\s*not\s*\.\s*toHaveLength\(\s*0\s*\)"
+        rf"|expect\(\s*{n}\s*(,[^)]*)?\)\s*\.\s*toHaveLength\(\s*[1-9]"
+        rf"|expect\(\s*{n}\s*\.\s*length\s*(,[^)]*)?\)\s*\.\s*(toBeGreaterThan\(\s*0\s*\)|toBe\(\s*[1-9])"
+    )
+
+
+def _enclosing_test_block(lines: list[str], index: int) -> str:
+    """`index`行を含むテスト1件ぶんの本文。見つからなければファイル全体。"""
+    start = 0
+    for i in range(index, -1, -1):
+        if PY_TEST_DEF_RE.match(lines[i]) or TS_TEST_DEF_RE.match(lines[i]):
+            start = i
+            break
+    else:
+        return "\n".join(lines)
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped and len(lines[i]) - len(lines[i].lstrip()) <= indent:
+            end = i
+            break
+    return "\n".join(lines[start:end])
+
+
+def _binding_text(lines: list[str], index: int, name: str) -> str:
+    """`index`より前にある`name`の代入の右辺。括弧が閉じるまでを1つの式として読む。"""
+    pattern = re.compile(rf"^\s*(?:const|let|var)?\s*{re.escape(name)}\s*(?::[^=]+)?=\s*(.*)$")
+    for i in range(index - 1, -1, -1):
+        m = pattern.match(lines[i])
+        if m is None:
+            continue
+        parts = [m.group(1)]
+
+        def delta(s: str) -> int:
+            return sum(s.count(c) for c in "([{") - sum(s.count(c) for c in ")]}")
+
+        depth = delta(m.group(1))
+        j = i + 1
+        # 括弧が閉じていない間と、`.filter(...)`のように次の行がメソッド鎖の続きである間は
+        # 同じ式として読む（鎖の継続は括弧では区切られない）。
+        while j < index and (depth > 0 or lines[j].lstrip().startswith(".")):
+            parts.append(lines[j])
+            depth += delta(lines[j])
+            j += 1
+        return "\n".join(parts)
+    return ""
+
+
+def blank_multiline_literals(lines: list[str]) -> list[str]:
+    """複数行の文字列リテラル（三連引用符・テンプレートリテラル）の中身を空行へ潰す。
+
+    検知器自身のテストは「違反の例」をコード片の文字列として持つ。実行されないコード片を
+    実物と区別できないと、検知器を試すテストを書くたびに自分自身が鳴る。行番号を保つため
+    行数は変えない。
+    """
+    out, fence = [], None
+    for line in lines:
+        if fence is not None:
+            out.append("")
+            if fence in line:
+                fence = None
+            continue
+        kept = ""
+        rest = line
+        while True:
+            m = re.search(r'("""|\'\'\'|`)', rest)
+            if m is None:
+                kept += rest
+                break
+            kept += rest[: m.start()]
+            quote = m.group(1)
+            after = rest[m.end():]
+            close = after.find(quote)
+            if close < 0:  # 行内で閉じない＝次の行へ続く
+                fence = quote
+                break
+            rest = after[close + len(quote):]  # 行内で閉じたリテラルを落として続行
+        out.append(kept)
+    return out
+
+
+def find_vacuous_test_loops(test_files: list[str], revision: str | None = None) -> list[str]:
+    """絞り込んだ母集団をループして検査するのに、空でないことを確かめていない箇所。
+
+    ループとその直前の束縛・同じテスト内のアサーションを合わせて読む必要があるため、
+    差分の追加行ではなくファイル1本を丸ごと見る。`revision`はその中身の出所
+    （`""`=インデックス、`"HEAD"`、None=作業ツリー。doc_text_atと同じ契約）。
+    """
+    out: list[str] = []
+    for f in sorted(set(test_files)):
+        if not TEST_FILE_RE.search(f):
+            continue
+        text = doc_text_at(f, revision)
+        if not text:
+            continue
+        lines = blank_multiline_literals(text.splitlines())
+        for i, line in enumerate(lines):
+            m = PY_FOR_RE.match(line) or TS_FOR_RE.match(line)
+            if m is None:
+                continue
+            indent, iterable = m.group(1), m.group(2).strip()
+            body = []
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip() and not lines[j].startswith((indent + " ", indent + "\t")):
+                    break
+                body.append(lines[j])
+            if not ASSERTION_RE.search("\n".join(body)):
+                continue
+            # `.items()`/`.values()`等の取り出しは母集団の大きさを変えないので剥がす。
+            plain = re.sub(r"\.(items|values|keys|entries)\(\)\s*$", "", iterable)
+            name = plain if re.fullmatch(r"[A-Za-z_]\w*", plain) else None
+            if not NARROWING_RE.search(iterable):
+                if name is None or not NARROWING_RE.search(_binding_text(lines, i, name)):
+                    continue
+            else:
+                # その場で絞り込む書き方は、空でないことを主張する相手（名前）を持たない。
+                # 一度変数へ束ねてから確かめる形にする必要がある。
+                name = None
+            block = _enclosing_test_block(lines, i)
+            if name and _nonempty_assertion_re(name).search(block):
+                continue
+            shown = iterable if len(iterable) <= 60 else iterable[:57] + "..."
+            out.append(f"{f}:{i + 1}: 絞り込んだ母集団 `{shown}` が空でも通る（空でないことを同じテストで確かめる）")
+    return out
+
+
 def check_dead_doc_links(md_files: list[str]) -> list[str]:
     out = []
     existing_history = {p.name for p in HISTORY_DIR.glob("*.md")}
@@ -830,6 +979,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "plan_vs_tasks": frozenset({"staged", "since", "full"}),
     "dead_doc_links": frozenset({"staged", "since", "full"}),
     "undefined_css_tokens": frozenset({"staged", "since", "full"}),
+    "vacuous_test_loops": frozenset({"staged", "since", "full"}),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -892,6 +1042,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
         sections.append(("undefined_css_tokens", "未定義のCSSトークン（ステージ済み.css/.ts/.tsx）",
                          find_undefined_css_tokens(
                              [s for s in staged if s.endswith(CSS_TOKEN_SCAN_SUFFIXES)], files + added)))
+        sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（ステージ済みテスト）",
+                         find_vacuous_test_loops(staged + added, revision="")))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
@@ -960,6 +1112,15 @@ def cmd_docs(args: argparse.Namespace) -> int:
         sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（.claude・docs 全件）",
                          check_dead_doc_links(md_files)))
         sections.append(("undefined_css_tokens", "未定義のCSSトークン（全件）", find_undefined_css_tokens(files, files)))
+        if args.since:
+            changed = [l for l in git("diff", "--name-only", f"{args.since}..HEAD").splitlines() if l]
+            sections.append((
+                "vacuous_test_loops",
+                f"空の母集団でも通るテストのループ（{args.since} 以降に変更されたテスト）",
+                find_vacuous_test_loops(changed, revision="HEAD")))
+        else:
+            sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
+                             find_vacuous_test_loops(files)))
 
     total = 0
     for key, title, lines in sections:
@@ -1342,6 +1503,7 @@ def cmd_duplication(args: argparse.Namespace) -> int:
 # 落とす——検知器を足したときにここへ1件足すことを、この監査自身が要求する。
 
 GUARD_PROBE_TS = "frontend/src/lib/zzzGuardProbe.ts"
+GUARD_PROBE_TEST_TS = "frontend/src/lib/zzzGuardProbe.test.ts"
 GUARD_PROBE_PY = "backend/app/services/zzz_guard_probe.py"
 # 実在しない識別子の綴りは実行時に組み立てる。このファイル自身が実在判定のコーパス
 # （`source_corpus`はscripts/も読む）に入っているため、綴りをそのまま書くと
@@ -1419,6 +1581,15 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "bare_basemodel": lambda: write(
             GUARD_PROBE_PY,
             "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
+        "vacuous_test_loops": lambda: write(
+            GUARD_PROBE_TEST_TS,
+            'import { expect, it } from "vitest";\n\n'
+            'it("zzz guard probe", () => {\n'
+            "  const picked = [1, 2, 3].filter((n) => n > 9);\n"
+            "  for (const n of picked) {\n"
+            "    expect(n).toBeGreaterThan(0);\n"
+            "  }\n"
+            "});\n"),
     }
 
 

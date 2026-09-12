@@ -2628,3 +2628,34 @@ def test_order_by_bearing_spread_is_deterministic_and_breaks_ties_by_closeness_t
     # 角距離はすべて90°で同値→closeness昇順（11,13は同値→index昇順）→10、12の順
     assert first == [11, 13, 10, 12]
     assert first == second
+
+
+async def test_candidate_carries_categorical_material_shares_from_the_path_edges():
+    """categorical材料（highway等）が、Edge単位の値→ルート全体の延長割合まで通ること。
+
+    畳み込みそのものの検証は`test_route.py: merge_material_category_shares`にある。ここは
+    **エンジン側の配線**——静的スコア行列のcategorical列→区間の`material_categories`→
+    候補の`material_category_shares`——を通しで確かめる（どこか1本が抜けても数値の軸は
+    そのまま動くため、配線の切断は数値側のテストでは現れない）。
+    """
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    # bearing=0の周回（spoke1→alt1→alt2）だけ種別を分ける。長いスポーク（R=15km）と
+    # 短い迂回路2本（合計約15km）で割合に差が出るため、延長加重が効いていることも見える。
+    # 逆回り候補は同じ物理経路を`-rev`のEdgeで通るため、両方向へ同じ値を置く。
+    for edge_id, highway in (
+        ("e-0-spoke1", "residential"),
+        ("e-0-alt1", "primary"),
+        ("e-0-alt2", "primary"),
+    ):
+        for direction in (edge_id, f"{edge_id}-rev"):
+            graph.edges[direction] = graph.edges[direction].model_copy(update={"highway": highway})
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+    candidate = _candidate_for_bearing(candidates, 0)
+
+    shares = candidate.material_category_shares["highway"]
+    assert set(shares) == {"residential", "primary"}
+    assert abs(sum(shares.values()) - 1.0) < 0.01
+    # スポーク1本（R）と迂回路2本（合計約1.02R）でほぼ半々。
+    assert abs(shares["residential"] - 0.5) < 0.05

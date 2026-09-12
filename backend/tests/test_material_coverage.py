@@ -102,6 +102,8 @@ def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds
     sql = statement.text
 
     way_material_ids = [m for m, s in MATERIAL_COVERAGE_SPECS.items() if isinstance(s, WayMaterialCoverageSpec)]
+    # 0件だと下のループが1度も走らず、列の対応を何も確かめないまま緑になる。
+    assert way_material_ids, "way材料のカバレッジ仕様が1件も無い"
     assert sql.startswith("SELECT count(*) AS total")
     assert sql.rstrip().endswith("FROM osm_raw_ways AS w")
     for material_id in way_material_ids:

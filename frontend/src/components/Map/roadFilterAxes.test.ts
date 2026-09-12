@@ -76,6 +76,8 @@ describe("roadFilterAxes", () => {
       const expressionColors = axis.colorExpression.filter(
         (item): item is string => typeof item === "string" && item.startsWith("#"),
       );
+      // 0件だと色の照合が1度も走らない（色式から色リテラルが消えた場合に気づけない）。
+      expect(expressionColors.length).toBeGreaterThan(0);
       for (const color of expressionColors) {
         expect(legendColors.has(color)).toBe(true);
       }

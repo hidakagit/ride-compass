@@ -108,13 +108,18 @@ describe("staticAttributeLayers", () => {
     const expressionColors = STOP_POI_COLOR_EXPRESSION.filter(
       (item): item is string => typeof item === "string" && item.startsWith("#"),
     );
+    // 0件だと色の照合が1度も走らない（色式から色リテラルが消えた場合に気づけない）。
+    expect(expressionColors.length).toBeGreaterThan(0);
     for (const color of expressionColors) {
       expect(legendColors.has(color)).toBe(true);
     }
   });
 
   it("STOP_POI_LABELSは凡例のkey→labelと一致する（ポップアップ表示用の対訳表。unknownは対訳表に無く呼び出し側でフォールバックする）", () => {
-    for (const entry of STOP_POI_LEGEND.filter((e) => e.key !== "unknown")) {
+    const labelled = STOP_POI_LEGEND.filter((e) => e.key !== "unknown");
+    // 0件だと対訳の照合が1度も走らない。
+    expect(labelled.length).toBeGreaterThan(0);
+    for (const entry of labelled) {
       expect(STOP_POI_LABELS[entry.key]).toBe(entry.label);
     }
   });
@@ -140,13 +145,18 @@ describe("staticAttributeLayers", () => {
     const expressionColors = SUPPLY_POI_COLOR_EXPRESSION.filter(
       (item): item is string => typeof item === "string" && item.startsWith("#"),
     );
+    // 0件だと色の照合が1度も走らない（色式から色リテラルが消えた場合に気づけない）。
+    expect(expressionColors.length).toBeGreaterThan(0);
     for (const color of expressionColors) {
       expect(legendColors.has(color)).toBe(true);
     }
   });
 
   it("SUPPLY_POI_LABELSは凡例のkey→labelと一致する", () => {
-    for (const entry of SUPPLY_POI_LEGEND.filter((e) => e.key !== "unknown")) {
+    const labelled = SUPPLY_POI_LEGEND.filter((e) => e.key !== "unknown");
+    // 0件だと対訳の照合が1度も走らない。
+    expect(labelled.length).toBeGreaterThan(0);
+    for (const entry of labelled) {
       expect(SUPPLY_POI_LABELS[entry.key]).toBe(entry.label);
     }
   });
@@ -323,7 +333,10 @@ describe("staticAttributeLayers", () => {
     });
 
     it("DESIGNATION_LABELSは凡例のkey→labelと一致する（ポップアップ表示用の対訳表。unknownは対訳表に無く呼び出し側でフォールバックする）", () => {
-      for (const entry of DESIGNATION_LEGEND.filter((e) => e.key !== "unknown")) {
+      const labelled = DESIGNATION_LEGEND.filter((e) => e.key !== "unknown");
+      // 0件だと対訳の照合が1度も走らない。
+      expect(labelled.length).toBeGreaterThan(0);
+      for (const entry of labelled) {
         expect(DESIGNATION_LABELS[entry.key]).toBe(entry.label);
       }
     });

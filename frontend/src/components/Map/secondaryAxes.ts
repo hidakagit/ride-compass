@@ -131,27 +131,15 @@ function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
 
 /** 二次軸(推定指標)一覧を、カタログの並び順のまま変換する。
  *
- * コードレビュー指摘の修正: 改善計画T308でaxis_display_for()が全公開軸に対して常に
- * 非null（kind="none"含む）を返すようになったため、`display !== null`だけのフィルタでは
- * windのような専用の動的気象UIを別に持つ軸（推定指標チップグループには元々出す意図が無い）
- * を除外できなくなっていた（以前は静的axis-catalog.jsonの生成元registry.pyにwindが
- * 登録されておらず、display自体がundefinedだったため結果的に除外されていた）。
- * `category !== "動的"`は当時この目的で追加した条件。**2026-08-31訂正（改善計画T447）**:
- * 「windの`category`は"推定"へ変わっておりこの条件は死んだフィルタ、実際の除外は
- * `show_map_icon`のみ」という2026-08-30時点の旧コメント（下記の直前の版）は誤りだった。
- * `backend/fixtures/axis_definitions_snapshot.json`を実際に確認すると、windの
- * `category`は`"動的"`のまま（`show_map_icon`は`true`）——つまり**逆**で、windを
- * 推定指標チップグループから除外しているのは`category !== "動的"`の方であり、
- * `show_map_icon !== false`はwindを除外する側には寄与していない。`category !== "動的"`は
- * 生きた現役のフィルタのため削除しないこと（このコメントの正確性に依存せず済むよう、
- * 除外挙動そのものはsecondaryAxes.test.tsの回帰テストで直接検証している）。 */
+ * 軸を地図向けの一覧から外す唯一のスイッチは`show_map_icon`（軸スタジオから設定する、
+ * 既定true）。専用の動的気象UIを別に持つwindのように「公開軸だがこの一覧には出したくない」
+ * 軸も、コード側の軸id・categoryの名指しではなくこのフラグで外す——軸の属性は
+ * 軸スタジオから変えられるため、コード側で特定の値を名指しすると、値が変わった時点で
+ * 黙って効かなくなる。 */
 export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
   return axes
-    // 改善計画T318: show_map_icon===falseの軸は地図上チップ・地図の見え方パネルの
-    // 両方から丸ごと除外する（専用レイヤーの有無=display.kindに関わらず一律に効く、
-    // 軸スタジオ側のON/OFF1つで両画面が揃って更新される）。windは現状category条件
-    // （上記コメント参照）で除外されており、この条件は寄与していない。
-    .filter((axis) => axis.display !== null && axis.category !== "動的" && axis.show_map_icon !== false)
+    // display===nullは非公開軸（カタログに載るが表示情報を持たない）。
+    .filter((axis) => axis.display !== null && axis.show_map_icon !== false)
     .map((axis) => ({
       axisId: axis.axis_id,
       label: axis.display!.label,

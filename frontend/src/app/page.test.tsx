@@ -616,6 +616,9 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // page.tsx側のフォールバックで総合難易度へ戻り、このテストが恒真になる）。
     const staticAxisId = axisCatalogStatic.axes[0].axis_id;
     window.localStorage.setItem("ridecompass:route-style-mode", staticAxisId);
+    // 重み上書きをONにしておく（OFFのままだとカタログの成否に関わらずroute_preferenceは
+    // 送られず、下の`toBeUndefined()`がカタログ失敗を何も確かめない恒真になる）。
+    window.localStorage.setItem("ridecompass:weight-override-enabled", "true");
     vi.mocked(getAxisCatalog).mockRejectedValue(new Error("network error"));
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
@@ -636,9 +639,10 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     window.localStorage.clear();
   });
 
-  it("軸カタログの取得に成功していればlens_axis_idを送る", async () => {
+  it("軸カタログの取得に成功していればlens_axis_id/route_preferenceを送る", async () => {
     const user = userEvent.setup();
     window.localStorage.setItem("ridecompass:route-style-mode", "gui_created_axis");
+    window.localStorage.setItem("ridecompass:weight-override-enabled", "true");
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
@@ -656,6 +660,11 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         expect.anything(),
       );
     });
+    // 上の失敗側テストの`route_preference`がundefinedであることに意味を持たせる対の確認
+    // （同じ条件で、カタログが取れていれば実際に送られる）。
+    const request = vi.mocked(generateRoutes).mock.calls[0][0];
+    expect(request.route_preference).toBeDefined();
+    expect(Object.keys(request.route_preference!).length).toBeGreaterThan(0);
     window.localStorage.clear();
   });
 
