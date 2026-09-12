@@ -433,14 +433,20 @@ export function SnowflakeIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 汎用のクリア: 丸で囲んだバツ印。対象を表さないため、**同種の操作が隣り合わない場所**
- * （ルート結果ヘッダの「ルートをクリア」等）だけで使う。地図下部のように複数の
- * 「まとめて戻す」が並ぶ場所では、対象を形で示すアイコンを使う。 */
-export function ClearIcon({ size = 16 }: IconProps) {
+/** 生成した候補を捨てる: ゴミ箱。**バツ印を使わない**——このボタンはパネルを閉じる
+ * ✕の隣に並ぶため、同じ形だとどちらがどちらか分からなくなる。 */
+export function ClearRoutesIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M7.3 7.3 12.7 12.7M12.7 7.3 7.3 12.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3.6 5.4h12.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7.9 5.4V3.9h4.2v1.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path
+        d="M5.7 5.4h8.6l-.7 10.7H6.4L5.7 5.4Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M8.6 8.6v4.6M11.4 8.6v4.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }

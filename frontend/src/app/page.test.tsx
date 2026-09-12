@@ -971,6 +971,25 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.getByRole("button", { name: "絞り込みをすべて解除する" })).toBeDisabled();
   });
 
+  it("ルート結果ヘッダの操作は、パネルの閉じる✕と見分けられる形にする", async () => {
+    // 「ルートをクリア」はシートの閉じる✕の隣に並ぶ。同じバツ印だとどちらがどちらか
+    // 分からない（実機フィードバック、docs/tasks/T774.md）。
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [makeCandidate({ id: "route-00", distance_km: 18.0 })],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const user = userEvent.setup();
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    const clear = await screen.findByRole("button", { name: "ルートをクリア" });
+    // バツ印（2本の交差線）ではなくゴミ箱を出す
+    expect(clear.querySelector("svg")?.innerHTML ?? "").not.toContain("M7.3 7.3 12.7 12.7");
+    expect(clear.querySelector("svg")?.innerHTML ?? "").toContain("M3.6 5.4h12.8");
+  });
+
   it("T592フォローアップ: 研究モード中は区間クリック詳細に材料値(material_values)を表示する", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({

@@ -10,7 +10,7 @@ import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverl
 import {
   ClearAllFiltersIcon,
   ClearAllLayersIcon,
-  ClearIcon,
+  ClearRoutesIcon,
   DownloadIcon,
   MapAppearanceIcon,
   RouteIcon,
@@ -1661,7 +1661,7 @@ export default function Home() {
       <>
         {/* 保存は機能未実装の占位（位置だけ先に確保する）。実装時はdisabledを外す。 */}
         <button type="button" className={styles.outcomeHeaderIcon} disabled title="保存（準備中）" aria-label="保存（準備中）">
-          <SaveIcon />
+          <SaveIcon size={18} />
         </button>
         {/* 選択中候補のgeometry（区間分割前の連続したLineString）をGPXへ書き出す。
             selectedCandidateがnullの間は押せない（比較タブ表示中等）。 */}
@@ -1673,7 +1673,7 @@ export default function Home() {
           title="GPX出力"
           aria-label="GPX出力"
         >
-          <DownloadIcon />
+          <DownloadIcon size={18} />
         </button>
         {/* 生成済みの候補一覧・地図描画・選択状態だけをリセットする（経由地・目的地のピンは
             対象外、別々のクリア操作として使い分ける）。押した瞬間に実行する即実行アクション。
@@ -1685,7 +1685,7 @@ export default function Home() {
           title="ルートをクリア"
           aria-label="ルートをクリア"
         >
-          <ClearIcon size={14} />
+          <ClearRoutesIcon size={18} />
         </button>
       </>
     );
