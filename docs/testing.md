@@ -150,6 +150,7 @@ frontendは`frontend/src/testing/`が同じ役割を持つ。
 | `emblaBrowserApis.ts` | `stubEmblaBrowserApis()` | Embla Carouselを含むコンポーネントの`beforeEach` |
 | `imageDataPolyfill.ts` | `installImageDataPolyfill()` | canvasのフォールバックで`ImageData`を返す実装 |
 | `axisDefinitionFixtures.ts` | `baseAxisDefinition()` | 軸スタジオのテストが土台に使う軸定義 |
+| `routeFixtures.ts` | `makeRouteCandidate()` | ルート候補を組み立てるすべての場所（`e2e/fixtures.ts`も同じものを使う）。`RouteCandidate`は全フィールドが必須のため、置き場を分けるとフィールドが増えるたびに同じ数の差分が要る |
 | `fakeDataStatusMap.ts` | `createFakeDataStatusMap()` | `computeLayerDataStatus`が読む3メソッドだけのフェイクmap |
 
 ## パターン6: 絞り込んだ母集団をループするテストは、空でないことを確かめる

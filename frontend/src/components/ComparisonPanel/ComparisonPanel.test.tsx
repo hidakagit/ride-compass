@@ -3,32 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RouteCandidate } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import ComparisonPanel from "./ComparisonPanel";
 
-function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
-  return {
-    id: "route-1",
-    direction_label: "北",
-    distance_km: 30,
-    geometry: { type: "LineString", coordinates: [] },
-    elevation_gain_m: null,
-    min_elevation_m: null,
-    max_elevation_m: null,
-    segments: null,
-    overall_difficulty: null,
-    difficulty_load: null,
-    axis_difficulties: {},
-    material_values: {},
-    material_category_shares: {},
-    axis_raw_values: {},
-    edge_ids: [],
-    edge_point_offsets: [],
-    is_shortest_distance: false,
-    axis_contributions: {},
-    ...overrides,
-  };
-}
+const makeCandidate = makeRouteCandidate;
 
 function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
   return {

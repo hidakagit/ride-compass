@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { RouteCandidate } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import {
   OUTLINE_LAYER_ID,
   computeRouteFitPadding,
@@ -16,29 +17,7 @@ import {
   routesToFeatureCollection,
 } from "./MapView";
 
-function makeCandidate(overrides: Partial<RouteCandidate>): RouteCandidate {
-  return {
-    id: "candidate-0",
-    direction_label: "0度",
-    distance_km: 15,
-    geometry: { type: "LineString", coordinates: [[139.7, 35.7]] },
-    elevation_gain_m: 100,
-    min_elevation_m: 0,
-    max_elevation_m: 50,
-    segments: null,
-    overall_difficulty: 40,
-    difficulty_load: null,
-    axis_difficulties: {},
-    material_values: {},
-    material_category_shares: {},
-    axis_raw_values: {},
-    edge_ids: [],
-    edge_point_offsets: [],
-    is_shortest_distance: false,
-    axis_contributions: {},
-    ...overrides,
-  };
-}
+const makeCandidate = makeRouteCandidate;
 
 describe("routesToFeatureCollection", () => {
   it("選択中の候補が配列の最後（最前面）に描画されるよう並び替える", () => {
@@ -161,32 +140,7 @@ function layoutValue(map: ReturnType<typeof fakeMap>, layerId: string, name: str
 }
 
 function makeRoute(id: string): RouteCandidate {
-  return {
-    id,
-    direction_label: "0度",
-    distance_km: 15,
-    geometry: {
-      type: "LineString",
-      coordinates: [
-        [139.7, 35.7],
-        [139.71, 35.71],
-      ],
-    },
-    elevation_gain_m: 100,
-    min_elevation_m: 0,
-    max_elevation_m: 50,
-    segments: null,
-    overall_difficulty: 40,
-    difficulty_load: null,
-    axis_difficulties: {},
-    material_values: {},
-    material_category_shares: {},
-    axis_raw_values: {},
-    edge_ids: [],
-    edge_point_offsets: [],
-    is_shortest_distance: false,
-    axis_contributions: {},
-  };
+  return makeRouteCandidate({ id, direction_label: "北", distance_km: 15 });
 }
 
 describe("drawBaseRoutes/hideBaseRoutes（「ルート」チップの表示切替、改善計画T518）", () => {

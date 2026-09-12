@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 
 // layerVisibility（地図チップ・サイドバーから操作するレイヤーのON/OFF）の永続化・復元の
 // 検証。軸スタジオ由来のレイヤーはここに含まれず、表示はレンズ（lens）だけが決める。
@@ -333,7 +334,7 @@ import userEvent from "@testing-library/user-event";
 import { generateRoutes } from "@/services/routeApi";
 import { downloadGpx } from "@/lib/gpxExport";
 import { getAmedasObservation, getCurrentWeather, getWeatherWarnings, getWbgtStatus, getFloodForecasts } from "@/services/weatherApi";
-import type { RouteCandidate, GenerationConditions, SelectedRouteSegment } from "@/types/route";
+import type { GenerationConditions, SelectedRouteSegment } from "@/types/route";
 import type { AmedasObservation, WeatherConditions, WeatherWarnings, WbgtStatus, FloodForecasts } from "@/types/weather";
 
 // "@/services/routeApi"はこれまでどのテストもモックしていなかった新規モジュール。
@@ -345,29 +346,7 @@ vi.mock("@/services/routeApi", () => ({
 // ComparisonPanel.test.tsxのmakeCandidate/makeSlotと同じ形の最小フィクスチャ
 // （RouteCandidate/GenerationConditionsは必須フィールドが多いOpenAPI生成型のため、
 // 呼び出し側で上書きしたいフィールドだけ渡せるヘルパーにする）。
-function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
-  return {
-    id: "route-1",
-    direction_label: "北",
-    distance_km: 30,
-    geometry: { type: "LineString", coordinates: [] },
-    elevation_gain_m: null,
-    min_elevation_m: null,
-    max_elevation_m: null,
-    segments: null,
-    overall_difficulty: null,
-    difficulty_load: null,
-    axis_difficulties: {},
-    material_values: {},
-    material_category_shares: {},
-    axis_raw_values: {},
-    edge_ids: [],
-    edge_point_offsets: [],
-    is_shortest_distance: false,
-    axis_contributions: {},
-    ...overrides,
-  };
-}
+const makeCandidate = makeRouteCandidate;
 
 function makeConditions(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
   return {

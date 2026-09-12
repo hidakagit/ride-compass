@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RouteCandidate } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { buildGpxDocument, decimateCoordinates, downloadGpx, MAX_GPX_TRACK_POINTS } from "./gpxExport";
 
+// GPXの出力を見るテストのため、共有フィクスチャの空のgeometryへ既定の座標列を足す。
 function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
-  return {
-    id: "route-000",
-    direction_label: "北",
-    distance_km: 12.3,
+  return makeRouteCandidate({
     geometry: {
       type: "LineString",
       coordinates: [
@@ -15,22 +14,8 @@ function makeCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate 
         [139.72, 35.72],
       ],
     },
-    elevation_gain_m: null,
-    min_elevation_m: null,
-    max_elevation_m: null,
-    segments: null,
-    overall_difficulty: null,
-    difficulty_load: null,
-    axis_difficulties: {},
-    axis_raw_values: {},
-    edge_ids: [],
-    edge_point_offsets: [],
-    is_shortest_distance: false,
-    axis_contributions: {},
-    material_values: {},
-    material_category_shares: {},
     ...overrides,
-  };
+  });
 }
 
 describe("decimateCoordinates", () => {

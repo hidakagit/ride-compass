@@ -13,6 +13,7 @@
 
 import { bench, describe } from "vitest";
 import type { RouteCandidate, RouteSegmentDetail } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { computeRouteBounds, routesToFeatureCollection, segmentsToFeatureCollection } from "./MapView";
 
 function makeGeometry(pointCount: number): GeoJSON.LineString {
@@ -73,26 +74,19 @@ function makeSegments(count: number): RouteSegmentDetail[] {
 function makeCandidates(candidateCount: number, pointsPerCandidate: number): RouteCandidate[] {
   const candidates: RouteCandidate[] = [];
   for (let i = 0; i < candidateCount; i++) {
-    candidates.push({
-      id: `candidate-${i}`,
-      direction_label: `${i * 45}度`,
-      distance_km: 15 + i,
-      geometry: makeGeometry(pointsPerCandidate),
-      elevation_gain_m: 120,
-      min_elevation_m: 3,
-      max_elevation_m: 45,
-      segments: makeSegments(Math.round(pointsPerCandidate / 12)),
-      overall_difficulty: 45.6,
-      difficulty_load: null,
-      axis_difficulties: {},
-      material_values: {},
-      material_category_shares: {},
-      axis_raw_values: {},
-      edge_ids: [],
-      edge_point_offsets: [],
-      is_shortest_distance: false,
-      axis_contributions: {},
-    });
+    candidates.push(
+      makeRouteCandidate({
+        id: `candidate-${i}`,
+        direction_label: `${i * 45}度`,
+        distance_km: 15 + i,
+        geometry: makeGeometry(pointsPerCandidate),
+        elevation_gain_m: 120,
+        min_elevation_m: 3,
+        max_elevation_m: 45,
+        segments: makeSegments(Math.round(pointsPerCandidate / 12)),
+        overall_difficulty: 45.6,
+      })
+    );
   }
   return candidates;
 }

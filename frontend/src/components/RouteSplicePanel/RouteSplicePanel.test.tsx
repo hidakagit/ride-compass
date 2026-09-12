@@ -2,29 +2,16 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { RouteCandidate } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import RouteSplicePanel from "./RouteSplicePanel";
 
 function candidate(id: string, edgeIds: string[]): RouteCandidate {
-  return {
+  return makeRouteCandidate({
     id,
     direction_label: id === "route-00" ? "目的地ルート" : "代替ルート",
     distance_km: 24.5,
-    geometry: { type: "LineString", coordinates: [] },
     edge_ids: edgeIds,
-    edge_point_offsets: [],
-    segments: null,
-    elevation_gain_m: null,
-    min_elevation_m: null,
-    max_elevation_m: null,
-    overall_difficulty: null,
-    difficulty_load: null,
-    axis_difficulties: {},
-    axis_contributions: {},
-    axis_raw_values: {},
-    material_values: {},
-    material_category_shares: {},
-    is_shortest_distance: false,
-  };
+  });
 }
 
 function baseProps(overrides: Partial<Parameters<typeof RouteSplicePanel>[0]> = {}) {

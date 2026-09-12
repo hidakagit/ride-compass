@@ -5,6 +5,7 @@ import type {
   RouteCandidate,
   RouteGenerateRequest,
 } from "@/types/route";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { debugLog } from "@/lib/debugLog";
 import { generateRoutes } from "./routeApi";
 import { makeResponse } from "@/testing/fetchMocks";
@@ -132,28 +133,7 @@ describe("routeApi", () => {
       start_time: "2026-09-05T09:30:00+09:00",
     };
 
-    const routes: RouteCandidate[] = [
-      {
-        id: "route-1",
-        direction_label: "北",
-        distance_km: 30,
-        geometry: { type: "LineString", coordinates: [] },
-        elevation_gain_m: null,
-        min_elevation_m: null,
-        max_elevation_m: null,
-        segments: null,
-        overall_difficulty: null,
-        difficulty_load: null,
-        axis_difficulties: {},
-        material_values: {},
-        material_category_shares: {},
-        axis_raw_values: {},
-        edge_ids: [],
-        edge_point_offsets: [],
-        is_shortest_distance: false,
-        axis_contributions: {},
-      },
-    ];
+    const routes: RouteCandidate[] = [makeRouteCandidate()];
     const conditions: GenerationConditions = {
       latitude: 35.0,
       longitude: 139.0,

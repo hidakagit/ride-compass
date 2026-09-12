@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
+import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（
@@ -46,7 +47,7 @@ function makeSegment(index: number, coordinates: [number, number][]) {
 
 // geometryは往復可能な閉じたループの体裁のみ整える（実座標としての精度は問わない）。
 function makeRouteCandidate(id: string, directionLabel: string, distanceKm: number): RouteCandidate {
-  return {
+  return makeCandidate({
     id,
     direction_label: directionLabel,
     distance_km: distanceKm,
@@ -74,16 +75,7 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
       ]),
     ],
     overall_difficulty: 35,
-    difficulty_load: null,
-    axis_difficulties: {},
-    material_values: {},
-    material_category_shares: {},
-    axis_raw_values: {},
-    edge_ids: [],
-    edge_point_offsets: [],
-    is_shortest_distance: false,
-    axis_contributions: {},
-  };
+  });
 }
 
 // 戻り値にRouteGenerateResponse型注釈を付け、バックエンドの実際の必須フィールド
