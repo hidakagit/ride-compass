@@ -1864,13 +1864,11 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   `ComparisonPanel`が`axis_difficulties`駆動へ移行し末端消費者ゼロになったため削除済み
   （詳細な経緯・教訓は
   [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）。
-- **交差点密度**: 次数3以上（`INTERSECTION_DEGREE_THRESHOLD`）のroad_node。
-  `INTERSECTION_MATCH_MAX_DISTANCE_M=30m`で空間マッチ。改善計画T149で難易度への寄与は
-  独立軸を持たず停止密度側（タグなし交差点として`signal`等の0.3倍の重みで加算、
-  `domain/difficulty.py: stop_difficulty`）へ一本化済み。ルート単位の集約統計
-  `RouteCandidate.intersection_density`は改善計画T431で末端消費者ゼロを確認した上で
-  削除済み。地図の点タイル表示（`poi-tiles`の`degree`プロパティ）は表示専用の別経路
-  として引き続き独立に保持する。
+- **交差点密度**: 次数3以上（`INTERSECTION_DEGREE_THRESHOLD`）のノード。その道の構成ノード
+  であることで帰属を決める（近くにあるだけの交差点は数えない）。材料
+  `intersection_count_per_km`としてカタログにあるが、これを使う公開軸は現在無い。
+  地図の点タイル表示（`poi-tiles`の`degree`プロパティ）は表示専用の別経路として
+  引き続き独立に保持する。
 
 **地図表示ロジックと評価軸材料の分離原則（改善計画T341、教訓はT347再検証込みで
 [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）**:

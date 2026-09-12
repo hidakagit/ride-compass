@@ -1,0 +1,134 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-2);
+}
+
+.heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lead {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.head label {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.head select {
+  font: inherit;
+  font-size: 13px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: inherit;
+}
+
+.note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--color-surface-hover);
+}
+
+.tick {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--color-border);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1;
+  color: transparent;
+}
+
+.row[aria-pressed="true"] .tick {
+  background: var(--color-route-splice);
+  border-color: var(--color-route-splice);
+  color: #fff;
+}
+
+.row[aria-pressed="true"] {
+  border-color: var(--color-route-splice);
+}
+
+.where {
+  display: flex;
+  flex-direction: column;
+}
+
+.sub {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.actions button {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+.actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

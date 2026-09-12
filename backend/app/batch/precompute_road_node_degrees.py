@@ -2,9 +2,7 @@
 
 次数はroad_edges全件から見た「そのnode_idに接続する相異なる隣接node数」という
 グラフ全体の集約値で、呼び出し元が渡すedge_ids集合には依存しない（渡された集合内だけで
-完結するローカルな次数ではなく、DB全体から見た真のグローバル次数にすることで、
-get_intersection_countsが呼び出し元のedge_ids集合やチャンク分割に依存しない結果を
-返せるようにしている）。
+完結するローカルな次数ではなく、DB全体から見た真のグローバル次数にする）。
 
 実際の集計SQL（`_RECOMPUTE_NODE_DEGREES_SQL`）はroad_graph_repository.py:
 `DerivedGraphRepository.recompute_node_degrees`が実装済み・チューニング済み

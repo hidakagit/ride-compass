@@ -42,7 +42,7 @@ CHUNK_SIZE = 4_000
 # 計算ロジック自体（半径・重み付け等）の版数。region_service.py: ROAD_SURFACE_TILE_VERSIONと
 # 同じ「パラメータを変えたら手動で上げる」運用。入力データの版数（source_*_import_run_id）
 # とは別軸で、入力が同じでもロジック変更時は再計算が要ることを判別可能にするために持つ。
-ALGORITHM_VERSION = "v2"
+ALGORITHM_VERSION = "v3"
 
 _LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
     "SELECT MAX(id) FROM accident_import_runs WHERE status = 'succeeded'"
@@ -67,12 +67,11 @@ async def run(database_url: str | None, dry_run: bool) -> int:
     async with batch_session_factory(database_url) as session_factory:
         now = datetime.now(timezone.utc)
 
-        # get_intersection_countsはroad_nodes.degree（DB全体から見た真のグローバル次数、
-        # precompute_road_node_degrees.pyが事前計算）を参照するため、呼び出し元の集合に
-        # 依存しない決定的な値を返す。road_edgesを空間的な連続性を考慮せず任意順に
-        # チャンク分割しても、accident_countと同じチャンク単位の呼び出しで
-        # 問題ない。**本バッチの実行前にprecompute_road_node_degrees.pyの実行が必須**
-        # （road_nodes.degreeが未計算＝全行0のままだとintersection_countも全件0になる）。
+        # get_intersection_countsはwayの構成ノードであることで交差点の帰属を決めるため、
+        # 呼び出し元の集合に依存しない決定的な値を返す。road_edgesを空間的な連続性を
+        # 考慮せず任意順にチャンク分割しても、accident_countと同じチャンク単位の
+        # 呼び出しで問題ない。次数は`raw_intersection_nodes`（全域、
+        # precompute_road_node_degrees.pyが再構築）を参照する。
         async def handle_chunk(chunk: list[str]) -> int:
             async with session_factory() as session:
                 # run id取得はチャンクごとに直前で行う。edge_ids全体の処理は長時間かかりうるため、

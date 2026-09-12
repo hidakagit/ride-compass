@@ -816,7 +816,7 @@ class RoadGraphEngine:
         edges_in_path: list[EdgeLike] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
-        geometry = _concat_edge_geometries(edges_in_path)
+        geometry, _ = _concat_edge_geometries(edges_in_path)
         # road_graphエンジンは実測所要時間モデルを持たないため、他所（segments構築時の
         # estimated_arrival_time）と同じASSUMED_SPEED_KMHで概算する。
         duration_minutes = round(distance_km / self._assumed_speed_kmh * 60, 1)
@@ -1412,6 +1412,47 @@ class RoadGraphEngine:
         )
         return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge)
 
+    def build_traced_from_edge_ids(self, context: _RoadGraphContext, edge_ids: list[str]) -> TracedLoop:
+        """クライアントが組み立てたEdge id列を、評価できる経路として検証して`TracedLoop`にする。
+
+        区間の乗り換え（docs/tasks/T621.md）で使う。フロントは候補の`edge_ids`から
+        「Aの前半＋Bの後半」を作って送り返すため、**このグラフに実在し・順につながり・
+        起点から始まる**ことをここで確かめる（送られた列をそのまま信じると、評価は成功する
+        のに経路として成立しないルートが候補一覧へ並ぶ）。
+
+        レグはこの経路自身の距離の半分で切る。合成経路はvia-nodeを持たないため前向き木・
+        後ろ向き木の境目が無く、レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の
+        近似が入れ替わる点として中間を採る。
+        """
+        graph = context.graph
+        if not edge_ids:
+            raise RoutingError("経路が空です")
+        unknown = [edge_id for edge_id in edge_ids if edge_id not in graph.edges]
+        if unknown:
+            raise RoutingError(
+                f"経路に未知のEdgeが含まれています count={len(unknown)} first={unknown[0]}"
+            )
+        edges = [graph.edges[edge_id] for edge_id in edge_ids]
+        if edges[0].from_node_id != context.origin_node:
+            raise RoutingError(
+                f"経路が起点から始まっていません expected={context.origin_node} actual={edges[0].from_node_id}"
+            )
+        for index, (current, following) in enumerate(zip(edges, edges[1:])):
+            if current.to_node_id != following.from_node_id:
+                raise RoutingError(
+                    f"経路がつながっていません index={index} "
+                    f"to_node={current.to_node_id} next_from_node={following.from_node_id}"
+                )
+
+        total_m = sum(edge.distance_m for edge in edges)
+        leg_of_edge, travelled_m = [], 0.0
+        for edge in edges:
+            leg_of_edge.append(0 if travelled_m < total_m / 2 else 1)
+            travelled_m += edge.distance_m
+        return TracedLoop(
+            bearing=None, distance_km=round(total_m / 1000, 2), data=edge_ids, leg_of_edge=leg_of_edge
+        )
+
     def is_loop_too_similar(
         self, context: _RoadGraphContext, candidate: TracedLoop, accepted: list[TracedLoop]
     ) -> bool:
@@ -1553,7 +1594,7 @@ class RoadGraphEngine:
         # 同じ組み立てロジックへ通せる。distance_km・bearingは順方向・逆回りで共通
         # （同じ物理経路の総距離・同じ方位の候補のため）traced（順方向のTracedLoop）から
         # そのまま使う。
-        geometry = _concat_edge_geometries(edges_in_path)
+        geometry, edge_point_offsets = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time, leg_of_edge)
         # categorical材料の延長割合はEdge単位のsegmentsから畳む。ビンの代表値を1つ選ぶ形だと
@@ -1569,6 +1610,7 @@ class RoadGraphEngine:
             distance_km=traced.distance_km,
             geometry=geometry,
             edge_ids=[edge.edge_id for edge in edges_in_path],
+            edge_point_offsets=edge_point_offsets,
             segments=segments,
             material_category_shares=material_category_shares,
             **elevation_stats,
@@ -2123,16 +2165,27 @@ def _bbox_covering_points(points: list[Coordinates], margin_km: float) -> Boundi
     )
 
 
-def _concat_edge_geometries(edges: list[EdgeLike]) -> dict:
-    """経路上のEdge群をひとつながりのGeoJSON LineStringへ変換する。隣接するEdgeの
-    境界点（前Edgeの終端＝次Edgeの始端）は重複させない。"""
+def _concat_edge_geometries(edges: list[EdgeLike]) -> tuple[dict, list[int]]:
+    """経路上のEdge群を、ひとつながりのGeoJSON LineStringとEdgeの境界点の位置へ変換する。
+
+    隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
+    からはどこがEdgeの境目か復元できない**。Edge単位で決めた区間を地図へ帯として描く
+    （docs/tasks/T621.md）ために境界の位置を併せて返す。
+
+    2つ目の戻り値は`len(edges) + 1`件で、`coordinates[offsets[i]:offsets[j] + 1]`が
+    Edge i〜j-1のひとつながりの形状になる。**同じ関数が両方を作る**——別々に組み立てると
+    ずれても型でも例外でも現れず、地図上で帯だけが1点ずれる。
+    """
     coordinates: list[list[float]] = []
+    offsets: list[int] = []
     for edge in edges:
         points = [[lon, lat] for lat, lon in edge.geometry]
         if coordinates and points and coordinates[-1] == points[0]:
             points = points[1:]
+        offsets.append(max(len(coordinates) - 1, 0))
         coordinates.extend(points)
-    return {"type": "LineString", "coordinates": coordinates}
+    offsets.append(max(len(coordinates) - 1, 0))
+    return {"type": "LineString", "coordinates": coordinates}, offsets
 
 
 def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> dict:

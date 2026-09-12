@@ -26,7 +26,7 @@ import hashlib
 # SQLが読むテーブルの中身を作り直したとき（PBF再取込・precomputeバッチ）。
 # プロパティ削除を伴う変更は、対応するfrontendのデプロイより先に本番へ出さないこと
 # （旧フロントの凡例フィルタが全地物に一致し、対象レイヤーが一時的に「不明・他」になる）。
-ROAD_SURFACE_REVISION = "24"
+ROAD_SURFACE_REVISION = "25"
 
 # 停止要因POIタイル。上と同じ運用。
 POI_REVISION = "4"

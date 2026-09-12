@@ -136,6 +136,11 @@ class HardFilterOverride(RootModel[dict[str, bool]]):
         return cls({name: name in active for name in sorted(HARD_FILTER_NAMES)})
 
 
+# 合成ルートで受け取るEdge idの上限。1本の候補が数百Edgeで、区間を差し替えても
+# 2本ぶんの長さを超えることはない。
+MAX_SPLICED_EDGES = 5000
+
+
 class RouteGenerateRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -182,6 +187,20 @@ class RouteGenerateRequest(StrictModel):
     # 出発時刻（省略時はサーバーの現在時刻）。風の時間変化評価（レグごとの通過予測時刻）の
     # 起点になる。naive値はJSTとして扱う。
     start_time: datetime | None = None
+    # 区間の乗り換え（docs/tasks/T621.md）: クライアントが候補の`edge_ids`から区間を
+    # 差し替えて組み立てた経路。指定時は探索を行わず、この経路だけを既存候補と同じ経路で
+    # 評価して1件返す（`destination`が必須。`waypoints`・`max_routes`は使わない）。
+    # 生成と同じコスト曲線（`prepare`が支配的）のため、別エンドポイントにせず同じ
+    # ジョブ機構へ載せる。
+    spliced_edge_ids: list[str] | None = Field(default=None, min_length=1, max_length=MAX_SPLICED_EDGES)
+
+    @model_validator(mode="after")
+    def _check_spliced_route_has_a_destination(self) -> "RouteGenerateRequest":
+        # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
+        # 乗り換えると戻れる保証が無くなる。docs/tasks/T621.md）。
+        if self.spliced_edge_ids and self.destination is None:
+            raise ValueError("spliced_edge_ids requires destination")
+        return self
 
     @model_validator(mode="after")
     def _check_waypoints_within_range(self) -> "RouteGenerateRequest":
@@ -347,7 +366,15 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
         ) as setup:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             start_time = _resolve_start_time(request.start_time)
-            if request.waypoints or request.destination:
+            if request.spliced_edge_ids:
+                candidates = await setup.generator.generate_spliced_route(
+                    origin=origin,
+                    destination=request.destination,
+                    distance_km=request.distance_km,
+                    edge_ids=request.spliced_edge_ids,
+                    start_time=start_time,
+                )
+            elif request.waypoints or request.destination:
                 candidates = await setup.generator.generate_via_waypoints(
                     origin=origin,
                     waypoints=request.waypoints or [],

@@ -124,6 +124,11 @@ class RouteCandidate(StrictModel):
     # backendはステートレスのため、乗り換え後の経路もこのidの列で受け取って評価し直す。
     # エンジンが経路をEdgeの列として持たない場合は空のまま。
     edge_ids: list[str] = Field(default_factory=list)
+    # `geometry.coordinates`におけるEdgeの境界点の位置（`edge_ids`より1件多い）。
+    # 隣接Edgeの境界点は重複させずに連結するため、座標列だけからはEdgeの境目を復元
+    # できない。Edge単位で決めた区間を地図へ帯として描くのに使う
+    # （`coordinates[offsets[i]:offsets[j] + 1]`がEdge i〜j-1の形状）。
+    edge_point_offsets: list[int] = Field(default_factory=list)
     # 距離だけで選んだ最短経路か（目的地モードのみ。周回は目標距離が距離を決めるため常にFalse）。
     # フロントはこの候補の`distance_km`を基準に、他の候補が何km余分に走るかを出す。
     # 軸設定に沿った候補と最短経路が同じ経路になることもあるため、複数の候補が同時に

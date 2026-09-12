@@ -12,14 +12,6 @@ domain/evaluation.pyの軸材料合成が直接参照する。
 
 from typing import Literal
 
-# 交差点（次数3以上のroad_node）の空間マッチ用半径（静的道路属性P1残り、intersectionDensity）。
-# road_nodeは必ずEdgeの端点に位置するが、Edge単位（LEFT JOIN）でEdge geometry全体に対して
-# 距離判定するため、端点ちょうどではなくEdge沿いに近接する交差点も拾えるだけの
-# 「物理的な道路網特徴へのスナップ許容量」を採る（domain/accident.py:
-# ACCIDENT_MATCH_MAX_DISTANCE_Mと同じ30m。値が一致するのは意図的で、片方だけ変える場合は
-# 意図的な差別化かどうかを検討すること）。
-INTERSECTION_MATCH_MAX_DISTANCE_M = 30.0
-
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
 INTERSECTION_DEGREE_THRESHOLD = 3
 

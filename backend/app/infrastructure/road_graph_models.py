@@ -209,7 +209,9 @@ class RawIntersectionNodeRow(Base):
     """次数3以上の生OSMノード（交差点）。osm_raw_ways.node_idsの隣接関係
     から導出したRoad Graph非依存の派生データで、バッチ
     （`app/batch/precompute_way_attribute_counts.py`）が全再構築する。
-    way_attribute_countsのintersection_count集計だけが参照する。migration 0012で
+    way単位・Edge単位いずれのintersection_count集計もこれを参照する（Road Graphの
+    `road_nodes`はルート生成済みエリアにしか行が無く、未探索の地域で交差点が0件になる）。
+    migration 0012で
     実テーブルは作成済み（ORMモデルはミラー、EdgeAttributeCountsRowの同種コメント参照）。
     """
 
