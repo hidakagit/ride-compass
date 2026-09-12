@@ -331,6 +331,21 @@ async def measure_one_to_all(context, lazy_graph, csr, cost_list, bearing, edge_
         f"states={csr.node_count} reached={node_reached}"
     )
 
+    # 時刻依存コストを一対全木へ入れる場合の見積もり。scipyは静的な重みしか扱えないため、
+    # ここだけは全状態を自前で回すことになる（周回生成の基盤がこの木の上に載っている）。
+    full = _edge_astar(
+        csr.indptr.tolist(), csr.indices.tolist(), csr.entry_edge_index.tolist(),
+        [[c * factor for c in cost_list] for factor in TIME_BIN_FACTORS],
+        np.asarray(context.statics.edge_length_m).tolist(),
+        edge_from_list, edge_to_list, bearing,
+        origin_index, -1, [0.0] * csr.node_count, speed_ms,
+    )
+    per_state_us = full["elapsed_ms"] * 1000 / max(1, full["popped"])
+    print(
+        f"[一対全 状態=有向区間 時刻依存 自前Python] popped={full['popped']} "
+        f"elapsed_ms={full['elapsed_ms']:.0f} 1状態あたり={per_state_us:.2f}us"
+    )
+
     for turn_enabled in (False, True):
         started = time.perf_counter()
         matrix, transition_count = _build_edge_expanded_csr(
