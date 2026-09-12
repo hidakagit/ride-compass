@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/Button/Button";
 import MapView, { type RouteFitObscuredPx } from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
+  ClearAllFiltersIcon,
   ClearAllLayersIcon,
+  ClearRoutesIcon,
   DownloadIcon,
   MapAppearanceIcon,
   RouteIcon,
@@ -1698,7 +1700,7 @@ export default function Home() {
       <>
         {/* 保存は機能未実装の占位（位置だけ先に確保する）。実装時はdisabledを外す。 */}
         <button type="button" className={styles.outcomeHeaderIcon} disabled title="保存（準備中）" aria-label="保存（準備中）">
-          <SaveIcon />
+          <SaveIcon size={18} />
         </button>
         {/* 選択中候補のgeometry（区間分割前の連続したLineString）をGPXへ書き出す。
             selectedCandidateがnullの間は押せない（比較タブ表示中等）。 */}
@@ -1710,7 +1712,7 @@ export default function Home() {
           title="GPX出力"
           aria-label="GPX出力"
         >
-          <DownloadIcon />
+          <DownloadIcon size={18} />
         </button>
         {/* 生成済みの候補一覧・地図描画・選択状態だけをリセットする（経由地・目的地のピンは
             対象外、別々のクリア操作として使い分ける）。押した瞬間に実行する即実行アクション。
@@ -1722,7 +1724,7 @@ export default function Home() {
           title="ルートをクリア"
           aria-label="ルートをクリア"
         >
-          <ClearAllLayersIcon size={14} />
+          <ClearRoutesIcon size={18} />
         </button>
       </>
     );
@@ -2187,8 +2189,9 @@ export default function Home() {
             onLegendAxisSetHidden={setHiddenLegendKeysForAxis}
           />
 
-          {/* 地図下部中央の行。全レイヤー一括OFFボタンを置く（design-principles.md「UI仕様」:
-              地図の視界を圧迫しない）。 */}
+          {/* 地図下部中央の行。「まとめて元に戻す」操作を並べる（design-principles.md
+              「UI仕様」: 地図の視界を圧迫しない）。レイヤーのON/OFFと凡例の絞り込みは
+              別の状態のため、戻す操作も別々に要る。 */}
           <div ref={bottomControlRowRef} className={styles.bottomControlRow}>
             <button
               type="button"
@@ -2199,6 +2202,16 @@ export default function Home() {
               className={styles.clearAllButton}
             >
               <ClearAllLayersIcon size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              disabled={!hasHiddenFilters}
+              aria-label="絞り込みをすべて解除する"
+              title="絞り込みをすべて解除する"
+              className={styles.clearAllButton}
+            >
+              <ClearAllFiltersIcon size={14} />
             </button>
           </div>
 
