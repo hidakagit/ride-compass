@@ -317,6 +317,14 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- フィーチャーが指す行そのものをosm_way_id完全一致で引く
                         -- （get_way_tags_by_osm_way_id）。
                         w.osm_way_id AS osm_way_id,
+                        -- 道路名・路線番号（表示専用）。材料の正規化（小文字化）は
+                        -- かけない——利用者へそのまま見せる固有名詞のため。空文字の
+                        -- タグはNULLIFでキーごと省く（名前を持たないwayが大多数で、
+                        -- 欠損とタグ値""を区別する意味も無い）。**第三者が編集できる
+                        -- 生値で対訳表を持たない**ため、埋め込む側は必ずエスケープする
+                        -- （frontend: popupEscape.ts）。
+                        NULLIF(btrim(w.tags->>'name'), '') AS name,
+                        NULLIF(btrim(w.tags->>'ref'), '') AS ref,
                         {SURFACE_GOOD_CASE_SQL} AS surface_good,
                         {SURFACE_NORMALIZED_SQL} AS surface,
                         {HIGHWAY_SQL} AS highway,

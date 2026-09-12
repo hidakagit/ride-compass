@@ -74,7 +74,7 @@ import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
-import { labelOrEscapedRaw } from "./popupEscape";
+import { escapeHtml, labelOrEscapedRaw } from "./popupEscape";
 import {
   DYNAMIC_WEATHER_LAYER_IDS,
   type DynamicWeatherGroupState,
@@ -2117,9 +2117,13 @@ export function nearestPointOnLineString(
 // 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
-interface RoadSurfacePopupProperties {
+export interface RoadSurfacePopupProperties {
   /** 区間インスペクタで全軸の内訳を引き直すための識別子。 */
   osm_way_id?: number | null;
+  /** OSMの道路名・路線番号（表示専用の生値）。対訳表を持たない第三者編集データのため、
+   * 埋め込む前にescapeHtmlを通す。 */
+  name?: string | null;
+  ref?: string | null;
   surface_good?: boolean | null;
   smoothness?: string | null;
   tunnel?: boolean | null;
@@ -2141,8 +2145,20 @@ const SMOOTHNESS_LABELS: Record<string, string> =
     | null
     | undefined) ?? {};
 
-function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
-  const rows = [`路面: ${formatRoad(properties.surface_good ?? null)}`];
+/** 道路名の行。`name`（通称）と`ref`（路線番号）は独立したタグで、片方だけ持つwayが
+ * 多い（番号だけの国道・名前だけの市道）。両方あれば「名前（番号）」として1行に畳む。 */
+function roadNameRow(properties: RoadSurfacePopupProperties): string | null {
+  const name = properties.name ? escapeHtml(properties.name) : null;
+  const ref = properties.ref ? escapeHtml(properties.ref) : null;
+  if (name && ref) return `${name}[${ref}]`;
+  return name ?? ref;
+}
+
+export function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
+  // 道路名は「どの道か」を決める情報のため先頭に置く（路面・属性はその道の性質）。
+  const roadName = roadNameRow(properties);
+  const rows = roadName ? [`<b>${roadName}</b>`] : [];
+  rows.push(`路面: ${formatRoad(properties.surface_good ?? null)}`);
   if (properties.smoothness) {
     rows.push(`路面状態: ${labelOrEscapedRaw(SMOOTHNESS_LABELS, properties.smoothness)}`);
   }

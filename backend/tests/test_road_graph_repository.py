@@ -1566,6 +1566,36 @@ async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_g
     assert "tunnel" not in tunnel_no_way  # tunnel=noはfalseではなくキー自体を省略する
 
 
+async def test_get_road_surface_tile_mvt_encodes_road_name_and_ref(road_graph_repository, road_graph_session):
+    """道路名（name）・路線番号（ref）は表示専用の生値。正規化（小文字化）はかけず、
+    空文字・未設定はキーごと省く（名前を持たないwayが大多数のため）。"""
+    import mapbox_vector_tile
+
+    way_specs = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential", tags={"name": " Meiji Dori "}),
+        WaySpec(osm_way_id=2, node_ids=[1, 2], highway="primary", tags={"ref": "R305"}),
+        WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", tags={"name": "  "}),
+        WaySpec(osm_way_id=4, node_ids=[1, 2], highway="residential"),
+    ]
+    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    decoded = mapbox_vector_tile.decode(tile)
+    by_way_id = {f["properties"]["osm_way_id"]: f["properties"] for f in decoded["road_surface"]["features"]}
+
+    # 前後空白は落とすが大小はそのまま（固有名詞のため）。
+    assert by_way_id[1]["name"] == "Meiji Dori"
+    assert "ref" not in by_way_id[1]
+    assert by_way_id[2]["ref"] == "R305"
+    assert "name" not in by_way_id[2]
+    # 空白だけのタグは空文字へ落ちるため、未設定と同じくキーを持たない。
+    assert "name" not in by_way_id[3]
+    assert "name" not in by_way_id[4] and "ref" not in by_way_id[4]
+
+
 async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository, road_graph_session):
     """改善計画T289: 一方通行はosm_raw_ways.direction（forward/backward/both）から
     算出する。both（双方向）はキー省略、forward/backwardはtrueが焼かれる。"""
