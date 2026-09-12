@@ -939,15 +939,21 @@ def build_turn_expanded_structure(
 def build_turn_expanded_csr(
     structure: TurnExpandedStructure,
     edge_cost: np.ndarray,
-    origin_edge_indices: np.ndarray,
+    entry_state_indices: np.ndarray,
     speed_ms: float,
+    *,
+    reverse: bool = False,
 ) -> csr_matrix:
     """一対全木用のscipy CSRを組む。値は「遷移先の区間のコスト＋ターンの費用」。
 
-    末尾の1行は仮想の始点で、起点から出る区間へその区間のコスト自身で繋ぐ（複数の始点状態へ
+    末尾の1行は仮想の始点で、`entry_state_indices`（正方向なら起点から出る区間、
+    `reverse=True`なら目的地へ入る区間）へその区間のコスト自身で繋ぐ（複数の始点状態へ
     別々の初期コストを与えるため）。行数・列数はともに`state_count + 1`で、仮想始点の状態
     index は`state_count`。0次フィルタで除外された区間（コストが無限大）への遷移は落とす
     ——scipyは無限大を「辺が無い」ではなく「非常に大きい重み」として扱うため。
+
+    `reverse=True`は遷移の向きだけを反転する（転置グラフ）。ターンの費用は元の進行方向の
+    ままで、「その区間から目的地まで」のコストが求まる。
     """
     state_count = structure.state_count
     source = np.repeat(np.arange(state_count, dtype=np.int64), np.diff(structure.indptr))
@@ -958,17 +964,190 @@ def build_turn_expanded_csr(
     source = source[finite]
     target = target[finite]
     weight = weight[finite]
+    if reverse:
+        source, target = target, source
 
-    origin_edges = origin_edge_indices[np.isfinite(edge_cost[origin_edge_indices])]
-    source = np.concatenate([source, np.full(len(origin_edges), state_count, dtype=np.int64)])
-    target = np.concatenate([target, origin_edges.astype(np.int64)])
-    weight = np.concatenate([weight, edge_cost[origin_edges]])
+    entry_states = entry_state_indices[np.isfinite(edge_cost[entry_state_indices])]
+    source = np.concatenate([source, np.full(len(entry_states), state_count, dtype=np.int64)])
+    target = np.concatenate([target, entry_states.astype(np.int64)])
+    weight = np.concatenate([weight, edge_cost[entry_states]])
 
     order = np.argsort(source, kind="stable")
     indptr = np.zeros(state_count + 2, dtype=np.int64)
     np.cumsum(np.bincount(source, minlength=state_count + 1), out=indptr[1:])
     return csr_matrix(
         (weight[order], target[order], indptr), shape=(state_count + 1, state_count + 1)
+    )
+
+
+@dataclass
+class TurnExpandedTree:
+    """状態＝有向Edgeの一対全最短経路木。`state_*`は`LazyRoadGraph.edge_ids`と同じ行順、
+    `node_*`はNode index順。
+
+    `ShortestPathTree`と違い「起点Nodeのコスト0」という状態を持たない——状態の空間に
+    「まだ走っていない」が無いため、起点Nodeの`node_cost`は「起点へ戻ってくるコスト」に
+    なる。起点を0として扱いたい呼び出し元は自分で上書きする。
+    """
+
+    # 仮想始点から各状態への最小コスト。到達不能はinf。
+    state_cost: np.ndarray
+    # 木の親となる状態。始点の区間・到達不能は-1。
+    predecessor: np.ndarray
+    # 木に沿った実距離（m）の積算。到達不能はNaN。
+    state_length_m: np.ndarray
+    # Nodeごとの最小コストと、そのコストでNodeへ入る状態（到達不能は-1）。
+    node_cost: np.ndarray
+    node_best_state: np.ndarray
+    # `node_best_state`に対応する実距離（m）。到達不能はNaN。
+    node_length_m: np.ndarray
+    # `predecessor`のPython list版（`ShortestPathTree`と同じ理由）。
+    predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
+
+
+def build_turn_expanded_tree(
+    structure: TurnExpandedStructure,
+    edge_cost: np.ndarray,
+    edge_length_m: np.ndarray,
+    entry_state_indices: np.ndarray,
+    speed_ms: float,
+    node_count: int,
+    *,
+    reverse: bool = False,
+    cost_limit: float = np.inf,
+) -> TurnExpandedTree:
+    """状態＝有向Edgeの一対全Dijkstra（scipy、前任者付き）。
+
+    実距離の積算は`_accumulate_tree_lengths`と同じポインタジャンプだが、状態へ入る辺は
+    その状態自身（有向Edge）のため、CSRエントリ位置の検索が要らない。
+    """
+    state_count = structure.state_count
+    matrix = build_turn_expanded_csr(structure, edge_cost, entry_state_indices, speed_ms, reverse=reverse)
+    cost, predecessor = scipy_dijkstra(
+        matrix, directed=True, indices=state_count, return_predecessors=True, limit=cost_limit
+    )
+    state_cost = cost[:state_count]
+    predecessor = predecessor[:state_count].astype(np.int64)
+    # 仮想始点（index=state_count）とscipyのセンチネル（-9999）をまとめて-1へ正規化する。
+    predecessor[(predecessor < 0) | (predecessor >= state_count)] = -1
+
+    reached = np.isfinite(state_cost)
+    has_pred = reached & (predecessor >= 0)
+    accumulated = np.where(reached, np.asarray(edge_length_m, dtype=float), 0.0)
+    ancestor = np.where(has_pred, predecessor, np.arange(state_count))
+    for _ in range(64):  # 木の深さ2^64までの安全弁（実際はlog2(深さ)回で収束する）
+        next_ancestor = ancestor[ancestor]
+        if np.array_equal(next_ancestor, ancestor):
+            break
+        accumulated = accumulated + np.where(ancestor == np.arange(state_count), 0.0, accumulated[ancestor])
+        ancestor = next_ancestor
+    state_length_m = np.where(reached, accumulated, np.nan)
+
+    # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
+    incoming = structure.edge_from if reverse else structure.edge_to
+    order = np.lexsort((state_cost, incoming))
+    sorted_nodes = incoming[order]
+    first = np.ones(len(order), dtype=bool)
+    first[1:] = sorted_nodes[1:] != sorted_nodes[:-1]
+    best_states = order[first]
+    node_best_state = np.full(node_count, -1, dtype=np.int64)
+    node_cost = np.full(node_count, np.inf)
+    node_length_m = np.full(node_count, np.nan)
+    finite_best = best_states[np.isfinite(state_cost[best_states])]
+    node_best_state[incoming[finite_best]] = finite_best
+    node_cost[incoming[finite_best]] = state_cost[finite_best]
+    node_length_m[incoming[finite_best]] = state_length_m[finite_best]
+
+    return TurnExpandedTree(
+        state_cost=state_cost, predecessor=predecessor, state_length_m=state_length_m,
+        node_cost=node_cost, node_best_state=node_best_state, node_length_m=node_length_m,
+        predecessor_list=predecessor.tolist(),
+    )
+
+
+def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> list[int]:
+    """前向き木で、始点→`state_index`の経路をEdge index列（進行順）で返す。状態がそのまま
+    Edge indexのため、`(parent, current)`からEdgeを引き直す必要がない。"""
+    edges: list[int] = []
+    state = int(state_index)
+    while state >= 0:
+        edges.append(state)
+        state = tree.predecessor_list[state]
+    edges.reverse()
+    return edges
+
+
+def turn_expanded_path_from_state_to_source(tree: TurnExpandedTree, state_index: int) -> list[int]:
+    """`reverse=True`で作った木で、`state_index`から木の始点（目的地）までの経路を進行順で
+    返す。逆向きの木では前任者を辿ることが目的地へ近づくことに当たるため、反転しない。"""
+    edges: list[int] = []
+    state = int(state_index)
+    while state >= 0:
+        edges.append(state)
+        state = tree.predecessor_list[state]
+    return edges
+
+
+def turn_expanded_path_edge_indices(tree: TurnExpandedTree, target_node_index: int) -> list[int] | None:
+    """木上の始点→`target_node_index`の経路をEdge index列で返す。到達不能ならNone。"""
+    state = int(tree.node_best_state[target_node_index])
+    if state < 0:
+        return None
+    return turn_expanded_path_from_state(tree, state)
+
+
+@dataclass
+class NodeJunction:
+    """前向き木と後ろ向き木を各Nodeで繋いだ結果。配列はNode index順。"""
+
+    # 繋いだ合計コスト（前向き＋そのNodeでのターン＋後ろ向き）。繋げないNodeはinf。
+    cost: np.ndarray
+    # 同じ経路の実距離（m）。繋げないNodeはNaN。
+    length_m: np.ndarray
+    # 繋いだときの前向き側・後ろ向き側の状態（Edge index）。繋げないNodeは-1。
+    forward_state: np.ndarray
+    backward_state: np.ndarray
+
+
+def combine_forward_backward_at_nodes(
+    structure: TurnExpandedStructure,
+    forward: TurnExpandedTree,
+    backward: TurnExpandedTree,
+    speed_ms: float,
+    node_count: int,
+) -> NodeJunction:
+    """前向き木と後ろ向き木を、Nodeごとに「そこでのターンの費用を含めて」繋ぐ。
+
+    Nodeで単に`forward.node_cost + backward.node_cost`を足すと、そのNodeを通り抜けるときの
+    ターンの費用が抜ける（入る方向と出る方向の組み合わせで決まるため）。遷移（入る区間×出る
+    区間の対）ごとに合計を求め、Nodeごとの最小を採る。
+    """
+    state_count = structure.state_count
+    source = np.repeat(np.arange(state_count, dtype=np.int64), np.diff(structure.indptr))
+    target = structure.target_state
+    total = forward.state_cost[source] + structure.turn_seconds * speed_ms + backward.state_cost[target]
+    length = forward.state_length_m[source] + backward.state_length_m[target]
+    junction_node = structure.edge_to[source]
+
+    cost = np.full(node_count, np.inf)
+    length_m = np.full(node_count, np.nan)
+    forward_state = np.full(node_count, -1, dtype=np.int64)
+    backward_state = np.full(node_count, -1, dtype=np.int64)
+
+    finite = np.flatnonzero(np.isfinite(total))
+    if len(finite):
+        order = finite[np.lexsort((total[finite], junction_node[finite]))]
+        nodes = junction_node[order]
+        first = np.ones(len(order), dtype=bool)
+        first[1:] = nodes[1:] != nodes[:-1]
+        best = order[first]
+        best_nodes = junction_node[best]
+        cost[best_nodes] = total[best]
+        length_m[best_nodes] = length[best]
+        forward_state[best_nodes] = source[best]
+        backward_state[best_nodes] = target[best]
+    return NodeJunction(
+        cost=cost, length_m=length_m, forward_state=forward_state, backward_state=backward_state
     )
 
 

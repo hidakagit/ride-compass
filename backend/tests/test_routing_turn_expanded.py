@@ -1,6 +1,7 @@
 """状態＝有向Edge・辺＝ターンの展開構造（`domain/routing.py`）のテスト。"""
 
 import numpy as np
+import pytest
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
 from app.domain.graph import DirectedEdge, Node, RoadGraph
@@ -11,8 +12,11 @@ from app.domain.routing import (
     build_shortest_path_tree,
     build_turn_expanded_csr,
     build_turn_expanded_structure,
+    build_turn_expanded_tree,
+    combine_forward_backward_at_nodes,
     edge_bearings,
     node_costs_from_state_costs,
+    turn_expanded_path_edge_indices,
     turn_seconds_for,
 )
 
@@ -152,3 +156,96 @@ def test_expensive_right_turn_makes_the_search_avoid_it():
     assert results["安い右折"] == 200.0, "右折が無料ならS→C→Eの200m"
     # 右折60秒は時速20kmで333m相当のため、300mの直進ルートの方が安くなる。
     assert results["高い右折"] == 300.0
+
+
+def _tree_for(graph: RoadGraph, origin_id: str, spec: TurnCostSpec, reverse: bool = False):
+    lazy_graph, csr, structure = _structure_for(graph, spec)
+    cost = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
+    length = cost.copy()
+    node_index = lazy_graph.node_id_to_index[origin_id]
+    if reverse:
+        # 目的地へ入る状態（＝終点がそのNodeの有向Edge）を始点にする。
+        entry = np.flatnonzero(structure.edge_to == node_index)
+    else:
+        entry = csr.entry_edge_index[csr.indptr[node_index]:csr.indptr[node_index + 1]].astype(np.int64)
+    tree = build_turn_expanded_tree(
+        structure, cost, length, entry, SPEED_MS, csr.node_count, reverse=reverse
+    )
+    return lazy_graph, structure, tree
+
+
+def test_turn_expanded_tree_costs_and_lengths_follow_the_path():
+    graph = _crossroads()
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, _, tree = _tree_for(graph, "S", free)
+
+    center = lazy_graph.node_id_to_index["C"]
+    east = lazy_graph.node_id_to_index["E"]
+    assert tree.node_cost[center] == 100.0
+    assert tree.node_length_m[center] == 100.0
+    assert tree.node_cost[east] == 200.0
+    assert tree.node_length_m[east] == 200.0
+
+
+def test_turn_expanded_tree_path_returns_edge_indices():
+    graph = _crossroads()
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, _, tree = _tree_for(graph, "S", free)
+
+    edges = turn_expanded_path_edge_indices(tree, lazy_graph.node_id_to_index["E"])
+    assert [lazy_graph.edge_ids[index] for index in edges] == ["S-C", "C-E"]
+
+
+def test_turn_expanded_tree_reverse_gives_cost_to_the_destination():
+    """逆向きの木は「その区間から目的地まで」のコストを返す。"""
+    graph = _crossroads()
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, _, tree = _tree_for(graph, "E", free, reverse=True)
+
+    # WからEまではW→C→Eの200m。木の始点（E）側からは、その区間を遡って積算する。
+    west = lazy_graph.node_id_to_index["W"]
+    assert tree.node_cost[west] == 200.0
+
+
+def test_turn_expanded_tree_marks_unreachable_states():
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "X")}
+    edges = {
+        "S-C": _edge("S-C", "S", "C", 0.0),
+        # Xはどこからも入れない孤立Node（X-Cのみ）。
+        "X-C": _edge("X-C", "X", "C", 0.0),
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+    lazy_graph, _, tree = _tree_for(graph, "S", TurnCostSpec())
+
+    assert np.isfinite(tree.node_cost[lazy_graph.node_id_to_index["C"]])
+    assert not np.isfinite(tree.node_cost[lazy_graph.node_id_to_index["X"]])
+    assert turn_expanded_path_edge_indices(tree, lazy_graph.node_id_to_index["X"]) is None
+
+
+def test_combining_forward_and_backward_trees_includes_the_turn_at_the_junction():
+    """繋ぎ目のNodeで曲がる費用が合計へ入る（単に前向き＋後ろ向きを足すと抜ける）。"""
+    graph = _crossroads()
+    spec = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+    lazy_graph, csr, structure = _structure_for(graph, spec)
+    cost = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
+
+    origin = lazy_graph.node_id_to_index["S"]
+    destination = lazy_graph.node_id_to_index["E"]
+    forward_entry = csr.entry_edge_index[csr.indptr[origin]:csr.indptr[origin + 1]].astype(np.int64)
+    backward_entry = np.flatnonzero(structure.edge_to == destination)
+    forward = build_turn_expanded_tree(
+        structure, cost, cost, forward_entry, SPEED_MS, csr.node_count
+    )
+    backward = build_turn_expanded_tree(
+        structure, cost, cost, backward_entry, SPEED_MS, csr.node_count, reverse=True
+    )
+    junction = combine_forward_backward_at_nodes(structure, forward, backward, SPEED_MS, csr.node_count)
+
+    center = lazy_graph.node_id_to_index["C"]
+    # S-C(100m) → Cで右折(60秒=333.33m相当) → C-E(100m)
+    assert junction.cost[center] == pytest.approx(200.0 + 60.0 * SPEED_MS)
+    assert junction.length_m[center] == pytest.approx(200.0)
+    assert lazy_graph.edge_ids[junction.forward_state[center]] == "S-C"
+    assert lazy_graph.edge_ids[junction.backward_state[center]] == "C-E"
+    # Nodeごとのコストを単に足すとターンぶんが抜ける（この関数が解いている問題）。
+    assert forward.node_cost[center] + backward.node_cost[center] == pytest.approx(200.0)
