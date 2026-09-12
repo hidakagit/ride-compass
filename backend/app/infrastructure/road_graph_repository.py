@@ -639,30 +639,59 @@ _POI_COUNTS_BY_KIND_SQL = text(
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
 
-# 外部静的データソースT50（事故密度の評価組み込み）。「edge_idそれぞれの距離内件数」を
-# LEFT JOIN + GROUP BYで数えるパターンで、対象テーブルはaccident_points、
+# 事故点の帰属先（半径内で最も近い1本のway）。事故点はOSMの要素ではないため、信号・交差点の
+# ように「wayの構成ノードか」では帰属を決められない。距離だけで数えると1つの事故が半径内の
+# **すべての**道路へ計上され、静かな裏道が隣の幹線で起きた事故を相続する。
+# 同距離のときはosm_way_idで決める（結果を呼び出し順に依存させない）。
+# way単位・Edge単位の両方が同じ帰属を使うため、判定はこの1箇所に置く。
+_NEAREST_WAY_FOR_ACCIDENT_SQL = """
+            SELECT nw.osm_way_id
+            FROM osm_raw_ways nw
+            WHERE nw.highway IS NOT NULL
+              AND nw.geom && ST_Expand(a.geom, :accident_distance_deg)
+              AND ST_DWithin(a.geom::geography, nw.geom::geography, :accident_distance_m)
+            ORDER BY ST_Distance(a.geom::geography, nw.geom::geography), nw.osm_way_id
+            LIMIT 1"""
+
+# 外部静的データソースT50（事故密度の評価組み込み）。対象テーブルはaccident_points、
 # bicycle_only（当事者に自転車を含む事故のみに絞るか）の切替を持つ。
 # 空間索引（GiST）を使わせるため`&&`（bbox交差）をST_DWithinの前に置く。
 # 単純COUNTではなく死亡事故を`ACCIDENT_FATAL_WEIGHT`件分とみなすSUMにする
-# （domain/accident.py参照）。戻り値はfloat。LEFT JOINで一致が
-# 無いedgeはa.accident_idもa.fatalもNULLになるため、CASE式の先頭でa.accident_id IS NULLを
-# 明示的に0扱いする（無いとNULLはWHEN a.fatal THENの条件が偽になりELSE 1へ落ち、
-# 事故0件のedgeに架空の1件が計上されてしまう）。
+# （domain/accident.py参照）。戻り値はfloat。LATERALで一致が無いedgeも1行返り
+# `a.fatal`がNULLになるため、CASE式の先頭で`a.accident_id IS NULL`を0扱いする
+# （無いとNULLは`WHEN a.fatal THEN`の条件が偽になりELSE 1へ落ち、事故0件のedgeに
+# 架空の1件が計上される）。
+#
+# 帰属先のwayが決まったあと、そのwayのどの区間が持つかは距離で決める。逆向きの区間は
+# 同じ線を共有するため距離が並び、どちらも数える（走行方向のどちらで通っても同じ事故に
+# 遭遇する）。浮動小数の誤差ぶんの許容を置くのはこのため。
+_EDGE_OF_WAY_NEAREST_TO_ACCIDENT_M = 0.01
 _ACCIDENT_COUNTS_SQL = text(
     """
     SELECT e.edge_id,
-           SUM(CASE WHEN a.accident_id IS NULL THEN 0 WHEN a.fatal THEN :fatal_weight ELSE 1 END) AS accident_count
+           SUM(CASE WHEN a.accident_id IS NULL THEN 0 WHEN a.fatal THEN :fatal_weight ELSE 1 END)
+               AS accident_count
     FROM road_edges e
-    LEFT JOIN accident_points a
-        ON a.geom && ST_Expand(e.geom, :max_distance_deg)
-       AND ST_DWithin(a.geom::geography, e.geom::geography, :max_distance_m)
-       AND (:bicycle_only = false OR a.involves_bicycle)
+    LEFT JOIN LATERAL (
+        SELECT a.accident_id, a.fatal
+        FROM accident_points a
+        WHERE a.geom && ST_Expand(e.geom, :accident_distance_deg)
+          AND ST_DWithin(a.geom::geography, e.geom::geography, :accident_distance_m)
+          AND (:bicycle_only = false OR a.involves_bicycle)
+          AND (__NEAREST_WAY__) = e.osm_way_id
+          AND ST_Distance(a.geom::geography, e.geom::geography) <= :edge_tie_tolerance_m + (
+              SELECT MIN(ST_Distance(a.geom::geography, e2.geom::geography))
+              FROM road_edges e2
+              WHERE e2.osm_way_id = e.osm_way_id
+          )
+    ) a ON true
     WHERE e.edge_id = ANY(CAST(:edge_ids AS text[]))
     GROUP BY e.edge_id
-    """
+    """.replace("__NEAREST_WAY__", _NEAREST_WAY_FOR_ACCIDENT_SQL)
 ).bindparams(
     bindparam("bicycle_only", type_=Boolean()),
     bindparam("fatal_weight", value=ACCIDENT_FATAL_WEIGHT, type_=Float()),
+    bindparam("edge_tie_tolerance_m", value=_EDGE_OF_WAY_NEAREST_TO_ACCIDENT_M, type_=Float()),
 )
 
 # 指定路線コンフレーション機構（外部静的データソース T51）。designation_attributesは
@@ -991,6 +1020,7 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
         WHERE a.geom && ST_Expand(w.geom, :accident_distance_deg)
           AND ST_DWithin(a.geom::geography, w.geom::geography, :accident_distance_m)
           AND a.involves_bicycle
+          AND (__NEAREST_WAY__) = w.osm_way_id
     ) acc ON true
     LEFT JOIN LATERAL (
         SELECT jsonb_object_agg(t2.kind, t2.cnt) AS counts
@@ -1016,6 +1046,7 @@ _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
         source_osm_import_run_id = EXCLUDED.source_osm_import_run_id,
         algorithm_version = EXCLUDED.algorithm_version
     """.replace("__WAY_POI_BODY__", _poi_counts_body("w.node_ids", "w.node_ids[1]"))
+    .replace("__NEAREST_WAY__", _NEAREST_WAY_FOR_ACCIDENT_SQL)
 ).bindparams(bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())))
 
 def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -> RoadGraph:
@@ -2309,8 +2340,10 @@ class AttributeRepository(_SessionRepository):
             rows = await self._session.execute(
                 _ACCIDENT_COUNTS_SQL,
                 {
-                    "edge_ids": id_chunk, "bicycle_only": bicycle_only, "max_distance_m": max_distance_m,
-                    "max_distance_deg": max_distance_deg,
+                    "edge_ids": id_chunk,
+                    "bicycle_only": bicycle_only,
+                    "accident_distance_m": max_distance_m,
+                    "accident_distance_deg": max_distance_deg,
                 },
             )
             for edge_id, accident_count in rows.all():
