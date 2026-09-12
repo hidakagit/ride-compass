@@ -643,3 +643,32 @@ def test_a_constant_is_not_rescued_just_because_a_module_shares_its_lowercase_na
         assert not review_checks.identifier_exists("AXIS_DEFINITIONS", "from app.domain import axis_definitions")
     finally:
         review_checks.settings_field_names.cache_clear()
+
+
+# --- 段落判定の内容は、行番号の出所と同じものを読む ---
+
+
+def test_paragraph_marker_reads_the_index_not_the_working_tree(tmp_path, monkeypatch):
+    """`--staged`はインデックスの行番号を返すのに、段落判定が作業ツリーを読むとずれる。
+
+    `git add -p`での部分ステージやステージ後の追記で両者が食い違うと、**別の段落の免除が
+    適用される**（見逃し・誤検知の両方向）。pre-commitはインデックスを検査する契約なので、
+    結果が作業ツリーの状態に依存してはいけない。
+    """
+    (tmp_path / "docs").mkdir()
+    # 作業ツリー: 1行目の段落に撤去の断りがある
+    (tmp_path / "docs" / "architecture.md").write_text(
+        "`zzzA`は撤去済み。\n\n`zzzB`が値を組み立てる。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    # インデックス: 断りが2つ目の段落にある（段落の位置が入れ替わっている）
+    monkeypatch.setattr(
+        review_checks, "git",
+        lambda *args, **kwargs: "`zzzB`が値を組み立てる。\n\n`zzzA`は撤去済み。\n"
+        if args[:1] == ("show",) else "",
+    )
+
+    from_index = review_checks.paragraphs_with_removal_marker("docs/architecture.md", revision="")
+    from_worktree = review_checks.paragraphs_with_removal_marker("docs/architecture.md")
+
+    assert from_index == {3}
+    assert from_worktree == {1}

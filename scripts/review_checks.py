@@ -394,19 +394,35 @@ ARCHITECTURE_EXTERNAL_REFS = frozenset({
 })
 
 
-def paragraphs_with_removal_marker(doc: str) -> set[int]:
-    """撤去等の断りを含む段落に属する行番号（空行区切り、ディスク上の実体を読む）。
+def doc_text_at(doc: str, revision: str | None) -> str:
+    """`revision`時点の文書の中身（Noneなら作業ツリーの実体）。
+
+    段落の判定は**行番号の出所と同じ内容**で行う必要がある。`--staged`は
+    `git diff --cached`＝インデックスの行番号を返すため、作業ツリーを読むと
+    `git add -p`での部分ステージやステージ後の追記でずれ、**別の段落の免除が適用される**
+    （見逃し・誤検知の両方向）。
+    """
+    if revision is None:
+        path = REPO_ROOT / doc
+        return read_text(path) if path.exists() else ""
+    return git("show", f"{revision}:{doc}", check=False)
+
+
+def paragraphs_with_removal_marker(doc: str, revision: str | None = None) -> set[int]:
+    """撤去等の断りを含む段落に属する行番号（空行区切り）。
 
     判定の単位は物理行ではなく段落にする。この文書は編集の都合で1文が複数行へ
     折り返されるため、行で見ると「名前」と「撤去済み」が別の行へ落ちただけで違反になる
     ——読み手が受け取る単位は段落であって、折り返し位置ではない。
+
+    `revision`は行番号の出所（`""`＝インデックス、`"HEAD"`、Noneなら作業ツリー）。
     """
-    path = REPO_ROOT / doc
-    if not path.exists():
+    text = doc_text_at(doc, revision)
+    if not text:
         return set()
     marked: set[int] = set()
     start, buffer = 1, []
-    for lineno, line in enumerate(read_text(path).splitlines(), 1):
+    for lineno, line in enumerate(text.splitlines(), 1):
         if line.strip():
             if not buffer:
                 start = lineno
@@ -421,12 +437,16 @@ def paragraphs_with_removal_marker(doc: str) -> set[int]:
 
 
 def find_undeclared_dead_refs(
-    doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str
+    doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str,
+    revision: str | None = None,
 ) -> list[str]:
-    """architecture.mdが、実在しない名前を撤去等の断りなく名指ししている箇所。"""
+    """architecture.mdが、実在しない名前を撤去等の断りなく名指ししている箇所。
+
+    `revision`は`doc_lines`の行番号がどこ由来かを示す（`doc_text_at`参照）。
+    """
     filtered = {}
     for doc, lines in doc_lines.items():
-        marked = paragraphs_with_removal_marker(doc)
+        marked = paragraphs_with_removal_marker(doc, revision)
         filtered[doc] = [
             (no, line)
             for no, line in lines
@@ -447,7 +467,8 @@ def _dead_refs_of(
 
 
 def find_dead_refs_inside_exempted_paragraphs(
-    doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str
+    doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str,
+    revision: str | None = None,
 ) -> list[str]:
     """免除した段落の中に残っている、実在しない名前。
 
@@ -457,7 +478,7 @@ def find_dead_refs_inside_exempted_paragraphs(
     """
     inside = {}
     for doc, lines in doc_lines.items():
-        marked = paragraphs_with_removal_marker(doc)
+        marked = paragraphs_with_removal_marker(doc, revision)
         inside[doc] = [
             (no, line)
             for no, line in lines
@@ -855,11 +876,12 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_bare_basemodel_violations(source_lines)))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
         sections.append(("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
-                         find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added))))
+                         find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision="")))
         sections.append((
             "undeclared_dead_refs_exempted",
             "architecture.md の免除した段落の中に残る実在しない名前（参考、ステージ済み追加行）",
-            find_dead_refs_inside_exempted_paragraphs(arch_lines, files + added, source_corpus(files + added))))
+            find_dead_refs_inside_exempted_paragraphs(
+                arch_lines, files + added, source_corpus(files + added), revision="")))
         sections.append(("undocumented_files", "新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
                          find_undocumented_files(added, modules_text, files + added)))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
@@ -895,11 +917,11 @@ def cmd_docs(args: argparse.Namespace) -> int:
             sections.append((
                 "undeclared_dead_refs",
                 f"architecture.md が撤去済みの名前を断りなく名指し（{args.since} 以降の追加行）",
-                find_undeclared_dead_refs(arch_since, files, source_corpus(files))))
+                find_undeclared_dead_refs(arch_since, files, source_corpus(files), revision="HEAD")))
             sections.append((
                 "undeclared_dead_refs_exempted",
                 f"architecture.md の免除した段落の中に残る実在しない名前（参考、{args.since} 以降の追加行）",
-                find_dead_refs_inside_exempted_paragraphs(arch_since, files, source_corpus(files))))
+                find_dead_refs_inside_exempted_paragraphs(arch_since, files, source_corpus(files), revision="HEAD")))
         else:
             added = files
             title = "実装ファイルの docs/modules 記載漏れ（全件）"
@@ -1329,6 +1351,29 @@ GUARD_PROBE_PY = "backend/app/services/zzz_guard_probe.py"
 GUARD_PROBE_IDENT = "zzz" + "GuardProbe" + "Ident"
 
 
+def guard_probe_post_stage(wt: Path) -> dict[str, "Callable[[], None]"]:
+    """検知器キー → ステージ後に**作業ツリーだけ**を書き換える手順（省略可）。
+
+    pre-commitはインデックスを検査する契約なので、ステージ後に作業ツリーを触っても結果は
+    変わってはいけない。「作業ツリーを読んでしまう」実装をここで露見させる
+    ——`git add -A`しかしない手順では、インデックスと作業ツリーが常に同じで区別がつかない。
+    """
+    arch = wt / ARCHITECTURE_DOC
+
+    def declare_removed_in_worktree_only() -> None:
+        # ステージ済みの違反行と同じ段落へ、作業ツリーでだけ撤去の断りを足す。
+        text = read_text(arch)
+        arch.write_text(
+            text.replace(
+                f"`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。",
+                f"`{GUARD_PROBE_IDENT}`は撤去済み。",
+            ),
+            encoding="utf-8",
+        )
+
+    return {"undeclared_dead_refs": declare_removed_in_worktree_only}
+
+
 def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
     """検知器キー → その検知器だけが拾うはずの違反を1件作る手順。"""
     module_doc = next(
@@ -1360,6 +1405,10 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "dead_doc_links": lambda: append(module_doc, "\n詳細は[T9999](../../tasks/T9999.md)参照。\n"),
         "undeclared_dead_refs": lambda: append(arch, f"\n`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n"),
         "plan_vs_tasks": flip_plan_checkbox,
+        # 参考出力なのでDETECTOR_ENFORCEMENTは空だが、違反の作り方は定義しておく
+        # （`mutate --case`で単体で試せるようにするため）。
+        "undeclared_dead_refs_exempted": lambda: append(
+            arch, f"\n`zzzGoneName`は撤去済み。`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n"),
         "source_narrative": lambda: write(
             GUARD_PROBE_TS, "// 改善計画T999でこの形に変更した。\nexport const zzzGuardProbe = 1;\n"),
         "undocumented_files": lambda: write(GUARD_PROBE_TS, "export const zzzGuardProbe = 1;\n"),
@@ -1414,6 +1463,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                "commit", "-q", "-m", "guard audit base", "--no-verify")
         base = wt_run("git", "rev-parse", "HEAD").stdout.strip()
         mutations = guard_probe_mutations(wt)
+        post_stage = guard_probe_post_stage(wt)
 
         for key in declared:
             mutate = mutations.get(key)
@@ -1432,6 +1482,8 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                     rows.append((key, "SETUP-FAIL", label, str(exc)[:80]))
                     continue
                 wt_run("git", "add", "-A")
+                if mode == "staged" and key in post_stage:
+                    post_stage[key]()
                 check = ["--staged"]
                 if mode == "since":
                     wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
