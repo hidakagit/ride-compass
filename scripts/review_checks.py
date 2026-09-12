@@ -308,6 +308,35 @@ def find_way_tag_allowlist_violations(source_lines: dict[str, list[tuple[int, st
     return out
 
 
+# テストの足場（フェイク・フィクスチャ組み立て）が、同じ名前で複数のテストファイルへ
+# 定義されている状態。書く前に既にあるものへ気づくための参考表示で、正当に分ける判断
+# （記録する呼び出しが違う等）もあるためブロックはしない（docs/tasks/T771.md）。
+SCAFFOLD_DEF_RES = (
+    re.compile(r"^(?:export\s+)?(?:async\s+)?function\s+((?:make|fake|stub|build|create)[A-Za-z0-9_]*)\s*\(", re.M),
+    re.compile(r"^const\s+((?:make|fake|stub|build|create)[A-Za-z0-9_]*)\s*=\s*(?:\(|async|function)", re.M),
+)
+
+
+def find_duplicate_test_scaffolds(test_files: list[str]) -> list[str]:
+    """同じ名前の足場が2つ以上のテストファイルに定義されている箇所。"""
+    by_name: dict[str, list[str]] = {}
+    for path in test_files:
+        if "/testing/" in path:
+            continue
+        text = read_text(REPO_ROOT / path)
+        for pattern in SCAFFOLD_DEF_RES:
+            for name in pattern.findall(text):
+                by_name.setdefault(name, [])
+                if path not in by_name[name]:
+                    by_name[name].append(path)
+    return [
+        f"`{name}`が{len(paths)}ファイルに定義されている（{', '.join(sorted(paths))}）"
+        "——同じ用途の足場が既にあるかを見てから書く。共有するなら frontend/src/testing へ"
+        for name, paths in sorted(by_name.items())
+        if len(paths) > 1
+    ]
+
+
 FILE_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_./@\-]+\.(?:py|ts|tsx|css|json|yml|yaml|sql|sh|md|js|mjs|toml|txt))`"
 )
@@ -1306,6 +1335,9 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
     # 人にしか分からない（docs/tasks/T751.md）。[x]化の瞬間に目へ入れるのが目的。
     "unfiled_deferrals": frozenset(),
+    # 参考表示のみ。同じ名前でも記録する呼び出しが違えば分けるのが正しいことがあり、
+    # 人にしか決められない（docs/tasks/T771.md）。書く前に既存へ気づくのが目的。
+    "duplicate_test_scaffold": frozenset(),
 }
 
 
@@ -1438,6 +1470,11 @@ def cmd_docs(args: argparse.Namespace) -> int:
                              for f in MATERIAL_TAG_READER_FILES
                              if (REPO_ROOT / f).exists()
                          })))
+        sections.append((
+            "duplicate_test_scaffold",
+            "同じ名前のテスト足場が複数ファイルにある（参考、docs/tasks/T771.md参照）",
+            find_duplicate_test_scaffolds([f for f in files if f.endswith(".test.ts") or f.endswith(".test.tsx")]),
+        ))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
                          check_plan_vs_tasks()))
         if args.since:
