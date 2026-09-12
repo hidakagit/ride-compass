@@ -5,21 +5,15 @@ import InfoPopover from "@/components/Map/InfoPopover";
 import { axisIconFor } from "@/components/Map/axisIconPalette";
 import { withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
-import {
-  SHARE_STEP_PCT,
-  WEIGHT_STEP,
-  adjustAxisShare,
-  clampBoundaryDrag,
-  totalWeight,
-} from "@/lib/routeWeightShare";
+import { WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/lib/routeWeightShare";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
 
-// 「ルート設定」区分の「重み」タブ。重み配分バー（帯グラフ、全軸の取り分が1本に収まる）→
-// 選択中の軸の1行（名前・%・±）→軸チップ（有効な軸を先頭に%付きで並べ、チェックで
-// 有効/無効、本体で調整対象を選ぶ）という並び。除外する道路は別タブ（HardFilterPanel）。
+// 「ルート設定」区分の「重み」タブ。重み配分バー（帯グラフ、全軸の取り分が1本に収まり、
+// 境界のドラッグで配分し直す）→軸チップ（有効な軸を先頭に%付きで並べ、タップで有効/無効、
+// (i)で説明）という並び。除外する道路は別タブ（HardFilterPanel）。
 // 軸が増えても伸びるのはチップの領域だけで、そこは高さ上限と内部スクロールを持つ。
 //
 // 軸はカテゴリ（観測/推定/動的）で分けず、公開済みの軸を常にフラットな1本のリストとして
@@ -77,14 +71,6 @@ export default function RouteSettingsPanel({
     return <Icon size={size} />;
   }
 
-  function renderAxisIcon(axis: PreferenceAxisDef, size: number, color: string) {
-    return (
-      <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
-        <AxisIcon axis={axis} size={size} />
-      </span>
-    );
-  }
-
   // カタログとroutePreferenceのキー集合を双方向に同期する。backendのroute_preference
   // 検証は「上書きするなら既知の全axis_idを明示する」方針（キー完全一致、
   // routers/routes.py: RoutePreferenceWeights._check_axis_keys）のため、どちら向きの
@@ -128,13 +114,8 @@ export default function RouteSettingsPanel({
     });
   }, [catalog.defaultWeights]);
 
-  // ±で調整する対象の軸。チェックを外された軸・カタログから消えた軸を指したままに
-  // ならないよう、実際に出す軸は毎回「有効な軸の中から」引き直す。
-  const [selectedAxisId, setSelectedAxisId] = useState<string | null>(null);
-
   function handleToggle(axisId: string, checked: boolean) {
     const restored = checked ? lastWeights[axisId] || catalog.defaultWeights[axisId] || 0.1 : 0;
-    if (checked) setSelectedAxisId(axisId);
     handlePreferenceChange({ ...routePreference, [axisId]: restored });
   }
 
@@ -143,21 +124,6 @@ export default function RouteSettingsPanel({
   function handlePairWeightChange(axisIdA: string, valueA: number, axisIdB: string, valueB: number) {
     setLastWeights((prev) => ({ ...prev, [axisIdA]: valueA, [axisIdB]: valueB }));
     handlePreferenceChange({ ...routePreference, [axisIdA]: valueA, [axisIdB]: valueB });
-  }
-
-  // ±ボタン。増やしたぶんは他の有効な軸から按分して減る（adjustAxisShare）。
-  // 動かせないとき（有効な軸が1つ・上下限に張り付き）はnullが返り、ボタン自体を押せなくする。
-  function handleShareStep(axisId: string, deltaPct: number) {
-    const next = adjustAxisShare(routePreference, axisId, deltaPct);
-    if (!next) return;
-    setLastWeights((prev) => {
-      const merged = { ...prev };
-      for (const [id, weight] of Object.entries(next)) {
-        if (weight > 0) merged[id] = weight;
-      }
-      return merged;
-    });
-    handlePreferenceChange(next);
   }
 
   const total = totalWeight(routePreference);
@@ -172,14 +138,10 @@ export default function RouteSettingsPanel({
   }));
   const enabledAxes = axesWithIndex.filter(({ weight }) => weight > 0);
   const orderedAxes = [...enabledAxes, ...axesWithIndex.filter(({ weight }) => weight <= 0)];
-  const selected = enabledAxes.find(({ axis }) => axis.axisId === selectedAxisId) ?? enabledAxes[0] ?? null;
-  const canIncrease = selected != null && adjustAxisShare(routePreference, selected.axis.axisId, SHARE_STEP_PCT) != null;
-  const canDecrease = selected != null && adjustAxisShare(routePreference, selected.axis.axisId, -SHARE_STEP_PCT) != null;
 
   // 重み配分バー（帯グラフ）の隣り合う2要素の境界をドラッグして配分し直せる。
   // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は
-  // 変わらない）。細かく2軸間で移したいときの手段で、1軸だけを増減する操作は
-  // 選択中の軸の±（handleShareStep）が担う。
+  // 変わらない）。
   const stackBarRef = useRef<HTMLDivElement>(null);
   // ドラッグ中の起点情報。境界ハンドルは16px幅しかなく、ドラッグ中にポインタが実際の
   // ハンドル要素の外へ出るのが常態のため、React要素スコープのonPointerMove（要素の外に
@@ -196,14 +158,6 @@ export default function RouteSettingsPanel({
     startClientX: number;
     pixelsPerUnit: number;
   } | null>(null);
-  // ドラッグ中の境界だけ、その両隣2軸の%を示すフロートバッジを出す
-  // （stackBarDragBadge参照）。ドラッグ中かどうかの判定にしか使わないため
-  // routeWeightsそのものではなくaxisIdの
-  // ペアだけを持つ——実際のパーセント値はrender時にroutePreferenceから毎回計算する
-  // （ドラッグ中はhandlePairWeightChange経由でroutePreferenceが更新されるたびに
-  // 再レンダーされるため、この値は常に最新を指す）。
-  const [draggingBoundary, setDraggingBoundary] = useState<{ axisIdA: string; axisIdB: string } | null>(null);
-
   function startBoundaryDrag(
     e: React.PointerEvent<HTMLDivElement>,
     axisIdA: string,
@@ -223,7 +177,6 @@ export default function RouteSettingsPanel({
       startClientX: e.clientX,
       pixelsPerUnit: barWidthPx / total,
     };
-    setDraggingBoundary({ axisIdA, axisIdB });
     const handleWindowPointerMove = (moveEvent: PointerEvent) => {
       const drag = boundaryDragRef.current;
       if (!drag) return;
@@ -233,7 +186,6 @@ export default function RouteSettingsPanel({
     };
     const handleWindowPointerUp = () => {
       boundaryDragRef.current = null;
-      setDraggingBoundary(null);
       window.removeEventListener("pointermove", handleWindowPointerMove);
       window.removeEventListener("pointerup", handleWindowPointerUp);
       window.removeEventListener("pointercancel", handleWindowPointerUp);
@@ -262,49 +214,20 @@ export default function RouteSettingsPanel({
     handlePairWeightChange(axisIdA, next.weightA, axisIdB, next.weightB);
   }
 
-  // 軸チップ1件。有効な軸は「チェック（有効/無効）」と「本体（±の対象に選ぶ）」の
-  // 2つの押下領域を持ち、無効な軸は本体全体が「有効にする」だけを担う——無効な軸を
-  // 選んでも動かす重みが無いため、押し分けられる領域を作らない。
+  // 軸チップ1件。本体のタップで有効/無効を切り替え、(i)で軸の説明を読む。有効な軸には
+  // 現在の%を併記する（帯の狭い区間には数字が入らないため、%を必ず読める場所がここ）。
   function renderLegendChip(axis: PreferenceAxisDef, index: number, weight: number) {
     const checked = weight > 0;
     const color = stackBarColorForIndex(index, catalog.axes.length);
-    const isSelected = checked && selected?.axis.axisId === axis.axisId;
     const label = axis.chipLabel ?? axis.label;
-    if (!checked) {
-      return (
-        <span key={axis.axisId} className={styles.legendChip} data-checked="false">
-          <button
-            type="button"
-            className={styles.legendToggle}
-            aria-pressed={false}
-            aria-label={`${axis.label}を有効にする`}
-            onClick={() => handleToggle(axis.axisId, true)}
-          >
-            <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
-              <AxisIcon axis={axis} />
-            </span>
-            <span className={styles.legendLabel}>{label}</span>
-          </button>
-        </span>
-      );
-    }
     return (
-      <span key={axis.axisId} className={styles.legendChip} data-checked="true" data-selected={isSelected}>
-        <button
-          type="button"
-          className={styles.legendCheck}
-          aria-pressed
-          aria-label={`${axis.label}を無効にする`}
-          onClick={() => handleToggle(axis.axisId, false)}
-        >
-          <span aria-hidden="true">✓</span>
-        </button>
+      <span key={axis.axisId} className={styles.legendChip} data-checked={checked}>
         <button
           type="button"
           className={styles.legendToggle}
-          aria-pressed={isSelected}
-          aria-label={`${axis.label}の配分を調整する`}
-          onClick={() => setSelectedAxisId(axis.axisId)}
+          aria-pressed={checked}
+          aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
+          onClick={() => handleToggle(axis.axisId, !checked)}
         >
           <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
             <AxisIcon axis={axis} />
@@ -313,8 +236,15 @@ export default function RouteSettingsPanel({
               縦を食うため、選ぶのに足りる長さへ詰める。押したときの説明・aria-labelは
               フルネームのまま。 */}
           <span className={styles.legendLabel}>{label}</span>
-          <span className={styles.legendPct}>{Math.round(sharePct(weight))}%</span>
+          {checked && <span className={styles.legendPct}>{Math.round(sharePct(weight))}%</span>}
         </button>
+        <InfoPopover
+          triggerClassName={styles.legendInfoButton}
+          triggerAriaLabel={`${axis.label}の説明`}
+          contentClassName={styles.legendInfoPopover}
+        >
+          {axis.description}
+        </InfoPopover>
       </span>
     );
   }
@@ -404,8 +334,6 @@ export default function RouteSettingsPanel({
             return visible.slice(0, -1).map(({ axis: left, weight: leftWeight }, i) => {
               const cumulativePct = cumulativePcts[i];
               const right = visible[i + 1];
-              const isDragging =
-                draggingBoundary?.axisIdA === left.axisId && draggingBoundary?.axisIdB === right.axis.axisId;
               return (
                 <div
                   key={`boundary-${left.axisId}-${right.axis.axisId}`}
@@ -419,67 +347,13 @@ export default function RouteSettingsPanel({
                   tabIndex={0}
                   onPointerDown={(e) => startBoundaryDrag(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
                   onKeyDown={(e) => handleBoundaryKeyDown(e, left.axisId, leftWeight, right.axis.axisId, right.weight)}
-                >
-                  {/* ドラッグ中だけ、両隣の%と軸ラベルをフロートバッジで表示する
-                      （native titleツールチップはホバー限定でモバイルでは事実上
-                      見えないため）。ラベル併記で幅が増えるため、バーの両端付近では
-                      センター寄せのままだとパネル外へはみ出す——端寄せ（data-align）で
-                      回避する。 */}
-                  {isDragging && (
-                    <span
-                      className={styles.stackBarDragBadge}
-                      data-align={cumulativePct < 25 ? "start" : cumulativePct > 75 ? "end" : undefined}
-                      aria-hidden="true"
-                    >
-                      {left.label} {Math.round(sharePct(leftWeight))}% / {right.axis.label}{" "}
-                      {Math.round(sharePct(right.weight))}%
-                    </span>
-                  )}
-                </div>
+                />
               );
             });
           })()}
         </div>
       </div>
 
-      {/* 選択中の軸の1行。軸が何本あってもこの行の高さは変わらない。 */}
-      {selected && (
-        <div className={styles.selectedRow}>
-          {renderAxisIcon(selected.axis, 16, stackBarColorForIndex(selected.index, catalog.axes.length))}
-          <span className={styles.selectedName}>{selected.axis.label}</span>
-          <InfoPopover
-            triggerClassName={styles.stackBarLegendTrigger}
-            triggerAriaLabel={`${selected.axis.label}の説明`}
-            contentClassName={styles.legendInfoPopover}
-          >
-            {selected.axis.description}
-          </InfoPopover>
-          <span className={styles.selectedPct}>{Math.round(sharePct(selected.weight))}%</span>
-          <span className={styles.shareStepper}>
-            <button
-              type="button"
-              className={styles.shareStepButton}
-              disabled={!canDecrease}
-              aria-label={`${selected.axis.label}の配分を減らす`}
-              onClick={() => handleShareStep(selected.axis.axisId, -SHARE_STEP_PCT)}
-            >
-              −
-            </button>
-            <button
-              type="button"
-              className={styles.shareStepButton}
-              disabled={!canIncrease}
-              aria-label={`${selected.axis.label}の配分を増やす`}
-              onClick={() => handleShareStep(selected.axis.axisId, SHARE_STEP_PCT)}
-            >
-              ＋
-            </button>
-          </span>
-        </div>
-      )}
-      <p className={styles.selectedHint}>
-        増やしたぶんは、他の有効な軸から配分の大きい順に減ります（合計は常に100%）。
-      </p>
 
       <div className={styles.legendRow}>
         {orderedAxes.map(({ axis, index, weight }) => renderLegendChip(axis, index, weight))}

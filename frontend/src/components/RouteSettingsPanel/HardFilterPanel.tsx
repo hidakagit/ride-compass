@@ -1,5 +1,6 @@
 "use client";
 
+import InfoPopover from "@/components/Map/InfoPopover";
 import LayerChip from "@/components/Map/LayerChip";
 import type { HardFilterOverride } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
@@ -44,7 +45,16 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
 
   return (
     <div className="flex flex-col gap-3">
-      <p className={styles.sectionLabel}>除外する道路</p>
+      <div className={styles.stackBarHeader}>
+        <p className={styles.sectionLabel}>除外する道路</p>
+        <InfoPopover
+          triggerClassName={styles.stackBarLegendTrigger}
+          triggerAriaLabel="除外する道路の説明"
+          contentClassName={styles.legendInfoPopover}
+        >
+          ONにした種類は経路から完全に外れます（重みづけと違い、多少コストが高くても通る、ということが無くなります）。
+        </InfoPopover>
+      </div>
       <div className={styles.chipRow}>
         {HARD_FILTER_CHIPS.map(({ key, label }) => (
           <LayerChip
@@ -61,9 +71,6 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
           />
         ))}
       </div>
-      <p className={styles.exclusionHint}>
-        ONにした種類は経路から完全に外れます（重みづけと違い、多少コストが高くても通る、ということが無くなります）。
-      </p>
       {customized && (
         <button
           type="button"

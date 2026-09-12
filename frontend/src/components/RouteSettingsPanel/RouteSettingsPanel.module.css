@@ -13,13 +13,6 @@
 .stackBarWrap {
   display: flex;
   flex-direction: column;
-  /* モバイルのBottomSheetでは「重み配分」がシート見出し直下の最初の要素になり、
-     見出しとの隙間が狭い。ドラッグ中バッジ（.stackBarDragBadge、帯の上に浮く）が
-     軸ラベル併記で高さを持つため、見出しと重ならないよう上に余白を確保する。
-     --space-4はモバイル（640px以下、globals.css）で0.75rem=12pxまで圧縮され
-     バッジの高さ（実測約25px）+margin-bottom(4px)を確保しきれないため、圧縮対象外の
-     固定値にする。 */
-  margin-top: 24px;
 }
 
 .stackBarHeader {
@@ -161,48 +154,6 @@
   outline: none;
 }
 
-/* ドラッグ中だけ出るフロートバッジ（ユーザー要望2026-08-31、「バーをドラッグ中に
-   数字が出てほしい」）。ハンドルの真上に浮かせる。pointer-events:noneで
-   ドラッグ中のポインタ操作を妨げない。 */
-.stackBarDragBadge {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 4px;
-  white-space: nowrap;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-float);
-  padding: 0.15rem 0.4rem;
-  font-size: var(--font-size-sm);
-  color: var(--foreground);
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-  z-index: 10;
-}
-
-/* バーの両端付近のハンドルはセンター寄せ（既定）のままだとバッジがパネル外へ
-   はみ出す（軸ラベル併記で幅が増えたため）。端寄せへ切り替えて回避する。 */
-.stackBarDragBadge[data-align="start"] {
-  left: 0;
-  transform: none;
-}
-
-.stackBarDragBadge[data-align="end"] {
-  left: auto;
-  right: 0;
-  transform: none;
-}
-
-/* ユーザー要望（2026-08-31、「下の各軸毎の有効無効、スライドバーはなくしたい。どの軸が
-   どの色なのか凡例をつけて、そのエリアで有効無効や説明文を巻き取れる？」）: チェックボックス
-   +スライダーの縦積みリスト（旧.group/.row、以前はここへmax-height+overflow-y:autoを
-   持たせて二重スクロールになった反省[ネストしたスクロールコンテナのアンチパターン]も
-   経験した領域）を、色ドット+ラベルの凡例チップが折り返して並ぶ1エリアへ置き換えた。
-   行が縦に積み上がらずchipRowと同じ横並び折り返しになったため、独自スクロールを持たせる
-   動機自体が無くなった。 */
 /* 軸が増えたときに伸びるのはここだけ。高さ上限と内部スクロールでパネル全体の高さを
    固定する（有効な軸を先頭に並べるため、スクロールせずに現在の配分を読める）。 */
 .legendRow {
@@ -213,77 +164,12 @@
   overflow-y: auto;
 }
 
-/* 有効/無効の切り替え領域。チップ本体（調整対象に選ぶ）と押し分けるため枠を分ける。 */
-.legendCheck {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.4rem;
-  border: none;
-  border-right: 1px solid var(--color-border-muted);
-  background: var(--color-accent);
-  color: var(--color-surface);
-  font-size: 0.7rem;
-  cursor: pointer;
-}
-
 .legendPct {
   font-size: var(--font-size-sm);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-.legendChip[data-selected="true"] {
-  outline: 1px solid var(--color-accent);
-  outline-offset: -1px;
-}
-
-/* 選択中の軸の1行（名前・説明・%・±）。軸が何本でも高さは変わらない。 */
-.selectedRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.selectedName {
-  font-size: var(--font-size-sm);
-}
-
-.selectedPct {
-  margin-left: auto;
-  font-size: 1rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.shareStepper {
-  display: inline-flex;
-  gap: 0.25rem;
-}
-
-.shareStepButton {
-  width: 2rem;
-  height: 1.9rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2);
-  color: var(--foreground);
-  font-size: 1rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.shareStepButton:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.selectedHint,
-.exclusionHint {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
-  line-height: 1.5;
-}
 
 /* 凡例チップ1件＝「色ドット+ラベル（タップで有効/無効）」「(i)説明文」
    「地図で色分けアイコン（対応軸のみ）」を1つの枠に収めた複合ボタン群。外枠1つを共有し、

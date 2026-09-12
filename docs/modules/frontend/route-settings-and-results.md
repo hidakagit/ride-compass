@@ -12,8 +12,8 @@
 | `components/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替の入力欄。「ルート設定」区分の各タブの中身を`Tabs.Content`として並べる（タブ列と選択状態は`page.tsx`、下記参照） |
 | `components/RouteForm/useRouteFormSubmit.ts` | 上記の検証・送信ロジック（`{error, handleSubmit}`）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
-| `components/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キーと既定値は生成物`route-generate-config.json`が正で、表示ラベルだけをUIの語彙として持つ |
-| `lib/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・1軸の取り分を動かす`adjustAxisShare`・刻みと上下限） |
+| `components/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キーと既定値は生成物`route-generate-config.json`が正で、表示ラベルだけをUIの語彙として持つ。重みづけとの違い（通らない）は見出し脇の(i)の奥に置く |
+| `lib/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・刻みと上下限） |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/routeTabLabel.ts` | 候補タブの「最短からの超過km」を組み立てる純関数（`shortestDistanceKm`・`extraDistanceLabel`）と、区間を乗り換えて作った候補の判定（`isSplicedRoute`・`SPLICED_ROUTE_ID_PREFIX`）。**合成も素の結果と本質的に区別せず**、並び順は生成候補と同じ規約に乗せ（`lib/routeSplice.ts: insertByDifficulty`）、見分けだけをタブの名前（「合成」）で付ける。**接頭辞はbackendが付ける値で、判定と組み立ての両方がこの1つを使う**——別々に書くと片方だけ変えたときに合成ルートが一覧で見分けられなくなる（型でも例外でも現れない）。タブ列自体はpage.tsxが組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
@@ -41,8 +41,6 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   移し替え）                                (i)説明文ポップオーバー
         │                                          │
         └──────────────┬───────────────────────────┘
-                        ▼
-          選択中の軸の1行（名前・説明・%・±ボタン）
 ```
 
 - 軸の一覧・既定重みは`useAxisCatalog`経由（取得完了まで・失敗時は既存軸の静的
@@ -63,36 +61,23 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   `SEGMENT_VALUE_MIN_PCT`。狭い区間は%のみ→何も出さない、の順に落とす）。区間に入らない
   軸の%もチップ側では必ず読める。設定側の帯は区間そのものが操作対象で高さが要るため、
   結果パネル側の細い帯（`ui/axisLegend.module.css`）とはスタイルを共有しない。
-- 選択中の軸の`±`は`adjustAxisShare`（`lib/routeWeightShare.ts`）で、増やしたぶんを
-  **他の有効な軸から按分して**減らす（有効な軸の重みの合計は変わらないため、画面の%は
-  「増やした軸が取ったぶんだけ」他が下がる＝どこから来たかが読める）。配分は刻みの整数個を
-  出し入れする形で行う——比率どおりの実数を軸ごとに丸めると、軸が多いときに全軸ぶんの端数が
-  消えて「押しても何も動かない」状態になる。刻み1つぶんしか動かせないときは比率どおりに
-  割れないため、最大剰余法の結果として配分の大きい軸から先に払う。動かせないとき
-  （有効な軸が1つ・上下限に張り付き）はnullが返り、ボタン自体を押せなくする。
 - 重み配分バー（帯グラフ、`stackBarOuter`/`stackBarHandle`）は表示専用ではなく、
   隣り合う2区間の境界（`role="slider"`のハンドル、幅16px）をポインタドラッグまたは
   矢印キーで操作すると、その両隣の2軸間でだけ重みが移動する（他の軸・2軸の合計は
   変わらない、`clampBoundaryDrag`が範囲[`WEIGHT_STEP`, 0.6]内へクランプする）。
   ハンドル自身だけに`touch-action: none`を絞ってあり、帯グラフの他の部分（セグメント
   本体）はスクロールジェスチャーを妨げない。**重みの調整手段はこの帯グラフの
-  ドラッグ・矢印キー操作と、選択中の軸の`±`の2つ**。前者は2軸間だけで移す細かい調整、
-  後者は1軸を増減して残りへ波及させる調整で、どちらも有効な軸の合計を変えない。
+  ドラッグ・矢印キー操作のみ**。ドラッグ中の値は帯の区間とチップの%がその場で動いて
+  示すため、操作の説明文も、同じ調整を別の形で用意した操作（増減ボタン等）も置かない。
   帯の色（`stackBarColorForIndex`、実際の軸数でHSL色相環を等分）と凡例チップの
   色ドットは同じ関数・同じindexから生成しており、常に一致する。「重み配分」見出し脇の
   情報アイコン（`stackBarLegendTrigger`）を押すと、操作説明（帯の境界をドラッグして
   配分を調整できる旨）に続けて全軸ぶんの色ドット+ラベル+現在の%を一覧するポップオーバーが
-  開く（見出し自体は「重み配分」の短い表記のみ）。境界をドラッグしている間だけ、そのハンドルの直上に
-  両隣2軸のラベル+%をフロート表示する（`stackBarDragBadge`、ドラッグ終了で消える）——
-  native title属性のホバーツールチップ（モバイルでは事実上見えない）の代わり。バーの
-  両端付近（累積%が25%未満/75%超）のハンドルは、ラベル併記で幅が増えたバッジが
-  パネル外へはみ出すのを避けるため、センター寄せではなく端寄せ（`data-align`属性、
-  CSS側で切り替え）で表示する。
-- 軸の凡例チップ（`renderLegendChip`）は、有効な軸では「チェック（有効/無効を切替、
-  weight>0が有効の判定基準）」と「本体（アイコン＋略名＋現在の%。押すと±の対象に選ぶ）」の
-  2つの押下領域を持ち、無効な軸では本体全体が「有効にする」だけを担う——無効な軸を選んでも
-  動かす重みが無いため、押し分けられる領域を作らない。無効な軸（weight=0）はチップ全体を
-  半透明にする。軸の説明文は選択中の軸の行の(i)から読む。`route_preference`の
+  開く（見出し自体は「重み配分」の短い表記のみ）。
+- 軸の凡例チップ（`renderLegendChip`）は「本体（アイコン＋略名＋現在の%。タップで
+  有効/無効を切替、weight>0が有効の判定基準）」「(i)説明文ポップオーバー」の2要素で構成
+  される複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にし、%は出さない。
+  軸の説明は画面へ書かずこの(i)の奥に置く（設計原則「冗長なものは削る」）。`route_preference`の
   重みを切り替えるだけで、地図の色分けとは無関係（地図の色分け（レンズ）はこのパネルには
   なく、地図上の`LensControl`だけが持つ）。
 - 向きコンパス（`WindBearingSlider`）はこのパネルには存在しない。風・勾配の走行方位は

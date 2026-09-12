@@ -305,63 +305,19 @@ describe("RouteSettingsPanel", () => {
       expect(onRoutePreferenceChange).toHaveBeenCalledTimes(callCountBeforeKeyDown);
     });
   });
-  // 1軸だけを増減する操作（選択中の軸の±）。増えたぶんは他の有効な軸から今の比率で
-  // 減るため、有効な軸の重みの合計は変わらない（画面の%は「増やした軸が取ったぶんだけ」
-  // 他が一斉に下がる）。
-  describe("選択中の軸の±", () => {
-    it("増やすと他の有効な軸が減り、有効な軸の合計は変わらない", async () => {
-      const user = userEvent.setup();
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-      const onRoutePreferenceChange = vi.fn();
+  it("有効な軸のチップに現在の%が出る", async () => {
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
 
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.5, surface_q: 0.3 }}
-          onRoutePreferenceChange={onRoutePreferenceChange}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
+    render(
+      <RouteSettingsPanel
+        routePreference={{ gradient: 0.6, surface_q: 0.2 }}
+        onRoutePreferenceChange={vi.fn()}
+        overrideEnabled={false}
+        onOverrideEnabledChange={vi.fn()}
+      />,
+    );
 
-      await user.click(await screen.findByRole("button", { name: "ラベル[gradient]の配分を調整する" }));
-      await user.click(screen.getByRole("button", { name: "ラベル[gradient]の配分を増やす" }));
-
-      const updated = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
-      expect(updated.gradient).toBeGreaterThan(0.5);
-      expect(updated.surface_q).toBeLessThan(0.3);
-      expect(updated.gradient + updated.surface_q).toBeCloseTo(0.8, 2);
-    });
-
-    it("有効な軸が1つだけのときは押せない（常に100%のため）", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.5, surface_q: 0 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
-
-      expect(await screen.findByRole("button", { name: "ラベル[gradient]の配分を増やす" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "ラベル[gradient]の配分を減らす" })).toBeDisabled();
-    });
-
-    it("有効な軸のチップに現在の%が出る", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.6, surface_q: 0.2 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
-
-      const chip = await screen.findByRole("button", { name: "ラベル[gradient]の配分を調整する" });
-      expect(chip).toHaveTextContent("75%");
-    });
+    const chip = await screen.findByRole("button", { name: "ラベル[gradient]を無効にする" });
+    expect(chip).toHaveTextContent("75%");
   });
 });
