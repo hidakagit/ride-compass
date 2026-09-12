@@ -2716,3 +2716,95 @@ async def test_build_candidate_carries_the_path_edge_ids_in_order():
     assert candidate.edge_ids == ["e-0", "e-1", "e-2", "e-3"]
     # 畳まれたsegmentsからは経路のEdge列を復元できない
     assert len(candidate.segments) < len(candidate.edge_ids)
+
+
+def _spliceable_context(edge_count: int = 4):
+    """起点oから東へ200mずつ伸びる一本道のcontextと、そのEdge辞書を返す。"""
+    coords = [ORIGIN]
+    for _ in range(edge_count):
+        coords.append(destination_point(coords[-1], 90, 0.2))
+    names = [f"n{i}" for i in range(edge_count + 1)]
+    names[0] = "o"
+    edges = {
+        f"e-{i}": _edge(f"e-{i}", names[i], names[i + 1], coords[i], coords[i + 1], highway="residential")
+        for i in range(edge_count)
+    }
+    # 起点から分かれる別の道（連結していない列を作るのに使う）
+    detour_coord = destination_point(ORIGIN, 0, 0.2)
+    edges["e-detour"] = _edge("e-detour", "o", "d", ORIGIN, detour_coord, highway="residential")
+    nodes = {
+        name: Node(node_id=name, latitude=coord.latitude, longitude=coord.longitude)
+        for name, coord in zip(names, coords)
+    }
+    nodes["d"] = Node(node_id="d", latitude=detour_coord.latitude, longitude=detour_coord.longitude)
+    graph = RoadGraph(graph_version="test", nodes=nodes, edges=edges)
+    weather = WeatherConditions(
+        temperature_c=20.0, wind_speed_ms=3.0, wind_direction_deg=90.0,
+        wind_direction_label="東", precipitation_mm=None, observed_at="t",
+        weather_code=None, is_day=None, sunrise=None, sunset=None,
+        precipitation_max_mm=None, wind_speed_max_ms=None,
+        temperature_max_c=None, temperature_min_c=None, today_periods=[],
+    )
+    preference = RoutePreference()
+    engine = RoadGraphEngine(
+        graph_service=None,
+        elevation_attribute_service=FakeElevationAttributeService({}),
+        weather_service=FakeWeatherService(weather),
+        route_preference=preference,
+    )
+    context = road_graph_engine._RoadGraphContext(
+        graph=graph, materials={}, accident_years_covered=0,
+        weather=weather, origin_node="o",
+        node_index=build_node_spatial_index(graph), night_active=False,
+        lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
+        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
+    )
+    return engine, context
+
+
+def test_build_traced_from_edge_ids_accepts_a_connected_path_from_the_origin():
+    engine, context = _spliceable_context()
+
+    traced = engine.build_traced_from_edge_ids(context, ["e-0", "e-1", "e-2", "e-3"])
+
+    assert traced.data == ["e-0", "e-1", "e-2", "e-3"]
+    assert traced.bearing is None
+    assert traced.distance_km == pytest.approx(0.8, abs=0.01)
+
+
+def test_build_traced_from_edge_ids_splits_the_legs_at_the_half_way_point():
+    # 合成経路はvia-nodeを持たないため、レグは自身の距離の半分で切る。
+    engine, context = _spliceable_context()
+
+    traced = engine.build_traced_from_edge_ids(context, ["e-0", "e-1", "e-2", "e-3"])
+
+    assert traced.leg_of_edge == [0, 0, 1, 1]
+
+
+def test_build_traced_from_edge_ids_rejects_an_unknown_edge():
+    engine, context = _spliceable_context()
+
+    with pytest.raises(RoutingError, match="未知のEdge"):
+        engine.build_traced_from_edge_ids(context, ["e-0", "e-nope"])
+
+
+def test_build_traced_from_edge_ids_rejects_a_path_with_a_gap():
+    # e-0 は n1 で終わるが e-2 は n2 から始まる。評価自体は通ってしまうため、ここで落とす。
+    engine, context = _spliceable_context()
+
+    with pytest.raises(RoutingError, match="つながっていません"):
+        engine.build_traced_from_edge_ids(context, ["e-0", "e-2"])
+
+
+def test_build_traced_from_edge_ids_rejects_a_path_that_does_not_start_at_the_origin():
+    engine, context = _spliceable_context()
+
+    with pytest.raises(RoutingError, match="起点から始まっていません"):
+        engine.build_traced_from_edge_ids(context, ["e-1", "e-2"])
+
+
+def test_build_traced_from_edge_ids_rejects_an_empty_path():
+    engine, context = _spliceable_context()
+
+    with pytest.raises(RoutingError, match="経路が空です"):
+        engine.build_traced_from_edge_ids(context, [])

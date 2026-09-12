@@ -4171,6 +4171,22 @@
               }
             ],
             "title": "Start Time"
+          },
+          "spliced_edge_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 5000,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spliced Edge Ids"
           }
         },
         "additionalProperties": false,

@@ -165,6 +165,23 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 - 候補0件になった理由は`RouteGenerator.last_no_candidates_reason`に人間可読な文字列で
   残り、`RouteGenerateResponse.no_candidates_reason`としてクライアントへ返る。
 
+### `generate_spliced_route`（区間の乗り換え）
+
+クライアントが候補の`edge_ids`から区間を差し替えて組み立てた経路を、**探索をやり直さず**
+1件だけ評価して返す（[T621](../../tasks/T621.md)）。`POST /api/routes/generate`へ
+`spliced_edge_ids`を添えると、折返し点選定・via-node選定を通らずこの経路へ入る
+（`destination`必須。合成の対象は目的地ルートだけで、周回は起点へ戻る制約があるため）。
+
+**別エンドポイントにしていない**のは、合成も生成と同じコスト曲線だから——経路は確定済み
+でも`prepare`は通る（評価は`_RoadGraphContext`のコスト配列から読む。design-principles.md
+構造仕様10）。`prepare`は温まっていても1秒前後、タイル材料が冷たいと数十秒かかるため、
+202＋ポーリングのジョブ機構がそのまま要る（数値は[T621](../../tasks/T621.md)）。
+
+送られたEdge id列が**実在し・順につながり・起点から始まる**ことは
+`engine.build_traced_from_edge_ids`が確かめ、成立しなければ`RoutingError`で落とす
+（グラフを知るのはエンジンのため戦略層には置けない）。レグは合成経路自身の距離の半分で
+切る——via-nodeが無く前向き木・後ろ向き木の境目が存在しないため。
+
 ### `generate_via_waypoints`（経由地・目的地指定）
 
 `generate_loops`の折返し点選定・距離フィルタとは独立した経路生成。
