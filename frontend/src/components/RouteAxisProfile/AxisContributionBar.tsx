@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import InfoPopover from "@/components/Map/InfoPopover";
+import { axisIconFor } from "@/components/Map/axisIconPalette";
 import { InfoIcon } from "@/components/Map/icons";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import styles from "./AxisContributionBar.module.css";
@@ -76,17 +77,24 @@ export default function AxisContributionBar({
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
           const value = contributions[axis.axisId];
           const detail = renderDetail?.(axis) ?? null;
+          // 軸の名前は出さず、地図チップと同じアイコンと寄与の値だけを並べる——狭い幅では
+          // 名前がそのまま行数になり、10軸で内訳が画面の大半を占めてしまう。名前は押して
+          // 開く説明（InfoPopover）が持ち、押せない軸はaria-labelとtitleで補う。
+          const Icon = axisIconFor(axis.iconId);
           const body = (
             <>
-              <span aria-hidden="true" className={styles.legendDot} style={{ background: color }} />
-              <span className={styles.legendLabel}>{axis.label}</span>
+              <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+                <Icon size={14} />
+              </span>
               {value != null && value !== 0 && <span className={styles.legendValue}>{value.toFixed(1)}</span>}
             </>
           );
           return (
             <li key={axis.axisId} className={styles.legendChip} data-checked={detail !== null}>
               {detail === null ? (
-                <span className={styles.legendChipBody}>{body}</span>
+                <span className={styles.legendChipBody} title={axis.label} aria-label={axis.label} role="img">
+                  {body}
+                </span>
               ) : (
                 <InfoPopover
                   triggerClassName={styles.legendTrigger}

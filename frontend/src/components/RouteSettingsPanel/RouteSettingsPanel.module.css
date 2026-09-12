@@ -297,3 +297,10 @@
   background: var(--color-warning);
   color: var(--color-surface);
 }
+
+/* 軸アイコン（地図チップ・ルート結果の内訳と同じ意匠）。色はcurrentColorでSVGへ渡す。 */
+.legendIcon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}

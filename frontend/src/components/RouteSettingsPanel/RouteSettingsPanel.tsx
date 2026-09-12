@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import LayerChip from "@/components/Map/LayerChip";
 import InfoPopover from "@/components/Map/InfoPopover";
+import { axisIconFor } from "@/components/Map/axisIconPalette";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
@@ -122,6 +123,11 @@ export default function RouteSettingsPanel({
   // 各軸のチップは「色ドット+ラベル（タップで有効/無効切替）」「(i)説明文ポップオーバー」の
   // 2要素だけの1行。地図の色分け（レンズ）はこのパネルではなく地図上の凡例ピル（LensControl）
   // だけが持つ。重みの数値・スライダーはチップには置かず、重み配分バー（帯グラフ）の
+  function AxisIcon({ axis }: { axis: PreferenceAxisDef }) {
+    const Icon = axisIconFor(axis.iconId);
+    return <Icon size={14} />;
+  }
+
   // ドラッグ・矢印キー操作だけで調整する。
   function renderLegendChip(axis: PreferenceAxisDef, index: number) {
     const weight = routePreference[axis.axisId] ?? 0;
@@ -136,8 +142,15 @@ export default function RouteSettingsPanel({
           aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
           onClick={() => handleToggle(axis.axisId, !checked)}
         >
-          <span aria-hidden="true" className={styles.legendDot} style={{ background: color }} />
-          <span className={styles.legendLabel}>{axis.label}</span>
+          {/* 軸アイコンは地図チップ・ルート結果の内訳と同じ意匠を引く（axisIconFor）。
+              こちらは「どの軸を使うか選ぶ」画面のため名前も残す。 */}
+          <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+            <AxisIcon axis={axis} />
+          </span>
+          {/* 略名は地図チップと同じ`chip_label`（最大4文字）。狭い幅で軸が折り返すぶんだけ
+              縦を食うため、選ぶのに足りる長さへ詰める。押したときの説明・aria-labelは
+              フルネームのまま。 */}
+          <span className={styles.legendLabel}>{axis.chipLabel ?? axis.label}</span>
         </button>
         <InfoPopover
           triggerClassName={styles.legendInfoButton}

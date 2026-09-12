@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
@@ -24,7 +24,8 @@ describe("AxisContributionBar", () => {
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(screen.queryByText("風")).not.toBeInTheDocument();
+    // 軸の名前はチップの文字ではなくアクセシブル名が持つ（チップはアイコンと値だけ）。
+    expect(screen.queryByLabelText("風")).not.toBeInTheDocument();
   });
 
   it("値が0の軸は表示しない（backendは重み0の軸もキー付きで値0.0を返すため、キーの有無だけでは絞り込めない）", () => {
@@ -52,7 +53,7 @@ describe("AxisContributionBar", () => {
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
+    expect(screen.getByLabelText("車の圧迫感")).toBeInTheDocument();
   });
 
   it("軸カタログの並び順で凡例を表示し、値をそのまま(小数1桁)表示する", () => {
@@ -65,9 +66,9 @@ describe("AxisContributionBar", () => {
     );
 
     const items = screen.getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("車の圧迫感");
+    expect(within(items[0]).getByLabelText("車の圧迫感")).toBeInTheDocument();
     expect(items[0]).toHaveTextContent("30.1");
-    expect(items[1]).toHaveTextContent("夜間");
+    expect(within(items[1]).getByLabelText("夜間")).toBeInTheDocument();
     expect(items[1]).toHaveTextContent("5.3");
   });
 
@@ -117,7 +118,7 @@ describe("AxisContributionBar", () => {
     );
 
     expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
+    expect(screen.getByLabelText("車の圧迫感")).toBeInTheDocument();
   });
 
   it("値が0-100の範囲外でもクランプする", () => {

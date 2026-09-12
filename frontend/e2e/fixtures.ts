@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
+import axisCatalog from "@/types/generated/axis-catalog.json";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
@@ -195,6 +196,10 @@ export async function installApiMocks(page: Page): Promise<void> {
   await page.route(`${API_BASE}/api/routes/generate/*`, (route) =>
     route.fulfill({ json: { status: "done", result: routeGenerateResponseFixture(), error: null } })
   );
+
+  // 軸カタログ。ビルド時の静的カタログをそのまま返す（実DBの軸構成と同じ形で、
+  // 「重みづけ」タブ・ルート結果の内訳が軸一覧を引けるようにする）。
+  await page.route(`${API_BASE}/api/axis-catalog*`, (route) => route.fulfill({ json: axisCatalog }));
 
   // 基礎地図スタイル（/api/basemap/styles/liberty）と、それ以外のbasemap配下
   // （タイル等、空スタイルなら通常発生しない）をまとめて空スタイルで応答する。

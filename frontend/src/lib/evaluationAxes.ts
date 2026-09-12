@@ -25,6 +25,12 @@ export interface PreferenceAxisDef {
   axisId: string;
   /** 区間の色分け・RouteSettingsPanelの入力欄ラベルに共通で使う表示名 */
   label: string;
+  /** 軸自身が持つアイコン（`icon_id`）。地図チップと内訳の凡例が同じ意匠を引く
+   * （`components/Map/axisIconPalette.tsx: axisIconFor`）。 */
+  iconId?: string | null;
+  /** 地図チップと同じ略名（`chip_label`、最大4文字）。狭い幅で軸を並べる場所が使う。
+   * 未設定の軸はlabelをそのまま使う（4文字以内のため略す必要がない）。 */
+  chipLabel?: string | null;
   description: string;
   /** この軸が専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から地図上で
    * 視界内の全道路を線色分け表示できる）を持つかの宣言（domain/axis_definitions.py:
@@ -73,6 +79,8 @@ export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef 
   return {
     axisId: axis.axis_id,
     label: axis.label,
+    iconId: axis.icon_id ?? null,
+    chipLabel: axis.chip_label ?? null,
     description: axis.description ?? "",
     dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
     displayThresholdsOverride: axis.display_thresholds_override ?? undefined,

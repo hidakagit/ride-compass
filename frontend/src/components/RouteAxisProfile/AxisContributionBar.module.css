@@ -61,3 +61,10 @@
 .legendPopover {
   composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
+
+/* 軸アイコン。色は軸の配色をcurrentColor経由でSVGへ渡す（アイコン自体は色を持たない）。 */
+.legendIcon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}

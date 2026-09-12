@@ -56,10 +56,12 @@ describe("RouteAxisProfile", () => {
     render(<RouteAxisProfile {...baseProps()} />);
 
     const items = chips();
-    expect(items.map((item) => item.textContent)).toEqual([
-      expect.stringContaining("車の圧迫感"),
-      expect.stringContaining("風"),
-      expect.stringContaining("夜間"),
+    // チップはアイコンと値だけを持ち、軸の名前はアクセシブル名（押せるチップは詳細ボタン、
+    // 押せないチップはrole=imgのラベル）が担う。
+    expect(items.map((item) => within(item).getByLabelText(/./).getAttribute("aria-label"))).toEqual([
+      "車の圧迫感の詳細を表示",
+      "風",
+      "夜間の詳細を表示",
     ]);
     expect(items[1]).toHaveAttribute("data-checked", "false");
     expect(within(items[1]).queryByRole("button")).not.toBeInTheDocument();
@@ -99,7 +101,7 @@ describe("RouteAxisProfile", () => {
 
     const segments = container.querySelectorAll('[class*="stackSegment"]');
     expect(segments).toHaveLength(2);
-    expect(chips()[1]).toHaveTextContent("風");
+    expect(within(chips()[1]).getByLabelText("風")).toBeInTheDocument();
     expect(chips()[1]).toHaveAttribute("data-checked", "false");
   });
 

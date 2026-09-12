@@ -234,6 +234,7 @@
   /* 左カラムの幅。候補行の「順位・距離・総合難易度」が折り返さずに読める最小限に留め、
      残りは右の中身へ回す。 */
   width: 10rem;
+
   border-right: 1px solid var(--color-border);
 }
 
