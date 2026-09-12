@@ -716,3 +716,33 @@ def test_diverse_graph_actually_supplies_every_extractable_material():
 
     missing = sorted(set(EXTRACTABLE_MATERIAL_IDS) - supplied)
     assert not missing, f"パリティテストのグラフが値を1件も供給していない材料: {missing}"
+
+
+def test_combine_rejects_matrices_whose_columns_disagree():
+    """先頭タイルの列をそのまま全体の列として採用する以上、一致していることを確かめる。
+
+    列数が違えば`np.concatenate`がValueErrorで落ちるが、偶然一致して意味だけ入れ替わると
+    例外にならず**別の軸の生値を表示する**。後者を捕まえるために名前で突き合わせる。
+    """
+    import numpy as np
+
+    from app.domain.evaluation import StaticEdgeScoreMatrix, combine_static_edge_score_matrices
+
+    def matrix(raw_ids: list[str]) -> StaticEdgeScoreMatrix:
+        return StaticEdgeScoreMatrix(
+            edge_ids=["e"],
+            axis_ids=["gradient"],
+            axis_scores=np.array([[1.0]]),
+            distance_m=np.array([1.0]),
+            bearing_deg=np.array([np.nan]),
+            highway_filter_flags={"motorway": np.array([False])},
+            no_bicycle=np.array([False]),
+            gradient_percent=np.array([np.nan]),
+            mid_lat=np.array([35.0]),
+            mid_lon=np.array([139.0]),
+            raw_axis_ids=raw_ids,
+            axis_raw_values=np.zeros((1, len(raw_ids))),
+        )
+
+    with pytest.raises(ValueError, match="raw_axis_ids"):
+        combine_static_edge_score_matrices([matrix(["gradient"]), matrix(["stop_density"])])

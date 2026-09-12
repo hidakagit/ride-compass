@@ -46,11 +46,17 @@ ACCIDENT_REVISION = "1"
 # 未訪問タイルだけが新しい値になる——症状が局所的で気づきにくい。
 MATERIAL_REVISION = "12"
 
-# 静的Edge×公開軸スコア行列。列構成の変化は署名側が、材料の作り直しは材料世代との複合
-# （`tile_score_matrix_cache.py`）が捕まえる。ここを上げるのは、同じ材料・同じ列から
+# 静的Edge×公開軸スコア行列。dataclassの列構成の変化は署名側が、材料の作り直しは材料世代
+# との複合（`tile_score_matrix_cache.py`）が捕まえる。ここを上げるのは、同じ材料・同じ列から
 # 違う値を作るようになったとき（`domain/evaluation.py: build_static_edge_score_matrix`の
 # 計算式変更）。軸定義の編集はこの世代管理の対象外——デプロイを伴わない実行時の操作のため、
 # `sync_disk_cache_with_axis_revision()`が担う。
+#
+# **可変長の列（`raw_axis_ids`/`material_ids`/`categorical_material_ids`）はここでは
+# 捕まえられない**。`dataclasses.fields()`に現れない「中身で決まる列」で、集合を決める述語
+# （`evaluation.py`の`route_facing_*`、その先の`axis_display.py`の生値可否判定と
+# `MaterialSpec`の該当フィールド）はこのファイルを触らずに変えられる。そちらは
+# `tile_score_matrix_cache.get()`が読み出し時に現在の述語と突き合わせて吸収する。
 SCORE_MATRIX_REVISION = "11"
 
 

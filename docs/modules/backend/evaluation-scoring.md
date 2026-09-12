@@ -253,6 +253,19 @@ categorical材料は数値列に載せられないため、対になる別の列
 持つ区間だけで、値の無い区間は分母にも入れない）→`RouteCandidate.material_category_shares`。
 真偽値材料を0/1で運んで平均が割合になるのと同じ考え方を、値が3つ以上ある材料へ広げたもの。
 
+**可変長の列はキャッシュ鍵で守れない**。`raw_axis_ids`/`material_ids`/
+`categorical_material_ids`は`dataclasses.fields()`に現れない「中身で決まる列」で、
+`cache_identity`の署名（列名の並び）は変化しない。集合を決める述語
+（`route_facing_raw_axis_ids`・`route_facing_material_ids`・
+`route_facing_categorical_material_ids`）は`evaluation.py`を触らずに変えられるため、
+守りは2つ置いてある:
+
+- `tile_score_matrix_cache.get()`が復元した行列の3つのidリストを現在の述語と突き合わせ、
+  一致しなければ**キャッシュミス扱い**にする（呼び出し側が作り直すだけで済む）。
+- `combine_static_edge_score_matrices`が全タイルの列の一致を確かめてから`np.concatenate`する。
+  列数が違えばValueErrorで落ちるが、偶然一致して意味だけ入れ替わると例外にならず
+  **別の軸の生値を表示する**——後者を捕まえるために名前で突き合わせる。
+
 **丸めは値の種類で分ける**。距離加重平均そのものは`weighted_mean_by_distance`
 （`domain/difficulty.py`、丸めない）が求め、丸め方は呼び出し側が決める——
 difficulty系（0〜100）は小数1桁、生値・材料値は**有効数字4桁**。

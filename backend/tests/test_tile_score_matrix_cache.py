@@ -10,12 +10,37 @@ import pytest
 
 from cachetools import LRUCache
 
-from app.domain.evaluation import StaticEdgeScoreMatrix
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    route_facing_categorical_material_ids,
+    route_facing_material_ids,
+    route_facing_raw_axis_ids,
+)
 from app.infrastructure import graph_material_cache, tile_persistent_cache, tile_score_matrix_cache
+
+
+def _columns(rows: int) -> dict:
+    """可変長の列を、いまの述語どおりに揃える。
+
+    読み出し時の検証（`_columns_match_current_predicates`）が現在の述語と突き合わせるため、
+    ここを固定値で書くと「述語が変わった」のか「フィクスチャが古い」のか区別できなくなる。
+    """
+    raw_ids = route_facing_raw_axis_ids()
+    material_ids = route_facing_material_ids()
+    categorical_ids = route_facing_categorical_material_ids()
+    return dict(
+        raw_axis_ids=raw_ids,
+        axis_raw_values=np.zeros((rows, len(raw_ids))),
+        material_ids=material_ids,
+        material_values=np.zeros((rows, len(material_ids))),
+        categorical_material_ids=categorical_ids,
+        categorical_material_values=np.empty((rows, len(categorical_ids)), dtype=object),
+    )
 
 
 def _sample_matrix(edge_id: str = "edge-1", score: float = 50.0) -> StaticEdgeScoreMatrix:
     return StaticEdgeScoreMatrix(
+        **_columns(1),
         edge_ids=[edge_id],
         axis_ids=["gradient"],
         axis_scores=np.array([[score]]),
@@ -33,6 +58,7 @@ def _empty_matrix() -> StaticEdgeScoreMatrix:
     # T536本番実測で判明した「bbox内の1タイルがEdge0件」ケース（docs/tasks/T536.md）の
     # 土台となる、Edge0件タイルの静的スコア行列自体の形状。
     return StaticEdgeScoreMatrix(
+        **_columns(0),
         edge_ids=[],
         axis_ids=["gradient"],
         axis_scores=np.zeros((0, 1)),
@@ -312,3 +338,32 @@ def test_cache_version_changes_when_materials_version_changes(monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(tile_score_matrix_cache)
+
+
+class TestColumnValidationOnRead:
+    """可変長の列（raw_axis_ids/material_ids/categorical_material_ids）は
+    `dataclasses.fields()`に現れない**中身で決まる列**で、鍵の署名では捕まえられない。
+    列を決める述語はこのモジュールを触らずに変えられるため、読み出し時に突き合わせる。
+    """
+
+    def test_stale_columns_are_treated_as_a_miss(self, monkeypatch):
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+        tile_score_matrix_cache._cache.clear()
+        assert tile_score_matrix_cache.get(12, 5, 6) is not None
+
+        # 述語が列を1つ増やした状況（＝保存済みは1つ足りない）。
+        tile_score_matrix_cache._cache.clear()
+        monkeypatch.setattr(
+            tile_score_matrix_cache, "route_facing_material_ids",
+            lambda: [*route_facing_material_ids(), "zzz_added_material"],
+        )
+
+        stats: dict[str, object] = {}
+        assert tile_score_matrix_cache.get(12, 5, 6, stats) is None
+        assert stats["source"] == "stale_columns"
+
+    def test_matching_columns_still_hit(self):
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+        tile_score_matrix_cache._cache.clear()
+
+        assert tile_score_matrix_cache.get(12, 5, 6) is not None

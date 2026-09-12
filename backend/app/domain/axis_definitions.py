@@ -739,10 +739,20 @@ def axis_raw_value_array(
     （docs/tasks/T687.md参照）。
     """
     shape = definition.shape
-    if not isinstance(shape, BreakpointLinearShape):
+    if not has_axis_raw_value_array(definition):
         return None
+    assert isinstance(shape, BreakpointLinearShape)
     total, all_missing = _breakpoint_raw_total_array(shape, materials)
     return np.where(all_missing, np.nan, total)
+
+
+def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
+    """`axis_raw_value_array`が配列を返すか。**データではなく軸の宣言だけで決まる**。
+
+    列の集合を数えるときにデータを持たずに判定できる必要がある（静的スコア行列の
+    空タイル分岐・読み出し時の列検証が、実際に配列を作らずに同じ答えを得るため）。
+    """
+    return isinstance(definition.shape, BreakpointLinearShape)
 
 
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.ndarray]) -> np.ndarray:

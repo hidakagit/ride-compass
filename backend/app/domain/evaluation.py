@@ -42,6 +42,7 @@ from app.domain.axis_definitions import (
     REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisDefinition,
     axis_raw_value_array,
+    has_axis_raw_value_array,
     evaluate_axes_scalar,
     evaluate_axis_array,
     topological_axis_order,
@@ -293,6 +294,23 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     return not (set(definition.materials) & REQUEST_DYNAMIC_MATERIAL_IDS)
 
 
+def route_facing_raw_axis_ids() -> list[str]:
+    """静的スコア行列が生値の列として持つ軸id（**並びも含めた唯一の定義元**）。
+
+    空タイルの分岐・通常タイルの構築・キャッシュ読み出し時の列検証が別々にこの条件を
+    書くと、片方だけ変えた瞬間に列数・列順が食い違い、
+    `combine_static_edge_score_matrices`の`np.concatenate`がタイルをまたいで失敗する
+    （または、ずれた列で合成されて別の軸の生値を表示する）。
+    """
+    return [
+        axis_id
+        for axis_id in topological_axis_order(AXIS_DEFINITIONS)
+        if AXIS_DEFINITIONS[axis_id].is_published
+        and has_route_facing_raw_value(AXIS_DEFINITIONS[axis_id])
+        and has_axis_raw_value_array(AXIS_DEFINITIONS[axis_id])
+    ]
+
+
 def route_facing_material_ids() -> list[str]:
     """内訳として経路へ運ぶ材料id（安定順）。
 
@@ -436,11 +454,7 @@ def _evaluate_axes_bulk(
             for axis_id in topological_axis_order(AXIS_DEFINITIONS)
             if AXIS_DEFINITIONS[axis_id].is_published
         }
-        empty_raw_arrays = {
-            axis_id: np.array([])
-            for axis_id in empty_axis_arrays
-            if has_route_facing_raw_value(AXIS_DEFINITIONS[axis_id])
-        }
+        empty_raw_arrays = {axis_id: np.array([]) for axis_id in route_facing_raw_axis_ids()}
         return BulkAxisEvaluation(
             edge_ids=[],
             distance_m=np.array([]),
@@ -567,10 +581,12 @@ def _evaluate_axes_bulk(
         material_arrays_with_axes[axis_id] = arr
         if definition.is_published:
             axis_arrays[axis_id] = arr
-            if has_route_facing_raw_value(definition):
-                raw = axis_raw_value_array(definition, material_arrays_with_axes)
-                if raw is not None:
-                    axis_raw_arrays[axis_id] = raw
+    # 生値の列は`route_facing_raw_axis_ids`が決める（空タイル分岐・読み出し時検証と同じ
+    # 定義元を使う。ここで条件を書き直すと、片方だけ変えたときに列がずれる）。
+    for axis_id in route_facing_raw_axis_ids():
+        raw = axis_raw_value_array(AXIS_DEFINITIONS[axis_id], material_arrays_with_axes)
+        assert raw is not None, f"route_facing_raw_axis_idsが返した{axis_id}の生値が作れない"
+        axis_raw_arrays[axis_id] = raw
 
     material_value_arrays = {
         material_id: material_arrays[material_id].astype(float, copy=False)
@@ -913,6 +929,24 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
     raw_axis_ids = matrices[0].raw_axis_ids
     material_ids = matrices[0].material_ids
     categorical_material_ids = matrices[0].categorical_material_ids
+    # 先頭タイルの列をそのまま全体の列として採用する以上、全タイルで一致していることを
+    # ここで確かめる。食い違ったまま`np.concatenate`すると、列数が違えばValueErrorで落ち、
+    # 偶然一致すれば**別の軸の生値を表示する**（後者は例外にならないぶん質が悪い）。
+    for index, matrix in enumerate(matrices[1:], start=1):
+        mismatched = [
+            name
+            for name, first, other in (
+                ("axis_ids", axis_ids, matrix.axis_ids),
+                ("raw_axis_ids", raw_axis_ids, matrix.raw_axis_ids),
+                ("material_ids", material_ids, matrix.material_ids),
+                ("categorical_material_ids", categorical_material_ids, matrix.categorical_material_ids),
+            )
+            if first != other
+        ]
+        if mismatched:
+            raise ValueError(
+                f"静的スコア行列の列がタイル間で一致しません index={index} 不一致={mismatched}"
+            )
     all_edge_ids = [edge_id for matrix in matrices for edge_id in matrix.edge_ids]
     axis_scores = np.concatenate([matrix.axis_scores for matrix in matrices], axis=0)
     axis_raw_values = np.concatenate([matrix.axis_raw_values for matrix in matrices], axis=0)

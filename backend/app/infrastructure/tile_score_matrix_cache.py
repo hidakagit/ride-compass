@@ -43,12 +43,21 @@ tile_persistent_cache.py`へも同じ内容をディスク永続化する（`gra
 """
 
 
+import logging
+
 from cachetools import LRUCache
 
-from app.domain.evaluation import StaticEdgeScoreMatrix
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    route_facing_categorical_material_ids,
+    route_facing_material_ids,
+    route_facing_raw_axis_ids,
+)
 from app.infrastructure import tile_persistent_cache
 from app.infrastructure.cache_identity import SCORE_MATRIX_REVISION, cache_identity
 from app.infrastructure.graph_material_cache import TILE_MATERIALS_CACHE_VERSION
+
+logger = logging.getLogger("ridecompass.tile_score_matrix_cache")
 
 # graph_material_cache.pyのDEFAULT_MAX_TILESと同じ値（同じタイル粒度・同じ対象範囲
 # [関東圏]を想定するため、上限も揃える）。
@@ -81,6 +90,22 @@ def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
     _cache[key] = matrix
 
 
+def _columns_match_current_predicates(matrix: StaticEdgeScoreMatrix) -> bool:
+    """復元した行列の可変長の列が、いまの述語の出力と一致するか。
+
+    `raw_axis_ids`/`material_ids`/`categorical_material_ids`は`dataclasses.fields()`には
+    現れない**中身で決まる列**で、鍵の署名（列名の並び）では捕まえられない。列を決める
+    述語（`axis_display.py`の生値可否判定・`MaterialSpec`の該当フィールド）はこのモジュールを
+    触らずに変えられるため、版を上げ忘れると旧世代がそのまま復元される。列数が変われば
+    `np.concatenate`がValueErrorで落ち、偶然一致すれば**別の軸の生値を表示する**。
+    """
+    return (
+        matrix.raw_axis_ids == route_facing_raw_axis_ids()
+        and matrix.material_ids == route_facing_material_ids()
+        and matrix.categorical_material_ids == route_facing_categorical_material_ids()
+    )
+
+
 def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) -> StaticEdgeScoreMatrix | None:
     """`read_stats`は`graph_material_cache.get_tile_materials`と同じ意味
     （"source"="memory"/"disk"＋ディスク経由時の"read_ms"）。"""
@@ -96,6 +121,15 @@ def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) 
         _CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y, stats=read_stats
     )
     if persisted is None:
+        return None
+    if not _columns_match_current_predicates(persisted):
+        # 版の上げ忘れをここで吸収する。ミス扱いにすれば呼び出し側が作り直すだけで済み、
+        # 壊れた行列が探索へ入らない。
+        logger.warning(
+            "スコア行列の列構成が現在の述語と一致しないためミス扱いにします tile=%d/%d/%d", zoom, x, y
+        )
+        if read_stats is not None:
+            read_stats["source"] = "stale_columns"
         return None
     if read_stats is not None:
         read_stats["source"] = "disk"
