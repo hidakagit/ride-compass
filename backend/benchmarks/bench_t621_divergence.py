@@ -72,10 +72,35 @@ def _cumulative_km(graph, path: list[str], index: int) -> float:
     return sum(graph.edges[edge_id].distance_m for edge_id in path[:index]) / 1000.0
 
 
+def _difference_km(graph, left: list[str], right: list[str]) -> float:
+    """2本の経路が共有しないEdgeの延長（両方向の差の合計、km）。
+
+    同じ乗り換え先を持つ隣り合うマーカーの間でこれが小さいなら、その2つは実質同じ
+    経路を生んでおり、片方を畳んでも利用者の選択肢は減らない。
+    """
+    left_only = set(left) - set(right)
+    right_only = set(right) - set(left)
+    return sum(graph.edges[edge_id].distance_m for edge_id in left_only | right_only) / 1000.0
+
+
+def _redundancy(graph, displayed: list[str], paths: dict[str, list[str]], points: list) -> list[float]:
+    """同じ乗り換え先を持つ隣り合うマーカーが生む経路の違い（km）を、乗り換え先ごとに返す。"""
+    by_target: dict[str, list[list[str]]] = {}
+    for point in points:
+        for target in point.targets:
+            by_target.setdefault(target, []).append(spliced_path(displayed, paths[target], point))
+    return [
+        _difference_km(graph, earlier, later)
+        for spliced in by_target.values()
+        for earlier, later in zip(spliced, spliced[1:])
+    ]
+
+
 def _report(graph, paths: dict[str, list[str]]) -> None:
     spliced_total = 0
     spliced_connected = 0
     marker_counts: list[int] = []
+    differences: list[float] = []
 
     for label, displayed in paths.items():
         others = {other: path for other, path in paths.items() if other != label}
@@ -89,12 +114,22 @@ def _report(graph, paths: dict[str, list[str]]) -> None:
                 path = spliced_path(displayed, paths[target], point)
                 spliced_total += 1
                 spliced_connected += _is_connected(graph, path)
+        differences.extend(_redundancy(graph, displayed, paths, points))
 
     print(
         f"\n=== マーカー個数: 最小{min(marker_counts)} 最大{max(marker_counts)} "
         f"平均{sum(marker_counts) / len(marker_counts):.1f}（候補{len(paths)}本）"
     )
     print(f"=== 合成経路の連結: {spliced_connected}/{spliced_total} 件が連結")
+    if differences:
+        buckets = [
+            ("0.5km未満（実質同じ経路）", sum(d < 0.5 for d in differences)),
+            ("0.5〜2km", sum(0.5 <= d < 2.0 for d in differences)),
+            ("2km以上（別の経路）", sum(d >= 2.0 for d in differences)),
+        ]
+        print(f"=== 同じ乗り換え先を持つ隣り合うマーカーが生む経路の違い（{len(differences)}組）")
+        for label, count in buckets:
+            print(f"    {label}: {count}組 ({count / len(differences):.0%})")
 
 
 async def main() -> None:

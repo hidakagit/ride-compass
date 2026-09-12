@@ -5,7 +5,7 @@ Edge id列から分岐点を求める部分は接続無しで固定できる。
 """
 
 from benchmarks._divergence import DivergencePoint, divergence_points, spliced_path
-from benchmarks.bench_t621_divergence import _cumulative_km, _is_connected
+from benchmarks.bench_t621_divergence import _cumulative_km, _difference_km, _is_connected, _redundancy
 
 
 def test_identical_paths_have_no_divergence_point():
@@ -106,6 +106,10 @@ _GRAPH = _FakeGraph(
         "a": _FakeEdge("n0", "n1", 1000.0),
         "b": _FakeEdge("n1", "n2", 2000.0),
         "detached": _FakeEdge("n9", "n2", 500.0),
+        "c": _FakeEdge("n2", "n3", 100.0),
+        "d": _FakeEdge("n3", "n4", 100.0),
+        "p": _FakeEdge("n1", "n2", 300.0),
+        "q": _FakeEdge("n3", "n4", 100.0),
     }
 )
 
@@ -122,3 +126,31 @@ def test_cumulative_distance_sums_the_edges_before_the_divergence_point():
     assert _cumulative_km(_GRAPH, ["a", "b"], 0) == 0.0
     assert _cumulative_km(_GRAPH, ["a", "b"], 1) == 1.0
     assert _cumulative_km(_GRAPH, ["a", "b"], 2) == 3.0
+
+
+def test_difference_counts_the_road_that_only_one_path_uses():
+    # aは共通、bは左だけ（2.0km）、detachedは右だけ（0.5km）
+    assert _difference_km(_GRAPH, ["a", "b"], ["a", "detached"]) == 2.5
+
+
+def test_difference_is_zero_for_the_same_path():
+    assert _difference_km(_GRAPH, ["a", "b"], ["a", "b"]) == 0.0
+
+
+def test_redundancy_compares_consecutive_markers_that_offer_the_same_target():
+    displayed = ["a", "b"]
+    paths = {"B": ["a", "detached"]}
+    points = divergence_points(displayed, paths)
+    # 乗り換え先Bを持つマーカーが1つしか無いので、比べる組が無い
+    assert _redundancy(_GRAPH, displayed, paths, points) == []
+
+
+def test_redundancy_measures_how_different_the_two_markers_routes_are():
+    # 表示中と相手はaで分かれ、cで合流し、cの直後でまた分かれる（マーカー2個、どちらもB宛て）
+    displayed = ["a", "b", "c", "d"]
+    paths = {"B": ["a", "p", "c", "q"]}
+    points = divergence_points(displayed, paths)
+
+    assert len(points) == 2
+    # 早い方はpを走りbを走らない、遅い方はその逆。差はp(0.3km)+b(2.0km)
+    assert _redundancy(_GRAPH, displayed, paths, points) == [2.3]
