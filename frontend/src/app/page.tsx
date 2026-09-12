@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/Button/Button";
 import MapView, { type RouteFitObscuredPx } from "@/components/Map/MapView";
 import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import {
+  ClearAllFiltersIcon,
   ClearAllLayersIcon,
+  ClearIcon,
   DownloadIcon,
   MapAppearanceIcon,
   RouteIcon,
@@ -1683,7 +1685,7 @@ export default function Home() {
           title="ルートをクリア"
           aria-label="ルートをクリア"
         >
-          <ClearAllLayersIcon size={14} />
+          <ClearIcon size={14} />
         </button>
       </>
     );
@@ -2152,8 +2154,9 @@ export default function Home() {
             onLegendAxisSetHidden={setHiddenLegendKeysForAxis}
           />
 
-          {/* 地図下部中央の行。全レイヤー一括OFFボタンを置く（design-principles.md「UI仕様」:
-              地図の視界を圧迫しない）。 */}
+          {/* 地図下部中央の行。「まとめて元に戻す」操作を並べる（design-principles.md
+              「UI仕様」: 地図の視界を圧迫しない）。レイヤーのON/OFFと凡例の絞り込みは
+              別の状態のため、戻す操作も別々に要る。 */}
           <div ref={bottomControlRowRef} className={styles.bottomControlRow}>
             <button
               type="button"
@@ -2164,6 +2167,16 @@ export default function Home() {
               className={styles.clearAllButton}
             >
               <ClearAllLayersIcon size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              disabled={!hasHiddenFilters}
+              aria-label="絞り込みをすべて解除する"
+              title="絞り込みをすべて解除する"
+              className={styles.clearAllButton}
+            >
+              <ClearAllFiltersIcon size={14} />
             </button>
           </div>
 

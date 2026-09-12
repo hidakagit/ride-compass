@@ -256,7 +256,7 @@ destinationCorrected`）。補正時は地図上の目的地ピンも
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
 「保存」（機能未実装のdisabled占位、`SaveIcon`）・「GPX出力」（`DownloadIcon`、
 `selectedCandidate`をタップで`lib/gpxExport.ts: downloadGpx`へ渡す。候補が未選択の間は
-disabled）・「ルートをクリア」（`ClearAllLayersIcon`のアイコンボタン、
+disabled）・「ルートをクリア」（`ClearIcon`のアイコンボタン、
 `handleRoutesClear`）をこの順で横並びにする操作アイコンのみを持つ。総合難易度の説明は
 `RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは

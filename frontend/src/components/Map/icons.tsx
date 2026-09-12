@@ -433,12 +433,58 @@ export function SnowflakeIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 全レイヤー一括OFF: 丸で囲んだバツ印（「クリア」の意味、地図上のチップ一括OFF用） */
-export function ClearAllLayersIcon({ size = 16 }: IconProps) {
+/** 汎用のクリア: 丸で囲んだバツ印。対象を表さないため、**同種の操作が隣り合わない場所**
+ * （ルート結果ヘッダの「ルートをクリア」等）だけで使う。地図下部のように複数の
+ * 「まとめて戻す」が並ぶ場所では、対象を形で示すアイコンを使う。 */
+export function ClearIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
       <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
       <path d="M7.3 7.3 12.7 12.7M12.7 7.3 7.3 12.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 全レイヤー一括OFF: 重なり（レイヤー）＋バツ。
+ * 地図下部の一括操作行には「戻す」操作が複数並ぶため、バツは「消す」の意味だけに使い、
+ * 何を消すのかは対象の形（重なり／漏斗）で示す——バツ単体だと対象を表せない。 */
+export function ClearAllLayersIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M7.5 2.6 13.6 6 7.5 9.4 1.4 6 7.5 2.6Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M1.4 9.6 7.5 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** 絞り込み一括クリア: 漏斗＋バツ。レイヤーは出したまま、隠していた項目を戻す操作
+ * （ClearAllLayersIconとは対象が違う。上記参照）。 */
+export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M1.8 3.4h11.4L8.9 8.3v4.4L6.1 14V8.3L1.8 3.4Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

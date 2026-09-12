@@ -941,6 +941,36 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.queryByLabelText("比較相手")).toBeNull();
   });
 
+  it("地図の一括操作は、レイヤーのON/OFFと絞り込みを別々に戻す", async () => {
+    // どちらも「まとめて元に戻す」だが対象が違う（レイヤーを消す／隠した項目を戻す）。
+    // 同じバツ印だと区別できないため、対象を形で示すアイコンを別々に持つ。
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "ridecompass:hidden-legend-keys",
+      JSON.stringify({ surface: ["asphalt"] }),
+    );
+    const HomeFresh = await renderFreshHome();
+    render(<HomeFresh />);
+
+    const clearFilters = screen.getByRole("button", { name: "絞り込みをすべて解除する" });
+    expect(clearFilters).toBeEnabled();
+
+    await user.click(clearFilters);
+
+    // 押した後は戻すものが無くなるため無効になる
+    await waitFor(() => expect(clearFilters).toBeDisabled());
+    // レイヤー側の一括OFFは別のボタンとして残る
+    expect(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" })).toBeInTheDocument();
+  });
+
+  it("絞り込みが無ければ解除ボタンは押せない", async () => {
+    // no-opのボタンを押せる状態で置くと、押しても何も起きない操作を覚えさせることになる
+    const HomeFresh = await renderFreshHome();
+    render(<HomeFresh />);
+
+    expect(screen.getByRole("button", { name: "絞り込みをすべて解除する" })).toBeDisabled();
+  });
+
   it("T592フォローアップ: 研究モード中は区間クリック詳細に材料値(material_values)を表示する", async () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
