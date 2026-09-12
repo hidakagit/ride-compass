@@ -1736,6 +1736,8 @@ export interface components {
             };
             /** Edge Ids */
             edge_ids?: string[];
+            /** Edge Point Offsets */
+            edge_point_offsets?: number[];
             /**
              * Is Shortest Distance
              * @default false

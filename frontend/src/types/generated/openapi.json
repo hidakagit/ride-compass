@@ -3966,6 +3966,13 @@
             "type": "array",
             "title": "Edge Ids"
           },
+          "edge_point_offsets": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Edge Point Offsets"
+          },
           "is_shortest_distance": {
             "type": "boolean",
             "title": "Is Shortest Distance",
