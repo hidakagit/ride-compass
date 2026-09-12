@@ -78,3 +78,24 @@ def spliced_path(
         return list(target)
     position = list(target).index(point.after_edge_id)
     return list(displayed[: point.index]) + list(target[position + 1 :])
+
+
+def differing_stretches(displayed: Sequence[str], target: Sequence[str]) -> list[tuple[int, int]]:
+    """`displayed`のうち`target`が通らないEdgeの連続した区間（開始index, 終了index+1）。
+
+    2本は共有ノードで必ず合流するため、この区間1つを`target`側の道へ差し替えても経路は
+    成立する。区間の個数は分岐点の個数と一致し、見せ方（点か帯か）だけが変わる。
+    """
+    on_target = set(target)
+    stretches: list[tuple[int, int]] = []
+    start: int | None = None
+    for index, edge in enumerate(displayed):
+        if edge not in on_target:
+            if start is None:
+                start = index
+        elif start is not None:
+            stretches.append((start, index))
+            start = None
+    if start is not None:
+        stretches.append((start, len(displayed)))
+    return stretches
