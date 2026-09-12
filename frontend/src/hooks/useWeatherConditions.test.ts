@@ -299,6 +299,28 @@ describe("useWeatherConditions", () => {
     expect(result.current.amedasError).toBeNull();
   });
 
+  it("失敗したまま固定されず、一定間隔の取り直しが成功すればエラー表示が消える", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockAllQuiet();
+      vi.mocked(getAmedasObservation).mockRejectedValueOnce(new Error("アメダス観測値の取得に失敗しました"));
+
+      const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
+
+      await waitFor(() => expect(result.current.amedasError).toBe("アメダス観測値の取得に失敗しました"));
+
+      // 次の取り直しの番が来ると成功し、エラーは消えて値が入る。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      });
+
+      await waitFor(() => expect(result.current.amedasError).toBeNull());
+      expect(result.current.amedas).toEqual(amedasAt("東京"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("WBGTはlevelがあってもvalueがnullならバッジを出さない", async () => {
     mockAllQuiet();
     vi.mocked(getWbgtStatus).mockResolvedValue({

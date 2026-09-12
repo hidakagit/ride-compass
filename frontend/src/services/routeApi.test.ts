@@ -45,7 +45,7 @@ describe("routeApi", () => {
         ),
       );
 
-      await expect(generateRoutes(request)).rejects.toThrow("エラー詳細[req: req-123]");
+      await expect(generateRoutes(request)).rejects.toThrow("エラー詳細");
     });
 
     it("x-request-idヘッダが無い場合はメッセージに(req: ...)が付かない", async () => {

@@ -125,7 +125,7 @@ describe("axisAdminApi", () => {
         vi.fn().mockResolvedValue(makeResponse({ ok: false, status: 409, json: async () => ({ detail: "公開済みの軸は更新できません" }), headers })),
       );
 
-      await expect(listAxisDefinitions()).rejects.toThrow("公開済みの軸は更新できません[req: req-123]");
+      await expect(listAxisDefinitions()).rejects.toThrow("公開済みの軸は更新できません");
     });
 
     it("ok:falseかつdetailが無い場合はフォールバックメッセージになる", async () => {

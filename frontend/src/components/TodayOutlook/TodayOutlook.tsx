@@ -56,8 +56,9 @@ function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
 export default function TodayOutlook({ weather, loading, error }: TodayOutlookProps) {
   // weather===nullは「取得失敗」「まだ読み込み中」「意味のある値が無い」のいずれの
   // 可能性もあるため、取得が実際に失敗した場合は警戒色のトリガーで気づけるようにする
-  // （開くとエラー内容を示す最小限のパネル）。
-  if (error) {
+  // （開くとエラー内容を示す最小限のパネル）。手元に見通しがあるなら、直近の取り直しが
+  // 失敗していてもそちらを優先する（WeatherPanelと同じ扱い）。
+  if (error && !weather) {
     return (
       <Popover.Root>
         <Popover.Trigger asChild>

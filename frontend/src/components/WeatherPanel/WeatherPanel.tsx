@@ -41,9 +41,14 @@ function formatClockTime(iso: string): string {
 }
 
 export default function WeatherPanel({ amedas, loading, error }: WeatherPanelProps) {
-  if (loading) return <p className={styles.loading}>天候取得中...</p>;
-  if (error) return <p className={styles.error}>{error}</p>;
-  if (!amedas) return null;
+  // 手元に観測値があるなら、直近の取り直しが失敗していてもそちらを出す（失敗の文言で
+  // 値を置き換えない）。取得は一定間隔で続くため、回復すれば表示も戻る。
+  if (!amedas) {
+    if (loading) return <p className={styles.loading}>天候取得中...</p>;
+    // 一般画面には短い文言だけを出し、原因の詳細（HTTPステータス等）はtitleへ回す。
+    if (error) return <p className={styles.error} title={error}>観測値なし</p>;
+    return null;
+  }
 
   const temperatureTitle =
     amedas.apparent_temperature_c != null ? `体感 ${amedas.apparent_temperature_c.toFixed(1)}℃` : undefined;
