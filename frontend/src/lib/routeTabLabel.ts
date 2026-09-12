@@ -3,6 +3,18 @@
 // タブは候補どうしを見比べる場所のため、「最短からどれだけ余分に走るか」はここに出す
 // （タブの中身を開かないと分からないと、比較のたびに開き直すことになる）。
 
+/** 区間を乗り換えて作った候補のid接頭辞。**backendが付ける値**（route_generator.py:
+ * generate_spliced_route）で、同じ生成結果へ複数追加できるようフロントが連番を足す。
+ * 判定と組み立ての両方がこの1つを使う——別々に書くと、片方だけ変えたときに合成した
+ * ルートが一覧の中で生成候補と見分けられなくなる（型でも例外でも現れない）。 */
+export const SPLICED_ROUTE_ID_PREFIX = "route-spliced";
+
+/** 区間を乗り換えて作った候補か。一覧では生成候補と並ぶため、由来を表記で示す。
+ * 並び順（overall_difficulty昇順）の外へ追加されるので、順位番号は意味を持たない。 */
+export function isSplicedRoute(route: { id: string }): boolean {
+  return route.id.startsWith(SPLICED_ROUTE_ID_PREFIX);
+}
+
 /** 距離だけで選んだ基準線となる候補（RouteCandidate.is_shortest_distance）の距離km。無ければnull。 */
 export function shortestDistanceKm(
   routes: readonly { distance_km: number; is_shortest_distance?: boolean }[],
