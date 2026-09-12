@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   differingStretches,
+  pairedStretches,
   spliceEdgeIds,
   stretchCoordinateRange,
   targetStretchEdgeIds,
@@ -100,5 +101,27 @@ describe("stretchCoordinateRange", () => {
     expect(stretchCoordinateRange([], { start: 0, end: 1 })).toBeNull();
     // 境界点が前後している（backendが返した対応が壊れている）
     expect(stretchCoordinateRange([5, 3], { start: 0, end: 1 })).toBeNull();
+  });
+});
+
+describe("pairedStretches", () => {
+  it("表示中の区間と相手側の区間を同じ順で対応づける", () => {
+    const displayed = ["a", "b", "c", "d", "e"];
+    const target = ["a", "p", "q", "c", "r", "e"];
+
+    expect(pairedStretches(displayed, target)).toEqual([
+      { displayed: { start: 1, end: 2 }, target: { start: 1, end: 3 } },
+      { displayed: { start: 3, end: 4 }, target: { start: 4, end: 5 } },
+    ]);
+  });
+
+  it("同じ道だけを通る2本には組が無い", () => {
+    expect(pairedStretches(["a", "b"], ["a", "b"])).toEqual([]);
+  });
+
+  it("本数が食い違ったら対応づけを諦める", () => {
+    // 片側だけ描くと、地図上の帯と実際に差し替わる道がずれる。
+    // 相手が途中で終わる（表示中だけが先へ進む）と、相手側に対応する区間が無い。
+    expect(pairedStretches(["a", "b"], ["a"])).toEqual([]);
   });
 });

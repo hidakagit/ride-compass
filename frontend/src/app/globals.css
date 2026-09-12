@@ -53,6 +53,8 @@
   /* サイドバー内で情報のまとまりを示すカード背景 */
   --color-surface-2: #f3f4f2;
   --color-accent-strong: #1d4ed8;
+  /* 乗り換えられる区間の帯（MapView.tsx: SPLICE_COLOR と同じ値。候補線の寒色と競合しない暖色） */
+  --color-route-splice: #c2612b;
 
   /* 地図チップの最上位グループ（道路/評価軸/環境/スポット、MapOverlayControls.tsx）を
    * 一目で見分けられるようにする控えめな色分け（実機フィードバック「それぞれのタイル及び

@@ -16,7 +16,7 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
-| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`cn.ts`・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、選んだ区間を差し替えた経路を組み立てる純関数。[T621](../../tasks/T621.md)） |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`cn.ts`・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立てる純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。[T621](../../tasks/T621.md)） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）・`infoButton.module.css`（見出し脇の(i)トリガー）・`mapCtrlButton.module.css`（MapLibre純正コントロールの続きに見える29px四方ボタン）・`statusDot.module.css`（データ取得状態の3表現）・`axisLegend.module.css`（軸の寄与を示す帯グラフと凡例ドット）・`unusedBadge.module.css`（重み0の軸に添える「未使用」バッジ）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |

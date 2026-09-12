@@ -2327,6 +2327,8 @@ function buildPoiPopupHtml(prefix: string, labels: Record<string, string>, prope
 interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
+  // 比較相手が別の道を通る区間（docs/tasks/T621.md）。空/未指定なら帯を出さない。
+  spliceStretches?: SpliceStretchFeature[];
   location: Coordinates;
   /** 出発地点マーカーの色分けに使う。GPS取得失敗時のフォールバック（"default"）だけを
    * グレーで視覚的に区別する。実際のGPS取得（"geolocation"）と手動指定（"manual"）は
@@ -2491,6 +2493,7 @@ interface MapViewProps {
 export default function MapView({
   routes,
   selectedRouteId,
+  spliceStretches,
   location,
   locationSource,
   showElevation,
@@ -3483,6 +3486,19 @@ export default function MapView({
 
     applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selectedCandidate?.segments));
   }, [routes, selectedRouteId, routeLayerOn, selectedCandidate]);
+
+  // 乗り換えられる区間の帯。「ルート」チップOFFのときは候補線ごと消えるため帯も出さない
+  // （候補線が無いのに差し替え先だけが浮いて見えるのを避ける）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const stretches = routeLayerOn ? (spliceStretches ?? []) : [];
+    if (stretches.length > 0) {
+      drawSpliceStretches(map, stretches);
+    } else {
+      hideSpliceStretches(map);
+    }
+  }, [spliceStretches, routeLayerOn]);
 
   // 表示範囲のフィットは「候補一覧が変わったとき」だけに限定する。
   // selectedRouteIdを依存に含めると、候補選択の切り替えのたびに（fitBoundsToRoutesは
