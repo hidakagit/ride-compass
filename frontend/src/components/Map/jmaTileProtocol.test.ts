@@ -1,7 +1,10 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { inflateSync } from "node:zlib";
+
 import {
+  emptyRasterTileBytes,
   hasJmaTileIndex,
   setJmaTileIndex,
   toRealUrl,
@@ -82,5 +85,42 @@ describe("インデックス差し替えの反映", () => {
     });
 
     expect(hasJmaTileIndex()).toBe(true);
+  });
+});
+
+
+describe("空タイルとして返すPNG", () => {
+  /** PNGのIHDRとIDATから1画素目のRGBAを取り出す。 */
+  function firstPixel(png: Uint8Array): { width: number; height: number; rgba: number[] } {
+    const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    let pos = 8;
+    let width = 0;
+    let height = 0;
+    const idat: Uint8Array[] = [];
+    while (pos < png.length) {
+      const length = view.getUint32(pos);
+      const type = String.fromCharCode(...png.slice(pos + 4, pos + 8));
+      const data = png.slice(pos + 8, pos + 8 + length);
+      if (type === "IHDR") {
+        width = view.getUint32(pos + 8);
+        height = view.getUint32(pos + 12);
+        // カラータイプ6（RGBA）以外だと下の画素の読み方が変わる。
+        expect(data[9]).toBe(6);
+      }
+      if (type === "IDAT") idat.push(data);
+      pos += 12 + length;
+    }
+    const raw = inflateSync(Buffer.concat(idat.map((d) => Buffer.from(d))));
+    // 先頭1バイトは行のフィルタ種別。
+    return { width, height, rgba: [...raw.slice(1, 5)] };
+  }
+
+  it("1画素が完全に透明である", () => {
+    const { width, height, rgba } = firstPixel(emptyRasterTileBytes());
+
+    expect([width, height]).toEqual([1, 1]);
+    // MapLibreはこの1画素をタイル全面へ引き伸ばす。不透明な画素だと地図全体が塗られる
+    // （災害レイヤーが関東全域を緑一色にした実例、docs/tasks/T754.md）。
+    expect(rgba).toEqual([0, 0, 0, 0]);
   });
 });

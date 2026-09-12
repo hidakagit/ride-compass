@@ -13,11 +13,20 @@ import { buildJmaTileIndexLookup, isKnownEmptyTile, type JmaTileIndexLookup, typ
 /** タイルURLへ付けるスキーム。`jmatile://https://host/...`の形になる。 */
 const JMA_TILE_PROTOCOL = "jmatile";
 
-/** 1x1の完全に透明なPNG。空と分かっているタイルの代わりに返す。 */
+/** 1x1の完全に透明なPNG（全チャネル0）。空と分かっているタイルの代わりに返す。
+ *
+ * MapLibreはこの1画素を`tileSize`ぶんへ引き伸ばすため、**不透明な画素が1つでも入ると
+ * タイル全面がその色で塗られる**。空タイルは全ズーム・全座標で返るので、地図全体が
+ * 塗り潰される。`jmaTileProtocol.test.ts`が画素を復号して不透明度0を検査する。 */
 const TRANSPARENT_PNG = Uint8Array.from(
-  atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="),
+  atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII="),
   (c) => c.charCodeAt(0),
 );
+
+/** テスト用。空タイルとして返すPNGのバイト列。 */
+export function emptyRasterTileBytes(): Uint8Array {
+  return TRANSPARENT_PNG;
+}
 /** 空のMVT（ベクタタイルのソースへ返す用）。0バイトが「地物なし」を表す。 */
 const EMPTY_MVT = new Uint8Array(0);
 
