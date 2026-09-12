@@ -577,3 +577,40 @@ def test_design_change_words_alone_do_not_exempt_a_paragraph(tmp_path, monkeypat
     doc = _arch_doc(tmp_path, monkeypatch, "car_stressへ統合した。`zzzStillNamedThing`が値を組み立てる。\n")
 
     assert len(review_checks.find_undeclared_dead_refs(doc, [], "")) == 1
+
+
+# --- npm同梱のnpx-cli.jsの解決 ---
+
+
+def test_npx_cli_path_finds_it_next_to_the_resolved_npm_cli(tmp_path):
+    # POSIXの`which("npm")`はシンボリックリンクで、解決するとnpm本体のbin/npm-cli.jsになる。
+    # そこから改めてnode_modules/npm/binを足すと二重になり、存在しないパスを指す。
+    real_bin = tmp_path / "lib" / "node_modules" / "npm" / "bin"
+    real_bin.mkdir(parents=True)
+    (real_bin / "npm-cli.js").write_text("", encoding="utf-8")
+    (real_bin / "npx-cli.js").write_text("", encoding="utf-8")
+    shim_dir = tmp_path / "bin"
+    shim_dir.mkdir()
+    shim = shim_dir / "npm"
+    shim.symlink_to(real_bin / "npm-cli.js")
+
+    assert review_checks.npx_cli_path(str(shim)) == real_bin / "npx-cli.js"
+
+
+def test_npx_cli_path_finds_it_under_a_sibling_node_modules(tmp_path):
+    # シムの隣にnode_modulesがある並び（Windows等）。
+    shim_dir = tmp_path / "npmroot"
+    cli = shim_dir / "node_modules" / "npm" / "bin"
+    cli.mkdir(parents=True)
+    (cli / "npx-cli.js").write_text("", encoding="utf-8")
+    shim = shim_dir / "npm"
+    shim.write_text("", encoding="utf-8")
+
+    assert review_checks.npx_cli_path(str(shim)) == cli / "npx-cli.js"
+
+
+def test_npx_cli_path_returns_none_when_nothing_matches(tmp_path):
+    shim = tmp_path / "npm"
+    shim.write_text("", encoding="utf-8")
+
+    assert review_checks.npx_cli_path(str(shim)) is None

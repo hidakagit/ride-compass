@@ -1028,6 +1028,25 @@ def npx() -> str | None:
     return shutil.which("npx.cmd") or shutil.which("npx")
 
 
+def npx_cli_path(npm: str) -> Path | None:
+    """npm同梱の`npx-cli.js`の実体。
+
+    `shutil.which("npm")`が返すのはPATH上のシンボリックリンク（POSIX）かシム
+    （Windows）で、OSによってその先の並びが違う。**パスを組み立てて当てにいかず、
+    候補を順に確かめて実在するものを返す**——POSIXでリンクを解決するとnpm本体の
+    `bin/npm-cli.js`そのものになるため、そこから改めて`node_modules/npm/bin`を足すと
+    二重になる（存在しないパスになり、コピペ検出が常にスキップされる）。
+    """
+    resolved = Path(npm).resolve()
+    candidates = [
+        # npm本体のbin/（POSIXでリンクを解決した後。npx-cli.jsはnpm-cli.jsの隣にある）
+        resolved.parent / "npx-cli.js",
+        # シムの隣にnode_modulesがある並び（Windowsのnpm同梱シム等）
+        resolved.parent / "node_modules" / "npm" / "bin" / "npx-cli.js",
+    ]
+    return next((c for c in candidates if c.exists()), None)
+
+
 def latest_history_date(kind: str | None = None) -> dt.date | None:
     dates = []
     for p in HISTORY_DIR.glob("*.md"):
@@ -1196,9 +1215,9 @@ def cmd_duplication(args: argparse.Namespace) -> int:
     if node is None or npm is None:
         print("## コピペ検出: スキップしました（node/npmが見つかりません）")
         return 0
-    npx_cli = Path(npm).resolve().parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
-    if not npx_cli.exists():
-        print(f"## コピペ検出: スキップしました（npx-cli.jsが見つかりません: {npx_cli}）")
+    npx_cli = npx_cli_path(npm)
+    if npx_cli is None:
+        print(f"## コピペ検出: スキップしました（npx-cli.jsが見つかりません: npm={npm}）")
         return 0
     cmd = [
         node, str(npx_cli), "--yes", "jscpd@4",
