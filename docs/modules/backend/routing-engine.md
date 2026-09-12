@@ -135,9 +135,10 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   engine.evaluate_loops(context, traced, start_time)  # start_time=リクエストのstart_time（省略時はdatetime.now(JST)）、prepare(now=start_time)にも渡す
         │  フィルタ通過候補だけに実ジオメトリ取得・標高・風・路面等の評価を行う
         ▼
-  _with_overall_difficulty() → _with_axis_difficulties() → _with_axis_contributions()
-        │  区間segmentsから距離加重でルート単位のoverall_difficulty・
-        │  axis_difficulties・axis_contributions・axis_raw_valuesを集約
+  RouteGenerator._evaluate_and_aggregate() の集約段
+        │  区間segmentsから距離加重で候補単位の集約値（overall_difficulty・軸別の
+        │  difficulty／寄与度／生値・材料値等）を付ける。候補を返す経路はすべてこの
+        │  1メソッドを通るため、集約を増やしてもここだけに書けば全経路へ効く
         ▼
   candidates.sort(overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾)
         │  先頭max_routes件へスライスし、idをroute-00..へ振り直す
@@ -406,7 +407,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 **戻り値は入力の`traced`と同じ件数・同じ順**（位置で対応づける契約）。戦略層は
 `TracedLoop.data`の中身を知らないため、どの候補がどの`TracedLoop`由来かを位置以外で
 突き合わせられない（最短経路への印付けがこれに依存する）。件数のずれは
-`RouteGenerator._evaluate_loops`が`RoutingError`で落とす——ずれても候補が消えるわけでは
+`RouteGenerator._evaluate_and_aggregate`が`RoutingError`で落とす——ずれても候補が消えるわけでは
 なく、印・ラベルだけが静かに入れ替わるため結果からは気づけない。
 
 ### `_build_best_candidate`（逆回りループ候補の代数的合成）

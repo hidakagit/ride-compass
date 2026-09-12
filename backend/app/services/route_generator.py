@@ -38,7 +38,7 @@
   **戻り値は`traced`と同じ件数・同じ順で返す（位置で対応づける契約）**——戦略層は
   `TracedLoop.data`の中身を知らないため、どの候補がどの`TracedLoop`由来かを位置以外で
   突き合わせられない（`_generate_destination_routes`が最短経路へ印を付けるのに使う）。
-  契約は`RouteGenerator._evaluate_loops`が件数で検査する
+  契約は`RouteGenerator._evaluate_and_aggregate`が件数で検査する
 - `is_loop_too_similar(context, candidate, accepted)`: `candidate`が`accepted`
   （距離フィルタ・本判定を既に通過した候補群）のいずれかと、周回全体（往路＋復路、
   進行方向は無視）でエンジン固有の閾値を超えて重複するか。
@@ -199,11 +199,17 @@ class RouteGenerator:
     def engine_name(self) -> str:
         return self._engine.engine_name
 
-    async def _evaluate_loops(
+    async def _evaluate_and_aggregate(
         self, context: Any, traced: list[TracedLoop], start_time: datetime
     ) -> list[RouteCandidate]:
-        """`evaluate_loops`の位置対応の契約（`traced`と同じ件数・同じ順）を確かめて通す。
+        """エンジンの評価を通し、区間から候補単位へ集約した完成形の`RouteCandidate`を返す。
 
+        候補を返す経路はすべてここを通る。集約を1段増やすときはこのメソッドへ1行足せば
+        全経路へ同時に効く（design-principles.md 構造仕様8）。集約は候補の並び順・印
+        （`is_shortest_distance`等）を読まないため、呼び出し側がそれらを付ける前でも
+        後でも結果は変わらない。
+
+        `evaluate_loops`の位置対応の契約（`traced`と同じ件数・同じ順）もここで確かめる。
         戦略層は`TracedLoop.data`の中身を知らないため、位置以外で突き合わせる手段が無い。
         件数がずれると`candidates[shortest_index]`のような位置指定が別の候補を指し、
         印・ラベルが静かに入れ替わる（候補が消えるわけではないので結果だけでは気づけない）。
@@ -214,6 +220,10 @@ class RouteGenerator:
                 f"evaluate_loopsの戻り値が入力と対応していません engine={self.engine_name} "
                 f"traced={len(traced)} candidates={len(candidates)}"
             )
+        candidates = [self._with_overall_difficulty(c) for c in candidates]
+        candidates = [self._with_axis_difficulties(c) for c in candidates]
+        candidates = [self._with_axis_contributions(c) for c in candidates]
+        candidates = [self._with_material_values(c) for c in candidates]
         return candidates
 
     async def generate_loops(
@@ -324,11 +334,7 @@ class RouteGenerator:
             return []
 
         evaluate_started = time.monotonic()
-        candidates = await self._evaluate_loops(context, traced, start_time)
-        candidates = [self._with_overall_difficulty(c) for c in candidates]
-        candidates = [self._with_axis_difficulties(c) for c in candidates]
-        candidates = [self._with_axis_contributions(c) for c in candidates]
-        candidates = [self._with_material_values(c) for c in candidates]
+        candidates = await self._evaluate_and_aggregate(context, traced, start_time)
 
         # 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）昇順
         # （易しい候補が先頭）。算出不能（None）の候補は末尾へ回す。小数1桁で比較し、
@@ -421,11 +427,7 @@ class RouteGenerator:
         trace_ms = round((time.monotonic() - trace_started) * 1000)
 
         evaluate_started = time.monotonic()
-        candidates = await self._evaluate_loops(context, [traced], start_time)
-        candidates = [self._with_overall_difficulty(c) for c in candidates]
-        candidates = [self._with_axis_difficulties(c) for c in candidates]
-        candidates = [self._with_axis_contributions(c) for c in candidates]
-        candidates = [self._with_material_values(c) for c in candidates]
+        candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
         if destination is not None:
             candidates = [
                 c.model_copy(update={"id": "route-destination", "direction_label": "目的地ルート"})
@@ -509,15 +511,11 @@ class RouteGenerator:
                 shortest_index = same
 
         evaluate_started = time.monotonic()
-        candidates = await self._evaluate_loops(context, traced, start_time)
+        candidates = await self._evaluate_and_aggregate(context, traced, start_time)
         if shortest_index is not None:
             candidates[shortest_index] = candidates[shortest_index].model_copy(
                 update={"is_shortest_distance": True}
             )
-        candidates = [self._with_overall_difficulty(c) for c in candidates]
-        candidates = [self._with_axis_difficulties(c) for c in candidates]
-        candidates = [self._with_axis_contributions(c) for c in candidates]
-        candidates = [self._with_material_values(c) for c in candidates]
         # generate_loopsと同じ規約: overall_difficulty昇順（算出不能はNone→末尾）。
         candidates.sort(
             key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
