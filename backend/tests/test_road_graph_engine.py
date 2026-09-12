@@ -2659,3 +2659,60 @@ async def test_candidate_carries_categorical_material_shares_from_the_path_edges
     assert abs(sum(shares.values()) - 1.0) < 0.01
     # スポーク1本（R）と迂回路2本（合計約1.02R）でほぼ半々。
     assert abs(shares["residential"] - 0.5) < 0.05
+
+
+async def test_build_candidate_carries_the_path_edge_ids_in_order():
+    # 区間の乗り換え（docs/tasks/T621.md）は、フロントが候補どうしの共通部分を集合演算で
+    # 求めることに依存する。backendはステートレスのため、乗り換え後の経路もこのidの列で
+    # 受け取り直す。順序が崩れると「前半＋後半」の切り出しができない。
+    # segmentsは約500m単位へ畳まれてEdgeと1対1にならないため、畳む前の経路を持つのは
+    # edge_idsだけになる（200m級のEdgeを並べてその差を出す）。
+    coords = [ORIGIN]
+    for _ in range(4):
+        coords.append(destination_point(coords[-1], 90, 0.2))
+    names = ["o", "a", "b", "c", "d"]
+    edges = {
+        f"e-{i}": _edge(f"e-{i}", names[i], names[i + 1], coords[i], coords[i + 1], highway="residential")
+        for i in range(4)
+    }
+    graph = RoadGraph(
+        graph_version="test",
+        nodes={
+            name: Node(node_id=name, latitude=coord.latitude, longitude=coord.longitude)
+            for name, coord in zip(names, coords)
+        },
+        edges=edges,
+    )
+    weather = WeatherConditions(
+        temperature_c=20.0, wind_speed_ms=3.0, wind_direction_deg=90.0,
+        wind_direction_label="東", precipitation_mm=None, observed_at="t",
+        weather_code=None, is_day=None, sunrise=None, sunset=None,
+        precipitation_max_mm=None, wind_speed_max_ms=None,
+        temperature_max_c=None, temperature_min_c=None, today_periods=[],
+    )
+    preference = RoutePreference()
+    engine = RoadGraphEngine(
+        graph_service=None,
+        elevation_attribute_service=FakeElevationAttributeService({}),
+        weather_service=FakeWeatherService(weather),
+        route_preference=preference,
+    )
+    context = road_graph_engine._RoadGraphContext(
+        graph=graph, materials={}, accident_years_covered=0,
+        weather=weather, origin_node="o",
+        node_index=build_node_spatial_index(graph), night_active=False,
+        lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
+        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
+    )
+    path = [edges[f"e-{i}"] for i in range(4)]
+    traced = road_graph_engine.TracedLoop(
+        bearing=None, distance_km=0.8, data=[edge.edge_id for edge in path]
+    )
+
+    candidate = engine._build_candidate(
+        context, traced, path, {}, datetime.now(timezone.utc), [0, 0, 0, 0]
+    )
+
+    assert candidate.edge_ids == ["e-0", "e-1", "e-2", "e-3"]
+    # 畳まれたsegmentsからは経路のEdge列を復元できない
+    assert len(candidate.segments) < len(candidate.edge_ids)

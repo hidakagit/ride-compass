@@ -3959,6 +3959,13 @@
             "type": "object",
             "title": "Material Category Shares"
           },
+          "edge_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Edge Ids"
+          },
           "is_shortest_distance": {
             "type": "boolean",
             "title": "Is Shortest Distance",

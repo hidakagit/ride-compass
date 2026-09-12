@@ -1568,6 +1568,7 @@ class RoadGraphEngine:
             **candidate_identity(traced.bearing),
             distance_km=traced.distance_km,
             geometry=geometry,
+            edge_ids=[edge.edge_id for edge in edges_in_path],
             segments=segments,
             material_category_shares=material_category_shares,
             **elevation_stats,

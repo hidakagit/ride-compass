@@ -635,6 +635,11 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   すべて引き継がれていることを`tests/test_route.py`が**値の型を問わずに**検査する
   （`dict[str, float]`のように値型で母集団を絞ると、`dict[str, str]`のフィールドが
   検査から静かに外れる）。
+- **`RouteCandidate.edge_ids`は畳む前の経路そのもの**（`_build_candidate`が
+  `edges_in_path`から起点順に載せる）。`segments`は約500m単位へ畳まれてEdgeと1対1に
+  ならないため、経路の同一性を判定できるのはこちらだけ。フロントは候補どうしの共通部分を
+  集合演算で求めて別の道を通る区間を出し、backendはステートレスのため乗り換え後の経路も
+  このidの列で受け取って評価し直す（[T621](../../tasks/T621.md)）。
 - **categorical材料の延長割合はビニングより前に畳む**。ビンの代表値を1つ選ぶ形だと割合が
   500m単位へ量子化されるため、`road_graph_engine`が`aggregate_segments_into_bins`の前に
   `merge_material_category_shares`を呼び、結果を`RouteCandidate`へ載せる。

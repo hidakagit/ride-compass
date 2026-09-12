@@ -1734,6 +1734,8 @@ export interface components {
                     [key: string]: number;
                 };
             };
+            /** Edge Ids */
+            edge_ids?: string[];
             /**
              * Is Shortest Distance
              * @default false

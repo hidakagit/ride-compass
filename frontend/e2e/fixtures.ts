@@ -49,6 +49,7 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
     material_values: {},
     material_category_shares: {},
     axis_raw_values: {},
+    edge_ids: [],
     is_shortest_distance: false,
     axis_contributions: {},
   };
