@@ -956,3 +956,46 @@ async def test_material_category_shares_survive_the_post_processing_steps():
     )
 
     assert candidates[0].material_category_shares == shares
+
+
+async def test_generate_destination_routes_follows_axis_weights_when_only_one_route_is_requested():
+    # 基準線は比べる相手があって初めて基準になる。1本だけ返すときに最短経路を先頭へ
+    # 固定すると、返る唯一の候補が常に距離最短になり軸の重みが結果に現れない。
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
+        shortest_traced=TracedLoop(bearing=None, distance_km=18.0, data="shortest"),
+        segments_by_data={
+            "easy": [make_segment(22.0, 10.0)],
+            "shortest": [make_segment(18.0, 90.0)],
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=1
+    )
+
+    assert len(candidates) == 1
+    # 難易度10.0の候補（22km）が返る。90.0の最短（18km）ではない。
+    assert candidates[0].distance_km == 22.0
+    assert candidates[0].is_shortest_distance is False
+
+
+async def test_generate_destination_routes_still_pins_the_shortest_when_two_are_requested():
+    # 2本以上なら基準線として意味を持つので先頭固定は維持する（上のテストとの境界）。
+    engine = DestinationSegmentedFakeEngine(
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
+        shortest_traced=TracedLoop(bearing=None, distance_km=18.0, data="shortest"),
+        segments_by_data={
+            "easy": [make_segment(22.0, 10.0)],
+            "shortest": [make_segment(18.0, 90.0)],
+        },
+    )
+    generator = RouteGenerator(engine)
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION, max_routes=2
+    )
+
+    assert [c.distance_km for c in candidates] == [18.0, 22.0]
+    assert candidates[0].is_shortest_distance is True

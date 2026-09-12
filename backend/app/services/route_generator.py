@@ -505,7 +505,12 @@ class RouteGenerator:
         # 読むための基準線であり、難易度で沈むと基準として使えない）。sortは安定なため
         # 残りの難易度順は保たれる。max_routesを超えないよう末尾を切るが、先頭にいる
         # 最短経路は必ず残る。
-        candidates.sort(key=lambda c: not c.is_shortest_distance)
+        #
+        # ただし`max_routes`が1のときは固定しない。基準線は**比べる相手があって初めて
+        # 基準**であり、1本だけ返すなら比べる相手が無い。固定すると返る唯一の候補が常に
+        # 距離最短になり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
+        if max_routes >= 2:
+            candidates.sort(key=lambda c: not c.is_shortest_distance)
         candidates = candidates[:max_routes]
         candidates = [
             candidate.model_copy(update={"id": f"route-destination-{rank:02d}", "direction_label": "目的地ルート"})
