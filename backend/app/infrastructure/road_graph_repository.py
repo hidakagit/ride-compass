@@ -51,7 +51,6 @@ import time
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
 import shapely
 from geoalchemy2.shape import from_shape
@@ -725,13 +724,9 @@ class WayMaterialSampleRow:
     is_designated: bool
 
 
-# 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る抽選サンプル。
-# `TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ広い範囲から拾える
-# （行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、管理画面の応答時間に
-# 収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を「目安」として扱う
-# 前提で許容する。
-_SAMPLE_WAY_MATERIALS_SQL = text(
-    """
+# 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る標本。取り方だけが2通りで、
+# 取る列は共通のため1つのテンプレートから組み立てる。
+_SAMPLE_WAY_MATERIALS_TEMPLATE = """
     SELECT
         ST_Length(w.geom::geography) AS length_m,
         w.highway,
@@ -747,13 +742,30 @@ _SAMPLE_WAY_MATERIALS_SQL = text(
             SELECT 1 FROM designation_attributes da
             WHERE da.osm_way_id = w.osm_way_id AND da.kind = ANY(:kinds)
         ) AS is_designated
-    FROM osm_raw_ways w TABLESAMPLE SYSTEM (:sample_percent)
+    FROM osm_raw_ways w {sampling}
     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
     LEFT JOIN way_geometry wg ON wg.osm_way_id = w.osm_way_id
-    WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL
+    WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL {area}
     LIMIT :limit
-    """
+"""
+
+# 全域から取る場合。`TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ広い
+# 範囲から拾える（行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、
+# 管理画面の応答時間に収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を
+# 「目安」として扱う前提で許容する。
+_SAMPLE_WAY_MATERIALS_SQL = text(
+    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(sampling="TABLESAMPLE SYSTEM (:sample_percent)", area="")
+).bindparams(bindparam("kinds", type_=ARRAY(Text())))
+
+# 範囲を絞って取る場合。抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
+# 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで
+# 落ちる。範囲内は空間索引で直接引き、多すぎる場合は`LIMIT`で頭打ちにする。
+_SAMPLE_WAY_MATERIALS_IN_BBOX_SQL = text(
+    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(
+        sampling="",
+        area="AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)",
+    )
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
 
 
@@ -2176,21 +2188,35 @@ class AttributeRepository(_SessionRepository):
         )
 
     async def sample_way_rows(
-        self, sample_percent: float = 2.0, limit: int = 20_000
+        self,
+        sample_percent: float = 2.0,
+        limit: int = 20_000,
+        bbox: BoundingBox | None = None,
     ) -> list[WayMaterialSampleRow]:
-        """Way単位の材料の元データを抽選で取る（軸スタジオの分布プレビュー）。材料値への
+        """Way単位の材料の元データを標本として取る（軸スタジオの分布プレビュー）。材料値への
         組み立ては呼び出し元（`axis_preview_service.py`）が区間インスペクタと同じ
         `way_scalar_materials`で行う——ここで組み立てるとinfrastructureが評価ドメインへ
         依存する。
+
+        `bbox`を渡すとその範囲内のwayだけを対象にし、抽選（`sample_percent`）は使わない。
+        軸の分布は地域で大きく変わるため、全域の平均だけでは市街地の偏りが見えない。
         """
-        rows = await self._session.execute(
-            _SAMPLE_WAY_MATERIALS_SQL,
-            {
-                "sample_percent": sample_percent,
-                "limit": limit,
-                "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
-            },
-        )
+        params: dict[str, object] = {
+            "limit": limit,
+            "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
+        }
+        if bbox is None:
+            statement = _SAMPLE_WAY_MATERIALS_SQL
+            params["sample_percent"] = sample_percent
+        else:
+            statement = _SAMPLE_WAY_MATERIALS_IN_BBOX_SQL
+            params.update(
+                xmin=bbox.min_longitude,
+                ymin=bbox.min_latitude,
+                xmax=bbox.max_longitude,
+                ymax=bbox.max_latitude,
+            )
+        rows = await self._session.execute(statement, params)
         return [
             WayMaterialSampleRow(
                 length_m=row.length_m,
@@ -2627,8 +2653,13 @@ class RoadGraphRepository:
     async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
         return await self.attributes.get_way_attribute_counts(osm_way_id)
 
-    async def sample_way_rows(self, sample_percent: float = 2.0, limit: int = 20_000) -> list[Any]:
-        return await self.attributes.sample_way_rows(sample_percent, limit)
+    async def sample_way_rows(
+        self,
+        sample_percent: float = 2.0,
+        limit: int = 20_000,
+        bbox: BoundingBox | None = None,
+    ) -> list[WayMaterialSampleRow]:
+        return await self.attributes.sample_way_rows(sample_percent, limit, bbox)
 
     async def get_way_curvature(self, osm_way_id: int) -> float | None:
         return await self.attributes.get_way_curvature(osm_way_id)

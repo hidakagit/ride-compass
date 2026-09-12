@@ -22,6 +22,7 @@ from app.domain.attributes import WayAttributeCounts
 from app.domain.axis_definitions import AxisShape, BreakpointLinearShape
 from app.domain.axis_inspector import way_scalar_materials
 from app.domain.material_catalog import material_dtype
+from app.domain.region import BoundingBox
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.axis_preview")
@@ -57,15 +58,18 @@ class ValueDistribution:
 
 
 async def load_way_sample(
-    repository: RoadGraphRepository, sample_percent: float, limit: int
+    repository: RoadGraphRepository,
+    sample_percent: float,
+    limit: int,
+    bbox: BoundingBox | None = None,
 ) -> list[tuple[float, dict[str, object]]]:
-    """way標本を`(延長m, 材料辞書)`の並びで返す。
+    """way標本を`(延長m, 材料辞書)`の並びで返す。`bbox`を渡すとその範囲内だけを対象にする。
 
     分布プレビュー（このサービス）と飽和度の実測スクリプト
     （`backend/scripts/measure_axis_saturation.py`）が同じ標本の作り方を使う。
     材料の解決経路が増えたときに片方だけ取り残されないよう、組み立てはここ1箇所に置く。
     """
-    rows = await repository.sample_way_rows(sample_percent, limit)
+    rows = await repository.sample_way_rows(sample_percent, limit, bbox)
     accident_years = await repository.get_accident_years_covered()
     sample: list[tuple[float, dict[str, object]]] = []
     for row in rows:

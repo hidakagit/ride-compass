@@ -1,6 +1,12 @@
 import pytest
 
-from app.domain.region import BoundingBox, lonlat_to_tile_pixel, tile_bounds_lonlat, tiles_covering_bbox
+from app.domain.region import (
+    BoundingBox,
+    lonlat_to_tile_pixel,
+    parse_bbox,
+    tile_bounds_lonlat,
+    tiles_covering_bbox,
+)
 
 
 def test_tile_bounds_lonlat_covers_whole_world_at_zoom_0():
@@ -167,3 +173,18 @@ def test_tile_ancestor_bounds_are_contained_in_ancestor_bounds():
     assert parent.max_longitude >= child.max_longitude
     assert parent.min_latitude <= child.min_latitude
     assert parent.max_latitude >= child.max_latitude
+
+
+class TestParseBbox:
+    """CLIの--bbox文字列。import_pbf・measure_axis_saturationが同じ順序で受け取る。"""
+
+    def test_valid(self):
+        bbox = parse_bbox("35.60,139.65,35.75,139.85")
+        assert bbox == BoundingBox(
+            min_latitude=35.60, min_longitude=139.65, max_latitude=35.75, max_longitude=139.85
+        )
+
+    @pytest.mark.parametrize("text", ["35.6,139.65,35.75", "35.75,139.65,35.60,139.85", "a,b,c,d"])
+    def test_invalid_raises(self, text):
+        with pytest.raises(ValueError):
+            parse_bbox(text)
