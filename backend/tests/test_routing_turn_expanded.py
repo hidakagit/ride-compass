@@ -17,6 +17,7 @@ from app.domain.routing import (
     edge_bearings,
     node_costs_from_state_costs,
     turn_expanded_path_edge_indices,
+    turn_expanded_shortest_path,
     turn_seconds_for,
 )
 
@@ -263,3 +264,48 @@ def test_turn_expanded_tree_length_counts_every_edge_on_a_shallow_path():
 
     assert tree.node_length_m[lazy_graph.node_id_to_index["V"]] == 300.0
     assert tree.node_length_m[lazy_graph.node_id_to_index["D"]] == 700.0
+
+
+def _astar_path(graph: RoadGraph, origin_id: str, goal_id: str, spec: TurnCostSpec) -> list[str]:
+    lazy_graph, csr, structure = _structure_for(graph, spec)
+    cost = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
+    origin_index = lazy_graph.node_id_to_index[origin_id]
+    origin_states = csr.entry_edge_index[csr.indptr[origin_index]:csr.indptr[origin_index + 1]].astype(np.int64)
+    edges = turn_expanded_shortest_path(
+        structure, cost, np.zeros(csr.node_count), origin_states,
+        lazy_graph.node_id_to_index[goal_id], SPEED_MS,
+    )
+    return [] if edges is None else [lazy_graph.edge_ids[index] for index in edges]
+
+
+def test_turn_expanded_astar_finds_the_shortest_path():
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    assert _astar_path(_crossroads(), "S", "E", free) == ["S-C", "C-E"]
+
+
+def test_turn_expanded_astar_avoids_expensive_right_turn():
+    """一対全木と同じ判断を2点間探索でもする（右折が高ければ直進だけの遠回りを選ぶ）。"""
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E", "A", "B")}
+    edges = {
+        "S-C": _edge("S-C", "S", "C", 0.0),
+        "C-E": _edge("C-E", "C", "E", 90.0),
+        "S-A": _edge("S-A", "S", "A", 45.0),
+        "A-B": _edge("A-B", "A", "B", 45.0),
+        "B-E": _edge("B-E", "B", "E", 45.0),
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+
+    cheap = TurnCostSpec(right_seconds=0.0, left_seconds=0.0, uturn_seconds=600.0)
+    expensive = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+    assert _astar_path(graph, "S", "E", cheap) == ["S-C", "C-E"]
+    assert _astar_path(graph, "S", "E", expensive) == ["S-A", "A-B", "B-E"]
+
+
+def test_turn_expanded_astar_returns_none_when_unreachable():
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "X", "Y")}
+    edges = {
+        "S-C": _edge("S-C", "S", "C", 0.0),
+        "X-Y": _edge("X-Y", "X", "Y", 0.0),
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+    assert _astar_path(graph, "S", "Y", TurnCostSpec()) == []

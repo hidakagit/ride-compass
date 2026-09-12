@@ -109,18 +109,15 @@ from app.domain.routing import (
     build_turn_expanded_tree,
     combine_forward_backward_at_nodes,
     edge_bearings,
-    concat_node_paths,
     find_missing_lazy_graph_edge_id,
     find_nearest_node_indexed,
     overlap_ratio,
-    path_to_edge_ids_lazy,
-    path_to_edge_indices_lazy,
     pareto_layer_index,
     select_diverse_by_overlap,
-    shortest_path_node_ids_lazy,
     turn_expanded_path_edge_indices,
     turn_expanded_path_from_state,
     turn_expanded_path_from_state_to_source,
+    turn_expanded_shortest_path,
 )
 from app.domain.weather import WeatherConditions
 from app.domain.wind import ASSUMED_SPEED_KMH, ROUTE_DETOUR_RATIO, WindForecastSeries, estimate_passage_hours, kmh_to_ms
@@ -199,12 +196,11 @@ logger = logging.getLogger("ridecompass.graph")
 
 @dataclass
 class LegCostArrays:
-    """1レグぶんの合成済みコスト配列一式。`cost_list`は`lazy_graph.edge_ids`順（A*・一対全木へ
-    `list.__getitem__`のまま渡す）、それ以外は`score_matrix.edge_ids`（`full_edge_row`）順の
-    表示用配列。レグごとに違うのは風（各Edgeの通過予定時刻の風）だけで、静的軸の列は共有する。"""
+    """1レグぶんの合成済みコスト配列一式。`cost_lazy`は`lazy_graph.edge_ids`順（探索が使う
+    行順）、それ以外は`score_matrix.edge_ids`（`full_edge_row`）順の表示用配列。レグごとに違うのは風（各Edgeの通過予定時刻の風）だけで、静的軸の列は共有する。"""
 
     label: str
-    cost_list: list[float]
+    cost_lazy: np.ndarray
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
     contribution_arrays: dict[str, np.ndarray]
@@ -289,7 +285,7 @@ class _LegCostComposer:
         """0次フィルタ除外フラグを`lazy_graph.edge_ids`の行順（`build_shortest_path_tree`へ
         渡す配列と同じ行順）で返す。
 
-        `compose`が作る`cost_list`は除外Edgeを`inf`にした状態でこの行順へ並べ替えてあり、
+        `compose`が作る`cost_lazy`は除外Edgeを`inf`にした状態でこの行順へ並べ替えてあり、
         探索から見た通行可否はそのコスト配列だけが表しているため、コストを使わず距離だけで
         木を張る経路（`select_shortest_distance_route`）は同じ除外を自分で適用する必要がある。
         """
@@ -347,7 +343,7 @@ class _LegCostComposer:
         }
         leg = LegCostArrays(
             label=label,
-            cost_list=cost_array[self._lazy_row_index].tolist(),
+            cost_lazy=cost_array[self._lazy_row_index],
             difficulty_array=difficulty_array,
             axis_arrays=published,
             contribution_arrays=contribution_arrays,
@@ -412,7 +408,7 @@ class _RoadGraphContext:
     night_active: bool
     # 一対全最短経路木用のCSR構造＋Edge実距離配列（タイル集合キーでキャッシュ済み、
     # domain/routing.py: SearchGraphStatics参照）。build_shortest_path_treeへは
-    # cost_listをそのまま渡す（内部でnp.asarray済みのため、同じ内容を2つ持たない）。
+    # cost_lazyをそのまま渡す。
     statics: SearchGraphStatics
     # 状態＝有向Edge・辺＝ターンの遷移構造（`statics.csr`から導く。起点にもコストにも
     # 依存しないためリクエスト内で共有する）。
@@ -425,7 +421,7 @@ class _RoadGraphContext:
     tile_set: frozenset[tuple[int, int, int]] | None
     # 復路探索（折返し点→起点）のA*ヒューリスティック配列。目的地が常に起点の
     # ため、リクエストで1回だけ計算し全候補で共有する（初回の復路探索時に遅延構築）。
-    origin_estimate: list[float] | None = None
+    origin_estimate: np.ndarray | None = None
     # select_via_nodesが目的地を最寄りのアクセス可能なNodeへ補正した場合の
     # 実際の座標（補正が無ければNone）。RouteGenerator.last_no_candidates_reasonと同じ
     # side channel——Protocolの戻り値型（list[TracedLoop]）を変えずにRouteGenerator側へ
@@ -602,7 +598,7 @@ class RoadGraphEngine:
         graph_ms = round((time.monotonic() - graph_started) * 1000)
 
         # lazy_graph.edge_ids（並行Edge解消後）の各行が`score_matrix`のどの行かの対応表。
-        # レグごとのcost_listはこの索引でnumpyのfancy indexingにより並べ替える。
+        # レグごとのcost_lazyはこの索引でnumpyのfancy indexingにより並べ替える。
         lazy_row_index = np.fromiter((full_edge_row[edge_id] for edge_id in lazy_graph.edge_ids), dtype=np.int64, count=len(lazy_graph.edge_ids))
         # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
         learned_detour_ratio = search_graph_cache.get_detour_ratio(tile_set) if tile_set is not None else None
@@ -818,17 +814,22 @@ class RoadGraphEngine:
         if origin_node is None or destination_node is None:
             return None
 
-        # コストは_build_search_graphでbbox全体ぶん既に合成済み
-        # （search.cost_list、lazy_graph.edge_ids順）のため、Edgeごとのコールバックは
-        # 不要——素のlistインデックスアクセスをそのままedge_cost_fnとして渡す。
-        cost_fn = search.outbound.cost_list.__getitem__
-        estimate_fn = _build_estimate_cost_fn(search.graph, search.node_lat, search.node_lon, destination_node)
-        path = await asyncio.to_thread(
-            shortest_path_node_ids_lazy, search.lazy_graph, origin_node, destination_node, cost_fn, estimate_fn
+        # 探索はターンの費用を含む辺基準（状態＝有向区間）で行うため、一対全木と同じCSR構造が
+        # 要る（2点間探索だけの経路でも`SearchGraphStatics`を構築する）。
+        statics, _ = await _get_or_build_search_statics(search.tile_set, search.lazy_graph, search.graph)
+        turn_structure = build_turn_expanded_structure(
+            statics.csr, search.lazy_graph, edge_bearings(search.graph, search.lazy_graph)
         )
-        if path is None:
+        edges = await asyncio.to_thread(
+            turn_expanded_shortest_path,
+            turn_structure, search.outbound.cost_lazy,
+            _estimate_distances_m(search.graph, search.node_lat, search.node_lon, destination_node),
+            _origin_states(statics, search.lazy_graph.node_id_to_index[origin_node]),
+            search.lazy_graph.node_id_to_index[destination_node], kmh_to_ms(search.composer.speed_kmh),
+        )
+        if edges is None:
             return None
-        edge_ids = path_to_edge_ids_lazy(search.lazy_graph, path)
+        edge_ids = [search.lazy_graph.edge_ids[index] for index in edges]
         if not edge_ids:
             return None
 
@@ -886,8 +887,8 @@ class RoadGraphEngine:
         # 探索は`asyncio.to_thread`で包まず直列に行う（モジュールdocstring参照）。
         # レグごとに、レグ起点を基準点・それまでの累積実距離を時刻オフセットとして
         # コスト配列を合成する（レグ0は起点から離れる往路レグそのもの）。
-        def _trace_segments() -> list[list[str]] | None:
-            segment_paths: list[list[str]] = []
+        def _trace_segments() -> list[list[int]] | None:
+            segment_paths: list[list[int]] = []
             context.legs = context.legs[:1]
             cumulative_m = 0.0
             for leg_index, (from_node, to_node) in enumerate(zip(node_sequence, node_sequence[1:])):
@@ -901,16 +902,18 @@ class RoadGraphEngine:
                         cumulative_m / 1000 / context.composer.speed_kmh, +1,
                     )
                     context.legs.append(leg)
-                estimate_fn = _build_estimate_cost_fn(context.graph, context.node_lat, context.node_lon, to_node)
-                segment_path = shortest_path_node_ids_lazy(
-                    context.lazy_graph, from_node, to_node, leg.cost_list.__getitem__, estimate_fn
+                segment_path = turn_expanded_shortest_path(
+                    context.turn_structure, leg.cost_lazy,
+                    _estimate_distances_m(context.graph, context.node_lat, context.node_lon, to_node),
+                    _origin_states(context.statics, context.lazy_graph.node_id_to_index[from_node]),
+                    context.lazy_graph.node_id_to_index[to_node], kmh_to_ms(context.composer.speed_kmh),
                 )
                 if segment_path is None:
                     return None
                 segment_paths.append(segment_path)
                 cumulative_m += sum(
-                    context.graph.edges[edge_id].distance_m
-                    for edge_id in path_to_edge_ids_lazy(context.lazy_graph, segment_path)
+                    context.graph.edges[context.lazy_graph.edge_ids[index]].distance_m
+                    for index in segment_path
                 )
             return segment_paths
 
@@ -921,13 +924,12 @@ class RoadGraphEngine:
         if segment_paths is None:
             raise RoutingError(f"direction {bearing}: no path found between waypoints")
 
-        full_path = concat_node_paths(segment_paths)
-        edge_ids = path_to_edge_ids_lazy(context.lazy_graph, full_path)
+        edge_ids = [context.lazy_graph.edge_ids[index] for segment in segment_paths for index in segment]
         if not edge_ids:
             raise RoutingError(f"direction {bearing}: resulting path has no edges")
         distance_km = round(sum(context.graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
         leg_of_edge = [
-            leg_index for leg_index, segment_path in enumerate(segment_paths) for _ in range(len(segment_path) - 1)
+            leg_index for leg_index, segment_path in enumerate(segment_paths) for _ in segment_path
         ]
         return TracedLoop(bearing=bearing, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge)
 
@@ -970,7 +972,7 @@ class RoadGraphEngine:
         tree_started = time.monotonic()
         tree = await asyncio.to_thread(
             build_turn_expanded_tree,
-            context.turn_structure, np.asarray(context.legs[0].cost_list), statics.edge_length_m,
+            context.turn_structure, context.legs[0].cost_lazy, statics.edge_length_m,
             _origin_states(statics, context.origin_index), kmh_to_ms(context.composer.speed_kmh),
             statics.csr.node_count, cost_limit=cost_limit,
         )
@@ -1153,7 +1155,7 @@ class RoadGraphEngine:
         speed_ms = kmh_to_ms(context.composer.speed_kmh)
         forward_tree = await asyncio.to_thread(
             build_turn_expanded_tree,
-            context.turn_structure, np.asarray(context.legs[0].cost_list), context.statics.edge_length_m,
+            context.turn_structure, context.legs[0].cost_lazy, context.statics.edge_length_m,
             _origin_states(context.statics, context.origin_index), speed_ms, context.statics.csr.node_count,
         )
 
@@ -1194,7 +1196,7 @@ class RoadGraphEngine:
         context.legs = [context.legs[0], inbound]
         backward_tree = await asyncio.to_thread(
             build_turn_expanded_tree,
-            context.turn_structure, np.asarray(inbound.cost_list), context.statics.edge_length_m,
+            context.turn_structure, inbound.cost_lazy, context.statics.edge_length_m,
             _destination_states(context.turn_structure, destination_index), speed_ms,
             context.statics.csr.node_count, reverse=True,
         )
@@ -1413,7 +1415,7 @@ class RoadGraphEngine:
         lazy_graph = context.lazy_graph
         graph = context.graph
         # 復路レグのコスト配列（select_loop_turnaroundsが合成済み。無ければ往路と共有）。
-        cost_list = context.legs[1].cost_list if len(context.legs) > 1 else context.legs[0].cost_list
+        cost_lazy = context.legs[1].cost_lazy if len(context.legs) > 1 else context.legs[0].cost_lazy
 
         penalized: set[int] = set(data.outbound_edge_indices)
         for edge_index in data.outbound_edge_indices:
@@ -1425,23 +1427,22 @@ class RoadGraphEngine:
                 penalized.add(reverse_index)
 
         trace_started = time.monotonic()
-        original = {index: cost_list[index] for index in penalized}
+        original = {index: float(cost_lazy[index]) for index in penalized}
         try:
             for index in penalized:
-                cost_list[index] = original[index] * RETRACE_PENALTY_MULTIPLIER
-            return_path = shortest_path_node_ids_lazy(
-                lazy_graph, data.node_id, context.origin_node, cost_list.__getitem__, _origin_estimate_fn(context),
+                cost_lazy[index] = original[index] * RETRACE_PENALTY_MULTIPLIER
+            return_edge_index_list = turn_expanded_shortest_path(
+                context.turn_structure, cost_lazy, _origin_estimate(context),
+                _origin_states(context.statics, lazy_graph.node_id_to_index[data.node_id]),
+                context.origin_index, kmh_to_ms(context.composer.speed_kmh),
             )
         finally:
             for index, value in original.items():
-                cost_list[index] = value
+                cost_lazy[index] = value
         trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
-        if return_path is None:
+        if return_edge_index_list is None:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: no return path found")
 
-        # indexは1回求めればID列もそこから導けるため、return_path上のNodeペア走査は
-        # 1回だけで済ませる。
-        return_edge_index_list = path_to_edge_indices_lazy(lazy_graph, return_path)
         if not return_edge_index_list:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: return path has no edges")
         return_edge_ids = [lazy_graph.edge_ids[index] for index in return_edge_index_list]
@@ -1989,7 +1990,7 @@ def _estimate_distances_m(
     return (haversine_distance_km_array(node_lat, node_lon, target_node) * 1000).tolist()
 
 
-def _origin_estimate_fn(context: _RoadGraphContext) -> Callable[[int], float]:
+def _origin_estimate(context: _RoadGraphContext) -> np.ndarray:
     """復路探索（目的地＝起点）のA*ヒューリスティック。起点は1リクエストで固定のため
     初回だけ`_estimate_distances_m`で計算し、以降の候補はcontextに保持した配列を共有する。
     """
@@ -1997,7 +1998,7 @@ def _origin_estimate_fn(context: _RoadGraphContext) -> Callable[[int], float]:
         context.origin_estimate = _estimate_distances_m(
             context.graph, context.node_lat, context.node_lon, context.origin_node
         )
-    return context.origin_estimate.__getitem__
+    return context.origin_estimate
 
 
 def _build_estimate_cost_fn(

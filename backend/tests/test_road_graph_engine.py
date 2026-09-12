@@ -54,7 +54,7 @@ BEARINGS = [0, 45, 90, 135, 180, 225, 270, 315]
 
 def _lazy_edge_cost(engine, context, from_node_id: str, to_node_id: str) -> float:
     """改善計画T529→T536: 旧`_sparse_edge_weight`（scipy版、事前計算済みcostを行列から
-    直接読む）の置き換え。T536以降はコストが`prepare()`実行時点で`context.cost_list`
+    直接読む）の置き換え。T536以降はコストが`prepare()`実行時点で`context.legs[...].cost_lazy`
     （`context.lazy_graph.edge_ids`と同じ行順）へbbox全体ぶん既に合成済みのため、
     そのままlistインデックスで読む（`engine`引数は旧シグネチャとの互換のため残すが
     未使用）。
@@ -62,13 +62,13 @@ def _lazy_edge_cost(engine, context, from_node_id: str, to_node_id: str) -> floa
     i = context.lazy_graph.node_id_to_index[from_node_id]
     j = context.lazy_graph.node_id_to_index[to_node_id]
     edge_index = context.lazy_graph.edge_index_by_node_pair[(i, j)]
-    return context.legs[0].cost_list[edge_index]
+    return context.legs[0].cost_lazy[edge_index]
 
 
 def _lazy_edge_is_allowed(engine, context, from_node_id: str, to_node_id: str) -> bool:
     """改善計画T529→T536: 旧`_sparse_has_edge`（scipy版、Hard Constraint除外Edgeは
     グラフ構造自体から除外されていた）の置き換え。lazy評価の`LazyRoadGraph`はトポロジ
-    のみでHard Constraintを知らないため全Edgeを含む——除外は`context.cost_list`が
+    のみでHard Constraintを知らないため全Edgeを含む——除外は`context.legs[...].cost_lazy`が
     `math.inf`を持つことで表現される。そのため「Edgeが存在し、かつコストが有限」を
     「除外されていない」の判定条件にする。
     """
@@ -79,7 +79,7 @@ def _lazy_edge_is_allowed(engine, context, from_node_id: str, to_node_id: str) -
     edge_index = context.lazy_graph.edge_index_by_node_pair.get((i, j))
     if edge_index is None:
         return False
-    return math.isfinite(context.legs[0].cost_list[edge_index])
+    return math.isfinite(context.legs[0].cost_lazy[edge_index])
 
 
 def _edge(edge_id: str, from_id: str, to_id: str, from_coord: Coordinates, to_coord: Coordinates, **overrides) -> DirectedEdge:
@@ -589,22 +589,22 @@ async def test_return_leg_retraces_outbound_when_no_alternative_exists():
     assert traced.distance_km == pytest.approx(30.0, abs=0.1)
 
 
-async def test_return_leg_search_restores_shared_cost_list():
-    # 復路探索のコスト差し替えは探索後に必ず元へ戻す（共有cost_listを汚さない）。
+async def test_return_leg_search_restores_shared_cost_lazy():
+    # 復路探索のコスト差し替えは探索後に必ず元へ戻す（共有cost_lazyを汚さない）。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph)
     engine = generator._engine
     context = await _prepare_context(generator)
     turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
-    before = list(context.legs[-1].cost_list)
+    before = context.legs[-1].cost_lazy.copy()
 
     for turnaround in turnarounds:
         await engine.trace_loop_from_turnaround(context, turnaround)
 
-    assert context.legs[-1].cost_list == before
+    assert np.array_equal(context.legs[-1].cost_lazy, before)
 
 
-async def test_return_leg_search_restores_cost_list_even_when_no_path_found():
+async def test_return_leg_search_restores_cost_lazy_even_when_no_path_found():
     # 復路が見つからない（折返し点から起点へ戻る道が無い）場合もコストを復元してから
     # RoutingErrorになる。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
@@ -617,12 +617,12 @@ async def test_return_leg_search_restores_cost_list_even_when_no_path_found():
     context = await _prepare_context(generator)
     turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
     turnaround = next(t for t in turnarounds if t.bearing == 0)
-    before = list(context.legs[-1].cost_list)
+    before = context.legs[-1].cost_lazy.copy()
 
     with pytest.raises(RoutingError):
         await engine.trace_loop_from_turnaround(context, turnaround)
 
-    assert context.legs[-1].cost_list == before
+    assert np.array_equal(context.legs[-1].cost_lazy, before)
 
 
 async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():
@@ -1905,9 +1905,9 @@ async def test_ensure_lazy_graph_consistent_returns_as_is_when_both_collections_
     assert result is lazy_graph
 
 
-async def test_preview_segment_never_builds_or_caches_search_statics():
-    # 改善計画T569: preview_segmentは2点間の直接A*のみで一対全木（SearchGraphStatics）を
-    # 使わないため、lazy_graphはキャッシュされてもsearch_statics_cacheは0件のまま。
+async def test_preview_segment_builds_and_caches_search_statics():
+    # preview_segmentの2点間探索も状態＝有向区間で行うため、遷移を導くCSR構造
+    # （SearchGraphStatics）が要る。lazy_graphと同じくタイル集合キーでキャッシュする。
     node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
     node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
     coord_a = Coordinates(latitude=node_a.latitude, longitude=node_a.longitude)
@@ -1922,7 +1922,7 @@ async def test_preview_segment_never_builds_or_caches_search_statics():
 
     assert segment is not None
     assert search_graph_cache.lazy_graph_cache_size() == 1
-    assert search_graph_cache.search_statics_cache_size() == 0
+    assert search_graph_cache.search_statics_cache_size() == 1
 
 
 async def test_preview_segment_rebuilds_stale_lazy_graph_after_resplit():
@@ -1960,7 +1960,7 @@ async def test_preview_segment_rebuilds_stale_lazy_graph_after_resplit():
 
     assert second is not None
     assert search_graph_cache.lazy_graph_cache_size() == 1
-    assert search_graph_cache.search_statics_cache_size() == 0
+    assert search_graph_cache.search_statics_cache_size() == 1
 
 
 async def test_preview_segment_reuses_cached_node_index_across_calls(monkeypatch):
@@ -2006,7 +2006,7 @@ def _build_context_score_fields(
     `composer`/`legs`/`full_edge_row`を`RoadGraphEngine._build_search_graph`と同じ計算経路
     （`build_static_edge_score_matrix`→`_LegCostComposer.compose`）で構築する。
     `node_lat`/`node_lon`はA*のestimate_cost_fn用で、これらのテストはA*探索本体を
-    経由しないため空配列でよい（cost_listの行順も`score_matrix.edge_ids`と同じ恒等索引）。
+    経由しないため空配列でよい（cost_lazyの行順も`score_matrix.edge_ids`と同じ恒等索引）。
     """
     score_matrix = build_static_edge_score_matrix(graph, materials, accident_years_covered)
     active_scopes = frozenset({"night_only"}) if night_active else frozenset()

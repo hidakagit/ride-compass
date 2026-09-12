@@ -103,9 +103,6 @@ class _TileKeyedLru(Generic[_K, _V]):
 # 同じキー・同じ寿命で保持する。
 _lazy_graph_cache: "_TileKeyedLru[TileSet, LazyRoadGraph]" = _TileKeyedLru()
 _search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
-# 目的地からの後ろ向き木（転置CSR）用。`_search_statics_cache`と同じタイル集合キー・
-# 寿命だが、`csr`が転置されている点だけが異なる別インスタンスのため別キャッシュに分ける
-# （目的地ルート生成時のみ構築、周回生成では使わない）。
 _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _TileKeyedLru()
 # 探索範囲ごとに学習した迂回率（往路木で測った「道なり距離÷直線距離」の中央値）。同じ
 # タイル集合への次のリクエストが往路レグの通過予定時刻の推定に使う。道路網の形だけで決まる
@@ -149,7 +146,7 @@ def set_routable_index(key: RoutableIndexKey, index: "NodeSpatialIndex") -> None
 
 
 def invalidate_tile_set(tile_set: TileSet) -> None:
-    """指定タイル集合のエントリを4キャッシュ（`_lazy_graph_cache`・`_search_statics_cache`・
+    """指定タイル集合のエントリを全キャッシュ（`_lazy_graph_cache`・`_search_statics_cache`・
     `_routable_index_cache`）すべてから破棄する。
 
     `_lazy_graph_cache`/`_search_statics_cache`は

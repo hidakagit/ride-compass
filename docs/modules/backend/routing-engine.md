@@ -17,12 +17,14 @@
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`precompute_edge_curvature.py`・`presplit_road_graph.py` |
 
-road_graphエンジンは自前Road Graph（DB由来のノード/Edge）+ `rustworkx`のA*で経路計算する。
+road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経路計算する。探索の状態は
+**有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木は
+scipyのDijkstra、2点間探索はnumbaでJITした自前のA*（`turn_expanded_shortest_path`）。
 Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リクエスト時ベクトル計算」方式で
 算出する——探索が実際に訪れたEdgeに対してPythonのコスト計算コールバックを都度呼ぶのでは
 なく、`prepare`/`preview_segment`が対象bbox全体ぶんの
-コスト配列を1回だけnumpyで合成し、A*（`domain/routing.py: shortest_path_node_ids_lazy`）
-へは合成済み配列への`list.__getitem__`だけを渡す（探索中にPythonの関数フレームを作らない）。
+コスト配列を1回だけnumpyで合成し、探索へは合成済みの配列をそのまま渡す（探索中にPythonの
+関数フレームを作らない）。
 標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで組み込み済み
 （探索中にGSI API呼び出しは発生しない）。風は、各Edgeの通過予定時刻を「基準点からの
 直線距離×迂回率÷仮定巡航速度」で探索前に静的に推定し、起点の時別風予報からその時刻の
@@ -265,9 +267,9 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 されるための制約、次節参照）。同じ`LegCostArrays`は`_build_segment_details`（区間表示）
 からも`full_edge_row`経由で参照され、探索コストと表示の二重計算を避ける。
 
-### 一対全木の状態（`domain/routing.py: TurnExpandedStructure`）
+### 探索の状態（`domain/routing.py: TurnExpandedStructure`）
 
-一対全最短経路木は、状態を交差点Nodeではなく**有向区間**に取る。交差点で直進したか右左折
+一対全最短経路木も2点間探索も、状態を交差点Nodeではなく**有向区間**に取る。交差点で直進したか右左折
 したかは「入る区間×出る区間」の対で決まり、Nodeを状態にすると表せないため。ターンの費用は
 進入・退出の方位差から秒で決め（`TurnCostSpec`）、巡航速度でm換算してコストへ足す。
 
@@ -275,6 +277,12 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 ときだけ「行＝遷移元の区間、列＝遷移先の区間」の行列を組む（`build_turn_expanded_csr`）。
 末尾の1行は仮想の始点で、起点から出る区間（逆向きの木なら目的地へ入る区間）へその区間の
 コスト自身で繋ぐ。
+
+2点間探索（`turn_expanded_shortest_path`）はnumbaでJITしたA*で、優先度キューをnumpy配列の
+バイナリヒープとして持つ。到達時刻をラベルとして持ち回る探索はコストが辺の静的な属性である
+ことを前提にしたライブラリ（rustworkx・scipy）のコールバックでは表せないため、探索本体を
+自前で持つ。`preview_segment`もこの探索を通るため、2点間だけの経路でも遷移を導くCSR構造
+（`SearchGraphStatics`）を構築する。
 
 Nodeごとのコストは、そのNodeへ入る区間の最小を採る（`node_costs_from_state_costs`）。
 **起点Nodeだけは「起点へ戻ってくるコスト」になる**——状態の空間に「まだ走っていない」が

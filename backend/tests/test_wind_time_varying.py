@@ -191,7 +191,7 @@ async def test_inbound_leg_uses_wind_at_return_time_and_segments_read_the_same_a
     row = context.full_edge_row["e-0-spoke1"]
     assert outbound.material_arrays["wind_drag_ratio"][row] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
     assert inbound.material_arrays["wind_drag_ratio"][row] == pytest.approx(wind_drag_ratio(5.0, 180.0, 0.0, V20))
-    assert outbound.cost_list != inbound.cost_list
+    assert not np.array_equal(outbound.cost_lazy, inbound.cost_lazy)
 
     # 区間表示は各Edgeが探索されたレグの配列から読む（往路Edgeは往路配列、復路Edgeは復路配列）。
     turnaround = next((t for t in turnarounds if t.bearing == 0), turnarounds[0])

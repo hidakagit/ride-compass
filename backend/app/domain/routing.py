@@ -26,6 +26,7 @@ from typing import TypeVar
 
 import numpy as np
 import rustworkx as rx
+from numba import njit
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
@@ -1168,3 +1169,157 @@ def node_costs_from_state_costs(
     per_node = np.full(node_count, np.inf)
     np.minimum.at(per_node, structure.edge_to, state_cost[: structure.state_count])
     return per_node
+
+
+@njit(cache=True)
+def _turn_expanded_astar(
+    indptr: np.ndarray,
+    target_state: np.ndarray,
+    turn_seconds: np.ndarray,
+    edge_to: np.ndarray,
+    edge_cost: np.ndarray,
+    node_heuristic: np.ndarray,
+    origin_states: np.ndarray,
+    goal_node: int,
+    speed_ms: float,
+    capacity: int,
+) -> tuple[np.ndarray, int]:
+    """状態＝有向区間・辺＝ターンのA*（JITコンパイル）。
+
+    優先度キューはnumpy配列のバイナリヒープとして持つ（numbaは`heapq`を扱えない）。
+    ヒープには`f = g + 目的地までの直線距離`と`g`の両方を積み、取り出したときに`g`が
+    `best`より大きければ古いエントリとして捨てる。戻り値は前任者の配列と、目的地へ入った
+    状態（到達不能なら-1）。
+    """
+    state_count = edge_to.shape[0]
+    best = np.full(state_count, np.inf)
+    predecessor = np.full(state_count, -1, dtype=np.int64)
+    heap_f = np.empty(capacity)
+    heap_g = np.empty(capacity)
+    heap_state = np.empty(capacity, dtype=np.int64)
+    size = 0
+
+    for i in range(origin_states.shape[0]):
+        state = origin_states[i]
+        g = edge_cost[state]
+        if not np.isfinite(g) or g >= best[state]:
+            continue
+        best[state] = g
+        f = g + node_heuristic[edge_to[state]]
+        j = size
+        heap_f[j] = f
+        heap_g[j] = g
+        heap_state[j] = state
+        while j > 0:
+            parent = (j - 1) // 2
+            if heap_f[parent] <= heap_f[j]:
+                break
+            tf = heap_f[parent]
+            heap_f[parent] = heap_f[j]
+            heap_f[j] = tf
+            tg = heap_g[parent]
+            heap_g[parent] = heap_g[j]
+            heap_g[j] = tg
+            ts = heap_state[parent]
+            heap_state[parent] = heap_state[j]
+            heap_state[j] = ts
+            j = parent
+        size += 1
+
+    goal_state = -1
+    while size > 0:
+        g = heap_g[0]
+        state = heap_state[0]
+        size -= 1
+        heap_f[0] = heap_f[size]
+        heap_g[0] = heap_g[size]
+        heap_state[0] = heap_state[size]
+        j = 0
+        while True:
+            left = 2 * j + 1
+            right = left + 1
+            smallest = j
+            if left < size and heap_f[left] < heap_f[smallest]:
+                smallest = left
+            if right < size and heap_f[right] < heap_f[smallest]:
+                smallest = right
+            if smallest == j:
+                break
+            tf = heap_f[smallest]
+            heap_f[smallest] = heap_f[j]
+            heap_f[j] = tf
+            tg = heap_g[smallest]
+            heap_g[smallest] = heap_g[j]
+            heap_g[j] = tg
+            ts = heap_state[smallest]
+            heap_state[smallest] = heap_state[j]
+            heap_state[j] = ts
+            j = smallest
+
+        if g > best[state]:
+            continue
+        if edge_to[state] == goal_node:
+            goal_state = state
+            break
+        for entry in range(indptr[state], indptr[state + 1]):
+            nxt = target_state[entry]
+            cost = edge_cost[nxt]
+            if not np.isfinite(cost):
+                continue
+            next_g = g + cost + turn_seconds[entry] * speed_ms
+            if next_g >= best[nxt]:
+                continue
+            best[nxt] = next_g
+            predecessor[nxt] = state
+            next_f = next_g + node_heuristic[edge_to[nxt]]
+            j = size
+            heap_f[j] = next_f
+            heap_g[j] = next_g
+            heap_state[j] = nxt
+            while j > 0:
+                parent = (j - 1) // 2
+                if heap_f[parent] <= heap_f[j]:
+                    break
+                tf = heap_f[parent]
+                heap_f[parent] = heap_f[j]
+                heap_f[j] = tf
+                tg = heap_g[parent]
+                heap_g[parent] = heap_g[j]
+                heap_g[j] = tg
+                ts = heap_state[parent]
+                heap_state[parent] = heap_state[j]
+                heap_state[j] = ts
+                j = parent
+            size += 1
+    return predecessor, goal_state
+
+
+def turn_expanded_shortest_path(
+    structure: TurnExpandedStructure,
+    edge_cost: np.ndarray,
+    node_heuristic: np.ndarray,
+    origin_states: np.ndarray,
+    goal_node_index: int,
+    speed_ms: float,
+) -> list[int] | None:
+    """起点から出る区間`origin_states`から`goal_node_index`までの最小コスト経路を、
+    Edge index列（進行順）で返す。到達不能ならNone。
+
+    `node_heuristic`はNodeごとの目的地までの直線距離（m）で、コストが距離以上である
+    （`cost >= distance`）という不変条件により下界として使える。
+    """
+    capacity = len(structure.target_state) + len(origin_states) + 16
+    predecessor, goal_state = _turn_expanded_astar(
+        structure.indptr, structure.target_state, structure.turn_seconds, structure.edge_to,
+        np.asarray(edge_cost, dtype=np.float64), np.asarray(node_heuristic, dtype=np.float64),
+        np.asarray(origin_states, dtype=np.int64), int(goal_node_index), float(speed_ms), capacity,
+    )
+    if goal_state < 0:
+        return None
+    edges: list[int] = []
+    state = int(goal_state)
+    while state >= 0:
+        edges.append(state)
+        state = int(predecessor[state])
+    edges.reverse()
+    return edges
