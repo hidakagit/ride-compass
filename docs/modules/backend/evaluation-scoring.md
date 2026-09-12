@@ -63,6 +63,12 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 | ベクトル | `evaluation.py: _evaluate_axes_bulk` | Edge群 | Edgeごとにcontextを作り、`resolve_materials`と同じextractorをnumpy配列へ書き込む |
 | Way単位 | `axis_inspector.py: way_scalar_materials` | Way1本 | 合成キー`"way"`1件だけの辞書を作って渡す（区間インスペクタ・軸スタジオのプレビュー） |
 
+**暗黙の前提（Way単位）**: `osm_raw_ways`の専用列（`highway`・`surface`）はtags jsonbに
+入らない（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`が除いている）。Way単位の経路はこれらを
+tagsからではなく引数で受け取る——tagsから読むとその材料が全区間で欠損し、軸が丸ごと
+「データなし」になる。`scripts/review_checks.py`の検知器`way_tag_allowlist`が、材料解決の
+経路が許可リストに無いキーをtagsから読んでいないかを機械的に見る。
+
 **暗黙の前提**: `MaterialExtractionContext`は道路オブジェクトそのものを持たず、extractorが
 実際に読む値（`highway`）だけを持つ。Edge/Wayという異なる粒度から同じextractorを
 呼べるのはこのためで、`EdgeLike`をフィールドに戻すとWay単位の経路が同じ宣言を使えなくなる。

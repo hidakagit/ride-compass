@@ -353,7 +353,7 @@ async def test_graph_build_trigger_skips_recently_checked_tile(monkeypatch):
 
 async def test_axis_inspector_computes_available_axes_from_way_tags_and_counts():
     repository = FakeRegionRepository()
-    repository.way_tags_by_osm_way_id_result = ("residential", {"surface": "asphalt"}, False)
+    repository.way_tags_by_osm_way_id_result = ("residential", {}, False, "asphalt")
     repository.way_attribute_counts_result = WayAttributeCounts(
         length_m=1000.0, accident_count=2.0, intersection_count=6,
         # 停止密度が読むのは種別別のPOI件数（T655）。
@@ -416,7 +416,7 @@ async def test_axis_inspector_missing_way_attribute_counts_still_returns_tag_bas
     """way_attribute_counts側にまだ行が無い（新規way等）場合でも、タグだけで決まる
     車ストレス・路面・夜間は算出でき、Noneのままにはならない。"""
     repository = FakeRegionRepository()
-    repository.way_tags_by_osm_way_id_result = ("residential", {"surface": "asphalt"}, False)
+    repository.way_tags_by_osm_way_id_result = ("residential", {}, False, "asphalt")
     repository.way_attribute_counts_result = None
     service = RegionService(repository=repository)
 

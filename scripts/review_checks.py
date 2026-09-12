@@ -262,6 +262,52 @@ def find_bare_basemodel_violations(source_lines: dict[str, list[tuple[int, str]]
     return out
 
 
+# 材料解決の経路がway_tagsから読んでよいキーは、取込時の許可リスト
+# （`domain/osm_adapter.py: ALLOWED_WAY_TAGS`）に載っているものだけ。highway/surface/oneway
+# は専用列でtags jsonbに入らないため、ここから読むと材料が全区間で欠損する。
+MATERIAL_TAG_READER_FILES = (
+    "backend/app/domain/axis_inspector.py",
+    "backend/app/domain/material_catalog.py",
+    "backend/app/domain/recipe.py",
+)
+WAY_TAG_READ_RES = (
+    re.compile(r'\b(?:ctx\.)?(?:way_)?tags\.get\(\s*"([^"]+)"'),
+    re.compile(r'tag_value_is\(\s*(?:ctx\.)?(?:way_)?tags\s*,\s*"([^"]+)"'),
+)
+
+
+def allowed_way_tags() -> set[str]:
+    """取込時にtags jsonbへ残すキー（`ALLOWED_WAY_TAGS`）を実装から読む。"""
+    text = read_text(REPO_ROOT / "backend/app/domain/osm_adapter.py")
+    start = text.find("ALLOWED_WAY_TAGS")
+    end = text.find("def _filter_allowed_tags", start)
+    if start < 0 or end < 0:
+        return set()
+    return set(re.findall(r'"([^"]+)",', text[start:end]))
+
+
+def find_way_tag_allowlist_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
+    """材料解決の経路が、tags jsonbに入らないキーをway_tagsから読んでいる箇所。"""
+    allowed = allowed_way_tags()
+    if not allowed:
+        return []
+    out = []
+    for path, lines in source_lines.items():
+        if path not in MATERIAL_TAG_READER_FILES:
+            continue
+        for lineno, line in lines:
+            for pattern in WAY_TAG_READ_RES:
+                for m in pattern.finditer(line):
+                    key = m.group(1)
+                    if key not in allowed:
+                        out.append(
+                            f"{path}:{lineno}: way_tagsから`{key}`を読んでいる"
+                            "（ALLOWED_WAY_TAGSに無いキーはtags jsonbへ入らず、材料が常に欠損する。"
+                            "専用列なら引数で渡す。docs/tasks/T753.md参照）"
+                        )
+    return out
+
+
 FILE_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_./@\-]+\.(?:py|ts|tsx|css|json|yml|yaml|sql|sh|md|js|mjs|toml|txt))`"
 )
@@ -1254,6 +1300,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "doc_constant_drift": frozenset({"staged", "since", "full"}),
     "review_doc_dead_refs": frozenset({"staged", "since", "full"}),
     "cross_file_env_writes": frozenset({"staged", "since", "full"}),
+    "way_tag_allowlist": frozenset({"staged", "since", "full"}),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -1296,6 +1343,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_redis_skeleton_violations(source_lines)))
         sections.append(("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
                          find_bare_basemodel_violations(source_lines)))
+        sections.append(("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
+                         find_way_tag_allowlist_violations(source_lines)))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
         sections.append(("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
                          find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision="")))
@@ -1382,6 +1431,12 @@ def cmd_docs(args: argparse.Namespace) -> int:
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
                              if p.exists()
+                         })))
+        sections.append(("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（全件、docs/tasks/T753.md参照）",
+                         find_way_tag_allowlist_violations({
+                             rel(REPO_ROOT / f): list(enumerate(read_text(REPO_ROOT / f).splitlines(), 1))
+                             for f in MATERIAL_TAG_READER_FILES
+                             if (REPO_ROOT / f).exists()
                          })))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
                          check_plan_vs_tasks()))
@@ -1936,6 +1991,9 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "bare_basemodel": lambda: write(
             GUARD_PROBE_PY,
             "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
+        "way_tag_allowlist": lambda: append(
+            wt / "backend/app/domain/axis_inspector.py",
+            '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n    return tags.get("zzz_guard_probe")\n'),
         "review_doc_dead_refs": lambda: append(
             wt / REVIEW_CONTEXT_DOC, f"\n- `{GUARD_PROBE_IDENT}`が評価の値を組み立てる。\n"),
         "doc_constant_drift": lambda: append(
