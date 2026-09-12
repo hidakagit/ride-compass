@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
-import RouteSettingsPanel, { DEFAULT_HARD_FILTERS } from "./RouteSettingsPanel";
+import RouteSettingsPanel from "./RouteSettingsPanel";
 
 // 改善計画T302: unpublishでカタログから軸が消えた場合、RouteSettingsPanelが
 // routePreferenceから対応するキーを自動で取り除く（自己修復）ことの回帰テスト。
@@ -84,8 +84,6 @@ describe("RouteSettingsPanel", () => {
 
       render(
         <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
           routePreference={{ gradient: 0.5 }}
           onRoutePreferenceChange={vi.fn()}
           overrideEnabled={false}
@@ -107,8 +105,6 @@ describe("RouteSettingsPanel", () => {
 
       render(
         <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
           routePreference={{ gradient: 0.5, surface_q: 0.5 }}
           onRoutePreferenceChange={vi.fn()}
           overrideEnabled={false}
@@ -127,8 +123,6 @@ describe("RouteSettingsPanel", () => {
 
     render(
       <RouteSettingsPanel
-        hardFilters={DEFAULT_HARD_FILTERS}
-        onHardFiltersChange={vi.fn()}
         // "night"は下書きへ戻った(unpublishされた)想定の古いキー。
         routePreference={{ gradient: 0.5, surface_q: 0.3, night: 0.2 }}
         onRoutePreferenceChange={onRoutePreferenceChange}
@@ -149,8 +143,6 @@ describe("RouteSettingsPanel", () => {
 
     render(
       <RouteSettingsPanel
-        hardFilters={DEFAULT_HARD_FILTERS}
-        onHardFiltersChange={vi.fn()}
         routePreference={{ gradient: 0.5 }}
         onRoutePreferenceChange={onRoutePreferenceChange}
         overrideEnabled={false}
@@ -178,8 +170,6 @@ describe("RouteSettingsPanel", () => {
 
     render(
       <RouteSettingsPanel
-        hardFilters={DEFAULT_HARD_FILTERS}
-        onHardFiltersChange={vi.fn()}
         routePreference={staticDefaults}
         onRoutePreferenceChange={onRoutePreferenceChange}
         overrideEnabled={false}
@@ -210,8 +200,6 @@ describe("RouteSettingsPanel", () => {
       const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>({ gradient: 0.5 });
       return (
         <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
           routePreference={routePreference}
           onRoutePreferenceChange={(next) => {
             onRoutePreferenceChange(next);
@@ -254,8 +242,6 @@ describe("RouteSettingsPanel", () => {
 
       render(
         <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
           routePreference={{ gradient: 0.5, surface_q: 0.3 }}
           onRoutePreferenceChange={onRoutePreferenceChange}
           overrideEnabled={false}
@@ -277,8 +263,6 @@ describe("RouteSettingsPanel", () => {
 
       render(
         <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
           routePreference={{ gradient: 0.5, surface_q: 0.3 }}
           onRoutePreferenceChange={onRoutePreferenceChange}
           overrideEnabled={false}
@@ -300,8 +284,6 @@ describe("RouteSettingsPanel", () => {
 
       render(
         <RouteSettingsPanel
-          hardFilters={DEFAULT_HARD_FILTERS}
-          onHardFiltersChange={vi.fn()}
           routePreference={{ gradient: 0.6, surface_q: 0.2 }}
           onRoutePreferenceChange={onRoutePreferenceChange}
           overrideEnabled={false}
@@ -321,6 +303,65 @@ describe("RouteSettingsPanel", () => {
       fireEvent.keyDown(handle, { key: "ArrowRight" });
 
       expect(onRoutePreferenceChange).toHaveBeenCalledTimes(callCountBeforeKeyDown);
+    });
+  });
+  // 1軸だけを増減する操作（選択中の軸の±）。増えたぶんは他の有効な軸から今の比率で
+  // 減るため、有効な軸の重みの合計は変わらない（画面の%は「増やした軸が取ったぶんだけ」
+  // 他が一斉に下がる）。
+  describe("選択中の軸の±", () => {
+    it("増やすと他の有効な軸が減り、有効な軸の合計は変わらない", async () => {
+      const user = userEvent.setup();
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
+      const onRoutePreferenceChange = vi.fn();
+
+      render(
+        <RouteSettingsPanel
+          routePreference={{ gradient: 0.5, surface_q: 0.3 }}
+          onRoutePreferenceChange={onRoutePreferenceChange}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+        />,
+      );
+
+      await user.click(await screen.findByRole("button", { name: "ラベル[gradient]の配分を調整する" }));
+      await user.click(screen.getByRole("button", { name: "ラベル[gradient]の配分を増やす" }));
+
+      const updated = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
+      expect(updated.gradient).toBeGreaterThan(0.5);
+      expect(updated.surface_q).toBeLessThan(0.3);
+      expect(updated.gradient + updated.surface_q).toBeCloseTo(0.8, 2);
+    });
+
+    it("有効な軸が1つだけのときは押せない（常に100%のため）", async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
+
+      render(
+        <RouteSettingsPanel
+          routePreference={{ gradient: 0.5, surface_q: 0 }}
+          onRoutePreferenceChange={vi.fn()}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+        />,
+      );
+
+      expect(await screen.findByRole("button", { name: "ラベル[gradient]の配分を増やす" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "ラベル[gradient]の配分を減らす" })).toBeDisabled();
+    });
+
+    it("有効な軸のチップに現在の%が出る", async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
+
+      render(
+        <RouteSettingsPanel
+          routePreference={{ gradient: 0.6, surface_q: 0.2 }}
+          onRoutePreferenceChange={vi.fn()}
+          overrideEnabled={false}
+          onOverrideEnabledChange={vi.fn()}
+        />,
+      );
+
+      const chip = await screen.findByRole("button", { name: "ラベル[gradient]の配分を調整する" });
+      expect(chip).toHaveTextContent("75%");
     });
   });
 });

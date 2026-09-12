@@ -9,9 +9,11 @@
 
 | ファイル | 責務 |
 |---|---|
-| `components/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替の入力欄。「ルート設定」区分の「生成条件」「重みづけ」2タブもホストする（下記参照） |
+| `components/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替の入力欄。「ルート設定」区分の各タブの中身を`Tabs.Content`として並べる（タブ列と選択状態は`page.tsx`、下記参照） |
 | `components/RouteForm/useRouteFormSubmit.ts` | 上記の検証・送信ロジック（`{error, handleSubmit}`）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
-| `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定・除外道路（地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
+| `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
+| `components/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キーと既定値は生成物`route-generate-config.json`が正で、表示ラベルだけをUIの語彙として持つ |
+| `lib/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・1軸の取り分を動かす`adjustAxisShare`・刻みと上下限） |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `components/RouteAxisProfile/RouteAxisProfile.tsx` | 候補ごとのタブの中身（公開軸すべての軸別難易度一覧＋「重み付き寄与度」内訳）。地図の色分けを選ぶ操作はここには無い（`LensControl`）。候補一覧のタブ自体はpage.tsxが直接組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/routeTabLabel.ts` | 候補タブの「最短からの超過km」を組み立てる純関数（`shortestDistanceKm`・`extraDistanceLabel`）と、区間を乗り換えて作った候補の判定（`isSplicedRoute`・`SPLICED_ROUTE_ID_PREFIX`）。**合成も素の結果と本質的に区別せず**、並び順は生成候補と同じ規約に乗せ（`lib/routeSplice.ts: insertByDifficulty`）、見分けだけをタブの名前（「合成」）で付ける。**接頭辞はbackendが付ける値で、判定と組み立ての両方がこの1つを使う**——別々に書くと片方だけ変えたときに合成ルートが一覧で見分けられなくなる（型でも例外でも現れない）。タブ列自体はpage.tsxが組み立てる（[ページ全体構成・状態管理](page-composition.md)参照） |
@@ -40,7 +42,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
         │                                          │
         └──────────────┬───────────────────────────┘
                         ▼
-              除外する道路（Disclosure折りたたみ）
+          選択中の軸の1行（名前・説明・%・±ボタン）
 ```
 
 - 軸の一覧・既定重みは`useAxisCatalog`経由（取得完了まで・失敗時は既存軸の静的
@@ -53,13 +55,29 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   フィールドが変換後も残ることは`evaluationAxes.test.ts`が検査する。
 - カテゴリ（観測/推定/動的）によるグルーピング表示は行わない。軸スタジオは常に
   `category="推定"`固定で軸を作るため、フラットな1本のリストで表示する。
+- **軸が増えてもパネルの高さが変わらない構成**にする（走行中のスマホで扱うため）。
+  全軸の取り分は高さ固定の帯グラフ1本に収まり、選択中の軸の行も1行で固定。縦に伸びうるのは
+  軸チップの領域だけで、そこは高さ上限＋内部スクロールを持つ（`legendRow`）。チップは
+  **有効な軸を先に並べる**ため、スクロールせずに現在の配分を読める。
+- 帯グラフの区間には、幅が許すぶんだけ軸アイコンと%を入れる（`SEGMENT_ICON_MIN_PCT`・
+  `SEGMENT_VALUE_MIN_PCT`。狭い区間は%のみ→何も出さない、の順に落とす）。区間に入らない
+  軸の%もチップ側では必ず読める。設定側の帯は区間そのものが操作対象で高さが要るため、
+  結果パネル側の細い帯（`ui/axisLegend.module.css`）とはスタイルを共有しない。
+- 選択中の軸の`±`は`adjustAxisShare`（`lib/routeWeightShare.ts`）で、増やしたぶんを
+  **他の有効な軸から按分して**減らす（有効な軸の重みの合計は変わらないため、画面の%は
+  「増やした軸が取ったぶんだけ」他が下がる＝どこから来たかが読める）。配分は刻みの整数個を
+  出し入れする形で行う——比率どおりの実数を軸ごとに丸めると、軸が多いときに全軸ぶんの端数が
+  消えて「押しても何も動かない」状態になる。刻み1つぶんしか動かせないときは比率どおりに
+  割れないため、最大剰余法の結果として配分の大きい軸から先に払う。動かせないとき
+  （有効な軸が1つ・上下限に張り付き）はnullが返り、ボタン自体を押せなくする。
 - 重み配分バー（帯グラフ、`stackBarOuter`/`stackBarHandle`）は表示専用ではなく、
   隣り合う2区間の境界（`role="slider"`のハンドル、幅16px）をポインタドラッグまたは
   矢印キーで操作すると、その両隣の2軸間でだけ重みが移動する（他の軸・2軸の合計は
   変わらない、`clampBoundaryDrag`が範囲[`WEIGHT_STEP`, 0.6]内へクランプする）。
   ハンドル自身だけに`touch-action: none`を絞ってあり、帯グラフの他の部分（セグメント
   本体）はスクロールジェスチャーを妨げない。**重みの調整手段はこの帯グラフの
-  ドラッグ・矢印キー操作のみ**——0.01刻みで1軸だけを狙う個別スライダーは持たない。
+  ドラッグ・矢印キー操作と、選択中の軸の`±`の2つ**。前者は2軸間だけで移す細かい調整、
+  後者は1軸を増減して残りへ波及させる調整で、どちらも有効な軸の合計を変えない。
   帯の色（`stackBarColorForIndex`、実際の軸数でHSL色相環を等分）と凡例チップの
   色ドットは同じ関数・同じindexから生成しており、常に一致する。「重み配分」見出し脇の
   情報アイコン（`stackBarLegendTrigger`）を押すと、操作説明（帯の境界をドラッグして
@@ -70,9 +88,11 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   両端付近（累積%が25%未満/75%超）のハンドルは、ラベル併記で幅が増えたバッジが
   パネル外へはみ出すのを避けるため、センター寄せではなく端寄せ（`data-align`属性、
   CSS側で切り替え）で表示する。
-- 軸の凡例チップ（`renderLegendChip`）は「色ドット+ラベル（タップで有効/無効を
-  切替、weight>0が有効の判定基準）」「(i)説明文ポップオーバー」の2要素で構成される
-  複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にする。`route_preference`の
+- 軸の凡例チップ（`renderLegendChip`）は、有効な軸では「チェック（有効/無効を切替、
+  weight>0が有効の判定基準）」と「本体（アイコン＋略名＋現在の%。押すと±の対象に選ぶ）」の
+  2つの押下領域を持ち、無効な軸では本体全体が「有効にする」だけを担う——無効な軸を選んでも
+  動かす重みが無いため、押し分けられる領域を作らない。無効な軸（weight=0）はチップ全体を
+  半透明にする。軸の説明文は選択中の軸の行の(i)から読む。`route_preference`の
   重みを切り替えるだけで、地図の色分けとは無関係（地図の色分け（レンズ）はこのパネルには
   なく、地図上の`LensControl`だけが持つ）。
 - 向きコンパス（`WindBearingSlider`）はこのパネルには存在しない。風・勾配の走行方位は
@@ -82,10 +102,11 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - `routePreference`（送信対象）とカタログのキー集合を`syncRoutePreferenceKeys`で
   双方向同期する（軸の追加/unpublishに追従。backendは「上書きするなら既知の全axis_id
   キー一致」を要求するため、ズレるとルート生成が422になる）。
-- 除外する道路（0次フィルタ）は`Disclosure`で折りたたみ表示。既定値のまま変えていない
-  利用者が大半のため既定で閉じるが、既に変更済みの場合（`hardFilterCustomized`）は
-  「変更していることに気づかず開けない」事故を避けるため既定で開く。
-- `resetButton`（既定値に戻す）は`routePreference`・`hardFilters`の両方を一括で初期状態へ戻す。
+- 除外する道路（0次フィルタ）は独立したタブ（`HardFilterPanel`）に置く。重みづけと違い
+  「通らない」指定であることを本文で明示し、将来の除外条件もこのタブへ足す。既定値から
+  変更済みのときだけ、そのタブ内に戻すボタンを出す。
+- `resetButton`（重みを既定値に戻す）は`routePreference`だけを初期状態へ戻す（除外は
+  「除外」タブ側が自分のぶんを戻す）。
 
 **暗黙の前提**: `useAxisCatalog()`は`page.tsx`と`RouteSettingsPanel.tsx`から同時に呼ばれうる
 （`page.tsx`がマウントした時点で子の`RouteSettingsPanel`も同時マウントされるため）。
@@ -277,16 +298,18 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 （`RouteForm.tsx`）と、その検証・送信ロジック（`useRouteFormSubmit.ts`）を分離する。
 デスクトップ・モバイルとも「ルート設定」区分（`RouteSettingsPanel`と同じ場所）から呼ぶ。
 
-「ルート設定」区分自体を「生成条件」（`RouteForm`のモード切替・距離・候補数）と
-「重みづけ」（`weightsPanel`propで受け取る`RouteSettingsPanel`一式）の2タブへ分け、
-`Tabs.Root`（`@radix-ui/react-tabs`）で`RouteForm`自身がホストする。両タブとも
-`forceMount`で常時マウントし表示だけ`data-state`で切り替える（`RouteSettingsPanel`が
-ローカルstate[`lastWeights`等]を持つため、タブ切替のたびにアンマウントすると失われる。
-page.module.cssの`.outcomeTabPanel`と同じ方式）。「ルート生成」ボタンは
-`RouteForm`の外（`page.tsx`の「ルート設定」見出し行、デスクトップは`Disclosure`の
-`trailing`・モバイルは`BottomSheet`の`headerAction`、「ルート結果」見出し行の
-`renderRouteResultHeaderActions`と同じ場所）に置き、どちらのタブを見ていても押せる
-（`page.tsx: renderRouteSectionHeaderActions`）。検証エラーは本文でもボタンの隣でもなく
+「ルート設定」区分自体を「条件」（`RouteForm`のモード切替・距離・候補数）・
+「重み」（`weightsPanel`propで受け取る`RouteSettingsPanel`一式）・
+「除外」（`exclusionsPanel`prop、`HardFilterPanel`）のタブへ分ける。
+**タブ列（`Tabs.List`）は見出し行に置き、タブの中身（`Tabs.Content`）は本文に出る**ため、
+両方を囲む`Tabs.Root`（`@radix-ui/react-tabs`）と選択状態は`page.tsx`が持つ
+（`RouteForm`は中身だけを描く）。タブ専用の行を作らないぶん本文の縦が空き、ラベルは
+2文字へ詰める。どのタブも`forceMount`で常時マウントし表示だけ`data-state`で切り替える
+（`RouteSettingsPanel`がローカルstate[`lastWeights`等]を持つため、タブ切替のたびに
+アンマウントすると失われる。page.module.cssの`.outcomeTabPanel`と同じ方式）。
+「ルート生成」ボタンも同じ見出し行（デスクトップは`Disclosure`の`trailing`・モバイルは
+`BottomSheet`の`headerAction`、「ルート結果」見出し行の`renderRouteResultHeaderActions`と
+同じ場所）にあり、どのタブを見ていても押せる（`page.tsx: renderRouteSectionHeaderActions`）。検証エラーは本文でもボタンの隣でもなく
 「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は

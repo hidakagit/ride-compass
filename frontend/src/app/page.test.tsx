@@ -180,6 +180,36 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
 });
 
 // ============================================================================
+// 「ルート設定」区分のタブ（条件/重み/除外）。タブ列は見出し行、中身は本文と離れた場所に
+// 出るため、両者を繋ぐTabs.Rootが効いていること（見出し行のタブを押すと選択が変わること）は
+// page.tsxでしか確認できない。押した先の中身の出し分けはRouteForm.test.tsxが見る。
+describe("Home（app/page.tsx） ルート設定のタブ", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.mocked(getAxisCatalog).mockReset();
+  });
+
+  it("既定は「条件」タブで、見出し行のタブを押すと選択が切り替わる", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
+
+    render(<Home />);
+
+    const exclusionsTab = await screen.findByRole("tab", { name: "除外" });
+    expect(screen.getByRole("tab", { name: "条件" })).toHaveAttribute("aria-selected", "true");
+    expect(exclusionsTab).toHaveAttribute("aria-selected", "false");
+
+    await user.click(exclusionsTab);
+
+    expect(exclusionsTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "条件" })).toHaveAttribute("aria-selected", "false");
+  });
+});
+
+// ============================================================================
 // 地図上チップ（道路/環境/スポット）は複数同時にONにできる。重なって読みにくくなった
 // 場合は各チップの▶パネルで絞り込む。ここでは上のdescribeブロックと同じく
 // MapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶonToggleが実際の

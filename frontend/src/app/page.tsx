@@ -56,12 +56,14 @@ import {
   type LensId,
 } from "@/components/Map/routeStyleModes";
 import ErrorText from "@/components/ErrorText/ErrorText";
-import RouteForm, { type DestinationButtonState, type RouteMode } from "@/components/RouteForm/RouteForm";
+import RouteForm, {
+  type DestinationButtonState,
+  type RouteMode,
+  type SettingsTab,
+} from "@/components/RouteForm/RouteForm";
 import { useRouteFormSubmit } from "@/components/RouteForm/useRouteFormSubmit";
-import RouteSettingsPanel, {
-  DEFAULT_HARD_FILTERS,
-  stackBarColorForIndex,
-} from "@/components/RouteSettingsPanel/RouteSettingsPanel";
+import RouteSettingsPanel, { stackBarColorForIndex } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
+import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/HardFilterPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/components/RouteSplicePanel/RouteSplicePanel";
 import {
@@ -1592,6 +1594,10 @@ export default function Home() {
     if (routeFormSubmit.error) notifyRouteOutcome();
   }, [routeFormSubmit.error, notifyRouteOutcome]);
 
+  // 「ルート設定」区分のタブ（条件/重み/除外）。タブ列は見出し行、中身は本文と離れた
+  // 場所に描くため、両方を囲むTabs.Rootと同じ場所（page.tsx）で選択状態を持つ。
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("generate");
+
   // 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。queued（同時実行数
   // 上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
   // 既定文言（「生成中...」）に委ねる。
@@ -1609,6 +1615,19 @@ export default function Home() {
   function renderRouteSectionHeaderActions() {
     return (
       <div className={styles.routeSectionHeaderActions}>
+        {/* タブ列を見出し行へ同居させ、タブ専用の行を持たない（本文の縦を空ける）。
+            ラベルは2文字に詰める。 */}
+        <Tabs.List className={styles.settingsTabList} aria-label="ルート設定">
+          <Tabs.Trigger className={styles.settingsTabTrigger} value="generate">
+            条件
+          </Tabs.Trigger>
+          <Tabs.Trigger className={styles.settingsTabTrigger} value="weights">
+            重み
+          </Tabs.Trigger>
+          <Tabs.Trigger className={styles.settingsTabTrigger} value="exclusions">
+            除外
+          </Tabs.Trigger>
+        </Tabs.List>
         {/* 「条件が変更されています」は結果欄の先頭にも出るが、条件を変えている本人は
             設定側を見ている。押すべきボタンの隣でも同じことを知らせる。 */}
         {conditionsDirty && (
@@ -1645,6 +1664,7 @@ export default function Home() {
           onDestinationButtonClick={handleDestinationButtonClick}
           onDestinationClear={handleDestinationClear}
           weightsPanel={renderRouteSettingsSectionBody()}
+          exclusionsPanel={<HardFilterPanel hardFilters={hardFilters} onHardFiltersChange={setHardFilters} />}
         />
       </>
     );
@@ -1671,8 +1691,6 @@ export default function Home() {
   function renderRouteSettingsSectionBody() {
     return (
       <RouteSettingsPanel
-        hardFilters={hardFilters}
-        onHardFiltersChange={setHardFilters}
         routePreference={routePreference}
         onRoutePreferenceChange={setRoutePreference}
         overrideEnabled={weightOverrideEnabled}
@@ -2035,24 +2053,27 @@ export default function Home() {
                 {/* サイドバーはモバイルの下部タブと同じ「ルート設定（生成ボタンで反映）／
                     ルート結果（読むだけ）／ルート編集（結果から派生して作る）」の3区分・
                     同じ順序。各区分は独立して開閉し、開閉状態はlocalStorageへ保存する。 */}
-                <Disclosure
-                  className={styles.blockSection}
-                  headerClassName={styles.blockHeaderRow}
-                  triggerClassName={styles.blockSummary}
-                  bodyClassName={styles.blockBody}
-                  id={GENERATE_SECTION_TITLE_ID}
-                  summary={
-                    <>
-                      <span aria-hidden="true" className={styles.blockChevron} />
-                      ルート設定
-                    </>
-                  }
-                  trailing={renderRouteSectionHeaderActions()}
-                  open={generateOpen}
-                  onOpenChange={setGenerateOpen}
-                >
-                  {renderRouteSectionBody()}
-                </Disclosure>
+                {/* タブ列（見出し行）とタブの中身（本文）の両方を囲む。 */}
+                <Tabs.Root value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
+                  <Disclosure
+                    className={styles.blockSection}
+                    headerClassName={styles.blockHeaderRow}
+                    triggerClassName={styles.blockSummary}
+                    bodyClassName={styles.blockBody}
+                    id={GENERATE_SECTION_TITLE_ID}
+                    summary={
+                      <>
+                        <span aria-hidden="true" className={styles.blockChevron} />
+                        ルート設定
+                      </>
+                    }
+                    trailing={renderRouteSectionHeaderActions()}
+                    open={generateOpen}
+                    onOpenChange={setGenerateOpen}
+                  >
+                    {renderRouteSectionBody()}
+                  </Disclosure>
+                </Tabs.Root>
 
                 {/* ルート結果: 見出し行の右側が操作枠（保存・GPX出力・クリア・説明）。
                     候補が無い間は本文が空になるだけで、区分自体は常に出す。 */}
@@ -2330,18 +2351,20 @@ export default function Home() {
             </button>
           </nav>
 
-          <BottomSheet
-            open={mobileSheet === "routeSettings"}
-            onClose={() => setMobileSheet(null)}
-            title="ルート設定"
-            titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
-            headerAction={renderRouteSectionHeaderActions()}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={commitMobileSheetHeight}
-          >
-            {renderRouteSectionBody()}
-          </BottomSheet>
+          <Tabs.Root value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
+            <BottomSheet
+              open={mobileSheet === "routeSettings"}
+              onClose={() => setMobileSheet(null)}
+              title="ルート設定"
+              titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
+              headerAction={renderRouteSectionHeaderActions()}
+              heightVh={mobileSheetHeightVh}
+              onHeightChange={handleMobileSheetHeightChange}
+              onHeightCommit={commitMobileSheetHeight}
+            >
+              {renderRouteSectionBody()}
+            </BottomSheet>
+          </Tabs.Root>
 
           <BottomSheet
             open={mobileSheet === "routeOutcome"}

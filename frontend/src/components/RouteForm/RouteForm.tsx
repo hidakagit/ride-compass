@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { isMaxRoutesRelevant } from "./useRouteFormSubmit";
@@ -9,7 +8,9 @@ import styles from "./RouteForm.module.css";
 export type RouteMode = "loop" | "destination";
 export type DestinationButtonState = "unset" | "armed" | "set";
 
-type SettingsTab = "generate" | "weights";
+/** 「ルート設定」区分のタブ。タブ列と選択状態はpage.tsxが持ち（見出し行に置くため）、
+ * ここは各タブの中身だけを描く。 */
+export type SettingsTab = "generate" | "weights" | "exclusions";
 
 interface RouteFormProps {
   /** 距離入力の現在値（文字列のまま）。生成条件のdirty判定（page.tsx）に使うため親が持つ */
@@ -30,11 +31,14 @@ interface RouteFormProps {
   /** 設定済みの目的地を消す（チップ本体は「指定する／置き直す」だけを担う）。 */
   onDestinationClear: () => void;
   onDestinationButtonClick: () => void;
-  /** 「重みづけ」タブの中身（RouteSettingsPanelを含む要素一式）。「ルート設定」区分は
-   * 「生成条件」（本コンポーネントの距離・候補数等）と「重みづけ」の2タブへ分ける。
-   * 「ルート生成」ボタンはこのコンポーネントの外（page.tsx: 「ルート設定」見出し行）に
-   * 置き、検証ロジックは`useRouteFormSubmit`が持つ（本コンポーネントは入力欄のみ）。 */
+  /** 「重み」タブの中身（RouteSettingsPanelを含む要素一式）。「ルート設定」区分は
+   * 「条件」（本コンポーネントの距離・候補数等）・「重み」・「除外」の3タブへ分ける。
+   * タブ列（Tabs.List）と「ルート生成」ボタンはこのコンポーネントの外（page.tsx:
+   * 「ルート設定」見出し行）にあり、検証ロジックは`useRouteFormSubmit`が持つ
+   * （本コンポーネントは入力欄と各タブの中身のみ）。 */
   weightsPanel: React.ReactNode;
+  /** 「除外」タブの中身（HardFilterPanel）。将来の除外条件もこのタブへ足す。 */
+  exclusionsPanel: React.ReactNode;
 }
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
@@ -53,8 +57,8 @@ export default function RouteForm({
   onDestinationClear,
   onDestinationButtonClick,
   weightsPanel,
+  exclusionsPanel,
 }: RouteFormProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("generate");
   const maxRoutesRelevant = isMaxRoutesRelevant(routeMode, waypointCount);
 
   function stepMaxRoutes(delta: number) {
@@ -81,123 +85,116 @@ export default function RouteForm({
 
   return (
     <div>
-      <Tabs.Root value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)}>
-        <Tabs.List className={styles.tabList} aria-label="ルート設定">
-          <Tabs.Trigger className={styles.tabTrigger} value="generate">
-            生成条件
-          </Tabs.Trigger>
-          <Tabs.Trigger className={styles.tabTrigger} value="weights">
-            重みづけ
-          </Tabs.Trigger>
-        </Tabs.List>
+      {/* forceMount+data-stateでの表示切替（page.module.css: .outcomeTabPanelと同じ方式）。
+          候補数等はpage.tsx側の制御stateのため非表示中も値は失われないが、
+          重みタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
+          重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
+      <Tabs.Content value="generate" forceMount className={styles.tabPanel}>
+        <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
+          <button
+            type="button"
+            onClick={() => onRouteModeChange("loop")}
+            aria-pressed={routeMode === "loop"}
+            className={routeMode === "loop" ? styles.modeButtonActive : styles.modeButton}
+          >
+            周回
+          </button>
+          <button
+            type="button"
+            onClick={() => onRouteModeChange("destination")}
+            aria-pressed={routeMode === "destination"}
+            className={routeMode === "destination" ? styles.modeButtonActive : styles.modeButton}
+          >
+            目的地
+          </button>
+        </div>
 
-        {/* forceMount+data-stateでの表示切替（page.module.css: .outcomeTabPanelと同じ方式）。
-            候補数等はpage.tsx側の制御stateのため非表示中も値は失われないが、
-            重みづけタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
-            重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
-        <Tabs.Content value="generate" forceMount className={styles.tabPanel}>
-          <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
-            <button
-              type="button"
-              onClick={() => onRouteModeChange("loop")}
-              aria-pressed={routeMode === "loop"}
-              className={routeMode === "loop" ? styles.modeButtonActive : styles.modeButton}
-            >
-              周回
-            </button>
-            <button
-              type="button"
-              onClick={() => onRouteModeChange("destination")}
-              aria-pressed={routeMode === "destination"}
-              className={routeMode === "destination" ? styles.modeButtonActive : styles.modeButton}
-            >
-              目的地
-            </button>
-          </div>
-
-          <div className={styles.fieldsColumn}>
-            {routeMode === "loop" ? (
-              <div className={styles.sliderField}>
-                <label htmlFor="route-form-distance" className={styles.sliderLabel}>
-                  距離
-                </label>
-                <input
-                  id="route-form-distance"
-                  type="range"
-                  min={1}
-                  max={MAX_DISTANCE_KM}
-                  step={1}
-                  value={distance}
-                  onChange={(e) => onDistanceChange(e.target.value)}
-                  className={styles.slider}
-                />
-                <span className={styles.sliderValue}>{distance}km</span>
-              </div>
-            ) : (
-              <div className={styles.destinationSummary}>
-                {waypointCount > 0 && (
-                  <span className={styles.summaryChip}>
-                    📍{waypointCount}
-                    <button type="button" onClick={onWaypointsClear} aria-label="経由地をクリア">
-                      ✕
-                    </button>
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={onDestinationButtonClick}
-                  aria-label={destinationButtonLabel}
-                  title={destinationButtonLabel}
-                  className={destinationButtonClassName}
-                >
-                  🏁<span className={styles.destinationChipText}>{destinationButtonText}</span>
-                </button>
-                {destinationState === "set" && (
-                  <button
-                    type="button"
-                    onClick={onDestinationClear}
-                    aria-label="目的地を解除"
-                    title="目的地を解除"
-                    className={styles.destinationClearButton}
-                  >
+        <div className={styles.fieldsColumn}>
+          {routeMode === "loop" ? (
+            <div className={styles.sliderField}>
+              <label htmlFor="route-form-distance" className={styles.sliderLabel}>
+                距離
+              </label>
+              <input
+                id="route-form-distance"
+                type="range"
+                min={1}
+                max={MAX_DISTANCE_KM}
+                step={1}
+                value={distance}
+                onChange={(e) => onDistanceChange(e.target.value)}
+                className={styles.slider}
+              />
+              <span className={styles.sliderValue}>{distance}km</span>
+            </div>
+          ) : (
+            <div className={styles.destinationSummary}>
+              {waypointCount > 0 && (
+                <span className={styles.summaryChip}>
+                  📍{waypointCount}
+                  <button type="button" onClick={onWaypointsClear} aria-label="経由地をクリア">
                     ✕
                   </button>
-                )}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={onDestinationButtonClick}
+                aria-label={destinationButtonLabel}
+                title={destinationButtonLabel}
+                className={destinationButtonClassName}
+              >
+                🏁<span className={styles.destinationChipText}>{destinationButtonText}</span>
+              </button>
+              {destinationState === "set" && (
+                <button
+                  type="button"
+                  onClick={onDestinationClear}
+                  aria-label="目的地を解除"
+                  title="目的地を解除"
+                  className={styles.destinationClearButton}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+          {maxRoutesRelevant && (
+            <div className={styles.stepperField}>
+              <span className={styles.stepperLabel}>候補数</span>
+              <div className={styles.stepper}>
+                <button
+                  type="button"
+                  className={styles.stepperButton}
+                  onClick={() => stepMaxRoutes(-1)}
+                  disabled={Number(maxRoutes) <= 1}
+                  aria-label="候補数を減らす"
+                >
+                  ‹
+                </button>
+                <span className={styles.stepperValue}>{maxRoutes}件</span>
+                <button
+                  type="button"
+                  className={styles.stepperButton}
+                  onClick={() => stepMaxRoutes(1)}
+                  disabled={Number(maxRoutes) >= MAX_ROUTES}
+                  aria-label="候補数を増やす"
+                >
+                  ›
+                </button>
               </div>
-            )}
-            {maxRoutesRelevant && (
-              <div className={styles.stepperField}>
-                <span className={styles.stepperLabel}>候補数</span>
-                <div className={styles.stepper}>
-                  <button
-                    type="button"
-                    className={styles.stepperButton}
-                    onClick={() => stepMaxRoutes(-1)}
-                    disabled={Number(maxRoutes) <= 1}
-                    aria-label="候補数を減らす"
-                  >
-                    ‹
-                  </button>
-                  <span className={styles.stepperValue}>{maxRoutes}件</span>
-                  <button
-                    type="button"
-                    className={styles.stepperButton}
-                    onClick={() => stepMaxRoutes(1)}
-                    disabled={Number(maxRoutes) >= MAX_ROUTES}
-                    aria-label="候補数を増やす"
-                  >
-                    ›
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Tabs.Content>
+            </div>
+          )}
+        </div>
+      </Tabs.Content>
 
-        <Tabs.Content value="weights" forceMount className={styles.tabPanel}>
-          {weightsPanel}
-        </Tabs.Content>
-      </Tabs.Root>
+      <Tabs.Content value="weights" forceMount className={styles.tabPanel}>
+        {weightsPanel}
+      </Tabs.Content>
+
+      <Tabs.Content value="exclusions" forceMount className={styles.tabPanel}>
+        {exclusionsPanel}
+      </Tabs.Content>
     </div>
   );
 }

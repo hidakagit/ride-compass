@@ -1,28 +1,6 @@
-/* 「生成条件」「重みづけ」の2タブ（page.module.cssの.outcomeTabList等と同じ方式）。 */
-.tabList {
-  display: flex;
-  gap: var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: var(--space-2);
-}
-
-.tabTrigger {
-  flex-shrink: 0;
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  color: var(--color-muted);
-  padding: 0.4rem 0.5rem;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-
-.tabTrigger[data-state="active"] {
-  color: var(--color-accent-strong);
-  border-bottom-color: var(--color-accent-strong);
-}
-
-/* forceMountで両タブとも常時マウントし、表示だけdata-stateで切り替える
-   （RouteForm.tsx側コメント参照。page.module.cssの.outcomeTabPanelと同じ方式）。 */
+/* forceMountで全タブを常時マウントし、表示だけdata-stateで切り替える
+   （RouteForm.tsx側コメント参照。page.module.cssの.outcomeTabPanelと同じ方式）。
+   タブ列自体は見出し行にあり、そのスタイルはpage.module.cssが持つ。 */
 .tabPanel[data-state="inactive"] {
   display: none;
 }

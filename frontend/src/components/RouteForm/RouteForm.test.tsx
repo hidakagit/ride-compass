@@ -1,14 +1,16 @@
 import { useState } from "react";
+import * as Tabs from "@radix-ui/react-tabs";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import RouteForm, { type DestinationButtonState, type RouteMode } from "./RouteForm";
+import RouteForm, { type DestinationButtonState, type RouteMode, type SettingsTab } from "./RouteForm";
 
 // RouteFormは制御コンポーネント（距離・候補件数はpage.tsxが持ち、生成条件のdirty判定・
 // useRouteFormSubmitでの検証に使う）のため、テストでは各stateを持つ最小のラッパーで包んで
 // 実際の入力操作を再現する。T616で生成ボタン・検証ロジックはuseRouteFormSubmitへ抽出した
 // ため、本コンポーネントの責務は入力欄（モード切替・距離スライダー・候補数ステッパー）と
-// 「生成条件」「重みづけ」タブの表示切替のみ。
+// 各タブの中身の描画のみ。タブ列と選択状態はpage.tsxが持つ（見出し行に置くため）ので、
+// ここではTabs.Rootで包んで「条件」タブを選んだ状態を与える。
 function ControlledRouteForm({
   initialDistance = "30",
   initialMaxRoutes = "8",
@@ -18,6 +20,7 @@ function ControlledRouteForm({
   destinationState = "unset",
   onDestinationClear = () => {},
   onDestinationButtonClick = vi.fn(),
+  tab = "generate",
 }: {
   initialDistance?: string;
   initialMaxRoutes?: string;
@@ -27,25 +30,29 @@ function ControlledRouteForm({
   destinationState?: DestinationButtonState;
   onDestinationClear?: () => void;
   onDestinationButtonClick?: () => void;
+  tab?: SettingsTab;
 }) {
   const [distance, setDistance] = useState(initialDistance);
   const [maxRoutes, setMaxRoutes] = useState(initialMaxRoutes);
   const [routeMode, setRouteMode] = useState<RouteMode>(initialRouteMode);
   return (
-    <RouteForm
-      distance={distance}
-      onDistanceChange={setDistance}
-      maxRoutes={maxRoutes}
-      onMaxRoutesChange={setMaxRoutes}
-      routeMode={routeMode}
-      onRouteModeChange={setRouteMode}
-      waypointCount={waypointCount}
-      onWaypointsClear={onWaypointsClear}
-      destinationState={destinationState}
-      onDestinationButtonClick={onDestinationButtonClick}
-      onDestinationClear={onDestinationClear}
-      weightsPanel={<p>重みづけタブの中身（テスト用ダミー）</p>}
-    />
+    <Tabs.Root value={tab}>
+      <RouteForm
+        distance={distance}
+        onDistanceChange={setDistance}
+        maxRoutes={maxRoutes}
+        onMaxRoutesChange={setMaxRoutes}
+        routeMode={routeMode}
+        onRouteModeChange={setRouteMode}
+        waypointCount={waypointCount}
+        onWaypointsClear={onWaypointsClear}
+        destinationState={destinationState}
+        onDestinationButtonClick={onDestinationButtonClick}
+        onDestinationClear={onDestinationClear}
+        weightsPanel={<p>重みタブの中身（テスト用ダミー）</p>}
+        exclusionsPanel={<p>除外タブの中身（テスト用ダミー）</p>}
+      />
+    </Tabs.Root>
   );
 }
 
@@ -172,24 +179,30 @@ describe("RouteForm", () => {
       expect(screen.queryByRole("button", { name: "候補数を増やす" })).not.toBeInTheDocument();
     });
   });
+  // タブ列と選択状態はpage.tsxが持つ（見出し行に置くため）。ここでは選ばれたタブの中身
+  // だけが見える状態になることを見る（どのタブもforceMountで常時マウントされるため、
+  // 「出ている/出ていない」はdata-stateで切り替わる）。
+  describe("タブの中身", () => {
+    it("「重み」タブが選ばれていると重みづけの中身が見える", () => {
+      render(<ControlledRouteForm tab="weights" />);
 
-  describe("「生成条件」「重みづけ」タブ", () => {
-    it("既定では「生成条件」タブが選択されている", () => {
-      render(<ControlledRouteForm />);
-
-      expect(screen.getByRole("tab", { name: "生成条件" })).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByRole("tab", { name: "重みづけ" })).toHaveAttribute("aria-selected", "false");
+      expect(screen.getByText("重みタブの中身（テスト用ダミー）").closest("[data-state]")).toHaveAttribute(
+        "data-state",
+        "active",
+      );
+      expect(screen.getByText("除外タブの中身（テスト用ダミー）").closest("[data-state]")).toHaveAttribute(
+        "data-state",
+        "inactive",
+      );
     });
 
-    it("「重みづけ」タブに切り替えるとweightsPanelの中身が見え、タブの選択状態が入れ替わる", async () => {
-      const user = userEvent.setup();
-      render(<ControlledRouteForm />);
+    it("「除外」タブが選ばれていると除外の中身が見える", () => {
+      render(<ControlledRouteForm tab="exclusions" />);
 
-      await user.click(screen.getByRole("tab", { name: "重みづけ" }));
-
-      expect(screen.getByText("重みづけタブの中身（テスト用ダミー）")).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "重みづけ" })).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByRole("tab", { name: "生成条件" })).toHaveAttribute("aria-selected", "false");
+      expect(screen.getByText("除外タブの中身（テスト用ダミー）").closest("[data-state]")).toHaveAttribute(
+        "data-state",
+        "active",
+      );
     });
   });
 });

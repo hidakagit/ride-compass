@@ -1,21 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import LayerChip from "@/components/Map/LayerChip";
 import InfoPopover from "@/components/Map/InfoPopover";
 import { axisIconFor } from "@/components/Map/axisIconPalette";
-import Disclosure from "@/components/Disclosure/Disclosure";
 import { withAutoEnable } from "@/components/Map/recipeControls";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
+import {
+  SHARE_STEP_PCT,
+  WEIGHT_STEP,
+  adjustAxisShare,
+  clampBoundaryDrag,
+  totalWeight,
+} from "@/lib/routeWeightShare";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import type { HardFilterOverride, RoutePreferenceWeights } from "@/types/route";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import type { RoutePreferenceWeights } from "@/types/route";
 import styles from "./RouteSettingsPanel.module.css";
 
-// 一般ユーザー向けルート設定画面。常に表示されるメインの操作面に置く。重み配分バー
-// （帯グラフ、ドラッグで調整）→軸の凡例チップ（有効/無効・説明文・地図色分け）→
-// 除外する道路、という並び（詳細はdocs/modules/frontend/route-settings-and-results.md参照）。
+// 「ルート設定」区分の「重み」タブ。重み配分バー（帯グラフ、全軸の取り分が1本に収まる）→
+// 選択中の軸の1行（名前・%・±）→軸チップ（有効な軸を先頭に%付きで並べ、チェックで
+// 有効/無効、本体で調整対象を選ぶ）という並び。除外する道路は別タブ（HardFilterPanel）。
+// 軸が増えても伸びるのはチップの領域だけで、そこは高さ上限と内部スクロールを持つ。
 //
 // 軸はカテゴリ（観測/推定/動的）で分けず、公開済みの軸を常にフラットな1本のリストとして
 // 表示する（軸スタジオは常にcategory="推定"固定で軸を作るため）。軸の`category`データ
@@ -25,26 +30,10 @@ import styles from "./RouteSettingsPanel.module.css";
 // （is_published=Trueのみ）。軸スタジオがDBへ追加した軸も、コード変更・再デプロイなしに
 // ここへ現れる（取得完了まで・失敗時は既存軸の静的フォールバックを使う）。
 
-// 0次ハードフィルタ。**キーと既定値はbackendが正**で、生成物
-// （route-generate-config.json、domain/evaluation.py由来）から受け取る——backendは
-// キー集合の完全一致を要求するため、手書きで複製すると4つ目を足した瞬間に
-// すべてのルート生成が422になる。表示ラベルはUIの語彙なのでここが持つ。
-const HARD_FILTER_LABELS: Record<string, string> = {
-  no_bicycle: "自転車通行禁止",
-  motorway: "高速道路",
-  trunk: "幹線道路(trunk)",
-};
-
-const HARD_FILTER_CHIPS: { key: string; label: string }[] = routeGenerateConfig.hard_filters.keys.map(
-  (key) => ({ key, label: HARD_FILTER_LABELS[key] ?? key }),
-);
-
-export const DEFAULT_HARD_FILTERS: HardFilterOverride = Object.fromEntries(
-  routeGenerateConfig.hard_filters.keys.map((key) => [
-    key,
-    routeGenerateConfig.hard_filters.defaults.includes(key),
-  ]),
-);
+// 帯グラフの区間へ文字を入れられる最小の取り分（%）。狭い区間は文字が収まらないため、
+// アイコン＋%→%のみ→何も出さない、の順に落とす（どの軸の%もチップ側では必ず読める）。
+const SEGMENT_ICON_MIN_PCT = 10;
+const SEGMENT_VALUE_MIN_PCT = 6;
 
 // 重み配分バーの軸ごとの色分け。色自体に意味は持たせない識別用で、HSL色相環を実際の
 // 軸数で等分して割り当てる（軸数がいくつであっても衝突しない）。indexは常に
@@ -59,46 +48,7 @@ export function stackBarColorForIndex(index: number, axisCount: number): string 
   return `hsl(${hue}, 62%, 55%)`;
 }
 
-function totalWeight(weights: RoutePreferenceWeights): number {
-  return Object.values(weights).reduce((sum, w) => sum + (w > 0 ? w : 0), 0);
-}
-
-// 重み配分バー（帯グラフ）の境界ドラッグで動かせる重みの範囲。既存の詳細ポップオーバー内
-// スライダー（min="0" max="0.6" step="0.01"）のmax/stepと揃える。下限は0ではなく
-// WEIGHT_STEPにする——0まで下げるとその軸がチェックOFF相当（weight>0判定）に化け、
-// ドラッグ中に帯の区間数が変わってしまうため、ドラッグでは「チェックを外す」操作を
-// 兼ねさせない（0まで下げたい場合は詳細ポップオーバーかチェックボックス自体を使う）。
-const WEIGHT_STEP = 0.01;
-const STACK_BAR_MIN_WEIGHT = WEIGHT_STEP;
-const STACK_BAR_MAX_WEIGHT = 0.6;
-
-function roundToStep(value: number): number {
-  return Number(value.toFixed(2));
-}
-
-/** 帯グラフの境界（隣り合う2軸の重み合計を変えずに一方から他方へ移す）ドラッグで、
- * 生の移動量（重み単位）を両軸の[STACK_BAR_MIN_WEIGHT, STACK_BAR_MAX_WEIGHT]範囲内へ
- * 収まるようクランプし、STEP単位へ丸めた最終的な2軸ぶんの新しい重みを返す。
- * 合計（weightA+weightB）は常に変わらない——丸め後もdeltaを共有するため浮動小数点誤差で
- * ずれない。 */
-function clampBoundaryDrag(
-  weightA: number,
-  weightB: number,
-  rawDelta: number
-): { weightA: number; weightB: number } {
-  const lowerBound = Math.max(STACK_BAR_MIN_WEIGHT - weightA, weightB - STACK_BAR_MAX_WEIGHT);
-  const upperBound = Math.min(STACK_BAR_MAX_WEIGHT - weightA, weightB - STACK_BAR_MIN_WEIGHT);
-  const clamped = Math.min(Math.max(rawDelta, lowerBound), upperBound);
-  const steppedDelta = Math.round(clamped / WEIGHT_STEP) * WEIGHT_STEP;
-  return {
-    weightA: roundToStep(weightA + steppedDelta),
-    weightB: roundToStep(weightB - steppedDelta),
-  };
-}
-
 interface RouteSettingsPanelProps {
-  hardFilters: HardFilterOverride;
-  onHardFiltersChange: (next: HardFilterOverride) => void;
   routePreference: RoutePreferenceWeights;
   onRoutePreferenceChange: (next: RoutePreferenceWeights) => void;
   /** route_preference上書きの有効フラグ（page.tsx参照）。既定値のまま操作しなければ
@@ -110,8 +60,6 @@ interface RouteSettingsPanelProps {
 }
 
 export default function RouteSettingsPanel({
-  hardFilters,
-  onHardFiltersChange,
   routePreference,
   onRoutePreferenceChange,
   overrideEnabled,
@@ -120,45 +68,19 @@ export default function RouteSettingsPanel({
   const catalog = useAxisCatalog();
   const handlePreferenceChange = withAutoEnable(overrideEnabled, onOverrideEnabledChange, onRoutePreferenceChange);
 
-  // 各軸のチップは「色ドット+ラベル（タップで有効/無効切替）」「(i)説明文ポップオーバー」の
-  // 2要素だけの1行。地図の色分け（レンズ）はこのパネルではなく地図上の凡例ピル（LensControl）
-  // だけが持つ。重みの数値・スライダーはチップには置かず、重み配分バー（帯グラフ）の
-  function AxisIcon({ axis }: { axis: PreferenceAxisDef }) {
+  // axisIconForはaxisIconPalette.tsxの固定辞書を引くだけの純関数だが、
+  // react-hooks/static-componentsのeslintルールは`const X = fn(); <X/>`をコンポーネント
+  // 本体直下で書くと「レンダー毎に新規生成している」と静的に誤検知する。ネストした関数の
+  // 中では誤検知しないため、アイコンの描画はこの関数を通す（AxisComposer.tsxと同じ回避）。
+  function AxisIcon({ axis, size = 14 }: { axis: PreferenceAxisDef; size?: number }) {
     const Icon = axisIconFor(axis.iconId);
-    return <Icon size={14} />;
+    return <Icon size={size} />;
   }
 
-  // ドラッグ・矢印キー操作だけで調整する。
-  function renderLegendChip(axis: PreferenceAxisDef, index: number) {
-    const weight = routePreference[axis.axisId] ?? 0;
-    const checked = weight > 0;
-    const color = stackBarColorForIndex(index, catalog.axes.length);
+  function renderAxisIcon(axis: PreferenceAxisDef, size: number, color: string) {
     return (
-      <span key={axis.axisId} className={styles.legendChip} data-checked={checked}>
-        <button
-          type="button"
-          className={styles.legendToggle}
-          aria-pressed={checked}
-          aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
-          onClick={() => handleToggle(axis.axisId, !checked)}
-        >
-          {/* 軸アイコンは地図チップ・ルート結果の内訳と同じ意匠を引く（axisIconFor）。
-              こちらは「どの軸を使うか選ぶ」画面のため名前も残す。 */}
-          <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
-            <AxisIcon axis={axis} />
-          </span>
-          {/* 略名は地図チップと同じ`chip_label`（最大4文字）。狭い幅で軸が折り返すぶんだけ
-              縦を食うため、選ぶのに足りる長さへ詰める。押したときの説明・aria-labelは
-              フルネームのまま。 */}
-          <span className={styles.legendLabel}>{axis.chipLabel ?? axis.label}</span>
-        </button>
-        <InfoPopover
-          triggerClassName={styles.legendInfoButton}
-          triggerAriaLabel={`${axis.label}の説明`}
-          contentClassName={styles.legendInfoPopover}
-        >
-          {axis.description}
-        </InfoPopover>
+      <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+        <AxisIcon axis={axis} size={size} />
       </span>
     );
   }
@@ -206,8 +128,13 @@ export default function RouteSettingsPanel({
     });
   }, [catalog.defaultWeights]);
 
+  // ±で調整する対象の軸。チェックを外された軸・カタログから消えた軸を指したままに
+  // ならないよう、実際に出す軸は毎回「有効な軸の中から」引き直す。
+  const [selectedAxisId, setSelectedAxisId] = useState<string | null>(null);
+
   function handleToggle(axisId: string, checked: boolean) {
     const restored = checked ? lastWeights[axisId] || catalog.defaultWeights[axisId] || 0.1 : 0;
+    if (checked) setSelectedAxisId(axisId);
     handlePreferenceChange({ ...routePreference, [axisId]: restored });
   }
 
@@ -218,12 +145,41 @@ export default function RouteSettingsPanel({
     handlePreferenceChange({ ...routePreference, [axisIdA]: valueA, [axisIdB]: valueB });
   }
 
+  // ±ボタン。増やしたぶんは他の有効な軸から按分して減る（adjustAxisShare）。
+  // 動かせないとき（有効な軸が1つ・上下限に張り付き）はnullが返り、ボタン自体を押せなくする。
+  function handleShareStep(axisId: string, deltaPct: number) {
+    const next = adjustAxisShare(routePreference, axisId, deltaPct);
+    if (!next) return;
+    setLastWeights((prev) => {
+      const merged = { ...prev };
+      for (const [id, weight] of Object.entries(next)) {
+        if (weight > 0) merged[id] = weight;
+      }
+      return merged;
+    });
+    handlePreferenceChange(next);
+  }
+
   const total = totalWeight(routePreference);
+  const sharePct = (weight: number) => (total > 0 ? (weight / total) * 100 : 0);
+
+  // 有効な軸（重み>0）を先、無効な軸を後ろに並べる。有効な軸の%が先頭にまとまるため、
+  // チップ領域をスクロールせずに「今どの軸が何%か」を読める。
+  const axesWithIndex = catalog.axes.map((axis, index) => ({
+    axis,
+    index,
+    weight: routePreference[axis.axisId] ?? 0,
+  }));
+  const enabledAxes = axesWithIndex.filter(({ weight }) => weight > 0);
+  const orderedAxes = [...enabledAxes, ...axesWithIndex.filter(({ weight }) => weight <= 0)];
+  const selected = enabledAxes.find(({ axis }) => axis.axisId === selectedAxisId) ?? enabledAxes[0] ?? null;
+  const canIncrease = selected != null && adjustAxisShare(routePreference, selected.axis.axisId, SHARE_STEP_PCT) != null;
+  const canDecrease = selected != null && adjustAxisShare(routePreference, selected.axis.axisId, -SHARE_STEP_PCT) != null;
 
   // 重み配分バー（帯グラフ）の隣り合う2要素の境界をドラッグして配分し直せる。
   // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は
-  // 変わらない）。重みの調整手段はこの帯グラフのドラッグ・矢印キー操作のみ
-  // （renderLegendChip参照、0.01刻みの単独重み調整ポップオーバーは持たない）。
+  // 変わらない）。細かく2軸間で移したいときの手段で、1軸だけを増減する操作は
+  // 選択中の軸の±（handleShareStep）が担う。
   const stackBarRef = useRef<HTMLDivElement>(null);
   // ドラッグ中の起点情報。境界ハンドルは16px幅しかなく、ドラッグ中にポインタが実際の
   // ハンドル要素の外へ出るのが常態のため、React要素スコープのonPointerMove（要素の外に
@@ -306,17 +262,62 @@ export default function RouteSettingsPanel({
     handlePairWeightChange(axisIdA, next.weightA, axisIdB, next.weightB);
   }
 
-  // 既定でON（除外）の3項目はMapLayersPanel（.layerSection/.layerHeader/.chevron相当）と
-  // 同じDisclosure折りたたみで表示する。既定値のまま変えない利用者が大半と見込まれるため
-  // 既定で閉じるが、既に既定値から変更済みの場合は「変更していることに気づかず開けない」
-  // 事故を避けるため既定で開く（defaultOpenはuncontrolledのDisclosureの初期値としてのみ
-  // 効く。以降の開閉はユーザー操作に委ねる）。
-  // 未設定キーの既定値はDEFAULT_HARD_FILTERS（生成物由来）から引く。`?? true`で埋めると、
-  // backendが既定OFFのフィルタを足した瞬間、何も操作していないのに「変更あり」になり、
-  // チップも押していないのにONで表示される。
-  const hardFilterCustomized = HARD_FILTER_CHIPS.some(
-    ({ key }) => (hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]) !== DEFAULT_HARD_FILTERS[key],
-  );
+  // 軸チップ1件。有効な軸は「チェック（有効/無効）」と「本体（±の対象に選ぶ）」の
+  // 2つの押下領域を持ち、無効な軸は本体全体が「有効にする」だけを担う——無効な軸を
+  // 選んでも動かす重みが無いため、押し分けられる領域を作らない。
+  function renderLegendChip(axis: PreferenceAxisDef, index: number, weight: number) {
+    const checked = weight > 0;
+    const color = stackBarColorForIndex(index, catalog.axes.length);
+    const isSelected = checked && selected?.axis.axisId === axis.axisId;
+    const label = axis.chipLabel ?? axis.label;
+    if (!checked) {
+      return (
+        <span key={axis.axisId} className={styles.legendChip} data-checked="false">
+          <button
+            type="button"
+            className={styles.legendToggle}
+            aria-pressed={false}
+            aria-label={`${axis.label}を有効にする`}
+            onClick={() => handleToggle(axis.axisId, true)}
+          >
+            <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+              <AxisIcon axis={axis} />
+            </span>
+            <span className={styles.legendLabel}>{label}</span>
+          </button>
+        </span>
+      );
+    }
+    return (
+      <span key={axis.axisId} className={styles.legendChip} data-checked="true" data-selected={isSelected}>
+        <button
+          type="button"
+          className={styles.legendCheck}
+          aria-pressed
+          aria-label={`${axis.label}を無効にする`}
+          onClick={() => handleToggle(axis.axisId, false)}
+        >
+          <span aria-hidden="true">✓</span>
+        </button>
+        <button
+          type="button"
+          className={styles.legendToggle}
+          aria-pressed={isSelected}
+          aria-label={`${axis.label}の配分を調整する`}
+          onClick={() => setSelectedAxisId(axis.axisId)}
+        >
+          <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+            <AxisIcon axis={axis} />
+          </span>
+          {/* 略名は地図チップと同じ`chip_label`（最大4文字）。狭い幅で軸が折り返すぶんだけ
+              縦を食うため、選ぶのに足りる長さへ詰める。押したときの説明・aria-labelは
+              フルネームのまま。 */}
+          <span className={styles.legendLabel}>{label}</span>
+          <span className={styles.legendPct}>{Math.round(sharePct(weight))}%</span>
+        </button>
+      </span>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -339,7 +340,7 @@ export default function RouteSettingsPanel({
         <div className={styles.stackBarHeader}>
           <p className={styles.sectionLabel}>重み配分</p>
           {/* 帯グラフの色と軸の対応を、見出し脇の情報アイコンから一覧できるようにする
-              （凡例チップ側にも色ドットはあるが、折り返して並ぶため一覧性は弱い）。操作説明
+              （チップの略名は4文字までのため、フルネームで確かめる先がここになる）。操作説明
               （帯の境界をドラッグして配分を調整できる旨）もここへ集約し、見出し自体は
               「重み配分」だけの短い表記にする。 */}
           <InfoPopover
@@ -349,51 +350,55 @@ export default function RouteSettingsPanel({
           >
             <p className={styles.stackBarLegendHint}>帯の境界をドラッグして配分を調整できます。</p>
             <ul className={styles.stackBarLegendList}>
-              {catalog.axes.map((axis, index) => {
-                const weight = routePreference[axis.axisId] ?? 0;
-                if (weight <= 0 || total <= 0) return null;
-                const pct = Math.round((weight / total) * 100);
-                return (
-                  <li key={axis.axisId} className={styles.stackBarLegendItem}>
-                    <span
-                      aria-hidden="true"
-                      className={styles.legendDot}
-                      style={{ background: stackBarColorForIndex(index, catalog.axes.length) }}
-                    />
-                    <span className={styles.stackBarLegendLabel}>{axis.label}</span>
-                    <span className={styles.stackBarLegendValue}>{pct}%</span>
-                  </li>
-                );
-              })}
+              {enabledAxes.map(({ axis, index, weight }) => (
+                <li key={axis.axisId} className={styles.stackBarLegendItem}>
+                  <span
+                    aria-hidden="true"
+                    className={styles.legendDot}
+                    style={{ background: stackBarColorForIndex(index, catalog.axes.length) }}
+                  />
+                  <span className={styles.stackBarLegendLabel}>{axis.label}</span>
+                  <span className={styles.stackBarLegendValue}>{Math.round(sharePct(weight))}%</span>
+                </li>
+              ))}
             </ul>
           </InfoPopover>
+          <span className={styles.stackBarTotal}>合計 100%</span>
         </div>
         <div className={styles.stackBarOuter} ref={stackBarRef}>
           <div className={styles.stackBar}>
-            {catalog.axes.map(({ axisId, label }, index) => {
-              const weight = routePreference[axisId] ?? 0;
-              if (weight <= 0 || total <= 0) return null;
-              const pct = (weight / total) * 100;
+            {enabledAxes.map(({ axis, index, weight }) => {
+              const pct = sharePct(weight);
               return (
                 <div
-                  key={axisId}
+                  key={axis.axisId}
                   className={styles.stackSegment}
                   style={{ width: `${pct}%`, background: stackBarColorForIndex(index, catalog.axes.length) }}
-                  title={`${label} ${Math.round(pct)}%`}
-                />
+                  title={`${axis.label} ${Math.round(pct)}%`}
+                >
+                  {pct >= SEGMENT_ICON_MIN_PCT && (
+                    <span aria-hidden="true" className={styles.segmentIcon}>
+                      <AxisIcon axis={axis} size={13} />
+                    </span>
+                  )}
+                  {pct >= SEGMENT_VALUE_MIN_PCT && (
+                    <span aria-hidden="true" className={styles.segmentValue}>
+                      {Math.round(pct)}
+                      {pct >= SEGMENT_ICON_MIN_PCT ? "%" : ""}
+                    </span>
+                  )}
+                </div>
               );
             })}
           </div>
           {(() => {
-            const visible = catalog.axes
-              .map((axis, index) => ({ axis, index, weight: routePreference[axis.axisId] ?? 0 }))
-              .filter(({ weight }) => weight > 0 && total > 0);
+            const visible = enabledAxes;
             // 各区切りの累積%を先に純粋な配列として計算してから描画する（レンダー中に外側の
             // 変数を書き換えるとreact-hooks/immutability違反になるため、mapのコールバック内で
             // インデックスから逆算する）。
             const cumulativePcts = visible.reduce<number[]>((acc, { weight }) => {
               const previous = acc.at(-1) ?? 0;
-              acc.push(previous + (weight / total) * 100);
+              acc.push(previous + sharePct(weight));
               return acc;
             }, []);
             return visible.slice(0, -1).map(({ axis: left, weight: leftWeight }, i) => {
@@ -426,8 +431,8 @@ export default function RouteSettingsPanel({
                       data-align={cumulativePct < 25 ? "start" : cumulativePct > 75 ? "end" : undefined}
                       aria-hidden="true"
                     >
-                      {left.label} {Math.round((leftWeight / total) * 100)}% / {right.axis.label}{" "}
-                      {Math.round((right.weight / total) * 100)}%
+                      {left.label} {Math.round(sharePct(leftWeight))}% / {right.axis.label}{" "}
+                      {Math.round(sharePct(right.weight))}%
                     </span>
                   )}
                 </div>
@@ -437,38 +442,48 @@ export default function RouteSettingsPanel({
         </div>
       </div>
 
-      <div className={styles.legendRow}>{catalog.axes.map((axis, index) => renderLegendChip(axis, index))}</div>
-
-      <Disclosure
-        className={styles.hardFilters}
-        triggerClassName={styles.hardFiltersTrigger}
-        bodyClassName={styles.hardFiltersBody}
-        defaultOpen={hardFilterCustomized}
-        summary={
-          <>
-            <span aria-hidden="true" className={styles.hardFiltersChevron} />
-            除外する道路
-            {hardFilterCustomized && <span className={styles.hardFiltersBadge}>変更あり</span>}
-          </>
-        }
-      >
-        <div className={styles.chipRow}>
-          {HARD_FILTER_CHIPS.map(({ key, label }) => (
-            <LayerChip
-              key={key}
-              label={label}
-              on={hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]}
-              ariaLabel={`${label}を除外`}
-              onClick={() =>
-                onHardFiltersChange({
-                  ...hardFilters,
-                  [key]: !(hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]),
-                })
-              }
-            />
-          ))}
+      {/* 選択中の軸の1行。軸が何本あってもこの行の高さは変わらない。 */}
+      {selected && (
+        <div className={styles.selectedRow}>
+          {renderAxisIcon(selected.axis, 16, stackBarColorForIndex(selected.index, catalog.axes.length))}
+          <span className={styles.selectedName}>{selected.axis.label}</span>
+          <InfoPopover
+            triggerClassName={styles.stackBarLegendTrigger}
+            triggerAriaLabel={`${selected.axis.label}の説明`}
+            contentClassName={styles.legendInfoPopover}
+          >
+            {selected.axis.description}
+          </InfoPopover>
+          <span className={styles.selectedPct}>{Math.round(sharePct(selected.weight))}%</span>
+          <span className={styles.shareStepper}>
+            <button
+              type="button"
+              className={styles.shareStepButton}
+              disabled={!canDecrease}
+              aria-label={`${selected.axis.label}の配分を減らす`}
+              onClick={() => handleShareStep(selected.axis.axisId, -SHARE_STEP_PCT)}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              className={styles.shareStepButton}
+              disabled={!canIncrease}
+              aria-label={`${selected.axis.label}の配分を増やす`}
+              onClick={() => handleShareStep(selected.axis.axisId, SHARE_STEP_PCT)}
+            >
+              ＋
+            </button>
+          </span>
         </div>
-      </Disclosure>
+      )}
+      <p className={styles.selectedHint}>
+        増やしたぶんは、他の有効な軸から配分の大きい順に減ります（合計は常に100%）。
+      </p>
+
+      <div className={styles.legendRow}>
+        {orderedAxes.map(({ axis, index, weight }) => renderLegendChip(axis, index, weight))}
+      </div>
 
       <button
         type="button"
@@ -476,10 +491,9 @@ export default function RouteSettingsPanel({
         onClick={() => {
           setLastWeights({ ...catalog.defaultWeights });
           handlePreferenceChange(catalog.defaultWeights);
-          onHardFiltersChange(DEFAULT_HARD_FILTERS);
         }}
       >
-        既定値に戻す
+        重みを既定値に戻す
       </button>
     </div>
   );
