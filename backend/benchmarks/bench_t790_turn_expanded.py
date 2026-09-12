@@ -45,9 +45,19 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.road_graph_engine import PREVIEW_BBOX_MARGIN_KM, _bbox_covering_points
 from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
 
-# dev DBのroad_edges範囲（BOX(139.601 35.552, 139.923 35.801)）に収まる20km級の区間。
-ORIGIN = Coordinates(latitude=35.5617, longitude=139.7161)
-DESTINATION = Coordinates(latitude=35.7528, longitude=139.7386)
+def _coordinate_from_env(name: str, default: Coordinates) -> Coordinates:
+    """`"緯度,経度"`形式の環境変数で地点を上書きする。dev DBと本番DBでは収録範囲が違い、
+    同じ地点で測れないため（本番は関東全域、devは都心の一部）。"""
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    latitude, longitude = (float(part) for part in raw.split(","))
+    return Coordinates(latitude=latitude, longitude=longitude)
+
+
+# 既定はdev DBのroad_edges範囲（BOX(139.601 35.552, 139.923 35.801)）に収まる20km級の区間。
+ORIGIN = _coordinate_from_env("T790_ORIGIN", Coordinates(latitude=35.5617, longitude=139.7161))
+DESTINATION = _coordinate_from_env("T790_DESTINATION", Coordinates(latitude=35.7528, longitude=139.7386))
 DISTANCE_KM = 22.0
 ASSUMED_SPEED_KMH = 20.0
 ALLOW_UNSPLIT = os.environ.get("T790_BENCH_ALLOW_UNSPLIT", "0") == "1"
