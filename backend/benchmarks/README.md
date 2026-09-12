@@ -293,6 +293,7 @@ delete-then-reinsertで冪等）を伴う。「合成データのみに閉じる
 |---|---|---|
 | `bench_postgis_prepare.py` | `GraphService.get_or_build_graph_with_attributes`（PostGISキャッシュ経路）のprepare段階を実データで内訳分解。省略パス（`is_split_up_to_date`）のCOLD/WARM比較も計測する | ローカルPostGISに`app/batch/import_pbf.py`で東京都心データを取込済みであること（`docs/osm-pbf-import.md`参照）。実行方法はファイル冒頭のdocstring参照（`DATABASE_URL`をローカルDBへ上書き） |
 | `bench_t536_route_generation.py` | `RouteGenerator.generate_loops`（8方位周回）をend-to-endで実行し、`prepare_ms`/`trace_ms`を実測する（改善計画T536、タイル単位の静的スコア行列＋ベクトル化コスト方式のサニティチェック用） | ローカルPostGISに実データ取込済みであること。`python -m benchmarks.bench_t536_route_generation`（backend/がPYTHONPATH上にあること） |
+| `bench_t621_divergence.py` | 目的地候補のEdge id列から分岐点（乗り換えできる地点）の個数・位置・乗り換え先の数を出し、合成経路がグラフ上で連結しているかを数える（[T621](../../docs/tasks/T621.md)段取り1、地図のマーカーが埋まるかの判断材料） | ローカルPostGISに実データ取込済みであること。`python -m benchmarks.bench_t621_divergence`。既定では未splitのbboxで中断する（読み取り経路のみを通すため） |
 
 実行前に対象bboxのデータ量（DB書き込み対象のprimary way数）を確認し、ディスク空き容量に
 対して十分小さいことを確認してから実行すること（この既存実装は`save_graph`が
