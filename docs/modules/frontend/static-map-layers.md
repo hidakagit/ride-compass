@@ -266,14 +266,20 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 ポップアップの値は`osm_raw_ways`/`osm_raw_pois`のタグ由来＝**第三者が編集できるデータ**で、
 対訳表に載らない値は生のまま文字列へ入る（`SMOOTHNESS_LABELS`・`DESIGNATION_LABELS`・
 停止要因/補給POIのラベル辞書はいずれも`?? 生値`のフォールバックを持つ）。
-組み立てた文字列は`Popup.setHTML()`へ渡り、そこでMapLibreの`DOM.sanitize()`が走る。
+行き先は2通りある。`Popup.setHTML()`へ渡る経路ではMapLibreの`DOM.sanitize()`が走るが、
+`innerHTML`へ直接入れる経路（区間インスペクタ`axisInspectorPopup.ts`）では走らない。
 
 そのサニタイザにはバイパスが報告されており（修正版はv6系で、Next.jsのバンドラが
 Workerのスクリプトを解決できず地図が描画されないため上げられない——
 [architecture.md](../../architecture.md)「フロントエンド実装上の注意」）、
 **ライブラリのサニタイザ1枚に安全性を預けない**。埋め込む前に`popupEscape.ts`の
-`labelOrEscapedRaw`を通す。対訳表に載る値は固定の文言なので素通しでよく、
-エスケープが要るのはフォールバック側だけ——その判断を1関数へ集約してある。
+`escapeHtml`／`labelOrEscapedRaw`を通す。
+
+判断の基準は**行き先ではなく出所**にする。固定の対訳表に載る値は素通しでよく、
+`?? 生値`のフォールバック・OSMタグのキーと値・軸スタジオ経由でDBに入る軸ラベルと軸idは、
+`setHTML()`か`innerHTML`かに関わらずエスケープする——「サニタイザが後ろにいるから
+ここは要らない」と経路ごとに判断すると、サニタイザを通らない経路が後から増えたときに
+そこだけ素通しで残る。
 
 ## 本モジュールとの関係が薄いファイル
 

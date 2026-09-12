@@ -8,6 +8,7 @@
 // 新規公開したGUI作成軸のラベルも生のaxis_idではなく正式名で表示される。
 import type { AxisInspectorResult } from "@/types/traffic";
 import { fetchAxisInspector } from "@/services/regionApi";
+import { escapeHtml, labelOrEscapedRaw } from "./popupEscape";
 import { PRIMARY_ATTRIBUTE_LABELS } from "./primaryAttributes";
 
 export const AXIS_INSPECTOR_BUTTON_ATTR = "data-axis-inspector-button";
@@ -23,13 +24,18 @@ function formatDifficulty(value: number | null): string {
 // レジストリ登録済みの一次属性（PRIMARY_ATTRIBUTE_LABELS、カタログ正式名）と一致する
 // 場合はその正式名を表示する（「同じ属性は同じ名前で呼ぶ」統一ルールに揃える）。
 // 一致しないキー（name/ref等、登録外の生タグ）はraw keyのまま表示する。
+//
+// この関数が組み立てた文字列は`Popup.setHTML()`ではなく`innerHTML`へ直接入るため、
+// MapLibreの`DOM.sanitize()`も通らない。**コード中のリテラル以外はすべてエスケープする**
+// ——タグのキー・値はOSM編集者が書ける自由記述、軸ラベルと軸idは軸スタジオ経由でDBに
+// 入る値で、いずれもこのファイルの外から来る（popupEscape.ts参照）。
 function buildAxisInspectorHtml(result: AxisInspectorResult, axisLabels: Record<string, string>): string {
   const primaryRows = Object.entries(result.tags)
-    .map(([key, value]) => `${PRIMARY_ATTRIBUTE_LABELS[key] ?? key}=${value}`)
+    .map(([key, value]) => `${labelOrEscapedRaw(PRIMARY_ATTRIBUTE_LABELS, key)}=${escapeHtml(value)}`)
     .join(", ");
   const axisRows = result.axes
     .map((axis) => {
-      const label = axisLabels[axis.axis_id] ?? axis.axis_id;
+      const label = escapeHtml(axisLabels[axis.axis_id] ?? axis.axis_id);
       const suffix = axis.available ? "" : "（この区間では算出不可）";
       return `${label}: ${formatDifficulty(axis.difficulty)}${suffix}`;
     })
@@ -45,7 +51,7 @@ function buildAxisInspectorHtml(result: AxisInspectorResult, axisLabels: Record<
 
   return `<div style="font-size:var(--font-size-sm); line-height:1.4; margin-top:var(--space-1); border-top:1px solid var(--color-border); padding-top:var(--space-1);">
     <strong>一次属性</strong><br/>
-    ${PRIMARY_ATTRIBUTE_LABELS.highway}: ${result.highway ?? "不明"}${result.is_designated ? "（指定路線）" : ""}<br/>
+    ${escapeHtml(PRIMARY_ATTRIBUTE_LABELS.highway)}: ${escapeHtml(result.highway ?? "不明")}${result.is_designated ? "（指定路線）" : ""}<br/>
     ${primaryRows || "（登録タグなし）"}
     <br/><br/><strong>二次軸スコア（0=易しい〜100=大変）</strong><br/>
     ${axisRows}

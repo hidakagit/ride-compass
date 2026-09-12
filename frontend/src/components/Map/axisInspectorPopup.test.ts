@@ -130,6 +130,39 @@ describe("axisInspectorPopup", () => {
     expect(resultEl.innerHTML).toContain("gui_published_axis: 42.0/100");
   });
 
+  // この関数の出力は`Popup.setHTML()`ではなく`innerHTML`へ直接入るため、MapLibreの
+  // `DOM.sanitize()`も通らない（popupEscape.ts参照）。外から来る値がタグとして解釈されない
+  // ことを、出所の異なる4経路それぞれで見る。
+  it("OSMタグ・軸ラベル・軸id・highwayの生値がタグとして解釈されない", async () => {
+    const attack = '<img src=x onerror="alert(1)">';
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({
+          ...SAMPLE_RESULT,
+          highway: attack,
+          tags: { [attack]: attack },
+          axes: [{ axis_id: attack, difficulty: 1.0, weight: 0.1, available: true }],
+        }),
+      }),
+    );
+    const el = makePopupElement();
+    attachAxisInspectorHandler(el, 12345, { [attack]: attack });
+    el.querySelector<HTMLButtonElement>(`[${AXIS_INSPECTOR_BUTTON_ATTR}]`)!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 判定はDOMで行う（innerHTMLを読み返すと、テキストノード中の&quot;は"へ戻って
+    // 再直列化されるため、エスケープされていても文字列比較では見分けられない）。
+    const resultEl = el.querySelector<HTMLElement>(`[${AXIS_INSPECTOR_RESULT_ATTR}]`)!;
+    expect(resultEl.querySelector("img")).toBeNull();
+    // 生値はテキストとして残る（エスケープであって削除ではない）。攻撃文字列が
+    // テキストノードに丸ごと入っている＝タグ境界として解釈されていない。
+    expect(resultEl.textContent).toContain(attack);
+  });
+
   it("fetch失敗時は「取得できませんでした」を表示する", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
     const el = makePopupElement();
