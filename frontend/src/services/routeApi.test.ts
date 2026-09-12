@@ -149,6 +149,7 @@ describe("routeApi", () => {
         material_category_shares: {},
         axis_raw_values: {},
         edge_ids: [],
+        edge_point_offsets: [],
         is_shortest_distance: false,
         axis_contributions: {},
       },

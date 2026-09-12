@@ -180,6 +180,8 @@ export const OUTLINE_LAYER_ID = "route-selected-outline-line";
 const ROUTE_ARROW_ICON_ID = "route-arrow-icon";
 export const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
 export const ROUTE_ARROW_LAYER_ID = "route-arrow";
+const SPLICE_SOURCE_ID = "route-splice-stretches";
+export const SPLICE_LAYER_ID = "route-splice-stretches-line";
 const DETAIL_SOURCE_ID = "route-detail-segments";
 const DETAIL_LAYER_ID = "route-detail-segments-line";
 // DETAIL_LAYER_ID（見た目の線、幅6px）そのものはモバイルでタップしづらいため、同じ
@@ -476,6 +478,81 @@ export function drawBaseRoutes(
   };
 
   runWhenStyleReady(map, applyData);
+}
+
+// 候補線（寒色）と競合しない暖色。選んでいない区間は破線で「乗り換えられる」ことだけを
+// 示し、選んだ区間は実線・太めにする。式はexportして`MapView.splice.test.ts`が
+// style-specの評価器で検証する（実機はmaplibre-gl内蔵の同パッケージで評価するため、
+// テストが通る式が実機で別の意味になりうる版ずれをdocs/architecture.mdが禁じている）。
+export const SPLICE_COLOR = "#c2612b";
+export const SPLICE_WIDTH_EXPRESSION: unknown[] = ["case", ["get", "taken"], 5, 3];
+export const SPLICE_OPACITY_EXPRESSION: unknown[] = ["case", ["get", "taken"], 1, 0.75];
+export const SPLICE_DASH_EXPRESSION: unknown[] = [
+  "case",
+  ["get", "taken"],
+  ["literal", [1, 0]],
+  ["literal", [2, 1.5]],
+];
+
+/** 乗り換えられる区間1本ぶんの描画情報。`taken`は相手の道を選んでいる状態。 */
+export interface SpliceStretchFeature {
+  index: number;
+  taken: boolean;
+  coordinates: GeoJSON.Position[];
+}
+
+export function spliceStretchesToFeatureCollection(
+  stretches: SpliceStretchFeature[],
+): GeoJSON.FeatureCollection<GeoJSON.LineString, { index: number; taken: boolean }> {
+  return {
+    type: "FeatureCollection",
+    // 選んだ区間が未選択の帯に隠れないよう、配列の最後（最前面）へ回す
+    features: [...stretches]
+      .sort((a, b) => Number(a.taken) - Number(b.taken))
+      .map((stretch) => ({
+        type: "Feature" as const,
+        properties: { index: stretch.index, taken: stretch.taken },
+        geometry: { type: "LineString" as const, coordinates: stretch.coordinates },
+      })),
+  };
+}
+
+/** 比較相手が別の道を通る区間を帯で描く（docs/tasks/T621.md）。
+ *
+ * 選んでいない区間は破線で「乗り換えられる」ことだけを示し、選んだ区間は実線にする。
+ * 候補線より上へ置く——下に敷くと、差し替えた先が元の経路に隠れて変化が見えない。 */
+export function drawSpliceStretches(map: MapLibreMap, stretches: SpliceStretchFeature[]) {
+  const data = spliceStretchesToFeatureCollection(stretches);
+
+  const applyData = () => {
+    const source = map.getSource(SPLICE_SOURCE_ID) as GeoJSONSource | undefined;
+    if (source) {
+      source.setData(data);
+    } else {
+      map.addSource(SPLICE_SOURCE_ID, { type: "geojson", data });
+      map.addLayer({
+        id: SPLICE_LAYER_ID,
+        type: "line",
+        source: SPLICE_SOURCE_ID,
+        paint: {
+          // 候補線（寒色）と競合しない暖色。選んだ区間だけを主役にする。
+          "line-color": SPLICE_COLOR,
+          /* eslint-disable @typescript-eslint/no-explicit-any */
+          "line-width": SPLICE_WIDTH_EXPRESSION as any,
+          "line-opacity": SPLICE_OPACITY_EXPRESSION as any,
+          "line-dasharray": SPLICE_DASH_EXPRESSION as any,
+          /* eslint-enable @typescript-eslint/no-explicit-any */
+        },
+      });
+    }
+    setLayerVisibility(map, SPLICE_LAYER_ID, true);
+  };
+
+  runWhenStyleReady(map, applyData);
+}
+
+export function hideSpliceStretches(map: MapLibreMap) {
+  runWhenStyleReady(map, () => setLayerVisibility(map, SPLICE_LAYER_ID, false));
 }
 
 export function hideBaseRoutes(map: MapLibreMap) {

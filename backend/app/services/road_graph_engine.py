@@ -816,7 +816,7 @@ class RoadGraphEngine:
         edges_in_path: list[EdgeLike] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
-        geometry = _concat_edge_geometries(edges_in_path)
+        geometry, _ = _concat_edge_geometries(edges_in_path)
         # road_graphエンジンは実測所要時間モデルを持たないため、他所（segments構築時の
         # estimated_arrival_time）と同じASSUMED_SPEED_KMHで概算する。
         duration_minutes = round(distance_km / self._assumed_speed_kmh * 60, 1)
@@ -1594,7 +1594,7 @@ class RoadGraphEngine:
         # 同じ組み立てロジックへ通せる。distance_km・bearingは順方向・逆回りで共通
         # （同じ物理経路の総距離・同じ方位の候補のため）traced（順方向のTracedLoop）から
         # そのまま使う。
-        geometry = _concat_edge_geometries(edges_in_path)
+        geometry, edge_point_offsets = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
         segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time, leg_of_edge)
         # categorical材料の延長割合はEdge単位のsegmentsから畳む。ビンの代表値を1つ選ぶ形だと
@@ -1610,6 +1610,7 @@ class RoadGraphEngine:
             distance_km=traced.distance_km,
             geometry=geometry,
             edge_ids=[edge.edge_id for edge in edges_in_path],
+            edge_point_offsets=edge_point_offsets,
             segments=segments,
             material_category_shares=material_category_shares,
             **elevation_stats,
@@ -2164,16 +2165,27 @@ def _bbox_covering_points(points: list[Coordinates], margin_km: float) -> Boundi
     )
 
 
-def _concat_edge_geometries(edges: list[EdgeLike]) -> dict:
-    """経路上のEdge群をひとつながりのGeoJSON LineStringへ変換する。隣接するEdgeの
-    境界点（前Edgeの終端＝次Edgeの始端）は重複させない。"""
+def _concat_edge_geometries(edges: list[EdgeLike]) -> tuple[dict, list[int]]:
+    """経路上のEdge群を、ひとつながりのGeoJSON LineStringとEdgeの境界点の位置へ変換する。
+
+    隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
+    からはどこがEdgeの境目か復元できない**。Edge単位で決めた区間を地図へ帯として描く
+    （docs/tasks/T621.md）ために境界の位置を併せて返す。
+
+    2つ目の戻り値は`len(edges) + 1`件で、`coordinates[offsets[i]:offsets[j] + 1]`が
+    Edge i〜j-1のひとつながりの形状になる。**同じ関数が両方を作る**——別々に組み立てると
+    ずれても型でも例外でも現れず、地図上で帯だけが1点ずれる。
+    """
     coordinates: list[list[float]] = []
+    offsets: list[int] = []
     for edge in edges:
         points = [[lon, lat] for lat, lon in edge.geometry]
         if coordinates and points and coordinates[-1] == points[0]:
             points = points[1:]
+        offsets.append(max(len(coordinates) - 1, 0))
         coordinates.extend(points)
-    return {"type": "LineString", "coordinates": coordinates}
+    offsets.append(max(len(coordinates) - 1, 0))
+    return {"type": "LineString", "coordinates": coordinates}, offsets
 
 
 def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> dict:

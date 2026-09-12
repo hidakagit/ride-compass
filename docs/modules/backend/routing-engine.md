@@ -652,6 +652,11 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   すべて引き継がれていることを`tests/test_route.py`が**値の型を問わずに**検査する
   （`dict[str, float]`のように値型で母集団を絞ると、`dict[str, str]`のフィールドが
   検査から静かに外れる）。
+- **`RouteCandidate.edge_point_offsets`は、その経路のEdgeが`geometry.coordinates`の
+  どこで切り替わるか**を`edge_ids`より1件多く持つ。隣接Edgeの境界点は重複させずに連結する
+  （`_concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
+  Edge単位で決めた区間を地図へ帯として描くのに要る。座標列と境界の位置は同じ関数が
+  同時に作る——別々に組み立てるとずれても型でも例外でも現れず、帯だけが1点ずれる。
 - **`RouteCandidate.edge_ids`は畳む前の経路そのもの**（`_build_candidate`が
   `edges_in_path`から起点順に載せる）。`segments`は約500m単位へ畳まれてEdgeと1対1に
   ならないため、経路の同一性を判定できるのはこちらだけ。フロントは候補どうしの共通部分を
