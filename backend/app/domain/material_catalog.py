@@ -984,7 +984,7 @@ def is_known_material(material_id: str) -> bool:
 
 
 def material_dtype(material_id: str) -> MaterialDType | None:
-    """材料idのdtype（numeric/boolean）。未知の材料idにはNoneを返す
+    """材料idのdtype（`MaterialDType`）。未知の材料idにはNoneを返す
     （呼び出し側は`is_known_material`で存在確認済みの前提だが、念のため例外にはしない）。"""
     spec = MATERIAL_CATALOG.get(material_id)
     return spec.dtype if spec is not None else None

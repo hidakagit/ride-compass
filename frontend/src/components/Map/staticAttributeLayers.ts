@@ -339,7 +339,7 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.flatMap
 // 絞り込みUIの生成に使う、絞り込み可能な各静的レイヤーの軸カタログ。
 // 1レイヤーに複数軸を持つのは事故（当事者×重大度）のみ。layerIdはmapLayers.tsのMapLayerIdと
 // 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapLayersPanel.tsx）に使う。
-// ramp軸（stop_density/accident等、axisLayers.ts参照）はaxis-catalog.json由来の動的なIDのため
+// ramp軸（surface_q/accident等、axisLayers.ts参照）はaxis-catalog.json由来の動的なIDのため
 // リテラル列挙できず、RampAxis["axisId"]（string）を足しあわせる（軸追加時にここへの
 // コード変更なしにSTATIC_FILTER_AXESへ含められる）。
 export type StaticFilterAxisId =

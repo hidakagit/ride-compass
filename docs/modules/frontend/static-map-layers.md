@@ -67,7 +67,7 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 
   elevation（標高ラスタ）
     │
-  axisOverlayLayers（二次ramp軸: car_stress・stop_density・accident等）
+  axisOverlayLayers（二次ramp軸: car_stress・accident等）
     │  ← 「材料が同時に表示されているときだけ」太く半透明な下敷きにする
     │    （buildAxisOverlayLayersの第2引数casingLayerKeys）
     ▼

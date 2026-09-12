@@ -839,3 +839,93 @@ def test_sample_code_inside_a_string_literal_is_not_a_test_loop(tmp_path, monkey
         "    assert detect(sample)\n"
     )
     assert _vacuous(tmp_path, monkeypatch, "tests/test_x.py", body) == []
+
+
+# --- 現在の軸定義に無いaxis_id / 文書が書いた定数値 ---
+
+
+def _axis_repo(tmp_path, monkeypatch, live_ids, files: dict[str, str]):
+    import json as _json
+    (tmp_path / "backend" / "fixtures").mkdir(parents=True)
+    (tmp_path / "backend" / "fixtures" / "axis_definitions_snapshot.json").write_text(
+        _json.dumps({"axes": [{"definition": {"axis_id": a}} for a in live_ids]}), encoding="utf-8")
+    for name, body in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    return list(files) + ["backend/fixtures/axis_definitions_snapshot.json"]
+
+
+def test_an_axis_id_that_left_the_snapshot_is_reported(tmp_path, monkeypatch):
+    files = _axis_repo(tmp_path, monkeypatch, ["gradient"], {
+        # 「消えたid」の集合はテストのフィクスチャからしか作れない
+        "frontend/src/lib/x.test.ts": 'const a = { axis_id: "stop_density" };\n',
+        "frontend/src/lib/x.ts": "// ramp軸（stop_density等）はカタログ由来。\n",
+    })
+    hits = review_checks.find_removed_axis_mentions(files)
+    assert len(hits) == 1 and "stop_density" in hits[0] and hits[0].startswith("frontend/src/lib/x.ts:")
+
+
+def test_a_live_axis_id_is_not_reported(tmp_path, monkeypatch):
+    files = _axis_repo(tmp_path, monkeypatch, ["gradient", "stop_density"], {
+        "frontend/src/lib/x.test.ts": 'const a = { axis_id: "stop_density" };\n',
+        "frontend/src/lib/x.ts": "// ramp軸（stop_density等）はカタログ由来。\n",
+    })
+    assert review_checks.find_removed_axis_mentions(files) == []
+
+
+def test_a_single_word_axis_id_is_not_matched_in_prose(tmp_path, monkeypatch):
+    """1語のidは普通名詞と区別できないため母集団へ入れない（`safety`等の誤検知を防ぐ）。"""
+    files = _axis_repo(tmp_path, monkeypatch, ["gradient"], {
+        "frontend/src/lib/x.test.ts": 'const a = { axis_id: "safety" };\n',
+        "frontend/src/lib/x.ts": "// safety のための処理。\n",
+    })
+    assert review_checks.find_removed_axis_mentions(files) == []
+
+
+def test_a_paragraph_that_declares_the_id_gone_is_exempt(tmp_path, monkeypatch):
+    files = _axis_repo(tmp_path, monkeypatch, ["gradient"], {
+        "frontend/src/lib/x.test.ts": 'const a = { axis_id: "stop_density" };\n',
+        "docs/modules/frontend/x.md": "`stop_density`のaxis_idは廃止。当時はこの軸が担っていた。\n",
+    })
+    assert review_checks.find_removed_axis_mentions(files) == []
+
+
+def test_a_doc_value_that_disagrees_with_the_constant_is_reported(tmp_path, monkeypatch):
+    (tmp_path / "backend" / "app").mkdir(parents=True)
+    (tmp_path / "backend" / "app" / "x.py").write_text("_JOB_TTL_SECONDS = 600.0\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("`_JOB_TTL_SECONDS`（300）で掃除する。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    hits = review_checks.find_doc_constant_drift(["backend/app/x.py", "docs/x.md"])
+    assert len(hits) == 1 and "300" in hits[0] and "600" in hits[0]
+
+
+def test_a_doc_value_in_a_human_unit_is_accepted(tmp_path, monkeypatch):
+    """文書は人が読む単位（分・秒）で書くことがある。秒↔分の読み替えは一致とみなす。"""
+    (tmp_path / "backend" / "app").mkdir(parents=True)
+    (tmp_path / "backend" / "app" / "x.py").write_text("_JOB_TTL_SECONDS = 600.0\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("`_JOB_TTL_SECONDS`は10分。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    assert review_checks.find_doc_constant_drift(["backend/app/x.py", "docs/x.md"]) == []
+
+
+def test_a_number_that_is_not_right_after_the_name_is_ignored(tmp_path, monkeypatch):
+    """同じ文に別の定数の値が並ぶ書き方は普通にある。名前の直後だけを見る。"""
+    (tmp_path / "backend" / "app").mkdir(parents=True)
+    (tmp_path / "backend" / "app" / "x.py").write_text("MAX_ENTRIES = 300\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("`MAX_ENTRIES`を別立てにしてある——1エントリが16本。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    assert review_checks.find_doc_constant_drift(["backend/app/x.py", "docs/x.md"]) == []
+
+
+def test_records_of_the_time_are_exempt_from_constant_drift(tmp_path, monkeypatch):
+    (tmp_path / "backend" / "app").mkdir(parents=True)
+    (tmp_path / "backend" / "app" / "x.py").write_text("_JOB_TTL_SECONDS = 600.0\n", encoding="utf-8")
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "T1.md").write_text("`_JOB_TTL_SECONDS`（300）だった。\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    assert review_checks.find_doc_constant_drift(["backend/app/x.py", "docs/tasks/T1.md"]) == []

@@ -371,7 +371,7 @@ export function rampColorForBand(index: number, bandCount: number): string {
   return rampColorForRatio(t);
 }
 
-// 既存4段階軸（gradient/surface_q/stop_density/night/accident等）・staticAttributeLayers.ts
+// 既存4段階軸（gradient/surface_q/night/accident等）・staticAttributeLayers.ts
 // の非ramp用途（DESIGNATION/TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
 // rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。
 export const AXIS_RAMP_COLORS = [

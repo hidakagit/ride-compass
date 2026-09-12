@@ -3729,7 +3729,7 @@
           "material"
         ],
         "title": "MaterialTerm",
-        "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（stop_density軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱い）。ただし全termの材料が\n欠損した場合は、残りが1件も無く「寄与0の合計＝0」と「観測値が0」を区別できないため、\nrequired有無によらず軸全体を欠損として扱う。"
+        "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（停止密度の軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱いが実例）。ただし全termの材料が\n欠損した場合は、残りが1件も無く「寄与0の合計＝0」と「観測値が0」を区別できないため、\nrequired有無によらず軸全体を欠損として扱う。"
       },
       "MaterialValueEntry": {
         "properties": {

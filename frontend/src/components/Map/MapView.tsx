@@ -1953,7 +1953,7 @@ function setStaticOverlayVisibility(
 // ラスタレイヤーには使えないため）。
 //
 // car_stressはbackendのtile_inputs/thresholds（registry_defaults.py）から静的に決まる
-// ramp軸のため、他のramp軸（stop_density/accident等）と同じ扱いで統一的に処理できる。
+// ramp軸のため、他のramp軸（surface_q/accident等）と同じ扱いで統一的に処理できる。
 // MapView.overlayFilters.test.tsからフェイクmapで検証できるようexportしている
 // （computeLayerDataStatus等と同じ方針）。
 export function setStaticOverlayFilters(

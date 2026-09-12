@@ -1439,7 +1439,7 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 UI側の表示/非表示切替で運用する方針へ変更）・`night`（材料`lit`・`has_tunnel`、
 以前はkind="bespoke"でフロントにexpressionが無く実質レイヤー無し）の2軸が対象になり、
 `registry_defaults.py`の`display`がこの自動導出値へ置き換わった。`gradient`（材料が
-タイル非依存）・`stop_density`（複数材料の重み付き結合、既存thresholds`[1,2,4]`は
+タイル非依存）・`stop_density`（このaxis_idは廃止。停止密度の軸は軸スタジオで作り直され別idになっている。複数材料の重み付き結合、既存thresholds`[1,2,4]`は
 統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（改善計画T292以降、他の5内部軸
 [`car_stress_highway_base`等、`MaterialTerm.material`として他axis_idを参照]を合成する
 `BreakpointLinearShape`のため、参照先も材料であることを前提とする`derive_ramp_inputs`では
@@ -1447,7 +1447,7 @@ UI側の表示/非表示切替で運用する方針へ変更）・`night`（材�
 取得、`accident_import_runs`]で正規化済みだがタイル生値`accident_per_km`は年正規化前で
 静的な変換係数を持てない、`MaterialSpec.tile_property_needs_runtime_scale=True`で
 明示的に自動導出対象外とマークしている）は自動導出の対象外のまま手書きの`display`を
-維持する（`car_stress`・`stop_density`・`accident`はいずれも`kind="ramp"`自体は手書きで
+維持する（`car_stress`・`stop_density`［axis_idは廃止］・`accident`はいずれも`kind="ramp"`自体は手書きで
 維持しており、地図に出ない・レイヤー無しという意味の対象外ではない）。
 
 `export_openapi.py`のaxis-catalog.json生成は、`registry.all_axes()`（手書き登録済みの
@@ -1660,7 +1660,7 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
 ### `display_override`廃止（改善計画T404、2026-08-30）
 
 T310時点の`axis_display_for()`優先順位（①`display_override` ②`derive_ramp_inputs()`の
-自動導出 ③`kind="none"`）・「`car_stress`/`stop_density`/`accident`は自動導出対象外の
+自動導出 ③`kind="none"`）・「`car_stress`/`stop_density`［axis_idは廃止］/`accident`は自動導出対象外の
 まま手書き`display_override`を維持する」という上記の記述はT404で刷新した。
 
 - **`derive_ramp_inputs()`の拡張**（`domain/axis_display.py`）: 2点の制約を緩和した。
@@ -1722,7 +1722,8 @@ T310時点の`axis_display_for()`優先順位（①`display_override` ②`derive
 #### `display_override`の完全撤去（改善計画T409、2026-08-30）
 
 T404で残した後方互換の`display_override`（フィールド・DBカラムとも）を、car_stress/
-stop_density/accidentの3軸が実際に不要になったことを確認したうえで削除した。**現状**
+stop_density（このaxis_idは廃止）/accidentの3軸が実際に不要になったことを
+確認したうえで削除した。**現状**
 （T404時点の上記の3行・4段階の優先順位の記述は本節で置き換わる）:
 
 - `AxisDefinition`（`axis_definitions.py`）は`display_override`フィールドを持たない
@@ -2079,12 +2080,12 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 ### レジストリ駆動の二次軸ランプレイヤー（改善計画T145b）
 
 上記10レイヤーとは別に、`domain/registry_defaults.py`の二次軸レジストリ（T137）から
-自動生成される「ランプ」レイヤー（accident/stop_density軸、現状2種）がある。設計方針は
+自動生成される「ランプ」レイヤー（事故密度・停止密度の軸。`stop_density`というaxis_idは廃止）がある。設計方針は
 「**事実はタイルに、解釈はクライアントに**」: レシピ非依存の事実（`way_attribute_counts`由来の
 `accident_per_km`/`intersection_per_km`/`poi_*_per_km`）は
 全ユーザー共有キャッシュのタイルへサーバー側で焼き込み、二次軸スコアへの変換（重み・
 しきい値・凡例）はクライアント側のMapLibre expressionで行う（レシピ依存の解釈をキャッシュ
-共有タイルへ焼き込めないという制約と、accident/stop_density軸の入力データがタイル外に
+共有タイルへ焼き込めないという制約と、これらの軸の入力データがタイル外に
 あるため元々クライアント計算が原理的に不可能という制約の両方を、この一方向で解決する）。
 
 `export_openapi.py`がレジストリから`axis-catalog.json`（axis_id・ラベル・入力タイル
@@ -2385,7 +2386,7 @@ T413（2026-08-30）で地図上チップと同じ`mapOverlayGroupFor`を単一�
 
 `way_attribute_counts`（T145b、レジストリ駆動の二次軸ランプレイヤーと同じテーブル）から
 その道路（Way）1本分の長さ・事故/停止/交差点カウントを取得し、car_stress・surface_q・
-stop_density・accident・night・bicycle_infra_quality等（公開軸のうちgradient/windを除く。
+accident・night・bicycle_infra_quality等（公開軸のうちgradient/windを除く。
 bicycle_infra_qualityは正規化フラグ材料を直接参照するが、これも単独wayのtags/highwayだけで
 算出可能なため引き続き対象に含まれる）を算出する。gradient・windは単独wayでは算出できない
 （ルート文脈が必要）ため`AxisInspectorAxis.available=false`で常に返し、`composite_difficulty`は

@@ -118,12 +118,9 @@ export interface AxisMaterialBreakdown {
 // 「そもそも地図上に表示するかどうか」を選べるようになったため、その案内文は不要になり
 // 撤去した。
 
-// kind==="ramp"の軸はaxisMapLayerId(axis_id)で機械的に求まる（改善計画T278、以前は
-// stop_density/accidentの2件をここへ手書き列挙していたが、ramp軸が増えるたびに追記
-// する手間を無くした）。改善計画T292: car_stressもkind="bespoke"（専用MapLayerIdを
-// 手書きで持つ扱い）からkind="ramp"へ移行したため、専用の対応表（旧
-// SECONDARY_AXIS_BESPOKE_LAYER_IDS）は不要になった。kind==="none"（例: gradient、
-// 材料がタイル非依存）はundefined（専用レイヤー無し）のまま。
+// kind==="ramp"の軸の専用レイヤーidはaxisMapLayerId(axis_id)で機械的に求まる（軸が
+// 増えてもここへ追記しない）。kind==="none"（例: gradient、材料がタイル非依存）は
+// undefined（専用レイヤー無し）のまま。
 function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
   if (axis.display!.kind === "ramp") return axisMapLayerId(axis.axis_id);
   return undefined;

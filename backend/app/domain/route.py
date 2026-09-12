@@ -190,7 +190,7 @@ def _round_significant(value: float, digits: int = 4) -> float:
     """有効数字`digits`桁へ丸める（値のスケールに依存しない丸め）。
 
     0〜100のdifficultyと違い、物理量の生値・材料値はスケールが軸ごとに違う
-    （事故密度は`件/(km・年)`で有効域0〜0.5、停止密度は`回/km`で0〜5）。
+    （事故密度は`件/(km・年)`で有効域0〜0.5、勾配は`%`で0〜15程度）。
     固定の小数桁で丸めると、桁の小さい軸で値がまるごと潰れる。
     """
     if value == 0.0 or not math.isfinite(value):

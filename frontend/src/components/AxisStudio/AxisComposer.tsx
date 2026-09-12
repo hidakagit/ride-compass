@@ -1158,7 +1158,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
             <>
               {draft.displayThresholdsOverride.map((value, i) => (
                 <div key={i} className={styles.termRow}>
-                  {/* しきい値は軸によって整数（stop_density: 1,2,4）にも小数
+                  {/* しきい値は軸によって整数（car_stress: 2,3,4）にも小数
                       （accident: 0.133,0.267,0.5）にもなりうるため、step="any"で刻み幅を
                       固定しない（step="0.1"のような固定刻みは、浮動小数点誤差で「1」の
                       ような値さえHTML5のstep制約検証に引っかかりsubmitイベント自体が

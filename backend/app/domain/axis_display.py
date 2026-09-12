@@ -44,7 +44,7 @@ way_id→値配信（`gradient_way_service.py`）という別経路のため、�
 
 auto-derive自体は成功しても、`derive_ramp_inputs`が返す`thresholds`は元の
 `AxisDefinition.shape.breakpoints`のX軸スケールをそのまま流用するため、複数材料の
-組み合わせ（car_stress）や単純な線形正規化（stop_density/accident）では1〜2段階の
+組み合わせ（car_stress）や単純な線形正規化（accident）では1〜2段階の
 粗い色分けしか作れないことがある。この「色分け粒度の好み」は自動導出の能力とは
 別問題のため、`AxisDefinition.display_thresholds_override`（軸スタジオのGUIが編集する
 軽量な数値配列）で上書きする（`axis_display_for()`参照）。

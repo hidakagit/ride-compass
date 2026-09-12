@@ -756,6 +756,141 @@ def check_plan_vs_tasks() -> list[str]:
     return violations
 
 
+# --- 文書が定数名の隣へ書いた数値と実装のずれ ---------------------------------
+#
+# 「`NAME`（600）」のように定数名とその値を並べて書くと、定数を変えたときに文書側は何も
+# 壊れない。名前で突き合わせれば値のずれは機械的に分かる。名前の**直後**に現れる数値だけを
+# 見る——同じ文の中に別の定数の値が並ぶ書き方が普通にあるため、行内の全数値と比べると
+# 誤検知ばかりになる。
+
+CODE_CONSTANT_RE = re.compile(
+    r"^\s*(?:export\s+)?(?:const\s+)?(_?[A-Z][A-Z0-9_]{3,})\s*(?::\s*[\w\[\]|, ]+)?\s*=\s*"
+    r"(-?\d+(?:\.\d+)?)\s*(?:;|$|#|//)",
+    re.M,
+)
+# 名前のすぐ後ろ（括弧・等号・「は」・コロン）に来る数値。
+DOC_CONSTANT_VALUE_RE = re.compile(
+    r"(?<![A-Za-z0-9])(_?[A-Z][A-Z0-9_]{3,})(?![A-Za-z0-9_])`?\s*(?:[（(=＝:：]|は)\s*(-?\d+(?:\.\d+)?)")
+# 単位の読み替え（秒↔分・ミリ秒↔秒・秒↔時間）。文書は人が読む単位で書くことがある。
+CONSTANT_UNIT_FACTORS = (1.0, 60.0, 1000.0, 3600.0, 0.001, 1.0 / 60.0)
+# 当時の記録（書き換えない文書）。現在の値と違っていて正しい。
+HISTORY_EXEMPT_DOC_PREFIXES = (
+    ".claude/commands/review/history/",
+    "docs/improvement-plan-archive/",
+    "docs/tasks/",
+)
+
+
+def code_numeric_constants(files: list[str]) -> dict[str, tuple[str, float]]:
+    out: dict[str, tuple[str, float]] = {}
+    for f in files:
+        if not f.endswith((".py", ".ts", ".tsx")) or "/types/generated/" in f:
+            continue
+        path = REPO_ROOT / f
+        if not path.exists():
+            continue
+        for m in CODE_CONSTANT_RE.finditer(read_text(path)):
+            out.setdefault(m.group(1), (f, float(m.group(2))))
+    return out
+
+
+def find_doc_constant_drift(files: list[str], scope: list[str] | None = None) -> list[str]:
+    """文書が定数名の直後へ書いた数値が、実装の値と合わない箇所。"""
+    constants = code_numeric_constants(files)
+    if not constants:
+        return []
+    out: list[str] = []
+    for f in sorted(set(scope if scope is not None else files)):
+        if not f.endswith(".md") or f.startswith(HISTORY_EXEMPT_DOC_PREFIXES):
+            continue
+        path = REPO_ROOT / f
+        if not path.exists():
+            continue
+        for lineno, line in enumerate(read_text(path).splitlines(), 1):
+            for name, written in DOC_CONSTANT_VALUE_RE.findall(line):
+                if name not in constants:
+                    continue
+                src, actual = constants[name]
+                if any(abs(float(written) * factor - actual) < 1e-9 for factor in CONSTANT_UNIT_FACTORS):
+                    continue
+                out.append(
+                    f"{f}:{lineno}: `{name}` を {written} と書いているが実装は {actual:g}（{src}）")
+    return out
+
+
+# --- 現在の軸定義に無いaxis_idを現行として名指しする箇所 -----------------------
+#
+# 軸はDBの行データで、軸スタジオのGUIから追加・削除できる。GUIで作り直した軸は生成された
+# 別のaxis_idを持つため、**軸そのものは今もあるのに、コード・文書が名指ししているidだけが
+# 消える**。デプロイを伴わない操作なのでどこも壊れず、説明だけが静かに嘘になる
+# （`dead_identifier_refs`はソース中の綴りを実在と見なすため、コメントで言及され続けている
+# 軸idは「実在する」側へ数える）。正本はスナップショット（実DBのダンプ）に置く。
+
+AXIS_SNAPSHOT = "backend/fixtures/axis_definitions_snapshot.json"
+AXIS_ID_USE_RE = re.compile(r'axis_id\s*[:=]\s*"([a-z][a-z0-9_]+)"')
+# 説明の中で現行として名指しされうるのは複合語の軸idだけ。1語のidは普通名詞と区別できない。
+AXIS_MENTION_TARGET_DOCS = ("docs/modules/", "CLAUDE.md", ARCHITECTURE_DOC)
+
+
+def live_axis_ids() -> set[str]:
+    try:
+        snapshot = json.loads(read_text(REPO_ROOT / AXIS_SNAPSHOT))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {entry["definition"]["axis_id"] for entry in snapshot.get("axes", [])}
+
+
+def removed_axis_ids(files: list[str]) -> set[str]:
+    """軸idとして書かれた綴りのうち、現在のスナップショットに無いもの。
+
+    母集団はテストのフィクスチャも含めて集める——消えたidを最後まで名指ししているのは
+    たいていテストで、そこを除くと「消えたid」の集合そのものが作れない。
+    """
+    live = live_axis_ids()
+    if not live:
+        return set()
+    mentioned: set[str] = set()
+    for f in files:
+        if not f.endswith((".py", ".ts", ".tsx")) or "/types/generated/" in f:
+            continue
+        path = REPO_ROOT / f
+        if path.exists():
+            mentioned |= set(AXIS_ID_USE_RE.findall(read_text(path)))
+    return {a for a in mentioned - live if "_" in a}
+
+
+def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None) -> list[str]:
+    """現在の軸定義に無いaxis_idを、現行の説明（docs/modules・architecture.md・実装）が名指し。
+
+    .mdは段落に撤去の断りがあれば免除する（`paragraphs_with_removal_marker`、
+    architecture.mdの既存の扱いと同じ単位）。実装コードのコメントは免除しない——
+    撤去済みの名前を語る経緯コメント自体が`docs/comments.md`で禁じられている。
+    """
+    gone = removed_axis_ids(files)
+    if not gone:
+        return []
+    candidates = scope if scope is not None else files
+    out: list[str] = []
+    for f in sorted(set(candidates)):
+        is_doc = f.endswith(".md") and f.startswith(AXIS_MENTION_TARGET_DOCS)
+        is_impl = f.startswith(IMPL_INCLUDE_PREFIXES) and is_impl_file(f)
+        if not (is_doc or is_impl):
+            continue
+        path = REPO_ROOT / f
+        if not path.exists():
+            continue
+        exempt = paragraphs_with_removal_marker(f) if is_doc else set()
+        for lineno, line in enumerate(read_text(path).splitlines(), 1):
+            if lineno in exempt:
+                continue
+            for axis_id in sorted(gone):
+                if re.search(rf"(?<![A-Za-z0-9_]){re.escape(axis_id)}(?![A-Za-z0-9_])", line):
+                    out.append(
+                        f"{f}:{lineno}: 現在の軸定義に無いaxis_id `{axis_id}` を現行として名指ししている"
+                        "（軸スタジオで作り直されて別idになっている場合も含む）")
+    return out
+
+
 # --- テストの空振り（絞り込んだ母集団が空でも通るループ） ---------------------
 #
 # 母集団が0件のとき、要素ごとのアサーションは1回も走らずテストは緑になる。緑であることが
@@ -980,6 +1115,8 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "dead_doc_links": frozenset({"staged", "since", "full"}),
     "undefined_css_tokens": frozenset({"staged", "since", "full"}),
     "vacuous_test_loops": frozenset({"staged", "since", "full"}),
+    "removed_axis_mentions": frozenset({"staged", "since", "full"}),
+    "doc_constant_drift": frozenset({"staged", "since", "full"}),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -1044,6 +1181,10 @@ def cmd_docs(args: argparse.Namespace) -> int:
                              [s for s in staged if s.endswith(CSS_TOKEN_SCAN_SUFFIXES)], files + added)))
         sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（ステージ済みテスト）",
                          find_vacuous_test_loops(staged + added, revision="")))
+        sections.append(("removed_axis_mentions", "現在の軸定義に無いaxis_idを現行として名指し（ステージ済み）",
+                         find_removed_axis_mentions(files + added, scope=staged + added)))
+        sections.append(("doc_constant_drift", "文書が書いた定数値と実装のずれ（ステージ済み.md）",
+                         find_doc_constant_drift(files + added, scope=md_staged)))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
@@ -1118,9 +1259,21 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 "vacuous_test_loops",
                 f"空の母集団でも通るテストのループ（{args.since} 以降に変更されたテスト）",
                 find_vacuous_test_loops(changed, revision="HEAD")))
+            sections.append((
+                "removed_axis_mentions",
+                f"現在の軸定義に無いaxis_idを現行として名指し（{args.since} 以降に変更されたファイル）",
+                find_removed_axis_mentions(files, scope=changed)))
+            sections.append((
+                "doc_constant_drift",
+                f"文書が書いた定数値と実装のずれ（{args.since} 以降に変更された.md）",
+                find_doc_constant_drift(files, scope=changed)))
         else:
             sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
                              find_vacuous_test_loops(files)))
+            sections.append(("removed_axis_mentions", "現在の軸定義に無いaxis_idを現行として名指し（全件）",
+                             find_removed_axis_mentions(files)))
+            sections.append(("doc_constant_drift", "文書が書いた定数値と実装のずれ（全件）",
+                             find_doc_constant_drift(files)))
 
     total = 0
     for key, title, lines in sections:
@@ -1534,6 +1687,45 @@ def guard_probe_post_stage(wt: Path) -> dict[str, "Callable[[], None]"]:
     return {"undeclared_dead_refs": declare_removed_in_worktree_only}
 
 
+def drifted_constant_probe(wt: Path) -> str:
+    """worktreeの中から実装が数値で持つ定数を1つ選ぶ（綴りを固定で書かない）。"""
+    saved = globals()["REPO_ROOT"]
+    try:
+        globals()["REPO_ROOT"] = wt
+        constants = code_numeric_constants([
+            line for line in subprocess.run(
+                ["git", "ls-files"], cwd=str(wt), capture_output=True, text=True,
+                encoding="utf-8", errors="replace").stdout.splitlines() if line
+        ])
+    finally:
+        globals()["REPO_ROOT"] = saved
+    picked = next((n for n, (_, v) in sorted(constants.items()) if v != 999999), None)
+    if picked is None:
+        raise RuntimeError("数値の定数が1件も無く、この検知器の違反を作れない")
+    return picked
+
+
+def removed_axis_probe_id(wt: Path) -> str:
+    """worktreeの中で「軸idとして書かれたが現在の軸定義には無い」綴りを1つ選ぶ。
+
+    綴りを固定で書かない——検知器の母集団はスナップショットとテストのフィクスチャから
+    導出されるため、固定の綴りは母集団が変わった瞬間に違反を作れなくなる。
+    """
+    saved = globals()["REPO_ROOT"]
+    try:
+        globals()["REPO_ROOT"] = wt
+        gone = removed_axis_ids([
+            line for line in subprocess.run(
+                ["git", "ls-files"], cwd=str(wt), capture_output=True, text=True,
+                encoding="utf-8", errors="replace").stdout.splitlines() if line
+        ])
+    finally:
+        globals()["REPO_ROOT"] = saved
+    if not gone:
+        raise RuntimeError("現在の軸定義に無いaxis_idが1件も無く、この検知器の違反を作れない")
+    return sorted(gone)[0]
+
+
 def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
     """検知器キー → その検知器だけが拾うはずの違反を1件作る手順。"""
     module_doc = next(
@@ -1581,6 +1773,10 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "bare_basemodel": lambda: write(
             GUARD_PROBE_PY,
             "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
+        "doc_constant_drift": lambda: append(
+            module_doc, f"\n`{drifted_constant_probe(wt)}`（999999）がこの値を決める。\n"),
+        "removed_axis_mentions": lambda: append(
+            module_doc, f"\n`{removed_axis_probe_id(wt)}`の色分けは現行の実装が組み立てる。\n"),
         "vacuous_test_loops": lambda: write(
             GUARD_PROBE_TEST_TS,
             'import { expect, it } from "vitest";\n\n'

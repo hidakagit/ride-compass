@@ -31,7 +31,7 @@ export function formatAxisRawValue(
   return `${head}・約${Math.round(total)}${perDistance}`;
 }
 
-// 生値のスケールは軸ごとに違う（停止密度は回/kmで0〜5、事故密度は件/(km・年)で0〜0.5）。
+// 生値のスケールは軸ごとに違う（勾配は%で0〜15程度、事故密度は件/(km・年)で0〜0.5）。
 // 固定の小数桁だと桁の小さい軸で「0.00」に潰れ、値の無い道と区別できなくなる。
 // 大きい値は桁を落とし、小さい値は有効数字2桁を残す。
 function formatNumber(value: number): string {
