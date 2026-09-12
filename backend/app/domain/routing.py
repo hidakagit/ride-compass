@@ -591,6 +591,12 @@ class TurnCostSpec:
     right_seconds: float = 12.0
     uturn_seconds: float = 60.0
     straight_max_deg: float = 30.0
+    # 進入した道より上位の階級の道と交わる交差点で追加する秒数（横断＝直進で渡る場合と、
+    # 右左折で入る場合）。信号の有無は見ない——信号のある交差点の待ちは停止密度の軸が既に
+    # 数えており、ここで数えると二重になる。数えられていないのは「信号が無いのに上位の道を
+    # 渡る・そこへ入る」場合の待ちで、それがこの2つ。
+    major_crossing_seconds: float = 8.0
+    major_turn_seconds: float = 15.0
 
 
 DEFAULT_TURN_COST = TurnCostSpec()
@@ -650,6 +656,7 @@ def build_turn_expanded_structure(
     csr: CsrGraphStructure,
     lazy_graph: LazyRoadGraph,
     bearing_deg: np.ndarray,
+    edge_rank: np.ndarray | None = None,
     spec: TurnCostSpec = DEFAULT_TURN_COST,
 ) -> TurnExpandedStructure:
     """`CsrGraphStructure`から、状態＝有向Edgeの遷移構造を組む。
@@ -679,6 +686,19 @@ def build_turn_expanded_structure(
     target_state = csr.entry_edge_index[entry_index].astype(np.int64)
     is_uturn = csr.indices[entry_index].astype(np.int64) == edge_from[source]
     turn_seconds = turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
+
+    if edge_rank is not None:
+        node_rank = np.zeros(csr.node_count, dtype=np.int64)
+        np.maximum.at(node_rank, edge_to, edge_rank)
+        np.maximum.at(node_rank, edge_from, edge_rank)
+        crosses_major = node_rank[edge_to[source]] > edge_rank[source]
+        delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
+        straight = np.abs(delta) <= spec.straight_max_deg
+        turn_seconds = turn_seconds + np.where(
+            crosses_major & ~is_uturn,
+            np.where(straight, spec.major_crossing_seconds, spec.major_turn_seconds),
+            0.0,
+        )
 
     return TurnExpandedStructure(
         state_count=state_count, indptr=new_indptr, target_state=target_state,

@@ -65,6 +65,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from app.domain.time_zone import JST
+from app.domain.traffic import highway_rank
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS, dynamic_axis_topological_order
 from app.domain.axis_display import axis_material_shares
@@ -102,7 +103,9 @@ from app.domain.routing import (
     build_lazy_road_graph,
     build_node_spatial_index,
     build_search_graph_statics,
+    DEFAULT_TURN_COST,
     NodeJunction,
+    TurnCostSpec,
     TurnExpandedStructure,
     TurnExpandedTree,
     build_turn_expanded_structure,
@@ -490,6 +493,7 @@ class RoadGraphEngine:
         hard_filters: frozenset[str] | None = None,
         assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
         lens_axis_id: str | None = None,
+        turn_cost: TurnCostSpec = DEFAULT_TURN_COST,
     ):
         self._graph_service = graph_service
         # 地図のレンズが表示を要求している軸id（無ければNone）。重み0の軸でも区間表示の
@@ -516,6 +520,8 @@ class RoadGraphEngine:
         # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き
         # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
         self._hard_filters = hard_filters
+        # 交差点でのターンの費用（秒）。較正中はリクエストで上書きして試せる。
+        self._turn_cost = turn_cost
 
     async def _build_search_graph(
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
@@ -756,6 +762,7 @@ class RoadGraphEngine:
         turn_structure = await asyncio.to_thread(
             build_turn_expanded_structure,
             statics.csr, search.lazy_graph, edge_bearings(search.graph, search.lazy_graph),
+            _edge_highway_ranks(search.graph, search.lazy_graph), self._turn_cost,
         )
         logger.info(
             "prepare turn_structure build states=%d transitions=%d turn_ms=%d",
@@ -818,7 +825,8 @@ class RoadGraphEngine:
         # 要る（2点間探索だけの経路でも`SearchGraphStatics`を構築する）。
         statics, _ = await _get_or_build_search_statics(search.tile_set, search.lazy_graph, search.graph)
         turn_structure = build_turn_expanded_structure(
-            statics.csr, search.lazy_graph, edge_bearings(search.graph, search.lazy_graph)
+            statics.csr, search.lazy_graph, edge_bearings(search.graph, search.lazy_graph),
+            _edge_highway_ranks(search.graph, search.lazy_graph), self._turn_cost,
         )
         edges = await asyncio.to_thread(
             turn_expanded_shortest_path,
@@ -1916,6 +1924,16 @@ async def _get_or_build_search_statics(
     if tile_set is not None:
         search_graph_cache.set_search_statics(tile_set, statics)
     return statics, False
+
+
+def _edge_highway_ranks(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:
+    """`lazy_graph.edge_ids`順の道路階級（`domain/traffic.py: highway_rank`）。交差点で
+    「自分より上位の道と交わるか」を比べるためだけに使う。"""
+    return np.fromiter(
+        (highway_rank(edge.highway if (edge := graph.edges.get(edge_id)) else None)
+         for edge_id in lazy_graph.edge_ids),
+        dtype=np.int64, count=len(lazy_graph.edge_ids),
+    )
 
 
 def _origin_states(statics: SearchGraphStatics, node_index: int) -> np.ndarray:

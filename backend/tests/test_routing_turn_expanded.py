@@ -60,7 +60,7 @@ def _crossroads() -> RoadGraph:
 def _structure_for(graph: RoadGraph, spec: TurnCostSpec = TurnCostSpec()):
     lazy_graph = build_lazy_road_graph(graph)
     csr = build_csr_structure(lazy_graph)
-    structure = build_turn_expanded_structure(csr, lazy_graph, edge_bearings(graph, lazy_graph), spec)
+    structure = build_turn_expanded_structure(csr, lazy_graph, edge_bearings(graph, lazy_graph), spec=spec)
     return lazy_graph, csr, structure
 
 
@@ -305,3 +305,34 @@ def test_turn_expanded_astar_returns_none_when_unreachable():
     }
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
     assert _astar_path(graph, "S", "Y", TurnCostSpec()) == []
+
+
+def test_crossing_a_higher_class_road_adds_cost_even_when_going_straight():
+    """自分が走ってきた道より上位の道と交わる交差点では、直進で渡るだけでも費用が足される
+    （信号が無いのに幹線を横断する場面。停止密度の軸はこれを数えていない）。"""
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E", "P1", "P2")}
+    edges = {
+        "S-C": _edge("S-C", "S", "C", 0.0),
+        "C-E": _edge("C-E", "C", "E", 0.0),
+        "P1-C": _edge("P1-C", "P1", "C", 90.0),
+        "C-P2": _edge("C-P2", "C", "P2", 90.0),
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+    lazy_graph = build_lazy_road_graph(graph)
+    csr = build_csr_structure(lazy_graph)
+    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    # 生活道路（rank 1）が幹線（rank 4）と交わる交差点。
+    ranks = np.array([4 if edge_id in ("P1-C", "C-P2") else 1 for edge_id in lazy_graph.edge_ids], dtype=np.int64)
+
+    with_rank = build_turn_expanded_structure(csr, lazy_graph, edge_bearings(graph, lazy_graph), ranks, spec)
+    without_rank = build_turn_expanded_structure(csr, lazy_graph, edge_bearings(graph, lazy_graph), spec=spec)
+
+    def straight_cost(structure) -> float:
+        state = lazy_graph.edge_ids.index("S-C")
+        for i in range(structure.indptr[state], structure.indptr[state + 1]):
+            if lazy_graph.edge_ids[structure.target_state[i]] == "C-E":
+                return float(structure.turn_seconds[i])
+        raise AssertionError("S-C→C-Eの遷移が無い")
+
+    assert straight_cost(without_rank) == 0.0, "階級を渡さなければ直進は無料"
+    assert straight_cost(with_rank) == spec.major_crossing_seconds

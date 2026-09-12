@@ -193,3 +193,22 @@ def classify_supply_poi(tags: dict[str, str]) -> SupplyPoiKind | None:
         return "convenience"
     amenity = (tags.get("amenity") or "").strip().lower()
     return _AMENITY_SUPPLY_KINDS.get(amenity)
+
+
+# 交差点で「自分が走ってきた道より上位の道と交わるか」を判定するための階級順（大きいほど
+# 上位）。**優先関係の判定だけに使う**——値そのものに意味は無く、比較結果だけが使われる。
+# 評価軸が持つhighwayの重み付け（`car_stress_highway_base`、DBの軸定義）とは別の関心事で、
+# あちらは「その道を走るときの圧迫感」、こちらは「その道を横断・合流するときの待ち」。
+HIGHWAY_RANK: dict[str, int] = {
+    "motorway": 6, "motorway_link": 6,
+    "trunk": 5, "trunk_link": 5,
+    "primary": 4, "primary_link": 4,
+    "secondary": 3, "secondary_link": 3,
+    "tertiary": 2, "tertiary_link": 2,
+    "unclassified": 1, "residential": 1, "living_street": 1, "service": 1,
+}
+
+
+def highway_rank(highway: str | None) -> int:
+    """OSMのhighwayタグ生値を階級順へ写す。自転車道・歩道・未知の値は0（最下位）。"""
+    return HIGHWAY_RANK.get(highway or "", 0)
