@@ -50,21 +50,17 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByText("車の通行量の説明")).toBeInTheDocument();
   });
 
-  it("公開軸すべてをチップとして並べ、評価に使っていない軸（重み0）は押せないチップで残す", () => {
-    // ルート設定パネルの「重み配分」と同じチップの形。押せるかどうかが、その軸を評価に
-    // 使ったかどうかの区別になる。
+  it("評価に使った軸だけをチップにする（重み0の軸は出さない）", () => {
+    // 使っていない軸まで並べると、狭い幅では内訳が軸の本数ぶん縦に伸びる。表示は
+    // 「このルートの評価に効いた軸」に絞り、軸の一覧はルート設定側が持つ。
     render(<RouteAxisProfile {...baseProps()} />);
 
     const items = chips();
-    // チップはアイコンと値だけを持ち、軸の名前はアクセシブル名（押せるチップは詳細ボタン、
-    // 押せないチップはrole=imgのラベル）が担う。
+    // チップはアイコンと値だけを持ち、軸の名前はアクセシブル名（詳細ボタン）が担う。
     expect(items.map((item) => within(item).getByLabelText(/./).getAttribute("aria-label"))).toEqual([
       "車の圧迫感の詳細を表示",
-      "風",
       "夜間の詳細を表示",
     ]);
-    expect(items[1]).toHaveAttribute("data-checked", "false");
-    expect(within(items[1]).queryByRole("button")).not.toBeInTheDocument();
     expect(items[0]).toHaveAttribute("data-checked", "true");
     expect(within(items[0]).getByRole("button", { name: "車の圧迫感の詳細を表示" })).toBeInTheDocument();
   });
@@ -101,8 +97,8 @@ describe("RouteAxisProfile", () => {
 
     const segments = container.querySelectorAll('[class*="stackSegment"]');
     expect(segments).toHaveLength(2);
-    expect(within(chips()[1]).getByLabelText("風")).toBeInTheDocument();
-    expect(chips()[1]).toHaveAttribute("data-checked", "false");
+    // 重み0の軸（風）は帯にもチップにも出ない。
+    expect(screen.queryByLabelText("風")).not.toBeInTheDocument();
   });
 
   it("内訳バーは積み上げ1本バー（RouteSettingsPanel.module.cssのstackBar/stackSegmentを流用）として描画される", () => {

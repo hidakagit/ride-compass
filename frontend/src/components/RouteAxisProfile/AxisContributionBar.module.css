@@ -50,7 +50,9 @@
   cursor: pointer;
 }
 
-.legendTrigger svg {
+/* (i)アイコンだけを弱める。直下のsvgに限るのは、軸アイコン（.legendIcon配下のsvg）まで
+   巻き込むと軸の色が消えるため。 */
+.legendTrigger > svg {
   color: var(--color-muted);
 }
 

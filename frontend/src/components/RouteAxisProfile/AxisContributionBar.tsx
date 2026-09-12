@@ -73,7 +73,9 @@ export default function AxisContributionBar({
         })}
       </div>
       <ul className={styles.legend}>
-        {(legendAxes ?? rows).map((axis) => {
+        {(legendAxes ?? rows)
+          .filter((axis) => renderDetail == null || renderDetail(axis) !== null)
+          .map((axis) => {
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
           const value = contributions[axis.axisId];
           const detail = renderDetail?.(axis) ?? null;
