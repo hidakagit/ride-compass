@@ -2,12 +2,13 @@
 
 import ErrorText from "@/components/ErrorText/ErrorText";
 import InfoPopover from "@/components/Map/InfoPopover";
+import { NewRouteIcon, RouteDiffIcon } from "@/components/Map/icons";
 import type { RouteCandidate } from "@/types/route";
 import styles from "./RouteSplicePanel.module.css";
 
 /** 区間1つぶんの選択肢（page.tsxが候補の名前まで組み立てて渡す）。 */
 export interface SpliceGroupView {
-  /** 区間の見出し（「1本目の区間」）。 */
+  /** 区間の見出し（「3.6〜39.8km」）。 */
   label: string;
   /** その区間で選べる道。`key`はpage.tsxが持つ代替の識別子、`hint`はどの候補の道か。 */
   options: { key: string; label: string; hint?: string }[];
@@ -59,6 +60,8 @@ export default function RouteSplicePanel({
   // edge_idsを返さないエンジン・古い候補では区間を出せない（backendが空で返す）。
   const unavailable = displayed.edge_ids.length === 0;
   const chosenCount = groups.filter((group) => group.chosenKey !== null).length;
+  const busy = previewing || applying;
+  const actionable = !unavailable && groups.length > 0;
 
   return (
     <section className={styles.panel} aria-labelledby="splice-heading">
@@ -77,13 +80,55 @@ export default function RouteSplicePanel({
         >
           元のルートのうち、他の候補が別の道を通る区間だけを選んで取り込めます。区間は元ルートの
           何km地点かで示し、選べる道はその区間が何km長く（短く）なるかで示します。地図のオレンジの
-          帯が同じ区間で、タップしても選べます。
+          帯が同じ区間で、タップしても選べます。天秤は選んだ組み合わせの差を先に見るボタン、
+          その隣は新しい候補として作るボタンです。
         </InfoPopover>
+        {/* 操作は「ルート結果」ヘッダーの保存・GPX・削除と同じアイコン枠へ揃える
+            （文言のボタンを並べるとパネル1つぶんの高さを操作だけで使う）。 */}
+        {actionable && (
+          <div className={styles.headingActions}>
+            <button
+              type="button"
+              className={styles.actionIcon}
+              onClick={onPreview}
+              disabled={chosenCount === 0 || busy}
+              aria-busy={previewing}
+              aria-label="差分を見る"
+              title="差分を見る"
+            >
+              <RouteDiffIcon size={18} />
+            </button>
+            <button
+              type="button"
+              className={styles.actionIcon}
+              onClick={onApply}
+              disabled={chosenCount === 0 || busy}
+              aria-busy={applying}
+              aria-label="新しいルートを作る"
+              title="新しいルートを作る"
+            >
+              <NewRouteIcon size={18} />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 編集の元は1本に固定。候補を選び直しても変わらない。 */}
+      {/* 編集の元（1本に固定）と、その元との差を同じ行に置く。どちらも同じ判断材料で、
+          離して置くと1行ぶん余計に高さを使う。 */}
       <p className={styles.base}>
-        元: {displayed.direction_label}（{displayed.distance_km.toFixed(1)}km）
+        <span>
+          {displayed.direction_label} {displayed.distance_km.toFixed(1)}km
+        </span>
+        {busy ? (
+          <span className={styles.progress}>{previewing ? "計算中…" : "評価中…"}</span>
+        ) : (
+          diff && (
+            <span className={styles.diff}>
+              {formatDelta(diff.distanceDeltaKm, "km", 1)}
+              {diff.difficultyDelta !== null && <> ・ 難易度 {formatDelta(diff.difficultyDelta, "", 0)}</>}
+            </span>
+          )
+        )}
       </p>
 
       {unavailable ? (
@@ -122,24 +167,7 @@ export default function RouteSplicePanel({
               </li>
             ))}
           </ul>
-          {/* 作る前に「この組み合わせにすると何がどう変わるか」を見る。評価はbackendでしか
-              出せず、押すたびに投げるため（生成APIは1分10回の上限）、選び終えてから押す形に
-              する。同じ組み合わせの結果は覚えていて投げ直さない。 */}
-          {diff && (
-            <p className={styles.diff}>
-              元との差: 距離 {formatDelta(diff.distanceDeltaKm, "km", 1)}
-              {diff.difficultyDelta !== null && <> ・ 難易度 {formatDelta(diff.difficultyDelta, "", 0)}</>}
-            </p>
-          )}
           {error && <ErrorText>{error}</ErrorText>}
-          <div className={styles.actions}>
-            <button type="button" onClick={onPreview} disabled={chosenCount === 0 || previewing || applying}>
-              {previewing ? "計算中…" : "差分を見る"}
-            </button>
-            <button type="button" onClick={onApply} disabled={chosenCount === 0 || applying || previewing}>
-              {applying ? "評価中…" : "新しいルートを作る"}
-            </button>
-          </div>
         </>
       )}
     </section>

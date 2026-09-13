@@ -90,7 +90,10 @@ describe("RouteSplicePanel", () => {
     const chosen = [{ ...GROUPS[0], chosenKey: "route-01:1-2" }];
     render(<RouteSplicePanel {...baseProps({ groups: chosen, applying: true })} />);
 
-    expect(screen.getByRole("button", { name: "評価中…" })).toBeDisabled();
+    const apply = screen.getByRole("button", { name: "新しいルートを作る" });
+    expect(apply).toBeDisabled();
+    expect(apply).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("評価中…")).toBeInTheDocument();
   });
 
   it("差が無い候補では、その旨を出す", () => {
@@ -120,7 +123,7 @@ describe("RouteSplicePanel", () => {
     const onCancel = vi.fn();
     render(<RouteSplicePanel {...baseProps({ groups: GROUPS, onCancel })} />);
 
-    expect(screen.getByText(/^元: 目的地ルート/)).toBeInTheDocument();
+    expect(screen.getByText(/^目的地ルート/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
 
     expect(onCancel).toHaveBeenCalledTimes(1);
@@ -145,7 +148,8 @@ describe("RouteSplicePanel", () => {
       expect(onPreview).toHaveBeenCalledTimes(1);
 
       rerender(<RouteSplicePanel {...baseProps({ groups: chosen, onPreview, previewing: true })} />);
-      expect(screen.getByRole("button", { name: "計算中…" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "差分を見る" })).toBeDisabled();
+      expect(screen.getByText("計算中…")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeDisabled();
     });
 
@@ -156,7 +160,7 @@ describe("RouteSplicePanel", () => {
         />,
       );
 
-      expect(screen.getByText(/距離 \+0\.4km/)).toBeInTheDocument();
+      expect(screen.getByText(/\+0\.4km/)).toBeInTheDocument();
       expect(screen.getByText(/難易度 −3/)).toBeInTheDocument();
     });
 
@@ -167,7 +171,7 @@ describe("RouteSplicePanel", () => {
         />,
       );
 
-      expect(screen.getByText(/距離 変わらない/)).toBeInTheDocument();
+      expect(screen.getByText(/変わらない/)).toBeInTheDocument();
     });
   });
 });

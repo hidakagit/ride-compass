@@ -460,6 +460,46 @@ export function RouteSpliceIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 元と組み合わせ後を比べる: 天秤。`RouteSpliceIcon`（編集の入口）と並ぶため、
+ * 道の形を持たない絵にして「経路そのものではなく、経路同士の比較」を表す。 */
+export function RouteDiffIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M10 3v11M4.4 5.4h11.2M5.6 13.4h8.8"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4.4 5.4 2.2 10.2h4.4zM15.6 5.4 13.4 10.2h4.4z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+/** 選んだ組み合わせで新しい候補を作る: 道＋追加。`RouteSpliceIcon`と同じ道の形へ
+ * ＋を添えることで、同じ編集の中の「実行」であることを示す。 */
+export function NewRouteIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M2.6 15.4c2.4 0 3.2-2.6 4.7-5s2.2-5 4.6-5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <circle cx="2.6" cy="15.4" r="1.4" fill="currentColor" />
+      <circle cx="11.9" cy="5.4" r="1.4" fill="currentColor" />
+      <path d="M15.4 11.4v5M12.9 13.9h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function ClearRoutesIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
