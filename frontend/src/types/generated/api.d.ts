@@ -798,6 +798,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/db-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Db Status */
+        get: operations["get_db_status_api_admin_db_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1290,12 +1307,41 @@ export interface components {
             /** Is Incomplete */
             is_incomplete: boolean;
         };
+        /** ConnectionEntry */
+        ConnectionEntry: {
+            /** Total */
+            total: number;
+            /** Max Connections */
+            max_connections: number;
+            /** Idle In Transaction */
+            idle_in_transaction: number;
+            /** Longest Idle Transaction Seconds */
+            longest_idle_transaction_seconds: number;
+            /** Longest Query Seconds */
+            longest_query_seconds: number;
+            /** Needs Attention */
+            needs_attention: boolean;
+            /** Note */
+            note: string;
+        };
         /** Coordinates */
         Coordinates: {
             /** Latitude */
             latitude: number;
             /** Longitude */
             longitude: number;
+        };
+        /** DbStatusResponse */
+        DbStatusResponse: {
+            /** Computed At */
+            computed_at: string;
+            /** Imports */
+            imports: components["schemas"]["ImportRunEntry"][];
+            /** Tables */
+            tables: components["schemas"]["TableEntry"][];
+            connections: components["schemas"]["ConnectionEntry"];
+            /** Database Bytes */
+            database_bytes: number;
         };
         /** DebugModeRequest */
         DebugModeRequest: {
@@ -1441,6 +1487,35 @@ export interface components {
          */
         HardFilterOverride: {
             [key: string]: boolean;
+        };
+        /**
+         * ImportRunEntry
+         * @description 生データ取込1種別の最終実行。派生データの世代比較はこの記録を基準にするため、
+         *     ここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。
+         */
+        ImportRunEntry: {
+            /** Label */
+            label: string;
+            /** Latest Id */
+            latest_id: number | null;
+            /** Latest Status */
+            latest_status: string | null;
+            /** Latest Finished At */
+            latest_finished_at: string | null;
+            /** Latest Identity */
+            latest_identity: {
+                [key: string]: string;
+            };
+            /** Latest Item Count */
+            latest_item_count: number | null;
+            /** Latest Succeeded Id */
+            latest_succeeded_id: number | null;
+            /** Latest Succeeded Finished At */
+            latest_succeeded_finished_at: string | null;
+            /** Needs Attention */
+            needs_attention: boolean;
+            /** Note */
+            note: string;
         };
         /**
          * JmaTileIndexCoverage
@@ -1947,6 +2022,29 @@ export interface components {
             null_count: number;
             /** Is Stale */
             is_stale: boolean;
+        };
+        /**
+         * TableEntry
+         * @description テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている
+         *     （統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。
+         */
+        TableEntry: {
+            /** Table Name */
+            table_name: string;
+            /** Row Count */
+            row_count: number;
+            /** Total Bytes */
+            total_bytes: number;
+            /** Dead Tuples */
+            dead_tuples: number;
+            /** Analyzed At */
+            analyzed_at: string | null;
+            /** Vacuumed At */
+            vacuumed_at: string | null;
+            /** Needs Attention */
+            needs_attention: boolean;
+            /** Note */
+            note: string;
         };
         /**
          * TileInputSpec
@@ -3323,6 +3421,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DerivedDataFreshnessResponse"];
+                };
+            };
+        };
+    };
+    get_db_status_api_admin_db_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbStatusResponse"];
                 };
             };
         };

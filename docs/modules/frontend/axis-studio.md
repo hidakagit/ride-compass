@@ -36,6 +36,8 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
 | `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）と、系譜列を持たない派生データの完成度（別枠、`COMPLETENESS_SPECS`が決める）を表示。集計は「集計する」ボタン押下時のみ |
+| `components/AxisStudio/DbStatusPanel.tsx` | 「鮮度」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
+| `services/dbStatusApi.ts`・`app/admin/api/db-status/route.ts` | 上記のAPIクライアントと、/adminのBasic認証セッションを再利用する同一オリジンのroute handler |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
 | `components/AxisStudio/TileCachePanel.tsx` | 「鮮度」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
@@ -291,6 +293,18 @@ listAxisDefinitions() ──→ definitions（全軸）
   経由で再利用する）。
 - 描画は`FreshnessReportView`（レポートを受け取る）として取得と分けてある。認証の要る画面を
   通さずに見え方を確かめられるようにするため。
+
+## DbStatusPanel.tsx（「鮮度」タブ・本番DBの状態）
+
+`GET /api/admin/db-status`を呼び、取込runの最終実行・テーブルの実数と容量・統計とVACUUMの
+鮮度・接続の状態を出す。`DerivedDataFreshnessPanel`と同じ形（説明はⓘ、1件1行、数字は開いた
+先、集計はボタン押下時のみ）で、CSSも同じモジュールを共有する。
+
+- 判定の種類（取込・接続・テーブル）が違っても行の見た目は揃える。読み手が知りたいのは
+  「注意が要るか」で同じだから。
+- **テーブルは注意のあるものだけを行にし、残りは1行へ畳む**（本番では20件超あり、全部並べると
+  注意すべき行が埋もれる）。畳んだ側も開けば一覧が見える。
+- 描画は`StatusRows`として取得と分けてある（認証の要る画面を通さず見え方を確かめるため）。
 
 ## TileCachePanel.tsx（「鮮度」タブの2枚目）
 

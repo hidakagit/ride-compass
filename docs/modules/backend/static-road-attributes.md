@@ -11,9 +11,9 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | レイヤー | ファイル |
 |---|---|
 | domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、開放度評価軸の材料）・`derived_data_versions.py`（事前計算バッチの系譜版数。バッチ本体ではなくここに置く——鮮度台帳がbatchをimportすると本番webに無い依存を連鎖で引き込む）（[region.py](routing-engine.md)は別モジュール管轄） |
-| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳） |
-| infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
-| api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須） |
+| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
+| infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
+| api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
 | batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_curvature.py`（wayの折れ線から測る蛇行のway単位事前集計）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py` |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
@@ -258,6 +258,23 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 返す。[evaluation-scoring.md](evaluation-scoring.md)の材料欠損割合（`/admin`「材料」タブ）
 とは別の切り口——材料側は完成度、本節は鮮度を見る。詳細な設計判断は
 [docs/tasks/T571.md](../../tasks/T571.md)参照。
+
+### 本番DBの状態（`db_status.py`・`db_status_service.py`）
+
+鮮度台帳が拠って立つ**土台**の側を見る。`GET /api/admin/db-status`（Basic認証必須）が、
+生データ取込の最終実行（成否と、派生データが基準にしている成功run）・テーブルの実数と容量・
+統計とVACUUMの鮮度・接続とトランザクションの状態を返す。
+
+**行数は統計値（`n_live_tup`）ではなく実数を数える。** 統計はANALYZEされていないテーブルでは
+桁が変わるほどずれるため、「取り込んだつもりが入っていない」の検出に使えない。1クエリで全
+テーブルぶんを数えるのに`query_to_xml`を使う。
+
+「注意が要るか」の判定としきい値はサービス層が持つ。**しきい値には規模の条件を併せて持たせる**
+——小さいテーブルの統計欠落はプランナがどう推定しても全走査で足り、割合だけで見た不要行は
+回収できる容量が無い。どちらも注意を出しても打つ手が無く、本当に見るべき行を埋もれさせる
+（規模の条件が無いと、1万行未満の小さなテーブルだけで注意が3倍に膨らむ）。
+
+未適用migrationの一覧は`GET /api/debug/db-status`が既に返すため、ここでは重ねて持たない。
 
 ## タイル配信
 

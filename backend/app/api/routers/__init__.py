@@ -25,6 +25,7 @@ from app.api.routers import (
     axis_admin,
     axis_catalog,
     basemap,
+    db_status,
     debug_admin,
     derived_data_freshness,
     gsi_relief_tile,
@@ -50,3 +51,4 @@ api_router.include_router(axis_catalog.router)
 api_router.include_router(material_catalog.router)
 api_router.include_router(debug_admin.router)
 api_router.include_router(derived_data_freshness.router)
+api_router.include_router(db_status.router)
