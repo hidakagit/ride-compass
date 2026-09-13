@@ -92,25 +92,34 @@ async def main() -> None:
         raise SystemExit("対象bboxが未splitのため中断しました（T790_BENCH_ALLOW_UNSPLIT=1で無効化）")
 
     await refresh_axis_registry()
-    async with route_generator_session(RoutePreference()) as generator:
-        started = time.monotonic()
-        candidates = await generator.generate_via_waypoints(
-            ORIGIN, [], DISTANCE_KM, destination=DESTINATION, max_routes=MAX_ROUTES
-        )
-        elapsed_ms = round((time.monotonic() - started) * 1000)
-        print(f"\n候補={len(candidates)}件 total_wall_ms={elapsed_ms}")
-        if not candidates:
-            print("候補が0件のためターンを数えられません:", generator.last_no_candidates_reason)
-            return
-        context = await generator._engine.prepare(ORIGIN, DISTANCE_KM, waypoints=[DESTINATION])
-        for candidate in candidates:
-            counts = _count_turns(context.graph, list(candidate.edge_ids), DEFAULT_TURN_COST)
-            turns = counts["left"] + counts["right"]
-            print(
-                f"  {candidate.distance_km:.1f}km 区間{len(candidate.edge_ids)}本 "
-                f"左折{counts['left']} 右折{counts['right']} 計{turns} Uターン{counts['uturn']} "
-                f"上位道路との交差{counts['major_crossing']}（うち曲がる{counts['major_turn']}）"
+    # ターンの費用の有無で同じ条件を比べる（費用ゼロが従来の挙動）。
+    variants = {
+        "ターン費用なし（従来）": TurnCostSpec(
+            left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0,
+            major_crossing_seconds=0.0, major_turn_seconds=0.0,
+        ),
+        "ターン費用あり（現行）": DEFAULT_TURN_COST,
+    }
+    for label, spec in variants.items():
+        async with route_generator_session(RoutePreference(), turn_cost=spec) as generator:
+            started = time.monotonic()
+            candidates = await generator.generate_via_waypoints(
+                ORIGIN, [], DISTANCE_KM, destination=DESTINATION, max_routes=MAX_ROUTES
             )
+            elapsed_ms = round((time.monotonic() - started) * 1000)
+            print(f"[{label}] 候補={len(candidates)}件 total_wall_ms={elapsed_ms}")
+            if not candidates:
+                print("  候補0件:", generator.last_no_candidates_reason)
+                continue
+            context = await generator._engine.prepare(ORIGIN, DISTANCE_KM, waypoints=[DESTINATION])
+            for candidate in candidates:
+                counts = _count_turns(context.graph, list(candidate.edge_ids), DEFAULT_TURN_COST)
+                turns = counts["left"] + counts["right"]
+                print(
+                    f"  {candidate.distance_km:.1f}km 区間{len(candidate.edge_ids)}本 "
+                    f"左折{counts['left']} 右折{counts['right']} 計{turns} Uターン{counts['uturn']} "
+                    f"上位道路との交差{counts['major_crossing']}（うち曲がる{counts['major_turn']}）"
+                )
 
 
 if __name__ == "__main__":
