@@ -9,8 +9,8 @@ import styles from "./RouteSplicePanel.module.css";
 export interface SpliceGroupView {
   /** 区間の見出し（「1本目の区間」）。 */
   label: string;
-  /** その区間で選べる道。`key`はpage.tsxが持つ代替の識別子。 */
-  options: { key: string; label: string }[];
+  /** その区間で選べる道。`key`はpage.tsxが持つ代替の識別子、`hint`はどの候補の道か。 */
+  options: { key: string; label: string; hint?: string }[];
   /** いま選んでいる道。nullなら元のまま。 */
   chosenKey: string | null;
 }
@@ -59,8 +59,9 @@ export default function RouteSplicePanel({
           triggerAriaLabel="区間の乗り換えの説明"
           contentClassName={styles.headingInfoPopover}
         >
-          元のルートのうち、他の候補が別の道を通る区間だけを選んで取り込めます。地図のオレンジの
-          帯がその区間で、タップしても選べます。
+          元のルートのうち、他の候補が別の道を通る区間だけを選んで取り込めます。区間は元ルートの
+          何km地点かで示し、選べる道はその区間が何km長く（短く）なるかで示します。地図のオレンジの
+          帯が同じ区間で、タップしても選べます。
         </InfoPopover>
       </div>
 
@@ -94,6 +95,8 @@ export default function RouteSplicePanel({
                       type="button"
                       className={group.chosenKey === option.key ? styles.optionOn : styles.option}
                       aria-pressed={group.chosenKey === option.key}
+                      aria-label={option.hint ? `${option.label}（${option.hint}）` : option.label}
+                      title={option.hint}
                       onClick={() => onChoose(groupIndex, option.key)}
                     >
                       {option.label}

@@ -182,16 +182,14 @@
 /* 候補を見ている場所に置く編集の入口。押すとこのルートを元に固定して、同じ場所が編集面へ
    変わる（「ルート編集」という別の置き場を持たない）。 */
 .editRouteButton {
-  display: block;
-  width: 100%;
+  display: inline-block;
   margin-top: var(--space-2);
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: var(--color-surface);
+  background: transparent;
   color: var(--color-accent-strong);
   font-size: var(--font-size-sm);
-  font-weight: 700;
-  padding: 0.35rem;
+  padding: 0.15rem 0.5rem;
   cursor: pointer;
 }
 

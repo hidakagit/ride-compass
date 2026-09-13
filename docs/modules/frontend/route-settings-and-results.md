@@ -23,10 +23,11 @@
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`DEFAULT_ROUTE_PREFERENCE`（route_preference既定値） |
+| `lib/geoDistance.ts` | 座標列の距離計算（`haversineKm`・`polylineLengthKm`・`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
 | `lib/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
 | `lib/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/Map/recipeControls.tsx`（`FieldLabel`・`withAutoEnable`） | 上書き有効化・情報アイコン付きラベルの共有UI部品 |
-| `components/RouteSplicePanel/RouteSplicePanel.tsx` | 区間の乗り換えの操作面（「ルート結果」が編集モードのときの中身。編集の元・区間ごとの選択［元のまま／候補横断の代替］・新しいルートを作る・やめる）。表示専用で、区間の算出も経路の組み立ても`lib/routeSplice.ts`が行う。`edge_ids`が空の候補では「差が無い」と「そもそも出せない」を区別して伝える。使い方（帯の見方・選び方）は画面へ書かず見出し脇の(i)の奥に置く |
+| `components/RouteSplicePanel/RouteSplicePanel.tsx` | 区間の乗り換えの操作面（「ルート結果」が編集モードのときの中身。編集の元・区間ごとの選択［元のまま／候補横断の代替］・新しいルートを作る・やめる）。**区間は元ルートの何km地点かで示し、選べる道はその区間が何km長く（短く）なるかで示す**——候補に名前が無いため、番号と全長では区別がつかない。表示専用で、区間の算出も経路の組み立ても`lib/routeSplice.ts`が行う。`edge_ids`が空の候補では「差が無い」と「そもそも出せない」を区別して伝える。使い方（帯の見方・選び方）は画面へ書かず見出し脇の(i)の奥に置く |
 | `components/Map/MapView.tsx`（`SPLICE_LAYER_ID`関連箇所のみ） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある）（`drawSpliceStretches`・`hideSpliceStretches`・`spliceStretchesToFeatureCollection`）。選んでいない区間は破線、選んだ区間は実線・太めで、選んだ側を最前面へ回す——未選択の帯が上に重なると差し替えた先が隠れて変化が見えない。`line-dasharray`がfeature式を受け付ける版に依存するため、`MapView.splice.test.ts`がstyle-specの評価器で検査する（[T621](../../tasks/T621.md)） |
 
 ## RouteSettingsPanel.tsx（一般向けメイン設定面）

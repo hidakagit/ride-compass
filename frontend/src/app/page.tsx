@@ -61,6 +61,7 @@ import RouteSettingsPanel, { stackBarColorForIndex } from "@/components/RouteSet
 import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/HardFilterPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/components/RouteSplicePanel/RouteSplicePanel";
+import { cumulativeDistancesKm, haversineKm, polylineLengthKm } from "@/lib/geoDistance";
 import {
   insertByDifficulty,
   spliceEdgeIdsFromAlternatives,
@@ -148,17 +149,6 @@ const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 // 目的地モードでは距離をユーザーに入力させず、地図上の経由地・目的地から自動算出する
 // （backend/app/domain/geo.py: haversine_distance_kmと同じ球面距離の簡易実装。フロントは
 // 既存の距離計算ユーティリティを持たないためここに最小実装する）。
-function haversineKm(a: Coordinates, b: Coordinates): number {
-  const EARTH_RADIUS_KM = 6371;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
-}
-
 // 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則だが、
 // 連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
 // 道路情報の2軸に加え、車ストレス・指定路線・停止要因POI・事故（当事者/重大度）の
@@ -825,11 +815,58 @@ export default function Home() {
     const head = NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`;
     return `${head} ${route.distance_km.toFixed(1)}km`;
   };
-  const spliceGroupViews = spliceGroups.map((group, groupIndex) => ({
-    label: `${groupIndex + 1}本目の区間`,
-    options: group.options.map((option) => ({ key: alternativeKey(option), label: routeLabel(option.candidateId) })),
-    chosenKey: spliceChoices[groupIndex] ?? null,
-  }));
+  // 「1本目の区間」「2 16.0km」では、どこが・どう変わるのかが読めない。**元ルートの何km地点
+  // からか**と、**その区間が何km長く（短く）なるか**で示す。候補の名前は補助（同じ差の道が
+  // 複数あるときの区別）へ回す。
+  const editingCumulativeKm = editingRouteForSplice
+    ? cumulativeDistancesKm(editingRouteForSplice.geometry.coordinates as GeoJSON.Position[])
+    : [];
+  const spliceStretchRangeKm = (stretch: { start: number; end: number }) => {
+    if (!editingRouteForSplice) return null;
+    const range = stretchCoordinateRange(editingRouteForSplice.edge_point_offsets, stretch);
+    if (!range) return null;
+    const startKm = editingCumulativeKm[range.start];
+    const endKm = editingCumulativeKm[range.end];
+    if (startKm === undefined || endKm === undefined) return null;
+    return { startKm, endKm };
+  };
+  const optionLengthKm = (option: StretchAlternative) => {
+    const target = routes.find((route) => route.id === option.candidateId);
+    if (!target) return null;
+    const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
+    if (!range) return null;
+    return polylineLengthKm(
+      (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1),
+    );
+  };
+  const formatDeltaKm = (deltaKm: number) => {
+    if (Math.abs(deltaKm) < 0.05) return "距離ほぼ同じ";
+    return `${deltaKm > 0 ? "+" : "−"}${Math.abs(deltaKm).toFixed(1)}km`;
+  };
+  const spliceGroupViews = spliceGroups.map((group, groupIndex) => {
+    const range = spliceStretchRangeKm(group.stretch);
+    const baseLengthKm = range ? range.endKm - range.startKm : null;
+    return {
+      label: range
+        ? `${range.startKm.toFixed(1)}〜${range.endKm.toFixed(1)}km地点`
+        : `${groupIndex + 1}本目の区間`,
+      options: group.options.map((option) => {
+        const lengthKm = optionLengthKm(option);
+        const delta = lengthKm !== null && baseLengthKm !== null ? lengthKm - baseLengthKm : null;
+        // 距離差を出せないとき（座標の対応が取れない候補）は候補の名前へ落とす。そのときは
+        // 補助が同じ文言になるため付けない。
+        return delta === null
+          ? { key: alternativeKey(option), label: routeLabel(option.candidateId) }
+          : {
+              key: alternativeKey(option),
+              label: formatDeltaKm(delta),
+              // 同じ差の道が複数あるとき、どの候補から来た道かで見分ける。
+              hint: `${routeLabel(option.candidateId)}の道`,
+            };
+      }),
+      chosenKey: spliceChoices[groupIndex] ?? null,
+    };
+  });
   // 地図へ渡す帯は相手側の形。選んでいない道も「乗り換えるとこの道になる」を破線で示す。
   // Edgeと座標の対応が取れない区間は描かない——ずれた場所へ帯を描くより描かないほうがよい。
   // indexは「グループの位置と選択肢の位置」を1つの数にしたもの（地図のタップから引き戻す）。
