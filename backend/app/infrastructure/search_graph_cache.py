@@ -40,7 +40,13 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 from cachetools import LRUCache
 
 if TYPE_CHECKING:
-    from app.domain.routing import LazyRoadGraph, NodeSpatialIndex, SearchGraphStatics
+    from app.domain.routing import (
+        LazyRoadGraph,
+        NodeSpatialIndex,
+        SearchGraphStatics,
+        TurnCostSpec,
+        TurnExpandedStructure,
+    )
 
 # bbox全体ぶんの結合済みグラフ・索引を保持するエントリのため、タイル単位キャッシュより
 # 小さい上限にする（モジュールdocstring参照）。
@@ -53,6 +59,9 @@ SEARCH_STATICS_MAX_ENTRIES = 16
 
 TileSet = frozenset[tuple[int, int, int]]
 RoutableIndexKey = tuple[TileSet, "frozenset[str] | None", "float | None"]
+# ターン展開構造のキー。遷移はタイル集合だけで決まるが、ターンの費用（秒）が変われば
+# `turn_seconds`も変わるため、費用そのものをキーへ含める。
+TurnStructureKey = tuple[TileSet, "TurnCostSpec"]
 
 _K = TypeVar("_K")
 _V = TypeVar("_V")
@@ -104,6 +113,10 @@ class _TileKeyedLru(Generic[_K, _V]):
 _lazy_graph_cache: "_TileKeyedLru[TileSet, LazyRoadGraph]" = _TileKeyedLru()
 _search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
 _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _TileKeyedLru()
+# 状態＝有向区間の遷移構造（`domain/routing.py: TurnExpandedStructure`）。
+# `SearchGraphStatics`と同じくタイル集合だけで決まる派生物で、1エントリが遷移数ぶんの
+# 配列（本番規模で130万要素）を持つため上限も同じ扱いにする。
+_turn_structure_cache: "_TileKeyedLru[TurnStructureKey, TurnExpandedStructure]" = _TileKeyedLru()
 # 探索範囲ごとに学習した迂回率（往路木で測った「道なり距離÷直線距離」の中央値）。同じ
 # タイル集合への次のリクエストが往路レグの通過予定時刻の推定に使う。道路網の形だけで決まる
 # 派生値のため、他の4キャッシュと同じキー・寿命で持つ（失っても既定値から測り直すだけ）。
@@ -137,6 +150,14 @@ def set_detour_ratio(tile_set: TileSet, ratio: float) -> None:
     _detour_ratio_cache.set(tile_set, ratio, _max_entries)
 
 
+def get_turn_structure(key: "TurnStructureKey") -> "TurnExpandedStructure | None":
+    return _turn_structure_cache.get(key)
+
+
+def set_turn_structure(key: "TurnStructureKey", structure: "TurnExpandedStructure") -> None:
+    _turn_structure_cache.set(key, structure, _search_statics_max_entries)
+
+
 def get_routable_index(key: RoutableIndexKey) -> "NodeSpatialIndex | None":
     return _routable_index_cache.get(key)
 
@@ -162,6 +183,7 @@ def invalidate_tile_set(tile_set: TileSet) -> None:
     _lazy_graph_cache.pop(tile_set)
     _search_statics_cache.pop(tile_set)
     _routable_index_cache.pop_matching(lambda key: key[0] == tile_set)
+    _turn_structure_cache.pop_matching(lambda key: key[0] == tile_set)
     _detour_ratio_cache.pop(tile_set)
 
 
@@ -170,6 +192,7 @@ def clear() -> None:
     _lazy_graph_cache.clear()
     _search_statics_cache.clear()
     _routable_index_cache.clear()
+    _turn_structure_cache.clear()
     _detour_ratio_cache.clear()
 
 

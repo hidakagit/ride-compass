@@ -100,6 +100,14 @@ async def main() -> None:
         ),
         "ターン費用あり（現行）": DEFAULT_TURN_COST,
     }
+    # 1回目は材料のDB読み出し（冷パス）が支配的で比較にならないため、捨てる1回を先に回す。
+    async with route_generator_session(RoutePreference()) as warmup:
+        started = time.monotonic()
+        await warmup.generate_via_waypoints(
+            ORIGIN, [], DISTANCE_KM, destination=DESTINATION, max_routes=MAX_ROUTES
+        )
+        print(f"[ウォームアップ] total_wall_ms={round((time.monotonic() - started) * 1000)}")
+
     for label, spec in variants.items():
         async with route_generator_session(RoutePreference(), turn_cost=spec) as generator:
             started = time.monotonic()

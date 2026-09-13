@@ -759,15 +759,13 @@ class RoadGraphEngine:
         )
 
         turn_started = time.monotonic()
-        turn_structure = await asyncio.to_thread(
-            build_turn_expanded_structure,
-            statics.csr, search.lazy_graph, edge_bearings(search.graph, search.lazy_graph),
-            _edge_highway_ranks(search.graph, search.lazy_graph), self._turn_cost,
+        turn_structure, turn_cached = await _get_or_build_turn_structure(
+            search.tile_set, statics, search.lazy_graph, search.graph, self._turn_cost
         )
         logger.info(
-            "prepare turn_structure build states=%d transitions=%d turn_ms=%d",
+            "prepare turn_structure build states=%d transitions=%d turn_ms=%d turn_structure_cached=%s",
             turn_structure.state_count, len(turn_structure.target_state),
-            round((time.monotonic() - turn_started) * 1000),
+            round((time.monotonic() - turn_started) * 1000), turn_cached,
         )
 
         return _RoadGraphContext(
@@ -824,9 +822,8 @@ class RoadGraphEngine:
         # 探索はターンの費用を含む辺基準（状態＝有向区間）で行うため、一対全木と同じCSR構造が
         # 要る（2点間探索だけの経路でも`SearchGraphStatics`を構築する）。
         statics, _ = await _get_or_build_search_statics(search.tile_set, search.lazy_graph, search.graph)
-        turn_structure = build_turn_expanded_structure(
-            statics.csr, search.lazy_graph, edge_bearings(search.graph, search.lazy_graph),
-            _edge_highway_ranks(search.graph, search.lazy_graph), self._turn_cost,
+        turn_structure, _ = await _get_or_build_turn_structure(
+            search.tile_set, statics, search.lazy_graph, search.graph, self._turn_cost
         )
         edges = await asyncio.to_thread(
             turn_expanded_shortest_path,
@@ -1924,6 +1921,33 @@ async def _get_or_build_search_statics(
     if tile_set is not None:
         search_graph_cache.set_search_statics(tile_set, statics)
     return statics, False
+
+
+async def _get_or_build_turn_structure(
+    tile_set: frozenset[tuple[int, int, int]] | None,
+    statics: SearchGraphStatics,
+    lazy_graph: LazyRoadGraph,
+    graph: RoadGraphLike,
+    turn_cost: TurnCostSpec,
+) -> tuple[TurnExpandedStructure, bool]:
+    """状態＝有向区間の遷移構造を、タイル集合とターンの費用をキーにキャッシュする。
+
+    遷移とターンの費用は道路網の形と`turn_cost`だけで決まり、リクエストごとのコスト配列には
+    依存しないため`SearchGraphStatics`と同じ寿命で持てる。構築は本番規模で数百msかかる。
+    """
+    key = (tile_set, turn_cost) if tile_set is not None else None
+    if key is not None:
+        cached = search_graph_cache.get_turn_structure(key)
+        if cached is not None:
+            return cached, True
+    structure = await asyncio.to_thread(
+        build_turn_expanded_structure,
+        statics.csr, lazy_graph, edge_bearings(graph, lazy_graph),
+        _edge_highway_ranks(graph, lazy_graph), turn_cost,
+    )
+    if key is not None:
+        search_graph_cache.set_turn_structure(key, structure)
+    return structure, False
 
 
 def _edge_highway_ranks(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:
