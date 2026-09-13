@@ -477,6 +477,8 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
         onPinPlace: (role: "origin" | "waypoint" | "destination", c: { latitude: number; longitude: number }) => void;
         onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
         selectedRouteSegment: SelectedRouteSegment | null;
+        onRouteSelect: (routeId: string) => void;
+        pointEditingEnabled: boolean;
       }) => (
         <>
           {options.exposeMapClickHandlers && (
@@ -490,6 +492,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
               <button onClick={() => props.onPinPlace("waypoint", { latitude: 35.682, longitude: 139.768 })}>
                 テスト用に経由地を追加
               </button>
+              <button onClick={() => props.onRouteSelect("route-01")}>テスト用に地図で他候補を選ぶ</button>
             </>
           )}
           {options.exposeSegmentSelect && (
@@ -525,6 +528,9 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
           {options.exposeSegmentSelect && (
             <span data-testid="map-selected-segment">{props.selectedRouteSegment ? "選択中" : "なし"}</span>
           )}
+          {/* 地点をつかんで動かせるか。地図上の挙動そのものはMapViewの中なので、
+              受け渡しで確かめる。 */}
+          <span data-testid="map-point-editing">{props.pointEditingEnabled ? "可" : "不可"}</span>
         </>
       ),
     }));
@@ -1133,13 +1139,49 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("選択中");
     expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
 
+    expect(screen.getByTestId("map-point-editing")).toHaveTextContent("可");
+
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
     // 編集に入った時点で、それまでの選択も落ちる
     expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("なし");
+    // 編集中にできるのは乗り換え先の選択だけ。地点はつかんで動かせない
+    expect(screen.getByTestId("map-point-editing")).toHaveTextContent("不可");
 
     await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
     expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("なし");
     expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
+  });
+
+  it("編集中は、地図で他候補を押しても元ルートが切り替わらない", async () => {
+    // パネルが示す元と、地図で強調されるルートが食い違うと、何を編集しているのか読めない。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
+        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
+
+    // 編集に入る前は、地図で押した候補へ移る
+    await user.click(screen.getByRole("button", { name: "テスト用に地図で他候補を選ぶ" }));
+    expect(screen.getByRole("tab", { name: /^2 19\.0km/ })).toHaveAttribute("aria-selected", "true");
+
+    await user.click(screen.getByRole("tab", { name: /^1 18\.0km/ }));
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に地図で他候補を選ぶ" }));
+
+    // 編集面が示す元は押す前のまま（地図で押した候補へは移らない）
+    expect(screen.getByText("北 18.0km")).toBeInTheDocument();
+    expect(screen.queryByText("北 19.0km")).toBeNull();
   });
 
   it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {

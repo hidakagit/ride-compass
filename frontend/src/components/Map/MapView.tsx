@@ -2551,6 +2551,10 @@ interface MapViewProps {
   /** 空白地点クリック時の「経由地に追加」ボタン押下で呼ばれる。 */
   /** 武装中の役割。nullの間、地図のタップはピンを置かない（地物の詳細表示のみ）。 */
   armedPinRole: PinRole | null;
+  /** 地点（出発地・経由地・目的地）をつかんで動かす・押して消すことを受け付けるか。
+   * 地図でできることは、いま見ているパネルが持つ操作だけにする（地点は「ルート設定」の
+   * 条件タブ）。falseの間、マーカーは表示だけで動かせない。 */
+  pointEditingEnabled: boolean;
   /** 武装中の役割の地点として、タップした座標を渡す。 */
   onPinPlace: (role: PinRole, coordinates: Coordinates) => void;
   /** 経由地マーカークリックで呼ばれる（該当indexを削除）。 */
@@ -2616,6 +2620,7 @@ export default function MapView({
   onRouteSelect,
   waypoints,
   armedPinRole,
+  pointEditingEnabled,
   onPinPlace,
   onWaypointRemove,
   onWaypointMove,
@@ -2696,6 +2701,7 @@ export default function MapView({
   // 最新のonPinPlace・武装中の役割を読めるようにするref（onRegionZoomHintChangeRefと同じパターン）。
   const onPinPlaceRef = useRef(onPinPlace);
   const armedPinRoleRef = useRef(armedPinRole);
+  const pointEditingEnabledRef = useRef(pointEditingEnabled);
   const onWaypointRemoveRef = useRef(onWaypointRemove);
   const onWaypointMoveRef = useRef(onWaypointMove);
   // 同じ理由で目的地関連のコールバック・armed状態もrefで最新値を読む。
@@ -2768,6 +2774,10 @@ export default function MapView({
   useEffect(() => {
     armedPinRoleRef.current = armedPinRole;
   }, [armedPinRole]);
+
+  useEffect(() => {
+    pointEditingEnabledRef.current = pointEditingEnabled;
+  }, [pointEditingEnabled]);
 
   useEffect(() => {
     onWaypointRemoveRef.current = onWaypointRemove;
@@ -3465,7 +3475,7 @@ export default function MapView({
         markerRef.current = new maplibregl.Marker({
           element: createOriginMarkerElement(color),
           anchor: "center",
-          draggable: true,
+          draggable: pointEditingEnabledRef.current,
         })
           .setLngLat([location.longitude, location.latitude])
           .addTo(map);
@@ -3493,20 +3503,28 @@ export default function MapView({
       waypointMarkersRef.current.forEach((marker) => marker.remove());
       waypointMarkersRef.current = waypoints.map((point, index) => {
         const el = createPointMarkerElement("waypoint", String(index + 1));
-        const marker = new maplibregl.Marker({ element: el, draggable: true })
+        const marker = new maplibregl.Marker({ element: el, draggable: pointEditingEnabled })
           .setLngLat([point.longitude, point.latitude])
           .addTo(map);
-        marker.on("dragend", () => {
-          const lngLat = marker.getLngLat();
-          onWaypointMoveRef.current(index, { latitude: lngLat.lat, longitude: lngLat.lng });
-        });
-        bindDragAwareClick(marker, el, () => onWaypointRemoveRef.current(index));
+        if (pointEditingEnabled) {
+          marker.on("dragend", () => {
+            const lngLat = marker.getLngLat();
+            onWaypointMoveRef.current(index, { latitude: lngLat.lat, longitude: lngLat.lng });
+          });
+          bindDragAwareClick(marker, el, () => onWaypointRemoveRef.current(index));
+        }
         return marker;
       });
     };
 
     runWhenStyleReady(map, applyWaypointMarkers);
-  }, [waypoints]);
+  }, [waypoints, pointEditingEnabled]);
+
+  // 出発地マーカーのつかめる/つかめないは、マーカーを作り直さずに切り替える——作り直す
+  // effect（上）はカメラ移動を伴うため、パネルを切り替えるたびに地図が飛んでしまう。
+  useEffect(() => {
+    markerRef.current?.setDraggable(pointEditingEnabled);
+  }, [pointEditingEnabled]);
 
   // 目的地マーカーを更新（最大1点）。経由地と同じ丸いバッジで、中身の旗が「終点」を示す。
   // つかんで動かせ、クリックで解除。
@@ -3520,19 +3538,21 @@ export default function MapView({
       if (!destination) return;
 
       const el = createPointMarkerElement("destination");
-      const marker = new maplibregl.Marker({ element: el, draggable: true })
+      const marker = new maplibregl.Marker({ element: el, draggable: pointEditingEnabled })
         .setLngLat([destination.longitude, destination.latitude])
         .addTo(map);
-      marker.on("dragend", () => {
-        const lngLat = marker.getLngLat();
-        onPinPlaceRef.current("destination", { latitude: lngLat.lat, longitude: lngLat.lng });
-      });
-      bindDragAwareClick(marker, el, () => onDestinationClearRef.current());
+      if (pointEditingEnabled) {
+        marker.on("dragend", () => {
+          const lngLat = marker.getLngLat();
+          onPinPlaceRef.current("destination", { latitude: lngLat.lat, longitude: lngLat.lng });
+        });
+        bindDragAwareClick(marker, el, () => onDestinationClearRef.current());
+      }
       destinationMarkerRef.current = marker;
     };
 
     runWhenStyleReady(map, applyDestinationMarker);
-  }, [destination]);
+  }, [destination, pointEditingEnabled]);
 
   // 区間クリックで選択中の区間があれば、クリック地点へ軽量なマーカーのみを
   // 立てる（テキストポップアップは出さない——地点・到達予想時刻・軸別内訳はボトムシート側

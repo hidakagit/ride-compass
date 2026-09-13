@@ -453,11 +453,6 @@ export default function Home() {
   }, [setManualLocation]);
   // 地図上の候補線から候補を選ぶ。一覧（縦タブ）での切り替えと同じく、前の候補で
   // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま残るため）。
-  const handleRouteSelectFromMap = useCallback((routeId: string) => {
-    setSelectedRouteSegment(null);
-    setSelectedRouteId(routeId);
-  }, []);
-
   const handleDestinationClear = useCallback(() => setDestination(null), []);
   // 行の操作で武装する（同じ行をもう一度押すと解除）。設定済みの地点から武装しても値は
   // 残したままで、地図タップが置き換えになる——生成後に目的地を変えたいとき、解除してから
@@ -975,8 +970,24 @@ export default function Home() {
   // 地点の行が見えている場所でだけピンを置ける。「ルート結果」を見ている間や、「重み」
   // 「除外」タブを開いている間は、武装していても地図のタップはピンにしない（T781と同じ理屈で、
   // 地図を触った副作用で地点が変わらないようにする）。
-  const pinPlacementArmedRole =
-    routeMode === "destination" && routeSettingsActive && settingsTab === "generate" ? armedPinRole : null;
+  const routeOutcomeActive = isMobile ? mobileSheet === "routeOutcome" : outcomeOpen;
+  // 地図でできることは、いま見ているパネルが持つ操作だけにする。
+  // 「ルート設定」の条件タブ＝地点を置く・つかんで動かす・消す。「ルート結果」＝候補の
+  // 切り替えと区間詳細。「ルート編集」＝乗り換え先の選択だけ（元は固定）。
+  const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRouteId === null;
+  const routeInspectionEnabled = routeOutcomeActive && editingRouteId === null;
+  const pinPlacementArmedRole = routeMode === "destination" && pointEditingEnabled ? armedPinRole : null;
+
+  const handleRouteSelectFromMap = useCallback(
+    (routeId: string) => {
+      // 候補の切り替えは「ルート結果」を見ている間だけ。編集中に地図で他候補へ移ると、
+      // パネルが示す元と地図で強調されるルートが食い違い、何を編集しているのか読めなくなる。
+      if (!routeInspectionEnabled) return;
+      setSelectedRouteSegment(null);
+      setSelectedRouteId(routeId);
+    },
+    [routeInspectionEnabled],
+  );
 
   const mapPaneRef = useRef<HTMLDivElement>(null);
   const bottomControlRowRef = useRef<HTMLDivElement>(null);
@@ -2435,10 +2446,10 @@ export default function Home() {
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
             selectedRouteSegment={selectedRouteSegment}
-            // 編集中は区間詳細を選べない（詳細の置き場が編集面へ置き換わっており、
-            // 選んでも地図にピンが残るだけになる）。地図の帯は別のハンドラで受ける。
+            // 区間詳細は「ルート結果」を見ている間だけ。編集中は詳細の置き場が編集面へ
+            // 置き換わっており、選んでも地図にピンが残るだけになる。
             onRouteSegmentSelect={(selection) => {
-              if (editingRouteId !== null) return;
+              if (!routeInspectionEnabled) return;
               setSelectedRouteSegment(selection);
             }}
             onRouteSelect={handleRouteSelectFromMap}
@@ -2452,6 +2463,7 @@ export default function Home() {
 
             onDestinationClear={handleDestinationClear}
             armedPinRole={pinPlacementArmedRole}
+            pointEditingEnabled={pointEditingEnabled}
             onPinPlace={handlePinPlace}
             onOriginSet={setManualLocation}
             routeFitObscuredPx={routeFitObscuredPx}
