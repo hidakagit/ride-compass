@@ -71,13 +71,21 @@ from app.domain.cycling_speed import (
 )
 from app.domain.traffic import POI_COUNT_KINDS, highway_rank, stop_seconds
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
-from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    REQUEST_DYNAMIC_MATERIAL_IDS,
+    dynamic_axis_topological_order,
+)
 from app.domain.axis_display import axis_material_shares
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.dynamic_way_values import map_value_kind
 from app.domain.errors import RoutingError
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
-from app.domain.evaluation import StaticEdgeScoreMatrix, compose_costs_from_axis_matrix
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    axis_weighted_sums,
+    compose_costs_from_axis_matrix,
+)
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_node_ids
 from app.domain.route_preference import RoutePreference
 from app.domain.geo import (
@@ -300,6 +308,11 @@ class _LegCostComposer:
         self._static_axis_scores = {
             axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
         }
+        # 時刻で変わる（風に依存する）公開軸と、それ以外。ビンごとの合成では後者の重み付き和を
+        # 使い回す——合成の時間は軸数にほぼ比例するため、毎回全軸を足し直すと本数ぶん効く。
+        dynamic_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS))
+        self._time_varying_axis_ids = [a for a in score_matrix.axis_ids if a in dynamic_axes]
+        self._fixed_axis_ids = [a for a in score_matrix.axis_ids if a not in dynamic_axes]
         self._weights = weights
         self._penalty_strength = penalty_strength
         self._hard_filter_excluded = hard_filter_excluded
@@ -323,6 +336,10 @@ class _LegCostComposer:
         # 引き直す必要がある。
         self.time_varying = wind_series is not None
         self._cache: dict[tuple, LegCostArrays] = {}
+        self._fixed_axis_sums = axis_weighted_sums(
+            {axis_id: self._static_axis_scores[axis_id] for axis_id in self._fixed_axis_ids},
+            weights, len(score_matrix.distance_m),
+        )
 
     def _travel_time_seconds(
         self, material_arrays: dict[str, np.ndarray], headwind_ms: np.ndarray, crosswind_ms: np.ndarray
@@ -410,8 +427,12 @@ class _LegCostComposer:
             # ビンの中央の時刻を割り当てる。
             span = duration_hours or bin_count * TIME_BIN_HOURS
             leg_start = offset_hours if direction > 0 else offset_hours - span
+            display_bin = _representative_bin(bin_count, duration_hours)
             bins = [
-                self._compose_at(np.full(edge_count, leg_start + (k + 0.5) * TIME_BIN_HOURS))
+                self._compose_at(
+                    np.full(edge_count, leg_start + (k + 0.5) * TIME_BIN_HOURS),
+                    for_display=k == display_bin,
+                )
                 for k in range(bin_count)
             ]
         else:
@@ -473,8 +494,12 @@ class _LegCostComposer:
             return 1
         return int(min(MAX_TIME_BINS, max(1, math.ceil(duration_hours / TIME_BIN_HOURS))))
 
-    def _compose_at(self, passage: np.ndarray | None) -> LegCostArrays:
-        """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。"""
+    def _compose_at(self, passage: np.ndarray | None, *, for_display: bool = True) -> LegCostArrays:
+        """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。
+
+        `for_display=False`は探索へ渡すコストと所要時間だけを作る（軸別スコア・寄与度・
+        材料値は組み立てない）。代表以外の時刻ビンはこちらで足りる。
+        """
         dynamic_context = DynamicAxisRequestContext(
             bearing_deg=self._score_matrix.bearing_deg, weather=self._weather,
             travel_speed_ms=kmh_to_ms(self.speed_kmh),
@@ -496,11 +521,17 @@ class _LegCostComposer:
                 if material_id in resolved and not np.all(np.isnan(resolved[material_id]))
             },
         }
-        # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
-        published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
         travel = self._travel_time_seconds(material_arrays, headwind, crosswind)
+        # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
+        if for_display:
+            published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
+            static_sums = None
+        else:
+            published = {axis_id: resolved[axis_id] for axis_id in self._time_varying_axis_ids}
+            static_sums = self._fixed_axis_sums
         cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
             self._score_matrix.distance_m, published, self._weights, self._penalty_strength, base=travel,
+            static_sums=static_sums, with_contributions=for_display,
         )
         cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
         lazy_cost = cost_array[self._lazy_row_index]

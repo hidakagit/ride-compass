@@ -43,6 +43,10 @@ WALKING_SPEED_KMH = 4.5
 # 合わせた暫定値で、実走データでの較正が要る。
 CLIMB_POWER_PER_GRADE = 25.0
 MAX_CLIMB_POWER_RATIO = 2.5
+# 速度を挟み込む二分法の反復回数。初期区間は押して歩く速度〜下りの上限（約11m/s）で、
+# 12回で幅は0.003m/s（0.01km/h）まで縮む。粗くすると平地・無風で巡航速度に一致しなくなる
+# 一方、反復の中で配列を確保し直さないため回数を減らしても速くならない（実測）。
+SPEED_SOLVE_ITERATIONS = 12
 
 
 @dataclass(frozen=True)
@@ -101,7 +105,7 @@ def speed_ms(
     headwind_ms: np.ndarray,
     crosswind_ms: np.ndarray | None = None,
     crr: np.ndarray | None = None,
-    iterations: int = 12,
+    iterations: int = SPEED_SOLVE_ITERATIONS,
 ) -> np.ndarray:
     """区間ごとの走行速度（m/s）。`grade`は勾配（0.05なら5%）、`headwind_ms`は進行方向への
     向かい風成分（正が向かい風）、`crosswind_ms`は横成分。`crr`を渡すと区間ごとに転がり抵抗を
@@ -109,23 +113,44 @@ def speed_ms(
 
     走行方程式`P = 抵抗力(v) × v`を`v`について解く。3次方程式になるため、二分法で挟んでから
     解を返す（ニュートン法は抵抗力が0を跨ぐ下り坂で発散しうるため、区間を確実に狭める方を採る）。
+
+    リクエストごとに時刻ビンの本数ぶん呼ばれ、区間数は数十万規模になるため、反復の中では
+    配列を確保し直さず用意したバッファへ書き込む。
     """
     grade = np.asarray(grade, dtype=np.float64)
     headwind = np.asarray(headwind_ms, dtype=np.float64)
-    rolling = np.full(grade.shape, DEFAULT_CRR) if crr is None else np.asarray(crr, dtype=np.float64)
+    rolling_crr = np.full(grade.shape, DEFAULT_CRR) if crr is None else np.asarray(crr, dtype=np.float64)
     cross = np.zeros(grade.shape) if crosswind_ms is None else np.asarray(crosswind_ms, dtype=np.float64)
     power = wheel_power_w(profile) * climb_power_ratio(grade)
+    # 速度に依らない抵抗（転がり＋重力）は反復の外で1回だけ求める。
+    constant_force = rolling_crr * profile.mass_kg * GRAVITY_M_S2 + profile.mass_kg * GRAVITY_M_S2 * grade
+    drag_coefficient = 0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2
+    cross_squared = cross * cross
 
     low = np.full(grade.shape, WALKING_SPEED_KMH / 3.6)
     high = np.full(grade.shape, MAX_DESCENT_SPEED_KMH / 3.6)
+    middle = np.empty_like(low)
+    along = np.empty_like(low)
+    scratch = np.empty_like(low)
+    too_fast = np.empty(low.shape, dtype=bool)
     for _ in range(iterations):
-        middle = (low + high) / 2
-        needed = _resistance_force(middle, grade, headwind, cross, profile, rolling) * middle
+        np.add(low, high, out=middle)
+        np.multiply(middle, 0.5, out=middle)
+        np.add(middle, headwind, out=along)
+        np.multiply(along, along, out=scratch)
+        np.add(scratch, cross_squared, out=scratch)
+        np.sqrt(scratch, out=scratch)
+        np.multiply(scratch, along, out=scratch)
+        np.multiply(scratch, drag_coefficient, out=scratch)
+        np.add(scratch, constant_force, out=scratch)
+        np.multiply(scratch, middle, out=scratch)
         # 必要な出力が持っている出力を超えるなら、その速度は出せない（上限を下げる）。
-        too_fast = needed > power
-        high = np.where(too_fast, middle, high)
-        low = np.where(too_fast, low, middle)
-    return (low + high) / 2
+        np.greater(scratch, power, out=too_fast)
+        np.copyto(high, middle, where=too_fast)
+        np.copyto(low, middle, where=~too_fast)
+    np.add(low, high, out=middle)
+    np.multiply(middle, 0.5, out=middle)
+    return middle
 
 
 def travel_seconds(

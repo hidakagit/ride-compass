@@ -623,12 +623,34 @@ def _evaluate_axes_bulk(
     )
 
 
+def axis_weighted_sums(
+    axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float], length: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """`compose_costs_from_axis_matrix`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
+
+    データ欠損（NaN）の軸はその区間だけ和から外す——合成本体と同じ「データ無しは除外し
+    残りの重みで再正規化」の扱いを、切り出した側でも同じ式で保つ。
+    """
+    if not axis_arrays:
+        return np.zeros(length), np.zeros(length)
+    score_terms = []
+    weight_terms = []
+    for axis_id, arr in axis_arrays.items():
+        weight = weights.get(axis_id, 0.0)
+        valid = ~np.isnan(arr)
+        score_terms.append(np.where(valid, arr * weight, 0.0))
+        weight_terms.append(np.where(valid, weight, 0.0))
+    return _neumaier_accumulate(score_terms), _neumaier_accumulate(weight_terms)
+
+
 def compose_costs_from_axis_matrix(
     distance_m: np.ndarray,
     axis_arrays: Mapping[str, np.ndarray],
     weights: dict[str, float],
     penalty_strength: float = 1.0,
     base: np.ndarray | None = None,
+    static_sums: tuple[np.ndarray, np.ndarray] | None = None,
+    with_contributions: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
     """`_evaluate_axes_bulk`/`evaluate_dynamic_axis_arrays`が求めた軸別スコア配列群から、
     重み付き合成のcost・composite difficulty配列・軸別寄与度配列を求める
@@ -639,6 +661,12 @@ def compose_costs_from_axis_matrix(
     「difficulty 100の道は体感で何倍の時間に感じるか−1」を意味する。省略時は`distance_m`
     を下地にする（Edge単位の評価をそのまま返す`compute_edge_costs_bulk`が使う。この経路の
     costは表示・回帰オラクル用で探索には渡らない）。difficultyの合成自体は下地に依らない。
+
+    `static_sums`は`axis_arrays`に**含めなかった**軸ぶんの`(重み付きスコアの和, 重みの和)`。
+    時刻ビンごとに合成し直すとき、時刻で変わらない軸の和を1回だけ求めて使い回すために渡す
+    （合成の時間は軸数にほぼ比例するため、動的な軸だけを毎回足す形にすると大きく減る）。
+    `with_contributions=False`は軸別寄与度（表示用）を組み立てない——探索へ渡すだけの
+    ビンでは要らない。
 
     Neumaier加算・`round1_array`はスカラー版`composite_difficulty`/
     `compute_cost_from_axis_scores`とビット単位で一致させるために必須
@@ -660,8 +688,8 @@ def compose_costs_from_axis_matrix(
     （代入する平均値自体が無い）ならこれまでどおりcost=distance_m（割増なし）。
     """
     n = len(distance_m)
-    score_terms = []
-    weight_terms = []
+    score_terms = [] if static_sums is None else [static_sums[0]]
+    weight_terms = [] if static_sums is None else [static_sums[1]]
     axis_weight_valid: list[tuple[str, np.ndarray, float, np.ndarray]] = []
     for axis_id, arr in axis_arrays.items():
         weight = weights.get(axis_id, 0.0)
@@ -695,10 +723,11 @@ def compose_costs_from_axis_matrix(
     # `RouteSegmentDetail.axis_difficulties`/`domain/route.py: merge_axis_difficulties`と
     # 同じ「区間単位は生値、ルート単位で丸め」という既存の扱いに揃える）。
     axis_contributions: dict[str, np.ndarray] = {}
-    for axis_id, arr, weight, valid in axis_weight_valid:
-        with np.errstate(invalid="ignore", divide="ignore"):
-            contribution = np.where(valid, arr * weight / weighted_weight_sums, np.nan)
-        axis_contributions[axis_id] = np.where(weighted_weight_sums == 0, np.nan, contribution)
+    if with_contributions:
+        for axis_id, arr, weight, valid in axis_weight_valid:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                contribution = np.where(valid, arr * weight / weighted_weight_sums, np.nan)
+            axis_contributions[axis_id] = np.where(weighted_weight_sums == 0, np.nan, contribution)
 
     # costの算出にだけ、重み付き軸が全欠損のEdgeへbbox内平均difficultyを
     # 代入する（composite自体は表示用にNaNのまま返す、上のdocstring参照）。
