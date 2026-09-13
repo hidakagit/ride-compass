@@ -43,7 +43,14 @@ async def ensure_caches_match_db(repository, *, force: bool = False) -> None:
         return
     _next_check_at = now + settings.derived_data_revision_check_interval_seconds
 
-    revision = await repository.get_derived_data_revision()
+    try:
+        revision = await repository.get_derived_data_revision()
+    except Exception:
+        # この確認はキャッシュの鮮度を保つためのもので、ルート生成そのものの前提ではない。
+        # ここで落とすと、世代を読めないだけでルートが返せなくなる。TTLは先に進めてあるため
+        # ログが溢れることもない。
+        logger.warning("派生データ世代を読めませんでした（キャッシュの追随を見送ります）", exc_info=True)
+        return
     if not graph_material_cache.sync_disk_cache_with_derived_data_revision(revision):
         return
     tile_score_matrix_cache.clear()

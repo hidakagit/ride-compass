@@ -91,3 +91,17 @@ async def test_changed_revision_drops_materials_and_score_matrix():
 
     assert graph_material_cache.get_tile_materials(12, 5, 6) is None
     assert tile_score_matrix_cache.size() == 0
+
+
+async def test_db_failure_does_not_break_the_caller():
+    """世代を読めないことは、ルート生成を止める理由にはならない。キャッシュは温存する。"""
+
+    class ExplodingRepository:
+        async def get_derived_data_revision(self):
+            raise RuntimeError("DBに触れない")
+
+    graph_material_cache.set_tile_materials(12, 5, 6, _materials())
+
+    await derived_data_revision_service.ensure_caches_match_db(ExplodingRepository())
+
+    assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
