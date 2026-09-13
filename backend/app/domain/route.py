@@ -100,6 +100,9 @@ class RouteCandidate(StrictModel):
     # そのまま増える。候補の順位付けには使わず（並び順は`overall_difficulty`昇順のまま）、
     # 「長い分だけ疲れる」を平均と併せて読み取るための判断材料として持つ。
     difficulty_load: float | None = None
+    # 所要時間の見積もり（秒）。区間の走行時間（走行モデル: 巡航速度・勾配・風から求めた
+    # 速度）＋停止の待ち＋ターンの待ち。経路の選び方には使っておらず、表示のためだけに持つ。
+    estimated_duration_seconds: float | None = None
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
     # `RouteSegmentDetail.axis_contributions`をルート全区間へ距離加重平均で
     # 集約したもの（`merge_axis_contributions`、`axis_difficulties`と同じ集約方法）。

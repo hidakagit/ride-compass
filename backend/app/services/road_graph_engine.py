@@ -65,7 +65,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from app.domain.time_zone import JST
-from app.domain.traffic import highway_rank
+from app.domain.cycling_speed import RiderProfile, route_duration_seconds
+from app.domain.traffic import POI_COUNT_KINDS, highway_rank, stop_seconds
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS, dynamic_axis_topological_order
 from app.domain.axis_display import axis_material_shares
@@ -123,7 +124,14 @@ from app.domain.routing import (
     turn_expanded_shortest_path,
 )
 from app.domain.weather import WeatherConditions
-from app.domain.wind import ASSUMED_SPEED_KMH, ROUTE_DETOUR_RATIO, WindForecastSeries, estimate_passage_hours, kmh_to_ms
+from app.domain.wind import (
+    ASSUMED_SPEED_KMH,
+    ROUTE_DETOUR_RATIO,
+    WindForecastSeries,
+    estimate_passage_hours,
+    kmh_to_ms,
+    wind_components,
+)
 from app.infrastructure import search_graph_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.elevation_attribute_service import ElevationAttributeService
@@ -220,6 +228,10 @@ class LegCostArrays:
     categorical_material_arrays: dict[str, np.ndarray]
     # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
     passage_hours: np.ndarray | None
+    # `full_edge_row`順の風の成分（m/s、正が向かい風）。所要時間の算出（走行モデル）が使う。
+    # 風のデータが無いレグは0。
+    headwind_ms: np.ndarray
+    crosswind_ms: np.ndarray
 
 
 class _LegCostComposer:
@@ -328,6 +340,11 @@ class _LegCostComposer:
             wind_series=self._wind_series, start=self.start, passage_hours=passage,
         )
         resolved = evaluate_dynamic_axis_arrays(self._static_axis_scores, dynamic_context)
+        wind_inputs = dynamic_context.wind_inputs()
+        if wind_inputs is None:
+            headwind = crosswind = np.zeros(len(self._score_matrix.bearing_deg))
+        else:
+            headwind, crosswind = wind_components(*wind_inputs, self._score_matrix.bearing_deg)
         # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
         published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
         cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
@@ -354,6 +371,8 @@ class _LegCostComposer:
             material_arrays=material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
             passage_hours=passage,
+            headwind_ms=headwind,
+            crosswind_ms=crosswind,
         )
         self._cache[key] = leg
         if passage is None:
@@ -1652,8 +1671,73 @@ class RoadGraphEngine:
             edge_point_offsets=edge_point_offsets,
             segments=segments,
             material_category_shares=material_category_shares,
+            estimated_duration_seconds=self._estimate_duration_seconds(context, edges_in_path, leg_of_edge),
             **elevation_stats,
         )
+
+    def _estimate_duration_seconds(
+        self, context: _RoadGraphContext, edges: list[EdgeLike], leg_of_edge: list[int]
+    ) -> float | None:
+        """候補の所要時間（秒）＝ 区間の走行時間 ＋ 停止の待ち ＋ ターンの待ち。
+
+        走行時間は走行モデル（`domain/cycling_speed.py`）で、勾配・風の成分・巡航速度から
+        区間ごとに求める。停止は種別ごとの秒（`domain/traffic.py: STOP_SECONDS`）×その区間に
+        ある数、ターンは遷移ごとの秒（`TurnExpandedStructure`）を経路に沿って足す。
+        """
+        if not edges:
+            return None
+        profile = RiderProfile(cruise_speed_kmh=context.composer.speed_kmh)
+        count = len(edges)
+        distance_m = np.zeros(count)
+        grade = np.zeros(count)
+        headwind = np.zeros(count)
+        crosswind = np.zeros(count)
+        stop_total = 0.0
+        for position, (edge, leg_index) in enumerate(zip(edges, leg_of_edge)):
+            distance_m[position] = edge.distance_m
+            leg = context.legs[leg_index] if leg_index < len(context.legs) else context.legs[0]
+            row = context.full_edge_row.get(edge.edge_id)
+            if row is None:
+                continue
+            headwind[position] = leg.headwind_ms[row]
+            crosswind[position] = leg.crosswind_ms[row]
+            gradient = leg.material_arrays.get("gradient_percent")
+            if gradient is not None and not math.isnan(gradient[row]):
+                grade[position] = gradient[row] / 100.0
+            for kind in POI_COUNT_KINDS:
+                per_km = leg.material_arrays.get(f"poi_{kind}_per_km")
+                if per_km is not None and not math.isnan(per_km[row]):
+                    stop_total += per_km[row] * (edge.distance_m / 1000.0) * stop_seconds(kind)
+        return route_duration_seconds(
+            profile, distance_m, grade, headwind,
+            stop_seconds_total=stop_total,
+            turn_seconds_total=self._turn_seconds_along(context, edges),
+            crosswind_ms=crosswind,
+        )
+
+    def _turn_seconds_along(self, context: _RoadGraphContext, edges: list[EdgeLike]) -> float:
+        """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。"""
+        structure = context.turn_structure
+        lazy_graph = context.lazy_graph
+        if structure is None or lazy_graph is None:
+            return 0.0
+        states: list[int] = []
+        for edge in edges:
+            pair = (
+                lazy_graph.node_id_to_index.get(edge.from_node_id),
+                lazy_graph.node_id_to_index.get(edge.to_node_id),
+            )
+            state = lazy_graph.edge_index_by_node_pair.get(pair) if None not in pair else None
+            if state is None:
+                return 0.0
+            states.append(state)
+        total = 0.0
+        for previous, following in zip(states, states[1:]):
+            for entry in range(structure.indptr[previous], structure.indptr[previous + 1]):
+                if structure.target_state[entry] == following:
+                    total += float(structure.turn_seconds[entry])
+                    break
+        return total
 
     def _build_segment_details(
         self,

@@ -37,6 +37,14 @@ def _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg) -> np.ndarr
     return np.radians(np.asarray(wind_direction_deg, dtype=float) - np.asarray(travel_bearing_deg, dtype=float))
 
 
+def wind_components(wind_speed_ms, wind_direction_deg, travel_bearing_deg) -> tuple[np.ndarray, np.ndarray]:
+    """風を進行方向の成分（正が向かい風）と横成分へ分解する（m/s）。走行モデル
+    （`domain/cycling_speed.py`）が空気抵抗を求めるのに使う。"""
+    angle = _wind_relative_angle_rad(wind_direction_deg, travel_bearing_deg)
+    speed = np.asarray(wind_speed_ms, dtype=float)
+    return speed * np.cos(angle), speed * np.sin(angle)
+
+
 def wind_drag_ratio_array(wind_speed_ms, wind_direction_deg, travel_bearing_deg, travel_speed_ms: float) -> np.ndarray:
     """風の追加負荷（材料`wind_drag_ratio`、無次元）。相対風速ベクトルの二乗則で、無風時に
     対する進行方向の空気抵抗の増分を`WIND_DRAG_REFERENCE_SPEED_MS`での無風時の抵抗を1と

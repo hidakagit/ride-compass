@@ -3921,6 +3921,17 @@
             ],
             "title": "Difficulty Load"
           },
+          "estimated_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Duration Seconds"
+          },
           "axis_difficulties": {
             "additionalProperties": {
               "type": "number"

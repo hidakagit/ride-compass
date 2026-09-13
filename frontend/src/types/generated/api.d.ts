@@ -1712,6 +1712,8 @@ export interface components {
             overall_difficulty?: number | null;
             /** Difficulty Load */
             difficulty_load?: number | null;
+            /** Estimated Duration Seconds */
+            estimated_duration_seconds?: number | null;
             /** Axis Difficulties */
             axis_difficulties?: {
                 [key: string]: number;

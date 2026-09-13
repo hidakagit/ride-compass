@@ -365,6 +365,24 @@ async def test_generate_loops_returns_one_candidate_per_reachable_direction():
     assert all(c.geometry["type"] == "LineString" for c in candidates)
 
 
+async def test_candidates_carry_an_estimated_duration():
+    """候補が所要時間（走行＋停止＋ターン）を持ち、距離と巡航速度から妥当な範囲に入る。
+
+    経路の選び方には使っておらず表示のためだけに持つ値だが、入っていなければ画面に出せない。
+    """
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    generator, _, _ = make_generator(graph)
+
+    candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
+
+    assert candidates
+    for candidate in candidates:
+        duration = candidate.estimated_duration_seconds
+        assert duration is not None and duration > 0
+        # 停止・ターンを含むため、巡航速度で割った時間（下限）より短くはならない。
+        assert duration >= candidate.distance_km / ASSUMED_SPEED_KMH * 3600 * 0.95
+
+
 async def test_generate_loops_skips_directions_with_no_path():
     graph = build_loop_graph(ORIGIN, distance_km=30.0, skip_bearings={0, 180})
     generator, _, _ = make_generator(graph)
