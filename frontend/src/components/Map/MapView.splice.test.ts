@@ -4,8 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   SPLICE_DASH_EXPRESSION,
+  SPLICE_HIT_LAYER_ID,
+  SPLICE_HIT_WIDTH,
+  SPLICE_LAYER_ID,
   SPLICE_OPACITY_EXPRESSION,
   SPLICE_WIDTH_EXPRESSION,
+  drawSpliceStretches,
   spliceStretchesToFeatureCollection,
 } from "./MapView";
 
@@ -53,5 +57,42 @@ describe("spliceStretchesToFeatureCollection", () => {
     ]);
 
     expect(data.features.map((f) => f.properties.taken)).toEqual([false, true]);
+  });
+});
+
+// 帯そのものは幅3〜5pxで、指では狙えない（実機のスマホでほぼ選べなかった）。
+describe("乗り換え区間の当たり判定", () => {
+  function fakeMap() {
+    const layers: { id: string; paint?: Record<string, unknown> }[] = [];
+    return {
+      layers,
+      // runWhenStyleReadyはこの印で「スタイル準備済み」と判断する
+      __rcStyleReady: true,
+      isStyleLoaded: () => true,
+      getSource: () => undefined,
+      addSource: () => {},
+      addLayer: (spec: { id: string; paint?: Record<string, unknown> }) => layers.push(spec),
+      getLayer: (id: string) => layers.find((layer) => layer.id === id),
+      setLayoutProperty: () => {},
+      on: () => {},
+      once: () => {},
+      off: () => {},
+    };
+  }
+
+  it("見た目の帯より太い、透明な当たり判定レイヤーを重ねる", () => {
+    const map = fakeMap();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    drawSpliceStretches(map as any, [
+      { index: 0, taken: false, coordinates: [[139.7, 35.7], [139.71, 35.7]] },
+    ]);
+
+    const hit = map.layers.find((layer) => layer.id === SPLICE_HIT_LAYER_ID);
+    expect(hit).toBeDefined();
+    expect(hit?.paint?.["line-width"]).toBe(SPLICE_HIT_WIDTH);
+    expect(hit?.paint?.["line-opacity"]).toBe(0);
+    // 見た目の帯は残す（当たり判定で置き換えない）
+    expect(map.layers.some((layer) => layer.id === SPLICE_LAYER_ID)).toBe(true);
   });
 });
