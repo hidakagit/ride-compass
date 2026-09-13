@@ -16,6 +16,7 @@ from app.infrastructure.derived_data_freshness import (
     DerivedDataFreshnessCounts,
     GenerationFreshnessCounts,
     build_completeness_sql,
+    completeness_spec,
     build_generation_freshness_sql,
 )
 from app.services.derived_data_freshness_service import build_freshness_report
@@ -198,7 +199,7 @@ def test_build_completeness_sql_counts_the_population_and_the_uncalculated_rows(
     for spec in COMPLETENESS_SPECS:
         sql = str(build_completeness_sql(spec))
         assert f"FROM {spec.population_table}" in sql
-        assert f"FILTER (WHERE {spec.uncalculated})" in sql
+        assert f"FILTER (WHERE ({spec.in_scope}) AND ({spec.uncalculated}))" in sql
         assert "count(*) AS population" in sql
 
 
@@ -329,3 +330,33 @@ def test_completeness_entries_carry_the_batch_to_rerun_and_its_caveat():
 
     # 未計算を厳密に表せない列は但し書きを持つ（road_nodes.degreeはNOT NULL DEFAULT 0）。
     assert any(entry.note for entry in report.completeness)
+
+
+def test_owner_batches_select_their_targets_from_the_declared_scope():
+    """バッチの対象条件と台帳の未計算判定が、同じ宣言から出ていること。
+
+    別々に持つと、バッチが永久に計算しない行を台帳が未計算として数え続ける。台帳は
+    「すべて最新」へ到達できなくなり、常に出続ける警告は読まれなくなる（実際に蛇行で
+    起きていた）。ここが通らなくなったら、条件をバッチ側へ書き写したということ。
+    """
+    import importlib
+
+    for spec in COMPLETENESS_SPECS:
+        module = importlib.import_module(f"app.batch.{spec.owner}")
+        target_stmt = getattr(module, "target_stmt", None)
+        if spec.in_scope == "TRUE":
+            # 全行が対象のバッチは揃えるものが無い（対象を選ぶselectを持たない実装もある）。
+            continue
+        assert target_stmt is not None, f"{spec.owner}: 対象条件を持つなら target_stmt を公開すること"
+        assert spec.in_scope in " ".join(str(target_stmt()).split()), (
+            f"{spec.owner}: 対象を選ぶselectが宣言の in_scope を使っていない"
+        )
+
+
+def test_completeness_sql_excludes_rows_the_batch_cannot_process():
+    """未計算の集計が`in_scope`で絞られていること（母集団は絞らない）。"""
+    spec = completeness_spec("road_edges.curvature_deg_per_km")
+    sql = " ".join(str(build_completeness_sql(spec)).split())
+
+    assert f"FILTER (WHERE ({spec.in_scope}) AND ({spec.uncalculated}))" in sql
+    assert "count(*) AS population," in sql  # 母集団は全件のまま

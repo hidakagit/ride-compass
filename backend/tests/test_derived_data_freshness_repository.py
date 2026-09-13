@@ -198,3 +198,25 @@ async def test_elevation_completeness_counts_edges_without_a_row(road_graph_repo
     elevation = _completeness(counts, "elevation_attributes")
     assert elevation.population == 2  # 母集団はroad_edges
     assert elevation.uncalculated == 1  # edge_ids[1]は行が無い
+
+
+async def test_curvature_completeness_ignores_edges_the_batch_cannot_measure(
+    road_graph_repository, road_graph_session
+):
+    """長さ0のEdgeは度/kmを定義できずバッチの対象外。未計算に数えると、作り直しても
+    減らない件数が残り続け、台帳が「すべて最新」へ到達できなくなる。"""
+    edge_ids = await _seed_one_way_and_edges(road_graph_repository, road_graph_session)
+    await road_graph_session.execute(
+        text("UPDATE road_edges SET curvature_deg_per_km = NULL"),
+    )
+    await road_graph_session.execute(
+        text("UPDATE road_edges SET distance_m = 0 WHERE edge_id = :edge_id"),
+        {"edge_id": edge_ids[0]},
+    )
+    await road_graph_session.commit()
+
+    counts = await DerivedDataFreshnessQuery(road_graph_session).get_freshness_counts()
+
+    curvature = _completeness(counts, "road_edges.curvature_deg_per_km")
+    assert curvature.population == 2  # 母集団は測れない行も含めた全件
+    assert curvature.uncalculated == 1  # 測れる方の1件だけ
