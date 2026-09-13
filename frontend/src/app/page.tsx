@@ -400,6 +400,9 @@ export default function Home() {
   const handleWaypointRemove = useCallback((index: number) => {
     setWaypoints((prev) => prev.filter((_, i) => i !== index));
   }, []);
+  const handleWaypointMove = useCallback((index: number, point: Coordinates) => {
+    setWaypoints((prev) => prev.map((current, i) => (i === index ? point : current)));
+  }, []);
   const handleWaypointsClear = useCallback(() => setWaypoints([]), []);
 
   // 目的地（最大1点）。指定時は起点に戻らず目的地で終わる片道ルートになる
@@ -2197,7 +2200,14 @@ export default function Home() {
         {/* app-map-paneはglobals.css側のMapLibre帰属表示（オフセット・配色）規則
             （.maplibregl-ctrl-bottom-*、globals.cssのapp-debug-console等と同じマーカークラスの
             手法）が参照するグローバルなマーカークラス。 */}
-        <div ref={mapPaneRef} className={`${styles.mapPane} app-map-pane`}>
+        {/* 下部シートが占める高さを地図側へ渡す。地図の操作ボタン（現在地・気象タイム
+            ライン等）は画面の下端からの距離で置いているため、シートを持ち上げるとその裏へ
+            隠れる。CSS側はこの値を足した位置と元の位置の大きい方を使う。 */}
+        <div
+          ref={mapPaneRef}
+          className={`${styles.mapPane} app-map-pane`}
+          style={{ "--mobile-sheet-height": isMobile && mobileSheet ? `${mobileSheetHeightVh}vh` : "0px" } as React.CSSProperties}
+        >
           <MapView
             routes={routes}
             spliceStretches={spliceStretchFeatures}
@@ -2250,6 +2260,7 @@ export default function Home() {
             // 復元される）。
             waypoints={routeMode === "destination" ? waypoints : []}
             onWaypointRemove={handleWaypointRemove}
+            onWaypointMove={handleWaypointMove}
             destination={routeMode === "destination" ? destination : null}
 
             onDestinationClear={handleDestinationClear}

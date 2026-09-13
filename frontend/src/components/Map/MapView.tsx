@@ -113,6 +113,8 @@ function mapStyleUrl(): string {
 // 出発地点マーカーの色。GPS取得失敗時のフォールバック（"default"）だけをグレーにし、
 // それ以外（実際のGPS取得・手動指定）は赤にする。
 const ORIGIN_MARKER_COLOR = "#e11d48";
+const WAYPOINT_MARKER_COLOR = "#2563eb";
+const DESTINATION_MARKER_COLOR = "#059669";
 const ORIGIN_MARKER_FALLBACK_COLOR = "#9ca3af";
 
 // 出発地点マーカーは、「現在地に移動」ボタン（page.tsx）と同じSVG（十字線+中心ドット、
@@ -132,6 +134,39 @@ function createOriginMarkerElement(color: string): HTMLDivElement {
     `stroke="${color}" stroke-width="2" stroke-linecap="round" />` +
     `</svg>`;
   return el;
+}
+
+// 経由地・目的地のピン。3つの地点はどれも「つかんで動かせる」ため、見た目も同じ丸い
+// バッジで揃える（出発地=createOriginMarkerElement、色と中身だけが違う）。白縁と影は
+// 地図のどの配色の上でも輪郭が消えないために要る。
+// touch-action:noneが無いと、地図をドラッグでパンしようとした指の起点がこの要素に乗った
+// 場合、ブラウザが要素自身のタッチ挙動（既定=auto）を優先してMapLibre側のパンジェスチャー
+// として確定しないことがある（.locateButtonが同じ理由で持っている対策と同じもの）。
+function createPointMarkerElement(background: string, content: string): HTMLDivElement {
+  const el = document.createElement("div");
+  el.textContent = content;
+  el.style.cssText =
+    `width:26px; height:26px; border-radius:50%; background:${background}; color:#fff; ` +
+    "font-size:13px; font-weight:bold; display:flex; align-items:center; justify-content:center; " +
+    "border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4); touch-action:none; cursor:grab;";
+  return el;
+}
+
+// マーカーをドラッグした直後は、同じ操作の終わりにclickも飛ぶ。つかんで動かしただけで
+// 削除・解除が起きないよう、ドラッグ由来の1回を読み飛ばす。
+function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onClick: () => void): void {
+  let dragged = false;
+  marker.on("dragstart", () => {
+    dragged = true;
+  });
+  element.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (dragged) {
+      dragged = false;
+      return;
+    }
+    onClick();
+  });
 }
 
 // 国土地理院の色別標高図（ラスタタイル、APIキー不要）。basemap/jma-tileと同じ
@@ -2521,6 +2556,8 @@ interface MapViewProps {
   onPinPlace: (role: PinRole, coordinates: Coordinates) => void;
   /** 経由地マーカークリックで呼ばれる（該当indexを削除）。 */
   onWaypointRemove: (index: number) => void;
+  /** 経由地マーカーをドラッグして動かしたときに呼ばれる（該当indexの座標を差し替え）。 */
+  onWaypointMove: (index: number, coordinates: Coordinates) => void;
   /** 目的地（最大1点、指定時は起点に戻らず目的地で終わる片道ルートになる）。 */
   destination: Coordinates | null;
   /** 目的地マーカークリックで呼ばれる（解除）。 */
@@ -2581,6 +2618,7 @@ export default function MapView({
   armedPinRole,
   onPinPlace,
   onWaypointRemove,
+  onWaypointMove,
   destination,
   onDestinationClear,
   onOriginSet,
@@ -2659,6 +2697,7 @@ export default function MapView({
   const onPinPlaceRef = useRef(onPinPlace);
   const armedPinRoleRef = useRef(armedPinRole);
   const onWaypointRemoveRef = useRef(onWaypointRemove);
+  const onWaypointMoveRef = useRef(onWaypointMove);
   // 同じ理由で目的地関連のコールバック・armed状態もrefで最新値を読む。
   const onDestinationClearRef = useRef(onDestinationClear);
   // 周回モード中は空白地点クリックでの経由地追加を行わない。
@@ -2732,6 +2771,10 @@ export default function MapView({
   useEffect(() => {
     onWaypointRemoveRef.current = onWaypointRemove;
   }, [onWaypointRemove]);
+
+  useEffect(() => {
+    onWaypointMoveRef.current = onWaypointMove;
+  }, [onWaypointMove]);
 
 
   useEffect(() => {
@@ -3424,13 +3467,9 @@ export default function MapView({
   }, [location, locationSource]);
 
   // 経由地マーカーを更新（最大でも8件程度のため、差分更新はせず
-  // 既存マーカーを全部remove→全部作り直す簡易実装）。現在地マーカー（#e11d48）とは
-  // 別色（#2563eb）にし、番号付きの円形divで訪問順序を示す。クリックで即削除する
+  // 既存マーカーを全部remove→全部作り直す簡易実装）。出発地マーカー（#e11d48）とは
+  // 別色（#2563eb）にし、番号で訪問順序を示す。つかんで動かせ、クリックで即削除する
   // （確認ダイアログなし、間違えてもすぐ打ち直せるため）。
-  // touch-action:noneが無いと、地図をドラッグでパンしようとした指の起点がこの
-  // マーカー要素に乗った場合、ブラウザがこの要素自身のタッチ挙動（既定=auto）を
-  // 優先してしまいMapLibre側のパンジェスチャーとして確定しないことがある
-  // （.locateButtonが同じ理由で既に持っている対策と同じもの）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3438,27 +3477,24 @@ export default function MapView({
     const applyWaypointMarkers = () => {
       waypointMarkersRef.current.forEach((marker) => marker.remove());
       waypointMarkersRef.current = waypoints.map((point, index) => {
-        const el = document.createElement("div");
-        el.textContent = String(index + 1);
-        el.style.cssText =
-          "width:24px; height:24px; border-radius:50%; background:#2563eb; color:#fff; " +
-          "font-size:12px; font-weight:bold; display:flex; align-items:center; justify-content:center; " +
-          "cursor:pointer; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4); touch-action:none;";
-        el.addEventListener("click", (event) => {
-          event.stopPropagation();
-          onWaypointRemoveRef.current(index);
-        });
-        return new maplibregl.Marker({ element: el })
+        const el = createPointMarkerElement(WAYPOINT_MARKER_COLOR, String(index + 1));
+        const marker = new maplibregl.Marker({ element: el, draggable: true })
           .setLngLat([point.longitude, point.latitude])
           .addTo(map);
+        marker.on("dragend", () => {
+          const lngLat = marker.getLngLat();
+          onWaypointMoveRef.current(index, { latitude: lngLat.lat, longitude: lngLat.lng });
+        });
+        bindDragAwareClick(marker, el, () => onWaypointRemoveRef.current(index));
+        return marker;
       });
     };
 
     runWhenStyleReady(map, applyWaypointMarkers);
   }, [waypoints]);
 
-  // 目的地マーカーを更新（最大1点）。経由地の番号付き円とは見た目を変え、
-  // 「終点」であることが一目で分かる旗アイコン(絵文字)にする。クリックで解除。
+  // 目的地マーカーを更新（最大1点）。経由地と同じ丸いバッジで、中身の旗が「終点」を示す。
+  // つかんで動かせ、クリックで解除。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3468,19 +3504,16 @@ export default function MapView({
       destinationMarkerRef.current = null;
       if (!destination) return;
 
-      const el = document.createElement("div");
-      el.textContent = "🏁";
-      // touch-action:noneの理由は経由地マーカーと同じ（このコメント直上の
-      // 経由地マーカーのuseEffect参照）。
-      el.style.cssText =
-        "font-size:28px; line-height:1; cursor:pointer; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5)); touch-action:none;";
-      el.addEventListener("click", (event) => {
-        event.stopPropagation();
-        onDestinationClearRef.current();
-      });
-      destinationMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom" })
+      const el = createPointMarkerElement(DESTINATION_MARKER_COLOR, "⚑");
+      const marker = new maplibregl.Marker({ element: el, draggable: true })
         .setLngLat([destination.longitude, destination.latitude])
         .addTo(map);
+      marker.on("dragend", () => {
+        const lngLat = marker.getLngLat();
+        onPinPlaceRef.current("destination", { latitude: lngLat.lat, longitude: lngLat.lng });
+      });
+      bindDragAwareClick(marker, el, () => onDestinationClearRef.current());
+      destinationMarkerRef.current = marker;
     };
 
     runWhenStyleReady(map, applyDestinationMarker);
