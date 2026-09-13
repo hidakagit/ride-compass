@@ -1073,17 +1073,17 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
     // 入口を押すまでは編集面は出ない
-    expect(screen.queryByText(/^元: /)).toBeNull();
+    expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
 
     // 元は押した候補に固定され、区間ごとの選択肢が出る
-    expect(screen.getByText(/^元: /)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
     expect(screen.getByText("1本目の区間")).toBeInTheDocument();
 
     // 戻ると候補の一覧へ戻る
     await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
-    expect(screen.queryByText(/^元: /)).toBeNull();
+    expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull();
     expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
   });
 

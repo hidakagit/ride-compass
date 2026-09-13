@@ -1,7 +1,7 @@
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
@@ -25,11 +25,25 @@
   cursor: pointer;
 }
 
-/* 編集の元（1本に固定）。 */
+/* 編集の元（1本に固定）と、元との差を左右に置く1行。 */
 .base {
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: 12px;
   color: var(--color-muted);
+}
+
+.diff,
+.progress {
+  margin-left: auto;
+  font-weight: 700;
+}
+
+/* 選んだ道と同じ暖色。差は「いま選んでいる組み合わせの結果」のため色を揃える。 */
+.diff {
+  color: var(--color-route-splice);
 }
 
 .headingRow {
@@ -46,28 +60,30 @@
   composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
 
-.head {
+/* 操作アイコンは見出し行の右端。ルート結果ヘッダーの操作アイコンと同じ大きさ・枠にする。 */
+.headingActions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
 }
 
-.head label {
-  font-size: 12px;
-  color: var(--color-muted);
+.actionIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
 }
 
-.head select {
-  font: inherit;
-  font-size: 13px;
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-surface);
-  color: inherit;
+.actionIcon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .note {
@@ -83,119 +99,50 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 6px;
 }
 
-.row {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface);
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.row:hover {
-  background: var(--color-surface-hover);
-}
-
-.tick {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border: 1.5px solid var(--color-border);
-  border-radius: 5px;
-  font-size: 11px;
-  line-height: 1;
-  color: transparent;
-}
-
-.row[aria-pressed="true"] .tick {
-  background: var(--color-route-splice);
-  border-color: var(--color-route-splice);
-  color: #fff;
-}
-
-.row[aria-pressed="true"] {
-  border-color: var(--color-route-splice);
-}
-
-.where {
-  display: flex;
-  flex-direction: column;
-}
-
-.sub {
-  font-size: 11px;
-  color: var(--color-muted);
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.actions button {
-  font: inherit;
-  font-size: 13px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: inherit;
-  cursor: pointer;
-}
-
-.actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* 区間1つぶんの行。左に区間、右に選べる道（元のまま＋候補横断の代替）。 */
+/* 区間1つぶんの行。左に区間、右に選べる道（元のまま＋候補横断の代替）。区間が増えても
+   1区間=1行に収め、選べる道が多い区間は行の中で横へ送る。 */
 .groupRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.groupRow::-webkit-scrollbar {
+  display: none;
+}
+
+.where {
+  font-size: 11px;
+  color: var(--color-muted);
+  white-space: nowrap;
 }
 
 .options {
   display: flex;
-  flex-wrap: wrap;
   gap: 4px;
-  margin-left: auto;
 }
 
 .option,
 .optionOn {
-  font-size: 11px;
+  font-size: 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--foreground);
-  padding: 2px 7px;
+  padding: 3px 8px;
   cursor: pointer;
   white-space: nowrap;
 }
 
 /* 選んだ道は地図の帯（暖色）と同じ扱いで目立たせる。 */
 .optionOn {
-  border-color: #f59e0b;
-  background: #f59e0b;
+  border-color: var(--color-route-splice);
+  background: var(--color-route-splice);
   color: #fff;
-}
-
-/* 「差分を見る」で出した、元ルートとの差。作る前の判断材料のため操作の直前へ置く。 */
-.diff {
-  margin: 6px 0 0;
-  font-size: 12px;
-  font-weight: 700;
 }

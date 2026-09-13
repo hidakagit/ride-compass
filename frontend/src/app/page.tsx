@@ -844,16 +844,22 @@ export default function Home() {
       (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1),
     );
   };
+  // チップは1区間=1行へ収めるため単位を持たない（単位は左の区間ラベルに出ている）。
+  // 読み上げ・ツールチップ側は単位付きの文にする。
   const formatDeltaKm = (deltaKm: number) => {
-    if (Math.abs(deltaKm) < 0.05) return "距離ほぼ同じ";
-    return `${deltaKm > 0 ? "+" : "−"}${Math.abs(deltaKm).toFixed(1)}km`;
+    if (Math.abs(deltaKm) < 0.05) return "同じ";
+    return `${deltaKm > 0 ? "+" : "−"}${Math.abs(deltaKm).toFixed(1)}`;
+  };
+  const describeDeltaKm = (deltaKm: number) => {
+    if (Math.abs(deltaKm) < 0.05) return "距離はほぼ同じ";
+    return `${Math.abs(deltaKm).toFixed(1)}km${deltaKm > 0 ? "長い" : "短い"}`;
   };
   const spliceGroupViews = spliceGroups.map((group, groupIndex) => {
     const range = spliceStretchRangeKm(group.stretch);
     const baseLengthKm = range ? range.endKm - range.startKm : null;
     return {
       label: range
-        ? `${range.startKm.toFixed(1)}〜${range.endKm.toFixed(1)}km地点`
+        ? `${range.startKm.toFixed(1)}〜${range.endKm.toFixed(1)}km`
         : `${groupIndex + 1}本目の区間`,
       options: group.options.map((option) => {
         const lengthKm = optionLengthKm(option);
@@ -866,7 +872,7 @@ export default function Home() {
               key: alternativeKey(option),
               label: formatDeltaKm(delta),
               // 同じ差の道が複数あるとき、どの候補から来た道かで見分ける。
-              hint: `${routeLabel(option.candidateId)}の道`,
+              hint: `${routeLabel(option.candidateId)}の道・${describeDeltaKm(delta)}`,
             };
       }),
       chosenKey: spliceChoices[groupIndex] ?? null,
