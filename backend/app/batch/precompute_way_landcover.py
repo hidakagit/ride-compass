@@ -36,6 +36,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batch._common import batch_session_factory, count_targets, stream_id_chunks
 from app.config import settings
+from app.domain.derived_data_versions import (
+    WAY_LANDCOVER_ALGORITHM_VERSION,
+    WAY_LANDCOVER_DEFAULT_BUFFER_M,
+    WAY_LANDCOVER_DEFAULT_INNER_M,
+    way_landcover_algorithm_version,
+)
 from app.domain.landcover import WayLandcover, class_percentages
 from app.infrastructure.proj_data import pin_bundled_proj_data
 from app.infrastructure.road_graph_models import OsmRawWayRow, WayLandcoverRow
@@ -44,8 +50,8 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 logger = logging.getLogger("ridecompass.precompute_way_landcover")
 
 CHUNK_SIZE = 5_000
-DEFAULT_BUFFER_M = 100.0
-DEFAULT_INNER_M = 10.0
+DEFAULT_BUFFER_M = WAY_LANDCOVER_DEFAULT_BUFFER_M
+DEFAULT_INNER_M = WAY_LANDCOVER_DEFAULT_INNER_M
 DATA_SOURCE = "esri-io-lulc"
 
 _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
@@ -55,15 +61,14 @@ _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHE
 _DATA_VERSION_FROM_FILENAME_RE = re.compile(r"(\d{4})\d{4}-\d{8}")
 
 
-def algorithm_version(inner_m: float, buffer_m: float) -> str:
-    return f"v1-ring{int(inner_m)}-{int(buffer_m)}"
+# 径ごとに版文字列を変える規則そのものは`domain/derived_data_versions.py`が持つ
+# （鮮度台帳もこの規則で現在の版を組み立てる）。
+algorithm_version = way_landcover_algorithm_version
 
 
-# 派生データ鮮度台帳（derived_data_freshness.py: GENERATION_FRESHNESS_SPECS）が参照する
-# 「現在の既定リング径」の版数。--buffer-m/--inner-mでこれと異なる値を指定して実行すると、
-# 鮮度台帳はその行を古い版として検知する（`algorithm_version`関数のとおり径ごとに
-# 版文字列が変わるため）。
-ALGORITHM_VERSION = algorithm_version(DEFAULT_INNER_M, DEFAULT_BUFFER_M)
+# 現在の既定リング径での版数。--buffer-m/--inner-mでこれと異なる値を指定して実行すると、
+# 鮮度台帳はその行を古い版として検知する（径ごとに版文字列が変わるため）。
+ALGORITHM_VERSION = WAY_LANDCOVER_ALGORITHM_VERSION
 
 
 def infer_data_version_from_filename(path: str) -> str | None:

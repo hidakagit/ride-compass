@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.domain.derived_data_versions import EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION
 
 logger = logging.getLogger("ridecompass.precompute_edge_attribute_counts")
 
@@ -42,7 +43,7 @@ CHUNK_SIZE = 4_000
 # 計算ロジック自体（半径・重み付け等）の版数。region_service.py: ROAD_SURFACE_TILE_VERSIONと
 # 同じ「パラメータを変えたら手動で上げる」運用。入力データの版数（source_*_import_run_id）
 # とは別軸で、入力が同じでもロジック変更時は再計算が要ることを判別可能にするために持つ。
-ALGORITHM_VERSION = "v3"
+ALGORITHM_VERSION = EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION
 
 _LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
     "SELECT MAX(id) FROM accident_import_runs WHERE status = 'succeeded'"

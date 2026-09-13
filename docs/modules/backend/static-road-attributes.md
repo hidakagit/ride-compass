@@ -10,7 +10,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、開放度評価軸の材料）（[region.py](routing-engine.md)は別モジュール管轄） |
+| domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、開放度評価軸の材料）・`derived_data_versions.py`（事前計算バッチの系譜版数。バッチ本体ではなくここに置く——鮮度台帳がbatchをimportすると本番webに無い依存を連鎖で引き込む）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須） |
@@ -243,7 +243,12 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 その**網羅性は`app/batch/precompute_*.py`側から引いて検査する**——`ALGORITHM_VERSION`を
 宣言するバッチが台帳に無ければテストが落ちる。台帳に並ぶ名前を書き写す形の検査だと、
 新しいバッチが載らなくても「今あるものが今あるものと一致する」で通ってしまい、その
-派生テーブルの陳腐化が管理画面から見えないまま残る。`elevation_attributes`は
+派生テーブルの陳腐化が管理画面から見えないまま残る。版数そのものは
+`domain/derived_data_versions.py`が持ち、台帳もバッチもそこから読む——**台帳がバッチを
+モジュールトップでimportすると、バッチへ`requirements-batch.txt`限定の依存を1行足しただけで
+本番webイメージが起動できなくなる**（テストとCIはbatch依存が入っているため緑のまま通る。
+`scripts/review_checks.py`の`web_layer_batch_import`がこの向きのimportを機械的に弾く）。
+`elevation_attributes`は
 この列を持たないため（[elevation.md](elevation.md)参照）、世代比較ではなく`road_edges`
 との行数差分による完成度のみを別枠で扱う。`GET /api/admin/derived-data/freshness`
 （Basic認証必須）が`/admin`「鮮度」タブ（[axis-studio.md](../frontend/axis-studio.md)）へ

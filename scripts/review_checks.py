@@ -262,6 +262,35 @@ def find_bare_basemodel_violations(source_lines: dict[str, list[tuple[int, str]]
     return out
 
 
+# webアプリが読み込む層から`app/batch`をモジュールトップでimportすると、バッチへ依存を1行
+# 足しただけで本番webが起動時に落ちる。本番webイメージは`requirements.txt`しか入れない一方、
+# batchは`requirements-batch.txt`限定の依存（rasterio等）を使うためで、テストとCIはbatch依存が
+# 入っているため緑のまま通る（本番でクラッシュループになった実績があり、docs/tasks/T630.md・
+# docs/tasks/T814.md参照）。関数内の遅延importは起動時に評価されないため対象外。
+WEB_LAYER_DIRS = (
+    "backend/app/api/",
+    "backend/app/services/",
+    "backend/app/infrastructure/",
+    "backend/app/domain/",
+)
+BATCH_TOPLEVEL_IMPORT_RE = re.compile(r"^(?:from|import)\s+app\.batch\b")
+
+
+def find_web_layer_batch_imports(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
+    out = []
+    for path, lines in source_lines.items():
+        if not path.startswith(WEB_LAYER_DIRS):
+            continue
+        for lineno, line in lines:
+            if BATCH_TOPLEVEL_IMPORT_RE.match(line):
+                out.append(
+                    f"{path}:{lineno}: webアプリが読む層が`app.batch`をモジュールトップでimportしている"
+                    "（batch専用依存を連鎖で引き込み本番webだけ起動できなくなる。共有したい値は"
+                    "`domain/derived_data_versions.py`のようにdomainへ置くか、関数内へ遅延させる）"
+                )
+    return out
+
+
 # 材料解決の経路がway_tagsから読んでよいキーは、取込時の許可リスト
 # （`domain/osm_adapter.py: ALLOWED_WAY_TAGS`）に載っているものだけ。highway/surface/oneway
 # は専用列でtags jsonbに入らないため、ここから読むと材料が全区間で欠損する。
@@ -1441,6 +1470,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "source_narrative": frozenset({"staged", "since"}),
     "redis_skeleton": frozenset({"staged", "since", "full"}),
     "bare_basemodel": frozenset({"staged", "since", "full"}),
+    "web_layer_batch_import": frozenset({"staged", "since", "full"}),
     "undeclared_dead_refs": frozenset({"staged", "since", "full"}),
     # 免除した段落の中身は常に参考表示（0件で黙らないためのもので、ブロックはしない）。
     "undeclared_dead_refs_exempted": frozenset(),
@@ -1503,6 +1533,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_redis_skeleton_violations(source_lines)))
         sections.append(("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
                          find_bare_basemodel_violations(source_lines)))
+        sections.append(("web_layer_batch_import",
+                         "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/tasks/T814.md参照）",
+                         find_web_layer_batch_imports(source_lines)))
         sections.append(("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
                          find_way_tag_allowlist_violations(source_lines)))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
@@ -1596,6 +1629,13 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_redis_skeleton_violations(source_lines)))
         sections.append(("bare_basemodel", "素のBaseModel継承（全件、docs/tasks/T721.md参照）",
                          find_bare_basemodel_violations({
+                             rel(p): list(enumerate(read_text(p).splitlines(), 1))
+                             for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
+                             if p.exists()
+                         })))
+        sections.append(("web_layer_batch_import",
+                         "webアプリが読む層からのapp.batchのトップレベルimport（全件、docs/tasks/T814.md参照）",
+                         find_web_layer_batch_imports({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
                              if p.exists()
@@ -2176,6 +2216,10 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "bare_basemodel": lambda: write(
             GUARD_PROBE_PY,
             "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
+        "web_layer_batch_import": lambda: write(
+            GUARD_PROBE_PY,
+            "from app.batch.precompute_way_landcover import ALGORITHM_VERSION\n\n\n"
+            "zzz_guard_probe = ALGORITHM_VERSION\n"),
         "way_tag_allowlist": lambda: append(
             wt / "backend/app/domain/axis_inspector.py",
             '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n    return tags.get("zzz_guard_probe")\n'),

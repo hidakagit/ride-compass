@@ -34,6 +34,7 @@ from sqlalchemy import select, text
 from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.domain.derived_data_versions import WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION
 
 logger = logging.getLogger("ridecompass.precompute_way_attribute_counts")
 
@@ -46,7 +47,7 @@ CHUNK_SIZE = 5_000
 # 集計ロジック（意味論は共通、_RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQLのコメント参照）のため
 # 同じ版数文字列を使うが、対象テーブルが別のため定数自体は独立に持つ（それぞれが
 # 単独で読めることを優先、edge側の値と実際に揃っているかはコードレビュー時の目視確認）。
-ALGORITHM_VERSION = "v3"
+ALGORITHM_VERSION = WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION
 
 _LATEST_SUCCEEDED_ACCIDENT_RUN_ID_SQL = text(
     "SELECT MAX(id) FROM accident_import_runs WHERE status = 'succeeded'"

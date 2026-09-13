@@ -28,6 +28,7 @@ from sqlalchemy import select, text
 from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.infrastructure.road_graph_models import OsmRawWayRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.domain.derived_data_versions import WAY_CURVATURE_ALGORITHM_VERSION
 
 logger = logging.getLogger("ridecompass.precompute_way_curvature")
 
@@ -36,7 +37,7 @@ logger = logging.getLogger("ridecompass.precompute_way_curvature")
 CHUNK_SIZE = 20_000
 
 # 派生データの系譜追跡（precompute_way_attribute_counts.pyと同じ意味・同じ運用）。
-ALGORITHM_VERSION = "v1"
+ALGORITHM_VERSION = WAY_CURVATURE_ALGORITHM_VERSION
 
 _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
 

@@ -9,7 +9,7 @@ from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as WAY_A
 from app.batch.precompute_way_landcover import ALGORITHM_VERSION as LANDCOVER_ALGORITHM_VERSION
 from app.infrastructure import derived_data_freshness
 from app.infrastructure.derived_data_freshness import (
-    ALGORITHM_VERSION_NOT_IN_LEDGER,
+    PRECOMPUTE_NOT_IN_LEDGER,
     GENERATION_FRESHNESS_SPECS,
     DerivedDataFreshnessCounts,
     GenerationFreshnessCounts,
@@ -137,46 +137,47 @@ def _counts(
 # --- 宣言テーブルの構造 ---
 
 
-def test_every_batch_declaring_an_algorithm_version_is_in_the_ledger():
-    """`ALGORITHM_VERSION`を宣言する事前計算バッチが、世代台帳に載っているか。
+def test_every_precompute_batch_is_in_the_ledger_or_has_a_reason():
+    """事前計算バッチが、世代台帳に載っているか載せない理由が書かれているか。
 
-    母集団を`app/batch/precompute_*.py`側から引く。台帳に並ぶテーブル名を書き写す形だと、
-    新しいバッチが台帳へ載らなくても「今ある4件が今ある4件と一致する」で通ってしまい、
-    その派生テーブルの陳腐化が管理画面から見えないまま残る。
+    母集団は`app/batch/precompute_*.py`の**すべて**。台帳に並ぶテーブル名を書き写す形だと、
+    新しいバッチが台帳へ載らなくても「今あるものが今あるものと一致する」で通ってしまう。
+    母集団を「`ALGORITHM_VERSION`を宣言しているもの」に絞る形にも同じ穴がある——版数を
+    宣言しなければ台帳に載らなくても検査を通り抜けられる（実際に`precompute_edge_curvature`が
+    そうなっていた）。
     """
     import pathlib
-    import re
 
     batch_dir = pathlib.Path(derived_data_freshness.__file__).resolve().parents[1] / "batch"
-    declaring = {
-        path.stem
-        for path in sorted(batch_dir.glob("precompute_*.py"))
-        if re.search(r"^ALGORITHM_VERSION\s*=", path.read_text(encoding="utf-8"), re.M)
-    }
+    batches = {path.stem for path in sorted(batch_dir.glob("precompute_*.py"))}
     in_ledger = {
         spec.algorithm_version_owner.split(".", 1)[0]
         for spec in GENERATION_FRESHNESS_SPECS
         if spec.algorithm_version_owner is not None
     }
 
-    unregistered = declaring - in_ledger - set(ALGORITHM_VERSION_NOT_IN_LEDGER)
+    unregistered = batches - in_ledger - set(PRECOMPUTE_NOT_IN_LEDGER)
 
     assert not unregistered, (
-        f"{sorted(unregistered)}がALGORITHM_VERSIONを宣言しているのに世代台帳に無い。"
-        "GENERATION_FRESHNESS_SPECSへ追加するか、載せない理由を"
-        "ALGORITHM_VERSION_NOT_IN_LEDGERへ書くこと。"
+        f"{sorted(unregistered)}が世代台帳に無い。GENERATION_FRESHNESS_SPECSへ追加するか、"
+        "載せない理由をPRECOMPUTE_NOT_IN_LEDGERへ書くこと。"
     )
 
 
 def test_the_exclusion_list_does_not_name_batches_that_are_gone():
-    # 除外の理由だけが残り続けるのを防ぐ（母集団側から消えたら除外も要らない）。
+    # 除外の理由だけが残り続けるのを防ぐ（母集団側から消えたら、台帳へ載ったら、除外も要らない）。
+    import pathlib
+
+    batch_dir = pathlib.Path(derived_data_freshness.__file__).resolve().parents[1] / "batch"
+    batches = {path.stem for path in sorted(batch_dir.glob("precompute_*.py"))}
     in_ledger = {
         spec.algorithm_version_owner.split(".", 1)[0]
         for spec in GENERATION_FRESHNESS_SPECS
         if spec.algorithm_version_owner is not None
     }
 
-    assert not (set(ALGORITHM_VERSION_NOT_IN_LEDGER) & in_ledger)
+    assert not (set(PRECOMPUTE_NOT_IN_LEDGER) & in_ledger)
+    assert set(PRECOMPUTE_NOT_IN_LEDGER) <= batches, "消えたバッチの除外理由が残っている"
 
 
 def test_algorithm_version_value_and_owner_are_declared_together():

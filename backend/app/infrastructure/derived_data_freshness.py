@@ -20,10 +20,12 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION
-from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION
-from app.batch.precompute_way_curvature import ALGORITHM_VERSION as _CURVATURE_ALGORITHM_VERSION
-from app.batch.precompute_way_landcover import ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION
+from app.domain.derived_data_versions import (
+    EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION,
+    WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION,
+    WAY_CURVATURE_ALGORITHM_VERSION as _CURVATURE_ALGORITHM_VERSION,
+    WAY_LANDCOVER_ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION,
+)
 
 
 @dataclass(frozen=True)
@@ -46,7 +48,8 @@ class GenerationFreshnessSpec:
     algorithm_version_owner: str | None
 
 
-# ALGORITHM_VERSIONは各batchモジュールの単一の情報源からimportする（値を複製しない）。
+# 版数は`domain/derived_data_versions.py`が単一の情報源（値を複製しない。batchからimportすると
+# 本番webイメージに無い依存を連鎖で引き込む——モジュールのdocstring参照）。
 GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
     GenerationFreshnessSpec(
         table_name="edge_attribute_counts",
@@ -86,11 +89,26 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
     ),
 )
 
-# `ALGORITHM_VERSION`を宣言しているのに世代台帳へ載せない事前計算バッチと、その理由。
-# 空でよい状態が正常で、`tests/test_derived_data_freshness.py`が
-# `app/batch/precompute_*.py`側から母集団を引いて突き合わせる——宣言だけ増えて台帳へ
-# 載らないと、その派生テーブルの陳腐化が管理画面から見えないまま残る。
-ALGORITHM_VERSION_NOT_IN_LEDGER: dict[str, str] = {}
+# 世代台帳（`GENERATION_FRESHNESS_SPECS`）へ載せない事前計算バッチと、その理由。
+# `tests/test_derived_data_freshness.py`が`app/batch/precompute_*.py`側から母集団を引いて
+# 突き合わせるため、新しいバッチはここか台帳のどちらかへ必ず現れる——どちらにも無いまま
+# 増えると、その派生テーブルの陳腐化が管理画面から見えないまま残る。
+# **理由を書けば消えるのは検査であって実害ではない**。ここに並ぶバッチの出力は、再実行を
+# 忘れても管理画面のどこにも現れない。
+PRECOMPUTE_NOT_IN_LEDGER: dict[str, str] = {
+    "precompute_elevation_attributes": (
+        "世代比較ではなく完成度（road_edgesとの行数差分）で別枠に載せている。"
+        "source_*_import_run_id列を持たないため他と同じ判定ができない"
+    ),
+    "precompute_edge_curvature": (
+        "書き込み先road_edges.curvature_deg_per_kmに系譜列が無く、載せる手段が無い。"
+        "PBF再取込後にこのバッチだけ実行を忘れると、新規splitされたEdgeはNULLのまま残り"
+        "蛇行軸が無警告で評価から抜ける（[T832](docs/tasks/T832.md)で扱う）"
+    ),
+    "precompute_road_node_degrees": (
+        "書き込み先road_nodes.degreeに系譜列が無く、載せる手段が無い（同上、[T832](docs/tasks/T832.md)）"
+    ),
+}
 
 
 def build_generation_freshness_sql(spec: GenerationFreshnessSpec):
