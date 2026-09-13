@@ -414,8 +414,13 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
    だけを候補にする`predicate`を渡して再スナップする（実際の座標は
    `_RoadGraphContext.destination_correction`に残り
    `RouteGenerator.last_destination_correction`→`GenerationConditions.
-   corrected_destination`経由でレスポンスへエコーされる）。再スナップも失敗する
-   （前向き木が届くNodeが近傍に無い）場合は候補0件として扱う。
+   corrected_destination`経由でレスポンスへエコーされる）。再スナップも失敗した場合は
+   候補0件として扱う。**このとき壊れているのが目的地側とは限らない**——
+   `find_nearest_node_indexed`は索引全体を走査するため、候補が1つも見つからないのは
+   「前向き木がどのNodeへも届かなかった」ときにも起きる（起点が孤立している・合成コストが
+   全Edgeで非有限、等）。到達Node数を見てどちら側かを判定し、警告と
+   `_RoadGraphContext.no_candidates_side`（`RouteGenerator`が利用者向けの文面を選ぶ）で
+   区別する。
 2. （補正後の）目的地からの後ろ向き木（遷移の向きを反転した辺基準の木）を求める。
 3. 全Nodeについて経由路長と合成コストを`combine_forward_backward_at_nodes`で求め
    （そのNodeで曲がる費用を含む）、

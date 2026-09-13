@@ -1657,6 +1657,37 @@ async def test_select_via_nodes_works_when_parallel_edges_are_dropped_from_the_s
     assert np.isnan(full_order).any()
 
 
+async def test_select_via_nodes_blames_the_origin_when_no_node_is_reachable(caplog):
+    # コスト配列が全Edgeで非有限になると、起点からの前向き木が1Nodeも広がらない。この状態は
+    # 「目的地が到達不能」ではないため、警告も利用者向けの理由も起点側を名指しする必要がある。
+    import dataclasses
+    import logging
+
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+    original_compose = context.composer.compose
+
+    def compose_without_finite_cost(*args, **kwargs):
+        leg = original_compose(*args, **kwargs)
+        return dataclasses.replace(
+            leg,
+            cost_lazy=np.full_like(leg.cost_lazy, np.inf),
+            cost_bins_lazy=np.full_like(leg.cost_bins_lazy, np.inf),
+        )
+
+    context.composer.compose = compose_without_finite_cost
+
+    with caplog.at_level(logging.WARNING):
+        traced = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=3)
+
+    assert traced == []
+    assert context.no_candidates_side == "origin"
+    assert "origin reaches no node" in caplog.text
+    assert "destination" not in caplog.text
+
+
 async def test_select_via_nodes_excludes_routes_beyond_stretch_ratio():
     # offset=12kmの経路は直線比で約1.56倍（>ALTERNATIVE_MAX_STRETCH=1.3）に伸びるため
     # 候補から除外される。offset=5km（約1.06倍）は残る。

@@ -543,13 +543,17 @@ class RouteGenerator:
         # （contextはengine実装ごとに異なりうるAny型のため、無い場合はNoneのまま）。
         self.last_destination_correction = getattr(context, "destination_correction", None)
         if not traced:
+            side = getattr(context, "no_candidates_side", None)
             logger.warning(
                 "generate(destination) engine=%s origin=%s max_routes=%d -> no via-node candidates "
-                "prepare_ms=%d select_ms=%d",
-                self.engine_name, origin_label, max_routes, prepare_ms, select_ms,
+                "side=%s prepare_ms=%d select_ms=%d",
+                self.engine_name, origin_label, max_routes, side or "unknown", prepare_ms, select_ms,
             )
             self.last_no_candidates_reason = (
-                "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
+                f"起点{origin_label}から走り出せる道が見つかりませんでした。"
+                "出発地を道路沿いへ動かしてお試しください。"
+                if side == "origin"
+                else "指定した目的地までの経路が見つかりませんでした。地点や除外する道路の設定を変えてお試しください。"
             )
             return []
 

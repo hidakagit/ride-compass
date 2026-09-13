@@ -713,6 +713,23 @@ async def test_generate_destination_routes_returns_empty_with_reason_when_no_via
     assert "目的地" in generator.last_no_candidates_reason
 
 
+async def test_generate_destination_routes_names_the_origin_when_the_origin_is_the_broken_side():
+    # 候補0件の原因が起点側（起点からどのNodeへも到達できない）のとき、目的地を名指しした
+    # 文面を出すと、利用者は目的地を動かして直そうとし続けることになる。
+    generator, _ = make_generator(
+        {}, prepare_result=SimpleNamespace(destination_correction=None, no_candidates_side="origin"),
+        via_node_distances=[],
+    )
+
+    candidates = await generator.generate_via_waypoints(
+        ORIGIN, waypoints=[], distance_km=10.0, destination=DESTINATION
+    )
+
+    assert candidates == []
+    assert "起点" in generator.last_no_candidates_reason
+    assert "目的地" not in generator.last_no_candidates_reason
+
+
 async def test_generate_destination_routes_propagates_destination_correction():
     # 改善計画T602: engineが目的地を補正した場合、その座標がlast_destination_correction
     # として引き継がれる（context自体はengine実装ごとに異なるAny型のため、テストでは

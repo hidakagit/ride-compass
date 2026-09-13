@@ -624,6 +624,10 @@ class _RoadGraphContext:
     # side channel——Protocolの戻り値型（list[TracedLoop]）を変えずにRouteGenerator側へ
     # 伝える。
     destination_correction: Coordinates | None = None
+    # 候補0件になった原因がどちら側にあるか（"origin"＝起点から1Nodeも到達できない、
+    # "destination"＝到達はできるが目的地の近くに届くNodeが無い）。
+    # destination_correctionと同じside channelで、利用者へ出す文面を分けるために使う。
+    no_candidates_side: str | None = None
 
 
 @dataclass
@@ -1398,11 +1402,28 @@ class RoadGraphEngine:
                 ),
             )
             if corrected_node is None:
-                logger.warning(
-                    "select_via_nodes destination unreachable from origin, no accessible alternative found "
-                    "destination_node=%s",
-                    destination_node,
-                )
+                # find_nearest_node_indexedは索引全体を走査するため、Noneは「アクセス可能な
+                # Nodeが1つも無い」ことを意味する。到達Node数が0なら壊れているのは目的地では
+                # なく起点側（またはコスト配列）であり、そちらを名指ししないと調査が空振りする。
+                reached_nodes = int(np.count_nonzero(np.isfinite(forward_tree.node_cost)))
+                if reached_nodes == 0:
+                    finite_cost_ratio = float(np.mean(np.isfinite(outbound.cost_bins_lazy)))
+                    context.no_candidates_side = "origin"
+                    logger.warning(
+                        "select_via_nodes origin reaches no node origin_node=%s out_edges=%d "
+                        "finite_cost_ratio=%.3f nodes=%d",
+                        context.origin_node,
+                        int(_origin_states(context.statics, context.origin_index).size),
+                        finite_cost_ratio,
+                        int(forward_tree.node_cost.size),
+                    )
+                else:
+                    context.no_candidates_side = "destination"
+                    logger.warning(
+                        "select_via_nodes no accessible node near destination destination_node=%s "
+                        "reached_nodes=%d/%d",
+                        destination_node, reached_nodes, int(forward_tree.node_cost.size),
+                    )
                 return []
             destination_node = corrected_node
             destination_index = lazy_graph.node_id_to_index[destination_node]
