@@ -107,7 +107,7 @@ describe("DbStatusPanel", () => {
     for (const entry of REPORT.imports) {
       expect(screen.getByText(entry.label)).toBeInTheDocument();
     }
-    expect(screen.getByText("接続")).toBeInTheDocument();
+    expect(screen.getByText("同時接続")).toBeInTheDocument();
   });
 
   it("テーブルは注意のあるものだけを行にし、残りは1行へ畳む", async () => {
@@ -123,8 +123,22 @@ describe("DbStatusPanel", () => {
     // 注意の無いものは行にならず、畳んだ先にだけある（隠して終わりにしない）。
     const roadEdges = screen.getByText("road_edges");
     expect(roadEdges.closest("summary")).toBeNull();
-    const rest = screen.getByText("その他1テーブル").closest("details");
+    const rest = screen.getByText("注意なし 1テーブル").closest("details");
     expect(roadEdges.closest("details")).toBe(rest);
+  });
+
+  it("母数と種別の見出しを出す（畳んだ行が何分のNかを読めるようにする）", async () => {
+    vi.mocked(getDbStatus).mockResolvedValue(REPORT);
+    const user = userEvent.setup();
+    render(<DbStatusPanel />);
+
+    await clickAggregate(user);
+
+    // 全テーブルの数・行数の合計・DB全体の容量。畳んだ「注意なし 1テーブル」はこの内数。
+    expect(screen.getByText(/2テーブル ・ 5,182,739行 ・ 675 MB/)).toBeInTheDocument();
+    for (const title of ["取込", "接続", "テーブル（容量の大きい順）", "範囲"]) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+    }
   });
 
   it("失敗した取込は、派生データが今どのrunを基準にしているかまで示す", async () => {

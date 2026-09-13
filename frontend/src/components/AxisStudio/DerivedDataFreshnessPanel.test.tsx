@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { DerivedDataFreshnessResponse, GenerationFreshnessEntry } from "@/types/route";
-import DerivedDataFreshnessPanel from "./DerivedDataFreshnessPanel";
+import DerivedDataFreshnessPanel, { REBUILD_COMMAND } from "./DerivedDataFreshnessPanel";
 import { getDerivedDataFreshness } from "@/services/derivedDataFreshnessApi";
 
 vi.mock("@/services/derivedDataFreshnessApi", () => ({
@@ -83,8 +83,6 @@ const FRESH_REPORT: DerivedDataFreshnessResponse = {
   ],
 };
 
-const REBUILD_COMMAND = "python -m app.batch.refresh_derived";
-
 /** すべて最新の状態（完成度の未計算も0）。 */
 const ALL_FRESH_REPORT = {
   ...FRESH_REPORT,
@@ -126,7 +124,7 @@ describe("DerivedDataFreshnessPanel", () => {
 
     expect(screen.getByText("すべて最新")).toBeInTheDocument();
     // 打つべきコマンドが無いときに出すと、何もしなくてよい状態が読み取れない。
-    expect(screen.queryByText(REBUILD_COMMAND)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "コピー" })).not.toBeInTheDocument();
   });
 
   it("作り直しが要る件数と、次に打つ1コマンドを出す", async () => {
@@ -143,8 +141,19 @@ describe("DerivedDataFreshnessPanel", () => {
 
     // 世代1件（is_stale）＋完成度1件（elevationのis_incomplete）。
     expect(screen.getByText("2件が作り直し待ち")).toBeInTheDocument();
-    expect(screen.getByText(REBUILD_COMMAND)).toBeInTheDocument();
+    // 改行を含むので既定の空白正規化では一致しない。要素のtextContentと丸ごと比べる。
+    expect(screen.getByText((_, element) => element?.textContent === REBUILD_COMMAND)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "コピー" })).toBeInTheDocument();
+  });
+
+  // 出すコマンドは本番へ効かせる形でなければならない。稼働中コンテナの中で走らせる形
+  // （`docker exec`）や、打つ場所の分からない素のモジュール名へ戻すと、手元の開発DBを
+  // 作り直して本番が古いまま残るか、本番のサービスごと止まる。
+  it("作り直しのコマンドは、本番で安全に実行できる形になっている", () => {
+    expect(REBUILD_COMMAND).toContain("docker run --rm");
+    expect(REBUILD_COMMAND).toContain("--memory=");
+    expect(REBUILD_COMMAND).toContain("--skip-landcover");
+    expect(REBUILD_COMMAND).not.toContain("docker exec");
   });
 
   it("一覧は1件1行で、run番号などの数字は開くまで出さない", async () => {

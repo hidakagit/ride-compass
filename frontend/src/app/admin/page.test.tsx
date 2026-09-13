@@ -38,7 +38,7 @@ import AdminPage from "./page";
 // 改善計画T397フォローアップ2: 軸スタジオ/研究/開発者はRadix Tabsのタブになった
 // （既定で開いているのは先頭の「軸スタジオ」のみ、Tabs.Contentは非選択中DOMへ現れない）。
 // 研究・開発者タブの中身を検証するテストは、先にタブ自体をクリックして選択する必要がある。
-async function openTab(name: "軸スタジオ" | "材料" | "鮮度" | "研究" | "開発者") {
+async function openTab(name: "軸スタジオ" | "材料" | "データ保守" | "研究" | "開発者") {
   const { default: userEvent } = await import("@testing-library/user-event");
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name }));
@@ -61,11 +61,15 @@ describe("AdminPage（/admin、改善計画T270・T272・T397）", () => {
 
     expect(screen.getByRole("heading", { name: "軸スタジオ・研究/開発者ツール" })).toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "軸スタジオ", "材料", "鮮度", "研究", "開発者",
+      "軸スタジオ",
+      "材料",
+      "データ保守",
+      "研究",
+      "開発者",
     ]);
     expect(screen.getByRole("tab", { name: "軸スタジオ" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("axis-studio")).toBeInTheDocument();
-    // 材料・鮮度・研究・開発者タブは非選択のため中身はまだDOMへ現れない。
+    // 材料・データ保守・研究・開発者タブは非選択のため中身はまだDOMへ現れない。
     expect(screen.queryByTestId("material-coverage-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("derived-data-freshness-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("research-panel")).not.toBeInTheDocument();
@@ -81,10 +85,10 @@ describe("AdminPage（/admin、改善計画T270・T272・T397）", () => {
     expect(screen.getByTestId("material-coverage-panel")).toBeInTheDocument();
   });
 
-  it("「鮮度」タブを開くとDerivedDataFreshnessPanelを表示する", async () => {
+  it("「データ保守」タブを開くとDerivedDataFreshnessPanelを表示する", async () => {
     render(<AdminPage />);
 
-    await openTab("鮮度");
+    await openTab("データ保守");
 
     expect(screen.getByTestId("derived-data-freshness-panel")).toBeInTheDocument();
   });

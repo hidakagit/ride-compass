@@ -30,7 +30,7 @@ function formatDuration(seconds: number): string {
   return `${Math.round(seconds / 60)}分`;
 }
 
-/** 「鮮度」タブの他のパネルと同じ1行の形。判定の種類（取込・テーブル・接続）が違っても、
+/** 「データ保守」タブの他のパネルと同じ1行の形。判定の種類（取込・テーブル・接続）が違っても、
  * 読み手が知りたいのは「注意が要るか」で同じなので見た目を揃える。 */
 interface StatusRow {
   name: string;
@@ -40,7 +40,14 @@ interface StatusRow {
   note?: string;
 }
 
-export function rowsFromStatus(report: DbStatusResponse): StatusRow[] {
+/** 行の見た目を揃えたぶん、何と何が並んでいるのかは見出しが引き受ける。並び順に根拠がある
+ * 群（テーブルは容量の大きい順）は、その根拠も見出しへ書く。 */
+interface StatusGroup {
+  title: string;
+  rows: StatusRow[];
+}
+
+export function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
   const imports: StatusRow[] = report.imports.map((entry) => ({
     name: entry.label,
     scale:
@@ -77,7 +84,8 @@ export function rowsFromStatus(report: DbStatusResponse): StatusRow[] {
   }));
 
   const connections: StatusRow = {
-    name: "接続",
+    // 見出しの「接続」と同じ名前にすると、群と行の区別がつかない。
+    name: "同時接続",
     scale: `${report.connections.total} / ${report.connections.max_connections}`,
     needsAttention: report.connections.needs_attention,
     detail: [
@@ -114,24 +122,20 @@ export function rowsFromStatus(report: DbStatusResponse): StatusRow[] {
       { label: "容量", value: formatBytes(entry.total_bytes) },
       { label: "統計の取得", value: formatMoment(entry.analyzed_at) },
       { label: "VACUUM", value: formatMoment(entry.vacuumed_at) },
-      ...(entry.dead_tuples > 0
-        ? [{ label: "不要行", value: `${formatCount(entry.dead_tuples)}件` }]
-        : []),
+      ...(entry.dead_tuples > 0 ? [{ label: "不要行", value: `${formatCount(entry.dead_tuples)}件` }] : []),
     ],
     note: entry.note || undefined,
   });
 
-  const flagged = report.tables
-    .filter((entry) => entry.needs_attention)
-    .map(tableRow);
+  const flagged = report.tables.filter((entry) => entry.needs_attention).map(tableRow);
   const rest = report.tables.filter((entry) => !entry.needs_attention);
+  // 畳んだ行は、分けた基準（注意の有無）を自分で名乗る。「その他」では、隠された側が
+  // 重要でないから省かれたのか、見るべきものが埋もれているのかが読めない。
   const restRow: StatusRow[] = rest.length
     ? [
         {
-          name: `その他${rest.length}テーブル`,
-          scale: formatBytes(
-            rest.reduce((sum, entry) => sum + entry.total_bytes, 0),
-          ),
+          name: `注意なし ${rest.length}テーブル`,
+          scale: `${formatCount(sumRows(rest))}行 ・ ${formatBytes(sumBytes(rest))}`,
           needsAttention: false,
           detail: rest.map((entry) => ({
             label: entry.table_name,
@@ -141,10 +145,33 @@ export function rowsFromStatus(report: DbStatusResponse): StatusRow[] {
       ]
     : [];
 
-  return [...imports, connections, ...flagged, ...restRow];
+  const tables = [...flagged, ...restRow];
+  return [
+    { title: "取込", rows: imports },
+    { title: "接続", rows: [connections] },
+    ...(tables.length ? [{ title: "テーブル（容量の大きい順）", rows: tables }] : []),
+  ];
 }
 
-// 「鮮度」タブ（/admin）の3枚目。派生データ鮮度台帳が拠って立つ土台の側を見る——取込runが
+function sumRows(entries: DbStatusResponse["tables"]): number {
+  return entries.reduce((sum, entry) => sum + entry.row_count, 0);
+}
+
+function sumBytes(entries: DbStatusResponse["tables"]): number {
+  return entries.reduce((sum, entry) => sum + entry.total_bytes, 0);
+}
+
+/** ヘッダーへ出す母数。畳んだ行の「N テーブル」が何分のNなのかは、全体の数が同じ画面に
+ * 無いと読めない。 */
+export function summaryOf(report: DbStatusResponse): string {
+  return [
+    `${formatCount(report.tables.length)}テーブル`,
+    `${formatCount(sumRows(report.tables))}行`,
+    formatBytes(report.database_bytes),
+  ].join(" ・ ");
+}
+
+// 「データ保守」タブ（/admin）の3枚目。派生データ鮮度台帳が拠って立つ土台の側を見る——取込runが
 // 失敗していないか、行が本当に入っているか、プランナが使う統計が取れているか、
 // トランザクションが放置されていないか。集計はDB全体の走査を伴うためボタン押下時のみ。
 export default function DbStatusPanel() {
@@ -157,14 +184,15 @@ export default function DbStatusPanel() {
     setError(null);
     getDbStatus()
       .then((result) => setReport(result))
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   };
 
-  const rows = report ? rowsFromStatus(report) : [];
-  const attentionCount = rows.filter((row) => row.needsAttention).length;
+  const attentionCount = report
+    ? groupsFromStatus(report)
+        .flatMap((group) => group.rows)
+        .filter((row) => row.needsAttention).length
+    : 0;
 
   return (
     <Card className={styles.panel}>
@@ -186,19 +214,14 @@ export default function DbStatusPanel() {
         </Button>
         {report && (
           <span className={styles.summary}>
-            {formatMoment(report.computed_at)} ・ DB{" "}
-            {formatBytes(report.database_bytes)}
+            {summaryOf(report)} ・ {formatMoment(report.computed_at)}
           </span>
         )}
       </div>
       {error && <p className={styles.error}>集計失敗: {error}</p>}
       {report && (
         <>
-          <div
-            className={
-              attentionCount > 0 ? styles.verdictStale : styles.verdictFresh
-            }
-          >
+          <div className={attentionCount > 0 ? styles.verdictStale : styles.verdictFresh}>
             <span className={styles.verdictText}>
               {attentionCount > 0 ? `${attentionCount}件に注意` : "注意はなし"}
             </span>
@@ -213,37 +236,36 @@ export default function DbStatusPanel() {
 /** 行の描画。取得と分けてあるのは、認証の要る画面を通さずに見え方を確かめられるようにする
  * ため（DerivedDataFreshnessPanelのFreshnessReportViewと同じ理由）。 */
 export function StatusRows({ report }: { report: DbStatusResponse }) {
-  const rows = rowsFromStatus(report);
+  const groups = groupsFromStatus(report);
   return (
     <ul className={styles.rows}>
-      {rows.map((row) => (
-        <li key={row.name}>
-          <details className={styles.row}>
-            <summary className={styles.rowSummary}>
-              <span
-                className={
-                  row.needsAttention ? styles.markStale : styles.markFresh
-                }
-                aria-hidden="true"
-              />
-              <span className={styles.rowName}>{row.name}</span>
-              <span className={styles.rowScale}>{row.scale}</span>
-              <span className={styles.srOnly}>
-                {row.needsAttention ? "注意が要る" : "問題なし"}
-              </span>
-            </summary>
-            <dl className={styles.detail}>
-              {row.detail.map((item) => (
-                <div key={item.label} className={styles.detailItem}>
-                  <dt className={styles.detailLabel}>{item.label}</dt>
-                  <dd className={styles.detailValue}>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-            {row.note && <p className={styles.note}>{row.note}</p>}
-          </details>
-        </li>
-      ))}
+      {groups.flatMap((group) => [
+        <li key={`title:${group.title}`} className={styles.groupTitle}>
+          {group.title}
+        </li>,
+        ...group.rows.map((row) => (
+          <li key={row.name}>
+            <details className={styles.row}>
+              <summary className={styles.rowSummary}>
+                <span className={row.needsAttention ? styles.markStale : styles.markFresh} aria-hidden="true" />
+                <span className={styles.rowName}>{row.name}</span>
+                <span className={styles.rowScale}>{row.scale}</span>
+                <span className={styles.srOnly}>{row.needsAttention ? "注意が要る" : "問題なし"}</span>
+              </summary>
+              <dl className={styles.detail}>
+                {row.detail.map((item) => (
+                  <div key={item.label} className={styles.detailItem}>
+                    <dt className={styles.detailLabel}>{item.label}</dt>
+                    <dd className={styles.detailValue}>{item.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {row.note && <p className={styles.note}>{row.note}</p>}
+            </details>
+          </li>
+        )),
+      ])}
+      <li className={styles.groupTitle}>範囲</li>
       <li>
         <SplitCoverageRow />
       </li>

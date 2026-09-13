@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card/Card";
 import { refreshTileCache } from "@/services/basemapAdminApi";
 import styles from "./TileCachePanel.module.css";
 
-// 「鮮度」タブ（/admin）から、サーバー側のタイルファイルキャッシュを全消去するパネル。
+// 「データ保守」タブ（/admin）から、サーバー側のタイルファイルキャッシュを全消去するパネル。
 // 隣のDerivedDataFreshnessPanelが「古いかどうかを見る」のに対し、こちらは「古いものを
 // 捨てる」操作側。全利用者へ影響するためBasic認証の内側（/admin）にだけ置く。
 export default function TileCachePanel() {
@@ -36,8 +36,7 @@ export default function TileCachePanel() {
       </p>
       <p className={styles.hint}>
         各利用者の画面へ反映されるのは、ブラウザが持つ既存タイルのCache-Controlが切れた後
-        （基礎地図は最大10分）。取込バッチや軸の変更を本番へ反映した直後など、
-        古いタイルを掴ませたくないときに使う。
+        （基礎地図は最大10分）。取込バッチや軸の変更を本番へ反映した直後など、 古いタイルを掴ませたくないときに使う。
       </p>
       <div className={styles.controls}>
         <Button onClick={handleClear} disabled={running}>

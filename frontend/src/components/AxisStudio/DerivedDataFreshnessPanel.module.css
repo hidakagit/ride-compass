@@ -53,7 +53,20 @@
   font-weight: 700;
 }
 
+/* コマンドとその操作を1行に並べる。コマンド側だけが縮み、操作側は縮まない。 */
+.commandRow {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* 複数行のコマンドをそのまま出す。折り返すとコピー後の意味が変わりうるので折り返さず、
+   狭い画面ではこの枠の中だけを横スクロールさせる（ページ自体は横に伸びない）。
+   inline要素のままではoverflowが効かないためblockにする。 */
 .command {
+  display: block;
   flex: 1 1 12rem;
   min-width: 0;
   overflow-x: auto;
@@ -62,8 +75,16 @@
   background: var(--color-surface);
   color: var(--color-muted-strong);
   font-family: monospace;
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  white-space: pre;
+  tab-size: 2;
+}
+
+.commandActions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  gap: var(--space-1);
 }
 
 .copyButton {
@@ -74,6 +95,14 @@
   color: var(--color-muted-strong);
   font-size: var(--font-size-xs);
   cursor: pointer;
+}
+
+/* 行の群につける見出し。行そのものより小さく弱く出し、行の連なりを切らない。 */
+.groupTitle {
+  margin-top: var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--font-size-xs);
+  list-style: none;
 }
 
 .rows {
