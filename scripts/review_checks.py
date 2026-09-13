@@ -337,6 +337,69 @@ def find_duplicate_test_scaffolds(test_files: list[str]) -> list[str]:
     ]
 
 
+PLAN_DOC = "docs/improvement-plan.md"
+OPEN_PLAN_LINE_RE = re.compile(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)\.?\s*(.*)$")
+# 漢字・カタカナの連なりと、英数字の識別子。ひらがなだけの語は助詞・語尾が大半のため採らない。
+PLAN_TERM_RE = re.compile(r"[一-龥]{2,}|[ァ-ヴー]{3,}|[A-Za-z_][A-Za-z0-9_]{2,}")
+# 台帳のほぼ全行に出る語。共通していても近さの手掛かりにならない。
+PLAN_TERM_STOPWORDS = frozenset({
+    "規模", "起票", "完了", "未着手", "実装", "対応", "検討", "調査", "判断", "保留", "見送り",
+    "追加", "修正", "改善", "対策", "整理", "統一", "共通", "汎用", "機能", "表示", "設定",
+    "結果", "本番", "現状", "既存", "新設", "撤去", "全体", "以上", "以下", "場合", "自体",
+    "ユーザー", "トリガー", "タスク", "パネル", "ルート", "フロント", "バック", "コード",
+    "レビュー", "テスト", "ドキュメント", "リファクタ", "md", "tsx", "ts", "py",
+})
+
+
+def plan_entry_terms(title: str) -> set[str]:
+    """台帳1行から、近さの手掛かりになる語だけを抜き出す。"""
+    head = re.split(r"\s規模|（|\(", title)[0]
+    body = title if len(head) < 6 else head
+    return {t for t in PLAN_TERM_RE.findall(body) if t not in PLAN_TERM_STOPWORDS}
+
+
+def open_plan_entries(text: str) -> dict[str, str]:
+    """未完了（`- [ ]`）の台帳行を {Txxx: 見出し} で返す。"""
+    entries: dict[str, str] = {}
+    for line in text.splitlines():
+        m = OPEN_PLAN_LINE_RE.match(line.strip())
+        if m:
+            entries[f"T{m.group(1)}"] = m.group(2)
+    return entries
+
+
+def find_plan_entry_overlap(added_lines: list[str], existing_text: str, min_shared: int = 2) -> list[str]:
+    """新しく足した未完了エントリと語が重なる、既存の未完了エントリ。
+
+    重複した起票・関連タスクの見落としは、起票の瞬間に既存を見ないと後から気づけない
+    （台帳は数百行あり、`/task:next`は候補を優先度順に出すだけで近さを見ない）。
+    判断は人がする——別々に進めるのが正しいこともあるため、参考表示に留める。
+    """
+    existing = open_plan_entries(existing_text)
+    out: list[str] = []
+    for line in added_lines:
+        m = OPEN_PLAN_LINE_RE.match(line.strip())
+        if not m:
+            continue
+        new_id, title = f"T{m.group(1)}", m.group(2)
+        terms = plan_entry_terms(title)
+        if not terms:
+            continue
+        hits = []
+        for other_id, other_title in existing.items():
+            if other_id == new_id:
+                continue
+            shared = terms & plan_entry_terms(other_title)
+            if len(shared) >= min_shared:
+                hits.append((len(shared), other_id, sorted(shared)))
+        for _, other_id, shared in sorted(hits, reverse=True)[:3]:
+            out.append(
+                f"{new_id}と{other_id}が「{'・'.join(shared)}」を共有している"
+                "——重複していないか、片方へ寄せられないかを見てから起票する"
+            )
+    return out
+
+
 FILE_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_./@\-]+\.(?:py|ts|tsx|css|json|yml|yaml|sql|sh|md|js|mjs|toml|txt))`"
 )
@@ -1338,6 +1401,9 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     # 参考表示のみ。同じ名前でも記録する呼び出しが違えば分けるのが正しいことがあり、
     # 人にしか決められない（docs/tasks/T771.md）。書く前に既存へ気づくのが目的。
     "duplicate_test_scaffold": frozenset(),
+    # 参考表示のみ。近い語を持つ2件を別々に進めるのが正しいこともあり、人にしか決められない。
+    # 起票の瞬間に既存の未完了エントリへ目を向けるのが目的。
+    "plan_entry_overlap": frozenset(),
 }
 
 
@@ -1391,6 +1457,12 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          check_plan_vs_tasks()))
         sections.append(("unfiled_deferrals", "[x]化したタスクの、別タスクへ渡していない残り（参考、人が判断する）",
                          find_unfiled_deferrals(None)))
+        sections.append((
+            "plan_entry_overlap",
+            "新しく足した未完了エントリと語が重なる既存エントリ（参考、人が判断する）",
+            find_plan_entry_overlap(
+                [l for _, l in diff_added_lines(PLAN_DOC).get(PLAN_DOC, [])],
+                git("show", f"HEAD:{PLAN_DOC}", check=False) or read_text(REPO_ROOT / PLAN_DOC))))
         md_staged = [s for s in staged if s.endswith(".md")]
         sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（ステージ済み.md）",
                          check_dead_doc_links(md_staged)))
