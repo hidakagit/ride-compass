@@ -50,6 +50,7 @@ function ControlledRouteForm({
         onWaypointsClear={onWaypointsClear}
         destinationSet={destinationSet}
         originManual={false}
+        originLocated
         onOriginReset={() => {}}
         armedPinRole={armedPinRole}
         onArmPinRole={onArmPinRole}
@@ -194,10 +195,22 @@ describe("RouteForm", () => {
       expect(onWaypointsClear).toHaveBeenCalledTimes(1);
     });
 
-    it("経由地が1件以上あると候補数ステッパーは表示されない", () => {
+    // 経由地があるとbackendは常に1件へ固定する。消すと壊れて見えるため、押せない状態で
+    // 残し、理由は隣の(i)の奥に置く。
+    it("経由地が1件以上あると候補数ステッパーは押せなくなる", () => {
       render(<ControlledRouteForm initialRouteMode="destination" waypointCount={1} />);
 
-      expect(screen.queryByRole("button", { name: "候補数を増やす" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "候補数を増やす" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "候補数を減らす" })).toBeDisabled();
+      expect(screen.getByText("1件")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^候補数を変えられない理由を/ })).toBeInTheDocument();
+    });
+
+    it("経由地が無ければ候補数は押せる", () => {
+      render(<ControlledRouteForm initialRouteMode="destination" />);
+
+      expect(screen.getByRole("button", { name: "候補数を増やす" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: /^候補数を変えられない理由を/ })).not.toBeInTheDocument();
     });
   });
   // タブ列と選択状態はpage.tsxが持つ（見出し行に置くため）。ここでは選ばれたタブの中身

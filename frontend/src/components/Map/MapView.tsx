@@ -41,6 +41,12 @@ import {
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
 import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
+import {
+  ORIGIN_MARK_COLOR,
+  ORIGIN_MARK_FALLBACK_COLOR,
+  PIN_MARK_BACKGROUND,
+  pinMarkHtml,
+} from "@/components/Map/pinMarks";
 import { buildCombinedLegendFilterExpression, buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import {
   ACCIDENT_COLOR_EXPRESSION,
@@ -110,13 +116,6 @@ function mapStyleUrl(): string {
   return `${tileBaseUrl()}${MAP_STYLE_PATH}`;
 }
 
-// 出発地点マーカーの色。GPS取得失敗時のフォールバック（"default"）だけをグレーにし、
-// それ以外（実際のGPS取得・手動指定）は赤にする。
-const ORIGIN_MARKER_COLOR = "#e11d48";
-const WAYPOINT_MARKER_COLOR = "#2563eb";
-const DESTINATION_MARKER_COLOR = "#059669";
-const ORIGIN_MARKER_FALLBACK_COLOR = "#9ca3af";
-
 // 出発地点マーカーは、「現在地に移動」ボタン（page.tsx）と同じSVG（十字線+中心ドット、
 // 地図アプリの現在地アイコンの定番形状）を白背景の円に乗せて共通化する。maplibregl.Marker
 // 既定のしずく形（下端が地点を指す）と違いこの形は左右対称なため、アンカーを"bottom"では
@@ -124,15 +123,10 @@ const ORIGIN_MARKER_FALLBACK_COLOR = "#9ca3af";
 function createOriginMarkerElement(color: string): HTMLDivElement {
   const el = document.createElement("div");
   el.style.cssText =
-    "width:32px; height:32px; border-radius:50%; background:#fff; display:flex; " +
+    "width:32px; height:32px; border-radius:50%; background:" + PIN_MARK_BACKGROUND.origin + "; display:flex; " +
     "align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4); " +
     "touch-action:none; cursor:grab;";
-  el.innerHTML =
-    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">` +
-    `<circle cx="12" cy="12" r="3" fill="${color}" />` +
-    `<path d="M12 2v3M12 19v3M2 12h3M19 12h3M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z" ` +
-    `stroke="${color}" stroke-width="2" stroke-linecap="round" />` +
-    `</svg>`;
+  el.innerHTML = pinMarkHtml("origin", { size: 20, color });
   return el;
 }
 
@@ -142,9 +136,10 @@ function createOriginMarkerElement(color: string): HTMLDivElement {
 // touch-action:noneが無いと、地図をドラッグでパンしようとした指の起点がこの要素に乗った
 // 場合、ブラウザが要素自身のタッチ挙動（既定=auto）を優先してMapLibre側のパンジェスチャー
 // として確定しないことがある（.locateButtonが同じ理由で持っている対策と同じもの）。
-function createPointMarkerElement(background: string, content: string): HTMLDivElement {
+function createPointMarkerElement(role: PinRole, label?: string): HTMLDivElement {
   const el = document.createElement("div");
-  el.textContent = content;
+  const background = PIN_MARK_BACKGROUND[role];
+  el.innerHTML = pinMarkHtml(role, { label });
   el.style.cssText =
     `width:26px; height:26px; border-radius:50%; background:${background}; color:#fff; ` +
     "font-size:13px; font-weight:bold; display:flex; align-items:center; justify-content:center; " +
@@ -3446,7 +3441,7 @@ export default function MapView({
         markerRef.current.setLngLat([location.longitude, location.latitude]);
       } else {
         markerRef.current?.remove();
-        const color = locationSource === "default" ? ORIGIN_MARKER_FALLBACK_COLOR : ORIGIN_MARKER_COLOR;
+        const color = locationSource === "default" ? ORIGIN_MARK_FALLBACK_COLOR : ORIGIN_MARK_COLOR;
         markerRef.current = new maplibregl.Marker({
           element: createOriginMarkerElement(color),
           anchor: "center",
@@ -3477,7 +3472,7 @@ export default function MapView({
     const applyWaypointMarkers = () => {
       waypointMarkersRef.current.forEach((marker) => marker.remove());
       waypointMarkersRef.current = waypoints.map((point, index) => {
-        const el = createPointMarkerElement(WAYPOINT_MARKER_COLOR, String(index + 1));
+        const el = createPointMarkerElement("waypoint", String(index + 1));
         const marker = new maplibregl.Marker({ element: el, draggable: true })
           .setLngLat([point.longitude, point.latitude])
           .addTo(map);
@@ -3504,7 +3499,7 @@ export default function MapView({
       destinationMarkerRef.current = null;
       if (!destination) return;
 
-      const el = createPointMarkerElement(DESTINATION_MARKER_COLOR, "⚑");
+      const el = createPointMarkerElement("destination");
       const marker = new maplibregl.Marker({ element: el, draggable: true })
         .setLngLat([destination.longitude, destination.latitude])
         .addTo(map);
