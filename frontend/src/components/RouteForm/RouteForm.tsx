@@ -229,7 +229,7 @@ export default function RouteForm({
               {renderPointRow(
                 "destination",
                 "目的地",
-                { text: "🏁" },
+                { text: "⚑", background: "#059669" },
                 destinationSet ? "地図で指定" : "未設定",
                 destinationSet ? "置き直す" : "地図で選ぶ",
                 destinationSet ? (

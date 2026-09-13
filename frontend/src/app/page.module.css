@@ -497,7 +497,10 @@
    持ち上げる。 */
 @media (max-width: 640px) {
   .bottomControlRow {
-    bottom: calc(var(--space-3) + var(--mobile-tabbar-height));
+    bottom: max(
+      calc(var(--space-3) + var(--mobile-tabbar-height)),
+      calc(var(--space-2) + var(--mobile-tabbar-height) + var(--mobile-sheet-height))
+    );
   }
 }
 
@@ -582,14 +585,24 @@
 /* スマホ幅ではMapLibreの帰属表示が右下のコンパクトなⓘボタンになり、bottom: 2.5remの
    現在地ボタンと重なって欠けて見える。ⓘボタンの上へ退避する。さらに画面下部に固定の
    .mobileTabBar（--mobile-tabbar-height）が乗るため、その分も底上げする。 */
+/* シートを持ち上げるとその裏へ隠れるため、シートの高さぶんも底上げする
+   （--mobile-sheet-heightはpage.tsxが.mapPaneへ与える。シートが閉じている間は0）。
+   底上げ後の位置が元の位置より低くなることは無いようmax()で比べる——シートが閉じている
+   ときは従来どおり帰属表示（ⓘ）の上、開いているときはシートの上端のすぐ上に出す。 */
 @media (max-width: 640px) {
   .locateButton {
-    bottom: calc(5rem + var(--mobile-tabbar-height));
+    bottom: max(
+      calc(5rem + var(--mobile-tabbar-height)),
+      calc(var(--space-2) + var(--mobile-tabbar-height) + var(--mobile-sheet-height))
+    );
   }
 
   .locateError {
-    /* 現在地ボタンの上に出す関係を維持する（5rem + ボタン44px + 間隔12px + タブバー高さ） */
-    bottom: calc(8.5rem + var(--mobile-tabbar-height));
+    /* 現在地ボタンの上に出す関係を維持する（ボタン44px + 間隔12px ぶん上へ） */
+    bottom: max(
+      calc(8.5rem + var(--mobile-tabbar-height)),
+      calc(var(--space-2) + 3.5rem + var(--mobile-tabbar-height) + var(--mobile-sheet-height))
+    );
   }
 }
 
