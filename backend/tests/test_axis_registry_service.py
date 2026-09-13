@@ -13,7 +13,12 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     MaterialTerm,
 )
-from app.domain.evaluation import StaticEdgeScoreMatrix
+from app.domain.evaluation import (
+    StaticEdgeScoreMatrix,
+    route_facing_categorical_material_ids,
+    route_facing_material_ids,
+    route_facing_raw_axis_ids,
+)
 from app.infrastructure import tile_score_matrix_cache
 from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -94,7 +99,29 @@ async def test_refresh_clears_tile_score_matrix_cache(road_graph_session):
     # スコア行列キャッシュ（tile_score_matrix_cache）はAXIS_DEFINITIONSと同じタイミングで
     # クリアされる必要がある——古いままだと軸編集後も編集前のスコアを返し続けてしまう
     # （infrastructure/tile_score_matrix_cache.pyのdocstring参照）。
-    dummy_matrix = StaticEdgeScoreMatrix(
+    tile_score_matrix_cache.set(12, 1, 1, _score_matrix_with_current_columns())
+    assert tile_score_matrix_cache.get(12, 1, 1) is not None
+
+    repository = AxisDefinitionRepository(road_graph_session)
+    await repository.upsert(_definition("test_axis"), sort_order=0)
+    await repository.commit()
+
+    await refresh_axis_definitions(repository)
+
+    assert tile_score_matrix_cache.get(12, 1, 1) is None
+
+
+def _score_matrix_with_current_columns() -> StaticEdgeScoreMatrix:
+    """いまの述語どおりの列を持つ1行のスコア行列。
+
+    可変長の列（生値・材料・categorical材料）は`tile_score_matrix_cache.get`が読み出し時に
+    現在の述語と突き合わせるため、固定の列で組むと述語が増えた瞬間に「列構成が古い」として
+    ミス扱いになり、キャッシュの温存を見たいテストがその手前で落ちる。
+    """
+    raw_axis_ids = route_facing_raw_axis_ids()
+    material_ids = route_facing_material_ids()
+    categorical_material_ids = route_facing_categorical_material_ids()
+    return StaticEdgeScoreMatrix(
         edge_ids=["edge-1"],
         axis_ids=["gradient"],
         axis_scores=np.array([[50.0]]),
@@ -105,17 +132,13 @@ async def test_refresh_clears_tile_score_matrix_cache(road_graph_session):
         gradient_percent=np.array([np.nan]),
         mid_lat=np.array([35.0]),
         mid_lon=np.array([139.0]),
+        raw_axis_ids=raw_axis_ids,
+        axis_raw_values=np.full((1, len(raw_axis_ids)), np.nan),
+        material_ids=material_ids,
+        material_values=np.full((1, len(material_ids)), np.nan),
+        categorical_material_ids=categorical_material_ids,
+        categorical_material_values=np.empty((1, len(categorical_material_ids)), dtype=object),
     )
-    tile_score_matrix_cache.set(12, 1, 1, dummy_matrix)
-    assert tile_score_matrix_cache.get(12, 1, 1) is not None
-
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(_definition("test_axis"), sort_order=0)
-    await repository.commit()
-
-    await refresh_axis_definitions(repository)
-
-    assert tile_score_matrix_cache.get(12, 1, 1) is None
 
 
 async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unchanged(road_graph_session):
@@ -135,18 +158,6 @@ async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unch
     （Noneは`sync_disk_cache_with_axis_revision`が安全側で常にclear()する別経路、
     本番のmigration 0014が投入する初期行[revision=1]をこのテストが模す）。
     """
-    dummy_matrix = StaticEdgeScoreMatrix(
-        edge_ids=["edge-1"],
-        axis_ids=["gradient"],
-        axis_scores=np.array([[50.0]]),
-        distance_m=np.array([100.0]),
-        bearing_deg=np.array([np.nan]),
-        highway_filter_flags={"motorway": np.array([False]), "trunk": np.array([False])},
-        no_bicycle=np.array([False]),
-        gradient_percent=np.array([np.nan]),
-        mid_lat=np.array([35.0]),
-        mid_lon=np.array([139.0]),
-    )
     road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("test_axis"), sort_order=0)
@@ -154,7 +165,7 @@ async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unch
 
     # 1回目のアプリ起動相当。
     await refresh_axis_definitions(repository)
-    tile_score_matrix_cache.set(12, 2, 2, dummy_matrix)
+    tile_score_matrix_cache.set(12, 2, 2, _score_matrix_with_current_columns())
     tile_score_matrix_cache._cache.clear()  # プロセス再起動（メモリだけ空になる）を模す
 
     # 2回目のアプリ起動相当。間に軸定義の変更（upsert/delete/publish等）は挟んでいない。
@@ -168,25 +179,13 @@ async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unch
 async def test_refresh_invalidates_tile_score_matrix_disk_cache_when_revision_changes(road_graph_session):
     """上記の対（軸定義が実際に変わった場合は、revision不一致によりディスクキャッシュも
     正しく無効化されることの確認）。"""
-    dummy_matrix = StaticEdgeScoreMatrix(
-        edge_ids=["edge-1"],
-        axis_ids=["gradient"],
-        axis_scores=np.array([[50.0]]),
-        distance_m=np.array([100.0]),
-        bearing_deg=np.array([np.nan]),
-        highway_filter_flags={"motorway": np.array([False]), "trunk": np.array([False])},
-        no_bicycle=np.array([False]),
-        gradient_percent=np.array([np.nan]),
-        mid_lat=np.array([35.0]),
-        mid_lon=np.array([139.0]),
-    )
     road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("test_axis"), sort_order=0)
     await repository.commit()
 
     await refresh_axis_definitions(repository)
-    tile_score_matrix_cache.set(12, 3, 3, dummy_matrix)
+    tile_score_matrix_cache.set(12, 3, 3, _score_matrix_with_current_columns())
     tile_score_matrix_cache._cache.clear()
 
     # 軸定義を実際に編集する（upsertは呼ぶたびにrevisionをインクリメントする）。
