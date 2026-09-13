@@ -1272,6 +1272,24 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /**
+         * CompletenessEntry
+         * @description 系譜列を持たない派生データの完成度。世代比較ができないため、母集団のうち未計算の行数で見る。
+         */
+        CompletenessEntry: {
+            /** Label */
+            label: string;
+            /** Population */
+            population: number;
+            /** Uncalculated Count */
+            uncalculated_count: number;
+            /** Owner */
+            owner: string;
+            /** Note */
+            note: string;
+            /** Is Incomplete */
+            is_incomplete: boolean;
+        };
         /** Coordinates */
         Coordinates: {
             /** Latitude */
@@ -1315,14 +1333,8 @@ export interface components {
             computed_at: string;
             /** Generations */
             generations: components["schemas"]["GenerationFreshnessEntry"][];
-            elevation: components["schemas"]["ElevationCompletenessEntry"];
-        };
-        /** ElevationCompletenessEntry */
-        ElevationCompletenessEntry: {
-            /** Road Edges Total */
-            road_edges_total: number;
-            /** Uncalculated Count */
-            uncalculated_count: number;
+            /** Completeness */
+            completeness: components["schemas"]["CompletenessEntry"][];
         };
         /** ExternalCallStatsResponse */
         ExternalCallStatsResponse: {

@@ -95,20 +95,63 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
 # 増えると、その派生テーブルの陳腐化が管理画面から見えないまま残る。
 # **理由を書けば消えるのは検査であって実害ではない**。ここに並ぶバッチの出力は、再実行を
 # 忘れても管理画面のどこにも現れない。
-PRECOMPUTE_NOT_IN_LEDGER: dict[str, str] = {
-    "precompute_elevation_attributes": (
-        "世代比較ではなく完成度（road_edgesとの行数差分）で別枠に載せている。"
-        "source_*_import_run_id列を持たないため他と同じ判定ができない"
+PRECOMPUTE_NOT_IN_LEDGER: dict[str, str] = {}
+
+
+@dataclass(frozen=True)
+class CompletenessSpec:
+    """世代比較ができない派生データ1件の宣言。
+
+    `road_edges`・`road_nodes`の列へ直接書くバッチは、その列に系譜
+    （`source_*_import_run_id`・`algorithm_version`）を持たないため世代比較の台帳に載せられない。
+    代わりに「母集団のうち、まだ計算されていない行が何件あるか」を数える。**取込で母集団が
+    増えたのにバッチを再実行していない状態**は、この件数が0でないこととして現れる。
+
+    `uncalculated`は母集団テーブルに対する述語で、specの内部定数のみから組み立てる
+    （外部入力を連結しない）。未計算を厳密に表せない列があるため`note`で但し書きを添える
+    ——`road_nodes.degree`は`NOT NULL DEFAULT 0`で、未計算と本当に次数0の行を区別できない。
+    """
+
+    label: str
+    population_table: str
+    uncalculated: str
+    owner: str
+    note: str = ""
+
+
+COMPLETENESS_SPECS: tuple[CompletenessSpec, ...] = (
+    CompletenessSpec(
+        label="elevation_attributes",
+        population_table="road_edges",
+        uncalculated=(
+            "NOT EXISTS (SELECT 1 FROM elevation_attributes ea WHERE ea.edge_id = road_edges.edge_id)"
+        ),
+        owner="precompute_elevation_attributes",
     ),
-    "precompute_edge_curvature": (
-        "書き込み先road_edges.curvature_deg_per_kmに系譜列が無く、載せる手段が無い。"
-        "PBF再取込後にこのバッチだけ実行を忘れると、新規splitされたEdgeはNULLのまま残り"
-        "蛇行軸が無警告で評価から抜ける（[T832](docs/tasks/T832.md)で扱う）"
+    CompletenessSpec(
+        label="road_edges.curvature_deg_per_km",
+        population_table="road_edges",
+        uncalculated="curvature_deg_per_km IS NULL",
+        owner="precompute_edge_curvature",
+        note="ルート評価が読む列。未計算のままだと蛇行軸が重みの再正規化で薄まり、警告なく評価から抜ける",
     ),
-    "precompute_road_node_degrees": (
-        "書き込み先road_nodes.degreeに系譜列が無く、載せる手段が無い（同上、[T832](docs/tasks/T832.md)）"
+    CompletenessSpec(
+        label="road_nodes.degree",
+        population_table="road_nodes",
+        uncalculated="degree = 0",
+        owner="precompute_road_node_degrees",
+        note="この列はNOT NULL DEFAULT 0のため、未計算と本当に次数0の行を区別できない（0件が正常とは限らない）",
     ),
-}
+)
+
+
+def build_completeness_sql(spec: CompletenessSpec):
+    """1件ぶんの母集団件数と未計算件数（1回の走査でまとめる）。
+    テーブル名・述語はspecの内部定数のみから生成する（外部入力を連結しない）。"""
+    return text(
+        f"SELECT count(*) AS population, count(*) FILTER (WHERE {spec.uncalculated}) AS uncalculated "  # noqa: S608 固定の内部宣言のみ使用
+        f"FROM {spec.population_table}"
+    )
 
 
 def build_generation_freshness_sql(spec: GenerationFreshnessSpec):
@@ -144,11 +187,19 @@ class GenerationFreshnessCounts:
 
 
 @dataclass(frozen=True)
+class CompletenessCounts:
+    """完成度1件ぶんの集計結果の生値。"""
+
+    label: str
+    population: int
+    uncalculated: int
+
+
+@dataclass(frozen=True)
 class DerivedDataFreshnessCounts:
     generations: tuple[GenerationFreshnessCounts, ...]
     latest_succeeded_run_id: dict[str, int | None]
-    road_edges_total: int
-    elevation_uncalculated_count: int
+    completeness: tuple[CompletenessCounts, ...]
 
 
 class DerivedDataFreshnessQuery:
@@ -188,22 +239,19 @@ class DerivedDataFreshnessQuery:
                 )
             )
 
-        road_edges_total = int((await self._session.execute(text("SELECT count(*) FROM road_edges"))).scalar_one())
-        elevation_uncalculated_count = int(
-            (
-                await self._session.execute(
-                    text(
-                        "SELECT count(*) FROM road_edges "
-                        "LEFT JOIN elevation_attributes ON elevation_attributes.edge_id = road_edges.edge_id "
-                        "WHERE elevation_attributes.edge_id IS NULL"
-                    )
+        completeness: list[CompletenessCounts] = []
+        for spec in COMPLETENESS_SPECS:
+            row = (await self._session.execute(build_completeness_sql(spec))).mappings().one()
+            completeness.append(
+                CompletenessCounts(
+                    label=spec.label,
+                    population=int(row["population"]),
+                    uncalculated=int(row["uncalculated"]),
                 )
-            ).scalar_one()
-        )
+            )
 
         return DerivedDataFreshnessCounts(
             generations=tuple(generations),
             latest_succeeded_run_id=latest_succeeded_run_id,
-            road_edges_total=road_edges_total,
-            elevation_uncalculated_count=elevation_uncalculated_count,
+            completeness=tuple(completeness),
         )

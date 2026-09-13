@@ -20,10 +20,16 @@ function formatComputedAt(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString("ja-JP");
 }
 
-function StaleBadge({ isStale }: { isStale: boolean }) {
-  return (
-    <span className={isStale ? styles.badgeStale : styles.badgeFresh}>{isStale ? "鮮度不整合あり" : "鮮度OK"}</span>
-  );
+// 世代比較（鮮度）と完成度で、同じ良し悪しの見た目に別の言葉を出す。完成度の枠へ
+// 「鮮度不整合あり」と出すと、何が古いのかを取り違える。
+function StaleBadge({
+  isStale,
+  labels = ["鮮度不整合あり", "鮮度OK"],
+}: {
+  isStale: boolean;
+  labels?: readonly [string, string];
+}) {
+  return <span className={isStale ? styles.badgeStale : styles.badgeFresh}>{isStale ? labels[0] : labels[1]}</span>;
 }
 
 // 「鮮度」タブ（/admin）から、派生データ（precomputeバッチの出力）の鮮度台帳
@@ -51,8 +57,9 @@ export default function DerivedDataFreshnessPanel() {
       <p className={styles.hint}>
         下の表に並ぶ各テーブルが参照している生データの世代（取込run）が、最新の成功済み取込より
         古いままではないかを機械判定する（対象はbackendのGENERATION_FRESHNESS_SPECSが決めるため、
-        テーブルが増減しても表は自動で追従する）。source_*_import_run_id列を持たないテーブルは
-        世代比較ではなく完成度（road_edgesとの行数差分）のみ表示する——鮮度ではない点に注意。
+        テーブルが増減しても表は自動で追従する）。系譜列（source_*_import_run_id）を持たない
+        派生データは世代比較ができないため、母集団のうち未計算が何件残っているかを別枠で示す
+        ——鮮度ではない点に注意。
         DB全体の走査を伴うため集計には時間がかかる（ボタン押下時のみ実行）。
       </p>
       <div className={styles.controls}>
@@ -117,16 +124,20 @@ export default function DerivedDataFreshnessPanel() {
             </div>
           ))}
 
-          <div className={styles.tableBlock}>
-            <div className={styles.tableName}>
-              <span className={styles.tableNameText}>elevation_attributes</span>
-              <span className={styles.completenessNote}>完成度（鮮度ではない）</span>
+          {report.completeness.map((entry) => (
+            <div key={entry.label} className={styles.tableBlock}>
+              <div className={styles.tableName}>
+                <span className={styles.tableNameText}>{entry.label}</span>
+                <span className={styles.completenessNote}>完成度（鮮度ではない）</span>
+                <StaleBadge isStale={entry.is_incomplete} labels={["未計算あり", "計算済み"]} />
+              </div>
+              <p className={styles.hint}>
+                {formatCount(entry.population)}件のうち、未計算が {formatCount(entry.uncalculated_count)}件。
+                {entry.is_incomplete && `再計算するには ${entry.owner} を実行する。`}
+                {entry.note && `（${entry.note}）`}
+              </p>
             </div>
-            <p className={styles.hint}>
-              road_edges {formatCount(report.elevation.road_edges_total)}件のうち、標高計算が未完了なEdgeが{" "}
-              {formatCount(report.elevation.uncalculated_count)}件。
-            </p>
-          </div>
+          ))}
         </>
       )}
     </Card>

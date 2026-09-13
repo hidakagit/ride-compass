@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.derived_data_freshness import (
+    COMPLETENESS_SPECS,
     GENERATION_FRESHNESS_SPECS,
     DerivedDataFreshnessCounts,
     DerivedDataFreshnessQuery,
@@ -50,19 +51,24 @@ class GenerationFreshnessEntry:
 
 
 @dataclass(frozen=True)
-class ElevationCompletenessEntry:
-    """世代比較ではなく完成度（road_edgesとの行数差分）。elevation_attributesは
-    source_*_import_run_id列を持たないため他3件と同じ判定はできない。"""
+class CompletenessEntry:
+    """世代比較ではなく完成度（母集団のうち未計算の件数）。系譜列を持たない派生データは
+    この形で見る（`infrastructure/derived_data_freshness.py: CompletenessSpec`）。"""
 
-    road_edges_total: int
+    label: str
+    population: int
     uncalculated_count: int
+    owner: str
+    note: str
+    #: 未計算の行が残っている（取込で母集団が増えたのにバッチを再実行していない可能性）。
+    is_incomplete: bool
 
 
 @dataclass(frozen=True)
 class DerivedDataFreshnessReport:
     computed_at: datetime
     generations: list[GenerationFreshnessEntry]
-    elevation: ElevationCompletenessEntry
+    completeness: list[CompletenessEntry]
 
 
 def build_freshness_report(counts: DerivedDataFreshnessCounts, computed_at: datetime) -> DerivedDataFreshnessReport:
@@ -113,13 +119,22 @@ def build_freshness_report(counts: DerivedDataFreshnessCounts, computed_at: date
             )
         )
 
+    completeness = [
+        CompletenessEntry(
+            label=c.label,
+            population=c.population,
+            uncalculated_count=c.uncalculated,
+            owner=spec.owner,
+            note=spec.note,
+            is_incomplete=c.uncalculated > 0,
+        )
+        for c, spec in zip(counts.completeness, COMPLETENESS_SPECS, strict=True)
+    ]
+
     return DerivedDataFreshnessReport(
         computed_at=computed_at,
         generations=generations,
-        elevation=ElevationCompletenessEntry(
-            road_edges_total=counts.road_edges_total,
-            uncalculated_count=counts.elevation_uncalculated_count,
-        ),
+        completeness=completeness,
     )
 
 

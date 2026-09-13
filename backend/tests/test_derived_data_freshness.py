@@ -9,15 +9,28 @@ from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as WAY_A
 from app.batch.precompute_way_landcover import ALGORITHM_VERSION as LANDCOVER_ALGORITHM_VERSION
 from app.infrastructure import derived_data_freshness
 from app.infrastructure.derived_data_freshness import (
+    COMPLETENESS_SPECS,
     PRECOMPUTE_NOT_IN_LEDGER,
     GENERATION_FRESHNESS_SPECS,
+    CompletenessCounts,
     DerivedDataFreshnessCounts,
     GenerationFreshnessCounts,
+    build_completeness_sql,
     build_generation_freshness_sql,
 )
 from app.services.derived_data_freshness_service import build_freshness_report
 
 COMPUTED_AT = datetime(2026, 9, 4, tzinfo=timezone.utc)
+
+
+def _batches_in_ledger() -> set[str]:
+    """台帳のどちらかの枠に載っているバッチ。世代比較（系譜列を持つ）と完成度（持たない）で
+    枠は違うが、「陳腐化が管理画面に現れる」という点では同じ扱いでよい。"""
+    return {
+        spec.algorithm_version_owner.split(".", 1)[0]
+        for spec in GENERATION_FRESHNESS_SPECS
+        if spec.algorithm_version_owner is not None
+    } | {spec.owner for spec in COMPLETENESS_SPECS}
 
 
 def _edge_counts(
@@ -115,8 +128,8 @@ def _counts(
     landcover=None,
     latest_accident: int | None = 10,
     latest_osm: int | None = 10,
-    road_edges_total: int = 5,
-    elevation_uncalculated_count: int = 0,
+    population: int = 5,
+    uncalculated: int = 0,
 ) -> DerivedDataFreshnessCounts:
     overrides = {
         counts.table_name: counts
@@ -129,8 +142,10 @@ def _counts(
             for spec in GENERATION_FRESHNESS_SPECS
         ),
         latest_succeeded_run_id={"accident_import_runs": latest_accident, "osm_import_runs": latest_osm},
-        road_edges_total=road_edges_total,
-        elevation_uncalculated_count=elevation_uncalculated_count,
+        completeness=tuple(
+            CompletenessCounts(label=spec.label, population=population, uncalculated=uncalculated)
+            for spec in COMPLETENESS_SPECS
+        ),
     )
 
 
@@ -150,17 +165,13 @@ def test_every_precompute_batch_is_in_the_ledger_or_has_a_reason():
 
     batch_dir = pathlib.Path(derived_data_freshness.__file__).resolve().parents[1] / "batch"
     batches = {path.stem for path in sorted(batch_dir.glob("precompute_*.py"))}
-    in_ledger = {
-        spec.algorithm_version_owner.split(".", 1)[0]
-        for spec in GENERATION_FRESHNESS_SPECS
-        if spec.algorithm_version_owner is not None
-    }
 
-    unregistered = batches - in_ledger - set(PRECOMPUTE_NOT_IN_LEDGER)
+    unregistered = batches - _batches_in_ledger() - set(PRECOMPUTE_NOT_IN_LEDGER)
 
     assert not unregistered, (
-        f"{sorted(unregistered)}が世代台帳に無い。GENERATION_FRESHNESS_SPECSへ追加するか、"
-        "載せない理由をPRECOMPUTE_NOT_IN_LEDGERへ書くこと。"
+        f"{sorted(unregistered)}が台帳に無い。世代比較ができるならGENERATION_FRESHNESS_SPECSへ、"
+        "系譜列を持たないならCOMPLETENESS_SPECSへ追加するか、どちらにも載せない理由を"
+        "PRECOMPUTE_NOT_IN_LEDGERへ書くこと。"
     )
 
 
@@ -170,13 +181,8 @@ def test_the_exclusion_list_does_not_name_batches_that_are_gone():
 
     batch_dir = pathlib.Path(derived_data_freshness.__file__).resolve().parents[1] / "batch"
     batches = {path.stem for path in sorted(batch_dir.glob("precompute_*.py"))}
-    in_ledger = {
-        spec.algorithm_version_owner.split(".", 1)[0]
-        for spec in GENERATION_FRESHNESS_SPECS
-        if spec.algorithm_version_owner is not None
-    }
 
-    assert not (set(PRECOMPUTE_NOT_IN_LEDGER) & in_ledger)
+    assert not (set(PRECOMPUTE_NOT_IN_LEDGER) & _batches_in_ledger())
     assert set(PRECOMPUTE_NOT_IN_LEDGER) <= batches, "消えたバッチの除外理由が残っている"
 
 
@@ -185,6 +191,21 @@ def test_algorithm_version_value_and_owner_are_declared_together():
     # 責任かを示せない（またはその逆）。どちらが欠けても鮮度の読み手が迷子になる。
     for spec in GENERATION_FRESHNESS_SPECS:
         assert (spec.algorithm_version_current is None) == (spec.algorithm_version_owner is None), spec.table_name
+
+
+def test_build_completeness_sql_counts_the_population_and_the_uncalculated_rows():
+    # 述語は宣言のものをそのまま使う（列名・条件を書き写すと宣言と実際の集計がずれる）。
+    for spec in COMPLETENESS_SPECS:
+        sql = str(build_completeness_sql(spec))
+        assert f"FROM {spec.population_table}" in sql
+        assert f"FILTER (WHERE {spec.uncalculated})" in sql
+        assert "count(*) AS population" in sql
+
+
+def test_completeness_specs_declare_the_batch_that_fills_them():
+    # 未計算が残っていることだけ分かっても、回すバッチが分からなければ動けない。
+    for spec in COMPLETENESS_SPECS:
+        assert spec.owner.startswith("precompute_")
 
 
 def test_build_generation_freshness_sql_has_one_column_pair_per_source():
@@ -279,12 +300,32 @@ def test_designation_entry_has_no_algorithm_version():
     assert designation_entry.sources[0].run_table == "osm_import_runs"
 
 
-def test_report_carries_elevation_completeness_separately_from_generation_entries():
-    report = build_freshness_report(
-        _counts(road_edges_total=100, elevation_uncalculated_count=7), COMPUTED_AT
-    )
+def test_report_carries_completeness_separately_from_generation_entries():
+    report = build_freshness_report(_counts(population=100, uncalculated=7), COMPUTED_AT)
 
-    assert report.elevation.road_edges_total == 100
-    assert report.elevation.uncalculated_count == 7
+    assert [entry.label for entry in report.completeness] == [spec.label for spec in COMPLETENESS_SPECS]
+    for entry in report.completeness:
+        assert entry.population == 100
+        assert entry.uncalculated_count == 7
+        assert entry.is_incomplete is True
     assert report.computed_at == COMPUTED_AT
     assert len(report.generations) == len(GENERATION_FRESHNESS_SPECS)
+
+
+def test_completeness_is_not_incomplete_when_nothing_is_uncalculated():
+    report = build_freshness_report(_counts(population=100, uncalculated=0), COMPUTED_AT)
+
+    assert all(entry.is_incomplete is False for entry in report.completeness)
+
+
+def test_completeness_entries_carry_the_batch_to_rerun_and_its_caveat():
+    # 未計算が残っていると分かっても、どのバッチを回せばよいか画面から分からなければ動けない。
+    report = build_freshness_report(_counts(population=100, uncalculated=3), COMPUTED_AT)
+
+    by_label = {entry.label: entry for entry in report.completeness}
+    for spec in COMPLETENESS_SPECS:
+        assert by_label[spec.label].owner == spec.owner
+        assert by_label[spec.label].note == spec.note
+
+    # 未計算を厳密に表せない列は但し書きを持つ（road_nodes.degreeはNOT NULL DEFAULT 0）。
+    assert any(entry.note for entry in report.completeness)

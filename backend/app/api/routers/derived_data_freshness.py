@@ -49,15 +49,24 @@ class GenerationFreshnessEntry(StrictModel):
     is_stale: bool
 
 
-class ElevationCompletenessEntry(StrictModel):
-    road_edges_total: int
+class CompletenessEntry(StrictModel):
+    """系譜列を持たない派生データの完成度。世代比較ができないため、母集団のうち未計算の行数で見る。"""
+
+    #: 画面に出す名前（対象のテーブル、または列まで含む）。
+    label: str
+    population: int
     uncalculated_count: int
+    #: 未計算を解消するために再実行するバッチ。
+    owner: str
+    #: 判定の但し書き（未計算を厳密に表せない列がある）。無ければ空文字。
+    note: str
+    is_incomplete: bool
 
 
 class DerivedDataFreshnessResponse(StrictModel):
     computed_at: str
     generations: list[GenerationFreshnessEntry]
-    elevation: ElevationCompletenessEntry
+    completeness: list[CompletenessEntry]
 
 
 @router.get(
@@ -113,8 +122,15 @@ async def get_derived_data_freshness(
             )
             for entry in report.generations
         ],
-        elevation=ElevationCompletenessEntry(
-            road_edges_total=report.elevation.road_edges_total,
-            uncalculated_count=report.elevation.uncalculated_count,
-        ),
+        completeness=[
+            CompletenessEntry(
+                label=entry.label,
+                population=entry.population,
+                uncalculated_count=entry.uncalculated_count,
+                owner=entry.owner,
+                note=entry.note,
+                is_incomplete=entry.is_incomplete,
+            )
+            for entry in report.completeness
+        ],
     )

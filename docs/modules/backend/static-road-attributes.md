@@ -248,9 +248,12 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 モジュールトップでimportすると、バッチへ`requirements-batch.txt`限定の依存を1行足しただけで
 本番webイメージが起動できなくなる**（テストとCIはbatch依存が入っているため緑のまま通る。
 `scripts/review_checks.py`の`web_layer_batch_import`がこの向きのimportを機械的に弾く）。
-`elevation_attributes`は
-この列を持たないため（[elevation.md](elevation.md)参照）、世代比較ではなく`road_edges`
-との行数差分による完成度のみを別枠で扱う。`GET /api/admin/derived-data/freshness`
+系譜列を持たない派生データ——`elevation_attributes`（[elevation.md](elevation.md)参照）と、
+`road_edges`・`road_nodes`の列へ直接書くもの——は世代比較ができないため、`COMPLETENESS_SPECS`
+の宣言に従って**母集団のうち未計算が何件残っているか**を別枠で数える。取込で母集団が増えたのに
+バッチを再実行していない状態がこの件数として現れる。未計算を厳密に表せない列は宣言が`note`で
+但し書きを持ち、画面へそのまま出す——`road_nodes.degree`は`NOT NULL DEFAULT 0`で、未計算と
+本当に次数0の行を区別できない（0件が正常とは限らない）。`GET /api/admin/derived-data/freshness`
 （Basic認証必須）が`/admin`「鮮度」タブ（[axis-studio.md](../frontend/axis-studio.md)）へ
 返す。[evaluation-scoring.md](evaluation-scoring.md)の材料欠損割合（`/admin`「材料」タブ）
 とは別の切り口——材料側は完成度、本節は鮮度を見る。詳細な設計判断は

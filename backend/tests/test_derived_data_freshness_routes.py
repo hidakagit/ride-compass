@@ -5,6 +5,8 @@ from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_derived_data_freshness_service
 from app.infrastructure.derived_data_freshness import (
+    COMPLETENESS_SPECS,
+    CompletenessCounts,
     GENERATION_FRESHNESS_SPECS,
     DerivedDataFreshnessCounts,
     GenerationFreshnessCounts,
@@ -51,8 +53,10 @@ def _fresh_counts() -> DerivedDataFreshnessCounts:
     return DerivedDataFreshnessCounts(
         generations=tuple(_generation(spec) for spec in GENERATION_FRESHNESS_SPECS),
         latest_succeeded_run_id=dict(_LATEST_RUN_ID),
-        road_edges_total=100,
-        elevation_uncalculated_count=3,
+        completeness=tuple(
+            CompletenessCounts(label=spec.label, population=100, uncalculated=3)
+            for spec in COMPLETENESS_SPECS
+        ),
     )
 
 
@@ -94,7 +98,14 @@ def test_get_derived_data_freshness_returns_report(admin_credentials):
             assert entry["algorithm_version"] is None
         else:
             assert entry["algorithm_version"]["current_version"] == spec.algorithm_version_current
-    assert body["elevation"] == {"road_edges_total": 100, "uncalculated_count": 3}
+    # 完成度の対象はbackendの宣言が決める（レスポンスの件数を宣言側から導く）。
+    assert [entry["label"] for entry in body["completeness"]] == [spec.label for spec in COMPLETENESS_SPECS]
+    for entry, spec in zip(body["completeness"], COMPLETENESS_SPECS, strict=True):
+        assert entry["population"] == 100
+        assert entry["uncalculated_count"] == 3
+        assert entry["is_incomplete"] is True
+        assert entry["owner"] == spec.owner
+        assert entry["note"] == spec.note
 
 
 def test_get_derived_data_freshness_translates_db_errors_to_503(admin_credentials):

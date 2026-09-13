@@ -63,7 +63,24 @@ const FRESH_REPORT: DerivedDataFreshnessResponse = {
       algorithm_version: null,
     }),
   ],
-  elevation: { road_edges_total: 5025067, uncalculated_count: 328 },
+  completeness: [
+    {
+      label: "elevation_attributes",
+      population: 5025067,
+      uncalculated_count: 328,
+      owner: "precompute_elevation_attributes",
+      note: "",
+      is_incomplete: true,
+    },
+    {
+      label: "road_nodes.degree",
+      population: 3000000,
+      uncalculated_count: 0,
+      owner: "precompute_road_node_degrees",
+      note: "この列はNOT NULL DEFAULT 0のため、未計算と本当に次数0の行を区別できない",
+      is_incomplete: false,
+    },
+  ],
 };
 
 async function clickAggregate(user: ReturnType<typeof userEvent.setup>) {
@@ -150,17 +167,45 @@ describe("DerivedDataFreshnessPanel", () => {
     expect(within(block as HTMLElement).queryByText(/ALGORITHM_VERSION/)).not.toBeInTheDocument();
   });
 
-  it("elevation_attributesは完成度として別枠表示する", async () => {
+  it("系譜列を持たない派生データは完成度として別枠に、backendが返した件数ぶん並べる", async () => {
     vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
     const user = userEvent.setup();
     render(<DerivedDataFreshnessPanel />);
 
     await clickAggregate(user);
 
-    expect(screen.getByText("elevation_attributes")).toBeInTheDocument();
-    expect(screen.getByText("完成度（鮮度ではない）")).toBeInTheDocument();
+    // 対象はbackendの宣言が決めるため、軸・テーブルが増えてもフロントは追従する。
+    for (const entry of FRESH_REPORT.completeness) {
+      expect(screen.getByText(entry.label)).toBeInTheDocument();
+    }
+    expect(screen.getAllByText("完成度（鮮度ではない）")).toHaveLength(FRESH_REPORT.completeness.length);
     expect(screen.getByText(/5,025,067件/)).toBeInTheDocument();
     expect(screen.getByText(/328件/)).toBeInTheDocument();
+  });
+
+  it("未計算が残っていれば印と再実行するバッチ名を出し、無ければ出さない", async () => {
+    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
+    const user = userEvent.setup();
+    render(<DerivedDataFreshnessPanel />);
+
+    await clickAggregate(user);
+
+    expect(screen.getByText("未計算あり")).toBeInTheDocument();
+    expect(screen.getByText(/precompute_elevation_attributes を実行する/)).toBeInTheDocument();
+    expect(screen.getByText("計算済み")).toBeInTheDocument();
+    expect(screen.queryByText(/precompute_road_node_degrees を実行する/)).not.toBeInTheDocument();
+  });
+
+  it("未計算を厳密に表せない列の但し書きを、その枠へ添える", async () => {
+    // road_nodes.degreeはNOT NULL DEFAULT 0で、未計算と本当に次数0の行を区別できない。
+    // 0件でも「正常」と言い切れないことが読み手に伝わらないと、判断を誤る。
+    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
+    const user = userEvent.setup();
+    render(<DerivedDataFreshnessPanel />);
+
+    await clickAggregate(user);
+
+    expect(screen.getByText(/未計算と本当に次数0の行を区別できない/)).toBeInTheDocument();
   });
 
   it("取得失敗時はエラーメッセージを表示する", async () => {

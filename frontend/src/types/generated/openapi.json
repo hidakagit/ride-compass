@@ -2849,6 +2849,46 @@
         "title": "CategoricalShape",
         "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n`mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残り、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる。\"true\"/\"false\"以外の文字列キーはbool変換に失敗してstrへフォールバックするため\n通常のcategorical材料には影響しない）。"
       },
+      "CompletenessEntry": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "population": {
+            "type": "integer",
+            "title": "Population"
+          },
+          "uncalculated_count": {
+            "type": "integer",
+            "title": "Uncalculated Count"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "is_incomplete": {
+            "type": "boolean",
+            "title": "Is Incomplete"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "population",
+          "uncalculated_count",
+          "owner",
+          "note",
+          "is_incomplete"
+        ],
+        "title": "CompletenessEntry",
+        "description": "系譜列を持たない派生データの完成度。世代比較ができないため、母集団のうち未計算の行数で見る。"
+      },
       "Coordinates": {
         "properties": {
           "latitude": {
@@ -2976,8 +3016,12 @@
             "type": "array",
             "title": "Generations"
           },
-          "elevation": {
-            "$ref": "#/components/schemas/ElevationCompletenessEntry"
+          "completeness": {
+            "items": {
+              "$ref": "#/components/schemas/CompletenessEntry"
+            },
+            "type": "array",
+            "title": "Completeness"
           }
         },
         "additionalProperties": false,
@@ -2985,28 +3029,9 @@
         "required": [
           "computed_at",
           "generations",
-          "elevation"
+          "completeness"
         ],
         "title": "DerivedDataFreshnessResponse"
-      },
-      "ElevationCompletenessEntry": {
-        "properties": {
-          "road_edges_total": {
-            "type": "integer",
-            "title": "Road Edges Total"
-          },
-          "uncalculated_count": {
-            "type": "integer",
-            "title": "Uncalculated Count"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "road_edges_total",
-          "uncalculated_count"
-        ],
-        "title": "ElevationCompletenessEntry"
       },
       "ExternalCallStatsResponse": {
         "properties": {

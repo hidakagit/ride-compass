@@ -35,7 +35,7 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
-| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）とelevation_attributesの完成度（別枠）を表示。集計は「集計する」ボタン押下時のみ |
+| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）と、系譜列を持たない派生データの完成度（別枠、`COMPLETENESS_SPECS`が決める）を表示。集計は「集計する」ボタン押下時のみ |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
 | `components/AxisStudio/TileCachePanel.tsx` | 「鮮度」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
@@ -276,8 +276,11 @@ listAxisDefinitions() ──→ definitions（全軸）
   手書きしない）はテーブルごとに小さな表を並べる（比較対象・最新取込run・反映済み最古run・
   NULL件数・鮮度バッジ）。`algorithm_version`はレスポンスが持つテーブルにだけ行として
   追加する。テーブル名の隣に行数と鮮度不整合の有無（バッジ）を出す。
-- `elevation`（`road_edges`との行数差分）は世代比較ではなく完成度のため、上記とは別枠で
-  「完成度（鮮度ではない）」と明記して表示する。
+- `completeness`（系譜列を持たない派生データ。母集団のうち未計算の件数）は世代比較では
+  ないため、上記とは別枠で「完成度（鮮度ではない）」と明記して表示する。**対象と件数は
+  backendの`COMPLETENESS_SPECS`が決め、frontendは返ってきた行を並べるだけ**（世代比較側と
+  同じ扱い）。未計算が残っていれば印と「どのバッチを再実行すればよいか」を、判定の但し書きを
+  持つ行はその文言も添える。
 - 集計はDB全体の走査を伴うため、`MaterialCoveragePanel`と同じく「集計する」ボタン押下時
   のみ実行する。認証情報の入力欄は持たない（`/admin`のBasic認証セッションをroute handler
   経由で再利用する）。
