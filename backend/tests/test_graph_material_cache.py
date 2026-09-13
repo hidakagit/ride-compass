@@ -254,7 +254,7 @@ class TestSyncDiskCacheWithDerivedDataRevision:
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(1) is True
         assert graph_material_cache.get_tile_materials(12, 5, 6) is None
-        assert graph_material_cache._read_persisted_revision() == 1
+        assert graph_material_cache.read_persisted_revision() == 1
 
     def test_same_revision_across_simulated_restart_preserves_disk_cache(self):
         # プロセス再起動を模す: 世代を記録→ディスクへ書く→メモリだけ空にする。
@@ -275,14 +275,14 @@ class TestSyncDiskCacheWithDerivedDataRevision:
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(6) is True
         assert graph_material_cache.get_tile_materials(12, 5, 6) is None
-        assert graph_material_cache._read_persisted_revision() == 6
+        assert graph_material_cache.read_persisted_revision() == 6
 
     def test_none_revision_always_clears_and_records_nothing(self):
         # 行が無い等の想定外。安全側（常に消す）へ倒し、記録もしない。
         graph_material_cache.sync_disk_cache_with_derived_data_revision(5)
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is True
-        assert graph_material_cache._read_persisted_revision() is None
+        assert graph_material_cache.read_persisted_revision() is None
 
 
 def test_cache_version_does_not_change_when_data_is_rebuilt():

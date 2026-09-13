@@ -256,7 +256,7 @@ class TestSyncDiskCacheWithAxisRevision:
         tile_score_matrix_cache.sync_disk_cache_with_axis_revision(1)
 
         assert tile_score_matrix_cache.get(12, 5, 6) is None
-        assert tile_score_matrix_cache._read_persisted_axis_revision() == 1
+        assert tile_score_matrix_cache.read_persisted_axis_revision() == 1
 
     def test_same_revision_across_simulated_restart_preserves_disk_cache(self):
         # 実際のコンテナ再起動を模す: revision記録→ディスクへ書き込み→メモリだけ空にする
@@ -282,7 +282,7 @@ class TestSyncDiskCacheWithAxisRevision:
         tile_score_matrix_cache.sync_disk_cache_with_axis_revision(6)
 
         assert tile_score_matrix_cache.get(12, 5, 6) is None
-        assert tile_score_matrix_cache._read_persisted_axis_revision() == 6
+        assert tile_score_matrix_cache.read_persisted_axis_revision() == 6
 
     def test_rebuilt_cache_after_revision_change_persists_across_next_restart(self):
         # revision変更で無効化された後、新しいrevisionのもとで再構築されたキャッシュは、
@@ -309,7 +309,7 @@ class TestSyncDiskCacheWithAxisRevision:
         tile_score_matrix_cache.sync_disk_cache_with_axis_revision(None)
 
         assert tile_score_matrix_cache.get(12, 5, 6) is None
-        assert tile_score_matrix_cache._read_persisted_axis_revision() is None
+        assert tile_score_matrix_cache.read_persisted_axis_revision() is None
 
     def test_revision_marker_does_not_collide_with_real_tile_coordinates(self):
         # 予約座標(zoom=-1, x=0, y=0)が実タイル(zoom=12等)と独立して扱われることの確認。
@@ -318,7 +318,7 @@ class TestSyncDiskCacheWithAxisRevision:
 
         assert tile_score_matrix_cache.get(12, 0, 0) is not None
         assert tile_score_matrix_cache.get(12, 0, 0).edge_ids == ["edge-real"]
-        assert tile_score_matrix_cache._read_persisted_axis_revision() == 3
+        assert tile_score_matrix_cache.read_persisted_axis_revision() == 3
 
 
 # --- キャッシュ世代の従属関係（材料世代が変わればスコア行列も無効になる） ---

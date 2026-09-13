@@ -32,7 +32,7 @@ tile_persistent_cache.py`へも同じ内容をディスク永続化する（`gra
 `sync_disk_cache_with_axis_revision(revision)`は、`refresh_axis_definitions`が
 `AxisDefinitionRepository.get_revision()`（`axis_registry_meta.revision`、軸定義の
 追加・更新・削除のたびにDB側でインクリメントされる単調増加カウンタ）を渡して呼ぶ。
-ディスクへ最後に永続化した時点のrevisionを予約タイル座標（`_REVISION_MARKER_TILE`、
+ディスクへ最後に永続化した時点のrevisionは`cache_generation.py`が記録する（予約タイル座標、
 実タイルのzoomと衝突しない）へ記録しておき、渡された`revision`と一致すればディスク
 キャッシュを温存する（メモリだけクリアする——プロセス内で軸編集APIが呼ばれた直後の
 反映のため、`refresh_axis_definitions`はアプリ起動時にも必ず1回呼ばれるが、起動直後は
@@ -53,7 +53,7 @@ from app.domain.evaluation import (
     route_facing_material_ids,
     route_facing_raw_axis_ids,
 )
-from app.infrastructure import tile_persistent_cache
+from app.infrastructure import cache_generation, tile_persistent_cache
 from app.infrastructure.cache_identity import SCORE_MATRIX_REVISION, cache_identity
 from app.infrastructure.graph_material_cache import TILE_MATERIALS_CACHE_VERSION
 
@@ -164,22 +164,9 @@ def size() -> int:  # テストの検証用（メモリLRUの件数のみ。デ�
     return len(_cache)
 
 
-# ディスクへ最後に永続化した時点のaxis_registry_meta.revisionを
-# 記録する予約タイル座標。実タイルのzoomは常にROAD_GRAPH_TILE_ZOOM（12）のため、
-# zoom=-1は衝突しない。`tile_score_matrix_cache.get/set`（StaticEdgeScoreMatrix専用）
-# ではなく`tile_persistent_cache.get/set`を直接使う——このrevision値自体はメモリLRU
-# （`_cache`、StaticEdgeScoreMatrix専用）へは乗せない。
-_REVISION_MARKER_TILE = (-1, 0, 0)
-
-
-def _read_persisted_axis_revision() -> int | None:
-    zoom, x, y = _REVISION_MARKER_TILE
-    return tile_persistent_cache.get(_CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y)
-
-
-def _write_persisted_axis_revision(revision: int) -> None:
-    zoom, x, y = _REVISION_MARKER_TILE
-    tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y, revision)
+def read_persisted_axis_revision() -> int | None:
+    """ディスクへ最後に書いた時点の`axis_registry_meta.revision`（テスト・診断用）。"""
+    return cache_generation.read_persisted_revision(_CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION)
 
 
 def sync_disk_cache_with_axis_revision(revision: int | None) -> None:
@@ -198,9 +185,9 @@ def sync_disk_cache_with_axis_revision(revision: int | None) -> None:
     definitions`から同じ経路で呼ばれるため、本関数が両者を区別する（起動時は大半の場合
     revisionが変わっておらずディスクキャッシュを温存でき、軸編集時のみ実際に無効化される）。
     """
-    if revision is not None and _read_persisted_axis_revision() == revision:
+    # 軸定義が変わっていないときはメモリだけ空にする（ディスクは温存）。判断そのものは
+    # 材料側と共通で、ここが決めるのは「温存のときも_cacheは空にする」ことだけ。
+    if not cache_generation.sync_with_revision(
+        _CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, revision, clear
+    ):
         _cache.clear()
-        return
-    clear()
-    if revision is not None:
-        _write_persisted_axis_revision(revision)

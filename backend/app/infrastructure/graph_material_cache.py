@@ -26,7 +26,7 @@ road_edges/road_nodesの密度次第だが、対象が関東圏に留まる現�
 from cachetools import LRUCache
 
 from app.domain.attributes import EdgeMaterialTable, SearchMaterials
-from app.infrastructure import tile_persistent_cache
+from app.infrastructure import cache_generation, tile_persistent_cache
 from app.infrastructure.cache_identity import shape_digest
 
 
@@ -80,37 +80,20 @@ def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials) ->
     tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, materials)
 
 
-# ディスクへ最後に永続化した時点の`derived_data_meta.revision`を記録する予約タイル座標。
-# 実タイルのzoomは常にROAD_GRAPH_TILE_ZOOM（12）のため、zoom=-1は衝突しない。
-_REVISION_MARKER_TILE = (-1, 0, 0)
-
-
 def sync_disk_cache_with_derived_data_revision(revision: int | None) -> bool:
     """DBの派生データ世代とディスクキャッシュの中身を突き合わせ、食い違っていれば消す。
     消したときTrueを返す（呼び出し側が、材料から作られる他のキャッシュも消すため）。
 
-    `revision`（`derived_data_meta.get_revision`）がディスクへ最後に書いた時点の記録と
-    一致すれば、材料はディスクへ書いた時点から作り直されていないと判断して温存する。
-    不一致（バッチが走った）または未記録（初回）なら、メモリ・ディスクの両方を消して
-    新しいrevisionを記録し直す。`revision`がNone（行が無い等の想定外）の場合は安全側へ
-    倒して常に消す（記録もしない——次回も同じ安全側判定になる）。
+    判断そのものは`cache_generation.sync_with_revision`が持つ——軸定義の編集
+    （`tile_score_matrix_cache`）と同じ比較で、対象と捨てるものだけが違う。
     """
-    if revision is not None and _read_persisted_revision() == revision:
-        return False
-    clear()
-    if revision is not None:
-        _write_persisted_revision(revision)
-    return True
+    return cache_generation.sync_with_revision(
+        _CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, revision, clear
+    )
 
 
-def _read_persisted_revision() -> int | None:
-    zoom, x, y = _REVISION_MARKER_TILE
-    return tile_persistent_cache.get(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y)
-
-
-def _write_persisted_revision(revision: int) -> None:
-    zoom, x, y = _REVISION_MARKER_TILE
-    tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, revision)
+def read_persisted_revision() -> int | None:
+    return cache_generation.read_persisted_revision(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION)
 
 
 def prune_stale_disk_generations() -> int:
