@@ -83,6 +83,7 @@ from app.domain.errors import RoutingError
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
 from app.domain.evaluation import (
     StaticEdgeScoreMatrix,
+    axis_contributions_at_row,
     axis_weighted_sums,
     compose_costs_from_axis_matrix,
 )
@@ -231,7 +232,11 @@ class LegCostArrays:
     cost_lazy: np.ndarray
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
-    contribution_arrays: dict[str, np.ndarray]
+    # 区間ごとの「データのある軸の重みの合計」。軸別寄与度（表示用）はこれと`axis_arrays`から
+    # `axis_contributions_at`が読むときに1行だけ求める——全区間ぶん作っても、読むのは
+    # 経路上の数百区間だけのため。
+    weight_sums: np.ndarray
+    weights: dict[str, float]
     # 折れ点を通す前の生値（`full_edge_row`順）。静的スコア行列の列をそのまま指すため
     # レグ間で同じ配列を共有する（風のようにレグごとに変わる値は持たない）。
     axis_raw_arrays: dict[str, np.ndarray]
@@ -260,6 +265,10 @@ class LegCostArrays:
     travel_bins_lazy: np.ndarray
     # ビン1本あたりの秒。ビンが1本のときは無限大（常にビン0を引く）。
     bin_seconds: float
+
+    def axis_contributions_at(self, row: int) -> dict[str, float]:
+        """その区間の軸別寄与度（`full_edge_row`順の行番号で引く）。"""
+        return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
 
 
 def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
@@ -337,10 +346,7 @@ class _LegCostComposer:
         # 引き直す必要がある。
         self.time_varying = wind_series is not None
         self._cache: dict[tuple, LegCostArrays] = {}
-        self._fixed_axis_sums = axis_weighted_sums(
-            {axis_id: self._static_axis_scores[axis_id] for axis_id in self._fixed_axis_ids},
-            weights, len(score_matrix.distance_m),
-        )
+        self._fixed_axis_sums_cache: tuple[np.ndarray, np.ndarray] | None = None
 
     def _travel_time_seconds(
         self, material_arrays: dict[str, np.ndarray], headwind_ms: np.ndarray, crosswind_ms: np.ndarray
@@ -453,7 +459,8 @@ class _LegCostComposer:
             cost_lazy=representative.cost_lazy,
             difficulty_array=representative.difficulty_array,
             axis_arrays=representative.axis_arrays,
-            contribution_arrays=representative.contribution_arrays,
+            weight_sums=representative.weight_sums,
+            weights=self._weights,
             axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=representative.material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
@@ -473,6 +480,21 @@ class _LegCostComposer:
             len(bins), round((time.monotonic() - started) * 1000),
         )
         return leg
+
+    @property
+    def _fixed_axis_sums(self) -> tuple[np.ndarray, np.ndarray]:
+        """時刻で変わらない軸の`(重み付きスコアの和, 重みの和)`。
+
+        使うのは探索へ渡すだけのビン（代表以外の時刻ビン）で、レグが1本のビンに収まる
+        リクエストでは一度も要らない。求めるのに軸数ぶんの走査が要るため、要求されるまで
+        遅らせる。
+        """
+        if self._fixed_axis_sums_cache is None:
+            self._fixed_axis_sums_cache = axis_weighted_sums(
+                {axis_id: self._static_axis_scores[axis_id] for axis_id in self._fixed_axis_ids},
+                self._weights, len(self._score_matrix.distance_m),
+            )
+        return self._fixed_axis_sums_cache
 
     def to_full_row_order(self, lazy_values: np.ndarray) -> np.ndarray:
         """lazy行順（探索が使う並び）の配列を`full_edge_row`順へ戻す。
@@ -524,16 +546,15 @@ class _LegCostComposer:
         }
         travel = self._travel_time_seconds(material_arrays, headwind, crosswind)
         # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
-        if for_display:
-            published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
-            static_sums = None
-        else:
-            published = {axis_id: resolved[axis_id] for axis_id in self._time_varying_axis_ids}
-            static_sums = self._fixed_axis_sums
-        cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
-            self._score_matrix.distance_m, published, self._weights, self._penalty_strength, base=travel,
-            static_sums=static_sums, with_contributions=for_display,
+        # 合成へ渡すのは時刻で変わる軸だけにし、それ以外は先に求めた重み付き和を使い回す
+        # （合成の時間は軸数にほぼ比例する）。表示が読む`axis_arrays`は全軸を持たせる。
+        published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
+        time_varying = {axis_id: resolved[axis_id] for axis_id in self._time_varying_axis_ids}
+        composed = compose_costs_from_axis_matrix(
+            self._score_matrix.distance_m, time_varying, self._weights, self._penalty_strength,
+            base=travel, static_sums=self._fixed_axis_sums, with_contributions=False,
         )
+        cost_array, difficulty_array = composed.cost, composed.difficulty
         cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
         lazy_cost = cost_array[self._lazy_row_index]
         lazy_travel = travel[self._lazy_row_index]
@@ -542,7 +563,8 @@ class _LegCostComposer:
             cost_lazy=lazy_cost,
             difficulty_array=difficulty_array,
             axis_arrays=published,
-            contribution_arrays=contribution_arrays,
+            weight_sums=composed.weight_sums,
+            weights=self._weights,
             axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
@@ -1989,11 +2011,7 @@ class RoadGraphEngine:
                     for axis_id, arr in leg.axis_arrays.items()
                     if not math.isnan(arr[row])
                 }
-                axis_contributions = {
-                    axis_id: float(arr[row])
-                    for axis_id, arr in leg.contribution_arrays.items()
-                    if not math.isnan(arr[row])
-                }
+                axis_contributions = leg.axis_contributions_at(row)
                 # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
                 # （動的材料を参照する軸は行列側で除外済み）。
                 axis_raw_values = {

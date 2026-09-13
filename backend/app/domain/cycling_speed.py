@@ -115,27 +115,40 @@ def speed_ms(
     解を返す（ニュートン法は抵抗力が0を跨ぐ下り坂で発散しうるため、区間を確実に狭める方を採る）。
 
     リクエストごとに時刻ビンの本数ぶん呼ばれ、区間数は数十万規模になるため、反復の中では
-    配列を確保し直さず用意したバッファへ書き込む。
+    配列を確保し直さず用意したバッファへ書き込む。**反復はfloat32で回す**——この解法は
+    計算そのものより配列の読み書きで時間が決まっており（実測）、幅を半分にすると比例して
+    速くなる。float32の有効桁は7桁で、二分法が詰める幅（0.003m/s）より4桁細かい。
     """
-    grade = np.asarray(grade, dtype=np.float64)
-    headwind = np.asarray(headwind_ms, dtype=np.float64)
-    rolling_crr = np.full(grade.shape, DEFAULT_CRR) if crr is None else np.asarray(crr, dtype=np.float64)
-    cross = np.zeros(grade.shape) if crosswind_ms is None else np.asarray(crosswind_ms, dtype=np.float64)
-    power = wheel_power_w(profile) * climb_power_ratio(grade)
+    grade = np.asarray(grade, dtype=np.float32)
+    headwind = np.asarray(headwind_ms, dtype=np.float32)
+    rolling_crr = (
+        np.full(grade.shape, DEFAULT_CRR, dtype=np.float32)
+        if crr is None
+        else np.asarray(crr, dtype=np.float32)
+    )
+    cross = (
+        np.zeros(grade.shape, dtype=np.float32)
+        if crosswind_ms is None
+        else np.asarray(crosswind_ms, dtype=np.float32)
+    )
+    power = (wheel_power_w(profile) * climb_power_ratio(grade)).astype(np.float32)
     # 速度に依らない抵抗（転がり＋重力）は反復の外で1回だけ求める。
-    constant_force = rolling_crr * profile.mass_kg * GRAVITY_M_S2 + profile.mass_kg * GRAVITY_M_S2 * grade
-    drag_coefficient = 0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2
+    constant_force = (
+        rolling_crr * np.float32(profile.mass_kg * GRAVITY_M_S2)
+        + np.float32(profile.mass_kg * GRAVITY_M_S2) * grade
+    )
+    drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)
     cross_squared = cross * cross
 
-    low = np.full(grade.shape, WALKING_SPEED_KMH / 3.6)
-    high = np.full(grade.shape, MAX_DESCENT_SPEED_KMH / 3.6)
+    low = np.full(grade.shape, WALKING_SPEED_KMH / 3.6, dtype=np.float32)
+    high = np.full(grade.shape, MAX_DESCENT_SPEED_KMH / 3.6, dtype=np.float32)
     middle = np.empty_like(low)
     along = np.empty_like(low)
     scratch = np.empty_like(low)
     too_fast = np.empty(low.shape, dtype=bool)
     for _ in range(iterations):
         np.add(low, high, out=middle)
-        np.multiply(middle, 0.5, out=middle)
+        np.multiply(middle, np.float32(0.5), out=middle)
         np.add(middle, headwind, out=along)
         np.multiply(along, along, out=scratch)
         np.add(scratch, cross_squared, out=scratch)
@@ -149,8 +162,9 @@ def speed_ms(
         np.copyto(high, middle, where=too_fast)
         np.copyto(low, middle, where=~too_fast)
     np.add(low, high, out=middle)
-    np.multiply(middle, 0.5, out=middle)
-    return middle
+    np.multiply(middle, np.float32(0.5), out=middle)
+    # 呼び出し側（コスト配列・所要時間）はfloat64で揃えてある。
+    return middle.astype(np.float64)
 
 
 def travel_seconds(

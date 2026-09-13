@@ -26,7 +26,8 @@ Score（難易度換算）は`domain/difficulty.py`（0-100、値が大きいほ
 """
 
 from dataclasses import dataclass, field
-from typing import Mapping
+import math
+from typing import Mapping, NamedTuple
 
 import numpy as np
 
@@ -623,6 +624,40 @@ def _evaluate_axes_bulk(
     )
 
 
+def axis_contributions_at_row(
+    axis_arrays: Mapping[str, np.ndarray],
+    weights: Mapping[str, float],
+    weight_sums: np.ndarray,
+    row: int,
+) -> dict[str, float]:
+    """1区間ぶんの軸別寄与度。`compose_costs_from_axis_matrix`の配列版と同じ式。
+
+    配列版は全区間ぶん（数十万×軸数）作るが、読むのは経路上の数百区間だけのため、
+    区間表示は先に作らずここで1行だけ求める。
+    """
+    total = float(weight_sums[row])
+    if total == 0 or math.isnan(total):
+        return {}
+    values: dict[str, float] = {}
+    for axis_id, arr in axis_arrays.items():
+        value = arr[row]
+        if math.isnan(value):
+            continue
+        values[axis_id] = float(value) * weights.get(axis_id, 0.0) / total
+    return values
+
+
+class AxisComposition(NamedTuple):
+    """`compose_costs_from_axis_matrix`の戻り値。"""
+
+    cost: np.ndarray
+    difficulty: np.ndarray
+    contributions: dict[str, np.ndarray]
+    # 区間ごとの「データのある軸の重みの合計」。軸別寄与度は`軸の値 × 重み ÷ これ`のため、
+    # 寄与度の配列を作らずに後から1行だけ求めたい呼び出し元が使う。
+    weight_sums: np.ndarray
+
+
 def axis_weighted_sums(
     axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float], length: int
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -651,7 +686,7 @@ def compose_costs_from_axis_matrix(
     base: np.ndarray | None = None,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
     with_contributions: bool = True,
-) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+) -> AxisComposition:
     """`_evaluate_axes_bulk`/`evaluate_dynamic_axis_arrays`が求めた軸別スコア配列群から、
     重み付き合成のcost・composite difficulty配列・軸別寄与度配列を求める
     （`compute_edge_costs_bulk`から切り出した合成フェーズ）。
@@ -746,7 +781,7 @@ def compose_costs_from_axis_matrix(
         # 秒を下地にすると0.1秒は短い区間の数%にあたり、`cost/所要時間`からdifficultyを
         # 逆算する側（折返し点・経由Nodeの並べ替え）に丸め由来の差が現れる。
         cost = round1_array(cost)
-    return cost, composite, axis_contributions
+    return AxisComposition(cost, composite, axis_contributions, weighted_weight_sums)
 
 
 def compute_edge_costs_bulk(
@@ -800,9 +835,11 @@ def compute_edge_costs_bulk(
     )
     # axis_contributions（3個目の戻り値）はEdgeCostResultが持たない
     # フィールドのため、この回帰テストオラクル経路では使わない。
-    cost, composite, _axis_contributions = compose_costs_from_axis_matrix(
-        evaluation.distance_m, evaluation.axis_arrays, resolved_weights, penalty_strength
+    composed = compose_costs_from_axis_matrix(
+        evaluation.distance_m, evaluation.axis_arrays, resolved_weights, penalty_strength,
+        with_contributions=False,
     )
+    cost, composite = composed.cost, composed.difficulty
 
     # --- 出力構築（EdgeCostResult.model_construct: 値は内部計算済みでバリデーション不要） ---
     results: dict[str, EdgeCostResult] = {}

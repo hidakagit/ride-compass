@@ -1110,7 +1110,7 @@ def test_compose_costs_from_axis_matrix_returns_axis_contributions():
     }
     weights = {"wind": 0.6, "car_stress": 0.4}
 
-    cost, composite, contributions = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
+    cost, composite, contributions, _ = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
 
     assert set(contributions.keys()) == {"wind", "car_stress"}
 
@@ -1152,7 +1152,7 @@ def test_compose_costs_from_axis_matrix_fills_cost_with_bbox_mean_when_all_axes_
     }
     weights = {"wind": 0.6, "car_stress": 0.4}
 
-    cost, composite, contributions = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
+    cost, composite, contributions, _ = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
 
     # composite = [52.0, 28.0, 60.0, NaN]（distance加重平均48.0を欠損Edgeへ代入）。
     bbox_mean = (52.0 * 100.0 + 28.0 * 200.0 + 60.0 * 300.0) / 600.0
@@ -1171,7 +1171,7 @@ def test_compose_costs_from_axis_matrix_cost_equals_distance_when_all_edges_miss
     axis_arrays = {"wind": np.array([np.nan, np.nan])}
     weights = {"wind": 1.0}
 
-    cost, composite, _ = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
+    cost, composite, _, _ = compose_costs_from_axis_matrix(distance_m, axis_arrays, weights)
 
     assert np.all(np.isnan(composite))
     assert cost.tolist() == distance_m.tolist()
@@ -1187,7 +1187,7 @@ def test_compose_costs_from_axis_matrix_bbox_mean_fallback_matches_scalar_oracle
     weights = {"wind": 0.6, "car_stress": 0.4}
     penalty_strength = 2.5
 
-    bulk_cost, bulk_composite, _ = compose_costs_from_axis_matrix(
+    bulk_cost, bulk_composite, _, _ = compose_costs_from_axis_matrix(
         distance_m, axis_arrays, weights, penalty_strength
     )
     bbox_mean = distance_weighted_difficulty_array(bulk_composite, distance_m)
