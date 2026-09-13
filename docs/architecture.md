@@ -474,7 +474,9 @@ CI/pre-commitスクリプト）。**個々のファイルがどのモジュー�
 - **`infrastructure/`**: DB・外部API・キャッシュ・ログといった外側との接続。キャッシュの
   鍵の組み立ては`cache_identity.py`が唯一の正本（「無効化」の節参照）。
 - **`batch/`**: PBF取込と事前計算。`refresh_derived.py`がPBF再取込を除く一式を1コマンドで
-  実行し、登録漏れは`app/batch/precompute_*.py`をglobで引くテストが検出する。
+  実行し、登録漏れは`app/batch/precompute_*.py`をglobで引くテストが検出する。書き込みに
+  成功したバッチは`derived_data_meta.revision`（DB）を進め、backendのディスクキャッシュが
+  TTL付きでこれに追随する——バッチはデプロイを伴わないため、コード内の定数では表せない。
 
 `backend/migrations/`はDDLのみを管理する（評価軸の行データはAPI経由で変更する。
 CLAUDE.md「コミット時の同期ルール」参照）。`backend/scripts/`は運用・生成スクリプトで、

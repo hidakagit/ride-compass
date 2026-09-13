@@ -261,6 +261,10 @@ class FakeRoadGraphRepository:
         self.get_accident_years_covered_call_count += 1
         return self._accident_years_covered
 
+    async def get_derived_data_revision(self) -> int | None:
+        # 常に同じ世代を返す＝バッチが走っていない状態。キャッシュは温存される。
+        return 1
+
     async def get_edges_with_geometry(self, edge_ids):
         # 実装（RoadGraphRepository.get_edges_with_geometry）と同じ「指定edge_idのうち
         # 持っているものだけ返す」規約。

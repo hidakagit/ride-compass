@@ -37,7 +37,7 @@ import httpx
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
-from app.batch._common import asyncpg_dsn, download_to_path, reap_stale_running_import_runs, status_count
+from app.batch._common import with_derived_data_revision_bump, asyncpg_dsn, download_to_path, reap_stale_running_import_runs, status_count
 from app.domain.accident import (
     build_accident_id,
     involves_bicycle,
@@ -268,7 +268,13 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     years = parse_years(args.years)
-    return asyncio.run(run_import(years, args.database_url, args.dry_run))
+    return asyncio.run(
+        with_derived_data_revision_bump(
+            run_import(years, args.database_url, args.dry_run),
+            database_url=args.database_url,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 if __name__ == "__main__":

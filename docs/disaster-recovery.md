@@ -102,15 +102,13 @@ aws s3 cp --no-sign-request s3://io-10m-annual-lulc/<ゾーン>_<年>.tif .
 下記「既知のリスク」参照）。上限の目安は本番VMの物理メモリの50〜70%程度
 （他のプロセス——本番backend・PostgreSQL・OS自体——の分を必ず残すこと）。
 
-**稼働中DBへの定常運用（新規/被災環境のbootstrap直後を除く）で実行した場合は、
-完了後に`TILE_MATERIALS_CACHE_VERSION`（`infrastructure/graph_material_cache.py`）を
-同一コミットで上げてpushすること**（`TILE_SCORE_MATRIX_CACHE_VERSION`はこの値を含む
-複合世代のため、材料世代を上げれば自動的に追従する）（deploy-backend.ymlが`backend/**`変更を検知し
-本番backendを自動デプロイ、再起動でディスク永続キャッシュの新世代が有効になる）。
-上げないと、バッチ実行前に既にキャッシュ済みだったタイルはディスク経由で古いまま
-復元され続け、未訪問タイルだけ新しい値になる——「一部だけ更新されたように見える」
-形で気づきにくい（改善計画T574、2026-09-04。新規/被災環境のbootstrap直後は
-ディスクキャッシュが元々空のためこの手順は不要）。
+**完了後の手作業は無い。** バッチの入口が成功時に`derived_data_meta.revision`（DB）を
+進め、backendは材料を使う経路からTTL付き（既定5分、`derived_data_revision_check_interval_
+seconds`）でこれを読み直して、ディスクへ書いた時点の記録と違えばタイル材料・スコア行列の
+ディスクキャッシュを捨てる。デプロイもpushも要らない。
+
+反映されているかは、backendのログに`派生データ世代の変化を検知しキャッシュを破棄しました`
+が出るかで確かめられる（バッチ完了からTTLぶん遅れて、最初に材料を使うリクエストで出る）。
 
 ## backend前段nginx（TLS・HTTP/3）の再構築
 

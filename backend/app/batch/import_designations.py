@@ -42,7 +42,7 @@ import httpx
 from shapely.geometry import LineString
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.batch._common import asyncpg_dsn, download_to_path, reap_stale_running_import_runs
+from app.batch._common import with_derived_data_revision_bump, asyncpg_dsn, download_to_path, reap_stale_running_import_runs
 from app.config import settings
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへモデル登録するためのimport
@@ -339,7 +339,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run_import(args.database_url, args.dry_run))
+    return asyncio.run(
+        with_derived_data_revision_bump(
+            run_import(args.database_url, args.dry_run),
+            database_url=args.database_url,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 if __name__ == "__main__":

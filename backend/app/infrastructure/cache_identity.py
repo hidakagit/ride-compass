@@ -34,17 +34,10 @@ POI_REVISION = "4"
 # 事故タイル。上と同じ運用。
 ACCIDENT_REVISION = "1"
 
-# Road Graph探索用の材料（`EdgeMaterialTable`・`SearchMaterials`）。列構成の変化は署名側が
-# 捕まえる。ここを上げるのは、材料が読む事前集計・派生データを作り直したとき:
-#   - PBF再取込（app/batch/import_pbf.py）
-#   - 交差点分割の事前バッチ（app/batch/presplit_road_graph.py）
-#   - precompute系バッチ（edge_attribute_counts・elevation_attributes・road_node_degrees・
-#     way_attribute_counts・edge_curvature 等）
-#   - `app/batch/refresh_derived.py`（disaster-recovery.md参照。PBF再取込を除く上記一式を
-#     1コマンドで実行するため、これを実行したときも上げる）
-# 上げないと、バッチ実行前にキャッシュ済みだったタイルはディスク経由で古いまま復元され続け、
-# 未訪問タイルだけが新しい値になる——症状が局所的で気づきにくい。
-MATERIAL_REVISION = "12"
+# Road Graph探索用の材料（`EdgeMaterialTable`・`SearchMaterials`）はここにリビジョンを持たない。
+# 形の署名だけで鍵を作り、中身の作り直しはDBの`derived_data_meta.revision`が表す
+# （`graph_material_cache.sync_disk_cache_with_derived_data_revision`）。バッチの実行は
+# デプロイを伴わないため、手で書き換える定数では表せない。
 
 # 静的Edge×公開軸スコア行列。dataclassの列構成の変化は署名側が、材料の作り直しは材料世代
 # との複合（`tile_score_matrix_cache.py`）が捕まえる。ここを上げるのは、同じ材料・同じ列から

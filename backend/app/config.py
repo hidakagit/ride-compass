@@ -170,6 +170,13 @@ class Settings(BaseSettings):
     # `min(4, os.cpu_count())`（コア数が少ない環境でも過剰にスレッドを起動しない）。
     tile_cache_load_max_concurrent: int = Field(default_factory=lambda: min(4, os.cpu_count() or 4))
 
+    # ディスクキャッシュをDBの派生データ世代へ追随させる確認の間隔（秒）。バッチは
+    # backendを再起動させないため、材料を使う経路からこの間隔で読み直す
+    # （services/derived_data_revision_service.py）。派生データを作り直すバッチ自体が
+    # 数十分かかるため、この程度の遅れは運用上の差にならない。読むのは1行テーブルの
+    # 1列だけで、間隔を詰めても重くはならない。
+    derived_data_revision_check_interval_seconds: float = 300.0
+
     # 土地被覆バッチ（app/batch/precompute_way_landcover.py）が読むEsri×Impact
     # Observatory LULCのGeoTIFFファイルパス（カンマ区切り、複数ゾーン対応）。
     # ラスタ自体はリポジトリにコミットせず手動取得する（docs/disaster-recovery.md参照）ため

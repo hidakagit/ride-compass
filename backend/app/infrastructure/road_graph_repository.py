@@ -127,6 +127,7 @@ from app.infrastructure.vector_tile import (
     STOP_POI_LAYER_NAME,
     TILE_EXTENT,
 )
+from app.infrastructure import derived_data_meta
 from app.infrastructure.road_graph_models import (
     Base,
     EdgeAttributeCountsRow,
@@ -2365,6 +2366,12 @@ class AttributeRepository(_SessionRepository):
         result = await self._session.execute(_ACCIDENT_YEARS_COVERED_SQL)
         return result.scalar_one()
 
+    async def get_derived_data_revision(self) -> int | None:
+        """派生データの世代（`derived_data_meta.revision`）。バッチが中身を書き直すたびに
+        進む。材料キャッシュがディスクの中身と突き合わせるのに使う
+        （services/derived_data_revision_service.py）。"""
+        return await derived_data_meta.get_revision(self._session)
+
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         """指定edge_idのうち、KSJ N10/N12（`domain/designation.py:
         CAR_STRESS_DESIGNATION_KINDS`）に該当するものの集合を返す（外部静的データソース
@@ -2700,6 +2707,9 @@ class RoadGraphRepository:
 
     async def get_accident_years_covered(self) -> int:
         return await self.attributes.get_accident_years_covered()
+
+    async def get_derived_data_revision(self) -> int | None:
+        return await self.attributes.get_derived_data_revision()
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         return await self.attributes.get_designated_edge_ids(edge_ids)

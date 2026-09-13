@@ -27,7 +27,7 @@ import time
 
 import asyncpg
 
-from app.batch._common import asyncpg_dsn
+from app.batch._common import with_derived_data_revision_bump, asyncpg_dsn
 from app.config import settings
 from app.domain.designation import DESIGNATION_BUFFER_WIDTH_M, DESIGNATION_IMPORT_KINDS, DESIGNATION_MATCH_MIN_RATIO
 
@@ -201,7 +201,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run_match(args.database_url, args.dry_run))
+    return asyncio.run(
+        with_derived_data_revision_bump(
+            run_match(args.database_url, args.dry_run),
+            database_url=args.database_url,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 if __name__ == "__main__":

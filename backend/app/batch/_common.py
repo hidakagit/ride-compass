@@ -25,6 +25,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.infrastructure import derived_data_meta
 
 _T = TypeVar("_T")
 
@@ -58,6 +59,35 @@ async def batch_session_factory(database_url: str | None) -> AsyncIterator[async
         await engine.dispose()
 
 
+async def with_derived_data_revision_bump(
+    coro: Awaitable[int], *, database_url: str | None, dry_run: bool
+) -> int:
+    """バッチ本体を実行し、成功したら派生データの世代（`derived_data_meta.revision`）を進める。
+
+    進めないと、backendがディスクへ既にキャッシュ済みの材料を「作り直されていない」と
+    判断して古いまま復元し続ける（未訪問のタイルだけが新しい値になるため気づきにくい）。
+    **どのバッチが材料に効くかを個別に判断しない**——効かないバッチで余分に進めても
+    キャッシュが1度作り直されるだけだが、効くバッチで進め忘れると静かに古い値が残る。
+
+    dry-runと異常終了では進めない（DBを書いていない）。世代を進める書き込み自体が
+    失敗してもバッチの終了コードは変えない——データは既に書けており、キャッシュの
+    追随はTTLごとの次の確認でも回復するため、ここで失敗扱いにする方が害が大きい。
+    """
+    code = await coro
+    if code != 0 or dry_run:
+        return code
+    try:
+        async with batch_session_factory(database_url) as session_factory:
+            async with session_factory() as session:
+                revision = await derived_data_meta.bump_revision(session)
+        logging.getLogger("ridecompass.batch").info("派生データ世代を進めました revision=%s", revision)
+    except Exception:
+        logging.getLogger("ridecompass.batch").warning(
+            "派生データ世代の更新に失敗しました（キャッシュの追随が遅れます）", exc_info=True
+        )
+    return code
+
+
 def run_simple_batch_cli(
     argv: list[str] | None,
     *,
@@ -77,7 +107,11 @@ def run_simple_batch_cli(
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run_fn(args.database_url, args.dry_run))
+    return asyncio.run(
+        with_derived_data_revision_bump(
+            run_fn(args.database_url, args.dry_run), database_url=args.database_url, dry_run=args.dry_run
+        )
+    )
 
 
 async def reap_stale_running_import_runs(conn: asyncpg.Connection, table: str) -> int:

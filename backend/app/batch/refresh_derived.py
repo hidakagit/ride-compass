@@ -50,6 +50,7 @@ from app.batch import (
     precompute_way_landcover,
     presplit_road_graph,
 )
+from app.batch._common import with_derived_data_revision_bump
 
 logger = logging.getLogger("ridecompass.refresh_derived")
 
@@ -104,7 +105,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(run(args.database_url, args.dry_run, args.skip_landcover))
+    return asyncio.run(
+        with_derived_data_revision_bump(
+            run(args.database_url, args.dry_run, args.skip_landcover),
+            database_url=args.database_url,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 if __name__ == "__main__":

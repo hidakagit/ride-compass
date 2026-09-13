@@ -9,8 +9,9 @@ elevation_attributes/designated_edge_ids）をここへキャッシュする。�
 `infrastructure/tile_persistent_cache.py`（`TILE_MATERIALS_CACHE_VERSION`参照）へも
 同じ内容をディスク永続化する。デプロイのたびにプロセスが再起動されても、ディスク
 キャッシュが残っていればDB読み出しを経由せず復元できる（冷パスは29〜45秒規模かかる
-ため、これを避ける）。ディスク側の無効化は`TILE_MATERIALS_CACHE_VERSION`（列構成から
-導出した鍵、`infrastructure/cache_identity.py`参照）で行う。
+ため、これを避ける）。ディスク側の無効化は2つの軸で行う——列構成の変化は
+`TILE_MATERIALS_CACHE_VERSION`（`infrastructure/cache_identity.py`参照）が鍵を変えて、
+中身の作り直しは`sync_disk_cache_with_derived_data_revision`がDBの世代と突き合わせて捨てる。
 
 LRUで上限件数を設ける（無制限にすると全国規模まで対象が広がった場合にメモリを
 際限なく消費するため）。1タイル（z12、日本付近で1辺約10km）あたりの素材サイズは
@@ -26,7 +27,7 @@ from cachetools import LRUCache
 
 from app.domain.attributes import EdgeMaterialTable, SearchMaterials
 from app.infrastructure import tile_persistent_cache
-from app.infrastructure.cache_identity import MATERIAL_REVISION, cache_identity
+from app.infrastructure.cache_identity import shape_digest
 
 
 # 1タイルあたりの素材（Edge数百〜数千件分の辞書群）を想定した上限。関東圏（z12タイル
@@ -34,11 +35,12 @@ from app.infrastructure.cache_identity import MATERIAL_REVISION, cache_identity
 DEFAULT_MAX_TILES = 2_000
 
 # ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン。
-# パスへ埋め込むことで対応しない世代のファイルを読まないようにする。
-# `EdgeMaterialTable`の列構成から署名を導出するため、列を足す・消す・並べ替えると鍵が
-# 自動で変わる（手で上げる条件はcache_identity.pyのMATERIAL_REVISIONのコメント参照）。
+# パスへ埋め込むことで対応しない世代のファイルを読まないようにする。**`EdgeMaterialTable`の
+# 列構成だけから決まる**——列を足す・消す・並べ替えると鍵が自動で変わる。
+# 中身の作り直し（バッチ再実行）はこの鍵ではなく`sync_disk_cache_with_derived_data_revision`
+# が扱う。デプロイを伴わない操作のため、鍵を変える方式では表せない。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = cache_identity(MATERIAL_REVISION, EdgeMaterialTable)
+TILE_MATERIALS_CACHE_VERSION = shape_digest(EdgeMaterialTable)
 
 
 _tile_materials_cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)
@@ -76,6 +78,39 @@ def get_tile_materials(
 def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials) -> None:
     _tile_materials_cache[(zoom, x, y)] = materials
     tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, materials)
+
+
+# ディスクへ最後に永続化した時点の`derived_data_meta.revision`を記録する予約タイル座標。
+# 実タイルのzoomは常にROAD_GRAPH_TILE_ZOOM（12）のため、zoom=-1は衝突しない。
+_REVISION_MARKER_TILE = (-1, 0, 0)
+
+
+def sync_disk_cache_with_derived_data_revision(revision: int | None) -> bool:
+    """DBの派生データ世代とディスクキャッシュの中身を突き合わせ、食い違っていれば消す。
+    消したときTrueを返す（呼び出し側が、材料から作られる他のキャッシュも消すため）。
+
+    `revision`（`derived_data_meta.get_revision`）がディスクへ最後に書いた時点の記録と
+    一致すれば、材料はディスクへ書いた時点から作り直されていないと判断して温存する。
+    不一致（バッチが走った）または未記録（初回）なら、メモリ・ディスクの両方を消して
+    新しいrevisionを記録し直す。`revision`がNone（行が無い等の想定外）の場合は安全側へ
+    倒して常に消す（記録もしない——次回も同じ安全側判定になる）。
+    """
+    if revision is not None and _read_persisted_revision() == revision:
+        return False
+    clear()
+    if revision is not None:
+        _write_persisted_revision(revision)
+    return True
+
+
+def _read_persisted_revision() -> int | None:
+    zoom, x, y = _REVISION_MARKER_TILE
+    return tile_persistent_cache.get(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y)
+
+
+def _write_persisted_revision(revision: int) -> None:
+    zoom, x, y = _REVISION_MARKER_TILE
+    tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, revision)
 
 
 def prune_stale_disk_generations() -> int:

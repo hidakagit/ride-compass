@@ -34,7 +34,7 @@ from shapely.geometry.base import BaseGeometry
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.batch._common import batch_session_factory, count_targets, stream_id_chunks
+from app.batch._common import with_derived_data_revision_bump, batch_session_factory, count_targets, stream_id_chunks
 from app.config import settings
 from app.domain.derived_data_versions import (
     WAY_LANDCOVER_ALGORITHM_VERSION,
@@ -369,14 +369,18 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     return asyncio.run(
-        run(
-            args.database_url,
-            args.raster,
-            args.buffer_m,
-            args.inner_m,
-            args.data_version,
-            args.recompute,
-            args.dry_run,
+        with_derived_data_revision_bump(
+            run(
+                args.database_url,
+                args.raster,
+                args.buffer_m,
+                args.inner_m,
+                args.data_version,
+                args.recompute,
+                args.dry_run,
+            ),
+            database_url=args.database_url,
+            dry_run=args.dry_run,
         )
     )
 

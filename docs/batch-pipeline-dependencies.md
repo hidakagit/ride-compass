@@ -111,13 +111,13 @@ tile_persistent_cache/`）へも永続化されるようになった。ディス
 再起動しても消えないため、④road_edges/road_nodes・⑤road_nodes.degree・⑥edge_attribute_
 counts・⑦elevation_attributes・⑨designation_attributes（`EdgeMaterialBundle.is_designated`
 経由）・⑫road_edges.curvature_deg_per_kmのいずれかを更新するバッチを実行したら、
-`cache_identity.py`の`MATERIAL_REVISION`を手動で上げること。材料の列構成は変わらないまま
-読み先のデータだけが変わるため、鍵の署名側は動かない——ここが導出で捕まえられない唯一の
-次元である。`TILE_SCORE_MATRIX_CACHE_VERSION`は材料側の世代を含む複合のため追従する
+`derived_data_meta.revision`（DB）が自動で進む。材料の列構成は変わらないまま読み先の
+データだけが変わるため鍵の署名側は動かず、ここだけは形から導出できない——バッチの入口
+（`_common.py: with_derived_data_revision_bump`）が書き込み成功後に世代を進め、backendは
+材料を使う経路からTTL付きで読み直して、ディスクへ書いた時点の記録と違えば捨てる。`TILE_SCORE_MATRIX_CACHE_VERSION`は材料側の世代を含む複合のため追従する
 （同じ材料・同じ列から違う値を作るようになった場合は`SCORE_MATRIX_REVISION`を上げる）。
-上げ忘れると、バッチ実行後もディスクキャッシュ経由で古いタイル材料・スコア行列が次回
-デプロイ後も復元され続ける（⑧の`ROAD_SURFACE_REVISION`と同型の上げ忘れリスク。
-docs/tasks/T538.md参照）。
+⑧の`ROAD_SURFACE_REVISION`（タイルへ焼き込む側）は手で上げる運用のままである——こちらの
+世代は生成物`region-tile-config.json`を通じてフロントへ配られるため、実行時に変えられない。
 
 **改善計画T546追記**: `TILE_MATERIALS_CACHE_VERSION`は`"2"`（`graph_material_cache`が
 保持する`SearchMaterials.materials`を`EdgeMaterialBundle`辞書から列指向の
@@ -130,7 +130,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 | 生データの変化 | 再実行が必要なバッチ |
 |---|---|
-| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。あわせて`cache_identity.py`の`ROAD_SURFACE_REVISION`（⑧・⑩・⑪の値をタイルへ焼くため）と`MATERIAL_REVISION`を手動で上げる（`TILE_SCORE_MATRIX_CACHE_VERSION`は複合のため追従する。改善計画T538、上記「3. ランタイム側の読み取り元」追記参照） |
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。あわせて`cache_identity.py`の`ROAD_SURFACE_REVISION`（⑧・⑩・⑪の値をタイルへ焼くため）を手動で上げる（材料側はDBの世代が自動で進むため手作業は無い。上記「3. ランタイム側の読み取り元」追記参照） |
 | 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
 | KSJ指定路線データ更新 | ③→⑨ |
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |

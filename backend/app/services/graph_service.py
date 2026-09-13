@@ -16,6 +16,7 @@ from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lon
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.services import derived_data_revision_service
 
 logger = logging.getLogger("ridecompass.graph")
 
@@ -222,6 +223,10 @@ class GraphService:
         経由で取得したデータかに関わらず一貫した分割結果が得られる（タイル境界依存の
         交差点分割不一致問題への根本対応。詳細・残存する制約はdocs/architecture.md参照）。
         """
+        # バッチが派生データを書き直してもbackendは再起動しないため、ここで（TTL付きで）
+        # DBの世代と突き合わせる。古い材料をディスクから復元し続けることを防ぐ。
+        await derived_data_revision_service.ensure_caches_match_db(self._repository)
+
         if not await self._ensure_tiles_cached(bbox):
             return None
 

@@ -234,3 +234,64 @@ def test_old_pickle_with_fewer_columns_loses_the_last_column():
     restored.__setstate__(truncated)
 
     assert not hasattr(restored, fields[-1].name)
+
+
+class TestSyncDiskCacheWithDerivedDataRevision:
+    """バッチが派生データを書き直したことを、DBの世代（`derived_data_meta.revision`）
+    経由で検知してディスクキャッシュを捨てる経路。`tile_score_matrix_cache`の軸リビジョン
+    同期と同じ形だが、見る対象が「軸定義の編集」ではなく「バッチによる中身の作り直し」
+    である点が違う。"""
+
+    def setup_method(self):
+        graph_material_cache.clear()
+
+    def teardown_method(self):
+        graph_material_cache.clear()
+
+    def test_first_call_with_no_marker_clears_and_records(self):
+        # 初回デプロイ相当（マーカーがまだ無い）。安全側で消し、世代を記録する。
+        graph_material_cache.set_tile_materials(12, 5, 6, object())
+
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(1) is True
+        assert graph_material_cache.get_tile_materials(12, 5, 6) is None
+        assert graph_material_cache._read_persisted_revision() == 1
+
+    def test_same_revision_across_simulated_restart_preserves_disk_cache(self):
+        # プロセス再起動を模す: 世代を記録→ディスクへ書く→メモリだけ空にする。
+        graph_material_cache.sync_disk_cache_with_derived_data_revision(5)
+        materials = SearchMaterials(graph=LeanRoadGraph(graph_version="v", nodes={}, edges={}), materials=None)
+        graph_material_cache.set_tile_materials(12, 5, 6, materials)
+        graph_material_cache._tile_materials_cache.clear()
+
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(5) is False
+        assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
+
+    def test_changed_revision_clears_disk_cache(self):
+        # バッチが走った場合を模す: 世代5で書いた材料は、世代6では見えなくなる。
+        graph_material_cache.sync_disk_cache_with_derived_data_revision(5)
+        materials = SearchMaterials(graph=LeanRoadGraph(graph_version="v", nodes={}, edges={}), materials=None)
+        graph_material_cache.set_tile_materials(12, 5, 6, materials)
+        graph_material_cache._tile_materials_cache.clear()
+
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(6) is True
+        assert graph_material_cache.get_tile_materials(12, 5, 6) is None
+        assert graph_material_cache._read_persisted_revision() == 6
+
+    def test_none_revision_always_clears_and_records_nothing(self):
+        # 行が無い等の想定外。安全側（常に消す）へ倒し、記録もしない。
+        graph_material_cache.sync_disk_cache_with_derived_data_revision(5)
+
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is True
+        assert graph_material_cache._read_persisted_revision() is None
+
+
+def test_cache_version_does_not_change_when_data_is_rebuilt():
+    """鍵は形だけで決まる。中身の作り直しで鍵が変わらないことを固定する——変わる設計へ
+    戻すと、バッチのたびにディスク上へ旧世代の実体が残り続ける。"""
+    import dataclasses
+
+    from app.domain.attributes import EdgeMaterialTable
+    from app.infrastructure.cache_identity import shape_digest
+
+    assert graph_material_cache.TILE_MATERIALS_CACHE_VERSION == shape_digest(EdgeMaterialTable)
+    assert dataclasses.is_dataclass(EdgeMaterialTable)
