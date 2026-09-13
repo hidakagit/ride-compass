@@ -62,16 +62,21 @@ def _load_json(path: Path) -> dict:
         return {}
 
 
-def update_interval_seconds(default: int = 3 * 60 * 60) -> int:
-    """配信元のrun更新間隔。MSM由来の派生値をキャッシュするTTLの基準になる（これより長く
-    保持すると新しいrunが出ても古い値を返し続ける）。未同期のときは既定値を返す。"""
-    value = _load_json(_META_FILE).get("update_interval_seconds")
+def update_interval_seconds_from(meta: dict, default: int = 3 * 60 * 60) -> int:
+    """メタ情報が持つrun更新間隔。欠けていれば既定値を返す。"""
+    value = meta.get("update_interval_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else default
 
 
-# 配信元のrun公開はrun初期時刻から3.5〜5時間遅れうる。その範囲で誤報しないよう、
-# 「3時間おきの更新を2本連続で落とした状態」を発報の境目にする。
-_STALE_RUN_THRESHOLD_HOURS = 6
+def update_interval_seconds(default: int = 3 * 60 * 60) -> int:
+    """配信元のrun更新間隔。MSM由来の派生値をキャッシュするTTLの基準になる（これより長く
+    保持すると新しいrunが出ても古い値を返し続ける）。未同期のときは既定値を返す。"""
+    return update_interval_seconds_from(_load_json(_META_FILE), default)
+
+
+# 配信が止まったと見なす境目は「公開の更新を何本連続で落としたか」。間隔そのものは
+# 配信元のメタ情報（update_interval_seconds）から取るため、ここに時間数は書かない。
+_MISSED_PUBLICATIONS_UNTIL_STALE = 2
 # 予報終端が現在時刻へ追いつくと風グリッドが読めなくなる（MsmUnavailableError）。
 # 実害が出る前に気づけるよう、半日ぶんの余裕を切ったところで発報する。
 _SHORT_HORIZON_THRESHOLD_HOURS = 12
@@ -79,16 +84,24 @@ _SHORT_HORIZON_THRESHOLD_HOURS = 12
 
 @dataclass(frozen=True)
 class MsmFreshness:
-    """配信元メタ情報から見た同期の鮮度。"""
+    """配信元メタ情報から見た同期の鮮度。
+
+    配信が生きているかどうかは`publish_age_hours`（最新runが公開された時刻からの経過）で
+    見る。`run_age_hours`はrun初期時刻からの経過で、公開遅れのぶんだけ常に大きく、しかも
+    次のrunが公開されるまで伸び続けるため、これで判定すると正常時にも境目を越える。
+    """
 
     last_run_at: datetime
+    last_publish_at: datetime
     data_end_at: datetime
     run_age_hours: float
+    publish_age_hours: float
     remaining_hours: float
+    stale_threshold_hours: float
 
     @property
     def run_is_stale(self) -> bool:
-        return self.run_age_hours >= _STALE_RUN_THRESHOLD_HOURS
+        return self.publish_age_hours >= self.stale_threshold_hours
 
     @property
     def horizon_is_short(self) -> bool:
@@ -106,12 +119,22 @@ def freshness_from_meta(meta: dict, now: datetime | None = None) -> MsmFreshness
         data_end_at = datetime.fromtimestamp(int(meta["data_end_time"]), JST)
     except (KeyError, TypeError, ValueError):
         return None
+    try:
+        last_publish_at = datetime.fromtimestamp(int(meta["last_run_availability_time"]), JST)
+    except (KeyError, TypeError, ValueError):
+        # 公開時刻を配ってこない配信元では、run初期時刻を代わりに使う（公開遅れのぶん
+        # 早く発報する側に倒れる）。
+        last_publish_at = last_run_at
+    interval_hours = update_interval_seconds_from(meta) / 3600
     current = now or datetime.now(JST)
     return MsmFreshness(
         last_run_at=last_run_at,
+        last_publish_at=last_publish_at,
         data_end_at=data_end_at,
         run_age_hours=(current - last_run_at).total_seconds() / 3600,
+        publish_age_hours=(current - last_publish_at).total_seconds() / 3600,
         remaining_hours=(data_end_at - current).total_seconds() / 3600,
+        stale_threshold_hours=interval_hours * _MISSED_PUBLICATIONS_UNTIL_STALE,
     )
 
 
@@ -132,10 +155,10 @@ def warn_if_stale(freshness_value: MsmFreshness | None) -> None:
         return
     if freshness_value.run_is_stale:
         logger.warning(
-            "MSMの最新runが古いままです 最新run=%s 経過=%.1f時間 しきい値=%d時間",
-            freshness_value.last_run_at.strftime("%Y-%m-%d %H:%M"),
-            freshness_value.run_age_hours,
-            _STALE_RUN_THRESHOLD_HOURS,
+            "MSMの新しいrunが公開されていません 最新runの公開=%s 経過=%.1f時間 しきい値=%.1f時間",
+            freshness_value.last_publish_at.strftime("%Y-%m-%d %H:%M"),
+            freshness_value.publish_age_hours,
+            freshness_value.stale_threshold_hours,
         )
     if freshness_value.horizon_is_short:
         logger.warning(
