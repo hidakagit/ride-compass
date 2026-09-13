@@ -46,6 +46,20 @@
   gap: var(--space-2);
 }
 
+/* 経由地があると候補数は常に1件（backendが固定する）。消さずに押せない状態で残す
+   ——消えると壊れて見えるうえ、複数候補へ広げる予定があるため置き場を動かさない。 */
+.stepperField[data-disabled="true"] {
+  opacity: 0.55;
+}
+
+.stepperInfo {
+  composes: infoButton from "../ui/infoButton.module.css";
+}
+
+.stepperInfoPopover {
+  composes: floatingPopover from "../ui/floatingPopover.module.css";
+}
+
 .stepperLabel {
   flex-shrink: 0;
   color: var(--color-muted);

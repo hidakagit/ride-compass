@@ -1726,6 +1726,7 @@ export default function Home() {
           destinationSet={destination !== null}
           onDestinationClear={handleDestinationClear}
           originManual={locationSource === "manual"}
+          originLocated={locationSource !== "default"}
           onOriginReset={handleLocateMe}
           armedPinRole={armedPinRole}
           onArmPinRole={handleArmPinRole}

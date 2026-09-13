@@ -1,6 +1,13 @@
 "use client";
 
 import * as Tabs from "@radix-ui/react-tabs";
+import InfoPopover from "@/components/Map/InfoPopover";
+import {
+  ORIGIN_MARK_COLOR,
+  ORIGIN_MARK_FALLBACK_COLOR,
+  PIN_MARK_BACKGROUND,
+  pinMarkHtml,
+} from "@/components/Map/pinMarks";
 import type { PinRole } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { isMaxRoutesRelevant } from "./useRouteFormSubmit";
@@ -32,6 +39,9 @@ interface RouteFormProps {
   onDestinationClear: () => void;
   /** 出発地を地図で置き直してあるか（falseなら現在地のまま）。 */
   originManual: boolean;
+  /** 現在地を実際に取得できているか。falseの間は地図のピンと同じく印を灰色にする
+   * （位置が既定値のままであることを、行と地図で同じ色で示す）。 */
+  originLocated: boolean;
   /** 出発地を現在地へ戻す（現在地の取得もこの操作が兼ねる）。 */
   onOriginReset: () => void;
   /** いま地図のタップで置ける役割。nullなら地図を触ってもピンは増えない。 */
@@ -63,6 +73,7 @@ export default function RouteForm({
   destinationSet,
   onDestinationClear,
   originManual,
+  originLocated,
   onOriginReset,
   armedPinRole,
   onArmPinRole,
@@ -77,12 +88,12 @@ export default function RouteForm({
   }
 
   // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
-  // 行頭の印は地図のマーカーと同じ色・同じ字で、行とピンを見た目で結ぶ。
+  // 行頭の印は**地図のピンと同じ図形**（pinMarks.ts）で、行とピンを見た目で結ぶ。
   // 武装は1つだけで、押している行以外は自動的に解除される（page.tsx: armedPinRole）。
   function renderPointRow(
     role: PinRole,
     label: string,
-    mark: { text: string; background?: string },
+    markLabel: string | undefined,
     value: string,
     armLabel: string,
     extra?: React.ReactNode,
@@ -101,9 +112,21 @@ export default function RouteForm({
           aria-label={armed ? `${label}の指定をやめる` : `${label}を${armLabel}`}
           onClick={() => onArmPinRole(armed ? null : role)}
         >
-          <span aria-hidden="true" className={styles.pointMark} style={{ background: mark.background }}>
-            {mark.text}
-          </span>
+          {/* 地図のピンと同じ図形をそのまま出す（pinMarks.tsの定数だけを組み立てた文字列で、
+              外部の入力は入らない）。同じものを2度描くと、片方だけ直したときに行とピンが
+              違う見た目になる。 */}
+          <span
+            aria-hidden="true"
+            className={styles.pointMark}
+            style={{ background: PIN_MARK_BACKGROUND[role] }}
+            dangerouslySetInnerHTML={{
+              __html: pinMarkHtml(role, {
+                label: markLabel,
+                size: 13,
+                color: originLocated ? ORIGIN_MARK_COLOR : ORIGIN_MARK_FALLBACK_COLOR,
+              }),
+            }}
+          />
           <span className={styles.pointLabel}>{label}</span>
           <span className={styles.pointValue}>{armed ? armedHint : value}</span>
           <span aria-hidden="true" className={armed ? styles.pointHintArmed : styles.pointHint}>
@@ -143,32 +166,43 @@ export default function RouteForm({
               目的地
             </button>
           </div>
-          {maxRoutesRelevant && (
-            <div className={styles.stepperField}>
-              <span className={styles.stepperLabel}>候補数</span>
-              <div className={styles.stepper}>
-                <button
-                  type="button"
-                  className={styles.stepperButton}
-                  onClick={() => stepMaxRoutes(-1)}
-                  disabled={Number(maxRoutes) <= 1}
-                  aria-label="候補数を減らす"
-                >
-                  ‹
-                </button>
-                <span className={styles.stepperValue}>{maxRoutes}件</span>
-                <button
-                  type="button"
-                  className={styles.stepperButton}
-                  onClick={() => stepMaxRoutes(1)}
-                  disabled={Number(maxRoutes) >= MAX_ROUTES}
-                  aria-label="候補数を増やす"
-                >
-                  ›
-                </button>
-              </div>
+          {/* 経由地があるとbackendは常に1件へ固定する（route_generator.py:
+              generate_via_waypoints）。押せない状態で残す——消えると壊れて見えるうえ、
+              複数候補へ広げる予定があるため置き場を動かさない。理由は隣の(i)の奥。 */}
+          <div className={styles.stepperField} data-disabled={!maxRoutesRelevant}>
+            <span className={styles.stepperLabel}>候補数</span>
+            {!maxRoutesRelevant && (
+              <InfoPopover
+                triggerClassName={styles.stepperInfo}
+                triggerAriaLabel="候補数を変えられない理由"
+                contentClassName={styles.stepperInfoPopover}
+              >
+                経由地を置いている間は、その地点を通る経路を1本だけ引きます。候補数は経由地を
+                消すと使えます。
+              </InfoPopover>
+            )}
+            <div className={styles.stepper}>
+              <button
+                type="button"
+                className={styles.stepperButton}
+                onClick={() => stepMaxRoutes(-1)}
+                disabled={!maxRoutesRelevant || Number(maxRoutes) <= 1}
+                aria-label="候補数を減らす"
+              >
+                ‹
+              </button>
+              <span className={styles.stepperValue}>{maxRoutesRelevant ? `${maxRoutes}件` : "1件"}</span>
+              <button
+                type="button"
+                className={styles.stepperButton}
+                onClick={() => stepMaxRoutes(1)}
+                disabled={!maxRoutesRelevant || Number(maxRoutes) >= MAX_ROUTES}
+                aria-label="候補数を増やす"
+              >
+                ›
+              </button>
             </div>
-          )}
+          </div>
         </div>
 
         <div className={styles.fieldsColumn}>
@@ -194,7 +228,7 @@ export default function RouteForm({
               {renderPointRow(
                 "origin",
                 "出発地",
-                { text: "●", background: "#e11d48" },
+                undefined,
                 originManual ? "地図で指定" : "現在地",
                 "地図で選ぶ",
                 originManual ? (
@@ -211,7 +245,7 @@ export default function RouteForm({
               {renderPointRow(
                 "waypoint",
                 "経由地",
-                { text: "●", background: "#2563eb" },
+                waypointCount > 0 ? String(waypointCount) : undefined,
                 waypointCount > 0 ? `${waypointCount}地点` : "なし",
                 "追加",
                 waypointCount > 0 ? (
@@ -229,7 +263,7 @@ export default function RouteForm({
               {renderPointRow(
                 "destination",
                 "目的地",
-                { text: "⚑", background: "#059669" },
+                undefined,
                 destinationSet ? "地図で指定" : "未設定",
                 destinationSet ? "置き直す" : "地図で選ぶ",
                 destinationSet ? (
