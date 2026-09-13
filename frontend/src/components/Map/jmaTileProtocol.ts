@@ -25,10 +25,16 @@ const TRANSPARENT_PNG = Uint8Array.from(
 
 /** テスト用。空タイルとして返すPNGのバイト列。 */
 export function emptyRasterTileBytes(): Uint8Array {
-  return TRANSPARENT_PNG;
+  return TRANSPARENT_PNG.slice();
 }
-/** 空のMVT（ベクタタイルのソースへ返す用）。0バイトが「地物なし」を表す。 */
-const EMPTY_MVT = new Uint8Array(0);
+/** 空タイルの中身を**呼ぶたびに作り直して**返す（ベクタは0バイトのMVTが「地物なし」）。
+ *
+ * MapLibreはタイルのデータをWorkerへtransferして渡すため、一度返したArrayBufferは
+ * detachedになる。同じインスタンスを使い回すと2回目以降のpostMessageが
+ * "An ArrayBuffer is detached and could not be cloned"で失敗し、そのタイルが描画されない。 */
+function emptyTileBytes(realUrl: string): Uint8Array {
+  return realUrl.endsWith(".pbf") ? new Uint8Array(0) : TRANSPARENT_PNG.slice();
+}
 
 // ハンドラはMapLibre内部から都度呼ばれるため、インデックスはモジュールスコープに置く
 // （Reactのstateを閉じ込めると古い値を握り続ける）。
@@ -62,13 +68,13 @@ async function handleJmaTileRequest(
   const realUrl = toRealUrl(params.url);
   if (isKnownEmptyTile(lookup, realUrl)) {
     // ネットワークへ出さない。ベクタとラスタで空の表現が違うため拡張子で分ける。
-    return { data: realUrl.endsWith(".pbf") ? EMPTY_MVT : TRANSPARENT_PNG };
+    return { data: emptyTileBytes(realUrl) };
   }
   const response = await fetch(realUrl, { signal: abortController.signal });
   if (!response.ok) {
     // 404（疎な格子状タイルでは正常系）を含め、失敗は空タイルとして扱う。MapLibreは
     // 失敗タイルを再試行しないため、ここで例外にすると以後その位置が永久に空白になる。
-    return { data: realUrl.endsWith(".pbf") ? EMPTY_MVT : TRANSPARENT_PNG };
+    return { data: emptyTileBytes(realUrl) };
   }
   return { data: await response.arrayBuffer() };
 }
