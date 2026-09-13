@@ -1,5 +1,7 @@
 "use client";
 
+import { Fragment } from "react";
+
 import ErrorText from "@/components/ErrorText/ErrorText";
 import InfoPopover from "@/components/Map/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components/Map/icons";
@@ -43,8 +45,18 @@ const MIN_CONTRIBUTION_DELTA = 0.1;
 /** 差分バーの下へ数値を書く軸の数。大きい順。 */
 const LABELLED_DELTA_COUNT = 2;
 
+/** 表示する桁で丸めた差。色を変えるかどうかも**この値**で決める——生の差で判断すると、
+ * 画面には「±0」と出ているのに色だけ増減を主張する。 */
+function roundToDigits(value: number, digits: number): number {
+  return Number(value.toFixed(digits));
+}
+
+function digitsOf(label: string): number {
+  return label === "距離" ? 1 : 0;
+}
+
 function formatDelta(value: number, digits: number): string {
-  const rounded = Number(value.toFixed(digits));
+  const rounded = roundToDigits(value, digits);
   if (rounded === 0) return "±0";
   return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded).toFixed(digits)}`;
 }
@@ -208,31 +220,28 @@ export default function RouteSplicePanel({
           {/* 指標はルート結果と同じ項目。2列×2行で、元→編集後の位置を縦に揃える。 */}
           <div className={styles.metrics}>
             {halves.map((half, index) => (
+              // 5つの要素をこのgridの直接の子にする（行のラッパを挟むと列が行ごとに独立し、
+              // 「所要」と「28分」のように縦位置が揃わない）。
               <dl className={styles.metricHalf} key={index}>
-                {half.map((metric) => (
-                  <div className={styles.metricRow} key={metric.label}>
-                    <dt className={styles.metricLabel}>{metric.label}</dt>
-                    <dd className={styles.metricBase}>{metric.base ?? "—"}</dd>
-                    {/* 評価前は矢印も出さない（行き先が無いのに→だけ残ると読み手が待たされる）。 */}
-                    <dd className={styles.metricArrow} aria-hidden="true">
-                      {metric.after ? "→" : ""}
-                    </dd>
-                    <dd
-                      className={styles.metricAfter}
-                      data-worse={metric.delta != null && metric.delta > 0}
-                      data-better={metric.delta != null && metric.delta < 0}
-                    >
-                      {metric.after ?? ""}
-                    </dd>
-                    <dd
-                      className={styles.metricDelta}
-                      data-worse={metric.delta != null && metric.delta > 0}
-                      data-better={metric.delta != null && metric.delta < 0}
-                    >
-                      {metric.delta != null ? formatDelta(metric.delta, metric.label === "距離" ? 1 : 0) : ""}
-                    </dd>
-                  </div>
-                ))}
+                {half.map((metric) => {
+                  const shown = metric.delta != null ? roundToDigits(metric.delta, digitsOf(metric.label)) : null;
+                  return (
+                    <Fragment key={metric.label}>
+                      <dt className={styles.metricLabel}>{metric.label}</dt>
+                      <dd className={styles.metricBase}>{metric.base ?? "—"}</dd>
+                      {/* 評価前は矢印も出さない（行き先が無いのに→だけ残ると読み手が待たされる）。 */}
+                      <dd className={styles.metricArrow} aria-hidden="true">
+                        {metric.after ? "→" : ""}
+                      </dd>
+                      <dd className={styles.metricAfter} data-worse={shown != null && shown > 0} data-better={shown != null && shown < 0}>
+                        {metric.after ?? ""}
+                      </dd>
+                      <dd className={styles.metricDelta} data-worse={shown != null && shown > 0} data-better={shown != null && shown < 0}>
+                        {metric.delta != null ? formatDelta(metric.delta, digitsOf(metric.label)) : ""}
+                      </dd>
+                    </Fragment>
+                  );
+                })}
               </dl>
             ))}
           </div>

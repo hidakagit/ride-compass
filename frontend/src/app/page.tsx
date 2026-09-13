@@ -359,6 +359,9 @@ export default function Home() {
   // なる（独立したタブにすると、どのルートを編集しているのかを選び直す形になる）。
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [splicing, setSplicing] = useState(false);
+  // 「新しいルートを作る」の実行中フラグ。stateと違い同じタスク内で即座に読めるため、
+  // 連打の2回目をここで止める。
+  const applyingRef = useRef(false);
   // 「差分を見る」で評価した結果。組み合わせをキーに覚える——選び直して戻ったときに
   // 投げ直さない（生成APIは1分10回の上限があり、評価自体も温で1秒前後かかる）。
   const [splicePreviews, setSplicePreviews] = useState<Record<string, RouteCandidate>>({});
@@ -1609,7 +1612,11 @@ export default function Home() {
   }
 
   async function handleApplySplice() {
+    // 連打で2本入るのを防ぐ。disabledはstateの反映（再レンダー）を待つため、その手前で
+    // 2回目のタップが入ると同じ組み合わせが2本一覧へ並ぶ。
+    if (applyingRef.current) return;
     if (!editingRoute || appliedAlternatives.length === 0) return;
+    applyingRef.current = true;
     // 表示中の候補を作った条件をそのまま使う。いまのフォーム値を使うと、生成後に重みを
     // 変えてから合成したときに、その1本だけ別条件で評価された候補が同じ並びへ入る。
     const generatedInput = generatedConditions?.input;
@@ -1623,13 +1630,17 @@ export default function Home() {
         setSpliceError("組み合わせたルートを評価できませんでした");
         return;
       }
+      // 区間を全部その候補の道へ乗り換えると、出来上がりは既存の候補そのものになる。
+      // 同じ道を2本並べても選べるものは増えず、利用者からは重複にしか見えないため、
+      // 既にある候補を選ぶだけにする。
+      const sameRoute = routes.find((route) => route.edge_ids.join(",") === spliced.edge_ids.join(","));
       // 素の結果と本質的に区別しないため、生成候補と同じ並び順の規約へ乗せる
       // （lib/routeSplice.ts: insertByDifficulty）。見分けはタブの名前で付ける。
       // max_routesによる切り詰めはしない——上限は「生成が何本探すか」の指定で、
       // 利用者が作った組み合わせを押し出す理由が無い。
       const unique = { ...spliced, id: `${SPLICED_ROUTE_ID_PREFIX}-${routes.length}` };
-      setRoutes(insertByDifficulty(routes, unique));
-      setSelectedRouteId(unique.id);
+      if (!sameRoute) setRoutes(insertByDifficulty(routes, unique));
+      setSelectedRouteId(sameRoute ? sameRoute.id : unique.id);
       setAppliedAlternatives([]);
       setSplicePreviews({});
       setSelectedRouteSegment(null);
@@ -1639,6 +1650,7 @@ export default function Home() {
     } catch (error) {
       setSpliceError(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
     } finally {
+      applyingRef.current = false;
       setSplicing(false);
       setGenerationProgress(null);
     }

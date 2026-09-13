@@ -91,6 +91,21 @@ describe("RouteSplicePanel", () => {
     expect(screen.queryByText(/車の圧迫感/)).toBeNull();
   });
 
+  // 画面には「±0」と出ているのに色だけ増減を主張すると、読み手が混乱する。
+  it("表示が±0の項目は色を変えない", () => {
+    const almostSame = candidate({
+      distance_km: 4.02,
+      overall_difficulty: 42.4,
+      estimated_duration_seconds: 1085,
+      difficulty_load: 168.2,
+    });
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 1, preview: almostSame })} />);
+
+    for (const cell of screen.getAllByText("±0")) {
+      expect(cell).not.toHaveAttribute("data-worse", "true");
+      expect(cell).not.toHaveAttribute("data-better", "true");
+    }
+  });
   it("乗り換えていなければ、評価も作成もできない", () => {
     render(<RouteSplicePanel {...baseProps()} />);
 

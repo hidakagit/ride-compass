@@ -1042,6 +1042,79 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(spliceRequest.destination).toEqual({ latitude: 35.681, longitude: 139.767 });
   });
 
+  it("合成したルートは一覧へ1本だけ入る", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
+        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
+    const before = screen.getAllByRole("tab").length;
+
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-spliced", direction_label: "組み合わせたルート", distance_km: 18.5, edge_ids: ["s", "b1", "m", "a2", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
+    // 連打（再レンダーでdisabledが付く前の2回目）でも1本だけ入る
+    const create = screen.getByRole("button", { name: "新しいルートを作る" });
+    fireEvent.click(create);
+    fireEvent.click(create);
+
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(before + 1));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull());
+    expect(screen.getAllByRole("tab")).toHaveLength(before + 1);
+  });
+  // 区間を全部その候補の道へ乗り換えると、出来上がりは既存の候補そのものになる。
+  // 同じ道が2本並ぶと、利用者からは「重複して追加された」ようにしか見えない。
+  it("出来上がりが既存の候補と同じ道なら、増やさずそれを選ぶ", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "e"] }),
+        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
+    const before = screen.getAllByRole("tab").length;
+
+    // 合成の結果はroute-01と同じ道（backendは同じ経路を評価して返す）
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-spliced", direction_label: "組み合わせたルート", distance_km: 19.0, edge_ids: ["s", "b1", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull());
+    expect(screen.getAllByRole("tab")).toHaveLength(before);
+  });
   it("編集中は区間詳細（赤ピン）を選べない", async () => {
     // 区間詳細の置き場は候補タブの中身で、編集中はそこが編集面へ置き換わる。受け付けると
     // 地図にピンだけが残り、消す導線も無くなる。

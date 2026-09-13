@@ -79,19 +79,15 @@
   font-size: 13px;
 }
 
-/* 半分ごとに同じ列幅を共有させ、2行の「→」の位置を縦に揃える。 */
+/* 半分ごとに1つのgridで5列を共有し、2行の「→」と値の位置を縦に揃える
+   （行ごとにgridを分けると列幅が行ごとに決まり、ラベルの字数で位置がずれる）。 */
 .metricHalf {
   display: grid;
-  grid-template-columns: max-content max-content max-content max-content 1fr;
+  grid-template-columns: max-content minmax(0, max-content) max-content minmax(0, max-content) max-content;
   align-items: baseline;
   column-gap: 4px;
+  row-gap: 2px;
   margin: 0;
-}
-
-.metricRow {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
 }
 
 .metricLabel {
