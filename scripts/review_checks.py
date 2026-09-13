@@ -2229,6 +2229,14 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
             module_doc, f"\n`{drifted_constant_probe(wt)}`（999999）がこの値を決める。\n"),
         "removed_axis_mentions": lambda: append(
             module_doc, f"\n`{removed_axis_probe_id(wt)}`の色分けは現行の実装が組み立てる。\n"),
+        # 既存の実装（lib/apiBaseUrl.ts）が読む環境変数を、別のテストが書き換える形。
+        # 実装側を足さずに済むよう、既に読まれている名前を使う。
+        "cross_file_env_writes": lambda: write(
+            GUARD_PROBE_TEST_TS,
+            'import { it } from "vitest";\n\n'
+            'it("zzz guard probe", () => {\n'
+            '  process.env.NEXT_PUBLIC_API_URL = "https://example.test";\n'
+            "});\n"),
         "vacuous_test_loops": lambda: write(
             GUARD_PROBE_TEST_TS,
             'import { expect, it } from "vitest";\n\n'
