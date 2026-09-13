@@ -479,6 +479,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
         selectedRouteSegment: SelectedRouteSegment | null;
         onRouteSelect: (routeId: string) => void;
         pointEditingEnabled: boolean;
+        onSpliceStretchSelect: (index: number) => void;
       }) => (
         <>
           {options.exposeMapClickHandlers && (
@@ -493,6 +494,9 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
                 テスト用に経由地を追加
               </button>
               <button onClick={() => props.onRouteSelect("route-01")}>テスト用に地図で他候補を選ぶ</button>
+              {/* 乗り換えは地図の帯をタップして行う（indexはグループ位置×100＋選択肢位置）。 */}
+              <button onClick={() => props.onSpliceStretchSelect(0)}>テスト用に1つ目の帯をタップ</button>
+              <button onClick={() => props.onSpliceStretchSelect(100)}>テスト用に2つ目の帯をタップ</button>
             </>
           )}
           {options.exposeSegmentSelect && (
@@ -1027,9 +1031,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を別の地点へ動かす" }));
 
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    // 区間ごとに、候補横断の代替から選ぶ（相手を1本選ぶプルダウンは持たない）。この候補は
-    // 2箇所で道が違うため選択肢も2つ出る。1本目だけを差し替える。
-    await user.click(screen.getAllByRole("button", { name: "2 19.0km" })[0]);
+    // 乗り換えは地図の帯をタップして行う。この候補は2箇所で道が違うため帯も2つ出る。
+    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
     await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
 
     await waitFor(() => expect(vi.mocked(generateRoutes)).toHaveBeenCalledTimes(2));
@@ -1037,77 +1040,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(spliceRequest.spliced_edge_ids).toEqual(["s", "b1", "m", "a2", "e"]);
     // 動かした後の目的地Bではなく、生成に使った目的地Aで評価される
     expect(spliceRequest.destination).toEqual({ latitude: 35.681, longitude: 139.767 });
-  });
-
-  it("代替の距離差は、その代替が差し替える範囲に対して出す", async () => {
-    // グループは元側の範囲が重なる代替をまとめた器で、覆う範囲は代替ごとに違う。
-    // グループ全体の長さと比べると、短い範囲を差し替える代替ほど実際より大きく減って
-    // 見える（本番実機で、全体の差が−0.4kmのところにチップが−33.5kmと出た）。
-    const user = userEvent.setup();
-    // 1辺およそ1kmの直線。区間[1,2)は約1km、区間[1,4)は約3km。
-    const straight = (count: number) => ({
-      type: "LineString" as const,
-      coordinates: Array.from({ length: count }, (_, index) => [139.7, 35.7 + index * 0.009]),
-    });
-    // 途中で元から離れ、元より長い道（元と同じ地点を通らないので区間を割れず、1グループへ
-    // まとまる）。区間[1,4)はおよそ4km（元は約3km）。
-    const detour = () => ({
-      type: "LineString" as const,
-      coordinates: [
-        [139.7, 35.7],
-        [139.71, 35.712],
-        [139.71, 35.724],
-        [139.71, 35.736],
-        [139.71, 35.748],
-        [139.7, 35.745],
-      ],
-    });
-    const offsets = [0, 1, 2, 3, 4, 5];
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({
-          id: "route-destination-00",
-          direction_label: "目的地ルート",
-          distance_km: 5.0,
-          edge_ids: ["s", "a1", "a2", "a3", "e"],
-          edge_point_offsets: offsets,
-          geometry: straight(6),
-        }),
-        // 1区間だけ、ほぼ同じ長さの道へ差し替えられる候補。
-        makeCandidate({
-          id: "route-destination-01",
-          direction_label: "目的地ルート",
-          distance_km: 5.0,
-          edge_ids: ["s", "b1", "a2", "a3", "e"],
-          edge_point_offsets: offsets,
-          geometry: straight(6),
-        }),
-        // 3区間まとめて差し替える候補。元と同じ地点を通らないため割れず、グループは
-        // こちらの範囲まで広がる。
-        makeCandidate({
-          id: "route-destination-02",
-          direction_label: "目的地ルート",
-          distance_km: 5.0,
-          edge_ids: ["s", "c1", "c2", "c3", "e"],
-          edge_point_offsets: offsets,
-          geometry: detour(),
-        }),
-      ],
-      conditions: makeConditions(),
-      engine: "road_graph",
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 5\.0km/ })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-
-    // 1区間だけ差し替える代替は、その1区間（約1km）とほぼ同じ長さの道なので「同じ」。
-    // グループ全体（約3km）と比べていると −2.0 になる。
-    expect(screen.getAllByRole("button", { name: /同じ/ })).toHaveLength(1);
   });
 
   it("編集中は区間詳細（赤ピン）を選べない", async () => {
@@ -1180,8 +1112,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "テスト用に地図で他候補を選ぶ" }));
 
     // 編集面が示す元は押す前のまま（地図で押した候補へは移らない）
-    expect(screen.getByText("北 18.0km")).toBeInTheDocument();
-    expect(screen.queryByText("北 19.0km")).toBeNull();
+    expect(screen.getByText("18.0km")).toBeInTheDocument();
+    expect(screen.queryByText("19.0km")).toBeNull();
   });
 
   it("合成したルートをさらに編集して、別の候補の道へ乗り継げる", async () => {
@@ -1216,16 +1148,17 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       engine: "road_graph",
     });
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    await user.click(screen.getAllByRole("button", { name: /19\.0km/ })[0]);
+    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
     await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
 
     // 合成結果が選ばれた状態で一覧へ戻り、そこからもう一度編集へ入れる
     await waitFor(() => expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
 
-    // 元は合成ルートで、残る区間（a2側）を別の候補の道へ差し替えられる
+    // 元は合成ルートで、そこからさらに別の候補の道へ乗り換えられる
     expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /19\.0km/ }).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
+    expect(screen.getByText("1回乗り換え")).toBeInTheDocument();
   });
   it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
     // 表示中の候補を作った生成で判定する。いまの目的地ピンで判定すると、周回モードへ
@@ -1277,9 +1210,9 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
 
-    // 元は押した候補に固定され、区間ごとの選択肢が出る
+    // 元は押した候補に固定され、地図で乗り換える面になる
     expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
-    expect(screen.getByText("1本目の区間")).toBeInTheDocument();
+    expect(screen.getByText("地図の破線をタップして乗り換えます")).toBeInTheDocument();
 
     // 戻ると候補の一覧へ戻る
     await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));

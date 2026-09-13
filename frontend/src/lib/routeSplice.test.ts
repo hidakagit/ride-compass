@@ -7,7 +7,7 @@ import {
   pairedStretches,
   spliceEdgeIds,
   spliceEdgeIdsFromAlternatives,
-  chainedAlternatives,
+  buildSplicedShape,
   splitPairedStretch,
   stretchAlternativeGroups,
   stretchCoordinateRange,
@@ -311,64 +311,82 @@ describe("splitPairedStretch", () => {
   });
 });
 
-// 元ルートには無い分岐（候補どうしが触れる地点）でも乗り継げるようにする
-// （docs/tasks/T843.md）。BとCが途中で同じ地点を通るなら、前半をB・後半をCで通る道も
-// 1つの選び方になる。
-describe("候補どうしを乗り継ぐ代替", () => {
-  // 元は西回り、BとCは東側を通り、真ん中の1点（mid）でBとCが交わる。
-  const p = (lon: number, lat: number): GeoJSON.Position => [lon, lat];
-  const start = p(139.7, 35.7);
-  const mid = p(139.72, 35.72);
-  const goal = p(139.7, 35.74);
-  const base = {
-    coordinates: [start, p(139.68, 35.72), goal],
-    edgePointOffsets: [0, 1, 2],
-  };
-  const bShape = { coordinates: [start, mid, p(139.73, 35.73), goal], edgePointOffsets: [0, 1, 2, 3] };
-  const cShape = { coordinates: [start, p(139.75, 35.71), mid, goal], edgePointOffsets: [0, 1, 2, 3] };
-
-  it("BとCが交わる地点で継いだ道を、区間の代替として足す", () => {
-    const groups = stretchAlternativeGroups(
-      ["z0", "z1"],
-      [
-        { id: "b", edgeIds: ["b0", "b1", "b2"], shape: bShape },
-        { id: "c", edgeIds: ["c0", "c1", "c2"], shape: cShape },
-      ],
-      { baseShape: base, minSplitLengthKm: 0 },
-    );
-
-    expect(groups).toHaveLength(1);
-    const chained = groups[0].options.filter((option) => option.candidateId.includes("+"));
-    expect(chained.length).toBeGreaterThan(0);
-    // Cの前半（start→mid）＋Bの後半（mid→goal）で通る道
-    expect(chained.map((option) => option.edgeIds.join(","))).toContain("c0,c1,b1,b2");
-  });
-
-  it("交わる地点が無ければ足さない", () => {
-    const apart = { coordinates: [start, p(139.77, 35.71), p(139.77, 35.73), goal], edgePointOffsets: [0, 1, 2, 3] };
-    const groups = stretchAlternativeGroups(
-      ["z0", "z1"],
-      [
-        { id: "b", edgeIds: ["b0", "b1", "b2"], shape: bShape },
-        { id: "c", edgeIds: ["c0", "c1", "c2"], shape: apart },
-      ],
-      { baseShape: base, minSplitLengthKm: 0 },
-    );
-
-    expect(groups[0].options.every((option) => !option.candidateId.includes("+"))).toBe(true);
-  });
-
-  it("代替が1つしかない区間では組み立てない", () => {
-    expect(
-      chainedAlternatives(
-        base,
-        { start: 0, end: 2 },
-        [{ candidateId: "b", stretch: { start: 0, end: 2 }, targetStretch: { start: 0, end: 3 }, edgeIds: ["b0", "b1", "b2"] }],
-        () => bShape,
-      ),
-    ).toEqual([]);
-  });
-});
+// 乗り換えた後も「いまの組み合わせ」を元に次の区間を計算するため、合成中のルートの形
+// （Edge列＋座標＋Edge境界）をフロントで組む（docs/tasks/T843.md）。
+describe("buildSplicedShape", () => {
+  const p = (lat: number): GeoJSON.Position => [139.7, lat];
+  const base = {
+    edgeIds: ["e0", "e1", "e2"],
+    coordinates: [p(35.70), p(35.71), p(35.72), p(35.73)],
+    edgePointOffsets: [0, 1, 2, 3],
+  };
+  // 真ん中のEdgeだけ、2点を経由する別の道へ差し替える候補
+  const detour = {
+    coordinates: [p(35.70), p(35.71), [139.71, 35.715] as GeoJSON.Position, p(35.72), p(35.73)],
+    edgePointOffsets: [0, 1, 2, 3, 4],
+  };
+
+  it("差し替えた先の座標とEdge境界をつなぎ直す", () => {
+    const shaped = buildSplicedShape(
+      base,
+      [
+        {
+          candidateId: "d",
+          stretch: { start: 1, end: 2 },
+          targetStretch: { start: 1, end: 3 },
+          edgeIds: ["d1", "d2"],
+        },
+      ],
+      () => detour,
+    );
+
+    expect(shaped.edgeIds).toEqual(["e0", "d1", "d2", "e2"]);
+    // 継ぎ目の点は重複させない（元の3点＋差し替えで増えた1点）
+    expect(shaped.coordinates).toHaveLength(5);
+    expect(shaped.edgePointOffsets).toEqual([0, 1, 2, 3, 4]);
+    // 境界の座標が実際に道の分かれ目と合っている
+    expect(shaped.coordinates[shaped.edgePointOffsets[1]]).toEqual(p(35.71));
+    expect(shaped.coordinates[shaped.edgePointOffsets[3]]).toEqual(p(35.72));
+  });
+
+  it("適用を積み重ねられる（2手目は1手目の結果に対する位置で指す）", () => {
+    const first = buildSplicedShape(
+      base,
+      [{ candidateId: "d", stretch: { start: 1, end: 2 }, targetStretch: { start: 1, end: 3 }, edgeIds: ["d1", "d2"] }],
+      () => detour,
+    );
+    const second = buildSplicedShape(
+      first,
+      [{ candidateId: "d", stretch: { start: 3, end: 4 }, targetStretch: { start: 3, end: 4 }, edgeIds: ["d3"] }],
+      () => detour,
+    );
+
+    expect(second.edgeIds).toEqual(["e0", "d1", "d2", "d3"]);
+    expect(second.edgePointOffsets).toHaveLength(second.edgeIds.length + 1);
+  });
+
+  it("座標を持たない候補でも、Edge列は差し替わる（区間の割り直しはできないだけ）", () => {
+    const flat = { edgeIds: ["e0", "e1", "e2"], coordinates: [], edgePointOffsets: [] };
+    const shaped = buildSplicedShape(
+      flat,
+      [{ candidateId: "d", stretch: { start: 1, end: 2 }, targetStretch: { start: 0, end: 1 }, edgeIds: ["d1"] }],
+      () => ({ coordinates: [], edgePointOffsets: [] }),
+    );
+
+    expect(shaped.edgeIds).toEqual(["e0", "d1", "e2"]);
+  });
+
+  it("形を持たない候補は飛ばす（元のまま返る）", () => {
+    const shaped = buildSplicedShape(
+      base,
+      [{ candidateId: "none", stretch: { start: 1, end: 2 }, targetStretch: { start: 0, end: 1 }, edgeIds: ["x"] }],
+      () => undefined,
+    );
+
+    expect(shaped).toEqual(base);
+  });
+});
+
 describe("spliceEdgeIdsFromAlternatives", () => {
   it("選んだ代替を差し替える（後ろから適用するので位置がずれない）", () => {
     const base = ["s", "a1", "m", "a2", "e"];

@@ -25,27 +25,6 @@
   cursor: pointer;
 }
 
-/* 編集の元（1本に固定）と、元との差を左右に置く1行。 */
-.base {
-  margin: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--color-muted);
-}
-
-.diff,
-.progress {
-  margin-left: auto;
-  font-weight: 700;
-}
-
-/* 選んだ道と同じ暖色。差は「いま選んでいる組み合わせの結果」のため色を揃える。 */
-.diff {
-  color: var(--color-route-splice);
-}
-
 .headingRow {
   display: flex;
   align-items: center;
@@ -88,83 +67,134 @@
 
 .note {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-muted);
 }
 
-.rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border-top: 1px solid var(--color-border);
-  padding-top: 6px;
+/* 元と編集後を並べる指標。項目はルート結果パネルと同じ（距離・所要・総合難易度・負荷）。 */
+.metrics {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
 }
 
-/* 区間1つぶんの行。左に区間、右に選べる道（元のまま＋候補横断の代替）。区間が増えても
-   1区間=1行に収め、選べる道が多い区間は行の中で横へ送る。 */
-.groupRow {
+.metrics th {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--color-muted);
+  text-align: right;
+  padding-bottom: 2px;
+}
+
+.metrics tbody th {
+  font-size: 13px;
+  text-align: left;
+}
+
+.metrics td {
+  padding: 2px 0;
+  text-align: right;
+}
+
+.baseValue {
+  color: var(--color-muted);
+}
+
+.afterValue {
+  font-weight: 700;
+}
+
+/* 増えた＝きつくなった側は暖色、減った＝楽になった側は寒色。地図の帯とは別の意味のため
+   色を共有しない。 */
+.afterValue[data-worse="true"] {
+  color: var(--color-route-splice);
+}
+
+.afterValue[data-better="true"] {
+  color: var(--color-accent);
+}
+
+.metricDelta {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* 軸別の差。元・編集後の2本を並べず、差だけを1本で出す。 */
+.deltaBar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.deltaEnds {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+}
+
+.better {
+  color: var(--color-accent);
+}
+
+.worse {
+  color: var(--color-route-splice);
+}
+
+.deltaTrack {
+  display: flex;
+  align-items: stretch;
+  height: 12px;
+}
+
+.deltaSide {
+  flex: 1 1 50%;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.deltaSideRight {
+  justify-content: flex-start;
+}
+
+.deltaSegment {
+  display: block;
+  height: 100%;
+}
+
+.deltaCenter {
+  width: 1px;
+  background: var(--color-border-strong);
+}
+
+.deltaLabels {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  font-size: 10px;
+  color: var(--color-muted);
+}
+
+.footerRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.groupRow::-webkit-scrollbar {
-  display: none;
-}
-
-.where {
-  font-size: 11px;
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-
-.options {
-  display: flex;
-  gap: 4px;
-}
-
-.option,
-.optionOn {
-  font-size: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--foreground);
-  padding: 3px 8px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-/* 選んだ道は地図の帯（暖色）と同じ扱いで目立たせる。 */
-.optionOn {
-  border-color: var(--color-route-splice);
-  background: var(--color-route-splice);
-  color: #fff;
-}
-
-/* 乗り継いだ区間の数。差と同じ行に置き、差より控えめにする。 */
-.chosenCount {
+.undo {
   margin-left: auto;
-  color: var(--color-muted);
-}
-
-.chosenCount + .diff,
-.chosenCount + .progress {
-  margin-left: 8px;
-}
-
-/* 畳んだ区間を出す。行と同じ高さに収める。 */
-.expand {
   font-size: 12px;
-  border: 1px dashed var(--color-border-strong);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-muted);
-  padding: 3px 8px;
+  color: var(--foreground);
+  padding: 3px 9px;
   cursor: pointer;
+}
+
+.undo:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }

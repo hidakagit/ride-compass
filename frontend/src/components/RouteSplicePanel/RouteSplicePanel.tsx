@@ -1,35 +1,27 @@
 "use client";
 
-import { useState } from "react";
-
 import ErrorText from "@/components/ErrorText/ErrorText";
 import InfoPopover from "@/components/Map/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon } from "@/components/Map/icons";
+import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { formatDurationShort } from "@/lib/formatDuration";
 import type { RouteCandidate } from "@/types/route";
 import styles from "./RouteSplicePanel.module.css";
 
-/** 区間1つぶんの選択肢（page.tsxが候補の名前まで組み立てて渡す）。 */
-export interface SpliceGroupView {
-  /** 区間の見出し（「3.6〜39.8km」）。 */
-  label: string;
-  /** その区間で選べる道。`key`はpage.tsxが持つ代替の識別子、`hint`はどの候補の道か。 */
-  options: { key: string; label: string; hint?: string }[];
-  /** いま選んでいる道。nullなら元のまま。 */
-  chosenKey: string | null;
-}
-
 interface RouteSplicePanelProps {
-  /** 編集の元。1本に固定で、候補を選び直しても変わらない。 */
+  /** 編集の元。1本に固定で、地図で他候補を押しても変わらない。 */
   displayed: RouteCandidate;
-  /** 区間ごとの選択肢。区間を主語にして、その区間の代替を候補横断で並べる。 */
-  groups: SpliceGroupView[];
-  /** 区間の道を選ぶ（同じものをもう一度選ぶと元のままへ戻る）。 */
-  onChoose: (groupIndex: number, optionKey: string | null) => void;
-  /** 「差分を見る」で評価した結果（元ルートとの差）。まだ見ていなければnull。 */
-  diff: { distanceDeltaKm: number; difficultyDelta: number | null } | null;
+  /** 適用済みの乗り換えの数。 */
+  appliedCount: number;
+  /** 次に選べる乗り換えがあるか（無ければ「他の候補と別の道を通る区間がありません」）。 */
+  hasAlternatives: boolean;
+  /** 直前の1手を戻す。 */
+  onUndo: () => void;
+  /** 「差分を見る」で評価した、いまの組み合わせの候補。まだ見ていなければnull。 */
+  preview: RouteCandidate | null;
   /** 差分の評価を待っている間はtrue。 */
   previewing: boolean;
-  /** 選んだ組み合わせを評価して差分を出す。 */
+  /** いまの組み合わせを評価して結果を出す。 */
   onPreview: () => void;
   onApply: () => void;
   /** 合成した経路の評価を待っている間はtrue。 */
@@ -38,48 +30,96 @@ interface RouteSplicePanelProps {
   error: string | null;
   /** 編集をやめて候補の一覧へ戻る。 */
   onCancel: () => void;
+  /** 公開軸すべて（差分バーのラベルの正本）。 */
+  axes: readonly PreferenceAxisDef[];
+  /** 軸id→色（ルート設定パネルの軸チップと同じ色）。 */
+  axisColors: Record<string, string>;
 }
 
-/** 畳まずに並べる区間の上限。これを超えたら選んだ区間＋上から数区間だけ出す。 */
-const COLLAPSED_ROW_LIMIT = 10;
+/** 寄与度の差がこれ未満の軸は差分バーへ出さない（1pxの破片が並ぶと読めない）。 */
+const MIN_CONTRIBUTION_DELTA = 0.1;
+/** 差分バーの下へ数値を書く軸の数。大きい順。 */
+const LABELLED_DELTA_COUNT = 2;
 
-/** 畳んだときに出す区間の位置（選んだ区間を優先し、残りは上から上限まで）。 */
-function visibleGroupIndexes(groups: readonly SpliceGroupView[]): number[] {
-  const chosen = groups.flatMap((group, index) => (group.chosenKey !== null ? [index] : []));
-  const rest = groups.flatMap((group, index) => (group.chosenKey === null ? [index] : []));
-  return [...chosen, ...rest.slice(0, Math.max(0, COLLAPSED_ROW_LIMIT - chosen.length))].sort((a, b) => a - b);
-}
-
-/** 差は「増えた／減った」が一目で分かる形にする（0は「変わらない」と書く）。 */
 function formatDelta(value: number, unit: string, digits: number): string {
   const rounded = Number(value.toFixed(digits));
-  if (rounded === 0) return "変わらない";
+  if (rounded === 0) return "±0";
   return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded).toFixed(digits)}${unit}`;
+}
+
+/** 元→編集後で寄与度が動いた軸（大きい順）。減った軸は負、増えた軸は正。 */
+export function contributionDeltas(
+  base: Record<string, number>,
+  after: Record<string, number>,
+  axes: readonly PreferenceAxisDef[],
+): { axisId: string; label: string; delta: number }[] {
+  return axes
+    .map((axis) => ({
+      axisId: axis.axisId,
+      label: axis.label,
+      delta: (after[axis.axisId] ?? 0) - (base[axis.axisId] ?? 0),
+    }))
+    .filter((item) => Math.abs(item.delta) >= MIN_CONTRIBUTION_DELTA)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 }
 
 export default function RouteSplicePanel({
   displayed,
-  groups,
-  onChoose,
-  diff,
+  appliedCount,
+  hasAlternatives,
+  onUndo,
+  preview,
   previewing,
   onPreview,
   onApply,
   applying,
   error,
   onCancel,
+  axes,
+  axisColors,
 }: RouteSplicePanelProps) {
   // edge_idsを返さないエンジン・古い候補では区間を出せない（backendが空で返す）。
   const unavailable = displayed.edge_ids.length === 0;
-  const chosenCount = groups.filter((group) => group.chosenKey !== null).length;
   const busy = previewing || applying;
-  const actionable = !unavailable && groups.length > 0;
-  const [expanded, setExpanded] = useState(false);
-  // 区間が増えるほど1区間=1行のまま縦に伸びる。上限を超えたら、選んだ区間と上から数区間だけ
-  // 残して畳む（畳んだ区間も地図の帯からは選べる）。
-  const collapsed = groups.length > COLLAPSED_ROW_LIMIT && !expanded;
-  const visibleIndexes = collapsed ? visibleGroupIndexes(groups) : groups.map((_, index) => index);
-  const hiddenCount = groups.length - visibleIndexes.length;
+  const deltas = preview ? contributionDeltas(displayed.axis_contributions, preview.axis_contributions, axes) : [];
+  const scale = deltas.reduce((max, item) => Math.max(max, Math.abs(item.delta)), 0);
+
+  const rows: { label: string; base: string; after: string | null; delta: number }[] = [
+    {
+      label: "距離",
+      base: `${displayed.distance_km.toFixed(1)}km`,
+      after: preview ? `${preview.distance_km.toFixed(1)}km` : null,
+      delta: preview ? preview.distance_km - displayed.distance_km : 0,
+    },
+    {
+      label: "所要",
+      base: displayed.estimated_duration_seconds != null ? formatDurationShort(displayed.estimated_duration_seconds) : "—",
+      after:
+        preview?.estimated_duration_seconds != null ? formatDurationShort(preview.estimated_duration_seconds) : null,
+      delta:
+        preview?.estimated_duration_seconds != null && displayed.estimated_duration_seconds != null
+          ? (preview.estimated_duration_seconds - displayed.estimated_duration_seconds) / 60
+          : 0,
+    },
+    {
+      label: "総合難易度",
+      base: displayed.overall_difficulty != null ? `${Math.round(displayed.overall_difficulty)}` : "—",
+      after: preview?.overall_difficulty != null ? `${Math.round(preview.overall_difficulty)}` : null,
+      delta:
+        preview?.overall_difficulty != null && displayed.overall_difficulty != null
+          ? preview.overall_difficulty - displayed.overall_difficulty
+          : 0,
+    },
+    {
+      label: "負荷",
+      base: displayed.difficulty_load != null ? `${Math.round(displayed.difficulty_load)}` : "—",
+      after: preview?.difficulty_load != null ? `${Math.round(preview.difficulty_load)}` : null,
+      delta:
+        preview?.difficulty_load != null && displayed.difficulty_load != null
+          ? preview.difficulty_load - displayed.difficulty_load
+          : 0,
+    },
+  ];
 
   return (
     <section className={styles.panel} aria-labelledby="splice-heading">
@@ -96,20 +136,17 @@ export default function RouteSplicePanel({
           triggerAriaLabel="区間の乗り換えの説明"
           contentClassName={styles.headingInfoPopover}
         >
-          元のルートのうち、他の候補が別の道を通る区間だけを選んで取り込めます。区間は元ルートの
-          何km地点かで示し、選べる道はその区間が何km長く（短く）なるかで示します。地図のオレンジの
-          帯が同じ区間で、タップしても選べます。天秤は選んだ組み合わせの差を先に見るボタン、
-          その隣は新しい候補として作るボタンです。
+          地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
+          分かれ道があれば次の破線が出ます。天秤は乗り換えた結果を評価するボタン、その隣は
+          新しい候補として作るボタンです。差分バーは左へ伸びた軸ほど楽になっています。
         </InfoPopover>
-        {/* 操作は「ルート結果」ヘッダーの保存・GPX・削除と同じアイコン枠へ揃える
-            （文言のボタンを並べるとパネル1つぶんの高さを操作だけで使う）。 */}
-        {actionable && (
+        {!unavailable && (
           <div className={styles.headingActions}>
             <button
               type="button"
               className={styles.actionIcon}
               onClick={onPreview}
-              disabled={chosenCount === 0 || busy}
+              disabled={appliedCount === 0 || busy}
               aria-busy={previewing}
               aria-label="差分を見る"
               title="差分を見る"
@@ -120,7 +157,7 @@ export default function RouteSplicePanel({
               type="button"
               className={styles.actionIcon}
               onClick={onApply}
-              disabled={chosenCount === 0 || busy}
+              disabled={appliedCount === 0 || busy}
               aria-busy={applying}
               aria-label="新しいルートを作る"
               title="新しいルートを作る"
@@ -131,72 +168,103 @@ export default function RouteSplicePanel({
         )}
       </div>
 
-      {/* 編集の元（1本に固定）と、その元との差を同じ行に置く。どちらも同じ判断材料で、
-          離して置くと1行ぶん余計に高さを使う。 */}
-      <p className={styles.base}>
-        <span>
-          {displayed.direction_label} {displayed.distance_km.toFixed(1)}km
-        </span>
-        {chosenCount > 0 && !busy && <span className={styles.chosenCount}>{chosenCount}区間を乗り継ぎ</span>}
-        {busy ? (
-          <span className={styles.progress}>{previewing ? "計算中…" : "評価中…"}</span>
-        ) : (
-          diff && (
-            <span className={styles.diff}>
-              {formatDelta(diff.distanceDeltaKm, "km", 1)}
-              {diff.difficultyDelta !== null && <> ・ 難易度 {formatDelta(diff.difficultyDelta, "", 0)}</>}
-            </span>
-          )
-        )}
-      </p>
-
       {unavailable ? (
         <p className={styles.note}>この候補は経路のEdge情報を持たないため、区間を出せません。</p>
-      ) : groups.length === 0 ? (
-        <p className={styles.note}>他の候補と別の道を通る区間がありません。</p>
       ) : (
         <>
-          <ul className={styles.rows}>
-            {visibleIndexes.map((groupIndex) => {
-              const group = groups[groupIndex];
-              return (
-              <li key={group.label} className={styles.groupRow}>
-                <span className={styles.where}>{group.label}</span>
-                <div className={styles.options}>
-                  <button
-                    type="button"
-                    className={group.chosenKey === null ? styles.optionOn : styles.option}
-                    aria-pressed={group.chosenKey === null}
-                    onClick={() => onChoose(groupIndex, null)}
-                  >
-                    元のまま
-                  </button>
-                  {group.options.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      className={group.chosenKey === option.key ? styles.optionOn : styles.option}
-                      aria-pressed={group.chosenKey === option.key}
-                      aria-label={option.hint ? `${option.label}（${option.hint}）` : option.label}
-                      title={option.hint}
-                      onClick={() => onChoose(groupIndex, option.key)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+          {/* 指標はルート結果パネルと同じもの。元と編集後を並べ、差は編集後の側へ添える。 */}
+          <table className={styles.metrics}>
+            <thead>
+              <tr>
+                <th />
+                <th>元</th>
+                <th>編集後</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.label}>
+                  <th scope="row">{row.label}</th>
+                  <td className={styles.baseValue}>{row.base}</td>
+                  <td className={styles.afterValue} data-worse={row.delta > 0} data-better={row.delta < 0}>
+                    {row.after ?? "—"}
+                    {row.after !== null && row.delta !== 0 && (
+                      <span className={styles.metricDelta}>
+                        {formatDelta(row.delta, "", row.label === "距離" ? 1 : 0)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* 軸別は元・編集後の2本を並べず、差だけの1本にする。中央が0で、左が楽になった側。 */}
+          {deltas.length > 0 && (
+            <div className={styles.deltaBar}>
+              <div className={styles.deltaEnds}>
+                <span className={styles.better}>← 楽になった</span>
+                <span className={styles.worse}>きつくなった →</span>
+              </div>
+              <div className={styles.deltaTrack} role="img" aria-label={deltas
+                .map((item) => `${item.label} ${formatDelta(item.delta, "", 1)}`)
+                .join("、")}>
+                <div className={styles.deltaSide}>
+                  {deltas
+                    .filter((item) => item.delta < 0)
+                    .map((item) => (
+                      <span
+                        key={item.axisId}
+                        className={styles.deltaSegment}
+                        style={{
+                          width: `${(Math.abs(item.delta) / scale) * 50}%`,
+                          background: axisColors[item.axisId] ?? "var(--color-muted)",
+                        }}
+                      />
+                    ))}
                 </div>
-              </li>
-              );
-            })}
-            {collapsed && (
-              <li className={styles.groupRow}>
-                <button type="button" className={styles.expand} onClick={() => setExpanded(true)}>
-                  残り{hiddenCount}区間を出す
-                </button>
-              </li>
-            )}
-          </ul>
+                <div className={styles.deltaCenter} />
+                <div className={`${styles.deltaSide} ${styles.deltaSideRight}`}>
+                  {deltas
+                    .filter((item) => item.delta > 0)
+                    .map((item) => (
+                      <span
+                        key={item.axisId}
+                        className={styles.deltaSegment}
+                        style={{
+                          width: `${(Math.abs(item.delta) / scale) * 50}%`,
+                          background: axisColors[item.axisId] ?? "var(--color-muted)",
+                        }}
+                      />
+                    ))}
+                </div>
+              </div>
+              <p className={styles.deltaLabels}>
+                {deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
+                  <span key={item.axisId}>
+                    {item.label} {formatDelta(item.delta, "", 1)}
+                  </span>
+                ))}
+              </p>
+            </div>
+          )}
+
           {error && <ErrorText>{error}</ErrorText>}
+
+          <div className={styles.footerRow}>
+            <span className={styles.note}>
+              {appliedCount > 0
+                ? `${appliedCount}回乗り換え`
+                : hasAlternatives
+                  ? "地図の破線をタップして乗り換えます"
+                  : "他の候補と別の道を通る区間がありません。"}
+            </span>
+            {appliedCount > 0 && (
+              <button type="button" className={styles.undo} onClick={onUndo} disabled={busy}>
+                1つ戻す
+              </button>
+            )}
+          </div>
         </>
       )}
     </section>

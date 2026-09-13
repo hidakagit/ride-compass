@@ -1,109 +1,125 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { RouteCandidate } from "@/types/route";
 import RouteSplicePanel from "./RouteSplicePanel";
 
-function candidate(id: string, edgeIds: string[]): RouteCandidate {
-  return {
-    ...({} as RouteCandidate),
-    id,
-    direction_label: id === "route-00" ? "目的地ルート" : "代替ルート",
-    distance_km: 24.5,
-    edge_ids: edgeIds,
-  };
+const AXES = [
+  { axisId: "car_stress", label: "車の圧迫感", description: "", dedicatedWayValueLayer: false },
+  { axisId: "gradient", label: "坂", description: "", dedicatedWayValueLayer: false },
+] as unknown as PreferenceAxisDef[];
+
+function candidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
+  return makeRouteCandidate({
+    id: "route-00",
+    direction_label: "目的地ルート",
+    distance_km: 4.0,
+    edge_ids: ["a", "b", "c"],
+    overall_difficulty: 42,
+    difficulty_load: 168,
+    estimated_duration_seconds: 1080,
+    axis_contributions: { car_stress: 20, gradient: 12 },
+    ...overrides,
+  });
 }
 
 function baseProps(overrides: Partial<Parameters<typeof RouteSplicePanel>[0]> = {}) {
   return {
-    displayed: candidate("route-00", ["a", "b", "c"]),
-    groups: [] as Parameters<typeof RouteSplicePanel>[0]["groups"],
-    onChoose: vi.fn(),
-    diff: null as { distanceDeltaKm: number; difficultyDelta: number | null } | null,
+    displayed: candidate(),
+    appliedCount: 0,
+    hasAlternatives: true,
+    onUndo: vi.fn(),
+    preview: null as RouteCandidate | null,
     previewing: false,
     onPreview: vi.fn(),
     onApply: vi.fn(),
     applying: false,
     error: null as string | null,
     onCancel: vi.fn(),
+    axes: AXES,
+    axisColors: { car_stress: "#dc7633", gradient: "#27ae60" },
     ...overrides,
   };
 }
 
-const GROUPS = [
-  {
-    label: "1本目の区間",
-    options: [
-      { key: "route-01:1-2", label: "2 19.0km" },
-      { key: "route-02:1-2", label: "3 20.5km" },
-    ],
-    chosenKey: null as string | null,
-  },
-];
+const PREVIEW = candidate({
+  id: "route-spliced",
+  distance_km: 4.3,
+  overall_difficulty: 38,
+  difficulty_load: 163,
+  estimated_duration_seconds: 1140,
+  axis_contributions: { car_stress: 16.9, gradient: 12.9 },
+});
 
 describe("RouteSplicePanel", () => {
-  it("区間ごとに、候補横断の代替が並ぶ（相手を1本選ばせない）", () => {
-    render(<RouteSplicePanel {...baseProps({ groups: GROUPS })} />);
+  it("指標はルート結果と同じ項目で、評価前は編集後が空", () => {
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 1 })} />);
 
-    expect(screen.getByText("1本目の区間")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "元のまま" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "2 19.0km" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "3 20.5km" })).toBeInTheDocument();
-    // 使い方は画面へ書かず、見出し脇の(i)の奥に置く。
-    expect(screen.getByRole("button", { name: /^区間の乗り換えの説明を/ })).toBeInTheDocument();
+    for (const label of ["距離", "所要", "総合難易度", "負荷"]) {
+      expect(screen.getByRole("rowheader", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByText("4.0km")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  it("代替を押すとその区間の選択として親へ渡る", async () => {
-    const onChoose = vi.fn();
-    render(<RouteSplicePanel {...baseProps({ groups: GROUPS, onChoose })} />);
+  it("評価できたら編集後の値と差が入る", () => {
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 1, preview: PREVIEW })} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "2 19.0km" }));
-
-    expect(onChoose).toHaveBeenCalledWith(0, "route-01:1-2");
+    expect(screen.getByText("4.3km")).toBeInTheDocument();
+    expect(screen.getByText("+0.3")).toBeInTheDocument();
+    expect(screen.getByText("38")).toBeInTheDocument();
+    expect(screen.getByText("−4")).toBeInTheDocument();
   });
 
-  it("「元のまま」を押すと選択を外す", async () => {
-    const onChoose = vi.fn();
-    const chosen = [{ ...GROUPS[0], chosenKey: "route-01:1-2" }];
-    render(<RouteSplicePanel {...baseProps({ groups: chosen, onChoose })} />);
+  // 元と編集後のバーを2本並べると、同じ軸を目で突き合わせることになる。差だけを1本で出す。
+  it("軸別は差だけを出し、動いた軸を大きい順に書く", () => {
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 1, preview: PREVIEW })} />);
 
-    expect(screen.getByRole("button", { name: "2 19.0km" })).toHaveAttribute("aria-pressed", "true");
-    await userEvent.click(screen.getByRole("button", { name: "元のまま" }));
-
-    expect(onChoose).toHaveBeenCalledWith(0, null);
+    expect(screen.getByText(/車の圧迫感 −3\.1/)).toBeInTheDocument();
+    expect(screen.getByText(/坂 \+0\.9/)).toBeInTheDocument();
   });
 
-  it("1区間も選んでいなければ作れない", () => {
-    render(<RouteSplicePanel {...baseProps({ groups: GROUPS })} />);
+  it("動きが小さい軸は出さない（1pxの破片を並べない）", () => {
+    const almostSame = candidate({ axis_contributions: { car_stress: 20.05, gradient: 12 } });
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 1, preview: almostSame })} />);
 
-    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeDisabled();
+    expect(screen.queryByText(/車の圧迫感/)).toBeNull();
   });
 
-  it("1つでも選べば作れる", () => {
-    const chosen = [{ ...GROUPS[0], chosenKey: "route-01:1-2" }];
-    render(<RouteSplicePanel {...baseProps({ groups: chosen })} />);
-
-    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeEnabled();
-  });
-
-  it("評価中は押せない", () => {
-    const chosen = [{ ...GROUPS[0], chosenKey: "route-01:1-2" }];
-    render(<RouteSplicePanel {...baseProps({ groups: chosen, applying: true })} />);
-
-    const apply = screen.getByRole("button", { name: "新しいルートを作る" });
-    expect(apply).toBeDisabled();
-    expect(apply).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByText("評価中…")).toBeInTheDocument();
-  });
-
-  it("差が無い候補では、その旨を出す", () => {
+  it("乗り換えていなければ、評価も作成もできない", () => {
     render(<RouteSplicePanel {...baseProps()} />);
+
+    expect(screen.getByRole("button", { name: "差分を見る" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeDisabled();
+    expect(screen.getByText("地図の破線をタップして乗り換えます")).toBeInTheDocument();
+  });
+
+  it("乗り換えた回数を出し、直前の1手を戻せる", async () => {
+    const onUndo = vi.fn();
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 3, onUndo })} />);
+
+    expect(screen.getByText("3回乗り換え")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "1つ戻す" }));
+
+    expect(onUndo).toHaveBeenCalledTimes(1);
+  });
+
+  it("乗り換えていなければ戻すボタンは出さない", () => {
+    render(<RouteSplicePanel {...baseProps()} />);
+
+    expect(screen.queryByRole("button", { name: "1つ戻す" })).toBeNull();
+  });
+
+  it("乗り換え先が無いことを伝える", () => {
+    render(<RouteSplicePanel {...baseProps({ hasAlternatives: false })} />);
 
     expect(screen.getByText("他の候補と別の道を通る区間がありません。")).toBeInTheDocument();
   });
 
   it("edge_idsを持たない候補では区間を出せないことを伝える", () => {
-    render(<RouteSplicePanel {...baseProps({ displayed: candidate("route-00", []) })} />);
+    render(<RouteSplicePanel {...baseProps({ displayed: candidate({ edge_ids: [] }) })} />);
 
     expect(screen.getByText(/Edge情報を持たない/)).toBeInTheDocument();
   });
@@ -111,103 +127,36 @@ describe("RouteSplicePanel", () => {
   // 合成の失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）。押した場所へ
   // 出さないと「押しても何も起きない」に見える。
   it("合成に失敗した理由をこのパネルへ出す", () => {
-    const chosen = [{ ...GROUPS[0], chosenKey: "route-01:1-2" }];
     render(
-      <RouteSplicePanel {...baseProps({ groups: chosen, error: "組み合わせたルートを評価できませんでした" })} />,
+      <RouteSplicePanel {...baseProps({ appliedCount: 1, error: "組み合わせたルートを評価できませんでした" })} />,
     );
 
     expect(screen.getByText("組み合わせたルートを評価できませんでした")).toBeInTheDocument();
   });
 
-  it("乗り継いだ区間の数を出す（1本の入れ替えなのか、複数を継いだのかが読めない）", () => {
-    const chosen = [
-      { ...GROUPS[0], chosenKey: "route-01:1-2" },
-      { label: "2.0〜3.0km", options: [{ key: "route-02:3-4", label: "+0.2" }], chosenKey: "route-02:3-4" },
-    ];
-    render(<RouteSplicePanel {...baseProps({ groups: chosen })} />);
-
-    expect(screen.getByText("2区間を乗り継ぎ")).toBeInTheDocument();
-  });
-
-  // 1区間=1行のため、区間が増えるほど縦に伸びる。スマホの下部シートでは全部は並べられない。
-  describe("区間が多いとき", () => {
-    const many = Array.from({ length: 14 }, (_, index) => ({
-      label: `${index}.0〜${index + 1}.0km`,
-      options: [{ key: `route-01:${index}`, label: "+0.1" }],
-      chosenKey: null as string | null,
-    }));
-
-    it("上限までに畳み、残りは開ける", async () => {
-      render(<RouteSplicePanel {...baseProps({ groups: many })} />);
-
-      expect(screen.getAllByRole("button", { name: "元のまま" })).toHaveLength(10);
-      await userEvent.click(screen.getByRole("button", { name: "残り4区間を出す" }));
-
-      expect(screen.getAllByRole("button", { name: "元のまま" })).toHaveLength(14);
-    });
-
-    it("選んだ区間は畳まれない", () => {
-      const chosen = many.map((group, index) => (index === 13 ? { ...group, chosenKey: `route-01:13` } : group));
-      render(<RouteSplicePanel {...baseProps({ groups: chosen })} />);
-
-      expect(screen.getByText("13.0〜14.0km")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "残り4区間を出す" })).toBeInTheDocument();
-    });
-  });
-
-  it("編集の元を固定で示し、やめると親へ知らせる", async () => {
+  it("編集をやめると親へ知らせる", async () => {
     const onCancel = vi.fn();
-    render(<RouteSplicePanel {...baseProps({ groups: GROUPS, onCancel })} />);
+    render(<RouteSplicePanel {...baseProps({ onCancel })} />);
 
-    expect(screen.getByText(/^目的地ルート/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
 
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  // 作る前に「この組み合わせにすると何がどう変わるか」を見る。評価はbackendでしか出せず、
-  // 押すたびに投げるため（生成APIは1分10回の上限）、選び終えてから押す形にする。
-  describe("差分を見る", () => {
-    const chosen = [{ ...GROUPS[0], chosenKey: "route-01:1-2" }];
+  describe("評価中", () => {
+    it("計算中は評価も作成も押せない", () => {
+      render(<RouteSplicePanel {...baseProps({ appliedCount: 1, previewing: true })} />);
 
-    it("1区間も選んでいなければ押せない", () => {
-      render(<RouteSplicePanel {...baseProps({ groups: GROUPS })} />);
-
-      expect(screen.getByRole("button", { name: "差分を見る" })).toBeDisabled();
-    });
-
-    it("押すと親へ知らせ、計算中は押せない", async () => {
-      const onPreview = vi.fn();
-      const { rerender } = render(<RouteSplicePanel {...baseProps({ groups: chosen, onPreview })} />);
-
-      await userEvent.click(screen.getByRole("button", { name: "差分を見る" }));
-      expect(onPreview).toHaveBeenCalledTimes(1);
-
-      rerender(<RouteSplicePanel {...baseProps({ groups: chosen, onPreview, previewing: true })} />);
-      expect(screen.getByRole("button", { name: "差分を見る" })).toBeDisabled();
-      expect(screen.getByText("計算中…")).toBeInTheDocument();
+      const preview = screen.getByRole("button", { name: "差分を見る" });
+      expect(preview).toBeDisabled();
+      expect(preview).toHaveAttribute("aria-busy", "true");
       expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeDisabled();
     });
 
-    it("評価できたら元との差を出す", () => {
-      render(
-        <RouteSplicePanel
-          {...baseProps({ groups: chosen, diff: { distanceDeltaKm: 0.42, difficultyDelta: -3 } })}
-        />,
-      );
+    it("作成中は戻すボタンも押せない", () => {
+      render(<RouteSplicePanel {...baseProps({ appliedCount: 1, applying: true })} />);
 
-      expect(screen.getByText(/\+0\.4km/)).toBeInTheDocument();
-      expect(screen.getByText(/難易度 −3/)).toBeInTheDocument();
-    });
-
-    it("差が無いときは「変わらない」と書く（0を符号付きで出さない）", () => {
-      render(
-        <RouteSplicePanel
-          {...baseProps({ groups: chosen, diff: { distanceDeltaKm: 0.02, difficultyDelta: 0 } })}
-        />,
-      );
-
-      expect(screen.getByText(/変わらない/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "1つ戻す" })).toBeDisabled();
     });
   });
 });
