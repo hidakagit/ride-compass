@@ -861,7 +861,9 @@ async def test_get_way_tags_by_osm_way_id_returns_highway_tags_and_is_designated
 ):
     """改善計画T90: 区間クリック時の車ストレス内訳表示。空間マッチ
     （交差点付近で別の道路を拾いうる、実機確認で判明）を避け、osm_way_id完全一致で引く。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"})
+    way = WaySpec(
+        osm_way_id=100, node_ids=[1, 2], highway="primary", tags={"maxspeed": "60"}, surface="asphalt"
+    )
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
     await _insert_designation_attribute(road_graph_session, 100, "critical_logistics")
@@ -869,7 +871,8 @@ async def test_get_way_tags_by_osm_way_id_returns_highway_tags_and_is_designated
 
     result = await road_graph_repository.get_way_tags_by_osm_way_id(100)
 
-    assert result == ("primary", {"maxspeed": "60"}, True)
+    # 舗装はtagsではなく専用列から返る。
+    assert result == ("primary", {"maxspeed": "60"}, True, "asphalt")
 
 
 async def test_get_way_tags_by_osm_way_id_returns_none_when_way_not_found(road_graph_repository):
