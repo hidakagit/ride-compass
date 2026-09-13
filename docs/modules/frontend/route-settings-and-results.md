@@ -216,7 +216,7 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   丸め誤差を除いて`overall_difficulty`と数学的に一致するため、frontend側での独自の
   重み計算は行わない。バーの各セグメントの色は`axisColors`（地図色分けチップと同じ配色）、
   幅は寄与度の値そのもの。
-- **凡例の表示設定**: `stackBarLegendTrigger`パターン（見出し脇の(i)アイコン→ポップオーバー
+- **凡例の表示設定**: `legendTrigger`（見出し脇の(i)アイコン→ポップオーバー
   でチェックボックス一覧）で、選択中モードの凡例カテゴリを地図上で表示/非表示できる。
 
 ## AxisContributionBar.tsx（「重み付き寄与度」の共有表示部品）
@@ -303,7 +303,7 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ
 印（`conditionsDirty`）を出す——条件を変えている本人は設定側を見ているため。検証・送信ロジック自体は
 `useRouteFormSubmit`（`distance`・`maxRoutes`・`routeMode`・`waypointCount`・
-`destinationState`・`onGenerate`を受け取り`{error, handleSubmit}`を返す）へ切り出し、
+`destinationSet`・`onGenerate`を受け取り`{error, handleSubmit}`を返す）へ切り出し、
 `page.tsx`がヘッダーのボタンから直接呼ぶ。`isMaxRoutesRelevant(routeMode, waypointCount)`
 は`RouteForm`（候補数ステッパーの表示要否）・`useRouteFormSubmit`（検証要否）の両方が
 参照する単一の情報源。

@@ -63,7 +63,7 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 風の列だけを引き直して合成する（`domain/wind.py: estimate_passage_hours`、
 `direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が
 到着予定時刻）。合成結果`LegCostArrays`は`cost_lazy`（`lazy_graph.edge_ids`順）と表示用の
-`difficulty_array`/`axis_arrays`/`contribution_arrays`/`material_arrays`（動的材料id→
+`difficulty_array`/`axis_arrays`/`weight_sums`/`material_arrays`（動的材料id→
 `full_edge_row`順配列の辞書、`evaluate_dynamic_material_arrays`が返す全材料のうち値がある
 ものだけ）を持ち、`_RoadGraphContext.legs`に添字順で並ぶ。`compose`は
 `DynamicAxisRequestContext`へ風の入力と走行速度（`speed_kmh`を`kmh_to_ms`でm/sへ変換）を
