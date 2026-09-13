@@ -74,13 +74,22 @@
 }
 
 /* 周回/目的地モード切り替え（セグメントコントロール）。 */
+/* モード切替と候補数を1行に並べる（候補数はどちらのモードでも効く共通の条件）。 */
+.modeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
 .modeToggle {
   display: inline-flex;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   overflow: hidden;
   flex-shrink: 0;
-  margin-bottom: var(--space-2);
 }
 
 .modeButton,
@@ -99,55 +108,107 @@
   color: #fff;
 }
 
-/* 目的地モードの経由地件数チップ・目的地ボタン。距離入力の代わりにこの行へ収まる。 */
-.destinationSummary {
+/* 目的地モードの地点行（出発地・経由地・目的地）。3つとも役割は同じ「地点を置く」ため
+   同じ形の行にし、行頭の印だけで見分ける（印は地図のマーカーと同じ色）。 */
+.pointRows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.pointRow {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding-right: 0.2rem;
+}
+
+/* 行そのものが押下領域。枠は行（.pointRow）が持つため、こちらは枠を持たない。 */
+.pointMain {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
 }
 
-.summaryChip {
+/* 置ける状態の行だけを強調する。地図のタップがどの地点になるかは、この1行でしか分からない。 */
+.pointRow[data-armed="true"] {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent) inset;
+}
+
+.pointMark {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  font-size: 0.8rem;
-  background: var(--color-surface-2);
-  border-radius: 999px;
-  padding: 0.2rem 0.5rem;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: #fff;
 }
 
-.summaryChip button {
-  border: none;
-  background: transparent;
+/* 役割名の幅を揃えて、値（現在地／なし／地図をタップ）の開始位置を3行でそろえる
+   ——値がばらばらの位置から始まると、行を縦に読み比べられない。 */
+.pointLabel {
+  flex: none;
+  width: 3.6rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
-  cursor: pointer;
-  font-size: 0.75rem;
-  padding: 0;
-  line-height: 1;
+  text-align: left;
 }
 
-.destinationChip,
-.destinationChipArmed,
-.destinationChipSet {
+.pointRow[data-armed="true"] .pointLabel {
+  color: var(--color-accent-strong);
+}
+
+.pointValue {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  /* buttonの既定（中央寄せ）を打ち消す。 */
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 行の右端に出す「次に何ができるか」。押下領域は行全体のため、これ自体はボタンにしない。 */
+.pointHint,
+.pointHintArmed {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-strong);
+}
+
+.pointHintArmed {
+  color: var(--color-surface);
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 0.05rem 0.35rem;
+}
+
+.pointSubAction {
+  flex: none;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
   background: var(--color-surface);
+  color: var(--color-muted);
+  padding: 0.1rem 0.4rem;
   cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  padding: 0.3rem 0.5rem;
 }
 
-/* チップ内の状態文言。アイコンだけだと3状態を見分けられない（モバイルにツールチップが
-   無い）ため、短い文言を並べる。 */
-.destinationChipText {
-  font-size: 0.8rem;
-  margin-left: 0.3rem;
-}
-
-/* 設定済みのときだけ出る解除ボタン（経由地チップの✕と同じ役割）。 */
-.destinationClearButton {
+.pointClear {
+  flex: none;
   border: none;
   background: transparent;
   color: var(--color-muted);
@@ -155,25 +216,4 @@
   font-size: 0.75rem;
   padding: 0.2rem;
   line-height: 1;
-}
-
-.destinationChipArmed {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  animation: destinationPulse 1.2s ease-in-out infinite;
-}
-
-.destinationChipSet {
-  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
-  border-color: var(--color-accent);
-}
-
-@keyframes destinationPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
 }

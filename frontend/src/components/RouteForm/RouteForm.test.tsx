@@ -3,7 +3,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import RouteForm, { type DestinationButtonState, type RouteMode, type SettingsTab } from "./RouteForm";
+import RouteForm, { type RouteMode, type SettingsTab } from "./RouteForm";
 
 // RouteFormは制御コンポーネント（距離・候補件数はpage.tsxが持ち、生成条件のdirty判定・
 // useRouteFormSubmitでの検証に使う）のため、テストでは各stateを持つ最小のラッパーで包んで
@@ -17,9 +17,10 @@ function ControlledRouteForm({
   initialRouteMode = "loop",
   waypointCount = 0,
   onWaypointsClear = vi.fn(),
-  destinationState = "unset",
+  destinationSet = false,
+  armedPinRole = null,
   onDestinationClear = () => {},
-  onDestinationButtonClick = vi.fn(),
+  onArmPinRole = vi.fn(),
   tab = "generate",
 }: {
   initialDistance?: string;
@@ -27,9 +28,10 @@ function ControlledRouteForm({
   initialRouteMode?: RouteMode;
   waypointCount?: number;
   onWaypointsClear?: () => void;
-  destinationState?: DestinationButtonState;
+  destinationSet?: boolean;
+  armedPinRole?: "origin" | "waypoint" | "destination" | null;
   onDestinationClear?: () => void;
-  onDestinationButtonClick?: () => void;
+  onArmPinRole?: (role: "origin" | "waypoint" | "destination" | null) => void;
   tab?: SettingsTab;
 }) {
   const [distance, setDistance] = useState(initialDistance);
@@ -46,8 +48,11 @@ function ControlledRouteForm({
         onRouteModeChange={setRouteMode}
         waypointCount={waypointCount}
         onWaypointsClear={onWaypointsClear}
-        destinationState={destinationState}
-        onDestinationButtonClick={onDestinationButtonClick}
+        destinationSet={destinationSet}
+        originManual={false}
+        onOriginReset={() => {}}
+        armedPinRole={armedPinRole}
+        onArmPinRole={onArmPinRole}
         onDestinationClear={onDestinationClear}
         weightsPanel={<p>重みタブの中身（テスト用ダミー）</p>}
         exclusionsPanel={<p>除外タブの中身（テスト用ダミー）</p>}
@@ -112,38 +117,66 @@ describe("RouteForm", () => {
   });
 
   describe("改善計画T365-2: 周回/目的地モード切り替え", () => {
-    it("目的地モードに切り替えると距離スライダーが消え、目的地ボタンが表示される（候補数は経由地なしのため残る）", async () => {
+    it("目的地モードに切り替えると距離スライダーが消え、3つの地点の行が出る", async () => {
       const user = userEvent.setup();
       render(<ControlledRouteForm />);
 
       await user.click(screen.getByRole("button", { name: "目的地" }));
 
       expect(screen.queryByRole("slider", { name: "距離" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" })).toBeInTheDocument();
-      expect(screen.getByText("8件")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "出発地を地図で選ぶ" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "経由地を追加" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "目的地を地図で選ぶ" })).toBeInTheDocument();
     });
 
-    // モバイルにツールチップは無いため、3状態はチップの文言そのもので見分けられる必要がある。
-    it("目的地チップは未設定・タップ待ち・設定済みを文言で示す", () => {
+    // 3つとも同じ形の行で、置いてあるかどうかは行の値で読める（地図を見に行かなくて済む）。
+    it("各行は現在の値を示し、目的地を置くと「置き直す」へ変わる", () => {
       const { rerender } = render(<ControlledRouteForm initialRouteMode="destination" />);
-      expect(screen.getByText("目的地を指定")).toBeInTheDocument();
 
-      rerender(<ControlledRouteForm initialRouteMode="destination" destinationState="armed" />);
-      expect(screen.getByText("地図をタップ")).toBeInTheDocument();
+      expect(screen.getByText("現在地")).toBeInTheDocument();
+      expect(screen.getByText("なし")).toBeInTheDocument();
+      expect(screen.getByText("未設定")).toBeInTheDocument();
 
-      rerender(<ControlledRouteForm initialRouteMode="destination" destinationState="set" />);
-      expect(screen.getByText("目的地を変更")).toBeInTheDocument();
+      rerender(<ControlledRouteForm initialRouteMode="destination" destinationSet waypointCount={2} />);
+
+      expect(screen.getByText("2地点")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "目的地を置き直す" })).toBeInTheDocument();
     });
 
-    it("設定済みのときだけ解除ボタンが出て、押すとonDestinationClearが呼ばれる", async () => {
+    // 置ける状態の行は1つだけで、その行の操作は「やめる」に変わる（何を置こうとしているかが
+    // 行の形で分かる）。
+    it("武装中の行だけが「やめる」になり、押すと解除を親へ渡す", async () => {
+      const user = userEvent.setup();
+      const onArmPinRole = vi.fn();
+      render(
+        <ControlledRouteForm initialRouteMode="destination" armedPinRole="waypoint" onArmPinRole={onArmPinRole} />,
+      );
+
+      expect(screen.getByRole("button", { name: "経由地の指定をやめる" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "目的地を地図で選ぶ" })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "経由地の指定をやめる" }));
+
+      expect(onArmPinRole).toHaveBeenCalledWith(null);
+    });
+
+    it("行の操作でその役割の武装を親へ渡す", async () => {
+      const user = userEvent.setup();
+      const onArmPinRole = vi.fn();
+      render(<ControlledRouteForm initialRouteMode="destination" onArmPinRole={onArmPinRole} />);
+
+      await user.click(screen.getByRole("button", { name: "出発地を地図で選ぶ" }));
+
+      expect(onArmPinRole).toHaveBeenCalledWith("origin");
+    });
+
+    it("目的地の✕でonDestinationClearが呼ばれる", async () => {
       const user = userEvent.setup();
       const onDestinationClear = vi.fn();
-      const { rerender } = render(<ControlledRouteForm initialRouteMode="destination" />);
-      expect(screen.queryByRole("button", { name: "目的地を解除" })).not.toBeInTheDocument();
-
-      rerender(
-        <ControlledRouteForm initialRouteMode="destination" destinationState="set" onDestinationClear={onDestinationClear} />
+      render(
+        <ControlledRouteForm initialRouteMode="destination" destinationSet onDestinationClear={onDestinationClear} />,
       );
+
       await user.click(screen.getByRole("button", { name: "目的地を解除" }));
 
       expect(onDestinationClear).toHaveBeenCalledTimes(1);
@@ -153,24 +186,12 @@ describe("RouteForm", () => {
       const user = userEvent.setup();
       const onWaypointsClear = vi.fn();
       render(
-        <ControlledRouteForm initialRouteMode="destination" waypointCount={2} onWaypointsClear={onWaypointsClear} />
+        <ControlledRouteForm initialRouteMode="destination" waypointCount={2} onWaypointsClear={onWaypointsClear} />,
       );
 
       await user.click(screen.getByRole("button", { name: "経由地をクリア" }));
 
       expect(onWaypointsClear).toHaveBeenCalledTimes(1);
-    });
-
-    it("目的地ボタン押下でonDestinationButtonClickが呼ばれる", async () => {
-      const user = userEvent.setup();
-      const onDestinationButtonClick = vi.fn();
-      render(
-        <ControlledRouteForm initialRouteMode="destination" onDestinationButtonClick={onDestinationButtonClick} />
-      );
-
-      await user.click(screen.getByRole("button", { name: "目的地を設定（地図をタップ）" }));
-
-      expect(onDestinationButtonClick).toHaveBeenCalledTimes(1);
     });
 
     it("経由地が1件以上あると候補数ステッパーは表示されない", () => {

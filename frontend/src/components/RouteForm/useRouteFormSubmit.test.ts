@@ -1,14 +1,14 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useRouteFormSubmit, isMaxRoutesRelevant } from "./useRouteFormSubmit";
-import type { DestinationButtonState, RouteMode } from "./RouteForm";
+import type { RouteMode } from "./RouteForm";
 
 function setup(overrides: {
   distance?: string;
   maxRoutes?: string;
   routeMode?: RouteMode;
   waypointCount?: number;
-  destinationState?: DestinationButtonState;
+  destinationSet?: boolean;
   onGenerate?: (distanceKm: number) => void;
 }) {
   const onGenerate = overrides.onGenerate ?? vi.fn();
@@ -18,7 +18,7 @@ function setup(overrides: {
       maxRoutes: overrides.maxRoutes ?? "8",
       routeMode: overrides.routeMode ?? "loop",
       waypointCount: overrides.waypointCount ?? 0,
-      destinationState: overrides.destinationState ?? "unset",
+      destinationSet: overrides.destinationSet ?? false,
       onGenerate,
     })
   );
@@ -103,8 +103,8 @@ describe("useRouteFormSubmit（目的地モード）", () => {
     expect(result.current.error).toBe("地図をタップして目的地か経由地を指定してください。");
   });
 
-  it("destinationState=setなら送信でonGenerate(0)が呼ばれる（距離はpage.tsx側で自動算出）", () => {
-    const { result, onGenerate } = setup({ routeMode: "destination", destinationState: "set" });
+  it("destinationSet=trueなら送信でonGenerate(0)が呼ばれる（距離はpage.tsx側で自動算出）", () => {
+    const { result, onGenerate } = setup({ routeMode: "destination", destinationSet: true });
     act(() => result.current.handleSubmit());
 
     expect(onGenerate).toHaveBeenCalledWith(0);
@@ -118,7 +118,7 @@ describe("useRouteFormSubmit（目的地モード）", () => {
   });
 
   it("経由地が無い場合は候補件数の検証が働く", () => {
-    const { result, onGenerate } = setup({ routeMode: "destination", destinationState: "set", maxRoutes: "16" });
+    const { result, onGenerate } = setup({ routeMode: "destination", destinationSet: true, maxRoutes: "16" });
     act(() => result.current.handleSubmit());
 
     expect(onGenerate).not.toHaveBeenCalled();

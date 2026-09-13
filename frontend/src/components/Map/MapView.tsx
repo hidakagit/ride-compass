@@ -14,6 +14,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   Coordinates,
   LocationSource,
+  PinRole,
   RouteCandidate,
   RouteSegmentDetail,
   SelectedRouteSegment,
@@ -2514,22 +2515,16 @@ interface MapViewProps {
    * 通過する単一経路の生成に使う、page.tsx側のstate）。 */
   waypoints: Coordinates[];
   /** 空白地点クリック時の「経由地に追加」ボタン押下で呼ばれる。 */
-  onWaypointAdd: (coordinates: Coordinates) => void;
+  /** 武装中の役割。nullの間、地図のタップはピンを置かない（地物の詳細表示のみ）。 */
+  armedPinRole: PinRole | null;
+  /** 武装中の役割の地点として、タップした座標を渡す。 */
+  onPinPlace: (role: PinRole, coordinates: Coordinates) => void;
   /** 経由地マーカークリックで呼ばれる（該当indexを削除）。 */
   onWaypointRemove: (index: number) => void;
   /** 目的地（最大1点、指定時は起点に戻らず目的地で終わる片道ルートになる）。 */
   destination: Coordinates | null;
-  /** trueの間は次の1タップだけ、地物ヒット判定を迂回して目的地を置く
-   * （page.tsxの「目的地を設定」ボタン押下でtrueになり、配置後は自動的にfalseへ戻る）。 */
-  destinationArmed: boolean;
-  /** 目的地を置く1タップで呼ばれる。 */
-  onDestinationSet: (coordinates: Coordinates) => void;
   /** 目的地マーカークリックで呼ばれる（解除）。 */
   onDestinationClear: () => void;
-  /** 周回/目的地モードの切り替え（page.tsx: routeMode）。falseの間は
-   * 空白地点クリックでの経由地追加を行わない（地物ヒット時のみ詳細ポップアップを
-   * 表示する、周回モード中は地図上に経由地・目的地ピンを持たせない設計のため）。 */
-  pinPlacementEnabled: boolean;
   /** 出発地点マーカーをドラッグ&ドロップで動かした（dragend）
    * ときに呼ばれる（page.tsx: useLocation().setManualLocation）。地図アプリで一般的な
    * 「ピンをつかんで動かす」操作そのものなので説明用のUIを別途持たない。 */
@@ -2583,13 +2578,11 @@ export default function MapView({
   onRouteSegmentSelect,
   onRouteSelect,
   waypoints,
-  onWaypointAdd,
+  armedPinRole,
+  onPinPlace,
   onWaypointRemove,
   destination,
-  destinationArmed,
-  onDestinationSet,
   onDestinationClear,
-  pinPlacementEnabled,
   onOriginSet,
   routeFitObscuredPx,
 }: MapViewProps) {
@@ -2662,15 +2655,13 @@ export default function MapView({
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
   // handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
-  // 最新のonWaypointAddを読めるようにするref（onRegionZoomHintChangeRefと同じパターン）。
-  const onWaypointAddRef = useRef(onWaypointAdd);
+  // 最新のonPinPlace・武装中の役割を読めるようにするref（onRegionZoomHintChangeRefと同じパターン）。
+  const onPinPlaceRef = useRef(onPinPlace);
+  const armedPinRoleRef = useRef(armedPinRole);
   const onWaypointRemoveRef = useRef(onWaypointRemove);
   // 同じ理由で目的地関連のコールバック・armed状態もrefで最新値を読む。
-  const onDestinationSetRef = useRef(onDestinationSet);
   const onDestinationClearRef = useRef(onDestinationClear);
-  const destinationArmedRef = useRef(destinationArmed);
   // 周回モード中は空白地点クリックでの経由地追加を行わない。
-  const pinPlacementEnabledRef = useRef(pinPlacementEnabled);
   // 出発地点マーカーのdragendコールバックもrefで最新値を読む。
   const onOriginSetRef = useRef(onOriginSet);
   // フィットは「候補一覧が変わったとき」だけに限る（下部のuseEffect参照）ため、覆われて
@@ -2731,28 +2722,23 @@ export default function MapView({
   }, [onLayerDataStatusChange]);
 
   useEffect(() => {
-    onWaypointAddRef.current = onWaypointAdd;
-  }, [onWaypointAdd]);
+    onPinPlaceRef.current = onPinPlace;
+  }, [onPinPlace]);
+
+  useEffect(() => {
+    armedPinRoleRef.current = armedPinRole;
+  }, [armedPinRole]);
 
   useEffect(() => {
     onWaypointRemoveRef.current = onWaypointRemove;
   }, [onWaypointRemove]);
 
-  useEffect(() => {
-    onDestinationSetRef.current = onDestinationSet;
-  }, [onDestinationSet]);
 
   useEffect(() => {
     onDestinationClearRef.current = onDestinationClear;
   }, [onDestinationClear]);
 
-  useEffect(() => {
-    destinationArmedRef.current = destinationArmed;
-  }, [destinationArmed]);
 
-  useEffect(() => {
-    pinPlacementEnabledRef.current = pinPlacementEnabled;
-  }, [pinPlacementEnabled]);
 
   useEffect(() => {
     onOriginSetRef.current = onOriginSet;
@@ -3062,18 +3048,15 @@ export default function MapView({
     ensureAllStaticOverlayLayers(map, redrawPropsRef.current.staticOverlayLayers);
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
-    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。地物が無い空白地点の
-    // クリックはポップアップを介さず即座にピンを追加する1段階の操作にし、地物
-    // （道路・ルート等）クリックは詳細ポップアップのみを表示する（経由地追加ボタンは
-    // 付けない）。「目的地を設定」ボタンで武装した直後の1タップだけは、地物ヒット判定を
-    // 完全に迂回して目的地を置く（道路の上を目的地にしたい場合もあるため）。周回モード中
-    // （pinPlacementEnabled=false）は空白地点クリックでの経由地追加を行わず、地物ヒット時
-    // のみ詳細ポップアップを表示する（周回モードは距離指定の8方位探索のみを扱い、地図上に
-    // 経由地・目的地ピンを持たせない設計）。出発地点の指定はドラッグ&ドロップ方式のため、
-    // ここでの武装チェックは無い（出発地点マーカー自体のdragendハンドラ、下部のuseEffect参照）。
+    // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。**どれかの役割で武装して
+    // いる間だけ**、その1タップは地物ヒット判定を迂回してピンを置く（道路の上を目的地に
+    // したい場合もあるため）。武装していなければ地図を触ってもピンは増えない——役割を選ばずに
+    // 置けると、地図を見ているだけのつもりの操作で経由地が増える。出発地点はマーカー自身の
+    // ドラッグでも動かせる（下部のuseEffect）。
     function handleClick(e: MapMouseEvent) {
-      if (destinationArmedRef.current) {
-        onDestinationSetRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
+      const armed = armedPinRoleRef.current;
+      if (armed) {
+        onPinPlaceRef.current(armed, { latitude: e.lngLat.lat, longitude: e.lngLat.lng });
         return;
       }
       // ルート線（当たり判定はDETAIL_HIT_LAYER_ID）は下の
@@ -3107,19 +3090,9 @@ export default function MapView({
         return;
       }
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
-      if (layers.length === 0) {
-        if (pinPlacementEnabledRef.current) {
-          onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
-        }
-        return;
-      }
+      if (layers.length === 0) return;
       const features = map.queryRenderedFeatures(e.point, { layers });
-      if (features.length === 0) {
-        if (pinPlacementEnabledRef.current) {
-          onWaypointAddRef.current({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
-        }
-        return;
-      }
+      if (features.length === 0) return;
 
       const feature = features[0];
       const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
