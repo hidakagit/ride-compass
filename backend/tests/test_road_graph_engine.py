@@ -1477,13 +1477,13 @@ async def test_select_via_nodes_includes_shortest_route_as_top_candidate():
     assert all(t.bearing is None for t in traced)
 
 
-# 最短距離ルート（距離だけで選んだ基準線、docs/tasks/T690.md）。
+# 基準線ルート（好みの重みをすべて0にしたときの経路＝所要時間が最短の経路）。
 
 
-async def test_select_shortest_distance_route_ignores_axis_cost():
+async def test_select_fastest_route_ignores_axis_cost():
     # 直線に近い経路（offset=0）を砂利にして軸コストを高くし、遠回り（offset=3km）を
-    # 舗装にする。砂利は通行可否の問題ではない（0次フィルタの対象外）ため、距離だけで
-    # 選ぶ本メソッドは短い方を返さなければならない——「最短からどれだけ余分に走るか」の
+    # 舗装にする。砂利は通行可否の問題ではない（0次フィルタの対象外）ため、所要時間だけで
+    # 選ぶ本メソッドは速い方を返さなければならない——「基準線からどれだけ余計にかかるか」の
     # 基準線だから。
     graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
     surface_attributes = {
@@ -1494,15 +1494,15 @@ async def test_select_shortest_distance_route_ignores_axis_cost():
     engine = generator._engine
     context = await _prepare_destination_context(generator, DESTINATION_20KM)
 
-    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+    fastest = await engine.select_fastest_route(context, DESTINATION_20KM)
 
-    assert shortest is not None
-    assert shortest.data == ["e-0-out", "e-0-in"]
+    assert fastest is not None
+    assert fastest.data == ["e-0-out", "e-0-in"]
 
 
-async def test_select_shortest_distance_route_respects_hard_filters():
-    # 0次フィルタ（通行可否・走行可否の表明）は距離を優先する経路でも越えない。
-    # 直線に近い経路（offset=0）をtrunk＝通行不可にすると、最短経路は遠回り（offset=3km）
+async def test_select_fastest_route_respects_hard_filters():
+    # 0次フィルタ（通行可否・走行可否の表明）は所要時間を優先する経路でも越えない。
+    # 直線に近い経路（offset=0）をtrunk＝通行不可にすると、基準線は遠回り（offset=3km）
     # になる。軸コストを使わないことと、通れない道を通ってよいことは別である。
     graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
     for edge_id in ("e-0-out", "e-0-in"):
@@ -1511,14 +1511,14 @@ async def test_select_shortest_distance_route_respects_hard_filters():
     engine = generator._engine
     context = await _prepare_destination_context(generator, DESTINATION_20KM)
 
-    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+    fastest = await engine.select_fastest_route(context, DESTINATION_20KM)
 
-    assert shortest is not None
-    assert shortest.data == ["e-1-out", "e-1-in"]
+    assert fastest is not None
+    assert fastest.data == ["e-1-out", "e-1-in"]
 
 
-async def test_select_shortest_distance_route_uses_hard_filters_from_the_request():
-    # 同じグラフでも、リクエストがtrunkフィルタを外していればtrunk経由の最短が返る
+async def test_select_fastest_route_uses_hard_filters_from_the_request():
+    # 同じグラフでも、リクエストがtrunkフィルタを外していればtrunk経由の基準線が返る
     # （既定値ではなくリクエスト時点の0次フィルタ設定に従っていることの確認）。
     graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
     for edge_id in ("e-0-out", "e-0-in"):
@@ -1527,25 +1527,25 @@ async def test_select_shortest_distance_route_uses_hard_filters_from_the_request
     engine = generator._engine
     context = await _prepare_destination_context(generator, DESTINATION_20KM)
 
-    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+    fastest = await engine.select_fastest_route(context, DESTINATION_20KM)
 
-    assert shortest is not None
-    assert shortest.data == ["e-0-out", "e-0-in"]
+    assert fastest is not None
+    assert fastest.data == ["e-0-out", "e-0-in"]
 
 
-async def test_select_shortest_distance_route_splits_legs_near_the_midpoint():
-    # 経由Nodeは最短経路上のどのNodeでも同じ経路になるが、往路・復路レグへ概ね半分ずつ
+async def test_select_fastest_route_splits_legs_near_the_midpoint():
+    # 経由Nodeは基準線上のどのNodeでも同じ経路になるが、往路・復路レグへ所要時間が概ね半分ずつ
     # 割れる位置を選ぶ（レグごとに時刻の異なる風の評価が他の候補と揃うため）。
     graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0])
     generator, _, _ = make_generator(graph)
     engine = generator._engine
     context = await _prepare_destination_context(generator, DESTINATION_20KM)
 
-    shortest = await engine.select_shortest_distance_route(context, DESTINATION_20KM)
+    fastest = await engine.select_fastest_route(context, DESTINATION_20KM)
 
-    assert shortest is not None
-    assert shortest.data == ["e-0-out", "e-0-in"]
-    assert shortest.leg_of_edge == [0, 1]
+    assert fastest is not None
+    assert fastest.data == ["e-0-out", "e-0-in"]
+    assert fastest.leg_of_edge == [0, 1]
 
 
 async def test_select_via_nodes_excludes_routes_beyond_stretch_ratio():

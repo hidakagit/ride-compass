@@ -2,44 +2,48 @@
 import { describe, expect, it } from "vitest";
 import {
   SPLICED_ROUTE_ID_PREFIX,
-  extraDistanceLabel,
+  extraDurationLabel,
+  fastestDurationSeconds,
   isSplicedRoute,
-  shortestDistanceKm,
   shortestDistanceRouteId,
 } from "./routeTabLabel";
 
-const SHORTEST = { distance_km: 18.0, is_shortest_distance: true };
-const LONGER = { distance_km: 22.0, is_shortest_distance: false };
+const FASTEST = { estimated_duration_seconds: 3600, is_fastest: true };
+const SLOWER = { estimated_duration_seconds: 4320, is_fastest: false };
 
-describe("shortestDistanceKm", () => {
-  it("基準線となる候補の距離を返す", () => {
-    expect(shortestDistanceKm([LONGER, SHORTEST])).toBe(18.0);
+describe("fastestDurationSeconds", () => {
+  it("基準線となる候補の所要時間を返す", () => {
+    expect(fastestDurationSeconds([SLOWER, FASTEST])).toBe(3600);
   });
 
-  it("基準線が無ければnull（周回モードや最短経路を求められなかった場合）", () => {
-    expect(shortestDistanceKm([LONGER, { distance_km: 25.0 }])).toBeNull();
+  it("基準線が無ければnull（周回モードや基準線を求められなかった場合）", () => {
+    expect(fastestDurationSeconds([SLOWER, { estimated_duration_seconds: 5000 }])).toBeNull();
+  });
+
+  it("基準線が所要時間を持たなければnull", () => {
+    expect(fastestDurationSeconds([{ estimated_duration_seconds: null, is_fastest: true }])).toBeNull();
   });
 });
 
-describe("extraDistanceLabel", () => {
-  it("最短より何km余分に走るかを出す", () => {
-    expect(extraDistanceLabel(LONGER, 18.0)).toBe("+4.0");
+describe("extraDurationLabel", () => {
+  it("基準線より何分余計にかかるかを出す", () => {
+    expect(extraDurationLabel(SLOWER, 3600)).toBe("+12分");
   });
 
   it("基準線そのものには出さない", () => {
-    expect(extraDistanceLabel(SHORTEST, 18.0)).toBeNull();
+    expect(extraDurationLabel(FASTEST, 3600)).toBeNull();
   });
 
   it("基準線が無ければ出さない", () => {
-    expect(extraDistanceLabel(LONGER, null)).toBeNull();
+    expect(extraDurationLabel(SLOWER, null)).toBeNull();
   });
 
-  it("差が丸めて0.0kmになるなら出さない（0を並べても判断材料にならない）", () => {
-    expect(extraDistanceLabel({ distance_km: 18.02 }, 18.0)).toBeNull();
+  it("自分の所要時間が無ければ出さない", () => {
+    expect(extraDurationLabel({ estimated_duration_seconds: null }, 3600)).toBeNull();
   });
 
-  it("最短と同じ経路でなくても距離が同じなら出さない", () => {
-    expect(extraDistanceLabel({ distance_km: 18.0 }, 18.0)).toBeNull();
+  it("差が丸めて1分未満なら出さない（0を並べても判断材料にならない）", () => {
+    expect(extraDurationLabel({ estimated_duration_seconds: 3620 }, 3600)).toBeNull();
   });
 });
 

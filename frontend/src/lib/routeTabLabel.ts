@@ -1,6 +1,6 @@
 // 候補タブの表記を組み立てる純関数。
 //
-// タブは候補どうしを見比べる場所のため、「最短からどれだけ余分に走るか」はここに出す
+// タブは候補どうしを見比べる場所のため、「基準線からどれだけ余計にかかるか」はここに出す
 // （タブの中身を開かないと分からないと、比較のたびに開き直すことになる）。
 
 /** 区間を乗り換えて作った候補のid接頭辞。**backendが付ける値**（route_generator.py:
@@ -15,32 +15,35 @@ export function isSplicedRoute(route: { id: string }): boolean {
   return route.id.startsWith(SPLICED_ROUTE_ID_PREFIX);
 }
 
-/** 距離だけで選んだ基準線となる候補（RouteCandidate.is_shortest_distance）の距離km。無ければnull。 */
-export function shortestDistanceKm(
-  routes: readonly { distance_km: number; is_shortest_distance?: boolean }[],
+/** 基準線となる候補（RouteCandidate.is_fastest＝好みの重みを0にしたときの経路）の
+ * 所要時間（秒）。基準線が無い・所要時間を持たないときはnull。 */
+export function fastestDurationSeconds(
+  routes: readonly { estimated_duration_seconds?: number | null; is_fastest?: boolean }[],
 ): number | null {
-  const shortest = routes.find((route) => route.is_shortest_distance);
-  return shortest ? shortest.distance_km : null;
+  const fastest = routes.find((route) => route.is_fastest);
+  return fastest?.estimated_duration_seconds ?? null;
 }
 
 /**
- * 最短経路より何km余分に走るかの表記（例: `+4.0`）。基準線が無い・自分が基準線・
- * 差が丸めて0.1km未満のときはnull（0を並べても判断材料にならない）。
+ * 基準線より何分余計にかかるかの表記（例: `+12分`）。基準線が無い・自分が基準線・
+ * 自分の所要時間が無い・差が丸めて1分未満のときはnull（0を並べても判断材料にならない）。
  */
-export function extraDistanceLabel(
-  route: { distance_km: number; is_shortest_distance?: boolean },
-  shortestKm: number | null,
+export function extraDurationLabel(
+  route: { estimated_duration_seconds?: number | null; is_fastest?: boolean },
+  fastestSeconds: number | null,
 ): string | null {
-  if (shortestKm === null || route.is_shortest_distance) return null;
-  const extra = route.distance_km - shortestKm;
-  if (extra < 0.05) return null;
-  return `+${extra.toFixed(1)}`;
+  if (fastestSeconds === null || route.is_fastest) return null;
+  const seconds = route.estimated_duration_seconds;
+  if (seconds === null || seconds === undefined) return null;
+  const extraMinutes = Math.round((seconds - fastestSeconds) / 60);
+  if (extraMinutes < 1) return null;
+  return `+${extraMinutes}分`;
 }
 
 /**
  * 一覧の中で最も距離が短い候補のid。候補が1件以下ならnull（比べる相手が無い）。
  *
- * 目的地モードの`is_shortest_distance`（backendが基準線として付ける）とは別に、周回モードを
+ * 目的地モードの`is_fastest`（backendが基準線として付ける）とは別に、周回モードを
  * 含むどの一覧でも「最短はどれか」を一覧の中だけで決められるようにする——一覧を見ただけで
  * 分かることが目的で、並び順（総合難易度の昇順）とは別の軸だから印が要る。
  */

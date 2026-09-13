@@ -128,9 +128,9 @@ describe("pairedStretches", () => {
 });
 
 describe("insertByDifficulty", () => {
-  const route = (overall: number | null, shortest = false) => ({
+  const route = (overall: number | null, fastest = false) => ({
     overall_difficulty: overall,
-    is_shortest_distance: shortest,
+    is_fastest: fastest,
   });
 
   it("難易度順の正しい位置へ差し込む", () => {
@@ -147,8 +147,8 @@ describe("insertByDifficulty", () => {
     ).toEqual([10, 20, 30]);
   });
 
-  it("先頭固定の最短経路は追い越さない", () => {
-    // 最短経路は難易度順の外にある基準線。追い越すと基準として読めなくなる
+  it("先頭固定の基準線は追い越さない", () => {
+    // 基準線は難易度順の外にある。追い越すと基準として読めなくなる
     const routes = [route(50, true), route(20), route(30)];
 
     expect(insertByDifficulty(routes, route(10)).map((r) => r.overall_difficulty)).toEqual([

@@ -132,11 +132,12 @@ class RouteCandidate(StrictModel):
     # できない。Edge単位で決めた区間を地図へ帯として描くのに使う
     # （`coordinates[offsets[i]:offsets[j] + 1]`がEdge i〜j-1の形状）。
     edge_point_offsets: list[int] = Field(default_factory=list)
-    # 距離だけで選んだ最短経路か（目的地モードのみ。周回は目標距離が距離を決めるため常にFalse）。
-    # フロントはこの候補の`distance_km`を基準に、他の候補が何km余分に走るかを出す。
-    # 軸設定に沿った候補と最短経路が同じ経路になることもあるため、複数の候補が同時に
-    # Trueになることは無い代わりに、1本もTrueが無い場合（最短経路を求められなかった）もある。
-    is_shortest_distance: bool = False
+    # 所要時間が最短の経路か＝利用者の好み（軸の重み）をすべて0にしたときの基準線
+    # （目的地モードのみ。周回は目標距離が距離を決めるため常にFalse）。フロントはこの候補の
+    # `estimated_duration_seconds`を基準に、他の候補が何分余計にかかるかを出す。
+    # 軸設定に沿った候補と基準線が同じ経路になることもあるため、複数の候補が同時にTrueに
+    # なることは無い代わりに、1本もTrueが無い場合（基準線を求められなかった）もある。
+    is_fastest: bool = False
 
 
 # road_graphエンジンのsegmentsはEdge単位（交差点間、1候補あたり150〜230件、30km級）で

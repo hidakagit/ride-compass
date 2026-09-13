@@ -1741,10 +1741,10 @@ export interface components {
             /** Edge Point Offsets */
             edge_point_offsets?: number[];
             /**
-             * Is Shortest Distance
+             * Is Fastest
              * @default false
              */
-            is_shortest_distance: boolean;
+            is_fastest: boolean;
         };
         /**
          * RouteGenerateJobCreatedResponse

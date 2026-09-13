@@ -925,9 +925,9 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
-  it("目的地ルートの最短経路タブは「最短」と示し、他の候補には最短からの超過kmを添える", async () => {
-    // 得点だけでは軸設定を強めるかどうかを決められない。対価（何km余分に走るか）を
-    // 候補を見比べる場所＝タブに出す（docs/tasks/T690.md）。
+  it("目的地ルートの基準線タブは「最速」と示し、他の候補には基準線からの超過分を添える", async () => {
+    // 得点だけでは軸設定を強めるかどうかを決められない。対価（何分余計にかかるか）を
+    // 候補を見比べる場所＝タブに出す。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [
@@ -935,9 +935,15 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
           id: "route-destination-00",
           direction_label: "目的地ルート",
           distance_km: 18.0,
-          is_shortest_distance: true,
+          estimated_duration_seconds: 3600,
+          is_fastest: true,
         }),
-        makeCandidate({ id: "route-destination-01", direction_label: "目的地ルート", distance_km: 22.0 }),
+        makeCandidate({
+          id: "route-destination-01",
+          direction_label: "目的地ルート",
+          distance_km: 22.0,
+          estimated_duration_seconds: 4320,
+        }),
       ],
       conditions: makeConditions(),
       engine: "road_graph",
@@ -948,8 +954,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^最短 18\.0km/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^2 22\.0km \+4\.0/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^最速 18\.0km/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^2 22\.0km \+12分/ })).toBeInTheDocument();
     });
   });
 
