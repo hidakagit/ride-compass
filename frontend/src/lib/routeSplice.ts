@@ -6,7 +6,12 @@
  * 既存候補と同じ経路で行う。
  *
  * `segments`は約500m単位へ畳まれておりEdgeの境目と一致しないため、ここでは使えない。
+ *
+ * 区間を細かく割るときだけ座標（`geometry.coordinates`と`edge_point_offsets`）も読む
+ * ——2本が交差・接触する地点はEdge idの一致では分からないため（`splitPairedStretch`）。
  */
+import { cumulativeDistancesKm } from "@/lib/geoDistance";
+
 
 /** 表示中の候補が、比較相手と別の道を通る区間。`edge_ids`における`[start, end)`。 */
 export interface RouteStretch {
@@ -162,6 +167,86 @@ export function insertByDifficulty<T extends OrderableCandidate>(routes: readonl
   return [...routes.slice(0, at), spliced, ...routes.slice(at)];
 }
 
+/** 区間を割るために要る経路の形（`RouteCandidate`の一部。lib側は候補の型に依存しない）。 */
+export interface RouteGeometryShape {
+  coordinates: readonly GeoJSON.Position[];
+  /** Edge iの始点が`coordinates`の何番目か（末尾に終点を持つ）。backendの`edge_point_offsets`。 */
+  edgePointOffsets: readonly number[];
+}
+
+/** これより短くなる割り方はしない（km）。細かく割るほど選択肢が増え、1区間=1行のUIが縦に伸びる。 */
+export const MIN_SPLIT_STRETCH_KM = 0.2;
+
+const pointKey = (point: GeoJSON.Position) => `${point[0]},${point[1]}`;
+
+/** `edgeIndex`のEdgeが始まる座標。境界が無ければundefined。 */
+function boundaryPoint(shape: RouteGeometryShape, edgeIndex: number): GeoJSON.Position | undefined {
+  const offset = shape.edgePointOffsets[edgeIndex];
+  return offset === undefined ? undefined : shape.coordinates[offset];
+}
+
+/**
+ * 1つの区間を、**元と相手が同じ地点を通る所**で細かく割る。
+ *
+ * `differingStretches`はEdge idの一致だけで「同じ道」を判定するため、2本が同じノードで
+ * 交差・接触していても、そこで同じEdgeを通っていなければ1本の長い区間になる。交差した
+ * ノードは乗り換えられる地点なので、そこで割ると区間ごとに別の候補を選べる。
+ *
+ * 割る位置は両側ともEdgeの境界に限る（Edgeの途中で差し替えた列はbackendで連結が成立しない）。
+ * `minLengthKm`より短い断片は作らない。座標はどちらも同じグラフのノード由来のため、
+ * 一致は座標の完全一致で判定する。
+ */
+export function splitPairedStretch(
+  base: RouteGeometryShape,
+  target: RouteGeometryShape,
+  pair: PairedStretch,
+  minLengthKm: number,
+  baseCumulativeKm: readonly number[],
+): PairedStretch[] {
+  const sharedOnBase = new Map<string, number>();
+  for (let index = pair.displayed.start + 1; index < pair.displayed.end; index += 1) {
+    const point = boundaryPoint(base, index);
+    if (point) sharedOnBase.set(pointKey(point), index);
+  }
+  if (sharedOnBase.size === 0) return [pair];
+
+  const kmAt = (edgeIndex: number) => {
+    const offset = base.edgePointOffsets[edgeIndex];
+    return offset === undefined ? undefined : baseCumulativeKm[offset];
+  };
+  const startKm = kmAt(pair.displayed.start);
+  const endKm = kmAt(pair.displayed.end);
+  if (startKm === undefined || endKm === undefined) return [pair];
+
+  const splits: PairedStretch[] = [];
+  let lastBase = pair.displayed.start;
+  let lastTarget = pair.target.start;
+  let lastKm = startKm;
+  for (let index = pair.target.start + 1; index < pair.target.end; index += 1) {
+    const point = boundaryPoint(target, index);
+    if (!point) continue;
+    const onBase = sharedOnBase.get(pointKey(point));
+    if (onBase === undefined || onBase <= lastBase) continue;
+    const splitKm = kmAt(onBase);
+    if (splitKm === undefined) continue;
+    // 手前の断片と、残り全部の両方が下限を満たすときだけ割る（割った結果に下限未満を作らない）。
+    if (splitKm - lastKm < minLengthKm || endKm - splitKm < minLengthKm) continue;
+    splits.push({
+      displayed: { start: lastBase, end: onBase },
+      target: { start: lastTarget, end: index },
+    });
+    lastBase = onBase;
+    lastTarget = index;
+    lastKm = splitKm;
+  }
+  if (splits.length === 0) return [pair];
+  splits.push({
+    displayed: { start: lastBase, end: pair.displayed.end },
+    target: { start: lastTarget, end: pair.target.end },
+  });
+  return splits;
+}
+
 /** ある区間を、どの候補のどの道へ差し替えられるか。 */
 export interface StretchAlternative {
   /** 差し替え後の道を持つ候補。 */
@@ -193,13 +278,26 @@ export interface StretchGroup {
  */
 export function stretchAlternativeGroups(
   baseEdgeIds: readonly string[],
-  candidates: readonly { id: string; edgeIds: readonly string[] }[],
+  candidates: readonly { id: string; edgeIds: readonly string[]; shape?: RouteGeometryShape }[],
+  options: { baseShape?: RouteGeometryShape; minSplitLengthKm?: number } = {},
 ): StretchGroup[] {
   const alternatives: StretchAlternative[] = [];
   const seen = new Set<string>();
+  const baseShape = options.baseShape;
+  const minSplitLengthKm = options.minSplitLengthKm ?? MIN_SPLIT_STRETCH_KM;
+  // 区間を割るために元ルートの累積距離を1回だけ求める（候補ごとに作り直さない）。
+  const baseCumulativeKm = baseShape ? cumulativeDistancesKm(baseShape.coordinates) : [];
   for (const candidate of candidates) {
-    for (const pair of pairedStretches(baseEdgeIds, candidate.edgeIds)) {
-      const edgeIds = targetStretchEdgeIds(baseEdgeIds, candidate.edgeIds, pair.displayed);
+    const pairs = pairedStretches(baseEdgeIds, candidate.edgeIds).flatMap((pair) =>
+      baseShape && candidate.shape
+        ? splitPairedStretch(baseShape, candidate.shape, pair, minSplitLengthKm, baseCumulativeKm)
+        : [pair],
+    );
+    for (const pair of pairs) {
+      // 差し替え後に通るEdgeは相手側の範囲そのもの。共有Edgeを目印に切り出す
+      // （`targetStretchEdgeIds`）と、共有**地点**で割った区間では両端に共有Edgeが無く
+      // 切り出せない。
+      const edgeIds = candidate.edgeIds.slice(pair.target.start, pair.target.end);
       if (edgeIds.length === 0) continue;
       // 同じ区間を同じ道へ差し替える代替は、候補が違っても選択肢としては同じもの。
       const key = `${pair.displayed.start}-${pair.displayed.end}:${edgeIds.join(",")}`;

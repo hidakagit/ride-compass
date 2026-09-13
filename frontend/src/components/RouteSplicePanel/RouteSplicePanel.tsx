@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import ErrorText from "@/components/ErrorText/ErrorText";
 import InfoPopover from "@/components/Map/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon } from "@/components/Map/icons";
@@ -38,6 +40,16 @@ interface RouteSplicePanelProps {
   onCancel: () => void;
 }
 
+/** 畳まずに並べる区間の上限。これを超えたら選んだ区間＋上から数区間だけ出す。 */
+const COLLAPSED_ROW_LIMIT = 10;
+
+/** 畳んだときに出す区間の位置（選んだ区間を優先し、残りは上から上限まで）。 */
+function visibleGroupIndexes(groups: readonly SpliceGroupView[]): number[] {
+  const chosen = groups.flatMap((group, index) => (group.chosenKey !== null ? [index] : []));
+  const rest = groups.flatMap((group, index) => (group.chosenKey === null ? [index] : []));
+  return [...chosen, ...rest.slice(0, Math.max(0, COLLAPSED_ROW_LIMIT - chosen.length))].sort((a, b) => a - b);
+}
+
 /** 差は「増えた／減った」が一目で分かる形にする（0は「変わらない」と書く）。 */
 function formatDelta(value: number, unit: string, digits: number): string {
   const rounded = Number(value.toFixed(digits));
@@ -62,6 +74,12 @@ export default function RouteSplicePanel({
   const chosenCount = groups.filter((group) => group.chosenKey !== null).length;
   const busy = previewing || applying;
   const actionable = !unavailable && groups.length > 0;
+  const [expanded, setExpanded] = useState(false);
+  // 区間が増えるほど1区間=1行のまま縦に伸びる。上限を超えたら、選んだ区間と上から数区間だけ
+  // 残して畳む（畳んだ区間も地図の帯からは選べる）。
+  const collapsed = groups.length > COLLAPSED_ROW_LIMIT && !expanded;
+  const visibleIndexes = collapsed ? visibleGroupIndexes(groups) : groups.map((_, index) => index);
+  const hiddenCount = groups.length - visibleIndexes.length;
 
   return (
     <section className={styles.panel} aria-labelledby="splice-heading">
@@ -119,6 +137,7 @@ export default function RouteSplicePanel({
         <span>
           {displayed.direction_label} {displayed.distance_km.toFixed(1)}km
         </span>
+        {chosenCount > 0 && !busy && <span className={styles.chosenCount}>{chosenCount}区間を乗り継ぎ</span>}
         {busy ? (
           <span className={styles.progress}>{previewing ? "計算中…" : "評価中…"}</span>
         ) : (
@@ -138,7 +157,9 @@ export default function RouteSplicePanel({
       ) : (
         <>
           <ul className={styles.rows}>
-            {groups.map((group, groupIndex) => (
+            {visibleIndexes.map((groupIndex) => {
+              const group = groups[groupIndex];
+              return (
               <li key={group.label} className={styles.groupRow}>
                 <span className={styles.where}>{group.label}</span>
                 <div className={styles.options}>
@@ -165,7 +186,15 @@ export default function RouteSplicePanel({
                   ))}
                 </div>
               </li>
-            ))}
+              );
+            })}
+            {collapsed && (
+              <li className={styles.groupRow}>
+                <button type="button" className={styles.expand} onClick={() => setExpanded(true)}>
+                  残り{hiddenCount}区間を出す
+                </button>
+              </li>
+            )}
           </ul>
           {error && <ErrorText>{error}</ErrorText>}
         </>

@@ -1043,6 +1043,19 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       type: "LineString" as const,
       coordinates: Array.from({ length: count }, (_, index) => [139.7, 35.7 + index * 0.009]),
     });
+    // 途中で元から離れ、元より長い道（元と同じ地点を通らないので区間を割れず、1グループへ
+    // まとまる）。区間[1,4)はおよそ4km（元は約3km）。
+    const detour = () => ({
+      type: "LineString" as const,
+      coordinates: [
+        [139.7, 35.7],
+        [139.71, 35.712],
+        [139.71, 35.724],
+        [139.71, 35.736],
+        [139.71, 35.748],
+        [139.7, 35.745],
+      ],
+    });
     const offsets = [0, 1, 2, 3, 4, 5];
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
@@ -1063,14 +1076,15 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
           edge_point_offsets: offsets,
           geometry: straight(6),
         }),
-        // 3区間まとめて差し替える候補。グループはこちらの範囲まで広がる。
+        // 3区間まとめて差し替える候補。元と同じ地点を通らないため割れず、グループは
+        // こちらの範囲まで広がる。
         makeCandidate({
           id: "route-destination-02",
           direction_label: "目的地ルート",
           distance_km: 5.0,
           edge_ids: ["s", "c1", "c2", "c3", "e"],
           edge_point_offsets: offsets,
-          geometry: straight(6),
+          geometry: detour(),
         }),
       ],
       conditions: makeConditions(),
@@ -1085,9 +1099,9 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 5\.0km/ })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
 
-    // どちらの代替も、自分が差し替える範囲とほぼ同じ長さの道。差は「同じ」になる。
-    const chips = screen.getAllByRole("button", { name: /同じ/ });
-    expect(chips).toHaveLength(2);
+    // 1区間だけ差し替える代替は、その1区間（約1km）とほぼ同じ長さの道なので「同じ」。
+    // グループ全体（約3km）と比べていると −2.0 になる。
+    expect(screen.getAllByRole("button", { name: /同じ/ })).toHaveLength(1);
   });
 
   it("編集中は区間詳細（赤ピン）を選べない", async () => {
