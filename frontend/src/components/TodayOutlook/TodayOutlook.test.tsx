@@ -35,8 +35,8 @@ function makePeriod(overrides: Partial<WeatherPeriodOutlook>): WeatherPeriodOutl
   };
 }
 
-// 改善計画T387フォローアップ（2026-08-29）: 日の出/日没は常設ヘッダー（WeatherPanel）へ
-// 移設したため、TodayOutlookの表示対象から外れた（旧「夜明け前/日没前の切り替え」テストは
+// 日の出/日没は1日1個の値のためこのパネルが持つ（バーは瞬間値だけに絞る）。旧記述: 常設
+// ヘッダー（WeatherPanel）へ移設したため表示対象から外れた（旧「夜明け前/日没前の切り替え」テストは
 // WeatherPanel.test.tsxへ移設）。
 describe("TodayOutlook（改善計画T385・T387フォローアップ）", () => {
   it("weatherがnullでloading/errorも無い場合は何も描画しない", () => {
@@ -149,4 +149,20 @@ describe("TodayOutlook（改善計画T385・T387フォローアップ）", () =>
     expect(screen.getByText("6時")).toBeInTheDocument();
     expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(2);
   });
+  it("日の出・日没を1行で出す", async () => {
+    render(
+      <TodayOutlook
+        weather={makeWeather({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" })}
+        loading={false}
+        error={null}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
+
+    expect(screen.getByText("日の出・日没")).toBeInTheDocument();
+    expect(screen.getByText(/05:12/)).toBeInTheDocument();
+    expect(screen.getByText(/18:24/)).toBeInTheDocument();
+  });
+
 });

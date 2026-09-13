@@ -1,7 +1,8 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { RaindropIcon, ThermometerIcon, WindIcon } from "@/components/Map/icons";
+import { ClockIcon, RaindropIcon, ThermometerIcon, WindIcon } from "@/components/Map/icons";
+import { formatDynamicFrameHourMinute } from "@/components/Map/dynamicWeather";
 import { getWeatherCodeDisplay } from "@/components/WeatherPanel/weatherCode";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
 import styles from "./TodayOutlook.module.css";
@@ -17,8 +18,15 @@ interface TodayOutlookProps {
 // 「今日の最大降水量・今日の最大風速・今日の気温レンジ」という1日1個の値はタップで
 // 開く本パネルへ集約する（常設ヘッダーへ項目を足さず、個別ON/OFF設定も新設せず、
 // 既存のWarningBadgeListと同じPopoverパターンで済ませる）。
-// 日の出/日没は常設ヘッダー（WeatherPanel）で表示するため、ここには表示しない
-// （予報専用パネルという位置づけ）。
+// 日の出/日没も1日1個の値のためここへ置く（常設ヘッダーは走行中に何度も見る瞬間値だけに
+// 絞る）。値はMSM予報のレスポンスに乗っている（backend側でastralが計算する）。
+
+/** 日の出・日没の時刻（JST）。壊れた値は「--:--」にして行ごと落とさない。 */
+function formatClockTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "--:--";
+  return formatDynamicFrameHourMinute(date);
+}
 
 // today_periodsの各コマ（2時間おきの代表時刻文字列"HH:MM"）の頭2桁を「6時」のような
 // 短い表示ラベルへ整形する（フロントの担当、weather.pyのdocstring参照）。
@@ -81,11 +89,13 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
   if (loading || !weather) return null;
 
   const hasFlow = weather.today_periods.length > 0;
+  const hasTwilight = weather.sunrise != null || weather.sunset != null;
   const hasAnyOutlookStat =
     weather.precipitation_max_mm != null ||
     weather.wind_speed_max_ms != null ||
     weather.temperature_max_c != null ||
     weather.temperature_min_c != null ||
+    hasTwilight ||
     hasFlow;
   // キャッシュ欠落等でdaily側が丸ごと無い場合は、トグル自体を出さない
   // （空のパネルを開けるだけの無意味なボタンを残さない）。
@@ -134,6 +144,19 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
                   <span className={styles.value}>
                     {weather.temperature_min_c != null && `${Math.round(weather.temperature_min_c)}℃〜`}
                     {weather.temperature_max_c != null && `${Math.round(weather.temperature_max_c)}℃`}
+                  </span>
+                </span>
+              </div>
+            )}
+            {hasTwilight && (
+              <div className={styles.item}>
+                <ClockIcon size={15} />
+                <span>
+                  <span className={styles.label}>日の出・日没</span>
+                  <span className={styles.value}>
+                    {weather.sunrise != null ? formatClockTime(weather.sunrise) : "--:--"}
+                    <span className={styles.unit}>〜</span>
+                    {weather.sunset != null ? formatClockTime(weather.sunset) : "--:--"}
                   </span>
                 </span>
               </div>

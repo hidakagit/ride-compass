@@ -1,12 +1,12 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { AmedasObservation } from "@/types/weather";
 import WeatherPanel from "./WeatherPanel";
 
 // 改善計画T387フォローアップ（2026-08-29、方針「常設エリアは実測値、今日の見通しは予測値」）:
 // WeatherPanelは予報（WeatherConditions）ではなく最寄りアメダス観測所の実測値
 // （AmedasObservation）を表示する。降水確率→実測降水量、天気アイコン→アメダス実測ベースの
-// 簡易分類（amedasWeatherIcon.ts）、日の出/日没チップを新規追加、突風はアメダスに
+// 簡易分類（amedasWeatherIcon.ts）、突風はアメダスに
 // フィールド自体が無いため非表示（旧テストのwind_gusts_ms関連は削除）。
 function makeAmedas(overrides: Partial<AmedasObservation>): AmedasObservation {
   return {
@@ -128,62 +128,12 @@ describe("WeatherPanel", () => {
     });
   });
 
-  describe("日の出/日没チップ（改善計画T387フォローアップ、常設ヘッダーへ移設）", () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
-
-    it("日の出前なら↑（上昇）矢印付きで日の出時刻を表示する（改善計画T387フォローアップ2、" +
-      "「アイコン+時刻だけだと何の時刻か分からない」というユーザー指摘への対応）", () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T04:00:00+09:00").getTime());
-      const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(container.textContent).toMatch(/↑05:12/);
-      expect(container.querySelector('[title*="日の出"]')).toBeInTheDocument();
-    });
-
-    it("日中は↓（下降）矢印付きで日没時刻を表示する", () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00+09:00").getTime());
-      const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(container.textContent).toMatch(/↓18:24/);
-      expect(container.querySelector('[title*="日没"]')).toBeInTheDocument();
-    });
-
-    it("sunrise/sunsetが無く天気も判定できない場合はチップを表示しない", () => {
-      const amedas = makeAmedas({ sunrise: null, sunset: null });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(container.querySelector('[title*="日の出"], [title*="日没"]')).not.toBeInTheDocument();
-    });
-
-    it("天気アイコンと日の出/日没は1チップに統合され、両方の情報を持つ（改善計画T387" +
-      "フォローアップ、ヘッダーのバッジ見切れ対策でチップ数を増やさないための統合）", () => {
-      vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-28T12:00:00+09:00").getTime());
-      const amedas = makeAmedas({
-        precipitation_10min_mm: 0,
-        sunshine_10min_minutes: 8,
-        sunrise: "2026-08-28T05:12:00+09:00",
-        sunset: "2026-08-28T18:24:00+09:00",
-      });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      // 天気アイコン用・日の出日没用の2チップに分かれず、1つのチップへ両方収まる
-      // （svgアイコンが1個のみ、titleに両方の情報を持つ）。矢印(↓)が時刻の意味を補う。
-      const chip = container.querySelector('[title*="晴れ"][title*="日没"]');
-      expect(chip).toBeInTheDocument();
-      expect(chip?.textContent).toMatch(/↓18:24/);
-    });
-  });
-
-  it("wind_direction_degぶん矢印を回転させる(+180度、吹いてくる方向ではなく吹いていく方向を指す)", () => {
-    const amedas = makeAmedas({ wind_direction_deg: 90 });
+  // 日の出/日没は1日1個の値のため「今日」パネル（TodayOutlook）が持つ。バーは走行中に
+  // 何度も見る瞬間値だけに絞る。
+  it("日の出/日没はバーに出さない", () => {
+    const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
     const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
-    const arrow = container.querySelector('[style*="rotate"]');
-    expect(arrow).toBeInTheDocument();
-    expect(arrow?.getAttribute("style")).toMatch(/rotate\(270deg\)/);
+    expect(container.textContent).not.toMatch(/05:12|18:24/);
   });
 });

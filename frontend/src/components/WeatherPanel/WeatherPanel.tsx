@@ -1,4 +1,4 @@
-import { ClockIcon, RaindropIcon, ThermometerIcon, WindDirectionArrowIcon } from "@/components/Map/icons";
+import { RaindropIcon, ThermometerIcon, WindDirectionArrowIcon } from "@/components/Map/icons";
 import type { AmedasObservation } from "@/types/weather";
 import { classifyAmedasWeather, getAmedasWeatherDisplay } from "./amedasWeatherIcon";
 import styles from "./WeatherPanel.module.css";
@@ -18,26 +18,13 @@ interface WeatherPanelProps {
 // - 降水確率 → 実測の10分間降水量（precipitation_10min_mm）
 // - 天気アイコン → 10分間日照時間・降水量・気温から簡易分類（amedasWeatherIcon.ts）
 // - 突風 → アメダスの速報値レスポンスに突風フィールドが存在しないため非表示
-// - 日の出/日没 → 新規チップとして追加（予報不要のためアメダスのレスポンスにastralの
-//   ローカル計算結果が乗っている、backend側で計算済み）
+//
+// 日の出/日没は1日1個の値のため、このバーではなく「今日」パネル（TodayOutlook）が持つ
+// ——バーは走行中に何度も見る瞬間値だけに絞る。
 function isCurrentlyDay(sunrise: string | null, sunset: string | null): boolean {
   if (sunrise == null || sunset == null) return true;
   const now = Date.now();
   return now >= new Date(sunrise).getTime() && now < new Date(sunset).getTime();
-}
-
-function isBeforeSunrise(sunrise: string | null): boolean {
-  return sunrise != null && Date.now() < new Date(sunrise).getTime();
-}
-
-// 実行環境のローカルタイムゾーンに左右されないよう常にJSTで整形する（dynamicWeather.ts:
-// formatDynamicFrameHourMinuteと同じ理由。getHours()/getMinutes()はホストマシンの
-// ローカルタイムゾーンに依存するため、UTC環境（CI等）で実行すると日没時刻が9時間ずれる
-// バグがあった）。
-function formatClockTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "--:--";
-  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
 }
 
 export default function WeatherPanel({ amedas, loading, error }: WeatherPanelProps) {
@@ -61,13 +48,9 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
   );
   const weatherDisplay = getAmedasWeatherDisplay(weatherCategory, isCurrentlyDay(amedas.sunrise, amedas.sunset));
 
-  const beforeSunrise = isBeforeSunrise(amedas.sunrise);
-  const twilightIso = beforeSunrise ? amedas.sunrise : amedas.sunset;
-  const twilightTitle = twilightIso != null ? (beforeSunrise ? "日の出" : "日没") : undefined;
-
   return (
-    // 気温・風向風速・降水量・天気アイコン・日の出日没をアイコン+数値だけの統計チップとして
-    // 1行に並べる（従来と同じスマホ最適化方針、WeatherPanel.module.css参照）。
+    // 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
+    // （スマホ最適化方針、WeatherPanel.module.css参照）。
     <div className={styles.row}>
       <span className={styles.stat} title={temperatureTitle}>
         <ThermometerIcon size={16} />
@@ -111,39 +94,12 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
         </>
       )}
 
-      {/* 天気アイコン＋日の出/日没を1チップへ統合してある。.weatherStatsは
-          flex-shrink: 0で常に自然幅を保つ設計（page.module.css参照）のため、チップを
-          1個増やすと右側の.headerActions（警報バッジ・デバッグアイコン）を押し出して
-          隠してしまう。日の出/日没チップを新設で独立させず、既に昼夜判定のため
-          sunrise/sunsetを参照している天気アイコンチップへ統合し、正味のチップ数を
-          増やさないようにした（情報量は維持——アイコン＋時刻の両方を引き続き表示する）。 */}
-      {(weatherDisplay != null || twilightIso != null) && (
+      {weatherDisplay != null && (
         <>
           <span className={styles.divider} aria-hidden="true" />
-          <span
-            className={styles.stat}
-            title={[weatherDisplay?.label, twilightIso != null ? `${twilightTitle} ${formatClockTime(twilightIso)}` : null]
-              .filter(Boolean)
-              .join(" / ")}
-          >
-            {weatherDisplay ? <weatherDisplay.Icon size={16} /> : <ClockIcon size={15} />}
-            <span className={styles.srOnly}>
-              {weatherDisplay ? `天気: ${weatherDisplay.label}` : ""}
-              {twilightIso != null ? `${twilightTitle}: ` : ""}
-            </span>
-            {twilightIso != null && (
-              // 「天気アイコン＋時刻」だけでは何の時刻か伝わらないため、昇る/沈むを
-              // 直感的に示す矢印を時刻の直前に添える（多くの天気アプリで使われる日の出↑/
-              // 日没↓の慣習的表現。時計アイコンより幅を取らず、天気アイコンと組み合わせても
-              // 意味の混同が起きない）。矢印と時刻は1つのspanにまとめ、.statのgapが間に
-              // 入って離れて見えないようにする（数値・単位と同じ理由）。
-              <span>
-                <span className={styles.twilightArrow} aria-hidden="true">
-                  {beforeSunrise ? "↑" : "↓"}
-                </span>
-                {formatClockTime(twilightIso)}
-              </span>
-            )}
+          <span className={styles.stat} title={weatherDisplay.label}>
+            <weatherDisplay.Icon size={16} />
+            <span className={styles.srOnly}>天気: {weatherDisplay.label}</span>
           </span>
         </>
       )}
