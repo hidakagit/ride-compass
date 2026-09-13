@@ -270,6 +270,44 @@ def _astar_path(graph: RoadGraph, origin_id: str, goal_id: str, spec: TurnCostSp
     return [] if edges is None else [lazy_graph.edge_ids[index] for index in edges]
 
 
+def test_turn_expanded_astar_switches_route_on_the_elapsed_time_bin():
+    """経過時間のビンでコストが変われば、A*は同じ出発地・目的地でも別の経路を選ぶ。
+
+    S→C→E（200m）とS→A→B→E（300m）の2通りへ、ビン0では短い方を安く、ビン1では短い方を
+    高くしたコストを渡す。1区間（100m＝18秒）を走り終えた時点でビン1へ移るようビンの幅を
+    10秒に置くと、探索は「出発時点では短い方が安いが、そこへ着く頃には高くなっている」を
+    見て遠回りを選ぶ。
+    """
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E", "A", "B")}
+    edges = {
+        "S-C": _edge("S-C", "S", "C", 0.0),
+        "C-E": _edge("C-E", "C", "E", 0.0),
+        "S-A": _edge("S-A", "S", "A", 0.0),
+        "A-B": _edge("A-B", "A", "B", 0.0),
+        "B-E": _edge("B-E", "B", "E", 0.0),
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, csr, structure = _structure_for(graph, free)
+    seconds = _seconds(graph, lazy_graph)
+
+    def path_for(bins):
+        origin_index = lazy_graph.node_id_to_index["S"]
+        states = csr.entry_edge_index[csr.indptr[origin_index]:csr.indptr[origin_index + 1]].astype(np.int64)
+        found = turn_expanded_shortest_path(
+            structure, bins, np.zeros(csr.node_count), states,
+            lazy_graph.node_id_to_index["E"],
+            np.vstack([seconds, seconds]), 10.0,
+        )
+        return [lazy_graph.edge_ids[i] for i in found]
+
+    cheap_later = seconds.copy()
+    cheap_later[lazy_graph.edge_ids.index("C-E")] *= 100.0
+    # ビン0（出発直後）は素の所要時間、ビン1（S-Cを走り終えた後）はC-Eだけ極端に高い。
+    assert path_for(np.vstack([seconds, seconds])) == ["S-C", "C-E"]
+    assert path_for(np.vstack([seconds, cheap_later])) == ["S-A", "A-B", "B-E"]
+
+
 def test_turn_expanded_astar_finds_the_shortest_path():
     free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     assert _astar_path(_crossroads(), "S", "E", free) == ["S-C", "C-E"]

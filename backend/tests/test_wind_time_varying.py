@@ -136,7 +136,7 @@ def _wind_only_preference() -> RoutePreference:
     return RoutePreference(weights=weights)
 
 
-async def test_prepare_shares_snapshot_leg_when_wind_axis_has_no_weight():
+async def test_prepare_still_varies_with_time_when_wind_axis_has_no_weight():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     weights = {axis_id: 0.0 for axis_id in RoutePreference().weights}
     weights["gradient"] = 1.0
@@ -146,11 +146,13 @@ async def test_prepare_shares_snapshot_leg_when_wind_axis_has_no_weight():
     engine = generator._engine
     context = await _prepare_context(generator)
 
-    assert context.composer.time_varying is False
+    # 風の重みが0でも時刻で引き直す。風は「避けたい度合い」である前に走行モデルの入力
+    # （向かい風で実際に遅くなる）で、重み0は「遅くなる以上には避けない」の意味しか持たない。
+    assert context.composer.time_varying is True
     await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
 
     assert len(context.legs) == 2
-    assert context.legs[1] is context.legs[0]  # 追加の合成無し
+    assert context.legs[1] is not context.legs[0]
 
 
 async def test_lens_axis_forces_time_varying_even_when_wind_weight_is_zero():
@@ -260,7 +262,7 @@ async def test_assumed_speed_changes_estimated_arrival_time_and_preview_duration
 TILE_SET = frozenset({(12, 3637, 1612)})
 
 
-async def test_inbound_leg_uses_measured_detour_ratio_and_learns_it_for_next_request():
+async def test_detour_ratio_is_measured_from_the_tree_and_learned_for_next_request():
     # 車輪状フィクスチャのスポークは直線なので、リングNodeの実測迂回率はちょうど1.0。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     series = _series(48, lambda h: 0 if h < 10 else 180)
@@ -275,16 +277,33 @@ async def test_inbound_leg_uses_measured_detour_ratio_and_learns_it_for_next_req
     await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
 
     assert search_graph_cache.get_detour_ratio(TILE_SET) == pytest.approx(1.0)
-    outbound, inbound = context.legs
-    row = context.full_edge_row["e-0-spoke1"]
-    # 往路は既定値1.3、復路は実測1.0で通過予定時刻を推定する（スポーク中点は起点から7.5km）。
-    assert outbound.passage_hours[row] == pytest.approx(1.3 * 7.5 / 20, abs=0.01)
-    assert inbound.passage_hours[row] == pytest.approx(1.5 - 1.0 * 7.5 / 20, abs=0.01)
-
-    # 同じタイル集合への次のリクエストは往路にも学習値を使う。
+    # 同じタイル集合への次のリクエストは学習値を引き継ぐ（直線距離を走行時間へ直す係数として、
+    # 目的地ルートの到着予定時刻と、前向き木が届かない区間の通過時刻の補完に使う）。
     second = await engine.prepare(ORIGIN, radius_km=30.0 * 0.4, now=datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc))
     assert second.composer.detour_ratio == pytest.approx(1.0)
-    assert second.legs[0].passage_hours[row] == pytest.approx(1.0 * 7.5 / 20, abs=0.01)
+
+
+async def test_outbound_leg_is_split_into_time_bins_that_carry_different_wind():
+    # 出発9時、周回30km（20km/hで往路0.75時間）。ビンの幅0.5時間なので往路は2本へ分かれ、
+    # 10時に風が反転する系列では前半と後半でコストが変わる。探索はこのビンを経過時間で
+    # 引くため、風の評価が「基準点からの直線距離」の推定ではなく実際の経過時間になる。
+    graph = build_loop_graph(ORIGIN, distance_km=30.0)
+    series = _series(48, lambda h: 0 if h < 10 else 180)
+    generator, _, _ = make_generator(
+        graph, weather=_weather(0.0), wind_series=series, route_preference=_wind_only_preference(),
+    )
+    engine = generator._engine
+    context = await engine.prepare(ORIGIN, radius_km=30.0 * 0.4, now=datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc))
+
+    await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
+
+    outbound = context.legs[0]
+    assert outbound.cost_bins_lazy.shape[0] == 2
+    assert outbound.bin_seconds == pytest.approx(0.5 * 3600)
+    # 北向きスポークは前半（9:15→北風＝向かい風）と後半（9:45→最近傍10時の南風＝追い風）で
+    # コストが違う。
+    lazy_index = context.lazy_graph.edge_ids.index("e-0-spoke1")
+    assert outbound.cost_bins_lazy[0, lazy_index] != pytest.approx(outbound.cost_bins_lazy[1, lazy_index])
 
 
 async def test_detour_ratio_is_not_learned_without_tile_set():
@@ -298,7 +317,7 @@ async def test_detour_ratio_is_not_learned_without_tile_set():
     await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
 
     assert context.tile_set is None
-    assert context.legs[1].passage_hours is not None  # 復路は実測値で合成される
+    assert context.legs[1] is not context.legs[0]  # 復路は別途合成される
     assert search_graph_cache.get_detour_ratio(TILE_SET) is None
 
 

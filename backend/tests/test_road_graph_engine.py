@@ -608,18 +608,19 @@ async def test_return_leg_retraces_outbound_when_no_alternative_exists():
 
 
 async def test_return_leg_search_restores_shared_cost_lazy():
-    # 復路探索のコスト差し替えは探索後に必ず元へ戻す（共有cost_lazyを汚さない）。
+    # 復路探索のコスト差し替えは探索後に必ず元へ戻す（レグ間で共有するコスト配列を汚さない）。
+    # 差し替えは時刻ビンの全行に効くため、検査もビン側で行う。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     generator, _, _ = make_generator(graph)
     engine = generator._engine
     context = await _prepare_context(generator)
     turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
-    before = context.legs[-1].cost_lazy.copy()
+    before = context.legs[-1].cost_bins_lazy.copy()
 
     for turnaround in turnarounds:
         await engine.trace_loop_from_turnaround(context, turnaround)
 
-    assert np.array_equal(context.legs[-1].cost_lazy, before)
+    assert np.array_equal(context.legs[-1].cost_bins_lazy, before)
 
 
 async def test_return_leg_search_restores_cost_lazy_even_when_no_path_found():
@@ -635,12 +636,12 @@ async def test_return_leg_search_restores_cost_lazy_even_when_no_path_found():
     context = await _prepare_context(generator)
     turnarounds = await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=24)
     turnaround = next(t for t in turnarounds if t.bearing == 0)
-    before = context.legs[-1].cost_lazy.copy()
+    before = context.legs[-1].cost_bins_lazy.copy()
 
     with pytest.raises(RoutingError):
         await engine.trace_loop_from_turnaround(context, turnaround)
 
-    assert np.array_equal(context.legs[-1].cost_lazy, before)
+    assert np.array_equal(context.legs[-1].cost_bins_lazy, before)
 
 
 async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():

@@ -71,7 +71,7 @@ from app.domain.cycling_speed import (
 )
 from app.domain.traffic import POI_COUNT_KINDS, highway_rank, stop_seconds
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
-from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS, dynamic_axis_topological_order
+from app.domain.axis_definitions import AXIS_DEFINITIONS, REQUEST_DYNAMIC_MATERIAL_IDS
 from app.domain.axis_display import axis_material_shares
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.dynamic_way_values import map_value_kind
@@ -185,6 +185,11 @@ RING_CENTER_RATIO = (LOOP_TO_OUTBOUND_RATIO_MIN + LOOP_TO_OUTBOUND_RATIO_MAX) / 
 # 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
 # 取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
+# レグの中を時刻で区切るビンの幅（h）と本数の上限。風の予報は1時間刻みのため、それより
+# 細かく切っても元データの解像度を超えない。上限は生成時間とのトレードオフで、
+# ビン1本ごとにbbox全体のコスト合成が1回走る。
+TIME_BIN_HOURS = 0.5
+MAX_TIME_BINS = 6
 # 候補選定（`pareto_layer_index`）で「実質同じ」とみなす粒度。距離は往路実距離200m
 # （周回全長では約400m差、体感で選び分ける単位より細かい）、難易度は他の集計値と同じ
 # 小数1桁。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、粗すぎると
@@ -239,6 +244,20 @@ class LegCostArrays:
     # コストの下地になる。ターンの待ちは遷移ごとに決まるためどちらにも含まない。
     travel_seconds_full: np.ndarray
     travel_seconds_lazy: np.ndarray
+    # レグの中を経過時間で区切ったビンごとの配列（`(ビン, Edge)`、`cost_lazy`と同じ列順）。
+    # 到達時刻をラベルとして持ち回れる探索はこちらを使い、**風をレグ内の実際の経過時間で
+    # 引き直す**。時変化しないレグは1本（`cost_lazy`と同じ内容）。
+    cost_bins_lazy: np.ndarray
+    travel_bins_lazy: np.ndarray
+    # ビン1本あたりの秒。ビンが1本のときは無限大（常にビン0を引く）。
+    bin_seconds: float
+
+
+def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
+    """表示と、時刻ラベルを持てない探索が使う代表ビンの添字。レグの中間地点が入るビン。"""
+    if bin_count <= 1 or duration_hours is None:
+        return 0
+    return min(bin_count - 1, int((duration_hours / 2) / TIME_BIN_HOURS))
 
 
 class _LegCostComposer:
@@ -289,17 +308,18 @@ class _LegCostComposer:
         self.start = start
         self.speed_kmh = speed_kmh
         self._lazy_row_index = lazy_row_index
+        # lazy行順の配列をfull_edge_row順へ戻す並べ替え表（`_lazy_row_index`の逆）。
+        self._full_row_index = np.empty_like(lazy_row_index)
+        self._full_row_index[lazy_row_index] = np.arange(len(lazy_row_index))
         self._lazy_hard_filter_excluded: np.ndarray | None = None
         self._lens_axis_id = lens_axis_id
         # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
         # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
         self.detour_ratio = detour_ratio
-        # 風に依存する公開軸のうち、探索の重みが0より大きいもの、または地図のレンズが表示を
-        # 要求している軸（重み0でも区間表示にはレグごとの風が要る）があれば時変化合成する。
-        wind_dependent_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS)) & set(score_matrix.axis_ids)
-        self.time_varying = wind_series is not None and any(
-            weights.get(axis_id, 0.0) > 0 or axis_id == lens_axis_id for axis_id in wind_dependent_axes
-        )
+        # 風の時別系列があれば常に時変化合成する。風は軸（主観的な避けたさ）である前に
+        # **走行モデルの入力**（向かい風で実際に遅くなる）のため、軸の重みが0でも時刻で
+        # 引き直す必要がある。
+        self.time_varying = wind_series is not None
         self._cache: dict[tuple, LegCostArrays] = {}
 
     def _travel_time_seconds(
@@ -347,28 +367,108 @@ class _LegCostComposer:
         offset_hours: float,
         direction: int,
         detour_ratio: float | None = None,
+        duration_hours: float | None = None,
+        passage_hours: np.ndarray | None = None,
     ) -> LegCostArrays:
-        """`anchor`から`direction=+1`なら離れていく・`-1`なら向かっていくレグとして、各Edgeの
-        通過予定時刻（`offset_hours`基準、`domain/wind.py: estimate_passage_hours`）の風で
-        コスト配列を合成する。`detour_ratio`を渡すとそのレグだけ迂回率を上書きする
-        （復路が往路木の実測値を使うため）。"""
+        """`anchor`から`direction=+1`なら離れていく・`-1`なら向かっていくレグとして、
+        そのレグを走る時刻の風でコスト配列を合成する。`detour_ratio`を渡すとそのレグだけ
+        迂回率を上書きする（復路が往路木の実測値を使うため）。
+
+        `duration_hours`（このレグに何時間かかる見込みか）を渡すと、レグの中を
+        `TIME_BIN_HOURS`ごとのビンへ分けた配列（`cost_bins_lazy`）も併せて作る。到達時刻を
+        ラベルとして持ち回れる探索はビンを引き、**経過時間の推定ではなく実際の経過時間**で
+        風を評価する。`cost_lazy`等の代表値（表示と、時刻ラベルを持てない後ろ向き木が使う）は
+        レグの中央のビン。
+
+        `duration_hours`を渡さない場合は1本だけ合成する。各Edgeの通過予定時刻は
+        `passage_hours`（`full_edge_row`順）を渡せばそれを使い、渡さなければ基準点からの
+        直線距離で推定する（`domain/wind.py: estimate_passage_hours`）。時刻ラベルを持てない
+        探索（目的地から遡る木）は、前向き木が出した実際の到達時間を`passage_hours`として
+        渡すことで、直線距離の推定より実態に近い時刻で風を引ける。
+        """
         ratio = self.detour_ratio if detour_ratio is None else detour_ratio
+        bin_count = self._bin_count(duration_hours)
         if not self.time_varying or anchor is None:
             key: tuple = ("snapshot",)
-            passage = None
+            bin_count = 1
+        elif passage_hours is not None:
+            key = ("passage", round(offset_hours, 3), direction, float(np.nansum(passage_hours)))
+            bin_count = 1
         else:
-            key = (round(anchor.latitude, 5), round(anchor.longitude, 5), round(offset_hours, 3), direction, round(ratio, 3))
-            passage = estimate_passage_hours(
-                self._score_matrix.mid_lat, self._score_matrix.mid_lon, anchor, offset_hours, direction, self.speed_kmh,
-                detour_ratio=ratio,
-            )
+            key = (round(anchor.latitude, 5), round(anchor.longitude, 5), round(offset_hours, 3),
+                   direction, round(ratio, 3), bin_count)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
 
         started = time.monotonic()
+        edge_count = len(self._score_matrix.distance_m)
+        if bin_count > 1:
+            # `direction=-1`の`offset_hours`はレグの終了時刻のため、開始時刻へ直してから
+            # ビンの中央の時刻を割り当てる。
+            span = duration_hours or bin_count * TIME_BIN_HOURS
+            leg_start = offset_hours if direction > 0 else offset_hours - span
+            bins = [
+                self._compose_at(np.full(edge_count, leg_start + (k + 0.5) * TIME_BIN_HOURS))
+                for k in range(bin_count)
+            ]
+        else:
+            passage = None
+            if self.time_varying and anchor is not None:
+                passage = passage_hours if passage_hours is not None else estimate_passage_hours(
+                    self._score_matrix.mid_lat, self._score_matrix.mid_lon, anchor, offset_hours,
+                    direction, self.speed_kmh, detour_ratio=ratio,
+                )
+            bins = [self._compose_at(passage)]
+
+        # 代表はレグの中間地点が入るビン（ビンはレグの見込み時間より長く張られることがあり、
+        # 単純な中央の添字だと終盤のビンへ寄る）。
+        representative = bins[_representative_bin(len(bins), duration_hours)]
+        leg = LegCostArrays(
+            label=label,
+            cost_lazy=representative.cost_lazy,
+            difficulty_array=representative.difficulty_array,
+            axis_arrays=representative.axis_arrays,
+            contribution_arrays=representative.contribution_arrays,
+            axis_raw_arrays=self._axis_raw_arrays,
+            material_arrays=representative.material_arrays,
+            categorical_material_arrays=self._categorical_material_arrays,
+            passage_hours=representative.passage_hours,
+            headwind_ms=representative.headwind_ms,
+            crosswind_ms=representative.crosswind_ms,
+            travel_seconds_full=representative.travel_seconds_full,
+            travel_seconds_lazy=representative.travel_seconds_lazy,
+            cost_bins_lazy=np.vstack([b.cost_lazy for b in bins]),
+            travel_bins_lazy=np.vstack([b.travel_seconds_lazy for b in bins]),
+            bin_seconds=TIME_BIN_HOURS * 3600.0 if len(bins) > 1 else np.inf,
+        )
+        self._cache[key] = leg
+        logger.info(
+            "compose_leg_costs leg=%s mode=%s bins=%d compose_ms=%d",
+            label, "time_varying" if self.time_varying and anchor is not None else "snapshot",
+            len(bins), round((time.monotonic() - started) * 1000),
+        )
+        return leg
+
+    def to_full_row_order(self, lazy_values: np.ndarray) -> np.ndarray:
+        """lazy行順（探索が使う並び）の配列を`full_edge_row`順へ戻す。"""
+        return np.asarray(lazy_values)[self._full_row_index]
+
+    def _bin_count(self, duration_hours: float | None) -> int:
+        """レグを何本の時刻ビンへ分けるか。見込み所要時間が無ければ1本。
+
+        上限（`MAX_TIME_BINS`）を置くのは、ビン1本ごとにbbox全体のコスト合成が1回走るため
+        ——長距離ほど風の変化を細かく追えるが、そのぶん生成が遅くなる。
+        """
+        if duration_hours is None or not self.time_varying:
+            return 1
+        return int(min(MAX_TIME_BINS, max(1, math.ceil(duration_hours / TIME_BIN_HOURS))))
+
+    def _compose_at(self, passage: np.ndarray | None) -> LegCostArrays:
+        """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。"""
         dynamic_context = DynamicAxisRequestContext(
-            bearing_deg=self._score_matrix.bearing_deg, weather=self._weather, travel_speed_ms=kmh_to_ms(self.speed_kmh),
+            bearing_deg=self._score_matrix.bearing_deg, weather=self._weather,
+            travel_speed_ms=kmh_to_ms(self.speed_kmh),
             wind_series=self._wind_series, start=self.start, passage_hours=passage,
         )
         resolved = evaluate_dynamic_axis_arrays(self._static_axis_scores, dynamic_context)
@@ -394,9 +494,11 @@ class _LegCostComposer:
             self._score_matrix.distance_m, published, self._weights, self._penalty_strength, base=travel,
         )
         cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
-        leg = LegCostArrays(
-            label=label,
-            cost_lazy=cost_array[self._lazy_row_index],
+        lazy_cost = cost_array[self._lazy_row_index]
+        lazy_travel = travel[self._lazy_row_index]
+        return LegCostArrays(
+            label="",
+            cost_lazy=lazy_cost,
             difficulty_array=difficulty_array,
             axis_arrays=published,
             contribution_arrays=contribution_arrays,
@@ -407,20 +509,11 @@ class _LegCostComposer:
             headwind_ms=headwind,
             crosswind_ms=crosswind,
             travel_seconds_full=travel,
-            travel_seconds_lazy=travel[self._lazy_row_index],
+            travel_seconds_lazy=lazy_travel,
+            cost_bins_lazy=lazy_cost.reshape(1, -1),
+            travel_bins_lazy=lazy_travel.reshape(1, -1),
+            bin_seconds=np.inf,
         )
-        self._cache[key] = leg
-        if passage is None:
-            logger.info("compose_leg_costs leg=%s mode=snapshot compose_ms=%d", label,
-                        round((time.monotonic() - started) * 1000))
-        else:
-            logger.info(
-                "compose_leg_costs leg=%s mode=time_varying anchor=(%.2f,%.2f) offset_h=%.2f direction=%+d "
-                "detour_ratio=%.2f passage_h=[%.2f,%.2f] compose_ms=%d",
-                label, anchor.latitude, anchor.longitude, offset_hours, direction, ratio,
-                float(passage.min()), float(passage.max()), round((time.monotonic() - started) * 1000),
-            )
-        return leg
 
 
 @dataclass
@@ -961,12 +1054,13 @@ class RoadGraphEngine:
                     )
                     context.legs.append(leg)
                 segment_path = turn_expanded_shortest_path(
-                    context.turn_structure, leg.cost_lazy,
+                    context.turn_structure, leg.cost_bins_lazy,
                     _heuristic_seconds(
                         _estimate_distances_m(context.graph, context.node_lat, context.node_lon, to_node)
                     ),
                     _origin_states(context.statics, context.lazy_graph.node_id_to_index[from_node]),
                     context.lazy_graph.node_id_to_index[to_node],
+                    leg.travel_bins_lazy, leg.bin_seconds,
                 )
                 if segment_path is None:
                     return None
@@ -1028,6 +1122,13 @@ class RoadGraphEngine:
             ring_upper_m = (target_m + tolerance_m) / 2.0
         ring_center_m = target_m / RING_CENTER_RATIO
         statics = context.statics
+        # 往路レグを、見込み所要時間（目標距離の半分÷巡航速度）ぶんの時刻ビンで組み直す。
+        # 木は出発からの経過時間を持ち回れるため、風を推定ではなく実際の経過時間で引ける。
+        outbound = context.composer.compose(
+            "outbound", context.origin, 0.0, +1,
+            duration_hours=distance_km / 2 / context.composer.speed_kmh,
+        )
+        context.legs = [outbound]
         # コストは秒（体感の所要時間）のため、上限もリング上限の距離を秒へ直して決める。
         # 走行モデルが出しうる最も遅い速度（押して歩く）で割ることで、リング内のNodeを
         # 取りこぼさない上界になる（`cost <= 所要時間 × (1+P)`かつ
@@ -1040,9 +1141,10 @@ class RoadGraphEngine:
         tree_started = time.monotonic()
         tree = await asyncio.to_thread(
             build_turn_expanded_tree,
-            context.turn_structure, context.legs[0].cost_lazy, statics.edge_length_m,
+            context.turn_structure, outbound.cost_bins_lazy, statics.edge_length_m,
             _origin_states(statics, context.origin_index), statics.csr.node_count,
-            cost_limit=cost_limit, edge_seconds=context.legs[0].travel_seconds_lazy,
+            cost_limit=cost_limit, edge_seconds=outbound.travel_bins_lazy,
+            bin_seconds=outbound.bin_seconds,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
@@ -1065,7 +1167,9 @@ class RoadGraphEngine:
         # 復路レグ: 起点へ向かうレグとして、周回の総所要時間（目標距離÷仮定速度）を起点への
         # 到着予定時刻に置いて合成する（距離フィルタが目標±許容を強制するため定数扱いできる）。
         inbound = context.composer.compose(
-            "inbound", context.origin, distance_km / context.composer.speed_kmh, -1, detour_ratio=inbound_detour_ratio,
+            "inbound", context.origin, distance_km / context.composer.speed_kmh, -1,
+            detour_ratio=inbound_detour_ratio,
+            duration_hours=distance_km / 2 / context.composer.speed_kmh,
         )
         context.legs = [context.legs[0], inbound]
         if self._penalty_strength > 0:
@@ -1221,11 +1325,20 @@ class RoadGraphEngine:
         destination_index = lazy_graph.node_id_to_index[destination_node]
 
         tree_started = time.monotonic()
+        # 往路レグを、起点→目的地の見込み所要時間ぶんの時刻ビンで組み直す。
+        outbound = context.composer.compose(
+            "outbound", context.origin, 0.0, +1,
+            duration_hours=(
+                context.composer.detour_ratio * haversine_distance_km(context.origin, destination)
+                / context.composer.speed_kmh
+            ),
+        )
+        context.legs = [outbound]
         forward_tree = await asyncio.to_thread(
             build_turn_expanded_tree,
-            context.turn_structure, context.legs[0].cost_lazy, context.statics.edge_length_m,
+            context.turn_structure, outbound.cost_bins_lazy, context.statics.edge_length_m,
             _origin_states(context.statics, context.origin_index), context.statics.csr.node_count,
-            edge_seconds=context.legs[0].travel_seconds_lazy,
+            edge_seconds=outbound.travel_bins_lazy, bin_seconds=outbound.bin_seconds,
         )
 
         if not np.isfinite(forward_tree.node_cost[destination_index]):
@@ -1261,7 +1374,21 @@ class RoadGraphEngine:
         arrival_hours = (
             inbound_detour_ratio * haversine_distance_km(context.origin, destination) / context.composer.speed_kmh
         )
-        inbound = context.composer.compose("inbound", destination, arrival_hours, -1, detour_ratio=inbound_detour_ratio)
+        # 後ろ向き木は時刻ラベルを持てない（目的地から遡るため各状態の到達時刻が決まらない）。
+        # 代わりに、前向き木が出した「起点からその区間へ実際に到達する時間」を通過時刻として
+        # 渡す——直線距離からの推定より実態に近く、候補は伸び率の上限内に収まるため
+        # ずれもその範囲に収まる。前向き木が届かない区間だけ直線距離の推定へ落とす。
+        forward_seconds_lazy = forward_tree.node_seconds[context.turn_structure.edge_from]
+        forward_hours = context.composer.to_full_row_order(forward_seconds_lazy) / 3600.0
+        fallback_hours = estimate_passage_hours(
+            context.composer._score_matrix.mid_lat, context.composer._score_matrix.mid_lon,
+            destination, arrival_hours, -1, context.composer.speed_kmh,
+            detour_ratio=inbound_detour_ratio,
+        )
+        inbound = context.composer.compose(
+            "inbound", destination, arrival_hours, -1, detour_ratio=inbound_detour_ratio,
+            passage_hours=np.where(np.isfinite(forward_hours), forward_hours, fallback_hours),
+        )
         context.legs = [context.legs[0], inbound]
         backward_tree = await asyncio.to_thread(
             build_turn_expanded_tree,
@@ -1416,14 +1543,16 @@ class RoadGraphEngine:
         destination_index = lazy_graph.node_id_to_index[destination_node]
 
         started = time.monotonic()
-        time_cost = context.legs[0].travel_seconds_lazy
+        outbound = context.legs[0]
+        time_bins = outbound.travel_bins_lazy
         edges = await asyncio.to_thread(
             turn_expanded_shortest_path,
-            context.turn_structure, time_cost,
+            context.turn_structure, time_bins,
             _heuristic_seconds(
                 _estimate_distances_m(context.graph, context.node_lat, context.node_lon, destination_node)
             ),
             _origin_states(context.statics, context.origin_index), destination_index,
+            time_bins, outbound.bin_seconds,
         )
         if not edges:
             logger.warning("select_fastest_route no path to destination=%s", destination_node)
@@ -1431,7 +1560,7 @@ class RoadGraphEngine:
 
         # 往路レグ・復路レグへ概ね半分ずつ割る（レグごとに時刻の異なる風の評価が候補間で
         # 揃うよう、他の候補と同じ扱いにする）。区切りは所要時間の半分。
-        seconds = [float(time_cost[index]) for index in edges]
+        seconds = [float(outbound.travel_seconds_lazy[index]) for index in edges]
         half_seconds = sum(seconds) / 2
         cumulative = 0.0
         split = len(edges)
@@ -1459,9 +1588,10 @@ class RoadGraphEngine:
         復路（折返し点→起点のA*）を継いで周回にする。
 
         復路探索の間だけ、往路Edge＋同一Node対の逆方向Edgeのコストを
-        `RETRACE_PENALTY_MULTIPLIER`倍に**差し替え**、探索後に元へ戻す（`cost_lazy`の
+        `RETRACE_PENALTY_MULTIPLIER`倍に**差し替え**、探索後に元へ戻す（コスト配列全体の
         コピーは1回10ms超[56万Edge]でプール分積み上がるため、差し替え＋復元で
-        O(往路Edge数)にする）。この差し替えはawaitを挟まない同期区間で完結するため、
+        O(往路Edge数×時刻ビン数)にする）。時刻ビンを張った復路では全ビンの同じ列を
+        まとめて差し替える——どの時刻に通っても「往路をなぞる」ことに変わりはない。この差し替えはawaitを挟まない同期区間で完結するため、
         asyncioの協調スケジューリング下では他コルーチンから見えない。**将来
         `asyncio.to_thread`等で復路探索を並列化する場合は、共有`cost_lazy`を書き換える
         この方式は成立しない**（tests/test_road_graph_engine.pyの回帰テスト参照）。
@@ -1472,7 +1602,8 @@ class RoadGraphEngine:
         lazy_graph = context.lazy_graph
         graph = context.graph
         # 復路レグのコスト配列（select_loop_turnaroundsが合成済み。無ければ往路と共有）。
-        cost_lazy = context.legs[1].cost_lazy if len(context.legs) > 1 else context.legs[0].cost_lazy
+        inbound_leg = context.legs[1] if len(context.legs) > 1 else context.legs[0]
+        cost_bins = inbound_leg.cost_bins_lazy
 
         penalized: set[int] = set(data.outbound_edge_indices)
         for edge_index in data.outbound_edge_indices:
@@ -1484,18 +1615,18 @@ class RoadGraphEngine:
                 penalized.add(reverse_index)
 
         trace_started = time.monotonic()
-        original = {index: float(cost_lazy[index]) for index in penalized}
+        penalized_columns = np.fromiter(penalized, dtype=np.int64, count=len(penalized))
+        original = cost_bins[:, penalized_columns].copy()
         try:
-            for index in penalized:
-                cost_lazy[index] = original[index] * RETRACE_PENALTY_MULTIPLIER
+            cost_bins[:, penalized_columns] = original * RETRACE_PENALTY_MULTIPLIER
             return_edge_index_list = turn_expanded_shortest_path(
-                context.turn_structure, cost_lazy, _heuristic_seconds(_origin_estimate(context)),
+                context.turn_structure, cost_bins, _heuristic_seconds(_origin_estimate(context)),
                 _origin_states(context.statics, lazy_graph.node_id_to_index[data.node_id]),
                 context.origin_index,
+                inbound_leg.travel_bins_lazy, inbound_leg.bin_seconds,
             )
         finally:
-            for index, value in original.items():
-                cost_lazy[index] = value
+            cost_bins[:, penalized_columns] = original
         trace_wall_ms = round((time.monotonic() - trace_started) * 1000)
         if return_edge_index_list is None:
             raise RoutingError(f"turnaround bearing={turnaround.bearing}: no return path found")
