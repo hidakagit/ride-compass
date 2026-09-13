@@ -31,6 +31,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteSplicePanel>[0]> = 
     appliedCount: 0,
     hasAlternatives: true,
     onUndo: vi.fn(),
+    onReset: vi.fn(),
     preview: null as RouteCandidate | null,
     previewing: false,
     onPreview: vi.fn(),
@@ -57,11 +58,13 @@ describe("RouteSplicePanel", () => {
   it("指標はルート結果と同じ項目で、評価前は編集後が空", () => {
     render(<RouteSplicePanel {...baseProps({ appliedCount: 1 })} />);
 
-    for (const label of ["距離", "所要", "総合難易度", "負荷"]) {
-      expect(screen.getByRole("rowheader", { name: label })).toBeInTheDocument();
+    for (const label of ["距離", "所要", "難易度", "負荷"]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
     }
-    expect(screen.getByText("4.0km")).toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    // 元の値は出るが、編集後の欄は空のまま（評価してから入る）
+    expect(screen.getByText("4.0")).toBeInTheDocument();
+    expect(screen.getByText("18分")).toBeInTheDocument();
+    expect(screen.queryByText(/^\+/)).toBeNull();
   });
 
   it("評価できたら編集後の値と差が入る", () => {
@@ -96,20 +99,24 @@ describe("RouteSplicePanel", () => {
     expect(screen.getByText("地図の破線をタップして乗り換えます")).toBeInTheDocument();
   });
 
-  it("乗り換えた回数を出し、直前の1手を戻せる", async () => {
+  it("乗り換えた回数を出し、直前の1手と全部を戻せる", async () => {
     const onUndo = vi.fn();
-    render(<RouteSplicePanel {...baseProps({ appliedCount: 3, onUndo })} />);
+    const onReset = vi.fn();
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 3, onUndo, onReset })} />);
 
-    expect(screen.getByText("3回乗り換え")).toBeInTheDocument();
+    expect(screen.getByText("3回")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "1つ戻す" }));
-
     expect(onUndo).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "全部戻す" }));
+    expect(onReset).toHaveBeenCalledTimes(1);
   });
 
-  it("乗り換えていなければ戻すボタンは出さない", () => {
+  it("乗り換えていなければ戻すボタンは出さない（1つ戻す・全部戻すとも）", () => {
     render(<RouteSplicePanel {...baseProps()} />);
 
     expect(screen.queryByRole("button", { name: "1つ戻す" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "全部戻す" })).toBeNull();
   });
 
   it("乗り換え先が無いことを伝える", () => {

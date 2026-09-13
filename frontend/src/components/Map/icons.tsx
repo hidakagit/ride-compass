@@ -500,6 +500,39 @@ export function NewRouteIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 直前の1手を戻す: 左へ回り込む矢印。 */
+export function UndoIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M4.2 8.4h6.6a4.2 4.2 0 0 1 0 8.4H6.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path d="M7.4 4.6 3.6 8.4l3.8 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+/** 全部戻す: 同じ矢印の行き止まりに壁を置く（＝これ以上は戻れない元の状態まで）。 */
+export function UndoAllIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M6.6 8.4h5.2a4.2 4.2 0 0 1 0 8.4H8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path d="M9.4 4.6 5.8 8.4l3.6 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M3.2 3.6v9.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function ClearRoutesIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

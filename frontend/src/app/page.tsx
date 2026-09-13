@@ -2171,6 +2171,10 @@ export default function Home() {
           setSpliceError(null);
           setAppliedAlternatives((current) => current.slice(0, -1));
         }}
+        onReset={() => {
+          setSpliceError(null);
+          setAppliedAlternatives([]);
+        }}
         preview={splicePreview}
         previewing={previewing}
         onPreview={handlePreviewSplice}

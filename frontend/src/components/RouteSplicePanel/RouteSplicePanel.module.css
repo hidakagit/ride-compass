@@ -71,94 +71,107 @@
   color: var(--color-muted);
 }
 
-/* 元と編集後を並べる指標。項目はルート結果パネルと同じ（距離・所要・総合難易度・負荷）。 */
+/* 指標は2列×2行。1セルに「元→編集後 差」を収め、列見出しを持たない。 */
 .metrics {
-  width: 100%;
-  border-collapse: collapse;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
   font-size: 13px;
 }
 
-.metrics th {
-  font-weight: 400;
+/* 半分ごとに同じ列幅を共有させ、2行の「→」の位置を縦に揃える。 */
+.metricHalf {
+  display: grid;
+  grid-template-columns: max-content max-content max-content max-content 1fr;
+  align-items: baseline;
+  column-gap: 4px;
+  margin: 0;
+}
+
+.metricRow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.metricLabel {
+  color: var(--color-muted);
   font-size: 11px;
+}
+
+.metricBase,
+.metricArrow,
+.metricAfter,
+.metricDelta {
+  margin: 0;
+}
+
+.metricBase {
   color: var(--color-muted);
   text-align: right;
-  padding-bottom: 2px;
 }
 
-.metrics tbody th {
-  font-size: 13px;
-  text-align: left;
-}
-
-.metrics td {
-  padding: 2px 0;
-  text-align: right;
-}
-
-.baseValue {
+.metricArrow {
   color: var(--color-muted);
+  font-size: 11px;
 }
 
-.afterValue {
+.metricAfter {
   font-weight: 700;
+}
+
+.metricDelta {
+  font-size: 11px;
 }
 
 /* 増えた＝きつくなった側は暖色、減った＝楽になった側は寒色。地図の帯とは別の意味のため
    色を共有しない。 */
-.afterValue[data-worse="true"] {
+.metricAfter[data-worse="true"],
+.metricDelta[data-worse="true"] {
   color: var(--color-route-splice);
 }
 
-.afterValue[data-better="true"] {
+.metricAfter[data-better="true"],
+.metricDelta[data-better="true"] {
   color: var(--color-accent);
 }
 
-.metricDelta {
+/* 乗り換えた回数は見出し行へ置く（1行使わない）。 */
+.appliedCount {
+  font-size: 12px;
+  color: var(--color-muted);
   margin-left: 4px;
-  font-size: 11px;
-  font-weight: 400;
 }
 
-/* 軸別の差。元・編集後の2本を並べず、差だけを1本で出す。 */
-.deltaBar {
+/* 軸別の差。元・編集後の2本を並べず、差だけを1本で出す。記号は同じ行の両端。 */
+.deltaRow {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
 }
 
-/* 端は記号だけにする（文で説明しない）。中央の0は棒の中心と縦に揃える。 */
-.deltaEnds {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  font-size: 11px;
+.better,
+.worse {
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1;
 }
 
 .better {
   color: var(--color-accent);
-  font-weight: 700;
 }
 
 .worse {
   color: var(--color-route-splice);
-  font-weight: 700;
-  text-align: right;
-}
-
-/* 0の位置が読みの起点。棒の中央線と同じ列に置き、色を持たせずに目盛りとして見せる。 */
-.zeroMark {
-  color: var(--color-muted);
-  font-size: 10px;
-  padding: 0 3px;
 }
 
 .deltaTrack {
+  flex: 1;
   display: flex;
   align-items: stretch;
   height: 12px;
+  min-width: 0;
 }
 
 .deltaSide {
@@ -184,32 +197,6 @@
   background: var(--foreground);
 }
 
-.deltaLabels {
-  display: flex;
-  gap: 10px;
-  margin: 0;
-  font-size: 10px;
-  color: var(--color-muted);
-}
-
-.footerRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.undo {
-  margin-left: auto;
-  font-size: 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--foreground);
-  padding: 3px 9px;
-  cursor: pointer;
-}
-
-.undo:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.axisDelta {
+  margin-right: 10px;
 }

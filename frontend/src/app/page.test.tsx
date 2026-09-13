@@ -1112,8 +1112,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "テスト用に地図で他候補を選ぶ" }));
 
     // 編集面が示す元は押す前のまま（地図で押した候補へは移らない）
-    expect(screen.getByText("18.0km")).toBeInTheDocument();
-    expect(screen.queryByText("19.0km")).toBeNull();
+    expect(screen.getByText("18.0")).toBeInTheDocument();
+    expect(screen.queryByText("19.0")).toBeNull();
   });
 
   it("合成したルートをさらに編集して、別の候補の道へ乗り継げる", async () => {
@@ -1158,7 +1158,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // 元は合成ルートで、そこからさらに別の候補の道へ乗り換えられる
     expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
-    expect(screen.getByText("1回乗り換え")).toBeInTheDocument();
+    expect(screen.getByText("1回")).toBeInTheDocument();
   });
   it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
     // 表示中の候補を作った生成で判定する。いまの目的地ピンで判定すると、周回モードへ
