@@ -13,6 +13,23 @@ export interface MapColorLegendBand {
   color: string;
 }
 
+/** 段階の体感ラベル（軸スタジオの`display_band_labels_override`）を、その段階数へ添えて
+ * よいかの判定。ルート前（`dedicatedWayValueLegend`）とルート後（`routeStyleModes.ts`）が
+ * 同じ規則で使うため1箇所に置く。
+ *
+ * 件数が段階数と合わないラベルは**添えずに捨てる**。合わない軸は実在し（地図が塗る値の
+ * スケールへ境界を写すと、軸の折れ線が飽和する範囲に置かれた境界が同じ値へ潰れて段階が
+ * 減る。backend `domain/dynamic_way_values.py: map_value_thresholds`）、ずらして添えると
+ * 「最上位の段階のラベル」が実際にはそれより広い範囲を指す嘘になる。数値レンジだけの方が
+ * 読み手を誤らせない。 */
+export function bandLabelsForBandCount(
+  labels: readonly string[] | null | undefined,
+  bandCount: number
+): readonly string[] | undefined {
+  if (!labels || labels.length !== bandCount) return undefined;
+  return labels;
+}
+
 /** 段階ラベル（例: 「-2%未満」「-2〜2%」「10%以上」）。axisLayers.ts: axisRampBandLabelと
  * 同じ表記規則（未満/以上/〜）を、RampAxis型に依存せずunit文字列を直接受け取る形で
  * 共有する。 */

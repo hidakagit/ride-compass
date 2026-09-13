@@ -105,9 +105,15 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 
 ## routeStyleModes.ts（ルート確定後）
 
-- `buildRangeSteppedMode`: 境界値配列（軸スタジオの`display_thresholds_override`、
-  未設定時は経路ごとの既定値）の**長さがそのまま段階数を決める**汎用関数。ラベルは
-  境界値の実際の数字から機械的に生成する。
+- `buildRangeSteppedMode`: 境界値配列（軸カタログの`map_value_thresholds`、未設定時は
+  種類ごとの既定値）の**長さがそのまま段階数を決める**汎用関数。ラベルは境界値の実際の
+  数字から機械的に生成し、体感ラベルを持つ軸ではその前に添える
+  （`bandLabelsForBandCount`、ルート前の凡例と同じ規則）。
+
+  **件数が段階数と合わないラベルは添えずに捨てる。** 合わない軸は実在する——地図が塗る値へ
+  境界を写すとき、軸の折れ線が飽和する範囲に置かれた境界は同じ値へ潰れ、その分だけ段階が
+  減るため（backend `map_value_thresholds`）。ずらして添えると最上位の段階のラベルが実際
+  より狭い範囲を指す嘘になる。飽和そのものは軸の較正の問題で、[T833](../../tasks/T833.md)が扱う。
 - `DIFFICULTY_MODE`（総合難易度）だけがフロントの固定モード——特定のaxis_idに紐づかず
   全軸の重み付き合成コストそのものを表示するため、軸スタジオと同期する対象にならない。
 - `NONE_MODE`（レンズなし）: ルート線を単色（候補線の非選択色）で描き、凡例を持たない。
@@ -148,8 +154,9 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   集約する。`loading`は`buildSteppedColorExpression`へそのまま渡す（後述）。
 - `dedicatedWayValueLegend(display)`: 同じ配色・しきい値から地図上の凡例
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
-  `display_band_labels_override`）は要素数が段階数と一致する間だけ数値レンジの前に添える
-  （不整合な保存データへの防御）。単位は`display.unit`（難易度は空文字）。
+  `display_band_labels_override`）は`mapColorLegend.ts: bandLabelsForBandCount`が
+  「件数が段階数と一致する間だけ」に絞ってから数値レンジの前に添える——**ルート後の凡例も
+  同じ関数を使う**（後述の`routeStyleModes.ts`）。単位は`display.unit`（難易度は空文字）。
   `page.tsx`が現在のレンズに応じて凡例を1つ組み立てる（`lensLegend`: ルート後はルート線
   モードの凡例、ルート前はramp軸なら`axisLayers.ts: buildAxisRampLegend`、専用配信軸なら
   この関数）。`LensControl`（`components/LensControl/`）が地図上部中央のピルとポップオーバーに

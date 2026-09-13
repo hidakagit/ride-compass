@@ -10,6 +10,7 @@
 
 import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
+import { bandLabelsForBandCount } from "./mapColorLegend";
 import type { CatalogAxis } from "./axisLayers";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 import {
@@ -104,12 +105,14 @@ function buildRangeSteppedMode(options: {
   colorLow: string;
   colorHigh: string;
   unit: string;
+  bandLabels?: readonly string[] | null;
 }): RouteStyleMode {
-  const { id, label, valueExpression, boundaries, colorLow, colorHigh, unit } = options;
+  const { id, label, valueExpression, boundaries, colorLow, colorHigh, unit, bandLabels } = options;
   const colors = interpolateColors(colorLow, colorHigh, boundaries.length + 1);
+  const labels = bandLabelsForBandCount(bandLabels, boundaries.length + 1);
   const steps = colors.map((color, i) => ({
     key: `step-${i}`,
-    label: rangeLabel(boundaries, i, unit),
+    label: labels ? `${labels[i]}（${rangeLabel(boundaries, i, unit)}）` : rangeLabel(boundaries, i, unit),
     color,
   }));
   return {
@@ -141,6 +144,7 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
       colorLow: scale.colorLow,
       colorHigh: scale.colorHigh,
       unit: axis.map_value_unit ?? "",
+      bandLabels: axis.display_band_labels_override,
     });
   }
   return buildRangeSteppedMode({
@@ -151,6 +155,7 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
     colorLow: scale.colorLow,
     colorHigh: scale.colorHigh,
     unit: axis.map_value_unit ?? "",
+    bandLabels: axis.display_band_labels_override,
   });
 }
 

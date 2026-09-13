@@ -240,6 +240,32 @@ describe("routeStyleModes", () => {
     expect(offenders).toEqual([]);
   });
 
+  // ルート前の凡例（dedicatedWayValueLegend）だけが体感ラベルを出し、生成すると数値だけに
+  // なっていた。ラベルが出ないのは「地図が塗る値へ境界を写したとき、軸の折れ線が飽和する
+  // 範囲の境界が同じ値へ潰れて段階が減った」軸に限られる——その軸へラベルをずらして添えると
+  // 最上位の段階が実際より狭い範囲を指す嘘になるため、数値だけにしている。軸idを名指しせず、
+  // 「畳まれたか」という性質で期待を書く（較正で飽和が解ければラベルが出る側へ移る）。
+  it("体感ラベルがルート後の凡例に出ないのは、写像で段階が畳まれた軸だけ", () => {
+    const checked: string[] = [];
+    for (const axis of AXES) {
+      const labels = axis.display_band_labels_override;
+      if (!labels || labels.length === 0) continue;
+      const collapsed =
+        (axis.map_value_thresholds?.length ?? 0) < (axis.display_thresholds_override?.length ?? 0);
+      const legend = routeColorableModeFromAxis(axis).legend;
+      const showsLabels = legend.some((entry) => entry.label.startsWith(labels[0]));
+      expect(showsLabels, `${axis.axis_id}（畳まれた=${collapsed}）`).toBe(!collapsed);
+      checked.push(axis.axis_id);
+    }
+    expect(checked.length).toBeGreaterThan(0);
+  });
+
+  it("体感ラベルを持つ軸の凡例は「ラベル（数値レンジ）」の形で、ルート前と同じ表記になる", () => {
+    const wind = getRouteStyleMode(ROUTE_STYLE_MODES, "wind");
+    const labels = windAxis.display_band_labels_override!;
+    expect(wind.legend[0].label).toBe(`${labels[0]}（${windAxis.map_value_thresholds![0]}未満）`);
+  });
+
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {
     expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "gradient")).toBe(true);
     expect(isRouteStyleModeId(ROUTE_STYLE_MODES, "wind")).toBe(true);

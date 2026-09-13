@@ -10,7 +10,7 @@
 // （hooks/useDedicatedWayValues.ts）・DOM/MapLibre操作（MapView.tsx: map.setFeatureState）は
 // 別ファイルが持ち、このファイルはMapLibreインスタンスを一切知らない純粋関数のみを持つ。
 
-import { buildRangeLegendBands, type MapColorLegendBand } from "./mapColorLegend";
+import { bandLabelsForBandCount, buildRangeLegendBands, type MapColorLegendBand } from "./mapColorLegend";
 import { bandColorsFor, buildSteppedColorExpression, valueScaleFor, type MapValueKind } from "./valueScale";
 
 export type { TileXY } from "./dynamicWayValues";
@@ -70,6 +70,6 @@ export function dedicatedWayValueLegend(
 ): MapColorLegendBand[] {
   const boundaries = display.boundaries ?? valueScaleFor(display.kind).defaultBoundaries;
   const colors = bandColorsFor(display.kind, boundaries);
-  const labels = display.bandLabels && display.bandLabels.length === boundaries.length + 1 ? display.bandLabels : undefined;
+  const labels = bandLabelsForBandCount(display.bandLabels, boundaries.length + 1);
   return buildRangeLegendBands(boundaries, colors, display.unit, labels);
 }
