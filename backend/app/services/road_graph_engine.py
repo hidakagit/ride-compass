@@ -406,14 +406,14 @@ class _LegCostComposer:
         風を評価する。`cost_lazy`等の代表値（表示と、時刻ラベルを持てない後ろ向き木が使う）は
         レグの中央のビン。
 
-        `duration_hours`を渡さない場合は1本だけ合成する。各Edgeの通過予定時刻は
-        `passage_hours`（`full_edge_row`順）を渡せばそれを使い、渡さなければ基準点からの
-        直線距離で推定する（`domain/wind.py: estimate_passage_hours`）。時刻ラベルを持てない
-        探索（目的地から遡る木）は、前向き木が出した実際の到達時間を`passage_hours`として
-        渡すことで、直線距離の推定より実態に近い時刻で風を引ける。
+        `duration_hours`を渡さない場合はビン1本＝レグ全体を開始時刻で評価する。時刻ラベルを
+        持てない探索（目的地から遡る木）だけは、前向き木が出した実際の到達時間を
+        `passage_hours`（`full_edge_row`順）として渡す。
         """
-        ratio = self.detour_ratio if detour_ratio is None else detour_ratio
         bin_count = self._bin_count(duration_hours)
+        edge_count = len(self._score_matrix.distance_m)
+        # `direction=-1`の`offset_hours`はレグの終了時刻のため、開始時刻へ直す。
+        leg_start = offset_hours if direction > 0 else offset_hours - (duration_hours or 0.0)
         if not self.time_varying or anchor is None:
             key: tuple = ("snapshot",)
             bin_count = 1
@@ -421,19 +421,17 @@ class _LegCostComposer:
             key = ("passage", round(offset_hours, 3), direction, float(np.nansum(passage_hours)))
             bin_count = 1
         else:
-            key = (round(anchor.latitude, 5), round(anchor.longitude, 5), round(offset_hours, 3),
-                   direction, round(ratio, 3), bin_count)
+            key = (round(leg_start, 3), bin_count)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
 
         started = time.monotonic()
-        edge_count = len(self._score_matrix.distance_m)
-        if bin_count > 1:
-            # `direction=-1`の`offset_hours`はレグの終了時刻のため、開始時刻へ直してから
-            # ビンの中央の時刻を割り当てる。
-            span = duration_hours or bin_count * TIME_BIN_HOURS
-            leg_start = offset_hours if direction > 0 else offset_hours - span
+        if not self.time_varying or anchor is None:
+            bins = [self._compose_at(None)]
+        elif passage_hours is not None:
+            bins = [self._compose_at(passage_hours)]
+        else:
             display_bin = _representative_bin(bin_count, duration_hours)
             bins = [
                 self._compose_at(
@@ -442,14 +440,6 @@ class _LegCostComposer:
                 )
                 for k in range(bin_count)
             ]
-        else:
-            passage = None
-            if self.time_varying and anchor is not None:
-                passage = passage_hours if passage_hours is not None else estimate_passage_hours(
-                    self._score_matrix.mid_lat, self._score_matrix.mid_lon, anchor, offset_hours,
-                    direction, self.speed_kmh, detour_ratio=ratio,
-                )
-            bins = [self._compose_at(passage)]
 
         # 代表はレグの中間地点が入るビン（ビンはレグの見込み時間より長く張られることがあり、
         # 単純な中央の添字だと終盤のビンへ寄る）。
