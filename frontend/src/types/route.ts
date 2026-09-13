@@ -113,3 +113,4 @@ export type MaterialCoverageResponse = Schemas["MaterialCoverageResponse"];
 // 管理画面「鮮度」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
 export type GenerationFreshnessEntry = Schemas["GenerationFreshnessEntry"];
 export type DerivedDataFreshnessResponse = Schemas["DerivedDataFreshnessResponse"];
+export type DbStatusResponse = Schemas["DbStatusResponse"];

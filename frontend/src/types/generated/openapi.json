@@ -1705,6 +1705,29 @@
           }
         ]
       }
+    },
+    "/api/admin/db-status": {
+      "get": {
+        "summary": "Get Db Status",
+        "operationId": "get_db_status_api_admin_db_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DbStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2889,6 +2912,50 @@
         "title": "CompletenessEntry",
         "description": "系譜列を持たない派生データの完成度。世代比較ができないため、母集団のうち未計算の行数で見る。"
       },
+      "ConnectionEntry": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "max_connections": {
+            "type": "integer",
+            "title": "Max Connections"
+          },
+          "idle_in_transaction": {
+            "type": "integer",
+            "title": "Idle In Transaction"
+          },
+          "longest_idle_transaction_seconds": {
+            "type": "number",
+            "title": "Longest Idle Transaction Seconds"
+          },
+          "longest_query_seconds": {
+            "type": "number",
+            "title": "Longest Query Seconds"
+          },
+          "needs_attention": {
+            "type": "boolean",
+            "title": "Needs Attention"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total",
+          "max_connections",
+          "idle_in_transaction",
+          "longest_idle_transaction_seconds",
+          "longest_query_seconds",
+          "needs_attention",
+          "note"
+        ],
+        "title": "ConnectionEntry"
+      },
       "Coordinates": {
         "properties": {
           "latitude": {
@@ -2911,6 +2978,45 @@
           "longitude"
         ],
         "title": "Coordinates"
+      },
+      "DbStatusResponse": {
+        "properties": {
+          "computed_at": {
+            "type": "string",
+            "title": "Computed At"
+          },
+          "imports": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRunEntry"
+            },
+            "type": "array",
+            "title": "Imports"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableEntry"
+            },
+            "type": "array",
+            "title": "Tables"
+          },
+          "connections": {
+            "$ref": "#/components/schemas/ConnectionEntry"
+          },
+          "database_bytes": {
+            "type": "integer",
+            "title": "Database Bytes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "computed_at",
+          "imports",
+          "tables",
+          "connections",
+          "database_bytes"
+        ],
+        "title": "DbStatusResponse"
       },
       "DebugModeRequest": {
         "properties": {
@@ -3340,6 +3446,111 @@
         "type": "object",
         "title": "HardFilterOverride",
         "description": "0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。\nキーはdomain/hard_filters.py: HARD_FILTER_NAMESと同じ（'no_bicycle'/'motorway'/\n'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら\n全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。"
+      },
+      "ImportRunEntry": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "latest_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Id"
+          },
+          "latest_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Status"
+          },
+          "latest_finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Finished At"
+          },
+          "latest_identity": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Latest Identity"
+          },
+          "latest_item_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Item Count"
+          },
+          "latest_succeeded_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Succeeded Id"
+          },
+          "latest_succeeded_finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Succeeded Finished At"
+          },
+          "needs_attention": {
+            "type": "boolean",
+            "title": "Needs Attention"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "latest_id",
+          "latest_status",
+          "latest_finished_at",
+          "latest_identity",
+          "latest_item_count",
+          "latest_succeeded_id",
+          "latest_succeeded_finished_at",
+          "needs_attention",
+          "note"
+        ],
+        "title": "ImportRunEntry",
+        "description": "生データ取込1種別の最終実行。派生データの世代比較はこの記録を基準にするため、\nここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。"
       },
       "JmaTileIndexCoverage": {
         "properties": {
@@ -4511,6 +4722,70 @@
           "is_stale"
         ],
         "title": "SourceFreshnessEntry"
+      },
+      "TableEntry": {
+        "properties": {
+          "table_name": {
+            "type": "string",
+            "title": "Table Name"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "title": "Total Bytes"
+          },
+          "dead_tuples": {
+            "type": "integer",
+            "title": "Dead Tuples"
+          },
+          "analyzed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzed At"
+          },
+          "vacuumed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vacuumed At"
+          },
+          "needs_attention": {
+            "type": "boolean",
+            "title": "Needs Attention"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "table_name",
+          "row_count",
+          "total_bytes",
+          "dead_tuples",
+          "analyzed_at",
+          "vacuumed_at",
+          "needs_attention",
+          "note"
+        ],
+        "title": "TableEntry",
+        "description": "テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている\n（統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。"
       },
       "TileInputSpec": {
         "properties": {
