@@ -284,24 +284,23 @@ async def test_detour_ratio_is_measured_from_the_tree_and_learned_for_next_reque
 
 
 async def test_outbound_leg_is_split_into_time_bins_that_carry_different_wind():
-    # 出発9時、周回30km（20km/hで往路0.75時間）。ビンの幅0.5時間なので往路は2本へ分かれ、
-    # 10時に風が反転する系列では前半と後半でコストが変わる。探索はこのビンを経過時間で
-    # 引くため、風の評価が「基準点からの直線距離」の推定ではなく実際の経過時間になる。
-    graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    series = _series(48, lambda h: 0 if h < 10 else 180)
+    # 出発9時、周回60km（20km/hで往路1.5時間）。ビンの幅は予報と同じ1時間なので往路は2本へ
+    # 分かれ、1時間ごとに向きが変わる系列では前半と後半でコストが変わる。探索はこのビンを
+    # 経過時間で引くため、風の評価が「基準点からの直線距離」の推定ではなく実際の経過時間になる。
+    graph = build_loop_graph(ORIGIN, distance_km=60.0)
+    series = _series(48, lambda h: (h * 45) % 360)
     generator, _, _ = make_generator(
         graph, weather=_weather(0.0), wind_series=series, route_preference=_wind_only_preference(),
     )
     engine = generator._engine
-    context = await engine.prepare(ORIGIN, radius_km=30.0 * 0.4, now=datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc))
+    context = await engine.prepare(ORIGIN, radius_km=60.0 * 0.4, now=datetime(2026, 9, 5, 0, 0, tzinfo=timezone.utc))
 
-    await engine.select_loop_turnarounds(context, 30.0, 5.0, pool_size=8)
+    await engine.select_loop_turnarounds(context, 60.0, 5.0, pool_size=8)
 
     outbound = context.legs[0]
     assert outbound.cost_bins_lazy.shape[0] == 2
-    assert outbound.bin_seconds == pytest.approx(0.5 * 3600)
-    # 北向きスポークは前半（9:15→北風＝向かい風）と後半（9:45→最近傍10時の南風＝追い風）で
-    # コストが違う。
+    assert outbound.bin_seconds == pytest.approx(3600)
+    # 北向きスポークは前半（9時の風向）と後半（10時の風向）でコストが違う。
     lazy_index = context.lazy_graph.edge_ids.index("e-0-spoke1")
     assert outbound.cost_bins_lazy[0, lazy_index] != pytest.approx(outbound.cost_bins_lazy[1, lazy_index])
 

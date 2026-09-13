@@ -193,11 +193,12 @@ RING_CENTER_RATIO = (LOOP_TO_OUTBOUND_RATIO_MIN + LOOP_TO_OUTBOUND_RATIO_MAX) / 
 # 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
 # 取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
-# レグの中を時刻で区切るビンの幅（h）と本数の上限。風の予報は1時間刻みのため、それより
-# 細かく切っても元データの解像度を超えない。上限は生成時間とのトレードオフで、
-# ビン1本ごとにbbox全体のコスト合成が1回走る。
-TIME_BIN_HOURS = 0.5
-MAX_TIME_BINS = 6
+# レグの中を時刻で区切るビンの幅（h）と本数の上限。**風の予報が1時間刻みのため、幅もそれに
+# 揃え、ビンはその開始時刻で評価する**——`WindForecastSeries.sample`が最も近い正時を引くため、
+# 幅を細かくしても隣のビンが同じ予報時刻を引くだけで、合成の回数だけが増える。目安として、
+# 目標30kmの周回はレグ0.75時間で1本（時刻ビンを張らないのと同じ費用）、100km級で3本になる。
+TIME_BIN_HOURS = 1.0
+MAX_TIME_BINS = 4
 # 候補選定（`pareto_layer_index`）で「実質同じ」とみなす粒度。距離は往路実距離200m
 # （周回全長では約400m差、体感で選び分ける単位より細かい）、難易度は他の集計値と同じ
 # 小数1桁。細かすぎると互いに非劣解な候補が全件残ってフィルタとして働かず、粗すぎると
@@ -430,7 +431,7 @@ class _LegCostComposer:
             display_bin = _representative_bin(bin_count, duration_hours)
             bins = [
                 self._compose_at(
-                    np.full(edge_count, leg_start + (k + 0.5) * TIME_BIN_HOURS),
+                    np.full(edge_count, leg_start + k * TIME_BIN_HOURS),
                     for_display=k == display_bin,
                 )
                 for k in range(bin_count)
