@@ -73,7 +73,7 @@ def test_import_run_that_succeeded_needs_no_attention():
 
 def test_failed_import_says_which_run_the_derived_data_still_stands_on():
     # 「失敗した」だけでは何が起きているか分からない。派生データの基準が成功した古いrunの
-    # ままであることまで示さないと、鮮度タブが「最新」と出す意味を読み違える。
+    # ままであることまで示さないと、データ保守タブが「最新」と出す意味を読み違える。
     report = build_db_status_report(
         _counts(imports=[_import(latest_id=5, status="failed", succeeded_id=4)]), COMPUTED_AT
     )

@@ -29,7 +29,7 @@ async def basemap_proxy(
     dependencies=[Depends(require_admin_basic_auth)],
 )
 def basemap_refresh() -> dict[str, str]:
-    """サーバー側のタイルファイルキャッシュを全消去する（管理画面`/admin`「鮮度」タブから使う）。
+    """サーバー側のタイルファイルキャッシュを全消去する（管理画面`/admin`「データ保守」タブから使う）。
 
     基礎地図タイルと路面ベクタタイルは同じファイルキャッシュを共有しているため、この
     一括クリアで両方とも消える。影響は押した人だけでなく**全利用者**に及ぶ（次のタイル要求で

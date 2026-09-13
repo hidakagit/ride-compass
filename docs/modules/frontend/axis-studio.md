@@ -6,7 +6,7 @@
 非公開化の状態管理を行い、[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)
 のAPIをそのまま呼ぶ。同じ`/admin`の「材料」タブ（材料ごとの欠損割合の表示、
 [評価・スコアリング（backend）](../backend/evaluation-scoring.md)「材料の欠損割合」節の
-APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
+APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の表示、
 [静的道路属性・タイル配信（backend）](../backend/static-road-attributes.md)
 「派生データ鮮度台帳」節のAPIを呼ぶ）も本モジュールが持つ。
 
@@ -35,13 +35,13 @@ APIを呼ぶ）・「鮮度」タブ（派生データ鮮度台帳の表示、
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
-| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「鮮度」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）と、系譜列を持たない派生データの完成度（別枠、`COMPLETENESS_SPECS`が決める）を表示。集計は「集計する」ボタン押下時のみ |
-| `components/AxisStudio/DbStatusPanel.tsx` | 「鮮度」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
+| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）と、系譜列を持たない派生データの完成度（別枠、`COMPLETENESS_SPECS`が決める）を表示。集計は「集計する」ボタン押下時のみ |
+| `components/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
 | `components/AxisStudio/SplitCoverageMap.tsx` | split済み範囲（`road_graph_tiles`）を示す軽量な地図。開いたときだけMapLibreを初期化する |
 | `services/dbStatusApi.ts`・`app/admin/api/db-status/route.ts`・`app/admin/api/road-graph-tiles/route.ts` | 上記および`road-graph-tiles`のAPIクライアントと、/adminのBasic認証セッションを再利用する同一オリジンのroute handler |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
-| `components/AxisStudio/TileCachePanel.tsx` | 「鮮度」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
+| `components/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
 | `services/basemapAdminApi.ts` | `TileCachePanel`が使うAPIクライアント（`app/admin/api/basemap-refresh/`経由） |
 | `app/admin/api/basemap-refresh/route.ts` | `basemapAdminApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `POST /api/admin/basemap/refresh`へ転送する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
@@ -267,7 +267,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 認証情報の入力欄は持たない（`AxisStudio.tsx`と同じく`/admin`のBasic認証セッションを
   route handler経由で再利用する）。
 
-## DerivedDataFreshnessPanel.tsx（「鮮度」タブ）
+## DerivedDataFreshnessPanel.tsx（「データ保守」タブ）
 
 `GET /admin/api/derived-data-freshness`（backend `GET /api/admin/derived-data/freshness`）の
 レスポンス（`DerivedDataFreshnessResponse`、生成型）をそのまま一覧にする。
@@ -300,7 +300,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 描画は`FreshnessReportView`（レポートを受け取る）として取得と分けてある。認証の要る画面を
   通さずに見え方を確かめられるようにするため。
 
-## DbStatusPanel.tsx（「鮮度」タブ・本番DBの状態）
+## DbStatusPanel.tsx（「データ保守」タブ・本番DBの状態）
 
 `GET /api/admin/db-status`を呼び、取込runの最終実行・テーブルの実数と容量・統計とVACUUMの
 鮮度・接続の状態を出す。`DerivedDataFreshnessPanel`と同じ形（説明はⓘ、1件1行、数字は開いた
@@ -322,7 +322,7 @@ listAxisDefinitions() ──→ definitions（全軸）
   使わない。座標→境界ポリゴンの変換は`Map/dynamicWayValues.ts: tileBoundsLonLat`を再利用する
   （同じ規則を2箇所へ書き写さない）。塗られていない範囲は初回のルート生成でsplitが走る＝冷パス。
 
-## TileCachePanel.tsx（「鮮度」タブの2枚目）
+## TileCachePanel.tsx（「データ保守」タブの2枚目）
 
 `POST /admin/api/basemap-refresh`（backend `POST /api/admin/basemap/refresh`）を呼び、
 サーバーが持つタイルのファイルキャッシュ（`tile_cache`。基礎地図のプロキシ結果と

@@ -254,7 +254,7 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 バッチを再実行していない状態がこの件数として現れる。未計算を厳密に表せない列は宣言が`note`で
 但し書きを持ち、画面へそのまま出す——`road_nodes.degree`は`NOT NULL DEFAULT 0`で、未計算と
 本当に次数0の行を区別できない（0件が正常とは限らない）。`GET /api/admin/derived-data/freshness`
-（Basic認証必須）が`/admin`「鮮度」タブ（[axis-studio.md](../frontend/axis-studio.md)）へ
+（Basic認証必須）が`/admin`「データ保守」タブ（[axis-studio.md](../frontend/axis-studio.md)）へ
 返す。[evaluation-scoring.md](evaluation-scoring.md)の材料欠損割合（`/admin`「材料」タブ）
 とは別の切り口——材料側は完成度、本節は鮮度を見る。詳細な設計判断は
 [docs/tasks/T571.md](../../tasks/T571.md)参照。

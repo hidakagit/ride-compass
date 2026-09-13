@@ -30,7 +30,7 @@ function formatDuration(seconds: number): string {
   return `${Math.round(seconds / 60)}分`;
 }
 
-/** 「鮮度」タブの他のパネルと同じ1行の形。判定の種類（取込・テーブル・接続）が違っても、
+/** 「データ保守」タブの他のパネルと同じ1行の形。判定の種類（取込・テーブル・接続）が違っても、
  * 読み手が知りたいのは「注意が要るか」で同じなので見た目を揃える。 */
 interface StatusRow {
   name: string;
@@ -171,7 +171,7 @@ export function summaryOf(report: DbStatusResponse): string {
   ].join(" ・ ");
 }
 
-// 「鮮度」タブ（/admin）の3枚目。派生データ鮮度台帳が拠って立つ土台の側を見る——取込runが
+// 「データ保守」タブ（/admin）の3枚目。派生データ鮮度台帳が拠って立つ土台の側を見る——取込runが
 // 失敗していないか、行が本当に入っているか、プランナが使う統計が取れているか、
 // トランザクションが放置されていないか。集計はDB全体の走査を伴うためボタン押下時のみ。
 export default function DbStatusPanel() {

@@ -35,8 +35,8 @@ export default function AdminPage() {
           <Tabs.Trigger className={styles.tabTrigger} value="materials">
             材料
           </Tabs.Trigger>
-          <Tabs.Trigger className={styles.tabTrigger} value="freshness">
-            鮮度
+          <Tabs.Trigger className={styles.tabTrigger} value="maintenance">
+            データ保守
           </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabTrigger} value="research">
             研究
@@ -54,7 +54,7 @@ export default function AdminPage() {
           <MaterialCoveragePanel />
         </Tabs.Content>
 
-        <Tabs.Content className={styles.tabPanel} value="freshness">
+        <Tabs.Content className={styles.tabPanel} value="maintenance">
           <DerivedDataFreshnessPanel />
           <DbStatusPanel />
           <TileCachePanel />

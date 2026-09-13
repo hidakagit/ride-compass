@@ -152,7 +152,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 最新成功run（`status='succeeded'`のMAX(id)）より古いままではないかを機械判定する
 （`edge_attribute_counts`/`way_attribute_counts`/`way_landcover`は`algorithm_version`の
 不一致も検知）。
-`/admin`「鮮度」タブ（`GET /api/admin/derived-data/freshness`、Basic認証必須）から見える。
+`/admin`「データ保守」タブ（`GET /api/admin/derived-data/freshness`、Basic認証必須）から見える。
 
 `elevation_attributes`は`source_*_import_run_id`列を持たないため（T351の対象外、
 road_edgesのgeometryにのみ依存しOSMタグを参照しないため）、世代比較ではなく`road_edges`
