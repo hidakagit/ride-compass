@@ -2,23 +2,26 @@
 
 import ErrorText from "@/components/ErrorText/ErrorText";
 import InfoPopover from "@/components/Map/InfoPopover";
-import type { RouteStretch } from "@/lib/routeSplice";
 import type { RouteCandidate } from "@/types/route";
 import styles from "./RouteSplicePanel.module.css";
 
+/** 区間1つぶんの選択肢（page.tsxが候補の名前まで組み立てて渡す）。 */
+export interface SpliceGroupView {
+  /** 区間の見出し（「1本目の区間」）。 */
+  label: string;
+  /** その区間で選べる道。`key`はpage.tsxが持つ代替の識別子。 */
+  options: { key: string; label: string }[];
+  /** いま選んでいる道。nullなら元のまま。 */
+  chosenKey: string | null;
+}
+
 interface RouteSplicePanelProps {
-  /** 表示中の候補。これを基準に「相手が別の道を通る区間」を出す。 */
+  /** 編集の元。1本に固定で、候補を選び直しても変わらない。 */
   displayed: RouteCandidate;
-  /** 比較相手に選べる候補（表示中の候補を除く）。 */
-  targets: readonly RouteCandidate[];
-  /** 比較相手のid。未選択はnull。 */
-  targetId: string | null;
-  onSelectTarget: (id: string | null) => void;
-  /** 表示中の候補が相手と別の道を通る区間（起点に近い順）。 */
-  stretches: readonly RouteStretch[];
-  /** 相手の道を選んでいる区間の位置（`stretches`の添字）。 */
-  takenIndexes: readonly number[];
-  onToggleStretch: (index: number) => void;
+  /** 区間ごとの選択肢。区間を主語にして、その区間の代替を候補横断で並べる。 */
+  groups: SpliceGroupView[];
+  /** 区間の道を選ぶ（同じものをもう一度選ぶと元のままへ戻る）。 */
+  onChoose: (groupIndex: number, optionKey: string | null) => void;
   onApply: () => void;
   /** 合成した経路の評価を待っている間はtrue。 */
   applying: boolean;
@@ -30,20 +33,16 @@ interface RouteSplicePanelProps {
 
 export default function RouteSplicePanel({
   displayed,
-  targets,
-  targetId,
-  onSelectTarget,
-  stretches,
-  takenIndexes,
-  onToggleStretch,
+  groups,
+  onChoose,
   onApply,
   applying,
   error,
   onCancel,
 }: RouteSplicePanelProps) {
-  const taken = new Set(takenIndexes);
   // edge_idsを返さないエンジン・古い候補では区間を出せない（backendが空で返す）。
   const unavailable = displayed.edge_ids.length === 0;
+  const chosenCount = groups.filter((group) => group.chosenKey !== null).length;
 
   return (
     <section className={styles.panel} aria-labelledby="splice-heading">
@@ -60,64 +59,54 @@ export default function RouteSplicePanel({
           triggerAriaLabel="区間の乗り換えの説明"
           contentClassName={styles.headingInfoPopover}
         >
-          他の候補が別の道を通る区間を、このルートに取り込めます。比較相手を選ぶと、その区間が
-          地図にオレンジの帯で出ます。選ぶと実線に変わります。
+          元のルートのうち、他の候補が別の道を通る区間だけを選んで取り込めます。地図のオレンジの
+          帯がその区間で、タップしても選べます。
         </InfoPopover>
       </div>
+
       {/* 編集の元は1本に固定。候補を選び直しても変わらない。 */}
       <p className={styles.base}>
         元: {displayed.direction_label}（{displayed.distance_km.toFixed(1)}km）
       </p>
 
-      <div className={styles.head}>
-        <label htmlFor="splice-target">比較相手</label>
-        <select
-          id="splice-target"
-          value={targetId ?? ""}
-          onChange={(event) => onSelectTarget(event.target.value || null)}
-          disabled={unavailable || targets.length === 0}
-        >
-          <option value="">選択しない</option>
-          {targets.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>
-              {candidate.direction_label}（{candidate.distance_km.toFixed(1)}km）
-            </option>
-          ))}
-        </select>
-      </div>
-
       {unavailable ? (
         <p className={styles.note}>この候補は経路のEdge情報を持たないため、区間を出せません。</p>
-      ) : targetId === null ? null : stretches.length === 0 ? (
-        <p className={styles.note}>この2本は同じ道を通ります。</p>
+      ) : groups.length === 0 ? (
+        <p className={styles.note}>他の候補と別の道を通る区間がありません。</p>
       ) : (
         <>
           <ul className={styles.rows}>
-            {stretches.map((stretch, index) => (
-              <li key={`${stretch.start}-${stretch.end}`}>
-                <button
-                  type="button"
-                  className={styles.row}
-                  aria-pressed={taken.has(index)}
-                  onClick={() => onToggleStretch(index)}
-                >
-                  <span className={styles.tick} aria-hidden="true">
-                    ✓
-                  </span>
-                  <span className={styles.where}>
-                    {index + 1}本目の区間
-                    <span className={styles.sub}>
-                      {stretch.end - stretch.start}区画ぶん
-                    </span>
-                  </span>
-                </button>
+            {groups.map((group, groupIndex) => (
+              <li key={group.label} className={styles.groupRow}>
+                <span className={styles.where}>{group.label}</span>
+                <div className={styles.options}>
+                  <button
+                    type="button"
+                    className={group.chosenKey === null ? styles.optionOn : styles.option}
+                    aria-pressed={group.chosenKey === null}
+                    onClick={() => onChoose(groupIndex, null)}
+                  >
+                    元のまま
+                  </button>
+                  {group.options.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={group.chosenKey === option.key ? styles.optionOn : styles.option}
+                      aria-pressed={group.chosenKey === option.key}
+                      onClick={() => onChoose(groupIndex, option.key)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </li>
             ))}
           </ul>
           {error && <ErrorText>{error}</ErrorText>}
           <div className={styles.actions}>
-            <button type="button" onClick={onApply} disabled={taken.size === 0 || applying}>
-              {applying ? "評価中…" : "この組み合わせを候補へ追加"}
+            <button type="button" onClick={onApply} disabled={chosenCount === 0 || applying}>
+              {applying ? "評価中…" : "新しいルートを作る"}
             </button>
           </div>
         </>

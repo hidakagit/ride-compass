@@ -1014,9 +1014,10 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を別の地点へ動かす" }));
 
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    await user.selectOptions(screen.getByLabelText("比較相手"), "route-destination-01");
-    await user.click(screen.getByRole("button", { name: /1本目の区間/ }));
-    await user.click(screen.getByRole("button", { name: /候補へ追加/ }));
+    // 区間ごとに、候補横断の代替から選ぶ（相手を1本選ぶプルダウンは持たない）。この候補は
+    // 2箇所で道が違うため選択肢も2つ出る。1本目だけを差し替える。
+    await user.click(screen.getAllByRole("button", { name: "2 19.0km" })[0]);
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
 
     await waitFor(() => expect(vi.mocked(generateRoutes)).toHaveBeenCalledTimes(2));
     const spliceRequest = vi.mocked(generateRoutes).mock.calls[1][0];
@@ -1046,7 +1047,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
-    expect(screen.queryByLabelText("比較相手")).toBeNull();
+    expect(screen.queryByRole("button", { name: "このルートを編集" })).toBeNull();
   });
 
   it("編集はルート結果の中のモードで、入口は候補の中にある", async () => {
@@ -1071,17 +1072,17 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
     // 入口を押すまでは編集面は出ない
-    expect(screen.queryByLabelText("比較相手")).toBeNull();
+    expect(screen.queryByText(/^元: /)).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
 
-    expect(screen.getByLabelText("比較相手")).toBeInTheDocument();
-    // 元は押した候補に固定される
+    // 元は押した候補に固定され、区間ごとの選択肢が出る
     expect(screen.getByText(/^元: /)).toBeInTheDocument();
+    expect(screen.getByText("1本目の区間")).toBeInTheDocument();
 
     // 戻ると候補の一覧へ戻る
     await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
-    expect(screen.queryByLabelText("比較相手")).toBeNull();
+    expect(screen.queryByText(/^元: /)).toBeNull();
     expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
   });
 

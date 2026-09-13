@@ -161,3 +161,86 @@ export function insertByDifficulty<T extends OrderableCandidate>(routes: readonl
   }
   return [...routes.slice(0, at), spliced, ...routes.slice(at)];
 }
+
+/** ある区間を、どの候補のどの道へ差し替えられるか。 */
+export interface StretchAlternative {
+  /** 差し替え後の道を持つ候補。 */
+  candidateId: string;
+  /** 元ルート側の範囲（`edge_ids`の`[start, end)`）。 */
+  stretch: RouteStretch;
+  /** 相手側の範囲（地図へ相手の道を描くために要る）。 */
+  targetStretch: RouteStretch;
+  /** 差し替え後に通るEdge id列。 */
+  edgeIds: string[];
+}
+
+/** 重なり合う代替をまとめた1つの選択単位。グループ内は排他、グループ間は独立。 */
+export interface StretchGroup {
+  /** グループが覆う元ルート側の範囲（各代替の和）。 */
+  stretch: RouteStretch;
+  options: StretchAlternative[];
+}
+
+/**
+ * 元ルートの区間ごとに、**全候補の中から**差し替えられる道を集める。
+ *
+ * 相手を1本選んでから区間を選ぶ形だと、どの相手が良い道を持つのかを総当たりで試すことに
+ * なる。区間を主語にして、その区間の代替を候補横断で並べる。
+ *
+ * 元側の範囲が重なる代替は同じグループへ入れる——重なったまま2つとも差し替えると経路が
+ * 壊れるため、グループ内からは1つしか選べない。グループどうしは重ならないので、後ろから
+ * 順に差し替えれば互いに影響しない（`spliceEdgeIdsFromAlternatives`）。
+ */
+export function stretchAlternativeGroups(
+  baseEdgeIds: readonly string[],
+  candidates: readonly { id: string; edgeIds: readonly string[] }[],
+): StretchGroup[] {
+  const alternatives: StretchAlternative[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    for (const pair of pairedStretches(baseEdgeIds, candidate.edgeIds)) {
+      const edgeIds = targetStretchEdgeIds(baseEdgeIds, candidate.edgeIds, pair.displayed);
+      if (edgeIds.length === 0) continue;
+      // 同じ区間を同じ道へ差し替える代替は、候補が違っても選択肢としては同じもの。
+      const key = `${pair.displayed.start}-${pair.displayed.end}:${edgeIds.join(",")}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      alternatives.push({
+        candidateId: candidate.id,
+        stretch: pair.displayed,
+        targetStretch: pair.target,
+        edgeIds,
+      });
+    }
+  }
+
+  const groups: StretchGroup[] = [];
+  for (const alternative of [...alternatives].sort((a, b) => a.stretch.start - b.stretch.start)) {
+    const last = groups.at(-1);
+    if (last && alternative.stretch.start < last.stretch.end) {
+      last.stretch = { start: last.stretch.start, end: Math.max(last.stretch.end, alternative.stretch.end) };
+      last.options.push(alternative);
+    } else {
+      groups.push({ stretch: { ...alternative.stretch }, options: [alternative] });
+    }
+  }
+  return groups;
+}
+
+/**
+ * 選んだ代替を差し替えた経路のEdge id列を組み立てる。
+ *
+ * 後ろの区間から順に差し替える——先に前を差し替えると、後ろの区間の位置がずれる。
+ * 渡す代替は互いに重ならないこと（グループから1つずつ選べば満たされる）。
+ */
+export function spliceEdgeIdsFromAlternatives(
+  baseEdgeIds: readonly string[],
+  chosen: readonly StretchAlternative[],
+): string[] {
+  const ordered = [...chosen].sort((a, b) => b.stretch.start - a.stretch.start);
+  let path = [...baseEdgeIds];
+  for (const alternative of ordered) {
+    path = [...path.slice(0, alternative.stretch.start), ...alternative.edgeIds, ...path.slice(alternative.stretch.end)];
+  }
+  return path;
+}

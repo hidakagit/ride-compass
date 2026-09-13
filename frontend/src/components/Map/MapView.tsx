@@ -2408,6 +2408,10 @@ interface MapViewProps {
   selectedRouteId: string | null;
   // 比較相手が別の道を通る区間（docs/tasks/T621.md）。空/未指定なら帯を出さない。
   spliceStretches?: SpliceStretchFeature[];
+  /** 乗り換えられる区間の帯をタップしたときに呼ばれる（`SpliceStretchFeature.index`）。
+   * 選ぶ操作の中心を地図へ置くためのもの——パネルの行だけで選ばせると、どの行がどの帯かを
+   * 目で対応づける必要がある。 */
+  onSpliceStretchSelect?: (index: number) => void;
   location: Coordinates;
   /** 出発地点マーカーの色分けに使う。GPS取得失敗時のフォールバック（"default"）だけを
    * グレーで視覚的に区別する。実際のGPS取得（"geolocation"）と手動指定（"manual"）は
@@ -2572,6 +2576,7 @@ export default function MapView({
   routes,
   selectedRouteId,
   spliceStretches,
+  onSpliceStretchSelect,
   location,
   locationSource,
   showElevation,
@@ -2705,6 +2710,7 @@ export default function MapView({
   // onRouteSegmentSelectを読めるようにするref（onWaypointAddRefと同じパターン）。
   const onRouteSegmentSelectRef = useRef(onRouteSegmentSelect);
   const onRouteSelectRef = useRef(onRouteSelect);
+  const onSpliceStretchSelectRef = useRef(onSpliceStretchSelect);
   // trueの間、位置更新effect（下部）がmap.flyTo（カメラ移動）をスキップする。
   // ドラッグ操作自体で既にその地点が画面内に見えているため、setManualLocation経由で
   // location/locationSourceが更新された直後に不要なカメラ移動（ズームリセットを含む）を
@@ -2793,6 +2799,10 @@ export default function MapView({
   useEffect(() => {
     onRouteSelectRef.current = onRouteSelect;
   }, [onRouteSelect]);
+
+  useEffect(() => {
+    onSpliceStretchSelectRef.current = onSpliceStretchSelect;
+  }, [onSpliceStretchSelect]);
 
   useEffect(() => {
     redrawPropsRef.current = {
@@ -3108,7 +3118,7 @@ export default function MapView({
       // 一切行わない。
       // 候補線（ROUTES_HIT_LAYER_ID）も同じ理由で専用ハンドラ（handleCandidateClick）を
       // 持つため、一般道路網向けのポップアップは開かない。
-      for (const hitLayerId of [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID]) {
+      for (const hitLayerId of [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID, SPLICE_LAYER_ID]) {
         if (map.getLayer(hitLayerId) && map.queryRenderedFeatures(e.point, { layers: [hitLayerId] }).length > 0) {
           return;
         }
@@ -3179,6 +3189,14 @@ export default function MapView({
       if (typeof routeId !== "string") return;
       popupRef.current?.remove();
       onRouteSelectRef.current(routeId);
+    }
+
+    // 乗り換えられる区間の帯を押したら、その区間の道を選ぶ（選ぶ操作の中心を地図へ置く）。
+    function handleSpliceStretchClick(e: MapLayerMouseEvent) {
+      const index = e.features?.[0]?.properties?.index;
+      if (typeof index !== "number") return;
+      popupRef.current?.remove();
+      onSpliceStretchSelectRef.current?.(index);
     }
 
     function handleRouteSegmentClick(e: MapLayerMouseEvent) {
@@ -3372,6 +3390,7 @@ export default function MapView({
     // 発火するため、handleClick冒頭のガードと対で機能する。
     map.on("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
     map.on("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
+    map.on("click", SPLICE_LAYER_ID, handleSpliceStretchClick);
     map.on("mousemove", handleMouseMove);
     map.on("zoom", handleZoom);
     map.on("load", handleLoad);
@@ -3395,6 +3414,7 @@ export default function MapView({
       map.off("click", handleClick);
       map.off("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
       map.off("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
+      map.off("click", SPLICE_LAYER_ID, handleSpliceStretchClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
       map.off("load", handleLoad);

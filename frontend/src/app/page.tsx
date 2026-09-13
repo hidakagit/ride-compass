@@ -63,9 +63,10 @@ import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/components/RouteSplicePanel/RouteSplicePanel";
 import {
   insertByDifficulty,
-  pairedStretches,
-  spliceEdgeIds,
+  spliceEdgeIdsFromAlternatives,
+  stretchAlternativeGroups,
   stretchCoordinateRange,
+  type StretchAlternative,
 } from "@/lib/routeSplice";
 import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
 import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
@@ -359,8 +360,8 @@ export default function Home() {
   // 区間の乗り換え（docs/tasks/T621.md）。比較相手と、相手の道を選んだ区間の位置。
   // 区間の位置はstretchesの添字で持つ——edge_idsの位置で持つと、候補が入れ替わったときに
   // 別の場所を指したまま残る。
-  const [spliceTargetId, setSpliceTargetId] = useState<string | null>(null);
-  const [spliceTakenIndexes, setSpliceTakenIndexes] = useState<number[]>([]);
+  // 区間ごとに選んだ道（グループの位置→代替のkey）。相手を1本選ぶ形は持たない。
+  const [spliceChoices, setSpliceChoices] = useState<Record<number, string>>({});
   // 編集中の元ルート。nullなら「ルート結果」は通常の一覧、非nullなら同じ場所が編集面に
   // なる（独立したタブにすると、どのルートを編集しているのかを選び直す形になる）。
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
@@ -798,28 +799,78 @@ export default function Home() {
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
 
-  // 区間の乗り換え（docs/tasks/T621.md）の導出値。表示中の候補と比較相手の
-  // edge_idsの集合演算だけで求まる（軸の計算式は持たない。構造仕様1）。
-  const spliceTarget = routes.find((r) => r.id === spliceTargetId) ?? null;
-  const splicePairs =
-    selectedCandidate && spliceTarget
-      ? pairedStretches(selectedCandidate.edge_ids, spliceTarget.edge_ids)
-      : [];
-  const spliceStretches = splicePairs.map((pair) => pair.displayed);
-  // 地図へ渡す帯は相手側の形。選んでいない区間も「乗り換えるとこの道になる」を破線で示す。
-  // Edgeと座標の対応が取れない区間は描かない——ずれた場所へ帯を描くより描かないほうがよい。
-  const spliceStretchFeatures = spliceTarget
-    ? splicePairs.flatMap((pair, index) => {
-        const range = stretchCoordinateRange(spliceTarget.edge_point_offsets, pair.target);
-        if (!range) return [];
-        const coordinates = (spliceTarget.geometry.coordinates as GeoJSON.Position[]).slice(
-          range.start,
-          range.end + 1,
-        );
-        if (coordinates.length < 2) return [];
-        return [{ index, taken: spliceTakenIndexes.includes(index), coordinates }];
-      })
+  // 区間の乗り換え（docs/tasks/T621.md・T808）の導出値。edge_idsの集合演算だけで求まる
+  // （軸の計算式は持たない。構造仕様1）。**区間を主語に、その区間の代替を候補横断で並べる**。
+  const editingRouteForSplice = routes.find((route) => route.id === editingRouteId) ?? null;
+  const spliceGroups = editingRouteForSplice
+    ? stretchAlternativeGroups(
+        editingRouteForSplice.edge_ids,
+        routes
+          .filter((route) => route.id !== editingRouteForSplice.id)
+          .map((route) => ({ id: route.id, edgeIds: route.edge_ids })),
+      )
     : [];
+  const alternativeKey = (alternative: StretchAlternative) =>
+    `${alternative.candidateId}:${alternative.stretch.start}-${alternative.stretch.end}`;
+  const chosenAlternatives = spliceGroups.flatMap((group, groupIndex) => {
+    const key = spliceChoices[groupIndex];
+    const option = group.options.find((candidate) => alternativeKey(candidate) === key);
+    return option ? [option] : [];
+  });
+  // 候補の表示名（一覧のタブと同じ「順位 距離」）。どの候補の道なのかを選択肢の名前にする。
+  const routeLabel = (routeId: string) => {
+    const index = routes.findIndex((route) => route.id === routeId);
+    const route = routes[index];
+    if (!route) return routeId;
+    const head = NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`;
+    return `${head} ${route.distance_km.toFixed(1)}km`;
+  };
+  const spliceGroupViews = spliceGroups.map((group, groupIndex) => ({
+    label: `${groupIndex + 1}本目の区間`,
+    options: group.options.map((option) => ({ key: alternativeKey(option), label: routeLabel(option.candidateId) })),
+    chosenKey: spliceChoices[groupIndex] ?? null,
+  }));
+  // 地図へ渡す帯は相手側の形。選んでいない道も「乗り換えるとこの道になる」を破線で示す。
+  // Edgeと座標の対応が取れない区間は描かない——ずれた場所へ帯を描くより描かないほうがよい。
+  // indexは「グループの位置と選択肢の位置」を1つの数にしたもの（地図のタップから引き戻す）。
+  const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => groupIndex * 100 + optionIndex;
+  const spliceStretchFeatures = spliceGroups.flatMap((group, groupIndex) =>
+    group.options.flatMap((option, optionIndex) => {
+      const target = routes.find((route) => route.id === option.candidateId);
+      if (!target) return [];
+      const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
+      if (!range) return [];
+      const coordinates = (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1);
+      if (coordinates.length < 2) return [];
+      return [
+        {
+          index: spliceFeatureIndex(groupIndex, optionIndex),
+          taken: spliceChoices[groupIndex] === alternativeKey(option),
+          coordinates,
+        },
+      ];
+    }),
+  );
+
+  // 地図の帯をタップしたら、その区間の道を選ぶ（同じ道をもう一度タップすると元のままへ戻る）。
+  const handleSpliceStretchSelect = useCallback(
+    (index: number) => {
+      const groupIndex = Math.floor(index / 100);
+      const optionIndex = index % 100;
+      const option = spliceGroups[groupIndex]?.options[optionIndex];
+      if (!option) return;
+      const key = alternativeKey(option);
+      setSpliceChoices((current) => {
+        const next = { ...current };
+        if (next[groupIndex] === key) delete next[groupIndex];
+        else next[groupIndex] = key;
+        return next;
+      });
+    },
+    // spliceGroupsはroutesとeditingRouteIdから毎レンダー導出される（refで持つ値ではない）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [routes, editingRouteId],
+  );
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
   const isMobile = useIsMobile();
@@ -1518,7 +1569,7 @@ export default function Home() {
   // （docs/tasks/T621.md）。frontendは経路の組み立てだけを行い、評価はbackendが
   // 既存候補と同じ経路で行う（構造仕様1・10）。
   async function handleApplySplice() {
-    if (!editingRoute || !spliceTarget || spliceTakenIndexes.length === 0) return;
+    if (!editingRoute || chosenAlternatives.length === 0) return;
     // 表示中の候補を作った条件をそのまま使う。いまのフォーム値を使うと、生成後に重みを
     // 変えてから合成したときに、その1本だけ別条件で評価された候補が同じ並びへ入る。
     const generatedInput = generatedConditions?.input;
@@ -1527,11 +1578,7 @@ export default function Home() {
     setErrorMessage(null);
     setSpliceError(null);
     try {
-      const edgeIds = spliceEdgeIds(
-        editingRoute.edge_ids,
-        spliceTarget.edge_ids,
-        spliceTakenIndexes.map((index) => spliceStretches[index]).filter(Boolean),
-      );
+      const edgeIds = spliceEdgeIdsFromAlternatives(editingRoute.edge_ids, chosenAlternatives);
       const { routes: candidates } = await generateRoutes(
         { ...buildGenerateRequest(generatedInput), spliced_edge_ids: edgeIds },
         setGenerationProgress,
@@ -1548,8 +1595,7 @@ export default function Home() {
       const unique = { ...spliced, id: `${SPLICED_ROUTE_ID_PREFIX}-${routes.length}` };
       setRoutes(insertByDifficulty(routes, unique));
       setSelectedRouteId(unique.id);
-      setSpliceTargetId(null);
-      setSpliceTakenIndexes([]);
+      setSpliceChoices({});
       setSelectedRouteSegment(null);
       // 同じ場所が結果の一覧へ戻り、作ったルートが選ばれた状態で並ぶ。
       setEditingRouteId(null);
@@ -1583,9 +1629,9 @@ export default function Home() {
       }
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
-      // 候補集合が入れ替わると、区間の位置も比較相手も意味を失う。
-      setSpliceTargetId(null);
-      setSpliceTakenIndexes([]);
+      // 候補集合が入れ替わると、区間の位置も選んだ道も意味を失う。
+      setEditingRouteId(null);
+      setSpliceChoices({});
       // 新しい候補集合に対して、それより前にクリックしていた区間の選択を引き継がない
       // （同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも意味を
       // 失うため）。
@@ -2017,8 +2063,7 @@ export default function Home() {
                   className={styles.editRouteButton}
                   onClick={() => {
                     setEditingRouteId(route.id);
-                    setSpliceTargetId(null);
-                    setSpliceTakenIndexes([]);
+                    setSpliceChoices({});
                     setSpliceError(null);
                   }}
                 >
@@ -2072,26 +2117,19 @@ export default function Home() {
         displayed={editingRoute}
         onCancel={() => {
           setEditingRouteId(null);
-          setSpliceTargetId(null);
-          setSpliceTakenIndexes([]);
+          setSpliceChoices({});
           setSpliceError(null);
         }}
-        targets={routes.filter((other) => other.id !== editingRoute.id)}
-        targetId={spliceTargetId}
-        onSelectTarget={(id) => {
-          setSpliceTargetId(id);
-          setSpliceTakenIndexes([]);
+        groups={spliceGroupViews}
+        onChoose={(groupIndex, optionKey) => {
           setSpliceError(null);
+          setSpliceChoices((current) => {
+            const next = { ...current };
+            if (optionKey === null) delete next[groupIndex];
+            else next[groupIndex] = optionKey;
+            return next;
+          });
         }}
-        stretches={spliceStretches}
-        takenIndexes={spliceTakenIndexes}
-        onToggleStretch={(index) =>
-          setSpliceTakenIndexes((current) =>
-            current.includes(index)
-              ? current.filter((value) => value !== index)
-              : [...current, index],
-          )
-        }
         onApply={handleApplySplice}
         error={spliceError}
         applying={splicing}
@@ -2225,6 +2263,7 @@ export default function Home() {
           <MapView
             routes={routes}
             spliceStretches={spliceStretchFeatures}
+            onSpliceStretchSelect={handleSpliceStretchSelect}
             selectedRouteId={selectedRouteId}
             location={location}
             locationSource={locationSource}
