@@ -54,6 +54,7 @@
     "jsdom": "^30.0.1",
     "openapi-typescript": "^7.13.0",
     "playwright": "^1.62.1",
+    "prettier": "3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^5",
     "vitest": "^4.1.10"

@@ -25,4 +25,5 @@ cd "$REPO_ROOT"
 
 sh scripts/pre-commit-docs-consistency.sh
 sh scripts/pre-commit-ruff.sh
+sh scripts/pre-commit-prettier.sh
 sh scripts/pre-commit-api-contract.sh

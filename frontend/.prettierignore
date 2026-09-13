@@ -1,0 +1,3 @@
+# 生成物（backend/scripts/export_openapi.py・openapi-typescriptが書く）。手で整えない。
+src/types/generated/
+.next/
