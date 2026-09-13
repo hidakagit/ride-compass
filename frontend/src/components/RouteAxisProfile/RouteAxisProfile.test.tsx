@@ -24,6 +24,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
     distanceKm: 30,
     overallDifficulty: 46,
     difficultyLoad: null,
+    estimatedDurationSeconds: null,
     axisColors: AXIS_COLORS,
     ...overrides,
   };
@@ -35,6 +36,15 @@ function chips() {
 }
 
 describe("RouteAxisProfile", () => {
+  it("所要時間を総合難易度の並びへ出す（無いときは出さない）", () => {
+    const { unmount } = render(<RouteAxisProfile {...baseProps({ estimatedDurationSeconds: 6120 })} />);
+    expect(screen.getByText("1時間42分")).toBeInTheDocument();
+    unmount();
+
+    render(<RouteAxisProfile {...baseProps({ estimatedDurationSeconds: null })} />);
+    expect(screen.queryByText("所要")).not.toBeInTheDocument();
+  });
+
   it("軸を1行ずつ並べる一覧は持たず、寄与度の凡例チップが軸ごとの詳細の入口になる", async () => {
     const user = userEvent.setup();
     render(<RouteAxisProfile {...baseProps({ axisRawValues: { car_stress: 0.8 }, distanceKm: 32.5 })} />);

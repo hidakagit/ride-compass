@@ -1978,6 +1978,7 @@ export default function Home() {
                   distanceKm={route.distance_km}
                   overallDifficulty={route.overall_difficulty}
                   difficultyLoad={route.difficulty_load ?? null}
+                  estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
                   axisColors={axisChipColors}
                 />
               )}

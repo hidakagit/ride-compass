@@ -2,6 +2,7 @@
 
 import InfoPopover from "@/components/Map/InfoPopover";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { formatDurationShort } from "@/lib/formatDuration";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar from "./AxisContributionBar";
 import {
@@ -42,6 +43,8 @@ interface RouteAxisProfileProps {
    * されるのに対し、こちらは距離が伸びればそのまま増えるため「遠回りした分だけ増える
    * しんどさ」を表す。候補間の相対比較に使う値で単位を持たない。 */
   difficultyLoad: number | null;
+  /** RouteCandidate.estimated_duration_seconds（走行＋停止＋ターンの見積もり）。 */
+  estimatedDurationSeconds: number | null;
   /** 軸id→色ドットの色（ルート設定パネルの凡例チップと同じ色）。 */
   axisColors: Record<string, string>;
 }
@@ -62,6 +65,7 @@ export default function RouteAxisProfile({
   axisContributions,
   overallDifficulty,
   difficultyLoad,
+  estimatedDurationSeconds,
   axisColors,
 }: RouteAxisProfileProps) {
   // 値0（重み0の軸は常に0.0、AxisContributionBar.tsx参照）は表示すべき寄与が無いものとして
@@ -121,6 +125,23 @@ export default function RouteAxisProfile({
               <p>距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。</p>
             </InfoPopover>
           </span>
+          {estimatedDurationSeconds != null && (
+            <span className={styles.scoreItem}>
+              <span className={styles.scoreLabel}>所要</span>
+              <span className={styles.scoreValue}>{formatDurationShort(estimatedDurationSeconds)}</span>
+              <InfoPopover
+                triggerClassName={styles.infoButton}
+                triggerAriaLabel="所要時間の説明"
+                contentClassName={styles.infoPopover}
+              >
+                <p>
+                  走行時間（勾配・風・想定した巡航速度から区間ごとに計算）に、信号などで止まる
+                  待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや
+                  走り方で変わります。
+                </p>
+              </InfoPopover>
+            </span>
+          )}
           {difficultyLoad != null && (
             <span className={styles.scoreItem}>
               {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
