@@ -6,11 +6,20 @@ import { inflateSync } from "node:zlib";
 import {
   emptyRasterTileBytes,
   hasJmaTileIndex,
+  registerJmaTileProtocol,
   setJmaTileIndex,
   toRealUrl,
   withJmaTileProtocol,
 } from "@/components/Map/jmaTileProtocol";
 import type { JmaTileIndexResponse } from "@/components/Map/jmaTileIndex";
+
+type ProtocolHandler = (params: { url: string }, abort: AbortController) => Promise<{ data: ArrayBuffer | Uint8Array }>;
+
+const { protocolHandlers } = vi.hoisted(() => ({ protocolHandlers: new Map<string, ProtocolHandler>() }));
+
+vi.mock("maplibre-gl", () => ({
+  default: { addProtocol: (scheme: string, handler: ProtocolHandler) => protocolHandlers.set(scheme, handler) },
+}));
 
 const BT = "20260907025000";
 const REAL_URL = `https://example.test/api/jma-tile/bosai/jmatile/data/risk/${BT}/immed0/${BT}/surf/rain_mesh/10/909/403.png`;
@@ -122,5 +131,41 @@ describe("空タイルとして返すPNG", () => {
     // MapLibreはこの1画素をタイル全面へ引き伸ばす。不透明な画素だと地図全体が塗られる
     // （災害レイヤーが関東全域を緑一色にした実例、docs/tasks/T754.md）。
     expect(rgba).toEqual([0, 0, 0, 0]);
+  });
+});
+
+// MapLibreはタイルのデータをWorkerへtransferして渡すため、返したArrayBufferはdetachedに
+// なる。空タイルを共有のインスタンスで返していると、2回目以降のpostMessageが
+// "An ArrayBuffer is detached and could not be cloned"で失敗し、そのタイルが描画されない。
+// 空タイルは404（疎な格子状タイルの正常系）でも返るため、実機では常時起きる。
+describe("空タイルのバッファ", () => {
+  const PBF_URL = "https://example.test/api/jma-tile/bosai/jmatile/data/risk/flood/10/909/403.pbf";
+
+  function handler(): ProtocolHandler {
+    registerJmaTileProtocol();
+    const found = protocolHandlers.get("jmatile");
+    expect(found).toBeDefined();
+    return found as ProtocolHandler;
+  }
+
+  it("要求のたびに別のバッファを返す（1つ目をtransferしても2つ目が壊れない）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false }) as Response));
+    const request = handler();
+
+    const first = (await request({ url: withJmaTileProtocol(PBF_URL) }, new AbortController())).data as Uint8Array;
+    const second = (await request({ url: withJmaTileProtocol(PBF_URL) }, new AbortController())).data as Uint8Array;
+
+    const firstBuffer = first.buffer as ArrayBuffer;
+    const secondBuffer = second.buffer as ArrayBuffer;
+    expect(firstBuffer).not.toBe(secondBuffer);
+    structuredClone(firstBuffer, { transfer: [firstBuffer] });
+    expect(firstBuffer.detached).toBe(true);
+    expect(secondBuffer.detached).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("ラスタの空タイルも共有しない", async () => {
+    expect(emptyRasterTileBytes().buffer).not.toBe(emptyRasterTileBytes().buffer);
   });
 });

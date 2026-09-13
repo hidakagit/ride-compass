@@ -79,6 +79,12 @@ backendの`GET /api/jma-tile-index`（[気象・動的レイヤー](../backend/w
 タイル全面がその色で塗られ、空タイルは全ズーム・全座標で返るため地図全体が塗り潰される。**
 `jmaTileProtocol.test.ts`が画素を復号して不透明度0を検査する。
 
+**空タイルの中身は要求のたびに作り直す**。MapLibreはタイルのデータをWorkerへtransferして
+渡すため、返したArrayBufferはdetachedになる。共有のインスタンスを返すと2回目以降の
+postMessageが`An ArrayBuffer is detached and could not be cloned`で失敗し、そのタイルが
+描画されない。空タイルは404（疎な格子状タイルの正常系）でも返るため、使い回せば実機では
+常時起きる。
+
 そのためJMAタイルのURLは`jmatile://`スキームを付けた形でソースへ渡す
 （`MapView.tsx: setTilesIfChanged`と初期化時のプレースホルダの2箇所で付与）。
 
