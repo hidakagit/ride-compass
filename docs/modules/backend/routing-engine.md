@@ -20,6 +20,12 @@
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経路計算する。探索の状態は
 **有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木は
 scipyのDijkstra、2点間探索はnumbaでJITした自前のA*（`turn_expanded_shortest_path`）。
+**コストの単位は秒**で、中身は「体感の所要時間」＝
+`区間の所要時間 × (1 + penalty_strength × difficulty/100)`。所要時間は走行モデル
+（`domain/cycling_speed.py`、勾配・風から区間ごとの速度を解く）＋停止の待ち、ターンの待ちは
+遷移ごとに秒で足す。利用者の好み（軸の重み）をすべて0にすると素の所要時間になり、それが
+`select_fastest_route`の返す基準線と同じ物差しになる。
+
 Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リクエスト時ベクトル計算」方式で
 算出する——探索が実際に訪れたEdgeに対してPythonのコスト計算コールバックを都度呼ぶのでは
 なく、`prepare`/`preview_segment`が対象bbox全体ぶんの
@@ -267,6 +273,11 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 されるための制約、次節参照）。同じ`LegCostArrays`は`_build_segment_details`（区間表示）
 からも`full_edge_row`経由で参照され、探索コストと表示の二重計算を避ける。
 
+**走行モデルが読む入力は軸の構成に依存しない**。勾配は静的スコア行列が常に持つ生配列
+（0次フィルタの勾配しきい値と同じ列）から、停止の回数は
+`domain/traffic.py: stop_count_material_ids`が宣言する材料から読む——「内訳として画面へ
+見せる材料」だけを運ぶ既定に任せると、軸を非公開にした瞬間に所要時間の中身が静かに変わる。
+
 ### 探索の状態（`domain/routing.py: TurnExpandedStructure`）
 
 一対全最短経路木も2点間探索も、状態を交差点Nodeではなく**有向区間**に取る。交差点で直進したか右左折
@@ -408,9 +419,9 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
 
 ### `select_fastest_route`（好みの重みを0にしたときの基準線）
 
-コスト配列に区間ごとの所要時間（`_LegCostComposer.travel_time_seconds`＝走行モデルの
-走行時間＋停止の待ち）を、遷移にはターンの待ちをそのまま秒で渡す（`speed_ms=1.0`）ため、
-**時間最短**の経路が1本得られる。利用者の好み（軸の重み）をすべて0にしたときの経路であり、
+コスト配列に区間ごとの素の所要時間（`LegCostArrays.travel_seconds_lazy`＝走行モデルの
+走行時間＋停止の待ち、主観的割増を掛ける前の下地そのもの）を渡すため、**時間最短**の経路が
+1本得られる。利用者の好み（軸の重み）をすべて0にしたときの経路であり、
 候補が基準線に対して何を犠牲に何を得たかを読むための物差しになる。コストが秒のため
 A*のヒューリスティックも秒の下界にする（直線距離÷出せる最大速度）。
 
@@ -582,11 +593,8 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   転置CSR（キー`v * node_count + u`、行・列を入れ替え）を返す（`edge_length_m`は向きに
   依存しないため`reverse`の値に関わらず同じ配列になる）。`indptr`/`indices`/
   `entry_edge_index`はint32（実データ規模のNode/Edge数はint32の値域に
-  対して桁違いに小さい）。`from_index*node_count+to_index`の整列キー
-  （`(pred, v)`のCSRエントリ位置検索用）はフィールドとして持たず、`indptr`/`indices`
-  から`_reconstruct_entry_keys`が都度再構築する（タイル集合キーのプロセス内LRUが
-  常駐させる1エントリぶんのメモリを削減する。キー自体の計算はint64——`node_count`の
-  2乗がint32の値域を超えうるため）。
+  対して桁違いに小さい）。辺基準グラフの遷移は`build_turn_expanded_structure`が
+  この3配列から導くため、Node対からCSRエントリ位置を引き直す整列キーは持たない。
 - **`TurnCostSpec`/`TurnExpandedStructure`/`build_turn_expanded_structure`**:
   状態＝有向区間・辺＝ターンの遷移構造（「探索の状態」節参照）。`CsrGraphStructure`と
   同じくEdge重みは持たず、遷移とターンの秒だけを持つ。グラフを物理的に展開せず遷移を

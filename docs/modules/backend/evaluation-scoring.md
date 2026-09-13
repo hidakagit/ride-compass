@@ -104,9 +104,12 @@ test_every_extractable_material_reaches_both_paths`が、材料1件＝軸1本の
 - 評価できなかった軸（Noneのdifficulty）はキー自体を辞書へ含めない
   （`compute_cost_from_axis_scores`は「データ無しは合成から除外し残りの重みで再正規化」）。
 - `weights`省略時は`preference.weights`を使う。
-- `penalty_strength`（P、既定1.0）は割増率の強さを調整するリクエストパラメータ。
-  P=0で`cost=distance_m`（難易度を一切考慮しない最短距離探索）、Pを上げるほど悪路が
-  強く避けられる。`cost >= distance_m`という不変条件はP>=0の間常に成り立つ。
+- `penalty_strength`（P、既定1.0）は**主観的割増と時間の換算レート**。探索のコストは
+  `所要時間 × (1 + P × difficulty/100)`＝体感の所要時間で、P=1は「難易度100の道は
+  体感で2倍の時間」を意味する。P=0で`cost=下地`（好みを一切考慮しない＝時間最短、
+  `select_fastest_route`が返す基準線と同じ物差し）、Pを上げるほど悪路が強く避けられる。
+  `cost >= 下地`という不変条件はP>=0の間常に成り立つ（下地は探索では区間ごとの
+  所要時間、Edge単位の評価では距離）。
 - `bbox_mean_difficulty`（既定None）は、重み付き軸がすべて欠損（`difficulty is None`）の
   ときにコスト計算だけへ代入する値。戻り値の`difficulty`（表示用）はこの代入の影響を
   受けずNoneのまま。呼び出し元がbboxの実データから求めた値を渡す想定で、この関数自身は

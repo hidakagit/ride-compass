@@ -121,7 +121,7 @@ class RouteGenerationSetup:
 
     generator: RouteGenerator
     route_preference: RoutePreference
-    # T12 ADR原則1: コスト式の割増率の強さ（P）。road_graphエンジンのみに効く。
+    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。road_graphエンジンのみに効く。
     penalty_strength: float
     # 仮定巡航速度（km/h）。通過予定時刻・到達予想時刻・所要時間の算出に使う。
     assumed_speed_kmh: float

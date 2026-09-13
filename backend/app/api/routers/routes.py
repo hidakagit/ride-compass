@@ -151,8 +151,9 @@ class RouteGenerateRequest(StrictModel):
     # §10-1）。省略時はAXIS_DEFINITIONS由来の既定値（load_route_preference）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
-    # T12 ADR原則1: コスト式の割増率の強さ（P）。省略時は既定1.0
-    # （最悪でも距離2倍。domain/evaluation.py: compute_cost_from_axis_scores参照）。
+    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。省略時の既定1.0は
+    # 「難易度100の道は体感で所要時間2倍」の意味（domain/evaluation.py:
+    # compose_costs_from_axis_matrix参照）。
     penalty_strength: float = Field(ge=0, default=1.0)
     # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
     # 除外なし。domain/hard_filters.py: is_edge_allowed参照）。
@@ -235,7 +236,7 @@ class GenerationConditions(StrictModel):
     distance_km: float
     distance_tolerance_km: float
     route_preference: RoutePreferenceWeights
-    # T12 ADR原則1: コスト式の割増率の強さ（P）。
+    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。
     penalty_strength: float
     # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは除外なし）。
     max_average_grade_percent: float | None

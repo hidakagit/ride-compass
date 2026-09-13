@@ -140,16 +140,3 @@ def travel_seconds(
     return np.asarray(distance_m, dtype=np.float64) / speed_ms(profile, grade, headwind_ms, crosswind_ms, crr)
 
 
-def route_duration_seconds(
-    profile: RiderProfile,
-    distance_m: np.ndarray,
-    grade: np.ndarray,
-    headwind_ms: np.ndarray,
-    stop_seconds_total: float,
-    turn_seconds_total: float,
-    crosswind_ms: np.ndarray | None = None,
-    crr: np.ndarray | None = None,
-) -> float:
-    """経路全体の所要時間（秒）＝ 区間の走行時間の和 ＋ 停止の待ち ＋ ターンの待ち。"""
-    travel = travel_seconds(distance_m, profile, grade, headwind_ms, crosswind_ms, crr)
-    return float(travel.sum()) + stop_seconds_total + turn_seconds_total

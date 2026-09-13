@@ -68,6 +68,7 @@ from app.domain.material_catalog import (
     resolve_materials,
 )
 from app.domain.route_preference import RoutePreference
+from app.domain.traffic import stop_count_material_ids
 from app.domain.recipe import tag_value_is
 from app.domain.weather import WeatherConditions
 from app.domain.strict_model import StrictModel
@@ -171,10 +172,10 @@ def compute_cost_from_axis_scores(
     `weights`に対応するキーが無い軸は重み0として扱う。
 
     `penalty_strength`（P、T12 ADR原則1）は割増率の強さを調整するリクエストパラメータ。
-    既定1.0の挙動は最悪でも距離2倍。P=0で常に`cost=distance_m`（難易度を一切考慮しない
-    最短距離探索）、Pを上げるほど悪路が強く避けられる（P=4なら最悪の道は距離5倍相当）。
-    `cost >= distance_m`（P>=0の間は常に成り立つ）という不変条件は維持し、将来の探索
-    高速化（直線距離を下界とするA*等）の前提を崩さない。
+    既定1.0の挙動は最悪でも下地2倍。P=0で常に`cost=下地`（難易度を一切考慮しない）、
+    Pを上げるほど悪路が強く避けられる（P=4なら最悪の道は5倍相当）。`cost >= 下地`
+    （P>=0の間は常に成り立つ）という不変条件は維持し、下地の下界がコストの下界でも
+    あるというA*の前提を崩さない。
 
     `bbox_mean_difficulty`: 重み付き軸すべてが欠損（`difficulty is None`）のときに
     コスト計算だけへ代入する値（呼び出し元がbboxの実データから求めた距離加重平均
@@ -330,8 +331,15 @@ def route_facing_material_ids() -> list[str]:
       値ごとの延長割合は別の器が要る（[T718](docs/tasks/T718.md)）。
     - 動的材料（風）。静的スコア行列は`weather=None`で組み立てるため全行NaNになる。
     - 分解しない軸（参照材料が1件）。軸単位の生値（`axis_raw_arrays`）で足りる。
+
+    軸が1つも参照していなくても、走行モデルが所要時間の算出に使う材料
+    （`domain/traffic.py: stop_count_material_ids`）は常に含める——軸の公開/非公開で
+    所要時間の中身が変わってはいけない。
     """
     seen: dict[str, None] = {}
+    for material_id in stop_count_material_ids():
+        if material_id in MATERIAL_CATALOG:
+            seen.setdefault(material_id, None)
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
         definition = AXIS_DEFINITIONS[axis_id]
         if not definition.is_published:
@@ -620,10 +628,17 @@ def compose_costs_from_axis_matrix(
     axis_arrays: Mapping[str, np.ndarray],
     weights: dict[str, float],
     penalty_strength: float = 1.0,
+    base: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
     """`_evaluate_axes_bulk`/`evaluate_dynamic_axis_arrays`が求めた軸別スコア配列群から、
     重み付き合成のcost・composite difficulty配列・軸別寄与度配列を求める
     （`compute_edge_costs_bulk`から切り出した合成フェーズ）。
+
+    `base`は割増を掛ける下地で、探索は区間ごとの所要時間（秒）を渡す——コストは
+    `所要時間 × (1 + P × difficulty/100)`＝**体感の所要時間**になり、`penalty_strength`は
+    「difficulty 100の道は体感で何倍の時間に感じるか−1」を意味する。省略時は`distance_m`
+    を下地にする（Edge単位の評価をそのまま返す`compute_edge_costs_bulk`が使う。この経路の
+    costは表示・回帰オラクル用で探索には渡らない）。difficultyの合成自体は下地に依らない。
 
     Neumaier加算・`round1_array`はスカラー版`composite_difficulty`/
     `compute_cost_from_axis_scores`とビット単位で一致させるために必須
@@ -687,15 +702,21 @@ def compose_costs_from_axis_matrix(
 
     # costの算出にだけ、重み付き軸が全欠損のEdgeへbbox内平均difficultyを
     # 代入する（composite自体は表示用にNaNのまま返す、上のdocstring参照）。
+    cost_base = distance_m if base is None else base
     bbox_mean = distance_weighted_difficulty_array(composite, distance_m)
     if bbox_mean is None:
         cost_difficulty = composite
     else:
         cost_difficulty = np.where(np.isnan(composite), bbox_mean, composite)
-    # compute_cost_from_axis_scoresと同じ: difficultyがNaN(None相当)ならcostは距離そのもの
+    # compute_cost_from_axis_scoresと同じ: difficultyがNaN(None相当)ならcostは下地そのもの
     # （割増なし）。
     penalty_multiplier = np.where(np.isnan(cost_difficulty), 1.0, 1.0 + penalty_strength * (cost_difficulty / 100))
-    cost = round1_array(distance_m * penalty_multiplier)
+    cost = cost_base * penalty_multiplier
+    if base is None:
+        # 下地が距離のときだけ0.1m単位へ丸める（スカラー版のオラクルと一致させるため）。
+        # 秒を下地にすると0.1秒は短い区間の数%にあたり、`cost/所要時間`からdifficultyを
+        # 逆算する側（折返し点・経由Nodeの並べ替え）に丸め由来の差が現れる。
+        cost = round1_array(cost)
     return cost, composite, axis_contributions
 
 

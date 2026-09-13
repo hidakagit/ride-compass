@@ -44,9 +44,8 @@ def evaluate_graph(
     # preferenceは呼び出し元が必ず明示的に渡す（インスタンスへ保持すると
     # リクエスト間で共有される状態を汚染するため、呼び出し元がmodel_copyした
     # コピーをこちらへ渡す設計）。
-    # penalty_strength（T12 ADR原則1）はコスト式の割増率の強さを
-    # 調整するリクエストパラメータ（既定1.0）。domain/evaluation.py:
-    # compute_cost_from_axis_scores参照。
+    # penalty_strength（T12 ADR原則1）は主観的割増と時間の換算レート
+    # （既定1.0）。domain/evaluation.py: compute_cost_from_axis_scores参照。
     # max_average_grade_percent（T12 ADR原則5）は0次ハードフィルタの
     # 勾配しきい値（既定None＝除外しない）。domain/evaluation.py: is_edge_allowed参照。
     # hard_filtersは0次フィルタ名（no_bicycle/motorway/trunk）の

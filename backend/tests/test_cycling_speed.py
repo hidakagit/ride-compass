@@ -51,20 +51,6 @@ def test_crosswind_also_slows_down():
     assert crosswind[0] < still[0]
 
 
-def test_route_duration_adds_stops_and_turns():
-    from app.domain.cycling_speed import route_duration_seconds
-
-    profile = RiderProfile(cruise_speed_kmh=20.0)
-    travel_only = route_duration_seconds(
-        profile, np.array([1000.0]), np.array([0.0]), np.array([0.0]), 0.0, 0.0
-    )
-    with_waits = route_duration_seconds(
-        profile, np.array([1000.0]), np.array([0.0]), np.array([0.0]), 42.0, 12.0
-    )
-    assert travel_only == pytest.approx(180.0, abs=1.0)
-    assert with_waits == pytest.approx(travel_only + 54.0, abs=0.1)
-
-
 def test_tailwind_is_faster_than_still_air():
     profile = RiderProfile(cruise_speed_kmh=20.0)
     assert _kmh(profile, headwind_ms=-3.0) > _kmh(profile)

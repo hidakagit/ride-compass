@@ -65,8 +65,8 @@ import numpy as np
 from app.domain.time_zone import JST
 from app.domain.cycling_speed import (
     MAX_DESCENT_SPEED_KMH,
+    WALKING_SPEED_KMH,
     RiderProfile,
-    route_duration_seconds,
     travel_seconds,
 )
 from app.domain.traffic import POI_COUNT_KINDS, highway_rank, stop_seconds
@@ -182,8 +182,8 @@ LOOP_TO_OUTBOUND_RATIO_MAX = 2.3
 # 目標距離をこの比率で割った値を使う——許容が目標距離以上のとき下限が0でクランプされ、
 # 上下限の算術平均だと中心が0付近まで引き下げられ極端に短い往路が上位に来るため。
 RING_CENTER_RATIO = (LOOP_TO_OUTBOUND_RATIO_MIN + LOOP_TO_OUTBOUND_RATIO_MAX) / 2.0
-# 一対全探索のコスト上限（リング上限×(1+P)）に掛ける余裕。Edge単位の丸め（0.1m）の
-# 積み上がりで上限ぎりぎりのNodeを取りこぼさないため。
+# 一対全探索のコスト上限に掛ける余裕。Edge単位の丸めの積み上がりで上限ぎりぎりのNodeを
+# 取りこぼさないため。
 COST_LIMIT_SLACK = 1.01
 # 候補選定（`pareto_layer_index`）で「実質同じ」とみなす粒度。距離は往路実距離200m
 # （周回全長では約400m差、体感で選び分ける単位より細かい）、難易度は他の集計値と同じ
@@ -235,6 +235,10 @@ class LegCostArrays:
     # 風のデータが無いレグは0。
     headwind_ms: np.ndarray
     crosswind_ms: np.ndarray
+    # 区間ごとの所要時間（秒）。`travel_seconds_lazy`は`cost_lazy`と同じ行順で、探索の
+    # コストの下地になる。ターンの待ちは遷移ごとに決まるためどちらにも含まない。
+    travel_seconds_full: np.ndarray
+    travel_seconds_lazy: np.ndarray
 
 
 class _LegCostComposer:
@@ -298,26 +302,30 @@ class _LegCostComposer:
         )
         self._cache: dict[tuple, LegCostArrays] = {}
 
-    def travel_time_seconds(self, leg: LegCostArrays) -> np.ndarray:
-        """区間ごとの所要時間（秒）を`lazy_graph.edge_ids`の行順で返す。
+    def _travel_time_seconds(
+        self, material_arrays: dict[str, np.ndarray], headwind_ms: np.ndarray, crosswind_ms: np.ndarray
+    ) -> np.ndarray:
+        """区間ごとの所要時間（秒）を`full_edge_row`順で返す。
 
         走行モデル（`domain/cycling_speed.py`）で勾配・風の成分・巡航速度から求めた走行時間に、
         その区間にある停止要因の待ち（`domain/traffic.py: STOP_SECONDS`）を足したもの。
         ターンの待ちは遷移ごとに決まるためここには含まない（探索側が足す）。
-        0次フィルタで除外された区間は無限大にする（`compose`のコスト配列と同じ扱い）。
+        0次フィルタで除外された区間は無限大にする（探索から見た通行可否をコストの下地だけで
+        表すため）。
         """
         profile = RiderProfile(cruise_speed_kmh=self.speed_kmh)
         distance_m = self._score_matrix.distance_m
-        gradient = leg.material_arrays.get("gradient_percent")
-        grade = np.zeros(len(distance_m)) if gradient is None else np.nan_to_num(gradient) / 100.0
-        travel = travel_seconds(distance_m, profile, grade, leg.headwind_ms, leg.crosswind_ms)
+        # 勾配は静的スコア行列が生配列として常に持つ（0次フィルタの勾配しきい値と同じ列）。
+        # `material_arrays`は「内訳として見せる材料」だけのため、勾配軸が分解されていない
+        # 構成では欠ける。
+        grade = np.nan_to_num(self._score_matrix.gradient_percent) / 100.0
+        travel = travel_seconds(distance_m, profile, grade, headwind_ms, crosswind_ms)
         stops = np.zeros(len(distance_m))
         for kind in POI_COUNT_KINDS:
-            per_km = leg.material_arrays.get(f"poi_{kind}_per_km")
+            per_km = material_arrays.get(f"poi_{kind}_per_km")
             if per_km is not None:
                 stops += np.nan_to_num(per_km) * (distance_m / 1000.0) * stop_seconds(kind)
-        seconds = np.where(self._hard_filter_excluded, np.inf, travel + stops)
-        return seconds[self._lazy_row_index]
+        return np.where(self._hard_filter_excluded, np.inf, travel + stops)
 
     @property
     def lazy_hard_filter_excluded(self) -> np.ndarray:
@@ -369,12 +377,6 @@ class _LegCostComposer:
             headwind = crosswind = np.zeros(len(self._score_matrix.bearing_deg))
         else:
             headwind, crosswind = wind_components(*wind_inputs, self._score_matrix.bearing_deg)
-        # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
-        published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
-        cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
-            self._score_matrix.distance_m, published, self._weights, self._penalty_strength,
-        )
-        cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
         material_arrays = {
             # 静的材料は静的スコア行列の列をそのまま指すためレグ間で共有する
             # （動的材料と違いレグごとに変わらない）。
@@ -385,6 +387,13 @@ class _LegCostComposer:
                 if material_id in resolved and not np.all(np.isnan(resolved[material_id]))
             },
         }
+        # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
+        published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
+        travel = self._travel_time_seconds(material_arrays, headwind, crosswind)
+        cost_array, difficulty_array, contribution_arrays = compose_costs_from_axis_matrix(
+            self._score_matrix.distance_m, published, self._weights, self._penalty_strength, base=travel,
+        )
+        cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
         leg = LegCostArrays(
             label=label,
             cost_lazy=cost_array[self._lazy_row_index],
@@ -397,6 +406,8 @@ class _LegCostComposer:
             passage_hours=passage,
             headwind_ms=headwind,
             crosswind_ms=crosswind,
+            travel_seconds_full=travel,
+            travel_seconds_lazy=travel[self._lazy_row_index],
         )
         self._cache[key] = leg
         if passage is None:
@@ -552,8 +563,8 @@ class RoadGraphEngine:
         # tests/test_evaluation_bulk.pyで検証する。
         self._weather_service = weather_service
         self._route_preference = route_preference
-        # T12 ADR原則1: コスト式`distance × (1 + P × difficulty/100)`のP。
-        # 既定1.0の挙動は最悪でも距離2倍。
+        # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。
+        # 既定1.0は「difficulty 100の道は体感で所要時間2倍」の意味。
         self._penalty_strength = penalty_strength
         # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、既定None＝
         # 除外しない）。domain/evaluation.py: is_edge_allowed参照。
@@ -868,9 +879,11 @@ class RoadGraphEngine:
         edges = await asyncio.to_thread(
             turn_expanded_shortest_path,
             turn_structure, search.outbound.cost_lazy,
-            _estimate_distances_m(search.graph, search.node_lat, search.node_lon, destination_node),
+            _heuristic_seconds(
+                _estimate_distances_m(search.graph, search.node_lat, search.node_lon, destination_node)
+            ),
             _origin_states(statics, search.lazy_graph.node_id_to_index[origin_node]),
-            search.lazy_graph.node_id_to_index[destination_node], kmh_to_ms(search.composer.speed_kmh),
+            search.lazy_graph.node_id_to_index[destination_node],
         )
         if edges is None:
             return None
@@ -949,9 +962,11 @@ class RoadGraphEngine:
                     context.legs.append(leg)
                 segment_path = turn_expanded_shortest_path(
                     context.turn_structure, leg.cost_lazy,
-                    _estimate_distances_m(context.graph, context.node_lat, context.node_lon, to_node),
+                    _heuristic_seconds(
+                        _estimate_distances_m(context.graph, context.node_lat, context.node_lon, to_node)
+                    ),
                     _origin_states(context.statics, context.lazy_graph.node_id_to_index[from_node]),
-                    context.lazy_graph.node_id_to_index[to_node], kmh_to_ms(context.composer.speed_kmh),
+                    context.lazy_graph.node_id_to_index[to_node],
                 )
                 if segment_path is None:
                     return None
@@ -989,13 +1004,14 @@ class RoadGraphEngine:
 
         1. 起点からの一対全最短経路木（`domain/routing.py: build_turn_expanded_tree`、
            軸重み付きコスト、scipy）を1回だけ求める。探索はコスト上限
-           （リング上限×(1+P)、`cost >= distance`の不変条件による安全な上限）で打ち切る。
+           （リング上限の距離を最低速度で秒へ直し×(1+P)。リング内のNodeを取りこぼさない
+           上界）で打ち切る。
         2. 木に沿った往路の**実距離**が`[(目標-許容)/LOOP_TO_OUTBOUND_RATIO_MIN,
            (目標+許容)/LOOP_TO_OUTBOUND_RATIO_MAX]`に入るNodeを「リング」として抽出する
            （最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを極端に振った
            設定ほど往路が遠回りするため、最短実距離基準だと往路だけで目標の半分を超え
            距離フィルタで全滅する。比の範囲は復路が往路より長くなりやすい実測に基づく）。
-        3. 往路の距離加重平均difficulty `(cost/len - 1)/P`（コスト式の逆算、
+        3. 往路の時間加重平均difficulty `(cost/seconds - 1)/P`（コスト式の逆算、
            overall_difficultyと同じ物差し）の昇順に並べる。同点（小数1桁）は
            「往路実距離がリング中心に近い順」、さらにNode index順で決定的にする。
         4. 上位から順に、既採用候補と往路の重複率が`TURNAROUND_MAX_OVERLAP_RATIO`を
@@ -1011,15 +1027,22 @@ class RoadGraphEngine:
             ring_lower_m = max(0.0, (target_m - tolerance_m) / 2.0)
             ring_upper_m = (target_m + tolerance_m) / 2.0
         ring_center_m = target_m / RING_CENTER_RATIO
-        cost_limit = ring_upper_m * (1.0 + max(self._penalty_strength, 0.0)) * COST_LIMIT_SLACK
         statics = context.statics
+        # コストは秒（体感の所要時間）のため、上限もリング上限の距離を秒へ直して決める。
+        # 走行モデルが出しうる最も遅い速度（押して歩く）で割ることで、リング内のNodeを
+        # 取りこぼさない上界になる（`cost <= 所要時間 × (1+P)`かつ
+        # `所要時間 <= 距離 ÷ 最低速度`）。
+        cost_limit = (
+            ring_upper_m / kmh_to_ms(WALKING_SPEED_KMH)
+            * (1.0 + max(self._penalty_strength, 0.0)) * COST_LIMIT_SLACK
+        )
 
         tree_started = time.monotonic()
         tree = await asyncio.to_thread(
             build_turn_expanded_tree,
             context.turn_structure, context.legs[0].cost_lazy, statics.edge_length_m,
-            _origin_states(statics, context.origin_index), kmh_to_ms(context.composer.speed_kmh),
-            statics.csr.node_count, cost_limit=cost_limit,
+            _origin_states(statics, context.origin_index), statics.csr.node_count,
+            cost_limit=cost_limit, edge_seconds=context.legs[0].travel_seconds_lazy,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
@@ -1046,11 +1069,12 @@ class RoadGraphEngine:
         )
         context.legs = [context.legs[0], inbound]
         if self._penalty_strength > 0:
+            # コスト式`所要時間 × (1 + P × difficulty/100)`の逆算。
             with np.errstate(invalid="ignore", divide="ignore"):
-                difficulty = (tree.node_cost[ring] / ring_length - 1.0) / self._penalty_strength * 100.0
+                difficulty = (tree.node_cost[ring] / tree.node_seconds[ring] - 1.0) / self._penalty_strength * 100.0
             difficulty = np.where(np.isfinite(difficulty), difficulty, 0.0)
         else:
-            # P=0はコスト＝距離（難易度を一切考慮しない）なので全候補同点。
+            # P=0はコスト＝所要時間（難易度を一切考慮しない）なので全候補同点。
             difficulty = np.zeros(len(ring))
         difficulty_key = np.round(difficulty, 1)
         closeness_key = np.abs(ring_length - ring_center_m)
@@ -1197,11 +1221,11 @@ class RoadGraphEngine:
         destination_index = lazy_graph.node_id_to_index[destination_node]
 
         tree_started = time.monotonic()
-        speed_ms = kmh_to_ms(context.composer.speed_kmh)
         forward_tree = await asyncio.to_thread(
             build_turn_expanded_tree,
             context.turn_structure, context.legs[0].cost_lazy, context.statics.edge_length_m,
-            _origin_states(context.statics, context.origin_index), speed_ms, context.statics.csr.node_count,
+            _origin_states(context.statics, context.origin_index), context.statics.csr.node_count,
+            edge_seconds=context.legs[0].travel_seconds_lazy,
         )
 
         if not np.isfinite(forward_tree.node_cost[destination_index]):
@@ -1242,15 +1266,15 @@ class RoadGraphEngine:
         backward_tree = await asyncio.to_thread(
             build_turn_expanded_tree,
             context.turn_structure, inbound.cost_lazy, context.statics.edge_length_m,
-            _destination_states(context.turn_structure, destination_index), speed_ms,
-            context.statics.csr.node_count, reverse=True,
+            _destination_states(context.turn_structure, destination_index),
+            context.statics.csr.node_count, reverse=True, edge_seconds=inbound.travel_seconds_lazy,
         )
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
         # Nodeで単に前向き＋後ろ向きを足すと、そのNodeで曲がる費用が抜ける。
         junction_started = time.monotonic()
         junction = combine_forward_backward_at_nodes(
-            context.turn_structure, forward_tree, backward_tree, speed_ms, context.statics.csr.node_count
+            context.turn_structure, forward_tree, backward_tree, context.statics.csr.node_count
         )
         junction_ms = round((time.monotonic() - junction_started) * 1000)
         # 目的地そのものを経由Nodeとする経路（＝経由せず直行する経路）も候補に含める。
@@ -1258,6 +1282,7 @@ class RoadGraphEngine:
         _add_terminal_candidate(junction, forward_tree, destination_index)
         combined_cost = junction.cost
         combined_length = junction.length_m
+        combined_seconds = junction.seconds
         reachable = np.isfinite(combined_cost)
         if not np.any(reachable):
             # 改善計画docs/logging.md「候補0件はWARNINGへ昇格し、原因の内訳を同じ行に含める」:
@@ -1281,11 +1306,12 @@ class RoadGraphEngine:
         if self._penalty_strength > 0:
             with np.errstate(invalid="ignore", divide="ignore"):
                 difficulty = (
-                    (combined_cost[candidates] / combined_length[candidates] - 1.0) / self._penalty_strength * 100.0
+                    (combined_cost[candidates] / combined_seconds[candidates] - 1.0)
+                    / self._penalty_strength * 100.0
                 )
             difficulty = np.where(np.isfinite(difficulty), difficulty, 0.0)
         else:
-            # P=0はコスト＝距離（難易度を一切考慮しない）なので全候補同点。
+            # P=0はコスト＝所要時間（難易度を一切考慮しない）なので全候補同点。
             difficulty = np.zeros(len(candidates))
         difficulty_key = np.round(difficulty, 1)
         # 周回の折返し点選定と同じく、経路長・difficultyのパレート非劣解を先に並べる
@@ -1390,17 +1416,14 @@ class RoadGraphEngine:
         destination_index = lazy_graph.node_id_to_index[destination_node]
 
         started = time.monotonic()
-        time_cost = context.composer.travel_time_seconds(context.legs[0])
-        # コストが秒のため、ヒューリスティックも秒の下界にする（直線距離÷出せる最大速度）。
-        # ターンの待ちは`speed_ms=1.0`でそのまま秒として加算される。
-        straight_m = np.asarray(
-            _estimate_distances_m(context.graph, context.node_lat, context.node_lon, destination_node)
-        )
-        heuristic_seconds = (straight_m / kmh_to_ms(MAX_DESCENT_SPEED_KMH)).tolist()
+        time_cost = context.legs[0].travel_seconds_lazy
         edges = await asyncio.to_thread(
             turn_expanded_shortest_path,
-            context.turn_structure, time_cost, heuristic_seconds,
-            _origin_states(context.statics, context.origin_index), destination_index, 1.0,
+            context.turn_structure, time_cost,
+            _heuristic_seconds(
+                _estimate_distances_m(context.graph, context.node_lat, context.node_lon, destination_node)
+            ),
+            _origin_states(context.statics, context.origin_index), destination_index,
         )
         if not edges:
             logger.warning("select_fastest_route no path to destination=%s", destination_node)
@@ -1466,9 +1489,9 @@ class RoadGraphEngine:
             for index in penalized:
                 cost_lazy[index] = original[index] * RETRACE_PENALTY_MULTIPLIER
             return_edge_index_list = turn_expanded_shortest_path(
-                context.turn_structure, cost_lazy, _origin_estimate(context),
+                context.turn_structure, cost_lazy, _heuristic_seconds(_origin_estimate(context)),
                 _origin_states(context.statics, lazy_graph.node_id_to_index[data.node_id]),
-                context.origin_index, kmh_to_ms(context.composer.speed_kmh),
+                context.origin_index,
             )
         finally:
             for index, value in original.items():
@@ -1702,40 +1725,24 @@ class RoadGraphEngine:
     ) -> float | None:
         """候補の所要時間（秒）＝ 区間の走行時間 ＋ 停止の待ち ＋ ターンの待ち。
 
-        走行時間は走行モデル（`domain/cycling_speed.py`）で、勾配・風の成分・巡航速度から
-        区間ごとに求める。停止は種別ごとの秒（`domain/traffic.py: STOP_SECONDS`）×その区間に
-        ある数、ターンは遷移ごとの秒（`TurnExpandedStructure`）を経路に沿って足す。
+        区間ごとの秒は、探索のコストの下地になっている配列（`LegCostArrays.
+        travel_seconds_full`、走行モデル＋停止の待ち）をそのまま読む——表示の所要時間と
+        探索が使う所要時間を別々に計算すると、片方だけ直したときに静かに食い違う。
+        ターンは経路の遷移ごとの秒（`TurnExpandedStructure`）を足す。
+
+        行を引けない区間（タイル境界等で静的スコア行列に無い）は巡航速度で走ったものとして
+        数える——0にすると所要時間が実態より短く出る。
         """
         if not edges:
             return None
-        profile = RiderProfile(cruise_speed_kmh=context.composer.speed_kmh)
-        count = len(edges)
-        distance_m = np.zeros(count)
-        grade = np.zeros(count)
-        headwind = np.zeros(count)
-        crosswind = np.zeros(count)
-        stop_total = 0.0
-        for position, (edge, leg_index) in enumerate(zip(edges, leg_of_edge)):
-            distance_m[position] = edge.distance_m
+        fallback_ms = kmh_to_ms(context.composer.speed_kmh)
+        total = 0.0
+        for edge, leg_index in zip(edges, leg_of_edge):
             leg = context.legs[leg_index] if leg_index < len(context.legs) else context.legs[0]
             row = context.full_edge_row.get(edge.edge_id)
-            if row is None:
-                continue
-            headwind[position] = leg.headwind_ms[row]
-            crosswind[position] = leg.crosswind_ms[row]
-            gradient = leg.material_arrays.get("gradient_percent")
-            if gradient is not None and not math.isnan(gradient[row]):
-                grade[position] = gradient[row] / 100.0
-            for kind in POI_COUNT_KINDS:
-                per_km = leg.material_arrays.get(f"poi_{kind}_per_km")
-                if per_km is not None and not math.isnan(per_km[row]):
-                    stop_total += per_km[row] * (edge.distance_m / 1000.0) * stop_seconds(kind)
-        return route_duration_seconds(
-            profile, distance_m, grade, headwind,
-            stop_seconds_total=stop_total,
-            turn_seconds_total=self._turn_seconds_along(context, edges),
-            crosswind_ms=crosswind,
-        )
+            seconds = leg.travel_seconds_full[row] if row is not None else np.inf
+            total += float(seconds) if np.isfinite(seconds) else edge.distance_m / fallback_ms
+        return total + self._turn_seconds_along(context, edges)
 
     def _turn_seconds_along(self, context: _RoadGraphContext, edges: list[EdgeLike]) -> float:
         """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。"""
@@ -2116,14 +2123,20 @@ def _estimate_distances_m(
 ) -> list[float]:
     """グラフ上の全Node（`node_lat`/`node_lon`と同じ行順）から`target_node_id`への
     直線距離（m）をnumpyで1回だけベクトル計算する。2点間探索のA*ヒューリスティック
-    （`turn_expanded_shortest_path`の`heuristic`）の素材になる。
-
-    Edge Costは常に`cost >= distance_m`を満たす（`docs/decisions/t12-routing-scale.md`
-    原則1「不変条件1」、ペナルティ倍率は常に1以上）ため、直線距離は実際のコストを
-    過大評価しない下界＝admissibleなヒューリスティックになる。
+    （`_heuristic_seconds`が秒へ直す）の素材になる。
     """
     target_node = graph.nodes[target_node_id]
     return (haversine_distance_km_array(node_lat, node_lon, target_node) * 1000).tolist()
+
+
+def _heuristic_seconds(straight_m: np.ndarray | list[float]) -> np.ndarray:
+    """Nodeごとの直線距離（m）を、所要時間の下界（秒）へ直す。
+
+    実経路は直線より長く、実際の速度は`MAX_DESCENT_SPEED_KMH`以下のため、これは真の
+    所要時間を上回らない＝A*のヒューリスティックとして使える（admissible）。主観的割増は
+    1以上の倍率のため、割増を含むコストに対しても下界であり続ける。
+    """
+    return np.asarray(straight_m, dtype=float) / kmh_to_ms(MAX_DESCENT_SPEED_KMH)
 
 
 def _origin_estimate(context: _RoadGraphContext) -> np.ndarray:

@@ -151,6 +151,16 @@ def stop_seconds(kind: str) -> float:
     return STOP_SECONDS.get(kind, 0.0)
 
 
+def stop_count_material_ids() -> tuple[str, ...]:
+    """停止の待ちを所要時間へ足すのに要る材料id（`POI_COUNT_KINDS`と1対1）。
+
+    走行モデルはこれらを**軸の構成と無関係に**必要とする。軸が分解した材料だけを
+    経路へ運ぶ既定（`evaluation.py: route_facing_material_ids`）に任せると、停止の軸を
+    非公開にした瞬間に所要時間から停止の待ちが静かに消える。
+    """
+    return tuple(f"poi_{kind}_per_km" for kind in POI_COUNT_KINDS)
+
+
 # 同じ場所にある同種の点を1つの停止としてまとめる距離（m）。日本のOSMは1つの信号交差点を
 # 流入路ごとの`highway=traffic_signals`と横断歩道位置の`highway=crossing`＋
 # `crossing=traffic_signals`という複数ノードで描くため、ノードを素直に数えると停止回数を

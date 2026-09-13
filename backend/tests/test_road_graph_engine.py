@@ -1259,10 +1259,11 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
 
     day_cost = _lazy_edge_cost(engine, day_context, "a", "b")
     night_cost = _lazy_edge_cost(engine, night_context, "a", "b")
-    # 日中はnight_weightが0倍されるため、他の軸の重みも全て0の本ケースではdistance_mそのもの
-    # （難易度による割増なし）になるはず。夜間はnight_difficulty分の割増が乗る。
+    # 日中はnight_weightが0倍されるため、他の軸の重みも全て0の本ケースでは素の所要時間
+    # そのもの（主観的割増なし）になるはず。夜間はnight_difficulty分の割増が乗る。
+    # 平地・無風なら走行モデルの速度は巡航速度そのものになる。
     assert night_cost > day_cost
-    assert day_cost == pytest.approx(edge.distance_m, abs=0.1)
+    assert day_cost == pytest.approx(edge.distance_m / kmh_to_ms(ASSUMED_SPEED_KMH), rel=1e-3)
 
 
 async def test_prepare_does_not_crash_when_night_axis_is_unpublished(monkeypatch):
@@ -1291,6 +1292,38 @@ async def test_prepare_does_not_crash_when_night_axis_is_unpublished(monkeypatch
     day_context = await engine.prepare(ORIGIN, radius_km=1.0, now=daytime)  # 例外が出ないことを確認
 
     assert day_context.night_active is False
+
+
+async def test_search_cost_slows_down_on_a_climb_even_when_the_gradient_axis_is_off():
+    # 勾配は「速度が落ちる（走行モデル）」と「きつい坂は避けたい（軸）」の2つの効き方を持つ。
+    # 軸の重みを0にしても、登りは実際に時間がかかるぶんコストが上がらなければならない
+    # ——走行モデルが勾配を受け取れていないと、この差がまるごと消える。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    # 全軸の重みを0にして、コストを素の所要時間だけにする。
+    preference = RoutePreference(
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0, "bicycle_infra_quality": 0.0}
+    )
+    climb = ElevationAttribute(edge_id="e1", average_grade=8.0, data_source="test", calculated_at="t")
+
+    flat_generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    climb_generator, _, _ = make_generator(
+        graph, way_tags={"e1": {}}, route_preference=preference,
+        elevation_attributes_for_search={"e1": climb},
+    )
+    flat_context = await flat_generator._engine.prepare(ORIGIN, radius_km=1.0)
+    climb_context = await climb_generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    flat_cost = _lazy_edge_cost(flat_generator._engine, flat_context, "a", "b")
+    climb_cost = _lazy_edge_cost(climb_generator._engine, climb_context, "a", "b")
+
+    # 平地は巡航速度そのもの。勾配8%では出力を上げても巡航速度を大きく下回る。
+    assert flat_cost == pytest.approx(edge.distance_m / kmh_to_ms(ASSUMED_SPEED_KMH), rel=1e-3)
+    assert climb_cost > flat_cost * 1.5
 
 
 async def test_prepare_applies_precomputed_gradient_to_search_cost():
@@ -1325,8 +1358,9 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
     steep_context = await steep_generator._engine.prepare(ORIGIN, radius_km=1.0)
     steep_cost = _lazy_edge_cost(steep_generator._engine, steep_context, "a", "b")
     # 事前計算データが無い（{}のまま=バッチ未実行を模す）場合はgradient軸がデータ無し扱いで
-    # 割増が乗らない。事前計算済みの急勾配が渡されるとgradient軸の割増がコストへ反映される。
-    assert flat_cost == pytest.approx(edge.distance_m, abs=0.1)
+    # 割増が乗らない（平地・無風なので素の所要時間そのもの）。事前計算済みの急勾配が渡されると
+    # gradient軸の割増と、走行モデルが登りで落とす速度の両方がコストへ反映される。
+    assert flat_cost == pytest.approx(edge.distance_m / kmh_to_ms(ASSUMED_SPEED_KMH), rel=1e-3)
     assert steep_cost > flat_cost
 
 
