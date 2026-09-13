@@ -156,10 +156,14 @@
   color: #fff;
 }
 
+/* 役割名の幅を揃えて、値（現在地／なし／地図をタップ）の開始位置を3行でそろえる
+   ——値がばらばらの位置から始まると、行を縦に読み比べられない。 */
 .pointLabel {
   flex: none;
+  width: 3.6rem;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
+  text-align: left;
 }
 
 .pointRow[data-armed="true"] .pointLabel {
@@ -170,6 +174,8 @@
   flex: 1 1 auto;
   min-width: 0;
   font-size: var(--font-size-sm);
+  /* buttonの既定（中央寄せ）を打ち消す。 */
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
