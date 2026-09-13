@@ -74,12 +74,22 @@ def climb_power_ratio(grade: np.ndarray) -> np.ndarray:
 
 
 def _resistance_force(
-    speed: np.ndarray, grade: np.ndarray, headwind_ms: np.ndarray, profile: RiderProfile, crr: np.ndarray
+    speed: np.ndarray,
+    grade: np.ndarray,
+    headwind_ms: np.ndarray,
+    crosswind_ms: np.ndarray,
+    profile: RiderProfile,
+    crr: np.ndarray,
 ) -> np.ndarray:
-    """その速度で釣り合う抵抗力の合計（N）。向かい風は正、追い風は負。"""
-    apparent = speed + headwind_ms
-    # 追い風が速度を上回る（見かけの風が後ろから）場合も抵抗は正にならず推進側へ効く。
-    drag = 0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2 * apparent * np.abs(apparent)
+    """その速度で釣り合う抵抗力の合計（N）。
+
+    空気抵抗は相対風速ベクトルで求める（`domain/wind.py: wind_drag_ratio_array`と同じ形）。
+    真横からの風でも相対風速は増えるため、進行方向成分だけでは過小評価になる。追い風が走行
+    速度を上回る領域も`along`の符号で連続に繋がる。
+    """
+    along = speed + headwind_ms
+    relative = np.sqrt(along * along + crosswind_ms * crosswind_ms)
+    drag = 0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2 * relative * along
     rolling = crr * profile.mass_kg * GRAVITY_M_S2
     gravity = profile.mass_kg * GRAVITY_M_S2 * grade
     return drag + rolling + gravity
@@ -89,11 +99,13 @@ def speed_ms(
     profile: RiderProfile,
     grade: np.ndarray,
     headwind_ms: np.ndarray,
+    crosswind_ms: np.ndarray | None = None,
     crr: np.ndarray | None = None,
     iterations: int = 12,
 ) -> np.ndarray:
     """区間ごとの走行速度（m/s）。`grade`は勾配（0.05なら5%）、`headwind_ms`は進行方向への
-    向かい風成分（正が向かい風）。`crr`を渡すと区間ごとに転がり抵抗を変えられる（未舗装等）。
+    向かい風成分（正が向かい風）、`crosswind_ms`は横成分。`crr`を渡すと区間ごとに転がり抵抗を
+    変えられる（未舗装等）。
 
     走行方程式`P = 抵抗力(v) × v`を`v`について解く。3次方程式になるため、二分法で挟んでから
     解を返す（ニュートン法は抵抗力が0を跨ぐ下り坂で発散しうるため、区間を確実に狭める方を採る）。
@@ -101,13 +113,14 @@ def speed_ms(
     grade = np.asarray(grade, dtype=np.float64)
     headwind = np.asarray(headwind_ms, dtype=np.float64)
     rolling = np.full(grade.shape, DEFAULT_CRR) if crr is None else np.asarray(crr, dtype=np.float64)
+    cross = np.zeros(grade.shape) if crosswind_ms is None else np.asarray(crosswind_ms, dtype=np.float64)
     power = wheel_power_w(profile) * climb_power_ratio(grade)
 
     low = np.full(grade.shape, WALKING_SPEED_KMH / 3.6)
     high = np.full(grade.shape, MAX_DESCENT_SPEED_KMH / 3.6)
     for _ in range(iterations):
         middle = (low + high) / 2
-        needed = _resistance_force(middle, grade, headwind, profile, rolling) * middle
+        needed = _resistance_force(middle, grade, headwind, cross, profile, rolling) * middle
         # 必要な出力が持っている出力を超えるなら、その速度は出せない（上限を下げる）。
         too_fast = needed > power
         high = np.where(too_fast, middle, high)
@@ -120,7 +133,23 @@ def travel_seconds(
     profile: RiderProfile,
     grade: np.ndarray,
     headwind_ms: np.ndarray,
+    crosswind_ms: np.ndarray | None = None,
     crr: np.ndarray | None = None,
 ) -> np.ndarray:
     """区間ごとの走行時間（秒）。停止・ターンの待ちは含まない（別に足す）。"""
-    return np.asarray(distance_m, dtype=np.float64) / speed_ms(profile, grade, headwind_ms, crr)
+    return np.asarray(distance_m, dtype=np.float64) / speed_ms(profile, grade, headwind_ms, crosswind_ms, crr)
+
+
+def route_duration_seconds(
+    profile: RiderProfile,
+    distance_m: np.ndarray,
+    grade: np.ndarray,
+    headwind_ms: np.ndarray,
+    stop_seconds_total: float,
+    turn_seconds_total: float,
+    crosswind_ms: np.ndarray | None = None,
+    crr: np.ndarray | None = None,
+) -> float:
+    """経路全体の所要時間（秒）＝ 区間の走行時間の和 ＋ 停止の待ち ＋ ターンの待ち。"""
+    travel = travel_seconds(distance_m, profile, grade, headwind_ms, crosswind_ms, crr)
+    return float(travel.sum()) + stop_seconds_total + turn_seconds_total

@@ -43,6 +43,28 @@ def test_headwind_slows_slower_riders_more():
     assert fast_ratio == pytest.approx(0.67, abs=0.05)
 
 
+def test_crosswind_also_slows_down():
+    """真横からの風でも相対風速が増えるため遅くなる（進行方向成分だけでは過小評価になる）。"""
+    profile = RiderProfile(cruise_speed_kmh=20.0)
+    still = speed_ms(profile, np.array([0.0]), np.array([0.0]))
+    crosswind = speed_ms(profile, np.array([0.0]), np.array([0.0]), crosswind_ms=np.array([5.0]))
+    assert crosswind[0] < still[0]
+
+
+def test_route_duration_adds_stops_and_turns():
+    from app.domain.cycling_speed import route_duration_seconds
+
+    profile = RiderProfile(cruise_speed_kmh=20.0)
+    travel_only = route_duration_seconds(
+        profile, np.array([1000.0]), np.array([0.0]), np.array([0.0]), 0.0, 0.0
+    )
+    with_waits = route_duration_seconds(
+        profile, np.array([1000.0]), np.array([0.0]), np.array([0.0]), 42.0, 12.0
+    )
+    assert travel_only == pytest.approx(180.0, abs=1.0)
+    assert with_waits == pytest.approx(travel_only + 54.0, abs=0.1)
+
+
 def test_tailwind_is_faster_than_still_air():
     profile = RiderProfile(cruise_speed_kmh=20.0)
     assert _kmh(profile, headwind_ms=-3.0) > _kmh(profile)
@@ -99,3 +121,14 @@ def test_speed_is_vectorised_over_segments():
     speeds = speed_ms(profile, np.array([0.0, 0.05, -0.05]), np.array([0.0, 0.0, 0.0]))
     assert speeds.shape == (3,)
     assert speeds[1] < speeds[0] < speeds[2]
+
+
+def test_stop_seconds_covers_every_counted_kind():
+    """停止要因の集計キー（POI_COUNT_KINDS）すべてに秒が定義されている——片方だけ増えると、
+    その種別が所要時間へ入らないまま静かに無視される。"""
+    from app.domain.traffic import POI_COUNT_KINDS, STOP_SECONDS, stop_seconds
+
+    assert set(STOP_SECONDS) == set(POI_COUNT_KINDS)
+    assert stop_seconds("signal") > stop_seconds("stop") > 0
+    assert stop_seconds("crossing") == 0.0, "信号の無い横断歩道は止まらない"
+    assert stop_seconds("未知の種別") == 0.0
