@@ -9,10 +9,22 @@ import { getDerivedDataFreshness } from "@/services/derivedDataFreshnessApi";
 import type { DerivedDataFreshnessResponse } from "@/types/route";
 import styles from "./DerivedDataFreshnessPanel.module.css";
 
-/** 派生データを依存順に作り直す単一の入口（`backend/app/batch/refresh_derived.py`）。
- * 古い・未計算がどれであっても利用者が次に打つのはこの1コマンドなので、行ごとにバッチ名を
- * 散らさず画面に1つだけ置く。 */
-const REBUILD_COMMAND = "python -m app.batch.refresh_derived";
+/** 派生データを依存順に作り直す単一の入口（`backend/app/batch/refresh_derived.py`）を、
+ * **本番へ効かせるために実際に打つ形**で置く。古い・未計算がどれであっても打つのはこの1つ
+ * なので、行ごとにバッチ名を散らさず画面に1つだけ置く。手順の正本は
+ * `docs/disaster-recovery.md`。
+ *
+ * 稼働中のbackendコンテナの中では走らせない——そのコンテナのメモリ上限まで使い切ると
+ * コンテナごとOOM killされ、サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、
+ * 上限を超えても止まるのはバッチだけで済む。`--skip-landcover`は、土地被覆のラスタが
+ * VM上に無く回せないため。 */
+export const REBUILD_COMMAND = [
+  "sudo docker run --rm --network=host --memory=4g \\",
+  "  -v /home/ubuntu/ridecompass-cache-data:/app/data \\",
+  "  --env-file /home/ubuntu/ridecompass-backend.env \\",
+  "  ridecompass-backend:latest \\",
+  "  python -m app.batch.refresh_derived --skip-landcover",
+].join("\n");
 
 function formatRunId(value: number | null): string {
   return value === null ? "-" : `#${value}`;
@@ -39,9 +51,7 @@ interface FreshnessRow {
   note?: string;
 }
 
-export function rowsFromReport(
-  report: DerivedDataFreshnessResponse,
-): FreshnessRow[] {
+export function rowsFromReport(report: DerivedDataFreshnessResponse): FreshnessRow[] {
   const generations: FreshnessRow[] = report.generations.map((generation) => ({
     name: generation.table_name,
     scale: `${formatCount(generation.row_count)}行`,
@@ -52,9 +62,7 @@ export function rowsFromReport(
         value:
           `最新 ${formatRunId(source.latest_available_run_id)} / ` +
           `反映 ${formatRunId(source.earliest_reflected_run_id)}` +
-          (source.null_count > 0
-            ? ` / 未記録 ${formatCount(source.null_count)}`
-            : ""),
+          (source.null_count > 0 ? ` / 未記録 ${formatCount(source.null_count)}` : ""),
       })),
       ...(generation.algorithm_version
         ? [
@@ -74,9 +82,7 @@ export function rowsFromReport(
 
   const completeness: FreshnessRow[] = report.completeness.map((entry) => ({
     name: entry.label,
-    scale: entry.is_incomplete
-      ? `未計算 ${formatCount(entry.uncalculated_count)}`
-      : "未計算なし",
+    scale: entry.is_incomplete ? `未計算 ${formatCount(entry.uncalculated_count)}` : "未計算なし",
     needsRebuild: entry.is_incomplete,
     detail: [
       { label: "母集団", value: `${formatCount(entry.population)}件` },
@@ -112,9 +118,7 @@ function CopyButton({ text }: { text: string }) {
 // 切り口——こちらは「取り込んだ生データが新しくなったのに、そこから計算した値が古いまま
 // 残っていないか」を見る。集計はDB全表走査を伴うため、ボタン押下時のみ実行する。
 export default function DerivedDataFreshnessPanel() {
-  const [report, setReport] = useState<DerivedDataFreshnessResponse | null>(
-    null,
-  );
+  const [report, setReport] = useState<DerivedDataFreshnessResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -123,9 +127,7 @@ export default function DerivedDataFreshnessPanel() {
     setError(null);
     getDerivedDataFreshness()
       .then((result) => setReport(result))
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   };
 
@@ -148,11 +150,7 @@ export default function DerivedDataFreshnessPanel() {
         <Button onClick={handleFetch} disabled={loading}>
           {loading ? "集計中…" : report ? "再集計する" : "集計する"}
         </Button>
-        {report && (
-          <span className={styles.summary}>
-            {formatComputedAt(report.computed_at)}
-          </span>
-        )}
+        {report && <span className={styles.summary}>{formatComputedAt(report.computed_at)}</span>}
       </div>
       {error && <p className={styles.error}>集計失敗: {error}</p>}
       {report && <FreshnessReportView report={report} />}
@@ -162,27 +160,31 @@ export default function DerivedDataFreshnessPanel() {
 
 /** 集計結果の描画。取得と分けてあるのは、認証の要る画面を通さずに見え方を確かめられる
  * ようにするため（この形なら固定のレポートを渡すだけで描画できる）。 */
-export function FreshnessReportView({
-  report,
-}: {
-  report: DerivedDataFreshnessResponse;
-}) {
+export function FreshnessReportView({ report }: { report: DerivedDataFreshnessResponse }) {
   const rows = rowsFromReport(report);
   const staleCount = rows.filter((row) => row.needsRebuild).length;
 
   return (
     <>
-      <div
-        className={staleCount > 0 ? styles.verdictStale : styles.verdictFresh}
-      >
+      <div className={staleCount > 0 ? styles.verdictStale : styles.verdictFresh}>
         {staleCount > 0 ? (
           <>
-            <span className={styles.verdictText}>
-              {staleCount}件が作り直し待ち
-            </span>
+            <span className={styles.verdictText}>{staleCount}件が作り直し待ち</span>
             <div className={styles.commandRow}>
               <code className={styles.command}>{REBUILD_COMMAND}</code>
-              <CopyButton text={REBUILD_COMMAND} />
+              <div className={styles.commandActions}>
+                <CopyButton text={REBUILD_COMMAND} />
+                <InfoPopover
+                  triggerClassName={styles.infoButton}
+                  triggerAriaLabel="このコマンドをどこで打つかの説明"
+                  contentClassName={floatingPopoverStyles.floatingPopover}
+                >
+                  打つ場所は本番VM（SSHで入る）。手元の端末で打っても、そこから見えるのは
+                  開発用のDBで、本番は古いまま変わらない。稼働中のDBに対して実行したあとは
+                  タイル材料キャッシュの世代を上げる必要がある（上げないと、既にキャッシュ済み
+                  だったタイルだけ古い値のまま復元され続ける）。手順の正本は docs/disaster-recovery.md。
+                </InfoPopover>
+              </div>
             </div>
           </>
         ) : (
@@ -195,17 +197,10 @@ export function FreshnessReportView({
           <li key={row.name}>
             <details className={styles.row}>
               <summary className={styles.rowSummary}>
-                <span
-                  className={
-                    row.needsRebuild ? styles.markStale : styles.markFresh
-                  }
-                  aria-hidden="true"
-                />
+                <span className={row.needsRebuild ? styles.markStale : styles.markFresh} aria-hidden="true" />
                 <span className={styles.rowName}>{row.name}</span>
                 <span className={styles.rowScale}>{row.scale}</span>
-                <span className={styles.srOnly}>
-                  {row.needsRebuild ? "作り直しが必要" : "最新"}
-                </span>
+                <span className={styles.srOnly}>{row.needsRebuild ? "作り直しが必要" : "最新"}</span>
               </summary>
               <dl className={styles.detail}>
                 {row.detail.map((item) => (
