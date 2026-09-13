@@ -823,7 +823,10 @@ export default function Home() {
     return option ? [option] : [];
   });
   // 候補の表示名（一覧のタブと同じ「順位 距離」）。どの候補の道なのかを選択肢の名前にする。
-  const routeLabel = (routeId: string) => {
+  const routeLabel = (routeId: string): string => {
+    // 乗り継いだ代替は「A+B」の形でどの候補を継いだかを持つ（lib/routeSplice.ts:
+    // chainedAlternatives）。そのまま名前を引くと見つからずidが出るため、分けて組み立てる。
+    if (routeId.includes("+")) return routeId.split("+").map(routeLabel).join("→");
     const index = routes.findIndex((route) => route.id === routeId);
     const route = routes[index];
     if (!route) return routeId;
@@ -846,6 +849,8 @@ export default function Home() {
     return { startKm, endKm };
   };
   const optionLengthKm = (option: StretchAlternative) => {
+    // 複数の候補を継いだ代替は、組み立てた側が長さを持っている（1本の候補の座標では測れない）。
+    if (option.lengthKm !== undefined) return option.lengthKm;
     const target = routes.find((route) => route.id === option.candidateId);
     if (!target) return null;
     const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
@@ -901,6 +906,7 @@ export default function Home() {
   const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => groupIndex * 100 + optionIndex;
   const spliceStretchFeatures = spliceGroups.flatMap((group, groupIndex) =>
     group.options.flatMap((option, optionIndex) => {
+      // 乗り継いだ代替（"A+B"）は1本の候補の座標では描けない。帯は出さず、パネルから選ぶ。
       const target = routes.find((route) => route.id === option.candidateId);
       if (!target) return [];
       const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);

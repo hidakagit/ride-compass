@@ -10,7 +10,7 @@
  * 区間を細かく割るときだけ座標（`geometry.coordinates`と`edge_point_offsets`）も読む
  * ——2本が交差・接触する地点はEdge idの一致では分からないため（`splitPairedStretch`）。
  */
-import { cumulativeDistancesKm } from "@/lib/geoDistance";
+import { cumulativeDistancesKm, polylineLengthKm } from "@/lib/geoDistance";
 
 
 /** 表示中の候補が、比較相手と別の道を通る区間。`edge_ids`における`[start, end)`。 */
@@ -257,6 +257,149 @@ export interface StretchAlternative {
   targetStretch: RouteStretch;
   /** 差し替え後に通るEdge id列。 */
   edgeIds: string[];
+  /** 差し替え後の道の長さ（km）。複数の候補を継いだ代替は1本の候補の座標からは測れないため、
+   * 組み立てた側がここへ入れる。1本の候補で足りる代替は未設定（呼び出し側が座標から測る）。 */
+  lengthKm?: number;
+}
+
+/** 乗り継ぎで作る代替の、乗り換え回数の上限。1回＝2本の道を継ぐ。
+ * 上げるほど選択肢が増え、パネルが読めなくなる。 */
+export const MAX_CHAINED_SWITCHES = 2;
+/** 1区間あたり、乗り継ぎで足す代替の数の上限。 */
+export const MAX_CHAINED_OPTIONS = 4;
+
+/** 候補の道を、共有地点で区切った1本ぶん。 */
+interface ChainLink {
+  candidateId: string;
+  fromKey: string;
+  toKey: string;
+  edgeIds: string[];
+  targetStretch: RouteStretch;
+}
+
+/**
+ * 1つの区間について、**候補どうしが触れる地点で乗り継いだ道**を組み立てる。
+ *
+ * 区間の両端（元ルート側の分かれ目と合流点）は決まっているが、その間で候補Bの道から
+ * 候補Cの道へ移れる地点があるなら、それも1つの選び方になる。移れるのは2本が同じ地点を
+ * 通るところだけで、そこは各候補のEdgeの境界として現れる。
+ *
+ * 何本でも継げると選択肢が指数的に増えるため、乗り換え回数と件数に上限を置く。
+ */
+export function chainedAlternatives(
+  base: RouteGeometryShape,
+  stretch: RouteStretch,
+  directOptions: readonly StretchAlternative[],
+  shapeOf: (candidateId: string) => RouteGeometryShape | undefined,
+): StretchAlternative[] {
+  if (directOptions.length < 2) return [];
+  const startPoint = boundaryPoint(base, stretch.start);
+  const endPoint = boundaryPoint(base, stretch.end);
+  if (!startPoint || !endPoint) return [];
+  const startKey = pointKey(startPoint);
+  const endKey = pointKey(endPoint);
+
+  // 候補ごとに、区間内のEdge境界を「地点キー→そのEdge番号」の並びで持つ。
+  const boundaries = new Map<string, { key: string; index: number }[]>();
+  for (const option of directOptions) {
+    const shape = shapeOf(option.candidateId);
+    if (!shape) continue;
+    const list: { key: string; index: number }[] = [];
+    for (let index = option.targetStretch.start; index <= option.targetStretch.end; index += 1) {
+      const point = boundaryPoint(shape, index);
+      if (point) list.push({ key: pointKey(point), index });
+    }
+    boundaries.set(option.candidateId, list);
+  }
+
+  // 2本以上が通る地点だけが乗り換えられる場所。端点は常に含める。
+  const seenAt = new Map<string, Set<string>>();
+  for (const [candidateId, list] of boundaries) {
+    for (const { key } of list) {
+      if (!seenAt.has(key)) seenAt.set(key, new Set());
+      seenAt.get(key)!.add(candidateId);
+    }
+  }
+  const junctions = new Set<string>([startKey, endKey]);
+  for (const [key, ids] of seenAt) if (ids.size >= 2) junctions.add(key);
+  if (junctions.size <= 2) return [];
+
+  // 乗り換え地点どうしを結ぶ、候補ごとの1本道。
+  const links: ChainLink[] = [];
+  for (const [candidateId, list] of boundaries) {
+    const stops = list.filter((item) => junctions.has(item.key));
+    for (const [from, to] of stops.map((item, i) => [item, stops[i + 1]] as const).slice(0, -1)) {
+      if (!to || to.index <= from.index) continue;
+      const shape = shapeOf(candidateId);
+      if (!shape) continue;
+      links.push({
+        candidateId,
+        fromKey: from.key,
+        toKey: to.key,
+        edgeIds: [],
+        targetStretch: { start: from.index, end: to.index },
+      });
+    }
+  }
+  if (links.length === 0) return [];
+
+  const byFrom = new Map<string, ChainLink[]>();
+  for (const link of links) {
+    if (!byFrom.has(link.fromKey)) byFrom.set(link.fromKey, []);
+    byFrom.get(link.fromKey)!.push(link);
+  }
+
+  const chains: ChainLink[][] = [];
+  const walk = (at: string, visited: Set<string>, path: ChainLink[]) => {
+    if (chains.length >= MAX_CHAINED_OPTIONS * 4) return;
+    if (at === endKey) {
+      if (path.length > 1) chains.push([...path]);
+      return;
+    }
+    if (path.length > MAX_CHAINED_SWITCHES + 1) return;
+    for (const link of byFrom.get(at) ?? []) {
+      if (visited.has(link.toKey)) continue;
+      visited.add(link.toKey);
+      path.push(link);
+      walk(link.toKey, visited, path);
+      path.pop();
+      visited.delete(link.toKey);
+    }
+  };
+  walk(startKey, new Set([startKey]), []);
+
+  const out: StretchAlternative[] = [];
+  const seen = new Set<string>();
+  for (const chain of chains) {
+    // 1本の候補だけで通れる鎖は、直接の代替と同じものなので出さない。
+    if (new Set(chain.map((link) => link.candidateId)).size < 2) continue;
+    const edgeIds = chain.flatMap((link) => {
+      const option = directOptions.find((item) => item.candidateId === link.candidateId);
+      if (!option) return [];
+      const offset = option.targetStretch.start;
+      return option.edgeIds.slice(link.targetStretch.start - offset, link.targetStretch.end - offset);
+    });
+    if (edgeIds.length === 0) continue;
+    const key = edgeIds.join(",");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      candidateId: chain.map((link) => link.candidateId).join("+"),
+      stretch,
+      targetStretch: { start: chain[0].targetStretch.start, end: chain[chain.length - 1].targetStretch.end },
+      edgeIds,
+      lengthKm: chain.reduce((total, link) => {
+        const shape = shapeOf(link.candidateId);
+        if (!shape) return total;
+        const from = shape.edgePointOffsets[link.targetStretch.start];
+        const to = shape.edgePointOffsets[link.targetStretch.end];
+        if (from === undefined || to === undefined) return total;
+        return total + polylineLengthKm(shape.coordinates.slice(from, to + 1));
+      }, 0),
+    });
+    if (out.length >= MAX_CHAINED_OPTIONS) break;
+  }
+  return out;
 }
 
 /** 重なり合う代替をまとめた1つの選択単位。グループ内は排他、グループ間は独立。 */
@@ -320,6 +463,24 @@ export function stretchAlternativeGroups(
       last.options.push(alternative);
     } else {
       groups.push({ stretch: { ...alternative.stretch }, options: [alternative] });
+    }
+  }
+
+  // 候補どうしが触れる地点で乗り継いだ道も選べるようにする（docs/tasks/T843.md）。
+  // 継げるのは元側の範囲が同じ代替どうしだけ——範囲が違うものを継ぐと、どこを差し替えて
+  // いるのかが決まらない。
+  if (baseShape) {
+    const shapeOf = (id: string) => candidates.find((candidate) => candidate.id === id)?.shape;
+    for (const group of groups) {
+      const bySpan = new Map<string, StretchAlternative[]>();
+      for (const option of group.options) {
+        const key = `${option.stretch.start}-${option.stretch.end}`;
+        if (!bySpan.has(key)) bySpan.set(key, []);
+        bySpan.get(key)!.push(option);
+      }
+      for (const sameSpan of bySpan.values()) {
+        group.options.push(...chainedAlternatives(baseShape, sameSpan[0].stretch, sameSpan, shapeOf));
+      }
     }
   }
   return groups;

@@ -7,6 +7,7 @@ import {
   pairedStretches,
   spliceEdgeIds,
   spliceEdgeIdsFromAlternatives,
+  chainedAlternatives,
   splitPairedStretch,
   stretchAlternativeGroups,
   stretchCoordinateRange,
@@ -310,6 +311,64 @@ describe("splitPairedStretch", () => {
   });
 });
 
+// 元ルートには無い分岐（候補どうしが触れる地点）でも乗り継げるようにする
+// （docs/tasks/T843.md）。BとCが途中で同じ地点を通るなら、前半をB・後半をCで通る道も
+// 1つの選び方になる。
+describe("候補どうしを乗り継ぐ代替", () => {
+  // 元は西回り、BとCは東側を通り、真ん中の1点（mid）でBとCが交わる。
+  const p = (lon: number, lat: number): GeoJSON.Position => [lon, lat];
+  const start = p(139.7, 35.7);
+  const mid = p(139.72, 35.72);
+  const goal = p(139.7, 35.74);
+  const base = {
+    coordinates: [start, p(139.68, 35.72), goal],
+    edgePointOffsets: [0, 1, 2],
+  };
+  const bShape = { coordinates: [start, mid, p(139.73, 35.73), goal], edgePointOffsets: [0, 1, 2, 3] };
+  const cShape = { coordinates: [start, p(139.75, 35.71), mid, goal], edgePointOffsets: [0, 1, 2, 3] };
+
+  it("BとCが交わる地点で継いだ道を、区間の代替として足す", () => {
+    const groups = stretchAlternativeGroups(
+      ["z0", "z1"],
+      [
+        { id: "b", edgeIds: ["b0", "b1", "b2"], shape: bShape },
+        { id: "c", edgeIds: ["c0", "c1", "c2"], shape: cShape },
+      ],
+      { baseShape: base, minSplitLengthKm: 0 },
+    );
+
+    expect(groups).toHaveLength(1);
+    const chained = groups[0].options.filter((option) => option.candidateId.includes("+"));
+    expect(chained.length).toBeGreaterThan(0);
+    // Cの前半（start→mid）＋Bの後半（mid→goal）で通る道
+    expect(chained.map((option) => option.edgeIds.join(","))).toContain("c0,c1,b1,b2");
+  });
+
+  it("交わる地点が無ければ足さない", () => {
+    const apart = { coordinates: [start, p(139.77, 35.71), p(139.77, 35.73), goal], edgePointOffsets: [0, 1, 2, 3] };
+    const groups = stretchAlternativeGroups(
+      ["z0", "z1"],
+      [
+        { id: "b", edgeIds: ["b0", "b1", "b2"], shape: bShape },
+        { id: "c", edgeIds: ["c0", "c1", "c2"], shape: apart },
+      ],
+      { baseShape: base, minSplitLengthKm: 0 },
+    );
+
+    expect(groups[0].options.every((option) => !option.candidateId.includes("+"))).toBe(true);
+  });
+
+  it("代替が1つしかない区間では組み立てない", () => {
+    expect(
+      chainedAlternatives(
+        base,
+        { start: 0, end: 2 },
+        [{ candidateId: "b", stretch: { start: 0, end: 2 }, targetStretch: { start: 0, end: 3 }, edgeIds: ["b0", "b1", "b2"] }],
+        () => bShape,
+      ),
+    ).toEqual([]);
+  });
+});
 describe("spliceEdgeIdsFromAlternatives", () => {
   it("選んだ代替を差し替える（後ろから適用するので位置がずれない）", () => {
     const base = ["s", "a1", "m", "a2", "e"];
