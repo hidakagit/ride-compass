@@ -14,7 +14,10 @@ from app.domain.graph import WaySpec, build_road_graph
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*テーブルを登録するためのimport
 from app.infrastructure.derived_data_freshness import (
+    COMPLETENESS_SPECS,
     GENERATION_FRESHNESS_SPECS,
+    CompletenessCounts,
+    DerivedDataFreshnessCounts,
     DerivedDataFreshnessQuery,
 )
 
@@ -44,11 +47,18 @@ async def _seed_one_way_and_edges(road_graph_repository, road_graph_session) -> 
     return sorted(graph.edges.keys())
 
 
+def _completeness(counts: DerivedDataFreshnessCounts, label: str) -> CompletenessCounts:
+    """宣言された完成度のうち1件を取り出す。件数や並びではなくlabelで引く
+    （完成度が1つ増えても、それだけでこのテストが落ちない）。"""
+    assert label in [spec.label for spec in COMPLETENESS_SPECS]
+    return next(item for item in counts.completeness if item.label == label)
+
+
 async def test_empty_database_yields_no_stale_generations(road_graph_session):
     counts = await DerivedDataFreshnessQuery(road_graph_session).get_freshness_counts()
 
-    assert counts.road_edges_total == 0
-    assert counts.elevation_uncalculated_count == 0
+    assert _completeness(counts, "elevation_attributes").population == 0
+    assert _completeness(counts, "elevation_attributes").uncalculated == 0
     # 宣言された世代すべてが並ぶこと。件数を手で書くと、世代が1つ増えるたびに
     # 「実装が正しく増えた」ことがテストの失敗として現れる。
     assert [g.table_name for g in counts.generations] == [
@@ -185,5 +195,6 @@ async def test_elevation_completeness_counts_edges_without_a_row(road_graph_repo
 
     counts = await DerivedDataFreshnessQuery(road_graph_session).get_freshness_counts()
 
-    assert counts.road_edges_total == 2
-    assert counts.elevation_uncalculated_count == 1  # edge_ids[1]は行が無い
+    elevation = _completeness(counts, "elevation_attributes")
+    assert elevation.population == 2  # 母集団はroad_edges
+    assert elevation.uncalculated == 1  # edge_ids[1]は行が無い
