@@ -406,7 +406,9 @@ FILE_TOKEN_RE = re.compile(
 TASK_LINK_RE = re.compile(r"\[T(\d{3,4})\]\(")
 TASK_FILE_MENTION_RE = re.compile(r"\bT(\d{3,4})\.md\b")
 HISTORY_REF_RE = re.compile(r"history/(\d{4}-\d{2}-\d{2}_[A-Za-z0-9_\-]+\.md)")
-PLAN_LINE_RE = re.compile(r"^- \[( |x)\] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)")
+PLAN_LINE_RE = re.compile(r"^- \[( |x)\] \[T(\d{3,4})\]\(tasks/T(\d{3,4})\.md\)")
+TASK_FILE_RE = re.compile(r"T(\d{3,4})\.md$")
+TASK_HEADING_RE = re.compile(r"^#\s*T(\d{3,4})\b")
 
 
 def run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: int = 600) -> str:
@@ -1005,6 +1007,52 @@ def find_cross_file_env_writes(files: list[str]) -> list[str]:
     return out
 
 
+# --- タスク番号の一貫性 -------------------------------------------------------
+#
+# タスク番号は台帳のラベル・そのリンク先・タスクファイルの見出しの3箇所に散る。2つの
+# セッションが同じ番号を独立に採ると、リンク先のファイルには後から書いた側の本文だけが残り、
+# 先に載ったエントリは本文を失ったまま台帳に並ぶ——ファイル自体は存在するため、状態照合
+# （`check_plan_vs_tasks`）も含めどの検査も通ってしまう。
+
+
+def check_task_numbering() -> list[str]:
+    violations: list[str] = []
+    first_line_of: dict[str, int] = {}
+    for lineno, line in enumerate(read_text(IMPROVEMENT_PLAN).splitlines(), 1):
+        m = PLAN_LINE_RE.match(line)
+        if not m:
+            continue
+        num, linked = m.group(2), m.group(3)
+        if linked != num:
+            violations.append(
+                f"docs/improvement-plan.md:{lineno}: ラベルはT{num}だがリンク先はtasks/T{linked}.md"
+                "（振り直しの置換漏れ）"
+            )
+        if num in first_line_of:
+            violations.append(
+                f"docs/improvement-plan.md:{lineno}: T{num} は{first_line_of[num]}行目でも使われている"
+                "（番号衝突。後から載った側を空き番号へ振り直す。CLAUDE.md「作業ツリーの安全」節参照）"
+            )
+        else:
+            first_line_of[num] = lineno
+    for task_path in sorted(TASKS_DIR.glob("T*.md")):
+        name = TASK_FILE_RE.search(task_path.name)
+        if not name:
+            continue
+        heading = next((ln for ln in read_text(task_path).splitlines() if ln.startswith("# ")), "")
+        head_num = TASK_HEADING_RE.match(heading)
+        if head_num is None:
+            violations.append(
+                f"docs/tasks/{task_path.name}: 先頭の見出しが「# T{name.group(1)}. …」の形になっていない"
+            )
+        elif head_num.group(1) != name.group(1):
+            violations.append(
+                f"docs/tasks/{task_path.name}: 見出しがT{head_num.group(1)}でファイル名と一致しない"
+                "（振り直しの置換漏れ、または別タスクの本文で上書きした）"
+            )
+    return violations
+
+
 def check_plan_vs_tasks() -> list[str]:
     violations: list[str] = []
     for lineno, line in enumerate(read_text(IMPROVEMENT_PLAN).splitlines(), 1):
@@ -1026,6 +1074,19 @@ def check_plan_vs_tasks() -> list[str]:
             violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [x] だが docs/tasks/T{num}.md の「状態:」行は未完了のまま")
         elif not checked and kind == "done":
             violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [ ] だが docs/tasks/T{num}.md の「状態:」行は完了")
+    for task_path in sorted(TASKS_DIR.glob("T*.md")):
+        name = TASK_FILE_RE.search(task_path.name)
+        if not name:
+            continue
+        heading = next((ln for ln in read_text(task_path).splitlines() if ln.startswith("# ")), "")
+        head_num = TASK_HEADING_RE.match(heading)
+        if head_num is None:
+            violations.append(f"docs/tasks/{task_path.name}: 先頭の見出しが「# T{name.group(1)}. …」の形になっていない")
+        elif head_num.group(1) != name.group(1):
+            violations.append(
+                f"docs/tasks/{task_path.name}: 見出しがT{head_num.group(1)}でファイル名と一致しない"
+                "（振り直しの置換漏れ、または別タスクの本文で上書きした）"
+            )
     return violations
 
 
@@ -1385,6 +1446,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "undeclared_dead_refs_exempted": frozenset(),
     "undocumented_files": frozenset({"staged", "since", "full"}),
     "plan_vs_tasks": frozenset({"staged", "since", "full"}),
+    "task_numbering": frozenset({"staged", "since", "full"}),
     "dead_doc_links": frozenset({"staged", "since", "full"}),
     "undefined_css_tokens": frozenset({"staged", "since", "full"}),
     "vacuous_test_loops": frozenset({"staged", "since", "full"}),
@@ -1455,6 +1517,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_undocumented_files(added, modules_text, files + added)))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
                          check_plan_vs_tasks()))
+        sections.append(("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
+                         check_task_numbering()))
         sections.append(("unfiled_deferrals", "[x]化したタスクの、別タスクへ渡していない残り（参考、人が判断する）",
                          find_unfiled_deferrals(None)))
         sections.append((
@@ -1549,6 +1613,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
         ))
         sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
                          check_plan_vs_tasks()))
+        sections.append(("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
+                         check_task_numbering()))
         if args.since:
             sections.append((
                 "unfiled_deferrals",
@@ -2077,6 +2143,15 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         flipped = m.group(0).replace("- [ ]", "- [x]")
         plan.write_text(text[: m.start()] + flipped + text[m.end():], encoding="utf-8")
 
+    def duplicate_plan_number() -> None:
+        """既にある未完了エントリと同じ番号のエントリを、別タイトルでもう1行足す。"""
+        text = read_text(plan)
+        m = re.search(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)", text, re.M)
+        if m is None:
+            raise RuntimeError("docs/improvement-plan.md に未完了行が無く、番号衝突を試せない")
+        clone = f"\n- [ ] [T{m.group(1)}](tasks/T{m.group(1)}.md). 別のセッションが同じ番号で起票した行 規模S\n"
+        plan.write_text(text[: m.end()] + clone + text[m.end():], encoding="utf-8")
+
     return {
         "dead_file_refs": lambda: append(module_doc, "\n存在しない`Map/zzzGuardProbeFile.ts`を参照する。\n"),
         "dead_identifier_refs": lambda: append(module_doc, f"\n`{GUARD_PROBE_IDENT}`が処理する。\n"),
@@ -2084,6 +2159,7 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "dead_doc_links": lambda: append(module_doc, "\n詳細は[T9999](../../tasks/T9999.md)参照。\n"),
         "undeclared_dead_refs": lambda: append(arch, f"\n`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n"),
         "plan_vs_tasks": flip_plan_checkbox,
+        "task_numbering": duplicate_plan_number,
         # 参考出力なのでDETECTOR_ENFORCEMENTは空だが、違反の作り方は定義しておく
         # （`mutate --case`で単体で試せるようにするため）。
         "undeclared_dead_refs_exempted": lambda: append(
