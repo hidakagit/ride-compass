@@ -276,6 +276,11 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 
 未適用migrationの一覧は`GET /api/debug/db-status`が既に返すため、ここでは重ねて持たない。
 
+`GET /api/admin/road-graph-tiles`はsplit済みタイル（`road_graph_tiles`、
+`ROAD_GRAPH_TILE_ZOOM`のXYZ座標）を返す。**DB状態の集計とは分けてある**——地図を開いたときだけ
+要る一方、全域ぶんの件数になるため毎回運ぶと無駄になる。GeoJSONにはせず座標のまま返し、
+境界ポリゴンはfrontendが組み立てる（`Map/dynamicWayValues.ts: tileBoundsLonLat`が既にある）。
+
 ## タイル配信
 
 ### 共通骨格（`tile_serving.py: serve_cached_tile`）

@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.infrastructure.db_status import DbStatusCounts, DbStatusQuery
+from app.infrastructure.db_status import DbStatusCounts, DbStatusQuery, RoadGraphTile
 from app.infrastructure.debug_log import log_external_call
 
 logger = logging.getLogger("ridecompass.db_status")
@@ -177,6 +177,11 @@ def build_db_status_report(counts: DbStatusCounts, computed_at: datetime) -> DbS
 class DbStatusService:
     def __init__(self, repository: DbStatusQuery):
         self._repository = repository
+
+    async def get_road_graph_tiles(self) -> tuple[RoadGraphTile, ...]:
+        """split済みタイルの全件。良し悪しの判定は持たない——「どこが済んでいるか」は
+        件数ではなく地図の形でしか読めないため、判断は見る人に委ねる。"""
+        return await self._repository.fetch_road_graph_tiles()
 
     async def get_status_report(self) -> DbStatusReport:
         started = time.monotonic()

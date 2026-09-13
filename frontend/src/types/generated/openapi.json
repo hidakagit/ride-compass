@@ -1728,6 +1728,30 @@
           }
         ]
       }
+    },
+    "/api/admin/road-graph-tiles": {
+      "get": {
+        "summary": "Get Road Graph Tiles",
+        "description": "split済みタイルの全件。ここに無い範囲は初回のルート生成でsplitが走る（冷パス）。\n\n件数が多くなるため`GET /api/admin/db-status`とは分けてある（地図を開いたときだけ要る）。",
+        "operationId": "get_road_graph_tiles_api_admin_road_graph_tiles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoadGraphTilesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -4083,6 +4107,53 @@
         ],
         "title": "PriorityCondition",
         "description": "0次条件: 探索除外のハードフィルタ（`domain/evaluation.py:\nDEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、\n**評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算\n（shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。\n\n典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・\n自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。\n自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ\n（`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない\n（「探索除外」と「評価の優先確定」は別の概念）。\n\n軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な\n仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる\n（各推定軸に重複して持たせない）。"
+      },
+      "RoadGraphTileEntry": {
+        "properties": {
+          "zoom": {
+            "type": "integer",
+            "title": "Zoom"
+          },
+          "x": {
+            "type": "integer",
+            "title": "X"
+          },
+          "y": {
+            "type": "integer",
+            "title": "Y"
+          },
+          "fetched_at": {
+            "type": "string",
+            "title": "Fetched At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "zoom",
+          "x",
+          "y",
+          "fetched_at"
+        ],
+        "title": "RoadGraphTileEntry",
+        "description": "split済みタイル1件。frontendがXYZ座標から境界ポリゴンを組み立てる\n（`Map/dynamicWayValues.ts: tileBoundsLonLat`）ため、ここではGeoJSONにしない。"
+      },
+      "RoadGraphTilesResponse": {
+        "properties": {
+          "tiles": {
+            "items": {
+              "$ref": "#/components/schemas/RoadGraphTileEntry"
+            },
+            "type": "array",
+            "title": "Tiles"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tiles"
+        ],
+        "title": "RoadGraphTilesResponse"
       },
       "RouteCandidate": {
         "properties": {
