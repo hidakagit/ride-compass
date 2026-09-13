@@ -1208,9 +1208,11 @@ class RoadGraphEngine:
         tree_ms = round((time.monotonic() - tree_started) * 1000)
 
         # Nodeで単に前向き＋後ろ向きを足すと、そのNodeで曲がる費用が抜ける。
+        junction_started = time.monotonic()
         junction = combine_forward_backward_at_nodes(
             context.turn_structure, forward_tree, backward_tree, speed_ms, context.statics.csr.node_count
         )
+        junction_ms = round((time.monotonic() - junction_started) * 1000)
         # 目的地そのものを経由Nodeとする経路（＝経由せず直行する経路）も候補に含める。
         # junctionは「入る区間×出る区間」の対で作るため、そこで終わる経路は現れない。
         _add_terminal_candidate(junction, forward_tree, destination_index)
@@ -1313,9 +1315,9 @@ class RoadGraphEngine:
 
         logger.info(
             "select_via_nodes reachable=%d within_stretch=%d examined=%d selected=%d max_routes=%d "
-            "best_km=%.1f detour_ratio_median=%.2f tree_ms=%d",
+            "best_km=%.1f detour_ratio_median=%.2f tree_ms=%d junction_ms=%d",
             int(reachable.sum()), len(candidates), len(ranked), len(traced), max_routes,
-            best_length_m / 1000, detour_ratio_median, tree_ms,
+            best_length_m / 1000, detour_ratio_median, tree_ms, junction_ms,
         )
         return traced
 

@@ -19,7 +19,9 @@ EdgeごとにPythonのコールバックへ戻るため、この用途だけはs
 Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を一切知らない設計とする
 （仕様書33章）。ここで扱うのはRoad Graphのトポロジーと、既に計算済みのEdge Costのみ。
 """
+import logging
 import math
+import time
 from collections.abc import Callable, Collection, Container, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
@@ -33,6 +35,8 @@ from app.domain.errors import RoutingError
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
+
+logger = logging.getLogger("ridecompass.graph")
 
 
 @dataclass
@@ -792,10 +796,14 @@ def build_turn_expanded_tree(
     その状態自身（有向Edge）のため、CSRエントリ位置の検索が要らない。
     """
     state_count = structure.state_count
+    csr_started = time.perf_counter()
     matrix = build_turn_expanded_csr(structure, edge_cost, entry_state_indices, speed_ms, reverse=reverse)
+    csr_ms = (time.perf_counter() - csr_started) * 1000
+    dijkstra_started = time.perf_counter()
     cost, predecessor = scipy_dijkstra(
         matrix, directed=True, indices=state_count, return_predecessors=True, limit=cost_limit
     )
+    dijkstra_ms = (time.perf_counter() - dijkstra_started) * 1000
     state_cost = cost[:state_count]
     predecessor = predecessor[:state_count].astype(np.int64)
     # 仮想始点（index=state_count）とscipyのセンチネル（-9999）をまとめて-1へ正規化する。
@@ -818,6 +826,8 @@ def build_turn_expanded_tree(
         accumulated = accumulated + accumulated[ancestor]
         ancestor = next_ancestor
     state_length_m = np.where(reached, accumulated[:state_count], np.nan)
+    accumulate_ms = (time.perf_counter() - dijkstra_started) * 1000 - dijkstra_ms
+    fold_started = time.perf_counter()
 
     # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
     incoming = structure.edge_from if reverse else structure.edge_to
@@ -834,6 +844,10 @@ def build_turn_expanded_tree(
     node_cost[incoming[finite_best]] = state_cost[finite_best]
     node_length_m[incoming[finite_best]] = state_length_m[finite_best]
 
+    logger.info(
+        "turn_expanded_tree reverse=%s states=%d csr_ms=%.0f dijkstra_ms=%.0f accumulate_ms=%.0f fold_ms=%.0f",
+        reverse, state_count, csr_ms, dijkstra_ms, accumulate_ms, (time.perf_counter() - fold_started) * 1000,
+    )
     return TurnExpandedTree(
         state_cost=state_cost, predecessor=predecessor, state_length_m=state_length_m,
         node_cost=node_cost, node_best_state=node_best_state, node_length_m=node_length_m,
