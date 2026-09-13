@@ -6,10 +6,13 @@ import {
   SPLICE_DASH_EXPRESSION,
   SPLICE_HIT_LAYER_ID,
   SPLICE_HIT_WIDTH,
+  SPLICED_ROUTE_LAYER_ID,
+  SPLICED_ROUTE_WIDTH,
   SPLICE_LAYER_ID,
   SPLICE_OPACITY_EXPRESSION,
   SPLICE_WIDTH_EXPRESSION,
   drawSpliceStretches,
+  drawSplicedRoute,
   spliceStretchesToFeatureCollection,
 } from "./MapView";
 
@@ -94,5 +97,16 @@ describe("乗り換え区間の当たり判定", () => {
     expect(hit?.paint?.["line-opacity"]).toBe(0);
     // 見た目の帯は残す（当たり判定で置き換えない）
     expect(map.layers.some((layer) => layer.id === SPLICE_LAYER_ID)).toBe(true);
+  });
+  it("いま作っているルートを、帯より太い実線で描く", () => {
+    const map = fakeMap();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    drawSplicedRoute(map as any, [[139.7, 35.7], [139.71, 35.7]]);
+
+    const line = map.layers.find((layer) => layer.id === SPLICED_ROUTE_LAYER_ID);
+    expect(line?.paint?.["line-width"]).toBe(SPLICED_ROUTE_WIDTH);
+    // 乗り換え先の帯（選んでいない道）より太い＝いま通る道が主役
+    expect(SPLICED_ROUTE_WIDTH).toBeGreaterThan(5);
   });
 });

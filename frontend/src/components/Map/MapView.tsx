@@ -221,6 +221,12 @@ export const SPLICE_LAYER_ID = "route-splice-stretches-line";
 // クリックはこちらだけへ登録する——両方へ登録すると1タップで2回発火し、
 // 「同じ道をもう一度選ぶと元へ戻す」挙動と噛み合って何も起きなくなる。
 export const SPLICE_HIT_LAYER_ID = "route-splice-stretches-hit";
+// 編集中に「いま作っているルート」を描く線。元の候補線（寒色）の上へ、乗り換えと同じ暖色で
+// 太く実線で重ねる——どこを通る道になったのかが、元との違いも含めて一目で分かるように。
+const SPLICED_ROUTE_SOURCE_ID = "route-spliced-current";
+export const SPLICED_ROUTE_LAYER_ID = "route-spliced-current-line";
+const SPLICED_ROUTE_CASING_LAYER_ID = "route-spliced-current-casing";
+export const SPLICED_ROUTE_WIDTH = 7;
 export const DETAIL_SOURCE_ID = "route-detail-segments";
 export const DETAIL_LAYER_ID = "route-detail-segments-line";
 // DETAIL_LAYER_ID（見た目の線、幅6px）そのものはモバイルでタップしづらいため、同じ
@@ -617,6 +623,47 @@ export function drawSpliceStretches(map: MapLibreMap, stretches: SpliceStretchFe
   };
 
   runWhenStyleReady(map, applyData);
+}
+
+/** 編集中の「いま作っているルート」を描く（帯より上、候補線より上）。 */
+export function drawSplicedRoute(map: MapLibreMap, coordinates: readonly GeoJSON.Position[]) {
+  const data: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [...coordinates] } }],
+  };
+
+  runWhenStyleReady(map, () => {
+    const source = map.getSource(SPLICED_ROUTE_SOURCE_ID) as GeoJSONSource | undefined;
+    if (source) {
+      source.setData(data);
+    } else {
+      map.addSource(SPLICED_ROUTE_SOURCE_ID, { type: "geojson", data });
+      // 縁取りを先に敷く。面レイヤー（災害・降水等）の上でも輪郭が消えないようにする。
+      map.addLayer({
+        id: SPLICED_ROUTE_CASING_LAYER_ID,
+        type: "line",
+        source: SPLICED_ROUTE_SOURCE_ID,
+        paint: { "line-color": ROUTE_LINE_CASING_COLOR, "line-width": SPLICED_ROUTE_WIDTH + 4 },
+        layout: { "line-cap": "round", "line-join": "round" },
+      });
+      map.addLayer({
+        id: SPLICED_ROUTE_LAYER_ID,
+        type: "line",
+        source: SPLICED_ROUTE_SOURCE_ID,
+        paint: { "line-color": SPLICE_COLOR, "line-width": SPLICED_ROUTE_WIDTH },
+        layout: { "line-cap": "round", "line-join": "round" },
+      });
+    }
+    setLayerVisibility(map, SPLICED_ROUTE_CASING_LAYER_ID, true);
+    setLayerVisibility(map, SPLICED_ROUTE_LAYER_ID, true);
+  });
+}
+
+export function hideSplicedRoute(map: MapLibreMap) {
+  runWhenStyleReady(map, () => {
+    setLayerVisibility(map, SPLICED_ROUTE_CASING_LAYER_ID, false);
+    setLayerVisibility(map, SPLICED_ROUTE_LAYER_ID, false);
+  });
 }
 
 export function hideSpliceStretches(map: MapLibreMap) {
@@ -2426,6 +2473,8 @@ interface MapViewProps {
   selectedRouteId: string | null;
   // 比較相手が別の道を通る区間（docs/tasks/T621.md）。空/未指定なら帯を出さない。
   spliceStretches?: SpliceStretchFeature[];
+  /** 編集中に「いま作っているルート」として描く座標列（編集していなければ省略）。 */
+  splicedRoute?: readonly GeoJSON.Position[] | null;
   /** 乗り換えられる区間の帯をタップしたときに呼ばれる（`SpliceStretchFeature.index`）。
    * 選ぶ操作の中心を地図へ置くためのもの——パネルの行だけで選ばせると、どの行がどの帯かを
    * 目で対応づける必要がある。 */
@@ -2598,6 +2647,7 @@ export default function MapView({
   routes,
   selectedRouteId,
   spliceStretches,
+  splicedRoute,
   onSpliceStretchSelect,
   location,
   locationSource,
@@ -3629,7 +3679,13 @@ export default function MapView({
     } else {
       hideSpliceStretches(map);
     }
-  }, [spliceStretches, routeLayerOn]);
+    const current = routeLayerOn ? (splicedRoute ?? null) : null;
+    if (current && current.length > 1) {
+      drawSplicedRoute(map, current);
+    } else {
+      hideSplicedRoute(map);
+    }
+  }, [spliceStretches, splicedRoute, routeLayerOn]);
 
   // 表示範囲のフィットは「候補一覧が変わったとき」だけに限定する。
   // selectedRouteIdを依存に含めると、候補選択の切り替えのたびに（fitBoundsToRoutesは

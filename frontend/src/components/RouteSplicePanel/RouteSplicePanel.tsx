@@ -137,8 +137,9 @@ export default function RouteSplicePanel({
           contentClassName={styles.headingInfoPopover}
         >
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
-          分かれ道があれば次の破線が出ます。天秤は乗り換えた結果を評価するボタン、その隣は
-          新しい候補として作るボタンです。差分バーは左へ伸びた軸ほど楽になっています。
+          分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。天秤は結果を
+          評価するボタン、その隣は新しい候補として作るボタンです。軸の棒は中央が0で、左（−）へ
+          伸びた軸ほど難易度が下がり、右（＋）へ伸びた軸ほど上がっています。
         </InfoPopover>
         {!unavailable && (
           <div className={styles.headingActions}>
@@ -203,8 +204,9 @@ export default function RouteSplicePanel({
           {deltas.length > 0 && (
             <div className={styles.deltaBar}>
               <div className={styles.deltaEnds}>
-                <span className={styles.better}>← 楽になった</span>
-                <span className={styles.worse}>きつくなった →</span>
+                <span className={styles.better}>−</span>
+                <span className={styles.zeroMark}>0</span>
+                <span className={styles.worse}>＋</span>
               </div>
               <div className={styles.deltaTrack} role="img" aria-label={deltas
                 .map((item) => `${item.label} ${formatDelta(item.delta, "", 1)}`)

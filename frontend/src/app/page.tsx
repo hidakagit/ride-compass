@@ -2309,6 +2309,7 @@ export default function Home() {
           <MapView
             routes={routes}
             spliceStretches={spliceStretchFeatures}
+            splicedRoute={splicedShape ? splicedShape.coordinates : null}
             onSpliceStretchSelect={handleSpliceStretchSelect}
             selectedRouteId={selectedRouteId}
             location={location}

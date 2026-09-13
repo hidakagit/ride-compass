@@ -128,18 +128,31 @@
   margin-top: 4px;
 }
 
+/* 端は記号だけにする（文で説明しない）。中央の0は棒の中心と縦に揃える。 */
 .deltaEnds {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .better {
   color: var(--color-accent);
+  font-weight: 700;
 }
 
 .worse {
   color: var(--color-route-splice);
+  font-weight: 700;
+  text-align: right;
+}
+
+/* 0の位置が読みの起点。棒の中央線と同じ列に置き、色を持たせずに目盛りとして見せる。 */
+.zeroMark {
+  color: var(--color-muted);
+  font-size: 10px;
+  padding: 0 3px;
 }
 
 .deltaTrack {
@@ -164,9 +177,11 @@
   height: 100%;
 }
 
+/* 中央の0。棒より上下へ伸ばし、左右どちらへ出ているかを一目で分かるようにする。 */
 .deltaCenter {
-  width: 1px;
-  background: var(--color-border-strong);
+  width: 2px;
+  margin: -3px 0;
+  background: var(--foreground);
 }
 
 .deltaLabels {
