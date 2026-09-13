@@ -14,6 +14,24 @@
   font-weight: 600;
 }
 
+/* 編集をやめて候補の一覧へ戻る。編集は「ルート結果」の中のモードのため、閉じる先は一覧。 */
+.back {
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+/* 編集の元（1本に固定）。 */
+.base {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
 .headingRow {
   display: flex;
   align-items: center;

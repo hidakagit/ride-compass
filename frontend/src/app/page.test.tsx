@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
@@ -1013,6 +1013,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // 生成後に目的地を動かす（フォーム値だけが変わり、表示中の候補は古い条件のまま）
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を別の地点へ動かす" }));
 
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
     await user.selectOptions(screen.getByLabelText("比較相手"), "route-destination-01");
     await user.click(screen.getByRole("button", { name: /1本目の区間/ }));
     await user.click(screen.getByRole("button", { name: /候補へ追加/ }));
@@ -1048,9 +1049,10 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.queryByLabelText("比較相手")).toBeNull();
   });
 
-  it("区間の乗り換えはルート結果ではなくルート編集にあり、結果側には残らない", async () => {
-    // ルート結果は生成結果を見る画面、ルート編集はそこから派生して作る画面
-    // （docs/tasks/T769.md）。下部シートを低く保つため、結果側に作る操作を混ぜない。
+  it("編集はルート結果の中のモードで、入口は候補の中にある", async () => {
+    // 独立した「ルート編集」の置き場を持つと、どのルートを編集しているのかを編集側で
+    // 選び直す形になる（docs/tasks/T808.md）。候補を見ている場所から入り、同じ場所が
+    // 編集面へ変わる。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
@@ -1068,15 +1070,24 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
-    const outcome = document.getElementById("outcome-section-title") as HTMLElement;
-    expect(within(outcome).queryByLabelText("比較相手")).toBeNull();
-    const routeEdit = document.getElementById("route-edit-section-title") as HTMLElement;
-    expect(within(routeEdit).getByLabelText("比較相手")).toBeInTheDocument();
+    // 入口を押すまでは編集面は出ない
+    expect(screen.queryByLabelText("比較相手")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+
+    expect(screen.getByLabelText("比較相手")).toBeInTheDocument();
+    // 元は押した候補に固定される
+    expect(screen.getByText(/^元: /)).toBeInTheDocument();
+
+    // 戻ると候補の一覧へ戻る
+    await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
+    expect(screen.queryByLabelText("比較相手")).toBeNull();
+    expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
   });
 
-  it("乗り換えできる条件が揃っていないルート編集は、何が要るかを示す", async () => {
-    // 空のパネルを出すと「壊れている」と読まれる。周回生成では候補が2件あっても
-    // 乗り換えできない（起点へ戻る制約）。
+  it("乗り換えできない生成では、編集の入口自体を出さない", async () => {
+    // 周回生成では候補が2件あっても乗り換えできない（起点へ戻る制約）。押しても何も
+    // できない入口を残さない。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
@@ -1092,8 +1103,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
 
-    const routeEdit = document.getElementById("route-edit-section-title") as HTMLElement;
-    expect(within(routeEdit).getByText(/目的地を決めて候補が2件以上出ると/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "このルートを編集" })).toBeNull();
   });
 
   it("地図の一括操作は、レイヤーのON/OFFと絞り込みを別々に戻す", async () => {

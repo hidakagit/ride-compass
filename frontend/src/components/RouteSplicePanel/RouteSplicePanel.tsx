@@ -24,6 +24,8 @@ interface RouteSplicePanelProps {
   applying: boolean;
   /** 合成に失敗した理由。押した場所から見えないと「押しても何も起きない」になる。 */
   error: string | null;
+  /** 編集をやめて候補の一覧へ戻る。 */
+  onCancel: () => void;
 }
 
 export default function RouteSplicePanel({
@@ -37,6 +39,7 @@ export default function RouteSplicePanel({
   onApply,
   applying,
   error,
+  onCancel,
 }: RouteSplicePanelProps) {
   const taken = new Set(takenIndexes);
   // edge_idsを返さないエンジン・古い候補では区間を出せない（backendが空で返す）。
@@ -45,6 +48,9 @@ export default function RouteSplicePanel({
   return (
     <section className={styles.panel} aria-labelledby="splice-heading">
       <div className={styles.headingRow}>
+        <button type="button" className={styles.back} aria-label="編集をやめて候補へ戻る" onClick={onCancel}>
+          ‹
+        </button>
         <h3 className={styles.heading} id="splice-heading">
           区間の乗り換え
         </h3>
@@ -58,6 +64,11 @@ export default function RouteSplicePanel({
           地図にオレンジの帯で出ます。選ぶと実線に変わります。
         </InfoPopover>
       </div>
+      {/* 編集の元は1本に固定。候補を選び直しても変わらない。 */}
+      <p className={styles.base}>
+        元: {displayed.direction_label}（{displayed.distance_km.toFixed(1)}km）
+      </p>
+
       <div className={styles.head}>
         <label htmlFor="splice-target">比較相手</label>
         <select

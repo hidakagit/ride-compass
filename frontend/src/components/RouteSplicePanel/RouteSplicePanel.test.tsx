@@ -26,6 +26,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteSplicePanel>[0]> = 
     onApply: vi.fn(),
     applying: false,
     error: null as string | null,
+    onCancel: vi.fn(),
     ...overrides,
   };
 }

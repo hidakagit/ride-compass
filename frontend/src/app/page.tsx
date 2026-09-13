@@ -12,7 +12,6 @@ import {
   ClearRoutesIcon,
   DownloadIcon,
   RedrawMapIcon,
-  RouteEditIcon,
   RouteIcon,
   RouteSettingsIcon,
   SaveIcon,
@@ -188,7 +187,6 @@ const ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY = "ridecompass:route-layer-meanin
 const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
-const ROUTE_EDIT_OPEN_STORAGE_KEY = "ridecompass:route-edit-open";
 // モバイル下部シートの高さ。シートは排他表示のため1つの値を共有する
 // （BottomSheetのheightVh props参照）。
 const MOBILE_SHEET_HEIGHT_STORAGE_KEY = "ridecompass:mobile-sheet-height-vh";
@@ -331,17 +329,14 @@ const DISASTER_LEGEND_DETAILS_BASE: readonly LegendFilterSummaryAxis[] = [
 // ROUTE_SETTINGS_SHEET_TITLE_ID/ROUTE_OUTCOME_SHEET_TITLE_IDを別途持つ）。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 const OUTCOME_SECTION_TITLE_ID = "outcome-section-title";
-const ROUTE_EDIT_SECTION_TITLE_ID = "route-edit-section-title";
 // 候補タブ列のvalue体系: 候補はroute id、比較は"comparison"、先頭固定の「保存済み」は
 // SAVED_ROUTES_TAB_VALUE（保存機能の実装まではタブ自体を描画しない）。
 const SAVED_ROUTES_TAB_VALUE = "saved";
-// モバイルの「ルート編集」シート見出しのDOM id。
-const ROUTE_EDIT_SHEET_TITLE_ID = "route-edit-sheet-title";
 // モバイルの「ルート設定」「ルート結果」シート見出しのDOM id。
 const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
 const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
-type MobileSheet = "routeSettings" | "routeOutcome" | "routeEdit" | null;
+type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
 export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
@@ -366,6 +361,9 @@ export default function Home() {
   // 別の場所を指したまま残る。
   const [spliceTargetId, setSpliceTargetId] = useState<string | null>(null);
   const [spliceTakenIndexes, setSpliceTakenIndexes] = useState<number[]>([]);
+  // 編集中の元ルート。nullなら「ルート結果」は通常の一覧、非nullなら同じ場所が編集面に
+  // なる（独立したタブにすると、どのルートを編集しているのかを選び直す形になる）。
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [splicing, setSplicing] = useState(false);
   // 合成の失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）。
   // 押した場所＝編集パネルに出す。
@@ -739,7 +737,6 @@ export default function Home() {
   // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない。
   const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
   const [outcomeOpen, setOutcomeOpen] = useStoredBooleanState(OUTCOME_OPEN_STORAGE_KEY, true);
-  const [routeEditOpen, setRouteEditOpen] = useStoredBooleanState(ROUTE_EDIT_OPEN_STORAGE_KEY, true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // モバイルで開いている下部シート（排他表示、またはどれも閉じたnull＝地図全面表示）。
   // デスクトップでは使わない。
@@ -1508,6 +1505,8 @@ export default function Home() {
     ],
   );
 
+  const editingRoute = routes.find((route) => route.id === editingRouteId) ?? null;
+
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
   // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する）
   const conditionsDirty =
@@ -1519,7 +1518,7 @@ export default function Home() {
   // （docs/tasks/T621.md）。frontendは経路の組み立てだけを行い、評価はbackendが
   // 既存候補と同じ経路で行う（構造仕様1・10）。
   async function handleApplySplice() {
-    if (!selectedCandidate || !spliceTarget || spliceTakenIndexes.length === 0) return;
+    if (!editingRoute || !spliceTarget || spliceTakenIndexes.length === 0) return;
     // 表示中の候補を作った条件をそのまま使う。いまのフォーム値を使うと、生成後に重みを
     // 変えてから合成したときに、その1本だけ別条件で評価された候補が同じ並びへ入る。
     const generatedInput = generatedConditions?.input;
@@ -1529,7 +1528,7 @@ export default function Home() {
     setSpliceError(null);
     try {
       const edgeIds = spliceEdgeIds(
-        selectedCandidate.edge_ids,
+        editingRoute.edge_ids,
         spliceTarget.edge_ids,
         spliceTakenIndexes.map((index) => spliceStretches[index]).filter(Boolean),
       );
@@ -1552,10 +1551,9 @@ export default function Home() {
       setSpliceTargetId(null);
       setSpliceTakenIndexes([]);
       setSelectedRouteSegment(null);
-      // 作ったルートは「ルート結果」の一覧へ入る。押した場所（編集）に留まると何も
-      // 変わらないように見えるため、できたものが見える場所まで連れて行く。
+      // 同じ場所が結果の一覧へ戻り、作ったルートが選ばれた状態で並ぶ。
+      setEditingRouteId(null);
       notifyRouteOutcome();
-      if (isMobile) setMobileSheet("routeOutcome");
     } catch (error) {
       setSpliceError(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
     } finally {
@@ -1834,6 +1832,8 @@ export default function Home() {
   // 総合難易度の説明はRouteAxisProfile側（総合難易度の表示の隣）にあり、
   // 本ヘッダは操作アイコンのみを持つ。
   function renderRouteOutcomeSectionBody() {
+    // 編集中は同じ場所が編集面になる（「ルート編集」という別の置き場を持たない）。
+    if (editingRoute) return renderRouteEditSectionBody();
     if (routes.length === 0) return null;
 
     const showComparisonTab = researchEnabled;
@@ -2009,6 +2009,22 @@ export default function Home() {
                   axisColors={axisChipColors}
                 />
               )}
+              {/* 編集の入口は候補を見ている場所に置く。押すとこのルートを元に固定して、
+                  同じ場所が編集面へ変わる。 */}
+              {canSpliceDisplayedRoute() && !selectedRouteSegment && (
+                <button
+                  type="button"
+                  className={styles.editRouteButton}
+                  onClick={() => {
+                    setEditingRouteId(route.id);
+                    setSpliceTargetId(null);
+                    setSpliceTakenIndexes([]);
+                    setSpliceError(null);
+                  }}
+                >
+                  このルートを編集
+                </button>
+              )}
             </Tabs.Content>
           ))}
           {showComparisonTab && (
@@ -2040,24 +2056,27 @@ export default function Home() {
     );
   }
 
-  // 「ルート編集」の中身。生成結果から派生して新しいルートを作る操作だけを置く
-  // （見るのはルート結果パネル、docs/tasks/T769.md）。対象は目的地ルートのみ——周回は
-  // 起点へ戻る制約があり、途中で別候補へ乗り換えると戻れる保証が無くなる。条件は
-  // **表示中の候補を作った生成**で見る。いまの目的地ピンで見ると、周回モードへ切り替えた
-  // 後もピンが残っている間は操作面が出てしまい、合成リクエストがdestination無しになって
-  // 弾かれる。
+  // 編集できるのは目的地ルートのみ——周回は起点へ戻る制約があり、途中で別候補へ乗り換えると
+  // 戻れる保証が無くなる。条件は**表示中の候補を作った生成**で見る。いまの目的地ピンで見ると、
+  // 周回モードへ切り替えた後もピンが残っている間は操作面が出てしまい、合成リクエストが
+  // destination無しになって弾かれる。
   function canSpliceDisplayedRoute(): boolean {
     return Boolean(generatedConditions?.input.destination) && routes.length > 1 && selectedCandidate !== null;
   }
 
+  // 「ルート結果」が編集モードのときの中身。元は1本に固定で、相手を選び直しても変わらない。
   function renderRouteEditSectionBody() {
-    if (!canSpliceDisplayedRoute() || selectedCandidate === null) {
-      return <p className={styles.emptyHint}>目的地を決めて候補が2件以上出ると、区間を乗り換えて新しいルートを作れます</p>;
-    }
+    if (editingRoute === null) return null;
     return (
       <RouteSplicePanel
-        displayed={selectedCandidate}
-        targets={routes.filter((other) => other.id !== selectedCandidate.id)}
+        displayed={editingRoute}
+        onCancel={() => {
+          setEditingRouteId(null);
+          setSpliceTargetId(null);
+          setSpliceTakenIndexes([]);
+          setSpliceError(null);
+        }}
+        targets={routes.filter((other) => other.id !== editingRoute.id)}
         targetId={spliceTargetId}
         onSelectTarget={(id) => {
           setSpliceTargetId(id);
@@ -2187,25 +2206,6 @@ export default function Home() {
                   {routes.length > 0 ? renderRouteOutcomeSectionBody() : renderRouteOutcomeEmptyState()}
                 </Disclosure>
 
-                {/* ルート編集: 生成結果から派生して新しいルートを作る操作だけを置く。
-                    レイヤーのON/OFF・凡例・絞り込みは地図の上（MapOverlayControls）と
-                    地図下部の一括操作行が持ち、サイドバーには置かない。 */}
-                <Disclosure
-                  className={styles.blockSection}
-                  triggerClassName={styles.blockSummary}
-                  bodyClassName={styles.blockBody}
-                  id={ROUTE_EDIT_SECTION_TITLE_ID}
-                  summary={
-                    <>
-                      <span aria-hidden="true" className={styles.blockChevron} />
-                      ルート編集
-                    </>
-                  }
-                  open={routeEditOpen}
-                  onOpenChange={setRouteEditOpen}
-                >
-                  {renderRouteEditSectionBody()}
-                </Disclosure>
               </>
             )}
           </aside>
@@ -2432,17 +2432,6 @@ export default function Home() {
                 />
               )}
             </button>
-            <button
-              type="button"
-              aria-pressed={mobileSheet === "routeEdit"}
-              onClick={() => handleMobileTabClick("routeEdit")}
-              className={
-                mobileSheet === "routeEdit" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
-              }
-            >
-              <RouteEditIcon />
-              <span className={styles.tabLabel}>ルート編集</span>
-            </button>
           </nav>
 
           <Tabs.Root value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
@@ -2481,18 +2470,6 @@ export default function Home() {
             )}
           </BottomSheet>
 
-          <BottomSheet
-            open={mobileSheet === "routeEdit"}
-            onClose={() => setMobileSheet(null)}
-            title="ルート編集"
-            titleId={ROUTE_EDIT_SHEET_TITLE_ID}
-            heightVh={mobileSheetHeightVh}
-            onHeightChange={handleMobileSheetHeightChange}
-            onHeightCommit={handleMobileSheetHeightCommit}
-            autoFitHeight={!sheetHeightChosen}
-          >
-            {renderRouteEditSectionBody()}
-          </BottomSheet>
         </>
       )}
     </div>

@@ -200,10 +200,9 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 `useIsMobile()`（`MOBILE_BREAKPOINT_PX`=640px、`globals.css`の`@media`と一致を自動
 テストで検証）で分岐する:
 
-- デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ3区分
-  「ルート設定 / ルート結果 / ルート編集」を同じ順序で縦積み。各区分は独立した
-  `Disclosure`折りたたみで、開閉状態は`generateOpen`・`outcomeOpen`・`routeEditOpen`
-  （localStorage）で永続化する。「ルート設定」「ルート結果」の見出し行はどちらも
+- デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ2区分
+  「ルート設定 / ルート結果」を同じ順序で縦積み。各区分は独立した`Disclosure`折りたたみで、
+  開閉状態は`generateOpen`・`outcomeOpen`（localStorage）で永続化する。「ルート設定」「ルート結果」の見出し行はどちらも
   `trailing`に操作枠を持つ（前者は`renderRouteSectionHeaderActions()`の「ルート生成」
   ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」の候補一覧は**左の縦タブ**
   （`Tabs.Root orientation="vertical"`）で、右に選択中候補の中身が並ぶ2カラム——横並びの
@@ -220,8 +219,13 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   ボタンで本文を畳んだままでも押せるため、押した結果を「ルート設定」本文へ出すと操作している
   場所から見えない。失敗時は`outcomeOpen`を開き、モバイル向けに`hasUnseenResults`も立てる
   （シートは排他表示のため勝手に開かず、タブのドットで知らせる）。
-- モバイル: 下部タブバー（ルート設定/ルート結果/ルート編集）+`BottomSheet`（3枚が
-  `mobileSheet`で排他表示、高さ`mobileSheetHeightVh`を共有）。デスクトップと同じく
+  **ルートの編集は「ルート結果」の中のモード**（`editingRouteId`）で、独立した置き場を
+  持たない——別の置き場にすると、どのルートを編集しているのかを編集側で選び直す形になる。
+  入口は候補の中身の「このルートを編集」で、乗り換えできない生成（周回・候補1件）では入口
+  自体を出さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻る
+  （[route-settings-and-results.md](route-settings-and-results.md)参照）。
+- モバイル: 下部タブバー（ルート設定/ルート結果）+`BottomSheet`（2枚が`mobileSheet`で
+  排他表示、高さ`mobileSheetHeightVh`を共有）。デスクトップと同じく
   「ルート設定」シートは`RouteForm`（タブの中身を描く。タブ列と選択状態は`page.tsx`側の
   `Tabs.Root`が持つ）を描画し、`headerAction`propとして
   `renderRouteSectionHeaderActions()`（タブ列＋「ルート生成」ボタン）をデスクトップと
