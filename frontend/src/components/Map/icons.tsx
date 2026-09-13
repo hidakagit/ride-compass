@@ -435,6 +435,31 @@ export function SnowflakeIcon({ size = 16 }: IconProps) {
 
 /** 生成した候補を捨てる: ゴミ箱。**バツ印を使わない**——このボタンはパネルを閉じる
  * ✕の隣に並ぶため、同じ形だとどちらがどちらか分からなくなる。 */
+/** 区間の乗り換え: 2本の道が合流して1本になる形。「別の候補の道を取り込んで1本にする」
+ * という操作そのものを絵にする（鉛筆の「編集」だと、どのルートの何を変えるのかが伝わらない）。
+ * 分岐点・合流点に節を置き、取り込む側の道を太く描く。 */
+export function RouteSpliceIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path
+        d="M3 15.5c2.6 0 3.4-3 5-5.5s2.4-5.5 5-5.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        opacity="0.55"
+      />
+      <path
+        d="M3 15.5c2.6 0 4.6 0 6.2-2.2 1.6-2.2 2-8.8 4.6-8.8"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="3" cy="15.5" r="1.5" fill="currentColor" />
+      <circle cx="13.8" cy="4.5" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function ClearRoutesIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

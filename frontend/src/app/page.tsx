@@ -10,6 +10,7 @@ import {
   ClearAllFiltersIcon,
   ClearAllLayersIcon,
   ClearRoutesIcon,
+  RouteSpliceIcon,
   DownloadIcon,
   RedrawMapIcon,
   RouteIcon,
@@ -1923,6 +1924,26 @@ export default function Home() {
         <button type="button" className={styles.outcomeHeaderIcon} disabled title="保存（準備中）" aria-label="保存（準備中）">
           <SaveIcon size={18} />
         </button>
+        {/* 編集（区間の乗り換え）の入口。選択中の候補に対する操作のため、GPX出力と同じ
+            アイコン列へ置く。乗り換えできない生成（周回・候補1件）では出さない——押しても
+            何もできない入口を残さない。編集中は戻る導線がパネル側にあるため重ねない。 */}
+        {canSpliceDisplayedRoute() && editingRoute === null && (
+          <button
+            type="button"
+            className={styles.outcomeHeaderIcon}
+            onClick={() => {
+              if (!selectedCandidate) return;
+              setEditingRouteId(selectedCandidate.id);
+              setSpliceChoices({});
+              setSplicePreviews({});
+              setSpliceError(null);
+            }}
+            title="このルートを編集（区間の乗り換え）"
+            aria-label="このルートを編集"
+          >
+            <RouteSpliceIcon size={18} />
+          </button>
+        )}
         {/* 選択中候補のgeometry（区間分割前の連続したLineString）をGPXへ書き出す。
             selectedCandidateがnullの間は押せない（比較タブ表示中等）。 */}
         <button
@@ -2143,21 +2164,6 @@ export default function Home() {
                   estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
                   axisColors={axisChipColors}
                 />
-              )}
-              {/* 編集の入口は候補を見ている場所に置く。押すとこのルートを元に固定して、
-                  同じ場所が編集面へ変わる。 */}
-              {canSpliceDisplayedRoute() && !selectedRouteSegment && (
-                <button
-                  type="button"
-                  className={styles.editRouteButton}
-                  onClick={() => {
-                    setEditingRouteId(route.id);
-                    setSpliceChoices({});
-                    setSpliceError(null);
-                  }}
-                >
-                  このルートを編集
-                </button>
               )}
             </Tabs.Content>
           ))}
