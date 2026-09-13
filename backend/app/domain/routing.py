@@ -25,42 +25,29 @@ from dataclasses import dataclass, field
 from typing import TypeVar
 
 import numpy as np
-import rustworkx as rx
+from numba import njit
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
 from app.domain.errors import RoutingError
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, haversine_distance_km
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
 
 
 @dataclass
 class LazyRoadGraph:
-    """探索グラフのrustworkx表現。
+    """探索グラフのトポロジ表現。
 
-    Edgeコストを事前計算しない——トポロジのみを保持し、探索中に実際に訪れたEdgeに
-    対してのみ`edge_cost_fn`が都度呼ばれる（lazy評価）。合成グリッドグラフ
-    （nodes=139,876 edges=558,008規模）でA*は全Edgeの2.79%しか評価せずに済む
-    （bbox全体のコストを事前に一括計算してからCSRを構築する方式は、この無駄な
-    事前計算そのものが`prepare_ms`の支配的コストになる）。
-
-    Node/Edgeのpayloadはいずれも整数index（`add_nodes_from(range(n))`・
-    `add_edge(u, v, edge_index)`）にしてある。rustworkxの`astar_shortest_path`は
-    `goal_fn`/`edge_cost_fn`/`estimate_cost_fn`へノード・Edgeの**payload**（rustworkx内部の
-    生indexではない）を渡す仕様のため、payload自体を「配列の添字として直接使える整数」に
-    しておくことで、呼び出し元（`shortest_path_node_ids_lazy`の呼び出し元、
-    `road_graph_engine.py`）は`cost_list.__getitem__`のような素のlistインデックスアクセスを
-    そのままcost_fn/estimate_cost_fnとして渡せる——探索中に一切Pythonの関数フレームを
-    作らずに済む（辞書キャッシュ経由のPythonコールバックだとA* 24本で8.3〜17.7秒
-    かかるが、素のlist.__getitem__に置き換えると0.37秒に短縮する）。文字列edge_id/node_idは、
-    経路確定後の変換（`path_to_edge_ids_lazy`・戻り値のNode ID列）でのみ使う。
+    Node・Edgeとも整数index（`index_to_node_id`・`edge_ids`の添字）で扱い、文字列の
+    node_id/edge_idは経路確定後の変換でのみ使う。コストは持たない——リクエストごとに変わる
+    ため、探索へは別に合成した配列を渡す。並行Edge（同一Node間の複数Edge）はコスト最小の
+    1本へ解消済み（`edge_index_by_node_pair`）。
     """
 
-    py_graph: rx.PyDiGraph
     node_id_to_index: dict[str, int]
     index_to_node_id: list[str]
-    # edge_index（py_graphのEdge payload、= 下記edge_idsの添字）→ edge_id。
+    # edge_index（下記edge_idsの添字）→ edge_id。
     edge_ids: list[str]
     # (from_index, to_index) -> edge_index。並行Edge解消後の実際に採用されたペアのみ持つ。
     edge_index_by_node_pair: dict[tuple[int, int], int]
@@ -69,19 +56,16 @@ class LazyRoadGraph:
 def build_lazy_road_graph(
     graph: RoadGraphLike, edge_cost_by_id: Mapping[str, float] | None = None
 ) -> LazyRoadGraph:
-    """`graph`のトポロジからrustworkxの`PyDiGraph`を構築する（Hard Constraint自体は
-    評価しない。除外は呼び出し元がcost=math.infで表現する）。
+    """`graph`のトポロジから`LazyRoadGraph`を構築する（Hard Constraint自体は評価しない。
+    除外は呼び出し元がcost=math.infで表現する）。
 
-    Node/Edge payloadは整数index（`LazyRoadGraph`のdocstring参照）。`edge_cost_by_id`
+    `edge_cost_by_id`
     （edge_id→コスト、省略可）を渡すと、並行Edge（同一Node間の複数Edge）は**cost最小の
     Edgeを採用**する。省略時（コストがまだ判明していない場面、主にテスト）は、
     edge_idの昇順で先頭を採用する決定的な選択にフォールバックする。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
-
-    py_graph = rx.PyDiGraph()
-    py_graph.add_nodes_from(range(len(node_ids)))
 
     # edge_idの昇順で処理する（複数の並行Edgeのうちどれを「先に登場した」とみなすかの
     # 決定的な基準、cost比較が同点の場合のタイブレークにも使う）。
@@ -108,87 +92,15 @@ def build_lazy_road_graph(
     edge_index_by_node_pair: dict[tuple[int, int], int] = {}
     for pair, edge_id in best_by_pair.items():
         edge_index = len(edge_ids)
-        py_graph.add_edge(pair[0], pair[1], edge_index)
         edge_ids.append(edge_id)
         edge_index_by_node_pair[pair] = edge_index
 
     return LazyRoadGraph(
-        py_graph=py_graph,
         node_id_to_index=node_id_to_index,
         index_to_node_id=node_ids,
         edge_ids=edge_ids,
         edge_index_by_node_pair=edge_index_by_node_pair,
     )
-
-
-def shortest_path_node_ids_lazy(
-    lazy_graph: LazyRoadGraph,
-    start_node_id: str,
-    end_node_id: str,
-    edge_cost_fn: Callable[[int], float],
-    estimate_cost_fn: Callable[[int], float],
-) -> list[str] | None:
-    """`start_node_id`から`end_node_id`までの最小コスト経路をNode ID列で返す
-    （rustworkxのA*）。
-
-    `edge_cost_fn`/`estimate_cost_fn`は、`LazyRoadGraph`のNode/Edge payloadである
-    **整数index**（Edge index/Node index、それぞれ`lazy_graph.edge_ids`/
-    `lazy_graph.index_to_node_id`の添字）を受け取る。典型的には呼び出し元が
-    `cost_list.__getitem__`のような素のlistインデックスアクセスをそのまま渡す
-    （探索中にPythonの関数フレームを作らない、`LazyRoadGraph`のdocstring参照）。
-    Hard Constraintで除外されるEdgeは`edge_cost_fn`が`math.inf`を返すことで通行不能を
-    表現する（コストは探索前に判明しているため、この除外自体は`build_lazy_road_graph`
-    より前の時点でコスト配列へ焼き込まれている）。`estimate_cost_fn`は目的地までの
-    下界推定（admissibleヒューリスティック、直線距離）を返す。経路が存在しない場合は
-    Noneを返す。
-    """
-    if start_node_id == end_node_id:
-        return [start_node_id] if start_node_id in lazy_graph.node_id_to_index else None
-
-    start_index = lazy_graph.node_id_to_index.get(start_node_id)
-    end_index = lazy_graph.node_id_to_index.get(end_node_id)
-    if start_index is None or end_index is None:
-        return None
-
-    def goal_fn(node_index: int) -> bool:
-        return node_index == end_index
-
-    try:
-        path_indices = rx.astar_shortest_path(
-            lazy_graph.py_graph, start_index, goal_fn, edge_cost_fn, estimate_cost_fn
-        )
-    except rx.NoPathFound:
-        return None
-    if len(path_indices) == 0:
-        return None
-
-    # rustworkxは`math.inf`を「通行不能」ではなく「非常に高いが有効なコスト」として
-    # 扱うため、他に到達手段が無ければinfコストのEdgeを含む経路でもそのまま返してくる
-    # （他の有限コスト経路が存在する限りはそちらが優先されるため、このチェックは
-    # finite経路が本当に存在しない場合にのみNoneへ倒す）。経路確定後に合計コストを
-    # 検算し、無限大ならHard Constraintで実質到達不能だったとみなす。
-    total_cost = 0.0
-    for u, v in zip(path_indices, path_indices[1:]):
-        edge_index = lazy_graph.edge_index_by_node_pair[(u, v)]
-        total_cost += edge_cost_fn(edge_index)
-    if not math.isfinite(total_cost):
-        return None
-
-    return [lazy_graph.index_to_node_id[i] for i in path_indices]
-
-
-def path_to_edge_indices_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[int]:
-    """Node ID列を、それらを結ぶEdgeのindex列（`lazy_graph.edge_ids`の添字）へ変換する。"""
-    return [
-        lazy_graph.edge_index_by_node_pair[(lazy_graph.node_id_to_index[u], lazy_graph.node_id_to_index[v])]
-        for u, v in zip(path_node_ids, path_node_ids[1:])
-    ]
-
-
-def path_to_edge_ids_lazy(lazy_graph: LazyRoadGraph, path_node_ids: list[str]) -> list[str]:
-    """Node ID列を、それらを結ぶEdgeのID列へ変換する。"""
-    return [lazy_graph.edge_ids[i] for i in path_to_edge_indices_lazy(lazy_graph, path_node_ids)]
-
 
 # --- 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
 
@@ -329,155 +241,6 @@ def build_search_graph_statics(
         count=len(lazy_graph.edge_ids),
     )
     return SearchGraphStatics(csr=build_csr_structure(lazy_graph, reverse=reverse), edge_length_m=edge_length_m)
-
-
-@dataclass
-class ShortestPathTree:
-    """起点からの一対全最短経路木。配列はいずれも`LazyRoadGraph.
-    index_to_node_id`と同じNode index順。"""
-
-    source_index: int
-    # 起点からの最小コスト（`edge_cost`の和）。到達不能（コストinf・cost_limit超過含む）はinf。
-    cost: np.ndarray
-    # 木の親Node index。起点・到達不能は-1。
-    predecessor: np.ndarray
-    # 木に沿った（＝最小コスト経路の）実距離（m）の積算。到達不能はNaN、起点は0。
-    length_m: np.ndarray
-    # `predecessor`のPython list版。`tree_path_edge_indices`が数千Nodeぶんの経路復元で
-    # numpyスカラーの取り出しを繰り返すのを避ける（実データ規模で約2倍速い）。一対全木は
-    # 折返し点選定のたびに必ずこの経路復元で使われるため、遅延構築にする利点が無く
-    # 構築時にtolist()する。
-    predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
-
-    def is_reached(self, node_index: int) -> bool:
-        return bool(np.isfinite(self.cost[node_index]))
-
-
-def build_shortest_path_tree(
-    structure: CsrGraphStructure,
-    edge_cost: Sequence[float] | np.ndarray,
-    edge_length_m: np.ndarray,
-    source_index: int,
-    cost_limit: float = np.inf,
-) -> ShortestPathTree:
-    """起点`source_index`からの一対全Dijkstra（scipy.sparse.csgraph、前任者付き）を行い、
-    前任者木に沿った実距離も積算して返す。
-
-    `edge_cost`/`edge_length_m`は`LazyRoadGraph.edge_ids`と同じ行順の配列。`math.inf`の
-    コストは通行不能（0次フィルタ除外）を表し、scipyはそのEdge経由の到達をinfとして
-    扱う（`shortest_path_node_ids_lazy`の検算と同じ意味論）。`cost_limit`はこのコストを
-    超えるNodeの探索を打ち切る上限（scipyの`limit`、リングより外側の探索を省く用途。
-    `cost >= distance`の不変条件[`_build_estimate_cost_fn`参照]により「実距離の上限×
-    (1+P)」が安全な上限になる）。
-
-    実距離の積算は、`(pred[v], v)`のCSRエントリ位置を整列キーへの`searchsorted`で
-    一括検索した後、ポインタジャンプ（`acc[v] += acc[anc[v]]; anc[v] = anc[anc[v]]`を
-    木の深さのlog2回だけ繰り返す）でベクトル演算する。素朴にcost昇順のPythonループで
-    加算すると開発機の合成グリッド（14万Node）で1.2秒、numpyスカラーのループでは8.6秒
-    かかるのに対し、この方式は0.2秒。
-    """
-    n = structure.node_count
-    data = np.asarray(edge_cost, dtype=float)[structure.entry_edge_index]
-    matrix = csr_matrix((data, structure.indices, structure.indptr), shape=(n, n))
-    cost, predecessor = scipy_dijkstra(
-        matrix, directed=True, indices=source_index, return_predecessors=True, limit=cost_limit
-    )
-    predecessor = predecessor.astype(np.int64)
-    predecessor[predecessor < 0] = -1  # scipyのセンチネル（-9999）を-1へ正規化
-    length_m = _accumulate_tree_lengths(
-        structure, predecessor, np.asarray(edge_length_m, dtype=float), source_index, cost
-    )
-    return ShortestPathTree(
-        source_index=source_index, cost=cost, predecessor=predecessor, length_m=length_m,
-        predecessor_list=predecessor.tolist(),
-    )
-
-
-def _reconstruct_entry_keys(structure: CsrGraphStructure) -> np.ndarray:
-    """CSRエントリ順の`from_index * node_count + to_index`（昇順）を`indptr`/`indices`から
-    再構築する（永続フィールドとして持たない理由は`CsrGraphStructure`のdocstring参照）。
-    `node_count`の2乗がint32の値域を超えうる（実データ規模で14万Node→約196億）ため、
-    キーの計算自体はint64で行う——`indptr`/`indices`のdtype変更とは独立に、この整列キー
-    自体は常にint64のまま。
-    """
-    n = structure.node_count
-    rows = np.repeat(np.arange(n, dtype=np.int64), np.diff(structure.indptr))
-    return rows * n + structure.indices.astype(np.int64)
-
-
-def _accumulate_tree_lengths(
-    structure: CsrGraphStructure, predecessor: np.ndarray, edge_length_m: np.ndarray, source_index: int,
-    cost: np.ndarray,
-) -> np.ndarray:
-    """`predecessor >= 0`ではなく`np.isfinite(cost)`を到達判定の正本にする。使用中の
-    scipy 1.18.1では両者は一致するが、infコストで打ち切られたEdgeの先へも前任者
-    ポインタを書きうる別バージョンに対する契約保証——コストが確定した「到達済み」
-    集合だけを実距離の積算対象にする。
-    """
-    n = structure.node_count
-    reached = np.isfinite(cost)
-    has_pred = reached & (predecessor >= 0)
-    child = np.flatnonzero(has_pred)
-    edge_to_child = np.zeros(n)
-    if len(child):
-        entry_keys = _reconstruct_entry_keys(structure)
-        positions = np.searchsorted(entry_keys, predecessor[child] * n + child)
-        edge_to_child[child] = edge_length_m[structure.entry_edge_index[positions]]
-    ancestor = np.where(has_pred, predecessor, np.arange(n))
-    accumulated = edge_to_child.copy()
-    for _ in range(64):  # 木の深さ2^64までの安全弁（実際はlog2(深さ)回で収束する）
-        next_ancestor = ancestor[ancestor]
-        if np.array_equal(next_ancestor, ancestor):
-            break
-        accumulated = accumulated + accumulated[ancestor]
-        ancestor = next_ancestor
-    reached = reached.copy()
-    reached[source_index] = True
-    return np.where(reached, accumulated, np.nan)
-
-
-def tree_path_edge_indices(tree: ShortestPathTree, lazy_graph: LazyRoadGraph, target_index: int) -> list[int] | None:
-    """一対全木上の起点→`target_index`の経路を、`LazyRoadGraph`のEdge index列で返す
-    （同じコスト配列でA*をかけ直しても同じ経路になるため、往路の再探索は不要）。
-    到達不能ならNone、起点自身なら空リスト。"""
-    if not tree.is_reached(target_index):
-        return None
-    edge_indices: list[int] = []
-    current = int(target_index)
-    pair_index = lazy_graph.edge_index_by_node_pair
-    predecessor = tree.predecessor_list
-    source = tree.source_index
-    while current != source:
-        parent = predecessor[current]
-        edge_indices.append(pair_index[(parent, current)])
-        current = parent
-    edge_indices.reverse()
-    return edge_indices
-
-
-def tree_path_edge_indices_to_source(
-    tree: ShortestPathTree, lazy_graph: LazyRoadGraph, start_index: int
-) -> list[int] | None:
-    """`build_csr_structure(..., reverse=True)`から組んだ木（後ろ向き木、`tree.source_index`が
-    目的地）で、`start_index`から目的地までの経路を、実グラフの有向Edge（`start_index`→…→
-    `tree.source_index`の順）のEdge index列で返す。転置CSR上の
-    `predecessor[X]=P`は実グラフの`X→P`という辺を表すため、`tree_path_edge_indices`
-    （前向き木・`(parent, current)`順でEdge検索し最後に反転）とはEdge検索の引数順が逆
-    （`(current, parent)`）で、経路は既に`start→source`の順に積み上がるため反転は不要。
-    到達不能ならNone、`start_index`自身が`tree.source_index`なら空リスト。"""
-    if not tree.is_reached(start_index):
-        return None
-    edge_indices: list[int] = []
-    current = int(start_index)
-    pair_index = lazy_graph.edge_index_by_node_pair
-    predecessor = tree.predecessor_list
-    source = tree.source_index
-    while current != source:
-        parent = predecessor[current]
-        edge_indices.append(pair_index[(current, parent)])
-        current = parent
-    return edge_indices
-
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
     """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重割合
@@ -813,14 +576,519 @@ def find_nearest_node_indexed(
         radius += 1
     return nearest_node_id
 
+# --- ターン展開（状態＝有向Edge、辺＝ターン） ---
 
-def concat_node_paths(paths: list[list[str]]) -> list[str]:
-    """複数区間（例: 起点→経由地A、経由地A→経由地B、...）のNode ID列を1本に連結する。
-    隣接する区間の境界ノード（前区間の終端＝次区間の始端）が重複しないようにする。
+
+@dataclass(frozen=True)
+class TurnCostSpec:
+    """ターン1回の時間損失（秒）と、直進とみなす方位差の上限（度）。
+
+    費用を秒で持ち、探索へ渡すときに巡航速度でm換算する（探索のコストが距離の単位のため、
+    「右折1回＝何m遠回りするのと同じか」として距離と直接比較できる）。
     """
-    if not paths:
-        return []
-    combined = list(paths[0])
-    for path in paths[1:]:
-        combined.extend(path[1:])
-    return combined
+
+    left_seconds: float = 2.0
+    right_seconds: float = 12.0
+    uturn_seconds: float = 60.0
+    straight_max_deg: float = 30.0
+    # 進入した道より上位の階級の道と交わる交差点で追加する秒数（横断＝直進で渡る場合と、
+    # 右左折で入る場合）。信号の有無は見ない——信号のある交差点の待ちは停止密度の軸が既に
+    # 数えており、ここで数えると二重になる。数えられていないのは「信号が無いのに上位の道を
+    # 渡る・そこへ入る」場合の待ちで、それがこの2つ。
+    major_crossing_seconds: float = 8.0
+    major_turn_seconds: float = 15.0
+
+
+DEFAULT_TURN_COST = TurnCostSpec()
+
+
+@dataclass
+class TurnExpandedStructure:
+    """有向Edgeを状態、ターンを辺として見た構造。
+
+    `CsrGraphStructure`と同じくEdgeの重みは持たない（リクエストごとに変わるため）。グラフを
+    物理的に作り直さず、遷移は`CsrGraphStructure`から導く——ターンの費用はノード側の性質
+    （方位差・信号の有無）だけで決まり、状態の数を増やさずに表せる。行＝遷移元の状態
+    （`LazyRoadGraph.edge_ids`の添字）、列＝遷移先の状態で、起点には依存しないため
+    `CsrGraphStructure`と同じキーでキャッシュできる。
+    """
+
+    state_count: int
+    # 状態ごとの遷移範囲。長さ state_count + 1。
+    indptr: np.ndarray
+    # 遷移先の状態（`LazyRoadGraph.edge_ids`の添字）。
+    target_state: np.ndarray
+    # 遷移ごとのターンの時間損失（秒）。
+    turn_seconds: np.ndarray
+    # 状態（有向Edge）の始点・終点Node index。
+    edge_from: np.ndarray
+    edge_to: np.ndarray
+
+
+def edge_bearings(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:
+    """`lazy_graph.edge_ids`順の方位（度）。`Edge.bearing_deg`（折れ線から求めた実際の向き）を
+    使い、持たないEdgeだけ両端のNode座標から補う。"""
+    bearings = np.zeros(len(lazy_graph.edge_ids))
+    for index, edge_id in enumerate(lazy_graph.edge_ids):
+        edge = graph.edges.get(edge_id)
+        value = edge.bearing_deg if edge is not None else None
+        if value is None and edge is not None:
+            from_node = graph.nodes.get(edge.from_node_id)
+            to_node = graph.nodes.get(edge.to_node_id)
+            if from_node is not None and to_node is not None:
+                value = bearing_between(from_node, to_node)
+        bearings[index] = 0.0 if value is None else float(value)
+    return bearings
+
+
+def turn_seconds_for(
+    from_bearing: np.ndarray, to_bearing: np.ndarray, is_uturn: np.ndarray, spec: TurnCostSpec
+) -> np.ndarray:
+    """遷移ごとのターンの時間損失（秒）。方位差の符号で左右を分ける（負＝反時計回り＝左折）。"""
+    delta = (to_bearing - from_bearing + 180.0) % 360.0 - 180.0
+    turning = np.where(delta < 0, spec.left_seconds, spec.right_seconds)
+    return np.where(
+        is_uturn, spec.uturn_seconds, np.where(np.abs(delta) <= spec.straight_max_deg, 0.0, turning)
+    )
+
+
+def build_turn_expanded_structure(
+    csr: CsrGraphStructure,
+    lazy_graph: LazyRoadGraph,
+    bearing_deg: np.ndarray,
+    edge_rank: np.ndarray | None = None,
+    spec: TurnCostSpec = DEFAULT_TURN_COST,
+) -> TurnExpandedStructure:
+    """`CsrGraphStructure`から、状態＝有向Edgeの遷移構造を組む。
+
+    状態`e`の遷移先は「`e`の終点Nodeから出る有向Edge」で、遷移の数は
+    Σ(入次数×出次数)。`e`の始点へ戻る遷移はUターンとして扱う（禁止はしない——袋小路からの
+    折り返しに必要なため、費用で抑える）。
+    """
+    state_count = len(lazy_graph.edge_ids)
+    edge_from = np.zeros(state_count, dtype=np.int64)
+    edge_to = np.zeros(state_count, dtype=np.int64)
+    for (tail, head), edge_index in lazy_graph.edge_index_by_node_pair.items():
+        edge_from[edge_index] = tail
+        edge_to[edge_index] = head
+
+    indptr64 = csr.indptr.astype(np.int64)
+    out_start = indptr64[edge_to]
+    out_count = indptr64[edge_to + 1] - out_start
+    total = int(out_count.sum())
+    new_indptr = np.zeros(state_count + 1, dtype=np.int64)
+    np.cumsum(out_count, out=new_indptr[1:])
+
+    source = np.repeat(np.arange(state_count, dtype=np.int64), out_count)
+    entry_index = np.repeat(out_start, out_count) + (
+        np.arange(total, dtype=np.int64) - np.repeat(new_indptr[:state_count], out_count)
+    )
+    target_state = csr.entry_edge_index[entry_index].astype(np.int64)
+    is_uturn = csr.indices[entry_index].astype(np.int64) == edge_from[source]
+    turn_seconds = turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
+
+    if edge_rank is not None:
+        node_rank = np.zeros(csr.node_count, dtype=np.int64)
+        np.maximum.at(node_rank, edge_to, edge_rank)
+        np.maximum.at(node_rank, edge_from, edge_rank)
+        crosses_major = node_rank[edge_to[source]] > edge_rank[source]
+        delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
+        straight = np.abs(delta) <= spec.straight_max_deg
+        turn_seconds = turn_seconds + np.where(
+            crosses_major & ~is_uturn,
+            np.where(straight, spec.major_crossing_seconds, spec.major_turn_seconds),
+            0.0,
+        )
+
+    return TurnExpandedStructure(
+        state_count=state_count, indptr=new_indptr, target_state=target_state,
+        turn_seconds=turn_seconds, edge_from=edge_from, edge_to=edge_to,
+    )
+
+
+def build_turn_expanded_csr(
+    structure: TurnExpandedStructure,
+    edge_cost: np.ndarray,
+    entry_state_indices: np.ndarray,
+    speed_ms: float,
+    *,
+    reverse: bool = False,
+) -> csr_matrix:
+    """一対全木用のscipy CSRを組む。値は「遷移先の区間のコスト＋ターンの費用」。
+
+    末尾の1行は仮想の始点で、`entry_state_indices`（正方向なら起点から出る区間、
+    `reverse=True`なら目的地へ入る区間）へその区間のコスト自身で繋ぐ（複数の始点状態へ
+    別々の初期コストを与えるため）。行数・列数はともに`state_count + 1`で、仮想始点の状態
+    index は`state_count`。0次フィルタで除外された区間（コストが無限大）への遷移は落とす
+    ——scipyは無限大を「辺が無い」ではなく「非常に大きい重み」として扱うため。
+
+    `reverse=True`は遷移の向きだけを反転する（転置グラフ）。ターンの費用は元の進行方向の
+    ままで、「その区間から目的地まで」のコストが求まる。
+    """
+    state_count = structure.state_count
+    source = np.repeat(np.arange(state_count, dtype=np.int64), np.diff(structure.indptr))
+    weight = edge_cost[structure.target_state] + structure.turn_seconds * speed_ms
+    target = structure.target_state
+
+    finite = np.isfinite(weight)
+    source = source[finite]
+    target = target[finite]
+    weight = weight[finite]
+    if reverse:
+        source, target = target, source
+
+    entry_states = entry_state_indices[np.isfinite(edge_cost[entry_state_indices])]
+    source = np.concatenate([source, np.full(len(entry_states), state_count, dtype=np.int64)])
+    target = np.concatenate([target, entry_states.astype(np.int64)])
+    weight = np.concatenate([weight, edge_cost[entry_states]])
+
+    order = np.argsort(source, kind="stable")
+    indptr = np.zeros(state_count + 2, dtype=np.int64)
+    np.cumsum(np.bincount(source, minlength=state_count + 1), out=indptr[1:])
+    return csr_matrix(
+        (weight[order], target[order], indptr), shape=(state_count + 1, state_count + 1)
+    )
+
+
+@dataclass
+class TurnExpandedTree:
+    """状態＝有向Edgeの一対全最短経路木。`state_*`は`LazyRoadGraph.edge_ids`と同じ行順、
+    `node_*`はNode index順。
+
+    `ShortestPathTree`と違い「起点Nodeのコスト0」という状態を持たない——状態の空間に
+    「まだ走っていない」が無いため、起点Nodeの`node_cost`は「起点へ戻ってくるコスト」に
+    なる。起点を0として扱いたい呼び出し元は自分で上書きする。
+    """
+
+    # 仮想始点から各状態への最小コスト。到達不能はinf。
+    state_cost: np.ndarray
+    # 木の親となる状態。始点の区間・到達不能は-1。
+    predecessor: np.ndarray
+    # 木に沿った実距離（m）の積算。到達不能はNaN。
+    state_length_m: np.ndarray
+    # Nodeごとの最小コストと、そのコストでNodeへ入る状態（到達不能は-1）。
+    node_cost: np.ndarray
+    node_best_state: np.ndarray
+    # `node_best_state`に対応する実距離（m）。到達不能はNaN。
+    node_length_m: np.ndarray
+    # `predecessor`のPython list版（`ShortestPathTree`と同じ理由）。
+    predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
+
+
+def build_turn_expanded_tree(
+    structure: TurnExpandedStructure,
+    edge_cost: np.ndarray,
+    edge_length_m: np.ndarray,
+    entry_state_indices: np.ndarray,
+    speed_ms: float,
+    node_count: int,
+    *,
+    reverse: bool = False,
+    cost_limit: float = np.inf,
+) -> TurnExpandedTree:
+    """状態＝有向Edgeの一対全Dijkstra（scipy、前任者付き）。
+
+    実距離の積算は`_accumulate_tree_lengths`と同じポインタジャンプだが、状態へ入る辺は
+    その状態自身（有向Edge）のため、CSRエントリ位置の検索が要らない。
+    """
+    state_count = structure.state_count
+    matrix = build_turn_expanded_csr(structure, edge_cost, entry_state_indices, speed_ms, reverse=reverse)
+    cost, predecessor = scipy_dijkstra(
+        matrix, directed=True, indices=state_count, return_predecessors=True, limit=cost_limit
+    )
+    state_cost = cost[:state_count]
+    predecessor = predecessor[:state_count].astype(np.int64)
+    # 仮想始点（index=state_count）とscipyのセンチネル（-9999）をまとめて-1へ正規化する。
+    predecessor[(predecessor < 0) | (predecessor >= state_count)] = -1
+
+    reached = np.isfinite(state_cost)
+    has_pred = reached & (predecessor >= 0)
+    # ポインタジャンプの不変条件「accumulated[v]はvからancestor[v]までの距離」を保つため、
+    # 木の根（始点の区間）の親として長さ0の番兵を置く。番兵が無いと根が自分自身を指し、
+    # 根の区間の長さが積算から落ちる（深さ2の経路で最後の1区間しか数えない）。
+    sentinel = state_count
+    accumulated = np.zeros(state_count + 1)
+    accumulated[:state_count] = np.where(reached, np.asarray(edge_length_m, dtype=float), 0.0)
+    ancestor = np.full(state_count + 1, sentinel, dtype=np.int64)
+    ancestor[:state_count] = np.where(has_pred, predecessor, sentinel)
+    for _ in range(64):  # 木の深さ2^64までの安全弁（実際はlog2(深さ)回で収束する）
+        next_ancestor = ancestor[ancestor]
+        if np.array_equal(next_ancestor, ancestor):
+            break
+        accumulated = accumulated + accumulated[ancestor]
+        ancestor = next_ancestor
+    state_length_m = np.where(reached, accumulated[:state_count], np.nan)
+
+    # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
+    incoming = structure.edge_from if reverse else structure.edge_to
+    order = np.lexsort((state_cost, incoming))
+    sorted_nodes = incoming[order]
+    first = np.ones(len(order), dtype=bool)
+    first[1:] = sorted_nodes[1:] != sorted_nodes[:-1]
+    best_states = order[first]
+    node_best_state = np.full(node_count, -1, dtype=np.int64)
+    node_cost = np.full(node_count, np.inf)
+    node_length_m = np.full(node_count, np.nan)
+    finite_best = best_states[np.isfinite(state_cost[best_states])]
+    node_best_state[incoming[finite_best]] = finite_best
+    node_cost[incoming[finite_best]] = state_cost[finite_best]
+    node_length_m[incoming[finite_best]] = state_length_m[finite_best]
+
+    return TurnExpandedTree(
+        state_cost=state_cost, predecessor=predecessor, state_length_m=state_length_m,
+        node_cost=node_cost, node_best_state=node_best_state, node_length_m=node_length_m,
+        predecessor_list=predecessor.tolist(),
+    )
+
+
+def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> list[int]:
+    """前向き木で、始点→`state_index`の経路をEdge index列（進行順）で返す。状態がそのまま
+    Edge indexのため、`(parent, current)`からEdgeを引き直す必要がない。"""
+    edges: list[int] = []
+    state = int(state_index)
+    while state >= 0:
+        edges.append(state)
+        state = tree.predecessor_list[state]
+    edges.reverse()
+    return edges
+
+
+def turn_expanded_path_from_state_to_source(tree: TurnExpandedTree, state_index: int) -> list[int]:
+    """`reverse=True`で作った木で、`state_index`から木の始点（目的地）までの経路を進行順で
+    返す。逆向きの木では前任者を辿ることが目的地へ近づくことに当たるため、反転しない。"""
+    edges: list[int] = []
+    state = int(state_index)
+    while state >= 0:
+        edges.append(state)
+        state = tree.predecessor_list[state]
+    return edges
+
+
+def turn_expanded_path_edge_indices(tree: TurnExpandedTree, target_node_index: int) -> list[int] | None:
+    """木上の始点→`target_node_index`の経路をEdge index列で返す。到達不能ならNone。"""
+    state = int(tree.node_best_state[target_node_index])
+    if state < 0:
+        return None
+    return turn_expanded_path_from_state(tree, state)
+
+
+@dataclass
+class NodeJunction:
+    """前向き木と後ろ向き木を各Nodeで繋いだ結果。配列はNode index順。"""
+
+    # 繋いだ合計コスト（前向き＋そのNodeでのターン＋後ろ向き）。繋げないNodeはinf。
+    cost: np.ndarray
+    # 同じ経路の実距離（m）。繋げないNodeはNaN。
+    length_m: np.ndarray
+    # 繋いだときの前向き側・後ろ向き側の状態（Edge index）。繋げないNodeは-1。
+    forward_state: np.ndarray
+    backward_state: np.ndarray
+
+
+def combine_forward_backward_at_nodes(
+    structure: TurnExpandedStructure,
+    forward: TurnExpandedTree,
+    backward: TurnExpandedTree,
+    speed_ms: float,
+    node_count: int,
+) -> NodeJunction:
+    """前向き木と後ろ向き木を、Nodeごとに「そこでのターンの費用を含めて」繋ぐ。
+
+    Nodeで単に`forward.node_cost + backward.node_cost`を足すと、そのNodeを通り抜けるときの
+    ターンの費用が抜ける（入る方向と出る方向の組み合わせで決まるため）。遷移（入る区間×出る
+    区間の対）ごとに合計を求め、Nodeごとの最小を採る。
+    """
+    state_count = structure.state_count
+    source = np.repeat(np.arange(state_count, dtype=np.int64), np.diff(structure.indptr))
+    target = structure.target_state
+    total = forward.state_cost[source] + structure.turn_seconds * speed_ms + backward.state_cost[target]
+    length = forward.state_length_m[source] + backward.state_length_m[target]
+    junction_node = structure.edge_to[source]
+
+    cost = np.full(node_count, np.inf)
+    length_m = np.full(node_count, np.nan)
+    forward_state = np.full(node_count, -1, dtype=np.int64)
+    backward_state = np.full(node_count, -1, dtype=np.int64)
+
+    finite = np.flatnonzero(np.isfinite(total))
+    if len(finite):
+        order = finite[np.lexsort((total[finite], junction_node[finite]))]
+        nodes = junction_node[order]
+        first = np.ones(len(order), dtype=bool)
+        first[1:] = nodes[1:] != nodes[:-1]
+        best = order[first]
+        best_nodes = junction_node[best]
+        cost[best_nodes] = total[best]
+        length_m[best_nodes] = length[best]
+        forward_state[best_nodes] = source[best]
+        backward_state[best_nodes] = target[best]
+    return NodeJunction(
+        cost=cost, length_m=length_m, forward_state=forward_state, backward_state=backward_state
+    )
+
+
+def node_costs_from_state_costs(
+    state_cost: np.ndarray, structure: TurnExpandedStructure, node_count: int
+) -> np.ndarray:
+    """状態（有向Edge）ごとの到達コストを、Nodeごとの最小コストへ畳む。
+
+    起点Nodeだけは「起点へ戻ってくるコスト」になる（状態＝有向Edgeの空間には「まだ走って
+    いない状態」が無いため）。起点のコストを0として扱いたい呼び出し元は自分で上書きする。
+    """
+    per_node = np.full(node_count, np.inf)
+    np.minimum.at(per_node, structure.edge_to, state_cost[: structure.state_count])
+    return per_node
+
+
+@njit(cache=True)
+def _turn_expanded_astar(
+    indptr: np.ndarray,
+    target_state: np.ndarray,
+    turn_seconds: np.ndarray,
+    edge_to: np.ndarray,
+    edge_cost: np.ndarray,
+    node_heuristic: np.ndarray,
+    origin_states: np.ndarray,
+    goal_node: int,
+    speed_ms: float,
+    capacity: int,
+) -> tuple[np.ndarray, int]:
+    """状態＝有向区間・辺＝ターンのA*（JITコンパイル）。
+
+    優先度キューはnumpy配列のバイナリヒープとして持つ（numbaは`heapq`を扱えない）。
+    ヒープには`f = g + 目的地までの直線距離`と`g`の両方を積み、取り出したときに`g`が
+    `best`より大きければ古いエントリとして捨てる。戻り値は前任者の配列と、目的地へ入った
+    状態（到達不能なら-1）。
+    """
+    state_count = edge_to.shape[0]
+    best = np.full(state_count, np.inf)
+    predecessor = np.full(state_count, -1, dtype=np.int64)
+    heap_f = np.empty(capacity)
+    heap_g = np.empty(capacity)
+    heap_state = np.empty(capacity, dtype=np.int64)
+    size = 0
+
+    for i in range(origin_states.shape[0]):
+        state = origin_states[i]
+        g = edge_cost[state]
+        if not np.isfinite(g) or g >= best[state]:
+            continue
+        best[state] = g
+        f = g + node_heuristic[edge_to[state]]
+        j = size
+        heap_f[j] = f
+        heap_g[j] = g
+        heap_state[j] = state
+        while j > 0:
+            parent = (j - 1) // 2
+            if heap_f[parent] <= heap_f[j]:
+                break
+            tf = heap_f[parent]
+            heap_f[parent] = heap_f[j]
+            heap_f[j] = tf
+            tg = heap_g[parent]
+            heap_g[parent] = heap_g[j]
+            heap_g[j] = tg
+            ts = heap_state[parent]
+            heap_state[parent] = heap_state[j]
+            heap_state[j] = ts
+            j = parent
+        size += 1
+
+    goal_state = -1
+    while size > 0:
+        g = heap_g[0]
+        state = heap_state[0]
+        size -= 1
+        heap_f[0] = heap_f[size]
+        heap_g[0] = heap_g[size]
+        heap_state[0] = heap_state[size]
+        j = 0
+        while True:
+            left = 2 * j + 1
+            right = left + 1
+            smallest = j
+            if left < size and heap_f[left] < heap_f[smallest]:
+                smallest = left
+            if right < size and heap_f[right] < heap_f[smallest]:
+                smallest = right
+            if smallest == j:
+                break
+            tf = heap_f[smallest]
+            heap_f[smallest] = heap_f[j]
+            heap_f[j] = tf
+            tg = heap_g[smallest]
+            heap_g[smallest] = heap_g[j]
+            heap_g[j] = tg
+            ts = heap_state[smallest]
+            heap_state[smallest] = heap_state[j]
+            heap_state[j] = ts
+            j = smallest
+
+        if g > best[state]:
+            continue
+        if edge_to[state] == goal_node:
+            goal_state = state
+            break
+        for entry in range(indptr[state], indptr[state + 1]):
+            nxt = target_state[entry]
+            cost = edge_cost[nxt]
+            if not np.isfinite(cost):
+                continue
+            next_g = g + cost + turn_seconds[entry] * speed_ms
+            if next_g >= best[nxt]:
+                continue
+            best[nxt] = next_g
+            predecessor[nxt] = state
+            next_f = next_g + node_heuristic[edge_to[nxt]]
+            j = size
+            heap_f[j] = next_f
+            heap_g[j] = next_g
+            heap_state[j] = nxt
+            while j > 0:
+                parent = (j - 1) // 2
+                if heap_f[parent] <= heap_f[j]:
+                    break
+                tf = heap_f[parent]
+                heap_f[parent] = heap_f[j]
+                heap_f[j] = tf
+                tg = heap_g[parent]
+                heap_g[parent] = heap_g[j]
+                heap_g[j] = tg
+                ts = heap_state[parent]
+                heap_state[parent] = heap_state[j]
+                heap_state[j] = ts
+                j = parent
+            size += 1
+    return predecessor, goal_state
+
+
+def turn_expanded_shortest_path(
+    structure: TurnExpandedStructure,
+    edge_cost: np.ndarray,
+    node_heuristic: np.ndarray,
+    origin_states: np.ndarray,
+    goal_node_index: int,
+    speed_ms: float,
+) -> list[int] | None:
+    """起点から出る区間`origin_states`から`goal_node_index`までの最小コスト経路を、
+    Edge index列（進行順）で返す。到達不能ならNone。
+
+    `node_heuristic`はNodeごとの目的地までの直線距離（m）で、コストが距離以上である
+    （`cost >= distance`）という不変条件により下界として使える。
+    """
+    capacity = len(structure.target_state) + len(origin_states) + 16
+    predecessor, goal_state = _turn_expanded_astar(
+        structure.indptr, structure.target_state, structure.turn_seconds, structure.edge_to,
+        np.asarray(edge_cost, dtype=np.float64), np.asarray(node_heuristic, dtype=np.float64),
+        np.asarray(origin_states, dtype=np.int64), int(goal_node_index), float(speed_ms), capacity,
+    )
+    if goal_state < 0:
+        return None
+    edges: list[int] = []
+    state = int(goal_state)
+    while state >= 0:
+        edges.append(state)
+        state = int(predecessor[state])
+    edges.reverse()
+    return edges

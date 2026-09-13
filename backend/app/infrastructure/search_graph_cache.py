@@ -62,7 +62,7 @@ class _TileKeyedLru(Generic[_K, _V]):
     """タイル集合キー（またはそれを含むタプル）のプロセス内LRU。
 
     立ち退き自体は`cachetools.LRUCache`が担い、ここは4キャッシュ（lazy_graph・
-    search_statics・reverse_search_statics・routable_index）が共有する薄い包みに徹する。
+    search_statics・routable_index）が共有する薄い包みに徹する。
     包みが要るのは、キーの条件一致でまとめて捨てる`pop_matching`（タイル集合の一部が
     無効化されたときに、そのタイルを含むエントリだけを落とす）が必要なため。
 
@@ -103,17 +103,13 @@ class _TileKeyedLru(Generic[_K, _V]):
 # 同じキー・同じ寿命で保持する。
 _lazy_graph_cache: "_TileKeyedLru[TileSet, LazyRoadGraph]" = _TileKeyedLru()
 _search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
-# 目的地からの後ろ向き木（転置CSR）用。`_search_statics_cache`と同じタイル集合キー・
-# 寿命だが、`csr`が転置されている点だけが異なる別インスタンスのため別キャッシュに分ける
-# （目的地ルート生成時のみ構築、周回生成では使わない）。
-_reverse_search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
 _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _TileKeyedLru()
 # 探索範囲ごとに学習した迂回率（往路木で測った「道なり距離÷直線距離」の中央値）。同じ
 # タイル集合への次のリクエストが往路レグの通過予定時刻の推定に使う。道路網の形だけで決まる
 # 派生値のため、他の4キャッシュと同じキー・寿命で持つ（失っても既定値から測り直すだけ）。
 _detour_ratio_cache: "_TileKeyedLru[TileSet, float]" = _TileKeyedLru()
 _max_entries = DEFAULT_MAX_ENTRIES
-# `_search_statics_cache`/`_reverse_search_statics_cache`専用の上限。
+# `_search_statics_cache`専用の上限。
 _search_statics_max_entries = SEARCH_STATICS_MAX_ENTRIES
 
 
@@ -133,14 +129,6 @@ def set_search_statics(tile_set: TileSet, statics: "SearchGraphStatics") -> None
     _search_statics_cache.set(tile_set, statics, _search_statics_max_entries)
 
 
-def get_reverse_search_statics(tile_set: TileSet) -> "SearchGraphStatics | None":
-    return _reverse_search_statics_cache.get(tile_set)
-
-
-def set_reverse_search_statics(tile_set: TileSet, statics: "SearchGraphStatics") -> None:
-    _reverse_search_statics_cache.set(tile_set, statics, _search_statics_max_entries)
-
-
 def get_detour_ratio(tile_set: TileSet) -> float | None:
     return _detour_ratio_cache.get(tile_set)
 
@@ -158,10 +146,10 @@ def set_routable_index(key: RoutableIndexKey, index: "NodeSpatialIndex") -> None
 
 
 def invalidate_tile_set(tile_set: TileSet) -> None:
-    """指定タイル集合のエントリを4キャッシュ（`_lazy_graph_cache`・`_search_statics_cache`・
-    `_reverse_search_statics_cache`・`_routable_index_cache`）すべてから破棄する。
+    """指定タイル集合のエントリを全キャッシュ（`_lazy_graph_cache`・`_search_statics_cache`・
+    `_routable_index_cache`）すべてから破棄する。
 
-    `_lazy_graph_cache`/`_search_statics_cache`/`_reverse_search_statics_cache`は
+    `_lazy_graph_cache`/`_search_statics_cache`は
     LRU上限に達すると独立に最古のエントリを追い出すため、同じ
     `tile_set`が一方には残り他方からは既に消えている状態になりうる。この状態で再splitが
     挟まると、残った側の`LazyRoadGraph`（古いedge_id集合）と新しく取得した`graph`
@@ -173,7 +161,6 @@ def invalidate_tile_set(tile_set: TileSet) -> None:
     """
     _lazy_graph_cache.pop(tile_set)
     _search_statics_cache.pop(tile_set)
-    _reverse_search_statics_cache.pop(tile_set)
     _routable_index_cache.pop_matching(lambda key: key[0] == tile_set)
     _detour_ratio_cache.pop(tile_set)
 
@@ -182,7 +169,6 @@ def clear() -> None:
     """テスト用。キャッシュを全消去する（本番コードパスからは呼ばない）。"""
     _lazy_graph_cache.clear()
     _search_statics_cache.clear()
-    _reverse_search_statics_cache.clear()
     _routable_index_cache.clear()
     _detour_ratio_cache.clear()
 
@@ -193,10 +179,6 @@ def lazy_graph_cache_size() -> int:  # テストの検証用
 
 def search_statics_cache_size() -> int:  # テストの検証用
     return _search_statics_cache.size()
-
-
-def reverse_search_statics_cache_size() -> int:  # テストの検証用
-    return _reverse_search_statics_cache.size()
 
 
 def routable_index_cache_size() -> int:  # テストの検証用

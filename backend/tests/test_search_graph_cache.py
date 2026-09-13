@@ -151,60 +151,8 @@ class TestRoutableIndexCache:
         assert search_graph_cache.routable_index_cache_size() == 0
 
 
-class TestReverseSearchStaticsCache:
-    """目的地ルートのvia-node方式（改善計画T551）が使う後ろ向き木用の転置CSRキャッシュ。
-    エンドツーエンドの構築・キャッシュヒット確認はtest_road_graph_engine.py側で行う
-    （search_statics_cacheと同じ役割分担）。"""
-
-    def setup_method(self):
-        search_graph_cache.clear()
-
-    def teardown_method(self):
-        search_graph_cache.clear()
-
-    def test_get_missing_key_returns_none(self):
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
-
-    def test_set_then_get_roundtrip(self):
-        statics = object()
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, statics)
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is statics
-
-    def test_forward_and_reverse_statics_are_separate_entries_for_the_same_tile_set(self):
-        forward, reverse = object(), object()
-        search_graph_cache.set_search_statics(_TILE_SET_A, forward)
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, reverse)
-
-        assert search_graph_cache.get_search_statics(_TILE_SET_A) is forward
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is reverse
-
-    def test_size_tracks_entry_count(self):
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, object())
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_B, object())
-        assert search_graph_cache.reverse_search_statics_cache_size() == 2
-
-    def test_clear_empties_cache(self):
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, object())
-        search_graph_cache.clear()
-        assert search_graph_cache.reverse_search_statics_cache_size() == 0
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
-
-    def test_invalidate_tile_set_discards_reverse_statics_alongside_other_caches(self):
-        search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
-        search_graph_cache.set_search_statics(_TILE_SET_A, object())
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, object())
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_B, object())
-
-        search_graph_cache.invalidate_tile_set(_TILE_SET_A)
-
-        assert search_graph_cache.get_lazy_graph(_TILE_SET_A) is None
-        assert search_graph_cache.get_search_statics(_TILE_SET_A) is None
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
-        assert search_graph_cache.reverse_search_statics_cache_size() == 1  # Bは影響を受けない
-
-
 class TestSearchStaticsSeparateLruLimit:
-    """`_search_statics_cache`/`_reverse_search_statics_cache`は`_lazy_graph_cache`/
+    """`_search_statics_cache`は`_lazy_graph_cache`/
     `_routable_index_cache`と別の上限（`_search_statics_max_entries`）を持つ
     （改善計画T568、1エントリがCSR構造一式でより重いため）。"""
 
@@ -229,10 +177,4 @@ class TestSearchStaticsSeparateLruLimit:
         assert search_graph_cache.get_search_statics(_TILE_SET_A) is None
         assert search_graph_cache.get_search_statics(_TILE_SET_B) == "statics-b"
 
-    def test_reverse_search_statics_eviction_uses_the_same_separate_limit(self, monkeypatch):
-        monkeypatch.setattr(search_graph_cache, "_search_statics_max_entries", 1)
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_A, "a")
-        search_graph_cache.set_reverse_search_statics(_TILE_SET_B, "b")
 
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_A) is None
-        assert search_graph_cache.get_reverse_search_statics(_TILE_SET_B) == "b"

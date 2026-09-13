@@ -25,6 +25,10 @@ pillow==12.3.0
 omfiles==1.2.0
 numpy==2.5.2
 scipy==1.18.1
-rustworkx==0.18.1
+# 経路探索の本体（domain/routing.py）をJITコンパイルする。到達時刻をラベルとして持ち回る
+# 探索は、コストが辺の静的な属性であることを前提にしたライブラリ（rustworkx・scipy）の
+# コールバックでは表せず、自前で書く必要がある。aarch64のwheelが提供されており本番VM
+# （Oracle Cloud ARM）でもそのまま入る。
+numba==0.67.0
 redis==5.2.1
 apscheduler==3.11.0
