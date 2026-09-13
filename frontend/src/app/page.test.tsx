@@ -1027,6 +1027,63 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(spliceRequest.destination).toEqual({ latitude: 35.681, longitude: 139.767 });
   });
 
+  it("代替の距離差は、その代替が差し替える範囲に対して出す", async () => {
+    // グループは元側の範囲が重なる代替をまとめた器で、覆う範囲は代替ごとに違う。
+    // グループ全体の長さと比べると、短い範囲を差し替える代替ほど実際より大きく減って
+    // 見える（本番実機で、全体の差が−0.4kmのところにチップが−33.5kmと出た）。
+    const user = userEvent.setup();
+    // 1辺およそ1kmの直線。区間[1,2)は約1km、区間[1,4)は約3km。
+    const straight = (count: number) => ({
+      type: "LineString" as const,
+      coordinates: Array.from({ length: count }, (_, index) => [139.7, 35.7 + index * 0.009]),
+    });
+    const offsets = [0, 1, 2, 3, 4, 5];
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({
+          id: "route-destination-00",
+          direction_label: "目的地ルート",
+          distance_km: 5.0,
+          edge_ids: ["s", "a1", "a2", "a3", "e"],
+          edge_point_offsets: offsets,
+          geometry: straight(6),
+        }),
+        // 1区間だけ、ほぼ同じ長さの道へ差し替えられる候補。
+        makeCandidate({
+          id: "route-destination-01",
+          direction_label: "目的地ルート",
+          distance_km: 5.0,
+          edge_ids: ["s", "b1", "a2", "a3", "e"],
+          edge_point_offsets: offsets,
+          geometry: straight(6),
+        }),
+        // 3区間まとめて差し替える候補。グループはこちらの範囲まで広がる。
+        makeCandidate({
+          id: "route-destination-02",
+          direction_label: "目的地ルート",
+          distance_km: 5.0,
+          edge_ids: ["s", "c1", "c2", "c3", "e"],
+          edge_point_offsets: offsets,
+          geometry: straight(6),
+        }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 5\.0km/ })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+
+    // どちらの代替も、自分が差し替える範囲とほぼ同じ長さの道。差は「同じ」になる。
+    const chips = screen.getAllByRole("button", { name: /同じ/ });
+    expect(chips).toHaveLength(2);
+  });
+
   it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
     // 表示中の候補を作った生成で判定する。いまの目的地ピンで判定すると、周回モードへ
     // 戻した後もピンが残っている間は操作面が出て、合成リクエストがdestination無しになり

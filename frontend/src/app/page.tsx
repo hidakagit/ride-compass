@@ -856,12 +856,16 @@ export default function Home() {
   };
   const spliceGroupViews = spliceGroups.map((group, groupIndex) => {
     const range = spliceStretchRangeKm(group.stretch);
-    const baseLengthKm = range ? range.endKm - range.startKm : null;
     return {
       label: range
         ? `${range.startKm.toFixed(1)}〜${range.endKm.toFixed(1)}km`
         : `${groupIndex + 1}本目の区間`,
       options: group.options.map((option) => {
+        // 差は「その代替が差し替える範囲」に対して求める。グループは元側の範囲が重なる代替を
+        // まとめた器で、覆う範囲は代替ごとに違うため、グループ全体と比べると短い範囲を
+        // 差し替える代替ほど実際より大きく減って見える。
+        const optionRange = spliceStretchRangeKm(option.stretch);
+        const baseLengthKm = optionRange ? optionRange.endKm - optionRange.startKm : null;
         const lengthKm = optionLengthKm(option);
         const delta = lengthKm !== null && baseLengthKm !== null ? lengthKm - baseLengthKm : null;
         // 距離差を出せないとき（座標の対応が取れない候補）は候補の名前へ落とす。そのときは
@@ -871,8 +875,11 @@ export default function Home() {
           : {
               key: alternativeKey(option),
               label: formatDeltaKm(delta),
-              // 同じ差の道が複数あるとき、どの候補から来た道かで見分ける。
-              hint: `${routeLabel(option.candidateId)}の道・${describeDeltaKm(delta)}`,
+              // 同じ差の道が複数あるとき、どの候補から来た道か・どこを差し替えるかで見分ける
+              // （グループの範囲と代替の範囲は一致しない）。
+              hint: optionRange
+                ? `${routeLabel(option.candidateId)}の道・${optionRange.startKm.toFixed(1)}〜${optionRange.endKm.toFixed(1)}km地点が${describeDeltaKm(delta)}`
+                : `${routeLabel(option.candidateId)}の道・${describeDeltaKm(delta)}`,
             };
       }),
       chosenKey: spliceChoices[groupIndex] ?? null,
