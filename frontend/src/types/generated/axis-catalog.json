@@ -1287,15 +1287,15 @@
     }
   ],
   "preference_defaults": {
-    "gradient": 0.15,
-    "wind": 0.26,
-    "surface_q": 0.19,
+    "gradient": 0.0,
+    "wind": 0.0,
+    "surface_q": 0.0,
     "car_stress": 0.2,
     "accident": 0.08,
     "night": 0.0,
     "bicycle_infra_quality": 0.15,
     "openness": 0.0,
-    "axis_abdaded0be20": 0.2,
+    "axis_abdaded0be20": 0.0,
     "curvature": 0.1
   }
 }

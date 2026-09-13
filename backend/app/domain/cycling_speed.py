@@ -48,6 +48,28 @@ MAX_CLIMB_POWER_RATIO = 2.5
 # 一方、反復の中で配列を確保し直さないため回数を減らしても速くならない（実測）。
 SPEED_SOLVE_ITERATIONS = 12
 
+# 未舗装路の転がり抵抗。`DEFAULT_CRR`（舗装路の23〜28mmタイヤ）の3倍で、砂利・締固めの
+# 一般的な値域（0.012〜0.020）の中ほどを採る。平地・無風で巡航20km/hの人が約14km/hになる。
+# **実走データでの較正が要る暫定値**（`CLIMB_POWER_PER_GRADE`等と同じ扱い）。
+UNPAVED_CRR = 0.015
+
+# 路面の良否を持つ材料id。走行モデルはこれを**軸の構成と無関係に**必要とする
+# （`domain/traffic.py: stop_count_material_ids`と同じ理由）。
+ROLLING_RESISTANCE_MATERIAL_ID = "surface_good"
+
+
+def crr_for_surface(surface_good: np.ndarray | None, length: int) -> np.ndarray:
+    """路面の良否（True=舗装良好）から区間ごとの転がり抵抗を返す。
+
+    値が無い区間（路面タグ不明、材料そのものが無い）は舗装路として扱う——「タグが無い」を
+    「路面が悪い」と読み替えないための既定（`material_catalog.py`の`surface_good`は
+    この区別のためだけに`bool_default="nan"`を持つ）。
+    """
+    if surface_good is None:
+        return np.full(length, DEFAULT_CRR)
+    values = np.asarray(surface_good, dtype=np.float64)
+    return np.where(values == 0.0, UNPAVED_CRR, DEFAULT_CRR)
+
 
 @dataclass(frozen=True)
 class RiderProfile:
