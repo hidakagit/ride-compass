@@ -1947,6 +1947,9 @@ export default function Home() {
             onClick={() => {
               if (!selectedCandidate) return;
               setEditingRouteId(selectedCandidate.id);
+              // 区間詳細（赤ピン）の置き場は候補タブの中身で、編集中はそこが編集面へ
+              // 置き換わる。選択を残すと地図にピンだけが残り、消す導線も無くなる。
+              setSelectedRouteSegment(null);
               setSpliceChoices({});
               setSplicePreviews({});
               setSpliceError(null);
@@ -2417,7 +2420,12 @@ export default function Home() {
             rampAxes={axisCatalog.rampAxes}
             axisLabels={axisCatalog.axisLabels}
             selectedRouteSegment={selectedRouteSegment}
-            onRouteSegmentSelect={setSelectedRouteSegment}
+            // 編集中は区間詳細を選べない（詳細の置き場が編集面へ置き換わっており、
+            // 選んでも地図にピンが残るだけになる）。地図の帯は別のハンドラで受ける。
+            onRouteSegmentSelect={(selection) => {
+              if (editingRouteId !== null) return;
+              setSelectedRouteSegment(selection);
+            }}
             onRouteSelect={handleRouteSelectFromMap}
             // 周回モード中は地図上のピンを表示・追加受付しない（モード切り替え自体は
             // waypoints/destination state自体を消さないため、目的地モードへ戻れば

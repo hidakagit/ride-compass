@@ -476,6 +476,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
       default: (props: {
         onPinPlace: (role: "origin" | "waypoint" | "destination", c: { latitude: number; longitude: number }) => void;
         onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
+        selectedRouteSegment: SelectedRouteSegment | null;
       }) => (
         <>
           {options.exposeMapClickHandlers && (
@@ -518,6 +519,11 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
             >
               テスト用に区間を選択
             </button>
+          )}
+          {/* 地図へ実際に渡っている選択（＝赤ピンを立てる値）。propの受け渡しまで見ないと、
+              区間詳細パネルが出ない画面では「選べない」ことを確かめられない。 */}
+          {options.exposeSegmentSelect && (
+            <span data-testid="map-selected-segment">{props.selectedRouteSegment ? "選択中" : "なし"}</span>
           )}
         </>
       ),
@@ -1082,6 +1088,44 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // どちらの代替も、自分が差し替える範囲とほぼ同じ長さの道。差は「同じ」になる。
     const chips = screen.getAllByRole("button", { name: /同じ/ });
     expect(chips).toHaveLength(2);
+  });
+
+  it("編集中は区間詳細（赤ピン）を選べない", async () => {
+    // 区間詳細の置き場は候補タブの中身で、編集中はそこが編集面へ置き換わる。受け付けると
+    // 地図にピンだけが残り、消す導線も無くなる。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
+        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({
+      realRouteForm: true,
+      exposeMapClickHandlers: true,
+      exposeSegmentSelect: true,
+    });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
+
+    // 編集に入る前は選べる（赤ピンの値が地図へ渡る）
+    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
+    expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("選択中");
+    expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    // 編集に入った時点で、それまでの選択も落ちる
+    expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("なし");
+
+    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
+    expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("なし");
+    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
   });
 
   it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
