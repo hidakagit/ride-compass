@@ -11,10 +11,12 @@ Road Graph（domain/graph.py）とEdge Cost（domain/evaluation.py）を使っ�
 状態遷移はグラフを物理展開せず既存のCSR（`CsrGraphStructure`）から導く
 （`TurnExpandedStructure`）。
 
-2点間探索（`turn_expanded_shortest_path`）はnumbaでJITしたA*、起点からの**一対全**
-最短経路木（`build_turn_expanded_tree`、フロンティア方式の周回生成の共通基盤）は
-scipy.sparse.csgraph.dijkstraで求める。一対全は前任者木（predecessors）が要るため、
-遷移をscipyのCSR行列（`build_turn_expanded_csr`）へ落として渡す。
+2点間探索（`turn_expanded_shortest_path`）も起点からの**一対全**最短経路木
+（`build_turn_expanded_tree`、フロンティア方式の周回生成の共通基盤）も、numbaでJITした
+探索で求める（優先度キューはnumpy配列のバイナリヒープ）。ライブラリの実装を使わないのは、
+**到達時刻をラベルとして持ち回る**ため——コストが辺の静的な属性であることを前提にした
+ライブラリ（scipy等）では、時刻で変わるコストを表せない。アルゴリズム自体は教科書どおりの
+Dijkstra/A*で、独自のものは作らない。
 
 Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を一切知らない設計とする
 （仕様書33章）。ここで扱うのはRoad Graphのトポロジーと、既に計算済みのEdge Costのみ。
@@ -28,9 +30,6 @@ from typing import TypeVar
 
 import numpy as np
 from numba import njit
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
-
 from app.domain.errors import RoutingError
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km
 from app.domain.graph import RoadGraphLike
@@ -627,6 +626,28 @@ class TurnExpandedStructure:
     # 状態（有向Edge）の始点・終点Node index。
     edge_from: np.ndarray
     edge_to: np.ndarray
+    # 逆向き（転置）の遷移。目的地から遡る木が使う。最初に要求されたときだけ組む
+    # （前向きだけの探索では要らないため）。ターンの待ちは元の進行方向のまま運ぶ。
+    _reverse: tuple[np.ndarray, np.ndarray, np.ndarray] | None = field(
+        default=None, repr=False, compare=False
+    )
+
+    def reverse_transitions(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """`(indptr, source_state, turn_seconds)`を遷移の向きを反転した形で返す。
+
+        前向きの遷移「状態a→状態b、待ちw」を、後ろ向きでは「状態b→状態a、待ちw」として
+        並べ替える（待ちは元の進行方向で決まるため値は変えない）。
+        """
+        if self._reverse is None:
+            source = np.repeat(
+                np.arange(self.state_count, dtype=np.int64), np.diff(self.indptr)
+            )
+            order = np.argsort(self.target_state, kind="stable")
+            counts = np.bincount(self.target_state, minlength=self.state_count)
+            indptr = np.zeros(self.state_count + 1, dtype=np.int64)
+            np.cumsum(counts, out=indptr[1:])
+            self._reverse = (indptr, source[order], self.turn_seconds[order])
+        return self._reverse
 
 
 def edge_bearings(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:
@@ -710,50 +731,124 @@ def build_turn_expanded_structure(
     )
 
 
-def build_turn_expanded_csr(
-    structure: TurnExpandedStructure,
+@njit(cache=True)
+def _turn_expanded_dijkstra(
+    indptr: np.ndarray,
+    target_state: np.ndarray,
+    turn_seconds: np.ndarray,
     edge_cost: np.ndarray,
-    entry_state_indices: np.ndarray,
-    *,
-    reverse: bool = False,
-) -> csr_matrix:
-    """一対全木用のscipy CSRを組む。値は「遷移先の区間のコスト＋ターンの待ち」。
+    edge_seconds: np.ndarray,
+    edge_length_m: np.ndarray,
+    bin_seconds: float,
+    entry_states: np.ndarray,
+    cost_limit: float,
+    capacity: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """状態＝有向区間・辺＝ターンの一対全Dijkstra（JITコンパイル）。
 
-    **コストの単位は秒**（`edge_cost`は区間ごとの体感所要時間）。ターンの待ちは秒で
-    定義されているためそのまま足せる。
+    `entry_states`（始点から出る区間、または目的地へ入る区間）をその区間自身のコストで
+    種にし、コスト`cost_limit`を超えた時点で打ち切る。実距離と素の所要時間は緩和のたびに
+    そのまま積むため、前任者を遡り直す積算が要らない。
 
-    末尾の1行は仮想の始点で、`entry_state_indices`（正方向なら起点から出る区間、
-    `reverse=True`なら目的地へ入る区間）へその区間のコスト自身で繋ぐ（複数の始点状態へ
-    別々の初期コストを与えるため）。行数・列数はともに`state_count + 1`で、仮想始点の状態
-    index は`state_count`。0次フィルタで除外された区間（コストが無限大）への遷移は落とす
-    ——scipyは無限大を「辺が無い」ではなく「非常に大きい重み」として扱うため。
-
-    `reverse=True`は遷移の向きだけを反転する（転置グラフ）。ターンの費用は元の進行方向の
-    ままで、「その区間から目的地まで」のコストが求まる。
+    `edge_cost`・`edge_seconds`は`(時刻ビン, 状態)`。`_turn_expanded_astar`と同じ1ラベル法で、
+    状態ごとにコスト最小の1本だけを保つ。
     """
-    state_count = structure.state_count
-    source = np.repeat(np.arange(state_count, dtype=np.int64), np.diff(structure.indptr))
-    weight = edge_cost[structure.target_state] + structure.turn_seconds
-    target = structure.target_state
+    state_count = edge_length_m.shape[0]
+    bin_count = edge_cost.shape[0]
+    best = np.full(state_count, np.inf)
+    arrival = np.full(state_count, np.inf)
+    length = np.full(state_count, np.nan)
+    predecessor = np.full(state_count, -1, dtype=np.int64)
+    heap_key = np.empty(capacity)
+    heap_state = np.empty(capacity, dtype=np.int64)
+    size = 0
 
-    finite = np.isfinite(weight)
-    source = source[finite]
-    target = target[finite]
-    weight = weight[finite]
-    if reverse:
-        source, target = target, source
+    for i in range(entry_states.shape[0]):
+        state = entry_states[i]
+        g = edge_cost[0, state]
+        if not np.isfinite(g) or g > cost_limit or g >= best[state]:
+            continue
+        best[state] = g
+        arrival[state] = edge_seconds[0, state]
+        length[state] = edge_length_m[state]
+        j = size
+        heap_key[j] = g
+        heap_state[j] = state
+        while j > 0:
+            parent = (j - 1) // 2
+            if heap_key[parent] <= heap_key[j]:
+                break
+            tk = heap_key[parent]
+            heap_key[parent] = heap_key[j]
+            heap_key[j] = tk
+            ts = heap_state[parent]
+            heap_state[parent] = heap_state[j]
+            heap_state[j] = ts
+            j = parent
+        size += 1
 
-    entry_states = entry_state_indices[np.isfinite(edge_cost[entry_state_indices])]
-    source = np.concatenate([source, np.full(len(entry_states), state_count, dtype=np.int64)])
-    target = np.concatenate([target, entry_states.astype(np.int64)])
-    weight = np.concatenate([weight, edge_cost[entry_states]])
+    while size > 0:
+        g = heap_key[0]
+        state = heap_state[0]
+        size -= 1
+        heap_key[0] = heap_key[size]
+        heap_state[0] = heap_state[size]
+        j = 0
+        while True:
+            left = 2 * j + 1
+            right = left + 1
+            smallest = j
+            if left < size and heap_key[left] < heap_key[smallest]:
+                smallest = left
+            if right < size and heap_key[right] < heap_key[smallest]:
+                smallest = right
+            if smallest == j:
+                break
+            tk = heap_key[smallest]
+            heap_key[smallest] = heap_key[j]
+            heap_key[j] = tk
+            ts = heap_state[smallest]
+            heap_state[smallest] = heap_state[j]
+            heap_state[j] = ts
+            j = smallest
 
-    order = np.argsort(source, kind="stable")
-    indptr = np.zeros(state_count + 2, dtype=np.int64)
-    np.cumsum(np.bincount(source, minlength=state_count + 1), out=indptr[1:])
-    return csr_matrix(
-        (weight[order], target[order], indptr), shape=(state_count + 1, state_count + 1)
-    )
+        if g > best[state]:
+            continue
+        travelled = arrival[state]
+        time_bin = int(travelled / bin_seconds)
+        if time_bin >= bin_count:
+            time_bin = bin_count - 1
+        elif time_bin < 0:
+            time_bin = 0
+        for entry in range(indptr[state], indptr[state + 1]):
+            nxt = target_state[entry]
+            cost = edge_cost[time_bin, nxt]
+            if not np.isfinite(cost):
+                continue
+            wait = turn_seconds[entry]
+            next_g = g + cost + wait
+            if next_g > cost_limit or next_g >= best[nxt]:
+                continue
+            best[nxt] = next_g
+            arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
+            length[nxt] = length[state] + edge_length_m[nxt]
+            predecessor[nxt] = state
+            j = size
+            heap_key[j] = next_g
+            heap_state[j] = nxt
+            while j > 0:
+                parent = (j - 1) // 2
+                if heap_key[parent] <= heap_key[j]:
+                    break
+                tk = heap_key[parent]
+                heap_key[parent] = heap_key[j]
+                heap_key[j] = tk
+                ts = heap_state[parent]
+                heap_state[parent] = heap_state[j]
+                heap_state[j] = ts
+                j = parent
+            size += 1
+    return best, predecessor, length, arrival
 
 
 @dataclass
@@ -794,56 +889,39 @@ def build_turn_expanded_tree(
     reverse: bool = False,
     cost_limit: float = np.inf,
     edge_seconds: np.ndarray | None = None,
+    bin_seconds: float = np.inf,
 ) -> TurnExpandedTree:
-    """状態＝有向Edgeの一対全Dijkstra（scipy、前任者付き）。
+    """状態＝有向Edgeの一対全Dijkstra（numba、前任者付き）。
 
-    実距離の積算は、状態へ入る辺がその状態自身（有向Edge）のため、CSRエントリ位置を
-    引かずにポインタジャンプだけで済む。`edge_seconds`を渡すと同じ木に沿った所要時間も
-    同時に積算する（祖先の連鎖は共通のため追加コストはほぼ無い）。コスト自体が所要時間
-    由来でも、コストには主観的割増が乗るため素の所要時間は別に積む必要がある。
+    `reverse=True`は遷移の向きだけを反転する（ターンの待ちは元の進行方向のまま）。
+    「その区間から目的地まで」のコストが求まる。
+
+    `edge_cost`は1次元（時刻に依存しない）か`(時刻ビン, 状態)`の2次元。2次元で渡すときは
+    `edge_seconds`と`bin_seconds`も渡す（`turn_expanded_shortest_path`と同じ契約）。
+    **逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
+    呼び出し元は1本のビンで呼ぶこと。
     """
     state_count = structure.state_count
-    csr_started = time.perf_counter()
-    matrix = build_turn_expanded_csr(structure, edge_cost, entry_state_indices, reverse=reverse)
-    csr_ms = (time.perf_counter() - csr_started) * 1000
-    dijkstra_started = time.perf_counter()
-    cost, predecessor = scipy_dijkstra(
-        matrix, directed=True, indices=state_count, return_predecessors=True, limit=cost_limit
-    )
-    dijkstra_ms = (time.perf_counter() - dijkstra_started) * 1000
-    state_cost = cost[:state_count]
-    predecessor = predecessor[:state_count].astype(np.int64)
-    # 仮想始点（index=state_count）とscipyのセンチネル（-9999）をまとめて-1へ正規化する。
-    predecessor[(predecessor < 0) | (predecessor >= state_count)] = -1
-
-    reached = np.isfinite(state_cost)
-    has_pred = reached & (predecessor >= 0)
-    # ポインタジャンプの不変条件「accumulated[v]はvからancestor[v]までの距離」を保つため、
-    # 木の根（始点の区間）の親として長さ0の番兵を置く。番兵が無いと根が自分自身を指し、
-    # 根の区間の長さが積算から落ちる（深さ2の経路で最後の1区間しか数えない）。
-    sentinel = state_count
-    per_edge = [np.asarray(edge_length_m, dtype=float)]
-    if edge_seconds is not None:
-        per_edge.append(np.where(np.isfinite(edge_seconds), edge_seconds, 0.0))
-    accumulated = np.zeros((len(per_edge), state_count + 1))
-    for row, values in enumerate(per_edge):
-        accumulated[row, :state_count] = np.where(reached, values, 0.0)
-    ancestor = np.full(state_count + 1, sentinel, dtype=np.int64)
-    ancestor[:state_count] = np.where(has_pred, predecessor, sentinel)
-    for _ in range(64):  # 木の深さ2^64までの安全弁（実際はlog2(深さ)回で収束する）
-        next_ancestor = ancestor[ancestor]
-        if np.array_equal(next_ancestor, ancestor):
-            break
-        accumulated = accumulated + accumulated[:, ancestor]
-        ancestor = next_ancestor
-    state_length_m = np.where(reached, accumulated[0, :state_count], np.nan)
-    if edge_seconds is None:
-        state_seconds = np.full(state_count, np.nan)
+    cost_bins = _as_time_bins(edge_cost)
+    seconds_bins = cost_bins if edge_seconds is None else _as_time_bins(edge_seconds)
+    if reverse:
+        indptr, target_state, transition_seconds = structure.reverse_transitions()
     else:
-        state_seconds = np.where(reached, accumulated[1, :state_count], np.nan)
-    accumulate_ms = (time.perf_counter() - dijkstra_started) * 1000 - dijkstra_ms
-    fold_started = time.perf_counter()
+        indptr, target_state, transition_seconds = (
+            structure.indptr, structure.target_state, structure.turn_seconds
+        )
+    started = time.perf_counter()
+    state_cost, predecessor, state_length_m, state_seconds = _turn_expanded_dijkstra(
+        indptr, target_state, transition_seconds, cost_bins, seconds_bins,
+        np.asarray(edge_length_m, dtype=np.float64), float(bin_seconds),
+        np.asarray(entry_state_indices, dtype=np.int64), float(cost_limit),
+        len(target_state) + len(entry_state_indices) + 16,
+    )
+    dijkstra_ms = (time.perf_counter() - started) * 1000
+    if edge_seconds is None:
+        state_seconds = np.where(np.isfinite(state_cost), state_seconds, np.nan)
 
+    fold_started = time.perf_counter()
     # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
     incoming = structure.edge_from if reverse else structure.edge_to
     order = np.lexsort((state_cost, incoming))
@@ -862,8 +940,9 @@ def build_turn_expanded_tree(
     node_seconds[incoming[finite_best]] = state_seconds[finite_best]
 
     logger.info(
-        "turn_expanded_tree reverse=%s states=%d csr_ms=%.0f dijkstra_ms=%.0f accumulate_ms=%.0f fold_ms=%.0f",
-        reverse, state_count, csr_ms, dijkstra_ms, accumulate_ms, (time.perf_counter() - fold_started) * 1000,
+        "turn_expanded_tree reverse=%s states=%d bins=%d dijkstra_ms=%.0f fold_ms=%.0f",
+        reverse, state_count, cost_bins.shape[0], dijkstra_ms,
+        (time.perf_counter() - fold_started) * 1000,
     )
     return TurnExpandedTree(
         state_cost=state_cost, predecessor=predecessor, state_length_m=state_length_m,
@@ -978,6 +1057,12 @@ def node_costs_from_state_costs(
     return per_node
 
 
+def _as_time_bins(values: np.ndarray) -> np.ndarray:
+    """1次元のEdge配列を`(1, 状態)`の時刻ビン形式へ揃える（2次元ならそのまま）。"""
+    array = np.asarray(values, dtype=np.float64)
+    return array if array.ndim == 2 else array.reshape(1, -1)
+
+
 @njit(cache=True)
 def _turn_expanded_astar(
     indptr: np.ndarray,
@@ -985,6 +1070,8 @@ def _turn_expanded_astar(
     turn_seconds: np.ndarray,
     edge_to: np.ndarray,
     edge_cost: np.ndarray,
+    edge_seconds: np.ndarray,
+    bin_seconds: float,
     node_heuristic: np.ndarray,
     origin_states: np.ndarray,
     goal_node: int,
@@ -996,9 +1083,16 @@ def _turn_expanded_astar(
     ヒープには`f = g + 目的地までの所要時間の下界`と`g`の両方を積み、取り出したときに`g`が
     `best`より大きければ古いエントリとして捨てる。戻り値は前任者の配列と、目的地へ入った
     状態（到達不能なら-1）。
+
+    `edge_cost`・`edge_seconds`は`(時刻ビン, 状態)`の2次元で、出発からの経過時間を
+    `bin_seconds`で割ったビンの行を引く。時刻に依存しない探索はビン1本で呼ぶ。
+    **状態ごとに保つラベルはコスト最小の1本だけ**（1ラベル法）——コストは時間そのものでは
+    ないため、「コストは高いが早く着く」経路が後でコスト最小になる可能性を捨てる近似になる。
     """
     state_count = edge_to.shape[0]
+    bin_count = edge_cost.shape[0]
     best = np.full(state_count, np.inf)
+    arrival = np.full(state_count, np.inf)
     predecessor = np.full(state_count, -1, dtype=np.int64)
     heap_f = np.empty(capacity)
     heap_g = np.empty(capacity)
@@ -1007,10 +1101,11 @@ def _turn_expanded_astar(
 
     for i in range(origin_states.shape[0]):
         state = origin_states[i]
-        g = edge_cost[state]
+        g = edge_cost[0, state]
         if not np.isfinite(g) or g >= best[state]:
             continue
         best[state] = g
+        arrival[state] = edge_seconds[0, state]
         f = g + node_heuristic[edge_to[state]]
         j = size
         heap_f[j] = f
@@ -1067,15 +1162,23 @@ def _turn_expanded_astar(
         if edge_to[state] == goal_node:
             goal_state = state
             break
+        travelled = arrival[state]
+        time_bin = int(travelled / bin_seconds)
+        if time_bin >= bin_count:
+            time_bin = bin_count - 1
+        elif time_bin < 0:
+            time_bin = 0
         for entry in range(indptr[state], indptr[state + 1]):
             nxt = target_state[entry]
-            cost = edge_cost[nxt]
+            cost = edge_cost[time_bin, nxt]
             if not np.isfinite(cost):
                 continue
-            next_g = g + cost + turn_seconds[entry]
+            wait = turn_seconds[entry]
+            next_g = g + cost + wait
             if next_g >= best[nxt]:
                 continue
             best[nxt] = next_g
+            arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
             predecessor[nxt] = state
             next_f = next_g + node_heuristic[edge_to[nxt]]
             j = size
@@ -1106,6 +1209,8 @@ def turn_expanded_shortest_path(
     node_heuristic: np.ndarray,
     origin_states: np.ndarray,
     goal_node_index: int,
+    edge_seconds: np.ndarray | None = None,
+    bin_seconds: float = np.inf,
 ) -> list[int] | None:
     """起点から出る区間`origin_states`から`goal_node_index`までの最小コスト経路を、
     Edge index列（進行順）で返す。到達不能ならNone。
@@ -1114,11 +1219,18 @@ def turn_expanded_shortest_path(
     `node_heuristic`はNodeごとの目的地までの所要時間の下界（秒）で、呼び出し元が
     「直線距離 ÷ 出せる最大速度」から作る——実経路は直線より長く、実際の速度は上限以下の
     ため下界になる。
+
+    `edge_cost`は1次元（時刻に依存しない）か`(時刻ビン, 状態)`の2次元。2次元で渡すときは
+    素の所要時間`edge_seconds`（同じ形）とビンの幅`bin_seconds`も渡す——探索が出発からの
+    経過時間を持ち回り、その時刻のビンからコストと所要時間を引く。
     """
+    cost_bins = _as_time_bins(edge_cost)
+    seconds_bins = cost_bins if edge_seconds is None else _as_time_bins(edge_seconds)
     capacity = len(structure.target_state) + len(origin_states) + 16
     predecessor, goal_state = _turn_expanded_astar(
         structure.indptr, structure.target_state, structure.turn_seconds, structure.edge_to,
-        np.asarray(edge_cost, dtype=np.float64), np.asarray(node_heuristic, dtype=np.float64),
+        cost_bins, seconds_bins, float(bin_seconds),
+        np.asarray(node_heuristic, dtype=np.float64),
         np.asarray(origin_states, dtype=np.int64), int(goal_node_index), capacity,
     )
     if goal_state < 0:

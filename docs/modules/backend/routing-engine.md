@@ -18,8 +18,9 @@
 | batch | `precompute_road_node_degrees.py`・`precompute_edge_curvature.py`・`presplit_road_graph.py` |
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経路計算する。探索の状態は
-**有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木は
-scipyのDijkstra、2点間探索はnumbaでJITした自前のA*（`turn_expanded_shortest_path`）。
+**有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木も
+2点間探索もnumbaでJITしたDijkstra/A*（`build_turn_expanded_tree`・
+`turn_expanded_shortest_path`）で、**出発からの経過時間をラベルとして持ち回れる**。
 **コストの単位は秒**で、中身は「体感の所要時間」＝
 `区間の所要時間 × (1 + penalty_strength × difficulty/100)`。所要時間は走行モデル
 （`domain/cycling_speed.py`、勾配・風から区間ごとの速度を解く）＋停止の待ち、ターンの待ちは
@@ -288,16 +289,18 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 ある交差点の待ちは停止密度の軸が数えており、二重になるため）。探索側は階級の意味を知らず、
 比較結果だけを使う。
 
-グラフは辺基準へ物理的に展開せず、遷移は`SearchGraphStatics`のCSRから導く。scipyへ渡す
-ときだけ「行＝遷移元の区間、列＝遷移先の区間」の行列を組む（`build_turn_expanded_csr`）。
-末尾の1行は仮想の始点で、起点から出る区間（逆向きの木なら目的地へ入る区間）へその区間の
-コスト自身で繋ぐ。
+グラフは辺基準へ物理的に展開せず、遷移は`SearchGraphStatics`のCSRから導く。目的地から
+遡る木は同じ遷移を転置した配列（`TurnExpandedStructure.reverse_transitions`、最初に
+要求されたときだけ組む）を使う——ターンの待ちは元の進行方向のまま運ぶ。
 
-2点間探索（`turn_expanded_shortest_path`）はnumbaでJITしたA*で、優先度キューをnumpy配列の
-バイナリヒープとして持つ。到達時刻をラベルとして持ち回る探索はコストが辺の静的な属性である
-ことを前提にしたライブラリ（scipy）では表せないため、探索本体を
-自前で持つ。`preview_segment`もこの探索を通るため、2点間だけの経路でも遷移を導くCSR構造
-（`SearchGraphStatics`）を構築する。
+一対全木も2点間探索もnumbaでJITした実装で、優先度キューをnumpy配列のバイナリヒープとして
+持つ。**到達時刻をラベルとして持ち回るため、ライブラリ（scipy等）は使えない**——コストが
+辺の静的な属性であることを前提にしているため、時刻で変わるコストを表せない。アルゴリズム
+自体は教科書どおりのDijkstra/A*で、独自のものは作らない。コスト配列は1次元（時刻に
+依存しない）か`(時刻ビン, 状態)`の2次元で渡し、2次元のときは素の所要時間とビンの幅も
+一緒に渡す。**状態ごとに保つラベルはコスト最小の1本だけ**（1ラベル法）で、「コストは高いが
+早く着く」経路を捨てる近似になる。`preview_segment`もこの探索を通るため、2点間だけの経路
+でも遷移を導くCSR構造（`SearchGraphStatics`）を構築する。
 
 Nodeごとのコストは、そのNodeへ入る区間の最小を採る（`node_costs_from_state_costs`）。
 **起点Nodeだけは「起点へ戻ってくるコスト」になる**——状態の空間に「まだ走っていない」が
@@ -326,7 +329,7 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（`node_
 - `SearchGraphStatics`が持つCSR構造（`indptr`/`indices`とCSRエントリ順→Edge indexの
   並べ替え表）はタイル集合だけで決まる派生物のためキャッシュに含めるが、リクエストごとに
   変わるコスト配列は含めない——`select_loop_turnarounds`が一対全木を求めるたびに
-  コスト配列をこの並べ替え表でCSRのdata順へ差し替えて`scipy.sparse.csr_matrix`を組む。
+  コスト配列は探索へnumpy配列のまま渡す。
   `SearchGraphStatics`は一対全木を実際に使う`prepare`（`_get_or_build_search_statics`）
   だけが構築・キャッシュする——`preview_segment`は2点間の直接A*のみで一対全木を使わない
   ため、`LazyRoadGraph`はキャッシュしても`SearchGraphStatics`は構築しない。
@@ -349,7 +352,7 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（`node_
 ### `select_loop_turnarounds`（折返し点選定）
 
 起点からの一対全Dijkstra（`domain/routing.py: build_turn_expanded_tree`、
-scipy.sparse.csgraph、軸重み付きコスト、コスト上限で打ち切り）を1回求め、木に沿った
+軸重み付きコスト、コスト上限で打ち切り）を1回求め、木に沿った
 往路の実距離が`[max(0, (目標−許容)/2.0), (目標+許容)/2.3]`（下限が上限を超える狭い
 許容では両方とも`(目標∓許容)/2.0`へ対称化）に入るNodeを「リング」として抽出する
 （最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを極端に振った設定ほど
@@ -600,16 +603,12 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   同じくEdge重みは持たず、遷移とターンの秒だけを持つ。グラフを物理的に展開せず遷移を
   `CsrGraphStructure`から導くため、`LazyRoadGraph`と同じキーでキャッシュできる。
   `edge_bearings`（区間の方位）・`turn_seconds_for`（方位差→秒）が入力になる。
-- **`build_turn_expanded_csr`**: 遷移構造とコスト配列から、scipyへ渡す「行＝遷移元の
-  区間、列＝遷移先の区間」の行列を組む。末尾の1行は仮想の始点。0次フィルタで除外された
-  区間（コストが無限大）への遷移は落とす——scipyは無限大を「辺が無い」ではなく「非常に
-  大きい重み」として扱うため。`reverse=True`で遷移の向きだけを反転する（ターンの費用は
-  元の進行方向のまま）。
-- **`TurnExpandedTree`/`build_turn_expanded_tree`**: 起点からの一対全
-  Dijkstra（`scipy.sparse.csgraph.dijkstra`、前任者付き、`cost_limit`で打ち切り可能）。
-  前任者木に沿った実距離（`state_length_m`）はポインタジャンプ（`acc[v] += acc[anc[v]]`を
-  木の深さのlog2回繰り返す）でベクトル演算して積算する。状態ごとの値に加え、Nodeごとの
+- **`TurnExpandedTree`/`build_turn_expanded_tree`**: 起点からの一対全Dijkstra
+  （numba、前任者付き、`cost_limit`で打ち切り可能）。実距離と素の所要時間は緩和のたびに
+  そのまま積むため、前任者を遡り直す積算が要らない。状態ごとの値に加え、Nodeごとの
   値（そのNodeへ入る区間の最小、`node_costs_from_state_costs`）も持つ。
+  `reverse=True`で遷移の向きだけを反転する（ターンの費用は元の進行方向のまま）。
+  **逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
 - **`turn_expanded_path_from_state`/`turn_expanded_path_from_state_to_source`/
   `turn_expanded_path_edge_indices`**: 木上の経路をEdge index列で復元する（順に
   「始点→その状態」「その状態→目的地（後ろ向き木）」「始点→そのNode」）。

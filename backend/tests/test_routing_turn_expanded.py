@@ -2,14 +2,12 @@
 
 import numpy as np
 import pytest
-from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.routing import (
     TurnCostSpec,
     build_csr_structure,
     build_lazy_road_graph,
-    build_turn_expanded_csr,
     build_turn_expanded_structure,
     build_turn_expanded_tree,
     combine_forward_backward_at_nodes,
@@ -109,23 +107,17 @@ def test_turn_expanded_structure_transition_count_matches_in_times_out_degree():
 
 
 def test_one_to_all_gives_the_distance_along_the_path_when_turns_are_free():
-    """ターンの費用が0なら、Nodeごとのコストは経路上の区間の長さの和になる。"""
+    """ターンの費用が0なら、Nodeごとのコストは経路上の区間の所要時間の和になる。"""
     graph = _crossroads()
     free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
-    lazy_graph, csr, structure = _structure_for(graph, free)
-    cost = _seconds(graph, lazy_graph)
-
-    origin_index = lazy_graph.node_id_to_index["S"]
-    origin_edges = csr.entry_edge_index[csr.indptr[origin_index]:csr.indptr[origin_index + 1]]
-    matrix = build_turn_expanded_csr(structure, cost, origin_edges)
-    state_cost = scipy_dijkstra(matrix, directed=True, indices=structure.state_count)
-    per_node = node_costs_from_state_costs(state_cost, structure, csr.node_count)
+    lazy_graph, csr, tree = _tree_for(graph, "S", free)
+    per_node = node_costs_from_state_costs(tree.state_cost, csr[1], csr[0].node_count)
 
     assert per_node[lazy_graph.node_id_to_index["C"]] == pytest.approx(100.0 / SPEED_MS)
     for node_id in ("N", "E", "W"):
         assert per_node[lazy_graph.node_id_to_index[node_id]] == pytest.approx(200.0 / SPEED_MS)
     # 起点は「戻ってくるコスト」になる（状態の空間に「まだ走っていない」が無いため）。
-    assert per_node[origin_index] == pytest.approx(200.0 / SPEED_MS)
+    assert per_node[lazy_graph.node_id_to_index["S"]] == pytest.approx(200.0 / SPEED_MS)
 
 
 def test_expensive_right_turn_makes_the_search_avoid_it():
@@ -147,14 +139,8 @@ def test_expensive_right_turn_makes_the_search_avoid_it():
     results = {}
     for label, right_seconds in (("安い右折", 0.0), ("高い右折", 60.0)):
         spec = TurnCostSpec(right_seconds=right_seconds, left_seconds=0.0, uturn_seconds=600.0)
-        lazy_graph, csr, structure = _structure_for(graph, spec)
-        cost = _seconds(graph, lazy_graph)
-        origin_index = lazy_graph.node_id_to_index["S"]
-        origin_edges = csr.entry_edge_index[csr.indptr[origin_index]:csr.indptr[origin_index + 1]]
-        matrix = build_turn_expanded_csr(structure, cost, origin_edges)
-        state_cost = scipy_dijkstra(matrix, directed=True, indices=structure.state_count)
-        per_node = node_costs_from_state_costs(state_cost, structure, csr.node_count)
-        results[label] = per_node[lazy_graph.node_id_to_index["E"]]
+        lazy_graph, csr, tree = _tree_for(graph, "S", spec)
+        results[label] = tree.node_cost[lazy_graph.node_id_to_index["E"]]
 
     assert results["安い右折"] == pytest.approx(200.0 / SPEED_MS), "右折が無料ならS→C→Eの36秒"
     # 右折60秒は2経路の差（54-36=18秒）を上回るため、直進だけの経路の方が安くなる。
@@ -174,7 +160,7 @@ def _tree_for(graph: RoadGraph, origin_id: str, spec: TurnCostSpec, reverse: boo
     tree = build_turn_expanded_tree(
         structure, cost, length, entry, csr.node_count, reverse=reverse, edge_seconds=cost
     )
-    return lazy_graph, structure, tree
+    return lazy_graph, (csr, structure), tree
 
 
 def test_turn_expanded_tree_costs_and_lengths_follow_the_path():
