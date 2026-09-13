@@ -114,3 +114,4 @@ export type MaterialCoverageResponse = Schemas["MaterialCoverageResponse"];
 export type GenerationFreshnessEntry = Schemas["GenerationFreshnessEntry"];
 export type DerivedDataFreshnessResponse = Schemas["DerivedDataFreshnessResponse"];
 export type DbStatusResponse = Schemas["DbStatusResponse"];
+export type RoadGraphTilesResponse = Schemas["RoadGraphTilesResponse"];

@@ -1,0 +1,15 @@
+/* 管理画面の中に置く小さな地図。画面を占有しないよう高さを固定し、
+   折りたたみの中でだけ描画する（開くまでMapLibreを初期化しない）。 */
+.map {
+  height: 16rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.hint {
+  composes: hint from "../ui/adminPanel.module.css";
+}
+
+.error {
+  composes: error from "../ui/adminPanel.module.css";
+}

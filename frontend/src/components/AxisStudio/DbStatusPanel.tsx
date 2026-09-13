@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/Map/InfoPopover";
 import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { getDbStatus } from "@/services/dbStatusApi";
+import SplitCoverageMap from "./SplitCoverageMap";
 import type { DbStatusResponse } from "@/types/route";
 import styles from "./DerivedDataFreshnessPanel.module.css";
 
@@ -243,6 +244,26 @@ export function StatusRows({ report }: { report: DbStatusResponse }) {
           </details>
         </li>
       ))}
+      <li>
+        <SplitCoverageRow />
+      </li>
     </ul>
+  );
+}
+
+/** split済み範囲の行。開いたときだけ地図を描く——MapLibreの初期化は重く、閉じたまま使う人に
+ * 払わせる必要が無い（`<details>`は閉じている間、中身を描画しない）。 */
+export function SplitCoverageRow() {
+  return (
+    <details className={styles.row}>
+      <summary className={styles.rowSummary}>
+        <span className={styles.markFresh} aria-hidden="true" />
+        <span className={styles.rowName}>split済み範囲</span>
+        <span className={styles.rowScale}>地図で見る</span>
+      </summary>
+      <div className={styles.detail}>
+        <SplitCoverageMap />
+      </div>
+    </details>
   );
 }

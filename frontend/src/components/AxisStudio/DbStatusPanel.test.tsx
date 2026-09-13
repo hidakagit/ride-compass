@@ -5,7 +5,12 @@ import DbStatusPanel from "./DbStatusPanel";
 import { getDbStatus } from "@/services/dbStatusApi";
 import type { DbStatusResponse } from "@/types/route";
 
-vi.mock("@/services/dbStatusApi", () => ({ getDbStatus: vi.fn() }));
+// split済み範囲の行は同じモジュールから取る。地図は開いたときだけ描くが、モックが無いと
+// パネル全体のレンダリングが落ちるため、ここでも差し替える。
+vi.mock("@/services/dbStatusApi", () => ({
+  getDbStatus: vi.fn(),
+  getRoadGraphTiles: vi.fn().mockResolvedValue({ tiles: [] }),
+}));
 
 const REPORT: DbStatusResponse = {
   computed_at: "2026-09-14T03:00:00Z",

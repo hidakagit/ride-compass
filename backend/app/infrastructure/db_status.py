@@ -105,6 +105,17 @@ class ConnectionCounts:
 
 
 @dataclass(frozen=True)
+class RoadGraphTile:
+    """split済みタイル1件（`domain/region.py: ROAD_GRAPH_TILE_ZOOM`のXYZ座標）。
+    ここに無い範囲は、初回のルート生成でsplitが走る＝冷パスになる。"""
+
+    zoom: int
+    x: int
+    y: int
+    fetched_at: datetime
+
+
+@dataclass(frozen=True)
 class DbStatusCounts:
     imports: tuple[ImportRunCounts, ...]
     tables: tuple[TableCounts, ...]
@@ -135,12 +146,26 @@ def build_latest_import_run_sql(spec: ImportRunSpec):
     )
 
 
+_ROAD_GRAPH_TILES_SQL = """
+SELECT zoom, x, y, fetched_at FROM road_graph_tiles ORDER BY zoom, x, y
+"""
+
+
 class DbStatusQuery:
     """読み取り専用。全表走査を伴うため管理API専用（`api/dependencies.py`が長い
     command_timeoutのセッションを渡す）。"""
 
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    async def fetch_road_graph_tiles(self) -> tuple[RoadGraphTile, ...]:
+        """split済みタイルの全件。鮮度の集計（`fetch_counts`）とは分けて呼ぶ——地図を開いた
+        ときだけ要る一方、本番では全域ぶんの件数になるため毎回運ぶと無駄になる。"""
+        rows = (await self._session.execute(text(_ROAD_GRAPH_TILES_SQL))).mappings().all()
+        return tuple(
+            RoadGraphTile(zoom=int(row["zoom"]), x=int(row["x"]), y=int(row["y"]), fetched_at=row["fetched_at"])
+            for row in rows
+        )
 
     async def fetch_counts(self) -> DbStatusCounts:
         imports: list[ImportRunCounts] = []
