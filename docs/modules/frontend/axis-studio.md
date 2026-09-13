@@ -267,23 +267,30 @@ listAxisDefinitions() ──→ definitions（全軸）
 ## DerivedDataFreshnessPanel.tsx（「鮮度」タブ）
 
 `GET /admin/api/derived-data-freshness`（backend `GET /api/admin/derived-data/freshness`）の
-レスポンス（`DerivedDataFreshnessResponse`、生成型）をそのまま表にする。
+レスポンス（`DerivedDataFreshnessResponse`、生成型）をそのまま一覧にする。
 `MaterialCoveragePanel`（完成度、値がNULL/未取得か）とは別の切り口——行は存在するが、
 参照している生データの世代が最新の取込より古いままではないか、という鮮度を見る。
 
-- `generations`（対象テーブルはbackendの`derived_data_freshness.py:
-  GENERATION_FRESHNESS_SPECS`が決める。frontendは返ってきた行を並べるだけで、対象を
-  手書きしない）はテーブルごとに小さな表を並べる（比較対象・最新取込run・反映済み最古run・
-  NULL件数・鮮度バッジ）。`algorithm_version`はレスポンスが持つテーブルにだけ行として
-  追加する。テーブル名の隣に行数と鮮度不整合の有無（バッジ）を出す。
-- `completeness`（系譜列を持たない派生データ。母集団のうち未計算の件数）は世代比較では
-  ないため、上記とは別枠で「完成度（鮮度ではない）」と明記して表示する。**対象と件数は
-  backendの`COMPLETENESS_SPECS`が決め、frontendは返ってきた行を並べるだけ**（世代比較側と
-  同じ扱い）。未計算が残っていれば印と「どのバッチを再実行すればよいか」を、判定の但し書きを
-  持つ行はその文言も添える。
+**画面の説明はⓘ（`InfoPopover`）の奥に置き、ベタ書きしない**（design-principles.md
+「冗長なものは削る」。読むのは1度きりなのに場所は常に取り続ける）。集計前はボタンだけを出す
+——押すまで一覧は無いため、そこに無いものの説明を先に読ませない。
+
+- 集計後の先頭に**作り直しが要る件数と、次に打つ1コマンド**（`app/batch/refresh_derived.py`、
+  派生データを依存順に作り直す単一の入口）をコピーできる形で置く。**行ごとにバッチ名を
+  散らさない**——古い理由がどれであっても利用者が打つのは同じ1コマンドのため。
+- 一覧は`generations`（世代比較）と`completeness`（完成度）を**同じ見た目の1行**へ揃える
+  （`rowsFromReport`が両方を`FreshnessRow`へ写す）。読み手が知りたいのは「作り直しが要るか」で
+  あり、判定方式の違いは開いた先に書けばよい。run番号・版数・担当バッチ・判定の但し書きは
+  `<details>`の中で、タップしたときだけ出す。
+- **表（`<table>`）を使わない。** 列を横に並べるとモバイルでは横スクロールの中へ数字が隠れ、
+  「比較対象」の列だけが見える状態になる。ラベルと値を縦に積み、値だけが折り返す形にする。
+- 対象と件数はbackendの宣言（`GENERATION_FRESHNESS_SPECS`・`COMPLETENESS_SPECS`）が決め、
+  frontendは返ってきた行を並べるだけで対象を手書きしない。
 - 集計はDB全体の走査を伴うため、`MaterialCoveragePanel`と同じく「集計する」ボタン押下時
   のみ実行する。認証情報の入力欄は持たない（`/admin`のBasic認証セッションをroute handler
   経由で再利用する）。
+- 描画は`FreshnessReportView`（レポートを受け取る）として取得と分けてある。認証の要る画面を
+  通さずに見え方を確かめられるようにするため。
 
 ## TileCachePanel.tsx（「鮮度」タブの2枚目）
 

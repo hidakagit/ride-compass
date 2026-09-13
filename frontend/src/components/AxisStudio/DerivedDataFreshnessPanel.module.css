@@ -6,8 +6,14 @@
   composes: heading from "../ui/adminPanel.module.css";
 }
 
-.hint {
-  composes: hint from "../ui/adminPanel.module.css";
+.headingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.infoButton {
+  composes: infoButton from "../ui/infoButton.module.css";
 }
 
 .error {
@@ -22,73 +28,154 @@
   composes: summary from "../ui/adminPanel.module.css";
 }
 
-.tableBlock {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.tableName {
+/* 集計結果の要点と、次に打つコマンド。狭い画面では折り返す。 */
+.verdictFresh,
+.verdictStale {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
 }
 
-.tableNameText {
-  font-weight: 700;
-  font-family: monospace;
-}
-
-.rowCount {
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
-}
-
-.completenessNote {
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
-  font-style: italic;
-}
-
-.tableWrap {
-  composes: tableWrap from "../ui/adminPanel.module.css";
-}
-
-/* 列数が多く、狭い画面では.tableWrapの横スクロールへ逃がす。 */
-.table {
-  composes: table from "../ui/adminPanel.module.css";
-  min-width: 36rem;
-}
-
-/* 備考欄が複数行になるため、行内の他セルは上端で揃える。 */
-.table th,
-.table td {
-  vertical-align: top;
-}
-
-.numeric {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.badgeFresh,
-.badgeStale {
-  display: inline-block;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  font-size: var(--font-size-xs);
-  white-space: nowrap;
-}
-
-.badgeFresh {
+.verdictFresh {
   background: var(--color-surface-2);
   color: var(--color-muted);
 }
 
-.badgeStale {
+.verdictStale {
   background: var(--color-danger-muted);
   color: var(--color-danger);
+}
+
+.verdictText {
   font-weight: 700;
+}
+
+.command {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-muted-strong);
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.copyButton {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-muted-strong);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* 1件=1行。名前と規模だけを出し、数字は開いたときに見せる。 */
+.rowSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rowSummary::-webkit-details-marker {
+  display: none;
+}
+
+.markFresh,
+.markStale {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.markFresh {
+  background: var(--color-border);
+}
+
+.markStale {
+  background: var(--color-danger);
+}
+
+.rowName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+}
+
+.rowScale {
+  flex: none;
+  color: var(--color-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0 0 var(--space-2);
+  padding-left: calc(0.5rem + var(--space-2));
+}
+
+/* ラベルと値を1行に並べ、狭ければ値だけが折り返す（表の横スクロールを使わない）。 */
+.detailItem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.detailLabel {
+  flex: none;
+  min-width: 5rem;
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.detailValue {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  margin: 0 0 var(--space-2);
+  padding-left: calc(0.5rem + var(--space-2));
+  color: var(--color-muted);
+  font-size: var(--font-size-xs);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

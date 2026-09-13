@@ -83,6 +83,18 @@ const FRESH_REPORT: DerivedDataFreshnessResponse = {
   ],
 };
 
+const REBUILD_COMMAND = "python -m app.batch.refresh_derived";
+
+/** すべて最新の状態（完成度の未計算も0）。 */
+const ALL_FRESH_REPORT = {
+  ...FRESH_REPORT,
+  completeness: FRESH_REPORT.completeness.map((entry) => ({
+    ...entry,
+    uncalculated_count: 0,
+    is_incomplete: false,
+  })),
+};
+
 async function clickAggregate(user: ReturnType<typeof userEvent.setup>) {
   await act(async () => {
     await user.click(screen.getByRole("button", { name: "集計する" }));
@@ -105,66 +117,63 @@ describe("DerivedDataFreshnessPanel", () => {
     expect(screen.getByRole("button", { name: "再集計する" })).toBeInTheDocument();
   });
 
-  it("鮮度不整合が無ければ「鮮度OK」を、比較対象・algorithm_versionともに表示する", async () => {
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
+  it("すべて最新なら、作り直しを促さずその旨だけを出す", async () => {
+    vi.mocked(getDerivedDataFreshness).mockResolvedValue(ALL_FRESH_REPORT);
     const user = userEvent.setup();
     render(<DerivedDataFreshnessPanel />);
 
     await clickAggregate(user);
 
-    expect(screen.getAllByText("鮮度OK").length).toBeGreaterThan(0);
-    expect(screen.queryByText("鮮度不整合あり")).not.toBeInTheDocument();
-    expect(screen.getAllByText("事故取込").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/precompute_edge_attribute_counts\.ALGORITHM_VERSION/).length).toBeGreaterThan(0);
+    expect(screen.getByText("すべて最新")).toBeInTheDocument();
+    // 打つべきコマンドが無いときに出すと、何もしなくてよい状態が読み取れない。
+    expect(screen.queryByText(REBUILD_COMMAND)).not.toBeInTheDocument();
   });
 
-  it("鮮度不整合があれば「鮮度不整合あり」バッジを出す", async () => {
+  it("作り直しが要る件数と、次に打つ1コマンドを出す", async () => {
+    // 件数は行の状態から数える（古い世代・未計算の両方が対象）。読み手が次に打つのは
+    // どちらでも同じ1コマンドなので、行ごとにバッチ名を散らさない。
     vi.mocked(getDerivedDataFreshness).mockResolvedValue({
       ...FRESH_REPORT,
-      generations: [
-        generation({
-          is_stale: true,
-          sources: [
-            {
-              label: "事故取込",
-              run_table: "accident_import_runs",
-              latest_available_run_id: 3,
-              earliest_reflected_run_id: 3,
-              null_count: 0,
-              is_stale: false,
-            },
-            {
-              label: "OSM取込",
-              run_table: "osm_import_runs",
-              latest_available_run_id: 12,
-              earliest_reflected_run_id: 10,
-              null_count: 0,
-              is_stale: true,
-            },
-          ],
-        }),
-        ...FRESH_REPORT.generations.slice(1),
-      ],
+      generations: [generation({ is_stale: true }), ...FRESH_REPORT.generations.slice(1)],
     });
     const user = userEvent.setup();
     render(<DerivedDataFreshnessPanel />);
 
     await clickAggregate(user);
 
-    expect(screen.getAllByText("鮮度不整合あり").length).toBeGreaterThan(0);
+    // 世代1件（is_stale）＋完成度1件（elevationのis_incomplete）。
+    expect(screen.getByText("2件が作り直し待ち")).toBeInTheDocument();
+    expect(screen.getByText(REBUILD_COMMAND)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "コピー" })).toBeInTheDocument();
   });
 
-  it("designation_attributesはalgorithm_versionを表示しない", async () => {
+  it("一覧は1件1行で、run番号などの数字は開くまで出さない", async () => {
     vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
     const user = userEvent.setup();
     render(<DerivedDataFreshnessPanel />);
 
     await clickAggregate(user);
 
-    const designationHeading = screen.getByText("designation_attributes");
-    const block = designationHeading.closest("div")?.parentElement;
-    expect(block).not.toBeNull();
-    expect(within(block as HTMLElement).queryByText(/ALGORITHM_VERSION/)).not.toBeInTheDocument();
+    // 名前は最初から見える（何が検査対象かが分かる）。
+    expect(screen.getByText("edge_attribute_counts")).toBeInTheDocument();
+    // 中身（比較対象の行）は畳んだ先にある。
+    const summary = screen.getByText("edge_attribute_counts").closest("summary");
+    expect(summary).not.toBeNull();
+    const details = summary?.closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(within(details).getByText("事故取込")).toBeInTheDocument();
+  });
+
+  it("designation_attributesは版数を持たないため、その行に版数の項目が出ない", async () => {
+    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
+    const user = userEvent.setup();
+    render(<DerivedDataFreshnessPanel />);
+
+    await clickAggregate(user);
+
+    const details = screen.getByText("designation_attributes").closest("details") as HTMLElement;
+    expect(within(details).queryByText("版数")).not.toBeInTheDocument();
+    expect(within(details).getByText("OSM取込")).toBeInTheDocument();
   });
 
   it("系譜列を持たない派生データは完成度として別枠に、backendが返した件数ぶん並べる", async () => {
@@ -178,22 +187,22 @@ describe("DerivedDataFreshnessPanel", () => {
     for (const entry of FRESH_REPORT.completeness) {
       expect(screen.getByText(entry.label)).toBeInTheDocument();
     }
-    expect(screen.getAllByText("完成度（鮮度ではない）")).toHaveLength(FRESH_REPORT.completeness.length);
-    expect(screen.getByText(/5,025,067件/)).toBeInTheDocument();
-    expect(screen.getByText(/328件/)).toBeInTheDocument();
+    const details = screen.getByText("elevation_attributes").closest("details") as HTMLElement;
+    expect(within(details).getByText("5,025,067件")).toBeInTheDocument();
+    expect(within(details).getByText("328件")).toBeInTheDocument();
   });
 
-  it("未計算が残っていれば印と再実行するバッチ名を出し、無ければ出さない", async () => {
+  it("未計算の有無を行の見出しに出し、担当バッチは開いた先に置く", async () => {
     vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
     const user = userEvent.setup();
     render(<DerivedDataFreshnessPanel />);
 
     await clickAggregate(user);
 
-    expect(screen.getByText("未計算あり")).toBeInTheDocument();
-    expect(screen.getByText(/precompute_elevation_attributes を実行する/)).toBeInTheDocument();
-    expect(screen.getByText("計算済み")).toBeInTheDocument();
-    expect(screen.queryByText(/precompute_road_node_degrees を実行する/)).not.toBeInTheDocument();
+    expect(screen.getByText("未計算 328")).toBeInTheDocument();
+    expect(screen.getByText("未計算なし")).toBeInTheDocument();
+    const details = screen.getByText("elevation_attributes").closest("details") as HTMLElement;
+    expect(within(details).getByText("precompute_elevation_attributes")).toBeInTheDocument();
   });
 
   it("未計算を厳密に表せない列の但し書きを、その枠へ添える", async () => {
@@ -205,7 +214,8 @@ describe("DerivedDataFreshnessPanel", () => {
 
     await clickAggregate(user);
 
-    expect(screen.getByText(/未計算と本当に次数0の行を区別できない/)).toBeInTheDocument();
+    const details = screen.getByText("road_nodes.degree").closest("details") as HTMLElement;
+    expect(within(details).getByText(/未計算と本当に次数0の行を区別できない/)).toBeInTheDocument();
   });
 
   it("取得失敗時はエラーメッセージを表示する", async () => {
