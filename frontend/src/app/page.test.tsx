@@ -1184,6 +1184,49 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.queryByText("北 19.0km")).toBeNull();
   });
 
+  it("合成したルートをさらに編集して、別の候補の道へ乗り継げる", async () => {
+    // 「他ルートから更に他ルートへ乗り継ぐ」は、作った合成ルートを元にもう一度編集できること。
+    const user = userEvent.setup();
+    const base = makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] });
+    const other = makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] });
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [base, other],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
+
+    // 1本目の区間だけ相手の道へ差し替えて作る（backendは合成結果を1件返す）
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({
+          id: "route-spliced",
+          direction_label: "組み合わせたルート",
+          distance_km: 18.5,
+          edge_ids: ["s", "b1", "m", "a2", "e"],
+        }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getAllByRole("button", { name: /19\.0km/ })[0]);
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+
+    // 合成結果が選ばれた状態で一覧へ戻り、そこからもう一度編集へ入れる
+    await waitFor(() => expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+
+    // 元は合成ルートで、残る区間（a2側）を別の候補の道へ差し替えられる
+    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /19\.0km/ }).length).toBeGreaterThan(0);
+  });
   it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
     // 表示中の候補を作った生成で判定する。いまの目的地ピンで判定すると、周回モードへ
     // 戻した後もピンが残っている間は操作面が出て、合成リクエストがdestination無しになり

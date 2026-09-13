@@ -216,6 +216,11 @@ export const ROUTE_ARROW_HALO_LAYER_ID = "route-arrow-halo";
 export const ROUTE_ARROW_LAYER_ID = "route-arrow";
 const SPLICE_SOURCE_ID = "route-splice-stretches";
 export const SPLICE_LAYER_ID = "route-splice-stretches-line";
+// 帯そのもの（幅3〜5px）は指でタップできる太さではない。同じソースを参照する
+// 当たり判定専用の太い・見えないレイヤー（DETAIL_HIT_LAYER_IDと同じ手法）。
+// クリックはこちらだけへ登録する——両方へ登録すると1タップで2回発火し、
+// 「同じ道をもう一度選ぶと元へ戻す」挙動と噛み合って何も起きなくなる。
+export const SPLICE_HIT_LAYER_ID = "route-splice-stretches-hit";
 export const DETAIL_SOURCE_ID = "route-detail-segments";
 export const DETAIL_LAYER_ID = "route-detail-segments-line";
 // DETAIL_LAYER_ID（見た目の線、幅6px）そのものはモバイルでタップしづらいため、同じ
@@ -538,6 +543,9 @@ export function drawBaseRoutes(
 // style-specの評価器で検証する（実機はmaplibre-gl内蔵の同パッケージで評価するため、
 // テストが通る式が実機で別の意味になりうる版ずれをdocs/architecture.mdが禁じている）。
 export const SPLICE_COLOR = "#c2612b";
+// 当たり判定の太さ。ルート区間の当たり判定（DETAIL_HIT_LAYER_ID）と同じにする——
+// 指の接地面はどの線を触るかで変わらない。
+export const SPLICE_HIT_WIDTH = 24;
 export const SPLICE_WIDTH_EXPRESSION: unknown[] = ["case", ["get", "taken"], 5, 3];
 export const SPLICE_OPACITY_EXPRESSION: unknown[] = ["case", ["get", "taken"], 1, 0.75];
 export const SPLICE_DASH_EXPRESSION: unknown[] = [
@@ -597,15 +605,25 @@ export function drawSpliceStretches(map: MapLibreMap, stretches: SpliceStretchFe
           /* eslint-enable @typescript-eslint/no-explicit-any */
         },
       });
+      map.addLayer({
+        id: SPLICE_HIT_LAYER_ID,
+        type: "line",
+        source: SPLICE_SOURCE_ID,
+        paint: { "line-width": SPLICE_HIT_WIDTH, "line-opacity": 0 },
+      });
     }
     setLayerVisibility(map, SPLICE_LAYER_ID, true);
+    setLayerVisibility(map, SPLICE_HIT_LAYER_ID, true);
   };
 
   runWhenStyleReady(map, applyData);
 }
 
 export function hideSpliceStretches(map: MapLibreMap) {
-  runWhenStyleReady(map, () => setLayerVisibility(map, SPLICE_LAYER_ID, false));
+  runWhenStyleReady(map, () => {
+    setLayerVisibility(map, SPLICE_LAYER_ID, false);
+    setLayerVisibility(map, SPLICE_HIT_LAYER_ID, false);
+  });
 }
 
 export function hideBaseRoutes(map: MapLibreMap) {
@@ -3128,7 +3146,7 @@ export default function MapView({
       // 一切行わない。
       // 候補線（ROUTES_HIT_LAYER_ID）も同じ理由で専用ハンドラ（handleCandidateClick）を
       // 持つため、一般道路網向けのポップアップは開かない。
-      for (const hitLayerId of [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID, SPLICE_LAYER_ID]) {
+      for (const hitLayerId of [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID, SPLICE_HIT_LAYER_ID]) {
         if (map.getLayer(hitLayerId) && map.queryRenderedFeatures(e.point, { layers: [hitLayerId] }).length > 0) {
           return;
         }
@@ -3400,7 +3418,7 @@ export default function MapView({
     // 発火するため、handleClick冒頭のガードと対で機能する。
     map.on("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
     map.on("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
-    map.on("click", SPLICE_LAYER_ID, handleSpliceStretchClick);
+    map.on("click", SPLICE_HIT_LAYER_ID, handleSpliceStretchClick);
     map.on("mousemove", handleMouseMove);
     map.on("zoom", handleZoom);
     map.on("load", handleLoad);
@@ -3424,7 +3442,7 @@ export default function MapView({
       map.off("click", handleClick);
       map.off("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
       map.off("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
-      map.off("click", SPLICE_LAYER_ID, handleSpliceStretchClick);
+      map.off("click", SPLICE_HIT_LAYER_ID, handleSpliceStretchClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
       map.off("load", handleLoad);
