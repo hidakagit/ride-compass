@@ -25,6 +25,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteSplicePanel>[0]> = 
     onToggleStretch: vi.fn(),
     onApply: vi.fn(),
     applying: false,
+    error: null as string | null,
     ...overrides,
   };
 }
@@ -108,5 +109,22 @@ describe("RouteSplicePanel", () => {
 
     expect(screen.getByText(/経路のEdge情報を持たない/)).toBeInTheDocument();
     expect(screen.getByLabelText("比較相手")).toBeDisabled();
+  });
+
+  // 合成の失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）。押した場所へ
+  // 出さないと「押しても何も起きない」に見える。
+  it("合成に失敗した理由をこのパネルへ出す", () => {
+    render(
+      <RouteSplicePanel
+        {...baseProps({
+          targetId: "route-01",
+          stretches: [{ start: 1, end: 2 }],
+          takenIndexes: [0],
+          error: "組み合わせたルートを評価できませんでした",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("組み合わせたルートを評価できませんでした")).toBeInTheDocument();
   });
 });

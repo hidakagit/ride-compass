@@ -367,6 +367,9 @@ export default function Home() {
   const [spliceTargetId, setSpliceTargetId] = useState<string | null>(null);
   const [spliceTakenIndexes, setSpliceTakenIndexes] = useState<number[]>([]);
   const [splicing, setSplicing] = useState(false);
+  // 合成の失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）。
+  // 押した場所＝編集パネルに出す。
+  const [spliceError, setSpliceError] = useState<string | null>(null);
   // 地図上でクリックされた区間（MapView.tsx: handleRouteSegmentClickがクリック地点の
   // 座標とともに設定するcontrolled state）。non-nullの間、「ルート結果」タブはルート
   // 全体の内訳の代わりにこの区間の内訳を表示する（下記renderRouteOutcomeSectionBody
@@ -1523,6 +1526,7 @@ export default function Home() {
     if (!generatedInput) return;
     setSplicing(true);
     setErrorMessage(null);
+    setSpliceError(null);
     try {
       const edgeIds = spliceEdgeIds(
         selectedCandidate.edge_ids,
@@ -1535,7 +1539,7 @@ export default function Home() {
       );
       const spliced = candidates[0];
       if (!spliced) {
-        setErrorMessage("組み合わせたルートを評価できませんでした");
+        setSpliceError("組み合わせたルートを評価できませんでした");
         return;
       }
       // 素の結果と本質的に区別しないため、生成候補と同じ並び順の規約へ乗せる
@@ -1548,8 +1552,12 @@ export default function Home() {
       setSpliceTargetId(null);
       setSpliceTakenIndexes([]);
       setSelectedRouteSegment(null);
+      // 作ったルートは「ルート結果」の一覧へ入る。押した場所（編集）に留まると何も
+      // 変わらないように見えるため、できたものが見える場所まで連れて行く。
+      notifyRouteOutcome();
+      if (isMobile) setMobileSheet("routeOutcome");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
+      setSpliceError(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
     } finally {
       setSplicing(false);
       setGenerationProgress(null);
@@ -2054,6 +2062,7 @@ export default function Home() {
         onSelectTarget={(id) => {
           setSpliceTargetId(id);
           setSpliceTakenIndexes([]);
+          setSpliceError(null);
         }}
         stretches={spliceStretches}
         takenIndexes={spliceTakenIndexes}
@@ -2065,6 +2074,7 @@ export default function Home() {
           )
         }
         onApply={handleApplySplice}
+        error={spliceError}
         applying={splicing}
       />
     );

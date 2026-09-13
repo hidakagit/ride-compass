@@ -1,5 +1,6 @@
 "use client";
 
+import ErrorText from "@/components/ErrorText/ErrorText";
 import InfoPopover from "@/components/Map/InfoPopover";
 import type { RouteStretch } from "@/lib/routeSplice";
 import type { RouteCandidate } from "@/types/route";
@@ -21,6 +22,8 @@ interface RouteSplicePanelProps {
   onApply: () => void;
   /** 合成した経路の評価を待っている間はtrue。 */
   applying: boolean;
+  /** 合成に失敗した理由。押した場所から見えないと「押しても何も起きない」になる。 */
+  error: string | null;
 }
 
 export default function RouteSplicePanel({
@@ -33,6 +36,7 @@ export default function RouteSplicePanel({
   onToggleStretch,
   onApply,
   applying,
+  error,
 }: RouteSplicePanelProps) {
   const taken = new Set(takenIndexes);
   // edge_idsを返さないエンジン・古い候補では区間を出せない（backendが空で返す）。
@@ -99,6 +103,7 @@ export default function RouteSplicePanel({
               </li>
             ))}
           </ul>
+          {error && <ErrorText>{error}</ErrorText>}
           <div className={styles.actions}>
             <button type="button" onClick={onApply} disabled={taken.size === 0 || applying}>
               {applying ? "評価中…" : "この組み合わせを候補へ追加"}
