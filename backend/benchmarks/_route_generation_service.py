@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 import httpx
 
 from app.domain.route_preference import RoutePreference
+from app.domain.routing import DEFAULT_TURN_COST, TurnCostSpec
 from app.domain.route import Coordinates
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
@@ -34,7 +35,9 @@ async def refresh_axis_registry() -> None:
 
 
 @asynccontextmanager
-async def route_generator_session(preference: RoutePreference) -> AsyncIterator[RouteGenerator]:
+async def route_generator_session(
+    preference: RoutePreference, *, turn_cost: TurnCostSpec = DEFAULT_TURN_COST
+) -> AsyncIterator[RouteGenerator]:
     """軸定義refresh後の`preference`を受け取り、GraphService/ElevationAttributeService/
     WeatherServiceの組み立てからRoadGraphEngine/RouteGeneratorの生成までを行う。
     呼び出し側は`await refresh_axis_registry()`を先に済ませておくこと。
@@ -47,7 +50,9 @@ async def route_generator_session(preference: RoutePreference) -> AsyncIterator[
                 ElevationClient(), http_client, repository=RoadGraphRepository(elevation_session)
             )
             weather_service = WeatherService()
-            engine = RoadGraphEngine(graph_service, elevation_service, weather_service, preference)
+            engine = RoadGraphEngine(
+                graph_service, elevation_service, weather_service, preference, turn_cost=turn_cost
+            )
             yield RouteGenerator(engine)
 
 
