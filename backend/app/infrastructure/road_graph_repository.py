@@ -128,6 +128,7 @@ from app.infrastructure.vector_tile import (
     TILE_EXTENT,
 )
 from app.infrastructure import derived_data_meta
+from app.infrastructure.derived_data_freshness import completeness_spec
 from app.infrastructure.road_graph_models import (
     Base,
     EdgeAttributeCountsRow,
@@ -950,6 +951,9 @@ def _curvature_total_cte_sql(source: str, id_column: str, geom_column: str) -> s
     )"""
 
 
+# 測れる行の条件は鮮度台帳の宣言が唯一の情報源（バッチ・台帳・このSQLの3箇所に書かない）。
+_CURVATURE_IN_SCOPE = completeness_spec("road_edges.curvature_deg_per_km").in_scope
+
 # road_edges.curvature_deg_per_kmの再計算（app/batch/precompute_edge_curvature.py）。
 # 対象edge_idのチャンクを受け取って更新する（1文で全件更新すると本番規模では長時間
 # ロックを取り続ける）。チャンクの切り出しはバッチ側の`stream_id_chunks`
@@ -960,7 +964,7 @@ _RECOMPUTE_EDGE_CURVATURE_SQL = text(
     WITH target AS (
         SELECT edge_id, geom, distance_m
         FROM road_edges
-        WHERE edge_id = ANY(:edge_ids) AND distance_m > 0
+        WHERE edge_id = ANY(:edge_ids) AND {_CURVATURE_IN_SCOPE}
     ),
     {_curvature_total_cte_sql("target", "edge_id", "geom")}
     UPDATE road_edges e

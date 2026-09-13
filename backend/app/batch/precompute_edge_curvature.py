@@ -21,9 +21,10 @@ import math
 import sys
 import time
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.batch._common import batch_session_factory, count_targets, run_simple_batch_cli, stream_id_chunks
+from app.infrastructure.derived_data_freshness import completeness_spec
 from app.infrastructure.road_graph_models import RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
@@ -33,14 +34,19 @@ logger = logging.getLogger("ridecompass.precompute_edge_curvature")
 CHUNK_SIZE = 200_000
 
 
-def _target_edge_ids_stmt():
-    # 長さ0のEdgeは度/kmを測れないため対象外（NULL＝算出不能のまま残す）。
-    return select(RoadEdgeRow.edge_id).where(RoadEdgeRow.distance_m > 0)
+#: このバッチが埋める列の宣言（対象条件の唯一の情報源）。
+SPEC = completeness_spec("road_edges.curvature_deg_per_km")
+
+
+def target_stmt():
+    """このバッチが処理できるEdge。条件は鮮度台帳と同じ宣言から取る——別々に持つと、
+    対象外の行を台帳が未計算として数え続ける。"""
+    return select(RoadEdgeRow.edge_id).where(text(SPEC.in_scope))
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
     started = time.perf_counter()
-    stmt = _target_edge_ids_stmt()
+    stmt = target_stmt()
     async with batch_session_factory(database_url) as session_factory:
         edge_count = await count_targets(session_factory, stmt)
 

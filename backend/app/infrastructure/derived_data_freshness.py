@@ -110,6 +110,11 @@ class CompletenessSpec:
     `uncalculated`は母集団テーブルに対する述語で、specの内部定数のみから組み立てる
     （外部入力を連結しない）。未計算を厳密に表せない列があるため`note`で但し書きを添える
     ——`road_nodes.degree`は`NOT NULL DEFAULT 0`で、未計算と本当に次数0の行を区別できない。
+
+    `in_scope`は**担当バッチが処理できる行**の条件で、この宣言が唯一の情報源である。バッチは
+    対象を選ぶselectをここから組み立て、台帳は未計算の判定へANDで掛ける。両者が別々にこの
+    条件を持つと、バッチが永久に計算しない行を台帳が未計算と数え続け、台帳は「すべて最新」へ
+    到達できなくなる——常に出続ける警告は読まれなくなる。
     """
 
     label: str
@@ -117,6 +122,8 @@ class CompletenessSpec:
     uncalculated: str
     owner: str
     note: str = ""
+    #: 担当バッチが処理できる行（母集団に対する述語）。全行が対象なら既定のまま。
+    in_scope: str = "TRUE"
 
 
 COMPLETENESS_SPECS: tuple[CompletenessSpec, ...] = (
@@ -133,7 +140,12 @@ COMPLETENESS_SPECS: tuple[CompletenessSpec, ...] = (
         population_table="road_edges",
         uncalculated="curvature_deg_per_km IS NULL",
         owner="precompute_edge_curvature",
-        note="ルート評価が読む列。未計算のままだと蛇行軸が重みの再正規化で薄まり、警告なく評価から抜ける",
+        note=(
+            "ルート評価が読む列。未計算のままだと蛇行軸が重みの再正規化で薄まり、警告なく評価から抜ける。"
+            "長さ0のEdgeは度/kmを定義できないため対象外（母集団には含むが未計算には数えない）"
+        ),
+        # 度/kmは距離で割るため、長さ0のEdgeでは値が定義できない。
+        in_scope="distance_m > 0",
     ),
     CompletenessSpec(
         label="road_nodes.degree",
@@ -147,11 +159,22 @@ COMPLETENESS_SPECS: tuple[CompletenessSpec, ...] = (
 
 def build_completeness_sql(spec: CompletenessSpec):
     """1件ぶんの母集団件数と未計算件数（1回の走査でまとめる）。
-    テーブル名・述語はspecの内部定数のみから生成する（外部入力を連結しない）。"""
+    テーブル名・述語はspecの内部定数のみから生成する（外部入力を連結しない）。
+
+    未計算は**担当バッチが処理できる行に限る**（`in_scope`）。対象外の行まで数えると、
+    作り直しても減らない件数が残り続ける。母集団は対象外の行も含めた全件のままにする
+    ——「全体のうち何件か」を読むための数だから。"""
     return text(
-        f"SELECT count(*) AS population, count(*) FILTER (WHERE {spec.uncalculated}) AS uncalculated "  # noqa: S608 固定の内部宣言のみ使用
+        f"SELECT count(*) AS population, "  # noqa: S608 固定の内部宣言のみ使用
+        f"count(*) FILTER (WHERE ({spec.in_scope}) AND ({spec.uncalculated})) AS uncalculated "
         f"FROM {spec.population_table}"
     )
+
+
+def completeness_spec(label: str) -> CompletenessSpec:
+    """ラベルで宣言を引く。担当バッチが自分の対象条件をここから取るために使う
+    （バッチ側に同じ述語を書かない）。"""
+    return next(spec for spec in COMPLETENESS_SPECS if spec.label == label)
 
 
 def build_generation_freshness_sql(spec: GenerationFreshnessSpec):

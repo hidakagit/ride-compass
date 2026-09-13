@@ -27,10 +27,11 @@ import logging
 import sys
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.domain.graph import RoadGraph
+from app.infrastructure.derived_data_freshness import completeness_spec
 from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_models import ElevationAttributeRow, RoadEdgeRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -43,7 +44,11 @@ logger = logging.getLogger("ridecompass.precompute_elevation_attributes")
 CHUNK_SIZE = 2_000
 
 
-def _target_edge_ids_stmt():
+#: このバッチが埋める派生データの宣言（対象条件の唯一の情報源）。
+SPEC = completeness_spec("elevation_attributes")
+
+
+def target_stmt():
     """未計算のEdge idを地理的順序（`ORDER BY geom`）で選ぶselect。
 
     計算済み（`elevation_attributes`に行がある）Edgeはanti-joinで最初から除外する
@@ -54,12 +59,13 @@ def _target_edge_ids_stmt():
         select(RoadEdgeRow.edge_id)
         .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
         .where(ElevationAttributeRow.edge_id.is_(None))
+        .where(text(SPEC.in_scope))
         .order_by(RoadEdgeRow.geom)
     )
 
 
 async def run(database_url: str | None, dry_run: bool) -> int:
-    stmt = _target_edge_ids_stmt()
+    stmt = target_stmt()
     async with batch_session_factory(database_url) as session_factory:
         client = ElevationClient()
         # ElevationClientはhttpx.AsyncClientを内部で持たない設計のため、TLSハンドシェイク
