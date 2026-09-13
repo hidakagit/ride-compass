@@ -309,7 +309,9 @@ class _LegCostComposer:
         self.speed_kmh = speed_kmh
         self._lazy_row_index = lazy_row_index
         # lazy行順の配列をfull_edge_row順へ戻す並べ替え表（`_lazy_row_index`の逆）。
-        self._full_row_index = np.empty_like(lazy_row_index)
+        # `_lazy_row_index`は全単射ではない——同一Node間の並行Edgeは`build_lazy_road_graph`が
+        # 1本だけ採るため、探索用グラフに載らないEdgeがある。載らない行は-1にする。
+        self._full_row_index = np.full(len(score_matrix.distance_m), -1, dtype=np.int64)
         self._full_row_index[lazy_row_index] = np.arange(len(lazy_row_index))
         self._lazy_hard_filter_excluded: np.ndarray | None = None
         self._lens_axis_id = lens_axis_id
@@ -451,8 +453,15 @@ class _LegCostComposer:
         return leg
 
     def to_full_row_order(self, lazy_values: np.ndarray) -> np.ndarray:
-        """lazy行順（探索が使う並び）の配列を`full_edge_row`順へ戻す。"""
-        return np.asarray(lazy_values)[self._full_row_index]
+        """lazy行順（探索が使う並び）の配列を`full_edge_row`順へ戻す。
+
+        探索用グラフに載らないEdge（並行Edgeのうち採られなかった方）はNaNになる。
+        """
+        values = np.asarray(lazy_values, dtype=float)
+        result = np.full(len(self._full_row_index), np.nan)
+        mapped = self._full_row_index >= 0
+        result[mapped] = values[self._full_row_index[mapped]]
+        return result
 
     def _bin_count(self, duration_hours: float | None) -> int:
         """レグを何本の時刻ビンへ分けるか。見込み所要時間が無ければ1本。

@@ -1583,6 +1583,30 @@ async def test_select_fastest_route_splits_legs_near_the_midpoint():
     assert fastest.leg_of_edge == [0, 1]
 
 
+async def test_select_via_nodes_works_when_parallel_edges_are_dropped_from_the_search_graph():
+    # 同一Node間に複数のEdge（並行Edge）があると、探索用グラフはそのうち1本だけを採る。
+    # つまり「探索用グラフの行」と「静的スコア行列の行」は1対1にならない。後ろ向きレグへ
+    # 前向き木の到達時間を渡すために両者を行き来するため、この食い違いを踏むと落ちる。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
+    parallel = graph.edges["e-0-out"].model_copy(update={"edge_id": "e-0-out-parallel"})
+    graph = RoadGraph(
+        graph_version="test", nodes=graph.nodes,
+        edges={**graph.edges, "e-0-out-parallel": parallel},
+    )
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+    assert len(context.lazy_graph.edge_ids) < len(context.composer._score_matrix.distance_m)
+
+    traced = await engine.select_via_nodes(context, DESTINATION_20KM, max_routes=3)
+
+    assert traced
+    # 探索用グラフに載らなかった行はNaNになり、通過時刻の補完側（直線距離の推定）へ落ちる。
+    full_order = context.composer.to_full_row_order(np.zeros(len(context.lazy_graph.edge_ids)))
+    assert len(full_order) == len(context.composer._score_matrix.distance_m)
+    assert np.isnan(full_order).any()
+
+
 async def test_select_via_nodes_excludes_routes_beyond_stretch_ratio():
     # offset=12kmの経路は直線比で約1.56倍（>ALTERNATIVE_MAX_STRETCH=1.3）に伸びるため
     # 候補から除外される。offset=5km（約1.06倍）は残る。
