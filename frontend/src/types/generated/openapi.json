@@ -3984,9 +3984,9 @@
             "type": "array",
             "title": "Edge Point Offsets"
           },
-          "is_shortest_distance": {
+          "is_fastest": {
             "type": "boolean",
-            "title": "Is Shortest Distance",
+            "title": "Is Fastest",
             "default": false
           }
         },

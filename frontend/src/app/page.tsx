@@ -97,9 +97,9 @@ import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCa
 import { downloadGpx } from "@/lib/gpxExport";
 import {
   SPLICED_ROUTE_ID_PREFIX,
-  extraDistanceLabel,
+  extraDurationLabel,
   isSplicedRoute,
-  shortestDistanceKm,
+  fastestDurationSeconds,
   shortestDistanceRouteId,
 } from "@/lib/routeTabLabel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
@@ -1823,8 +1823,9 @@ export default function Home() {
 
     const showComparisonTab = researchEnabled;
     const outerTabValue = comparisonTabActive ? "comparison" : (selectedRouteId ?? routes[0].id);
-    // 距離だけで選んだ基準線の距離km（目的地モードのみ持つ。周回・経由地ルートはnull）。
-    const shortestKm = shortestDistanceKm(routes);
+    // 基準線（好みの重みを0にしたときの経路）の所要時間秒（目的地モードのみ持つ。
+    // 周回・経由地ルートはnull）。
+    const fastestSeconds = fastestDurationSeconds(routes);
     const shortestRouteId = shortestDistanceRouteId(routes);
     // RouteAxisProfileへは公開軸すべて（axisCatalog.axes）をそのまま渡し、絞り込みは行わない。
     // routeWeightsは重み<=0の軸を「未使用」バッジ付きで表示する判定にのみ使う（生成時点の重み
@@ -1883,8 +1884,8 @@ export default function Home() {
                       via-node方式で複数件になりうる——方位という概念は無いため「方向」は
                       付けないが、複数件を見分けられるよう順位番号は付ける。 */}
                   <span className={styles.outcomeTabMain}>
-                    {route.is_shortest_distance
-                      ? "最短"
+                    {route.is_fastest
+                      ? "最速"
                       : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
                         ? route.direction_label
                         : `${index + 1}`}{" "}
@@ -1892,15 +1893,15 @@ export default function Home() {
                     {/* 区間を乗り換えて作った候補。並び順は生成候補と同じ規約に乗せ
                         （insertByDifficulty）、見分けは名前で付ける。 */}
                     {isSplicedRoute(route) && <span className={styles.outcomeTabExtra}>合成</span>}
-                    {/* 最短経路から何km余分に走るか。軸設定に沿ったルートを走る対価であり、
+                    {/* 基準線から何分余計にかかるか。軸設定に沿ったルートを走る対価であり、
                         候補を見比べるこの場所に無いと、比較のたびにタブを開き直すことになる。 */}
-                    {extraDistanceLabel(route, shortestKm) && (
-                      <span className={styles.outcomeTabExtra}>{extraDistanceLabel(route, shortestKm)}</span>
+                    {extraDurationLabel(route, fastestSeconds) && (
+                      <span className={styles.outcomeTabExtra}>{extraDurationLabel(route, fastestSeconds)}</span>
                     )}
                     {/* 並び順は総合難易度の昇順なので「最も易しい」は先頭だが、「最も短い」は
                         別の軸のため一覧の中で印を付ける（目的地モードは順位の位置に
-                        backend由来の「最短」が出るため、そちらでは重ねない）。 */}
-                    {!route.is_shortest_distance && route.id === shortestRouteId && (
+                        backend由来の「最速」が出るため、そちらでは重ねない）。 */}
+                    {!route.is_fastest && route.id === shortestRouteId && (
                       <span className={styles.outcomeTabExtra}>最短</span>
                     )}
                   </span>

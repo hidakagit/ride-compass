@@ -6,7 +6,7 @@
 返す」という周回生成戦略（フロンティア方式）を1箇所に持つ。
 折返し点の選定・経路計算・評価値（標高・風・路面）の取得方法はエンジン
 （`LoopRoutingEngine`実装）へ委譲する。現在の唯一の実装は`RoadGraphEngine`
-（自前Road Graph + rustworkx A*/scipy一対全Dijkstra、road_graph_engine.py参照）。
+（自前Road Graph + 辺基準グラフのA*/一対全Dijkstra、road_graph_engine.py参照）。
 
 候補の形は公開軸の重み配分で決まる（例: 自転車インフラの重みを100%にすると、往路が
 自転車インフラ上を通る折返し点ほど上位に選ばれる）。距離は目標±`distance_tolerance_km`の
@@ -22,7 +22,7 @@
 - `trace_loop_from_turnaround(context, turnaround)`: 往路（折返し点まで）＋往路と別の
   復路（起点まで）の周回を引き、距離とエンジン固有の中間データを`TracedLoop`で返す。
   失敗はRoutingErrorをraiseする（その候補はスキップされる）
-- `select_shortest_distance_route(context, destination)`: 距離だけで選んだ最短経路1本
+- `select_fastest_route(context, destination)`: 所要時間が最短の経路1本（基準線）
   （軸の重みを使わない基準線）。
 - `select_via_nodes(context, destination, max_routes)`: 経由地の無い目的地ルート
   （起点→目的地）のvia-node方式代替経路選定。互いに異なる経路を最大
@@ -164,7 +164,7 @@ class LoopRoutingEngine(Protocol):
         self, context: Any, destination: Coordinates, max_routes: int
     ) -> list[TracedLoop]: ...
 
-    async def select_shortest_distance_route(
+    async def select_fastest_route(
         self, context: Any, destination: Coordinates
     ) -> TracedLoop | None: ...
 
@@ -210,7 +210,7 @@ class RouteGenerator:
 
         候補を返す経路はすべてここを通る。集約を1段増やすときはこのメソッドへ1行足せば
         全経路へ同時に効く（design-principles.md 構造仕様8）。集約は候補の並び順・印
-        （`is_shortest_distance`等）を読まないため、呼び出し側がそれらを付ける前でも
+        （`is_fastest`等）を読まないため、呼び出し側がそれらを付ける前でも
         後でも結果は変わらない。
 
         `evaluate_loops`の位置対応の契約（`traced`と同じ件数・同じ順）もここで確かめる。
@@ -512,9 +512,9 @@ class RouteGenerator:
         スキップが無い（`select_via_nodes`が確定済みの経路だけを返す）ぶん、
         `generate_loops`より単純な「選定→評価」の2段階になる。
 
-        距離だけで選んだ最短経路（`select_shortest_distance_route`）を基準線として必ず
-        1本含め、先頭へ固定する。軸設定に沿った候補が最短からどれだけ余分に走るかを、
-        利用者が対価として読めるようにするため。
+        所要時間が最短の経路（`select_fastest_route`）を基準線として必ず1本含め、先頭へ
+        固定する。利用者の好み（軸の重み）をすべて0にしたときの経路であり、軸設定に沿った
+        候補が基準線に対して何分余計にかかるかを、対価として読めるようにするため。
         """
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
@@ -555,36 +555,36 @@ class RouteGenerator:
 
         # 距離だけで選んだ最短経路を基準線として必ず1本含める。軸設定に沿った候補と
         # 同じ経路になることもあるため、その場合は候補を増やさず既存の1本へ印を付ける。
-        shortest = await self._engine.select_shortest_distance_route(context, destination)
-        shortest_index: int | None = None
-        if shortest is not None:
-            same = next((i for i, t in enumerate(traced) if t.data == shortest.data), None)
+        fastest = await self._engine.select_fastest_route(context, destination)
+        fastest_index: int | None = None
+        if fastest is not None:
+            same = next((i for i, t in enumerate(traced) if t.data == fastest.data), None)
             if same is None:
-                traced.append(shortest)
-                shortest_index = len(traced) - 1
+                traced.append(fastest)
+                fastest_index = len(traced) - 1
             else:
-                shortest_index = same
+                fastest_index = same
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
-        if shortest_index is not None:
-            candidates[shortest_index] = candidates[shortest_index].model_copy(
-                update={"is_shortest_distance": True}
+        if fastest_index is not None:
+            candidates[fastest_index] = candidates[fastest_index].model_copy(
+                update={"is_fastest": True}
             )
         # generate_loopsと同じ規約: overall_difficulty昇順（算出不能はNone→末尾）。
         candidates.sort(
             key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
         )
-        # 最短経路だけは難易度順の外へ出して先頭へ固定する（他の候補が何km余分に走るかを
-        # 読むための基準線であり、難易度で沈むと基準として使えない）。sortは安定なため
+        # 基準線だけは難易度順の外へ出して先頭へ固定する（他の候補が何分余計にかかるかを
+        # 読むための基準であり、難易度で沈むと基準として使えない）。sortは安定なため
         # 残りの難易度順は保たれる。max_routesを超えないよう末尾を切るが、先頭にいる
-        # 最短経路は必ず残る。
+        # 基準線は必ず残る。
         #
         # ただし`max_routes`が1のときは固定しない。基準線は**比べる相手があって初めて
         # 基準**であり、1本だけ返すなら比べる相手が無い。固定すると返る唯一の候補が常に
         # 距離最短になり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
         if max_routes >= 2:
-            candidates.sort(key=lambda c: not c.is_shortest_distance)
+            candidates.sort(key=lambda c: not c.is_fastest)
         candidates = candidates[:max_routes]
         candidates = [
             candidate.model_copy(update={"id": f"route-destination-{rank:02d}", "direction_label": "目的地ルート"})

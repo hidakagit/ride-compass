@@ -4,14 +4,14 @@
 
 出発地点（＋任意で経由地・目的地）から、周回または経由地ルートの候補を複数生成し、
 距離・難易度でスコアリングして返す。実際の経路計算・軸評価はroad_graphエンジン
-（自前Road Graph + rustworkxのlazy A*）が担う。Road Graph自体（ノード・Edge・交差点分割・
+（自前Road Graph + 辺基準グラフのlazy探索）が担う。Road Graph自体（ノード・Edge・交差点分割・
 空間索引）の構築・永続化・キャッシュもこのモジュールが担う。
 
 **対象ファイル**
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。探索のコストからはまだ参照していない） |
+| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
@@ -38,7 +38,7 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 `_LegCostComposer`を作り、`compose(label, anchor, offset_hours, direction)`がレグごとに
 風の列だけを引き直して合成する（`domain/wind.py: estimate_passage_hours`、
 `direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が
-到着予定時刻）。合成結果`LegCostArrays`は`cost_list`（`lazy_graph.edge_ids`順）と表示用の
+到着予定時刻）。合成結果`LegCostArrays`は`cost_lazy`（`lazy_graph.edge_ids`順）と表示用の
 `difficulty_array`/`axis_arrays`/`contribution_arrays`/`material_arrays`（動的材料id→
 `full_edge_row`順配列の辞書、`evaluate_dynamic_material_arrays`が返す全材料のうち値がある
 ものだけ）を持ち、`_RoadGraphContext.legs`に添字順で並ぶ。`compose`は
@@ -161,7 +161,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   `data.outbound_length_m`として持つ）。
 - `TracedLoop.bearing = None`は経由地（waypoints）指定ルートを表す（周回候補と異なり
   「向き」を持たない。road_graph_engine.pyの逆回り候補合成をスキップする判定にも使う）。
-- 候補は折返し点候補のランク順に逐次処理する（復路探索が共有`cost_list`を一時的に
+- 候補は折返し点候補のランク順に逐次処理する（復路探索が共有`cost_lazy`を一時的に
   書き換える同期処理のため`asyncio.gather`による並列化の余地は無い）。距離フィルタ合格が
   `max_routes`件に達した時点で処理を打ち切る。
 - 候補0件になった理由は`RouteGenerator.last_no_candidates_reason`に人間可読な文字列で
@@ -196,13 +196,13 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
   代替経路を生成する。`overall_difficulty`昇順（`generate_loops`と同じ規約）で
   `id="route-destination-00"`形式へ振り直し、`direction_label="目的地ルート"`を
   全件に付ける。
-  併せて`engine.select_shortest_distance_route`（距離だけで選ぶ、後述）を1本必ず含め、
-  `RouteCandidate.is_shortest_distance=True`を付けて**難易度順の外へ出し先頭へ固定**
-  する。軸設定に沿った候補が最短からどれだけ余分に走るかを読むための基準線であり、
+  併せて`engine.select_fastest_route`（所要時間だけで選ぶ、後述）を1本必ず含め、
+  `RouteCandidate.is_fastest=True`を付けて**難易度順の外へ出し先頭へ固定**
+  する。軸設定に沿った候補が基準線からどれだけ余計にかかるかを読むための基準であり、
   難易度で沈むと基準として使えないため。軸最良の候補と同じ経路になった場合は候補を
   増やさずその1本へ印を付ける。件数は`max_routes`を超えず、切るのは末尾（最も難易度の
   高い候補）。**`max_routes`が1のときは先頭固定しない**——基準線は比べる相手があって
-  初めて基準であり、1本だけ返すときに固定すると返る唯一の候補が常に距離最短になって
+  初めて基準であり、1本だけ返すときに固定すると返る唯一の候補が常に時間最短になって
   軸の重みが結果に現れない。
 - **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるためv1では対象にせず、
   従来どおり`trace_loop`で単一経路を生成する（`max_routes`は無視される。終点到達後に
@@ -227,10 +227,10 @@ idを`route-destination-00..`へ振り直すが、
 
 ## RoadGraphEngine（`road_graph_engine.py`）
 
-自前Road Graphを`GraphService`経由で取得し、`domain/routing.py`のA*（`rustworkx`）で
-探索する。Edgeコストは`prepare`が対象bbox全体ぶんを**1回だけnumpyで合成**し、A*へは
-合成済み配列への`list.__getitem__`（`edge_cost_fn=cost_list.__getitem__`）だけを渡す
-——探索中にPythonの関数フレームを作らない（本ファイル冒頭「road_graphエンジン」節参照。
+自前Road Graphを`GraphService`経由で取得し、`domain/routing.py`の辺基準グラフ探索で
+探索する。Edgeコストは`prepare`が対象bbox全体ぶんを**1回だけnumpyで合成**し、探索へは
+合成済みのnumpy配列をそのまま渡す
+——探索中にPythonのコールバックを作らない（本ファイル冒頭「road_graphエンジン」節参照。
 グラフ構造自体は必要になった時点でEdgeを実体化するlazy構築のままで、「lazy」が指すのは
 グラフ構築であってコスト計算ではない）。周回候補は
 `select_loop_turnarounds`（起点からの一対全最短経路木で折返し点を選ぶ）＋
@@ -260,7 +260,7 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
 ベクトルを適用し、`compose_costs_from_axis_matrix`・`compute_hard_filter_excluded`で
 コスト配列を1回だけ合成する。合成結果はレグ（往路/復路）ごとに`LegCostArrays`
-（`cost_list`[`lazy_graph.edge_ids`と同じ行順]・`difficulty_array`・`axis_arrays`）へ
+（`cost_lazy`[`lazy_graph.edge_ids`と同じ行順]・`difficulty_array`・`axis_arrays`）へ
 まとまり、`_RoadGraphContext.legs`が保持する（下記「レグ別コスト配列」節）。並行Edge
 （同一Node間の複数Edge）は、`build_lazy_road_graph`がedge_idの昇順で先頭を採用する
 決定的な規則で解消する（`LazyRoadGraph`がコストに依存せずタイル集合キーでキャッシュ
@@ -284,7 +284,7 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 
 2点間探索（`turn_expanded_shortest_path`）はnumbaでJITしたA*で、優先度キューをnumpy配列の
 バイナリヒープとして持つ。到達時刻をラベルとして持ち回る探索はコストが辺の静的な属性である
-ことを前提にしたライブラリ（rustworkx・scipy）のコールバックでは表せないため、探索本体を
+ことを前提にしたライブラリ（scipy）では表せないため、探索本体を
 自前で持つ。`preview_segment`もこの探索を通るため、2点間だけの経路でも遷移を導くCSR構造
 （`SearchGraphStatics`）を構築する。
 
@@ -337,7 +337,7 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（`node_
 
 ### `select_loop_turnarounds`（折返し点選定）
 
-起点からの一対全Dijkstra（`domain/routing.py: build_shortest_path_tree`、
+起点からの一対全Dijkstra（`domain/routing.py: build_turn_expanded_tree`、
 scipy.sparse.csgraph、軸重み付きコスト、コスト上限で打ち切り）を1回求め、木に沿った
 往路の実距離が`[max(0, (目標−許容)/2.0), (目標+許容)/2.3]`（下限が上限を超える狭い
 許容では両方とも`(目標∓許容)/2.0`へ対称化）に入るNodeを「リング」として抽出する
@@ -360,14 +360,14 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
 
 ### `trace_loop_from_turnaround`（復路探索）
 
-往路は一対全木上の経路そのもの（`tree_path_edge_indices`で復元、A*での再探索はしない
+往路は一対全木上の経路そのもの（`turn_expanded_path_edge_indices`で復元、A*での再探索はしない
 ——同じコスト配列でA*をかけ直しても同じ経路になるため）。復路探索の間だけ、往路Edge＋
-同一Node対の逆方向Edgeのコストを共有`cost_list`上で`RETRACE_PENALTY_MULTIPLIER`
+同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`RETRACE_PENALTY_MULTIPLIER`
 （8.0、infにはしない——復路が往路を戻る以外に道が無い区間[袋小路等]は通れる必要がある）
 倍に**差し替え**、A*（復路の目的地は常に起点のため、ヒューリスティック配列は
 リクエストで1回だけ計算し全候補で共有する）で探索した後、`try`/`finally`で元の値へ
 復元する。この差し替えはawaitを挟まない同期区間で完結し、復路探索が同期・直列実行
-（並列化すると共有`cost_list`の書き換えが競合するため両立しない）である前提の上で
+（並列化すると共有`cost_lazy`の書き換えが競合するため両立しない）である前提の上で
 安全。
 
 ### `select_via_nodes`（目的地ルートのvia-node方式代替経路）
@@ -376,7 +376,7 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
 候補ごとのretraceペナルティ付き復路A*）とは異なり、木2本だけで全候補が確定し候補ごとの
 追加探索が発生しない:
 
-1. 起点からの前向き木（`select_loop_turnarounds`と同じ`build_shortest_path_tree`）を求める。
+1. 起点からの前向き木（`select_loop_turnarounds`と同じ`build_turn_expanded_tree`）を求める。
    目的地に一番近いNode（`find_nearest_node_indexed`、次数1以上のみが候補[T256]）が
    この前向き木で到達不能な場合（歩道橋・私有地内通路等、メインの道路網から孤立した
    小さな塊へスナップされたケース）、`find_nearest_node_indexed`へ「前向き木が届くNode」
@@ -402,36 +402,32 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
    ものを飛ばして`max_routes`件採る。
 
 `trace_loop_from_turnaround`と違い、選ばれたNodeの経路（前向き＋後ろ向きの経路復元の
-連結）がそのまま最終候補になる（`tree_path_edge_indices`/`tree_path_edge_indices_to_source`
-で確定済み、候補ごとに失敗しうる探索が無い）ため、戻り値の`TracedLoop`一覧が
+連結）がそのまま最終候補になる（`turn_expanded_path_from_state`/
+`turn_expanded_path_from_state_to_source`で確定済み、候補ごとに失敗しうる探索が無い）ため、戻り値の`TracedLoop`一覧が
 `RouteGenerator._generate_destination_routes`にとってそのまま`evaluate_loops`への入力になる。
 
-### `select_shortest_distance_route`（距離だけの基準線）
+### `select_fastest_route`（好みの重みを0にしたときの基準線）
 
-同じ前向き木・後ろ向き木の合成だが、コスト配列に実距離を渡すため、
-軸の重みを一切使わない距離最短の経路が1本得られる。
+コスト配列に区間ごとの所要時間（`_LegCostComposer.travel_time_seconds`＝走行モデルの
+走行時間＋停止の待ち）を、遷移にはターンの待ちをそのまま秒で渡す（`speed_ms=1.0`）ため、
+**時間最短**の経路が1本得られる。利用者の好み（軸の重み）をすべて0にしたときの経路であり、
+候補が基準線に対して何を犠牲に何を得たかを読むための物差しになる。コストが秒のため
+A*のヒューリスティックも秒の下界にする（直線距離÷出せる最大速度）。
 
 **軸の重みは使わないが、0次フィルタ（`no_bicycle`・`motorway`・`trunk`・
 `max_average_grade_percent`）は使う**——これらは好みではなく通行可否・走行可否の表明で、
-距離を優先する経路でも越えてよいものではない。除外Edgeのコストを`inf`にすることで表現する
-（`_LegCostComposer.lazy_hard_filter_excluded`が`hard_filter_excluded`を
-`lazy_graph.edge_ids`の行順へ並べ替えて返す。軸コスト経路で`cost_list`が`inf`になっているのと
-同じ意味）。実距離の積算に使う`edge_length_m`は素のまま渡すため、経路長は除外の有無に
-関わらず実距離で測る。
+所要時間を優先する経路でも越えてよいものではない。除外Edgeの所要時間を`inf`にすることで
+表現する（軸コスト経路で`cost_lazy`が`inf`になっているのと同じ意味）。
 
-`select_via_nodes`の後に呼ぶ前提で、
-目的地の再スナップ結果（`destination_correction`）を引き継ぎ逆向きstaticsのキャッシュに
-乗る。経由Nodeは最短経路上のどのNodeでも同じ経路を表すため、そのうち往路長が全長の
-半分に最も近いものを選ぶ——他の候補と同じく往路レグ・復路レグへ概ね半分ずつ割れ、
-レグごとに時刻の異なる風の評価が候補間で揃う。
+`select_via_nodes`の後に呼ぶ前提で、目的地の再スナップ結果（`destination_correction`）を
+引き継ぐ。レグは経路の所要時間が半分になる位置で割る——他の候補と同じく往路レグ・
+復路レグへ概ね半分ずつ割れ、レグごとに時刻の異なる風の評価が候補間で揃う。
 
 ### `trace_loop`（経由地・目的地指定ルート）
 
 `select_loop_turnarounds`/`trace_loop_from_turnaround`は周回候補（フロンティア方式）
 専用で、経由地・目的地指定ルート（`generate_via_waypoints`）は本メソッドが指定地点列を
-順にA*で結ぶ（`bearing=None`固定、戻り値の`data`は経路上のedge_id列）。探索は
-`asyncio.to_thread`による並列化をしない（rustworkxはEdgeごとにPythonコールバックへ
-戻る構造のためGILを解放できず、複数スレッド並列は直列より遅いため）。
+順にA*で結ぶ（`bearing=None`固定、戻り値の`data`は経路上のedge_id列）。
 
 ### `evaluate_loops`（実ジオメトリ取得・評価）
 
@@ -447,7 +443,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 **戻り値は入力の`traced`と同じ件数・同じ順**（位置で対応づける契約）。戦略層は
 `TracedLoop.data`の中身を知らないため、どの候補がどの`TracedLoop`由来かを位置以外で
-突き合わせられない（最短経路への印付けがこれに依存する）。件数のずれは
+突き合わせられない（基準線への印付けがこれに依存する）。件数のずれは
 `RouteGenerator._evaluate_and_aggregate`が`RoutingError`で落とす——ずれても候補が消えるわけでは
 なく、印・ラベルだけが静かに入れ替わるため結果からは気づけない。
 
@@ -573,20 +569,11 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 
 ### `domain/routing.py`
 
-- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフ。Node/Edgeのpayloadは整数index
-  （`add_nodes_from(range(n))`・Edge payload=`edge_ids`の添字）で、A*のcost_fn/
-  estimate_cost_fnは素の`list.__getitem__`を受け取る（探索中にPythonの関数フレームを
-  作らない設計の核心）。`build_lazy_road_graph`に`edge_cost_by_id`（コスト辞書）を渡すと、
-  並列Edge（同じnode対の重複辺）は**cost最小のEdgeを採用**する（コストが事前に判明して
-  いるため）。省略時（コスト未確定の場面、主にテスト）はedge_idの昇順で先頭を採用する
-  決定的な選択にフォールバックする。
-- `shortest_path_node_ids_lazy`: `rustworkx.astar_shortest_path`を、探索が実際に訪れた
-  Edge・Nodeに対してのみ都度呼ばれる`edge_cost_fn`/`estimate_cost_fn`（いずれも整数index
-  引数）でラップする。Hard Constraintで除外するEdgeは`edge_cost_fn`が`math.inf`を返す
-  ことで表現する（`LazyRoadGraph`自体はHard Constraintを知らない。この`math.inf`は
-  探索前に`prepare`が合成したコスト配列へ既に焼き込み済み）。経路確定後、
-  合計コストが有限かを検算してから返す（rustworkxが`inf`を「非常に高コストだが有効」
-  として扱い、他に経路が無ければ採用してしまうことがあるため）。
+- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフ。Node/Edgeの識別は整数index
+  （Edge index=`edge_ids`の添字）で、探索はコストをnumpy配列のまま受け取る（探索中に
+  Pythonのコールバックを作らない設計の核心）。並行Edge（同じnode対の重複辺）はedge_idの
+  昇順で先頭を採用する決定的な選択で解消する（タイル集合キーでキャッシュするための制約、
+  「探索・索引構築のキャッシュ」節参照）。
 - **`CsrGraphStructure`/`build_csr_structure`・`SearchGraphStatics`/
   `build_search_graph_statics`**: `LazyRoadGraph`と同じNode/Edge index
   空間のCSR（圧縮行格納）**構造のみ**（Edge重みは持たない。タイル集合だけで決まる
@@ -600,22 +587,29 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   から`_reconstruct_entry_keys`が都度再構築する（タイル集合キーのプロセス内LRUが
   常駐させる1エントリぶんのメモリを削減する。キー自体の計算はint64——`node_count`の
   2乗がint32の値域を超えうるため）。
-- **`ShortestPathTree`/`build_shortest_path_tree`**: 起点からの一対全
+- **`TurnCostSpec`/`TurnExpandedStructure`/`build_turn_expanded_structure`**:
+  状態＝有向区間・辺＝ターンの遷移構造（「探索の状態」節参照）。`CsrGraphStructure`と
+  同じくEdge重みは持たず、遷移とターンの秒だけを持つ。グラフを物理的に展開せず遷移を
+  `CsrGraphStructure`から導くため、`LazyRoadGraph`と同じキーでキャッシュできる。
+  `edge_bearings`（区間の方位）・`turn_seconds_for`（方位差→秒）が入力になる。
+- **`build_turn_expanded_csr`**: 遷移構造とコスト配列から、scipyへ渡す「行＝遷移元の
+  区間、列＝遷移先の区間」の行列を組む。末尾の1行は仮想の始点。0次フィルタで除外された
+  区間（コストが無限大）への遷移は落とす——scipyは無限大を「辺が無い」ではなく「非常に
+  大きい重み」として扱うため。`reverse=True`で遷移の向きだけを反転する（ターンの費用は
+  元の進行方向のまま）。
+- **`TurnExpandedTree`/`build_turn_expanded_tree`**: 起点からの一対全
   Dijkstra（`scipy.sparse.csgraph.dijkstra`、前任者付き、`cost_limit`で打ち切り可能）。
-  前任者木に沿った実距離（`length_m`）は、`(pred[v], v)`のCSRエントリ位置を
-  `np.searchsorted`で一括検索した後、ポインタジャンプ（`acc[v] += acc[anc[v]]`を木の
-  深さのlog2回繰り返す）でベクトル演算して積算する。rustworkxの
-  `dijkstra_shortest_path_lengths`は前任者を返さないため一対全木にはscipyを使う。
-  `CsrGraphStructure`が順方向・転置版のどちらでも同じロジックで木を組める（方向に
-  依存する処理を持たない）。
-- **`tree_path_edge_indices`**: 一対全木（順方向）上の起点→targetの経路を
-  `LazyRoadGraph`のEdge index列で返す（到達不能ならNone、起点自身なら空リスト）。
-- **`tree_path_edge_indices_to_source`**: 後ろ向き木（転置CSR、`source_index`が目的地）
-  で、targetから目的地までの経路を実グラフの有向Edge順（target→…→目的地）のEdge
-  index列で返す。転置CSR上の`predecessor[X]=P`は実
-  グラフの`X→P`という辺を表すため、`tree_path_edge_indices`（`(parent, current)`順で
-  Edge検索し最後に反転）とはEdge検索の引数順が逆（`(current, parent)`）で、経路は
-  既に`target→目的地`の順に積み上がるため反転は不要。
+  前任者木に沿った実距離（`state_length_m`）はポインタジャンプ（`acc[v] += acc[anc[v]]`を
+  木の深さのlog2回繰り返す）でベクトル演算して積算する。状態ごとの値に加え、Nodeごとの
+  値（そのNodeへ入る区間の最小、`node_costs_from_state_costs`）も持つ。
+- **`turn_expanded_path_from_state`/`turn_expanded_path_from_state_to_source`/
+  `turn_expanded_path_edge_indices`**: 木上の経路をEdge index列で復元する（順に
+  「始点→その状態」「その状態→目的地（後ろ向き木）」「始点→そのNode」）。
+- **`combine_forward_backward_at_nodes`/`NodeJunction`**: 前向き木と後ろ向き木を
+  Nodeで繋ぐ。Nodeごとのコストを単に足すとそのNodeで曲がる費用が抜けるため、
+  繋ぎ目の区間の対ごとにターンの費用を足して最小を採る。
+- **`turn_expanded_shortest_path`/`_turn_expanded_astar`**: 2点間探索。numbaでJITし、
+  優先度キューをnumpy配列のバイナリヒープとして自前で持つ（`heapq`は使えない）。
 - **`overlap_ratio`/`select_diverse_by_overlap`**: 2つのEdge index集合の
   距離加重重複率、およびランク順の候補列から重複率・近接度（`is_compatible`）で貪欲に
   多様な集合を選ぶ汎用関数（周回の折返し点選定・目的地ルートのvia-node選定の両方に使う）。
@@ -645,7 +639,6 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   （`edge_ids`＋`compute_hard_filter_excluded`が返す`excluded`配列、`_build_search_graph`が
   コスト配列を`inf`にするのに使うのと同じ配列）——タイル材料キャッシュの復元コストと
   完全に独立している。
-- `path_to_edge_ids_lazy`/`concat_node_paths`。
 
 ### `domain/graph.py`
 

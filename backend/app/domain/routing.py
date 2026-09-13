@@ -4,17 +4,17 @@ Road Graph（domain/graph.py）とEdge Cost（domain/evaluation.py）を使っ�
 最小コスト経路を探索する。探索アルゴリズム自体は独自実装せず、標準的なグラフ
 アルゴリズムライブラリの実装をそのまま利用する（仕様書34章「探索アルゴリズムを
 独断で変更しない」「独自の経路探索アルゴリズムの実装はしない」の趣旨を踏まえ、
-新規性のある独自アルゴリズムは開発しない）。2点間探索はrustworkxのA*
-（`shortest_path_node_ids_lazy`、C実装、Node/Edge payloadを整数indexにして
-Pythonコールバックを探索中に作らない）で行う。
+新規性のある独自アルゴリズムは開発しない）。
 
-起点からの**一対全**最短経路木（`build_shortest_path_tree`、フロンティア方式の
-周回生成の共通基盤）はscipy.sparse.csgraph.dijkstraで求める。一対全は前任者木
-（predecessors）が要り、rustworkxの`dijkstra_shortest_path_lengths`は前任者を返さず
-EdgeごとにPythonのコールバックへ戻るため、この用途だけはscipyのCSR表現
-（`CsrGraphStructure`、`LazyRoadGraph`と同じEdge index空間・構造のみでタイル集合キーの
-キャッシュ対象）を使う。標準ライブラリの実装をそのまま使うだけで、アルゴリズム自体の
-独自実装ではない点は変わらない。
+探索の状態は**Nodeではなく有向Edge**にする（辺基準グラフ）。右左折の費用はNodeに閉じず
+「どの区間から入ってどの区間へ出るか」で決まるため、Nodeを状態にすると表現できない。
+状態遷移はグラフを物理展開せず既存のCSR（`CsrGraphStructure`）から導く
+（`TurnExpandedStructure`）。
+
+2点間探索（`turn_expanded_shortest_path`）はnumbaでJITしたA*、起点からの**一対全**
+最短経路木（`build_turn_expanded_tree`、フロンティア方式の周回生成の共通基盤）は
+scipy.sparse.csgraph.dijkstraで求める。一対全は前任者木（predecessors）が要るため、
+遷移をscipyのCSR行列（`build_turn_expanded_csr`）へ落として渡す。
 
 Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を一切知らない設計とする
 （仕様書33章）。ここで扱うのはRoad Graphのトポロジーと、既に計算済みのEdge Costのみ。
@@ -118,9 +118,9 @@ _CSR_INDEX_DTYPE = np.int32
 @dataclass
 class CsrGraphStructure:
     """`LazyRoadGraph`と同じNode/Edge index空間を持つCSR（圧縮行格納）表現の**構造のみ**。
-    Edge重み（コスト）はリクエストごとに変わるため持たず、`build_shortest_path_tree`が
-    呼び出しのたびに`entry_edge_index`でコスト配列をCSRのdata順へ並べ替えて
-    `scipy.sparse.csr_matrix`を組む。構造はタイル集合だけで決まる純粋な派生物のため
+    Edge重み（コスト）はリクエストごとに変わるため持たず、`entry_edge_index`が
+    CSRエントリ順とコスト配列の行順を結ぶ（`build_turn_expanded_structure`が
+    辺基準グラフの遷移構造を導くときに使う）。構造はタイル集合だけで決まる純粋な派生物のため
     `LazyRoadGraph`と同じキーでキャッシュできる（`infrastructure/search_graph_cache.py`）。
     """
 

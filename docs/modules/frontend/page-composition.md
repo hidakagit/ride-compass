@@ -263,8 +263,8 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 総合難易度はタブの中身（`RouteAxisProfile`）に出るためタブでは繰り返さない。経由地
 ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
 の判定でdirection_label[固定文言]をそのまま表示する。
-`RouteCandidate.is_shortest_distance`が立つ候補[目的地モードのみ]は順位番号の代わりに
-「最短」と示し、他の候補には距離の後ろへ最短からの超過km[`+4.0`]を添える
+`RouteCandidate.is_fastest`が立つ候補[目的地モードのみ]は順位番号の代わりに
+「最速」と示し、他の候補には距離の後ろへ基準線からの超過時間[`+12分`]を添える
 [`lib/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
 タブ列に無いと比較のたびにタブを開き直すことになるため）＋「比較」
 （`ComparisonPanel`、`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の

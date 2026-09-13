@@ -26,7 +26,7 @@ export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): Rou
     axis_raw_values: {},
     edge_ids: [],
     edge_point_offsets: [],
-    is_shortest_distance: false,
+    is_fastest: false,
     axis_contributions: {},
     ...overrides,
   };
