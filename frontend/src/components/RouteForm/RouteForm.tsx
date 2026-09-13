@@ -92,21 +92,25 @@ export default function RouteForm({
     const armed = armedPinRole === role;
     return (
       <div className={styles.pointRow} data-armed={armed}>
-        <span aria-hidden="true" className={styles.pointMark} style={{ background: mark.background }}>
-          {mark.text}
-        </span>
-        <span className={styles.pointLabel}>{label}</span>
-        <span className={styles.pointValue}>{armed ? armedHint : value}</span>
-        {extra}
+        {/* 行全体が「その地点を置く」1つの押下領域。押す場所を探させず、行の幅も詰まる。
+            解除（✕）・現在地に戻すは別の操作なので、入れ子にせず行の外側へ並べる。 */}
         <button
           type="button"
-          className={armed ? styles.pointActionArmed : styles.pointAction}
+          className={styles.pointMain}
           aria-pressed={armed}
           aria-label={armed ? `${label}の指定をやめる` : `${label}を${armLabel}`}
           onClick={() => onArmPinRole(armed ? null : role)}
         >
-          {armed ? "やめる" : armLabel}
+          <span aria-hidden="true" className={styles.pointMark} style={{ background: mark.background }}>
+            {mark.text}
+          </span>
+          <span className={styles.pointLabel}>{label}</span>
+          <span className={styles.pointValue}>{armed ? armedHint : value}</span>
+          <span aria-hidden="true" className={armed ? styles.pointHintArmed : styles.pointHint}>
+            {armed ? "やめる" : armLabel}
+          </span>
         </button>
+        {extra}
       </div>
     );
   }
@@ -118,23 +122,53 @@ export default function RouteForm({
           重みタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
           重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
       <Tabs.Content value="generate" forceMount className={styles.tabPanel}>
-        <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
-          <button
-            type="button"
-            onClick={() => onRouteModeChange("loop")}
-            aria-pressed={routeMode === "loop"}
-            className={routeMode === "loop" ? styles.modeButtonActive : styles.modeButton}
-          >
-            周回
-          </button>
-          <button
-            type="button"
-            onClick={() => onRouteModeChange("destination")}
-            aria-pressed={routeMode === "destination"}
-            className={routeMode === "destination" ? styles.modeButtonActive : styles.modeButton}
-          >
-            目的地
-          </button>
+        {/* モードと候補数は同じ行に置く。候補数はどちらのモードでも効く共通の条件で、
+            モードごとの入力（距離／地点）とは別の階層にある。 */}
+        <div className={styles.modeRow}>
+          <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
+            <button
+              type="button"
+              onClick={() => onRouteModeChange("loop")}
+              aria-pressed={routeMode === "loop"}
+              className={routeMode === "loop" ? styles.modeButtonActive : styles.modeButton}
+            >
+              周回
+            </button>
+            <button
+              type="button"
+              onClick={() => onRouteModeChange("destination")}
+              aria-pressed={routeMode === "destination"}
+              className={routeMode === "destination" ? styles.modeButtonActive : styles.modeButton}
+            >
+              目的地
+            </button>
+          </div>
+          {maxRoutesRelevant && (
+            <div className={styles.stepperField}>
+              <span className={styles.stepperLabel}>候補数</span>
+              <div className={styles.stepper}>
+                <button
+                  type="button"
+                  className={styles.stepperButton}
+                  onClick={() => stepMaxRoutes(-1)}
+                  disabled={Number(maxRoutes) <= 1}
+                  aria-label="候補数を減らす"
+                >
+                  ‹
+                </button>
+                <span className={styles.stepperValue}>{maxRoutes}件</span>
+                <button
+                  type="button"
+                  className={styles.stepperButton}
+                  onClick={() => stepMaxRoutes(1)}
+                  disabled={Number(maxRoutes) >= MAX_ROUTES}
+                  aria-label="候補数を増やす"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className={styles.fieldsColumn}>
@@ -209,32 +243,6 @@ export default function RouteForm({
                   </button>
                 ) : undefined,
               )}
-            </div>
-          )}
-          {maxRoutesRelevant && (
-            <div className={styles.stepperField}>
-              <span className={styles.stepperLabel}>候補数</span>
-              <div className={styles.stepper}>
-                <button
-                  type="button"
-                  className={styles.stepperButton}
-                  onClick={() => stepMaxRoutes(-1)}
-                  disabled={Number(maxRoutes) <= 1}
-                  aria-label="候補数を減らす"
-                >
-                  ‹
-                </button>
-                <span className={styles.stepperValue}>{maxRoutes}件</span>
-                <button
-                  type="button"
-                  className={styles.stepperButton}
-                  onClick={() => stepMaxRoutes(1)}
-                  disabled={Number(maxRoutes) >= MAX_ROUTES}
-                  aria-label="候補数を増やす"
-                >
-                  ›
-                </button>
-              </div>
             </div>
           )}
         </div>

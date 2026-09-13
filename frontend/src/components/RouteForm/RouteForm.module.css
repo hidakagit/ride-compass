@@ -74,13 +74,22 @@
 }
 
 /* 周回/目的地モード切り替え（セグメントコントロール）。 */
+/* モード切替と候補数を1行に並べる（候補数はどちらのモードでも効く共通の条件）。 */
+.modeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
 .modeToggle {
   display: inline-flex;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   overflow: hidden;
   flex-shrink: 0;
-  margin-bottom: var(--space-2);
 }
 
 .modeButton,
@@ -104,16 +113,29 @@
 .pointRows {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.25rem;
 }
 
 .pointRow {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0.3rem 0.4rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
+  padding-right: 0.2rem;
+}
+
+/* 行そのものが押下領域。枠は行（.pointRow）が持つため、こちらは枠を持たない。 */
+.pointMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
 }
 
 /* 置ける状態の行だけを強調する。地図のタップがどの地点になるかは、この1行でしか分からない。 */
@@ -140,6 +162,10 @@
   color: var(--color-muted);
 }
 
+.pointRow[data-armed="true"] .pointLabel {
+  color: var(--color-accent-strong);
+}
+
 .pointValue {
   flex: 1 1 auto;
   min-width: 0;
@@ -149,26 +175,30 @@
   text-overflow: ellipsis;
 }
 
-.pointAction,
-.pointActionArmed,
+/* 行の右端に出す「次に何ができるか」。押下領域は行全体のため、これ自体はボタンにしない。 */
+.pointHint,
+.pointHintArmed {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-strong);
+}
+
+.pointHintArmed {
+  color: var(--color-surface);
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 0.05rem 0.35rem;
+}
+
 .pointSubAction {
   flex: none;
   font-size: var(--font-size-sm);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 0.15rem 0.5rem;
-  cursor: pointer;
-}
-
-.pointActionArmed {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: #fff;
-}
-
-.pointSubAction {
   color: var(--color-muted);
+  padding: 0.1rem 0.4rem;
+  cursor: pointer;
 }
 
 .pointClear {
