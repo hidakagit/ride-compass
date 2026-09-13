@@ -192,3 +192,10 @@
   background: #f59e0b;
   color: #fff;
 }
+
+/* 「差分を見る」で出した、元ルートとの差。作る前の判断材料のため操作の直前へ置く。 */
+.diff {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+}

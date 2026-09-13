@@ -22,6 +22,12 @@ interface RouteSplicePanelProps {
   groups: SpliceGroupView[];
   /** 区間の道を選ぶ（同じものをもう一度選ぶと元のままへ戻る）。 */
   onChoose: (groupIndex: number, optionKey: string | null) => void;
+  /** 「差分を見る」で評価した結果（元ルートとの差）。まだ見ていなければnull。 */
+  diff: { distanceDeltaKm: number; difficultyDelta: number | null } | null;
+  /** 差分の評価を待っている間はtrue。 */
+  previewing: boolean;
+  /** 選んだ組み合わせを評価して差分を出す。 */
+  onPreview: () => void;
   onApply: () => void;
   /** 合成した経路の評価を待っている間はtrue。 */
   applying: boolean;
@@ -31,10 +37,20 @@ interface RouteSplicePanelProps {
   onCancel: () => void;
 }
 
+/** 差は「増えた／減った」が一目で分かる形にする（0は「変わらない」と書く）。 */
+function formatDelta(value: number, unit: string, digits: number): string {
+  const rounded = Number(value.toFixed(digits));
+  if (rounded === 0) return "変わらない";
+  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded).toFixed(digits)}${unit}`;
+}
+
 export default function RouteSplicePanel({
   displayed,
   groups,
   onChoose,
+  diff,
+  previewing,
+  onPreview,
   onApply,
   applying,
   error,
@@ -106,9 +122,21 @@ export default function RouteSplicePanel({
               </li>
             ))}
           </ul>
+          {/* 作る前に「この組み合わせにすると何がどう変わるか」を見る。評価はbackendでしか
+              出せず、押すたびに投げるため（生成APIは1分10回の上限）、選び終えてから押す形に
+              する。同じ組み合わせの結果は覚えていて投げ直さない。 */}
+          {diff && (
+            <p className={styles.diff}>
+              元との差: 距離 {formatDelta(diff.distanceDeltaKm, "km", 1)}
+              {diff.difficultyDelta !== null && <> ・ 難易度 {formatDelta(diff.difficultyDelta, "", 0)}</>}
+            </p>
+          )}
           {error && <ErrorText>{error}</ErrorText>}
           <div className={styles.actions}>
-            <button type="button" onClick={onApply} disabled={chosenCount === 0 || applying}>
+            <button type="button" onClick={onPreview} disabled={chosenCount === 0 || previewing || applying}>
+              {previewing ? "計算中…" : "差分を見る"}
+            </button>
+            <button type="button" onClick={onApply} disabled={chosenCount === 0 || applying || previewing}>
               {applying ? "評価中…" : "新しいルートを作る"}
             </button>
           </div>

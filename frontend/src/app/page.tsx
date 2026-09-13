@@ -356,6 +356,10 @@ export default function Home() {
   // なる（独立したタブにすると、どのルートを編集しているのかを選び直す形になる）。
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [splicing, setSplicing] = useState(false);
+  // 「差分を見る」で評価した結果。組み合わせをキーに覚える——選び直して戻ったときに
+  // 投げ直さない（生成APIは1分10回の上限があり、評価自体も温で1秒前後かかる）。
+  const [splicePreviews, setSplicePreviews] = useState<Record<string, RouteCandidate>>({});
+  const [previewing, setPreviewing] = useState(false);
   // 合成の失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）。
   // 押した場所＝編集パネルに出す。
   const [spliceError, setSpliceError] = useState<string | null>(null);
@@ -888,6 +892,20 @@ export default function Home() {
       ];
     }),
   );
+
+  // 選んだ組み合わせの識別子。差分の評価結果をこれで覚える。
+  const spliceChoiceKey = chosenAlternatives.map((alternative) => alternativeKey(alternative)).sort().join("|");
+  const splicePreview = splicePreviews[spliceChoiceKey] ?? null;
+  const spliceDiff =
+    splicePreview && editingRouteForSplice
+      ? {
+          distanceDeltaKm: splicePreview.distance_km - editingRouteForSplice.distance_km,
+          difficultyDelta:
+            splicePreview.overall_difficulty !== null && editingRouteForSplice.overall_difficulty !== null
+              ? splicePreview.overall_difficulty - editingRouteForSplice.overall_difficulty
+              : null,
+        }
+      : null;
 
   // 地図の帯をタップしたら、その区間の道を選ぶ（同じ道をもう一度タップすると元のままへ戻る）。
   const handleSpliceStretchSelect = useCallback(
@@ -1605,6 +1623,43 @@ export default function Home() {
   // 選んだ区間を相手の道へ差し替えた経路を、backendで評価し直して候補一覧へ加える
   // （docs/tasks/T621.md）。frontendは経路の組み立てだけを行い、評価はbackendが
   // 既存候補と同じ経路で行う（構造仕様1・10）。
+  // 選んだ組み合わせをbackendで評価する。差分の表示と「作る」で同じものを使い、評価済みなら
+  // 投げ直さない。
+  async function evaluateSplicedRoute(): Promise<RouteCandidate | null> {
+    if (!editingRoute || chosenAlternatives.length === 0) return null;
+    const cached = splicePreviews[spliceChoiceKey];
+    if (cached) return cached;
+    // 表示中の候補を作った条件をそのまま使う。いまのフォーム値を使うと、生成後に重みを
+    // 変えてから合成したときに、その1本だけ別条件で評価された候補が同じ並びへ入る。
+    const generatedInput = generatedConditions?.input;
+    if (!generatedInput) return null;
+    const edgeIds = spliceEdgeIdsFromAlternatives(editingRoute.edge_ids, chosenAlternatives);
+    const { routes: candidates } = await generateRoutes(
+      { ...buildGenerateRequest(generatedInput), spliced_edge_ids: edgeIds },
+      setGenerationProgress,
+    );
+    const spliced = candidates[0] ?? null;
+    if (spliced) setSplicePreviews((current) => ({ ...current, [spliceChoiceKey]: spliced }));
+    return spliced;
+  }
+
+  // 作る前に「この組み合わせにすると何がどう変わるか」を見る。評価はbackendでしか出せない
+  // （Edgeコストは探索と表示で同じ値を共有する、構造仕様10）ため、押したときだけ投げる。
+  async function handlePreviewSplice() {
+    if (!editingRoute || chosenAlternatives.length === 0 || previewing) return;
+    setPreviewing(true);
+    setSpliceError(null);
+    try {
+      const spliced = await evaluateSplicedRoute();
+      if (!spliced) setSpliceError("組み合わせたルートを評価できませんでした");
+    } catch (error) {
+      setSpliceError(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
+    } finally {
+      setPreviewing(false);
+      setGenerationProgress(null);
+    }
+  }
+
   async function handleApplySplice() {
     if (!editingRoute || chosenAlternatives.length === 0) return;
     // 表示中の候補を作った条件をそのまま使う。いまのフォーム値を使うと、生成後に重みを
@@ -1615,12 +1670,7 @@ export default function Home() {
     setErrorMessage(null);
     setSpliceError(null);
     try {
-      const edgeIds = spliceEdgeIdsFromAlternatives(editingRoute.edge_ids, chosenAlternatives);
-      const { routes: candidates } = await generateRoutes(
-        { ...buildGenerateRequest(generatedInput), spliced_edge_ids: edgeIds },
-        setGenerationProgress,
-      );
-      const spliced = candidates[0];
+      const spliced = await evaluateSplicedRoute();
       if (!spliced) {
         setSpliceError("組み合わせたルートを評価できませんでした");
         return;
@@ -1633,6 +1683,7 @@ export default function Home() {
       setRoutes(insertByDifficulty(routes, unique));
       setSelectedRouteId(unique.id);
       setSpliceChoices({});
+      setSplicePreviews({});
       setSelectedRouteSegment(null);
       // 同じ場所が結果の一覧へ戻り、作ったルートが選ばれた状態で並ぶ。
       setEditingRouteId(null);
@@ -1669,6 +1720,7 @@ export default function Home() {
       // 候補集合が入れ替わると、区間の位置も選んだ道も意味を失う。
       setEditingRouteId(null);
       setSpliceChoices({});
+      setSplicePreviews({});
       // 新しい候補集合に対して、それより前にクリックしていた区間の選択を引き継がない
       // （同じedge_idが新しい生成結果に存在するとは限らず、地図上のマーカーも意味を
       // 失うため）。
@@ -2158,6 +2210,9 @@ export default function Home() {
           setSpliceError(null);
         }}
         groups={spliceGroupViews}
+        diff={spliceDiff}
+        previewing={previewing}
+        onPreview={handlePreviewSplice}
         onChoose={(groupIndex, optionKey) => {
           setSpliceError(null);
           setSpliceChoices((current) => {

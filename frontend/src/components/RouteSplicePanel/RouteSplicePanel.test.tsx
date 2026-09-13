@@ -19,6 +19,9 @@ function baseProps(overrides: Partial<Parameters<typeof RouteSplicePanel>[0]> = 
     displayed: candidate("route-00", ["a", "b", "c"]),
     groups: [] as Parameters<typeof RouteSplicePanel>[0]["groups"],
     onChoose: vi.fn(),
+    diff: null as { distanceDeltaKm: number; difficultyDelta: number | null } | null,
+    previewing: false,
+    onPreview: vi.fn(),
     onApply: vi.fn(),
     applying: false,
     error: null as string | null,
@@ -121,5 +124,50 @@ describe("RouteSplicePanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
 
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  // 作る前に「この組み合わせにすると何がどう変わるか」を見る。評価はbackendでしか出せず、
+  // 押すたびに投げるため（生成APIは1分10回の上限）、選び終えてから押す形にする。
+  describe("差分を見る", () => {
+    const chosen = [{ ...GROUPS[0], chosenKey: "route-01:1-2" }];
+
+    it("1区間も選んでいなければ押せない", () => {
+      render(<RouteSplicePanel {...baseProps({ groups: GROUPS })} />);
+
+      expect(screen.getByRole("button", { name: "差分を見る" })).toBeDisabled();
+    });
+
+    it("押すと親へ知らせ、計算中は押せない", async () => {
+      const onPreview = vi.fn();
+      const { rerender } = render(<RouteSplicePanel {...baseProps({ groups: chosen, onPreview })} />);
+
+      await userEvent.click(screen.getByRole("button", { name: "差分を見る" }));
+      expect(onPreview).toHaveBeenCalledTimes(1);
+
+      rerender(<RouteSplicePanel {...baseProps({ groups: chosen, onPreview, previewing: true })} />);
+      expect(screen.getByRole("button", { name: "計算中…" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeDisabled();
+    });
+
+    it("評価できたら元との差を出す", () => {
+      render(
+        <RouteSplicePanel
+          {...baseProps({ groups: chosen, diff: { distanceDeltaKm: 0.42, difficultyDelta: -3 } })}
+        />,
+      );
+
+      expect(screen.getByText(/距離 \+0\.4km/)).toBeInTheDocument();
+      expect(screen.getByText(/難易度 −3/)).toBeInTheDocument();
+    });
+
+    it("差が無いときは「変わらない」と書く（0を符号付きで出さない）", () => {
+      render(
+        <RouteSplicePanel
+          {...baseProps({ groups: chosen, diff: { distanceDeltaKm: 0.02, difficultyDelta: 0 } })}
+        />,
+      );
+
+      expect(screen.getByText(/距離 変わらない/)).toBeInTheDocument();
+    });
   });
 });
