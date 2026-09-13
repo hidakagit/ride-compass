@@ -1337,12 +1337,11 @@ class RoadGraphEngine:
         軸コスト経路で`cost_list`が`inf`になっているのと同じ意味）。実距離の積算に使う
         `edge_length_m`は素のまま渡し、経路長は除外の有無に関わらず実距離で測る。
 
-        `select_via_nodes`の後に呼ぶ前提。目的地の再スナップ結果
-        （`context.destination_correction`）を引き継ぎ、逆向きstaticsのキャッシュに乗る。
+        `select_via_nodes`の後に呼ぶ前提（目的地の再スナップ結果
+        `context.destination_correction`を引き継ぐ）。
 
-        経由Nodeは最短経路上のどのNodeでも同じ経路を表すため、そのうち往路長が全長の
-        半分に最も近いものを選ぶ——他の候補と同じく往路レグ・復路レグへ概ね半分ずつ
-        割れ、レグごとに時刻の異なる風の評価が候補間で揃う。
+        レグは経路の実距離が半分になる位置で割る——他の候補と同じく往路レグ・復路レグへ
+        概ね半分ずつ割れ、レグごとに時刻の異なる風の評価が候補間で揃う。
         """
         lazy_graph = context.lazy_graph
         destination = context.destination_correction or destination
@@ -1354,44 +1353,31 @@ class RoadGraphEngine:
         started = time.monotonic()
         excluded = context.composer.lazy_hard_filter_excluded
         distance_cost = np.where(excluded, np.inf, context.statics.edge_length_m)
-        # 距離最短の基準線のため、ターンの費用は加えない（速度0で換算＝加算量0）。
-        forward_tree = await asyncio.to_thread(
-            build_turn_expanded_tree,
-            context.turn_structure, distance_cost, context.statics.edge_length_m,
-            _origin_states(context.statics, context.origin_index), 0.0, context.statics.csr.node_count,
+        # 2点間の経路が1本ほしいだけのため、一対全木ではなく直接A*で解く（ターンの費用は
+        # 距離最短の基準線には加えないので速度0で換算＝加算量0）。
+        edges = await asyncio.to_thread(
+            turn_expanded_shortest_path,
+            context.turn_structure, distance_cost,
+            _estimate_distances_m(context.graph, context.node_lat, context.node_lon, destination_node),
+            _origin_states(context.statics, context.origin_index), destination_index, 0.0,
         )
-        backward_tree = await asyncio.to_thread(
-            build_turn_expanded_tree,
-            context.turn_structure, distance_cost, context.statics.edge_length_m,
-            _destination_states(context.turn_structure, destination_index), 0.0,
-            context.statics.csr.node_count, reverse=True,
-        )
-        junction = combine_forward_backward_at_nodes(
-            context.turn_structure, forward_tree, backward_tree, 0.0, context.statics.csr.node_count
-        )
-        combined_length = junction.length_m
-        reachable = np.isfinite(junction.cost)
-        if not np.any(reachable):
-            logger.warning(
-                "select_shortest_distance_route reachable=0 forward_reached=%d backward_reached=%d",
-                int(np.isfinite(forward_tree.node_cost).sum()), int(np.isfinite(backward_tree.node_cost).sum()),
-            )
+        if not edges:
+            logger.warning("select_shortest_distance_route no path to destination=%s", destination_node)
             return None
 
-        masked = np.where(reachable, combined_length, np.inf)
-        shortest_m = float(masked.min())
-        on_path = np.flatnonzero(masked <= shortest_m + 1.0)
-        via_index = int(on_path[np.argmin(np.abs(forward_tree.node_length_m[on_path] - shortest_m / 2))])
-
-        forward_state = int(junction.forward_state[via_index])
-        backward_state = int(junction.backward_state[via_index])
-        if forward_state < 0:
-            return None
-        forward_edges = turn_expanded_path_from_state(forward_tree, forward_state)
-        backward_edges = (
-            turn_expanded_path_from_state_to_source(backward_tree, backward_state)
-            if backward_state >= 0 else []
-        )
+        # 往路レグ・復路レグへ概ね半分ずつ割る（レグごとに時刻の異なる風の評価が候補間で
+        # 揃うよう、他の候補と同じ扱いにする）。
+        lengths = [float(context.statics.edge_length_m[index]) for index in edges]
+        half_m = sum(lengths) / 2
+        cumulative = 0.0
+        split = len(edges)
+        for position, length in enumerate(lengths):
+            cumulative += length
+            if cumulative >= half_m:
+                split = position + 1
+                break
+        forward_edges = edges[:split]
+        backward_edges = edges[split:]
         edge_ids = [lazy_graph.edge_ids[index] for index in forward_edges + backward_edges]
         if not edge_ids:
             return None
