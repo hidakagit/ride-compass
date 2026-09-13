@@ -928,6 +928,8 @@ export interface components {
             map_value_kind: "difficulty" | "signed_material";
             /** Map Value Unit */
             map_value_unit: string;
+            /** Map Value Thresholds */
+            map_value_thresholds: number[] | null;
             /** Raw Value Unit */
             raw_value_unit: string | null;
             /** Material Breakdown */

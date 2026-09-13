@@ -162,8 +162,8 @@ export interface CatalogAxis {
   // （map_value_kind・buildRangeSteppedMode参照）。
   shape?: AxisShape;
   // 改善計画T440: 地図タイルramp表示（display.thresholds、kind="ramp"の軸のみ）経由では
-  // なく、生の上書き値をそのまま返す。ルート結果の色分けのしきい値
-  // （routeStyleModes.ts: buildRangeSteppedMode）の唯一の正として使う。
+  // なく、軸スタジオが編集した生の上書き値をそのまま返す。地図の色分けは
+  // `map_value_thresholds`（スケールを揃えた側）を使う。
   display_thresholds_override?: number[] | null;
   // 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
   // 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_override参照）。
@@ -178,6 +178,11 @@ export interface CatalogAxis {
   // ルート線色分けが同じスケールで解釈する。
   map_value_kind?: MapValueKind;
   map_value_unit?: string;
+  // `map_value_kind`が示すスケールでの段階境界（backend domain/dynamic_way_values.py:
+  // map_value_thresholds）。地図の色分けはルート前後ともこれを使う。
+  // `display_thresholds_override`は軸スタジオが編集した生値で、ramp表示を持つ軸では
+  // 材料の重み付き和のスケールなので難易度と直接比べられない。
+  map_value_thresholds?: number[] | null;
   // 専用way値配信API（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
   // 必要とするクエリパラメータの宣言（backend domain/axis_definitions.py:
   // AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。

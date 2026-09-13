@@ -91,7 +91,7 @@ function rangeLabel(boundaries: readonly number[], stepIndex: number, unit: stri
   return `${boundaries[stepIndex - 1]}〜${boundaries[stepIndex]}${unit}`;
 }
 
-// 「固定N段階」という前提を持たず、境界値配列（軸スタジオのdisplay_thresholds_override、
+// 「固定N段階」という前提を持たず、境界値配列（軸カタログのmap_value_thresholds、
 // 正となるデータ）の長さがそのまま段階数を決める、wind・surface_q・gradientを問わず
 // 共通の組み立て関数。ラベルは境界値の実際の数字から
 // 機械的に生成する（「易しい/普通/難しい」「下り/上り」のような固定語彙は使わない）ため、
@@ -126,7 +126,7 @@ function buildRangeSteppedMode(options: {
 export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind ?? "difficulty";
   const scale = valueScaleFor(kind);
-  const boundaries = axis.display_thresholds_override ?? scale.defaultBoundaries;
+  const boundaries = axis.map_value_thresholds ?? scale.defaultBoundaries;
   // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
   // （domain/dynamic_way_values.py）、その不変条件はカタログのJSONには現れない。
   // 材料が引けないときは難易度モードへ倒す（塗れないより、軸の難易度で塗る方が近い）。

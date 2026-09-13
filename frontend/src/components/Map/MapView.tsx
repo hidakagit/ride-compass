@@ -1543,7 +1543,7 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
 // ensureRoadSurfaceTileLayerを先に呼び、promoteId付きのsourceが確実に存在する状態で
 // レイヤーを追加する（designation等の既存レイヤーもこのソースへ依存する順序を暗黙に
 // 仮定しており、それと同じ前提）。colorExpressionはdedicatedWayValueDisplays
-// （軸スタジオのdisplay_thresholds_override、実行時フェッチで後から変わりうる）に
+// （軸カタログのmap_value_thresholds、実行時フェッチで後から変わりうる）に
 // 依存するため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する
 // （初回作成時の値のまま固定させず、フェッチ完了後の値を反映させるため）。
 function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unknown[]): (map: MapLibreMap) => void {
@@ -1621,7 +1621,7 @@ export function shouldClearDedicatedWayValueFeatureState(
 // 勾配は道路（way）ごとの属性から作るため独立したフィールドを持たない
 // （gradientGridFill.tsのモジュールdocstring参照）。
 // makeEnsureDedicatedWayValueLayer呼び出し（専用way値配信軸）と同じくファクトリ化し、
-// 軸スタジオのdisplay_thresholds_overrideをbuildStaticOverlayLayers経由で受け取る。
+// 軸カタログのmap_value_thresholdsをbuildStaticOverlayLayers経由で受け取る。
 // 表示宣言は実行時フェッチで後から変わりうるため、レイヤーが既に存在する場合も
 // setPaintPropertyで再適用する。
 function makeEnsureGradientFillLayer(display?: DedicatedWayValueDisplay, loading = false) {
@@ -1974,7 +1974,7 @@ export function buildStaticOverlayLayers(
   // 専用way値配信軸の一覧（軸カタログ由来）。レイヤーの登録自体をこの一覧から導出するため、
   // 軸スタジオで3件目を公開すれば地図レイヤーもそのまま増える。
   dedicatedAxes: readonly DedicatedWayValueAxis[],
-  // `dedicated_way_value_layer`軸のdisplay_thresholds_overrideを
+  // `dedicated_way_value_layer`軸のmap_value_thresholdsを
   // 軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueDisplays参照）。
   dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>,
   // 同じ軸id→booleanの汎用Mapとして、フェッチ進行中かどうかを受け取る

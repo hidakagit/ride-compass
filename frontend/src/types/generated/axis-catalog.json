@@ -64,6 +64,12 @@
       "dedicated_way_value_layer": true,
       "map_value_kind": "signed_material",
       "map_value_unit": "%",
+      "map_value_thresholds": [
+        -2.0,
+        2.0,
+        6.0,
+        10.0
+      ],
       "raw_value_unit": "%",
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
@@ -130,6 +136,12 @@
       "dedicated_way_value_layer": true,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": [
+        20.0,
+        40.0,
+        60.0,
+        80.0
+      ],
       "raw_value_unit": null,
       "material_breakdown": [],
       "dynamic_way_value_needs_time": true,
@@ -184,6 +196,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": null,
       "raw_value_unit": null,
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
@@ -389,6 +402,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": null,
       "raw_value_unit": null,
       "material_breakdown": [
         {
@@ -520,6 +534,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": null,
       "raw_value_unit": "件/(km・年)",
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
@@ -605,6 +620,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": null,
       "raw_value_unit": null,
       "material_breakdown": [
         {
@@ -775,6 +791,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": null,
       "raw_value_unit": null,
       "material_breakdown": [
         {
@@ -917,6 +934,12 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": [
+        22.5,
+        41.7,
+        65.0,
+        88.3
+      ],
       "raw_value_unit": null,
       "material_breakdown": [
         {
@@ -1075,6 +1098,11 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": [
+        58.3,
+        87.5,
+        100.0
+      ],
       "raw_value_unit": null,
       "material_breakdown": [
         {
@@ -1182,6 +1210,7 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
+      "map_value_thresholds": null,
       "raw_value_unit": "度/km",
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,

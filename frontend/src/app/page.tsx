@@ -1500,7 +1500,7 @@ export default function Home() {
       map.set(axis.axisId, {
         kind: axis.mapValueKind ?? "difficulty",
         unit: axis.mapValueUnit ?? "",
-        boundaries: axis.displayThresholdsOverride ?? undefined,
+        boundaries: axis.mapValueThresholds ?? undefined,
         bandLabels: axis.displayBandLabelsOverride ?? undefined,
       });
     }

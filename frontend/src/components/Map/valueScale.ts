@@ -18,7 +18,7 @@ export const COLOR_LOADING = "#d1d5db";
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
 export const COLOR_SIGNED_LOW = "#0284c7";
 
-/** 軸スタジオのdisplay_thresholds_overrideが未設定のときの既定の段階境界。値そのものは
+/** 軸カタログのmap_value_thresholdsが未設定のときの既定の段階境界。値そのものは
  * 色分けロジックの前提にならず、境界値の個数がそのまま段階数を決める。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = [33, 66];
 export const SIGNED_MATERIAL_BOUNDARIES: readonly number[] = [-2, 2, 6, 10];

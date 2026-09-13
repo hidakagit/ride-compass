@@ -40,7 +40,12 @@ from app.domain.axis_display import (
     primary_attribute_ids_for,
     raw_value_unit,
 )
-from app.domain.dynamic_way_values import MapValueKind, map_value_kind, map_value_unit
+from app.domain.dynamic_way_values import (
+    MapValueKind,
+    map_value_kind,
+    map_value_thresholds,
+    map_value_unit,
+)
 from app.domain.registry import AxisDisplaySpec
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
@@ -127,9 +132,9 @@ class AxisCatalogEntry(StrictModel):
     # preprocess="abs"、terms=[{material:"gradient_percent"}]）。
     shape: AxisShape
     # `display`（axis_display_for()がkind="ramp"軸向けに導出した値、kind="none"の軸
-    # [gradient等]では常に空配列）経由では生の上書き値を読み取れないため、ルート結果の
-    # 色分けのしきい値（frontend routeStyleModes.ts: buildRangeSteppedMode）の唯一の正
-    # として使うため、生の値をそのまま返す。
+    # [gradient等]では常に空配列）経由では生の上書き値を読み取れないため、生の値をそのまま
+    # 返す。これは軸スタジオが編集した値そのもので、スケールは軸がramp表示を持つかで変わる
+    # （`map_value_thresholds`のdocstring参照）。地図の色分けは`map_value_thresholds`を使う。
     display_thresholds_override: list[float] | None
     # display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
     # 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_override参照）。
@@ -142,9 +147,15 @@ class AxisCatalogEntry(StrictModel):
     dedicated_way_value_layer: bool
     # 地図がこの軸について塗る値の種類と単位（domain/dynamic_way_values.py: map_value_kind/
     # map_value_unit）。ルート確定前の専用way値配信・ルート確定後のルート線色分けの両方が
-    # これに従い、display_thresholds_overrideもこの1つのスケールで解釈する。
+    # これに従う。
     map_value_kind: MapValueKind
     map_value_unit: str
+    # 上の`map_value_kind`が示すスケールでの段階境界（domain/dynamic_way_values.py:
+    # map_value_thresholds）。地図の色分けはルート前後ともこれを使う——
+    # `display_thresholds_override`はramp表示の自動導出値（材料の重み付き和）を上書きする
+    # フィールドで、難易度を塗る軸ではスケールが違う。未設定の軸はnullで、読む側が
+    # `map_value_kind`ごとの既定値を使う。
+    map_value_thresholds: list[float] | None
     # 折れ点を通す前の生値の単位（`domain/axis_display.py: raw_value_unit`）。
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出し、
     # 「◯◯/km」なら走行距離を掛けて経路全体の実数にする。
@@ -218,6 +229,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
                 map_value_kind=map_value_kind(definition),
                 map_value_unit=map_value_unit(definition),
+                map_value_thresholds=map_value_thresholds(definition),
                 raw_value_unit=raw_value_unit(definition),
                 material_breakdown=_material_breakdown(definition),
                 dynamic_way_value_needs_time=definition.dynamic_way_value_needs_time,

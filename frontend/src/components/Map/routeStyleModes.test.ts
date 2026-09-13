@@ -15,6 +15,17 @@ import { interpolateColors } from "./valueScale";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
 const AXES = axisCatalog.axes as CatalogAxis[];
+
+/** 段階色式（`["case", noData, COLOR_NO_DATA, ["step", value, c0, b0, c1, …]]`）が
+ * 実際に色を切り替える境界値。宣言ではなく組み立て結果から読むため、境界が式へ渡る
+ * 途中で変換されていればその後の値が見える。 */
+function steppedBoundariesOf(mode: { colorExpression: unknown[] }): number[] {
+  const step = mode.colorExpression.find(
+    (part): part is unknown[] => Array.isArray(part) && part[0] === "step"
+  );
+  if (!step) return [];
+  return step.slice(3).filter((part): part is number => typeof part === "number");
+}
 const gradientAxis = AXES.find((a) => a.axis_id === "gradient")!;
 const windAxis = AXES.find((a) => a.axis_id === "wind")!;
 const surfaceQAxis = AXES.find((a) => a.axis_id === "surface_q")!;
@@ -95,8 +106,8 @@ describe("routeStyleModes", () => {
     ]);
   });
 
-  it("改善計画T440: gradientのしきい値は軸スタジオのdisplay_thresholds_override由来で、段階数はその長さ+1になる（固定5カテゴリを仮定しない）", () => {
-    expect(gradientAxis.display_thresholds_override).toEqual([-2, 2, 6, 10]);
+  it("改善計画T440: gradientのしきい値はカタログのmap_value_thresholds由来で、段階数はその長さ+1になる（固定5カテゴリを仮定しない）", () => {
+    expect(gradientAxis.map_value_thresholds).toEqual([-2, 2, 6, 10]);
     const gradient = getRouteStyleMode(ROUTE_STYLE_MODES, "gradient");
     // データなし込みで4境界値+1段階+nodata = 6件
     expect(gradient.legend).toHaveLength(6);
@@ -114,7 +125,7 @@ describe("routeStyleModes", () => {
     const axis: CatalogAxis = {
       ...gradientAxis,
       axis_id: "gradient_test",
-      display_thresholds_override: [0, 5],
+      map_value_thresholds: [0, 5],
     };
     const mode = routeColorableModeFromAxis(axis);
     expect(mode.legend.map((e) => e.key)).toEqual(["step-0", "step-1", "step-2", "nodata"]);
@@ -138,7 +149,7 @@ describe("routeStyleModes", () => {
   });
 
   it("凡例タップのフィルタが風モードの各カテゴリで機能する（隣接カテゴリと境界が重ならない）", () => {
-    // T599: 本番の風軸display_thresholds_overrideが[20,40,60,80]（5段階）へ較正された。
+    // T599: 本番の風軸のしきい値が[20,40,60,80]（5段階）へ較正された。
     const wind = getRouteStyleMode(ROUTE_STYLE_MODES, "wind");
     const middle = wind.legend[1];
     expect(middle.filter).toEqual([
@@ -192,6 +203,41 @@ describe("routeStyleModes", () => {
   it("改善計画T440: difficultyはどの軸にも対応しないため、軸が0件でも一覧から消えない", () => {
     const modes = routeStyleModesFromCatalogAxes([]);
     expect(modes.map((m) => m.id)).toEqual(["difficulty", "none"]);
+  });
+
+  // ルート後の色分けは`axis_difficulties`（0〜100）を塗る。境界がその外に出る軸は、
+  // ルート線が全区間同一バンドへ落ち、凡例に到達しない境界が並ぶ（利用者からは
+  // 「ルートを生成した瞬間に色分けが壊れる」という形で見える）。軸idを名指しせず、
+  // 公開軸すべてを母集団にして不変条件そのものを検証する。
+  it("map_value_kind=difficultyの軸は、ルート後の色分けの境界がすべて0〜100に収まる", () => {
+    const offenders: string[] = [];
+    for (const axis of AXES) {
+      if ((axis.map_value_kind ?? "difficulty") !== "difficulty") continue;
+      const boundaries = steppedBoundariesOf(routeColorableModeFromAxis(axis));
+      const outOfRange = boundaries.filter((b) => b < 0 || b > 100);
+      if (outOfRange.length > 0) offenders.push(`${axis.axis_id}: ${outOfRange.join(", ")}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  // 値域チェックだけでは足りない。材料スケールの境界が偶然0〜100に収まる軸（停止密度の
+  // 回/kmなど）は、値域内のまま「難易度100点満点に対して12点で最上位」という物差しとして
+  // 読まれ、全区間が最上位バンドへ落ちる。ramp軸の`display.thresholds`は材料の重み付き和の
+  // スケールなので、ルート後の境界がその生値と一致していれば変換されていない証拠になる。
+  it("ramp軸のdifficulty境界に、材料スケールの生値がそのまま使われていない", () => {
+    const offenders: string[] = [];
+    for (const axis of AXES) {
+      if (axis.display?.kind !== "ramp") continue;
+      if ((axis.map_value_kind ?? "difficulty") !== "difficulty") continue;
+      const materialScale = axis.display.thresholds ?? [];
+      if (materialScale.length === 0) continue;
+      const routeBoundaries = steppedBoundariesOf(routeColorableModeFromAxis(axis));
+      if (routeBoundaries.length === materialScale.length
+          && routeBoundaries.every((b, i) => b === materialScale[i])) {
+        offenders.push(`${axis.axis_id}: ${routeBoundaries.join(", ")}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {

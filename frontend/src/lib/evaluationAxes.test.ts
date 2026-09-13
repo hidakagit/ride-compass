@@ -115,7 +115,7 @@ describe("evaluationAxes", () => {
 
   // 実行時API経路（useAxisCatalog: buildCatalog）と静的フォールバック（PREFERENCE_AXES）が
   // 同じ変換を通ることを固定する。別々に組み立てていたころ、実行時経路だけ
-  // materialBreakdownを落とし、静的経路の一部だけdisplayThresholdsOverrideを落としていた
+  // materialBreakdownを落とし、静的経路の一部だけmapValueThresholdsを落としていた
   // ——PreferenceAxisDefのフィールドがすべてoptionalのため型検査では現れない。
   it("同じカタログ1件からは、どの経路でも同じPreferenceAxisDefができる", () => {
     const catalogAxes = axisCatalog.axes as CatalogAxis[];
@@ -134,9 +134,9 @@ describe("evaluationAxes", () => {
     const catalogAxes = axisCatalog.axes as CatalogAxis[];
     const checks: { field: string; has: (axis: CatalogAxis) => boolean; kept: (def: PreferenceAxisDef) => boolean }[] = [
       {
-        field: "display_thresholds_override",
-        has: (axis) => (axis.display_thresholds_override?.length ?? 0) > 0,
-        kept: (def) => (def.displayThresholdsOverride?.length ?? 0) > 0,
+        field: "map_value_thresholds",
+        has: (axis) => (axis.map_value_thresholds?.length ?? 0) > 0,
+        kept: (def) => (def.mapValueThresholds?.length ?? 0) > 0,
       },
       {
         field: "display_band_labels_override",

@@ -119,6 +119,7 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
     dedicated_way_value_layer: entry.dedicated_way_value_layer,
     map_value_kind: entry.map_value_kind,
     map_value_unit: entry.map_value_unit,
+    map_value_thresholds: entry.map_value_thresholds,
     dynamic_way_value_needs_time: entry.dynamic_way_value_needs_time,
     dynamic_way_value_needs_bearing: entry.dynamic_way_value_needs_bearing,
     dynamic_way_value_needs_speed: entry.dynamic_way_value_needs_speed,

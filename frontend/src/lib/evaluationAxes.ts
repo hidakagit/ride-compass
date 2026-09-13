@@ -38,12 +38,14 @@ export interface PreferenceAxisDef {
    * ハードコード比較ではなくこのフィールドで`dedicatedWayValueDisplays`
    * （軸id→表示宣言の汎用Map）・レンズ選択肢の`routeOnly`判定を行う。 */
   dedicatedWayValueLayer: boolean;
-  /** 軸スタジオのdisplay_thresholds_override（未設定時はundefined）。
-   * dedicatedWayValueLayer軸（現状windのみ）の評価軸グループ色分けしきい値に使う
-   * （dedicatedWayValueLayer.ts: dedicatedWayValueColorExpression）。
+  /** 地図が塗る値のスケールでの段階境界（GET /api/axis-catalogのmap_value_thresholds、
+   * 未設定時はundefined）。dedicatedWayValueLayer軸の評価軸グループ色分けしきい値に使う
+   * （dedicatedWayValueLayer.ts: dedicatedWayValueColorExpression）。軸スタジオが編集する
+   * 生値（display_thresholds_override）をそのまま使ってはならない——ramp表示を持つ軸では
+   * 材料の重み付き和のスケールで書かれており、難易度と直接比べられない。
    * SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない（常にundefined）。 */
-  displayThresholdsOverride?: readonly number[] | null;
-  /** displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な上書き。
+  mapValueThresholds?: readonly number[] | null;
+  /** mapValueThresholdsと対になる、段階ごとの体感ラベルの軽量な上書き。
    * SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない
    * （常にundefined、dedicatedWayValueLegendの消費者のみが対象）。 */
   displayBandLabelsOverride?: readonly string[] | null;
@@ -83,7 +85,7 @@ export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef 
     chipLabel: axis.chip_label ?? null,
     description: axis.description ?? "",
     dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
-    displayThresholdsOverride: axis.display_thresholds_override ?? undefined,
+    mapValueThresholds: axis.map_value_thresholds ?? undefined,
     displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
     mapValueKind: axis.map_value_kind as MapValueKind | undefined,
     mapValueUnit: axis.map_value_unit,

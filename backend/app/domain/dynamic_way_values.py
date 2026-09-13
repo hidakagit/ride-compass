@@ -28,6 +28,8 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     evaluate_axis_scalar,
 )
+from app.domain.axis_display import derive_ramp_inputs
+from app.domain.axis_templates import evaluate_breakpoint_linear
 from app.domain.material_catalog import MATERIAL_CATALOG
 
 # 地図がその軸について塗る値の種類。`signed_material`は「単一材料の絶対値を評価する軸」
@@ -87,6 +89,40 @@ def map_value_kind(definition: AxisDefinition) -> MapValueKind:
     if isinstance(shape, BreakpointLinearShape) and shape.preprocess == "abs" and len(shape.terms) == 1:
         return "signed_material"
     return "difficulty"
+
+
+def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
+    """`map_value_kind`が示すスケールでの段階境界。上書きが無ければNone（読む側が種類ごとの
+    既定値を使う）。
+
+    `display_thresholds_override`のスケールは軸がramp表示を持つかで変わる。持つ軸では
+    `axis_display_for`が自動導出した**材料の重み付き和**のしきい値を差し替える値であり
+    （`BreakpointLinearShape`の場合。`CategoricalShape`の自動導出値はスコアの中間点なので
+    初めからスコアと同じスケール）、持たない軸では地図が塗る値そのものに対する境界である。
+    地図が難易度を塗る軸では、前者を軸の折れ線でスコアへ写してから返す——写さずに渡すと、
+    材料の単位で書かれた境界が0〜100の難易度と比べられ、ルート線が全区間ひとつのバンドへ
+    落ちる。
+
+    写した結果は昇順のまま重複を畳む。折れ線が飽和する範囲（例: 5回/kmで100に達する軸の
+    7・12回/km）に置かれた境界は同じスコアへ写るため、畳まないと段階の境界が同値で並ぶ。
+    """
+    override = definition.display_thresholds_override
+    if override is None:
+        return None
+    shape = definition.shape
+    if not isinstance(shape, BreakpointLinearShape):
+        return list(override)
+    if map_value_kind(definition) == "signed_material":
+        return list(override)
+    if derive_ramp_inputs(definition) is None:
+        return list(override)
+    mapped: list[float] = []
+    for threshold in override:
+        total = abs(threshold) if shape.preprocess == "abs" else threshold
+        score = round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
+        if not mapped or score > mapped[-1]:
+            mapped.append(score)
+    return mapped
 
 
 def map_value_unit(definition: AxisDefinition) -> str:

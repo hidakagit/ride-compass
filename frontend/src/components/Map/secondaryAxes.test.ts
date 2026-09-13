@@ -72,27 +72,27 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
     expect(axes.some((axis) => axis.axisId === "shown_axis")).toBe(true);
   });
 
-  // 改善計画T443: display_thresholds_overrideが軸自身のデータからそのまま反映されることの
+  // 改善計画T443: 地図が塗る値のスケールでの境界が軸自身のデータからそのまま反映されることの
   // 回帰テスト（page.tsx: gradientBoundaries→MapView.tsxのプレルート表示配線の唯一のデータ源）。
-  it("display_thresholds_overrideが設定されていればそのまま反映され、未設定はundefinedになる", () => {
+  it("map_value_thresholdsが設定されていればそのまま反映され、未設定はundefinedになる", () => {
     const catalogAxes: CatalogAxis[] = [
       {
         axis_id: "gradient",
         label: "勾配",
         display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
-        display_thresholds_override: [-2, 2, 6, 10],
+        map_value_thresholds: [-2, 2, 6, 10],
       },
       {
         axis_id: "no_override_axis",
         label: "上書き無し軸",
         display: { kind: "none", label: "上書き無し軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
-        display_thresholds_override: null,
+        map_value_thresholds: null,
       },
     ];
 
     const axes = secondaryAxesFromCatalogAxes(catalogAxes);
-    expect(axes.find((axis) => axis.axisId === "gradient")?.displayThresholdsOverride).toEqual([-2, 2, 6, 10]);
-    expect(axes.find((axis) => axis.axisId === "no_override_axis")?.displayThresholdsOverride).toBeUndefined();
+    expect(axes.find((axis) => axis.axisId === "gradient")?.mapValueThresholds).toEqual([-2, 2, 6, 10]);
+    expect(axes.find((axis) => axis.axisId === "no_override_axis")?.mapValueThresholds).toBeUndefined();
   });
 
   it("show_map_icon未設定の軸は表示する扱いになる（backendが必ずtrue/falseを返すため実質常に発生しないが、型上のフォールバックとして確認）", () => {

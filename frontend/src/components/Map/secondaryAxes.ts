@@ -49,13 +49,13 @@ export interface SecondaryAxisSummary {
    * 説明文。軸自身のデータ（AXIS_DEFINITIONS.panel_hint）をそのまま反映する。未設定なら
    * 情報アイコン自体を出さない。 */
   panelHint?: string;
-  /** 改善計画T443: プレルート表示（評価軸ライン・環境グループ塗り）の色分けしきい値。
-   * 軸自身のデータ（AXIS_DEFINITIONS.display_thresholds_override）をそのまま反映する。
-   * 現状はgradient（Map/dedicatedWayValueLayer.ts・gradientGridFill.tsの表示宣言）が
-   * 唯一の消費者。未設定はkind="none"軸の各実装が持つビルド時既定値（例:
+  /** プレルート表示（評価軸ライン・環境グループ塗り）の色分けしきい値。
+   * 地図が塗る値のスケールでの境界（GET /api/axis-catalogのmap_value_thresholds）を反映する
+   * ——軸スタジオが編集する生値はramp表示を持つ軸では材料の重み付き和のスケールで、
+   * 難易度と直接比べられない。未設定はkind="none"軸の各実装が持つビルド時既定値（例:
    * valueScale.tsのSIGNED_MATERIAL_BOUNDARIES）へのフォールバックに委ねる。 */
-  displayThresholdsOverride?: readonly number[] | null;
-  /** 改善計画T513: displayThresholdsOverrideと対になる、段階ごとの体感ラベルの軽量な
+  mapValueThresholds?: readonly number[] | null;
+  /** mapValueThresholdsと対になる、段階ごとの体感ラベルの軽量な
    * 上書き（AXIS_DEFINITIONS.display_band_labels_overrideをそのまま反映）。 */
   displayBandLabelsOverride?: readonly string[] | null;
   /** 改善計画T473: 軸自身のデータ（AXIS_DEFINITIONS.dedicated_way_value_layer）をそのまま
@@ -146,7 +146,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       primaryAttributeIds: axis.primary_attribute_ids ?? [],
       iconId: axis.icon_id ?? undefined,
       panelHint: axis.panel_hint ?? undefined,
-      displayThresholdsOverride: axis.display_thresholds_override ?? undefined,
+      mapValueThresholds: axis.map_value_thresholds ?? undefined,
       displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
       dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
       mapValueKind: axis.map_value_kind,

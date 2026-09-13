@@ -111,7 +111,12 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
   （風等）は軸定義（breakpoints・priority_overrides）で評価した難易度0〜100、
   `signed_material`の軸（勾配: 単一材料・`preprocess="abs"`）は符号付き材料生値のまま。
   ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
-  スケールになるため、`display_thresholds_override`は軸ごとに1つの意味を持つ。
+  スケールになる。
+- 段階の境界は`map_value_thresholds(definition)`が同じスケールへ揃えて返す。
+  `display_thresholds_override`はramp表示の自動導出値（材料の重み付き和）を差し替える
+  フィールドなので、難易度を塗るramp軸ではそのままでは使えない——軸の折れ線で写してから返す。
+  写さずに配ると、材料の単位で書かれた境界が0〜100と比べられ、ルート線が全区間ひとつの
+  バンドへ落ちる。
 - 各サービスは`material_id`属性で自分が返す生値の材料idを宣言し、routerはそれを軸定義の
   どの材料として評価するかに使う。勾配は`gradient_percent`固定、風は`wind_drag_ratio`固定
   （走行速度依存、`speed_kmh`必須）。

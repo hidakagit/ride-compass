@@ -122,6 +122,7 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         dedicated_way_value_layer: false,
         map_value_kind: "difficulty",
         map_value_unit: "",
+        map_value_thresholds: null,
         dynamic_way_value_needs_time: false,
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,

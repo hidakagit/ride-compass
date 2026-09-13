@@ -51,8 +51,15 @@
 `map_value_kind`/`map_value_unit`、[動的材料・way_id値配信（backend）](../backend/dynamic-way-values.md)
 参照）。`difficulty`の軸はルート前（専用way値レイヤー）もルート後（ルート線）も
 軸スタジオのbreakpointsで評価済みの0〜100を塗り、`signed_material`の軸（勾配）は
-どちらも符号付き材料生値を塗る。`display_thresholds_override`は軸ごとに1つのスケールで
-解釈される（ルート前後でスケールが食い違う軸は無い）。
+どちらも符号付き材料生値を塗る。
+
+**段階の境界は`map_value_thresholds`（`GET /api/axis-catalog`）だけを使う。**
+`display_thresholds_override`は軸スタジオが編集した生値で、スケールは軸がramp表示を持つかで
+変わる——ramp軸ではタイルの材料値を重み付き和にしたスケール（`buildAxisRampValueExpression`が
+組み立てる値、ルート前の`display.thresholds`が使う側）であり、難易度と直接は比べられない。
+backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ線で写してから返すため、
+フロントはスケールの判断を持たない。折れ線が飽和する範囲へ置かれた境界は同じスコアへ写り、
+その分だけ段階が減る。
 
 ## 軸id→振る舞いの判定（データ駆動、axis_idのハードコード比較を使わない）
 

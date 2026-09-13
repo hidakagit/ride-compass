@@ -2110,6 +2110,20 @@
             "type": "string",
             "title": "Map Value Unit"
           },
+          "map_value_thresholds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map Value Thresholds"
+          },
           "raw_value_unit": {
             "anyOf": [
               {
@@ -2161,6 +2175,7 @@
           "dedicated_way_value_layer",
           "map_value_kind",
           "map_value_unit",
+          "map_value_thresholds",
           "raw_value_unit",
           "material_breakdown",
           "dynamic_way_value_needs_time",
