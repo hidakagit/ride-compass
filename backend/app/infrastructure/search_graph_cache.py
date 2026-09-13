@@ -167,18 +167,17 @@ def set_routable_index(key: RoutableIndexKey, index: "NodeSpatialIndex") -> None
 
 
 def invalidate_tile_set(tile_set: TileSet) -> None:
-    """指定タイル集合のエントリを全キャッシュ（`_lazy_graph_cache`・`_search_statics_cache`・
-    `_routable_index_cache`）すべてから破棄する。
+    """指定タイル集合のエントリを、このモジュールが持つキャッシュすべてから破棄する。
 
-    `_lazy_graph_cache`/`_search_statics_cache`は
-    LRU上限に達すると独立に最古のエントリを追い出すため、同じ
-    `tile_set`が一方には残り他方からは既に消えている状態になりうる。この状態で再splitが
+    各キャッシュはLRU上限に達すると独立に最古のエントリを追い出すため、同じ`tile_set`が
+    一方には残り他方からは既に消えている状態になりうる。この状態で再splitが
     挟まると、残った側の`LazyRoadGraph`（古いedge_id集合）と新しく取得した`graph`
     （新edge_id集合）の組み合わせで`domain/routing.py: build_search_graph_statics`が
-    KeyError相当（`LazyGraphEdgeMismatchError`）を起こす。検出したら本関数で4キャッシュ
-    とも該当`tile_set`を破棄し、`RoadGraphEngine`側が`lazy_graph`ごと再構築する。
-    `_routable_index_cache`のキーは`(tile_set, hard_filters, max_average_grade_percent)`
-    のタプルのため、先頭要素で一致するものをすべて破棄する。
+    KeyError相当（`LazyGraphEdgeMismatchError`）を起こす。検出したら本関数で該当
+    `tile_set`を全キャッシュから破棄し、`RoadGraphEngine`側が`lazy_graph`ごと再構築する。
+    タイル集合だけではないキーを持つキャッシュ（`_routable_index_cache`はハードフィルタ等、
+    `_turn_structure_cache`はターン費用を併せて鍵にする）は、先頭要素が一致するものを
+    すべて破棄する——区間idの集合そのものが変わるため、残りの鍵が何であれ再利用できない。
     """
     _lazy_graph_cache.pop(tile_set)
     _search_statics_cache.pop(tile_set)

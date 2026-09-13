@@ -916,11 +916,20 @@ def build_turn_expanded_tree(
     `edge_cost`は1次元（時刻に依存しない）か`(時刻ビン, 状態)`の2次元。2次元で渡すときは
     `edge_seconds`と`bin_seconds`も渡す（`turn_expanded_shortest_path`と同じ契約）。
     **逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
-    呼び出し元は1本のビンで呼ぶこと。
+    呼び出し元は1本のビンで呼ぶこと（`reverse=True`へ複数ビンを渡すと`ValueError`）。
     """
     state_count = structure.state_count
     cost_bins = _as_time_bins(edge_cost)
     seconds_bins = cost_bins if edge_seconds is None else _as_time_bins(edge_seconds)
+    if reverse and max(cost_bins.shape[0], seconds_bins.shape[0]) > 1:
+        # 逆向きの木の`arrival`は「そこから目的地までの残り時間」で、出発からの経過時間では
+        # ない。ビンを引くとその残り時間で引かれ、例外もNaNも出ないまま時刻が反転した条件で
+        # 評価した経路が返る。
+        raise ValueError(
+            "build_turn_expanded_tree(reverse=True) cannot use time bins: "
+            f"got {cost_bins.shape[0]} cost bins and {seconds_bins.shape[0]} seconds bins "
+            "(pass a single bin; the reverse tree has no arrival clock)"
+        )
     if reverse:
         indptr, target_state, transition_seconds = structure.reverse_transitions()
     else:

@@ -1,10 +1,12 @@
 """search_graph_cache.pyの単体テスト（改善計画T537）。
 
-タイル集合キーLRU（LazyRoadGraph用・NodeSpatialIndex用の2本）のget/set/LRU立ち退き・
-clearを検証する。road_graph_engine.py経由のエンドツーエンド確認（キャッシュヒット時に
-実際に構築関数が呼ばれないこと等）はtest_road_graph_engine.py側で行う。
+タイル集合をキーに持つLRU群（LazyRoadGraph用・NodeSpatialIndex用・遷移構造用など）の
+get/set/LRU立ち退き・clear・タイル集合単位の破棄を検証する。road_graph_engine.py経由の
+エンドツーエンド確認（キャッシュヒット時に実際に構築関数が呼ばれないこと等）は
+test_road_graph_engine.py側で行う。
 """
 
+from app.domain.routing import TurnCostSpec
 from app.infrastructure import search_graph_cache
 
 _TILE_SET_A = frozenset({(12, 1, 1)})
@@ -178,3 +180,75 @@ class TestSearchStaticsSeparateLruLimit:
         assert search_graph_cache.get_search_statics(_TILE_SET_B) == "statics-b"
 
 
+
+
+class TestTurnStructureCache:
+    """遷移構造はタイル集合とターン費用の組で引く。費用を変えたときに古い構造が返ると、
+    ターンの較正が地図にもルートにも出ないまま「効いている」ように見える。"""
+
+    def setup_method(self):
+        search_graph_cache.clear()
+
+    def teardown_method(self):
+        search_graph_cache.clear()
+
+    def test_same_tile_set_with_different_turn_costs_are_separate_entries(self):
+        cheap = TurnCostSpec(right_seconds=0.0, left_seconds=0.0, uturn_seconds=0.0)
+        pricey = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+        search_graph_cache.set_turn_structure((_TILE_SET_A, cheap), "structure-cheap")
+        search_graph_cache.set_turn_structure((_TILE_SET_A, pricey), "structure-pricey")
+
+        assert search_graph_cache.get_turn_structure((_TILE_SET_A, cheap)) == "structure-cheap"
+        assert search_graph_cache.get_turn_structure((_TILE_SET_A, pricey)) == "structure-pricey"
+
+    def test_equal_turn_costs_hit_the_same_entry(self):
+        # 同じ費用を別インスタンスで組んでも同じエントリを引く（値で比較される鍵であること）。
+        spec = TurnCostSpec(right_seconds=12.0, left_seconds=3.0, uturn_seconds=90.0)
+        same = TurnCostSpec(right_seconds=12.0, left_seconds=3.0, uturn_seconds=90.0)
+        search_graph_cache.set_turn_structure((_TILE_SET_A, spec), "structure")
+
+        assert search_graph_cache.get_turn_structure((_TILE_SET_A, same)) == "structure"
+
+    def test_invalidate_tile_set_drops_every_turn_cost_of_that_tile_set(self):
+        cheap = TurnCostSpec(right_seconds=0.0, left_seconds=0.0, uturn_seconds=0.0)
+        pricey = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+        search_graph_cache.set_turn_structure((_TILE_SET_A, cheap), "a-cheap")
+        search_graph_cache.set_turn_structure((_TILE_SET_A, pricey), "a-pricey")
+        search_graph_cache.set_turn_structure((_TILE_SET_B, cheap), "b-cheap")
+
+        search_graph_cache.invalidate_tile_set(_TILE_SET_A)
+
+        # 再splitで区間idの集合が変わるため、同じタイル集合の構造は費用を問わず捨てる。
+        assert search_graph_cache.get_turn_structure((_TILE_SET_A, cheap)) is None
+        assert search_graph_cache.get_turn_structure((_TILE_SET_A, pricey)) is None
+        assert search_graph_cache.get_turn_structure((_TILE_SET_B, cheap)) == "b-cheap"
+
+
+class TestDetourRatioCache:
+    def setup_method(self):
+        search_graph_cache.clear()
+
+    def teardown_method(self):
+        search_graph_cache.clear()
+
+    def test_get_missing_key_returns_none(self):
+        assert search_graph_cache.get_detour_ratio(_TILE_SET_A) is None
+
+    def test_set_then_get_roundtrip(self):
+        search_graph_cache.set_detour_ratio(_TILE_SET_A, 1.35)
+        assert search_graph_cache.get_detour_ratio(_TILE_SET_A) == 1.35
+
+    def test_zero_is_a_cached_value_distinguishable_from_cache_miss(self):
+        # 値が偽と評価される型のため、`if cached:`で判定すると測り直しが毎回走る。
+        search_graph_cache.set_detour_ratio(_TILE_SET_A, 0.0)
+        assert search_graph_cache.get_detour_ratio(_TILE_SET_A) == 0.0
+        assert search_graph_cache.get_detour_ratio(_TILE_SET_B) is None
+
+    def test_invalidate_tile_set_drops_the_ratio_of_that_tile_set_only(self):
+        search_graph_cache.set_detour_ratio(_TILE_SET_A, 1.2)
+        search_graph_cache.set_detour_ratio(_TILE_SET_B, 1.4)
+
+        search_graph_cache.invalidate_tile_set(_TILE_SET_A)
+
+        assert search_graph_cache.get_detour_ratio(_TILE_SET_A) is None
+        assert search_graph_cache.get_detour_ratio(_TILE_SET_B) == 1.4

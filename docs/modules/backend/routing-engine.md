@@ -631,6 +631,8 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   値（そのNodeへ入る区間の最小、`node_costs_from_state_costs`）も持つ。
   `reverse=True`で遷移の向きだけを反転する（ターンの費用は元の進行方向のまま）。
   **逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
+  複数ビンを渡すと`ValueError`で弾く（黙って通すと、到達時刻の代わりに「残り時間」で
+  ビンが引かれ、例外もNaNも出ないまま時刻が反転した条件で評価した経路が返る）。
 - **`turn_expanded_path_from_state`/`turn_expanded_path_from_state_to_source`/
   `turn_expanded_path_edge_indices`**: 木上の経路をEdge index列で復元する（順に
   「始点→その状態」「その状態→目的地（後ろ向き木）」「始点→そのNode」）。

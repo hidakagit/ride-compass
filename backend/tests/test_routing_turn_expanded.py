@@ -187,6 +187,100 @@ def test_turn_expanded_tree_path_returns_edge_indices():
     assert [lazy_graph.edge_ids[index] for index in edges] == ["S-C", "C-E"]
 
 
+def _two_route_graph() -> RoadGraph:
+    """S→C→E（200m）とS→A→B→E（300m）の2通りで同じEへ着くグラフ。"""
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E", "A", "B")}
+    edges = {
+        "S-C": _edge("S-C", "S", "C", 0.0),
+        "C-E": _edge("C-E", "C", "E", 0.0),
+        "S-A": _edge("S-A", "S", "A", 0.0),
+        "A-B": _edge("A-B", "A", "B", 0.0),
+        "B-E": _edge("B-E", "B", "E", 0.0),
+    }
+    return RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+
+
+def test_turn_expanded_tree_switches_route_on_the_elapsed_time_bin():
+    """経過時間のビンでコストが変われば、木も同じ起点から別の経路を選ぶ。
+
+    本番の周回生成・目的地ルートの前向き木はどちらも時刻ビン付きで木を張る（風が到達時刻で
+    変わるため）。ビン0では短い方を安く、ビン1ではその区間だけ極端に高いコストを渡し、
+    1区間（100m＝18秒）でビン1へ移る幅（10秒）に置くと、「出発時点では短い方が安いが
+    そこへ着く頃には高くなっている」を見て遠回りを選ぶ。
+    """
+    graph = _two_route_graph()
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, csr, structure = _structure_for(graph, free)
+    seconds = _seconds(graph, lazy_graph)
+    length = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
+    origin = lazy_graph.node_id_to_index["S"]
+    entry = csr.entry_edge_index[csr.indptr[origin]:csr.indptr[origin + 1]].astype(np.int64)
+
+    def path_for(cost_bins):
+        tree = build_turn_expanded_tree(
+            structure, cost_bins, length, entry, csr.node_count,
+            edge_seconds=np.vstack([seconds, seconds]), bin_seconds=10.0,
+        )
+        edges = turn_expanded_path_edge_indices(tree, lazy_graph.node_id_to_index["E"])
+        return [lazy_graph.edge_ids[index] for index in edges]
+
+    expensive_later = seconds.copy()
+    expensive_later[lazy_graph.edge_ids.index("C-E")] *= 100.0
+
+    assert path_for(np.vstack([seconds, seconds])) == ["S-C", "C-E"]
+    assert path_for(np.vstack([seconds, expensive_later])) == ["S-A", "A-B", "B-E"]
+
+
+def test_turn_expanded_tree_accumulates_seconds_from_the_bin_it_arrives_in():
+    """所要時間の積算は、その状態へ着いた時刻のビンの秒を足す。
+
+    経路は1本しか無いグラフで、2区間目の秒だけビン1で倍にする。ビンを引く側（コスト）と
+    秒を積む側が同じビンを見ていなければ、Eの所要時間がこの値にならない。
+    """
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E")}
+    edges = {"S-C": _edge("S-C", "S", "C", 0.0), "C-E": _edge("C-E", "C", "E", 0.0)}
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, csr, structure = _structure_for(graph, free)
+    seconds = _seconds(graph, lazy_graph)
+    length = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
+    origin = lazy_graph.node_id_to_index["S"]
+    entry = csr.entry_edge_index[csr.indptr[origin]:csr.indptr[origin + 1]].astype(np.int64)
+
+    slower_later = seconds.copy()
+    slower_later[lazy_graph.edge_ids.index("C-E")] *= 2.0
+    tree = build_turn_expanded_tree(
+        structure, np.vstack([seconds, seconds]), length, entry, csr.node_count,
+        edge_seconds=np.vstack([seconds, slower_later]), bin_seconds=10.0,
+    )
+
+    one_edge = 100.0 / SPEED_MS
+    # S-Cはビン0（出発時点）の18秒、C-EはS-Cを走り終えた後＝ビン1の36秒。
+    assert tree.node_seconds[lazy_graph.node_id_to_index["E"]] == pytest.approx(one_edge * 3.0)
+
+
+def test_turn_expanded_tree_rejects_time_bins_on_the_reverse_tree():
+    """逆向きの木へビンを渡すのは黙って誤った経路になるため、実装が弾く。"""
+    graph = _two_route_graph()
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, csr, structure = _structure_for(graph, free)
+    seconds = _seconds(graph, lazy_graph)
+    length = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
+    entry = np.flatnonzero(structure.edge_to == lazy_graph.node_id_to_index["E"])
+
+    with pytest.raises(ValueError, match="time bins"):
+        build_turn_expanded_tree(
+            structure, np.vstack([seconds, seconds]), length, entry, csr.node_count,
+            reverse=True, edge_seconds=np.vstack([seconds, seconds]), bin_seconds=10.0,
+        )
+
+    # 1本のビン（=時刻に依存しないコスト）なら逆向きでも通る。
+    tree = build_turn_expanded_tree(
+        structure, seconds, length, entry, csr.node_count, reverse=True, edge_seconds=seconds
+    )
+    assert np.isfinite(tree.node_cost[lazy_graph.node_id_to_index["S"]])
+
+
 def test_turn_expanded_tree_reverse_gives_cost_to_the_destination():
     """逆向きの木は「その区間から目的地まで」のコストを返す。"""
     graph = _crossroads()
