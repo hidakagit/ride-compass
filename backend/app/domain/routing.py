@@ -113,6 +113,11 @@ def build_lazy_road_graph(
 # タイル集合キーのプロセス内LRU（上限64件、後述）が常駐させる分の実メモリを半減できる。
 _CSR_INDEX_DTYPE = np.int32
 
+# 優先度キューの初期容量（種の数＋この余裕）。満杯になれば倍へ伸びるため上限を当てる必要は
+# 無く、**当ててはいけない**——コストが時刻で変わると押し込み回数が遷移数で頭打ちにならない。
+# 小さく始めることで、伸長の経路が普通の探索で毎回通る（使われない分岐にしない）。
+_HEAP_INITIAL_SLACK = 64
+
 
 @dataclass
 class CsrGraphStructure:
@@ -752,6 +757,11 @@ def _turn_expanded_dijkstra(
 
     `edge_cost`・`edge_seconds`は`(時刻ビン, 状態)`。`_turn_expanded_astar`と同じ1ラベル法で、
     状態ごとにコスト最小の1本だけを保つ。
+
+    **優先度キューは満杯になったら倍へ伸ばす**。コストが時刻で変わると「各状態は一度だけ
+    確定する」が成り立たず（確定済みの状態が、後から別の時刻ビンを通る安い経路で更新され
+    うる）、押し込み回数が遷移数で頭打ちにならない。JITは配列の境界を検査しないため、
+    上限を決め打つと超えた瞬間に例外ではなく範囲外書き込みになる。
     """
     state_count = edge_length_m.shape[0]
     bin_count = edge_cost.shape[0]
@@ -833,6 +843,13 @@ def _turn_expanded_dijkstra(
             arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
             length[nxt] = length[state] + edge_length_m[nxt]
             predecessor[nxt] = state
+            if size == heap_key.shape[0]:
+                grown_key = np.empty(size * 2, dtype=heap_key.dtype)
+                grown_state = np.empty(size * 2, dtype=heap_state.dtype)
+                grown_key[:size] = heap_key
+                grown_state[:size] = heap_state
+                heap_key = grown_key
+                heap_state = grown_state
             j = size
             heap_key[j] = next_g
             heap_state[j] = nxt
@@ -915,11 +932,12 @@ def build_turn_expanded_tree(
         indptr, target_state, transition_seconds, cost_bins, seconds_bins,
         np.asarray(edge_length_m, dtype=np.float64), float(bin_seconds),
         np.asarray(entry_state_indices, dtype=np.int64), float(cost_limit),
-        len(target_state) + len(entry_state_indices) + 16,
+        len(entry_state_indices) + _HEAP_INITIAL_SLACK,
     )
     dijkstra_ms = (time.perf_counter() - started) * 1000
     if edge_seconds is None:
-        state_seconds = np.where(np.isfinite(state_cost), state_seconds, np.nan)
+        # 積算に使ったのはコスト配列（主観的割増込み）のため、秒として読ませない。
+        state_seconds = np.full(state_count, np.nan)
 
     fold_started = time.perf_counter()
     # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
@@ -1079,10 +1097,11 @@ def _turn_expanded_astar(
 ) -> tuple[np.ndarray, int]:
     """状態＝有向区間・辺＝ターンのA*（JITコンパイル）。
 
-    優先度キューはnumpy配列のバイナリヒープとして持つ（numbaは`heapq`を扱えない）。
-    ヒープには`f = g + 目的地までの所要時間の下界`と`g`の両方を積み、取り出したときに`g`が
-    `best`より大きければ古いエントリとして捨てる。戻り値は前任者の配列と、目的地へ入った
-    状態（到達不能なら-1）。
+    優先度キューはnumpy配列のバイナリヒープとして持ち、満杯になったら倍へ伸ばす
+    （`_turn_expanded_dijkstra`と同じ理由——時刻で変わるコストでは押し込み回数が遷移数で
+    頭打ちにならず、JITは配列の境界を検査しない）。ヒープには`f = g + 目的地までの所要時間の
+    下界`と`g`の両方を積み、取り出したときに`g`が`best`より大きければ古いエントリとして
+    捨てる。戻り値は前任者の配列と、目的地へ入った状態（到達不能なら-1）。
 
     `edge_cost`・`edge_seconds`は`(時刻ビン, 状態)`の2次元で、出発からの経過時間を
     `bin_seconds`で割ったビンの行を引く。時刻に依存しない探索はビン1本で呼ぶ。
@@ -1181,6 +1200,16 @@ def _turn_expanded_astar(
             arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
             predecessor[nxt] = state
             next_f = next_g + node_heuristic[edge_to[nxt]]
+            if size == heap_f.shape[0]:
+                grown_f = np.empty(size * 2, dtype=heap_f.dtype)
+                grown_g = np.empty(size * 2, dtype=heap_g.dtype)
+                grown_state = np.empty(size * 2, dtype=heap_state.dtype)
+                grown_f[:size] = heap_f
+                grown_g[:size] = heap_g
+                grown_state[:size] = heap_state
+                heap_f = grown_f
+                heap_g = grown_g
+                heap_state = grown_state
             j = size
             heap_f[j] = next_f
             heap_g[j] = next_g
@@ -1226,7 +1255,7 @@ def turn_expanded_shortest_path(
     """
     cost_bins = _as_time_bins(edge_cost)
     seconds_bins = cost_bins if edge_seconds is None else _as_time_bins(edge_seconds)
-    capacity = len(structure.target_state) + len(origin_states) + 16
+    capacity = len(origin_states) + _HEAP_INITIAL_SLACK
     predecessor, goal_state = _turn_expanded_astar(
         structure.indptr, structure.target_state, structure.turn_seconds, structure.edge_to,
         cost_bins, seconds_bins, float(bin_seconds),

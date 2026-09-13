@@ -712,7 +712,8 @@ def compose_costs_from_axis_matrix(
     時刻ビンごとに合成し直すとき、時刻で変わらない軸の和を1回だけ求めて使い回すために渡す
     （合成の時間は軸数にほぼ比例するため、動的な軸だけを毎回足す形にすると大きく減る）。
     `with_contributions=False`は軸別寄与度（表示用）を組み立てない——探索へ渡すだけの
-    ビンでは要らない。
+    ビンでは要らない。`static_sums`と併用できないのは、寄与度は`axis_arrays`へ渡した軸ぶん
+    しか作れず、和へ畳んだ軸の内訳が黙って欠けるため。
 
     Neumaier加算・`round1_array`はスカラー版`composite_difficulty`/
     `compute_cost_from_axis_scores`とビット単位で一致させるために必須
@@ -733,6 +734,10 @@ def compose_costs_from_axis_matrix(
     （表示用）はこの代入の影響を受けず、欠損なら常にNaNのまま返す。bbox内が全Edge欠損
     （代入する平均値自体が無い）ならこれまでどおりcost=distance_m（割増なし）。
     """
+    if static_sums is not None and with_contributions:
+        raise ValueError(
+            "static_sumsへ畳んだ軸の寄与度は作れないため、with_contributionsとは併用できない"
+        )
     n = len(distance_m)
     score_terms = [] if static_sums is None else [static_sums[0]]
     weight_terms = [] if static_sums is None else [static_sums[1]]

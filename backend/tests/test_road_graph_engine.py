@@ -2959,6 +2959,35 @@ def test_build_traced_from_edge_ids_splits_the_legs_at_the_half_way_point():
     assert traced.leg_of_edge == [0, 0, 1, 1]
 
 
+def test_build_traced_from_edge_ids_provides_the_legs_it_assigns():
+    # レグ番号を振る側が、その番号のレグを用意していないと評価が落ちる。`prepare`が作るのは
+    # 往路レグだけで、復路レグは探索（折返し点・経由Nodeの選定）が作る——合成経路はどちらの
+    # 探索も通らないため、ここで用意しないと`_build_segment_details`がIndexErrorになる。
+    engine, context = _spliceable_context()
+    assert len(context.legs) == 1
+
+    traced = engine.build_traced_from_edge_ids(context, ["e-0", "e-1", "e-2", "e-3"])
+
+    assert max(traced.leg_of_edge) < len(context.legs)
+
+
+async def test_evaluate_loops_builds_segments_for_a_spliced_path():
+    # 合成経路（区間の乗り換え）を実エンジンで評価する。既存の合成ルートのテストは偽エンジンを
+    # 使っており、区間表示の組み立てを一度も通っていなかった——`prepare`が作るのは往路レグ
+    # だけなので、後半のレグを読む段で落ちる。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0])
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+    traced = engine.build_traced_from_edge_ids(context, ["e-0-out", "e-0-in"])
+    assert traced.leg_of_edge == [0, 1]
+
+    candidates = await engine.evaluate_loops(context, [traced], datetime.now(timezone.utc))
+
+    assert len(candidates) == 1
+    assert candidates[0].segments
+
+
 def test_build_traced_from_edge_ids_rejects_an_unknown_edge():
     engine, context = _spliceable_context()
 

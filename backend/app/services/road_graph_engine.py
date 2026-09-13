@@ -396,13 +396,11 @@ class _LegCostComposer:
         anchor: Coordinates | None,
         offset_hours: float,
         direction: int,
-        detour_ratio: float | None = None,
         duration_hours: float | None = None,
         passage_hours: np.ndarray | None = None,
     ) -> LegCostArrays:
         """`anchor`から`direction=+1`なら離れていく・`-1`なら向かっていくレグとして、
-        そのレグを走る時刻の風でコスト配列を合成する。`detour_ratio`を渡すとそのレグだけ
-        迂回率を上書きする（復路が往路木の実測値を使うため）。
+        そのレグを走る時刻の風でコスト配列を合成する。
 
         `duration_hours`（このレグに何時間かかる見込みか）を渡すと、レグの中を
         `TIME_BIN_HOURS`ごとのビンへ分けた配列（`cost_bins_lazy`）も併せて作る。到達時刻を
@@ -425,7 +423,9 @@ class _LegCostComposer:
             key = ("passage", round(offset_hours, 3), direction, float(np.nansum(passage_hours)))
             bin_count = 1
         else:
-            key = (round(leg_start, 3), bin_count)
+            # 代表ビンもキーに入れる——同じ開始時刻・同じビン数でも、見込み所要時間が違えば
+            # 代表（表示が読むビン）は変わりうる。
+            key = (round(leg_start, 3), bin_count, _representative_bin(bin_count, duration_hours))
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -436,12 +436,8 @@ class _LegCostComposer:
         elif passage_hours is not None:
             bins = [self._compose_at(passage_hours)]
         else:
-            display_bin = _representative_bin(bin_count, duration_hours)
             bins = [
-                self._compose_at(
-                    np.full(edge_count, leg_start + k * TIME_BIN_HOURS),
-                    for_display=k == display_bin,
-                )
+                self._compose_at(np.full(edge_count, leg_start + k * TIME_BIN_HOURS))
                 for k in range(bin_count)
             ]
 
@@ -511,12 +507,8 @@ class _LegCostComposer:
             return 1
         return int(min(MAX_TIME_BINS, max(1, math.ceil(duration_hours / TIME_BIN_HOURS))))
 
-    def _compose_at(self, passage: np.ndarray | None, *, for_display: bool = True) -> LegCostArrays:
-        """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。
-
-        `for_display=False`は探索へ渡すコストと所要時間だけを作る（軸別スコア・寄与度・
-        材料値は組み立てない）。代表以外の時刻ビンはこちらで足りる。
-        """
+    def _compose_at(self, passage: np.ndarray | None) -> LegCostArrays:
+        """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。"""
         dynamic_context = DynamicAxisRequestContext(
             bearing_deg=self._score_matrix.bearing_deg, weather=self._weather,
             travel_speed_ms=kmh_to_ms(self.speed_kmh),
@@ -1217,15 +1209,15 @@ class RoadGraphEngine:
             return []
 
         ring_length = length[ring]
-        # 迂回率（道なり距離÷直線距離）の実測中央値。復路レグの合成に使い、同じ探索範囲の
-        # 次のリクエストが往路レグに使えるよう学習値として保存する。
+        # 迂回率（道なり距離÷直線距離）の実測中央値を学習値として保存する。周回の合成自体は
+        # 使わない（レグはビンの開始時刻で評価する）が、直線距離を走行時間へ直す係数として
+        # 目的地ルートの到着予定時刻が読む。
         detour_ratio_median = _median_detour_ratio(context, ring, ring_length)
-        inbound_detour_ratio = _learn_detour_ratio(context, detour_ratio_median)
+        _learn_detour_ratio(context, detour_ratio_median)
         # 復路レグ: 起点へ向かうレグとして、周回の総所要時間（目標距離÷仮定速度）を起点への
         # 到着予定時刻に置いて合成する（距離フィルタが目標±許容を強制するため定数扱いできる）。
         inbound = context.composer.compose(
             "inbound", context.origin, distance_km / context.composer.speed_kmh, -1,
-            detour_ratio=inbound_detour_ratio,
             duration_hours=distance_km / 2 / context.composer.speed_kmh,
         )
         context.legs = [context.legs[0], inbound]
@@ -1443,7 +1435,7 @@ class RoadGraphEngine:
             detour_ratio=inbound_detour_ratio,
         )
         inbound = context.composer.compose(
-            "inbound", destination, arrival_hours, -1, detour_ratio=inbound_detour_ratio,
+            "inbound", destination, arrival_hours, -1,
             passage_hours=np.where(np.isfinite(forward_hours), forward_hours, fallback_hours),
         )
         context.legs = [context.legs[0], inbound]
@@ -1713,7 +1705,9 @@ class RoadGraphEngine:
 
         レグはこの経路自身の距離の半分で切る。合成経路はvia-nodeを持たないため前向き木・
         後ろ向き木の境目が無く、レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の
-        近似が入れ替わる点として中間を採る。
+        近似が入れ替わる点として中間を採る。**レグ番号を振る側が、その番号のレグを
+        `context.legs`へ用意する**——`prepare`が作るのは往路レグだけで、復路レグは探索
+        （折返し点の選定・経由Nodeの選定）が作る。合成経路はどちらの探索も通らない。
         """
         graph = context.graph
         if not edge_ids:
@@ -1740,6 +1734,14 @@ class RoadGraphEngine:
         for edge in edges:
             leg_of_edge.append(0 if travelled_m < total_m / 2 else 1)
             travelled_m += edge.distance_m
+        if max(leg_of_edge) > 0 and len(context.legs) < 2:
+            total_hours = total_m / 1000 / context.composer.speed_kmh
+            context.legs = [
+                context.legs[0],
+                context.composer.compose(
+                    "inbound", context.origin, total_hours, -1, duration_hours=total_hours / 2
+                ),
+            ]
         return TracedLoop(
             bearing=None, distance_km=round(total_m / 1000, 2), data=edge_ids, leg_of_edge=leg_of_edge
         )
@@ -2258,12 +2260,16 @@ def _add_terminal_candidate(
 
     `combine_forward_backward_at_nodes`は「入る区間×出る区間」の対でNodeを繋ぐため、
     そこで終わる経路は現れない。後ろ向きの区間が無いことは`backward_state=-1`で表す。
+
+    **`NodeJunction`の全フィールドを揃えて書く**——1つでも繋ぎ目側の値が残ると、コストと
+    所要時間が別々の経路のものになり、`(cost/seconds - 1)/P`で逆算するdifficultyが壊れる。
     """
     state = int(forward.node_best_state[destination_index])
     if state < 0:
         return
     junction.cost[destination_index] = forward.node_cost[destination_index]
     junction.length_m[destination_index] = forward.node_length_m[destination_index]
+    junction.seconds[destination_index] = forward.node_seconds[destination_index]
     junction.forward_state[destination_index] = state
     junction.backward_state[destination_index] = -1
 
