@@ -1,6 +1,6 @@
 {
-  "date": "2026-09-11",
-  "commit": "0814b7b5",
+  "date": "2026-09-13",
+  "commit": "e5be72d2",
   "top": [
     "backend/app/domain/evaluation.py",
     "backend/app/domain/material_catalog.py",
@@ -11,25 +11,33 @@
     "frontend/src/app/page.tsx",
     "frontend/src/components/AxisStudio/AxisComposer.tsx",
     "frontend/src/components/Map/MapView.tsx",
-    "frontend/src/components/Map/mapLayers.ts",
+    "frontend/src/components/Map/icons.tsx",
     "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx"
   ],
   "files": {
-    "frontend/src/components/Map/MapView.tsx": 3561,
-    "backend/app/infrastructure/road_graph_repository.py": 2694,
-    "docs/architecture.md": 2616,
-    "frontend/src/app/page.tsx": 2158,
-    "backend/app/services/road_graph_engine.py": 2150,
-    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1374,
+    "frontend/src/components/Map/MapView.tsx": 3826,
+    "backend/app/infrastructure/road_graph_repository.py": 2763,
+    "backend/app/services/road_graph_engine.py": 2585,
+    "frontend/src/app/page.tsx": 2490,
+    "docs/architecture.md": 2415,
+    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1375,
+    "backend/app/domain/routing.py": 1273,
     "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx": 1168,
+    "backend/app/domain/evaluation.py": 1095,
     "backend/app/domain/material_catalog.py": 990,
-    "backend/app/domain/evaluation.py": 958,
-    "backend/app/domain/routing.py": 826,
-    "backend/app/domain/axis_definitions.py": 781,
+    "backend/app/domain/axis_definitions.py": 791,
+    "frontend/src/components/Map/icons.tsx": 647,
     "backend/app/services/graph_service.py": 582,
-    "frontend/src/components/Map/mapLayers.ts": 579,
-    "frontend/src/components/Map/icons.tsx": 578
+    "frontend/src/components/Map/mapLayers.ts": 565
   },
+  "fired": [
+    "backend/app/domain/evaluation.py",
+    "backend/app/domain/routing.py",
+    "backend/app/services/road_graph_engine.py",
+    "frontend/src/app/page.tsx",
+    "frontend/src/components/Map/MapView.tsx",
+    "frontend/src/components/Map/icons.tsx"
+  ],
   "thresholds": {
     "backend/app/infrastructure/road_graph_repository.py": 2800,
     "backend/app/services/road_graph_engine.py": 2200,
@@ -39,8 +47,5 @@
     "frontend/src/components/AxisStudio/AxisComposer.tsx": 1750,
     "docs/architecture.md": 3000,
     "backend/app/domain/evaluation.py": 1150
-  },
-  "fired": [
-    "backend/app/domain/evaluation.py"
-  ]
+  }
 }
