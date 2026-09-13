@@ -1792,7 +1792,7 @@ export interface components {
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
             /**
              * Penalty Strength
-             * @default 1
+             * @default 0.7
              */
             penalty_strength: number;
             /** Max Average Grade Percent */

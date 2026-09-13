@@ -4104,7 +4104,7 @@
             "type": "number",
             "minimum": 0.0,
             "title": "Penalty Strength",
-            "default": 1.0
+            "default": 0.7
           },
           "max_average_grade_percent": {
             "anyOf": [

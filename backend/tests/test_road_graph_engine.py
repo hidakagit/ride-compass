@@ -1295,6 +1295,40 @@ async def test_prepare_does_not_crash_when_night_axis_is_unpublished(monkeypatch
     assert day_context.night_active is False
 
 
+async def test_search_cost_slows_down_on_gravel_even_when_the_surface_axis_is_off():
+    # 路面も勾配と同じく「実際に遅くなる（走行モデル）」と「不快だから避けたい（軸）」の
+    # 2つの効き方を持つ。軸の重みを0にしても、未舗装は転がり抵抗が上がって実際に時間が
+    # かかるぶんコストが上がらなければならない。
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
+    # 全軸の重みを0にして、コストを素の所要時間だけにする。
+    preference = RoutePreference(
+        weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
+                 "car_stress": 0.0, "accident": 0.0, "night": 0.0, "bicycle_infra_quality": 0.0}
+    )
+
+    paved_generator, _, _ = make_generator(
+        graph, way_tags={"e1": {}}, route_preference=preference,
+        surface_attributes={"e1": "asphalt"},
+    )
+    gravel_generator, _, _ = make_generator(
+        graph, way_tags={"e1": {}}, route_preference=preference,
+        surface_attributes={"e1": "gravel"},
+    )
+    paved_context = await paved_generator._engine.prepare(ORIGIN, radius_km=1.0)
+    gravel_context = await gravel_generator._engine.prepare(ORIGIN, radius_km=1.0)
+
+    paved_cost = _lazy_edge_cost(paved_generator._engine, paved_context, "a", "b")
+    gravel_cost = _lazy_edge_cost(gravel_generator._engine, gravel_context, "a", "b")
+
+    # 平地・無風の舗装は巡航速度そのもの。未舗装は転がり抵抗が3倍になり2割以上遅くなる。
+    assert paved_cost == pytest.approx(edge.distance_m / kmh_to_ms(ASSUMED_SPEED_KMH), rel=1e-3)
+    assert gravel_cost > paved_cost * 1.2
+
+
 async def test_search_cost_slows_down_on_a_climb_even_when_the_gradient_axis_is_off():
     # 勾配は「速度が落ちる（走行モデル）」と「きつい坂は避けたい（軸）」の2つの効き方を持つ。
     # 軸の重みを0にしても、登りは実際に時間がかかるぶんコストが上がらなければならない
@@ -1516,10 +1550,26 @@ async def test_select_via_nodes_includes_shortest_route_as_top_candidate():
 
 
 async def test_select_fastest_route_ignores_axis_cost():
-    # 直線に近い経路（offset=0）を砂利にして軸コストを高くし、遠回り（offset=3km）を
-    # 舗装にする。砂利は通行可否の問題ではない（0次フィルタの対象外）ため、所要時間だけで
-    # 選ぶ本メソッドは速い方を返さなければならない——「基準線からどれだけ余計にかかるか」の
-    # 基準線だから。
+    # 直線に近い経路（offset=0）を車の圧迫感が高い道（secondary）にし、遠回り（offset=3km）を
+    # 生活道路にする。圧迫感は主観であって走行速度を変えないため、所要時間だけで選ぶ本メソッドは
+    # 短い方を返さなければならない——「基準線からどれだけ余計にかかるか」の基準線だから。
+    graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
+    for edge_id in ("e-0-out", "e-0-in"):
+        graph.edges[edge_id] = graph.edges[edge_id].model_copy(update={"highway": "secondary"})
+    generator, _, _ = make_generator(graph)
+    engine = generator._engine
+    context = await _prepare_destination_context(generator, DESTINATION_20KM)
+
+    fastest = await engine.select_fastest_route(context, DESTINATION_20KM)
+
+    assert fastest is not None
+    assert fastest.data == ["e-0-out", "e-0-in"]
+
+
+async def test_select_fastest_route_avoids_gravel_because_it_is_actually_slower():
+    # 路面は主観（不快さ）である前に走行モデルの入力（転がり抵抗）。砂利の直線（20km）より
+    # 舗装の遠回り（約20.9km）の方が早く着くなら、基準線は遠回りを選ぶ。軸の重みを使わない
+    # ことと、実際に遅いことを無視することは別である。
     graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
     surface_attributes = {
         "e-0-out": "gravel", "e-0-in": "gravel",
@@ -1532,7 +1582,7 @@ async def test_select_fastest_route_ignores_axis_cost():
     fastest = await engine.select_fastest_route(context, DESTINATION_20KM)
 
     assert fastest is not None
-    assert fastest.data == ["e-0-out", "e-0-in"]
+    assert fastest.data == ["e-1-out", "e-1-in"]
 
 
 async def test_select_fastest_route_respects_hard_filters():

@@ -65,8 +65,10 @@ import numpy as np
 from app.domain.time_zone import JST
 from app.domain.cycling_speed import (
     MAX_DESCENT_SPEED_KMH,
+    ROLLING_RESISTANCE_MATERIAL_ID,
     WALKING_SPEED_KMH,
     RiderProfile,
+    crr_for_surface,
     travel_seconds,
 )
 from app.domain.traffic import POI_COUNT_KINDS, highway_rank, stop_seconds
@@ -353,8 +355,9 @@ class _LegCostComposer:
     ) -> np.ndarray:
         """区間ごとの所要時間（秒）を`full_edge_row`順で返す。
 
-        走行モデル（`domain/cycling_speed.py`）で勾配・風の成分・巡航速度から求めた走行時間に、
-        その区間にある停止要因の待ち（`domain/traffic.py: STOP_SECONDS`）を足したもの。
+        走行モデル（`domain/cycling_speed.py`）で勾配・風の成分・路面・巡航速度から求めた
+        走行時間に、その区間にある停止要因の待ち（`domain/traffic.py: STOP_SECONDS`）を
+        足したもの。
         ターンの待ちは遷移ごとに決まるためここには含まない（探索側が足す）。
         0次フィルタで除外された区間は無限大にする（探索から見た通行可否をコストの下地だけで
         表すため）。
@@ -365,7 +368,8 @@ class _LegCostComposer:
         # `material_arrays`は「内訳として見せる材料」だけのため、勾配軸が分解されていない
         # 構成では欠ける。
         grade = np.nan_to_num(self._score_matrix.gradient_percent) / 100.0
-        travel = travel_seconds(distance_m, profile, grade, headwind_ms, crosswind_ms)
+        crr = crr_for_surface(material_arrays.get(ROLLING_RESISTANCE_MATERIAL_ID), len(distance_m))
+        travel = travel_seconds(distance_m, profile, grade, headwind_ms, crosswind_ms, crr)
         stops = np.zeros(len(distance_m))
         for kind in POI_COUNT_KINDS:
             per_km = material_arrays.get(f"poi_{kind}_per_km")

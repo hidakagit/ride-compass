@@ -6,7 +6,7 @@
         "category": "観測",
         "chip_label": "勾配",
         "dedicated_way_value_layer": true,
-        "default_weight": 0.15,
+        "default_weight": 0.0,
         "description": "登り坂の急さが小さいほど易しい",
         "display_band_labels_override": null,
         "display_thresholds_override": [
@@ -67,7 +67,7 @@
         "category": "推定",
         "chip_label": null,
         "dedicated_way_value_layer": true,
-        "default_weight": 0.26,
+        "default_weight": 0.0,
         "description": "向かい風が弱いほど易しい",
         "display_band_labels_override": [
           "無風・追い風",
@@ -126,7 +126,7 @@
         "category": "観測",
         "chip_label": "舗装",
         "dedicated_way_value_layer": false,
-        "default_weight": 0.19,
+        "default_weight": 0.0,
         "description": "舗装路であるほど易しい",
         "display_band_labels_override": null,
         "display_thresholds_override": null,
@@ -676,7 +676,7 @@
         "category": "推定",
         "chip_label": "停止密度",
         "dedicated_way_value_layer": false,
-        "default_weight": 0.2,
+        "default_weight": 0.0,
         "description": "止まる回数（信号・踏切・一時停止）が少ないほど易しい。信号の無い横断歩道と交差点の多さは含みません。",
         "display_band_labels_override": [
           "500m以上で1回停止",
@@ -809,5 +809,5 @@
       "sort_order": 16
     }
   ],
-  "revision": 64
+  "revision": 72
 }

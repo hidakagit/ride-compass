@@ -36,7 +36,10 @@ async def refresh_axis_registry() -> None:
 
 @asynccontextmanager
 async def route_generator_session(
-    preference: RoutePreference, *, turn_cost: TurnCostSpec = DEFAULT_TURN_COST
+    preference: RoutePreference,
+    *,
+    turn_cost: TurnCostSpec = DEFAULT_TURN_COST,
+    penalty_strength: float = 1.0,
 ) -> AsyncIterator[RouteGenerator]:
     """軸定義refresh後の`preference`を受け取り、GraphService/ElevationAttributeService/
     WeatherServiceの組み立てからRoadGraphEngine/RouteGeneratorの生成までを行う。
@@ -51,7 +54,8 @@ async def route_generator_session(
             )
             weather_service = WeatherService()
             engine = RoadGraphEngine(
-                graph_service, elevation_service, weather_service, preference, turn_cost=turn_cost
+                graph_service, elevation_service, weather_service, preference,
+                penalty_strength=penalty_strength, turn_cost=turn_cost,
             )
             yield RouteGenerator(engine)
 

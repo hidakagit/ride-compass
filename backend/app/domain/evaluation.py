@@ -69,6 +69,7 @@ from app.domain.material_catalog import (
     resolve_materials,
 )
 from app.domain.route_preference import RoutePreference
+from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.traffic import stop_count_material_ids
 from app.domain.recipe import tag_value_is
 from app.domain.weather import WeatherConditions
@@ -333,12 +334,13 @@ def route_facing_material_ids() -> list[str]:
     - 動的材料（風）。静的スコア行列は`weather=None`で組み立てるため全行NaNになる。
     - 分解しない軸（参照材料が1件）。軸単位の生値（`axis_raw_arrays`）で足りる。
 
-    軸が1つも参照していなくても、走行モデルが所要時間の算出に使う材料
-    （`domain/traffic.py: stop_count_material_ids`）は常に含める——軸の公開/非公開で
-    所要時間の中身が変わってはいけない。
+    軸が1つも参照していなくても、走行モデルが所要時間の算出に使う材料（停止の待ちは
+    `domain/traffic.py: stop_count_material_ids`、転がり抵抗は
+    `domain/cycling_speed.py: ROLLING_RESISTANCE_MATERIAL_ID`）は常に含める——軸の
+    公開/非公開で所要時間の中身が変わってはいけない。
     """
     seen: dict[str, None] = {}
-    for material_id in stop_count_material_ids():
+    for material_id in (*stop_count_material_ids(), ROLLING_RESISTANCE_MATERIAL_ID):
         if material_id in MATERIAL_CATALOG:
             seen.setdefault(material_id, None)
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
@@ -622,6 +624,15 @@ def _evaluate_axes_bulk(
         material_value_arrays=material_value_arrays,
         categorical_material_arrays=categorical_material_arrays,
     )
+
+
+# 主観的割増と時間の換算レート（P）の既定値。`難易度100の道は体感で所要時間の(1+P)倍`の
+# 意味で、コスト式は`所要時間 × (1 + P × difficulty/100)`。
+#
+# 走行モデルへ入っている現象（風・勾配・路面・停止の待ち）を写した軸の既定重みは0のため、
+# difficultyは主観的な軸だけの加重平均になり、物理の軸で薄まらないぶん値が大きく出る。
+# Pはその物差しに合わせた値で、**実走での較正が要る暫定値**。
+DEFAULT_PENALTY_STRENGTH = 0.7
 
 
 def axis_contributions_at_row(
