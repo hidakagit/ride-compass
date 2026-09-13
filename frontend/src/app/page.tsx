@@ -56,11 +56,7 @@ import {
   type LensId,
 } from "@/components/Map/routeStyleModes";
 import ErrorText from "@/components/ErrorText/ErrorText";
-import RouteForm, {
-  type DestinationButtonState,
-  type RouteMode,
-  type SettingsTab,
-} from "@/components/RouteForm/RouteForm";
+import RouteForm, { type RouteMode, type SettingsTab } from "@/components/RouteForm/RouteForm";
 import { useRouteFormSubmit } from "@/components/RouteForm/useRouteFormSubmit";
 import RouteSettingsPanel, { stackBarColorForIndex } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/HardFilterPanel";
@@ -120,6 +116,7 @@ import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hoo
 import { generateRoutes, type GenerationProgress } from "@/services/routeApi";
 import type {
   Coordinates,
+  PinRole,
   HardFilterOverride,
   RouteCandidate,
   RoutePreferenceWeights,
@@ -400,19 +397,18 @@ export default function Home() {
   // 地図クリックで指定する経由地（起点→経由地1→...→起点の順で通過する単一経路を
   // 生成する）。指定があれば周回探索は行わない（handleGenerate参照）。
   const [waypoints, setWaypoints] = useState<Coordinates[]>([]);
-  const handleWaypointAdd = useCallback((point: Coordinates) => {
-    setWaypoints((prev) => [...prev, point]);
-  }, []);
   const handleWaypointRemove = useCallback((index: number) => {
     setWaypoints((prev) => prev.filter((_, i) => i !== index));
   }, []);
   const handleWaypointsClear = useCallback(() => setWaypoints([]), []);
 
   // 目的地（最大1点）。指定時は起点に戻らず目的地で終わる片道ルートになる
-  // （handleGenerate参照）。destinationArmedは「目的地を設定」ボタン押下から次の1タップ
-  // までの間だけtrueになり、地図クリックが目的地配置として扱われる（MapView.tsx参照）。
+  // （handleGenerate参照）。
   const [destination, setDestination] = useState<Coordinates | null>(null);
-  const [destinationArmed, setDestinationArmed] = useState(false);
+  // 地図のタップで置ける地点の役割。**どれか1つだけ**が置ける状態になり、その間だけ地図の
+  // タップがピンの配置として扱われる（MapView.tsx: armedPinRole）。nullの間は地図を触っても
+  // ピンは増えない——役割を選ばずに置けると、地図を見ているだけのつもりの操作で経由地が増える。
+  const [armedPinRole, setArmedPinRole] = useState<PinRole | null>(null);
 
   // 周回（距離指定）/目的地（地図タップで経由地・目的地を指定）モードの切り替え。
   // 経由地・目的地の操作はRouteForm（距離入力・生成ボタンと同じ場所）に統合されている。
@@ -427,23 +423,34 @@ export default function Home() {
     (mode: RouteMode) => {
       setRouteMode(mode);
       if (mode === "destination") {
-        // 目的地・経由地とも未指定のまま目的地モードへ入った場合、ゴールアイコンを
-        // 押さなくても次のタップで即座に目的地を指定できるようにする。既に目的地・
-        // 経由地があるときは自動武装しない——次のタップの意図が「経由地の追加」である
-        // 可能性があり、武装したままだと意図せず目的地が上書きされてしまうため。
-        setDestinationArmed(destination === null && waypoints.length === 0);
+        // 目的地・経由地とも未指定のまま目的地モードへ入った場合、行を押さなくても次の
+        // タップで目的地を置けるようにする。既に目的地・経由地があるときは自動で武装しない
+        // ——次のタップの意図が「経由地の追加」である可能性があり、武装したままだと意図せず
+        // 目的地が上書きされてしまうため。
+        setArmedPinRole(destination === null && waypoints.length === 0 ? "destination" : null);
       } else {
-        // 武装中に周回モードへ切り替えた場合、目的地モードへ戻るまで武装状態を持ち越さない。
-        setDestinationArmed(false);
+        // 周回モードへ切り替えたら武装を持ち越さない（地図にピンを置く操作自体が無い）。
+        setArmedPinRole(null);
       }
     },
     [destination, waypoints.length, setRouteMode]
   );
 
-  const handleDestinationSet = useCallback((point: Coordinates) => {
-    setDestination(point);
-    setDestinationArmed(false);
-  }, []);
+  // 武装中の役割の地点として地図のタップを受ける。経由地だけは置いたあとも武装を続ける
+  // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。
+  const handlePinPlace = useCallback((role: PinRole, point: Coordinates) => {
+    if (role === "origin") {
+      setManualLocation(point);
+      setArmedPinRole(null);
+      return;
+    }
+    if (role === "destination") {
+      setDestination(point);
+      setArmedPinRole(null);
+      return;
+    }
+    setWaypoints((prev) => [...prev, point]);
+  }, [setManualLocation]);
   // 地図上の候補線から候補を選ぶ。一覧（縦タブ）での切り替えと同じく、前の候補で
   // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま残るため）。
   const handleRouteSelectFromMap = useCallback((routeId: string) => {
@@ -452,14 +459,10 @@ export default function Home() {
   }, []);
 
   const handleDestinationClear = useCallback(() => setDestination(null), []);
-  // チップは「指定する／置き直す」だけを担い、押すたびに武装する（武装中に押すと
-  // キャンセル）。設定済みから武装しても目的地は残したままで、地図タップが置き換えになる
-  // ——生成後に目的地を変えたいとき、解除してから指定し直す手順を踏ませないため。
-  // 解除は別ボタン（onDestinationClear、経由地チップの✕と同じ形）。
-  const handleDestinationButtonClick = useCallback(() => {
-    setDestinationArmed((armed) => !armed);
-  }, []);
-  const destinationState: DestinationButtonState = destinationArmed ? "armed" : destination ? "set" : "unset";
+  // 行の操作で武装する（同じ行をもう一度押すと解除）。設定済みの地点から武装しても値は
+  // 残したままで、地図タップが置き換えになる——生成後に目的地を変えたいとき、解除してから
+  // 指定し直す手順を踏ませないため。解除は行の✕が担う。
+  const handleArmPinRole = useCallback((role: PinRole | null) => setArmedPinRole(role), []);
 
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
   // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
@@ -495,7 +498,7 @@ export default function Home() {
     maxRoutes: maxRoutesInput,
     routeMode,
     waypointCount: waypoints.length,
-    destinationState,
+    destinationSet: destination !== null,
     onGenerate: handleGenerate,
   });
   // 仮定巡航速度（backend: RouteGenerateRequest.assumed_speed_kmh、km/h）。距離と同じく
@@ -826,7 +829,16 @@ export default function Home() {
   // 候補線を選ぼうとして少し外すたびに経由地が増えてしまう——生成に関わる操作は
   // 「ルート生成」ボタンがある場所でだけ受け付ける。モバイルはシートの排他表示、
   // デスクトップは区分の開閉が「見ているか」にあたる。
+  // 「ルート設定」区分のタブ（条件/重み/除外）。タブ列は見出し行、中身は本文と離れた
+  // 場所に描くため、両方を囲むTabs.Rootと同じ場所（page.tsx）で選択状態を持つ。
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("generate");
+
   const routeSettingsActive = isMobile ? mobileSheet === "routeSettings" : generateOpen;
+  // 地点の行が見えている場所でだけピンを置ける。「ルート結果」を見ている間や、「重み」
+  // 「除外」タブを開いている間は、武装していても地図のタップはピンにしない（T781と同じ理屈で、
+  // 地図を触った副作用で地点が変わらないようにする）。
+  const pinPlacementArmedRole =
+    routeMode === "destination" && routeSettingsActive && settingsTab === "generate" ? armedPinRole : null;
 
   const mapPaneRef = useRef<HTMLDivElement>(null);
   const bottomControlRowRef = useRef<HTMLDivElement>(null);
@@ -1640,10 +1652,6 @@ export default function Home() {
     if (routeFormSubmit.error) notifyRouteOutcome();
   }, [routeFormSubmit.error, notifyRouteOutcome]);
 
-  // 「ルート設定」区分のタブ（条件/重み/除外）。タブ列は見出し行、中身は本文と離れた
-  // 場所に描くため、両方を囲むTabs.Rootと同じ場所（page.tsx）で選択状態を持つ。
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>("generate");
-
   // 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。queued（同時実行数
   // 上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
   // 既定文言（「生成中...」）に委ねる。
@@ -1712,9 +1720,12 @@ export default function Home() {
           onRouteModeChange={handleRouteModeChange}
           waypointCount={waypoints.length}
           onWaypointsClear={handleWaypointsClear}
-          destinationState={destinationState}
-          onDestinationButtonClick={handleDestinationButtonClick}
+          destinationSet={destination !== null}
           onDestinationClear={handleDestinationClear}
+          originManual={locationSource === "manual"}
+          onOriginReset={handleLocateMe}
+          armedPinRole={armedPinRole}
+          onArmPinRole={handleArmPinRole}
           weightsPanel={renderRouteSettingsSectionBody()}
           exclusionsPanel={<HardFilterPanel hardFilters={hardFilters} onHardFiltersChange={setHardFilters} />}
         />
@@ -2237,13 +2248,12 @@ export default function Home() {
             // waypoints/destination state自体を消さないため、目的地モードへ戻れば
             // 復元される）。
             waypoints={routeMode === "destination" ? waypoints : []}
-            onWaypointAdd={handleWaypointAdd}
             onWaypointRemove={handleWaypointRemove}
             destination={routeMode === "destination" ? destination : null}
-            destinationArmed={routeMode === "destination" && routeSettingsActive && destinationArmed}
-            onDestinationSet={handleDestinationSet}
+
             onDestinationClear={handleDestinationClear}
-            pinPlacementEnabled={routeMode === "destination" && routeSettingsActive}
+            armedPinRole={pinPlacementArmedRole}
+            onPinPlace={handlePinPlace}
             onOriginSet={setManualLocation}
             routeFitObscuredPx={routeFitObscuredPx}
           />
@@ -2421,7 +2431,7 @@ export default function Home() {
               onHeightChange={handleMobileSheetHeightChange}
               onHeightCommit={handleMobileSheetHeightCommit}
               autoFitHeight={!sheetHeightChosen}
-              fitKey={settingsTab}
+              fitKey={`${settingsTab}:${routeMode}`}
             >
               {renderRouteSectionBody()}
             </BottomSheet>

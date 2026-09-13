@@ -99,55 +99,80 @@
   color: #fff;
 }
 
-/* 目的地モードの経由地件数チップ・目的地ボタン。距離入力の代わりにこの行へ収まる。 */
-.destinationSummary {
+/* 目的地モードの地点行（出発地・経由地・目的地）。3つとも役割は同じ「地点を置く」ため
+   同じ形の行にし、行頭の印だけで見分ける（印は地図のマーカーと同じ色）。 */
+.pointRows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pointRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
-.summaryChip {
+/* 置ける状態の行だけを強調する。地図のタップがどの地点になるかは、この1行でしか分からない。 */
+.pointRow[data-armed="true"] {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent) inset;
+}
+
+.pointMark {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  font-size: 0.8rem;
-  background: var(--color-surface-2);
-  border-radius: 999px;
-  padding: 0.2rem 0.5rem;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: #fff;
 }
 
-.summaryChip button {
-  border: none;
-  background: transparent;
+.pointLabel {
+  flex: none;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
-  cursor: pointer;
-  font-size: 0.75rem;
-  padding: 0;
-  line-height: 1;
 }
 
-.destinationChip,
-.destinationChipArmed,
-.destinationChipSet {
+.pointValue {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pointAction,
+.pointActionArmed,
+.pointSubAction {
+  flex: none;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
   background: var(--color-surface);
+  padding: 0.15rem 0.5rem;
   cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  padding: 0.3rem 0.5rem;
 }
 
-/* チップ内の状態文言。アイコンだけだと3状態を見分けられない（モバイルにツールチップが
-   無い）ため、短い文言を並べる。 */
-.destinationChipText {
-  font-size: 0.8rem;
-  margin-left: 0.3rem;
+.pointActionArmed {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
 }
 
-/* 設定済みのときだけ出る解除ボタン（経由地チップの✕と同じ役割）。 */
-.destinationClearButton {
+.pointSubAction {
+  color: var(--color-muted);
+}
+
+.pointClear {
+  flex: none;
   border: none;
   background: transparent;
   color: var(--color-muted);
@@ -155,25 +180,4 @@
   font-size: 0.75rem;
   padding: 0.2rem;
   line-height: 1;
-}
-
-.destinationChipArmed {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  animation: destinationPulse 1.2s ease-in-out infinite;
-}
-
-.destinationChipSet {
-  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
-  border-color: var(--color-accent);
-}
-
-@keyframes destinationPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
 }

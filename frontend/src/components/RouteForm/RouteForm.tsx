@@ -1,12 +1,12 @@
 "use client";
 
 import * as Tabs from "@radix-ui/react-tabs";
+import type { PinRole } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { isMaxRoutesRelevant } from "./useRouteFormSubmit";
 import styles from "./RouteForm.module.css";
 
 export type RouteMode = "loop" | "destination";
-export type DestinationButtonState = "unset" | "armed" | "set";
 
 /** 「ルート設定」区分のタブ。タブ列と選択状態はpage.tsxが持ち（見出し行に置くため）、
  * ここは各タブの中身だけを描く。 */
@@ -27,10 +27,17 @@ interface RouteFormProps {
   onRouteModeChange: (mode: RouteMode) => void;
   waypointCount: number;
   onWaypointsClear: () => void;
-  destinationState: DestinationButtonState;
-  /** 設定済みの目的地を消す（チップ本体は「指定する／置き直す」だけを担う）。 */
+  /** 目的地を置いてあるか。 */
+  destinationSet: boolean;
   onDestinationClear: () => void;
-  onDestinationButtonClick: () => void;
+  /** 出発地を地図で置き直してあるか（falseなら現在地のまま）。 */
+  originManual: boolean;
+  /** 出発地を現在地へ戻す（現在地の取得もこの操作が兼ねる）。 */
+  onOriginReset: () => void;
+  /** いま地図のタップで置ける役割。nullなら地図を触ってもピンは増えない。 */
+  armedPinRole: PinRole | null;
+  /** 行の操作で武装する／やめる（同じ役割をもう一度押すと解除）。 */
+  onArmPinRole: (role: PinRole | null) => void;
   /** 「重み」タブの中身（RouteSettingsPanelを含む要素一式）。「ルート設定」区分は
    * 「条件」（本コンポーネントの距離・候補数等）・「重み」・「除外」の3タブへ分ける。
    * タブ列（Tabs.List）と「ルート生成」ボタンはこのコンポーネントの外（page.tsx:
@@ -53,9 +60,12 @@ export default function RouteForm({
   onRouteModeChange,
   waypointCount,
   onWaypointsClear,
-  destinationState,
+  destinationSet,
   onDestinationClear,
-  onDestinationButtonClick,
+  originManual,
+  onOriginReset,
+  armedPinRole,
+  onArmPinRole,
   weightsPanel,
   exclusionsPanel,
 }: RouteFormProps) {
@@ -66,22 +76,40 @@ export default function RouteForm({
     onMaxRoutesChange(String(next));
   }
 
-  // モバイルにツールチップは無いため、状態は文言そのもので示す（titleやaria-labelだけに
-  // 頼ると「次に何をすればよいか」が画面から読めない）。
-  const destinationButtonText =
-    destinationState === "set" ? "目的地を変更" : destinationState === "armed" ? "地図をタップ" : "目的地を指定";
-  const destinationButtonLabel =
-    destinationState === "set"
-      ? "目的地を変更（地図をタップして置き直す）"
-      : destinationState === "armed"
-        ? "地図をタップして目的地を指定（もう一度押すとキャンセル）"
-        : "目的地を設定（地図をタップ）";
-  const destinationButtonClassName =
-    destinationState === "set"
-      ? styles.destinationChipSet
-      : destinationState === "armed"
-        ? styles.destinationChipArmed
-        : styles.destinationChip;
+  // 出発地・経由地・目的地は同じ形の行で並べる（役割が同じ「地点を置く」操作のため）。
+  // 行頭の印は地図のマーカーと同じ色・同じ字で、行とピンを見た目で結ぶ。
+  // 武装は1つだけで、押している行以外は自動的に解除される（page.tsx: armedPinRole）。
+  function renderPointRow(
+    role: PinRole,
+    label: string,
+    mark: { text: string; background?: string },
+    value: string,
+    armLabel: string,
+    extra?: React.ReactNode,
+    /** 武装中に値の代わりに出す文言。置いた数を隠さないため、経由地は件数を添える。 */
+    armedHint: string = "地図をタップ"
+  ) {
+    const armed = armedPinRole === role;
+    return (
+      <div className={styles.pointRow} data-armed={armed}>
+        <span aria-hidden="true" className={styles.pointMark} style={{ background: mark.background }}>
+          {mark.text}
+        </span>
+        <span className={styles.pointLabel}>{label}</span>
+        <span className={styles.pointValue}>{armed ? armedHint : value}</span>
+        {extra}
+        <button
+          type="button"
+          className={armed ? styles.pointActionArmed : styles.pointAction}
+          aria-pressed={armed}
+          aria-label={armed ? `${label}の指定をやめる` : `${label}を${armLabel}`}
+          onClick={() => onArmPinRole(armed ? null : role)}
+        >
+          {armed ? "やめる" : armLabel}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -128,34 +156,58 @@ export default function RouteForm({
               <span className={styles.sliderValue}>{distance}km</span>
             </div>
           ) : (
-            <div className={styles.destinationSummary}>
-              {waypointCount > 0 && (
-                <span className={styles.summaryChip}>
-                  📍{waypointCount}
-                  <button type="button" onClick={onWaypointsClear} aria-label="経由地をクリア">
+            <div className={styles.pointRows}>
+              {renderPointRow(
+                "origin",
+                "出発地",
+                { text: "●", background: "#e11d48" },
+                originManual ? "地図で指定" : "現在地",
+                "地図で選ぶ",
+                originManual ? (
+                  <button
+                    type="button"
+                    className={styles.pointSubAction}
+                    aria-label="出発地を現在地に戻す"
+                    onClick={onOriginReset}
+                  >
+                    現在地に戻す
+                  </button>
+                ) : undefined,
+              )}
+              {renderPointRow(
+                "waypoint",
+                "経由地",
+                { text: "●", background: "#2563eb" },
+                waypointCount > 0 ? `${waypointCount}地点` : "なし",
+                "追加",
+                waypointCount > 0 ? (
+                  <button
+                    type="button"
+                    className={styles.pointClear}
+                    aria-label="経由地をクリア"
+                    onClick={onWaypointsClear}
+                  >
                     ✕
                   </button>
-                </span>
+                ) : undefined,
+                waypointCount > 0 ? `地図をタップ（${waypointCount}地点）` : "地図をタップ",
               )}
-              <button
-                type="button"
-                onClick={onDestinationButtonClick}
-                aria-label={destinationButtonLabel}
-                title={destinationButtonLabel}
-                className={destinationButtonClassName}
-              >
-                🏁<span className={styles.destinationChipText}>{destinationButtonText}</span>
-              </button>
-              {destinationState === "set" && (
-                <button
-                  type="button"
-                  onClick={onDestinationClear}
-                  aria-label="目的地を解除"
-                  title="目的地を解除"
-                  className={styles.destinationClearButton}
-                >
-                  ✕
-                </button>
+              {renderPointRow(
+                "destination",
+                "目的地",
+                { text: "🏁" },
+                destinationSet ? "地図で指定" : "未設定",
+                destinationSet ? "置き直す" : "地図で選ぶ",
+                destinationSet ? (
+                  <button
+                    type="button"
+                    className={styles.pointClear}
+                    aria-label="目的地を解除"
+                    onClick={onDestinationClear}
+                  >
+                    ✕
+                  </button>
+                ) : undefined,
               )}
             </div>
           )}

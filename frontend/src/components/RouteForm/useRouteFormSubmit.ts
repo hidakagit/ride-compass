@@ -1,6 +1,6 @@
 import { useState } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import type { DestinationButtonState, RouteMode } from "./RouteForm";
+import type { RouteMode } from "./RouteForm";
 
 // backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
 // le=MAX_ROUTE_DISTANCE_KM)）と一致させる。backend側の唯一の情報源
@@ -23,7 +23,8 @@ export interface UseRouteFormSubmitOptions {
   maxRoutes: string;
   routeMode: RouteMode;
   waypointCount: number;
-  destinationState: DestinationButtonState;
+  /** 目的地を置いてあるか。 */
+  destinationSet: boolean;
   onGenerate: (distanceKm: number) => void;
 }
 
@@ -43,7 +44,7 @@ export function useRouteFormSubmit({
   maxRoutes,
   routeMode,
   waypointCount,
-  destinationState,
+  destinationSet,
   onGenerate,
 }: UseRouteFormSubmitOptions): UseRouteFormSubmitResult {
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +66,7 @@ export function useRouteFormSubmit({
   function handleSubmit() {
     if (routeMode === "destination") {
       // 経由地・目的地のいずれも未指定のサイレント失敗を防ぐ。
-      if (waypointCount === 0 && destinationState !== "set") {
+      if (waypointCount === 0 && !destinationSet) {
         setError("地図をタップして目的地か経由地を指定してください。");
         return;
       }

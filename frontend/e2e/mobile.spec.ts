@@ -43,14 +43,20 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   const settings = await openMobileSheet(page, "ルート設定");
   await settings.getByRole("button", { name: "目的地", exact: true }).click();
   await page.locator(".app-map-pane canvas").click({ position: { x: 180, y: 150 } });
-  await expect(settings.getByText("目的地を変更")).toBeVisible();
+  await expect(settings.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
 
-  const outcome = await openMobileSheet(page, "ルート結果");
+  // 経由地を置ける状態にしてから「ルート結果」へ移る。結果を見ている間は、置ける状態の
+  // ままでも地図のタップでピンが増えない。
+  await settings.getByRole("button", { name: "経由地を追加" }).click();
+  await openMobileSheet(page, "ルート結果");
   await page.locator(".app-map-pane canvas").click({ position: { x: 220, y: 200 } });
   await page.waitForTimeout(400);
-  await expect(outcome.getByText(/📍/)).toHaveCount(0);
 
+  // 戻ってきても「置ける状態」は保たれている（離れている間だけ置けない）。経由地が増えて
+  // いないことは、件数>0のときだけ出るクリアボタンが無いことで見る。
   const settingsAgain = await openMobileSheet(page, "ルート設定");
+  await expect(settingsAgain.getByRole("button", { name: "経由地の指定をやめる" })).toBeVisible();
+  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toHaveCount(0);
   await page.locator(".app-map-pane canvas").click({ position: { x: 240, y: 220 } });
-  await expect(settingsAgain.getByText(/📍\s*1/)).toBeVisible({ timeout: 5000 });
+  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
 });

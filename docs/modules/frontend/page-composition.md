@@ -77,6 +77,10 @@ stateは`page.tsx`の`useState`に集約し、子コンポーネントへはprop
 | `localStorage` | 利用者が自分で決めた設定で、次に開いたときも同じであってほしいもの | 評価の設定（`routePreference`・`hardFilters`）、生成条件の入力（`routeMode`・距離・候補数）、レイヤー表示（`layerVisibility`・`lens`）、パネル開閉、下部シートの高さ |
 | なし | そのセッション限りの結果・場所の指定・地図の見え方 | 生成結果（`routes`・`selectedRouteId`）、目的地・経由地のピン、地図ビューポート、データ取得状態 |
 
+地図のタップで地点を置けるのは、「ルート設定」の「条件」タブで役割を選んでいる間だけ
+（`pinPlacementArmedRole`）。役割ごとの武装フラグは持たず、`PinRole`1つで表す
+（[route-settings-and-results.md](route-settings-and-results.md)「地点の指定」参照）。
+
 **場所（目的地・経由地のピン）は保存しない**——行くたびに変わるうえ、古いピンが残っていると
 気づかないまま生成してしまう。保存した生成条件の入力値は、復元時にUIが受け付ける範囲内かを
 検査し、外れていれば既定値のまま扱う（スライダーの範囲が縮んだ後でも範囲外の値が送られない）。

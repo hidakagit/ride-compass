@@ -19,6 +19,10 @@ export type Coordinates = Schemas["Coordinates"];
 
 // フロント専用（位置情報の出所）。APIには現れない。緯度経度の手書きテキスト入力は持たないが、
 // 地図タップによる出発地点の手動指定を"manual"として持つ。
+/** 地図をタップして置ける地点の役割。どれか1つだけが「置ける状態」になり、その間だけ
+ * 地図のタップがピンの配置として扱われる（役割ごとに別々の武装フラグを持たない）。 */
+export type PinRole = "origin" | "waypoint" | "destination";
+
 export type LocationSource = "geolocation" | "default" | "manual";
 
 export type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {

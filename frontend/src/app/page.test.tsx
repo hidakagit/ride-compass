@@ -473,20 +473,19 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
   if (options.exposeMapClickHandlers || options.exposeSegmentSelect) {
     vi.doMock("@/components/Map/MapView", () => ({
       default: (props: {
-        onDestinationSet: (c: { latitude: number; longitude: number }) => void;
-        onWaypointAdd: (c: { latitude: number; longitude: number }) => void;
+        onPinPlace: (role: "origin" | "waypoint" | "destination", c: { latitude: number; longitude: number }) => void;
         onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
       }) => (
         <>
           {options.exposeMapClickHandlers && (
             <>
-              <button onClick={() => props.onDestinationSet({ latitude: 35.681, longitude: 139.767 })}>
+              <button onClick={() => props.onPinPlace("destination", { latitude: 35.681, longitude: 139.767 })}>
                 テスト用に目的地を設定
               </button>
-              <button onClick={() => props.onDestinationSet({ latitude: 35.9, longitude: 139.9 })}>
+              <button onClick={() => props.onPinPlace("destination", { latitude: 35.9, longitude: 139.9 })}>
                 テスト用に目的地を別の地点へ動かす
               </button>
-              <button onClick={() => props.onWaypointAdd({ latitude: 35.682, longitude: 139.768 })}>
+              <button onClick={() => props.onPinPlace("waypoint", { latitude: 35.682, longitude: 139.768 })}>
                 テスト用に経由地を追加
               </button>
             </>
@@ -811,9 +810,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
     await user.click(screen.getByRole("button", { name: "目的地" }));
 
-    expect(
-      screen.getByRole("button", { name: "地図をタップして目的地を指定（もう一度押すとキャンセル）" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "目的地の指定をやめる" })).toBeInTheDocument();
   });
 
   it("T616: 既に目的地が指定済みの状態で目的地モードへ戻っても自動でarmedにはならない", async () => {
@@ -830,7 +827,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
   });
 
   // 生成後に目的地を変えたいとき、解除してから指定し直す2段階を踏ませない（T761）。
-  it("設定済みのチップを押すと目的地を残したまま武装し、もう一度押すと設定済みへ戻る", async () => {
+  it("設定済みの行を押すと目的地を残したまま武装し、もう一度押すと設定済みへ戻る", async () => {
     const user = userEvent.setup();
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -838,12 +835,12 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
 
-    await user.click(screen.getByRole("button", { name: "目的地を変更（地図をタップして置き直す）" }));
+    await user.click(screen.getByRole("button", { name: "目的地を置き直す" }));
     expect(screen.getByText("地図をタップ")).toBeInTheDocument();
 
     // 目的地は消えていない（押下が解除ではなく武装であることの確認）。
-    await user.click(screen.getByRole("button", { name: "地図をタップして目的地を指定（もう一度押すとキャンセル）" }));
-    expect(screen.getByText("目的地を変更")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "目的地の指定をやめる" }));
+    expect(screen.getByRole("button", { name: "目的地を置き直す" })).toBeInTheDocument();
   });
 
   it("改善計画T602: backendが目的地を補正した場合、案内を表示し次回生成では補正後の地点を送る", async () => {
