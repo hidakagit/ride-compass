@@ -185,19 +185,31 @@
   gap: var(--space-2);
 }
 
-/* 「ルート設定」区分のタブ列（条件/重み/除外）。タブ専用の行を持たず見出し行へ同居させる
-   ため、下線タブではなく高さの低いセグメント型にし、ラベルも2文字へ詰める。 */
+/* 「ルート設定」区分の見出し行。タブ専用の行を持たないぶん、行の中でタブ（左＝見出しの側）と
+   操作（右端＝ルート生成）を離す。 */
+.routeSectionHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* タブ列（条件/重み/除外）。中身を切り替えるものとして下線型にし、押すボタン
+   （ルート生成）と見た目を分ける。ラベルは2文字へ詰める。 */
 .settingsTabList {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2);
+  gap: var(--space-2);
 }
 
 .settingsTabTrigger {
-  padding: 0.15rem 0.5rem;
-  border-radius: var(--radius-sm);
+  /* globals.cssのbutton既定（枠・背景・角丸）を打ち消して、下線だけのタブにする。 */
+  padding: 0.1rem 0.15rem 0.25rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 2px solid transparent;
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   white-space: nowrap;
@@ -205,8 +217,9 @@
 }
 
 .settingsTabTrigger[data-state="active"] {
-  background: var(--color-surface);
   color: var(--color-accent-strong);
+  border-bottom-color: var(--color-accent-strong);
+  font-weight: 700;
 }
 
 /* 生成条件が表示中の候補とずれていることの印。モバイルの「ルート結果」タブに出る

@@ -70,10 +70,9 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   ドラッグ・矢印キー操作のみ**。ドラッグ中の値は帯の区間とチップの%がその場で動いて
   示すため、操作の説明文も、同じ調整を別の形で用意した操作（増減ボタン等）も置かない。
   帯の色（`stackBarColorForIndex`、実際の軸数でHSL色相環を等分）と凡例チップの
-  色ドットは同じ関数・同じindexから生成しており、常に一致する。「重み配分」見出し脇の
-  情報アイコン（`stackBarLegendTrigger`）を押すと、操作説明（帯の境界をドラッグして
-  配分を調整できる旨）に続けて全軸ぶんの色ドット+ラベル+現在の%を一覧するポップオーバーが
-  開く（見出し自体は「重み配分」の短い表記のみ）。
+  色ドットは同じ関数・同じindexから生成しており、常に一致する。**帯そのものが「重み配分」で
+  あり「全体で100%」であることを示すため、タブは見出しも合計の表記も持たない**（言い換えの
+  行を置かない、設計原則「冗長なものは削る」）。
 - 軸の凡例チップ（`renderLegendChip`）は「本体（アイコン＋略名＋現在の%。タップで
   有効/無効を切替、weight>0が有効の判定基準）」「(i)説明文ポップオーバー」の2要素で構成
   される複合ボタン群。無効な軸（weight=0）はチップ全体を半透明にし、%は出さない。
@@ -90,8 +89,8 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - 除外する道路（0次フィルタ）は独立したタブ（`HardFilterPanel`）に置く。重みづけと違い
   「通らない」指定であることを本文で明示し、将来の除外条件もこのタブへ足す。既定値から
   変更済みのときだけ、そのタブ内に戻すボタンを出す。
-- `resetButton`（重みを既定値に戻す）は`routePreference`だけを初期状態へ戻す（除外は
-  「除外」タブ側が自分のぶんを戻す）。
+- 重みを既定値へ戻す操作はこのタブに持たない。名前を付けた配分の切り替え（プロファイル、
+  [T795](../../tasks/T795.md)）の1つとして扱う。
 
 **暗黙の前提**: `useAxisCatalog()`は`page.tsx`と`RouteSettingsPanel.tsx`から同時に呼ばれうる
 （`page.tsx`がマウントした時点で子の`RouteSettingsPanel`も同時マウントされるため）。
@@ -286,14 +285,18 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 「ルート設定」区分自体を「条件」（`RouteForm`のモード切替・距離・候補数）・
 「重み」（`weightsPanel`propで受け取る`RouteSettingsPanel`一式）・
 「除外」（`exclusionsPanel`prop、`HardFilterPanel`）のタブへ分ける。
-**タブ列（`Tabs.List`）は見出し行に置き、タブの中身（`Tabs.Content`）は本文に出る**ため、
+**タブ列（`Tabs.List`）は見出し行の左（見出しのすぐ右）に置き、タブの中身
+（`Tabs.Content`）は本文に出る**ため、
 両方を囲む`Tabs.Root`（`@radix-ui/react-tabs`）と選択状態は`page.tsx`が持つ
 （`RouteForm`は中身だけを描く）。タブ専用の行を作らないぶん本文の縦が空き、ラベルは
 2文字へ詰める。どのタブも`forceMount`で常時マウントし表示だけ`data-state`で切り替える
 （`RouteSettingsPanel`がローカルstate[`lastWeights`等]を持つため、タブ切替のたびに
 アンマウントすると失われる。page.module.cssの`.outcomeTabPanel`と同じ方式）。
-「ルート生成」ボタンも同じ見出し行（デスクトップは`Disclosure`の`trailing`・モバイルは
-`BottomSheet`の`headerAction`、「ルート結果」見出し行の`renderRouteResultHeaderActions`と
+「ルート生成」ボタンも同じ見出し行の**右端**に置く（デスクトップは`Disclosure`の`trailing`
+の中で左右へ分け、モバイルはタブを`BottomSheet`の`headerLead`・ボタンを`headerAction`へ
+渡す）。中身を切り替えるタブと、押して生成を走らせるボタンは役割が違うため、行の中でも
+離し、タブは下線型・ボタンは塗りと見た目でも分ける（「ルート結果」見出し行の
+`renderRouteResultHeaderActions`と
 同じ場所）にあり、どのタブを見ていても押せる（`page.tsx: renderRouteSectionHeaderActions`）。検証エラーは本文でもボタンの隣でもなく
 「ルート結果」欄へ出す（[page-composition.md](page-composition.md)の「生成に関する
 フィードバックの置き場」参照）。同じ見出し行には、生成条件が表示中の候補とずれている間だけ

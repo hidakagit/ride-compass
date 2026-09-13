@@ -13,7 +13,8 @@ import styles from "./RouteSettingsPanel.module.css";
 
 // 「ルート設定」区分の「重み」タブ。重み配分バー（帯グラフ、全軸の取り分が1本に収まり、
 // 境界のドラッグで配分し直す）→軸チップ（有効な軸を先頭に%付きで並べ、タップで有効/無効、
-// (i)で説明）という並び。除外する道路は別タブ（HardFilterPanel）。
+// (i)で説明）という並び。帯そのものが配分と全体を示すため、見出しも合計の表記も持たない。
+// 除外する道路は別タブ（HardFilterPanel）。
 // 軸が増えても伸びるのはチップの領域だけで、そこは高さ上限と内部スクロールを持つ。
 //
 // 軸はカテゴリ（観測/推定/動的）で分けず、公開済みの軸を常にフラットな1本のリストとして
@@ -267,34 +268,6 @@ export default function RouteSettingsPanel({
         </p>
       )}
       <div className={styles.stackBarWrap}>
-        <div className={styles.stackBarHeader}>
-          <p className={styles.sectionLabel}>重み配分</p>
-          {/* 帯グラフの色と軸の対応を、見出し脇の情報アイコンから一覧できるようにする
-              （チップの略名は4文字までのため、フルネームで確かめる先がここになる）。操作説明
-              （帯の境界をドラッグして配分を調整できる旨）もここへ集約し、見出し自体は
-              「重み配分」だけの短い表記にする。 */}
-          <InfoPopover
-            triggerClassName={styles.stackBarLegendTrigger}
-            triggerAriaLabel="重み配分の凡例"
-            contentClassName={styles.legendInfoPopover}
-          >
-            <p className={styles.stackBarLegendHint}>帯の境界をドラッグして配分を調整できます。</p>
-            <ul className={styles.stackBarLegendList}>
-              {enabledAxes.map(({ axis, index, weight }) => (
-                <li key={axis.axisId} className={styles.stackBarLegendItem}>
-                  <span
-                    aria-hidden="true"
-                    className={styles.legendDot}
-                    style={{ background: stackBarColorForIndex(index, catalog.axes.length) }}
-                  />
-                  <span className={styles.stackBarLegendLabel}>{axis.label}</span>
-                  <span className={styles.stackBarLegendValue}>{Math.round(sharePct(weight))}%</span>
-                </li>
-              ))}
-            </ul>
-          </InfoPopover>
-          <span className={styles.stackBarTotal}>合計 100%</span>
-        </div>
         <div className={styles.stackBarOuter} ref={stackBarRef}>
           <div className={styles.stackBar}>
             {enabledAxes.map(({ axis, index, weight }) => {
@@ -359,16 +332,6 @@ export default function RouteSettingsPanel({
         {orderedAxes.map(({ axis, index, weight }) => renderLegendChip(axis, index, weight))}
       </div>
 
-      <button
-        type="button"
-        className={styles.resetButton}
-        onClick={() => {
-          setLastWeights({ ...catalog.defaultWeights });
-          handlePreferenceChange(catalog.defaultWeights);
-        }}
-      >
-        重みを既定値に戻す
-      </button>
     </div>
   );
 }

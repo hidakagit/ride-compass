@@ -45,10 +45,10 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
 
   return (
     <div className="flex flex-col gap-3">
-      <div className={styles.stackBarHeader}>
+      <div className={styles.sectionHeader}>
         <p className={styles.sectionLabel}>除外する道路</p>
         <InfoPopover
-          triggerClassName={styles.stackBarLegendTrigger}
+          triggerClassName={styles.sectionInfoButton}
           triggerAriaLabel="除外する道路の説明"
           contentClassName={styles.legendInfoPopover}
         >

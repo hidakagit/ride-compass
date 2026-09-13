@@ -4,6 +4,32 @@
   margin: 0 0 var(--space-2);
 }
 
+/* 見出しとその脇の(i)を1行に置く（「除外」タブの見出し行）。 */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.sectionHeader .sectionLabel {
+  margin: 0;
+}
+
+.sectionInfoButton {
+  composes: infoButton from "../ui/infoButton.module.css";
+}
+
+/* 既定値から変えたときだけ出す、その場の設定を戻すボタン。 */
+.resetButton {
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+
 .chipRow {
   display: flex;
   flex-wrap: wrap;
@@ -13,56 +39,6 @@
 .stackBarWrap {
   display: flex;
   flex-direction: column;
-}
-
-.stackBarHeader {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.stackBarHeader .sectionLabel {
-  margin: 0;
-}
-
-/* 見出し脇の凡例ポップオーバー開閉トリガー。.legendInfoButtonと違い凡例チップ内の
-   他要素と枠を共有しないため、区切り線・固定幅を足さない素の(i)ボタンのまま使う。 */
-.stackBarLegendTrigger {
-  composes: infoButton from "../ui/infoButton.module.css";
-}
-
-/* 帯グラフの操作説明（ドラッグで配分調整できる旨）。見出し自体には出さずここへ集約する。 */
-.stackBarLegendHint {
-  margin: 0 0 var(--space-2);
-  color: var(--color-muted);
-}
-
-/* 「重み配分」見出し脇の凡例ポップオーバー（ユーザー要望2026-08-31）の中身。
-   帯グラフの色（stackBarColorForIndex）と同じ色ドット・軸ラベル・現在の%を並べる。 */
-.stackBarLegendList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.stackBarLegendItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.stackBarLegendLabel {
-  flex: 1 1 auto;
-  color: var(--foreground);
-}
-
-.stackBarLegendValue {
-  flex-shrink: 0;
-  color: var(--color-muted);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
@@ -109,12 +85,6 @@
   line-height: 1;
   color: rgba(15, 23, 42, 0.85);
   font-variant-numeric: tabular-nums;
-}
-
-.stackBarTotal {
-  margin-left: auto;
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
 }
 
 /* 隣り合う2区間の境界をドラッグして配分し直すハンドル。実際の当たり判定（幅16px・
@@ -170,7 +140,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-
 /* 凡例チップ1件＝「色ドット+ラベル（タップで有効/無効）」「(i)説明文」
    「地図で色分けアイコン（対応軸のみ）」を1つの枠に収めた複合ボタン群。外枠1つを共有し、
    内部はborder-leftで区切ることでLayerChipのpill形状を踏襲しつつ複数の押下領域を持たせる。 */
@@ -204,16 +173,6 @@
   .legendInfoButton {
     width: 1.5rem;
   }
-}
-
-.resetButton {
-  align-self: flex-start;
-  font-size: var(--font-size-sm);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: transparent;
-  padding: 0.2rem 0.6rem;
-  cursor: pointer;
 }
 
 /* 軸カタログの取得失敗。重み配分の編集はできてしまうが送信時に省略されるため、

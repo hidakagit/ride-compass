@@ -1658,22 +1658,28 @@ export default function Home() {
   // デスクトップはDisclosureのtrailing・モバイルはBottomSheetのheaderAction）。
   // 「ルート生成」ボタンをタブの外に置くことで、重みづけタブを見ている間もタブを
   // 切り替えずに押せるようにする。
+  // 「ルート設定」区分のタブ列。タブ専用の行を持たず見出し行へ同居させる（本文の縦を
+  // 空ける）。中身を切り替えるタブと「ルート生成」は役割が違うため、タブは見出しの側＝左、
+  // ボタンは右端と、行の中でも離して置く。
+  function renderSettingsTabs() {
+    return (
+      <Tabs.List className={styles.settingsTabList} aria-label="ルート設定">
+        <Tabs.Trigger className={styles.settingsTabTrigger} value="generate">
+          条件
+        </Tabs.Trigger>
+        <Tabs.Trigger className={styles.settingsTabTrigger} value="weights">
+          重み
+        </Tabs.Trigger>
+        <Tabs.Trigger className={styles.settingsTabTrigger} value="exclusions">
+          除外
+        </Tabs.Trigger>
+      </Tabs.List>
+    );
+  }
+
   function renderRouteSectionHeaderActions() {
     return (
       <div className={styles.routeSectionHeaderActions}>
-        {/* タブ列を見出し行へ同居させ、タブ専用の行を持たない（本文の縦を空ける）。
-            ラベルは2文字に詰める。 */}
-        <Tabs.List className={styles.settingsTabList} aria-label="ルート設定">
-          <Tabs.Trigger className={styles.settingsTabTrigger} value="generate">
-            条件
-          </Tabs.Trigger>
-          <Tabs.Trigger className={styles.settingsTabTrigger} value="weights">
-            重み
-          </Tabs.Trigger>
-          <Tabs.Trigger className={styles.settingsTabTrigger} value="exclusions">
-            除外
-          </Tabs.Trigger>
-        </Tabs.List>
         {/* 「条件が変更されています」は結果欄の先頭にも出るが、条件を変えている本人は
             設定側を見ている。押すべきボタンの隣でも同じことを知らせる。 */}
         {conditionsDirty && (
@@ -2113,7 +2119,12 @@ export default function Home() {
                         ルート設定
                       </>
                     }
-                    trailing={renderRouteSectionHeaderActions()}
+                    trailing={
+                      <div className={styles.routeSectionHeaderRow}>
+                        {renderSettingsTabs()}
+                        {renderRouteSectionHeaderActions()}
+                      </div>
+                    }
                     open={generateOpen}
                     onOpenChange={setGenerateOpen}
                   >
@@ -2403,6 +2414,7 @@ export default function Home() {
               onClose={() => setMobileSheet(null)}
               title="ルート設定"
               titleId={ROUTE_SETTINGS_SHEET_TITLE_ID}
+              headerLead={renderSettingsTabs()}
               headerAction={renderRouteSectionHeaderActions()}
               heightVh={mobileSheetHeightVh}
               onHeightChange={handleMobileSheetHeightChange}

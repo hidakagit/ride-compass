@@ -15,6 +15,9 @@ interface BottomSheetProps {
    * 情報アイコン・アクションボタンをヘッダ右上へ集約するための差し込み口（page.tsx:
    * 「ルート結果」シートのrenderRouteResultHeaderActions参照）。 */
   headerAction?: React.ReactNode;
+  /** 見出しのすぐ右（左寄せ）に置く差し込み口。中身を切り替えるタブのように、右上の
+   * アクション群（headerAction）と役割が違うものを、見た目でも離して置くため。 */
+  headerLead?: React.ReactNode;
   children: React.ReactNode;
   /** シートの高さ（vh）。シートは排他表示のため、呼び出し側（page.tsx）が1つの値を
    * 共有して持つ。開いた時点で中身に合う高さへ合わせ直すため（下記useLayoutEffect）、
@@ -76,6 +79,7 @@ export default function BottomSheet({
   title,
   titleId,
   headerAction,
+  headerLead,
   children,
   heightVh,
   onHeightChange,
@@ -217,6 +221,7 @@ export default function BottomSheet({
         <h2 id={titleId} tabIndex={-1} className={styles.title}>
           {title}
         </h2>
+        {headerLead && <div className={styles.headerLead}>{headerLead}</div>}
         <div className={styles.headerActions}>
           {headerAction}
           <button type="button" onClick={onClose} aria-label="閉じる" className={styles.closeButton}>

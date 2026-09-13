@@ -70,6 +70,15 @@
   flex-shrink: 0;
 }
 
+/* 見出しの右に続けて置く差し込み口。margin-right:autoで見出し側へ寄せ、右上の
+   アクション群とは離す（.headerのspace-betweenに任せると中央へ寄ってしまう）。 */
+.headerLead {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+  min-width: 0;
+}
+
 .title {
   font-size: var(--font-size-md);
   font-weight: bold;
