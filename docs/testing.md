@@ -14,6 +14,35 @@ RideCompassのテストスイートは規模が大きい（backend 800件超、f
 3. **速度最適化はテストが検証する内容を変えない範囲で行う。** 上記のいずれも「境界条件の実地検証」
    自体は残し、その手前の準備コストだけを削る。カバレッジを犠牲にしない。
 
+## 開発機でのbackendテストの回し方
+
+反復フェーズは変更に関係するファイルだけを絞って実行する（CLAUDE.md「テスト方針」）。
+まとめて回すときは次の2本立てにする。
+
+```bash
+# 反復中: DBを使わないぶんを並列で（PYTHONUTF8=1が無いとワーカー起動が落ちる）
+PYTHONUTF8=1 backend/.venv/Scripts/python.exe -m pytest backend/tests -q -m "not postgis" -n auto
+
+# 完了前に1回: DBを使うぶん
+backend/.venv/Scripts/python.exe -m pytest backend/tests -q -m postgis
+```
+
+**`PYTHONUTF8=1`が要る理由**: 付けないと`execnet`のワーカーが
+`UnicodeEncodeError: ... surrogates not allowed`で即死し、親が
+`EOFError: expected 1 bytes, got 0`のINTERNALERRORになる。リポジトリのパスに含まれる
+非ASCII文字がサロゲート化するためで、UTF-8モードにすると解消する。
+
+**postgisを並列化しても速くならない**: テストDBは1つで、DBを使うテストは
+`xdist_group(name="postgis")`により1ワーカーへ固定される（衝突を避けるための設計、後述）。
+実測で直列6分20秒（2,189件）に対し`-n auto --dist loadgroup`は7分00秒——postgisの
+285件が4分23秒を占め、残りを並列化しても全体は縮まずワーカー起動のぶん増える。
+縮めるならワーカーごとにテストDBを分ける必要があり、それ自体が別タスク。
+
+**`-m postgis`を完了前に必ず1回通す**: 手元の既定実行（`-m "not postgis"`）から外れるため、
+実装を変えてテストを直し忘れてもCIまで気づけない。実際にこの型で3件の赤が生まれている
+（[T834](tasks/T834.md)・[T835](tasks/T835.md)）。**この手順は暫定で、本命はCIの赤を
+手元へ出す検知器**（T835）。検知器が入ったらこの節の位置づけを見直す。
+
 ## パターン1: レート制限テスト → rate_limiterを直接埋める
 
 ```python
