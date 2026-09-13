@@ -802,7 +802,22 @@ export default function Home() {
         editingRouteForSplice.edge_ids,
         routes
           .filter((route) => route.id !== editingRouteForSplice.id)
-          .map((route) => ({ id: route.id, edgeIds: route.edge_ids })),
+          .map((route) => ({
+            id: route.id,
+            edgeIds: route.edge_ids,
+            shape: {
+              coordinates: route.geometry.coordinates as GeoJSON.Position[],
+              edgePointOffsets: route.edge_point_offsets,
+            },
+          })),
+        {
+          // 座標まで渡すと、2本が交差・接触する地点でも区間を割れる（Edge idの一致だけでは
+          // 1本の長い区間になり、他候補1本との丸ごと入れ替えにしかならない）。
+          baseShape: {
+            coordinates: editingRouteForSplice.geometry.coordinates as GeoJSON.Position[],
+            edgePointOffsets: editingRouteForSplice.edge_point_offsets,
+          },
+        },
       )
     : [];
   const alternativeKey = (alternative: StretchAlternative) =>

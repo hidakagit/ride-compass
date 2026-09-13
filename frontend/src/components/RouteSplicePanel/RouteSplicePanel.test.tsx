@@ -119,6 +119,42 @@ describe("RouteSplicePanel", () => {
     expect(screen.getByText("組み合わせたルートを評価できませんでした")).toBeInTheDocument();
   });
 
+  it("乗り継いだ区間の数を出す（1本の入れ替えなのか、複数を継いだのかが読めない）", () => {
+    const chosen = [
+      { ...GROUPS[0], chosenKey: "route-01:1-2" },
+      { label: "2.0〜3.0km", options: [{ key: "route-02:3-4", label: "+0.2" }], chosenKey: "route-02:3-4" },
+    ];
+    render(<RouteSplicePanel {...baseProps({ groups: chosen })} />);
+
+    expect(screen.getByText("2区間を乗り継ぎ")).toBeInTheDocument();
+  });
+
+  // 1区間=1行のため、区間が増えるほど縦に伸びる。スマホの下部シートでは全部は並べられない。
+  describe("区間が多いとき", () => {
+    const many = Array.from({ length: 14 }, (_, index) => ({
+      label: `${index}.0〜${index + 1}.0km`,
+      options: [{ key: `route-01:${index}`, label: "+0.1" }],
+      chosenKey: null as string | null,
+    }));
+
+    it("上限までに畳み、残りは開ける", async () => {
+      render(<RouteSplicePanel {...baseProps({ groups: many })} />);
+
+      expect(screen.getAllByRole("button", { name: "元のまま" })).toHaveLength(10);
+      await userEvent.click(screen.getByRole("button", { name: "残り4区間を出す" }));
+
+      expect(screen.getAllByRole("button", { name: "元のまま" })).toHaveLength(14);
+    });
+
+    it("選んだ区間は畳まれない", () => {
+      const chosen = many.map((group, index) => (index === 13 ? { ...group, chosenKey: `route-01:13` } : group));
+      render(<RouteSplicePanel {...baseProps({ groups: chosen })} />);
+
+      expect(screen.getByText("13.0〜14.0km")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "残り4区間を出す" })).toBeInTheDocument();
+    });
+  });
+
   it("編集の元を固定で示し、やめると親へ知らせる", async () => {
     const onCancel = vi.fn();
     render(<RouteSplicePanel {...baseProps({ groups: GROUPS, onCancel })} />);

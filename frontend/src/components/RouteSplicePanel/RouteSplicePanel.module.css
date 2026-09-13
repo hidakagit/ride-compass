@@ -146,3 +146,25 @@
   background: var(--color-route-splice);
   color: #fff;
 }
+
+/* 乗り継いだ区間の数。差と同じ行に置き、差より控えめにする。 */
+.chosenCount {
+  margin-left: auto;
+  color: var(--color-muted);
+}
+
+.chosenCount + .diff,
+.chosenCount + .progress {
+  margin-left: 8px;
+}
+
+/* 畳んだ区間を出す。行と同じ高さに収める。 */
+.expand {
+  font-size: 12px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-muted);
+  padding: 3px 8px;
+  cursor: pointer;
+}

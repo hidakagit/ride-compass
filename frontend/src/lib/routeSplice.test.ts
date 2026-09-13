@@ -7,6 +7,7 @@ import {
   pairedStretches,
   spliceEdgeIds,
   spliceEdgeIdsFromAlternatives,
+  splitPairedStretch,
   stretchAlternativeGroups,
   stretchCoordinateRange,
   targetStretchEdgeIds,
@@ -231,6 +232,81 @@ describe("stretchAlternativeGroups", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].stretch).toEqual({ start: 1, end: 4 });
     expect(groups[0].options).toHaveLength(2);
+  });
+});
+
+// 2本が同じノードで交差・接触していても、そこで同じEdgeを通っていなければEdge idの一致では
+// 分からない。交差した地点は乗り換えられる場所なので、そこで割ると区間ごとに別の候補を選べる
+// （docs/tasks/T838.md）。
+describe("splitPairedStretch", () => {
+  // 南北に約1kmごとの直線。元と相手は1.0km地点と2.0km地点で同じ座標を通る。
+  const at = (index: number): GeoJSON.Position => [139.7, 35.7 + index * 0.009];
+  const detour = (index: number): GeoJSON.Position => [139.705, 35.7 + index * 0.009];
+  const base = {
+    coordinates: [at(0), at(1), at(2), at(3)],
+    edgePointOffsets: [0, 1, 2, 3],
+  };
+  const target = {
+    // 途中は別の道（経度が違う）だが、1.0km地点・2.0km地点では元と同じ座標を通る。
+    coordinates: [at(0), at(1), detour(1.5), at(2), at(3)],
+    edgePointOffsets: [0, 1, 3, 4],
+  };
+  const cumulative = [0, 1, 2, 3];
+  const whole = { displayed: { start: 0, end: 3 }, target: { start: 0, end: 3 } };
+
+  it("両方が通る地点で区間を割る", () => {
+    const split = splitPairedStretch(base, target, whole, 0.2, cumulative);
+
+    expect(split).toEqual([
+      { displayed: { start: 0, end: 1 }, target: { start: 0, end: 1 } },
+      { displayed: { start: 1, end: 2 }, target: { start: 1, end: 2 } },
+      { displayed: { start: 2, end: 3 }, target: { start: 2, end: 3 } },
+    ]);
+  });
+
+  it("下限より短い断片は作らない", () => {
+    const split = splitPairedStretch(base, target, whole, 1.5, cumulative);
+
+    expect(split).toEqual([whole]);
+  });
+
+  it("同じ地点を通らなければ割らない", () => {
+    const apart = {
+      coordinates: [at(0), detour(1), detour(2), at(3)],
+      edgePointOffsets: [0, 1, 2, 3],
+    };
+
+    expect(splitPairedStretch(base, apart, whole, 0.2, cumulative)).toEqual([whole]);
+  });
+
+  it("座標を持たない候補では割らない（グループの作りは従来どおり）", () => {
+    const groups = stretchAlternativeGroups(["s", "a1", "a2", "e"], [
+      { id: "c1", edgeIds: ["s", "b1", "b2", "e"] },
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].stretch).toEqual({ start: 1, end: 3 });
+  });
+
+  it("割れた区間は別々のグループになり、区間ごとに別の候補を選べる", () => {
+    const baseEdgeIds = ["e0", "e1", "e2"];
+    const groups = stretchAlternativeGroups(
+      baseEdgeIds,
+      [
+        { id: "c1", edgeIds: ["x0", "x1", "x2"], shape: target },
+        { id: "c2", edgeIds: ["y0", "y1", "y2"], shape: { coordinates: base.coordinates, edgePointOffsets: base.edgePointOffsets } },
+      ],
+      { baseShape: base, minSplitLengthKm: 0.2 },
+    );
+
+    expect(groups).toHaveLength(3);
+    expect(groups.map((group) => group.stretch)).toEqual([
+      { start: 0, end: 1 },
+      { start: 1, end: 2 },
+      { start: 2, end: 3 },
+    ]);
+    // 区間ごとに複数の候補から選べる
+    expect(groups[0].options.map((option) => option.candidateId)).toEqual(["c1", "c2"]);
   });
 });
 
