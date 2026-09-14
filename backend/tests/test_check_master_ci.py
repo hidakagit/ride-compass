@@ -21,8 +21,8 @@ HEAD = "0dcaf69a847ace8e9277eafea7a04ba8e3067dd3"
 OLD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
-def _run(name, conclusion, sha=HEAD, status="completed"):
-    return {
+def _run(name, conclusion, sha=HEAD, status="completed", run_number=None):
+    run = {
         "name": name,
         "conclusion": conclusion,
         "status": status,
@@ -30,6 +30,9 @@ def _run(name, conclusion, sha=HEAD, status="completed"):
         "display_title": "テスト用",
         "html_url": f"https://example.invalid/{name}",
     }
+    if run_number is not None:
+        run["run_number"] = run_number
+    return run
 
 
 def test_all_green_reports_nothing():
@@ -68,8 +71,24 @@ def test_only_the_newest_run_of_each_workflow_counts():
     assert failing_workflows(runs) == []
 
 
+def test_a_run_cancelled_by_concurrency_does_not_hide_the_success_of_the_same_commit():
+    # 同じコミットへ続けてpushすると、先行の実行がconcurrency設定で打ち切られ、同じ秒に
+    # 2組が並ぶ。created_atが同秒のものどうしは並び順が保証されず、打ち切られた側が先頭に
+    # 来ることがある（実測: Docs Consistency 644 cancelled / 645 success）。新しい方を
+    # run_numberで選ばないと、緑のコミットで警告が鳴り、本当に赤いときの1回が素通りする。
+    runs = [
+        _run("Docs Consistency", "cancelled", run_number=644),
+        _run("CI", "success", run_number=1052),
+        _run("Docs Consistency", "success", run_number=645),
+        _run("CI", "cancelled", run_number=1051),
+    ]
+
+    assert failing_workflows(runs) == []
+
+
 def test_cancelled_and_timed_out_count_as_red():
-    # 成功していない以上、「CIが通った」を完了の根拠にはできない。
+    # 最新の実行が打ち切り・時間切れで終わっているなら、成功していない以上「CIが通った」を
+    # 完了の根拠にはできない（同じコミットに成功した実行がある場合は上のテストが扱う）。
     runs = [_run("CI", "cancelled"), _run("Docs Consistency", "timed_out")]
 
     assert {run["name"] for run in failing_workflows(runs)} == {"CI", "Docs Consistency"}
