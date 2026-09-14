@@ -187,7 +187,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **既存DBの行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）を
   含む`backend/**`の変更は、本番DBのデータ移行を完了させてからpushする**。
   `.github/workflows/deploy-backend.yml`はbackendの変更を検知すると本番へ自動デプロイする
-  （どのパスが対象かはそのワークフローの`paths`が正本。イメージに入らないものは外してある）。
+  （対象と、コンテナを入れ替えるかの振り分けはそのワークフローが正本）。
   DB移行より先にpushすると、新コードが本番DBに残る旧形式データを読めず、
   `refresh_axis_definitions`等のfail-fast設計により本番backendが起動失敗する
   （本番障害の実績あり、詳細は[T396](docs/tasks/T396.md)参照）。
