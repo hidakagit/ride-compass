@@ -29,6 +29,9 @@ export interface AxisMaterialOption {
    * material_catalog.py: MaterialSpec.full_label()と同じ形式で、動的取得
    * （GET /api/material-catalog）が失敗した場合のフォールバックとして揃える。 */
   label: string;
+  /** 論理名だけ（例: "道路種別"）。物理名を出す意味が無い一般向けの表示が使う。
+   * `label`から物理名を削って作り直さない——論理名に区切り文字が含まれたときに壊れる。 */
+  name: string;
   /** 情報アイコン(ⓘ)から表示する説明文。backend/app/domain/
    * material_catalog.py: MaterialSpec.descriptionが単一ソース。 */
   description: string;
@@ -51,6 +54,7 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = generatedMat
   id: m.material_id,
   // backendの`MaterialSpec.full_label()`と同じ「論理名 - 物理名」形式。
   label: `${m.label} - ${m.material_id}`,
+  name: m.label,
   description: m.description,
   dtype: m.dtype as AxisMaterialDType,
   unit: m.unit,
@@ -72,6 +76,12 @@ export function materialLabel(materialId: string): string {
 /** 材料idの表示名（動的取得した一覧から引く）。未知idはidをそのまま返す。 */
 export function materialCatalogLabel(materialId: string, materials: readonly AxisMaterialOption[]): string {
   return materials.find((m) => m.id === materialId)?.label ?? materialId;
+}
+
+/** 一般向けの表示に使う材料名（論理名だけ）。物理名まで出す軸スタジオは
+ * `materialCatalogLabel`を使う。カタログに無い材料idはidそのものへフォールバックする。 */
+export function materialCatalogName(materialId: string, materials: readonly AxisMaterialOption[]): string {
+  return materials.find((m) => m.id === materialId)?.name ?? materialId;
 }
 
 /** material_valuesの生値1件を「値 単位」表記にする。単位が無い（無次元）材料は値のみ。 */

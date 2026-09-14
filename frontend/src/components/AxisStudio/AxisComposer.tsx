@@ -327,7 +327,14 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   // dtype="numeric"として扱う。
   const axisTermOptions: readonly AxisMaterialOption[] = (otherAxes ?? [])
     .filter((a) => a.axis_id !== draft.axisId)
-    .map((a) => ({ id: a.axis_id, label: a.label, description: a.description, dtype: "numeric" as const, unit: "" }));
+    .map((a) => ({
+      id: a.axis_id,
+      label: a.label,
+      name: a.label,
+      description: a.description,
+      dtype: "numeric" as const,
+      unit: "",
+    }));
 
   // 一覧から別の軸の編集を選び直した場合の切り替えは、呼び出し側（AxisStudio）が
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を

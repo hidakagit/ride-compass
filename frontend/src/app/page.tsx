@@ -1608,6 +1608,9 @@ export default function Home() {
       }
       setRoutes(candidates);
       setSelectedRouteId(candidates[0]?.id ?? null);
+      // 比較タブを開いたまま生成したときは、新しい候補へ戻す——押した操作の結果が
+      // 見えないまま前回までの比較表が残ると、生成が効かなかったように見える。
+      setComparisonTabActive(false);
       // 候補集合が入れ替わると、区間の位置も選んだ道も意味を失う。
       setEditingRouteId(null);
       setAppliedAlternatives([]);

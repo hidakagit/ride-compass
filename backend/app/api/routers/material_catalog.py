@@ -67,6 +67,10 @@ class MaterialCatalogEntry(StrictModel):
     # 「論理名 - 物理名」形式（MaterialSpec.full_label、例: "道路種別 - highway"）。
     # 論理名だけでは物理名(material_id)が分からないため併記する。
     label: str
+    # 論理名だけ（MaterialSpec.label、例: "道路種別"）。物理名を出す意味が無い一般向けの
+    # 表示（比較表の行見出し等）が使う——`label`から物理名を削って作り直すと、論理名に
+    # 区切り文字が含まれたときに壊れる。
+    name: str
     # 情報アイコン(ⓘ)から表示する説明文（labelだけでは何を表す材料か分かりにくいため）。
     description: str
     dtype: MaterialDType
@@ -144,6 +148,7 @@ async def get_material_catalog() -> MaterialCatalogResponse:
             MaterialCatalogEntry(
                 material_id=m.material_id,
                 label=m.full_label(),
+                name=m.label,
                 description=m.description,
                 dtype=m.dtype,
                 unit=m.unit,

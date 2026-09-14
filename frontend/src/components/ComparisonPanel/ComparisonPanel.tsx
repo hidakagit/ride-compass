@@ -1,6 +1,6 @@
 "use client";
 
-import { formatMaterialValue, materialCatalogLabel, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import { formatMaterialValue, materialCatalogName, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import styles from "./ComparisonPanel.module.css";
@@ -42,6 +42,8 @@ const PHYSICAL_METRIC_ROWS: MetricRow[] = [
 // いずれかのスロットが値を持つ材料だけを行にする（buildAxisDifficultyRowsと同じ「実際に
 // 評価できたものだけ表示する」規約）。ラベル・単位は材料カタログから引き、軸スタジオで
 // 軸の参照材料が変わっても表示は自動追従する（material_id→ラベルのハードコード無し）。
+// 行見出しは**論理名だけ**を使う（materialCatalogName）——物理名まで併記するのは材料を
+// 選ぶ軸スタジオの都合で、読むだけのこの表では見出しが横へ伸びて値の列を画面外へ押し出す。
 function buildMaterialValueRows(slots: ExperimentSlot[], materials: readonly AxisMaterialOption[]): MetricRow[] {
   const materialIds = new Set<string>();
   for (const slot of slots) {
@@ -50,7 +52,7 @@ function buildMaterialValueRows(slots: ExperimentSlot[], materials: readonly Axi
     }
   }
   return [...materialIds].map((materialId) => ({
-    label: materialCatalogLabel(materialId, materials),
+    label: materialCatalogName(materialId, materials),
     format: (slot: ExperimentSlot) => {
       const value = slot.topCandidate.material_values[materialId];
       return value != null ? formatMaterialValue(materialId, value, materials) : "—";
@@ -102,16 +104,34 @@ function formatWeights(slot: ExperimentSlot, axisLabels: Record<string, string>)
     .join("/")}`;
 }
 
+// 列見出しは時刻だけにする（秒まで出すと狭い画面で列が伸び、値が画面外へ出る）。
+// 同じ分に2回生成した場合の区別は色（swatch）が持ち、正確な時刻とエンジン・重みは
+// 見出しのtitleが持つ。
 function formatGeneratedAt(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** 見出しへ載せきれない素性（正確な時刻・エンジン・その回の重み）。 */
+function slotProvenance(slot: ExperimentSlot, axisLabels: Record<string, string>): string {
+  return `${slot.conditions.generated_at} / ${slot.engine} / ${formatWeights(slot, axisLabels)}`;
 }
 
 // 実験スロット間の比較表（研究インターフェース改善 §10-3）。行=メトリクス、列=スロット
 // （生成のたびに自動保存された直近最大3件）。スロットが2件以上たまった時だけ表示する。
 export default function ComparisonPanel({ slots, axisLabels, axes, materials }: ComparisonPanelProps) {
-  if (slots.length < 2) return null;
+  // 比べる相手がいない間は、**表の代わりに何をすれば比べられるかを出す**。nullを返すと
+  // タブの下が空白になり、壊れているように見える。
+  if (slots.length < 2) {
+    return (
+      <p className={styles.empty}>
+        {slots.length === 0
+          ? "ルートを生成すると、その回の結果がここへ積まれます。2回目以降を生成すると条件の違いを並べて比べられます。"
+          : "もう1回生成すると、前回との違いをここで並べて比べられます。"}
+      </p>
+    );
+  }
 
   // 表示順: ルート属性（距離・獲得標高）→ 材料値の生値（material_values駆動）→ 個別軸の
   // 生値（axis_difficulties駆動、軸スタジオの軸増減に自動追従）→ 全軸合成の総合難易度。
@@ -125,7 +145,8 @@ export default function ComparisonPanel({ slots, axisLabels, axes, materials }: 
   return (
     <div className="flex flex-col gap-2">
       <p className={styles.hint}>
-        直近{slots.length}回の生成結果を比較[各列は各回のoverall_difficulty最小候補。生の物理量・軸別難易度[0-100、絶対基準、軸スタジオの重みで自動追従]・総合難易度]
+        直近{slots.length}回の生成結果を並べています。各列はその回の先頭候補（最も易しい1本）で、
+        行は上から順に、ルートそのものの量・材料の実測値・軸ごとの難易度（0〜100）・総合難易度です。
       </p>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -133,11 +154,9 @@ export default function ComparisonPanel({ slots, axisLabels, axes, materials }: 
             <tr>
               <th />
               {slots.map((slot) => (
-                <th key={slot.id} title={formatWeights(slot, axisLabels)}>
+                <th key={slot.id} title={slotProvenance(slot, axisLabels)}>
                   <span className={styles.swatch} style={{ background: slot.color }} aria-hidden="true" />
                   {formatGeneratedAt(slot.conditions.generated_at)}
-                  <br />
-                  <span className={styles.engine}>{slot.engine}</span>
                 </th>
               ))}
             </tr>
@@ -145,7 +164,9 @@ export default function ComparisonPanel({ slots, axisLabels, axes, materials }: 
           <tbody>
             {rows.map((row) => (
               <tr key={row.label}>
-                <th scope="row">{row.label}</th>
+                <th scope="row" className={styles.rowHeader}>
+                  {row.label}
+                </th>
                 {slots.map((slot) => (
                   <td key={slot.id}>{row.format(slot)}</td>
                 ))}

@@ -41,6 +41,7 @@ export function useMaterialCatalog(): readonly AxisMaterialOption[] {
             response.materials.map((m) => ({
               id: m.material_id,
               label: m.label,
+              name: m.name,
               description: m.description,
               dtype: m.dtype,
               unit: m.unit,

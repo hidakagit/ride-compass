@@ -1604,6 +1604,8 @@ export interface components {
             material_id: string;
             /** Label */
             label: string;
+            /** Name */
+            name: string;
             /** Description */
             description: string;
             /**

@@ -273,8 +273,9 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
   (1) ルート属性（距離・獲得標高。材料ではないため`material_values`には乗らない固定行）→
   (2) 材料値の行（`RouteCandidate.material_values`から動的生成。重み>0の軸が参照する
   材料id→値の辞書で、いずれかのスロットが値を持つ材料だけを行にする。ラベル・単位は
-  `materials`[page.tsxが`useMaterialCatalog()`を渡す]から引く、
-  `lib/axisMaterialsCatalog.ts: materialCatalogLabel`/`formatMaterialValue`共用）→
+  `materials`[page.tsxが`useMaterialCatalog()`を渡す]から引く。**行見出しは論理名だけ**
+  （`materialCatalogName`）——物理名まで併記するのは材料を選ぶ軸スタジオの都合で、読むだけの
+  この表では見出しが横へ伸びて値の列を画面外へ押し出す）→
   (3) 軸ごとの難易度の行（`axisLabels`・`axes`をpage.tsxから受け取り、
   `RouteCandidate.axis_difficulties`から動的生成。軸スタジオの軸増減に自動追従する）→
   (4) 全軸合成の総合難易度（`overall_difficulty`、末尾固定）。各列は各回の
@@ -283,6 +284,11 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
   表示中のいずれかの実験スロットで生成時点の重み（`ExperimentSlot.conditions.
   route_preference`）が>0だった軸に絞り込み済み——現在のライブな`routePreference`
   （「今」の設定）は使わない。
+- **比べる相手がいない間は表の代わりに案内を出す**（スロット0件・1件）。`null`を返すと
+  タブの下が空白になり、壊れているように見える。
+- 生成が成功したら比較タブから候補タブへ戻す（`page.tsx: handleGenerate`が
+  `comparisonTabActive`を倒す）——押した操作の結果が見えないまま前回までの比較表が残ると、
+  生成が効かなかったように見える。
 
 ## RouteForm.tsx・useRouteFormSubmit.ts
 

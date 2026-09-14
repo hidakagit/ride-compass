@@ -3728,6 +3728,10 @@
             "type": "string",
             "title": "Label"
           },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
           "description": {
             "type": "string",
             "title": "Description"
@@ -3758,6 +3762,7 @@
         "required": [
           "material_id",
           "label",
+          "name",
           "description",
           "dtype",
           "unit",
