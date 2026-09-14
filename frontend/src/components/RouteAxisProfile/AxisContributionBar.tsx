@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import type { ReactNode } from "react";
 import InfoPopover from "@/components/Map/InfoPopover";
 import { axisIconFor } from "@/components/Map/axisIconPalette";
@@ -26,6 +27,11 @@ interface AxisContributionBarProps {
    * **寄与が0・欠損でも詳細を持つ軸は凡例に残る**——効くはずの軸が効かなかったことも
    * 判断材料のため。 */
   legendAxes?: readonly PreferenceAxisDef[];
+  /** 帯の高さの倍率（`lib/difficultyLoadBar.ts: loadBarHeightRatio`）。帯は長さが
+   * 総合難易度を表すため、高さへ距離を与えると塗られた面積が負荷、色ごとの面積が軸別の
+   * 負荷になる。省略時は1.0——区間の内訳のように、比べる相手が無く距離を与えない
+   * 呼び出し側は長さだけの帯のままにする。 */
+  heightRatio?: number;
   /** 凡例チップを押したときに開く、その軸の詳細。**nullを返した軸は凡例から落ちる**
    * （結果パネルは重み0の軸でnullを返し、評価に使っていない軸を並べない）。prop自体を
    * 省略するとどのチップも押せない静的な凡例のまま（区間クリック詳細のように、軸ごとの
@@ -58,14 +64,19 @@ export default function AxisContributionBar({
   contributions,
   axisColors,
   legendAxes,
+  heightRatio,
   renderDetail,
 }: AxisContributionBarProps) {
   const rows = axes.filter((axis) => hasContribution(contributions, axis.axisId));
   if (rows.length === 0) return null;
 
+  const barStyle: React.CSSProperties & { "--load-bar-height-ratio"?: string } = {
+    "--load-bar-height-ratio": String(heightRatio ?? 1),
+  };
+
   return (
     <div className={styles.wrap}>
-      <div className={styles.stackBar}>
+      <div className={styles.stackBar} style={barStyle}>
         {rows.map((axis) => {
           const value = Math.min(100, Math.max(0, contributions[axis.axisId]));
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;

@@ -31,6 +31,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = 
     distanceKm: 30,
     overallDifficulty: 46,
     difficultyLoad: null,
+    loadBarHeightRatio: 1,
     estimatedDurationSeconds: null,
     axisColors: AXIS_COLORS,
     ...overrides,

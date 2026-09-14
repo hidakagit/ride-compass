@@ -10,7 +10,11 @@
 
 .stackBar {
   display: flex;
-  height: 10px;
+  /* 高さは基準距離に対する倍率（lib/difficultyLoadBar.ts）。長さが総合難易度を表すため、
+     高さへ距離を与えると塗られた面積が負荷、色ごとの面積が軸別の負荷になる。倍率を渡さない
+     呼び出し側は1.0のまま。 */
+  --load-bar-height-ratio: 1;
+  height: calc(10px * var(--load-bar-height-ratio));
   border-radius: 5px;
   overflow: hidden;
   background: var(--color-surface-2);
