@@ -315,7 +315,7 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
 // 改善計画T468回帰テスト（2026-08-31 T478で追加）: overlayLayers組み立ての
 // isDynamicGroupLayer判定が、以前はlayer.idのハードコード列挙で「動的グループ」を
 // 再判定しており、mapLayers.ts側の単一ソースdataNature==="dynamic"とズレていた
-// （gradientFillが列挙漏れで設定への案内が誤って付与される実害があった）。
+// （動的グループのレイヤーが列挙漏れで設定への案内が誤って付与される実害があった）。
 // dataNature自体を見る形へ修正済みであることを、titleの実際の値で確認する。
 // **案内の文言そのものは固定しない**——入口が変われば文言も変わるのが正しく、
 // 固定すると誤った案内を検査が守ることになる。見るのは「付くかどうか」だけ。
@@ -334,13 +334,13 @@ describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: 
     return new Map(layers);
   }
 
-  it("dataNature=dynamicのgradientFillは設定への案内を付けずlayer.descriptionそのままをtitleにする", async () => {
+  it("dataNature=dynamicのwindVectorは設定への案内を付けずlayer.descriptionそのままをtitleにする", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
     await screen.findByTestId("overlay-layer-titles");
-    const title = overlayLayerTitles().get("gradientFill");
-    expect(title).toBe("指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示");
+    const title = overlayLayerTitles().get("windVector");
+    expect(title).toBe("気象庁MSMの風向・風速予報を矢印で表示[関東本土の格子点、1〜3日先まで]");
   });
 
   it("dataNature=static（既定）のroadTypeは設定への案内が付いたtitleになる", async () => {

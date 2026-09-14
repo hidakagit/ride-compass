@@ -80,7 +80,7 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
     │  ← ROAD_MATERIAL_TRACK_LAYER_IDS（road+designation+tunnel+onewayの4本）を
     │    line-offsetで並列トラックへ分離（applyRoadMaterialTrackOffsets）
     ▼
-  専用way値配信軸（軸カタログ順） → gradientFill（評価軸/環境グループ、本モジュール対象外）
+  専用way値配信軸（軸カタログ順、評価軸グループの線。本モジュール対象外）
     ▼
   accidents → stopPoi → supplyPoi（点データ、別ソース）
 ```

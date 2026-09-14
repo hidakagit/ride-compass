@@ -51,17 +51,6 @@ export type MapLayerId =
   // 風の矢印。関東本土全域の固定格子点サンプリング（GeoJSON source + symbolレイヤー）。
   // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
-  // 環境グループの勾配面表示。windVectorに相当する「向きに依存する材料の環境グループ
-  // 表現」だが、勾配には風のような独立した空間フィールド（矢印で表すベクトル場）が
-  // 無いため矢印表示は持たず、gridFill（タイル境界をセルとする面表示、
-  // gradientGridFill.ts）のみを持つ。
-  | "gradientFill"
-  // 災害。雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ（落雷）・キキクル等を
-  // 1つのチップへまとめたグループで、配下の要素はMapView.tsxの
-  // DYNAMIC_WEATHER_RENDERERSの名前付きソースとして同時に描画する（正本は
-  // DYNAMIC_WEATHER_RENDERERSのdisasterグループ）。「回避一択」の危険のため評価軸には
-  // 組み込まず表示のみを行う。線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）の
-  // ため、ここではなく"precipitationNowcast"チップの傘下にある。
   | "disaster"
   // 二次軸の汎用rampレイヤー。backendレジストリ生成物（axis-catalog.json）の
   // kind="ramp"軸から自動生成されるためIDは動的（axisLayers.ts: axisMapLayerId参照）。
@@ -409,22 +398,6 @@ export function buildMapLayers(
         "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます" +
         "（先まで見られる範囲は配信中の予報の長さによって1〜3日の間で変わります）。走行方位に対する向かい風/追い風の強さは、ルート設定パネルの" +
         "「風」の「地図で色分け」ボタンから道路の色分けとして別途確認できます。",
-    },
-    {
-      // 環境グループの勾配面表示。windVectorと異なり独立した空間フィールドを持たないため
-      // （gradientGridFill.tsのモジュールdocstring参照）、矢印は無くgridFillのみ。
-      id: "gradientFill",
-      label: "勾配（面）",
-      chipLabel: "勾配",
-      kind: "static",
-      category: "terrain",
-      dataNature: "dynamic",
-      description: "指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示",
-      panelHint:
-        "ONにすると地図下部にコンパススライダーが現れます。指定した走行方位（向き）と、" +
-        "そのタイル内の道路網が持つ実際の勾配・向きから、実効的な勾配（登り/下り）の平均を" +
-        "タイル単位の面で色分けします。「評価軸」グループの「勾配」（線）と" +
-        "同じ向きの指定を共有します。",
     },
     // 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
     // ramp軸と同じく軸カタログから自動生成する。label/chipLabel/panelHintはこの記述子が

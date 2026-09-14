@@ -262,11 +262,6 @@ trueとする。
 - `windVector`の`arrow`（gridMark）は`windGrid`（粗い格子）でフレーム時刻を計算するが、
   実際の描画は`effectiveWindGrid`（詳細格子があればそちらを優先）を使う。フレーム時刻の
   計算元と実際に塗る値の元が別グリッドである点は初見では見落としやすい。
-- `gradientFill`（勾配の面塗り）は`page.tsx`のコメント上`windVector`と同じ「環境グループ」
-  という語彙で呼ばれるが、`DYNAMIC_WEATHER_RENDERERS`汎用機構には統合されておらず、
-  `MapView.tsx`内に`makeEnsureGradientFillLayer`/`applyGradientFillGeojson`という独立
-  実装を持つ。このモジュールの対象範囲は風・降水・雷・竜巻・キキクル・線状降水帯予測マップの
-  みであり、勾配は含まない（勾配は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。
 - **JMAプロキシ配下のURLはすべて`jmaNowcastFrames.ts: jmaProxyUrl(path)`で組み立てる**
   （タイルテンプレート・時刻一覧・GeoJSON・`DYNAMIC_WEATHER_RENDERERS`のプレースホルダの
   区別なく）。配信オリジン（`lib/tileBaseUrl.ts: tileBaseUrl()`）を付けるかどうかを

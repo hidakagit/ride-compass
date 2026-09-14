@@ -16,13 +16,12 @@
 | `Map/routeStyleModes.ts` | ルート確定後の色分けモード一覧・色式 |
 | `Map/dedicatedWayValueLayer.ts` | ルート確定前の評価軸グループ線（専用way値レイヤー、風・勾配共通）の色式・凡例・feature-stateキー。軸カタログの表示宣言（`DedicatedWayValueDisplay`）だけから組み立て、軸ごとのファイル・定数を持たない |
 | `Map/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色、HSL補間、段階分け色式。ルート前後の色分けが共有する葉モジュール |
-| `Map/gradientGridFill.ts` | ルート確定前の環境グループ面（勾配のgridFill）の値計算・色式（風は面塗りを持たないため対象外） |
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（ramp軸の共有色ヘルパー）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。`dedicatedWayValueLegend`が使う |
 | `components/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `Map/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定） |
-| `Map/MapView.tsx`（専用way値配信軸/gradientFill/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
+| `Map/MapView.tsx`（専用way値配信軸/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
 | `Map/axisLayers.ts`（`DedicatedWayValueAxis`関連のみ） | 軸カタログ→専用way値配信軸一覧の変換（`dedicatedWayValueAxesFromCatalogAxes`）とレイヤーIDの導出（`dedicatedWayValueMapLayerId`/`dedicatedWayValueLineLayerId`） |
 | `hooks/useDedicatedWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得、全軸を1つのフックで賄う） |
 | `services/axisAdminApi.ts`・`regionApi.ts`（`fetchDynamicWayValues`のみ） | backend APIラッパー |
@@ -30,13 +29,12 @@
 **`MapView.tsx`は路面タイル・動的気象（降水/風の矢印/雷/竜巻）・POI等のロジックも持つ
 ファイルで、それらは[地図: 静的レイヤー・道路表示](static-map-layers.md)・
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)の管轄。本ドキュメントは専用way値
-配信軸/gradientFill/ルート確定後の色分け（DETAIL_LAYER_ID）に関わる箇所のみを扱う。**
+配信軸/ルート確定後の色分け（DETAIL_LAYER_ID）に関わる箇所のみを扱う。**
 
 ## ルート確定前後で同じスケール（3つの表示、1つの表示宣言）
 
 ```
                           [評価軸グループ（線）]                [環境グループ（面、勾配のみ）]
-ルート未確定  ── setFeatureState経由の値 ──┐   ┌── gridFill（勾配=タイル平均。風は対象外）
               （useDedicatedWayValues、    │   │
                backendが軸定義で評価した   │   │
                地図表示値）                 ▼   ▼
@@ -149,9 +147,8 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   同じ路面タイルソースの地物へ複数の軸が値を持つため軸idごとに異なる。
 - `buildDedicatedWayValueColorExpression(valueExpression, display, loading?)`: 値の取得元
   （feature-state or geojsonプロパティ）だけが呼び出し側で異なる共通ロジック。評価軸
-  グループ（`dedicatedWayValueColorExpression`、feature-state経由）と環境グループの
-  gradientFill（`["get",...]`経由）が同じ配色・しきい値を共有する契約をコード上で1箇所に
-  集約する。`loading`は`buildSteppedColorExpression`へそのまま渡す（後述）。
+  グループ（`dedicatedWayValueColorExpression`、feature-state経由）が使う。値の取得元を
+  引数に取る形のまま残してあり、feature-state以外から値を読む呼び出し側を足せる。`loading`は`buildSteppedColorExpression`へそのまま渡す（後述）。
 - `dedicatedWayValueLegend(display)`: 同じ配色・しきい値から地図上の凡例
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
   `display_band_labels_override`）は`mapColorLegend.ts: bandLabelsForBandCount`が
@@ -163,22 +160,6 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   表示する（モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。ルート後だけ
   凡例の段階を非表示にできる（`hiddenLegendKeysByMode[lens]`）。専用way値レイヤーには
   絞り込み機構自体が無いため`MapColorLegendBand`（`{label, color}`のみ）という軽量な型を使う。
-
-## gradientGridFill.ts（環境グループの面表示、勾配のみ）
-
-風は矢印のみで面塗りを持たないため（[地図: 動的気象レイヤー](dynamic-weather-layers.md)
-参照）、環境グループの面表示は勾配専用。値は道路のeffective_gradient（評価軸グループ向けに
-既にフェッチ済みのway単位の値）を、フェッチ元のタイル境界を1セルとして平均集計する
-（`gradientGridCellsFromTileResponses`、追加のAPI呼び出し無し）。セルの単位はタイル境界
-そのもの（`tileRing`）。
-
-`gradientFillColorExpression(display?, loading?)`は評価軸グループ
-（`dedicatedWayValueColorExpression`）と同じ`dedicatedWayValueDisplays`（`.get("gradient")`）・
-`dedicatedWayValueLoading`（`.get("gradient")`）を`MapView.tsx`側
-（`makeEnsureGradientFillLayer`）で受け取り、両者が同じ配色・しきい値・読込状態を共有する。
-このレイヤーは値を持つタイルだけをfeatureとして含む（`gradientGridCellsFromTileResponses`）
-ため、`COLOR_LOADING`/`COLOR_NO_DATA`の分岐が実際の描画へ現れることは無い
-（feature自体が存在しないタイルは透明のまま）。
 
 ## useDedicatedWayValues.ts（フェッチ・状態管理）
 
@@ -199,8 +180,6 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
 
 - `values: ReadonlyMap<number, number>`（way_id→値、複数タイル統合済み）——評価軸
   グループの`setFeatureState`にそのまま使える。
-- `byTile: TileDynamicWayValues[]`（タイルごとの生応答）——勾配の環境グループgridFill
-  （タイル境界セル）が使う。風は環境グループのgridFillを持たないため`byTile`は使わない。
 - `loading: boolean`（現在のビューポートぶんのフェッチが進行中か）——
   `values`は古い値をそのまま残す設計（パン・ズームで一部way_idが最新の応答に含まれなく
   なっても明示的に消さない）ため、`loading`だけを見て「まだ一度も値を受け取っていない
@@ -235,14 +214,13 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
 
 ```
 page.tsx
-  ├─ dedicatedFetchAxes = [レンズが指す専用配信軸] ∪ [gradientFillがONなら勾配軸]
+  ├─ dedicatedFetchAxes = [レンズが指す専用配信軸]
   ├─ useDedicatedWayValues(dedicatedFetchAxes, viewport, travelBearingDeg, targetTime, assumedSpeedKmh)
-  │     → ReadonlyMap<axisId, {values, byTile, loading, error, hasFetched}>
+  │     → ReadonlyMap<axisId, {values, loading, error, hasFetched}>
   ├─ dedicatedWayValues        = そのMapのvaluesだけを写したMap<axisId, Map<wayId, value>>
   ├─ dedicatedWayValueLoading  = 同じくloadingだけを写したMap<axisId, boolean>
-  ├─ gradientFillPayload       = 勾配軸のbyTileをgradientGridCellsFromTileResponsesへ
   ▼
-<MapView dedicatedWayValues={...} dedicatedWayValueLoading={...} gradientFillGeojson={...} .../>
+<MapView dedicatedWayValues={...} dedicatedWayValueLoading={...} .../>
   ├─ buildStaticOverlayLayers(..., dedicatedAxes, ...)がdedicatedAxesをmapし、軸ごとに
   │     makeEnsureDedicatedWayValueLayer(layerId, colorExpression)（色式はdedicatedWayValueDisplays・
   │     dedicatedWayValueLoadingから）
@@ -313,6 +291,4 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 
 **追従しないもの**: 値を組み立てるbackendのサービス本体（`_DEDICATED_WAY_VALUE_SERVICE_
 FACTORIES`への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。
-未登録の軸へこのフラグを立てる書き込み自体がbackendで拒否される。環境グループの
-勾配gridFill（`gradientGridFill.ts`）も汎用機構ではなく勾配固有のレイヤーのままで、
-対象の軸idは`GRADIENT_AXIS_ID`が1箇所だけ名指しする。
+未登録の軸へこのフラグを立てる書き込み自体がbackendで拒否される。

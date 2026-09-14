@@ -148,7 +148,6 @@ const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement
   // 同じElevationIconを流用する（windVectorがWindIconを共有するのと同じパターン）。
   // 専用way値配信軸（評価軸としての風・勾配）は地図上チップとして出ないため、この辞書に
   // 項目を持たない（引けなかった場合の既定はAxisRampIcon）。
-  gradientFill: ElevationIcon,
   // 災害（雷・竜巻・落雷・キキクル等を1チップへまとめたグループ）。個々の要素ではなく
   // 防災情報全体を表すShieldIconを使う。
   disaster: ShieldIcon,

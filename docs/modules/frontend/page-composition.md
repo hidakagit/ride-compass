@@ -107,9 +107,6 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
   │           └─→ 評価軸（線）: レンズがその軸を指している間だけ（下記の共通経路）
   │
   └─→ 勾配: （時刻非依存）
-              │
-              ├─→ 環境（面）: showGradientFill = layerVisibility.gradientFill && !hasDetail
-              │     gradientGridCellsFromTileResponses(勾配軸のbyTile)
               └─→ 評価軸（線）: レンズがその軸を指している間だけ（下記の共通経路）
 
   評価軸（線）の共通経路（軸ごとの分岐を持たない）:
@@ -139,10 +136,7 @@ ReadonlyMap<axisId, DedicatedWayValueDisplay>`）は、いずれも`MapView.tsx`
 軸id→値の1つの汎用propにまとまっている（design-principles.md構造仕様3「軸ごとにpropを
 新設しない」）。`page.tsx`が`axisCatalog.dedicatedAxes`（軸カタログから抽出済みの
 専用way値配信軸一覧）を横断して構築するため、`dedicated_way_value_layer`軸が増えても
-これらのprop自体の変更は不要。一方`gradientFillGeojson`（タイル単位に集計済みの環境グループgridFill本体）は
-勾配専用の個別propのまま残っている——風は独立した空間フィールドを持たずgridFill表現自体を
-持たないため（[map-axis-coloring.md](map-axis-coloring.md)「gradientGridFill.ts」節参照）、
-風・勾配で対称な汎用化の対象にならない。
+これらのprop自体の変更は不要。専用way値配信軸に軸専用のpropは無い。
 
 ## 状態の永続化（`hooks/useStoredState.ts`）
 

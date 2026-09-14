@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import { DEDICATED_WAY_VALUE_AXES, RAMP_AXES, axisLineLayerId } from "@/components/Map/axisLayers";
 import {
   DESIGNATION_LAYER_ID,
-  GRADIENT_FILL_LAYER_ID,
   STOP_POI_LAYER_ID,
   SUPPLY_POI_LAYER_ID,
   buildAxisOverlayLayers,
@@ -49,7 +48,9 @@ function evaluateFilter(filter: unknown, properties: Record<string, unknown>): b
 // hiddenKeysByAxisは全軸ぶんの完全なRecordを要求するが、テストでは触れる軸だけ指定できれば
 // 十分（setStaticOverlayFilters内は`hiddenKeysByAxis[axis.axisId] ?? []`で未指定軸を
 // 空配列扱いする）。
-function hiddenKeys(partial: Partial<Record<StaticFilterAxisId, readonly string[]>>): Record<StaticFilterAxisId, readonly string[]> {
+function hiddenKeys(
+  partial: Partial<Record<StaticFilterAxisId, readonly string[]>>,
+): Record<StaticFilterAxisId, readonly string[]> {
   return partial as Record<StaticFilterAxisId, readonly string[]>;
 }
 
@@ -64,7 +65,7 @@ describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むra
       map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
       hiddenKeys({ designation: ["emergency_transport"] }),
       STATIC_OVERLAY_LAYERS,
-      STATIC_FILTER_AXES
+      STATIC_FILTER_AXES,
     );
 
     const filter = map.setFilterCalls.find((c) => c.layerId === DESIGNATION_LAYER_ID)!.filter;
@@ -74,7 +75,12 @@ describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むra
 
   it("車の圧迫感（axis:car_stress）のrampレイヤーにもフィルタが設定される", () => {
     const map = fakeMap();
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}), STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
+    setStaticOverlayFilters(
+      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
+      hiddenKeys({}),
+      STATIC_OVERLAY_LAYERS,
+      STATIC_FILTER_AXES,
+    );
 
     const layerId = axisLineLayerId("car_stress");
     expect(map.setFilterCalls.some((c) => c.layerId === layerId)).toBe(true);
@@ -88,7 +94,12 @@ describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むra
 describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分離、改善計画T101）", () => {
   it("stopPoiレイヤーのフィルタはstopPoi側のkindのみ通し、supplyPoi側のkindは弾く", () => {
     const map = fakeMap();
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}), STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
+    setStaticOverlayFilters(
+      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
+      hiddenKeys({}),
+      STATIC_OVERLAY_LAYERS,
+      STATIC_FILTER_AXES,
+    );
     const filter = map.setFilterCalls.find((c) => c.layerId === STOP_POI_LAYER_ID)!.filter;
 
     expect(evaluateFilter(filter, { kind: "traffic_signals" })).toBe(true);
@@ -97,7 +108,12 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
 
   it("supplyPoiレイヤーのフィルタはsupplyPoi側のkindのみ通し、stopPoi側のkindは弾く", () => {
     const map = fakeMap();
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], hiddenKeys({}), STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
+    setStaticOverlayFilters(
+      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
+      hiddenKeys({}),
+      STATIC_OVERLAY_LAYERS,
+      STATIC_FILTER_AXES,
+    );
     const filter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
 
     expect(evaluateFilter(filter, { kind: "convenience" })).toBe(true);
@@ -108,7 +124,12 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
     const map = fakeMap();
     // stopPoiの「信号を隠す」操作中でも、supplyPoiレイヤー自体はstopPoi側のkindを通さない。
     const withHiddenTrafficSignals = hiddenKeys({ stopPoi: ["traffic_signals"] });
-    setStaticOverlayFilters(map as unknown as Parameters<typeof setStaticOverlayFilters>[0], withHiddenTrafficSignals, STATIC_OVERLAY_LAYERS, STATIC_FILTER_AXES);
+    setStaticOverlayFilters(
+      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
+      withHiddenTrafficSignals,
+      STATIC_OVERLAY_LAYERS,
+      STATIC_FILTER_AXES,
+    );
     const supplyFilter = map.setFilterCalls.find((c) => c.layerId === SUPPLY_POI_LAYER_ID)!.filter;
 
     expect(evaluateFilter(supplyFilter, { kind: "traffic_signals" })).toBe(false);
@@ -117,14 +138,15 @@ describe("setStaticOverlayFilters（停止要因POI・補給休憩POIのkind分�
 });
 
 // 改善計画T478（統合レビュー第3回§9指摘の再確認）: buildInteractiveLayerIdsが
-// "gradientFill"（GRADIENT_FILL_LAYER_ID、専用ポップアップを持たずクリック時は
-// handleClickの早期returnガードで「何もしない」設計）を除外できていないと、
-// handleMouseMove（同じinteractiveLayerIdsを参照）がこのレイヤー上でpointerカーソルを
+// interactive=falseのエントリ（専用ポップアップを持たないレイヤー）を除外できていないと、
+// handleMouseMove（同じinteractiveLayerIdsを参照）がそのレイヤー上でpointerカーソルを
 // 出してしまい、「カーソルはクリック可能を示すのに実際は何も起きない」という不整合になる。
 describe("buildInteractiveLayerIds（改善計画T478）", () => {
-  it("gradientFillはinteractiveLayerIdsから除外される（クリックしても何も起きないため、hoverでpointerカーソルも出してはいけない）", () => {
+  it("interactive=falseのエントリは1つも含まれない（クリックしても何も起きないため、hoverでpointerカーソルも出してはいけない）", () => {
     const ids = buildInteractiveLayerIds(STATIC_OVERLAY_LAYERS);
-    expect(ids).not.toContain(GRADIENT_FILL_LAYER_ID);
+    const nonInteractive = STATIC_OVERLAY_LAYERS.filter((layer) => !layer.interactive);
+    expect(nonInteractive.length).toBeGreaterThan(0);
+    for (const layer of nonInteractive) expect(ids).not.toContain(layer.layerId);
   });
 
   it("designation等の通常の道路属性レイヤーは引き続きinteractiveLayerIdsに含まれる（road_surfaceと同じ道路属性を持つため専用ポップアップが機能する）", () => {
