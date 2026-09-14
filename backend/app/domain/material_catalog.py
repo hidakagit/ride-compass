@@ -755,7 +755,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     # 自転車インフラを評価軸から切り離すための正規化フラグ材料群
     # （_extract_highway_is_cycleway等のdocstring参照）。公開軸「自転車インフラ」
     # （bicycle_infra_quality）がこれらを重み付き線形結合する（domain/axis_definitions.py
-    # 参照）。5材料それぞれが専用のtile_propertyを持ち、_ROAD_SURFACE_TILE_MVT_SQL
+    # 参照）。この群の材料はそれぞれ専用のtile_propertyを持ち、_ROAD_SURFACE_TILE_MVT_SQL
     # （road_graph_repository.py）へ焼き込む（is_emergency_transport/is_critical_logistics
     # と同じ「複雑な分類の生値は表示専用として残し、評価用の正規化材料は別途タイルへ
     # 焼き込む」設計）。
@@ -765,7 +765,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="道路種別(highway)自体が自転車道(cycleway)かどうか。",
         dtype="boolean",
         tile_property="highway_is_cycleway",
-        # 判定式はhighway生タグを見るが、意味的には他3材料と同じ「自転車走行環境の
+        # 判定式はhighway生タグを見るが、意味的にはこの群の他の材料と同じ「自転車走行環境の
         # 分類」という1つのまとまりのため、cycleway_has_track等と同じ
         # primary_attribute_id="cycleway"へ寄せる（highway自体はcar_stress_highway_baseが
         # 単独で使う一次属性のまま、排他チェック対象を維持する）。
@@ -773,9 +773,9 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # bool_default既定の"false"のままだと、compute_edge_costs_bulk（配列評価経路）が
         # 「データ欠損（extractorがNoneを返す）」を「確定でFalse」へ丸めてしまい、公開軸
         # bicycle_infra_qualityがhighway未解決の区間を「roadway確定」と誤評価する
-        # （surface_goodと同じ「不明をFalseと混同してはいけない」ケース）。4材料は常に
+        # （surface_goodと同じ「不明をFalseと混同してはいけない」ケース）。この群は常に
         # bicycle_infra_flagsから一括で算出される（個別に欠損することはない）ため、
-        # 4件まとめて"nan"にしても副作用は無い。
+        # まとめて"nan"にしても副作用は無い。
         bool_default="nan",
         extractor=_extract_highway_is_cycleway,
     ),
@@ -900,7 +900,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "smoothness": MaterialSpec(
         material_id="smoothness",
         label="路面の状態",
-        description="OSMの路面状態タグ(smoothness)の生値（excellent〜impassableの7段階）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
+        description="OSMの路面状態タグ(smoothness)の生値（excellent〜impassable）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
         dtype="categorical",
         # OSMのsmoothnessタグ生値（excellent/good/intermediate/bad/very_bad/horrible/
         # very_horrible/impassable、正規化: lower/btrim）。surfaceが路面「種別」なのに

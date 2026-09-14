@@ -1106,3 +1106,30 @@ def test_map_redraw_gaps_reports_a_missing_entry_instead_of_passing_silently():
 
     assert len(gaps) == 1
     assert "redrawAllLayers" in gaps[0]
+
+
+# --- count_narrative --------------------------------------------------------
+
+
+def test_count_narrative_reports_counts_in_comments_and_docs():
+    src = {"frontend/src/components/Map/zzz.ts": [(3, "// 災害は7要素をまとめて描く。")]}
+    doc = {"docs/modules/frontend/zzz.md": [(5, "静的レイヤーは8種ある。")]}
+
+    hits = review_checks.find_count_narratives(src, doc)
+
+    assert len(hits) == 2
+
+
+def test_count_narrative_ignores_code_and_task_entries():
+    # コメント以外の行（定数定義）と、当時の数をそのまま残すタスクの個票は対象外。
+    src = {"frontend/src/components/Map/zzz.ts": [(3, "const DISASTER_SOURCE_COUNT = 7;")]}
+    doc = {"docs/tasks/T999.md": [(1, "内部軸5つ。")]}
+
+    assert review_checks.find_count_narratives(src, doc) == []
+
+
+def test_count_narrative_ignores_units_that_stay_true_when_something_is_added():
+    # 長さ・時間・回数は「1つ増えたときに嘘になる」型ではない。
+    src = {"backend/app/domain/zzz.py": [(1, "# 3秒で諦め、2回まで再試行する（5件まで）。")]}
+
+    assert review_checks.find_count_narratives(src, {}) == []

@@ -5,9 +5,10 @@
 GUIから行わない（`domain/material_catalog.py`へのコード変更＋デプロイのみ）。
 
 `tile_property`（地図レイヤーのramp自動生成が内部で使う想定）は公開レスポンスに
-含めない——フロントの軸コンポーザーが必要とするのは`material_id`/`label`/`description`/
-`dtype`/`reference_points`のみのため（`description`は軸コンポーザーの情報アイコンから
-表示する説明文、`reference_points`は折れ点編集を助ける「値の目安」一覧）。
+含めない——フロントの軸コンポーザーが選択と編集に使う項目（`material_id`・`label`・
+`description`等。`description`は情報アイコンから表示する説明文、`reference_points`は
+折れ点編集を助ける「値の目安」一覧）だけを返す。実際に返す項目は
+`MaterialCatalogEntry`が正本。
 
 `MaterialSpec.display_only=True`の材料（designation）は`axis_studio_materials()`が
 このレスポンスから除外する。構造的なAND条件（"both"）を素朴なCategoricalShapeが

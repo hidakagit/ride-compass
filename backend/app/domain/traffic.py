@@ -4,10 +4,9 @@
 根拠のない推測はしない）。正準定義はここ1箇所（domain/road.pyのGOOD/BAD_OSM_SURFACE_TAGSと
 同じ「正準1箇所」の運用）。
 
-車ストレスはAXIS_DEFINITIONS（domain/axis_definitions.py）の内部軸5つ+公開軸1つの
-階層構造で再現している。自転車インフラは正規化フラグ材料4種
-（`domain/recipe.py: bicycle_infra_flags`）の組み合わせで表し、
-domain/evaluation.pyの軸材料合成が直接参照する。
+車ストレスは軸定義（DBが正本、軸スタジオから増減する）の内部軸と公開軸の階層構造で
+再現している。自転車インフラは正規化フラグ材料（`domain/recipe.py: bicycle_infra_flags`）
+の組み合わせで表し、domain/evaluation.pyの軸材料合成が直接参照する。
 """
 
 from typing import Literal

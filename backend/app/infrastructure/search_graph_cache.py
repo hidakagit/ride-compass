@@ -28,9 +28,9 @@ LRU上限は`graph_material_cache`（タイル単位、上限2,000）より大�
 同じ経験的な割り切り。上限に達した場合はLRUで最も長く使われていないエントリから
 自然に破棄される）。
 
-**`SearchGraphStatics`（順方向・転置版）は`LazyRoadGraph`/`NodeSpatialIndex`より
-小さい上限`SEARCH_STATICS_MAX_ENTRIES`（16）を別に持つ**。1エントリが
-CSR構造一式（`indptr`/`indices`/`entry_edge_index`）を保持し他の2種より重いため、
+**`SearchGraphStatics`は`LazyRoadGraph`/`NodeSpatialIndex`より小さい上限
+`SEARCH_STATICS_MAX_ENTRIES`（16）を別に持つ**。1エントリがCSR構造一式
+（`indptr`/`indices`/`entry_edge_index`）を保持し他より重いため、
 `DEFAULT_MAX_ENTRIES`（64）を共有すると常駐メモリが不必要に大きくなりうる。
 """
 
@@ -70,8 +70,8 @@ _V = TypeVar("_V")
 class _TileKeyedLru(Generic[_K, _V]):
     """タイル集合キー（またはそれを含むタプル）のプロセス内LRU。
 
-    立ち退き自体は`cachetools.LRUCache`が担い、ここは4キャッシュ（lazy_graph・
-    search_statics・routable_index）が共有する薄い包みに徹する。
+    立ち退き自体は`cachetools.LRUCache`が担い、ここはこのモジュールのキャッシュ
+    （lazy_graph・search_statics等）が共有する薄い包みに徹する。
     包みが要るのは、キーの条件一致でまとめて捨てる`pop_matching`（タイル集合の一部が
     無効化されたときに、そのタイルを含むエントリだけを落とす）が必要なため。
 
@@ -119,7 +119,8 @@ _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _Ti
 _turn_structure_cache: "_TileKeyedLru[TurnStructureKey, TurnExpandedStructure]" = _TileKeyedLru()
 # 探索範囲ごとに学習した迂回率（往路木で測った「道なり距離÷直線距離」の中央値）。同じ
 # タイル集合への次のリクエストが往路レグの通過予定時刻の推定に使う。道路網の形だけで決まる
-# 派生値のため、他の4キャッシュと同じキー・寿命で持つ（失っても既定値から測り直すだけ）。
+# 派生値のため、このモジュールの他のキャッシュと同じキー・寿命で持つ（失っても既定値から
+# 測り直すだけ）。
 _detour_ratio_cache: "_TileKeyedLru[TileSet, float]" = _TileKeyedLru()
 _max_entries = DEFAULT_MAX_ENTRIES
 # `_search_statics_cache`専用の上限。

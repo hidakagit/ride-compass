@@ -267,7 +267,7 @@ const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
 // （路面の種類等）のIDと衝突しないよう、レイヤーIDそのものを使う。
 const DISASTER_SOURCE_AXIS_ID = "disaster";
 
-// 災害チップの▶パネルに出す「表示する情報」（7要素の個別トグル）。axisIdを持つため
+// 災害チップの▶パネルに出す「表示する情報」（ソースごとの個別トグル）。axisIdを持つため
 // LegendCheckboxListで描画され、非表示キーはhiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID]
 // へ保存される（▶パネルの絞り込みと同じ保存先・同じ操作感）。
 // 面同士は重なると混色して危険度を読み取れないため、混んできたらここで絞り込む。
@@ -1134,7 +1134,7 @@ export default function Home() {
   const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
   const showWindVector = layerVisibility.windVector;
   const showDisaster = layerVisibility.disaster;
-  // 災害チップ配下の7要素のうち、▶パネルで非表示に選ばれているもの。面同士が重なると
+  // 災害チップ配下のソースのうち、▶パネルで非表示に選ばれているもの。面同士が重なると
   // 混色して危険度を読み取れないため、ユーザーがその場で絞り込めるようにしている
   // （保存先はサイドバーの絞り込みと同じhiddenLegendKeysByMode）。
   const hiddenDisasterSources = hiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID] ?? NO_HIDDEN_LEGEND_KEYS;

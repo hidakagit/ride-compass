@@ -337,6 +337,44 @@ def find_way_tag_allowlist_violations(source_lines: dict[str, list[tuple[int, st
     return out
 
 
+# docs/documentation.md「要素が1つ増えたときに嘘になる文は数え上げている」の機械的な手掛かり。
+# 増減しうる集合の大きさを表す助数詞だけを見る（長さ・時間・回数のように増えても嘘に
+# ならない単位は最初から入れない）。「1つ」は「1箇所へ寄せる」のような書き方が大半のため
+# 2以上に限る。**参考表示に留める**——実測した内訳はdocs/tasks/T824.mdにある。
+COUNTED_UNITS = (
+    "個|種類|種|値|箇所|つ|パターン|カテゴリ|段階|レイヤー|材料|キャッシュ|メソッド"
+    "|軸|分位|要素|状態|系統|コマ|グループ|チップ|フラグ|エンドポイント|テーブル"
+)
+COUNT_NARRATIVE_RE = re.compile(
+    rf"(?<![0-9a-zA-Z.])(?:[2-9]|[1-9][0-9]|[二三四五六七八九十])\s*(?:\*\*)?(?:{COUNTED_UNITS})"
+)
+# 記録として残す文書（当時の数をそのまま持つ）と、タスクの個票は対象外。
+COUNT_NARRATIVE_EXEMPT = ("docs/tasks/", "docs/improvement-plan.md", "zero-base-review", "-review-2026-")
+
+
+def find_count_narratives(
+    source_lines: dict[str, list[tuple[int, str]]],
+    doc_lines: dict[str, list[tuple[int, str]]],
+) -> list[str]:
+    """個数を書いている行（参考表示）。ソースはコメント部分だけを見る。"""
+    out: list[str] = []
+    for path, lines in sorted(source_lines.items()):
+        jsx_state: dict[str, bool] = {}
+        for lineno, line in lines:
+            text = comment_only(line, path, jsx_state)
+            m = COUNT_NARRATIVE_RE.search(text) if text else None
+            if m:
+                out.append(f"{path}:{lineno}: 「{m.group(0)}」 {text.strip()[:80]}")
+    for path, lines in sorted(doc_lines.items()):
+        if any(part in path for part in COUNT_NARRATIVE_EXEMPT):
+            continue
+        for lineno, line in lines:
+            m = COUNT_NARRATIVE_RE.search(line)
+            if m:
+                out.append(f"{path}:{lineno}: 「{m.group(0)}」 {line.strip()[:80]}")
+    return out
+
+
 # map.setStyle()はカスタムのsource/layerを全て捨てるため、その後の再描画から辿り着けない
 # 描画は「消えたまま戻らない」。再描画の入口と、それが守るべきファイルを指す。
 MAP_REDRAW_FILE = "frontend/src/components/Map/MapView.tsx"
@@ -1736,6 +1774,9 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "cross_file_env_writes": frozenset({"staged", "since", "full"}),
     "way_tag_allowlist": frozenset({"staged", "since", "full"}),
     "map_redraw_coverage": frozenset({"staged", "since", "full"}),
+    # 参考表示のみ。誤検出が多く（実測はdocs/tasks/T824.md）ブロックには使えないが、
+    # 書いた本人の目へ入れるだけで直せる型のため、追加行に対してだけ出す。
+    "count_narrative": frozenset(),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -1791,6 +1832,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_way_tag_allowlist_violations(source_lines)))
         sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
                          find_map_redraw_gaps()))
+        sections.append(("count_narrative", "個数を書いている行（参考、ステージ済み追加行、docs/documentation.md参照）",
+                         find_count_narratives(source_lines, diff_added_lines("docs/*.md"))))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
         sections.append(("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
                          find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision="")))
@@ -1947,6 +1990,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
                              find_cross_file_env_writes(files)))
             sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
                              find_map_redraw_gaps()))
+            sections.append(("count_narrative", f"個数を書いている行（参考、{args.since} 以降の追加行、docs/documentation.md参照）",
+                             find_count_narratives(gather_added_source_lines(args.since),
+                                                   diff_added_lines("docs/*.md", args.since))))
         else:
             sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
                              find_vacuous_test_loops(files)))

@@ -472,7 +472,7 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
 
 def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     """軸が参照する材料を一次属性idへ解決する。`AxisDefinition.materials`は材料idだけで
-    なく他の軸id（階層構造、例: car_stressの内部軸6つ）も返しうるため、
+    なく他の軸id（階層構造、例: car_stressが参照する内部軸）も返しうるため、
     材料id側で見つからないエントリはAXIS_DEFINITIONSの軸として再帰的に解決する
     （内部軸自体も内部軸を参照しうる想定はないが、循環参照は軸スタジオ側で拒否済み
     [test_create_rejects_direct_cycle_between_two_axes]のため`visited`で安全側に保護する）。

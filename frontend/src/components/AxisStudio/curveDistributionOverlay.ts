@@ -27,7 +27,8 @@ export interface OffRangeShare {
   above: number;
 }
 
-/** 背景へ描く分位線。全6分位を出すと線だらけになるため、外れ・中央・外れの3本に絞る。 */
+/** 背景へ描く分位線。backendが返す分位を全て出すと線だらけになるため、
+ *  外れ・中央・外れに絞る。 */
 const VISIBLE_QUANTILES = ["p10", "p50", "p90"] as const;
 
 /** 「範囲外がある」と注意を促す下限。丸め誤差や極端な外れ値1本で毎回出しても意味が無い。 */
@@ -43,11 +44,7 @@ function overlap(from: number, to: number, min: number, max: number): number {
  * 階級が範囲をまたぐ場合、その階級の延長は**幅に比例して按分**する（階級内は一様と
  * みなす）。またがる階級を丸ごと入れる／落とすと、範囲の端で割合が跳ねる。
  */
-export function visibleBars(
-  distribution: ValueDistribution | null,
-  xMin: number,
-  xMax: number,
-): DistributionBar[] {
+export function visibleBars(distribution: ValueDistribution | null, xMin: number, xMax: number): DistributionBar[] {
   if (!distribution || xMax <= xMin) return [];
   const bars: DistributionBar[] = [];
   for (const [from, to, share] of distribution.bins) {
@@ -72,11 +69,7 @@ export function visibleBars(
  * 範囲と合っていないこと自体**（値の大半が曲線の外側にある状態）が画面から消える。
  * それはこの重ね描きが一番伝えたいことなので、割合として残す。
  */
-export function offRangeShare(
-  distribution: ValueDistribution | null,
-  xMin: number,
-  xMax: number,
-): OffRangeShare {
+export function offRangeShare(distribution: ValueDistribution | null, xMin: number, xMax: number): OffRangeShare {
   if (!distribution) return { below: 0, above: 0 };
   let below = 0;
   let above = 0;
@@ -99,11 +92,7 @@ export function offRangeShare(
 }
 
 /** 表示範囲に入る分位だけを、横軸へ引く順に返す。 */
-export function quantileMarkers(
-  distribution: ValueDistribution | null,
-  xMin: number,
-  xMax: number,
-): QuantileMarker[] {
+export function quantileMarkers(distribution: ValueDistribution | null, xMin: number, xMax: number): QuantileMarker[] {
   if (!distribution) return [];
   return VISIBLE_QUANTILES.flatMap((label) => {
     const value = distribution.quantiles[label];

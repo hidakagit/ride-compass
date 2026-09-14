@@ -20,7 +20,7 @@
 | `hooks/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ。定期取得は`usePolledFetch`（粗い風格子を含む全系統）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す |
-| `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の6箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・雷放電位置データ・キキクル・線状降水帯予測マップ）が共有するフェッチ骨格の共通実装 |
+| `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の定期取得（降水ナウキャスト・雷放電位置データ等）が共有するフェッチ骨格の共通実装 |
 | `components/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`components/TodayOutlook/TodayOutlook.tsx`・`components/WarningBadge/WarningBadge.tsx` | UI |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
@@ -30,7 +30,7 @@
    `windLayer.ts: WIND_GRID_SPACING_DEG`/`WIND_GRID_DETAIL_SPACING_DEG`）を共有する。
    フェッチも共有（`hooks/useWeatherGrid.ts`、風の矢印と降水延長予報のどちらか一方でも
    ONなら1回のフェッチで両方をカバーする）。
-2. **表現は3パターン**: 格子中央にマークを出す（`gridMark`、風の矢印）、格子/タイル境界を
+2. **表現の型は決まっている**: 格子中央にマークを出す（`gridMark`、風の矢印）、格子/タイル境界を
    指定色で塗る（`gridFill`、降水延長予報の面塗り）、配信元が描画済みの画像を
    重ねる`rasterTile`（気象庁ナウキャスト・降水短時間予報・雷・竜巻・キキクルの土砂/大雨/
    浸水・線状降水帯予測マップ）。加えて洪水キキクルのみ、配信元のMapbox Vector Tile

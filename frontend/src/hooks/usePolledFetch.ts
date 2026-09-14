@@ -28,11 +28,10 @@ export interface UsePolledFetchOptions {
 /** マウント（enabled=true）時に即座に1回フェッチし、以降intervalMsごとに再フェッチし続ける
  * ポーリングフック。
  *
- * useDynamicWeatherLayers.tsに「cancelledフラグ+Promise+catch」の同型フェッチ骨格が
- * 5箇所（降水ナウキャスト・降水短時間予報・雷竜巻ナウキャスト・キキクル・線状降水帯予測
- * マップ）独立実装されていたのを、この1フックへ集約する。cancelledフラグで、依存変化・
- * アンマウント後に古いフェッチのレスポンスが新しい状態を上書きするのを防ぐ（Reactの
- * 定石パターン）。
+ * 「cancelledフラグ+Promise+catch」という同型のフェッチ骨格を必要とする定期取得
+ * （useDynamicWeatherLayers.tsの各要素等）は、fetcherだけを渡してここへ相乗りする。
+ * cancelledフラグで、依存変化・アンマウント後に古いフェッチのレスポンスが新しい状態を
+ * 上書きするのを防ぐ（Reactの定石パターン）。
  */
 export function usePolledFetch<T>(
   fetcher: () => Promise<T>,

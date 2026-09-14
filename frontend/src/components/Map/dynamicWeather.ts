@@ -47,8 +47,8 @@ export const DYNAMIC_WEATHER_LAYER_IDS = [
   "precipitationNowcast",
   "windVector",
   // 災害。雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）・雷放電位置データ
-  // （liden）・キキクル4種（土砂災害・大雨・浸水・洪水）の7要素を名前付きソースとして
-  // 持つ1グループ（MapView.tsx: DYNAMIC_WEATHER_RENDERERSのdisasterグループ参照）。
+  // （liden）・キキクル等を名前付きソースとして持つ1グループ
+  // （MapView.tsx: DYNAMIC_WEATHER_RENDERERSのdisasterグループが正本）。
   // 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため災害ではなく「降水」
   // チップの一部として扱う。洪水キキクルのみ配信元がベクタタイル（.pbf）形式のため、
   // vectorTile kind（本ファイル冒頭コメント参照）で描画する。

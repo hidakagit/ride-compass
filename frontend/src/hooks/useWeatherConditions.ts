@@ -1,10 +1,9 @@
 "use client";
 
-// 現在地の天候（WeatherPanel向け）と3種の警告バッジ（JMA警報・注意報／WBGT／
-// 河川氾濫予報）のフェッチ・状態管理を1つのフックへ抽出したもの。4つとも
-// 「locationReadyになるまで待ち、location変更のたびに再フェッチする」という同じ形の
-// effectを持ち、警告バッジ3種は失敗時も例外を投げず「警告なし」（null/空配列）として
-// backend契約どおり静かに扱う点まで共通のため、1フックにまとめてある。
+// 現在地の天候（WeatherPanel向け）と警告バッジ（JMA警報・注意報／WBGT／河川氾濫予報等）の
+// フェッチ・状態管理を1つのフックへまとめたもの。どれも「locationReadyになるまで待ち、
+// location変更のたびに再フェッチする」という同じ形のeffectを持ち、警告バッジは失敗時も
+// 例外を投げず「警告なし」（null/空配列）としてbackend契約どおり静かに扱う点まで共通。
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getAmedasObservation,
@@ -50,9 +49,9 @@ interface LocationFetchState<T> {
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 /** 「locationReadyになるまで待ち、locationが変わるたびに再フェッチし、**最後に投げた
- * リクエストの結果だけ**を反映する」という共通形。本ファイルの5つのフェッチが同じ骨格を
- * 持つため1箇所へ集約する（連番ガードを写経すると、1つだけガードを書き落としても
- * 「稀に古い応答が新しい応答を上書きする」という再現しにくい形でしか現れない）。
+ * リクエストの結果だけ**を反映する」という共通形。本ファイルのフェッチはすべてこれを通す
+ * （連番ガードを写経すると、1つだけガードを書き落としても「稀に古い応答が新しい応答を
+ * 上書きする」という再現しにくい形でしか現れない）。
  *
  * 失敗しても直前に取得済みのデータは保持する（取得済みの表示を消さず、`error`を添えて
  * 呼び出し側に判断させる）。失敗時に表示ごと消したい呼び出し元は`error`を見て自分で
@@ -80,7 +79,8 @@ function useLocationFetch<T>(
     const run = () => {
       const requestId = ++latestRequestId.current;
       setLoading(true);
-      fetcherRef.current(location)
+      fetcherRef
+        .current(location)
         .then((result) => {
           if (disposed || requestId !== latestRequestId.current) return;
           setData(result);

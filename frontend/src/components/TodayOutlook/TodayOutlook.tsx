@@ -163,9 +163,7 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
           {hasFlow && (
             <div className={styles.flow}>
               <p className={styles.flowTitle}>天気の流れ</p>
-              {/* 8コマがスマホ横幅に収まりきらない場合はパネル内だけで横スクロールさせる
-                  （ユーザーからの明示許可: 「収まらない場合、天気の流れのところは
-                  横スクロールがパネル内で発生してもいい」）。 */}
+              {/* コマがスマホ横幅に収まりきらない場合は、パネル内だけで横スクロールさせる。 */}
               <div className={styles.flowScroll}>
                 {weather.today_periods.map((period) => (
                   <PeriodSlot key={period.period} period={period} />

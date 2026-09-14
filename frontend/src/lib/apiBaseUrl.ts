@@ -1,6 +1,6 @@
-// ブラウザからbackendへ到達するためのベースURL。axisCatalogApi.ts/debugStatsApi.ts/
-// healthApi.ts/materialCatalogApi.ts/regionApi.ts/routeApi.ts/weatherApi.tsが共有する
-// 単一ソース（CLAUDE.md「複雑度平衡」原則の「定数の片側import」）。
+// ブラウザからbackendへ到達するためのベースURL。services/配下のAPI呼び出し
+// （routeApi.ts等）が共有する単一ソース（CLAUDE.md「複雑度平衡」原則の
+// 「定数の片側import」）。
 //
 // サーバー側専用のBACKEND_INTERNAL_URL（backendInternalUrl.ts）とは別物——こちらは
 // ブラウザから直接叩くための公開URL（NEXT_PUBLIC_接頭辞）で、Docker Compose環境等で

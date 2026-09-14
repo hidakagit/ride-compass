@@ -4,6 +4,7 @@
 // ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
 import {
+  DISASTER_SOURCES,
   DYNAMIC_WEATHER_LAYER_IDS,
   formatDynamicFrameTime,
   frameIndexForTime,
@@ -43,7 +44,11 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
   });
 
   describe("nearestTimeIndex", () => {
-    const times = [new Date("2026-08-20T00:00:00+09:00"), new Date("2026-08-20T03:00:00+09:00"), new Date("2026-08-20T06:00:00+09:00")];
+    const times = [
+      new Date("2026-08-20T00:00:00+09:00"),
+      new Date("2026-08-20T03:00:00+09:00"),
+      new Date("2026-08-20T06:00:00+09:00"),
+    ];
 
     it("対象時刻に最も近いindexを返す", () => {
       expect(nearestTimeIndex(times, new Date("2026-08-20T04:40:00+09:00"))).toBe(2);
@@ -125,10 +130,12 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
   });
 
   describe("DYNAMIC_WEATHER_LAYER_IDS", () => {
-    it("災害系7要素は\"disaster\"チップ1つに集約されている", () => {
+    it('災害の各ソースはチップを持たず、"disaster"1つに集約されている', () => {
+      // 母集団はDISASTER_SOURCESから引く。ソースを足したぶんも自動で対象に入る。
       expect(DYNAMIC_WEATHER_LAYER_IDS).toContain("disaster");
-      for (const removed of ["landslideRisk", "heavyRainRisk", "inundationRisk", "floodRisk", "thunderNowcast", "tornadoNowcast", "liden"]) {
-        expect(DYNAMIC_WEATHER_LAYER_IDS).not.toContain(removed);
+      expect(DISASTER_SOURCES.length).toBeGreaterThan(0);
+      for (const source of DISASTER_SOURCES) {
+        expect(DYNAMIC_WEATHER_LAYER_IDS).not.toContain(source.key);
       }
     });
   });

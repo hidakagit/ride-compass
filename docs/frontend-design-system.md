@@ -96,7 +96,8 @@
 | `Dialog` | Radix Dialogのラップ（Root/Trigger/Content）。`title`必須propsでアクセシブル名を型で強制 |
 | `Checkbox` | Radix Checkboxのラップ |
 
-CSSのみの共有スタイル（コンポーネントを介さず、各`*.module.css`から`composes`で取り込む）:
+CSSのみの共有スタイル（コンポーネントを介さず、各`*.module.css`から`composes`で取り込む）。
+現在あるものは`frontend/src/components/ui/`を見る。主なもの:
 
 | ファイル | 概要 |
 |---|---|
@@ -106,7 +107,7 @@ CSSのみの共有スタイル（コンポーネントを介さず、各`*.modul
 | `roundIconButton.module.css` | 地図に重ねる小さい丸アイコンボタン |
 | `mapCtrlButton.module.css` | MapLibre純正コントロールの続きに見える29px四方ボタン |
 | `stepperButton.module.css` | 値を1段ずつ増減する枠線ボタン |
-| `statusDot.module.css` | データ取得状態の3表現（点滅／中空／danger） |
+| `statusDot.module.css` | データ取得状態の表現（点滅／中空／danger） |
 | `axisLegend.module.css` | 軸の寄与を示す帯グラフと凡例ドット |
 
 **別コンポーネントの`*.module.css`を直接importして借りない**。CSS Modulesは存在しない

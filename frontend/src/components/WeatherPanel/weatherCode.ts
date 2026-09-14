@@ -10,11 +10,11 @@ import { CloudIcon, FogIcon, RaindropIcon, SnowflakeIcon, SunIcon, ThunderIcon }
 // アイコンでは判別困難で、かえって視認性を落とすため）。
 export type WeatherCodeCategory = "clear" | "cloudy" | "fog" | "rain" | "snow" | "thunderstorm";
 
-// backendが実際に返すのは0/1/2/3（雲量4段階）・61/63/65（雨3段階）・71/73/75（雪3段階）の
-// 10値だけ（domain/weather.py: derive_weather_code。霧・雷雨はMSMの配信変数から判定できない
-// ため返さない）。残りはWMO標準の対応表としてそのまま持つ——導出ロジックが変わって新しい
-// コードが返るようになったとき、未知コードのフォールバック（下の`?? "cloudy"`）で
-// 雨や雪までくもり扱いになるのを避けるため。
+// backendが実際に返すのは雲量・雨・雪の段階に対応するコードだけ（domain/weather.py:
+// derive_weather_codeが正本。霧・雷雨はMSMの配信変数から判定できないため返さない）。
+// 残りはWMO標準の対応表としてそのまま持つ——導出ロジックが変わって新しいコードが返る
+// ようになったとき、未知コードのフォールバック（下の`?? "cloudy"`）で雨や雪まで
+// くもり扱いになるのを避けるため。
 const CATEGORY_BY_CODE: Record<number, WeatherCodeCategory> = {
   0: "clear",
   1: "clear",

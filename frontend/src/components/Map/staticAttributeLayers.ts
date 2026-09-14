@@ -278,7 +278,7 @@ const STOP_POI_CATEGORIES: CategoryDef[] = [
   { key: "traffic_calming", label: "ハンプ・狭さく", color: "#0d9488" },
 ];
 
-// osm_raw_pois.kindは取込時にclassify_stop_poiで5値のいずれかへ分類済みのため実際には
+// osm_raw_pois.kindは取込時にclassify_stop_poiが既知の種別へ分類済みのため実際には
 // unknown（プロパティ欠落）は出現しない想定だが、match式のフォールバック（COLOR_UNKNOWN）
 // と対にして凡例側にも残す（designation等と同じ「不明・他」の扱い）。
 const stopPoiDefs = buildCategoricalLayerDefs("kind", STOP_POI_CATEGORIES, "不明・他");

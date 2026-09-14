@@ -77,7 +77,7 @@ const EMPTY_LIDEN_FRAMES: LidenFrame[] = [];
 export interface UseDynamicWeatherLayersOptions {
   showWindVector: boolean;
   showPrecipitationNowcast: boolean;
-  /** 災害チップ（雷・竜巻・落雷・キキクル4種の7要素をまとめた1グループ）。 */
+  /** 災害チップ（雷・竜巻・落雷・キキクル等をまとめた1グループ）。 */
   showDisaster: boolean;
   /** 災害チップ配下で非表示に選ばれている要素のソースキー（▶パネルの「表示する情報」）。
    * 面同士が重なると混色して危険度を読み取れないため、要素単位で間引けるようにしている。
@@ -414,11 +414,11 @@ export function useDynamicWeatherLayers({
     ],
   );
 
-  // レイヤーごとのデータ取得状態。3レイヤー全てが同じderiveFetchLayerStatus
-  // 関数を通る——「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を
-  // 意識する必要は無い。複数の名前付きソースを持つグループ（precipitationNowcastの
-  // ナウキャスト3段+線状降水帯、disasterの7要素）は、UI上のチップが1つのため、いずれかの
-  // ソースが地図に何かしら描画できていればloading/errorとしない。
+  // レイヤーごとのデータ取得状態。どのレイヤーも同じderiveFetchLayerStatus関数を通る——
+  // 「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を意識する
+  // 必要は無い。複数の名前付きソースを持つグループ（precipitationNowcast・disaster）は、
+  // UI上のチップが1つのため、いずれかのソースが地図に何かしら描画できていれば
+  // loading/errorとしない。
   const dynamicWeatherDataStatus = useMemo(
     () => ({
       windVector: deriveFetchLayerStatus(windLoading, windError, windPayload !== undefined, windHasFetched),

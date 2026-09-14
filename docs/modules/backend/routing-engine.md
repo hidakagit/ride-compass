@@ -109,10 +109,9 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 
 ## 戦略層（`route_generator.py: RouteGenerator`）
 
-`LoopRoutingEngine`という7メソッドの契約（Protocol、`prepare`/`select_loop_turnarounds`/
-`trace_loop_from_turnaround`/`select_via_nodes`/`trace_loop`/`evaluate_loops`/
-`is_loop_too_similar`）を挟むことで、`RouteGenerator`自体は探索エンジンの内部実装を
-知らない設計になっている（将来別方式のエンジンを差し込める余地を持たせるための抽象化）。
+`LoopRoutingEngine`という契約（Protocol、`prepare`・`trace_loop`・`evaluate_loops`等。
+契約そのものは`domain/routing.py`の定義が正本）を挟むことで、`RouteGenerator`自体は
+探索エンジンの内部実装を知らない設計になっている（将来別方式のエンジンを差し込める余地を持たせるための抽象化）。
 現在の実装は`RoadGraphEngine`のみ。
 
 候補の形は公開軸の重み配分で決まる（フロンティア方式）:

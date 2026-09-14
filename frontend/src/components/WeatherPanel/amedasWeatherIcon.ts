@@ -2,11 +2,10 @@ import type { ReactElement } from "react";
 import { MoonIcon, SunIcon } from "@/components/Map/icons";
 
 // 常設ヘッダーの天気アイコンは予報由来のweather_codeではなく
-// アメダス実測値ベースの簡易分類を使う。weatherCode.ts（予報のWMOコード、6カテゴリ）と
-// 違い、アメダスの速報値レスポンスには天気概況コードが実質使えない形でしか無い
-// （新設フィールドsunshine_10min_minutes[10分間日照時間]・precipitation_10min_mm
-// [10分間降水量]・temperature_cのみを根拠にする）ため、霧・雷雨は判別できず
-// 4カテゴリ（晴れ/くもり/雨/雪）に留める。
+// アメダス実測値ベースの簡易分類を使う。weatherCode.ts（予報のWMOコードの分類）と違い、
+// アメダスの速報値レスポンスには天気概況コードが実質使えない形でしか無い
+// （sunshine_10min_minutes[10分間日照時間]・precipitation_10min_mm[10分間降水量]・
+// temperature_cのみを根拠にする）ため、霧・雷雨は判別できず晴れ/くもり/雨/雪に留める。
 import { WEATHER_CATEGORY_ICON, WEATHER_CATEGORY_LABEL } from "./weatherCode";
 
 export type AmedasWeatherCategory = "clear" | "cloudy" | "rain" | "snow";

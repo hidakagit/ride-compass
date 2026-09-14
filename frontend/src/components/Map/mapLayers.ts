@@ -12,7 +12,7 @@
 // 混同しない、という設計方針（docs/static-road-attributes-plan.md）を表す。
 //
 // categoryはkind:"static"レイヤーのみが持つ中分類で、▶パネル（MapOverlayControls）の
-// グループ見出しに使う。staticが8種に達しflatな一覧のまま並ぶと見つけやすさが悪化する
+// グループ見出しに使う。staticをflatな一覧のまま並べると、増えるほど見つけにくくなる
 // ため、kindより一段細かい単位で分ける:
 // - roadCondition（道路状態）: 道路の種類・路面の種類・指定路線
 // - trafficSafety（交通・安全）: 車ストレス・事故・停止要因
@@ -56,12 +56,12 @@ export type MapLayerId =
   // 無いため矢印表示は持たず、gridFill（タイル境界をセルとする面表示、
   // gradientGridFill.ts）のみを持つ。
   | "gradientFill"
-  // 災害。雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ（落雷）・キキクル
-  // 4種（土砂災害・大雨・浸水・洪水）の7要素を1つのチップへまとめたグループで、7要素は
-  // MapView.tsxのDYNAMIC_WEATHER_RENDERERSの名前付きソースとして同時に描画する。
-  // 「回避一択」の危険のため評価軸には組み込まず表示のみを行う。線状降水帯予測マップは
-  // rasrf系統（降水短時間予報と同じ）のため、ここではなく"precipitationNowcast"チップの
-  // 傘下（4つ目のソース）にある。
+  // 災害。雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ（落雷）・キキクル等を
+  // 1つのチップへまとめたグループで、配下の要素はMapView.tsxの
+  // DYNAMIC_WEATHER_RENDERERSの名前付きソースとして同時に描画する（正本は
+  // DYNAMIC_WEATHER_RENDERERSのdisasterグループ）。「回避一択」の危険のため評価軸には
+  // 組み込まず表示のみを行う。線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）の
+  // ため、ここではなく"precipitationNowcast"チップの傘下にある。
   | "disaster"
   // 二次軸の汎用rampレイヤー。backendレジストリ生成物（axis-catalog.json）の
   // kind="ramp"軸から自動生成されるためIDは動的（axisLayers.ts: axisMapLayerId参照）。
@@ -444,10 +444,10 @@ export function buildMapLayers(
       panelHint: axis.panelHint,
     })),
     {
-      // 災害（雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ・キキクル4種）。
-      // 7要素を1つのチップでまとめてON/OFFし、MapView.tsxのDYNAMIC_WEATHER_RENDERERSが
+      // 災害（雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ・キキクル等）。
+      // 配下をまとめて1つのチップでON/OFFし、MapView.tsxのDYNAMIC_WEATHER_RENDERERSが
       // 名前付きソースとして同時に描画する。雷・竜巻・落雷は時刻スライダーに連動し、
-      // キキクル4種は「現在の危険度」単一値のみの配信のため連動しない（riskMap.ts参照）。
+      // キキクルは「現在の危険度」単一値のみの配信のため連動しない（riskMap.ts参照）。
       // 「回避一択」の危険のため評価軸には組み込まず表示のみを行う。
       id: "disaster",
       label: "災害",

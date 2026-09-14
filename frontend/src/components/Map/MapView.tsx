@@ -1238,12 +1238,12 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
       },
     },
   },
-  // 災害。7要素を名前付きソースとして同時に描画する1グループ（mapLayers.ts: "disaster"）。
+  // 災害。配下の要素を名前付きソースとして同時に描画する1グループ（mapLayers.ts: "disaster"）。
   // オブジェクトのキー順がそのままMapLibreのレイヤー追加順＝重なり順になる
   // （ensureDynamicWeatherLayerがObject.entriesで走査する）ため、面（キキクル・雷・竜巻の
   // ラスタ）を下に、局所的で見落としやすい線（洪水）・点（落雷）を上に置く。ラスタ同士が
   // 重なった領域は混色になるが、危険度ゼロの領域は配信元のタイルが透明のため、平常時は
-  // 7要素すべてONでも地図の見た目は変わらない。
+  // 配下をすべてONにしても地図の見た目は変わらない。
   disaster: {
     // キキクル（危険度分布）。ズーム範囲はjmaZoomRangeが配信元仕様から導出する。
     // 大雨は浸水・土砂双方を統合した指標のため、個別の土砂・浸水より下に置く。
@@ -2009,9 +2009,8 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 }
 
 // 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
-// 5レイヤー（標高・車ストレス・指定路線・事故・停止要因POI）は、
-// いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という同型の
-// 生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
+// ものは、いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という
+// 同型の生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
 // 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する。
 // 二次軸の汎用rampレイヤー。axis-catalog.json（backendレジストリ生成物）の
 // kind="ramp"軸ごとに、road_surfaceタイルへ焼き込み済みの事実プロパティ（per-km密度）を
@@ -2256,11 +2255,10 @@ function setStaticOverlayVisibility(
   });
 }
 
-// 標高を除く各レイヤー（車の圧迫感（ramp軸）・自転車インフラ・指定路線・事故・
-// 停止要因POI・補給休憩POI等）の絞り込み。STATIC_FILTER_AXES（staticAttributeLayers.ts）の
-// layerIdでSTATIC_OVERLAY_LAYERSのkeyと突き合わせ、そのレイヤーが持つ軸ぶん
-// （事故のみ2軸、他は1軸）を道路情報と同じbuildCombinedLegendFilterExpressionでAND
-// 束ねする。軸を持たない標高はスキップする（setFilterはvector/circleレイヤー用で
+// 標高を除く各レイヤー（指定路線・事故・停止要因POI等）の絞り込み。
+// STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSのkeyと
+// 突き合わせ、そのレイヤーが持つ軸ぶんを道路情報と同じ
+// buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする（setFilterはvector/circleレイヤー用で
 // ラスタレイヤーには使えないため）。
 //
 // car_stressはbackendのtile_inputs/thresholds（registry_defaults.py）から静的に決まる
@@ -2306,7 +2304,7 @@ export function setStaticOverlayFilters(
 // なるため、呼び出し元がpropsのrampAxesから実行時に算出したリストを渡す。
 //
 // 第1引数は表示状態のRecordではなく**propsの形そのもの**を受け取り、レイヤーidキーへの
-// 合流をこの関数の中で行う。静的5レイヤーは個別のbooleanで、軸レイヤーはレイヤーidキーの
+// 合流をこの関数の中で行う。静的レイヤーは個別のbooleanで、軸レイヤーはレイヤーidキーの
 // Recordで来るため、呼び出し側で組み立てる形にすると軸のRecordを合流し忘れても型が通り、
 // 第2引数が挙げる軸レイヤーidが常にundefined＝案内が一度も出ない状態になる。
 export interface RoadSurfaceGroupState {
@@ -3909,9 +3907,9 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModes, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・車ストレス・自転車インフラ・指定路線・トンネル・事故・停止要因POI・補給休憩POIは、
-  // いずれも「選択候補に関係なく地図全体に重ね描きし、切替はvisibilityの差し替え
-  // のみ」という同型のレイヤー（STATIC_OVERLAY_LAYERS）のため、1つのeffectでまとめて反映する
+  // 標高・指定路線・事故・ramp軸等は、いずれも「選択候補に関係なく地図全体に重ね描きし、
+  // 切替はvisibilityの差し替えのみ」という同型のレイヤー（staticOverlayLayersが並べる）の
+  // ため、1つのeffectでまとめて反映する
   // （setLayerVisibilityは同じ値の再設定でも副作用が無いため、
   // いずれか1つのフラグが変わったときに他を再設定しても表示に影響しない）。
   useEffect(() => {
@@ -4009,9 +4007,8 @@ export default function MapView({
     recomputeLayerDataStatus();
   }, [dynamicWeather, recomputeLayerDataStatus]);
 
-  // 自転車インフラ・指定路線・停止要因POI・補給休憩POI・事故（当事者/重大度）・
-  // 車の圧迫感を含むramp軸の絞り込み。道路情報のフィルタ効果（下）と同じく
-  // visibility/フィルタ式の差し替えのみで反映される。
+  // 指定路線・停止要因POI・事故（当事者/重大度）・ramp軸等の絞り込み。道路情報の
+  // フィルタ効果（下）と同じく、visibility/フィルタ式の差し替えのみで反映される。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;

@@ -23,7 +23,13 @@ import {
   type DynamicWeatherFrame,
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, trimToCurrentAndFuture, type JmaNowcastFrame, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
+import {
+  fetchJmaTargetTimes,
+  parseValidtime,
+  trimToCurrentAndFuture,
+  type JmaNowcastFrame,
+  jmaTileUrlTemplate,
+} from "@/components/Map/jmaNowcastFrames";
 import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
@@ -33,7 +39,6 @@ export type NowcastFrame = JmaNowcastFrame;
 // 雷ナウキャストと共有する汎用ロジック）はこのファイルからも既存の呼び出し元（page.tsx）
 // の import パスを変えずに使えるよう再エクスポートする。
 export { parseValidtime, trimToCurrentAndFuture };
-
 
 // 気象庁 降水短時間予報（rasrf）。ナウキャスト（実況の外挿、60分先が上限）とは異なり
 // 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する。
@@ -145,8 +150,8 @@ export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: str
 ];
 
 // 延長予報の塗り（gridFill）でこの値未満は「ほぼ降水なし」として非表示にする（windLayer.tsの
-// WIND_CALM_THRESHOLD_MSと同じ考え方）。0（完全な無降水）まで含めると格子点624点ぶんの
-// セルが常時全域を埋め尽くしてしまうため、視覚的なノイズを避ける小さな閾値を設ける。
+// WIND_CALM_THRESHOLD_MSと同じ考え方）。0（完全な無降水）まで含めると格子点ぶんのセルが
+// 常時全域を埋め尽くしてしまうため、視覚的なノイズを避ける小さな閾値を設ける。
 export const PRECIPITATION_NONE_THRESHOLD_MM = 0.1;
 
 // 降水強度の凡例（地図チップ、page.tsx）。
@@ -193,19 +198,35 @@ export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: stri
     label: `非常に激しい雨（${PRECIPITATION_COLOR_STOPS[7].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[8].mmPerHour}mm/h）`,
     color: PRECIPITATION_COLOR_STOPS[7].color,
   },
-  { key: "violent", label: `猛烈な雨（${PRECIPITATION_COLOR_STOPS[8].mmPerHour}mm/h以上）`, color: PRECIPITATION_COLOR_STOPS[8].color },
+  {
+    key: "violent",
+    label: `猛烈な雨（${PRECIPITATION_COLOR_STOPS[8].mmPerHour}mm/h以上）`,
+    color: PRECIPITATION_COLOR_STOPS[8].color,
+  },
 ];
 
 /** 降水ナウキャストのラスタタイルURLテンプレート（{z}/{x}/{y}はMapLibreが実際の値へ
  * 展開するプレースホルダ、置換せずそのまま埋め込む）。 */
 function nowcastTileUrlTemplate(frame: NowcastFrame): string {
-  return jmaTileUrlTemplate({ group: "nowc", element: "hrpns", basetime: frame.basetime, member: "none", validtime: frame.validtime });
+  return jmaTileUrlTemplate({
+    group: "nowc",
+    element: "hrpns",
+    basetime: frame.basetime,
+    member: "none",
+    validtime: frame.validtime,
+  });
 }
 
 /** 降水短時間予報のラスタタイルURLテンプレート。ナウキャストと異なりmemberがURLパスに
  * そのまま入る（"immed"/"none"、fetchRasrfFrames参照）。 */
 function rasrfTileUrlTemplate(frame: RasrfFrame): string {
-  return jmaTileUrlTemplate({ group: "rasrf", element: "rasrf", basetime: frame.basetime, member: frame.member, validtime: frame.validtime });
+  return jmaTileUrlTemplate({
+    group: "rasrf",
+    element: "rasrf",
+    basetime: frame.basetime,
+    member: frame.member,
+    validtime: frame.validtime,
+  });
 }
 
 export interface PrecipitationGridCellProperties {
@@ -221,7 +242,7 @@ export interface PrecipitationGridCellProperties {
 function precipitationGridToCellFeatureCollection(
   grid: readonly WindGridPoint[],
   frameIndex: number,
-  spacingDeg: number
+  spacingDeg: number,
 ): GeoJSON.FeatureCollection<GeoJSON.Polygon, PrecipitationGridCellProperties> {
   return gridToFeatureCollection(
     grid,
@@ -230,7 +251,7 @@ function precipitationGridToCellFeatureCollection(
       type: "Feature",
       geometry: { type: "Polygon", coordinates: [gridCellRing(point.latitude, point.longitude, spacingDeg)] },
       properties: { mmPerHour },
-    })
+    }),
   );
 }
 
@@ -244,9 +265,7 @@ function precipitationGridToCellFeatureCollection(
  * precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrameのtimeしか
  * 見ない、ファイル冒頭のコメント参照）。 */
 export type PrecipitationFrameRef =
-  | { source: "nowcast"; index: number }
-  | { source: "rasrf"; index: number }
-  | { source: "extended"; index: number };
+  { source: "nowcast"; index: number } | { source: "rasrf"; index: number } | { source: "extended"; index: number };
 
 /** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先）・
  * 風と共通の格子点マップ由来の延長予報（15時間先以降、約48時間先まで）を1つのフレーム列へ
@@ -257,7 +276,7 @@ export type PrecipitationFrameRef =
 export function precipitationFrames(
   nowcastFrames: readonly NowcastFrame[],
   rasrfFrames: readonly RasrfFrame[],
-  extendedGrid: readonly WindGridPoint[]
+  extendedGrid: readonly WindGridPoint[],
 ): DynamicWeatherFrame<PrecipitationFrameRef>[] {
   const nowcastPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = nowcastFrames.map((frame, index) => ({
     time: parseValidtime(frame.validtime),
@@ -297,7 +316,7 @@ export function precipitationRenderPayload(
   rasrfFrames: readonly RasrfFrame[],
   extendedGrid: readonly WindGridPoint[],
   spacingDeg: number,
-  ref: PrecipitationFrameRef
+  ref: PrecipitationFrameRef,
 ): DynamicWeatherRenderPayload | undefined {
   if (ref.source === "nowcast") {
     const frame = nowcastFrames[ref.index];

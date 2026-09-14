@@ -37,7 +37,10 @@ export function parseJstTime(time: string): Date {
  * 時刻で1回だけindexを求め、全格子点の4つの並行配列（times/wind_speed_ms/
  * wind_direction_deg/precipitation_mm）へ同じindexを適用する。空配列・全フレームが
  * 未来（＝ぴったり境界）ならそのまま返す。 */
-export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], now: Date = new Date()): WindGridPoint[] {
+export function trimWindGridToCurrentAndFuture(
+  grid: readonly WindGridPoint[],
+  now: Date = new Date(),
+): WindGridPoint[] {
   if (grid.length === 0) return [];
   const times = grid[0].times;
   const nowMs = now.getTime();
@@ -68,7 +71,7 @@ export function trimWindGridToCurrentAndFuture(grid: readonly WindGridPoint[], n
  * 位置が取得のたびにずれ、古い地点だけindexの意味が食い違ってしまうため）。 */
 export function mergeWindGridKeepingStale(
   previous: readonly WindGridPoint[],
-  next: readonly WindGridPoint[]
+  next: readonly WindGridPoint[],
 ): WindGridPoint[] {
   const nextKeys = new Set(next.map((point) => `${point.latitude},${point.longitude}`));
   const staleCarryOver = previous.filter((point) => !nextKeys.has(`${point.latitude},${point.longitude}`));
@@ -108,17 +111,33 @@ export const WIND_CALM_THRESHOLD_MS = 0.3;
 // 地図チップの凡例（page.tsx）用に、上記の生データへラベルを付けたもの。数値は
 // WIND_SPEED_COLOR_STOPS/WIND_CALM_THRESHOLD_MSからそのまま持ってくるため、閾値・色を
 // 変えてもここは自動で追従する（片側importで単一の情報源を保つ）。地図の色分け自体は
-// WIND_SPEED_COLOR_STOPSの9段階そのままだが、凡例は「ロードバイクで走行が難しい強風域」の
+// WIND_SPEED_COLOR_STOPSの区切りそのままだが、凡例は「ロードバイクで走行が難しい強風域」の
 // 中の細かい差（Bf7/Bf9境界）まで1行ずつ並べても実用上の情報量が薄いため、その帯は
 // 1行へまとめている（凡例上の粒度も「そこから先は粗い」という体験に合わせる）。
 export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; color: string }[] = [
   { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: "#9ca3af" },
   { key: "bf1", label: "微風", color: WIND_SPEED_COLOR_STOPS[0].color },
   { key: "bf2", label: `そよ風（〜${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[1].color },
-  { key: "bf3", label: `心地よい風（〜${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[2].color },
-  { key: "bf4", label: `やや強い風（〜${WIND_SPEED_COLOR_STOPS[3].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[3].color },
-  { key: "bf5", label: `強い風・向かい風がこたえ始める（〜${WIND_SPEED_COLOR_STOPS[4].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[4].color },
-  { key: "bf6", label: `かなり強い風（〜${WIND_SPEED_COLOR_STOPS[5].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[5].color },
+  {
+    key: "bf3",
+    label: `心地よい風（〜${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s）`,
+    color: WIND_SPEED_COLOR_STOPS[2].color,
+  },
+  {
+    key: "bf4",
+    label: `やや強い風（〜${WIND_SPEED_COLOR_STOPS[3].speedMs}m/s）`,
+    color: WIND_SPEED_COLOR_STOPS[3].color,
+  },
+  {
+    key: "bf5",
+    label: `強い風・向かい風がこたえ始める（〜${WIND_SPEED_COLOR_STOPS[4].speedMs}m/s）`,
+    color: WIND_SPEED_COLOR_STOPS[4].color,
+  },
+  {
+    key: "bf6",
+    label: `かなり強い風（〜${WIND_SPEED_COLOR_STOPS[5].speedMs}m/s）`,
+    color: WIND_SPEED_COLOR_STOPS[5].color,
+  },
   {
     key: "unrideable",
     label: `ロードバイクでの走行が難しい強風域（${WIND_SPEED_COLOR_STOPS[6].speedMs}m/s以上）`,
@@ -139,7 +158,7 @@ export interface WindPointFeatureProperties {
  * 値が欠損している格子点はスキップする（1点の欠損で全体を落とさない）。 */
 function windGridToFeatureCollection(
   grid: readonly WindGridPoint[],
-  frameIndex: number
+  frameIndex: number,
 ): GeoJSON.FeatureCollection<GeoJSON.Point, WindPointFeatureProperties> {
   return gridToFeatureCollection(
     grid,
@@ -152,7 +171,7 @@ function windGridToFeatureCollection(
       type: "Feature",
       geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
       properties: { speed, bearing: (direction + 180) % 360 },
-    })
+    }),
   );
 }
 
@@ -254,4 +273,3 @@ export function clampWindDetailBbox(viewport: MapViewport, spacingDeg: number): 
     maxLat: Math.min(viewport.north, centerLat + halfSpan),
   };
 }
-

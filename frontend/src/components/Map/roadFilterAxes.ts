@@ -2,7 +2,7 @@
 //
 // タイル（バックエンドのMVT）にはsurface_good（3値の正準分類）・surface（正規化済み
 // OSM生タグ）・highway（OSM道路種別）が焼き込まれているが、絞り込み軸として持つのは
-// 互いに独立な2軸（路面の種類=surfaceタグ、道路の種類=highwayタグ）だけ。surface_goodは
+// 互いに独立な軸（路面の種類=surfaceタグ、道路の種類=highwayタグ）だけ。surface_goodは
 // 路面の種類と同じsurfaceタグを2値に粗く束ねただけのもの（backend/app/domain/road.pyの
 // GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGSと、下のSURFACE_GROUPSの分類が同一の
 // surfaceタグに基づく）で、独立した軸として絞り込む意味を持たない
