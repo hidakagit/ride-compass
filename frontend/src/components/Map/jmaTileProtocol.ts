@@ -58,6 +58,13 @@ export function hasJmaTileIndex(): boolean {
   return lookup !== null;
 }
 
+/** そのタイルURLを「空と分かっている」として素通りさせるか。ハンドラが実際に使う判定で、
+ * **いま保持しているインデックス**を見る。差し替えが効いているかはこれを通してしか
+ * 確かめられない（有効かどうかだけを見ると、古いインデックスを握り続けても気づけない）。 */
+export function isKnownEmptyTileUrl(realUrl: string): boolean {
+  return isKnownEmptyTile(lookup, realUrl);
+}
+
 /** `jmatile://`を剥がして実URLへ戻す。 */
 export function toRealUrl(url: string): string {
   return url.replace(new RegExp(`^${JMA_TILE_PROTOCOL}://`), "");
@@ -73,7 +80,7 @@ async function handleJmaTileRequest(
   abortController: AbortController,
 ): Promise<{ data: ArrayBuffer | Uint8Array }> {
   const realUrl = toRealUrl(params.url);
-  if (isKnownEmptyTile(lookup, realUrl)) {
+  if (isKnownEmptyTileUrl(realUrl)) {
     // ネットワークへ出さない。ベクタとラスタで空の表現が違うため拡張子で分ける。
     return { data: emptyTileBytes(realUrl) };
   }

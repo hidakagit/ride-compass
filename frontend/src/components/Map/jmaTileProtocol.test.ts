@@ -6,6 +6,7 @@ import { inflateSync } from "node:zlib";
 import {
   emptyRasterTileBytes,
   hasJmaTileIndex,
+  isKnownEmptyTileUrl,
   registerJmaTileProtocol,
   setJmaTileIndex,
   toRealUrl,
@@ -72,31 +73,37 @@ describe("インデックスの保持", () => {
 // （isKnownEmptyTile）を通ることは jmaTileIndex.test.ts で検証しているので、ここでは
 // 「インデックスの差し替えがハンドラ側へ反映される」ことだけを担保する。
 describe("インデックス差し替えの反映", () => {
+  const NEW_BT = "20260907030000";
+  /** ハンドラが受け取るのと同じ形のタイルURL。 */
+  function tileUrl(basetime: string, x: number, y: number): string {
+    return `https://example.test/api/jma-tile/bosai/jmatile/data/nowc/${basetime}/immed0/${basetime}/surf/rain_mesh/10/${x}/${y}.png`;
+  }
+
   beforeEach(() => {
     setJmaTileIndex(null);
   });
 
   it("差し替えるたびに最新のものが使われる", () => {
     setJmaTileIndex(INDEX);
-    expect(hasJmaTileIndex()).toBe(true);
+    // 中身のあるタイルは素通しせず取りに行く。載っていないタイルは空と分かっている。
+    expect(isKnownEmptyTileUrl(tileUrl(BT, 909, 403))).toBe(false);
+    expect(isKnownEmptyTileUrl(tileUrl(BT, 910, 403))).toBe(true);
 
-    // basetimeが進んだ新しいインデックスへ差し替え。
+    // basetimeが進んだ新しいインデックスへ差し替え（新しい版では909,403に中身が無い）。
     setJmaTileIndex({
       ...INDEX,
       elements: {
-        rain_mesh: {
-          basetime: "20260907030000",
-          validtime: "20260907030000",
-          member: "immed0",
-          zooms: {},
-        },
+        rain_mesh: { basetime: NEW_BT, validtime: NEW_BT, member: "immed0", zooms: { "10": [[910, 403]] } },
       },
     });
 
-    expect(hasJmaTileIndex()).toBe(true);
+    // 旧basetimeのURLは判定の対象外へ落ちる（古い版で判定し続けない）。
+    expect(isKnownEmptyTileUrl(tileUrl(BT, 910, 403))).toBe(false);
+    // 新しい版の中身は素通ししない。載っていないタイルだけが空。
+    expect(isKnownEmptyTileUrl(tileUrl(NEW_BT, 910, 403))).toBe(false);
+    expect(isKnownEmptyTileUrl(tileUrl(NEW_BT, 909, 403))).toBe(true);
   });
 });
-
 
 describe("空タイルとして返すPNG", () => {
   /** PNGのIHDRとIDATから1画素目のRGBAを取り出す。 */
@@ -149,7 +156,10 @@ describe("空タイルのバッファ", () => {
   }
 
   it("要求のたびに別のバッファを返す（1つ目をtransferしても2つ目が壊れない）", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false }) as Response));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false }) as Response),
+    );
     const request = handler();
 
     const first = (await request({ url: withJmaTileProtocol(PBF_URL) }, new AbortController())).data as Uint8Array;

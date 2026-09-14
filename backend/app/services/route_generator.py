@@ -74,6 +74,11 @@ from app.domain.route import (
 # ようにする。候補0件(ユーザーに何も返せない)はWARNINGへ昇格し、候補別の失敗理由はDEBUGで補足する。
 logger = logging.getLogger("ridecompass.generate")
 
+# 区間を乗り換えて作ったルートのid。frontendは`route-generate-config.json`経由で
+# 受け取る（一覧で生成候補と見分けるための接頭辞。両側で別々に書くと、片方だけ改名した
+# ときに合成ルートが「ただの候補」として並ぶ）。
+SPLICED_ROUTE_ID = "route-spliced"
+
 # Road Graph取得bboxの半径ヒューリスティック（目標距離に対する比率）。折返し点は往路の
 # 実距離が目標の半分付近にあり、直線距離はそれより短い（実道路の迂回率は概ね1.3）ため、
 # 0.5ではなく0.4から始める（0.5だとbbox面積が2.25倍になりprepare・メモリ・タイル
@@ -487,7 +492,7 @@ class RouteGenerator:
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)
         candidates = [
-            candidate.model_copy(update={"id": "route-spliced", "direction_label": "組み合わせたルート"})
+            candidate.model_copy(update={"id": SPLICED_ROUTE_ID, "direction_label": "組み合わせたルート"})
             for candidate in candidates
         ]
         evaluate_ms = round((time.monotonic() - evaluate_started) * 1000)

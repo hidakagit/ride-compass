@@ -60,7 +60,7 @@ from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa
 from app.domain.material_catalog import axis_studio_materials  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
-from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
+from app.services.route_generator import SPLICED_ROUTE_ID, DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
@@ -299,6 +299,7 @@ def main() -> None:
             "default_max_routes": DEFAULT_MAX_ROUTES,
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
+            "spliced_route_id": SPLICED_ROUTE_ID,
             # 主観と時間の換算レート（P）の既定。生成物のdefaultは`RouteGenerateRequest`の
             # スキーマにも出るが、openapi-typescriptは既定値を持つ項目も必須として出す
             # ため、frontendは値を送らざるを得ない。手書きせずここから配る。

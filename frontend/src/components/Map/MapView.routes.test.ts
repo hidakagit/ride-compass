@@ -71,7 +71,7 @@ describe("computeRouteBounds", () => {
         geometry: {
           type: "LineString",
           coordinates: [
-            [139.70, 35.70],
+            [139.7, 35.7],
             [139.72, 35.72],
           ],
         },
@@ -122,8 +122,7 @@ function fakeMap() {
     setDataCalls,
     getLayer: (id: string) => (layers.has(id) ? {} : undefined),
     addLayer: (spec: { id: string }) => layers.add(spec.id),
-    getSource: (id: string) =>
-      sources.has(id) ? { setData: (data: unknown) => setDataCalls.push(data) } : undefined,
+    getSource: (id: string) => (sources.has(id) ? { setData: (data: unknown) => setDataCalls.push(data) } : undefined),
     addSource: (id: string) => sources.add(id),
     // ensureRouteArrowLayerが矢印アイコンの新規作成（document.createElement("canvas")、
     // node環境のこのテストファイルではDOM APIが無い）に入らないよう、常時「登録済み」を
@@ -162,17 +161,20 @@ describe("drawBaseRoutes/hideBaseRoutes（「ルート」チップの表示切�
     expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("none");
   });
 
-  it("既存sourceがある状態（2回目以降の描画）でもvisibility=visibleを明示する" +
-    "（hideBaseRoutesでnoneにした後、再度ONにしたときに再表示されるようにするため）", () => {
-    const map = fakeMap();
-    const routes = [makeRoute("a")];
-    drawBaseRoutes(map as unknown as Parameters<typeof drawBaseRoutes>[0], routes, "a");
-    map.layoutCalls.length = 0; // 初回描画分をクリアして2回目のみ検証する
+  it(
+    "既存sourceがある状態（2回目以降の描画）でもvisibility=visibleを明示する" +
+      "（hideBaseRoutesでnoneにした後、再度ONにしたときに再表示されるようにするため）",
+    () => {
+      const map = fakeMap();
+      const routes = [makeRoute("a")];
+      drawBaseRoutes(map as unknown as Parameters<typeof drawBaseRoutes>[0], routes, "a");
+      map.layoutCalls.length = 0; // 初回描画分をクリアして2回目のみ検証する
 
-    drawBaseRoutes(map as unknown as Parameters<typeof drawBaseRoutes>[0], routes, "a");
+      drawBaseRoutes(map as unknown as Parameters<typeof drawBaseRoutes>[0], routes, "a");
 
-    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
-  });
+      expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
+    },
+  );
 });
 
 describe("drawSelectedOutline/hideSelectedOutline（「ルート」チップの表示切替、改善計画T518）", () => {
@@ -249,8 +251,10 @@ describe("applyRouteLayerVisibility（「ルート」チップの表示切替を
     expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("none");
   });
 
-  it("routeLayerOn=falseのまま呼び直してもnoneのまま" +
-    "（redrawAllLayers経由でも「ルート」チップOFFの状態を維持できることの直接的な検証）", () => {
+  // ここが見るのは`applyRouteLayerVisibility`単体の冪等性だけ。**`redrawAllLayers`が実際に
+  // これを呼ぶことは見ていない**（再描画の網羅そのものはT825が担保する）。題と中身をずらすと、
+  // 「redrawAllLayers経由も検証済み」と読めてしまい、取り残しが素通りする。
+  it("routeLayerOn=falseのまま呼び直してもnoneのまま（同じ入力で呼び直しても状態が反転しない）", () => {
     const map = fakeMap();
     const routes = [makeRoute("a")];
     applyRouteLayerVisibility(map as unknown as Parameters<typeof applyRouteLayerVisibility>[0], true, routes, "a");

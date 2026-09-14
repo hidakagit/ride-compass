@@ -14,6 +14,26 @@ _TILE_SET_B = frozenset({(12, 1, 2)})
 _TILE_SET_C = frozenset({(12, 1, 3)})
 
 
+def _cache_sizes() -> dict[str, int]:
+    """このモジュールが持つLRUキャッシュの名前→件数。**母集団をモジュールから引く**
+    ——キャッシュを1つ足したとき、テスト側の一覧を更新し忘れても素通りしないようにする。"""
+    return {
+        name: value.size()
+        for name, value in vars(search_graph_cache).items()
+        if name.endswith("_cache") and hasattr(value, "size")
+    }
+
+
+def _fill_every_cache() -> None:
+    """全キャッシュへ`_TILE_SET_A`のエントリを1つずつ入れる。"""
+    search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
+    search_graph_cache.set_search_statics(_TILE_SET_A, object())
+    search_graph_cache.set_routable_index((_TILE_SET_A, None, None), object())
+    search_graph_cache.set_turn_structure((_TILE_SET_A, None), object())
+    search_graph_cache.set_detour_ratio(_TILE_SET_A, 1.2)
+    assert all(size > 0 for size in _cache_sizes().values()), _cache_sizes()
+
+
 class TestLazyGraphCache:
     def setup_method(self):
         search_graph_cache.clear()
@@ -145,12 +165,26 @@ class TestRoutableIndexCache:
         assert search_graph_cache.routable_index_cache_size() == 0
         assert search_graph_cache.get_routable_index(key) is None
 
-    def test_clear_empties_both_caches_together(self):
-        search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
-        search_graph_cache.set_routable_index((_TILE_SET_A, None, None), object())
+    def test_clear_empties_every_cache_this_module_holds(self):
+        # 「2つとも」ではなくモジュールが持つ全部を見る。キャッシュを1つ足したとき、
+        # clearへの登録を忘れてもテストが緑のままになる状態を作らない。
+        _fill_every_cache()
+
         search_graph_cache.clear()
-        assert search_graph_cache.lazy_graph_cache_size() == 0
-        assert search_graph_cache.routable_index_cache_size() == 0
+
+        assert _cache_sizes() == {name: 0 for name in _cache_sizes()}
+
+    def test_invalidate_tile_set_empties_every_cache_this_module_holds(self):
+        """再splitの検出時は、そのタイル集合を全キャッシュから落とす。
+
+        1つでも残すと、旧edge_id集合で組んだ構造（ターン展開の遷移表等）と新しいCSRが
+        組み合わさる。`_turn_structure_cache`の破棄を消しても全テストが緑だった。
+        """
+        _fill_every_cache()
+
+        search_graph_cache.invalidate_tile_set(_TILE_SET_A)
+
+        assert _cache_sizes() == {name: 0 for name in _cache_sizes()}
 
 
 class TestSearchStaticsSeparateLruLimit:

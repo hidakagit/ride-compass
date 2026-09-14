@@ -1,3 +1,5 @@
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+
 // 候補タブの表記を組み立てる純関数。
 //
 // タブは候補どうしを見比べる場所のため、「基準線からどれだけ余計にかかるか」はここに出す
@@ -7,7 +9,9 @@
  * generate_spliced_route）で、同じ生成結果へ複数追加できるようフロントが連番を足す。
  * 判定と組み立ての両方がこの1つを使う——別々に書くと、片方だけ変えたときに合成した
  * ルートが一覧の中で生成候補と見分けられなくなる（型でも例外でも現れない）。 */
-export const SPLICED_ROUTE_ID_PREFIX = "route-spliced";
+// backendが付けるidそのもの（生成物経由で受け取る）。両側で別々に書くと、片方だけ改名
+// したときに合成ルートが一覧で生成候補と見分けられなくなる。
+export const SPLICED_ROUTE_ID_PREFIX = routeGenerateConfig.spliced_route_id;
 
 /** 区間を乗り換えて作った候補か。一覧では生成候補と並ぶため、由来を表記で示す。
  * 並び順（overall_difficulty昇順）の外へ追加されるので、順位番号は意味を持たない。 */

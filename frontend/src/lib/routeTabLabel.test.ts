@@ -1,3 +1,4 @@
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
@@ -61,8 +62,9 @@ describe("isSplicedRoute", () => {
   });
 
   it("backendが付ける接頭辞と、フロントが組み立てるidが同じ1つの値から出る", () => {
-    // 別々に書くと、片方だけ変えたときに合成ルートが一覧で見分けられなくなる
-    expect(SPLICED_ROUTE_ID_PREFIX).toBe("route-spliced");
+    // リテラルで確かめると「フロント側の定数が変わっていない」ことしか見ない。backendが
+    // 改名したら落ちるよう、生成物（backendが書き出す）と同じ値であることを見る。
+    expect(SPLICED_ROUTE_ID_PREFIX).toBe(routeGenerateConfig.spliced_route_id);
   });
 });
 
