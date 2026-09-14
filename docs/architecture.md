@@ -578,8 +578,9 @@ Request（評価重みの上書き。研究用・省略可。docs/research-inter
   # Pythonレシピ（car_stress_recipe/road_suitability_recipe/motor_vehicle_density_recipe）は
   # 廃止され、car_stressを含む全軸の材料はAXIS_DEFINITIONSの内部軸階層（下記参照）へ
   # 一本化された。
-  # penalty_strength（改善計画T218・T12 ADR原則1）は
-  # 0次ハードフィルタの勾配しきい値で、いずれもroad_graphエンジンのみに効く。
+  # penalty_strength（改善計画T218・T12 ADR原則1）はコスト式の割増率の強さ、
+  # max_average_grade_percentは0次ハードフィルタの勾配しきい値で、いずれもroad_graph
+  # エンジンのみに効く。
   # hard_filters（改善計画T266）は0次ハードフィルタ（`no_bicycle`/`motorway`/`trunk`、
   # domain/hard_filters.py: DEFAULT_HARD_FILTERS）の個別ON/OFF。route_preference等の
   # 「2次の重み」とは異なり、Falseにしたフィルタに該当する道路はコストを上げるのではなく
@@ -946,7 +947,9 @@ interface RouteGenerateRequest {
   route_preference?: RoutePreferenceWeights; // 評価重みの上書き（研究用・省略可、§10-1。Edge評価・
     // 区間難易度の重み、axis_idキーの辞書。
     // 改善計画T292でcar_stress_recipe等の専用Pythonレシピ上書きは廃止し、公開軸の重みのみで表現する）
-  penalty_strength?: number;         // コスト式の割増率の強さ（改善計画T218・T12 ADR原則1、省略時1.0）
+  penalty_strength?: number;         // コスト式の割増率の強さ（改善計画T218・T12 ADR原則1、
+    // 省略時は`domain/evaluation.py: DEFAULT_PENALTY_STRENGTH`。値はそちらが唯一の正本で、
+    // ここへ数値を書き写さない）
   max_average_grade_percent?: number | null; // 0次ハードフィルタの勾配しきい値（改善計画T218a・T12 ADR原則5、省略時は除外なし）
   hard_filters?: HardFilterOverride; // 0次ハードフィルタの個別ON/OFF（改善計画T266）。
     // 一般向けルート設定画面（frontend/src/components/RouteSettingsPanel、改善計画T267）が

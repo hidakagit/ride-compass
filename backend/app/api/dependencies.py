@@ -15,6 +15,7 @@ from fastapi import Depends, HTTPException, Request
 from app.config import settings
 from app.domain.dynamic_way_values import dedicated_way_value_axes
 from app.domain.errors import RoutingError
+from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
@@ -164,7 +165,7 @@ def _assemble_route_generation_setup(
     elevation_attribute_service: ElevationAttributeService,
     weather_service: WeatherService,
     preference_override: RoutePreference | None = None,
-    penalty_strength: float = 1.0,
+    penalty_strength: float = DEFAULT_PENALTY_STRENGTH,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
@@ -202,7 +203,7 @@ def _assemble_route_generation_setup(
 @asynccontextmanager
 async def open_route_generation_setup(
     preference_override: RoutePreference | None = None,
-    penalty_strength: float = 1.0,
+    penalty_strength: float = DEFAULT_PENALTY_STRENGTH,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,

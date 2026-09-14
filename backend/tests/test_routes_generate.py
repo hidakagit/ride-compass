@@ -5,6 +5,7 @@ import pytest
 from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
+from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH
 from app.api.dependencies import RouteGenerationSetup, _assemble_route_generation_setup
 from app.api.routers import routes as routes_module
 from app.api.routers.routes import _generate_semaphore
@@ -559,3 +560,26 @@ def test_generate_routes_with_spliced_edge_ids_evaluates_the_given_path_only(mon
     assert generator.spliced_calls == [["e-0", "e-1", "e-2"]]
     # 探索経路は呼ばれない
     assert generator.other_calls == []
+
+
+class TestPenaltyStrengthDefault:
+    """主観的割増のレートの既定値が、正本1つから届くこと（改善計画T817）。
+
+    正本は`domain/evaluation.py: DEFAULT_PENALTY_STRENGTH`。工場側にリテラルの既定値が
+    残っていると、APIハンドラを経由しない呼び出し（検証スクリプト・テスト）だけが別の
+    レートで探索し、悪路回避の強さが静かに食い違う。
+    """
+
+    def test_request_model_default_comes_from_the_domain_constant(self):
+        from app.api.routers.routes import RouteGenerateRequest
+
+        assert RouteGenerateRequest.model_fields["penalty_strength"].default == DEFAULT_PENALTY_STRENGTH
+
+    def test_setup_factories_default_to_the_domain_constant(self):
+        import inspect
+
+        from app.api import dependencies
+
+        for factory in (dependencies._assemble_route_generation_setup, dependencies.open_route_generation_setup):
+            signature = inspect.signature(factory)
+            assert signature.parameters["penalty_strength"].default == DEFAULT_PENALTY_STRENGTH, factory.__name__
