@@ -9,6 +9,7 @@ from app.domain.axis_display import (
     axis_display_for,
     axis_material_shares,
     derive_ramp_inputs,
+    raw_value_total_unit,
     raw_value_unit,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
@@ -856,6 +857,45 @@ def test_raw_value_unit_is_none_for_categorical_shape():
     definition = _axis(CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}))
 
     assert raw_value_unit(definition) is None
+
+
+# --- 総量の単位（raw_value_total_unit、T760） ---
+
+
+def test_raw_value_total_unit_is_the_count_for_per_km_events():
+    # 「0.8回/km × 32.5km ≒ 26回」は、この経路で何回止まるかを答える。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[
+                MaterialTerm(material="poi_signal_per_km", weight=1.0),
+                MaterialTerm(material="intersection_count_per_km", weight=1.0, required=False),
+            ],
+            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
+        )
+    )
+
+    assert raw_value_total_unit(definition) == "回"
+
+
+def test_raw_value_total_unit_is_none_when_the_total_cannot_be_read():
+    # 蛇行は足し合わせられる量（additive）だが、総量（「約3322度曲がる」）には比べる
+    # 尺度が無い。単位が「◯◯/km」で終わることだけを条件にすると、上と同じ扱いになる。
+    definition = _axis(
+        BreakpointLinearShape(
+            terms=[MaterialTerm(material="curvature_deg_per_km", weight=1.0)],
+            breakpoints=[(0.0, 0.0), (200.0, 100.0)],
+        )
+    )
+
+    assert raw_value_unit(definition) == "度/km"
+    assert raw_value_total_unit(definition) is None
+
+
+def test_raw_value_total_unit_is_none_when_the_unit_itself_is_undefined():
+    # 生値の単位が定まらない軸には、掛ける相手が無い。
+    definition = _axis(CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}))
+
+    assert raw_value_total_unit(definition) is None
 
 
 def test_published_axes_with_a_unit_can_show_their_raw_value():

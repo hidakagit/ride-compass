@@ -11,6 +11,7 @@ const AXES: PreferenceAxisDef[] = [
     description: "車の通行量の説明",
     dedicatedWayValueLayer: false,
     rawValueUnit: "回/km",
+    rawValueTotalUnit: "回",
   },
   { axisId: "wind", label: "風", description: "風の影響の説明", dedicatedWayValueLayer: true },
   { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },

@@ -38,6 +38,7 @@ from app.domain.axis_display import (
     axis_display_for,
     axis_material_shares,
     primary_attribute_ids_for,
+    raw_value_total_unit,
     raw_value_unit,
 )
 from app.domain.dynamic_way_values import (
@@ -157,9 +158,12 @@ class AxisCatalogEntry(StrictModel):
     # `map_value_kind`ごとの既定値を使う。
     map_value_thresholds: list[float] | None
     # 折れ点を通す前の生値の単位（`domain/axis_display.py: raw_value_unit`）。
-    # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出し、
-    # 「◯◯/km」なら走行距離を掛けて経路全体の実数にする。
+    # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出す。
     raw_value_unit: str | None
+    # 生値へ走行距離を掛けた総量の単位（`domain/axis_display.py: raw_value_total_unit`）。
+    # **総量を出しても読み手の判断が変わらない軸はnull**（「約3322度曲がる」には比べる
+    # 尺度が無い）。フロントは単位の綴りから総量の可否を判断しない。
+    raw_value_total_unit: str | None
     # 生値の単位が定まらない軸の内訳（`domain/axis_display.py: axis_material_shares`）。
     # 得点だけでは軸単体で経路を判断できないため、材料まで分解して較正に依存しない
     # 絶対の事実を出す。単位が定まる軸（`raw_value_unit`が非null）は分解せず空配列。
@@ -231,6 +235,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 map_value_unit=map_value_unit(definition),
                 map_value_thresholds=map_value_thresholds(definition),
                 raw_value_unit=raw_value_unit(definition),
+                raw_value_total_unit=raw_value_total_unit(definition),
                 material_breakdown=_material_breakdown(definition),
                 dynamic_way_value_needs_time=definition.dynamic_way_value_needs_time,
                 dynamic_way_value_needs_bearing=definition.dynamic_way_value_needs_bearing,

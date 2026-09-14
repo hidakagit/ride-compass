@@ -56,6 +56,13 @@ export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = generatedMat
   unit: m.unit,
 }));
 
+/** 選択肢へ出す材料の表記。**単位は`unit`が唯一の正**（backendの`MaterialSpec.unit`）で、
+ *  ラベルには入れない——ラベルへ埋めると、単位を別に添える画面で「制限速度(km/h) 35km/h」の
+ *  ように二重になる。読み手が単位を要る場所では、こうして表示のときだけ後ろへ添える。 */
+export function materialOptionText(option: { label: string; unit?: string }): string {
+  return option.unit ? `${option.label}（${option.unit}）` : option.label;
+}
+
 /** 材料idの表示名（静的フォールバック側）。動的取得済みの一覧があるときは
  * materialCatalogLabelを使う。 */
 export function materialLabel(materialId: string): string {
@@ -68,7 +75,11 @@ export function materialCatalogLabel(materialId: string, materials: readonly Axi
 }
 
 /** material_valuesの生値1件を「値 単位」表記にする。単位が無い（無次元）材料は値のみ。 */
-export function formatMaterialValue(materialId: string, value: number, materials: readonly AxisMaterialOption[]): string {
+export function formatMaterialValue(
+  materialId: string,
+  value: number,
+  materials: readonly AxisMaterialOption[],
+): string {
   const unit = materials.find((m) => m.id === materialId)?.unit ?? "";
   return unit ? `${value.toFixed(2)} ${unit}` : value.toFixed(2);
 }

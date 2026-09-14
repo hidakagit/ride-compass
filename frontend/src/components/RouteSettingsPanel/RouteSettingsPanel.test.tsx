@@ -50,7 +50,15 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
         chip_label: null,
         panel_hint: null,
         show_map_icon: true,
-        shape: { kind: "breakpoint_linear", terms: [{ material: "gradient_percent", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [10, 100],
+          ],
+        },
         display_thresholds_override: null,
         display_band_labels_override: null,
         dedicated_way_value_layer: false,
@@ -61,7 +69,8 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
-  material_breakdown: [],
+        raw_value_total_unit: null,
+        material_breakdown: [],
       };
     }),
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
@@ -164,9 +173,7 @@ describe("RouteSettingsPanel", () => {
     // あるから呼ばれる」という別の要因で誤検知する。フォールバックと同じ内容を
     // 返すモックにしておくことで、フェッチ前後どちらの時点でも一致した状態を保つ。
     const staticDefaults = axisCatalogStatic.preference_defaults as Record<string, number>;
-    vi.mocked(getAxisCatalog).mockResolvedValue(
-      catalogResponse(Object.keys(staticDefaults)),
-    );
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(Object.keys(staticDefaults)));
     const onRoutePreferenceChange = vi.fn();
 
     render(
@@ -227,7 +234,6 @@ describe("RouteSettingsPanel", () => {
     const restored = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
     expect(restored.gradient).toBe(0.42);
   });
-
 
   // ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
   // できるUIはないか」）: 重み配分バー（帯グラフ）の境界を操作すると、隣接する2軸間でだけ

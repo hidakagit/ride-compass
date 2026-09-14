@@ -15,7 +15,6 @@ import {
   RedrawMapIcon,
   RouteIcon,
   RouteSettingsIcon,
-  SaveIcon,
 } from "@/components/Map/icons";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
 import {
@@ -1841,16 +1840,6 @@ export default function Home() {
   function renderRouteResultHeaderActions() {
     return (
       <>
-        {/* 保存は機能未実装の占位（位置だけ先に確保する）。実装時はdisabledを外す。 */}
-        <button
-          type="button"
-          className={styles.outcomeHeaderIcon}
-          disabled
-          title="保存（準備中）"
-          aria-label="保存（準備中）"
-        >
-          <SaveIcon size={18} />
-        </button>
         {/* 編集（区間の乗り換え）の入口。選択中の候補に対する操作のため、GPX出力と同じ
             アイコン列へ置く。乗り換えできない生成（周回・候補1件）では出さない——押しても
             何もできない入口を残さない。編集中は戻る導線がパネル側にあるため重ねない。 */}

@@ -137,6 +137,7 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
+        raw_value_total_unit: null,
         material_breakdown: [],
       },
     ],

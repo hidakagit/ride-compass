@@ -43,7 +43,8 @@ function catalogResponse(): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
-  material_breakdown: [],
+        raw_value_total_unit: null,
+        material_breakdown: [],
       },
       // 軸スタジオで公開されたばかりの新規GUI軸（複数材料の重み付き結合、kind=ramp）。
       // ビルド時静的axis-catalog.jsonには存在しない、実行時APIだけが返す想定。
@@ -77,7 +78,15 @@ function catalogResponse(): AxisCatalogResponse {
         chip_label: null,
         panel_hint: null,
         show_map_icon: true,
-        shape: { kind: "breakpoint_linear", terms: [{ material: "lanes_count", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "lanes_count", weight: 1.0, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [10, 100],
+          ],
+        },
         display_thresholds_override: null,
         display_band_labels_override: null,
         dedicated_way_value_layer: false,
@@ -88,7 +97,8 @@ function catalogResponse(): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
-  material_breakdown: [],
+        raw_value_total_unit: null,
+        material_breakdown: [],
       },
     ],
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
@@ -109,7 +119,16 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
     const guiAxis = result.current.rampAxes.find((axis) => axis.axisId === "gui_published_axis")!;
     expect(guiAxis.tileInputs).toEqual([
-      { property: "lanes_count", weight: 1.0, boolean: false, trueValue: 0, falseValue: 0, hasUnknownFallback: false, categories: undefined, breakpoints: undefined },
+      {
+        property: "lanes_count",
+        weight: 1.0,
+        boolean: false,
+        trueValue: 0,
+        falseValue: 0,
+        hasUnknownFallback: false,
+        categories: undefined,
+        breakpoints: undefined,
+      },
     ]);
     expect(guiAxis.thresholds).toEqual([10.0]);
     // kind=noneのsurface_qはrampAxesには含まれないが、axisLabels/secondaryAxesには含まれる。
@@ -231,9 +250,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
     vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
     const second = renderHook(() => useAxisCatalog());
-    await waitFor(() =>
-      expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1),
-    );
+    await waitFor(() => expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1));
 
     // secondの再フェッチが失敗しても、firstが既に取得していた2軸のカタログのまま
     // （静的フォールバックの7軸へ巻き戻らない）。

@@ -68,6 +68,9 @@ export interface SecondaryAxisSummary {
   /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
    * 軸だけが持ち、それ以外はnull。 */
   rawValueUnit?: string | null;
+  /** 生値へ走行距離を掛けた総量の単位（CatalogAxis.raw_value_total_unit）。総量を出しても
+   * 判断が変わらない軸はnull。 */
+  rawValueTotalUnit?: string | null;
   /** 生値の単位が定まらない軸の内訳（CatalogAxis.material_breakdown）。材料まで分解した
    * 絶対量の並びで、正規化重みの降順。単位が定まる軸は空配列。 */
   materialBreakdown?: readonly AxisMaterialBreakdown[];
@@ -149,6 +152,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
         mapValueKind: axis.map_value_kind,
         mapValueUnit: axis.map_value_unit,
         rawValueUnit: axis.raw_value_unit ?? null,
+        rawValueTotalUnit: axis.raw_value_total_unit ?? null,
         materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
       }))
   );

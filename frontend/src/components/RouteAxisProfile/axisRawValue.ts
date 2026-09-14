@@ -5,30 +5,26 @@
 // 単位が定まらない軸（合成軸・真偽値の軸）はbackendが`raw_value_unit`にnullを返すため、
 // ここへは来ない。
 
-/** 単位が「◯◯/km」なら、距離を掛けて経路全体の実数にできる。 */
-export function totalUnitFor(unit: string): string | null {
-  const suffix = "/km";
-  return unit.endsWith(suffix) ? unit.slice(0, -suffix.length) : null;
-}
-
 /**
  * 表示文を組み立てる。`rawValue`は距離加重平均の生値、`distanceKm`は経路の走行距離。
- * 距離あたりの単位のときだけ実数（約N回）を添える——「%」のような量は距離を掛けても
- * 意味を持たないため。
+ *
+ * 総量（約N回）を添えるのは`totalUnit`が来た軸だけ。**出すかどうかの判断はbackendの
+ * 軸カタログが持つ**（`raw_value_total_unit`）——単位が「◯◯/km」で終わるかどうかで
+ * 決めると、「約26回止まる」と「約3322度曲がる」が同じ扱いになる。
  */
 export function formatAxisRawValue(
   rawValue: number | undefined,
   unit: string | null | undefined,
+  totalUnit: string | null | undefined,
   distanceKm: number | null | undefined,
 ): string | null {
   if (rawValue == null || !unit) return null;
-  const perDistance = totalUnitFor(unit);
   const head = `${formatNumber(rawValue)}${unit}`;
-  if (perDistance === null || distanceKm == null || distanceKm <= 0) return head;
+  if (!totalUnit || distanceKm == null || distanceKm <= 0) return head;
   const total = rawValue * distanceKm;
   // 1未満まで細かく出しても行動は変わらないため、四捨五入して「約」を付ける。
   if (total < 0.5) return head;
-  return `${head}・約${Math.round(total)}${perDistance}`;
+  return `${head}・約${Math.round(total)}${totalUnit}`;
 }
 
 // 生値のスケールは軸ごとに違う（勾配は%で0〜15程度、事故密度は件/(km・年)で0〜0.5）。

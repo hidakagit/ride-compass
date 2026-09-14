@@ -74,7 +74,12 @@ export default function RouteAxisProfile({
     const difficulty = axisDifficulties[axis.axisId];
     // 折れ点を通す前の生値。単位が定まらない軸（合成軸等）はbackendがrawValueUnitを
     // 返さないため何も出ない。
-    const rawText = formatAxisRawValue(axisRawValues[axis.axisId], axis.rawValueUnit, distanceKm);
+    const rawText = formatAxisRawValue(
+      axisRawValues[axis.axisId],
+      axis.rawValueUnit,
+      axis.rawValueTotalUnit,
+      distanceKm,
+    );
     // backendがmaterialBreakdownで並び順ごと返すため、ここでは並べ替えない。
     const breakdownTexts = (axis.materialBreakdown ?? [])
       .map((entry) =>
@@ -113,7 +118,8 @@ export default function RouteAxisProfile({
               contentClassName={styles.infoPopover}
             >
               <p>
-                距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。
+                区間ごとの難しさを距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。
+                軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補タブはこの値が小さい順に並びます。
               </p>
             </InfoPopover>
           </span>
@@ -145,9 +151,9 @@ export default function RouteAxisProfile({
                 contentClassName={styles.infoPopover}
               >
                 <p>
-                  総合難易度は距離で割った平均のため、遠回りして難所を避けるほど下がります。
-                  負荷は距離を掛けた総量で、走り切るまでのしんどさの目安です。難所を通っても
-                  短いルートと、遠回りで易しいルートを見比べるときに使ってください。
+                  総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
+                  平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
+                  難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
                 </p>
               </InfoPopover>
             </span>

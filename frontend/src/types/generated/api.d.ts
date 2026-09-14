@@ -971,6 +971,8 @@ export interface components {
             map_value_thresholds: number[] | null;
             /** Raw Value Unit */
             raw_value_unit: string | null;
+            /** Raw Value Total Unit */
+            raw_value_total_unit: string | null;
             /** Material Breakdown */
             material_breakdown: components["schemas"]["AxisMaterialBreakdownEntry"][];
             /** Dynamic Way Value Needs Time */

@@ -10,7 +10,7 @@ import {
 } from "./breakpointTools";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import InfoPopover from "@/components/Map/InfoPopover";
-import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import { materialOptionText, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMaterialValues } from "@/hooks/useMaterialValues";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
@@ -747,7 +747,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                   <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
                     {termOptions.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.label}
+                        {materialOptionText(m)}
                       </option>
                     ))}
                   </select>
@@ -1036,7 +1036,7 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                         .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
                         .map((m) => (
                           <option key={m.id} value={m.id}>
-                            {m.label}
+                            {materialOptionText(m)}
                           </option>
                         ))}
                     </select>

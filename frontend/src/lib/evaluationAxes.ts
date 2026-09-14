@@ -57,11 +57,13 @@ export interface PreferenceAxisDef {
    * 軸だけが持つ。ルート結果が得点の隣に生値を出すために使う（軸単体で経路を判断できる
    * ようにするため。得点は目盛りの引き方に依存する相対評価でしかない）。 */
   rawValueUnit?: string | null;
+  /** 生値へ走行距離を掛けた総量の単位（GET /api/axis-catalogのraw_value_total_unit）。
+   * 総量を出しても読み手の判断が変わらない軸はnull。 */
+  rawValueTotalUnit?: string | null;
   /** 生値の単位が定まらない軸の内訳（GET /api/axis-catalogのmaterial_breakdown）。
    * 材料まで分解した絶対量の並びで、正規化重みの降順。単位が定まる軸は空配列。 */
   materialBreakdown?: readonly AxisMaterialBreakdown[];
 }
-
 
 // 重み一覧は公開軸すべてを対象にする。並び順はSECONDARY_AXES（secondaryAxes.ts、
 // 地図チップの推定グループが共有する単一ソース）をそのままなぞり、
@@ -90,6 +92,7 @@ export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef 
     mapValueKind: axis.map_value_kind as MapValueKind | undefined,
     mapValueUnit: axis.map_value_unit,
     rawValueUnit: axis.raw_value_unit ?? null,
+    rawValueTotalUnit: axis.raw_value_total_unit ?? null,
     materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
   };
 }

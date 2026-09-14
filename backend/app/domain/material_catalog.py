@@ -115,6 +115,12 @@ class MaterialSpec(StrictModel):
     # domain/axis_display.py: raw_value_unitは、2項以上の重み付き和の生値を利用者へ見せて
     # よいかの判定にこれを使う（単位が揃っているだけでは和の意味は保証されない）。
     additive: bool = False
+    # 距離を掛けた総量（例: 「0.8回/km」→「約26回」）を出すときの単位。**総量が読み手の
+    # 判断を変える量にだけ置く**——回・件のように数えられる出来事は「この経路で何回止まるか」
+    # を答えるが、角度のような連続量は総量（「約3322度曲がる」）を出しても比べる尺度が無い。
+    # `additive`（足し合わせて意味を持つか）とは別の問い: 蛇行は足せるが、総量は読めない。
+    # 単位が「◯◯/km」であることだけを条件にすると、この区別が付かない。
+    total_unit: str | None = None
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
     tile_property: str | None = None
@@ -525,7 +531,7 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "gradient_percent": MaterialSpec(
         material_id="gradient_percent",
-        label="勾配%（符号付き）",
+        label="勾配（符号付き）",
         description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
         unit="%",
@@ -601,11 +607,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
-        label="交差点密度(回/km)",
+        label="交差点密度",
         description="接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
         dtype="numeric",
         unit="回/km",
         additive=True,
+        total_unit="回",
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION),
@@ -613,7 +620,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     ),
     "curvature_deg_per_km": MaterialSpec(
         material_id="curvature_deg_per_km",
-        label="蛇行の強さ(度/km)",
+        label="蛇行の強さ",
         description="道の折れ線に沿った方位変化の累積を1kmあたりに直した値。直線は0で、"
         "つづら折りほど大きい。交差点での右左折ではなく道そのものの曲がり方を表す。",
         dtype="numeric",
@@ -631,7 +638,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",
-        label="事故密度(件/(km・年))",
+        label="事故密度",
         description="警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
         dtype="numeric",
         unit="件/(km・年)",
@@ -705,7 +712,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     ),
     "maxspeed_kmh": MaterialSpec(
         material_id="maxspeed_kmh",
-        label="制限速度(km/h)",
+        label="制限速度",
         description="OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
         dtype="numeric",
         unit="km/h",
@@ -929,11 +936,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     **{
         f"poi_{kind}_per_km": MaterialSpec(
             material_id=f"poi_{kind}_per_km",
-            label=f"{label}の密度(回/km)",
+            label=f"{label}の密度",
             description=f"進行する道路上にある{label}の、1kmあたりの数。",
             dtype="numeric",
             unit="回/km",
             additive=True,
+            total_unit="回",
             tile_property=f"poi_{kind}_per_km",
             primary_attribute_id="stop_poi",
             extractor=keyed_density_extractor(METRIC_GROUP_POI, kind, absent_key=0.0),

@@ -180,7 +180,13 @@ describe("AxisComposer", () => {
       const user = userEvent.setup();
       const otherAxes = [baseAxisDefinition({ axis_id: "wind", label: "風" })];
       render(
-        <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={onSave} />,
+        <AxisComposer
+          editing={null}
+          duplicateFrom={null}
+          otherAxes={otherAxes}
+          onCancelEdit={vi.fn()}
+          onSave={onSave}
+        />,
       );
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
@@ -219,7 +225,13 @@ describe("AxisComposer", () => {
         baseAxisDefinition({ axis_id: "wind", label: "風" }),
       ];
       render(
-        <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={onSave} />,
+        <AxisComposer
+          editing={null}
+          duplicateFrom={null}
+          otherAxes={otherAxes}
+          onCancelEdit={vi.fn()}
+          onSave={onSave}
+        />,
       );
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "複合軸");
@@ -609,7 +621,15 @@ describe("AxisComposer", () => {
 
     it("編集中の軸がkind=noneの場合、地図表示用のデータ取得経路が無い旨の注記が出る", async () => {
       const editing = baseAxisDefinition({
-        display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "none",
+          label: "勾配",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
       });
       const user = userEvent.setup();
       render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
@@ -994,7 +1014,7 @@ describe("AxisComposer", () => {
       await clickNext(user);
       // 既定材料はgradient_percent（emptyDraftのmaterialOptions[0]）。
       // 改善計画T345さらなるフォローアップ2: 材料labelは「論理名 - 物理名」形式。
-      await user.click(screen.getByRole("button", { name: "勾配%（符号付き） - gradient_percentの説明を表示" }));
+      await user.click(screen.getByRole("button", { name: "勾配（符号付き） - gradient_percentの説明を表示" }));
 
       expect(screen.getByText(/国土地理院の標高データ/)).toBeInTheDocument();
     });
@@ -1035,7 +1055,13 @@ describe("AxisComposer", () => {
         baseAxisDefinition({ axis_id: "wind", label: "風", is_published: true, default_weight: 0.1 }),
       ];
       render(
-        <AxisComposer editing={null} duplicateFrom={null} otherAxes={otherAxes} onCancelEdit={vi.fn()} onSave={vi.fn()} />,
+        <AxisComposer
+          editing={null}
+          duplicateFrom={null}
+          otherAxes={otherAxes}
+          onCancelEdit={vi.fn()}
+          onSave={vi.fn()}
+        />,
       );
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸K");

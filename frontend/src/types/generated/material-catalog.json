@@ -1,7 +1,7 @@
 [
   {
     "material_id": "gradient_percent",
-    "label": "勾配%（符号付き）",
+    "label": "勾配（符号付き）",
     "description": "国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
     "dtype": "numeric",
     "unit": "%",
@@ -41,7 +41,7 @@
   },
   {
     "material_id": "intersection_count_per_km",
-    "label": "交差点密度(回/km)",
+    "label": "交差点密度",
     "description": "接続する道路が3本以上ある交差点の1kmあたりの発生回数。",
     "dtype": "numeric",
     "unit": "回/km",
@@ -49,7 +49,7 @@
   },
   {
     "material_id": "curvature_deg_per_km",
-    "label": "蛇行の強さ(度/km)",
+    "label": "蛇行の強さ",
     "description": "道の折れ線に沿った方位変化の累積を1kmあたりに直した値。直線は0で、つづら折りほど大きい。交差点での右左折ではなく道そのものの曲がり方を表す。",
     "dtype": "numeric",
     "unit": "度/km",
@@ -57,7 +57,7 @@
   },
   {
     "material_id": "accident_count_per_km_year",
-    "label": "事故密度(件/(km・年))",
+    "label": "事故密度",
     "description": "警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
     "dtype": "numeric",
     "unit": "件/(km・年)",
@@ -105,7 +105,7 @@
   },
   {
     "material_id": "maxspeed_kmh",
-    "label": "制限速度(km/h)",
+    "label": "制限速度",
     "description": "OSMの制限速度タグ(maxspeed)から解析した制限速度（km/h）。",
     "dtype": "numeric",
     "unit": "km/h",
@@ -274,7 +274,7 @@
   },
   {
     "material_id": "poi_signal_per_km",
-    "label": "信号の密度(回/km)",
+    "label": "信号の密度",
     "description": "進行する道路上にある信号の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
@@ -282,7 +282,7 @@
   },
   {
     "material_id": "poi_crossing_per_km",
-    "label": "横断歩道(信号なし)の密度(回/km)",
+    "label": "横断歩道(信号なし)の密度",
     "description": "進行する道路上にある横断歩道(信号なし)の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
@@ -290,7 +290,7 @@
   },
   {
     "material_id": "poi_stop_per_km",
-    "label": "一時停止・徐行の密度(回/km)",
+    "label": "一時停止・徐行の密度",
     "description": "進行する道路上にある一時停止・徐行の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
@@ -298,7 +298,7 @@
   },
   {
     "material_id": "poi_level_crossing_per_km",
-    "label": "踏切の密度(回/km)",
+    "label": "踏切の密度",
     "description": "進行する道路上にある踏切の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",
@@ -306,7 +306,7 @@
   },
   {
     "material_id": "poi_barrier_per_km",
-    "label": "車止め・減速構造の密度(回/km)",
+    "label": "車止め・減速構造の密度",
     "description": "進行する道路上にある車止め・減速構造の、1kmあたりの数。",
     "dtype": "numeric",
     "unit": "回/km",

@@ -255,6 +255,31 @@ def raw_value_unit(definition: AxisDefinition) -> str | None:
     return specs[0].unit
 
 
+def raw_value_total_unit(definition: AxisDefinition) -> str | None:
+    """生値へ走行距離を掛けた**総量**を出すときの単位。出す意味が無ければNone。
+
+    「0.8回/km」に距離を掛けた「約26回」は、この経路で何回止まるかを答える。一方
+    「151度/km」に距離を掛けた「約3322度」は、比べる尺度が無く読み手の判断を変えない。
+    区別は材料側の`MaterialSpec.total_unit`が持つ（単位が「◯◯/km」であることだけを条件に
+    すると、どちらも同じ扱いになる）。
+
+    条件は`raw_value_unit`が定まることに加えて、寄与する全材料が同じ`total_unit`を
+    持つこと。
+    """
+    if raw_value_unit(definition) is None:
+        return None
+    shape = definition.shape
+    assert isinstance(shape, BreakpointLinearShape)  # raw_value_unitが非Noneなら成り立つ
+    total_units = {
+        spec.total_unit
+        for term in shape.terms
+        if term.weight != 0 and (spec := MATERIAL_CATALOG.get(term.material)) is not None
+    }
+    if len(total_units) != 1:
+        return None
+    return total_units.pop()
+
+
 @dataclass(frozen=True, slots=True)
 class AxisMaterialShare:
     """軸が参照する材料1件と、それが軸の生値に占める正規化重み。"""

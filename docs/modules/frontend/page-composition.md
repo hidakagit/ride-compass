@@ -259,7 +259,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 判断に使えない。合わせた高さはドラッグで上書きでき、その値は次に開くまで有効
 （`onHeightCommit`の保存は、実寸が取れない実行のフォールバックとして残る）。任意の`headerAction`
 propでヘッダ右側・閉じるボタンの手前へ要素を差し込める（「ルート結果」シートの
-保存・GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`参照）。
+GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`参照）。
 
 ## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルート結果」区分・
 モバイル「ルート結果」タブ共通）
@@ -303,7 +303,7 @@ destinationCorrected`）。補正時は地図上の目的地ピンも
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
-「保存」（機能未実装のdisabled占位、`SaveIcon`）・「GPX出力」（`DownloadIcon`、
+「GPX出力」（`DownloadIcon`、
 `selectedCandidate`をタップで`lib/gpxExport.ts: downloadGpx`へ渡す。候補が未選択の間は
 disabled）・「ルートをクリア」（`ClearRoutesIcon`＝ゴミ箱のアイコンボタン、
 `handleRoutesClear`。**バツ印は使わない**——シートの閉じる✕の隣に並ぶため、同じ形だと

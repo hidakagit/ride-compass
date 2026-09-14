@@ -71,6 +71,7 @@
         10.0
       ],
       "raw_value_unit": "%",
+      "raw_value_total_unit": null,
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": true,
@@ -143,6 +144,7 @@
         80.0
       ],
       "raw_value_unit": null,
+      "raw_value_total_unit": null,
       "material_breakdown": [],
       "dynamic_way_value_needs_time": true,
       "dynamic_way_value_needs_bearing": true,
@@ -198,6 +200,7 @@
       "map_value_unit": "",
       "map_value_thresholds": null,
       "raw_value_unit": null,
+      "raw_value_total_unit": null,
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
@@ -404,6 +407,7 @@
       "map_value_unit": "",
       "map_value_thresholds": null,
       "raw_value_unit": null,
+      "raw_value_total_unit": null,
       "material_breakdown": [
         {
           "material_id": "highway",
@@ -438,7 +442,7 @@
         },
         {
           "material_id": "maxspeed_kmh",
-          "label": "制限速度(km/h)",
+          "label": "制限速度",
           "dtype": "numeric",
           "unit": "km/h",
           "share": 0.2,
@@ -536,6 +540,7 @@
       "map_value_unit": "",
       "map_value_thresholds": null,
       "raw_value_unit": "件/(km・年)",
+      "raw_value_total_unit": null,
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
@@ -622,6 +627,7 @@
       "map_value_unit": "",
       "map_value_thresholds": null,
       "raw_value_unit": null,
+      "raw_value_total_unit": null,
       "material_breakdown": [
         {
           "material_id": "lit",
@@ -793,6 +799,7 @@
       "map_value_unit": "",
       "map_value_thresholds": null,
       "raw_value_unit": null,
+      "raw_value_total_unit": null,
       "material_breakdown": [
         {
           "material_id": "highway_is_cycleway",
@@ -941,6 +948,7 @@
         88.3
       ],
       "raw_value_unit": null,
+      "raw_value_total_unit": null,
       "material_breakdown": [
         {
           "material_id": "trees_percent",
@@ -1104,10 +1112,11 @@
         100.0
       ],
       "raw_value_unit": null,
+      "raw_value_total_unit": null,
       "material_breakdown": [
         {
           "material_id": "poi_level_crossing_per_km",
-          "label": "踏切の密度(回/km)",
+          "label": "踏切の密度",
           "dtype": "numeric",
           "unit": "回/km",
           "share": 0.5357,
@@ -1115,7 +1124,7 @@
         },
         {
           "material_id": "poi_signal_per_km",
-          "label": "信号の密度(回/km)",
+          "label": "信号の密度",
           "dtype": "numeric",
           "unit": "回/km",
           "share": 0.3571,
@@ -1123,7 +1132,7 @@
         },
         {
           "material_id": "poi_stop_per_km",
-          "label": "一時停止・徐行の密度(回/km)",
+          "label": "一時停止・徐行の密度",
           "dtype": "numeric",
           "unit": "回/km",
           "share": 0.1071,
@@ -1212,6 +1221,7 @@
       "map_value_unit": "",
       "map_value_thresholds": null,
       "raw_value_unit": "度/km",
+      "raw_value_total_unit": null,
       "material_breakdown": [],
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,

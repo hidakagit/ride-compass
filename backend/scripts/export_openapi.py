@@ -48,7 +48,7 @@ from app.services.axis_registry_service import refresh_axis_definitions  # noqa:
 from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
-from app.domain.axis_display import raw_value_unit  # noqa: E402
+from app.domain.axis_display import raw_value_total_unit, raw_value_unit  # noqa: E402
 from app.api.routers.axis_catalog import _material_breakdown as material_breakdown_for  # noqa: E402
 from app.domain.dynamic_way_values import (  # noqa: E402
     map_value_kind,
@@ -230,6 +230,9 @@ def main() -> None:
                     # 実行時API（AxisCatalogEntry.raw_value_unit）と同じ、折れ点を通す前の
                     # 生値の単位。ルート結果が得点の隣に生値を出すために要る。
                     "raw_value_unit": raw_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
+                    # 同じく実行時API（AxisCatalogEntry.raw_value_total_unit）と揃える。
+                    # 生値へ距離を掛けた総量を出す軸だけが単位を持つ。
+                    "raw_value_total_unit": raw_value_total_unit(AXIS_DEFINITIONS[axis.axis_id]),
                     # 同じく実行時API（AxisCatalogEntry.material_breakdown）と揃える。
                     # 単位が定まらない軸の内訳を材料まで分解した並び。
                     "material_breakdown": [

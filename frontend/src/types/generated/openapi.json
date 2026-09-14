@@ -2182,6 +2182,17 @@
             ],
             "title": "Raw Value Unit"
           },
+          "raw_value_total_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Value Total Unit"
+          },
           "material_breakdown": {
             "items": {
               "$ref": "#/components/schemas/AxisMaterialBreakdownEntry"
@@ -2224,6 +2235,7 @@
           "map_value_unit",
           "map_value_thresholds",
           "raw_value_unit",
+          "raw_value_total_unit",
           "material_breakdown",
           "dynamic_way_value_needs_time",
           "dynamic_way_value_needs_bearing",
