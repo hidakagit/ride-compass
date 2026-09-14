@@ -159,7 +159,7 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 
 - **バックエンド経由プロキシ＋キャッシュ**（改善計画T572）: `GsiReliefTileClient`
   （[backend/app/infrastructure/gsi_relief_tile_client.py](../backend/app/infrastructure/gsi_relief_tile_client.py)）が`BasemapClient`と同じ「pathを丸ごとプロキシ＋`tile_cache.py`の永続ファイルキャッシュ」方式で国土地理院（`cyberjapandata.gsi.go.jp`）のタイルを中継する（`GET /api/gsi-relief-tile/{path:path}`、`next.config.ts`の`/api/gsi-relief-tile/*`rewritesで同一オリジン化）。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない静的データのため、JMAタイル系のようなTTL付きキャッシュの分岐は不要。
-- **レイヤー順序**: `ensureGsiReliefLayer`（`MapView.tsx`）は地図初期化直後（他のカスタムレイヤーより先）に一度だけソース/レイヤーを追加し、以降はvisibilityの切替のみで表示・非表示を行う。先に追加しておくことで、後から追加される路面・ルート系のレイヤーが必ずこのラスタの上に重なり、道路線やラベルが標高オーバーレイに隠れないようにしている。不透明度は0.55で、基礎地図の道路・ラベルが透けて見える程度に抑えている。
+- **レイヤー順序**: `ensureGsiReliefLayer`（`MapView.tsx`）は地図初期化直後（他のカスタムレイヤーより先）に一度だけソース/レイヤーを追加し、以降はvisibilityの切替のみで表示・非表示を行う。先に追加しておくことで、後から追加される路面・ルート系のレイヤーが必ずこのラスタの上に重なり、道路線やラベルが標高オーバーレイに隠れないようにしている。不透明度は面で塗るレイヤー共通の値（`AREA_LAYER_OPACITY`）で、基礎地図の道路・ラベルが透けて見える程度に抑えている。
 - **ビューポート制限は不要**: 標高グリッドAPI（撤去済み）はGSIの点別APIへの問い合わせ数を抑えるため`MAX_REGION_DIAGONAL_KM`のズーム制限を課していたが、ラスタタイルはズームレベルに応じてタイルが自動的に切り替わる標準的なXYZタイルのため、この種の制限は不要になった（後述の路面データのみ制限が残る）。
 
 #### 路面データ：自前生成のベクタタイル（`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）

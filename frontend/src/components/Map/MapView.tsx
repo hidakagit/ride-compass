@@ -247,6 +247,11 @@ const SLOTS_CASING_LAYER_ID = "experiment-slots-casing";
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 const SLOTS_SOURCE_ID = "experiment-slots";
 const SLOTS_LAYER_ID = "experiment-slots-line";
+// 面で塗るレイヤー（気象庁ナウキャスト系のラスタ・格子塗り・標高図）の不透明度。
+// 面は「どこか」を示すもので、下の道路・地名が読めなくなると経路の判断ができない。
+// 濃さはレイヤーごとに決めず1つの値を共有する——面が重なったときの濃さは重なりの数で
+// 決まるべきで、レイヤーごとの主張の強さで決まると、何が上に乗っているかを読めなくなる。
+const AREA_LAYER_OPACITY = 0.4;
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 // 動的気象レイヤー（風・降水）のsource/layer id。要素id×ソース×描画方式（raster/fill/
@@ -957,7 +962,7 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
       id: GSI_RELIEF_LAYER_ID,
       type: "raster",
       source: GSI_RELIEF_SOURCE_ID,
-      paint: { "raster-opacity": 0.55 },
+      paint: { "raster-opacity": AREA_LAYER_OPACITY },
       layout: { visibility: "none" },
     });
   };
@@ -1004,9 +1009,6 @@ const PRECIPITATION_COLOR_SCALE_EXPRESSION = [
   ["to-number", ["get", "mmPerHour"]],
   ...PRECIPITATION_COLOR_STOPS.flatMap((stop) => [stop.mmPerHour, stop.color]),
 ] as unknown as maplibregl.ExpressionSpecification;
-// 面塗りは色そのものの主張が強いため、気象庁ナウキャストのラスタタイル（raster-opacity
-// 0.65、DYNAMIC_WEATHER_RENDERERS参照）よりわずかに抑えている。
-const PRECIPITATION_FILL_OPACITY = 0.55;
 
 // 洪水キキクルのline-color。配信元のフィーチャーが持つ`level`
 // プロパティ（1〜4）をRISK_LEVEL_COLORS（riskMap.ts、土砂・大雨・浸水の3種と共通の
@@ -1186,14 +1188,14 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // （`next dev`限定の想定、本番ビルドではStrict Modeの二重実行が発生しないため
         // 再現しない）。表示自体は次のpayload反映で自己回復するため実害は無い。
         placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "hrpns"),
-        opacity: 0.65,
+        opacity: AREA_LAYER_OPACITY,
         ...jmaZoomRange("hrpns"),
         attribution: "気象庁",
       },
       gridFill: {
         valueProperty: "mmPerHour",
         colorExpression: PRECIPITATION_COLOR_SCALE_EXPRESSION,
-        opacity: PRECIPITATION_FILL_OPACITY,
+        opacity: AREA_LAYER_OPACITY,
         minValueToShow: PRECIPITATION_NONE_THRESHOLD_MM,
       },
     },
@@ -1203,7 +1205,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     linearRainband: {
       raster: {
         placeholderTileUrl: jmaPlaceholderTileUrl("rasrf", "sjfcstmap"),
-        opacity: 0.65,
+        opacity: AREA_LAYER_OPACITY,
         ...jmaZoomRange("sjfcstmap"),
         attribution: "気象庁",
       },
@@ -1240,7 +1242,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     heavyRain: {
       raster: {
         placeholderTileUrl: jmaPlaceholderTileUrl("risk", "rain_mesh"),
-        opacity: 0.65,
+        opacity: AREA_LAYER_OPACITY,
         ...jmaZoomRange("rain_mesh"),
         attribution: "気象庁",
       },
@@ -1248,7 +1250,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     landslide: {
       raster: {
         placeholderTileUrl: jmaPlaceholderTileUrl("risk", "land"),
-        opacity: 0.65,
+        opacity: AREA_LAYER_OPACITY,
         ...jmaZoomRange("land"),
         attribution: "気象庁",
       },
@@ -1256,7 +1258,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     inundation: {
       raster: {
         placeholderTileUrl: jmaPlaceholderTileUrl("risk", "inund"),
-        opacity: 0.65,
+        opacity: AREA_LAYER_OPACITY,
         ...jmaZoomRange("inund"),
         attribution: "気象庁",
       },
@@ -1268,7 +1270,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     thunder: {
       raster: {
         placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "thns"),
-        opacity: 0.65,
+        opacity: AREA_LAYER_OPACITY,
         ...jmaZoomRange("thns"),
         attribution: "気象庁",
       },
@@ -1276,7 +1278,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     tornado: {
       raster: {
         placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "trns"),
-        opacity: 0.65,
+        opacity: AREA_LAYER_OPACITY,
         ...jmaZoomRange("trns"),
         attribution: "気象庁",
       },
