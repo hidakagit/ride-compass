@@ -308,14 +308,14 @@ describe("共有時刻の「今」への追従（改善計画T859）", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(result.current.dynamicWeather.precipitationNowcast.main.payload).toBeDefined();
+    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
 
     // 実況が2回更新される長さ。共有時刻が止まっていればここで範囲外へ落ちる。
     await act(async () => {
       await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
     });
 
-    expect(result.current.dynamicWeather.precipitationNowcast.main.payload).toBeDefined();
+    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
     expect(result.current.dynamicLayerTargetTime.getTime()).toBe(
       Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS
     );
