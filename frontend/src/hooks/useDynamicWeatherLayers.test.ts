@@ -305,6 +305,24 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
         expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson }),
       );
     });
+
+    // 配信元の観測は「今」より遅れて届く（実測5〜10分、T861）。共有時刻は5分刻みで「今」へ
+    // 追従するため最新フレームより後ろに来るのが常態で、範囲外で描かない規約をそのまま
+    // 当てると雷放電は常に描画されない（本番実測: 最新フレーム22:55に対し共有時刻23:00）。
+    it("最新フレームが配信の遅れのぶん過去でも、最新の観測を描く", async () => {
+      stubHappyPath();
+      const sharedTime = Math.floor(Date.now() / FIVE_MIN_MS) * FIVE_MIN_MS;
+      const delayed = jmaTimestamp(new Date(sharedTime - FIVE_MIN_MS));
+      vi.mocked(fetchLidenFrames).mockResolvedValue([{ basetime: delayed, validtime: delayed, isForecast: false }]);
+      const geojson = { type: "FeatureCollection" as const, features: [] };
+      vi.mocked(fetchLidenGeojson).mockResolvedValue(geojson);
+
+      const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+
+      await waitFor(() =>
+        expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson }),
+      );
+    });
   });
 });
 

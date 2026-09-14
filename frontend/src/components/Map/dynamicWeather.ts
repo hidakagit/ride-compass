@@ -185,6 +185,9 @@ export function nearestTimeIndex(times: readonly Date[], target: Date): number {
 // フレーム列の範囲判定に使う許容幅。境界ちょうど（スライダーの目盛りがフレーム時刻そのもの）で
 // 浮動小数・ミリ秒の丸めに揺られないための小さな余裕。
 const FRAME_RANGE_EPSILON_MS = 1000;
+// 観測が届くまでの遅れとして許す幅（observationIndexForTime）。配信の遅れの実績値へ余裕を
+// 足した上限で、これを超えて先を指していれば利用者が意図して未来を選んでいるとみなす。
+const OBSERVATION_DELAY_TOLERANCE_MS = 20 * 60 * 1000;
 
 /** 対象時刻に対応するフレームのindexを返す。**対象時刻がこのレイヤーのデータ範囲
  * （先頭〜末尾フレーム）の外なら null**（=そのレイヤーは描画しない。範囲を超えた時刻で
@@ -201,6 +204,28 @@ export function frameIndexForTime(frames: readonly { time: Date }[], target: Dat
     frames.map((f) => f.time),
     target,
   );
+}
+
+/** 予測を持たないレイヤー（観測だけが届く）が、共有時刻に対して出すフレームのindex。
+ *
+ * 配信元の観測は「今」より必ず遅れて届くため、共有時刻が最新フレームより後ろになるのが
+ * 常態であり、**範囲外なら描かない**という`frameIndexForTime`の規約をそのまま当てると、
+ * この種のレイヤーは常に何も描かれない。
+ *
+ * 遅れのぶんは最新の観測を出し、それ以上先（利用者が出発時刻を選んだ等）を指していれば
+ * 描かない——「1時間後の落雷」は存在せず、古い観測をその時刻の値として出すのは誤り。
+ */
+export function observationIndexForTime(
+  frames: readonly { time: Date }[],
+  target: Date,
+  toleranceMs: number = OBSERVATION_DELAY_TOLERANCE_MS,
+): number | null {
+  if (frames.length === 0) return null;
+  const lastMs = frames[frames.length - 1].time.getTime();
+  const targetMs = target.getTime();
+  if (targetMs > lastMs + toleranceMs) return null;
+  if (targetMs > lastMs) return frames.length - 1;
+  return frameIndexForTime(frames, target);
 }
 
 /** 格子点配列を1件ずつ辿り、extractが値を取れた点だけをFeatureへ変換してFeatureCollection

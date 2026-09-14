@@ -39,6 +39,7 @@ import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
 import {
   disasterSourceKeys,
   frameIndexForTime,
+  observationIndexForTime,
   isWithinFutureWindow,
   tileDeliveryFailureLayerIds,
   type DynamicWeatherGroupState,
@@ -348,7 +349,10 @@ export function useDynamicWeatherLayers({
   // 取得済みgeojsonにref（frames内のindex）を添えて保持し、選択中のindexと一致する
   // ときだけpayloadへ反映する——scrub中に古いフェッチが新しいフェッチより後に解決しても、
   // 直前に選んでいた古い時刻のデータを新しい時刻の表示へ混ぜない。
-  const lidenIndex = frameIndexForTime(lidenFramesList, dynamicLayerTargetTime);
+  // 雷放電は予測を持たず観測だけが届くため、共有時刻は配信の遅れのぶんだけ常に最新
+  // フレームより後ろにある。範囲外で描かない規約（frameIndexForTime）をそのまま当てると
+  // 常に何も描かれないため、遅れのぶんは最新の観測を出す（observationIndexForTime）。
+  const lidenIndex = observationIndexForTime(lidenFramesList, dynamicLayerTargetTime);
   const lidenRef = lidenIndex == null ? undefined : lidenFramesList[lidenIndex].ref;
   const [lidenFetched, setLidenFetched] = useState<{ ref: number; geojson: GeoJSON.FeatureCollection } | undefined>();
   useEffect(() => {
