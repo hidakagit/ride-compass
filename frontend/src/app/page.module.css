@@ -338,8 +338,13 @@
 /* 目盛りの器。幅を固定しないと、中のバーの%が0幅に対して解決されて何も見えない。 */
 .outcomeTabScoreTrack {
   width: 1.5rem;
-  height: 0.35rem;
-  border-radius: 999px;
+  /* 高さは基準距離に対する倍率（lib/difficultyLoadBar.ts）。長さが総合難易度を表すため、
+     塗られた面積が負荷になる。候補の中身の内訳バー（axisLegend.module.css）と同じ規則。 */
+  --load-bar-height-ratio: 1;
+  height: calc(0.35rem * var(--load-bar-height-ratio));
+  /* 面積で読ませるため角は丸めない（丸めると高さの違いがスイッチの太さの違いに見え、
+     長さ×高さの矩形として読めなくなる）。 */
+  border-radius: 2px;
   background: var(--color-border);
   overflow: hidden;
   flex-shrink: 0;
@@ -348,7 +353,7 @@
 .outcomeTabScoreBar {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: 2px 0 0 2px;
   background: var(--color-accent);
   opacity: 0.7;
 }

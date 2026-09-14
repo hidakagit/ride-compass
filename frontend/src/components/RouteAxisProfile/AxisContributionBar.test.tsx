@@ -68,6 +68,29 @@ describe("AxisContributionBar", () => {
     expect(segments[1].style.width).toBe("5%");
   });
 
+  it("heightRatioは帯の高さの倍率になる（長さ＝難易度と合わせて面積が負荷になる）", () => {
+    const { container } = render(
+      <AxisContributionBar
+        axes={AXES}
+        contributions={{ car_stress: 30, night: 5 }}
+        axisColors={AXIS_COLORS}
+        heightRatio={1.43}
+      />,
+    );
+
+    const bar = container.querySelector('[class*="stackBar"]') as HTMLElement;
+    expect(bar.style.getPropertyValue("--load-bar-height-ratio")).toBe("1.43");
+  });
+
+  it("heightRatioを渡さない呼び出し側（距離を持たない区間の内訳）は長さだけの帯になる", () => {
+    const { container } = render(
+      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />,
+    );
+
+    const bar = container.querySelector('[class*="stackBar"]') as HTMLElement;
+    expect(bar.style.getPropertyValue("--load-bar-height-ratio")).toBe("1");
+  });
+
   it("contributionsが空なら何も描画しない（呼び出し側の空状態文言に委ねる）", () => {
     const { container } = render(<AxisContributionBar axes={AXES} contributions={{}} axisColors={AXIS_COLORS} />);
 

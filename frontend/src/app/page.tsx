@@ -87,6 +87,7 @@ import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/lib/gpxExport";
+import { baselineDistanceKm, loadBarHeightRatio } from "@/lib/difficultyLoadBar";
 import {
   SPLICED_ROUTE_ID_PREFIX,
   extraDurationLabel,
@@ -1917,6 +1918,11 @@ export default function Home() {
     // 周回・経由地ルートはnull）。
     const fastestSeconds = fastestDurationSeconds(routes);
     const fastestRouteIdInList = fastestRouteId(routes);
+    // 難易度の帯の高さ1.0とする距離。帯の長さは総合難易度なので、高さへ距離を与えると
+    // 塗られた面積が負荷（difficulty_load）になる（lib/difficultyLoadBar.ts）。一覧の行と
+    // 候補の中身（RouteAxisProfile）で同じ基準を使う——同じ見た目の帯が場所によって別の
+    // 尺度になると、行と中身で面積が食い違う。
+    const loadBarBaselineKm = baselineDistanceKm(routes);
     // RouteAxisProfileへは公開軸すべて（axisCatalog.axes）をそのまま渡し、絞り込みは行わない。
     // routeWeightsは重み<=0の軸を「未使用」バッジ付きで表示する判定にのみ使う（生成時点の重み
     // ＝generatedRoutePreference、未生成時のみライブなroutePreferenceへフォールバック）。
@@ -1994,7 +2000,14 @@ export default function Home() {
                   {/* 算出できなかった候補（overall_difficultyがnull）は、長さを描かず
                       「—」だけ出す——0と欠損を同じ見た目にしない。 */}
                   <span className={styles.outcomeTabScore}>
-                    <span className={styles.outcomeTabScoreTrack}>
+                    <span
+                      className={styles.outcomeTabScoreTrack}
+                      style={
+                        {
+                          "--load-bar-height-ratio": String(loadBarHeightRatio(route.distance_km, loadBarBaselineKm)),
+                        } as React.CSSProperties & { "--load-bar-height-ratio"?: string }
+                      }
+                    >
                       {route.overall_difficulty !== null && (
                         <span className={styles.outcomeTabScoreBar} style={{ width: `${route.overall_difficulty}%` }} />
                       )}
@@ -2071,6 +2084,7 @@ export default function Home() {
                     distanceKm={route.distance_km}
                     overallDifficulty={route.overall_difficulty}
                     difficultyLoad={route.difficulty_load ?? null}
+                    loadBarHeightRatio={loadBarHeightRatio(route.distance_km, loadBarBaselineKm)}
                     estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
                     axisColors={axisChipColors}
                   />

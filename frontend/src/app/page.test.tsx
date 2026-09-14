@@ -1077,6 +1077,33 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     expect(screen.queryByRole("tab", { name: /最短/ })).toBeNull();
   });
 
+  it("一覧の行のバーは、最短の候補を1.0として距離の比だけ高くなる（面積が負荷になる）", async () => {
+    // 長さは総合難易度のまま。ここが効かないと、遠回りで易しい候補と短くて難しい候補が
+    // 一覧で同じ大きさに見え、負荷の違いが数字を開くまで分からない。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 40.0, overall_difficulty: 22.0 }),
+        makeCandidate({ id: "route-01", distance_km: 20.0, overall_difficulty: 31.0 }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    const { container } = render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /^1 40\.0km/ })).toBeInTheDocument();
+    });
+    const tracks = Array.from(container.querySelectorAll('[class*="outcomeTabScoreTrack"]')) as HTMLElement[];
+    expect(tracks).toHaveLength(2);
+    // 40km / 20km = 2.0（上限）。基準の20kmは1.0。
+    expect(tracks[0].style.getPropertyValue("--load-bar-height-ratio")).toBe("2");
+    expect(tracks[1].style.getPropertyValue("--load-bar-height-ratio")).toBe("1");
+  });
+
   it("区間を乗り換えて作った候補は順位番号のまま、名前で「合成」と示す", async () => {
     // 素の結果と本質的に区別しないため並び順は同じ規約に乗せ、見分けだけ名前で付ける
     // （docs/tasks/T621.md）。
