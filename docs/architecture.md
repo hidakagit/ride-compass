@@ -2073,8 +2073,9 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    専用リポジトリ`infrastructure/accident_repository.py`が担当し、`region_service.py`とは
    別系統（データソースがOSM派生グラフではなく`accident_points`のため）。
 
-いずれもタイル世代は焼き込みSQLから導出される（`app/infrastructure/cache_identity.py`）
-ため、プロパティを足す・消す・式を変えれば自動で変わる。frontendへは`export_openapi.py`が
+いずれもタイル世代は焼き込みSQLと、そこへあらかじめ束ねた値から導出される
+（`app/infrastructure/cache_identity.py`）ため、プロパティを足す・消す・式を変える・
+分類に使うタグ集合を変えれば自動で変わる。frontendへは`export_openapi.py`が
 書き出す`generated/region-tile-config.json`が届け、ドリフト検知テスト
 （`regionApi.test.ts`）が照合する。
 

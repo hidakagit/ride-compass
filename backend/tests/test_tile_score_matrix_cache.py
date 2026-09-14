@@ -5,6 +5,8 @@
 軸定義編集時の即時無効化（clear()がメモリ・ディスク両方を削除すること）を検証する。
 """
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -16,6 +18,7 @@ from app.domain.evaluation import (
     route_facing_material_ids,
     route_facing_raw_axis_ids,
 )
+from app.domain.hard_filters import HARD_FILTER_HIGHWAY_TYPES
 from app.infrastructure import graph_material_cache, tile_persistent_cache, tile_score_matrix_cache
 
 
@@ -46,7 +49,9 @@ def _sample_matrix(edge_id: str = "edge-1", score: float = 50.0) -> StaticEdgeSc
         axis_scores=np.array([[score]]),
         distance_m=np.array([100.0]),
         bearing_deg=np.array([np.nan]),
-        highway_filter_flags={"motorway": np.array([False]), "trunk": np.array([False])},
+        # 0次フィルタのキー集合は宣言から作る（読み出し時のガードが現在の宣言と突き合わせる。
+        # ここを固定値で書くと、宣言が増えたときフィクスチャ側の古さと区別できない）。
+        highway_filter_flags={name: np.array([False]) for name in HARD_FILTER_HIGHWAY_TYPES},
         no_bicycle=np.array([False]),
         gradient_percent=np.array([np.nan]),
         mid_lat=np.array([35.0]),
@@ -367,3 +372,17 @@ class TestColumnValidationOnRead:
         tile_score_matrix_cache._cache.clear()
 
         assert tile_score_matrix_cache.get(12, 5, 6) is not None
+
+
+def test_matrix_with_a_stale_hard_filter_key_set_is_not_restored():
+    """0次フィルタの宣言が増えた後に、旧キー集合の行列がディスクから復元されないこと。
+
+    復元されると先頭タイルのキーで全タイルが揃うため、利用者が除外したはずの道を通る
+    ルートが無警告で出る（`.items()`で回すため例外にもならない）。
+    """
+    stale = dataclasses.replace(
+        _sample_matrix(), highway_filter_flags={"zzz_removed_filter": np.array([False])}
+    )
+
+    assert tile_score_matrix_cache._columns_match_current_predicates(stale) is False
+    assert tile_score_matrix_cache._columns_match_current_predicates(_sample_matrix()) is True

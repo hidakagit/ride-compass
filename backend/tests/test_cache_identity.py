@@ -54,3 +54,41 @@ class TestCacheIdentity:
 
     def test_bumping_the_revision_changes_the_key(self):
         assert ci.cache_identity("7", "x") != ci.cache_identity("8", "x")
+
+
+class TestBoundValuesAreSigned:
+    """SQLへあらかじめ束ねた値（分類タグ集合等）が署名へ入ること（改善計画T813）。
+
+    `str(TextClause)`にはプレースホルダ名しか現れないため、ここが抜けるとタグを足しても
+    鍵が動かない。焼き込み値だけが変わって配信は旧値のまま、という最も気づきにくい形になる。
+    """
+
+    def _sql(self, tags: list[str]):
+        from sqlalchemy import bindparam, text
+        from sqlalchemy.dialects.postgresql import ARRAY
+        from sqlalchemy.types import Text
+
+        return text("SELECT :tags AS t").bindparams(
+            bindparam("tags", value=tags, type_=ARRAY(Text()))
+        )
+
+    def test_changing_a_bound_value_changes_the_digest(self):
+        assert ci.shape_digest(self._sql(["asphalt"])) != ci.shape_digest(self._sql(["asphalt", "sett"]))
+
+    def test_same_bound_values_keep_the_digest(self):
+        assert ci.shape_digest(self._sql(["asphalt"])) == ci.shape_digest(self._sql(["asphalt"]))
+
+    def test_runtime_parameters_without_a_value_are_not_signed(self):
+        # タイル座標のように実行時へ委ねるパラメータは値を持たない。署名へ入れると
+        # 「値が無い」ことを毎回同じに書き出すだけで、意味のある差にならない。
+        from sqlalchemy import bindparam, text
+
+        sql = text("SELECT :z AS z").bindparams(bindparam("z"))
+        assert ci.bound_values(sql) == []
+
+    def test_road_surface_tile_version_covers_the_surface_tag_sets(self):
+        # 実物で効いていること。分類タグを1つ足した版は別の鍵になる。
+        from app.infrastructure.road_graph_repository import _ROAD_SURFACE_TILE_MVT_SQL
+
+        names = [name for name, _ in ci.bound_values(_ROAD_SURFACE_TILE_MVT_SQL)]
+        assert "good_tags" in names and "bad_tags" in names

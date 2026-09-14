@@ -53,6 +53,7 @@ from app.domain.evaluation import (
     route_facing_material_ids,
     route_facing_raw_axis_ids,
 )
+from app.domain.hard_filters import HARD_FILTER_HIGHWAY_TYPES
 from app.infrastructure import cache_generation, tile_persistent_cache
 from app.infrastructure.cache_identity import SCORE_MATRIX_REVISION, cache_identity
 from app.infrastructure.graph_material_cache import TILE_MATERIALS_CACHE_VERSION
@@ -93,16 +94,22 @@ def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
 def _columns_match_current_predicates(matrix: StaticEdgeScoreMatrix) -> bool:
     """復元した行列の可変長の列が、いまの述語の出力と一致するか。
 
-    `raw_axis_ids`/`material_ids`/`categorical_material_ids`は`dataclasses.fields()`には
+    `raw_axis_ids`/`material_ids`/`categorical_material_ids`/`highway_filter_flags`は
+    `dataclasses.fields()`には
     現れない**中身で決まる列**で、鍵の署名（列名の並び）では捕まえられない。列を決める
     述語（`axis_display.py`の生値可否判定・`MaterialSpec`の該当フィールド）はこのモジュールを
     触らずに変えられるため、版を上げ忘れると旧世代がそのまま復元される。列数が変われば
     `np.concatenate`がValueErrorで落ち、偶然一致すれば**別の軸の生値を表示する**。
+
+    0次フィルタのキー集合（`HARD_FILTER_HIGHWAY_TYPES`）も同じ性質を持つ。宣言を1行足すだけで
+    増やせる一方、旧世代が復元されると先頭タイルのキーで全タイルが揃うため、**利用者が除外した
+    はずの道を通るルートが無警告で出る**（`.items()`で回すため例外にもならない）。
     """
     return (
         matrix.raw_axis_ids == route_facing_raw_axis_ids()
         and matrix.material_ids == route_facing_material_ids()
         and matrix.categorical_material_ids == route_facing_categorical_material_ids()
+        and matrix.highway_filter_flags.keys() == HARD_FILTER_HIGHWAY_TYPES.keys()
     )
 
 
