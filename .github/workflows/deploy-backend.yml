@@ -14,13 +14,15 @@ name: Deploy Backend to Oracle VM
 on:
   push:
     branches: [master]
-    # backendの変更はすべて対象にする。このワークフローは2つの仕事をしていて、
-    # **VMの作業コピーを最新にすること**（ベンチマークはVM上でこのコピーから実行する）と、
-    # **イメージを作り直してコンテナを入れ替えること**は別々に要否が決まる。前者は
-    # backendの変更すべてに要り、後者はイメージに入るものが変わったときだけに要る。
-    # 振り分けは下のスクリプトが行う（ここで除外すると、VMへファイルが届かなくなる）。
+    # イメージに入る変更だけを対象にする（このワークフローはVMの作業コピーを最新にし、
+    # イメージを作り直してコンテナを入れ替える）。
     paths:
       - "backend/**"
+      # ベンチマークはイメージに入らない（backend/Dockerfileのcopy対象外。VM上の作業コピー
+      # から実行する）。押しただけでビルドとコンテナ入れ替えを起こさないよう除外し、VMの
+      # 作業コピーを新しくしたいときはworkflow_dispatchで明示的に起動する。忘れて古い
+      # コードを測ることは、benchmarks/_revision.pyが実行時に止める。
+      - "!backend/benchmarks/**"
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
@@ -42,30 +44,8 @@ jobs:
           script: |
             set -e
             cd ~/ridecompass-repo
-            # 押された範囲の差分を取れる深さ。--depth 1だと直前のコミットが手元に無く、
-            # 下の振り分けが常に「判断できない」へ落ちる。
-            git fetch --depth 50 origin master
+            git fetch --depth 1 origin master
             git reset --hard origin/master
-
-            # イメージに入るものが変わったか。**判断できないときは必ず作り直す**
-            # （workflow_dispatch・force push・浅いクローンで前のコミットを辿れない等）。
-            # 作り直しを省いても、上のgit reset --hardでVMの作業コピーは最新になっている
-            # ——ベンチマークをVM上で回すのに要るのはこちらで、コンテナの入れ替えではない。
-            BEFORE="${{ github.event.before }}"
-            AFTER="${{ github.sha }}"
-            NEEDS_REBUILD=1
-            if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-              # イメージに入らないのは benchmarks（VM上で実行するもの）と tests（ci.ymlが走らせる）。
-              # 判定はbackend/Dockerfileのcopy対象と対で、片方を変えたらもう片方も見ること。
-              IMAGE_CHANGES=$(git diff --name-only "$BEFORE" "$AFTER" -- backend/ .github/workflows/deploy-backend.yml ':(exclude)backend/benchmarks/**' ':(exclude)backend/tests/**')
-              if [ -z "$IMAGE_CHANGES" ]; then
-                NEEDS_REBUILD=0
-              fi
-            fi
-            if [ "$NEEDS_REBUILD" = "0" ]; then
-              echo "イメージに入る変更が無いため、作業コピーの更新だけで終えます（ビルド・コンテナ入れ替えはしません）"
-              exit 0
-            fi
 
             cd backend
             # GIT_COMMIT: Renderは`RENDER_GIT_COMMIT`をデプロイ先へ自動注入していたが、

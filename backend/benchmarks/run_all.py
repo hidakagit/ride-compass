@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 
 from benchmarks._harness import print_report
+from benchmarks._revision import require_current_revision
 from benchmarks import (
     bench_evaluate_graph,
     bench_graph_build,
@@ -21,6 +22,9 @@ from benchmarks import (
 
 
 def main() -> None:
+    # どのコードを測ったかを数字と同じ出力に残し、作業コピーが配信元と違えばここで止める
+    # （_revision.py参照）。個別の`bench_*`モジュールは手元での反復用のため呼ばない。
+    require_current_revision()
     started = time.perf_counter()
 
     print_report("1/4 find_nearest_node_indexed: grid bucket index scaling", bench_nearest_node.run())
