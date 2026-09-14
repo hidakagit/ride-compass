@@ -5,7 +5,13 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import RouteAxisProfile from "./RouteAxisProfile";
 
 const AXES: PreferenceAxisDef[] = [
-  { axisId: "car_stress", label: "車の圧迫感", description: "車の通行量の説明", dedicatedWayValueLayer: false, rawValueUnit: "回/km" },
+  {
+    axisId: "car_stress",
+    label: "車の圧迫感",
+    description: "車の通行量の説明",
+    dedicatedWayValueLayer: false,
+    rawValueUnit: "回/km",
+  },
   { axisId: "wind", label: "風", description: "風の影響の説明", dedicatedWayValueLayer: true },
   { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
 ];
@@ -60,6 +66,25 @@ describe("RouteAxisProfile", () => {
     expect(screen.getByText("車の通行量の説明")).toBeInTheDocument();
   });
 
+  it("重みはあるが寄与が0・欠損の軸もチップに残す", () => {
+    // 帯グラフには出ない（寄与0なので幅を持たない）が、凡例には残す——効くはずの軸が
+    // 効かなかったことも判断材料のため。legendAxesはこのために存在する。
+    render(
+      <RouteAxisProfile
+        {...baseProps({
+          weights: { car_stress: 0.5, wind: 0.0, night: 0.5 },
+          axisContributions: { car_stress: 36.2, night: 0 },
+          axisDifficulties: { car_stress: 72.4 },
+        })}
+      />,
+    );
+
+    const labels = chips().map((item) => within(item).getByLabelText(/./).getAttribute("aria-label"));
+    expect(labels).toContain("夜間の詳細を表示");
+    // 重み0の風は残らない（下のテストと対）。
+    expect(labels.some((label) => label?.startsWith("風"))).toBe(false);
+  });
+
   it("評価に使った軸だけをチップにする（重み0の軸は出さない）", () => {
     // 使っていない軸まで並べると、狭い幅では内訳が軸の本数ぶん縦に伸びる。表示は
     // 「このルートの評価に効いた軸」に絞り、軸の一覧はルート設定側が持つ。
@@ -102,7 +127,7 @@ describe("RouteAxisProfile", () => {
 
   it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、帯には出ずチップの数値も出ない", () => {
     const { container } = render(
-      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 36.2, wind: 0, night: 2.9 } })} />
+      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 36.2, wind: 0, night: 2.9 } })} />,
     );
 
     const segments = container.querySelectorAll('[class*="stackSegment"]');
@@ -128,7 +153,7 @@ describe("RouteAxisProfile", () => {
 
   it("内訳の値はbackendが算出したaxis_contributionsをそのまま表示する", () => {
     const { container } = render(
-      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 52.1, night: 2.9 } })} />
+      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 52.1, night: 2.9 } })} />,
     );
 
     const values = Array.from(container.querySelectorAll('[class*="legendValue"]')).map((el) => el.textContent);
@@ -188,7 +213,7 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
           axisContributions: { night: 20 },
           materialValues: { lit: 0.68, has_tunnel: 0.02, maxspeed_kmh: 42.3 },
         })}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByRole("button", { name: "夜間の詳細を表示" }));
@@ -217,7 +242,7 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
           axisContributions: { gradient: 15 },
           axisRawValues: { gradient: 3.2 },
         })}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByRole("button", { name: "勾配の詳細を表示" }));
@@ -258,7 +283,7 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
           // backendが割合の降順で返す（フロントは並べ替えを持たない）。
           materialCategoryShares: { highway: { residential: 0.62, secondary: 0.38 } },
         })}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
@@ -292,7 +317,7 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
           axisContributions: { car_stress: 30 },
           materialValues: { maxspeed_kmh: 42.3 },
         })}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));

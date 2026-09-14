@@ -106,6 +106,22 @@ describe("AxisContributionBar", () => {
     expect(container.querySelectorAll('[data-checked="false"]')).toHaveLength(0);
   });
 
+  it("legendAxesを渡すと、帯グラフに出ない軸も凡例に残る", () => {
+    // 帯グラフ（axes）は寄与のある軸だけ、凡例（legendAxes）は詳細を持つ軸すべて。
+    // このpropが無いと「効くはずの軸が効かなかった」ことが画面から消える。
+    render(
+      <AxisContributionBar
+        axes={[AXES[0]]}
+        legendAxes={AXES}
+        contributions={{ car_stress: 30 }}
+        axisColors={AXIS_COLORS}
+        renderDetail={(axis) => <span>{axis.label}</span>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "夜間の詳細を表示" })).toBeInTheDocument();
+  });
+
   it("renderDetailは軸あたり1回だけ呼ぶ", () => {
     // 絞り込みと本体で別々に呼ぶと、片方で組み立てたJSXがそのまま捨てられる。
     const calls: string[] = [];

@@ -66,9 +66,9 @@ export default function RouteAxisProfile({
 }: RouteAxisProfileProps) {
   const contributionRows = axes.filter((axis) => hasContribution(axisContributions, axis.axisId));
 
-  // 評価に使っていない軸（重み0）はチップを押せなくして区別する——詳細を返さない軸の
-  // チップをAxisContributionBarが押せない形で描く。チップ自体は消さず薄く残るため、
-  // 「消さずに薄くする」（設計原則「UI仕様」）はそのまま成り立つ。
+  // 評価に使っていない軸（重み0）はnullを返し、AxisContributionBarの凡例から落とす。
+  // 内訳は候補ごとに縦へ伸びるため、使っていない軸まで並べると狭い幅で「このルートで
+  // 何が効いたか」が読めなくなる（設計原則「消さずに薄くする」の例外）。
   const renderAxisDetail = (axis: PreferenceAxisDef) => {
     if ((weights[axis.axisId] ?? 0) <= 0) return null;
     const difficulty = axisDifficulties[axis.axisId];
