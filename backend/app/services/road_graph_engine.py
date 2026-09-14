@@ -427,6 +427,10 @@ class _LegCostComposer:
             key = (round(leg_start, 3), bin_count, _representative_bin(bin_count, duration_hours))
         cached = self._cache.get(key)
         if cached is not None:
+            # 同じ内容を使い回すのは正しい（風が時刻で変わらないレグは1本で足りる）が、
+            # 黙って返すと合成のログがレグの数だけ出ず、運用側から「復路の合成が走って
+            # いない」と見える。使い回した事実を残す。
+            logger.info("compose_leg_costs leg=%s mode=reused key=%s", label, key[0])
             return cached
 
         started = time.monotonic()
@@ -1491,7 +1495,9 @@ class RoadGraphEngine:
         best_index = int(np.argmin(np.where(reachable, combined_cost, np.inf)))
         best_length_m = float(combined_length[best_index])
         within_stretch = reachable & (combined_length <= best_length_m * ALTERNATIVE_MAX_STRETCH)
-        candidates = np.flatnonzero(within_stretch)[:MAX_VIA_NODE_CANDIDATES_EXAMINED]
+        # 打ち切りは**並べてから**行う（周回の折返し点選定と同じ規則）。Node index順で先に
+        # 切ると、良い候補が後ろのindexに居るだけで検討対象から外れる。
+        candidates = np.flatnonzero(within_stretch)
 
         if self._penalty_strength > 0:
             with np.errstate(invalid="ignore", divide="ignore"):
@@ -1515,7 +1521,13 @@ class RoadGraphEngine:
         )
         layer_key = np.where(pareto_layer >= 0, pareto_layer, np.iinfo(np.int32).max)
         order = np.lexsort((candidates, difficulty_key, layer_key))
-        ranked = candidates[order].tolist()
+        ranked = candidates[order][:MAX_VIA_NODE_CANDIDATES_EXAMINED].tolist()
+        if len(candidates) > MAX_VIA_NODE_CANDIDATES_EXAMINED:
+            logger.warning(
+                "via-node候補を打ち切りました within_stretch=%d examined=%d "
+                "（上位から順に見るため、打ち切られたのは並べた後の下位）",
+                len(candidates), MAX_VIA_NODE_CANDIDATES_EXAMINED,
+            )
         if best_index in ranked:
             ranked.remove(best_index)
         ranked.insert(0, best_index)
@@ -1949,21 +1961,33 @@ class RoadGraphEngine:
         return total + self._turn_seconds_along(context, edges)
 
     def _turn_seconds_along(self, context: _RoadGraphContext, edges: list[EdgeLike]) -> float:
-        """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。"""
+        """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。
+
+        探索グラフに無いEdge（クライアント由来のedge_id列を受ける区間の乗り換えで起こりうる）
+        は、そこで経路が切れたものとして扱い、**その前後の遷移だけ**を数えない。経路全体を
+        捨てると合成ルートだけターン分（都市部30kmで数分〜十数分規模）が丸ごと消え、元候補
+        より不当に速く見える。捨てた事実はWARNINGで残す（docs/logging.md）。
+        """
         structure = context.turn_structure
         lazy_graph = context.lazy_graph
-        states: list[int] = []
+        states: list[int | None] = []
         for edge in edges:
             pair = (
                 lazy_graph.node_id_to_index.get(edge.from_node_id),
                 lazy_graph.node_id_to_index.get(edge.to_node_id),
             )
-            state = lazy_graph.edge_index_by_node_pair.get(pair) if None not in pair else None
-            if state is None:
-                return 0.0
-            states.append(state)
+            states.append(lazy_graph.edge_index_by_node_pair.get(pair) if None not in pair else None)
+        unknown = sum(1 for state in states if state is None)
+        if unknown:
+            logger.warning(
+                "ターンの待ちを一部数えられません edges=%d unknown=%d "
+                "（探索グラフに無い区間の前後の遷移を除外して合計します）",
+                len(edges), unknown,
+            )
         total = 0.0
         for previous, following in zip(states, states[1:]):
+            if previous is None or following is None:
+                continue
             for entry in range(structure.indptr[previous], structure.indptr[previous + 1]):
                 if structure.target_state[entry] == following:
                     total += float(structure.turn_seconds[entry])

@@ -8,7 +8,14 @@
 
 import maplibregl from "maplibre-gl";
 
-import { buildJmaTileIndexLookup, isKnownEmptyTile, type JmaTileIndexLookup, type JmaTileIndexResponse } from "@/components/Map/jmaTileIndex";
+import { debugLog } from "@/lib/debugLog";
+
+import {
+  buildJmaTileIndexLookup,
+  isKnownEmptyTile,
+  type JmaTileIndexLookup,
+  type JmaTileIndexResponse,
+} from "@/components/Map/jmaTileIndex";
 
 /** タイルURLへ付けるスキーム。`jmatile://https://host/...`の形になる。 */
 const JMA_TILE_PROTOCOL = "jmatile";
@@ -72,8 +79,21 @@ async function handleJmaTileRequest(
   }
   const response = await fetch(realUrl, { signal: abortController.signal });
   if (!response.ok) {
-    // 404（疎な格子状タイルでは正常系）を含め、失敗は空タイルとして扱う。MapLibreは
-    // 失敗タイルを再試行しないため、ここで例外にすると以後その位置が永久に空白になる。
+    // どの失敗も空タイルとして返す。MapLibreは失敗タイルを再試行しないため、ここで例外に
+    // すると以後その位置が永久に空白になる。ただし**404と5xxは意味が違う**——疎な格子状
+    // タイルで404は正常系だが、5xxは配信の障害で、キキクルのように「平常時は透明」が
+    // 正常系のレイヤーでは利用者が危険度ゼロと誤読しうる。区別して記録する。
+    if (response.status !== 404) {
+      debugLog(
+        "weather",
+        "JMAタイルの取得に失敗しました（空タイルで代替）",
+        {
+          url: realUrl,
+          status: response.status,
+        },
+        "warn",
+      );
+    }
     return { data: emptyTileBytes(realUrl) };
   }
   return { data: await response.arrayBuffer() };

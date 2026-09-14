@@ -9,6 +9,8 @@ test_route_generator.pyで検証済み。
 import math
 from datetime import datetime, timezone
 
+import logging
+
 import numpy as np
 import pytest
 
@@ -3051,3 +3053,44 @@ def test_build_traced_from_edge_ids_rejects_an_empty_path():
 
     with pytest.raises(RoutingError, match="経路が空です"):
         engine.build_traced_from_edge_ids(context, [])
+
+
+async def test_turn_seconds_along_keeps_the_known_transitions_when_an_edge_is_unknown(caplog):
+    """探索グラフに無いEdgeが1本混ざっても、残りの遷移のターンは数える（改善計画T820）。
+
+    経路全体を捨てると、区間の乗り換えで作った合成ルートだけターン分が丸ごと消え、元候補や
+    基準線より不当に速く見える（クライアント由来のedge_id列を受けるのは合成ルートだけ）。
+    """
+    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
+    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
+    node_c = Node(node_id="c", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude + 0.01)
+    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
+    coord_c = Coordinates(latitude=node_c.latitude, longitude=node_c.longitude)
+    ab = _edge("ab", "a", "b", ORIGIN, coord_b, highway="residential")
+    bc = _edge("bc", "b", "c", coord_b, coord_c, highway="residential")
+    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b, "c": node_c},
+                      edges={"ab": ab, "bc": bc})
+    materials = {
+        edge_id: EdgeMaterialBundle(
+            surface=None, way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False,
+        )
+        for edge_id in ("ab", "bc")
+    }
+    generator, _, _ = make_generator(None, way_tags={"ab": {}, "bc": {}})
+    engine = generator._engine
+    score_fields = _build_context_score_fields(graph, materials, RoutePreference())
+    context = road_graph_engine._RoadGraphContext(
+        graph=graph, materials=materials, accident_years_covered=0, weather=None, origin_node="a",
+        node_index=build_node_spatial_index(graph), night_active=False,
+        lazy_graph=routing.build_lazy_road_graph(graph), **score_fields,
+    )
+    known = engine._turn_seconds_along(context, [ab, bc])
+
+    # 探索グラフに無いEdge（別のNode対）を末尾へ足しても、ab→bcのターンは残る。
+    unknown_edge = _edge("zz", "zzz-from", "zzz-to", coord_c, ORIGIN, highway="residential")
+    with caplog.at_level(logging.WARNING):
+        mixed = engine._turn_seconds_along(context, [ab, bc, unknown_edge])
+
+    assert known > 0.0
+    assert mixed == known
+    assert any("ターンの待ちを一部数えられません" in record.message for record in caplog.records)

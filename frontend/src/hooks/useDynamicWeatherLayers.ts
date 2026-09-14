@@ -156,10 +156,14 @@ export function useDynamicWeatherLayers({
 
   // 降水短時間予報の時刻一覧（60分〜15時間先）。「降水」チップの一部
   // （precipitationNowcast.ts: precipitationFrames参照）のため、ナウキャストと同じ
-  // showPrecipitationNowcastで開閉する。取得失敗はnowcastと同じくエラーメッセージへ記録するが、
-  // precipitationFramesがrasrfFrames=[]でも自然にextended予報へフォールバックするため、
-  // 「降水」チップ自体は動作を続ける（フェイルソフト）。
-  const { data: rasrfFrames } = usePolledFetch(fetchRasrfFrames, EMPTY_RASRF_FRAMES, {
+  // showPrecipitationNowcastで開閉する。取得失敗はnowcastと同じくグループの状態へ合流させる
+  // ——precipitationFramesがrasrfFrames=[]でも自然にextended予報へフォールバックするため
+  // 「降水」チップ自体は動作を続けるが、**6時間以降の予報だけが欠けたことを黙って隠さない**。
+  const {
+    data: rasrfFrames,
+    loading: rasrfLoading,
+    error: rasrfError,
+  } = usePolledFetch(fetchRasrfFrames, EMPTY_RASRF_FRAMES, {
     enabled: showPrecipitationNowcast,
     intervalMs: RASRF_REFRESH_INTERVAL_MS,
     label: "降水短時間予報",
@@ -207,15 +211,11 @@ export function useDynamicWeatherLayers({
     loading: currentRiskLoading,
     error: currentRiskError,
     hasFetched: currentRiskHasFetched,
-  } = usePolledFetch(
-    fetchCurrentRiskFrames,
-    EMPTY_CURRENT_RISK_FRAMES,
-    {
-      enabled: fetchRiskFrames,
-      intervalMs: RISK_MAP_REFRESH_INTERVAL_MS,
-      label: "危険度分布（キキクル）",
-    },
-  );
+  } = usePolledFetch(fetchCurrentRiskFrames, EMPTY_CURRENT_RISK_FRAMES, {
+    enabled: fetchRiskFrames,
+    intervalMs: RISK_MAP_REFRESH_INTERVAL_MS,
+    label: "危険度分布（キキクル）",
+  });
 
   // 線状降水帯予測マップ（「降水」チップ傘下）の「現在」フレーム。
   // キキクルとはtargetTimes.json自体が別（rasrfのtargetTimes.jsonにelements違いの別行として
@@ -225,11 +225,11 @@ export function useDynamicWeatherLayers({
     loading: linearRainbandLoading,
     error: linearRainbandError,
     hasFetched: linearRainbandHasFetched,
-  } = usePolledFetch(
-    fetchLinearRainbandFrames,
-    EMPTY_RISK_FRAMES,
-    { enabled: showPrecipitationNowcast, intervalMs: RISK_MAP_REFRESH_INTERVAL_MS, label: "線状降水帯予測マップ" },
-  );
+  } = usePolledFetch(fetchLinearRainbandFrames, EMPTY_RISK_FRAMES, {
+    enabled: showPrecipitationNowcast,
+    intervalMs: RISK_MAP_REFRESH_INTERVAL_MS,
+    label: "線状降水帯予測マップ",
+  });
 
   // 風・降水延長予報（T183）が共有する格子点マップのフェッチ（useWeatherGrid.ts参照）。
   // どちらか一方でもONならenabledにすることで両方ONのときも1本のフェッチで済む。
@@ -248,7 +248,7 @@ export function useDynamicWeatherLayers({
   const windFramesList = useMemo(() => windFrames(windGrid), [windGrid]);
   const precipFramesList = useMemo(
     () => precipitationFrames(nowcastFrames, rasrfFrames, windGrid),
-    [nowcastFrames, rasrfFrames, windGrid]
+    [nowcastFrames, rasrfFrames, windGrid],
   );
   // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列。
   const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
@@ -283,9 +283,16 @@ export function useDynamicWeatherLayers({
       rasrfFrames,
       effectiveWindGrid,
       effectiveGridSpacingDeg,
-      precipFramesList[index].ref
+      precipFramesList[index].ref,
     );
-  }, [precipFramesList, dynamicLayerTargetTime, nowcastFrames, rasrfFrames, effectiveWindGrid, effectiveGridSpacingDeg]);
+  }, [
+    precipFramesList,
+    dynamicLayerTargetTime,
+    nowcastFrames,
+    rasrfFrames,
+    effectiveWindGrid,
+    effectiveGridSpacingDeg,
+  ]);
   // 雷・竜巻は同じフレーム列・同じrefを共有し、プロダクトコードだけが異なる
   // （thunderRenderPayload/tornadoRenderPayloadの違い、thunderNowcast.ts参照）。
   const thunderPayload = useMemo(() => {
@@ -354,7 +361,7 @@ export function useDynamicWeatherLayers({
   // 延長予報のいずれかと重ねて表示する（isWithinFutureWindow、dynamicWeather.ts参照）。
   const linearRainbandVisible = useMemo(
     () => isWithinFutureWindow(dynamicLayerTargetTime, new Date(), LINEAR_RAINBAND_WINDOW_MS),
-    [dynamicLayerTargetTime]
+    [dynamicLayerTargetTime],
   );
   const linearRainbandPayload = useMemo(() => {
     if (!linearRainbandVisible) return undefined;
@@ -403,7 +410,7 @@ export function useDynamicWeatherLayers({
       heavyRainRiskPayload,
       inundationRiskPayload,
       floodRiskPayload,
-    ]
+    ],
   );
 
   // レイヤーごとのデータ取得状態。3レイヤー全てが同じderiveFetchLayerStatus
@@ -417,10 +424,10 @@ export function useDynamicWeatherLayers({
       // グループのhasFetchedはOR——loading/errorと同じく「いずれかのソースが取得を
       // 終えていれば、そのグループについては値の有無を語ってよい」とする。
       precipitationNowcast: deriveFetchLayerStatus(
-        nowcastLoading || linearRainbandLoading,
-        nowcastError ?? linearRainbandError,
+        nowcastLoading || linearRainbandLoading || rasrfLoading,
+        nowcastError ?? linearRainbandError ?? rasrfError,
         precipitationPayload !== undefined || linearRainbandPayload !== undefined,
-        nowcastHasFetched || linearRainbandHasFetched
+        nowcastHasFetched || linearRainbandHasFetched,
       ),
       disaster: deriveFetchLayerStatus(
         thunderNowcastLoading || lidenNowcastLoading || currentRiskLoading,
@@ -432,7 +439,7 @@ export function useDynamicWeatherLayers({
           heavyRainRiskPayload !== undefined ||
           inundationRiskPayload !== undefined ||
           floodRiskPayload !== undefined,
-        thunderNowcastHasFetched || lidenNowcastHasFetched || currentRiskHasFetched
+        thunderNowcastHasFetched || lidenNowcastHasFetched || currentRiskHasFetched,
       ),
     }),
     [
@@ -443,6 +450,8 @@ export function useDynamicWeatherLayers({
       linearRainbandLoading,
       nowcastError,
       linearRainbandError,
+      rasrfLoading,
+      rasrfError,
       precipitationPayload,
       linearRainbandPayload,
       thunderNowcastLoading,
@@ -464,7 +473,7 @@ export function useDynamicWeatherLayers({
       thunderNowcastHasFetched,
       lidenNowcastHasFetched,
       currentRiskHasFetched,
-    ]
+    ],
   );
 
   return {

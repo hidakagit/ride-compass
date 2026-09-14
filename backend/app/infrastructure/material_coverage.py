@@ -63,17 +63,25 @@ MissingSemantics = Literal["unknown", "definite"]
 @dataclass(frozen=True)
 class WayMaterialCoverageSpec:
     """`osm_raw_ways`全行を母集団とする材料。`missing_condition`は`osm_raw_ways`の列・
-    JSONB参照のみで構成したSQL真偽式（trueなら欠損）で、外部入力を連結しない。"""
+    JSONB参照のみで構成したSQL真偽式（trueなら欠損）で、外部入力を連結しない。
+
+    `in_scope`は担当バッチが処理できる行の条件。**対象外の行を欠損に数えると、欠損率が
+    構造的に0へ到達しない**——運用者は「もう一度流せば0になるはず」と読むが決してならず、
+    未実行なのか対象外なのかを画面から区別できない（母集団は全件のままにする。
+    `derived_data_freshness.py`の完成度と同じ扱い）。"""
 
     missing_condition: str
     source: str
     missing_semantics: MissingSemantics
     population: Population = "way"
+    in_scope: str = "TRUE"
 
 
 @dataclass(frozen=True)
 class EdgeMaterialCoverageSpec:
-    """`road_edges`全行を母集団とする材料。`present_count_sql`は「値を持つEdge数」を1行1列で
+    """`road_edges`全行を母集団とする材料。`in_scope`の意味は`WayMaterialCoverageSpec`と同じ。
+
+    `present_count_sql`は「値を持つEdge数」を1行1列で
     返すSELECT文（派生テーブル側だけを数える。FK CASCADEにより行は必ず既存Edgeに対応する）。"""
 
     present_count_sql: str
@@ -203,7 +211,11 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
     # 評価から抜けるため、カバレッジも評価が実際に読む列を数える。列は`road_edges`
     # 自身が持つので、他のedge材料と違い派生テーブルではなく母集団そのものを数える。
     "curvature_deg_per_km": EdgeMaterialCoverageSpec(
-        present_count_sql="SELECT count(*) FROM road_edges WHERE curvature_deg_per_km IS NOT NULL",
+        # 長さ0のEdgeは度/kmを定義できず`precompute_edge_curvature`の対象外。値を持つ側へ数えて
+    # 欠損から外す（`derived_data_freshness.py`の`in_scope`と同じ判断）。
+    present_count_sql=(
+        "SELECT count(*) FROM road_edges WHERE curvature_deg_per_km IS NOT NULL OR NOT (distance_m > 0)"
+    ),
         source="road_edges.curvature_deg_per_km（precompute_edge_curvatureの計算済み値）の有無",
         missing_semantics="unknown",
     ),
@@ -215,6 +227,8 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
             "NOT EXISTS (SELECT 1 FROM way_landcover lc"
             " WHERE lc.osm_way_id = w.osm_way_id AND lc.trees_percent IS NOT NULL)"
         ),
+        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
+        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
         source="way_landcover.trees_percent（precompute_way_landcoverの計算済み値）の有無",
         missing_semantics="unknown",
     ),
@@ -223,6 +237,8 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
             "NOT EXISTS (SELECT 1 FROM way_landcover lc"
             " WHERE lc.osm_way_id = w.osm_way_id AND lc.built_percent IS NOT NULL)"
         ),
+        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
+        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
         source="way_landcover.built_percent（precompute_way_landcoverの計算済み値）の有無",
         missing_semantics="unknown",
     ),
@@ -254,7 +270,8 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
     列別名は材料id（内部定数のみ、外部入力を連結しない）。"""
     way_specs = {material_id: spec for material_id, spec in specs.items() if isinstance(spec, WayMaterialCoverageSpec)}
     columns = ", ".join(
-        f"count(*) FILTER (WHERE {spec.missing_condition}) AS {material_id}" for material_id, spec in way_specs.items()
+        f"count(*) FILTER (WHERE ({spec.in_scope}) AND ({spec.missing_condition})) AS {material_id}"
+        for material_id, spec in way_specs.items()
     )
     # AS w: infrastructure/osm_way_tag_sql.pyの共有SQL断片がosm_raw_waysをこのエイリアスで
     # 参照する前提のため（_ROAD_SURFACE_TILE_MVT_SQLと同じエイリアス）。

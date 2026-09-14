@@ -204,3 +204,29 @@ async def test_service_builds_report_from_repository_counts():
     surface = next(e for e in report.materials if e.material_id == "surface")
     assert surface.missing_ratio == pytest.approx(0.85)
     assert report.computed_at.tzinfo is not None
+
+
+def test_way_coverage_counts_only_rows_the_batch_can_process():
+    """欠損は担当バッチの対象行に限って数える（改善計画T820）。
+
+    対象外の行を数えると欠損率が構造的に0へ到達せず、運用者は「もう一度流せば0になるはず」と
+    読むが決してならない。母集団（分母）は全件のままにする——「全体のうち何件か」を読む数のため。
+    """
+    sql = " ".join(str(build_way_coverage_sql()).split())
+
+    # 分母は全件（絞り込みはFILTER側だけに掛かる）。
+    assert sql.startswith("SELECT count(*) AS total")
+    assert "FROM osm_raw_ways AS w" in sql
+    # 絞り込みはFILTER側だけに掛かる（FROMの後ろにWHEREを付けない）。
+    assert "AS w WHERE" not in sql
+    for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
+        if not isinstance(spec, WayMaterialCoverageSpec) or spec.in_scope == "TRUE":
+            continue
+        assert f"count(*) FILTER (WHERE ({spec.in_scope}) AND (" in sql, material_id
+
+
+def test_edge_material_present_counts_include_rows_that_cannot_have_a_value():
+    """算出不能な行は「値を持つ側」へ数える（欠損＝再実行で埋まる件数、という意味を保つ）。"""
+    spec = MATERIAL_COVERAGE_SPECS["curvature_deg_per_km"]
+
+    assert "distance_m > 0" in spec.present_count_sql
