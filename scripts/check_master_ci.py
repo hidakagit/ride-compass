@@ -36,11 +36,19 @@ def fetch_runs(url: str = API, timeout: float = TIMEOUT_SECONDS) -> list[dict] |
         return None
 
 
+# 結論が出ていない実行の結論。`cancelled`は「失敗した」ではなく「判定が無い」——同じ
+# コミットへ続けてpushするとconcurrency設定が先行の実行を打ち切るため、緑のコミットでも
+# 普通に現れる。判断材料が無いときに鳴らさないのは、取得できないときに素通しするのと同じ方針。
+VERDICTLESS_CONCLUSIONS = ("success", "skipped", "neutral", "cancelled", None)
+
+
 def failing_workflows(runs: list[dict]) -> list[dict]:
     """**masterの最新コミット**について、完了していて失敗しているワークフロー。
 
-    ワークフローごとに最も新しい実行だけを見る（再実行や古い実行が混ざるため）。まだ実行中の
-    ものは結論が出ていないので対象外——「まだ分からない」を赤として扱うと、押すたびに鳴る。
+    ワークフローごとに最も新しい実行だけを見る（再実行や打ち切られた実行が混ざるため）。
+    新しさは`run_number`で決める——APIの並びは`created_at`の降順だが、同じ秒に作られた実行
+    どうしの順序は保証されず、先頭が打ち切られた側のことがある。まだ実行中のものは結論が
+    出ていないので対象外——「まだ分からない」を赤として扱うと、押すたびに鳴る。
     """
     if not runs:
         return []
@@ -50,14 +58,22 @@ def failing_workflows(runs: list[dict]) -> list[dict]:
         if run.get("head_sha") != head_sha:
             continue
         name = run.get("name")
-        if not isinstance(name, str) or name in latest_per_workflow:
+        if not isinstance(name, str):
             continue
-        latest_per_workflow[name] = run
+        previous = latest_per_workflow.get(name)
+        if previous is None or run_number(run) >= run_number(previous):
+            latest_per_workflow[name] = run
     return [
         run
         for run in latest_per_workflow.values()
-        if run.get("status") == "completed" and run.get("conclusion") not in ("success", "skipped", "neutral", None)
+        if run.get("status") == "completed" and run.get("conclusion") not in VERDICTLESS_CONCLUSIONS
     ]
+
+
+def run_number(run: dict) -> int:
+    """ワークフロー内で単調に増える実行番号。持たない応答は最古として扱う。"""
+    value = run.get("run_number")
+    return value if isinstance(value, int) else -1
 
 
 def format_warning(failures: list[dict]) -> str:
