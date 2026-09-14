@@ -171,6 +171,21 @@ describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers�
     return map.addedSpecs.find((spec) => spec.id === layerId)?.paint?.[name];
   }
 
+  // map.setStyle()の後の作り直しは各レイヤーのensureを順に呼ぶだけで、路面ソースを作る処理が
+  // これより後に来ることがある。順序に頼っていた間は、ramp軸だけが
+  // 「source "region-road-surface-tiles" not found」で落ち、その軸の色分けが戻らなかった。
+  it("ソースがまだ無くても、ramp軸のensureが自分で路面ソースを用意してから追加する", () => {
+    const map = fakeMap();
+    expect(map.sources.has(ROAD_TILE_SOURCE_ID)).toBe(false);
+
+    for (const layer of buildAxisOverlayLayers(rampAxes, new Set())) {
+      layer.ensure(map as unknown as Parameters<typeof layer.ensure>[0]);
+    }
+
+    expect(map.sources.has(ROAD_TILE_SOURCE_ID)).toBe(true);
+    for (const axis of rampAxes) expect(map.layers.has(axisLineLayerId(axis.axisId))).toBe(true);
+  });
+
   it("材料が同時表示中の軸だけ太く半透明の下敷きスタイルになる", () => {
     const map = fakeMap();
 

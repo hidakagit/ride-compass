@@ -1958,6 +1958,11 @@ function ensureSupplyPoiLayer(map: MapLibreMap) {
 function makeEnsureAxisRampLayer(axis: RampAxis, useCasing: boolean): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     runWhenStyleReady(map, () => {
+      // 参照するソースは自分で用意する（makeEnsureDedicatedWayValueLayerと同じ）。
+      // map.setStyle()の後の作り直しはレイヤーごとのensureを順に呼ぶだけで、路面ソースを
+      // 作る処理がこれより後に来ることがある——順序に頼るとそのときだけレイヤーが落ち、
+      // その軸の色分けが戻らない。
+      ensureRoadSurfaceTileLayer(map);
       const layerId = axisLineLayerId(axis.axisId);
       const colorExpression = buildAxisRampColorExpression(axis);
       ensureLayerFromSpec(
