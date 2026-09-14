@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import httpx
 
@@ -9,6 +10,12 @@ from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 DATA_SOURCE = "gsi-dem"
+#: DEMを読み切ったうえで標高が得られなかったEdgeの記録。海上・整備区域外にかかる線が該当し、
+#: 何度計算し直しても値は出ない。`DATA_SOURCE`と分けることで、記録のうえで
+#: 「試したが値が無い」と「値が取れた」を後から見分けられる。
+NO_COVERAGE_DATA_SOURCE = "gsi-dem:no-coverage"
+
+logger = logging.getLogger("ridecompass.elevation_attribute_service")
 
 
 class ElevationAttributeService:
@@ -53,21 +60,29 @@ class ElevationAttributeService:
         if not missing:
             return cached
 
-        computed = await self._compute_attributes(missing)
+        computed, resolved_edges = await self._compute_attributes(missing)
 
         if self._repository is not None and computed:
-            # GSIの一時障害等で該当Edgeの形状点すべてが標高取得に失敗した場合、
-            # compute_elevation_attribute（domain/attributes.py）はstart_elevation_m等
-            # 全フィールドNoneのAttributeを返す。これをそのまま永続化すると、次回以降
-            # get_elevation_attributesのキャッシュ判定（edge_idの行が存在するかのみを見る）
-            # がヒットしてしまい、GSI障害が復旧した後も二度と再問い合わせされなくなる。
-            # 有効な標高を1つも得られなかった（=start_elevation_mがNoneのまま）Attributeは
-            # 永続化せず、次回のget_attributes_for_graph呼び出しで missing 扱いとなり
-            # 再試行されるようにする（今回の呼び出し元へは、そのままcomputedに含めて返す。
-            # ルート生成側は標高情報無しを許容する既存の設計を踏襲する）。
-            persistable = {
-                edge_id: attribute for edge_id, attribute in computed.items() if attribute.start_elevation_m is not None
-            }
+            # 標高が1つも得られなかったEdge（start_elevation_mがNoneのまま）は、理由で
+            # 扱いを分ける。**一時障害と、DEMに値が無いことを区別しないと、どちらかを
+            # 必ず取り違える**:
+            # - GSIの一時障害で読めなかっただけなら、永続化してはいけない。
+            #   get_elevation_attributesのキャッシュ判定は行の存在だけを見るため、
+            #   障害が復旧しても二度と再問い合わせされなくなる。
+            # - DEMの側を読み切ったうえで値が無い（海上・整備区域外）なら、永続化する。
+            #   永続化しないと毎回の再計算対象に残り続け、鮮度台帳も「未計算」と数え続ける
+            #   ——「試したが値が無い」と「まだ試していない」が区別できない。
+            # 後者はdata_sourceで見分けられるようにする（値は全てNoneのままで、ルート生成が
+            # 標高情報無しを許容する既存の設計はそのまま）。
+            persistable: dict[str, ElevationAttribute] = {}
+            for edge_id, attribute in computed.items():
+                if attribute.start_elevation_m is not None:
+                    persistable[edge_id] = attribute
+                elif resolved_edges.get(edge_id):
+                    persistable[edge_id] = attribute.model_copy(update={"data_source": NO_COVERAGE_DATA_SOURCE})
+            no_coverage = sum(1 for a in persistable.values() if a.data_source == NO_COVERAGE_DATA_SOURCE)
+            if no_coverage:
+                logger.info("標高: DEMに値が無いEdgeを記録 count=%d", no_coverage)
             if persistable:
                 async with self._repository_lock:
                     await self._repository.save_elevation_attributes(list(persistable.values()))
@@ -77,9 +92,14 @@ class ElevationAttributeService:
 
         return {**cached, **computed}
 
-    async def _compute_attributes(self, edges: list[DirectedEdge]) -> dict[str, ElevationAttribute]:
-        """複数Edgeぶんの形状点をまとめ、1回の`ElevationClient.get_elevations`呼び出しで
-        標高を取得する。"""
+    async def _compute_attributes(
+        self, edges: list[DirectedEdge]
+    ) -> tuple[dict[str, ElevationAttribute], dict[str, bool]]:
+        """複数Edgeぶんの形状点をまとめ、1回の`ElevationClient`呼び出しで標高を取得する。
+
+        併せて返すのは、Edgeの形状点を**すべて読み切れたか**（DEMの側から確かに得たか）。
+        1点でも一時障害で読めなかったEdgeはFalseで、呼び出し側が永続化を見送る。
+        """
         all_points: list[Coordinates] = []
         edge_point_ranges: list[tuple[int, int]] = []
         for edge in edges:
@@ -87,12 +107,15 @@ class ElevationAttributeService:
             all_points.extend(Coordinates(latitude=lat, longitude=lon) for lat, lon in edge.geometry)
             edge_point_ranges.append((start, len(all_points)))
 
-        elevations = await self._client.get_elevations(self._http_client, all_points)
+        lookups = await self._client.get_elevations_with_coverage(self._http_client, all_points)
+        elevations = [value for value, _ in lookups]
 
         computed: dict[str, ElevationAttribute] = {}
+        resolved_edges: dict[str, bool] = {}
         for edge, (start, end) in zip(edges, edge_point_ranges):
             points = all_points[start:end]
             computed[edge.edge_id] = compute_elevation_attribute(
                 edge.edge_id, points, elevations[start:end], data_source=DATA_SOURCE
             )
-        return computed
+            resolved_edges[edge.edge_id] = all(resolved for _, resolved in lookups[start:end])
+        return computed, resolved_edges

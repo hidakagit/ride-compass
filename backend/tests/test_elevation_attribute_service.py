@@ -1,21 +1,43 @@
 import asyncio
 
 from app.domain.graph import DirectedEdge, Node, RoadGraph
-from app.services.elevation_attribute_service import ElevationAttributeService
+from app.services.elevation_attribute_service import (
+    NO_COVERAGE_DATA_SOURCE,
+    ElevationAttributeService,
+)
 
 
 class FakeElevationClient:
-    def __init__(self, elevations_by_point: dict[tuple[float, float], float | None]):
+    """`no_coverage_points`は「DEMを読み切ったうえで値が無い」地点（海上・整備区域外）。
+
+    それ以外の未知の地点は「読めなかった」（一時障害）として扱う——実物の
+    `ElevationClient`が、記録の有無で両者を分けるのと同じ区別。
+    """
+
+    def __init__(
+        self,
+        elevations_by_point: dict[tuple[float, float], float | None],
+        no_coverage_points: frozenset[tuple[float, float]] = frozenset(),
+    ):
         self._elevations_by_point = elevations_by_point
+        self._no_coverage_points = no_coverage_points
         self.call_count = 0
 
     async def get_elevation(self, client, point, refresh=False):
         self.call_count += 1
         return self._elevations_by_point.get((point.latitude, point.longitude))
 
-    async def get_elevations(self, client, points, refresh=False):
+    async def get_elevations_with_coverage(self, client, points, refresh=False):
         self.call_count += len(points)
-        return [self._elevations_by_point.get((p.latitude, p.longitude)) for p in points]
+        result = []
+        for p in points:
+            key = (p.latitude, p.longitude)
+            value = self._elevations_by_point.get(key)
+            result.append((value, value is not None or key in self._no_coverage_points))
+        return result
+
+    async def get_elevations(self, client, points, refresh=False):
+        return [value for value, _ in await self.get_elevations_with_coverage(client, points, refresh)]
 
 
 def _make_graph(*edges: DirectedEdge) -> RoadGraph:
@@ -186,6 +208,49 @@ async def test_all_points_missing_elevation_is_not_persisted_and_retried_next_ca
     assert client.call_count == 4  # 1回目2点 + 2回目2点（1回目はキャッシュされていないため再問い合わせ）
     assert repository.save_call_count == 1
     assert "edge-1" in repository.attributes
+
+
+# 改善計画T850: 海上・整備区域外にかかる線は、DEMを読み切っても値が出ない。一時障害と
+# 同じく永続化を見送っていたため、毎回の再計算対象に残り続け、鮮度台帳も「未計算」と
+# 数え続けていた（本番で48件）。読み切ったうえで値が無いEdgeは記録する。
+async def test_points_without_dem_coverage_are_persisted_so_they_are_not_retried_forever():
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.700, 139.700], [35.701, 139.700]], distance_m=100.0,
+    )
+    graph = _make_graph(edge)
+    client = FakeElevationClient({}, no_coverage_points=frozenset({(35.700, 139.700), (35.701, 139.700)}))
+    repository = FakeElevationAttributeRepository()
+    service = ElevationAttributeService(client, http_client=None, repository=repository)
+
+    first = await service.get_attributes_for_graph(graph)
+
+    assert first["edge-1"].start_elevation_m is None
+    assert "edge-1" in repository.attributes
+    # 「試したが値が無い」と「値が取れた」を後から見分けられるようにする。
+    assert repository.attributes["edge-1"].data_source == NO_COVERAGE_DATA_SOURCE
+
+    # 2回目はキャッシュに当たり、外部呼び出しが増えない（毎回測り直さない）。
+    before = client.call_count
+    await service.get_attributes_for_graph(graph)
+    assert client.call_count == before
+
+
+async def test_one_unreadable_point_keeps_the_edge_out_of_the_records():
+    # 1点でも読めなければ「値が無い」と断定できない。永続化すると、復旧後も再試行されない。
+    edge = DirectedEdge(
+        edge_id="edge-1", from_node_id="node-1", to_node_id="node-1",
+        geometry=[[35.700, 139.700], [35.701, 139.700]], distance_m=100.0,
+    )
+    graph = _make_graph(edge)
+    client = FakeElevationClient({}, no_coverage_points=frozenset({(35.700, 139.700)}))
+    repository = FakeElevationAttributeRepository()
+    service = ElevationAttributeService(client, http_client=None, repository=repository)
+
+    await service.get_attributes_for_graph(graph)
+
+    assert repository.save_call_count == 0
+    assert "edge-1" not in repository.attributes
 
 
 async def test_partial_points_missing_elevation_is_still_persisted():

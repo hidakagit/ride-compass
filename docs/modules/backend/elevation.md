@@ -87,6 +87,24 @@ Attributeを確認し（`get_elevation_attributes`）、既に永続化済みな
 （`RoadGraphRepository.get_edges_with_geometry`）はDBへ直接問い合わせる——全道路網一括
 バッチはbboxに収まらず反復性も無いため、Redisを挟んでも書き込むだけで再利用されない。
 
+### 標高が1つも得られなかったEdgeの扱い
+
+Edgeの形状点から有効な標高が2点未満しか得られないと、`compute_elevation_attribute`は
+全フィールドNoneのAttributeを返す。これを**理由で分けて**扱う。
+
+- **一時障害でタイルを読めなかった**（タイムアウト・5xx等）: 永続化しない。
+  `get_elevation_attributes`のキャッシュ判定は行の存在だけを見るため、記録すると
+  復旧後も二度と再問い合わせされない。
+- **DEMを読み切ったうえで値が無い**（海上・整備区域外。欠測画素`"e"`と404の両方）:
+  `data_source`を`gsi-dem:no-coverage`にして永続化する。記録しないと毎回の再計算対象に
+  残り続け、派生データの鮮度台帳も「未計算」と数え続ける——**「試したが値が無い」と
+  「まだ試していない」が区別できない**。
+
+両者の区別は`ElevationClient.get_elevations_with_coverage`が地点ごとに返す
+「読み切ったか」で行う（記録の有無で一時障害と整備区域外を分ける`_CoverageGap`と同じ
+考え方を、呼び出し側まで通したもの）。Edgeの形状点が1点でも読み切れなければ、その
+Edgeは永続化しない。
+
 **暗黙の前提（モジュール間の隠れた依存）**: このバッチが対象Edgeに対して実行されて
 いない、または`elevation_attributes.average_grade`がNULLのままだと、
 [dynamic-way-values.md](dynamic-way-values.md)の勾配材料配信（`GradientWayService`・

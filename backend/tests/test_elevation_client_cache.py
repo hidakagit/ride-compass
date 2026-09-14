@@ -216,3 +216,49 @@ async def test_get_elevation_returns_none_for_missing_pixel_marker():
     result = await client.get_elevation(AllMissingHttpClient(), point)
 
     assert result is None
+
+
+# 改善計画T850: 「値が無い」と「読めなかった」を呼び出し側が分けられるようにした。
+# 分けられないと、海上にかかる線を毎回測り直し続ける（記録すると一時障害まで
+# 記録してしまうため記録もできない）という行き止まりになる。
+
+
+async def test_coverage_flag_is_true_when_the_dem_says_there_is_no_value():
+    # 欠測画素（"e"）も整備区域外（404）も、DEMの側は答えを返している。
+    class AllMissingHttpClient:
+        async def get(self, url, params=None):
+            row = ",".join("e" for _ in range(DEM_TILE_SIZE))
+            return FakeResponse("\n".join(row for _ in range(DEM_TILE_SIZE)))
+
+    client = ElevationClient()
+    point = Coordinates(latitude=35.681, longitude=139.767)
+
+    [(value, resolved)] = await client.get_elevations_with_coverage(AllMissingHttpClient(), [point])
+
+    assert value is None
+    assert resolved is True
+
+
+async def test_coverage_flag_is_false_when_the_tile_could_not_be_read():
+    # タイムアウト等でタイルを読めなかった地点は「まだ分からない」。
+    class FailingHttpClient:
+        async def get(self, url, params=None):
+            raise httpx.ConnectTimeout("timeout")
+
+    client = ElevationClient()
+    point = Coordinates(latitude=35.681, longitude=139.767)
+
+    [(value, resolved)] = await client.get_elevations_with_coverage(FailingHttpClient(), [point])
+
+    assert value is None
+    assert resolved is False
+
+
+async def test_coverage_flag_is_true_when_a_value_comes_back():
+    client = ElevationClient()
+    point = Coordinates(latitude=35.681, longitude=139.767)
+
+    [(value, resolved)] = await client.get_elevations_with_coverage(FakeHttpClient(elevation=12.5), [point])
+
+    assert value == 12.5
+    assert resolved is True

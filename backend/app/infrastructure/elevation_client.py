@@ -101,6 +101,12 @@ class ElevationClient:
     async def get_elevations(
         self, client: httpx.AsyncClient, points: list[Coordinates], refresh: bool = False
     ) -> list[float | None]:
+        """複数地点の標高。値が無かった理由は返さない（`get_elevations_with_coverage`参照）。"""
+        return [value for value, _ in await self.get_elevations_with_coverage(client, points, refresh)]
+
+    async def get_elevations_with_coverage(
+        self, client: httpx.AsyncClient, points: list[Coordinates], refresh: bool = False
+    ) -> list[tuple[float | None, bool]]:
         """複数地点の標高を、地点ごとのasyncioタスクではなくタイル単位でまとめて取得する。
         1地点ずつ`get_elevation`する場合と結果は同一（同じ`DEM_TYPE_PRIORITY`優先順位・
         同じ双線形補間）。
@@ -109,12 +115,20 @@ class ElevationClient:
         まだ結果が決まっていない地点が必要とするタイルをまとめて1回のフェッチへ
         （`_load_tile_grid`のsingle-flightで重複排除）束ね、フェッチ後にまとめて
         判定し直す。1ラウンドで解決しなかった地点だけが次のdem_typeへ進む。
+
+        返すのは`(標高, 読み切ったか)`。**「読み切った」は、その地点が必要とするタイルを
+        DEMの側から確かに得たこと**を表す——整備区域外（404）も、タイルはあるが画素が
+        欠測（海上等）も、これに当たる。一時的な通信エラーでタイルを読めなかった地点だけが
+        Falseになる。呼び出し側はこれで「値が無い」と「まだ分からない」を分けられる
+        （標高が返った地点は常にTrue）。
         """
         n = len(points)
         if n == 0:
             return []
         tile_coords = [lonlat_to_tile_pixel(p.longitude, p.latitude, DEM_ZOOM, DEM_TILE_SIZE) for p in points]
         results: list[float | None] = [None] * n
+        # タイル自体を読めなかったラウンドが1つでもあればFalseにする（一時的な通信エラー）。
+        resolved = [True] * n
         dem_type_index = [0] * n
         pending = list(range(n))
 
@@ -139,6 +153,10 @@ class ElevationClient:
                 dem_type = DEM_TYPE_PRIORITY[dem_type_index[i]]
                 tile_x, tile_y, px, py = tile_coords[i]
                 cache_key = (dem_type, tile_x, tile_y)
+                # 記録が無い＝このラウンドでタイルを読めなかった（`_load_tile_grid`は
+                # 整備区域外をNoneとして**記録する**ため、記録の有無で一時障害と区別できる）。
+                if cache_key not in _tile_grid_cache:
+                    resolved[i] = False
                 # LRUCacheは参照した時点で最近使用として扱われるため、明示的な繰り上げは不要。
                 grid = _tile_grid_cache.get(cache_key)
                 elevation = _bilinear_interpolate(grid, px, py) if grid is not None else None
@@ -150,7 +168,7 @@ class ElevationClient:
                         still_pending.append(i)
             pending = still_pending
 
-        return results
+        return [(value, value is not None or resolved[i]) for i, value in enumerate(results)]
 
     async def _load_tile_grid(
         self, client: httpx.AsyncClient, dem_type: str, tile_x: int, tile_y: int, refresh: bool, fields: dict
