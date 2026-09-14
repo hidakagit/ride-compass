@@ -62,6 +62,19 @@ const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 // 大雨のおそれ」という予報の意味そのものに合わせる。
 const LINEAR_RAINBAND_WINDOW_MS = 3 * 60 * 60 * 1000;
 
+// 「今」を進める刻み。出発時刻として選べる値そのものが5分刻みのため
+// （RideConditionBar/departureTimeline.ts）、これより細かく進めてもどのレイヤーが選ぶ
+// フレームも変わらないまま、共有時刻をキーに持つ取得（useDedicatedWayValues）だけが
+// 無効化される。
+const NOW_STEP_MS = 5 * 60 * 1000;
+// 刻みの境界を跨いだかを見に行く間隔。刻みそのものより短くないと境界を跨ぎ越す。
+const NOW_POLL_INTERVAL_MS = 30 * 1000;
+
+/** 現在時刻を刻みへ丸めたもの。 */
+function steppedNow(): Date {
+  return new Date(Math.floor(Date.now() / NOW_STEP_MS) * NOW_STEP_MS);
+}
+
 const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
 const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = {
   land: EMPTY_RISK_FRAMES,
@@ -121,7 +134,26 @@ export function useDynamicWeatherLayers({
   // 動的気象レイヤーが指す対象時刻（T183再設計）。ONの全レイヤーのフレーム時刻を統合した
   // 1本のタイムライン（下記timeline）上の1点で、各レイヤーはこの時刻に対応する自分の
   // フレームを描画する。
-  const [dynamicLayerTargetTime, setDynamicLayerTargetTime] = useState(() => new Date());
+  // 「今」は時間の経過とともに進む。止まったままだと、実況由来のフレーム列は先頭が
+  // 前進するのに（jmaNowcastFrames.ts: trimToCurrentAndFuture）共有時刻だけが取り残され、
+  // frameIndexForTimeが範囲外を返して降水・雷・竜巻・雷放電が黙って描画を止める。
+  const [now, setNow] = useState(steppedNow);
+  // 利用者が出発時刻を選んだらその時刻を保つ（意図して決めた値を勝手に動かさない、
+  // docs/design-principles.md）。nullの間は「今」へ張り付き、「今」ボタンで張り付きへ戻る。
+  const [pinnedTargetTime, setPinnedTargetTime] = useState<Date | null>(null);
+  const dynamicLayerTargetTime = pinnedTargetTime ?? now;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow((previous) => {
+        const next = steppedNow();
+        return next.getTime() === previous.getTime() ? previous : next;
+      });
+    }, NOW_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const setDynamicLayerTargetTime = useCallback((time: Date) => setPinnedTargetTime(time), []);
 
   // 災害グループの1ソースを表示するか（チップがONで、▶パネルで非表示に選ばれていない）。
   const showDisasterSource = useCallback(
@@ -264,7 +296,10 @@ export function useDynamicWeatherLayers({
     flood: floodFramesList,
   } = currentRiskFrames;
 
-  const handleDynamicLayerNow = useCallback(() => setDynamicLayerTargetTime(new Date()), []);
+  const handleDynamicLayerNow = useCallback(() => {
+    setNow(steppedNow());
+    setPinnedTargetTime(null);
+  }, []);
 
   // 選択中の共有時刻（dynamicLayerTargetTime）に対応する各要素のペイロード。該当時刻が
   // その要素のデータ範囲外なら描画しない（frameIndexForTimeがnullを返す、「該当時間データが
@@ -361,8 +396,8 @@ export function useDynamicWeatherLayers({
   // タイムラインの選択時刻が現在〜3時間先の範囲内にあるときだけ、ナウキャスト/rasrf/
   // 延長予報のいずれかと重ねて表示する（isWithinFutureWindow、dynamicWeather.ts参照）。
   const linearRainbandVisible = useMemo(
-    () => isWithinFutureWindow(dynamicLayerTargetTime, new Date(), LINEAR_RAINBAND_WINDOW_MS),
-    [dynamicLayerTargetTime],
+    () => isWithinFutureWindow(dynamicLayerTargetTime, now, LINEAR_RAINBAND_WINDOW_MS),
+    [dynamicLayerTargetTime, now],
   );
   const linearRainbandPayload = useMemo(() => {
     if (!linearRainbandVisible) return undefined;

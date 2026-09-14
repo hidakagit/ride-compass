@@ -1,7 +1,7 @@
-import { renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDynamicWeatherLayers } from "./useDynamicWeatherLayers";
-import { fetchNowcastFrames, fetchRasrfFrames } from "@/components/Map/precipitationNowcast";
+import { fetchNowcastFrames, fetchRasrfFrames, type NowcastFrame } from "@/components/Map/precipitationNowcast";
 import { fetchThunderNowcastFrames } from "@/components/Map/thunderNowcast";
 import { fetchLidenFrames, fetchLidenGeojson } from "@/components/Map/lidenLayer";
 import { fetchCurrentRiskFrames, fetchLinearRainbandFrames } from "@/components/Map/riskMap";
@@ -40,28 +40,36 @@ const BASE_OPTIONS = {
   mapViewport: null,
 };
 
+const FIVE_MIN_MS = 5 * 60 * 1000;
+
+/** Date → 気象庁のタイムスタンプ形式（YYYYMMDDHHmmss、UTC）。 */
+function jmaTimestamp(time: Date): string {
+  return time.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+}
+
+function stubHappyPath() {
+  vi.mocked(fetchNowcastFrames).mockResolvedValue([]);
+  vi.mocked(fetchRasrfFrames).mockResolvedValue([]);
+  vi.mocked(fetchThunderNowcastFrames).mockResolvedValue([]);
+  vi.mocked(fetchLidenFrames).mockResolvedValue([]);
+  vi.mocked(fetchCurrentRiskFrames).mockResolvedValue(EMPTY_CURRENT_RISK_FRAMES);
+  vi.mocked(fetchLinearRainbandFrames).mockResolvedValue([]);
+  vi.mocked(useWeatherGrid).mockReturnValue({
+    grid: [],
+    detailGrid: [],
+    effectiveGrid: [],
+    effectiveGridSpacingDeg: 0.05,
+    loading: false,
+    hasFetched: true,
+    error: null,
+  });
+}
+
 describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降水帯予測マップのエラー可視化）", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  function stubHappyPath() {
-    vi.mocked(fetchNowcastFrames).mockResolvedValue([]);
-    vi.mocked(fetchRasrfFrames).mockResolvedValue([]);
-    vi.mocked(fetchThunderNowcastFrames).mockResolvedValue([]);
-    vi.mocked(fetchLidenFrames).mockResolvedValue([]);
-    vi.mocked(fetchCurrentRiskFrames).mockResolvedValue(EMPTY_CURRENT_RISK_FRAMES);
-    vi.mocked(fetchLinearRainbandFrames).mockResolvedValue([]);
-    vi.mocked(useWeatherGrid).mockReturnValue({
-      grid: [],
-      detailGrid: [],
-      effectiveGrid: [],
-      effectiveGridSpacingDeg: 0.05,
-      loading: false,
-      hasFetched: true,
-      error: null,
-    });
-  }
 
   it("全フェッチ成功時はどのレイヤーもerrorにならない（フレーム0件のためempty）", async () => {
     stubHappyPath();
@@ -244,14 +252,10 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
 
     it("選択中フレームのGeoJSONが取得できるとdisasterグループのlidenソースのpayloadへ反映される", async () => {
       stubHappyPath();
-      // dynamicLayerTargetTimeの初期値は実時刻（new Date()）のため、frameIndexForTimeの
-      // 許容誤差（1秒）内に入るよう、フレームのvalidtimeもテスト実行時点の実時刻から
-      // JMAタイムスタンプ形式（YYYYMMDDHHmmss、UTC）で組み立てる。
-      const now = new Date();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const validtime =
-        `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}` +
-        `${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`;
+      // 見るのはGeoJSONがpayloadへ届く配線であって時刻範囲の判定ではないため、フレームを
+      // 共有時刻そのもの（5分へ丸めた現在時刻）に置く。気象庁のlidenのvalidtimeは実際に
+      // 5分刻みのため、任意の秒を持つ時刻はそもそも実データに存在しない。
+      const validtime = jmaTimestamp(new Date(Math.floor(Date.now() / FIVE_MIN_MS) * FIVE_MIN_MS));
       vi.mocked(fetchLidenFrames).mockResolvedValue([{ basetime: validtime, validtime, isForecast: false }]);
       const geojson = { type: "FeatureCollection" as const, features: [] };
       vi.mocked(fetchLidenGeojson).mockResolvedValue(geojson);
@@ -262,5 +266,95 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
         expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson })
       );
     });
+  });
+});
+
+describe("共有時刻の「今」への追従（改善計画T859）", () => {
+  const STEP_MS = FIVE_MIN_MS;
+  // 5分境界ちょうどではない時刻から始め、丸めが効いていることも同時に見る。
+  const T0 = Date.UTC(2026, 8, 15, 10, 2, 30);
+
+  /** 実況1件＋60分先までの予測。実況の時刻は呼ばれた瞬間の「今」を5分へ丸めたもの
+   * ——本物の気象庁が5分毎に実況を更新し、trimToCurrentAndFutureがフレーム列の先頭を
+   * そこへ切り詰めるのを再現する。 */
+  function nowcastFramesForNow(): NowcastFrame[] {
+    const observed = Math.floor(Date.now() / STEP_MS) * STEP_MS;
+    const frames: NowcastFrame[] = [
+      { basetime: jmaTimestamp(new Date(observed)), validtime: jmaTimestamp(new Date(observed)), isForecast: false },
+    ];
+    for (let offset = STEP_MS; offset <= 60 * 60 * 1000; offset += STEP_MS) {
+      frames.push({ basetime: jmaTimestamp(new Date(observed)), validtime: jmaTimestamp(new Date(observed + offset)), isForecast: true });
+    }
+    return frames;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("時間が経つと共有時刻も進む（進まないと降水が範囲外になり黙って消える）", async () => {
+    stubHappyPath();
+    vi.mocked(fetchNowcastFrames).mockImplementation(async () => nowcastFramesForNow());
+
+    const { result } = renderHook(() =>
+      useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.dynamicWeather.precipitationNowcast.main.payload).toBeDefined();
+
+    // 実況が2回更新される長さ。共有時刻が止まっていればここで範囲外へ落ちる。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    });
+
+    expect(result.current.dynamicWeather.precipitationNowcast.main.payload).toBeDefined();
+    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(
+      Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS
+    );
+  });
+
+  it("利用者が選んだ出発時刻は、時間が経っても勝手に動かない", async () => {
+    stubHappyPath();
+    const chosen = new Date(T0 + 30 * 60 * 1000);
+
+    const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
+
+    act(() => result.current.setDynamicLayerTargetTime(chosen));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    });
+
+    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(chosen.getTime());
+  });
+
+  it("「今」ボタンで追従へ戻る", async () => {
+    stubHappyPath();
+
+    const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
+
+    act(() => result.current.setDynamicLayerTargetTime(new Date(T0 + 30 * 60 * 1000)));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    });
+    act(() => result.current.handleDynamicLayerNow());
+
+    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(
+      Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    });
+    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(
+      Math.floor((T0 + 22 * 60 * 1000) / STEP_MS) * STEP_MS
+    );
   });
 });
