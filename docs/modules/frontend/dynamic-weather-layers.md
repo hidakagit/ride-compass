@@ -16,7 +16,7 @@
 | `Map/windLayer.ts`・`windArrowIcon.ts` | 風の矢印（gridMark）の格子データ・Canvas 2Dアイコン描画 |
 | `Map/riskMap.ts` | キキクル・線状降水帯予測マップ（未来フレームを持たない特殊系） |
 | `Map/jmaTileIndex.ts` | 在否インデックスの解釈（URL解析・「空だと確認済み」の判定、純ロジック） |
-| `Map/jmaTileProtocol.ts` | `jmatile://`スキームのMapLibreプロトコル。空と分かっているタイルをネットワークへ出さずに透明タイルで返す |
+| `Map/jmaTileProtocol.ts` | `jmatile://`スキームのMapLibreプロトコル。空と分かっているタイルをネットワークへ出さずに透明タイルで返し、配信の失敗を要素ごとに記録して購読できるようにする |
 | `hooks/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
 | `Map/MapView.tsx`（`DYNAMIC_WEATHER_RENDERERS`関連箇所のみ） | 表示層本体。`ensureDynamicWeatherLayer`・`applyDynamicWeatherState`・`dynamicWeatherIds` |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ。定期取得は`usePolledFetch`（粗い風格子を含む全系統）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す |
@@ -204,6 +204,17 @@ payloadが`undefined`のままレイヤーが非表示になり続け、MapLibre
 `disaster`も同じくチップ1つのため、3本のフェッチ（キキクル・雷竜巻・落雷）の
 loading/errorをまとめ、`hasPayload`は7ソースのいずれか1つでも描画できていれば
 trueとする。
+
+**タイルの配信そのものが落ちている状態は、この経路には現れない**——`jmaTileProtocol.ts`は
+どの失敗も空タイルへ倒すため（上記「空タイル要求の間引き」参照）、MapLibreはタイルを
+取得できたものとして扱い、フレーム一覧のフェッチも正常なまま。「平常時は透明」が正常系の
+レイヤー（キキクル等）では、これが危険度ゼロと見分けられない。そのためプロトコルハンドラが
+404以外の失敗を要素ごとに記録し（404は配信元が「空」と答えている＝配信は生きている）、
+`useSyncExternalStore`で購読した記録を`dynamicWeather.ts: tileDeliveryFailureLayerIds`が
+表示中のpayloadのタイルURLと突き合わせて、当たったチップを`"error"`にする。記録は
+失敗したフレームの要素配下URL（basetime・validtimeを含む）で持つため、フレームが進んで
+取得できるようになれば自然に外れる。グループ配下を機械的に走査するので、要素やチップが
+増えても足すコードは無い。
 
 算出した`dynamicWeatherDataStatus`は`page.tsx`が`mapViewLayerDataStatus`
 （ソースイベント側）とマージして1つの`layerDataStatus`にし、`overlayLayers`

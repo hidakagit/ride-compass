@@ -63,14 +63,31 @@ export function jmaTileUrlTemplate(target: JmaTileTarget): string {
  * 配信元の要素配下URL。`suffix`はタイル座標（`{z}/{x}/{y}.png`）とGeoJSON
  * （`data.geojson?id=...`）で異なるが、そこまでのパス構造は共通のためここで組み立てる。
  */
-export function jmaElementUrl(
-  target: Omit<JmaTileTarget, "extension">,
-  suffix: string,
-): string {
+export function jmaElementUrl(target: Omit<JmaTileTarget, "extension">, suffix: string): string {
   return jmaProxyUrl(
     `/jmatile/data/${target.group}/${target.basetime}/${target.member}/${target.validtime}` +
       `/surf/${target.element}/${suffix}`,
   );
+}
+
+/** タイルURLのうち、要素配下（`.../surf/<element>/`）までの前半と、その要素id。
+ *
+ * タイル座標より手前しか見ないため、実URLと`{z}/{x}/{y}`を含むテンプレートのどちらからも
+ * 同じ前半が取れる。前半はbasetime・validtimeを含むので、フレームが変われば別の値になる。 */
+export interface JmaTileElementRef {
+  element: string;
+  prefix: string;
+}
+
+const ELEMENT_PATH_SEGMENT = "/surf/";
+
+export function parseJmaTileElement(url: string): JmaTileElementRef | null {
+  const at = url.indexOf(ELEMENT_PATH_SEGMENT);
+  if (at < 0) return null;
+  const elementStart = at + ELEMENT_PATH_SEGMENT.length;
+  const elementEnd = url.indexOf("/", elementStart);
+  if (elementEnd <= elementStart) return null;
+  return { element: url.slice(elementStart, elementEnd), prefix: url.slice(0, elementEnd + 1) };
 }
 
 /**

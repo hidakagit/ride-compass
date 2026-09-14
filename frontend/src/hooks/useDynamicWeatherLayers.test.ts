@@ -6,6 +6,8 @@ import { fetchThunderNowcastFrames } from "@/components/Map/thunderNowcast";
 import { fetchLidenFrames, fetchLidenGeojson } from "@/components/Map/lidenLayer";
 import { fetchCurrentRiskFrames, fetchLinearRainbandFrames } from "@/components/Map/riskMap";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
+import { jmaTileFailures } from "@/components/Map/jmaTileProtocol";
+import { parseJmaTileElement } from "@/components/Map/jmaNowcastFrames";
 
 vi.mock("@/components/Map/precipitationNowcast", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/components/Map/precipitationNowcast")>()),
@@ -29,6 +31,14 @@ vi.mock("@/components/Map/riskMap", async (importOriginal) => ({
 vi.mock("@/hooks/useWeatherGrid", () => ({
   useWeatherGrid: vi.fn(),
 }));
+// 実際の記録はjmaTileProtocol.test.tsが検証する。ここは記録が状態へ届く配線だけを見る。
+// useSyncExternalStoreのスナップショットのため、内容が同じなら同じ参照を返す必要がある
+// （毎回新しいMapを返すと再レンダーが止まらない）。
+const { noTileFailures } = vi.hoisted(() => ({ noTileFailures: new Map<string, string>() }));
+vi.mock("@/components/Map/jmaTileProtocol", () => ({
+  jmaTileFailures: vi.fn(() => noTileFailures),
+  subscribeJmaTileFailures: () => () => {},
+}));
 
 const EMPTY_CURRENT_RISK_FRAMES = { land: [], heavyRain: [], inundation: [], flood: [] };
 
@@ -48,6 +58,7 @@ function jmaTimestamp(time: Date): string {
 }
 
 function stubHappyPath() {
+  vi.mocked(jmaTileFailures).mockReturnValue(noTileFailures);
   vi.mocked(fetchNowcastFrames).mockResolvedValue([]);
   vi.mocked(fetchRasrfFrames).mockResolvedValue([]);
   vi.mocked(fetchThunderNowcastFrames).mockResolvedValue([]);
@@ -70,12 +81,11 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
     vi.clearAllMocks();
   });
 
-
   it("全フェッチ成功時はどのレイヤーもerrorにならない（フレーム0件のためempty）", async () => {
     stubHappyPath();
 
     const { result } = renderHook(() =>
-      useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true, showDisaster: true })
+      useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true, showDisaster: true }),
     );
 
     await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
@@ -97,9 +107,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
     stubHappyPath();
     vi.mocked(fetchLinearRainbandFrames).mockRejectedValue(new Error("linear rainband boom"));
 
-    const { result } = renderHook(() =>
-      useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true })
-    );
+    const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true }));
 
     await waitFor(() => expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe("error"));
   });
@@ -119,7 +127,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       vi.mocked(fetchThunderNowcastFrames).mockReturnValue(
         new Promise((resolve) => {
           resolveFetch = resolve;
-        })
+        }),
       );
 
       const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
@@ -157,6 +165,37 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
 
       expect(result.current.dynamicWeatherDataStatus.disaster).toBeUndefined();
+    });
+  });
+
+  // 配信元のタイルが返らない状態は空タイルで代替されるため、フェッチ側は正常のまま
+  // （jmaTileProtocol.ts）。キキクルのように「平常時は透明」が正常系のレイヤーでは、
+  // 状態が出ないかぎり利用者が危険度ゼロと読む。
+  describe("タイル配信の障害", () => {
+    const RISK_FRAME = {
+      time: new Date("2026-09-14T12:30:00Z"),
+      ref: { basetime: "20260914123000", validtime: "20260914123000", member: "immed0" },
+    };
+
+    it("表示中のキキクルのタイルが返らなければ、フェッチが正常でもerrorになる", async () => {
+      stubHappyPath();
+      vi.mocked(fetchCurrentRiskFrames).mockResolvedValue({
+        ...EMPTY_CURRENT_RISK_FRAMES,
+        land: [RISK_FRAME],
+      });
+
+      const { result, rerender } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      await waitFor(() => expect(result.current.dynamicWeather.disaster?.landslide?.payload).toBeDefined());
+
+      const payload = result.current.dynamicWeather.disaster?.landslide?.payload;
+      const template = payload?.kind === "rasterTile" ? payload.tileUrlTemplate : "";
+      const ref = parseJmaTileElement(template);
+      expect(ref).not.toBeNull();
+      vi.mocked(jmaTileFailures).mockReturnValue(new Map([[ref!.element, ref!.prefix]]));
+
+      // 購読の通知はこのモックが持たないため、再レンダーでスナップショットを読み直させる。
+      rerender();
+      await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error"));
     });
   });
 
@@ -210,7 +249,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
           ...BASE_OPTIONS,
           showDisaster: true,
           hiddenDisasterSources: ["thunder", "tornado", "liden"],
-        })
+        }),
       );
 
       await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
@@ -230,7 +269,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
           ...BASE_OPTIONS,
           showDisaster: true,
           hiddenDisasterSources: ["heavyRain", "landslide", "inundation", "flood", "liden"],
-        })
+        }),
       );
 
       // 雷・竜巻だけが表示中なので、雷竜巻のフレーム取得だけが走る。
@@ -263,7 +302,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
 
       await waitFor(() =>
-        expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson })
+        expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson }),
       );
     });
   });
@@ -283,7 +322,11 @@ describe("共有時刻の「今」への追従（改善計画T859）", () => {
       { basetime: jmaTimestamp(new Date(observed)), validtime: jmaTimestamp(new Date(observed)), isForecast: false },
     ];
     for (let offset = STEP_MS; offset <= 60 * 60 * 1000; offset += STEP_MS) {
-      frames.push({ basetime: jmaTimestamp(new Date(observed)), validtime: jmaTimestamp(new Date(observed + offset)), isForecast: true });
+      frames.push({
+        basetime: jmaTimestamp(new Date(observed)),
+        validtime: jmaTimestamp(new Date(observed + offset)),
+        isForecast: true,
+      });
     }
     return frames;
   }
@@ -301,9 +344,7 @@ describe("共有時刻の「今」への追従（改善計画T859）", () => {
     stubHappyPath();
     vi.mocked(fetchNowcastFrames).mockImplementation(async () => nowcastFramesForNow());
 
-    const { result } = renderHook(() =>
-      useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true })
-    );
+    const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true }));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -316,9 +357,7 @@ describe("共有時刻の「今」への追従（改善計画T859）", () => {
     });
 
     expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
-    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(
-      Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS
-    );
+    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS);
   });
 
   it("利用者が選んだ出発時刻は、時間が経っても勝手に動かない", async () => {
@@ -346,15 +385,11 @@ describe("共有時刻の「今」への追従（改善計画T859）", () => {
     });
     act(() => result.current.handleDynamicLayerNow());
 
-    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(
-      Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS
-    );
+    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
     });
-    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(
-      Math.floor((T0 + 22 * 60 * 1000) / STEP_MS) * STEP_MS
-    );
+    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(Math.floor((T0 + 22 * 60 * 1000) / STEP_MS) * STEP_MS);
   });
 });

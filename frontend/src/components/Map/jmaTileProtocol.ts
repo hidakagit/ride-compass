@@ -10,6 +10,7 @@ import maplibregl from "maplibre-gl";
 
 import { debugLog } from "@/lib/debugLog";
 
+import { parseJmaTileElement } from "@/components/Map/jmaNowcastFrames";
 import {
   buildJmaTileIndexLookup,
   isKnownEmptyTile,
@@ -65,6 +66,58 @@ export function isKnownEmptyTileUrl(realUrl: string): boolean {
   return isKnownEmptyTile(lookup, realUrl);
 }
 
+// 配信の障害で返せなかったタイルは空タイルで代替するため、MapLibreのソースイベントにも
+// 地図の見た目にも何も現れない。「平常時は透明」が正常系のレイヤー（キキクル等）では
+// 危険度ゼロと見分けられないため、失敗を要素ごとに保持して購読側（動的気象レイヤーの
+// データ取得状態）へ渡す。
+//
+// 値は失敗したタイルの要素配下URL（basetime・validtimeを含む）。購読側はいま描画している
+// フレームのURLと突き合わせるため、フレームが進めば古い失敗は自然に無視される。
+let tileFailures: ReadonlyMap<string, string> = new Map();
+const failureListeners = new Set<() => void>();
+
+/** 失敗中の要素id→要素配下URL。参照は変更時にだけ差し替わる（useSyncExternalStoreの
+ * スナップショットとして使うため、同じ内容なら同じ参照を返す必要がある）。 */
+export function jmaTileFailures(): ReadonlyMap<string, string> {
+  return tileFailures;
+}
+
+export function subscribeJmaTileFailures(listener: () => void): () => void {
+  failureListeners.add(listener);
+  return () => {
+    failureListeners.delete(listener);
+  };
+}
+
+/** テスト用。失敗の記録を空へ戻す。 */
+export function resetJmaTileFailures(): void {
+  if (tileFailures.size === 0) return;
+  publishFailures(new Map());
+}
+
+function publishFailures(next: ReadonlyMap<string, string>): void {
+  tileFailures = next;
+  for (const listener of failureListeners) listener();
+}
+
+function markDeliveryFailed(realUrl: string): void {
+  const ref = parseJmaTileElement(realUrl);
+  if (!ref || tileFailures.get(ref.element) === ref.prefix) return;
+  const next = new Map(tileFailures);
+  next.set(ref.element, ref.prefix);
+  publishFailures(next);
+}
+
+/** 配信元が応答した（中身の有無は問わない）。疎な格子状タイルの404もここに当たる——
+ * 空であることを配信元が答えているため、その要素の配信は生きている。 */
+function markDeliveryHealthy(realUrl: string): void {
+  const ref = parseJmaTileElement(realUrl);
+  if (!ref || !tileFailures.has(ref.element)) return;
+  const next = new Map(tileFailures);
+  next.delete(ref.element);
+  publishFailures(next);
+}
+
 /** `jmatile://`を剥がして実URLへ戻す。 */
 export function toRealUrl(url: string): string {
   return url.replace(new RegExp(`^${JMA_TILE_PROTOCOL}://`), "");
@@ -84,7 +137,15 @@ async function handleJmaTileRequest(
     // ネットワークへ出さない。ベクタとラスタで空の表現が違うため拡張子で分ける。
     return { data: emptyTileBytes(realUrl) };
   }
-  const response = await fetch(realUrl, { signal: abortController.signal });
+  let response: Response;
+  try {
+    response = await fetch(realUrl, { signal: abortController.signal });
+  } catch (error) {
+    // 中断（パン・ズームでMapLibreが要求を取り消す）は障害ではない。到達できないことは
+    // 5xxと同じく配信の失敗として記録し、例外はそのままMapLibreへ返す。
+    if (!(error instanceof DOMException && error.name === "AbortError")) markDeliveryFailed(realUrl);
+    throw error;
+  }
   if (!response.ok) {
     // どの失敗も空タイルとして返す。MapLibreは失敗タイルを再試行しないため、ここで例外に
     // すると以後その位置が永久に空白になる。ただし**404と5xxは意味が違う**——疎な格子状
@@ -100,9 +161,13 @@ async function handleJmaTileRequest(
         },
         "warn",
       );
+      markDeliveryFailed(realUrl);
+    } else {
+      markDeliveryHealthy(realUrl);
     }
     return { data: emptyTileBytes(realUrl) };
   }
+  markDeliveryHealthy(realUrl);
   return { data: await response.arrayBuffer() };
 }
 

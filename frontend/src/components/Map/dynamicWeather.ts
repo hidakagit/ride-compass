@@ -37,6 +37,7 @@
 //
 // このファイル自体はDOM/MapLibreを知らない純粋なデータ層（windLayer.ts等と同じ方針）。
 
+import { parseJmaTileElement } from "@/components/Map/jmaNowcastFrames";
 import type { MapLayerId } from "@/components/Map/mapLayers";
 
 // 動的気象レイヤーの一覧（単一の情報源、MapView.tsx: DYNAMIC_WEATHER_RENDERERS・
@@ -234,4 +235,31 @@ export function gridCellRing(latitude: number, longitude: number, spacingDeg: nu
     [longitude - half, latitude + half],
     [longitude - half, latitude - half],
   ];
+}
+
+/** 配信元のタイルが返らなくなっている要素を、いま表示しているグループ（チップ）。
+ *
+ * `failures`は要素id→失敗したフレームの要素配下URL（`jmaTileProtocol.ts`）。表示中の
+ * payloadが指すURLと突き合わせるため、フレームが進んで取得できるようになった要素や、
+ * そもそも表示していない要素は当たらない。
+ *
+ * タイルを配信元から直接引く表現（rasterTile・vectorTile）だけが対象で、格子やGeoJSONを
+ * 自前のfetchで取る表現はフェッチ自身のloading/errorが既に状態を持っている。 */
+export function tileDeliveryFailureLayerIds(
+  groups: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>,
+  failures: ReadonlyMap<string, string>,
+): DynamicWeatherLayerId[] {
+  if (failures.size === 0) return [];
+  const failed: DynamicWeatherLayerId[] = [];
+  for (const [layerId, group] of Object.entries(groups) as [DynamicWeatherLayerId, DynamicWeatherGroupState][]) {
+    const hit = Object.values(group ?? {}).some((source) => {
+      if (!source?.visible) return false;
+      const payload = source.payload;
+      if (payload?.kind !== "rasterTile" && payload?.kind !== "vectorTile") return false;
+      const ref = parseJmaTileElement(payload.tileUrlTemplate);
+      return ref !== null && failures.get(ref.element) === ref.prefix;
+    });
+    if (hit) failed.push(layerId);
+  }
+  return failed;
 }

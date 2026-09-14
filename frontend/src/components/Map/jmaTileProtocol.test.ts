@@ -7,8 +7,11 @@ import {
   emptyRasterTileBytes,
   hasJmaTileIndex,
   isKnownEmptyTileUrl,
+  jmaTileFailures,
   registerJmaTileProtocol,
+  resetJmaTileFailures,
   setJmaTileIndex,
+  subscribeJmaTileFailures,
   toRealUrl,
   withJmaTileProtocol,
 } from "@/components/Map/jmaTileProtocol";
@@ -41,6 +44,7 @@ const INDEX: JmaTileIndexResponse = {
 
 afterEach(() => {
   setJmaTileIndex(null);
+  resetJmaTileFailures();
   vi.restoreAllMocks();
 });
 
@@ -177,5 +181,96 @@ describe("空タイルのバッファ", () => {
 
   it("ラスタの空タイルも共有しない", async () => {
     expect(emptyRasterTileBytes().buffer).not.toBe(emptyRasterTileBytes().buffer);
+  });
+});
+
+// 配信の障害は空タイルで代替されるため、MapLibreのソースイベントにも地図の見た目にも
+// 現れない。「平常時は透明」が正常系のレイヤーで危険度ゼロと見分けるための記録。
+describe("配信障害の記録", () => {
+  const ELEMENT_PREFIX = `https://example.test/api/jma-tile/bosai/jmatile/data/risk/${BT}/immed0/${BT}/surf/rain_mesh/`;
+
+  function handler(): ProtocolHandler {
+    registerJmaTileProtocol();
+    return protocolHandlers.get("jmatile") as ProtocolHandler;
+  }
+
+  function stubStatus(status: number): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: status < 400, status, arrayBuffer: async () => new ArrayBuffer(0) }) as Response),
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("5xxはその要素の失敗として残り、購読者へ届く", async () => {
+    const notified = vi.fn();
+    const unsubscribe = subscribeJmaTileFailures(notified);
+    stubStatus(503);
+
+    await handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController());
+
+    expect(jmaTileFailures().get("rain_mesh")).toBe(ELEMENT_PREFIX);
+    expect(notified).toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it("取得できるようになれば解除される", async () => {
+    stubStatus(503);
+    await handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController());
+    expect(jmaTileFailures().size).toBe(1);
+
+    stubStatus(200);
+    await handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController());
+
+    expect(jmaTileFailures().size).toBe(0);
+  });
+
+  // 疎な格子状タイルでは404が正常系で、配信元が「空」と答えている＝配信は生きている。
+  it("404は失敗として数えず、直前の失敗を解除する", async () => {
+    stubStatus(503);
+    await handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController());
+
+    stubStatus(404);
+    await handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController());
+
+    expect(jmaTileFailures().size).toBe(0);
+  });
+
+  it("配信元へ到達できない場合も失敗として残す", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    await expect(handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController())).rejects.toThrow();
+
+    expect(jmaTileFailures().get("rain_mesh")).toBe(ELEMENT_PREFIX);
+  });
+
+  it("中断（パン・ズームでの取り消し）は失敗として数えない", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new DOMException("aborted", "AbortError");
+      }),
+    );
+
+    await expect(handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController())).rejects.toThrow();
+
+    expect(jmaTileFailures().size).toBe(0);
+  });
+
+  it("スナップショットは内容が変わらないかぎり同じ参照を返す", async () => {
+    stubStatus(503);
+    await handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController());
+    const first = jmaTileFailures();
+    await handler()({ url: withJmaTileProtocol(REAL_URL) }, new AbortController());
+
+    expect(jmaTileFailures()).toBe(first);
   });
 });

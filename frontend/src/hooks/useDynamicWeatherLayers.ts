@@ -5,7 +5,7 @@
 // 降水ナウキャスト・雷竜巻ナウキャスト・useWeatherGrid経由の風/延長降水予報という
 // 3本のfetch effectと、そこから導出する共有タイムライン・条件バー向けの共有時刻・
 // MapView向けのdynamicWeatherプロパティを、この1フックへまとめてある。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   fetchNowcastFrames,
   fetchRasrfFrames,
@@ -40,10 +40,12 @@ import {
   disasterSourceKeys,
   frameIndexForTime,
   isWithinFutureWindow,
+  tileDeliveryFailureLayerIds,
   type DynamicWeatherGroupState,
   type DynamicWeatherLayerId,
   type DynamicWeatherRenderPayload,
 } from "@/components/Map/dynamicWeather";
+import { jmaTileFailures, subscribeJmaTileFailures } from "@/components/Map/jmaTileProtocol";
 import { deriveFetchLayerStatus, type LayerDataStatus } from "@/components/Map/mapLayers";
 import { useWeatherGrid } from "@/hooks/useWeatherGrid";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
@@ -449,13 +451,18 @@ export function useDynamicWeatherLayers({
     ],
   );
 
+  // 配信元のタイルが返らない状態は、空タイルで代替するぶんフェッチ側のerrorに現れない
+  // （`jmaTileProtocol.ts`）。表示中のフレームのURLと突き合わせて、そのタイルを出している
+  // チップだけをエラーにする。
+  const tileFailures = useSyncExternalStore(subscribeJmaTileFailures, jmaTileFailures, jmaTileFailures);
+
   // レイヤーごとのデータ取得状態。どのレイヤーも同じderiveFetchLayerStatus関数を通る——
   // 「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を意識する
   // 必要は無い。複数の名前付きソースを持つグループ（precipitationNowcast・disaster）は、
   // UI上のチップが1つのため、いずれかのソースが地図に何かしら描画できていれば
   // loading/errorとしない。
-  const dynamicWeatherDataStatus = useMemo(
-    () => ({
+  const dynamicWeatherDataStatus = useMemo(() => {
+    const status: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>> = {
       windVector: deriveFetchLayerStatus(windLoading, windError, windPayload !== undefined, windHasFetched),
       // グループのhasFetchedはOR——loading/errorと同じく「いずれかのソースが取得を
       // 終えていれば、そのグループについては値の有無を語ってよい」とする。
@@ -477,40 +484,46 @@ export function useDynamicWeatherLayers({
           floodRiskPayload !== undefined,
         thunderNowcastHasFetched || lidenNowcastHasFetched || currentRiskHasFetched,
       ),
-    }),
-    [
-      windLoading,
-      windError,
-      windPayload,
-      nowcastLoading,
-      linearRainbandLoading,
-      nowcastError,
-      linearRainbandError,
-      rasrfLoading,
-      rasrfError,
-      precipitationPayload,
-      linearRainbandPayload,
-      thunderNowcastLoading,
-      thunderNowcastError,
-      thunderPayload,
-      tornadoPayload,
-      lidenNowcastLoading,
-      lidenNowcastError,
-      lidenPayload,
-      currentRiskLoading,
-      currentRiskError,
-      landslideRiskPayload,
-      heavyRainRiskPayload,
-      inundationRiskPayload,
-      floodRiskPayload,
-      windHasFetched,
-      nowcastHasFetched,
-      linearRainbandHasFetched,
-      thunderNowcastHasFetched,
-      lidenNowcastHasFetched,
-      currentRiskHasFetched,
-    ],
-  );
+    };
+    // 配信が落ちている要素を出しているチップは、フェッチ側が正常でもエラーにする
+    // （deriveFetchLayerStatusと同じくエラーを最優先にする）。グループ配下を機械的に走査
+    // するため、要素やチップが増えてもここへ足すものは無い。
+    for (const layerId of tileDeliveryFailureLayerIds(dynamicWeather, tileFailures)) status[layerId] = "error";
+    return status;
+  }, [
+    dynamicWeather,
+    tileFailures,
+    windLoading,
+    windError,
+    windPayload,
+    nowcastLoading,
+    linearRainbandLoading,
+    nowcastError,
+    linearRainbandError,
+    rasrfLoading,
+    rasrfError,
+    precipitationPayload,
+    linearRainbandPayload,
+    thunderNowcastLoading,
+    thunderNowcastError,
+    thunderPayload,
+    tornadoPayload,
+    lidenNowcastLoading,
+    lidenNowcastError,
+    lidenPayload,
+    currentRiskLoading,
+    currentRiskError,
+    landslideRiskPayload,
+    heavyRainRiskPayload,
+    inundationRiskPayload,
+    floodRiskPayload,
+    windHasFetched,
+    nowcastHasFetched,
+    linearRainbandHasFetched,
+    thunderNowcastHasFetched,
+    lidenNowcastHasFetched,
+    currentRiskHasFetched,
+  ]);
 
   return {
     dynamicWeather,

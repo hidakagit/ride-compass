@@ -1,7 +1,7 @@
 // @vitest-environment node
 // DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
-// （docs/testing.mdパターン3。dynamicWeather.tsはmapLayers.tsを型のみimportしており
-// ランタイムのDOM依存が無いことを確認済み）。
+// （docs/testing.mdパターン3。dynamicWeather.tsが値としてimportするのはURL解析の純関数
+// だけで、ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
 import {
   DISASTER_SOURCES,
@@ -12,7 +12,9 @@ import {
   isWithinFutureWindow,
   mergeFrameTimes,
   nearestTimeIndex,
+  tileDeliveryFailureLayerIds,
 } from "./dynamicWeather";
+import type { DynamicWeatherGroupState, DynamicWeatherLayerId } from "./dynamicWeather";
 
 describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契約）", () => {
   describe("mergeFrameTimes", () => {
@@ -138,5 +140,54 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
         expect(DYNAMIC_WEATHER_LAYER_IDS).not.toContain(source.key);
       }
     });
+  });
+});
+
+// 配信元のタイルが返らない状態は空タイルで代替されるため、フェッチ側のerrorには現れない
+// （jmaTileProtocol.ts）。表示中のフレームと突き合わせて、そのタイルを出しているチップだけを
+// エラーにする。
+describe("tileDeliveryFailureLayerIds", () => {
+  const BT = "20260914123000";
+  const PREFIX = `https://example.test/api/jma-tile/bosai/jmatile/data/risk/${BT}/immed0/${BT}/surf/land/`;
+  const TEMPLATE = `${PREFIX}{z}/{x}/{y}.png`;
+
+  function groups(state: DynamicWeatherGroupState): Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>> {
+    return { disaster: state };
+  }
+
+  it("表示中のタイルの配信が落ちていればそのチップを返す", () => {
+    const result = tileDeliveryFailureLayerIds(
+      groups({ landslide: { visible: true, payload: { kind: "rasterTile", tileUrlTemplate: TEMPLATE } } }),
+      new Map([["land", PREFIX]]),
+    );
+    expect(result).toEqual(["disaster"]);
+  });
+
+  it("非表示のソースは対象外", () => {
+    const result = tileDeliveryFailureLayerIds(
+      groups({ landslide: { visible: false, payload: { kind: "rasterTile", tileUrlTemplate: TEMPLATE } } }),
+      new Map([["land", PREFIX]]),
+    );
+    expect(result).toEqual([]);
+  });
+
+  // 失敗の記録はbasetime・validtimeを含むため、フレームが進めば古い失敗は当たらない。
+  it("別のフレームを表示していれば当たらない", () => {
+    const result = tileDeliveryFailureLayerIds(
+      groups({ landslide: { visible: true, payload: { kind: "rasterTile", tileUrlTemplate: TEMPLATE } } }),
+      new Map([["land", PREFIX.replace(BT, "20260914124000")]]),
+    );
+    expect(result).toEqual([]);
+  });
+
+  // 格子・GeoJSONを自前のfetchで取る表現は、フェッチ自身のloading/errorが状態を持つ。
+  it("タイルを配信元から引かない表現は対象外", () => {
+    const result = tileDeliveryFailureLayerIds(
+      groups({
+        liden: { visible: true, payload: { kind: "gridMark", geojson: { type: "FeatureCollection", features: [] } } },
+      }),
+      new Map([["land", PREFIX]]),
+    );
+    expect(result).toEqual([]);
   });
 });
