@@ -76,3 +76,26 @@
 .entry[data-level="warn"] .entryMessage {
   color: var(--color-log-warning);
 }
+
+/* ヘッダーのアイコンボタン（コピー）。文字のボタン（クリア）と同じ高さ・同じ枠に収め、
+   中身だけアイコンにする。 */
+.iconButton {
+  composes: clearButton;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+}
+
+.iconButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* コピーに失敗したときだけ出る説明（httpのIPアクセス等）。押しても何も起きない状態を
+   作らないための表示。 */
+.copyError {
+  margin: 0 0 0.25rem;
+  font-size: 0.7rem;
+  color: #fca5a5;
+}

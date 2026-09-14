@@ -64,7 +64,7 @@ describe("BackendLogsPanel", () => {
     });
 
     expect(writeText).toHaveBeenCalledWith("2026-09-01 [WARNING] a\n2026-09-01 [WARNING] b");
-    expect(await screen.findByRole("button", { name: "コピーしました" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "ログ全体をコピーしました" })).toBeInTheDocument();
   });
 
   it("取得失敗時はエラーメッセージを表示する", async () => {

@@ -172,7 +172,13 @@ export function DesignationIcon({ size = 16 }: IconProps) {
 export function TunnelIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M3 17V9a7 7 0 0 1 14 0v8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3 17V9a7 7 0 0 1 14 0v8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <path d="M3 17h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
@@ -313,7 +319,13 @@ export function WindIcon({ size = 16 }: IconProps) {
 export function WindDirectionArrowIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M10 2v14M10 2 5 8M10 2l5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M10 2v14M10 2 5 8M10 2l5 6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -423,12 +435,7 @@ export function FogIcon({ size = 16 }: IconProps) {
 export function SnowflakeIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 3v14M4.5 6.5l11 7M15.5 6.5l-11 7"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
+      <path d="M10 3v14M4.5 6.5l11 7M15.5 6.5l-11 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -465,12 +472,7 @@ export function RouteSpliceIcon({ size = 16 }: IconProps) {
 export function RouteDiffIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 3v11M4.4 5.4h11.2M5.6 13.4h8.8"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
+      <path d="M10 3v11M4.4 5.4h11.2M5.6 13.4h8.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       <path
         d="M4.4 5.4 2.2 10.2h4.4zM15.6 5.4 13.4 10.2h4.4z"
         stroke="currentColor"
@@ -511,7 +513,14 @@ export function UndoIcon({ size = 16 }: IconProps) {
         strokeLinecap="round"
         fill="none"
       />
-      <path d="M7.4 4.6 3.6 8.4l3.8 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path
+        d="M7.4 4.6 3.6 8.4l3.8 3.8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
     </svg>
   );
 }
@@ -527,7 +536,14 @@ export function UndoAllIcon({ size = 16 }: IconProps) {
         strokeLinecap="round"
         fill="none"
       />
-      <path d="M9.4 4.6 5.8 8.4l3.6 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path
+        d="M9.4 4.6 5.8 8.4l3.6 3.8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
       <path d="M3.2 3.6v9.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
@@ -538,12 +554,7 @@ export function ClearRoutesIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path d="M3.6 5.4h12.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <path d="M7.9 5.4V3.9h4.2v1.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path
-        d="M5.7 5.4h8.6l-.7 10.7H6.4L5.7 5.4Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
+      <path d="M5.7 5.4h8.6l-.7 10.7H6.4L5.7 5.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
       <path d="M8.6 8.6v4.6M11.4 8.6v4.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
@@ -555,12 +566,7 @@ export function ClearRoutesIcon({ size = 16 }: IconProps) {
 export function ClearAllLayersIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M7.5 2.6 13.6 6 7.5 9.4 1.4 6 7.5 2.6Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
+      <path d="M7.5 2.6 13.6 6 7.5 9.4 1.4 6 7.5 2.6Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
       <path d="M1.4 9.6 7.5 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <path
         d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6"
@@ -604,17 +610,28 @@ export function InfoIcon({ size = 14 }: IconProps) {
   );
 }
 
+/** コピー: 重なった2枚の紙。押すと中身がクリップボードへ入ることを表す。 */
+export function CopyIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <rect x="7" y="7" width="10" height="11" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M13 4.5H4.6A1.6 1.6 0 0 0 3 6.1v8.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** 地図の再描画: 閉じかけた円弧と矢じり。地図インスタンスだけを描き直す操作を表す。 */
 export function RedrawMapIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
+      <path d="M16 10a6 6 0 1 1-1.8-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <path
-        d="M16 10a6 6 0 1 1-1.8-4.3"
+        d="M16.4 2.6v3.6h-3.6"
         stroke="currentColor"
         strokeWidth="1.6"
         strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      <path d="M16.4 2.6v3.6h-3.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -626,7 +643,13 @@ export function RouteEditIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path d="M2.5 10h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <path d="M6.5 10 10 4.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M6.5 10 10 15.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M6.5 10 10 15.5h7"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <circle cx="6.5" cy="10" r="1.8" fill="currentColor" />
     </svg>
   );
@@ -697,7 +720,13 @@ export function LayersStackIcon({ size = 16 }: IconProps) {
         strokeLinejoin="round"
         strokeLinecap="round"
       />
-      <path d="M3 11 10 15.5 17 11" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+      <path
+        d="M3 11 10 15.5 17 11"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -728,7 +757,14 @@ export function SaveIcon({ size = 16 }: IconProps) {
 export function DownloadIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M10 3v9m0 0-3.5-3.5M10 12l3.5-3.5M4 15v2h12v-2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M10 3v9m0 0-3.5-3.5M10 12l3.5-3.5M4 15v2h12v-2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

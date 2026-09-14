@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 import { useDebugEnabled, useDebugLogEntries } from "@/hooks/useDebugLog";
+import { CopyIcon } from "@/components/Map/icons";
 import { clearDebugLog, type DebugLogLevel } from "@/lib/debugLog";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import styles from "./DebugConsole.module.css";
@@ -30,16 +32,30 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
   const entries = useDebugLogEntries();
   const listRef = useRef<HTMLDivElement>(null);
   const [minLevel, setMinLevel] = useState<DebugLogLevel>("info");
+  const { copied, error: copyError, copy } = useCopyToClipboard();
 
   const visibleEntries = useMemo(
     () => entries.filter((entry) => LEVEL_ORDER.indexOf(entry.level) >= LEVEL_ORDER.indexOf(minLevel)),
-    [entries, minLevel]
+    [entries, minLevel],
   );
 
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [visibleEntries]);
+
+  // 画面に出ているものをそのまま貼れる形にする（絞り込みを無視して全件にすると、絞って
+  // 見つけた数行を渡したいときに関係ない行まで混ざる）。
+  const visibleEntriesText = useMemo(
+    () =>
+      visibleEntries
+        .map((entry) => {
+          const detail = entry.detail == null ? "" : ` ${JSON.stringify(entry.detail)}`;
+          return `${entry.time} [${entry.category}] ${entry.message}${detail}`;
+        })
+        .join("\n"),
+    [visibleEntries],
+  );
 
   if (!enabled) return null;
 
@@ -63,20 +79,36 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
             <option value="warn">警告以上</option>
             <option value="error">エラーのみ</option>
           </select>
+          <button
+            type="button"
+            onClick={() => copy(visibleEntriesText)}
+            className={styles.iconButton}
+            disabled={visibleEntries.length === 0}
+            aria-label={copied ? "表示中のログをコピーしました" : "表示中のログをコピー"}
+            title={copied ? "コピーしました" : "表示中のログをコピー"}
+          >
+            <CopyIcon size={14} />
+          </button>
           <button type="button" onClick={clearDebugLog} className={styles.clearButton}>
             クリア
           </button>
         </>
       }
     >
+      {copyError !== null && <p className={styles.copyError}>{copyError}</p>}
       <div ref={listRef} className={styles.entries}>
-        {entries.length === 0 && <p className={styles.emptyMessage}>イベント待機中...[地図を操作するかAPIを呼び出してください]</p>}
+        {entries.length === 0 && (
+          <p className={styles.emptyMessage}>イベント待機中...[地図を操作するかAPIを呼び出してください]</p>
+        )}
         {entries.length > 0 && visibleEntries.length === 0 && (
-          <p className={styles.emptyMessage}>条件に一致するログがありません[フィルタを「すべて」に戻すと{entries.length}件表示されます]</p>
+          <p className={styles.emptyMessage}>
+            条件に一致するログがありません[フィルタを「すべて」に戻すと{entries.length}件表示されます]
+          </p>
         )}
         {visibleEntries.map((entry) => (
           <div key={entry.id} className={styles.entry} data-level={entry.level}>
-            <span className={styles.entryTime}>{entry.time}</span> <span className={styles.entryCategory}>[{entry.category}]</span>{" "}
+            <span className={styles.entryTime}>{entry.time}</span>{" "}
+            <span className={styles.entryCategory}>[{entry.category}]</span>{" "}
             <span className={styles.entryMessage}>{entry.message}</span>
             {entry.detail != null && <span className={styles.entryDetail}> {JSON.stringify(entry.detail)}</span>}
           </div>

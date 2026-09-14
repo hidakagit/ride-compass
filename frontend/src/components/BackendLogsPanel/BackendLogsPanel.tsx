@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
+import { CopyIcon } from "@/components/Map/icons";
 import { Card } from "@/components/ui/Card/Card";
 import { Input } from "@/components/ui/Input/Input";
 import { Button } from "@/components/ui/Button/Button";
@@ -25,11 +27,6 @@ function parseLogLevel(line: string): LogLevelName | null {
 // 認証情報の入力欄は持たない（axisAdminApi.tsと同じ理由、debugAdminApi.tsのコメント参照）。
 // 取得は開いたとき自動ではなく「取得」ボタン押下時のみ（SystemStatusPanelと同じ、
 // プロセス内スナップショットのためポーリング不要）。
-function describeCopyFailure(err: unknown): string {
-  const detail = err instanceof Error ? err.message : String(err);
-  return `クリップボードへコピーできませんでした（httpsまたはlocalhostでのみ利用できます）: ${detail}`;
-}
-
 export default function BackendLogsPanel() {
   const [contains, setContains] = useState("");
   const [minLevel, setMinLevel] = useState<LogLevelName | "">("WARNING");
@@ -37,37 +34,11 @@ export default function BackendLogsPanel() {
   const [lines, setLines] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState<string | null>(null);
-
-  // 「コピーしました」表示を戻すタイマー。アンマウント後にsetCopiedが走らないよう
-  // 保持してクリーンアップする。
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    return () => {
-      if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
-    };
-  }, []);
+  const { copied, error: copyError, copy } = useCopyToClipboard();
 
   const handleCopy = () => {
     if (!lines) return;
-    setCopyError(null);
-    // Clipboard APIは[SecureContext]のため、httpのIPアクセス等では`navigator.clipboard`
-    // 自体がundefinedになる。`.catch()`はPromiseの拒否しか捕まえないので、プロパティ
-    // アクセスの同期TypeErrorはtryで受けないとボタンが無反応のままになる。
-    try {
-      navigator.clipboard
-        .writeText(lines.join("\n"))
-        .then(() => {
-          setCopied(true);
-          if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
-          copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-        })
-        // 権限拒否で失敗する場合もある。握り潰すと「押しても何も起きない」だけになる。
-        .catch((err: unknown) => setCopyError(describeCopyFailure(err)));
-    } catch (err) {
-      setCopyError(describeCopyFailure(err));
-    }
+    copy(lines.join("\n"));
   };
 
   const handleFetch = () => {
@@ -89,8 +60,8 @@ export default function BackendLogsPanel() {
       <div className={styles.heading}>バックエンドの直近ログ</div>
       <p className={styles.hint}>
         debug_modeがOFFの間もWARNING以上（エラー・429拒否等）は記録されている。DEBUGレベルの
-        詳細を見るには上の「デバッグログを表示」ではなく、backend側でdebug_modeを有効化する
-        必要がある（`POST /api/admin/debug/mode`、このパネルの対象外）。
+        詳細を見るには上の「デバッグログを表示」ではなく、backend側でdebug_modeを有効化する 必要がある（`POST
+        /api/admin/debug/mode`、このパネルの対象外）。
       </p>
       <div className={styles.controls}>
         <select
@@ -132,8 +103,13 @@ export default function BackendLogsPanel() {
           {/* 行ごとのdivを1件ずつドラッグ選択するのは手間なため、表示中の全行を
               まとめてクリップボードへコピーするボタンを用意する。 */}
           <div className={styles.logActions}>
-            <Button variant="secondary" onClick={handleCopy}>
-              {copied ? "コピーしました" : "ログ全体をコピー"}
+            <Button
+              variant="secondary"
+              onClick={handleCopy}
+              aria-label={copied ? "ログ全体をコピーしました" : "ログ全体をコピー"}
+              title={copied ? "コピーしました" : "ログ全体をコピー"}
+            >
+              <CopyIcon size={14} />
             </Button>
           </div>
           {/* ログ取得の失敗（error）とは原因も対処も別なので、同じ行へ混ぜない。 */}

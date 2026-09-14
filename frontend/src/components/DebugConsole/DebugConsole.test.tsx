@@ -38,6 +38,40 @@ describe("DebugConsole", () => {
     expect(screen.queryByText(/engine/)).not.toBeInTheDocument();
   });
 
+  it("表示中のログを、行の形そのままでクリップボードへ渡す", async () => {
+    setDebugEnabled(true);
+    act(() => debugLog("map", "タイル要求", { z: 14 }));
+    act(() => debugLog("api", "失敗", undefined, "error"));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    render(<DebugConsole open onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "表示中のログをコピー" }));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const text = writeText.mock.calls[0][0] as string;
+    expect(text.split("\n")).toHaveLength(2);
+    expect(text).toContain('[map] タイル要求 {"z":14}');
+    expect(text).toContain("[api] 失敗");
+    expect(await screen.findByRole("button", { name: "表示中のログをコピーしました" })).toBeInTheDocument();
+  });
+
+  it("絞り込み中は、見えている行だけを渡す（絞って見つけた数行を渡せるようにする）", () => {
+    setDebugEnabled(true);
+    act(() => debugLog("map", "ふつうの行"));
+    act(() => debugLog("api", "エラーの行", undefined, "error"));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    render(<DebugConsole open onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("表示するログレベルの下限"), { target: { value: "error" } });
+    fireEvent.click(screen.getByRole("button", { name: "表示中のログをコピー" }));
+
+    const text = writeText.mock.calls[0][0] as string;
+    expect(text).toContain("エラーの行");
+    expect(text).not.toContain("ふつうの行");
+  });
+
   it("クリアボタンでログが消える", () => {
     setDebugEnabled(true);
     act(() => debugLog("map", "タイル要求"));

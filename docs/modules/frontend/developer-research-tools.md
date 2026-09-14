@@ -13,12 +13,13 @@
 | `app/admin/page.tsx` | `/admin`のタブ構成（軸スタジオ・材料・鮮度・研究・開発者）を束ねるコンポジションルート | 独立URL |
 | `components/HeaderMenu/HeaderMenu.tsx` | 研究モードON/OFF・デバッグログ表示を1個のメニューアイコンへ集約したRadix Popover | `page.tsx`（`/`）のヘッダー |
 | `components/DebugPanel/DebugPanel.tsx` | デバッグログ表示のON/OFFトグル | `/admin`「開発者」タブ |
-| `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル | `page.tsx`（`/`）、`HeaderMenu`から開閉 |
+| `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル。**表示中の行をそのままの形でコピーできる**（絞り込みを無視して全件にすると、絞って見つけた数行を渡したいときに関係ない行まで混ざる） | `page.tsx`（`/`）、`HeaderMenu`から開閉 |
 | `components/SystemStatusPanel/SystemStatusPanel.tsx` | backend `/api/debug/stats`の集計・フロントバージョン・予報（MSM）の同期鮮度を表示するフローティングパネル | `/admin`「開発者」タブ |
 | `components/BackendStatus.tsx` | バックエンドの死活確認の簡易表示 | `/admin`「開発者」タブ |
 | `components/BackendLogsPanel/BackendLogsPanel.tsx` | backend `GET /api/admin/debug/logs`の直近ログをレベル（DEBUG〜CRITICAL）・部分一致で絞り込んで表示するパネル。取得は「取得」ボタン押下時のみ（ポーリングなし） | `/admin`「開発者」タブ |
 | `components/ResearchPanel/ResearchPanel.tsx` | 研究モードの現在値（ON/OFF）の読み取り専用表示 | `/admin`「研究」タブ |
 | `components/FloatingPanel/FloatingPanel.tsx` | `DebugConsole`/`SystemStatusPanel`が共有するドラッグ可能な浮動パネルの共通シェル（`react-rnd`ベース） | 両パネルの実装基盤 |
+| `hooks/useCopyToClipboard.ts` | クリップボードへの書き込みと結果表示（コピー済み・失敗）。Clipboard APIは[SecureContext]のため、httpのIPアクセス等では`navigator.clipboard`自体がundefinedになる——`.catch()`はPromiseの拒否しか捕まえず、プロパティアクセスの同期TypeErrorをtryで受けないとボタンが無反応のままになる。失敗は握り潰さず文言を返す | `DebugConsole`・`BackendLogsPanel` |
 | `hooks/useDebugLog.ts`・`lib/debugLog.ts` | デバッグモードON/OFF状態・ログエントリのシングルストア（`useSyncExternalStore`） | |
 | `hooks/useResearchMode.ts`・`lib/researchMode.ts` | 研究モードON/OFF状態の同型シングルストア | |
 | `services/debugStatsApi.ts`・`services/versionApi.ts` | `SystemStatusPanel`が使うAPIクライアント | |
