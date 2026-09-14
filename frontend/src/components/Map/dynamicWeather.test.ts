@@ -8,6 +8,7 @@ import {
   DYNAMIC_WEATHER_LAYER_IDS,
   formatDynamicFrameTime,
   frameIndexForTime,
+  observationIndexForTime,
   gridCellRing,
   isWithinFutureWindow,
   mergeFrameTimes,
@@ -57,6 +58,35 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
 
     it("空配列なら0を返す", () => {
       expect(nearestTimeIndex([], new Date())).toBe(0);
+    });
+  });
+
+  // 予測を持たないレイヤー（観測だけが届く）。配信の遅れで共有時刻が最新フレームより後ろに
+  // なるのは常態で、frameIndexForTimeの規約をそのまま当てると常に何も描かれない（実測:
+  // 雷放電の最新フレームが5.0分前で、5分刻みの共有時刻が必ずその後ろに来る、T861）。
+  describe("observationIndexForTime（予測を持たないレイヤー）", () => {
+    const frames = [{ time: new Date("2026-08-20T12:50:00+09:00") }, { time: new Date("2026-08-20T12:55:00+09:00") }];
+
+    it("配信の遅れのぶん後ろを指していても、最新の観測を返す", () => {
+      expect(observationIndexForTime(frames, new Date("2026-08-20T13:00:00+09:00"))).toBe(1);
+      expect(observationIndexForTime(frames, new Date("2026-08-20T13:14:00+09:00"))).toBe(1);
+    });
+
+    it("許容の幅を超えて先を指していればnull（古い観測をその時刻の値として出さない）", () => {
+      expect(observationIndexForTime(frames, new Date("2026-08-20T13:20:00+09:00"))).toBeNull();
+      expect(observationIndexForTime(frames, new Date("2026-08-20T20:00:00+09:00"))).toBeNull();
+    });
+
+    it("範囲内の時刻はframeIndexForTimeと同じく最も近いフレーム", () => {
+      expect(observationIndexForTime(frames, new Date("2026-08-20T12:51:00+09:00"))).toBe(0);
+    });
+
+    it("最初のフレームより前はnull（過去は範囲外のまま）", () => {
+      expect(observationIndexForTime(frames, new Date("2026-08-20T11:00:00+09:00"))).toBeNull();
+    });
+
+    it("フレームが空ならnull", () => {
+      expect(observationIndexForTime([], new Date())).toBeNull();
     });
   });
 
