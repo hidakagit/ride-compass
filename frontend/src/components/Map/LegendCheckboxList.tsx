@@ -1,7 +1,6 @@
 "use client";
 
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import WidthSwatch from "@/components/Map/WidthSwatch";
 import type { LegendEntry } from "./legendFilter";
 
 interface LegendCheckboxListProps {
@@ -21,8 +20,7 @@ interface LegendCheckboxListProps {
 // RouteAxisProfile.tsx等で共用）。行の中身（チェックボックス+スウォッチ+ラベル）
 // だけを担い、リスト/行自体の見た目
 // （サイドバーの2列グリッドか、ポップオーバー内の単列か等）は呼び出し側がclassNameで
-// 指定する——文脈で項目数・レイアウトが異なるため。widthを持つLegendEntryは色スウォッチの
-// 代わりにWidthSwatchを描く（roadFilterAxes.ts: 道路の種類のように太さ・線種で区別する軸）。
+// 指定する——文脈で項目数・レイアウトが異なるため。
 export default function LegendCheckboxList({
   legend,
   hiddenKeys,
@@ -41,11 +39,7 @@ export default function LegendCheckboxList({
         return (
           <label key={entry.key} className={className}>
             <Checkbox checked={visible} onCheckedChange={() => onToggle(entry.key)} aria-label={entry.label} />
-            {entry.width !== undefined ? (
-              <WidthSwatch width={entry.width} dashed={entry.dashed} color={entry.color} />
-            ) : (
-              <span aria-hidden="true" className={swatchClassName} style={{ background: entry.color }} />
-            )}
+            <span aria-hidden="true" className={swatchClassName} style={{ background: entry.color }} />
             {entry.label}
           </label>
         );

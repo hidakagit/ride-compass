@@ -18,14 +18,10 @@
 // 色の選択を同じ画面に同居させると、絞り込んだ結果1色しか出ない軸を選べてしまい
 // 情報量ゼロになる、という混乱があったため）。
 //
-// 「道路の種類」は主に線の太さ（line-width）・線種（line-dasharray）で地図に反映する。
-// 色を2軸分掛け合わせる（最大30通り）と細い線では判別できず凡例も破綻するため、道路の
-// 種類には別の視覚チャンネル（太さ）を割り当てている。太さは実際の道幅の感覚と一致させ、
-// 幹線道路ほど太く・自転車専用道路ほど細くしてある（HIGHWAY_GROUPSのwidth参照）。
-// 不明・他はタグが無い/未分類なだけで実際の道幅とは無関係なため、太さでは目立たせず
-// 線種（破線）で区別する。ただし「路面の種類」がOFFの間は色チャンネルが空くため、
-// 太さと同じ序列を色相を持たない濃淡でも重ねて表す（COLOR_HIGHWAY_*。詳細はHIGHWAY_GROUPS
-// 直前のコメント、実際の出し分けはMapView.tsx: applyRoadLayerState参照）。
+// **意味を運ぶのは色だけで、太さ・線種は情報を持たない**（全ての線レイヤー共通の規約）。
+// 複数の軸を同時にONにしたときは、色を掛け合わせるのではなくMapLibreのline-offsetで平行な
+// トラックへ分ける（MapView.tsx: applyRoadMaterialTrackOffsets）——1本の線へ複数の意味を
+// 載せると、どちらの意味の色なのかが他レイヤーのON/OFFに依存して入れ替わる。
 //
 // 軸を増やすときは、タイルへプロパティを1つ足し、ROAD_FILTER_AXESへ軸定義を1つ足すだけで
 // よい（RoadFilterDialogは軸のリストを汎用的にループして描画するため、UI側の変更は不要）。
@@ -46,28 +42,20 @@ export interface RoadFilterAxis {
   /** 絞り込みパネルの見出しに出す名前（例:「路面の種類で絞り込み」） */
   label: string;
   legend: LegendEntry[];
-  /** MapLibreのline-colorに渡すスタイル式。「路面の種類」がONの間は常にそちらの式を使い、
-   * OFFの間だけ「道路の種類」の式（濃淡パレット、COLOR_HIGHWAY_*）を使う
-   * （MapView.tsx: applyRoadLayerState参照）。 */
+  /** MapLibreのline-colorに渡すスタイル式。軸ごとに独立したレイヤーが自分の式だけを使う
+   * （他の軸のON/OFFで色の意味が変わることはない）。 */
   colorExpression: unknown[];
   /** MapLibreのline-opacityに渡すスタイル式。「不明・他」（対象外）を目立たなくし、
    * 分類情報を持つ区間だけを浮き上がらせる（下記FALLBACK_LINE_OPACITY参照）。
    * colorExpressionと同じ「路面の種類ON時はそちら、OFF時は道路の種類側」の出し分けで使う。 */
   opacityExpression?: unknown[];
-  /** MapLibreのline-widthに渡すスタイル式。色と衝突しないよう、この式を持つ軸（道路の種類）
-   * だけが太さで地図に反映される。色軸（路面の種類）は持たない（undefined）。 */
-  widthExpression?: unknown[];
-  /** MapLibreのline-dasharrayに渡すスタイル式。「不明・他」を実線と区別するために持つ
-   * （道路の種類のみ）。他の軸は持たない（undefined）。 */
-  dashArrayExpression?: unknown[];
 }
 
 // ルート候補線（選択=青#2563eb・未選択=アンバー#f59e0b）と紛れにくいよう、青は使わず
 // 生活道路には空色を当てる。
 //
-// 「路面の種類」（SURFACE_GROUPS）はROAD_LINE_COLOR_AXIS_IDとして地図のline-colorへ
-// 直接反映される唯一の軸で、legend側もcolor値をそのまま丸ドットで表示する（widthを
-// 持たないため、下記renderLegendSwatch相当の判定で色ドット表示になる）。2次のramp軸
+// 「路面の種類」（SURFACE_GROUPS）の色は自分のレイヤーのline-colorへ直接反映され、
+// 凡例も同じcolor値を丸ドットで表示する。2次のramp軸
 // （車の圧迫感・停止密度・事故密度等、axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤の評価配色）
 // と色相が重なると、1次（観測された事実）と2次（推定された評価）が地図上で混同される
 // ため、評価色（緑・アンバー・オレンジ・赤の系統）を避けた中立色を使う（COLOR_SLATE/
@@ -88,17 +76,12 @@ const COLOR_BROWN = "#92400e";
 const COLOR_SLATE = "#64748b";
 const COLOR_KHAKI = "#a3915f";
 
-// HIGHWAY_GROUPS（道路の種類）専用の濃淡パレット。道路の種類は太さ・線種で地図に反映する
-// 軸で（widthExpression/dashArrayExpression、下記コメント参照）、路面の種類の色分けと
-// 同時に使われることは無い（路面の種類ONの間は常に路面側の色がline-colorを占有し、この
-// 配色は使われない。MapView.tsx: applyRoadLayerState参照）。「路面の種類OFF・道路の種類
-// ONのときだけ」太さと同じ「幹線道路ほど強く目立つ」序列を、色相を持たない濃淡
-// （青みがかった中立トーン）でも重ねて表現する。太さと同じ情報をなぞる補助的な表現のため、
-// 色相ベースの評価配色（axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤）とは体系的に別の視覚
-// 言語にしてあり、2次のcar_stress等の評価色と混同しない。COLOR_SLATE（路面の種類=
-// アスファルトが使用中）やCOLOR_UNKNOWN（不明・他）とも別の色値にし、それぞれの文脈で
-// 意味が食い違わないようにする。太さバー（WidthSwatch）自体もこの色で塗り、地図と凡例の
-// 見た目を一致させる（entry.colorをそのまま渡す、下記buildGroupLegend/呼び出し側参照）。
+// HIGHWAY_GROUPS（道路の種類）専用のパレット。「幹線道路ほど強く目立つ」序列を、色相を
+// 持たない濃淡（青みがかった中立トーン）で表す——順序はあるが良し悪しではないため、
+// 色相ベースの評価配色（axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤）とは別の視覚言語にして
+// あり、2次のcar_stress等の評価色と混同しない。COLOR_SLATE（路面の種類=アスファルトが
+// 使用中）やCOLOR_UNKNOWN（不明・他）とも別の色値にし、それぞれの文脈で意味が食い違わない
+// ようにする。
 const COLOR_HIGHWAY_ARTERIAL = "#334155";
 const COLOR_HIGHWAY_SECONDARY = "#475569";
 const COLOR_HIGHWAY_LOCAL = "#94a3b8";
@@ -110,8 +93,6 @@ export interface CategoryGroup {
   color: string;
   /** このカテゴリに含めるタグ値（タイル側で正規化済みの小文字） */
   values: string[];
-  /** line-widthのpx値。太さで地図に反映する軸（道路の種類）のみ設定する。 */
-  width?: number;
 }
 
 // OSMのsurfaceタグの表示用グルーピング。タグ値はバックエンド側でlower/trim正規化済み。
@@ -151,23 +132,6 @@ export const SURFACE_GROUPS: CategoryGroup[] = [
   },
 ];
 
-// 「道路の種類」は線の太さで地図に反映する（実際の道幅の感覚に合わせ、幹線道路ほど太く・
-// 自転車専用道路ほど細くする）。差が分かりやすいよう、太さは名前付き定数にまとめて
-// ここだけで調整できるようにしてある（HIGHWAY_GROUPSの各widthを直接いじらず、この定数を
-// 変える）。不明・他はタグ自体が無い/未分類で実際の道幅とは無関係なため、太さでは
-// 目立たせず、代わりに破線（line-dasharray）にして区別する（HIGHWAY_DASHARRAY_*参照）。
-const HIGHWAY_LINE_WIDTH_ARTERIAL = 6;
-const HIGHWAY_LINE_WIDTH_SECONDARY = 4.5;
-const HIGHWAY_LINE_WIDTH_LOCAL = 3;
-const HIGHWAY_LINE_WIDTH_CYCLEWAY = 1.75;
-const HIGHWAY_LINE_WIDTH_TRACK = 1.75;
-const HIGHWAY_LINE_WIDTH_UNKNOWN = HIGHWAY_LINE_WIDTH_LOCAL;
-
-// line-dasharrayは[on, off]をline-width単位で繰り返す。既知カテゴリは実線（[1, 0]=
-// 途切れなし）、不明・他だけ破線にする。値を大きくするほど1つ1つの破線が長くなる。
-const HIGHWAY_DASHARRAY_SOLID = [1, 0];
-const HIGHWAY_DASHARRAY_UNKNOWN = [2, 1.5];
-
 // OSMのhighwayタグ（道路種別）の表示用グルーピング（地図の色分け・線幅専用、意図的に
 // 多対一）。地図表示と評価で必要な粒度が異なる（軸スタジオは1値1ラベルが必要）ため、
 // 軸スタジオの値ラベルはbackend/app/domain/material_catalog.py: MaterialSpec.value_labels
@@ -178,39 +142,34 @@ export const HIGHWAY_GROUPS: CategoryGroup[] = [
     key: "arterial",
     label: "幹線道路",
     color: COLOR_HIGHWAY_ARTERIAL,
-    width: HIGHWAY_LINE_WIDTH_ARTERIAL,
     values: ["motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"],
   },
   {
     key: "secondary",
     label: "主要道",
     color: COLOR_HIGHWAY_SECONDARY,
-    width: HIGHWAY_LINE_WIDTH_SECONDARY,
     values: ["secondary", "secondary_link", "tertiary", "tertiary_link"],
   },
   {
     key: "local",
     label: "生活道路",
     color: COLOR_HIGHWAY_LOCAL,
-    width: HIGHWAY_LINE_WIDTH_LOCAL,
     values: ["residential", "unclassified", "living_street", "service", "road"],
   },
   {
     key: "cycleway",
     label: "自転車・歩行者道",
     color: COLOR_HIGHWAY_MINOR,
-    width: HIGHWAY_LINE_WIDTH_CYCLEWAY,
     values: ["cycleway", "path", "footway", "pedestrian", "bridleway", "steps"],
   },
   {
     key: "track",
     label: "農道・林道",
-    // 自転車・歩行者道と太さ（HIGHWAY_LINE_WIDTH_TRACK=CYCLEWAY）が同じため、濃淡だけでは
-    // 見分けが付かない。COLOR_HIGHWAY_MINORをそのまま使わず、SURFACE_GROUPSの「土・草・砂」
-    // （dirt）と同じCOLOR_BROWNを流用する（両者は「路面の種類」ONの間はこの軸の色自体が
-    // 使われないため画面上で同時に競合しない、テーマ的にも未舗装路のイメージが重なり自然）。
+    // 自転車・歩行者道と濃淡が近く見分けが付きにくいため、COLOR_HIGHWAY_MINORをそのまま
+    // 使わず、SURFACE_GROUPSの「土・草・砂」
+    // （dirt）と同じCOLOR_BROWNを流用する（別レイヤー・別トラックへ分かれて描かれるため
+    // 画面上で直接競合せず、テーマ的にも未舗装路のイメージが重なり自然）。
     color: COLOR_BROWN,
-    width: HIGHWAY_LINE_WIDTH_TRACK,
     values: ["track"],
   },
 ];
@@ -239,50 +198,14 @@ function buildOpacityMatchExpression(field: string, groups: CategoryGroup[]): un
   return ["match", matchInput(field), allValues, KNOWN_LINE_OPACITY, FALLBACK_LINE_OPACITY];
 }
 
-// buildMatchExpressionの太さ版。fallbackWidthは未知タグ時（プロパティ欠落・カテゴリ外）の太さ。
-function buildWidthMatchExpression(field: string, groups: CategoryGroup[], fallbackWidth: number): unknown[] {
-  const expression: unknown[] = ["match", matchInput(field)];
-  for (const group of groups) {
-    expression.push(group.values, group.width ?? fallbackWidth);
-  }
-  expression.push(fallbackWidth);
-  return expression;
-}
-
-// buildMatchExpressionの線種版。既知カテゴリは実線、未知タグ（プロパティ欠落・カテゴリ外）
-// だけ破線にする（「不明・他」を太さでなく線種で目立たせて区別するため）。
-// matchの出力に生の配列（[1, 0]等）をそのまま渡すと、MapLibreがそれを「式」として解釈しようと
-// して1つ目の要素を演算子名（文字列）として期待し、数値だと
-// 「Expression name must be a string, but found number instead.」で addLayer 自体が失敗する
-// （エラーはmap.on("error")経由でしか分からず、例外にはならないため見つけにくい）。
-// ["literal", [...]] で包み、リテラル値として扱わせる必要がある。
-function buildDashArrayExpression(field: string, groups: CategoryGroup[]): unknown[] {
+function buildGroupLegend(field: string, groups: CategoryGroup[]): LegendEntry[] {
   const allValues = groups.flatMap((group) => group.values);
   return [
-    "match",
-    matchInput(field),
-    allValues,
-    ["literal", HIGHWAY_DASHARRAY_SOLID],
-    ["literal", HIGHWAY_DASHARRAY_UNKNOWN],
-  ];
-}
-
-// unknownWidth/unknownDashedを渡すと「不明・他」エントリにもそれぞれ持たせる
-// （太さ・線種で地図に反映する軸のみ）。
-function buildGroupLegend(
-  field: string,
-  groups: CategoryGroup[],
-  unknownWidth?: number,
-  unknownDashed?: boolean,
-): LegendEntry[] {
-  const allValues = groups.flatMap((group) => group.values);
-  return [
-    ...groups.map(({ key, color, label, values, width }) => ({
+    ...groups.map(({ key, color, label, values }) => ({
       key,
       color,
       label,
       filter: ["match", matchInput(field), values, true, false],
-      ...(width !== undefined ? { width } : {}),
     })),
     {
       key: "unknown",
@@ -290,8 +213,6 @@ function buildGroupLegend(
       label: "不明・他",
       // どの既知カテゴリのタグ値にも一致しない（タグ無し含む）ものがフォールバック
       filter: ["match", matchInput(field), allValues, false, true],
-      ...(unknownWidth !== undefined ? { width: unknownWidth } : {}),
-      ...(unknownDashed ? { dashed: true } : {}),
     },
   ];
 }
@@ -309,24 +230,15 @@ export const ROAD_FILTER_AXES: RoadFilterAxis[] = [
     id: "highway",
     layerId: "roadType",
     label: "道路の種類",
-    legend: buildGroupLegend("highway", HIGHWAY_GROUPS, HIGHWAY_LINE_WIDTH_UNKNOWN, true),
-    // colorExpression/opacityExpressionは「路面の種類」がOFFのときだけMapView.tsx側が使う
-    // （applyRoadLayerState参照）。路面の種類がONの間はsurface軸の式が優先されるため未使用。
+    legend: buildGroupLegend("highway", HIGHWAY_GROUPS),
     colorExpression: buildMatchExpression("highway", HIGHWAY_GROUPS),
     opacityExpression: buildOpacityMatchExpression("highway", HIGHWAY_GROUPS),
-    widthExpression: buildWidthMatchExpression("highway", HIGHWAY_GROUPS, HIGHWAY_LINE_WIDTH_UNKNOWN),
-    dashArrayExpression: buildDashArrayExpression("highway", HIGHWAY_GROUPS),
   },
 ];
 
-// 地図の線色は常にこの軸（路面の種類）の配色を使う。
-export const ROAD_LINE_COLOR_AXIS_ID: RoadFilterAxisId = "surface";
-
-// 地図の線の太さは常にこの軸（道路の種類）のwidthExpressionを使う。
-export const ROAD_LINE_WIDTH_AXIS_ID: RoadFilterAxisId = "highway";
-
-// 地図の線種（実線/破線）は常にこの軸（道路の種類）のdashArrayExpressionを使う。
-export const ROAD_LINE_DASH_AXIS_ID: RoadFilterAxisId = "highway";
+// 軸ごとに1枚のレイヤーを持ち、そのレイヤーの色はこの軸の配色だけで決まる。
+export const ROAD_SURFACE_AXIS_ID: RoadFilterAxisId = "surface";
+export const ROAD_TYPE_AXIS_ID: RoadFilterAxisId = "highway";
 
 export function getRoadFilterAxis(id: RoadFilterAxisId): RoadFilterAxis {
   return ROAD_FILTER_AXES.find((axis) => axis.id === id) ?? ROAD_FILTER_AXES[0];

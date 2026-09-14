@@ -6,7 +6,7 @@ import LegendCheckboxList from "./LegendCheckboxList";
 
 // 改善計画T525: 凡例のチェックボックス一覧とRouteAxisProfile.tsxの
 // 凡例チェックボックス重複を統合したコンポーネント。widthの有無によるスウォッチ/
-// WidthSwatchの出し分け・isFallback行への追加classの付与を検証する。
+// isFallback行への追加classの付与を検証する。
 describe("LegendCheckboxList", () => {
   const LEGEND: LegendEntry[] = [
     { key: "asphalt", label: "アスファルト", color: "#111", filter: [] },
@@ -61,23 +61,5 @@ describe("LegendCheckboxList", () => {
     const fallbackRow = screen.getByRole("checkbox", { name: "不明・他" }).closest("label");
     expect(normalRow?.className).toBe("row");
     expect(fallbackRow?.className).toBe("row rowFallback");
-  });
-
-  it("widthを持つentryは色スウォッチではなくWidthSwatch（太さバー）を描く", () => {
-    const legendWithWidth: LegendEntry[] = [
-      { key: "residential", label: "生活道路", color: "#333", filter: [], width: 2 },
-    ];
-    const { container } = render(
-      <LegendCheckboxList
-        legend={legendWithWidth}
-        hiddenKeys={[]}
-        onToggle={vi.fn()}
-        listClassName="list"
-        rowClassName="row"
-        swatchClassName="swatch"
-      />,
-    );
-    expect(container.querySelector(".swatch")).not.toBeInTheDocument();
-    expect(screen.getByText("生活道路").parentElement?.querySelector('[class*="bar"]')).toBeInTheDocument();
   });
 });

@@ -16,7 +16,7 @@
 | ファイル | 責務 |
 |---|---|
 | `Map/staticAttributeLayers.ts` | 指定路線・トンネル・一方通行・停止要因POI・補給休憩POI・事故の色分け定義、絞り込み軸カタログ`buildStaticFilterAxes` |
-| `Map/roadFilterAxes.ts` | 路面レイヤー（路面の種類=`surface`・道路の種類=`highway`）の絞り込み軸・配色・太さ・線種 |
+| `Map/roadFilterAxes.ts` | 路面レイヤー（路面の種類=`surface`・道路の種類=`highway`）の絞り込み軸と配色。**線レイヤーで意味を運ぶのは色だけで、太さ・線種は情報を持たない**——1本の線へ複数の意味を載せると、色の意味が他方のON/OFFで入れ替わる。同時表示は並列トラックで分ける |
 | `Map/legendFilter.ts` | カテゴリ絞り込みの汎用機構（凡例フィルタ式の組み立て・AND束ね・要約文生成） |
 | `Map/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`による除外を持つ |
@@ -30,9 +30,8 @@
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループの開閉キー（`group:<グループ>`）は`MAP_OVERLAY_GROUP_ORDER`から生成・逆引きし、キー文字列を手で並べない——グループを増やしたとき見出しが「グループ本体」と認識されず2件目以降がチップ列から消えるのを防ぐ |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`RouteSettingsPanel/HardFilterPanel.tsx`が使う） |
-| `Map/WidthSwatch.tsx` | 凡例の「太さ」見本（実寸を`DISPLAY_SCALE`倍して描く）。`LegendCheckboxList`・`MapOverlayControls`が共用する |
 | `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。`RouteSettingsPanel`・`RouteAxisProfile`・`recipeControls.tsx: FieldLabel`・軸スタジオの材料説明が共用し、(i)→Popoverの組み立てを自前で持つ箇所は無い |
-| `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+スウォッチ/`WidthSwatch`+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`LensControl`・`MapOverlayControls`の▶パネルで共用） |
+| `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+色スウォッチ+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`LensControl`・`MapOverlayControls`の▶パネルで共用） |
 
 ## タイルの配信元（`lib/tileBaseUrl.ts`）
 
@@ -77,7 +76,7 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
     │    （buildAxisOverlayLayersの第2引数casingLayerKeys）
     ▼
   designation → tunnel → oneway
-    │  ← ROAD_MATERIAL_TRACK_LAYER_IDS（road+designation+tunnel+onewayの4本）を
+    │  ← ROAD_MATERIAL_TRACK_LAYER_IDS（路面・道路の種類・指定路線・トンネル・一方通行）を
     │    line-offsetで並列トラックへ分離（applyRoadMaterialTrackOffsets）
     ▼
   専用way値配信軸（軸カタログ順、評価軸グループの線。本モジュール対象外）
@@ -85,16 +84,11 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
   accidents → stopPoi → supplyPoi（点データ、別ソース）
 ```
 
-`ROAD_TILE_LAYER_ID`（roadType/roadSurfaceの合成レイヤー）は`applyRoadLayerState`が
-`showRoadSurface`/`showRoadType`の組み合わせに応じて色・太さ・線種・不透明度を都度
-再計算する:
-
-| 状態 | 色 | 太さ・線種 |
-|---|---|---|
-| 両方ON | 路面の種類の配色 | 道路の種類の太さ・線種 |
-| 路面の種類のみON | 路面の種類の配色 | 中立（均一・実線） |
-| 道路の種類のみON | 道路の種類の濃淡パレット | 道路の種類の太さ・線種 |
-| 両方OFF | レイヤー自体を隠す | — |
+「道路情報」の各軸は**それぞれ独立した線レイヤー**（`ROAD_TILE_LAYER_ID`=路面の種類、
+`ROAD_TYPE_LAYER_ID`=道路の種類）で、同じベクタソースを共有する。`applyRoadLayerState`は
+レイヤーごとに、そのレイヤーの軸の色式・不透明度式・凡例の絞り込みだけを適用する——
+**どちらの色の意味も、もう一方のON/OFFでは変わらない**。太さは全レイヤー共通の
+`DEFAULT_ROAD_LINE_WIDTH`で、線種は使わない。両方ONのときは下記の並列トラックが横へ分ける。
 
 ## スタイル取り直し後の作り直し（`redrawAllLayers`）
 
@@ -111,13 +105,13 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 
 ## 並列トラック分離（`applyRoadMaterialTrackOffsets`）
 
-同じ道路ジオメトリへ複数の独立レイヤー（合成道路/路面・指定路線・トンネル・一方通行）を
+同じ道路ジオメトリへ複数の独立レイヤー（路面の種類・道路の種類・指定路線・トンネル・一方通行）を
 重ねて描画すると、後から描画されたレイヤーが前のレイヤーを覆い隠す。`line-offset`で
 道路と平行な複数トラックへ横並びに分離することでこれを避ける——ON中のレイヤーだけを
 対称に割り付ける（1件→0、2件→±1.5、3件→-3/0/+3）ため、どれかをOFFにすると残りが
 自動で中央へ寄り直す。
 
-トラック本数（`ROAD_MATERIAL_TRACK_LAYER_IDS.length`=4）・オフセット間隔
+トラック本数（`ROAD_MATERIAL_TRACK_LAYER_IDS.length`）・オフセット間隔
 （`MATERIAL_TRACK_OFFSET_STEP`=2px）・1次レイヤーの太さ（`DEFAULT_ROAD_LINE_WIDTH`=3px）
 から、二次軸の下敷き幅（`SECONDARY_AXIS_CASING_WIDTH`）が式として算出される。
 
