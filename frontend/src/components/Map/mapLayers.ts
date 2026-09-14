@@ -269,17 +269,20 @@ export function buildMapLayers(
         "夜間の危険度の判定に使われます。night軸自体も専用レイヤーを持ちます。",
     },
     {
-      // 一方通行（一次属性、OSM onewayタグ）。一方通行の逆方向は既にRoad Graph構築時
+      // 一方通行（一次属性）。一方通行の逆方向は既にRoad Graph構築時
       // （backend/app/domain/graph.py: build_road_graph）にEdge自体が生成されないため探索の
       // 正しさには無関係で、評価軸（route_preference）にも組み込まない表示専用の一次属性。
+      // 上下線が分かれた道の片側はここへ出さない（道路としては双方向で、逆方向は数m隣に
+      // ある。判定はbackend側、way_divided_carriageway）。
       id: "oneway",
       label: "一方通行",
       kind: "static",
       category: "roadCondition",
-      description: "一方通行区間[OSMのonewayタグ]を色分け表示",
+      description: "来た道を戻れない区間を色分け表示",
       panelHint:
-        "OSMのonewayタグが該当する区間です。ルート探索は既に一方通行の向きを守っており" +
-        "（逆走経路自体が生成されません）、このレイヤーは表示のみで評価には影響しません。",
+        "その向きにしか通れない区間です。上下線が分かれているだけの道（逆方向が数m隣にある）" +
+        "は除いてあります。ルート探索は既に一方通行の向きを守っており（逆走経路自体が" +
+        "生成されません）、このレイヤーは表示のみで評価には影響しません。",
     },
     {
       id: "stopPoi",

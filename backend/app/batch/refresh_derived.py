@@ -1,7 +1,7 @@
 """派生データ再構築の単一エントリポイント。
 
 [docs/batch-pipeline-dependencies.md](../../../docs/batch-pipeline-dependencies.md)の
-④〜⑫（road_edges起点・osm_raw_ways起点の派生計算バッチ）を、依存順序どおり1コマンドへ
+④〜⑬（road_edges起点・osm_raw_ways起点の派生計算バッチ）を、依存順序どおり1コマンドへ
 まとめる。①〜③（import_pbf/import_accidents/import_designations、生データ取込）は対象外
 ——個別のファイル・年次・kind指定を要する生データ取込そのものであり、「派生データの
 再構築」ではないため。
@@ -9,7 +9,8 @@
 実行順序（依存DAGどおり）: ④presplit_road_graph→⑤precompute_road_node_degrees→
 ⑥precompute_edge_attribute_counts→⑦precompute_elevation_attributes→
 ⑧precompute_way_attribute_counts→⑨match_designations→⑩precompute_way_landcover→
-⑪precompute_way_curvature→⑫precompute_edge_curvature。
+⑪precompute_way_curvature→⑫precompute_edge_curvature→
+⑬precompute_way_divided_carriageway。
 `app/batch/precompute_*.py`のうち1本でもここへ登録し忘れると、そのバッチが埋める列は
 再構築されないまま「派生データ再構築が完了しました」と報告される。
 `tests/test_refresh_derived.py`がファイル一覧と`_STAGES`を突き合わせて登録漏れを止める。
@@ -47,6 +48,7 @@ from app.batch import (
     precompute_road_node_degrees,
     precompute_way_attribute_counts,
     precompute_way_curvature,
+    precompute_way_divided_carriageway,
     precompute_way_landcover,
     presplit_road_graph,
 )
@@ -69,6 +71,7 @@ _STAGES: list[tuple[str, ModuleType, str]] = [
     ("⑩precompute_way_landcover", precompute_way_landcover, "run_default"),
     ("⑪precompute_way_curvature", precompute_way_curvature, "run"),
     ("⑫precompute_edge_curvature", precompute_edge_curvature, "run"),
+    ("⑬precompute_way_divided_carriageway", precompute_way_divided_carriageway, "run"),
 ]
 
 

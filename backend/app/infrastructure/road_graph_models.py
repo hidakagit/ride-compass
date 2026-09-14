@@ -8,7 +8,7 @@ road_graph_repository.pyが担う。
 from datetime import datetime
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -320,6 +320,32 @@ class WayGeometryRow(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # 派生データの系譜追跡。EdgeAttributeCountsRowと同じ高水位マーク方式・同じ理由で
     # ForeignKey()を持たない素のInteger（コメントはそちら参照）。
+    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class WayDividedCarriagewayRow(Base):
+    """そのwayが「上下線が分かれた道の片側」か（migration 0040で実テーブルは作成済み、
+    ORMモデルはミラー）。バッチは`app/batch/precompute_way_divided_carriageway.py`。
+
+    OSMは中央分離帯のある道路の上下線を別wayにしそれぞれへoneway=yesを付けるため、
+    `osm_raw_ways.direction`だけでは一方通行規制の道と区別できない。一方通行レイヤーは
+    この値で後者を外す。
+
+    `way_geometry`へ列を足さず独立させているのは、系譜の列が行単位で1組しか無く、
+    2つのバッチが同じ行を書くと互いの系譜を上書きしてしまうため。
+
+    行が無い＝未判定。読む側は安全側＝falseとして扱う。
+    """
+
+    __tablename__ = "way_divided_carriageway"
+
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
+    )
+    divided: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 派生データの系譜追跡（WayGeometryRowと同じ高水位マーク方式・同じ理由）。
     source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
 

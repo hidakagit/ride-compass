@@ -58,6 +58,11 @@
 ⑪ precompute_way_curvature.py          osm_raw_ways.geom → way_geometry
       └─ ①（osm_raw_ways更新）の後に再実行が必要（road_edges非依存）
 
+⑬ precompute_way_divided_carriageway.py
+                                        osm_raw_ways.geom+tags → way_divided_carriageway
+      └─ ①（osm_raw_ways更新）の後に再実行が必要（road_edges非依存）。判定は他のwayとの
+         位置関係を見るため、対象wayだけでなく周辺のwayが揃っている必要がある
+
 【第2グループの続き（④の後であればよく、⑤〜⑪との前後関係なし）】
 ⑫ precompute_edge_curvature.py         road_edges.geom → road_edges.curvature_deg_per_km
       └─ ④の後に再実行が必要。⑤〜⑦とも⑧〜⑪とも順序制約が無いため末尾に置く
@@ -81,6 +86,7 @@
 | ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`cache_identity.py`の`ROAD_SURFACE_REVISION`を上げてタイルキャッシュを陳腐化させること**——焼き込むSQLは変わらないまま、SQLが読むテーブルの中身だけが変わるため、鍵の署名側は動かない | UPSERT、安全 |
 | ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
 | ⑪ | `precompute_way_curvature.py` | `osm_raw_ways`（geom非NULL全件） | `way_geometry`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を測り直す） |
+| ⑬ | `precompute_way_divided_carriageway.py` | `osm_raw_ways`（全件） | `way_divided_carriageway`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存）。判定が周辺のwayを見るため、対象範囲のwayが揃っていること | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を判定し直す） |
 | ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
 | ⑫ | `precompute_edge_curvature.py` | `road_edges`（`distance_m > 0`の全件、ジオメトリ） | `road_edges.curvature_deg_per_km`（同一表のUPDATE） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・再split） | 全件測り直し、安全（`distance_m = 0`のEdgeは測れずNULLのまま） |
 

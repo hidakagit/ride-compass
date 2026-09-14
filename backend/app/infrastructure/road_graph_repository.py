@@ -336,7 +336,13 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         -- forward/backward/both（osm_raw_ways専用列、tagsのJSONBには
                         -- 含まれない）。一方通行の逆方向は既にbuild_road_graphがEdge自体を
                         -- 生成しないため、探索の正しさには無関係（表示専用の一次属性）。
-                        CASE WHEN w.direction != 'both' THEN true END AS oneway,
+                        -- 上下線が分かれた道の片側は外す（道路としては双方向で、逆方向は
+                        -- 数m隣にある。判定はway_geometry.divided_carriageway）。未判定
+                        -- （バッチ未実行でNULL）は安全側のfalseとして扱い、directionだけで
+                        -- 塗る従来の見え方へ倒す。
+                        CASE WHEN w.direction != 'both'
+                                  AND NOT COALESCE(wdc.divided, false)
+                             THEN true END AS oneway,
                         -- ST_AsMVTはnumeric型を認識せずtextへフォールバックする
                         -- （フロントのMapLibre expressionが数値比較できなくなる）ため、
                         -- integerへキャストしてから焼き込む。0以下はPythonのparse_maxspeed/
@@ -401,6 +407,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
                     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
                     LEFT JOIN way_geometry wg ON wg.osm_way_id = w.osm_way_id
+                    LEFT JOIN way_divided_carriageway wdc ON wdc.osm_way_id = w.osm_way_id
                     LEFT JOIN LATERAL (
                         -- 指定路線（designation_attributes、match_designations.pyが埋める
                         -- osm_way_id単位の派生テーブル）をwayごとに主キーで引く。wayに相関
@@ -1000,6 +1007,136 @@ _RECOMPUTE_WAY_CURVATURE_SQL = text(
     LEFT JOIN curvature_total ON curvature_total.id = t.osm_way_id
     ON CONFLICT (osm_way_id) DO UPDATE SET
         curvature_deg_per_km = EXCLUDED.curvature_deg_per_km,
+        computed_at = EXCLUDED.computed_at,
+        source_osm_import_run_id = EXCLUDED.source_osm_import_run_id,
+        algorithm_version = EXCLUDED.algorithm_version
+    """
+).bindparams(bindparam("osm_way_ids", type_=ARRAY(BigInteger())))
+
+
+# 上下線が分かれた道の相方を探す横方向の距離（m）。同じ路線番号/名前を持つ相方を探すとき
+# （下記の条件2）に使う、緩めの上限。名前が一致している時点で同じ道路だとOSM自身が言って
+# いるため、間隔そのものは広めに許す。
+DIVIDED_CARRIAGEWAY_NAMED_GAP_M = 40.0
+# 名前に頼らず幾何だけで判定するとき（条件3）の距離。上下線分離の間隔（幹線で中央値
+# 10m前後）と、街区を挟んで並ぶ別々の一方通行路地の間隔（中央値20m弱）が分布として
+# 分かれる、その谷間に置く値。
+DIVIDED_CARRIAGEWAY_GEOMETRIC_GAP_M = 15.0
+# 前置フィルタの箱を度へ直すときの、1度あたりの距離（m）。**距離の判定より必ず広い箱に
+# なるよう小さめに取る**——箱の方が狭いと、距離をいくつに設定しても箱の大きさが実効の
+# 上限になり、しきい値を緩めても何も変わらない。関東の緯度では
+# 経度1度が89〜91kmのため、80,000mなら常に広い側へ倒れる。
+DIVIDED_CARRIAGEWAY_PREFILTER_METERS_PER_DEGREE = 80_000.0
+# 「逆向き」と見なす進行方位の差の許容（度、180度からのずれ）。カーブの途中で上下線の
+# 向きがずれるぶんを吸収する。
+DIVIDED_CARRIAGEWAY_BEARING_TOLERANCE_DEG = 45.0
+# 「全長にわたって寄り添う」を確かめる標本点の位置（線長に対する割合）。端点ちょうどは
+# 交差点で他の道と接するため avoid し、少し内側から取る。
+DIVIDED_CARRIAGEWAY_SAMPLE_FRACTIONS = (0.05, 0.25, 0.5, 0.75, 0.95)
+# OSMが「上下線が分かれている」と言っている carriageway の値（条件1）。
+DIVIDED_CARRIAGEWAY_TAG_VALUES = ("dual", "triple", "2")
+
+# way_divided_carriageway（上下線が分かれた道の片側か）の再計算
+# （app/batch/precompute_way_divided_carriageway.py）。
+#
+# OSMは中央分離帯のある道路の上下線を別wayにしそれぞれへoneway=yesを付けるため、
+# osm_raw_ways.directionだけでは一方通行規制の道と区別できない。判定は次の3条件のORで、
+# 上から順に確からしい。
+#
+#   1. carriageway タグが dual/triple/2。OSM自身の申告で確実だが、関東全域で117件しか
+#      無く（motorwayを除く。motorwayは自転車が走れず取り込んでいない）主軸にできない。
+#   2. 同じ路線番号/名前（ref/name）の対向一方通行が近くにある。ref/nameの一致は
+#      「この2本は同じ道路」というOSM側の明示で、最も強い同一性の根拠。上下線分離が
+#      実際に起きる trunk/primary/secondary では一方通行wayの ref/name 欠損は0件のため、
+#      その層はこの条件だけで捕捉できる。
+#   3. 名前に頼らず、**全長にわたって**対向する同種別の一方通行が寄り添う。tertiaryは
+#      無名の一方通行1,201本のうち689本（57%）がこれに該当し、条件2だけでは取りこぼす
+#      （residential/unclassifiedの背景率2%台と桁が違うため、誤判定ではなく実体）。
+#
+# 条件3の掛け方に注意が要る。相方は1本とは限らない——上下線は別々の位置で分割されるため、
+# 「標本点すべてが同一の相方から近い」と書くと分割位置のずれだけで落ちる。
+# **点ごとに相方を探す**（EXISTSを点の内側へ入れる）こと。
+#
+# また、進行方位が反対であることは条件2・3の両方に要る。これが無いと、同じ道を分割した
+# 連続する区間が端点を共有して距離0になり、すべて相方ありになる。
+_WAY_TRAVEL_BEARING_SQL = """
+    degrees(ST_Azimuth(ST_StartPoint({alias}.geom), ST_EndPoint({alias}.geom)))
+        + CASE WHEN {alias}.direction = 'backward' THEN 180 ELSE 0 END
+"""
+
+_ANTIPARALLEL_SQL = """
+    abs(
+      ((({bearing}) - t.travel_deg)::numeric % 360 + 360) % 360 - 180
+    ) < :bearing_tolerance_deg
+""".format(bearing=_WAY_TRAVEL_BEARING_SQL.format(alias="b"))
+
+# バインド変数は使わない。`:name::type`と書くとバインド名の直後のキャストが構文を壊し、
+# バインド変数同士の割り算は型が決まらないため、定数からSQLへ直接展開する。
+_sample_fractions_sql = ", ".join(str(f) for f in DIVIDED_CARRIAGEWAY_SAMPLE_FRACTIONS)
+_named_prefilter_deg = DIVIDED_CARRIAGEWAY_NAMED_GAP_M / DIVIDED_CARRIAGEWAY_PREFILTER_METERS_PER_DEGREE
+_geometric_prefilter_deg = (
+    DIVIDED_CARRIAGEWAY_GEOMETRIC_GAP_M / DIVIDED_CARRIAGEWAY_PREFILTER_METERS_PER_DEGREE
+)
+
+_RECOMPUTE_WAY_DIVIDED_CARRIAGEWAY_SQL = text(
+    f"""
+    WITH target AS (
+        SELECT w.osm_way_id, w.geom, w.direction, w.highway,
+               lower(btrim(coalesce(w.tags->>'carriageway', ''))) AS carriageway,
+               COALESCE(NULLIF(btrim(w.tags->>'ref'), ''), NULLIF(btrim(w.tags->>'name'), '')) AS ident,
+               {_WAY_TRAVEL_BEARING_SQL.format(alias="w")} AS travel_deg
+        FROM osm_raw_ways w
+        WHERE w.osm_way_id = ANY(:osm_way_ids)
+    )
+    INSERT INTO way_divided_carriageway (
+        osm_way_id, divided, computed_at, source_osm_import_run_id, algorithm_version
+    )
+    SELECT t.osm_way_id,
+           t.direction <> 'both' AND t.travel_deg IS NOT NULL AND (
+               -- 条件1: OSM自身の申告
+               t.carriageway = ANY(:carriageway_values)
+               -- 条件2: 同じ路線番号/名前の対向一方通行が近くにある
+               OR (t.ident IS NOT NULL AND EXISTS (
+                   SELECT 1 FROM osm_raw_ways b
+                   WHERE b.osm_way_id <> t.osm_way_id
+                     AND b.direction <> 'both'
+                     AND COALESCE(NULLIF(btrim(b.tags->>'ref'), ''), NULLIF(btrim(b.tags->>'name'), ''))
+                         = t.ident
+                     AND b.geom && ST_Expand(t.geom, {_named_prefilter_deg})
+                     AND ST_DWithin(t.geom::geography, b.geom::geography, :named_gap_m)
+                     AND {_ANTIPARALLEL_SQL}
+               ))
+               -- 条件3: 全長にわたって対向する同種別の一方通行が寄り添う
+               OR NOT EXISTS (
+                   SELECT 1 FROM unnest(ARRAY[{_sample_fractions_sql}]::double precision[]) AS f
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM osm_raw_ways b
+                       WHERE b.osm_way_id <> t.osm_way_id
+                         AND b.direction <> 'both'
+                         AND b.highway = t.highway
+                         -- 名前が食い違う道どうしは対にしない（両方無名は許す）。
+                         -- 主線に沿う側道を上下線の片側と見なさないため。
+                         AND (COALESCE(NULLIF(btrim(b.tags->>'ref'), ''), NULLIF(btrim(b.tags->>'name'), ''))
+                                IS NOT DISTINCT FROM t.ident
+                              OR t.ident IS NULL
+                              OR COALESCE(NULLIF(btrim(b.tags->>'ref'), ''),
+                                          NULLIF(btrim(b.tags->>'name'), '')) IS NULL)
+                         -- 前置フィルタは標本点まわりの小さな箱にする（wayの全体bboxで
+                         -- 広げると長い道で候補が爆発する）。osm_raw_ways.geomのGiST
+                         -- インデックスを使わせるためにあり、正確な距離は次の行が決める。
+                         AND b.geom && ST_Expand(
+                               ST_LineInterpolatePoint(t.geom, f), {_geometric_prefilter_deg})
+                         AND ST_DWithin(
+                               ST_LineInterpolatePoint(t.geom, f)::geography,
+                               b.geom::geography, :geometric_gap_m)
+                         AND {_ANTIPARALLEL_SQL}
+                   )
+               )
+           ),
+           :computed_at, :source_osm_import_run_id, :algorithm_version
+    FROM target t
+    ON CONFLICT (osm_way_id) DO UPDATE SET
+        divided = EXCLUDED.divided,
         computed_at = EXCLUDED.computed_at,
         source_osm_import_run_id = EXCLUDED.source_osm_import_run_id,
         algorithm_version = EXCLUDED.algorithm_version
@@ -2579,6 +2716,36 @@ class AttributeRepository(_SessionRepository):
             },
         )
 
+    async def recompute_way_divided_carriageway(
+        self,
+        osm_way_ids: list[int],
+        computed_at: datetime,
+        source_osm_import_run_id: int | None = None,
+        algorithm_version: str | None = None,
+    ) -> None:
+        """指定osm_way_idが「上下線が分かれた道の片側」かを判定しUPSERTする
+        （`app/batch/precompute_way_divided_carriageway.py`）。
+
+        書き込み先は`way_geometry`ではなく専用テーブル。系譜の列が行単位で1組しか無く、
+        2つのバッチが同じ行を書くと互いの系譜を上書きしてしまうため
+        （migration 0040のコメント参照）。
+        """
+        if not osm_way_ids:
+            return
+        await self._session.execute(
+            _RECOMPUTE_WAY_DIVIDED_CARRIAGEWAY_SQL,
+            {
+                "osm_way_ids": osm_way_ids,
+                "computed_at": computed_at,
+                "source_osm_import_run_id": source_osm_import_run_id,
+                "algorithm_version": algorithm_version,
+                "bearing_tolerance_deg": DIVIDED_CARRIAGEWAY_BEARING_TOLERANCE_DEG,
+                "named_gap_m": DIVIDED_CARRIAGEWAY_NAMED_GAP_M,
+                "geometric_gap_m": DIVIDED_CARRIAGEWAY_GEOMETRIC_GAP_M,
+                "carriageway_values": list(DIVIDED_CARRIAGEWAY_TAG_VALUES),
+            },
+        )
+
 
 class RoadGraphRepository:
     """責務別の4リポジトリ（raw_osm/graph/attributes/tile_query属性）を束ね、
@@ -2747,6 +2914,17 @@ class RoadGraphRepository:
         algorithm_version: str | None = None,
     ) -> None:
         await self.attributes.recompute_way_curvature(
+            osm_way_ids, computed_at, source_osm_import_run_id, algorithm_version
+        )
+
+    async def recompute_way_divided_carriageway(
+        self,
+        osm_way_ids: list[int],
+        computed_at: datetime,
+        source_osm_import_run_id: int | None = None,
+        algorithm_version: str | None = None,
+    ) -> None:
+        await self.attributes.recompute_way_divided_carriageway(
             osm_way_ids, computed_at, source_osm_import_run_id, algorithm_version
         )
 

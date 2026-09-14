@@ -64,6 +64,10 @@ ALLOWED_WAY_TAGS = frozenset(
         # 方向自体は_resolve_directionでWaySpec.directionへ解決済みだが、生タグも
         # 表示・デバッグ用途に引き続き保持する（他の解釈済みタグと同じ扱い）。
         "oneway:bicycle",
+        # 上下線が分かれた道であることをOSM自身が言っている数少ないタグ
+        # （batch/precompute_way_divided_carriageway.py）。関東全域で117件しか無く
+        # 判定の主軸にはできないが、付いているものは確実なため最優先で採る。
+        "carriageway",
         "tunnel",
         "bridge",
         "name",
