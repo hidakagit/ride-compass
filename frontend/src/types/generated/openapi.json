@@ -2669,6 +2669,17 @@
           "available": {
             "type": "boolean",
             "title": "Available"
+          },
+          "contribution": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contribution"
           }
         },
         "additionalProperties": false,
@@ -2677,7 +2688,8 @@
           "axis_id",
           "difficulty",
           "weight",
-          "available"
+          "available",
+          "contribution"
         ],
         "title": "AxisInspectorAxis"
       },

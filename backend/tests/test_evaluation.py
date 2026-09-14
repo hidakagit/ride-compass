@@ -643,6 +643,39 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     assert result.covered_weight_fraction == pytest.approx(0.82 / 1.23, abs=0.001)
 
 
+def test_axis_inspector_contributions_sum_to_the_composite():
+    """軸ごとの寄与度の合計が合成スコアと一致する（内訳の合計が結論と合わない表示を作らない）。
+
+    ルート結果の`axis_contributions`と同じ読み方にするため、重みを掛ける計算はサーバー側に
+    置く。算出できない軸は寄与度もNoneで、合成の分母にも入らない。
+    """
+    result = axis_inspector_breakdown(
+        highway="residential",
+        tags={"lit": "yes"},
+        surface="asphalt",
+        is_designated=False,
+        way_counts=WayAttributeCounts(
+            length_m=1000.0, accident_count=2.0, intersection_count=6, poi_counts={"signal": 4},
+        ),
+        accident_years_covered=2,
+    )
+
+    by_id = {axis.axis_id: axis for axis in result.axes}
+    assert by_id["gradient"].contribution is None  # ルート文脈が無く算出不能
+    total = sum(axis.contribution for axis in result.axes if axis.contribution is not None)
+    assert result.composite_difficulty == pytest.approx(total, abs=0.15)
+
+
+def test_axis_inspector_contributions_are_none_when_nothing_is_available():
+    """1軸も算出できなければ合成もNoneで、寄与度も全てNone（0ではない）。"""
+    result = axis_inspector_breakdown(
+        highway=None, tags={}, surface=None, is_designated=False, way_counts=None, accident_years_covered=0,
+    )
+
+    if result.composite_difficulty is None:
+        assert all(axis.contribution is None for axis in result.axes)
+
+
 def test_axis_inspector_breakdown_way_landcover_feeds_openness_only():
     """way_landcoverは開放度軸（trees_percent/built_percentを参照する唯一の公開軸）だけを
     変え、他の軸のスコアには影響しない。土地被覆を渡さない場合、開放度は算出不能

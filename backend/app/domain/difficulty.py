@@ -67,6 +67,25 @@ def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> fl
     return round(total, 1)
 
 
+def composite_contributions(scored_weights: list[tuple[float | None, float]]) -> list[float | None]:
+    """`composite_difficulty`を軸ごとへ分解した値（**合計が合成スコアと一致する**）。
+
+    入力と同じ並び・同じ長さで返す。スコアがNoneの軸（合成の分母にも入らない）はNone。
+    合成が算出できない（有効な軸が無い・重みの合計が0）ときは全てNone。
+
+    分解をここへ置くのは、合成と分解が別々に正規化されると「内訳の合計が合成と合わない」
+    という読めない表示になるため。
+    """
+    available = [(score, weight) for score, weight in scored_weights if score is not None]
+    weight_sum = sum(weight for _, weight in available)
+    if not available or weight_sum == 0:
+        return [None for _ in scored_weights]
+    return [
+        None if score is None else round(score * weight / weight_sum, 1)
+        for score, weight in scored_weights
+    ]
+
+
 def weighted_mean_by_distance(segments: list[tuple[float | None, float]]) -> float | None:
     """(区間の値, 区間distance_km)のリストから距離加重平均を求める（**丸めない**）。
 

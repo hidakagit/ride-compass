@@ -1201,6 +1201,8 @@ export interface components {
             weight: number;
             /** Available */
             available: boolean;
+            /** Contribution */
+            contribution: number | null;
         };
         /** AxisInspectorRequest */
         AxisInspectorRequest: {

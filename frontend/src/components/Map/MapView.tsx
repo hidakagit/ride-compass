@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { labelOrEscapedRaw } from "@/components/Map/popupEscape";
+import RoadInspectorPopup from "@/components/Map/RoadInspectorPopup";
+import type { RoadSurfacePopupProperties } from "@/components/Map/roadFacts";
+import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import * as maplibregl from "maplibre-gl";
 import type {
   ErrorEvent as MapLibreErrorEvent,
@@ -27,7 +32,6 @@ import {
   poiTileUrl,
   roadSurfaceTileUrl,
 } from "@/services/regionApi";
-import { buildAxisInspectorAffordanceHtml, attachAxisInspectorHandler } from "@/components/Map/axisInspectorPopup";
 import {
   KNOWN_LINE_OPACITY,
   ROAD_SURFACE_AXIS_ID,
@@ -48,7 +52,6 @@ import {
   ACCIDENT_RADIUS_EXPRESSION,
   DESIGNATION_COLOR_EXPRESSION,
   DESIGNATION_OPACITY_EXPRESSION,
-  DESIGNATION_LABELS,
   TUNNEL_COLOR_EXPRESSION,
   TUNNEL_OPACITY_EXPRESSION,
   ONEWAY_COLOR_EXPRESSION,
@@ -79,7 +82,6 @@ import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
-import { escapeHtml, labelOrEscapedRaw } from "./popupEscape";
 import {
   DYNAMIC_WEATHER_LAYER_IDS,
   type DynamicWeatherGroupState,
@@ -102,7 +104,6 @@ import { registerJmaTileProtocol, withJmaTileProtocol } from "@/components/Map/j
 import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
-import materialCatalog from "@/types/generated/material-catalog.json";
 
 // 基礎地図のスタイルJSON。オリジンは`tileBaseUrl()`（lib/tileBaseUrl.ts: 既定はフロント
 // 自身のオリジン＝Next.jsのrewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）
@@ -284,6 +285,10 @@ export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // 同時表示は並列トラック（applyRoadMaterialTrackOffsets）で分ける。
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export const ROAD_TYPE_LAYER_ID = "region-road-type-line";
+// クリックして詳細を見ている道の強調。路面タイルのfeature-state（promoteIdで
+// osm_way_idがfeature.idへ昇格済み）だけで塗るため、専用のソースも取得も増えない。
+// exportはテスト専用（MapView.layerOps.test.ts）。
+export const ROAD_INSPECT_LAYER_ID = "region-road-inspect-line";
 // 専用way値配信軸（「評価軸」グループの風・勾配等）のMapLibre layer idは
 // axisLayers.ts: dedicatedWayValueLineLayerId が軸idから導出する。ROAD_TILE_SOURCE_ID/
 // ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと同じ構成）だが、
@@ -331,6 +336,14 @@ export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
 export const SECONDARY_AXIS_CASING_WIDTH =
   (ROAD_MATERIAL_TRACK_LAYER_IDS.length - 1) * MATERIAL_TRACK_OFFSET_STEP + DEFAULT_ROAD_LINE_WIDTH;
 export const SECONDARY_AXIS_CASING_OPACITY = 0.45;
+// 詳細を見ている道の強調。線そのものの色分け（評価・分類）と混ざらないよう、どの軸の
+// 配色にも使っていない色を太く薄く敷く——上に元の線が乗ったままになり、何の道かは
+// 引き続き色で読める。対象はタイルへ焼き込み済みの`osm_way_id`で1本へ絞る
+// （どのタイルが読み込まれていても同じ式で当たる）。
+const ROAD_INSPECT_COLOR = "#f59e0b";
+const ROAD_INSPECT_WIDTH = 10;
+const ROAD_INSPECT_OPACITY = 0.55;
+
 // 路面・道路の種類レイヤーの初期化直後の仮の色（applyRoadLayerStateが呼び出し直後に必ず
 // 実際の値へ上書きする、placeholder的な役割のみ）。
 const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
@@ -1637,6 +1650,21 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
         layout: { visibility: "none" },
       });
     }
+    map.addLayer({
+      id: ROAD_INSPECT_LAYER_ID,
+      type: "line",
+      source: ROAD_TILE_SOURCE_ID,
+      "source-layer": ROAD_TILE_SOURCE_LAYER,
+      paint: {
+        "line-color": ROAD_INSPECT_COLOR,
+        "line-width": ROAD_INSPECT_WIDTH,
+        "line-opacity": ROAD_INSPECT_OPACITY,
+      },
+      // 対象はfilterで1本へ絞る（タイルへ焼き込み済みのosm_way_idで引く）。表示のたびに
+      // 該当wayを選び直す（applyInspectedWay）。
+      filter: ["==", ["get", "osm_way_id"], -1],
+      layout: { visibility: "none" },
+    });
   };
   runWhenStyleReady(map, applyData);
 }
@@ -1730,6 +1758,16 @@ export function shouldClearDedicatedWayValueFeatureState(
   dedicatedWayValueVisibility: Readonly<Record<string, boolean>>,
 ): boolean {
   return !Object.values(dedicatedWayValueVisibility).some(Boolean);
+}
+
+/** 詳細を見ている道を1本だけ強調する。nullで強調を消す。レイヤーがまだ無ければ何もしない
+ * （作り直しの途中でも落ちないようにする）。exportはテスト専用
+ * （MapView.layerOps.test.ts）。 */
+export function applyInspectedWay(map: MapLibreMap, osmWayId: number | null) {
+  if (!map.getLayer(ROAD_INSPECT_LAYER_ID)) return;
+  setLayerVisibility(map, ROAD_INSPECT_LAYER_ID, osmWayId !== null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  map.setFilter(ROAD_INSPECT_LAYER_ID, ["==", ["get", "osm_way_id"], osmWayId ?? -1] as any);
 }
 
 // 「道路情報」の各軸（路面の種類・道路の種類）は、それぞれ独立した線レイヤーとして描く。
@@ -2335,11 +2373,6 @@ function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[], obscured?
   });
 }
 
-function formatRoad(good: boolean | null): string {
-  if (good == null) return "不明";
-  return good ? "舗装路" : "未舗装路";
-}
-
 // ポップアップ本文の共通スタイル。line-height 1.4はサイドバーの他カード
 // （components/ui/Card等）に近い密度に合わせている。
 const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
@@ -2392,60 +2425,7 @@ export function nearestPointOnLineString(
 // 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
-export interface RoadSurfacePopupProperties {
-  /** 区間インスペクタで全軸の内訳を引き直すための識別子。 */
-  osm_way_id?: number | null;
-  /** OSMの道路名・路線番号（表示専用の生値）。対訳表を持たない第三者編集データのため、
-   * 埋め込む前にescapeHtmlを通す。 */
-  name?: string | null;
-  ref?: string | null;
-  surface_good?: boolean | null;
-  smoothness?: string | null;
-  tunnel?: boolean | null;
-  bridge?: boolean | null;
-  /** 一方通行（一次属性、OSM onewayタグ）。未該当（双方向）はプロパティ欠落。 */
-  oneway?: boolean | null;
-  /** 指定路線コンフレーション機構（外部静的データソース）。未該当はプロパティ欠落。 */
-  designation?: string | null;
-}
-
-// 路面状態（OSM smoothness）の値→表示名。正はbackend（domain/material_catalog.py:
-// MaterialSpec.value_labels）で、生成物経由で受け取る——手書きで持つと、同じ値を
-// 地図のポップアップと軸スタジオで別の呼び方をすることになる。
-// 生成JSONからTypeScriptが推論するのは各材料のリテラル型の合併のため、
-// 値ラベル辞書としてはRecordへ寄せる（キーは配信元のOSMタグ値で固定ではない）。
-const SMOOTHNESS_LABELS: Record<string, string> =
-  (materialCatalog.find((m) => m.material_id === "smoothness")?.value_labels as
-    Record<string, string> | null | undefined) ?? {};
-
-/** 道路名の行。`name`（通称）と`ref`（路線番号）は独立したタグで、片方だけ持つwayが
- * 多い（番号だけの国道・名前だけの市道）。両方あれば「名前（番号）」として1行に畳む。 */
-function roadNameRow(properties: RoadSurfacePopupProperties): string | null {
-  const name = properties.name ? escapeHtml(properties.name) : null;
-  const ref = properties.ref ? escapeHtml(properties.ref) : null;
-  if (name && ref) return `${name}[${ref}]`;
-  return name ?? ref;
-}
-
-export function buildRoadSurfacePopupHtml(properties: RoadSurfacePopupProperties): string {
-  // 道路名は「どの道か」を決める情報のため先頭に置く（路面・属性はその道の性質）。
-  const roadName = roadNameRow(properties);
-  const rows = roadName ? [`<b>${roadName}</b>`] : [];
-  rows.push(`路面: ${formatRoad(properties.surface_good ?? null)}`);
-  if (properties.smoothness) {
-    rows.push(`路面状態: ${labelOrEscapedRaw(SMOOTHNESS_LABELS, properties.smoothness)}`);
-  }
-  if (properties.designation) {
-    rows.push(labelOrEscapedRaw(DESIGNATION_LABELS, properties.designation));
-  }
-  if (properties.tunnel) rows.push("トンネル");
-  if (properties.bridge) rows.push("橋・高架");
-  if (properties.oneway) rows.push("一方通行");
-  // 区間インスペクタ: 一次属性→全二次軸（車の圧迫感を含む）→合成コスト(参考値)を
-  // このボタン1つから確認できる。
-  const axisInspectorAffordance = properties.osm_way_id != null ? buildAxisInspectorAffordanceHtml() : "";
-  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}${axisInspectorAffordance}</div>`;
-}
+export type { RoadSurfacePopupProperties } from "./roadFacts";
 
 // 外部静的データソース（警察庁交通事故統計）のクリックポップアップ用プロパティ。
 interface AccidentPopupProperties {
@@ -2591,11 +2571,12 @@ interface MapViewProps {
    * RAMP_AXES）を渡す。軸スタジオでの新規公開軸もここへ含まれれば、再デプロイなしに
    * 地図レイヤーとして現れる。 */
   rampAxes: readonly RampAxis[];
-  /** axis_id→表示名の辞書。区間インスペクタ（axisInspectorPopup.ts）が
-   * 軸別内訳のラベルを表示するために使う。呼び出し側（page.tsx）がuseAxisCatalog経由で
-   * 取得したもの（取得完了までとエラー時は静的フォールバック）を渡す。軸スタジオで
-   * 新規公開したGUI作成軸のラベルも動的に反映される。 */
-  axisLabels: Record<string, string>;
+  /** 公開軸すべて（順序・ラベル・説明の正本）。道をクリックしたときの詳細
+   * （RoadInspectorPopup）が、ルート結果と同じ並び・同じ部品で軸ごとの効き方を出すために
+   * 使う。呼び出し側（page.tsx）がuseAxisCatalog経由で取得したものを渡す。 */
+  axes: readonly PreferenceAxisDef[];
+  /** 軸id→色（ルート結果の寄与度バー・凡例チップと同じ配色）。 */
+  axisColors: Record<string, string>;
   /** 区間クリックで選択中の区間（controlled、page.tsx側のstate）。
    * nullの間はクリック地点マーカーを表示しない。地点・到達予想時刻・軸別内訳の表示は
    * すべてボトムシート側（RouteAxisProfile）が担う——このコンポーネントはクリック地点へ
@@ -2867,7 +2848,8 @@ export default function MapView({
   refreshToken,
   experimentSlots,
   rampAxes,
-  axisLabels,
+  axes,
+  axisColors,
   selectedRouteSegment,
   onRouteSegmentSelect,
   onRouteSelect,
@@ -2895,6 +2877,13 @@ export default function MapView({
   // パターン、下部のuseEffect参照）。
   const selectedSegmentMarkerRef = useRef<Marker | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  // 道路クリックの詳細はReactで描く（RoadInspectorPopup）。MapLibreのPopupへportalで
+  // 差し込むため、開いている対象と差し込み先のDOMノードを状態として持つ。
+  const [roadPopup, setRoadPopup] = useState<{
+    lngLat: [number, number];
+    properties: RoadSurfacePopupProperties;
+  } | null>(null);
+  const [roadPopupContainer, setRoadPopupContainer] = useState<HTMLDivElement | null>(null);
   // 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。下敷き表現の有無
   // （secondaryAxisCasingLayerIds）もレイヤーspecの一部のため、材料の表示が切り替わった
@@ -3006,7 +2995,6 @@ export default function MapView({
     staticOverlayLayers,
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
-    axisLabels,
     dedicatedWayValues,
   });
 
@@ -3096,7 +3084,6 @@ export default function MapView({
       staticOverlayLayers,
       staticFilterAxes,
       roadSurfaceSharedLayerIds,
-      axisLabels,
       dedicatedWayValues,
     };
   }, [
@@ -3126,7 +3113,6 @@ export default function MapView({
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     experimentSlots,
-    axisLabels,
     dedicatedWayValues,
   ]);
 
@@ -3302,7 +3288,10 @@ export default function MapView({
       if (features.length === 0) return;
 
       const feature = features[0];
-      const roadSurfaceProperties = feature.properties as unknown as RoadSurfacePopupProperties;
+      // 道路は「この道は何者で、なぜこの評価なのか」に答える面のため、ルート結果と同じ
+      // React部品（RoadInspectorPopup）で描く。HTML文字列を組み立てる方式だと、同じ
+      // 「軸ごとの効き方」を別の見た目で見せることになる。点データ（事故・POI）は
+      // 1〜3行の事実だけなのでHTMLのまま。
       const html =
         feature.layer.id === ACCIDENT_LAYER_ID
           ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
@@ -3310,26 +3299,19 @@ export default function MapView({
             ? buildPoiPopupHtml("停止要因", STOP_POI_LABELS, feature.properties as unknown as PoiPopupProperties)
             : feature.layer.id === SUPPLY_POI_LAYER_ID
               ? buildPoiPopupHtml("補給・休憩", SUPPLY_POI_LABELS, feature.properties as unknown as PoiPopupProperties)
-              : buildRoadSurfacePopupHtml(roadSurfaceProperties);
+              : null;
 
       popupRef.current?.remove();
-      popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
-
-      // 区間インスペクタはbuildRoadSurfacePopupHtml側でosm_way_idの
-      // 有無だけを見て出しているため、配線側も同じ条件に揃える（道路以外のフィーチャーには
-      // osm_way_id自体が無い）。車ストレス（車の圧迫感）専用の内訳ボタンは持たず、
-      // この区間インスペクタ（全軸の内訳、車の圧迫感を含む）へ一本化してある。
-      if (roadSurfaceProperties.osm_way_id != null) {
-        const popupElement = popupRef.current.getElement();
-        if (popupElement) {
-          // axisLabelsはredrawPropsRef.current経由で読む（handleClickを
-          // 登録するこのeffectはマウント時のみ実行され、propsの変化を再購読しないため。
-          // GET /api/axis-catalogは非同期のため、マウント時点のクロージャでaxisLabelsを
-          // 直接捕まえると、フェッチが解決した後もマウント時点の静的フォールバックの
-          // ままになってしまう）。
-          attachAxisInspectorHandler(popupElement, roadSurfaceProperties.osm_way_id, redrawPropsRef.current.axisLabels);
-        }
+      popupRef.current = null;
+      if (html !== null) {
+        setRoadPopup(null);
+        popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+        return;
       }
+      setRoadPopup({
+        lngLat: [e.lngLat.lng, e.lngLat.lat],
+        properties: feature.properties as unknown as RoadSurfacePopupProperties,
+      });
     }
 
     // ルート線専用のクリックハンドラ。MapLibreのlayer-scoped listener
@@ -3965,6 +3947,34 @@ export default function MapView({
     map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
   }, [refreshToken, redrawFromCurrentProps]);
 
+  // 道路クリックの詳細ポップアップ。中身はReactで描き、MapLibreのPopupは器として使う。
+  // 開いている間はその道を地図上で強調する（どの線の話かが分からないと詳細だけ見ても
+  // 場所を取り違える）。強調は路面タイルのfeature-state（promoteIdでosm_way_idが
+  // feature.idへ昇格済み）で行い、専用のソースや取得を増やさない。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || roadPopup === null) return;
+    const container = document.createElement("div");
+    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "20rem" })
+      .setLngLat(roadPopup.lngLat)
+      .setDOMContent(container)
+      .addTo(map);
+    setRoadPopupContainer(container);
+    const wayId = roadPopup.properties.osm_way_id;
+    runWhenStyleReady(map, () => {
+      ensureRoadSurfaceTileLayer(map);
+      applyInspectedWay(map, wayId ?? null);
+    });
+    const close = () => setRoadPopup(null);
+    popup.on("close", close);
+    return () => {
+      popup.off("close", close);
+      popup.remove();
+      setRoadPopupContainer(null);
+      applyInspectedWay(map, null);
+    };
+  }, [roadPopup]);
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
@@ -3999,6 +4009,12 @@ export default function MapView({
           地図の読み込みに失敗しました。しばらくしてから再読み込みしてください。
         </div>
       )}
+      {roadPopup !== null &&
+        roadPopupContainer !== null &&
+        createPortal(
+          <RoadInspectorPopup properties={roadPopup.properties} axes={axes} axisColors={axisColors} />,
+          roadPopupContainer,
+        )}
     </div>
   );
 }

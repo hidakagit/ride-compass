@@ -187,7 +187,7 @@ def test_region_axis_inspector_returns_result_json():
         highway="primary",
         tags={},
         is_designated=False,
-        axes=[AxisInspectorAxis(axis_id="car_stress", difficulty=75.0, weight=0.2, available=True)],
+        axes=[AxisInspectorAxis(axis_id="car_stress", difficulty=75.0, weight=0.2, available=True, contribution=75.0)],
         composite_difficulty=75.0,
         covered_weight_fraction=1.0,
     )

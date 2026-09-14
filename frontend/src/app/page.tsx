@@ -26,11 +26,7 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import {
-  axisMapLayerId,
-  buildAxisRampLegend,
-  dedicatedWayValueMapLayerId,
-} from "@/components/Map/axisLayers";
+import { axisMapLayerId, buildAxisRampLegend, dedicatedWayValueMapLayerId } from "@/components/Map/axisLayers";
 import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
 import type { LegendEntry } from "@/components/Map/legendFilter";
@@ -2305,7 +2301,8 @@ export default function Home() {
             // ComparisonPanelでの一覧表示は researchEnabled のみで動く）。
             experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
             rampAxes={axisCatalog.rampAxes}
-            axisLabels={axisCatalog.axisLabels}
+            axes={axisCatalog.axes}
+            axisColors={axisChipColors}
             selectedRouteSegment={selectedRouteSegment}
             // 区間詳細は「ルート結果」を見ている間だけ。編集中は詳細の置き場が編集面へ
             // 置き換わっており、選んでも地図にピンが残るだけになる。

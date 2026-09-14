@@ -24,7 +24,8 @@
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `Map/popupEscape.ts` | ポップアップHTMLへOSMタグの生値を埋め込む前のエスケープ（`labelOrEscapedRaw`。対訳表に載る値は素通し、フォールバック側だけ潰す） |
-| `Map/axisInspectorPopup.ts` | 区間インスペクタ（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）のポップアップHTML組み立て |
+| `Map/RoadInspectorPopup.tsx` | 道をクリックしたときの詳細（**Reactで描き、MapLibreのPopupへportalで差し込む**）。事実（この道の属性）を先に出し、評価は押したときだけ取りに行く（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない |
+| `Map/roadFacts.ts` | クリックした道の「事実」（道路名・路面・路面状態・指定路線・トンネル・橋・一方通行）をタイルのプロパティから組み立てる純関数。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる） |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代定数） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄） |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
@@ -255,7 +256,7 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 1行へまとめる。色分け式・ラベル対訳表には各種別がそのまま載るため、地図の見た目と
 ポップアップの語彙は種別ごとに正しく出る。
 
-路面ポップアップ（`MapView.tsx: buildRoadSurfacePopupHtml`）の`smoothness`の値→表示名も
+路面ポップアップ（`Map/roadFacts.ts`）の`smoothness`の値→表示名も
 同じ考え方で、正本はbackendの`material_catalog.py: MaterialSpec.value_labels`。生成物
 （`material-catalog.json`）から引く（手書きで持つと、同じ値を地図のポップアップと
 軸スタジオで別の呼び方をすることになる）。
@@ -292,8 +293,9 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 ポップアップの値は`osm_raw_ways`/`osm_raw_pois`のタグ由来＝**第三者が編集できるデータ**で、
 対訳表に載らない値は生のまま文字列へ入る（`SMOOTHNESS_LABELS`・`DESIGNATION_LABELS`・
 停止要因/補給POIのラベル辞書はいずれも`?? 生値`のフォールバックを持つ）。
-行き先は2通りある。`Popup.setHTML()`へ渡る経路ではMapLibreの`DOM.sanitize()`が走るが、
-`innerHTML`へ直接入れる経路（区間インスペクタ`axisInspectorPopup.ts`）では走らない。
+行き先は2通りある。**道路の詳細はReactで描くため、生値はテキストノードとして入る**
+（`RoadInspectorPopup.tsx`）。点データ（事故・POI）はHTML文字列を`Popup.setHTML()`へ渡す
+経路で、こちらはMapLibreの`DOM.sanitize()`が走る。
 
 そのサニタイザにはバイパスが報告されており（修正版はv6系で、Next.jsのバンドラが
 Workerのスクリプトを解決できず地図が描画されないため上げられない——

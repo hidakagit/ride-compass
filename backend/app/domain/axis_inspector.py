@@ -24,7 +24,7 @@ from app.domain.attributes import (
     WayAttributeCounts,
 )
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS, evaluate_axes_scalar
-from app.domain.difficulty import composite_difficulty
+from app.domain.difficulty import composite_contributions, composite_difficulty
 from app.domain.landcover import WayLandcover
 from app.domain.material_catalog import MaterialExtractionContext, resolve_materials
 from app.domain.route_preference import RoutePreference
@@ -36,6 +36,11 @@ class AxisInspectorAxis(StrictModel):
     difficulty: float | None
     weight: float
     available: bool
+    # この軸が合成スコアへ持ち込んでいる量（重み付き寄与度）。全軸の合計が
+    # `composite_difficulty`と一致する（`domain/difficulty.py: composite_contributions`）。
+    # ルート結果の`axis_contributions`と同じ読み方にするため、重みを掛ける計算は
+    # サーバー側に置く。
+    contribution: float | None
 
 
 class AxisInspectorResult(StrictModel):
@@ -161,12 +166,20 @@ def axis_inspector_breakdown(
     )
     scores, _ = evaluate_axes_scalar(materials)
 
+    scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in scores.items()]
+    contributions = composite_contributions(scored_weights)
     axes = [
-        AxisInspectorAxis(axis_id=axis_id, difficulty=score, weight=weights.get(axis_id, 0.0), available=score is not None)
-        for axis_id, score in scores.items()
+        AxisInspectorAxis(
+            axis_id=axis_id,
+            difficulty=score,
+            weight=weights.get(axis_id, 0.0),
+            available=score is not None,
+            contribution=contribution,
+        )
+        for (axis_id, score), contribution in zip(scores.items(), contributions, strict=True)
     ]
 
-    composite = composite_difficulty([(score, weights.get(axis_id, 0.0)) for axis_id, score in scores.items()])
+    composite = composite_difficulty(scored_weights)
     total_weight = sum(weights.values())
     covered_weight = sum(weights.get(axis_id, 0.0) for axis_id, score in scores.items() if score is not None)
     covered_fraction = round(covered_weight / total_weight, 3) if total_weight > 0 else None

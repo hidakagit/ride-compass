@@ -15,6 +15,7 @@ import {
   MATERIAL_TRACK_OFFSET_STEP,
   ONEWAY_LAYER_ID,
   ROAD_MATERIAL_TRACK_LAYER_IDS,
+  ROAD_INSPECT_LAYER_ID,
   ROAD_TILE_LAYER_ID,
   ROAD_TILE_SOURCE_ID,
   ROAD_TILE_SOURCE_LAYER,
@@ -22,6 +23,7 @@ import {
   SECONDARY_AXIS_CASING_WIDTH,
   TUNNEL_LAYER_ID,
   applyAxisFeatureStateValues,
+  applyInspectedWay,
   applyRoadMaterialTrackOffsets,
   buildAxisOverlayLayers,
   buildStaticOverlayLayers,
@@ -75,6 +77,45 @@ function paintValue(map: ReturnType<typeof fakeMap>, layerId: string, name: stri
   const call = [...map.paintCalls].reverse().find((c) => c.layerId === layerId && c.name === name);
   return call?.value;
 }
+
+// クリックして詳細を見ている道の強調。詳細だけ出しても、どの線の話かが分からないと
+// 場所を取り違える。対象はタイルへ焼き込み済みのosm_way_idで1本へ絞る。
+describe("applyInspectedWay（詳細を見ている道の強調）", () => {
+  it("対象のwayだけを描くフィルタにして表示する", () => {
+    const map = fakeMap();
+    map.addLayer({ id: ROAD_INSPECT_LAYER_ID });
+
+    applyInspectedWay(map as unknown as Parameters<typeof applyInspectedWay>[0], 156167860);
+
+    expect(map.layoutCalls).toContainEqual({
+      layerId: ROAD_INSPECT_LAYER_ID,
+      name: "visibility",
+      value: "visible",
+    });
+    expect(map.filterCalls.at(-1)).toEqual({
+      layerId: ROAD_INSPECT_LAYER_ID,
+      filter: ["==", ["get", "osm_way_id"], 156167860],
+    });
+  });
+
+  it("nullで強調を消す（どのwayにも一致しないフィルタへ戻し、非表示にする）", () => {
+    const map = fakeMap();
+    map.addLayer({ id: ROAD_INSPECT_LAYER_ID });
+
+    applyInspectedWay(map as unknown as Parameters<typeof applyInspectedWay>[0], null);
+
+    expect(map.layoutCalls).toContainEqual({ layerId: ROAD_INSPECT_LAYER_ID, name: "visibility", value: "none" });
+    expect(map.filterCalls.at(-1)?.filter).toEqual(["==", ["get", "osm_way_id"], -1]);
+  });
+
+  it("レイヤーがまだ無ければ何もしない（作り直しの途中でも落ちない）", () => {
+    const map = fakeMap();
+
+    applyInspectedWay(map as unknown as Parameters<typeof applyInspectedWay>[0], 1);
+
+    expect(map.filterCalls).toHaveLength(0);
+  });
+});
 
 describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計画T490）", () => {
   it("ONが1件だけならoffsetは0（並列に分ける相手がいない）", () => {
