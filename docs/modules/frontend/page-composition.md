@@ -118,9 +118,9 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
     dedicatedWayValueVisibility = レイヤーID（`${axisId}Axis`）→ lens === axisId && lensBackgroundShown
 ```
 
-**ルート確定後（`hasDetail`）**、環境グループの面表示は終了する（`showGradientFill`が
-`!hasDetail`を含む）。評価軸グループの一律色分けは**`lensKeepAfterRoute`（既定ON）次第**で、
-ONの間はルート線の色分けと併せて周囲の道路も薄く塗り続ける（`lensBackgroundShown =
+**ルート確定後（`hasDetail`）**、評価軸グループの一律色分けは
+**`lensKeepAfterRoute`（既定ON）次第**で、ONの間はルート線の色分けと併せて
+周囲の道路も薄く塗り続ける（`lensBackgroundShown =
 !hasDetail || lensKeepAfterRoute`）。ルート線側の色分けは`routeStyleModes.ts`由来のモード
 選択が担う。
 
