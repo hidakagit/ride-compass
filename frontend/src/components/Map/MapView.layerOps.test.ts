@@ -82,7 +82,8 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
     for (const id of ROAD_MATERIAL_TRACK_LAYER_IDS) map.addLayer({ id });
 
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
-      road: true,
+      roadSurface: true,
+      roadType: false,
       designation: false,
       tunnel: false,
       oneway: false,
@@ -96,7 +97,8 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
     for (const id of ROAD_MATERIAL_TRACK_LAYER_IDS) map.addLayer({ id });
 
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
-      road: true,
+      roadSurface: true,
+      roadType: false,
       designation: true,
       tunnel: false,
       oneway: false,
@@ -117,7 +119,8 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
     for (const id of ROAD_MATERIAL_TRACK_LAYER_IDS) map.addLayer({ id });
 
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
-      road: true,
+      roadSurface: true,
+      roadType: false,
       designation: true,
       tunnel: true,
       oneway: false,
@@ -136,7 +139,8 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
 
     map.addLayer({ id: ROAD_TILE_LAYER_ID });
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
-      road: true,
+      roadSurface: true,
+      roadType: false,
       designation: true,
       tunnel: true,
       oneway: true,

@@ -24,7 +24,6 @@ import {
   type MapOverlayGroup,
 } from "@/components/Map/mapLayers";
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
-import WidthSwatch from "@/components/Map/WidthSwatch";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import {
@@ -230,17 +229,10 @@ interface PanelRect {
   maxWidth: number;
 }
 
-// 凡例1カテゴリぶんのスウォッチ。太さ・線種で地図に反映するカテゴリ（entry.widthを持つ、
-// 例:「道路の種類」）は、実寸の太さバーで示す（WidthSwatch.tsxと同じ理由）。バー自体も
-// entry.colorで塗る（道路の種類も濃淡パレット（COLOR_HIGHWAY_*）を持つため、凡例と
-// 地図の見た目を一致させる。路面の種類等widthを持たないカテゴリは色ドット）。
-// WidthSwatchをそのまま使うことで、拡大率（WidthSwatch.tsx:
-// DISPLAY_SCALE）を含め太さバーの描画を1箇所に集約する。
+// 凡例1カテゴリぶんのスウォッチ。線レイヤーは太さ・線種で意味を運ばないため、どのカテゴリも
+// 色ドットだけで示す。
 function renderLegendSwatch(entry: LegendEntry) {
-  if (entry.width === undefined) {
-    return <span className={styles.detailSwatchDot} style={{ background: entry.color }} />;
-  }
-  return <WidthSwatch width={entry.width} dashed={entry.dashed} color={entry.color} />;
+  return <span className={styles.detailSwatchDot} style={{ background: entry.color }} />;
 }
 
 // ▶を開いたときの内訳パネル。軸に属する全カテゴリを表示中/非表示の別なく並べる

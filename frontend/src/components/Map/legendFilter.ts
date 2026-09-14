@@ -10,13 +10,6 @@ export interface LegendEntry {
   label: string;
   /** この地物がカテゴリに属するときtrueになるMapLibre式（凡例フィルタ用の述語） */
   filter: unknown[];
-  /** line-widthのpx値（roadFilterAxes.tsのROAD_LINE_WIDTH_AXIS_ID等、色ではなく太さで
-   * 地図に反映する軸のみ持つ）。凡例・チェックボックスのプレビューは、これがあれば
-   * 色スウォッチの代わりに太さバーを描く（色はその軸では地図上のどこにも出ないため）。 */
-  width?: number;
-  /** trueなら地図上でこのカテゴリが破線になる（roadFilterAxes.tsのROAD_LINE_DASH_AXIS_ID
-   * 参照）。凡例・チェックボックスのプレビュー（WidthSwatch）も合わせて破線で描く。 */
-  dashed?: boolean;
   /** trueなら「データ欠損・対象外」の受け皿カテゴリ（不明・他／対象外）であり、他の
    * カテゴリのような実際の判定値ではないことを示す。凡例の描画側（▶パネル・
    * MapOverlayControls）が区切り線＋弱調表示にすることで、数値/順序段階と受け皿カテゴリを

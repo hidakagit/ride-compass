@@ -252,12 +252,9 @@ describe("MapOverlayControls", () => {
     expect(screen.getByText("ズームインすると表示されます")).toBeInTheDocument();
   });
 
-  // 改善計画T471項目3: 以前はここでWidthSwatch.tsxとほぼ同じ太さバーの描画を独立に
-  // 再実装しており、WidthSwatch.tsx: DISPLAY_SCALE=1.8倍の拡大が適用されていなかった
-  // ため、同じentry.widthでも▶パネル側と地図上チップ側で見た目の太さが食い違って
-  // いた（renderLegendSwatch: entry.width!==undefinedならWidthSwatchへ委譲、統合レビュー
-  // 第3回`history/2026-08-31_all.md` Shard E指摘、T476）。
-  it("entry.widthを持つ凡例カテゴリはWidthSwatch（DISPLAY_SCALE=1.8適用済みの太さバー）で描画される", async () => {
+  // 線レイヤーは太さ・線種で意味を運ばない（T858）。どのカテゴリも同じ色ドットで描かれ、
+  // 「このカテゴリだけ別の見た目」が混ざらないことを確認する。
+  it("凡例カテゴリはどれも色ドットで描画される", async () => {
     const user = userEvent.setup();
     const layers = baseLayers();
     layers[1] = {
@@ -268,8 +265,8 @@ describe("MapOverlayControls", () => {
         {
           label: "道路の種類",
           legend: [
-            { key: "primary", label: "幹線道路", color: "#111827", filter: ["literal", true], width: 3 },
-            { key: "residential", label: "生活道路", color: "#9ca3af", filter: ["literal", true] }, // width無し→色ドットのまま
+            { key: "primary", label: "幹線道路", color: "#111827", filter: ["literal", true] },
+            { key: "residential", label: "生活道路", color: "#9ca3af", filter: ["literal", true] },
           ],
           hiddenKeys: [],
         },
@@ -279,18 +276,14 @@ describe("MapOverlayControls", () => {
 
     await user.click(screen.getByRole("button", { name: "路面の凡例を表示" }));
 
-    const widthRow = screen.getByText("幹線道路").closest("li")!;
-    const swatch = widthRow.querySelector('[aria-hidden="true"]') as HTMLElement;
-    expect(swatch).toBeTruthy();
-    // WidthSwatch.tsx: height = Math.max(2, width * DISPLAY_SCALE) = 3 * 1.8 = 5.4px
-    expect(swatch.style.height).toBe("5.4px");
-    expect(swatch.className).not.toMatch(/detailSwatchDot/);
-
-    const dotRow = screen.getByText("生活道路").closest("li")!;
-    const dot = dotRow.querySelector("span") as HTMLElement; // 色ドットはaria-hiddenを持たない（WidthSwatchとの違い）
-    expect(dot).toBeTruthy();
-    expect(dot.className).toMatch(/detailSwatchDot/);
-    expect(dot.style.height).toBe("");
+    for (const label of ["幹線道路", "生活道路"]) {
+      const row = screen.getByText(label).closest("li")!;
+      const dot = row.querySelector("span") as HTMLElement;
+      expect(dot).toBeTruthy();
+      expect(dot.className).toMatch(/detailSwatchDot/);
+      // 太さバーは高さをインラインで持っていた。色ドットは持たない。
+      expect(dot.style.height).toBe("");
+    }
   });
 
   it("OFF・disabled・凡例無しのレイヤーには▶が出ない", () => {

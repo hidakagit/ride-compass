@@ -30,10 +30,8 @@ import {
 import { buildAxisInspectorAffordanceHtml, attachAxisInspectorHandler } from "@/components/Map/axisInspectorPopup";
 import {
   KNOWN_LINE_OPACITY,
-  ROAD_FILTER_AXES,
-  ROAD_LINE_COLOR_AXIS_ID,
-  ROAD_LINE_WIDTH_AXIS_ID,
-  ROAD_LINE_DASH_AXIS_ID,
+  ROAD_SURFACE_AXIS_ID,
+  ROAD_TYPE_AXIS_ID,
   getRoadFilterAxis,
   type RoadFilterAxisId,
 } from "@/components/Map/roadFilterAxes";
@@ -277,6 +275,10 @@ const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureColl
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
 export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
+// 「道路の種類」は路面と同じソース上の独立レイヤー。1本の線へ複数の意味を載せず、
+// 同時表示は並列トラック（applyRoadMaterialTrackOffsets）で分ける。
+// exportはテスト専用（MapView.layerOps.test.ts）。
+export const ROAD_TYPE_LAYER_ID = "region-road-type-line";
 // 専用way値配信軸（「評価軸」グループの風・勾配等）のMapLibre layer idは
 // axisLayers.ts: dedicatedWayValueLineLayerId が軸idから導出する。ROAD_TILE_SOURCE_ID/
 // ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと同じ構成）だが、
@@ -291,15 +293,10 @@ const ACCIDENT_LAYER_ID = "region-accidents-circle";
 const POI_TILE_SOURCE_ID = "region-poi-tiles";
 export const STOP_POI_LAYER_ID = "region-stop-poi-circle";
 export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
-// widthExpression/dashArrayExpressionは道路の種類軸にしか無い（roadFilterAxes.ts参照）ため
-// 型上undefinedもありうるが、ROAD_LINE_WIDTH_AXIS_ID/ROAD_LINE_DASH_AXIS_IDが指す軸には
-// 必ず設定されている。実行時に万一欠けていた場合、および「道路の種類」レイヤーがOFFの間の
-// フォールバック（均一な太さ・実線）に使う。
+// 線レイヤーの太さは意味を運ばない（全レイヤー共通の規約、roadFilterAxes.tsの冒頭参照）。
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export const DEFAULT_ROAD_LINE_WIDTH = 3;
-const DEFAULT_ROAD_LINE_DASHARRAY = [1, 0];
-// ROAD_TILE_LAYER_IDの初期化直後の仮の不透明度、および路面の種類・道路の種類のどちらも
-// opacityExpressionを持たない万一のフォールバック（実運用では両軸とも持つため通らない、
+// 軸がopacityExpressionを持たない万一のフォールバック（実運用では両軸とも持つため通らない、
 // applyRoadLayerState参照）。
 const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
@@ -312,6 +309,7 @@ const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 export const MATERIAL_TRACK_OFFSET_STEP = 2;
 export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
   ROAD_TILE_LAYER_ID,
+  ROAD_TYPE_LAYER_ID,
   DESIGNATION_LAYER_ID,
   TUNNEL_LAYER_ID,
   ONEWAY_LAYER_ID,
@@ -328,9 +326,8 @@ export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
 export const SECONDARY_AXIS_CASING_WIDTH =
   (ROAD_MATERIAL_TRACK_LAYER_IDS.length - 1) * MATERIAL_TRACK_OFFSET_STEP + DEFAULT_ROAD_LINE_WIDTH;
 export const SECONDARY_AXIS_CASING_OPACITY = 0.45;
-// ROAD_TILE_LAYER_IDの初期化直後の仮の色（applyRoadLayerStateが呼び出し直後に必ず実際の
-// 値へ上書きする、placeholder的な役割のみ）。実際に「路面の種類OFF・道路の種類ON」時の
-// 色分けはroadFilterAxes.tsのHIGHWAY_GROUPS（濃淡パレット、COLOR_HIGHWAY_*）を使う。
+// 路面・道路の種類レイヤーの初期化直後の仮の色（applyRoadLayerStateが呼び出し直後に必ず
+// 実際の値へ上書きする、placeholder的な役割のみ）。
 const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
 
 // routesToFeatureCollection/segmentsToFeatureCollection/computeRouteBoundsはexportして
@@ -417,7 +414,7 @@ export function segmentsToFeatureCollection(
   };
 }
 
-// 路面レイヤーの色分け式は常に固定（roadFilterAxes.tsのROAD_LINE_COLOR_AXIS_ID）、
+// 路面・道路の種類レイヤーの色分け式は軸ごとに固定（roadFilterAxes.ts）、
 // ルートレイヤー（風・勾配）の色分け式はモード定義（routeStyleModes.ts）から取得する。
 // ルート側は以降のモード切替もsetPaintProperty/setFilterによる式の差し替えのみ（路面タイルには
 // surface_good/surface/highwayが、ルートのsegmentsにはaxis_difficulties（axis_id→difficultyの
@@ -1622,22 +1619,22 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" },
       attribution: ROAD_TILE_ATTRIBUTION,
     });
-    map.addLayer({
-      id: ROAD_TILE_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        "line-color": ROAD_LINE_NEUTRAL_COLOR,
-        "line-width": DEFAULT_ROAD_LINE_WIDTH,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "line-dasharray": DEFAULT_ROAD_LINE_DASHARRAY as any,
-        "line-opacity": DEFAULT_ROAD_LINE_OPACITY,
-        // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
-        "line-offset": 0,
-      },
-      layout: { visibility: "none" },
-    });
+    for (const layerId of [ROAD_TILE_LAYER_ID, ROAD_TYPE_LAYER_ID]) {
+      map.addLayer({
+        id: layerId,
+        type: "line",
+        source: ROAD_TILE_SOURCE_ID,
+        "source-layer": ROAD_TILE_SOURCE_LAYER,
+        paint: {
+          "line-color": ROAD_LINE_NEUTRAL_COLOR,
+          "line-width": DEFAULT_ROAD_LINE_WIDTH,
+          "line-opacity": DEFAULT_ROAD_LINE_OPACITY,
+          // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
+          "line-offset": 0,
+        },
+        layout: { visibility: "none" },
+      });
+    }
   };
   runWhenStyleReady(map, applyData);
 }
@@ -1733,18 +1730,10 @@ export function shouldClearDedicatedWayValueFeatureState(
   return !Object.values(dedicatedWayValueVisibility).some(Boolean);
 }
 
-// 「道路情報」は「路面の種類」（roadSurface、色）・「道路の種類」（roadType、太さ・線種）の
-// 論理2レイヤーだが、物理的には同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し
-// 「色×太さ」の多重表現が壊れるため、1本のMapLibre線レイヤー（ROAD_TILE_LAYER_ID）へ
-// 動的に合成する。
-// - 両方ON: 色=路面の種類の配色、太さ・線種=道路の種類
-// - 路面の種類のみON: 色=路面の種類の配色、太さ・線種は中立（均一・実線）
-// - 道路の種類のみON: 色=道路の種類の濃淡パレット（COLOR_HIGHWAY_*、太さと同じ序列）、
-//   太さ・線種=道路の種類（色をROAD_LINE_NEUTRAL_COLOR一律にすると道路種別が支配的な
-//   場合に全区間が灰色になり判別できなくなるため、濃淡パレットを使う）
-// - 両方OFF: レイヤー自体を隠す
-// フィルタも表示中の軸だけを反映する（OFF中の軸のhiddenKeysで絞り込むと、その軸を
-// OFFにしているのに地物が消える、という矛盾が起きるため）。
+// 「道路情報」の各軸（路面の種類・道路の種類）は、それぞれ独立した線レイヤーとして描く。
+// 1本の線へ両方の意味を載せると色チャンネルの取り合いになり、同じレイヤーの色の意味が
+// もう一方のON/OFFで入れ替わる。同時にONのときは並列トラック（applyRoadMaterialTrackOffsets）
+// が横へ分離する。太さ・線種は意味を運ばない（roadFilterAxes.tsの冒頭参照）。
 function applyRoadLayerState(
   map: MapLibreMap,
   showRoadSurface: boolean,
@@ -1753,41 +1742,28 @@ function applyRoadLayerState(
 ) {
   runWhenStyleReady(map, () => {
     ensureRoadSurfaceTileLayer(map);
-    const showAny = showRoadSurface || showRoadType;
-    setLayerVisibility(map, ROAD_TILE_LAYER_ID, showAny);
-    if (showAny) {
-      // 色・不透明度は「路面の種類」がONなら常にそちらの式を優先し（太さ・線種と違い、
-      // 色チャンネルは1つしか持てないため両方ONでも路面側が勝つ）、OFFの間だけ道路の種類
-      // 側の濃淡パレット（roadFilterAxes.ts: COLOR_HIGHWAY_*）を使う。
-      const colorExpression = showRoadSurface
-        ? getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).colorExpression
-        : getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).colorExpression;
-      const widthExpression = showRoadType
-        ? (getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).widthExpression ?? DEFAULT_ROAD_LINE_WIDTH)
-        : DEFAULT_ROAD_LINE_WIDTH;
-      const dashArrayExpression = showRoadType
-        ? (getRoadFilterAxis(ROAD_LINE_DASH_AXIS_ID).dashArrayExpression ?? DEFAULT_ROAD_LINE_DASHARRAY)
-        : DEFAULT_ROAD_LINE_DASHARRAY;
-      const opacityExpression = showRoadSurface
-        ? (getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID).opacityExpression ?? DEFAULT_ROAD_LINE_OPACITY)
-        : (getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID).opacityExpression ?? DEFAULT_ROAD_LINE_OPACITY);
+    for (const [layerId, axisId, visible] of [
+      [ROAD_TILE_LAYER_ID, ROAD_SURFACE_AXIS_ID, showRoadSurface],
+      [ROAD_TYPE_LAYER_ID, ROAD_TYPE_AXIS_ID, showRoadType],
+    ] as const) {
+      setLayerVisibility(map, layerId, visible);
+      if (!visible) continue;
+      const axis = getRoadFilterAxis(axisId);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-color", colorExpression as any);
+      map.setPaintProperty(layerId, "line-color", axis.colorExpression as any);
+      map.setPaintProperty(layerId, "line-width", DEFAULT_ROAD_LINE_WIDTH);
+      map.setPaintProperty(
+        layerId,
+        "line-opacity",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (axis.opacityExpression ?? DEFAULT_ROAD_LINE_OPACITY) as any,
+      );
+      const filter = buildCombinedLegendFilterExpression([
+        { legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] },
+      ]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-width", widthExpression as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-dasharray", dashArrayExpression as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-opacity", opacityExpression as any);
+      map.setFilter(layerId, filter as any);
     }
-    const activeAxes = ROAD_FILTER_AXES.filter((axis) =>
-      axis.id === ROAD_LINE_COLOR_AXIS_ID ? showRoadSurface : showRoadType,
-    );
-    const combinedFilter = buildCombinedLegendFilterExpression(
-      activeAxes.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] })),
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setFilter(ROAD_TILE_LAYER_ID, combinedFilter as any);
   });
 }
 
@@ -1802,11 +1778,12 @@ function applyRoadLayerState(
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
-  visible: { road: boolean; designation: boolean; tunnel: boolean; oneway: boolean },
+  visible: { roadSurface: boolean; roadType: boolean; designation: boolean; tunnel: boolean; oneway: boolean },
 ) {
   runWhenStyleReady(map, () => {
     const visibleByLayerId: Record<string, boolean> = {
-      [ROAD_TILE_LAYER_ID]: visible.road,
+      [ROAD_TILE_LAYER_ID]: visible.roadSurface,
+      [ROAD_TYPE_LAYER_ID]: visible.roadType,
       [DESIGNATION_LAYER_ID]: visible.designation,
       [TUNNEL_LAYER_ID]: visible.tunnel,
       [ONEWAY_LAYER_ID]: visible.oneway,
@@ -2163,7 +2140,7 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
 // OverlayLayerEntryのコメント参照）。これへSTATIC_OVERLAY_LAYERSの対象外である
 // DETAIL_HIT_LAYER_ID（ルート詳細区間の当たり判定専用レイヤー。幅6pxの見た目の線
 // DETAIL_LAYER_ID自体はモバイルでタップしづらいため、幅24pxの当たり判定専用レイヤーを
-// 別に持つ）・ROAD_TILE_LAYER_ID（路面）を加える。handleClick/handleMouseMoveの両方が
+// 別に持つ）・ROAD_TILE_LAYER_ID（路面）・ROAD_TYPE_LAYER_ID（道路の種類）を加える。handleClick/handleMouseMoveの両方が
 // この同じ一覧を参照する必要があり、片方だけ増減すると「ポップアップは出るがカーソルが
 // 変わらない」という非対称な劣化になるため、この関数へ集約する。
 // exportはテスト専用（MapView.overlayFilters.test.ts）。
@@ -2171,6 +2148,7 @@ export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLa
   return [
     DETAIL_HIT_LAYER_ID,
     ROAD_TILE_LAYER_ID,
+    ROAD_TYPE_LAYER_ID,
     ...staticOverlayLayers.filter((layer) => layer.interactive).map((layer) => layer.layerId),
   ];
 }
@@ -2572,8 +2550,8 @@ interface MapViewProps {
    * STATIC_OVERLAY_LAYERSのkeyと同じ）。page.tsx側がaxisMaterialLayerIdsとlayerVisibility
    * から算出する（buildAxisOverlayLayers参照）。 */
   secondaryAxisCasingLayerIds: readonly string[];
-  /** 路面の2軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。互いに独立な軸なので
-   * 常に両方同時に効かせる（色分けは常にROAD_LINE_COLOR_AXIS_IDで固定、選択の余地は無い）。 */
+  /** 路面の各軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。軸ごとに独立した
+   * レイヤーを持つため、絞り込みもレイヤーごとに独立して効く。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
   /** 自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み軸
    * （STATIC_FILTER_AXES参照。事故のみ2軸を持ち、他は1軸。車の圧迫感は
@@ -2801,7 +2779,8 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
   setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
   applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
   applyRoadMaterialTrackOffsets(map, {
-    road: showRoadSurface || showRoadType,
+    roadSurface: showRoadSurface,
+    roadType: showRoadType,
     designation: showDesignation,
     tunnel: showTunnel,
     oneway: showOneway,
@@ -3922,7 +3901,8 @@ export default function MapView({
     if (!map) return;
     applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
     applyRoadMaterialTrackOffsets(map, {
-      road: showRoadSurface || showRoadType,
+      roadSurface: showRoadSurface,
+      roadType: showRoadType,
       designation: showDesignation,
       tunnel: showTunnel,
       oneway: showOneway,
