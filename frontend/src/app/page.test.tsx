@@ -116,7 +116,15 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         chip_label: null,
         panel_hint: null,
         show_map_icon: true,
-        shape: { kind: "breakpoint_linear", terms: [{ material: "lanes_count", weight: 1.0, required: true }], preprocess: "identity", breakpoints: [[0, 0], [10, 100]] },
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "lanes_count", weight: 1.0, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [10, 100],
+          ],
+        },
         display_thresholds_override: null,
         display_band_labels_override: null,
         dedicated_way_value_layer: false,
@@ -127,7 +135,7 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
         dynamic_way_value_needs_bearing: false,
         dynamic_way_value_needs_speed: false,
         raw_value_unit: null,
-  material_breakdown: [],
+        material_breakdown: [],
       },
     ],
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
@@ -162,22 +170,25 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
     expect(text).not.toContain("axis:gui_created_axis");
   });
 
-  it("route:false（T518以前の意味で保存された値）は移行後trueとしてlocalStorageへも" +
-    "書き戻される（実バグ修正の回帰テスト、2026-09-03ユーザー指摘「進行方向の矢印が" +
-    "以前は出てたのに消えている」）。reloadKey（axisCatalog.loaded）によりdeserializeが" +
-    "マウント直後・カタログ取得完了後の2回走るが、1回目の移行結果をlocalStorageへ" +
-    "書き戻さないと2回目が古いroute:falseを読み直して巻き戻る不具合があった", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-    window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify({ route: false }));
+  it(
+    "route:false（T518以前の意味で保存された値）は移行後trueとしてlocalStorageへも" +
+      "書き戻される（実バグ修正の回帰テスト、2026-09-03ユーザー指摘「進行方向の矢印が" +
+      "以前は出てたのに消えている」）。reloadKey（axisCatalog.loaded）によりdeserializeが" +
+      "マウント直後・カタログ取得完了後の2回走るが、1回目の移行結果をlocalStorageへ" +
+      "書き戻さないと2回目が古いroute:falseを読み直して巻き戻る不具合があった",
+    async () => {
+      vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
+      window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify({ route: false }));
 
-    render(<Home />);
+      render(<Home />);
 
-    await waitFor(() => {
-      const stored = window.localStorage.getItem(LAYER_VISIBILITY_STORAGE_KEY);
-      expect(stored).not.toBeNull();
-      expect((JSON.parse(stored ?? "{}") as { route?: boolean }).route).toBe(true);
-    });
-  });
+      await waitFor(() => {
+        const stored = window.localStorage.getItem(LAYER_VISIBILITY_STORAGE_KEY);
+        expect(stored).not.toBeNull();
+        expect((JSON.parse(stored ?? "{}") as { route?: boolean }).route).toBe(true);
+      });
+    },
+  );
 });
 
 // ============================================================================
@@ -324,9 +335,7 @@ describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: 
 
     await screen.findByTestId("overlay-layer-titles");
     const title = overlayLayerTitles().get("gradientFill");
-    expect(title).toBe(
-      "指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示"
-    );
+    expect(title).toBe("指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示");
     expect(title).not.toMatch(/\[設定はサイドバー\]/);
   });
 
@@ -364,9 +373,21 @@ import { act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateRoutes } from "@/services/routeApi";
 import { downloadGpx } from "@/lib/gpxExport";
-import { getAmedasObservation, getCurrentWeather, getWeatherWarnings, getWbgtStatus, getFloodForecasts } from "@/services/weatherApi";
+import {
+  getAmedasObservation,
+  getCurrentWeather,
+  getWeatherWarnings,
+  getWbgtStatus,
+  getFloodForecasts,
+} from "@/services/weatherApi";
 import type { GenerationConditions, SelectedRouteSegment } from "@/types/route";
-import type { AmedasObservation, WeatherConditions, WeatherWarnings, WbgtStatus, FloodForecasts } from "@/types/weather";
+import type {
+  AmedasObservation,
+  WeatherConditions,
+  WeatherWarnings,
+  WbgtStatus,
+  FloodForecasts,
+} from "@/types/weather";
 
 // "@/services/routeApi"はこれまでどのテストもモックしていなかった新規モジュール。
 // generateRoutesは実I/O（fetch）を伴うため、既存の他サービスモックと同じくvi.fn()化する。
@@ -571,9 +592,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
   vi.doMock("@/components/WarningBadge/WarningBadge", () => ({
     default: options.exposeWarningBadges
       ? (props: { items: Array<{ id: string; source: string; label: string }> }) => (
-          <div data-testid="warning-badges">
-            {JSON.stringify(props.items.map((i) => [i.source, i.id, i.label]))}
-          </div>
+          <div data-testid="warning-badges">{JSON.stringify(props.items.map((i) => [i.source, i.id, i.label]))}</div>
         )
       : () => null,
   }));
@@ -675,10 +694,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ max_routes: 8 }),
-        expect.anything(),
-      );
+      expect(generateRoutes).toHaveBeenCalledWith(expect.objectContaining({ max_routes: 8 }), expect.anything());
     });
   });
 
@@ -813,10 +829,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ max_routes: 3 }),
-        expect.anything(),
-      );
+      expect(generateRoutes).toHaveBeenCalledWith(expect.objectContaining({ max_routes: 3 }), expect.anything());
     });
   });
 
@@ -862,10 +875,13 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
   it("改善計画T602: backendが目的地を補正した場合、案内を表示し次回生成では補正後の地点を送る", async () => {
     const user = userEvent.setup();
-    const correctedDestination = { latitude: 35.70, longitude: 139.70 };
+    const correctedDestination = { latitude: 35.7, longitude: 139.7 };
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
-      conditions: makeConditions({ destination: { latitude: 35.681, longitude: 139.767 }, corrected_destination: correctedDestination }),
+      conditions: makeConditions({
+        destination: { latitude: 35.681, longitude: 139.767 },
+        corrected_destination: correctedDestination,
+      }),
       engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
@@ -876,9 +892,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     expect(
-      await screen.findByText(
-        "指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。",
-      ),
+      await screen.findByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。"),
     ).toBeInTheDocument();
 
     // 地図上のピンも補正後の地点へ動いているため、次回生成では補正後の座標を送る。
@@ -895,6 +909,52 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         expect.anything(),
       );
     });
+  });
+
+  // 印は「本人が条件を変えた」ことだけを知らせる。生成直後から点いていると、本当に
+  // 変えたときの合図が意味を失う（T758がこの印を設計した目的そのものが損なわれる）。
+  it("目的地が補正されても、生成直後は条件変更の印が点かない", async () => {
+    const user = userEvent.setup();
+    const correctedDestination = { latitude: 35.7, longitude: 139.7 };
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
+      conditions: makeConditions({
+        destination: { latitude: 35.681, longitude: 139.767 },
+        corrected_destination: correctedDestination,
+      }),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await screen.findByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。");
+
+    expect(screen.queryByText("条件が変更されています")).not.toBeInTheDocument();
+  });
+
+  it("生成後に条件を変えると、条件変更の印が点く", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [makeCandidate({ id: "route-00", direction_label: "北" })],
+      conditions: makeConditions({}),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /^1 / })).toBeInTheDocument();
+    });
+    expect(screen.queryByText("条件が変更されています")).not.toBeInTheDocument();
+
+    // 距離はスライダー（range）。値を動かすと生成条件が変わる。
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "40" } });
+
+    expect(await screen.findByText("条件が変更されています")).toBeInTheDocument();
   });
 
   it("改善計画T531: 候補タブに順位番号を表示し、同じ方位の候補を区別できる", async () => {
@@ -1063,7 +1123,12 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
-        makeCandidate({ id: "route-spliced", direction_label: "組み合わせたルート", distance_km: 18.5, edge_ids: ["s", "b1", "m", "a2", "e"] }),
+        makeCandidate({
+          id: "route-spliced",
+          direction_label: "組み合わせたルート",
+          distance_km: 18.5,
+          edge_ids: ["s", "b1", "m", "a2", "e"],
+        }),
       ],
       conditions: makeConditions(),
       engine: "road_graph",
@@ -1103,7 +1168,12 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // 合成の結果はroute-01と同じ道（backendは同じ経路を評価して返す）
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
-        makeCandidate({ id: "route-spliced", direction_label: "組み合わせたルート", distance_km: 19.0, edge_ids: ["s", "b1", "e"] }),
+        makeCandidate({
+          id: "route-spliced",
+          direction_label: "組み合わせたルート",
+          distance_km: 19.0,
+          edge_ids: ["s", "b1", "e"],
+        }),
       ],
       conditions: makeConditions(),
       engine: "road_graph",
@@ -1318,10 +1388,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // どちらも「まとめて元に戻す」だが対象が違う（レイヤーを消す／隠した項目を戻す）。
     // 同じバツ印だと区別できないため、対象を形で示すアイコンを別々に持つ。
     const user = userEvent.setup();
-    window.localStorage.setItem(
-      "ridecompass:hidden-legend-keys",
-      JSON.stringify({ surface: ["asphalt"] }),
-    );
+    window.localStorage.setItem("ridecompass:hidden-legend-keys", JSON.stringify({ surface: ["asphalt"] }));
     const HomeFresh = await renderFreshHome();
     render(<HomeFresh />);
 

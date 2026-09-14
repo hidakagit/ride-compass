@@ -1485,10 +1485,14 @@ export default function Home() {
   // 現在のフォーム値から生成リクエストの入力一式を組み立てる。生成時（handleGenerate）と
   // dirty判定の両方がこの1つの関数を通るため、送る値を足したときに比較側へ足し忘れる形の
   // 欠陥が起きない（lib/generationRequest.ts参照）。
+  // `destinationOverride`はbackendが補正した目的地を渡すためのもの。補正後のキーを作るとき
+  // フィールドを個別に差し替えると、そのフィールドから導かれる値（distanceKm）が補正前の
+  // ままになる——同じ組み立てをここ1箇所に通すことで、その取りこぼしが起きない。
   const buildCurrentGenerationInput = useCallback(
-    (distanceKm: number): GenerationInput => {
+    (distanceKm: number, destinationOverride?: Coordinates): GenerationInput => {
+      const effectiveDestination = destinationOverride ?? destination;
       const destinationModePoints =
-        routeMode === "destination" ? [...waypoints, ...(destination ? [destination] : [])] : [];
+        routeMode === "destination" ? [...waypoints, ...(effectiveDestination ? [effectiveDestination] : [])] : [];
       return {
         origin: location,
         // 目的地モードでは距離をRouteForm（distanceKm=0固定）から受け取らず、地図上の
@@ -1529,7 +1533,7 @@ export default function Home() {
         // 周回モードでは経由地・目的地の値が残っていても送らない（モード切り替え自体は
         // 値を消さないため、地図上にピンが残っていても周回モード中は無視する）。
         waypoints: routeMode === "destination" ? waypoints : [],
-        destination: routeMode === "destination" ? destination : null,
+        destination: routeMode === "destination" ? effectiveDestination : null,
         maxRoutesRelevant: routeMode === "loop" || waypoints.length === 0,
       };
     },
@@ -1679,19 +1683,17 @@ export default function Home() {
       setHasUnseenResults(candidates.length > 0);
       // dirty判定の基準は「いま表示している候補を作った条件」。エラー時は既存候補が
       // 残るため更新しない（tryの成功パスでのみ更新する）
+      // 補正があった場合は補正後の地点で入力を組み直す（地図上のピンも補正後の地点へ
+      // 動かしているため、conditionsDirtyが直後に誤ってtrueにならないように揃える）。
+      // 組み直すのは、目的地から導かれるdistance_kmも一緒に揃える必要があるため。
+      const generatedInput = conditions.corrected_destination
+        ? buildCurrentGenerationInput(distanceKm, conditions.corrected_destination)
+        : generationInput;
       setGeneratedConditions({
-        // 補正があった場合は補正後の地点でキーを作る（地図上のピンも補正後の地点へ
-        // 動かしているため、conditionsDirtyが直後に誤ってtrueにならないように揃える）。
-        key: generationConditionsKey(
-          conditions.corrected_destination
-            ? { ...generationInput, destination: conditions.corrected_destination }
-            : generationInput,
-        ),
+        key: generationConditionsKey(generatedInput),
         destinationCorrected: Boolean(conditions.corrected_destination),
-        // 補正があった場合は補正後の地点を持つ（実際に探索された地点）。
-        input: conditions.corrected_destination
-          ? { ...generationInput, destination: conditions.corrected_destination }
-          : generationInput,
+        // 実際に探索された地点を持つ。
+        input: generatedInput,
       });
       setGeneratedRoutePreference(conditions.route_preference);
       if (candidates.length === 0) {
