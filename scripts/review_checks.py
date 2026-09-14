@@ -679,13 +679,13 @@ _LINE_COMMENT_MARKERS = {
     ".ts": ("//",), ".tsx": ("//",), ".js": ("//",), ".mjs": ("//",),
     ".css": (), ".sql": ("--",), ".sh": ("#",),
 }
-#: ブロックコメントの行（`/* ... */`の途中行を含む）。行頭が这れで始まる行だけを見る。
-_BLOCK_COMMENT_PREFIXES = ("/*", "*", "*/")
-
-
 def _python_comment_lines(text: str) -> set[int]:
-    """コメント・docstringが占める行番号。tokenizeとastで正確に取る
-    （文字列中の`#`をコメントと誤認しない）。"""
+    """コメント・文字列リテラルだけの文（docstring）が占める行番号。
+
+    `tokenize`と`ast`で正確に取る（文字列中の`#`をコメントと誤認しない）。docstringは
+    モジュール・クラス・関数の先頭に限らず**値として使われない文字列文すべて**を見る
+    ——属性の説明として直後へ置く形が広く使われており、そこを残すと母集団が汚れる。
+    """
     import ast
     import io
     import tokenize
@@ -702,44 +702,53 @@ def _python_comment_lines(text: str) -> set[int]:
     except SyntaxError:
         return lines
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.Expr):
             continue
-        if not (node.body and isinstance(node.body[0], ast.Expr)):
-            continue
-        value = node.body[0].value
+        value = node.value
         if isinstance(value, ast.Constant) and isinstance(value.value, str):
             lines.update(range(value.lineno, (value.end_lineno or value.lineno) + 1))
+    return lines
+
+
+def _block_comment_lines(text: str, markers: tuple[str, ...]) -> set[int]:
+    """`/* ... */`のブロックと、行頭から始まる行コメントが占める行番号。
+
+    ブロックは開始から終了まで**状態として追う**。途中行が`*`で始まるとは限らず
+    （日本語の続き行など）、行頭だけを見ると本文として母集団へ残ってしまう。
+    """
+    lines: set[int] = set()
+    in_block = False
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        if in_block:
+            lines.add(lineno)
+            if "*/" in line:
+                in_block = False
+            continue
+        if "/*" in line:
+            lines.add(lineno)
+            in_block = "*/" not in line.split("/*", 1)[1]
+            continue
+        if markers and stripped.startswith(markers):
+            lines.add(lineno)
     return lines
 
 
 def split_source_comments(path: str, text: str) -> tuple[list[tuple[int, str]], str]:
     """(コメント行, コメントを除いた本文)。拡張子ごとの素朴な規則で分ける。
 
-    行の途中から始まるコメント（`x = 1  # 説明`）は本文側へ残す。取りこぼす方向の
+    行の途中から始まる行コメント（`x = 1  // 説明`）は本文側へ残す。取りこぼす方向の
     割り切りで、**誤検知を出さない**ことを優先する。
     """
     suffix = Path(path).suffix
-    comment_lines: list[tuple[int, str]] = []
-    code_lines: list[str] = []
     if suffix == ".py":
         marked = _python_comment_lines(text)
-        for lineno, line in enumerate(text.splitlines(), 1):
-            if lineno in marked:
-                comment_lines.append((lineno, line))
-            else:
-                code_lines.append(line)
-        return comment_lines, "\n".join(code_lines)
-
-    markers = _LINE_COMMENT_MARKERS.get(suffix, ())
+    else:
+        marked = _block_comment_lines(text, _LINE_COMMENT_MARKERS.get(suffix, ()))
+    comment_lines: list[tuple[int, str]] = []
+    code_lines: list[str] = []
     for lineno, line in enumerate(text.splitlines(), 1):
-        stripped = line.lstrip()
-        is_comment = stripped.startswith(_BLOCK_COMMENT_PREFIXES) or (
-            bool(markers) and stripped.startswith(markers)
-        )
-        if is_comment:
-            comment_lines.append((lineno, line))
-        else:
-            code_lines.append(line)
+        (comment_lines.append((lineno, line)) if lineno in marked else code_lines.append(line))
     return comment_lines, "\n".join(code_lines)
 
 

@@ -21,7 +21,7 @@ function baseProps() {
 }
 
 // 凡例・絞り込み編集・色分けモード選択などの「細かな設定」はすべてサイドバー側
-// （MapLayersPanel.test.tsx）で検証する。ここは地図の上に残った最小限の要素
+// （このファイル自身の▶パネルのテスト）で検証する。ここは地図の上に残った最小限の要素
 // （ON/OFFチップと▶で開く凡例パネル）だけを見る。このコンポーネントはレイヤー固有の
 // 知識を持たない汎用描画係のため、テストもpropsで渡した表示状態の反映のみを確認する。
 //
@@ -254,7 +254,7 @@ describe("MapOverlayControls", () => {
 
   // 改善計画T471項目3: 以前はここでWidthSwatch.tsxとほぼ同じ太さバーの描画を独立に
   // 再実装しており、WidthSwatch.tsx: DISPLAY_SCALE=1.8倍の拡大が適用されていなかった
-  // ため、同じentry.widthでもMapLayersPanel側と地図上チップ側で見た目の太さが食い違って
+  // ため、同じentry.widthでも▶パネル側と地図上チップ側で見た目の太さが食い違って
   // いた（renderLegendSwatch: entry.width!==undefinedならWidthSwatchへ委譲、統合レビュー
   // 第3回`history/2026-08-31_all.md` Shard E指摘、T476）。
   it("entry.widthを持つ凡例カテゴリはWidthSwatch（DISPLAY_SCALE=1.8適用済みの太さバー）で描画される", async () => {
@@ -296,7 +296,13 @@ describe("MapOverlayControls", () => {
   it("OFF・disabled・凡例無しのレイヤーには▶が出ない", () => {
     const layers: OverlayLayerChip[] = [
       { id: "elevation", label: "標高図", on: true, summary: null, legendDetails: [] }, // 凡例無し
-      { id: "roadSurface", label: "路面", on: false, summary: null, legendDetails: [{ label: "路面の種類", legend: [], hiddenKeys: [] }] }, // OFF
+      {
+        id: "roadSurface",
+        label: "路面",
+        on: false,
+        summary: null,
+        legendDetails: [{ label: "路面の種類", legend: [], hiddenKeys: [] }],
+      }, // OFF
       { id: "route", label: "ルート", on: true, disabled: true, summary: "色分け: 風の影響" }, // disabled
     ];
     render(<MapOverlayControls {...baseProps()} layers={layers} />);
@@ -415,7 +421,7 @@ describe("MapOverlayControls", () => {
       const roadButton = screen.getByRole("button", { name: "道路" });
       const designationButton = screen.getByRole("button", { name: "指定路線" });
       expect(roadButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
-        designationButton.closest('[class*="chipRowItem"]')?.parentElement
+        designationButton.closest('[class*="chipRowItem"]')?.parentElement,
       );
     });
 
@@ -667,7 +673,7 @@ describe("MapOverlayControls", () => {
       const environmentButton = screen.getByRole("button", { name: "環境" });
       const memberButton = screen.getByRole("button", { name: "降水" });
       expect(environmentButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
-        memberButton.closest('[class*="chipRowItem"]')?.parentElement
+        memberButton.closest('[class*="chipRowItem"]')?.parentElement,
       );
     });
 
@@ -695,7 +701,13 @@ describe("MapOverlayControls", () => {
           on: true,
           category: "weather",
           dataNature: "dynamic",
-          legendDetails: [{ label: "降水強度", legend: [{ key: "light", label: "弱い雨", color: "#7dd3fc", filter: ["literal", true] }], hiddenKeys: [] }],
+          legendDetails: [
+            {
+              label: "降水強度",
+              legend: [{ key: "light", label: "弱い雨", color: "#7dd3fc", filter: ["literal", true] }],
+              hiddenKeys: [],
+            },
+          ],
         },
         {
           id: "windVector",
@@ -704,7 +716,13 @@ describe("MapOverlayControls", () => {
           on: true,
           category: "weather",
           dataNature: "dynamic",
-          legendDetails: [{ label: "風速", legend: [{ key: "calm", label: "無風", color: "#94a3b8", filter: ["literal", true] }], hiddenKeys: [] }],
+          legendDetails: [
+            {
+              label: "風速",
+              legend: [{ key: "calm", label: "無風", color: "#94a3b8", filter: ["literal", true] }],
+              hiddenKeys: [],
+            },
+          ],
         },
       ];
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
@@ -717,7 +735,10 @@ describe("MapOverlayControls", () => {
       expect(screen.getByText("無風")).toBeInTheDocument();
       // 降水側の凡例は自動的に閉じている（重なって両方判読不能になる不具合の再発防止）
       expect(screen.queryByText("弱い雨")).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "降水ナウキャストの凡例を表示" })).toHaveAttribute("aria-expanded", "false");
+      expect(screen.getByRole("button", { name: "降水ナウキャストの凡例を表示" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
     });
 
     it("表示項目設定(Ⓘ)で、説明文(panelHint)を持つ項目には情報アイコンが出て、押すと説明文が開閉する", async () => {
@@ -731,7 +752,13 @@ describe("MapOverlayControls", () => {
           dataNature: "dynamic",
           panelHint: "これはテスト用の説明文です。",
         },
-        { id: "precipitationNowcast", label: "降水ナウキャスト", on: false, category: "weather", dataNature: "dynamic" },
+        {
+          id: "precipitationNowcast",
+          label: "降水ナウキャスト",
+          on: false,
+          category: "weather",
+          dataNature: "dynamic",
+        },
       ];
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
@@ -804,7 +831,14 @@ describe("MapOverlayControls", () => {
       const layers: OverlayLayerChip[] = [
         { id: "route", label: "ルート", on: true, title: "選択中ルート", dataStatus: "loading" },
       ];
-      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
+      render(
+        <MapOverlayControls
+          layers={layers}
+          onToggle={vi.fn()}
+          onLegendEntryToggle={vi.fn()}
+          onLegendAxisSetHidden={vi.fn()}
+        />,
+      );
 
       const chip = screen.getByRole("button", { name: "ルート" });
       expect(chip.querySelector('[class*="iconStatusDot_loading"]')).not.toBeNull();
@@ -813,7 +847,14 @@ describe("MapOverlayControls", () => {
 
     it("OFF中のチップはdataStatusがあってもドットを出さない（LayerChipと同じ抑制条件）", () => {
       const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: false, dataStatus: "error" }];
-      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
+      render(
+        <MapOverlayControls
+          layers={layers}
+          onToggle={vi.fn()}
+          onLegendEntryToggle={vi.fn()}
+          onLegendAxisSetHidden={vi.fn()}
+        />,
+      );
 
       const chip = screen.getByRole("button", { name: "ルート" });
       expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
@@ -821,7 +862,14 @@ describe("MapOverlayControls", () => {
 
     it("dataStatus未指定（正常）のチップはドットを出さない", () => {
       const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: true }];
-      render(<MapOverlayControls layers={layers} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
+      render(
+        <MapOverlayControls
+          layers={layers}
+          onToggle={vi.fn()}
+          onLegendEntryToggle={vi.fn()}
+          onLegendAxisSetHidden={vi.fn()}
+        />,
+      );
 
       const chip = screen.getByRole("button", { name: "ルート" });
       expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
@@ -857,7 +905,14 @@ describe("MapOverlayControls", () => {
         { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
         { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
       ];
-      const { rerender } = render(<MapOverlayControls layers={layers1} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
+      const { rerender } = render(
+        <MapOverlayControls
+          layers={layers1}
+          onToggle={vi.fn()}
+          onLegendEntryToggle={vi.fn()}
+          onLegendAxisSetHidden={vi.fn()}
+        />,
+      );
 
       // 初回マウントでchipRowViewport/chipRowTrackの両方が揃った時点で1つだけ構築される
       expect(resizeObserverInstances).toHaveLength(1);
@@ -866,7 +921,14 @@ describe("MapOverlayControls", () => {
       // 「親の再レンダー」を、内容は同じだが参照は新しいlayers配列を渡すことで模す
       // （page.tsx側でstate更新のたびに新しい配列を作ってMapOverlayControlsへ渡す実態と同じ）
       const layers2: OverlayLayerChip[] = layers1.map((layer) => ({ ...layer }));
-      rerender(<MapOverlayControls layers={layers2} onToggle={vi.fn()} onLegendEntryToggle={vi.fn()} onLegendAxisSetHidden={vi.fn()} />);
+      rerender(
+        <MapOverlayControls
+          layers={layers2}
+          onToggle={vi.fn()}
+          onLegendEntryToggle={vi.fn()}
+          onLegendAxisSetHidden={vi.fn()}
+        />,
+      );
 
       // useCallbackでref関数の同一性が保たれていればReactはref callbackを再実行せず、
       // ResizeObserverの再構築（disconnect→new）は起きない

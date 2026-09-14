@@ -1,18 +1,17 @@
 // 地図レイヤーのカタログ（単一ソース）。
 //
-// 地図上のチップ行（MapOverlayControls）とサイドバーの設定パネル（MapLayersPanel）は
-// どちらもこの配列を列挙して描画する。レイヤーを追加するときは、
+// 地図上のチップ行とその▶パネル（MapOverlayControls）がこの配列を列挙して描画する。レイヤーを追加するときは、
 //   1. ここへ MapLayerDescriptor を1つ足す
 //   2. page.tsx で表示状態(layerVisibility)の初期値とサマリ計算を1行ずつ足す
-//   3. MapLayersPanel にそのレイヤーの設定セクションの中身を足す（凡例・絞り込み等）
-// だけでチップ・条件サマリ・サイドバーのセクション枠が揃う。地図描画そのもの
+//   3. MapOverlayControls の▶パネルへ、そのレイヤーの凡例・絞り込みを足す
+// だけでチップ・条件サマリ・▶パネルの枠が揃う。地図描画そのもの
 // （MapView.tsxのソース/レイヤー登録）は従来どおり別途必要。
 //
 // kind は「データの性質」による分類（static: 地域に固定で時間によって変わらないデータ
 // [タイル配信系]／dynamic: 選択中ルートや時間によって変わるデータ）。静的データと動的データを
 // 混同しない、という設計方針（docs/static-road-attributes-plan.md）を表す。
 //
-// categoryはkind:"static"レイヤーのみが持つ中分類で、サイドバー（MapLayersPanel）の
+// categoryはkind:"static"レイヤーのみが持つ中分類で、▶パネル（MapOverlayControls）の
 // グループ見出しに使う。staticが8種に達しflatな一覧のまま並ぶと見つけやすさが悪化する
 // ため、kindより一段細かい単位で分ける:
 // - roadCondition（道路状態）: 道路の種類・路面の種類・指定路線
@@ -70,7 +69,7 @@ export type MapLayerId =
   // 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
   // ramp軸と同じく軸カタログから自動生成され、IDも動的（axisLayers.ts:
   // dedicatedWayValueMapLayerId参照）。地図上チップ（MapOverlayControls.tsx）・
-  // サイドバー（MapLayersPanel.tsx）のどちらにも現れず（isAxisStudioLayer）、表示ON/OFFの
+  // ▶パネル（MapOverlayControls.tsx）のどちらにも現れず（isAxisStudioLayer）、表示ON/OFFの
   // 唯一の起動導線は地図上部中央のLensControl（レンズ）。
   | DedicatedWayValueMapLayerId;
 
@@ -82,12 +81,12 @@ export type MapLayerId =
 // 描画方式のためkind="static"のまま、dataNature="dynamic"で区別する。
 export type MapLayerKind = "static" | "dynamic";
 
-// staticレイヤーの中分類。サイドバー（MapLayersPanel）の見出しに使う。dynamic（route）は
+// staticレイヤーの中分類。▶パネル（MapOverlayControls）の見出しに使う。dynamic（route）は
 // 今のところ1種のみのため中分類を持たない（category未指定）。
 export type MapLayerCategory = "roadCondition" | "trafficSafety" | "terrain" | "amenity" | "weather" | "disaster";
 
-// カテゴリの表示順・見出し文言の単一ソース。MapLayersPanel.tsx・MapOverlayControls.tsxの
-// 両方が参照する（UI語彙のカタログ集約、片側importで揃える）。
+// カテゴリの表示順・見出し文言の単一ソース。MapOverlayControls.tsxが参照する
+// （UI語彙のカタログ集約、片側importで揃える）。
 export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
   "roadCondition",
   "trafficSafety",
@@ -100,13 +99,12 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
 /** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
  * 推定指標（合成）か、時刻で内容が変わる動的データか。表示グルーピングの単位ではなく、
  * (a) `isAxisStudioLayer`が"composite"を「軸スタジオ由来のため地図UIチップには出さない」
- * 判定の入力に使う、(b) MapLayersPanel.tsxが"dynamic"（降水ナウキャスト等、帯単位の
- * 絞り込み機能を持たないレイヤー）をサイドバーの詳細セクションから除外する判定に使う、
+ * 判定の入力に使う、(b) MapOverlayControls.tsxが"dynamic"（降水ナウキャスト等、帯単位の
+ * 絞り込み機能を持たないレイヤー）を▶パネルの内訳から除外する判定に使う、
  * の2点で使われる。 */
 export type MapLayerDataNature = "raw" | "composite" | "dynamic";
 
-/** 地図上チップ（MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）最上位の
- * 3グループ。「対象（何についての情報か）」で束ねる。
+/** 地図上チップ（MapOverlayControls.tsx）最上位の3グループ。「対象（何についての情報か）」で束ねる。
  * - road（道路）: 道路の純粋な属性のみ（道路種別・路面種別・指定路線・トンネル・一方通行）
  * - environment（環境）: 標高／降水ナウキャスト・風（矢印）・雷・竜巻等の面レイヤー
  * - spot（スポット）: 停止要因POI・補給POI・事故地点等の点レイヤー
@@ -138,8 +136,8 @@ export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = ["road", "env
 
 /** 軸スタジオ由来のレイヤーか。ramp軸（dataNature==="composite"）・専用way_id→動的値
  * 配信層を持つ軸（`axisStudioLayer`、buildMapLayersが軸カタログから生成する際に立てる）は、
- * 地図上チップ（MapOverlayControls.tsx）・サイドバー（MapLayersPanel.tsx）の両方が、この判定を
- * 使ってこれらのレイヤーを描画対象から除外する（mapOverlayGroupForが返すundefinedは
+ * 地図上チップ（MapOverlayControls.tsx）がこの判定を使って
+ * これらのレイヤーを描画対象から除外する（mapOverlayGroupForが返すundefinedは
  * 「route等、単独チップとして出す」ものと「軸スタジオ由来のため地図UIには一切出さない」
  * ものの2種類が混在するため、区別に使う専用の判定）。
  *
@@ -218,140 +216,139 @@ export function buildMapLayers(
   dedicatedAxes: readonly DedicatedWayValueAxis[],
 ): readonly MapLayerDescriptor[] {
   return [
-  {
-    id: "elevation",
-    // ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける
-    label: "標高図",
-    kind: "static",
-    category: "terrain",
-    description: "国土地理院の色別標高図を重ねる",
-    // ラスタタイルのため他レイヤーのような凡例ベースの絞り込みを持たず、操作はON/OFFだけ。
-    panelHint: "国土地理院の色別標高図を重ねる",
-  },
-  {
-    // 「道路の種類」「路面の種類」は一次属性1つ=1レイヤーの原則に合わせた論理2レイヤー。
-    // MapView.tsx側の物理描画は1本のMapLibre線レイヤー（region-road-surface-tiles-line）に
-    // 合成する（同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
-    // 多重表現が壊れるため）。ON/OFF・凡例・絞り込み・データ状態は他のレイヤーと同じ
-    // 汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
-    id: "roadType",
-    label: "道路の種類",
-    chipLabel: "道路種別",
-    kind: "static",
-    category: "roadCondition",
-    description: "道路種別を線の太さで表示[幹線道路ほど太く・自転車専用道路ほど細く]",
-    // 道路種別ごとの濃淡（roadFilterAxes.ts: HIGHWAY_GROUPS、COLOR_HIGHWAY_*参照）。
-    // 「路面の種類」がONの間はそちらの色分けが優先されるため、この濃淡は「路面の種類」が
-    // OFFのときだけ見える。
-    panelHint:
-      "太さに加え、「路面の種類」レイヤーがOFFの間は種別ごとの濃淡[幹線道路ほど濃く・" +
-      "自転車専用道路ほど薄く]でも表示します。「路面の種類」がONのときは、色はそちらの" +
-      "配色を優先します。",
-  },
-  {
-    id: "roadSurface",
-    label: "路面の種類",
-    chipLabel: "路面",
-    kind: "static",
-    category: "roadCondition",
-    description: "路面の材質を色で表示[アスファルト・砂利・土など]",
-  },
-  {
-    id: "designation",
-    // 外部静的データソース（国土数値情報 N10/N12）。指定路線コンフレーション機構が
-    // road_edgesへ対応付けた緊急輸送道路・重要物流道路を色分け表示する。
-    label: "指定路線[緊急輸送・重要物流]",
-    chipLabel: "指定路線",
-    kind: "static",
-    category: "roadCondition",
-    description: "国土数値情報の緊急輸送道路・重要物流道路[KSJ N10/N12]に該当する区間を色分け表示",
-    // バッファマッチ（20m、交差率50%以上）でroad_edgesへ対応付けた区間を色分けする。
-    // 該当区間は車の圧迫感軸（axis:car_stress）にも+1の補正として反映される
-    // （domain/axis_definitions.py: car_stress_designation_adjustment参照）。指定路線が
-    // 「行政指定という事実」の表示であるのに対し、車ストレスはそれを含む複数要因
-    // （道路種別・車線数・制限速度・自転車インフラ関連の正規化フラグ）を合成した推定指標
-    // であるという役割の違いをpanelHintで明記する（car_stress軸自身のpanel_hint、
-    // AXIS_DEFINITIONS参照と対で参照）。
-    panelHint:
-      "国土数値情報の緊急輸送道路[N10]・重要物流道路[N12]に該当する区間です。" +
-      "大型車の通行が多いと推定される目安として車の圧迫感の評価にも加点されますが、" +
-      "指定路線かどうか自体を個別に確認できるよう別レイヤーとして表示しています。",
-  },
-  {
-    // トンネル（一次属性、OSMのtunnelタグ）。designationと同じroad_surfaceソースの
-    // 独立レイヤー。
-    id: "tunnel",
-    label: "トンネル",
-    kind: "static",
-    category: "roadCondition",
-    description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
-    panelHint:
-      "OSMのtunnelタグが該当する区間です。「夜間」軸[推定グループ]の材料の1つとして、" +
-      "夜間の危険度の判定に使われます。night軸自体も専用レイヤーを持ちます。",
-  },
-  {
-    // 一方通行（一次属性、OSM onewayタグ）。一方通行の逆方向は既にRoad Graph構築時
-    // （backend/app/domain/graph.py: build_road_graph）にEdge自体が生成されないため探索の
-    // 正しさには無関係で、評価軸（route_preference）にも組み込まない表示専用の一次属性。
-    id: "oneway",
-    label: "一方通行",
-    kind: "static",
-    category: "roadCondition",
-    description: "一方通行区間[OSMのonewayタグ]を色分け表示",
-    panelHint:
-      "OSMのonewayタグが該当する区間です。ルート探索は既に一方通行の向きを守っており" +
-      "（逆走経路自体が生成されません）、このレイヤーは表示のみで評価には影響しません。",
-  },
-  {
-    id: "stopPoi",
-    label: "停止要因",
-    kind: "static",
-    category: "trafficSafety",
-    description: "信号・横断歩道・一時停止・踏切の位置を種別ごとに色分け表示",
-    panelHint:
-      "信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを" +
-      "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
-  },
-  {
-    id: "supplyPoi",
-    label: "補給・休憩ポイント",
-    // 地図上のチップ幅は文字数に連動する（他レイヤーは4文字以内: 指定路線/インフラ等）ため、
-    // 「補給・休憩」（読点込み5文字）だとこのチップだけ幅が広がってしまう。読点を省いた
-    // 「補給休憩」（4文字）に短縮（正式名称は引き続きlabelの「補給・休憩ポイント」）。
-    chipLabel: "補給休憩",
-    kind: "static",
-    category: "amenity",
-    description: "コンビニ・自販機・トイレ・給水・駐輪場の位置を種別ごとに色分け表示",
-    // 実店舗とどれだけ合っているかの目安として、backend/scripts/measure_poi_freshness.pyで
-    // OSM側の最終編集日時を計測している。コンビニは関東全域で直近2年以内の編集が62.4%と
-    // 明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、
-    // 閉店・撤去にデータが追いついていないリスクが相対的に高い。取込自体は5種すべて
-    // 対象にしつつ、利用者へは正直にこの差を伝える（コンビニを優先的な目安、他4種は
-    // 参考程度に）。
-    panelHint:
-      "コンビニ・自販機・トイレ・給水・駐輪場の位置です。コンビニはOSMデータの更新が" +
-      "比較的新しく目安として使いやすい一方、自販機・トイレ・給水・駐輪場は閉店・撤去に" +
-      "データが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
-  },
-  {
-    id: "accidents",
-    label: "事故[警察庁統計]",
-    chipLabel: "事故",
-    kind: "static",
-    category: "trafficSafety",
-    description: "警察庁交通事故統計オープンデータ[関東7都県、2022〜2024年]の発生地点を表示",
-    panelHint:
-      "警察庁が公開する交通事故統計オープンデータ[本票、関東7都県・2022〜2024年]の" +
-      "発生地点です。死亡事故は円を大きく表示します。2019〜2021年は本票のCSV形式が" +
-      "異なるため未対応です。",
-  },
-  // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ
-  // 生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。新しい軸はbackendの
-  // レジストリ登録＋タイルへの事実焼き込みだけでここへ現れる（このファイルの編集は不要）。
-  // 凡例（段階・色・絞り込み）はSTATIC_FILTER_AXES（staticAttributeLayers.ts、
-  // axisLayers.ts: buildAxisRampLegend由来）が他の静的レイヤーと同じ仕組みで提供する。
-  ...rampAxes.map(
-    (axis): MapLayerDescriptor => ({
+    {
+      id: "elevation",
+      // ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける
+      label: "標高図",
+      kind: "static",
+      category: "terrain",
+      description: "国土地理院の色別標高図を重ねる",
+      // ラスタタイルのため他レイヤーのような凡例ベースの絞り込みを持たず、操作はON/OFFだけ。
+      panelHint: "国土地理院の色別標高図を重ねる",
+    },
+    {
+      // 「道路の種類」「路面の種類」は一次属性1つ=1レイヤーの原則に合わせた論理2レイヤー。
+      // MapView.tsx側の物理描画は1本のMapLibre線レイヤー（region-road-surface-tiles-line）に
+      // 合成する（同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
+      // 多重表現が壊れるため）。ON/OFF・凡例・絞り込み・データ状態は他のレイヤーと同じ
+      // 汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
+      id: "roadType",
+      label: "道路の種類",
+      chipLabel: "道路種別",
+      kind: "static",
+      category: "roadCondition",
+      description: "道路種別を線の太さで表示[幹線道路ほど太く・自転車専用道路ほど細く]",
+      // 道路種別ごとの濃淡（roadFilterAxes.ts: HIGHWAY_GROUPS、COLOR_HIGHWAY_*参照）。
+      // 「路面の種類」がONの間はそちらの色分けが優先されるため、この濃淡は「路面の種類」が
+      // OFFのときだけ見える。
+      panelHint:
+        "太さに加え、「路面の種類」レイヤーがOFFの間は種別ごとの濃淡[幹線道路ほど濃く・" +
+        "自転車専用道路ほど薄く]でも表示します。「路面の種類」がONのときは、色はそちらの" +
+        "配色を優先します。",
+    },
+    {
+      id: "roadSurface",
+      label: "路面の種類",
+      chipLabel: "路面",
+      kind: "static",
+      category: "roadCondition",
+      description: "路面の材質を色で表示[アスファルト・砂利・土など]",
+    },
+    {
+      id: "designation",
+      // 外部静的データソース（国土数値情報 N10/N12）。指定路線コンフレーション機構が
+      // road_edgesへ対応付けた緊急輸送道路・重要物流道路を色分け表示する。
+      label: "指定路線[緊急輸送・重要物流]",
+      chipLabel: "指定路線",
+      kind: "static",
+      category: "roadCondition",
+      description: "国土数値情報の緊急輸送道路・重要物流道路[KSJ N10/N12]に該当する区間を色分け表示",
+      // バッファマッチ（20m、交差率50%以上）でroad_edgesへ対応付けた区間を色分けする。
+      // 該当区間は車の圧迫感軸（axis:car_stress）にも+1の補正として反映される
+      // （domain/axis_definitions.py: car_stress_designation_adjustment参照）。指定路線が
+      // 「行政指定という事実」の表示であるのに対し、車ストレスはそれを含む複数要因
+      // （道路種別・車線数・制限速度・自転車インフラ関連の正規化フラグ）を合成した推定指標
+      // であるという役割の違いをpanelHintで明記する（car_stress軸自身のpanel_hint、
+      // AXIS_DEFINITIONS参照と対で参照）。
+      panelHint:
+        "国土数値情報の緊急輸送道路[N10]・重要物流道路[N12]に該当する区間です。" +
+        "大型車の通行が多いと推定される目安として車の圧迫感の評価にも加点されますが、" +
+        "指定路線かどうか自体を個別に確認できるよう別レイヤーとして表示しています。",
+    },
+    {
+      // トンネル（一次属性、OSMのtunnelタグ）。designationと同じroad_surfaceソースの
+      // 独立レイヤー。
+      id: "tunnel",
+      label: "トンネル",
+      kind: "static",
+      category: "roadCondition",
+      description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
+      panelHint:
+        "OSMのtunnelタグが該当する区間です。「夜間」軸[推定グループ]の材料の1つとして、" +
+        "夜間の危険度の判定に使われます。night軸自体も専用レイヤーを持ちます。",
+    },
+    {
+      // 一方通行（一次属性、OSM onewayタグ）。一方通行の逆方向は既にRoad Graph構築時
+      // （backend/app/domain/graph.py: build_road_graph）にEdge自体が生成されないため探索の
+      // 正しさには無関係で、評価軸（route_preference）にも組み込まない表示専用の一次属性。
+      id: "oneway",
+      label: "一方通行",
+      kind: "static",
+      category: "roadCondition",
+      description: "一方通行区間[OSMのonewayタグ]を色分け表示",
+      panelHint:
+        "OSMのonewayタグが該当する区間です。ルート探索は既に一方通行の向きを守っており" +
+        "（逆走経路自体が生成されません）、このレイヤーは表示のみで評価には影響しません。",
+    },
+    {
+      id: "stopPoi",
+      label: "停止要因",
+      kind: "static",
+      category: "trafficSafety",
+      description: "信号・横断歩道・一時停止・踏切の位置を種別ごとに色分け表示",
+      panelHint:
+        "信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを" +
+        "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
+    },
+    {
+      id: "supplyPoi",
+      label: "補給・休憩ポイント",
+      // 地図上のチップ幅は文字数に連動する（他レイヤーは4文字以内: 指定路線/インフラ等）ため、
+      // 「補給・休憩」（読点込み5文字）だとこのチップだけ幅が広がってしまう。読点を省いた
+      // 「補給休憩」（4文字）に短縮（正式名称は引き続きlabelの「補給・休憩ポイント」）。
+      chipLabel: "補給休憩",
+      kind: "static",
+      category: "amenity",
+      description: "コンビニ・自販機・トイレ・給水・駐輪場の位置を種別ごとに色分け表示",
+      // 実店舗とどれだけ合っているかの目安として、backend/scripts/measure_poi_freshness.pyで
+      // OSM側の最終編集日時を計測している。コンビニは関東全域で直近2年以内の編集が62.4%と
+      // 明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、
+      // 閉店・撤去にデータが追いついていないリスクが相対的に高い。取込自体は5種すべて
+      // 対象にしつつ、利用者へは正直にこの差を伝える（コンビニを優先的な目安、他4種は
+      // 参考程度に）。
+      panelHint:
+        "コンビニ・自販機・トイレ・給水・駐輪場の位置です。コンビニはOSMデータの更新が" +
+        "比較的新しく目安として使いやすい一方、自販機・トイレ・給水・駐輪場は閉店・撤去に" +
+        "データが追いついていないことがあります。現地の状況と異なる場合があることをご留意ください。",
+    },
+    {
+      id: "accidents",
+      label: "事故[警察庁統計]",
+      chipLabel: "事故",
+      kind: "static",
+      category: "trafficSafety",
+      description: "警察庁交通事故統計オープンデータ[関東7都県、2022〜2024年]の発生地点を表示",
+      panelHint:
+        "警察庁が公開する交通事故統計オープンデータ[本票、関東7都県・2022〜2024年]の" +
+        "発生地点です。死亡事故は円を大きく表示します。2019〜2021年は本票のCSV形式が" +
+        "異なるため未対応です。",
+    },
+    // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ
+    // 生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。新しい軸はbackendの
+    // レジストリ登録＋タイルへの事実焼き込みだけでここへ現れる（このファイルの編集は不要）。
+    // 凡例（段階・色・絞り込み）はSTATIC_FILTER_AXES（staticAttributeLayers.ts、
+    // axisLayers.ts: buildAxisRampLegend由来）が他の静的レイヤーと同じ仕組みで提供する。
+    ...rampAxes.map((axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
       label: axis.label,
       chipLabel: axis.chipLabel,
@@ -369,84 +366,82 @@ export function buildMapLayers(
       // 軸自身のpanelHint（AXIS_DEFINITIONS.panel_hint）に持ち、優先して使う（未設定の
       // 軸はaxis.noteへフォールバック）。
       panelHint: axis.panelHint ?? axis.note,
-    }),
-  ),
-  {
-    // 気象庁 降水ナウキャスト。実況（過去〜現在、5分毎）と60分先までの短時間予測を
-    // ラスタタイルで重ね描きする。60分より先は、風と共有の格子点マップ由来の降水量を、
-    // 格子セルを降水強度に応じた色で塗るgridFill表現（precipitationNowcast.ts:
-    // precipitationRenderPayload、MapView.tsx: DYNAMIC_WEATHER_RENDERERS）へ内部で
-    // 切り替わる。表示・トグルは1つのまま、内部だけ時間によって使い分ける。他の静的
-    // レイヤーと異なり、表示中の時刻を地図上の時刻スライダー（風と共有の1本のスライダー、
-    // layerVisibility.precipitationNowcast/windVectorのどちらかがONの間だけ表示、page.tsx参照）
-    // で切り替えられる。
-    id: "precipitationNowcast",
-    label: "降水ナウキャスト",
-    chipLabel: "降水",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description:
-      "気象庁の降水ナウキャスト・降水短時間予報・延長予報・線状降水帯予測マップを重ねて表示" +
-      "[実況〜60分先は5分刻み、60分〜15時間先は気象庁の降水短時間予報、以降は気象庁MSMの" +
-      "予報1時間刻み。線状降水帯予測マップは現在〜3時間先の間だけ追加で重畳]",
-    panelHint:
-      "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、" +
-      "実況（直近）から60分先までの雨雲の分布を切り替えて確認できます。60分より先は、" +
-      "同じ気象庁の降水短時間予報へ自動的に切り替わり、15時間先まで" +
-      "確認できます——こちらは実況の外挿ではなく数値予報モデルによる予測のため、先に" +
-      "なるほど不確実性が増します。15時間より先は、風と同じ仕組み（気象庁MSMの" +
-      "格子点予報）による、格子を降水強度に応じた色で塗る延長予報表示へさらに切り替わり、" +
-      "1〜3日先まで確認できます（降水短時間予報よりも粗い5kmメッシュのモデル予報です）。加えて、現在〜3時間先の" +
-      "間だけ、気象庁の線状降水帯予測マップを重ねて表示します（今後3時間以内に大雨の" +
-      "おそれがある領域を赤で示すもので、予測は格子単位のため矩形に見えます。" +
-      "今まさに発生している線状降水帯の雨域を示すものではありません）。" +
-      "非公式の内部APIを利用している実況・60分先までの" +
-      "部分・線状降水帯予測マップは、取得に失敗することがあります。",
-  },
-  {
-    // 風の矢印。関東本土全域の固定格子点（バックエンド/api/weather/wind-grid）を
-    // 気象庁MSM（ローカルへ同期した.omファイル）からサンプリングする自前実装のため、
-    // GPLv2ライブラリ・気象庁の非公式配信のどちらにも依存しない。
-    id: "windVector",
-    label: "風（矢印）",
-    chipLabel: "風",
-    kind: "static",
-    category: "weather",
-    dataNature: "dynamic",
-    description: "気象庁MSMの風向・風速予報を矢印で表示[関東本土の格子点、1〜3日先まで]",
-    panelHint:
-      "気象庁MSM（メソ数値予報モデル、5kmメッシュ）による風向・風速を関東本土全域の格子点で矢印表示します。" +
-      "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は" +
-      "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます" +
-      "（先まで見られる範囲は配信中の予報の長さによって1〜3日の間で変わります）。走行方位に対する向かい風/追い風の強さは、ルート設定パネルの" +
-      "「風」の「地図で色分け」ボタンから道路の色分けとして別途確認できます。",
-  },
-  {
-    // 環境グループの勾配面表示。windVectorと異なり独立した空間フィールドを持たないため
-    // （gradientGridFill.tsのモジュールdocstring参照）、矢印は無くgridFillのみ。
-    id: "gradientFill",
-    label: "勾配（面）",
-    chipLabel: "勾配",
-    kind: "static",
-    category: "terrain",
-    dataNature: "dynamic",
-    description: "指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示",
-    panelHint:
-      "ONにすると地図下部にコンパススライダーが現れます。指定した走行方位（向き）と、" +
-      "そのタイル内の道路網が持つ実際の勾配・向きから、実効的な勾配（登り/下り）の平均を" +
-      "タイル単位の面で色分けします。「評価軸」グループの「勾配」（線）と" +
-      "同じ向きの指定を共有します。",
-  },
-  // 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
-  // ramp軸と同じく軸カタログから自動生成する。label/chipLabel/panelHintはこの記述子が
-  // 地図UIに現れない（isAxisStudioLayer）ため実際には表示されないが、他の記述子と同じ
-  // 型を満たすため軸自身のデータから埋める（軸ごとの手書き文言をここへ持たない）。
-  // このエントリの実際の用途は、(1) MapLayerIdとしての存在、(2) road_surfaceタイルを
-  // 共有するレイヤーとしてbuildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
-  // （「表示範囲が広すぎます」バナー）の対象にすることの2点。
-  ...dedicatedAxes.map(
-    (axis): MapLayerDescriptor => ({
+    })),
+    {
+      // 気象庁 降水ナウキャスト。実況（過去〜現在、5分毎）と60分先までの短時間予測を
+      // ラスタタイルで重ね描きする。60分より先は、風と共有の格子点マップ由来の降水量を、
+      // 格子セルを降水強度に応じた色で塗るgridFill表現（precipitationNowcast.ts:
+      // precipitationRenderPayload、MapView.tsx: DYNAMIC_WEATHER_RENDERERS）へ内部で
+      // 切り替わる。表示・トグルは1つのまま、内部だけ時間によって使い分ける。他の静的
+      // レイヤーと異なり、表示中の時刻を地図上の時刻スライダー（風と共有の1本のスライダー、
+      // layerVisibility.precipitationNowcast/windVectorのどちらかがONの間だけ表示、page.tsx参照）
+      // で切り替えられる。
+      id: "precipitationNowcast",
+      label: "降水ナウキャスト",
+      chipLabel: "降水",
+      kind: "static",
+      category: "weather",
+      dataNature: "dynamic",
+      description:
+        "気象庁の降水ナウキャスト・降水短時間予報・延長予報・線状降水帯予測マップを重ねて表示" +
+        "[実況〜60分先は5分刻み、60分〜15時間先は気象庁の降水短時間予報、以降は気象庁MSMの" +
+        "予報1時間刻み。線状降水帯予測マップは現在〜3時間先の間だけ追加で重畳]",
+      panelHint:
+        "気象庁の高解像度降水ナウキャストです。ONにすると地図上に時刻スライダーが現れ、" +
+        "実況（直近）から60分先までの雨雲の分布を切り替えて確認できます。60分より先は、" +
+        "同じ気象庁の降水短時間予報へ自動的に切り替わり、15時間先まで" +
+        "確認できます——こちらは実況の外挿ではなく数値予報モデルによる予測のため、先に" +
+        "なるほど不確実性が増します。15時間より先は、風と同じ仕組み（気象庁MSMの" +
+        "格子点予報）による、格子を降水強度に応じた色で塗る延長予報表示へさらに切り替わり、" +
+        "1〜3日先まで確認できます（降水短時間予報よりも粗い5kmメッシュのモデル予報です）。加えて、現在〜3時間先の" +
+        "間だけ、気象庁の線状降水帯予測マップを重ねて表示します（今後3時間以内に大雨の" +
+        "おそれがある領域を赤で示すもので、予測は格子単位のため矩形に見えます。" +
+        "今まさに発生している線状降水帯の雨域を示すものではありません）。" +
+        "非公式の内部APIを利用している実況・60分先までの" +
+        "部分・線状降水帯予測マップは、取得に失敗することがあります。",
+    },
+    {
+      // 風の矢印。関東本土全域の固定格子点（バックエンド/api/weather/wind-grid）を
+      // 気象庁MSM（ローカルへ同期した.omファイル）からサンプリングする自前実装のため、
+      // GPLv2ライブラリ・気象庁の非公式配信のどちらにも依存しない。
+      id: "windVector",
+      label: "風（矢印）",
+      chipLabel: "風",
+      kind: "static",
+      category: "weather",
+      dataNature: "dynamic",
+      description: "気象庁MSMの風向・風速予報を矢印で表示[関東本土の格子点、1〜3日先まで]",
+      panelHint:
+        "気象庁MSM（メソ数値予報モデル、5kmメッシュ）による風向・風速を関東本土全域の格子点で矢印表示します。" +
+        "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は" +
+        "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます" +
+        "（先まで見られる範囲は配信中の予報の長さによって1〜3日の間で変わります）。走行方位に対する向かい風/追い風の強さは、ルート設定パネルの" +
+        "「風」の「地図で色分け」ボタンから道路の色分けとして別途確認できます。",
+    },
+    {
+      // 環境グループの勾配面表示。windVectorと異なり独立した空間フィールドを持たないため
+      // （gradientGridFill.tsのモジュールdocstring参照）、矢印は無くgridFillのみ。
+      id: "gradientFill",
+      label: "勾配（面）",
+      chipLabel: "勾配",
+      kind: "static",
+      category: "terrain",
+      dataNature: "dynamic",
+      description: "指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示",
+      panelHint:
+        "ONにすると地図下部にコンパススライダーが現れます。指定した走行方位（向き）と、" +
+        "そのタイル内の道路網が持つ実際の勾配・向きから、実効的な勾配（登り/下り）の平均を" +
+        "タイル単位の面で色分けします。「評価軸」グループの「勾配」（線）と" +
+        "同じ向きの指定を共有します。",
+    },
+    // 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
+    // ramp軸と同じく軸カタログから自動生成する。label/chipLabel/panelHintはこの記述子が
+    // 地図UIに現れない（isAxisStudioLayer）ため実際には表示されないが、他の記述子と同じ
+    // 型を満たすため軸自身のデータから埋める（軸ごとの手書き文言をここへ持たない）。
+    // このエントリの実際の用途は、(1) MapLayerIdとしての存在、(2) road_surfaceタイルを
+    // 共有するレイヤーとしてbuildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
+    // （「表示範囲が広すぎます」バナー）の対象にすることの2点。
+    ...dedicatedAxes.map((axis): MapLayerDescriptor => ({
       id: dedicatedWayValueMapLayerId(axis.axisId),
       label: `${axis.label}（評価軸）`,
       chipLabel: axis.chipLabel,
@@ -455,38 +450,37 @@ export function buildMapLayers(
       axisStudioLayer: true,
       description: `${axis.label}を視界内の全道路へ一律に線色分け表示`,
       panelHint: axis.panelHint,
-    }),
-  ),
-  {
-    // 災害（雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ・キキクル4種）。
-    // 7要素を1つのチップでまとめてON/OFFし、MapView.tsxのDYNAMIC_WEATHER_RENDERERSが
-    // 名前付きソースとして同時に描画する。雷・竜巻・落雷は時刻スライダーに連動し、
-    // キキクル4種は「現在の危険度」単一値のみの配信のため連動しない（riskMap.ts参照）。
-    // 「回避一択」の危険のため評価軸には組み込まず表示のみを行う。
-    id: "disaster",
-    label: "災害",
-    chipLabel: "災害",
-    kind: "static",
-    category: "disaster",
-    dataNature: "dynamic",
-    description:
-      "気象庁の雷・竜巻・落雷とキキクル4種（土砂災害・大雨・浸水・洪水）をまとめて表示" +
-      "[雷・竜巻・落雷は実況〜60分先、キキクルは現在の危険度のみ]",
-    panelHint:
-      "気象庁の防災情報をまとめて表示します。雷ナウキャスト（活動度1〜4）・竜巻発生確度" +
-      "ナウキャスト（発生確度1・2）・雷放電位置データ（実際の落雷地点）は時刻スライダーに" +
-      "連動し、実況（直近）から60分先までを切り替えて確認できます。キキクル4種（土砂災害・" +
-      "大雨・浸水・洪水）は5段階（注意・警戒・危険・災害切迫、平常時は表示なし）で色分け" +
-      "した現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動" +
-      "しません。平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +
-      "変わりません。非公式の内部APIを利用しているため、取得に失敗することがあります。",
-  },
-  {
-    id: "route",
-    label: "ルート",
-    kind: "dynamic",
-    description: "選択中ルート沿いの情報[風・勾配・路面・総合難易度]を色分け表示",
-  },
+    })),
+    {
+      // 災害（雷ナウキャスト・竜巻発生確度ナウキャスト・雷放電位置データ・キキクル4種）。
+      // 7要素を1つのチップでまとめてON/OFFし、MapView.tsxのDYNAMIC_WEATHER_RENDERERSが
+      // 名前付きソースとして同時に描画する。雷・竜巻・落雷は時刻スライダーに連動し、
+      // キキクル4種は「現在の危険度」単一値のみの配信のため連動しない（riskMap.ts参照）。
+      // 「回避一択」の危険のため評価軸には組み込まず表示のみを行う。
+      id: "disaster",
+      label: "災害",
+      chipLabel: "災害",
+      kind: "static",
+      category: "disaster",
+      dataNature: "dynamic",
+      description:
+        "気象庁の雷・竜巻・落雷とキキクル4種（土砂災害・大雨・浸水・洪水）をまとめて表示" +
+        "[雷・竜巻・落雷は実況〜60分先、キキクルは現在の危険度のみ]",
+      panelHint:
+        "気象庁の防災情報をまとめて表示します。雷ナウキャスト（活動度1〜4）・竜巻発生確度" +
+        "ナウキャスト（発生確度1・2）・雷放電位置データ（実際の落雷地点）は時刻スライダーに" +
+        "連動し、実況（直近）から60分先までを切り替えて確認できます。キキクル4種（土砂災害・" +
+        "大雨・浸水・洪水）は5段階（注意・警戒・危険・災害切迫、平常時は表示なし）で色分け" +
+        "した現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動" +
+        "しません。平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +
+        "変わりません。非公式の内部APIを利用しているため、取得に失敗することがあります。",
+    },
+    {
+      id: "route",
+      label: "ルート",
+      kind: "dynamic",
+      description: "選択中ルート沿いの情報[風・勾配・路面・総合難易度]を色分け表示",
+    },
   ];
 }
 
@@ -524,7 +518,7 @@ export function deriveFetchLayerStatus(
   loading: boolean,
   error: string | null,
   hasPayload: boolean,
-  hasFetched: boolean
+  hasFetched: boolean,
 ): LayerDataStatus | undefined {
   if (error) return "error";
   if (loading) return "loading";
@@ -538,7 +532,7 @@ export function deriveFetchLayerStatus(
 // 共有しているため、そのタイルのminzoom未満（regionZoomTooWide）ではタイル自体が
 // 要求されず、同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が
 // 既にあるズーム範囲外の間は、レイヤーのデータ状態表示を二重に出さないための判定に使う
-// （MapView.tsx側のregionZoomTooWide算出・MapLayersPanel.tsx側の抑制の両方が参照する単一の
+// （MapView.tsx側のregionZoomTooWide算出・MapOverlayControls.tsx側の抑制の両方が参照する単一の
 // 定義。片方だけ更新して食い違うことを避けるための単一ソース）。
 // buildMapLayers()と同じ理由で関数化してあり、テスト（axisLayers.test.ts、
 // MapView.dataStatus.test.ts）からbuildRoadSurfaceSharedLayerIds(RAMP_AXES)として直接呼べる。

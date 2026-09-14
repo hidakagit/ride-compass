@@ -3,7 +3,7 @@
 // 色分けを実際に塗る側（axisLayers.ts: buildAxisRampColorExpression・
 // dedicatedWayValueLayer.ts: buildDedicatedWayValueColorExpression）とは別に、この凡例は「今どう塗られているか」を
 // 読み手（LegendEntryのfilter述語によるカテゴリ絞り込み）ではなく見せるためだけの
-// 軽量な型を持つ。ramp軸の凡例（axisLayers.ts: buildAxisRampLegend）はMapLayersPanel・
+// 軽量な型を持つ。ramp軸の凡例（axisLayers.ts: buildAxisRampLegend）は▶パネル・
 // MapOverlayControlsの絞り込み機構と共有するLegendEntry（filter必須）を返すが、
 // 専用way値配信軸にはそのような絞り込み機構自体が無いため、意味の無いfilterを
 // 捏造せずに済むこの専用の軽量型を使う。
@@ -24,7 +24,7 @@ export interface MapColorLegendBand {
  * 読み手を誤らせない。 */
 export function bandLabelsForBandCount(
   labels: readonly string[] | null | undefined,
-  bandCount: number
+  bandCount: number,
 ): readonly string[] | undefined {
   if (!labels || labels.length !== bandCount) return undefined;
   return labels;
@@ -52,7 +52,7 @@ export function buildRangeLegendBands(
   boundaries: readonly number[],
   colors: readonly string[],
   unit: string,
-  labels?: readonly string[]
+  labels?: readonly string[],
 ): MapColorLegendBand[] {
   return colors.map((color, index) => {
     const lower = index === 0 ? null : boundaries[index - 1];

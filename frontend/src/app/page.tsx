@@ -944,7 +944,7 @@ export default function Home() {
   );
   // このファイル自身の凡例・絞り込みサマリ計算（staticLegendHiddenKeysByAxis・
   // staticFilterSummaries、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
-  // 操作をこの画面のサマリ表示・MapLayersPanelへ反映できるよう、mapLayers/
+  // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers/
   // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
   // （ビルド時静的STATIC_FILTER_AXESは使わない）。
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
@@ -1253,8 +1253,8 @@ export default function Home() {
           chipLabel: layer.chipLabel ?? layer.label,
           on: layerVisibility[layer.id],
           disabled,
-          // 動的グループはサイドバーに設定行が無くなったため「[設定はサイドバー]」を付けない。
-          title: disabledReason ?? (isDynamicGroupLayer ? layer.description : `${layer.description}[設定はサイドバー]`),
+          // 絞り込みを持たない動的グループには案内を付けない（開いても設定が無い）。
+          title: disabledReason ?? (isDynamicGroupLayer ? layer.description : `${layer.description}[設定は▶から]`),
           summary,
           legendDetails,
           // 地図上チップのカテゴリ束ね（MapOverlayControls.tsx）用。

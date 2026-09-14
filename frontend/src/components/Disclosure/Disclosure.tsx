@@ -20,7 +20,7 @@ interface DisclosureProps {
    * 持たせる用途（テストでの領域スコープ・要素検索）で使われていたため、Trigger単体では
    * なくRoot（コンテナ）へ付ける。開閉のクリックだけをプログラムから行いたい場合は
    * `document.getElementById(id)?.querySelector("button")?.click()`のようにトリガーを
-   * 辿る（MapLayersPanel.test.tsxのopenSection参照）。 */
+   * 辿る（MapOverlayControls.test.tsxの開閉操作を参照）。 */
   id?: string;
   /** 開閉全体を包む要素（旧<details>相当）のクラス */
   className?: string;

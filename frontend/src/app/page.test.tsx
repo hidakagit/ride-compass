@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+import { buildMapLayers } from "@/components/Map/mapLayers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
@@ -312,8 +314,10 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
 // 改善計画T468回帰テスト（2026-08-31 T478で追加）: overlayLayers組み立ての
 // isDynamicGroupLayer判定が、以前はlayer.idのハードコード列挙で「動的グループ」を
 // 再判定しており、mapLayers.ts側の単一ソースdataNature==="dynamic"とズレていた
-// （gradientFillが列挙漏れで「[設定はサイドバー]」が誤って付与される実害があった）。
+// （gradientFillが列挙漏れで設定への案内が誤って付与される実害があった）。
 // dataNature自体を見る形へ修正済みであることを、titleの実際の値で確認する。
+// **案内の文言そのものは固定しない**——入口が変われば文言も変わるのが正しく、
+// 固定すると誤った案内を検査が守ることになる。見るのは「付くかどうか」だけ。
 describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: dataNature単一ソース化）", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -329,23 +333,27 @@ describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: 
     return new Map(layers);
   }
 
-  it("dataNature=dynamicのgradientFillは「[設定はサイドバー]」を付けずlayer.descriptionそのままをtitleにする", async () => {
+  it("dataNature=dynamicのgradientFillは設定への案内を付けずlayer.descriptionそのままをtitleにする", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
     await screen.findByTestId("overlay-layer-titles");
     const title = overlayLayerTitles().get("gradientFill");
     expect(title).toBe("指定した走行方位で進んだ場合の実効勾配を、周辺道路網の平均としてタイル単位の面塗りで表示");
-    expect(title).not.toMatch(/\[設定はサイドバー\]/);
   });
 
-  it("dataNature=static（既定）のroadTypeは「[設定はサイドバー]」付きのtitleになる", async () => {
+  it("dataNature=static（既定）のroadTypeは設定への案内が付いたtitleになる", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
     await screen.findByTestId("overlay-layer-titles");
     const title = overlayLayerTitles().get("roadType");
-    expect(title).toMatch(/\[設定はサイドバー\]$/);
+    // 文言ではなく「descriptionの後ろに案内が付いていること」を見る。案内の文言は
+    // 入口が変われば変わるのが正しく、固定すると誤った案内を検査が守ることになる。
+    const description = buildMapLayers([], []).find((layer) => layer.id === "roadType")?.description;
+    expect(description).toBeTruthy();
+    expect(title).not.toBe(description);
+    expect(title?.startsWith(description as string)).toBe(true);
   });
 });
 

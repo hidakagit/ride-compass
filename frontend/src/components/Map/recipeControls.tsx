@@ -6,7 +6,7 @@ import styles from "./recipeControls.module.css";
 // 一般向けルート設定画面（RouteSettingsPanel）・軸スタジオが使う上書きUI部品。
 
 // overrideEnabledがfalseの間に値が変更されたら、変更自体は伝えつつ上書きも自動で有効化する
-// ラッパー（MapLayersPanel.tsxのhandleRoadLegendToggle等と同じ「操作したら自動でON」パターン）。
+// ラッパー（凡例を操作したら自動でONにする、というパターン）。
 export function withAutoEnable<T>(
   overrideEnabled: boolean,
   onOverrideEnabledChange: (enabled: boolean) => void,

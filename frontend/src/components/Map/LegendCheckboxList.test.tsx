@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LegendEntry } from "./legendFilter";
 import LegendCheckboxList from "./LegendCheckboxList";
 
-// 改善計画T525: MapLayersPanel.tsx: renderLegendCheckboxesとRouteAxisProfile.tsxの
+// 改善計画T525: 凡例のチェックボックス一覧とRouteAxisProfile.tsxの
 // 凡例チェックボックス重複を統合したコンポーネント。widthの有無によるスウォッチ/
 // WidthSwatchの出し分け・isFallback行への追加classの付与を検証する。
 describe("LegendCheckboxList", () => {
@@ -22,7 +22,7 @@ describe("LegendCheckboxList", () => {
         listClassName="list"
         rowClassName="row"
         swatchClassName="swatch"
-      />
+      />,
     );
     expect(screen.getByRole("checkbox", { name: "アスファルト" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "不明・他" })).not.toBeChecked();
@@ -39,7 +39,7 @@ describe("LegendCheckboxList", () => {
         listClassName="list"
         rowClassName="row"
         swatchClassName="swatch"
-      />
+      />,
     );
     await user.click(screen.getByRole("checkbox", { name: "アスファルト" }));
     expect(onToggle).toHaveBeenCalledWith("asphalt");
@@ -55,7 +55,7 @@ describe("LegendCheckboxList", () => {
         rowClassName="row"
         rowFallbackClassName="rowFallback"
         swatchClassName="swatch"
-      />
+      />,
     );
     const normalRow = screen.getByRole("checkbox", { name: "アスファルト" }).closest("label");
     const fallbackRow = screen.getByRole("checkbox", { name: "不明・他" }).closest("label");
@@ -75,7 +75,7 @@ describe("LegendCheckboxList", () => {
         listClassName="list"
         rowClassName="row"
         swatchClassName="swatch"
-      />
+      />,
     );
     expect(container.querySelector(".swatch")).not.toBeInTheDocument();
     expect(screen.getByText("生活道路").parentElement?.querySelector('[class*="bar"]')).toBeInTheDocument();

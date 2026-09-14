@@ -92,7 +92,7 @@ interface MapOverlayControlsProps {
   onToggle: (id: MapLayerId, on: boolean) => void;
   /** ▶パネル内の1行（凡例カテゴリ・災害の要素等）の表示/非表示を切り替える。
    * `axisId`を持つ軸（`LegendFilterSummaryAxis.axisId`）だけがチェックボックス付きで
-   * 描画され、この関数を呼ぶ。保存先はサイドバー（`MapLayersPanel`）と同じ
+   * 描画され、この関数を呼ぶ。保存先はチップ本体と同じ
    * `page.tsx: hiddenLegendKeysByMode`のため、どちらから操作しても状態は1つに揃う。 */
   onLegendEntryToggle: (axisId: string, key: string) => void;
   /** ▶パネル内の1軸をまとめて表示/非表示にする（見出し行のチェックボックス）。
@@ -254,7 +254,7 @@ function renderLegendSwatch(entry: LegendEntry) {
 function renderLegendDetails(
   axes: readonly LegendFilterSummaryAxis[],
   onEntryToggle: (axisId: string, key: string) => void,
-  onAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void
+  onAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void,
 ) {
   return (
     <div className={styles.detailBody}>
@@ -271,7 +271,7 @@ function renderLegendDetails(
                 onCheckedChange={() =>
                   onAxisSetHidden(
                     axis.axisId!,
-                    axis.hiddenKeys.length === 0 ? axis.legend.map((entry) => entry.key) : []
+                    axis.hiddenKeys.length === 0 ? axis.legend.map((entry) => entry.key) : [],
                   )
                 }
                 aria-label={`${axis.label || "すべての項目"}をまとめて表示/非表示`}
@@ -296,7 +296,7 @@ function renderLegendDetails(
               {axis.legend.map((entry) => {
                 const hidden = axis.hiddenKeys.includes(entry.key);
                 // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線で
-                // 分離する（MapLayersPanel.tsxの同種の区切りと対応）。
+                // 分離する。
                 const rowClasses = [styles.detailRow];
                 if (hidden) rowClasses.push(styles.detailRowHidden);
                 if (entry.isFallback) rowClasses.push(styles.detailRowFallback);
@@ -610,7 +610,10 @@ function ChipButton({
             title="凡例を表示"
             className={isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
           >
-            <span aria-hidden="true" className={isExpanded ? `${styles.expandArrow} ${arrowOpenClass}` : styles.expandArrow}>
+            <span
+              aria-hidden="true"
+              className={isExpanded ? `${styles.expandArrow} ${arrowOpenClass}` : styles.expandArrow}
+            >
               {arrowGlyph}
             </span>
           </button>
@@ -622,11 +625,16 @@ function ChipButton({
         createPortal(
           <div
             className={styles.detailPanel}
-            style={{ top: panelRect.top, left: panelRect.left, maxWidth: panelRect.maxWidth, maxHeight: panelRect.maxHeight }}
+            style={{
+              top: panelRect.top,
+              left: panelRect.left,
+              maxWidth: panelRect.maxWidth,
+              maxHeight: panelRect.maxHeight,
+            }}
           >
             {panelContent}
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );
@@ -634,7 +642,7 @@ function ChipButton({
 
 // 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」ON/OFFチップと、▶で開く凡例
 // だけ。絞り込みの編集・色分けモードの選択など「変更を伴う設定」はすべてサイドバー
-// （MapLayersPanel）で行う（地図上の▶はあくまで確認用）。このコンポーネントはレイヤー
+// で行う（地図上の▶はあくまで確認用）。このコンポーネントはレイヤー
 // 固有の知識を持たない汎用の描画係で、レイヤーが増えてもここは変更不要（mapLayers.tsの
 // コメント参照）。
 export default function MapOverlayControls({
@@ -663,7 +671,7 @@ export default function MapOverlayControls({
     {
       serialize: (v) => serializeStringSet(v, (key) => GROUP_VISIBILITY_KEYS.has(key)),
       deserialize: (raw) => deserializeStringSet(raw, (key) => GROUP_VISIBILITY_KEYS.has(key)),
-    }
+    },
   );
   // 内訳パネルの表示位置（viewport基準のpx）。アイコン列（chipRow）は縦スクロール可能
   // （レイヤー数が多い画面向け）だが、CSSの仕様上overflow-yを指定するとoverflow-xも
@@ -694,14 +702,10 @@ export default function MapOverlayControls({
   // "environment"|"spot"、グループ間でIDが衝突しても名前空間で区別できるようにする）。
   // localStorageへ永続化する（レイヤー構成が変わり存在しないIDが残っても、
   // renderVisibilitySettings側は現在渡された項目とのマッチングでしか使わないため実害はない）。
-  const [hiddenIds, setHiddenIds] = useStoredState<ReadonlySet<string>>(
-    MAP_OVERLAY_HIDDEN_IDS_STORAGE_KEY,
-    new Set(),
-    {
-      serialize: (v) => serializeStringSet(v, () => true),
-      deserialize: (raw) => deserializeStringSet(raw, () => true),
-    }
-  );
+  const [hiddenIds, setHiddenIds] = useStoredState<ReadonlySet<string>>(MAP_OVERLAY_HIDDEN_IDS_STORAGE_KEY, new Set(), {
+    serialize: (v) => serializeStringSet(v, () => true),
+    deserialize: (raw) => deserializeStringSet(raw, () => true),
+  });
 
   // 非表示に選んだ項目に表示中のレイヤーが紐づいている場合、その場でレイヤー自体も
   // OFFにする。設定パネルからチップが消えた後もレイヤーが地図に描画され続け、かつ
@@ -775,7 +779,12 @@ export default function MapOverlayControls({
         const maxHeight = Math.max(120, Math.min(DETAIL_PANEL_MAX_HEIGHT_PX, availableHeight));
         setPanelRects((prev) => ({
           ...prev,
-          [id]: { top, left, maxWidth: Math.max(MIN_PANEL_WIDTH_PX, window.innerWidth - left - PANEL_GAP_PX), maxHeight },
+          [id]: {
+            top,
+            left,
+            maxWidth: Math.max(MIN_PANEL_WIDTH_PX, window.innerWidth - left - PANEL_GAP_PX),
+            maxHeight,
+          },
         }));
       }
     }
@@ -889,10 +898,7 @@ export default function MapOverlayControls({
   // メンバー増加で展開直後に画面下端を超えて見切れることを避けるため、Ⓘの設定パネル
   // （renderVisibilitySettings）で非表示に選んだメンバーはここで除外する。groupTint/scopeは
   // 常に同じグループ値（`MapOverlayGroup`）を渡すため1引数に統合してある。
-  function renderObservedMemberRows(
-    members: readonly OverlayLayerChip[],
-    group: MapOverlayGroup
-  ): ReactElement[] {
+  function renderObservedMemberRows(members: readonly OverlayLayerChip[], group: MapOverlayGroup): ReactElement[] {
     return orderObservedMembers(members)
       .filter((member) => !hiddenIds.has(`${group}:${member.id}`))
       .map((member) => renderRawMemberTile(member, group));
@@ -923,7 +929,7 @@ export default function MapOverlayControls({
       /** 行の右側に個別の情報アイコンを出し、押すと表示する説明文。未設定なら情報
        * アイコン自体を出さない。 */
       description?: string;
-    }[]
+    }[],
   ) {
     const legendKey = `${groupKey}:legend`;
     const isOpen = expandedIds.has(legendKey);
@@ -951,7 +957,10 @@ export default function MapOverlayControls({
         {isOpen &&
           rect &&
           createPortal(
-            <div className={styles.detailPanel} style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth, maxHeight: rect.maxHeight }}>
+            <div
+              className={styles.detailPanel}
+              style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth, maxHeight: rect.maxHeight }}
+            >
               <ul className={styles.detailList}>
                 {items.flatMap((item) => {
                   const hiddenKey = `${scope}:${item.key}`;
@@ -998,7 +1007,7 @@ export default function MapOverlayControls({
                 })}
               </ul>
             </div>,
-            document.body
+            document.body,
           )}
       </div>
     );
@@ -1041,115 +1050,115 @@ export default function MapOverlayControls({
           ref={registerChipRowTrack}
           style={{ transform: `translateY(-${chipRowOffset}px)` }}
         >
-        {chipGroups.flatMap((group) => {
-          // 道路/環境/スポットグループは「▼縦積み・地続き展開」の構成を共有する。▼を
-          // 開くと、独立したカードに閉じ込めず、メンバーをchipRowの直接の子として
-          // グループチップの直後に地続きで差し込む。ChipButton自身はexpandDirection="flat"で
-          // ▼矢印の見た目だけを持ち、内訳は描画しない（renderObservedMemberRowsを別途
-          // sibling要素として返す）。3グループとも見た目・挙動が完全に同一のため、
-          // 1つの分岐にまとめる。
-          const flatGroup = groupFromExpandKey(group.key);
-          if (flatGroup) {
-            const RepresentativeIcon = MAP_OVERLAY_GROUP_ICONS[flatGroup];
-            const isExpanded = expandedIds.has(group.key);
-            const label = MAP_OVERLAY_GROUP_LABELS[flatGroup];
-            const chipLabel = MAP_OVERLAY_GROUP_CHIP_LABELS[flatGroup];
-            const header = (
+          {chipGroups.flatMap((group) => {
+            // 道路/環境/スポットグループは「▼縦積み・地続き展開」の構成を共有する。▼を
+            // 開くと、独立したカードに閉じ込めず、メンバーをchipRowの直接の子として
+            // グループチップの直後に地続きで差し込む。ChipButton自身はexpandDirection="flat"で
+            // ▼矢印の見た目だけを持ち、内訳は描画しない（renderObservedMemberRowsを別途
+            // sibling要素として返す）。3グループとも見た目・挙動が完全に同一のため、
+            // 1つの分岐にまとめる。
+            const flatGroup = groupFromExpandKey(group.key);
+            if (flatGroup) {
+              const RepresentativeIcon = MAP_OVERLAY_GROUP_ICONS[flatGroup];
+              const isExpanded = expandedIds.has(group.key);
+              const label = MAP_OVERLAY_GROUP_LABELS[flatGroup];
+              const chipLabel = MAP_OVERLAY_GROUP_CHIP_LABELS[flatGroup];
+              const header = (
+                <ChipButton
+                  key={group.key}
+                  Icon={RepresentativeIcon}
+                  label={label}
+                  chipLabel={chipLabel}
+                  // 見出しチップは地図への反映を持たない（メンバーのON/OFFはそれぞれのタイルが
+                  // 決める）ため、activeは常にfalse。見た目のactiveは展開状態(isExpanded)が決める。
+                  active={false}
+                  title={`${label}[${group.members.length}件をタップで一覧]`}
+                  onTap={() => {
+                    toggleExpanded(group.key);
+                    closeGroupLegend(group.key);
+                  }}
+                  canExpand
+                  isExpanded={isExpanded}
+                  onExpandToggle={() => toggleExpanded(group.key)}
+                  expandDirection="flat"
+                  expandViaSelf
+                  groupTint={flatGroup}
+                  panelContent={<></>}
+                  panelRect={panelRects[group.key]}
+                  registerRow={(el) => {
+                    rowRefs.current[group.key] = el;
+                  }}
+                />
+              );
+              // 折りたたみ中だけ見出しの脇に「表示する項目を選ぶ」の入口を出し、展開後は消す
+              // （展開すればメンバーが見えるため、同じ内容の入口を二重に置かない）。ラッパーdivの
+              // keyは折りたたみ/展開のどちらでも同じ値に固定し、headerのDOMノードを保つ——
+              // keyが変わるとChipButtonが作り直され、開閉のたびにフォーカスが外れる。
+              // 展開時はメンバーを縦積みするため.observedExpandedColumn
+              // （chipRowと同じcolumn flex）、折りたたみ時は見出し+凡例トグルの横並びのため
+              // .headerLegendRowを使う。
+              return [
+                <div
+                  key={`${group.key}:row`}
+                  className={isExpanded ? styles.observedExpandedColumn : styles.headerLegendRow}
+                >
+                  {header}
+                  {isExpanded
+                    ? renderObservedMemberRows(group.members, flatGroup)
+                    : renderVisibilitySettings(
+                        group.key,
+                        label,
+                        flatGroup,
+                        orderObservedMembers(group.members).map((member) => ({
+                          key: member.id,
+                          Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
+                          label: member.chipLabel ?? member.label,
+                          layerId: member.id,
+                          on: member.on,
+                          description: member.panelHint,
+                        })),
+                      )}
+                </div>,
+              ];
+            }
+
+            // どのグループにも属さない単独チップ（route等）。
+            const layer = group.members[0];
+            // 二次軸rampレイヤーはレジストリ生成物から自動で増えるためレイヤーIDごとの
+            // 専用アイコンを持たず、共通のAxisRampIconへフォールバックする
+            // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
+            const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
+            const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
+            const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
+            const isExpanded = canExpand && expandedIds.has(layer.id);
+            const panelContent =
+              layer.legendDetails && layer.legendDetails.length > 0 ? (
+                renderLegendDetails(layer.legendDetails, onLegendEntryToggle, onLegendAxisSetHidden)
+              ) : (
+                <p className={styles.detailNotice}>{layer.summary}</p>
+              );
+            return (
               <ChipButton
-                key={group.key}
-                Icon={RepresentativeIcon}
-                label={label}
-                chipLabel={chipLabel}
-                // 見出しチップは地図への反映を持たない（メンバーのON/OFFはそれぞれのタイルが
-                // 決める）ため、activeは常にfalse。見た目のactiveは展開状態(isExpanded)が決める。
-                active={false}
-                title={`${label}[${group.members.length}件をタップで一覧]`}
-                onTap={() => {
-                  toggleExpanded(group.key);
-                  closeGroupLegend(group.key);
-                }}
-                canExpand
+                key={layer.id}
+                Icon={Icon}
+                label={layer.label}
+                chipLabel={layer.chipLabel ?? layer.label}
+                active={layer.on && !layer.disabled}
+                disabled={layer.disabled}
+                title={layer.title}
+                onTap={() => onToggle(layer.id, !layer.on)}
+                canExpand={canExpand}
                 isExpanded={isExpanded}
-                onExpandToggle={() => toggleExpanded(group.key)}
-                expandDirection="flat"
-                expandViaSelf
-                groupTint={flatGroup}
-                panelContent={<></>}
-                panelRect={panelRects[group.key]}
+                onExpandToggle={() => toggleExpanded(layer.id)}
+                dataStatus={layer.dataStatus}
+                panelContent={panelContent}
+                panelRect={panelRects[layer.id]}
                 registerRow={(el) => {
-                  rowRefs.current[group.key] = el;
+                  rowRefs.current[layer.id] = el;
                 }}
               />
             );
-            // 折りたたみ中だけ見出しの脇に「表示する項目を選ぶ」の入口を出し、展開後は消す
-            // （展開すればメンバーが見えるため、同じ内容の入口を二重に置かない）。ラッパーdivの
-            // keyは折りたたみ/展開のどちらでも同じ値に固定し、headerのDOMノードを保つ——
-            // keyが変わるとChipButtonが作り直され、開閉のたびにフォーカスが外れる。
-            // 展開時はメンバーを縦積みするため.observedExpandedColumn
-            // （chipRowと同じcolumn flex）、折りたたみ時は見出し+凡例トグルの横並びのため
-            // .headerLegendRowを使う。
-            return [
-              <div
-                key={`${group.key}:row`}
-                className={isExpanded ? styles.observedExpandedColumn : styles.headerLegendRow}
-              >
-                {header}
-                {isExpanded
-                  ? renderObservedMemberRows(group.members, flatGroup)
-                  : renderVisibilitySettings(
-                      group.key,
-                      label,
-                      flatGroup,
-                      orderObservedMembers(group.members).map((member) => ({
-                        key: member.id,
-                        Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
-                        label: member.chipLabel ?? member.label,
-                        layerId: member.id,
-                        on: member.on,
-                        description: member.panelHint,
-                      }))
-                    )}
-              </div>,
-            ];
-          }
-
-          // どのグループにも属さない単独チップ（route等）。
-          const layer = group.members[0];
-          // 二次軸rampレイヤーはレジストリ生成物から自動で増えるためレイヤーIDごとの
-          // 専用アイコンを持たず、共通のAxisRampIconへフォールバックする
-          // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
-          const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
-          const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
-          const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
-          const isExpanded = canExpand && expandedIds.has(layer.id);
-          const panelContent =
-            layer.legendDetails && layer.legendDetails.length > 0 ? (
-              renderLegendDetails(layer.legendDetails, onLegendEntryToggle, onLegendAxisSetHidden)
-            ) : (
-              <p className={styles.detailNotice}>{layer.summary}</p>
-            );
-          return (
-            <ChipButton
-              key={layer.id}
-              Icon={Icon}
-              label={layer.label}
-              chipLabel={layer.chipLabel ?? layer.label}
-              active={layer.on && !layer.disabled}
-              disabled={layer.disabled}
-              title={layer.title}
-              onTap={() => onToggle(layer.id, !layer.on)}
-              canExpand={canExpand}
-              isExpanded={isExpanded}
-              onExpandToggle={() => toggleExpanded(layer.id)}
-              dataStatus={layer.dataStatus}
-              panelContent={panelContent}
-              panelRect={panelRects[layer.id]}
-              registerRow={(el) => {
-                rowRefs.current[layer.id] = el;
-              }}
-            />
-          );
-        })}
+          })}
         </div>
       </div>
       {chipRowHasMore && (

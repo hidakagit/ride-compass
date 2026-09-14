@@ -485,7 +485,7 @@ CLAUDE.md「コミット時の同期ルール」参照）。`backend/scripts/`�
 ### frontend（`frontend/src/`）
 
 - **`app/`**: Next.js App Routerのページとroute handler（`/admin`配下の管理APIプロキシを含む）。
-- **`components/`**: 機能単位のディレクトリ（`Map/`・`AxisStudio/`・`MapLayersPanel/`等）。
+- **`components/`**: 機能単位のディレクトリ（`Map/`・`AxisStudio/`・`MapOverlayControls/`等）。
 - **`hooks/`・`lib/`**: 画面をまたぐ状態・ユーティリティ。
 - **`services/`**: backend APIを叩く薄い層。
 - **`types/generated/`**: `export_openapi.py`の出力（OpenAPIスキーマと、軸カタログ・
@@ -2017,9 +2017,9 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 [frontend/src/components/Map/staticAttributeLayers.ts](../frontend/src/components/Map/staticAttributeLayers.ts)
 に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
 地図上チップ（`MapOverlayControls.tsx`）最上位のグルーピング（道路/環境/スポット）は
-改善計画T406/T418により`MapOverlayGroup`が担う。サイドバー（`MapLayersPanel.tsx`、「地図の
-見え方」パネル）も改善計画T413で同じ`mapOverlayGroupFor`を単一ソースとして使うよう統一済み
-（「地図チップの最上位グルーピング（道路/環境/スポット、改善計画T406/T418）」節参照）。
+改善計画T406/T418により`MapOverlayGroup`が担う（「地図チップの最上位グルーピング
+（道路/環境/スポット、改善計画T406/T418）」節参照）。かつて同じグルーピングを持っていた
+サイドバーの設定パネルは改善計画T769で撤去し、凡例・絞り込みはチップの▶パネルへ移した。
 
 タイル配信は3系統:
 
@@ -2349,11 +2349,10 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 排他ドメインの元々の目的に沿い、`page.tsx: handleLayerToggle`が地図上チップの3ドメインとは
 独立に「軸スタジオ由来レイヤー同士は1つだけ選べる」という排他制御を維持する。
 
-**サイドバー（`MapLayersPanel.tsx`、「地図の見え方」パネル）の最上位グルーピング**は改善計画
-T413（2026-08-30）で地図上チップと同じ`mapOverlayGroupFor`を単一ソースとして使うよう統一
-済み（以前は独立した設計判断として`MapLayerDataNature`[観測/推定/動的]の2見出しを使って
-いたが、この不整合を解消した）。T418の評価軸グループ撤去にもそのまま追従し、道路/環境/
-スポットの3分類になっている。
+**最上位のグルーピングは`mapOverlayGroupFor`が単一ソース**で、道路/環境/スポットの3分類。
+かつてはサイドバーの設定パネルが独立した設計判断として`MapLayerDataNature`[観測/推定/動的]の
+見出しを使っていたが、改善計画T413（2026-08-30）で地図上チップと揃え、T769でパネル自体を
+撤去して▶パネルへ移した。
 
 道路/環境/スポットグループの地図チップはタイル状のマトリックス（▶=メンバー個々の凡例展開／
 ▼=グループ自体の縦積み展開、T169）。グループ見出しのⓘボタンから「表示する項目を選ぶ」

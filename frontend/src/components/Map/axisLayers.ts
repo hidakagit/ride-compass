@@ -308,7 +308,7 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly CatalogAxis[
 }
 
 export const DEDICATED_WAY_VALUE_AXES: readonly DedicatedWayValueAxis[] = dedicatedWayValueAxesFromCatalogAxes(
-  axisCatalog.axes as CatalogAxis[]
+  axisCatalog.axes as CatalogAxis[],
 );
 
 /** mapLayers.ts のレイヤーID（visibility状態のキー）。ramp軸の`axis:${axisId}`とは
@@ -470,7 +470,7 @@ export function buildAxisRampColorExpression(axis: RampAxis): unknown[] {
 }
 
 /** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。
- * buildAxisRampLegendとMapLayersPanel等の凡例UI・setStaticOverlayFiltersの絞り込みが
+ * buildAxisRampLegendと▶パネル等の凡例UI・setStaticOverlayFiltersの絞り込みが
  * 同じ境界定義を共有する（片側importで揃える）。 */
 function axisRampBand(thresholds: readonly number[], index: number): { lower: number | null; upper: number | null } {
   return {
@@ -484,7 +484,12 @@ function axisRampBand(thresholds: readonly number[], index: number): { lower: nu
  * 前に体感ラベルを添える（`mapColorLegend.ts: buildRangeLegendBands`と同じ考え方）。 */
 function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, upper: number | null): string {
   const bandCount = axis.thresholds.length + 1;
-  const rangeLabel = lower === null ? `${upper}${axis.unit}未満` : upper === null ? `${lower}${axis.unit}以上` : `${lower}〜${upper}${axis.unit}`;
+  const rangeLabel =
+    lower === null
+      ? `${upper}${axis.unit}未満`
+      : upper === null
+        ? `${lower}${axis.unit}以上`
+        : `${lower}〜${upper}${axis.unit}`;
   if (axis.bandLabelsOverride && axis.bandLabelsOverride.length === bandCount) {
     return `${axis.bandLabelsOverride[index]}（${rangeLabel}）`;
   }
@@ -494,7 +499,7 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
 /** ramp軸の凡例（改善計画: 地図アイコンチップのグルーピング・研究タブ整理・停止/事故密度の
  * 凡例追加）。既存レイヤー（車ストレス・自転車インフラ等、staticAttributeLayers.ts参照）と
  * 同じLegendEntry型で返すことで、色スウォッチ付きの凡例チェックボックス
- * （MapLayersPanel.tsx: renderLegendCheckboxes）・地図チップの▶展開凡例
+ * （LegendCheckboxList.tsx）・地図チップの▶展開凡例
  * （MapOverlayControls.tsx: legendDetails）・実際の絞り込み
  * （MapView.tsx: setStaticOverlayFilters、buildCombinedLegendFilterExpression）を
  * 他レイヤーと同じ仕組みでそのまま共有できる（新規UIコンポーネント不要）。

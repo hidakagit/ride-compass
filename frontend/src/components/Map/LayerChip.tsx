@@ -16,11 +16,11 @@ interface LayerChipProps {
   dataStatus?: LayerDataStatus;
   /** イベントを受け取れる形にしているのは、<summary>内に置く場合にクリックが
    * 親のdetails開閉（ネイティブのデフォルト動作）へ伝播しないようpreventDefault/
-   * stopPropagationする呼び出し側（MapLayersPanel）があるため。 */
+   * stopPropagationする呼び出し側があるため。 */
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-// サイドバー（MapLayersPanel）の「表示」チップで使うテキストのみのON/OFFボタン。
+// ▶パネル（MapOverlayControls）の「表示」チップで使うテキストのみのON/OFFボタン。
 // 地図上（MapOverlayControls）はスペース節約のためアイコン+短いラベルのボタン
 // （MapOverlayControls.module.cssのiconChip）を使い、このコンポーネントは共有しない。
 //

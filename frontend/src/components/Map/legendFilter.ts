@@ -18,7 +18,7 @@ export interface LegendEntry {
    * 参照）。凡例・チェックボックスのプレビュー（WidthSwatch）も合わせて破線で描く。 */
   dashed?: boolean;
   /** trueなら「データ欠損・対象外」の受け皿カテゴリ（不明・他／対象外）であり、他の
-   * カテゴリのような実際の判定値ではないことを示す。凡例の描画側（MapLayersPanel・
+   * カテゴリのような実際の判定値ではないことを示す。凡例の描画側（▶パネル・
    * MapOverlayControls）が区切り線＋弱調表示にすることで、数値/順序段階と受け皿カテゴリを
    * 視覚的に分離する（車ストレスの凡例が「1・2・3・4・不明」の5項目に見え「1〜5評価」と
    * 誤解されることを避ける）。 */
@@ -30,7 +30,7 @@ export interface LegendEntry {
 // 過去の非表示キーが残っていても安全）。
 export function buildLegendFilterExpression(
   legend: readonly LegendEntry[],
-  hiddenKeys: readonly string[]
+  hiddenKeys: readonly string[],
 ): unknown[] | null {
   const hidden = legend.filter((entry) => hiddenKeys.includes(entry.key));
   if (hidden.length === 0) return null;
@@ -48,7 +48,7 @@ export function buildLegendFilterExpression(
 // kind値も表示されてしまう。baseFilterは「非表示操作の有無に関わらず常にANDする」
 // 恒常的な絞り込みで、この用途にのみ使う（他の軸は指定不要＝挙動不変）。
 export function buildCombinedLegendFilterExpression(
-  axes: readonly { legend: readonly LegendEntry[]; hiddenKeys: readonly string[]; baseFilter?: unknown[] | null }[]
+  axes: readonly { legend: readonly LegendEntry[]; hiddenKeys: readonly string[]; baseFilter?: unknown[] | null }[],
 ): unknown[] | null {
   const clauses = axes
     .map(({ legend, hiddenKeys, baseFilter }) => {
@@ -69,7 +69,7 @@ export interface LegendFilterSummaryAxis {
   hiddenKeys: readonly string[];
   /** 非表示キーの保存先を識別するID（`page.tsx: hiddenLegendKeysByMode`のキー）。
    * **これを持つ軸だけがユーザー操作で絞り込める**——地図上チップの▶パネル
-   * （`MapOverlayControls`）・サイドバー（`MapLayersPanel`）のどちらから操作しても
+   * （`MapOverlayControls`）のどこから操作しても
    * 同じIDの同じ状態を書き換える。ラスタタイルのように配信元が色を焼き込み済みで
    * カテゴリ単位の絞り込みができない軸（降水ナウキャスト・風・災害の危険度凡例等）は
    * 持たず、その軸は読み取り専用の凡例として描画される。 */
@@ -78,7 +78,7 @@ export interface LegendFilterSummaryAxis {
 
 // 軸ごとに「表示中カテゴリを列挙」と「除外カテゴリを列挙」の短い方を選び、どちらも
 // 3件以上になる場合は軸名によるフォールバック（「◯◯を絞り込み中」）へ落とす。
-// 詳細な内訳はサイドバー（MapLayersPanel）の凡例・絞り込み編集で確認できるため、
+// 詳細な内訳は▶パネル（MapOverlayControls）の凡例・絞り込み編集で確認できるため、
 // ここでは「何かに絞られている」ことが一目で分かる簡潔さを優先する。
 // レイヤー固有の語彙を持たない（LegendEntryだけに依存する）ので、将来の凡例付き
 // レイヤー（車ストレス等）でもそのまま使える。
