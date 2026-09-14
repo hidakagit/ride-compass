@@ -19,7 +19,9 @@
 
 本番VMでは稼働中のbackendコンテナとは別に、backendイメージの使い捨てコンテナから実行する
 （`--network=host --env-file /home/ubuntu/ridecompass-backend.env`、風の実データを読むため
-`-v /home/ubuntu/ridecompass-cache-data:/app/data`も要る）。
+`-v /home/ubuntu/ridecompass-cache-data:/app/data`も要る）。**VM上の`~/ridecompass-repo`は
+デプロイでは更新されない**ため（`benchmarks/`はデプロイの対象から外してある、
+`.github/workflows/deploy-backend.yml`の`paths`参照）、実行前に手で`git pull`する。
 
 使い方: `python -m benchmarks.bench_t802_time_bins`
 """
