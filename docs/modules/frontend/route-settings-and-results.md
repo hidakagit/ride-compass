@@ -180,8 +180,9 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   重みは入っているのに値が来ない軸のチップは押せるままで、詳細が「データなし」を示す。
 - **生値（詳細の中）**: 折れ点を通す前の生値を詳細へ単位付きで出す
   （`RouteCandidate.axis_raw_values` × `AxisCatalogEntry.raw_value_unit`、
-  `axisRawValue.ts: formatAxisRawValue`）。単位が「◯◯/km」なら候補の走行距離を掛けた
-  実数も続ける（例:「0.8回/km・約26回」）。得点0-100は目盛りの引き方に依存する相対評価
+  `axisRawValue.ts: formatAxisRawValue`）。候補の走行距離を掛けた総量も続ける
+  （例:「0.8回/km・約26回」）——ただし**総量が読み手の判断を変える軸だけ**で、その判断は
+  `AxisCatalogEntry.raw_value_total_unit`が持つ（「約3322度曲がる」には比べる尺度が無い）。得点0-100は目盛りの引き方に依存する相対評価
   でしかなく、それだけでは軸単体で経路の良し悪しを判断できないため
   （[設計原則](../../design-principles.md)11）。
 - **内訳（詳細の中）**: 材料まで分解した絶対量を「この軸の内訳: ...」として全件出す
