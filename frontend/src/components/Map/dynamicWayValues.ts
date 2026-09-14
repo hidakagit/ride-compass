@@ -26,9 +26,12 @@ function lonLatToTileIndex(lon: number, lat: number, z: number): [number, number
 }
 
 /** XYZタイルの経緯度範囲を求める（backend/app/domain/region.py: tile_bounds_lonlatのJS版）。
- * 勾配の環境グループgridFill（gradientGridFill.ts）が、タイル境界そのものを1セルとする
  * 面表示のセル形状を組み立てるために使う。 */
-export function tileBoundsLonLat(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
+export function tileBoundsLonLat(
+  z: number,
+  x: number,
+  y: number,
+): { west: number; south: number; east: number; north: number } {
   const n = 2 ** z;
   const west = (x / n) * 360 - 180;
   const east = ((x + 1) / n) * 360 - 180;
@@ -51,7 +54,7 @@ const MAX_TILES_PER_FETCH = 64;
 export function tilesCoveringViewport(
   viewport: { west: number; north: number; east: number; south: number; zoom: number },
   minZoom: number,
-  maxZoom: number
+  maxZoom: number,
 ): TileXY[] {
   const z = Math.min(maxZoom, Math.max(minZoom, Math.floor(viewport.zoom)));
   const n = 2 ** z;

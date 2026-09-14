@@ -187,10 +187,10 @@ describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers�
   it("レイヤー追加後にensureが再度呼ばれても下敷きの有無が巻き戻らない", () => {
     const map = fakeMap();
     const layers = buildAxisOverlayLayers(rampAxes, new Set<string>());
-    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<(typeof layers)[0]["ensure"]>[0]);
 
     // 2回目以降はensureLayerFromSpecがsetPaintPropertyでspecを再適用する経路を通る。
-    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<(typeof layers)[0]["ensure"]>[0]);
 
     for (const axisId of ["car_stress", "stop_density"]) {
       expect(paintValue(map, axisLineLayerId(axisId), "line-width")).toBe(DEFAULT_ROAD_LINE_WIDTH);
@@ -201,8 +201,8 @@ describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers�
   it("材料が表示中の軸はensureを繰り返しても下敷きのまま", () => {
     const map = fakeMap();
     const layers = buildAxisOverlayLayers(rampAxes, new Set([CAR_STRESS, STOP_DENSITY]));
-    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
-    for (const layer of layers) layer.ensure(map as unknown as Parameters<typeof layers[0]["ensure"]>[0]);
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<(typeof layers)[0]["ensure"]>[0]);
+    for (const layer of layers) layer.ensure(map as unknown as Parameters<(typeof layers)[0]["ensure"]>[0]);
 
     expect(paintValue(map, axisLineLayerId("car_stress"), "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
     expect(paintValue(map, axisLineLayerId("stop_density"), "line-opacity")).toBe(SECONDARY_AXIS_CASING_OPACITY);
@@ -245,7 +245,7 @@ describe("shouldClearDedicatedWayValueFeatureState（専用way値配信軸が1�
   // 3件目の軸が公開されても、既存2軸をOFFにした瞬間に3件目の色分けが巻き添えで消えない。
   it("3件目の軸だけONでもfalse", () => {
     expect(
-      shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: false, surface_tempAxis: true })
+      shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: false, surface_tempAxis: true }),
     ).toBe(false);
   });
 });
@@ -262,12 +262,18 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
     applyAxisFeatureStateValues(
       map as unknown as Parameters<typeof applyAxisFeatureStateValues>[0],
       "windPenalty",
-      values
+      values,
     );
 
     expect(map.setFeatureStateCalls).toEqual([
-      { target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: 123 }, state: { windPenalty: 5 } },
-      { target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: 456 }, state: { windPenalty: -2 } },
+      {
+        target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: 123 },
+        state: { windPenalty: 5 },
+      },
+      {
+        target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: 456 },
+        state: { windPenalty: -2 },
+      },
     ]);
   });
 
@@ -277,17 +283,19 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
     applyAxisFeatureStateValues(
       map as unknown as Parameters<typeof applyAxisFeatureStateValues>[0],
       "windPenalty",
-      new Map([[123, 5]])
+      new Map([[123, 5]]),
     );
 
     expect(map.setFeatureStateCalls).toEqual([]);
   });
 });
 
-describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensureが既存レイヤーの色式を再適用する、T587）", () => {
+describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レイヤーの色式を再適用する、T587）", () => {
   it("windAxisレイヤーが既に存在する場合、dedicatedWayValueDisplaysの変更をline-colorへ再適用する", () => {
     const map = fakeMap();
-    const windEntry = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined).find((l) => l.key === "windAxis")!;
+    const windEntry = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined).find(
+      (l) => l.key === "windAxis",
+    )!;
     // 1回目: axisCatalogのフェッチ未完了を想定（boundaries未設定）でレイヤーを新規作成する。
     windEntry.ensure(map as unknown as Parameters<typeof windEntry.ensure>[0]);
     expect(map.layers.has(windEntry.layerId)).toBe(true);
@@ -299,7 +307,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     const windEntryAfter = buildStaticOverlayLayers(
       [],
       DEDICATED_WAY_VALUE_AXES,
-      new Map([["wind", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]])
+      new Map([["wind", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]]),
     ).find((l) => l.key === "windAxis")!;
     windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
 
@@ -307,51 +315,60 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxis/gradientFillのensure
     expect(paintCalls).toHaveLength(1);
   });
 
-  it("gradientAxis/gradientFillレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
+  it("gradientAxisレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
     const map = fakeMap();
     const before = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined);
     const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
-    const gradientFillEntry = before.find((l) => l.key === "gradientFill")!;
     gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
-    gradientFillEntry.ensure(map as unknown as Parameters<typeof gradientFillEntry.ensure>[0]);
     expect(map.layers.has(gradientAxisEntry.layerId)).toBe(true);
-    expect(map.layers.has(gradientFillEntry.layerId)).toBe(true);
 
     const after = buildStaticOverlayLayers(
       [],
       DEDICATED_WAY_VALUE_AXES,
-      new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]])
+      new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]]),
     );
     const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
-    const gradientFillEntryAfter = after.find((l) => l.key === "gradientFill")!;
     gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);
-    gradientFillEntryAfter.ensure(map as unknown as Parameters<typeof gradientFillEntryAfter.ensure>[0]);
 
-    expect(map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color")).toHaveLength(1);
-    expect(map.paintCalls.filter((c) => c.layerId === gradientFillEntry.layerId && c.name === "fill-color")).toHaveLength(1);
+    expect(
+      map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color"),
+    ).toHaveLength(1);
   });
 
-  it("dedicatedWayValueLoadingの変更（フェッチ開始/完了）もwindAxis/gradientAxis/gradientFillのline-color/fill-colorへ再適用する（改善計画T607）", () => {
+  it("dedicatedWayValueLoadingの変更（フェッチ開始/完了）もwindAxis/gradientAxisのline-colorへ再適用する（改善計画T607）", () => {
     const map = fakeMap();
-    const before = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined, new Map([["wind", false], ["gradient", false]]));
+    const before = buildStaticOverlayLayers(
+      [],
+      DEDICATED_WAY_VALUE_AXES,
+      undefined,
+      new Map([
+        ["wind", false],
+        ["gradient", false],
+      ]),
+    );
     const windEntry = before.find((l) => l.key === "windAxis")!;
     const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
-    const gradientFillEntry = before.find((l) => l.key === "gradientFill")!;
     windEntry.ensure(map as unknown as Parameters<typeof windEntry.ensure>[0]);
     gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
-    gradientFillEntry.ensure(map as unknown as Parameters<typeof gradientFillEntry.ensure>[0]);
 
-    const after = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined, new Map([["wind", true], ["gradient", true]]));
+    const after = buildStaticOverlayLayers(
+      [],
+      DEDICATED_WAY_VALUE_AXES,
+      undefined,
+      new Map([
+        ["wind", true],
+        ["gradient", true],
+      ]),
+    );
     const windEntryAfter = after.find((l) => l.key === "windAxis")!;
     const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
-    const gradientFillEntryAfter = after.find((l) => l.key === "gradientFill")!;
     windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
     gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);
-    gradientFillEntryAfter.ensure(map as unknown as Parameters<typeof gradientFillEntryAfter.ensure>[0]);
 
     expect(map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color")).toHaveLength(1);
-    expect(map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color")).toHaveLength(1);
-    expect(map.paintCalls.filter((c) => c.layerId === gradientFillEntry.layerId && c.name === "fill-color")).toHaveLength(1);
+    expect(
+      map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color"),
+    ).toHaveLength(1);
   });
 });
 
@@ -439,21 +456,24 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
   // T587は色式の再適用だけを直したため、filter・layoutが初回の値で固定される取り残しが
   // 残っていた。ensure系がspecを組み立ててこの1関数へ渡す形にすることで、
   // 「色は追随するのに間引き条件とサイズ曲線だけ古い」という片側の取り残しが起きない。
-  const attributeEntry = () =>
-    buildStaticOverlayLayers([], [], undefined).find((l) => l.key === "designation")!;
+  const attributeEntry = () => buildStaticOverlayLayers([], [], undefined).find((l) => l.key === "designation")!;
 
   it("既存レイヤーにはpaintだけでなくlayout・filterも再適用する", () => {
     const map = fakeMap();
     map.layers.add("test-layer");
 
-    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
-      id: "test-layer",
-      type: "symbol",
-      source: "s",
-      layout: { "icon-size": 2, visibility: "none" },
-      paint: { "icon-opacity": 0.5 },
-      filter: [">", ["get", "v"], 1] as never,
-    }, { specOwnsFilter: true });
+    ensureLayerFromSpec(
+      map as unknown as Parameters<typeof ensureLayerFromSpec>[0],
+      {
+        id: "test-layer",
+        type: "symbol",
+        source: "s",
+        layout: { "icon-size": 2, visibility: "none" },
+        paint: { "icon-opacity": 0.5 },
+        filter: [">", ["get", "v"], 1] as never,
+      },
+      { specOwnsFilter: true },
+    );
 
     expect(map.paintCalls).toEqual([{ layerId: "test-layer", name: "icon-opacity", value: 0.5 }]);
     // visibilityは表示ON/OFFの状態そのもの（specが持つのは追加時の初期値）なので上書きしない。
@@ -465,12 +485,16 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
     const map = fakeMap();
     map.layers.add("test-layer");
 
-    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
-      id: "test-layer",
-      type: "line",
-      source: "s",
-      paint: { "line-width": 1 },
-    }, { specOwnsFilter: true });
+    ensureLayerFromSpec(
+      map as unknown as Parameters<typeof ensureLayerFromSpec>[0],
+      {
+        id: "test-layer",
+        type: "line",
+        source: "s",
+        paint: { "line-width": 1 },
+      },
+      { specOwnsFilter: true },
+    );
 
     expect(map.filterCalls).toEqual([{ layerId: "test-layer", filter: undefined }]);
   });
@@ -481,12 +505,16 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
     const map = fakeMap();
     map.layers.add("test-layer");
 
-    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
-      id: "test-layer",
-      type: "line",
-      source: "s",
-      paint: { "line-width": 1 },
-    }, { specOwnsFilter: false });
+    ensureLayerFromSpec(
+      map as unknown as Parameters<typeof ensureLayerFromSpec>[0],
+      {
+        id: "test-layer",
+        type: "line",
+        source: "s",
+        paint: { "line-width": 1 },
+      },
+      { specOwnsFilter: false },
+    );
 
     expect(map.filterCalls).toEqual([]);
     // paint・layoutの再適用（この関数の本来の役目）は止めない。
@@ -497,12 +525,16 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
     const map = fakeMap();
     map.layers.add("raster-layer");
 
-    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
-      id: "raster-layer",
-      type: "raster",
-      source: "s",
-      paint: { "raster-opacity": 0.4 },
-    }, { specOwnsFilter: true });
+    ensureLayerFromSpec(
+      map as unknown as Parameters<typeof ensureLayerFromSpec>[0],
+      {
+        id: "raster-layer",
+        type: "raster",
+        source: "s",
+        paint: { "raster-opacity": 0.4 },
+      },
+      { specOwnsFilter: true },
+    );
 
     expect(map.filterCalls).toEqual([]);
   });
@@ -510,12 +542,16 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
   it("レイヤーがまだ無ければaddLayerし、再適用は呼ばない", () => {
     const map = fakeMap();
 
-    ensureLayerFromSpec(map as unknown as Parameters<typeof ensureLayerFromSpec>[0], {
-      id: "new-layer",
-      type: "line",
-      source: "s",
-      paint: { "line-width": 1 },
-    }, { specOwnsFilter: true });
+    ensureLayerFromSpec(
+      map as unknown as Parameters<typeof ensureLayerFromSpec>[0],
+      {
+        id: "new-layer",
+        type: "line",
+        source: "s",
+        paint: { "line-width": 1 },
+      },
+      { specOwnsFilter: true },
+    );
 
     expect(map.layers.has("new-layer")).toBe(true);
     expect(map.paintCalls).toEqual([]);

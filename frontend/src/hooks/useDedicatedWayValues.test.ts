@@ -31,7 +31,6 @@ const GRADIENT: DedicatedWayValueAxis = {
 };
 const NO_AXES: readonly DedicatedWayValueAxis[] = [];
 const WIND_ONLY: readonly DedicatedWayValueAxis[] = [WIND];
-const GRADIENT_ONLY: readonly DedicatedWayValueAxis[] = [GRADIENT];
 const BOTH: readonly DedicatedWayValueAxis[] = [WIND, GRADIENT];
 
 describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態管理）", () => {
@@ -95,10 +94,9 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
   it("時刻が変わっても、時刻に依存しない軸は再フェッチしない", async () => {
     vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "3": 4.5 }, error: false });
 
-    const { rerender } = renderHook(
-      ({ at }: { at: Date }) => useDedicatedWayValues(BOTH, VIEWPORT, 45, at),
-      { initialProps: { at: new Date("2026-08-30T09:00:00Z") } },
-    );
+    const { rerender } = renderHook(({ at }: { at: Date }) => useDedicatedWayValues(BOTH, VIEWPORT, 45, at), {
+      initialProps: { at: new Date("2026-08-30T09:00:00Z") },
+    });
 
     await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalledTimes(2));
     vi.mocked(fetchDynamicWayValues).mockClear();
@@ -107,17 +105,6 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
 
     await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalledTimes(1));
     expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 45, expect.any(Date), undefined);
-  });
-
-  it("byTileにタイルごとの生応答を保持する（gridFillのタイル単位集計向け）", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "1": 2.5 }, error: false });
-
-    const { result } = renderHook(() => useDedicatedWayValues(GRADIENT_ONLY, VIEWPORT, 0, undefined));
-
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "gradient").byTile.length).toBe(1));
-    const byTile = dedicatedWayValuesFor(result.current, "gradient").byTile;
-    expect(byTile[0].tile).toEqual({ z: 14, x: 14549, y: 6450 });
-    expect(byTile[0].values).toEqual({ "1": 2.5 });
   });
 
   it("対象軸から外すと、その軸の結果を捨てる", async () => {

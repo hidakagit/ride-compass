@@ -12,10 +12,6 @@
 // ——軸スタジオで3件目が公開されても呼び出し側の変更が要らないようにするための構造）。
 // 時刻・想定速度をどの軸のリクエストへ載せるかは軸カタログの宣言（`needsTime`/`needsSpeed`）
 // から決め、載せない軸はその入力が変わっても再フェッチしない（キーが変わらないため）。
-//
-// `byTile`（軸・タイルごとの生応答）は、評価軸グループ（線、setFeatureState）向けに
-// way_id単位でマージした`values`とは別に、勾配の環境グループgridFill（gradientGridFill.ts）が
-// タイル境界をセルとする面表示のためタイル単位の生データを必要とすることから持つ。
 
 import { useEffect, useRef, useState } from "react";
 import { mergeDynamicWayValues, tilesCoveringViewport, type TileXY } from "@/components/Map/dynamicWayValues";
@@ -28,17 +24,9 @@ import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedVa
 // もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
 // 連続イベント数ぶんのfetchが発生してしまう）。
 
-export interface TileDynamicWayValues {
-  tile: TileXY;
-  values: Record<string, number>;
-}
-
 export interface DedicatedWayValuesResult {
   /** way_id→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま使える。 */
   values: ReadonlyMap<number, number>;
-  /** タイルごとの生応答（統合前）。環境グループのgridFill（タイル境界をセルとする面表示）が
-   * タイル単位の集計に使う。 */
-  byTile: readonly TileDynamicWayValues[];
   /** 現在のビューポートぶんのフェッチが進行中か。falseへ戻るまでの間、
    * まだ一度も値を受け取っていないway（feature-stateキー未設定）は「取得中」、フェッチ
    * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする
@@ -56,7 +44,6 @@ export interface DedicatedWayValuesResult {
 
 const EMPTY_DEDICATED_WAY_VALUES_RESULT: DedicatedWayValuesResult = {
   values: new Map(),
-  byTile: [],
   loading: false,
   error: false,
   hasFetched: false,
@@ -72,7 +59,7 @@ function requestKey(
   at: Date | undefined,
   speedKmh: number | undefined,
   bearingDeg: number,
-  tiles: readonly TileXY[]
+  tiles: readonly TileXY[],
 ): string {
   const tileKey = tiles.map((tile) => `${tile.z}/${tile.x}/${tile.y}`).join(",");
   return [axisId, at?.toISOString() ?? "", speedKmh ?? "", bearingDeg, tileKey].join("|");
@@ -92,7 +79,7 @@ export function useDedicatedWayValues(
   mapViewport: MapViewport | null,
   bearingDeg: number,
   at: Date | undefined,
-  speedKmh?: number
+  speedKmh?: number,
 ): ReadonlyMap<string, DedicatedWayValuesResult> {
   const [results, setResults] = useState<ReadonlyMap<string, DedicatedWayValuesResult>>(EMPTY_RESULTS);
   const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
@@ -120,7 +107,12 @@ export function useDedicatedWayValues(
         at: axis.needsTime ? at : undefined,
         speedKmh: axis.needsSpeed ? debouncedSpeedKmh : undefined,
       }));
-      const keys = new Map(params.map((param) => [param.axisId, requestKey(param.axisId, param.at, param.speedKmh, debouncedBearingDeg, tiles)]));
+      const keys = new Map(
+        params.map((param) => [
+          param.axisId,
+          requestKey(param.axisId, param.at, param.speedKmh, debouncedBearingDeg, tiles),
+        ]),
+      );
       const stale = params.filter((param) => fetchedKeysRef.current.get(param.axisId) !== keys.get(param.axisId));
       // 取得済みで入力も変わっていない軸だけが残っている（＝対象軸の集合も同じ）なら、
       // 新しいMapを作らずに現在の結果をそのまま使う（参照が変わるとMapView側の
@@ -143,10 +135,18 @@ export function useDedicatedWayValues(
           axisId: param.axisId,
           responses: await Promise.all(
             tiles.map((tile) =>
-              fetchDynamicWayValues(param.axisId, tile.z, tile.x, tile.y, debouncedBearingDeg, param.at, param.speedKmh)
-            )
+              fetchDynamicWayValues(
+                param.axisId,
+                tile.z,
+                tile.x,
+                tile.y,
+                debouncedBearingDeg,
+                param.at,
+                param.speedKmh,
+              ),
+            ),
           ),
-        }))
+        })),
       );
       if (cancelled || seq !== requestSeqRef.current) return;
       fetchedKeysRef.current = keys;
@@ -156,7 +156,6 @@ export function useDedicatedWayValues(
         for (const entry of fetched) {
           next.set(entry.axisId, {
             values: mergeDynamicWayValues(entry.responses.map((response) => response.values)),
-            byTile: tiles.map((tile, index) => ({ tile, values: entry.responses[index].values })),
             loading: false,
             error: entry.responses.some((response) => response.error),
             hasFetched: true,
@@ -180,7 +179,7 @@ export function useDedicatedWayValues(
  * （呼び出し側が`?? EMPTY`を書き散らさないため）。 */
 export function dedicatedWayValuesFor(
   results: ReadonlyMap<string, DedicatedWayValuesResult>,
-  axisId: string | undefined
+  axisId: string | undefined,
 ): DedicatedWayValuesResult {
   if (!axisId) return EMPTY_DEDICATED_WAY_VALUES_RESULT;
   return results.get(axisId) ?? EMPTY_DEDICATED_WAY_VALUES_RESULT;

@@ -74,7 +74,6 @@ import {
   dedicatedWayValueFeatureStateKey,
   type DedicatedWayValueDisplay,
 } from "@/components/Map/dedicatedWayValueLayer";
-import { GRADIENT_AXIS_ID, gradientFillColorExpression } from "@/components/Map/gradientGridFill";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { createLidenIcon } from "@/components/Map/lidenIcon";
@@ -283,12 +282,6 @@ export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと同じ構成）だが、
 // 色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
-// 環境グループの勾配gridFill。値の出所がDYNAMIC_WEATHER_RENDERERS汎用機構（気象グリッド）
-// ではなくuseDedicatedWayValues（way単位の値をタイル単位で集計する、gradientGridFill.tsの
-// モジュールdocstring参照）のため、bespokeなensure/apply関数を持つ。
-const GRADIENT_FILL_SOURCE_ID = "gradient-fill-source";
-// exportはテスト専用（MapView.overlayFilters.test.ts）。
-export const GRADIENT_FILL_LAYER_ID = "region-gradient-fill";
 export const DESIGNATION_LAYER_ID = "region-designation-line";
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export const TUNNEL_LAYER_ID = "region-tunnel-line";
@@ -1740,50 +1733,6 @@ export function shouldClearDedicatedWayValueFeatureState(
   return !Object.values(dedicatedWayValueVisibility).some(Boolean);
 }
 
-// 環境グループの勾配gridFill。DYNAMIC_WEATHER_RENDERERS汎用機構には乗せず、ensure/apply
-// 専用関数のまま持つ——汎用機構が扱うのは道路と無関係な空間フィールド（気象グリッド）で、
-// 勾配は道路（way）ごとの属性から作るため独立したフィールドを持たない
-// （gradientGridFill.tsのモジュールdocstring参照）。
-// makeEnsureDedicatedWayValueLayer呼び出し（専用way値配信軸）と同じくファクトリ化し、
-// 軸カタログのmap_value_thresholdsをbuildStaticOverlayLayers経由で受け取る。
-// 表示宣言は実行時フェッチで後から変わりうるため、レイヤーが既に存在する場合も
-// setPaintPropertyで再適用する。
-function makeEnsureGradientFillLayer(display?: DedicatedWayValueDisplay, loading = false) {
-  return (map: MapLibreMap) => {
-    const applyData = () => {
-      const colorExpression = gradientFillColorExpression(display, loading);
-      if (map.getLayer(GRADIENT_FILL_LAYER_ID)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        map.setPaintProperty(GRADIENT_FILL_LAYER_ID, "fill-color", colorExpression as any);
-        return;
-      }
-      map.addSource(GRADIENT_FILL_SOURCE_ID, { type: "geojson", data: EMPTY_FEATURE_COLLECTION });
-      map.addLayer({
-        id: GRADIENT_FILL_LAYER_ID,
-        type: "fill",
-        source: GRADIENT_FILL_SOURCE_ID,
-        layout: { visibility: "none" },
-        paint: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-color": colorExpression as any,
-          "fill-opacity": 0.4,
-        },
-      });
-    };
-    runWhenStyleReady(map, applyData);
-  };
-}
-
-/** hooks/useDedicatedWayValues.ts由来のgradientFillPayload（GeoJSON、gradientGridFill.ts:
- * gradientGridCellsFromTileResponsesが組み立てる）をsourceへ反映する。visibility自体は
- * STATIC_OVERLAY_LAYERS一括effect（showGradientFill）が別途担当する
- * （applyAxisFeatureStateValuesと同じ「値の反映」と「表示ON/OFF」を分離する設計）。 */
-function applyGradientFillGeojson(map: MapLibreMap, geojson: GeoJSON.FeatureCollection | undefined) {
-  if (!map.getSource(GRADIENT_FILL_SOURCE_ID)) return;
-  const source = map.getSource(GRADIENT_FILL_SOURCE_ID) as GeoJSONSource | undefined;
-  source?.setData(geojson ?? EMPTY_FEATURE_COLLECTION);
-}
-
 // 「道路情報」は「路面の種類」（roadSurface、色）・「道路の種類」（roadType、太さ・線種）の
 // 論理2レイヤーだが、物理的には同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し
 // 「色×太さ」の多重表現が壊れるため、1本のMapLibre線レイヤー（ROAD_TILE_LAYER_ID）へ
@@ -2112,10 +2061,6 @@ export function buildStaticOverlayLayers(
   // （MapViewProps.dedicatedWayValueLoading参照）。
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>,
 ): readonly OverlayLayerEntry[] {
-  // 環境グループの勾配gridFillだけは専用way値配信の汎用機構に乗らない勾配固有のレイヤー
-  // （gradientGridFill.tsのモジュールdocstring参照）のため、勾配の表示宣言だけを名指しで引く。
-  const gradientDisplay = dedicatedWayValueDisplays?.get(GRADIENT_AXIS_ID);
-  const gradientLoading = dedicatedWayValueLoading?.get(GRADIENT_AXIS_ID) ?? false;
   return [
     // ラスタタイルのため地物クリック判定が効かない。
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer, interactive: false },
@@ -2159,14 +2104,6 @@ export function buildStaticOverlayLayers(
       ),
       interactive: true,
     })),
-    // 環境グループの勾配gridFill（タイル境界セル）。
-    // 専用ポップアップを持たず、クリック時はhandleClickの早期returnガードで「何もしない」。
-    {
-      key: "gradientFill",
-      layerId: GRADIENT_FILL_LAYER_ID,
-      ensure: makeEnsureGradientFillLayer(gradientDisplay, gradientLoading),
-      interactive: false,
-    },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer, interactive: true },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer, interactive: true },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer, interactive: true },
@@ -2620,13 +2557,6 @@ interface MapViewProps {
    * 新設しない）で、windLoading/gradientLoadingのような別名propは持たない。未設定の軸idは
    * false（フェッチ中でない）扱い。 */
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>;
-  /** 環境グループの勾配gridFill。showGradientFillは
-   * gradientFillチップのON/OFFとは独立のフラグとして渡す（ルート確定後はページ側がfalseへ
-   * 倒す想定、page.tsx参照）。gradientFillGeojsonはhooks/useDedicatedWayValues.ts:
-   * byTileをgradientGridFill.ts: gradientGridCellsFromTileResponsesで変換した値をそのまま
-   * 渡す。 */
-  showGradientFill: boolean;
-  gradientFillGeojson: GeoJSON.FeatureCollection | undefined;
   /** 事故（外部静的データソース、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
   showAccidents: boolean;
   /** 停止要因POI。路面とは別の点データ用ベクタソースを使う。 */
@@ -2784,7 +2714,6 @@ export type RedrawAllLayersProps = Pick<
   | "showTunnel"
   | "showOneway"
   | "dedicatedWayValueVisibility"
-  | "showGradientFill"
   | "showAccidents"
   | "showStopPoi"
   | "showSupplyPoi"
@@ -2793,7 +2722,6 @@ export type RedrawAllLayersProps = Pick<
   | "staticLegendHiddenKeysByAxis"
   | "experimentSlots"
   | "dedicatedWayValues"
-  | "gradientFillGeojson"
   | "onRegionZoomHintChange"
 > & {
   staticOverlayLayers: readonly OverlayLayerEntry[];
@@ -2832,7 +2760,6 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     showTunnel,
     showOneway,
     dedicatedWayValueVisibility,
-    showGradientFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -2844,7 +2771,6 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     dedicatedWayValues,
-    gradientFillGeojson,
     onRegionZoomHintChange,
   } = props;
   setStaticOverlayVisibility(
@@ -2855,7 +2781,6 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
       tunnel: showTunnel,
       oneway: showOneway,
       ...dedicatedWayValueVisibility,
-      gradientFill: showGradientFill,
       accidents: showAccidents,
       stopPoi: showStopPoi,
       supplyPoi: showSupplyPoi,
@@ -2869,12 +2794,10 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
   // 専用way値配信軸の線レイヤー（評価軸グループの風・勾配等）はプロパティ
   // ではなくsetFeatureStateで色付けするため、map.setStyle()でレイヤー自体が作り直された
   // 後は明示的に再適用しないと無色のまま残ってしまう（値自体は変わっていないため、
-  // 通常の依存effectは再実行されない）。gradientFillGeojson（環境グループの勾配面塗り、
-  // geojson source）も同じ理由で再適用が必要。
+  // 通常の依存effectは再実行されない）。
   for (const [axisId, values] of dedicatedWayValues) {
     applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
   }
-  applyGradientFillGeojson(map, gradientFillGeojson);
   setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
   applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
   applyRoadMaterialTrackOffsets(map, {
@@ -2941,8 +2864,6 @@ export default function MapView({
   dedicatedWayValues,
   dedicatedWayValueDisplays,
   dedicatedWayValueLoading,
-  showGradientFill,
-  gradientFillGeojson,
   showAccidents,
   showStopPoi,
   showSupplyPoi,
@@ -3089,7 +3010,6 @@ export default function MapView({
     showTunnel,
     showOneway,
     dedicatedWayValueVisibility,
-    showGradientFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -3102,7 +3022,6 @@ export default function MapView({
     roadSurfaceSharedLayerIds,
     axisLabels,
     dedicatedWayValues,
-    gradientFillGeojson,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
@@ -3181,7 +3100,6 @@ export default function MapView({
       showTunnel,
       showOneway,
       dedicatedWayValueVisibility,
-      showGradientFill,
       showAccidents,
       showStopPoi,
       showSupplyPoi,
@@ -3194,7 +3112,6 @@ export default function MapView({
       roadSurfaceSharedLayerIds,
       axisLabels,
       dedicatedWayValues,
-      gradientFillGeojson,
     };
   }, [
     routes,
@@ -3213,7 +3130,6 @@ export default function MapView({
     showTunnel,
     showOneway,
     dedicatedWayValueVisibility,
-    showGradientFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -3226,7 +3142,6 @@ export default function MapView({
     experimentSlots,
     axisLabels,
     dedicatedWayValues,
-    gradientFillGeojson,
   ]);
 
   // 再描画の中身はモジュールレベルの`redrawAllLayers`が持つ（テストから実物を呼べる形に
@@ -3394,20 +3309,6 @@ export default function MapView({
         if (map.getLayer(hitLayerId) && map.queryRenderedFeatures(e.point, { layers: [hitLayerId] }).length > 0) {
           return;
         }
-      }
-      // 環境グループの勾配gridFill（GRADIENT_FILL_LAYER_ID）は専用ポップアップを持たず、
-      // buildInteractiveLayerIdsの対象からも除外されている。ガード無しでは下の汎用
-      // ディスパッチャへ流れ込み、道路属性を持たないGradientGridCellProperties
-      // （{gradientValue}のみ）がbuildRoadSurfacePopupHtmlへ渡って「路面: 不明」という
-      // 実態と無関係なポップアップが出てしまうため、DETAIL_HIT_LAYER_IDと同じ「ヒットしたら
-      // 何もしない」早期returnで防ぐ——interactiveLayerIdsに含まれないレイヤーでも
-      // queryRenderedFeaturesはこのレイヤー自体を直接対象にできるため、この明示的な
-      // ガードが必要。
-      if (
-        map.getLayer(GRADIENT_FILL_LAYER_ID) &&
-        map.queryRenderedFeatures(e.point, { layers: [GRADIENT_FILL_LAYER_ID] }).length > 0
-      ) {
-        return;
       }
       const layers = interactiveLayerIdsRef.current.filter((id) => map.getLayer(id));
       if (layers.length === 0) return;
@@ -3923,7 +3824,6 @@ export default function MapView({
         tunnel: showTunnel,
         oneway: showOneway,
         ...dedicatedWayValueVisibility,
-        gradientFill: showGradientFill,
         accidents: showAccidents,
         stopPoi: showStopPoi,
         supplyPoi: showSupplyPoi,
@@ -3941,7 +3841,6 @@ export default function MapView({
     showTunnel,
     showOneway,
     dedicatedWayValueVisibility,
-    showGradientFill,
     showAccidents,
     showStopPoi,
     showSupplyPoi,
@@ -3986,12 +3885,6 @@ export default function MapView({
     if (!map || !shouldClearDedicatedWayValueFeatureState(dedicatedWayValueVisibility)) return;
     runWhenStyleReady(map, () => clearRoadTileFeatureState(map));
   }, [dedicatedWayValueVisibility]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    runWhenStyleReady(map, () => applyGradientFillGeojson(map, gradientFillGeojson));
-  }, [gradientFillGeojson]);
 
   // 動的気象レイヤー（降水ナウキャスト・風の矢印）。いずれもpayloadが地図上の時刻
   // スライダー操作のたびに変わるため、

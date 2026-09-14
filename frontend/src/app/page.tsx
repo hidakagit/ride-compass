@@ -30,7 +30,6 @@ import {
   axisMapLayerId,
   buildAxisRampLegend,
   dedicatedWayValueMapLayerId,
-  type DedicatedWayValueAxis,
 } from "@/components/Map/axisLayers";
 import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
@@ -77,7 +76,6 @@ import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { dedicatedWayValuesFor, useDedicatedWayValues } from "@/hooks/useDedicatedWayValues";
-import { GRADIENT_AXIS_ID, gradientGridCellsFromTileResponses } from "@/components/Map/gradientGridFill";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
@@ -204,7 +202,6 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   // 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
   // 環境グループの勾配gridFill。同じ理由で既定OFF。
-  gradientFill: false,
   // 災害（雷・竜巻・落雷・キキクル4種）。他の気象レイヤーとは異なり既定ONにする——
   // 防災級の情報はユーザー操作を待たず表示すべき（予兆があってからチップをONにするのでは
   // 手遅れ）という理由で、チップというUI要素は持たせつつ既定表示にしておく。危険度ゼロの
@@ -1319,25 +1316,13 @@ export default function Home() {
       ),
     [axisCatalog.rampAxes, lens, lensBackgroundShown],
   );
-  // 環境グループの勾配gridFill（面）。評価軸グループの線とは別チップのまま。
-  const showGradientFill = layerVisibility.gradientFill && !hasDetail;
   // 専用way値配信軸（`dedicated_way_value_layer=true`、現状: 風・勾配）のうち、いま
-  // フェッチすべき軸。レンズが指している軸（ルート前の全道路一律色分け）に加え、環境
-  // グループの勾配gridFillがONの間は勾配も対象にする——gridFillは評価軸グループの線とは
-  // 独立にON/OFFできるが、値は同じway単位データをタイル単位で集計するだけで作れるため
-  // （gradientGridFill.tsのモジュールdocstring参照）、フェッチは1本で両方の表現を賄う。
-  // 「勾配」という軸idをここで名指しするのは、gridFillが専用way値配信の汎用機構ではなく
-  // 勾配固有の環境グループレイヤーだから（レンズ側の経路には軸ごとの分岐が無い）。
+  // フェッチすべき軸。レンズが指している軸（ルート前の全道路一律色分け）だけで、軸ごとの
+  // 分岐は持たない。
   const dedicatedFetchAxes = useMemo(() => {
-    const byAxisId = new Map<string, DedicatedWayValueAxis>();
     const lensAxis = axisCatalog.dedicatedAxes.find((axis) => axis.axisId === lens);
-    if (lensAxis && lensBackgroundShown) byAxisId.set(lensAxis.axisId, lensAxis);
-    if (showGradientFill) {
-      const gradientAxis = axisCatalog.dedicatedAxes.find((axis) => axis.axisId === GRADIENT_AXIS_ID);
-      if (gradientAxis) byAxisId.set(gradientAxis.axisId, gradientAxis);
-    }
-    return [...byAxisId.values()];
-  }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, showGradientFill]);
+    return lensAxis && lensBackgroundShown ? [lensAxis] : [];
+  }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown]);
   // 想定速度（地図上のRideConditionBarの入力、値域の丸めはそちらのclampSpeedKmhが担う）は
   // 走行速度に依存する軸（風）にも効く。時刻・想定速度を実際にリクエストへ載せるかは
   // 軸カタログの宣言（needsTime/needsSpeed）が決めるため、ここでは全軸共通の入力として
@@ -1360,13 +1345,6 @@ export default function Home() {
         ]),
       ),
     [axisCatalog.dedicatedAxes, lens, lensBackgroundShown],
-  );
-  const gradientFillPayload = useMemo(
-    () =>
-      showGradientFill
-        ? gradientGridCellsFromTileResponses(dedicatedWayValuesFor(dedicatedWayValueResults, GRADIENT_AXIS_ID).byTile)
-        : undefined,
-    [showGradientFill, dedicatedWayValueResults],
   );
   // MapViewへは軸id→値／軸id→フェッチ進行中の汎用Mapとして渡す
   // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）。MapView側はこれを使い、
@@ -2304,8 +2282,6 @@ export default function Home() {
             dedicatedWayValues={dedicatedWayValues}
             dedicatedWayValueDisplays={dedicatedWayValueDisplays}
             dedicatedWayValueLoading={dedicatedWayValueLoading}
-            showGradientFill={showGradientFill}
-            gradientFillGeojson={gradientFillPayload}
             showStopPoi={layerVisibility.stopPoi}
             showSupplyPoi={layerVisibility.supplyPoi}
             showAccidents={layerVisibility.accidents}

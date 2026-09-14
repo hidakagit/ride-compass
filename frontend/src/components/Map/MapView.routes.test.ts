@@ -365,7 +365,6 @@ describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
       showTunnel: false,
       showOneway: false,
       dedicatedWayValueVisibility: {},
-      showGradientFill: false,
       showAccidents: false,
       showStopPoi: false,
       showSupplyPoi: false,
@@ -377,7 +376,6 @@ describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
       staticFilterAxes: [],
       roadSurfaceSharedLayerIds: [],
       dedicatedWayValues: new Map(),
-      gradientFillGeojson: undefined,
       onRegionZoomHintChange: () => {},
       ...overrides,
     };

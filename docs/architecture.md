@@ -2128,8 +2128,8 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 
 - **環境（面）**: 風は矢印のみを持ち、面塗り（`gridFill`）は持たない——矢印（絶対的な
   風向風速）とユーザー指定の走行方位に依存する相対値が同時に出ると見にくいため、走行方位に
-  対する向かい風/追い風の強さは次項の評価軸（線）のみで確認する（勾配は評価軸[線]・
-  環境グループのgridFill[面]の両方を持つ、§動的気象レイヤー参照）。
+  対する向かい風/追い風の強さは次項の評価軸（線）のみで確認する。走行方位に依存する材料は
+  評価軸（線）だけが表示を持つ。
 - **評価軸（線）**: `WindWayService.get_way_values(z, x, y, at, bearing_deg, speed_kmh)`
   （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル内の
   way_id一覧（`RoadGraphRepository.get_way_ids_in_tile`）を取得し、最寄りの風グリッド格子点
@@ -2230,15 +2230,6 @@ effective_gradient`）。道路の向きと指定方向のなす角度に応じ�
   `hooks/useDedicatedWayValues.ts: useDedicatedWayValues(axes, ...)`（専用way値配信軸の
   一覧を受け取り、軸ごとの結果を`ReadonlyMap`で返す）として統合してある。風・勾配
   どちらもこの1本のフック・1本のfetch関数を使い、軸ごとの分岐を持たない。
-
-**環境グループの勾配gridFill（面表示）**: 風のgridFillは矢印と共有の独立した気象グリッド
-（道路と無関係な空間フィールド）から作れたが、勾配にはそのような独立フィールドが無い
-——勾配は本質的に道路（way）ごとの属性である。そのため、評価軸グループ向けに既にフェッチ
-済みのway単位`effective_gradient`値（追加のAPI呼び出し無し）を、フェッチ元のタイル境界
-そのものを1セルとして平均集計した面表示へ変換する
-（[gradientGridFill.ts](../frontend/src/components/Map/gradientGridFill.ts):
-`gradientGridCellsFromTileResponses`。タイル境界の算出は`dynamicWayValues.ts:
-tileBoundsLonLat`、`domain/region.py: tile_bounds_lonlat`のJS移植）。
 
 **向き指定UI**: `WindBearingSlider`をそのまま再利用した（新規コンポーネント無し）——
 value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う汎用的な形（時刻は
