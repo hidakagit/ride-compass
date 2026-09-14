@@ -13,8 +13,10 @@ export interface MaterialDistributionResult {
   loading: boolean;
 }
 
-/** 同じ材料を複数の行が選んでいても取得は1回で済むよう、結果をモジュール内で共有する。 */
-const cache = new Map<string, MaterialDistribution>();
+/** 同じ材料を複数の行が選んでいても取得は1回で済むよう、結果をモジュール内で共有する。
+ *  取得できなかったこと（null）も覚える——覚えないと、値を持たない材料へマウントのたびに
+ *  同じ失敗リクエストを投げ続ける。 */
+const cache = new Map<string, MaterialDistribution | null>();
 
 export function useMaterialDistribution(materialId: string | undefined): MaterialDistributionResult {
   const [result, setResult] = useState<MaterialDistributionResult>({ distribution: null, loading: false });
@@ -29,9 +31,8 @@ export function useMaterialDistribution(materialId: string | undefined): Materia
         setResult({ distribution: null, loading: false });
         return;
       }
-      const cached = cache.get(materialId);
-      if (cached) {
-        setResult({ distribution: cached, loading: false });
+      if (cache.has(materialId)) {
+        setResult({ distribution: cache.get(materialId) ?? null, loading: false });
         return;
       }
       setResult({ distribution: null, loading: true });
@@ -42,6 +43,7 @@ export function useMaterialDistribution(materialId: string | undefined): Materia
       } catch {
         // 値域は編集の補助情報のため、取得できなければ黙って出さない（他の欄の
         // 編集を妨げない）。失敗そのものはaxisPreviewApiがdebugLogへ残す。
+        cache.set(materialId, null);
         if (!cancelled) setResult({ distribution: null, loading: false });
       }
     });

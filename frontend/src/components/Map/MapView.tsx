@@ -27,10 +27,7 @@ import {
   poiTileUrl,
   roadSurfaceTileUrl,
 } from "@/services/regionApi";
-import {
-  buildAxisInspectorAffordanceHtml,
-  attachAxisInspectorHandler,
-} from "@/components/Map/axisInspectorPopup";
+import { buildAxisInspectorAffordanceHtml, attachAxisInspectorHandler } from "@/components/Map/axisInspectorPopup";
 import {
   KNOWN_LINE_OPACITY,
   ROAD_FILTER_AXES,
@@ -66,7 +63,11 @@ import {
   type StaticFilterAxis,
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
-import { buildRoadSurfaceSharedLayerIds, type LayerDataStatusByLayer, type MapLayerId } from "@/components/Map/mapLayers";
+import {
+  buildRoadSurfaceSharedLayerIds,
+  type LayerDataStatusByLayer,
+  type MapLayerId,
+} from "@/components/Map/mapLayers";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import {
   dedicatedWayValueColorExpression,
@@ -123,7 +124,9 @@ function mapStyleUrl(): string {
 function createOriginMarkerElement(color: string): HTMLDivElement {
   const el = document.createElement("div");
   el.style.cssText =
-    "width:32px; height:32px; border-radius:50%; background:" + PIN_MARK_BACKGROUND.origin + "; display:flex; " +
+    "width:32px; height:32px; border-radius:50%; background:" +
+    PIN_MARK_BACKGROUND.origin +
+    "; display:flex; " +
     "align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4); " +
     "touch-action:none; cursor:grab;";
   el.innerHTML = pinMarkHtml("origin", { size: 20, color });
@@ -262,7 +265,11 @@ function jmaZoomRange(elementId: keyof typeof jmaTileConfig): { minzoom: number;
   return { minzoom: spec.min_zoom, maxzoom: spec.max_zoom };
 }
 
-export function dynamicWeatherIds(id: DynamicWeatherLayerId, source: DynamicWeatherSourceId, sub: "raster" | "fill" | "mark" | "vector") {
+export function dynamicWeatherIds(
+  id: DynamicWeatherLayerId,
+  source: DynamicWeatherSourceId,
+  sub: "raster" | "fill" | "mark" | "vector",
+) {
   const base = `region-dynamic-weather-${id}-${source}-${sub}`;
   return { sourceId: base, layerId: `${base}-main`, iconId: `${base}-icon` };
 }
@@ -346,7 +353,7 @@ export function routesToFeatureCollection(
   // この層は区間の絞り込みを持たないため、除外しないと「隠したはずの区間が単色の線として
   // 残って見える」。薄いハロー（drawSelectedOutline、opacity 0.25）は選択中候補を常時
   // 識別できるようにする別の意図的な表現のため、そちらは除外の対象にしない。
-  excludeSelected = false
+  excludeSelected = false,
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, { selected: boolean; routeId: string }> {
   // 選択中の候補が他の線に隠れないよう、配列の最後（最前面）に描画されるようにする
   const ordered = [...routes]
@@ -393,7 +400,7 @@ export function restoreRouteSegmentProperties(raw: RouteSegmentProperties): Rout
 }
 
 export function segmentsToFeatureCollection(
-  segments: RouteSegmentDetail[]
+  segments: RouteSegmentDetail[],
 ): GeoJSON.FeatureCollection<GeoJSON.LineString, RouteSegmentProperties> {
   return {
     type: "FeatureCollection",
@@ -500,7 +507,7 @@ export function drawBaseRoutes(
   map: MapLibreMap,
   routes: RouteCandidate[],
   selectedRouteId: string | null,
-  excludeSelected = false
+  excludeSelected = false,
 ) {
   const data = routesToFeatureCollection(routes, selectedRouteId, excludeSelected);
 
@@ -554,12 +561,7 @@ export const SPLICE_COLOR = "#c2612b";
 export const SPLICE_HIT_WIDTH = 24;
 export const SPLICE_WIDTH_EXPRESSION: unknown[] = ["case", ["get", "taken"], 5, 3];
 export const SPLICE_OPACITY_EXPRESSION: unknown[] = ["case", ["get", "taken"], 1, 0.75];
-export const SPLICE_DASH_EXPRESSION: unknown[] = [
-  "case",
-  ["get", "taken"],
-  ["literal", [1, 0]],
-  ["literal", [2, 1.5]],
-];
+export const SPLICE_DASH_EXPRESSION: unknown[] = ["case", ["get", "taken"], ["literal", [1, 0]], ["literal", [2, 1.5]]];
 
 /** 乗り換えられる区間1本ぶんの描画情報。`taken`は相手の道を選んでいる状態。 */
 export interface SpliceStretchFeature {
@@ -701,7 +703,7 @@ export function drawSelectedOutline(map: MapLibreMap, routes: RouteCandidate[], 
           source: OUTLINE_SOURCE_ID,
           paint: { "line-color": "#1e3a8a", "line-width": 10, "line-opacity": 0.25 },
         },
-        map.getLayer(ROUTES_LAYER_ID) ? ROUTES_LAYER_ID : undefined
+        map.getLayer(ROUTES_LAYER_ID) ? ROUTES_LAYER_ID : undefined,
       );
       ensureRouteArrowLayer(map);
     }
@@ -736,7 +738,7 @@ export function applyRouteLayerVisibility(
   // 選択中候補にDETAIL_LAYER_ID（区間ごとの軸色分け線）を重ね描きする場合はtrue。
   // routesToFeatureCollectionのexcludeSelectedへそのまま渡し、単色のROUTES_LAYER_IDが
   // 色分け線の下から透けて見えるのを防ぐ。
-  hasDetailSegments = false
+  hasDetailSegments = false,
 ) {
   if (routeLayerOn) {
     drawBaseRoutes(map, routes, selectedRouteId, hasDetailSegments);
@@ -839,7 +841,11 @@ function drawExperimentSlots(map: MapLibreMap, slots: ExperimentSlot[]) {
         source: SLOTS_SOURCE_ID,
         paint: { "line-color": ROUTE_LINE_CASING_COLOR, "line-width": 7, "line-opacity": 0.85 },
       },
-      map.getLayer(DETAIL_CASING_LAYER_ID) ? DETAIL_CASING_LAYER_ID : map.getLayer(DETAIL_LAYER_ID) ? DETAIL_LAYER_ID : undefined
+      map.getLayer(DETAIL_CASING_LAYER_ID)
+        ? DETAIL_CASING_LAYER_ID
+        : map.getLayer(DETAIL_LAYER_ID)
+          ? DETAIL_LAYER_ID
+          : undefined,
     );
     map.addLayer(
       {
@@ -853,7 +859,11 @@ function drawExperimentSlots(map: MapLibreMap, slots: ExperimentSlot[]) {
           "line-opacity": 0.85,
         },
       },
-      map.getLayer(DETAIL_CASING_LAYER_ID) ? DETAIL_CASING_LAYER_ID : map.getLayer(DETAIL_LAYER_ID) ? DETAIL_LAYER_ID : undefined
+      map.getLayer(DETAIL_CASING_LAYER_ID)
+        ? DETAIL_CASING_LAYER_ID
+        : map.getLayer(DETAIL_LAYER_ID)
+          ? DETAIL_LAYER_ID
+          : undefined,
     );
   };
 
@@ -866,7 +876,7 @@ export function drawDetailSegments(
   map: MapLibreMap,
   segments: RouteSegmentDetail[],
   mode: RouteStyleMode,
-  hiddenLegendKeys: readonly string[]
+  hiddenLegendKeys: readonly string[],
 ) {
   const data = segmentsToFeatureCollection(segments);
 
@@ -887,7 +897,7 @@ export function drawDetailSegments(
           source: DETAIL_SOURCE_ID,
           paint: { "line-color": ROUTE_LINE_CASING_COLOR, "line-width": 10, "line-opacity": 1 },
         },
-        beforeId
+        beforeId,
       );
       map.addLayer(
         {
@@ -897,7 +907,7 @@ export function drawDetailSegments(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           paint: { "line-color": mode.colorExpression as any, "line-width": 6, "line-opacity": 1 },
         },
-        beforeId
+        beforeId,
       );
       // 当たり判定専用の見えない太い線（DETAIL_HIT_LAYER_IDのdocstring参照）。
       // 同じソース・同じfilterを共有し、見た目の線（DETAIL_LAYER_ID）の上に重ねる
@@ -909,7 +919,7 @@ export function drawDetailSegments(
           source: DETAIL_SOURCE_ID,
           paint: { "line-width": 24, "line-opacity": 0 },
         },
-        beforeId
+        beforeId,
       );
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1018,10 +1028,14 @@ const PRECIPITATION_FILL_OPACITY = 0.55;
 const FLOOD_RISK_LINE_COLOR_EXPRESSION = [
   "match",
   ["to-number", ["get", "level"]],
-  1, RISK_LEVEL_COLORS[1].color,
-  2, RISK_LEVEL_COLORS[2].color,
-  3, RISK_LEVEL_COLORS[3].color,
-  4, RISK_LEVEL_COLORS[4].color,
+  1,
+  RISK_LEVEL_COLORS[1].color,
+  2,
+  RISK_LEVEL_COLORS[2].color,
+  3,
+  RISK_LEVEL_COLORS[3].color,
+  4,
+  RISK_LEVEL_COLORS[4].color,
   RISK_LEVEL_COLORS[0].color,
 ] as unknown as maplibregl.ExpressionSpecification;
 
@@ -1031,9 +1045,12 @@ const FLOOD_RISK_LINE_WIDTH_EXPRESSION = [
   "interpolate",
   ["linear"],
   ["zoom"],
-  6, 1.5,
-  10, 3,
-  14, 5,
+  6,
+  1.5,
+  10,
+  3,
+  14,
+  5,
 ] as unknown as maplibregl.ExpressionSpecification;
 
 // ズームに応じた追加の拡大率。symbolレイヤーのicon-sizeは既定で画面上の
@@ -1060,7 +1077,7 @@ function zoomAndPropertyIconSizeExpression(
   minScale: number,
   maxScale: number,
   maxValueForFullScale: number,
-  scaleMultiplier: number
+  scaleMultiplier: number,
 ) {
   return [
     "interpolate",
@@ -1178,8 +1195,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // なるタイミングが生じると、実際にタイルリクエストが飛びJMA側で404になりうる
         // （`next dev`限定の想定、本番ビルドではStrict Modeの二重実行が発生しないため
         // 再現しない）。表示自体は次のpayload反映で自己回復するため実害は無い。
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("nowc", "hrpns"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "hrpns"),
         opacity: 0.65,
         ...jmaZoomRange("hrpns"),
         attribution: "気象庁",
@@ -1196,8 +1212,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     // 範囲内にあるときだけpayloadが渡る（useDynamicWeatherLayers.ts: linearRainbandVisible参照）。
     linearRainband: {
       raster: {
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("rasrf", "sjfcstmap"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("rasrf", "sjfcstmap"),
         opacity: 0.65,
         ...jmaZoomRange("sjfcstmap"),
         attribution: "気象庁",
@@ -1234,8 +1249,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     // 大雨は浸水・土砂双方を統合した指標のため、個別の土砂・浸水より下に置く。
     heavyRain: {
       raster: {
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("risk", "rain_mesh"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "rain_mesh"),
         opacity: 0.65,
         ...jmaZoomRange("rain_mesh"),
         attribution: "気象庁",
@@ -1243,8 +1257,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     },
     landslide: {
       raster: {
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("risk", "land"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "land"),
         opacity: 0.65,
         ...jmaZoomRange("land"),
         attribution: "気象庁",
@@ -1252,8 +1265,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     },
     inundation: {
       raster: {
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("risk", "inund"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "inund"),
         opacity: 0.65,
         ...jmaZoomRange("inund"),
         attribution: "気象庁",
@@ -1265,8 +1277,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     // スペックで、gridFill/gridMarkは持たない。
     thunder: {
       raster: {
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("nowc", "thns"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "thns"),
         opacity: 0.65,
         ...jmaZoomRange("thns"),
         attribution: "気象庁",
@@ -1274,8 +1285,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
     },
     tornado: {
       raster: {
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("nowc", "trns"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "trns"),
         opacity: 0.65,
         ...jmaZoomRange("trns"),
         attribution: "気象庁",
@@ -1293,8 +1303,7 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
         // 持たない）でテストするMapView.routes.test.ts等からも本ファイルがimportされる。
         // windowが無い環境ではこのプレースホルダURLの値自体は使われないため、その場合だけ
         // 絶対URL化を諦め相対URLへ戻す（実ブラウザでは常にwindowが存在する）。
-        placeholderTileUrl:
-          jmaPlaceholderTileUrl("risk", "flood", "pbf"),
+        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "flood", "pbf"),
         sourceLayer: "flood",
         colorExpression: FLOOD_RISK_LINE_COLOR_EXPRESSION,
         lineWidthExpression: FLOOD_RISK_LINE_WIDTH_EXPRESSION,
@@ -1334,7 +1343,11 @@ export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWea
 // レイヤーが既に存在する場合も各paintプロパティをsetPaintPropertyで再適用する
 // （addLayer時の値で固定させない）——map.setStyle()後の作り直しと、同じidへ別のgroupSpecが
 // 渡された場合のどちらでも、addLayerが「既にある」で早期returnして古い見た目が残るのを防ぐ。
-export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLayerId, groupSpec: DynamicWeatherGroupSpec) {
+export function ensureDynamicWeatherLayer(
+  map: MapLibreMap,
+  id: DynamicWeatherLayerId,
+  groupSpec: DynamicWeatherGroupSpec,
+) {
   const applyData = () => {
     for (const [source, spec] of Object.entries(groupSpec)) {
       if (!spec) continue;
@@ -1351,37 +1364,53 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
           });
         }
         // specOwnsFilter: 動的気象レイヤーのspecが絞り込みの持ち主（外から与える経路が無い）。
-        ensureLayerFromSpec(map, {
-          id: layerId,
-          type: "raster",
-          source: sourceId,
-          paint: { "raster-opacity": spec.raster.opacity },
-          layout: { visibility: "none" },
-        }, { specOwnsFilter: true });
+        ensureLayerFromSpec(
+          map,
+          {
+            id: layerId,
+            type: "raster",
+            source: sourceId,
+            paint: { "raster-opacity": spec.raster.opacity },
+            layout: { visibility: "none" },
+          },
+          { specOwnsFilter: true },
+        );
       }
       if (spec.gridFill) {
         const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
         if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "気象庁MSM / Open-Meteo" });
+          map.addSource(sourceId, {
+            type: "geojson",
+            data: EMPTY_FEATURE_COLLECTION,
+            attribution: "気象庁MSM / Open-Meteo",
+          });
         }
-        ensureLayerFromSpec(map, {
-          id: layerId,
-          type: "fill",
-          source: sourceId,
-          layout: { visibility: "none" },
-          paint: {
-            "fill-color": spec.gridFill.colorExpression,
-            "fill-opacity": spec.gridFill.opacity,
+        ensureLayerFromSpec(
+          map,
+          {
+            id: layerId,
+            type: "fill",
+            source: sourceId,
+            layout: { visibility: "none" },
+            paint: {
+              "fill-color": spec.gridFill.colorExpression,
+              "fill-opacity": spec.gridFill.opacity,
+            },
+            // filterキー自体を「値がundefinedのまま持たせる」と、MapLibreのstyle検証が
+            // 「filterには配列が必要」というエラーを出す（キーの有無ではなく値の型で
+            // 判定するため）。minValueToShowが無い場合はキーごと省略する。
+            ...(spec.gridFill.minValueToShow != null
+              ? {
+                  filter: [
+                    ">",
+                    ["to-number", ["get", spec.gridFill.valueProperty]],
+                    spec.gridFill.minValueToShow,
+                  ] as maplibregl.ExpressionSpecification,
+                }
+              : {}),
           },
-          // filterキー自体を「値がundefinedのまま持たせる」と、MapLibreのstyle検証が
-          // 「filterには配列が必要」というエラーを出す（キーの有無ではなく値の型で
-          // 判定するため）。minValueToShowが無い場合はキーごと省略する。
-          ...(spec.gridFill.minValueToShow != null
-            ? {
-                filter: [">", ["to-number", ["get", spec.gridFill.valueProperty]], spec.gridFill.minValueToShow] as maplibregl.ExpressionSpecification,
-              }
-            : {}),
-        }, { specOwnsFilter: true });
+          { specOwnsFilter: true },
+        );
       }
       if (spec.gridMark) {
         const mark = spec.gridMark;
@@ -1394,43 +1423,57 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
           map.addImage(iconId, mark.createIcon(), { sdf: true });
         }
         if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, { type: "geojson", data: EMPTY_FEATURE_COLLECTION, attribution: "気象庁MSM / Open-Meteo" });
+          map.addSource(sourceId, {
+            type: "geojson",
+            data: EMPTY_FEATURE_COLLECTION,
+            attribution: "気象庁MSM / Open-Meteo",
+          });
         }
         // 縁取りは別レイヤーではなくicon-halo-*（主層と同じsymbolレイヤーのpaint
         // プロパティ）で表現する。別レイヤーの縁取りは、MapLibreがレイヤーの上から順に
         // シンボルを配置するため、先に置かれた主層と同位置・大きめの縁取り層が「衝突」として
         // 全て落ちる（icon-allow-overlap: falseのため）。1層にまとめれば主層自身の衝突判定
         // （密なズームで格子点を間引く）に縁取りが自動的に追従する。
-        ensureLayerFromSpec(map, {
-          id: layerId,
-          type: "symbol",
-          source: sourceId,
-          layout: {
-            "icon-image": iconId,
-            "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
-            "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
-            "icon-allow-overlap": false,
-            "icon-ignore-placement": false,
-            // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。
-            "icon-size": zoomAndPropertyIconSizeExpression(
-              mark.valueProperty,
-              mark.minScale,
-              mark.maxScale,
-              mark.maxValueForFullScale,
-              1
-            ),
-            visibility: "none",
+        ensureLayerFromSpec(
+          map,
+          {
+            id: layerId,
+            type: "symbol",
+            source: sourceId,
+            layout: {
+              "icon-image": iconId,
+              "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
+              "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
+              "icon-allow-overlap": false,
+              "icon-ignore-placement": false,
+              // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。
+              "icon-size": zoomAndPropertyIconSizeExpression(
+                mark.valueProperty,
+                mark.minScale,
+                mark.maxScale,
+                mark.maxValueForFullScale,
+                1,
+              ),
+              visibility: "none",
+            },
+            paint: {
+              "icon-color": mark.colorExpression,
+              "icon-opacity": 1,
+              "icon-halo-color": mark.haloColor,
+              "icon-halo-width": mark.haloWidth,
+            },
+            ...(mark.minValueToShow != null
+              ? {
+                  filter: [
+                    ">",
+                    ["to-number", ["get", mark.valueProperty]],
+                    mark.minValueToShow,
+                  ] as maplibregl.ExpressionSpecification,
+                }
+              : {}),
           },
-          paint: {
-            "icon-color": mark.colorExpression,
-            "icon-opacity": 1,
-            "icon-halo-color": mark.haloColor,
-            "icon-halo-width": mark.haloWidth,
-          },
-          ...(mark.minValueToShow != null
-            ? { filter: [">", ["to-number", ["get", mark.valueProperty]], mark.minValueToShow] as maplibregl.ExpressionSpecification }
-            : {}),
-        }, { specOwnsFilter: true });
+          { specOwnsFilter: true },
+        );
       }
       if (spec.vector) {
         const vector = spec.vector;
@@ -1444,24 +1487,32 @@ export function ensureDynamicWeatherLayer(map: MapLibreMap, id: DynamicWeatherLa
             attribution: vector.attribution,
           });
         }
-        ensureLayerFromSpec(map, {
-          id: layerId,
-          type: "line",
-          source: sourceId,
-          "source-layer": vector.sourceLayer,
-          paint: {
-            "line-color": vector.colorExpression,
-            "line-width": vector.lineWidthExpression,
+        ensureLayerFromSpec(
+          map,
+          {
+            id: layerId,
+            type: "line",
+            source: sourceId,
+            "source-layer": vector.sourceLayer,
+            paint: {
+              "line-color": vector.colorExpression,
+              "line-width": vector.lineWidthExpression,
+            },
+            layout: { visibility: "none" },
+            // gridFill/gridMarkと同じ理由（上記参照）でminValueToShow未設定時はfilterキー
+            // 自体を省略する。
+            ...(vector.minValueToShow != null && vector.valueProperty
+              ? {
+                  filter: [
+                    ">",
+                    ["to-number", ["get", vector.valueProperty]],
+                    vector.minValueToShow,
+                  ] as maplibregl.ExpressionSpecification,
+                }
+              : {}),
           },
-          layout: { visibility: "none" },
-          // gridFill/gridMarkと同じ理由（上記参照）でminValueToShow未設定時はfilterキー
-          // 自体を省略する。
-          ...(vector.minValueToShow != null && vector.valueProperty
-            ? {
-                filter: [">", ["to-number", ["get", vector.valueProperty]], vector.minValueToShow] as maplibregl.ExpressionSpecification,
-              }
-            : {}),
-        }, { specOwnsFilter: true });
+          { specOwnsFilter: true },
+        );
       }
     }
   };
@@ -1513,7 +1564,7 @@ export function applyDynamicWeatherState(
   map: MapLibreMap,
   id: DynamicWeatherLayerId,
   groupSpec: DynamicWeatherGroupSpec,
-  groupState: DynamicWeatherGroupState | undefined
+  groupState: DynamicWeatherGroupState | undefined,
 ) {
   runWhenStyleReady(map, () => {
     ensureDynamicWeatherLayer(map, id, groupSpec);
@@ -1617,18 +1668,22 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
     const applyData = () => {
       // specOwnsFilter: 専用way値レイヤーはSTATIC_FILTER_AXESの対象外で、外から絞り込みを
       // 与える経路が無い。
-      ensureLayerFromSpec(map, {
-        id: layerId,
-        type: "line",
-        source: ROAD_TILE_SOURCE_ID,
-        "source-layer": ROAD_TILE_SOURCE_LAYER,
-        paint: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "line-color": colorExpression as any,
-          "line-width": DEFAULT_ROAD_LINE_WIDTH,
+      ensureLayerFromSpec(
+        map,
+        {
+          id: layerId,
+          type: "line",
+          source: ROAD_TILE_SOURCE_ID,
+          "source-layer": ROAD_TILE_SOURCE_LAYER,
+          paint: {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-color": colorExpression as any,
+            "line-width": DEFAULT_ROAD_LINE_WIDTH,
+          },
+          layout: { visibility: "none" },
         },
-        layout: { visibility: "none" },
-      }, { specOwnsFilter: true });
+        { specOwnsFilter: true },
+      );
     };
     runWhenStyleReady(map, applyData);
   };
@@ -1643,7 +1698,11 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
 // 残り続けることはない）。featureStateKeyだけが軸ごとに異なる（
 // dedicatedWayValueLayer.ts: dedicatedWayValueFeatureStateKey）。
 // exportはテスト専用（MapView.layerOps.test.ts）。
-export function applyAxisFeatureStateValues(map: MapLibreMap, featureStateKey: string, values: ReadonlyMap<number, number>) {
+export function applyAxisFeatureStateValues(
+  map: MapLibreMap,
+  featureStateKey: string,
+  values: ReadonlyMap<number, number>,
+) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
   values.forEach((value, wayId) => {
     map.setFeatureState(
@@ -1676,7 +1735,7 @@ export function clearRoadTileFeatureState(map: MapLibreMap) {
  * 表示中の軸が1つでも残っている間にクリアするとその軸の色分けまで巻き添えで消える。
  * 軸の件数に依存しない全称判定にしてあり、3件目の軸が公開されても条件は正しいまま。 */
 export function shouldClearDedicatedWayValueFeatureState(
-  dedicatedWayValueVisibility: Readonly<Record<string, boolean>>
+  dedicatedWayValueVisibility: Readonly<Record<string, boolean>>,
 ): boolean {
   return !Object.values(dedicatedWayValueVisibility).some(Boolean);
 }
@@ -1741,7 +1800,7 @@ function applyRoadLayerState(
   map: MapLibreMap,
   showRoadSurface: boolean,
   showRoadType: boolean,
-  hiddenKeysByAxis: Record<RoadFilterAxisId, readonly string[]>
+  hiddenKeysByAxis: Record<RoadFilterAxisId, readonly string[]>,
 ) {
   runWhenStyleReady(map, () => {
     ensureRoadSurfaceTileLayer(map);
@@ -1773,10 +1832,10 @@ function applyRoadLayerState(
       map.setPaintProperty(ROAD_TILE_LAYER_ID, "line-opacity", opacityExpression as any);
     }
     const activeAxes = ROAD_FILTER_AXES.filter((axis) =>
-      axis.id === ROAD_LINE_COLOR_AXIS_ID ? showRoadSurface : showRoadType
+      axis.id === ROAD_LINE_COLOR_AXIS_ID ? showRoadSurface : showRoadType,
     );
     const combinedFilter = buildCombinedLegendFilterExpression(
-      activeAxes.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] }))
+      activeAxes.map((axis) => ({ legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] })),
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     map.setFilter(ROAD_TILE_LAYER_ID, combinedFilter as any);
@@ -1794,7 +1853,7 @@ function applyRoadLayerState(
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
-  visible: { road: boolean; designation: boolean; tunnel: boolean; oneway: boolean }
+  visible: { road: boolean; designation: boolean; tunnel: boolean; oneway: boolean },
 ) {
   runWhenStyleReady(map, () => {
     const visibleByLayerId: Record<string, boolean> = {
@@ -1824,24 +1883,28 @@ export function applyRoadMaterialTrackOffsets(
 function makeEnsureAttributeLineLayer(
   layerId: string,
   colorExpression: unknown[],
-  opacityExpression: unknown[]
+  opacityExpression: unknown[],
 ): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     const applyData = () => {
-      ensureLayerFromSpec(map, {
-        id: layerId,
-        type: "line",
-        source: ROAD_TILE_SOURCE_ID,
-        "source-layer": ROAD_TILE_SOURCE_LAYER,
-        paint: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "line-color": colorExpression as any,
-          "line-width": 3,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "line-opacity": opacityExpression as any,
+      ensureLayerFromSpec(
+        map,
+        {
+          id: layerId,
+          type: "line",
+          source: ROAD_TILE_SOURCE_ID,
+          "source-layer": ROAD_TILE_SOURCE_LAYER,
+          paint: {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-color": colorExpression as any,
+            "line-width": 3,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-opacity": opacityExpression as any,
+          },
+          layout: { visibility: "none" },
         },
-        layout: { visibility: "none" },
-      }, { specOwnsFilter: false });
+        { specOwnsFilter: false },
+      );
     };
     runWhenStyleReady(map, applyData);
   };
@@ -1970,19 +2033,23 @@ function makeEnsureAxisRampLayer(axis: RampAxis, useCasing: boolean): (map: MapL
     runWhenStyleReady(map, () => {
       const layerId = axisLineLayerId(axis.axisId);
       const colorExpression = buildAxisRampColorExpression(axis);
-      ensureLayerFromSpec(map, {
-        id: layerId,
-        type: "line",
-        source: ROAD_TILE_SOURCE_ID,
-        "source-layer": ROAD_TILE_SOURCE_LAYER,
-        paint: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "line-color": colorExpression as any,
-          "line-width": useCasing ? SECONDARY_AXIS_CASING_WIDTH : DEFAULT_ROAD_LINE_WIDTH,
-          "line-opacity": useCasing ? SECONDARY_AXIS_CASING_OPACITY : KNOWN_LINE_OPACITY,
+      ensureLayerFromSpec(
+        map,
+        {
+          id: layerId,
+          type: "line",
+          source: ROAD_TILE_SOURCE_ID,
+          "source-layer": ROAD_TILE_SOURCE_LAYER,
+          paint: {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-color": colorExpression as any,
+            "line-width": useCasing ? SECONDARY_AXIS_CASING_WIDTH : DEFAULT_ROAD_LINE_WIDTH,
+            "line-opacity": useCasing ? SECONDARY_AXIS_CASING_OPACITY : KNOWN_LINE_OPACITY,
+          },
+          layout: { visibility: "none" },
         },
-        layout: { visibility: "none" },
-      }, { specOwnsFilter: false });
+        { specOwnsFilter: false },
+      );
     });
   };
 }
@@ -2012,7 +2079,7 @@ type OverlayLayerEntry = {
 // 知らない汎用描画係のまま、という方針を保つ）。キーはaxisMapLayerId（"axis:car_stress"等）。
 export function buildAxisOverlayLayers(
   rampAxes: readonly RampAxis[],
-  casingLayerKeys: ReadonlySet<string> = new Set()
+  casingLayerKeys: ReadonlySet<string> = new Set(),
 ): readonly OverlayLayerEntry[] {
   return rampAxes.map((axis) => {
     const key = axisMapLayerId(axis.axisId) as string;
@@ -2044,7 +2111,7 @@ export function buildStaticOverlayLayers(
   dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>,
   // 同じ軸id→booleanの汎用Mapとして、フェッチ進行中かどうかを受け取る
   // （MapViewProps.dedicatedWayValueLoading参照）。
-  dedicatedWayValueLoading?: ReadonlyMap<string, boolean>
+  dedicatedWayValueLoading?: ReadonlyMap<string, boolean>,
 ): readonly OverlayLayerEntry[] {
   // 環境グループの勾配gridFillだけは専用way値配信の汎用機構に乗らない勾配固有のレイヤー
   // （gradientGridFill.tsのモジュールdocstring参照）のため、勾配の表示宣言だけを名指しで引く。
@@ -2054,9 +2121,28 @@ export function buildStaticOverlayLayers(
     // ラスタタイルのため地物クリック判定が効かない。
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer, interactive: false },
     ...axisOverlayLayers,
-    { key: "designation", layerId: DESIGNATION_LAYER_ID, ensure: makeEnsureAttributeLineLayer(DESIGNATION_LAYER_ID, DESIGNATION_COLOR_EXPRESSION, DESIGNATION_OPACITY_EXPRESSION), interactive: true },
-    { key: "tunnel", layerId: TUNNEL_LAYER_ID, ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION), interactive: true },
-    { key: "oneway", layerId: ONEWAY_LAYER_ID, ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION), interactive: true },
+    {
+      key: "designation",
+      layerId: DESIGNATION_LAYER_ID,
+      ensure: makeEnsureAttributeLineLayer(
+        DESIGNATION_LAYER_ID,
+        DESIGNATION_COLOR_EXPRESSION,
+        DESIGNATION_OPACITY_EXPRESSION,
+      ),
+      interactive: true,
+    },
+    {
+      key: "tunnel",
+      layerId: TUNNEL_LAYER_ID,
+      ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION),
+      interactive: true,
+    },
+    {
+      key: "oneway",
+      layerId: ONEWAY_LAYER_ID,
+      ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION),
+      interactive: true,
+    },
     // 専用way値配信軸（評価軸グループとしての風・勾配等）。ensureは
     // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
     // source）を先に呼ぶ。keyはmapLayers.tsのMapLayerIdと同じ値でなければならない
@@ -2069,20 +2155,24 @@ export function buildStaticOverlayLayers(
         dedicatedWayValueColorExpression(
           axis.axisId,
           dedicatedWayValueDisplays?.get(axis.axisId),
-          dedicatedWayValueLoading?.get(axis.axisId) ?? false
-        )
+          dedicatedWayValueLoading?.get(axis.axisId) ?? false,
+        ),
       ),
       interactive: true,
     })),
     // 環境グループの勾配gridFill（タイル境界セル）。
     // 専用ポップアップを持たず、クリック時はhandleClickの早期returnガードで「何もしない」。
-    { key: "gradientFill", layerId: GRADIENT_FILL_LAYER_ID, ensure: makeEnsureGradientFillLayer(gradientDisplay, gradientLoading), interactive: false },
+    {
+      key: "gradientFill",
+      layerId: GRADIENT_FILL_LAYER_ID,
+      ensure: makeEnsureGradientFillLayer(gradientDisplay, gradientLoading),
+      interactive: false,
+    },
     { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer, interactive: true },
     { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer, interactive: true },
     { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer, interactive: true },
   ];
 }
-
 
 type StaticOverlayKey = string;
 
@@ -2156,7 +2246,7 @@ function ensureAllStaticOverlayLayers(map: MapLibreMap, staticOverlayLayers: rea
 function setStaticOverlayVisibility(
   map: MapLibreMap,
   flags: Record<StaticOverlayKey, boolean>,
-  staticOverlayLayers: readonly OverlayLayerEntry[]
+  staticOverlayLayers: readonly OverlayLayerEntry[],
 ) {
   runWhenStyleReady(map, () => {
     for (const layer of staticOverlayLayers) {
@@ -2193,7 +2283,7 @@ export function setStaticOverlayFilters(
           legend: axis.legend,
           hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [],
           baseFilter: axis.baseFilter,
-        }))
+        })),
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.setFilter(layer.layerId, filter as any);
@@ -2253,11 +2343,7 @@ export function isRoadSurfaceGroupVisible(
 // showRoadSurfaceGroupは isRoadSurfaceGroupVisible の結果（road_surfaceタイルを共有する
 // 各レイヤーのいずれかが表示ONか）——road自体がOFFでもcarStress等の他レイヤーが同じ
 // ソースを見ていればこの案内の対象に含める。
-function updateRoadZoomHint(
-  map: MapLibreMap,
-  showRoadSurfaceGroup: boolean,
-  onChange: (tooWide: boolean) => void
-) {
+function updateRoadZoomHint(map: MapLibreMap, showRoadSurfaceGroup: boolean, onChange: (tooWide: boolean) => void) {
   onChange(showRoadSurfaceGroup && map.getZoom() < ROAD_TILE_MIN_ZOOM);
 }
 
@@ -2293,7 +2379,7 @@ export interface RouteFitObscuredPx {
  * その2辺を同じ比率で縮める。 */
 export function computeRouteFitPadding(
   obscured: RouteFitObscuredPx | undefined,
-  canvas: { width: number; height: number }
+  canvas: { width: number; height: number },
 ): { top: number; bottom: number; left: number; right: number } {
   const base = ROUTE_FIT_BASE_PADDING_PX;
   const padding = {
@@ -2347,7 +2433,7 @@ const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 // （道路レベルのローカルな距離では誤差は無視できる）。
 export function nearestPointOnLineString(
   coordinates: readonly (readonly [number, number])[],
-  point: readonly [number, number]
+  point: readonly [number, number],
 ): [number, number] {
   if (coordinates.length === 0) return [point[0], point[1]];
   if (coordinates.length === 1) return [coordinates[0][0], coordinates[0][1]];
@@ -2410,9 +2496,7 @@ export interface RoadSurfacePopupProperties {
 // 値ラベル辞書としてはRecordへ寄せる（キーは配信元のOSMタグ値で固定ではない）。
 const SMOOTHNESS_LABELS: Record<string, string> =
   (materialCatalog.find((m) => m.material_id === "smoothness")?.value_labels as
-    | Record<string, string>
-    | null
-    | undefined) ?? {};
+    Record<string, string> | null | undefined) ?? {};
 
 /** 道路名の行。`name`（通称）と`ref`（路線番号）は独立したタグで、片方だけ持つwayが
  * 多い（番号だけの国道・名前だけの市道）。両方あれば「名前（番号）」として1行に畳む。 */
@@ -2643,6 +2727,202 @@ interface MapViewProps {
   routeFitObscuredPx?: RouteFitObscuredPx;
 }
 
+/** 中身（キーと値）が変わらない間は、前回と同じMapを返す。
+ *
+ * 呼び出し側が毎フェッチ作り直すMapを、参照の同一性に依存するuseMemo/useEffectへ
+ * そのまま渡せるようにするためのもの。 */
+export function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): ReadonlyMap<K, V> | undefined {
+  const signature = map
+    ? [...map]
+        .map(([key, value]) => `${String(key)}=${String(value)}`)
+        .sort()
+        .join("|")
+    : "";
+  // 参照ではなく中身で作り直しを決める。mapを依存へ入れると毎回作り直しになり意味が無い。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => map, [signature]);
+}
+
+/** 乗り換えられる区間の帯と、編集中の合成ルートの出し分けを1箇所へ集約する。
+ *
+ * 「ルート」チップOFFのときは帯も合成ルートも出さない——候補線が消えている地図に
+ * 差し替え先だけが浮いて見えるのを避けるため。 */
+export function applySpliceLayerVisibility(
+  map: MapLibreMap,
+  routeLayerOn: boolean,
+  spliceStretches: SpliceStretchFeature[] | undefined,
+  splicedRoute: readonly GeoJSON.Position[] | null | undefined,
+) {
+  const stretches = routeLayerOn ? (spliceStretches ?? []) : [];
+  if (stretches.length > 0) {
+    drawSpliceStretches(map, stretches);
+  } else {
+    hideSpliceStretches(map);
+  }
+  const current = routeLayerOn ? (splicedRoute ?? null) : null;
+  if (current && current.length > 1) {
+    drawSplicedRoute(map, current);
+  } else {
+    hideSplicedRoute(map);
+  }
+}
+
+/** `redrawAllLayers`が読む表示状態。コンポーネント側はrefで最新値を保持して渡す。 */
+export type RedrawAllLayersProps = Pick<
+  MapViewProps,
+  | "routes"
+  | "selectedRouteId"
+  | "routeLayerOn"
+  | "routeStyleModes"
+  | "routeStyleModeId"
+  | "hiddenRouteLegendKeys"
+  | "spliceStretches"
+  | "splicedRoute"
+  | "showElevation"
+  | "dynamicWeather"
+  | "showRoadType"
+  | "showRoadSurface"
+  | "showDesignation"
+  | "showTunnel"
+  | "showOneway"
+  | "dedicatedWayValueVisibility"
+  | "showGradientFill"
+  | "showAccidents"
+  | "showStopPoi"
+  | "showSupplyPoi"
+  | "axisVisibility"
+  | "roadHiddenKeysByMode"
+  | "staticLegendHiddenKeysByAxis"
+  | "experimentSlots"
+  | "dedicatedWayValues"
+  | "gradientFillGeojson"
+  | "onRegionZoomHintChange"
+> & {
+  staticOverlayLayers: readonly OverlayLayerEntry[];
+  staticFilterAxes: readonly StaticFilterAxis[];
+  roadSurfaceSharedLayerIds: readonly MapLayerId[];
+};
+
+// map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
+// カスタムソース/レイヤーを含むスタイル全体を差し替えるため、こちらで追加した
+// ルート/ハロー/風/地域レイヤーがすべて消える。style.loadイベント後にこの関数で
+// 現在の表示状態から全レイヤーを作り直す。標高・路面はいずれもタイルソースのため、
+// 再取得は不要（キャッシュがクリアされていれば次のタイル要求で自動的に新しいタイルが
+// 生成される）。
+//
+// **ソースを新設する描画は、必ずここから辿れる位置へ置くこと。** 辿れない描画は
+// setStyle()後に作り直されず、押した人の地図から消えたまま戻らない。置き忘れは
+// `scripts/review_checks.py`の`map_redraw_coverage`が機械的に落とす。
+//
+// カメラは動かさない——再描画は見た目を作り直すだけで、表示範囲は利用者の操作に属する
+// （フィットは「候補一覧が変わったとき」だけ、という下部effectの取り決めを破らない）。
+export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
+  const {
+    routes,
+    selectedRouteId,
+    routeLayerOn,
+    routeStyleModes,
+    routeStyleModeId,
+    hiddenRouteLegendKeys,
+    spliceStretches,
+    splicedRoute,
+    showElevation,
+    dynamicWeather,
+    showRoadType,
+    showRoadSurface,
+    showDesignation,
+    showTunnel,
+    showOneway,
+    dedicatedWayValueVisibility,
+    showGradientFill,
+    showAccidents,
+    showStopPoi,
+    showSupplyPoi,
+    axisVisibility,
+    roadHiddenKeysByMode,
+    staticLegendHiddenKeysByAxis,
+    experimentSlots,
+    staticOverlayLayers,
+    staticFilterAxes,
+    roadSurfaceSharedLayerIds,
+    dedicatedWayValues,
+    gradientFillGeojson,
+    onRegionZoomHintChange,
+  } = props;
+  setStaticOverlayVisibility(
+    map,
+    {
+      elevation: showElevation,
+      designation: showDesignation,
+      tunnel: showTunnel,
+      oneway: showOneway,
+      ...dedicatedWayValueVisibility,
+      gradientFill: showGradientFill,
+      accidents: showAccidents,
+      stopPoi: showStopPoi,
+      supplyPoi: showSupplyPoi,
+      ...axisVisibility,
+    },
+    staticOverlayLayers,
+  );
+  for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
+    applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
+  }
+  // 専用way値配信軸の線レイヤー（評価軸グループの風・勾配等）はプロパティ
+  // ではなくsetFeatureStateで色付けするため、map.setStyle()でレイヤー自体が作り直された
+  // 後は明示的に再適用しないと無色のまま残ってしまう（値自体は変わっていないため、
+  // 通常の依存effectは再実行されない）。gradientFillGeojson（環境グループの勾配面塗り、
+  // geojson source）も同じ理由で再適用が必要。
+  for (const [axisId, values] of dedicatedWayValues) {
+    applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
+  }
+  applyGradientFillGeojson(map, gradientFillGeojson);
+  setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
+  applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
+  applyRoadMaterialTrackOffsets(map, {
+    road: showRoadSurface || showRoadType,
+    designation: showDesignation,
+    tunnel: showTunnel,
+    oneway: showOneway,
+  });
+  updateRoadZoomHint(
+    map,
+    isRoadSurfaceGroupVisible(
+      {
+        showRoadType,
+        showRoadSurface,
+        showDesignation,
+        showTunnel,
+        showOneway,
+        axisVisibility,
+        dedicatedWayValueVisibility,
+      },
+      roadSurfaceSharedLayerIds,
+    ),
+    onRegionZoomHintChange,
+  );
+
+  // applyRouteLayerVisibilityがrouteLayerOnを見て出し分けるため、「ルート」チップを
+  // OFFにして候補線・ハロー・矢印を隠している間は、地図データの再読み込み
+  // （map.setStyle()経由でこのredrawAllLayersが走る）でも再表示されない。
+  // 直後のdetail-segments分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
+  const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
+  applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selected?.segments));
+  applySpliceLayerVisibility(map, routeLayerOn, spliceStretches, splicedRoute);
+  drawExperimentSlots(map, experimentSlots);
+
+  if (routeLayerOn && selected?.segments) {
+    drawDetailSegments(
+      map,
+      selected.segments,
+      getRouteStyleMode(routeStyleModes, routeStyleModeId),
+      hiddenRouteLegendKeys,
+    );
+  } else {
+    hideDetailSegments(map);
+  }
+}
+
 export default function MapView({
   routes,
   selectedRouteId,
@@ -2714,22 +2994,26 @@ export default function MapView({
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。下敷き表現の有無
   // （secondaryAxisCasingLayerIds）もレイヤーspecの一部のため、材料の表示が切り替わった
   // ときもここから作り直す。
-  const secondaryAxisCasingKeys = useMemo(
-    () => new Set(secondaryAxisCasingLayerIds),
-    [secondaryAxisCasingLayerIds]
-  );
+  const secondaryAxisCasingKeys = useMemo(() => new Set(secondaryAxisCasingLayerIds), [secondaryAxisCasingLayerIds]);
   const axisOverlayLayers = useMemo(
     () => buildAxisOverlayLayers(rampAxes, secondaryAxisCasingKeys),
-    [rampAxes, secondaryAxisCasingKeys]
+    [rampAxes, secondaryAxisCasingKeys],
   );
+  // フェッチ状態のMapは、値が同じでもフェッチのたびに作り直されて渡ってくる。そのまま
+  // 依存に置くと、パン・ズームのたびに全オーバーレイ層のspecを組み直してpaint/filterを
+  // 再適用することになる（公開ramp軸が増えるほど線形に増える）。中身が同じ間は同じ参照を使う。
+  const stableDedicatedWayValueLoading = useStableMap(dedicatedWayValueLoading);
   const staticOverlayLayers = useMemo(
-    () => buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes, dedicatedWayValueDisplays, dedicatedWayValueLoading),
-    [axisOverlayLayers, dedicatedAxes, dedicatedWayValueDisplays, dedicatedWayValueLoading]
+    () =>
+      buildStaticOverlayLayers(
+        axisOverlayLayers,
+        dedicatedAxes,
+        dedicatedWayValueDisplays,
+        stableDedicatedWayValueLoading,
+      ),
+    [axisOverlayLayers, dedicatedAxes, dedicatedWayValueDisplays, stableDedicatedWayValueLoading],
   );
-  const interactiveLayerIds = useMemo(
-    () => buildInteractiveLayerIds(staticOverlayLayers),
-    [staticOverlayLayers]
-  );
+  const interactiveLayerIds = useMemo(() => buildInteractiveLayerIds(staticOverlayLayers), [staticOverlayLayers]);
   const layerDataSources = useMemo(() => buildLayerDataSources(rampAxes), [rampAxes]);
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(rampAxes), [rampAxes]);
   // isRoadSurfaceGroupVisibleへ渡すroadSurfaceSharedLayerIdsは、軸スタジオで新規公開した
@@ -2737,7 +3021,7 @@ export default function MapView({
   // propsのrampAxesから毎回算出する。
   const roadSurfaceSharedLayerIds = useMemo(
     () => buildRoadSurfaceSharedLayerIds(rampAxes, dedicatedAxes),
-    [rampAxes, dedicatedAxes]
+    [rampAxes, dedicatedAxes],
   );
   // handleClick/handleMouseMove（地図初期化effect内、一度だけ登録されるクロージャ）が
   // 最新のinteractiveLayerIdsを読めるようにするref（onRegionZoomHintChangeRef等と同じ
@@ -2794,6 +3078,8 @@ export default function MapView({
     routes,
     selectedRouteId,
     routeLayerOn,
+    spliceStretches,
+    splicedRoute,
     routeStyleModes,
     routeStyleModeId,
     hiddenRouteLegendKeys,
@@ -2855,12 +3141,9 @@ export default function MapView({
     onWaypointMoveRef.current = onWaypointMove;
   }, [onWaypointMove]);
 
-
   useEffect(() => {
     onDestinationClearRef.current = onDestinationClear;
   }, [onDestinationClear]);
-
-
 
   useEffect(() => {
     onOriginSetRef.current = onOriginSet;
@@ -2887,6 +3170,8 @@ export default function MapView({
       routes,
       selectedRouteId,
       routeLayerOn,
+      spliceStretches,
+      splicedRoute,
       routeStyleModes,
       routeStyleModeId,
       hiddenRouteLegendKeys,
@@ -2917,6 +3202,8 @@ export default function MapView({
     routes,
     selectedRouteId,
     routeLayerOn,
+    spliceStretches,
+    splicedRoute,
     routeStyleModes,
     routeStyleModeId,
     hiddenRouteLegendKeys,
@@ -2944,109 +3231,13 @@ export default function MapView({
     gradientFillGeojson,
   ]);
 
-  // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
-  // カスタムソース/レイヤーを含むスタイル全体を差し替えるため、こちらで追加した
-  // ルート/ハロー/風/地域レイヤーがすべて消える。style.loadイベント後にこの関数で
-  // 現在のprops（refで最新値を保持）から全レイヤーを作り直す。標高・路面はいずれも
-  // タイルソースのため、再取得は不要（キャッシュがクリアされていれば次のタイル要求で
-  // 自動的に新しいタイルが生成される）。
-  const redrawAllLayers = useCallback((map: MapLibreMap) => {
-    const {
-      routes,
-      selectedRouteId,
-      routeLayerOn,
-      routeStyleModes,
-      routeStyleModeId,
-      hiddenRouteLegendKeys,
-      showElevation,
-      dynamicWeather,
-      showRoadType,
-      showRoadSurface,
-      showDesignation,
-      showTunnel,
-      showOneway,
-      dedicatedWayValueVisibility,
-      showGradientFill,
-      showAccidents,
-      showStopPoi,
-      showSupplyPoi,
-      axisVisibility,
-      roadHiddenKeysByMode,
-      staticLegendHiddenKeysByAxis,
-      experimentSlots,
-      staticOverlayLayers,
-      staticFilterAxes,
-      roadSurfaceSharedLayerIds,
-      dedicatedWayValues,
-      gradientFillGeojson,
-    } = redrawPropsRef.current;
-    setStaticOverlayVisibility(
-      map,
-      {
-        elevation: showElevation,
-        designation: showDesignation,
-        tunnel: showTunnel,
-        oneway: showOneway,
-        ...dedicatedWayValueVisibility,
-        gradientFill: showGradientFill,
-        accidents: showAccidents,
-        stopPoi: showStopPoi,
-        supplyPoi: showSupplyPoi,
-        ...axisVisibility,
-      },
-      staticOverlayLayers
-    );
-    for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
-    }
-    // 専用way値配信軸の線レイヤー（評価軸グループの風・勾配等）はプロパティ
-    // ではなくsetFeatureStateで色付けするため、map.setStyle()でレイヤー自体が作り直された
-    // 後は明示的に再適用しないと無色のまま残ってしまう（値自体は変わっていないため、
-    // 通常の依存effectは再実行されない）。gradientFillGeojson（環境グループの勾配面塗り、
-    // geojson source）も同じ理由で再適用が必要。
-    for (const [axisId, values] of dedicatedWayValues) {
-      applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
-    }
-    applyGradientFillGeojson(map, gradientFillGeojson);
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
-    applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
-    applyRoadMaterialTrackOffsets(map, {
-      road: showRoadSurface || showRoadType,
-      designation: showDesignation,
-      tunnel: showTunnel,
-      oneway: showOneway,
+  // 再描画の中身はモジュールレベルの`redrawAllLayers`が持つ（テストから実物を呼べる形に
+  // するため）。ここはrefが保持する最新値を渡すだけの薄い包み。
+  const redrawFromCurrentProps = useCallback((map: MapLibreMap) => {
+    redrawAllLayers(map, {
+      ...redrawPropsRef.current,
+      onRegionZoomHintChange: onRegionZoomHintChangeRef.current,
     });
-    updateRoadZoomHint(
-      map,
-      isRoadSurfaceGroupVisible(
-        {
-          showRoadType,
-          showRoadSurface,
-          showDesignation,
-          showTunnel,
-          showOneway,
-          axisVisibility,
-          dedicatedWayValueVisibility,
-        },
-        roadSurfaceSharedLayerIds
-      ),
-      onRegionZoomHintChangeRef.current
-    );
-
-    // applyRouteLayerVisibilityがrouteLayerOnを見て出し分けるため、「ルート」チップを
-    // OFFにして候補線・ハロー・矢印を隠している間は、地図データの再読み込み
-    // （map.setStyle()経由でこのredrawAllLayersが走る）でも再表示されない。
-    // 直後のdetail-segments分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
-    const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
-    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selected?.segments));
-    if (routes.length > 0) fitBoundsToRoutes(map, routes, routeFitObscuredPxRef.current);
-    drawExperimentSlots(map, experimentSlots);
-
-    if (routeLayerOn && selected?.segments) {
-      drawDetailSegments(map, selected.segments, getRouteStyleMode(routeStyleModes, routeStyleModeId), hiddenRouteLegendKeys);
-    } else {
-      hideDetailSegments(map);
-    }
   }, []);
 
   // レイヤーデータ状態（loading/empty/error）の状態管理・再計算はuseLayerDataStatusに
@@ -3083,13 +3274,18 @@ export default function MapView({
   // 参照を渡せるよう個々の関数を分割代入する（layerDataStatus.recomputeのようにプロパティ
   // アクセスのまま依存配列へ書くと、react-hooks/exhaustive-depsがオブジェクト全体への依存を
   // 要求してしまう）。
-  const { recompute: recomputeLayerDataStatus, markSourceErrored, clearSourceLoading, notifySourceData, settleViewport } =
-    useLayerDataStatus({
-      mapRef,
-      layerDataSources,
-      getVisibility: getLayerVisibility,
-      onChangeRef: onLayerDataStatusChangeRef,
-    });
+  const {
+    recompute: recomputeLayerDataStatus,
+    markSourceErrored,
+    clearSourceLoading,
+    notifySourceData,
+    settleViewport,
+  } = useLayerDataStatus({
+    mapRef,
+    layerDataSources,
+    getVisibility: getLayerVisibility,
+    onChangeRef: onLayerDataStatusChangeRef,
+  });
 
   // JMA動的タイルの在否インデックスを定期取得し、空と分かっているタイルの要求を
   // 間引く（jmaTileProtocol.ts）。取得できていない間は間引きが効かないだけで表示は成立する。
@@ -3293,8 +3489,7 @@ export default function MapView({
       // （nearestPointOnLineString参照）。geometryが無い/空の異常系はクリック地点
       // そのままへフォールバックする。
       const geometry = feature.geometry as GeoJSON.Geometry | undefined;
-      const lineCoordinates =
-        geometry?.type === "LineString" ? (geometry.coordinates as [number, number][]) : [];
+      const lineCoordinates = geometry?.type === "LineString" ? (geometry.coordinates as [number, number][]) : [];
       const [snappedLng, snappedLat] =
         lineCoordinates.length > 0
           ? nearestPointOnLineString(lineCoordinates, [e.lngLat.lng, e.lngLat.lat])
@@ -3344,9 +3539,9 @@ export default function MapView({
             axisVisibility,
             dedicatedWayValueVisibility,
           },
-          roadSurfaceSharedLayerIds
+          roadSurfaceSharedLayerIds,
         ),
-        onRegionZoomHintChangeRef.current
+        onRegionZoomHintChangeRef.current,
       );
     }
 
@@ -3668,23 +3863,10 @@ export default function MapView({
     applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selectedCandidate?.segments));
   }, [routes, selectedRouteId, routeLayerOn, selectedCandidate]);
 
-  // 乗り換えられる区間の帯。「ルート」チップOFFのときは候補線ごと消えるため帯も出さない
-  // （候補線が無いのに差し替え先だけが浮いて見えるのを避ける）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const stretches = routeLayerOn ? (spliceStretches ?? []) : [];
-    if (stretches.length > 0) {
-      drawSpliceStretches(map, stretches);
-    } else {
-      hideSpliceStretches(map);
-    }
-    const current = routeLayerOn ? (splicedRoute ?? null) : null;
-    if (current && current.length > 1) {
-      drawSplicedRoute(map, current);
-    } else {
-      hideSplicedRoute(map);
-    }
+    applySpliceLayerVisibility(map, routeLayerOn, spliceStretches, splicedRoute);
   }, [spliceStretches, splicedRoute, routeLayerOn]);
 
   // 表示範囲のフィットは「候補一覧が変わったとき」だけに限定する。
@@ -3715,7 +3897,12 @@ export default function MapView({
     if (!map) return;
 
     if (routeLayerOn && selectedCandidate?.segments) {
-      drawDetailSegments(map, selectedCandidate.segments, getRouteStyleMode(routeStyleModes, routeStyleModeId), hiddenRouteLegendKeys);
+      drawDetailSegments(
+        map,
+        selectedCandidate.segments,
+        getRouteStyleMode(routeStyleModes, routeStyleModeId),
+        hiddenRouteLegendKeys,
+      );
     } else {
       hideDetailSegments(map);
     }
@@ -3744,7 +3931,7 @@ export default function MapView({
         supplyPoi: showSupplyPoi,
         ...axisVisibility,
       },
-      staticOverlayLayers
+      staticOverlayLayers,
     );
     // OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
     // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
@@ -3862,9 +4049,9 @@ export default function MapView({
           axisVisibility,
           dedicatedWayValueVisibility,
         },
-        roadSurfaceSharedLayerIds
+        roadSurfaceSharedLayerIds,
       ),
-      onRegionZoomHintChangeRef.current
+      onRegionZoomHintChangeRef.current,
     );
     recomputeLayerDataStatus();
   }, [
@@ -3895,11 +4082,11 @@ export default function MapView({
 
     map.once("style.load", () => {
       styleReloadPendingRef.current = false;
-      redrawAllLayers(map);
+      redrawFromCurrentProps(map);
     });
     // クエリでスタイルURLを変えることで、ブラウザのHTTPキャッシュではなく取り直しにする。
     map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
-  }, [refreshToken, redrawAllLayers]);
+  }, [refreshToken, redrawFromCurrentProps]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>

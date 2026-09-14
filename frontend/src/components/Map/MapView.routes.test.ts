@@ -8,13 +8,17 @@ import {
   ROUTE_ARROW_HALO_LAYER_ID,
   ROUTE_ARROW_LAYER_ID,
   ROUTES_LAYER_ID,
+  SPLICE_LAYER_ID,
+  SPLICED_ROUTE_LAYER_ID,
   applyRouteLayerVisibility,
   computeRouteBounds,
   drawBaseRoutes,
   drawSelectedOutline,
   hideBaseRoutes,
   hideSelectedOutline,
+  redrawAllLayers,
   routesToFeatureCollection,
+  type RedrawAllLayersProps,
 } from "./MapView";
 
 const makeCandidate = makeRouteCandidate;
@@ -114,6 +118,7 @@ function fakeMap() {
   const sources = new Set<string>();
   const layoutCalls: { layerId: string; name: string; value: unknown }[] = [];
   const setDataCalls: unknown[] = [];
+  const fitBoundsCalls: unknown[] = [];
   return {
     __rcStyleReady: true,
     layers,
@@ -130,6 +135,15 @@ function fakeMap() {
     hasImage: () => true,
     addImage: () => {},
     setLayoutProperty: (layerId: string, name: string, value: unknown) => layoutCalls.push({ layerId, name, value }),
+    // 再描画の入口（redrawAllLayers）を通すぶんだけ、地図側の受け口を足す。
+    fitBoundsCalls,
+    fitBounds: (...args: unknown[]) => fitBoundsCalls.push(args),
+    getZoom: () => 14,
+    getCanvas: () => ({ clientWidth: 390, clientHeight: 812 }),
+    setPaintProperty: () => {},
+    setFilter: () => {},
+    setFeatureState: () => {},
+    removeFeatureState: () => {},
   };
 }
 
@@ -251,9 +265,8 @@ describe("applyRouteLayerVisibility（「ルート」チップの表示切替を
     expect(layoutValue(map, ROUTE_ARROW_LAYER_ID, "visibility")).toBe("none");
   });
 
-  // ここが見るのは`applyRouteLayerVisibility`単体の冪等性だけ。**`redrawAllLayers`が実際に
-  // これを呼ぶことは見ていない**（再描画の網羅そのものはT825が担保する）。題と中身をずらすと、
-  // 「redrawAllLayers経由も検証済み」と読めてしまい、取り残しが素通りする。
+  // ここが見るのは`applyRouteLayerVisibility`単体の冪等性だけ。再描画経路を通したときの
+  // 挙動は下の`redrawAllLayers`のdescribeが実物を呼んで見る。
   it("routeLayerOn=falseのまま呼び直してもnoneのまま（同じ入力で呼び直しても状態が反転しない）", () => {
     const map = fakeMap();
     const routes = [makeRoute("a")];
@@ -316,5 +329,103 @@ describe("候補featureのproperties（地図から候補を選ぶための識�
     const collection = routesToFeatureCollection([makeCandidate({ id: "a" }), makeCandidate({ id: "b" })], "a");
 
     expect(collection.features.map((f) => f.properties.routeId).sort()).toEqual(["a", "b"]);
+  });
+});
+
+// map.setStyle()はカスタムのsource/layerを全て捨てるため、その後の作り直しが対象を
+// 取りこぼすと、そのレイヤーは押した人の地図から消えたまま戻らない。ここは共有関数を
+// 単体で見るのではなく、再描画の入口（redrawAllLayers）そのものを呼んで確かめる。
+// 「新設した描画がここから辿れるか」自体はscripts/review_checks.pyのmap_redraw_coverageが
+// 機械的に落とす——このテストは辿れた先が実際に作り直されることを見る。
+describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
+  const stretch = {
+    index: 0,
+    taken: false,
+    coordinates: [
+      [139.7, 35.7],
+      [139.71, 35.7],
+    ] as GeoJSON.Position[],
+  };
+
+  function redrawProps(overrides: Partial<RedrawAllLayersProps> = {}): RedrawAllLayersProps {
+    return {
+      routes: [],
+      selectedRouteId: null,
+      routeLayerOn: true,
+      routeStyleModes: [],
+      routeStyleModeId: "none",
+      hiddenRouteLegendKeys: [],
+      spliceStretches: undefined,
+      splicedRoute: null,
+      showElevation: false,
+      dynamicWeather: {},
+      showRoadType: false,
+      showRoadSurface: false,
+      showDesignation: false,
+      showTunnel: false,
+      showOneway: false,
+      dedicatedWayValueVisibility: {},
+      showGradientFill: false,
+      showAccidents: false,
+      showStopPoi: false,
+      showSupplyPoi: false,
+      axisVisibility: {},
+      roadHiddenKeysByMode: {} as RedrawAllLayersProps["roadHiddenKeysByMode"],
+      staticLegendHiddenKeysByAxis: {} as RedrawAllLayersProps["staticLegendHiddenKeysByAxis"],
+      experimentSlots: [],
+      staticOverlayLayers: [],
+      staticFilterAxes: [],
+      roadSurfaceSharedLayerIds: [],
+      dedicatedWayValues: new Map(),
+      gradientFillGeojson: undefined,
+      onRegionZoomHintChange: () => {},
+      ...overrides,
+    };
+  }
+
+  function redraw(map: ReturnType<typeof fakeMap>, overrides: Partial<RedrawAllLayersProps> = {}) {
+    redrawAllLayers(map as unknown as Parameters<typeof redrawAllLayers>[0], redrawProps(overrides));
+  }
+
+  it("合成ルートを表示中に作り直すと、乗り換え区間の帯と編集中の線も戻る", () => {
+    // 帯は候補線とは別のsourceを持つ。作り直しの対象から落ちると橙色の帯が消えたまま戻らない。
+    const map = fakeMap();
+
+    redraw(map, {
+      routes: [makeRoute("a")],
+      selectedRouteId: "a",
+      spliceStretches: [stretch],
+      splicedRoute: stretch.coordinates,
+    });
+
+    expect(layoutValue(map, SPLICE_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, SPLICED_ROUTE_LAYER_ID, "visibility")).toBe("visible");
+    expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
+  });
+
+  it("「ルート」チップOFFのまま作り直しても、帯・合成ルート・候補線は出てこない", () => {
+    const map = fakeMap();
+
+    redraw(map, {
+      routes: [makeRoute("a")],
+      selectedRouteId: "a",
+      routeLayerOn: false,
+      spliceStretches: [stretch],
+      splicedRoute: stretch.coordinates,
+    });
+
+    // 隠す側はレイヤーを作らない（setStyle()直後の地図には存在しないため、
+    // visibility=noneの指定すら発生しない）。
+    expect(map.layers.has(SPLICE_LAYER_ID)).toBe(false);
+    expect(map.layers.has(SPLICED_ROUTE_LAYER_ID)).toBe(false);
+    expect(map.layers.has(ROUTES_LAYER_ID)).toBe(false);
+  });
+
+  it("カメラは動かさない（表示範囲は利用者の操作に属する）", () => {
+    const map = fakeMap();
+
+    redraw(map, { routes: [makeRoute("a")], selectedRouteId: "a" });
+
+    expect(map.fitBoundsCalls).toHaveLength(0);
   });
 });

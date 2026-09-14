@@ -14,13 +14,7 @@ const AXIS_COLORS: Record<string, string> = { car_stress: "#111111", wind: "#222
 
 describe("AxisContributionBar", () => {
   it("contributionsにキーが無い軸は表示しない（呼び出し側で絞り込まなくてよい）", () => {
-    render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ car_stress: 30, night: 5 }}
-        axisColors={AXIS_COLORS}
-      />
-    );
+    render(<AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />);
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
@@ -34,7 +28,7 @@ describe("AxisContributionBar", () => {
         axes={AXES}
         contributions={{ car_stress: 30, wind: 0, night: 5 }}
         axisColors={AXIS_COLORS}
-      />
+      />,
     );
 
     const items = screen.getAllByRole("listitem");
@@ -43,13 +37,7 @@ describe("AxisContributionBar", () => {
   });
 
   it("負の値（クランプ前）は0ではないため除外しない", () => {
-    render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ car_stress: -10, night: 5 }}
-        axisColors={AXIS_COLORS}
-      />
-    );
+    render(<AxisContributionBar axes={AXES} contributions={{ car_stress: -10, night: 5 }} axisColors={AXIS_COLORS} />);
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
@@ -58,11 +46,7 @@ describe("AxisContributionBar", () => {
 
   it("軸カタログの並び順で凡例を表示し、値をそのまま(小数1桁)表示する", () => {
     render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ night: 5.25, car_stress: 30.1 }}
-        axisColors={AXIS_COLORS}
-      />
+      <AxisContributionBar axes={AXES} contributions={{ night: 5.25, car_stress: 30.1 }} axisColors={AXIS_COLORS} />,
     );
 
     const items = screen.getAllByRole("listitem");
@@ -74,11 +58,7 @@ describe("AxisContributionBar", () => {
 
   it("各セグメントの幅はcontributionsの値そのもの（%）、色はaxisColorsを使う", () => {
     const { container } = render(
-      <AxisContributionBar
-        axes={AXES}
-        contributions={{ car_stress: 30, night: 5 }}
-        axisColors={AXIS_COLORS}
-      />
+      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />,
     );
 
     const segments = Array.from(container.querySelectorAll('[class*="stackSegment"]')) as HTMLElement[];
@@ -89,9 +69,7 @@ describe("AxisContributionBar", () => {
   });
 
   it("contributionsが空なら何も描画しない（呼び出し側の空状態文言に委ねる）", () => {
-    const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{}} axisColors={AXIS_COLORS} />
-    );
+    const { container } = render(<AxisContributionBar axes={AXES} contributions={{}} axisColors={AXIS_COLORS} />);
 
     expect(container.firstChild).toBeNull();
   });
@@ -104,7 +82,7 @@ describe("AxisContributionBar", () => {
         contributions={{ car_stress: 30, night: 5 }}
         axisColors={AXIS_COLORS}
         renderDetail={(axis) => <span>{`${axis.label}の詳細本文`}</span>}
-      />
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
@@ -113,21 +91,42 @@ describe("AxisContributionBar", () => {
   });
 
   it("renderDetailを渡さない呼び出し側（軸ごとの詳細を持たない区間詳細）では押せる要素を作らない", () => {
-    render(
-      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />
-    );
+    render(<AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />);
 
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(screen.getByLabelText("車の圧迫感")).toBeInTheDocument();
   });
 
-  it("値が0-100の範囲外でもクランプする", () => {
+  it("renderDetailを渡さない呼び出しでは、チップを「押せない印」にしない", () => {
+    // 押せる／押せないの区別が無い場面で全チップへ印を付けると、凡例全体が薄く描かれる。
     const { container } = render(
+      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />,
+    );
+
+    expect(container.querySelectorAll('[data-checked="false"]')).toHaveLength(0);
+  });
+
+  it("renderDetailは軸あたり1回だけ呼ぶ", () => {
+    // 絞り込みと本体で別々に呼ぶと、片方で組み立てたJSXがそのまま捨てられる。
+    const calls: string[] = [];
+    render(
       <AxisContributionBar
         axes={AXES}
-        contributions={{ car_stress: -10, night: 150 }}
+        contributions={{ car_stress: 30, night: 5 }}
         axisColors={AXIS_COLORS}
-      />
+        renderDetail={(axis) => {
+          calls.push(axis.axisId);
+          return <span>{axis.label}</span>;
+        }}
+      />,
+    );
+
+    expect(calls).toEqual([...new Set(calls)]);
+  });
+
+  it("値が0-100の範囲外でもクランプする", () => {
+    const { container } = render(
+      <AxisContributionBar axes={AXES} contributions={{ car_stress: -10, night: 150 }} axisColors={AXIS_COLORS} />,
     );
 
     const segments = Array.from(container.querySelectorAll('[class*="stackSegment"]')) as HTMLElement[];

@@ -337,6 +337,118 @@ def find_way_tag_allowlist_violations(source_lines: dict[str, list[tuple[int, st
     return out
 
 
+# map.setStyle()はカスタムのsource/layerを全て捨てるため、その後の再描画から辿り着けない
+# 描画は「消えたまま戻らない」。再描画の入口と、それが守るべきファイルを指す。
+MAP_REDRAW_FILE = "frontend/src/components/Map/MapView.tsx"
+MAP_REDRAW_ENTRY = "redrawAllLayers"
+# トップレベル宣言の行頭。字下げされたもの（関数内の入れ子）は外側の宣言の一部として扱う。
+TOP_LEVEL_DEF_RE = re.compile(
+    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?"
+    r"(?:function|const|let|var|class|type|interface|enum)\s+([A-Za-z_$][\w$]*)"
+)
+
+
+def blank_ts_noncode(text: str) -> str:
+    """TS/TSXのコメントと文字列リテラルを空白へ置き換える（オフセットと行数は保つ）。"""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                out[i] = " "
+                i += 1
+        elif c == "/" and i + 1 < n and text[i + 1] == "*":
+            while i < n and not (text[i] == "*" and i + 1 < n and text[i + 1] == "/"):
+                if text[i] != "\n":
+                    out[i] = " "
+                i += 1
+            for _ in range(2):
+                if i < n:
+                    out[i] = " "
+                    i += 1
+        elif c in "\"'`":
+            quote = c
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    out[i] = " "
+                    if i + 1 < n and text[i + 1] != "\n":
+                        out[i + 1] = " "
+                    i += 2
+                    continue
+                if text[i] == quote:
+                    i += 1
+                    break
+                if text[i] != "\n":
+                    out[i] = " "
+                i += 1
+        else:
+            i += 1
+    return "".join(out)
+
+
+def top_level_segments(code: str) -> tuple[dict[str, str], dict[str, int]]:
+    """トップレベル宣言ごとの本文（次の宣言の直前まで）と開始行。"""
+    lines = code.splitlines()
+    starts = [(i, m.group(1)) for i, l in enumerate(lines) if (m := TOP_LEVEL_DEF_RE.match(l))]
+    body: dict[str, str] = {}
+    line_of: dict[str, int] = {}
+    for pos, (idx, name) in enumerate(starts):
+        end = starts[pos + 1][0] if pos + 1 < len(starts) else len(lines)
+        body[name] = body.get(name, "") + "\n" + "\n".join(lines[idx:end])
+        line_of.setdefault(name, idx + 1)
+    return body, line_of
+
+
+def find_map_redraw_gaps() -> list[str]:
+    """map.setStyle()後の再描画から辿り着けない、sourceを新設する描画。
+
+    到達は「トップレベル宣言の本文にその名前が現れるか」で見る（呼び出しに限らず、
+    コールバックとして渡す形も辿れるようにするため）。オーバーレイ登録表の`ensure`だけは
+    名前で呼ばれないため、`.ensure(`を呼ぶ経路からは表に載る`ensure`すべてへ辿れるものと
+    して扱う。
+    """
+    path = REPO_ROOT / MAP_REDRAW_FILE
+    if not path.exists():
+        return [f"{MAP_REDRAW_FILE} が見つからない（検知器の対象がずれている）"]
+    return map_redraw_gaps_in(read_text(path))
+
+
+def map_redraw_gaps_in(source: str) -> list[str]:
+    """`find_map_redraw_gaps`の本体（テストが合成したソースにも掛けられるよう分けてある）。"""
+    code = blank_ts_noncode(source)
+    body, line_of = top_level_segments(code)
+    if MAP_REDRAW_ENTRY not in body:
+        return [
+            f"{MAP_REDRAW_FILE}: トップレベルに`{MAP_REDRAW_ENTRY}`が無い"
+            "（再描画の入口が辿れないと、この検知器は何も守れない）"
+        ]
+    names = set(body)
+    ensure_values = set(re.findall(r"\bensure:\s*([A-Za-z_$][\w$]*)", code)) & names
+
+    reachable: set[str] = set()
+    stack = [MAP_REDRAW_ENTRY]
+    while stack:
+        current = stack.pop()
+        if current in reachable or current not in body:
+            continue
+        reachable.add(current)
+        segment = body[current]
+        stack.extend(n for n in names if n not in reachable and re.search(rf"\b{re.escape(n)}\b", segment))
+        if ".ensure(" in segment:
+            stack.extend(ensure_values)
+
+    owners = {n for n, b in body.items() if ".addSource(" in b}
+    return [
+        f"{MAP_REDRAW_FILE}:{line_of[name]}: `{name}`がsourceを作るが、"
+        f"`{MAP_REDRAW_ENTRY}`から辿れない"
+        "（map.setStyle()後に作り直されず、そのレイヤーは消えたまま戻らない。"
+        "docs/tasks/T825.md参照）"
+        for name in sorted(owners - reachable, key=lambda n: line_of[n])
+    ]
+
+
 # テストの足場（フェイク・フィクスチャ組み立て）が、同じ名前で複数のテストファイルへ
 # 定義されている状態。書く前に既にあるものへ気づくための参考表示で、正当に分ける判断
 # （記録する呼び出しが違う等）もあるためブロックはしない（docs/tasks/T771.md）。
@@ -1623,6 +1735,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "review_doc_dead_refs": frozenset({"staged", "since", "full"}),
     "cross_file_env_writes": frozenset({"staged", "since", "full"}),
     "way_tag_allowlist": frozenset({"staged", "since", "full"}),
+    "map_redraw_coverage": frozenset({"staged", "since", "full"}),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -1676,6 +1789,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_web_layer_batch_imports(source_lines)))
         sections.append(("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
                          find_way_tag_allowlist_violations(source_lines)))
+        sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
+                         find_map_redraw_gaps()))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
         sections.append(("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
                          find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision="")))
@@ -1790,6 +1905,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                              for f in MATERIAL_TAG_READER_FILES
                              if (REPO_ROOT / f).exists()
                          })))
+        sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/tasks/T825.md参照）",
+                         find_map_redraw_gaps()))
         sections.append((
             "duplicate_test_scaffold",
             "同じ名前のテスト足場が複数ファイルにある（参考、docs/tasks/T771.md参照）",
@@ -1828,6 +1945,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 find_review_doc_dead_refs(files, scope=changed)))
             sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
                              find_cross_file_env_writes(files)))
+            sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
+                             find_map_redraw_gaps()))
         else:
             sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
                              find_vacuous_test_loops(files)))
@@ -2367,6 +2486,12 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
             GUARD_PROBE_PY,
             "from app.batch.precompute_way_landcover import ALGORITHM_VERSION\n\n\n"
             "zzz_guard_probe = ALGORITHM_VERSION\n"),
+        # 再描画から辿れない位置へ、sourceを作る描画を1つ足す。
+        "map_redraw_coverage": lambda: append(
+            wt / MAP_REDRAW_FILE,
+            '\nexport function zzzGuardProbeLayer(map: MapLibreMap) {\n'
+            '  map.addSource("zzz-guard-probe", { type: "geojson", data: EMPTY_FEATURE_COLLECTION });\n'
+            '}\n'),
         "way_tag_allowlist": lambda: append(
             wt / "backend/app/domain/axis_inspector.py",
             '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n    return tags.get("zzz_guard_probe")\n'),

@@ -80,11 +80,13 @@ export default function AxisContributionBar({
       </div>
       <ul className={styles.legend}>
         {(legendAxes ?? rows)
-          .filter((axis) => renderDetail == null || renderDetail(axis) !== null)
-          .map((axis) => {
+          // renderDetailは軸あたり1回だけ呼ぶ（絞り込みと本体で別々に呼ぶと、片方で
+          // 組み立てたJSXがそのまま捨てられる）。
+          .map((axis) => ({ axis, detail: renderDetail?.(axis) ?? null }))
+          .filter(({ detail }) => renderDetail == null || detail !== null)
+          .map(({ axis, detail }) => {
             const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
             const value = contributions[axis.axisId];
-            const detail = renderDetail?.(axis) ?? null;
             // 軸の名前は出さず、地図チップと同じアイコンと寄与の値だけを並べる——狭い幅では
             // 名前がそのまま行数になり、10軸で内訳が画面の大半を占めてしまう。名前は押して
             // 開く説明（InfoPopover）が持ち、押せない軸はaria-labelとtitleで補う。
@@ -98,7 +100,14 @@ export default function AxisContributionBar({
               </>
             );
             return (
-              <li key={axis.axisId} className={styles.legendChip} data-checked={detail !== null}>
+              // 押せる／押せないの区別は、詳細を出す契約（renderDetail）がある呼び出しに
+              // だけある。契約が無い呼び出しで全チップを「押せない」印にすると、凡例全体が
+              // 薄く描かれて理由の無い弱め方になる。
+              <li
+                key={axis.axisId}
+                className={styles.legendChip}
+                data-checked={renderDetail == null ? undefined : detail !== null}
+              >
                 {detail === null ? (
                   <span className={styles.legendChipBody} title={axis.label} aria-label={axis.label} role="img">
                     {body}

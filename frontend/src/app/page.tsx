@@ -315,6 +315,10 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
+/** 乗り換え候補の帯のid。グループの位置と選択肢の位置を1つの数にして、地図のタップから
+ *  どの選択肢かを引き戻せるようにする。 */
+const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => groupIndex * 100 + optionIndex;
+
 export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
     useLocation();
@@ -785,51 +789,66 @@ export default function Home() {
   // 区間の乗り換え（docs/tasks/T621.md・T808）の導出値。edge_idsの集合演算だけで求まる
   // （軸の計算式は持たない。構造仕様1）。**区間を主語に、その区間の代替を候補横断で並べる**。
   const editingRouteForSplice = routes.find((route) => route.id === editingRouteId) ?? null;
-  const candidateShapes = routes.map((route) => ({
-    id: route.id,
-    edgeIds: route.edge_ids,
-    shape: {
-      coordinates: route.geometry.coordinates as GeoJSON.Position[],
-      edgePointOffsets: route.edge_point_offsets,
-    },
-  }));
-  const shapeOf = (candidateId: string) => candidateShapes.find((item) => item.id === candidateId)?.shape;
+  // 以下はどれもMapViewへ渡る配列・オブジェクトを組み立てる。毎レンダー作り直すと参照だけが
+  // 変わり、地図側の描画effectが天候フェッチ・パン確定などあらゆる再レンダーで走る
+  // （30km級では候補1本あたり数千件のEdge idを毎回舐め直すことになる）。
+  const candidateShapes = useMemo(
+    () =>
+      routes.map((route) => ({
+        id: route.id,
+        edgeIds: route.edge_ids,
+        shape: {
+          coordinates: route.geometry.coordinates as GeoJSON.Position[],
+          edgePointOffsets: route.edge_point_offsets,
+        },
+      })),
+    [routes],
+  );
   // いまの組み合わせ（元＋適用済みの乗り換え）。次に選べる区間も、評価へ送るEdge列もこれを
   // 見る——乗り換えた先の道の上にある分かれ道へ、そのまま進めるようにするため（T843）。
-  const splicedShape = editingRouteForSplice
-    ? buildSplicedShape(
-        {
-          edgeIds: editingRouteForSplice.edge_ids,
-          coordinates: editingRouteForSplice.geometry.coordinates as GeoJSON.Position[],
-          edgePointOffsets: editingRouteForSplice.edge_point_offsets,
-        },
-        appliedAlternatives,
-        shapeOf,
-      )
-    : null;
-  const spliceGroups = splicedShape
-    ? stretchAlternativeGroups(
-        splicedShape.edgeIds,
-        candidateShapes.filter((item) => item.id !== editingRouteId),
-        // 座標まで渡すと、2本が交差・接触する地点でも区間を割れる（Edge idの一致だけでは
-        // 1本の長い区間になり、他候補1本との丸ごと入れ替えにしかならない）。
-        { baseShape: splicedShape },
-      )
-    : [];
+  const splicedShape = useMemo(() => {
+    if (!editingRouteForSplice) return null;
+    const shapeOf = (candidateId: string) => candidateShapes.find((item) => item.id === candidateId)?.shape;
+    return buildSplicedShape(
+      {
+        edgeIds: editingRouteForSplice.edge_ids,
+        coordinates: editingRouteForSplice.geometry.coordinates as GeoJSON.Position[],
+        edgePointOffsets: editingRouteForSplice.edge_point_offsets,
+      },
+      appliedAlternatives,
+      shapeOf,
+    );
+  }, [editingRouteForSplice, appliedAlternatives, candidateShapes]);
+  const spliceGroups = useMemo(
+    () =>
+      splicedShape
+        ? stretchAlternativeGroups(
+            splicedShape.edgeIds,
+            candidateShapes.filter((item) => item.id !== editingRouteId),
+            // 座標まで渡すと、2本が交差・接触する地点でも区間を割れる（Edge idの一致だけでは
+            // 1本の長い区間になり、他候補1本との丸ごと入れ替えにしかならない）。
+            { baseShape: splicedShape },
+          )
+        : [],
+    [splicedShape, candidateShapes, editingRouteId],
+  );
   // 地図へ渡す帯は相手側の形。まだ選んでいない道を破線で示す（適用済みの道はいまの経路の
   // 一部になるため、帯としては出ない）。indexは「グループの位置と選択肢の位置」を1つの数に
   // したもの（地図のタップから引き戻す）。
-  const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => groupIndex * 100 + optionIndex;
-  const spliceStretchFeatures = spliceGroups.flatMap((group, groupIndex) =>
-    group.options.flatMap((option, optionIndex) => {
-      const target = routes.find((route) => route.id === option.candidateId);
-      if (!target) return [];
-      const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
-      if (!range) return [];
-      const coordinates = (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1);
-      if (coordinates.length < 2) return [];
-      return [{ index: spliceFeatureIndex(groupIndex, optionIndex), taken: false, coordinates }];
-    }),
+  const spliceStretchFeatures = useMemo(
+    () =>
+      spliceGroups.flatMap((group, groupIndex) =>
+        group.options.flatMap((option, optionIndex) => {
+          const target = routes.find((route) => route.id === option.candidateId);
+          if (!target) return [];
+          const range = stretchCoordinateRange(target.edge_point_offsets, option.targetStretch);
+          if (!range) return [];
+          const coordinates = (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1);
+          if (coordinates.length < 2) return [];
+          return [{ index: spliceFeatureIndex(groupIndex, optionIndex), taken: false, coordinates }];
+        }),
+      ),
+    [spliceGroups, routes],
   );
 
   // 適用した順で識別する。同じ位置でも積み上げた経緯が違えば別の経路になるため順番を含める。
@@ -846,9 +865,7 @@ export default function Home() {
       setSpliceError(null);
       setAppliedAlternatives((current) => [...current, option]);
     },
-    // spliceGroupsはroutesとeditingRouteId・appliedAlternativesから毎レンダー導出される。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routes, editingRouteId, appliedAlternatives],
+    [spliceGroups],
   );
   const hasDetail = !!selectedCandidate?.segments && selectedCandidate.segments.length > 0;
 
@@ -2123,7 +2140,7 @@ export default function Home() {
           setSpliceError(null);
         }}
         appliedCount={appliedAlternatives.length}
-        hasAlternatives={spliceGroups.length > 0}
+        hasAlternatives={spliceStretchFeatures.length > 0}
         onUndo={() => {
           setSpliceError(null);
           setAppliedAlternatives((current) => current.slice(0, -1));

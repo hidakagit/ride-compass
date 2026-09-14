@@ -45,7 +45,6 @@ import { MaterialRangeHint } from "./MaterialRangeHint";
 // 選ぶ（API取得失敗時はlib/axisMaterialsCatalog.tsの静的フォールバックへ自動的に
 // 切り替わる）。
 
-
 // カードは3枚。「複数の要素の有無を数えて減点・加点する」は「数値の大きさに応じて
 // 点数を変える」（なめらか評価）に吸収している——backend側では元々同一の仕組み
 // （真偽値材料は該当時1・非該当時0として係数と掛け合わされる）で、専用の別画面を
@@ -244,8 +243,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   // categorical材料でも動的値一覧に対応していない場合[bicycle_infra等]は空配列が返り、
   // 呼び出し先の入力欄は自由テキストのままになる）。
   const selectedCategoricalDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
-  const { values: categoricalMaterialValues, unavailable: categoricalValuesUnavailable } =
-    useMaterialValues(selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null);
+  const { values: categoricalMaterialValues, unavailable: categoricalValuesUnavailable } = useMaterialValues(
+    selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null,
+  );
   // 折れ点の自動生成フォーム（範囲＋形の3入力）の下書き。draft.breakpointsとは別の
   // 使い捨て入力欄で、「生成」を押すまでdraft.breakpointsへは反映しない。
   const [generatorZeroValue, setGeneratorZeroValue] = useState(0);
@@ -263,21 +263,23 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   const primaryTermWeight = draft.terms[0]?.weight ?? 1;
   // 分布は「材料・重み・前処理」で決まり、折れ点では変わらない。折れ点を含めない
   // キーで取得することで、折れ点のドラッグ中に通信が走らない。
+  // 分布を描くのは「値ごとのスコア」（breakpoint_linear）の折れ点エディタだけ。他の形では
+  // 取得しても捨てるだけで、軸や係数を触るたびにデバウンス後のPOSTが走る。
   const distributionTermsKey =
-    draft.shapeKind === "categorical"
-      ? ""
-      : JSON.stringify([draft.preprocess, draft.terms.map((t) => [t.material, t.weight, t.required])]);
-  const valueDistribution = useAxisValueDistribution(
-    distributionTermsKey !== "",
-    distributionTermsKey,
-    () => buildShape(draft, materialOptions),
+    draft.shapeKind === "breakpoint_linear"
+      ? JSON.stringify([draft.preprocess, draft.terms.map((t) => [t.material, t.weight, t.required])])
+      : "";
+  const valueDistribution = useAxisValueDistribution(distributionTermsKey !== "", distributionTermsKey, () =>
+    buildShape(draft, materialOptions),
   );
   // 参考点の値域（曲線エディタの横軸固定・効き目プレビューに使う）。参考点が無ければ
   // undefinedのままで、曲線エディタは従来どおりbreakpoints自体から自動スケールする。
   const breakpointReferenceRange =
     primaryMaterialReferencePoints.length > 0
       ? (() => {
-          const xs = primaryMaterialReferencePoints.map((p) => toBreakpointX(p.value, primaryTermWeight, draft.preprocess));
+          const xs = primaryMaterialReferencePoints.map((p) =>
+            toBreakpointX(p.value, primaryTermWeight, draft.preprocess),
+          );
           return { min: Math.min(...xs), max: Math.max(...xs) };
         })()
       : undefined;
@@ -468,7 +470,9 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
   function updateBreakpoint(index: number, pos: 0 | 1, value: number) {
     setDraft((d) => ({
       ...d,
-      breakpoints: d.breakpoints.map((bp, i) => (i === index ? ([pos === 0 ? value : bp[0], pos === 1 ? value : bp[1]] as [number, number]) : bp)),
+      breakpoints: d.breakpoints.map((bp, i) =>
+        i === index ? ([pos === 0 ? value : bp[0], pos === 1 ? value : bp[1]] as [number, number]) : bp,
+      ),
     }));
   }
 
@@ -520,7 +524,8 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
       // ため、厳密にどちらのラベルを残すべきかは決められないが、消したしきい値と同じ
       // indexのラベルを削るのがもっとも直感的な対応——例: 3段目の境界を消すと4段階目
       // だったラベルが3段階目に繰り上がる）。
-      displayBandLabelsOverride: d.displayBandLabelsOverride && d.displayBandLabelsOverride.filter((_, i) => i !== index),
+      displayBandLabelsOverride:
+        d.displayBandLabelsOverride && d.displayBandLabelsOverride.filter((_, i) => i !== index),
     }));
   }
 
@@ -757,7 +762,11 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     step={0.1}
                   />
                   <label className={styles.inlineCheckbox}>
-                    <Checkbox checked={term.required} onCheckedChange={(next) => updateTerm(i, { required: next })} aria-label="必須" />
+                    <Checkbox
+                      checked={term.required}
+                      onCheckedChange={(next) => updateTerm(i, { required: next })}
+                      aria-label="必須"
+                    />
                     必須
                   </label>
                   <InfoPopoverButton
@@ -772,12 +781,15 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                     削除
                   </button>
                   {/* 実データの分位は行の末尾で1行を占有させる（.termRowHintがflex-basis:100%）。
-                      操作要素の間へ挟むと、狭幅の折り返しで説明文とスライダーが混ざる。 */}
-                  <MaterialRangeHint
-                    className={styles.termRowHint}
-                    materialId={term.material}
-                    unit={termOptions.find((m) => m.id === term.material)?.unit}
-                  />
+                      操作要素の間へ挟むと、狭幅の折り返しで説明文とスライダーが混ざる。
+                      かけあわせ評価の行が持つのは軸idで、材料の分位は引けない。 */}
+                  {draft.shapeKind !== "recipe_then_breakpoint_linear" && (
+                    <MaterialRangeHint
+                      className={styles.termRowHint}
+                      materialId={term.material}
+                      unit={termOptions.find((m) => m.id === term.material)?.unit}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -845,7 +857,12 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 <div className={styles.breakpointGeneratorRow}>
                   <span className={styles.sliderNumberField}>
                     <span className={styles.breakpointGeneratorLabel}>0点</span>
-                    <NumberField step="0.1" value={generatorZeroValue} aria-label="0点にする値" onChange={setGeneratorZeroValue} />
+                    <NumberField
+                      step="0.1"
+                      value={generatorZeroValue}
+                      aria-label="0点にする値"
+                      onChange={setGeneratorZeroValue}
+                    />
                   </span>
                   <span className={styles.sliderNumberField}>
                     <span className={styles.breakpointGeneratorLabel}>100点</span>
@@ -870,7 +887,10 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                   <button
                     type="button"
                     onClick={() =>
-                      setDraft((d) => ({ ...d, breakpoints: generateBreakpoints(generatorZeroValue, generatorHundredValue, generatorShape) }))
+                      setDraft((d) => ({
+                        ...d,
+                        breakpoints: generateBreakpoints(generatorZeroValue, generatorHundredValue, generatorShape),
+                      }))
                     }
                     disabled={generatorZeroValue === generatorHundredValue}
                   >
@@ -915,9 +935,19 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
                 />
                 {draft.breakpoints.map((bp, i) => (
                   <div key={i} className={styles.breakpointRow}>
-                    <NumberField step="0.1" value={bp[0]} aria-label="入力値" onChange={(next) => updateBreakpoint(i, 0, next)} />
+                    <NumberField
+                      step="0.1"
+                      value={bp[0]}
+                      aria-label="入力値"
+                      onChange={(next) => updateBreakpoint(i, 0, next)}
+                    />
                     <span>→</span>
-                    <NumberField step="1" value={bp[1]} aria-label="スコア" onChange={(next) => updateBreakpoint(i, 1, next)} />
+                    <NumberField
+                      step="1"
+                      value={bp[1]}
+                      aria-label="スコア"
+                      onChange={(next) => updateBreakpoint(i, 1, next)}
+                    />
                     <button
                       type="button"
                       onClick={() => setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))}
@@ -937,7 +967,10 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
 
                 {primaryMaterial && primaryMaterialReferencePoints.length > 0 && (
                   <div className={styles.breakpointPreview}>
-                    <SectionLabel label="効き目プレビュー" description="今の折れ点で、材料の参考点それぞれが何点になるかです。" />
+                    <SectionLabel
+                      label="効き目プレビュー"
+                      description="今の折れ点で、材料の参考点それぞれが何点になるかです。"
+                    />
                     <table className={styles.breakpointPreviewTable}>
                       <thead>
                         <tr>
@@ -971,158 +1004,164 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
           </div>
         )}
 
-        {draft.shapeKind === "categorical" && (() => {
-          // 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
-          // categorical→値ごとのスコア行）。selectedDtypeはコンポーネント冒頭の
-          // selectedCategoricalDtype（useMaterialValuesの入力にも使う）と同じ計算。
-          const selectedDtype = selectedCategoricalDtype;
-          return (
-            <div className={styles.shapeGroup}>
-              {/* .fieldはcolumn方向のflexのため、兄弟要素としてただ並べると縦に積まれて
+        {draft.shapeKind === "categorical" &&
+          (() => {
+            // 選んだ材料のdtypeで表示を切り替える（boolean→従来の2択、
+            // categorical→値ごとのスコア行）。selectedDtypeはコンポーネント冒頭の
+            // selectedCategoricalDtype（useMaterialValuesの入力にも使う）と同じ計算。
+            const selectedDtype = selectedCategoricalDtype;
+            return (
+              <div className={styles.shapeGroup}>
+                {/* .fieldはcolumn方向のflexのため、兄弟要素としてただ並べると縦に積まれて
                   しまう。.row（横方向flex）で括ってラベルの隣に揃える。 */}
-              <div className={styles.row}>
-                <label className={styles.field}>
-                  材料(material)
-                  <select
-                    value={draft.categoricalMaterial}
-                    onChange={(e) => {
-                      const nextMaterial = e.target.value;
-                      const nextDtype = materialOptions.find((m) => m.id === nextMaterial)?.dtype;
-                      setDraft((d) => ({
-                        ...d,
-                        categoricalMaterial: nextMaterial,
-                        categoricalRows:
-                          nextDtype === "categorical" && d.categoricalRows.length === 0
-                            ? [{ value: "", score: 0 }]
-                            : d.categoricalRows,
-                      }));
-                    }}
-                  >
-                    {materialOptions
-                      .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
-                      .map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <MaterialInfoButton option={materialOptions.find((m) => m.id === draft.categoricalMaterial)} />
-              </div>
-              {selectedDtype === "categorical" ? (
-                <>
-                  <SectionLabel
-                    label="値ごとのスコア"
-                    description={
-                      (categoricalMaterialValues.length > 0
-                        ? "値は下の候補（実データに含まれる値）から選びます。"
-                        : categoricalValuesUnavailable
-                          ? "候補を取得できませんでした（DBへ接続できないか、集計が時間内に終わりませんでした）。値は元データのタグ値と完全に一致する文字列で入力します。"
-                          : "値は元データのタグ値と完全に一致する文字列で入力します。") +
-                      "ここに設定していない値の区間は評価対象外（データなし扱い）になります。"
-                    }
-                  />
-                  {draft.categoricalRows.map((row, i) => {
-                    // 候補一覧（categoricalMaterialValues）がある材料は、候補セレクトでの
-                    // 選択のみを許可し、値は常にラベルの読み取り専用表示にする（生の
-                    // タグ値は画面に出さない——material_catalogに無い値を書く実運用上の
-                    // 必要性は基本無く、直接入力を残すとタイプミスがそのまま「静かに
-                    // 一致しない行」として残る落とし穴になる）。候補一覧が無い材料
-                    // （bicycle_infra等、動的値一覧に対応していない）だけ、従来どおり
-                    // 自由テキスト入力のままにする（選ぶ元となる候補自体が存在しないため）。
-                    const hasDynamicCandidates = categoricalMaterialValues.length > 0;
-                    // 選択中の値のラベルは、取得済みの候補一覧（backendが返すMaterialSpec.
-                    // value_labelsのラベル）から引く。候補一覧に無い値（編集を開いた時点で
-                    // 既存軸が保持していたが、実データが変わり現在は候補から外れた値等）は
-                    // 生のタグ値そのままにフォールバックする。
-                    const label = categoricalMaterialValues.find((v) => v.value === row.value)?.label ?? row.value;
-                    return (
-                      <div key={i} className={styles.termRow}>
-                        {hasDynamicCandidates && (
-                          <select
-                            aria-label="値の候補"
-                            value=""
-                            onChange={(e) => {
-                              if (e.target.value) updateCategoricalRow(i, { value: e.target.value });
-                            }}
-                          >
-                            <option value="">候補から選ぶ...</option>
-                            {categoricalMaterialValues.map((v) => (
-                              <option key={v.value} value={v.value}>
-                                {v.label}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        {hasDynamicCandidates ? (
-                          // 実体は読み取り専用のinputにする（素のspanではなく
-                          // input[type=text] にすることで、globals.cssの共通スタイルが
-                          // そのまま当たり見た目が他のinputと揃う）。編集不可
-                          // （readOnly）で、値は候補セレクトからのみ設定する。
-                          <input type="text" value={label} readOnly aria-label="値" placeholder="候補から選択してください" />
-                        ) : (
-                          <input
-                            type="text"
-                            value={row.value}
-                            aria-label="値"
-                            placeholder="例: separated"
-                            onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
+                <div className={styles.row}>
+                  <label className={styles.field}>
+                    材料(material)
+                    <select
+                      value={draft.categoricalMaterial}
+                      onChange={(e) => {
+                        const nextMaterial = e.target.value;
+                        const nextDtype = materialOptions.find((m) => m.id === nextMaterial)?.dtype;
+                        setDraft((d) => ({
+                          ...d,
+                          categoricalMaterial: nextMaterial,
+                          categoricalRows:
+                            nextDtype === "categorical" && d.categoricalRows.length === 0
+                              ? [{ value: "", score: 0 }]
+                              : d.categoricalRows,
+                        }));
+                      }}
+                    >
+                      {materialOptions
+                        .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <MaterialInfoButton option={materialOptions.find((m) => m.id === draft.categoricalMaterial)} />
+                </div>
+                {selectedDtype === "categorical" ? (
+                  <>
+                    <SectionLabel
+                      label="値ごとのスコア"
+                      description={
+                        (categoricalMaterialValues.length > 0
+                          ? "値は下の候補（実データに含まれる値）から選びます。"
+                          : categoricalValuesUnavailable
+                            ? "候補を取得できませんでした（DBへ接続できないか、集計が時間内に終わりませんでした）。値は元データのタグ値と完全に一致する文字列で入力します。"
+                            : "値は元データのタグ値と完全に一致する文字列で入力します。") +
+                        "ここに設定していない値の区間は評価対象外（データなし扱い）になります。"
+                      }
+                    />
+                    {draft.categoricalRows.map((row, i) => {
+                      // 候補一覧（categoricalMaterialValues）がある材料は、候補セレクトでの
+                      // 選択のみを許可し、値は常にラベルの読み取り専用表示にする（生の
+                      // タグ値は画面に出さない——material_catalogに無い値を書く実運用上の
+                      // 必要性は基本無く、直接入力を残すとタイプミスがそのまま「静かに
+                      // 一致しない行」として残る落とし穴になる）。候補一覧が無い材料
+                      // （bicycle_infra等、動的値一覧に対応していない）だけ、従来どおり
+                      // 自由テキスト入力のままにする（選ぶ元となる候補自体が存在しないため）。
+                      const hasDynamicCandidates = categoricalMaterialValues.length > 0;
+                      // 選択中の値のラベルは、取得済みの候補一覧（backendが返すMaterialSpec.
+                      // value_labelsのラベル）から引く。候補一覧に無い値（編集を開いた時点で
+                      // 既存軸が保持していたが、実データが変わり現在は候補から外れた値等）は
+                      // 生のタグ値そのままにフォールバックする。
+                      const label = categoricalMaterialValues.find((v) => v.value === row.value)?.label ?? row.value;
+                      return (
+                        <div key={i} className={styles.termRow}>
+                          {hasDynamicCandidates && (
+                            <select
+                              aria-label="値の候補"
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) updateCategoricalRow(i, { value: e.target.value });
+                              }}
+                            >
+                              <option value="">候補から選ぶ...</option>
+                              {categoricalMaterialValues.map((v) => (
+                                <option key={v.value} value={v.value}>
+                                  {v.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {hasDynamicCandidates ? (
+                            // 実体は読み取り専用のinputにする（素のspanではなく
+                            // input[type=text] にすることで、globals.cssの共通スタイルが
+                            // そのまま当たり見た目が他のinputと揃う）。編集不可
+                            // （readOnly）で、値は候補セレクトからのみ設定する。
+                            <input
+                              type="text"
+                              value={label}
+                              readOnly
+                              aria-label="値"
+                              placeholder="候補から選択してください"
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={row.value}
+                              aria-label="値"
+                              placeholder="例: separated"
+                              onChange={(e) => updateCategoricalRow(i, { value: e.target.value })}
+                            />
+                          )}
+                          <SliderNumberField
+                            label="スコア"
+                            value={row.score}
+                            onChange={(next) => updateCategoricalRow(i, { score: next })}
+                            min={-100}
+                            max={100}
+                            step={1}
                           />
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => removeCategoricalRow(i)}
+                            disabled={draft.categoricalRows.length <= 1}
+                          >
+                            削除
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <button type="button" className={styles.addButton} onClick={addCategoricalRow}>
+                      + 値を追加
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className={styles.row}>
+                      <label className={styles.field}>
+                        該当時(true)のスコア
                         <SliderNumberField
-                          label="スコア"
-                          value={row.score}
-                          onChange={(next) => updateCategoricalRow(i, { score: next })}
+                          label="該当時(true)のスコア"
+                          value={draft.trueScore}
+                          onChange={(next) => setDraft((d) => ({ ...d, trueScore: next }))}
                           min={-100}
                           max={100}
                           step={1}
                         />
-                        <button
-                          type="button"
-                          onClick={() => removeCategoricalRow(i)}
-                          disabled={draft.categoricalRows.length <= 1}
-                        >
-                          削除
-                        </button>
-                      </div>
-                    );
-                  })}
-                  <button type="button" className={styles.addButton} onClick={addCategoricalRow}>
-                    + 値を追加
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className={styles.row}>
-                    <label className={styles.field}>
-                      該当時(true)のスコア
-                      <SliderNumberField
-                        label="該当時(true)のスコア"
-                        value={draft.trueScore}
-                        onChange={(next) => setDraft((d) => ({ ...d, trueScore: next }))}
-                        min={-100}
-                        max={100}
-                        step={1}
-                      />
-                    </label>
-                    <label className={styles.field}>
-                      非該当時(false)のスコア
-                      <SliderNumberField
-                        label="非該当時(false)のスコア"
-                        value={draft.falseScore}
-                        onChange={(next) => setDraft((d) => ({ ...d, falseScore: next }))}
-                        min={-100}
-                        max={100}
-                        step={1}
-                      />
-                    </label>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })()}
-
+                      </label>
+                      <label className={styles.field}>
+                        非該当時(false)のスコア
+                        <SliderNumberField
+                          label="非該当時(false)のスコア"
+                          value={draft.falseScore}
+                          onChange={(next) => setDraft((d) => ({ ...d, falseScore: next }))}
+                          min={-100}
+                          max={100}
+                          step={1}
+                        />
+                      </label>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
       </>
     );
   }
@@ -1239,7 +1278,10 @@ export default function AxisComposer({ editing, duplicateFrom, otherAxes, onCanc
             地図上にアイコンを表示する(show_map_icon)（オフにすると地図上チップにこの軸が現れなくなります）
           </label>
           <div className={styles.field}>
-            <FieldLabel label="アイコン(icon_id)" description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。" />
+            <FieldLabel
+              label="アイコン(icon_id)"
+              description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。"
+            />
             <div className={styles.row}>
               <select
                 value={draft.iconId}

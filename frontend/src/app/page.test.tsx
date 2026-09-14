@@ -408,6 +408,16 @@ vi.mock("@/services/routeApi", () => ({
 // 呼び出し側で上書きしたいフィールドだけ渡せるヘルパーにする）。
 const makeCandidate = makeRouteCandidate;
 
+/** Edge5本ぶんの座標列（境界は[0,1,2,3,4,5]）。 */
+const SPLICE_COORDINATES: GeoJSON.Position[] = [
+  [139.7, 35.7],
+  [139.71, 35.7],
+  [139.72, 35.7],
+  [139.73, 35.7],
+  [139.74, 35.7],
+  [139.75, 35.7],
+];
+
 function makeConditions(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
   return {
     latitude: 35.7597,
@@ -1342,8 +1352,22 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
-        makeCandidate({ id: "route-destination-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
-        makeCandidate({ id: "route-destination-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
+        // 帯は相手側の座標から作るため、乗り換えの案内が出る条件には座標とEdge境界が要る
+        // （案内は「地図に破線が出ていること」と同じ条件で出す）。
+        makeCandidate({
+          id: "route-destination-00",
+          distance_km: 18.0,
+          edge_ids: ["s", "a1", "m", "a2", "e"],
+          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
+          edge_point_offsets: [0, 1, 2, 3, 4, 5],
+        }),
+        makeCandidate({
+          id: "route-destination-01",
+          distance_km: 19.0,
+          edge_ids: ["s", "b1", "m", "b2", "e"],
+          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
+          edge_point_offsets: [0, 1, 2, 3, 4, 5],
+        }),
       ],
       conditions: makeConditions(),
       engine: "road_graph",

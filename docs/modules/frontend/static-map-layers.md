@@ -96,6 +96,19 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 | 道路の種類のみON | 道路の種類の濃淡パレット | 道路の種類の太さ・線種 |
 | 両方OFF | レイヤー自体を隠す | — |
 
+## スタイル取り直し後の作り直し（`redrawAllLayers`）
+
+「地図の表示を再描画」は`map.setStyle()`でスタイル全体を差し替えるため、このアプリが
+足したsource/layerは一度すべて消える。`MapView.tsx: redrawAllLayers`（モジュールレベルの
+関数で、表示状態を引数で受け取る）が現在の状態から作り直す。
+
+**暗黙の前提**: ここから辿れない描画は作り直されず、そのレイヤーは押した人の地図から
+消えたまま戻らない（次にそのpropが変わるまで復旧しない）。`scripts/review_checks.py`の
+`map_redraw_coverage`が、sourceを作る関数が`redrawAllLayers`から辿れるかを機械的に見て
+いるため、新しい描画を足して辿れない位置に置くとpre-commitとCIが落ちる。
+カメラはここでは動かさない——表示範囲は利用者の操作に属し、フィットは候補一覧が
+変わったときだけ行う。
+
 ## 並列トラック分離（`applyRoadMaterialTrackOffsets`）
 
 同じ道路ジオメトリへ複数の独立レイヤー（合成道路/路面・指定路線・トンネル・一方通行）を

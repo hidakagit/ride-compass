@@ -1051,3 +1051,58 @@ def test_an_old_name_left_in_a_test_body_is_still_reported(tmp_path, monkeypatch
     finally:
         review_checks.imported_names.cache_clear()
         review_checks.settings_field_names.cache_clear()
+
+
+# --- map_redraw_coverage ----------------------------------------------------
+
+# map.setStyle()後の再描画から辿れない描画を探す検知器の骨格。実ファイルではなく
+# 合成したソースへ掛けて、辿れる/辿れないの判定そのものを固定する。
+REDRAW_SOURCE = """
+export function drawKept(map) {
+  map.addSource(KEPT_SOURCE_ID, { type: "geojson" });
+}
+
+export function drawDropped(map) {
+  map.addSource(DROPPED_SOURCE_ID, { type: "geojson" });
+}
+
+export function ensureFromTable(map) {
+  map.addSource(TABLE_SOURCE_ID, { type: "geojson" });
+}
+
+export const OVERLAY_LAYERS = [{ key: "x", ensure: ensureFromTable }];
+
+export function applyOverlays(map, layers) {
+  for (const layer of layers) layer.ensure(map);
+}
+
+export function redrawAllLayers(map, props) {
+  drawKept(map);
+  applyOverlays(map, props.layers);
+}
+"""
+
+
+def test_map_redraw_gaps_reports_only_what_the_redraw_cannot_reach():
+    gaps = review_checks.map_redraw_gaps_in(REDRAW_SOURCE)
+
+    assert len(gaps) == 1
+    assert "drawDropped" in gaps[0]
+
+
+def test_map_redraw_gaps_does_not_count_a_name_that_only_a_comment_mentions():
+    # コメントで名前に触れただけで「辿れる」ことにすると、検知器が黙る。
+    source = REDRAW_SOURCE.replace(
+        "  drawKept(map);", "  drawKept(map);\n  // drawDroppedはここでは呼ばない"
+    )
+
+    assert len(review_checks.map_redraw_gaps_in(source)) == 1
+
+
+def test_map_redraw_gaps_reports_a_missing_entry_instead_of_passing_silently():
+    source = REDRAW_SOURCE.replace("redrawAllLayers", "somethingElse")
+
+    gaps = review_checks.map_redraw_gaps_in(source)
+
+    assert len(gaps) == 1
+    assert "redrawAllLayers" in gaps[0]
