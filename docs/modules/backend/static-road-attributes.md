@@ -400,7 +400,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | `attributes.py` | `ElevationAttribute`/`EdgeAttributeCounts`等のモデルと標高計算（[elevation.md](elevation.md)が主に扱う） |
 | `designation.py` | 指定路線コンフレーション機構の正準定数（バッファ幅・マッチ閾値・対象kind） |
 | `accident.py` | 警察庁データ取込の純関数群（都道府県コード変換・当事者種別判定・度分秒座標変換） |
-| `traffic.py` | 停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、交差点判定の空間マッチ半径・次数しきい値 |
+| `traffic.py` | 停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、交差点判定の空間マッチ半径・次数しきい値、所要時間モデルのパラメータ（`STOP_SECONDS`・`HIGHWAY_RANK`） |
 | `osm_adapter.py` | OSMタグ解釈（許可リストタグ・oneway方向解決等）。PBF取込・Overpassランタイム経路の両方が同じ意味論で解釈するための単一ソース |
 
 `traffic.py: classify_stop_poi`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切
@@ -411,6 +411,17 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 （`kerb`）・料金所（`toll_booth`）・塀の開口部（`entrance`）等は対象外
 （`_BARRIER_STOP_VALUES`）。`classify_supply_poi`はコンビニ/自販機/トイレ/給水/駐輪場を
 分類する（タグ名の名前空間がstop系と独立しているため優先順位判定は不要）。
+
+`traffic.py`は分類のほかに**所要時間モデルのパラメータ**も持つ。`STOP_SECONDS`は停止要因
+1回あたりの時間損失（秒）で、`services/road_graph_engine.py`の走行時間合成が、その区間に
+ある停止要因の数（材料`poi_*_per_km`）と掛けて走行時間へ足す。`HIGHWAY_RANK`は交差点で
+「自分が走ってきた道より上位の道と交わるか」を判定するための階級順で、**値そのものに
+意味は無く比較結果だけが使われる**。どちらも評価軸の重み付けとは別の関心事——軸は
+「その道を走るときのつらさ」、こちらは「そこを通るのにかかる時間」を表す。
+
+**暗黙の前提**: 停止の待ちを所要時間へ足すのに要る材料は、軸の構成と無関係に必要になる
+（`stop_count_material_ids`）。軸が分解した材料だけを経路へ運ぶ既定に任せると、停止の軸を
+非公開にした瞬間に所要時間から待ちが静かに消える。
 
 ## 暗黙の前提
 

@@ -24,8 +24,8 @@
 | components/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ29px四方のアイコンボタンで、タップしたポップオーバー内はドラッグ式タイムライン＋`input[type=datetime-local]`の直接指定[出発時刻]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
 | components/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
 
-`apiBaseUrl.ts`/`backendInternalUrl.ts`はブラウザからのfetch先（`NEXT_PUBLIC_API_BASE_
-URL`）とNext.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
+`apiBaseUrl.ts`/`backendInternalUrl.ts`はブラウザからのfetch先（`NEXT_PUBLIC_API_URL`）と
+Next.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
 ネットワークのURLになりうるため別変数）。`useLocation.ts`はブラウザのGeolocation APIを
 扱うhookで、起点座標の取得に使う。
 
@@ -36,7 +36,7 @@ URL`）とNext.js route handlerからのサーバー間fetch先を区別する�
 
 `fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`クライアントが共有するfetch骨格と
 エラー正規化。骨格は「fetch→通信エラーのtry/catch→`response.ok`確認→エラーボディ解析→
-`ApiError`をthrow→各段階でdebugLog記録」の7段で、**呼び出しごとに違うのは
+`ApiError`をthrow→各段階でdebugLog記録」で、**呼び出しごとに違うのは
 メソッド・成功時のボディ解釈・エラー文言の3点だけ**:
 
 | 入口 | 戻り値 | 使う場面 |
@@ -227,9 +227,9 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 - モバイル: 下部タブバー（ルート設定/ルート結果）+`BottomSheet`（2枚が`mobileSheet`で
   排他表示、高さ`mobileSheetHeightVh`を共有）。デスクトップと同じく
   「ルート設定」シートは`RouteForm`（タブの中身を描く。タブ列と選択状態は`page.tsx`側の
-  `Tabs.Root`が持つ）を描画し、`headerAction`propとして
-  `renderRouteSectionHeaderActions()`（タブ列＋「ルート生成」ボタン）をデスクトップと
-  同じヘルパーから渡す。
+  `Tabs.Root`が持つ）を描画し、`headerLead`propへタブ列（`renderSettingsTabs()`）、
+  `headerAction`propへ`renderRouteSectionHeaderActions()`（「ルート生成」ボタンと、
+  条件が変わっている印）をデスクトップと同じヘルパーから渡す。
 
 `BottomSheet`はposition:fixedのオーバーレイで暗幕を敷かない（表示中も地図をパン/ズーム
 できる）。地図の操作ボタンは画面の下端からの距離で置いているため、シートが占める高さを
@@ -266,8 +266,8 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
 `routes`配列の並び順（backendが`overall_difficulty`昇順で返す、`route_generator.py`
 参照）をそのまま使い、フロント側での並べ替えは行わない。タブは
-**候補ごと**（`routes`の件数ぶん、「順位番号（1始まり） 距離km」だけを表示する。方位・
-総合難易度はタブの中身（`RouteAxisProfile`）に出るためタブでは繰り返さない。経由地
+**候補ごと**（`routes`の件数ぶん、「順位番号（1始まり） 距離km」に加えて総合難易度を
+数値と長さの両方で表示する——タブを開かずに候補どうしを見比べられるようにするため。経由地
 ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
 の判定でdirection_label[固定文言]をそのまま表示する。
 `RouteCandidate.is_fastest`が立つ候補[目的地モードのみ]は順位番号の代わりに

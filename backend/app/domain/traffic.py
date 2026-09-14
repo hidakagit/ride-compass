@@ -6,7 +6,12 @@
 
 車ストレスは軸定義（DBが正本、軸スタジオから増減する）の内部軸と公開軸の階層構造で
 再現している。自転車インフラは正規化フラグ材料（`domain/recipe.py: bicycle_infra_flags`）
-の組み合わせで表し、domain/evaluation.pyの軸材料合成が直接参照する。
+の組み合わせで表し、`domain/material_catalog.py`の抽出器がそこから材料値を取り出す。
+
+分類のほかに、**所要時間モデルのパラメータ**も持つ（`STOP_SECONDS`: 停止要因1回あたりの
+時間損失、`HIGHWAY_RANK`: 交差点で優先関係を判定するための階級順）。読むのは
+`services/road_graph_engine.py`の走行時間合成で、評価軸の重み付けとは別の関心事
+——軸は「その道を走るときのつらさ」、こちらは「そこを通るのにかかる時間」を表す。
 """
 
 from typing import Literal

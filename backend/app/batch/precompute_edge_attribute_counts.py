@@ -71,8 +71,9 @@ async def run(database_url: str | None, dry_run: bool) -> int:
         # get_intersection_countsはwayの構成ノードであることで交差点の帰属を決めるため、
         # 呼び出し元の集合に依存しない決定的な値を返す。road_edgesを空間的な連続性を
         # 考慮せず任意順にチャンク分割しても、accident_countと同じチャンク単位の
-        # 呼び出しで問題ない。次数は`raw_intersection_nodes`（全域、
-        # precompute_road_node_degrees.pyが再構築）を参照する。
+        # 呼び出しで問題ない。次数は`road_nodes.degree`を参照するため、**このバッチの前に
+        # app.batch.precompute_road_node_degreesを実行しておくこと**——未実行のままだと
+        # 全edgeでintersection_count=0になる（警告は出ない）。
         async def handle_chunk(chunk: list[str]) -> int:
             async with session_factory() as session:
                 # run id取得はチャンクごとに直前で行う。edge_ids全体の処理は長時間かかりうるため、

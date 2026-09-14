@@ -207,9 +207,9 @@ export function draftFromExisting(def: AxisDefinitionResponse, materialOptions: 
     displayBandLabelsOverride: def.display_band_labels_override ?? null,
     passthrough: pickPassthroughFields(def),
   };
-  // "kind"の判別子で分岐する（AxisShapeは3種のPydantic discriminated unionの構造をそのまま
-  // 写した型のため、"terms"/"material"/"flags"というフィールド有無による判別も可能だが、
-  // backend側の判別子(kind)に合わせてこちらを単一の判定基準にする）。
+  // "kind"の判別子で分岐する（AxisShapeはPydantic discriminated unionの構造をそのまま
+  // 写した型のため、フィールドの有無による判別も可能だが、backend側の判別子(kind)に
+  // 合わせてこちらを単一の判定基準にする）。
   if (shape.kind === "categorical") {
     // 材料のdtypeで真偽値2択/カテゴリ値複数行のどちらの編集UIを初期表示するか決める
     // （保存済みmapping自体のキー型からは判別しない。JSON化されたmappingのキーは

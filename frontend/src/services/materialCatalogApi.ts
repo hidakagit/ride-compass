@@ -21,8 +21,8 @@ export async function getMaterialCatalog(): Promise<MaterialCatalogResponse> {
 // 同じく同一オリジンのroute handler（app/admin/api/material-values/[materialId]/、
 // lib/adminApiProxy.ts参照）を経由する。未知の材料idは404（fetchJsonがエラーとして
 // rejectする）、既知だが動的値一覧に対応していない材料・DB未接続・DB障害はいずれも
-// `{values: []}`（200）を返す（呼び出し側は空配列を「動的値一覧が使えない」の合図として
-// 自由テキスト入力へフォールバックする）。
+// `available=false`・空の`values`（200）を返す（呼び出し側はこれを「動的値一覧が使えない」の
+// 合図として自由テキスト入力へフォールバックする）。
 export async function getMaterialValues(materialId: string): Promise<MaterialValuesResponse> {
   const url = `/admin/api/material-values/${encodeURIComponent(materialId)}`;
   return fetchJson<MaterialValuesResponse>(url, {

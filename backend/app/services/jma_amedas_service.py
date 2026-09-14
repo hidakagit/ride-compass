@@ -13,7 +13,7 @@ JMAの観測値エンドポイント（jma_amedas_client.fetch_observation_map�
 
 観測値本体はRedis Hash（`jma:amedas:{station_id}`、TTL 900秒）でキャッシュする——
 気象データは5〜10分で失効する短命データのためPostGISには書き込まず、Redis上で
-完結させる設計（CLAUDE.md「JMA気象データ連携・キャッシュ基盤」節参照）。
+完結させる設計（docs/caching.md参照）。
 
 バッチ間隔（AMEDAS_REFRESH_INTERVAL_MINUTES）は気象庁アメダスの公式仕様（毎正時から
 10分おきに観測・配信）に合わせた10分にしている。TTL（15分）はバッチ間隔より長く取ることで、

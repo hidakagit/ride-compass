@@ -119,9 +119,9 @@ def fake_open_route_generation_setup(
 
 def submit_and_await_done(body: dict) -> dict:
     """POST /api/routes/generateでジョブを投稿し、GET /api/routes/generate/{job_id}で
-    status=="done"になった結果を返す（改善計画T265）。`BackgroundTasks`は`TestClient`の
-    リクエストサイクル内で同期的に実行されるため、ポーリングのための待機は不要——
-    投稿直後の1回のGETで結果が確定している。"""
+    status=="done"になった結果を返す。ジョブ本体は`asyncio.create_task`で起動するが、
+    `TestClient`は同じイベントループを同期的に回しきってからレスポンスを返すため、
+    ポーリングのための待機は不要——投稿直後の1回のGETで結果が確定している。"""
     submit_response = client.post("/api/routes/generate", json=body)
     assert submit_response.status_code == 202, submit_response.text
     job_id = submit_response.json()["job_id"]

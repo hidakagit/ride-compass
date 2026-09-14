@@ -62,7 +62,7 @@ export { COLOR_NO_DATA };
 function buildSteppedMode(
   valueExpression: unknown[],
   steps: { key: string; label: string; color: string }[],
-  boundaries: readonly number[]
+  boundaries: readonly number[],
 ): Pick<RouteStyleMode, "legend" | "colorExpression"> {
   const value: unknown[] = ["to-number", valueExpression];
   const noData: unknown[] = ["==", valueExpression, null];
@@ -133,8 +133,7 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
   // （domain/dynamic_way_values.py）、その不変条件はカタログのJSONには現れない。
   // 材料が引けないときは難易度モードへ倒す（塗れないより、軸の難易度で塗る方が近い）。
-  const signedMaterial =
-    axis.shape?.kind === "breakpoint_linear" ? axis.shape.terms[0]?.material : undefined;
+  const signedMaterial = axis.shape?.kind === "breakpoint_linear" ? axis.shape.terms[0]?.material : undefined;
   if (kind === "signed_material" && signedMaterial) {
     return buildRangeSteppedMode({
       id: axis.axis_id,
@@ -165,8 +164,8 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
 const DIFFICULTY_MODE: RouteStyleMode = {
   id: "difficulty",
   label: "総合難易度",
-  // difficultyは標高・風・路面をroute_preference.yaml（またはリクエストの重み上書き）の
-  // 重みで合成した0-100の絶対基準難易度（backend/app/domain/difficulty.py）。
+  // difficultyは各公開軸を、軸定義の既定重み（またはリクエストの重み上書き）で合成した
+  // 0-100の絶対基準難易度（backend/app/domain/difficulty.py）。
   // 「評価モデルが各区間をどれだけ走りにくいと見ているか」をそのまま地図で確認する用途
   // （研究インターフェース改善 §10-5）。
   ...buildSteppedMode(
@@ -176,7 +175,7 @@ const DIFFICULTY_MODE: RouteStyleMode = {
       label: rangeLabel(DEFAULT_DIFFICULTY_BOUNDARIES, i, ""),
       color,
     })),
-    DEFAULT_DIFFICULTY_BOUNDARIES
+    DEFAULT_DIFFICULTY_BOUNDARIES,
   ),
 };
 
@@ -209,7 +208,7 @@ export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): Ro
 // ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと
 // 同じ位置付け）。useAxisCatalogがGET /api/axis-catalog取得完了までの間・失敗時に使う。
 export const ROUTE_STYLE_MODES: readonly RouteStyleMode[] = routeStyleModesFromCatalogAxes(
-  axisCatalog.axes as CatalogAxis[]
+  axisCatalog.axes as CatalogAxis[],
 );
 
 // 既定のレンズは総合難易度（軸の公開状態に依存せず常に存在するモード）。
@@ -217,7 +216,7 @@ export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = LENS_DIFFICULTY_ID;
 
 export function isRouteStyleModeId(
   modes: readonly RouteStyleMode[],
-  value: string | null | undefined
+  value: string | null | undefined,
 ): value is RouteStyleModeId {
   return modes.some((mode) => mode.id === value);
 }
@@ -233,7 +232,7 @@ export function getRouteStyleMode(modes: readonly RouteStyleMode[], id: RouteSty
     "map:route-style-mode",
     `route style mode "${id}" not found, falling back to "${modes[0]?.id ?? "(no modes)"}"`,
     { requestedId: id, availableIds: modes.map((mode) => mode.id) },
-    "warn"
+    "warn",
   );
   return modes[0];
 }

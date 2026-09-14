@@ -413,8 +413,8 @@ async def run_import(
                 "WHERE id=$1",
                 run_id, datetime.now(timezone.utc), total_ways, total_nodes,
             )
-            # 容量予算の監視（Supabaseフリープラン500MB・プロトタイプ目標300MB、
-            # docs/osm-pbf-import.md 10章）。取込のたびに現在のDBサイズをサマリへ出す。
+            # 取込のたびに現在のDBサイズをサマリへ出す（増え方を追えるようにするため。
+            # 上限そのものは運用の判断で、このバッチは持たない）。
             db_size_bytes = await conn.fetchval("SELECT pg_database_size(current_database())")
             logger.info(
                 "取込完了: run_id=%s ways=%d nodes=%d pois=%d chunks=%d marked_tiles=%d(z%d) "

@@ -1969,8 +1969,8 @@ export default function Home() {
             <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
               {routes.map((route, index) => (
                 <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
-                  {/* タブは候補を見分ける最小限の表記（順位番号・距離）だけを持つ。方位・
-                      難易度はタブの中身（RouteAxisProfile）に出るためここでは繰り返さない。
+                  {/* タブは候補を見分ける表記（順位番号・距離）と、開かずに見比べるための
+                      総合難易度を持つ。
                       並び順（overall_difficulty昇順）に沿った1始まりの順位番号を先頭に
                       付け、方位が同じ候補どうしも見分けられるようにする（周回生成は軸重み
                       駆動のフロンティア方式のため、同じ方位ラベルの候補が複数並びうる。

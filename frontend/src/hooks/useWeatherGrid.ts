@@ -24,7 +24,7 @@ import { usePolledFetch } from "@/hooks/usePolledFetch";
 
 // バックエンド側のTTLキャッシュ（weather_client.py: WIND_GRID_CACHE_TTL_SECONDS）に合わせた
 // 間隔で再取得する。これより短い間隔で再取得してもキャッシュヒットするだけで新しいデータは
-// 得られず、624地点ぶんの応答（約0.9MB）を無駄に再ダウンロードするだけになる。
+// 得られず、格子点ぶんの応答（MB級）を無駄に再ダウンロードするだけになる。
 const WEATHER_GRID_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000;
 // usePolledFetchの初期値。毎レンダー新しい配列を渡すとdataの参照が無用に変わるため、
 // モジュールスコープの1つを共有する。
@@ -135,7 +135,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
                 point.longitude >= bbox.minLon &&
                 point.longitude <= bbox.maxLon &&
                 point.latitude >= bbox.minLat &&
-                point.latitude <= bbox.maxLat
+                point.latitude <= bbox.maxLat,
             );
         const rawGrid = mergeWindGridKeepingStale(relevantPrevious, freshGrid);
         rawDetailGridRef.current = rawGrid;

@@ -1043,8 +1043,8 @@ class RoadGraphEngine:
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
         geometry, _ = _concat_edge_geometries(edges_in_path)
-        # road_graphエンジンは実測所要時間モデルを持たないため、他所（segments構築時の
-        # estimated_arrival_time）と同じASSUMED_SPEED_KMHで概算する。
+        # ここだけは走行モデル（勾配・風・路面で速度が変わる）を通さず、仮定巡航速度の
+        # ままで概算する。区間の疎通確認が用途で、探索を経ずEdge列の長さしか持たないため。
         duration_minutes = round(distance_km / self._assumed_speed_kmh * 60, 1)
 
         return RouteSegment(distance_km=distance_km, duration_minutes=duration_minutes, geometry=geometry)

@@ -94,23 +94,25 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 `_LegCostComposer`の`lens_axis_id`）。
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
 リクエストごとに変えられ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
-両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う:
-往路レグは同じ探索範囲（タイル集合）で前回学習した値（無ければ`ROUTE_DETOUR_RATIO`）、
-復路レグ・目的地ルートの後ろ向きレグは、直前に求めた往路木（前向き木）から測った中央値
-（周回はリングNode、目的地ルートは起点から1km以上の到達Node）で、その値を
-`search_graph_cache.set_detour_ratio`へ学習値として保存する（`_median_detour_ratio`・
-`_learn_detour_ratio`）。運用時は`_build_search_graph`のINFOサマリ（`wind_time_varying`・
-`speed_kmh`・`detour_ratio=値(learned|default)`）、`compose_leg_costs`ログ（レグ・迂回率・
-通過予定時刻の範囲・合成時間）、`select_turnarounds`/`select_via_nodes`の
-`detour_ratio_median`で確認できる。
+両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う。直線距離を走行時間へ直す係数
+として使うもので、`prepare`が同じ探索範囲（タイル集合）で前回学習した値
+（無ければ`ROUTE_DETOUR_RATIO`）を合成器へ渡す。往路木を求めるたびに実測の中央値
+（周回はリングNode、目的地ルートは起点から1km以上の到達Node）を測って
+`search_graph_cache.set_detour_ratio`へ学習値として保存し（`_median_detour_ratio`・
+`_learn_detour_ratio`）、目的地ルートの後ろ向きレグはその場で測った値で到着予定時刻を置く。
+**周回の復路レグは迂回率を読まない**——総所要時間は目標距離÷仮定速度で決まる（距離
+フィルタが目標±許容を強制する）。運用時は`_build_search_graph`のINFOサマリ
+（`wind_time_varying`・`speed_kmh`・`detour_ratio=値(learned|default)`）、
+`compose_leg_costs`ログ（`leg`・`mode`・`bins`・`compose_ms`）、
+`select_turnarounds`/`select_via_nodes`の`detour_ratio_median`で確認できる。
 
 `RouteGenerateRequest.waypoints`/`destination`（経由地・目的地指定）にも対応する
 （`api/routers/routes.py: generate_routes`）。
 
 ## 戦略層（`route_generator.py: RouteGenerator`）
 
-`LoopRoutingEngine`という契約（Protocol、`prepare`・`trace_loop`・`evaluate_loops`等。
-契約そのものは`domain/routing.py`の定義が正本）を挟むことで、`RouteGenerator`自体は
+`LoopRoutingEngine`という契約（`route_generator.py`のProtocol定義が正本。
+`prepare`・`trace_loop`・`evaluate_loops`等）を挟むことで、`RouteGenerator`自体は
 探索エンジンの内部実装を知らない設計になっている（将来別方式のエンジンを差し込める余地を持たせるための抽象化）。
 現在の実装は`RoadGraphEngine`のみ。
 
@@ -429,7 +431,9 @@ difficulty群自体の順序（主キー）・同点でない候補間の順序�
 4. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
    先頭へ回す——伸び率の許す範囲でより平均difficultyの低い経路が他に存在すれば難易度順
    ではそちらが上位に来うるため、「最良路は必ず結果に含まれる」をランキングとは独立に
-   保証する。
+   保証する。並べた後に`MAX_VIA_NODE_CANDIDATES_EXAMINED`件で打ち切る（周回の折返し点
+   選定と同じ規則。**並べる前に切ると**Node index順の任意の集合を残すことになり、良い
+   候補が理由なく落ちる）。打ち切ったときはWARNINGを出す。
 5. `domain/routing.py: select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じ
    物理区間を共有するNode（行って戻る形、`_loop_edge_lengths_by_physical_segment`で
    進行方向を無視した判定——単純なEdge index集合の比較だと同じ道の逆方向Edgeを

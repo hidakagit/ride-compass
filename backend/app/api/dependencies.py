@@ -211,8 +211,9 @@ async def open_route_generation_setup(
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。
 
-    FastAPIのリクエストスコープ外（`BackgroundTasks`経由、レスポンス送出後に実行される）
-    で使うため、`Depends`は使えない——リクエストのDBセッションはハンドラ関数が返った
+    FastAPIのリクエストスコープ外（`asyncio.create_task`で起動するジョブ本体、
+    レスポンス送出後も走り続ける）で使うため、`Depends`は使えない——リクエストの
+    DBセッションはハンドラ関数が返った
     時点で閉じられ、その後もバックグラウンドタスクが同じセッションを使い続けようとすると
     失敗する（`graph_service.py: _warm_tile_cache_background`が同じ理由で新規セッションを
     開いているのと同じ制約）。

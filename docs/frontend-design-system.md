@@ -22,7 +22,7 @@
   ダイアログ等）は必ず`components/ui/`のコンポーネントへ集約する。個別ファイルで
   独自に`cva`バリアントを増やしたり、同じ見た目のdivへ直接Tailwindクラスを都度書いたり
   しない（後者は「レイアウトのみで色を持たない」単純なケース——`flex flex-col gap-*`等
-  ——に限り許容する。T299のComparisonPanel/RouteSettingsPanel/MapLayersPanel移行を参照）。
+  ——に限り許容する）。
 
 ## 3. Design Token
 
@@ -90,7 +90,7 @@
 
 | コンポーネント | 概要 |
 |---|---|
-| `Button` | `variant`(primary/secondary/danger/ghost)・`size`(sm/md)。`type`未指定時は`"button"`固定（グローバル`button[type=submit]`リセットの誤爆防止） |
+| `Button` | `variant`(primary/secondary/ghost)・`size`(sm/md)。`type`未指定時は`"button"`固定（グローバル`button[type=submit]`リセットの誤爆防止） |
 | `Input` | `type`をパススルー（text/number両対応）。`invalid`でaria-invalid＋赤枠 |
 | `Card` | 単一のシンプルなラッパー。`bg-[var(--color-surface-2)] rounded-md p-2`（既存の`legendCard`/`admin.card`と同一実装に合わせた） |
 | `Dialog` | Radix Dialogのラップ（Root/Trigger/Content）。`title`必須propsでアクセシブル名を型で強制 |
@@ -108,6 +108,7 @@ CSSのみの共有スタイル（コンポーネントを介さず、各`*.modul
 | `mapCtrlButton.module.css` | MapLibre純正コントロールの続きに見える29px四方ボタン |
 | `stepperButton.module.css` | 値を1段ずつ増減する枠線ボタン |
 | `statusDot.module.css` | データ取得状態の表現（点滅／中空／danger） |
+| `unusedBadge.module.css` | 使われていないことを示す小さなバッジ |
 | `axisLegend.module.css` | 軸の寄与を示す帯グラフと凡例ドット |
 
 **別コンポーネントの`*.module.css`を直接importして借りない**。CSS Modulesは存在しない
@@ -169,8 +170,8 @@ Modulesファイルに持たせる。
 副作用を持っていた（実機Playwrightで発覚）。
 
 T299フォローアップでこのブランケットルールを撤去し、**「本当にメインの導線」だけが
-個別に44pxを持つ方針へ転換した**（例: 各レイヤーの開閉見出しのように、パネル内で最も
-繰り返しタップされる操作が`@media (max-width: 640px) { min-height: 44px; }`を自前で持つ）。それ以外の補助的な
+個別に44pxを持つ方針へ転換した**（例: モバイル下部タブの`page.module.css: .tabButton`の
+ように、画面の切り替えそのものを担う操作が`min-height: 44px`を自前で持つ）。それ以外の補助的な
 ボタン（一括操作リンク・情報アイコン・開発者向けボタン等）は、あえて44pxへ揃えず
 自然なサイズのままにしている。
 

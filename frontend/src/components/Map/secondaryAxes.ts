@@ -1,11 +1,9 @@
-// 二次軸（推定指標）のカタログ（改善計画T166「地図チップ最上位を次数へ反転」）。
+// 二次軸（推定指標）のカタログ。
 //
-// 地図チップの「推定指標（合成）」グループは、axis-catalog.json（display!==null）の
-// 全軸を列挙する（軸スタジオが作る新規軸も、材料がタイル焼き込み済みならここへ
-// 自動で追加される）。専用の表示レイヤー
-// （MapLayerId）を持つ軸（kind="ramp"の軸=axisMapLayerId経由）はON/OFFトグル付きの行として、
-// 専用レイヤーの無い軸（勾配のみ、材料がタイル非依存）は薄字＋代役へのポインタだけの
-// 行として表示する（MapOverlayControls.tsx参照）。
+// axis-catalog.json（display!==null）の軸を要約として並べる（軸スタジオが作る新規軸も、
+// 材料がタイル焼き込み済みならここへ自動で入る）。読むのは軸→一次属性の解決
+// （page.tsx: 材料の観測データレイヤーとの連動判定）と、軸の材料内訳
+// （lib/evaluationAxes.ts）。
 //
 // 正式名はaxis-catalog.json（display.label、backendのregistry_defaults.pyが単一ソース）を
 // そのまま使う。このファイルが独自に持つのは、UI固有の対応（略名・対応する表示レイヤーID・
@@ -80,9 +78,7 @@ export interface SecondaryAxisSummary {
  * 軸のビューモデルを組み立てる箇所が複数ある（`secondaryAxesFromCatalogAxes`・
  * `evaluationAxes.ts: preferenceAxisFromCatalog`）ため、この変換だけを共有する
  * ——フィールドを1つ足したときに片方だけ取り残されるのを防ぐ。 */
-export function materialBreakdownFromCatalog(
-  entries: CatalogAxis["material_breakdown"],
-): AxisMaterialBreakdown[] {
+export function materialBreakdownFromCatalog(entries: CatalogAxis["material_breakdown"]): AxisMaterialBreakdown[] {
   return (entries ?? []).map((entry) => ({
     materialId: entry.material_id,
     label: entry.label,
@@ -134,30 +130,32 @@ function layerIdFor(axis: CatalogAxis): MapLayerId | undefined {
  * 軸スタジオから変えられるため、コード側で特定の値を名指しすると、値が変わった時点で
  * 黙って効かなくなる。 */
 export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
-  return axes
-    // display===nullは非公開軸（カタログに載るが表示情報を持たない）。
-    .filter((axis) => axis.display !== null && axis.show_map_icon !== false)
-    .map((axis) => ({
-      axisId: axis.axis_id,
-      label: axis.display!.label,
-      description: axis.description ?? "",
-      chipLabel: axis.chip_label ?? axis.display!.label,
-      layerId: layerIdFor(axis),
-      primaryAttributeIds: axis.primary_attribute_ids ?? [],
-      iconId: axis.icon_id ?? undefined,
-      panelHint: axis.panel_hint ?? undefined,
-      mapValueThresholds: axis.map_value_thresholds ?? undefined,
-      displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
-      dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
-      mapValueKind: axis.map_value_kind,
-      mapValueUnit: axis.map_value_unit,
-      rawValueUnit: axis.raw_value_unit ?? null,
-      materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
-    }));
+  return (
+    axes
+      // display===nullは非公開軸（カタログに載るが表示情報を持たない）。
+      .filter((axis) => axis.display !== null && axis.show_map_icon !== false)
+      .map((axis) => ({
+        axisId: axis.axis_id,
+        label: axis.display!.label,
+        description: axis.description ?? "",
+        chipLabel: axis.chip_label ?? axis.display!.label,
+        layerId: layerIdFor(axis),
+        primaryAttributeIds: axis.primary_attribute_ids ?? [],
+        iconId: axis.icon_id ?? undefined,
+        panelHint: axis.panel_hint ?? undefined,
+        mapValueThresholds: axis.map_value_thresholds ?? undefined,
+        displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
+        dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
+        mapValueKind: axis.map_value_kind,
+        mapValueUnit: axis.map_value_unit,
+        rawValueUnit: axis.raw_value_unit ?? null,
+        materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
+      }))
+  );
 }
 
 // ビルド時静的json由来のフォールバック専用値（モジュール先頭の注記参照）。
 /** 二次軸(推定指標)を、axis-catalog.jsonの並び順(確定命名表と同じ順)で返す。 */
 export const SECONDARY_AXES: readonly SecondaryAxisSummary[] = secondaryAxesFromCatalogAxes(
-  axisCatalog.axes as CatalogAxis[]
+  axisCatalog.axes as CatalogAxis[],
 );

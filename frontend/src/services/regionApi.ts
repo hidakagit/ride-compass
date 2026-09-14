@@ -68,10 +68,9 @@ export function accidentTileUrl(): string {
   return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
 }
 
-// 停止要因POIレイヤーの世代。正はbackend（region_service.py: POI_TILE_VERSION）で、
-// 生成物経由で受け取る。用途はROAD_SURFACE_TILE_VERSIONと同じ（ブラウザHTTPキャッシュのバスト）。
-// stop_poiのみの1レイヤー構成（交差点密度は地図上の独立可視化レイヤーとしては提供しない、
-// staticAttributeLayers.ts参照）。
+// POIタイルの世代。正はbackend（region_service.py: POI_TILE_VERSION）で、生成物経由で
+// 受け取る。用途はROAD_SURFACE_TILE_VERSIONと同じ（ブラウザHTTPキャッシュのバスト）。
+// 停止要因POIと補給休憩POIが同じタイルを共有する（staticAttributeLayers.ts参照）。
 const POI_TILE_VERSION = regionTileConfig.poi.tile_version;
 
 // 停止要因POIの地域レイヤーのベクタタイルURL。
@@ -83,7 +82,7 @@ export function poiTileUrl(): string {
 
 // 路面タイルを要求するズーム範囲。正はbackend（domain/region.py）で、生成物経由で受け取る
 // （手書きで複製すると、backendだけ広げてもフロントが要求せずレイヤーが黙って消える）。
-// POI/交差点密度レイヤーも同じズーム範囲に準拠する（api/routers/region.py参照）。
+// POIタイルも同じズーム範囲に準拠する（api/routers/region.py参照）。
 export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
 export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 
