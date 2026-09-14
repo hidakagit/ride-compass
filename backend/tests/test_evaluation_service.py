@@ -6,7 +6,24 @@ from app.domain.attributes import (
 )
 from app.domain.axis_definitions import default_axis_weights
 from app.domain.graph import DirectedEdge, Node, RoadGraph
-from app.services.evaluation_service import evaluate_graph, load_route_preference
+from app.domain.evaluation import compute_edge_costs_bulk
+from app.services.evaluation_service import load_route_preference
+
+
+def evaluate_graph(graph, elevation_attributes, surface_attributes, preference, **kwargs):
+    """`compute_edge_costs_bulk`をテストから呼ぶための薄い入口。
+
+    本番の探索は`RoadGraphEngine`のタイル単位静的スコア行列を通り、この形では呼ばない。
+    実装側に置くと、引数を1つ増やすたびに本番へ読み手の居ない中継を揃える固定費が残るため、
+    使う側であるここに置く。
+    """
+    kwargs.setdefault("designated_edge_ids", set())
+    return compute_edge_costs_bulk(
+        graph, elevation_attributes, surface_attributes, preference,
+        weights=preference.weights, **kwargs,
+    )
+
+
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
 # スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。

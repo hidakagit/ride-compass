@@ -250,12 +250,6 @@ class LegCostArrays:
     # `full_edge_row`順のcategorical材料id→値の配列（静的スコア行列の列をそのまま指すため
     # レグ間で共有する）。区間表示の内訳が値ごとの延長割合を出すために保持する。
     categorical_material_arrays: dict[str, np.ndarray]
-    # `full_edge_row`順の通過予定時刻（出発からの経過時間[h]）。時変化しないレグはNone。
-    passage_hours: np.ndarray | None
-    # `full_edge_row`順の風の成分（m/s、正が向かい風）。所要時間の算出（走行モデル）が使う。
-    # 風のデータが無いレグは0。
-    headwind_ms: np.ndarray
-    crosswind_ms: np.ndarray
     # 区間ごとの所要時間（秒）。`travel_seconds_lazy`は`cost_lazy`と同じ行順で、探索の
     # コストの下地になる。ターンの待ちは遷移ごとに決まるためどちらにも含まない。
     travel_seconds_full: np.ndarray
@@ -399,8 +393,13 @@ class _LegCostComposer:
         duration_hours: float | None = None,
         passage_hours: np.ndarray | None = None,
     ) -> LegCostArrays:
-        """`anchor`から`direction=+1`なら離れていく・`-1`なら向かっていくレグとして、
+        """`direction=+1`なら起点から離れていく・`-1`なら向かっていくレグとして、
         そのレグを走る時刻の風でコスト配列を合成する。
+
+        `anchor`は**在るかどうかだけ**を見る（起点が決まっていないリクエストでは風を
+        時刻で変えられないため、1本のスナップショットへ落ちる）。座標の値は使わない
+        ——風の予報は起点1地点ぶんを`WeatherService`が既に引いており、ここでは方位だけが
+        Edgeごとに効く。
 
         `duration_hours`（このレグに何時間かかる見込みか）を渡すと、レグの中を
         `TIME_BIN_HOURS`ごとのビンへ分けた配列（`cost_bins_lazy`）も併せて作る。到達時刻を
@@ -454,9 +453,6 @@ class _LegCostComposer:
             axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=representative.material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
-            passage_hours=representative.passage_hours,
-            headwind_ms=representative.headwind_ms,
-            crosswind_ms=representative.crosswind_ms,
             travel_seconds_full=representative.travel_seconds_full,
             travel_seconds_lazy=representative.travel_seconds_lazy,
             cost_bins_lazy=np.vstack([b.cost_lazy for b in bins]),
@@ -554,9 +550,6 @@ class _LegCostComposer:
             axis_raw_arrays=self._axis_raw_arrays,
             material_arrays=material_arrays,
             categorical_material_arrays=self._categorical_material_arrays,
-            passage_hours=passage,
-            headwind_ms=headwind,
-            crosswind_ms=crosswind,
             travel_seconds_full=travel,
             travel_seconds_lazy=lazy_travel,
             cost_bins_lazy=lazy_cost.reshape(1, -1),
@@ -701,11 +694,11 @@ class RoadGraphEngine:
         # 到達予想時刻・所要時間の算出に使う。
         self._assumed_speed_kmh = assumed_speed_kmh
         self._elevation_attribute_service = elevation_attribute_service
-        # evaluation_service.evaluate_graph（compute_edge_costs_bulkのbbox全体一括評価）は本エンジンから
-        # 不要（探索コストは_build_search_graphがbbox全体ぶんリクエストにつき1回だけ
-        # ベクトル合成する）。evaluate_graph自体・compute_edge_costs_bulkは
-        # 回帰テストオラクルとして残置——静的スコア行列（StaticEdgeScoreMatrix）が同じ
-        # 抽出・計算フェーズ（_evaluate_axes_bulk）を共有するため、両者の一致は引き続き
+        # bbox全体の一括評価（compute_edge_costs_bulk）は本エンジンから不要
+        # （探索コストは_build_search_graphがbbox全体ぶんリクエストにつき1回だけ
+        # ベクトル合成する）。compute_edge_costs_bulkは回帰テストオラクルとして残る
+        # ——静的スコア行列（StaticEdgeScoreMatrix）が同じ抽出・計算フェーズ
+        # （_evaluate_axes_bulk）を共有するため、両者の一致は引き続き
         # tests/test_evaluation_bulk.pyで検証する。
         self._weather_service = weather_service
         self._route_preference = route_preference
@@ -1949,7 +1942,7 @@ class RoadGraphEngine:
         fallback_ms = kmh_to_ms(context.composer.speed_kmh)
         total = 0.0
         for edge, leg_index in zip(edges, leg_of_edge):
-            leg = context.legs[leg_index] if leg_index < len(context.legs) else context.legs[0]
+            leg = context.legs[leg_index]
             row = context.full_edge_row.get(edge.edge_id)
             seconds = leg.travel_seconds_full[row] if row is not None else np.inf
             total += float(seconds) if np.isfinite(seconds) else edge.distance_m / fallback_ms
@@ -1959,8 +1952,6 @@ class RoadGraphEngine:
         """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。"""
         structure = context.turn_structure
         lazy_graph = context.lazy_graph
-        if structure is None or lazy_graph is None:
-            return 0.0
         states: list[int] = []
         for edge in edges:
             pair = (
@@ -2140,13 +2131,10 @@ async def _get_or_build_lazy_graph(
     （`_build_search_graph`のtile_set docstring参照）。Noneの場合はキャッシュを経由せず
     毎回構築する。
 
-    本関数は`build_lazy_road_graph`へ`edge_cost_by_id`を渡さず、決定的フォールバック
-    （edge_idの昇順で先頭を採用）で並行Edge（同一Node間の複数Edge）を解消する——コストは
-    リクエストごと（軸重み・風・0次フィルタ）に変わるため、タイル集合だけで決まる
-    このキャッシュとは「cost最小を採用」方式は両立しない。2つの並行Edgeのうち一方だけが
-    このリクエストの0次フィルタで除外される稀なケースでは、cost最小方式なら自動的に
-    許可される側が選ばれるが、この方式では選ばれない場合がある（`(u,v)`ペア自体が
-    到達不能になる）。実データでの並行Edge自体が稀なうえ、その中でさらに片方だけ
+    並行Edge（同一Node間の複数Edge）はedge_idの昇順で先頭を採る——コストはリクエストごと
+    （軸重み・風・0次フィルタ）に変わるため、タイル集合だけで決まるこのキャッシュとは
+    「cost最小を採用」方式が両立しない。2つの並行Edgeのうち一方だけがこのリクエストの
+    0次フィルタで除外される稀なケースでは、`(u,v)`ペア自体が到達不能になりうる。実データでの並行Edge自体が稀なうえ、その中でさらに片方だけ
     0次フィルタ対象という二重に稀な条件のため、同一タイル集合への2回目以降の
     リクエストでグラフ構築・索引構築を丸ごと省略できる利点を優先した
     （判断理由の詳細はdocs/tasks/T537.md参照）。

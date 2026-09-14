@@ -24,27 +24,19 @@ const EXPECTED_LABEL: Record<number, string> = {
 describe("getWeatherCodeDisplay", () => {
   it("backendが返す全コードが、フォールバックへ落ちずに意図どおりのラベルになる", () => {
     for (const code of BACKEND_WEATHER_CODES) {
-      const display = getWeatherCodeDisplay(code, 1);
+      const display = getWeatherCodeDisplay(code);
       expect(display, `code=${code}`).not.toBeNull();
       expect(display!.label, `code=${code}`).toBe(EXPECTED_LABEL[code]);
     }
   });
 
   it("weather_codeが無い（null）ならnullを返す（呼び出し元はチップ自体を出さない）", () => {
-    expect(getWeatherCodeDisplay(null, 1)).toBeNull();
+    expect(getWeatherCodeDisplay(null)).toBeNull();
   });
 
   it("未知コードはくもりへ倒す（アイコンを消すより粗く出す方がまし）", () => {
     // 表に無いコードでもnullにはしない。ただし「雨・雪が黙ってくもりになる」のを避けるため、
     // 上のテストがbackendの実際の出力を全件押さえている。
-    expect(getWeatherCodeDisplay(9999, 1)?.label).toBe("くもり");
-  });
-
-  it("晴れだけ昼夜でアイコンが変わる", () => {
-    const day = getWeatherCodeDisplay(0, 1);
-    const night = getWeatherCodeDisplay(0, 0);
-    expect(day!.Icon).not.toBe(night!.Icon);
-    // 晴れ以外は昼夜で変えない。
-    expect(getWeatherCodeDisplay(63, 1)!.Icon).toBe(getWeatherCodeDisplay(63, 0)!.Icon);
+    expect(getWeatherCodeDisplay(9999)?.label).toBe("くもり");
   });
 });

@@ -70,7 +70,7 @@ async def preview_route(
 
 
 class RoutePreferenceWeights(RootModel[dict[str, float]]):
-    """Edge評価・区間難易度（絶対評価、evaluate_graph/難易度合成）の重み。
+    """Edge評価・区間難易度（絶対評価、難易度合成）の重み。
     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
     `domain/route_preference.py: RoutePreference`と同じ。
 

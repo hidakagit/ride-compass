@@ -10,9 +10,8 @@ interface PostRequestOptions {
   category: string;
   /** 「{errorLabel}に失敗しました」の形でエラーメッセージに使う対象名。 */
   errorLabel: string;
-  /** 指定時はJSONボディとして送る（Content-Type: application/jsonも自動で付く）。
-   * 省略時はボディ無しのPOST（refreshBasemapCacheのような操作系エンドポイント向け）。 */
-  body?: unknown;
+  /** JSONボディとして送る（Content-Type: application/jsonも自動で付く）。 */
+  body: unknown;
   timeoutMs?: number;
 }
 
@@ -32,7 +31,7 @@ function postAndCheckOk(
     // GET系の「◯◯の取得に失敗しました」とは違い、POSTは操作の動詞をerrorLabelへ含める
     // （「地図キャッシュの更新」「内訳取得」）。
     messages: { failure: `${errorLabel}に失敗しました`, parseFailure: `${errorLabel}に失敗しました` },
-    ...(body !== undefined ? { requestMeta: { body } } : {}),
+    requestMeta: { body },
   });
 }
 
@@ -146,7 +145,7 @@ export async function fetchDynamicWayValues(
   y: number,
   bearingDeg: number,
   at?: Date,
-  speedKmh?: number
+  speedKmh?: number,
 ): Promise<DynamicWayValuesResult> {
   const params = new URLSearchParams({ bearing_deg: String(bearingDeg) });
   if (at) params.set("at", at.toISOString());
@@ -171,4 +170,3 @@ export async function fetchDynamicWayValues(
     return { values: {}, error: true };
   }
 }
-

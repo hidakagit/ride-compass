@@ -12,7 +12,6 @@ from app.domain.routing import (
     build_turn_expanded_tree,
     combine_forward_backward_at_nodes,
     edge_bearings,
-    node_costs_from_state_costs,
     turn_expanded_path_edge_indices,
     turn_expanded_shortest_path,
     turn_seconds_for,
@@ -104,20 +103,6 @@ def test_turn_expanded_structure_transition_count_matches_in_times_out_degree():
     assert structure.state_count == len(lazy_graph.edge_ids)
     assert len(structure.indptr) == structure.state_count + 1
     assert int(structure.indptr[-1]) == len(structure.target_state)
-
-
-def test_one_to_all_gives_the_distance_along_the_path_when_turns_are_free():
-    """ターンの費用が0なら、Nodeごとのコストは経路上の区間の所要時間の和になる。"""
-    graph = _crossroads()
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
-    lazy_graph, csr, tree = _tree_for(graph, "S", free)
-    per_node = node_costs_from_state_costs(tree.state_cost, csr[1], csr[0].node_count)
-
-    assert per_node[lazy_graph.node_id_to_index["C"]] == pytest.approx(100.0 / SPEED_MS)
-    for node_id in ("N", "E", "W"):
-        assert per_node[lazy_graph.node_id_to_index[node_id]] == pytest.approx(200.0 / SPEED_MS)
-    # 起点は「戻ってくるコスト」になる（状態の空間に「まだ走っていない」が無いため）。
-    assert per_node[lazy_graph.node_id_to_index["S"]] == pytest.approx(200.0 / SPEED_MS)
 
 
 def test_expensive_right_turn_makes_the_search_avoid_it():
@@ -464,3 +449,19 @@ def test_crossing_a_higher_class_road_adds_cost_even_when_going_straight():
 
     assert straight_cost(without_rank) == 0.0, "階級を渡さなければ直進は無料"
     assert straight_cost(with_rank) == spec.major_crossing_seconds
+
+
+def test_one_to_all_gives_the_distance_along_the_path_when_turns_are_free():
+    """ターンの費用が0なら、Nodeごとのコストは経路上の区間の所要時間の和になる。
+
+    畳み込みは`build_turn_expanded_tree`が木を作るときに済ませている（`node_cost`）。
+    """
+    graph = _crossroads()
+    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    lazy_graph, csr, tree = _tree_for(graph, "S", free)
+
+    assert tree.node_cost[lazy_graph.node_id_to_index["C"]] == pytest.approx(100.0 / SPEED_MS)
+    for node_id in ("N", "E", "W"):
+        assert tree.node_cost[lazy_graph.node_id_to_index[node_id]] == pytest.approx(200.0 / SPEED_MS)
+    # 起点は「戻ってくるコスト」になる（状態の空間に「まだ走っていない」が無いため）。
+    assert tree.node_cost[lazy_graph.node_id_to_index["S"]] == pytest.approx(200.0 / SPEED_MS)

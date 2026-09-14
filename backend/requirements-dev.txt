@@ -4,3 +4,6 @@
 # Python lint。設定はruff.toml。CI（.github/workflows/ci.yml）とpre-commit
 # （scripts/pre-commit-ruff.sh）が同じバージョンを使う。
 ruff==0.16.6
+# ベンチマーク（benchmarks/bench_t790_turn_expanded.py）が現行の自前探索と比べるために使う。
+# 本番の探索は到達時刻をラベルとして持ち回るためscipyでは表せず、webイメージには入れない。
+scipy==1.18.1

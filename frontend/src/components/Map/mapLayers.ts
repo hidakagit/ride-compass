@@ -123,14 +123,6 @@ export const MAP_OVERLAY_GROUP_LABELS: Record<MapOverlayGroup, string> = {
   environment: "環境",
   spot: "スポット",
 };
-/** 地図チップの略名（4文字以下）。サイドバーはMAP_OVERLAY_GROUP_LABELS（正式名）を
- * 使うため、地図チップ=略名／サイドバー=正式名という他レイヤーのlabel/chipLabelと
- * 同じ使い分けになる。 */
-export const MAP_OVERLAY_GROUP_CHIP_LABELS: Record<MapOverlayGroup, string> = {
-  road: "道路",
-  environment: "環境",
-  spot: "スポット",
-};
 /** チップの表示順（道路→環境→スポット）。 */
 export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = ["road", "environment", "spot"];
 
@@ -485,11 +477,6 @@ export function buildMapLayers(
 }
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
-
-/** サイドバーの各レイヤー設定セクション（<details>）のDOM id */
-export function layerSectionDomId(id: MapLayerId): string {
-  return `map-layer-section-${id}`;
-}
 
 // レイヤーごとのデータ取得状態。「表示OFF」「ズーム範囲外」（road専用のzoomWarning）は
 // どちらも既存の案内があるが、タイル取得失敗とそのレイヤーの対象データが0件の場合を

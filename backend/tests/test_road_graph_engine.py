@@ -14,6 +14,7 @@ import pytest
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
 from app.domain.errors import RoutingError
+from app.domain import routing
 from app.domain.evaluation import build_static_edge_score_matrix
 from app.domain.hard_filters import compute_hard_filter_excluded
 from app.domain.route_preference import RoutePreference
@@ -2178,14 +2179,18 @@ def _build_context_score_fields(
     )
     full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
 
+    # ターン展開構造は実物を組む（`_turn_seconds_along`が引く）。一対全木そのもの
+    # （statics・origin_index）はこれらのテストが経由しないためダミーでよい。
+    lazy_graph = routing.build_lazy_road_graph(graph)
+    turn_structure = routing.build_turn_expanded_structure(
+        routing.build_csr_structure(lazy_graph), lazy_graph, score_matrix.bearing_deg,
+    )
+
     return dict(
         composer=composer,
         legs=[composer.compose("outbound", origin, 0.0, +1)],
-        # 一対全木用（これらのテストはselect_loop_turnaroundsを経由しないため
-        # statics=None・turn_structure=None・origin_index=0のダミーでよい）。
-        # tile_set=Noneも同じ理由。
         statics=None,
-        turn_structure=None,
+        turn_structure=turn_structure,
         origin_index=0,
         tile_set=None,
         full_edge_row=full_edge_row,

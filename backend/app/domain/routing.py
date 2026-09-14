@@ -23,7 +23,7 @@ Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を�
 import logging
 import math
 import time
-from collections.abc import Callable, Collection, Container, Mapping, Sequence
+from collections.abc import Callable, Collection, Container, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -56,15 +56,13 @@ class LazyRoadGraph:
 
 
 def build_lazy_road_graph(
-    graph: RoadGraphLike, edge_cost_by_id: Mapping[str, float] | None = None
+    graph: RoadGraphLike,
 ) -> LazyRoadGraph:
     """`graph`のトポロジから`LazyRoadGraph`を構築する（Hard Constraint自体は評価しない。
     除外は呼び出し元がcost=math.infで表現する）。
 
-    `edge_cost_by_id`
-    （edge_id→コスト、省略可）を渡すと、並行Edge（同一Node間の複数Edge）は**cost最小の
-    Edgeを採用**する。省略時（コストがまだ判明していない場面、主にテスト）は、
-    edge_idの昇順で先頭を採用する決定的な選択にフォールバックする。
+    並行Edge（同一Node間の複数Edge）はedge_idの昇順で先頭を採用する——コストは
+    リクエストごとに変わるため、トポロジを組む時点では決められない。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
@@ -72,7 +70,6 @@ def build_lazy_road_graph(
     # edge_idの昇順で処理する（複数の並行Edgeのうちどれを「先に登場した」とみなすかの
     # 決定的な基準、cost比較が同点の場合のタイブレークにも使う）。
     best_by_pair: dict[tuple[int, int], str] = {}
-    best_cost_by_pair: dict[tuple[int, int], float] = {}
     for edge_id in sorted(graph.edges.keys()):
         edge = graph.edges[edge_id]
         from_index = node_id_to_index.get(edge.from_node_id)
@@ -80,14 +77,7 @@ def build_lazy_road_graph(
         if from_index is None or to_index is None:
             continue
         pair = (from_index, to_index)
-        if edge_cost_by_id is None:
-            if pair not in best_by_pair:
-                best_by_pair[pair] = edge_id
-            continue
-        cost = edge_cost_by_id.get(edge_id, math.inf)
-        existing_cost = best_cost_by_pair.get(pair)
-        if existing_cost is None or cost < existing_cost:
-            best_cost_by_pair[pair] = cost
+        if pair not in best_by_pair:
             best_by_pair[pair] = edge_id
 
     edge_ids: list[str] = []
@@ -136,15 +126,10 @@ class CsrGraphStructure:
     entry_edge_index: np.ndarray
 
 
-def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> CsrGraphStructure:
+def build_csr_structure(lazy_graph: LazyRoadGraph) -> CsrGraphStructure:
     """`LazyRoadGraph`（並行Edge解消後の`edge_index_by_node_pair`）からCSR構造を組む。
     重複ペアは`build_lazy_road_graph`が既に解消済みのため、単純に`(from, to)`の昇順へ
     整列するだけでよい。
-
-    `reverse=True`のときはキーを`v * node_count + u`（行=to Node index、列=from Node index）
-    で組み、転置グラフのCSRを返す。転置CSR上で`source_index=destination`としてDijkstra
-    をかけると、各Nodeから見た「元の有向グラフでのdestinationまでの最短経路コスト・
-    距離」が得られる（後ろ向き木、`RoadGraphEngine.select_via_nodes`参照）。
 
     `from_index * node_count + to_index`の整列キーはCSR構造の構築だけに使う一時変数で、
     フィールドとしては持たない（`(pred, v)`のCSRエントリ位置検索が要る経路復元
@@ -155,10 +140,7 @@ def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> 
     node_count = len(lazy_graph.index_to_node_id)
     pairs = lazy_graph.edge_index_by_node_pair
     entry_count = len(pairs)
-    if reverse:
-        keys = np.fromiter((v * node_count + u for u, v in pairs.keys()), dtype=np.int64, count=entry_count)
-    else:
-        keys = np.fromiter((u * node_count + v for u, v in pairs.keys()), dtype=np.int64, count=entry_count)
+    keys = np.fromiter((u * node_count + v for u, v in pairs.keys()), dtype=np.int64, count=entry_count)
     edge_index = np.fromiter(pairs.values(), dtype=np.int64, count=entry_count)
     order = np.argsort(keys, kind="stable")
     keys = keys[order]
@@ -223,7 +205,7 @@ def find_missing_lazy_graph_edge_id(
 
 
 def build_search_graph_statics(
-    lazy_graph: LazyRoadGraph, graph: RoadGraphLike, *, reverse: bool = False
+    lazy_graph: LazyRoadGraph, graph: RoadGraphLike
 ) -> SearchGraphStatics:
     """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを`find_missing_lazy_graph_
     edge_id`で確認し、崩れていれば`LazyGraphEdgeMismatchError`を送出する（呼び出し側の
@@ -232,9 +214,6 @@ def build_search_graph_statics(
     無い想定——チェック自体を二重に持つことで、将来この関数が事前チェック無しで直接
     呼ばれても安全なままにする）。
 
-    `reverse=True`は転置CSR版の`SearchGraphStatics`を返す（目的地からの後ろ向き木用）。
-    `edge_length_m`は向きに依存しない（Edge index→実距離の対応表）ため共通で、`csr`のみ
-    `build_csr_structure(..., reverse=True)`に差し替える。
     """
     missing_edge_id = find_missing_lazy_graph_edge_id(lazy_graph, graph)
     if missing_edge_id is not None:
@@ -247,7 +226,7 @@ def build_search_graph_statics(
         dtype=float,
         count=len(lazy_graph.edge_ids),
     )
-    return SearchGraphStatics(csr=build_csr_structure(lazy_graph, reverse=reverse), edge_length_m=edge_length_m)
+    return SearchGraphStatics(csr=build_csr_structure(lazy_graph), edge_length_m=edge_length_m)
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
     """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重割合
@@ -1069,19 +1048,6 @@ def combine_forward_backward_at_nodes(
         cost=cost, length_m=length_m, seconds=seconds,
         forward_state=forward_state, backward_state=backward_state,
     )
-
-
-def node_costs_from_state_costs(
-    state_cost: np.ndarray, structure: TurnExpandedStructure, node_count: int
-) -> np.ndarray:
-    """状態（有向Edge）ごとの到達コストを、Nodeごとの最小コストへ畳む。
-
-    起点Nodeだけは「起点へ戻ってくるコスト」になる（状態＝有向Edgeの空間には「まだ走って
-    いない状態」が無いため）。起点のコストを0として扱いたい呼び出し元は自分で上書きする。
-    """
-    per_node = np.full(node_count, np.inf)
-    np.minimum.at(per_node, structure.edge_to, state_cost[: structure.state_count])
-    return per_node
 
 
 def _as_time_bins(values: np.ndarray) -> np.ndarray:

@@ -320,7 +320,7 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 早く着く」経路を捨てる近似になる。`preview_segment`もこの探索を通るため、2点間だけの経路
 でも遷移を導くCSR構造（`SearchGraphStatics`）を構築する。
 
-Nodeごとのコストは、そのNodeへ入る区間の最小を採る（`node_costs_from_state_costs`）。
+Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を作るときに畳む）。
 **起点Nodeだけは「起点へ戻ってくるコスト」になる**——状態の空間に「まだ走っていない」が
 無いため。前向き木と後ろ向き木をNodeで繋ぐときは`combine_forward_backward_at_nodes`を
 通す。Nodeごとのコストを単に足すと、そのNodeで曲がる費用が抜ける。
@@ -632,7 +632,7 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 - **`TurnExpandedTree`/`build_turn_expanded_tree`**: 起点からの一対全Dijkstra
   （numba、前任者付き、`cost_limit`で打ち切り可能）。実距離と素の所要時間は緩和のたびに
   そのまま積むため、前任者を遡り直す積算が要らない。状態ごとの値に加え、Nodeごとの
-  値（そのNodeへ入る区間の最小、`node_costs_from_state_costs`）も持つ。
+  値（そのNodeへ入る区間の最小）も持つ。
   `reverse=True`で遷移の向きだけを反転する（ターンの費用は元の進行方向のまま）。
   **逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
   複数ビンを渡すと`ValueError`で弾く（黙って通すと、到達時刻の代わりに「残り時間」で

@@ -99,28 +99,6 @@ def climb_power_ratio(grade: np.ndarray) -> np.ndarray:
     return np.clip(1.0 + CLIMB_POWER_PER_GRADE * np.maximum(grade, 0.0), 1.0, MAX_CLIMB_POWER_RATIO)
 
 
-def _resistance_force(
-    speed: np.ndarray,
-    grade: np.ndarray,
-    headwind_ms: np.ndarray,
-    crosswind_ms: np.ndarray,
-    profile: RiderProfile,
-    crr: np.ndarray,
-) -> np.ndarray:
-    """その速度で釣り合う抵抗力の合計（N）。
-
-    空気抵抗は相対風速ベクトルで求める（`domain/wind.py: wind_drag_ratio_array`と同じ形）。
-    真横からの風でも相対風速は増えるため、進行方向成分だけでは過小評価になる。追い風が走行
-    速度を上回る領域も`along`の符号で連続に繋がる。
-    """
-    along = speed + headwind_ms
-    relative = np.sqrt(along * along + crosswind_ms * crosswind_ms)
-    drag = 0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2 * relative * along
-    rolling = crr * profile.mass_kg * GRAVITY_M_S2
-    gravity = profile.mass_kg * GRAVITY_M_S2 * grade
-    return drag + rolling + gravity
-
-
 def speed_ms(
     profile: RiderProfile,
     grade: np.ndarray,

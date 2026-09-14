@@ -27,17 +27,6 @@
   composes: stackSegment from "../ui/axisLegend.module.css";
 }
 
-/* 行内に折り返して並ぶ凡例のため、共通のドットより一回り小さくする。 */
-.legendDot {
-  composes: legendDot from "../ui/axisLegend.module.css";
-  width: 8px;
-  height: 8px;
-}
-
-.legendLabel {
-  color: var(--foreground);
-}
-
 .legendValue {
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
@@ -54,10 +43,6 @@
    巻き込むと軸の色が消えるため。 */
 .legendTrigger > svg {
   color: var(--color-muted);
-}
-
-.legendTrigger[aria-expanded="true"] .legendLabel {
-  color: var(--color-accent-strong);
 }
 
 .legendPopover {

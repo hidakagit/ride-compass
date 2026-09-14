@@ -24,25 +24,3 @@
   border-color: var(--color-accent);
   color: #ffffff;
 }
-
-/* データ取得状態のドット（共通の見た目はui/statusDot.module.css）。テキストチップの
-   ラベル左に行内で置く。 */
-.statusDot {
-  composes: statusDot from "../ui/statusDot.module.css";
-  display: inline-block;
-  margin-right: 0.35rem;
-  vertical-align: middle;
-}
-
-.statusDot_loading {
-  composes: statusDot_loading from "../ui/statusDot.module.css";
-}
-
-.statusDot_empty {
-  composes: statusDot_empty from "../ui/statusDot.module.css";
-}
-
-.statusDot_error {
-  composes: statusDot_error from "../ui/statusDot.module.css";
-}
-

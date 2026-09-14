@@ -18,15 +18,9 @@ export interface ScoreBand {
   share: number;
 }
 
-/** 得点帯の区切り。0点と100点は「張り付き」を見たいので単独の帯として分ける。 */
-const BAND_EDGES: readonly { label: string; min: number; max: number }[] = [
-  { label: "0点", min: 0, max: 0 },
-  { label: "1-25", min: 0, max: 25 },
-  { label: "26-50", min: 25, max: 50 },
-  { label: "51-75", min: 50, max: 75 },
-  { label: "76-99", min: 75, max: 100 },
-  { label: "100点", min: 100, max: 100 },
-];
+/** 得点帯の並び。0点と100点は「張り付き」を見たいので単独の帯として分ける。
+ * どの帯に入れるかは下の判定が決める（境界値をここへ二重に持たない）。 */
+const BAND_LABELS: readonly string[] = ["0点", "1-25", "26-50", "51-75", "76-99", "100点"];
 
 /** 区分線形の折れ点で値を得点へ写す（backend `BreakpointLinearShape`と同じ規則）。 */
 export function scoreForValue(value: number, breakpoints: readonly [number, number][]): number {
@@ -49,7 +43,7 @@ export function scoreBands(
   distribution: ValueDistribution | null,
   breakpoints: readonly [number, number][],
 ): ScoreBand[] {
-  const bands = BAND_EDGES.map((edge) => ({ label: edge.label, share: 0 }));
+  const bands = BAND_LABELS.map((label) => ({ label, share: 0 }));
   if (!distribution || distribution.bins.length === 0) return bands;
   for (const [lower, upper, share] of distribution.bins) {
     // 階級の代表値は中央。階級幅は分布全体を等分したもので、この粒度より細かい
@@ -57,7 +51,7 @@ export function scoreBands(
     const score = scoreForValue((lower + upper) / 2, breakpoints);
     let index: number;
     if (score <= 0) index = 0;
-    else if (score >= 100) index = BAND_EDGES.length - 1;
+    else if (score >= 100) index = BAND_LABELS.length - 1;
     else if (score <= 25) index = 1;
     else if (score <= 50) index = 2;
     else if (score <= 75) index = 3;
@@ -73,14 +67,10 @@ export function distributionWarnings(bands: readonly ScoreBand[]): string[] {
   const full = bands.find((b) => b.label === "100点")?.share ?? 0;
   const zero = bands.find((b) => b.label === "0点")?.share ?? 0;
   if (full >= 0.5) {
-    warnings.push(
-      `延長の${Math.round(full * 100)}%が満点に張り付きます。上限を高くしないと道の差が出ません。`,
-    );
+    warnings.push(`延長の${Math.round(full * 100)}%が満点に張り付きます。上限を高くしないと道の差が出ません。`);
   }
   if (zero >= 0.9) {
-    warnings.push(
-      `延長の${Math.round(zero * 100)}%が0点です。下限を下げないとほとんどの道が同じ評価になります。`,
-    );
+    warnings.push(`延長の${Math.round(zero * 100)}%が0点です。下限を下げないとほとんどの道が同じ評価になります。`);
   }
   return warnings;
 }

@@ -33,7 +33,6 @@
   --color-danger: #dc2626;
   /* 危険の面（エラー行の下敷き）。--color-dangerの薄い版。 */
   --color-danger-muted: #fee2e2;
-  --color-success: #16a34a;
   --color-warning: #f59e0b;
   --color-warning-strong: #b45309;
   /* 警告の面（バッジ・注意書きの下敷き）。--color-warningの薄い版。 */
@@ -67,7 +66,6 @@
    * （道路は旧raw・評価軸は旧compositeの色をそのまま引き継ぎ、環境は旧dynamic[面レイヤーの
    * 大半が元々dynamicグループだったため]の色を引き継ぎ、スポットは新規4色目を追加した）。 */
   --color-group-road: #0d9488;
-  --color-group-axis: #7c3aed;
   --color-group-environment: #b45309;
   --color-group-spot: #db2777;
   /* ON状態の塗りつぶし背景に使う（実機フィードバック「グループごとに選択時の色、選択解除時の
@@ -78,7 +76,6 @@
    * このON用トークンをライトモードの濃い値に固定したままだと、同じ環境グループなのに
    * 展開見出し（明るい琥珀色）とメンバーのON状態（暗い琥珀色）で色相の見え方が乖離していた）。 */
   --color-group-road-on: #0d9488;
-  --color-group-axis-on: #7c3aed;
   --color-group-environment-on: #b45309;
   --color-group-spot-on: #db2777;
   /* 上記-onトークンに乗せる文字色。ライトモードは常に白（濃い塗りつぶしの上のため）。
@@ -90,7 +87,6 @@
    * 同じグループの--color-group-X（本トークンより濃い）を乗せる前提のため、上の-onトークン
    * と違いここはライト/ダークモードで変える（--color-accent-bgと同じ考え方）。 */
   --color-group-road-bg: #ccfbf1;
-  --color-group-axis-bg: #ede9fe;
   --color-group-environment-bg: #fef3c7;
   --color-group-spot-bg: #fce7f3;
 
@@ -178,11 +174,9 @@
     --color-border-muted: #38383b;
     --color-neutral: #8e8e93;
     --color-group-road: #2dd4bf;
-    --color-group-axis: #a78bfa;
     --color-group-environment: #fbbf24;
     --color-group-spot: #f472b6;
     --color-group-road-bg: #0f2e2b;
-    --color-group-axis-bg: #241a3d;
     --color-group-environment-bg: #3a2a0f;
     --color-group-spot-bg: #3a1329;
     /* ON状態の塗りつぶし背景（実機フィードバック2026-08-31「風の背景色が凡例と合ってない」）。
@@ -191,7 +185,6 @@
      * 白のままだと明るい背景に対してコントラストが足りなくなるため、ここだけ黒系へ
      * 切り替える。 */
     --color-group-road-on: var(--color-group-road);
-    --color-group-axis-on: var(--color-group-axis);
     --color-group-environment-on: var(--color-group-environment);
     --color-group-spot-on: var(--color-group-spot);
     --color-group-on-text: #171717;
@@ -244,8 +237,9 @@
     flex-direction: column;
     color: var(--foreground);
     background: var(--background);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans",
-      "Yu Gothic UI", "Meiryo", Arial, sans-serif;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI",
+      "Meiryo", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -276,7 +270,10 @@
     color: var(--foreground);
     padding: var(--space-2) var(--space-3);
     cursor: pointer;
-    transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease,
+      opacity 0.15s ease;
   }
 
   button:hover:not(:disabled) {

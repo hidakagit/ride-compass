@@ -14,7 +14,6 @@ import {
   isAxisStudioLayer,
   LAYER_DATA_STATUS_LABELS,
   MAP_LAYER_CATEGORY_ORDER,
-  MAP_OVERLAY_GROUP_CHIP_LABELS,
   MAP_OVERLAY_GROUP_LABELS,
   MAP_OVERLAY_GROUP_ORDER,
   mapOverlayGroupFor,
@@ -1062,7 +1061,7 @@ export default function MapOverlayControls({
               const RepresentativeIcon = MAP_OVERLAY_GROUP_ICONS[flatGroup];
               const isExpanded = expandedIds.has(group.key);
               const label = MAP_OVERLAY_GROUP_LABELS[flatGroup];
-              const chipLabel = MAP_OVERLAY_GROUP_CHIP_LABELS[flatGroup];
+              const chipLabel = MAP_OVERLAY_GROUP_LABELS[flatGroup];
               const header = (
                 <ChipButton
                   key={group.key}

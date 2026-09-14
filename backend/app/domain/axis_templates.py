@@ -14,7 +14,7 @@ topological_axis_order`が依存順の評価を担う）。
 各関数はスカラー（Python float/bool/int）とnumpy配列の両方を受け付ける。スカラー入力には
 Pythonのfloat/boolを、配列入力には同じ形状のnumpy配列を返す（欠損値はNaNで表現・伝播する）。
 スカラー経路（`evaluate_axis_scalar`、1エッジずつ呼ばれる）とベクトル化された一括経路
-（`evaluate_axis_array`、`evaluation_service.evaluate_graph`が使う）の両方がこの実装を
+（`evaluate_axis_array`、一括評価の`compute_edge_costs_bulk`が使う）の両方がこの実装を
 共有することで、「軸のロジックは1箇所にまとめる」という設計原則
 （`docs/complexity-review-2026-08-16.md`）をベクトル化後も維持する。
 """

@@ -1,8 +1,6 @@
 "use client";
 
 import { Toggle } from "@radix-ui/react-toggle";
-import type { LayerDataStatus } from "./mapLayers";
-import { LAYER_DATA_STATUS_LABELS } from "./mapLayers";
 import styles from "./LayerChip.module.css";
 
 interface LayerChipProps {
@@ -11,9 +9,6 @@ interface LayerChipProps {
   on: boolean;
   /** 表示テキストと別のアクセシブル名が必要な場合（サイドバー側の「表示」チップ等）に指定 */
   ariaLabel?: string;
-  /** レイヤーのデータ取得状態。表示ON時のみ小さな状態ドットを添える
-   * （undefined＝正常。OFF中はチップ自体の見た目でON/OFFが分かるため出さない）。 */
-  dataStatus?: LayerDataStatus;
   /** イベントを受け取れる形にしているのは、<summary>内に置く場合にクリックが
    * 親のdetails開閉（ネイティブのデフォルト動作）へ伝播しないようpreventDefault/
    * stopPropagationする呼び出し側があるため。 */
@@ -31,23 +26,9 @@ interface LayerChipProps {
 // `event.preventDefault()`で親のdetails開閉を止めることがあるため、内部トグルロジックに
 // 依存すると`composeEventHandlers`の仕様上（defaultPrevented時は内部ハンドラをスキップ）
 // 押下が反映されないケースが生まれてしまう。生のonClickだけを使うことでこれを避ける。
-export default function LayerChip({ label, on, ariaLabel, dataStatus, onClick }: LayerChipProps) {
-  const showStatusDot = on && dataStatus != null;
-  const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
+export default function LayerChip({ label, on, ariaLabel, onClick }: LayerChipProps) {
   return (
-    <Toggle
-      pressed={on}
-      aria-label={ariaLabel}
-      onClick={onClick}
-      className={on ? styles.chipActive : styles.chip}
-      title={showStatusDot ? statusLabel : undefined}
-    >
-      {/* 状態→CSSクラスの対訳表をコンポーネント内に持たず、LayerDataStatusの値
-          （"loading"/"empty"/"error"）とそろえたクラス名（LayerChip.module.css:
-          statusDot_loading等）を直接組み立てて参照する（UI語彙のカタログ集約）。 */}
-      {showStatusDot && dataStatus && (
-        <span aria-hidden="true" className={`${styles.statusDot} ${styles[`statusDot_${dataStatus}`]}`} />
-      )}
+    <Toggle pressed={on} aria-label={ariaLabel} onClick={onClick} className={on ? styles.chipActive : styles.chip}>
       {label}
     </Toggle>
   );

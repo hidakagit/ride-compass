@@ -121,8 +121,10 @@ test_every_extractable_material_reaches_both_paths`が、材料1件＝軸1本の
 算出する。抽出・計算フェーズ（`_evaluate_axes_bulk`）と重み付き合成フェーズ
 （`compose_costs_from_axis_matrix`）に分かれており、道路グラフ探索のホットパス
 （`build_static_edge_score_matrix`、次節）と共有する構造になっている。
-`evaluation_service.evaluate_graph`（bbox全体を一括評価する経路）自体は本番のルート生成では呼ばれず
-（探索コストの既定経路は次節）、回帰テストオラクルとしての利用が主。
+bbox全体を一括評価するこの形自体は本番のルート生成では呼ばれず（探索コストの既定経路は
+次節）、回帰テストオラクルとしての利用が主。テストから呼ぶための薄い入口は使う側
+（`tests/test_evaluation_service.py`）に置く——実装側へ中継を持つと、引数が増えるたびに
+本番へ読み手の居ない定義を揃える固定費が残る。
 
 - **`_evaluate_axes_bulk`（抽出＋計算フェーズ、Pythonループ1回＋配列演算）**:
   `MATERIAL_CATALOG`の`extractor`宣言を使いEdge単位の辞書・タグアクセスをnumpy配列へ
@@ -450,8 +452,5 @@ OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`
 ## 評価のオーケストレーション（`services/evaluation_service.py`）
 
 `load_route_preference()`が既定の`RoutePreference`（`RoutePreference()`、
-`default_axis_weights()`由来）を返す。`evaluate_graph`はI/Oを行わず、既に取得済みの
-RoadGraph・属性から`compute_edge_costs_bulk`を呼ぶだけ。探索コストの既定経路
-（`RoadGraphEngine`）はここを経由しない（前節「タイル単位の静的スコア行列と動的軸合成」
-参照）——`compute_edge_costs_bulk`のbbox全体一括評価という形を保つ回帰オラクルとして
-テスト・ベンチマークが使う。状態を持たないためクラスではなくモジュール関数。
+`default_axis_weights()`由来）を返す。このモジュールが持つのはそれだけで、評価そのものは
+domainの`compute_edge_costs_bulk`が行う。状態を持たないためクラスではなくモジュール関数。

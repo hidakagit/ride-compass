@@ -233,21 +233,6 @@ def test_build_csr_structure_handles_graph_without_edges():
 # --- 改善計画T551: 転置CSR（後ろ向き木、目的地ルートのvia-node方式） ---
 
 
-def test_build_csr_structure_reverse_transposes_node_pairs():
-    graph = _random_road_graph(seed=6)
-    lazy_graph = build_lazy_road_graph(graph)
-
-    forward = build_csr_structure(lazy_graph)
-    reverse = build_csr_structure(lazy_graph, reverse=True)
-
-    assert reverse.node_count == forward.node_count
-    assert len(reverse.indices) == len(forward.indices)
-    for (u, v), edge_index in lazy_graph.edge_index_by_node_pair.items():
-        row = slice(reverse.indptr[v], reverse.indptr[v + 1])
-        position = reverse.indptr[v] + list(reverse.indices[row]).index(u)
-        assert reverse.entry_edge_index[position] == edge_index
-
-
 def test_overlap_ratio_is_distance_weighted_on_candidate_side():
     lengths = np.array([100.0, 300.0, 600.0])
 
@@ -533,49 +518,26 @@ def test_build_lazy_road_graph_keeps_edge_id_ascending_for_parallel_edges_withou
     ] == "a_first"
 
 
-def test_build_lazy_road_graph_picks_cheapest_edge_for_parallel_edges_when_costs_given():
-    # 改善計画T536: edge_cost_by_idを渡すと、並行Edge（同一Node間の複数Edge）はcost最小の
-    # Edgeを採用する（改善計画T363の元の意味論、コストが事前に判明しているため）。
+def test_build_lazy_road_graph_parallel_edge_selection_is_deterministic():
+    # 改善計画T363回帰テスト: 同一Node間に複数Edgeがあるとき、どれを採るかが辞書の
+    # 走査順で変わると、同じ入力から別のグラフが組まれる（全方位が同時に失敗する実績）。
+    # edge_idの昇順で先頭を採ることで、登場順に依存しない。
     graph = RoadGraph(
         graph_version="v1",
         nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
         edges={
-            "cheap_first": _edge("cheap_first", "a", "b", distance_m=50.0),
-            "expensive_second": _edge("expensive_second", "a", "b", distance_m=200.0),
-        },
-    )
-    lazy_graph = build_lazy_road_graph(
-        graph, edge_cost_by_id={"cheap_first": 5.0, "expensive_second": 999.0}
-    )
-
-    assert lazy_graph.edge_ids[
-        lazy_graph.edge_index_by_node_pair[
-            (lazy_graph.node_id_to_index["a"], lazy_graph.node_id_to_index["b"])
-        ]
-    ] == "cheap_first"
-
-
-def test_build_lazy_road_graph_parallel_edge_selection_is_order_independent():
-    # 改善計画T536回帰テスト: 登場順（edge_id昇順）が「先」の方がcost最小であっても、
-    # 必ずcost最小のEdgeが選ばれることを検証する（前テストとは登場順とcost最小の
-    # 対応関係を逆にしてある）。
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={"a": _node("a", 35.7, 139.7), "b": _node("b", 35.7, 139.7)},
-        edges={
-            "a_first": _edge("a_first", "a", "b", distance_m=200.0),
             "z_second": _edge("z_second", "a", "b", distance_m=50.0),
+            "a_first": _edge("a_first", "a", "b", distance_m=200.0),
         },
     )
-    lazy_graph = build_lazy_road_graph(
-        graph, edge_cost_by_id={"a_first": 999.0, "z_second": 5.0}
-    )
+
+    lazy_graph = build_lazy_road_graph(graph)
 
     assert lazy_graph.edge_ids[
         lazy_graph.edge_index_by_node_pair[
             (lazy_graph.node_id_to_index["a"], lazy_graph.node_id_to_index["b"])
         ]
-    ] == "z_second"
+    ] == "a_first"
 
 
 def test_build_search_graph_statics_aligns_edge_lengths_with_lazy_edge_order():

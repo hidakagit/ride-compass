@@ -308,9 +308,7 @@ disabled）・「ルートをクリア」（`ClearRoutesIcon`＝ゴミ箱のア�
 `RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは
 BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。
-候補タブ列のvalue体系はroute id・`"comparison"`・先頭固定タブ用の
-`SAVED_ROUTES_TAB_VALUE`（`"saved"`、保存機能の実装までタブは描画しない。
-`onValueChange`は無視する）。
+候補タブ列のvalue体系はroute idと`"comparison"`。
 
 外側タブの選択値は`selectedRouteId`（候補タブ選択時）と`comparisonTabActive`
 （比較タブ選択時）を組み合わせて求める。`selectedRouteId`自体は比較タブを見ている間も

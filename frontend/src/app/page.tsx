@@ -317,9 +317,6 @@ const DISASTER_LEGEND_DETAILS_BASE: readonly LegendFilterSummaryAxis[] = [
 // ROUTE_SETTINGS_SHEET_TITLE_ID/ROUTE_OUTCOME_SHEET_TITLE_IDを別途持つ）。
 const GENERATE_SECTION_TITLE_ID = "generate-section-title";
 const OUTCOME_SECTION_TITLE_ID = "outcome-section-title";
-// 候補タブ列のvalue体系: 候補はroute id、比較は"comparison"、先頭固定の「保存済み」は
-// SAVED_ROUTES_TAB_VALUE（保存機能の実装まではタブ自体を描画しない）。
-const SAVED_ROUTES_TAB_VALUE = "saved";
 // モバイルの「ルート設定」「ルート結果」シート見出しのDOM id。
 const ROUTE_SETTINGS_SHEET_TITLE_ID = "route-settings-sheet-title";
 const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
@@ -1993,7 +1990,6 @@ export default function Home() {
             // 選択は引き継がない（別候補のedge_idを指したまま地図マーカー・内訳が残ると
             // 実態と食い違いを起こすため）。
             setSelectedRouteSegment(null);
-            if (value === SAVED_ROUTES_TAB_VALUE) return;
             if (value === "comparison") {
               setComparisonTabActive(true);
             } else {
