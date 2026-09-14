@@ -14,18 +14,22 @@
   composes: mapCtrlButton from "../ui/mapCtrlButton.module.css";
 }
 
+/* 箱の見た目（角丸・余白・影）は隣に並ぶ出発時刻側の中身
+   （DynamicLayerTimeSlider.module.css: .panel）へ揃える。同じアイコン列から開く2つが
+   別々の余白を持つと、地図の上で不揃いに見える。 */
 .popover {
   z-index: var(--z-top-popover);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  min-width: 14rem;
-  padding: var(--space-3);
-  border-radius: 10px;
+  padding: 0.4rem var(--space-2);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--foreground);
-  box-shadow: var(--shadow-float);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  /* 画面の外へはみ出させない。Radixが実際の空き幅を測ってこの変数に入れる。 */
+  max-width: var(--radix-popover-content-available-width);
 }
 
 /* 出発時刻のポップオーバー用。中身のDynamicLayerTimeSlider自身が枠・背景・影を持つ
@@ -35,24 +39,19 @@
   z-index: var(--z-top-popover);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  align-items: flex-end;
+  gap: var(--space-1);
+  /* .popoverと同じ理由。中身の.panelは自前の幅（min(90vw, 26rem)）を持つため、
+     ここで上限を与えないと狭い画面で画面外へ出る。 */
+  max-width: var(--radix-popover-content-available-width);
 }
 
 /* .timelinePopover自体が背景を持たないため地図の上に直接浮く。ネイティブの
-   datetime-local入力はブラウザ既定で不透明な背景を持つため、地図が透けて見える心配はない。 */
+   datetime-local入力はブラウザ既定で不透明な背景を持つため、地図が透けて見える心配はない。
+   中身ぶんの幅だけを取り、下のルーラーの右端へ揃える（横いっぱいに広げると、同じ時刻を
+   ルーラーの見出しと二重に見せるだけの帯が画面幅ぶん居座る）。 */
 .directInput {
-  width: 100%;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.fieldLabel {
-  font-size: 0.75rem;
-  color: var(--color-muted);
+  width: auto;
 }
 
 .input {
@@ -70,6 +69,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* 単位。入力そのものは見出しを持たず、ここが「何の数字か」を伝える。 */
+.unit {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 
 .slider {

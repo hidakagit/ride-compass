@@ -89,9 +89,9 @@ export default function RideConditionBar({
         <Popover.Portal>
           <Popover.Content
             className={styles.timelinePopover}
-            side="left"
-            align="start"
-            sideOffset={8}
+            side="bottom"
+            align="end"
+            sideOffset={6}
             collisionPadding={8}
           >
             <input
@@ -132,10 +132,7 @@ export default function RideConditionBar({
           </button>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content className={styles.popover} side="left" align="start" sideOffset={8} collisionPadding={8}>
-            <label className={styles.field} htmlFor={speedInputId}>
-              <span className={styles.fieldLabel}>想定速度（km/h）</span>
-            </label>
+          <Popover.Content className={styles.popover} side="bottom" align="end" sideOffset={6} collisionPadding={8}>
             <div className={styles.speedRow}>
               <input
                 type="range"
@@ -150,6 +147,7 @@ export default function RideConditionBar({
               <input
                 id={speedInputId}
                 type="number"
+                aria-label="想定速度（km/h）"
                 inputMode="numeric"
                 min={MIN_SPEED_KMH}
                 max={MAX_SPEED_KMH}
@@ -160,6 +158,7 @@ export default function RideConditionBar({
                 onFocus={(e) => e.currentTarget.select()}
                 className={styles.input}
               />
+              <span className={styles.unit}>km/h</span>
             </div>
           </Popover.Content>
         </Popover.Portal>

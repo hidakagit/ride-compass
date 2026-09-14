@@ -222,6 +222,26 @@ def _css_root(tmp_path, globals_css: str):
     return tmp_path
 
 
+def test_find_undefined_css_tokens_allows_vendor_runtime_tokens(tmp_path, monkeypatch):
+    # UIライブラリが自分の要素へ実行時に設定するトークン（Radixのポップオーバーが測った
+    # 空き幅等）は定義がnode_modules側にあり、globals.cssにもリポジトリ内の.ts/.tsxにも
+    # 現れない。名前空間で許すが、同じファイルの自前トークンの綴り違いは通さない。
+    root = _css_root(tmp_path, ":root {}")
+    (root / "frontend" / "src" / "v.module.css").write_text(
+        ".x {" + chr(10)
+        + "  max-width: var(--radix-popover-content-available-width);" + chr(10)
+        + "  color: var(--color-typo);" + chr(10)
+        + "}" + chr(10),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+
+    out = review_checks.find_undefined_css_tokens(["frontend/src/v.module.css"])
+
+    assert len(out) == 1
+    assert "--color-typo" in out[0]
+
+
 def test_find_undefined_css_tokens_scans_tsx(tmp_path, monkeypatch):
     # .tsxはTailwindの任意値記法（`bg-[var(--x)]`）でトークンを参照するが、
     # 検知が.cssしか見ていないと綴り違いが素通りする。

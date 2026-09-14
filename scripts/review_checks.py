@@ -1232,6 +1232,11 @@ CSS_VAR_RUNTIME_DEF_RE = re.compile(r"[\"\'](--[A-Za-z0-9_-]+)[\"\']")
 # CSS Modulesだけでなく、Tailwindの任意値記法（`bg-[var(--color-accent)]`）でトークンを
 # 参照する.ts/.tsxも対象にする。
 CSS_TOKEN_SCAN_SUFFIXES = (".css", ".ts", ".tsx")
+# UIライブラリが自分の要素へ実行時に設定するトークンの名前空間。定義はnode_modules側に
+# あり、globals.cssにもリポジトリ内の.ts/.tsxにも現れない（例: Radixのポップオーバーが
+# 測った空き幅`--radix-popover-content-available-width`）。名前空間で丸ごと許すため、
+# 自前の`--color-*`等の綴り違いはこれまでどおり検知される。
+CSS_VENDOR_TOKEN_PREFIXES = ("--radix-",)
 
 
 def css_runtime_defined_tokens(files: list[str]) -> set[str]:
@@ -1275,6 +1280,8 @@ def find_undefined_css_tokens(files: list[str], all_files: list[str] | None = No
         local = set(CSS_VAR_DEF_RE.findall(text))
         for lineno, line in enumerate(text.splitlines(), 1):
             for token in CSS_VAR_REF_RE.findall(line):
+                if token.startswith(CSS_VENDOR_TOKEN_PREFIXES):
+                    continue
                 if token not in defined and token not in local:
                     out.append(f"{f}:{lineno}: 未定義のCSSトークン `{token}`（定義は{GLOBAL_TOKENS_CSS}）")
     return out
