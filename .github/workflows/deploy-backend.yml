@@ -14,8 +14,18 @@ name: Deploy Backend to Oracle VM
 on:
   push:
     branches: [master]
+    # デプロイが変えるのは**イメージの中身**（backend/Dockerfileがコピーするもの）と、
+    # 起動時に適用するmigrationだけ。イメージに入らないものの変更でビルドとコンテナ
+    # 入れ替え（docker stop -t 90のグレース待ちを含む）を走らせても、本番の動作は
+    # 何も変わらない。除外は「Dockerfileのcopy対象外」という一点で決める。
+    #
+    # **VM側の副作用**: ベンチマーク・テストのファイルは、このデプロイの`git reset --hard`で
+    # VMの~/ridecompass-repoへ届いていた。除外したぶんは届かなくなるため、VM上で新しい
+    # ベンチマークを回すときは先に手でgit pullする（またはworkflow_dispatchで回す）。
     paths:
       - "backend/**"
+      - "!backend/benchmarks/**"
+      - "!backend/tests/**"
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 

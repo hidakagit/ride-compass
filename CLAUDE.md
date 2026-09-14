@@ -186,9 +186,10 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   (docs/deployment-sync.md)参照**（開発DBのみの反映で完了扱いにしない）。
 - **既存DBの行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）を
   含む`backend/**`の変更は、本番DBのデータ移行を完了させてからpushする**。
-  `.github/workflows/deploy-backend.yml`は`push`かつ`backend/**`パスの変更を検知すると
-  本番へ自動デプロイする。DB移行より先にpushすると、新コードが本番DBに残る旧形式データを
-  読めず、`refresh_axis_definitions`等のfail-fast設計により本番backendが起動失敗する
+  `.github/workflows/deploy-backend.yml`はbackendの変更を検知すると本番へ自動デプロイする
+  （どのパスが対象かはそのワークフローの`paths`が正本。イメージに入らないものは外してある）。
+  DB移行より先にpushすると、新コードが本番DBに残る旧形式データを読めず、
+  `refresh_axis_definitions`等のfail-fast設計により本番backendが起動失敗する
   （本番障害の実績あり、詳細は[T396](docs/tasks/T396.md)参照）。
   対応順序は事前に次のいずれかを選ぶこと: 1) 本番DBのデータ移行を先に完了させてから
   push、2) 移行を即座に行えない場合は`workflow_dispatch`のみで手動デプロイへ切り替える、
