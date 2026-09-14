@@ -250,7 +250,7 @@
   {
     "material_id": "smoothness",
     "label": "路面の状態",
-    "description": "OSMの路面状態タグ(smoothness)の生値（excellent〜impassableの7段階）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
+    "description": "OSMの路面状態タグ(smoothness)の生値（excellent〜impassable）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",
     "dtype": "categorical",
     "unit": "",
     "value_labels": {
