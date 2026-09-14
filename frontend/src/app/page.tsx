@@ -88,11 +88,7 @@ import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
-import {
-  buildGenerateRequest,
-  generationConditionsKey,
-  type GenerationInput,
-} from "@/lib/generationRequest";
+import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "@/lib/generationRequest";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
 import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
@@ -438,24 +434,27 @@ export default function Home() {
         setArmedPinRole(null);
       }
     },
-    [destination, waypoints.length, setRouteMode]
+    [destination, waypoints.length, setRouteMode],
   );
 
   // 武装中の役割の地点として地図のタップを受ける。経由地だけは置いたあとも武装を続ける
   // （続けて何地点も置くのが普通の使い方で、1つ置くたびに押し直させない）。
-  const handlePinPlace = useCallback((role: PinRole, point: Coordinates) => {
-    if (role === "origin") {
-      setManualLocation(point);
-      setArmedPinRole(null);
-      return;
-    }
-    if (role === "destination") {
-      setDestination(point);
-      setArmedPinRole(null);
-      return;
-    }
-    setWaypoints((prev) => [...prev, point]);
-  }, [setManualLocation]);
+  const handlePinPlace = useCallback(
+    (role: PinRole, point: Coordinates) => {
+      if (role === "origin") {
+        setManualLocation(point);
+        setArmedPinRole(null);
+        return;
+      }
+      if (role === "destination") {
+        setDestination(point);
+        setArmedPinRole(null);
+        return;
+      }
+      setWaypoints((prev) => [...prev, point]);
+    },
+    [setManualLocation],
+  );
   // 地図上の候補線から候補を選ぶ。一覧（縦タブ）での切り替えと同じく、前の候補で
   // クリックしていた区間の選択は引き継がない（別候補のedge_idを指したまま残るため）。
   const handleDestinationClear = useCallback(() => setDestination(null), []);
@@ -543,7 +542,7 @@ export default function Home() {
   );
   const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
     ROUTE_PREFERENCE_STORAGE_KEY,
-    DEFAULT_ROUTE_PREFERENCE
+    DEFAULT_ROUTE_PREFERENCE,
   );
   // 0次ハードフィルタ。一般向けルート設定画面（RouteSettingsPanel）が
   // 常時操作するため、weightOverrideEnabledのような別トグルは持たず常にリクエストへ含める
@@ -563,7 +562,7 @@ export default function Home() {
           return null;
         }
       },
-    }
+    },
   );
 
   // 実験スロット（研究インターフェース改善 §10-3）: デバッグモード中の生成結果を条件付きで
@@ -669,10 +668,14 @@ export default function Home() {
   // GUI作成軸を含む）のprimaryAttributeIdsから行う。
   const secondaryAxisCasingLayerIds = useMemo(
     () =>
-      axisCatalog.secondaryAxes.filter((axis) => {
-        if (!axis.layerId) return false;
-        return primaryAttributeIdsToLayerIds(axis.primaryAttributeIds).some((materialId) => layerVisibility[materialId]);
-      }).map((axis) => axis.layerId as MapLayerId),
+      axisCatalog.secondaryAxes
+        .filter((axis) => {
+          if (!axis.layerId) return false;
+          return primaryAttributeIdsToLayerIds(axis.primaryAttributeIds).some(
+            (materialId) => layerVisibility[materialId],
+          );
+        })
+        .map((axis) => axis.layerId as MapLayerId),
     [layerVisibility, axisCatalog.secondaryAxes],
   );
   // レンズ（地図を何で塗るか）: "none" | "difficulty" | 公開軸のaxis_id。ルート前は全道路
@@ -683,15 +686,11 @@ export default function Home() {
   // 実行時カタログ（routeStyleModes）に依存するため、カタログ取得前の1回だけで判定すると、
   // ビルド後に公開された軸をレンズに選んでいた利用者の保存値が「未知のid」として捨てられ、
   // 再訪のたびに無言で総合難易度へ戻る。
-  const [lens, setLens] = useStoredState<LensId>(
-    ROUTE_STYLE_MODE_STORAGE_KEY,
-    DEFAULT_ROUTE_STYLE_MODE_ID,
-    {
-      serialize: (v) => v,
-      reloadKey: axisCatalog.loaded,
-      deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null),
-    },
-  );
+  const [lens, setLens] = useStoredState<LensId>(ROUTE_STYLE_MODE_STORAGE_KEY, DEFAULT_ROUTE_STYLE_MODE_ID, {
+    serialize: (v) => v,
+    reloadKey: axisCatalog.loaded,
+    deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null),
+  });
   const routeStyleModes = axisCatalog.routeStyleModes;
   useEffect(() => {
     if (routeStyleModes.some((mode) => mode.id === lens)) return;
@@ -699,7 +698,7 @@ export default function Home() {
       "map:route-style-mode",
       `lens "${lens}" is not a known axis id, falling back to "${LENS_DIFFICULTY_ID}"`,
       { requestedId: lens, availableIds: routeStyleModes.map((mode) => mode.id) },
-      "warn"
+      "warn",
     );
     setLens(LENS_DIFFICULTY_ID);
   }, [routeStyleModes, lens, setLens]);
@@ -1015,16 +1014,14 @@ export default function Home() {
   // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
   const mapLayers = useMemo(
     () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes),
-    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes]
+    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes],
   );
 
   // 「推定指標をONにすると材料の観測データレイヤーも連動ON」するカスケードは持たない。
   // 観測グループのメンバーを個別に「表示項目の設定」で非表示にできるため、非表示にした
   // メンバーが推定指標側の操作で裏からONにされてしまうと、非表示設定でチップ自体が
   // 隠れているためユーザーがOFFに戻す手段を失う（「チップからは消えたのに地図には出続ける」
-  // 不整合が起きる）。推定軸の材料がどれか（どの観測データが計算に使われているか）は
-  // `renderMaterialsNote`（MapOverlayControls.tsx）が▼展開時に「材料: ○○」として常に
-  // 示すため、連動ONで自動的に地図へ出す必要性は薄い。
+  // 不整合が起きる）。
   //
   // 地図上チップ（道路/環境/スポット）はどれも複数同時にONにできる。重なって読みにくく
   // なった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む
@@ -1088,7 +1085,11 @@ export default function Home() {
   const roadTypeFilterSummary = useMemo(
     () =>
       summarizeLegendFilters([
-        { label: "", legend: roadTypeAxis.legend, hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS },
+        {
+          label: "",
+          legend: roadTypeAxis.legend,
+          hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
+        },
       ]),
     [roadTypeAxis, roadHiddenKeysByMode],
   );
@@ -1141,12 +1142,14 @@ export default function Home() {
     > = {};
     const layerIds = new Set(staticFilterAxes.map((axis) => axis.layerId));
     for (const layerId of layerIds) {
-      const axes = staticFilterAxes.filter((axis) => axis.layerId === layerId).map((axis) => ({
-        label: axis.label ?? "",
-        legend: axis.legend,
-        hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
-        axisId: axis.axisId,
-      }));
+      const axes = staticFilterAxes
+        .filter((axis) => axis.layerId === layerId)
+        .map((axis) => ({
+          label: axis.label ?? "",
+          legend: axis.legend,
+          hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
+          axisId: axis.axisId,
+        }));
       result[layerId] = {
         summary: summarizeLegendFilters(axes),
         legendDetails: axes,
@@ -1178,25 +1181,21 @@ export default function Home() {
     ],
     [hiddenDisasterSources],
   );
-  const {
-    dynamicWeather,
-    dynamicWeatherDataStatus,
-    dynamicLayerTargetTime,
-    setDynamicLayerTargetTime,
-  } = useDynamicWeatherLayers({
-    showWindVector,
-    showPrecipitationNowcast,
-    showDisaster,
-    hiddenDisasterSources,
-    mapViewport,
-  });
+  const { dynamicWeather, dynamicWeatherDataStatus, dynamicLayerTargetTime, setDynamicLayerTargetTime } =
+    useDynamicWeatherLayers({
+      showWindVector,
+      showPrecipitationNowcast,
+      showDisaster,
+      hiddenDisasterSources,
+      mapViewport,
+    });
   // レイヤーごとのデータ取得状態を1つに統合する。mapViewLayerDataStatus（MapLibreの
   // ソースイベントから算出）とdynamicWeatherDataStatus（動的気象レイヤー、フェッチ
   // 自身のloading/errorから算出）はキーが重ならない（動的気象レイヤーは
   // buildLayerDataSourcesの対象外）ため、マージの優先順位を気にする必要はない。
   const layerDataStatus = useMemo<LayerDataStatusByLayer>(
     () => ({ ...mapViewLayerDataStatus, ...dynamicWeatherDataStatus }),
-    [mapViewLayerDataStatus, dynamicWeatherDataStatus]
+    [mapViewLayerDataStatus, dynamicWeatherDataStatus],
   );
 
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
@@ -1235,11 +1234,11 @@ export default function Home() {
         // しまい、地図チップから直接OFFへ戻せない状態が生じる。
         const disabledReason = layer.id === "route" && !selectedCandidate ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
-        const summary = layer.id in summaryByLayerId
-          ? (summaryByLayerId[layer.id] ?? null)
-          : (staticFilterSummaries[layer.id]?.summary ?? null);
-        const legendDetails =
-          legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails;
+        const summary =
+          layer.id in summaryByLayerId
+            ? (summaryByLayerId[layer.id] ?? null)
+            : (staticFilterSummaries[layer.id]?.summary ?? null);
+        const legendDetails = legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails;
         // 地図上チップの▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
         // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
         // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
@@ -1255,9 +1254,7 @@ export default function Home() {
           on: layerVisibility[layer.id],
           disabled,
           // 動的グループはサイドバーに設定行が無くなったため「[設定はサイドバー]」を付けない。
-          title:
-            disabledReason ??
-            (isDynamicGroupLayer ? layer.description : `${layer.description}[設定はサイドバー]`),
+          title: disabledReason ?? (isDynamicGroupLayer ? layer.description : `${layer.description}[設定はサイドバー]`),
           summary,
           legendDetails,
           // 地図上チップのカテゴリ束ね（MapOverlayControls.tsx）用。
@@ -1304,7 +1301,7 @@ export default function Home() {
       // 「ルート結果」タブを開いたら、新着結果の合図は役目を終える。
       if (sheet === "routeOutcome") setHasUnseenResults(false);
     },
-    [setMobileSheet]
+    [setMobileSheet],
   );
 
   // 下部シートの高さ変更。ドラッグ中/キー操作中は見た目の即時反映のみ（onHeightChange）、
@@ -1335,15 +1332,8 @@ export default function Home() {
   // 状態管理（useWeatherConditionsが持つ。weather[MSM予報]とamedas[アメダス実測]は
   // 独立フェッチ）。locationReadyになるまで待ち、その後はlocationが変わるたびに
   // 再フェッチする。
-  const {
-    weather,
-    weatherLoading,
-    weatherError,
-    amedas,
-    amedasLoading,
-    amedasError,
-    warningBadgeItems,
-  } = useWeatherConditions(location, locationReady);
+  const { weather, weatherLoading, weatherError, amedas, amedasLoading, amedasError, warningBadgeItems } =
+    useWeatherConditions(location, locationReady);
 
   // 動的材料の状態別表現契約の[時刻,向き]のうち「向き」は、風・勾配で単一の共有state
   // （travelBearingDeg、実際の進行方向という1つの概念を表す）を使う。「環境」グループの
@@ -1393,7 +1383,7 @@ export default function Home() {
     mapViewport,
     travelBearingDeg,
     dynamicLayerTargetTime,
-    assumedSpeedKmh
+    assumedSpeedKmh,
   );
   // レイヤーID（`${axisId}Axis`）→表示フラグ。レンズに選ばれた専用配信軸だけON
   // （axisVisibilityと同じ形。MapViewは軸ごとのpropを持たない）。
@@ -1412,7 +1402,7 @@ export default function Home() {
       showGradientFill
         ? gradientGridCellsFromTileResponses(dedicatedWayValuesFor(dedicatedWayValueResults, GRADIENT_AXIS_ID).byTile)
         : undefined,
-    [showGradientFill, dedicatedWayValueResults]
+    [showGradientFill, dedicatedWayValueResults],
   );
   // MapViewへは軸id→値／軸id→フェッチ進行中の汎用Mapとして渡す
   // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）。MapView側はこれを使い、
@@ -1420,11 +1410,11 @@ export default function Home() {
   // （COLOR_NO_DATA）で塗り分ける。
   const dedicatedWayValues = useMemo(
     () => new Map([...dedicatedWayValueResults].map(([axisId, result]) => [axisId, result.values])),
-    [dedicatedWayValueResults]
+    [dedicatedWayValueResults],
   );
   const dedicatedWayValueLoading = useMemo(
     () => new Map([...dedicatedWayValueResults].map(([axisId, result]) => [axisId, result.loading])),
-    [dedicatedWayValueResults]
+    [dedicatedWayValueResults],
   );
   // レンズが専用配信軸を指している間だけ、そのフェッチのloading/empty/errorをLensControlの
   // ピルへ渡す（road_surface等の経路[useLayerDataStatus]はこれらのfetchを観測できないため、
@@ -1438,7 +1428,7 @@ export default function Home() {
       result.loading,
       result.error ? "fetch-failed" : null,
       result.values.size > 0,
-      result.hasFetched
+      result.hasFetched,
     );
   }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, dedicatedWayValueResults]);
   // `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、いずれも
@@ -1512,9 +1502,7 @@ export default function Home() {
                 MAX_DISTANCE_KM,
                 // reduceの初期値0で畳む（`Math.max(...[])`は-Infinityを返し、
                 // distance_kmがnullとしてbackendへ渡って422になる）。
-                Math.ceil(
-                  destinationModePoints.reduce((max, p) => Math.max(max, haversineKm(location, p)), 0),
-                ) + 1,
+                Math.ceil(destinationModePoints.reduce((max, p) => Math.max(max, haversineKm(location, p)), 0)) + 1,
               )
             : distanceKm,
         distanceToleranceKm: DISTANCE_TOLERANCE_KM,
@@ -1530,8 +1518,7 @@ export default function Home() {
         // （road_graph_engine.py: AXIS_DEFINITIONS.get(lens_axis_id)、422にはならない）。
         // route_preferenceと同じく、カタログが未確定の間は送らない——選んだ軸で塗られない
         // 事実が手掛かり無しで起きるのを避ける（失敗自体はRouteSettingsPanelが表示する）。
-        lensAxisId:
-          axisCatalog.loaded && lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? lens : null,
+        lensAxisId: axisCatalog.loaded && lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? lens : null,
         // 軸カタログ未取得のままキー整合を行うと静的フォールバック（既存軸）に合わせて
         // 書き換えてしまうため、その場合はroute_preference自体を省略しbackendの既定値
         // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）へ委ねる。
@@ -1665,10 +1652,12 @@ export default function Home() {
       // 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数文字列以外には
       // なり得ないため、buildCurrentGenerationInput側でそのままNumber化して使う。
       const generationInput = buildCurrentGenerationInput(distanceKm);
-      const { routes: candidates, conditions, engine, noCandidatesReason } = await generateRoutes(
-        buildGenerateRequest(generationInput),
-        setGenerationProgress,
-      );
+      const {
+        routes: candidates,
+        conditions,
+        engine,
+        noCandidatesReason,
+      } = await generateRoutes(buildGenerateRequest(generationInput), setGenerationProgress);
       // backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上のピンも実際に
       // 使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの終点が
       // ずれて見える）。
@@ -1708,7 +1697,9 @@ export default function Home() {
       if (candidates.length === 0) {
         // バックエンドが原因を特定できた場合はそれを表示する（routeApi.ts:
         // generateRoutes参照）。特定できない場合のみ汎用文言。
-        setErrorMessage(noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。");
+        setErrorMessage(
+          noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。",
+        );
         notifyRouteOutcome();
       } else if (researchEnabled) {
         // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
@@ -1798,7 +1789,12 @@ export default function Home() {
         {/* 「条件が変更されています」は結果欄の先頭にも出るが、条件を変えている本人は
             設定側を見ている。押すべきボタンの隣でも同じことを知らせる。 */}
         {conditionsDirty && (
-          <span className={styles.dirtyDot} role="img" aria-label="条件が変更されています" title="条件が変更されています" />
+          <span
+            className={styles.dirtyDot}
+            role="img"
+            aria-label="条件が変更されています"
+            title="条件が変更されています"
+          />
         )}
         <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
           {loading ? (generationProgressLabel ?? "生成中...") : "ルート生成"}
@@ -1880,7 +1876,13 @@ export default function Home() {
     return (
       <>
         {/* 保存は機能未実装の占位（位置だけ先に確保する）。実装時はdisabledを外す。 */}
-        <button type="button" className={styles.outcomeHeaderIcon} disabled title="保存（準備中）" aria-label="保存（準備中）">
+        <button
+          type="button"
+          className={styles.outcomeHeaderIcon}
+          disabled
+          title="保存（準備中）"
+          aria-label="保存（準備中）"
+        >
           <SaveIcon size={18} />
         </button>
         {/* 編集（区間の乗り換え）の入口。選択中の候補に対する操作のため、GPX出力と同じ
@@ -1968,9 +1970,7 @@ export default function Home() {
 
     return (
       <>
-        {conditionsDirty && (
-          <p className={styles.dirtyHint}>条件が変更されています</p>
-        )}
+        {conditionsDirty && <p className={styles.dirtyHint}>条件が変更されています</p>}
         {/* 指定した目的地が自転車で行ける道路につながっていなかったため、backendが
             最寄りのアクセス可能な地点へ補正して生成した場合の案内（地図上のピンも
             補正後の地点へ動かす、handleGenerate参照）。 */}
@@ -2045,10 +2045,7 @@ export default function Home() {
                   <span className={styles.outcomeTabScore}>
                     <span className={styles.outcomeTabScoreTrack}>
                       {route.overall_difficulty !== null && (
-                        <span
-                          className={styles.outcomeTabScoreBar}
-                          style={{ width: `${route.overall_difficulty}%` }}
-                        />
+                        <span className={styles.outcomeTabScoreBar} style={{ width: `${route.overall_difficulty}%` }} />
                       )}
                     </span>
                     <span className={styles.outcomeTabScoreValue}>
@@ -2069,89 +2066,89 @@ export default function Home() {
           </div>
           {/* 右カラム。選ばれている候補の中身だけがここに出る（Radixが他を[hidden]にする）。 */}
           <div className={styles.outcomeTabPanes}>
-          {routes.map((route) => (
-            <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
-              {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
+            {routes.map((route) => (
+              <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
+                {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
                   内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳（AxisContributionBar、
                   ルート全体の内訳と同じ表示部品）を表示する。地図側のDETAIL_LAYER_ID/
                   DETAIL_HIT_LAYER_IDは選択中候補（selectedCandidate）にしか描画されない
                   ため、区間クリックは常に現在アクティブなこのタブのルートに対して起きる
                   （他候補のタブが誤って区間詳細を出すことは無い）。 */}
-              {selectedRouteSegment ? (
-                <div className={styles.selectedSegmentPanel}>
-                  <div className={styles.selectedSegmentHeader}>
-                    <span className={styles.selectedSegmentTitle}>
-                      {selectedRouteSegment.segment.cumulative_distance_km.toFixed(1)} km地点
-                      <span className={styles.selectedSegmentTime}>
-                        到達予想 {formatSegmentArrivalTime(selectedRouteSegment.segment.estimated_arrival_time)}
+                {selectedRouteSegment ? (
+                  <div className={styles.selectedSegmentPanel}>
+                    <div className={styles.selectedSegmentHeader}>
+                      <span className={styles.selectedSegmentTitle}>
+                        {selectedRouteSegment.segment.cumulative_distance_km.toFixed(1)} km地点
+                        <span className={styles.selectedSegmentTime}>
+                          到達予想 {formatSegmentArrivalTime(selectedRouteSegment.segment.estimated_arrival_time)}
+                        </span>
                       </span>
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.selectedSegmentClearButton}
-                      aria-label="区間の選択を解除"
-                      onClick={() => setSelectedRouteSegment(null)}
-                    >
-                      ×
-                    </button>
+                      <button
+                        type="button"
+                        className={styles.selectedSegmentClearButton}
+                        aria-label="区間の選択を解除"
+                        onClick={() => setSelectedRouteSegment(null)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <AxisContributionBar
+                      axes={axisCatalog.axes}
+                      contributions={selectedRouteSegment.segment.axis_contributions}
+                      axisColors={axisChipColors}
+                    />
+                    {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
+                      <ul className={styles.selectedSegmentMaterialValues}>
+                        {Object.entries(selectedRouteSegment.segment.material_values).map(([materialId, value]) => (
+                          <li key={materialId}>
+                            {materialCatalogLabel(materialId, materialCatalog)}:{" "}
+                            {formatMaterialValue(materialId, value, materialCatalog)}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                  <AxisContributionBar
+                ) : (
+                  <RouteAxisProfile
                     axes={axisCatalog.axes}
-                    contributions={selectedRouteSegment.segment.axis_contributions}
+                    weights={routeWeights}
+                    axisDifficulties={route.axis_difficulties}
+                    axisContributions={route.axis_contributions}
+                    axisRawValues={route.axis_raw_values}
+                    materialValues={route.material_values}
+                    materialCategoryShares={route.material_category_shares}
+                    distanceKm={route.distance_km}
+                    overallDifficulty={route.overall_difficulty}
+                    difficultyLoad={route.difficulty_load ?? null}
+                    estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
                     axisColors={axisChipColors}
                   />
-                  {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
-                    <ul className={styles.selectedSegmentMaterialValues}>
-                      {Object.entries(selectedRouteSegment.segment.material_values).map(([materialId, value]) => (
-                        <li key={materialId}>
-                          {materialCatalogLabel(materialId, materialCatalog)}:{" "}
-                          {formatMaterialValue(materialId, value, materialCatalog)}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ) : (
-                <RouteAxisProfile
-                  axes={axisCatalog.axes}
-                  weights={routeWeights}
-                  axisDifficulties={route.axis_difficulties}
-                  axisContributions={route.axis_contributions}
-                  axisRawValues={route.axis_raw_values}
-                  materialValues={route.material_values}
-                  materialCategoryShares={route.material_category_shares}
-                  distanceKm={route.distance_km}
-                  overallDifficulty={route.overall_difficulty}
-                  difficultyLoad={route.difficulty_load ?? null}
-                  estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
-                  axisColors={axisChipColors}
-                />
-              )}
-            </Tabs.Content>
-          ))}
-          {showComparisonTab && (
-            // forceMount: 比較タブを開いていない間もComparisonPanelをマウントし続ける
-            // （実験スロットは生成のたびにpage.tsxのstateへ積まれ続けるため、タブが
-            // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブ時の非表示は
-            // page.module.cssの[data-state="inactive"]セレクタで行う）。
-            <Tabs.Content className={styles.outcomeTabPanel} value="comparison" forceMount>
-              {/* 比較表の軸は、ライブなroutePreference（「今」の設定）ではなく各スロットの
+                )}
+              </Tabs.Content>
+            ))}
+            {showComparisonTab && (
+              // forceMount: 比較タブを開いていない間もComparisonPanelをマウントし続ける
+              // （実験スロットは生成のたびにpage.tsxのstateへ積まれ続けるため、タブが
+              // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブ時の非表示は
+              // page.module.cssの[data-state="inactive"]セレクタで行う）。
+              <Tabs.Content className={styles.outcomeTabPanel} value="comparison" forceMount>
+                {/* 比較表の軸は、ライブなroutePreference（「今」の設定）ではなく各スロットの
                   生成時点の重み（conditions.route_preference）を見る——いずれかのスロットで
                   一度でも重み>0だった軸は、現在のroutePreferenceの値に関わらず残す。「今」の
                   設定だけで絞ると、風重み0.5で生成→風の重みを0へ変更→別スロットを生成、と
                   いう手順で両スロットのaxis_difficultiesに風の値が残っていても比較表から
                   風の行が消えてしまい、「重みを変えて何が変わったか比較する」という比較タブ
                   本来の目的と逆行してしまう。 */}
-              <ComparisonPanel
-                slots={experimentSlots}
-                axisLabels={axisCatalog.axisLabels}
-                axes={axisCatalog.axes.filter((axis) =>
-                  experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0)
-                )}
-                materials={materialCatalog}
-              />
-            </Tabs.Content>
-          )}
+                <ComparisonPanel
+                  slots={experimentSlots}
+                  axisLabels={axisCatalog.axisLabels}
+                  axes={axisCatalog.axes.filter((axis) =>
+                    experimentSlots.some((slot) => (slot.conditions.route_preference[axis.axisId] ?? 0) > 0),
+                  )}
+                  materials={materialCatalog}
+                />
+              </Tabs.Content>
+            )}
           </div>
         </Tabs.Root>
       </>
@@ -2203,10 +2200,7 @@ export default function Home() {
     <div className={styles.viewport}>
       {/* 天候は生成条件（風評価の起点）のため、サイドバー内に埋もれさせず常設ヘッダに
           置く。デスクトップ・モバイル共通の1箇所。 */}
-      <header
-        className={styles.weatherHeader}
-        title="風向・風速はルート候補の評価に使われます"
-      >
+      <header className={styles.weatherHeader} title="風向・風速はルート候補の評価に使われます">
         {/* 風向・風速はルート評価の起点（ヘッダー本来の主目的、header自身のtitle参照）
             であるため、警報バッジより優先して常に見える側に置く: flex-shrink: 0で
             常に自然幅を保ち、position: sticky; left: 0で.weatherHeaderの左端に固定する。
@@ -2305,7 +2299,6 @@ export default function Home() {
                 >
                   {routes.length > 0 ? renderRouteOutcomeSectionBody() : renderRouteOutcomeEmptyState()}
                 </Disclosure>
-
               </>
             )}
           </aside>
@@ -2320,7 +2313,11 @@ export default function Home() {
         <div
           ref={mapPaneRef}
           className={`${styles.mapPane} app-map-pane`}
-          style={{ "--mobile-sheet-height": isMobile && mobileSheet ? `${mobileSheetHeightVh}vh` : "0px" } as React.CSSProperties}
+          style={
+            {
+              "--mobile-sheet-height": isMobile && mobileSheet ? `${mobileSheetHeightVh}vh` : "0px",
+            } as React.CSSProperties
+          }
         >
           <MapView
             routes={routes}
@@ -2571,13 +2568,8 @@ export default function Home() {
             onHeightCommit={handleMobileSheetHeightCommit}
             autoFitHeight={!sheetHeightChosen}
           >
-            {routes.length > 0 ? (
-              renderRouteOutcomeSectionBody()
-            ) : (
-              renderRouteOutcomeEmptyState()
-            )}
+            {routes.length > 0 ? renderRouteOutcomeSectionBody() : renderRouteOutcomeEmptyState()}
           </BottomSheet>
-
         </>
       )}
     </div>

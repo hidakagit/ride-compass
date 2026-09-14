@@ -191,7 +191,7 @@ class RouteGenerator:
         # 同じ情報源）。呼び出し側（routes.py: _run_generate_job）が
         # RouteGenerateResponse.no_candidates_reasonへそのまま転記し、GUI（デバッグログ・
         # 候補0件時のメッセージ）から確認できるようにする。インスタンスは
-        # `api/dependencies.py: _build_route_generation_setup`がリクエストごとに
+        # `api/dependencies.py: _assemble_route_generation_setup`がリクエストごとに
         # 新規生成するため、インスタンス属性として持っても並行リクエスト間で競合しない。
         self.last_no_candidates_reason: str | None = None
         # _generate_destination_routesが目的地をアクセス可能な最寄りNodeへ補正した場合の

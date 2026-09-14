@@ -35,7 +35,7 @@ class _CoverageGap:
 
     一時的な通信エラー（タイムアウト・5xx等）と整備区域外（404、恒久的）はどちらも
     `_fetch_tile`が`None`を返す点で見分けがつかないため、このセンチネルで区別する。
-    区別しないと`_get_tile_grid`が一時的な障害まで`_tile_grid_cache`へ恒久キャッシュ
+    区別しないと`_load_tile_grid`が一時的な障害まで`_tile_grid_cache`へ恒久キャッシュ
     してしまい、プロセスが再起動するまで標高がNone固定になる。
     """
 

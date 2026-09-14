@@ -102,7 +102,7 @@ DELETE→INSERTで、**候補0件のkindはDELETEの対象から外す**——DE
 
 ### 事前集計バッチ（`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`）
 
-対象IDは`_common.py: stream_id_chunks`がサーバーサイドカーソル（`stream_results`）で
+対象IDは`_common.py: stream_id_chunks`がサーバーサイドカーソル（`session.stream`）で
 `CHUNK_SIZE`件ずつ読み進める（`precompute_elevation_attributes.py`・
 `precompute_way_landcover.py`も同じ）。数百万行が対象でもプロセスのメモリ使用量は
 1チャンク分に留まり、selectの`ORDER BY`（地理的順序で読む2本が使う）もそのまま効く。

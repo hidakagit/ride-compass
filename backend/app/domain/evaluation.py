@@ -80,8 +80,9 @@ class EdgeCostResult(StrictModel):
     """Edge Costの算出結果。
 
     difficultyは0-100（大きいほど走りにくい、domain/difficulty.pyと同じ絶対基準）。
-    costは距離ベース（メートル相当、小さいほど良い＝Route Engineが最短経路探索に
-    そのまま使える単位）。allowed=FalseはHard Constraintによる除外を表し、この場合
+    costは距離ベース（メートル相当、小さいほど良い）。**探索が最小化するコストとは単位が
+    違う**——探索は秒で測る（`domain/routing.py`）。allowed=FalseはHard Constraintによる
+    除外を表し、この場合
     cost/difficultyはNoneになる。
 
     Road Graphへ恒久保存しない（仕様書32章）。このモデルは呼び出しごとの計算結果を

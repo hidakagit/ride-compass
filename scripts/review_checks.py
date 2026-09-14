@@ -668,6 +668,134 @@ def find_dead_refs_inside_exempted_paragraphs(
     return _dead_refs_of(inside, files, corpus)
 
 
+# --- ソースコード内のコメント（docs/modulesと同じ基準で識別子の死活を見る） -------
+#
+# コメントが名指しする識別子は、それ自体がソース全文の一部のため`identifier_exists`から
+# 見れば常に「実在する」。改名・撤去に取り残されたコメントを拾うには、**コメントを除いた
+# 本文**を母集団にする必要がある。
+
+#: コメントの中身だけを取り出せる拡張子と、その行コメントの始まり。
+_LINE_COMMENT_MARKERS = {
+    ".ts": ("//",), ".tsx": ("//",), ".js": ("//",), ".mjs": ("//",),
+    ".css": (), ".sql": ("--",), ".sh": ("#",),
+}
+#: ブロックコメントの行（`/* ... */`の途中行を含む）。行頭が这れで始まる行だけを見る。
+_BLOCK_COMMENT_PREFIXES = ("/*", "*", "*/")
+
+
+def _python_comment_lines(text: str) -> set[int]:
+    """コメント・docstringが占める行番号。tokenizeとastで正確に取る
+    （文字列中の`#`をコメントと誤認しない）。"""
+    import ast
+    import io
+    import tokenize
+
+    lines: set[int] = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                lines.add(token.start[0])
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return lines
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return lines
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not (node.body and isinstance(node.body[0], ast.Expr)):
+            continue
+        value = node.body[0].value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            lines.update(range(value.lineno, (value.end_lineno or value.lineno) + 1))
+    return lines
+
+
+def split_source_comments(path: str, text: str) -> tuple[list[tuple[int, str]], str]:
+    """(コメント行, コメントを除いた本文)。拡張子ごとの素朴な規則で分ける。
+
+    行の途中から始まるコメント（`x = 1  # 説明`）は本文側へ残す。取りこぼす方向の
+    割り切りで、**誤検知を出さない**ことを優先する。
+    """
+    suffix = Path(path).suffix
+    comment_lines: list[tuple[int, str]] = []
+    code_lines: list[str] = []
+    if suffix == ".py":
+        marked = _python_comment_lines(text)
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if lineno in marked:
+                comment_lines.append((lineno, line))
+            else:
+                code_lines.append(line)
+        return comment_lines, "\n".join(code_lines)
+
+    markers = _LINE_COMMENT_MARKERS.get(suffix, ())
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        is_comment = stripped.startswith(_BLOCK_COMMENT_PREFIXES) or (
+            bool(markers) and stripped.startswith(markers)
+        )
+        if is_comment:
+            comment_lines.append((lineno, line))
+        else:
+            code_lines.append(line)
+    return comment_lines, "\n".join(code_lines)
+
+
+def corpus_files(files: list[str], include_tests: bool = False) -> list[str]:
+    return [
+        f for f in files
+        if f.startswith(SOURCE_CORPUS_PREFIXES) and f.endswith(SOURCE_CORPUS_SUFFIXES)
+        and (include_tests or not SOURCE_CORPUS_EXCLUDE_RE.search(f))
+        and (REPO_ROOT / f).exists()
+    ]
+
+
+# 外部システムの語彙。**このリポジトリのコードには存在しなくて当然**で、改名の取り残しでは
+# ない。コメントが外部の仕様を説明するために名指しするもので、綴りを変えると説明が嘘になる。
+EXTERNAL_VOCABULARY = frozenset({
+    "zoomUse",                # JMAの配信設定JSONが持つフィールド名
+    "maxNativeZoom",
+    "n_live_tup",             # PostgreSQL pg_stat_user_tables の列
+    "__asyncpg_stmt_N__",     # asyncpgが内部で付けるprepared statement名
+    "to_shape",               # geoalchemy2の変換関数
+    "onPressedChange",        # Radix UIのprop
+    "composeEventHandlers",   # Radix UIの内部ヘルパ
+    "flood_mesh",             # 国交省ハザードマップのレイヤーid
+    "flood_riskline",
+    "inland_flood",
+    "BackgroundTasks",        # FastAPIのクラス
+    "toll_booth",             # OSMのタグ値
+    "guard_rail",
+    "jersey_barrier",
+})
+
+
+def find_source_comment_dead_identifier_refs(files: list[str], scope: list[str] | None = None) -> list[str]:
+    """ソースコードのコメントが名指しする識別子のうち、実装のどこにも綴りが無いもの。
+
+    母集団はコメントを除いた本文。コメント同士が互いを「実在する」と支え合うのを防ぐ。
+    改名・撤去のたびに、取り残されたコメントがその場で分かる。
+    """
+    # 母集団にはテストも含める。コメントはテスト側の部品（`FakeRoadGraphRepository`等）を
+    # 正当に名指しするため、除くと正しい記述が違反になる。実測: 除くと46件、含めると31件。
+    comment_lines: dict[str, list[tuple[int, str]]] = {}
+    code_parts: list[str] = []
+    for f in corpus_files(files, include_tests=True):
+        comments, code = split_source_comments(f, read_text(REPO_ROOT / f))
+        comment_lines[f] = comments
+        code_parts.append(code)
+    corpus = "\n".join(code_parts)
+    # 走査するのは実装のコメントだけ（テストのコメントは母集団には要るが、対象にすると
+    # テスト内の旧名まで一度に抱え込む。そちらは別タスクで扱う）。
+    targets = corpus_files(files if scope is None else scope)
+    hits = find_dead_identifier_refs(
+        {f: comment_lines[f] for f in targets if f in comment_lines}, corpus
+    )
+    return sorted(h for h in hits if not any(f"`{name}`" in h for name in EXTERNAL_VOCABULARY))
+
+
 def source_corpus(files: list[str]) -> str:
     """識別子の実在判定に使うソース全文（実装・スクリプト）。"""
     parts = []
@@ -788,8 +916,8 @@ def review_command_docs(files: list[str]) -> list[str]:
 def find_review_doc_dead_refs(files: list[str], scope: list[str] | None = None) -> list[str]:
     """レビュー手順書が名指しする識別子のうち、実装に存在しないもの。
 
-    段落に撤去の断りがあれば免除する（architecture.mdと同じ単位）——「旧`total_score`は
-    撤去済み」と書くのは正しい記述で、名前を出さずには書けない。
+    段落に撤去の断りがあれば免除する（architecture.mdと同じ単位）——「旧◯◯は撤去済み」と
+    書くのは正しい記述で、名前を出さずには書けない。
     """
     corpus = source_corpus(files)
     targets = review_command_docs(files if scope is None else scope)
@@ -1465,6 +1593,7 @@ def gather_added_source_lines(base_ref: str | None) -> dict[str, list[tuple[int,
 DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "dead_file_refs": frozenset({"staged", "since", "full"}),
     "dead_identifier_refs": frozenset({"staged", "since", "full"}),
+    "source_comment_dead_identifier_refs": frozenset({"staged", "since", "full"}),
     "narrative": frozenset({"staged", "since", "full"}),
     # 既存分の一掃（T567）が終わるまで、全件スキャンでは参考表示に留める。
     "source_narrative": frozenset({"staged", "since"}),
@@ -1576,11 +1705,17 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          find_review_doc_dead_refs(files + added, scope=md_staged)))
         sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
                          find_cross_file_env_writes(files + added)))
+        sections.append(("source_comment_dead_identifier_refs",
+                         "ソースコードのコメントが名指しする死んだ識別子（ステージ済み）",
+                         find_source_comment_dead_identifier_refs(files + added, scope=staged + added)))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
         sections.append(("dead_identifier_refs", "docs/modules の死んだ識別子参照（全件）",
                          find_dead_identifier_refs(doc_lines, source_corpus(files))))
+        sections.append(("source_comment_dead_identifier_refs",
+                         "ソースコードのコメントが名指しする死んだ識別子（全件）",
+                         find_source_comment_dead_identifier_refs(files)))
         sections.append(("narrative", "docs/modules の記載粒度違反（全件）", find_narrative_violations(doc_lines)))
         sections.append(("task_links", "docs/modules の Txxx リンク（参考、README「記載粒度」節は1リンクまで許可）",
                          count_task_links(doc_lines)))
@@ -2206,6 +2341,9 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
             arch, f"\n`zzzGoneName`は撤去済み。`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n"),
         "source_narrative": lambda: write(
             GUARD_PROBE_TS, "// 改善計画T999でこの形に変更した。\nexport const zzzGuardProbe = 1;\n"),
+        "source_comment_dead_identifier_refs": lambda: write(
+            GUARD_PROBE_TS,
+            f"// `{GUARD_PROBE_IDENT}`が処理する。\nexport const zzzGuardProbe = 1;\n"),
         "undocumented_files": lambda: write(GUARD_PROBE_TS, "export const zzzGuardProbe = 1;\n"),
         "undefined_css_tokens": lambda: write(
             GUARD_PROBE_TS, 'export const zzzGuardProbe = "var(--zzz-guard-probe-token)";\n'),

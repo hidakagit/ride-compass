@@ -153,7 +153,7 @@ async def stream_id_chunks(
 ) -> AsyncIterator[list[_T]]:
     """selectの1列目を`chunk_size`件ずつ取り出す（対象IDをPython側へ全件は載せない）。
 
-    サーバーサイドカーソル（`stream_results`）で読み進めるため、対象が数百万件でも
+    サーバーサイドカーソル（`session.stream`）で読み進めるため、対象が数百万件でも
     プロセスのメモリ使用量は1チャンク分に留まる。`stmt`の`ORDER BY`はそのまま効く
     （地理的順序で読むバッチが、近接するEdge/wayを同じチャンクへ集めてタイル・ラスタの
     キャッシュを効かせるために使う）。

@@ -1788,7 +1788,7 @@ class RawOsmRepository(_SessionRepository):
         extent_envelope = func.ST_MakeEnvelope(
             extent_row.xmin, extent_row.ymin, extent_row.xmax, extent_row.ymax, 4326
         )
-        # `_way_spec_row_to_domain`は`geom`列を一切参照しない
+        # 行から`WaySpec`への変換は`geom`列を一切参照しない
         # （osm_way_id/node_ids/highway/surface/tags/directionのみ）。にもかかわらず
         # `select(OsmRawWayRow)`は全列（geom＝LINESTRING込み）をORM行として取得すると、
         # DBサーバー側の実行自体はEXPLAIN ANALYZEで112msしかかからないのに対し、

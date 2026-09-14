@@ -1,10 +1,8 @@
 """テスト専用の座標生成ヘルパー。
 
-`destination_point`は元々`app/domain/geo.py`にあった本番関数（8方位固定の周回経由地計算
-`_loop_waypoints`が使っていた）だが、改善計画T531で周回生成がフロンティア方式へ転換し
-本番コードから未参照になったため、改善計画T555でフィクスチャ座標生成専用のヘルパーとして
-ここへ移した（`test_road_graph_engine.py`の合成グラフ・`test_geo.py`の`bearing_between`/
-`haversine_distance_km`検証が「起点から方位θへ距離d進んだ点」を必要とする）。
+`destination_point`は本番コードからは参照されない。「起点から方位θへ距離d進んだ点」を
+必要とするテスト（`test_road_graph_engine.py`の合成グラフ・`test_geo.py`の`bearing_between`/
+`haversine_distance_km`検証）のためだけに置いてある。
 """
 
 import math

@@ -10,7 +10,7 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   TURNAROUND_RADIUS_RATIO`）でRoad Graphを`prepare`で1回だけ取得し、全候補で共有する。
 - **周回候補は8方位固定ではなく、公開軸の重み駆動のフロンティア方式で生成する**。
   `select_loop_turnarounds`が起点からの一対全最短経路木（`domain/routing.py:
-  build_turn_expanded_tree`、scipy）で「往路の実距離が目標の半分付近」のNode群
+  build_turn_expanded_tree`、numbaでJITした自前の探索）で「往路の実距離が目標の半分付近」のNode群
   （リング）を求め、往路の距離加重平均difficultyの昇順に折返し点候補を選ぶ
   （似た往路は`select_diverse_by_overlap`で間引く）。`trace_loop_from_turnaround`が
   往路（木の経路そのもの、再探索しない）に、往路Edge＋逆方向Edgeのコストを一時的に
@@ -23,8 +23,8 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   （`elevation_attributes`テーブルを両者が共有するキャッシュ層として参照する構図。
   事前計算が漏れているEdgeは探索コスト側でgradient軸のみ「データ無し」扱いになるが、
   他の軸で評価は継続する）。
-- 風は出発時点の起点付近の風をルート全体に一様適用する（探索中は到達時刻が未確定のため、
-  区間ごとの推定到達時刻の風は使わない）。
+- 風は**到達時刻ごとの予報**を使う（時刻ビン別のコスト配列を持ち、探索が到達時刻を
+  ラベルとして運ぶ）。時刻別の予報が無いときだけ1本のスナップショットへ落ちる。
 - **Edgeコストは「タイル単位の静的スコア行列＋リクエスト時ベクトル計算」で求める**:
   タイル読込時（`GraphService._get_or_build_tile_materials`）に「Edge×公開軸」の
   静的スコア行列（`domain/evaluation.py: StaticEdgeScoreMatrix`、風など動的軸の列は
@@ -1150,7 +1150,7 @@ class RoadGraphEngine:
         """折返し点候補を往路の軸的な良さの順に最大`pool_size`件選ぶ。
 
         1. 起点からの一対全最短経路木（`domain/routing.py: build_turn_expanded_tree`、
-           軸重み付きコスト、scipy）を1回だけ求める。探索はコスト上限
+           軸重み付きコスト）を1回だけ求める。探索はコスト上限
            （リング上限の距離を最低速度で秒へ直し×(1+P)。リング内のNodeを取りこぼさない
            上界）で打ち切る。
         2. 木に沿った往路の**実距離**が`[(目標-許容)/LOOP_TO_OUTBOUND_RATIO_MIN,

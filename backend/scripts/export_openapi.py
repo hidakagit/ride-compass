@@ -176,11 +176,9 @@ def main() -> None:
     # フロントはこのprimary_attributesのlabel（正式名）とprimary_attribute_idsの組み合わせ
     # だけで2次→1次・1次→2次の双方向導出ができる（片側import、設計原則2）。
     #
-    # 改善計画T320: 以前は組み込み6軸を`registry_defaults.py`が手書きで個別登録し、
-    # それ以外の軸（軸スタジオ作成軸）だけをここで別ループ（`_auto_ramp_axes`）で
-    # 拾うという二重実装だった。`_register_axes()`が`AXIS_DEFINITIONS`を走査して
-    # 公開軸すべてを一様に登録するようになったため（`domain/registry_defaults.py`
-    # 参照）、`all_axes()`は既に組み込み・GUI作成を問わず全公開軸を含む。
+    # `all_axes()`は組み込み・軸スタジオ作成を問わず全公開軸を含む
+    # （`domain/registry_defaults.py`の`_register_axes()`が`AXIS_DEFINITIONS`を走査して
+    # 一様に登録するため）。ここで軸の出どころによる場合分けをしないこと。
     reset_registry_for_testing()
     register_defaults()
     _write_json(

@@ -1,10 +1,9 @@
 """Route Engine（仕様書33-34章）。
 
 Road Graph（domain/graph.py）とEdge Cost（domain/evaluation.py）を使って、2点間の
-最小コスト経路を探索する。探索アルゴリズム自体は独自実装せず、標準的なグラフ
-アルゴリズムライブラリの実装をそのまま利用する（仕様書34章「探索アルゴリズムを
-独断で変更しない」「独自の経路探索アルゴリズムの実装はしない」の趣旨を踏まえ、
-新規性のある独自アルゴリズムは開発しない）。
+最小コスト経路を探索する。アルゴリズムは教科書どおりのDijkstra/A*で、新規性のある
+独自アルゴリズムは作らない（仕様書34章「探索アルゴリズムを独断で変更しない」）。
+実装をライブラリへ委ねられない理由は下記（到達時刻をラベルとして持ち回るため）。
 
 探索の状態は**Nodeではなく有向Edge**にする（辺基準グラフ）。右左折の費用はNodeに閉じず
 「どの区間から入ってどの区間へ出るか」で決まるため、Nodeを状態にすると表現できない。
@@ -148,8 +147,8 @@ def build_csr_structure(lazy_graph: LazyRoadGraph, *, reverse: bool = False) -> 
     距離」が得られる（後ろ向き木、`RoadGraphEngine.select_via_nodes`参照）。
 
     `from_index * node_count + to_index`の整列キーはCSR構造の構築だけに使う一時変数で、
-    フィールドとしては持たない（`(pred, v)`のCSRエントリ位置検索
-    ［`_accumulate_tree_lengths`］に必要な時点で`indptr`/`indices`から都度再構築する
+    フィールドとしては持たない（`(pred, v)`のCSRエントリ位置検索が要る経路復元
+    ［`turn_expanded_path_edge_indices`］の時点で`indptr`/`indices`から都度再構築する
     ——タイル集合キーのプロセス内LRU［上限64件］が常駐させる1エントリぶんのメモリを
     削減する）。
     """
@@ -192,7 +191,7 @@ class SearchGraphStatics:
 
     csr: CsrGraphStructure
     # `LazyRoadGraph.edge_ids`と同じ行順の実距離（m）。一対全木に沿った実距離の積算
-    # （`ShortestPathTree.length_m`）と重複率（`select_diverse_by_overlap`）に使う。
+    # （`TurnExpandedTree.state_length_m`）と重複率（`select_diverse_by_overlap`）に使う。
     edge_length_m: np.ndarray
 
 
@@ -591,8 +590,8 @@ def find_nearest_node_indexed(
 class TurnCostSpec:
     """ターン1回の時間損失（秒）と、直進とみなす方位差の上限（度）。
 
-    費用を秒で持ち、探索へ渡すときに巡航速度でm換算する（探索のコストが距離の単位のため、
-    「右折1回＝何m遠回りするのと同じか」として距離と直接比較できる）。
+    探索のコストも秒のため、換算せずそのまま足せる（「右折1回＝何秒余計にかかるか」として
+    走行時間と直接比べられる）。
     """
 
     left_seconds: float = 2.0
@@ -873,7 +872,7 @@ class TurnExpandedTree:
     """状態＝有向Edgeの一対全最短経路木。`state_*`は`LazyRoadGraph.edge_ids`と同じ行順、
     `node_*`はNode index順。
 
-    `ShortestPathTree`と違い「起点Nodeのコスト0」という状態を持たない——状態の空間に
+    「起点Nodeのコスト0」という状態を持たない——状態の空間に
     「まだ走っていない」が無いため、起点Nodeの`node_cost`は「起点へ戻ってくるコスト」に
     なる。起点を0として扱いたい呼び出し元は自分で上書きする。
     """
@@ -892,7 +891,8 @@ class TurnExpandedTree:
     # `node_best_state`に対応する実距離（m）・所要時間（秒）。到達不能はNaN。
     node_length_m: np.ndarray
     node_seconds: np.ndarray
-    # `predecessor`のPython list版（`ShortestPathTree`と同じ理由）。
+    # `predecessor`のPython list版（numpy配列への添字アクセスより、経路復元の
+    # ループが速い）。
     predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
 
 

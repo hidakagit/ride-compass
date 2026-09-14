@@ -126,13 +126,13 @@ def haversine_distance_km_array(lat: np.ndarray, lon: np.ndarray, target: LatLon
     """`haversine_distance_km`のnumpyベクトル版。
 
     `lat`/`lon`は複数地点の緯度経度配列（同一形状）、`target`は単一の目的地。
-    A*ヒューリスティック（`_build_estimate_cost_fn`相当）が、レグごとに目的地が
+    A*ヒューリスティック（`node_heuristic`）が、レグごとに目的地が
     変わるたびグラフ上の全Nodeとの距離をPythonループ無しで1回のnumpy演算で
     求め直すために使う（訪問したNodeだけ都度計算していたスカラー版と異なり、
     全Node分をまとめて計算するが、numpy演算1回のコストはNode数十万件規模でも
     数十ms程度に収まる）。式自体は`haversine_distance_km`と同一（丸め方式の
     違いによる浮動小数点の不一致はヒューリスティックの許容誤差に影響しない
-    ——A*のestimate_cost_fnは下界を返しさえすれば正しく動作するadmissible
+    ——A*のヒューリスティックは下界を返しさえすれば正しく動作するadmissible
     ヒューリスティックのため、スカラー版とのビット単位一致は不要）。
     """
     lat1 = np.radians(lat)

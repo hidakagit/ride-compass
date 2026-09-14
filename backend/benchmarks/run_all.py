@@ -4,15 +4,7 @@
 （個別モジュールのdocstring参照）。標高キャッシュ・Road Graph構築系は合成データでも
 規模次第で数秒〜十数秒かかるため、時間を絞りたい場合は個別モジュールを直接実行すること。
 
-改善計画T22でOverpassフォールバックを撤去し、地域路面レイヤーのPython側MVTエンコード
-（`encode_road_surface_tile`のway数スケーリング）が構造的に無くなったため、それを計測していた
-`bench_vector_tile`・`bench_event_loop_stall`はこの一覧から削除した（2026-08-16）。
-
-改善計画T10（DEMタイル化＋標高キャッシュ1系統化）でGSI点API＋SQLite点キャッシュ
-（`infrastructure/cache_db.py`のelevation_cacheテーブル・get_elevation/set_elevation）を
-廃止したため、それを計測していた`bench_elevation_cache`もこの一覧から削除した
-（2026-08-23。新方式のタイルキャッシュ自体は`tests/test_elevation_client_cache.py`で
-機能面を検証済み。パフォーマンス計測が必要になった際は新規ベンチマークとして書き直す）。
+計測対象が構造的に無くなったベンチマークはこの一覧から外す（モジュール自体も残さない）。
 """
 
 from __future__ import annotations

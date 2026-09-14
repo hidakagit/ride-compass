@@ -23,8 +23,7 @@
 // - URLパターンは他3種と完全に同型（`.../risk/{basetime}/{member}/{validtime}/surf/
 //   flood/{z}/{x}/{y}`）で、拡張子だけ`.pbf`（他3種は`.png`）。`targetTimes.json`も
 //   共通（elements配列に`"flood"`が含まれる）で、追加のfetchは不要。
-// - タイル内のsource-layer名は`flood`（`vectorTileLayerStyles`のプロパティキーが
-//   Leaflet.VectorGrid.Protobufの仕様上そのままsource-layer名になる）。
+// - タイル内のsource-layer名は`flood`（配信元のタイルがこの名前で焼かれている）。
 // - フィーチャーは河川をなぞるLINE形状で、プロパティ`level`（1〜4の危険度レベル、
 //   本ファイルの`RISK_LEVEL_COLORS`と同じ配色）・`type`（"nation"=国管理河川等の
 //   区分、当面未使用）を持つ。`level`が無い（=平常時）フィーチャーはJMA公式サイトでは
@@ -107,7 +106,7 @@ function tileUrlTemplate(
   ref: RiskFrameRef,
   // 洪水キキクル（flood）だけ配信元がMapbox Vector Tile（.pbf）のため拡張子が異なる。
   // 他はすべてラスタタイル（.png）。
-  extension: "png" | "pbf" = "png"
+  extension: "png" | "pbf" = "png",
 ): string {
   return jmaTileUrlTemplate({
     group,
