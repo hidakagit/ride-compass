@@ -38,13 +38,8 @@ import LensControl, { type LensOption } from "@/components/LensControl/LensContr
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
 import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
-import {
-  ROAD_FILTER_AXES,
-  ROAD_LINE_COLOR_AXIS_ID,
-  ROAD_LINE_WIDTH_AXIS_ID,
-  getRoadFilterAxis,
-  type RoadFilterAxisId,
-} from "@/components/Map/roadFilterAxes";
+import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
+import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
@@ -123,8 +118,6 @@ import type {
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import styles from "./page.module.css";
-
-const DISTANCE_TOLERANCE_KM = 5;
 
 // 経由地ルートのid（常に1件、「方位」という概念が無いためタブに順位番号を付けない）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
@@ -276,11 +269,10 @@ const DISASTER_SOURCE_AXIS_ID = "disaster";
 
 // 災害チップの▶パネルに出す「表示する情報」（7要素の個別トグル）。axisIdを持つため
 // LegendCheckboxListで描画され、非表示キーはhiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID]
-// へ保存される（サイドバーの絞り込みと同じ保存先・同じ操作感）。keyは
-// DYNAMIC_WEATHER_RENDERERSのdisasterグループのソースキーと一致させる必要がある
-// （useDynamicWeatherLayersがこのkeyでソースごとのvisibleを決めるため）。
+// へ保存される（▶パネルの絞り込みと同じ保存先・同じ操作感）。
 // 面同士は重なると混色して危険度を読み取れないため、混んできたらここで絞り込む。
-const DISASTER_SOURCE_LEGEND: LegendEntry[] = [
+// keyは`DISASTER_SOURCES`（dynamicWeather.ts）と一致していなければならない。型で縛る。
+const DISASTER_SOURCE_LEGEND: (LegendEntry & { key: DisasterSourceKey })[] = [
   { key: "heavyRain", label: "大雨キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
   { key: "landslide", label: "土砂災害キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
   { key: "inundation", label: "浸水キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
@@ -1050,61 +1042,24 @@ export default function Home() {
   // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーの
   // ため、軸ごとに個別のサマリ・内訳を持つ。ズーム不足の案内は絞り込みより優先する
   // （ONにしたのに何も出ない状態の説明が先）。
-  const roadSurfaceAxis = getRoadFilterAxis(ROAD_LINE_COLOR_AXIS_ID);
-  const roadSurfaceFilterSummary = useMemo(
-    () =>
-      summarizeLegendFilters([
-        {
-          label: "",
-          legend: roadSurfaceAxis.legend,
-          hiddenKeys: roadHiddenKeysByMode[roadSurfaceAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
-        },
-      ]),
-    [roadSurfaceAxis, roadHiddenKeysByMode],
-  );
-  const roadSurfaceSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadSurfaceFilterSummary;
-  const roadSurfaceLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
-    () =>
-      regionZoomTooWide
+  // 軸ごとのサマリ・内訳は`ROAD_FILTER_AXES`を走査して作る。軸を名指しして同じ形の
+  // ブロックを並べると、軸を1つ足すたびに写経が増える（roadFilterAxes.tsの「軸定義を
+  // 1つ足すだけでよい」が成り立たなくなる）。
+  const roadAxisPanels = useMemo(() => {
+    const summaryByLayerId: Record<string, string | null> = {};
+    const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
+    for (const axis of ROAD_FILTER_AXES) {
+      const hiddenKeys = roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS;
+      summaryByLayerId[axis.layerId] = regionZoomTooWide
+        ? "ズームインすると表示されます"
+        : summarizeLegendFilters([{ label: "", legend: axis.legend, hiddenKeys }]);
+      legendDetailsByLayerId[axis.layerId] = regionZoomTooWide
         ? []
-        : [
-            {
-              label: "",
-              legend: roadSurfaceAxis.legend,
-              hiddenKeys: roadHiddenKeysByMode[roadSurfaceAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
-              axisId: roadSurfaceAxis.id,
-            },
-          ],
-    [regionZoomTooWide, roadSurfaceAxis, roadHiddenKeysByMode],
-  );
+        : [{ label: "", legend: axis.legend, hiddenKeys, axisId: axis.id }];
+    }
+    return { summaryByLayerId, legendDetailsByLayerId };
+  }, [regionZoomTooWide, roadHiddenKeysByMode]);
 
-  const roadTypeAxis = getRoadFilterAxis(ROAD_LINE_WIDTH_AXIS_ID);
-  const roadTypeFilterSummary = useMemo(
-    () =>
-      summarizeLegendFilters([
-        {
-          label: "",
-          legend: roadTypeAxis.legend,
-          hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
-        },
-      ]),
-    [roadTypeAxis, roadHiddenKeysByMode],
-  );
-  const roadTypeSummary = regionZoomTooWide ? "ズームインすると表示されます" : roadTypeFilterSummary;
-  const roadTypeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
-    () =>
-      regionZoomTooWide
-        ? []
-        : [
-            {
-              label: "",
-              legend: roadTypeAxis.legend,
-              hiddenKeys: roadHiddenKeysByMode[roadTypeAxis.id] ?? NO_HIDDEN_LEGEND_KEYS,
-              axisId: roadTypeAxis.id,
-            },
-          ],
-    [regionZoomTooWide, roadTypeAxis, roadHiddenKeysByMode],
-  );
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
     ? `レンズ: ${getRouteStyleMode(routeStyleModes, lens).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
@@ -1201,13 +1156,11 @@ export default function Home() {
     // summary/legendDetailsはlayer.id→値のルックアップで組み立て、無ければ
     // staticFilterSummariesをフォールバックとして最後に見る。
     const summaryByLayerId: Partial<Record<MapLayerId, string | null>> = {
-      roadSurface: roadSurfaceSummary,
-      roadType: roadTypeSummary,
+      ...roadAxisPanels.summaryByLayerId,
       route: routeSummary,
     };
     const legendDetailsByLayerId: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {
-      roadSurface: roadSurfaceLegendDetails,
-      roadType: roadTypeLegendDetails,
+      ...roadAxisPanels.legendDetailsByLayerId,
       route: routeLegendDetails,
       precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
       windVector: WIND_LEGEND_DETAILS,
@@ -1270,10 +1223,7 @@ export default function Home() {
     selectedCandidate,
     layerVisibility,
     layerDataStatus,
-    roadSurfaceLegendDetails,
-    roadSurfaceSummary,
-    roadTypeLegendDetails,
-    roadTypeSummary,
+    roadAxisPanels,
     routeLegendDetails,
     routeSummary,
     staticFilterSummaries,
@@ -1506,7 +1456,7 @@ export default function Home() {
                 Math.ceil(destinationModePoints.reduce((max, p) => Math.max(max, haversineKm(location, p)), 0)) + 1,
               )
             : distanceKm,
-        distanceToleranceKm: DISTANCE_TOLERANCE_KM,
+        distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
         maxRoutes: Number(maxRoutesInput),
         assumedSpeedKmh,
         startTime: dynamicLayerTargetTime,
@@ -2528,12 +2478,7 @@ export default function Home() {
                   新しい結果が用意できた）の両方をこのドットで知らせる。前者は生成完了と
                   同時に消える一方後者は生成完了時に立つため、生成の前後を通じて「ルート
                   結果タブを見るべきタイミング」の合図が途切れない。 */}
-              {(conditionsDirty || hasUnseenResults) && (
-                <span
-                  aria-hidden="true"
-                  className="absolute right-[0.6rem] top-[0.35rem] h-[0.5rem] w-[0.5rem] rounded-full bg-[var(--color-warning-strong)]"
-                />
-              )}
+              {(conditionsDirty || hasUnseenResults) && <span aria-hidden="true" className={styles.dirtyDotOnTab} />}
             </button>
           </nav>
 

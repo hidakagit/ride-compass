@@ -88,29 +88,29 @@ describe("scoreBands", () => {
 });
 
 describe("distributionWarnings", () => {
-  it("満点への張り付きが半分を超えたら警告する", () => {
-    const warnings = distributionWarnings([
-      { label: "0点", share: 0.05 },
-      { label: "100点", share: 0.92 },
+  // 帯は`scoreBands`が返す並びをそのまま渡す。両端は位置で引くため、ここでも同じ長さの
+  // 配列を作る（ラベル文字列で引く形に戻すと、言い換えた瞬間に警告が出なくなる）。
+  function bandsWith(zeroShare: number, fullShare: number) {
+    const bands = scoreBands(null, [
+      [0, 0],
+      [1, 100],
     ]);
+    bands[0].share = zeroShare;
+    bands[bands.length - 1].share = fullShare;
+    return bands;
+  }
+
+  it("満点への張り付きが半分を超えたら警告する", () => {
+    const warnings = distributionWarnings(bandsWith(0.05, 0.92));
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("92%");
   });
 
   it("ほとんどが0点でも警告する", () => {
-    const warnings = distributionWarnings([
-      { label: "0点", share: 0.95 },
-      { label: "100点", share: 0.0 },
-    ]);
-    expect(warnings[0]).toContain("0点");
+    expect(distributionWarnings(bandsWith(0.95, 0.0))[0]).toContain("0点");
   });
 
   it("ほどよく散らばっていれば警告しない", () => {
-    expect(
-      distributionWarnings([
-        { label: "0点", share: 0.6 },
-        { label: "100点", share: 0.03 },
-      ]),
-    ).toEqual([]);
+    expect(distributionWarnings(bandsWith(0.6, 0.03))).toEqual([]);
   });
 });

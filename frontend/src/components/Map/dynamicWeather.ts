@@ -69,6 +69,30 @@ export type DynamicWeatherRenderPayload =
   // （rasterTileと対称的な役割分担）。
   | { kind: "vectorTile"; tileUrlTemplate: string };
 
+/** 災害グループの名前付きソース。**このリストが唯一の情報源**で、凡例（▶パネルの
+ * 「表示する情報」）・フェッチの有効判定・描画の表示状態の3つがここを見る。3箇所へ
+ * 独立に書くと、片方を改名したときチェックを外しても面が消えなくなる。
+ *
+ * `fetchGroup`は1本の`targetTimes.json`を共有する単位。同じグループの要素がすべて
+ * 非表示なら、そのフェッチ自体を行わない。 */
+export const DISASTER_SOURCES = [
+  { key: "heavyRain", fetchGroup: "risk" },
+  { key: "landslide", fetchGroup: "risk" },
+  { key: "inundation", fetchGroup: "risk" },
+  { key: "flood", fetchGroup: "risk" },
+  { key: "thunder", fetchGroup: "thunder" },
+  { key: "tornado", fetchGroup: "thunder" },
+  { key: "liden", fetchGroup: "liden" },
+] as const;
+
+export type DisasterSourceKey = (typeof DISASTER_SOURCES)[number]["key"];
+export type DisasterFetchGroup = (typeof DISASTER_SOURCES)[number]["fetchGroup"];
+
+/** そのフェッチ単位に属するソースキー。 */
+export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly DisasterSourceKey[] {
+  return DISASTER_SOURCES.filter((source) => source.fetchGroup === fetchGroup).map((source) => source.key);
+}
+
 /** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
  * 一意であればよい。単一ソースしか持たないグループも"main"という1キーだけを持つ
  * ——ソース1つならキー省略可、という特例は設けず呼び出し側の分岐を増やさない。 */
@@ -174,7 +198,7 @@ export function frameIndexForTime(frames: readonly { time: Date }[], target: Dat
   if (targetMs < firstMs - FRAME_RANGE_EPSILON_MS || targetMs > lastMs + FRAME_RANGE_EPSILON_MS) return null;
   return nearestTimeIndex(
     frames.map((f) => f.time),
-    target
+    target,
   );
 }
 
@@ -188,7 +212,7 @@ export function frameIndexForTime(frames: readonly { time: Date }[], target: Dat
 export function gridToFeatureCollection<TPoint, TValue, TGeometry extends GeoJSON.Geometry, TProps>(
   grid: readonly TPoint[],
   extract: (point: TPoint) => TValue | null,
-  buildFeature: (point: TPoint, value: TValue) => GeoJSON.Feature<TGeometry, TProps>
+  buildFeature: (point: TPoint, value: TValue) => GeoJSON.Feature<TGeometry, TProps>,
 ): GeoJSON.FeatureCollection<TGeometry, TProps> {
   const features: GeoJSON.Feature<TGeometry, TProps>[] = [];
   for (const point of grid) {

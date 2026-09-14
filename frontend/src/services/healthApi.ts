@@ -1,15 +1,25 @@
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { STATUS_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { requestJson } from "@/lib/fetchJson";
 
+interface HealthResponse {
+  status?: string;
+}
+
+/** backendへ疎通できるか。**失敗の種類を呼び出し側へ返さない**（画面は「OK/接続できません」の
+ * 2値しか出さない）が、失敗の中身はfetchJsonの骨格がdebugLogへ残す——素のfetchと`catch {}`で
+ * 書くと、タイムアウトなのか5xxなのかが記録にも残らない。 */
 export async function checkBackendHealth(): Promise<boolean> {
   try {
-    // タイムアウトが無いとバックエンドがハングした場合に「確認中...」が無期限に続く。
-    const response = await fetch(`${API_BASE_URL}/health`, {
-      signal: AbortSignal.timeout(STATUS_API_TIMEOUT_MS),
+    const data = await requestJson<HealthResponse>(`${API_BASE_URL}/health`, {
+      timeoutMs: STATUS_API_TIMEOUT_MS,
+      category: "api:health",
+      messages: {
+        failure: "バックエンドへの疎通確認に失敗しました",
+        parseFailure: "バックエンドへの疎通確認に失敗しました",
+      },
     });
-    if (!response.ok) return false;
-    const data = await response.json();
-    return data.status === "ok";
+    return data?.status === "ok";
   } catch {
     return false;
   }

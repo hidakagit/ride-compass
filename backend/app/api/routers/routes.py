@@ -38,6 +38,9 @@ logger = logging.getLogger("ridecompass.generate")
 #   唯一の正として持ち、frontendはOpenAPI生成物から読む。export_openapi.py:
 # ROUTE_GENERATE_CONFIG_PATH参照）。
 MAX_ROUTE_DISTANCE_KM = 100
+# 目標距離からの許容差（km）。frontendは`route-generate-config.json`経由で受け取る
+# ——手書きで複製すると、片方だけ変えたときに画面の見込みと探索の範囲がずれる。
+DEFAULT_DISTANCE_TOLERANCE_KM = 5.0
 
 # ルート生成の同時実行上限（settings.generate_max_concurrent、config.pyのコメント参照）。
 # 上限を超えた分は待たせず429で即座に返し、ブラウザのリトライや連打で外部サービスへの
@@ -146,7 +149,7 @@ class RouteGenerateRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     distance_km: float = Field(gt=0, le=MAX_ROUTE_DISTANCE_KM)
-    distance_tolerance_km: float = Field(gt=0, le=50, default=5.0)
+    distance_tolerance_km: float = Field(gt=0, le=50, default=DEFAULT_DISTANCE_TOLERANCE_KM)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用、docs/research-interface-review-2026-08-15.md
     # §10-1）。省略時はAXIS_DEFINITIONS由来の既定値（load_route_preference）を使う。

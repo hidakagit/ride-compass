@@ -158,41 +158,39 @@ export const DESIGNATION_LEGEND: LegendEntry[] = designationDefs.legend;
 export const DESIGNATION_COLOR_EXPRESSION: unknown[] = designationDefs.colorExpression;
 export const DESIGNATION_OPACITY_EXPRESSION: unknown[] = designationDefs.opacityExpression;
 
+/** 真偽値プロパティ（該当区間のみ`true`、未該当はプロパティ欠落）1つぶんの凡例・色式・
+ * 不透明度式。**3点セットを個別に書き写さない**——片方だけ色やフィルタを変えたときに、
+ * 凡例と地図の見た目が静かに食い違う（文字列列挙版の`buildCategoricalLayerDefs`と同じ役割）。 */
+function buildBooleanLayerDefs(
+  property: string,
+  label: string,
+  color: string,
+): { legend: LegendEntry[]; colorExpression: unknown[]; opacityExpression: unknown[] } {
+  const isTrue = ["==", ["get", property], true];
+  return {
+    legend: [
+      { key: property, label, color, filter: isTrue },
+      { key: "other", label: "対象外", color: COLOR_UNKNOWN, filter: ["!", isTrue], isFallback: true },
+    ],
+    colorExpression: ["case", isTrue, color, COLOR_UNKNOWN],
+    opacityExpression: ["case", isTrue, KNOWN_LINE_OPACITY, FALLBACK_LINE_OPACITY],
+  };
+}
+
 // トンネル（一次属性、OSMのtunnelタグ）の色分け定義。designation同様road_surfaceソースの
 // 独立レイヤーだが、値は該当区間のみ`true`（未該当はプロパティ欠落）の単純な真偽値のため、
-// 文字列列挙用のbuildCategoricalLayerDefsではなく事故（下記ACCIDENT_COLOR_EXPRESSION）と
-// 同じcase式で直接書く。
+// 文字列列挙用のbuildCategoricalLayerDefsではなく真偽値用のbuildBooleanLayerDefsで組む。
 // tunnelはnight軸（domain/night.py: night_difficulty）の材料の1つで、該当区間は+50点
 // （夜間の危険度が上がる方向）に働く。night軸自体もramp表示（axisMapLayerId("night")、
 // 自動導出）を持つが、材料であるtunnelタグそのものは実体のある一次属性として独立表示する
 // 価値があるため、この専用の真偽値レイヤーは維持する。他の2次計算材料（designation等）と
 // 同じAXIS_RAMP_COLORSの危険側の色を使う。
 const TUNNEL_COLOR = AXIS_RAMP_COLORS[2];
+const tunnelDefs = buildBooleanLayerDefs("tunnel", "トンネル", TUNNEL_COLOR);
 
-export const TUNNEL_LEGEND: LegendEntry[] = [
-  { key: "tunnel", label: "トンネル", color: TUNNEL_COLOR, filter: ["==", ["get", "tunnel"], true] },
-  {
-    key: "other",
-    label: "対象外",
-    color: COLOR_UNKNOWN,
-    filter: ["!", ["==", ["get", "tunnel"], true]],
-    isFallback: true,
-  },
-];
-
-export const TUNNEL_COLOR_EXPRESSION: unknown[] = [
-  "case",
-  ["==", ["get", "tunnel"], true],
-  TUNNEL_COLOR,
-  COLOR_UNKNOWN,
-];
-
-export const TUNNEL_OPACITY_EXPRESSION: unknown[] = [
-  "case",
-  ["==", ["get", "tunnel"], true],
-  KNOWN_LINE_OPACITY,
-  FALLBACK_LINE_OPACITY,
-];
+export const TUNNEL_LEGEND: LegendEntry[] = tunnelDefs.legend;
+export const TUNNEL_COLOR_EXPRESSION: unknown[] = tunnelDefs.colorExpression;
+export const TUNNEL_OPACITY_EXPRESSION: unknown[] = tunnelDefs.opacityExpression;
 
 // 一方通行（一次属性、OSM onewayタグ）の色分け定義。tunnelと同型の
 // 単純な真偽値プロパティ（該当区間のみtrue、未該当はプロパティ欠落）。
@@ -201,31 +199,11 @@ export const TUNNEL_OPACITY_EXPRESSION: unknown[] = [
 // 評価に効く」という他レイヤーの読み方と混同されないよう、評価軸に使われていない中立色
 // （crossing等と同じ青系）を割り当てる。
 const ONEWAY_COLOR = "#2563eb";
+const onewayDefs = buildBooleanLayerDefs("oneway", "一方通行", ONEWAY_COLOR);
 
-export const ONEWAY_LEGEND: LegendEntry[] = [
-  { key: "oneway", label: "一方通行", color: ONEWAY_COLOR, filter: ["==", ["get", "oneway"], true] },
-  {
-    key: "other",
-    label: "対象外",
-    color: COLOR_UNKNOWN,
-    filter: ["!", ["==", ["get", "oneway"], true]],
-    isFallback: true,
-  },
-];
-
-export const ONEWAY_COLOR_EXPRESSION: unknown[] = [
-  "case",
-  ["==", ["get", "oneway"], true],
-  ONEWAY_COLOR,
-  COLOR_UNKNOWN,
-];
-
-export const ONEWAY_OPACITY_EXPRESSION: unknown[] = [
-  "case",
-  ["==", ["get", "oneway"], true],
-  KNOWN_LINE_OPACITY,
-  FALLBACK_LINE_OPACITY,
-];
+export const ONEWAY_LEGEND: LegendEntry[] = onewayDefs.legend;
+export const ONEWAY_COLOR_EXPRESSION: unknown[] = onewayDefs.colorExpression;
+export const ONEWAY_OPACITY_EXPRESSION: unknown[] = onewayDefs.opacityExpression;
 
 // 外部静的データソース（警察庁交通事故統計）の色分け定義。
 // backend/app/domain/accident.py: involves_bicycle/is_fatalと同じ意味論

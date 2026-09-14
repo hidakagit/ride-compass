@@ -38,6 +38,10 @@ import type { LegendEntry } from "./legendFilter";
 export type RoadFilterAxisId = "surface" | "highway";
 
 export interface RoadFilterAxis {
+  /** この軸の絞り込みを出す地図チップ（`MapLayerId`）。UI側が軸idから引けるようにここで
+   * 宣言する——画面側で軸を名指しして配線すると、軸を1つ足すたびに同じ形のブロックが
+   * 増える（「軸定義を1つ足すだけでよい」が成り立たなくなる）。 */
+  layerId: string;
   id: RoadFilterAxisId;
   /** 絞り込みパネルの見出しに出す名前（例:「路面の種類で絞り込み」） */
   label: string;
@@ -269,7 +273,7 @@ function buildGroupLegend(
   field: string,
   groups: CategoryGroup[],
   unknownWidth?: number,
-  unknownDashed?: boolean
+  unknownDashed?: boolean,
 ): LegendEntry[] {
   const allValues = groups.flatMap((group) => group.values);
   return [
@@ -295,6 +299,7 @@ function buildGroupLegend(
 export const ROAD_FILTER_AXES: RoadFilterAxis[] = [
   {
     id: "surface",
+    layerId: "roadSurface",
     label: "路面の種類",
     legend: buildGroupLegend("surface", SURFACE_GROUPS),
     colorExpression: buildMatchExpression("surface", SURFACE_GROUPS),
@@ -302,6 +307,7 @@ export const ROAD_FILTER_AXES: RoadFilterAxis[] = [
   },
   {
     id: "highway",
+    layerId: "roadType",
     label: "道路の種類",
     legend: buildGroupLegend("highway", HIGHWAY_GROUPS, HIGHWAY_LINE_WIDTH_UNKNOWN, true),
     // colorExpression/opacityExpressionは「路面の種類」がOFFのときだけMapView.tsx側が使う

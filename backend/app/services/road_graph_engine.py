@@ -71,7 +71,7 @@ from app.domain.cycling_speed import (
     crr_for_surface,
     travel_seconds,
 )
-from app.domain.traffic import POI_COUNT_KINDS, highway_rank, stop_seconds
+from app.domain.traffic import stop_count_material_ids, POI_COUNT_KINDS, highway_rank, stop_seconds
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -365,8 +365,10 @@ class _LegCostComposer:
         crr = crr_for_surface(material_arrays.get(ROLLING_RESISTANCE_MATERIAL_ID), len(distance_m))
         travel = travel_seconds(distance_m, profile, grade, headwind_ms, crosswind_ms, crr)
         stops = np.zeros(len(distance_m))
-        for kind in POI_COUNT_KINDS:
-            per_km = material_arrays.get(f"poi_{kind}_per_km")
+        # 材料idの綴りは`stop_count_material_ids()`が単一の情報源。ここで組み立て直すと、
+        # 向こうで綴りを変えたときにここだけがNoneを引き、全区間の停止の待ちが無言で0秒になる。
+        for kind, material_id in zip(POI_COUNT_KINDS, stop_count_material_ids()):
+            per_km = material_arrays.get(material_id)
             if per_km is not None:
                 stops += np.nan_to_num(per_km) * (distance_m / 1000.0) * stop_seconds(kind)
         return np.where(self._hard_filter_excluded, np.inf, travel + stops)

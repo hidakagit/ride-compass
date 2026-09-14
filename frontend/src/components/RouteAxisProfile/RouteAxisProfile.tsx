@@ -4,12 +4,8 @@ import InfoPopover from "@/components/Map/InfoPopover";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { formatDurationShort } from "@/lib/formatDuration";
 import type { RoutePreferenceWeights } from "@/types/route";
-import AxisContributionBar from "./AxisContributionBar";
-import {
-  formatAxisRawValue,
-  formatCategoryBreakdown,
-  formatMaterialBreakdown,
-} from "./axisRawValue";
+import AxisContributionBar, { hasContribution } from "./AxisContributionBar";
+import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import styles from "./RouteAxisProfile.module.css";
 
 interface RouteAxisProfileProps {
@@ -68,13 +64,7 @@ export default function RouteAxisProfile({
   estimatedDurationSeconds,
   axisColors,
 }: RouteAxisProfileProps) {
-  // 値0（重み0の軸は常に0.0、AxisContributionBar.tsx参照）は表示すべき寄与が無いものとして
-  // 除外する。ここでの絞り込みはAxisContributionBar自身が行う絞り込みと同じ条件にし、
-  // 「空状態の案内文」と「バーの中身が無い」の判定がずれないようにする。
-  const contributionRows = axes.filter((axis) => {
-    const value = axisContributions[axis.axisId];
-    return value != null && value !== 0;
-  });
+  const contributionRows = axes.filter((axis) => hasContribution(axisContributions, axis.axisId));
 
   // 評価に使っていない軸（重み0）はチップを押せなくして区別する——詳細を返さない軸の
   // チップをAxisContributionBarが押せない形で描く。チップ自体は消さず薄く残るため、
@@ -90,7 +80,7 @@ export default function RouteAxisProfile({
       .map((entry) =>
         entry.dtype === "categorical"
           ? formatCategoryBreakdown(entry, materialCategoryShares[entry.materialId])
-          : formatMaterialBreakdown(entry, materialValues[entry.materialId])
+          : formatMaterialBreakdown(entry, materialValues[entry.materialId]),
       )
       .filter((text): text is string => text !== null);
     return (
@@ -122,7 +112,9 @@ export default function RouteAxisProfile({
               triggerAriaLabel="総合難易度の説明"
               contentClassName={styles.infoPopover}
             >
-              <p>距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。</p>
+              <p>
+                距離・軸重みを反映した絶対値（各候補の内訳の合計に近い値）です。候補タブはこの値が小さい順に並びます。
+              </p>
             </InfoPopover>
           </span>
           {estimatedDurationSeconds != null && (
@@ -136,8 +128,7 @@ export default function RouteAxisProfile({
               >
                 <p>
                   走行時間（勾配・風・想定した巡航速度から区間ごとに計算）に、信号などで止まる
-                  待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや
-                  走り方で変わります。
+                  待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや 走り方で変わります。
                 </p>
               </InfoPopover>
             </span>

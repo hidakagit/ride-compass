@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { CloudIcon, MoonIcon, RaindropIcon, SnowflakeIcon, SunIcon } from "@/components/Map/icons";
+import { MoonIcon, SunIcon } from "@/components/Map/icons";
 
 // 常設ヘッダーの天気アイコンは予報由来のweather_codeではなく
 // アメダス実測値ベースの簡易分類を使う。weatherCode.ts（予報のWMOコード、6カテゴリ）と
@@ -7,6 +7,8 @@ import { CloudIcon, MoonIcon, RaindropIcon, SnowflakeIcon, SunIcon } from "@/com
 // （新設フィールドsunshine_10min_minutes[10分間日照時間]・precipitation_10min_mm
 // [10分間降水量]・temperature_cのみを根拠にする）ため、霧・雷雨は判別できず
 // 4カテゴリ（晴れ/くもり/雨/雪）に留める。
+import { WEATHER_CATEGORY_ICON, WEATHER_CATEGORY_LABEL } from "./weatherCode";
+
 export type AmedasWeatherCategory = "clear" | "cloudy" | "rain" | "snow";
 
 // 降水がある場合に雨/雪を分ける気温しきい値（℃）。気象庁の目安（地上気温2℃前後が
@@ -29,19 +31,6 @@ export function classifyAmedasWeather(
   return null;
 }
 
-const CATEGORY_LABEL: Record<AmedasWeatherCategory, string> = {
-  clear: "晴れ",
-  cloudy: "くもり",
-  rain: "雨",
-  snow: "雪",
-};
-
-const ICON_BY_CATEGORY: Record<Exclude<AmedasWeatherCategory, "clear">, (props: { size?: number }) => ReactElement> = {
-  cloudy: CloudIcon,
-  rain: RaindropIcon,
-  snow: SnowflakeIcon,
-};
-
 export interface AmedasWeatherDisplay {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -49,11 +38,15 @@ export interface AmedasWeatherDisplay {
 
 /** カテゴリ+昼夜フラグから天気アイコン+ラベルを決める（weatherCode.tsのgetWeatherCodeDisplay
  * と同じ構成）。category=nullの場合はnullを返す。 */
-export function getAmedasWeatherDisplay(category: AmedasWeatherCategory | null, isDay: boolean): AmedasWeatherDisplay | null {
+export function getAmedasWeatherDisplay(
+  category: AmedasWeatherCategory | null,
+  isDay: boolean,
+): AmedasWeatherDisplay | null {
   if (category == null) return null;
-  const label = CATEGORY_LABEL[category];
+  const label = WEATHER_CATEGORY_LABEL[category];
+  // 「晴れ」だけは実測のis_dayで昼夜を切り替える（アメダスはコマ単位の昼夜を持つ）。
   if (category === "clear") {
     return { Icon: isDay ? SunIcon : MoonIcon, label };
   }
-  return { Icon: ICON_BY_CATEGORY[category], label };
+  return { Icon: WEATHER_CATEGORY_ICON[category], label };
 }

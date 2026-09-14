@@ -39,6 +39,19 @@ const FALLBACK_COLOR = "#94a3b8";
  * （ボトムシート側）の両方が同じこのコンポーネントを使う——値の出どころごとに別の
  * 表現は持たない。contributionsが1件も無ければ何も描画しない（呼び出し側の空状態
  * 文言に委ねる）。 */
+/** その軸に「表示すべき寄与」があるか。
+ *
+ * 値0（重み0の軸は常にちょうど0.0になる、backend: compose_costs_from_axis_matrix参照）は、
+ * キーが無い（欠損データ）場合と同じく無しとして扱う。負の値（クランプ前）は0ではないため
+ * 残す——0-100範囲外のクランプは表示側のstyle計算で行う。
+ *
+ * **空状態の案内文を出す側とバーを描く側で同じ判定を使う**（別々に書くとずれ、
+ * 「案内文も出ないしバーも無い」状態が生まれる）。 */
+export function hasContribution(contributions: Record<string, number>, axisId: string): boolean {
+  const value = contributions[axisId];
+  return value != null && value !== 0;
+}
+
 export default function AxisContributionBar({
   axes,
   contributions,
@@ -46,14 +59,7 @@ export default function AxisContributionBar({
   legendAxes,
   renderDetail,
 }: AxisContributionBarProps) {
-  // 値0（重み0の軸は常にちょうど0.0になる、backend: compose_costs_from_axis_matrix参照）は
-  // 除外する。キーが無い（欠損データ）場合と同じ「表示すべき寄与が無い」として扱うが、
-  // 負の値（クランプ前）は0ではないため除外しない——0-100範囲外のクランプ自体は
-  // 下のstyle計算で行う。
-  const rows = axes.filter((axis) => {
-    const value = contributions[axis.axisId];
-    return value != null && value !== 0;
-  });
+  const rows = axes.filter((axis) => hasContribution(contributions, axis.axisId));
   if (rows.length === 0) return null;
 
   return (
@@ -76,47 +82,47 @@ export default function AxisContributionBar({
         {(legendAxes ?? rows)
           .filter((axis) => renderDetail == null || renderDetail(axis) !== null)
           .map((axis) => {
-          const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
-          const value = contributions[axis.axisId];
-          const detail = renderDetail?.(axis) ?? null;
-          // 軸の名前は出さず、地図チップと同じアイコンと寄与の値だけを並べる——狭い幅では
-          // 名前がそのまま行数になり、10軸で内訳が画面の大半を占めてしまう。名前は押して
-          // 開く説明（InfoPopover）が持ち、押せない軸はaria-labelとtitleで補う。
-          const Icon = axisIconFor(axis.iconId);
-          const body = (
-            <>
-              <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
-                <Icon size={14} />
-              </span>
-              {value != null && value !== 0 && <span className={styles.legendValue}>{value.toFixed(1)}</span>}
-            </>
-          );
-          return (
-            <li key={axis.axisId} className={styles.legendChip} data-checked={detail !== null}>
-              {detail === null ? (
-                <span className={styles.legendChipBody} title={axis.label} aria-label={axis.label} role="img">
-                  {body}
+            const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
+            const value = contributions[axis.axisId];
+            const detail = renderDetail?.(axis) ?? null;
+            // 軸の名前は出さず、地図チップと同じアイコンと寄与の値だけを並べる——狭い幅では
+            // 名前がそのまま行数になり、10軸で内訳が画面の大半を占めてしまう。名前は押して
+            // 開く説明（InfoPopover）が持ち、押せない軸はaria-labelとtitleで補う。
+            const Icon = axisIconFor(axis.iconId);
+            const body = (
+              <>
+                <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+                  <Icon size={14} />
                 </span>
-              ) : (
-                <InfoPopover
-                  triggerClassName={styles.legendTrigger}
-                  triggerAriaLabel={`${axis.label}の詳細`}
-                  contentClassName={styles.legendPopover}
-                  // チップ全体が押せることを、このアプリで「押すと説明が出る」を表している
-                  // (i)で示す（押せる／押せないの差が輪郭の濃さだけでは伝わらない）。
-                  triggerContent={
-                    <>
-                      {body}
-                      <InfoIcon size={12} />
-                    </>
-                  }
-                >
-                  {detail}
-                </InfoPopover>
-              )}
-            </li>
-          );
-        })}
+                {value != null && value !== 0 && <span className={styles.legendValue}>{value.toFixed(1)}</span>}
+              </>
+            );
+            return (
+              <li key={axis.axisId} className={styles.legendChip} data-checked={detail !== null}>
+                {detail === null ? (
+                  <span className={styles.legendChipBody} title={axis.label} aria-label={axis.label} role="img">
+                    {body}
+                  </span>
+                ) : (
+                  <InfoPopover
+                    triggerClassName={styles.legendTrigger}
+                    triggerAriaLabel={`${axis.label}の詳細`}
+                    contentClassName={styles.legendPopover}
+                    // チップ全体が押せることを、このアプリで「押すと説明が出る」を表している
+                    // (i)で示す（押せる／押せないの差が輪郭の濃さだけでは伝わらない）。
+                    triggerContent={
+                      <>
+                        {body}
+                        <InfoIcon size={12} />
+                      </>
+                    }
+                  >
+                    {detail}
+                  </InfoPopover>
+                )}
+              </li>
+            );
+          })}
       </ul>
     </div>
   );

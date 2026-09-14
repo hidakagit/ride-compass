@@ -1,3 +1,5 @@
+import { breakpointScore } from "./breakpointTools";
+
 // 折れ点を当てはめて得点帯ごとの延長割合を求める純関数（DOM非依存）。
 //
 // backendは折れ点を通す前の生値のヒストグラムだけを返し、折れ点の当てはめはここで行う
@@ -22,21 +24,16 @@ export interface ScoreBand {
  * どの帯に入れるかは下の判定が決める（境界値をここへ二重に持たない）。 */
 const BAND_LABELS: readonly string[] = ["0点", "1-25", "26-50", "51-75", "76-99", "100点"];
 
-/** 区分線形の折れ点で値を得点へ写す（backend `BreakpointLinearShape`と同じ規則）。 */
-export function scoreForValue(value: number, breakpoints: readonly [number, number][]): number {
-  if (breakpoints.length === 0) return 0;
-  const sorted = [...breakpoints].sort((a, b) => a[0] - b[0]);
-  if (value <= sorted[0][0]) return sorted[0][1];
-  for (let i = 0; i < sorted.length - 1; i += 1) {
-    const [x0, y0] = sorted[i];
-    const [x1, y1] = sorted[i + 1];
-    if (value <= x1) {
-      if (x1 === x0) return y1;
-      return y0 + ((value - x0) / (x1 - x0)) * (y1 - y0);
-    }
-  }
-  return sorted[sorted.length - 1][1];
-}
+/** 「張り付き」を見る両端の位置。**ラベル文字列で引かない**——言い換えた瞬間に警告が
+ * 一切出なくなる（出なくなったことにも気づけない）。 */
+const ZERO_BAND_INDEX = 0;
+const FULL_BAND_INDEX = BAND_LABELS.length - 1;
+
+/** 区分線形の折れ点で値を得点へ写す。計算は`breakpointTools.ts`が単一の情報源
+ * （丸め方・同じxが並んだときの返り値が別実装でずれると、同じ折れ点を与えた画面どうしで
+ * 値が食い違う）。 */
+export const scoreForValue = (value: number, breakpoints: readonly [number, number][]): number =>
+  breakpointScore(breakpoints, value);
 
 /** 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合を返す。 */
 export function scoreBands(
@@ -50,8 +47,8 @@ export function scoreBands(
     // 折れ点の差は画面上の意味を持たない。
     const score = scoreForValue((lower + upper) / 2, breakpoints);
     let index: number;
-    if (score <= 0) index = 0;
-    else if (score >= 100) index = BAND_LABELS.length - 1;
+    if (score <= 0) index = ZERO_BAND_INDEX;
+    else if (score >= 100) index = FULL_BAND_INDEX;
     else if (score <= 25) index = 1;
     else if (score <= 50) index = 2;
     else if (score <= 75) index = 3;
@@ -64,8 +61,8 @@ export function scoreBands(
 /** 折れ点が実データに対して極端すぎないかの警告。無ければ空配列。 */
 export function distributionWarnings(bands: readonly ScoreBand[]): string[] {
   const warnings: string[] = [];
-  const full = bands.find((b) => b.label === "100点")?.share ?? 0;
-  const zero = bands.find((b) => b.label === "0点")?.share ?? 0;
+  const full = bands[FULL_BAND_INDEX]?.share ?? 0;
+  const zero = bands[ZERO_BAND_INDEX]?.share ?? 0;
   if (full >= 0.5) {
     warnings.push(`延長の${Math.round(full * 100)}%が満点に張り付きます。上限を高くしないと道の差が出ません。`);
   }

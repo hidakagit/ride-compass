@@ -36,7 +36,11 @@ const GENERATED_POINT_COUNT = 6;
  * 各点のスコアをshapeの形に従って決める。zeroValue > hundredValue（値が大きいほど
  * 走りやすい軸、例: 制限速度は高いほど易しい）も入力として許容するため、生成後に必ず
  * x昇順へ並べ替える（backend: evaluate_breakpoint_linearが前提とする不変条件）。 */
-export function generateBreakpoints(zeroValue: number, hundredValue: number, shape: BreakpointShape): [number, number][] {
+export function generateBreakpoints(
+  zeroValue: number,
+  hundredValue: number,
+  shape: BreakpointShape,
+): [number, number][] {
   const points: [number, number][] = [];
   for (let i = 0; i < GENERATED_POINT_COUNT; i++) {
     const t = i / (GENERATED_POINT_COUNT - 1);
@@ -53,9 +57,12 @@ export function sortBreakpoints(breakpoints: readonly [number, number][]): [numb
 }
 
 /** 区分線形補間（backend: domain/axis_templates.py: evaluate_breakpoint_linearと同じ
- * np.interpの仕様——両端でクランプ、xは昇順前提）をfrontendで再現する。効き目プレビュー表が
- * 実際にbackendが返す値と一致するようにするため、丸め（小数1桁）も含めて揃える。 */
-export function interpolateBreakpointScore(breakpoints: readonly [number, number][], x: number): number {
+ * np.interpの仕様——両端でクランプ、xは昇順前提）。**丸めない**。
+ *
+ * 同じxを持つ折れ点が並んだときは後ろのyを返す（np.interpと同じ。前のyを返す実装が別に
+ * あると、同じ折れ点を与えた画面どうしで値が食い違う）。 */
+export function breakpointScore(breakpoints: readonly [number, number][], x: number): number {
+  if (breakpoints.length === 0) return 0;
   const sorted = sortBreakpoints(breakpoints);
   const first = sorted[0];
   const last = sorted[sorted.length - 1];
@@ -65,12 +72,17 @@ export function interpolateBreakpointScore(breakpoints: readonly [number, number
     const [x0, y0] = sorted[i];
     const [x1, y1] = sorted[i + 1];
     if (x >= x0 && x <= x1) {
-      if (x1 === x0) return Math.round(y0 * 10) / 10;
-      const t = (x - x0) / (x1 - x0);
-      return Math.round((y0 + t * (y1 - y0)) * 10) / 10;
+      if (x1 === x0) return y1;
+      return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
     }
   }
-  return Math.round(last[1] * 10) / 10;
+  return last[1];
+}
+
+/** 効き目プレビュー表が出す得点。backendが返す値と見た目を揃えるため小数1桁へ丸める
+ * （計算そのものは`breakpointScore`が持つ）。 */
+export function interpolateBreakpointScore(breakpoints: readonly [number, number][], x: number): number {
+  return Math.round(breakpointScore(breakpoints, x) * 10) / 10;
 }
 
 /** 「+ 折れ点を追加」の挿入位置。隣接点どうしのx方向の間隔が最も広い区間の中間へ挿入する

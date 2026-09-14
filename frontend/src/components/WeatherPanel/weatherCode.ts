@@ -46,10 +46,10 @@ const CATEGORY_BY_CODE: Record<number, WeatherCodeCategory> = {
   99: "thunderstorm",
 };
 
-// ラベルはamedasWeatherIcon.tsのCATEGORY_LABELと同じ語彙にそろえる——ヘッダー（アメダス
-// 実測）と真下の「今日の見通し」（MSM予報）が、同じSunIconに対して別の呼び方をすると
-// 「別のことを言っている」と読める。
-const CATEGORY_LABEL: Record<WeatherCodeCategory, string> = {
+// 天気カテゴリの語彙とアイコンの**単一の情報源**。ヘッダー（アメダス実測）と真下の
+// 「今日の見通し」（MSM予報）が同じアイコンに別の語を出さないよう、両方がここを読む
+// （`amedasWeatherIcon.ts`はアメダスが扱う4カテゴリだけを使い、昼夜の切り替えだけを足す）。
+export const WEATHER_CATEGORY_LABEL: Record<WeatherCodeCategory, string> = {
   clear: "晴れ",
   cloudy: "くもり",
   fog: "霧",
@@ -60,7 +60,7 @@ const CATEGORY_LABEL: Record<WeatherCodeCategory, string> = {
 
 // 「晴れ」以外は昼夜で見た目を変えない（くもり・雨・雪・霧・雷雨は昼夜どちらでも同じ
 // アイコンで十分伝わり、6カテゴリ×2でアイコン数を倍にするほどの価値が無いため）。
-const ICON_BY_CATEGORY: Record<WeatherCodeCategory, (props: { size?: number }) => ReactElement> = {
+export const WEATHER_CATEGORY_ICON: Record<WeatherCodeCategory, (props: { size?: number }) => ReactElement> = {
   clear: SunIcon,
   cloudy: CloudIcon,
   fog: FogIcon,
@@ -82,5 +82,5 @@ export interface WeatherCodeDisplay {
 export function getWeatherCodeDisplay(weatherCode: number | null): WeatherCodeDisplay | null {
   if (weatherCode == null) return null;
   const category = CATEGORY_BY_CODE[weatherCode] ?? "cloudy";
-  return { Icon: ICON_BY_CATEGORY[category], label: CATEGORY_LABEL[category] };
+  return { Icon: WEATHER_CATEGORY_ICON[category], label: WEATHER_CATEGORY_LABEL[category] };
 }

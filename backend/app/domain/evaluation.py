@@ -670,23 +670,37 @@ class AxisComposition(NamedTuple):
     weight_sums: np.ndarray
 
 
-def axis_weighted_sums(
-    axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float], length: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """`compose_costs_from_axis_matrix`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
+def _axis_terms(
+    axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float]
+) -> tuple[list[np.ndarray], list[np.ndarray], list[tuple[str, np.ndarray, float, np.ndarray]]]:
+    """軸ごとの「重み付きスコアの項」「重みの項」と、寄与度の内訳に要る素材。
 
-    データ欠損（NaN）の軸はその区間だけ和から外す——合成本体と同じ「データ無しは除外し
-    残りの重みで再正規化」の扱いを、切り出した側でも同じ式で保つ。
+    データ欠損（NaN）の軸はその区間だけ項を0にする＝和から外す（「データ無しは除外し
+    残りの重みで再正規化」）。**この式を2箇所に書かない**——先に和だけ求める経路と合成の
+    本体で式がずれると、寄与度の内訳と合成difficultyが静かに食い違う。
     """
-    if not axis_arrays:
-        return np.zeros(length), np.zeros(length)
-    score_terms = []
-    weight_terms = []
+    score_terms: list[np.ndarray] = []
+    weight_terms: list[np.ndarray] = []
+    axis_weight_valid: list[tuple[str, np.ndarray, float, np.ndarray]] = []
     for axis_id, arr in axis_arrays.items():
         weight = weights.get(axis_id, 0.0)
         valid = ~np.isnan(arr)
         score_terms.append(np.where(valid, arr * weight, 0.0))
         weight_terms.append(np.where(valid, weight, 0.0))
+        axis_weight_valid.append((axis_id, arr, weight, valid))
+    return score_terms, weight_terms, axis_weight_valid
+
+
+def axis_weighted_sums(
+    axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float], length: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """`compose_costs_from_axis_matrix`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
+
+    データ欠損（NaN）の軸はその区間だけ和から外す（項の作り方は`_axis_terms`が単一の情報源）。
+    """
+    if not axis_arrays:
+        return np.zeros(length), np.zeros(length)
+    score_terms, weight_terms, _ = _axis_terms(axis_arrays, weights)
     return _neumaier_accumulate(score_terms), _neumaier_accumulate(weight_terms)
 
 
@@ -740,15 +754,9 @@ def compose_costs_from_axis_matrix(
             "static_sumsへ畳んだ軸の寄与度は作れないため、with_contributionsとは併用できない"
         )
     n = len(distance_m)
-    score_terms = [] if static_sums is None else [static_sums[0]]
-    weight_terms = [] if static_sums is None else [static_sums[1]]
-    axis_weight_valid: list[tuple[str, np.ndarray, float, np.ndarray]] = []
-    for axis_id, arr in axis_arrays.items():
-        weight = weights.get(axis_id, 0.0)
-        valid = ~np.isnan(arr)
-        score_terms.append(np.where(valid, arr * weight, 0.0))
-        weight_terms.append(np.where(valid, weight, 0.0))
-        axis_weight_valid.append((axis_id, arr, weight, valid))
+    dynamic_scores, dynamic_weights, axis_weight_valid = _axis_terms(axis_arrays, weights)
+    score_terms = ([] if static_sums is None else [static_sums[0]]) + dynamic_scores
+    weight_terms = ([] if static_sums is None else [static_sums[1]]) + dynamic_weights
     # 公開軸が1つも無い場合はn件ぶんのゼロ配列を直接使う（下の
     # weighted_weight_sums==0判定が既にNaN合成へ倒す設計のため、この分岐を通しても
     # 後続処理は変更不要）。

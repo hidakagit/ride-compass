@@ -222,14 +222,23 @@
   font-weight: 700;
 }
 
-/* 生成条件が表示中の候補とずれていることの印。モバイルの「ルート結果」タブに出る
-   ドットと同じ意味・同じ色で、押すべきボタンの隣に置く。 */
+/* 「見るべきタイミング」の印。押すべきボタンの隣（ヘッダー）と、モバイルの
+   「ルート結果」タブの角に出る。見た目の定義はここ1つで、**Tailwindの任意値で
+   同じ形をもう一度書かない**（片方だけ色を変えても気づけない）。 */
 .dirtyDot {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
   background: var(--color-warning-strong);
   flex-shrink: 0;
+}
+
+/* タブの角へ重ねる版。位置だけを足す。 */
+.dirtyDotOnTab {
+  composes: dirtyDot;
+  position: absolute;
+  right: 0.6rem;
+  top: 0.35rem;
 }
 
 .emptyHint {

@@ -37,6 +37,7 @@ import {
 } from "@/components/Map/riskMap";
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
 import {
+  disasterSourceKeys,
   frameIndexForTime,
   isWithinFutureWindow,
   type DynamicWeatherGroupState,
@@ -129,9 +130,9 @@ export function useDynamicWeatherLayers({
   );
   // フェッチ単位（3本）ごとの有効判定。1本のtargetTimes.jsonを共有する要素がすべて
   // 非表示なら、そのフェッチ自体を行わない。
-  const fetchRiskFrames = ["heavyRain", "landslide", "inundation", "flood"].some(showDisasterSource);
-  const fetchThunderFrames = ["thunder", "tornado"].some(showDisasterSource);
-  const fetchLidenFramesEnabled = showDisasterSource("liden");
+  const fetchRiskFrames = disasterSourceKeys("risk").some(showDisasterSource);
+  const fetchThunderFrames = disasterSourceKeys("thunder").some(showDisasterSource);
+  const fetchLidenFramesEnabled = disasterSourceKeys("liden").some(showDisasterSource);
 
   // 降水ナウキャストの時刻一覧。取得失敗時は例外を投げずnowcastErrorへ
   // 記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ例外、片方だけの

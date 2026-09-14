@@ -34,7 +34,7 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
-from app.api.routers.routes import MAX_ROUTE_DISTANCE_KM  # noqa: E402
+from app.api.routers.routes import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM  # noqa: E402
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
 from app.infrastructure.database import get_session_factory  # noqa: E402
 from app.infrastructure.vector_tile import (  # noqa: E402
@@ -298,6 +298,7 @@ def main() -> None:
             "max_routes": MAX_ROUTES,
             "default_max_routes": DEFAULT_MAX_ROUTES,
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
+            "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             # 主観と時間の換算レート（P）の既定。生成物のdefaultは`RouteGenerateRequest`の
             # スキーマにも出るが、openapi-typescriptは既定値を持つ項目も必須として出す
             # ため、frontendは値を送らざるを得ない。手書きせずここから配る。
