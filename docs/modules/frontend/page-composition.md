@@ -16,7 +16,7 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
-| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`cn.ts`・`formatDuration.ts`（秒を「1時間42分」の形にする）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、最短経路は先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。[T621](../../tasks/T621.md)） |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`cn.ts`・`formatDuration.ts`（秒を「1時間42分」の形にする）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、基準線（所要時間が最小の候補、backendの`is_fastest`）だけは先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。[T621](../../tasks/T621.md)） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）・`infoButton.module.css`（見出し脇の(i)トリガー）・`mapCtrlButton.module.css`（MapLibre純正コントロールの続きに見える29px四方ボタン）・`statusDot.module.css`（データ取得状態の3表現）・`axisLegend.module.css`（軸の寄与を示す帯グラフと凡例ドット）・`unusedBadge.module.css`（軸のラベルへ添える状態バッジ）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |
@@ -207,9 +207,12 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   ボタン、後者は`renderRouteResultHeaderActions()`）。「ルート結果」の候補一覧は**左の縦タブ**
   （`Tabs.Root orientation="vertical"`）で、右に選択中候補の中身が並ぶ2カラム——横並びの
   タブは候補が増えると列が表示幅を超えて伸び、溢れた候補が存在ごと見えなくなる。
-  行は「順位・距離・総合難易度（数値と長さ）」を持ち、一覧の中で最も
-  距離が短い候補には「最短」を添える——並び順は総合難易度の昇順なので「最も易しい」は
-  先頭だが、「最も短い」は別の軸で、行を開かずに見比べられる必要がある。2カラムは高さを
+  行は「順位・距離・総合難易度（数値と長さ）」を持ち、**一覧の中で所要時間が最小の候補に
+  「最速」、他の候補にはそこから何分余計にかかるか（`+8分`）を添える**——並び順は総合難易度の
+  昇順なので「最も易しい」は先頭だが、それを走る対価（時間）は別の軸で、行を開かずに
+  見比べられる必要がある。基準線は一覧の中だけで決める（backendの`is_fastest`は目的地
+  モードでしか付かず、主用途の周回モードでは一度も決まらない）。時間の最上級と距離の最上級を
+  同じ列へ並べると何と比べているのか読めなくなるため、**距離の「最短」は出さない**。2カラムは高さを
   揃え、狭幅では下部シートの高さいっぱいまで伸ばして余りを一覧が使う（はみ出す候補は
   一覧の中を縦スクロール）——一覧に固定の高さ上限を置くと、シートに余白があっても
   伸びずに触れない余白が残る。

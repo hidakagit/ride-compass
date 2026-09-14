@@ -93,7 +93,7 @@ import {
   extraDurationLabel,
   isSplicedRoute,
   fastestDurationSeconds,
-  shortestDistanceRouteId,
+  fastestRouteId,
 } from "@/lib/routeTabLabel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
@@ -1927,7 +1927,7 @@ export default function Home() {
     // 基準線（好みの重みを0にしたときの経路）の所要時間秒（目的地モードのみ持つ。
     // 周回・経由地ルートはnull）。
     const fastestSeconds = fastestDurationSeconds(routes);
-    const shortestRouteId = shortestDistanceRouteId(routes);
+    const fastestRouteIdInList = fastestRouteId(routes);
     // RouteAxisProfileへは公開軸すべて（axisCatalog.axes）をそのまま渡し、絞り込みは行わない。
     // routeWeightsは重み<=0の軸を「未使用」バッジ付きで表示する判定にのみ使う（生成時点の重み
     // ＝generatedRoutePreference、未生成時のみライブなroutePreferenceへフォールバック）。
@@ -1982,25 +1982,22 @@ export default function Home() {
                       via-node方式で複数件になりうる——方位という概念は無いため「方向」は
                       付けないが、複数件を見分けられるよう順位番号は付ける。 */}
                   <span className={styles.outcomeTabMain}>
-                    {route.is_fastest
-                      ? "最速"
-                      : NON_DIRECTIONAL_ROUTE_IDS.has(route.id)
-                        ? route.direction_label
-                        : `${index + 1}`}{" "}
+                    {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`}{" "}
                     {route.distance_km.toFixed(1)}km
                     {/* 区間を乗り換えて作った候補。並び順は生成候補と同じ規約に乗せ
                         （insertByDifficulty）、見分けは名前で付ける。 */}
                     {isSplicedRoute(route) && <span className={styles.outcomeTabExtra}>合成</span>}
-                    {/* 基準線から何分余計にかかるか。軸設定に沿ったルートを走る対価であり、
-                        候補を見比べるこの場所に無いと、比較のたびにタブを開き直すことになる。 */}
-                    {extraDurationLabel(route, fastestSeconds) && (
-                      <span className={styles.outcomeTabExtra}>{extraDurationLabel(route, fastestSeconds)}</span>
-                    )}
-                    {/* 並び順は総合難易度の昇順なので「最も易しい」は先頭だが、「最も短い」は
-                        別の軸のため一覧の中で印を付ける（目的地モードは順位の位置に
-                        backend由来の「最速」が出るため、そちらでは重ねない）。 */}
-                    {!route.is_fastest && route.id === shortestRouteId && (
-                      <span className={styles.outcomeTabExtra}>最短</span>
+                    {/* 基準線（一覧の中で所要時間が最小の候補）と、そこから何分余計に
+                        かかるか。軸設定に沿ったルートを走る対価であり、候補を見比べるこの
+                        場所に無いと、比較のたびにタブを開き直すことになる。同じ列へ時間の
+                        最上級と距離の最上級を並べると何と比べているのか読めなくなるため、
+                        ここは時間に絞る。 */}
+                    {route.id === fastestRouteIdInList ? (
+                      <span className={styles.outcomeTabExtra}>最速</span>
+                    ) : (
+                      extraDurationLabel(route, fastestSeconds) && (
+                        <span className={styles.outcomeTabExtra}>{extraDurationLabel(route, fastestSeconds)}</span>
+                      )
                     )}
                   </span>
                   {/* 総合難易度。タブを開かずに候補どうしを見比べられるよう、数値と長さの

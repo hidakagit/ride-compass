@@ -19,39 +19,49 @@ export function isSplicedRoute(route: { id: string }): boolean {
   return route.id.startsWith(SPLICED_ROUTE_ID_PREFIX);
 }
 
-/** 基準線となる候補（RouteCandidate.is_fastest＝好みの重みを0にしたときの経路）の
- * 所要時間（秒）。基準線が無い・所要時間を持たないときはnull。 */
+/**
+ * 一覧の中で最も所要時間が短い候補のid（＝基準線）。候補が1件以下、または所要時間を持つ
+ * 候補が無ければnull（比べる相手が無い）。
+ *
+ * **backendの`is_fastest`は見ない**——あれは目的地モードでしか付かず、周回モードでは
+ * 基準線が一度も決まらない。主用途である周回でも「何と比べた+N分か」を出せるよう、
+ * 一覧の中だけで決める。同着は先に来た方（並び順は総合難易度の昇順なので、易しい方）。
+ */
+export function fastestRouteId(
+  routes: readonly { id: string; estimated_duration_seconds?: number | null }[],
+): string | null {
+  if (routes.length < 2) return null;
+  let best: { id: string; seconds: number } | null = null;
+  for (const route of routes) {
+    const seconds = route.estimated_duration_seconds;
+    if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) continue;
+    if (best === null || seconds < best.seconds) best = { id: route.id, seconds };
+  }
+  return best?.id ?? null;
+}
+
+/** 基準線（`fastestRouteId`が返す候補）の所要時間（秒）。基準線が無ければnull。 */
 export function fastestDurationSeconds(
-  routes: readonly { estimated_duration_seconds?: number | null; is_fastest?: boolean }[],
+  routes: readonly { id: string; estimated_duration_seconds?: number | null }[],
 ): number | null {
-  const fastest = routes.find((route) => route.is_fastest);
-  return fastest?.estimated_duration_seconds ?? null;
+  const id = fastestRouteId(routes);
+  if (id === null) return null;
+  return routes.find((route) => route.id === id)?.estimated_duration_seconds ?? null;
 }
 
 /**
- * 基準線より何分余計にかかるかの表記（例: `+12分`）。基準線が無い・自分が基準線・
- * 自分の所要時間が無い・差が丸めて1分未満のときはnull（0を並べても判断材料にならない）。
+ * 基準線より何分余計にかかるかの表記（例: `+12分`）。基準線が無い・自分の所要時間が
+ * 無い・差が丸めて1分未満のときはnull（0を並べても判断材料にならない。自分が基準線の
+ * ときも差0なのでここに入る）。
  */
 export function extraDurationLabel(
-  route: { estimated_duration_seconds?: number | null; is_fastest?: boolean },
+  route: { estimated_duration_seconds?: number | null },
   fastestSeconds: number | null,
 ): string | null {
-  if (fastestSeconds === null || route.is_fastest) return null;
+  if (fastestSeconds === null) return null;
   const seconds = route.estimated_duration_seconds;
   if (seconds === null || seconds === undefined) return null;
   const extraMinutes = Math.round((seconds - fastestSeconds) / 60);
   if (extraMinutes < 1) return null;
   return `+${extraMinutes}分`;
-}
-
-/**
- * 一覧の中で最も距離が短い候補のid。候補が1件以下ならnull（比べる相手が無い）。
- *
- * 目的地モードの`is_fastest`（backendが基準線として付ける）とは別に、周回モードを
- * 含むどの一覧でも「最短はどれか」を一覧の中だけで決められるようにする——一覧を見ただけで
- * 分かることが目的で、並び順（総合難易度の昇順）とは別の軸だから印が要る。
- */
-export function shortestDistanceRouteId(routes: readonly { id: string; distance_km: number }[]): string | null {
-  if (routes.length < 2) return null;
-  return routes.reduce((best, route) => (route.distance_km < best.distance_km ? route : best)).id;
 }

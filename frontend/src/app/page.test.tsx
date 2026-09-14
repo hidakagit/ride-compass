@@ -1017,9 +1017,9 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
   });
 
-  it("目的地ルートの基準線タブは「最速」と示し、他の候補には基準線からの超過分を添える", async () => {
+  it("所要時間が最小の候補に「最速」、他の候補に基準線からの超過分を添える", async () => {
     // 得点だけでは軸設定を強めるかどうかを決められない。対価（何分余計にかかるか）を
-    // 候補を見比べる場所＝タブに出す。
+    // 候補を見比べる場所＝タブに出す。順位番号は並び順を読むために常に残す。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [
@@ -1046,9 +1046,34 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^最速 18\.0km/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^1 18\.0km 最速/ })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /^2 22\.0km \+12分/ })).toBeInTheDocument();
     });
+  });
+
+  it("周回モードでも「最速」と超過分を出す（backendのis_fastestは付かない）", async () => {
+    // ここが効かないと、主用途である周回モードのタブに時間の比較材料が一つも出ない。
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 29.2, estimated_duration_seconds: 6300 }),
+        makeCandidate({ id: "route-01", distance_km: 26.6, estimated_duration_seconds: 5820 }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /^2 26\.6km 最速/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^1 29\.2km \+8分/ })).toBeInTheDocument();
+    });
+    // 距離の「最短」は出さない——同じ列に時間と距離の2つの最上級が並ぶと、何と比べて
+    // いるのか読めなくなる。
+    expect(screen.queryByRole("tab", { name: /最短/ })).toBeNull();
   });
 
   it("区間を乗り換えて作った候補は順位番号のまま、名前で「合成」と示す", async () => {

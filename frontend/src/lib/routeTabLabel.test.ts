@@ -5,24 +5,64 @@ import {
   SPLICED_ROUTE_ID_PREFIX,
   extraDurationLabel,
   fastestDurationSeconds,
+  fastestRouteId,
   isSplicedRoute,
-  shortestDistanceRouteId,
 } from "./routeTabLabel";
 
-const FASTEST = { estimated_duration_seconds: 3600, is_fastest: true };
-const SLOWER = { estimated_duration_seconds: 4320, is_fastest: false };
+const FASTEST = { id: "a", estimated_duration_seconds: 3600 };
+const SLOWER = { id: "b", estimated_duration_seconds: 4320 };
+
+describe("fastestRouteId", () => {
+  it("一覧の中で所要時間が最小の候補を基準線にする", () => {
+    expect(fastestRouteId([SLOWER, FASTEST])).toBe("a");
+  });
+
+  it("backendのis_fastestが付かない一覧（周回モード）でも基準線が決まる", () => {
+    // ここが効かないと、主用途である周回モードで「最速」も「+N分」も一度も出ない。
+    const loop = [
+      { id: "route-00", estimated_duration_seconds: 6300 },
+      { id: "route-01", estimated_duration_seconds: 5820 },
+      { id: "route-02", estimated_duration_seconds: 6600 },
+    ];
+
+    expect(fastestRouteId(loop)).toBe("route-01");
+  });
+
+  it("所要時間を持たない候補は基準線の候補から外す", () => {
+    expect(fastestRouteId([{ id: "a", estimated_duration_seconds: null }, SLOWER])).toBe("b");
+  });
+
+  it("同着は先に来た方（並び順は総合難易度の昇順なので、易しい方）", () => {
+    const tied = [
+      { id: "a", estimated_duration_seconds: 3600 },
+      { id: "b", estimated_duration_seconds: 3600 },
+    ];
+
+    expect(fastestRouteId(tied)).toBe("a");
+  });
+
+  it("候補が1件以下なら比べる相手が無いのでnull", () => {
+    expect(fastestRouteId([FASTEST])).toBeNull();
+    expect(fastestRouteId([])).toBeNull();
+  });
+
+  it("誰も所要時間を持たなければnull", () => {
+    expect(
+      fastestRouteId([
+        { id: "a", estimated_duration_seconds: null },
+        { id: "b", estimated_duration_seconds: undefined },
+      ]),
+    ).toBeNull();
+  });
+});
 
 describe("fastestDurationSeconds", () => {
   it("基準線となる候補の所要時間を返す", () => {
     expect(fastestDurationSeconds([SLOWER, FASTEST])).toBe(3600);
   });
 
-  it("基準線が無ければnull（周回モードや基準線を求められなかった場合）", () => {
-    expect(fastestDurationSeconds([SLOWER, { estimated_duration_seconds: 5000 }])).toBeNull();
-  });
-
-  it("基準線が所要時間を持たなければnull", () => {
-    expect(fastestDurationSeconds([{ estimated_duration_seconds: null, is_fastest: true }])).toBeNull();
+  it("基準線が決まらなければnull", () => {
+    expect(fastestDurationSeconds([FASTEST])).toBeNull();
   });
 });
 
@@ -31,7 +71,7 @@ describe("extraDurationLabel", () => {
     expect(extraDurationLabel(SLOWER, 3600)).toBe("+12分");
   });
 
-  it("基準線そのものには出さない", () => {
+  it("基準線そのものには出さない（差が0のため）", () => {
     expect(extraDurationLabel(FASTEST, 3600)).toBeNull();
   });
 
@@ -65,22 +105,5 @@ describe("isSplicedRoute", () => {
     // リテラルで確かめると「フロント側の定数が変わっていない」ことしか見ない。backendが
     // 改名したら落ちるよう、生成物（backendが書き出す）と同じ値であることを見る。
     expect(SPLICED_ROUTE_ID_PREFIX).toBe(routeGenerateConfig.spliced_route_id);
-  });
-});
-
-describe("shortestDistanceRouteId", () => {
-  it("一覧の中で最も距離が短い候補のidを返す", () => {
-    const routes = [
-      { id: "a", distance_km: 20.3 },
-      { id: "b", distance_km: 16.3 },
-      { id: "c", distance_km: 21.4 },
-    ];
-
-    expect(shortestDistanceRouteId(routes)).toBe("b");
-  });
-
-  it("候補が1件以下なら比べる相手が無いのでnull", () => {
-    expect(shortestDistanceRouteId([{ id: "a", distance_km: 20 }])).toBeNull();
-    expect(shortestDistanceRouteId([])).toBeNull();
   });
 });
