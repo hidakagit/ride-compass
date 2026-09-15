@@ -781,7 +781,10 @@ export default function Home() {
 
   // 区間の乗り換え（docs/tasks/T621.md・T808）の導出値。edge_idsの集合演算だけで求まる
   // （軸の計算式は持たない。構造仕様1）。**区間を主語に、その区間の代替を候補横断で並べる**。
-  const editingRouteForSplice = routes.find((route) => route.id === editingRouteId) ?? null;
+  // 編集対象は`routes`から引く（`editingRouteId`を単独で見ない）。候補が入れ替わった・
+  // 消えたときに編集モードだけが生き残ると、地図の地点編集・候補選択が無言で無効のまま
+  // 戻せなくなる（docs/tasks/T874.md）。
+  const editingRoute = routes.find((route) => route.id === editingRouteId) ?? null;
   // 以下はどれもMapViewへ渡る配列・オブジェクトを組み立てる。毎レンダー作り直すと参照だけが
   // 変わり、地図側の描画effectが天候フェッチ・パン確定などあらゆる再レンダーで走る
   // （30km級では候補1本あたり数千件のEdge idを毎回舐め直すことになる）。
@@ -800,18 +803,18 @@ export default function Home() {
   // いまの組み合わせ（元＋適用済みの乗り換え）。次に選べる区間も、評価へ送るEdge列もこれを
   // 見る——乗り換えた先の道の上にある分かれ道へ、そのまま進めるようにするため（T843）。
   const splicedShape = useMemo(() => {
-    if (!editingRouteForSplice) return null;
+    if (!editingRoute) return null;
     const shapeOf = (candidateId: string) => candidateShapes.find((item) => item.id === candidateId)?.shape;
     return buildSplicedShape(
       {
-        edgeIds: editingRouteForSplice.edge_ids,
-        coordinates: editingRouteForSplice.geometry.coordinates as GeoJSON.Position[],
-        edgePointOffsets: editingRouteForSplice.edge_point_offsets,
+        edgeIds: editingRoute.edge_ids,
+        coordinates: editingRoute.geometry.coordinates as GeoJSON.Position[],
+        edgePointOffsets: editingRoute.edge_point_offsets,
       },
       appliedAlternatives,
       shapeOf,
     );
-  }, [editingRouteForSplice, appliedAlternatives, candidateShapes]);
+  }, [editingRoute, appliedAlternatives, candidateShapes]);
   const spliceGroups = useMemo(
     () =>
       splicedShape
@@ -884,8 +887,8 @@ export default function Home() {
   // 地図でできることは、いま見ているパネルが持つ操作だけにする。
   // 「ルート設定」の条件タブ＝地点を置く・つかんで動かす・消す。「ルート結果」＝候補の
   // 切り替えと区間詳細。「ルート編集」＝乗り換え先の選択だけ（元は固定）。
-  const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRouteId === null;
-  const routeInspectionEnabled = routeOutcomeActive && editingRouteId === null;
+  const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRoute === null;
+  const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
   const pinPlacementArmedRole = routeMode === "destination" && pointEditingEnabled ? armedPinRole : null;
 
   const handleRouteSelectFromMap = useCallback(
@@ -1500,8 +1503,6 @@ export default function Home() {
     ],
   );
 
-  const editingRoute = routes.find((route) => route.id === editingRouteId) ?? null;
-
   // 表示中の候補の生成条件と現在のフォーム値がずれているか（生成条件系は「生成ボタンで
   // 反映」のため、編集しただけでは何も起きない。それをヒントとして可視化する）
   const conditionsDirty =
@@ -1836,6 +1837,12 @@ export default function Home() {
             onClick={() => {
               if (!selectedCandidate) return;
               setEditingRouteId(selectedCandidate.id);
+              // 前回の編集セッションの残り（適用済みの乗り換え・失敗の文言）を持ち込まない。
+              // 通常は編集を抜けるときに畳まれるが、候補ごと消えて編集面が閉じた場合は
+              // 抜ける導線を通らない。
+              setAppliedAlternatives([]);
+              setSplicePreviews({});
+              setSpliceError(null);
               // 区間詳細（赤ピン）の置き場は候補タブの中身で、編集中はそこが編集面へ
               // 置き換わる。選択を残すと地図にピンだけが残り、消す導線も無くなる。
               setSelectedRouteSegment(null);

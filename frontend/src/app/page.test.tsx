@@ -524,6 +524,9 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
         <>
           {options.exposeMapClickHandlers && (
             <>
+              {/* 実物のMapViewはこの値でマーカーのdraggableとクリックハンドラの登録を
+                  出し分ける。地図の地点編集が使えるかを、テストから読めるようにする。 */}
+              <span data-testid="point-editing-enabled">{String(props.pointEditingEnabled)}</span>
               <button onClick={() => props.onPinPlace("destination", { latitude: 35.681, longitude: 139.767 })}>
                 テスト用に目的地を設定
               </button>
@@ -1445,6 +1448,53 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     // 戻ると候補の一覧へ戻る
     await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
     expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull();
+    expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
+  });
+
+  // 編集は候補があって初めて成立する。畳まずに候補だけ消すと「編集をやめて候補へ戻る」
+  // 導線ごと画面から消え、地図の地点編集・候補選択が無効のまま戻せなくなる（T874）。
+  it("編集中に候補をクリアしても、編集モードが残らない", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValue({
+      routes: [
+        makeCandidate({
+          id: "route-destination-00",
+          distance_km: 18.0,
+          edge_ids: ["s", "a1", "m", "a2", "e"],
+          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
+          edge_point_offsets: [0, 1, 2, 3, 4, 5],
+        }),
+        makeCandidate({
+          id: "route-destination-01",
+          distance_km: 19.0,
+          edge_ids: ["s", "b1", "m", "b2", "e"],
+          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
+          edge_point_offsets: [0, 1, 2, 3, 4, 5],
+        }),
+      ],
+      conditions: makeConditions(),
+      engine: "road_graph",
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+
+    // 編集面が残っていると、戻す導線が無いまま地図の操作だけが死ぬ
+    expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull();
+    // 地図の地点編集が戻っていること。ここが死んだままだと、目的地を置き直すことも
+    // 既存ピンを動かすこともできず、画面に理由も出ない
+    await waitFor(() => expect(screen.getByTestId("point-editing-enabled")).toHaveTextContent("true"));
+    // もう一度生成すれば、また編集へ入れる（編集モードが畳まれている証拠）
+    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
   });
 
