@@ -245,6 +245,57 @@ BARE_BASEMODEL_ALLOWLIST = {
 }
 
 
+MODULE_REDEFINITION_PREFIXES = ("backend/app/", "backend/tests/", "backend/scripts/", "scripts/")
+
+
+def python_sources(paths) -> dict[str, str]:
+    """`MODULE_REDEFINITION_PREFIXES`配下の.pyを {パス: 全文} で返す。"""
+    out = {}
+    for path in paths:
+        if not path.endswith(".py") or not path.startswith(MODULE_REDEFINITION_PREFIXES):
+            continue
+        full = REPO_ROOT / path
+        if full.exists():
+            out[path] = read_text(full)
+    return out
+
+
+def find_module_level_redefinitions(sources: dict[str, str]) -> list[str]:
+    """モジュール直下で同じ名前を2回以上定義しているもの。
+
+    後の定義が前を上書きするため、**値が同じなら観測できる違いが何も出ない**。撤去や
+    分割で切り出しすぎた塊を貼り直したときに生まれ、テストも`ruff`も落ちない
+    （F811は未使用の関数・クラス・importの再定義しか見ず、モジュール直下の変数再代入は
+    正当なPythonとして扱う）。2組が別々に編集されると、後の定義だけが効いて前の編集が
+    静かに巻き戻る。
+
+    条件分岐（`if`/`try`）の下の定義は、環境ごとに片方だけが走る正当な形のため見ない
+    （モジュールの`body`直下だけを対象にする）。
+    """
+    out = []
+    for path, text in sorted(sources.items()):
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        seen: dict[str, list[int]] = defaultdict(list)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                seen[node.name].append(node.lineno)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        seen[target.id].append(node.lineno)
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.value is not None:
+                    seen[node.target.id].append(node.lineno)
+        for name, linenos in seen.items():
+            if len(linenos) > 1:
+                where = "・".join(str(n) for n in linenos)
+                out.append(f"{path}:{linenos[0]} `{name}` をモジュール直下で{len(linenos)}回定義（行 {where}）")
+    return out
+
+
 def find_bare_basemodel_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
     """backend/app配下で`StrictModel`ではなく素の`BaseModel`を継承しているモデル。"""
     out = []
@@ -1955,6 +2006,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "source_narrative": frozenset({"staged", "since"}),
     "redis_skeleton": frozenset({"staged", "since", "full"}),
     "bare_basemodel": frozenset({"staged", "since", "full"}),
+    "module_redefinition": frozenset({"staged", "since", "full"}),
     "web_layer_batch_import": frozenset({"staged", "since", "full"}),
     "undeclared_dead_refs": frozenset({"staged", "since", "full"}),
     # 免除した段落の中身は常に参考表示（0件で黙らないためのもので、ブロックはしない）。
@@ -2030,6 +2082,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_redis_skeleton_violations(source_lines))
         add("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
             lambda: find_bare_basemodel_violations(source_lines))
+        add("module_redefinition", "モジュール直下で同じ名前を2回定義（ステージ済み.py、docs/tasks/T883.md参照）",
+            lambda: find_module_level_redefinitions(python_sources(diff_added_lines("*.py"))))
         add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/tasks/T814.md参照）",
             lambda: find_web_layer_batch_imports(source_lines))
         add("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
@@ -2121,6 +2175,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_undocumented_files(added, modules_text, files))
         add("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
             lambda: find_redis_skeleton_violations(source_lines))
+        add("module_redefinition", "モジュール直下で同じ名前を2回定義（全件、docs/tasks/T883.md参照）",
+            lambda: find_module_level_redefinitions(python_sources(files)))
         add("bare_basemodel", "素のBaseModel継承（全件、docs/tasks/T721.md参照）",
             lambda: find_bare_basemodel_violations({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
@@ -2764,6 +2820,8 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "bare_basemodel": lambda: write(
             GUARD_PROBE_PY,
             "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
+        "module_redefinition": lambda: write(
+            GUARD_PROBE_PY, "zzz_guard_probe = 1\n\n\nzzz_guard_probe = 1\n"),
         "web_layer_batch_import": lambda: write(
             GUARD_PROBE_PY,
             "from app.batch.precompute_way_landcover import ALGORITHM_VERSION\n\n\n"

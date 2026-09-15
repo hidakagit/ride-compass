@@ -1258,3 +1258,56 @@ def test_unscanned_target_files_ignores_files_below_the_min_lines(tmp_path, monk
     monkeypatch.setattr(review_checks, "JSCPD_TARGETS", ["backend/app"])
 
     assert "backend/app/tiny.py" not in review_checks.unscanned_target_files({"a/b.py"})
+
+
+# --- module_redefinition ----------------------------------------------------
+
+
+def _src(*lines: str) -> str:
+    return chr(10).join(lines) + chr(10)
+
+
+def test_module_redefinition_catches_a_constant_defined_twice():
+    """撤去の切り出しが広すぎて貼り直したときに残る形。
+
+    後の定義が前を同じ値で上書きするため、テストも`ruff`も落ちない。
+    """
+    src = _src("FOO = 1", "", "", "BAR = 2", "", "", "FOO = 1")
+
+    hits = review_checks.find_module_level_redefinitions({"backend/app/zzz.py": src})
+
+    assert len(hits) == 1
+    assert "`FOO`" in hits[0]
+
+
+def test_module_redefinition_catches_functions_and_classes_too():
+    src = _src("def zzz():", "    return 1", "", "", "def zzz():", "    return 2")
+
+    assert len(review_checks.find_module_level_redefinitions({"backend/app/zzz.py": src})) == 1
+
+
+def test_module_redefinition_allows_definitions_under_a_branch():
+    """`if`/`try`の下は、環境ごとに片方だけが走る正当な形のため見ない。"""
+    src = _src("import sys", "", "if sys.version_info >= (3, 12):", "    FOO = 1",
+               "else:", "    FOO = 2")
+
+    assert review_checks.find_module_level_redefinitions({"backend/app/zzz.py": src}) == []
+
+
+def test_module_redefinition_ignores_a_name_defined_once():
+    src = _src("FOO = 1", "BAR = 2", "def zzz():", "    FOO = 3", "    return FOO")
+
+    assert review_checks.find_module_level_redefinitions({"backend/app/zzz.py": src}) == []
+
+
+def test_python_sources_only_reads_the_scanned_prefixes(tmp_path, monkeypatch):
+    """対象外のディレクトリを読まないこと（frontendやmigrationsを巻き込まない）。"""
+    (tmp_path / "backend" / "app").mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "backend" / "app" / "zzz.py").write_text("FOO = 1", encoding="utf-8")
+    (tmp_path / "docs" / "zzz.py").write_text("FOO = 1", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+
+    got = review_checks.python_sources(["backend/app/zzz.py", "docs/zzz.py", "backend/app/none.py"])
+
+    assert list(got) == ["backend/app/zzz.py"]
