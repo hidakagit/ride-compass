@@ -25,10 +25,43 @@ function inspectorResult() {
     ],
     composite_difficulty: 40,
     covered_weight_fraction: 0.8,
+    landcover: {
+      valid_pixels: 500,
+      water_percent: 0,
+      trees_percent: 20,
+      flooded_veg_percent: 0,
+      crops_percent: 30,
+      built_percent: 50,
+      bare_percent: 0,
+      snow_ice_percent: 0,
+      rangeland_percent: 0,
+    },
   };
 }
 
 describe("RoadInspectorPopup", () => {
+  it("周囲の土地被覆は畳んでおき、閉じている間は最も多いクラスだけを見せる", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    render(
+      <RoadInspectorPopup properties={{ osm_way_id: 1, surface_good: true }} axes={AXES} axisColors={AXIS_COLORS} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+
+    // 閉じている間は要約だけを見せる。走行中のスマホが主用途のため、既定で行を並べない
+    // （`details`は閉じていても子をDOMへ残すため、存在ではなく見えるかで確かめる）。
+    const summary = await screen.findByText("周囲の土地被覆: 建物 50%");
+    expect(screen.getByText("農地")).not.toBeVisible();
+
+    await user.click(summary);
+
+    // 開くと割合の大きい順。0%のクラス（水面・湿地・裸地・雪氷・草地）は行自体を作らない。
+    expect(screen.getByText("農地")).toBeVisible();
+    expect(screen.getByText("樹木")).toBeVisible();
+    expect(screen.queryByText("水面")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.mocked(fetchAxisInspector).mockReset();
   });

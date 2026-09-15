@@ -23,7 +23,7 @@ from app.domain.attributes import (
 )
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS, evaluate_axes_scalar
 from app.domain.difficulty import composite_contributions, composite_difficulty
-from app.domain.landcover import WayLandcover
+from app.domain.landcover import LandcoverPercentages, WayLandcover
 from app.domain.material_catalog import MaterialExtractionContext, resolve_materials
 from app.domain.route_preference import RoutePreference
 from app.domain.strict_model import StrictModel
@@ -52,6 +52,10 @@ class AxisInspectorResult(StrictModel):
     # 公開軸全体の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
     # 「◯%相当の軸のみで算出」という参考値である旨を示すために使う。
     covered_weight_fraction: float | None
+    # 道路周囲リングの土地被覆の内訳。軸の材料に使うのはこのうち2クラスだけだが、
+    # 「この道が何で覆われているか」は軸の点数からは読み取れないため全クラスを返す。
+    # 行が無い・割合がNULL（そのラスタ構成では値なし）ならNone。
+    landcover: LandcoverPercentages | None = None
 
 
 # 区間インスペクタ・軸スタジオのプレビューがWay1本を指すときに使う合成キー。Edge粒度の
@@ -178,4 +182,5 @@ def axis_inspector_breakdown(
         axes=axes,
         composite_difficulty=composite,
         covered_weight_fraction=covered_fraction,
+        landcover=landcover_percentages,
     )

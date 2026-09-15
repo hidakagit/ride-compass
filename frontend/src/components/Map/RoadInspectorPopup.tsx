@@ -71,6 +71,7 @@ export default function RoadInspectorPopup({ properties, axes, axisColors }: Roa
       {result !== null && (
         <div className={styles.result}>
           <RoadTagRows result={result} />
+          <RoadLandcoverRows result={result} />
           <div className={styles.sectionLabel}>評価への効き方</div>
           {Object.keys(contributions).length > 0 ? (
             <AxisContributionBar
@@ -109,6 +110,44 @@ export default function RoadInspectorPopup({ properties, axes, axisColors }: Roa
 /** 取得できたタグのうち、カタログに登録済みのものを「項目: 値」で出す。登録外の生タグ
  * （`name`・`ref`等、OSM編集者が自由に書ける）は畳んで置く——数が読めないため、開いた
  * ときだけ縦に伸びる形にする。 */
+// 土地被覆のクラスと表示名。割合が同率のときの並びを固定するため、配列で持つ。
+const LANDCOVER_CLASSES: readonly [keyof NonNullable<AxisInspectorResult["landcover"]>, string][] = [
+  ["built_percent", "建物"],
+  ["trees_percent", "樹木"],
+  ["crops_percent", "農地"],
+  ["rangeland_percent", "草地"],
+  ["water_percent", "水面"],
+  ["flooded_veg_percent", "湿地"],
+  ["bare_percent", "裸地"],
+  ["snow_ice_percent", "雪氷"],
+];
+
+/** 道路の周囲100mリングの土地被覆。走行中に読むものではないため畳んでおき、閉じている
+ * 間は最も多いクラスだけを見せる。8クラスは合計100%になるため、開いたときは割合の
+ * 大きい順に並べ、0%のクラスは出さない。 */
+function RoadLandcoverRows({ result }: { result: AxisInspectorResult }) {
+  const landcover = result.landcover;
+  if (landcover === null || landcover === undefined) return null;
+  const rows = LANDCOVER_CLASSES.map(([key, label]) => ({ label, value: landcover[key] as number }))
+    .filter((row) => row.value >= 0.5)
+    .sort((a, b) => b.value - a.value);
+  if (rows.length === 0) return null;
+  const top = rows[0];
+  return (
+    <details className={styles.others}>
+      <summary className={styles.othersSummary}>{`周囲の土地被覆: ${top.label} ${Math.round(top.value)}%`}</summary>
+      <dl className={styles.facts}>
+        {rows.map((row) => (
+          <div key={row.label} className={styles.factRow}>
+            <dt className={styles.factLabel}>{row.label}</dt>
+            <dd className={styles.factValue}>{`${Math.round(row.value)}%`}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 function RoadTagRows({ result }: { result: AxisInspectorResult }) {
   const known: [string, string][] = [];
   const others: [string, string][] = [];

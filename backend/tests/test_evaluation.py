@@ -707,6 +707,41 @@ def test_axis_inspector_breakdown_way_landcover_feeds_openness_only():
     assert others_with == others_without
 
 
+def test_axis_inspector_breakdown_returns_every_landcover_class():
+    """軸が材料に使うのは2クラスだけだが、内訳は8クラスすべて返す。
+
+    「この道が何で覆われているか」は軸の点数からは読み取れないため、区間インスペクタは
+    材料に使っていないクラス（農地・草地等）も見せる。
+    """
+    landcover = WayLandcover(
+        osm_way_id=100,
+        percentages=LandcoverPercentages(
+            valid_pixels=500, water_percent=0, trees_percent=40.0, flooded_veg_percent=0,
+            crops_percent=0, built_percent=25.0, bare_percent=0, snow_ice_percent=0, rangeland_percent=35.0,
+        ),
+        data_source="esri-io-lulc", data_version="2025", computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    result = axis_inspector_breakdown(
+        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
+        accident_years_covered=0, way_landcover=landcover,
+    )
+
+    assert result.landcover is not None
+    # 材料に使っていないクラスが、値を保ったまま届く。
+    assert result.landcover.rangeland_percent == 35.0
+    assert result.landcover.valid_pixels == 500
+
+
+def test_axis_inspector_breakdown_has_no_landcover_when_it_was_not_given():
+    result = axis_inspector_breakdown(
+        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
+        accident_years_covered=0,
+    )
+
+    assert result.landcover is None
+
+
 def test_axis_inspector_breakdown_treats_no_value_landcover_row_as_missing():
     """割合がNULLの行（そのラスタ構成では値なし、T688）は、行が無い場合と同じ欠損。
 

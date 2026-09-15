@@ -2759,6 +2759,16 @@
               }
             ],
             "title": "Covered Weight Fraction"
+          },
+          "landcover": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LandcoverPercentages"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -3717,6 +3727,61 @@
         ],
         "title": "JmaTileIndexResponse",
         "description": "`GET /api/jma-tile-index`の応答。\n\n`available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は\nいずれもNoneで、クライアントは従来どおり全タイルを取りに行く。"
+      },
+      "LandcoverPercentages": {
+        "properties": {
+          "valid_pixels": {
+            "type": "integer",
+            "title": "Valid Pixels"
+          },
+          "water_percent": {
+            "type": "number",
+            "title": "Water Percent"
+          },
+          "trees_percent": {
+            "type": "number",
+            "title": "Trees Percent"
+          },
+          "flooded_veg_percent": {
+            "type": "number",
+            "title": "Flooded Veg Percent"
+          },
+          "crops_percent": {
+            "type": "number",
+            "title": "Crops Percent"
+          },
+          "built_percent": {
+            "type": "number",
+            "title": "Built Percent"
+          },
+          "bare_percent": {
+            "type": "number",
+            "title": "Bare Percent"
+          },
+          "snow_ice_percent": {
+            "type": "number",
+            "title": "Snow Ice Percent"
+          },
+          "rangeland_percent": {
+            "type": "number",
+            "title": "Rangeland Percent"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "valid_pixels",
+          "water_percent",
+          "trees_percent",
+          "flooded_veg_percent",
+          "crops_percent",
+          "built_percent",
+          "bare_percent",
+          "snow_ice_percent",
+          "rangeland_percent"
+        ],
+        "title": "LandcoverPercentages",
+        "description": "`way_landcover`の割合8列＋`valid_pixels`と1対1のモデル。"
       },
       "MaterialCatalogEntry": {
         "properties": {

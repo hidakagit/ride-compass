@@ -1225,6 +1225,7 @@ export interface components {
             composite_difficulty: number | null;
             /** Covered Weight Fraction */
             covered_weight_fraction: number | null;
+            landcover?: components["schemas"]["LandcoverPercentages"] | null;
         };
         /**
          * AxisMaterialBreakdownEntry
@@ -1597,6 +1598,30 @@ export interface components {
             elements?: {
                 [key: string]: components["schemas"]["JmaTileIndexElement"];
             } | null;
+        };
+        /**
+         * LandcoverPercentages
+         * @description `way_landcover`の割合8列＋`valid_pixels`と1対1のモデル。
+         */
+        LandcoverPercentages: {
+            /** Valid Pixels */
+            valid_pixels: number;
+            /** Water Percent */
+            water_percent: number;
+            /** Trees Percent */
+            trees_percent: number;
+            /** Flooded Veg Percent */
+            flooded_veg_percent: number;
+            /** Crops Percent */
+            crops_percent: number;
+            /** Built Percent */
+            built_percent: number;
+            /** Bare Percent */
+            bare_percent: number;
+            /** Snow Ice Percent */
+            snow_ice_percent: number;
+            /** Rangeland Percent */
+            rangeland_percent: number;
         };
         /** MaterialCatalogEntry */
         MaterialCatalogEntry: {
