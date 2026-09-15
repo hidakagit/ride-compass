@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { RouteSegmentDetail } from "@/types/route";
+import { nearestPointOnLineString } from "./MapView";
 import {
-  nearestPointOnLineString,
   restoreRouteSegmentProperties,
   segmentsToFeatureCollection,
   type RouteSegmentProperties,
-} from "./MapView";
+} from "./MapView.routes";
 
 function makeSegment(overrides: Partial<RouteSegmentDetail>): RouteSegmentDetail {
   return {

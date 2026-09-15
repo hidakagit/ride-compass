@@ -14,7 +14,8 @@
 import { bench, describe } from "vitest";
 import type { RouteCandidate, RouteSegmentDetail } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
-import { computeRouteBounds, routesToFeatureCollection, segmentsToFeatureCollection } from "./MapView";
+import { computeRouteBounds } from "./MapView";
+import { routesToFeatureCollection, segmentsToFeatureCollection } from "./MapView.routes";
 
 function makeGeometry(pointCount: number): GeoJSON.LineString {
   const coordinates: [number, number][] = [];
@@ -85,7 +86,7 @@ function makeCandidates(candidateCount: number, pointsPerCandidate: number): Rou
         max_elevation_m: 45,
         segments: makeSegments(Math.round(pointsPerCandidate / 12)),
         overall_difficulty: 45.6,
-      })
+      }),
     );
   }
   return candidates;

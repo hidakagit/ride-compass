@@ -3,18 +3,18 @@ import { createExpression, latest } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
 import {
+  SPLICED_ROUTE_LAYER_ID,
+  SPLICED_ROUTE_WIDTH,
   SPLICE_DASH_EXPRESSION,
   SPLICE_HIT_LAYER_ID,
   SPLICE_HIT_WIDTH,
-  SPLICED_ROUTE_LAYER_ID,
-  SPLICED_ROUTE_WIDTH,
   SPLICE_LAYER_ID,
   SPLICE_OPACITY_EXPRESSION,
   SPLICE_WIDTH_EXPRESSION,
   drawSpliceStretches,
   drawSplicedRoute,
   spliceStretchesToFeatureCollection,
-} from "./MapView";
+} from "./MapView.routes";
 
 function evaluate(expression: unknown[], properties: Record<string, unknown>) {
   const parsed = createExpression(expression);
@@ -44,7 +44,14 @@ describe("乗り換え区間の描画式", () => {
 describe("spliceStretchesToFeatureCollection", () => {
   it("区間ごとにLineStringを作り、indexとtakenを持たせる", () => {
     const data = spliceStretchesToFeatureCollection([
-      { index: 0, taken: false, coordinates: [[139.7, 35.7], [139.71, 35.7]] },
+      {
+        index: 0,
+        taken: false,
+        coordinates: [
+          [139.7, 35.7],
+          [139.71, 35.7],
+        ],
+      },
     ]);
 
     expect(data.features).toHaveLength(1);
@@ -55,8 +62,22 @@ describe("spliceStretchesToFeatureCollection", () => {
   it("選んだ区間を最前面（配列の最後）へ回す", () => {
     // 未選択の帯が上に重なると、差し替えた先が破線に隠れて変化が見えない
     const data = spliceStretchesToFeatureCollection([
-      { index: 0, taken: true, coordinates: [[139.7, 35.7], [139.71, 35.7]] },
-      { index: 1, taken: false, coordinates: [[139.72, 35.7], [139.73, 35.7]] },
+      {
+        index: 0,
+        taken: true,
+        coordinates: [
+          [139.7, 35.7],
+          [139.71, 35.7],
+        ],
+      },
+      {
+        index: 1,
+        taken: false,
+        coordinates: [
+          [139.72, 35.7],
+          [139.73, 35.7],
+        ],
+      },
     ]);
 
     expect(data.features.map((f) => f.properties.taken)).toEqual([false, true]);
@@ -88,7 +109,14 @@ describe("乗り換え区間の当たり判定", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     drawSpliceStretches(map as any, [
-      { index: 0, taken: false, coordinates: [[139.7, 35.7], [139.71, 35.7]] },
+      {
+        index: 0,
+        taken: false,
+        coordinates: [
+          [139.7, 35.7],
+          [139.71, 35.7],
+        ],
+      },
     ]);
 
     const hit = map.layers.find((layer) => layer.id === SPLICE_HIT_LAYER_ID);
@@ -102,7 +130,10 @@ describe("乗り換え区間の当たり判定", () => {
     const map = fakeMap();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    drawSplicedRoute(map as any, [[139.7, 35.7], [139.71, 35.7]]);
+    drawSplicedRoute(map as any, [
+      [139.7, 35.7],
+      [139.71, 35.7],
+    ]);
 
     const line = map.layers.find((layer) => layer.id === SPLICED_ROUTE_LAYER_ID);
     expect(line?.paint?.["line-width"]).toBe(SPLICED_ROUTE_WIDTH);

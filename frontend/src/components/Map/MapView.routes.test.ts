@@ -3,24 +3,26 @@ import { describe, expect, it } from "vitest";
 import type { RouteCandidate } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import {
-  OUTLINE_LAYER_ID,
   ROAD_INSPECT_LAYER_ID,
   computeRouteFitPadding,
+  computeRouteBounds,
+  redrawAllLayers,
+  type RedrawAllLayersProps,
+} from "./MapView";
+import {
+  OUTLINE_LAYER_ID,
+  ROUTES_LAYER_ID,
   ROUTE_ARROW_HALO_LAYER_ID,
   ROUTE_ARROW_LAYER_ID,
-  ROUTES_LAYER_ID,
-  SPLICE_LAYER_ID,
   SPLICED_ROUTE_LAYER_ID,
+  SPLICE_LAYER_ID,
   applyRouteLayerVisibility,
-  computeRouteBounds,
   drawBaseRoutes,
   drawSelectedOutline,
   hideBaseRoutes,
   hideSelectedOutline,
-  redrawAllLayers,
   routesToFeatureCollection,
-  type RedrawAllLayersProps,
-} from "./MapView";
+} from "./MapView.routes";
 
 const makeCandidate = makeRouteCandidate;
 
