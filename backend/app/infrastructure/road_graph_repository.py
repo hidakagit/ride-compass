@@ -898,48 +898,6 @@ _REBUILD_RAW_INTERSECTION_NODES_SQL = text(
     """
 )
 
-# way_attribute_counts（way単位の事実カウント）の再計算SQL。
-# カウントの意味論はedge単位版（_ACCIDENT_COUNTS_SQL/
-# _INTERSECTION_COUNTS_SQL）と同一（半径・kindフィルタ・死亡事故重み・次数しきい値）で、
-# 対象geometryだけがedge→way全体になる。`&&`前置・LATERALの流儀も既存クエリを踏襲。
-# 事故はbicycle_only=true相当（involves_bicycleのみ）で固定する（edge版の実際の呼び出しが
-# 常に既定値trueであるのと同じ判断、EdgeAttributeCountsRowのdocstring参照）。
-# way_divided_carriageway（上下線が分かれた道の片側か）の再計算
-# （app/batch/precompute_way_divided_carriageway.py）。
-#
-# OSMは中央分離帯のある道路の上下線を別wayにしそれぞれへoneway=yesを付けるため、
-# osm_raw_ways.directionだけでは一方通行規制の道と区別できない。判定は次の3条件のORで、
-# 上から順に確からしい。
-#
-#   1. carriageway タグが dual/triple/2。OSM自身の申告で確実だが、関東全域で117件しか
-#      無く（motorwayを除く。motorwayは自転車が走れず取り込んでいない）主軸にできない。
-#   2. 同じ路線番号/名前（ref/name）の対向一方通行が近くにある。ref/nameの一致は
-#      「この2本は同じ道路」というOSM側の明示で、最も強い同一性の根拠。上下線分離が
-#      実際に起きる trunk/primary/secondary では一方通行wayの ref/name 欠損は0件のため、
-#      その層はこの条件だけで捕捉できる。
-#   3. 名前に頼らず、**全長にわたって**対向する同種別の一方通行が寄り添う。tertiaryは
-#      無名の一方通行1,201本のうち689本（57%）がこれに該当し、条件2だけでは取りこぼす
-#      （residential/unclassifiedの背景率2%台と桁が違うため、誤判定ではなく実体）。
-#
-# 条件3の掛け方に注意が要る。相方は1本とは限らない——上下線は別々の位置で分割されるため、
-# 「標本点すべてが同一の相方から近い」と書くと分割位置のずれだけで落ちる。
-# **点ごとに相方を探す**（EXISTSを点の内側へ入れる）こと。
-#
-# また、進行方位が反対であることは条件2・3の両方に要る。これが無いと、同じ道を分割した
-# 連続する区間が端点を共有して距離0になり、すべて相方ありになる。
-_WAY_TRAVEL_BEARING_SQL = """
-    degrees(ST_Azimuth(ST_StartPoint({alias}.geom), ST_EndPoint({alias}.geom)))
-        + CASE WHEN {alias}.direction = 'backward' THEN 180 ELSE 0 END
-"""
-
-_ANTIPARALLEL_SQL = """
-    abs(
-      ((({bearing}) - t.travel_deg)::numeric % 360 + 360) % 360 - 180
-    ) < :bearing_tolerance_deg
-""".format(bearing=_WAY_TRAVEL_BEARING_SQL.format(alias="b"))
-
-# バインド変数は使わない。`:name::type`と書くとバインド名の直後のキャストが構文を壊し、
-# バインド変数同士の割り算は型が決まらないため、定数からSQLへ直接展開する。
 # 上下線が分かれた道の相方を探す横方向の距離（m）。同じ路線番号/名前を持つ相方を探すとき
 # （下記の条件2）に使う、緩めの上限。名前が一致している時点で同じ道路だとOSM自身が言って
 # いるため、間隔そのものは広めに許す。
@@ -998,12 +956,6 @@ _ANTIPARALLEL_SQL = """
 
 # バインド変数は使わない。`:name::type`と書くとバインド名の直後のキャストが構文を壊し、
 # バインド変数同士の割り算は型が決まらないため、定数からSQLへ直接展開する。
-_sample_fractions_sql = ", ".join(str(f) for f in DIVIDED_CARRIAGEWAY_SAMPLE_FRACTIONS)
-_named_prefilter_deg = DIVIDED_CARRIAGEWAY_NAMED_GAP_M / DIVIDED_CARRIAGEWAY_PREFILTER_METERS_PER_DEGREE
-_geometric_prefilter_deg = (
-    DIVIDED_CARRIAGEWAY_GEOMETRIC_GAP_M / DIVIDED_CARRIAGEWAY_PREFILTER_METERS_PER_DEGREE
-)
-
 _sample_fractions_sql = ", ".join(str(f) for f in DIVIDED_CARRIAGEWAY_SAMPLE_FRACTIONS)
 _named_prefilter_deg = DIVIDED_CARRIAGEWAY_NAMED_GAP_M / DIVIDED_CARRIAGEWAY_PREFILTER_METERS_PER_DEGREE
 _geometric_prefilter_deg = (
@@ -1076,6 +1028,12 @@ _RECOMPUTE_WAY_DIVIDED_CARRIAGEWAY_SQL = text(
 ).bindparams(bindparam("osm_way_ids", type_=ARRAY(BigInteger())))
 
 
+# way_attribute_counts（way単位の事実カウント）の再計算SQL。
+# カウントの意味論はedge単位版（_ACCIDENT_COUNTS_SQL/
+# _INTERSECTION_COUNTS_SQL）と同一（半径・kindフィルタ・死亡事故重み・次数しきい値）で、
+# 対象geometryだけがedge→way全体になる。`&&`前置・LATERALの流儀も既存クエリを踏襲。
+# 事故はbicycle_only=true相当（involves_bicycleのみ）で固定する（edge版の実際の呼び出しが
+# 常に既定値trueであるのと同じ判断、EdgeAttributeCountsRowのdocstring参照）。
 _RECOMPUTE_WAY_ATTRIBUTE_COUNTS_SQL = text(
     """
     INSERT INTO way_attribute_counts

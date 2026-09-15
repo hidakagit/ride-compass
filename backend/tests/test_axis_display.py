@@ -636,7 +636,7 @@ def test_a_numeric_material_axis_gets_a_map_lens():
             breakpoints=[(0.0, 0.0), (100.0, 25.0), (1000.0, 100.0)],
         ),
         default_weight=0.1,
-        label="蛇行",
+        label="交差点密度",
         category="観測",
         is_published=True,
     )
