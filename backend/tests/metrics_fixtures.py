@@ -6,14 +6,15 @@
 片方だけ更新して食い違ったまま「一致した」と誤判定しうる）。
 """
 
+from collections.abc import Mapping
+
 from app.domain.attributes import (
+    WIRED_LANDCOVER_KEYS,
     METRIC_GROUP_COUNTS,
     METRIC_GROUP_LANDCOVER,
     METRIC_GROUP_POI,
     METRIC_KEY_ACCIDENT,
-    METRIC_KEY_BUILT_PERCENT,
     METRIC_KEY_INTERSECTION,
-    METRIC_KEY_TREES_PERCENT,
 )
 
 Metrics = dict[str, dict[str, dict[str, float]]]
@@ -28,9 +29,14 @@ def counts_row(
     return {key: float(value) for key, value in row.items() if value is not None}
 
 
-def landcover_row(trees: float | None = None, built: float | None = None) -> dict[str, float]:
-    row = {METRIC_KEY_TREES_PERCENT: trees, METRIC_KEY_BUILT_PERCENT: built}
-    return {key: float(value) for key, value in row.items() if value is not None}
+def landcover_row(percents: Mapping[str, float] | None = None) -> dict[str, float]:
+    """土地被覆の1行。クラス名は`WIRED_LANDCOVER_KEYS`。載せないキーは
+    「そのクラスだけ不明」を表す。"""
+    if not percents:
+        return {}
+    unknown = set(percents) - set(WIRED_LANDCOVER_KEYS)
+    assert not unknown, f"配線されていない土地被覆のクラス: {sorted(unknown)}"
+    return {key: float(value) for key, value in percents.items()}
 
 
 def edge_metrics(
@@ -39,8 +45,7 @@ def edge_metrics(
     accident: float | None = None,
     intersection: float | None = None,
     poi: dict[str, float] | None = None,
-    trees: float | None = None,
-    built: float | None = None,
+    landcover: Mapping[str, float] | None = None,
 ) -> Metrics:
     """Edge1本ぶんの`metrics`。値を1つも指定しない群は行自体を持たない
     （「未集計」＝その群由来の材料はすべて欠損、という既存の意味論）。"""
@@ -50,9 +55,9 @@ def edge_metrics(
         metrics[METRIC_GROUP_COUNTS] = {edge_id: counts}
     if poi is not None:
         metrics[METRIC_GROUP_POI] = {edge_id: {k: float(v) for k, v in poi.items()}}
-    landcover = landcover_row(trees, built)
-    if landcover:
-        metrics[METRIC_GROUP_LANDCOVER] = {edge_id: landcover}
+    landcover_values = landcover_row(landcover)
+    if landcover_values:
+        metrics[METRIC_GROUP_LANDCOVER] = {edge_id: landcover_values}
     return metrics
 
 

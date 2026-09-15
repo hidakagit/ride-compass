@@ -2,6 +2,7 @@ import pickle
 from dataclasses import MISSING, fields
 
 from app.domain.attributes import (
+    WIRED_LANDCOVER_KEYS,
     EdgeAttributeCounts,
     EdgeMaterialBundle,
     EdgeMaterialTable,
@@ -172,8 +173,7 @@ def _full_bundle(edge_id: str) -> EdgeMaterialBundle:
             calculated_at="2026-09-02T00:00:00+00:00",
         ),
         is_designated=True,
-        landcover_trees_percent=40.0,
-        landcover_built_percent=25.0,
+        landcover_percents={key: 10.0 * (i + 1) for i, key in enumerate(WIRED_LANDCOVER_KEYS)},
     )
 
 
@@ -273,18 +273,16 @@ def test_full_bundle_fixture_fills_every_bundle_field():
 
 def test_edge_material_table_landcover_present_and_absent_roundtrip():
     # T624: way_landcover行が無ければ2つとも同時にNone（片方だけ欠損しない、
-    # EdgeMaterialBundle.landcover_trees_percentのdocstring参照）。
+    # EdgeMaterialBundle.landcover_percentsのdocstring参照）。
     table = EdgeMaterialTable.from_bundles(
         ["e1", "e2"], {"e1": _full_bundle("e1"), "e2": _bare_bundle()},
     )
 
     e1 = table.get("e1")
-    assert e1.landcover_trees_percent == 40.0
-    assert e1.landcover_built_percent == 25.0
+    assert e1.landcover_percents == {key: 10.0 * (i + 1) for i, key in enumerate(WIRED_LANDCOVER_KEYS)}
 
     e2 = table.get("e2")
-    assert e2.landcover_trees_percent is None
-    assert e2.landcover_built_percent is None
+    assert e2.landcover_percents is None
 
 
 def test_edge_material_table_roundtrip_at_realistic_scale():

@@ -278,7 +278,7 @@ idを`route-destination-00..`へ振り直すが、
 
 `GraphService.get_search_materials_for_bbox`でトポロジ＋材料（surface・
 edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids・
-way_landcoverのtrees_percent/built_percent[T624]、Edge単位で
+way_landcoverの配線済みクラス[T624]、Edge単位で
 `EdgeMaterialBundle`へ統合済み）＋`StaticEdgeScoreMatrix`（タイル単位で
 キャッシュ済みの「Edge×公開軸」静的スコア行列）をまとめて取得し、`_build_search_graph`が
 探索用グラフ（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）とbbox全体ぶんの

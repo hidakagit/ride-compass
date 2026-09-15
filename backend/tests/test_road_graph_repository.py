@@ -13,7 +13,7 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy import insert, text
 
-from app.domain.attributes import ElevationAttribute, WayAttributeCounts
+from app.domain.attributes import ElevationAttribute, WayAttributeCounts, WIRED_LANDCOVER_KEYS
 from app.domain.graph import WaySpec, build_road_graph
 from app.domain.traffic import HIGHWAY_RANK
 from app.domain.landcover import LULC_BUILT, LULC_TREES, LULC_WATER, WayLandcover, class_percentages
@@ -1452,10 +1452,13 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
     assert batch.materials[bwd_edge_id].is_designated is True
 
     # way_landcoverもosm_way_id単位のためfwd・bwd両方が同じ値を持つ。
-    assert batch.materials[fwd_edge_id].landcover_trees_percent == 40.0
-    assert batch.materials[fwd_edge_id].landcover_built_percent == 25.0
-    assert batch.materials[bwd_edge_id].landcover_trees_percent == 40.0
-    assert batch.materials[bwd_edge_id].landcover_built_percent == 25.0
+    for edge_id in (fwd_edge_id, bwd_edge_id):
+        percents = batch.materials[edge_id].landcover_percents
+        assert percents is not None
+        assert percents["trees_percent"] == 40.0
+        assert percents["built_percent"] == 25.0
+        # 配線したクラスは全部そろって届く（一部だけ欠けることはない）。
+        assert set(percents) == set(WIRED_LANDCOVER_KEYS)
 
 
 

@@ -28,10 +28,32 @@ METRIC_GROUP_POI = "poi"
 METRIC_KEY_ACCIDENT = "accident"
 METRIC_KEY_INTERSECTION = "intersection"
 
-# `METRIC_GROUP_LANDCOVER`のキー。`way_landcover`の割合8列のうち評価パイプラインへ
-# 配線済みの2つ（残り6列は材料として登録すれば同じ群へ増やせる）。
+# `METRIC_GROUP_LANDCOVER`のキー。`way_landcover`の割合列の名前と同じにする
+# （SQLの読み出し列をこの並びから導くため）。
 METRIC_KEY_TREES_PERCENT = "trees_percent"
 METRIC_KEY_BUILT_PERCENT = "built_percent"
+METRIC_KEY_CROPS_PERCENT = "crops_percent"
+METRIC_KEY_RANGELAND_PERCENT = "rangeland_percent"
+METRIC_KEY_WATER_PERCENT = "water_percent"
+METRIC_KEY_BARE_PERCENT = "bare_percent"
+METRIC_KEY_FLOODED_VEG_PERCENT = "flooded_veg_percent"
+METRIC_KEY_SNOW_ICE_PERCENT = "snow_ice_percent"
+
+# 評価パイプラインへ配線する土地被覆のクラス。**ここへ1つ足せば、Edge束・列指向
+# テーブル・SQLの読み出し・タイルの焼き込み列・カバレッジ台帳が揃って増える**
+# （下流はこの並びから導き、クラス名を個別に並べない）。
+# `way_landcover`の割合列と1対1にする——どのクラスを材料にするかを人が選ぶ形にすると、
+# 「なぜこのクラスだけ無いのか」を後から何度も判断し直すことになる。
+WIRED_LANDCOVER_KEYS: tuple[str, ...] = (
+    METRIC_KEY_TREES_PERCENT,
+    METRIC_KEY_BUILT_PERCENT,
+    METRIC_KEY_CROPS_PERCENT,
+    METRIC_KEY_RANGELAND_PERCENT,
+    METRIC_KEY_WATER_PERCENT,
+    METRIC_KEY_BARE_PERCENT,
+    METRIC_KEY_FLOODED_VEG_PERCENT,
+    METRIC_KEY_SNOW_ICE_PERCENT,
+)
 
 
 class ElevationAttribute(StrictModel):
@@ -115,12 +137,10 @@ class EdgeMaterialBundle:
     attribute_counts: EdgeAttributeCounts | None
     elevation_attribute: ElevationAttribute | None
     is_designated: bool
-    # `way_landcover`（T624）のうち評価パイプラインへ配線済みの2列のみ（trees/built、
-    # 他6列はDBに保存済みだが本bundleへは未配線——「材料の登録」と「評価軸での利用」の
-    # 分離、docs/tasks/T624.md「段階2で配線する材料」参照）。同じway_landcover行が
-    # 無ければ2つとも同時にNone（片方だけ欠損することはない）。
-    landcover_trees_percent: float | None = None
-    landcover_built_percent: float | None = None
+    # `way_landcover`（T624）のうち`WIRED_LANDCOVER_KEYS`のクラスだけ。キーはその並びで、
+    # 値は割合(%)。`way_landcover`行が無ければ全クラスまとめてNone（一部のクラスだけ
+    # 欠損することはない）。
+    landcover_percents: dict[str, float] | None = None
 
 
 def edge_metrics_from_bundles(
@@ -145,11 +165,8 @@ def edge_metrics_from_bundles(
             # 0件を意味し、載っていないキーは0として読める。
             if bundle.attribute_counts.poi_counts is not None:
                 poi[edge_id] = {k: float(v) for k, v in bundle.attribute_counts.poi_counts.items()}
-        if bundle.landcover_trees_percent is not None and bundle.landcover_built_percent is not None:
-            landcover[edge_id] = {
-                METRIC_KEY_TREES_PERCENT: bundle.landcover_trees_percent,
-                METRIC_KEY_BUILT_PERCENT: bundle.landcover_built_percent,
-            }
+        if bundle.landcover_percents is not None:
+            landcover[edge_id] = dict(bundle.landcover_percents)
     return {
         METRIC_GROUP_COUNTS: counts,
         METRIC_GROUP_LANDCOVER: landcover,
@@ -246,8 +263,9 @@ class EdgeMaterialTable:
     poi_counts: np.ndarray  # dtype=object
     is_designated: np.ndarray  # dtype=bool
     landcover_present: np.ndarray  # dtype=bool
-    landcover_trees_percent: np.ndarray  # dtype=float64
-    landcover_built_percent: np.ndarray  # dtype=float64
+    # 行×`WIRED_LANDCOVER_KEYS`の2次元。クラスごとに列を持つと、配線を1つ増やすたびに
+    # このクラスと生成・復元の3箇所を触ることになる。
+    landcover_percents: np.ndarray  # dtype=float64, shape=(n, len(WIRED_LANDCOVER_KEYS))
     # Noneは「未指定」を表し、__post_init__がedge_ids全件を行indexとして自動算出する
     # （直接構築するテスト向けの便宜）。`from_bundles`はbundleが無いedge_idの行を
     # 意図的に含めない辞書を明示的に渡すため、空dict({})と「未指定」を区別する必要がある
@@ -288,8 +306,7 @@ class EdgeMaterialTable:
         poi_counts = np.empty(n, dtype=object)
         is_designated = np.zeros(n, dtype=bool)
         landcover_present = np.zeros(n, dtype=bool)
-        landcover_trees_percent = np.full(n, np.nan)
-        landcover_built_percent = np.full(n, np.nan)
+        landcover_percents = np.full((n, len(WIRED_LANDCOVER_KEYS)), np.nan)
 
         row_index: dict[str, int] = {}
         for i, edge_id in enumerate(edge_ids):
@@ -301,10 +318,10 @@ class EdgeMaterialTable:
             surface[i] = bundle.surface
             way_tags[i] = bundle.way_tags
             is_designated[i] = bundle.is_designated
-            if bundle.landcover_trees_percent is not None and bundle.landcover_built_percent is not None:
+            if bundle.landcover_percents is not None:
                 landcover_present[i] = True
-                landcover_trees_percent[i] = bundle.landcover_trees_percent
-                landcover_built_percent[i] = bundle.landcover_built_percent
+                for k, key in enumerate(WIRED_LANDCOVER_KEYS):
+                    landcover_percents[i, k] = bundle.landcover_percents[key]
 
             counts = bundle.attribute_counts
             if counts is not None:
@@ -355,10 +372,15 @@ class EdgeMaterialTable:
             poi_counts=poi_counts,
             is_designated=is_designated,
             landcover_present=landcover_present,
-            landcover_trees_percent=landcover_trees_percent,
-            landcover_built_percent=landcover_built_percent,
+            landcover_percents=landcover_percents,
             _row_index=row_index,
         )
+
+    def _reconstruct_landcover(self, i: int) -> dict[str, float] | None:
+        """行`i`の土地被覆を`WIRED_LANDCOVER_KEYS`の辞書へ戻す。行が無ければNone。"""
+        if not self.landcover_present[i]:
+            return None
+        return {key: float(self.landcover_percents[i, k]) for k, key in enumerate(WIRED_LANDCOVER_KEYS)}
 
     def _reconstruct_attribute_counts(self, i: int) -> EdgeAttributeCounts | None:
         if not self.counts_present[i]:
@@ -399,8 +421,7 @@ class EdgeMaterialTable:
             attribute_counts=self._reconstruct_attribute_counts(i),
             elevation_attribute=self._reconstruct_elevation_attribute(i, edge_id),
             is_designated=bool(self.is_designated[i]),
-            landcover_trees_percent=_none_if_nan(self.landcover_trees_percent[i]) if self.landcover_present[i] else None,
-            landcover_built_percent=_none_if_nan(self.landcover_built_percent[i]) if self.landcover_present[i] else None,
+            landcover_percents=self._reconstruct_landcover(i),
         )
 
     def __getitem__(self, edge_id: str) -> EdgeMaterialBundle:
@@ -441,11 +462,9 @@ class EdgeMaterialTable:
                 }
                 if self.poi_counts[i] is not None:
                     poi[edge_id] = {k: float(v) for k, v in self.poi_counts[i].items()}
-            if self.landcover_present[i]:
-                landcover[edge_id] = {
-                    METRIC_KEY_TREES_PERCENT: float(self.landcover_trees_percent[i]),
-                    METRIC_KEY_BUILT_PERCENT: float(self.landcover_built_percent[i]),
-                }
+            row_landcover = self._reconstruct_landcover(i)
+            if row_landcover is not None:
+                landcover[edge_id] = row_landcover
             elevation = self._reconstruct_elevation_attribute(i, edge_id)
             if elevation is not None:
                 elevation_attributes[edge_id] = elevation

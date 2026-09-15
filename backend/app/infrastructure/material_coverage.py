@@ -36,6 +36,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
+from app.domain.attributes import WIRED_LANDCOVER_KEYS
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import POI_COUNT_KINDS
 from app.infrastructure.osm_way_tag_sql import (
@@ -206,30 +207,28 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
         missing_semantics="unknown",
     ),
-    # `way_landcover`は「行が無い＝未計算」と「列がNULL＝算出不能（ラスタ範囲外等）」を
-    # 区別する（migration 0037）。**行の有無だけで数えると、値がNULLの行を「データあり」と
-    # 数えてしまう**ため、列のNULLも欠損として数える。
-    "trees_percent": WayMaterialCoverageSpec(
-        missing_condition=(
-            "NOT EXISTS (SELECT 1 FROM way_landcover lc"
-            " WHERE lc.osm_way_id = w.osm_way_id AND lc.trees_percent IS NOT NULL)"
-        ),
-        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
-        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
-        source="way_landcover.trees_percent（precompute_way_landcoverの計算済み値）の有無",
-        missing_semantics="unknown",
-    ),
-    "built_percent": WayMaterialCoverageSpec(
-        missing_condition=(
-            "NOT EXISTS (SELECT 1 FROM way_landcover lc"
-            " WHERE lc.osm_way_id = w.osm_way_id AND lc.built_percent IS NOT NULL)"
-        ),
-        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
-        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
-        source="way_landcover.built_percent（precompute_way_landcoverの計算済み値）の有無",
-        missing_semantics="unknown",
-    ),
 }
+
+# 土地被覆は配線するクラスが増える（`WIRED_LANDCOVER_KEYS`）。クラスごとに同じ形の
+# 宣言を書き写すと、材料を1つ足したときにここだけ取り残されて
+# 「どちらにも未登録」で落ちる。並びから導く。
+#
+# `way_landcover`は「行が無い＝未計算」と「列がNULL＝算出不能（ラスタ範囲外等）」を
+# 区別する（migration 0037）。**行の有無だけで数えると、値がNULLの行を「データあり」と
+# 数えてしまう**ため、列のNULLも欠損として数える。
+MATERIAL_COVERAGE_SPECS.update({
+    key: WayMaterialCoverageSpec(
+        missing_condition=(
+            "NOT EXISTS (SELECT 1 FROM way_landcover lc"
+            f" WHERE lc.osm_way_id = w.osm_way_id AND lc.{key} IS NOT NULL)"
+        ),
+        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
+        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
+        source=f"way_landcover.{key}（precompute_way_landcoverの計算済み値）の有無",
+        missing_semantics="unknown",
+    )
+    for key in WIRED_LANDCOVER_KEYS
+})
 
 
 # 欠損割合の集計対象外とする材料と、その理由（管理画面にそのまま表示する）。

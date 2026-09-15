@@ -76,8 +76,8 @@ class WayLandcover(StrictModel):
     """`way_landcover`テーブル1行分（`LandcoverPercentages`にosm_way_id・系譜情報を
     足した完全な行表現）。バッチ（`precompute_way_landcover.py`）の書き込みと、区間
     インスペクタ（`domain/axis_inspector.py`）のWay1本ぶんの入力に使う。評価経路の
-    材料はこの行から割合だけを取り出したもの（`EdgeMaterialBundle`の
-    `landcover_trees_percent`/`landcover_built_percent`）で、系譜情報は運ばない。"""
+    材料はこの行から配線済みクラスの割合だけを取り出したもの（`EdgeMaterialBundle`の
+    `landcover_percents`）で、系譜情報は運ばない。"""
 
     osm_way_id: int
     #: Noneは「計算済み・値なし」（ラスタ範囲外・境界またぎ・有効画素不足）。行が無い場合と

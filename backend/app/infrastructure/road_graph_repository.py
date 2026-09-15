@@ -81,6 +81,7 @@ from app.domain.attributes import (
     EdgeMaterialsBatch,
     ElevationAttribute,
     WayAttributeCounts,
+    WIRED_LANDCOVER_KEYS,
 )
 from app.domain.landcover import LandcoverPercentages, WayLandcover
 from app.domain.graph import (
@@ -294,6 +295,17 @@ _POI_TILE_COLUMNS_SQL = "".join(
 )
 
 
+# 土地被覆の焼き込み列。材料の`tile_property`（`crops_pct`等）と同じ名前にし、配線する
+# クラスの並び（`WIRED_LANDCOVER_KEYS`）から組み立てる——手で並べると、クラスを1つ
+# 配線したときに「材料は地図レンズを持つのに列が無い」形で静かに空になる。
+# DBの列名は`<クラス>_percent`、タイルのプロパティ名は`<クラス>_pct`。
+_LANDCOVER_COLUMN_SUFFIX = "_percent"
+_LANDCOVER_TILE_COLUMNS_SQL = ("," + "\n").join(
+    f"                        lc.{key}::double precision AS "
+    f"{key.removesuffix(_LANDCOVER_COLUMN_SUFFIX)}_pct"
+    for key in WIRED_LANDCOVER_KEYS
+)
+
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         f"""
@@ -391,11 +403,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         NULLIF(
                             round((wc.intersection_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
                         )::double precision AS intersection_per_km,{_POI_TILE_COLUMNS_SQL}
-                        -- 開放度軸（T624）の材料2件。way_landcoverの8列中、評価パイプラインへ
-                        -- 配線済みなのはこの2列のみ（他6列は生データとしてDBに保存済みだが
-                        -- 本タイルには未焼き込み、docs/tasks/T624.md「段階2で配線する材料」）。
-                        lc.trees_percent::double precision AS trees_pct,
-                        lc.built_percent::double precision AS built_pct
+{_LANDCOVER_TILE_COLUMNS_SQL}
                     FROM osm_raw_ways w
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
                     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
@@ -2497,7 +2505,7 @@ class AttributeRepository(_SessionRepository):
     async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
         """探索フェーズ（`RoadGraphEngine.prepare`）が必要とする材料一式（surface・
         edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids・
-        way_landcoverのtrees/built）を1回のJOINクエリへ統合して取得する。ボトルネックは
+        way_landcoverの配線済みクラス）を1回のJOINクエリへ統合して取得する。ボトルネックは
         ラウンドトリップ回数ではなく同じEdge集合に対してSQLAlchemy ORMの行構築を複数回
         繰り返すオーバーヘッドのため、個別クエリの束ではなく1クエリへ統合する
         （dev DB、71,791 Edgeで個別5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
@@ -2511,8 +2519,8 @@ class AttributeRepository(_SessionRepository):
         elevation_attributeは対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の
         判定に使う）。`poi_counts`はNULL許容で、行があってもNULLでありうる
         （NULL＝種別別の集計が未実行、空辞書＝集計済みで0件）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
-        designation_attributes行が1つでもあれば該当、の意味）。landcover_trees_percent/
-        landcover_built_percentはway_landcover行が無ければ2つとも同時にNone
+        designation_attributes行が1つでもあれば該当、の意味）。`landcover_percents`は
+        way_landcover行が無ければ全クラスまとめてNone
         （`WayLandcoverRow`のLEFT JOIN、`EdgeMaterialBundle`のdocstring参照）。
         """
         if not edge_ids:
@@ -2550,8 +2558,7 @@ class AttributeRepository(_SessionRepository):
                     ElevationAttributeRow.data_version,
                     ElevationAttributeRow.calculated_at,
                     designation_exists.label("is_designated"),
-                    WayLandcoverRow.trees_percent,
-                    WayLandcoverRow.built_percent,
+                    *(getattr(WayLandcoverRow, key) for key in WIRED_LANDCOVER_KEYS),
                 )
                 .select_from(RoadEdgeRow)
                 .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
@@ -2593,8 +2600,11 @@ class AttributeRepository(_SessionRepository):
                     attribute_counts=attribute_counts,
                     elevation_attribute=elevation_attribute,
                     is_designated=bool(row.is_designated),
-                    landcover_trees_percent=row.trees_percent,
-                    landcover_built_percent=row.built_percent,
+                    landcover_percents=(
+                        {key: getattr(row, key) for key in WIRED_LANDCOVER_KEYS}
+                        if row.trees_percent is not None
+                        else None
+                    ),
                 )
 
         return EdgeMaterialsBatch(materials=materials)

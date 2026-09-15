@@ -16,10 +16,9 @@ from app.domain.attributes import (
     METRIC_GROUP_LANDCOVER,
     METRIC_GROUP_POI,
     METRIC_KEY_ACCIDENT,
-    METRIC_KEY_BUILT_PERCENT,
     METRIC_KEY_INTERSECTION,
-    METRIC_KEY_TREES_PERCENT,
     WayAttributeCounts,
+    WIRED_LANDCOVER_KEYS,
 )
 from app.domain.axis_definitions import REQUEST_DYNAMIC_MATERIAL_IDS, evaluate_axes_scalar
 from app.domain.difficulty import composite_contributions, composite_difficulty
@@ -69,8 +68,7 @@ def way_scalar_materials(
     is_designated: bool,
     way_counts: WayAttributeCounts | None,
     accident_years_covered: int,
-    trees_percent: float | None = None,
-    built_percent: float | None = None,
+    landcover_percents: dict[str, float] | None = None,
     surface: str | None = None,
 ) -> dict[str, object]:
     """Way1本ぶんの材料値（材料id→スカラー）を組み立てる。
@@ -81,8 +79,8 @@ def way_scalar_materials(
     区間インスペクタ・軸スタジオのプレビューだけ取り残される。
 
     Way単位のデータだけで求まる材料が対象で、ルート文脈が要る材料（勾配・風）はNoneのまま
-    返す（欠損として扱われ、それを参照する軸はavailable=Falseになる）。土地被覆は評価
-    パイプラインへ配線済みの2値だけを受け取る（`way_landcover`の8列すべてではない）。
+    返す（欠損として扱われ、それを参照する軸はavailable=Falseになる）。土地被覆は
+    `WIRED_LANDCOVER_KEYS`のクラスだけを受け取る（`way_landcover`の8列すべてではない）。
     """
     length_m = way_counts.length_m if way_counts is not None else 0.0
     counts: dict[str, dict[str, float]] = {}
@@ -97,11 +95,7 @@ def way_scalar_materials(
         # 読む。`domain/attributes.py: edge_metrics_from_bundles`と同じ意味論）。
         if way_counts.poi_counts is not None:
             poi[_WAY_SCOPE_KEY] = {k: float(v) for k, v in way_counts.poi_counts.items()}
-    landcover_row = {
-        key: value
-        for key, value in ((METRIC_KEY_TREES_PERCENT, trees_percent), (METRIC_KEY_BUILT_PERCENT, built_percent))
-        if value is not None
-    }
+    landcover_row = dict(landcover_percents) if landcover_percents is not None else {}
     materials = resolve_materials(
         MaterialExtractionContext(
             edge_id=_WAY_SCOPE_KEY,
@@ -151,8 +145,11 @@ def axis_inspector_breakdown(
     landcover_percentages = way_landcover.percentages if way_landcover is not None else None
     materials = way_scalar_materials(
         highway, tags, is_designated, way_counts, accident_years_covered,
-        landcover_percentages.trees_percent if landcover_percentages is not None else None,
-        landcover_percentages.built_percent if landcover_percentages is not None else None,
+        (
+            {key: getattr(landcover_percentages, key) for key in WIRED_LANDCOVER_KEYS}
+            if landcover_percentages is not None
+            else None
+        ),
         surface,
     )
     scores, _ = evaluate_axes_scalar(materials)

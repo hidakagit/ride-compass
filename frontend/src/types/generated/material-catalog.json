@@ -32,6 +32,54 @@
     "value_labels": null
   },
   {
+    "material_id": "crops_percent",
+    "label": "農地被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の農地の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null
+  },
+  {
+    "material_id": "rangeland_percent",
+    "label": "草地被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の草地の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null
+  },
+  {
+    "material_id": "water_percent",
+    "label": "水面被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の水面の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null
+  },
+  {
+    "material_id": "bare_percent",
+    "label": "裸地被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の裸地（河川敷・造成地等）の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null
+  },
+  {
+    "material_id": "flooded_veg_percent",
+    "label": "湿地被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の湿地（冠水植生）の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null
+  },
+  {
+    "material_id": "snow_ice_percent",
+    "label": "雪氷被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の雪氷の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null
+  },
+  {
     "material_id": "surface_good",
     "label": "舗装良否",
     "description": "OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",

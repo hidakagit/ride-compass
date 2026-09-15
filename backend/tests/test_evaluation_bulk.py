@@ -12,7 +12,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import ElevationAttribute, WIRED_LANDCOVER_KEYS
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -233,7 +233,7 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
     way_tags: dict[str, dict[str, str]] = {}
     intersection_counts: dict[str, int] = {}
     accident_counts: dict[str, int] = {}
-    landcover: dict[str, tuple[float, float]] = {}
+    landcover: dict[str, dict[str, float]] = {}
     poi_counts: dict[str, dict[str, float]] = {}
     designated_edge_ids: set[str] = set()
 
@@ -300,9 +300,12 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
             intersection_counts[edge_id] = idx % 3
         if idx % 6 != 3:
             accident_counts[edge_id] = idx % 4
-        # 土地被覆（openness軸の材料）。7件に1件は行自体が無い＝材料欠損。
+        # 土地被覆。7件に1件は行自体が無い＝材料欠損。配線したクラスは行があれば
+        # すべて揃う（一部のクラスだけ欠けることはない）ため、並びから作る。
         if idx % 7 != 5:
-            landcover[edge_id] = (float(idx % 101), float((idx * 3) % 101))
+            landcover[edge_id] = {
+                key: float((idx * (k + 1)) % 101) for k, key in enumerate(WIRED_LANDCOVER_KEYS)
+            }
         # 停止要因POIの種別別カウント。8件に1件は未集計（行なし）、それ以外は一部の種別を
         # 省いた辞書（載っていないキーは0件と確定できる、という意味論の確認も兼ねる）。
         if idx % 8 != 6:
@@ -323,8 +326,7 @@ def _build_diverse_graph() -> tuple[RoadGraph, dict]:
                 intersection=intersection_counts.get(edge_id),
                 accident=accident_counts.get(edge_id),
                 poi=poi_counts.get(edge_id),
-                trees=landcover.get(edge_id, (None, None))[0],
-                built=landcover.get(edge_id, (None, None))[1],
+                landcover=landcover.get(edge_id),
             )
             for edge_id in edges
         )

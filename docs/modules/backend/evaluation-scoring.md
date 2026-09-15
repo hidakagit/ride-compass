@@ -321,12 +321,16 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
-- `trees_percent`/`built_percent`（開放度軸向け）はWay単位の派生テーブル`way_landcover`
-  （[静的道路属性・タイル配信](static-road-attributes.md)）が持つ8列の割合材料のうち
-  評価パイプラインへ配線済みの2列。Way単位の値を`road_edges.osm_way_id`経由でEdgeへ展開し、
+- 土地被覆の割合材料はWay単位の派生テーブル`way_landcover`
+  （[静的道路属性・タイル配信](static-road-attributes.md)）が持つクラス別の割合で、
+  **どのクラスを評価パイプラインへ配線するかは`attributes.py: WIRED_LANDCOVER_KEYS`が
+  単一の正本**。Edge束・列指向テーブル・SQLの読み出し列・タイルの焼き込み列・
+  カバレッジ台帳の宣言はすべてこの並びから導かれるため、クラスを1つ配線するのは
+  この並びへ1行足すだけで済む（バッチ再実行も不要——DBには8クラスすべてが入っている）。
+  Way単位の値を`road_edges.osm_way_id`経由でEdgeへ展開し、
   `MaterialExtractionContext.metrics`の`landcover`群として渡す（下記「材料へ値を届ける」節）。
-  残り6列（water/flooded_veg/crops/bare/snow_ice/rangeland）はテーブルには存在するが
-  評価パイプラインへは未配線（材料として登録すれば配線可能、バッチ再実行は不要）。
+  **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
+  同じ地面を二重に数える（[設計原則](../../design-principles.md)構造仕様14）。
 - `raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/
   `keyed_value_extractor`/`keyed_density_extractor`という汎用extractorファクトリが
   用意されており、「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」
