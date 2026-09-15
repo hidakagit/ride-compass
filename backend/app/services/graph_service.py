@@ -223,10 +223,6 @@ class GraphService:
         経由で取得したデータかに関わらず一貫した分割結果が得られる（タイル境界依存の
         交差点分割不一致問題への根本対応。詳細・残存する制約はdocs/architecture.md参照）。
         """
-        # バッチが派生データを書き直してもbackendは再起動しないため、ここで（TTL付きで）
-        # DBの世代と突き合わせる。古い材料をディスクから復元し続けることを防ぐ。
-        await derived_data_revision_service.ensure_caches_match_db(self._repository)
-
         if not await self._ensure_tiles_cached(bbox):
             return None
 
@@ -329,6 +325,12 @@ class GraphService:
         （`RoadGraphEngine`）は`infrastructure/search_graph_cache.py`（探索用グラフ・
         索引のタイル集合キーLRU）をこの場合は経由しない。
         """
+        # バッチが派生データを書き直してもbackendは再起動しないため、ここで（TTL付きで）
+        # DBの世代と突き合わせる。**材料ディスクキャッシュを読むのはこの経路**で、split鮮度
+        # が最新なら`get_or_build_graph_with_attributes`を通らずタイルキャッシュから直接
+        # 復元する——置き場所を間違えると定常状態では一度も発火しない。
+        await derived_data_revision_service.ensure_caches_match_db(self._repository)
+
         if not await self._ensure_tiles_cached(bbox):
             return None
 

@@ -1,5 +1,6 @@
 import asyncio
 import time
+from unittest import mock
 
 import pytest
 
@@ -9,7 +10,7 @@ from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services import graph_service as graph_service_module
+from app.services import derived_data_revision_service, graph_service as graph_service_module
 from app.services.graph_service import GraphService
 
 
@@ -68,6 +69,8 @@ class FakeRoadGraphRepository:
     """
 
     def __init__(self):
+        self.get_derived_data_revision_call_count = 0
+        self.derived_data_revision: int | None = 1
         self.raw_ways: dict[int, WaySpec] = {}
         self.raw_node_coords: dict[int, tuple[float, float]] = {}
         self.nodes = {}
@@ -262,8 +265,10 @@ class FakeRoadGraphRepository:
         return self._accident_years_covered
 
     async def get_derived_data_revision(self) -> int | None:
-        # 常に同じ世代を返す＝バッチが走っていない状態。キャッシュは温存される。
-        return 1
+        # 既定は常に同じ世代＝バッチが走っていない状態（キャッシュは温存される）。
+        # テストが`derived_data_revision`を書き換えると、バッチが走った状態を作れる。
+        self.get_derived_data_revision_call_count += 1
+        return self.derived_data_revision
 
     async def get_edges_with_geometry(self, edge_ids):
         # 実装（RoadGraphRepository.get_edges_with_geometry）と同じ「指定edge_idのうち
@@ -532,6 +537,33 @@ async def _seeded_service_with_materials() -> tuple[GraphService, FakeRoadGraphR
     repository.designated_edge_ids = {"way-100-seg0-fwd"}
     service = GraphService(repository=repository)
     return service, repository
+
+
+# 材料ディスクキャッシュを読むのはget_search_materials_for_bboxで、split鮮度が最新なら
+# get_or_build_graph_with_attributesを通らない。世代の突き合わせをそちらへ置くと、定常状態
+# では一度も発火しない（docs/tasks/T870.md）。
+async def test_get_search_materials_for_bbox_checks_the_derived_data_revision():
+    service, repository = await _seeded_service_with_materials()
+    derived_data_revision_service.reset_for_tests()
+
+    await service.get_search_materials_for_bbox(BBOX)
+
+    assert repository.get_derived_data_revision_call_count >= 1
+
+
+async def test_a_new_derived_data_revision_drops_the_material_disk_cache():
+    service, repository = await _seeded_service_with_materials()
+    derived_data_revision_service.reset_for_tests()
+    await service.get_search_materials_for_bbox(BBOX)
+
+    # バッチが派生データを書き直した状態。TTLを明けて2回目を通す。
+    repository.derived_data_revision = 2
+    derived_data_revision_service.reset_for_tests()
+    with mock.patch.object(graph_material_cache, "sync_disk_cache_with_derived_data_revision",
+                           return_value=True) as synced:
+        await service.get_search_materials_for_bbox(BBOX)
+
+    synced.assert_called_once_with(2)
 
 
 async def test_get_search_materials_for_bbox_returns_none_for_uncached_tile():

@@ -284,7 +284,11 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 この種の変化は**DBを正にする**——書いた側が単調カウンタを進め、読み手はディスクへ最後に
 書いた時点の記録と突き合わせて、違えば捨てる（軸定義は`axis_registry_meta.revision`、
 派生データは`derived_data_meta.revision`）。再起動を待たずに気づけるよう、読み手はTTL付きで
-読み直す（`services/derived_data_revision_service.py`）。
+読み直す（`services/derived_data_revision_service.py`）。**読み直しは、そのキャッシュを
+実際に読む経路の入口へ置く**——別のメソッドへ置くと、キャッシュから直接復元できる定常状態
+では一度も通らず、冷えているときにしか発火しない（`GraphService`は
+`get_search_materials_for_bbox`が材料ディスクキャッシュを読む側で、
+`get_or_build_graph_with_attributes`はsplit鮮度が古いときしか通らない）。
 
 **この突き合わせの実装は`infrastructure/cache_generation.py`の1本だけにする。** 比較の対象と
 捨てるものは呼び出し側が決め、「一致なら温存・不一致なら捨てて記録し直す・読めなければ安全側」

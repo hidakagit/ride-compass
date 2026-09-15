@@ -35,7 +35,7 @@ async def ensure_caches_match_db(repository, *, force: bool = False) -> None:
 
     材料が作り直されているとスコア行列も古いため、材料を消したときは同時に消す
     （スコア行列は材料から作られる。`tile_score_matrix_cache`のdocstring参照）。
-    `force`は起動時（`main.py`のlifespan）のようにTTLを待たず必ず確かめたい経路が使う。
+    `force`はTTLを待たず必ず確かめたい場合に使う（現在の呼び出し元はテストのみ）。
     """
     global _next_check_at
     now = time.monotonic()
