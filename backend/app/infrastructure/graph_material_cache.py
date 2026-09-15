@@ -26,6 +26,7 @@ road_edges/road_nodesの密度次第だが、対象が関東圏に留まる現�
 from cachetools import LRUCache
 
 from app.domain.attributes import EdgeMaterialTable, SearchMaterials
+from app.domain.graph import LeanEdge, LeanNode
 from app.infrastructure import cache_generation, tile_persistent_cache
 from app.infrastructure.cache_identity import shape_digest
 
@@ -40,7 +41,10 @@ DEFAULT_MAX_TILES = 2_000
 # 中身の作り直し（バッチ再実行）はこの鍵ではなく`sync_disk_cache_with_derived_data_revision`
 # が扱う。デプロイを伴わない操作のため、鍵を変える方式では表せない。
 _CACHE_NAMESPACE = "materials"
-TILE_MATERIALS_CACHE_VERSION = shape_digest(EdgeMaterialTable)
+# `LeanNode`/`LeanEdge`も署名へ入れる。キャッシュ値（`SearchMaterials`）は材料だけでなく
+# グラフのトポロジも抱えており、ノード・Edgeの列を足すと古いキャッシュには新しい列が無い。
+# `EdgeMaterialTable`だけを署名すると、鍵が動かないまま足した列が既定値のまま返り続ける。
+TILE_MATERIALS_CACHE_VERSION = shape_digest(EdgeMaterialTable, LeanNode, LeanEdge)
 
 
 _tile_materials_cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)

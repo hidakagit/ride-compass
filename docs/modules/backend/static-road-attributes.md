@@ -235,6 +235,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 ### 派生データ再構築の単一エントリポイント（`refresh_derived.py`）
 
 `presplit_road_graph.py`・`precompute_road_node_degrees.py`・
+`precompute_road_node_intersections.py`・
 `precompute_edge_attribute_counts.py`・`precompute_elevation_attributes.py`・
 `precompute_way_attribute_counts.py`・`match_designations.py`・
 `precompute_way_landcover.py`・`precompute_way_divided_carriageway.py`（依存DAGは

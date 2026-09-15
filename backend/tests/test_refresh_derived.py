@@ -64,37 +64,30 @@ async def test_run_calls_all_stages_in_dependency_order(monkeypatch):
 
 
 async def test_run_propagates_database_url_and_dry_run_to_every_stage(monkeypatch):
+    """全段へdatabase_url・dry_runがそのまま渡り、_STAGESの順に呼ばれる。
+
+    差し替える段は`_STAGES`から導く——手で並べると、段を足したときにその段だけ本物が
+    走り（テスト用のダミーURLへ接続しにいく）、渡し漏れも検出できないまま緑になる。
+    """
     seen: list[tuple[str, object, bool]] = []
 
     async def _fake(label: str, database_url, dry_run):
         seen.append((label, database_url, dry_run))
         return 0
 
-    for label, module in [
-        ("presplit", refresh_derived.presplit_road_graph),
-        ("degrees", refresh_derived.precompute_road_node_degrees),
-        ("edge_counts", refresh_derived.precompute_edge_attribute_counts),
-        ("elevation", refresh_derived.precompute_elevation_attributes),
-        ("way_counts", refresh_derived.precompute_way_attribute_counts),
-        ("divided_carriageway", refresh_derived.precompute_way_divided_carriageway),
-    ]:
-        monkeypatch.setattr(module, "run", lambda db, dr, _label=label: _fake(_label, db, dr))
-    monkeypatch.setattr(
-        refresh_derived.match_designations, "run_match", lambda db, dr: _fake("match", db, dr)
-    )
-    monkeypatch.setattr(
-        refresh_derived.precompute_way_landcover, "run_default", lambda db, dr: _fake("landcover", db, dr)
-    )
+    for label, module, attr in refresh_derived._STAGES:
+        monkeypatch.setattr(
+            module, attr, lambda db, dr, _label=label: _fake(_label, db, dr)
+        )
 
     await refresh_derived.run(database_url="postgresql://example", dry_run=True)
 
     assert seen == [
-        (label, "postgresql://example", True)
-        for label in [
-            "presplit", "degrees", "edge_counts", "elevation", "way_counts", "match",
-            "landcover", "divided_carriageway",
-        ]
+        (label, "postgresql://example", True) for label, _, _ in refresh_derived._STAGES
     ]
+    # 段の数そのものは書かない（増減のたびに古くなる）。全段が呼ばれたことと、
+    # 母集団が空でないことだけを見る（登録漏れは下のファイル一覧との突き合わせが見る）。
+    assert len(seen) == len(refresh_derived._STAGES) > 0
 
 
 async def test_run_stops_immediately_when_a_stage_fails(monkeypatch):

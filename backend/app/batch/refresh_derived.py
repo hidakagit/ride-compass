@@ -44,6 +44,7 @@ from app.batch import (
     precompute_edge_attribute_counts,
     precompute_elevation_attributes,
     precompute_road_node_degrees,
+    precompute_road_node_intersections,
     precompute_way_attribute_counts,
     precompute_way_divided_carriageway,
     precompute_way_landcover,
@@ -67,6 +68,7 @@ _STAGES: list[tuple[str, ModuleType, str]] = [
     ("⑨match_designations", match_designations, "run_match"),
     ("⑩precompute_way_landcover", precompute_way_landcover, "run_default"),
     ("⑬precompute_way_divided_carriageway", precompute_way_divided_carriageway, "run"),
+    ("⑭precompute_road_node_intersections", precompute_road_node_intersections, "run"),
 ]
 
 

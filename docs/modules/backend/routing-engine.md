@@ -15,7 +15,7 @@
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
-| batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
+| batch | `precompute_road_node_degrees.py`・`precompute_road_node_intersections.py`・`presplit_road_graph.py` |
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経路計算する。探索の状態は
 **有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木も
@@ -304,10 +304,17 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 したかは「入る区間×出る区間」の対で決まり、Nodeを状態にすると表せないため。ターンの費用は
 進入・退出の方位差から秒で決め（`TurnCostSpec`）、そのままコストへ足す（探索のコストも
 秒のため換算は要らない）。
-加えて、**交差点に集まる道の最大階級が進入した区間より上位なら**、横断（直進）・右左折に
-それぞれ費用を足す（`domain/traffic.py: highway_rank`で比べる。信号の有無は見ない——信号の
-ある交差点の待ちは停止密度の軸が数えており、二重になるため）。探索側は階級の意味を知らず、
-比較結果だけを使う。
+加えて、**信号が無く、かつ交差点に集まる道の最大階級が進入した区間より上位なら**、
+横断（直進）・右左折にそれぞれ費用を足す（`domain/traffic.py: highway_rank`で比べる）。
+これは車列の切れ目を待つ時間で、信号のある交差点の待ちとは別物——そちらは停止密度の材料が
+走行モデルへ運ぶ（`domain/traffic.py: stop_seconds`）ため、ここで足すと二重に数える
+（`docs/design-principles.md`構造仕様13）。探索側は階級の意味を知らず、比較結果だけを使う。
+
+信号の有無と最大階級は`road_nodes`の事前集計列で、グラフのノードに載って探索まで届く
+（`precompute_road_node_intersections.py`）。**バッチ未実行のDBでは既定値**（信号なし・
+階級0）が入り、そのとき結果はこの列の導入前と同じになる——信号なしとして扱えば従来どおり
+費用が付き、階級0は読み込んだ部分グラフからの導出を下回るため下限を上げる方向にしか
+効かない。
 
 グラフは辺基準へ物理的に展開せず、遷移は`SearchGraphStatics`のCSRから導く。目的地から
 遡る木は同じ遷移を転置した配列（`TurnExpandedStructure.reverse_transitions`、最初に
@@ -355,7 +362,8 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
   ため、`LazyRoadGraph`はキャッシュしても`SearchGraphStatics`は構築しない。
 - **ターン展開構造**（`TurnExpandedStructure`）は`TurnStructureKey`（タイル集合と
   `TurnCostSpec`の組）でキャッシュする。遷移とターンの費用はこの2つだけで決まるため、
-  同じタイル集合・同じターン費用なら作り直す必要がない。
+  同じタイル集合・同じターン費用なら作り直す必要がない（ノード側の信号・階級もタイル集合
+  から来るため、この鍵に含まれている）。
 - **無効化方針は`graph_material_cache`と同じ**（プロセス寿命でのみキャッシュ、軸定義変更は
   無関係、材料再取込の反映にはプロセス再起動が必要）。ただし例外として、タイル再split
   （`save_graph`のedge_id再割当）でキャッシュ済み`LazyRoadGraph.edge_ids`が新しい
@@ -849,6 +857,27 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
 実装済みで、本バッチはそれを呼び出すだけ。**`precompute_edge_attribute_counts.py`より
 先に実行する必要がある**（`intersection_count`がこのバッチの書く`degree`列を参照する
 ため）。
+
+## batch: `precompute_road_node_intersections.py`
+
+`road_nodes.has_traffic_signals`・`road_nodes.max_highway_rank`の事前集計バッチ。集計SQLは
+`DerivedGraphRepository.recompute_node_traffic_signals`・`recompute_node_max_highway_rank`が
+持ち、本バッチはそれを呼び出すだけ。
+
+**信号の有無はノード単位でしか表せない**。ターンの費用は「進入した道より上位の道と交わる
+交差点」で秒数を足すが、信号での待ちは停止密度の材料が走行モデルへ運ぶ
+（`domain/traffic.py: stop_count_material_ids`）ため、そこと重ねると二重になる。ターン側が
+足すべきなのは信号が無いのに上位の道を渡る・そこへ入るときの待ちで、Edgeへ畳み込むと
+どちらの端の信号かが失われて区別できない。
+
+信号は交差点そのもののノードではなく流入路ごと・横断歩道位置ごとの別ノードとして描かれる
+ため、判定は`osm_node_id`の一致ではなく半径（`POI_CLUSTER_EPS_M`、同じ交差点の点をまとめる
+のに使っている距離）で行う。**半径は結果を大きく動かす**——広げるほど「信号あり」と
+みなすノードが増え、そのぶんターンの費用が下がる。較正されていない値である。
+
+`max_highway_rank`はDB全体から見た値で、探索は読み込んだ部分グラフからも同じ値を導ける。
+DB側の値は**その下限を上げるためだけ**に使う（bboxの外へはみ出した上位の道を取りこぼさない）
+——未集計の0でも探索側の導出が働くため、バッチ未実行でも挙動は変わらない。
 
 ## batch: `presplit_road_graph.py`
 

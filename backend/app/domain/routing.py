@@ -577,10 +577,12 @@ class TurnCostSpec:
     right_seconds: float = 12.0
     uturn_seconds: float = 60.0
     straight_max_deg: float = 30.0
-    # 進入した道より上位の階級の道と交わる交差点で追加する秒数（横断＝直進で渡る場合と、
-    # 右左折で入る場合）。信号の有無は見ない——信号のある交差点の待ちは停止密度の軸が既に
-    # 数えており、ここで数えると二重になる。数えられていないのは「信号が無いのに上位の道を
-    # 渡る・そこへ入る」場合の待ちで、それがこの2つ。
+    # 進入した道より上位の階級の道と交わる**信号の無い**交差点で追加する秒数（横断＝直進で
+    # 渡る場合と、右左折で入る場合）。信号のある交差点の待ちは停止密度の材料が走行モデルへ
+    # 運ぶ（`domain/traffic.py: stop_seconds`）ため、そちらで数え、ここでは足さない
+    # ——両方で足すと同じ待ちを二重に数える（`docs/design-principles.md`構造仕様13）。
+    # ここが担うのは「信号が無いのに上位の道を渡る・そこへ入る」ときの、車列の切れ目を
+    # 待つ時間である。
     major_crossing_seconds: float = 8.0
     major_turn_seconds: float = 15.0
 
@@ -666,6 +668,8 @@ def build_turn_expanded_structure(
     bearing_deg: np.ndarray,
     edge_rank: np.ndarray | None = None,
     spec: TurnCostSpec = DEFAULT_TURN_COST,
+    node_has_signal: np.ndarray | None = None,
+    node_db_rank: np.ndarray | None = None,
 ) -> TurnExpandedStructure:
     """`CsrGraphStructure`から、状態＝有向Edgeの遷移構造を組む。
 
@@ -696,10 +700,20 @@ def build_turn_expanded_structure(
     turn_seconds = turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
 
     if edge_rank is not None:
+        # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
+        # （`road_nodes.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
+        # 上位の道は部分グラフに現れないため、導出だけでは取りこぼす。未集計の0は導出値を
+        # 下回るので、バッチ未実行でも結果は変わらない。
         node_rank = np.zeros(csr.node_count, dtype=np.int64)
         np.maximum.at(node_rank, edge_to, edge_rank)
         np.maximum.at(node_rank, edge_from, edge_rank)
+        if node_db_rank is not None:
+            node_rank = np.maximum(node_rank, node_db_rank)
         crosses_major = node_rank[edge_to[source]] > edge_rank[source]
+        # 信号のある交差点では足さない（待ちは停止密度の材料が走行モデルへ運ぶ）。
+        # 未集計なら全ノードが「信号なし」で、この列の導入前と同じ結果になる。
+        if node_has_signal is not None:
+            crosses_major = crosses_major & ~node_has_signal[edge_to[source]]
         delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
         straight = np.abs(delta) <= spec.straight_max_deg
         turn_seconds = turn_seconds + np.where(

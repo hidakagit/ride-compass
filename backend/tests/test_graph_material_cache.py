@@ -285,13 +285,24 @@ class TestSyncDiskCacheWithDerivedDataRevision:
         assert graph_material_cache.read_persisted_revision() is None
 
 
-def test_cache_version_does_not_change_when_data_is_rebuilt():
+def test_cache_version_is_the_shape_of_everything_the_cached_value_pickles():
     """鍵は形だけで決まる。中身の作り直しで鍵が変わらないことを固定する——変わる設計へ
-    戻すと、バッチのたびにディスク上へ旧世代の実体が残り続ける。"""
+    戻すと、バッチのたびにディスク上へ旧世代の実体が残り続ける。
+
+    署名の材料は**キャッシュ値がpickleするdataclass全部**。材料の表だけを署名すると、
+    同じ値に入っているグラフ（`LeanNode`/`LeanEdge`）へ列を足しても鍵が動かず、足した列が
+    既定値のまま返り続ける。
+    """
     import dataclasses
 
     from app.domain.attributes import EdgeMaterialTable
+    from app.domain.graph import LeanEdge, LeanNode
     from app.infrastructure.cache_identity import shape_digest
 
-    assert graph_material_cache.TILE_MATERIALS_CACHE_VERSION == shape_digest(EdgeMaterialTable)
-    assert dataclasses.is_dataclass(EdgeMaterialTable)
+    pickled = (EdgeMaterialTable, LeanNode, LeanEdge)
+    assert all(dataclasses.is_dataclass(cls) for cls in pickled)
+    assert graph_material_cache.TILE_MATERIALS_CACHE_VERSION == shape_digest(*pickled)
+    # 1つでも欠けると鍵が変わる＝どれも署名に効いている。
+    for i in range(len(pickled)):
+        subset = pickled[:i] + pickled[i + 1:]
+        assert shape_digest(*subset) != graph_material_cache.TILE_MATERIALS_CACHE_VERSION
