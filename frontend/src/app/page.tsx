@@ -1143,14 +1143,20 @@ export default function Home() {
     ],
     [hiddenDisasterSources],
   );
-  const { dynamicWeather, dynamicWeatherDataStatus, dynamicLayerTargetTime, setDynamicLayerTargetTime } =
-    useDynamicWeatherLayers({
-      showWindVector,
-      showPrecipitationNowcast,
-      showDisaster,
-      hiddenDisasterSources,
-      mapViewport,
-    });
+  const {
+    dynamicWeather,
+    dynamicWeatherDataStatus,
+    dynamicLayerTargetTime,
+    setDynamicLayerTargetTime,
+    handleDynamicLayerNow,
+    departureTimePinned,
+  } = useDynamicWeatherLayers({
+    showWindVector,
+    showPrecipitationNowcast,
+    showDisaster,
+    hiddenDisasterSources,
+    mapViewport,
+  });
   // レイヤーごとのデータ取得状態を1つに統合する。mapViewLayerDataStatus（MapLibreの
   // ソースイベントから算出）とdynamicWeatherDataStatus（動的気象レイヤー、フェッチ
   // 自身のloading/errorから算出）はキーが重ならない（動的気象レイヤーは
@@ -1451,6 +1457,7 @@ export default function Home() {
         maxRoutes: Number(maxRoutesInput),
         assumedSpeedKmh,
         startTime: dynamicLayerTargetTime,
+        startTimePinned: departureTimePinned,
         // 主観と時間の換算レート。画面から変える手段はまだ無いが、手書きするとbackend側で
         // 調整しても効かないため生成物から読む（domain/evaluation.py:
         // DEFAULT_PENALTY_STRENGTH）。
@@ -1483,6 +1490,7 @@ export default function Home() {
       maxRoutesInput,
       assumedSpeedKmh,
       dynamicLayerTargetTime,
+      departureTimePinned,
       hardFilters,
       lens,
       weightOverrideEnabled,
@@ -2402,6 +2410,7 @@ export default function Home() {
             <RideConditionBar
               departureTime={dynamicLayerTargetTime}
               onDepartureTimeChange={setDynamicLayerTargetTime}
+              onDepartureNow={handleDynamicLayerNow}
               speedKmh={assumedSpeedKmh}
               onSpeedKmhChange={setAssumedSpeedKmh}
             />

@@ -15,6 +15,10 @@ export interface RideConditionBarProps {
   /** 出発時刻（気象レイヤーの表示時刻と同じ共有state）。 */
   departureTime: Date;
   onDepartureTimeChange: (time: Date) => void;
+  /** 「今」へ戻す。時刻を選ぶのとは別の操作——選んだ時刻はそこへ留まるが、「今」は
+   * 時間の経過に追従する状態へ戻すため、`onDepartureTimeChange(new Date())`では代用
+   * できない（現在時刻でピン留めされ、実況の更新から取り残される）。 */
+  onDepartureNow: () => void;
   /** 想定速度（km/h、backend: RouteGenerateRequest.assumed_speed_kmh）。 */
   speedKmh: number;
   onSpeedKmhChange: (speedKmh: number) => void;
@@ -55,6 +59,7 @@ export function clampSpeedKmh(value: number): number {
 export default function RideConditionBar({
   departureTime,
   onDepartureTimeChange,
+  onDepartureNow,
   speedKmh,
   onSpeedKmhChange,
 }: RideConditionBarProps) {
@@ -65,7 +70,7 @@ export default function RideConditionBar({
   const [departureAnchor, setDepartureAnchor] = useState<Date | null>(null);
   const departureTimeline = useMemo(
     () => (departureAnchor ? buildDepartureTimeline(departureAnchor) : []),
-    [departureAnchor]
+    [departureAnchor],
   );
   const departureFrames = useMemo(() => buildDepartureFrames(departureTimeline), [departureTimeline]);
   const speedInputId = useId();
@@ -114,7 +119,7 @@ export default function RideConditionBar({
                   if (time) onDepartureTimeChange(time);
                 }}
                 currentIndex={nearestTimeIndex(departureTimeline, departureAnchor)}
-                onNow={() => onDepartureTimeChange(new Date())}
+                onNow={onDepartureNow}
                 loading={false}
                 loadingLabel=""
                 error={null}

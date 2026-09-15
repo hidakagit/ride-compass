@@ -116,8 +116,12 @@ export interface UseDynamicWeatherLayersResult {
   dynamicWeatherDataStatus: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>>;
   /** 共有時刻を任意の時刻へ設定する（条件バーの出発時刻）。 */
   setDynamicLayerTargetTime: (time: Date) => void;
-  /** 共有時刻を現在時刻に戻す。 */
+  /** 共有時刻を「今」への追従へ戻す（現在時刻でピン留めするのとは別）。 */
   handleDynamicLayerNow: () => void;
+  /** 利用者が出発時刻を明示的に選んでいるか。falseの間の共有時刻は「今」に張り付いて
+   * 時間の経過とともに進むため、利用者が決めた条件としては扱えない
+   * （`lib/generationRequest.ts`の比較キー参照）。 */
+  departureTimePinned: boolean;
   /** 評価軸グループの風（専用way値配信、backend API）が同じ[時刻]を共有するために
    * 公開する共有時刻そのもの（`at`クエリパラメータに使う）。 */
   dynamicLayerTargetTime: Date;
@@ -534,6 +538,7 @@ export function useDynamicWeatherLayers({
     dynamicWeatherDataStatus,
     setDynamicLayerTargetTime,
     handleDynamicLayerNow,
+    departureTimePinned: pinnedTargetTime !== null,
     dynamicLayerTargetTime,
   };
 }

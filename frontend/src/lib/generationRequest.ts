@@ -1,9 +1,4 @@
-import type {
-  Coordinates,
-  HardFilterOverride,
-  RouteGenerateRequest,
-  RoutePreferenceWeights,
-} from "@/types/route";
+import type { Coordinates, HardFilterOverride, RouteGenerateRequest, RoutePreferenceWeights } from "@/types/route";
 
 // 生成リクエストのpayloadと、「条件が変更されています」（conditionsDirty）の比較キーを
 // **同じ入力から**組み立てる。
@@ -32,6 +27,9 @@ export interface GenerationInput {
   destination: Coordinates | null;
   /** 経由地を伴う目的地ルートではbackendがmax_routesを無視する（常に1件へ固定する）。 */
   maxRoutesRelevant: boolean;
+  /** 利用者が出発時刻を明示的に選んだか。falseの間の`startTime`は「今」へ張り付いて
+   * 5分ごとに勝手に進むため、条件の比較には使えない（下記`generationConditionsKey`）。 */
+  startTimePinned: boolean;
 }
 
 /** 画面の状態からbackendへ送るpayloadを組み立てる。 */
@@ -92,6 +90,10 @@ function stableStringify(value: unknown): string {
  *
  * `maxRoutesRelevant=false`（経由地を伴う目的地ルート）のときは`max_routes`も外す
  * ——backendが値を無視するため、変えても表示中の候補と実際に食い違わない。
+ *
+ * `startTimePinned=false`（利用者が出発時刻を選んでいない）のときは`start_time`も外す
+ * ——共有時刻は「今」へ5分刻みで追従するので、放置するだけで値が変わる。利用者が何も
+ * していないのに「条件が変更されています」が点くと、印そのものが合図として機能しなくなる。
  */
 export function generationConditionsKey(input: GenerationInput): string {
   const request = buildGenerateRequest(input) as Record<string, unknown>;
@@ -99,6 +101,7 @@ export function generationConditionsKey(input: GenerationInput): string {
   for (const key of Object.keys(request)) {
     if (key in IGNORED_WHEN_COMPARING) continue;
     if (key === "max_routes" && !input.maxRoutesRelevant) continue;
+    if (key === "start_time" && !input.startTimePinned) continue;
     comparable[key] = request[key];
   }
   return stableStringify(comparable);

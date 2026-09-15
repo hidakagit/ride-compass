@@ -8,7 +8,15 @@ import { stubEmblaBrowserApis } from "@/testing/emblaBrowserApis";
 // 出発時刻ポップオーバーはDynamicLayerTimeSliderを内包するため、Emblaが要るAPIを用意する。
 beforeEach(stubEmblaBrowserApis);
 
-function Harness({ initialTime, onTime }: { initialTime: Date; onTime?: (t: Date) => void }) {
+function Harness({
+  initialTime,
+  onTime,
+  onNow,
+}: {
+  initialTime: Date;
+  onTime?: (t: Date) => void;
+  onNow?: () => void;
+}) {
   const [time, setTime] = useState(initialTime);
   const [speed, setSpeed] = useState(20);
   return (
@@ -18,6 +26,7 @@ function Harness({ initialTime, onTime }: { initialTime: Date; onTime?: (t: Date
         setTime(t);
         onTime?.(t);
       }}
+      onDepartureNow={() => onNow?.()}
       speedKmh={speed}
       onSpeedKmhChange={setSpeed}
     />
@@ -48,7 +57,9 @@ describe("RideConditionBar", () => {
     const initial = new Date();
     render(<Harness initialTime={initial} onTime={onTime} />);
 
-    await user.click(screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(initial)}（タップで変更）` }));
+    await user.click(
+      screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(initial)}（タップで変更）` }),
+    );
     const ruler = screen.getByRole("slider", { name: "出発時刻" });
     ruler.focus();
     await user.keyboard("{ArrowRight}");
@@ -58,21 +69,22 @@ describe("RideConditionBar", () => {
     expect(picked.getTime()).toBeGreaterThan(initial.getTime());
   });
 
-  it("「現在」ボタンで実時刻へ戻す", async () => {
+  // 「今」は時刻を選ぶのとは別の操作。現在時刻を渡して代用すると、その値でピン留めされ、
+  // 実況の更新から取り残されて降水・雷が黙って消える（T859が直した欠陥がそこで復活する）。
+  it("「現在」ボタンは時刻の指定ではなく、追従へ戻す操作を呼ぶ", async () => {
     const user = userEvent.setup();
     const onTime = vi.fn();
+    const onNow = vi.fn();
     // タイムラインは開いた時点（≒現在時刻）以降しか目盛りを持たないため、「現在」ボタンが
     // 無効化されない（index !== currentIndex になる）ことを確かめるには未来の時刻を使う。
     const future = new Date(Date.now() + 2 * 60 * 60_000);
-    render(<Harness initialTime={future} onTime={onTime} />);
+    render(<Harness initialTime={future} onTime={onTime} onNow={onNow} />);
 
     await user.click(screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(future)}（タップで変更）` }));
-    const before = Date.now();
     await user.click(screen.getByRole("button", { name: "出発時刻を現在に戻す" }));
 
-    expect(onTime).toHaveBeenCalledTimes(1);
-    const picked = onTime.mock.calls[0][0] as Date;
-    expect(picked.getTime()).toBeGreaterThanOrEqual(before);
+    expect(onNow).toHaveBeenCalledTimes(1);
+    expect(onTime).not.toHaveBeenCalled();
   });
 
   it("出発チップをタップすると日時入力欄が開き、直接指定した日時をそのまま反映する", async () => {
@@ -82,7 +94,9 @@ describe("RideConditionBar", () => {
     initial.setHours(9, 30, 0, 0);
     render(<Harness initialTime={initial} onTime={onTime} />);
 
-    await user.click(screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(initial)}（タップで変更）` }));
+    await user.click(
+      screen.getByRole("button", { name: `出発時刻: ${formatDepartureLabel(initial)}（タップで変更）` }),
+    );
     const input = screen.getByLabelText("出発日時を直接指定") as HTMLInputElement;
     expect(input.value).toBe(toDatetimeLocalValue(initial));
 

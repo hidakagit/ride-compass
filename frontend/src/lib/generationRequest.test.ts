@@ -16,6 +16,7 @@ const BASE: GenerationInput = {
   waypoints: [],
   destination: null,
   maxRoutesRelevant: true,
+  startTimePinned: true,
 };
 
 function keyOf(overrides: Partial<GenerationInput>): string {
@@ -95,5 +96,28 @@ describe("generationConditionsKey", () => {
     const b = generationConditionsKey({ ...BASE, hardFilters: { trunk: true, motorway: true, no_bicycle: true } });
 
     expect(a).toBe(b);
+  });
+});
+
+// 共有時刻は利用者が出発時刻を選ぶまで「今」へ5分刻みで追従する（T859）。放置するだけで
+// 値が変わるため、条件の比較へ入れると何もしていないのに「条件が変更されています」が点き、
+// 印そのものが合図として機能しなくなる。
+describe("出発時刻を選んでいない間のstart_time", () => {
+  it("時刻が進んでも比較キーは変わらない", () => {
+    const later = new Date(BASE.startTime.getTime() + 5 * 60 * 1000);
+
+    expect(keyOf({ startTimePinned: false })).toBe(keyOf({ startTimePinned: false, startTime: later }));
+  });
+
+  it("利用者が選んだ後は、時刻の違いが比較キーへ現れる", () => {
+    const later = new Date(BASE.startTime.getTime() + 5 * 60 * 1000);
+
+    expect(keyOf({ startTimePinned: true })).not.toBe(keyOf({ startTimePinned: true, startTime: later }));
+  });
+
+  it("送るpayloadからは落とさない（backendは常に出発時刻を受け取る）", () => {
+    const request = buildGenerateRequest({ ...BASE, startTimePinned: false });
+
+    expect(request.start_time).toBe(BASE.startTime.toISOString());
   });
 });
