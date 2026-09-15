@@ -1210,7 +1210,9 @@ def _rows_to_road_graph(edge_rows: Iterable[RoadEdgeRow], node_rows: Iterable) -
     node_rows = list(node_rows)
     nodes = {
         row.node_id: Node.model_construct(
-            node_id=row.node_id, latitude=row.latitude, longitude=row.longitude, osm_node_id=row.osm_node_id
+            node_id=row.node_id, latitude=row.latitude, longitude=row.longitude,
+            osm_node_id=row.osm_node_id,
+            has_traffic_signals=row.has_traffic_signals, max_highway_rank=row.max_highway_rank,
         )
         for row in node_rows
     }
@@ -1265,7 +1267,9 @@ def _topology_rows_to_road_graph(edge_rows: Iterable, node_rows: Iterable) -> Le
     """
     nodes = {
         row.node_id: LeanNode(
-            node_id=row.node_id, latitude=row.latitude, longitude=row.longitude, osm_node_id=row.osm_node_id
+            node_id=row.node_id, latitude=row.latitude, longitude=row.longitude,
+            osm_node_id=row.osm_node_id,
+            has_traffic_signals=row.has_traffic_signals, max_highway_rank=row.max_highway_rank,
         )
         for row in node_rows
     }
@@ -1604,6 +1608,8 @@ class DerivedGraphRepository(_SessionRepository):
                 RoadNodeRow.osm_node_id,
                 func.ST_X(RoadNodeRow.geom).label("longitude"),
                 func.ST_Y(RoadNodeRow.geom).label("latitude"),
+                RoadNodeRow.has_traffic_signals,
+                RoadNodeRow.max_highway_rank,
             ).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
             node_rows.extend((await self._session.execute(node_stmt)).all())
 
@@ -1657,6 +1663,8 @@ class DerivedGraphRepository(_SessionRepository):
                 RoadNodeRow.osm_node_id,
                 func.ST_X(RoadNodeRow.geom).label("longitude"),
                 func.ST_Y(RoadNodeRow.geom).label("latitude"),
+                RoadNodeRow.has_traffic_signals,
+                RoadNodeRow.max_highway_rank,
             ).where(RoadNodeRow.node_id == any_(cast(id_chunk, ARRAY(Text))))
             node_rows.extend((await self._session.execute(node_stmt)).all())
 

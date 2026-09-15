@@ -19,6 +19,12 @@ class Node(StrictModel):
     latitude: float
     longitude: float
     osm_node_id: int | None = None
+    # そのノードに信号があるか・集まる道の最大階級（road_nodesの事前集計列、
+    # precompute_road_node_intersections.py）。ターンの費用が「信号が無いのに上位の道を
+    # 渡る」場合だけ待ちを足すために読む。既定値は未集計のDBから読んだときの値と同じで、
+    # どちらもターンの費用がこの列の導入前と同じ結果になる側へ倒してある。
+    has_traffic_signals: bool = False
+    max_highway_rank: int = 0
 
 
 class DirectedEdge(StrictModel):
@@ -71,6 +77,8 @@ class NodeLike(Protocol):
     latitude: float
     longitude: float
     osm_node_id: int | None
+    has_traffic_signals: bool
+    max_highway_rank: int
 
 
 @runtime_checkable
@@ -122,6 +130,12 @@ class LeanNode:
     latitude: float
     longitude: float
     osm_node_id: int | None = None
+    # そのノードに信号があるか・集まる道の最大階級（road_nodesの事前集計列、
+    # precompute_road_node_intersections.py）。ターンの費用が「信号が無いのに上位の道を
+    # 渡る」場合だけ待ちを足すために読む。既定値は未集計のDBから読んだときの値と同じで、
+    # どちらもターンの費用がこの列の導入前と同じ結果になる側へ倒してある。
+    has_traffic_signals: bool = False
+    max_highway_rank: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +165,7 @@ class LeanEdge:
 
 def _rebuild_lean_road_graph(
     graph_version: str,
-    node_rows: list[tuple[str, float, float, int | None]],
+    node_rows: list[tuple[str, float, float, int | None, bool, int]],
     edge_rows: list[tuple[str, str, str, float, int | None, str | None, float | None]],
 ) -> "LeanRoadGraph":
     """`LeanRoadGraph.__reduce__`が指すpickle復元関数。列（生のtuple列）から
@@ -163,8 +177,9 @@ def _rebuild_lean_road_graph(
     持たせず復元時に固定で補う。
     """
     nodes = {
-        node_id: LeanNode(node_id=node_id, latitude=lat, longitude=lon, osm_node_id=osm_node_id)
-        for node_id, lat, lon, osm_node_id in node_rows
+        node_id: LeanNode(node_id=node_id, latitude=lat, longitude=lon, osm_node_id=osm_node_id,
+                          has_traffic_signals=has_signal, max_highway_rank=max_rank)
+        for node_id, lat, lon, osm_node_id, has_signal, max_rank in node_rows
     }
     edges = {
         edge_id: LeanEdge(
@@ -197,7 +212,8 @@ class LeanRoadGraph:
         （`_topology_rows_to_road_graph`のタイルキャッシュ経路のみがpickle化対象、
         クラスdocstring参照）のため列に持たせない。
         """
-        node_rows = [(n.node_id, n.latitude, n.longitude, n.osm_node_id) for n in self.nodes.values()]
+        node_rows = [(n.node_id, n.latitude, n.longitude, n.osm_node_id,
+                      n.has_traffic_signals, n.max_highway_rank) for n in self.nodes.values()]
         edge_rows = [
             (e.edge_id, e.from_node_id, e.to_node_id, e.distance_m, e.osm_way_id, e.highway,
              e.bearing_deg)

@@ -2261,14 +2261,40 @@ async def _get_or_build_turn_structure(
         cached = search_graph_cache.get_turn_structure(key)
         if cached is not None:
             return cached, True
+    node_signals, node_ranks = _node_intersection_attributes(graph, lazy_graph)
     structure = await asyncio.to_thread(
         build_turn_expanded_structure,
         statics.csr, lazy_graph, edge_bearings(graph, lazy_graph),
         _edge_highway_ranks(graph, lazy_graph), turn_cost,
+        node_signals, node_ranks,
     )
     if key is not None:
         search_graph_cache.set_turn_structure(key, structure)
     return structure, False
+
+
+def _node_intersection_attributes(
+    graph: RoadGraphLike, lazy_graph: LazyRoadGraph
+) -> tuple[np.ndarray, np.ndarray]:
+    """`lazy_graph.index_to_node_id`順の（信号の有無, 集まる道の最大階級）。
+
+    どちらも`road_nodes`の事前集計列（`precompute_road_node_intersections.py`）で、
+    ターンの費用が「信号が無いのに上位の道を渡る」場合だけ待ちを足すために読む。
+    バッチ未実行のDBでは既定値（信号なし・階級0）が入っており、そのときの結果は
+    この列の導入前と同じになる。
+    """
+    nodes = graph.nodes
+    signals = np.fromiter(
+        ((node.has_traffic_signals if (node := nodes.get(node_id)) else False)
+         for node_id in lazy_graph.index_to_node_id),
+        dtype=bool, count=len(lazy_graph.index_to_node_id),
+    )
+    ranks = np.fromiter(
+        ((node.max_highway_rank if (node := nodes.get(node_id)) else 0)
+         for node_id in lazy_graph.index_to_node_id),
+        dtype=np.int64, count=len(lazy_graph.index_to_node_id),
+    )
+    return signals, ranks
 
 
 def _edge_highway_ranks(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:

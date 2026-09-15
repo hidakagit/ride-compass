@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.traffic import HIGHWAY_RANK
 from app.domain.derived_data_versions import (
     EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION,
     WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION,
@@ -160,6 +161,22 @@ COMPLETENESS_SPECS: tuple[CompletenessSpec, ...] = (
         uncalculated="degree = 0",
         owner="precompute_road_node_degrees",
         note="この列はNOT NULL DEFAULT 0のため、未計算と本当に次数0の行を区別できない（0件が正常とは限らない）",
+    ),
+    CompletenessSpec(
+        label="road_nodes.max_highway_rank",
+        population_table="road_nodes",
+        # この列もNOT NULL DEFAULT 0で、未計算と「順位表に無い道しか集まらない」を値だけでは
+        # 区別できない。**順位の付く道が接しているのに0**なら未計算だと言い切れるため、そこへ
+        # 絞る（自転車道・歩道だけのノードは常に0が正しく、そのままでは0件へ到達できない）。
+        # 信号の列も同じバッチが同時に書くため、片方が計算済みならもう片方も計算済み。
+        uncalculated=(
+            "max_highway_rank = 0 AND EXISTS ("
+            "SELECT 1 FROM road_edges e"
+            " WHERE (e.from_node_id = road_nodes.node_id OR e.to_node_id = road_nodes.node_id)"
+            f" AND e.highway IN ({', '.join(repr(h) for h in sorted(HIGHWAY_RANK))}))"
+        ),
+        owner="precompute_road_node_intersections",
+        note="has_traffic_signalsも同じバッチが同時に書くため、この件数が0なら両方が計算済み",
     ),
 )
 

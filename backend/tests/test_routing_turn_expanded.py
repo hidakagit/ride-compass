@@ -422,7 +422,8 @@ def test_turn_expanded_astar_returns_none_when_unreachable():
 
 def test_crossing_a_higher_class_road_adds_cost_even_when_going_straight():
     """自分が走ってきた道より上位の道と交わる交差点では、直進で渡るだけでも費用が足される
-    （信号が無いのに幹線を横断する場面。停止密度の軸はこれを数えていない）。"""
+    （信号が無いのに幹線を横断する場面。信号のある交差点の待ちは停止密度の材料が走行モデルへ
+    運ぶため、そちらとは別物）。"""
     nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E", "P1", "P2")}
     edges = {
         "S-C": _edge("S-C", "S", "C", 0.0),
@@ -449,6 +450,95 @@ def test_crossing_a_higher_class_road_adds_cost_even_when_going_straight():
 
     assert straight_cost(without_rank) == 0.0, "階級を渡さなければ直進は無料"
     assert straight_cost(with_rank) == spec.major_crossing_seconds
+
+
+def _major_crossing_fixture():
+    """生活道路S-C-Eが、交差点Cで幹線（P1-C-P2）と直交する十字。"""
+    nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E", "P1", "P2")}
+    edges = {
+        "S-C": _edge("S-C", "S", "C", 0.0),
+        "C-E": _edge("C-E", "C", "E", 0.0),
+        "P1-C": _edge("P1-C", "P1", "C", 90.0),
+        "C-P2": _edge("C-P2", "C", "P2", 90.0),
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
+    lazy_graph = build_lazy_road_graph(graph)
+    return graph, lazy_graph, build_csr_structure(lazy_graph)
+
+
+def _straight_cost(structure, lazy_graph) -> float:
+    state = lazy_graph.edge_ids.index("S-C")
+    for i in range(structure.indptr[state], structure.indptr[state + 1]):
+        if lazy_graph.edge_ids[structure.target_state[i]] == "C-E":
+            return float(structure.turn_seconds[i])
+    raise AssertionError("S-C→C-Eの遷移が無い")
+
+
+def test_a_signalised_crossing_does_not_add_the_major_crossing_cost():
+    """信号のある交差点では横断の費用を足さない。
+
+    信号での待ちは停止密度の材料が走行モデルへ運ぶ（`domain/traffic.py: stop_seconds`）。
+    ここでも足すと同じ待ちを二重に数える（設計原則13）。ここが担うのは信号が無いときの
+    「車列の切れ目を待つ時間」である。
+    """
+    graph, lazy_graph, csr = _major_crossing_fixture()
+    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    ranks = np.array(
+        [4 if edge_id in ("P1-C", "C-P2") else 1 for edge_id in lazy_graph.edge_ids], dtype=np.int64)
+    bearings = edge_bearings(graph, lazy_graph)
+    signals = np.array(
+        [node_id == "C" for node_id in lazy_graph.index_to_node_id], dtype=bool)
+
+    signalised = build_turn_expanded_structure(
+        csr, lazy_graph, bearings, ranks, spec, node_has_signal=signals)
+    unsignalised = build_turn_expanded_structure(
+        csr, lazy_graph, bearings, ranks, spec,
+        node_has_signal=np.zeros(len(lazy_graph.index_to_node_id), dtype=bool))
+
+    assert _straight_cost(signalised, lazy_graph) == 0.0
+    assert _straight_cost(unsignalised, lazy_graph) == spec.major_crossing_seconds
+
+
+def test_not_passing_signals_keeps_the_behaviour_of_before_the_column_existed():
+    """信号の列を渡さないときは、渡す前（全ノード信号なし）と同じ結果になる。
+
+    `road_nodes`のバッチが未実行の環境（既定値false）でも経路が変わらないことの担保。
+    """
+    graph, lazy_graph, csr = _major_crossing_fixture()
+    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    ranks = np.array(
+        [4 if edge_id in ("P1-C", "C-P2") else 1 for edge_id in lazy_graph.edge_ids], dtype=np.int64)
+    bearings = edge_bearings(graph, lazy_graph)
+
+    omitted = build_turn_expanded_structure(csr, lazy_graph, bearings, ranks, spec)
+    all_false = build_turn_expanded_structure(
+        csr, lazy_graph, bearings, ranks, spec,
+        node_has_signal=np.zeros(len(lazy_graph.index_to_node_id), dtype=bool),
+        node_db_rank=np.zeros(len(lazy_graph.index_to_node_id), dtype=np.int64))
+
+    assert np.array_equal(omitted.turn_seconds, all_false.turn_seconds)
+
+
+def test_db_node_rank_can_only_raise_the_rank_derived_from_the_loaded_graph():
+    """DB側の階級は下限を上げるだけ。bboxの外へ出た幹線を拾えるが、下げることはない。"""
+    graph, lazy_graph, csr = _major_crossing_fixture()
+    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    # 読み込んだ部分グラフには生活道路しか無い（交差する幹線がbboxの外にある状況）。
+    ranks = np.ones(len(lazy_graph.edge_ids), dtype=np.int64)
+    bearings = edge_bearings(graph, lazy_graph)
+    db_rank = np.array(
+        [4 if node_id == "C" else 0 for node_id in lazy_graph.index_to_node_id], dtype=np.int64)
+
+    without_db = build_turn_expanded_structure(csr, lazy_graph, bearings, ranks, spec)
+    with_db = build_turn_expanded_structure(
+        csr, lazy_graph, bearings, ranks, spec, node_db_rank=db_rank)
+    lower_db = build_turn_expanded_structure(
+        csr, lazy_graph, bearings, np.full(len(lazy_graph.edge_ids), 4, dtype=np.int64), spec,
+        node_db_rank=np.zeros(len(lazy_graph.index_to_node_id), dtype=np.int64))
+
+    assert _straight_cost(without_db, lazy_graph) == 0.0, "部分グラフだけでは幹線が見えない"
+    assert _straight_cost(with_db, lazy_graph) == spec.major_crossing_seconds
+    assert _straight_cost(lower_db, lazy_graph) == 0.0, "未集計の0が導出値を下げてはならない"
 
 
 def test_one_to_all_gives_the_distance_along_the_path_when_turns_are_free():
