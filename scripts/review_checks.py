@@ -2470,6 +2470,41 @@ JSCPD_IGNORE = ",".join([
 # テスト・スクリプトも対象に含める。実装だけを見ていると、同じ骨格がテスト側へ写された
 # ぶんを見落とす（外部APIクライアント・Redisキャッシュのテストが実際にそうなっている）。
 JSCPD_TARGETS = ["backend/app", "backend/tests", "backend/scripts", "frontend/src", "scripts"]
+# jscpdは既定で1,000行・100KBを超えるファイルを走査から外す。大きいファイルほど
+# 「同じものが少しずつ増えた」結果である確率が高いのに、そこだけが対象外になる。
+# 上限は上げてもいつか再び当たるもので、当たったことが出力に現れないと「クローン0件」と
+# 「見ていない」が区別できないため、下の`unscanned_target_files`が走査されなかった
+# ファイルをその都度導出して報告する。
+JSCPD_MAX_LINES = 20_000
+JSCPD_MAX_SIZE = "1mb"
+
+
+def unscanned_target_files(scanned: set[str]) -> list[str]:
+    """`JSCPD_TARGETS`の下にあるのに走査されなかったファイル。
+
+    対象の拡張子は持たない。**jscpdが実際に読んだファイルの拡張子**から母集団を導く
+    （手で並べると、jscpdが対応形式を増やしたときに検査の側が黙って狭くなる）。
+    """
+    handled = {Path(name).suffix for name in scanned}
+    if not handled:
+        return []
+    ignored_dirs = {"node_modules", "__pycache__", ".next", "generated"}
+    missing: list[str] = []
+    for target in JSCPD_TARGETS:
+        for root, dirs, files in os.walk(REPO_ROOT / target):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs]
+            for name in files:
+                path = Path(root) / name
+                # `--min-lines`に満たないファイルは比べる相手を持ちようがなく、
+                # 外れているのが正しい。
+                if path.suffix not in handled:
+                    continue
+                if sum(1 for _ in path.open(encoding="utf-8", errors="ignore")) < JSCPD_MIN_LINES:
+                    continue
+                rel = path.relative_to(REPO_ROOT).as_posix()
+                if rel not in scanned:
+                    missing.append(rel)
+    return sorted(missing)
 
 
 def cmd_duplication(args: argparse.Namespace) -> int:
@@ -2495,6 +2530,7 @@ def cmd_duplication(args: argparse.Namespace) -> int:
     cmd = [
         node, str(npx_cli), "--yes", "jscpd@4",
         "--min-lines", str(JSCPD_MIN_LINES), "--min-tokens", str(JSCPD_MIN_TOKENS),
+        "--max-lines", str(JSCPD_MAX_LINES), "--max-size", JSCPD_MAX_SIZE,
         "--reporters", "json", "--output", str(out_dir), "--silent",
         "--ignore", JSCPD_IGNORE, *JSCPD_TARGETS,
     ]
@@ -2530,7 +2566,19 @@ def cmd_duplication(args: argparse.Namespace) -> int:
           + (f"（前回 {prev_clones}件 / {baseline.get('date', '-')}）" if prev_clones is not None else "（前回記録なし）"))
     print(f"- 重複行: {duplicated_lines}行 / {total_lines}行（{percentage}%）")
     print(f"- 同一ファイル内の重複 {within_file}件は数えない（似たテストケース・アイコン定義の並びは写経ではない）")
+    scanned = {name for fmt in data.get("statistics", {}).get("formats", {}).values()
+               for name in fmt.get("sources", {})}
+    unscanned = unscanned_target_files(scanned)
+    print(f"- 走査したファイル: {len(scanned)}件"
+          + (f" / **走査されなかったファイル: {len(unscanned)}件**" if unscanned else "（対象の取りこぼし無し）"))
     print()
+    if unscanned:
+        print("走査されなかったファイル（jscpdが黙って外したもの。ここが0件でないうちは、")
+        print("クローン件数の前回比を母集団の欠けたまま読むことになる）:")
+        print()
+        for rel in unscanned:
+            print(f"- `{rel}`（{(REPO_ROOT / rel).stat().st_size / 1024:.1f}KB）")
+        print()
     if duplicates:
         print("| 行数 | 箇所A | 箇所B |")
         print("|---:|---|---|")

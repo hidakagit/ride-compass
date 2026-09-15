@@ -1208,3 +1208,53 @@ def test_count_narrative_ignores_units_that_stay_true_when_something_is_added():
     src = {"backend/app/domain/zzz.py": [(1, "# 3秒で諦め、2回まで再試行する（5件まで）。")]}
 
     assert review_checks.find_count_narratives(src, {}) == []
+
+
+# --- unscanned_target_files -------------------------------------------------
+
+
+def _jscpd_tree(tmp_path: Path) -> Path:
+    target = tmp_path / "backend" / "app"
+    target.mkdir(parents=True)
+    body = "x = 1" + ("\n" * 10)
+    for name in ("scanned.py", "skipped.py", "notes.md"):
+        (target / name).write_text(body, encoding="utf-8")
+    (target / "tiny.py").write_text("x = 1", encoding="utf-8")
+    return target
+
+
+def test_unscanned_target_files_names_what_jscpd_left_out(tmp_path, monkeypatch):
+    """走査から外れたファイルが名指しで出ること。
+
+    上限に当たったことが出力へ出ないと、「クローン0件」と「見ていない」が区別できない。
+    """
+    _jscpd_tree(tmp_path)
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_checks, "JSCPD_TARGETS", ["backend/app"])
+
+    missing = review_checks.unscanned_target_files({"backend/app/scanned.py"})
+
+    assert missing == ["backend/app/skipped.py"]
+
+
+def test_unscanned_target_files_derives_the_formats_from_what_was_scanned(tmp_path, monkeypatch):
+    """対象の拡張子は手で並べず、jscpdが実際に読んだものから導くこと。
+
+    並べると、jscpdが対応形式を増やしたときに検査の側が黙って狭くなる。.mdを読んで
+    いなければ.mdは母集団に入らず、読んでいれば入る。
+    """
+    _jscpd_tree(tmp_path)
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_checks, "JSCPD_TARGETS", ["backend/app"])
+
+    assert "backend/app/notes.md" not in review_checks.unscanned_target_files({"a/b.py"})
+    assert "backend/app/notes.md" in review_checks.unscanned_target_files({"a/b.py", "a/c.md"})
+
+
+def test_unscanned_target_files_ignores_files_below_the_min_lines(tmp_path, monkeypatch):
+    # 比べる相手を持ちようがない短いファイルは、外れているのが正しい。
+    _jscpd_tree(tmp_path)
+    monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_checks, "JSCPD_TARGETS", ["backend/app"])
+
+    assert "backend/app/tiny.py" not in review_checks.unscanned_target_files({"a/b.py"})
