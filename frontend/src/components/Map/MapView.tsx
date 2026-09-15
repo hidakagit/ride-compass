@@ -2693,6 +2693,8 @@ export type RedrawAllLayersProps = Pick<
   staticOverlayLayers: readonly OverlayLayerEntry[];
   staticFilterAxes: readonly StaticFilterAxis[];
   roadSurfaceSharedLayerIds: readonly MapLayerId[];
+  /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
+  inspectedWayId: number | null;
 };
 
 // map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
@@ -2702,9 +2704,10 @@ export type RedrawAllLayersProps = Pick<
 // 再取得は不要（キャッシュがクリアされていれば次のタイル要求で自動的に新しいタイルが
 // 生成される）。
 //
-// **ソースを新設する描画は、必ずここから辿れる位置へ置くこと。** 辿れない描画は
-// setStyle()後に作り直されず、押した人の地図から消えたまま戻らない。置き忘れは
-// `scripts/review_checks.py`の`map_redraw_coverage`が機械的に落とす。
+// **再描画で失われる副作用を持つ描画は、必ずここから辿れる位置へ置くこと**（ソース・
+// レイヤーの追加だけでなく、filter・feature-state・visibilityで持つ表示状態も含む）。
+// 辿れないものはsetStyle()後に作り直されず、押した人の地図から消えたまま戻らない。
+// 置き忘れは`scripts/review_checks.py`の`map_redraw_coverage`が機械的に落とす。
 //
 // カメラは動かさない——再描画は見た目を作り直すだけで、表示範囲は利用者の操作に属する
 // （フィットは「候補一覧が変わったとき」だけ、という下部effectの取り決めを破らない）。
@@ -2737,6 +2740,7 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     staticFilterAxes,
     roadSurfaceSharedLayerIds,
     dedicatedWayValues,
+    inspectedWayId,
     onRegionZoomHintChange,
   } = props;
   setStaticOverlayVisibility(
@@ -2809,6 +2813,11 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
   } else {
     hideDetailSegments(map);
   }
+
+  // 強調はレイヤーのfilterとvisibilityで持つため、setStyle()でソースごと消えると初期値
+  // （非表示・osm_way_id=-1）に戻る。ポップアップは開いたままなので、ここで復元しないと
+  // 「どの線の話か」だけが失われる。
+  applyInspectedWay(map, inspectedWayId);
 }
 
 export default function MapView({
@@ -2941,6 +2950,9 @@ export default function MapView({
   // （表示中のタイル取得が一通り落ち着いたタイミング）までスケルトンを重ねて示す。
   const [initialTilesLoading, setInitialTilesLoading] = useState(true);
   const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
+  // 詳細を見ている道。propsではなくこのコンポーネントのstate由来のため、redrawPropsRefとは
+  // 別に持つ。
+  const inspectedWayIdRef = useRef<number | null>(null);
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
   // handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
@@ -3121,6 +3133,7 @@ export default function MapView({
   const redrawFromCurrentProps = useCallback((map: MapLibreMap) => {
     redrawAllLayers(map, {
       ...redrawPropsRef.current,
+      inspectedWayId: inspectedWayIdRef.current,
       onRegionZoomHintChange: onRegionZoomHintChangeRef.current,
     });
   }, []);
@@ -3953,6 +3966,9 @@ export default function MapView({
   // feature.idへ昇格済み）で行い、専用のソースや取得を増やさない。
   useEffect(() => {
     const map = mapRef.current;
+    // 再描画（map.setStyle()）は強調を初期値へ戻すため、redrawAllLayersが復元できるよう
+    // 開いている道をrefで持つ。早期returnより前に置き、閉じたときもnullへ戻す。
+    inspectedWayIdRef.current = roadPopup?.properties.osm_way_id ?? null;
     if (!map || roadPopup === null) return;
     const container = document.createElement("div");
     const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "20rem" })

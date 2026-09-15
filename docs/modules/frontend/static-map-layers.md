@@ -98,9 +98,15 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
 関数で、表示状態を引数で受け取る）が現在の状態から作り直す。
 
 **暗黙の前提**: ここから辿れない描画は作り直されず、そのレイヤーは押した人の地図から
-消えたまま戻らない（次にそのpropが変わるまで復旧しない）。`scripts/review_checks.py`の
-`map_redraw_coverage`が、sourceを作る関数が`redrawAllLayers`から辿れるかを機械的に見て
-いるため、新しい描画を足して辿れない位置に置くとpre-commitとCIが落ちる。
+消えたまま戻らない（次にそのpropが変わるまで復旧しない）。**対象はsource/layerの追加に
+限らず、filter・feature-state・visibilityで持つ表示状態も同じ**——たとえば詳細を見ている
+道の強調（`applyInspectedWay`）はレイヤーのfilterとvisibilityだけで表され、ポップアップは
+開いたままなので、復元しないと「どの線の話か」だけが失われる。そのため
+`redrawAllLayers`は表示状態のpropに加えて`inspectedWayId`（コンポーネントのstate由来、
+refで最新値を渡す）も受け取る。`scripts/review_checks.py`の`map_redraw_coverage`が、
+**再描画で失われる副作用を持つ宣言**（source/layerの追加・filter・feature-state・
+visibilityの設定）が`redrawAllLayers`から辿れるかを機械的に見ているため、新しい描画を
+足して辿れない位置に置くとpre-commitとCIが落ちる。
 カメラはここでは動かさない——表示範囲は利用者の操作に属し、フィットは候補一覧が
 変わったときだけ行う。
 

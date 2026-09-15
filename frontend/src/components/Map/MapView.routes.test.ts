@@ -4,6 +4,7 @@ import type { RouteCandidate } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import {
   OUTLINE_LAYER_ID,
+  ROAD_INSPECT_LAYER_ID,
   computeRouteFitPadding,
   ROUTE_ARROW_HALO_LAYER_ID,
   ROUTE_ARROW_LAYER_ID,
@@ -119,12 +120,14 @@ function fakeMap() {
   const layoutCalls: { layerId: string; name: string; value: unknown }[] = [];
   const setDataCalls: unknown[] = [];
   const fitBoundsCalls: unknown[] = [];
+  const filterCalls: { layerId: string; filter: unknown }[] = [];
   return {
     __rcStyleReady: true,
     layers,
     sources,
     layoutCalls,
     setDataCalls,
+    filterCalls,
     getLayer: (id: string) => (layers.has(id) ? {} : undefined),
     addLayer: (spec: { id: string }) => layers.add(spec.id),
     getSource: (id: string) => (sources.has(id) ? { setData: (data: unknown) => setDataCalls.push(data) } : undefined),
@@ -141,7 +144,7 @@ function fakeMap() {
     getZoom: () => 14,
     getCanvas: () => ({ clientWidth: 390, clientHeight: 812 }),
     setPaintProperty: () => {},
-    setFilter: () => {},
+    setFilter: (layerId: string, filter: unknown) => filterCalls.push({ layerId, filter }),
     setFeatureState: () => {},
     removeFeatureState: () => {},
   };
@@ -376,6 +379,7 @@ describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
       staticFilterAxes: [],
       roadSurfaceSharedLayerIds: [],
       dedicatedWayValues: new Map(),
+      inspectedWayId: null,
       onRegionZoomHintChange: () => {},
       ...overrides,
     };
@@ -399,6 +403,31 @@ describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
     expect(layoutValue(map, SPLICE_LAYER_ID, "visibility")).toBe("visible");
     expect(layoutValue(map, SPLICED_ROUTE_LAYER_ID, "visibility")).toBe("visible");
     expect(layoutValue(map, ROUTES_LAYER_ID, "visibility")).toBe("visible");
+  });
+
+  // 強調はレイヤーのfilterとvisibilityで持つため、setStyle()でソースごと消えると初期値へ
+  // 戻る。ポップアップは開いたままなので、復元しないと「どの線の話か」だけが失われる
+  // （T524・T825と同じ型の欠陥）。
+  it("道の詳細を開いたまま作り直すと、その道の強調も戻る", () => {
+    const map = fakeMap();
+    map.addLayer({ id: ROAD_INSPECT_LAYER_ID });
+
+    redraw(map, { inspectedWayId: 156167860 });
+
+    expect(layoutValue(map, ROAD_INSPECT_LAYER_ID, "visibility")).toBe("visible");
+    expect(map.filterCalls.at(-1)).toEqual({
+      layerId: ROAD_INSPECT_LAYER_ID,
+      filter: ["==", ["get", "osm_way_id"], 156167860],
+    });
+  });
+
+  it("道の詳細を開いていなければ、作り直しても強調は出ない", () => {
+    const map = fakeMap();
+    map.addLayer({ id: ROAD_INSPECT_LAYER_ID });
+
+    redraw(map, { inspectedWayId: null });
+
+    expect(layoutValue(map, ROAD_INSPECT_LAYER_ID, "visibility")).toBe("none");
   });
 
   it("「ルート」チップOFFのまま作り直しても、帯・合成ルート・候補線は出てこない", () => {
