@@ -133,7 +133,8 @@ Edgeは永続化しない。
 ```
 [バッチ事前計算＋探索時参照]
 precompute_elevation_attributes.py（オフライン、CHUNK_SIZE=2000）
-  → _fetch_all_edge_ids（未計算Edgeのみanti-join、地理的順序=ORDER BY geom）
+  → target_stmt（未計算Edgeのみanti-join、地理的順序=ORDER BY geom。対象条件は
+     derived_data_freshness.completeness_spec が持つ宣言から組み立てる）
   → RoadGraphRepository.get_edges_with_geometry（DBへ直接問い合わせる）
   → ElevationAttributeService.get_attributes_for_graph
        → repository.get_elevation_attributes（既存分をスキップ）

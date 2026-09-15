@@ -92,10 +92,10 @@ stateは`page.tsx`の`useState`に集約し、子コンポーネントへはprop
 
 ## 動的材料（風・勾配）の状態別表現契約
 
-`page.tsx`は風・勾配それぞれについて「環境グループ（面塗り、探索用）」と「評価軸グループ
-（線、視界内の全道路へ一律色分け）」の2表現を同時に配線する。両者は`[時刻, 向き]`のうち
-「時刻」の扱いが異なる（風のみ時刻依存）が、「向き」は単一の共有state
-`travelBearingDeg`を風・勾配の両方が使う（走行方位という1つの概念を表す単一state）:
+`page.tsx`は風・勾配を「評価軸グループ（線、視界内の全道路へ一律色分け）」として配線する
+（面塗りの表現は持たない）。両者は`[時刻, 向き]`のうち「時刻」の扱いが異なる（風のみ
+時刻依存）が、「向き」は単一の共有state`travelBearingDeg`を風・勾配の両方が使う
+（走行方位という1つの概念を表す単一state）:
 
 ```
 travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）。出発時刻は`useDynamicWeatherLayers`の`dynamicLayerTargetTime`、想定速度は`assumedSpeedKmh`（いずれも地図右上の条件アイコン列`components/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
@@ -111,7 +111,6 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
 
   評価軸（線）の共通経路（軸ごとの分岐を持たない）:
     dedicatedFetchAxes = [レンズが指す専用way値配信軸（lensBackgroundShown中）]
-                       ∪ [showGradientFillなら勾配軸]
     useDedicatedWayValues(dedicatedFetchAxes, mapViewport, travelBearingDeg,
                           dynamicLayerTargetTime, assumedSpeedKmh)
       → 時刻・想定速度は軸カタログのneedsTime/needsSpeedが立つ軸のリクエストにだけ載る

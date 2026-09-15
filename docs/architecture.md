@@ -1715,7 +1715,8 @@ T310時点の`axis_display_for()`優先順位（①`display_override` ②`derive
   `GET /api/axis-catalog`に現れないため、軸スタジオが「この軸は地図表示用のデータ取得
   経路が無い（`kind="none"`）」という注記を編集画面に出すには、この管理APIのレスポンス
   経由でしか判定できないため。
-- **dev DBの移行**: `car_stress`/`stop_density`/`accident`の3軸の`display_override`を
+- **dev DBの移行**（`stop_density`は旧id。その後の軸スタジオでの作り直しで別idになり、
+  現在の軸定義には無い）: `car_stress`/`stop_density`/`accident`の3軸の`display_override`を
   NULL化し`display_thresholds_override`（car_stress: `[2,3,4]`・stop_density:
   `[1,2,4]`・accident: `[0.133,0.267,0.5]`——旧`[0.4,0.8,1.5]`はタイル生値スケール
   [年正規化前]だったため、材料スケール[年正規化後]への移行に伴い収録年数3で除算して

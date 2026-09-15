@@ -439,8 +439,21 @@ def top_level_segments(code: str) -> tuple[dict[str, str], dict[str, int]]:
     return body, line_of
 
 
+# 再描画（map.setStyle()）で失われる副作用。ソースの新設だけでなく、レイヤーの追加や
+# filter・feature-state・visibilityで持つ表示状態も、スタイルごと消えて初期値へ戻る。
+# 母集団を「sourceを作る宣言」に限ると、既存ソースの上に載せた表示状態は検査の外に落ちる
+# （T868の道の強調がその形で見逃された。docs/tasks/T871.md）。
+MAP_REDRAW_SIDE_EFFECTS = (
+    ".addSource(",
+    ".addLayer(",
+    ".setFilter(",
+    ".setFeatureState(",
+    "setLayerVisibility(",
+)
+
+
 def find_map_redraw_gaps() -> list[str]:
-    """map.setStyle()後の再描画から辿り着けない、sourceを新設する描画。
+    """map.setStyle()後の再描画から辿り着けない、描画の副作用を持つ宣言。
 
     到達は「トップレベル宣言の本文にその名前が現れるか」で見る（呼び出しに限らず、
     コールバックとして渡す形も辿れるようにするため）。オーバーレイ登録表の`ensure`だけは
@@ -477,9 +490,9 @@ def map_redraw_gaps_in(source: str) -> list[str]:
         if ".ensure(" in segment:
             stack.extend(ensure_values)
 
-    owners = {n for n, b in body.items() if ".addSource(" in b}
+    owners = {n for n, b in body.items() if any(m in b for m in MAP_REDRAW_SIDE_EFFECTS)}
     return [
-        f"{MAP_REDRAW_FILE}:{line_of[name]}: `{name}`がsourceを作るが、"
+        f"{MAP_REDRAW_FILE}:{line_of[name]}: `{name}`が再描画で失われる副作用を持つが、"
         f"`{MAP_REDRAW_ENTRY}`から辿れない"
         "（map.setStyle()後に作り直されず、そのレイヤーは消えたまま戻らない。"
         "docs/tasks/T825.md参照）"
@@ -1036,16 +1049,51 @@ def identifier_exists(token: str, corpus: str) -> bool:
     return token.isupper() and "_" in token and token.lower() in settings_field_names()
 
 
-def find_dead_identifier_refs(doc_lines: dict[str, list[tuple[int, str]]], corpus: str) -> list[str]:
+# コードフェンス内は識別子をバッククォート無しで書く場所。データフロー図・コード例という
+# 「機構の全体像を最も具体的に述べる箇所」がそこに集まるため、バッククォート付きだけを
+# 母集団にすると図だけが恒久的に検査の外に残る（docs/tasks/T871.md）。
+FENCE_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+
+
+def fenced_line_numbers(doc: str) -> set[int]:
+    """その文書のコードフェンス（```）の内側にある行番号。
+
+    ファイル全体から求める——`--staged`では追加行しか渡らず、断片からはフェンスの開閉を
+    追えない。
+    """
+    path = REPO_ROOT / doc
+    if not path.exists():
+        return set()
+    inside = False
+    out: set[int] = set()
+    for lineno, line in enumerate(read_text(path).splitlines(), 1):
+        if line.lstrip().startswith("```"):
+            inside = not inside
+            continue
+        if inside:
+            out.add(lineno)
+    return out
+
+
+def find_dead_identifier_refs(
+    doc_lines: dict[str, list[tuple[int, str]]], corpus: str, *, include_fenced: bool = False
+) -> list[str]:
     """docs/modulesが名指しする識別子のうち、実装のどこにも綴りが無いもの。
 
     ファイル名の実在（find_dead_file_refs）だけでは、ファイルは残ったまま中の関数・定数が
     改名・削除された参照を検出できない。綴りの単純な包含判定で、改名の取り残しを拾う。
+
+    `include_fenced`はdocs/modules専用。コードフェンスの内側を裸の綴りまで見るため、
+    工程名・タスク番号を図へ書く文書（architecture.md・レビュー手順書）へ当てると
+    識別子でない語を拾う（実測: architecture.mdで17件、いずれも誤検知）。
     """
     out = []
     for doc, lines in doc_lines.items():
+        fenced = fenced_line_numbers(doc) if include_fenced else frozenset()
         for lineno, line in lines:
             tokens = set(DOC_IDENT_RE.findall(line)) | set(DOC_QUALIFIED_IDENT_RE.findall(line))
+            if lineno in fenced:
+                tokens |= set(FENCE_IDENT_RE.findall(line))
             for token in sorted(tokens):
                 if looks_like_identifier(token) and not identifier_exists(token, corpus):
                     out.append(f"{doc}:{lineno}: `{token}` が実装に存在しない")
@@ -1497,16 +1545,52 @@ def live_axis_ids() -> set[str]:
     return {entry["definition"]["axis_id"] for entry in snapshot.get("axes", [])}
 
 
+def historical_axis_ids() -> frozenset[str]:
+    """スナップショットのgit履歴から、これまでに実DBへ存在した軸idを集める。
+
+    現行ソースの`axis_id="…"`だけを母集団にすると、**コードから完全に消えたidは母集団に
+    入らない**——検査を書いた時点の実例を写した母集団と同じ形で、差が観測できるのは
+    見逃した後になる（設計原則 構造仕様12）。「実際にDBへ存在したidの全体」という性質から
+    導く。
+
+    **限界**: スナップショット導入より前に廃止された軸は履歴に無い（例:
+    `car_stress_bicycle_infra_adjustment`）。母集団を綴りの形から導く案も測ったが、
+    材料id・テーブル名・サービス名が軸idと同じ命名規則を共有するため誤検知が
+    実測117件（コメント内に限っても50件）になり採らなかった（docs/tasks/T871.md）。
+    """
+    # REPO_ROOTはmutateが一時worktreeへ差し替えるため、キャッシュのキーに含める。
+    return _historical_axis_ids(str(REPO_ROOT))
+
+
+@functools.lru_cache(maxsize=4)
+def _historical_axis_ids(repo_root: str) -> frozenset[str]:
+    try:
+        revisions = git("log", "--format=%H", "--", AXIS_SNAPSHOT).split()
+    except (RuntimeError, OSError):
+        # gitの外（テストの一時ディレクトリ等）では履歴を辿れない。現行ソース由来の
+        # 母集団だけで判定を続ける。
+        return frozenset()
+    seen: set[str] = set()
+    for revision in revisions:
+        try:
+            snapshot = json.loads(git("show", f"{revision}:{AXIS_SNAPSHOT}"))
+        except (json.JSONDecodeError, subprocess.CalledProcessError):
+            continue
+        seen |= {entry["definition"]["axis_id"] for entry in snapshot.get("axes", [])}
+    return frozenset(seen)
+
+
 def removed_axis_ids(files: list[str]) -> set[str]:
     """軸idとして書かれた綴りのうち、現在のスナップショットに無いもの。
 
-    母集団はテストのフィクスチャも含めて集める——消えたidを最後まで名指ししているのは
-    たいていテストで、そこを除くと「消えたid」の集合そのものが作れない。
+    母集団は2つの経路から作る: 現行ソースの`axis_id="…"`（テストのフィクスチャも含める
+    ——消えたidを最後まで名指ししているのはたいていテスト）と、スナップショットの
+    git履歴（`historical_axis_ids`。コードから完全に消えたidを拾う唯一の経路）。
     """
     live = live_axis_ids()
     if not live:
         return set()
-    mentioned: set[str] = set()
+    mentioned: set[str] = set(historical_axis_ids())
     for f in files:
         if not f.endswith((".py", ".ts", ".tsx")) or "/types/generated/" in f:
             continue
@@ -1537,11 +1621,20 @@ def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None)
         if not path.exists():
             continue
         exempt = paragraphs_with_removal_marker(f) if is_doc else set()
-        for lineno, line in enumerate(read_text(path).splitlines(), 1):
+        source_lines = read_text(path).splitlines()
+        for lineno, line in enumerate(source_lines, 1):
             if lineno in exempt:
                 continue
+            # 実装コードのコメントは折り返しで識別子が2行に割れる。次の行の続きも繋いだ形で
+            # 照合する（行単位だけを見ると、長いidほど検出から漏れる）。.mdは段落単位の
+            # 免除判定があるため繋がない——繋ぐと段落をまたぎ、免除された段落の先頭が
+            # 直前の段落の末尾行として報告される。
+            candidates = [line]
+            if not is_doc and lineno < len(source_lines):
+                candidates.append(line + re.sub(r"^[#*/\s]*", "", source_lines[lineno]))
             for axis_id in sorted(gone):
-                if re.search(rf"(?<![A-Za-z0-9_]){re.escape(axis_id)}(?![A-Za-z0-9_])", line):
+                pattern = rf"(?<![A-Za-z0-9_]){re.escape(axis_id)}(?![A-Za-z0-9_])"
+                if any(re.search(pattern, c) for c in candidates):
                     out.append(
                         f"{f}:{lineno}: 現在の軸定義に無いaxis_id `{axis_id}` を現行として名指ししている"
                         "（軸スタジオで作り直されて別idになっている場合も含む）")
@@ -1822,7 +1915,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
         sections.append(("dead_file_refs", "docs/modules の死んだ参照（ステージ済み追加行）",
                          find_dead_file_refs(doc_lines, files + added)))
         sections.append(("dead_identifier_refs", "docs/modules の死んだ識別子参照（ステージ済み追加行）",
-                         find_dead_identifier_refs(doc_lines, source_corpus(files + added))))
+                         find_dead_identifier_refs(doc_lines, source_corpus(files + added),
+                                                   include_fenced=True)))
         sections.append(("narrative", "docs/modules の記載粒度違反（ステージ済み追加行）",
                          find_narrative_violations(doc_lines)))
         source_lines = gather_added_source_lines(None)
@@ -1886,7 +1980,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
         sections.append(("dead_identifier_refs", "docs/modules の死んだ識別子参照（全件）",
-                         find_dead_identifier_refs(doc_lines, source_corpus(files))))
+                         find_dead_identifier_refs(doc_lines, source_corpus(files),
+                                                   include_fenced=True)))
         sections.append(("source_comment_dead_identifier_refs",
                          "ソースコードのコメントが名指しする死んだ識別子（全件）",
                          find_source_comment_dead_identifier_refs(files)))
