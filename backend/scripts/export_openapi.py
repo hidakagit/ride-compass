@@ -56,6 +56,12 @@ from app.domain.dynamic_way_values import (  # noqa: E402
     map_value_unit,
 )
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
+from app.domain.landcover import (  # noqa: E402
+    LANDCOVER_CLASSES,
+    LANDCOVER_TILE_MAX_ZOOM,
+    LANDCOVER_TILE_MIN_ZOOM,
+)
+from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
 from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import axis_studio_materials  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
@@ -72,6 +78,7 @@ ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
 JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
 POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
+LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
 
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
@@ -134,7 +141,28 @@ def main() -> None:
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。
             "road_tile_min_zoom": ROAD_TILE_MIN_ZOOM,
             "road_tile_max_zoom": ROAD_TILE_MAX_ZOOM,
+            # 土地被覆ラスタタイル。ズーム範囲は元データの分解能と読み取り量から
+            # backendが決める（domain/landcover.py）。
+            "landcover": {
+                "tile_version": LANDCOVER_TILE_VERSION,
+                "min_zoom": LANDCOVER_TILE_MIN_ZOOM,
+                "max_zoom": LANDCOVER_TILE_MAX_ZOOM,
+            },
         },
+    )
+    # 土地被覆のクラス（画素値・割合列・表示名・色）。地図タイルの塗りと同じレジストリから
+    # 書き出し、frontendの凡例・区間インスペクタの表示名がこれを読む。
+    _write_json(
+        LANDCOVER_CLASSES_PATH,
+        [
+            {
+                "value": cls.value,
+                "percent_field": cls.percent_field,
+                "label": cls.label,
+                "color": cls.color,
+            }
+            for cls in LANDCOVER_CLASSES
+        ],
     )
     # 停止要因POI・補給休憩POIのkind正準集合。frontendは色・ラベルを自分で持つが、
     # **キーの一覧はここから引く**——backendが6種目を足したときfrontendのbaseFilterが

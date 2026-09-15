@@ -52,6 +52,7 @@ async def serve_cached_tile(
     content_type: str,
     external_call_name: str,
     fetch_tile: Callable[[dict], Awaitable[bytes | None]],
+    source_label: str = "postgis",
 ) -> TileResponse:
     """キャッシュヒットならそれを返す。ミス時は`fetch_tile(fields)`を1回呼び、
     tile bytesが返れば`tile_cache`へ書いて返す。`None`が返れば「取得不可」として
@@ -76,7 +77,9 @@ async def serve_cached_tile(
             # 前者はブラウザへキャッシュさせず、回復後の次のリクエストで取り直させる。
             return TileResponse(empty_tile, cacheable=fields.get("postgis") != "error")
 
-        fields["source"] = "postgis"
+        # どこから作ったか（`source_label`）はタイル種別で違う。/api/debug/statsの内訳が
+        # 実際の取得元と食い違わないよう、呼び出し元が名乗る。
+        fields["source"] = source_label
         fields["tile_bytes"] = len(tile_bytes)
         await asyncio.to_thread(tile_cache.set, cache_path, tile_bytes, content_type)
         return TileResponse(tile_bytes)

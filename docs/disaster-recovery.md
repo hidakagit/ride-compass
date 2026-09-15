@@ -74,24 +74,28 @@ ARM64のDebian系ベースイメージでは`libexpat1`（`apt-get install`）�
 DATABASE_URL=... python -m app.batch.refresh_derived
 ```
 
-**⑩precompute_way_landcoverが読むEsri×Impact Observatory Sentinel-2 10m Annual LULCの
-GeoTIFFはリポジトリにコミットしない**（PBFをGeofabrikから手動取得するのと同じ運用）。
-T624設計時点ではAzure Blob（`lulctimeseriesv003.blob.core.windows.net`）のURLを想定していたが
-実装時点で存在しないドメインだったため（実測、DNS解決不可）、**AWS S3の
-`s3://io-10m-annual-lulc/`（サインなしアクセス可、リージョン`us-west-2`）を正本とする**:
+**⑩precompute_way_landcoverと土地被覆の地図レイヤーが読むEsri×Impact Observatory
+Sentinel-2 10m Annual LULCのGeoTIFFはリポジトリにコミットしない**（サイズが大きく、
+配布元から何度でも取り直せるため）。取得はスクリプトが行う:
 
 ```
-aws s3 cp --no-sign-request s3://io-10m-annual-lulc/<ゾーン>_<年>.tif .
+LULC_RASTER_PATHS=<置き場>/54S_2024.tif python scripts/fetch_lulc_raster.py
 ```
 
-ファイル名は`<ゾーン>_<年>.tif`（例: `54S_2024.tif`）で、Azure Blobの想定と異なり
-期間表記（`<年>0101-<翌年>0101`）は付かない。関東本土はゾーン`54S`1枚で足り、
-2026-09時点の最新年は2024（2025年版は未公開）。Microsoft Planetary Computer STAC
-（コレクション`io-lulc-annual-v02`）も代替として使えるが、AWS S3の方が認証・SASトークン
-発行が不要でシンプル。取得したファイルは`settings.lulc_raster_paths`（環境変数
-`LULC_RASTER_PATHS`、カンマ区切りで複数可）へローカルパスを設定する。未設定のまま
-`refresh_derived.py`を実行するとこの段が失敗するため、ラスタを用意できない環境
-（検証用の使い捨てDB等）では`--skip-landcover`を明示的に指定してこの段だけスキップする。
+`settings.lulc_raster_paths`（環境変数`LULC_RASTER_PATHS`、カンマ区切りで複数可）が指す
+ファイルのうち、まだ無いものを配布元から取る（既にあるものには触らないため、何度実行しても
+安全）。本番では`.github/workflows/deploy-backend.yml`がデプロイのたびに呼ぶため、手で
+置く作業は無い。
+
+取得元は**AWS S3の`s3://io-10m-annual-lulc/`（サインなしアクセス可、リージョン
+`us-west-2`）が正本**で、スクリプトは同じ内容をHTTPS（`https://io-10m-annual-lulc.
+s3.us-west-2.amazonaws.com/<ファイル名>`）で取る。ファイル名は`<ゾーン>_<年>.tif`
+（例: `54S_2024.tif`）。関東本土はゾーン`54S`1枚で足り、2026-09時点の最新年は2024
+（2025年版は未公開）。Microsoft Planetary Computer STAC（コレクション
+`io-lulc-annual-v02`）も代替として使えるが、AWS S3の方が認証・SASトークン発行が不要。
+
+ラスタを用意できない環境（検証用の使い捨てDB等）では、`refresh_derived.py`に
+`--skip-landcover`を明示的に指定してこの段だけスキップする（未設定のまま実行すると失敗する）。
 
 **本番（関東本土全域）で実行する場合は必ずDockerメモリ上限を指定すること**
 （`docker run --memory=<上限> ...`）。全域規模（road_edges約500万件）では

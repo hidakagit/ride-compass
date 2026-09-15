@@ -11,10 +11,10 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | レイヤー | ファイル |
 |---|---|
 | domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、開放度評価軸の材料）・`derived_data_versions.py`（事前計算バッチの系譜版数。バッチ本体ではなくここに置く——鮮度台帳がbatchをimportすると本番webに無い依存を連鎖で引き込む）（[region.py](routing-engine.md)は別モジュール管轄） |
-| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
-| infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
-| api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
-| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py` |
+| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
+| infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
+| api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
+| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py`・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ） |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -372,6 +372,26 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 一括で入れる）ため、カバレッジ判定は行わない。`repository`未接続・DB障害時は空タイルを
 返す。
 
+### 土地被覆ラスタタイル（`landcover_raster.py`・`landcover_tile_service.py`）
+
+`way_landcover`（道1本の周囲100mリングを8クラスの割合へ畳んだ値）とは別に、**元の
+GeoTIFFをそのまま面として配る**。割合の混合をどう塗るかという問題が起きない代わりに、
+道路との対応は利用者が目で取る。
+
+- 描画（`landcover_raster.py`）: 要求されたタイルの範囲をラスタのCRSへ変換して読み、
+  Web Mercatorへ再投影してPNGにする。**再投影は最近傍**——画素値はクラス番号であって量では
+  なく、平均や線形補間は存在しないクラスを作る。読み取りは間引いて行い（配布元のGeoTIFFが
+  縮小画像を同梱しているため低ズームでも安い）、開いたラスタはプロセスで持ち回る
+  （`rasterio`のDatasetReaderは同時読み取りに耐えないためロックで直列化する）。
+- 配色（`domain/landcover.py: LANDCOVER_CLASSES`）: 画素値・割合列・表示名・色を1組で持つ
+  唯一のレジストリ。タイルの塗り・凡例・区間インスペクタの表示名がすべてここを見る
+  （frontendへは`landcover-classes.json`として書き出す）。
+- 配信（`landcover_tile_service.py`）: 上の共通骨格へ乗せる。ラスタが1枚も無い状態
+  （設定漏れ）は「範囲外で空」と区別して503にする——空タイルを返すと、地図には何も出ない
+  のにチップは正常に見える。
+- 取得（`scripts/fetch_lulc_raster.py`）: 設定されたパスに無いラスタを配布元から取る。
+  デプロイが毎回呼ぶが、既にあるものには触らない。
+
 ### vector_tile.py・tile_cache.py
 
 `vector_tile.py`はMVTの共有定数（`TILE_EXTENT`・各レイヤー名）と空タイルのエンコード
@@ -388,6 +408,7 @@ tile_cache/`）で、パスをSHA-256でハッシュ化したフラットなフ�
 |---|---|
 | `GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf` | 路面・道路種別等のMVTタイル |
 | `GET /api/region/poi-tiles/{z}/{x}/{y}.pbf` | 停止要因POI・補給休憩POIのMVTタイル |
+| `GET /api/region/landcover-tiles/{z}/{x}/{y}.png` | 土地被覆ラスタのPNGタイル |
 | `POST /api/region/axis-inspector` | 区間インスペクタ（osm_way_id指定） |
 | `GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accidents.py`） | 事故のMVTタイル |
 

@@ -1,0 +1,50 @@
+[
+  {
+    "value": 7,
+    "percent_field": "built_percent",
+    "label": "建物",
+    "color": "#9AA0A6"
+  },
+  {
+    "value": 2,
+    "percent_field": "trees_percent",
+    "label": "樹木",
+    "color": "#4C8C4A"
+  },
+  {
+    "value": 5,
+    "percent_field": "crops_percent",
+    "label": "農地",
+    "color": "#E0C066"
+  },
+  {
+    "value": 11,
+    "percent_field": "rangeland_percent",
+    "label": "草地",
+    "color": "#C3B78F"
+  },
+  {
+    "value": 1,
+    "percent_field": "water_percent",
+    "label": "水面",
+    "color": "#4A7FB5"
+  },
+  {
+    "value": 4,
+    "percent_field": "flooded_veg_percent",
+    "label": "湿地",
+    "color": "#7FB99B"
+  },
+  {
+    "value": 8,
+    "percent_field": "bare_percent",
+    "label": "裸地",
+    "color": "#C4B4A3"
+  },
+  {
+    "value": 9,
+    "percent_field": "snow_ice_percent",
+    "label": "雪氷",
+    "color": "#D8E6F0"
+  }
+]

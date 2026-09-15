@@ -28,6 +28,18 @@ export function ElevationIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 土地被覆: 用途の違う区画が並ぶ様子を表す、大きさの違う4区画 */
+export function LandcoverIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="11" y="2.5" width="6.5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="2.5" y="11" width="4" height="6.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="8.5" y="8.5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
 /** 二次軸rampレイヤーの汎用フォールバック: 密度の濃淡を表す棒グラフ。各軸は`icon_id`
  * （軸自身のデータ）でaxisIconPalette.tsxの固定パレットから専用アイコンを選べる。
  * この汎用形はicon_id未設定の軸（まだ専用アイコンを選んでいないramp軸・単独チップ）

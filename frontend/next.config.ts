@@ -42,6 +42,11 @@ const nextConfig: NextConfig = {
         source: "/api/region/poi-tiles/:path*",
         destination: `${BACKEND_INTERNAL_URL}/api/region/poi-tiles/:path*`,
       },
+      // 土地被覆ラスタタイルも同じ理由で同一オリジン経由にする。
+      {
+        source: "/api/region/landcover-tiles/:path*",
+        destination: `${BACKEND_INTERNAL_URL}/api/region/landcover-tiles/:path*`,
+      },
       // JMA動的タイル系レイヤー（降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル・
       // 線状降水帯予測マップ、改善計画T412）。従来は各ユーザーのブラウザがJMAの非公式内部API
       // （jma.go.jp）へ直接fetchしており、利用者数に比例してJMA側への負荷が線形に増える上、

@@ -80,6 +80,19 @@ export function poiTileUrl(): string {
   return `${tileBaseUrl()}${POI_TILE_PATH}?v=${POI_TILE_VERSION}`;
 }
 
+// 土地被覆ラスタタイル（Esri×Impact Observatory 10m LULCをそのまま塗った面）。世代・
+// ズーム範囲の正はbackend（domain/landcover.py・services/landcover_tile_service.py）で、
+// 生成物経由で受け取る。ラスタタイルはMapLibreがメインスレッドのImage要素で取るため
+// Worker制約は無いが、オリジンの決め方は他タイルと揃える（lib/tileBaseUrl.ts）。
+const LANDCOVER_TILE_PATH = "/api/region/landcover-tiles/{z}/{x}/{y}.png";
+const LANDCOVER_TILE_VERSION = regionTileConfig.landcover.tile_version;
+export const LANDCOVER_TILE_MIN_ZOOM = regionTileConfig.landcover.min_zoom;
+export const LANDCOVER_TILE_MAX_ZOOM = regionTileConfig.landcover.max_zoom;
+
+export function landcoverTileUrl(): string {
+  return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;
+}
+
 // 路面タイルを要求するズーム範囲。正はbackend（domain/region.py）で、生成物経由で受け取る
 // （手書きで複製すると、backendだけ広げてもフロントが要求せずレイヤーが黙って消える）。
 // POIタイルも同じズーム範囲に準拠する（api/routers/region.py参照）。

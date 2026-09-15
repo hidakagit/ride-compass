@@ -67,6 +67,8 @@ import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import RideConditionBar from "@/components/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
+import { LANDCOVER_CLASSES } from "@/components/Map/landcoverClasses";
+import { LANDCOVER_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
@@ -182,6 +184,8 @@ const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
 // ON/OFFの入口も地図チップ・サイドバーのどちらにも無い（mapLayers.ts: isAxisStudioLayer）。
 const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   elevation: false,
+  // 土地被覆。面で地図を覆うため、他の静的レイヤーと同じく既定OFF。
+  landcover: false,
   // 「道路情報」（road）は論理2レイヤー（roadType/roadSurface）。旧保存値（road:
   // boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。
   roadType: false,
@@ -256,6 +260,22 @@ const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
     hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
   },
 ];
+// 土地被覆の凡例。色・表示名はbackendのレジストリ（domain/landcover.py:
+// LANDCOVER_CLASSES）由来の生成物がそのまま単一の情報源で、地図タイルの塗りと同じ値を使う。
+// ラスタのため絞り込みはできず、降水・風と同じ表示専用の凡例にする。
+const LANDCOVER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
+  {
+    label: "",
+    legend: LANDCOVER_CLASSES.map((cls) => ({
+      key: cls.percentField,
+      label: cls.label,
+      color: cls.color,
+      filter: UNUSED_LEGEND_FILTER,
+    })),
+    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
+  },
+];
+
 // 災害チップの要素トグルの保存先ID（hiddenLegendKeysByModeのキー）。実際の絞り込み軸
 // （路面の種類等）のIDと衝突しないよう、レイヤーIDそのものを使う。
 const DISASTER_SOURCE_AXIS_ID = "disaster";
@@ -1179,11 +1199,18 @@ export default function Home() {
     const summaryByLayerId: Partial<Record<MapLayerId, string | null>> = {
       ...roadAxisPanels.summaryByLayerId,
       route: routeSummary,
+      // 土地被覆はbackendが決めたズーム範囲より広いとタイル自体を要求しない。ONのまま
+      // 何も出ない状態を、道路レイヤーと同じ案内で説明する。
+      landcover:
+        mapViewport !== null && mapViewport.zoom < LANDCOVER_TILE_MIN_ZOOM
+          ? "ズームインすると表示されます"
+          : null,
     };
     const legendDetailsByLayerId: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {
       ...roadAxisPanels.legendDetailsByLayerId,
       route: routeLegendDetails,
       precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
+      landcover: LANDCOVER_LEGEND_DETAILS,
       windVector: WIND_LEGEND_DETAILS,
       disaster: disasterLegendDetails,
     };
@@ -1250,6 +1277,7 @@ export default function Home() {
     staticFilterSummaries,
     disasterLegendDetails,
     mapLayers,
+    mapViewport,
   ]);
 
   // 全レイヤー一括OFF。地図下部中央の時刻スライダー隣に置き、layers/onToggleを既に
@@ -2287,6 +2315,7 @@ export default function Home() {
             location={location}
             locationSource={locationSource}
             showElevation={layerVisibility.elevation}
+            showLandcover={layerVisibility.landcover}
             dynamicWeather={dynamicWeather}
             showRoadType={layerVisibility.roadType}
             showRoadSurface={layerVisibility.roadSurface}

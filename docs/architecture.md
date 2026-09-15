@@ -2009,7 +2009,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 ### 静的レイヤー・タイル配信（フロント固定レイヤー＋レジストリ駆動の二次軸ランプレイヤー）
 
 [frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)の
-`MAP_LAYERS`カタログは標高図・道路の種類・路面の種類（T165で「道路情報」から論理分割）・
+`MAP_LAYERS`カタログは標高図・土地被覆・道路の種類・路面の種類（T165で「道路情報」から論理分割）・
 車ストレス・自転車インフラ・指定路線・停止要因POI・補給休憩ポイント（T101）・
 事故（警察庁統計）・ルートの固定レイヤー（旧・安全度レイヤーは改善計画T148で削除）に加え、
 降水ナウキャスト・風（矢印）の2レイヤーが`kind="static"`（選択候補と無関係に常設）・
@@ -2025,7 +2025,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 （道路/環境/スポット、改善計画T406/T418）」節参照）。かつて同じグルーピングを持っていた
 サイドバーの設定パネルは改善計画T769で撤去し、凡例・絞り込みはチップの▶パネルへ移した。
 
-タイル配信は3系統:
+タイル配信の系統:
 
 1. **`road-surface-tiles`**（既存、`ROAD_SURFACE_TILE_VERSION`）: highway・surface_good・
    smoothness・tunnel・bridgeに加え、`designation`・車ストレスの
@@ -2077,7 +2077,18 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    専用リポジトリ`infrastructure/accident_repository.py`が担当し、`region_service.py`とは
    別系統（データソースがOSM派生グラフではなく`accident_points`のため）。
 
-いずれもタイル世代は焼き込みSQLと、そこへあらかじめ束ねた値から導出される
+4. **`GET /api/region/landcover-tiles/{z}/{x}/{y}.png`**（`LANDCOVER_TILE_VERSION`、T886）:
+   土地被覆（Esri×Impact Observatory 10m LULC）のGeoTIFFを、要求されたタイルの範囲だけ
+   読んでWeb Mercatorへ再投影し、クラスごとの色で塗ったPNGラスタ。上のMVT系と違いDBを
+   読まず、VM上のGeoTIFFを直接読む（`infrastructure/landcover_raster.py`、rasterio）。
+   再投影は最近傍で行う——画素値はクラス番号で、平均や補間は存在しないクラスを作る。
+   ラスタ本体はリポジトリに持たず、デプロイが`scripts/fetch_lulc_raster.py`で配布元から
+   取得してVMのディレクトリ（コンテナへは`/app/raster`として読み取り専用でマウント）へ
+   置く。世代は配色レジストリ（`domain/landcover.py: LANDCOVER_CLASSES`）から導出される
+   ため、色やクラス構成を変えれば自動で変わる。年次ラスタの差し替えだけは
+   `cache_identity.py: LANDCOVER_REVISION`を手で上げる（画素は変わるのに形は変わらない）。
+
+DBから焼くタイル（上記のうちPNGラスタ以外）の世代は焼き込みSQLと、そこへあらかじめ束ねた値から導出される
 （`app/infrastructure/cache_identity.py`）ため、プロパティを足す・消す・式を変える・
 分類に使うタグ集合を変えれば自動で変わる。frontendへは`export_openapi.py`が
 書き出す`generated/region-tile-config.json`が届け、ドリフト検知テスト

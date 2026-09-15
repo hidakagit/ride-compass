@@ -8,6 +8,7 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 何が難易度に寄与しているか分からなくなるため（docs/tasks/T624.md「方針転換」参照）。
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Mapping
 
@@ -90,3 +91,51 @@ class WayLandcover(StrictModel):
     algorithm_version: str | None = None
     #: 「値なし」と確定させたときのラスタ構成の指紋（`percentages`がNoneの行でのみ意味を持つ）。
     source_raster_set: str | None = None
+
+
+@dataclass(frozen=True)
+class LandcoverClass:
+    """土地被覆1クラスの表示上の定義。
+
+    ラスタの画素値・`LandcoverPercentages`の割合列・表示名・色を1組で持つ。地図タイルの
+    塗り（`infrastructure/landcover_raster.py`）も、凡例と区間インスペクタの表示名
+    （frontendへは`scripts/export_openapi.py`が`landcover-classes.json`として書き出す）も、
+    このレジストリだけを見る。
+    """
+
+    #: ラスタの画素値。
+    value: int
+    #: `LandcoverPercentages`の対応する割合列の名前。
+    percent_field: str
+    label: str
+    #: 地図へ塗る色。配信元の公式配色をそのまま使わない——建物が鮮やかな赤で、この
+    #: アプリでは赤が「難易度が高い」を表す色として既に使われているため、市街地が
+    #: 常時その色で覆われると他の赤の意味が薄れる。色相は自然な連想（水=青・樹木=緑）を
+    #: 保ちつつ、下の道路・地名が読める彩度に落とす。
+    color: str
+
+
+#: 表示順。割合の大きくなりやすいクラスから並べ、同率のときの並びもこれで決まる。
+#: `LULC_INVALID_VALUES`（No Data・Clouds）は表示対象を持たないため含まない。
+LANDCOVER_CLASSES: tuple[LandcoverClass, ...] = (
+    # 建物は最も広く塗られるクラス（本番の道路周囲の平均で8割を超える）。地図の「地」に
+    # なるため無彩色にし、色を持つ他のクラスが市街地の中でも拾えるようにする。
+    LandcoverClass(LULC_BUILT, "built_percent", "建物", "#9AA0A6"),
+    LandcoverClass(LULC_TREES, "trees_percent", "樹木", "#4C8C4A"),
+    LandcoverClass(LULC_CROPS, "crops_percent", "農地", "#E0C066"),
+    LandcoverClass(LULC_RANGELAND, "rangeland_percent", "草地", "#C3B78F"),
+    LandcoverClass(LULC_WATER, "water_percent", "水面", "#4A7FB5"),
+    LandcoverClass(LULC_FLOODED_VEG, "flooded_veg_percent", "湿地", "#7FB99B"),
+    LandcoverClass(LULC_BARE, "bare_percent", "裸地", "#C4B4A3"),
+    LandcoverClass(LULC_SNOW_ICE, "snow_ice_percent", "雪氷", "#D8E6F0"),
+)
+
+# 地図タイルとして配信するズーム範囲。
+#
+# 上限は元データの分解能（10m画素がz14でほぼ1画素1画素に対応する）で、それ以上は
+# MapLibreが拡大して見せる。下限は読み取りコストではなく見え方で決めている——配布元の
+# GeoTIFFは縮小画像を同梱しており、広い範囲を覆うタイルも間引いて読めば安く作れる
+# （東京付近の1タイルでz6=97ms・z10=30ms・z14=14ms、開発機実測）。ラスタが覆うのは
+# UTMゾーン1枚ぶんで、これより広い表示では面が画面の一部を塗るだけになり読み取れない。
+LANDCOVER_TILE_MIN_ZOOM = 6
+LANDCOVER_TILE_MAX_ZOOM = 14

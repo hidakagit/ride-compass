@@ -34,6 +34,11 @@ POI_REVISION = "4"
 # 事故タイル。上と同じ運用。
 ACCIDENT_REVISION = "1"
 
+# 土地被覆ラスタタイル。配色・クラス構成の変化は署名側（`LANDCOVER_CLASSES`）が捕まえる。
+# ここを上げるのは、同じ配色のまま元のGeoTIFFを別の年次・別の版へ差し替えたとき
+# （画素が変わるのにURLが変わらないため）。
+LANDCOVER_REVISION = "1"
+
 # Road Graph探索用の材料（`EdgeMaterialTable`・`SearchMaterials`）はここにリビジョンを持たない。
 # 形の署名だけで鍵を作り、中身の作り直しはDBの`derived_data_meta.revision`が表す
 # （`graph_material_cache.sync_disk_cache_with_derived_data_revision`）。バッチの実行は

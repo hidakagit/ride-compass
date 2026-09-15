@@ -546,6 +546,8 @@
   height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
+  /* パネルの地色に近い色（土地被覆の裸地・雪氷等）でも輪郭が残るようにする。 */
+  border: 1px solid var(--color-border-strong);
 }
 
 /* 改善計画T374: はみ出した分のページ送りボタン（▲▼、MapOverlayControls.tsx参照）。

@@ -99,6 +99,9 @@ _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/region/road-surface-tiles/", BATCH_TILE),
     ("/api/region/accident-tiles/", BATCH_TILE),
     ("/api/region/poi-tiles/", BATCH_TILE),
+    # 年次のラスタをそのまま塗ったもの。差し替えはURLの世代（cache_identity.py:
+    # LANDCOVER_REVISION）を上げて行うため、同じURLの内容は変わらない。
+    ("/api/region/landcover-tiles/", PERMANENT),
     ("/api/region/dynamic-way-values/", SHORT),
     # カタログ・設定
     ("/api/axis-catalog", LIVE),

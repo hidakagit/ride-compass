@@ -673,6 +673,62 @@
         }
       }
     },
+    "/api/region/landcover-tiles/{z}/{x}/{y}.png": {
+      "get": {
+        "summary": "Region Landcover Tile",
+        "description": "土地被覆ラスタ（Esri×Impact Observatory 10m LULC）をそのまま面で塗ったラスタタイル。\n\nDBを読まないため`_region_tile_semaphore`（DB接続プールの取り合いを抑えるもの）には\n乗せず、CPU/ディスクI/Oの上限は`landcover_tile_max_concurrent`の専用semaphoreで持つ。",
+        "operationId": "region_landcover_tile_api_region_landcover_tiles__z___x___y__png_get",
+        "parameters": [
+          {
+            "name": "z",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Z"
+            }
+          },
+          {
+            "name": "x",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "X"
+            }
+          },
+          {
+            "name": "y",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Y"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}": {
       "get": {
         "summary": "Region Dedicated Way Values",

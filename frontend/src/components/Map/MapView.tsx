@@ -26,9 +26,12 @@ import type {
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import {
+  LANDCOVER_TILE_MAX_ZOOM,
+  LANDCOVER_TILE_MIN_ZOOM,
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
+  landcoverTileUrl,
   poiTileUrl,
   roadSurfaceTileUrl,
 } from "@/services/regionApi";
@@ -226,9 +229,15 @@ const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 // 面は「どこか」を示すもので、下の道路・地名が読めなくなると経路の判断ができない。
 // 濃さはレイヤーごとに決めず1つの値を共有する——面が重なったときの濃さは重なりの数で
 // 決まるべきで、レイヤーごとの主張の強さで決まると、何が上に乗っているかを読めなくなる。
-const AREA_LAYER_OPACITY = 0.4;
+const AREA_LAYER_OPACITY = 0.32;
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
+const LANDCOVER_SOURCE_ID = "landcover";
+const LANDCOVER_LAYER_ID = "landcover-raster";
+// 土地被覆ラスタの帰属表示。路面タイルへ焼き込んだ割合（ROAD_TILE_ATTRIBUTION）と同じ
+// 出典だが、こちらはソースが別のため独立して出す必要がある。
+const LANDCOVER_ATTRIBUTION =
+  '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)';
 // 動的気象レイヤー（風・降水）のsource/layer id。要素id×ソース×描画方式（raster/fill/
 // mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
 // ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
@@ -398,6 +407,31 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
       id: GSI_RELIEF_LAYER_ID,
       type: "raster",
       source: GSI_RELIEF_SOURCE_ID,
+      paint: { "raster-opacity": AREA_LAYER_OPACITY },
+      layout: { visibility: "none" },
+    });
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+// 土地被覆ラスタ。標高図と同じ「地域に固定・時間で変わらない面」で、登録も同じく一度だけ
+// 行いvisibilityの切替で表示・非表示する。元データの分解能を超えるズームはMapLibreが
+// 拡大して見せる（maxzoomより上を要求しない）。
+function ensureLandcoverLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (map.getSource(LANDCOVER_SOURCE_ID)) return;
+    map.addSource(LANDCOVER_SOURCE_ID, {
+      type: "raster",
+      tiles: [landcoverTileUrl()],
+      tileSize: 256,
+      minzoom: LANDCOVER_TILE_MIN_ZOOM,
+      maxzoom: LANDCOVER_TILE_MAX_ZOOM,
+      attribution: LANDCOVER_ATTRIBUTION,
+    });
+    map.addLayer({
+      id: LANDCOVER_LAYER_ID,
+      type: "raster",
+      source: LANDCOVER_SOURCE_ID,
       paint: { "raster-opacity": AREA_LAYER_OPACITY },
       layout: { visibility: "none" },
     });
@@ -1442,6 +1476,7 @@ export function buildStaticOverlayLayers(
   return [
     // ラスタタイルのため地物クリック判定が効かない。
     { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer, interactive: false },
+    { key: "landcover", layerId: LANDCOVER_LAYER_ID, ensure: ensureLandcoverLayer, interactive: false },
     ...axisOverlayLayers,
     {
       key: "designation",
@@ -1520,6 +1555,7 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
+    { key: "landcover", sourceId: LANDCOVER_SOURCE_ID },
     // 二次軸rampレイヤー（car_stressを含む）はroad_surfaceタイルへ
     // 焼き込み済みのプロパティを読む（designation等と同じソース共有。
     // ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
@@ -1825,6 +1861,7 @@ interface MapViewProps {
    * どちらも「意図した位置」という点で同格のため、赤で区別しない。 */
   locationSource: LocationSource;
   showElevation: boolean;
+  showLandcover: boolean;
   /** 動的気象レイヤー。要素id（DynamicWeatherLayerId）ごとに、ソースキー→ON/OFFと
    * page.tsx側が各要素のデータ層関数（precipitationRenderPayload/windRenderPayload）から
    * 計算した「選択中の共有時刻に対応するペイロード」を渡す。payloadが未定（フェッチ未完了・
@@ -2029,6 +2066,7 @@ export type RedrawAllLayersProps = Pick<
   | "spliceStretches"
   | "splicedRoute"
   | "showElevation"
+  | "showLandcover"
   | "dynamicWeather"
   | "showRoadType"
   | "showRoadSurface"
@@ -2078,6 +2116,7 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     spliceStretches,
     splicedRoute,
     showElevation,
+    showLandcover,
     dynamicWeather,
     showRoadType,
     showRoadSurface,
@@ -2103,6 +2142,7 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     map,
     {
       elevation: showElevation,
+      landcover: showLandcover,
       designation: showDesignation,
       tunnel: showTunnel,
       oneway: showOneway,
@@ -2185,6 +2225,7 @@ export default function MapView({
   location,
   locationSource,
   showElevation,
+  showLandcover,
   dynamicWeather,
   showRoadType,
   showRoadSurface,
@@ -2346,6 +2387,7 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
+    showLandcover,
     dynamicWeather,
     showRoadType,
     showRoadSurface,
@@ -2435,6 +2477,7 @@ export default function MapView({
       routeStyleModeId,
       hiddenRouteLegendKeys,
       showElevation,
+      showLandcover,
       dynamicWeather,
       showRoadType,
       showRoadSurface,
@@ -2464,6 +2507,7 @@ export default function MapView({
     routeStyleModeId,
     hiddenRouteLegendKeys,
     showElevation,
+    showLandcover,
     dynamicWeather,
     showRoadType,
     showRoadSurface,
@@ -2501,6 +2545,7 @@ export default function MapView({
   const getLayerVisibility = useCallback(() => {
     const {
       showElevation,
+      showLandcover,
       showRoadType,
       showRoadSurface,
       showDesignation,
@@ -2513,6 +2558,7 @@ export default function MapView({
     } = redrawPropsRef.current;
     return {
       elevation: showElevation,
+      landcover: showLandcover,
       roadType: showRoadType,
       roadSurface: showRoadSurface,
       designation: showDesignation,
@@ -3157,6 +3203,7 @@ export default function MapView({
       map,
       {
         elevation: showElevation,
+        landcover: showLandcover,
         designation: showDesignation,
         tunnel: showTunnel,
         oneway: showOneway,
@@ -3174,6 +3221,7 @@ export default function MapView({
     recomputeLayerDataStatus();
   }, [
     showElevation,
+    showLandcover,
     showDesignation,
     showTunnel,
     showOneway,

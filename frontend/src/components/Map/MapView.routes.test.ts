@@ -363,6 +363,7 @@ describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
       spliceStretches: undefined,
       splicedRoute: null,
       showElevation: false,
+      showLandcover: false,
       dynamicWeather: {},
       showRoadType: false,
       showRoadSurface: false,

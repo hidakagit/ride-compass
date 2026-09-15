@@ -18,8 +18,13 @@ cachetools==7.1.7
 # 容量上限・退避・複数プロセスからの共有をライブラリ側が持つ。
 diskcache==5.6.3
 # JMAタイルの奇数ズーム補間（infrastructure/jma_tile_interpolation.py）で親タイルを
-# 切り出して拡大するために使う。
+# 切り出して拡大するために使う。土地被覆ラスタタイル（infrastructure/landcover_raster.py）の
+# PNG書き出しも使う。
 pillow==12.3.0
+# 土地被覆ラスタ（GeoTIFF）の読み取り・再投影。バッチ（precompute_way_landcover.py）と
+# 地図タイル配信（infrastructure/landcover_raster.py）の両方が使うため本体側に置く。
+# wheelがGDAL/PROJを同梱しており、本番VM（ARM64）でもビルドなしで入る。
+rasterio==1.5.1
 # 気象庁MSMの前処理済みデータ（Open-Meteoが公開する.om形式）を読む公式リーダー。
 # infrastructure/msm_client.pyが使う。
 omfiles==1.2.0

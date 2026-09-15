@@ -31,6 +31,7 @@ import {
   AxisRampIcon,
   DesignationIcon,
   ElevationIcon,
+  LandcoverIcon,
   EnvironmentDataIcon,
   InfoIcon,
   RaindropIcon,
@@ -133,6 +134,7 @@ function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
 // 縦並びで表示する（文字だけのチップはスペースを圧迫するため）。
 const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement> = {
   elevation: ElevationIcon,
+  landcover: LandcoverIcon,
   roadType: RoadIcon,
   roadSurface: RoadSurfaceIcon,
   designation: DesignationIcon,

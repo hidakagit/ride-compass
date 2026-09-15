@@ -11,13 +11,21 @@ from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse
 
 
-def validate_tile_coords(z: int, x: int, y: int) -> None:
-    """路面・POI・事故タイルで共通のズーム/座標範囲チェック
-    （POI・事故タイルも路面レイヤーと同じズーム範囲に準拠する）。
+def validate_tile_coords(
+    z: int,
+    x: int,
+    y: int,
+    min_zoom: int = ROAD_TILE_MIN_ZOOM,
+    max_zoom: int = ROAD_TILE_MAX_ZOOM,
+) -> None:
+    """地域タイルで共通のズーム/座標範囲チェック。
+
+    既定は路面レイヤーのズーム範囲（POI・事故タイルもこれに準拠する）。元データの分解能が
+    違うレイヤー（土地被覆ラスタ）は自分の範囲を渡す。
     """
-    # MapLibre側もvector sourceのminzoom/maxzoomでこの範囲外は要求しないが、
+    # MapLibre側もsourceのminzoom/maxzoomでこの範囲外は要求しないが、
     # 直接APIを叩かれた場合の安全弁として範囲外は拒否する。
-    if z < ROAD_TILE_MIN_ZOOM or z > ROAD_TILE_MAX_ZOOM:
+    if z < min_zoom or z > max_zoom:
         raise HTTPException(status_code=400, detail="対応していないズームレベルです。")
     # x/yがそのズームレベルで存在しうる範囲（0 <= x,y < 2**z）を外れると、
     # domain/region.pyのtile_bounds_lonlatがmath.sinhでOverflowErrorを送出しうるため、
@@ -27,7 +35,7 @@ def validate_tile_coords(z: int, x: int, y: int) -> None:
         raise HTTPException(status_code=400, detail="タイル座標が範囲外です。")
 
 
-def tile_response(tile: TileResponse) -> Response:
+def tile_response(tile: TileResponse, media_type: str = MVT_CONTENT_TYPE) -> Response:
     """タイル応答を組み立てる。
 
     通常は`api/cache_policy.py`の対応表（`BATCH_TILE`）がミドルウェアで`Cache-Control`を
@@ -35,4 +43,4 @@ def tile_response(tile: TileResponse) -> Response:
     利用者のブラウザへ1時間残らないようにする（`TileResponse`のdocstring参照）。
     """
     headers = None if tile.cacheable else {"Cache-Control": "no-store"}
-    return Response(content=tile.content, media_type=MVT_CONTENT_TYPE, headers=headers)
+    return Response(content=tile.content, media_type=media_type, headers=headers)

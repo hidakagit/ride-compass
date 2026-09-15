@@ -3,5 +3,4 @@
 # requirements.txtとは分離している（バッチはデプロイ対象外。docs/osm-pbf-import.md参照）。
 -r requirements.txt
 osmium==4.1.1
-rasterio==1.5.1
 pyproj==3.7.2

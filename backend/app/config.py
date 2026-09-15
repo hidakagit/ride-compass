@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     # 1タイルあたりのクエリコストも低いため、road_tileよりやや緩い上限にしている。
     accident_tile_rate_limit_per_minute: int = 120
     accident_tile_max_concurrent: int = 6
+    # 土地被覆ラスタタイル。DBを読まず、GeoTIFFの読み取り・再投影（GDAL）をスレッドプールで
+    # 行うため、律速はDB接続ではなくCPUとディスクI/Oになる。`asyncio.to_thread`の既定
+    # スレッドプールを1画面ぶんのタイルで埋めないよう、DB向けのタイル上限とは別に持つ。
+    landcover_tile_max_concurrent: int = 4
     # 地図タイル閲覧起点の道路グラフ構築（RegionService._maybe_trigger_graph_build）。
     # closure再計算・Edge全量再UPSERTを伴う重い処理（数十秒〜数分規模）で、DBセッションを
     # 長時間保持する。road_tile_max_concurrent(6)+accident_tile_max_concurrent(6)で
@@ -177,8 +181,9 @@ class Settings(BaseSettings):
     # 1列だけで、間隔を詰めても重くはならない。
     derived_data_revision_check_interval_seconds: float = 300.0
 
-    # 土地被覆バッチ（app/batch/precompute_way_landcover.py）が読むEsri×Impact
-    # Observatory LULCのGeoTIFFファイルパス（カンマ区切り、複数ゾーン対応）。
+    # Esri×Impact Observatory LULCのGeoTIFFファイルパス（カンマ区切り、複数ゾーン対応）。
+    # 土地被覆バッチ（app/batch/precompute_way_landcover.py）と地図タイル配信
+    # （infrastructure/landcover_raster.py）が同じファイルを読む。
     # ラスタ自体はリポジトリにコミットせず手動取得する（docs/disaster-recovery.md参照）ため
     # .envでのみ設定する。空文字列（未設定）はrefresh_derived.py経由の実行時のみ
     # フェイルファストの対象になる（バッチを直接`--raster`引数付きで呼ぶ場合は無関係）。

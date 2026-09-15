@@ -9,6 +9,8 @@ from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_dedicated_way_values
 from app.domain.axis_inspector import AxisInspectorResult
+from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
+from app.services.landcover_tile_service import PNG_CONTENT_TYPE, get_landcover_tile
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -29,11 +31,17 @@ router = APIRouter()
 # 合計がプール上限を超えうる）。
 _region_tile_semaphore = asyncio.Semaphore(settings.road_tile_max_concurrent)
 
+# 土地被覆タイルの同時実行上限。DBではなくGeoTIFFの読み取り・再投影（GDAL、スレッドプール）を
+# 使うため、上のDB向けsemaphoreとは別に持つ。上限を設けないと、1画面ぶんのタイル要求が
+# `asyncio.to_thread`の既定スレッドプールを占有し、同じプールを使う他のディスクI/O
+# （タイルキャッシュの読み書き）まで待たされる。
+_landcover_tile_semaphore = asyncio.Semaphore(settings.landcover_tile_max_concurrent)
+
 
 def _check_tile_rate_limit(request: Request, prefix: str) -> None:
-    """路面・POIタイル向けの`enforce_rate_limit`薄いラッパー。両タイルとも同じ
-    上限値（settings.road_tile_rate_limit_per_minute）を使うが、キー・記録先の
-    `prefix`は種別ごとに分ける。
+    """地域タイル向けの`enforce_rate_limit`の薄いラッパー。どれも「パン/ズームのたびに
+    1画面ぶんが飛ぶ」同じ負荷の形のため同じ上限値（settings.road_tile_rate_limit_per_minute）
+    を使うが、キー・記録先の`prefix`は種別ごとに分ける。
     """
     enforce_rate_limit(request, prefix, settings.road_tile_rate_limit_per_minute)
 
@@ -75,6 +83,22 @@ async def region_poi_tile(
     async with _region_tile_semaphore:
         tile = await region_service.get_poi_tile(z, x, y)
     return tile_response(tile)
+
+
+@router.get("/api/region/landcover-tiles/{z}/{x}/{y}.png")
+async def region_landcover_tile(z: int, x: int, y: int, request: Request) -> Response:
+    """土地被覆ラスタ（Esri×Impact Observatory 10m LULC）をそのまま面で塗ったラスタタイル。
+
+    DBを読まないため`_region_tile_semaphore`（DB接続プールの取り合いを抑えるもの）には
+    乗せず、CPU/ディスクI/Oの上限は`landcover_tile_max_concurrent`の専用semaphoreで持つ。
+    """
+    _check_tile_rate_limit(request, "landcover-tile")
+    validate_tile_coords(z, x, y, LANDCOVER_TILE_MIN_ZOOM, LANDCOVER_TILE_MAX_ZOOM)
+    async with _landcover_tile_semaphore:
+        tile = await get_landcover_tile(z, x, y)
+    if tile is None:
+        raise HTTPException(status_code=503, detail="土地被覆データが利用できません")
+    return tile_response(tile, PNG_CONTENT_TYPE)
 
 
 @router.get("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}")

@@ -327,6 +327,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/region/landcover-tiles/{z}/{x}/{y}.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Landcover Tile
+         * @description 土地被覆ラスタ（Esri×Impact Observatory 10m LULC）をそのまま面で塗ったラスタタイル。
+         *
+         *     DBを読まないため`_region_tile_semaphore`（DB接続プールの取り合いを抑えるもの）には
+         *     乗せず、CPU/ディスクI/Oの上限は`landcover_tile_max_concurrent`の専用semaphoreで持つ。
+         */
+        get: operations["region_landcover_tile_api_region_landcover_tiles__z___x___y__png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}": {
         parameters: {
             query?: never;
@@ -2787,6 +2810,39 @@ export interface operations {
         };
     };
     region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    region_landcover_tile_api_region_landcover_tiles__z___x___y__png_get: {
         parameters: {
             query?: never;
             header?: never;
