@@ -65,12 +65,7 @@ describe("spliceEdgeIds", () => {
   });
 
   it("1区間だけ差し替える", () => {
-    expect(spliceEdgeIds(["a", "b", "c"], ["a", "x", "y", "c"], [{ start: 1, end: 2 }])).toEqual([
-      "a",
-      "x",
-      "y",
-      "c",
-    ]);
+    expect(spliceEdgeIds(["a", "b", "c"], ["a", "x", "y", "c"], [{ start: 1, end: 2 }])).toEqual(["a", "x", "y", "c"]);
   });
 
   it("複数の区間を差し替えても位置がずれない", () => {
@@ -140,43 +135,43 @@ describe("insertByDifficulty", () => {
   it("難易度順の正しい位置へ差し込む", () => {
     const routes = [route(20), route(30), route(40)];
 
-    expect(insertByDifficulty(routes, route(35)).map((r) => r.overall_difficulty)).toEqual([
-      20, 30, 35, 40,
-    ]);
+    expect(insertByDifficulty(routes, route(35)).map((r) => r.overall_difficulty)).toEqual([20, 30, 35, 40]);
   });
 
   it("最も易しければ先頭へ", () => {
-    expect(
-      insertByDifficulty([route(20), route(30)], route(10)).map((r) => r.overall_difficulty),
-    ).toEqual([10, 20, 30]);
+    expect(insertByDifficulty([route(20), route(30)], route(10)).map((r) => r.overall_difficulty)).toEqual([
+      10, 20, 30,
+    ]);
   });
 
   it("先頭固定の基準線は追い越さない", () => {
     // 基準線は難易度順の外にある。追い越すと基準として読めなくなる
     const routes = [route(50, true), route(20), route(30)];
 
-    expect(insertByDifficulty(routes, route(10)).map((r) => r.overall_difficulty)).toEqual([
-      50, 10, 20, 30,
-    ]);
+    expect(insertByDifficulty(routes, route(10)).map((r) => r.overall_difficulty)).toEqual([50, 10, 20, 30]);
   });
 
   it("算出不能（null）の候補より前に入る", () => {
-    expect(
-      insertByDifficulty([route(20), route(null)], route(30)).map((r) => r.overall_difficulty),
-    ).toEqual([20, 30, null]);
+    expect(insertByDifficulty([route(20), route(null)], route(30)).map((r) => r.overall_difficulty)).toEqual([
+      20,
+      30,
+      null,
+    ]);
   });
 
   it("算出不能な合成結果は末尾へ", () => {
-    expect(
-      insertByDifficulty([route(20), route(30)], route(null)).map((r) => r.overall_difficulty),
-    ).toEqual([20, 30, null]);
+    expect(insertByDifficulty([route(20), route(30)], route(null)).map((r) => r.overall_difficulty)).toEqual([
+      20,
+      30,
+      null,
+    ]);
   });
 
   it("小数1桁で比較する（backendの規約と同じ）", () => {
     // 20.04と20.0は同点扱い。安定な差し込みで既存候補の後ろへ置く
-    expect(
-      insertByDifficulty([route(20.0), route(21.0)], route(20.04)).map((r) => r.overall_difficulty),
-    ).toEqual([20.0, 20.04, 21.0]);
+    expect(insertByDifficulty([route(20.0), route(21.0)], route(20.04)).map((r) => r.overall_difficulty)).toEqual([
+      20.0, 20.04, 21.0,
+    ]);
   });
 
   it("候補が1本も無くても差し込める", () => {
@@ -225,10 +220,13 @@ describe("stretchAlternativeGroups", () => {
   });
 
   it("重なる範囲の代替は同じグループへ入れる（両方差し替えると経路が壊れるため）", () => {
-    const groups = stretchAlternativeGroups(["s", "a1", "a2", "a3", "e"], [
-      { id: "c1", edgeIds: ["s", "b1", "a3", "e"] },
-      { id: "c2", edgeIds: ["s", "a1", "c1", "e"] },
-    ]);
+    const groups = stretchAlternativeGroups(
+      ["s", "a1", "a2", "a3", "e"],
+      [
+        { id: "c1", edgeIds: ["s", "b1", "a3", "e"] },
+        { id: "c2", edgeIds: ["s", "a1", "c1", "e"] },
+      ],
+    );
 
     expect(groups).toHaveLength(1);
     expect(groups[0].stretch).toEqual({ start: 1, end: 4 });
@@ -246,11 +244,14 @@ describe("splitPairedStretch", () => {
   const base = {
     coordinates: [at(0), at(1), at(2), at(3)],
     edgePointOffsets: [0, 1, 2, 3],
+    nodeIds: ["n0", "n1", "n2", "n3"],
   };
   const target = {
     // 途中は別の道（経度が違う）だが、1.0km地点・2.0km地点では元と同じ座標を通る。
     coordinates: [at(0), at(1), detour(1.5), at(2), at(3)],
     edgePointOffsets: [0, 1, 3, 4],
+    // 途中は別の道でも、通るNodeは元と同じn0・n1・n2・n3。
+    nodeIds: ["n0", "n1", "n2", "n3"],
   };
   const cumulative = [0, 1, 2, 3];
   const whole = { displayed: { start: 0, end: 3 }, target: { start: 0, end: 3 } };
@@ -275,15 +276,14 @@ describe("splitPairedStretch", () => {
     const apart = {
       coordinates: [at(0), detour(1), detour(2), at(3)],
       edgePointOffsets: [0, 1, 2, 3],
+      nodeIds: ["n0", "d1", "d2", "n3"],
     };
 
     expect(splitPairedStretch(base, apart, whole, 0.2, cumulative)).toEqual([whole]);
   });
 
   it("座標を持たない候補では割らない（グループの作りは従来どおり）", () => {
-    const groups = stretchAlternativeGroups(["s", "a1", "a2", "e"], [
-      { id: "c1", edgeIds: ["s", "b1", "b2", "e"] },
-    ]);
+    const groups = stretchAlternativeGroups(["s", "a1", "a2", "e"], [{ id: "c1", edgeIds: ["s", "b1", "b2", "e"] }]);
 
     expect(groups).toHaveLength(1);
     expect(groups[0].stretch).toEqual({ start: 1, end: 3 });
@@ -295,7 +295,11 @@ describe("splitPairedStretch", () => {
       baseEdgeIds,
       [
         { id: "c1", edgeIds: ["x0", "x1", "x2"], shape: target },
-        { id: "c2", edgeIds: ["y0", "y1", "y2"], shape: { coordinates: base.coordinates, edgePointOffsets: base.edgePointOffsets } },
+        {
+          id: "c2",
+          edgeIds: ["y0", "y1", "y2"],
+          shape: { coordinates: base.coordinates, edgePointOffsets: base.edgePointOffsets, nodeIds: base.nodeIds },
+        },
       ],
       { baseShape: base, minSplitLengthKm: 0.2 },
     );
@@ -311,19 +315,65 @@ describe("splitPairedStretch", () => {
   });
 });
 
+// 乗り換えは共有地点でしか起きないため、差し替えた先が元の経路の別の場所へ触れると
+// 「一度通った地点へ戻る」列ができる。backendは連結性しか見ない（走れはするので経路として
+// 成立しないわけではない）ので、選択肢として出さない側で止める（docs/tasks/T843.md）。
+describe("stretchAlternativeGroups の折り返し除外", () => {
+  const p2 = (lat: number): GeoJSON.Position => [139.7, lat];
+  const base = {
+    coordinates: [p2(35.7), p2(35.71), p2(35.72), p2(35.73)],
+    edgePointOffsets: [0, 1, 2, 3],
+    nodeIds: ["n0", "n1", "n2", "n3"],
+  };
+
+  it("差し替えた先が元の別の地点へ戻る代替は出さない", () => {
+    // 相手はn0→n1の区間を、元が後で通るn2を経由して進む＝当てるとn2を2度通る。
+    const foldback = {
+      coordinates: [p2(35.7), p2(35.72), p2(35.71)],
+      edgePointOffsets: [0, 1, 2],
+      nodeIds: ["n0", "n2", "n1"],
+    };
+    const groups = stretchAlternativeGroups(
+      ["e0", "e1", "e2"],
+      [{ id: "c1", edgeIds: ["f0", "f1", "e2"], shape: foldback }],
+      { baseShape: base, minSplitLengthKm: 0.2 },
+    );
+
+    expect(groups).toEqual([]);
+  });
+
+  it("元と触れない別の道なら、これまでどおり選択肢になる", () => {
+    const apart = {
+      coordinates: [p2(35.7), [139.71, 35.705] as GeoJSON.Position, p2(35.72), p2(35.73)],
+      edgePointOffsets: [0, 1, 2, 3],
+      nodeIds: ["n0", "x1", "n2", "n3"],
+    };
+    const groups = stretchAlternativeGroups(
+      ["e0", "e1", "e2"],
+      [{ id: "c1", edgeIds: ["g0", "g1", "e2"], shape: apart }],
+      { baseShape: base, minSplitLengthKm: 0.2 },
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].options[0].edgeIds).toEqual(["g0", "g1"]);
+  });
+});
+
 // 乗り換えた後も「いまの組み合わせ」を元に次の区間を計算するため、合成中のルートの形
 // （Edge列＋座標＋Edge境界）をフロントで組む（docs/tasks/T843.md）。
 describe("buildSplicedShape", () => {
   const p = (lat: number): GeoJSON.Position => [139.7, lat];
   const base = {
     edgeIds: ["e0", "e1", "e2"],
-    coordinates: [p(35.70), p(35.71), p(35.72), p(35.73)],
+    coordinates: [p(35.7), p(35.71), p(35.72), p(35.73)],
     edgePointOffsets: [0, 1, 2, 3],
+    nodeIds: ["n0", "n1", "n2", "n3"],
   };
   // 真ん中のEdgeだけ、2点を経由する別の道へ差し替える候補
   const detour = {
-    coordinates: [p(35.70), p(35.71), [139.71, 35.715] as GeoJSON.Position, p(35.72), p(35.73)],
+    coordinates: [p(35.7), p(35.71), [139.71, 35.715] as GeoJSON.Position, p(35.72), p(35.73)],
     edgePointOffsets: [0, 1, 2, 3, 4],
+    nodeIds: ["n0", "n1", "x1", "n2", "n3"],
   };
 
   it("差し替えた先の座標とEdge境界をつなぎ直す", () => {
@@ -366,11 +416,11 @@ describe("buildSplicedShape", () => {
   });
 
   it("座標を持たない候補でも、Edge列は差し替わる（区間の割り直しはできないだけ）", () => {
-    const flat = { edgeIds: ["e0", "e1", "e2"], coordinates: [], edgePointOffsets: [] };
+    const flat = { edgeIds: ["e0", "e1", "e2"], coordinates: [], edgePointOffsets: [], nodeIds: [] };
     const shaped = buildSplicedShape(
       flat,
       [{ candidateId: "d", stretch: { start: 1, end: 2 }, targetStretch: { start: 0, end: 1 }, edgeIds: ["d1"] }],
-      () => ({ coordinates: [], edgePointOffsets: [] }),
+      () => ({ coordinates: [], edgePointOffsets: [], nodeIds: [] }),
     );
 
     expect(shaped.edgeIds).toEqual(["e0", "d1", "e2"]);
@@ -390,9 +440,7 @@ describe("buildSplicedShape", () => {
 describe("spliceEdgeIdsFromAlternatives", () => {
   it("選んだ代替を差し替える（後ろから適用するので位置がずれない）", () => {
     const base = ["s", "a1", "m", "a2", "e"];
-    const groups = stretchAlternativeGroups(base, [
-      { id: "c1", edgeIds: ["s", "b1", "m", "b2", "e"] },
-    ]);
+    const groups = stretchAlternativeGroups(base, [{ id: "c1", edgeIds: ["s", "b1", "m", "b2", "e"] }]);
     const chosen = groups.map((group) => group.options[0]);
 
     expect(spliceEdgeIdsFromAlternatives(base, chosen)).toEqual(["s", "b1", "m", "b2", "e"]);

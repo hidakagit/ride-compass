@@ -1722,13 +1722,20 @@ class RoadGraphEngine:
         )
         return TracedLoop(bearing=turnaround.bearing, distance_km=distance_km, data=edge_ids, leg_of_edge=leg_of_edge)
 
-    def build_traced_from_edge_ids(self, context: _RoadGraphContext, edge_ids: list[str]) -> TracedLoop:
+    def build_traced_from_edge_ids(
+        self, context: _RoadGraphContext, edge_ids: list[str], destination: Coordinates | None = None,
+    ) -> TracedLoop:
         """クライアントが組み立てたEdge id列を、評価できる経路として検証して`TracedLoop`にする。
 
         区間の乗り換え（docs/tasks/T621.md）で使う。フロントは候補の`edge_ids`から
         「Aの前半＋Bの後半」を作って送り返すため、**このグラフに実在し・順につながり・
-        起点から始まる**ことをここで確かめる（送られた列をそのまま信じると、評価は成功する
-        のに経路として成立しないルートが候補一覧へ並ぶ）。
+        起点から始まり・目的地へ着く**ことをここで確かめる（送られた列をそのまま信じると、
+        評価は成功するのに経路として成立しないルートが候補一覧へ並ぶ）。
+
+        終点は`destination`を渡したときだけ見る。起点と同じ`find_nearest_node_indexed`で
+        解くため、比べる相手は元の候補が実際に終わったNodeになる——目的地がメインの
+        道路網から孤立していてbackendが補正した場合、フロントは補正後の地点を条件として
+        持ち直しており（`page.tsx`の`corrected_destination`）、合成もその地点で送られる。
 
         レグはこの経路自身の距離の半分で切る。合成経路はvia-nodeを持たないため前向き木・
         後ろ向き木の境目が無く、レグが表す「走り始めの時刻帯／走り終わりの時刻帯」の
@@ -1754,6 +1761,13 @@ class RoadGraphEngine:
                 raise RoutingError(
                     f"経路がつながっていません index={index} "
                     f"to_node={current.to_node_id} next_from_node={following.from_node_id}"
+                )
+        if destination is not None:
+            destination_node = find_nearest_node_indexed(context.node_index, destination)
+            if destination_node is not None and edges[-1].to_node_id != destination_node:
+                raise RoutingError(
+                    f"経路が目的地に着いていません expected={destination_node} "
+                    f"actual={edges[-1].to_node_id}"
                 )
 
         total_m = sum(edge.distance_m for edge in edges)
@@ -1931,6 +1945,10 @@ class RoadGraphEngine:
             geometry=geometry,
             edge_ids=[edge.edge_id for edge in edges_in_path],
             edge_point_offsets=edge_point_offsets,
+            node_ids=(
+                [edges_in_path[0].from_node_id, *(edge.to_node_id for edge in edges_in_path)]
+                if edges_in_path else []
+            ),
             segments=segments,
             material_category_shares=material_category_shares,
             estimated_duration_seconds=self._estimate_duration_seconds(context, edges_in_path, leg_of_edge),

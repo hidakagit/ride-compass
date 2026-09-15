@@ -4335,6 +4335,13 @@
             "type": "array",
             "title": "Edge Point Offsets"
           },
+          "node_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Node Ids"
+          },
           "is_fastest": {
             "type": "boolean",
             "title": "Is Fastest",

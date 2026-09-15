@@ -1877,6 +1877,8 @@ export interface components {
             edge_ids?: string[];
             /** Edge Point Offsets */
             edge_point_offsets?: number[];
+            /** Node Ids */
+            node_ids?: string[];
             /**
              * Is Fastest
              * @default false

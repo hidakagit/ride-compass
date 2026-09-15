@@ -796,6 +796,7 @@ export default function Home() {
         shape: {
           coordinates: route.geometry.coordinates as GeoJSON.Position[],
           edgePointOffsets: route.edge_point_offsets,
+          nodeIds: route.node_ids,
         },
       })),
     [routes],
@@ -810,6 +811,7 @@ export default function Home() {
         edgeIds: editingRoute.edge_ids,
         coordinates: editingRoute.geometry.coordinates as GeoJSON.Position[],
         edgePointOffsets: editingRoute.edge_point_offsets,
+        nodeIds: editingRoute.node_ids,
       },
       appliedAlternatives,
       shapeOf,

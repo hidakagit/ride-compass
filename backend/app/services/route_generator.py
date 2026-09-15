@@ -39,9 +39,9 @@
   `TracedLoop.data`の中身を知らないため、どの候補がどの`TracedLoop`由来かを位置以外で
   突き合わせられない（`_generate_destination_routes`が最短経路へ印を付けるのに使う）。
   契約は`RouteGenerator._evaluate_and_aggregate`が件数で検査する
-- `build_traced_from_edge_ids(context, edge_ids)`: クライアントが組み立てたEdge id列を、
+- `build_traced_from_edge_ids(context, edge_ids, destination)`: クライアントが組み立てたEdge id列を、
   このグラフで評価できる経路として検証して`TracedLoop`にする（区間の乗り換え、
-  docs/tasks/T621.md）。実在・連結・起点の確認はグラフを知るエンジンの責務で、
+  docs/tasks/T621.md）。実在・連結・起点・終点の確認はグラフを知るエンジンの責務で、
   成立しない列は`RoutingError`で落とす
 - `is_loop_too_similar(context, candidate, accepted)`: `candidate`が`accepted`
   （距離フィルタ・本判定を既に通過した候補群）のいずれかと、周回全体（往路＋復路、
@@ -487,7 +487,7 @@ class RouteGenerator:
             )
             return []
 
-        traced = self._engine.build_traced_from_edge_ids(context, edge_ids)
+        traced = self._engine.build_traced_from_edge_ids(context, edge_ids, destination)
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)

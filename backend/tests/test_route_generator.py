@@ -70,6 +70,7 @@ class FakeEngine:
         # build_traced_from_edge_idsが送られた列を成立しないと判定した体を取るテスト用。
         self._build_traced_error = build_traced_error
         self.build_traced_calls: list[list[str]] = []
+        self.build_traced_destinations: list[object] = []
         self.prepare_calls: list[tuple[Coordinates, float]] = []
         self.prepare_waypoints: list[Coordinates] | None = None
         self.select_calls: list[tuple[float, float, int]] = []
@@ -139,8 +140,9 @@ class FakeEngine:
             for t in traced
         ]
 
-    def build_traced_from_edge_ids(self, context, edge_ids):
+    def build_traced_from_edge_ids(self, context, edge_ids, destination=None):
         self.build_traced_calls.append(edge_ids)
+        self.build_traced_destinations.append(destination)
         if self._build_traced_error is not None:
             raise self._build_traced_error
         return TracedLoop(bearing=None, distance_km=len(edge_ids) * 1.0, data=list(edge_ids))

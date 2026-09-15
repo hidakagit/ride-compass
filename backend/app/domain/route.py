@@ -132,6 +132,12 @@ class RouteCandidate(StrictModel):
     # できない。Edge単位で決めた区間を地図へ帯として描くのに使う
     # （`coordinates[offsets[i]:offsets[j] + 1]`がEdge i〜j-1の形状）。
     edge_point_offsets: list[int] = Field(default_factory=list)
+    # 経路が通るNode idの列（起点から順。`edge_ids`より1件多く、`node_ids[i]`が
+    # `edge_ids[i]`の始点、末尾が終点）。フロントは「候補どうしが同じ地点を通るか」を
+    # これで判定する——座標の完全一致でも実質は一致するが、乗り換えを鎖で伸ばすほど
+    # 「同じ地点」の判定が結果を左右するため、グラフが持つ同一性をそのまま渡す。
+    # `edge_ids`が空の候補では空のまま。
+    node_ids: list[str] = Field(default_factory=list)
     # 所要時間が最短の経路か＝利用者の好み（軸の重み）をすべて0にしたときの基準線
     # （目的地モードのみ。周回は目標距離が距離を決めるため常にFalse）。フロントはこの候補の
     # `estimated_duration_seconds`を基準に、他の候補が何分余計にかかるかを出す。

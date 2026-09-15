@@ -2933,6 +2933,14 @@ def test_build_candidate_marks_where_each_edge_starts_in_the_geometry():
         start_lat, start_lon = edge.geometry[0]
         assert coordinates[offsets[index]] == pytest.approx([start_lon, start_lat])
 
+    # Node idも同じ形（Edgeより1件多い）で並び、各Edgeの端点と一致する
+    node_ids = candidate.node_ids
+    assert len(node_ids) == len(candidate.edge_ids) + 1
+    assert node_ids[0] == path[0].from_node_id
+    for index, edge in enumerate(path):
+        assert node_ids[index] == edge.from_node_id
+        assert node_ids[index + 1] == edge.to_node_id
+
 
 def _spliceable_context(edge_count: int = 4):
     """起点oから東へ200mずつ伸びる一本道のcontextと、そのEdge辞書を返す。"""
@@ -2986,6 +2994,40 @@ def test_build_traced_from_edge_ids_accepts_a_connected_path_from_the_origin():
     assert traced.data == ["e-0", "e-1", "e-2", "e-3"]
     assert traced.bearing is None
     assert traced.distance_km == pytest.approx(0.8, abs=0.01)
+
+
+def test_build_traced_from_edge_ids_rejects_a_path_that_does_not_reach_the_destination():
+    """つながってはいるが目的地へ着かない列を落とす。
+
+    起点と連結だけを見ていた頃は、途中で止まる列が評価に成功して候補一覧へ並びえた。
+    乗り換えを鎖で伸ばせるようにすると、末尾を落とした列を作れてしまう。
+    """
+    engine, context = _spliceable_context()
+    destination = context.graph.nodes["n4"]
+    destination_coord = Coordinates(latitude=destination.latitude, longitude=destination.longitude)
+
+    with pytest.raises(RoutingError, match="目的地に着いていません"):
+        engine.build_traced_from_edge_ids(context, ["e-0", "e-1"], destination_coord)
+
+
+def test_build_traced_from_edge_ids_accepts_a_path_that_reaches_the_destination():
+    engine, context = _spliceable_context()
+    destination = context.graph.nodes["n4"]
+    destination_coord = Coordinates(latitude=destination.latitude, longitude=destination.longitude)
+
+    traced = engine.build_traced_from_edge_ids(
+        context, ["e-0", "e-1", "e-2", "e-3"], destination_coord)
+
+    assert traced.data == ["e-0", "e-1", "e-2", "e-3"]
+
+
+def test_build_traced_from_edge_ids_without_a_destination_does_not_check_the_end():
+    """`destination`を渡さない呼び出しは終点を見ない（周回など目的地の無い経路のため）。"""
+    engine, context = _spliceable_context()
+
+    traced = engine.build_traced_from_edge_ids(context, ["e-0", "e-1"])
+
+    assert traced.data == ["e-0", "e-1"]
 
 
 def test_build_traced_from_edge_ids_splits_the_legs_at_the_half_way_point():
