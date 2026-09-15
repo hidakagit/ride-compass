@@ -429,7 +429,7 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
         # 「評価不能」な区間が地図上では「評価済みで良好（緑）」に誤表示されうる:
         # (a) required=Trueの材料が欠損している場合、(b) 全termがrequired=Falseで、その
         # **全ての材料が欠損**している場合（評価側は軸全体を欠損とするが、地図側は全項を
-        # 0埋めして寄与0＝最良帯として塗る。全term required=Falseの軸[openness等]で
+        # 0埋めして寄与0＝最良帯として塗る。全term required=Falseの軸で
         # 事前集計が未実施のwayが該当する）
         # （TileInputSpecには数値材料の「不明」表現手段が無い——has_unknown_fallbackは
         # 真偽値/N値カテゴリカル材料専用、buildAxisRampUnknownExpression参照）。

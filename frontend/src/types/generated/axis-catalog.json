@@ -847,131 +847,6 @@
       "dynamic_way_value_needs_speed": false
     },
     {
-      "axis_id": "openness",
-      "label": "開放度",
-      "description": "周囲に建物・樹木などの遮蔽物が少ない[開けている]道ほど難しい",
-      "category": "推定",
-      "primary_attribute_ids": [
-        "landcover"
-      ],
-      "icon_id": "layers",
-      "chip_label": "開放",
-      "panel_hint": "衛星画像の土地被覆データから、道路の周囲100mに建物や樹木がどれだけ多いかを推定した値です。河川敷や田園地帯など建物・樹木が無い道で高くなります。風の強い日に重みを上げて使う想定です。",
-      "show_map_icon": true,
-      "display": {
-        "kind": "ramp",
-        "label": "開放度",
-        "category": "trafficSafety",
-        "tile_inputs": [
-          {
-            "property": "trees_pct",
-            "weight": -1.0,
-            "boolean": false,
-            "true_value": 0.0,
-            "false_value": 0.0,
-            "has_unknown_fallback": false,
-            "categories": null,
-            "breakpoints": null,
-            "needs_runtime_scale": false
-          },
-          {
-            "property": "built_pct",
-            "weight": -1.0,
-            "boolean": false,
-            "true_value": 0.0,
-            "false_value": 0.0,
-            "has_unknown_fallback": false,
-            "categories": null,
-            "breakpoints": null,
-            "needs_runtime_scale": false
-          }
-        ],
-        "thresholds": [
-          -85.0,
-          -70.0,
-          -50.0,
-          -30.0
-        ],
-        "unit": "",
-        "note": ""
-      },
-      "shape": {
-        "kind": "breakpoint_linear",
-        "terms": [
-          {
-            "material": "trees_percent",
-            "weight": -1.0,
-            "required": false
-          },
-          {
-            "material": "built_percent",
-            "weight": -1.0,
-            "required": false
-          }
-        ],
-        "preprocess": "identity",
-        "breakpoints": [
-          [
-            -100.0,
-            0.0
-          ],
-          [
-            -80.0,
-            30.0
-          ],
-          [
-            -20.0,
-            100.0
-          ]
-        ]
-      },
-      "display_thresholds_override": [
-        -85.0,
-        -70.0,
-        -50.0,
-        -30.0
-      ],
-      "display_band_labels_override": [
-        "市街地",
-        "住宅地",
-        "やや開けている",
-        "開けている",
-        "吹きさらし"
-      ],
-      "dedicated_way_value_layer": false,
-      "map_value_kind": "difficulty",
-      "map_value_unit": "",
-      "map_value_thresholds": [
-        22.5,
-        41.7,
-        65.0,
-        88.3
-      ],
-      "raw_value_unit": null,
-      "raw_value_total_unit": null,
-      "material_breakdown": [
-        {
-          "material_id": "trees_percent",
-          "label": "樹木被覆率",
-          "dtype": "numeric",
-          "unit": "%",
-          "share": 0.5,
-          "value_labels": {}
-        },
-        {
-          "material_id": "built_percent",
-          "label": "建物被覆率",
-          "dtype": "numeric",
-          "unit": "%",
-          "share": 0.5,
-          "value_labels": {}
-        }
-      ],
-      "dynamic_way_value_needs_time": false,
-      "dynamic_way_value_needs_bearing": false,
-      "dynamic_way_value_needs_speed": false
-    },
-    {
       "axis_id": "axis_abdaded0be20",
       "label": "停止密度",
       "description": "止まる回数（信号・踏切・一時停止）が少ないほど易しい。信号の無い横断歩道と交差点の多さは含みません。",
@@ -1249,7 +1124,6 @@
     "accident": 0.08,
     "night": 0.0,
     "bicycle_infra_quality": 0.15,
-    "openness": 0.0,
     "axis_abdaded0be20": 0.0
   }
 }

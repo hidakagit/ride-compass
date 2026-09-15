@@ -164,8 +164,8 @@ def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
     quantiles = weighted_quantiles(pairs, targets, digits=3)
 
     # 描画範囲は**データの値域から決める**。下限を0に固定すると、生値が負になる軸
-    # （termsの重みがすべて負の軸。`openness`・`bicycle_infra_quality`・`night`が該当し、
-    # うち2つは公開済み）で全サンプルが階級0へ潰れ、「1本だけの棒＝全量が同じ値」という
+    # （termsの重みがすべて負の軸。`bicycle_infra_quality`・`night`が該当する）で
+    # 全サンプルが階級0へ潰れ、「1本だけの棒＝全量が同じ値」という
     # 実態と異なる分布になる。0は常に範囲へ含める（「値0の道がどれだけあるか」は
     # 折れ点を当てる際の基準になるため、片側に寄ったデータでも0の位置を見せる）。
     lower = min(0.0, ordered[0][1])

@@ -38,7 +38,7 @@ function dist(bins: [number, number, number][]): ValueDistribution {
 }
 
 describe("scoreBands", () => {
-  // 統合レビュー第6回の指摘I-6: 生値が負になる軸（openness等）でbackendが下限0の
+  // 統合レビュー第6回の指摘I-6: 生値が負になる軸でbackendが下限0の
   // 階級を返していたため、全量が1本の階級へ潰れ「100点 100%」＋「上限を高くしろ」という
   // 事実と正反対の助言が出ていた。backend側で階級の下限をデータ下端から取るようにした
   // ため、負の値域でも折れ点どおりに振り分けられる。

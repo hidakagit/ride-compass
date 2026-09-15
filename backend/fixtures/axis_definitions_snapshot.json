@@ -608,70 +608,6 @@
     },
     {
       "definition": {
-        "axis_id": "openness",
-        "category": "推定",
-        "chip_label": "開放",
-        "dedicated_way_value_layer": false,
-        "default_weight": 0.0,
-        "description": "周囲に建物・樹木などの遮蔽物が少ない[開けている]道ほど難しい",
-        "display_band_labels_override": [
-          "市街地",
-          "住宅地",
-          "やや開けている",
-          "開けている",
-          "吹きさらし"
-        ],
-        "display_thresholds_override": [
-          -85.0,
-          -70.0,
-          -50.0,
-          -30.0
-        ],
-        "dynamic_way_value_needs_bearing": false,
-        "dynamic_way_value_needs_speed": false,
-        "dynamic_way_value_needs_time": false,
-        "icon_id": "layers",
-        "is_published": true,
-        "label": "開放度",
-        "panel_hint": "衛星画像の土地被覆データから、道路の周囲100mに建物や樹木がどれだけ多いかを推定した値です。河川敷や田園地帯など建物・樹木が無い道で高くなります。風の強い日に重みを上げて使う想定です。",
-        "priority_overrides": [],
-        "shape": {
-          "breakpoints": [
-            [
-              -100.0,
-              0.0
-            ],
-            [
-              -80.0,
-              30.0
-            ],
-            [
-              -20.0,
-              100.0
-            ]
-          ],
-          "kind": "breakpoint_linear",
-          "preprocess": "identity",
-          "terms": [
-            {
-              "material": "trees_percent",
-              "required": false,
-              "weight": -1.0
-            },
-            {
-              "material": "built_percent",
-              "required": false,
-              "weight": -1.0
-            }
-          ]
-        },
-        "show_map_icon": true,
-        "time_scope": "always"
-      },
-      "sort_order": 14
-    },
-    {
-      "definition": {
         "axis_id": "axis_abdaded0be20",
         "category": "推定",
         "chip_label": "停止密度",
@@ -757,5 +693,5 @@
       "sort_order": 15
     }
   ],
-  "revision": 79
+  "revision": 81
 }
