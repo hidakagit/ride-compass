@@ -13,7 +13,7 @@ describe("formatAxisRawValue", () => {
     expect(formatAxisRawValue(4.2, "%", null, 32.5)).toBe("4.2%");
   });
 
-  it("「◯◯/km」でも、総量が読めない軸には添えない（蛇行の「約3322度」）", () => {
+  it("「◯◯/km」でも、総量が読めない軸には添えない（角度の「約3322度」）", () => {
     // 単位の綴りで決めていたころは、151度/km × 22km を「約3322度」と出していた。
     // 距離を掛けられること（度/km）と、掛けた値が判断を変えること（回・件）は別。
     expect(formatAxisRawValue(151, "度/km", null, 22)).toBe("151度/km");

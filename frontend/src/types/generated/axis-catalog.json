@@ -1147,90 +1147,6 @@
       "dynamic_way_value_needs_time": false,
       "dynamic_way_value_needs_bearing": false,
       "dynamic_way_value_needs_speed": false
-    },
-    {
-      "axis_id": "curvature",
-      "label": "蛇行",
-      "description": "道そのものの曲がり方。折れ線の方位変化を1kmあたりに直した値で、直線的な道ほど小さく、つづら折りほど大きい。交差点での右左折の回数そのものではありません。",
-      "category": "観測",
-      "primary_attribute_ids": [
-        "curvature"
-      ],
-      "icon_id": null,
-      "chip_label": "蛇行",
-      "panel_hint": null,
-      "show_map_icon": false,
-      "display": {
-        "kind": "ramp",
-        "label": "蛇行",
-        "category": "trafficSafety",
-        "tile_inputs": [
-          {
-            "property": "curvature_deg_per_km",
-            "weight": 1.0,
-            "boolean": false,
-            "true_value": 0.0,
-            "false_value": 0.0,
-            "has_unknown_fallback": false,
-            "categories": null,
-            "breakpoints": null,
-            "needs_runtime_scale": false
-          }
-        ],
-        "thresholds": [
-          100.0,
-          300.0,
-          600.0,
-          1000.0
-        ],
-        "unit": "",
-        "note": ""
-      },
-      "shape": {
-        "kind": "breakpoint_linear",
-        "terms": [
-          {
-            "material": "curvature_deg_per_km",
-            "weight": 1.0,
-            "required": false
-          }
-        ],
-        "preprocess": "identity",
-        "breakpoints": [
-          [
-            0.0,
-            0.0
-          ],
-          [
-            100.0,
-            25.0
-          ],
-          [
-            300.0,
-            50.0
-          ],
-          [
-            600.0,
-            75.0
-          ],
-          [
-            1000.0,
-            100.0
-          ]
-        ]
-      },
-      "display_thresholds_override": null,
-      "display_band_labels_override": null,
-      "dedicated_way_value_layer": false,
-      "map_value_kind": "difficulty",
-      "map_value_unit": "",
-      "map_value_thresholds": null,
-      "raw_value_unit": "度/km",
-      "raw_value_total_unit": null,
-      "material_breakdown": [],
-      "dynamic_way_value_needs_time": false,
-      "dynamic_way_value_needs_bearing": false,
-      "dynamic_way_value_needs_speed": false
     }
   ],
   "primary_attributes": [
@@ -1320,11 +1236,6 @@
       "shared": false
     },
     {
-      "attr_id": "curvature",
-      "label": "道の曲がり",
-      "shared": false
-    },
-    {
       "attr_id": "geometry",
       "label": "区間形状",
       "shared": true
@@ -1339,7 +1250,6 @@
     "night": 0.0,
     "bicycle_infra_quality": 0.15,
     "openness": 0.0,
-    "axis_abdaded0be20": 0.0,
-    "curvature": 0.1
+    "axis_abdaded0be20": 0.0
   }
 }

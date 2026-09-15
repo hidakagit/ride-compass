@@ -277,7 +277,6 @@ class RegionService:
                     return None
                 way_counts = await self._repository.get_way_attribute_counts(osm_way_id)
                 way_landcover = await self._repository.get_way_landcover(osm_way_id)
-                curvature_deg_per_km = await self._repository.get_way_curvature(osm_way_id)
                 accident_years_covered = await self._repository.get_accident_years_covered()
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"
@@ -295,7 +294,7 @@ class RegionService:
             highway, tags, is_designated, surface = way_tags_result
             return axis_inspector_breakdown(
                 highway, tags, is_designated, way_counts, accident_years_covered, way_landcover,
-                RoutePreference(), curvature_deg_per_km, surface,
+                RoutePreference(), surface,
             )
 
     async def get_accident_years_covered(self) -> int:

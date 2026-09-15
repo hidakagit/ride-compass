@@ -13,12 +13,10 @@ Edge単位の評価（`domain/evaluation.py`）とは入力の粒度が違う（
 
 from app.domain.attributes import (
     METRIC_GROUP_COUNTS,
-    METRIC_GROUP_GEOMETRY,
     METRIC_GROUP_LANDCOVER,
     METRIC_GROUP_POI,
     METRIC_KEY_ACCIDENT,
     METRIC_KEY_BUILT_PERCENT,
-    METRIC_KEY_CURVATURE,
     METRIC_KEY_INTERSECTION,
     METRIC_KEY_TREES_PERCENT,
     WayAttributeCounts,
@@ -69,7 +67,6 @@ def way_scalar_materials(
     accident_years_covered: int,
     trees_percent: float | None = None,
     built_percent: float | None = None,
-    curvature_deg_per_km: float | None = None,
     surface: str | None = None,
 ) -> dict[str, object]:
     """Way1本ぶんの材料値（材料id→スカラー）を組み立てる。
@@ -101,11 +98,6 @@ def way_scalar_materials(
         for key, value in ((METRIC_KEY_TREES_PERCENT, trees_percent), (METRIC_KEY_BUILT_PERCENT, built_percent))
         if value is not None
     }
-    # 蛇行はwayの折れ線そのものから測った値（way_geometry）。Edge単位の評価が読む
-    # road_edges.curvature_deg_per_kmとは粒度が違い、wayをEdgeへ切り出す交差点頂点の
-    # 折れも含むぶん大きくなる。未計算・算出不能なら行を作らず材料を欠損にする。
-    geometry_row = {} if curvature_deg_per_km is None else {METRIC_KEY_CURVATURE: curvature_deg_per_km}
-
     materials = resolve_materials(
         MaterialExtractionContext(
             edge_id=_WAY_SCOPE_KEY,
@@ -123,7 +115,6 @@ def way_scalar_materials(
                 METRIC_GROUP_COUNTS: counts,
                 METRIC_GROUP_POI: poi,
                 METRIC_GROUP_LANDCOVER: {_WAY_SCOPE_KEY: landcover_row} if landcover_row else {},
-                METRIC_GROUP_GEOMETRY: {_WAY_SCOPE_KEY: geometry_row} if geometry_row else {},
             },
             accident_years_covered=accident_years_covered,
         )
@@ -143,7 +134,6 @@ def axis_inspector_breakdown(
     accident_years_covered: int,
     way_landcover: WayLandcover | None = None,
     preference: RoutePreference | None = None,
-    curvature_deg_per_km: float | None = None,
     surface: str | None = None,
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。`way_counts`は
@@ -151,9 +141,7 @@ def axis_inspector_breakdown(
     停止密度は算出不能（available=False）として扱う。`way_landcover`は
     `RoadGraphRepository.get_way_landcover`の戻り値で、Noneまたは`percentages`がNone
     （そのラスタ構成では値なし）なら開放度軸は算出不能として扱う（評価パイプラインへ配線済みの2列[trees/built]のみ使う、
-    docs/tasks/T624.md「段階2で配線する材料」参照）。`curvature_deg_per_km`は
-    `RoadGraphRepository.get_way_curvature`の戻り値で、Noneなら蛇行軸は算出不能。
-    """
+        """
     weights = (preference or RoutePreference()).weights
     # 行はあるが割合がNULL（そのラスタ構成では値なし）の場合も、行が無い場合と同じ欠損。
     landcover_percentages = way_landcover.percentages if way_landcover is not None else None
@@ -161,7 +149,6 @@ def axis_inspector_breakdown(
         highway, tags, is_designated, way_counts, accident_years_covered,
         landcover_percentages.trees_percent if landcover_percentages is not None else None,
         landcover_percentages.built_percent if landcover_percentages is not None else None,
-        curvature_deg_per_km,
         surface,
     )
     scores, _ = evaluate_axes_scalar(materials)

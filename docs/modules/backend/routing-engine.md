@@ -15,7 +15,7 @@
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
-| batch | `precompute_road_node_degrees.py`・`precompute_edge_curvature.py`・`presplit_road_graph.py` |
+| batch | `precompute_road_node_degrees.py`・`presplit_road_graph.py` |
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経路計算する。探索の状態は
 **有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木も
@@ -685,12 +685,6 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `RoadGraphLike`（Protocol）で構造的型付けする`LeanNode`/`LeanEdge`/`LeanRoadGraph`
   （dataclass、探索専用の高速版。Pydanticのバリデーション・内部簿記コストを避けるため
   探索フェーズに限りdataclassを使う）が並存する。
-  `curvature_deg_per_km`は`EdgeLike`（探索が読む契約）には**無い**——
-  `build_road_graph`が算出して`save_graph`が`road_edges`へ書き込むための書き込み経路専用の
-  値で、評価は`EdgeMaterialBundle`から読む。DBから読み直す経路（`get_graph_topology_in_bbox`・
-  pickle復元）は載せず、タイルあたり数万〜十数万Edgeぶんの転送とpickle列を省く。
-- `WaySpec`、`build_road_graph`（決定論的な内部ID生成: `osm-node-<id>`/
-  `way-<id>-seg<n>-fwd/bwd`。`_split_points`が交差点/次数≥2のノードで分割する）。
 
 ### `domain/route.py`
 
@@ -855,26 +849,6 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
 実装済みで、本バッチはそれを呼び出すだけ。**`precompute_edge_attribute_counts.py`より
 先に実行する必要がある**（`intersection_count`がこのバッチの書く`degree`列を参照する
 ため）。
-
-## batch: `precompute_edge_curvature.py`
-
-`road_edges.curvature_deg_per_km`（蛇行の強さ＝折れ線の方位変化の累積÷km）の事前計算。
-`build_road_graph`がsplit時に`domain/geo.py: curvature_deg_per_km`で算出して保存するため
-新規Edgeは埋まるが、**既存行は再splitされるまでNULLのまま**なので列追加後の実行が必須。
-NULLは「未計算」であって0（まっすぐ）ではない。
-
-計算はPostGISの`ST_Azimuth`で完結させPythonへ行を持ち出さない（本番500万行規模）。
-SQL本体は`road_graph_repository.py`が持ち、way単位版（`precompute_way_curvature.py`）と
-測り方を共有する。バッチは対象edge_idを`stream_id_chunks`（サーバーサイドカーソル）で
-切り出して渡すだけで、`distance_m = 0`のEdgeは度/kmを測れないため対象外（NULL＝
-算出不能のまま残す）。`refresh_derived.py`の⑫段として他の派生バッチと一緒に実行される。
-
-**geographyへキャストして呼ぶこと**——geometry（4326）のままだと経度・緯度をそのまま
-x/yとして扱う平面計算になり、緯度による経度の縮みを無視して`bearing_between`（球面
-三角法）と食い違う。同じ列を2通り（split時のPython・バッチのSQL）で埋めるため、
-定義がずれると同じEdgeに2つの値が生まれる。頂点2点の折れ線は両方とも0
-（直線＝曲がり0）で、Noneではない。`tests/test_precompute_edge_curvature.py`が
-両者の一致を許容差付きで固定する（球と回転楕円体の差ぶんは残るため厳密一致ではない）。
 
 ## batch: `presplit_road_graph.py`
 

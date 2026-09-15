@@ -206,19 +206,6 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
         source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
         missing_semantics="unknown",
     ),
-    # 蛇行はEdge単位（road_edges）とWay単位（way_geometry）の両方にある。ルート評価が
-    # 読むのはEdge単位の方で、そちらが欠けると軸が重み再正規化で薄まり無警告のまま
-    # 評価から抜けるため、カバレッジも評価が実際に読む列を数える。列は`road_edges`
-    # 自身が持つので、他のedge材料と違い派生テーブルではなく母集団そのものを数える。
-    "curvature_deg_per_km": EdgeMaterialCoverageSpec(
-        # 長さ0のEdgeは度/kmを定義できず`precompute_edge_curvature`の対象外。値を持つ側へ数えて
-    # 欠損から外す（`derived_data_freshness.py`の`in_scope`と同じ判断）。
-    present_count_sql=(
-        "SELECT count(*) FROM road_edges WHERE curvature_deg_per_km IS NOT NULL OR NOT (distance_m > 0)"
-    ),
-        source="road_edges.curvature_deg_per_km（precompute_edge_curvatureの計算済み値）の有無",
-        missing_semantics="unknown",
-    ),
     # `way_landcover`は「行が無い＝未計算」と「列がNULL＝算出不能（ラスタ範囲外等）」を
     # 区別する（migration 0037）。**行の有無だけで数えると、値がNULLの行を「データあり」と
     # 数えてしまう**ため、列のNULLも欠損として数える。

@@ -14,7 +14,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
-| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_curvature.py`（wayの折れ線から測る蛇行のway単位事前集計）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py` |
+| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py` |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -192,28 +192,6 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 自動導出（`domain/axis_display.py: derive_ramp_inputs`）が材料の`tile_property`を辿るため、
 名前が一致していれば軸を組むだけで地図の色分けが付く。
 
-### Way単位の形状スカラー（`way_geometry`・`precompute_way_curvature.py`）
-
-`osm_raw_ways.geom`の折れ線そのものから測る値を持つ。現在の中身は蛇行の強さ（度/km）
-1列で、`domain/geo.py: curvature_deg_per_km`と同じ定義。測り方のSQLは
-`road_graph_repository.py`がEdge単位版（`road_edges.curvature_deg_per_km`）と共有する。
-
-同じ材料が2つの粒度に存在する:
-
-| 置き場所 | 粒度 | 読む側 |
-|---|---|---|
-| `road_edges.curvature_deg_per_km` | 交差点で切ったEdge | ルート探索・ルート結果 |
-| `way_geometry.curvature_deg_per_km` | OSMのway1本 | 地図タイル・区間インスペクタ・軸スタジオの分布プレビュー |
-
-`road_edges`はルート生成時に遅延構築される派生データのため、地図表示側の母集団に
-できない（`way_attribute_counts`と同じ理由）。wayの折れ線はwayをEdgeへ切り出す交差点の
-頂点も含むため、way単位の値はそのwayのEdgeの延長加重平均以上になる。
-
-行が無いのが「未計算」、列がNULLが「算出不能」（頂点1点・長さ0・`geom`がNULL）。
-頂点2点の折れ線は直線として0を入れる（NULLではない）。この2状態を保つため、バッチは
-`osm_raw_ways`全行を対象にする——測れないwayを対象から外すと「算出不能」が「未計算」と
-見分けられなくなり、再実行しても埋まらないwayを追い続けることになる。
-
 ### 通行方向の解決（`osm_adapter.py: _resolve_direction`）
 
 `osm_raw_ways.direction`は取込時に決まる。`oneway:bicycle`が`oneway`本体より優先し
@@ -254,18 +232,12 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 行が無いのが「未判定」。読む側（タイル焼き込み）は安全側＝falseとして扱い、従来どおり
 `direction`だけで塗る。
 
-`way_geometry`へ列を足さず独立したテーブルにしているのは、系譜の列
-（`computed_at`・`source_osm_import_run_id`・`algorithm_version`）が行単位で1組しか無く、
-2つのバッチが同じ行を書くと互いの系譜を上書きしてしまうため（鮮度台帳が再実行の要否を
-この系譜で判断する）。
-
 ### 派生データ再構築の単一エントリポイント（`refresh_derived.py`）
 
 `presplit_road_graph.py`・`precompute_road_node_degrees.py`・
 `precompute_edge_attribute_counts.py`・`precompute_elevation_attributes.py`・
 `precompute_way_attribute_counts.py`・`match_designations.py`・
-`precompute_way_landcover.py`・`precompute_way_curvature.py`・
-`precompute_edge_curvature.py`・`precompute_way_divided_carriageway.py`（依存DAGは
+`precompute_way_landcover.py`・`precompute_way_divided_carriageway.py`（依存DAGは
 [docs/batch-pipeline-dependencies.md](../../batch-pipeline-dependencies.md)参照）を
 依存順に1コマンドで実行する薄いオーケストレーション。`app/batch/precompute_*.py`の
 ファイル一覧と登録済みの段（`_STAGES`）の突き合わせを`tests/test_refresh_derived.py`が

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Literal, Protocol, runtime_checkable
 
 
-from app.domain.geo import LatLonPoint, bearing_between, curvature_deg_per_km, haversine_distance_km
+from app.domain.geo import LatLonPoint, bearing_between, haversine_distance_km
 from app.domain.strict_model import StrictModel
 
 
@@ -41,12 +41,6 @@ class DirectedEdge(StrictModel):
     # この値だけで完結できるようにするための事前計算値（そのため既定値Noneを許容しつつ、
     # build_road_graph経由の生成では必ず値を持つ）。
     bearing_deg: float | None = None
-    # 折れ線の蛇行の強さ（度/km、domain/geo.py: curvature_deg_per_km）。build_road_graphが
-    # geometryから算出し`road_edges`へ書き込むための値で、**書き込み経路専用**——評価は
-    # `EdgeMaterialBundle.curvature_deg_per_km`（材料の取得経路）から読むため、探索グラフ
-    # （EdgeLike/LeanEdge）へは載せない。Noneは「測れない」（頂点1点以下・距離0）で0ではない
-    # ——頂点2点の折れ線は直線として0を持つ（domain/geo.pyのdocstring参照）。
-    curvature_deg_per_km: float | None = None
 
 
 class RoadGraph(StrictModel):
@@ -142,11 +136,6 @@ class LeanEdge:
     osm_way_id: int | None = None
     highway: str | None = None
     bearing_deg: float | None = None
-    # `build_road_graph`が算出し`save_graph`が`road_edges`へ書き込むための値（書き込み経路
-    # 専用）。`EdgeLike`には持たせない——探索・評価はこの値を読まず、評価が使う蛇行は
-    # `EdgeMaterialBundle.curvature_deg_per_km`（材料の取得経路）から来る。DBから読み直す
-    # 経路（`_topology_rows_to_road_graph`・pickle復元）は載せないためNoneになる。
-    curvature_deg_per_km: float | None = None
 
 
 def _rebuild_lean_road_graph(
@@ -362,8 +351,6 @@ def build_road_graph(
             end_point = LatLonPoint(*coordinates[-1])
             bearing_forward = bearing_between(start_point, end_point)
             bearing_backward = bearing_between(end_point, start_point)
-            # 蛇行は方位変化の絶対値の累積のため、進行方向を反転しても同じ値になる。
-            curvature = curvature_deg_per_km(coordinates, distance_m)
 
             if way.direction != "backward":
                 edge_id = f"way-{way_key}-seg{segment_index}-fwd"
@@ -376,7 +363,6 @@ def build_road_graph(
                     osm_way_id=way.osm_way_id,
                     highway=way.highway,
                     bearing_deg=bearing_forward,
-                    curvature_deg_per_km=curvature,
                 )
 
             if way.direction != "forward":
@@ -390,7 +376,6 @@ def build_road_graph(
                     osm_way_id=way.osm_way_id,
                     highway=way.highway,
                     bearing_deg=bearing_backward,
-                    curvature_deg_per_km=curvature,
                 )
 
     return LeanRoadGraph(graph_version=graph_version or _new_graph_version(), nodes=graph_nodes, edges=edges)

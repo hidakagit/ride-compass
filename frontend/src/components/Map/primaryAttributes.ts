@@ -61,8 +61,7 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
 // 存在するが、地図上に単独では表示しない（地図表示は評価軸bicycle_infra_quality側に
 // 委ねる。show_map_icon=falseのため専用レイヤーは持たない）。landcover（trees_percent/
 // built_percentが参照する一次属性、T624）も同様に専用レイヤーは持たず、地図表示は
-// 開放度軸自身のramp表示（derive_ramp_inputsが自動導出）に委ねる。curvature
-// （curvature_deg_per_kmが参照する一次属性）も同じで、地図表示は蛇行軸自身のramp表示に委ねる。
+// 開放度軸自身のramp表示（derive_ramp_inputsが自動導出）に委ねる。
 // PRIMARY_ATTRIBUTE_LAYER_IDSにキーが無いことが「未対応（漏れ）」なのか「意図的にレイヤー
 // 無し」なのかを区別できないため、後者をここへ明示する（ドリフト検知テスト参照）。
 export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
@@ -75,7 +74,6 @@ export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
   "geometry",
   "cycleway",
   "landcover",
-  "curvature",
 ]);
 
 /** 一次属性id列のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す

@@ -1,5 +1,4 @@
 import math
-from collections.abc import Sequence
 from typing import NamedTuple, Protocol, runtime_checkable
 
 import numpy as np
@@ -62,36 +61,6 @@ def bearing_between(origin: LatLon, destination: LatLon) -> float:
     y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
 
     return math.degrees(math.atan2(x, y)) % 360
-
-
-def curvature_deg_per_km(coordinates: Sequence[tuple[float, float]], distance_m: float) -> float | None:
-    """折れ線の「蛇行の強さ」＝隣り合う区間の方位変化の累積を1kmあたりに直した値。
-
-    直線は0、つづら折りほど大きい。
-    進行方向を反転しても同じ値になるため、fwd/bwdのEdgeは同じ値を持つ。
-
-    頂点2点の折れ線は直線であり、曲がりが無いという測定結果として0を返す。
-    頂点1点以下・距離0は方位そのものが定義できないためNoneを返す（0ではない——
-    「曲がっていない」と「測れない」を混同すると、材料の欠損が「まっすぐ」として
-    評価に混ざる）。連続する同一頂点は方位が定まらないため間引く。
-    """
-    if distance_m <= 0:
-        return None
-    points: list[tuple[float, float]] = []
-    for point in coordinates:
-        if not points or points[-1] != point:
-            points.append(point)
-    if len(points) < 2:
-        return None
-    bearings = [
-        bearing_between(LatLonPoint(*points[i]), LatLonPoint(*points[i + 1]))
-        for i in range(len(points) - 1)
-    ]
-    total = 0.0
-    for i in range(len(bearings) - 1):
-        delta = abs(bearings[i + 1] - bearings[i]) % 360
-        total += min(delta, 360 - delta)
-    return total / (distance_m / 1000)
 
 
 def bearing_between_array(origin: LatLon, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:

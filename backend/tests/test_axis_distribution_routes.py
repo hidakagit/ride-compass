@@ -21,7 +21,7 @@ client = TestClient(app)
 _PREVIEW_PATH = "/api/admin/axis-definitions/preview-distribution"
 _SHAPE = {
     "kind": "breakpoint_linear",
-    "terms": [{"material": "curvature_deg_per_km", "weight": 1.0, "required": True}],
+    "terms": [{"material": "intersection_count_per_km", "weight": 1.0, "required": True}],
     "breakpoints": [[0.0, 0.0], [200.0, 100.0]],
     "preprocess": "identity",
 }
@@ -88,7 +88,7 @@ def _material_path(material_id: str) -> str:
 
 
 def test_material_distribution_requires_admin_auth():
-    response = client.get(_material_path("curvature_deg_per_km"))
+    response = client.get(_material_path("intersection_count_per_km"))
 
     assert response.status_code == 401
 
@@ -104,7 +104,7 @@ def test_material_distribution_reports_unavailable_without_db(admin_credentials,
     # 行内に薄く出すだけで、編集そのものは続けられる）。
     _override_repository(None)
 
-    response = client.get(_material_path("curvature_deg_per_km"), headers=AUTH_HEADERS)
+    response = client.get(_material_path("intersection_count_per_km"), headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["available"] is False
@@ -132,7 +132,7 @@ def test_material_distribution_returns_the_service_result(admin_credentials, mon
 
     monkeypatch.setattr("app.api.routers.material_catalog.material_value_distribution", _fake)
 
-    response = client.get(_material_path("curvature_deg_per_km"), headers=AUTH_HEADERS)
+    response = client.get(_material_path("intersection_count_per_km"), headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"available": True, **_expected_json()}

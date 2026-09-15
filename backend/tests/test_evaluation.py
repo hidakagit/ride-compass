@@ -729,21 +729,6 @@ def test_axis_inspector_breakdown_treats_no_value_landcover_row_as_missing():
     assert openness.available is False
 
 
-def test_way_scalar_materials_carries_curvature():
-    """way単位の蛇行（way_geometry）が材料まで届く。区間インスペクタ・軸スタジオの分布
-    プレビューはEdge単位の値を見ないため、ここが切れると両方から静かに消える。
-    未計算（None）は0ではなく欠損として扱う。"""
-    common = dict(
-        highway="residential", tags={}, surface="asphalt", is_designated=False,
-        way_counts=None, accident_years_covered=0,
-    )
-
-    with_value = way_scalar_materials(**common, curvature_deg_per_km=250.0)
-    without_value = way_scalar_materials(**common)
-
-    assert with_value["curvature_deg_per_km"] == 250.0
-    assert without_value.get("curvature_deg_per_km") is None
-
 
 def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_tags():
     """改善計画T353回帰テスト: compute_edge_axis_scores版と同じ理由
@@ -897,7 +882,7 @@ def test_has_route_facing_raw_value_excludes_dynamic_material_axes(monkeypatch):
     axis = AxisDefinition(
         axis_id="synthetic_raw",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="curvature_deg_per_km", weight=1.0)],
+            terms=[MaterialTerm(material="intersection_count_per_km", weight=1.0)],
             breakpoints=[(0.0, 0.0), (200.0, 100.0)],
         ),
         default_weight=0.1,
@@ -910,7 +895,7 @@ def test_has_route_facing_raw_value_excludes_dynamic_material_axes(monkeypatch):
     assert has_route_facing_raw_value(axis) is True
 
     # 同じ軸でも、参照する材料がリクエスト時決定（動的）になれば載らない。
-    monkeypatch.setattr(evaluation_module, "REQUEST_DYNAMIC_MATERIAL_IDS", frozenset({"curvature_deg_per_km"}))
+    monkeypatch.setattr(evaluation_module, "REQUEST_DYNAMIC_MATERIAL_IDS", frozenset({"intersection_count_per_km"}))
     assert has_route_facing_raw_value(axis) is False
 
 
@@ -1349,7 +1334,7 @@ def test_route_facing_material_ids_excludes_undecomposable_and_categorical_mater
     assert "maxspeed_kmh" in material_ids
     # 1材料へ分解される軸の材料は載らない（軸単位の生値で足りる）。
     assert "gradient_percent" not in material_ids
-    assert "curvature_deg_per_km" not in material_ids
+    assert "wind_drag_ratio" not in material_ids
     # categorical材料は数値行列へ載らない（値ごとの延長割合は別の器が要る）。
     assert "highway" not in material_ids
     # 動的材料は静的スコア行列では全行NaNになるため載らない。

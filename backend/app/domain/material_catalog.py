@@ -32,11 +32,9 @@ from pydantic import ConfigDict
 
 from app.domain.attributes import (
     METRIC_GROUP_COUNTS,
-    METRIC_GROUP_GEOMETRY,
     METRIC_GROUP_LANDCOVER,
     METRIC_KEY_ACCIDENT,
     METRIC_KEY_BUILT_PERCENT,
-    METRIC_KEY_CURVATURE,
     METRIC_KEY_INTERSECTION,
     METRIC_KEY_TREES_PERCENT,
     METRIC_GROUP_POI,
@@ -118,7 +116,7 @@ class MaterialSpec(StrictModel):
     # 距離を掛けた総量（例: 「0.8回/km」→「約26回」）を出すときの単位。**総量が読み手の
     # 判断を変える量にだけ置く**——回・件のように数えられる出来事は「この経路で何回止まるか」
     # を答えるが、角度のような連続量は総量（「約3322度曲がる」）を出しても比べる尺度が無い。
-    # `additive`（足し合わせて意味を持つか）とは別の問い: 蛇行は足せるが、総量は読めない。
+    # `additive`（足し合わせて意味を持つか）とは別の問い: 事故密度は足せるが、総量は読めない。
     # 単位が「◯◯/km」であることだけを条件にすると、この区別が付かない。
     total_unit: str | None = None
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
@@ -375,11 +373,6 @@ _POI_COUNT_PER_KM_REFERENCE_POINTS = [
 ]
 
 # 目安の値（軸スタジオの材料選択で「この材料はどのくらいの値を取るか」を示す代表点）。
-_CURVATURE_DEG_PER_KM_REFERENCE_POINTS = [
-    MaterialReferencePoint(label="ほぼ直線", value=0.0),
-    MaterialReferencePoint(label="普通", value=100.0),
-    MaterialReferencePoint(label="くねくね", value=900.0),
-]
 
 _INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS = [
     MaterialReferencePoint(label="少ない", value=1.0),
@@ -617,24 +610,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="intersection",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION),
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
-    ),
-    "curvature_deg_per_km": MaterialSpec(
-        material_id="curvature_deg_per_km",
-        label="蛇行の強さ",
-        description="道の折れ線に沿った方位変化の累積を1kmあたりに直した値。直線は0で、"
-        "つづら折りほど大きい。交差点での右左折ではなく道そのものの曲がり方を表す。",
-        dtype="numeric",
-        unit="度/km",
-        # 同じ距離あたりの量どうしなので足し合わせられる（示量／示強の区別、
-        # domain/axis_display.py: raw_value_unit）。
-        additive=True,
-        # タイルへはway単位の事前集計（`way_geometry`、wayの折れ線そのものから測った値）を
-        # 焼く。ルート評価が読むEdge単位の値とは粒度が違い、wayをEdgeへ切り出す交差点頂点の
-        # 折れも含むぶん大きくなる。
-        tile_property="curvature_deg_per_km",
-        primary_attribute_id="curvature",
-        extractor=keyed_value_extractor(METRIC_GROUP_GEOMETRY, METRIC_KEY_CURVATURE),
-        reference_points=_CURVATURE_DEG_PER_KM_REFERENCE_POINTS,
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",

@@ -1055,7 +1055,6 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 | 夜間 | 0-100 | 改善計画T139（`domain/night.py: night_difficulty`、街灯なし・トンネル） |
 | 自転車インフラ | 負の値域（正規化フラグ材料の重み付き和） | 改善計画T347で独立公開軸化、T353で正規化フラグ材料（`highway_is_cycleway`等）を直接参照する構成へ再設計。`show_map_icon=false`のため専用地図レイヤーなし |
 | 開放度 | %（樹冠・建物被覆） | 改善計画T624（`way_landcover`、`trees_percent`/`built_percent`） |
-| 蛇行 | 度/km | 改善計画T691（折れ線の方位変化の累積÷km、`domain/geo.py: curvature_deg_per_km`） |
 
 重みのキーは改善計画T221 Stage Bで旧`elevation_weight`等のフィールド名からaxis_idへ統一した
 （`RoutePreference`はaxis_idキーの重み辞書`weights`を持ち、既定値は

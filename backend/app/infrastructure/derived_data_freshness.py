@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.derived_data_versions import (
     EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION,
     WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION,
-    WAY_CURVATURE_ALGORITHM_VERSION as _CURVATURE_ALGORITHM_VERSION,
     WAY_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION as _DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION,
     WAY_LANDCOVER_ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION,
 )
@@ -88,12 +87,6 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
         algorithm_version_current=_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_way_divided_carriageway.ALGORITHM_VERSION",
     ),
-    GenerationFreshnessSpec(
-        table_name="way_geometry",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
-        algorithm_version_current=_CURVATURE_ALGORITHM_VERSION,
-        algorithm_version_owner="precompute_way_curvature.ALGORITHM_VERSION",
-    ),
 )
 
 # 世代台帳（`GENERATION_FRESHNESS_SPECS`）へ載せない事前計算バッチと、その理由。
@@ -141,18 +134,6 @@ COMPLETENESS_SPECS: tuple[CompletenessSpec, ...] = (
             "NOT EXISTS (SELECT 1 FROM elevation_attributes ea WHERE ea.edge_id = road_edges.edge_id)"
         ),
         owner="precompute_elevation_attributes",
-    ),
-    CompletenessSpec(
-        label="road_edges.curvature_deg_per_km",
-        population_table="road_edges",
-        uncalculated="curvature_deg_per_km IS NULL",
-        owner="precompute_edge_curvature",
-        note=(
-            "ルート評価が読む列。未計算のままだと蛇行軸が重みの再正規化で薄まり、警告なく評価から抜ける。"
-            "長さ0のEdgeは度/kmを定義できないため対象外（母集団には含むが未計算には数えない）"
-        ),
-        # 度/kmは距離で割るため、長さ0のEdgeでは値が定義できない。
-        in_scope="distance_m > 0",
     ),
     CompletenessSpec(
         label="road_nodes.degree",

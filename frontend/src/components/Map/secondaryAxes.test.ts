@@ -24,7 +24,15 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       {
         axis_id: "no_chip_label_axis",
         label: "正式名テスト",
-        display: { kind: "ramp", label: "正式名テスト", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "ramp",
+          label: "正式名テスト",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
       },
     ];
 
@@ -38,7 +46,15 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       {
         axis_id: "gui_axis",
         label: "GUI軸の正式名",
-        display: { kind: "none", label: "GUI軸の正式名", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "none",
+          label: "GUI軸の正式名",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
         chip_label: "略称",
         icon_id: "shield",
       },
@@ -56,13 +72,29 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       {
         axis_id: "hidden_axis",
         label: "非表示軸",
-        display: { kind: "none", label: "非表示軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "none",
+          label: "非表示軸",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
         show_map_icon: false,
       },
       {
         axis_id: "shown_axis",
         label: "表示軸",
-        display: { kind: "none", label: "表示軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "none",
+          label: "表示軸",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
         show_map_icon: true,
       },
     ];
@@ -79,13 +111,29 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       {
         axis_id: "gradient",
         label: "勾配",
-        display: { kind: "none", label: "勾配", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "none",
+          label: "勾配",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
         map_value_thresholds: [-2, 2, 6, 10],
       },
       {
         axis_id: "no_override_axis",
         label: "上書き無し軸",
-        display: { kind: "none", label: "上書き無し軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "none",
+          label: "上書き無し軸",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
         map_value_thresholds: null,
       },
     ];
@@ -100,7 +148,15 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       {
         axis_id: "unset_axis",
         label: "未設定軸",
-        display: { kind: "none", label: "未設定軸", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+        display: {
+          kind: "none",
+          label: "未設定軸",
+          category: "trafficSafety",
+          tile_inputs: [],
+          thresholds: [],
+          unit: "",
+          note: "",
+        },
       },
     ];
 
@@ -114,18 +170,50 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
   describe("show_map_icon による除外（実データ）", () => {
     it("show_map_icon===falseの既存軸は一覧から落ち、それ以外の表示可能な軸は残る", () => {
       const catalogAxes = axisCatalog.axes as CatalogAxis[];
-      const hidden = catalogAxes.filter((axis) => axis.show_map_icon === false);
       const shown = catalogAxes.filter((axis) => axis.display !== null && axis.show_map_icon !== false);
-      // 母集団が空だとこのテストは何も確かめずに緑になる。どちらかが0件になったら
-      // 「除外が効いている」の確認が消えた合図なので、フィクスチャではなく実データ側を見直す。
-      expect(hidden.length).toBeGreaterThan(0);
+      // 母集団が空だとこのテストは何も確かめずに緑になる。0件になったら実データ側を見直す。
       expect(shown.length).toBeGreaterThan(0);
-      for (const axis of hidden) {
-        expect(SECONDARY_AXES.some((entry) => entry.axisId === axis.axis_id)).toBe(false);
-      }
       for (const axis of shown) {
         expect(SECONDARY_AXES.some((entry) => entry.axisId === axis.axis_id)).toBe(true);
       }
+      // 現在の公開軸はすべて地図へ出す（show_map_icon===falseの軸が無い）。除外そのものは
+      // 下のフィクスチャで固定する——実データに該当が無いことと、仕組みが無いことは別。
+      expect(catalogAxes.every((axis) => axis.show_map_icon !== false)).toBe(true);
+    });
+
+    it("show_map_icon===falseの軸は一覧から落ちる", () => {
+      const catalogAxes: CatalogAxis[] = [
+        {
+          axis_id: "hidden_axis",
+          label: "地図に出さない軸",
+          show_map_icon: false,
+          display: {
+            kind: "ramp",
+            label: "地図に出さない軸",
+            category: "roadCondition",
+            tile_inputs: [],
+            thresholds: [],
+            unit: "",
+            note: "",
+          },
+        },
+        {
+          axis_id: "car_stress",
+          label: "車の圧迫感",
+          display: {
+            kind: "ramp",
+            label: "車の圧迫感",
+            category: "trafficSafety",
+            tile_inputs: [],
+            thresholds: [],
+            unit: "",
+            note: "",
+          },
+        },
+      ];
+
+      const axes = secondaryAxesFromCatalogAxes(catalogAxes);
+      expect(axes.map((axis) => axis.axisId)).toEqual(["car_stress"]);
     });
 
     it("displayを持たない軸（非公開）は一覧から落ちる", () => {
@@ -138,7 +226,15 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
         {
           axis_id: "car_stress",
           label: "車の圧迫感",
-          display: { kind: "ramp", label: "車の圧迫感", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+          display: {
+            kind: "ramp",
+            label: "車の圧迫感",
+            category: "trafficSafety",
+            tile_inputs: [],
+            thresholds: [],
+            unit: "",
+            note: "",
+          },
         },
       ];
 

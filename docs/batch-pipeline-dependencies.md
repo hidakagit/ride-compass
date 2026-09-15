@@ -55,8 +55,6 @@
                                         しない） → way_landcover
       └─ ①（osm_raw_ways更新）の後に再実行が必要。ラスタ自体の年次更新
          （`--data-version`+`--recompute`）でも再実行が要る
-⑪ precompute_way_curvature.py          osm_raw_ways.geom → way_geometry
-      └─ ①（osm_raw_ways更新）の後に再実行が必要（road_edges非依存）
 
 ⑬ precompute_way_divided_carriageway.py
                                         osm_raw_ways.geom+tags → way_divided_carriageway
@@ -64,9 +62,6 @@
          位置関係を見るため、対象wayだけでなく周辺のwayが揃っている必要がある
 
 【第2グループの続き（④の後であればよく、⑤〜⑪との前後関係なし）】
-⑫ precompute_edge_curvature.py         road_edges.geom → road_edges.curvature_deg_per_km
-      └─ ④の後に再実行が必要。⑤〜⑦とも⑧〜⑪とも順序制約が無いため末尾に置く
-```
 
 `precompute_elevation_attributes.py`のみ、`ElevationAttributeService.get_attributes_for_graph`
 が「未計算のEdgeのみ計算する」設計のため**増分実行が可能**（新規Edge追加後にバッチ全体を
@@ -85,10 +80,8 @@
 | ⑦ | `precompute_elevation_attributes.py` | `road_edges`（ジオメトリ） + GSI DEM API | `elevation_attributes` | ④でroad_edgesが存在すること | road_edges変化時（新規Edge追加・PBF再取込） | **増分実行可能**（未計算Edgeのみ計算） |
 | ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`cache_identity.py`の`ROAD_SURFACE_REVISION`を上げてタイルキャッシュを陳腐化させること**——焼き込むSQLは変わらないまま、SQLが読むテーブルの中身だけが変わるため、鍵の署名側は動かない | UPSERT、安全 |
 | ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
-| ⑪ | `precompute_way_curvature.py` | `osm_raw_ways`（geom非NULL全件） | `way_geometry`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を測り直す） |
 | ⑬ | `precompute_way_divided_carriageway.py` | `osm_raw_ways`（全件） | `way_divided_carriageway`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存）。判定が周辺のwayを見るため、対象範囲のwayが揃っていること | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を判定し直す） |
 | ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
-| ⑫ | `precompute_edge_curvature.py` | `road_edges`（`distance_m > 0`の全件、ジオメトリ） | `road_edges.curvature_deg_per_km`（同一表のUPDATE） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・再split） | 全件測り直し、安全（`distance_m = 0`のEdgeは測れずNULLのまま） |
 
 全12バッチともUPSERT・DELETE→INSERT・同一表のUPDATE（いずれもトランザクション内、
 0件時はDELETEもスキップ）で単純な再実行は安全。冪等性の唯一の例外は①のノード座標（DO NOTHING）。④はタイル単位で
@@ -102,7 +95,6 @@
 | `way_attribute_counts` | `services/region_service.py` | 道路サーフェスタイルMVT生成 |
 | `designation_attributes` | `domain/evaluation.py`等の評価系 | 指定路線の評価軸（car_stress補正） |
 | `road_nodes.degree` | ランタイムでは直接使われない | ⑥の`intersection_count`計算専用の中間データ |
-| `road_edges.curvature_deg_per_km` | `infrastructure/graph_material_cache.py`経由で`services/road_graph_engine.py`（`prepare`） | 評価軸算出（蛇行）。Way単位の`way_geometry`は地図タイル・区間インスペクタ・分布プレビュー専用で、ルート評価はこの列だけを読む |
 
 `api/routers/health.py`の`/health`（`_KEY_TABLES`）が`osm_raw_ways`/`route_designations`/
 `designation_attributes`等の0件検知で「バッチ未実行」を検出する仕組みを既に持つ
@@ -116,7 +108,7 @@
 tile_persistent_cache/`）へも永続化されるようになった。ディスク側はデプロイでプロセスが
 再起動しても消えないため、④road_edges/road_nodes・⑤road_nodes.degree・⑥edge_attribute_
 counts・⑦elevation_attributes・⑨designation_attributes（`EdgeMaterialBundle.is_designated`
-経由）・⑫road_edges.curvature_deg_per_kmのいずれかを更新するバッチを実行したら、
+経由）のいずれかを更新するバッチを実行したら、
 `derived_data_meta.revision`（DB）が自動で進む。材料の列構成は変わらないまま読み先の
 データだけが変わるため鍵の署名側は動かず、ここだけは形から導出できない——バッチの入口
 （`_common.py: with_derived_data_revision_bump`）が書き込み成功後に世代を進め、backendは

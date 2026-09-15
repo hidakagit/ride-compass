@@ -626,13 +626,13 @@ def test_axis_display_for_returns_none_kind_when_not_derivable():
     assert display.thresholds == []
 
 
-def test_curvature_axis_gets_a_map_lens():
-    """蛇行はway単位の事前集計（way_geometry）をタイルへ焼くため、地図レイヤーを持つ。
+def test_a_numeric_material_axis_gets_a_map_lens():
+    """way単位の事前集計をタイルへ焼くため、地図レイヤーを持つ。
     材料の`tile_property`が外れるとkind="none"（ルート結果だけの軸）へ静かに戻る。"""
     definition = AxisDefinition(
-        axis_id="curvature",
+        axis_id="intersection_density",
         shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="curvature_deg_per_km", weight=1.0)],
+            terms=[MaterialTerm(material="intersection_count_per_km", weight=1.0)],
             breakpoints=[(0.0, 0.0), (100.0, 25.0), (1000.0, 100.0)],
         ),
         default_weight=0.1,
@@ -644,7 +644,7 @@ def test_curvature_axis_gets_a_map_lens():
     display = axis_display_for(definition)
 
     assert display.kind == "ramp"
-    assert display.tile_inputs == [TileInputSpec(property="curvature_deg_per_km", weight=1.0)]
+    assert display.tile_inputs == [TileInputSpec(property="intersection_per_km", weight=1.0)]
     assert display.thresholds
 
 
@@ -878,16 +878,16 @@ def test_raw_value_total_unit_is_the_count_for_per_km_events():
 
 
 def test_raw_value_total_unit_is_none_when_the_total_cannot_be_read():
-    # 蛇行は足し合わせられる量（additive）だが、総量（「約3322度曲がる」）には比べる
+    # 事故密度は足し合わせられる量（additive）だが、総量（「約12件・年」）には比べる
     # 尺度が無い。単位が「◯◯/km」で終わることだけを条件にすると、上と同じ扱いになる。
     definition = _axis(
         BreakpointLinearShape(
-            terms=[MaterialTerm(material="curvature_deg_per_km", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (200.0, 100.0)],
+            terms=[MaterialTerm(material="accident_count_per_km_year", weight=1.0)],
+            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
         )
     )
 
-    assert raw_value_unit(definition) == "度/km"
+    assert raw_value_unit(definition) == "件/(km・年)"
     assert raw_value_total_unit(definition) is None
 
 

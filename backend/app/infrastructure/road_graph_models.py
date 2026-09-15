@@ -141,10 +141,6 @@ class RoadEdgeRow(Base):
     # build_road_graphが算出し、探索時の風評価（DYNAMIC_MATERIAL_EVALUATORS）が
     # geometry decodeを経由せずこの列だけで完結できるようにする。
     bearing_deg: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # 折れ線の蛇行の強さ（度/km、domain/geo.py: curvature_deg_per_km）。NULLは「未計算」で
-    # 0（まっすぐ）ではない——既存行は再splitまでNULLのままで、app/batch/
-    # precompute_edge_curvature.pyが埋める。
-    curvature_deg_per_km: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -297,33 +293,6 @@ class WayLandcoverRow(Base):
     source_raster_set: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class WayGeometryRow(Base):
-    """Way単位の形状由来スカラー（`osm_raw_ways.geom`の折れ線そのものから測る値）。
-    現在の中身は蛇行の強さ1列。バッチは`app/batch/precompute_way_curvature.py`、
-    migration 0036で実テーブルは作成済み（ORMモデルはミラー、EdgeAttributeCountsRowの
-    同種コメント参照）。
-
-    `road_edges.curvature_deg_per_km`（Edge単位、ルート評価が読む）と並存する:
-    road_edgesはルート生成時に遅延構築されるため地図表示・軸スタジオの母集団にできない
-    （WayAttributeCountsRowと同じ理由）。同じ材料をwayの折れ線へ測るため、wayを
-    Edgeへ切り出す交差点頂点の折れも含み、値はEdge単位の延長加重平均以上になる。
-
-    行が無い＝未計算、列がNULL＝算出不能（頂点1点・長さ0）。
-    """
-
-    __tablename__ = "way_geometry"
-
-    osm_way_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
-    )
-    curvature_deg_per_km: Mapped[float | None] = mapped_column(Float, nullable=True)
-    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 派生データの系譜追跡。EdgeAttributeCountsRowと同じ高水位マーク方式・同じ理由で
-    # ForeignKey()を持たない素のInteger（コメントはそちら参照）。
-    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
-
-
 class WayDividedCarriagewayRow(Base):
     """そのwayが「上下線が分かれた道の片側」か（migration 0040で実テーブルは作成済み、
     ORMモデルはミラー）。バッチは`app/batch/precompute_way_divided_carriageway.py`。
@@ -331,9 +300,6 @@ class WayDividedCarriagewayRow(Base):
     OSMは中央分離帯のある道路の上下線を別wayにしそれぞれへoneway=yesを付けるため、
     `osm_raw_ways.direction`だけでは一方通行規制の道と区別できない。一方通行レイヤーは
     この値で後者を外す。
-
-    `way_geometry`へ列を足さず独立させているのは、系譜の列が行単位で1組しか無く、
-    2つのバッチが同じ行を書くと互いの系譜を上書きしてしまうため。
 
     行が無い＝未判定。読む側は安全側＝falseとして扱う。
     """
@@ -345,7 +311,7 @@ class WayDividedCarriagewayRow(Base):
     )
     divided: Mapped[bool] = mapped_column(Boolean, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 派生データの系譜追跡（WayGeometryRowと同じ高水位マーク方式・同じ理由）。
+    # 派生データの系譜追跡（WayAttributeCountsRowと同じ高水位マーク方式・同じ理由）。
     source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
 

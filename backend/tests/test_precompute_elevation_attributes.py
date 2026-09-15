@@ -13,7 +13,6 @@ from app.batch import (
     precompute_edge_attribute_counts,
     precompute_elevation_attributes,
     precompute_way_attribute_counts,
-    precompute_way_curvature,
 )
 from app.batch._common import run_chunked_precompute as common_run_chunked_precompute
 
@@ -24,7 +23,6 @@ from app.batch._common import run_chunked_precompute as common_run_chunked_preco
         precompute_edge_attribute_counts,
         precompute_elevation_attributes,
         precompute_way_attribute_counts,
-        precompute_way_curvature,
     ],
 )
 def test_uses_the_shared_chunked_precompute_driver(module):

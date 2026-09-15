@@ -174,7 +174,6 @@ def _full_bundle(edge_id: str) -> EdgeMaterialBundle:
         is_designated=True,
         landcover_trees_percent=40.0,
         landcover_built_percent=25.0,
-        curvature_deg_per_km=125.5,
     )
 
 
@@ -270,24 +269,6 @@ def test_full_bundle_fixture_fills_every_bundle_field():
 
     assert unfilled == []
 
-
-def test_edge_material_table_curvature_present_and_absent_roundtrip():
-    # NaN（未計算）とNoneの往復。0（まっすぐ）は有効値のためNoneへ潰さない。
-    table = EdgeMaterialTable.from_bundles(
-        ["e1", "e2", "e3"],
-        {
-            "e1": _full_bundle("e1"),
-            "e2": _bare_bundle(),
-            "e3": EdgeMaterialBundle(
-                surface=None, way_tags={}, attribute_counts=None, elevation_attribute=None,
-                is_designated=False, curvature_deg_per_km=0.0,
-            ),
-        },
-    )
-
-    assert table.get("e1").curvature_deg_per_km == 125.5
-    assert table.get("e2").curvature_deg_per_km is None
-    assert table.get("e3").curvature_deg_per_km == 0.0
 
 
 def test_edge_material_table_landcover_present_and_absent_roundtrip():

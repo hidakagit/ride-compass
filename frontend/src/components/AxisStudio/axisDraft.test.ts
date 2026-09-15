@@ -82,7 +82,7 @@ describe("draftFromExisting → buildShape の往復", () => {
       kind: "breakpoint_linear" as const,
       terms: [
         { material: "gradient_percent", weight: 1.0, required: true },
-        { material: "curvature_deg_per_km", weight: 0.3, required: false },
+        { material: "intersection_count_per_km", weight: 0.3, required: false },
       ],
       preprocess: "abs" as const,
       breakpoints: [

@@ -302,7 +302,7 @@ MaterialSpec]`が単一ソース。
 | `dtype` | `"numeric"`/`"boolean"`/`"categorical"` |
 | `unit` | 値の単位（凡例・比較パネル等の数値表示用、無次元・真偽値・カテゴリ値は空文字）。`GET /api/material-catalog`が配信し、frontendは単位を持たない（唯一の正）。**`label`へ単位を書かない**——ラベルと単位を別々に組み立てる画面で「制限速度(km/h) 35km/h」のように二重になる |
 | `additive` | 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。個数と、それを同じ距離で割った密度はTrue。%・km/h・倍率のような割合・率はFalse。`raw_value_unit`が2項以上の和を見せてよいかの判定に使う |
-| `total_unit` | 生値へ走行距離を掛けた**総量**を出すときの単位（出す意味が無ければ`None`）。`additive`とは別の問い——蛇行（度/km）は足せるが、総量「約3322度」には比べる尺度が無い。`raw_value_total_unit`がこれを軸まで持ち上げる |
+| `total_unit` | 生値へ走行距離を掛けた**総量**を出すときの単位（出す意味が無ければ`None`）。`additive`とは別の問い——事故密度（件/[km・年]）は足せるが、総量に比べる尺度が無い。|
 | `tile_property` | MVTタイルへ既に焼き込み済みのプロパティ名。`None`は「タイル非依存」（地図レイヤーのramp自動生成の対象になりえない） |
 | `tile_property_needs_runtime_scale` | タイル側の生値と材料の値がスケール不一致（実行時に変動する係数での変換が必要）か。`derive_ramp_inputs`はこれがTrueの材料を含む軸のramp自動導出を拒否する |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |
@@ -342,14 +342,14 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 | 窓口 | 形 | ここから生える材料 |
 |---|---|---|
 | `way_tags` | `{タグ名: 値}` | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
-| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent`・`poi_*_per_km`・`curvature_deg_per_km` |
+| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent`・`poi_*_per_km` |
 
 `metrics`の群（`domain/attributes.py`の`METRIC_GROUP_*`）はデータ源の単位で、`counts`
 （`edge_attribute_counts`の3列）・`landcover`（`way_landcover`の割合列）・`poi`
 （`edge_attribute_counts.poi_counts`、停止要因の種別別カウント）・`geometry`
 （折れ線そのものから求まる量。Edge粒度の呼び出しでは`road_edges`の列が、Way粒度の
 呼び出し［区間インスペクタ・軸スタジオの分布プレビュー、`way_scalar_materials`］では
-`way_geometry`の列が出所になる）がある。保存形式が
+がある。保存形式が
 列でもJSONBでも、contextへ載る時点でこの1つの形へ揃える（`edge_metrics_from_bundles`と
 `EdgeMaterialTable.to_legacy_dicts`が唯一の変換箇所）。
 
@@ -389,14 +389,11 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 | 母集団 | 対象 | 判定 |
 |---|---|---|
 | `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式、`infrastructure/osm_way_tag_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM osm_raw_ways AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
-| `"edge"` | `road_edges`全行 | `present_count_sql`（「値ありEdge数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま使いJOINを省く。`curvature_deg_per_km`は`road_edges`自身の列のため母集団を直接数える |
+| `"edge"` | `road_edges`全行 | `present_count_sql`（「値ありEdge数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま使いJOINを省く |
 
 - **「行がある」と「値がある」を混同しない**。派生テーブルが「行が無い＝未計算」と
   「列がNULL＝算出不能」を区別するなら（`way_landcover`がそう）、行の有無だけで数えると
   値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
-- 同じ材料がEdge単位とWay単位の両方に存在する場合（`curvature_deg_per_km`）は、**ルート評価が
-  実際に読む側**で数える。読まない側で数えると、評価が算出不能なまま「欠損0%」と報告される
-  （欠損した軸は重み再正規化で薄まるだけで警告を出さないため、この画面が唯一の気づき口になる）。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
   通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——`bool_default="nan"`

@@ -225,8 +225,3 @@ def test_way_coverage_counts_only_rows_the_batch_can_process():
         assert f"count(*) FILTER (WHERE ({spec.in_scope}) AND (" in sql, material_id
 
 
-def test_edge_material_present_counts_include_rows_that_cannot_have_a_value():
-    """算出不能な行は「値を持つ側」へ数える（欠損＝再実行で埋まる件数、という意味を保つ）。"""
-    spec = MATERIAL_COVERAGE_SPECS["curvature_deg_per_km"]
-
-    assert "distance_m > 0" in spec.present_count_sql

@@ -9,7 +9,6 @@
 実行順序（依存DAGどおり）: ④presplit_road_graph→⑤precompute_road_node_degrees→
 ⑥precompute_edge_attribute_counts→⑦precompute_elevation_attributes→
 ⑧precompute_way_attribute_counts→⑨match_designations→⑩precompute_way_landcover→
-⑪precompute_way_curvature→⑫precompute_edge_curvature→
 ⑬precompute_way_divided_carriageway。
 `app/batch/precompute_*.py`のうち1本でもここへ登録し忘れると、そのバッチが埋める列は
 再構築されないまま「派生データ再構築が完了しました」と報告される。
@@ -43,11 +42,9 @@ from types import ModuleType
 from app.batch import (
     match_designations,
     precompute_edge_attribute_counts,
-    precompute_edge_curvature,
     precompute_elevation_attributes,
     precompute_road_node_degrees,
     precompute_way_attribute_counts,
-    precompute_way_curvature,
     precompute_way_divided_carriageway,
     precompute_way_landcover,
     presplit_road_graph,
@@ -69,8 +66,6 @@ _STAGES: list[tuple[str, ModuleType, str]] = [
     ("⑧precompute_way_attribute_counts", precompute_way_attribute_counts, "run"),
     ("⑨match_designations", match_designations, "run_match"),
     ("⑩precompute_way_landcover", precompute_way_landcover, "run_default"),
-    ("⑪precompute_way_curvature", precompute_way_curvature, "run"),
-    ("⑫precompute_edge_curvature", precompute_edge_curvature, "run"),
     ("⑬precompute_way_divided_carriageway", precompute_way_divided_carriageway, "run"),
 ]
 

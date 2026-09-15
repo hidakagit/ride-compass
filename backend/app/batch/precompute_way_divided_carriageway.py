@@ -1,4 +1,4 @@
-"""「上下線が分かれた道の片側か」（way_geometry.divided_carriageway）の事前計算バッチ。
+"""「上下線が分かれた道の片側か」（`way_divided_carriageway`）の事前計算バッチ。
 
 OSMは中央分離帯のある道路の上下線を別々のwayとして持ち、その一本ずつに oneway=yes を
 付ける。そのため `osm_raw_ways.direction` だけでは「一方通行規制の道」と「上下線が分かれた
@@ -6,8 +6,7 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 逆方向は数m隣にある）。判定は逆向きに並走する相方の有無で行う（測り方のSQLは
 `road_graph_repository.py: _RECOMPUTE_WAY_DIVIDED_CARRIAGEWAY_SQL`）。
 
-母集団は`osm_raw_ways`全域。`precompute_way_curvature.py`と同じ`way_geometry`の行を
-触るが、更新する列は分かれているため実行順は問わない。
+母集団は`osm_raw_ways`全域。
 
 migration 0040適用後、本番でも初回実行が必須（他のprecomputeバッチと同じ運用）。
 osm_raw_waysが変わった場合（PBF再取込）は再実行し、タイル世代

@@ -1345,33 +1345,6 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
     assert batch.materials[bwd_edge_id].landcover_built_percent == 25.0
 
 
-async def test_get_edge_materials_batch_carries_curvature_from_road_edges(
-    road_graph_repository, road_graph_session
-):
-    """蛇行は派生テーブルではなくroad_edgesの列。save_graphが書いた値がbundleまで届くこと。
-
-    モデルへ列を足してもこのSELECTへ通し忘れると、材料は静かに欠損したまま軸だけが増える
-    （実際に本番で「軸はカタログに出るのに値が来ない」形で発覚した、docs/tasks/T691.md）。
-    頂点3点以上のwayでないと蛇行は定義できないため、3ノードのwayで組む。
-    """
-    way = WaySpec(osm_way_id=300, node_ids=[1, 2, 3], highway="residential")
-    nodes = {1: NODE1, 2: NODE2, 3: NODE3}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-
-    edge_ids = list(graph.edges.keys())
-    batch = await road_graph_repository.get_edge_materials_batch(edge_ids)
-
-    measured = {
-        edge_id: graph.edges[edge_id].curvature_deg_per_km
-        for edge_id in edge_ids
-        if graph.edges[edge_id].curvature_deg_per_km is not None
-    }
-    assert measured, "この構成で蛇行が1本も求まっていない（テストが空振りしている）"
-    for edge_id, expected in measured.items():
-        assert batch.materials[edge_id].curvature_deg_per_km == pytest.approx(expected)
-
 
 async def _mark_tile_cached(session, zoom: int, x: int, y: int) -> None:
     """road_graph_tilesへ直接INSERT（UPSERT）する。改善計画: リポジトリの`mark_tile_cached`
@@ -2058,55 +2031,6 @@ async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
     assert "built_pct" not in features[101]
 
 
-async def test_get_road_surface_tile_mvt_encodes_way_curvature(road_graph_repository, road_graph_session):
-    """way_geometryの蛇行がcurvature_deg_per_kmとしてMVTへ焼き込まれる。これが無いと
-    材料のtile_propertyが空振りし、蛇行軸の地図レイヤーが静かに消える。0と行の無いwayは
-    キー自体を持たない（accident_per_km等と同じNULLIFの流儀、フロントは欠損を0として読む）。
-    """
-    import mapbox_vector_tile
-
-    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
-    way_c = WaySpec(osm_way_id=102, node_ids=[1, 3], highway="residential")
-    nodes = {1: NODE1, 2: NODE2, 3: NODE3}
-    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
-    await road_graph_session.execute(
-        text(
-            "INSERT INTO way_geometry (osm_way_id, curvature_deg_per_km, computed_at) "
-            "VALUES (100, 253.7, now()), (102, 0, now())"
-        )
-    )
-    await road_graph_session.commit()
-    await _mark_mvt_coverage(road_graph_session)
-
-    tile = await road_graph_repository.get_road_surface_tile_mvt(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
-
-    decoded = mapbox_vector_tile.decode(tile)
-    features = {f["properties"]["osm_way_id"]: f["properties"] for f in decoded["road_surface"]["features"]}
-    assert features[100]["curvature_deg_per_km"] == pytest.approx(253.7)
-    assert "curvature_deg_per_km" not in features[101]
-    assert "curvature_deg_per_km" not in features[102]
-
-
-async def test_get_way_curvature_reads_way_geometry(road_graph_repository, road_graph_session):
-    """区間インスペクタが引く1行取得。行が無いwayはNone（未計算とまっすぐを区別する）。"""
-    await road_graph_repository.save_raw_ways(
-        [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")], {1: NODE1, 2: NODE2}
-    )
-    await road_graph_session.execute(
-        text("INSERT INTO way_geometry (osm_way_id, curvature_deg_per_km, computed_at) VALUES (100, 42.5, now())")
-    )
-    await road_graph_session.commit()
-
-    assert await road_graph_repository.get_way_curvature(100) == pytest.approx(42.5)
-    assert await road_graph_repository.get_way_curvature(999) is None
-
-
-# --- get_way_ids_in_tile（改善計画T405→T414で作り直し、way_id→wind_penalty配信層の
-# way_id取得。旧get_way_bearings_in_tileはT414で道路自身の向きの計算が不要になったため、
-# より単純なway_id一覧の取得へ置き換えた）---
 
 
 async def test_get_way_ids_in_tile_returns_none_when_uncovered(road_graph_repository):

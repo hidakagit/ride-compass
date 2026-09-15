@@ -159,8 +159,7 @@ def test_every_precompute_batch_is_in_the_ledger_or_has_a_reason():
     母集団は`app/batch/precompute_*.py`の**すべて**。台帳に並ぶテーブル名を書き写す形だと、
     新しいバッチが台帳へ載らなくても「今あるものが今あるものと一致する」で通ってしまう。
     母集団を「`ALGORITHM_VERSION`を宣言しているもの」に絞る形にも同じ穴がある——版数を
-    宣言しなければ台帳に載らなくても検査を通り抜けられる（実際に`precompute_edge_curvature`が
-    そうなっていた）。
+    宣言しなければ台帳に載らなくても検査を通り抜けられる。
     """
     import pathlib
 
@@ -355,7 +354,7 @@ def test_owner_batches_select_their_targets_from_the_declared_scope():
 
 def test_completeness_sql_excludes_rows_the_batch_cannot_process():
     """未計算の集計が`in_scope`で絞られていること（母集団は絞らない）。"""
-    spec = completeness_spec("road_edges.curvature_deg_per_km")
+    spec = completeness_spec("elevation_attributes")
     sql = " ".join(str(build_completeness_sql(spec)).split())
 
     assert f"FILTER (WHERE ({spec.in_scope}) AND ({spec.uncalculated}))" in sql
