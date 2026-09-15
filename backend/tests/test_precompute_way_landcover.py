@@ -40,7 +40,18 @@ def test_algorithm_version_includes_ring_radii():
 
 
 def test_infer_data_version_from_filename_extracts_start_year():
+    # Azure Blob / Planetary Computer の期間表記。
     assert infer_data_version_from_filename("54S_20250101-20260101.tif") == "2025"
+
+
+def test_infer_data_version_from_filename_reads_the_s3_naming():
+    """AWS S3（`s3://io-10m-annual-lulc/`）は年だけの命名で配る。
+
+    本番へ置いたラスタはこちらのため、読めないと`--data-version`を毎回手で渡すことになり、
+    渡し忘れると`data_version`が欠けた行が入る。
+    """
+    assert infer_data_version_from_filename("54S_2024.tif") == "2024"
+    assert infer_data_version_from_filename("/srv/lulc/53S_2024.tif") == "2024"
 
 
 def test_infer_data_version_from_filename_returns_none_when_no_match():

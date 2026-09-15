@@ -56,9 +56,12 @@ DATA_SOURCE = "esri-io-lulc"
 
 _LATEST_SUCCEEDED_OSM_RUN_ID_SQL = text("SELECT MAX(id) FROM osm_import_runs WHERE status = 'succeeded'")
 
-# ファイル名（例: 54S_20250101-20260101.tif）から開始年を抽出する。Azure Blob/Planetary
-# Computerの配布規約に合わせた命名（docs/tasks/T624.md「データ取得」参照）。
-_DATA_VERSION_FROM_FILENAME_RE = re.compile(r"(\d{4})\d{4}-\d{8}")
+# ファイル名から年次マップの年を抽出する。配布元で命名が2通りある
+# （docs/tasks/T624.md「データ取得」参照）。
+#   AWS S3 `s3://io-10m-annual-lulc/`  : 54S_2024.tif（年だけ）
+#   Azure Blob / Planetary Computer    : 54S_20250101-20260101.tif（期間表記）
+# どちらも`_`の直後の4桁が年で、期間表記はその後ろへ続く。
+_DATA_VERSION_FROM_FILENAME_RE = re.compile(r"_(\d{4})(?:\d{4}-\d{8})?\.")
 
 
 # 径ごとに版文字列を変える規則そのものは`domain/derived_data_versions.py`が持つ
