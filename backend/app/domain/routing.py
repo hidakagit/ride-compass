@@ -43,8 +43,8 @@ class LazyRoadGraph:
 
     Node・Edgeとも整数index（`index_to_node_id`・`edge_ids`の添字）で扱い、文字列の
     node_id/edge_idは経路確定後の変換でのみ使う。コストは持たない——リクエストごとに変わる
-    ため、探索へは別に合成した配列を渡す。並行Edge（同一Node間の複数Edge）はコスト最小の
-    1本へ解消済み（`edge_index_by_node_pair`）。
+    ため、探索へは別に合成した配列を渡す。並行Edge（同一Node間の複数Edge）はedge_idの昇順で
+    先頭の1本へ解消済み（`edge_index_by_node_pair`）。
     """
 
     node_id_to_index: dict[str, int]
