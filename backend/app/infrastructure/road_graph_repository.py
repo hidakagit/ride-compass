@@ -100,6 +100,7 @@ from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTAN
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import (
+    HIGHWAY_RANK,
     INTERSECTION_DEGREE_THRESHOLD,
     POI_COUNT_KINDS,
     POI_CLUSTER_EPS_M,
@@ -1473,6 +1474,61 @@ _RECOMPUTE_NODE_DEGREES_SQL = text(
     """
 )
 
+# ノードに集まる道の最大階級。`HIGHWAY_RANK`（domain/traffic.py）をそのままCASEへ写す
+# ——同じ順位表をSQL側へ書き写さないため、本文はPythonの辞書から組み立てる。
+_HIGHWAY_RANK_SQL_CASE = "CASE e.highway\n" + "\n".join(
+    f"            WHEN '{highway}' THEN {rank}" for highway, rank in sorted(HIGHWAY_RANK.items())
+) + "\n            ELSE 0\n        END"
+
+_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_SQL = text(
+    """
+    WITH endpoints AS (
+        SELECT from_node_id AS node_id, __RANK__ AS rank FROM road_edges e
+        UNION ALL
+        SELECT to_node_id AS node_id, __RANK__ AS rank FROM road_edges e
+    ),
+    ranks AS (
+        SELECT node_id, MAX(rank) AS max_rank FROM endpoints GROUP BY node_id
+    )
+    UPDATE road_nodes rn
+    SET max_highway_rank = COALESCE(r.max_rank, 0)
+    FROM ranks r
+    WHERE rn.node_id = r.node_id
+      AND rn.max_highway_rank IS DISTINCT FROM COALESCE(r.max_rank, 0)
+    """.replace("__RANK__", _HIGHWAY_RANK_SQL_CASE)
+)
+
+# ノードに信号があるか。信号は交差点そのもののノードではなく、流入路ごと・横断歩道位置ごとの
+# 別ノードとして描かれるため、`osm_node_id`の一致では大半を取りこぼす。同じ交差点の点を
+# まとめるのに使っている距離（`POI_CLUSTER_EPS_M`）を半径にして拾う。
+# 判定に使うkindは`_POI_COUNT_KIND_EXPR`と同じ規則（`traffic_signals`と、信号付きの
+# `crossing`の2通りの書かれ方）。
+_RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL = text(
+    """
+    WITH signals AS (
+        SELECT p.geom FROM osm_raw_pois p
+        WHERE p.kind = 'traffic_signals'
+           OR (p.kind = 'crossing' AND p.tags->>'crossing' LIKE '%signals%')
+    ),
+    flagged AS (
+        SELECT rn.node_id,
+               EXISTS (
+                   SELECT 1 FROM signals s
+                   WHERE s.geom && ST_Expand(rn.geom::geometry, :signal_radius_deg)
+                     AND ST_DWithin(s.geom::geography, rn.geom::geography, :signal_radius_m)
+               ) AS has_signal
+        FROM road_nodes rn
+        WHERE rn.node_id = ANY(:node_ids)
+    )
+    UPDATE road_nodes rn
+    SET has_traffic_signals = f.has_signal
+    FROM flagged f
+    WHERE rn.node_id = f.node_id
+      AND rn.has_traffic_signals IS DISTINCT FROM f.has_signal
+    """
+)
+
+
 # road_edgesから一切参照されないnode（孤立点、通常は発生しないが防御的に0へ戻す）。
 _RESET_UNREFERENCED_NODE_DEGREES_SQL = text(
     """
@@ -1500,6 +1556,29 @@ class DerivedGraphRepository(_SessionRepository):
         """
         await self._session.execute(_RECOMPUTE_NODE_DEGREES_SQL)
         await self._session.execute(_RESET_UNREFERENCED_NODE_DEGREES_SQL)
+
+    async def recompute_node_max_highway_rank(self) -> None:
+        """road_nodes.max_highway_rankをroad_edges全件から再計算する。"""
+        await self._session.execute(_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_SQL)
+
+    async def recompute_node_traffic_signals(self, node_ids: list[str]) -> None:
+        """渡したノードのroad_nodes.has_traffic_signalsをosm_raw_poisから再計算する。
+
+        半径での空間結合のため、全件を1文で処理するとプラン次第で全組み合わせ評価に落ちる
+        （`get_intersection_counts`と同じ事情）。呼び出し側がノードを分割して渡す。
+        """
+        if not node_ids:
+            return
+        await self._session.execute(
+            _RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL,
+            {
+                "node_ids": node_ids,
+                "signal_radius_m": POI_CLUSTER_EPS_M,
+                # `&&`でGiST索引を先に効かせるための粗い矩形。緯度1度≒111kmで換算し、
+                # 経度側が狭くなる高緯度でも取りこぼさないよう余裕を持たせる。
+                "signal_radius_deg": POI_CLUSTER_EPS_M / 111_000.0 * 2.0,
+            },
+        )
 
     async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:
         envelope = func.ST_MakeEnvelope(

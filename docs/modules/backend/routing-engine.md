@@ -15,7 +15,7 @@
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
-| batch | `precompute_road_node_degrees.py`・`precompute_edge_curvature.py`・`presplit_road_graph.py` |
+| batch | `precompute_road_node_degrees.py`・`precompute_road_node_intersections.py`・`precompute_edge_curvature.py`・`presplit_road_graph.py` |
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経路計算する。探索の状態は
 **有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木も
@@ -855,6 +855,27 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
 実装済みで、本バッチはそれを呼び出すだけ。**`precompute_edge_attribute_counts.py`より
 先に実行する必要がある**（`intersection_count`がこのバッチの書く`degree`列を参照する
 ため）。
+
+## batch: `precompute_road_node_intersections.py`
+
+`road_nodes.has_traffic_signals`・`road_nodes.max_highway_rank`の事前集計バッチ。集計SQLは
+`DerivedGraphRepository.recompute_node_traffic_signals`・`recompute_node_max_highway_rank`が
+持ち、本バッチはそれを呼び出すだけ。
+
+**信号の有無はノード単位でしか表せない**。ターンの費用は「進入した道より上位の道と交わる
+交差点」で秒数を足すが、信号での待ちは停止密度の材料が走行モデルへ運ぶ
+（`domain/traffic.py: stop_count_material_ids`）ため、そこと重ねると二重になる。ターン側が
+足すべきなのは信号が無いのに上位の道を渡る・そこへ入るときの待ちで、Edgeへ畳み込むと
+どちらの端の信号かが失われて区別できない。
+
+信号は交差点そのもののノードではなく流入路ごと・横断歩道位置ごとの別ノードとして描かれる
+ため、判定は`osm_node_id`の一致ではなく半径（`POI_CLUSTER_EPS_M`、同じ交差点の点をまとめる
+のに使っている距離）で行う。**半径は結果を大きく動かす**——広げるほど「信号あり」と
+みなすノードが増え、そのぶんターンの費用が下がる。較正されていない値である。
+
+`max_highway_rank`はDB全体から見た値で、探索は読み込んだ部分グラフからも同じ値を導ける。
+DB側の値は**その下限を上げるためだけ**に使う（bboxの外へはみ出した上位の道を取りこぼさない）
+——未集計の0でも探索側の導出が働くため、バッチ未実行でも挙動は変わらない。
 
 ## batch: `precompute_edge_curvature.py`
 

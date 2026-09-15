@@ -15,6 +15,7 @@ from sqlalchemy import insert, text
 
 from app.domain.attributes import ElevationAttribute, WayAttributeCounts
 from app.domain.graph import WaySpec, build_road_graph
+from app.domain.traffic import HIGHWAY_RANK
 from app.domain.landcover import LULC_BUILT, LULC_TREES, LULC_WATER, WayLandcover, class_percentages
 from app.domain.region import BoundingBox
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
@@ -37,6 +38,9 @@ NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
 NODE3 = (35.750, 139.750)
 NODE4 = (35.751, 139.751)
+# 交差点ノードから信号POIまでの緯度差（約15m）。実データの信号は交差点ノードと座標が
+# 一致しないため、半径による判定が効いていることを確かめられる距離に置く。
+SIGNAL_OFFSET_DEG = 15.0 / 111_000.0
 
 BBOX_AROUND_NODE1_2 = BoundingBox(
     min_latitude=35.6995, min_longitude=139.6995, max_latitude=35.7015, max_longitude=139.7015
@@ -941,6 +945,115 @@ async def test_get_way_landcover_returns_none_when_row_missing(road_graph_reposi
     await road_graph_session.commit()
 
     assert await road_graph_repository.get_way_landcover(100) is None
+
+
+async def _save_cross(road_graph_repository, side_highway: str):
+    """NODE2で幹線（primary）と側道が交わる十字。NODE2の最大階級はprimary側で決まる。"""
+    ways = [
+        WaySpec(osm_way_id=100, node_ids=[1, 2], highway="primary"),
+        WaySpec(osm_way_id=101, node_ids=[2, 3], highway="primary"),
+        WaySpec(osm_way_id=102, node_ids=[2, 4], highway=side_highway),
+    ]
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    return graph
+
+
+async def _node_attributes(session, node_id_suffix: str) -> tuple[bool, int]:
+    row = (await session.execute(text(
+        "SELECT has_traffic_signals, max_highway_rank FROM road_nodes"
+        " WHERE node_id LIKE :pattern"
+    ), {"pattern": f"%{node_id_suffix}"})).one()
+    return bool(row[0]), int(row[1])
+
+
+async def test_recompute_node_max_highway_rank_takes_the_highest_of_the_roads_that_meet(
+    road_graph_repository, road_graph_session
+):
+    """交差点の階級は、そこに集まる道のうち最上位で決まる（residentialとprimaryならprimary）。"""
+    await _save_cross(road_graph_repository, side_highway="residential")
+
+    await road_graph_repository.graph.recompute_node_max_highway_rank()
+    await road_graph_session.commit()
+
+    _, rank = await _node_attributes(road_graph_session, "2")
+    assert rank == HIGHWAY_RANK["primary"]
+
+
+async def test_recompute_node_max_highway_rank_is_zero_for_roads_outside_the_rank_table(
+    road_graph_repository, road_graph_session
+):
+    """順位表に無いhighway（自転車道・歩道）だけが集まるノードは0のまま。"""
+    ways = [
+        WaySpec(osm_way_id=100, node_ids=[1, 2], highway="cycleway"),
+        WaySpec(osm_way_id=101, node_ids=[2, 3], highway="footway"),
+    ]
+    graph = build_road_graph(ways, {1: NODE1, 2: NODE2, 3: NODE3}, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+
+    await road_graph_repository.graph.recompute_node_max_highway_rank()
+    await road_graph_session.commit()
+
+    _, rank = await _node_attributes(road_graph_session, "2")
+    assert rank == 0
+
+
+async def test_recompute_node_traffic_signals_flags_the_node_near_a_signal(
+    road_graph_repository, road_graph_session
+):
+    """信号は交差点そのもののノードとは別に描かれるため、近傍の信号POIで印が付く。
+
+    POIは交差点ノードから約15m離した位置に置く（日本のOSMは流入路ごとの別ノードとして
+    信号を描き、交差点ノードと座標が一致しない）。同じ座標へ置くと半径が0でも通ってしまい、
+    半径による判定を検証できない。
+    """
+    graph = await _save_cross(road_graph_repository, side_highway="residential")
+    signal_lat = NODE2[0] + SIGNAL_OFFSET_DEG
+    await road_graph_session.execute(
+        insert(OsmRawPoiRow),
+        [{
+            "osm_node_id": 9001,
+            "kind": "traffic_signals",
+            "tags": {},
+            "geom": from_shape(Point(NODE2[1], signal_lat), srid=4326),
+            "updated_at": datetime.now(timezone.utc),
+        }],
+    )
+    node_ids = sorted({e.from_node_id for e in graph.edges.values()}
+                      | {e.to_node_id for e in graph.edges.values()})
+
+    await road_graph_repository.graph.recompute_node_traffic_signals(node_ids)
+    await road_graph_session.commit()
+
+    has_signal, _ = await _node_attributes(road_graph_session, "2")
+    assert has_signal is True
+    far, _ = await _node_attributes(road_graph_session, "3")
+    assert far is False, "5km離れたNODE3まで信号ありになっている（半径が効いていない）"
+
+
+async def test_recompute_node_traffic_signals_ignores_crossings_without_signals(
+    road_graph_repository, road_graph_session
+):
+    """信号を伴わない横断歩道は「信号あり」にしない（`_POI_COUNT_KIND_EXPR`と同じ規則）。"""
+    graph = await _save_cross(road_graph_repository, side_highway="residential")
+    await road_graph_session.execute(
+        insert(OsmRawPoiRow),
+        [{
+            "osm_node_id": 9002,
+            "kind": "crossing",
+            "tags": {"crossing": "uncontrolled"},
+            "geom": from_shape(Point(NODE2[1], NODE2[0] + SIGNAL_OFFSET_DEG), srid=4326),
+            "updated_at": datetime.now(timezone.utc),
+        }],
+    )
+    node_ids = sorted({e.to_node_id for e in graph.edges.values()})
+
+    await road_graph_repository.graph.recompute_node_traffic_signals(node_ids)
+    await road_graph_session.commit()
+
+    has_signal, _ = await _node_attributes(road_graph_session, "2")
+    assert has_signal is False
 
 
 async def test_get_intersection_counts_returns_empty_dict_for_empty_input(road_graph_repository):

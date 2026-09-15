@@ -46,6 +46,7 @@ from app.batch import (
     precompute_edge_curvature,
     precompute_elevation_attributes,
     precompute_road_node_degrees,
+    precompute_road_node_intersections,
     precompute_way_attribute_counts,
     precompute_way_curvature,
     precompute_way_divided_carriageway,
@@ -72,6 +73,7 @@ _STAGES: list[tuple[str, ModuleType, str]] = [
     ("⑪precompute_way_curvature", precompute_way_curvature, "run"),
     ("⑫precompute_edge_curvature", precompute_edge_curvature, "run"),
     ("⑬precompute_way_divided_carriageway", precompute_way_divided_carriageway, "run"),
+    ("⑭precompute_road_node_intersections", precompute_road_node_intersections, "run"),
 ]
 
 

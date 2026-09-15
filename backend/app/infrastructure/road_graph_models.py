@@ -125,6 +125,16 @@ class RoadNodeRow(Base):
     # backend/app/batch/precompute_road_node_degrees.pyで再計算）。DEFAULT 0は
     # ノード作成時点（PBF取込）の初期値で、バッチ実行までは未計算を意味する。
     degree: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # そのノードに信号があるか（事前集計、precompute_road_node_intersections.py）。
+    # ターンの費用が「信号が無いのに上位の道を渡る」場合だけ待ちを足すために読む。
+    # DEFAULT false はバッチ実行前を意味し、そのときの挙動はバッチ導入前と同じになる。
+    has_traffic_signals: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false")
+    # そのノードに集まる道の最大階級（domain/traffic.py: HIGHWAY_RANK、DB全体から見た値）。
+    # 探索は読み込んだ部分グラフからも同じ値を導けるため、こちらはその下限を上げるためだけに
+    # 使う（bboxの外へはみ出した上位の道を取りこぼさない）。DEFAULT 0 は未計算。
+    max_highway_rank: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0")
 
 
 class RoadEdgeRow(Base):

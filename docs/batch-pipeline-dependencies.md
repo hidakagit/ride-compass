@@ -44,6 +44,9 @@
                                         + road_nodes.degree → edge_attribute_counts
 ⑦ precompute_elevation_attributes.py   road_edges + GSI DEM API → elevation_attributes
       └─ ⑤⑥との明示的な前後関係なし。road_edgesにのみ依存
+⑭ precompute_road_node_intersections.py road_edges + osm_raw_pois
+                                        → road_nodes.has_traffic_signals / max_highway_rank
+      └─ ⑤⑥との明示的な前後関係なし。road_edgesとosm_raw_poisにのみ依存
 
 【第3グループ: osm_raw_ways起点の派生計算（road_edges非依存）】
 ⑧ precompute_way_attribute_counts.py   osm_raw_ways + accident_points + osm_raw_pois
@@ -89,8 +92,9 @@
 | ⑬ | `precompute_way_divided_carriageway.py` | `osm_raw_ways`（全件） | `way_divided_carriageway`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存）。判定が周辺のwayを見るため、対象範囲のwayが揃っていること | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を判定し直す） |
 | ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
 | ⑫ | `precompute_edge_curvature.py` | `road_edges`（`distance_m > 0`の全件、ジオメトリ） | `road_edges.curvature_deg_per_km`（同一表のUPDATE） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・再split） | 全件測り直し、安全（`distance_m = 0`のEdgeは測れずNULLのまま） |
+| ⑭ | `precompute_road_node_intersections.py` | `road_edges`（highway） + `osm_raw_pois`（信号） | `road_nodes.has_traffic_signals` / `road_nodes.max_highway_rank`（同一表のUPDATE） | ④でroad_edgesが存在すること | `road_edges`または`osm_raw_pois`変化時（PBF再取込） | 全件判定し直し、安全（未実行時の既定値はどちらもこのバッチ導入前と同じ挙動になる側） |
 
-全12バッチともUPSERT・DELETE→INSERT・同一表のUPDATE（いずれもトランザクション内、
+いずれのバッチもUPSERT・DELETE→INSERT・同一表のUPDATE（いずれもトランザクション内、
 0件時はDELETEもスキップ）で単純な再実行は安全。冪等性の唯一の例外は①のノード座標（DO NOTHING）。④はタイル単位で
 `is_split_up_to_date`により未split分だけへスコープを絞るため、全件洗い替えではない。
 
