@@ -214,6 +214,19 @@ jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計�
 `osm_raw_ways`全行を対象にする——測れないwayを対象から外すと「算出不能」が「未計算」と
 見分けられなくなり、再実行しても埋まらないwayを追い続けることになる。
 
+### 通行方向の解決（`osm_adapter.py: _resolve_direction`）
+
+`osm_raw_ways.direction`は取込時に決まる。`oneway:bicycle`が`oneway`本体より優先し
+（自転車だけ逆走可という表現があるため）、どちらも無い・解釈できないときだけ`junction`を
+見る——環状交差点は構造として一方向にしか通れないのに、OSMは個々のwayへ`oneway`を
+付けない慣行がある。明示された`oneway=no`はこの推定より優先する。
+
+`oneway=reversible`/`alternating`（時間帯で向きが変わる）は両方向として扱う。時刻を持たない
+`direction`列では表せず、どちらか一方へ固定すると半分の時間帯で誤る。
+
+**この解決は取込時にしか走らない**。判定に使うタグを増やしても、増やす前に取り込んだ行の
+`direction`は変わらず、そのタグ自体も許可リストの外なら残っていない（PBF再取込が要る）。
+
 ### 上下線が分かれた道の片側か（`way_divided_carriageway`・`precompute_way_divided_carriageway.py`）
 
 OSMは中央分離帯のある道路の上下線を別々のwayとして持ち、その一本ずつに`oneway=yes`を

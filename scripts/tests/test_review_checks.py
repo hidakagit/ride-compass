@@ -1119,6 +1119,61 @@ def test_map_redraw_gaps_does_not_count_a_name_that_only_a_comment_mentions():
     assert len(review_checks.map_redraw_gaps_in(source)) == 1
 
 
+# 描画の担当を別ファイルへ分けたとき、分けた先が検知の外へ出ないこと。母集団を入口の
+# 1ファイルに限ると、抽出した関数が呼ばれなくなっても0件のまま通る（T877の抽出で実際に
+# その状態になった）。
+ENTRY_SOURCE = """
+import { drawMoved } from "@/components/Map/Entry.routes";
+
+export function redrawAllLayers(map, props) {
+  drawMoved(map);
+}
+"""
+
+MOVED_SOURCE = """
+export function drawMoved(map) {
+  map.addSource(MOVED_SOURCE_ID, { type: "geojson" });
+}
+
+export function drawForgotten(map) {
+  map.addSource(FORGOTTEN_SOURCE_ID, { type: "geojson" });
+}
+"""
+
+
+def test_map_redraw_population_follows_the_entry_imports(tmp_path):
+    # 母集団は手で列挙せず、入口のファイルが取り込んでいる先から導く。列挙にすると、
+    # 次に担当を分けた人が足し忘れた時点で静かに検知範囲から外れる。
+    (tmp_path / "Moved.ts").write_text(MOVED_SOURCE, encoding="utf-8")
+    (tmp_path / "Unrelated.ts").write_text(MOVED_SOURCE, encoding="utf-8")
+    source = 'import { drawMoved } from "@/components/Map/Moved";'
+
+    picked = review_checks.map_redraw_local_modules(source, tmp_path)
+
+    assert [path.rsplit("/", 1)[-1] for path, _ in picked] == ["Moved.ts"]
+
+
+def test_map_redraw_gaps_crosses_module_boundaries():
+    parts = [("Entry.tsx", ENTRY_SOURCE), ("Entry.routes.ts", MOVED_SOURCE)]
+    source = "\n".join(text for _, text in parts)
+
+    gaps = review_checks.map_redraw_gaps_in(source, parts)
+
+    # 入口から呼ばれている方は出ず、呼ばれていない方だけが出る。
+    assert len(gaps) == 1
+    assert "drawForgotten" in gaps[0]
+
+
+def test_map_redraw_gaps_points_at_the_file_the_declaration_lives_in():
+    parts = [("Entry.tsx", ENTRY_SOURCE), ("Entry.routes.ts", MOVED_SOURCE)]
+    source = "\n".join(text for _, text in parts)
+
+    gaps = review_checks.map_redraw_gaps_in(source, parts)
+
+    # 連結後の行をそのまま出すと、入口のファイルの存在しない行を指す。
+    assert gaps[0].startswith("Entry.routes.ts:")
+
+
 def test_map_redraw_gaps_reports_a_missing_entry_instead_of_passing_silently():
     source = REDRAW_SOURCE.replace("redrawAllLayers", "somethingElse")
 

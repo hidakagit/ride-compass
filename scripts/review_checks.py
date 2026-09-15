@@ -452,6 +452,10 @@ MAP_REDRAW_SIDE_EFFECTS = (
 )
 
 
+# 入口のファイルが同じディレクトリから取り込むモジュール。母集団をこの経路で広げる。
+MAP_REDRAW_LOCAL_IMPORT_RE = re.compile(r'from "(?:@/components/Map/|\./)([\w.]+)"')
+
+
 def find_map_redraw_gaps() -> list[str]:
     """map.setStyle()後の再描画から辿り着けない、描画の副作用を持つ宣言。
 
@@ -459,15 +463,45 @@ def find_map_redraw_gaps() -> list[str]:
     コールバックとして渡す形も辿れるようにするため）。オーバーレイ登録表の`ensure`だけは
     名前で呼ばれないため、`.ensure(`を呼ぶ経路からは表に載る`ensure`すべてへ辿れるものと
     して扱う。
+
+    **母集団は入口の1ファイルに限らない**。描画の担当を別ファイルへ分けると、分けた先の
+    宣言が丸ごと検知の外へ出る——入口から呼ばれなくなっても誰も気づかない。入口が同じ
+    ディレクトリから取り込んでいるモジュールを母集団へ足し、到達判定はモジュール境界を
+    跨いで1つのグラフとして行う。
     """
     path = REPO_ROOT / MAP_REDRAW_FILE
     if not path.exists():
         return [f"{MAP_REDRAW_FILE} が見つからない（検知器の対象がずれている）"]
-    return map_redraw_gaps_in(read_text(path))
+    source = read_text(path)
+    parts = [(MAP_REDRAW_FILE, source), *map_redraw_local_modules(source, path.parent)]
+    return map_redraw_gaps_in("\n".join(text for _, text in parts), parts)
 
 
-def map_redraw_gaps_in(source: str) -> list[str]:
-    """`find_map_redraw_gaps`の本体（テストが合成したソースにも掛けられるよう分けてある）。"""
+def rel_if_inside_repo(path: Path) -> str:
+    try:
+        return rel(path)
+    except ValueError:
+        return path.as_posix()
+
+
+def map_redraw_local_modules(source: str, directory: Path) -> list[tuple[str, str]]:
+    """入口のファイルが`directory`から取り込んでいるモジュールの、パスと中身。"""
+    out = []
+    for name in sorted(set(MAP_REDRAW_LOCAL_IMPORT_RE.findall(source))):
+        for suffix in (".ts", ".tsx"):
+            candidate = directory / (name + suffix)
+            if candidate.exists():
+                out.append((rel_if_inside_repo(candidate), read_text(candidate)))
+                break
+    return out
+
+
+def map_redraw_gaps_in(source: str, parts: list[tuple[str, str]] | None = None) -> list[str]:
+    """`find_map_redraw_gaps`の本体（テストが合成したソースにも掛けられるよう分けてある）。
+
+    `parts`は連結前の(パス, 中身)。渡すと、連結後の行番号を元のファイルと行へ戻して報告する
+    ——どのファイルを見ればよいかが分からないと、検知しても直しにくい。
+    """
     code = blank_ts_noncode(source)
     body, line_of = top_level_segments(code)
     if MAP_REDRAW_ENTRY not in body:
@@ -491,8 +525,19 @@ def map_redraw_gaps_in(source: str) -> list[str]:
             stack.extend(ensure_values)
 
     owners = {n for n, b in body.items() if any(m in b for m in MAP_REDRAW_SIDE_EFFECTS)}
+
+    def where(line: int) -> str:
+        if not parts:
+            return f"{MAP_REDRAW_FILE}:{line}"
+        offset = 0
+        for path, text in parts:
+            count = text.count("\n") + 1
+            if line <= offset + count:
+                return f"{path}:{line - offset}"
+            offset += count
+        return f"{MAP_REDRAW_FILE}:{line}"
     return [
-        f"{MAP_REDRAW_FILE}:{line_of[name]}: `{name}`が再描画で失われる副作用を持つが、"
+        f"{where(line_of[name])}: `{name}`が再描画で失われる副作用を持つが、"
         f"`{MAP_REDRAW_ENTRY}`から辿れない"
         "（map.setStyle()後に作り直されず、そのレイヤーは消えたまま戻らない。"
         "docs/tasks/T825.md参照）"
@@ -510,7 +555,6 @@ SCAFFOLD_DEF_RES = (
 
 
 def find_duplicate_test_scaffolds(test_files: list[str]) -> list[str]:
-    """同じ名前の足場が2つ以上のテストファイルに定義されている箇所。"""
     by_name: dict[str, list[str]] = {}
     for path in test_files:
         if "/testing/" in path:

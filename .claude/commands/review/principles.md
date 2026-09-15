@@ -230,6 +230,12 @@ Findingsの件数から**機械的に**算出する（主観採点はしない�
    `history/scores.md`へも1行追記する**（トレンド追跡用、history/README.md参照）。
 6. P0/P1の指摘は docs/improvement-plan.md への **起票案**（タスク名・規模・トリガー）として
    提示する。improvement-plan.md 自体はユーザー承認後にのみ編集する。
+7. **「◯◯を一掃する」型の起票案では、対象をタスク本文へ列挙しない**。列挙した瞬間に
+   その一覧が母集団になり、漏れた1件が「一掃済み」の札の下で固定される。対象は
+   `history/YYYY-MM-DD_<review-type>_shards.md`の該当節を指し、完了条件は
+   **`scripts/review_checks.py`の該当検知器が0件を返すこと**で表す。機械が出せない型なら、
+   その型を検知器にできないかを先に検討する（`docs/design-principles.md`構造仕様12
+   「チェックの母集団は導出する。手で列挙しない」と同じ射程）。
 
 ## 禁止事項
 

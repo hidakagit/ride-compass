@@ -207,3 +207,61 @@ def test_osm_node_to_poi_spec_keeps_only_allowed_tags():
     assert spec.tags == {"highway": "crossing", "crossing": "zebra"}
 
 
+
+
+def test_roundabout_without_oneway_is_one_way_along_the_way():
+    # 環状交差点は構造として一方向にしか通れず、OSMは個々のwayへonewayを付けない慣行がある。
+    # 両方向として扱うと、探索が環を逆走する経路を出しうる。
+    spec = osm_way_to_way_spec(
+        {"id": 100, "tags": {"highway": "tertiary", "junction": "roundabout"}, "nodes": [1, 2]}
+    )
+
+    assert spec is not None
+    assert spec.direction == "forward"
+    assert spec.tags["junction"] == "roundabout"
+
+
+def test_circular_junction_is_treated_the_same_as_a_roundabout():
+    spec = osm_way_to_way_spec(
+        {"id": 100, "tags": {"highway": "tertiary", "junction": "circular"}, "nodes": [1, 2]}
+    )
+
+    assert spec is not None
+    assert spec.direction == "forward"
+
+
+def test_explicit_two_way_wins_over_the_junction_implication():
+    # OSM側が「両方向」と言っているなら、構造からの推定より優先する。
+    spec = osm_way_to_way_spec(
+        {
+            "id": 100,
+            "tags": {"highway": "tertiary", "junction": "roundabout", "oneway": "no"},
+            "nodes": [1, 2],
+        }
+    )
+
+    assert spec is not None
+    assert spec.direction == "both"
+
+
+def test_backward_oneway_wins_over_the_junction_implication():
+    spec = osm_way_to_way_spec(
+        {
+            "id": 100,
+            "tags": {"highway": "tertiary", "junction": "roundabout", "oneway": "-1"},
+            "nodes": [1, 2],
+        }
+    )
+
+    assert spec is not None
+    assert spec.direction == "backward"
+
+
+def test_a_junction_value_that_does_not_imply_one_way_stays_two_way():
+    # junction=yesのような、構造として一方向を含意しない値まで一方通行にしない。
+    spec = osm_way_to_way_spec(
+        {"id": 100, "tags": {"highway": "tertiary", "junction": "yes"}, "nodes": [1, 2]}
+    )
+
+    assert spec is not None
+    assert spec.direction == "both"

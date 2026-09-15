@@ -209,8 +209,9 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   軸id→配列の辞書へ展開→`evaluate_dynamic_axis_arrays`で動的軸を上書き→
   `compose_costs_from_axis_matrix`で重み合成→`compute_hard_filter_excluded`で0次
   フィルタを適用、の順にbbox全体ぶん1回だけ実行してコスト配列を得る。並行Edge
-  （同一Node間の複数Edge）はコストが判明済みのため`domain/routing.py:
-  build_lazy_road_graph`が「cost最小を採用」する。
+  （同一Node間の複数Edge）は`domain/routing.py: build_lazy_road_graph`がedge_idの昇順で
+  先頭を採用する決定的な規則で解消する（コストは見ない。`LazyRoadGraph`はコストに
+  依存せずタイル集合キーでキャッシュするため）。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
   探索と表示の二重計算を避ける。**唯一の例外**（探索コストのみ補完・表示は変えない、
   `docs/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が

@@ -265,3 +265,23 @@ def test_registry_axis_ids_match_axis_definitions():
     assert definition_axis_ids == registry_axis_ids
     for axis_id, definition in AXIS_DEFINITIONS.items():
         assert definition.axis_id == axis_id
+
+
+def test_only_the_common_context_attribute_is_exempt_from_the_exclusive_check():
+    # shared=Trueは「全軸が参照してよい共通コンテキスト」だけに与える。実質的な属性を
+    # 免除すると、その属性を2軸が使い始めても排他チェックが黙る。
+    shared = {attr.attr_id for attr in registry.all_primary_attributes() if attr.shared}
+
+    assert shared == {"geometry"}
+
+
+def test_a_second_axis_using_cycleway_is_rejected():
+    # 自転車インフラの材料を2軸目が参照したら、軸スタジオでの登録が弾かれる。
+    # 重ねるなら意図した判断として弾かれた側を解く必要がある、という形にしておく。
+    existing = _axis("bicycle_infra_quality")
+    assert "cycleway" in existing.inputs
+
+    with pytest.raises(registry.AxisInputConflictError) as exc_info:
+        registry.register_axis(registry.AxisSpec(axis_id="another", inputs=["cycleway"]))
+
+    assert exc_info.value.overlapping_attrs == {"cycleway"}

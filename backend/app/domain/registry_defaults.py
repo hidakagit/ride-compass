@@ -60,16 +60,7 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(PrimaryAttributeSpec(attr_id="highway", label="道路の種類"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="lanes", label="車線数"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度"))
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="cycleway",
-            label="自転車インフラ",
-            # geometryと同じ「複数軸が参照してよい共通の一次属性」として排他チェックの
-            # 対象外にしている（highway自体はcar_stress_highway_baseが単独で使うため、
-            # shared化せず排他チェックを維持する）。
-            shared=True,
-        )
-    )
+    register_primary_attribute(PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="surface", label="路面の種類"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="bicycle_access", label="自転車通行可否"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否"))

@@ -8,9 +8,6 @@ import { DEDICATED_WAY_VALUE_AXES, axisLineLayerId, axisMapLayerId, type RampAxi
 import { KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
 import {
   DEFAULT_ROAD_LINE_WIDTH,
-  DETAIL_CASING_LAYER_ID,
-  DETAIL_LAYER_ID,
-  drawDetailSegments,
   DESIGNATION_LAYER_ID,
   MATERIAL_TRACK_OFFSET_STEP,
   ONEWAY_LAYER_ID,
@@ -33,6 +30,7 @@ import {
   ensureLayerFromSpec,
   dynamicWeatherIds,
 } from "./MapView";
+import { DETAIL_CASING_LAYER_ID, DETAIL_LAYER_ID, drawDetailSegments } from "./MapView.routes";
 
 // __rcStyleReady=trueでrunWhenStyleReadyの即時実行分岐を通す
 // （MapView.overlayFilters.test.ts/MapView.dataStatus.test.tsと同じ発想）。

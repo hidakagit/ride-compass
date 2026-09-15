@@ -32,13 +32,12 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   `evaluate_dynamic_axis_arrays`）＋重みベクトルからコスト配列を**bbox全体ぶん1回だけ**
   numpyで合成する。探索（`domain/routing.py: turn_expanded_shortest_path`・
   `build_turn_expanded_tree`）へはこのコスト配列をnumpy配列のまま渡す——探索中に
-  PythonのコールバックもEdgeごとのオブジェクトも作らない。同一Node間の並行Edgeは、`build_lazy_road_graph`の決定的
-  フォールバック（edge_idの昇順で先頭を採用）で解消する——タイル集合だけで決まる
-  キャッシュとコストベースの動的解消（cost最小を採用）は両立しないため、実データで稀な
-  並行Edgeの厳密さより探索用グラフのキャッシュ再利用を優先している（並行Edgeのうち
-  一方だけが0次フィルタで除外される稀なケースでは、cost最小方式なら自動的に許可される
-  側が選ばれるが、この方式では選ばれない場合がある。判断理由の詳細はdocs/tasks/T537.md
-  参照）。
+  PythonのコールバックもEdgeごとのオブジェクトも作らない。同一Node間の並行Edgeは、`build_lazy_road_graph`が
+  edge_idの昇順で先頭を採用して解消する——`LazyRoadGraph`はタイル集合だけで決まる
+  キャッシュのため、リクエストごとに変わるコストを解消の基準にできない。この割り切りにより、
+  並行Edgeのうち一方だけが0次フィルタで除外される稀なケースでは、許可される側ではなく
+  edge_idの小さい側が選ばれ、そのNode対が到達不能になりうる（判断理由の詳細は
+  docs/tasks/T537.md参照）。
 - `_build_segment_details`（区間表示）も探索と同じコスト配列・スコア行列から
   `axis_difficulties`を引く（探索と表示の二重計算を避ける）。
 - 候補ごとの復路探索（`trace_loop_from_turnaround`）・経由地ルートの`trace_loop`は
