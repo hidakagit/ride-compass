@@ -457,6 +457,14 @@ MAP_REDRAW_LOCAL_IMPORT_RE = re.compile(r'from "(?:@/components/Map/|\./)([\w.]+
 
 
 def find_map_redraw_gaps() -> list[str]:
+    # 呼び出し側が結果を持ち回るため、キャッシュした実体は渡さず複製を返す。
+    # リポジトリの位置をキーへ含めるのは、テストが`REPO_ROOT`へ一時ディレクトリを
+    # 差し込むため（差し替えたのに前の結果が返る状態を作らない）。
+    return list(_find_map_redraw_gaps(str(REPO_ROOT)))
+
+
+@functools.lru_cache(maxsize=4)
+def _find_map_redraw_gaps(repo_root: str) -> list[str]:
     """map.setStyle()後の再描画から辿り着けない、描画の副作用を持つ宣言。
 
     到達は「トップレベル宣言の本文にその名前が現れるか」で見る（呼び出しに限らず、
@@ -673,6 +681,10 @@ def is_impl_file(path: str) -> bool:
     )
 
 
+# 1回の実行中にファイルは変わらない（検査は読むだけ）。同じファイルを何度も読み直すのが
+# 所要の一角を占めるため内容を保持する。書き換えたファイルを同じ実行内で読み直す用途には
+# 使えない——その必要が出たら`read_text.cache_clear()`を呼ぶこと。
+@functools.lru_cache(maxsize=None)
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -941,6 +953,7 @@ def _block_comment_lines(text: str, markers: tuple[str, ...]) -> set[int]:
     return lines
 
 
+@functools.lru_cache(maxsize=None)
 def split_source_comments(path: str, text: str) -> tuple[list[tuple[int, str]], str]:
     """(コメント行, コメントを除いた本文)。拡張子ごとの素朴な規則で分ける。
 
@@ -1014,6 +1027,11 @@ def find_source_comment_dead_identifier_refs(files: list[str], scope: list[str] 
 
 def source_corpus(files: list[str]) -> str:
     """識別子の実在判定に使うソース全文（実装・スクリプト）。"""
+    return _source_corpus(str(REPO_ROOT), tuple(files))
+
+
+@functools.lru_cache(maxsize=8)
+def _source_corpus(repo_root: str, files: tuple[str, ...]) -> str:
     parts = []
     for f in files:
         if not f.startswith(SOURCE_CORPUS_PREFIXES) or not f.endswith(SOURCE_CORPUS_SUFFIXES):
@@ -1074,6 +1092,19 @@ def imported_names() -> frozenset[str]:
     return frozenset(names)
 
 
+CORPUS_WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+@functools.lru_cache(maxsize=8)
+def _corpus_words(corpus: str) -> frozenset[str]:
+    return frozenset(CORPUS_WORD_RE.findall(corpus))
+
+
+def corpus_words(corpus: str) -> frozenset[str]:
+    """corpusに単語として現れる綴りの集合（包含判定の速い側）。"""
+    return _corpus_words(corpus)
+
+
 def identifier_exists(token: str, corpus: str) -> bool:
     """その綴りが実装にあるか。
 
@@ -1086,6 +1117,14 @@ def identifier_exists(token: str, corpus: str) -> bool:
 
     import文に現れる名前も救済する（`IMPORTED_NAME_RE`の項参照）。
     """
+    # 判定は綴りの包含（短い綴りが、それを含むより長い名前の一部でも「実在する」）。
+    # corpusは実装全文の連結で数MBあり、そこへ毎回inを走らせるとトークン数×corpus長の
+    # オーダーになる。
+    # corpusを一度だけ単語へ割った集合を先に見て、単語として在る綴りはそこで確定させる
+    # ——集合に在れば包含も必ず成り立つので、判定は変わらない。集合に無いものだけが
+    # 包含判定へ落ちる（他の単語の一部として現れる場合と、本当に無い場合）。
+    if token in corpus_words(corpus):
+        return True
     if token in corpus:
         return True
     if token in imported_names():
@@ -1643,6 +1682,11 @@ def removed_axis_ids(files: list[str]) -> set[str]:
     return {a for a in mentioned - live if "_" in a}
 
 
+# コメントの折り返しで次の行の頭に付く飾り（`#`・`*`・`//`と空白）。
+COMMENT_WRAP_PREFIX_RE = re.compile(r"^[#*/\s]*")
+COMMENT_WRAP_JOIN_RE = re.compile(r"\n[#*/\s]*")
+
+
 def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None) -> list[str]:
     """現在の軸定義に無いaxis_idを、現行の説明（docs/modules・architecture.md・実装）が名指し。
 
@@ -1653,6 +1697,10 @@ def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None)
     gone = removed_axis_ids(files)
     if not gone:
         return []
+    # 全idを1本の選択肢へまとめ、1行につき1回の走査で済ませる。id1本ずつ`re.search`を
+    # 回すと 行数×id数 のオーダーになり、全件モードで数十秒かかる。
+    any_axis_re = re.compile(
+        r"(?<![A-Za-z0-9_])(" + "|".join(re.escape(a) for a in sorted(gone)) + r")(?![A-Za-z0-9_])")
     candidates = scope if scope is not None else files
     out: list[str] = []
     for f in sorted(set(candidates)):
@@ -1663,8 +1711,15 @@ def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None)
         path = REPO_ROOT / f
         if not path.exists():
             continue
+        text = read_text(path)
+        # 綴りがファイル内に1つも無ければ、行ごとの照合そのものが要らない。折り返しで
+        # 割れた綴りを落とさないよう、実装側は下の`joined`と同じ規則で改行を畳んだ姿で
+        # 見る（隣り合う2行の連結は、全行を畳んだ文字列の部分文字列になる）。
+        probe = text if is_doc else COMMENT_WRAP_JOIN_RE.sub("", text)
+        if not any(axis_id in probe for axis_id in gone):
+            continue
         exempt = paragraphs_with_removal_marker(f) if is_doc else set()
-        source_lines = read_text(path).splitlines()
+        source_lines = text.splitlines()
         for lineno, line in enumerate(source_lines, 1):
             if lineno in exempt:
                 continue
@@ -1672,15 +1727,14 @@ def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None)
             # 照合する（行単位だけを見ると、長いidほど検出から漏れる）。.mdは段落単位の
             # 免除判定があるため繋がない——繋ぐと段落をまたぎ、免除された段落の先頭が
             # 直前の段落の末尾行として報告される。
-            candidates = [line]
+            joined = [line]
             if not is_doc and lineno < len(source_lines):
-                candidates.append(line + re.sub(r"^[#*/\s]*", "", source_lines[lineno]))
-            for axis_id in sorted(gone):
-                pattern = rf"(?<![A-Za-z0-9_]){re.escape(axis_id)}(?![A-Za-z0-9_])"
-                if any(re.search(pattern, c) for c in candidates):
-                    out.append(
-                        f"{f}:{lineno}: 現在の軸定義に無いaxis_id `{axis_id}` を現行として名指ししている"
-                        "（軸スタジオで作り直されて別idになっている場合も含む）")
+                joined.append(line + COMMENT_WRAP_PREFIX_RE.sub("", source_lines[lineno]))
+            hit = {m.group(1) for c in joined for m in any_axis_re.finditer(c)}
+            for axis_id in sorted(hit):
+                out.append(
+                    f"{f}:{lineno}: 現在の軸定義に無いaxis_id `{axis_id}` を現行として名指ししている"
+                    "（軸スタジオで作り直されて別idになっている場合も含む）")
     return out
 
 
