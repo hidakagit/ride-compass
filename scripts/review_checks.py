@@ -2002,89 +2002,91 @@ def cmd_docs(args: argparse.Namespace) -> int:
     all_docs = module_docs()
     modules_text = "\n".join(read_text(p) for p in all_docs)
     mode = "staged" if args.staged else ("since" if args.since else "full")
-    sections: list[tuple[str, str, list[str]]] = []  # (検知器キー, 見出し, 行)
+    # (検知器キー, 見出し, 行)。`--only`で選ばれなかった検知器は行がNoneになり、計算も
+    # 出力もされない——キーだけは配線の検査へ残す。`mutate`は1回の実行で1つの検知器しか
+    # 見ないため、他の検知器のためにソース全文を読み直す必要がない。
+    sections: list[tuple[str, str, list[str] | None]] = []
+    only = getattr(args, "only", None)
+
+    def add(key: str, title: str, compute: "Callable[[], list[str]]") -> None:
+        sections.append((key, title, None if (only and key != only) else compute()))
 
     if args.staged:
         staged = [l for l in git("diff", "--cached", "--name-only").splitlines() if l]
         doc_lines = diff_added_lines("docs/modules/*.md")
         doc_lines = {k: v for k, v in doc_lines.items() if not k.endswith("README.md")}
         added = [l for l in git("diff", "--cached", "--name-only", "--diff-filter=A").splitlines() if l]
-        sections.append(("dead_file_refs", "docs/modules の死んだ参照（ステージ済み追加行）",
-                         find_dead_file_refs(doc_lines, files + added)))
-        sections.append(("dead_identifier_refs", "docs/modules の死んだ識別子参照（ステージ済み追加行）",
-                         find_dead_identifier_refs(doc_lines, source_corpus(files + added),
-                                                   include_fenced=True)))
-        sections.append(("narrative", "docs/modules の記載粒度違反（ステージ済み追加行）",
-                         find_narrative_violations(doc_lines)))
+        add("dead_file_refs", "docs/modules の死んだ参照（ステージ済み追加行）",
+            lambda: find_dead_file_refs(doc_lines, files + added))
+        add("dead_identifier_refs", "docs/modules の死んだ識別子参照（ステージ済み追加行）",
+            lambda: find_dead_identifier_refs(doc_lines, source_corpus(files + added),
+                                                   include_fenced=True))
+        add("narrative", "docs/modules の記載粒度違反（ステージ済み追加行）",
+            lambda: find_narrative_violations(doc_lines))
         source_lines = gather_added_source_lines(None)
-        sections.append(("source_narrative", "ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
-                         find_source_narrative_violations(source_lines)))
-        sections.append(("redis_skeleton", "Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
-                         find_redis_skeleton_violations(source_lines)))
-        sections.append(("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
-                         find_bare_basemodel_violations(source_lines)))
-        sections.append(("web_layer_batch_import",
-                         "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/tasks/T814.md参照）",
-                         find_web_layer_batch_imports(source_lines)))
-        sections.append(("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
-                         find_way_tag_allowlist_violations(source_lines)))
-        sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
-                         find_map_redraw_gaps()))
-        sections.append(("count_narrative", "個数を書いている行（参考、ステージ済み追加行、docs/documentation.md参照）",
-                         find_count_narratives(source_lines, diff_added_lines("docs/*.md"))))
+        add("source_narrative", "ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
+            lambda: find_source_narrative_violations(source_lines))
+        add("redis_skeleton", "Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
+            lambda: find_redis_skeleton_violations(source_lines))
+        add("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
+            lambda: find_bare_basemodel_violations(source_lines))
+        add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/tasks/T814.md参照）",
+            lambda: find_web_layer_batch_imports(source_lines))
+        add("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
+            lambda: find_way_tag_allowlist_violations(source_lines))
+        add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
+            lambda: find_map_redraw_gaps())
+        add("count_narrative", "個数を書いている行（参考、ステージ済み追加行、docs/documentation.md参照）",
+            lambda: find_count_narratives(source_lines, diff_added_lines("docs/*.md")))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
-        sections.append(("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
-                         find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision="")))
-        sections.append((
-            "undeclared_dead_refs_exempted",
-            "architecture.md の免除した段落の中に残る実在しない名前（参考、ステージ済み追加行）",
-            find_dead_refs_inside_exempted_paragraphs(
-                arch_lines, files + added, source_corpus(files + added), revision="")))
-        sections.append(("undocumented_files", "新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
-                         find_undocumented_files(added, modules_text, files + added)))
-        sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
-                         check_plan_vs_tasks()))
-        sections.append(("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
-                         check_task_numbering()))
-        sections.append(("unfiled_deferrals", "[x]化したタスクの、別タスクへ渡していない残り（参考、人が判断する）",
-                         find_unfiled_deferrals(None)))
-        sections.append((
-            "plan_entry_overlap",
-            "新しく足した未完了エントリと語が重なる既存エントリ（参考、人が判断する）",
-            find_plan_entry_overlap(
+        add("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
+            lambda: find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision=""))
+        add("undeclared_dead_refs_exempted", "architecture.md の免除した段落の中に残る実在しない名前（参考、ステージ済み追加行）",
+            lambda: find_dead_refs_inside_exempted_paragraphs(
+                arch_lines, files + added, source_corpus(files + added), revision=""))
+        add("undocumented_files", "新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
+            lambda: find_undocumented_files(added, modules_text, files + added))
+        add("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
+            lambda: check_plan_vs_tasks())
+        add("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
+            lambda: check_task_numbering())
+        add("unfiled_deferrals", "[x]化したタスクの、別タスクへ渡していない残り（参考、人が判断する）",
+            lambda: find_unfiled_deferrals(None))
+        add("plan_entry_overlap", "新しく足した未完了エントリと語が重なる既存エントリ（参考、人が判断する）",
+            lambda: find_plan_entry_overlap(
                 [l for _, l in diff_added_lines(PLAN_DOC).get(PLAN_DOC, [])],
-                git("show", f"HEAD:{PLAN_DOC}", check=False) or read_text(REPO_ROOT / PLAN_DOC))))
+                git("show", f"HEAD:{PLAN_DOC}", check=False) or read_text(REPO_ROOT / PLAN_DOC)))
         md_staged = [s for s in staged if s.endswith(".md")]
-        sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（ステージ済み.md）",
-                         check_dead_doc_links(md_staged)))
-        sections.append(("undefined_css_tokens", "未定義のCSSトークン（ステージ済み.css/.ts/.tsx）",
-                         find_undefined_css_tokens(
-                             [s for s in staged if s.endswith(CSS_TOKEN_SCAN_SUFFIXES)], files + added)))
-        sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（ステージ済みテスト）",
-                         find_vacuous_test_loops(staged + added, revision="")))
-        sections.append(("removed_axis_mentions", "現在の軸定義に無いaxis_idを現行として名指し（ステージ済み）",
-                         find_removed_axis_mentions(files + added, scope=staged + added)))
-        sections.append(("doc_constant_drift", "文書が書いた定数値と実装のずれ（ステージ済み.md）",
-                         find_doc_constant_drift(files + added, scope=md_staged)))
-        sections.append(("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（ステージ済み）",
-                         find_review_doc_dead_refs(files + added, scope=md_staged)))
-        sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
-                         find_cross_file_env_writes(files + added)))
-        sections.append(("source_comment_dead_identifier_refs",
-                         "ソースコードのコメントが名指しする死んだ識別子（ステージ済み）",
-                         find_source_comment_dead_identifier_refs(files + added, scope=staged + added)))
+        add("dead_doc_links", "history/・docs/tasks への死んだリンク（ステージ済み.md）",
+            lambda: check_dead_doc_links(md_staged))
+        add("undefined_css_tokens", "未定義のCSSトークン（ステージ済み.css/.ts/.tsx）",
+            lambda: find_undefined_css_tokens(
+                             [s for s in staged if s.endswith(CSS_TOKEN_SCAN_SUFFIXES)], files + added))
+        add("vacuous_test_loops", "空の母集団でも通るテストのループ（ステージ済みテスト）",
+            lambda: find_vacuous_test_loops(staged + added, revision=""))
+        add("removed_axis_mentions", "現在の軸定義に無いaxis_idを現行として名指し（ステージ済み）",
+            lambda: find_removed_axis_mentions(files + added, scope=staged + added))
+        add("doc_constant_drift", "文書が書いた定数値と実装のずれ（ステージ済み.md）",
+            lambda: find_doc_constant_drift(files + added, scope=md_staged))
+        add("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（ステージ済み）",
+            lambda: find_review_doc_dead_refs(files + added, scope=md_staged))
+        add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
+            lambda: find_cross_file_env_writes(files + added))
+        add("source_comment_dead_identifier_refs", "ソースコードのコメントが名指しする死んだ識別子（ステージ済み）",
+            lambda: find_source_comment_dead_identifier_refs(files + added, scope=staged + added))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
-        sections.append(("dead_file_refs", "docs/modules の死んだ参照（全件）", find_dead_file_refs(doc_lines, files)))
-        sections.append(("dead_identifier_refs", "docs/modules の死んだ識別子参照（全件）",
-                         find_dead_identifier_refs(doc_lines, source_corpus(files),
-                                                   include_fenced=True)))
-        sections.append(("source_comment_dead_identifier_refs",
-                         "ソースコードのコメントが名指しする死んだ識別子（全件）",
-                         find_source_comment_dead_identifier_refs(files)))
-        sections.append(("narrative", "docs/modules の記載粒度違反（全件）", find_narrative_violations(doc_lines)))
-        sections.append(("task_links", "docs/modules の Txxx リンク（参考、README「記載粒度」節は1リンクまで許可）",
-                         count_task_links(doc_lines)))
+        add("dead_file_refs", "docs/modules の死んだ参照（全件）",
+            lambda: find_dead_file_refs(doc_lines, files))
+        add("dead_identifier_refs", "docs/modules の死んだ識別子参照（全件）",
+            lambda: find_dead_identifier_refs(doc_lines, source_corpus(files),
+                                                   include_fenced=True))
+        add("source_comment_dead_identifier_refs", "ソースコードのコメントが名指しする死んだ識別子（全件）",
+            lambda: find_source_comment_dead_identifier_refs(files))
+        add("narrative", "docs/modules の記載粒度違反（全件）",
+            lambda: find_narrative_violations(doc_lines))
+        add("task_links", "docs/modules の Txxx リンク（参考、README「記載粒度」節は1リンクまで許可）",
+            lambda: count_task_links(doc_lines))
         arch_path = REPO_ROOT / ARCHITECTURE_DOC
         if args.since:
             added = [l for l in git("diff", "--diff-filter=A", "--name-only", f"{args.since}..HEAD").splitlines() if l]
@@ -2092,19 +2094,13 @@ def cmd_docs(args: argparse.Namespace) -> int:
             # 経緯コメント・architecture.mdの断りなき名指しはいずれも既存分が残る
             # （T567・T724）。--sinceで新規追加分だけに絞れる場合のみ違反件数へ含める。
             source_lines = gather_added_source_lines(args.since)
-            sections.append((
-                "source_narrative",
-                f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/comments.md参照）",
-                find_source_narrative_violations(source_lines)))
+            add("source_narrative", f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/comments.md参照）",
+                lambda: find_source_narrative_violations(source_lines))
             arch_since = diff_added_lines(ARCHITECTURE_DOC, args.since)
-            sections.append((
-                "undeclared_dead_refs",
-                f"architecture.md が撤去済みの名前を断りなく名指し（{args.since} 以降の追加行）",
-                find_undeclared_dead_refs(arch_since, files, source_corpus(files), revision="HEAD")))
-            sections.append((
-                "undeclared_dead_refs_exempted",
-                f"architecture.md の免除した段落の中に残る実在しない名前（参考、{args.since} 以降の追加行）",
-                find_dead_refs_inside_exempted_paragraphs(arch_since, files, source_corpus(files), revision="HEAD")))
+            add("undeclared_dead_refs", f"architecture.md が撤去済みの名前を断りなく名指し（{args.since} 以降の追加行）",
+                lambda: find_undeclared_dead_refs(arch_since, files, source_corpus(files), revision="HEAD"))
+            add("undeclared_dead_refs_exempted", f"architecture.md の免除した段落の中に残る実在しない名前（参考、{args.since} 以降の追加行）",
+                lambda: find_dead_refs_inside_exempted_paragraphs(arch_since, files, source_corpus(files), revision="HEAD"))
         else:
             added = files
             title = "実装ファイルの docs/modules 記載漏れ（全件）"
@@ -2114,98 +2110,84 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 if p.exists()
             }
             source_lines = all_source_lines
-            sections.append(("source_narrative", "ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
-                             find_source_narrative_violations(all_source_lines)))
+            add("source_narrative", "ソースコードの経緯コメント（参考、全件。新規分の強制は--staged/--since参照）",
+                lambda: find_source_narrative_violations(all_source_lines))
             arch_all = {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))}
-            sections.append((
-                "undeclared_dead_refs",
-                "architecture.md が撤去済みの名前を断りなく名指し（全件）",
-                find_undeclared_dead_refs(arch_all, files, source_corpus(files))))
-            sections.append((
-                "undeclared_dead_refs_exempted",
-                "architecture.md の免除した段落の中に残る実在しない名前（参考、全件）",
-                find_dead_refs_inside_exempted_paragraphs(arch_all, files, source_corpus(files))))
-        sections.append(("undocumented_files", title, find_undocumented_files(added, modules_text, files)))
-        sections.append(("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
-                         find_redis_skeleton_violations(source_lines)))
-        sections.append(("bare_basemodel", "素のBaseModel継承（全件、docs/tasks/T721.md参照）",
-                         find_bare_basemodel_violations({
+            add("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（全件）",
+                lambda: find_undeclared_dead_refs(arch_all, files, source_corpus(files)))
+            add("undeclared_dead_refs_exempted", "architecture.md の免除した段落の中に残る実在しない名前（参考、全件）",
+                lambda: find_dead_refs_inside_exempted_paragraphs(arch_all, files, source_corpus(files)))
+        add("undocumented_files", title,
+            lambda: find_undocumented_files(added, modules_text, files))
+        add("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
+            lambda: find_redis_skeleton_violations(source_lines))
+        add("bare_basemodel", "素のBaseModel継承（全件、docs/tasks/T721.md参照）",
+            lambda: find_bare_basemodel_violations({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
                              if p.exists()
-                         })))
-        sections.append(("web_layer_batch_import",
-                         "webアプリが読む層からのapp.batchのトップレベルimport（全件、docs/tasks/T814.md参照）",
-                         find_web_layer_batch_imports({
+                         }))
+        add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（全件、docs/tasks/T814.md参照）",
+            lambda: find_web_layer_batch_imports({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
                              if p.exists()
-                         })))
-        sections.append(("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（全件、docs/tasks/T753.md参照）",
-                         find_way_tag_allowlist_violations({
+                         }))
+        add("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（全件、docs/tasks/T753.md参照）",
+            lambda: find_way_tag_allowlist_violations({
                              rel(REPO_ROOT / f): list(enumerate(read_text(REPO_ROOT / f).splitlines(), 1))
                              for f in MATERIAL_TAG_READER_FILES
                              if (REPO_ROOT / f).exists()
-                         })))
-        sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/tasks/T825.md参照）",
-                         find_map_redraw_gaps()))
-        sections.append((
-            "duplicate_test_scaffold",
-            "同じ名前のテスト足場が複数ファイルにある（参考、docs/tasks/T771.md参照）",
-            find_duplicate_test_scaffolds([f for f in files if f.endswith(".test.ts") or f.endswith(".test.tsx")]),
-        ))
-        sections.append(("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
-                         check_plan_vs_tasks()))
-        sections.append(("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
-                         check_task_numbering()))
+                         }))
+        add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/tasks/T825.md参照）",
+            lambda: find_map_redraw_gaps())
+        add("duplicate_test_scaffold", "同じ名前のテスト足場が複数ファイルにある（参考、docs/tasks/T771.md参照）",
+            lambda: find_duplicate_test_scaffolds([f for f in files if f.endswith(".test.ts") or f.endswith(".test.tsx")]),)
+        add("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
+            lambda: check_plan_vs_tasks())
+        add("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
+            lambda: check_task_numbering())
         if args.since:
-            sections.append((
-                "unfiled_deferrals",
-                f"[x]化したタスクの、別タスクへ渡していない残り（{args.since} 以降、参考、人が判断する）",
-                find_unfiled_deferrals(args.since)))
+            add("unfiled_deferrals", f"[x]化したタスクの、別タスクへ渡していない残り（{args.since} 以降、参考、人が判断する）",
+                lambda: find_unfiled_deferrals(args.since))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]
-        sections.append(("dead_doc_links", "history/・docs/tasks への死んだリンク（.claude・docs 全件）",
-                         check_dead_doc_links(md_files)))
-        sections.append(("undefined_css_tokens", "未定義のCSSトークン（全件）", find_undefined_css_tokens(files, files)))
+        add("dead_doc_links", "history/・docs/tasks への死んだリンク（.claude・docs 全件）",
+            lambda: check_dead_doc_links(md_files))
+        add("undefined_css_tokens", "未定義のCSSトークン（全件）",
+            lambda: find_undefined_css_tokens(files, files))
         if args.since:
             changed = [l for l in git("diff", "--name-only", f"{args.since}..HEAD").splitlines() if l]
-            sections.append((
-                "vacuous_test_loops",
-                f"空の母集団でも通るテストのループ（{args.since} 以降に変更されたテスト）",
-                find_vacuous_test_loops(changed, revision="HEAD")))
-            sections.append((
-                "removed_axis_mentions",
-                f"現在の軸定義に無いaxis_idを現行として名指し（{args.since} 以降に変更されたファイル）",
-                find_removed_axis_mentions(files, scope=changed)))
-            sections.append((
-                "doc_constant_drift",
-                f"文書が書いた定数値と実装のずれ（{args.since} 以降に変更された.md）",
-                find_doc_constant_drift(files, scope=changed)))
-            sections.append((
-                "review_doc_dead_refs",
-                f"レビュー手順書の死んだ識別子参照（{args.since} 以降に変更された.md）",
-                find_review_doc_dead_refs(files, scope=changed)))
-            sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
-                             find_cross_file_env_writes(files)))
-            sections.append(("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
-                             find_map_redraw_gaps()))
-            sections.append(("count_narrative", f"個数を書いている行（参考、{args.since} 以降の追加行、docs/documentation.md参照）",
-                             find_count_narratives(gather_added_source_lines(args.since),
-                                                   diff_added_lines("docs/*.md", args.since))))
+            add("vacuous_test_loops", f"空の母集団でも通るテストのループ（{args.since} 以降に変更されたテスト）",
+                lambda: find_vacuous_test_loops(changed, revision="HEAD"))
+            add("removed_axis_mentions", f"現在の軸定義に無いaxis_idを現行として名指し（{args.since} 以降に変更されたファイル）",
+                lambda: find_removed_axis_mentions(files, scope=changed))
+            add("doc_constant_drift", f"文書が書いた定数値と実装のずれ（{args.since} 以降に変更された.md）",
+                lambda: find_doc_constant_drift(files, scope=changed))
+            add("review_doc_dead_refs", f"レビュー手順書の死んだ識別子参照（{args.since} 以降に変更された.md）",
+                lambda: find_review_doc_dead_refs(files, scope=changed))
+            add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
+                lambda: find_cross_file_env_writes(files))
+            add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
+                lambda: find_map_redraw_gaps())
+            add("count_narrative", f"個数を書いている行（参考、{args.since} 以降の追加行、docs/documentation.md参照）",
+                lambda: find_count_narratives(gather_added_source_lines(args.since),
+                                                   diff_added_lines("docs/*.md", args.since)))
         else:
-            sections.append(("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
-                             find_vacuous_test_loops(files)))
-            sections.append(("removed_axis_mentions", "現在の軸定義に無いaxis_idを現行として名指し（全件）",
-                             find_removed_axis_mentions(files)))
-            sections.append(("doc_constant_drift", "文書が書いた定数値と実装のずれ（全件）",
-                             find_doc_constant_drift(files)))
-            sections.append(("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（全件）",
-                             find_review_doc_dead_refs(files)))
-            sections.append(("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（全件、docs/testing.md参照）",
-                             find_cross_file_env_writes(files)))
+            add("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
+                lambda: find_vacuous_test_loops(files))
+            add("removed_axis_mentions", "現在の軸定義に無いaxis_idを現行として名指し（全件）",
+                lambda: find_removed_axis_mentions(files))
+            add("doc_constant_drift", "文書が書いた定数値と実装のずれ（全件）",
+                lambda: find_doc_constant_drift(files))
+            add("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（全件）",
+                lambda: find_review_doc_dead_refs(files))
+            add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（全件、docs/testing.md参照）",
+                lambda: find_cross_file_env_writes(files))
 
     total = 0
     for key, title, lines in sections:
+        if lines is None:
+            continue
         counts = mode in DETECTOR_ENFORCEMENT[key]
         mark = f"{len(lines)}件" if lines else "0件"
         # `--keys`は検知器キーを見出しへ出す（`mutate`が節と検知器を機械的に対応づけるため）。
@@ -2616,7 +2598,9 @@ def guard_probe_post_stage(wt: Path) -> dict[str, "Callable[[], None]"]:
 
     def declare_removed_in_worktree_only() -> None:
         # ステージ済みの違反行と同じ段落へ、作業ツリーでだけ撤去の断りを足す。
-        text = read_text(arch)
+        # 直前に`guard_probe_mutations`が書き換えた後の姿が要るため、内容を保持する
+        # `read_text`は使わない。
+        text = arch.read_text(encoding="utf-8", errors="replace")
         arch.write_text(
             text.replace(
                 f"`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。",
@@ -2675,8 +2659,13 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
     arch = wt / ARCHITECTURE_DOC
     plan = wt / "docs/improvement-plan.md"
 
+    # ここは検査ではなく違反の作り込み側で、同じファイルを書き換えては読み直す。
+    # `read_text`は1回の実行中の内容を保持するため使わない。
+    def live_text(path: Path) -> str:
+        return path.read_text(encoding="utf-8", errors="replace")
+
     def append(path: Path, text: str) -> None:
-        path.write_text(read_text(path) + text, encoding="utf-8")
+        path.write_text(live_text(path) + text, encoding="utf-8")
 
     def write(rel: str, text: str) -> None:
         path = wt / rel
@@ -2684,7 +2673,7 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         path.write_text(text, encoding="utf-8")
 
     def flip_plan_checkbox() -> None:
-        text = read_text(plan)
+        text = live_text(plan)
         m = re.search(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)", text, re.M)
         if m is None:
             raise RuntimeError("docs/improvement-plan.md に未完了行が無く、状態照合を試せない")
@@ -2693,7 +2682,7 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
 
     def duplicate_plan_number() -> None:
         """既にある未完了エントリと同じ番号のエントリを、別タイトルでもう1行足す。"""
-        text = read_text(plan)
+        text = live_text(plan)
         m = re.search(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)", text, re.M)
         if m is None:
             raise RuntimeError("docs/improvement-plan.md に未完了行が無く、番号衝突を試せない")
@@ -2831,7 +2820,10 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                     wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
                            "commit", "-q", "-m", "guard audit probe", "--no-verify")
                     check = ["--since", base]
-                proc = wt_run(sys.executable, "scripts/review_checks.py", "docs", "--keys", *check)
+                # 見るのはこの検知器の節だけなので、他の検知器のためにソース全文を
+                # 読み直させない（1プローブあたりの所要がそのまま42倍になる）。
+                proc = wt_run(sys.executable, "scripts/review_checks.py", "docs",
+                              "--keys", "--only", key, *check)
                 found = probe_section_count(proc.stdout, key)
                 if found is None:
                     rows.append((key, "MISS", label, "この経路の検査項目に存在しない"))
@@ -2870,6 +2862,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--since", help="記載漏れ・ソースコード経緯コメントのチェックをこのref以降の追加分へ限定する")
     p.add_argument("--staged", action="store_true", help="pre-commit用: ステージ済み変更に関係する項目のみ")
     p.add_argument("--keys", action="store_true", help="見出しへ検知器キーを出す（mutateが節を対応づけるため）")
+    p.add_argument("--only", help="この検知器だけを実行する（mutateが1件ずつ試すため。配線の検査は全件のまま）")
     p.set_defaults(func=cmd_docs)
     p = sub.add_parser("mutate", help="ガードの実効性監査（わざと違反を入れて落ちるか試す）")
     p.add_argument("--case", help="この検知器キーだけを試す（既定: 全件）")
