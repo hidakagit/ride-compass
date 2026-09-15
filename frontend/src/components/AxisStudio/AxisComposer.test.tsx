@@ -55,6 +55,44 @@ function flagSumShape(flags: [string, number][], cap: number | null): AxisShape 
   };
 }
 
+/** ウィザードのステップ1〜2（表示名→点数のつけ方）を歩き、ステップ3の入力欄まで進める。
+ * `shape`を省くと既定の選択（なめらか評価＝breakpoint_linear）のまま進む。 */
+async function goToShapeParams(user: ReturnType<typeof userEvent.setup>, label: string, shape?: RegExp) {
+  await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), label);
+  await clickNext(user);
+  if (shape) await user.click(screen.getByRole("radio", { name: shape }));
+  await clickNext(user);
+}
+
+/** AxisComposerを1つ立ち上げる。`editing`/`duplicateFrom`を省くと新規作成になる。
+ * 返る`onSave`は既定で解決するspyで、payloadの検証はこれを見る（保存の失敗を試すテストは
+ * `onSave`を渡して差し替える）。 */
+// `vi.fn()`が返すMockの型は書き下せないため、既定のspyを作る関数から引く。
+// `ReturnType<typeof vi.fn>`と書くと呼び出し可能な形を失い、onSaveのpropへ渡せない。
+function makeSaveSpy() {
+  return vi.fn().mockResolvedValue(undefined);
+}
+
+function renderComposer(
+  options: {
+    editing?: AxisDefinitionResponse | null;
+    duplicateFrom?: AxisDefinitionResponse | null;
+    onSave?: ReturnType<typeof makeSaveSpy>;
+  } = {},
+) {
+  const onSave = options.onSave ?? makeSaveSpy();
+  const user = userEvent.setup();
+  render(
+    <AxisComposer
+      editing={options.editing ?? null}
+      duplicateFrom={options.duplicateFrom ?? null}
+      onCancelEdit={vi.fn()}
+      onSave={onSave}
+    />,
+  );
+  return { user, onSave };
+}
+
 async function clickNext(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "次へ" }));
 }
@@ -65,13 +103,9 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("点数のつけ方(shape)テンプレートごとのpayload変換", () => {
     it("「なめらか評価」(breakpoint_linear)で入力した係数・折れ点がそのままshapeになる", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸C");
-      await clickNext(user); // basic -> shape_kind（既定でbreakpoint_linearが選択済み）
-      await clickNext(user); // shape_kind -> shape_params
+      await goToShapeParams(user, "軸C");
 
       const weightInput = screen.getByRole("spinbutton", { name: "係数" });
       await user.clear(weightInput);
@@ -107,12 +141,9 @@ describe("AxisComposer", () => {
     });
 
     it("T598: 「+ 折れ点を追加」は最も間隔の広い区間の中間へ挿入するため、昇順のまま次へ進める（改善計画T425の不具合を解消）", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸E");
 
       await user.click(screen.getByRole("button", { name: "+ 折れ点を追加" }));
       await clickNext(user);
@@ -124,12 +155,9 @@ describe("AxisComposer", () => {
     });
 
     it("改善計画T425回帰テスト: 手入力で折れ点の横軸が昇順でなくなった状態で次へ進もうとすると、進まずエラーが出る", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸E");
 
       // 既定値[[0,0],[10,100]]の最後の行を、最初の行より小さい値へ手入力で書き換えて
       // 非昇順にする（自動生成・追加はいずれも昇順を保つため、手入力だけがこの状態を
@@ -146,13 +174,9 @@ describe("AxisComposer", () => {
     });
 
     it("改善計画T342回帰テスト: breakpoint_linearの材料(terms)にboolean材料も選べる（backend側のBreakpointLinearShapeは元々bool値を1/0として係数と掛け合わせて評価できていたが、GUIのセレクトがnumeric限定で選べなかった）", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸D");
 
       // termRow先頭の材料セレクト（アクセシブルネーム無し、前処理(preprocess)セレクトは
       // <label>で名前付けされているため区別できる）。静的フォールバックカタログ
@@ -189,10 +213,7 @@ describe("AxisComposer", () => {
         />,
       );
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
-      await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /かけあわせ評価/ }));
-      await clickNext(user);
+      await goToShapeParams(user, "軸D", /かけあわせ評価/);
 
       // 材料セレクトがMATERIAL_CATALOGの材料（勾配%等）ではなく、他の軸(風)の一覧になっている。
       expect(screen.getByRole("option", { name: "風" })).toBeInTheDocument();
@@ -234,10 +255,7 @@ describe("AxisComposer", () => {
         />,
       );
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "複合軸");
-      await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /かけあわせ評価/ }));
-      await clickNext(user);
+      await goToShapeParams(user, "複合軸", /かけあわせ評価/);
 
       await user.selectOptions(screen.getAllByRole("combobox")[0], "gradient");
       await user.clear(screen.getByRole("spinbutton", { name: "係数" }));
@@ -269,27 +287,18 @@ describe("AxisComposer", () => {
     });
 
     it("組み合わせられる他の軸が無いときは、その旨のヒントが表示され「+ 軸を追加」が無効化される", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
-      await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /かけあわせ評価/ }));
-      await clickNext(user);
+      await goToShapeParams(user, "軸E", /かけあわせ評価/);
 
       expect(screen.getByText(/組み合わせられる他の軸がまだありません/)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "+ 軸を追加" })).toBeDisabled();
     });
 
     it("「ぴったり評価」(categorical・boolean材料)でtrue/falseスコアがmappingになる", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸A");
-      await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
-      await clickNext(user);
+      await goToShapeParams(user, "軸A", /ぴったり評価/);
 
       const trueInput = screen.getByRole("spinbutton", { name: "該当時(true)のスコア" });
       const falseInput = screen.getByRole("spinbutton", { name: "非該当時(false)のスコア" });
@@ -307,14 +316,9 @@ describe("AxisComposer", () => {
     });
 
     it("「ぴったり評価」(categorical・多値材料)で値ごとのスコア行がmappingになり、空行は除外される", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸B");
-      await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
-      await clickNext(user);
+      await goToShapeParams(user, "軸B", /ぴったり評価/);
 
       await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
       let valueInputs = screen.getAllByLabelText("値");
@@ -346,13 +350,9 @@ describe("AxisComposer", () => {
     // 入力するだけで同じ結果（terms×breakpoints=[[0,0],[cap,cap]]の恒等クランプ）を
     // 組めることを確認する。
     it("「なめらか評価」でboolean材料の係数をマイナスにできる（旧flag_sumの減点相当）", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸F");
-      await clickNext(user);
-      await clickNext(user); // 既定でbreakpoint_linear（なめらか評価）が選択済み
+      await goToShapeParams(user, "軸F");
 
       const materialSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
       await user.selectOptions(materialSelect, "surface_good");
@@ -394,9 +394,7 @@ describe("AxisComposer", () => {
       expect([...PASSTHROUGH_PAYLOAD_KEYS].sort()).toEqual(Object.keys(nonDefaultPassthrough).sort());
 
       const editing = baseAxisDefinition(nonDefaultPassthrough);
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer({ editing });
 
       // 「基本情報」ステップでラベルと重みだけを変更する。shape・display系の欄には触れない。
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "改");
@@ -421,9 +419,7 @@ describe("AxisComposer", () => {
 
     it("priority_overridesが空配列の既存軸を編集しても、[]のまま保存され欠落しない", async () => {
       const editing = baseAxisDefinition({ priority_overrides: [] });
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer({ editing });
 
       await clickNext(user);
       await clickNext(user);
@@ -442,13 +438,9 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("地図の色分けしきい値(display_thresholds_override)編集", () => {
     it("既定は上書きオフで、「+ しきい値を自分で設定する」を押すと1件の入力欄が現れる", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸D");
-      await clickNext(user); // basic -> shape_kind
-      await clickNext(user); // shape_kind -> shape_params
+      await goToShapeParams(user, "軸D");
       await clickNext(user); // shape_params -> display_publish
 
       expect(screen.queryByLabelText("しきい値1")).not.toBeInTheDocument();
@@ -462,13 +454,9 @@ describe("AxisComposer", () => {
     });
 
     it("しきい値を追加・編集・削除でき、「自動計算に戻す」でnullへ戻る", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸E");
       await clickNext(user);
 
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
@@ -493,8 +481,7 @@ describe("AxisComposer", () => {
     // display_thresholds_overrideと対になる軸スタジオ設定可能なフィールド。しきい値の
     // 上書きが無効の間は編集欄自体を出さない（段階数が決まらないため）。
     it("しきい値の上書きが無効の間は体感ラベルの編集欄自体が出ない", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
       await clickNext(user);
       await clickNext(user);
@@ -505,13 +492,9 @@ describe("AxisComposer", () => {
     });
 
     it("しきい値の上書きを設定すると体感ラベルの編集欄が使え、段階数ぶんの入力欄が現れ保存される", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸G");
       await clickNext(user);
 
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
@@ -531,13 +514,9 @@ describe("AxisComposer", () => {
     });
 
     it("しきい値を1件追加すると体感ラベルの入力欄も1件増え、「自動計算に戻す」で体感ラベルも一緒にnullへ戻る", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸H");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸H");
       await clickNext(user);
 
       // 「+ しきい値を自分で設定する」の時点でしきい値1件(段階数2)のため、体感ラベルを
@@ -566,8 +545,7 @@ describe("AxisComposer", () => {
         display_thresholds_override: [2],
         display_band_labels_override: ["低い", "高い"],
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       await clickNext(user);
@@ -582,8 +560,7 @@ describe("AxisComposer", () => {
         display_thresholds_override: [2],
         display_band_labels_override: ["低い", "高い"],
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={source} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ duplicateFrom: source });
 
       await clickNext(user);
       await clickNext(user);
@@ -595,13 +572,9 @@ describe("AxisComposer", () => {
     });
 
     it("しきい値が降順・同値だと保存直前の検証でエラーになりステップが進まない", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸F");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸F");
       await clickNext(user);
 
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
@@ -631,8 +604,7 @@ describe("AxisComposer", () => {
           note: "",
         },
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       await clickNext(user);
@@ -667,8 +639,7 @@ describe("AxisComposer", () => {
           note: "",
         },
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       await clickNext(user);
@@ -678,12 +649,9 @@ describe("AxisComposer", () => {
     });
 
     it("新規作成中（editing=null）は注記を出さない", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸G");
       await clickNext(user);
 
       expect(screen.queryByText(/まだ地図表示用のデータ取得経路が用意されていません/)).not.toBeInTheDocument();
@@ -691,8 +659,7 @@ describe("AxisComposer", () => {
 
     it("既存軸のdisplay_thresholds_overrideが編集フォームへ初期反映される", async () => {
       const editing = baseAxisDefinition({ display_thresholds_override: [1, 2, 4] });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       await clickNext(user);
@@ -705,8 +672,7 @@ describe("AxisComposer", () => {
 
     it("改善計画T501回帰テスト: 複製元のdisplay_thresholds_overrideは複製先へ引き継がず自動計算(null)へリセットされる", async () => {
       const source = baseAxisDefinition({ axis_id: "gradient", display_thresholds_override: [-2, 2, 6, 10] });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={source} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ duplicateFrom: source });
 
       await clickNext(user);
       await clickNext(user);
@@ -724,7 +690,7 @@ describe("AxisComposer", () => {
   describe("公開済み軸の表示専用フィールド編集(制限モード)", () => {
     it("ステッパー・戻る/次へボタンを出さず、表示専用フィールドの編集画面のみを表示する", async () => {
       const editing = baseAxisDefinition({ is_published: true });
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      renderComposer({ editing });
 
       expect(screen.getByLabelText("地図チップの略称(chip_label)")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "次へ" })).not.toBeInTheDocument();
@@ -739,9 +705,7 @@ describe("AxisComposer", () => {
         default_weight: 0.42,
         icon_id: "old_icon",
       });
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer({ editing });
 
       await user.type(screen.getByLabelText("地図チップの略称(chip_label)"), "新称");
       await user.click(screen.getByRole("button", { name: "更新する" }));
@@ -772,8 +736,7 @@ describe("AxisComposer", () => {
           ],
         },
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       expect(screen.getByRole("radio", { name: /なめらか評価/ })).toBeChecked();
@@ -801,8 +764,7 @@ describe("AxisComposer", () => {
           ],
         },
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       expect(screen.getByRole("radio", { name: /かけあわせ評価/ })).toBeChecked();
@@ -813,8 +775,7 @@ describe("AxisComposer", () => {
       const editing = baseAxisDefinition({
         shape: categoricalShape("has_tunnel", { true: -30, false: 5 }),
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       expect(screen.getByRole("radio", { name: /ぴったり評価/ })).toBeChecked();
@@ -828,8 +789,7 @@ describe("AxisComposer", () => {
       const editing = baseAxisDefinition({
         shape: categoricalShape("tracktype", { separated: 80, none: -10 }),
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       await clickNext(user);
@@ -859,8 +819,7 @@ describe("AxisComposer", () => {
           50,
         ),
       });
-      const user = userEvent.setup();
-      render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer({ editing });
 
       await clickNext(user);
       expect(screen.getByRole("radio", { name: /なめらか評価/ })).toBeChecked();
@@ -876,8 +835,7 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("バリデーション", () => {
     it("表示名(label)が空のまま「次へ」を押すと、ステップは進まずエラーが出る", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
       await clickNext(user);
 
@@ -886,13 +844,9 @@ describe("AxisComposer", () => {
     });
 
     it("categorical(多値材料)で値ごとのスコアを1件も設定しないまま次へ進もうとすると、進まずエラーが出る", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
-      await clickNext(user);
-      await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
-      await clickNext(user);
+      await goToShapeParams(user, "軸E", /ぴったり評価/);
       await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
 
       await clickNext(user);
@@ -903,12 +857,9 @@ describe("AxisComposer", () => {
 
     it("表示名(label)が4文字を超えchip_labelを未設定のまま保存しようとすると、エラーが出て保存されない", async () => {
       const onSave = vi.fn();
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user } = renderComposer({ onSave });
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "とても長い表示名");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "とても長い表示名");
       await clickNext(user);
       await user.click(screen.getByRole("button", { name: "作成する" }));
 
@@ -920,13 +871,9 @@ describe("AxisComposer", () => {
     });
 
     it("表示名(label)が4文字を超えていてもchip_labelを設定すれば保存できる", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "とても長い表示名");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "とても長い表示名");
       await clickNext(user);
       await user.type(screen.getByRole("textbox", { name: "地図チップの略称(chip_label)" }), "長い");
       await user.click(screen.getByRole("button", { name: "作成する" }));
@@ -944,13 +891,9 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("ウィザードのステップ遷移", () => {
     it("「次へ」で最終ステップ(4/4)へ着いても、明示的に保存ボタンを押すまでonSaveは呼ばれない", async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user, onSave } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸K");
-      await clickNext(user); // basic -> shape_kind
-      await clickNext(user); // shape_kind -> shape_params
+      await goToShapeParams(user, "軸K");
       await clickNext(user); // shape_params -> display_publish（実機ではここで暗黙に保存されていた）
 
       expect(screen.getByText("ステップ 4/4: 地図表示・公開")).toBeInTheDocument();
@@ -965,12 +908,9 @@ describe("AxisComposer", () => {
     // 差が再現できないため、React側の対策[key指定による強制的な要素の作り直し]が
     // 効いていることを、DOM要素の参照が別物になっているかで直接確認する）。
     it("「次へ」ボタンと保存ボタンは同じDOM要素を使い回さない（type属性の書き換えのみだとブラウザのクリック判定に混入し暗黙送信を招く）", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸L");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸L");
 
       const nextButton = screen.getByRole("button", { name: "次へ" });
       await user.click(nextButton);
@@ -986,12 +926,9 @@ describe("AxisComposer", () => {
   describe("保存失敗時の挙動", () => {
     it("onSaveがreject(失敗)すると、そのエラーメッセージが表示され保存ボタンが再び押せる状態に戻る", async () => {
       const onSave = vi.fn().mockRejectedValue(new Error("サーバーで保存に失敗しました"));
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
+      const { user } = renderComposer({ onSave });
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸G");
       await clickNext(user);
       await user.click(screen.getByRole("button", { name: "作成する" }));
 
@@ -1006,12 +943,9 @@ describe("AxisComposer", () => {
   // ============================================================
   describe("材料の説明アイコン(情報アイコン)", () => {
     it("breakpoint_linearの材料(terms)欄で情報アイコンを押すと、選択中の材料の説明文が表示される", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸H");
-      await clickNext(user); // 既定でbreakpoint_linear選択済み
-      await clickNext(user);
+      await goToShapeParams(user, "軸H");
       // 既定材料はgradient_percent（emptyDraftのmaterialOptions[0]）。
       // 改善計画T345さらなるフォローアップ2: 材料labelは「論理名 - 物理名」形式。
       await user.click(screen.getByRole("button", { name: "勾配（符号付き） - gradient_percentの説明を表示" }));
@@ -1020,12 +954,9 @@ describe("AxisComposer", () => {
     });
 
     it("材料セレクトで別の材料を選ぶと、情報アイコンの説明文もその材料のものに切り替わる", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸I");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸I");
 
       const materialSelect = screen.getAllByRole("combobox")[0];
       await user.selectOptions(materialSelect, "surface_good");
@@ -1035,12 +966,9 @@ describe("AxisComposer", () => {
     });
 
     it("「必須」チェックボックスの隣の情報アイコンに、欠損時の扱いを説明する文言がある", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
-      await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸J");
-      await clickNext(user);
-      await clickNext(user);
+      await goToShapeParams(user, "軸J");
 
       await user.click(screen.getByRole("button", { name: "「必須」の説明を表示" }));
       expect(screen.getByText(/軸全体を「評価不能」として扱います/)).toBeInTheDocument();
@@ -1095,8 +1023,7 @@ describe("AxisComposer", () => {
     });
 
     it("otherAxesを渡さない場合は参考表示自体を出さない", async () => {
-      const user = userEvent.setup();
-      render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+      const { user } = renderComposer();
 
       await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸M");
 
