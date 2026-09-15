@@ -1,27 +1,37 @@
 {
-  "commit": "e5be72d2",
-  "date": "2026-09-13",
+  "date": "2026-09-15",
+  "commit": "4a2cb02a",
+  "top": [
+    "backend/app/domain/evaluation.py",
+    "backend/app/domain/material_catalog.py",
+    "backend/app/domain/routing.py",
+    "backend/app/infrastructure/road_graph_repository.py",
+    "backend/app/services/road_graph_engine.py",
+    "docs/architecture.md",
+    "frontend/src/app/page.tsx",
+    "frontend/src/components/AxisStudio/AxisComposer.tsx",
+    "frontend/src/components/Map/MapView.tsx",
+    "frontend/src/components/Map/icons.tsx",
+    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx"
+  ],
   "files": {
+    "frontend/src/components/Map/MapView.tsx": 4020,
+    "backend/app/infrastructure/road_graph_repository.py": 2955,
+    "backend/app/services/road_graph_engine.py": 2620,
+    "frontend/src/app/page.tsx": 2513,
+    "docs/architecture.md": 2412,
+    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1424,
+    "backend/app/domain/routing.py": 1248,
+    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx": 1167,
+    "backend/app/domain/evaluation.py": 1104,
+    "backend/app/domain/material_catalog.py": 997,
     "backend/app/domain/axis_definitions.py": 791,
-    "backend/app/domain/evaluation.py": 1095,
-    "backend/app/domain/material_catalog.py": 990,
-    "backend/app/domain/routing.py": 1273,
-    "backend/app/infrastructure/road_graph_repository.py": 2763,
-    "backend/app/services/graph_service.py": 582,
-    "backend/app/services/road_graph_engine.py": 2585,
-    "docs/architecture.md": 2415,
-    "frontend/src/app/page.tsx": 2490,
-    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1375,
-    "frontend/src/components/Map/MapView.tsx": 3826,
-    "frontend/src/components/Map/icons.tsx": 647,
-    "frontend/src/components/Map/mapLayers.ts": 565,
-    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx": 1168
+    "frontend/src/components/Map/icons.tsx": 781,
+    "backend/app/services/graph_service.py": 587,
+    "frontend/src/components/Map/mapLayers.ts": 522
   },
   "fired": [
-    "backend/app/domain/evaluation.py",
-    "backend/app/domain/routing.py",
-    "backend/app/services/road_graph_engine.py",
-    "frontend/src/app/page.tsx",
+    "backend/app/infrastructure/road_graph_repository.py",
     "frontend/src/components/Map/MapView.tsx",
     "frontend/src/components/Map/icons.tsx"
   ],
@@ -35,18 +45,5 @@
     "frontend/src/app/page.tsx": 2600,
     "frontend/src/components/AxisStudio/AxisComposer.tsx": 1750,
     "frontend/src/components/Map/MapView.tsx": 4000
-  },
-  "top": [
-    "backend/app/domain/evaluation.py",
-    "backend/app/domain/material_catalog.py",
-    "backend/app/domain/routing.py",
-    "backend/app/infrastructure/road_graph_repository.py",
-    "backend/app/services/road_graph_engine.py",
-    "docs/architecture.md",
-    "frontend/src/app/page.tsx",
-    "frontend/src/components/AxisStudio/AxisComposer.tsx",
-    "frontend/src/components/Map/MapView.tsx",
-    "frontend/src/components/Map/icons.tsx",
-    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx"
-  ]
+  }
 }
