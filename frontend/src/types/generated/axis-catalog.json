@@ -1252,7 +1252,7 @@
     {
       "attr_id": "cycleway",
       "label": "自転車インフラ",
-      "shared": true
+      "shared": false
     },
     {
       "attr_id": "surface",
