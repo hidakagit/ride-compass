@@ -1,10 +1,13 @@
 """状態＝有向Edge・辺＝ターンの展開構造（`domain/routing.py`）のテスト。"""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.routing import (
+    current_turn_cost,
     TurnCostSpec,
     build_csr_structure,
     build_lazy_road_graph,
@@ -61,7 +64,7 @@ def _crossroads() -> RoadGraph:
     return RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
 
 
-def _structure_for(graph: RoadGraph, spec: TurnCostSpec = TurnCostSpec()):
+def _structure_for(graph: RoadGraph, spec: TurnCostSpec | None = None):
     lazy_graph = build_lazy_road_graph(graph)
     csr = build_csr_structure(lazy_graph)
     structure = build_turn_expanded_structure(csr, lazy_graph, edge_bearings(graph, lazy_graph), spec=spec)
@@ -69,7 +72,7 @@ def _structure_for(graph: RoadGraph, spec: TurnCostSpec = TurnCostSpec()):
 
 
 def test_turn_seconds_classifies_straight_left_right_and_uturn():
-    spec = TurnCostSpec()
+    spec = current_turn_cost()
     from_bearing = np.array([0.0, 0.0, 0.0, 0.0, 350.0])
     to_bearing = np.array([10.0, 90.0, 270.0, 180.0, 20.0])
     is_uturn = np.array([False, False, False, True, False])
@@ -84,7 +87,7 @@ def test_turn_seconds_classifies_straight_left_right_and_uturn():
 def test_turn_expanded_structure_assigns_costs_by_direction():
     graph = _crossroads()
     lazy_graph, _, structure = _structure_for(graph)
-    spec = TurnCostSpec()
+    spec = current_turn_cost()
 
     state = lazy_graph.edge_ids.index("S-C")
     transitions = {
@@ -124,7 +127,7 @@ def test_expensive_right_turn_makes_the_search_avoid_it():
 
     results = {}
     for label, right_seconds in (("安い右折", 0.0), ("高い右折", 60.0)):
-        spec = TurnCostSpec(right_seconds=right_seconds, left_seconds=0.0, uturn_seconds=600.0)
+        spec = replace(current_turn_cost(), right_seconds=right_seconds, left_seconds=0.0, uturn_seconds=600.0)
         lazy_graph, csr, tree = _tree_for(graph, "S", spec)
         results[label] = tree.node_cost[lazy_graph.node_id_to_index["E"]]
 
@@ -151,7 +154,7 @@ def _tree_for(graph: RoadGraph, origin_id: str, spec: TurnCostSpec, reverse: boo
 
 def test_turn_expanded_tree_costs_and_lengths_follow_the_path():
     graph = _crossroads()
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, _, tree = _tree_for(graph, "S", free)
 
     center = lazy_graph.node_id_to_index["C"]
@@ -166,7 +169,7 @@ def test_turn_expanded_tree_costs_and_lengths_follow_the_path():
 
 def test_turn_expanded_tree_path_returns_edge_indices():
     graph = _crossroads()
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, _, tree = _tree_for(graph, "S", free)
 
     edges = turn_expanded_path_edge_indices(tree, lazy_graph.node_id_to_index["E"])
@@ -195,7 +198,7 @@ def test_turn_expanded_tree_switches_route_on_the_elapsed_time_bin():
     そこへ着く頃には高くなっている」を見て遠回りを選ぶ。
     """
     graph = _two_route_graph()
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, csr, structure = _structure_for(graph, free)
     seconds = _seconds(graph, lazy_graph)
     length = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
@@ -226,7 +229,7 @@ def test_turn_expanded_tree_accumulates_seconds_from_the_bin_it_arrives_in():
     nodes = {name: _node(name, 35.700, 139.700) for name in ("S", "C", "E")}
     edges = {"S-C": _edge("S-C", "S", "C", 0.0), "C-E": _edge("C-E", "C", "E", 0.0)}
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, csr, structure = _structure_for(graph, free)
     seconds = _seconds(graph, lazy_graph)
     length = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
@@ -248,7 +251,7 @@ def test_turn_expanded_tree_accumulates_seconds_from_the_bin_it_arrives_in():
 def test_turn_expanded_tree_rejects_time_bins_on_the_reverse_tree():
     """逆向きの木へビンを渡すのは黙って誤った経路になるため、実装が弾く。"""
     graph = _two_route_graph()
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, csr, structure = _structure_for(graph, free)
     seconds = _seconds(graph, lazy_graph)
     length = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
@@ -270,7 +273,7 @@ def test_turn_expanded_tree_rejects_time_bins_on_the_reverse_tree():
 def test_turn_expanded_tree_reverse_gives_cost_to_the_destination():
     """逆向きの木は「その区間から目的地まで」のコストを返す。"""
     graph = _crossroads()
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, _, tree = _tree_for(graph, "E", free, reverse=True)
 
     # WからEまではW→C→Eの200m＝36秒。木の始点（E）側からは、その区間を遡って積算する。
@@ -286,7 +289,7 @@ def test_turn_expanded_tree_marks_unreachable_states():
         "X-C": _edge("X-C", "X", "C", 0.0),
     }
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
-    lazy_graph, _, tree = _tree_for(graph, "S", TurnCostSpec())
+    lazy_graph, _, tree = _tree_for(graph, "S", current_turn_cost())
 
     assert np.isfinite(tree.node_cost[lazy_graph.node_id_to_index["C"]])
     assert not np.isfinite(tree.node_cost[lazy_graph.node_id_to_index["X"]])
@@ -296,7 +299,7 @@ def test_turn_expanded_tree_marks_unreachable_states():
 def test_combining_forward_and_backward_trees_includes_the_turn_at_the_junction():
     """繋ぎ目のNodeで曲がる費用が合計へ入る（単に前向き＋後ろ向きを足すと抜ける）。"""
     graph = _crossroads()
-    spec = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+    spec = replace(current_turn_cost(), right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
     lazy_graph, csr, structure = _structure_for(graph, spec)
     cost = _seconds(graph, lazy_graph)
     length = np.array([float(graph.edges[edge_id].distance_m) for edge_id in lazy_graph.edge_ids])
@@ -332,7 +335,7 @@ def test_turn_expanded_tree_length_counts_every_edge_on_a_shallow_path():
         "V-D": _edge("V-D", "V", "D", 0.0, distance_m=400.0),
     }
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
-    lazy_graph, _, tree = _tree_for(graph, "S", TurnCostSpec())
+    lazy_graph, _, tree = _tree_for(graph, "S", current_turn_cost())
 
     assert tree.node_length_m[lazy_graph.node_id_to_index["V"]] == 300.0
     assert tree.node_length_m[lazy_graph.node_id_to_index["D"]] == 700.0
@@ -367,7 +370,7 @@ def test_turn_expanded_astar_switches_route_on_the_elapsed_time_bin():
         "B-E": _edge("B-E", "B", "E", 0.0),
     }
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, csr, structure = _structure_for(graph, free)
     seconds = _seconds(graph, lazy_graph)
 
@@ -389,7 +392,7 @@ def test_turn_expanded_astar_switches_route_on_the_elapsed_time_bin():
 
 
 def test_turn_expanded_astar_finds_the_shortest_path():
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     assert _astar_path(_crossroads(), "S", "E", free) == ["S-C", "C-E"]
 
 
@@ -405,8 +408,8 @@ def test_turn_expanded_astar_avoids_expensive_right_turn():
     }
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
 
-    cheap = TurnCostSpec(right_seconds=0.0, left_seconds=0.0, uturn_seconds=600.0)
-    expensive = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+    cheap = replace(current_turn_cost(), right_seconds=0.0, left_seconds=0.0, uturn_seconds=600.0)
+    expensive = replace(current_turn_cost(), right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
     assert _astar_path(graph, "S", "E", cheap) == ["S-C", "C-E"]
     assert _astar_path(graph, "S", "E", expensive) == ["S-A", "A-B", "B-E"]
 
@@ -418,7 +421,7 @@ def test_turn_expanded_astar_returns_none_when_unreachable():
         "X-Y": _edge("X-Y", "X", "Y", 0.0),
     }
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
-    assert _astar_path(graph, "S", "Y", TurnCostSpec()) == []
+    assert _astar_path(graph, "S", "Y", current_turn_cost()) == []
 
 
 def test_crossing_a_higher_class_road_adds_cost_even_when_going_straight():
@@ -435,7 +438,7 @@ def test_crossing_a_higher_class_road_adds_cost_even_when_going_straight():
     graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
     lazy_graph = build_lazy_road_graph(graph)
     csr = build_csr_structure(lazy_graph)
-    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    spec = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
     # 生活道路（rank 1）が幹線（rank 4）と交わる交差点。
     ranks = np.array([4 if edge_id in ("P1-C", "C-P2") else 1 for edge_id in lazy_graph.edge_ids], dtype=np.int64)
 
@@ -483,7 +486,7 @@ def test_a_signalised_crossing_does_not_add_the_major_crossing_cost():
     「車列の切れ目を待つ時間」である。
     """
     graph, lazy_graph, csr = _major_crossing_fixture()
-    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    spec = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
     ranks = np.array(
         [4 if edge_id in ("P1-C", "C-P2") else 1 for edge_id in lazy_graph.edge_ids], dtype=np.int64)
     bearings = edge_bearings(graph, lazy_graph)
@@ -506,7 +509,7 @@ def test_not_passing_signals_keeps_the_behaviour_of_before_the_column_existed():
     `road_nodes`のバッチが未実行の環境（既定値false）でも経路が変わらないことの担保。
     """
     graph, lazy_graph, csr = _major_crossing_fixture()
-    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    spec = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
     ranks = np.array(
         [4 if edge_id in ("P1-C", "C-P2") else 1 for edge_id in lazy_graph.edge_ids], dtype=np.int64)
     bearings = edge_bearings(graph, lazy_graph)
@@ -523,7 +526,7 @@ def test_not_passing_signals_keeps_the_behaviour_of_before_the_column_existed():
 def test_db_node_rank_can_only_raise_the_rank_derived_from_the_loaded_graph():
     """DB側の階級は下限を上げるだけ。bboxの外へ出た幹線を拾えるが、下げることはない。"""
     graph, lazy_graph, csr = _major_crossing_fixture()
-    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    spec = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
     # 読み込んだ部分グラフには生活道路しか無い（交差する幹線がbboxの外にある状況）。
     ranks = np.ones(len(lazy_graph.edge_ids), dtype=np.int64)
     bearings = edge_bearings(graph, lazy_graph)
@@ -548,7 +551,7 @@ def test_one_to_all_gives_the_distance_along_the_path_when_turns_are_free():
     畳み込みは`build_turn_expanded_tree`が木を作るときに済ませている（`node_cost`）。
     """
     graph = _crossroads()
-    free = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
+    free = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0)
     lazy_graph, csr, tree = _tree_for(graph, "S", free)
 
     assert tree.node_cost[lazy_graph.node_id_to_index["C"]] == pytest.approx(100.0 / SPEED_MS)
@@ -566,7 +569,7 @@ def test_crossing_a_minor_road_from_a_cycleway_does_not_add_the_major_crossing_c
     通過交通の無い道を横切るのに待ちは要らない（`MAJOR_CROSSING_MIN_RANK`）。
     """
     graph, lazy_graph, csr = _major_crossing_fixture()
-    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    spec = replace(current_turn_cost(), left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
     bearings = edge_bearings(graph, lazy_graph)
     no_signal = np.zeros(len(lazy_graph.index_to_node_id), dtype=bool)
 

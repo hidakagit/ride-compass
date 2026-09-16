@@ -105,10 +105,10 @@ from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     POI_COUNT_KINDS,
     POI_CLUSTER_EPS_M,
-    SIGNAL_MATCH_RADIUS_M,
     POI_ON_EDGE_TOLERANCE_M,
     STOP_POI_KINDS,
 )
+from app.domain.tuning import tuning_value
 from app.infrastructure.cache_identity import POI_REVISION, ROAD_SURFACE_REVISION, cache_identity
 from app.infrastructure.designation_models import DesignationAttributeRow
 from app.infrastructure.osm_way_tag_sql import (
@@ -1428,8 +1428,8 @@ _RECOMPUTE_NODE_MAX_HIGHWAY_RANK_FOR_NODES_SQL = text(
 )
 
 # ノードに信号があるか。信号は交差点そのもののノードではなく、流入路ごと・横断歩道位置ごとの
-# 別ノードとして描かれるため、`osm_node_id`の一致では大半を取りこぼす。
-# `SIGNAL_MATCH_RADIUS_M`を半径にして拾う。
+# 別ノードとして描かれるため、`osm_node_id`の一致では大半を取りこぼす。較正値の宣言が持つ
+# 「信号とみなす半径」で拾う。
 # 判定に使うkindは`_POI_COUNT_KIND_EXPR`と同じ規則（`traffic_signals`と、信号付きの
 # `crossing`の2通りの書かれ方）。
 _RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL = text(
@@ -1461,14 +1461,15 @@ _RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL = text(
 def signal_radius_params() -> dict[str, float]:
     """信号判定の半径を、上のSQLが取るパラメータへ落とす。
 
-    **`POI_CLUSTER_EPS_M`ではなく`SIGNAL_MATCH_RADIUS_M`を読む**——同じ値だが別の問いで、
+    **`POI_CLUSTER_EPS_M`ではなく較正値の宣言を読む**——いまは同じ値だが別の問いで、
     片方を動かしたときにもう片方が一緒に動いてはいけない。
     """
+    radius_m = tuning_value("signal.match_radius_m")
     return {
-        "signal_radius_m": SIGNAL_MATCH_RADIUS_M,
+        "signal_radius_m": radius_m,
         # `&&`でGiST索引を先に効かせるための粗い矩形。緯度1度≒111kmで換算し、経度側が
         # 狭くなる高緯度でも取りこぼさないよう余裕を持たせる。
-        "signal_radius_deg": SIGNAL_MATCH_RADIUS_M / 111_000.0 * 2.0,
+        "signal_radius_deg": radius_m / 111_000.0 * 2.0,
     }
 
 

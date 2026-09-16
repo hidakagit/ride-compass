@@ -19,39 +19,22 @@
 探索中には呼ばず、コスト配列を合成するときに区間ごと（風は時刻ビンごと）へ事前計算する。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
+
+from app.domain.tuning import tuning_value
 
 AIR_DENSITY_KG_M3 = 1.225
 GRAVITY_M_S2 = 9.80665
 
-# 標準値（段階1では利用者に聞かない）。CdAはロードバイクのブラケットポジション、Crrは舗装路の
-# 23〜28mmタイヤ、質量は体重＋車体＋装備の目安。
-DEFAULT_CDA_M2 = 0.32
-DEFAULT_CRR = 0.005
-DEFAULT_MASS_KG = 80.0
-
-# 下りで際限なく速くならないための上限と、登りでこれ以下になったら押して歩くとみなす下限。
-# 入れないと急勾配で所要時間が発散する。
-MAX_DESCENT_SPEED_KMH = 45.0
-WALKING_SPEED_KMH = 4.5
-
-# 登りでは平地の巡航より踏む（一定出力で計算すると、平地20km/hの人が勾配5%で時速4.6km＝押して
-# 歩く速度になり現実と合わない）。勾配に比例して出力を増やし、上限で止める。
-# **この2つの値の根拠は薄い**——勾配5%で時速10km・10%で時速6km前後という一般的な実感に
-# 合わせた暫定値で、実走データでの較正が要る。
-CLIMB_POWER_PER_GRADE = 25.0
-MAX_CLIMB_POWER_RATIO = 2.5
+# CdA・Crr・質量・下りの上限・押して歩く速度・登りの出力の増え方は、いずれも走ってみて決める
+# 値のため`domain/tuning.py`が宣言し、ここでは読むだけにする（定数として持つと、宣言と
+# 二重になったうえ管理画面からの変更が効かない）。
 # 速度を挟み込む二分法の反復回数。初期区間は押して歩く速度〜下りの上限（約11m/s）で、
 # 12回で幅は0.003m/s（0.01km/h）まで縮む。粗くすると平地・無風で巡航速度に一致しなくなる
 # 一方、反復の中で配列を確保し直さないため回数を減らしても速くならない（実測）。
 SPEED_SOLVE_ITERATIONS = 12
-
-# 未舗装路の転がり抵抗。`DEFAULT_CRR`（舗装路の23〜28mmタイヤ）の3倍で、砂利・締固めの
-# 一般的な値域（0.012〜0.020）の中ほどを採る。平地・無風で巡航20km/hの人が約14km/hになる。
-# **実走データでの較正が要る暫定値**（`CLIMB_POWER_PER_GRADE`等と同じ扱い）。
-UNPAVED_CRR = 0.015
 
 # 路面の良否を持つ材料id。走行モデルはこれを**軸の構成と無関係に**必要とする
 # （`domain/traffic.py: stop_count_material_ids`と同じ理由）。
@@ -65,10 +48,11 @@ def crr_for_surface(surface_good: np.ndarray | None, length: int) -> np.ndarray:
     「路面が悪い」と読み替えないための既定（`material_catalog.py`の`surface_good`は
     この区別のためだけに`bool_default="nan"`を持つ）。
     """
+    paved = tuning_value("speed.crr")
     if surface_good is None:
-        return np.full(length, DEFAULT_CRR)
+        return np.full(length, paved)
     values = np.asarray(surface_good, dtype=np.float64)
-    return np.where(values == 0.0, UNPAVED_CRR, DEFAULT_CRR)
+    return np.where(values == 0.0, tuning_value("speed.unpaved_crr"), paved)
 
 
 @dataclass(frozen=True)
@@ -76,9 +60,11 @@ class RiderProfile:
     """走行モデルの個人パラメータ。段階1は巡航速度だけが利用者の入力で、残りは標準値。"""
 
     cruise_speed_kmh: float
-    cda_m2: float = DEFAULT_CDA_M2
-    crr: float = DEFAULT_CRR
-    mass_kg: float = DEFAULT_MASS_KG
+    # 標準値は宣言（`domain/tuning.py`）が持つ。既定を評価するのは**生成のたび**で、
+    # import時ではない——import時に束ねると、管理画面から変えた値が効かない。
+    cda_m2: float = field(default_factory=lambda: tuning_value("speed.cda_m2"))
+    crr: float = field(default_factory=lambda: tuning_value("speed.crr"))
+    mass_kg: float = field(default_factory=lambda: tuning_value("speed.mass_kg"))
 
     @property
     def cruise_speed_ms(self) -> float:
@@ -94,9 +80,15 @@ def wheel_power_w(profile: RiderProfile) -> float:
 
 
 def climb_power_ratio(grade: np.ndarray) -> np.ndarray:
-    """登りで出力を何倍にするか。勾配に比例して増え、`MAX_CLIMB_POWER_RATIO`で止まる
-    （下り・平地は1.0）。"""
-    return np.clip(1.0 + CLIMB_POWER_PER_GRADE * np.maximum(grade, 0.0), 1.0, MAX_CLIMB_POWER_RATIO)
+    """登りで出力を何倍にするか。勾配に比例して増え、上限で止まる（下り・平地は1.0）。
+
+    一定出力で計算すると平地20km/hの人が勾配5%で時速4.6km＝押して歩く速度になり現実と
+    合わないため、勾配に比例して踏む量を増やす。
+    """
+    per_grade = tuning_value("speed.climb_power_per_grade")
+    return np.clip(
+        1.0 + per_grade * np.maximum(grade, 0.0), 1.0, tuning_value("speed.max_climb_power_ratio")
+    )
 
 
 def speed_ms(
@@ -122,7 +114,7 @@ def speed_ms(
     grade = np.asarray(grade, dtype=np.float32)
     headwind = np.asarray(headwind_ms, dtype=np.float32)
     rolling_crr = (
-        np.full(grade.shape, DEFAULT_CRR, dtype=np.float32)
+        np.full(grade.shape, tuning_value("speed.crr"), dtype=np.float32)
         if crr is None
         else np.asarray(crr, dtype=np.float32)
     )
@@ -140,8 +132,8 @@ def speed_ms(
     drag_coefficient = np.float32(0.5 * AIR_DENSITY_KG_M3 * profile.cda_m2)
     cross_squared = cross * cross
 
-    low = np.full(grade.shape, WALKING_SPEED_KMH / 3.6, dtype=np.float32)
-    high = np.full(grade.shape, MAX_DESCENT_SPEED_KMH / 3.6, dtype=np.float32)
+    low = np.full(grade.shape, tuning_value("speed.walking_kmh") / 3.6, dtype=np.float32)
+    high = np.full(grade.shape, tuning_value("speed.max_descent_kmh") / 3.6, dtype=np.float32)
     middle = np.empty_like(low)
     along = np.empty_like(low)
     scratch = np.empty_like(low)

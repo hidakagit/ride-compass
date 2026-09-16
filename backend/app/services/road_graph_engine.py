@@ -63,14 +63,13 @@ import numpy as np
 
 from app.domain.time_zone import JST
 from app.domain.cycling_speed import (
-    MAX_DESCENT_SPEED_KMH,
     ROLLING_RESISTANCE_MATERIAL_ID,
-    WALKING_SPEED_KMH,
     RiderProfile,
     crr_for_surface,
     travel_seconds,
 )
 from app.domain.traffic import stop_count_material_ids, POI_COUNT_KINDS, highway_rank, stop_seconds
+from app.domain.tuning import tuning_value
 from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -117,7 +116,7 @@ from app.domain.routing import (
     build_lazy_road_graph,
     build_node_spatial_index,
     build_search_graph_statics,
-    DEFAULT_TURN_COST,
+    current_turn_cost,
     NodeJunction,
     TurnCostSpec,
     TurnExpandedStructure,
@@ -357,7 +356,7 @@ class _LegCostComposer:
         """区間ごとの所要時間（秒）を`full_edge_row`順で返す。
 
         走行モデル（`domain/cycling_speed.py`）で勾配・風の成分・路面・巡航速度から求めた
-        走行時間に、その区間にある停止要因の待ち（`domain/traffic.py: STOP_SECONDS`）を
+        走行時間に、その区間にある停止要因の待ち（`domain/traffic.py: stop_seconds`）を
         足したもの。
         ターンの待ちは遷移ごとに決まるためここには含まない（探索側が足す）。
         0次フィルタで除外された区間は無限大にする（探索から見た通行可否をコストの下地だけで
@@ -697,7 +696,7 @@ class RoadGraphEngine:
         hard_filters: frozenset[str] | None = None,
         assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
         lens_axis_id: str | None = None,
-        turn_cost: TurnCostSpec = DEFAULT_TURN_COST,
+        turn_cost: TurnCostSpec | None = None,
     ):
         self._graph_service = graph_service
         # 地図のレンズが表示を要求している軸id（無ければNone）。重み0の軸でも区間表示の
@@ -725,7 +724,7 @@ class RoadGraphEngine:
         # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
         self._hard_filters = hard_filters
         # 交差点でのターンの費用（秒）。較正中はリクエストで上書きして試せる。
-        self._turn_cost = turn_cost
+        self._turn_cost = turn_cost if turn_cost is not None else current_turn_cost()
 
     async def _build_search_graph(
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
@@ -1193,7 +1192,7 @@ class RoadGraphEngine:
         # 取りこぼさない上界になる（`cost <= 所要時間 × (1+P)`かつ
         # `所要時間 <= 距離 ÷ 最低速度`）。
         cost_limit = (
-            ring_upper_m / kmh_to_ms(WALKING_SPEED_KMH)
+            ring_upper_m / kmh_to_ms(tuning_value("speed.walking_kmh"))
             * (1.0 + max(self._penalty_strength, 0.0)) * COST_LIMIT_SLACK
         )
 
@@ -2409,11 +2408,11 @@ def _estimate_distances_m(
 def _heuristic_seconds(straight_m: np.ndarray | list[float]) -> np.ndarray:
     """Nodeごとの直線距離（m）を、所要時間の下界（秒）へ直す。
 
-    実経路は直線より長く、実際の速度は`MAX_DESCENT_SPEED_KMH`以下のため、これは真の
+    実経路は直線より長く、実際の速度は下りの上限以下のため、これは真の
     所要時間を上回らない＝A*のヒューリスティックとして使える（admissible）。主観的割増は
     1以上の倍率のため、割増を含むコストに対しても下界であり続ける。
     """
-    return np.asarray(straight_m, dtype=float) / kmh_to_ms(MAX_DESCENT_SPEED_KMH)
+    return np.asarray(straight_m, dtype=float) / kmh_to_ms(tuning_value("speed.max_descent_kmh"))
 
 
 def _origin_estimate(context: _RoadGraphContext) -> np.ndarray:

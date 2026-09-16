@@ -8,13 +8,14 @@
 再現している。自転車インフラは正規化フラグ材料（`domain/recipe.py: bicycle_infra_flags`）
 の組み合わせで表し、`domain/material_catalog.py`の抽出器がそこから材料値を取り出す。
 
-分類のほかに、**所要時間モデルのパラメータ**も持つ（`STOP_SECONDS`: 停止要因1回あたりの
+分類のほかに、**所要時間モデルのパラメータ**も持つ（`stop_seconds`: 停止要因1回あたりの
 時間損失、`HIGHWAY_RANK`: 交差点で優先関係を判定するための階級順）。読むのは
 `services/road_graph_engine.py`の走行時間合成で、評価軸の重み付けとは別の関心事
 ——軸は「その道を走るときのつらさ」、こちらは「そこを通るのにかかる時間」を表す。
 """
 
 from typing import Literal
+from app.domain.tuning import TUNING_VALUES, stop_seconds_parameter_id
 
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
 INTERSECTION_DEGREE_THRESHOLD = 3
@@ -141,18 +142,12 @@ POI_COUNT_KINDS: dict[str, str] = {
 #
 # 信号の無い横断歩道が0なのは、自転車は止まらず通過できるため（停止密度の軸でも重み0）。
 # **これらの値は一般的な信号サイクルからの見積もりで、実走データでの較正が要る。**
-STOP_SECONDS: dict[str, float] = {
-    "signal": 21.0,
-    "crossing": 0.0,
-    "stop": 8.0,
-    "level_crossing": 25.0,
-    "barrier": 8.0,
-}
-
-
 def stop_seconds(kind: str) -> float:
-    """停止要因の種別から1回あたりの時間損失（秒）。未知の種別は0。"""
-    return STOP_SECONDS.get(kind, 0.0)
+    """停止要因の種別から1回あたりの時間損失（秒）。未知の種別は0。
+
+    秒数は`domain/tuning.py`が宣言する（走ってみて決める値のため、管理画面から変えられる）。
+    """
+    return TUNING_VALUES.get(stop_seconds_parameter_id(kind), 0.0)
 
 
 def stop_count_material_ids() -> tuple[str, ...]:
@@ -171,18 +166,6 @@ def stop_count_material_ids() -> tuple[str, ...]:
 # 上回る。集計時にこの距離でまとめてから数える。
 POI_CLUSTER_EPS_M = 40.0
 
-# 交差点ノードから何m以内の信号POIを「その交差点の信号」とみなすか。
-#
-# **較正されていない**。同じ交差点の点をまとめる距離（`POI_CLUSTER_EPS_M`）と同じ値だが、
-# 問うていることが違う（あちらは「同じ停止か」、こちらは「この交差点に信号があるか」）ため
-# 別の値として持つ。まとめる距離を動かしても走行モデルの横断の費用が一緒に動かないように
-# するのが目的。
-#
-# **この値は結果を大きく動かす**: 幹線が集まる交差点のうち信号ありとみなす割合は、半径10mで
-# 37.4%・60mで67.9%まで変わり、頭打ちが無い。広げるほど「信号が無いのに上位の道を渡る」と
-# みなされる交差点が減り、横断の費用が付かなくなる。データからは決まらないため、実走での
-# 確認が要る（`domain/routing.py: TurnCostSpec`の秒数も同じ）。
-SIGNAL_MATCH_RADIUS_M = 40.0
 
 # POIノードが「その区間の上にある」と判定する許容距離（m）。判定はwayの構成ノードである
 # ことが主で、この距離は同じway内のどの区間に属するかを切り分けるためのもの

@@ -78,6 +78,7 @@ from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.traffic import stop_count_material_ids
 from app.domain.recipe import tag_value_is
 from app.domain.weather import WeatherConditions
+from app.domain.tuning import tuning_value
 from app.domain.strict_model import StrictModel
 
 
@@ -647,7 +648,7 @@ def _evaluate_axes_bulk(
 # 走行モデルへ入っている現象を写した軸の既定重みは0のため（docs/design-principles.md
 # 構造仕様13）、difficultyは主観的な軸だけの加重平均になり、物理の軸で薄まらないぶん
 # 値が大きく出る。Pはその物差しに合わせた値で、**実走での較正が要る暫定値**。
-DEFAULT_PENALTY_STRENGTH = 0.7
+DEFAULT_PENALTY_STRENGTH = tuning_value("evaluation.penalty_strength")
 
 
 def axis_contributions_at_row(

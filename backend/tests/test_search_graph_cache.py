@@ -6,7 +6,9 @@ get/set/LRU立ち退き・clear・タイル集合単位の破棄を検証する�
 test_road_graph_engine.py側で行う。
 """
 
-from app.domain.routing import TurnCostSpec
+from dataclasses import replace
+
+from app.domain.routing import current_turn_cost
 from app.infrastructure import search_graph_cache
 
 _TILE_SET_A = frozenset({(12, 1, 1)})
@@ -227,8 +229,8 @@ class TestTurnStructureCache:
         search_graph_cache.clear()
 
     def test_same_tile_set_with_different_turn_costs_are_separate_entries(self):
-        cheap = TurnCostSpec(right_seconds=0.0, left_seconds=0.0, uturn_seconds=0.0)
-        pricey = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+        cheap = replace(current_turn_cost(), right_seconds=0.0, left_seconds=0.0, uturn_seconds=0.0)
+        pricey = replace(current_turn_cost(), right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
         search_graph_cache.set_turn_structure((_TILE_SET_A, cheap), "structure-cheap")
         search_graph_cache.set_turn_structure((_TILE_SET_A, pricey), "structure-pricey")
 
@@ -237,15 +239,15 @@ class TestTurnStructureCache:
 
     def test_equal_turn_costs_hit_the_same_entry(self):
         # 同じ費用を別インスタンスで組んでも同じエントリを引く（値で比較される鍵であること）。
-        spec = TurnCostSpec(right_seconds=12.0, left_seconds=3.0, uturn_seconds=90.0)
-        same = TurnCostSpec(right_seconds=12.0, left_seconds=3.0, uturn_seconds=90.0)
+        spec = replace(current_turn_cost(), right_seconds=12.0, left_seconds=3.0, uturn_seconds=90.0)
+        same = replace(current_turn_cost(), right_seconds=12.0, left_seconds=3.0, uturn_seconds=90.0)
         search_graph_cache.set_turn_structure((_TILE_SET_A, spec), "structure")
 
         assert search_graph_cache.get_turn_structure((_TILE_SET_A, same)) == "structure"
 
     def test_invalidate_tile_set_drops_every_turn_cost_of_that_tile_set(self):
-        cheap = TurnCostSpec(right_seconds=0.0, left_seconds=0.0, uturn_seconds=0.0)
-        pricey = TurnCostSpec(right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
+        cheap = replace(current_turn_cost(), right_seconds=0.0, left_seconds=0.0, uturn_seconds=0.0)
+        pricey = replace(current_turn_cost(), right_seconds=60.0, left_seconds=0.0, uturn_seconds=600.0)
         search_graph_cache.set_turn_structure((_TILE_SET_A, cheap), "a-cheap")
         search_graph_cache.set_turn_structure((_TILE_SET_A, pricey), "a-pricey")
         search_graph_cache.set_turn_structure((_TILE_SET_B, cheap), "b-cheap")

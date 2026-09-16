@@ -1,4 +1,4 @@
-from app.domain import traffic
+from app.domain import tuning
 from app.domain.traffic import classify_stop_poi, classify_supply_poi
 
 
@@ -164,12 +164,12 @@ class TestSignalMatchRadius:
 
         params = road_graph_repository.signal_radius_params()
 
-        assert params["signal_radius_m"] == traffic.SIGNAL_MATCH_RADIUS_M
+        assert params["signal_radius_m"] == tuning.tuning_value("signal.match_radius_m")
 
-    def test_signal_radius_moves_with_its_own_constant(self, monkeypatch):
+    def test_signal_radius_moves_with_the_declared_calibration_value(self, monkeypatch):
         from app.infrastructure import road_graph_repository
 
-        monkeypatch.setattr(road_graph_repository, "SIGNAL_MATCH_RADIUS_M", 123.0)
+        monkeypatch.setitem(tuning.TUNING_VALUES, "signal.match_radius_m", 123.0)
 
         params = road_graph_repository.signal_radius_params()
 

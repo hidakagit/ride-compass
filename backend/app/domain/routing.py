@@ -34,6 +34,7 @@ from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_di
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
 from app.domain.traffic import MAJOR_CROSSING_MIN_RANK
+from app.domain.tuning import tuning_value
 
 logger = logging.getLogger("ridecompass.graph")
 
@@ -632,23 +633,41 @@ class TurnCostSpec:
 
     探索のコストも秒のため、換算せずそのまま足せる（「右折1回＝何秒余計にかかるか」として
     走行時間と直接比べられる）。
+
+    左折・右折・Uターン・直進とみなす方位差・上位の道の横断/右左折は、いずれも走ってみて
+    決める値のため`domain/tuning.py`が宣言する。既定を組み立てるのは`current_turn_cost()`で、
+    ここにフィールドの既定値は置かない——既定が分かれると、片方だけが変わる。
     """
 
-    left_seconds: float = 2.0
-    right_seconds: float = 12.0
-    uturn_seconds: float = 60.0
-    straight_max_deg: float = 30.0
+    left_seconds: float
+    right_seconds: float
+    uturn_seconds: float
+    straight_max_deg: float
     # 進入した道より上位の階級の道と交わる**信号の無い**交差点で追加する秒数（横断＝直進で
     # 渡る場合と、右左折で入る場合）。信号のある交差点の待ちは停止密度の材料が走行モデルへ
     # 運ぶ（`domain/traffic.py: stop_seconds`）ため、そちらで数え、ここでは足さない
     # ——両方で足すと同じ待ちを二重に数える（`docs/design-principles.md`構造仕様13）。
     # ここが担うのは「信号が無いのに上位の道を渡る・そこへ入る」ときの、車列の切れ目を
     # 待つ時間である。
-    major_crossing_seconds: float = 8.0
-    major_turn_seconds: float = 15.0
+    major_crossing_seconds: float
+    major_turn_seconds: float
 
 
-DEFAULT_TURN_COST = TurnCostSpec()
+def current_turn_cost() -> TurnCostSpec:
+    """いま効いている較正値で組み立てたターンの費用。
+
+    **呼ぶたびに組み立てる**——プロセス内に束ねると、管理画面から変えた値が効かない。
+    値が同じなら同じ値のdataclassになるため、これを鍵にするプロセス内キャッシュ
+    （`TurnStructureKey`）は作り直されない。
+    """
+    return TurnCostSpec(
+        left_seconds=tuning_value("turn.left_seconds"),
+        right_seconds=tuning_value("turn.right_seconds"),
+        uturn_seconds=tuning_value("turn.uturn_seconds"),
+        straight_max_deg=tuning_value("turn.straight_max_deg"),
+        major_crossing_seconds=tuning_value("turn.major_crossing_seconds"),
+        major_turn_seconds=tuning_value("turn.major_turn_seconds"),
+    )
 
 
 @dataclass
@@ -728,7 +747,7 @@ def build_turn_expanded_structure(
     lazy_graph: LazyRoadGraph,
     bearing_deg: np.ndarray,
     edge_rank: np.ndarray | None = None,
-    spec: TurnCostSpec = DEFAULT_TURN_COST,
+    spec: TurnCostSpec | None = None,
     node_has_signal: np.ndarray | None = None,
     node_db_rank: np.ndarray | None = None,
 ) -> TurnExpandedStructure:
@@ -738,6 +757,7 @@ def build_turn_expanded_structure(
     Σ(入次数×出次数)。`e`の始点へ戻る遷移はUターンとして扱う（禁止はしない——袋小路からの
     折り返しに必要なため、費用で抑える）。
     """
+    spec = spec if spec is not None else current_turn_cost()
     state_count = len(lazy_graph.edge_ids)
     edge_from = np.zeros(state_count, dtype=np.int64)
     edge_to = np.zeros(state_count, dtype=np.int64)

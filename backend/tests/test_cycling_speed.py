@@ -4,13 +4,12 @@ import numpy as np
 import pytest
 
 from app.domain.cycling_speed import (
-    MAX_DESCENT_SPEED_KMH,
-    WALKING_SPEED_KMH,
     RiderProfile,
     speed_ms,
     travel_seconds,
     wheel_power_w,
 )
+from app.domain.tuning import tuning_value
 
 
 def _kmh(profile: RiderProfile, grade: float = 0.0, headwind_ms: float = 0.0) -> float:
@@ -72,20 +71,20 @@ def test_climbing_speed_is_realistic_because_riders_push_harder_uphill():
 
 
 def test_climb_power_ratio_rises_with_grade_and_is_clamped():
-    from app.domain.cycling_speed import MAX_CLIMB_POWER_RATIO, climb_power_ratio
+    from app.domain.cycling_speed import climb_power_ratio
 
     ratios = climb_power_ratio(np.array([-0.05, 0.0, 0.02, 0.05, 0.20]))
     assert ratios[0] == 1.0, "下りでは増やさない"
     assert ratios[1] == 1.0
     assert 1.0 < ratios[2] < ratios[3]
-    assert ratios[4] == MAX_CLIMB_POWER_RATIO, "急勾配では上限で止まる"
+    assert ratios[4] == tuning_value("speed.max_climb_power_ratio"), "急勾配では上限で止まる"
 
 
 def test_speed_is_clipped_at_both_ends():
     """下りは上限、激坂は押して歩く速度で止まる（入れないと所要時間が発散する）。"""
     profile = RiderProfile(cruise_speed_kmh=20.0)
-    assert _kmh(profile, grade=-0.10) == pytest.approx(MAX_DESCENT_SPEED_KMH, abs=0.05)
-    assert _kmh(profile, grade=0.20) == pytest.approx(WALKING_SPEED_KMH, abs=0.05)
+    assert _kmh(profile, grade=-0.10) == pytest.approx(tuning_value("speed.max_descent_kmh"), abs=0.05)
+    assert _kmh(profile, grade=0.20) == pytest.approx(tuning_value("speed.walking_kmh"), abs=0.05)
 
 
 def test_rough_surface_slows_down():
@@ -112,9 +111,11 @@ def test_speed_is_vectorised_over_segments():
 def test_stop_seconds_covers_every_counted_kind():
     """停止要因の集計キー（POI_COUNT_KINDS）すべてに秒が定義されている——片方だけ増えると、
     その種別が所要時間へ入らないまま静かに無視される。"""
-    from app.domain.traffic import POI_COUNT_KINDS, STOP_SECONDS, stop_seconds
+    from app.domain.traffic import POI_COUNT_KINDS, stop_seconds
+    from app.domain.tuning import TUNING_PARAMETERS_BY_ID, stop_seconds_parameter_id
 
-    assert set(STOP_SECONDS) == set(POI_COUNT_KINDS)
+    declared = {stop_seconds_parameter_id(kind) for kind in POI_COUNT_KINDS}
+    assert {p for p in TUNING_PARAMETERS_BY_ID if p.startswith("stop.")} == declared
     assert stop_seconds("signal") > stop_seconds("stop") > 0
     assert stop_seconds("crossing") == 0.0, "信号の無い横断歩道は止まらない"
     assert stop_seconds("未知の種別") == 0.0

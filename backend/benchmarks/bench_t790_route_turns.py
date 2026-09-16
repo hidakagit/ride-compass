@@ -20,7 +20,7 @@ import time
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
 from app.domain.route_preference import RoutePreference
-from app.domain.routing import DEFAULT_TURN_COST, TurnCostSpec
+from app.domain.routing import TurnCostSpec, current_turn_cost
 from app.domain.traffic import highway_rank
 from app.infrastructure.database import get_route_generation_session_factory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -98,7 +98,7 @@ async def main() -> None:
             left_seconds=0.0, right_seconds=0.0, uturn_seconds=0.0,
             major_crossing_seconds=0.0, major_turn_seconds=0.0,
         ),
-        "ターン費用あり（現行）": DEFAULT_TURN_COST,
+        "ターン費用あり（現行）": current_turn_cost(),
     }
     # 1回目は材料のDB読み出し（冷パス）が支配的で比較にならないため、捨てる1回を先に回す。
     async with route_generator_session(RoutePreference()) as warmup:
@@ -121,7 +121,7 @@ async def main() -> None:
                 continue
             context = await generator._engine.prepare(ORIGIN, DISTANCE_KM, waypoints=[DESTINATION])
             for candidate in candidates:
-                counts = _count_turns(context.graph, list(candidate.edge_ids), DEFAULT_TURN_COST)
+                counts = _count_turns(context.graph, list(candidate.edge_ids), current_turn_cost())
                 turns = counts["left"] + counts["right"]
                 print(
                     f"  {candidate.distance_km:.1f}km 区間{len(candidate.edge_ids)}本 "
